@@ -3,3 +3,7 @@ spring:
     name: hapbang
   modulith:
     detection-strategy: explicitly-annotated
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
