@@ -1,0 +1,13 @@
+# 운영: 접속 정보는 환경 변수로 주입한다. 값이 없으면 시작 단계에서 실패한다.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+# API 명세를 외부에 노출하지 않는다.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

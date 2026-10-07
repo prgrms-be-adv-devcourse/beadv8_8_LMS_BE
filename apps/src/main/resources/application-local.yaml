@@ -1,0 +1,11 @@
+# 로컬 개발: Docker Compose로 PostgreSQL을 띄우고 연결 정보는 자동으로 주입된다.
+spring:
+  docker:
+    compose:
+      # 프로젝트 루트 기준 경로(IntelliJ 기본 작업 디렉터리, bootRun도 루트로 맞춤).
+      # .env도 compose 파일과 같은 디렉터리에서 읽힌다.
+      file: docker/compose.yaml
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

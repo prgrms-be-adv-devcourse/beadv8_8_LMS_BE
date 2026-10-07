@@ -1,12 +1,11 @@
+# 모든 환경 공통 설정. 환경별 설정은 application-{profile}.yaml에 둔다.
 spring:
   application:
     name: hapbang
+  profiles:
+    # 프로필을 지정하지 않으면 local로 실행한다. 운영은 SPRING_PROFILES_ACTIVE=prod로 지정한다.
+    default: local
   modulith:
     detection-strategy: explicitly-annotated
-  docker:
-    compose:
-      file: docker/compose.yaml
-
-springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
+  jpa:
+    open-in-view: false
