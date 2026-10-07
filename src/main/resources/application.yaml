@@ -1,3 +1,5 @@
 spring:
   application:
     name: hapbang
+  modulith:
+    detection-strategy: explicitly-annotated
