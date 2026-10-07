@@ -6,3 +6,7 @@ spring:
   docker:
     compose:
       file: docker/compose.yaml
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
