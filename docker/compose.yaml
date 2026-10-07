@@ -1,3 +1,5 @@
+name: hapbang
+
 services:
   postgres:
     image: postgres:18

@@ -3,3 +3,6 @@ spring:
     name: hapbang
   modulith:
     detection-strategy: explicitly-annotated
+  docker:
+    compose:
+      file: docker/compose.yaml

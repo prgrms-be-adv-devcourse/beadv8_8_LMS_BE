@@ -15,4 +15,4 @@ boundedContexts.forEach { context ->
     project(":$context").projectDir = file("boundedContext/$context")
 }
 
-include(":global", ":shared")
+include(":apps", ":global", ":shared", ":test-support")
