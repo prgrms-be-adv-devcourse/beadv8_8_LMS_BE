@@ -94,6 +94,9 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
 
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // Swagger
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1")
 }
 dependencyManagement {
     imports {
