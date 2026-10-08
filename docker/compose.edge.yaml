@@ -1,0 +1,32 @@
+# EC2 진입점. 외부 포트(80)는 이 컨테이너만 연다.
+# 도메인(Host)으로 운영/개발 스택을 나누고, 경로로 web/app을 나눈다. 라우팅 규칙은 여기에만 둔다.
+# 배포(deploy.sh)와 무관하게 계속 떠 있는다. 설정이 바뀌면 수동으로 다시 만든다(README.md 참고).
+# 도메인은 서버의 /opt/hapbang/env/edge.env에 둔다.
+# 최초 1회: docker network create hapbang-edge
+name: hapbang-edge
+
+services:
+  nginx:
+    image: nginx:1.28-alpine
+    ports:
+      - "80:80"
+    environment:
+      PROD_HOST: ${PROD_HOST:?PROD_HOST가 필요하다}
+      DEV_HOST: ${DEV_HOST:?DEV_HOST가 필요하다}
+    volumes:
+      # templates/*.template은 시작 시 환경 변수를 치환해 conf.d/에 생성된다(nginx 공식 이미지 기능).
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+    networks:
+      - edge
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  edge:
+    name: hapbang-edge
+    external: true

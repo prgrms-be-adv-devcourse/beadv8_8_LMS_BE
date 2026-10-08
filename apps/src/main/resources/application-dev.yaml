@@ -1,0 +1,11 @@
+# 개발 서버(EC2): 접속 정보는 환경 변수로 주입한다. 값이 없으면 시작 단계에서 실패한다.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+# 프론트 협업을 위해 API 명세를 노출한다.
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
