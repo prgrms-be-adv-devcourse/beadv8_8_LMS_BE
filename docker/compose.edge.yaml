@@ -1,0 +1,61 @@
+# EC2 진입점. 외부 포트(80, 443)는 이 컨테이너만 연다.
+# 도메인(Host)으로 운영/개발 스택을 나누고, 경로로 web/app을 나눈다. 라우팅 규칙은 여기에만 둔다.
+# 배포(deploy.sh)와 무관하게 계속 떠 있는다. 설정이 바뀌면 수동으로 다시 만든다(README.md 참고).
+# 도메인은 서버의 /opt/hapbang/env/edge.env에 둔다.
+# 최초 1회: docker network create hapbang-edge, 인증서 발급(README.md "HTTPS 인증서")
+name: hapbang-edge
+
+# 로그가 디스크(50GB)를 채우지 않도록 컨테이너별 로그 크기를 제한한다.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  nginx:
+    image: nginx:1.28-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      TZ: Asia/Seoul
+      PROD_HOST: ${PROD_HOST:?PROD_HOST가 필요하다}
+      DEV_HOST: ${DEV_HOST:?DEV_HOST가 필요하다}
+    volumes:
+      # templates/*.template은 시작 시 환경 변수를 치환해 conf.d/에 생성된다(nginx 공식 이미지 기능).
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+    # certbot이 갱신한 인증서를 읽도록 6시간마다 reload한다.
+    # 공식 이미지의 템플릿 치환이 동작하도록 /docker-entrypoint.sh를 거쳐 nginx를 띄운다.
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["(while :; do sleep 6h; nginx -s reload; done) & exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
+    networks:
+      - edge
+    restart: unless-stopped
+    logging: *logging
+
+  # 12시간마다 인증서 갱신을 시도한다(만료 30일 전부터 실제 갱신).
+  # 80 포트의 /.well-known/acme-challenge/를 nginx가 이 볼륨에서 응답해 검증한다.
+  certbot:
+    image: certbot/certbot:v5.8.0
+    environment:
+      TZ: Asia/Seoul
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  letsencrypt:
+  certbot-www:
+
+networks:
+  edge:
+    name: hapbang-edge
+    external: true

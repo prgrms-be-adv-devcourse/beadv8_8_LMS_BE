@@ -37,12 +37,16 @@ subprojects {
 
     dependencies {
         add("implementation", "org.springframework.modulith:spring-modulith-api")
+        add("implementation", "org.springframework.modulith:spring-modulith-events-api")
         add("compileOnly", "org.projectlombok:lombok")
         add("annotationProcessor", "org.projectlombok:lombok")
         add("testCompileOnly", "org.projectlombok:lombok")
         add("testAnnotationProcessor", "org.projectlombok:lombok")
         add("testImplementation", "org.springframework.boot:spring-boot-starter-test")
         add("testRuntimeOnly", "org.junit.platform:junit-platform-launcher")
+        if (project.path != ":test-support") {
+            add("testImplementation", project(":test-support"))
+        }
     }
 
     tasks.withType<Test> {

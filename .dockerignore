@@ -1,0 +1,10 @@
+.git
+.gradle
+.idea
+**/build
+**/out
+*.pem
+
+# 비밀값이 이미지에 들어가지 않도록 제외한다.
+**/.env
+**/.env.*

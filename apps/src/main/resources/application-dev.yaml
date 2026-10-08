@@ -1,0 +1,17 @@
+# 개발 서버(EC2): 접속 정보는 환경 변수로 주입한다. 값이 없으면 시작 단계에서 실패한다.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+# edge nginx가 HTTPS를 종료하고 X-Forwarded-* 헤더로 전달한다.
+# 원래 scheme·host를 인식해 리다이렉트 URL을 https로 만들고 세션 쿠키에 Secure를 붙인다.
+# native: Tomcat이 내부망(Docker 네트워크) 프록시의 헤더만 신뢰한다.
+server:
+  forward-headers-strategy: native
+
+# 프론트 협업을 위해 API 명세를 노출한다.
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

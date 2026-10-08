@@ -1,0 +1,108 @@
+# main → 운영(prod), dev → 개발 서버(dev)로 배포한다. ci.yml이 통과해야 배포 단계로 넘어간다.
+# build: 이미지를 GHCR에 올린다(packages: write).
+# deploy: 배포 전용 SSH 키로 EC2의 deploy.sh를 실행한다. 서버에서는 app 컨테이너만 교체된다.
+#         GHCR이 private이므로 이 job의 읽기 전용 GITHUB_TOKEN(job 종료 시 만료)을 stdin으로 넘겨 pull에만 쓴다.
+# 필요한 Secrets: DEPLOY_HOST, DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS (docker/README.md 참고)
+name: Deploy
+
+on:
+  push:
+    branches: [main, dev]
+
+# 같은 브랜치의 배포는 순서대로 실행한다.
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be
+
+jobs:
+  # 테스트를 통과한 커밋만 배포한다(ci.yml 재사용).
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      env: ${{ steps.target.outputs.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 배포 대상 결정
+        id: target
+        run: |
+          if [ "$GITHUB_REF_NAME" = main ]; then
+            echo "env=prod" >> "$GITHUB_OUTPUT"; echo "tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=dev" >> "$GITHUB_OUTPUT"; echo "tag=dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # :latest|:dev는 배포용, :sha-<커밋>은 롤백용(서버 env에 BE_TAG로 고정)
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.target.outputs.tag }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 서버로 넘어가는 토큰이 쓰기 권한을 갖지 않도록 build와 job을 분리한다.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      # 서버 설정(docker/)이 레포와 같은지 비교하는 데 쓴다.
+      - uses: actions/checkout@v4
+
+      - name: EC2 배포
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_ENV: ${{ needs.build.outputs.env }}
+        run: |
+          # 서버·Secrets 준비 전에는 이미지 push까지만 하고 배포는 건너뛴다.
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "::warning::DEPLOY_HOST Secret이 없어 EC2 배포를 건너뜁니다."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # 이 run의 커밋 이미지(:sha-<SHA>)를 배포한다. 이전 run의 deploy job을 다시 실행하면 롤백된다.
+          set +e
+          printf '%s %s\n' "$GITHUB_ACTOR" "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "deploy@$DEPLOY_HOST" "$TARGET_ENV app $GITHUB_SHA" | tee deploy.log
+          status=${PIPESTATUS[1]}
+          set -e
+
+          # 서버 설정은 수동 반영이므로, 레포와 다르면 경고한다(docker/README.md "설정 반영").
+          { grep '^\[config\]' deploy.log || true; } | while read -r _ sum file; do
+            if [ "$sum" != "$(sha256sum "docker/$file" | cut -d' ' -f1)" ]; then
+              echo "::warning::서버의 $file 가 레포와 다릅니다. docker/README.md의 '설정 반영'으로 서버에 반영하세요."
+            fi
+          done
+          exit "$status"

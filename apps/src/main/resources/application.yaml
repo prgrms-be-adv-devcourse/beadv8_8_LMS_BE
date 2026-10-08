@@ -1,8 +1,20 @@
+# 모든 환경 공통 설정. 환경별 설정은 application-{profile}.yaml에 둔다.
 spring:
   application:
     name: hapbang
+  profiles:
+    # 프로필을 지정하지 않으면 local로 실행한다. 운영은 SPRING_PROFILES_ACTIVE=prod로 지정한다.
+    default: local
   modulith:
     detection-strategy: explicitly-annotated
-  docker:
-    compose:
-      file: docker/compose.yaml
+    events:
+      jdbc:
+        # event_publication 테이블을 애플리케이션 시작 시 생성한다(이미 있으면 건너뜀).
+        schema-initialization:
+          enabled: true
+      # 서버가 재시작되면 처리되지 않은 이벤트를 다시 발행한다.
+      republish-outstanding-events-on-restart: true
+      # 처리 완료된 이벤트는 event_publication_archive로 옮겨 기록을 남긴다.
+      completion-mode: archive
+  jpa:
+    open-in-view: false
