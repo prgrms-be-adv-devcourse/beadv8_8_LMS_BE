@@ -17,8 +17,29 @@ server {
 }
 
 server {
+    listen 443 ssl default_server;
+    ssl_reject_handshake on;
+}
+
+# HTTP: 인증서 검증 경로만 응답하고 나머지는 HTTPS로 보낸다.
+server {
     listen 80;
+    server_name ${PROD_HOST} ${DEV_HOST};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
     server_name ${PROD_HOST};
+    include /etc/nginx/snippets/ssl.conf;
 
     set $web_upstream prod-web;
     set $app_upstream prod-app;
@@ -26,8 +47,10 @@ server {
 }
 
 server {
-    listen 80;
+    listen 443 ssl;
+    http2 on;
     server_name ${DEV_HOST};
+    include /etc/nginx/snippets/ssl.conf;
 
     set $web_upstream dev-web;
     set $app_upstream dev-app;
