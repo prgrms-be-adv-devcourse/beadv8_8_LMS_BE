@@ -70,8 +70,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       packages: read
     steps:
+      # 서버 설정(docker/)이 레포와 같은지 비교하는 데 쓴다.
+      - uses: actions/checkout@v4
+
       - name: EC2 배포
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -88,5 +92,17 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # 이 run의 커밋 이미지(:sha-<SHA>)를 배포한다. 이전 run의 deploy job을 다시 실행하면 롤백된다.
+          set +e
           printf '%s %s\n' "$GITHUB_ACTOR" "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
-            "deploy@$DEPLOY_HOST" "$TARGET_ENV app"
+            "deploy@$DEPLOY_HOST" "$TARGET_ENV app $GITHUB_SHA" | tee deploy.log
+          status=${PIPESTATUS[1]}
+          set -e
+
+          # 서버 설정은 수동 반영이므로, 레포와 다르면 경고한다(docker/README.md "설정 반영").
+          { grep '^\[config\]' deploy.log || true; } | while read -r _ sum file; do
+            if [ "$sum" != "$(sha256sum "docker/$file" | cut -d' ' -f1)" ]; then
+              echo "::warning::서버의 $file 가 레포와 다릅니다. docker/README.md의 '설정 반영'으로 서버에 반영하세요."
+            fi
+          done
+          exit "$status"
