@@ -111,6 +111,34 @@ sudo install -o root -g root -m 755 ~/hapbang-config/deploy.sh /usr/local/bin/ha
 - 09:00에 켜지면 Docker가 자동으로 시작되고, 모든 컨테이너가 `restart: unless-stopped`로 직전 상태 그대로 올라온다. 할 일은 없다.
 - 18:00 이후 작업이 필요하면 AWS 콘솔에서 인스턴스를 직접 시작하고, 끝나면 중지한다.
 
+## DB 접속 (DataGrip 등)
+
+PostgreSQL은 서버 자신(`127.0.0.1`)에만 포트를 연다. 인터넷에서는 접근할 수 없고, **SSH 터널**로만 접속한다.
+
+| 환경 | 서버 내부 포트 |
+| --- | --- |
+| prod | `127.0.0.1:15432` |
+| dev | `127.0.0.1:15433` |
+
+DataGrip → New Data Source → PostgreSQL
+
+| 탭 | 항목 | 값 |
+| --- | --- | --- |
+| SSH/SSL | Use SSH tunnel | Host `<EC2 주소>`, Port `22`, User `ubuntu`, Auth type `Key pair`, Private key `<키 파일>` |
+| General | Host / Port | `127.0.0.1` / `15432`(prod) 또는 `15433`(dev) |
+| General | Database / User | `hapbang` / `hapbang` (env 파일의 `POSTGRES_DB`, `POSTGRES_USER`) |
+| General | Password | 서버 관리자에게 받는다. 채팅·노션으로 전달하지 않는다 |
+
+터미널로 터널을 열 때:
+
+```bash
+ssh -i <키 파일> -N -L 15433:127.0.0.1:15433 ubuntu@<EC2 주소>   # 로컬 localhost:15433 → dev DB
+```
+
+- **prod는 조회 위주로 쓴다.** 앱과 같은 권한의 계정이라 `UPDATE`·`DELETE`·DDL도 실행된다. 데이터를 바꿔야 하면 먼저 [백업](#db-백업복원)한다.
+- DataGrip 연결 설정에 비밀번호를 저장할 때는 OS 키체인(기본값)에 두고, 설정 파일을 공유·커밋하지 않는다.
+- DataGrip의 Read-only 옵션(연결 설정 → Options → Read-only)을 prod 연결에 켜 두면 실수로 쓰는 것을 막을 수 있다.
+
 ## DB 백업·복원
 
 자동 백업은 아직 없다(팀 결정 필요). 중요한 작업 전에는 수동으로 백업한다. 백업 파일은 서버에만 두고 외부로 옮길 때 주의한다(개인정보 포함 가능).
