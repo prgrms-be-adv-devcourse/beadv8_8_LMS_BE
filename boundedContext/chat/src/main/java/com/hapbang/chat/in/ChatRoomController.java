@@ -31,9 +31,9 @@ import lombok.RequiredArgsConstructor;
 
 // TODO(security): 회원 ID는 X-User-Id 헤더 대신 SecurityContext(@AuthenticationPrincipal 등)에서 꺼낸다.
 // TODO(security): 채팅 API는 인플루언서·인증된 인플루언서·관리자 Role만 허용한다(AGENTS.md §6). 지금은 복제한 ChatUser 역할로만 막는다.
-// TODO(security): global SecurityConfig에 /api/v1/chatRooms/** 와 /ws 인가 규칙을 추가해야 한다(현재는 Swagger 외 모두 authenticated).
+// TODO(security): global SecurityConfig에 /api/v1/chats/** 와 /ws 인가 규칙을 추가해야 한다(현재는 Swagger 외 모두 authenticated).
 @RestController
-@RequestMapping("/api/v1/chatRooms")
+@RequestMapping("/api/v1/chats")
 @RequiredArgsConstructor
 public class ChatRoomController {
 
