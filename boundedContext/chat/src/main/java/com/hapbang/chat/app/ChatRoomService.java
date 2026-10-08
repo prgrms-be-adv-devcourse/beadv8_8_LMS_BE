@@ -11,13 +11,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
+import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
+import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomLogResponse;
 import com.hapbang.chat.app.dto.ChatRoomMemberResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.domain.ChatErrorCode;
 import com.hapbang.chat.domain.ChatException;
+import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
@@ -48,7 +51,8 @@ public class ChatRoomService {
     /**
      * 1:1 채팅을 시작한다.
      * <ul>
-     *     <li>두 사람의 방이 있으면 재사용한다.</li>
+     *     <li>두 사람의 종료되지 않은 방이 있으면 재사용하고, 퇴장했던 사람은 바로 재입장시킨다.
+     *     재입장한 사람은 재입장 이전 메시지를 볼 수 없다.</li>
      *     <li>없으면 새 방을 만든다. 동시에 만들면 유일 제약에 걸리므로 {@link ChatRoomFacade}가 다시 시도한다.</li>
      * </ul>
      */
@@ -66,7 +70,9 @@ public class ChatRoomService {
         Optional<ChatRoom> existing = chatRoomRepository.findActiveDirectForUpdate(
                 ChatRoom.directKeyOf(requesterId, targetUserId));
         if (existing.isPresent()) {
-            return new ChatRoomCreateResult(toResponse(existing.get()), false);
+            ChatRoom chatRoom = existing.get();
+            rejoinLeftMembers(chatRoom, now);
+            return new ChatRoomCreateResult(toResponse(chatRoom), false);
         }
 
         ChatRoom chatRoom = chatRoomRepository.saveAndFlush(ChatRoom.createDirect(requesterId, targetUserId, now));
@@ -81,7 +87,51 @@ public class ChatRoomService {
     }
 
     /**
-     * 관리자 분쟁 확인용 기록 조회. Soft Delete 된 메시지도 포함한다.
+     * 채팅방을 나간다.
+     * <ul>
+     *     <li>메시지는 지우지 않는다. 나간 사람은 활성 참여가 아니므로 조회·수신할 수 없다.</li>
+     *     <li>남은 사람이 볼 퇴장 안내 메시지를 같은 트랜잭션에서 남긴다.</li>
+     *     <li>마지막 참여자가 나가면 방을 종료한다.</li>
+     *     <li>이미 나갔거나 옛 참여 세대의 요청이면 아무것도 바꾸지 않는다(멱등).</li>
+     * </ul>
+     *
+     * @param participationVersion 요청한 참여 세대. null이면 현재 세대로 본다.
+     */
+    public ChatRoomLeaveResult leave(Long chatRoomId, Long userId, Integer participationVersion) {
+        ChatRoom chatRoom = chatRoomRepository.findByIdForUpdate(chatRoomId)
+                .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
+        ChatRoomMember member = chatRoomMemberRepository
+                .findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, userId)
+                .orElseThrow(() -> new ChatException(ChatErrorCode.NOT_CHAT_ROOM_MEMBER));
+        if (!member.isActive() || !member.isCurrentParticipation(participationVersion)) {
+            return ChatRoomLeaveResult.alreadyLeft();
+        }
+        if (chatRoom.isEnded()) {
+            throw new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        member.leave(now);
+        chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.MEMBER_LEFT, now));
+        ChatMessage leftNotice = chatMessageRepository.save(
+                ChatMessage.leftNotice(chatRoom, userId, nicknameOf(userId), now));
+
+        List<Long> remainingUserIds = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoomId)
+                .stream()
+                .filter(ChatRoomMember::isActive)
+                .map(ChatRoomMember::getUserId)
+                .toList();
+        boolean roomEnded = remainingUserIds.isEmpty();
+        if (roomEnded) {
+            chatRoom.end(now);
+            chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.ROOM_ENDED, now));
+        }
+        log.info("채팅방 퇴장 chatRoomId={}, userId={}, roomEnded={}", chatRoomId, userId, roomEnded);
+        return new ChatRoomLeaveResult(true, ChatMessageResponse.from(leftNotice), remainingUserIds, roomEnded);
+    }
+
+    /**
+     * 관리자 분쟁 확인용 기록 조회. 종료된 방과 참여자별로 숨겨진 메시지까지 포함한다.
      */
     @Transactional(readOnly = true)
     public ChatRoomHistoryResponse getHistory(Long chatRoomId, Long adminId) {
@@ -97,7 +147,23 @@ public class ChatRoomService {
                 .map(ChatMessageHistoryResponse::from)
                 .toList();
         return new ChatRoomHistoryResponse(chatRoom.getId(), chatRoom.getStatus(), chatRoom.getCreatedAt(),
-                toMemberResponses(members, findNicknames(members)), logs, messages);
+                chatRoom.getEndedAt(), toMemberResponses(members, findNicknames(members)), logs, messages);
+    }
+
+    private void rejoinLeftMembers(ChatRoom chatRoom, LocalDateTime now) {
+        for (ChatRoomMember member : chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId())) {
+            if (!member.isActive()) {
+                member.rejoin(now);
+                chatRoomLogRepository.save(
+                        ChatRoomLog.record(chatRoom, member.getUserId(), ChatRoomEventType.MEMBER_REJOINED, now));
+                log.info("채팅방 재입장 chatRoomId={}, userId={}, visibleFromSequence={}", chatRoom.getId(),
+                        member.getUserId(), member.getVisibleFromSequence());
+            }
+        }
+    }
+
+    private String nicknameOf(Long userId) {
+        return chatUserRepository.findById(userId).map(ChatUser::getNickname).orElse("회원 " + userId);
     }
 
     private ChatRoomResponse toResponse(ChatRoom chatRoom) {

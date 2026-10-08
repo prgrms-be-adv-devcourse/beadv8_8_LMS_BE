@@ -71,6 +71,13 @@ public class ChatMessage {
         return new ChatMessage(chatRoom, senderUserId, ChatMessageType.TEXT, content, now);
     }
 
+    /**
+     * 회원이 방을 나갔음을 알리는 시스템 메시지. 서버만 만든다. 보낸 사람은 나간 회원으로 기록한다.
+     */
+    public static ChatMessage leftNotice(ChatRoom chatRoom, Long leftUserId, String nickname, LocalDateTime now) {
+        return new ChatMessage(chatRoom, leftUserId, ChatMessageType.SYSTEM, nickname + "님이 나갔습니다.", now);
+    }
+
     public boolean isDeleted() {
         return deletedAt != null;
     }

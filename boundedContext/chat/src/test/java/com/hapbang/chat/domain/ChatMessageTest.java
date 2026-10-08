@@ -23,6 +23,16 @@ class ChatMessageTest {
         assertThat(first.isDeleted()).isFalse();
     }
 
+    @Test
+    void 퇴장_안내_시스템_메시지를_만든다() {
+        ChatMessage message = ChatMessage.leftNotice(directRoom(), GUEST_ID, "게스트", NOW);
+
+        assertThat(message.getMessageType()).isEqualTo(ChatMessageType.SYSTEM);
+        assertThat(message.getContent()).isEqualTo("게스트님이 나갔습니다.");
+        assertThat(message.getSenderUserId()).isEqualTo(GUEST_ID);
+        assertThat(message.getRoomSequence()).isEqualTo(1);
+    }
+
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {" ", "\n"})

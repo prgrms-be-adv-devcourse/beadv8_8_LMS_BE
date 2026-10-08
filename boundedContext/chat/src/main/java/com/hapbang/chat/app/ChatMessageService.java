@@ -26,18 +26,17 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ChatMessageService {
 
-    private static final long FIRST_SEQUENCE = 1L;
-
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatRoomMemberRepository chatRoomMemberRepository;
     private final ChatValidationService chatValidationService;
 
     /**
-     * 메시지를 보낸다. 방을 잠그고 순번을 발급한다.
+     * 메시지를 보낸다. 방을 잠그고 순번을 발급한다. 상대가 나간 동안에는 보낼 수 없다(조회만 허용).
      */
     public SentChatMessage send(Long chatRoomId, Long senderId, String content) {
         ChatRoom chatRoom = chatRoomRepository.findByIdForUpdate(chatRoomId)
+                .filter(room -> !room.isEnded())
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
         List<ChatRoomMember> activeMembers = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoomId)
                 .stream()
@@ -51,6 +50,9 @@ public class ChatMessageService {
                 .map(ChatRoomMember::getUserId)
                 .filter(userId -> !userId.equals(senderId))
                 .toList();
+        if (notifyUserIds.isEmpty()) {
+            throw new ChatException(ChatErrorCode.CHAT_PARTNER_LEFT);
+        }
 
         ChatMessage message = chatMessageRepository.save(
                 ChatMessage.text(chatRoom, senderId, content, LocalDateTime.now()));
@@ -59,21 +61,23 @@ public class ChatMessageService {
     }
 
     /**
-     * 최신순으로 조회한다. cursor는 방 메시지 순번이며, 없으면 가장 최근부터 조회한다.
+     * 참여자 본인의 조회 범위 안에서 최신순으로 조회한다. cursor는 방 메시지 순번이며, 없으면 가장 최근부터 조회한다.
+     * 오래된 cursor를 보내도 조회 시작점 이전 메시지는 나오지 않는다.
      */
     @Transactional(readOnly = true)
     public ChatMessagePageResponse getMessages(Long chatRoomId, Long userId, Long cursor, int size) {
         chatRoomRepository.findById(chatRoomId)
-                .filter(room -> room.getDeletedAt() == null)
+                .filter(room -> !room.isEnded() && room.getDeletedAt() == null)
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
-        chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, userId)
+        ChatRoomMember member = chatRoomMemberRepository
+                .findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, userId)
                 .filter(ChatRoomMember::isActive)
                 .orElseThrow(() -> new ChatException(ChatErrorCode.NOT_CHAT_ROOM_MEMBER));
         chatValidationService.validateCanChat(userId);
 
         long beforeSequence = cursor == null ? Long.MAX_VALUE : cursor;
         List<ChatMessageResponse> messages = chatMessageRepository
-                .findVisible(chatRoomId, FIRST_SEQUENCE, beforeSequence, Limit.of(size + 1))
+                .findVisible(chatRoomId, member.getVisibleFromSequence(), beforeSequence, Limit.of(size + 1))
                 .stream()
                 .map(ChatMessageResponse::from)
                 .toList();

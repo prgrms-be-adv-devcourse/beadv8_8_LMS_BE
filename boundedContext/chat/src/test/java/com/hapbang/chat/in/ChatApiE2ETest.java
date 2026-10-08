@@ -34,6 +34,7 @@ import com.hapbang.chat.app.ChatUserService;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.ChatErrorMessage;
 import com.hapbang.chat.in.dto.ChatNotification;
@@ -145,6 +146,23 @@ class ChatApiE2ETest {
     }
 
     @Test
+    void 방을_나가면_204_다시_보내도_204_이후_메시지_조회는_403() {
+        ChatRoomResponse room = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED);
+
+        for (int i = 0; i < 2; i++) {
+            client.delete().uri("/api/v1/chatRooms/{id}/members/me", room.chatRoomId())
+                    .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
+                    .exchange()
+                    .expectStatus().isNoContent();
+        }
+
+        client.get().uri("/api/v1/chatRooms/{id}/messages", room.chatRoomId())
+                .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
+                .exchange()
+                .expectStatus().isForbidden();
+    }
+
+    @Test
     void 관리자가_아니면_기록_조회는_403() {
         ChatRoomResponse room = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED);
 
@@ -199,6 +217,61 @@ class ChatApiE2ETest {
         assertThat(page).isNotNull();
         assertThat(page.messages()).extracting(ChatMessageResponse::content)
                 .containsExactly("금요일 밤 9시 괜찮으세요?");
+    }
+
+    @Test
+    void 상대가_방을_나가면_남은_사람에게만_퇴장_안내가_실시간으로_가고_남은_사람은_보낼_수_없다() throws Exception {
+        Long chatRoomId = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        StompSession host = connect(HOST_ID);
+        StompSession guest = connect(GUEST_ID);
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/messages",
+                ChatMessageResponse.class);
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/messages",
+                ChatMessageResponse.class);
+        BlockingQueue<ChatErrorMessage> hostErrors = subscribe(host, "/user/queue/errors", ChatErrorMessage.class);
+        waitForSubscriptions();
+
+        client.delete().uri("/api/v1/chatRooms/{id}/members/me", chatRoomId)
+                .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
+                .exchange()
+                .expectStatus().isNoContent();
+
+        ChatMessageResponse leftNotice = hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(leftNotice).isNotNull();
+        assertThat(leftNotice.messageType()).isEqualTo(ChatMessageType.SYSTEM);
+        assertThat(leftNotice.content()).isEqualTo("게스트님이 나갔습니다.");
+        assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
+
+        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest("아직 계세요?"));
+
+        ChatErrorMessage error = hostErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(error).isNotNull();
+        assertThat(error.code()).isEqualTo("CHAT_PARTNER_LEFT");
+        assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
+    }
+
+    // 수용 테스트 1: 화면 닫기(연결 끊김)는 퇴장이 아니다.
+    @Test
+    void 연결이_끊겨도_퇴장으로_처리하지_않는다() throws Exception {
+        Long chatRoomId = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        StompSession guest = connect(GUEST_ID);
+        guest.disconnect();
+        StompSession host = connect(HOST_ID);
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/messages",
+                ChatMessageResponse.class);
+        waitForSubscriptions();
+
+        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest("다시 오면 보세요"));
+
+        assertThat(hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+        ChatMessagePageResponse guestPage = client.get().uri("/api/v1/chatRooms/{id}/messages", chatRoomId)
+                .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ChatMessagePageResponse.class)
+                .returnResult().getResponseBody();
+        assertThat(guestPage).isNotNull();
+        assertThat(guestPage.messages()).extracting(ChatMessageResponse::content).containsExactly("다시 오면 보세요");
     }
 
     @Test

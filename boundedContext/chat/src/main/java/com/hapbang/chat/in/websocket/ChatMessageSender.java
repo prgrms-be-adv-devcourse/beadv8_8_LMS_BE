@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 커밋이 끝난 메시지를 STOMP로 전달한다. 방 단위 topic이 아니라 서비스가 확인한 현재 참여자에게만 회원별로 보낸다.
+ * 그래서 퇴장한 회원의 열린 구독이 남아 있어도 이후 메시지를 받지 못한다.
  */
 @Component
 @RequiredArgsConstructor

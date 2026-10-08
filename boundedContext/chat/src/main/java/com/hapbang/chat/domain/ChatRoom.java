@@ -18,7 +18,8 @@ import lombok.NoArgsConstructor;
 /**
  * 1:1 채팅방.
  * <ul>
- *     <li>{@code directKey}는 두 회원 ID로 만든 키다. 유일 제약으로 같은 두 회원의 활성 방을 하나로 제한한다.</li>
+ *     <li>{@code directKey}는 종료되지 않은 방에만 값이 있다. 유일 제약으로 같은 두 회원의 활성 방을 하나로 제한하고,
+ *     방이 종료되면 비워서 다음 대화가 새 방에서 시작되게 한다.</li>
  *     <li>{@code lastSequence}는 방 단위 메시지 순번이다. 방을 잠근 상태에서만 발급한다.</li>
  * </ul>
  */
@@ -53,6 +54,8 @@ public class ChatRoom {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
+    private LocalDateTime endedAt;
+
     private LocalDateTime deletedAt;
 
     private ChatRoom(ChatRoomType roomType, String directKey, LocalDateTime now) {
@@ -74,10 +77,34 @@ public class ChatRoom {
         return Math.min(userId, otherUserId) + ":" + Math.max(userId, otherUserId);
     }
 
+    public boolean isEnded() {
+        return status == ChatRoomStatus.ENDED;
+    }
+
     /**
      * 다음 메시지 순번을 발급한다.
      */
     public long issueSequence() {
+        if (isEnded()) {
+            throw new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND);
+        }
         return ++lastSequence;
+    }
+
+    /**
+     * 지금 입장하는 참여자의 조회 시작점. 이미 있는 메시지는 볼 수 없다.
+     */
+    public long nextVisibleSequence() {
+        return lastSequence + 1;
+    }
+
+    public void end(LocalDateTime now) {
+        if (isEnded()) {
+            return;
+        }
+        this.status = ChatRoomStatus.ENDED;
+        this.directKey = null;
+        this.endedAt = now;
+        this.updatedAt = now;
     }
 }

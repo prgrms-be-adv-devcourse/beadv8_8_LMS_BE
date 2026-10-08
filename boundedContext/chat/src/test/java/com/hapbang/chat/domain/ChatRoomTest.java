@@ -29,6 +29,29 @@ class ChatRoomTest {
 
         assertThat(room.issueSequence()).isEqualTo(1);
         assertThat(room.issueSequence()).isEqualTo(2);
+        assertThat(room.nextVisibleSequence()).isEqualTo(3);
+    }
+
+    @Test
+    void 종료하면_두_회원_키를_비워_새_방을_만들_수_있게_한다() {
+        ChatRoom room = directRoom();
+
+        room.end(NOW.plusHours(1));
+
+        assertThat(room.isEnded()).isTrue();
+        assertThat(room.getStatus()).isEqualTo(ChatRoomStatus.ENDED);
+        assertThat(room.getEndedAt()).isEqualTo(NOW.plusHours(1));
+        assertThat(room.getDirectKey()).isNull();
+    }
+
+    @Test
+    void 종료된_방은_메시지_순번을_발급하지_않는다() {
+        ChatRoom room = directRoom();
+        room.end(NOW);
+
+        assertThatThrownBy(room::issueSequence)
+                .isInstanceOf(ChatException.class)
+                .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_ROOM_NOT_FOUND);
     }
 
     @Test

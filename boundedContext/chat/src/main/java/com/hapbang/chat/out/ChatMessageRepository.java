@@ -25,7 +25,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             @Param("beforeSequence") long beforeSequence, Limit limit);
 
     /**
-     * 관리자 기록 조회용. Soft Delete 여부와 관계없이 모두 조회한다.
+     * 관리자 기록 조회용. 참여자별 조회 범위와 Soft Delete 여부와 관계없이 모두 조회한다.
      */
     List<ChatMessage> findByChatRoom_IdOrderByRoomSequenceAsc(Long chatRoomId);
 }

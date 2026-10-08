@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
+import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.domain.ChatErrorCode;
 import com.hapbang.chat.domain.ChatException;
 
@@ -33,6 +34,10 @@ public class ChatRoomFacade {
                 throw new ChatException(ChatErrorCode.CHAT_ROOM_BUSY);
             }
         }
+    }
+
+    public ChatRoomLeaveResult leave(Long chatRoomId, Long userId, Integer participationVersion) {
+        return chatRoomService.leave(chatRoomId, userId, participationVersion);
     }
 
     public ChatRoomHistoryResponse getHistory(Long chatRoomId, Long adminId) {

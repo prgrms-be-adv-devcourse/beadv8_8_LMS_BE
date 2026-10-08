@@ -16,12 +16,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.chat.domain.ChatRoom;
+import com.hapbang.chat.domain.ChatRoomEventType;
+import com.hapbang.chat.domain.ChatRoomLog;
+import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.out.ChatRoomLogRepository;
+import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatRoomRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 같은 두 회원의 동시 채팅 시작.
+ * 수용 테스트 6: 동시 생성, 동시 마지막 퇴장, 생성/마지막 퇴장 경합.
  */
 @IntegrationTest
 class ChatRoomConcurrencyTest {
@@ -32,10 +38,19 @@ class ChatRoomConcurrencyTest {
     private ChatRoomFacade chatRoomFacade;
 
     @Autowired
+    private ChatRoomService chatRoomService;
+
+    @Autowired
     private ChatUserService chatUserService;
 
     @Autowired
     private ChatRoomRepository chatRoomRepository;
+
+    @Autowired
+    private ChatRoomMemberRepository chatRoomMemberRepository;
+
+    @Autowired
+    private ChatRoomLogRepository chatRoomLogRepository;
 
     @BeforeEach
     void setUp() {
@@ -50,6 +65,47 @@ class ChatRoomConcurrencyTest {
 
         assertThat(roomIds).hasSize(THREADS).containsOnly(roomIds.getFirst());
         assertThat(chatRoomRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void 두_사람이_동시에_나가면_방은_한_번만_종료된다() throws Exception {
+        Long chatRoomId = chatRoomFacade.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+
+        List<Boolean> ended = runConcurrently(2, index -> chatRoomService
+                .leave(chatRoomId, index == 0 ? HOST_ID : GUEST_ID, null).roomEnded());
+
+        assertThat(ended).containsExactlyInAnyOrder(true, false);
+        assertThat(chatRoomRepository.findById(chatRoomId).orElseThrow().getStatus())
+                .isEqualTo(ChatRoomStatus.ENDED);
+        assertThat(chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
+                .extracting(ChatRoomLog::getEventType)
+                .filteredOn(type -> type == ChatRoomEventType.ROOM_ENDED)
+                .hasSize(1);
+    }
+
+    @Test
+    void 마지막_퇴장과_채팅_시작이_겹쳐도_종료된_방을_되살리지_않고_활성_방은_하나다() throws Exception {
+        Long chatRoomId = chatRoomFacade.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+
+        List<Long> results = runConcurrently(2, index -> index == 0
+                ? chatRoomService.leave(chatRoomId, HOST_ID, null).roomEnded() ? -1L : 0L
+                : chatRoomFacade.createOrGet(GUEST_ID, HOST_ID).room().chatRoomId());
+        Long startedRoomId = results.stream().filter(id -> id > 0).findFirst().orElseThrow();
+
+        List<ChatRoom> activeRooms = chatRoomRepository.findAll().stream()
+                .filter(room -> room.getStatus() == ChatRoomStatus.ACTIVE)
+                .toList();
+        assertThat(activeRooms).extracting(ChatRoom::getId).containsExactly(startedRoomId);
+        ChatRoom original = chatRoomRepository.findById(chatRoomId).orElseThrow();
+        if (original.getStatus() == ChatRoomStatus.ENDED) {
+            assertThat(startedRoomId).isNotEqualTo(chatRoomId);
+        } else {
+            assertThat(startedRoomId).isEqualTo(chatRoomId);
+        }
+        assertThat(chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(startedRoomId))
+                .hasSize(2)
+                .allMatch(member -> member.isActive() || startedRoomId.equals(chatRoomId));
     }
 
     private <T> List<T> runConcurrently(int count, IndexedTask<T> task) throws Exception {

@@ -7,5 +7,7 @@ package com.hapbang.chat.domain;
 //  받는 사람: 출연 요청 알림은 요청받은 게스트, 모집 선정 알림은 선정된 게스트(신청자).
 public enum ChatMessageType {
     /** 회원이 보낸 일반 메시지 */
-    TEXT
+    TEXT,
+    /** 시스템이 남기는 안내 메시지 (예: 퇴장) */
+    SYSTEM
 }
