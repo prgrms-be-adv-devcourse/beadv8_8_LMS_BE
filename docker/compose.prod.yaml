@@ -1,7 +1,7 @@
 # 운영(EC2) 배포용. 로컬 개발은 compose.yaml을 쓴다.
 # 서버에서는 deploy.sh가 실행한다. 비밀값은 레포 밖 /opt/hapbang/env/prod.env에 둔다(.env.example 참고).
 # 로컬 개발·개발 서버 스택과 볼륨이 섞이지 않도록 프로젝트 이름을 분리한다.
-# 외부 포트는 열지 않는다. 요청은 edge(compose.edge.yaml)가 hapbang-edge 네트워크로 전달한다.
+# 외부 포트는 열지 않는다(postgres만 서버 내부 127.0.0.1에 연다). 요청은 edge(compose.edge.yaml)가 hapbang-edge 네트워크로 전달한다.
 name: hapbang-prod
 
 # 로그가 디스크(50GB)를 채우지 않도록 컨테이너별 로그 크기를 제한한다.
@@ -55,11 +55,14 @@ services:
     restart: unless-stopped
     logging: *logging
 
-  # 외부와 edge에 노출하지 않는다. 같은 스택의 app만 접근한다.
+  # 외부와 edge에 노출하지 않는다. 같은 스택의 app과 서버 내부(SSH 터널)에서만 접근한다.
   postgres:
     image: postgres:18
     # DB 세션·로그 시간대를 KST로 고정한다(이미 초기화된 DB에도 적용된다).
     command: ["postgres", "-c", "timezone=Asia/Seoul", "-c", "log_timezone=Asia/Seoul"]
+    # DB 클라이언트(DataGrip 등)용. 서버 자신(127.0.0.1)에만 열어 SSH 터널로만 접근할 수 있다.
+    ports:
+      - "127.0.0.1:15432:5432"
     environment:
       TZ: Asia/Seoul
       POSTGRES_DB: ${POSTGRES_DB}
