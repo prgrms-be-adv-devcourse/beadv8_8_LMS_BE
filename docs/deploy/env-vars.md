@@ -69,20 +69,7 @@ KAKAO_CLIENT_SECRET=example
 
 ### 2. 서버 env 파일에 값 추가 (병합 전에)
 
-서버에서 `ubuntu` 계정으로 실행한다. 값이 화면과 셸 기록에 남지 않도록 입력받는다.
-
-```bash
-# dev
-sudo -u deploy sh -c 'printf "값 입력: " >&2; read -rs v; echo >&2; printf "KAKAO_CLIENT_SECRET=%s\n" "$v" >> /opt/hapbang/env/dev.env'
-# prod
-sudo -u deploy sh -c 'printf "값 입력: " >&2; read -rs v; echo >&2; printf "KAKAO_CLIENT_SECRET=%s\n" "$v" >> /opt/hapbang/env/prod.env'
-
-# 확인 (값은 출력하지 않는다)
-sudo -u deploy grep -c '^KAKAO_CLIENT_SECRET=' /opt/hapbang/env/dev.env /opt/hapbang/env/prod.env   # 각 1
-sudo ls -l /opt/hapbang/env    # -rw------- deploy deploy 유지
-```
-
-값에 공백·`#`·`$`가 있으면 큰따옴표로 감싸야 한다. 그런 값은 `sudo -u deploy vi /opt/hapbang/env/dev.env`로 직접 편집한다.
+`dev.env`·`prod.env`에 `KAKAO_CLIENT_SECRET=<값>` 줄을 추가한다. 편집 방법은 아래 [서버 env 파일 편집](#서버-env-파일-편집).
 
 ### 3. compose 파일을 서버에 반영 (병합 전에)
 
@@ -107,12 +94,59 @@ sudo -u deploy docker compose -f compose.dev.yaml --env-file env/dev.env exec ap
 
 ## 값 변경 (비밀값 교체 포함)
 
-1. 서버 env 파일의 해당 줄을 수정한다(`sudo -u deploy vi /opt/hapbang/env/<env>.env`).
+1. 서버 env 파일의 해당 줄을 수정한다([서버 env 파일 편집](#서버-env-파일-편집)).
 2. Actions에서 해당 환경의 **최근 BE Deploy run → `deploy` job 재실행**. 환경변수가 바뀌었으므로 app이 새로 만들어진다.
 
 > ❌ 서버에서 `docker compose up`을 직접 실행하지 않는다. 이미지 태그가 지정되지 않아 예전 이미지로 바뀔 수 있다([operations.md#하지-말-것](operations.md#하지-말-것)).
 
 **DB 비밀번호(`POSTGRES_PASSWORD`)는 예외다.** PostgreSQL은 처음 초기화할 때만 이 값을 쓰므로 env 파일만 바꾸면 app이 접속하지 못한다. [security.md#db-비밀번호-교체](security.md#db-비밀번호-교체)를 따른다.
+
+## 서버 env 파일 편집
+
+서버에 `ubuntu` 계정으로 접속해 **파일 주인(`deploy`)으로** vim을 연다.
+
+```bash
+sudo -u deploy vim -n -i NONE /opt/hapbang/env/dev.env    # prod는 prod.env
+```
+
+| 방법 | 결과 |
+| --- | --- |
+| `vim /opt/hapbang/env/dev.env` | ❌ 권한 거부(파일이 `deploy` 소유, 600) |
+| `sudo vim ...` | ⚠️ root로 저장되어 소유자·권한이 바뀔 수 있다 |
+| **`sudo -u deploy vim -n -i NONE ...`** | ✅ 소유자·권한 유지 |
+
+- `-n`: 스왑 파일(`.dev.env.swp`)을 만들지 않는다. 접속이 끊기면 비밀값이 담긴 스왑 파일이 남는다.
+- `-i NONE`: viminfo에 검색·복사 기록을 남기지 않는다.
+
+**형식**: `KEY=값`. `=` 양옆에 공백을 두지 않고 `export`를 붙이지 않는다. **비밀값은 작은따옴표로 감싼다.**
+
+```
+KAKAO_CLIENT_SECRET='abc$12 3#x'     # ✅ 작은따옴표: 값 그대로 전달
+```
+
+compose는 env 파일의 `$`를 변수로 치환한다. 따옴표 없이 쓰거나 큰따옴표로 감싸면 값이 조용히 잘린다.
+
+| env 파일 | 컨테이너에 전달되는 값 |
+| --- | --- |
+| `K='a b#c$d'` | `a b#c$d` ✅ |
+| `K="a b#c$d"` | `a b#c` ❌ (`$d`가 빈 변수로 치환) |
+| `K=abc$def` | `abc` ❌ |
+| `K=abc #메모` | `abc` (공백 뒤 `#`부터 주석) |
+
+값에 작은따옴표(`'`)가 들어 있으면 그 값은 쓰지 말고 다시 발급받는다.
+
+**편집 후 확인** (값은 출력하지 않는다)
+
+```bash
+sudo ls -l /opt/hapbang/env                                     # -rw------- deploy deploy 유지
+sudo -u deploy grep -c '^KAKAO_CLIENT_SECRET=' /opt/hapbang/env/dev.env   # 1 (중복 없음)
+```
+
+**편집만으로는 반영되지 않는다.**
+
+- 새 키: `compose.<env>.yaml`의 `app.environment`에도 있어야 컨테이너로 전달된다(위 1·3번).
+- 값 변경: 해당 환경의 최근 BE Deploy run → `deploy` job을 재실행해야 app이 새 값으로 다시 만들어진다. 서버에서 `docker compose up`을 직접 실행하지 않는다.
+- `POSTGRES_PASSWORD`는 이 방법으로 바꾸지 않는다 → [security.md#db-비밀번호-교체](security.md#db-비밀번호-교체)
 
 ## 삭제
 
