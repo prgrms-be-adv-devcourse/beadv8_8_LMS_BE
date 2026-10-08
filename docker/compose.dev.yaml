@@ -18,10 +18,16 @@ services:
     networks:
       edge:
         aliases: [dev-web]
+    # 정적 파일 응답 확인. 배포(deploy.sh)의 --wait가 healthy를 기다린다.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
     restart: unless-stopped
     logging: *logging
 
-  # 운영이 메모리를 뺏기지 않도록 개발 컨테이너는 메모리 상한을 둔다.
+  # 운영이 메모리·CPU를 뺏기지 않도록 개발 컨테이너는 상한을 둔다(t3.large는 vCPU 2개).
   app:
     image: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be:${BE_TAG:-dev}
     environment:
@@ -32,10 +38,19 @@ services:
       # 컨테이너 메모리 상한 기준으로 힙을 잡는다(기본값 25%는 너무 작다).
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75
     mem_limit: 1g
+    cpus: 1.0
     networks:
       default:
       edge:
         aliases: [dev-app]
+    # Spring Boot는 컨텍스트 초기화가 끝난 뒤 8080을 연다. 포트가 열리면 준비된 것으로 본다.
+    # 배포(deploy.sh)의 --wait가 healthy를 기다리고, 실패하면 이전 이미지로 롤백한다.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 120s
     depends_on:
       postgres:
         condition: service_healthy

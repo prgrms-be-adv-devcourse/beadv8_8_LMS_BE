@@ -18,6 +18,12 @@ services:
     networks:
       edge:
         aliases: [prod-web]
+    # 정적 파일 응답 확인. 배포(deploy.sh)의 --wait가 healthy를 기다린다.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
     restart: unless-stopped
     logging: *logging
 
@@ -32,6 +38,14 @@ services:
       default:
       edge:
         aliases: [prod-app]
+    # Spring Boot는 컨텍스트 초기화가 끝난 뒤 8080을 연다. 포트가 열리면 준비된 것으로 본다.
+    # 배포(deploy.sh)의 --wait가 healthy를 기다리고, 실패하면 이전 이미지로 롤백한다.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 120s
     depends_on:
       postgres:
         condition: service_healthy

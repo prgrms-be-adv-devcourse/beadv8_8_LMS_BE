@@ -27,7 +27,12 @@ push(main | dev) → GitHub Actions: 테스트(ci.yml) → 이미지 빌드 → 
 
 각 레포의 배포는 자기 컨테이너만 바꾼다. FE는 `<env> web`으로 해당 환경의 web만, BE는 `<env> app`으로 해당 환경의 app만 교체한다.
 
-모든 이미지는 `:sha-<커밋>` 태그도 함께 올린다. 롤백은 `/opt/hapbang/env/{prod,dev}.env`에 `BE_TAG=sha-...` 또는 `FE_TAG=sha-...`를 넣고 `hapbang-deploy`를 실행한다.
+모든 이미지는 `:sha-<커밋>` 태그도 함께 올리고, 배포는 workflow가 넘긴 커밋의 `:sha-<커밋>` 이미지로 한다.
+
+- **준비 확인**: web은 HTTP 응답, app은 8080 포트가 열리면 healthy. `deploy.sh`는 healthy가 될 때까지 기다린다(최대 180초).
+- **자동 롤백**: healthy가 되지 않으면 최근 로그를 남기고 교체 전 이미지로 되돌린 뒤 실패로 끝난다.
+- **수동 롤백**: Actions에서 되돌릴 버전의 Deploy run을 열고 `deploy` job만 다시 실행한다. env 파일은 고치지 않는다.
+- **설정 확인**: BE 배포는 서버의 compose·nginx·deploy.sh가 레포와 다르면 경고를 남긴다. 경고가 나오면 아래 "설정 반영"을 한다.
 
 ## 서버 구성
 
@@ -83,7 +88,18 @@ scp -i team08-hapbang-key.pem -r docker/compose.prod.yaml docker/compose.dev.yam
     docker/nginx docker/deploy.sh ubuntu@<EC2 IP>:~/hapbang-config/
 ```
 
-서버에서:
+서버에서, 먼저 올린 파일을 검증한다. 하나라도 실패하면 반영하지 않는다.
+
+```bash
+cd ~/hapbang-config
+for e in prod dev edge; do
+  sudo docker compose -f compose.$e.yaml --env-file /opt/hapbang/env/$e.env config --quiet && echo "$e: ok"
+done
+sudo docker compose -f compose.edge.yaml --env-file /opt/hapbang/env/edge.env run --rm --no-deps nginx nginx -t
+bash -n deploy.sh && echo "deploy.sh: ok"
+```
+
+검증이 통과하면 반영한다.
 
 ```bash
 sudo cp -r ~/hapbang-config/compose.*.yaml ~/hapbang-config/nginx /opt/hapbang/
