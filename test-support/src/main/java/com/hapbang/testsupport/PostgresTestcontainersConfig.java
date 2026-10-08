@@ -21,6 +21,8 @@ public class PostgresTestcontainersConfig {
             registry.add("spring.datasource.username", POSTGRES::getUsername);
             registry.add("spring.datasource.password", POSTGRES::getPassword);
             registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
+            // 엔티티의 schema(member, billing …)도 테이블과 함께 생성한다
+            registry.add("spring.jpa.properties.hibernate.hbm2ddl.create_namespaces", () -> "true");
         };
     }
 }
