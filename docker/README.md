@@ -6,10 +6,11 @@ EC2 1대에 운영(prod)과 개발 서버(dev)를 함께 올린다.
 push(main | dev) → GitHub Actions: 테스트(ci.yml) → 이미지 빌드 → GHCR push → ssh deploy@EC2 "<prod|dev> <web|app>"
                                                               └ deploy.sh (이 키로는 이것만 실행된다)
 
-[인터넷] :80 ─ edge nginx ─┬─ PROD_HOST ─┬─ /api, /swagger-ui, /v3/api-docs → prod-app:8080
-                          │             └─ 그 외 → prod-web:80
-                          └─ DEV_HOST  ─┬─ /api, /swagger-ui, /v3/api-docs → dev-app:8080
-                                        └─ 그 외 → dev-web:80
+[인터넷] :443 ─ edge nginx ─┬─ PROD_HOST ─┬─ /api, /swagger-ui, /v3/api-docs → prod-app:8080
+                           │             └─ 그 외 → prod-web:80
+                           └─ DEV_HOST  ─┬─ /api, /swagger-ui, /v3/api-docs → dev-app:8080
+                                         └─ 그 외 → dev-web:80
+(:80은 HTTPS로 301, 인증서 검증 경로만 응답)
 ```
 
 | 파일 | 역할 |
@@ -95,7 +96,7 @@ cd ~/hapbang-config
 for e in prod dev edge; do
   sudo docker compose -f compose.$e.yaml --env-file /opt/hapbang/env/$e.env config --quiet && echo "$e: ok"
 done
-sudo docker compose -f compose.edge.yaml --env-file /opt/hapbang/env/edge.env run --rm --no-deps nginx nginx -t
+sudo docker compose -f compose.edge.yaml --env-file /opt/hapbang/env/edge.env run --rm --no-deps --entrypoint /docker-entrypoint.sh nginx nginx -t
 bash -n deploy.sh && echo "deploy.sh: ok"
 ```
 
@@ -110,6 +111,50 @@ sudo install -o root -g root -m 755 ~/hapbang-config/deploy.sh /usr/local/bin/ha
 - `compose.prod.yaml`·`compose.dev.yaml`: 다음 배포 때 해당 서비스에 반영된다. 바로 반영하려면 위 "처음 한 번" 명령을 다시 실행한다.
 - `nginx/`·`compose.edge.yaml`: edge는 시작할 때만 설정을 읽으므로 다시 만든다.
   `sudo -u deploy docker compose -f /opt/hapbang/compose.edge.yaml --env-file /opt/hapbang/env/edge.env up -d --force-recreate`
+
+## HTTPS 인증서
+
+Let's Encrypt 인증서 하나에 `PROD_HOST`·`DEV_HOST`를 함께 담는다(`--cert-name hapbang`). 도메인은 DuckDNS(`<이름>.duckdns.org`, `dev.<이름>.duckdns.org`)를 쓴다.
+
+- **갱신**: edge의 `certbot` 컨테이너가 12시간마다 `renew`(80 포트 webroot 검증)하고, nginx는 6시간마다 reload해 새 인증서를 읽는다. 따로 할 일은 없다.
+- **HTTP**: `/.well-known/acme-challenge/`만 응답하고 나머지는 HTTPS로 301. 등록되지 않은 도메인은 80에서 끊고 443에서 TLS 핸드셰이크를 거부한다.
+
+### 최초 발급 (1회)
+
+edge가 80 포트를 쓰고 있으므로 잠깐 내리고 standalone으로 발급한다. 그동안 접속이 끊긴다(1분 내외). `edge.env`의 도메인이 DNS에서 이 서버를 가리켜야 한다.
+
+```bash
+cd /opt/hapbang
+sudo -u deploy docker compose -f compose.edge.yaml --env-file env/edge.env down
+sudo -u deploy sh -c 'set -a; . /opt/hapbang/env/edge.env; cd /opt/hapbang && \
+  docker compose -f compose.edge.yaml --env-file env/edge.env run --rm -p 80:80 --entrypoint certbot certbot \
+    certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email \
+    --cert-name hapbang -d "$PROD_HOST" -d "$DEV_HOST"'
+sudo -u deploy docker compose -f compose.edge.yaml --env-file env/edge.env up -d
+```
+
+확인:
+
+```bash
+sudo -u deploy docker compose -f compose.edge.yaml --env-file env/edge.env exec certbot certbot certificates
+sudo -u deploy docker compose -f compose.edge.yaml --env-file env/edge.env exec certbot \
+  certbot renew --dry-run --webroot -w /var/www/certbot     # 갱신 경로 점검 (실제 인증서는 바뀌지 않음)
+```
+
+도메인을 바꾸면 같은 절차로 다시 발급하고 edge를 `--force-recreate`한다.
+
+## DB 초기화 (필요할 때만)
+
+데이터를 모두 지우고 해당 환경의 DB를 새로 만든다. 되돌릴 수 없다.
+
+```bash
+cd /opt/hapbang
+sudo -u deploy docker compose -f compose.dev.yaml --env-file env/dev.env stop app postgres
+sudo -u deploy docker compose -f compose.dev.yaml --env-file env/dev.env rm -f app postgres
+sudo docker volume rm hapbang-dev_postgres-data
+```
+
+이후 Actions에서 해당 환경의 최근 BE Deploy run의 `deploy` job을 다시 실행하면 postgres(새 볼륨)와 app이 올라온다. prod는 `dev`를 `prod`로 바꾼다.
 
 ## 배포 키 등록
 

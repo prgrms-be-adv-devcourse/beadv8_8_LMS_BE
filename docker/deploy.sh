@@ -52,7 +52,7 @@ stack() {
 }
 
 # workflow가 레포와 비교해 서버 설정이 뒤처졌는지(수동 반영 누락) 알려 준다.
-for f in compose.prod.yaml compose.dev.yaml compose.edge.yaml nginx/templates/default.conf.template nginx/snippets/routes.conf; do
+for f in compose.prod.yaml compose.dev.yaml compose.edge.yaml nginx/templates/default.conf.template nginx/snippets/routes.conf nginx/snippets/ssl.conf; do
   echo "[config] $(sha256sum "$ROOT/$f" | cut -d' ' -f1) $f"
 done
 echo "[config] $(sha256sum "$0" | cut -d' ' -f1) deploy.sh"

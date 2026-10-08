@@ -19,6 +19,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # 운영 컨테이너와 같은 시간대(KST)에서 테스트한다. JVM 기본 시간대가 JDBC 세션 시간대로도 쓰인다.
+    env:
+      TZ: Asia/Seoul
     steps:
       - uses: actions/checkout@v4
 
