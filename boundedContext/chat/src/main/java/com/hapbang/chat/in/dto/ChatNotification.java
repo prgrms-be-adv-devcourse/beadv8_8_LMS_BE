@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 
 /**
- * 새 메시지 알림. /user/queue/notifications로 받는 사람에게만 보낸다.
+ * 새 메시지 알림. /user/queue/chats/notifications로 받는 사람에게만 보낸다.
  */
 public record ChatNotification(
         NotificationType type,

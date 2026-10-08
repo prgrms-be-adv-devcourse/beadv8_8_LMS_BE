@@ -199,17 +199,17 @@ class ChatApiE2ETest {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED).chatRoomId();
         StompSession host = connect(HOST_ID);
         StompSession guest = connect(GUEST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
-        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
         BlockingQueue<ChatNotification> guestNotifications = subscribe(guest,
-                "/user/queue/notifications", ChatNotification.class);
+                "/user/queue/chats/notifications", ChatNotification.class);
         BlockingQueue<ChatNotification> hostNotifications = subscribe(host,
-                "/user/queue/notifications", ChatNotification.class);
+                "/user/queue/chats/notifications", ChatNotification.class);
         waitForSubscriptions();
 
-        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest("금요일 밤 9시 괜찮으세요?"));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("금요일 밤 9시 괜찮으세요?"));
 
         ChatMessageResponse received = guestMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(received).isNotNull();
@@ -241,11 +241,11 @@ class ChatApiE2ETest {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED).chatRoomId();
         StompSession host = connect(HOST_ID);
         StompSession guest = connect(GUEST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
-        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
-        BlockingQueue<ChatErrorMessage> hostErrors = subscribe(host, "/user/queue/errors", ChatErrorMessage.class);
+        BlockingQueue<ChatErrorMessage> hostErrors = subscribe(host, "/user/queue/chats/errors", ChatErrorMessage.class);
         waitForSubscriptions();
 
         client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
@@ -259,7 +259,7 @@ class ChatApiE2ETest {
         assertThat(leftNotice.content()).isEqualTo("게스트님이 나갔습니다.");
         assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
 
-        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest("아직 계세요?"));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("아직 계세요?"));
 
         ChatErrorMessage error = hostErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(error).isNotNull();
@@ -274,11 +274,11 @@ class ChatApiE2ETest {
         StompSession guest = connect(GUEST_ID);
         guest.disconnect();
         StompSession host = connect(HOST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
         waitForSubscriptions();
 
-        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest("다시 오면 보세요"));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("다시 오면 보세요"));
 
         assertThat(hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
         ChatMessagePageResponse guestPage = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
@@ -295,10 +295,10 @@ class ChatApiE2ETest {
     void STOMP로_빈_메시지를_보내면_보낸_사람에게_오류가_간다() throws Exception {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED).chatRoomId();
         StompSession host = connect(HOST_ID);
-        BlockingQueue<ChatErrorMessage> errors = subscribe(host, "/user/queue/errors", ChatErrorMessage.class);
+        BlockingQueue<ChatErrorMessage> errors = subscribe(host, "/user/queue/chats/errors", ChatErrorMessage.class);
         waitForSubscriptions();
 
-        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest(" "));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest(" "));
 
         ChatErrorMessage error = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(error).isNotNull();
@@ -311,7 +311,7 @@ class ChatApiE2ETest {
         BlockingQueue<String> errorFrames = new LinkedBlockingQueue<>();
         StompSession outsider = connect(OTHER_INFLUENCER_ID, errorFrames);
 
-        outsider.subscribe("/queue/messages", new StompSessionHandlerAdapter() {
+        outsider.subscribe("/queue/chats/messages", new StompSessionHandlerAdapter() {
         });
 
         String error = errorFrames.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -348,7 +348,7 @@ class ChatApiE2ETest {
                 errorFrames.add(String.valueOf(headers.getFirst("message")));
             }
         };
-        return stompClient.connectAsync("ws://localhost:" + port + "/ws", new WebSocketHttpHeaders(),
+        return stompClient.connectAsync("ws://localhost:" + port + "/api/v1/chats/ws", new WebSocketHttpHeaders(),
                 connectHeaders, handler).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
