@@ -86,6 +86,23 @@ public class ChatRoomService {
         return new ChatRoomCreateResult(toResponse(chatRoom), true);
     }
 
+    @Transactional(readOnly = true)
+    public List<ChatRoomResponse> getMyRooms(Long userId) {
+        List<ChatRoom> rooms = chatRoomMemberRepository.findActiveByUserId(userId).stream()
+                .map(ChatRoomMember::getChatRoom)
+                .toList();
+        if (rooms.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, List<ChatRoomMember>> membersByRoom = chatRoomMemberRepository
+                .findByChatRoom_IdInAndDeletedAtIsNull(rooms.stream().map(ChatRoom::getId).toList()).stream()
+                .collect(Collectors.groupingBy(member -> member.getChatRoom().getId()));
+        Map<Long, String> nicknames = findNicknames(membersByRoom.values().stream().flatMap(List::stream).toList());
+        return rooms.stream()
+                .map(room -> ChatRoomResponse.of(room, toMemberResponses(membersByRoom.get(room.getId()), nicknames)))
+                .toList();
+    }
+
     /**
      * 채팅방을 나간다.
      * <ul>

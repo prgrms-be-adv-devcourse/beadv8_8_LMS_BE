@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.assertj.core.api.InstanceOfAssertFactories.LIST;
 
 import java.lang.reflect.Type;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -17,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
@@ -143,6 +145,21 @@ class ChatApiE2ETest {
                 .body(new CreateChatRoomRequest(GUEST_ID))
                 .exchange()
                 .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void 내_채팅방_목록을_조회한다() {
+        ChatRoomResponse room = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED);
+
+        List<ChatRoomResponse> rooms = client.get().uri("/api/v1/chatRooms")
+                .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(new ParameterizedTypeReference<List<ChatRoomResponse>>() {
+                })
+                .returnResult().getResponseBody();
+
+        assertThat(rooms).extracting(ChatRoomResponse::chatRoomId).containsExactly(room.chatRoomId());
     }
 
     @Test

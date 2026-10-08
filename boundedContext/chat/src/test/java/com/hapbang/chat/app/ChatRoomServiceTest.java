@@ -16,6 +16,7 @@ import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomLogResponse;
 import com.hapbang.chat.app.dto.ChatRoomMemberResponse;
+import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.domain.ChatErrorCode;
 import com.hapbang.chat.domain.ChatException;
 import com.hapbang.chat.domain.ChatMessageType;
@@ -221,6 +222,23 @@ class ChatRoomServiceTest {
         assertThatThrownBy(() -> chatRoomService.leave(chatRoomId, OTHER_INFLUENCER_ID, null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
+    }
+
+    @Test
+    void 내_목록에는_참여_중인_종료되지_않은_방만_나온다() {
+        Long left = createRoom();
+        Long active = chatRoomService.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).room().chatRoomId();
+        Long ended = chatRoomService.createOrGet(HOST_ID, ADMIN_ID).room().chatRoomId();
+        chatRoomService.leave(left, HOST_ID, null);
+        chatRoomService.leave(ended, HOST_ID, null);
+        chatRoomService.leave(ended, ADMIN_ID, null);
+
+        assertThat(chatRoomService.getMyRooms(HOST_ID)).extracting(ChatRoomResponse::chatRoomId)
+                .containsExactly(active);
+        assertThat(chatRoomService.getMyRooms(GUEST_ID)).singleElement()
+                .satisfies(room -> assertThat(room.members())
+                        .extracting(ChatRoomMemberResponse::userId, ChatRoomMemberResponse::active)
+                        .containsExactly(tuple(HOST_ID, false), tuple(GUEST_ID, true)));
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.hapbang.chat.in;
 
+import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -51,6 +53,11 @@ public class ChatRoomController {
         ChatRoomCreateResult result = chatRoomFacade.createOrGet(userId, request.targetUserId());
         HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(result.room());
+    }
+
+    @GetMapping
+    public List<ChatRoomResponse> getMyChatRooms(@RequestHeader(ChatHeaders.USER_ID) Long userId) {
+        return chatRoomFacade.getMyRooms(userId);
     }
 
     @GetMapping("/{chatRoomId}/messages")

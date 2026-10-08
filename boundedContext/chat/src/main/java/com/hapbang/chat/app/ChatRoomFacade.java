@@ -1,11 +1,14 @@
 package com.hapbang.chat.app;
 
+import java.util.List;
+
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
+import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.domain.ChatErrorCode;
 import com.hapbang.chat.domain.ChatException;
 
@@ -34,6 +37,10 @@ public class ChatRoomFacade {
                 throw new ChatException(ChatErrorCode.CHAT_ROOM_BUSY);
             }
         }
+    }
+
+    public List<ChatRoomResponse> getMyRooms(Long userId) {
+        return chatRoomService.getMyRooms(userId);
     }
 
     public ChatRoomLeaveResult leave(Long chatRoomId, Long userId, Integer participationVersion) {
