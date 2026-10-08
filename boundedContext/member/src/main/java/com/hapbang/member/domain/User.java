@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 
 /** 회원 원본 */
 @Entity
-@Table(name = "users", schema = "member")
+@Table(name = "users", schema = "members")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends SourceUser {

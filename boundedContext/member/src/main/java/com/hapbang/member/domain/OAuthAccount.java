@@ -20,7 +20,7 @@ import lombok.NoArgsConstructor;
 
 /** OAuth 제공자 계정과 회원 연결 */
 @Entity
-@Table(name = "oauth_account", schema = "member",
+@Table(name = "oauth_account", schema = "members",
         uniqueConstraints = @UniqueConstraint(columnNames = {"provider", "provider_user_id"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
