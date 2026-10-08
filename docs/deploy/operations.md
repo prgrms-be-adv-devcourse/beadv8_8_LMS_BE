@@ -126,8 +126,14 @@ DataGrip → New Data Source → PostgreSQL
 | --- | --- | --- |
 | SSH/SSL | Use SSH tunnel | Host `<EC2 주소>`, Port `22`, User `ubuntu`, Auth type `Key pair`, Private key `<키 파일>` |
 | General | Host / Port | `127.0.0.1` / `15432`(prod) 또는 `15433`(dev) |
-| General | Database / User | `hapbang` / `hapbang` (env 파일의 `POSTGRES_DB`, `POSTGRES_USER`) |
-| General | Password | 서버 관리자에게 받는다. 채팅·노션으로 전달하지 않는다 |
+| General | Database / User | 서버 env 파일의 `POSTGRES_DB` / `POSTGRES_USER` 값 |
+| General | Password | 서버 env 파일의 `POSTGRES_PASSWORD` 값 |
+
+DB 이름·계정·비밀번호는 서버에서 확인한다(화면 공유 중에는 실행하지 않는다). 레포·채팅·노션에 옮겨 적지 않는다.
+
+```bash
+sudo -u deploy grep -E '^POSTGRES_(DB|USER|PASSWORD)=' /opt/hapbang/env/dev.env
+```
 
 터미널로 터널을 열 때:
 

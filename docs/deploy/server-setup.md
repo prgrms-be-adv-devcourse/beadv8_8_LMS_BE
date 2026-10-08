@@ -41,13 +41,14 @@ sudo docker network create hapbang-edge
 
 ## 3. 비밀값
 
-DB 비밀번호는 서버에서 무작위로 만들어 파일에만 기록한다. **한 번만 실행한다**(PostgreSQL은 처음 초기화할 때의 비밀번호를 쓴다).
+DB 비밀번호는 서버에서 무작위로 만들어 파일에만 기록한다. **한 번만 실행한다**(PostgreSQL은 처음 초기화할 때의 값을 쓴다).
+DB 이름·계정도 추측하기 어려운 값으로 정하고, 이 레포나 문서에 적지 않는다.
 
 ```bash
 for e in dev prod; do
 sudo -u deploy sh -c "umask 077; cat > /opt/hapbang/env/$e.env" <<EOF
-POSTGRES_DB=hapbang
-POSTGRES_USER=hapbang
+POSTGRES_DB=<DB 이름>
+POSTGRES_USER=<DB 계정>
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
 EOF
 done
