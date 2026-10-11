@@ -1,5 +1,8 @@
 # 로컬 개발: Docker Compose로 PostgreSQL을 띄우고 연결 정보는 자동으로 주입된다.
 spring:
+  config:
+    # 루트 .env에서 구글 키를 읽는다 (파일이 없어도 실행된다)
+    import: optional:file:.env[.properties]
   docker:
     compose:
       # 프로젝트 루트 기준 경로(IntelliJ 기본 작업 디렉터리, bootRun도 루트로 맞춤).
