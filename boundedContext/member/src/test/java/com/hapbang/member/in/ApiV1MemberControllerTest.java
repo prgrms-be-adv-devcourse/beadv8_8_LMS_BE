@@ -67,4 +67,11 @@ class ApiV1MemberControllerTest {
         mockMvc.perform(post("/api/v1/members/logout").with(TestLogin.as(user.getId(), user.getRole())))
                 .andExpect(status().isForbidden());
     }
+
+    @Test
+    @DisplayName("로컬 로그인 설정이 꺼져 있으면(서버) 로컬 로그인 주소가 없다")
+    void localLogin_disabled() throws Exception {
+        mockMvc.perform(post("/api/v1/members/local-login?role=ADMIN").with(csrf()))
+                .andExpect(status().isNotFound());
+    }
 }

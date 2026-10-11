@@ -1,5 +1,7 @@
 package com.hapbang.member.app;
 
+import java.util.Optional;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,10 +27,16 @@ public class MemberFacade {
         return memberOAuthLoginUseCase.login(provider, providerUserId, email, nickname);
     }
 
-    /** 역할별 테스트 계정 (없으면 생성) */
+    /** 역할별 테스트 계정 만들기 (이미 있으면 건너뜀) */
     @Transactional
-    public User testAccount(Role role) {
-        return memberTestAccountUseCase.findOrCreate(role);
+    public void createTestAccounts() {
+        memberTestAccountUseCase.createAll();
+    }
+
+    /** 역할·번호로 테스트 계정 조회 */
+    @Transactional(readOnly = true)
+    public Optional<User> findTestAccount(Role role, int number) {
+        return memberTestAccountUseCase.find(role, number);
     }
 
     /** 회원 조회 */

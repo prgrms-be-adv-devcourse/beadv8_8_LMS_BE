@@ -22,6 +22,8 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         // 예외가 나면 Spring이 /error로 보내는데, 막혀 있으면 원래 오류 대신 401이 나간다
                         .requestMatchers("/error").permitAll()
+                        // 로컬 로그인 (로컬에서만 켜짐. 서버엔 컨트롤러가 없어 404)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/members/local-login").permitAll()
                         .anyRequest().authenticated()
                 )
                 // 구글 로그인 시작: /api/v1/members/oauth2/authorization/google (회원 처리는 member의 OAuth2UserService 빈)

@@ -27,3 +27,8 @@ spring:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+hapbang:
+  local-login:
+    # 구글 없이 역할로 로그인 (POST /api/v1/members/local-login) + 역할별 테스트 계정 생성. 서버에선 켜지 않는다
+    enabled: true
