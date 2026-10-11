@@ -1,25 +1,21 @@
 package com.hapbang.member.in;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oauth2Login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.Map;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.OAuth2LoginRequestPostProcessor;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.UserRepository;
-import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.TestLogin;
 
 @IntegrationTest
 @AutoConfigureMockMvc
@@ -36,7 +32,7 @@ class ApiV1MemberControllerTest {
     void me_loggedIn() throws Exception {
         User user = userRepository.save(User.join("tester1@example.com", "tester1"));
 
-        mockMvc.perform(get("/api/v1/members/me").with(loginAs(user)))
+        mockMvc.perform(get("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(user.getId()))
                 .andExpect(jsonPath("$.email").value("tester1@example.com"))
@@ -57,13 +53,8 @@ class ApiV1MemberControllerTest {
     void logout() throws Exception {
         User user = userRepository.save(User.join("tester1@example.com", "tester1"));
 
-        mockMvc.perform(post("/api/v1/members/logout").with(loginAs(user)))
+        mockMvc.perform(post("/api/v1/members/logout").with(TestLogin.as(user.getId(), user.getRole())))
                 .andExpect(status().isOk())
                 .andExpect(cookie().maxAge("JSESSIONID", 0));
-    }
-
-    /** 실제 구글 호출 없이 로그인 상태를 만든다 */
-    private OAuth2LoginRequestPostProcessor loginAs(User user) {
-        return oauth2Login().oauth2User(new MemberOAuth2User(user.getId(), user.getRole(), Map.of()));
     }
 }
