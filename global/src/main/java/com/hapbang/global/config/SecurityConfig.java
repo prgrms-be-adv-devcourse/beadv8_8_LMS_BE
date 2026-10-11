@@ -4,7 +4,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
@@ -24,8 +23,11 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 )
-                // 구글 로그인 시작: /oauth2/authorization/google (회원 처리는 member의 OAuth2UserService 빈)
-                .oauth2Login(Customizer.withDefaults())
+                // 구글 로그인 시작: /api/v1/members/oauth2/authorization/google (회원 처리는 member의 OAuth2UserService 빈)
+                // 서버 nginx는 /api/만 Spring으로 보내므로 로그인·콜백 주소도 /api/ 아래에 둔다
+                .oauth2Login(oauth -> oauth
+                        .authorizationEndpoint(a -> a.baseUri("/api/v1/members/oauth2/authorization"))
+                        .redirectionEndpoint(r -> r.baseUri("/api/v1/members/login/oauth2/code/*")))
                 .logout(logout -> logout
                         .logoutRequestMatcher(PathPatternRequestMatcher.withDefaults()
                                 .matcher(HttpMethod.POST, "/api/v1/members/logout"))

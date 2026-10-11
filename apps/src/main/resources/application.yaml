@@ -29,3 +29,5 @@ spring:
             client-secret: ${GOOGLE_CLIENT_SECRET}
             # openid 없이 OAuth2로만 로그인한다 (OIDC는 팀 논의 후)
             scope: profile,email
+            # 구글 로그인 후 돌아올 주소 (SecurityConfig의 콜백 주소와 같아야 한다)
+            redirect-uri: "{baseUrl}/api/v1/members/login/oauth2/code/{registrationId}"
