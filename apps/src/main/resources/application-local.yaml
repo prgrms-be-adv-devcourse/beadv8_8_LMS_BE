@@ -15,6 +15,14 @@ spring:
     properties:
       # 스키마도 같이 만든다
       hibernate.hbm2ddl.create_namespaces: true
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            # 키가 없어도 로컬 실행·테스트는 되게 한다 (구글 로그인만 안 됨). 실제 키는 루트 .env
+            client-id: ${GOOGLE_CLIENT_ID:local-placeholder}
+            client-secret: ${GOOGLE_CLIENT_SECRET:local-placeholder}
 
 springdoc:
   swagger-ui:
