@@ -35,3 +35,9 @@ spring:
             scope: profile,email
             # 구글 로그인 후 돌아올 주소 (SecurityConfig의 콜백 주소와 같아야 한다)
             redirect-uri: "{baseUrl}/api/v1/members/login/oauth2/code/{registrationId}"
+
+springdoc:
+  swagger-ui:
+    csrf:
+      # Swagger가 XSRF-TOKEN 쿠키를 읽어 X-XSRF-TOKEN 헤더로 자동 전송
+      enabled: true

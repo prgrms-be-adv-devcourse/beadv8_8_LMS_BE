@@ -1,5 +1,6 @@
 package com.hapbang.member.in;
 
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
@@ -53,8 +54,17 @@ class ApiV1MemberControllerTest {
     void logout() throws Exception {
         User user = userRepository.save(User.join("tester1@example.com", "tester1"));
 
-        mockMvc.perform(post("/api/v1/members/logout").with(TestLogin.as(user.getId(), user.getRole())))
+        mockMvc.perform(post("/api/v1/members/logout").with(TestLogin.as(user.getId(), user.getRole())).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(cookie().maxAge("SESSION", 0));
+    }
+
+    @Test
+    @DisplayName("CSRF 토큰 없이 로그아웃하면 403을 반환한다")
+    void logout_withoutCsrfToken() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+
+        mockMvc.perform(post("/api/v1/members/logout").with(TestLogin.as(user.getId(), user.getRole())))
+                .andExpect(status().isForbidden());
     }
 }
