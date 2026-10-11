@@ -20,7 +20,10 @@ import org.springframework.test.context.TestExecutionListeners;
 // 운영은 archive지만, 테스트는 처리 완료된 이벤트를 바로 삭제해서 테스트 간에 기록이 쌓이지 않게 한다.
 @SpringBootTest(classes = ModuleTestConfiguration.class, properties = {
         "spring.modulith.events.jdbc.schema-initialization.enabled=true",
-        "spring.modulith.events.completion-mode=delete"
+        "spring.modulith.events.completion-mode=delete",
+        // global의 SecurityConfig(oauth2Login)가 구글 등록 정보를 요구한다
+        "spring.security.oauth2.client.registration.google.client-id=test",
+        "spring.security.oauth2.client.registration.google.client-secret=test"
 })
 @Import(PostgresTestcontainersConfig.class)
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,
