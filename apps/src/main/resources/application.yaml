@@ -18,6 +18,10 @@ spring:
       completion-mode: archive
   jpa:
     open-in-view: false
+  session:
+    jdbc:
+      # 세션 테이블(spring_session)을 앱 시작 시 만든다 (이미 있으면 건너뜀)
+      initialize-schema: always
   security:
     oauth2:
       client:

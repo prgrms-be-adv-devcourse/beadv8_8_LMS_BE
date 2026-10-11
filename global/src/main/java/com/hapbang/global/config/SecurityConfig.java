@@ -33,7 +33,7 @@ public class SecurityConfig {
                                 .matcher(HttpMethod.POST, "/api/v1/members/logout"))
                         // 리다이렉트 없이 200만 응답 (프론트가 화면 이동 처리)
                         .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler())
-                        .deleteCookies("JSESSIONID"))
+                        .deleteCookies("SESSION"))
                 // 비로그인 요청은 구글 로그인 화면으로 리다이렉트하지 않고 401
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)));

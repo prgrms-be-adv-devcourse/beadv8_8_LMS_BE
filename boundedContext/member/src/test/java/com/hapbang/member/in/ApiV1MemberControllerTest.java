@@ -55,6 +55,6 @@ class ApiV1MemberControllerTest {
 
         mockMvc.perform(post("/api/v1/members/logout").with(TestLogin.as(user.getId(), user.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(cookie().maxAge("JSESSIONID", 0));
+                .andExpect(cookie().maxAge("SESSION", 0));
     }
 }
