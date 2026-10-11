@@ -38,6 +38,11 @@ public class User extends SourceUser {
         return new User(email, nickname);
     }
 
+    /** 역할 변경 (승급·테스트 계정) */
+    public void changeRole(Role role) {
+        changeProfile(getNickname(), role, getStatus());
+    }
+
     /** 다른 모듈에 넘길 회원 정보 */
     public UserDto toDto() {
         return new UserDto(getId(), getNickname(), getRole(), getStatus());

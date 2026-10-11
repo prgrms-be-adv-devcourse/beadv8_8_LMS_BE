@@ -35,4 +35,16 @@ class UserTest {
         assertThat(dto.role()).isEqualTo(Role.USER);
         assertThat(dto.status()).isEqualTo(UserStatus.ACTIVE);
     }
+
+    @Test
+    @DisplayName("역할을 바꾸면 닉네임·상태는 그대로다")
+    void changeRole() {
+        User user = User.join("tester1@example.com", "tester1");
+
+        user.changeRole(Role.INFLUENCER);
+
+        assertThat(user.getRole()).isEqualTo(Role.INFLUENCER);
+        assertThat(user.getNickname()).isEqualTo("tester1");
+        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
 }
