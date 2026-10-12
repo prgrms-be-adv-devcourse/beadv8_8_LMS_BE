@@ -1,4 +1,6 @@
-package com.hapbang.lecture.in.dto;
+package com.hapbang.lecture.app.dto;
+
+import com.hapbang.lecture.domain.Lecture;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -16,4 +18,10 @@ public record LectureSummaryResponse(
         Double averageRating,
         long reviewCount
 ) {
+
+    // TODO: 썸네일 URL은 5단계(S3), 평점·리뷰 수는 6단계(리뷰)에서 채운다.
+    public static LectureSummaryResponse of(Lecture lecture, String sellerNickname) {
+        return new LectureSummaryResponse(lecture.getId(), lecture.getTitle(), lecture.getPriceHp(), null,
+                lecture.getSellerUserId(), sellerNickname, null, 0);
+    }
 }

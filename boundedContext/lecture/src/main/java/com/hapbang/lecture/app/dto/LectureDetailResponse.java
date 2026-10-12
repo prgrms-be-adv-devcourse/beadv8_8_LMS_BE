@@ -1,8 +1,9 @@
-package com.hapbang.lecture.in.dto;
+package com.hapbang.lecture.app.dto;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureStatus;
 
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -28,4 +29,24 @@ public record LectureDetailResponse(
         List<LectureContentResponse> contents,
         LocalDateTime createdAt
 ) {
+
+    // TODO: 썸네일 URL은 5단계(S3), 평점·리뷰 수는 6단계(리뷰)에서 채운다.
+    public static LectureDetailResponse of(Lecture lecture, String sellerNickname, boolean showRejectionReason) {
+        return new LectureDetailResponse(
+                lecture.getId(),
+                lecture.getSellerUserId(),
+                sellerNickname,
+                lecture.getTitle(),
+                lecture.getDescription(),
+                lecture.getPriceHp(),
+                null,
+                lecture.getStatus(),
+                showRejectionReason ? lecture.getRejectionReason() : null,
+                lecture.isDeleted(),
+                null,
+                0,
+                lecture.getContents().stream().map(LectureContentResponse::from).toList(),
+                lecture.getCreatedAt()
+        );
+    }
 }

@@ -1,5 +1,7 @@
 package com.hapbang.lecture.in;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,15 +17,12 @@ import com.hapbang.lecture.in.dto.OrderCreateRequest;
 import com.hapbang.lecture.in.dto.OrderItemResponse;
 import com.hapbang.lecture.in.dto.OrderResponse;
 import com.hapbang.lecture.in.dto.OrderSummaryResponse;
-import com.hapbang.lecture.in.dto.PageResponse;
 import com.hapbang.lecture.in.dto.PurchasedLectureResponse;
 import com.hapbang.lecture.in.dto.SaleResponse;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 
 /** 강의 주문 API (설계 8.5) */
 // TODO: 13장 3단계(주문·직접 확정·구매 취소), 5단계(재생 동의)에서 구현한다.
@@ -44,9 +43,8 @@ public class ApiV1LectureOrderController {
 
     @Operation(summary = "내 주문 목록", description = "최근 주문부터.")
     @GetMapping("/orders")
-    public PageResponse<OrderSummaryResponse> getMyOrders(@LoginUserId Long userId,
-            @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
-            @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size) {
+    public Page<OrderSummaryResponse> getMyOrders(@LoginUserId Long userId,
+            Pageable pageable) {
         throw NotImplemented.yet();
     }
 
@@ -84,17 +82,15 @@ public class ApiV1LectureOrderController {
 
     @Operation(summary = "시청 가능한 강의", description = "항목이 PURCHASED·CONFIRMED·PAID_OUT인 강의. 삭제된 강의도 포함한다.")
     @GetMapping("/purchased")
-    public PageResponse<PurchasedLectureResponse> getPurchasedLectures(@LoginUserId Long userId,
-            @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
-            @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size) {
+    public Page<PurchasedLectureResponse> getPurchasedLectures(@LoginUserId Long userId,
+            Pageable pageable) {
         throw NotImplemented.yet();
     }
 
     @Operation(summary = "판매 내역", description = "인증된 인플루언서. 판매한 주문 항목의 상태와 지급 예정 시각.")
     @GetMapping("/sales")
-    public PageResponse<SaleResponse> getSales(@LoginUserId Long userId,
-            @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
-            @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size) {
+    public Page<SaleResponse> getSales(@LoginUserId Long userId,
+            Pageable pageable) {
         throw NotImplemented.yet();
     }
 }
