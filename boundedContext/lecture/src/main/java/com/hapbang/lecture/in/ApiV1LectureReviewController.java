@@ -13,8 +13,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.global.auth.LoginUserId;
+import com.hapbang.lecture.app.dto.PageResponse;
 import com.hapbang.lecture.in.dto.IdResponse;
-import com.hapbang.lecture.in.dto.PageResponse;
 import com.hapbang.lecture.in.dto.ReviewCreateRequest;
 import com.hapbang.lecture.in.dto.ReviewResponse;
 import com.hapbang.lecture.in.dto.ReviewUpdateRequest;

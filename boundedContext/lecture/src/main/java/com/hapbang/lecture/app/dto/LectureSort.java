@@ -1,4 +1,4 @@
-package com.hapbang.lecture.in.dto;
+package com.hapbang.lecture.app.dto;
 
 /**
  * 강의 목록 정렬. 기본은 최신순.

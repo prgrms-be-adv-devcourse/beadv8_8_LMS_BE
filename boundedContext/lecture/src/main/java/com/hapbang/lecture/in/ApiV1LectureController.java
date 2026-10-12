@@ -14,30 +14,36 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.global.auth.LoginUserId;
+import com.hapbang.lecture.app.LectureService;
+import com.hapbang.lecture.app.dto.LectureDetailResponse;
+import com.hapbang.lecture.app.dto.LectureSort;
+import com.hapbang.lecture.app.dto.LectureSummaryResponse;
+import com.hapbang.lecture.app.dto.MyLectureResponse;
+import com.hapbang.lecture.app.dto.PageResponse;
 import com.hapbang.lecture.in.dto.ContentAccessResponse;
 import com.hapbang.lecture.in.dto.IdResponse;
+import com.hapbang.lecture.in.dto.LectureContentRequest;
 import com.hapbang.lecture.in.dto.LectureContentsReplaceRequest;
-import com.hapbang.lecture.in.dto.LectureDetailResponse;
 import com.hapbang.lecture.in.dto.LectureInfoUpdateRequest;
 import com.hapbang.lecture.in.dto.LectureRegisterRequest;
-import com.hapbang.lecture.in.dto.LectureSort;
-import com.hapbang.lecture.in.dto.LectureSummaryResponse;
-import com.hapbang.lecture.in.dto.MyLectureResponse;
-import com.hapbang.lecture.in.dto.PageResponse;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import lombok.RequiredArgsConstructor;
 
 /** 강의 API (설계 8.1) */
-// TODO: 13장 2단계(등록·조회·검수), 5단계(/access)에서 구현한다.
+// TODO: 5단계(/access)에서 구현한다.
 // TODO(security): 역할별 인가(설계 9장)는 global SecurityConfig와 함께 추가한다. 목록 조회는 비회원도 허용할 예정이다.
 @Tag(name = "강의", description = "강의 등록·수정·삭제·조회, 콘텐츠 시청 URL")
 @RestController
 @RequestMapping("/api/v1/lectures")
+@RequiredArgsConstructor
 public class ApiV1LectureController {
+
+    private final LectureService lectureService;
 
     @Operation(summary = "강의 목록",
             description = "판매 중(ON_SALE)인 강의만. 제목 검색, 정렬, 페이징. 비회원도 조회할 수 있다(인가 추가 예정).")
@@ -47,7 +53,7 @@ public class ApiV1LectureController {
             @RequestParam(name = "sort", defaultValue = "LATEST") LectureSort sort,
             @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
             @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size) {
-        throw NotImplemented.yet();
+        return lectureService.getLectures(keyword, sort, page, size);
     }
 
     @Operation(summary = "강의 상세",
@@ -56,7 +62,7 @@ public class ApiV1LectureController {
     @GetMapping("/{lectureId}")
     public LectureDetailResponse getLecture(@LoginUserId Long userId,
             @PathVariable("lectureId") Long lectureId) {
-        throw NotImplemented.yet();
+        return lectureService.getLecture(userId, lectureId);
     }
 
     @Operation(summary = "강의 등록",
@@ -65,7 +71,9 @@ public class ApiV1LectureController {
     @ResponseStatus(HttpStatus.CREATED)
     public IdResponse register(@LoginUserId Long userId,
             @Valid @RequestBody LectureRegisterRequest request) {
-        throw NotImplemented.yet();
+        Long lectureId = lectureService.register(userId, request.title(), request.description(), request.priceHp(),
+                request.thumbnailFileId(), request.contents().stream().map(LectureContentRequest::toSpec).toList());
+        return new IdResponse(lectureId);
     }
 
     @Operation(summary = "강의 정보 수정",
@@ -74,7 +82,8 @@ public class ApiV1LectureController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void updateInfo(@LoginUserId Long userId, @PathVariable("lectureId") Long lectureId,
             @Valid @RequestBody LectureInfoUpdateRequest request) {
-        throw NotImplemented.yet();
+        lectureService.updateInfo(userId, lectureId, request.title(), request.description(), request.priceHp(),
+                request.thumbnailFileId());
     }
 
     @Operation(summary = "강의 삭제",
@@ -82,7 +91,7 @@ public class ApiV1LectureController {
     @DeleteMapping("/{lectureId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@LoginUserId Long userId, @PathVariable("lectureId") Long lectureId) {
-        throw NotImplemented.yet();
+        lectureService.delete(userId, lectureId);
     }
 
     @Operation(summary = "콘텐츠 목록 교체",
@@ -92,14 +101,15 @@ public class ApiV1LectureController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void replaceContents(@LoginUserId Long userId, @PathVariable("lectureId") Long lectureId,
             @Valid @RequestBody LectureContentsReplaceRequest request) {
-        throw NotImplemented.yet();
+        lectureService.replaceContents(userId, lectureId,
+                request.contents().stream().map(LectureContentRequest::toSpec).toList());
     }
 
     @Operation(summary = "재검수 신청", description = "판매자 본인. 반려(REJECTED) → 검수 대기(PENDING_INSPECTION).")
     @PostMapping("/{lectureId}/inspection-requests")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void requestInspection(@LoginUserId Long userId, @PathVariable("lectureId") Long lectureId) {
-        throw NotImplemented.yet();
+        lectureService.requestInspection(userId, lectureId);
     }
 
     @Operation(summary = "내가 등록한 강의", description = "인증된 인플루언서. 모든 상태(삭제 포함).")
@@ -107,7 +117,7 @@ public class ApiV1LectureController {
     public PageResponse<MyLectureResponse> getMyLectures(@LoginUserId Long userId,
             @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
             @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size) {
-        throw NotImplemented.yet();
+        return lectureService.getMyLectures(userId, page, size);
     }
 
     @Operation(summary = "콘텐츠 시청 URL 발급",

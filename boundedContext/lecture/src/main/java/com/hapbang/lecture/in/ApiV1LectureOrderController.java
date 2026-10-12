@@ -11,11 +11,11 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.global.auth.LoginUserId;
+import com.hapbang.lecture.app.dto.PageResponse;
 import com.hapbang.lecture.in.dto.OrderCreateRequest;
 import com.hapbang.lecture.in.dto.OrderItemResponse;
 import com.hapbang.lecture.in.dto.OrderResponse;
 import com.hapbang.lecture.in.dto.OrderSummaryResponse;
-import com.hapbang.lecture.in.dto.PageResponse;
 import com.hapbang.lecture.in.dto.PurchasedLectureResponse;
 import com.hapbang.lecture.in.dto.SaleResponse;
 

@@ -1,6 +1,7 @@
 package com.hapbang.lecture.in.dto;
 
 import com.hapbang.lecture.domain.ContentType;
+import com.hapbang.lecture.domain.LectureContentSpec;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
@@ -13,4 +14,8 @@ public record LectureContentRequest(
         @NotBlank String title,
         @NotNull ContentType contentType
 ) {
+
+    public LectureContentSpec toSpec() {
+        return new LectureContentSpec(fileId, title, contentType);
+    }
 }
