@@ -39,8 +39,8 @@ Actions의 Deploy run에서 실패한 job을 먼저 본다.
 
 | 실패 위치 | 원인 | 대응 |
 | --- | --- | --- |
-| `ci` | 테스트·린트·빌드 실패 | 코드 수정 후 다시 병합 |
-| `build` | Docker 빌드·GHCR push 실패 | 로그 확인. 일시적이면 Re-run |
+| `ci` | 테스트·린트·빌드·이미지 빌드 확인 실패 | 코드 수정 후 다시 병합 |
+| `build` | jar 받기·GHCR push 실패 | 로그 확인. 일시적이면 Re-run(jar artifact는 1일 보관) |
 | `deploy` — SSH 연결 타임아웃 | EC2 꺼짐(18:00 이후) | 서버가 켜진 뒤 `deploy` job Re-run |
 | `deploy` — `Host key verification failed` | 서버 재구축 등으로 호스트 키 변경 | `DEPLOY_KNOWN_HOSTS` Secret 갱신([server-setup.md](server-setup.md#5-배포-키github-secrets)) |
 | `deploy` — `Permission denied (publickey)` | 배포 키 불일치 | 서버 `authorized_keys`와 `DEPLOY_SSH_KEY` 확인 |

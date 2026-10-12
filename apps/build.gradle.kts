@@ -37,6 +37,11 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
 }
 
+// 배포 이미지(docker/Dockerfile)와 CI가 이 이름으로 jar를 찾는다.
+tasks.bootJar {
+    archiveFileName = "app.jar"
+}
+
 // IntelliJ 실행과 같은 작업 디렉터리(프로젝트 루트)를 써서 docker/compose.yaml 경로를 일치시킨다.
 tasks.bootRun {
     workingDir = rootDir
