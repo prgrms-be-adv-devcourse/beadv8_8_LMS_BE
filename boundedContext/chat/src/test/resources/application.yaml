@@ -1,0 +1,8 @@
+spring:
+  jpa:
+    properties:
+      hibernate:
+        # 테스트 DB(create-drop)에 chat 스키마를 만든다.
+        # TODO(db): 운영 스키마 생성 방식이 정해지면 테스트도 같은 방식(마이그레이션 등)으로 맞춘다.
+        hbm2ddl:
+          create_namespaces: true
