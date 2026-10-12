@@ -29,13 +29,18 @@ public class User extends SourceUser {
     private LocalDateTime deletedAt;
 
     private User(String email, String nickname) {
-        super(nickname, Role.USER, UserStatus.ACTIVE);
+        super(Nickname.validate(nickname), Role.USER, UserStatus.ACTIVE);
         this.email = email;
     }
 
     /** 신규 가입 (USER, ACTIVE, 프로필 이미지 없음) */
     public static User join(String email, String nickname) {
         return new User(email, nickname);
+    }
+
+    /** 닉네임 변경 (닉네임 규칙 검증) */
+    public void changeNickname(String nickname) {
+        changeProfile(Nickname.validate(nickname), getRole(), getStatus());
     }
 
     /** 역할 변경 (승급·테스트 계정) */
