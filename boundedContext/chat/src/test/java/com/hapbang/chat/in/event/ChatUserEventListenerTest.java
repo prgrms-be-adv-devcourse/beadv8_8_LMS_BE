@@ -14,8 +14,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserJoinedEvent;
+import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
@@ -72,7 +74,49 @@ class ChatUserEventListenerTest {
                 .untilAsserted(() -> assertThat(chatUserRepository.findById(ADMIN_ID)).isEmpty());
     }
 
+    @Test
+    void 회원_정보_변경_이벤트를_받으면_닉네임_역할_상태를_갱신한다() {
+        publishInTransaction(activeUser(HOST_ID, "호스트", Role.USER));
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatUserRepository.findById(HOST_ID)).isPresent());
+
+        publishModifiedInTransaction(userDto(HOST_ID, "새닉네임", Role.INFLUENCER, UserStatus.ACTIVE));
+
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatUserRepository.findById(HOST_ID))
+                .hasValueSatisfying(chatUser -> {
+                    assertThat(chatUser.getNickname()).isEqualTo("새닉네임");
+                    assertThat(chatUser.getRole()).isEqualTo(Role.INFLUENCER);
+                    assertThat(chatUser.canChat()).isTrue();
+                }));
+    }
+
+    @Test
+    void 채팅_회원이_없으면_변경_이벤트로_생성한다() {
+        publishModifiedInTransaction(activeUser(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER));
+
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatUserRepository.findById(GUEST_ID))
+                .hasValueSatisfying(chatUser -> assertThat(chatUser.getNickname()).isEqualTo("게스트")));
+    }
+
+    @Test
+    void 변경이_반영된_뒤_늦게_온_가입_이벤트는_무시한다() {
+        publishModifiedInTransaction(userDto(HOST_ID, "바뀐닉네임", Role.INFLUENCER, UserStatus.WITHDRAWN));
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatUserRepository.findById(HOST_ID)).isPresent());
+
+        publishInTransaction(activeUser(HOST_ID, "가입닉네임", Role.INFLUENCER));
+
+        await().during(Duration.ofMillis(500)).atMost(TIMEOUT)
+                .untilAsserted(() -> assertThat(chatUserRepository.findById(HOST_ID))
+                        .hasValueSatisfying(chatUser -> {
+                            assertThat(chatUser.getNickname()).isEqualTo("바뀐닉네임");
+                            assertThat(chatUser.isWithdrawn()).isTrue();
+                        }));
+    }
+
     private void publishInTransaction(UserDto user) {
         transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserJoinedEvent(user)));
+    }
+
+    private void publishModifiedInTransaction(UserDto user) {
+        transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(user)));
     }
 }
