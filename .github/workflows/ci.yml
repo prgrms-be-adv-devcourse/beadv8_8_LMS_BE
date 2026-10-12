@@ -1,5 +1,6 @@
-# main·dev로 가는 PR마다 테스트를 실행한다.
+# main·dev로 가는 PR마다 테스트를 실행하고, 테스트한 jar로 이미지가 빌드되는지까지 확인한다(push하지 않음).
 # deploy.yml도 배포 전에 이 워크플로를 호출해, 병합된 커밋이 테스트를 통과해야만 배포된다.
+# 이때 테스트한 jar를 artifact로 넘기고, deploy.yml은 그 jar를 그대로 이미지에 담는다(jar는 한 번만 빌드).
 # 테스트는 Testcontainers로 PostgreSQL을 띄우므로 Docker가 있는 ubuntu 러너가 필요하다.
 name: CI
 
@@ -7,37 +8,63 @@ on:
   pull_request:
     branches: [main, dev]
   workflow_call:
+    inputs:
+      upload-jar:
+        description: 배포용으로 jar를 artifact(app-jar)로 올린다
+        type: boolean
+        default: false
 
 # 같은 PR에 새 커밋이 올라오면 이전 실행을 취소한다. 배포에서 호출된 실행은 run_id로 묶여 취소되지 않는다.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
+# PR의 코드(테스트·빌드 스크립트)가 실행되므로 읽기 권한만 준다. 이미지 push는 deploy.yml의 build job이 한다.
 permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  verify:
+    runs-on: ubuntu-24.04
     # 운영 컨테이너와 같은 시간대(KST)에서 테스트한다. JVM 기본 시간대가 JDBC 세션 시간대로도 쓰인다.
     env:
       TZ: Asia/Seoul
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
 
-      - uses: gradle/actions/setup-gradle@v4
+      # v6부터 캐시 기능이 Gradle 상용 약관(Terms of Use)을 따르므로 MIT인 v5를 쓴다.
+      - uses: gradle/actions/setup-gradle@v5
 
-      - name: 테스트
-        run: ./gradlew check --no-daemon
+      # jar는 apps/build/libs/app.jar로 나온다(apps/build.gradle.kts).
+      - name: 테스트·jar 빌드
+        run: ./gradlew check :apps:bootJar --no-daemon
 
       - name: 테스트 리포트 업로드
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports
           path: '**/build/reports/tests/'
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: 이미지 빌드 확인
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/build/libs
+          file: docker/Dockerfile
+          push: false
+
+      - name: jar 업로드(배포용)
+        if: inputs.upload-jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-jar
+          path: apps/build/libs/app.jar
+          if-no-files-found: error
+          retention-days: 1
