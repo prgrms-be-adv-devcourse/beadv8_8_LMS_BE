@@ -13,7 +13,7 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 관리자의 강의 검수 진입점 (설계 8.2).
- * 관리자 여부는 여기서 검사한다. /admin 경로는 SecurityConfig도 함께 막는다 (D15).
+ * 관리자 여부는 여기서 검사한다. /admin 경로는 SecurityConfig도 함께 막는다 (D16).
  * 로그인 정보가 없는 호출(배치·이벤트 리스너)은 거부된다.
  */
 @Service

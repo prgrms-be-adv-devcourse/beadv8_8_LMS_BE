@@ -18,22 +18,19 @@ import com.hapbang.lecture.app.dto.InspectionLectureResponse;
 import com.hapbang.lecture.domain.LectureStatus;
 import com.hapbang.lecture.in.dto.LectureRejectRequest;
 
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
-/** 강의 검수 API (설계 8.2, 관리자) */
-@Tag(name = "강의 검수", description = "관리자의 강의 승인·반려")
+/** 강의 검수 API (설계 8.2, 관리자). Swagger 명세는 {@link ApiV1LectureInspectionControllerDocs} */
 @RestController
-// 관리자 API는 /admin 경로(SecurityConfig)와 LectureInspectionFacade의 @PreAuthorize로 함께 막는다 (D15)
+// 관리자 API는 /admin 경로(SecurityConfig)와 LectureInspectionFacade의 @PreAuthorize로 함께 막는다 (D16)
 @RequestMapping("/api/v1/lectures/admin")
 @RequiredArgsConstructor
-public class ApiV1LectureInspectionController {
+public class ApiV1LectureInspectionController implements ApiV1LectureInspectionControllerDocs {
 
     private final LectureInspectionFacade lectureInspectionFacade;
 
-    @Operation(summary = "검수 목록", description = "관리자. 기본은 검수 대기(PENDING_INSPECTION), 오래된 신청부터.")
+    @Override
     @GetMapping("/inspections")
     public Page<InspectionLectureResponse> getInspections(
             @RequestParam(name = "status", defaultValue = "PENDING_INSPECTION") LectureStatus status,
@@ -41,15 +38,14 @@ public class ApiV1LectureInspectionController {
         return lectureInspectionFacade.getInspections(status, pageable);
     }
 
-    @Operation(summary = "검수 승인",
-            description = "관리자. 검수 대기 → 판매 중(ON_SALE). 검수 대기 중에는 콘텐츠가 바뀌지 않으므로 제출된 그대로 승인한다.")
+    @Override
     @PostMapping("/{lectureId}/inspection/approve")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void approve(@LoginUserId Long adminUserId, @PathVariable("lectureId") Long lectureId) {
         lectureInspectionFacade.approve(adminUserId, lectureId);
     }
 
-    @Operation(summary = "검수 반려", description = "관리자. 검수 대기 → 반려(REJECTED). 사유 필수.")
+    @Override
     @PostMapping("/{lectureId}/inspection/reject")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void reject(@LoginUserId Long adminUserId, @PathVariable("lectureId") Long lectureId,
