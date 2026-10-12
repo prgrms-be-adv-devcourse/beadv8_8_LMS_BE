@@ -20,9 +20,12 @@ public class PostgresTestcontainersConfig {
             registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
             registry.add("spring.datasource.username", POSTGRES::getUsername);
             registry.add("spring.datasource.password", POSTGRES::getPassword);
-            registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
-            // 엔티티의 schema(member, billing …)도 테이블과 함께 생성한다
-            registry.add("spring.jpa.properties.hibernate.hbm2ddl.create_namespaces", () -> "true");
+            // 운영과 같이 스키마는 Flyway 마이그레이션으로 만들고, Hibernate는 엔티티와 테이블이 맞는지만 검사한다.
+            // 모듈 테스트에서는 클래스패스에 있는 그 모듈의 마이그레이션만 실행된다.
+            registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
+            registry.add("spring.flyway.baseline-on-migrate", () -> "true");
+            registry.add("spring.flyway.baseline-version", () -> "0");
+            registry.add("spring.flyway.out-of-order", () -> "true");
         };
     }
 }

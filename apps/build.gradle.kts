@@ -26,6 +26,10 @@ dependencies {
 
     runtimeOnly("org.postgresql:postgresql")
 
+    // DB 스키마는 Flyway 마이그레이션으로 만든다. SQL은 각 모듈의 src/main/resources/db/migration/에 둔다 (docs/db-migration.md).
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql")
+
     testImplementation("org.springframework.modulith:spring-modulith-starter-test")
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
     testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-client-test")

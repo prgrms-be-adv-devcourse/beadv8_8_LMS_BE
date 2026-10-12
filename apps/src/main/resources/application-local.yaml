@@ -8,13 +8,6 @@ spring:
       # 프로젝트 루트 기준 경로(IntelliJ 기본 작업 디렉터리, bootRun도 루트로 맞춤).
       # .env도 compose 파일과 같은 디렉터리에서 읽힌다.
       file: docker/compose.yaml
-  jpa:
-    hibernate:
-      # 로컬: 엔티티를 보고 테이블을 만들거나 컬럼을 추가한다
-      ddl-auto: update
-    properties:
-      # 스키마도 같이 만든다
-      hibernate.hbm2ddl.create_namespaces: true
   security:
     oauth2:
       client:

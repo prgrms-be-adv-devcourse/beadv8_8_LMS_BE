@@ -55,6 +55,7 @@ PR → dev/main 병합 → GitHub Actions
 | 운영 반영 | `dev` → `main` PR 병합 |
 | 롤백 | 되돌릴 버전의 Deploy run → `deploy` job 재실행 |
 | 환경변수 추가 | [env-vars.md](env-vars.md) |
+| DB 스키마 변경 | Flyway 마이그레이션 SQL 추가, 앱 시작 시 자동 적용 → [db-migration.md](../db-migration.md) |
 | 배포 실패 확인 | [operations.md#배포-실패-대응](operations.md#배포-실패-대응) |
 | compose·nginx 수정 | PR 병합 + 서버에 직접 반영 → [operations.md#설정-반영](operations.md#설정-반영) |
 
@@ -62,7 +63,6 @@ PR → dev/main 병합 → GitHub Actions
 
 | 항목 | 현재 상태 |
 | --- | --- |
-| DB 스키마 관리 | Flyway·Liquibase·`ddl-auto` 설정 없음 → **테이블이 자동으로 만들어지지 않는다** |
 | DB 백업 | 자동 백업 없음. 수동 절차만 있음([operations.md](operations.md#db-백업복원)) |
 | dev 접근 제한 | dev(Swagger 포함)가 인터넷에 공개되어 있음 |
 | 헬스 체크 | 포트 확인 방식. Actuator readiness로 교체 가능 |
