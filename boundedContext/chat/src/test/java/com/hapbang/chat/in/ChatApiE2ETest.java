@@ -94,7 +94,7 @@ class ChatApiE2ETest {
 
     @Test
     void 일반_유저가_채팅방을_만들면_403_ProblemDetail() {
-        ProblemDetail problem = client.post().uri("/api/v1/chatRooms")
+        ProblemDetail problem = client.post().uri("/api/v1/chats")
                 .header(ChatHeaders.USER_ID, String.valueOf(USER_ID))
                 .body(new CreateChatRoomRequest(HOST_ID))
                 .exchange()
@@ -108,7 +108,7 @@ class ChatApiE2ETest {
 
     @Test
     void 채팅_상대_ID가_없으면_400_ProblemDetail에_항목별_오류를_담는다() {
-        ProblemDetail problem = client.post().uri("/api/v1/chatRooms")
+        ProblemDetail problem = client.post().uri("/api/v1/chats")
                 .header(ChatHeaders.USER_ID, String.valueOf(HOST_ID))
                 .body(new CreateChatRoomRequest(null))
                 .exchange()
@@ -126,7 +126,7 @@ class ChatApiE2ETest {
     void 메시지_조회_size가_범위를_벗어나면_400() {
         ChatRoomResponse room = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED);
 
-        ProblemDetail problem = client.get().uri("/api/v1/chatRooms/{id}/messages?size=0", room.chatRoomId())
+        ProblemDetail problem = client.get().uri("/api/v1/chats/{id}/messages?size=0", room.chatRoomId())
                 .header(ChatHeaders.USER_ID, String.valueOf(HOST_ID))
                 .exchange()
                 .expectStatus().isBadRequest()
@@ -141,7 +141,7 @@ class ChatApiE2ETest {
 
     @Test
     void 회원_ID_헤더가_없으면_400() {
-        client.post().uri("/api/v1/chatRooms")
+        client.post().uri("/api/v1/chats")
                 .body(new CreateChatRoomRequest(GUEST_ID))
                 .exchange()
                 .expectStatus().isBadRequest();
@@ -151,7 +151,7 @@ class ChatApiE2ETest {
     void 내_채팅방_목록을_조회한다() {
         ChatRoomResponse room = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED);
 
-        List<ChatRoomResponse> rooms = client.get().uri("/api/v1/chatRooms")
+        List<ChatRoomResponse> rooms = client.get().uri("/api/v1/chats")
                 .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
                 .exchange()
                 .expectStatus().isOk()
@@ -167,13 +167,13 @@ class ChatApiE2ETest {
         ChatRoomResponse room = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED);
 
         for (int i = 0; i < 2; i++) {
-            client.delete().uri("/api/v1/chatRooms/{id}/members/me", room.chatRoomId())
+            client.delete().uri("/api/v1/chats/{id}/members/me", room.chatRoomId())
                     .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
                     .exchange()
                     .expectStatus().isNoContent();
         }
 
-        client.get().uri("/api/v1/chatRooms/{id}/messages", room.chatRoomId())
+        client.get().uri("/api/v1/chats/{id}/messages", room.chatRoomId())
                 .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
                 .exchange()
                 .expectStatus().isForbidden();
@@ -183,12 +183,12 @@ class ChatApiE2ETest {
     void 관리자가_아니면_기록_조회는_403() {
         ChatRoomResponse room = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED);
 
-        client.get().uri("/api/v1/chatRooms/{id}/history", room.chatRoomId())
+        client.get().uri("/api/v1/chats/{id}/history", room.chatRoomId())
                 .header(ChatHeaders.USER_ID, String.valueOf(HOST_ID))
                 .exchange()
                 .expectStatus().isForbidden();
 
-        client.get().uri("/api/v1/chatRooms/{id}/history", room.chatRoomId())
+        client.get().uri("/api/v1/chats/{id}/history", room.chatRoomId())
                 .header(ChatHeaders.USER_ID, String.valueOf(ADMIN_ID))
                 .exchange()
                 .expectStatus().isOk();
@@ -199,17 +199,17 @@ class ChatApiE2ETest {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED).chatRoomId();
         StompSession host = connect(HOST_ID);
         StompSession guest = connect(GUEST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
-        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
         BlockingQueue<ChatNotification> guestNotifications = subscribe(guest,
-                "/user/queue/notifications", ChatNotification.class);
+                "/user/queue/chats/notifications", ChatNotification.class);
         BlockingQueue<ChatNotification> hostNotifications = subscribe(host,
-                "/user/queue/notifications", ChatNotification.class);
+                "/user/queue/chats/notifications", ChatNotification.class);
         waitForSubscriptions();
 
-        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest("금요일 밤 9시 괜찮으세요?"));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("금요일 밤 9시 괜찮으세요?"));
 
         ChatMessageResponse received = guestMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(received).isNotNull();
@@ -225,7 +225,7 @@ class ChatApiE2ETest {
         assertThat(notification.messageId()).isEqualTo(received.messageId());
         assertThat(hostNotifications.poll(500, TimeUnit.MILLISECONDS)).isNull();
 
-        ChatMessagePageResponse page = client.get().uri("/api/v1/chatRooms/{id}/messages", chatRoomId)
+        ChatMessagePageResponse page = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
                 .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
                 .exchange()
                 .expectStatus().isOk()
@@ -241,14 +241,14 @@ class ChatApiE2ETest {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED).chatRoomId();
         StompSession host = connect(HOST_ID);
         StompSession guest = connect(GUEST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
-        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
-        BlockingQueue<ChatErrorMessage> hostErrors = subscribe(host, "/user/queue/errors", ChatErrorMessage.class);
+        BlockingQueue<ChatErrorMessage> hostErrors = subscribe(host, "/user/queue/chats/errors", ChatErrorMessage.class);
         waitForSubscriptions();
 
-        client.delete().uri("/api/v1/chatRooms/{id}/members/me", chatRoomId)
+        client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
                 .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
                 .exchange()
                 .expectStatus().isNoContent();
@@ -259,7 +259,7 @@ class ChatApiE2ETest {
         assertThat(leftNotice.content()).isEqualTo("게스트님이 나갔습니다.");
         assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
 
-        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest("아직 계세요?"));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("아직 계세요?"));
 
         ChatErrorMessage error = hostErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(error).isNotNull();
@@ -274,14 +274,14 @@ class ChatApiE2ETest {
         StompSession guest = connect(GUEST_ID);
         guest.disconnect();
         StompSession host = connect(HOST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/messages",
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
         waitForSubscriptions();
 
-        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest("다시 오면 보세요"));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("다시 오면 보세요"));
 
         assertThat(hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
-        ChatMessagePageResponse guestPage = client.get().uri("/api/v1/chatRooms/{id}/messages", chatRoomId)
+        ChatMessagePageResponse guestPage = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
                 .header(ChatHeaders.USER_ID, String.valueOf(GUEST_ID))
                 .exchange()
                 .expectStatus().isOk()
@@ -295,10 +295,10 @@ class ChatApiE2ETest {
     void STOMP로_빈_메시지를_보내면_보낸_사람에게_오류가_간다() throws Exception {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID, HttpStatus.CREATED).chatRoomId();
         StompSession host = connect(HOST_ID);
-        BlockingQueue<ChatErrorMessage> errors = subscribe(host, "/user/queue/errors", ChatErrorMessage.class);
+        BlockingQueue<ChatErrorMessage> errors = subscribe(host, "/user/queue/chats/errors", ChatErrorMessage.class);
         waitForSubscriptions();
 
-        host.send("/pub/chatRooms/" + chatRoomId + "/messages", new SendChatMessageRequest(" "));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest(" "));
 
         ChatErrorMessage error = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(error).isNotNull();
@@ -311,7 +311,7 @@ class ChatApiE2ETest {
         BlockingQueue<String> errorFrames = new LinkedBlockingQueue<>();
         StompSession outsider = connect(OTHER_INFLUENCER_ID, errorFrames);
 
-        outsider.subscribe("/queue/messages", new StompSessionHandlerAdapter() {
+        outsider.subscribe("/queue/chats/messages", new StompSessionHandlerAdapter() {
         });
 
         String error = errorFrames.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -319,7 +319,7 @@ class ChatApiE2ETest {
     }
 
     private ChatRoomResponse createRoom(Long userId, Long targetUserId, HttpStatus expectedStatus) {
-        ChatRoomResponse room = client.post().uri("/api/v1/chatRooms")
+        ChatRoomResponse room = client.post().uri("/api/v1/chats")
                 .header(ChatHeaders.USER_ID, String.valueOf(userId))
                 .body(new CreateChatRoomRequest(targetUserId))
                 .exchange()
@@ -348,7 +348,7 @@ class ChatApiE2ETest {
                 errorFrames.add(String.valueOf(headers.getFirst("message")));
             }
         };
-        return stompClient.connectAsync("ws://localhost:" + port + "/ws", new WebSocketHttpHeaders(),
+        return stompClient.connectAsync("ws://localhost:" + port + "/api/v1/chats/ws", new WebSocketHttpHeaders(),
                 connectHeaders, handler).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 

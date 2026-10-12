@@ -24,7 +24,7 @@ import lombok.NoArgsConstructor;
  * </ul>
  */
 @Entity
-@Table(name = "chat_room", schema = "chat",
+@Table(name = "chat_room", schema = "chats",
         uniqueConstraints = @UniqueConstraint(name = "uk_chat_room_direct_key", columnNames = "direct_key"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

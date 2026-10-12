@@ -8,6 +8,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -24,8 +25,10 @@ import lombok.NoArgsConstructor;
  * </ul>
  */
 @Entity
-@Table(name = "chat_room_member", schema = "chat",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"chat_room_id", "user_id"}))
+@Table(name = "chat_room_member", schema = "chats",
+        uniqueConstraints = @UniqueConstraint(name = "uk_chat_room_member_room_user",
+                columnNames = {"chat_room_id", "user_id"}),
+        indexes = @Index(name = "idx_chat_room_member_user_id_left_at", columnList = "user_id, left_at"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatRoomMember {

@@ -23,8 +23,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 클라이언트가 /pub/chatRooms/{chatRoomId}/messages로 보내면 DB에 저장한 뒤
- * 현재 참여자에게 /user/queue/messages로 전달하고, 받는 사람에게 새 메시지 알림을 보낸다.
+ * 클라이언트가 /pub/chats/{chatRoomId}/messages로 보내면 DB에 저장한 뒤
+ * 현재 참여자에게 /user/queue/chats/messages로 전달하고, 받는 사람에게 새 메시지 알림을 보낸다.
  */
 @Controller
 @RequiredArgsConstructor
@@ -33,7 +33,7 @@ public class ChatMessageStompController {
     private final ChatMessageFacade chatMessageFacade;
     private final ChatMessageSender chatMessageSender;
 
-    @MessageMapping("/chatRooms/{chatRoomId}/messages")
+    @MessageMapping("/chats/{chatRoomId}/messages")
     public void sendMessage(@DestinationVariable("chatRoomId") Long chatRoomId,
             @Valid @Payload SendChatMessageRequest request, Principal principal) {
         Long senderId = Long.valueOf(principal.getName());

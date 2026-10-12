@@ -22,8 +22,9 @@ import lombok.NoArgsConstructor;
  * 채팅 메시지. {@code roomSequence}는 방 단위 순번으로, 참여자별 조회 범위를 정하는 기준이다.
  */
 @Entity
-@Table(name = "chat_message", schema = "chat",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"chat_room_id", "room_sequence"}))
+@Table(name = "chat_message", schema = "chats",
+        uniqueConstraints = @UniqueConstraint(name = "uk_chat_message_room_sequence",
+                columnNames = {"chat_room_id", "room_sequence"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatMessage {
