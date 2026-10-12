@@ -14,4 +14,10 @@ public class BillingException extends RuntimeException {
         super(errorCode.getMessage());
         this.errorCode = errorCode;
     }
+
+    // 오류 코드와 그 기본 메시지, 원인 예외로 예외를 생성한다.
+    public BillingException(BillingErrorCode errorCode, Throwable cause) {
+        super(errorCode.getMessage(), cause);
+        this.errorCode = errorCode;
+    }
 }

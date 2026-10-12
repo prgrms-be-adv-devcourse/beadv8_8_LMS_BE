@@ -9,6 +9,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import lombok.AccessLevel;
@@ -78,6 +79,10 @@ public class PointLedger extends BillingCreatedEntity {
     @Column(name = "occurred_at", nullable = false, columnDefinition = "timestamptz", updatable = false)
     private Instant occurredAt;
 
+    // 빌더로 새로 만든 원장 항목만 true이며, 지갑에 한 번 반영하면 false가 된다. DB에서 읽은 항목은 기본 생성자로 만들어져 false다.
+    @Transient
+    private boolean pendingApplication;
+
     // 빌더로 전달받은 지갑·HP 증감·작업키·참조 대상·발생 시각으로 원장 항목을 초기화한다.
     @Builder
     private PointLedger(
@@ -106,5 +111,16 @@ public class PointLedger extends BillingCreatedEntity {
         this.idempotencyKey = idempotencyKey;
         this.description = description;
         this.occurredAt = occurredAt;
+        this.pendingApplication = true;
+    }
+
+    // 아직 지갑에 반영하지 않은, 빌더로 새로 만든 원장 항목인지 반환한다.
+    boolean isPendingApplication() {
+        return pendingApplication;
+    }
+
+    // 지갑에 반영했음을 표시해 같은 원장 항목이 다시 반영되지 않게 한다.
+    void markApplied() {
+        pendingApplication = false;
     }
 }
