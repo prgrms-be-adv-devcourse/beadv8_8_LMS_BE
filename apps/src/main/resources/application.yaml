@@ -2,6 +2,10 @@
 spring:
   application:
     name: hapbang
+  config:
+    # 모듈 전용 설정 파일을 함께 읽는다. 각 파일은 자기 모듈 접두사(예: appearance.*)만 쓴다.
+    import:
+      - classpath:appearance.yml
   profiles:
     # 프로필을 지정하지 않으면 local로 실행한다. 운영은 SPRING_PROFILES_ACTIVE=prod로 지정한다.
     default: local
