@@ -2,6 +2,10 @@
 spring:
   application:
     name: hapbang
+  config:
+    # 모듈 전용 설정 파일을 함께 읽는다. 각 파일은 자기 모듈 접두사(예: appearance.*)만 쓴다.
+    import:
+      - classpath:appearance.yml
   profiles:
     # 프로필을 지정하지 않으면 local로 실행한다. 운영은 SPRING_PROFILES_ACTIVE=prod로 지정한다.
     default: local
@@ -29,3 +33,26 @@ spring:
     # 버전은 작성 시각이라, 먼저 작성했지만 늦게 병합된 마이그레이션은 이미 적용된 버전보다 낮다.
     # 모듈마다 스키마가 달라 서로 의존하지 않으므로 낮은 버전도 실행한다(끄면 앱 시작이 실패한다).
     out-of-order: true
+  session:
+    jdbc:
+      # 세션 테이블(spring_session)을 앱 시작 시 만든다 (이미 있으면 건너뜀)
+      initialize-schema: always
+  security:
+    oauth2:
+      client:
+        registration:
+          # 구글은 Spring에 로그인·토큰 주소가 내장되어 있어 provider 설정을 생략한다
+          google:
+            # 기본값을 두지 않는다 → 서버에 값이 없으면 기동 실패 (docs/deploy/env-vars.md)
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            # openid 없이 OAuth2로만 로그인한다 (OIDC는 팀 논의 후)
+            scope: profile,email
+            # 구글 로그인 후 돌아올 주소 (SecurityConfig의 콜백 주소와 같아야 한다)
+            redirect-uri: "{baseUrl}/api/v1/members/login/oauth2/code/{registrationId}"
+
+springdoc:
+  swagger-ui:
+    csrf:
+      # Swagger가 XSRF-TOKEN 쿠키를 읽어 X-XSRF-TOKEN 헤더로 자동 전송
+      enabled: true
