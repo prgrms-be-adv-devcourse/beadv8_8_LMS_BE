@@ -88,6 +88,7 @@ public class ChatRoomService {
 
     @Transactional(readOnly = true)
     public List<ChatRoomResponse> getMyRooms(Long userId) {
+        chatValidationService.validateCanChat(userId);
         List<ChatRoom> rooms = chatRoomMemberRepository.findActiveByUserId(userId).stream()
                 .map(ChatRoomMember::getChatRoom)
                 .toList();

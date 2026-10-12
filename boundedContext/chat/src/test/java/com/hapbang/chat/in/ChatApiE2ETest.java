@@ -160,12 +160,12 @@ class ChatApiE2ETest {
         E2ESession host = login(HOST_ID, Role.INFLUENCER);
         Long chatRoomId = createRoom(host, GUEST_ID, HttpStatus.CREATED).chatRoomId();
 
-        client.get().uri("/api/v1/chats/{id}/history", chatRoomId)
+        client.get().uri("/api/v1/chats/admin/{id}/history", chatRoomId)
                 .header(HttpHeaders.COOKIE, host.cookieHeader())
                 .exchange()
                 .expectStatus().isForbidden();
 
-        ChatRoomHistoryResponse history = client.get().uri("/api/v1/chats/{id}/history", chatRoomId)
+        ChatRoomHistoryResponse history = client.get().uri("/api/v1/chats/admin/{id}/history", chatRoomId)
                 .header(HttpHeaders.COOKIE, login(ADMIN_ID, Role.ADMIN).cookieHeader())
                 .exchange()
                 .expectStatus().isOk()
@@ -173,6 +173,46 @@ class ChatApiE2ETest {
                 .returnResult().getResponseBody();
         assertThat(history).isNotNull();
         assertThat(history.chatRoomId()).isEqualTo(chatRoomId);
+    }
+
+    @Test
+    void 채팅_회원_역할이_인플루언서여도_세션_역할이_일반_유저면_컨트롤러에서_403() {
+        ProblemDetail problem = client.get().uri("/api/v1/chats")
+                .header(HttpHeaders.COOKIE, login(HOST_ID, Role.USER).cookieHeader())
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody(ProblemDetail.class)
+                .returnResult().getResponseBody();
+
+        assertThat(problem).isNotNull();
+        assertThat(problem.getProperties()).containsEntry("code", "CHAT_NOT_ALLOWED");
+    }
+
+    @Test
+    void 로그인_후_강등되면_세션_역할이_인플루언서여도_서비스에서_403() {
+        E2ESession host = login(HOST_ID, Role.INFLUENCER);
+        chatUserService.update(activeUser(HOST_ID, "호스트", Role.USER));
+
+        ProblemDetail problem = client.get().uri("/api/v1/chats")
+                .header(HttpHeaders.COOKIE, host.cookieHeader())
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody(ProblemDetail.class)
+                .returnResult().getResponseBody();
+
+        assertThat(problem).isNotNull();
+        assertThat(problem.getProperties()).containsEntry("code", "CHAT_NOT_ALLOWED");
+    }
+
+    @Test
+    void 강등된_회원도_채팅방은_나갈_수_있다() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        chatUserService.update(activeUser(HOST_ID, "호스트", Role.USER));
+
+        client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
+                .headers(login(HOST_ID, Role.USER)::applyTo)
+                .exchange()
+                .expectStatus().isNoContent();
     }
 
     private E2ESession login(Long userId, Role role) {
