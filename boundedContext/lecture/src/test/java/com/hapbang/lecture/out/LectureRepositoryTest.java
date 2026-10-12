@@ -60,7 +60,7 @@ class LectureRepositoryTest {
     private long countContents(Long lectureId, boolean deleted) {
         String condition = deleted ? "deleted_at is not null" : "deleted_at is null";
         Number count = (Number) entityManager.createNativeQuery(
-                        "select count(*) from lecture.lecture_content where lecture_id = :lectureId and " + condition)
+                        "select count(*) from lectures.lecture_content where lecture_id = :lectureId and " + condition)
                 .setParameter("lectureId", lectureId)
                 .getSingleResult();
         return count.longValue();

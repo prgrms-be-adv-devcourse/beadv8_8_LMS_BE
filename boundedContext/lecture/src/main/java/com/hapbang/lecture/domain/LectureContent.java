@@ -22,7 +22,7 @@ import lombok.NoArgsConstructor;
  * 강의 영상·자료 한 개. {@link Lecture}를 통해서만 만들고 지운다.
  */
 @Entity
-@Table(name = "lecture_content", schema = "lecture",
+@Table(name = "lecture_content", schema = "lectures",
         indexes = @Index(name = "idx_lecture_content_lecture_id", columnList = "lecture_id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

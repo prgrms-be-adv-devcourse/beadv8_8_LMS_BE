@@ -21,7 +21,7 @@ import java.util.List;
  * </ul>
  */
 @Entity
-@Table(name = "lecture", schema = "lecture")
+@Table(name = "lecture", schema = "lectures")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Lecture {

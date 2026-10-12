@@ -1,5 +1,5 @@
 /**
- * 강의 도메인. 모든 테이블은 {@code lecture} 스키마에 둔다.
+ * 강의 도메인. 모든 테이블은 {@code lectures} 스키마에 둔다.
  * <ul>
  *     <li>lecture: 강의 (status, rejection_reason, inspection_requested_at, inspected_at, inspected_by, version)</li>
  *     <li>lecture_content: 강의 영상·자료 (file_id, sequence, content_type)</li>

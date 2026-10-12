@@ -56,7 +56,7 @@
 | P10 | 일부 항목 반환 시 그 주문에 남은 보류분 중 충전 HP부터 반환 (→ **보류는 주문 단위**로 잡혀야 함) | 정책 1 |
 | P11 | 주문은 상태값으로 관리하고 삭제하지 않는다. 강의는 Soft Delete. 그 외 모든 데이터도 Soft Delete | 기획서 데이터 모델, AGENTS 5장 |
 | P12 | 모든 기간·마감·일시는 **KST** 기준 | 정책 머리말 |
-| P13 | 다른 모듈과는 회원 ID와 이벤트로만 연결. 스키마 간 FK·JOIN 금지. 스키마 이름 `lecture` | AGENTS 3장 |
+| P13 | 다른 모듈과는 회원 ID와 이벤트로만 연결. 스키마 간 FK·JOIN 금지. 스키마 이름 `lectures` (회원 `members`·출연 `appearances`와 같은 복수형) | AGENTS 3장 |
 
 ---
 
@@ -64,7 +64,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph lecture["강의 모듈 (schema: lecture)"]
+    subgraph lecture["강의 모듈 (schema: lectures)"]
         L[Lecture / LectureContent]
         F[FileResource]
         C[Cart / CartItem]
@@ -525,9 +525,9 @@ sequenceDiagram
 
 ---
 
-## 7. 스키마 (`lecture`)
+## 7. 스키마 (`lectures`)
 
-ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모든 테이블은 `@Table(schema = "lecture")`. 공통 컬럼 `created_at`, `updated_at`은 채팅 모듈과 같이 엔티티에 직접 두고 도메인 메서드가 받은 시각으로 기록한다(`BaseEntity`·JPA Auditing 미사용. 회원 모듈의 `BaseEntity`가 병합되면 통일 여부를 팀과 정한다).
+ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모든 테이블은 `@Table(schema = "lectures")`. 공통 컬럼 `created_at`, `updated_at`은 채팅 모듈과 같이 엔티티에 직접 두고 도메인 메서드가 받은 시각으로 기록한다(`BaseEntity`·JPA Auditing 미사용. 회원 모듈의 `BaseEntity`가 병합되면 통일 여부를 팀과 정한다).
 
 ### 7.1 테이블
 

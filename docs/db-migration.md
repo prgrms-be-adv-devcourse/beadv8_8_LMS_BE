@@ -33,7 +33,7 @@ boundedContext/{모듈}/src/main/resources/db/migration/V{yyyyMMddHHmm}__{설명
 
 ## 생성 후 확인
 
-- [ ] **모듈의 첫 마이그레이션이면 맨 위에 `CREATE SCHEMA IF NOT EXISTS {모듈};`을 직접 넣는다.** JPA에는 스키마 생성 표현이 없어 생성기가 넣어 주지 않는다. 없으면 빈 DB(테스트·서버)에서 실패한다.
+- [ ] **모듈의 첫 마이그레이션이면 맨 위에 `CREATE SCHEMA IF NOT EXISTS {스키마};`를 직접 넣는다 (예: `lectures`, `members`).** JPA에는 스키마 생성 표현이 없어 생성기가 넣어 주지 않는다. 없으면 빈 DB(테스트·서버)에서 실패한다.
 - [ ] 다른 모듈 스키마의 테이블이나 `DROP` 문이 없다.
 - [ ] `./gradlew :{모듈}:test`가 통과한다 (`validate`로 엔티티와 SQL 일치 확인).
 
