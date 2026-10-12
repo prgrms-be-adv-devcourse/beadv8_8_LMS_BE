@@ -1,7 +1,5 @@
 package com.hapbang.lecture.app;
 
-import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Map;
 
 import org.springframework.data.domain.Page;
@@ -9,14 +7,13 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.lecture.app.dto.InspectionLectureResponse;
 import com.hapbang.lecture.app.dto.LectureDetailResponse;
 import com.hapbang.lecture.app.dto.LectureSort;
 import com.hapbang.lecture.app.dto.LectureSummaryResponse;
 import com.hapbang.lecture.app.dto.MyLectureResponse;
 import com.hapbang.lecture.domain.Lecture;
-import com.hapbang.lecture.domain.LectureContentSpec;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureStatus;
@@ -24,66 +21,37 @@ import com.hapbang.lecture.out.LectureRepository;
 
 import lombok.RequiredArgsConstructor;
 
-/**
- * 강의 등록·수정·삭제·조회 (설계 8.1).
- */
-// TODO(security): 역할별 인가(설계 9장)가 들어오면 관리자도 검수 대기·반려·삭제된 강의 상세를 조회하게 한다.
+/** 강의 조회 공통 (없으면 LECTURE_NOT_FOUND). 응답 DTO 변환은 호출한 Facade의 트랜잭션 안에서 끝난다. */
 @Service
 @RequiredArgsConstructor
-public class LectureService {
+public class LectureSupport {
 
     private static final Sort LATEST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+    private static final Sort OLDEST_REQUEST = Sort.by(Sort.Order.asc("inspectionRequestedAt"), Sort.Order.asc("id"));
 
     private final LectureRepository lectureRepository;
-    private final SellerNicknames sellerNicknames;
+    private final SellerNicknameSupport sellerNicknameSupport;
 
-    @Transactional
-    public Long register(Long sellerUserId, String title, String description, long priceHp, Long thumbnailFileId,
-                         List<LectureContentSpec> contentSpecs) {
-        Lecture lecture = Lecture.register(sellerUserId, title, description, priceHp, thumbnailFileId, contentSpecs,
-                LocalDateTime.now());
-        return lectureRepository.save(lecture).getId();
-    }
-
-    @Transactional
-    public void updateInfo(Long sellerUserId, Long lectureId, String title, String description, long priceHp,
-                           Long thumbnailFileId) {
-        findLecture(lectureId).updateInfo(sellerUserId, title, description, priceHp, thumbnailFileId,
-                LocalDateTime.now());
-    }
-
-    @Transactional
-    public void replaceContents(Long sellerUserId, Long lectureId, List<LectureContentSpec> contentSpecs) {
-        findLecture(lectureId).replaceContents(sellerUserId, contentSpecs, LocalDateTime.now());
-    }
-
-    @Transactional
-    public void requestInspection(Long sellerUserId, Long lectureId) {
-        findLecture(lectureId).requestInspection(sellerUserId, LocalDateTime.now());
-    }
-
-    @Transactional
-    public void delete(Long sellerUserId, Long lectureId) {
-        findLecture(lectureId).delete(sellerUserId, LocalDateTime.now());
+    public Lecture findLecture(Long lectureId) {
+        return lectureRepository.findById(lectureId)
+                .orElseThrow(() -> new LectureException(LectureErrorCode.LECTURE_NOT_FOUND));
     }
 
     /**
      * 판매 중인 강의 목록. 검색어가 있으면 제목에 검색어가 들어간 강의만 찾는다(대소문자 무시).
      * 정렬은 {@link LectureSort}로만 정하고 요청의 필드 이름 정렬은 무시한다.
      */
-    @Transactional(readOnly = true)
     public Page<LectureSummaryResponse> getLectures(String keyword, LectureSort sort, Pageable pageable) {
         PageRequest sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sortOf(sort));
         Page<Lecture> lectures = keyword == null || keyword.isBlank()
                 ? lectureRepository.findByStatusAndDeletedAtIsNull(LectureStatus.ON_SALE, sorted)
                 : lectureRepository.findByStatusAndDeletedAtIsNullAndTitleContainingIgnoreCase(LectureStatus.ON_SALE,
                         keyword.strip(), sorted);
-        Map<Long, String> nicknames = sellerNicknames.of(lectures.map(Lecture::getSellerUserId).toSet());
+        Map<Long, String> nicknames = sellerNicknameSupport.of(lectures.map(Lecture::getSellerUserId).toSet());
         return lectures.map(lecture -> LectureSummaryResponse.of(lecture, nicknames.get(lecture.getSellerUserId())));
     }
 
     /** 판매자 본인이 등록한 강의 (모든 상태, 삭제 포함). 최근 등록순이며 요청의 정렬은 무시한다. */
-    @Transactional(readOnly = true)
     public Page<MyLectureResponse> getMyLectures(Long sellerUserId, Pageable pageable) {
         return lectureRepository.findBySellerUserId(sellerUserId,
                         PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST))
@@ -93,14 +61,21 @@ public class LectureService {
     /**
      * 판매 중이 아니거나 삭제된 강의는 판매자 본인만 조회한다. 다른 회원에게는 없는 강의로 보인다.
      */
-    @Transactional(readOnly = true)
     public LectureDetailResponse getLecture(Long userId, Long lectureId) {
         Lecture lecture = findLecture(lectureId);
         boolean seller = lecture.getSellerUserId().equals(userId);
         if (!seller && !lecture.isOnSale()) {
             throw new LectureException(LectureErrorCode.LECTURE_NOT_FOUND);
         }
-        return LectureDetailResponse.of(lecture, sellerNicknames.of(lecture.getSellerUserId()), seller);
+        return LectureDetailResponse.of(lecture, sellerNicknameSupport.of(lecture.getSellerUserId()), seller);
+    }
+
+    /** 검수 목록. 삭제된 강의는 빠진다. 신청이 오래된 순이며 요청의 정렬은 무시한다. */
+    public Page<InspectionLectureResponse> getInspections(LectureStatus status, Pageable pageable) {
+        Page<Lecture> lectures = lectureRepository.findByStatusAndDeletedAtIsNull(status,
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), OLDEST_REQUEST));
+        Map<Long, String> nicknames = sellerNicknameSupport.of(lectures.map(Lecture::getSellerUserId).toSet());
+        return lectures.map(lecture -> InspectionLectureResponse.of(lecture, nicknames.get(lecture.getSellerUserId())));
     }
 
     /** 같은 가격이면 최신순 */
@@ -111,10 +86,5 @@ public class LectureService {
             case PRICE_ASC -> Sort.by(Sort.Order.asc("priceHp")).and(LATEST);
             case PRICE_DESC -> Sort.by(Sort.Order.desc("priceHp")).and(LATEST);
         };
-    }
-
-    private Lecture findLecture(Long lectureId) {
-        return lectureRepository.findById(lectureId)
-                .orElseThrow(() -> new LectureException(LectureErrorCode.LECTURE_NOT_FOUND));
     }
 }

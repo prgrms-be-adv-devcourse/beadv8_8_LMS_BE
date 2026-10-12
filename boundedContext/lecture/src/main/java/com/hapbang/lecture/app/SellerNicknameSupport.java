@@ -16,7 +16,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Component
 @RequiredArgsConstructor
-class SellerNicknames {
+class SellerNicknameSupport {
 
     private static final String WITHDRAWN_NICKNAME = "탈퇴한 회원";
 
@@ -24,14 +24,14 @@ class SellerNicknames {
 
     String of(Long sellerUserId) {
         return lectureUserRepository.findById(sellerUserId)
-                .map(SellerNicknames::display)
+                .map(SellerNicknameSupport::display)
                 .orElse(null);
     }
 
     /** 회원 복제가 아직 도착하지 않은 판매자는 빠진다 */
     Map<Long, String> of(Collection<Long> sellerUserIds) {
         return lectureUserRepository.findAllById(sellerUserIds).stream()
-                .collect(Collectors.toMap(LectureUser::getId, SellerNicknames::display));
+                .collect(Collectors.toMap(LectureUser::getId, SellerNicknameSupport::display));
     }
 
     private static String display(LectureUser user) {

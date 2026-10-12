@@ -3,7 +3,6 @@ package com.hapbang.lecture.in;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -17,7 +16,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.global.auth.LoginUserId;
-import com.hapbang.lecture.app.LectureService;
+import com.hapbang.lecture.app.LectureFacade;
 import com.hapbang.lecture.app.dto.LectureDetailResponse;
 import com.hapbang.lecture.app.dto.LectureSort;
 import com.hapbang.lecture.app.dto.LectureSummaryResponse;
@@ -34,15 +33,13 @@ import lombok.RequiredArgsConstructor;
 
 /** 강의 API (설계 8.1). Swagger 명세는 {@link ApiV1LectureControllerDocs} */
 // TODO: 5단계(/access)에서 구현한다.
-// 역할 검사(설계 9장): 목록은 비회원도 허용(SecurityConfig), 상세는 회원, 등록·수정·삭제·재검수 신청은 인증된 인플루언서.
+// 역할 검사(설계 9장): 목록은 비회원도 허용(SecurityConfig), 상세는 회원, 등록·수정·삭제·재검수 신청은 인증된 인플루언서(LectureFacade, D16).
 @RestController
 @RequestMapping("/api/v1/lectures")
 @RequiredArgsConstructor
 public class ApiV1LectureController implements ApiV1LectureControllerDocs {
 
-    private static final String VERIFIED_INFLUENCER = "hasRole('VERIFIED_INFLUENCER')";
-
-    private final LectureService lectureService;
+    private final LectureFacade lectureFacade;
 
     @Override
     @GetMapping
@@ -50,69 +47,63 @@ public class ApiV1LectureController implements ApiV1LectureControllerDocs {
             @RequestParam(name = "keyword", required = false) String keyword,
             @RequestParam(name = "sort", defaultValue = "LATEST") LectureSort sort,
             Pageable pageable) {
-        return lectureService.getLectures(keyword, sort, pageable);
+        return lectureFacade.getLectures(keyword, sort, pageable);
     }
 
     @Override
     @GetMapping("/{lectureId}")
     public LectureDetailResponse getLecture(@LoginUserId Long userId,
             @PathVariable("lectureId") Long lectureId) {
-        return lectureService.getLecture(userId, lectureId);
+        return lectureFacade.getLecture(userId, lectureId);
     }
 
     @Override
-    @PreAuthorize(VERIFIED_INFLUENCER)
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public IdResponse register(@LoginUserId Long userId,
             @Valid @RequestBody LectureRegisterRequest request) {
-        Long lectureId = lectureService.register(userId, request.title(), request.description(), request.priceHp(),
+        Long lectureId = lectureFacade.register(userId, request.title(), request.description(), request.priceHp(),
                 request.thumbnailFileId(), request.contents().stream().map(LectureContentRequest::toSpec).toList());
         return new IdResponse(lectureId);
     }
 
     @Override
-    @PreAuthorize(VERIFIED_INFLUENCER)
     @PatchMapping("/{lectureId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void updateInfo(@LoginUserId Long userId, @PathVariable("lectureId") Long lectureId,
             @Valid @RequestBody LectureInfoUpdateRequest request) {
-        lectureService.updateInfo(userId, lectureId, request.title(), request.description(), request.priceHp(),
+        lectureFacade.updateInfo(userId, lectureId, request.title(), request.description(), request.priceHp(),
                 request.thumbnailFileId());
     }
 
     @Override
-    @PreAuthorize(VERIFIED_INFLUENCER)
     @DeleteMapping("/{lectureId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@LoginUserId Long userId, @PathVariable("lectureId") Long lectureId) {
-        lectureService.delete(userId, lectureId);
+        lectureFacade.delete(userId, lectureId);
     }
 
     @Override
-    @PreAuthorize(VERIFIED_INFLUENCER)
     @PutMapping("/{lectureId}/contents")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void replaceContents(@LoginUserId Long userId, @PathVariable("lectureId") Long lectureId,
             @Valid @RequestBody LectureContentsReplaceRequest request) {
-        lectureService.replaceContents(userId, lectureId,
+        lectureFacade.replaceContents(userId, lectureId,
                 request.contents().stream().map(LectureContentRequest::toSpec).toList());
     }
 
     @Override
-    @PreAuthorize(VERIFIED_INFLUENCER)
     @PostMapping("/{lectureId}/inspection-requests")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void requestInspection(@LoginUserId Long userId, @PathVariable("lectureId") Long lectureId) {
-        lectureService.requestInspection(userId, lectureId);
+        lectureFacade.requestInspection(userId, lectureId);
     }
 
     @Override
-    @PreAuthorize(VERIFIED_INFLUENCER)
     @GetMapping("/me")
     public Page<MyLectureResponse> getMyLectures(@LoginUserId Long userId,
             Pageable pageable) {
-        return lectureService.getMyLectures(userId, pageable);
+        return lectureFacade.getMyLectures(userId, pageable);
     }
 
     @Override

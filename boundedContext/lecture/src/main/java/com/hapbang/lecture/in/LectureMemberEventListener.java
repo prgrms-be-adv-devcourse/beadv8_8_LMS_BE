@@ -3,7 +3,7 @@ package com.hapbang.lecture.in;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.lecture.app.LectureUserSyncService;
+import com.hapbang.lecture.app.LectureUserFacade;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 
@@ -14,15 +14,15 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class LectureMemberEventListener {
 
-    private final LectureUserSyncService lectureUserSyncService;
+    private final LectureUserFacade lectureUserFacade;
 
     @ApplicationModuleListener
     public void on(UserJoinedEvent event) {
-        lectureUserSyncService.sync(event.user());
+        lectureUserFacade.sync(event.user());
     }
 
     @ApplicationModuleListener
     public void on(UserModifiedEvent event) {
-        lectureUserSyncService.sync(event.user());
+        lectureUserFacade.sync(event.user());
     }
 }
