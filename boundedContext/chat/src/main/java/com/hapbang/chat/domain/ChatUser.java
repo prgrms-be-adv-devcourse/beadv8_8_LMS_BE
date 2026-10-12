@@ -1,88 +1,61 @@
 package com.hapbang.chat.domain;
 
-import java.time.LocalDateTime;
+import com.hapbang.shared.member.domain.ReplicaUser;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.dto.UserDto;
 
-import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
-import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 회원 이벤트를 받아 채팅 모듈에 복제한 회원 정보. ID는 회원 ID를 그대로 쓴다.
+ * 회원 이벤트를 받아 채팅 모듈에 복제한 회원 정보. ID는 원본 회원 ID를 그대로 쓴다({@link ReplicaUser}).
  */
 @Entity
 @Table(name = "chat_user", schema = "chats")
-@Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class ChatUser {
+public class ChatUser extends ReplicaUser {
 
     public static final String WITHDRAWN_NICKNAME = "탈퇴한 회원";
 
-    @Id
-    private Long id;
-
-    @Column(nullable = false)
-    private String nickname;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private UserRole role;
-
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
-    @Column(nullable = false)
-    private LocalDateTime updatedAt;
-
-    private LocalDateTime deletedAt;
-
-    private ChatUser(Long id, String nickname, UserRole role, LocalDateTime now) {
-        this.id = id;
-        this.nickname = nickname;
-        this.role = role;
-        this.createdAt = now;
-        this.updatedAt = now;
+    private ChatUser(UserDto user) {
+        super(user);
     }
 
-    public static ChatUser create(Long userId, String nickname, UserRole role, LocalDateTime now) {
-        if (userId == null || nickname == null || nickname.isBlank() || role == null) {
-            throw new ChatException(ChatErrorCode.INVALID_REQUEST);
-        }
-        return new ChatUser(userId, nickname, role, now);
+    public static ChatUser create(UserDto user) {
+        validate(user);
+        return new ChatUser(user);
     }
 
-    public void changeProfile(String nickname, UserRole role, LocalDateTime now) {
-        if (nickname == null || nickname.isBlank() || role == null) {
-            throw new ChatException(ChatErrorCode.INVALID_REQUEST);
-        }
-        this.nickname = nickname;
-        this.role = role;
-        this.updatedAt = now;
+    @Override
+    public void syncFrom(UserDto user) {
+        validate(user);
+        super.syncFrom(user);
+    }
+
+    /**
+     * 정상 상태이면서 인플루언서 이상이거나 관리자면 채팅할 수 있다.
+     */
+    public boolean canChat() {
+        return isActive() && (isInfluencerOrAbove() || getRole() == Role.ADMIN);
+    }
+
+    public boolean isAdmin() {
+        return isActive() && getRole() == Role.ADMIN;
     }
 
     /**
      * 탈퇴한 회원은 채팅 작성자를 '탈퇴한 회원'으로 표시한다. 메시지는 분쟁 확인용으로 남긴다.
      */
-    public void withdraw(LocalDateTime now) {
-        this.nickname = WITHDRAWN_NICKNAME;
-        this.updatedAt = now;
-        this.deletedAt = now;
+    public String getDisplayNickname() {
+        return isWithdrawn() ? WITHDRAWN_NICKNAME : getNickname();
     }
 
-    public boolean isWithdrawn() {
-        return deletedAt != null;
-    }
-
-    public boolean canChat() {
-        return !isWithdrawn() && role != UserRole.USER;
-    }
-
-    public boolean isAdmin() {
-        return !isWithdrawn() && role == UserRole.ADMIN;
+    private static void validate(UserDto user) {
+        if (user == null || user.id() == null || user.nickname() == null || user.nickname().isBlank()
+                || user.role() == null || user.status() == null) {
+            throw new ChatException(ChatErrorCode.INVALID_REQUEST);
+        }
     }
 }

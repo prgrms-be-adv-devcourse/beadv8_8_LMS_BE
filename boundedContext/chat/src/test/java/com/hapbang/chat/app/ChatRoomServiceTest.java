@@ -29,6 +29,8 @@ import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.out.ChatRoomLogRepository;
 import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatRoomRepository;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
@@ -262,7 +264,7 @@ class ChatRoomServiceTest {
 
     @Test
     void 탈퇴한_회원과는_채팅방을_만들_수_없다() {
-        chatUserService.withdraw(GUEST_ID);
+        chatUserService.sync(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
 
         assertThatThrownBy(() -> chatRoomService.createOrGet(HOST_ID, GUEST_ID))
                 .isInstanceOf(ChatException.class)

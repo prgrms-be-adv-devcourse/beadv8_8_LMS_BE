@@ -11,10 +11,14 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.chat.in.ChatHeaders;
-
 /**
- * CONNECT 시 X-User-Id 헤더로 회원을 식별한다. 구독은 자기 회원 큐(/user/...)만 허용한다.
+ * STOMP 연결과 구독을 검사한다.
+ * <ul>
+ *     <li>CONNECT: 웹소켓 핸드셰이크의 로그인 세션 사용자({@link Principal})로 회원을 식별한다.
+ *     핸드셰이크 요청도 global SecurityConfig를 거치므로, 로그인하지 않으면 연결 자체가 401로 막힌다.
+ *     {@code Principal.getName()}은 회원 ID다(회원 모듈의 OAuth2 로그인 사용자).</li>
+ *     <li>SUBSCRIBE: 자기 회원 큐(/user/...)만 허용한다.</li>
+ * </ul>
  */
 @Component
 public class ChatStompInterceptor implements ChannelInterceptor {
@@ -26,8 +30,7 @@ public class ChatStompInterceptor implements ChannelInterceptor {
             return message;
         }
         if (accessor.getCommand() == StompCommand.CONNECT) {
-            // TODO(security): 로그인이 붙으면 핸드셰이크의 세션 인증 정보(Principal)를 쓰고 X-User-Id 헤더는 믿지 않는다.
-            accessor.setUser(new ChatPrincipal(parseUserId(accessor.getFirstNativeHeader(ChatHeaders.USER_ID))));
+            checkLoginUser(accessor.getUser());
         } else if (accessor.getCommand() == StompCommand.SUBSCRIBE) {
             String destination = accessor.getDestination();
             if (destination == null || !destination.startsWith(ChatWebSocketConfig.USER_PREFIX + "/")) {
@@ -37,22 +40,14 @@ public class ChatStompInterceptor implements ChannelInterceptor {
         return message;
     }
 
-    private Long parseUserId(String value) {
-        if (value == null) {
-            throw new MessageDeliveryException(ChatHeaders.USER_ID + " 헤더가 필요합니다.");
+    private void checkLoginUser(Principal user) {
+        if (user == null) {
+            throw new MessageDeliveryException("로그인이 필요합니다.");
         }
         try {
-            return Long.valueOf(value);
+            Long.valueOf(user.getName());
         } catch (NumberFormatException exception) {
-            throw new MessageDeliveryException("회원 ID 형식이 올바르지 않습니다: " + value);
-        }
-    }
-
-    record ChatPrincipal(Long userId) implements Principal {
-
-        @Override
-        public String getName() {
-            return String.valueOf(userId);
+            throw new MessageDeliveryException("로그인 회원 정보가 올바르지 않습니다.");
         }
     }
 }

@@ -12,7 +12,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * STOMP over WebSocket. 서버 1대라 내장(simple) 브로커를 쓴다.
  * <ul>
- *     <li>연결: /api/v1/chats/ws (CONNECT 헤더에 X-User-Id). nginx가 /api/ 아래만 앱으로 넘기고 웹소켓 업그레이드도 그 경로에 설정돼 있다.</li>
+ *     <li>연결: /api/v1/chats/ws (로그인 세션 쿠키로 핸드셰이크). nginx가 /api/ 아래만 앱으로 넘기고 웹소켓 업그레이드도 그 경로에 설정돼 있다.</li>
  *     <li>보내기: /pub/chats/{chatRoomId}/messages</li>
  *     <li>받기(회원별): 메시지 /user/queue/chats/messages, 새 메시지 알림 /user/queue/chats/notifications,
  *     오류 /user/queue/chats/errors</li>

@@ -180,7 +180,7 @@ public class ChatRoomService {
     }
 
     private String nicknameOf(Long userId) {
-        return chatUserRepository.findById(userId).map(ChatUser::getNickname).orElse("회원 " + userId);
+        return chatUserRepository.findById(userId).map(ChatUser::getDisplayNickname).orElse("회원 " + userId);
     }
 
     private ChatRoomResponse toResponse(ChatRoom chatRoom) {
@@ -191,7 +191,7 @@ public class ChatRoomService {
     private Map<Long, String> findNicknames(List<ChatRoomMember> members) {
         List<Long> userIds = members.stream().map(ChatRoomMember::getUserId).distinct().toList();
         return chatUserRepository.findAllById(userIds).stream()
-                .collect(Collectors.toMap(ChatUser::getId, ChatUser::getNickname));
+                .collect(Collectors.toMap(ChatUser::getId, ChatUser::getDisplayNickname));
     }
 
     private List<ChatRoomMemberResponse> toMemberResponses(List<ChatRoomMember> members, Map<Long, String> nicknames) {
