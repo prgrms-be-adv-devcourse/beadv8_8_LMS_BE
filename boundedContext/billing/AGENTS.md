@@ -4,6 +4,8 @@
 
 루트 `AGENTS.md`의 공통 아키텍처 및 코딩 규칙을 준수하며, Billing의 금융 정합성 관련 세부 규칙을 추가한다.
 
+작업 전에 `boundedContext/billing/PROGRESS.md`(진행 현황·결정 기록·호출 계약)를 읽고, Issue를 마치면 갱신한다.
+
 ## 1. 모듈 책임
 
 Billing은 다음 기능을 담당한다.
