@@ -117,10 +117,19 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.content[0].sellerUserId").value(SELLER_ID))
                 .andExpect(jsonPath("$.content[0].sellerNickname").value("판매자"))
                 .andExpect(jsonPath("$.content[0].reviewCount").value(0))
-                .andExpect(jsonPath("$.page").value(0))
-                .andExpect(jsonPath("$.size").value(20))
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.hasNext").value(false));
+                .andExpect(jsonPath("$.page.number").value(0))
+                .andExpect(jsonPath("$.page.size").value(20))
+                .andExpect(jsonPath("$.page.totalElements").value(1))
+                .andExpect(jsonPath("$.page.totalPages").value(1));
+    }
+
+    @Test
+    void 비회원도_강의_목록을_조회한다() throws Exception {
+        Long lectureId = registerOnSale("OBS 방송 세팅", 10_000);
+
+        mockMvc.perform(get("/api/v1/lectures"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].lectureId").value(lectureId));
     }
 
     @Test
@@ -130,13 +139,13 @@ class LectureApiTest {
         mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(0))
-                .andExpect(jsonPath("$.totalElements").value(0));
+                .andExpect(jsonPath("$.page.totalElements").value(0));
     }
 
     @Test
-    void 반려된_강의는_판매자가_콘텐츠를_교체하고_재검수를_신청하면_검수_대기로_돌아간다() throws Exception {
+    void 반려된_강의는_콘텐츠를_교체하고_재검수를_신청해_승인받으면_목록에_나온다() throws Exception {
         Long lectureId = register(SELLER_ID);
-        mockMvc.perform(post("/api/v1/lectures/{lectureId}/inspection/reject", lectureId)
+        mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/reject", lectureId)
                         .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -165,6 +174,12 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.contents.length()").value(1))
                 .andExpect(jsonPath("$.contents[0].title").value("1강 장비 고르기 (재녹음)"))
                 .andExpect(jsonPath("$.contents[0].sequence").value(1));
+
+        approve(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].lectureId").value(lectureId));
     }
 
     @Test
@@ -226,7 +241,7 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(0));
+                .andExpect(jsonPath("$.page.totalElements").value(0));
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isNotFound());
@@ -247,7 +262,7 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures/me").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.page.totalElements").value(2))
                 .andExpect(jsonPath("$.content[0].lectureId").value(pendingLectureId))
                 .andExpect(jsonPath("$.content[0].status").value("PENDING_INSPECTION"))
                 .andExpect(jsonPath("$.content[0].deleted").value(false))
@@ -261,15 +276,56 @@ class LectureApiTest {
         Long secondLectureId = register(SELLER_ID);
         approve(register(SELLER_ID));
 
-        mockMvc.perform(get("/api/v1/lectures/inspections").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get("/api/v1/lectures/admin/inspections").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.page.totalElements").value(2))
                 .andExpect(jsonPath("$.content[0].lectureId").value(firstLectureId))
                 .andExpect(jsonPath("$.content[0].sellerUserId").value(SELLER_ID))
                 .andExpect(jsonPath("$.content[0].sellerNickname").value("판매자"))
                 .andExpect(jsonPath("$.content[0].status").value("PENDING_INSPECTION"))
                 .andExpect(jsonPath("$.content[0].inspectionRequestedAt").isNotEmpty())
                 .andExpect(jsonPath("$.content[1].lectureId").value(secondLectureId));
+    }
+
+    @Test
+    void 인증된_인플루언서가_아니면_강의를_등록할_수_없다() throws Exception {
+        mockMvc.perform(post("/api/v1/lectures")
+                        .with(TestLogin.as(OTHER_USER_ID, Role.INFLUENCER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(REGISTER_BODY))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 인증된_인플루언서가_아니면_강의를_수정_삭제하거나_내_강의를_볼_수_없다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        var influencer = TestLogin.as(SELLER_ID, Role.INFLUENCER);
+
+        mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId).with(influencer).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(UPDATE_INFO_BODY))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId).with(influencer).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"contents": [{"fileId": 201, "title": "새 영상", "contentType": "VIDEO"}]}
+                                """))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/lectures/{lectureId}/inspection-requests", lectureId)
+                        .with(influencer).with(csrf()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId).with(influencer).with(csrf()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/lectures/me").with(influencer))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 관리자가_아니면_검수를_승인할_수_없다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+
+        mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/approve", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -280,7 +336,7 @@ class LectureApiTest {
         mockMvc.perform(get("/api/v1/lectures").param("keyword", "obs")
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.page.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].lectureId").value(obsLectureId));
     }
 
@@ -295,15 +351,14 @@ class LectureApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].priceHp").value(10000))
                 .andExpect(jsonPath("$.content[1].priceHp").value(20000))
-                .andExpect(jsonPath("$.totalElements").value(3))
-                .andExpect(jsonPath("$.hasNext").value(true));
+                .andExpect(jsonPath("$.page.totalElements").value(3))
+                .andExpect(jsonPath("$.page.totalPages").value(2));
         mockMvc.perform(get("/api/v1/lectures").param("sort", "PRICE_DESC").param("page", "1").param("size", "2")
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].priceHp").value(10000))
-                .andExpect(jsonPath("$.page").value(1))
-                .andExpect(jsonPath("$.hasNext").value(false));
+                .andExpect(jsonPath("$.page.number").value(1));
     }
 
     @Test
@@ -321,12 +376,15 @@ class LectureApiTest {
     }
 
     @Test
-    void 페이지_크기가_100을_넘으면_400과_잘못된_항목을_알려_준다() throws Exception {
-        mockMvc.perform(get("/api/v1/lectures").param("size", "101")
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+    void 콘텐츠_목록에_빈_항목이_있으면_400() throws Exception {
+        mockMvc.perform(post("/api/v1/lectures")
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title": "방송 장비 세팅 강의", "priceHp": 10000, "contents": [null]}
+                                """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.errors[0].field").value("size"));
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test
@@ -365,7 +423,7 @@ class LectureApiTest {
     }
 
     private void approve(Long lectureId) throws Exception {
-        mockMvc.perform(post("/api/v1/lectures/{lectureId}/inspection/approve", lectureId)
+        mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/approve", lectureId)
                         .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
                 .andExpect(status().isNoContent());
     }

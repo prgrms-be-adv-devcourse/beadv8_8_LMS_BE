@@ -16,6 +16,6 @@ public record LectureRegisterRequest(
         @Schema(description = "업로드 완료된 썸네일 파일 ID", nullable = true)
         Long thumbnailFileId,
         @Schema(description = "1개 이상")
-        @NotEmpty List<@Valid LectureContentRequest> contents
+        @NotEmpty List<@Valid @NotNull LectureContentRequest> contents
 ) {
 }

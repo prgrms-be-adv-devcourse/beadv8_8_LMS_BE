@@ -6,6 +6,7 @@ import java.util.Map;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,7 +15,6 @@ import com.hapbang.lecture.app.dto.LectureDetailResponse;
 import com.hapbang.lecture.app.dto.LectureSort;
 import com.hapbang.lecture.app.dto.LectureSummaryResponse;
 import com.hapbang.lecture.app.dto.MyLectureResponse;
-import com.hapbang.lecture.app.dto.PageResponse;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureContentSpec;
 import com.hapbang.lecture.domain.LectureErrorCode;
@@ -67,24 +67,27 @@ public class LectureService {
         findLecture(lectureId).delete(sellerUserId, LocalDateTime.now());
     }
 
-    /** 판매 중인 강의 목록. 검색어가 있으면 제목에 검색어가 들어간 강의만 찾는다(대소문자 무시). */
+    /**
+     * 판매 중인 강의 목록. 검색어가 있으면 제목에 검색어가 들어간 강의만 찾는다(대소문자 무시).
+     * 정렬은 {@link LectureSort}로만 정하고 요청의 필드 이름 정렬은 무시한다.
+     */
     @Transactional(readOnly = true)
-    public PageResponse<LectureSummaryResponse> getLectures(String keyword, LectureSort sort, int page, int size) {
-        PageRequest pageable = PageRequest.of(page, size, sortOf(sort));
+    public Page<LectureSummaryResponse> getLectures(String keyword, LectureSort sort, Pageable pageable) {
+        PageRequest sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sortOf(sort));
         Page<Lecture> lectures = keyword == null || keyword.isBlank()
-                ? lectureRepository.findByStatusAndDeletedAtIsNull(LectureStatus.ON_SALE, pageable)
+                ? lectureRepository.findByStatusAndDeletedAtIsNull(LectureStatus.ON_SALE, sorted)
                 : lectureRepository.findByStatusAndDeletedAtIsNullAndTitleContainingIgnoreCase(LectureStatus.ON_SALE,
-                        keyword.strip(), pageable);
+                        keyword.strip(), sorted);
         Map<Long, String> nicknames = sellerNicknames.of(lectures.map(Lecture::getSellerUserId).toSet());
-        return PageResponse.of(lectures,
-                lecture -> LectureSummaryResponse.of(lecture, nicknames.get(lecture.getSellerUserId())));
+        return lectures.map(lecture -> LectureSummaryResponse.of(lecture, nicknames.get(lecture.getSellerUserId())));
     }
 
-    /** 판매자 본인이 등록한 강의 (모든 상태, 삭제 포함) */
+    /** 판매자 본인이 등록한 강의 (모든 상태, 삭제 포함). 최근 등록순이며 요청의 정렬은 무시한다. */
     @Transactional(readOnly = true)
-    public PageResponse<MyLectureResponse> getMyLectures(Long sellerUserId, int page, int size) {
-        return PageResponse.of(lectureRepository.findBySellerUserId(sellerUserId, PageRequest.of(page, size, LATEST)),
-                MyLectureResponse::from);
+    public Page<MyLectureResponse> getMyLectures(Long sellerUserId, Pageable pageable) {
+        return lectureRepository.findBySellerUserId(sellerUserId,
+                        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST))
+                .map(MyLectureResponse::from);
     }
 
     /**

@@ -1,5 +1,7 @@
 package com.hapbang.lecture.in;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,7 +15,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.global.auth.LoginUserId;
-import com.hapbang.lecture.app.dto.PageResponse;
 import com.hapbang.lecture.in.dto.IdResponse;
 import com.hapbang.lecture.in.dto.ReviewCreateRequest;
 import com.hapbang.lecture.in.dto.ReviewResponse;
@@ -22,8 +23,6 @@ import com.hapbang.lecture.in.dto.ReviewUpdateRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 
 /** 강의 리뷰 API (설계 8.6) */
 // TODO: 13장 6단계에서 구현한다.
@@ -35,9 +34,8 @@ public class ApiV1LectureReviewController {
 
     @Operation(summary = "리뷰 목록", description = "최신순. 평균 평점·리뷰 수는 강의 목록·상세에서 준다.")
     @GetMapping("/{lectureId}/reviews")
-    public PageResponse<ReviewResponse> getReviews(@PathVariable("lectureId") Long lectureId,
-            @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
-            @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size) {
+    public Page<ReviewResponse> getReviews(@PathVariable("lectureId") Long lectureId,
+            Pageable pageable) {
         throw NotImplemented.yet();
     }
 

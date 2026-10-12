@@ -5,12 +5,12 @@ import java.util.Map;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.lecture.app.dto.InspectionLectureResponse;
-import com.hapbang.lecture.app.dto.PageResponse;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 관리자의 강의 검수 (설계 8.2).
  */
-// TODO(security): 관리자만 호출하도록 인가(설계 9장)를 추가한다.
+// 관리자 여부는 컨트롤러(/admin 경로, @PreAuthorize)에서 검사한다. 서비스로 분리할 때는 서비스단에서 검증한다 (2026-10-12 회의).
 @Service
 @RequiredArgsConstructor
 public class LectureInspectionService {
@@ -32,14 +32,13 @@ public class LectureInspectionService {
     private final LectureRepository lectureRepository;
     private final SellerNicknames sellerNicknames;
 
-    /** 삭제된 강의는 빠진다 */
+    /** 삭제된 강의는 빠진다. 신청이 오래된 순이며 요청의 정렬은 무시한다. */
     @Transactional(readOnly = true)
-    public PageResponse<InspectionLectureResponse> getInspections(LectureStatus status, int page, int size) {
+    public Page<InspectionLectureResponse> getInspections(LectureStatus status, Pageable pageable) {
         Page<Lecture> lectures = lectureRepository.findByStatusAndDeletedAtIsNull(status,
-                PageRequest.of(page, size, OLDEST_REQUEST));
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), OLDEST_REQUEST));
         Map<Long, String> nicknames = sellerNicknames.of(lectures.map(Lecture::getSellerUserId).toSet());
-        return PageResponse.of(lectures,
-                lecture -> InspectionLectureResponse.of(lecture, nicknames.get(lecture.getSellerUserId())));
+        return lectures.map(lecture -> InspectionLectureResponse.of(lecture, nicknames.get(lecture.getSellerUserId())));
     }
 
     @Transactional
