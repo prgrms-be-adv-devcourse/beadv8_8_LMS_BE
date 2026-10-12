@@ -23,7 +23,8 @@ import lombok.NoArgsConstructor;
  */
 @Entity
 @Table(name = "chat_message", schema = "chat",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"chat_room_id", "room_sequence"}))
+        uniqueConstraints = @UniqueConstraint(name = "uk_chat_message_room_sequence",
+                columnNames = {"chat_room_id", "room_sequence"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatMessage {
