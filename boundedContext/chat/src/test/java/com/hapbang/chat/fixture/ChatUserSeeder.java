@@ -14,10 +14,10 @@ public final class ChatUserSeeder {
     }
 
     public static void seedDefaultUsers(ChatUserService chatUserService) {
-        chatUserService.createOrUpdate(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
-        chatUserService.createOrUpdate(activeUser(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER));
-        chatUserService.createOrUpdate(activeUser(OTHER_INFLUENCER_ID, "다른인플루언서", Role.INFLUENCER));
-        chatUserService.createOrUpdate(activeUser(USER_ID, "일반유저", Role.USER));
-        chatUserService.createOrUpdate(activeUser(ADMIN_ID, "관리자", Role.ADMIN));
+        chatUserService.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
+        chatUserService.createIfAbsent(activeUser(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER));
+        chatUserService.createIfAbsent(activeUser(OTHER_INFLUENCER_ID, "다른인플루언서", Role.INFLUENCER));
+        chatUserService.createIfAbsent(activeUser(USER_ID, "일반유저", Role.USER));
+        chatUserService.createIfAbsent(activeUser(ADMIN_ID, "관리자", Role.ADMIN));
     }
 }

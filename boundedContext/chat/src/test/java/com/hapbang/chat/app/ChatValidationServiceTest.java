@@ -40,7 +40,7 @@ class ChatValidationServiceTest {
 
     @Test
     void 일반_유저와_탈퇴한_회원은_채팅할_수_없다() {
-        chatUserService.createOrUpdate(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
+        chatUserService.update(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
 
         for (Long userId : new Long[] {USER_ID, GUEST_ID}) {
             assertThatThrownBy(() -> chatValidationService.validateCanChat(userId))

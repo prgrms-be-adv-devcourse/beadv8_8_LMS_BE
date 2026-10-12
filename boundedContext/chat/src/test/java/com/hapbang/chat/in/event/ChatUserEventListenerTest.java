@@ -90,19 +90,23 @@ class ChatUserEventListenerTest {
     }
 
     @Test
-    void 채팅_회원이_없으면_변경_이벤트로_생성한다() {
+    void 채팅_회원이_없으면_변경_이벤트로_생성하지_않는다() {
         publishModifiedInTransaction(activeUser(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER));
 
-        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatUserRepository.findById(GUEST_ID))
-                .hasValueSatisfying(chatUser -> assertThat(chatUser.getNickname()).isEqualTo("게스트")));
+        await().during(Duration.ofMillis(500)).atMost(TIMEOUT)
+                .untilAsserted(() -> assertThat(chatUserRepository.findById(GUEST_ID)).isEmpty());
     }
 
     @Test
-    void 변경이_반영된_뒤_늦게_온_가입_이벤트는_무시한다() {
-        publishModifiedInTransaction(userDto(HOST_ID, "바뀐닉네임", Role.INFLUENCER, UserStatus.WITHDRAWN));
+    void 변경이_반영된_뒤_다시_처리된_가입_이벤트는_무시한다() {
+        UserDto joined = activeUser(HOST_ID, "가입닉네임", Role.INFLUENCER);
+        publishInTransaction(joined);
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatUserRepository.findById(HOST_ID)).isPresent());
+        publishModifiedInTransaction(userDto(HOST_ID, "바뀐닉네임", Role.INFLUENCER, UserStatus.WITHDRAWN));
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatUserRepository.findById(HOST_ID))
+                .hasValueSatisfying(chatUser -> assertThat(chatUser.isWithdrawn()).isTrue()));
 
-        publishInTransaction(activeUser(HOST_ID, "가입닉네임", Role.INFLUENCER));
+        publishInTransaction(joined);
 
         await().during(Duration.ofMillis(500)).atMost(TIMEOUT)
                 .untilAsserted(() -> assertThat(chatUserRepository.findById(HOST_ID))

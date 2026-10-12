@@ -1,9 +1,10 @@
 package com.hapbang.chat.app;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.chat.domain.ChatErrorCode;
+import com.hapbang.chat.domain.ChatException;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.dto.UserDto;
@@ -14,16 +15,15 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 회원 정보를 채팅 모듈에 복제한다. 회원 이벤트 리스너({@code ChatUserEventListener})가 {@link ChatUserFacade}를 거쳐 호출한다.
  * <ul>
- *     <li>가입 이벤트는 없을 때만 생성한다. 가입 이벤트 처리가 실패해 나중에 재처리되어도,
- *     그 사이 반영된 변경 내용을 옛 가입 정보로 덮어쓰지 않는다(변경은 항상 가입 뒤에 일어난다).</li>
- *     <li>변경 이벤트는 있으면 갱신하고, 없으면 생성한다(가입 이벤트 처리가 실패한 경우 대비).</li>
+ *     <li>채팅 회원은 가입 이벤트로만 생성한다. 이미 있으면 무시한다(같은 가입 이벤트의 재처리).</li>
+ *     <li>변경 이벤트는 있는 회원만 갱신한다. 없으면(가입 이벤트가 아직 처리되지 않음) 예외를 던져 처리 실패로 남기고,
+ *     가입 이벤트가 처리된 뒤 다시 처리될 때 반영한다.</li>
  * </ul>
- * 이벤트 리스너 트랜잭션과 분리된 새 트랜잭션에서 저장한다. 동시 생성으로 PK가 충돌하면 이 트랜잭션만 롤백되고,
- * {@link ChatUserFacade}가 다시 시도한다. {@code saveAndFlush}로 충돌을 메서드 안에서 드러낸다.
+ * 생성하는 쪽이 가입 이벤트 하나라, 가입·변경이 동시에 생성하다 충돌하는 일이 없다.
  */
 @Slf4j
 @Service
-@Transactional(propagation = Propagation.REQUIRES_NEW)
+@Transactional
 @RequiredArgsConstructor
 public class ChatUserService {
 
@@ -34,13 +34,12 @@ public class ChatUserService {
             log.debug("이미 복제된 채팅 회원이라 가입 이벤트를 무시한다 userId={}", user.id());
             return;
         }
-        chatUserRepository.saveAndFlush(ChatUser.create(user));
+        chatUserRepository.save(ChatUser.create(user));
     }
 
-    public void createOrUpdate(UserDto user) {
-        chatUserRepository.findById(user.id()).ifPresentOrElse(
-                chatUser -> chatUser.syncFrom(user),
-                () -> chatUserRepository.saveAndFlush(ChatUser.create(user))
-        );
+    public void update(UserDto user) {
+        ChatUser chatUser = chatUserRepository.findById(user.id())
+                .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_USER_NOT_FOUND));
+        chatUser.syncFrom(user);
     }
 }
