@@ -5,8 +5,7 @@
  *     <li>lecture_content: 강의 영상·자료 (file_id, sequence, content_type)</li>
  * </ul>
  */
-// TODO(db): 운영 DB에 lecture 스키마와 테이블을 만드는 방식이 정해지지 않았다(마이그레이션 도구 미도입).
-//  팀 방식이 정해지면 위 테이블을 반영한다.
+// 테이블은 Flyway 마이그레이션(src/main/resources/db/migration/)으로 만든다. 엔티티를 바꾸면 마이그레이션도 추가한다.
 //  - lecture_content의 순서 유일성(살아 있는 행끼리 (lecture_id, sequence) 중복 금지)은 MVP에서 DB 제약 없이
 //    Lecture 애그리거트(매번 1부터 다시 매김)와 lecture.version 낙관적 락으로 보장한다(D12).
 //    DB 제약이 필요해지면 부분 유일 인덱스가 아니라 지연 검사 제약을 쓴다. 콘텐츠 교체 시 Hibernate가 새 행 INSERT를

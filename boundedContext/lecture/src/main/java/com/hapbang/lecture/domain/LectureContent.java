@@ -10,6 +10,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -21,7 +22,8 @@ import lombok.NoArgsConstructor;
  * 강의 영상·자료 한 개. {@link Lecture}를 통해서만 만들고 지운다.
  */
 @Entity
-@Table(name = "lecture_content", schema = "lecture")
+@Table(name = "lecture_content", schema = "lecture",
+        indexes = @Index(name = "idx_lecture_content_lecture_id", columnList = "lecture_id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class LectureContent {
