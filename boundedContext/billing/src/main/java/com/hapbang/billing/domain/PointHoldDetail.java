@@ -1,0 +1,76 @@
+package com.hapbang.billing.domain;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Check;
+
+// 최초 보류 이후 발생한 부분 반환·부분 지급의 HP 종류별 금액과 참조 대상을 기록한다.
+@Entity
+@Table(name = "point_hold_detail", schema = "billing",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_point_hold_detail_idempotency_key", columnNames = {"idempotency_key"})
+        },
+        indexes = {
+                @Index(name = "idx_point_hold_detail_1", columnList = "point_hold_id")
+        })
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Check(constraints = "(charge_amount_hp >= 0) AND (revenue_amount_hp >= 0) AND (charge_amount_hp > 0 OR revenue_amount_hp > 0)")
+public class PointHoldDetail extends BillingCreatedEntity {
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "point_hold_id", nullable = false)
+    private PointHold pointHold;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reference_type", nullable = false)
+    private BillingReferenceType referenceType;
+
+    @Column(name = "reference_id", nullable = false)
+    private Long referenceId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "action_type", nullable = false)
+    private HoldDetailActionType actionType;
+
+    @Column(name = "charge_amount_hp", nullable = false)
+    private Long chargeAmountHp;
+
+    @Column(name = "revenue_amount_hp", nullable = false)
+    private Long revenueAmountHp;
+
+    @Column(name = "idempotency_key", nullable = false)
+    private String idempotencyKey;
+
+    // 빌더로 전달받은 보류·참조 대상·처리 유형·HP 금액·멱등키로 부분 처리 상세를 초기화한다.
+    @Builder
+    private PointHoldDetail(
+            PointHold pointHold,
+            BillingReferenceType referenceType,
+            Long referenceId,
+            HoldDetailActionType actionType,
+            Long chargeAmountHp,
+            Long revenueAmountHp,
+            String idempotencyKey
+    ) {
+        this.pointHold = pointHold;
+        this.referenceType = referenceType;
+        this.referenceId = referenceId;
+        this.actionType = actionType;
+        this.chargeAmountHp = chargeAmountHp;
+        this.revenueAmountHp = revenueAmountHp;
+        this.idempotencyKey = idempotencyKey;
+    }
+}
