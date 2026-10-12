@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
@@ -11,6 +12,8 @@ import org.springframework.security.web.authentication.logout.HttpStatusReturnin
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 @Configuration
+// 관리자 API 외의 역할 검사는 각 모듈 컨트롤러의 @PreAuthorize로 한다 (2026-10-12 회의)
+@EnableMethodSecurity
 public class SecurityConfig {
     // Swagger 설정을 위한 최초 생성
     @Bean
@@ -24,6 +27,10 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         // 로컬 로그인 (로컬에서만 켜짐. 서버엔 컨트롤러가 없어 404)
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/local-login").permitAll()
+                        // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/lectures").permitAll()
+                        // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)
+                        .requestMatchers("/api/v1/*/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 // 구글 로그인 시작: /api/v1/members/oauth2/authorization/google (회원 처리는 member의 OAuth2UserService 빈)
