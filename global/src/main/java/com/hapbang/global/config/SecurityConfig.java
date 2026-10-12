@@ -12,7 +12,7 @@ import org.springframework.security.web.authentication.logout.HttpStatusReturnin
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 @Configuration
-// 관리자 API 외의 역할 검사는 각 모듈 컨트롤러의 @PreAuthorize로 한다 (2026-10-12 회의)
+// 관리자 API 외의 역할 검사는 각 모듈 서비스 레이어(Facade)의 @PreAuthorize로 한다 (2026-10-12 회의)
 @EnableMethodSecurity
 public class SecurityConfig {
     // Swagger 설정을 위한 최초 생성
