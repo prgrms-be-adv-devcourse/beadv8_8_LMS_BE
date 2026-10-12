@@ -47,7 +47,7 @@ dev/main 병합 → GitHub Actions(Deploy)
 ```
 
 - **각 레포는 자기 컨테이너만 바꾼다.** BE 배포는 해당 환경의 app(필요 시 postgres), FE 배포는 web만 교체한다.
-- **준비 확인**: 새 컨테이너가 healthy(web: HTTP 응답, app: 8080 포트)가 될 때까지 최대 180초 기다린다.
+- **준비 확인**: 새 컨테이너가 healthy(web: HTTP 응답, app: `GET /actuator/health`가 200 UP. DB 연결 포함)가 될 때까지 최대 180초 기다린다.
 - **자동 롤백**: healthy가 되지 않으면 로그를 남기고 교체 전 이미지로 되돌린 뒤 배포를 실패로 표시한다.
 - **수동 롤백**: Actions에서 되돌릴 버전의 Deploy run을 열고 `deploy` job만 다시 실행한다.
 - **배포 가능 시간**: EC2는 09:00~18:00에 자동으로 켜져 있다. 그 외 시간에 병합하면 deploy job이 SSH 타임아웃으로 실패하므로, 서버가 켜진 뒤 다시 실행한다.
@@ -70,5 +70,4 @@ dev/main 병합 → GitHub Actions(Deploy)
 | --- | --- |
 | DB 백업 | 자동 백업 없음. 수동 절차만 있음([operations.md](operations.md#db-백업복원)) |
 | dev 접근 제한 | dev(Swagger 포함)가 인터넷에 공개되어 있음 |
-| 헬스 체크 | 포트 확인 방식. Actuator readiness로 교체 가능 |
 | prod 배포 승인 | `main` 병합 즉시 배포. GitHub Environment 승인 규칙 미적용 |

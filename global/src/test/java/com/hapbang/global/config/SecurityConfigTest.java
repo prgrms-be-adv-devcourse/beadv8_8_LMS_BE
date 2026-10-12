@@ -75,6 +75,24 @@ class SecurityConfigTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void 헬스체크는_비회원도_조회한다() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 헬스체크_하위_경로도_비회원이_조회한다() throws Exception {
+        mockMvc.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 헬스체크_외_actuator_경로는_비회원이면_401() throws Exception {
+        mockMvc.perform(get("/actuator/env"))
+                .andExpect(status().isUnauthorized());
+    }
+
     @RestController
     static class SampleController {
 
@@ -101,6 +119,17 @@ class SecurityConfigTest {
 
         @GetMapping("/api/v1/samples/admin/ping")
         String adminPing() {
+            return "ok";
+        }
+
+        // 실제 actuator 엔드포인트 대신 같은 경로를 두고 보안 규칙만 확인한다
+        @GetMapping({"/actuator/health", "/actuator/health/liveness"})
+        String health() {
+            return "ok";
+        }
+
+        @GetMapping("/actuator/env")
+        String env() {
             return "ok";
         }
     }

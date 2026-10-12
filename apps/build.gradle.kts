@@ -20,6 +20,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     // 세션을 PostgreSQL에 저장 (재배포·재시작해도 로그인 유지)
     implementation("org.springframework.boot:spring-boot-starter-session-jdbc")
+    // 헬스체크 (GET /actuator/health: 앱·DB 상태). Docker healthcheck가 호출한다
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
 
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     developmentOnly("org.springframework.boot:spring-boot-docker-compose")
