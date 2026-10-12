@@ -41,7 +41,8 @@ dev/main 병합 → GitHub Actions(Deploy)
   ci      PR과 같은 verify(BE: ./gradlew check :apps:bootJar, FE: lint·build) → jar를 artifact로 넘김
   build   테스트한 jar를 이미지에 담아 GHCR(private) push   :dev|:latest, :sha-<커밋>
           (BE 이미지는 소스를 다시 빌드하지 않는다. 테스트한 jar = 배포한 jar)
-  deploy  EC2에 SSH → deploy.sh "<env> <app|web> <커밋>"
+  deploy  EC2에 SSH → (BE) deploy.sh "<env> check" → 서버 compose.<env>.yaml이 레포와 다르면 배포하지 않고 실패
+          → deploy.sh "<env> <app|web> <커밋>"
             → 해당 커밋 이미지 pull → 해당 컨테이너만 교체 → healthy 확인
 ```
 

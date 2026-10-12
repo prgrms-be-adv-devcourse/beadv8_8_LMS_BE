@@ -48,7 +48,9 @@ Actions의 Deploy run에서 실패한 job을 먼저 본다.
 | `deploy` — `healthy가 되지 않음` → `롤백 완료` | 새 버전이 기동 실패(설정 누락, DB 접속 실패 등) | 로그에 찍힌 앱 로그로 원인 확인. **서비스는 이전 버전으로 동작 중** |
 | `deploy` — `롤백도 실패` | 이전 버전도 뜨지 않음(DB 등 공통 원인) | 서버에서 `dev logs app`, `dev logs postgres` 확인 |
 | `deploy` — `required variable ... is missing` | 서버 env 파일에 값 없음 | [env-vars.md](env-vars.md) 2번. 기존 컨테이너는 그대로 동작 중 |
-| 경고 `서버의 ... 가 레포와 다릅니다` | 설정 반영 누락 | 아래 [설정 반영](#설정-반영) |
+| `deploy` — `서버의 compose.<env>.yaml 가 ... 달라 배포하지 않습니다` | 배포 환경의 compose 반영 누락. **배포 전에 멈췄으므로 서비스는 이전 버전으로 동작 중** | 아래 [설정 반영](#설정-반영) 후 `deploy` job Re-run |
+| `deploy` — `서버 설정 확인에 실패했습니다` | 서버의 deploy.sh가 옛 버전(`check` 미지원) | [설정 반영](#설정-반영)(deploy.sh 포함) 후 `deploy` job Re-run |
+| 경고 `서버의 ... 가 레포와 다릅니다` | 다른 환경 compose·edge·nginx·deploy.sh 반영 누락(배포는 진행됨) | [설정 반영](#설정-반영) |
 
 ## 롤백
 
@@ -60,6 +62,10 @@ FE·BE는 각각 롤백한다. DB 스키마가 바뀐 배포는 이미지 롤백
 ## 설정 반영
 
 `docker/`의 `compose.*.yaml`, `nginx/`, `deploy.sh`는 서버에 자동으로 반영되지 않는다(배포 키로 서버 설정을 바꿀 수 없게 하기 위함). PR 병합과 함께 직접 반영한다.
+
+BE 배포는 시작 전에 서버 설정을 **배포 브랜치의 최신 파일**과 비교한다. 배포 환경의 `compose.<env>.yaml`이 다르면 배포하지 않고 실패하며, 나머지 파일은 경고만 한다. compose를 바꾼 PR이 병합되면 Deploy가 실패하는 것이 정상이다. 반영한 뒤 `deploy` job을 다시 실행한다.
+
+- `compose.dev.yaml`은 `dev` 병합 때, `compose.prod.yaml`은 `main` 병합 때 반영한다. 서버에는 파일이 한 벌뿐이므로, 미리 반영하면 아직 반영 전인 브랜치의 배포가 실패한다.
 
 **로컬** (BE 레포 루트, 반영할 커밋으로 체크아웃한 상태)
 
