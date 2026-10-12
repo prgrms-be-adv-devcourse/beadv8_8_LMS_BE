@@ -51,6 +51,17 @@ spring:
             # 구글 로그인 후 돌아올 주소 (SecurityConfig의 콜백 주소와 같아야 한다)
             redirect-uri: "{baseUrl}/api/v1/members/login/oauth2/code/{registrationId}"
 
+# 헬스체크만 노출한다. DataSource가 있어 db 구성 요소가 자동으로 포함된다 (DB 연결이 끊기면 DOWN, 503)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      # 비회원에게도 열려 있으므로 UP/DOWN만 보여 주고 구성 요소·상세는 숨긴다
+      show-details: never
+
 springdoc:
   swagger-ui:
     csrf:

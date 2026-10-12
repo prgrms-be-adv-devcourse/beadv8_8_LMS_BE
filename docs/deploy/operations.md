@@ -17,6 +17,7 @@ edge() { sudo -u deploy docker compose -f /opt/hapbang/compose.edge.yaml --env-f
 | 최근 배포 | 각 레포 Actions → Deploy |
 | 서비스 응답 | 브라우저로 prod·dev 주소. `/api/...`는 인증 전 403이 정상 |
 | 컨테이너 | `dev ps`, `prod ps`, `edge ps` — app·web·postgres가 `(healthy)` |
+| 앱·DB 상태 | app의 `(healthy)`는 `/actuator/health`가 UP(DB 연결 포함)이라는 뜻이다. 직접 확인: `dev exec app bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080; printf "GET /actuator/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3; cat <&3'` (이미지에 curl이 없다). 외부(nginx)로는 열려 있지 않다 |
 | 실행 중인 버전 | `dev ps --format '{{.Service}} {{.Image}}'` → `:sha-<커밋>` |
 | 인증서 | `edge exec certbot certbot certificates` (남은 일수) |
 | 디스크 | `df -h /`, `sudo docker system df` |
@@ -58,6 +59,12 @@ Actions의 Deploy run에서 실패한 job을 먼저 본다.
 2. `Re-run jobs` → **`deploy`만** 선택해 다시 실행한다. 그 run의 커밋 이미지(`:sha-<커밋>`)로 교체된다.
 
 FE·BE는 각각 롤백한다. DB 스키마가 바뀐 배포는 이미지 롤백만으로 되돌아가지 않을 수 있다.
+
+**#72 이전 버전으로 롤백할 때**: app 헬스체크가 `/actuator/health`를 호출하는데, #72 이전 이미지에는 이 경로가 없어(401) healthy가 되지 않는다. 그래서 자동 롤백과 수동 롤백이 모두 실패한다. 그 버전으로 되돌려야 하면 서버에서 직접 처리한다. 서버 `compose.<env>.yaml`이 레포와 달라지면 Actions의 deploy job이 막히기 때문이다.
+
+1. 서버 `/opt/hapbang/compose.<env>.yaml`에서 app의 `healthcheck.test`를 포트 확인 방식(`["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]`)으로 바꾼다.
+2. 서버에서 `sudo -u deploy /usr/local/bin/hapbang-deploy <env> app <되돌릴 커밋 SHA>`를 실행한다.
+3. 다음 정상 배포 전에 [설정 반영](#설정-반영)으로 compose를 레포와 다시 맞춘다.
 
 ## 설정 반영
 
