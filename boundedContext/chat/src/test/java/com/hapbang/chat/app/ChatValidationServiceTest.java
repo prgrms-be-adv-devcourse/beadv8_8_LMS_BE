@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import com.hapbang.chat.domain.ChatErrorCode;
 import com.hapbang.chat.domain.ChatException;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
@@ -38,7 +40,7 @@ class ChatValidationServiceTest {
 
     @Test
     void 일반_유저와_탈퇴한_회원은_채팅할_수_없다() {
-        chatUserService.withdraw(GUEST_ID);
+        chatUserService.sync(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
 
         for (Long userId : new Long[] {USER_ID, GUEST_ID}) {
             assertThatThrownBy(() -> chatValidationService.validateCanChat(userId))

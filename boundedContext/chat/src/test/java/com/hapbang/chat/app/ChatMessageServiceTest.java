@@ -13,8 +13,8 @@ import com.hapbang.chat.app.dto.SentChatMessage;
 import com.hapbang.chat.domain.ChatErrorCode;
 import com.hapbang.chat.domain.ChatException;
 import com.hapbang.chat.domain.ChatMessageType;
-import com.hapbang.chat.domain.UserRole;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
@@ -95,7 +95,7 @@ class ChatMessageServiceTest {
 
     @Test
     void 일반_유저로_강등된_참여자는_보내지도_조회하지도_못한다() {
-        chatUserService.sync(HOST_ID, "호스트", UserRole.USER);
+        chatUserService.sync(activeUser(HOST_ID, "호스트", Role.USER));
 
         assertThatThrownBy(() -> chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요"))
                 .isInstanceOf(ChatException.class)

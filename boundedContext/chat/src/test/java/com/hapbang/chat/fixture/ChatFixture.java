@@ -4,7 +4,9 @@ import java.time.LocalDateTime;
 
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatUser;
-import com.hapbang.chat.domain.UserRole;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.dto.UserDto;
 
 /**
  * 채팅 테스트 공용 데이터.
@@ -23,8 +25,16 @@ public final class ChatFixture {
     private ChatFixture() {
     }
 
-    public static ChatUser chatUser(Long userId, UserRole role) {
-        return ChatUser.create(userId, "회원" + userId, role, NOW);
+    public static UserDto userDto(Long userId, String nickname, Role role, UserStatus status) {
+        return new UserDto(userId, nickname, role, status);
+    }
+
+    public static UserDto activeUser(Long userId, String nickname, Role role) {
+        return userDto(userId, nickname, role, UserStatus.ACTIVE);
+    }
+
+    public static ChatUser chatUser(Long userId, Role role) {
+        return ChatUser.create(activeUser(userId, "회원" + userId, role));
     }
 
     public static ChatRoom directRoom() {
