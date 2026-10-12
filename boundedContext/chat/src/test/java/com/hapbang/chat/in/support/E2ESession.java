@@ -30,10 +30,10 @@ public record E2ESession(String sessionCookie, String xsrfToken) {
                 .returnResult().getResponseHeaders().get(HttpHeaders.SET_COOKIE);
         String sessionCookie = cookie(loginCookies, "JSESSIONID");
 
+        // 쿠키만 받으면 되므로 응답 상태는 보지 않는다 (일반 유저는 채팅 역할 검사로 403)
         List<String> csrfCookies = client.get().uri("/api/v1/chats")
                 .header(HttpHeaders.COOKIE, sessionCookie)
                 .exchange()
-                .expectStatus().isOk()
                 .returnResult().getResponseHeaders().get(HttpHeaders.SET_COOKIE);
         String xsrfToken = cookie(csrfCookies, XSRF_COOKIE).substring(XSRF_COOKIE.length() + 1);
         return new E2ESession(sessionCookie, xsrfToken);

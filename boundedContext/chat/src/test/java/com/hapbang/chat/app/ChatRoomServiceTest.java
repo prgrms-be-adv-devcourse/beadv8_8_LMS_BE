@@ -244,6 +244,13 @@ class ChatRoomServiceTest {
     }
 
     @Test
+    void 일반_유저는_채팅방_목록을_조회할_수_없다() {
+        assertThatThrownBy(() -> chatRoomService.getMyRooms(USER_ID))
+                .isInstanceOf(ChatException.class)
+                .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_NOT_ALLOWED);
+    }
+
+    @Test
     void 관리자도_채팅방을_만들_수_있다() {
         assertThat(chatRoomService.createOrGet(ADMIN_ID, HOST_ID).created()).isTrue();
     }

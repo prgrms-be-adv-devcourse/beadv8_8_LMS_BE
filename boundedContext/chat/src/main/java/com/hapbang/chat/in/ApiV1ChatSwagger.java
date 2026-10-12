@@ -34,7 +34,7 @@ public interface ApiV1ChatSwagger {
             퇴장했던 방이면 재입장하며, 재입장 이전 메시지는 볼 수 없다.""")
     ResponseEntity<ChatRoomResponse> createChatRoom(Long userId, @Valid CreateChatRoomRequest request);
 
-    @Operation(summary = "내 채팅방 목록", description = "현재 참여 중인 채팅방만 조회한다.")
+    @Operation(summary = "내 채팅방 목록", description = "현재 참여 중인 채팅방만 조회한다. 인플루언서 이상 또는 관리자만 쓸 수 있다.")
     List<ChatRoomResponse> getMyChatRooms(Long userId);
 
     @Operation(summary = "메시지 이력 조회", description = """
@@ -48,7 +48,7 @@ public interface ApiV1ChatSwagger {
 
     @Operation(summary = "채팅방 나가기", description = """
             남은 참여자에게 퇴장 안내가 실시간으로 가고, 마지막 참여자가 나가면 방이 종료된다.
-            이미 나갔어도 204로 응답한다.""")
+            이미 나갔어도 204로 응답한다. 강등·정지된 회원도 나갈 수 있다.""")
     ResponseEntity<Void> leaveChatRoom(Long userId, Long chatRoomId,
             @Parameter(description = "참여 세대. 보내면 지연 도착한 옛 요청이 재입장한 참여를 끝내지 않는다")
             Integer participationVersion);

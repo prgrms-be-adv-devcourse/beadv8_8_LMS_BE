@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -36,6 +37,15 @@ public class ChatExceptionHandler extends ResponseEntityExceptionHandler {
                 exception.getMessage());
         problemDetail.setProperty("code", exception.getErrorCode().name());
         return problemDetail;
+    }
+
+    /**
+     * {@code @PreAuthorize} 역할 검사 거절. 관리자 API는 SecurityConfig의 URL 제한에서 먼저 막히므로,
+     * 여기까지 오는 것은 채팅 역할(인플루언서 이상·관리자) 거절이다.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ProblemDetail handleAccessDenied(AccessDeniedException exception) {
+        return handleChatException(new ChatException(ChatErrorCode.CHAT_NOT_ALLOWED));
     }
 
     // 아래 두 메서드는 ResponseEntityExceptionHandler 재정의라 반환 타입이 ResponseEntity<Object>로 고정되어 있다.
