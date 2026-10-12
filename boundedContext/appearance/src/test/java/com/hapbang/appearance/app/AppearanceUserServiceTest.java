@@ -71,4 +71,16 @@ class AppearanceUserServiceTest {
                 .isInstanceOf(AppearanceException.class)
                 .extracting("errorCode").isEqualTo(AppearanceErrorCode.NOT_INFLUENCER);
     }
+
+    @Test
+    @DisplayName("참여하던 인플루언서가 정지 상태로 갱신되면 APPEARANCE_USER_NOT_ACTIVE")
+    void getParticipantAfterSuspended() {
+        appearanceUserService.sync(AppearanceUserFixture.influencer(1L));
+
+        appearanceUserService.sync(AppearanceUserFixture.user(1L, Role.INFLUENCER, UserStatus.SUSPENDED));
+
+        assertThatThrownBy(() -> appearanceUserService.getParticipant(1L))
+                .isInstanceOf(AppearanceException.class)
+                .extracting("errorCode").isEqualTo(AppearanceErrorCode.APPEARANCE_USER_NOT_ACTIVE);
+    }
 }
