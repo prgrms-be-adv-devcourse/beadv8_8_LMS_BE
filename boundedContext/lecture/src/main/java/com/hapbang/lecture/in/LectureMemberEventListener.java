@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.lecture.app.LectureUserSyncService;
 import com.hapbang.shared.member.event.UserJoinedEvent;
+import com.hapbang.shared.member.event.UserModifiedEvent;
 
 import lombok.RequiredArgsConstructor;
 
@@ -17,6 +18,11 @@ public class LectureMemberEventListener {
 
     @ApplicationModuleListener
     public void on(UserJoinedEvent event) {
+        lectureUserSyncService.sync(event.user());
+    }
+
+    @ApplicationModuleListener
+    public void on(UserModifiedEvent event) {
         lectureUserSyncService.sync(event.user());
     }
 }
