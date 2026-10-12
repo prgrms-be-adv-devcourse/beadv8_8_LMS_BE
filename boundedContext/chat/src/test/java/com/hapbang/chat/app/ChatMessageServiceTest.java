@@ -95,7 +95,7 @@ class ChatMessageServiceTest {
 
     @Test
     void 일반_유저로_강등된_참여자는_보내지도_조회하지도_못한다() {
-        chatUserService.sync(activeUser(HOST_ID, "호스트", Role.USER));
+        chatUserService.createOrUpdate(activeUser(HOST_ID, "호스트", Role.USER));
 
         assertThatThrownBy(() -> chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요"))
                 .isInstanceOf(ChatException.class)

@@ -264,7 +264,7 @@ class ChatRoomServiceTest {
 
     @Test
     void 탈퇴한_회원과는_채팅방을_만들_수_없다() {
-        chatUserService.sync(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
+        chatUserService.createOrUpdate(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
 
         assertThatThrownBy(() -> chatRoomService.createOrGet(HOST_ID, GUEST_ID))
                 .isInstanceOf(ChatException.class)
