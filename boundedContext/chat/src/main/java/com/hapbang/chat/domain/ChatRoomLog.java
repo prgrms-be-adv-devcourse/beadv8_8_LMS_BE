@@ -22,7 +22,7 @@ import lombok.NoArgsConstructor;
  * 채팅방 이벤트 기록. INSERT만 하며 수정·삭제하지 않는다.
  */
 @Entity
-@Table(name = "chat_room_log", schema = "chat",
+@Table(name = "chat_room_log", schema = "chats",
         indexes = @Index(name = "idx_chat_room_log_chat_room_id", columnList = "chat_room_id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

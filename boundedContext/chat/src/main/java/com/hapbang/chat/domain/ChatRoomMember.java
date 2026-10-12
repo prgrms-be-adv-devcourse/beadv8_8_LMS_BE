@@ -25,7 +25,7 @@ import lombok.NoArgsConstructor;
  * </ul>
  */
 @Entity
-@Table(name = "chat_room_member", schema = "chat",
+@Table(name = "chat_room_member", schema = "chats",
         uniqueConstraints = @UniqueConstraint(name = "uk_chat_room_member_room_user",
                 columnNames = {"chat_room_id", "user_id"}),
         indexes = @Index(name = "idx_chat_room_member_user_id_left_at", columnList = "user_id, left_at"))

@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
  * 회원 이벤트를 받아 채팅 모듈에 복제한 회원 정보. ID는 회원 ID를 그대로 쓴다.
  */
 @Entity
-@Table(name = "chat_user", schema = "chat")
+@Table(name = "chat_user", schema = "chats")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatUser {

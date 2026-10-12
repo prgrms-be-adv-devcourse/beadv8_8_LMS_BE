@@ -1,5 +1,5 @@
 /**
- * 채팅 도메인. 모든 테이블은 {@code chat} 스키마에 둔다.
+ * 채팅 도메인. 모든 테이블은 {@code chats} 스키마에 둔다.
  * <ul>
  *     <li>chat_user: 회원 정보 복제본</li>
  *     <li>chat_room: 1:1 채팅방 (status, direct_key, last_sequence, ended_at)</li>
