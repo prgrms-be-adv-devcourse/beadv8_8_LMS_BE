@@ -75,4 +75,16 @@ class MemberOAuthLoginUseCaseTest {
         verify(eventPublisher).publishEvent(event.capture());
         assertThat(event.getValue().user().nickname()).isEqualTo("tester1");
     }
+
+    @Test
+    @DisplayName("처음 가입할 때 구글 이름을 닉네임 규칙에 맞게 정리해서 저장한다")
+    void login_newUser_cleansGoogleName() {
+        given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class))).willAnswer(returnsFirstArg());
+
+        User result = useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "🔥게임하는 민규🔥 [LIVE]");
+
+        assertThat(result.getNickname()).isEqualTo("게임하는 민규 LIVE");
+    }
 }
