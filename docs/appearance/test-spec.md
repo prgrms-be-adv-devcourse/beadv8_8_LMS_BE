@@ -31,9 +31,9 @@
 | 단위 | `AppearanceExceptionHandlerTest` | 출연 예외 → Problem Detail | #26, #31 |
 | 저장소 | `AppearanceUserRepositoryTest` | `appearances.users` 저장·조회 | #31 |
 | 통합 | `AppearanceModuleIntegrationTest` | 모듈 전체 기동 | #26 |
-| 통합 | `AppearanceUserServiceTest` | 출연 회원 생성·갱신, 자격 확인 | #31 |
-| 통합 | `AppearanceUserEventListenerTest` | 회원 가입 이벤트 수신 | #31 |
-| E2E | `AppearanceApiE2ETest` | 세션 로그인 → 자격 확인 → 오류 응답 (앱 전체) | #31 |
+| 통합 | `AppearanceUserServiceTest` | 출연 회원 생성·갱신, 자격 확인 | #31, #50 |
+| 통합 | `AppearanceUserEventListenerTest` | 회원 가입·정보 변경 이벤트 수신 | #31, #50 |
+| E2E | `AppearanceApiE2ETest` | 세션 로그인 → 자격 확인 → 오류 응답, 회원 정지 반영 (앱 전체) | #31, #50 |
 | 모듈 경계 | `ModularityTests` (apps) | 다른 모듈 내부 참조 없음 | — |
 
 ---
@@ -131,15 +131,21 @@
 | 인플루언서로 `getParticipant` | 출연 회원 반환 |
 | 없는 회원으로 `getParticipant` | `APPEARANCE_USER_NOT_FOUND` |
 | 일반 유저로 `getParticipant` | `NOT_INFLUENCER` |
+| 인플루언서를 정지 상태로 `sync`한 뒤 `getParticipant` | `APPEARANCE_USER_NOT_ACTIVE` |
 
 ### 4.4 회원 이벤트 수신 — `AppearanceUserEventListenerTest`
 
-회원 모듈이 가입 이벤트를 발행한 것처럼 만들고 확인한다. 리스너는 발행한 트랜잭션이 커밋된 뒤에만 실행된다.
+회원 모듈이 가입·변경 이벤트를 발행한 것처럼 만들고 확인한다. 리스너는 발행한 트랜잭션이 커밋된 뒤에만 실행된다.
 
 | 케이스 | 기대 결과 |
 |---|---|
 | 트랜잭션 안에서 `UserJoinedEvent` 발행 후 커밋 | 출연 회원 생성 (최대 5초 대기) |
-| 발행한 트랜잭션이 롤백 | 출연 회원 생성 안 됨 |
+| `UserJoinedEvent`를 발행한 트랜잭션이 롤백 | 출연 회원 생성 안 됨 |
+| 인플루언서가 있는 상태에서 `UserModifiedEvent`(닉네임 변경, VERIFIED_INFLUENCER, SUSPENDED) 발행 후 커밋 | 닉네임·역할·상태 갱신, 출연 회원은 1명 그대로 (최대 5초 대기) |
+| 출연 회원이 없는 상태에서 `UserModifiedEvent` 발행 후 커밋 | 출연 회원 생성 |
+| `UserModifiedEvent`(WITHDRAWN)를 발행한 트랜잭션이 롤백 | 상태 ACTIVE 그대로 |
+
+- 같은 회원의 이벤트가 순서가 바뀌어 처리되는 경우는 막지 않는다 (이벤트에 버전이 없음, [module.md](module.md) 4.1 참고).
 
 ---
 
@@ -156,6 +162,7 @@
 | 인플루언서로 로그인 | 200, 세션의 회원 ID가 `@LoginUserId`로 들어와 자격 확인 통과 |
 | 로그인했지만 출연 회원 정보 없음 | 404 Problem Detail, `code: APPEARANCE_USER_NOT_FOUND` |
 | 일반 유저로 로그인 | 403 Problem Detail, `code: NOT_INFLUENCER`, 한글 `detail` 정상 (UTF-8) |
+| 인플루언서로 요청 성공 → 회원 정지 이벤트(`UserModifiedEvent`) 반영 → 같은 로그인으로 다시 요청 | 200 → 403 Problem Detail, `code: APPEARANCE_USER_NOT_ACTIVE` |
 
 ---
 
