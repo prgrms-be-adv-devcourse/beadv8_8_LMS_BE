@@ -34,10 +34,15 @@
 ## 배포 흐름
 
 ```
-PR → dev/main 병합 → GitHub Actions
-  ci      테스트(BE: ./gradlew check, FE: lint·build)
-  build   이미지 빌드 → GHCR(private) push   :dev|:latest, :sha-<커밋>
-  deploy  EC2에 SSH → deploy.sh "<env> <app|web> <커밋>"
+PR → GitHub Actions(CI)
+  verify  테스트·jar 빌드 → 그 jar로 이미지 빌드 확인(push 안 함)
+
+dev/main 병합 → GitHub Actions(Deploy)
+  ci      PR과 같은 verify(BE: ./gradlew check :apps:bootJar, FE: lint·build) → jar를 artifact로 넘김
+  build   테스트한 jar를 이미지에 담아 GHCR(private) push   :dev|:latest, :sha-<커밋>
+          (BE 이미지는 소스를 다시 빌드하지 않는다. 테스트한 jar = 배포한 jar)
+  deploy  EC2에 SSH → (BE) deploy.sh "<env> check" → 서버 compose.<env>.yaml이 레포와 다르면 배포하지 않고 실패
+          → deploy.sh "<env> <app|web> <커밋>"
             → 해당 커밋 이미지 pull → 해당 컨테이너만 교체 → healthy 확인
 ```
 
@@ -55,6 +60,7 @@ PR → dev/main 병합 → GitHub Actions
 | 운영 반영 | `dev` → `main` PR 병합 |
 | 롤백 | 되돌릴 버전의 Deploy run → `deploy` job 재실행 |
 | 환경변수 추가 | [env-vars.md](env-vars.md) |
+| DB 스키마 변경 | Flyway 마이그레이션 SQL 추가, 앱 시작 시 자동 적용 → [db-migration.md](../db-migration.md) |
 | 배포 실패 확인 | [operations.md#배포-실패-대응](operations.md#배포-실패-대응) |
 | compose·nginx 수정 | PR 병합 + 서버에 직접 반영 → [operations.md#설정-반영](operations.md#설정-반영) |
 
@@ -62,7 +68,6 @@ PR → dev/main 병합 → GitHub Actions
 
 | 항목 | 현재 상태 |
 | --- | --- |
-| DB 스키마 관리 | Flyway·Liquibase·`ddl-auto` 설정 없음 → **테이블이 자동으로 만들어지지 않는다** |
 | DB 백업 | 자동 백업 없음. 수동 절차만 있음([operations.md](operations.md#db-백업복원)) |
 | dev 접근 제한 | dev(Swagger 포함)가 인터넷에 공개되어 있음 |
 | 헬스 체크 | 포트 확인 방식. Actuator readiness로 교체 가능 |

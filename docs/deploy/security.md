@@ -32,7 +32,9 @@
 | 외부 포트는 edge(80·443)만 | app·DB에 직접 접근 불가 |
 | 미등록 도메인 차단 | IP 직접 접근·스캐너에 응답하지 않음(80 연결 종료, 443 핸드셰이크 거부) |
 | HTTPS + HSTS, forward-headers | 쿠키에 Secure, https 리다이렉트 |
-| `.gitignore`·`.dockerignore` | `.env`, `.env.*`, `*.pem`이 커밋·이미지에 들어가지 않음 |
+| `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |
+| BE 이미지 빌드 컨텍스트는 jar 폴더뿐 | 이미지에는 `app.jar`만 들어간다. 소스·`.env`가 들어갈 수 없음 |
+| CI(PR) 읽기 전용 권한 | PR 코드가 실행되는 job은 GHCR에 쓸 수 없음. push는 Deploy의 `build` job만 |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
 
 ## 알려진 위험
@@ -42,7 +44,7 @@
 | dev가 인터넷에 공개(Swagger 포함) | 누구나 API 명세 조회·호출 가능 | edge에서 dev를 팀 IP 또는 Basic 인증으로 제한 |
 | SSH 22 전체 개방 | Actions 배포 때문. 키 인증만 허용 | 접근 로그 주기 확인(`sudo journalctl -u ssh`) |
 | `main`·`dev` 직접 push 가능 | 브랜치 보호 없음. CI 통과해야 배포는 됨 | 필요 시 ruleset |
-| GitHub Actions 버전 태그(`@v4`) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
+| GitHub Actions 메이저 버전 태그(`@v7` 등) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
 | DB 백업 없음 | 수동 절차만 | 정기 백업 결정 |
 
 ## 배포 키 교체
