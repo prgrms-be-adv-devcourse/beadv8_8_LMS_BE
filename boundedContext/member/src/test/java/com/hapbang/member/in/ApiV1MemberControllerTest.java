@@ -1,7 +1,10 @@
 package com.hapbang.member.in;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -11,11 +14,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.TestLogin;
 
 @IntegrationTest
@@ -73,5 +80,155 @@ class ApiV1MemberControllerTest {
     void localLogin_disabled() throws Exception {
         mockMvc.perform(post("/api/v1/members/local-login?role=ADMIN").with(csrf()))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("닉네임을 수정하면 200과 수정된 내 정보를 반환하고 DB에도 저장된다")
+    void updateMe() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+
+        mockMvc.perform(patch("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole())).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"새 닉네임\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("새 닉네임"));
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getNickname()).isEqualTo("새 닉네임");
+    }
+
+    @Test
+    @DisplayName("닉네임 없이 수정하면 200이고 닉네임은 그대로다")
+    void updateMe_withoutNickname() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+
+        mockMvc.perform(patch("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole())).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nickname").value("tester1"));
+    }
+
+    @Test
+    @DisplayName("규칙에 맞지 않는 닉네임이면 400과 오류 코드를 ProblemDetail로 반환한다")
+    void updateMe_invalidNickname() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+
+        mockMvc.perform(patch("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole())).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"민\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_NICKNAME_LENGTH"))
+                .andExpect(jsonPath("$.detail").value("닉네임은 2~12자로 입력해 주세요."));
+    }
+
+    @Test
+    @DisplayName("비로그인으로 수정하면 401을 반환한다")
+    void updateMe_notLoggedIn() throws Exception {
+        mockMvc.perform(patch("/api/v1/members/me").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"새 닉네임\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("CSRF 토큰 없이 수정하면 403을 반환한다")
+    void updateMe_withoutCsrfToken() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+
+        mockMvc.perform(patch("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"새 닉네임\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("없는 회원으로 내 정보를 조회하면 404와 MEMBER_NOT_FOUND를 반환한다")
+    void me_memberNotFound() throws Exception {
+        mockMvc.perform(get("/api/v1/members/me").with(TestLogin.as(999L, Role.USER)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("인플루언서 목록은 인플루언서만 최신 가입순으로 주고 이메일은 넣지 않는다")
+    void influencers() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User older = saveMember("older1", Role.INFLUENCER, UserStatus.ACTIVE);
+        User newer = saveMember("newer1", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE);
+        saveMember("admin1", Role.ADMIN, UserStatus.ACTIVE);
+
+        mockMvc.perform(get("/api/v1/members/influencers").with(TestLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(newer.getId()))
+                .andExpect(jsonPath("$.content[1].id").value(older.getId()))
+                .andExpect(jsonPath("$.content[0].email").doesNotExist())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
+    }
+
+    @Test
+    @DisplayName("페이지 크기가 최대(50)를 넘으면 50으로 맞춘다")
+    void influencers_maxSize() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+
+        mockMvc.perform(get("/api/v1/members/influencers?size=100").with(TestLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(50));
+    }
+
+    @Test
+    @DisplayName("비로그인으로 인플루언서 목록을 보면 401을 반환한다")
+    void influencers_notLoggedIn() throws Exception {
+        mockMvc.perform(get("/api/v1/members/influencers"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("회원 프로필은 공개 정보(id·닉네임·역할)만 주고 이메일은 넣지 않는다")
+    void profile() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User target = saveMember("target1", Role.INFLUENCER, UserStatus.ACTIVE);
+
+        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(TestLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(target.getId()))
+                .andExpect(jsonPath("$.nickname").value("target1"))
+                .andExpect(jsonPath("$.role").value("INFLUENCER"))
+                .andExpect(jsonPath("$.email").doesNotExist())
+                // S3 공통 설정 전이라 사진 자리는 있고 값은 null
+                .andExpect(jsonPath("$.profileImageUrl").hasJsonPath())
+                .andExpect(jsonPath("$.profileImageUrl").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("탈퇴한 회원의 프로필은 404와 MEMBER_NOT_FOUND를 반환한다")
+    void profile_withdrawn() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User withdrawn = saveMember("withdrawn1", Role.INFLUENCER, UserStatus.WITHDRAWN);
+
+        mockMvc.perform(get("/api/v1/members/{memberId}", withdrawn.getId()).with(TestLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("없는 회원의 프로필은 404와 MEMBER_NOT_FOUND를 반환한다")
+    void profile_notFound() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+
+        mockMvc.perform(get("/api/v1/members/{memberId}", 9999L).with(TestLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
+    }
+
+    /** 탈퇴 기능(F7)이 아직 없어 상태는 테스트에서만 직접 바꾼다 */
+    private User saveMember(String nickname, Role role, UserStatus status) {
+        User user = User.join(nickname + "@example.com", nickname);
+        user.changeRole(role);
+        ReflectionTestUtils.setField(user, "status", status);
+        return userRepository.saveAndFlush(user);
     }
 }
