@@ -27,7 +27,7 @@ import com.hapbang.chat.domain.ChatException;
  * {@code code}에 오류 코드를, 요청 값 검증 실패 시 {@code errors}에 항목별 메시지를 담는다.
  */
 // TODO: 팀 공통 응답·예외 포맷이 정해지면 global 모듈로 옮긴다.
-@RestControllerAdvice(assignableTypes = ChatRoomController.class)
+@RestControllerAdvice(assignableTypes = ApiV1ChatController.class)
 public class ChatExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ChatException.class)

@@ -24,9 +24,6 @@ import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.websocket.ChatMessageSender;
 import com.hapbang.global.auth.LoginUserId;
 
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -36,10 +33,9 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/v1/chats")
 @RequiredArgsConstructor
-public class ChatRoomController {
+public class ApiV1ChatController implements ApiV1ChatSwagger {
 
     private static final int DEFAULT_PAGE_SIZE = 30;
-    private static final int MAX_PAGE_SIZE = 100;
 
     private final ChatRoomFacade chatRoomFacade;
     private final ChatMessageFacade chatMessageFacade;
@@ -48,26 +44,27 @@ public class ChatRoomController {
     /**
      * 1:1 채팅을 시작한다. 새로 만들면 201, 종료되지 않은 기존 방을 재사용하면 200.
      */
+    @Override
     @PostMapping
     public ResponseEntity<ChatRoomResponse> createChatRoom(@LoginUserId Long userId,
-            @Valid @RequestBody CreateChatRoomRequest request) {
+            @RequestBody CreateChatRoomRequest request) {
         ChatRoomCreateResult result = chatRoomFacade.createOrGet(userId, request.targetUserId());
         HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(result.room());
     }
 
+    @Override
     @GetMapping
     public List<ChatRoomResponse> getMyChatRooms(@LoginUserId Long userId) {
         return chatRoomFacade.getMyRooms(userId);
     }
 
+    @Override
     @GetMapping("/{chatRoomId}/messages")
     public ChatMessagePageResponse getMessages(@LoginUserId Long userId,
             @PathVariable("chatRoomId") Long chatRoomId,
             @RequestParam(name = "cursor", required = false) Long cursor,
-            @RequestParam(name = "size", defaultValue = "" + DEFAULT_PAGE_SIZE)
-            @Min(value = 1, message = "size는 1 이상이어야 합니다.")
-            @Max(value = MAX_PAGE_SIZE, message = "size는 " + MAX_PAGE_SIZE + " 이하여야 합니다.") int size) {
+            @RequestParam(name = "size", defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
         return chatMessageFacade.getMessages(chatRoomId, userId, cursor, size);
     }
 
@@ -77,6 +74,7 @@ public class ChatRoomController {
      *
      * @param participationVersion 참여 세대. 보내면 지연 도착한 옛 요청이 새 참여를 끝내지 않는다.
      */
+    @Override
     @DeleteMapping("/{chatRoomId}/members/me")
     public ResponseEntity<Void> leaveChatRoom(@LoginUserId Long userId,
             @PathVariable("chatRoomId") Long chatRoomId,
@@ -91,6 +89,7 @@ public class ChatRoomController {
     /**
      * 관리자 분쟁 확인용 기록 조회.
      */
+    @Override
     @GetMapping("/{chatRoomId}/history")
     public ChatRoomHistoryResponse getHistory(@LoginUserId Long userId,
             @PathVariable("chatRoomId") Long chatRoomId) {
