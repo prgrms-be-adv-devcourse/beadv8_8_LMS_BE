@@ -46,6 +46,21 @@ class PageConfigTest {
                 .andExpect(jsonPath("$.pageable").doesNotExist());
     }
 
+    @Test
+    void 페이지_크기는_최대_100으로_줄인다() throws Exception {
+        mockMvc.perform(get("/api/v1/samples").param("size", "101")
+                        .with(TestLogin.as(1L, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.size").value(100));
+    }
+
+    @Test
+    void 페이지_크기를_보내지_않으면_20개씩_나눈다() throws Exception {
+        mockMvc.perform(get("/api/v1/samples").with(TestLogin.as(1L, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.size").value(20));
+    }
+
     @RestController
     static class SampleController {
 
