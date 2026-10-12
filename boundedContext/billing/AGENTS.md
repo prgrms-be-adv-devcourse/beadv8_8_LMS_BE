@@ -4,6 +4,8 @@
 
 루트 `AGENTS.md`의 공통 아키텍처 및 코딩 규칙을 준수하며, Billing의 금융 정합성 관련 세부 규칙을 추가한다.
 
+작업 전에 `boundedContext/billing/PROGRESS.md`(진행 현황·결정 기록·호출 계약)를 읽고, Issue를 마치면 갱신한다.
+
 ## 1. 모듈 책임
 
 Billing은 다음 기능을 담당한다.
@@ -155,3 +157,18 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 - 기존 모듈·공통 설정·마이그레이션을 승인 없이 변경하지 않는다.
 - ERD와 기존 코드가 충돌하면 구현 전에 보고한다.
 - 작업 완료 후 변경 파일, 테스트 명령 및 결과를 보고한다.
+## 14. API 컨벤션 (2026-10-12 팀 회의 결정)
+
+Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적용 예시는 지갑 API(`ApiV1WalletController`, `ApiV1WalletControllerDocs`, `WalletFacade`)와 강의 모듈(`boundedContext/lecture`)이다.
+
+- **컨트롤러 이름**: `ApiV1{Module}Controller`로 통일한다 (예: `ApiV1WalletController`).
+- **Swagger 명세 분리**: `@Tag`·`@Operation` 등 Swagger 어노테이션은 같은 `in` 패키지의 `ApiV1{Module}ControllerDocs` 인터페이스에 둔다. 컨트롤러는 이 인터페이스를 `implements`하고 메서드에 `@Override`를 붙인다. 매핑·파라미터 바인딩·`@ResponseStatus`는 컨트롤러에 남긴다.
+- **페이지네이션**: 요청은 Spring Data `Pageable`, 응답은 `Page`(global `PageConfig`가 `PagedModel` 형태로 직렬화)를 쓴다. 모듈 전용 페이지 응답 DTO를 만들지 않는다. 최대 페이지 크기는 100이다.
+- **관리자 API 경로**: 관리자 전용 API만 `/api/v1/{module}/admin/**` 아래에 둔다 (예: `/api/v1/wallets/admin/...`, `/api/v1/settlements/admin/...`). 관리자가 아닌 API에는 `admin`을 붙이지 않는다.
+- **권한 검사**:
+    - 관리자 API는 두 겹으로 막는다. `SecurityConfig`의 `requestMatchers("/api/v1/*/admin/**").hasRole("ADMIN")`과 서비스 레이어(Facade)의 `@PreAuthorize("hasRole('ADMIN')")`.
+    - 그 외 역할 검사(루트 AGENTS.md 6장 권한 표)는 컨트롤러가 아니라 서비스 레이어(Facade) 메서드의 `@PreAuthorize`로 한다. 컨트롤러에서 `isUserInRole` 등으로 직접 검사하지 않는다.
+    - 이벤트 리스너·배치처럼 로그인 정보 없이 호출하는 경로는 `@PreAuthorize`가 없는 별도 Facade 메서드를 쓴다 (예: `WalletFacade.getOrCreateWallet`).
+    - `@PreAuthorize` 거절은 `BillingErrorCode`가 아니라 Spring Security 기본 403으로 응답한다.
+- **헬스체크**: Actuator `/actuator/health`로 앱·DB 상태를 확인한다 (global·apps 공통 설정, 모듈에서 따로 만들지 않는다).
+- **테스트용 mock 계정**: 로컬 실행 시 member 모듈(`MemberDataInit`, 로컬 로그인)이 유저·인플루언서·인증된 인플루언서·관리자 역할별 테스트 계정을 만든다.

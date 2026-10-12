@@ -101,12 +101,10 @@ class ApiV1WalletControllerTest {
     }
 
     @Test
-    @DisplayName("관리자가 조회하면 403과 오류 코드를 반환하고 지갑을 만들지 않는다")
+    @DisplayName("관리자가 조회하면 Facade 역할 검사(@PreAuthorize)로 403을 반환하고 지갑을 만들지 않는다")
     void me_admin() throws Exception {
         mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, Role.ADMIN)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("WALLET_ACCESS_DENIED"))
-                .andExpect(jsonPath("$.status").value(403));
+                .andExpect(status().isForbidden());
 
         assertThat(walletRepository.findByUserId(1L)).isEmpty();
     }
