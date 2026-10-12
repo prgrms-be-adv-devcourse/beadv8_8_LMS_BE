@@ -14,33 +14,29 @@ import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.lecture.in.dto.CartItemAddRequest;
 import com.hapbang.lecture.in.dto.CartResponse;
 
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
-/** 장바구니 API (설계 8.4) */
+/** 장바구니 API (설계 8.4). Swagger 명세는 {@link ApiV1LectureCartControllerDocs} */
 // TODO: 13장 3단계에서 구현한다.
 // TODO(security): 유저·인플루언서·인증된 인플루언서만 허용한다(관리자 불가, 설계 9장). global SecurityConfig와 함께 추가한다.
-@Tag(name = "장바구니", description = "강의 담기·빼기·조회")
 @RestController
 @RequestMapping("/api/v1/lectures/cart")
-public class ApiV1LectureCartController {
+public class ApiV1LectureCartController implements ApiV1LectureCartControllerDocs {
 
-    @Operation(summary = "장바구니 조회", description = "담은 뒤 판매 중지·삭제된 강의는 구매 불가(purchasable=false)로 표시한다.")
+    @Override
     @GetMapping
     public CartResponse getCart(@LoginUserId Long userId) {
         throw NotImplemented.yet();
     }
 
-    @Operation(summary = "장바구니 담기",
-            description = "판매 중인 강의만. 본인 강의, 이미 보유 중인 강의, 이미 담은 강의는 담을 수 없다.")
+    @Override
     @PostMapping("/items")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void addItem(@LoginUserId Long userId, @Valid @RequestBody CartItemAddRequest request) {
         throw NotImplemented.yet();
     }
 
-    @Operation(summary = "장바구니 빼기")
+    @Override
     @DeleteMapping("/items/{lectureId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeItem(@LoginUserId Long userId, @PathVariable("lectureId") Long lectureId) {

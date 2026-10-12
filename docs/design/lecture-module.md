@@ -749,7 +749,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 ```
 com.hapbang.lecture
 ├── package-info.java   (@ApplicationModule)
-├── in/                 Controller, 요청 DTO, 예외 처리
+├── in/                 Controller, Swagger 명세 인터페이스(`*ControllerDocs`, D15), 요청 DTO, 예외 처리
 ├── app/                서비스, 배치, 회원 이벤트 리스너, LectureObjectionPort 구현
 ├── domain/             엔티티·상태·예외 (package-info.java: 테이블·제약 목록, TODO(db))
 └── out/                Repository, S3 클라이언트
@@ -889,3 +889,4 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D12 | 2026-10-12 | MVP에서 `lecture_content`의 순서 유일성에 DB 제약을 두지 않는다. `Lecture` 애그리거트가 교체 때마다 순서를 1부터 다시 매기고, 동시 교체는 `lecture.version` 낙관적 락으로 막는다 | DB 제약이 추가로 막는 것은 애그리거트를 우회한 직접 SQL뿐인데, 엔티티로 표현할 수 없어 별도 SQL(테스트 `import.sql`, 운영 마이그레이션)과 환경별 스키마 차이를 관리해야 한다 | 스키마 관리 방식(Q18)을 정할 때 지연 검사 제약(7.1) 도입 여부를 다시 본다 |
 | D13 | 2026-10-12 | 모든 환경(local·dev·prod·테스트)의 스키마를 Flyway 마이그레이션으로 관리하고 Hibernate는 `ddl-auto: validate`로 검사만 한다. Flyway 하나가 각 모듈의 `src/main/resources/db/migration/` SQL을 모두 실행하며, 버전은 작성 시각(`V{yyyyMMddHHmm}__`), 설명에는 모듈 이름을 넣는다. SQL은 엔티티에서 IntelliJ(JPA Buddy)로 생성한 뒤 검토한다 | 엔티티로 표현할 수 없는 스키마(인덱스·제약)와 운영 변경 이력을 SQL로 관리하고, 엔티티와 테이블의 불일치를 테스트에서 잡는다. 모듈 테스트는 자기 모듈 SQL만 실행되어 모듈 경계와도 맞다 | 회원 모듈 초기 마이그레이션은 Flyway 도입 PR에서 함께 추가. 채팅(#23) 등 이후 병합되는 모듈도 마이그레이션 필요. `docs/db-migration.md` |
 | D14 | 2026-10-12 | (1) 8장 API 전체를 Swagger 스텁 컨트롤러(`in/ApiV1Lecture*Controller`, 본문은 501)로 먼저 공개해 프론트와 명세를 맞춘다. 구현은 13장 단계별로 채운다. (2) 역할별 인가(9장)는 이번에 넣지 않고 `TODO(security)`로 남긴다. 그동안 모든 강의 API는 로그인만 요구한다(비회원 목록 조회도 401). (3) 페이지 응답은 모듈 안의 `PageResponse`로 두고 팀 공통 포맷이 정해지면 교체한다 | AGENTS.md 7장 "명세(Controller)를 먼저 만들어 동시에 작업". 인가는 global `SecurityConfig` 변경이라 회원·global 담당과 함께 정한다 | 2단계 구현 PR에서 강의·검수부터 실제 구현, 인가 규칙은 global 담당과 합의 |
+| D15 | 2026-10-12 | 컨트롤러의 Swagger 어노테이션(`@Tag`·`@Operation`, 이후 추가할 `@ApiResponse`·`@Parameter`도)은 같은 `in` 패키지의 명세 인터페이스 `{Controller}Docs`(예: `ApiV1LectureControllerDocs`)에 두고, 컨트롤러가 이를 `implements`하며 메서드에 `@Override`를 붙인다. 매핑·`@ResponseStatus`·바인딩(`@PathVariable`·`@RequestParam`·`@RequestBody`·`@Valid`·`@LoginUserId`)·`@PreAuthorize`는 컨트롤러에 남긴다. DTO 필드의 `@Schema`는 DTO에 그대로 둔다 (#74) | 컨트롤러에서 경로·권한·호출 흐름이 잘 보이게 한다(2026-10-12 회의). OpenAPI Generator의 `~Api` 인터페이스는 매핑까지 담은 계약이라, 문서만 담는다는 뜻으로 `Docs`를 쓴다. springdoc은 구현한 인터페이스의 어노테이션을 읽고, Boot 기본 CGLIB 프록시(`spring.aop.proxy-target-class=true`)라 `@PreAuthorize` 컨트롤러도 그대로 매핑된다. 작업 전후 `/v3/api-docs`가 같음을 확인했다 | 다른 모듈 적용은 각 담당자 판단(AGENTS.md 11장 네이밍은 팀 합의 전) |
