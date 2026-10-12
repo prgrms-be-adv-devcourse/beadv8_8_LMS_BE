@@ -7,7 +7,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
-import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 
 import lombok.RequiredArgsConstructor;
@@ -19,7 +18,8 @@ public class MemberFacade {
 
     private final MemberOAuthLoginUseCase memberOAuthLoginUseCase;
     private final MemberTestAccountUseCase memberTestAccountUseCase;
-    private final UserRepository userRepository;
+    private final MemberUpdateProfileUseCase memberUpdateProfileUseCase;
+    private final MemberSupport memberSupport;
 
     /** OAuth 로그인 (처음이면 가입) */
     @Transactional
@@ -39,9 +39,15 @@ public class MemberFacade {
         return memberTestAccountUseCase.find(role, number);
     }
 
+    /** 내 정보 수정 */
+    @Transactional
+    public User updateProfile(Long userId, String nickname) {
+        return memberUpdateProfileUseCase.update(userId, nickname);
+    }
+
     /** 회원 조회 */
     @Transactional(readOnly = true)
     public User findById(Long userId) {
-        return userRepository.findById(userId).orElseThrow();
+        return memberSupport.findUser(userId);
     }
 }

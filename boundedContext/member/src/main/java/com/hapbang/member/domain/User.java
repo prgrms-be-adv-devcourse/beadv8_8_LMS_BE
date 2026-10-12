@@ -43,6 +43,11 @@ public class User extends SourceUser {
         changeProfile(Nickname.validate(nickname), getRole(), getStatus());
     }
 
+    /** 프로필 이미지 변경 (S3 키, null이면 삭제). API는 S3 공통 설정 이후 */
+    public void changeProfileImage(String profileImageKey) {
+        this.profileImageKey = profileImageKey;
+    }
+
     /** 역할 변경 (승급·테스트 계정) */
     public void changeRole(Role role) {
         changeProfile(getNickname(), role, getStatus());

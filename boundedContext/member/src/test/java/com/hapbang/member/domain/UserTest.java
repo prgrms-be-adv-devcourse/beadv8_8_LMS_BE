@@ -80,4 +80,18 @@ class UserTest {
                 .isInstanceOf(MemberException.class)
                 .extracting("errorCode").isEqualTo(MemberErrorCode.INVALID_NICKNAME_CHARACTER);
     }
+
+    @Test
+    @DisplayName("프로필 이미지 키를 저장하고 null이면 지운다. 닉네임·역할은 그대로다")
+    void changeProfileImage() {
+        User user = User.join("tester1@example.com", "tester1");
+
+        user.changeProfileImage("profiles/1/image.png");
+        assertThat(user.getProfileImageKey()).isEqualTo("profiles/1/image.png");
+
+        user.changeProfileImage(null);
+        assertThat(user.getProfileImageKey()).isNull();
+        assertThat(user.getNickname()).isEqualTo("tester1");
+        assertThat(user.getRole()).isEqualTo(Role.USER);
+    }
 }
