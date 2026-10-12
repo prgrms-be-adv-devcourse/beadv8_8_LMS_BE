@@ -18,3 +18,26 @@ spring:
       completion-mode: archive
   jpa:
     open-in-view: false
+  session:
+    jdbc:
+      # 세션 테이블(spring_session)을 앱 시작 시 만든다 (이미 있으면 건너뜀)
+      initialize-schema: always
+  security:
+    oauth2:
+      client:
+        registration:
+          # 구글은 Spring에 로그인·토큰 주소가 내장되어 있어 provider 설정을 생략한다
+          google:
+            # 기본값을 두지 않는다 → 서버에 값이 없으면 기동 실패 (docs/deploy/env-vars.md)
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            # openid 없이 OAuth2로만 로그인한다 (OIDC는 팀 논의 후)
+            scope: profile,email
+            # 구글 로그인 후 돌아올 주소 (SecurityConfig의 콜백 주소와 같아야 한다)
+            redirect-uri: "{baseUrl}/api/v1/members/login/oauth2/code/{registrationId}"
+
+springdoc:
+  swagger-ui:
+    csrf:
+      # Swagger가 XSRF-TOKEN 쿠키를 읽어 X-XSRF-TOKEN 헤더로 자동 전송
+      enabled: true
