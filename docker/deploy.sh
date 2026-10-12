@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # EC2 배포 스크립트. GitHub Actions의 배포 전용 SSH 키로는 이 스크립트만 실행된다(forced command).
-# 사용법: deploy.sh <prod|dev> <web|app> [커밋 SHA]
-#   web  FE 레포 배포. 해당 환경의 web만 교체한다.
-#   app  BE 레포 배포. 해당 환경의 app만 교체한다(postgres가 내려가 있으면 함께 올린다).
-#   SHA  배포할 이미지(:sha-<SHA>). 생략하면 :latest(prod) / :dev(dev).
-#        workflow가 빌드한 커밋을 넘기므로, 이전 run의 deploy job을 다시 실행하면 그 버전으로 롤백된다.
+# 사용법: deploy.sh <prod|dev> <web|app|check> [커밋 SHA]
+#   web    FE 레포 배포. 해당 환경의 web만 교체한다.
+#   app    BE 레포 배포. 해당 환경의 app만 교체한다(postgres가 내려가 있으면 함께 올린다).
+#   check  배포하지 않고 서버 설정 파일의 해시만 출력한다. workflow가 배포 전에 레포와 비교한다.
+#   SHA    배포할 이미지(:sha-<SHA>). 생략하면 :latest(prod) / :dev(dev). check에는 쓰지 않는다.
+#          workflow가 빌드한 커밋을 넘기므로, 이전 run의 deploy job을 다시 실행하면 그 버전으로 롤백된다.
 # stdin: (선택) "<GHCR 사용자> <GHCR 토큰>" 한 줄. 배포 workflow가 넘긴다.
 # 새 컨테이너가 healthy가 되지 않으면 이전 이미지로 되돌리고 실패로 끝난다.
 # 서버 설치 방법은 docker/README.md 참고.
@@ -13,18 +14,32 @@ set -euo pipefail
 ROOT=/opt/hapbang
 read -r ENV_NAME SERVICE SHA EXTRA <<< "${SSH_ORIGINAL_COMMAND:-$*}" || true
 
-usage() { echo "사용법: deploy.sh <prod|dev> <web|app> [커밋 SHA]" >&2; exit 2; }
+usage() { echo "사용법: deploy.sh <prod|dev> <web|app|check> [커밋 SHA]" >&2; exit 2; }
 [ -z "${EXTRA:-}" ] || usage
 case "${ENV_NAME:-}" in prod|dev) ;; *) usage ;; esac
 case "${SERVICE:-}" in
-  web) TARGETS=(web);          TAG_VAR=FE_TAG ;;
-  app) TARGETS=(postgres app); TAG_VAR=BE_TAG ;;
-  *)   usage ;;
+  web)   TARGETS=(web);          TAG_VAR=FE_TAG ;;
+  app)   TARGETS=(postgres app); TAG_VAR=BE_TAG ;;
+  check) [ -z "${SHA:-}" ] || usage ;;
+  *)     usage ;;
 esac
 if [ -n "${SHA:-}" ]; then
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || usage
   # 셸 환경 변수는 --env-file보다 우선한다.
   export "$TAG_VAR=sha-$SHA"
+fi
+
+# workflow가 레포와 비교해 서버 설정이 뒤처졌는지(수동 반영 누락) 확인한다.
+print_config() {
+  for f in compose.prod.yaml compose.dev.yaml compose.edge.yaml nginx/templates/default.conf.template nginx/snippets/routes.conf nginx/snippets/ssl.conf; do
+    echo "[config] $(sha256sum "$ROOT/$f" | cut -d' ' -f1) $f"
+  done
+  echo "[config] $(sha256sum "$0" | cut -d' ' -f1) deploy.sh"
+}
+
+if [ "$SERVICE" = check ]; then
+  print_config
+  exit 0
 fi
 
 # GHCR 패키지는 private이다. 토큰은 임시 DOCKER_CONFIG에만 로그인하고 끝나면 지운다.
@@ -51,11 +66,7 @@ stack() {
   docker compose -f "$ROOT/compose.$ENV_NAME.yaml" --env-file "$ROOT/env/$ENV_NAME.env" "$@"
 }
 
-# workflow가 레포와 비교해 서버 설정이 뒤처졌는지(수동 반영 누락) 알려 준다.
-for f in compose.prod.yaml compose.dev.yaml compose.edge.yaml nginx/templates/default.conf.template nginx/snippets/routes.conf nginx/snippets/ssl.conf; do
-  echo "[config] $(sha256sum "$ROOT/$f" | cut -d' ' -f1) $f"
-done
-echo "[config] $(sha256sum "$0" | cut -d' ' -f1) deploy.sh"
+print_config
 
 echo "[deploy] $ENV_NAME $SERVICE ${!TAG_VAR:-기본 태그} 시작"
 
