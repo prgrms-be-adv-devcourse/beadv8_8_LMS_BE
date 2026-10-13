@@ -6,6 +6,8 @@ import java.util.List;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.lecture.domain.ContentType;
+import com.hapbang.lecture.domain.FileResource;
+import com.hapbang.lecture.domain.FileType;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureContentSpec;
 
@@ -49,6 +51,23 @@ public final class LectureFixture {
         Lecture lecture = pendingLecture();
         lecture.approve(ADMIN_ID, NOW);
         return lecture;
+    }
+
+    /** 업로드 URL만 발급한(S3에 올리지 않은) 파일 */
+    public static FileResource pendingFile(Long uploaderUserId, FileType fileType) {
+        String contentType = switch (fileType) {
+            case LECTURE_THUMBNAIL -> "image/png";
+            case LECTURE_VIDEO -> "video/mp4";
+            case LECTURE_DOCUMENT -> "application/pdf";
+        };
+        return FileResource.create(uploaderUserId, fileType, "file", contentType, 1_024L, NOW);
+    }
+
+    /** 업로드를 완료해 강의에 연결할 수 있는 파일. S3 없이 강의 API를 테스트할 때 저장해서 쓴다 */
+    public static FileResource uploadedFile(Long uploaderUserId, FileType fileType) {
+        FileResource file = pendingFile(uploaderUserId, fileType);
+        file.markUploaded(file.getFileSize(), NOW);
+        return file;
     }
 
     /** 저장하지 않은 강의에 ID를 넣는다. 장바구니처럼 강의 ID로 참조하는 단위 테스트용 */
