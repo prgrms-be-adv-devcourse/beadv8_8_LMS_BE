@@ -38,4 +38,40 @@ public class InquiryUseCase {
         }
         inquiry.delete(LocalDateTime.now());
     }
+
+    /** 관리자 답변. 답변을 달면 문의가 답변 완료가 된다. 회원이 삭제한 문의는 404 */
+    public Inquiry reply(Long inquiryId, Long adminUserId, String content) {
+        Inquiry inquiry = findWithReplies(inquiryId);
+        inquiry.reply(adminUserId, content);
+        return inquiry;
+    }
+
+    /** 답변 수정. 어느 관리자든 고칠 수 있다. 없거나 삭제된 답변은 404 */
+    public Inquiry editReply(Long inquiryId, Long replyId, String content) {
+        Inquiry inquiry = findWithReplies(inquiryId);
+        requireReply(inquiry, replyId);
+        inquiry.editReply(replyId, content);
+        return inquiry;
+    }
+
+    /** 답변 삭제(Soft Delete). 남은 답변이 없으면 문의가 답변 대기로 돌아간다. 없거나 삭제된 답변은 404 */
+    public void deleteReply(Long inquiryId, Long replyId) {
+        Inquiry inquiry = findWithReplies(inquiryId);
+        requireReply(inquiry, replyId);
+        inquiry.deleteReply(replyId, LocalDateTime.now());
+    }
+
+    /**
+     * 답변까지 함께 불러온다(EntityGraph). 커밋 뒤 트랜잭션 밖에서 응답을 만들 때 답변 목록을 읽을 수 있다.
+     */
+    private Inquiry findWithReplies(Long inquiryId) {
+        return inquiryRepository.findWithRepliesByIdAndDeletedAtIsNull(inquiryId)
+                .orElseThrow(() -> new CustomerSupportException(CustomerSupportErrorCode.INQUIRY_NOT_FOUND));
+    }
+
+    private static void requireReply(Inquiry inquiry, Long replyId) {
+        if (!inquiry.hasReply(replyId)) {
+            throw new CustomerSupportException(CustomerSupportErrorCode.INQUIRY_REPLY_NOT_FOUND);
+        }
+    }
 }

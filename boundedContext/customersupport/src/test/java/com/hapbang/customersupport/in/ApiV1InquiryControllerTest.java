@@ -1,10 +1,10 @@
 package com.hapbang.customersupport.in;
 
-import static com.hapbang.customersupport.fixture.InquiryFixture.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,7 +18,6 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.customersupport.app.InquiryUseCase;
 import com.hapbang.customersupport.domain.InquiryCategory;
-import com.hapbang.customersupport.out.InquiryRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
@@ -31,15 +30,13 @@ class ApiV1InquiryControllerTest {
     private static final Long USER_ID = 1L;
     private static final Long OTHER_USER_ID = 2L;
     private static final Long ADMIN_ID = 9L;
+    private static final Long OTHER_ADMIN_ID = 10L;
 
     @Autowired
     MockMvc mockMvc;
 
     @Autowired
     InquiryUseCase inquiryUseCase;
-
-    @Autowired
-    InquiryRepository inquiryRepository;
 
     @ParameterizedTest
     @EnumSource(value = Role.class, names = {"USER", "INFLUENCER", "VERIFIED_INFLUENCER"})
@@ -215,7 +212,7 @@ class ApiV1InquiryControllerTest {
     @Test
     void 답변이_달린_문의를_삭제하면_409() throws Exception {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
-        markAnswered(inquiryRepository, inquiryId);
+        inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변");
 
         mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
                 .andExpect(status().isConflict())
@@ -236,7 +233,7 @@ class ApiV1InquiryControllerTest {
         inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "첫 문의", "내용");
         Long answered = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "답변된 문의", "내용").getId();
         inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "두 번째 문의", "내용");
-        markAnswered(inquiryRepository, answered);
+        inquiryUseCase.reply(answered, ADMIN_ID, "답변");
 
         mockMvc.perform(get("/api/v1/inquiries/admin").param("status", "WAITING")
                         .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
@@ -265,6 +262,114 @@ class ApiV1InquiryControllerTest {
         mockMvc.perform(get("/api/v1/inquiries/admin").with(TestLogin.as(USER_ID, role)))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/inquiries/admin/{id}", inquiryId).with(TestLogin.as(USER_ID, role)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 관리자가_답변하면_201_답변_완료_회원_상세에_답변이_보인다() throws Exception {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+
+        mockMvc.perform(post("/api/v1/inquiries/admin/{id}/replies", inquiryId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"content": "확인했습니다."}"""))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
+                .andExpect(jsonPath("$.message").value("답변을 등록했습니다."))
+                .andExpect(jsonPath("$.data.status").value("ANSWERED"))
+                .andExpect(jsonPath("$.data.replies[0].replyId").isNumber())
+                .andExpect(jsonPath("$.data.replies[0].content").value("확인했습니다."));
+
+        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ANSWERED"))
+                .andExpect(jsonPath("$.data.replies.length()").value(1))
+                .andExpect(jsonPath("$.data.replies[0].content").value("확인했습니다."))
+                .andExpect(jsonPath("$.data.replies[0].adminUserId").doesNotExist());
+    }
+
+    @Test
+    void 답변_내용이_비어_있으면_400() throws Exception {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+
+        mockMvc.perform(post("/api/v1/inquiries/admin/{id}/replies", inquiryId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"content": " "}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("content"));
+    }
+
+    @Test
+    void 다른_관리자도_답변을_고칠_수_있다() throws Exception {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long replyId = inquiryUseCase.reply(inquiryId, ADMIN_ID, "첫 답변").getReplies().getFirst().getId();
+
+        mockMvc.perform(put("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, replyId)
+                        .with(TestLogin.as(OTHER_ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"content": "고친 답변"}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("답변을 수정했습니다."))
+                .andExpect(jsonPath("$.data.status").value("ANSWERED"))
+                .andExpect(jsonPath("$.data.replies[0].content").value("고친 답변"));
+    }
+
+    @Test
+    void 마지막_답변을_지우면_204_문의는_답변_대기() throws Exception {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long replyId = inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변").getReplies().getFirst().getId();
+
+        mockMvc.perform(delete("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, replyId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("WAITING"))
+                .andExpect(jsonPath("$.data.replies.length()").value(0));
+    }
+
+    @Test
+    void 없는_답변을_고치거나_지우면_404() throws Exception {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+
+        mockMvc.perform(put("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, 999L)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"content": "고친 답변"}"""))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("INQUIRY_REPLY_NOT_FOUND"));
+        mockMvc.perform(delete("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, 999L)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("INQUIRY_REPLY_NOT_FOUND"));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = {"USER", "INFLUENCER", "VERIFIED_INFLUENCER"})
+    void 관리자가_아니면_답변을_등록_수정_삭제할_수_없다_403(Role role) throws Exception {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long replyId = inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변").getReplies().getFirst().getId();
+
+        mockMvc.perform(post("/api/v1/inquiries/admin/{id}/replies", inquiryId)
+                        .with(TestLogin.as(USER_ID, role)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"content": "답변"}"""))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, replyId)
+                        .with(TestLogin.as(USER_ID, role)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"content": "답변"}"""))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, replyId)
+                        .with(TestLogin.as(USER_ID, role)).with(csrf()))
                 .andExpect(status().isForbidden());
     }
 }

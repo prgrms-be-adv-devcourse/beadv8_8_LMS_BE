@@ -4,6 +4,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -26,6 +27,12 @@ public interface InquiryRepository extends JpaRepository<Inquiry, Long> {
     Page<Inquiry> searchByUserId(@Param("userId") Long userId, @Param("pattern") String pattern, Pageable pageable);
 
     Optional<Inquiry> findByIdAndDeletedAtIsNull(Long id);
+
+    /**
+     * 답변까지 함께 불러온다. 답변을 바꾼 뒤 커밋하고 트랜잭션 밖(Facade)에서 응답을 만들 때 지연 로딩이 일어나지 않게 한다.
+     */
+    @EntityGraph(attributePaths = "replies")
+    Optional<Inquiry> findWithRepliesByIdAndDeletedAtIsNull(Long id);
 
     /** 관리자 문의 목록 (전체) */
     Page<Inquiry> findByDeletedAtIsNull(Pageable pageable);

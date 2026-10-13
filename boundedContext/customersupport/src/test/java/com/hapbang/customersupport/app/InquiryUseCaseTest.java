@@ -1,6 +1,5 @@
 package com.hapbang.customersupport.app;
 
-import static com.hapbang.customersupport.fixture.InquiryFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
@@ -8,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
+import com.hapbang.customersupport.app.dto.InquiryReplyResponse;
 import com.hapbang.customersupport.app.dto.InquiryResponse;
 import com.hapbang.customersupport.app.dto.InquirySort;
 import com.hapbang.customersupport.app.dto.InquirySummaryResponse;
@@ -24,6 +24,7 @@ class InquiryUseCaseTest {
 
     private static final Long USER_ID = 1L;
     private static final Long OTHER_USER_ID = 2L;
+    private static final Long ADMIN_ID = 9L;
 
     @Autowired
     private InquiryUseCase inquiryUseCase;
@@ -176,7 +177,7 @@ class InquiryUseCaseTest {
     @Test
     void 답변이_달린_문의는_삭제할_수_없다() {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
-        markAnswered(inquiryRepository, inquiryId);
+        inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변");
 
         assertThatThrownBy(() -> inquiryUseCase.delete(inquiryId, USER_ID))
                 .isInstanceOfSatisfying(CustomerSupportException.class,
@@ -188,7 +189,7 @@ class InquiryUseCaseTest {
         Long waiting = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "대기", "내용").getId();
         Long answered = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "완료", "내용").getId();
         Long deleted = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "삭제", "내용").getId();
-        markAnswered(inquiryRepository, answered);
+        inquiryUseCase.reply(answered, ADMIN_ID, "답변");
         inquiryUseCase.delete(deleted, USER_ID);
 
         assertThat(inquirySupporter.getInquiries(null, InquirySort.OLDEST, PageRequest.of(0, 20)).getContent())
@@ -197,5 +198,99 @@ class InquiryUseCaseTest {
                 .getContent()).extracting(InquirySummaryResponse::inquiryId).containsExactly(waiting);
         assertThat(inquirySupporter.getInquiries(InquiryStatus.ANSWERED, InquirySort.OLDEST, PageRequest.of(0, 20))
                 .getContent()).extracting(InquirySummaryResponse::inquiryId).containsExactly(answered);
+    }
+
+    @Test
+    void 관리자가_답변하면_답변_완료가_되고_회원_상세에_답변이_보인다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+
+        Inquiry replied = inquiryUseCase.reply(inquiryId, ADMIN_ID, "첫 답변");
+        inquiryUseCase.reply(inquiryId, ADMIN_ID, "추가 답변");
+
+        assertThat(replied.getStatus()).isEqualTo(InquiryStatus.ANSWERED);
+        InquiryResponse mine = inquirySupporter.getMyInquiry(inquiryId, USER_ID);
+        assertThat(mine.status()).isEqualTo(InquiryStatus.ANSWERED);
+        assertThat(mine.replies()).extracting(InquiryReplyResponse::content).containsExactly("첫 답변", "추가 답변");
+    }
+
+    @Test
+    void 회원이_삭제한_문의에는_답변할_수_없다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        inquiryUseCase.delete(inquiryId, USER_ID);
+
+        assertThatThrownBy(() -> inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변"))
+                .isInstanceOfSatisfying(CustomerSupportException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(CustomerSupportErrorCode.INQUIRY_NOT_FOUND));
+    }
+
+    @Test
+    void 답변을_고치면_내용이_바뀌고_상태는_그대로다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long replyId = replyIdOf(inquiryUseCase.reply(inquiryId, ADMIN_ID, "첫 답변"));
+
+        inquiryUseCase.editReply(inquiryId, replyId, "고친 답변");
+
+        InquiryResponse mine = inquirySupporter.getMyInquiry(inquiryId, USER_ID);
+        assertThat(mine.status()).isEqualTo(InquiryStatus.ANSWERED);
+        assertThat(mine.replies()).extracting(InquiryReplyResponse::content).containsExactly("고친 답변");
+    }
+
+    @Test
+    void 남은_답변이_있으면_답변을_지워도_답변_완료다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long firstId = replyIdOf(inquiryUseCase.reply(inquiryId, ADMIN_ID, "첫 답변"));
+        inquiryUseCase.reply(inquiryId, ADMIN_ID, "추가 답변");
+
+        inquiryUseCase.deleteReply(inquiryId, firstId);
+
+        InquiryResponse mine = inquirySupporter.getMyInquiry(inquiryId, USER_ID);
+        assertThat(mine.status()).isEqualTo(InquiryStatus.ANSWERED);
+        assertThat(mine.replies()).extracting(InquiryReplyResponse::content).containsExactly("추가 답변");
+    }
+
+    @Test
+    void 마지막_답변을_지우면_답변_대기로_돌아가고_회원이_삭제할_수_있다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long replyId = replyIdOf(inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변"));
+
+        inquiryUseCase.deleteReply(inquiryId, replyId);
+
+        InquiryResponse mine = inquirySupporter.getMyInquiry(inquiryId, USER_ID);
+        assertThat(mine.status()).isEqualTo(InquiryStatus.WAITING);
+        assertThat(mine.replies()).isEmpty();
+        inquiryUseCase.delete(inquiryId, USER_ID);
+    }
+
+    @Test
+    void 없거나_삭제된_답변은_고치거나_지울_수_없다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long replyId = replyIdOf(inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변"));
+        inquiryUseCase.deleteReply(inquiryId, replyId);
+
+        assertThatThrownBy(() -> inquiryUseCase.editReply(inquiryId, replyId, "고친 답변"))
+                .isInstanceOfSatisfying(CustomerSupportException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(CustomerSupportErrorCode.INQUIRY_REPLY_NOT_FOUND));
+        assertThatThrownBy(() -> inquiryUseCase.deleteReply(inquiryId, replyId))
+                .isInstanceOfSatisfying(CustomerSupportException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(CustomerSupportErrorCode.INQUIRY_REPLY_NOT_FOUND));
+        assertThatThrownBy(() -> inquiryUseCase.deleteReply(inquiryId, 999L))
+                .isInstanceOfSatisfying(CustomerSupportException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(CustomerSupportErrorCode.INQUIRY_REPLY_NOT_FOUND));
+    }
+
+    @Test
+    void 다른_문의의_답변은_고칠_수_없다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long otherId = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용").getId();
+        Long otherReplyId = replyIdOf(inquiryUseCase.reply(otherId, ADMIN_ID, "답변"));
+
+        assertThatThrownBy(() -> inquiryUseCase.editReply(inquiryId, otherReplyId, "고친 답변"))
+                .isInstanceOfSatisfying(CustomerSupportException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(CustomerSupportErrorCode.INQUIRY_REPLY_NOT_FOUND));
+    }
+
+    /** 가장 최근에 단 답변의 ID */
+    private static Long replyIdOf(Inquiry inquiry) {
+        return inquiry.getReplies().getLast().getId();
     }
 }

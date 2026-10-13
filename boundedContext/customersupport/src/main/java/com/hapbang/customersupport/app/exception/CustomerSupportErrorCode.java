@@ -12,7 +12,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum CustomerSupportErrorCode implements BaseErrorCode {
     INQUIRY_NOT_FOUND(HttpStatus.NOT_FOUND, "문의를 찾을 수 없습니다."),
-    INQUIRY_NOT_DELETABLE(HttpStatus.CONFLICT, "답변이 달린 문의는 삭제할 수 없습니다.");
+    INQUIRY_NOT_DELETABLE(HttpStatus.CONFLICT, "답변이 달린 문의는 삭제할 수 없습니다."),
+    INQUIRY_REPLY_NOT_FOUND(HttpStatus.NOT_FOUND, "답변을 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -20,6 +21,7 @@ import com.hapbang.customersupport.app.dto.InquirySort;
 import com.hapbang.customersupport.app.dto.InquirySummaryResponse;
 import com.hapbang.customersupport.domain.InquiryStatus;
 import com.hapbang.customersupport.in.dto.CreateInquiryRequest;
+import com.hapbang.customersupport.in.dto.InquiryReplyRequest;
 import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.global.response.RsData;
 
@@ -87,5 +89,30 @@ public class ApiV1InquiryController implements ApiV1InquirySpec {
     @GetMapping("/admin/{inquiryId}")
     public RsData<InquiryResponse> getInquiry(@PathVariable("inquiryId") Long inquiryId) {
         return RsData.ok("문의를 조회했습니다.", inquiryFacade.getInquiry(inquiryId));
+    }
+
+    @Override
+    @PostMapping("/admin/{inquiryId}/replies")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RsData<InquiryResponse> replyInquiry(@LoginUserId Long userId,
+                                                @PathVariable("inquiryId") Long inquiryId,
+                                                @RequestBody InquiryReplyRequest request) {
+        return RsData.created("답변을 등록했습니다.", inquiryFacade.reply(inquiryId, userId, request.content()));
+    }
+
+    @Override
+    @PutMapping("/admin/{inquiryId}/replies/{replyId}")
+    public RsData<InquiryResponse> editReply(@PathVariable("inquiryId") Long inquiryId,
+                                             @PathVariable("replyId") Long replyId,
+                                             @RequestBody InquiryReplyRequest request) {
+        return RsData.ok("답변을 수정했습니다.", inquiryFacade.editReply(inquiryId, replyId, request.content()));
+    }
+
+    @Override
+    @DeleteMapping("/admin/{inquiryId}/replies/{replyId}")
+    public ResponseEntity<Void> deleteReply(@PathVariable("inquiryId") Long inquiryId,
+                                            @PathVariable("replyId") Long replyId) {
+        inquiryFacade.deleteReply(inquiryId, replyId);
+        return ResponseEntity.noContent().build();
     }
 }
