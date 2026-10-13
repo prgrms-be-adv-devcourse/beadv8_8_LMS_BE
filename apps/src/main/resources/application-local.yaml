@@ -29,6 +29,11 @@ hapbang:
       endpoint: ${S3_ENDPOINT:http://localhost:9090}
       bucket: ${S3_BUCKET:hapbang-local}
       key-prefix: local
+  chzzk:
+    # 키가 없어도 로컬 실행·테스트는 되게 한다 (채널 인증만 안 됨). 실제 키는 루트 .env
+    client-id: ${CHZZK_CLIENT_ID:local-placeholder}
+    client-secret: ${CHZZK_CLIENT_SECRET:local-placeholder}
+    redirect-uri: http://localhost:8080/api/v1/members/channels/chzzk/callback
   local-login:
     # 구글 없이 역할로 로그인 (POST /api/v1/members/local-login) + 역할별 테스트 계정 생성. 서버에선 켜지 않는다
     enabled: true

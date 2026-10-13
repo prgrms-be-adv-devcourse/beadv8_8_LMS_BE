@@ -16,7 +16,7 @@ public interface ApiV1MemberSpec {
 
     @Operation(summary = "내 정보 수정",
             description = "로그인한 회원. 지금은 닉네임만. 안 보내거나 null이면 그대로 둔다. "
-                    + "닉네임은 2~10자, 한글·영문·숫자만, 공백 불가 (어기면 400).")
+                    + "닉네임은 앞뒤 공백을 지운 뒤 2~12자, 한글·영문·숫자·공백·밑줄만, 연속 공백 불가 (어기면 400).")
     MemberMeResponse updateMe(Long userId, MemberUpdateRequest request);
 
     @Operation(summary = "인플루언서 목록",
