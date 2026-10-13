@@ -25,6 +25,7 @@ public interface ApiV1MemberSpec {
     Page<MemberProfileResponse> influencers(Pageable pageable);
 
     @Operation(summary = "회원 프로필",
-            description = "로그인한 회원. 공개 정보(id·닉네임·역할·프로필 이미지)만. 탈퇴·없는 회원은 404.")
-    MemberProfileResponse profile(Long memberId);
+            description = "로그인한 회원. 공개 정보(id·닉네임·역할·프로필 이미지)와 등록된 채널 전부 "
+                    + "(채널 이름·주소·팔로워 수, 승인 상태는 넣지 않음). 탈퇴·없는 회원은 404.")
+    MemberProfileDetailResponse profile(Long memberId);
 }

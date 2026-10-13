@@ -29,4 +29,9 @@ public class MemberChzzkUseCase {
             chzzkApiClient.revokeToken(accessToken);
         }
     }
+
+    /** 이미 확인한 채널의 팔로워 수 다시 조회 (사용자 토큰 없이 Client 인증) */
+    public int fetchFollowerCount(String channelIdentifier) {
+        return chzzkApiClient.findFollowerCount(channelIdentifier);
+    }
 }

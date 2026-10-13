@@ -2,7 +2,6 @@ package com.hapbang.member.app;
 
 import java.time.LocalDateTime;
 
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,8 +12,6 @@ import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.InfluencerChannelRepository;
-import com.hapbang.shared.member.domain.Role;
-import com.hapbang.shared.member.event.UserModifiedEvent;
 
 import lombok.RequiredArgsConstructor;
 
@@ -24,12 +21,12 @@ import lombok.RequiredArgsConstructor;
 public class MemberChannelRegisterUseCase {
 
     private final MemberSupport memberSupport;
+    private final MemberChannelSupport memberChannelSupport;
     private final InfluencerChannelRepository influencerChannelRepository;
-    private final ApplicationEventPublisher eventPublisher;
 
     // 다른 UseCase와 달리 여기에 트랜잭션을 둔다: Facade는 치지직 호출 때문에 트랜잭션 없이 이 메서드를 부른다
     @Transactional
-    public ChannelConnectResult register(Long userId, ChannelPlatform platform, ChzzkChannel chzzkChannel) {
+    public ChannelVerificationResult register(Long userId, ChannelPlatform platform, ChzzkChannel chzzkChannel) {
         User user = memberSupport.findActiveUser(userId);
         if (influencerChannelRepository.existsByPlatformAndChannelIdentifier(platform, chzzkChannel.channelId())) {
             throw new MemberException(MemberErrorCode.CHANNEL_ALREADY_REGISTERED);
@@ -43,11 +40,6 @@ public class MemberChannelRegisterUseCase {
         } catch (DataIntegrityViolationException e) {
             throw new MemberException(MemberErrorCode.CHANNEL_ALREADY_REGISTERED);
         }
-
-        if (channel.isApproved() && user.getRole() == Role.USER) {
-            user.changeRole(Role.INFLUENCER);
-            eventPublisher.publishEvent(new UserModifiedEvent(user.toDto()));
-        }
-        return new ChannelConnectResult(channel.getVerificationStatus(), user.getRole());
+        return memberChannelSupport.applyResult(user, channel);
     }
 }

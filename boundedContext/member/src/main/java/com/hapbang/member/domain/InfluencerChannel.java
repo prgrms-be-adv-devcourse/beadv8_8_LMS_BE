@@ -101,8 +101,7 @@ public class InfluencerChannel extends BaseEntity {
 
     /** 승인 요청 (등록만 됐거나 반려된 채널). 팔로워 기준을 넘으면 바로 승인, 아니면 관리자 심사 대기 */
     public void requestApproval(int followerCount, LocalDateTime now) {
-        if (verificationStatus != ChannelVerificationStatus.REGISTERED
-                && verificationStatus != ChannelVerificationStatus.REJECTED) {
+        if (!canRequestApproval()) {
             throw new MemberException(MemberErrorCode.CHANNEL_APPROVAL_NOT_ALLOWED);
         }
         this.followerCount = followerCount;
@@ -113,6 +112,20 @@ public class InfluencerChannel extends BaseEntity {
         } else {
             this.verificationStatus = ChannelVerificationStatus.PENDING;
         }
+    }
+
+    /** 등록만 됐거나 반려된 채널만 승인 요청할 수 있다 */
+    public boolean canRequestApproval() {
+        return verificationStatus == ChannelVerificationStatus.REGISTERED
+                || verificationStatus == ChannelVerificationStatus.REJECTED;
+    }
+
+    /**
+     * 팔로워 수를 조회한 시각. 팔로워 수는 등록·승인 요청 때만 바뀌므로 승인 요청 시각, 없으면 등록 시각.
+     * TODO(배치): 팔로워 수를 주기적으로 갱신하게 되면 전용 컬럼(follower_count_updated_at)으로 바꾼다
+     */
+    public LocalDateTime followerCountAt() {
+        return requestedAt != null ? requestedAt : getCreatedAt();
     }
 
     public boolean isApproved() {

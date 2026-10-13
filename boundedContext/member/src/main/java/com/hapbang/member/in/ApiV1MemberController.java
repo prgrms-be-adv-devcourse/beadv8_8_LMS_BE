@@ -43,10 +43,10 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         return memberFacade.findInfluencers(pageable).map(MemberProfileResponse::from);
     }
 
-    /** 회원 프로필. 숫자만 받아 /local-login 같은 다른 주소와 겹치지 않게 한다 */
+    /** 회원 프로필 (등록된 채널 포함). 숫자만 받아 /local-login 같은 다른 주소와 겹치지 않게 한다 */
     @Override
     @GetMapping("/{memberId:\\d+}")
-    public MemberProfileResponse profile(@PathVariable(name = "memberId") Long memberId) {
-        return MemberProfileResponse.from(memberFacade.findProfile(memberId));
+    public MemberProfileDetailResponse profile(@PathVariable(name = "memberId") Long memberId) {
+        return MemberProfileDetailResponse.from(memberFacade.findProfile(memberId), memberFacade.findChannels(memberId));
     }
 }

@@ -1,6 +1,7 @@
 package com.hapbang.member.in;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -14,13 +15,15 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import com.hapbang.global.auth.LoginUserId;
-import com.hapbang.member.app.ChannelConnectResult;
+import com.hapbang.member.app.ChannelVerificationResult;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
@@ -69,14 +72,34 @@ public class ApiV1MemberChannelController implements ApiV1MemberChannelSpec {
                 // 치지직 동의를 취소하는 등 code 없이 돌아온 경우
                 throw new MemberException(MemberErrorCode.CHZZK_API_FAILED);
             }
-            ChannelConnectResult result = memberFacade.connectChzzkChannel(userId, code, state);
-            if (result.isApproved()) {
+            ChannelVerificationResult result = memberFacade.connectChzzkChannel(userId, code, state);
+            if (result.roleChanged()) {
                 refreshSessionRole(userId, result.role(), request, response);
             }
             return redirect(resultUrl(result.isApproved() ? "approved" : "registered", null));
         } catch (MemberException e) {
             return redirect(resultUrl("failed", e.getErrorCode()));
         }
+    }
+
+    /** 내 채널 목록 (상태·반려 사유 포함) */
+    @Override
+    @GetMapping("/me")
+    public List<MyChannelResponse> myChannels(@LoginUserId Long userId) {
+        return memberFacade.findChannels(userId).stream().map(MyChannelResponse::from).toList();
+    }
+
+    /** 채널 승인 요청. 자동 승인으로 유저 → 인플루언서가 되면 세션 권한도 바꾼다 */
+    @Override
+    @PostMapping("/{channelId:\\d+}/approval-request")
+    public ChannelVerificationResponse requestApproval(@LoginUserId Long userId,
+                                                       @PathVariable(name = "channelId") Long channelId,
+                                                       HttpServletRequest request, HttpServletResponse response) {
+        ChannelVerificationResult result = memberFacade.requestChannelApproval(userId, channelId);
+        if (result.roleChanged()) {
+            refreshSessionRole(userId, result.role(), request, response);
+        }
+        return ChannelVerificationResponse.from(result);
     }
 
     /** 세션에 보관한 state와 같아야 한다 (남의 code를 끼워 넣는 공격 차단). 한 번 쓰면 지운다 */

@@ -75,6 +75,24 @@ class InfluencerChannelTest {
                 .extracting("errorCode").isEqualTo(MemberErrorCode.CHANNEL_APPROVAL_NOT_ALLOWED);
     }
 
+    @Test
+    @DisplayName("팔로워 기준 시각은 승인 요청 전이면 등록 시각, 요청 후면 요청 시각")
+    void followerCountAt() {
+        InfluencerChannel channel = register(5);
+        org.springframework.test.util.ReflectionTestUtils.setField(channel, "createdAt", NOW.minusDays(3));
+        assertThat(channel.followerCountAt()).isEqualTo(NOW.minusDays(3));
+
+        channel.requestApproval(7, NOW);
+        assertThat(channel.followerCountAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("등록·반려 상태만 승인 요청할 수 있다")
+    void canRequestApproval() {
+        assertThat(register(5).canRequestApproval()).isTrue();
+        assertThat(register(10).canRequestApproval()).isFalse();
+    }
+
     private InfluencerChannel register(int followerCount) {
         return InfluencerChannel.register(user, ChannelPlatform.CHZZK, "channel-1", "테스트 채널", followerCount, NOW);
     }
