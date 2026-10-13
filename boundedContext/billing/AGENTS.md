@@ -173,5 +173,6 @@ Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적�
     - 그 외 역할 검사(루트 AGENTS.md 6장 권한 표)는 컨트롤러가 아니라 서비스 레이어(Facade·Service 등) 메서드의 `@PreAuthorize`로 한다. 컨트롤러에는 `@PreAuthorize`를 붙이지 않는다. 컨트롤러에서 `isUserInRole` 등으로 직접 검사하지 않는다.
     - 이벤트 리스너·배치처럼 로그인 정보 없이 호출하는 경로는 `@PreAuthorize`가 없는 별도 Facade 메서드를 쓴다 (예: `WalletFacade.getOrCreateWallet`).
     - `@PreAuthorize` 거절은 `BillingErrorCode`가 아니라 global `GlobalExceptionHandler`가 응답한다. 로그인했으면 403 `FORBIDDEN`, 비로그인이면 401 `UNAUTHORIZED`다 (루트 AGENTS.md 7장 "오류 응답", #71).
+- **성공 응답**: 컨트롤러는 루트 AGENTS.md 7장 "성공 응답 (RsData)"대로 `RsData`로 감싸 반환한다. Facade·UseCase는 응답 형식을 모르고 DTO·도메인 결과만 돌려준다(예: `ApiV1WalletController`가 `WalletResponse`를 `RsData.ok`로 감싼다). 오류는 `ProblemDetail` 그대로다.
 - **헬스체크**: Actuator `/actuator/health`로 앱·DB 상태를 확인한다 (global·apps 공통 설정, 모듈에서 따로 만들지 않는다).
 - **테스트용 mock 계정**: 로컬 실행 시 member 모듈(`MemberDataInit`, 로컬 로그인)이 유저·인플루언서·인증된 인플루언서·관리자 역할별 테스트 계정을 만든다.

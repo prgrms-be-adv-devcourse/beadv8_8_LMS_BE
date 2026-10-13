@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황", "3. 결정 기록", "7. 남은 일"을 갱신한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-10-13 (Issue #116 구현, PR 전)
+마지막 갱신: 2026-10-13 (Issue #127 구현, PR 전)
 
 ---
 
@@ -21,7 +21,8 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #81 | 팀 공통 API 컨벤션 적용(지갑 역할 검사 Facade `@PreAuthorize`, Swagger Spec 인터페이스) | `feature/tkt-81` | #82 | 완료 |
 | #78 | Hold 최초 생성: 수익 HP 우선·충전 HP FIFO 배분, `POINT_CHARGE_USAGE` 배분 기록, 참조당 보류 1건 멱등성 | `feature/tkt-78` | #99 | 완료 |
 | #100 | Hold 부분·전체 반환: 충전 HP 우선·충전 원금 역순 복원, 반환 요청별 멱등성, 처리 이력 재생 대조. #71 공통 예외 처리 반영 | `feature/tkt-100` | #114 | 완료 |
-| #116 | 멘토 리뷰 반영: Aggregate 간 JPA 연관관계 → ID 참조(13개), Enum 상수 Javadoc(18개), QueryDSL 도입 검토(보류) | `feature/tkt-116` | - | 구현·테스트 완료 (PR 전) |
+| #116 | 멘토 리뷰 반영: Aggregate 간 JPA 연관관계 → ID 참조(13개), Enum 상수 Javadoc(18개), QueryDSL 도입 검토(보류) | `feature/tkt-116` | #124 | 완료 |
+| #127 | 지갑 조회 API 성공 응답을 팀 공통 `RsData`로 감쌈(루트 AGENTS.md 7장, #118) | `feature/tkt-127` | - | 구현·테스트 완료 (PR 전) |
 
 다음 후보: Hold Payout(지급), Charge(TossPayments 충전), Refund, Settlement(지급), Exchange(환전). 자세한 내용은 7장.
 
@@ -60,7 +61,7 @@ boundedContext/billing/src/main/java/com/hapbang/billing/
 | app | `LedgerOperation`, `LedgerEntry`, `LedgerOperationResult` | 원장 기록 요청·결과 |
 | app | `WalletReconciliationUseCase`, `WalletReconciliation` | 지갑 캐시 ↔ 원장 합계 대사 |
 | in | `UserJoinedEventListener` | 가입 이벤트로 지갑 생성 (ADMIN 제외) |
-| in | `ApiV1WalletController`, `ApiV1WalletSpec`, `WalletResponse` | `GET /api/v1/wallets/me`. Swagger `@Tag`·`@Operation`은 Spec 인터페이스에 두고 컨트롤러가 구현한다 |
+| in | `ApiV1WalletController`, `ApiV1WalletSpec`, `WalletResponse` | `GET /api/v1/wallets/me` → `RsData<WalletResponse>`(200, "내 지갑을 조회했습니다."). Swagger `@Tag`·`@Operation`은 Spec 인터페이스에 두고 컨트롤러가 구현한다 |
 
 Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data-jpa, webmvc, `spring-security-core`(`@PreAuthorize`), `swagger-annotations-jakarta`(Spec 인터페이스), `compileOnly postgresql`(제약 이름 판별), `testImplementation security-test`.
 
@@ -212,7 +213,7 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 
 역할 검사(`@PreAuthorize`) 실패는 `BillingErrorCode`가 아니라 global 공통 코드로 응답한다. 로그인했으면 403 `FORBIDDEN`, 비로그인이면 401 `UNAUTHORIZED`.
 
-응답 형식: RFC 9457 ProblemDetail + `code` 속성. #71(2026-10-13)부터 모듈 핸들러(`BillingExceptionHandler`)를 없애고 global `GlobalExceptionHandler` 하나가 응답한다. `BillingErrorCode implements BaseErrorCode`, `BillingException extends BusinessException`이며 `code`는 enum 이름 그대로다(루트 AGENTS.md 7장 "오류 응답"). 정상 응답은 record를 그대로 반환한다.
+응답 형식: RFC 9457 ProblemDetail + `code` 속성. #71(2026-10-13)부터 모듈 핸들러(`BillingExceptionHandler`)를 없애고 global `GlobalExceptionHandler` 하나가 응답한다. `BillingErrorCode implements BaseErrorCode`, `BillingException extends BusinessException`이며 `code`는 enum 이름 그대로다(루트 AGENTS.md 7장 "오류 응답"). 정상 응답은 #127부터 global `RsData`(`statusCode`·`message`·`data`)로 감싼다. `WalletFacade`는 응답 형식과 무관하게 지갑을 돌려주고 컨트롤러가 `WalletResponse`를 만들어 `RsData.ok`로 감싼다. 지갑을 새로 만든 조회도 조회 API이므로 200이다(#127 이전과 같은 상태 코드).
 
 500 코드(`CHARGE_PRINCIPAL_MISMATCH`, `HOLD_STATE_INCONSISTENT`)는 불변식이 깨진 상황이다. 공통 규칙(500은 내부 메시지를 노출하지 않는다)에 맞춰 응답 `detail`은 내부 상태를 드러내지 않는 일반 문구로 두고, 원인은 `code`와 공통 핸들러의 error 로그(스택 포함)로 구분한다. 일반 예외(500 `INTERNAL_ERROR`)로 바꾸지 않고 billing 코드를 유지한 것은 테스트·로그에서 원인을 코드로 구분하기 위해서다(2026-10-13 결정, a안).
 
@@ -221,7 +222,8 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 ## 6. 테스트
 
 - 실행: `./gradlew :billing:test --no-daemon`, 전체 `./gradlew check --no-daemon` (`ModularityTests` 포함).
-- 2026-10-13 기준(#116): Billing 300개, 전체 724개 통과 (`./gradlew clean :billing:test`, `./gradlew check`, Gradle 테스트 결과 XML 합계).
+- 2026-10-13 기준(#127): Billing 301개, 전체 834개 통과 (`./gradlew :billing:test`, `./gradlew check`, Gradle 테스트 결과 XML 합계).
+- #127: `ApiV1WalletControllerTest`가 `RsData` 구조(`statusCode`·`message`·`data` 필드 7개), 403 `ProblemDetail`(`code` FORBIDDEN, `RsData` 필드 없음), 401에 성공 본문 없음, Swagger 200 스키마 `RsDataWalletResponse`를 확인한다.
 - #116 추가: `BillingEnumStorageTest`(Enum 상수 = CHECK 허용값), `BillingSchemaTest`의 ID 필드 13개 컬럼 이름·NULL 제약·FK 대조, `BillingRepositoryTest`의 ID 참조 FK 거절(원장 지갑·원본 원장, 충전 건 지갑, 보류 지갑, 배분 충전 건), `WalletTest`의 ID 없는 지갑 반영 거절. `Wallet.applyLedger`의 지갑 ID 검사를 없애면 실패함을 확인했다.
 - `lockWallet` 테스트(트랜잭션 필수·refresh·커밋까지 락 유지)는 refresh·`MANDATORY`를 제거하면 실패함을 확인했다.
 - 보류 테스트: `HoldCreateIntegrationTest`(배분·멱등성·롤백·동시성 27개), `HoldCommandTest`, `HoldSplitTest`, `PointChargeTest`.
