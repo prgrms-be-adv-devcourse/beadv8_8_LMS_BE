@@ -8,6 +8,7 @@ import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
+import com.hapbang.global.response.RsData;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -32,15 +33,15 @@ public interface ApiV1ChatSpec {
     @Operation(summary = "채팅방 생성", description = """
             상대와의 종료되지 않은 방이 있으면 재사용하고(200), 없으면 새로 만든다(201).
             퇴장했던 방이면 재입장하며, 재입장 이전 메시지는 볼 수 없다.""")
-    ResponseEntity<ChatRoomResponse> createChatRoom(Long userId, @Valid CreateChatRoomRequest request);
+    ResponseEntity<RsData<ChatRoomResponse>> createChatRoom(Long userId, @Valid CreateChatRoomRequest request);
 
     @Operation(summary = "내 채팅방 목록", description = "현재 참여 중인 채팅방만 조회한다. 인플루언서 이상 또는 관리자만 쓸 수 있다.")
-    List<ChatRoomResponse> getMyChatRooms(Long userId);
+    RsData<List<ChatRoomResponse>> getMyChatRooms(Long userId);
 
     @Operation(summary = "메시지 이력 조회", description = """
             최신순으로 조회한다. 본인이 볼 수 있는 범위(재입장 이후)의 메시지만 나온다.
             다음 페이지는 응답의 `nextCursor`를 `cursor`로 보낸다. `nextCursor`가 null이면 마지막 페이지다.""")
-    ChatMessagePageResponse getMessages(Long userId, Long chatRoomId,
+    RsData<ChatMessagePageResponse> getMessages(Long userId, Long chatRoomId,
             @Parameter(description = "이전 응답의 nextCursor. 없으면 가장 최근부터") Long cursor,
             @Parameter(description = "페이지 크기 (기본 30)")
             @Min(value = 1, message = "size는 1 이상이어야 합니다.")
@@ -55,5 +56,5 @@ public interface ApiV1ChatSpec {
 
     @Operation(summary = "채팅 기록 조회 (관리자)",
             description = "분쟁 확인용. 종료된 방과 참여자별로 숨겨진 메시지까지 포함한다. 관리자만 쓸 수 있다.")
-    ChatRoomHistoryResponse getHistory(Long userId, Long chatRoomId);
+    RsData<ChatRoomHistoryResponse> getHistory(Long userId, Long chatRoomId);
 }

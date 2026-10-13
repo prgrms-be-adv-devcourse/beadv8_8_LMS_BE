@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
@@ -38,6 +39,7 @@ import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
+import com.hapbang.global.response.RsData;
 import com.hapbang.shared.member.domain.Role;
 
 /**
@@ -190,26 +192,28 @@ class ChatStompE2ETest {
     }
 
     private Long createRoom(Long userId, Long targetUserId) {
-        ChatRoomResponse room = client.post().uri("/api/v1/chats")
+        RsData<ChatRoomResponse> room = client.post().uri("/api/v1/chats")
                 .headers(E2ESession.login(client, userId, Role.INFLUENCER)::applyTo)
                 .body(new CreateChatRoomRequest(targetUserId))
                 .exchange()
                 .expectStatus().isCreated()
-                .expectBody(ChatRoomResponse.class)
+                .expectBody(new ParameterizedTypeReference<RsData<ChatRoomResponse>>() {
+                })
                 .returnResult().getResponseBody();
         assertThat(room).isNotNull();
-        return room.chatRoomId();
+        return room.data().chatRoomId();
     }
 
     private List<String> messageContents(Long chatRoomId, Long userId) {
-        ChatMessagePageResponse page = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
+        RsData<ChatMessagePageResponse> page = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
                 .header(HttpHeaders.COOKIE, E2ESession.login(client, userId, Role.INFLUENCER).cookieHeader())
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody(ChatMessagePageResponse.class)
+                .expectBody(new ParameterizedTypeReference<RsData<ChatMessagePageResponse>>() {
+                })
                 .returnResult().getResponseBody();
         assertThat(page).isNotNull();
-        return page.messages().stream().map(ChatMessageResponse::content).toList();
+        return page.data().messages().stream().map(ChatMessageResponse::content).toList();
     }
 
     private StompSession connect(Long userId) throws Exception {

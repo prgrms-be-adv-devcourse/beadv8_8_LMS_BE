@@ -173,6 +173,12 @@
 - API 명세는 Swagger로 관리한다. 프론트와 API 설계를 먼저 맞추고, 명세(Controller)를 먼저 만들어 동시에 작업할 수 있게 한다.
 - 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. nginx는 이 경로에만 큰 본문을 허용한다 (`docs/deploy/s3.md`, #106).
 
+### 성공 응답 (RsData)
+
+- 성공 응답은 `global`의 `RsData`(`com.hapbang.global.response`)로 감싼다: `statusCode`(HTTP 상태 코드 숫자), `message`, `data` (2026-10-13 팀 규칙). 오류는 아래 "오류 응답"대로 `ProblemDetail`이다.
+- 컨트롤러는 `RsData.ok(message, data)`·`RsData.created(message, data)`·`RsData.of(status, message, data)`를 그대로 반환한다. 200이 아니면 메서드에 `@ResponseStatus`로 같은 상태를 정한다 (예: 생성은 `@ResponseStatus(HttpStatus.CREATED)` + `RsData.created(...)`). 상태가 상황마다 달라지거나 헤더가 필요하면 `ResponseEntity<RsData<T>>`로 같은 상태를 본문과 HTTP 응답에 함께 쓴다.
+- 본문이 없는 응답(204)은 `ResponseEntity<Void>`를 쓴다.
+
 ### 오류 응답 (global 공통 예외 처리, #71)
 
 - 모든 HTTP 오류는 `global`의 `GlobalExceptionHandler` 하나가 `ProblemDetail`(RFC 9457)로 응답한다 (2026-10-12 회의). **모듈은 `@RestControllerAdvice`를 만들지 않는다.**
