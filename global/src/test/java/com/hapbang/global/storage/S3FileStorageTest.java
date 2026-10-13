@@ -136,6 +136,35 @@ class S3FileStorageTest {
     }
 
     @Test
+    @DisplayName("내려받기 URL로 받으면 Content-Disposition이 attachment이고 한글 파일명이 UTF-8로 들어 있다")
+    void presignDownload_attachment() throws Exception {
+        String key = newKey();
+        s3Client.putObject(request -> request.bucket(BUCKET).key(PREFIX + "/" + key).contentType("application/pdf"),
+                RequestBody.fromString("pdf"));
+
+        PresignedUrl download = storage.presignDownload(key, Duration.ofHours(1), "장비 목록.pdf");
+        HttpResponse<String> response = http.send(HttpRequest.newBuilder(URI.create(download.url())).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo("pdf");
+        assertThat(response.headers().firstValue("Content-Disposition")).hasValueSatisfying(disposition -> assertThat(
+                disposition).startsWith("attachment")
+                .contains("filename*=UTF-8''%EC%9E%A5%EB%B9%84%20%EB%AA%A9%EB%A1%9D.pdf"));
+    }
+
+    @Test
+    @DisplayName("내려받기 파일명이 비어 있으면 거부한다")
+    void presignDownload_attachment_rejectsBlankFilename() {
+        String key = newKey();
+
+        assertThatThrownBy(() -> storage.presignDownload(key, Duration.ofHours(1), null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> storage.presignDownload(key, Duration.ofHours(1), " "))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("조회 URL 만료는 0보다 크고 7일 이하여야 한다")
     void presignDownload_validatesExpiry() {
         String key = newKey();
