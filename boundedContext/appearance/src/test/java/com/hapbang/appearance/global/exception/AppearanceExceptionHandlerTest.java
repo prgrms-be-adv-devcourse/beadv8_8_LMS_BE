@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -45,8 +47,34 @@ class AppearanceExceptionHandlerTest {
                 .andExpect(jsonPath("$.detail").value("테스트 오류"));
     }
 
+    @Test
+    @DisplayName("버전 충돌(낙관적 락)은 409 CONCURRENT_UPDATE로 응답한다")
+    void optimisticLock() throws Exception {
+        mockMvc.perform(get("/test/optimistic-lock"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONCURRENT_UPDATE"));
+    }
+
+    @Test
+    @DisplayName("@PreAuthorize 거절은 403 NOT_INFLUENCER로 응답한다")
+    void accessDenied() throws Exception {
+        mockMvc.perform(get("/test/access-denied"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_INFLUENCER"));
+    }
+
     @RestController
     static class TestController {
+
+        @GetMapping("/test/optimistic-lock")
+        void optimisticLock() {
+            throw new ObjectOptimisticLockingFailureException("AppearanceRequest", 1L);
+        }
+
+        @GetMapping("/test/access-denied")
+        void accessDenied() {
+            throw new AccessDeniedException("거절");
+        }
 
         @GetMapping("/test/error")
         void error() {

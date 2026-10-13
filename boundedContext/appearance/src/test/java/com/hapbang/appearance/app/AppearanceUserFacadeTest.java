@@ -17,10 +17,13 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
-class AppearanceUserServiceTest {
+class AppearanceUserFacadeTest {
 
     @Autowired
-    AppearanceUserService appearanceUserService;
+    AppearanceUserFacade appearanceUserFacade;
+
+    @Autowired
+    AppearanceUserSupport appearanceUserSupport;
 
     @Autowired
     AppearanceUserRepository appearanceUserRepository;
@@ -28,7 +31,7 @@ class AppearanceUserServiceTest {
     @Test
     @DisplayName("가입 정보로 출연 회원을 만든다")
     void createIfAbsentCreates() {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(1L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(1L));
 
         assertThat(appearanceUserRepository.findById(1L)).isPresent();
     }
@@ -36,10 +39,10 @@ class AppearanceUserServiceTest {
     @Test
     @DisplayName("이미 있는 회원이면 가입 정보를 무시한다 (반영된 변경 정보를 덮어쓰지 않음)")
     void createIfAbsentIgnoresExisting() {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.normalUser(1L));
-        appearanceUserService.update(AppearanceUserFixture.user(1L, Role.INFLUENCER, UserStatus.ACTIVE));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(1L));
+        appearanceUserFacade.syncModified(AppearanceUserFixture.user(1L, Role.INFLUENCER, UserStatus.ACTIVE));
 
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.normalUser(1L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(1L));
 
         assertThat(appearanceUserRepository.count()).isEqualTo(1);
         assertThat(appearanceUserRepository.findById(1L).orElseThrow().getRole()).isEqualTo(Role.INFLUENCER);
@@ -48,9 +51,9 @@ class AppearanceUserServiceTest {
     @Test
     @DisplayName("있는 회원이면 변경 정보로 갱신한다")
     void updateUpdates() {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.normalUser(1L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(1L));
 
-        appearanceUserService.update(AppearanceUserFixture.user(1L, Role.INFLUENCER, UserStatus.ACTIVE));
+        appearanceUserFacade.syncModified(AppearanceUserFixture.user(1L, Role.INFLUENCER, UserStatus.ACTIVE));
 
         assertThat(appearanceUserRepository.count()).isEqualTo(1);
         assertThat(appearanceUserRepository.findById(1L).orElseThrow().getRole()).isEqualTo(Role.INFLUENCER);
@@ -59,7 +62,7 @@ class AppearanceUserServiceTest {
     @Test
     @DisplayName("없는 회원의 변경 정보면 APPEARANCE_USER_NOT_FOUND, 출연 회원을 만들지 않는다")
     void updateNotFound() {
-        assertThatThrownBy(() -> appearanceUserService.update(AppearanceUserFixture.influencer(1L)))
+        assertThatThrownBy(() -> appearanceUserFacade.syncModified(AppearanceUserFixture.influencer(1L)))
                 .isInstanceOf(AppearanceException.class)
                 .extracting("errorCode").isEqualTo(AppearanceErrorCode.APPEARANCE_USER_NOT_FOUND);
         assertThat(appearanceUserRepository.findById(1L)).isEmpty();
@@ -68,9 +71,9 @@ class AppearanceUserServiceTest {
     @Test
     @DisplayName("참여 자격이 있는 회원이면 출연 회원을 돌려준다")
     void getParticipant() {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(1L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(1L));
 
-        AppearanceUser participant = appearanceUserService.getParticipant(1L);
+        AppearanceUser participant = appearanceUserSupport.getParticipant(1L);
 
         assertThat(participant.getId()).isEqualTo(1L);
     }
@@ -78,7 +81,7 @@ class AppearanceUserServiceTest {
     @Test
     @DisplayName("출연 회원 정보가 없으면 APPEARANCE_USER_NOT_FOUND")
     void getParticipantNotFound() {
-        assertThatThrownBy(() -> appearanceUserService.getParticipant(999L))
+        assertThatThrownBy(() -> appearanceUserSupport.getParticipant(999L))
                 .isInstanceOf(AppearanceException.class)
                 .extracting("errorCode").isEqualTo(AppearanceErrorCode.APPEARANCE_USER_NOT_FOUND);
     }
@@ -86,9 +89,9 @@ class AppearanceUserServiceTest {
     @Test
     @DisplayName("인플루언서가 아니면 NOT_INFLUENCER")
     void getParticipantNotInfluencer() {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.normalUser(1L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(1L));
 
-        assertThatThrownBy(() -> appearanceUserService.getParticipant(1L))
+        assertThatThrownBy(() -> appearanceUserSupport.getParticipant(1L))
                 .isInstanceOf(AppearanceException.class)
                 .extracting("errorCode").isEqualTo(AppearanceErrorCode.NOT_INFLUENCER);
     }
@@ -96,11 +99,11 @@ class AppearanceUserServiceTest {
     @Test
     @DisplayName("참여하던 인플루언서가 정지 상태로 갱신되면 APPEARANCE_USER_NOT_ACTIVE")
     void getParticipantAfterSuspended() {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(1L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(1L));
 
-        appearanceUserService.update(AppearanceUserFixture.user(1L, Role.INFLUENCER, UserStatus.SUSPENDED));
+        appearanceUserFacade.syncModified(AppearanceUserFixture.user(1L, Role.INFLUENCER, UserStatus.SUSPENDED));
 
-        assertThatThrownBy(() -> appearanceUserService.getParticipant(1L))
+        assertThatThrownBy(() -> appearanceUserSupport.getParticipant(1L))
                 .isInstanceOf(AppearanceException.class)
                 .extracting("errorCode").isEqualTo(AppearanceErrorCode.APPEARANCE_USER_NOT_ACTIVE);
     }

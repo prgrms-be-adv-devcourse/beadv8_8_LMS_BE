@@ -125,6 +125,27 @@ class FakeBillingClientTest {
         assertThatThrownBy(() -> holdCommand("REQUEST-10-HOLD-1", 0)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    @DisplayName("무응답으로 설정하면 BillingUnavailableException을 던지고 아무것도 처리하지 않는다. reset하면 다시 응답한다")
+    void unavailable() {
+        billingClient.setBalance(HOST_ID, 50_000);
+        billingClient.setUnavailable(true);
+
+        assertThatThrownBy(() -> billingClient.hold(holdCommand("REQUEST-10-HOLD-1", 30_000)))
+                .isInstanceOf(BillingUnavailableException.class);
+        assertThat(billingClient.balanceOf(HOST_ID)).isEqualTo(50_000);
+
+        billingClient.reset();
+        assertThat(billingClient.hold(holdCommand("REQUEST-10-HOLD-1", 30_000)).isHeld()).isTrue();
+    }
+
+    @Test
+    @DisplayName("멱등 키는 {refType}-{refId}-{동작}-{순번} 형식으로 만든다")
+    void idempotencyKey() {
+        assertThat(BillingClient.idempotencyKey(RefType.APPEARANCE_REQUEST, 12L, "HOLD", 1))
+                .isEqualTo("APPEARANCE_REQUEST-12-HOLD-1");
+    }
+
     private HoldCommand holdCommand(String idempotencyKey, long amount) {
         return new HoldCommand(idempotencyKey, RefType.APPEARANCE_REQUEST, REQUEST_ID, HOST_ID, amount);
     }

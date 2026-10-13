@@ -3,6 +3,9 @@ package com.hapbang.appearance.out.billing;
 import java.util.List;
 import java.util.Objects;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 /**
  * 지갑+정산(billing) 모듈과의 HP 연동 창구. 출연 모듈은 이 인터페이스로만 Billing을 호출한다.
  * <p>
@@ -10,7 +13,7 @@ import java.util.Objects;
  * <ul>
  *     <li>모든 요청은 멱등 키를 가진다. 같은 키로 다시 요청해도 한 번만 처리된다 (타임아웃 후 재시도용).</li>
  *     <li>보류는 요청서·모집글 단위로 1건이고, 반환·지급은 그 보류에서 여러 번 나눠서 처리할 수 있다.</li>
- *     <li>멱등 키 형식: {@code {refType}-{refId}-{동작}-{순번}} (예: {@code RECRUIT-7-RELEASE-UNDERFILLED-1})</li>
+ *     <li>멱등 키 형식: {@code {refType}-{refId}-{동작}-{순번}} (예: {@code APPEARANCE_REQUEST-12-HOLD-1}). {@link #idempotencyKey}로 만든다.</li>
  * </ul>
  * 구현체는 {@code appearance.billing.mode} 값으로 고른다. 지금은 {@link FakeBillingClient}만 있다.
  */
@@ -19,6 +22,8 @@ public interface BillingClient {
 
     /**
      * 호스트 잔액에서 HP를 보류한다. 잔액이 부족하면 예외 대신 {@code INSUFFICIENT_BALANCE}를 돌려준다.
+     *
+     * @throws BillingUnavailableException Billing이 응답하지 않을 때 (처리 여부를 알 수 없음. 같은 멱등 키로 다시 확인한다)
      */
     HoldResult hold(HoldCommand command);
 
@@ -38,6 +43,13 @@ public interface BillingClient {
      */
     Result settle(SettleCommand command);
 
+    /**
+     * 멱등 키를 만든다. 형식: {@code {refType}-{refId}-{동작}-{순번}} (예: {@code APPEARANCE_REQUEST-12-HOLD-1})
+     */
+    static String idempotencyKey(RefType refType, long refId, String action, int sequence) {
+        return "%s-%d-%s-%d".formatted(refType.name(), refId, action, sequence);
+    }
+
     // ---------------------------------------------------------------------------------------------
     // 주고받는 값
     // ---------------------------------------------------------------------------------------------
@@ -45,30 +57,36 @@ public interface BillingClient {
     /**
      * HP 보류의 기준이 되는 출연 쪽 대상.
      */
+    @Getter
+    @RequiredArgsConstructor
     enum RefType {
-        /** 출연 요청서 */
-        APPEARANCE_REQUEST,
-        /** 출연 모집글 */
-        APPEARANCE_RECRUIT
+        APPEARANCE_REQUEST("출연 요청서. 출연료만큼 보류한다"),
+        APPEARANCE_RECRUIT("출연 모집글. 출연료 × 모집 인원만큼 보류한다");
+
+        private final String description;
     }
 
     /**
      * 반환·지급 사유. Billing 원장에 거래 사유로 남는다.
      */
+    @Getter
+    @RequiredArgsConstructor
     enum Reason {
         // 반환 (보류 HP → 호스트)
-        REQUEST_REJECTED,
-        REQUEST_EXPIRED,
-        REQUEST_CANCELED,
-        CANCEL_AGREED,
-        NO_SHOW,
-        RECRUIT_UNDERFILLED,
-        RECRUIT_CANCELED,
-        HOST_CANCELED,
+        REQUEST_REJECTED("게스트가 출연 요청을 거절"),
+        REQUEST_EXPIRED("수락 기한까지 게스트 응답 없음"),
+        REQUEST_CANCELED("게스트 응답 전에 호스트가 출연 요청을 취소"),
+        CANCEL_AGREED("게스트의 출연 취소 요청을 호스트가 수락 (합의 취소, 위약금 없음)"),
+        NO_SHOW("출연 확인 부정 응답 (노쇼)"),
+        RECRUIT_UNDERFILLED("모집 마감 시 미달 인원분"),
+        RECRUIT_CANCELED("모집 취소 (성립 인원 없음 또는 빈자리분)"),
+        HOST_CANCELED("호스트 일방 취소 시 위약금을 뺀 나머지"),
 
         // 지급 (보류 HP → 게스트 수익 HP)
-        APPEARANCE_CONFIRMED,
-        HOST_CANCEL_PENALTY
+        APPEARANCE_CONFIRMED("출연 확인 (긍정 응답 또는 D+7 자동 확인)"),
+        HOST_CANCEL_PENALTY("호스트 일방 취소 위약금 (출연료의 30%)");
+
+        private final String description;
     }
 
     record HoldCommand(String idempotencyKey, RefType refType, long refId, long hostId, long amount) {
@@ -118,7 +136,11 @@ public interface BillingClient {
         }
 
         public long totalAmount() {
-            return items.stream().mapToLong(SettleItem::amount).sum();
+            long total = 0;
+            for (SettleItem item : items) {
+                total += item.amount();
+            }
+            return total;
         }
     }
 
@@ -138,11 +160,13 @@ public interface BillingClient {
         }
     }
 
+    @Getter
+    @RequiredArgsConstructor
     enum SettleType {
-        /** 게스트에게 지급 */
-        PAYOUT,
-        /** 호스트에게 반환 */
-        RELEASE
+        PAYOUT("게스트에게 지급"),
+        RELEASE("호스트에게 반환");
+
+        private final String description;
     }
 
     /**
@@ -157,9 +181,13 @@ public interface BillingClient {
         }
     }
 
+    @Getter
+    @RequiredArgsConstructor
     enum HoldStatus {
-        HELD,
-        INSUFFICIENT_BALANCE
+        HELD("보류 완료"),
+        INSUFFICIENT_BALANCE("잔액 부족으로 보류하지 않음 (예외가 아니라 결과로 돌려준다)");
+
+        private final String description;
     }
 
     /**
