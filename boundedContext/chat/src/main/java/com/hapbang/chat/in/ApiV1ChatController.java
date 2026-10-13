@@ -23,11 +23,13 @@ import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.websocket.ChatMessageSender;
 import com.hapbang.global.auth.LoginUserId;
+import com.hapbang.global.response.RsData;
 
 import lombok.RequiredArgsConstructor;
 
 /**
  * 채팅 REST API. 회원 ID는 팀 공통 로그인 세션에서 {@link LoginUserId}로 받는다.
+ * 성공은 {@link RsData}로, 오류는 global 공통 핸들러가 ProblemDetail로 응답한다. 채팅방 나가기는 본문 없이 204다.
  * 로그인하지 않은 요청은 global SecurityConfig({@code anyRequest().authenticated()})에서 401로 막힌다.
  * <p>
  * 역할 검사는 두 번 한다. Facade의 {@code @PreAuthorize}로 로그인 세션의 역할을 먼저 확인하고(팀 규칙),
@@ -50,27 +52,28 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
      */
     @Override
     @PostMapping
-    public ResponseEntity<ChatRoomResponse> createChatRoom(@LoginUserId Long userId,
-                                                           @RequestBody CreateChatRoomRequest request) {
+    public ResponseEntity<RsData<ChatRoomResponse>> createChatRoom(@LoginUserId Long userId,
+                                                                   @RequestBody CreateChatRoomRequest request) {
         ChatRoomCreateResult result = chatRoomFacade.createOrGet(userId, request.targetUserId());
         HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
-        return ResponseEntity.status(status).body(result.room());
+        String message = result.created() ? "채팅방을 만들었습니다." : "기존 채팅방을 불러왔습니다.";
+        return ResponseEntity.status(status).body(RsData.of(status, message, result.room()));
     }
 
     @Override
     @GetMapping
-    public List<ChatRoomResponse> getMyChatRooms(@LoginUserId Long userId) {
-        return chatRoomFacade.getMyRooms(userId);
+    public RsData<List<ChatRoomResponse>> getMyChatRooms(@LoginUserId Long userId) {
+        return RsData.ok("내 채팅방 목록을 조회했습니다.", chatRoomFacade.getMyRooms(userId));
     }
 
     @Override
     @GetMapping("/{chatRoomId}/messages")
-    public ChatMessagePageResponse getMessages(@LoginUserId Long userId,
-                                               @PathVariable("chatRoomId") Long chatRoomId,
-                                               @RequestParam(name = "cursor", required = false) Long cursor,
-                                               @RequestParam(name = "size",
-                                                       defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
-        return chatMessageFacade.getMessages(chatRoomId, userId, cursor, size);
+    public RsData<ChatMessagePageResponse> getMessages(@LoginUserId Long userId,
+                                                       @PathVariable("chatRoomId") Long chatRoomId,
+                                                       @RequestParam(name = "cursor", required = false) Long cursor,
+                                                       @RequestParam(name = "size",
+                                                               defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
+        return RsData.ok("메시지 이력을 조회했습니다.", chatMessageFacade.getMessages(chatRoomId, userId, cursor, size));
     }
 
     /**
@@ -98,8 +101,8 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
      */
     @Override
     @GetMapping("/admin/{chatRoomId}/history")
-    public ChatRoomHistoryResponse getHistory(@LoginUserId Long userId,
-                                              @PathVariable("chatRoomId") Long chatRoomId) {
-        return chatRoomFacade.getHistory(chatRoomId, userId);
+    public RsData<ChatRoomHistoryResponse> getHistory(@LoginUserId Long userId,
+                                                      @PathVariable("chatRoomId") Long chatRoomId) {
+        return RsData.ok("채팅 기록을 조회했습니다.", chatRoomFacade.getHistory(chatRoomId, userId));
     }
 }

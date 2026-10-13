@@ -49,6 +49,7 @@ class AppearanceExceptionHandlerTest {
     @RestController
     static class TestController {
 
+
         @GetMapping("/test/error")
         void error() {
             throw new AppearanceException(AppearanceErrorCode.NOT_INFLUENCER);

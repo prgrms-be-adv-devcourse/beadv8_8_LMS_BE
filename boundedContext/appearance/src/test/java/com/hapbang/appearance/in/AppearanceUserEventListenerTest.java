@@ -11,7 +11,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.hapbang.appearance.app.AppearanceUserService;
+import com.hapbang.appearance.app.AppearanceUserFacade;
+import com.hapbang.appearance.app.AppearanceUserSupport;
 import com.hapbang.appearance.domain.AppearanceUser;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceUserRepository;
@@ -39,7 +40,10 @@ class AppearanceUserEventListenerTest {
     AppearanceUserRepository appearanceUserRepository;
 
     @Autowired
-    AppearanceUserService appearanceUserService;
+    AppearanceUserFacade appearanceUserFacade;
+
+    @Autowired
+    AppearanceUserSupport appearanceUserSupport;
 
     @Test
     @DisplayName("회원 가입 이벤트를 받으면 출연 회원을 만든다")
@@ -65,7 +69,7 @@ class AppearanceUserEventListenerTest {
     @Test
     @DisplayName("회원 정보 변경 이벤트를 받으면 닉네임·역할·상태를 갱신한다")
     void updatesAppearanceUserOnUserModified() {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(7L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(7L));
         UserDto modified = new UserDto(7L, "renamed7", Role.VERIFIED_INFLUENCER, UserStatus.SUSPENDED);
 
         transactionTemplate.executeWithoutResult(status ->
@@ -115,7 +119,7 @@ class AppearanceUserEventListenerTest {
     @Test
     @DisplayName("변경 이벤트를 발행한 트랜잭션이 롤백되면 반영하지 않는다")
     void ignoresUserModifiedWhenPublisherRollsBack() {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(9L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(9L));
 
         transactionTemplate.executeWithoutResult(status -> {
             eventPublisher.publishEvent(new UserModifiedEvent(

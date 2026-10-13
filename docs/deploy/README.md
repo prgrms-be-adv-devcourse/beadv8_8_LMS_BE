@@ -65,7 +65,7 @@ deploy  EC2에 SSH → (BE) deploy.sh "<env> check" → 서버 compose.<env>.yam
 | 하고 싶은 것 | 방법 |
 | --- | --- |
 | dev에 반영 | 기능 브랜치 → `dev` PR 병합 |
-| 운영 반영 | `dev` → `main` PR 병합 → (BE) Actions → Deploy prod에 main 커밋 sha를 넣고 실행 |
+| 운영 반영 | [operations.md#운영-배포](operations.md#운영-배포)를 순서대로 따른다. `dev` → `main` PR 병합 → (BE) 서버 설정 확인 → Actions → Deploy prod에 main 커밋 sha를 넣고 실행 |
 | 롤백 | BE 운영: 되돌릴 커밋 sha로 Deploy prod 실행. dev·FE: 되돌릴 버전의 Deploy run → `deploy` job 재실행 |
 | 환경변수 추가 | [env-vars.md](env-vars.md) |
 | DB 스키마 변경 | Flyway 마이그레이션 SQL 추가, 앱 시작 시 자동 적용 → [db-migration.md](../db-migration.md) |

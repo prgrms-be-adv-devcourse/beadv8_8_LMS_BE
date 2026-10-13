@@ -24,6 +24,7 @@ import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
+import com.hapbang.global.response.RsData;
 import com.hapbang.shared.member.domain.Role;
 
 /**
@@ -166,14 +167,16 @@ class ChatApiE2ETest {
                 .exchange()
                 .expectStatus().isForbidden();
 
-        ChatRoomHistoryResponse history = client.get().uri("/api/v1/chats/admin/{id}/history", chatRoomId)
+        RsData<ChatRoomHistoryResponse> history = client.get().uri("/api/v1/chats/admin/{id}/history", chatRoomId)
                 .header(HttpHeaders.COOKIE, login(ADMIN_ID, Role.ADMIN).cookieHeader())
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody(ChatRoomHistoryResponse.class)
+                .expectBody(new ParameterizedTypeReference<RsData<ChatRoomHistoryResponse>>() {
+                })
                 .returnResult().getResponseBody();
         assertThat(history).isNotNull();
-        assertThat(history.chatRoomId()).isEqualTo(chatRoomId);
+        assertThat(history.statusCode()).isEqualTo(200);
+        assertThat(history.data().chatRoomId()).isEqualTo(chatRoomId);
     }
 
     @Test
@@ -221,24 +224,29 @@ class ChatApiE2ETest {
     }
 
     private ChatRoomResponse createRoom(E2ESession session, Long targetUserId, HttpStatus expectedStatus) {
-        ChatRoomResponse room = client.post().uri("/api/v1/chats")
+        RsData<ChatRoomResponse> room = client.post().uri("/api/v1/chats")
                 .headers(session::applyTo)
                 .body(new CreateChatRoomRequest(targetUserId))
                 .exchange()
                 .expectStatus().isEqualTo(expectedStatus)
-                .expectBody(ChatRoomResponse.class)
+                .expectBody(new ParameterizedTypeReference<RsData<ChatRoomResponse>>() {
+                })
                 .returnResult().getResponseBody();
         assertThat(room).isNotNull();
-        return room;
+        // 본문의 statusCode는 실제 HTTP 상태와 같다
+        assertThat(room.statusCode()).isEqualTo(expectedStatus.value());
+        return room.data();
     }
 
     private List<ChatRoomResponse> myRooms(E2ESession session) {
-        return client.get().uri("/api/v1/chats")
+        RsData<List<ChatRoomResponse>> rooms = client.get().uri("/api/v1/chats")
                 .header(HttpHeaders.COOKIE, session.cookieHeader())
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody(new ParameterizedTypeReference<List<ChatRoomResponse>>() {
+                .expectBody(new ParameterizedTypeReference<RsData<List<ChatRoomResponse>>>() {
                 })
                 .returnResult().getResponseBody();
+        assertThat(rooms).isNotNull();
+        return rooms.data();
     }
 }

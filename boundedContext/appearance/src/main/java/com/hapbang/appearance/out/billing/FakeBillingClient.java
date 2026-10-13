@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
  *     <li>{@code appearance.billing.mode=fake}(기본값)일 때만 빈으로 등록된다.</li>
  *     <li>모든 회원은 {@link #DEFAULT_BALANCE}만큼 잔액을 가진 것으로 시작한다. 테스트에서는 {@link #setBalance}로 바꾼다.</li>
  *     <li>보류보다 많이 반환·지급하려 하면 예외를 던진다. 출연 쪽 금액 계산 실수를 테스트에서 바로 잡기 위해서다.</li>
+ *     <li>테스트에서 {@link #setUnavailable}로 Billing 무응답({@link BillingUnavailableException})을 흉내 낼 수 있다.</li>
  *     <li>앱이 재시작되면 기록이 모두 사라진다.</li>
  * </ul>
  */
@@ -25,9 +26,11 @@ public class FakeBillingClient implements BillingClient {
     private final Map<Long, Long> balances = new HashMap<>();
     private final Map<HoldKey, Long> holds = new HashMap<>();
     private final Map<String, Object> processedResults = new HashMap<>();
+    private boolean unavailable;
 
     @Override
     public synchronized HoldResult hold(HoldCommand command) {
+        requireAvailable();
         HoldResult processed = findProcessed(command.idempotencyKey(), HoldResult.class);
         if (processed != null) {
             return processed;
@@ -48,6 +51,7 @@ public class FakeBillingClient implements BillingClient {
 
     @Override
     public synchronized Result release(ReleaseCommand command) {
+        requireAvailable();
         Result processed = findProcessed(command.idempotencyKey(), Result.class);
         if (processed != null) {
             return processed;
@@ -62,6 +66,7 @@ public class FakeBillingClient implements BillingClient {
 
     @Override
     public synchronized Result payout(PayoutCommand command) {
+        requireAvailable();
         Result processed = findProcessed(command.idempotencyKey(), Result.class);
         if (processed != null) {
             return processed;
@@ -76,6 +81,7 @@ public class FakeBillingClient implements BillingClient {
 
     @Override
     public synchronized Result settle(SettleCommand command) {
+        requireAvailable();
         Result processed = findProcessed(command.idempotencyKey(), Result.class);
         if (processed != null) {
             return processed;
@@ -115,12 +121,26 @@ public class FakeBillingClient implements BillingClient {
     }
 
     /**
-     * 테스트용: 모든 기록을 지운다.
+     * 테스트용: true면 모든 요청에 응답하지 않는다({@link BillingUnavailableException}). 아무것도 처리하지 않는다.
+     */
+    public synchronized void setUnavailable(boolean unavailable) {
+        this.unavailable = unavailable;
+    }
+
+    /**
+     * 테스트용: 모든 기록을 지우고 응답하는 상태로 되돌린다.
      */
     public synchronized void reset() {
         balances.clear();
         holds.clear();
         processedResults.clear();
+        unavailable = false;
+    }
+
+    private void requireAvailable() {
+        if (unavailable) {
+            throw new BillingUnavailableException("Billing이 응답하지 않습니다 (Fake 무응답 설정).");
+        }
     }
 
     private <T> T findProcessed(String idempotencyKey, Class<T> type) {

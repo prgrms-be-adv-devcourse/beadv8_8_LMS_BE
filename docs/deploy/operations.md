@@ -34,6 +34,113 @@ edge logs --tail 50 certbot       # 인증서 갱신
 
 로그는 컨테이너당 10MB × 3개까지만 보관된다. 컨테이너가 새로 만들어지면 이전 로그는 사라진다.
 
+## 운영 배포
+
+BE를 운영(prod)에 올리는 절차다. `main`에 병합해도 운영은 바뀌지 않는다. 아래 1~6단계를 순서대로 한다. 실패하면 [배포 실패 대응](#배포-실패-대응), 되돌릴 때는 [롤백](#롤백)을 본다.
+
+**준비**
+
+| 항목 | 내용 |
+| --- | --- |
+| 시간 | EC2가 켜져 있는 09:00~18:00. 18:00 직전은 피한다(서버가 꺼지면 배포가 중단된다) |
+| 권한 | BE 레포 쓰기 권한(Actions 실행) |
+| 로컬 | BE 레포 클론. 터미널 명령을 쓰려면 `gh`(GitHub CLI) 로그인 |
+| 서버 접속 | 3·4단계에서 쓴다. EC2 키 파일과 주소는 AWS 담당자에게 받는다 |
+
+### 1. dev → main 병합
+
+GitHub에서 base `main` ← compare `dev` PR을 만들어 병합한다.
+
+- **FE도 함께 내보낼 때**: FE는 `main` 병합 즉시 운영에 배포된다. 새 FE가 이번 BE 변경(새 API 등)을 쓰면, **BE 운영 배포(5·6단계)를 끝낸 뒤** FE를 `main`에 병합한다.
+
+### 2. main 빌드 확인, 배포할 sha 정하기
+
+병합하면 Deploy 워크플로가 테스트하고 이미지를 만든다(몇 분 걸린다). 성공해야 배포할 수 있다.
+
+- 화면: Actions → **Deploy** → 방금 병합한 `main` run. `ci / verify`·`build`가 초록(성공)이고 `deploy`가 회색(skipped)이면 정상이다. 이 run의 커밋 sha가 **배포할 sha**다.
+- 터미널:
+
+```bash
+gh run list --workflow deploy.yml --branch main --event push --limit 1 --json databaseId,status,conclusion,headSha
+gh run watch <databaseId> --exit-status    # 아직 진행 중이면 끝날 때까지 기다린다
+```
+
+`conclusion`이 `success`이면 `headSha`가 배포할 sha다. `failure`이면 배포할 수 없다. 원인을 고쳐 `dev` → `main`으로 다시 병합한다.
+
+### 3. 지금 운영 버전 적어 두기
+
+배포 후 문제가 생기면 이 sha로 되돌린다. 서버에서([별칭](#운영-가이드)을 먼저 정의한다):
+
+```bash
+prod ps --format '{{.Service}} {{.Image}}'    # app ghcr.io/...:sha-<지금 운영 sha>
+```
+
+서버에 접속할 수 없으면 최근 성공한 Deploy prod run의 Summary("운영 배포 대상")에 적힌 커밋을 쓴다.
+
+### 4. 서버 설정(compose.prod.yaml) 확인
+
+서버의 `compose.prod.yaml`이 `main`과 다르면 5단계가 배포 전에 멈춘다(운영은 그대로). 먼저 두 파일의 해시를 비교한다.
+
+```bash
+# 로컬 (BE 레포)
+git fetch origin
+git show origin/main:docker/compose.prod.yaml | shasum -a 256
+
+# 서버
+sha256sum /opt/hapbang/compose.prod.yaml
+```
+
+**두 값이 같으면** 5단계로 간다. **다르면** 무엇이 바뀌었는지 본다.
+
+```bash
+git diff <3단계의 운영 sha> origin/main -- docker/compose.prod.yaml
+```
+
+1. `app:`의 `environment:`에 새 줄(`KEY: ${KEY:?...}`)이 있으면 서버 `prod.env`에 그 값을 **먼저** 넣는다([env-vars.md#서버-env-파일-편집](env-vars.md#서버-env-파일-편집)). 값은 그 기능 담당자에게 받는다.
+2. `main`의 `compose.prod.yaml`만 서버에 올려 검증하고 반영한다.
+
+```bash
+# 로컬
+git show origin/main:docker/compose.prod.yaml > /tmp/compose.prod.yaml
+ssh -i <키 파일> ubuntu@<EC2 주소> 'mkdir -p ~/hapbang-config'
+scp -i <키 파일> /tmp/compose.prod.yaml ubuntu@<EC2 주소>:~/hapbang-config/
+
+# 서버: 검증 → "prod: ok"가 나오면 반영
+cd ~/hapbang-config
+sudo docker compose -f compose.prod.yaml --env-file /opt/hapbang/env/prod.env config --quiet && echo "prod: ok"
+sudo cp compose.prod.yaml /opt/hapbang/compose.prod.yaml
+sudo chown deploy:deploy /opt/hapbang/compose.prod.yaml
+```
+
+- 검증이 `required variable ... is missing`으로 실패하면 1번(`prod.env`)이 빠진 것이다. 반영하지 말고 1번부터 한다.
+- `compose.dev.yaml`은 올리지 않는다. `dev`가 `main`보다 앞서 있을 수 있어서, 덮어쓰면 dev 배포가 실패한다. `nginx/`·`compose.edge.yaml`·`deploy.sh`는 `dev` 병합 때 반영한다([설정 반영](#설정-반영)).
+
+### 5. Deploy prod 실행
+
+- 화면
+  1. BE 레포 → **Actions** 탭 → 왼쪽 목록에서 **Deploy prod**
+  2. 오른쪽 **Run workflow** → `Use workflow from`이 **main**인지 확인
+  3. "배포할 main 커밋 sha(7~40자)" 칸에 2단계의 sha(앞 7자 이상)를 넣는다
+  4. 초록색 **Run workflow**를 누른다
+- 터미널
+
+```bash
+gh workflow run deploy-prod.yml --ref main -f sha=<2단계의 sha>
+gh run list --workflow deploy-prod.yml --limit 1     # 방금 실행한 run의 id
+gh run watch <id> --exit-status
+```
+
+`resolve`(sha·이미지 검사) → `deploy / deploy`(서버 설정 비교 → 배포) 순서로 진행된다. 새 app이 healthy가 될 때까지 최대 180초 기다린다.
+
+### 6. 확인
+
+- run의 `resolve`와 `deploy / deploy`가 모두 초록이다. run의 Summary "운영 배포 대상"에 배포한 커밋이 나온다.
+- `deploy / deploy` → "EC2 배포" 로그 끝에 `[deploy] prod app 완료`가 있고, 그 위 표에서 app이 `sha-<배포한 sha>`, `(healthy)`다.
+- 브라우저로 운영 주소([README](README.md))에 접속해 이번에 바뀐 기능을 확인한다.
+
+- **실패했을 때**: run에서 빨간 job의 오류 문구를 [배포 실패 대응](#배포-실패-대응) 표에서 찾는다. `resolve`나 서버 설정 비교에서 멈췄으면 운영은 바뀌지 않았다. 새 app이 healthy가 되지 않으면 이전 버전으로 자동 롤백된다.
+- **배포는 성공했는데 기능에 문제가 있을 때**: 3단계의 sha로 5단계를 다시 실행한다([롤백](#롤백)).
+
 ## 배포 실패 대응
 
 Actions의 Deploy run(BE 운영은 Deploy prod run)에서 실패한 job을 먼저 본다. 아래의 `deploy` job 재실행은 Deploy prod run에서도 같다(`Re-run failed jobs`).

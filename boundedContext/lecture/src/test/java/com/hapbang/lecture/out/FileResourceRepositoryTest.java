@@ -27,7 +27,7 @@ class FileResourceRepositoryTest {
     @Test
     void 저장한_파일을_업로드_상태와_함께_읽는다() {
         FileResource file = FileResource.create(SELLER_ID, FileType.LECTURE_VIDEO, "1강.mp4", "video/mp4", 1_024L, NOW);
-        file.markUploaded(1_024L, NOW.plusMinutes(1));
+        file.markUploaded(NOW.plusMinutes(1));
         Long fileId = fileResourceRepository.save(file).getId();
         entityManager.flush();
         entityManager.clear();
