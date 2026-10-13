@@ -1,12 +1,12 @@
 package com.hapbang.customersupport.app;
 
+import static com.hapbang.customersupport.fixture.InquiryFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.hapbang.customersupport.app.dto.InquiryResponse;
 import com.hapbang.customersupport.app.dto.InquirySort;
@@ -16,6 +16,7 @@ import com.hapbang.customersupport.app.exception.CustomerSupportException;
 import com.hapbang.customersupport.domain.Inquiry;
 import com.hapbang.customersupport.domain.InquiryCategory;
 import com.hapbang.customersupport.domain.InquiryStatus;
+import com.hapbang.customersupport.out.InquiryRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
@@ -31,7 +32,7 @@ class InquiryUseCaseTest {
     private InquirySupporter inquirySupporter;
 
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private InquiryRepository inquiryRepository;
 
     @Test
     void 문의를_접수하면_답변_대기로_저장된다() {
@@ -154,9 +155,8 @@ class InquiryUseCaseTest {
         assertThatThrownBy(() -> inquirySupporter.getMyInquiry(inquiryId, USER_ID))
                 .isInstanceOf(CustomerSupportException.class);
         // Soft Delete: 행은 남는다
-        assertThat(jdbcTemplate.queryForObject(
-                "select count(*) from customersupport.inquiry where id = ? and deleted_at is not null",
-                Integer.class, inquiryId)).isEqualTo(1);
+        assertThat(inquiryRepository.findById(inquiryId)).hasValueSatisfying(
+                inquiry -> assertThat(inquiry.getDeletedAt()).isNotNull());
     }
 
     @Test
@@ -176,8 +176,7 @@ class InquiryUseCaseTest {
     @Test
     void 답변이_달린_문의는_삭제할_수_없다() {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
-        // 관리자 답변 기능 전이라 상태를 직접 바꾼다
-        jdbcTemplate.update("update customersupport.inquiry set status = 'ANSWERED' where id = ?", inquiryId);
+        markAnswered(inquiryRepository, inquiryId);
 
         assertThatThrownBy(() -> inquiryUseCase.delete(inquiryId, USER_ID))
                 .isInstanceOfSatisfying(CustomerSupportException.class,
@@ -189,7 +188,7 @@ class InquiryUseCaseTest {
         Long waiting = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "대기", "내용").getId();
         Long answered = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "완료", "내용").getId();
         Long deleted = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "삭제", "내용").getId();
-        jdbcTemplate.update("update customersupport.inquiry set status = 'ANSWERED' where id = ?", answered);
+        markAnswered(inquiryRepository, answered);
         inquiryUseCase.delete(deleted, USER_ID);
 
         assertThat(inquirySupporter.getInquiries(null, InquirySort.OLDEST, PageRequest.of(0, 20)).getContent())

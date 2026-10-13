@@ -1,5 +1,6 @@
 package com.hapbang.customersupport.in;
 
+import static com.hapbang.customersupport.fixture.InquiryFixture.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -13,11 +14,11 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.customersupport.app.InquiryUseCase;
 import com.hapbang.customersupport.domain.InquiryCategory;
+import com.hapbang.customersupport.out.InquiryRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
@@ -38,7 +39,7 @@ class ApiV1InquiryControllerTest {
     InquiryUseCase inquiryUseCase;
 
     @Autowired
-    JdbcTemplate jdbcTemplate;
+    InquiryRepository inquiryRepository;
 
     @ParameterizedTest
     @EnumSource(value = Role.class, names = {"USER", "INFLUENCER", "VERIFIED_INFLUENCER"})
@@ -214,8 +215,7 @@ class ApiV1InquiryControllerTest {
     @Test
     void 답변이_달린_문의를_삭제하면_409() throws Exception {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
-        // 관리자 답변 기능 전이라 상태를 직접 바꾼다
-        jdbcTemplate.update("update customersupport.inquiry set status = 'ANSWERED' where id = ?", inquiryId);
+        markAnswered(inquiryRepository, inquiryId);
 
         mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
                 .andExpect(status().isConflict())
@@ -236,7 +236,7 @@ class ApiV1InquiryControllerTest {
         inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "첫 문의", "내용");
         Long answered = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "답변된 문의", "내용").getId();
         inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "두 번째 문의", "내용");
-        jdbcTemplate.update("update customersupport.inquiry set status = 'ANSWERED' where id = ?", answered);
+        markAnswered(inquiryRepository, answered);
 
         mockMvc.perform(get("/api/v1/inquiries/admin").param("status", "WAITING")
                         .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
