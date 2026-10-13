@@ -1,25 +1,34 @@
 package com.hapbang.appearance;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestComponent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.appearance.app.AppearanceUserService;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.global.auth.LoginUserId;
+import com.hapbang.appearance.out.AppearanceUserRepository;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 
@@ -46,6 +55,15 @@ class AppearanceApiE2ETest {
     @Autowired
     AppearanceUserService appearanceUserService;
 
+    @Autowired
+    AppearanceUserRepository appearanceUserRepository;
+
+    @Autowired
+    ApplicationEventPublisher eventPublisher;
+
+    @Autowired
+    TransactionTemplate transactionTemplate;
+
     @Test
     @DisplayName("로그인하지 않으면 401")
     void notLoggedIn() throws Exception {
@@ -56,7 +74,7 @@ class AppearanceApiE2ETest {
     @Test
     @DisplayName("로그인한 인플루언서는 세션의 회원 ID로 출연 회원 자격이 확인된다")
     void influencer() throws Exception {
-        appearanceUserService.sync(AppearanceUserFixture.influencer(1L));
+        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(1L));
 
         mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -75,12 +93,29 @@ class AppearanceApiE2ETest {
     @Test
     @DisplayName("일반 유저는 403 Problem Detail (NOT_INFLUENCER), 한글 메시지가 UTF-8로 나간다")
     void normalUser() throws Exception {
-        appearanceUserService.sync(AppearanceUserFixture.normalUser(3L));
+        appearanceUserService.createIfAbsent(AppearanceUserFixture.normalUser(3L));
 
         mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(3L, Role.USER)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("NOT_INFLUENCER"))
                 .andExpect(jsonPath("$.detail").value("인플루언서 이상만 출연 거래에 참여할 수 있습니다."));
+    }
+
+    @Test
+    @DisplayName("회원 모듈에서 정지되면 같은 세션의 다음 요청은 403 (APPEARANCE_USER_NOT_ACTIVE)")
+    void suspendedByUserModifiedEvent() throws Exception {
+        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(4L));
+        mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(4L, Role.INFLUENCER)))
+                .andExpect(status().isOk());
+
+        transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(
+                AppearanceUserFixture.user(4L, Role.INFLUENCER, UserStatus.SUSPENDED))));
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
+                appearanceUserRepository.findById(4L).orElseThrow().getStatus()).isEqualTo(UserStatus.SUSPENDED));
+
+        mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(4L, Role.INFLUENCER)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("APPEARANCE_USER_NOT_ACTIVE"));
     }
 
     /**
