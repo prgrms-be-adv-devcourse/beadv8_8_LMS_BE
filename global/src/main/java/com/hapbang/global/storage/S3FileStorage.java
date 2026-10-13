@@ -1,7 +1,11 @@
 package com.hapbang.global.storage;
 
+import java.io.InputStream;
+import java.time.Duration;
 import java.util.Optional;
 
+import software.amazon.awssdk.awscore.retry.AwsRetryStrategy;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
@@ -9,15 +13,22 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 
 /**
- * S3 파일 업로드·조회 공통 기능. 파일 본문은 서버를 거치지 않고, 브라우저가 Presigned URL로 S3에 직접 올리고 받는다.
+ * S3 파일 업로드·조회 공통 기능.
+ * <ul>
+ *     <li>업로드는 서버 경유다. 모듈이 받은 요청 본문을 {@link #upload}로 S3에 넘긴다.
+ *     인스턴스 역할로 서명한 Presigned PUT은 EC2 밖에서 조직 정책으로 거부되므로 쓰지 않는다(docs/deploy/s3.md).</li>
+ *     <li>조회는 브라우저가 Presigned GET URL로 S3에서 직접 받는다.</li>
+ * </ul>
  * <p>
  * key는 모듈 기준(예: {@code lecture/LECTURE_THUMBNAIL/<uuid>})으로 넘긴다.
  * 환경 prefix(local·dev·prod)는 여기서 붙이므로 DB에는 모듈 기준 key를 저장한다.
  */
 public class S3FileStorage {
+
+    /** SigV4 Presigned URL의 최대 유효 기간 */
+    private static final Duration MAX_URL_EXPIRY = Duration.ofDays(7);
 
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
@@ -30,32 +41,52 @@ public class S3FileStorage {
     }
 
     /**
-     * 업로드용 Presigned PUT URL. Content-Type이 서명에 들어가므로 업로드할 때 같은 값을 헤더로 보내야 한다.
-     * 크기는 서명하지 않는다. 업로드 후 {@link #find(String)}로 확인한다.
+     * 본문을 S3에 저장한다. 같은 key가 있으면 덮어쓴다.
+     * <p>
+     * 본문을 메모리에 모으지 않고 {@code contentLength}만큼 읽으면서 보낸다. 요청 본문은 되감을 수 없으므로 실패해도 재시도하지 않는다
+     * (재시도하면 이미 읽은 부분이 빠지거나 원래 오류가 가려진다). 본문이 끊기거나 S3가 실패하면 SDK 예외를 그대로 던지고, 객체는 생기지 않는다.
+     *
+     * @param contentLength 본문 바이트 수. 실제 본문이 이보다 짧으면 실패한다
      */
-    public PresignedUrl presignUpload(String key, String contentType) {
+    public void upload(String key, String contentType, long contentLength, InputStream body) {
         if (contentType == null || contentType.isBlank()) {
             throw new IllegalArgumentException("contentType이 필요합니다.");
+        }
+        if (contentLength < 0) {
+            throw new IllegalArgumentException("contentLength는 0 이상이어야 합니다: " + contentLength);
+        }
+        if (body == null) {
+            throw new IllegalArgumentException("본문이 필요합니다.");
         }
         PutObjectRequest putObject = PutObjectRequest.builder()
                 .bucket(properties.bucket())
                 .key(objectKey(key))
                 .contentType(contentType)
+                .contentLength(contentLength)
+                .overrideConfiguration(request -> request.addPlugin(config -> config.overrideConfiguration(
+                        client -> client.retryStrategy(AwsRetryStrategy.doNotRetry()))))
                 .build();
-        PresignedPutObjectRequest presigned = s3Presigner.presignPutObject(request -> request
-                .signatureDuration(properties.uploadUrlExpiry())
-                .putObjectRequest(putObject));
-        return new PresignedUrl(presigned.url().toString(), presigned.expiration());
+        s3Client.putObject(putObject, RequestBody.fromInputStream(body, contentLength));
     }
 
-    /** 조회용 Presigned GET URL. 버킷은 공개하지 않으므로 파일을 보여 줄 때마다 발급한다. */
-    public PresignedUrl presignDownload(String key) {
+    /**
+     * 조회용 Presigned GET URL. 버킷은 공개하지 않으므로 파일을 보여 줄 때마다 발급한다.
+     * <p>
+     * 만료는 용도(썸네일·시청 등)에 맞게 호출하는 쪽이 정한다. 서버의 인스턴스 역할 자격 증명은 임시 키라서,
+     * 그 키가 먼저 만료되면 URL도 {@code expiry}보다 일찍 끝날 수 있다.
+     *
+     * @param expiry 0보다 크고 7일(SigV4 최대) 이하
+     */
+    public PresignedUrl presignDownload(String key, Duration expiry) {
+        if (expiry == null || expiry.isZero() || expiry.isNegative() || expiry.compareTo(MAX_URL_EXPIRY) > 0) {
+            throw new IllegalArgumentException("조회 URL 만료는 0보다 크고 7일 이하여야 합니다: " + expiry);
+        }
         GetObjectRequest getObject = GetObjectRequest.builder()
                 .bucket(properties.bucket())
                 .key(objectKey(key))
                 .build();
         PresignedGetObjectRequest presigned = s3Presigner.presignGetObject(request -> request
-                .signatureDuration(properties.downloadUrlExpiry())
+                .signatureDuration(expiry)
                 .getObjectRequest(getObject));
         return new PresignedUrl(presigned.url().toString(), presigned.expiration());
     }
