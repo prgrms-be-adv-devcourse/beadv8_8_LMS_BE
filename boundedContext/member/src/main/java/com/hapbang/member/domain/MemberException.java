@@ -8,4 +8,9 @@ public class MemberException extends BusinessException {
     public MemberException(MemberErrorCode errorCode) {
         super(errorCode);
     }
+
+    /** 원인 예외를 함께 남긴다 (로그에 원인 스택이 나온다) */
+    public MemberException(MemberErrorCode errorCode, Throwable cause) {
+        super(errorCode, cause);
+    }
 }

@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.LocalDateTime;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +20,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.member.domain.ChannelPlatform;
+import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.shared.member.domain.Role;
@@ -34,6 +39,9 @@ class ApiV1MemberControllerTest {
 
     @Autowired
     UserRepository userRepository;
+
+    @Autowired
+    InfluencerChannelRepository influencerChannelRepository;
 
     @Test
     @DisplayName("로그인 상태로 내 정보를 조회하면 200과 회원 정보를 반환한다")
@@ -163,20 +171,34 @@ class ApiV1MemberControllerTest {
                 .andExpect(jsonPath("$.content[0].id").value(newer.getId()))
                 .andExpect(jsonPath("$.content[1].id").value(older.getId()))
                 .andExpect(jsonPath("$.content[0].email").doesNotExist())
-                .andExpect(jsonPath("$.page").value(0))
-                .andExpect(jsonPath("$.size").value(10))
-                .andExpect(jsonPath("$.totalElements").value(2))
-                .andExpect(jsonPath("$.totalPages").value(1));
+                .andExpect(jsonPath("$.page.number").value(0))
+                .andExpect(jsonPath("$.page.size").value(20))
+                .andExpect(jsonPath("$.page.totalElements").value(2))
+                .andExpect(jsonPath("$.page.totalPages").value(1));
     }
 
     @Test
-    @DisplayName("페이지 크기가 최대(50)를 넘으면 50으로 맞춘다")
+    @DisplayName("페이지 크기가 최대(100)를 넘으면 100으로 맞춘다")
     void influencers_maxSize() throws Exception {
         User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
 
-        mockMvc.perform(get("/api/v1/members/influencers?size=100").with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/influencers?size=200").with(TestLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.size").value(50));
+                .andExpect(jsonPath("$.page.size").value(100));
+    }
+
+    @Test
+    @DisplayName("정렬을 요청해도 인플루언서 목록은 최신 가입순으로 준다")
+    void influencers_fixedSort() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User older = saveMember("aaa1", Role.INFLUENCER, UserStatus.ACTIVE);
+        User newer = saveMember("zzz1", Role.INFLUENCER, UserStatus.ACTIVE);
+
+        mockMvc.perform(get("/api/v1/members/influencers?sort=nickname,asc")
+                        .with(TestLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(newer.getId()))
+                .andExpect(jsonPath("$.content[1].id").value(older.getId()));
     }
 
     @Test
@@ -201,6 +223,27 @@ class ApiV1MemberControllerTest {
                 // S3 공통 설정 전이라 사진 자리는 있고 값은 null
                 .andExpect(jsonPath("$.profileImageUrl").hasJsonPath())
                 .andExpect(jsonPath("$.profileImageUrl").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("회원 프로필에는 등록된 채널을 상태와 상관없이 모두 넣고, 상태·반려 사유는 넣지 않는다")
+    void profile_channels() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User target = saveMember("target1", Role.INFLUENCER, UserStatus.ACTIVE);
+        influencerChannelRepository.save(InfluencerChannel.register(target, ChannelPlatform.CHZZK, "channel-1",
+                "본채널", 20, LocalDateTime.now()));
+        influencerChannelRepository.save(InfluencerChannel.register(target, ChannelPlatform.CHZZK, "channel-2",
+                "서브채널", 3, LocalDateTime.now()));
+
+        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(TestLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.channels.length()").value(2))
+                .andExpect(jsonPath("$.channels[0].channelName").value("본채널"))
+                .andExpect(jsonPath("$.channels[0].followerCount").value(20))
+                .andExpect(jsonPath("$.channels[1].channelName").value("서브채널"))
+                .andExpect(jsonPath("$.channels[1].channelUrl").value("https://chzzk.naver.com/channel-2"))
+                .andExpect(jsonPath("$.channels[0].status").doesNotExist())
+                .andExpect(jsonPath("$.channels[0].rejectionReason").doesNotExist());
     }
 
     @Test

@@ -3,7 +3,6 @@ package com.hapbang.member.in;
 import java.util.Map;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
@@ -12,9 +11,10 @@ import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.hapbang.member.app.MemberFacade;
+import com.hapbang.member.domain.MemberErrorCode;
+import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
 import com.hapbang.shared.member.domain.Role;
 
@@ -38,7 +38,7 @@ public class LocalLoginController {
                                   HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         // 테스트 계정은 앱 시작 시 MemberDataInit이 만든다
         User user = memberFacade.findTestAccount(role, number)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "테스트 계정이 없습니다."));
+                .orElseThrow(() -> new MemberException(MemberErrorCode.TEST_ACCOUNT_NOT_FOUND));
 
         // 구글 로그인처럼 기존 세션 ID를 바꾼다 (세션 고정 공격 방지)
         if (httpRequest.getSession(false) != null) {
