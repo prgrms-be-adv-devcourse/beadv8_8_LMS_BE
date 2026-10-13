@@ -44,7 +44,7 @@ class HoldCreateIntegrationTest {
     private static final Instant T1 = Instant.parse("2026-10-01T00:00:00Z");
     private static final Instant T2 = Instant.parse("2026-10-02T00:00:00Z");
     private static final Instant T3 = Instant.parse("2026-10-03T00:00:00Z");
-    private static final String ORDER_KEY = "HOLD:LECTURE_ORDER:1001";
+    private static final String ORDER_KEY = "HOLD:LECTURE_ORDER_ITEM:1001";
     private static final int THREADS = 8;
 
     @Autowired
@@ -78,7 +78,7 @@ class HoldCreateIntegrationTest {
         revenue(walletId, 5_000L);
         Long chargeId = charge(walletId, 3_000L, T1);
 
-        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 4_000L);
+        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 4_000L);
 
         assertThat(result.revenueHp()).isEqualTo(4_000L);
         assertThat(result.chargeHp()).isZero();
@@ -88,8 +88,8 @@ class HoldCreateIntegrationTest {
         assertThat(remainingPrincipal(chargeId)).isEqualTo(3_000L);
         assertThat(usageCount(result.holdId())).isZero();
         assertThat(ledgerLines(ORDER_KEY)).containsExactly(
-                "HOLD:LECTURE_ORDER:1001:1 REVENUE AVAILABLE -4000",
-                "HOLD:LECTURE_ORDER:1001:2 REVENUE HELD 4000");
+                "HOLD:LECTURE_ORDER_ITEM:1001:1 REVENUE AVAILABLE -4000",
+                "HOLD:LECTURE_ORDER_ITEM:1001:2 REVENUE HELD 4000");
         assertInvariants(walletId);
     }
 
@@ -101,7 +101,7 @@ class HoldCreateIntegrationTest {
         Long second = charge(walletId, 4_000L, T2);
         Long third = charge(walletId, 5_000L, T3);
 
-        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 5_000L);
+        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 5_000L);
 
         assertThat(result.revenueHp()).isZero();
         assertThat(result.chargeHp()).isEqualTo(5_000L);
@@ -112,8 +112,8 @@ class HoldCreateIntegrationTest {
         assertThat(remainingPrincipal(third)).isEqualTo(5_000L);
         assertBalances(walletId, 6_000L, 0L, 5_000L, 0L);
         assertThat(ledgerLines(ORDER_KEY)).containsExactly(
-                "HOLD:LECTURE_ORDER:1001:1 CHARGE AVAILABLE -5000",
-                "HOLD:LECTURE_ORDER:1001:2 CHARGE HELD 5000");
+                "HOLD:LECTURE_ORDER_ITEM:1001:1 CHARGE AVAILABLE -5000",
+                "HOLD:LECTURE_ORDER_ITEM:1001:2 CHARGE HELD 5000");
         assertInvariants(walletId);
     }
 
@@ -125,7 +125,7 @@ class HoldCreateIntegrationTest {
         Long first = charge(walletId, 4_000L, T1);
         Long second = charge(walletId, 6_000L, T2);
 
-        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 8_000L);
+        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 8_000L);
 
         assertThat(result.totalHp()).isEqualTo(8_000L);
         assertThat(result.revenueHp()).isEqualTo(3_000L);
@@ -136,14 +136,14 @@ class HoldCreateIntegrationTest {
         assertThat(totalHp(walletId)).isEqualTo(13_000L);
         // 원장은 수익 HP 이동 2줄, 충전 HP 이동 2줄을 같은 작업 키로 남긴다.
         assertThat(ledgerLines(ORDER_KEY)).containsExactly(
-                "HOLD:LECTURE_ORDER:1001:1 REVENUE AVAILABLE -3000",
-                "HOLD:LECTURE_ORDER:1001:2 REVENUE HELD 3000",
-                "HOLD:LECTURE_ORDER:1001:3 CHARGE AVAILABLE -5000",
-                "HOLD:LECTURE_ORDER:1001:4 CHARGE HELD 5000");
+                "HOLD:LECTURE_ORDER_ITEM:1001:1 REVENUE AVAILABLE -3000",
+                "HOLD:LECTURE_ORDER_ITEM:1001:2 REVENUE HELD 3000",
+                "HOLD:LECTURE_ORDER_ITEM:1001:3 CHARGE AVAILABLE -5000",
+                "HOLD:LECTURE_ORDER_ITEM:1001:4 CHARGE HELD 5000");
         assertThat(jdbcTemplate.queryForList("""
                 SELECT DISTINCT transaction_type || ' ' || reference_type || ' ' || reference_id
                 FROM billing.point_ledger WHERE operation_key = ?""", String.class, ORDER_KEY))
-                .containsExactly("HOLD LECTURE_ORDER 1001");
+                .containsExactly("HOLD LECTURE_ORDER_ITEM 1001");
         assertInvariants(walletId);
     }
 
@@ -155,13 +155,13 @@ class HoldCreateIntegrationTest {
         Long first = charge(walletId, 2_000L, T1);
         Long second = charge(walletId, 4_000L, T2);
 
-        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 6_000L);
+        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 6_000L);
 
         Map<String, Object> hold = jdbcTemplate.queryForMap("SELECT * FROM billing.point_hold WHERE id = ?",
                 result.holdId());
         assertThat(hold)
                 .containsEntry("wallet_id", walletId)
-                .containsEntry("reference_type", "LECTURE_ORDER")
+                .containsEntry("reference_type", "LECTURE_ORDER_ITEM")
                 .containsEntry("reference_id", 1001L)
                 .containsEntry("original_revenue_hp", 3_000L)
                 .containsEntry("original_charge_hp", 3_000L)
@@ -190,7 +190,7 @@ class HoldCreateIntegrationTest {
         Long late = charge(walletId, 2_000L, T2);
         Long early = charge(walletId, 2_000L, T1);
 
-        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L);
+        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L);
 
         assertThat(late).isLessThan(early);
         assertThat(result.chargeAllocations()).containsExactly(
@@ -205,7 +205,7 @@ class HoldCreateIntegrationTest {
         Long first = charge(walletId, 2_000L, T1);
         Long second = charge(walletId, 2_000L, T1);
 
-        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L);
+        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L);
 
         assertThat(result.chargeAllocations()).containsExactly(
                 new ChargeAllocation(first, 2_000L), new ChargeAllocation(second, 1_000L));
@@ -222,7 +222,7 @@ class HoldCreateIntegrationTest {
         Long partiallyRefunded = chargeWith(walletId, 3_000L, 1_000L, PointChargeStatus.PARTIALLY_REFUNDED, T1);
         Long completed = charge(walletId, 2_000L, T2);
 
-        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 2_500L);
+        HoldResult result = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 2_500L);
 
         assertThat(result.chargeAllocations()).containsExactly(
                 new ChargeAllocation(partiallyRefunded, 1_000L), new ChargeAllocation(completed, 1_500L));
@@ -240,7 +240,7 @@ class HoldCreateIntegrationTest {
         Long first = charge(walletId, 5_000L, T1);
         Long second = charge(walletId, 5_000L, T2);
 
-        hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L);
+        hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L);
         HoldResult next = hold(1L, BillingReferenceType.APPEARANCE_REQUEST, 7L, 4_000L);
 
         assertThat(next.chargeAllocations()).containsExactly(
@@ -257,7 +257,7 @@ class HoldCreateIntegrationTest {
         charge(walletId, 2_000L, T1);
         Map<String, Object> before = snapshot();
 
-        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_001L),
+        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_001L),
                 BillingErrorCode.INSUFFICIENT_BALANCE);
 
         assertThat(snapshot()).isEqualTo(before);
@@ -275,10 +275,10 @@ class HoldCreateIntegrationTest {
                 List.of(LedgerEntry.of(walletId, PointType.CHARGE, BalanceBucket.AVAILABLE, 1_000L))));
         Map<String, Object> before = snapshot();
 
-        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L),
+        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L),
                 BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
         // 수익 HP만으로 충분한 보류도 불일치 상태에서는 진행하지 않는다.
-        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1002L, 1_000L),
+        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1002L, 1_000L),
                 BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
 
         assertThat(snapshot()).isEqualTo(before);
@@ -287,7 +287,7 @@ class HoldCreateIntegrationTest {
     @Test
     @DisplayName("결제 회원의 지갑이 없으면 지갑을 만들지 않고 WALLET_NOT_FOUND로 거절한다")
     void walletNotFound() {
-        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 1_000L),
+        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 1_000L),
                 BillingErrorCode.WALLET_NOT_FOUND);
 
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet", Integer.class)).isZero();
@@ -305,10 +305,10 @@ class HoldCreateIntegrationTest {
         revenue(walletId, 3_000L);
         charge(walletId, 4_000L, T1);
         charge(walletId, 6_000L, T2);
-        HoldResult first = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 8_000L);
+        HoldResult first = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 8_000L);
         Map<String, Object> before = snapshot();
 
-        HoldResult retried = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 8_000L);
+        HoldResult retried = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 8_000L);
 
         assertThat(retried.replayed()).isTrue();
         assertThat(retried).usingRecursiveComparison().ignoringFields("replayed").isEqualTo(first);
@@ -322,10 +322,10 @@ class HoldCreateIntegrationTest {
     void retryAfterBalanceChange_keepsOriginalSplit() {
         Long walletId = wallet(1L);
         Long chargeId = charge(walletId, 5_000L, T1);
-        HoldResult first = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L);
+        HoldResult first = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L);
         revenue(walletId, 10_000L);
 
-        HoldResult retried = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L);
+        HoldResult retried = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L);
 
         assertThat(retried.replayed()).isTrue();
         assertThat(retried.revenueHp()).isZero();
@@ -340,10 +340,10 @@ class HoldCreateIntegrationTest {
     void sameReferenceDifferentAmount_conflict() {
         Long walletId = wallet(1L);
         charge(walletId, 10_000L, T1);
-        hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L);
+        hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L);
         Map<String, Object> before = snapshot();
 
-        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 4_000L),
+        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 4_000L),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
 
         assertThat(snapshot()).isEqualTo(before);
@@ -356,10 +356,10 @@ class HoldCreateIntegrationTest {
         Long otherWalletId = wallet(2L);
         charge(walletId, 10_000L, T1);
         charge(otherWalletId, 10_000L, T1);
-        hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L);
+        hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L);
         Map<String, Object> before = snapshot();
 
-        assertBillingError(() -> hold(2L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L),
+        assertBillingError(() -> hold(2L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
 
         assertThat(snapshot()).isEqualTo(before);
@@ -372,15 +372,15 @@ class HoldCreateIntegrationTest {
         Long walletId = wallet(1L);
         charge(walletId, 10_000L, T1);
 
-        HoldResult order = hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 1_000L);
-        HoldResult otherOrder = hold(1L, BillingReferenceType.LECTURE_ORDER, 1002L, 1_000L);
+        HoldResult order = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 1_000L);
+        HoldResult otherOrder = hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1002L, 1_000L);
         HoldResult request = hold(1L, BillingReferenceType.APPEARANCE_REQUEST, 1001L, 1_000L);
         HoldResult recruit = hold(1L, BillingReferenceType.APPEARANCE_RECRUIT, 1001L, 1_000L);
 
         assertThat(List.of(order.holdId(), otherOrder.holdId(), request.holdId(), recruit.holdId()))
                 .doesNotHaveDuplicates();
         assertThat(jdbcTemplate.queryForList("SELECT idempotency_key FROM billing.point_hold ORDER BY id", String.class))
-                .containsExactly("HOLD:LECTURE_ORDER:1001", "HOLD:LECTURE_ORDER:1002",
+                .containsExactly("HOLD:LECTURE_ORDER_ITEM:1001", "HOLD:LECTURE_ORDER_ITEM:1002",
                         "HOLD:APPEARANCE_REQUEST:1001", "HOLD:APPEARANCE_RECRUIT:1001");
         assertBalances(walletId, 6_000L, 0L, 4_000L, 0L);
         assertInvariants(walletId);
@@ -394,7 +394,7 @@ class HoldCreateIntegrationTest {
         insertLedgerRow(walletId, ORDER_KEY, ORDER_KEY + ":1");
         Map<String, Object> before = snapshot();
 
-        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L),
+        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L),
                 BillingErrorCode.HOLD_STATE_INCONSISTENT);
 
         assertThat(snapshot()).isEqualTo(before);
@@ -409,11 +409,11 @@ class HoldCreateIntegrationTest {
                 INSERT INTO billing.point_hold (wallet_id, reference_type, reference_id, original_charge_hp,
                     original_revenue_hp, held_charge_hp, held_revenue_hp, status, idempotency_key, held_at,
                     created_at, updated_at)
-                VALUES (?, 'LECTURE_ORDER', 1001, 0, 1000, 0, 1000, 'HELD', ?, now(), now(), now())""",
+                VALUES (?, 'LECTURE_ORDER_ITEM', 1001, 0, 1000, 0, 1000, 'HELD', ?, now(), now(), now())""",
                 walletId, ORDER_KEY);
         Map<String, Object> before = snapshot();
 
-        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 1_000L),
+        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 1_000L),
                 BillingErrorCode.HOLD_STATE_INCONSISTENT);
 
         assertThat(snapshot()).isEqualTo(before);
@@ -433,7 +433,7 @@ class HoldCreateIntegrationTest {
         insertLedgerRow(walletId, "OTHER", ORDER_KEY + ":3");
         Map<String, Object> before = snapshot();
 
-        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 8_000L),
+        assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 8_000L),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
 
         assertThat(snapshot()).isEqualTo(before);
@@ -447,7 +447,7 @@ class HoldCreateIntegrationTest {
         Map<String, Object> before = snapshot();
 
         failOn("point_hold", "INSERT",
-                () -> assertThatThrownBy(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L))
+                () -> assertThatThrownBy(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L))
                         .hasStackTraceContaining("test failure"));
 
         assertThat(snapshot()).isEqualTo(before);
@@ -461,7 +461,7 @@ class HoldCreateIntegrationTest {
         Map<String, Object> before = snapshot();
 
         failOn("point_charge", "UPDATE",
-                () -> assertThatThrownBy(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L))
+                () -> assertThatThrownBy(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L))
                         .hasStackTraceContaining("test failure"));
 
         assertThat(snapshot()).isEqualTo(before);
@@ -475,7 +475,7 @@ class HoldCreateIntegrationTest {
         Map<String, Object> before = snapshot();
 
         failOn("point_charge_usage", "INSERT",
-                () -> assertThatThrownBy(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L))
+                () -> assertThatThrownBy(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L))
                         .hasStackTraceContaining("test failure"));
 
         assertThat(snapshot()).isEqualTo(before);
@@ -489,7 +489,7 @@ class HoldCreateIntegrationTest {
         Map<String, Object> before = snapshot();
 
         assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 3_000L);
+            hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 3_000L);
             throw new IllegalStateException("이후 업무 처리 실패");
         })).isInstanceOf(IllegalStateException.class);
 
@@ -506,9 +506,9 @@ class HoldCreateIntegrationTest {
         List<HoldResult> results = new ArrayList<>();
 
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            results.add(hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 2_000L));
-            results.add(hold(1L, BillingReferenceType.LECTURE_ORDER, 1002L, 2_000L));
-            results.add(hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 2_000L));
+            results.add(hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 2_000L));
+            results.add(hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1002L, 2_000L));
+            results.add(hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 2_000L));
         });
 
         assertThat(results.get(0).revenueHp()).isEqualTo(1_000L);
@@ -535,7 +535,7 @@ class HoldCreateIntegrationTest {
         charge(walletId, 3_000L, T2);
         List<Callable<HoldResult>> tasks = new ArrayList<>();
         for (int i = 0; i < THREADS; i++) {
-            tasks.add(() -> hold(1L, BillingReferenceType.LECTURE_ORDER, 1001L, 5_000L));
+            tasks.add(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 5_000L));
         }
 
         List<HoldResult> results = runTogether(tasks);
@@ -594,7 +594,7 @@ class HoldCreateIntegrationTest {
             long orderId = 2000L + i;
             tasks.add(() -> {
                 try {
-                    hold(1L, BillingReferenceType.LECTURE_ORDER, orderId, 500L);
+                    hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, orderId, 500L);
                     return true;
                 } catch (BillingException exception) {
                     assertThat(exception.getErrorCode()).isEqualTo(BillingErrorCode.INSUFFICIENT_BALANCE);

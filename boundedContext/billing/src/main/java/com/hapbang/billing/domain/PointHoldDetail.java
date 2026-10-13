@@ -73,4 +73,23 @@ public class PointHoldDetail extends BillingCreatedEntity {
         this.revenueAmountHp = revenueAmountHp;
         this.idempotencyKey = idempotencyKey;
     }
+
+    // 보류에서 결제자에게 되돌린 반환 한 건을 HP 종류별 금액으로 기록한다. 참조 대상은 보류의 업무 대상과 같다.
+    public static PointHoldDetail released(PointHold pointHold, long chargeAmountHp, long revenueAmountHp,
+            String idempotencyKey) {
+        return PointHoldDetail.builder()
+                .pointHold(pointHold)
+                .referenceType(pointHold.getReferenceType())
+                .referenceId(pointHold.getReferenceId())
+                .actionType(HoldDetailActionType.RELEASE)
+                .chargeAmountHp(chargeAmountHp)
+                .revenueAmountHp(revenueAmountHp)
+                .idempotencyKey(idempotencyKey)
+                .build();
+    }
+
+    // 이 처리의 총액(충전 HP + 수익 HP)을 반환한다.
+    public long totalAmountHp() {
+        return Math.addExact(chargeAmountHp, revenueAmountHp);
+    }
 }
