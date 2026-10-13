@@ -1,7 +1,7 @@
 # 출연(Appearance) 모듈: 정책과 구조
 
 출연 모듈이 지키는 정책, 모듈 구조, 다른 모듈과의 연동, DB 스키마를 정리한 문서다.
-현재 구현된 범위(#26, #31, #50)를 기준으로 하며, 기능이 추가될 때마다 함께 갱신한다.
+현재 구현된 범위(#26, #31, #50, #98)를 기준으로 하며, 기능이 추가될 때마다 함께 갱신한다.
 
 - 오류 코드: [error-codes.md](error-codes.md)
 - 테스트 명세: [test-spec.md](test-spec.md)
@@ -30,7 +30,8 @@
 | 모듈 기반 (정책 설정, Clock, 오류 응답, Billing 계약과 Fake) | ✅ | #26 |
 | 출연 회원 복제, 호스트·게스트 자격 확인, 팀 공통 로그인 적용 | ✅ | #31 |
 | 회원 정보 변경 이벤트 반영 | ✅ | #50 |
-| 출연 요청 / 출연 모집·지원 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
+| 출연 요청서 보내기(HP 보류)·조회·기본 정보 수정 | ✅ | #98 |
+| 출연 요청 응답(수락·거절·만료·취소) / 출연 모집·지원 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
 
 ---
 
@@ -80,14 +81,25 @@
 com.hapbang.appearance
 ├── config        모듈 설정 (정책 등록, Clock)
 ├── domain        정책 수치, 오류 코드, 엔티티
-├── app           시나리오 조립 (Service)
-├── in            바깥에서 들어오는 곳 (이벤트 리스너, 이후 Controller·Scheduler)
+├── app           시나리오 조립 (Facade → UseCase → Support, 응답 DTO)
+├── in            바깥에서 들어오는 곳 (Controller·Swagger Spec·요청 DTO, 이벤트 리스너, 이후 Scheduler)
 ├── out           바깥으로 나가는 곳 (Repository, Billing 연동)
 ├── global        전역 global 모듈로 옮길 후보 (Problem Detail 오류 응답)
 └── shared        전역 shared 모듈로 옮길 후보 (서비스 시간대)
 ```
 
 - 의존 방향: `in → app → domain ← out`
+- app 계층 구성 (팀 강의 모듈과 같은 방식)
+
+| 이름 | 역할 | 트랜잭션 |
+|---|---|---|
+| `…Facade` | in 계층(컨트롤러·리스너)이 부르는 유일한 진입점. 세션 역할 검사 `@PreAuthorize` | **기능 하나 = 트랜잭션 하나를 여기서 연다** |
+| `…UseCase` | 기능 하나의 로직 (예: `AppearanceRequestCreateUseCase` = 요청서 저장) | 열지 않음 (Facade 트랜잭션에 참여). 예외는 아래 |
+| `…Support` | 저장소(Repository) 접근과 공통 조회 (예: `getById`, 자격 확인 조회) | 열지 않음 |
+
+- 예외: 외부 호출(Billing)을 사이에 두고 단계별로 따로 커밋해야 하는 기능(요청서 보내기)은 Facade가 트랜잭션을 열지 않고, 각 UseCase 메서드가 직접 연다.
+- 세션 역할 검사(`@PreAuthorize`)는 Facade에서, 출연 회원 자격(정지·강등)과 업무 규칙은 UseCase·도메인에서 확인한다.
+- 스케줄러·이벤트 리스너는 로그인 정보가 없으므로 `@PreAuthorize`가 없는 별도 Facade를 쓴다 (예: `AppearanceUserFacade`).
 - `global`, `shared` 패키지는 팀 공통 방식이 정해지지 않아 출연 모듈 안에 임시로 둔 것이다. 옮길 조건은 각 `package-info.java`에 적었다.
 
 ### 3.2 주요 클래스
@@ -98,12 +110,24 @@ com.hapbang.appearance
 | `domain.AppearancePolicy` | 정책 수치와 계산 |
 | `domain.AppearanceUser` | 출연 회원(복제 회원). `validateCanAppear()`로 참여 자격 확인 |
 | `domain.AppearanceErrorCode`, `AppearanceException` | 오류 코드와 업무 예외 |
-| `app.AppearanceUserFacade` | 회원 이벤트 리스너의 진입점: `syncJoined()` / `syncModified()` |
-| `app.AppearanceUserService` | `createIfAbsent()`: 가입 정보로 생성 (있으면 무시) / `update()`: 변경 정보로 갱신 (없으면 실패) / `getParticipant()`: 자격 확인 후 출연 회원 반환 |
+| `app.AppearanceUserFacade` | 회원 이벤트 리스너의 진입점: `syncJoined()` / `syncModified()` (트랜잭션, 역할 검사 없음) |
+| `app.AppearanceUserSyncUseCase` | `createIfAbsent()`: 가입 정보로 생성 (있으면 무시) / `update()`: 변경 정보로 갱신 (없으면 실패) |
+| `app.AppearanceUserSupport` | `getParticipant()`: 자격 확인 후 출연 회원 반환 / `getGuest()`: 게스트 기준 메시지로 자격 확인 |
+| `domain.AppearanceRequest`, `AppearanceRequestStatus` | 출연 요청서와 상태. 생성 시 값 검증, 보류 결과 반영, 기본 정보 수정, 조회 권한 확인 |
+| `domain.AppearanceRequestRules` | 요청서 입력 값 길이·형식 제한 (도메인과 요청 DTO 검증이 같이 사용) |
+| `app.AppearanceRequestFacade` | 출연 요청서 API 진입점. `@PreAuthorize`, 기능별 트랜잭션, 보내기의 "저장 → HP 보류 → 상태 변경" 순서 조립 |
+| `app.AppearanceRequestCreateUseCase` | 보내기 1단계: 자격·값·중복 확인 후 `HOLD_PENDING` 저장 (자체 트랜잭션) |
+| `app.AppearanceRequestHoldUseCase` | 보내기 2·3단계: Billing 보류 요청(트랜잭션 밖), 결과 반영 `markRequested`/`markHoldFailed` (자체 트랜잭션) |
+| `app.AppearanceRequestQueryUseCase` | 보낸·받은 목록, 상세 (출연 회원 자격과 조회 권한 확인) |
+| `app.AppearanceRequestUpdateUseCase` | 기본 정보 수정 |
+| `app.AppearanceRequestSupport` | 요청서 저장소 접근: `getById`, `existsInProgress`, `saveNow`, `findSent`, `findReceived` (최신순 고정) |
+| `in.ApiV1AppearanceRequestController`, `ApiV1AppearanceRequestSpec` | 출연 요청서 REST API(Facade만 호출)와 Swagger 명세 (요청 값 검증은 Spec에) |
 | `in.AppearanceUserEventListener` | 회원 가입·변경 이벤트 수신 → `AppearanceUserFacade` |
 | `out.AppearanceUserRepository` | 출연 회원 저장·조회 |
+| `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
 | `out.billing.BillingClient` | Billing과 주고받는 값(계약) |
-| `out.billing.FakeBillingClient` | 계약 확정 전까지 쓰는 메모리 구현 |
+| `out.billing.FakeBillingClient` | 계약 확정 전까지 쓰는 메모리 구현 (테스트에서 잔액·무응답 조절) |
+| `out.billing.BillingUnavailableException` | Billing 무응답(타임아웃 등). 처리 여부를 알 수 없어 같은 멱등 키로 다시 확인해야 함 |
 | `global.exception.AppearanceExceptionHandler` | 출연 컨트롤러의 오류를 Problem Detail로 응답 |
 
 ### 3.3 설정 파일
@@ -159,7 +183,8 @@ com.hapbang.appearance
 | 일괄 정산 | idempotencyKey, refType, refId, items(지급/반환, 받는 사람, 출연 ID, 금액, 사유) | 남은 보류 금액 (전부 성공 또는 전부 실패) |
 
 - `refType`: `APPEARANCE_REQUEST`(출연 요청서) / `APPEARANCE_RECRUIT`(출연 모집글). 보류는 이 단위로 1건이고, 반환·지급은 나눠서 처리한다.
-- 멱등 키 형식: `{refType}-{refId}-{동작}-{순번}`. 같은 키로 다시 요청하면 처음 결과를 돌려받는다.
+- 멱등 키 형식: `{refType}-{refId}-{동작}-{순번}` (예: `APPEARANCE_REQUEST-12-HOLD-1`, `BillingClient.idempotencyKey()`로 만든다). 같은 키로 다시 요청하면 처음 결과를 돌려받는다.
+- Billing이 응답하지 않으면 `BillingUnavailableException`. 출연 모듈은 대상을 그대로 두고 나중에 같은 멱등 키로 다시 확인한다.
 - 사유
     - 반환: `REQUEST_REJECTED`, `REQUEST_EXPIRED`, `REQUEST_CANCELED`, `CANCEL_AGREED`, `NO_SHOW`, `RECRUIT_UNDERFILLED`, `RECRUIT_CANCELED`, `HOST_CANCELED`
     - 지급: `APPEARANCE_CONFIRMED`, `HOST_CANCEL_PENALTY`
@@ -183,3 +208,76 @@ com.hapbang.appearance
 
 - 마이그레이션: `V202610121130__create_appearance_user_table.sql` (#31)
 - 탈퇴한 회원도 행을 지우지 않고 `status = WITHDRAWN`으로 남긴다.
+
+### 5.2 `appearances.requests` — 출연 요청서
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `id` | BIGINT, PK (identity) | 요청서 ID |
+| `host_id`, `guest_id` | BIGINT | 회원 ID (FK 없음) |
+| `title` | VARCHAR(100) | 제목 (수정 가능) |
+| `host_channel_url` | VARCHAR(255) | 호스트 채널 URL (수정 가능) |
+| `scheduled_at` | TIMESTAMP(6) | 방송 예정 일시 |
+| `expected_minutes` | INTEGER | 예상 출연 시간(분) |
+| `content` | TEXT | 콘텐츠 설명 (수정 가능) |
+| `fee` | BIGINT | 출연료 (HP) |
+| `accept_deadline` | TIMESTAMP(6) | 수락 기한 |
+| `status` | VARCHAR(255) | `HOLD_PENDING` / `HOLD_FAILED` / `REQUESTED` / `ACCEPTED` / `REJECTED` / `EXPIRED` / `CANCELED` |
+| `reject_reason`, `responded_at`, `canceled_at` | VARCHAR(500), TIMESTAMP(6) | 게스트 응답·만료·취소 처리에서 사용 (현재 비어 있음) |
+| `version` | BIGINT | 낙관적 락 |
+| `created_at`, `updated_at` | TIMESTAMP(6) | 생성·수정 시각 (JPA Auditing) |
+
+- 마이그레이션: `V202610131039__create_appearance_request_table.sql` (#98)
+- 제약: 자기 자신에게 요청 불가(`host_id <> guest_id`), `fee > 0`, `expected_minutes > 0`, `accept_deadline < scheduled_at`
+- **부분 유니크 인덱스** `uk_appearance_requests_pending_host_guest`: `(host_id, guest_id) where status in ('HOLD_PENDING', 'REQUESTED')`. 같은 호스트·게스트의 진행 중 요청서를 1건으로 제한한다 (동시 요청 차단).
+- 인덱스: 보낸 목록 `(host_id, created_at)`, 받은 목록 `(guest_id, created_at)`
+
+---
+
+## 6. 출연 요청 (#98)
+
+### 6.1 API
+
+| 메서드 | 경로 | 설명 | 성공 |
+|---|---|---|---|
+| POST | `/api/v1/appearances/requests` | 출연 요청서 보내기 (HP 보류) | 201 |
+| GET | `/api/v1/appearances/requests/sent` | 보낸 요청 목록 (호스트) | 200 |
+| GET | `/api/v1/appearances/requests/received` | 받은 요청 목록 (게스트) | 200 |
+| GET | `/api/v1/appearances/requests/{requestId}` | 요청서 상세 (호스트·게스트) | 200 |
+| PATCH | `/api/v1/appearances/requests/{requestId}` | 기본 정보 수정 (호스트, `REQUESTED`까지) | 200 |
+
+- 권한: 로그인(401은 보안 필터) → Facade `@PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")`(403 `NOT_INFLUENCER`) → UseCase에서 출연 회원 자격 재확인. 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등은 서비스 확인이 막는다 (조회 포함).
+- 쓰기 요청(POST·PATCH)은 CSRF 토큰(`X-XSRF-TOKEN` 헤더)이 필요하다 (global SecurityConfig).
+- 목록은 `Pageable`(page, size; 기본 20, 최대 100). **정렬은 최신순(`createdAt` desc, `id` desc) 고정**이며 `sort` 값은 무시한다. 응답은 팀 공통 PagedModel 형식(`content`, `page`).
+- 검색·필터(상태, 기간, 키워드 등)는 아직 정하지 않았다. 정해지면 조건 객체를 받아 조회 조건을 조합하고, 보이는 상태 제한과 최신순 정렬은 유지한다.
+- 응답에는 회원 ID(`hostId`, `guestId`)만 담고 닉네임은 담지 않는다. 목록마다 회원 정보를 함께 조회하는 부담을 피하기 위해서이며, 화면에 필요한 닉네임은 회원 프로필 API로 조회한다.
+- 수정은 보낸 값만 바꾸고 보내지 않은(null) 값은 그대로 둔다. 하나도 보내지 않으면 400.
+- 수정(PATCH)은 보낸 값으로 덮어쓰기만 하므로 **멱등**이다. 같은 요청을 여러 번 보내도 결과가 같고, 바뀐 값이 없으면 저장도 일어나지 않는다(버전·수정 시각 그대로). 그래서 별도 멱등 키가 필요 없다 (멱등 키는 HP 보류처럼 다시 실행하면 결과가 달라지는 Billing 호출에만 쓴다).
+
+### 6.2 요청서 보내기 흐름
+
+```
+Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 없음)
+  ① CreateUseCase.createPending  [트랜잭션 1, 커밋]
+       호스트 자격 → 값 검증(형식, 자기 자신, 최저 출연료, 현재 < 수락 기한 < 방송 예정 일시) → 게스트 자격
+       → 진행 중 요청 확인 → HOLD_PENDING 저장 (부분 유니크 인덱스 위반이면 DUPLICATE)
+  ② HoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold, 멱등 키 APPEARANCE_REQUEST-{id}-HOLD-1
+       ├─ HELD                 → ③ HoldUseCase.markRequested  [트랜잭션 2] → REQUESTED, 201
+       ├─ INSUFFICIENT_BALANCE → ③ HoldUseCase.markHoldFailed [트랜잭션 2] → HOLD_FAILED, 409 INSUFFICIENT_HP
+       └─ 무응답(예외)          → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE
+```
+
+- 저장을 먼저 커밋하는 이유: Billing을 기다리는 동안 DB 트랜잭션을 잡지 않고, 보류 결과와 관계없이 요청서 기록이 남게 하기 위해서다.
+- `HOLD_PENDING`으로 남은 요청서는 이후 스케줄러가 같은 멱등 키로 다시 확인해 `REQUESTED`/`HOLD_FAILED`로 정리한다 (예정). Billing의 재요청 방식이 정해지면 맞춘다.
+
+### 6.3 규칙
+
+| 규칙 | 내용 | 이유 |
+|---|---|---|
+| 진행 중 요청 1건 | 같은 호스트 → 같은 게스트에게 `HOLD_PENDING`·`REQUESTED` 요청서가 있으면 새 요청 차단 (409). 끝난 요청서(수락·거절·만료·취소·보류 실패)는 제외 | 출연이 성립하기 전까지 요청은 1건으로 하여 요청 중복을 확실히 막는다 |
+| 보류 미완료·실패 숨김 | `HOLD_PENDING`·`HOLD_FAILED`는 목록·상세에 보이지 않고 기록으로만 남는다 | 실패는 그 자리에서 409로 알린다. 처리 중인 요청은 끝나기 전까지 바로 중복 요청이 되지 않게 한다 (Billing 재처리 설계 후 수정 예정) |
+| 조회 권한 | 호스트·게스트만. 다른 회원에게는 404 | 요청서가 있다는 사실도 알리지 않는다 |
+| 수정 범위 | 제목·콘텐츠 설명·호스트 채널 URL만, 호스트만, `REQUESTED`까지 | 금액·일시 수정은 HP 보류 조정 등 연쇄 작용이 있어 팀 결정 후 추가 |
+| 입력 값 제한 | 제목 100자, 채널 URL http(s) 255자, 설명 5,000자, 예상 출연 시간 1~1,440분 (`AppearanceRequestRules`) | DB 컬럼과 맞추고, 요청 DTO와 도메인 양쪽에서 확인 |
+| 상태 충돌 응답 | 중복·잔액 부족·수정 불가 상태는 409 | 강의·채팅 모듈과 같은 기준 |
+| 동시 수정 | 같은 요청서를 동시에 수정·응답하면 버전(`@Version`)이 맞지 않는 쪽을 409 `CONCURRENT_UPDATE` | 나중에 커밋하려던 요청이 앞선 변경을 모르고 덮어쓰지 않게 한다 |
