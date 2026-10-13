@@ -12,7 +12,7 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 채팅 회원 권한 검증. 복제한 {@link ChatUser}의 역할·탈퇴 여부로 판단한다.
- * 쓰기 서비스에서 호출하면 그 트랜잭션에 참여한다.
+ * 쓰기 UseCase에서 호출하면 그 트랜잭션에 참여한다.
  */
 @Service
 @Transactional(readOnly = true)
