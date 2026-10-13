@@ -126,12 +126,14 @@
 
 | 케이스 | 기대 결과 |
 |---|---|
-| 처음 받은 회원 정보로 `sync` | 출연 회원 생성 |
-| 같은 회원 정보로 다시 `sync` (역할 USER → INFLUENCER) | 1명 그대로, 역할만 갱신 (중복 생성 없음) |
+| 가입 정보로 `createIfAbsent` | 출연 회원 생성 |
+| 일반 유저 생성 → `update`(INFLUENCER) → 같은 가입 정보로 다시 `createIfAbsent` | 1명 그대로, 역할 INFLUENCER 유지 (가입 정보 무시) |
+| 있는 회원을 `update` (역할 USER → INFLUENCER) | 1명 그대로, 역할만 갱신 |
+| 없는 회원을 `update` | `APPEARANCE_USER_NOT_FOUND`, 출연 회원 생성 안 됨 |
 | 인플루언서로 `getParticipant` | 출연 회원 반환 |
 | 없는 회원으로 `getParticipant` | `APPEARANCE_USER_NOT_FOUND` |
 | 일반 유저로 `getParticipant` | `NOT_INFLUENCER` |
-| 인플루언서를 정지 상태로 `sync`한 뒤 `getParticipant` | `APPEARANCE_USER_NOT_ACTIVE` |
+| 인플루언서를 정지 상태로 `update`한 뒤 `getParticipant` | `APPEARANCE_USER_NOT_ACTIVE` |
 
 ### 4.4 회원 이벤트 수신 — `AppearanceUserEventListenerTest`
 
@@ -142,10 +144,11 @@
 | 트랜잭션 안에서 `UserJoinedEvent` 발행 후 커밋 | 출연 회원 생성 (최대 5초 대기) |
 | `UserJoinedEvent`를 발행한 트랜잭션이 롤백 | 출연 회원 생성 안 됨 |
 | 인플루언서가 있는 상태에서 `UserModifiedEvent`(닉네임 변경, VERIFIED_INFLUENCER, SUSPENDED) 발행 후 커밋 | 닉네임·역할·상태 갱신, 출연 회원은 1명 그대로 (최대 5초 대기) |
-| 출연 회원이 없는 상태에서 `UserModifiedEvent` 발행 후 커밋 | 출연 회원 생성 |
+| 출연 회원이 없는 상태에서 `UserModifiedEvent` 발행 후 커밋 | 출연 회원 생성 안 됨 (0.5초 동안 확인). 처리 실패로 남아 재시작 때 재처리 |
+| 가입 → 변경(닉네임·VERIFIED_INFLUENCER) 반영 뒤 같은 `UserJoinedEvent`를 다시 발행 | 변경된 닉네임·역할 유지, 출연 회원 1명 (늦은 가입 이벤트 무시) |
 | `UserModifiedEvent`(WITHDRAWN)를 발행한 트랜잭션이 롤백 | 상태 ACTIVE 그대로 |
 
-- 같은 회원의 이벤트가 순서가 바뀌어 처리되는 경우는 막지 않는다 (이벤트에 버전이 없음, [module.md](module.md) 4.1 참고).
+- 변경 이벤트끼리 순서가 바뀌어 처리되는 경우는 막지 않는다 (이벤트에 버전이 없음, [module.md](module.md) 4.1 참고).
 
 ---
 

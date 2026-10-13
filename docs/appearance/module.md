@@ -98,8 +98,9 @@ com.hapbang.appearance
 | `domain.AppearancePolicy` | 정책 수치와 계산 |
 | `domain.AppearanceUser` | 출연 회원(복제 회원). `validateCanAppear()`로 참여 자격 확인 |
 | `domain.AppearanceErrorCode`, `AppearanceException` | 오류 코드와 업무 예외 |
-| `app.AppearanceUserService` | `sync()`: 회원 정보 반영 (없으면 생성, 있으면 갱신) / `getParticipant()`: 자격 확인 후 출연 회원 반환 |
-| `in.AppearanceUserEventListener` | 회원 가입 이벤트 수신 → `sync()` |
+| `app.AppearanceUserFacade` | 회원 이벤트 리스너의 진입점: `syncJoined()` / `syncModified()` |
+| `app.AppearanceUserService` | `createIfAbsent()`: 가입 정보로 생성 (있으면 무시) / `update()`: 변경 정보로 갱신 (없으면 실패) / `getParticipant()`: 자격 확인 후 출연 회원 반환 |
+| `in.AppearanceUserEventListener` | 회원 가입·변경 이벤트 수신 → `AppearanceUserFacade` |
 | `out.AppearanceUserRepository` | 출연 회원 저장·조회 |
 | `out.billing.BillingClient` | Billing과 주고받는 값(계약) |
 | `out.billing.FakeBillingClient` | 계약 확정 전까지 쓰는 메모리 구현 |
@@ -127,20 +128,24 @@ com.hapbang.appearance
 ### 4.1 회원 정보 복제
 
 ```
-회원 모듈 ──UserJoinedEvent───▶ AppearanceUserEventListener
-          └─UserModifiedEvent─▶     └─ AppearanceUserService.sync() ─▶ appearances.users
+회원 모듈 ──UserJoinedEvent───▶ AppearanceUserEventListener ─▶ AppearanceUserFacade.syncJoined()   ─▶ createIfAbsent() ─▶ appearances.users
+          └─UserModifiedEvent─▶                             └▶ AppearanceUserFacade.syncModified() ─▶ update()
 ```
 
 | 이벤트 | 발행 시점 (회원 모듈) | 출연 모듈 처리 |
 |---|---|---|
-| `UserJoinedEvent` | 회원 가입 | 출연 회원 생성 (이미 있으면 갱신) |
-| `UserModifiedEvent` | 회원 정보(닉네임·역할·상태) 변경 | 출연 회원 갱신 (아직 없으면 생성) |
+| `UserJoinedEvent` | 회원 가입 | 출연 회원 생성. **이미 있으면 무시** |
+| `UserModifiedEvent` | 회원 정보(닉네임·역할·상태) 변경 | 있는 출연 회원 갱신. **없으면 `APPEARANCE_USER_NOT_FOUND`로 실패** → 이벤트 저장소에 남았다가 재시작 때 재처리 |
 
 - **모든 회원 이벤트는 회원 모듈의 트랜잭션이 커밋된 뒤에만 반영한다** (`@ApplicationModuleListener`, 새 트랜잭션에서 처리). 회원 쪽 처리가 롤백되면 출연 회원도 바뀌지 않는다.
-- 이벤트 종류와 관계없이 이벤트에 담긴 회원 정보(닉네임·역할·상태)를 그대로 반영한다. 없으면 만들고, 있으면 갱신한다.
+- **출연 회원은 가입 이벤트로만 만든다.** 늦게 처리된 가입 이벤트가 이미 반영된 변경 정보를 덮어쓰지 않게 하기 위해서다 (채팅·강의 모듈과 같은 방식).
+    - 복제 회원은 ID를 직접 넣기 때문에 JPA `save()`가 merge로 동작한다. 가입·변경이 각자 "없으면 생성"하면 PK 충돌 없이 나중 것이 덮어쓴다.
+- 변경 이벤트는 도착한 순서대로 그대로 반영한다.
 - 처리에 실패하면 Modulith 이벤트 저장소(`event_publication`)에 남고, 서버가 재시작될 때 다시 처리된다 (`republish-outstanding-events-on-restart`). 주기적으로 재시도하지는 않는다.
 - 회원이 정지·탈퇴 상태로 바뀌면 이후 출연 거래 자격 확인에서 `APPEARANCE_USER_NOT_ACTIVE`가 된다.
-- 한계: 이벤트에 버전·발생 시각이 없어서, 같은 회원의 이벤트가 늦게 다시 처리되면(예: 가입 이벤트 처리 실패 → 변경 이벤트 반영 → 재시작 때 가입 이벤트 재처리) 더 새로운 정보를 옛 값으로 덮을 수 있다. 회원 이벤트에 버전이 생기면 오래된 이벤트는 무시하도록 바꾼다.
+- 한계 (팀에서 수용)
+    - 가입보다 변경 이벤트가 먼저 처리되면, 그 변경은 서버 재시작 때까지 반영되지 않는다.
+    - 이벤트에 버전·발생 시각이 없어서, 변경 이벤트끼리 순서가 바뀌어 처리되면(실패한 변경 이벤트의 재처리 등) 옛 정보가 반영될 수 있다. 회원 이벤트에 버전이 생기면 더 새로운 이벤트만 반영하도록 바꾼다 (#56).
 
 ### 4.2 Billing 연동 (계약 초안)
 
