@@ -3,8 +3,8 @@ package com.hapbang.chat.app;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.domain.ChatErrorCode;
-import com.hapbang.chat.domain.ChatException;
+import com.hapbang.chat.app.exception.ChatErrorCode;
+import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.dto.UserDto;
@@ -30,6 +30,7 @@ public class ChatUserService {
     private final ChatUserRepository chatUserRepository;
 
     public void createIfAbsent(UserDto user) {
+        validate(user);
         if (chatUserRepository.existsById(user.id())) {
             log.debug("이미 복제된 채팅 회원이라 가입 이벤트를 무시한다 userId={}", user.id());
             return;
@@ -38,8 +39,15 @@ public class ChatUserService {
     }
 
     public void update(UserDto user) {
+        validate(user);
         ChatUser chatUser = chatUserRepository.findById(user.id())
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_USER_NOT_FOUND));
         chatUser.syncFrom(user);
+    }
+
+    private void validate(UserDto user) {
+        if (!ChatUser.isReplicable(user)) {
+            throw new ChatException(ChatErrorCode.INVALID_REQUEST);
+        }
     }
 }

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.global.exception.GlobalExceptionHandler;
 
 /**
  * 테스트 전용 컨트롤러로 출연 예외가 Problem Detail로 바뀌는지 확인한다. 스프링 전체를 띄우지 않는다.
@@ -22,7 +23,7 @@ import com.hapbang.appearance.domain.AppearanceException;
 class AppearanceExceptionHandlerTest {
 
     private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new TestController())
-            .setControllerAdvice(new AppearanceExceptionHandler())
+            .setControllerAdvice(new GlobalExceptionHandler())
             .build();
 
     @Test

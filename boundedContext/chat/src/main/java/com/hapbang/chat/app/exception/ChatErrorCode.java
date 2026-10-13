@@ -1,13 +1,16 @@
-package com.hapbang.chat.domain;
+package com.hapbang.chat.app.exception;
 
 import org.springframework.http.HttpStatus;
+
+import com.hapbang.global.exception.BaseErrorCode;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
+/** 채팅 오류 코드. 응답의 code는 enum 이름이다. global의 공통 핸들러가 ProblemDetail로 응답한다 */
 @Getter
 @RequiredArgsConstructor
-public enum ChatErrorCode {
+public enum ChatErrorCode implements BaseErrorCode {
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
     CHAT_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "채팅 회원 정보를 찾을 수 없습니다."),
     CHAT_NOT_ALLOWED(HttpStatus.FORBIDDEN, "인플루언서 이상 또는 관리자만 채팅을 사용할 수 있습니다."),

@@ -10,8 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.SentChatMessage;
-import com.hapbang.chat.domain.ChatErrorCode;
-import com.hapbang.chat.domain.ChatException;
+import com.hapbang.chat.app.exception.ChatErrorCode;
+import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomMember;
@@ -35,6 +35,9 @@ public class ChatMessageService {
      * 메시지를 보낸다. 방을 잠그고 순번을 발급한다. 상대가 나간 동안에는 보낼 수 없다(조회만 허용).
      */
     public SentChatMessage send(Long chatRoomId, Long senderId, String content) {
+        if (!ChatMessage.hasContent(content)) {
+            throw new ChatException(ChatErrorCode.EMPTY_MESSAGE);
+        }
         ChatRoom chatRoom = chatRoomRepository.findByIdForUpdate(chatRoomId)
                 .filter(room -> !room.isEnded())
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));

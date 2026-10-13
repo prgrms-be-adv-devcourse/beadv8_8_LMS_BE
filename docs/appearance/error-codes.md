@@ -31,7 +31,7 @@ Content-Type: application/problem+json
 | `code` | 출연 오류 코드 (아래 표). 프론트는 이 값으로 분기한다 |
 
 - `type`은 기본값(`about:blank`)이라 응답에서 생략된다.
-- 출연 패키지의 컨트롤러에만 적용된다 (`AppearanceExceptionHandler`, `@RestControllerAdvice(basePackages = "com.hapbang.appearance")`). 다른 모듈의 오류 응답에는 영향이 없다.
+- (#71) 모듈 핸들러(`AppearanceExceptionHandler`)는 없앴다. `AppearanceException extends BusinessException`이고, global의 공통 핸들러(`GlobalExceptionHandler`)가 모든 모듈의 오류를 같은 형식(Problem Detail + `code`)으로 응답한다.
 - 로그인하지 않은 요청의 401은 보안 필터가 응답하며, 이 형식이 아니다 (본문 없음).
 
 ## 2. 오류 코드

@@ -9,8 +9,8 @@ import com.hapbang.chat.app.dto.ChatRoomCreateResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
-import com.hapbang.chat.domain.ChatErrorCode;
-import com.hapbang.chat.domain.ChatException;
+import com.hapbang.chat.app.exception.ChatErrorCode;
+import com.hapbang.chat.app.exception.ChatException;
 
 import lombok.RequiredArgsConstructor;
 

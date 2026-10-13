@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.hapbang.chat.domain.ChatErrorCode;
-import com.hapbang.chat.domain.ChatException;
+import com.hapbang.chat.app.exception.ChatErrorCode;
+import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.domain.Role;
@@ -64,6 +64,18 @@ class ChatUserServiceTest {
         assertThatThrownBy(() -> chatUserService.update(activeUser(HOST_ID, "바뀐닉네임", Role.INFLUENCER)))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_USER_NOT_FOUND);
+
+        assertThat(chatUserRepository.findById(HOST_ID)).isEmpty();
+    }
+
+    @Test
+    void 복제할_수_없는_회원_정보는_도메인을_부르기_전에_업무_오류로_거절한다() {
+        assertThatThrownBy(() -> chatUserService.createIfAbsent(activeUser(HOST_ID, " ", Role.INFLUENCER)))
+                .isInstanceOf(ChatException.class)
+                .extracting("errorCode").isEqualTo(ChatErrorCode.INVALID_REQUEST);
+        assertThatThrownBy(() -> chatUserService.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, null)))
+                .isInstanceOf(ChatException.class)
+                .extracting("errorCode").isEqualTo(ChatErrorCode.INVALID_REQUEST);
 
         assertThat(chatUserRepository.findById(HOST_ID)).isEmpty();
     }

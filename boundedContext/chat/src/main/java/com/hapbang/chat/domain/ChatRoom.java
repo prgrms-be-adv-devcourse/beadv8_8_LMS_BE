@@ -2,6 +2,8 @@ package com.hapbang.chat.domain;
 
 import java.time.LocalDateTime;
 
+import org.springframework.util.Assert;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -85,9 +87,7 @@ public class ChatRoom {
      * 다음 메시지 순번을 발급한다.
      */
     public long issueSequence() {
-        if (isEnded()) {
-            throw new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND);
-        }
+        Assert.state(!isEnded(), "종료된 채팅방에는 메시지 순번을 발급할 수 없습니다.");
         return ++lastSequence;
     }
 
