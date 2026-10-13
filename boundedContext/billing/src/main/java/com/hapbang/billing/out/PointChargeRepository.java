@@ -37,4 +37,17 @@ public interface PointChargeRepository extends Repository<PointCharge, Long> {
             order by c.completedAt asc, c.id asc""")
     List<PointCharge> findAllocatableForUpdate(@Param("walletId") Long walletId,
             @Param("statuses") Collection<PointChargeStatus> statuses);
+
+    // 지정한 충전 건들을 ID 오름차순으로 조회하며 트랜잭션이 끝날 때까지 쓰기 락을 건다.
+    // 지갑 락을 먼저 잡은 뒤에만 호출해 지갑 → 충전 건 락 순서를 지킨다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from PointCharge c where c.id in :ids order by c.id asc")
+    List<PointCharge> findAllByIdInForUpdate(@Param("ids") Collection<Long> ids);
+
+    // 지갑의 지정 상태 충전 건 가용 원금 합계를 구하며, 없으면 0이다.
+    @Query("""
+            select coalesce(sum(c.remainingPrincipalHp), 0) from PointCharge c
+            where c.wallet.id = :walletId and c.status in :statuses""")
+    long sumRemainingPrincipal(@Param("walletId") Long walletId,
+            @Param("statuses") Collection<PointChargeStatus> statuses);
 }

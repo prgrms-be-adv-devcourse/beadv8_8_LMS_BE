@@ -107,4 +107,19 @@ public class PointCharge extends BillingUpdatedEntity {
         }
         remainingPrincipalHp -= amountHp;
     }
+
+    // 보류에 배분했던 원금을 반환받아 이 충전 건의 가용 원금에 되돌린다. 0 이하이면 INVALID_POINT_AMOUNT로 거절한다.
+    // 가용 원금으로 셀 수 없는 상태(완료·부분 환불이 아님)이거나 충전 금액을 넘게 되면 원금 기록이 어긋난 것이므로 CHARGE_PRINCIPAL_MISMATCH로 거절한다.
+    public void restorePrincipal(long amountHp) {
+        if (amountHp <= 0) {
+            throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
+        }
+        if (status != PointChargeStatus.COMPLETED && status != PointChargeStatus.PARTIALLY_REFUNDED) {
+            throw new BillingException(BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
+        }
+        if (amountHp > this.amountHp - remainingPrincipalHp) {
+            throw new BillingException(BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
+        }
+        remainingPrincipalHp += amountHp;
+    }
 }
