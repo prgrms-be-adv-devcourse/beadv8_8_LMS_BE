@@ -4,7 +4,7 @@
 
 - **이 레포는 공개(public)다.** 비밀값, 서버 IP, AWS 계정 정보, 키 파일 이름·내용, **서버 DB 이름·계정**을 레포·PR·이슈·커밋 메시지에 쓰지 않는다. 문서에는 `<EC2 주소>`, `<키 파일>`처럼 자리표시자만 쓴다.
 - **비밀값은 한 곳에만 둔다.** 서버 env 파일 또는 GitHub Secrets. 채팅·노션·스크린샷으로 옮기지 않는다.
-- **장기 토큰을 서버에 두지 않는다.** GHCR pull은 배포 job의 임시 토큰을 쓴다.
+- **장기 토큰을 서버에 두지 않는다.** GHCR pull은 배포 job의 임시 토큰을 쓰고, S3는 EC2 인스턴스 역할로 접근한다(AWS 액세스 키를 만들지 않는다).
 - AWS 지침: 액세스 키 등 유출 메일 2회 시 팀 AWS 지원 회수(2OUT), 계정 외부 공유·목적 외 사용은 즉시 회수(1OUT).
 
 ## 자격 증명 목록
@@ -16,6 +16,7 @@
 | 서버 호스트 키 | GitHub Secrets `DEPLOY_KNOWN_HOSTS` | Actions | 서버 위조 방지 | 서버 재구축 시 갱신 |
 | DB 비밀번호 | 서버 `/opt/hapbang/env/{prod,dev}.env` | 서버 관리자 | app → PostgreSQL | [DB 비밀번호 교체](#db-비밀번호-교체) |
 | 앱 비밀값(OAuth·결제 등) | 서버 env 파일 | 서버 관리자 | Spring | [env-vars.md](env-vars.md#값-변경-비밀값-교체-포함) |
+| S3 접근 | EC2 인스턴스 역할(키 없음). 버킷 이름은 서버 env `S3_BUCKET` | app 컨테이너(인스턴스 메타데이터) | Presigned URL 발급, 업로드 확인 | 자동(임시 자격 증명) → [s3.md](s3.md) |
 | GHCR 읽기 | 배포 job의 `GITHUB_TOKEN`(읽기 전용, job 종료 시 만료) | Actions | 서버의 이미지 pull | 자동 |
 | 개인 PAT | 만들지 않고 둔다. 수동 pull 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |
@@ -32,7 +33,10 @@
 | 외부 포트는 edge(80·443)만 | app·DB에 직접 접근 불가 |
 | 미등록 도메인 차단 | IP 직접 접근·스캐너에 응답하지 않음(80 연결 종료, 443 핸드셰이크 거부) |
 | HTTPS + HSTS, forward-headers | 쿠키에 Secure, https 리다이렉트 |
-| `.gitignore`·`.dockerignore` | `.env`, `.env.*`, `*.pem`이 커밋·이미지에 들어가지 않음 |
+| `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |
+| BE 이미지 빌드 컨텍스트는 jar 폴더뿐 | 이미지에는 `app.jar`만 들어간다. 소스·`.env`가 들어갈 수 없음 |
+| CI(PR) 읽기 전용 권한 | PR 코드가 실행되는 job은 GHCR에 쓸 수 없음. push는 Deploy의 `build` job만 |
+| 운영 배포 수동 실행·검사 | BE 운영은 Deploy prod를 `main`에서 실행해야 하고, `main`에 포함되고 이미지가 있는(테스트 통과) 커밋만 배포된다 |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
 
 ## 알려진 위험
@@ -41,8 +45,9 @@
 | --- | --- | --- |
 | dev가 인터넷에 공개(Swagger 포함) | 누구나 API 명세 조회·호출 가능 | edge에서 dev를 팀 IP 또는 Basic 인증으로 제한 |
 | SSH 22 전체 개방 | Actions 배포 때문. 키 인증만 허용 | 접근 로그 주기 확인(`sudo journalctl -u ssh`) |
+| Deploy prod 검사가 워크플로 안에 있음 | 실수(다른 브랜치·dev 커밋)만 막는다. 쓰기 권한자가 워크플로를 고친 브랜치로 실행하면 우회되고, 배포 Secrets는 레포 단위라 어느 브랜치에서나 쓸 수 있다 | GitHub Environment `prod`·`dev`를 만들어 배포 브랜치를 제한하고 `DEPLOY_*` Secrets를 Environment로 옮김 |
 | `main`·`dev` 직접 push 가능 | 브랜치 보호 없음. CI 통과해야 배포는 됨 | 필요 시 ruleset |
-| GitHub Actions 버전 태그(`@v4`) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
+| GitHub Actions 메이저 버전 태그(`@v7` 등) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
 | DB 백업 없음 | 수동 절차만 | 정기 백업 결정 |
 
 ## 배포 키 교체
@@ -51,7 +56,7 @@
 
 1. [server-setup.md#5-배포-키github-secrets](server-setup.md#5-배포-키github-secrets)로 새 키를 만들어 서버 `authorized_keys`에 **추가**한다.
 2. FE·BE 레포의 `DEPLOY_SSH_KEY`를 새 개인 키로 바꾼다.
-3. 아무 Deploy run의 `deploy` job을 재실행해 새 키로 성공하는지 확인한다.
+3. dev의 최근 BE Deploy run(FE는 아무 Deploy run)에서 `deploy` job을 재실행해 새 키로 성공하는지 확인한다.
 4. 서버 `authorized_keys`에서 **이전 키 줄을 삭제**한다: `sudo -u deploy vi /home/deploy/.ssh/authorized_keys`
 
 ## DB 비밀번호 교체

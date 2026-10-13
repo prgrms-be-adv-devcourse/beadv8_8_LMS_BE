@@ -37,14 +37,23 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?POSTGRES_DB가 필요하다}
       DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER가 필요하다}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD가 필요하다}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID가 필요하다}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET가 필요하다}
+      # S3 접근은 EC2 인스턴스 역할로 한다. 액세스 키를 넣지 않는다(docs/deploy/s3.md)
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET가 필요하다}
+      # 치지직 채널 인증 (환경마다 치지직 앱이 따로 있다)
+      CHZZK_CLIENT_ID: ${CHZZK_CLIENT_ID:?CHZZK_CLIENT_ID가 필요하다}
+      CHZZK_CLIENT_SECRET: ${CHZZK_CLIENT_SECRET:?CHZZK_CLIENT_SECRET가 필요하다}
+      CHZZK_REDIRECT_URI: ${CHZZK_REDIRECT_URI:?CHZZK_REDIRECT_URI가 필요하다}
     networks:
       default:
       edge:
         aliases: [prod-app]
-    # Spring Boot는 컨텍스트 초기화가 끝난 뒤 8080을 연다. 포트가 열리면 준비된 것으로 본다.
+    # GET /actuator/health가 200(UP)이면 준비된 것으로 본다. DB 연결이 끊기면 503(DOWN)이라 실패한다.
+    # 이미지에 curl·wget이 없어 bash /dev/tcp로 요청하고 응답 첫 줄(상태 줄)만 확인한다.
     # 배포(deploy.sh)의 --wait가 healthy를 기다리고, 실패하면 이전 이미지로 롤백한다.
     healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r status <&3 && [[ $$status == 'HTTP/1.1 200'* ]]"]
       interval: 5s
       timeout: 3s
       retries: 3

@@ -50,6 +50,7 @@ sudo -u deploy sh -c "umask 077; cat > /opt/hapbang/env/$e.env" <<EOF
 POSTGRES_DB=<DB 이름>
 POSTGRES_USER=<DB 계정>
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
+S3_BUCKET=<BUCKET>
 EOF
 done
 
@@ -61,7 +62,7 @@ EOF
 sudo ls -l /opt/hapbang/env      # 모두 -rw------- deploy deploy
 ```
 
-추가 환경변수는 [env-vars.md](env-vars.md).
+추가 환경변수는 [env-vars.md](env-vars.md). S3 버킷·EC2 인스턴스 역할 설정은 [s3.md](s3.md).
 
 ## 4. HTTPS 인증서
 
@@ -141,7 +142,7 @@ sudo -u deploy hapbang-deploy prod web
 sudo -u deploy docker logout ghcr.io
 ```
 
-이후 배포는 GitHub Actions가 한다. 각 레포의 최근 Deploy run에서 `deploy` job을 재실행해 동작을 확인한다.
+이후 배포는 GitHub Actions가 한다. 각 레포의 최근 Deploy run에서 `deploy` job을 재실행해 동작을 확인한다. BE prod는 Deploy prod를 `main` 최신 커밋 sha로 실행해 확인한다.
 
 ## 7. 확인
 

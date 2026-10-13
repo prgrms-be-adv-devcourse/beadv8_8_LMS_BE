@@ -2,9 +2,19 @@
 spring:
   application:
     name: hapbang
+  config:
+    # 모듈 전용 설정 파일을 함께 읽는다. 각 파일은 자기 모듈 접두사(예: appearance.*)만 쓴다.
+    import:
+      - classpath:appearance.yml
   profiles:
     # 프로필을 지정하지 않으면 local로 실행한다. 운영은 SPRING_PROFILES_ACTIVE=prod로 지정한다.
     default: local
+  mvc:
+    formcontent:
+      filter:
+        # FormContentFilter는 PUT·PATCH·DELETE의 form 본문을 인증 전에 전부 메모리로 읽는다.
+        # 파일 업로드 경로는 nginx가 큰 본문(2GB)을 받으므로 끈다. form 본문 파라미터를 쓰는 PUT·PATCH·DELETE API는 두지 않는다(docs/deploy/s3.md)
+        enabled: false
   modulith:
     detection-strategy: explicitly-annotated
     events:
@@ -18,3 +28,65 @@ spring:
       completion-mode: archive
   jpa:
     open-in-view: false
+    hibernate:
+      # 스키마는 Flyway가 만든다. Hibernate는 엔티티와 테이블이 맞는지 검사만 하고, 다르면 시작에 실패한다.
+      ddl-auto: validate
+  flyway:
+    # 마이그레이션은 기본 위치 classpath:db/migration에서 찾는다. 모든 모듈의 SQL이 클래스패스에서 합쳐진다.
+    # 이미 테이블(event_publication 등)이 있는 서버 DB에 처음 적용할 때 이력 테이블을 만들고, 버전 0 이후 마이그레이션을 모두 실행한다.
+    baseline-on-migrate: true
+    baseline-version: 0
+    # 버전은 작성 시각이라, 먼저 작성했지만 늦게 병합된 마이그레이션은 이미 적용된 버전보다 낮다.
+    # 모듈마다 스키마가 달라 서로 의존하지 않으므로 낮은 버전도 실행한다(끄면 앱 시작이 실패한다).
+    out-of-order: true
+  http:
+    clients:
+      # 외부 API(치지직 등) 호출 시간 제한. 없으면 상대가 응답하지 않을 때 요청 스레드가 계속 기다린다
+      # 모든 RestClient에 적용된다. 넘으면 예외 → 각 모듈이 오류로 바꾼다 (회원: CHZZK_API_FAILED 502)
+      connect-timeout: 3s
+      read-timeout: 5s
+  session:
+    jdbc:
+      # 세션 테이블(spring_session)을 앱 시작 시 만든다 (이미 있으면 건너뜀)
+      initialize-schema: always
+  security:
+    oauth2:
+      client:
+        registration:
+          # 구글은 Spring에 로그인·토큰 주소가 내장되어 있어 provider 설정을 생략한다
+          google:
+            # 기본값을 두지 않는다 → 서버에 값이 없으면 기동 실패 (docs/deploy/env-vars.md)
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            # openid 없이 OAuth2로만 로그인한다 (OIDC는 팀 논의 후)
+            scope: profile,email
+            # 구글 로그인 후 돌아올 주소 (SecurityConfig의 콜백 주소와 같아야 한다)
+            redirect-uri: "{baseUrl}/api/v1/members/login/oauth2/code/{registrationId}"
+
+# 헬스체크만 노출한다. DataSource가 있어 db 구성 요소가 자동으로 포함된다 (DB 연결이 끊기면 DOWN, 503)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      # 비회원에게도 열려 있으므로 UP/DOWN만 보여 주고 구성 요소·상세는 숨긴다
+      show-details: never
+
+hapbang:
+  storage:
+    s3:
+      region: ap-northeast-2
+  chzzk:
+    # 치지직 채널 인증 (치지직 개발자 센터 앱). 기본값을 두지 않는다 (서버 값은 compose가 넘긴다, docs/deploy/env-vars.md)
+    client-id: ${CHZZK_CLIENT_ID}
+    client-secret: ${CHZZK_CLIENT_SECRET}
+    # 앱에 등록한 리디렉션 URL과 같아야 한다 (앱 하나에 하나만 등록돼 환경마다 다르다)
+    redirect-uri: ${CHZZK_REDIRECT_URI}
+
+springdoc:
+  swagger-ui:
+    csrf:
+      # Swagger가 XSRF-TOKEN 쿠키를 읽어 X-XSRF-TOKEN 헤더로 자동 전송
+      enabled: true

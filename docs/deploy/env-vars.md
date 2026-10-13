@@ -75,14 +75,14 @@ KAKAO_CLIENT_SECRET=example
 
 [operations.md#설정-반영](operations.md#설정-반영) 절차로 `compose.prod.yaml`, `compose.dev.yaml`을 올리고 검증한다. 검증(`config --quiet`)은 env 파일에 값이 없으면 실패하므로 2번이 먼저다.
 
-### 4. PR 병합 → 자동 배포
+### 4. PR 병합 → 배포
 
-dev 병합 시 dev, main 병합 시 prod에 새 app이 뜬다. 순서가 바뀌면:
+dev 병합 시 dev에 새 app이 뜬다. prod는 main 병합 뒤 Actions → Deploy prod를 실행해야 뜬다(BE 운영 배포는 수동). 순서가 바뀌면:
 
 | 상황 | 결과 |
 | --- | --- |
-| 서버 env에 값 없이 병합 | compose가 시작 전에 실패 → 배포 실패, **기존 컨테이너는 그대로** 동작 |
-| compose 반영 없이 병합 | 컨테이너에 값이 전달되지 않아 Spring 기동 실패 → **자동 롤백**. Actions에 "서버 설정이 레포와 다릅니다" 경고 |
+| 서버 env에 값 없이 병합(prod는 배포 실행) | compose가 시작 전에 실패 → 배포 실패, **기존 컨테이너는 그대로** 동작 |
+| compose 반영 없이 병합(prod는 배포 실행) | 서버 compose가 레포와 달라 **배포 전에 실패**, 기존 컨테이너는 그대로 동작 |
 
 ### 5. 확인
 
@@ -95,7 +95,7 @@ sudo -u deploy docker compose -f compose.dev.yaml --env-file env/dev.env exec ap
 ## 값 변경 (비밀값 교체 포함)
 
 1. 서버 env 파일의 해당 줄을 수정한다([서버 env 파일 편집](#서버-env-파일-편집)).
-2. Actions에서 해당 환경의 **최근 BE Deploy run → `deploy` job 재실행**. 환경변수가 바뀌었으므로 app이 새로 만들어진다.
+2. Actions에서 dev는 **최근 BE Deploy run → `deploy` job 재실행**, prod는 **지금 운영 중인 커밋 sha로 Deploy prod 실행**([operations.md#상태-확인](operations.md#상태-확인)의 실행 중인 버전). 환경변수가 바뀌었으므로 app이 새로 만들어진다.
 
 > ❌ 서버에서 `docker compose up`을 직접 실행하지 않는다. 이미지 태그가 지정되지 않아 예전 이미지로 바뀔 수 있다([operations.md#하지-말-것](operations.md#하지-말-것)).
 
@@ -145,7 +145,7 @@ sudo -u deploy grep -c '^KAKAO_CLIENT_SECRET=' /opt/hapbang/env/dev.env   # 1 (�
 **편집만으로는 반영되지 않는다.**
 
 - 새 키: `compose.<env>.yaml`의 `app.environment`에도 있어야 컨테이너로 전달된다(위 1·3번).
-- 값 변경: 해당 환경의 최근 BE Deploy run → `deploy` job을 재실행해야 app이 새 값으로 다시 만들어진다. 서버에서 `docker compose up`을 직접 실행하지 않는다.
+- 값 변경: dev는 최근 BE Deploy run → `deploy` job 재실행, prod는 운영 중인 sha로 Deploy prod를 실행해야 app이 새 값으로 다시 만들어진다. 서버에서 `docker compose up`을 직접 실행하지 않는다.
 - `POSTGRES_PASSWORD`는 이 방법으로 바꾸지 않는다 → [security.md#db-비밀번호-교체](security.md#db-비밀번호-교체)
 
 ## 삭제
