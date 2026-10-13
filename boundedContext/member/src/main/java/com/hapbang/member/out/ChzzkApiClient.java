@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import com.hapbang.member.domain.MemberErrorCode;
@@ -29,6 +30,8 @@ public class ChzzkApiClient {
 
     static final String API_BASE_URL = "https://openapi.chzzk.naver.com";
     static final String AUTHORIZE_URL = "https://chzzk.naver.com/account-interlock";
+    /** 오류 응답 본문은 이 길이까지만 로그에 남긴다 */
+    private static final int LOG_BODY_MAX_LENGTH = 300;
 
     private final RestClient restClient;
     private final ChzzkProperties properties;
@@ -50,7 +53,7 @@ public class ChzzkApiClient {
 
     /** code로 Access Token 발급 (유효 1일) */
     public String issueToken(String code, String state) {
-        TokenResponse token = call(() -> restClient.post()
+        TokenResponse token = call("토큰 발급", () -> restClient.post()
                 .uri("/auth/v1/token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new TokenRequest("authorization_code", properties.clientId(), properties.clientSecret(),
@@ -62,7 +65,7 @@ public class ChzzkApiClient {
 
     /** Access Token 주인의 채널 */
     public ChzzkUser findMe(String accessToken) {
-        return call(() -> restClient.get()
+        return call("내 채널", () -> restClient.get()
                 .uri("/open/v1/users/me")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                 .retrieve()
@@ -71,7 +74,7 @@ public class ChzzkApiClient {
 
     /** 채널 팔로워 수 (사용자 토큰 없이 Client-Id·Client-Secret으로 조회) */
     public int findFollowerCount(String channelId) {
-        ChannelsResponse channels = call(() -> restClient.get()
+        ChannelsResponse channels = call("채널 조회", () -> restClient.get()
                 .uri(uri -> uri.path("/open/v1/channels").queryParam("channelIds", channelId).build())
                 .header("Client-Id", properties.clientId())
                 .header("Client-Secret", properties.clientSecret())
@@ -81,7 +84,10 @@ public class ChzzkApiClient {
                 .filter(channel -> channelId.equals(channel.channelId()))
                 .findFirst()
                 .map(Channel::followerCount)
-                .orElseThrow(() -> new MemberException(MemberErrorCode.CHZZK_API_FAILED));
+                .orElseThrow(() -> {
+                    log.warn("치지직 채널 조회 결과에 채널 없음: channelId={}", channelId);
+                    return new MemberException(MemberErrorCode.CHZZK_API_FAILED);
+                });
     }
 
     /**
@@ -102,18 +108,41 @@ public class ChzzkApiClient {
         }
     }
 
-    /** 호출 실패(연결·4xx·5xx)와 빈 응답을 CHZZK_API_FAILED로 바꾼다 */
-    private <T> T call(Supplier<ChzzkResponse<T>> request) {
+    /**
+     * 호출 실패(연결·4xx·5xx)와 빈 응답을 CHZZK_API_FAILED로 바꾼다. 원인은 로그로 구분한다.
+     * 요청 내용(Client Secret·code·토큰)과 성공 응답(토큰)은 로그에 남기지 않는다
+     */
+    private <T> T call(String api, Supplier<ChzzkResponse<T>> request) {
         ChzzkResponse<T> response;
         try {
             response = request.get();
+        } catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 401) {
+                // 우리 앱 키(Client ID·Secret) 문제 (치지직 응답 message: INVALID_CLIENT). 사용자가 고칠 수 없으니 바로 확인해야 한다
+                log.error("치지직 {} 인증 실패 (Client ID·Secret 확인): body={}", api,
+                        abbreviate(e.getResponseBodyAsString()));
+            } else {
+                // 치지직이 오류로 응답함. 4xx면 우리 요청 문제(code 만료 등), 5xx면 치지직 문제
+                log.warn("치지직 {} 오류 응답: status={}, body={}", api, e.getStatusCode(),
+                        abbreviate(e.getResponseBodyAsString()));
+            }
+            throw new MemberException(MemberErrorCode.CHZZK_API_FAILED);
         } catch (RestClientException e) {
+            // 응답 자체를 못 받음: 연결 실패, 시간 초과(연결 3초·읽기 5초), 응답 해석 실패
+            log.warn("치지직 {} 호출 실패: {}", api, e.getMessage());
             throw new MemberException(MemberErrorCode.CHZZK_API_FAILED);
         }
         if (response == null || response.content() == null) {
+            // HTTP는 성공인데 내용이 없음 (치지직 실패 응답 형식 {code, message})
+            log.warn("치지직 {} 응답에 content 없음: code={}, message={}", api,
+                    response == null ? null : response.code(), response == null ? null : response.message());
             throw new MemberException(MemberErrorCode.CHZZK_API_FAILED);
         }
         return response.content();
+    }
+
+    private static String abbreviate(String body) {
+        return body.length() <= LOG_BODY_MAX_LENGTH ? body : body.substring(0, LOG_BODY_MAX_LENGTH) + "...";
     }
 
     record ChzzkResponse<T>(Integer code, String message, T content) {
