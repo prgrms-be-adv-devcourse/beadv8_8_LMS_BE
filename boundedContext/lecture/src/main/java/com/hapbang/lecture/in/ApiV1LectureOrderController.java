@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.global.auth.LoginUserId;
+import com.hapbang.global.response.RsData;
 import com.hapbang.lecture.in.dto.OrderCreateRequest;
 import com.hapbang.lecture.in.dto.OrderItemResponse;
 import com.hapbang.lecture.in.dto.OrderResponse;
@@ -23,6 +24,7 @@ import com.hapbang.lecture.in.dto.SaleResponse;
 import jakarta.validation.Valid;
 
 /** 강의 주문 API (설계 8.5). Swagger 명세는 {@link ApiV1LectureOrderSpec} */
+// 성공은 global RsData로 감싸고, 오류는 global 공통 핸들러가 ProblemDetail로 응답한다 (D29). message는 구현할 때 정한다.
 // TODO: 13장 3단계(주문·직접 확정·구매 취소), 5단계(재생 동의)에서 구현한다.
 // TODO(security): 유저·인플루언서·인증된 인플루언서만 허용한다(관리자 불가, 설계 9장). /sales는 인증된 인플루언서. global SecurityConfig와 함께 추가한다.
 @RestController
@@ -32,54 +34,54 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
     @Override
     @PostMapping("/orders")
     @ResponseStatus(HttpStatus.CREATED)
-    public OrderResponse createOrder(@LoginUserId Long userId, @Valid @RequestBody OrderCreateRequest request) {
+    public RsData<OrderResponse> createOrder(@LoginUserId Long userId, @Valid @RequestBody OrderCreateRequest request) {
         throw NotImplemented.yet();
     }
 
     @Override
     @GetMapping("/orders")
-    public Page<OrderSummaryResponse> getMyOrders(@LoginUserId Long userId,
+    public RsData<Page<OrderSummaryResponse>> getMyOrders(@LoginUserId Long userId,
             Pageable pageable) {
         throw NotImplemented.yet();
     }
 
     @Override
     @GetMapping("/orders/{orderId}")
-    public OrderResponse getOrder(@LoginUserId Long userId, @PathVariable("orderId") Long orderId) {
+    public RsData<OrderResponse> getOrder(@LoginUserId Long userId, @PathVariable("orderId") Long orderId) {
         throw NotImplemented.yet();
     }
 
     @Override
     @PostMapping("/orders/{orderId}/items/{orderItemId}/confirm")
-    public OrderItemResponse confirm(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
+    public RsData<OrderItemResponse> confirm(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
             @PathVariable("orderItemId") Long orderItemId) {
         throw NotImplemented.yet();
     }
 
     @Override
     @PostMapping("/orders/{orderId}/items/{orderItemId}/play-consent")
-    public OrderItemResponse consentToPlay(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
+    public RsData<OrderItemResponse> consentToPlay(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
             @PathVariable("orderItemId") Long orderItemId) {
         throw NotImplemented.yet();
     }
 
     @Override
     @PostMapping("/orders/{orderId}/items/{orderItemId}/cancel")
-    public OrderItemResponse cancel(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
+    public RsData<OrderItemResponse> cancel(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
             @PathVariable("orderItemId") Long orderItemId) {
         throw NotImplemented.yet();
     }
 
     @Override
     @GetMapping("/purchased")
-    public Page<PurchasedLectureResponse> getPurchasedLectures(@LoginUserId Long userId,
+    public RsData<Page<PurchasedLectureResponse>> getPurchasedLectures(@LoginUserId Long userId,
             Pageable pageable) {
         throw NotImplemented.yet();
     }
 
     @Override
     @GetMapping("/sales")
-    public Page<SaleResponse> getSales(@LoginUserId Long userId,
+    public RsData<Page<SaleResponse>> getSales(@LoginUserId Long userId,
             Pageable pageable) {
         throw NotImplemented.yet();
     }
