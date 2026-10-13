@@ -4,10 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
@@ -32,9 +29,8 @@ import org.hibernate.annotations.Check;
 @Check(constraints = "(amount_hp >= 1000 AND amount_hp % 1000 = 0) AND (payment_amount_krw > 0) AND (remaining_principal_hp >= 0 AND remaining_principal_hp <= amount_hp)")
 public class PointCharge extends BillingUpdatedEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "wallet_id", nullable = false)
-    private Wallet wallet;
+    @Column(name = "wallet_id", nullable = false)
+    private Long walletId;
 
     @Column(name = "amount_hp", nullable = false)
     private Long amountHp;
@@ -72,7 +68,7 @@ public class PointCharge extends BillingUpdatedEntity {
     // 빌더로 전달받은 지갑·충전 금액·가용 원금·PG 식별자·처리 상태와 시각으로 충전 객체를 초기화한다.
     @Builder
     private PointCharge(
-            Wallet wallet,
+            Long walletId,
             Long amountHp,
             Long paymentAmountKrw,
             Long remainingPrincipalHp,
@@ -84,7 +80,7 @@ public class PointCharge extends BillingUpdatedEntity {
             Instant completedAt,
             Instant failedAt
     ) {
-        this.wallet = wallet;
+        this.walletId = walletId;
         this.amountHp = amountHp;
         this.paymentAmountKrw = paymentAmountKrw;
         this.remainingPrincipalHp = remainingPrincipalHp;

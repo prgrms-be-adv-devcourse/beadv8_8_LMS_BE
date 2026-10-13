@@ -4,10 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
@@ -31,9 +28,8 @@ import org.hibernate.annotations.Check;
 @Check(constraints = "(original_charge_hp >= 0) AND (original_revenue_hp >= 0) AND (held_charge_hp >= 0 AND held_charge_hp <= original_charge_hp) AND (held_revenue_hp >= 0 AND held_revenue_hp <= original_revenue_hp)")
 public class PointHold extends BillingUpdatedEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "wallet_id", nullable = false)
-    private Wallet wallet;
+    @Column(name = "wallet_id", nullable = false)
+    private Long walletId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "reference_type", nullable = false)
@@ -73,7 +69,7 @@ public class PointHold extends BillingUpdatedEntity {
     // 빌더로 전달받은 거래 대상·최초 보류액·잔여 보류액·상태·시각으로 보류 객체를 초기화한다.
     @Builder
     private PointHold(
-            Wallet wallet,
+            Long walletId,
             BillingReferenceType referenceType,
             Long referenceId,
             Long originalChargeHp,
@@ -86,7 +82,7 @@ public class PointHold extends BillingUpdatedEntity {
             Instant releasedAt,
             Instant canceledAt
     ) {
-        this.wallet = wallet;
+        this.walletId = walletId;
         this.referenceType = referenceType;
         this.referenceId = referenceId;
         this.originalChargeHp = originalChargeHp;
@@ -101,10 +97,10 @@ public class PointHold extends BillingUpdatedEntity {
     }
 
     // 참조 대상의 최초 보류를 만든다. 남은 보류액은 최초 보류액과 같고 상태는 HELD다.
-    public static PointHold held(Wallet wallet, BillingReferenceType referenceType, Long referenceId, long chargeHp,
+    public static PointHold held(Long walletId, BillingReferenceType referenceType, Long referenceId, long chargeHp,
             long revenueHp, String idempotencyKey, Instant heldAt) {
         return PointHold.builder()
-                .wallet(wallet)
+                .walletId(walletId)
                 .referenceType(referenceType)
                 .referenceId(referenceId)
                 .originalChargeHp(chargeHp)

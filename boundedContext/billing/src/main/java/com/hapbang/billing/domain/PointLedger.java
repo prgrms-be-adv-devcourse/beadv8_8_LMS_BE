@@ -4,10 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import jakarta.persistence.UniqueConstraint;
@@ -37,9 +34,8 @@ import org.hibernate.annotations.Immutable;
 @Check(constraints = "(amount_hp <> 0)")
 public class PointLedger extends BillingCreatedEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "wallet_id", nullable = false)
-    private Wallet wallet;
+    @Column(name = "wallet_id", nullable = false, updatable = false)
+    private Long walletId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "point_type", nullable = false, updatable = false)
@@ -66,9 +62,8 @@ public class PointLedger extends BillingCreatedEntity {
     @Column(name = "operation_key", nullable = false, updatable = false)
     private String operationKey;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = true)
-    @JoinColumn(name = "original_ledger_id", nullable = true)
-    private PointLedger originalLedger;
+    @Column(name = "original_ledger_id", nullable = true, updatable = false)
+    private Long originalLedgerId;
 
     @Column(name = "idempotency_key", nullable = false, updatable = false)
     private String idempotencyKey;
@@ -86,7 +81,7 @@ public class PointLedger extends BillingCreatedEntity {
     // 빌더로 전달받은 지갑·HP 증감·작업키·참조 대상·발생 시각으로 원장 항목을 초기화한다.
     @Builder
     private PointLedger(
-            Wallet wallet,
+            Long walletId,
             PointType pointType,
             BalanceBucket balanceBucket,
             Long amountHp,
@@ -94,12 +89,12 @@ public class PointLedger extends BillingCreatedEntity {
             BillingReferenceType referenceType,
             Long referenceId,
             String operationKey,
-            PointLedger originalLedger,
+            Long originalLedgerId,
             String idempotencyKey,
             String description,
             Instant occurredAt
     ) {
-        this.wallet = wallet;
+        this.walletId = walletId;
         this.pointType = pointType;
         this.balanceBucket = balanceBucket;
         this.amountHp = amountHp;
@@ -107,7 +102,7 @@ public class PointLedger extends BillingCreatedEntity {
         this.referenceType = referenceType;
         this.referenceId = referenceId;
         this.operationKey = operationKey;
-        this.originalLedger = originalLedger;
+        this.originalLedgerId = originalLedgerId;
         this.idempotencyKey = idempotencyKey;
         this.description = description;
         this.occurredAt = occurredAt;

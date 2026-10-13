@@ -37,13 +37,11 @@ public class PointRefund extends BillingUpdatedEntity {
     @JoinColumn(name = "refund_request_id", nullable = false)
     private PointRefundRequest refundRequest;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "wallet_id", nullable = false)
-    private Wallet wallet;
+    @Column(name = "wallet_id", nullable = false)
+    private Long walletId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "charge_id", nullable = false)
-    private PointCharge charge;
+    @Column(name = "charge_id", nullable = false)
+    private Long chargeId;
 
     @Column(name = "refund_amount_hp", nullable = false)
     private Long refundAmountHp;
@@ -74,8 +72,8 @@ public class PointRefund extends BillingUpdatedEntity {
     @Builder
     private PointRefund(
             PointRefundRequest refundRequest,
-            Wallet wallet,
-            PointCharge charge,
+            Long walletId,
+            Long chargeId,
             Long refundAmountHp,
             Long refundAmountKrw,
             String pgRefundKey,
@@ -86,8 +84,8 @@ public class PointRefund extends BillingUpdatedEntity {
             Instant failedAt
     ) {
         this.refundRequest = refundRequest;
-        this.wallet = wallet;
-        this.charge = charge;
+        this.walletId = walletId;
+        this.chargeId = chargeId;
         this.refundAmountHp = refundAmountHp;
         this.refundAmountKrw = refundAmountKrw;
         this.pgRefundKey = pgRefundKey;

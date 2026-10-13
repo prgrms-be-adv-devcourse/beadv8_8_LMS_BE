@@ -58,10 +58,13 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 
 - PK는 `Long`과 `GenerationType.IDENTITY`를 사용한다.
 - `@Table`에 테이블명과 스키마를 명시한다.
-- Enum은 `EnumType.STRING`을 사용한다.
+- Enum은 `EnumType.STRING`을 사용한다. 상수 이름이 DB 저장값이므로 바꾸지 않는다(`BillingEnumStorageTest`가 Flyway CHECK와 대조한다).
+- Enum 상수마다 의미를 Javadoc(`/** ... */`)으로 적는다(#116, 강의 모듈 #112와 같은 방식). API 응답으로 나가는 Enum만 `@Schema` 설명을 더한다.
 - 기본 생성자는 `protected`로 제한한다.
 - 범용 `@Setter`와 `@Data`를 사용하지 않는다.
-- Billing 내부 연관관계는 필요한 경우에만 `LAZY`로 정의한다.
+- Aggregate 사이는 객체 대신 ID(`Long`) 필드로 참조한다(#116). 필요한 엔티티는 Repository로 명시적으로 조회한다.
+- 같은 Aggregate 안(보류 → 반환·지급 상세·충전 원금 배분, 환불 요청 → 환불, 환전 → 계좌·송금)만 `LAZY` 연관관계를 둔다.
+- JPA 연관관계를 ID 필드로 바꿔도 DB FK·UNIQUE·CHECK는 Flyway 그대로 유지한다.
 - 금융 Entity는 Hard Delete하지 않는다.
 - 다른 도메인의 Entity를 JPA 연관관계로 연결하지 않는다.
 

@@ -28,11 +28,11 @@ public interface PointLedgerRepository extends Repository<PointLedger, Long> {
     @Query("""
             select new com.hapbang.billing.out.LedgerBucketSum(l.pointType, l.balanceBucket, sum(l.amountHp))
             from PointLedger l
-            where l.wallet.id = :walletId
+            where l.walletId = :walletId
             group by l.pointType, l.balanceBucket""")
     List<LedgerBucketSum> sumAmountByWalletId(@Param("walletId") Long walletId);
 
     // 원본 원장 항목을 참조하는 역분개 원장 금액의 누적 합계를 구하며, 역분개가 없으면 0이다.
-    @Query("select coalesce(sum(l.amountHp), 0) from PointLedger l where l.originalLedger.id = :originalLedgerId")
+    @Query("select coalesce(sum(l.amountHp), 0) from PointLedger l where l.originalLedgerId = :originalLedgerId")
     long sumAmountByOriginalLedgerId(@Param("originalLedgerId") Long originalLedgerId);
 }
