@@ -1,8 +1,11 @@
 package com.hapbang.lecture.in;
 
+import static com.hapbang.lecture.fixture.LectureFixture.deleted;
 import static com.hapbang.lecture.fixture.LectureFixture.pendingFile;
 import static com.hapbang.lecture.fixture.LectureFixture.uploadedFile;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -13,6 +16,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.hamcrest.Matcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import com.hapbang.lecture.domain.FileResource;
 import com.hapbang.lecture.domain.FileType;
 import com.hapbang.lecture.domain.LectureUser;
 import com.hapbang.lecture.out.FileResourceRepository;
@@ -144,6 +149,57 @@ class LectureApiTest {
         mockMvc.perform(get("/api/v1/lectures"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].lectureId").value(lectureId));
+    }
+
+    @Test
+    void 판매_중인_강의_목록에_썸네일_조회_URL이_1시간_만료로_나온다() throws Exception {
+        FileResource thumbnail = uploadedThumbnail(SELLER_ID);
+        Long lectureId = register(SELLER_ID, thumbnail.getId());
+        approve(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
+    }
+
+    @Test
+    void 판매자는_검수_대기_강의의_상세에서도_썸네일_URL을_본다() throws Exception {
+        FileResource thumbnail = uploadedThumbnail(SELLER_ID);
+        Long lectureId = register(SELLER_ID, thumbnail.getId());
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_INSPECTION"))
+                .andExpect(jsonPath("$.thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
+    }
+
+    @Test
+    void 썸네일이_없는_강의는_목록과_상세에서_thumbnailUrl이_null이다() throws Exception {
+        Long lectureId = register(SELLER_ID, null);
+        approve(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].lectureId").value(lectureId))
+                .andExpect(jsonPath("$.content[0].thumbnailUrl").value(nullValue()));
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.thumbnailUrl").value(nullValue()));
+    }
+
+    @Test
+    void 썸네일_파일이_삭제되면_thumbnailUrl이_null이다() throws Exception {
+        FileResource thumbnail = uploadedThumbnail(SELLER_ID);
+        Long lectureId = register(SELLER_ID, thumbnail.getId());
+        approve(lectureId);
+        fileResourceRepository.save(deleted(thumbnail));
+
+        mockMvc.perform(get("/api/v1/lectures"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].lectureId").value(lectureId))
+                .andExpect(jsonPath("$.content[0].thumbnailUrl").value(nullValue()));
     }
 
     @Test
@@ -276,6 +332,20 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.content[0].deleted").value(false))
                 .andExpect(jsonPath("$.content[1].lectureId").value(deletedLectureId))
                 .andExpect(jsonPath("$.content[1].deleted").value(true));
+    }
+
+    @Test
+    void 내가_등록한_강의는_삭제된_강의도_썸네일_URL이_나온다() throws Exception {
+        FileResource thumbnail = uploadedThumbnail(SELLER_ID);
+        Long lectureId = register(SELLER_ID, thumbnail.getId());
+        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/me").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].deleted").value(true))
+                .andExpect(jsonPath("$.content[0].thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
     }
 
     @Test
@@ -542,6 +612,15 @@ class LectureApiTest {
         return ((Number) JsonPath.read(response, "$.id")).longValue();
     }
 
+    /** 썸네일만 정하고 영상·자료는 업로드를 마친 파일로 등록한다. 썸네일이 null이면 썸네일 없는 강의다 */
+    private Long register(Long sellerId, Long thumbnailFileId) throws Exception {
+        String response = register(sellerId, thumbnailFileId, uploaded(sellerId, FileType.LECTURE_VIDEO),
+                uploaded(sellerId, FileType.LECTURE_DOCUMENT))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(response, "$.id")).longValue();
+    }
+
     private ResultActions register(Long sellerId, Long thumbnailFileId, Long videoFileId, Long documentFileId)
             throws Exception {
         return mockMvc.perform(post("/api/v1/lectures")
@@ -580,6 +659,15 @@ class LectureApiTest {
     /** S3 없이 업로드를 마친 파일을 저장한다 */
     private Long uploaded(Long uploaderUserId, FileType fileType) {
         return fileResourceRepository.save(uploadedFile(uploaderUserId, fileType)).getId();
+    }
+
+    private FileResource uploadedThumbnail(Long uploaderUserId) {
+        return fileResourceRepository.save(uploadedFile(uploaderUserId, FileType.LECTURE_THUMBNAIL));
+    }
+
+    /** 이 썸네일의 Presigned GET URL. 1시간(D23) 만료로 서명했는지 본다 */
+    private static Matcher<String> thumbnailUrlOf(FileResource thumbnail) {
+        return allOf(containsString(thumbnail.getObjectKey()), containsString("X-Amz-Expires=3600"));
     }
 
     private Long pending(Long uploaderUserId, FileType fileType) {

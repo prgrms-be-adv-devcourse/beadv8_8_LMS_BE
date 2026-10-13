@@ -9,7 +9,7 @@ public record LectureSummaryResponse(
         Long lectureId,
         String title,
         long priceHp,
-        @Schema(description = "썸네일 Presigned GET URL", nullable = true)
+        @Schema(description = "썸네일 조회 URL (Presigned GET, 1시간 유효). 썸네일이 없거나 볼 수 없으면 null", nullable = true)
         String thumbnailUrl,
         Long sellerUserId,
         @Schema(description = "판매자 닉네임. 탈퇴 회원은 \"탈퇴한 회원\"")
@@ -19,9 +19,9 @@ public record LectureSummaryResponse(
         long reviewCount
 ) {
 
-    // TODO: 썸네일 URL은 5단계(S3), 평점·리뷰 수는 6단계(리뷰)에서 채운다.
-    public static LectureSummaryResponse of(Lecture lecture, String sellerNickname) {
-        return new LectureSummaryResponse(lecture.getId(), lecture.getTitle(), lecture.getPriceHp(), null,
+    // TODO: 평점·리뷰 수는 6단계(리뷰)에서 채운다.
+    public static LectureSummaryResponse of(Lecture lecture, String sellerNickname, String thumbnailUrl) {
+        return new LectureSummaryResponse(lecture.getId(), lecture.getTitle(), lecture.getPriceHp(), thumbnailUrl,
                 lecture.getSellerUserId(), sellerNickname, null, 0);
     }
 }

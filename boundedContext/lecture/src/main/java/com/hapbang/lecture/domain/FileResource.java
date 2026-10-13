@@ -109,6 +109,11 @@ public class FileResource {
         return status == FileStatus.UPLOADED;
     }
 
+    /** 업로드를 마치고 삭제되지 않은 파일만 조회 URL을 발급한다 (D28) */
+    public boolean isViewable() {
+        return isUploaded() && deletedAt == null;
+    }
+
     /**
      * 본문을 올릴 수 있는지 검사한다(D24). 본인 → 상태 → 길이 → 형식 순서다.
      * 길이는 요청의 Content-Length이고, 모르면(-1) 거부한다. 서버가 이 길이만큼만 S3로 보내므로 저장된 크기는 등록 크기와 같다.

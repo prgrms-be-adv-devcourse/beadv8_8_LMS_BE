@@ -31,6 +31,7 @@ public class LectureSupport {
 
     private final LectureRepository lectureRepository;
     private final SellerNicknameSupport sellerNicknameSupport;
+    private final LectureThumbnailSupport lectureThumbnailSupport;
 
     public Lecture findLecture(Long lectureId) {
         return lectureRepository.findById(lectureId)
@@ -48,14 +49,19 @@ public class LectureSupport {
                 : lectureRepository.findByStatusAndDeletedAtIsNullAndTitleContainingIgnoreCase(LectureStatus.ON_SALE,
                         keyword.strip(), sorted);
         Map<Long, String> nicknames = sellerNicknameSupport.of(lectures.map(Lecture::getSellerUserId).toSet());
-        return lectures.map(lecture -> LectureSummaryResponse.of(lecture, nicknames.get(lecture.getSellerUserId())));
+        Map<Long, String> thumbnailUrls = lectureThumbnailSupport.urlsOf(
+                lectures.map(Lecture::getThumbnailFileId).toSet());
+        return lectures.map(lecture -> LectureSummaryResponse.of(lecture, nicknames.get(lecture.getSellerUserId()),
+                thumbnailUrls.get(lecture.getThumbnailFileId())));
     }
 
     /** 판매자 본인이 등록한 강의 (모든 상태, 삭제 포함). 최근 등록순이며 요청의 정렬은 무시한다. */
     public Page<MyLectureResponse> getMyLectures(Long sellerUserId, Pageable pageable) {
-        return lectureRepository.findBySellerUserId(sellerUserId,
-                        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST))
-                .map(MyLectureResponse::from);
+        Page<Lecture> lectures = lectureRepository.findBySellerUserId(sellerUserId,
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST));
+        Map<Long, String> thumbnailUrls = lectureThumbnailSupport.urlsOf(
+                lectures.map(Lecture::getThumbnailFileId).toSet());
+        return lectures.map(lecture -> MyLectureResponse.of(lecture, thumbnailUrls.get(lecture.getThumbnailFileId())));
     }
 
     /**
@@ -67,7 +73,8 @@ public class LectureSupport {
         if (!seller && !lecture.isOnSale()) {
             throw new LectureException(LectureErrorCode.LECTURE_NOT_FOUND);
         }
-        return LectureDetailResponse.of(lecture, sellerNicknameSupport.of(lecture.getSellerUserId()), seller);
+        return LectureDetailResponse.of(lecture, sellerNicknameSupport.of(lecture.getSellerUserId()),
+                lectureThumbnailSupport.urlOf(lecture.getThumbnailFileId()), seller);
     }
 
     /** 검수 목록. 삭제된 강의는 빠진다. 신청이 오래된 순이며 요청의 정렬은 무시한다. */
