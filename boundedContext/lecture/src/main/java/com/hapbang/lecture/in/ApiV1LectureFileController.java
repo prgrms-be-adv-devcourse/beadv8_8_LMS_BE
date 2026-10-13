@@ -9,30 +9,34 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.global.auth.LoginUserId;
+import com.hapbang.lecture.app.LectureFileFacade;
+import com.hapbang.lecture.app.dto.FileUploadResponse;
 import com.hapbang.lecture.in.dto.FileUploadRequest;
-import com.hapbang.lecture.in.dto.FileUploadResponse;
 
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 
 /** 강의 파일 업로드 API (설계 8.3). Swagger 명세는 {@link ApiV1LectureFileSpec} */
-// TODO: 13장 5단계(S3 연동)에서 구현한다.
-// TODO(security): 인증된 인플루언서만 허용한다(설계 9장). global SecurityConfig와 함께 추가한다.
 @RestController
 @RequestMapping("/api/v1/lectures/files")
+@RequiredArgsConstructor
 public class ApiV1LectureFileController implements ApiV1LectureFileSpec {
+
+    private final LectureFileFacade lectureFileFacade;
 
     @Override
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public FileUploadResponse createUploadUrl(@LoginUserId Long userId,
+    public FileUploadResponse register(@LoginUserId Long userId,
             @Valid @RequestBody FileUploadRequest request) {
-        throw NotImplemented.yet();
+        return lectureFileFacade.register(userId, request.fileType(), request.originalFilename(),
+                request.contentType(), request.fileSize());
     }
 
     @Override
     @PostMapping("/{fileId}/complete")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void complete(@LoginUserId Long userId, @PathVariable("fileId") Long fileId) {
-        throw NotImplemented.yet();
+        lectureFileFacade.complete(userId, fileId);
     }
 }

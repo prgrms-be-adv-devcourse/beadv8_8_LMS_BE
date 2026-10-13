@@ -5,6 +5,14 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
 
+hapbang:
+  storage:
+    s3:
+      # 공개 레포라 버킷 이름은 서버 env 파일에만 둔다. 접근은 EC2 인스턴스 역할로 한다(docs/deploy/s3.md)
+      bucket: ${S3_BUCKET}
+      # dev·prod가 버킷 하나를 쓰므로 key 앞에 환경 이름을 붙여 나눈다
+      key-prefix: prod
+
 # edge nginx가 HTTPS를 종료하고 X-Forwarded-* 헤더로 전달한다.
 # 원래 scheme·host를 인식해 리다이렉트 URL을 https로 만들고 세션 쿠키에 Secure를 붙인다.
 # native: Tomcat이 내부망(Docker 네트워크) 프록시의 헤더만 신뢰한다.

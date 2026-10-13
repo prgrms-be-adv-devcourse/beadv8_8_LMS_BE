@@ -1,5 +1,9 @@
 package com.hapbang.lecture.in;
 
+import static com.hapbang.lecture.fixture.LectureFixture.pendingFile;
+import static com.hapbang.lecture.fixture.LectureFixture.uploadedFile;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -15,8 +19,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
+import com.hapbang.lecture.domain.FileType;
 import com.hapbang.lecture.domain.LectureUser;
+import com.hapbang.lecture.out.FileResourceRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -40,7 +47,7 @@ class LectureApiTest {
               "title": "방송 장비 세팅 강의 (개정판)",
               "description": "2026년 장비 기준",
               "priceHp": 15000,
-              "thumbnailFileId": 110
+              "thumbnailFileId": %d
             }
             """;
 
@@ -49,12 +56,16 @@ class LectureApiTest {
               "title": "방송 장비 세팅 강의",
               "description": "처음 방송하는 사람을 위한 장비 세팅",
               "priceHp": 10000,
-              "thumbnailFileId": 100,
+              "thumbnailFileId": %d,
               "contents": [
-                {"fileId": 101, "title": "1강 장비 고르기", "contentType": "VIDEO"},
-                {"fileId": 102, "title": "장비 목록", "contentType": "DOCUMENT"}
+                {"fileId": %d, "title": "1강 장비 고르기", "contentType": "VIDEO"},
+                {"fileId": %d, "title": "장비 목록", "contentType": "DOCUMENT"}
               ]
             }
+            """;
+
+    private static final String CONTENTS_BODY = """
+            {"contents": [{"fileId": %d, "title": "1강 장비 고르기 (재녹음)", "contentType": "VIDEO"}]}
             """;
 
     @Autowired
@@ -62,6 +73,9 @@ class LectureApiTest {
 
     @Autowired
     private LectureUserRepository lectureUserRepository;
+
+    @Autowired
+    private FileResourceRepository fileResourceRepository;
 
     @BeforeEach
     void setUp() {
@@ -156,11 +170,7 @@ class LectureApiTest {
         mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"contents": [
-                                  {"fileId": 201, "title": "1강 장비 고르기 (재녹음)", "contentType": "VIDEO"}
-                                ]}
-                                """))
+                        .content(CONTENTS_BODY.formatted(uploaded(SELLER_ID, FileType.LECTURE_VIDEO))))
                 .andExpect(status().isNoContent());
         mockMvc.perform(post("/api/v1/lectures/{lectureId}/inspection-requests", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
@@ -190,9 +200,7 @@ class LectureApiTest {
         mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"contents": [{"fileId": 201, "title": "새 영상", "contentType": "VIDEO"}]}
-                                """))
+                        .content(CONTENTS_BODY.formatted(uploaded(SELLER_ID, FileType.LECTURE_VIDEO))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONTENT_NOT_EDITABLE"));
     }
@@ -205,7 +213,7 @@ class LectureApiTest {
         mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(UPDATE_INFO_BODY))
+                        .content(updateInfoBody(SELLER_ID)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
@@ -225,7 +233,7 @@ class LectureApiTest {
         mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(OTHER_USER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(UPDATE_INFO_BODY))
+                        .content(updateInfoBody(SELLER_ID)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("NOT_LECTURE_SELLER"));
     }
@@ -292,7 +300,7 @@ class LectureApiTest {
         mockMvc.perform(post("/api/v1/lectures")
                         .with(TestLogin.as(OTHER_USER_ID, Role.INFLUENCER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(REGISTER_BODY))
+                        .content(registerBody(OTHER_USER_ID)))
                 .andExpect(status().isForbidden());
     }
 
@@ -302,13 +310,11 @@ class LectureApiTest {
         var influencer = TestLogin.as(SELLER_ID, Role.INFLUENCER);
 
         mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId).with(influencer).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content(UPDATE_INFO_BODY))
+                        .contentType(MediaType.APPLICATION_JSON).content(updateInfoBody(SELLER_ID)))
                 .andExpect(status().isForbidden());
         mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId).with(influencer).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"contents": [{"fileId": 201, "title": "새 영상", "contentType": "VIDEO"}]}
-                                """))
+                        .content(CONTENTS_BODY.formatted(uploaded(SELLER_ID, FileType.LECTURE_VIDEO))))
                 .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/v1/lectures/{lectureId}/inspection-requests", lectureId)
                         .with(influencer).with(csrf()))
@@ -388,6 +394,104 @@ class LectureApiTest {
     }
 
     @Test
+    void 업로드가_끝나지_않은_파일로_등록하면_400_INVALID_LECTURE_FILE이고_강의는_만들어지지_않는다() throws Exception {
+        register(SELLER_ID, uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL), pending(SELLER_ID, FileType.LECTURE_VIDEO),
+                uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"))
+                .andExpect(jsonPath("$.detail", containsString("업로드가 끝나지 않은 파일")));
+
+        mockMvc.perform(get("/api/v1/lectures/me").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
+    void 남의_파일과_없는_파일은_같은_메시지의_400_INVALID_LECTURE_FILE로_거부한다() throws Exception {
+        register(SELLER_ID, uploaded(OTHER_USER_ID, FileType.LECTURE_THUMBNAIL),
+                uploaded(SELLER_ID, FileType.LECTURE_VIDEO), uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"))
+                .andExpect(jsonPath("$.detail", startsWith("본인이 올린 파일이 아니거나 없는 파일")));
+        register(SELLER_ID, uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL), 999_999L,
+                uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"))
+                .andExpect(jsonPath("$.detail", startsWith("본인이 올린 파일이 아니거나 없는 파일")));
+    }
+
+    @Test
+    void 용도가_다른_파일로_등록하면_400_INVALID_LECTURE_FILE() throws Exception {
+        Long video = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
+        Long document = uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT);
+
+        register(SELLER_ID, video, video, document)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"))
+                .andExpect(jsonPath("$.detail", containsString("썸네일 자리에는")));
+        register(SELLER_ID, null, document, document)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"))
+                .andExpect(jsonPath("$.detail", containsString("영상 자리에는")));
+    }
+
+    @Test
+    void 다른_강의에_연결한_본인_파일로_새_강의를_등록할_수_있다() throws Exception {
+        Long thumbnail = uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL);
+        Long video = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
+        Long document = uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT);
+        register(SELLER_ID, thumbnail, video, document).andExpect(status().isCreated());
+
+        register(SELLER_ID, thumbnail, video, document).andExpect(status().isCreated());
+    }
+
+    @Test
+    void 정보_수정에서_남의_썸네일을_쓰면_400_INVALID_LECTURE_FILE이고_정보는_그대로다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+
+        mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(UPDATE_INFO_BODY.formatted(uploaded(OTHER_USER_ID, FileType.LECTURE_THUMBNAIL))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"));
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(jsonPath("$.title").value("방송 장비 세팅 강의"));
+    }
+
+    @Test
+    void 콘텐츠_교체에서_업로드가_끝나지_않은_파일을_쓰면_400_INVALID_LECTURE_FILE이고_콘텐츠는_그대로다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        reject(lectureId);
+
+        replaceContents(SELLER_ID, lectureId, pending(SELLER_ID, FileType.LECTURE_VIDEO))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"));
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(jsonPath("$.contents.length()").value(2));
+    }
+
+    @Test
+    void 남의_강의를_남의_파일로_교체하면_파일보다_판매자_검사가_먼저다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        reject(lectureId);
+
+        replaceContents(OTHER_USER_ID, lectureId, pending(SELLER_ID, FileType.LECTURE_VIDEO))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_LECTURE_SELLER"));
+    }
+
+    @Test
+    void 검수_대기_강의를_미완료_파일로_교체하면_파일보다_상태_검사가_먼저다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+
+        replaceContents(SELLER_ID, lectureId, pending(SELLER_ID, FileType.LECTURE_VIDEO))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONTENT_NOT_EDITABLE"));
+    }
+
+    @Test
     void 가격이_천_HP_단위가_아니면_등록할_수_없다() throws Exception {
         mockMvc.perform(post("/api/v1/lectures")
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
@@ -408,9 +512,9 @@ class LectureApiTest {
                 {
                   "title": "%s",
                   "priceHp": %d,
-                  "contents": [{"fileId": 101, "title": "1강", "contentType": "VIDEO"}]
+                  "contents": [{"fileId": %d, "title": "1강", "contentType": "VIDEO"}]
                 }
-                """.formatted(title, priceHp);
+                """.formatted(title, priceHp, uploaded(SELLER_ID, FileType.LECTURE_VIDEO));
         String response = mockMvc.perform(post("/api/v1/lectures")
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -432,9 +536,53 @@ class LectureApiTest {
         String response = mockMvc.perform(post("/api/v1/lectures")
                         .with(TestLogin.as(sellerId, Role.VERIFIED_INFLUENCER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(REGISTER_BODY))
+                        .content(registerBody(sellerId)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(response, "$.id")).longValue();
+    }
+
+    private ResultActions register(Long sellerId, Long thumbnailFileId, Long videoFileId, Long documentFileId)
+            throws Exception {
+        return mockMvc.perform(post("/api/v1/lectures")
+                .with(TestLogin.as(sellerId, Role.VERIFIED_INFLUENCER)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(REGISTER_BODY.formatted(thumbnailFileId, videoFileId, documentFileId)));
+    }
+
+    private ResultActions replaceContents(Long userId, Long lectureId, Long videoFileId) throws Exception {
+        return mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
+                .with(TestLogin.as(userId, Role.VERIFIED_INFLUENCER)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(CONTENTS_BODY.formatted(videoFileId)));
+    }
+
+    private void reject(Long lectureId) throws Exception {
+        mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/reject", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason": "영상 음질이 너무 낮습니다."}
+                                """))
+                .andExpect(status().isNoContent());
+    }
+
+    /** 이 판매자가 업로드를 마친 썸네일·영상·자료로 등록 요청 본문을 만든다 */
+    private String registerBody(Long sellerId) {
+        return REGISTER_BODY.formatted(uploaded(sellerId, FileType.LECTURE_THUMBNAIL),
+                uploaded(sellerId, FileType.LECTURE_VIDEO), uploaded(sellerId, FileType.LECTURE_DOCUMENT));
+    }
+
+    private String updateInfoBody(Long sellerId) {
+        return UPDATE_INFO_BODY.formatted(uploaded(sellerId, FileType.LECTURE_THUMBNAIL));
+    }
+
+    /** S3 없이 업로드를 마친 파일을 저장한다 */
+    private Long uploaded(Long uploaderUserId, FileType fileType) {
+        return fileResourceRepository.save(uploadedFile(uploaderUserId, fileType)).getId();
+    }
+
+    private Long pending(Long uploaderUserId, FileType fileType) {
+        return fileResourceRepository.save(pendingFile(uploaderUserId, fileType)).getId();
     }
 }

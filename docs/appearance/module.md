@@ -84,7 +84,7 @@ com.hapbang.appearance
 ├── app           시나리오 조립 (Facade → UseCase → Support, 응답 DTO)
 ├── in            바깥에서 들어오는 곳 (Controller·Swagger Spec·요청 DTO, 이벤트 리스너, 이후 Scheduler)
 ├── out           바깥으로 나가는 곳 (Repository, Billing 연동)
-├── global        전역 global 모듈로 옮길 후보 (Problem Detail 오류 응답)
+├── global        전역 global 모듈로 옮길 후보 (오류 응답은 #71에서 global로 이관되어 현재 비어 있음)
 └── shared        전역 shared 모듈로 옮길 후보 (서비스 시간대)
 ```
 
@@ -128,7 +128,7 @@ com.hapbang.appearance
 | `out.billing.BillingClient` | Billing과 주고받는 값(계약) |
 | `out.billing.FakeBillingClient` | 계약 확정 전까지 쓰는 메모리 구현 (테스트에서 잔액·무응답 조절) |
 | `out.billing.BillingUnavailableException` | Billing 무응답(타임아웃 등). 처리 여부를 알 수 없어 같은 멱등 키로 다시 확인해야 함 |
-| `global.exception.AppearanceExceptionHandler` | 출연 컨트롤러의 오류를 Problem Detail로 응답 |
+| (삭제, #71) | 출연 예외는 global의 공통 핸들러(`com.hapbang.global.exception.GlobalExceptionHandler`)가 Problem Detail로 응답한다 |
 
 ### 3.3 설정 파일
 
@@ -246,7 +246,7 @@ com.hapbang.appearance
 | GET | `/api/v1/appearances/requests/{requestId}` | 요청서 상세 (호스트·게스트) | 200 |
 | PATCH | `/api/v1/appearances/requests/{requestId}` | 기본 정보 수정 (호스트, `REQUESTED`까지) | 200 |
 
-- 권한: 로그인(401은 보안 필터) → Facade `@PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")`(403 `NOT_INFLUENCER`) → UseCase에서 출연 회원 자격 재확인. 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등은 서비스 확인이 막는다 (조회 포함).
+- 권한: 로그인(401은 보안 필터) → Facade `@PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")`(거절 시 공통 403 `FORBIDDEN`) → UseCase에서 출연 회원 자격 재확인(`NOT_INFLUENCER`·`APPEARANCE_USER_NOT_ACTIVE`). 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등은 서비스 확인이 막는다 (조회 포함).
 - 쓰기 요청(POST·PATCH)은 CSRF 토큰(`X-XSRF-TOKEN` 헤더)이 필요하다 (global SecurityConfig).
 - 목록은 `Pageable`(page, size; 기본 20, 최대 100). **정렬은 최신순(`createdAt` desc, `id` desc) 고정**이며 `sort` 값은 무시한다. 응답은 팀 공통 PagedModel 형식(`content`, `page`).
 - 검색·필터(상태, 기간, 키워드 등)는 아직 정하지 않았다. 정해지면 조건 객체를 받아 조회 조건을 조합하고, 보이는 상태 제한과 최신순 정렬은 유지한다.

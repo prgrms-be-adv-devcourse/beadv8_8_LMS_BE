@@ -72,10 +72,10 @@ class ChatUserTest {
     @Test
     void 닉네임이나_상태가_비어_있으면_만들_수_없다() {
         assertThatThrownBy(() -> ChatUser.create(activeUser(HOST_ID, " ", Role.INFLUENCER)))
-                .isInstanceOf(ChatException.class)
-                .extracting("errorCode").isEqualTo(ChatErrorCode.INVALID_REQUEST);
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("복제할 수 없는 회원 정보입니다.");
         assertThatThrownBy(() -> ChatUser.create(userDto(HOST_ID, "호스트", Role.INFLUENCER, null)))
-                .isInstanceOf(ChatException.class)
-                .extracting("errorCode").isEqualTo(ChatErrorCode.INVALID_REQUEST);
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("복제할 수 없는 회원 정보입니다.");
     }
 }

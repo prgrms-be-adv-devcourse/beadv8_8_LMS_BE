@@ -12,8 +12,8 @@ import org.springframework.stereotype.Controller;
 
 import com.hapbang.chat.app.ChatMessageFacade;
 import com.hapbang.chat.app.dto.SentChatMessage;
-import com.hapbang.chat.domain.ChatErrorCode;
-import com.hapbang.chat.domain.ChatException;
+import com.hapbang.chat.app.exception.ChatErrorCode;
+import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.in.dto.ChatErrorMessage;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.websocket.ChatMessageSender;
@@ -46,7 +46,7 @@ public class ChatMessageStompController {
     @MessageExceptionHandler(ChatException.class)
     @SendToUser(destinations = ChatWebSocketConfig.ERROR_QUEUE, broadcast = false)
     public ChatErrorMessage handleChatException(ChatException exception) {
-        return new ChatErrorMessage(exception.getErrorCode().name(), exception.getMessage());
+        return new ChatErrorMessage(exception.getErrorCode().getCode(), exception.getMessage());
     }
 
     @MessageExceptionHandler(MethodArgumentNotValidException.class)
@@ -58,6 +58,6 @@ public class ChatMessageStompController {
                         .map(error -> error.getDefaultMessage())
                         .findFirst()
                         .orElse(ChatErrorCode.INVALID_REQUEST.getMessage());
-        return new ChatErrorMessage(ChatErrorCode.INVALID_REQUEST.name(), message);
+        return new ChatErrorMessage(ChatErrorCode.INVALID_REQUEST.getCode(), message);
     }
 }

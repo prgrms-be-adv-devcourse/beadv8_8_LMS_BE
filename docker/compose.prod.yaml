@@ -39,6 +39,8 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD가 필요하다}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID가 필요하다}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET가 필요하다}
+      # S3 접근은 EC2 인스턴스 역할로 한다. 액세스 키를 넣지 않는다(docs/deploy/s3.md)
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET가 필요하다}
     networks:
       default:
       edge:

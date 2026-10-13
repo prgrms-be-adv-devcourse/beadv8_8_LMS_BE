@@ -28,7 +28,7 @@
 | 단위 | `AppearanceConfigTest` | 설정 값 주입, Clock, Billing 구현 선택 | #26 |
 | 단위 | `FakeBillingClientTest` | Fake Billing 동작 규칙 | #26 |
 | 단위 | `AppearanceUserTest` | 출연 회원 참여 자격 | #31 |
-| 단위 | `AppearanceExceptionHandlerTest` | 출연 예외 → Problem Detail | #26, #31 |
+| 단위 | `AppearanceExceptionHandlerTest` | 출연 예외 → 공통 핸들러의 Problem Detail | #26, #31, #71 |
 | 단위 | `AppearanceRequestTest` | 출연 요청서 생성 검증·상태 전이·수정·조회 권한 | #98 |
 | 단위 | `AppearanceRequestValidationTest` | 요청서 보내기·수정 요청 값 형식 (Bean Validation) | #98 |
 | 저장소 | `AppearanceUserRepositoryTest` | `appearances.users` 저장·조회 | #31 |
@@ -113,8 +113,6 @@
 |---|---|
 | 출연 예외 발생 (`NOT_INFLUENCER`) | 403, `application/problem+json`, `code: NOT_INFLUENCER`, `detail`에 기본 메시지 |
 | 상세 메시지를 따로 준 출연 예외 | `detail`에 그 메시지 |
-| 버전 충돌(`ObjectOptimisticLockingFailureException`) | 409, `code: CONCURRENT_UPDATE` |
-| `@PreAuthorize` 거절(`AccessDeniedException`) | 403, `code: NOT_INFLUENCER` |
 
 ### 3.6 출연 요청서 — `AppearanceRequestTest`
 
@@ -255,7 +253,7 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 |---|---|
 | 보내기 → 보낸 목록 → 받은 목록 → 상세 → 수정 | 201 `REQUESTED` → `content[0]`·`page.totalElements` 1 → 게스트 목록에 호스트 ID → 상세 필드 일치 → 보낸 값만 바뀜 |
 | 로그인하지 않고 목록 조회 | 401 (보안 필터) |
-| 일반 유저 세션으로 목록 조회, 관리자 세션으로 보내기 | 403 Problem Detail, `code: NOT_INFLUENCER` (Facade `@PreAuthorize`) |
+| 일반 유저 세션으로 목록 조회, 관리자 세션으로 보내기 | 403 Problem Detail, `code: FORBIDDEN` (Facade `@PreAuthorize`, 공통 핸들러) |
 | 제목 공백·URL 형식 오류·출연료 누락 | 400, `code: INVALID_REQUEST`, `errors`에 `title`·`hostChannelUrl`·`fee` |
 | 출연료 19,999 | 400, `code: FEE_BELOW_MINIMUM`, `detail`에 최저 출연료 |
 | 잔액 10,000에서 30,000 요청 | 409, `code: INSUFFICIENT_HP` |

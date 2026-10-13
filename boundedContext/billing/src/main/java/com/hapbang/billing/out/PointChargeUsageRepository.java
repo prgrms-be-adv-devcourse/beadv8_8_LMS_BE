@@ -1,5 +1,6 @@
 package com.hapbang.billing.out;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.repository.Repository;
@@ -17,4 +18,7 @@ public interface PointChargeUsageRepository extends Repository<PointChargeUsage,
 
     // 충전 건과 보류의 ID 조합에 해당하는 원금 배분 내역을 조회한다.
     Optional<PointChargeUsage> findByChargeIdAndPointHoldId(Long chargeId, Long pointHoldId);
+
+    // 특정 보류에 배분된 충전 원금 내역을 ID(배분 순서) 오름차순으로 조회한다.
+    List<PointChargeUsage> findAllByPointHoldIdOrderByIdAsc(Long pointHoldId);
 }

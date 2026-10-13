@@ -23,7 +23,13 @@ import org.springframework.test.context.TestExecutionListeners;
         "spring.modulith.events.completion-mode=delete",
         // global의 SecurityConfig(oauth2Login)가 구글 등록 정보를 요구한다
         "spring.security.oauth2.client.registration.google.client-id=test",
-        "spring.security.oauth2.client.registration.google.client-secret=test"
+        "spring.security.oauth2.client.registration.google.client-secret=test",
+        // global의 S3 빈(S3FileStorage)을 주입받을 수 있게 가짜 설정을 둔다. 호출하지 않으면 연결하지 않는다.
+        // 실제로 S3를 호출하는 테스트는 S3MockTestcontainersConfig를 @Import 한다
+        "hapbang.storage.s3.endpoint=http://localhost:9",
+        "hapbang.storage.s3.bucket=test",
+        "hapbang.storage.s3.region=ap-northeast-2",
+        "hapbang.storage.s3.key-prefix=test"
 })
 @Import(PostgresTestcontainersConfig.class)
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,

@@ -50,8 +50,8 @@ class ChatRoomTest {
         room.end(NOW);
 
         assertThatThrownBy(room::issueSequence)
-                .isInstanceOf(ChatException.class)
-                .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_ROOM_NOT_FOUND);
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("종료된 채팅방에는 메시지 순번을 발급할 수 없습니다.");
     }
 
     @Test

@@ -14,7 +14,6 @@ public record PurchasedLectureResponse(
         String title,
         @Schema(nullable = true)
         String thumbnailUrl,
-        @Schema(description = "PURCHASED면 영상·자료를 보기 전에 재생 동의가 필요하다")
         OrderItemStatus itemStatus,
         @Schema(description = "판매자가 삭제한 강의. 기존 구매자는 계속 볼 수 있다")
         boolean lectureDeleted,

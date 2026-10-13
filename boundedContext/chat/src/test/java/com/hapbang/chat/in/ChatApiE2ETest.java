@@ -17,7 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
-import com.hapbang.chat.app.ChatUserService;
+import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.fixture.ChatUserSeeder;
@@ -37,13 +37,13 @@ class ChatApiE2ETest {
     private int port;
 
     @Autowired
-    private ChatUserService chatUserService;
+    private ChatUserUseCase chatUserUseCase;
 
     private RestTestClient client;
 
     @BeforeEach
     void setUp() {
-        ChatUserSeeder.seedDefaultUsers(chatUserService);
+        ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
         client = RestTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
     }
 
@@ -76,6 +76,7 @@ class ChatApiE2ETest {
         assertThat(reused.chatRoomId()).isEqualTo(created.chatRoomId());
     }
 
+    // Facade @PreAuthorize 거절은 global 공통 핸들러가 403 FORBIDDEN으로 응답한다 (UseCase 검사 거절은 CHAT_NOT_ALLOWED)
     @Test
     void 일반_유저가_채팅방을_만들면_403_ProblemDetail() {
         ProblemDetail problem = client.post().uri("/api/v1/chats")
@@ -87,7 +88,7 @@ class ChatApiE2ETest {
                 .returnResult().getResponseBody();
 
         assertThat(problem).isNotNull();
-        assertThat(problem.getProperties()).containsEntry("code", "CHAT_NOT_ALLOWED");
+        assertThat(problem.getProperties()).containsEntry("code", "FORBIDDEN");
     }
 
     @Test
@@ -176,7 +177,7 @@ class ChatApiE2ETest {
     }
 
     @Test
-    void 채팅_회원_역할이_인플루언서여도_세션_역할이_일반_유저면_컨트롤러에서_403() {
+    void 채팅_회원_역할이_인플루언서여도_세션_역할이_일반_유저면_Facade에서_403() {
         ProblemDetail problem = client.get().uri("/api/v1/chats")
                 .header(HttpHeaders.COOKIE, login(HOST_ID, Role.USER).cookieHeader())
                 .exchange()
@@ -185,13 +186,13 @@ class ChatApiE2ETest {
                 .returnResult().getResponseBody();
 
         assertThat(problem).isNotNull();
-        assertThat(problem.getProperties()).containsEntry("code", "CHAT_NOT_ALLOWED");
+        assertThat(problem.getProperties()).containsEntry("code", "FORBIDDEN");
     }
 
     @Test
     void 로그인_후_강등되면_세션_역할이_인플루언서여도_서비스에서_403() {
         E2ESession host = login(HOST_ID, Role.INFLUENCER);
-        chatUserService.update(activeUser(HOST_ID, "호스트", Role.USER));
+        chatUserUseCase.update(activeUser(HOST_ID, "호스트", Role.USER));
 
         ProblemDetail problem = client.get().uri("/api/v1/chats")
                 .header(HttpHeaders.COOKIE, host.cookieHeader())
@@ -207,7 +208,7 @@ class ChatApiE2ETest {
     @Test
     void 강등된_회원도_채팅방은_나갈_수_있다() {
         Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
-        chatUserService.update(activeUser(HOST_ID, "호스트", Role.USER));
+        chatUserUseCase.update(activeUser(HOST_ID, "호스트", Role.USER));
 
         client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
                 .headers(login(HOST_ID, Role.USER)::applyTo)

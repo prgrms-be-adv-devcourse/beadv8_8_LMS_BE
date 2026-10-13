@@ -1,5 +1,6 @@
 package com.hapbang.lecture.in;
 
+import static com.hapbang.lecture.fixture.LectureFixture.uploadedFile;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -24,6 +25,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import com.hapbang.lecture.domain.FileType;
+import com.hapbang.lecture.out.FileResourceRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
@@ -44,6 +47,9 @@ class LectureCartApiTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private FileResourceRepository fileResourceRepository;
 
     @Test
     void 판매_중인_강의를_담으면_최근_담은_순으로_조회되고_합계에_더해진다() throws Exception {
@@ -267,9 +273,10 @@ class LectureCartApiTest {
                 {
                   "title": "%s",
                   "priceHp": %d,
-                  "contents": [{"fileId": 101, "title": "1강", "contentType": "VIDEO"}]
+                  "contents": [{"fileId": %d, "title": "1강", "contentType": "VIDEO"}]
                 }
-                """.formatted(title, priceHp);
+                """.formatted(title, priceHp,
+                fileResourceRepository.save(uploadedFile(SELLER_ID, FileType.LECTURE_VIDEO)).getId());
         String response = mockMvc.perform(post("/api/v1/lectures")
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)

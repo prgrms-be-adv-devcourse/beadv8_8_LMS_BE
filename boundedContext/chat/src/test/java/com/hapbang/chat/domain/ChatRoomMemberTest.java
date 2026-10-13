@@ -32,8 +32,8 @@ class ChatRoomMemberTest {
         member.leave(NOW.plusHours(1));
 
         assertThatThrownBy(() -> member.leave(NOW.plusHours(2)))
-                .isInstanceOf(ChatException.class)
-                .extracting("errorCode").isEqualTo(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("이미 나간 참여자는 다시 나갈 수 없습니다.");
     }
 
     @Test

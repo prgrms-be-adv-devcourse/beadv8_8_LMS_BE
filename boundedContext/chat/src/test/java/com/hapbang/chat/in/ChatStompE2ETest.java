@@ -26,7 +26,7 @@ import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
-import com.hapbang.chat.app.ChatUserService;
+import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
@@ -53,14 +53,14 @@ class ChatStompE2ETest {
     private int port;
 
     @Autowired
-    private ChatUserService chatUserService;
+    private ChatUserUseCase chatUserUseCase;
 
     private RestTestClient client;
     private WebSocketStompClient stompClient;
 
     @BeforeEach
     void setUp() {
-        ChatUserSeeder.seedDefaultUsers(chatUserService);
+        ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
         client = RestTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
         stompClient = new WebSocketStompClient(new StandardWebSocketClient());
         stompClient.setMessageConverter(new JacksonJsonMessageConverter());

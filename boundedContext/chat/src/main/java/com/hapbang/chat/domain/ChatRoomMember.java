@@ -2,6 +2,8 @@ package com.hapbang.chat.domain;
 
 import java.time.LocalDateTime;
 
+import org.springframework.util.Assert;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -74,9 +76,7 @@ public class ChatRoomMember {
     }
 
     public void leave(LocalDateTime now) {
-        if (!isActive()) {
-            throw new ChatException(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
-        }
+        Assert.state(isActive(), "이미 나간 참여자는 다시 나갈 수 없습니다.");
         this.leftAt = now;
     }
 

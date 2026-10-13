@@ -148,16 +148,16 @@ class AppearanceRequestApiE2ETest {
     }
 
     @Test
-    @DisplayName("일반 유저·관리자 세션이면 Facade @PreAuthorize에서 403 Problem Detail (NOT_INFLUENCER)")
+    @DisplayName("일반 유저·관리자 세션이면 Facade @PreAuthorize에서 403 Problem Detail (공통 FORBIDDEN)")
     void userRole() throws Exception {
         mockMvc.perform(get(BASE + "/sent").with(TestLogin.as(HOST, Role.USER)))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("NOT_INFLUENCER"));
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         mockMvc.perform(post(BASE).with(TestLogin.as(HOST, Role.ADMIN)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content(createBody(GUEST, 30_000)))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("NOT_INFLUENCER"));
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test

@@ -1,23 +1,15 @@
 package com.hapbang.billing.domain;
 
-import lombok.Getter;
+import com.hapbang.global.exception.BusinessException;
 
-// Billing 오류 코드를 담는 업무 예외이며, BillingExceptionHandler가 Problem Detail로 바꿔 응답한다.
-// TODO: 팀 공통 커스텀 예외가 정해지면 그 구조에 맞춘다.
-@Getter
-public class BillingException extends RuntimeException {
+/** 지갑 업무 예외. global의 공통 핸들러(GlobalExceptionHandler)가 ProblemDetail로 응답한다 */
+public class BillingException extends BusinessException {
 
-    private final BillingErrorCode errorCode;
-
-    // 오류 코드와 그 기본 메시지로 예외를 생성한다.
     public BillingException(BillingErrorCode errorCode) {
-        super(errorCode.getMessage());
-        this.errorCode = errorCode;
+        super(errorCode);
     }
 
-    // 오류 코드와 그 기본 메시지, 원인 예외로 예외를 생성한다.
     public BillingException(BillingErrorCode errorCode, Throwable cause) {
-        super(errorCode.getMessage(), cause);
-        this.errorCode = errorCode;
+        super(errorCode, cause);
     }
 }

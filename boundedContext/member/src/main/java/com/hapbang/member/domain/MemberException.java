@@ -1,15 +1,11 @@
 package com.hapbang.member.domain;
 
-import lombok.Getter;
+import com.hapbang.global.exception.BusinessException;
 
-/** 회원 모듈 예외 (MemberErrorCode를 담는다) */
-@Getter
-public class MemberException extends RuntimeException {
-
-    private final MemberErrorCode errorCode;
+/** 회원 업무 예외. global의 공통 핸들러(GlobalExceptionHandler)가 ProblemDetail로 응답한다 */
+public class MemberException extends BusinessException {
 
     public MemberException(MemberErrorCode errorCode) {
-        super(errorCode.getMessage());
-        this.errorCode = errorCode;
+        super(errorCode);
     }
 }

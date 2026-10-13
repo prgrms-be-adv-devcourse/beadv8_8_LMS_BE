@@ -2,6 +2,8 @@ package com.hapbang.chat.domain;
 
 import java.time.LocalDateTime;
 
+import org.springframework.util.Assert;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -66,10 +68,13 @@ public class ChatMessage {
     }
 
     public static ChatMessage text(ChatRoom chatRoom, Long senderUserId, String content, LocalDateTime now) {
-        if (content == null || content.isBlank()) {
-            throw new ChatException(ChatErrorCode.EMPTY_MESSAGE);
-        }
+        Assert.state(hasContent(content), "메시지 내용이 비어 있습니다.");
         return new ChatMessage(chatRoom, senderUserId, ChatMessageType.TEXT, content, now);
+    }
+
+    /** 보낼 수 있는 메시지 내용인지. UseCase가 도메인 호출 전에 같은 기준으로 검사한다 */
+    public static boolean hasContent(String content) {
+        return content != null && !content.isBlank();
     }
 
     /**

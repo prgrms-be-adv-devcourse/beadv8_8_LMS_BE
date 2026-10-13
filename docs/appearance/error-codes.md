@@ -29,11 +29,12 @@ Content-Type: application/problem+json
 | `detail` | 사용자에게 보여줄 메시지. 기본 메시지 대신 상황별 메시지가 들어갈 수 있다 |
 | `instance` | 요청 경로 |
 | `code` | 출연 오류 코드 (아래 표). 프론트는 이 값으로 분기한다 |
-| `errors` | `INVALID_REQUEST`일 때만. `[{"field": "title", "message": "제목은 필수입니다."}]` 형식 (채팅 모듈과 같음) |
+| `errors` | `INVALID_REQUEST`일 때만. `[{"field": "title", "message": "제목은 필수입니다."}]` 형식 (공통 핸들러) |
 
 - `type`은 기본값(`about:blank`)이라 응답에서 생략된다.
-- 출연 패키지의 컨트롤러에만 적용된다 (`AppearanceExceptionHandler`, `@RestControllerAdvice(basePackages = "com.hapbang.appearance")`). 다른 모듈의 오류 응답에는 영향이 없다.
-- 로그인하지 않은 요청의 401, CSRF 토큰이 없는 쓰기 요청의 403은 보안 필터가 응답하며, 이 형식이 아니다.
+- (#71) 모듈 핸들러(`AppearanceExceptionHandler`)는 없앴다. `AppearanceException extends BusinessException`이고, global의 공통 핸들러(`GlobalExceptionHandler`)가 모든 모듈의 오류를 같은 형식(Problem Detail + `code`)으로 응답한다 (AGENTS.md 7장).
+- 요청 값 검증·형식 오류(400 `INVALID_REQUEST` + `errors`), `@PreAuthorize` 거절(403 `FORBIDDEN`, 비로그인 401 `UNAUTHORIZED`)은 공통 코드로 응답한다.
+- 로그인하지 않은 요청의 401, CSRF 토큰이 없는 쓰기 요청의 403은 보안 필터가 응답하며, 이 형식이 아니다 (본문 없음).
 
 ## 2. 오류 코드
 
@@ -42,7 +43,7 @@ Content-Type: application/problem+json
 | `INVALID_REQUEST` | 400 | 요청 값이 올바르지 않습니다. | 요청 값 형식·범위 오류, 읽을 수 없는 요청 본문. 검증 오류면 `errors`에 항목별 메시지. 도메인 형식 확인에 걸리면 `detail`에 제한 내용 | #26, #98 |
 | `APPEARANCE_USER_NOT_FOUND` | 404 | 출연 회원 정보를 찾을 수 없습니다. | 출연 모듈에 복제된 회원 정보가 없음 (가입 이벤트 미반영 등) | #31 |
 | `APPEARANCE_USER_NOT_ACTIVE` | 403 | 현재 이용할 수 없는 회원입니다. | 탈퇴(`WITHDRAWN`)·정지(`SUSPENDED`) 회원이 출연 거래에 참여 | #31 |
-| `NOT_INFLUENCER` | 403 | 인플루언서 이상만 출연 거래에 참여할 수 있습니다. | 일반 유저·관리자가 출연 거래에 참여 (세션 역할 검사 `@PreAuthorize` 거절 포함) | #31, #98 |
+| `NOT_INFLUENCER` | 403 | 인플루언서 이상만 출연 거래에 참여할 수 있습니다. | 출연 회원(복제된 역할)이 일반 유저·관리자. 세션 역할 검사(`@PreAuthorize`) 거절은 공통 `FORBIDDEN` | #31, #98 |
 | `CANNOT_REQUEST_SELF` | 400 | 자기 자신에게는 출연을 요청할 수 없습니다. | 호스트와 게스트가 같음 | #98 |
 | `FEE_BELOW_MINIMUM` | 400 | 출연료가 최저 출연료보다 적습니다. | 출연료 < 최저 출연료. `detail`에 최저 출연료 금액 표시 | #98 |
 | `INVALID_REQUEST_SCHEDULE` | 400 | 수락 기한은 현재 이후이고 방송 예정 일시보다 앞서야 합니다. | 현재 < 수락 기한 < 방송 예정 일시가 아님 | #98 |
@@ -51,7 +52,7 @@ Content-Type: application/problem+json
 | `DUPLICATE_APPEARANCE_REQUEST` | 409 | 이미 처리 중이거나 응답 대기 중인 출연 요청이 있습니다. | 같은 게스트에게 진행 중인 요청서가 있음 (동시 요청 포함) | #98 |
 | `INSUFFICIENT_HP` | 409 | HP 잔액이 부족합니다. | 출연료만큼 HP 보류 실패 | #98 |
 | `APPEARANCE_REQUEST_NOT_EDITABLE` | 409 | 게스트가 응답하기 전인 출연 요청서만 수정할 수 있습니다. | `REQUESTED`가 아닌 요청서 수정 | #98 |
-| `CONCURRENT_UPDATE` | 409 | 다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요. | 같은 데이터를 동시에 바꿔 버전(낙관적 락)이 맞지 않음 | #98 |
+| `CONCURRENT_UPDATE` | 409 | 다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요. | 같은 요청서를 동시에 바꿔 버전(낙관적 락)이 맞지 않음. UseCase가 반영 시점에 확인해 던진다 | #98 |
 | `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | Billing 무응답. 요청서는 `HOLD_PENDING`으로 남음 | #98 |
 
 - 정의 위치: `boundedContext/appearance/src/main/java/com/hapbang/appearance/domain/AppearanceErrorCode.java`
