@@ -12,7 +12,7 @@ public record OrderResponse(
         Long orderId,
         long totalAmountHp,
         LectureOrderStatus status,
-        @Schema(description = "status가 PAID일 때만 내려준다", nullable = true)
+        @Schema(nullable = true)
         OrderProgress progress,
         LocalDateTime orderedAt,
         @Schema(nullable = true)

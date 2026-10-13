@@ -14,6 +14,7 @@ import com.hapbang.lecture.in.dto.LectureInfoUpdateRequest;
 import com.hapbang.lecture.in.dto.LectureRegisterRequest;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 강의 API Swagger 명세 (설계 8.1). 매핑은 {@link ApiV1LectureController} */
@@ -23,7 +24,15 @@ public interface ApiV1LectureSpec {
     @Operation(summary = "강의 목록",
             description = "판매 중(ON_SALE)인 강의만. 비회원도 조회할 수 있다. 제목 검색, 정렬, 페이징(page·size, 최대 100). "
                     + "정렬은 sort=LATEST|PRICE_ASC|PRICE_DESC|RATING으로 정하고, 필드 이름 정렬(sort=priceHp,asc)은 쓰지 않는다.")
-    Page<LectureSummaryResponse> getLectures(String keyword, LectureSort sort, Pageable pageable);
+    Page<LectureSummaryResponse> getLectures(String keyword,
+                                             @Parameter(description = """
+                                                     강의 목록 정렬
+                                                     - `LATEST`: 최신순(기본)
+                                                     - `PRICE_ASC`: 가격 낮은순
+                                                     - `PRICE_DESC`: 가격 높은순
+                                                     - `RATING`: 평점순. 리뷰 기능 전까지는 최신순으로 정렬된다""")
+                                             LectureSort sort,
+                                             Pageable pageable);
 
     @Operation(summary = "강의 상세",
             description = "콘텐츠 목록(제목·순서·종류)을 포함하고 파일 URL은 없다. "
