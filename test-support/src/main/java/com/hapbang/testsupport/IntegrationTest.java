@@ -29,9 +29,7 @@ import org.springframework.test.context.TestExecutionListeners;
         "hapbang.storage.s3.endpoint=http://localhost:9",
         "hapbang.storage.s3.bucket=test",
         "hapbang.storage.s3.region=ap-northeast-2",
-        "hapbang.storage.s3.key-prefix=test",
-        "hapbang.storage.s3.upload-url-expiry=10m",
-        "hapbang.storage.s3.download-url-expiry=10m"
+        "hapbang.storage.s3.key-prefix=test"
 })
 @Import(PostgresTestcontainersConfig.class)
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,

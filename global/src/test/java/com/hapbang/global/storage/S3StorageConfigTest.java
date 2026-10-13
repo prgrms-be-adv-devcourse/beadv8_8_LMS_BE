@@ -27,9 +27,7 @@ class S3StorageConfigTest {
         runner.withPropertyValues(
                         "hapbang.storage.s3.bucket=${S3_BUCKET_NOT_SET_FOR_TEST}",
                         "hapbang.storage.s3.region=ap-northeast-2",
-                        "hapbang.storage.s3.key-prefix=dev",
-                        "hapbang.storage.s3.upload-url-expiry=10m",
-                        "hapbang.storage.s3.download-url-expiry=10m")
+                        "hapbang.storage.s3.key-prefix=dev")
                 .run(context -> assertThat(context).hasFailed());
     }
 
@@ -46,9 +44,7 @@ class S3StorageConfigTest {
                         "hapbang.storage.s3.endpoint=http://localhost:9",
                         "hapbang.storage.s3.bucket=test",
                         "hapbang.storage.s3.region=ap-northeast-2",
-                        "hapbang.storage.s3.key-prefix=test",
-                        "hapbang.storage.s3.upload-url-expiry=10m",
-                        "hapbang.storage.s3.download-url-expiry=10m")
+                        "hapbang.storage.s3.key-prefix=test")
                 .run(context -> assertThat(context).hasSingleBean(S3FileStorage.class));
     }
 }

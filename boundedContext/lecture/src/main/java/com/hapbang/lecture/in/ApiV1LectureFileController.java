@@ -27,9 +27,9 @@ public class ApiV1LectureFileController implements ApiV1LectureFileSpec {
     @Override
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public FileUploadResponse createUploadUrl(@LoginUserId Long userId,
+    public FileUploadResponse register(@LoginUserId Long userId,
             @Valid @RequestBody FileUploadRequest request) {
-        return lectureFileFacade.createUploadUrl(userId, request.fileType(), request.originalFilename(),
+        return lectureFileFacade.register(userId, request.fileType(), request.originalFilename(),
                 request.contentType(), request.fileSize());
     }
 

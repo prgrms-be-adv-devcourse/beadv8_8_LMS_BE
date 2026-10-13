@@ -66,9 +66,6 @@ hapbang:
   storage:
     s3:
       region: ap-northeast-2
-      # Presigned URL 만료 시간 (SigV4 최대 7일)
-      upload-url-expiry: 10m
-      download-url-expiry: 10m
 
 springdoc:
   swagger-ui:
