@@ -34,16 +34,22 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
-class ChatRoomServiceTest {
+class ChatRoomUseCaseTest {
 
     @Autowired
-    private ChatRoomService chatRoomService;
+    private ChatRoomUseCase chatRoomUseCase;
 
     @Autowired
-    private ChatMessageService chatMessageService;
+    private ChatRoomSupporter chatRoomSupporter;
 
     @Autowired
-    private ChatUserService chatUserService;
+    private ChatMessageSupporter chatMessageSupporter;
+
+    @Autowired
+    private ChatMessageUseCase chatMessageUseCase;
+
+    @Autowired
+    private ChatUserUseCase chatUserUseCase;
 
     @Autowired
     private ChatRoomRepository chatRoomRepository;
@@ -56,12 +62,12 @@ class ChatRoomServiceTest {
 
     @BeforeEach
     void setUp() {
-        ChatUserSeeder.seedDefaultUsers(chatUserService);
+        ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
     }
 
     @Test
     void 인플루언서끼리_채팅방을_만들고_생성과_입장을_기록한다() {
-        ChatRoomCreateResult result = chatRoomService.createOrGet(HOST_ID, GUEST_ID);
+        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
 
         assertThat(result.created()).isTrue();
         assertThat(result.room().status()).isEqualTo(ChatRoomStatus.ACTIVE);
@@ -78,7 +84,7 @@ class ChatRoomServiceTest {
     void 두_사람의_종료되지_않은_방이_있으면_재사용한다() {
         Long chatRoomId = createRoom();
 
-        ChatRoomCreateResult result = chatRoomService.createOrGet(GUEST_ID, HOST_ID);
+        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
 
         assertThat(result.created()).isFalse();
         assertThat(result.room().chatRoomId()).isEqualTo(chatRoomId);
@@ -89,7 +95,7 @@ class ChatRoomServiceTest {
     void 다른_사람과는_새_방을_만든다() {
         Long first = createRoom();
 
-        Long second = chatRoomService.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).room().chatRoomId();
+        Long second = chatRoomUseCase.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).room().chatRoomId();
 
         assertThat(second).isNotEqualTo(first);
     }
@@ -98,10 +104,10 @@ class ChatRoomServiceTest {
     @Test
     void 한_명이_나가면_나간_사람은_조회할_수_없고_남은_사람은_기존_기록과_퇴장_안내를_본다() {
         Long chatRoomId = createRoom();
-        chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요");
-        chatMessageService.send(chatRoomId, GUEST_ID, "반갑습니다");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요");
+        chatMessageUseCase.send(chatRoomId, GUEST_ID, "반갑습니다");
 
-        ChatRoomLeaveResult result = chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        ChatRoomLeaveResult result = chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         assertThat(result.left()).isTrue();
         assertThat(result.roomEnded()).isFalse();
@@ -110,7 +116,7 @@ class ChatRoomServiceTest {
         assertThat(result.leftNotice().content()).isEqualTo("게스트님이 나갔습니다.");
         assertThat(contentsSeenBy(chatRoomId, HOST_ID))
                 .containsExactly("게스트님이 나갔습니다.", "반갑습니다", "안녕하세요");
-        assertThatThrownBy(() -> chatMessageService.getMessages(chatRoomId, GUEST_ID, null, 30))
+        assertThatThrownBy(() -> chatMessageSupporter.getMessages(chatRoomId, GUEST_ID, null, 30))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
         assertThat(chatRoomRepository.findById(chatRoomId).orElseThrow().getStatus())
@@ -121,11 +127,11 @@ class ChatRoomServiceTest {
     @Test
     void 남은_사람이_있는_방에서_다시_시작하면_같은_방에_재입장하고_재입장한_사람만_빈_기록으로_시작한다() {
         Long chatRoomId = createRoom();
-        chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요");
-        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요");
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
         List<String> hostBefore = contentsSeenBy(chatRoomId, HOST_ID);
 
-        ChatRoomCreateResult result = chatRoomService.createOrGet(HOST_ID, GUEST_ID);
+        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
 
         assertThat(result.created()).isFalse();
         assertThat(result.room().chatRoomId()).isEqualTo(chatRoomId);
@@ -145,9 +151,9 @@ class ChatRoomServiceTest {
     @Test
     void 나간_사람이_직접_다시_시작해도_같은_방에_재입장한다() {
         Long chatRoomId = createRoom();
-        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        ChatRoomCreateResult result = chatRoomService.createOrGet(GUEST_ID, HOST_ID);
+        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
 
         assertThat(result.room().chatRoomId()).isEqualTo(chatRoomId);
         assertThat(isActiveMember(chatRoomId, GUEST_ID)).isTrue();
@@ -157,10 +163,10 @@ class ChatRoomServiceTest {
     @Test
     void 두_사람_모두_나가면_방이_종료되고_다음_대화는_새_방에서_시작한다() {
         Long chatRoomId = createRoom();
-        chatMessageService.send(chatRoomId, HOST_ID, "안녕하세요");
-        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요");
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        ChatRoomLeaveResult lastLeave = chatRoomService.leave(chatRoomId, HOST_ID, null);
+        ChatRoomLeaveResult lastLeave = chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
 
         assertThat(lastLeave.roomEnded()).isTrue();
         assertThat(lastLeave.remainingUserIds()).isEmpty();
@@ -169,12 +175,12 @@ class ChatRoomServiceTest {
         assertThat(endedRoom.getDirectKey()).isNull();
         assertThat(eventsOf(chatRoomId)).endsWith(ChatRoomEventType.MEMBER_LEFT, ChatRoomEventType.ROOM_ENDED);
         for (Long userId : List.of(HOST_ID, GUEST_ID)) {
-            assertThatThrownBy(() -> chatMessageService.getMessages(chatRoomId, userId, null, 30))
+            assertThatThrownBy(() -> chatMessageSupporter.getMessages(chatRoomId, userId, null, 30))
                     .isInstanceOf(ChatException.class)
                     .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_ROOM_NOT_FOUND);
         }
 
-        ChatRoomCreateResult next = chatRoomService.createOrGet(GUEST_ID, HOST_ID);
+        ChatRoomCreateResult next = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
 
         assertThat(next.created()).isTrue();
         assertThat(next.room().chatRoomId()).isNotEqualTo(chatRoomId);
@@ -185,10 +191,10 @@ class ChatRoomServiceTest {
     @Test
     void 이미_나간_뒤_같은_퇴장_요청은_아무것도_바꾸지_않는다() {
         Long chatRoomId = createRoom();
-        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
         long logCount = chatRoomLogRepository.count();
 
-        ChatRoomLeaveResult retried = chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        ChatRoomLeaveResult retried = chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         assertThat(retried.left()).isFalse();
         assertThat(chatRoomLogRepository.count()).isEqualTo(logCount);
@@ -199,10 +205,10 @@ class ChatRoomServiceTest {
     @Test
     void 재입장_뒤_지연_도착한_옛_세대의_퇴장_요청은_무시한다() {
         Long chatRoomId = createRoom();
-        chatRoomService.leave(chatRoomId, GUEST_ID, 1);
-        chatRoomService.createOrGet(HOST_ID, GUEST_ID);
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, 1);
+        chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
 
-        ChatRoomLeaveResult stale = chatRoomService.leave(chatRoomId, GUEST_ID, 1);
+        ChatRoomLeaveResult stale = chatRoomUseCase.leave(chatRoomId, GUEST_ID, 1);
 
         assertThat(stale.left()).isFalse();
         assertThat(isActiveMember(chatRoomId, GUEST_ID)).isTrue();
@@ -211,17 +217,17 @@ class ChatRoomServiceTest {
     @Test
     void 종료된_방의_마지막_퇴장_요청을_다시_보내도_오류가_아니다() {
         Long chatRoomId = createRoom();
-        chatRoomService.leave(chatRoomId, GUEST_ID, null);
-        chatRoomService.leave(chatRoomId, HOST_ID, null);
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
 
-        assertThat(chatRoomService.leave(chatRoomId, HOST_ID, null).left()).isFalse();
+        assertThat(chatRoomUseCase.leave(chatRoomId, HOST_ID, null).left()).isFalse();
     }
 
     @Test
     void 참여자가_아니면_방을_나갈_수_없다() {
         Long chatRoomId = createRoom();
 
-        assertThatThrownBy(() -> chatRoomService.leave(chatRoomId, OTHER_INFLUENCER_ID, null))
+        assertThatThrownBy(() -> chatRoomUseCase.leave(chatRoomId, OTHER_INFLUENCER_ID, null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
     }
@@ -229,15 +235,15 @@ class ChatRoomServiceTest {
     @Test
     void 내_목록에는_참여_중인_종료되지_않은_방만_나온다() {
         Long left = createRoom();
-        Long active = chatRoomService.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).room().chatRoomId();
-        Long ended = chatRoomService.createOrGet(HOST_ID, ADMIN_ID).room().chatRoomId();
-        chatRoomService.leave(left, HOST_ID, null);
-        chatRoomService.leave(ended, HOST_ID, null);
-        chatRoomService.leave(ended, ADMIN_ID, null);
+        Long active = chatRoomUseCase.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).room().chatRoomId();
+        Long ended = chatRoomUseCase.createOrGet(HOST_ID, ADMIN_ID).room().chatRoomId();
+        chatRoomUseCase.leave(left, HOST_ID, null);
+        chatRoomUseCase.leave(ended, HOST_ID, null);
+        chatRoomUseCase.leave(ended, ADMIN_ID, null);
 
-        assertThat(chatRoomService.getMyRooms(HOST_ID)).extracting(ChatRoomResponse::chatRoomId)
+        assertThat(chatRoomSupporter.getMyRooms(HOST_ID)).extracting(ChatRoomResponse::chatRoomId)
                 .containsExactly(active);
-        assertThat(chatRoomService.getMyRooms(GUEST_ID)).singleElement()
+        assertThat(chatRoomSupporter.getMyRooms(GUEST_ID)).singleElement()
                 .satisfies(room -> assertThat(room.members())
                         .extracting(ChatRoomMemberResponse::userId, ChatRoomMemberResponse::active)
                         .containsExactly(tuple(HOST_ID, false), tuple(GUEST_ID, true)));
@@ -245,49 +251,49 @@ class ChatRoomServiceTest {
 
     @Test
     void 일반_유저는_채팅방_목록을_조회할_수_없다() {
-        assertThatThrownBy(() -> chatRoomService.getMyRooms(USER_ID))
+        assertThatThrownBy(() -> chatRoomSupporter.getMyRooms(USER_ID))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_NOT_ALLOWED);
     }
 
     @Test
     void 관리자도_채팅방을_만들_수_있다() {
-        assertThat(chatRoomService.createOrGet(ADMIN_ID, HOST_ID).created()).isTrue();
+        assertThat(chatRoomUseCase.createOrGet(ADMIN_ID, HOST_ID).created()).isTrue();
     }
 
     @Test
     void 일반_유저는_채팅방을_만들_수_없다() {
-        assertThatThrownBy(() -> chatRoomService.createOrGet(USER_ID, HOST_ID))
+        assertThatThrownBy(() -> chatRoomUseCase.createOrGet(USER_ID, HOST_ID))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_NOT_ALLOWED);
     }
 
     @Test
     void 일반_유저에게는_채팅을_걸_수_없다() {
-        assertThatThrownBy(() -> chatRoomService.createOrGet(HOST_ID, USER_ID))
+        assertThatThrownBy(() -> chatRoomUseCase.createOrGet(HOST_ID, USER_ID))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_NOT_ALLOWED);
     }
 
     @Test
     void 탈퇴한_회원과는_채팅방을_만들_수_없다() {
-        chatUserService.update(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
+        chatUserUseCase.update(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
 
-        assertThatThrownBy(() -> chatRoomService.createOrGet(HOST_ID, GUEST_ID))
+        assertThatThrownBy(() -> chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_NOT_ALLOWED);
     }
 
     @Test
     void 자기_자신과는_채팅방을_만들_수_없다() {
-        assertThatThrownBy(() -> chatRoomService.createOrGet(HOST_ID, HOST_ID))
+        assertThatThrownBy(() -> chatRoomUseCase.createOrGet(HOST_ID, HOST_ID))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CANNOT_CHAT_WITH_SELF);
     }
 
     @Test
     void 복제된_회원_정보가_없으면_채팅방을_만들_수_없다() {
-        assertThatThrownBy(() -> chatRoomService.createOrGet(HOST_ID, UNKNOWN_ID))
+        assertThatThrownBy(() -> chatRoomUseCase.createOrGet(HOST_ID, UNKNOWN_ID))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_USER_NOT_FOUND);
     }
@@ -296,13 +302,13 @@ class ChatRoomServiceTest {
     @Test
     void 관리자는_종료된_방과_숨겨진_메시지까지_기록을_조회한다() {
         Long chatRoomId = createRoom();
-        chatMessageService.send(chatRoomId, HOST_ID, "방송 일정 맞춰요");
-        chatRoomService.leave(chatRoomId, GUEST_ID, null);
-        chatRoomService.createOrGet(HOST_ID, GUEST_ID);
-        chatRoomService.leave(chatRoomId, HOST_ID, null);
-        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "방송 일정 맞춰요");
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
+        chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        ChatRoomHistoryResponse history = chatRoomService.getHistory(chatRoomId, ADMIN_ID);
+        ChatRoomHistoryResponse history = chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID);
 
         assertThat(history.status()).isEqualTo(ChatRoomStatus.ENDED);
         assertThat(history.endedAt()).isNotNull();
@@ -324,13 +330,13 @@ class ChatRoomServiceTest {
     void 관리자가_아니면_기록을_조회할_수_없다() {
         Long chatRoomId = createRoom();
 
-        assertThatThrownBy(() -> chatRoomService.getHistory(chatRoomId, HOST_ID))
+        assertThatThrownBy(() -> chatRoomSupporter.getHistory(chatRoomId, HOST_ID))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.ADMIN_ONLY);
     }
 
     private Long createRoom() {
-        return chatRoomService.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        return chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
     }
 
     private boolean isActiveMember(Long chatRoomId, Long userId) {
@@ -346,7 +352,7 @@ class ChatRoomServiceTest {
     }
 
     private List<String> contentsSeenBy(Long chatRoomId, Long userId) {
-        return chatMessageService.getMessages(chatRoomId, userId, null, 100).messages().stream()
+        return chatMessageSupporter.getMessages(chatRoomId, userId, null, 100).messages().stream()
                 .map(ChatMessageResponse::content)
                 .toList();
     }

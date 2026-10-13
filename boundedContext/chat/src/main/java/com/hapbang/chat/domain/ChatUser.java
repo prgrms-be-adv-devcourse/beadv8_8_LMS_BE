@@ -54,7 +54,7 @@ public class ChatUser extends ReplicaUser {
         return isWithdrawn() ? WITHDRAWN_NICKNAME : getNickname();
     }
 
-    /** 복제할 수 있는 회원 정보인지. 서비스가 도메인 호출 전에 같은 기준으로 검사한다 */
+    /** 복제할 수 있는 회원 정보인지. UseCase가 도메인 호출 전에 같은 기준으로 검사한다 */
     public static boolean isReplicable(UserDto user) {
         return user != null && user.id() != null && user.nickname() != null && !user.nickname().isBlank()
                 && user.role() != null && user.status() != null;

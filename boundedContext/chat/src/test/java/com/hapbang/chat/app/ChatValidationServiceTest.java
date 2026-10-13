@@ -21,11 +21,11 @@ class ChatValidationServiceTest {
     private ChatValidationService chatValidationService;
 
     @Autowired
-    private ChatUserService chatUserService;
+    private ChatUserUseCase chatUserUseCase;
 
     @BeforeEach
     void setUp() {
-        ChatUserSeeder.seedDefaultUsers(chatUserService);
+        ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
     }
 
     @Test
@@ -40,7 +40,7 @@ class ChatValidationServiceTest {
 
     @Test
     void 일반_유저와_탈퇴한_회원은_채팅할_수_없다() {
-        chatUserService.update(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
+        chatUserUseCase.update(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
 
         for (Long userId : new Long[] {USER_ID, GUEST_ID}) {
             assertThatThrownBy(() -> chatValidationService.validateCanChat(userId))

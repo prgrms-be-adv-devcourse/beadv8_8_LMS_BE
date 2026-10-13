@@ -15,17 +15,17 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
-class ChatUserServiceTest {
+class ChatUserUseCaseTest {
 
     @Autowired
-    private ChatUserService chatUserService;
+    private ChatUserUseCase chatUserUseCase;
 
     @Autowired
     private ChatUserRepository chatUserRepository;
 
     @Test
     void 가입_정보로_채팅_회원을_생성한다() {
-        chatUserService.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
+        chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
 
         ChatUser chatUser = chatUserRepository.findById(HOST_ID).orElseThrow();
         assertThat(chatUser.getNickname()).isEqualTo("호스트");
@@ -36,10 +36,10 @@ class ChatUserServiceTest {
 
     @Test
     void 이미_있는_채팅_회원에게_온_가입_정보는_무시한다() {
-        chatUserService.createIfAbsent(activeUser(HOST_ID, "가입닉네임", Role.USER));
-        chatUserService.update(activeUser(HOST_ID, "바뀐닉네임", Role.VERIFIED_INFLUENCER));
+        chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "가입닉네임", Role.USER));
+        chatUserUseCase.update(activeUser(HOST_ID, "바뀐닉네임", Role.VERIFIED_INFLUENCER));
 
-        chatUserService.createIfAbsent(activeUser(HOST_ID, "가입닉네임", Role.USER));
+        chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "가입닉네임", Role.USER));
 
         ChatUser chatUser = chatUserRepository.findById(HOST_ID).orElseThrow();
         assertThat(chatUser.getNickname()).isEqualTo("바뀐닉네임");
@@ -49,9 +49,9 @@ class ChatUserServiceTest {
 
     @Test
     void 변경_정보로_닉네임_역할_상태를_갱신한다() {
-        chatUserService.createIfAbsent(activeUser(HOST_ID, "유저", Role.USER));
+        chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "유저", Role.USER));
 
-        chatUserService.update(userDto(HOST_ID, "인플루언서", Role.INFLUENCER, UserStatus.SUSPENDED));
+        chatUserUseCase.update(userDto(HOST_ID, "인플루언서", Role.INFLUENCER, UserStatus.SUSPENDED));
 
         ChatUser chatUser = chatUserRepository.findById(HOST_ID).orElseThrow();
         assertThat(chatUser.getNickname()).isEqualTo("인플루언서");
@@ -61,7 +61,7 @@ class ChatUserServiceTest {
 
     @Test
     void 채팅_회원이_없으면_변경_정보로_생성하지_않고_실패한다() {
-        assertThatThrownBy(() -> chatUserService.update(activeUser(HOST_ID, "바뀐닉네임", Role.INFLUENCER)))
+        assertThatThrownBy(() -> chatUserUseCase.update(activeUser(HOST_ID, "바뀐닉네임", Role.INFLUENCER)))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_USER_NOT_FOUND);
 
@@ -70,10 +70,10 @@ class ChatUserServiceTest {
 
     @Test
     void 복제할_수_없는_회원_정보는_도메인을_부르기_전에_업무_오류로_거절한다() {
-        assertThatThrownBy(() -> chatUserService.createIfAbsent(activeUser(HOST_ID, " ", Role.INFLUENCER)))
+        assertThatThrownBy(() -> chatUserUseCase.createIfAbsent(activeUser(HOST_ID, " ", Role.INFLUENCER)))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.INVALID_REQUEST);
-        assertThatThrownBy(() -> chatUserService.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, null)))
+        assertThatThrownBy(() -> chatUserUseCase.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, null)))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.INVALID_REQUEST);
 
@@ -82,9 +82,9 @@ class ChatUserServiceTest {
 
     @Test
     void 탈퇴한_회원은_탈퇴한_회원으로_표시된다() {
-        chatUserService.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
+        chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
 
-        chatUserService.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, UserStatus.WITHDRAWN));
+        chatUserUseCase.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, UserStatus.WITHDRAWN));
 
         ChatUser chatUser = chatUserRepository.findById(HOST_ID).orElseThrow();
         assertThat(chatUser.isWithdrawn()).isTrue();

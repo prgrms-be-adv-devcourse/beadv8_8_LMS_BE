@@ -1,23 +1,15 @@
 package com.hapbang.chat.app;
 
 import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
-import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
-import com.hapbang.chat.app.dto.ChatRoomLogResponse;
-import com.hapbang.chat.app.dto.ChatRoomMemberResponse;
-import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatMessage;
@@ -25,12 +17,10 @@ import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.ChatRoomMember;
-import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.chat.out.ChatRoomLogRepository;
 import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatRoomRepository;
-import com.hapbang.chat.out.ChatUserRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,14 +29,14 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @Transactional
 @RequiredArgsConstructor
-public class ChatRoomService {
+public class ChatRoomUseCase {
 
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomMemberRepository chatRoomMemberRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatRoomLogRepository chatRoomLogRepository;
-    private final ChatUserRepository chatUserRepository;
     private final ChatValidationService chatValidationService;
+    private final ChatRoomSupporter chatRoomSupporter;
 
     /**
      * 1:1 채팅을 시작한다.
@@ -72,7 +62,7 @@ public class ChatRoomService {
         if (existing.isPresent()) {
             ChatRoom chatRoom = existing.get();
             rejoinLeftMembers(chatRoom, now);
-            return new ChatRoomCreateResult(toResponse(chatRoom), false);
+            return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom), false);
         }
 
         ChatRoom chatRoom = chatRoomRepository.saveAndFlush(ChatRoom.createDirect(requesterId, targetUserId, now));
@@ -83,25 +73,7 @@ public class ChatRoomService {
         }
         log.info("채팅방 생성 chatRoomId={}, requesterId={}, targetUserId={}", chatRoom.getId(), requesterId,
                 targetUserId);
-        return new ChatRoomCreateResult(toResponse(chatRoom), true);
-    }
-
-    @Transactional(readOnly = true)
-    public List<ChatRoomResponse> getMyRooms(Long userId) {
-        chatValidationService.validateCanChat(userId);
-        List<ChatRoom> rooms = chatRoomMemberRepository.findActiveByUserId(userId).stream()
-                .map(ChatRoomMember::getChatRoom)
-                .toList();
-        if (rooms.isEmpty()) {
-            return List.of();
-        }
-        Map<Long, List<ChatRoomMember>> membersByRoom = chatRoomMemberRepository
-                .findByChatRoom_IdInAndDeletedAtIsNull(rooms.stream().map(ChatRoom::getId).toList()).stream()
-                .collect(Collectors.groupingBy(member -> member.getChatRoom().getId()));
-        Map<Long, String> nicknames = findNicknames(membersByRoom.values().stream().flatMap(List::stream).toList());
-        return rooms.stream()
-                .map(room -> ChatRoomResponse.of(room, toMemberResponses(membersByRoom.get(room.getId()), nicknames)))
-                .toList();
+        return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom), true);
     }
 
     /**
@@ -132,7 +104,7 @@ public class ChatRoomService {
         member.leave(now);
         chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.MEMBER_LEFT, now));
         ChatMessage leftNotice = chatMessageRepository.save(
-                ChatMessage.leftNotice(chatRoom, userId, nicknameOf(userId), now));
+                ChatMessage.leftNotice(chatRoom, userId, chatRoomSupporter.displayNicknameOf(userId), now));
 
         List<Long> remainingUserIds = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoomId)
                 .stream()
@@ -148,26 +120,6 @@ public class ChatRoomService {
         return new ChatRoomLeaveResult(true, ChatMessageResponse.from(leftNotice), remainingUserIds, roomEnded);
     }
 
-    /**
-     * 관리자 분쟁 확인용 기록 조회. 종료된 방과 참여자별로 숨겨진 메시지까지 포함한다.
-     */
-    @Transactional(readOnly = true)
-    public ChatRoomHistoryResponse getHistory(Long chatRoomId, Long adminId) {
-        chatValidationService.validateAdmin(adminId);
-        ChatRoom chatRoom = chatRoomRepository.findById(chatRoomId)
-                .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
-        List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoomId);
-        List<ChatRoomLogResponse> logs = chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId).stream()
-                .map(ChatRoomLogResponse::from)
-                .toList();
-        List<ChatMessageHistoryResponse> messages = chatMessageRepository
-                .findByChatRoom_IdOrderByRoomSequenceAsc(chatRoomId).stream()
-                .map(ChatMessageHistoryResponse::from)
-                .toList();
-        return new ChatRoomHistoryResponse(chatRoom.getId(), chatRoom.getStatus(), chatRoom.getCreatedAt(),
-                chatRoom.getEndedAt(), toMemberResponses(members, findNicknames(members)), logs, messages);
-    }
-
     private void rejoinLeftMembers(ChatRoom chatRoom, LocalDateTime now) {
         for (ChatRoomMember member : chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId())) {
             if (!member.isActive()) {
@@ -180,25 +132,4 @@ public class ChatRoomService {
         }
     }
 
-    private String nicknameOf(Long userId) {
-        return chatUserRepository.findById(userId).map(ChatUser::getDisplayNickname).orElse("회원 " + userId);
-    }
-
-    private ChatRoomResponse toResponse(ChatRoom chatRoom) {
-        List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId());
-        return ChatRoomResponse.of(chatRoom, toMemberResponses(members, findNicknames(members)));
-    }
-
-    private Map<Long, String> findNicknames(List<ChatRoomMember> members) {
-        List<Long> userIds = members.stream().map(ChatRoomMember::getUserId).distinct().toList();
-        return chatUserRepository.findAllById(userIds).stream()
-                .collect(Collectors.toMap(ChatUser::getId, ChatUser::getDisplayNickname));
-    }
-
-    private List<ChatRoomMemberResponse> toMemberResponses(List<ChatRoomMember> members, Map<Long, String> nicknames) {
-        return members.stream()
-                .sorted(Comparator.comparing(ChatRoomMember::getId))
-                .map(member -> ChatRoomMemberResponse.of(member, nicknames.get(member.getUserId())))
-                .toList();
-    }
 }

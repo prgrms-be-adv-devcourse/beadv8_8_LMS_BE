@@ -12,9 +12,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;
@@ -38,10 +42,10 @@ class ChatRoomConcurrencyTest {
     private ChatRoomFacade chatRoomFacade;
 
     @Autowired
-    private ChatRoomService chatRoomService;
+    private ChatRoomUseCase chatRoomUseCase;
 
     @Autowired
-    private ChatUserService chatUserService;
+    private ChatUserUseCase chatUserUseCase;
 
     @Autowired
     private ChatRoomRepository chatRoomRepository;
@@ -52,9 +56,18 @@ class ChatRoomConcurrencyTest {
     @Autowired
     private ChatRoomLogRepository chatRoomLogRepository;
 
+    /** Facade의 @PreAuthorize를 통과할 로그인 상태. 스레드마다 따로라 작업 스레드에도 넣는다 */
+    private static final Authentication INFLUENCER = new TestingAuthenticationToken("test", null, "ROLE_INFLUENCER");
+
     @BeforeEach
     void setUp() {
-        ChatUserSeeder.seedDefaultUsers(chatUserService);
+        ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
+        SecurityContextHolder.getContext().setAuthentication(INFLUENCER);
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -71,7 +84,7 @@ class ChatRoomConcurrencyTest {
     void 두_사람이_동시에_나가면_방은_한_번만_종료된다() throws Exception {
         Long chatRoomId = chatRoomFacade.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
 
-        List<Boolean> ended = runConcurrently(2, index -> chatRoomService
+        List<Boolean> ended = runConcurrently(2, index -> chatRoomUseCase
                 .leave(chatRoomId, index == 0 ? HOST_ID : GUEST_ID, null).roomEnded());
 
         assertThat(ended).containsExactlyInAnyOrder(true, false);
@@ -86,10 +99,10 @@ class ChatRoomConcurrencyTest {
     @Test
     void 마지막_퇴장과_채팅_시작이_겹쳐도_종료된_방을_되살리지_않고_활성_방은_하나다() throws Exception {
         Long chatRoomId = chatRoomFacade.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
-        chatRoomService.leave(chatRoomId, GUEST_ID, null);
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         List<Long> results = runConcurrently(2, index -> index == 0
-                ? chatRoomService.leave(chatRoomId, HOST_ID, null).roomEnded() ? -1L : 0L
+                ? chatRoomUseCase.leave(chatRoomId, HOST_ID, null).roomEnded() ? -1L : 0L
                 : chatRoomFacade.createOrGet(GUEST_ID, HOST_ID).room().chatRoomId());
         Long startedRoomId = results.stream().filter(id -> id > 0).findFirst().orElseThrow();
 
@@ -117,9 +130,14 @@ class ChatRoomConcurrencyTest {
             for (int i = 0; i < count; i++) {
                 int index = i;
                 Callable<T> callable = () -> {
-                    ready.countDown();
-                    start.await();
-                    return task.run(index);
+                    SecurityContextHolder.getContext().setAuthentication(INFLUENCER);
+                    try {
+                        ready.countDown();
+                        start.await();
+                        return task.run(index);
+                    } finally {
+                        SecurityContextHolder.clearContext();
+                    }
                 };
                 futures.add(executor.submit(callable));
             }
