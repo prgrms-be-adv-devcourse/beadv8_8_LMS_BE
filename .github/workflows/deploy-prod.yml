@@ -1,0 +1,102 @@
+# 운영(prod) 배포. main 병합은 이미지까지만 만들고(deploy.yml), 운영 배포는 이 워크플로를 수동으로 실행한다.
+# Actions → Deploy prod → Run workflow(브랜치 main)에서 배포할 main 커밋의 sha를 넣는다.
+# 롤백도 같다. 되돌릴 커밋의 sha를 넣고 실행한다.
+# resolve: sha를 40자로 풀고, main에 포함된 커밋인지와 그 커밋의 이미지(:sha-<커밋>)가 GHCR에 있는지 확인한다.
+#          이미지는 테스트를 통과한 커밋에만 만들어지므로, 테스트를 통과한 main 커밋만 배포된다.
+# deploy: deploy-server.yml로 EC2에 배포한다. 서버 설정은 main 최신 파일과 비교한다.
+# 검사는 이 파일 안에 있으므로 실수를 막는 용도다(docs/deploy/security.md "알려진 위험").
+name: Deploy prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 배포할 main 커밋 sha(7~40자)
+        type: string
+        required: true
+
+# 운영 배포는 한 번에 하나씩 순서대로 실행한다.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      # 입력값은 스크립트에 직접 넣지 않고 환경 변수로만 받는다(명령 주입 방지).
+      - name: 입력 확인
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::main 브랜치에서 실행하세요(Run workflow → Use workflow from: main). 현재: $GITHUB_REF"
+            exit 1
+          fi
+          if ! [[ "$INPUT_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::error::sha는 소문자 16진수 7~40자여야 합니다."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 커밋 확인
+        id: commit
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          sha=$(git rev-parse --verify --quiet "$INPUT_SHA^{commit}") || {
+            echo "::error::커밋을 찾을 수 없거나 짧은 sha가 여러 커밋에 해당합니다: $INPUT_SHA"
+            exit 1
+          }
+          if ! git merge-base --is-ancestor "$sha" HEAD; then
+            echo "::error::main에 포함되지 않은 커밋입니다: $sha"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          {
+            echo "### 운영 배포 대상"
+            echo "- 커밋: \`$sha\`"
+            echo "- 제목: $(git log -1 --format=%s "$sha")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 이미지 확인
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          if ! docker buildx imagetools inspect "$IMAGE:sha-$SHA" > /dev/null; then
+            echo "::error::이미지 $IMAGE:sha-$SHA 가 없습니다. 이 커밋의 Deploy run이 실패했거나 아직 진행 중입니다."
+            exit 1
+          fi
+
+  deploy:
+    needs: resolve
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-server.yml
+    with:
+      env: prod
+      sha: ${{ needs.resolve.outputs.sha }}
+      config-ref: main
+    secrets: inherit

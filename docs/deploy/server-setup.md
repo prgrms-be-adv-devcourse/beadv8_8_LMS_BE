@@ -142,7 +142,7 @@ sudo -u deploy hapbang-deploy prod web
 sudo -u deploy docker logout ghcr.io
 ```
 
-이후 배포는 GitHub Actions가 한다. 각 레포의 최근 Deploy run에서 `deploy` job을 재실행해 동작을 확인한다.
+이후 배포는 GitHub Actions가 한다. 각 레포의 최근 Deploy run에서 `deploy` job을 재실행해 동작을 확인한다. BE prod는 Deploy prod를 `main` 최신 커밋 sha로 실행해 확인한다.
 
 ## 7. 확인
 

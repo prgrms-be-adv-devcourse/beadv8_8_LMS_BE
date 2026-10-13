@@ -36,6 +36,7 @@
 | `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |
 | BE 이미지 빌드 컨텍스트는 jar 폴더뿐 | 이미지에는 `app.jar`만 들어간다. 소스·`.env`가 들어갈 수 없음 |
 | CI(PR) 읽기 전용 권한 | PR 코드가 실행되는 job은 GHCR에 쓸 수 없음. push는 Deploy의 `build` job만 |
+| 운영 배포 수동 실행·검사 | BE 운영은 Deploy prod를 `main`에서 실행해야 하고, `main`에 포함되고 이미지가 있는(테스트 통과) 커밋만 배포된다 |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
 
 ## 알려진 위험
@@ -44,6 +45,7 @@
 | --- | --- | --- |
 | dev가 인터넷에 공개(Swagger 포함) | 누구나 API 명세 조회·호출 가능 | edge에서 dev를 팀 IP 또는 Basic 인증으로 제한 |
 | SSH 22 전체 개방 | Actions 배포 때문. 키 인증만 허용 | 접근 로그 주기 확인(`sudo journalctl -u ssh`) |
+| Deploy prod 검사가 워크플로 안에 있음 | 실수(다른 브랜치·dev 커밋)만 막는다. 쓰기 권한자가 워크플로를 고친 브랜치로 실행하면 우회되고, 배포 Secrets는 레포 단위라 어느 브랜치에서나 쓸 수 있다 | GitHub Environment `prod`·`dev`를 만들어 배포 브랜치를 제한하고 `DEPLOY_*` Secrets를 Environment로 옮김 |
 | `main`·`dev` 직접 push 가능 | 브랜치 보호 없음. CI 통과해야 배포는 됨 | 필요 시 ruleset |
 | GitHub Actions 메이저 버전 태그(`@v7` 등) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
 | DB 백업 없음 | 수동 절차만 | 정기 백업 결정 |
@@ -54,7 +56,7 @@
 
 1. [server-setup.md#5-배포-키github-secrets](server-setup.md#5-배포-키github-secrets)로 새 키를 만들어 서버 `authorized_keys`에 **추가**한다.
 2. FE·BE 레포의 `DEPLOY_SSH_KEY`를 새 개인 키로 바꾼다.
-3. 아무 Deploy run의 `deploy` job을 재실행해 새 키로 성공하는지 확인한다.
+3. dev의 최근 BE Deploy run(FE는 아무 Deploy run)에서 `deploy` job을 재실행해 새 키로 성공하는지 확인한다.
 4. 서버 `authorized_keys`에서 **이전 키 줄을 삭제**한다: `sudo -u deploy vi /home/deploy/.ssh/authorized_keys`
 
 ## DB 비밀번호 교체
