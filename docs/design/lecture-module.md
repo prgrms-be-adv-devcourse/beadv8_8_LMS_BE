@@ -171,7 +171,9 @@ sequenceDiagram
 
 - `file_type`: `LECTURE_THUMBNAIL`, `LECTURE_VIDEO`, `LECTURE_DOCUMENT`
 - `status`: `PENDING` → `UPLOADED` (삭제 시 `deleted_at`)
-- object key 규칙(제안): `lecture/{fileType}/{uuid}` — 원본 파일명은 key에 넣지 않는다.
+- object key 규칙: `lecture/{fileType}/{uuid}` — 원본 파일명은 key에 넣지 않는다. 환경 prefix(`dev/` 등)는 `global/storage`가 붙인다.
+- 용도별 허용 형식·최대 크기, 업로드 URL 만료(10분)는 D19, 업로드 완료 실패 처리는 D20을 따른다.
+- 강의 등록·정보 수정·콘텐츠 교체에서는 `UPLOADED`이고 판매자 본인이 올렸고 용도(썸네일/영상/자료)가 맞는 파일만 연결한다. 한 파일을 여러 강의에 연결할 수 있다 (D21).
 - 썸네일은 목록에서 비회원도 보므로 짧은 만료의 Presigned GET URL을 응답 때마다 발급하거나 공개 prefix를 둔다. (S3 버킷 정책은 인프라 담당과 확인)
 - 오래된 `PENDING` 파일 정리는 MVP에서 하지 않는다.
 
@@ -552,7 +554,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 **lecture_content**: ERD + `deleted_at`. `content_type` = `VIDEO` / `DOCUMENT`. 살아 있는 행끼리 `(lecture_id, sequence)`가 겹치지 않아야 하지만, **MVP에서는 DB 제약을 두지 않고** `Lecture` 애그리거트(교체 때마다 1부터 다시 매김)와 `lecture.version` 낙관적 락으로 보장한다 (D12). DB 제약이 필요해지면 지연 검사 제약 `EXCLUDE USING btree (lecture_id WITH =, sequence WITH =) WHERE (deleted_at IS NULL) DEFERRABLE INITIALLY DEFERRED`를 쓴다. 콘텐츠 교체 때 Hibernate가 새 행 INSERT를 기존 행 Soft Delete UPDATE보다 먼저 실행하므로, 즉시 검사하는 부분 유일 인덱스는 교체를 항상 실패시킨다.
 
-**file_resource**: ERD와 같음. `file_type` = `LECTURE_THUMBNAIL` / `LECTURE_VIDEO` / `LECTURE_DOCUMENT`, `status` = `PENDING` / `UPLOADED`.
+**file_resource**: `id`, `uploader_user_id`(회원 ID), `file_type` = `LECTURE_THUMBNAIL` / `LECTURE_VIDEO` / `LECTURE_DOCUMENT`, `object_key`(유일, 모듈 기준 key), `original_filename`, `content_type`, `file_size`(바이트), `status` = `PENDING` / `UPLOADED`, `uploaded_at`, `created_at`, `updated_at`, `deleted_at` (#89).
 
 **cart**: ERD와 같음. 유일 `uc_cart_user_id (user_id)`.
 
@@ -649,6 +651,10 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | --- | --- | --- | --- |
 | POST | `/api/v1/lectures/files` | 인증된 인플루언서 | `{fileType, originalFilename, contentType, fileSize}` → `{fileId, uploadUrl}` |
 | POST | `/api/v1/lectures/files/{fileId}/complete` | 업로더 본인 | 업로드 완료 확인 → `UPLOADED` |
+
+- 발급: 허용하지 않는 형식 `UNSUPPORTED_FILE_CONTENT_TYPE`(400), 최대 크기 초과 `FILE_TOO_LARGE`(400). 응답의 `uploadUrl`로 요청한 `contentType`과 같은 `Content-Type` 헤더를 붙여 PUT 한다.
+- 완료: 없는 파일 `FILE_NOT_FOUND`(404), 업로더가 아님 `NOT_FILE_UPLOADER`(403), S3에 객체 없음 `FILE_NOT_UPLOADED`(409), 크기가 신청과 다름 `FILE_SIZE_MISMATCH`(400). 이미 완료한 파일은 204 (D20).
+- 강의 등록·정보 수정·콘텐츠 교체에 맞지 않는 파일을 보내면 `INVALID_LECTURE_FILE`(400) (D21).
 
 ### 8.4 장바구니
 
@@ -811,7 +817,7 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | ~~Q7~~ | ~~리뷰 작성 시점(구매 확정 후만?), 반환된 항목의 리뷰 처리~~ | **결정됨 → 16장 D5** | - |
 | ~~Q8~~ | ~~내용 다름 이의 제기 접수 창구~~ | **결정됨 → 16장 D4** | - |
 | Q9 | 회원 정보 변경 이벤트(닉네임·역할·상태) 계약 | `UserDto`를 담은 변경 이벤트 1종 | 회원 담당 |
-| Q10 | S3 클라이언트·Presigned URL 공통 코드를 `global`에 둘지 | `global`에 설정, 각 모듈은 key prefix만 다르게 | 출연 담당, 인프라 |
+| ~~Q10~~ | ~~S3 클라이언트·Presigned URL 공통 코드를 `global`에 둘지~~ | **결정됨**: `global/storage`의 `S3FileStorage` (#88). 강의는 `lecture/...` key만 넘긴다 | - |
 | ~~Q11~~ | ~~재검수 중 기존 구매자가 보는 콘텐츠~~ | **해당 없음 → 16장 D11** (판매 중 강의는 재검수되지 않음) | - |
 | ~~Q12~~ | ~~"첫 재생" 판정 기준~~ | **결정됨 → 16장 D7** | - |
 | ~~Q13~~ | ~~판매자가 탈퇴하거나 역할을 잃으면 판매 중 강의를 어떻게 하나~~ | **결정됨 → 16장 D8** | - |
@@ -897,3 +903,6 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D16 | 2026-10-12 | 강의 모듈 `app`은 Facade/UseCase/Support로 구성한다. 컨트롤러·이벤트 리스너는 Facade만 호출하고 `@Transactional`은 Facade에 건다. 역할 검사는 Facade 메서드의 `@PreAuthorize`로 하고(판매자 기능 `VERIFIED_INFLUENCER`, 검수 `ADMIN`) 컨트롤러에는 두지 않는다. 관리자 API의 `/admin` 경로 검사(`SecurityConfig`)는 유지한다. D15의 "`@PreAuthorize`는 컨트롤러에 남긴다"를 대체한다 (#73) | 2026-10-12 회의의 "서비스단에서 검증"은 서비스 레이어(Facade/UseCase)를 뜻한다. 모듈을 서비스로 떼어내도 진입점에서 권한이 유지되고, 구조가 회원·지갑 모듈과 같아진다 | 역할 검사가 `@Valid` 검증 뒤에 실행되어, 권한 없는 사용자가 잘못된 요청을 보내면 403이 아니라 400을 받는다(PR #66) |
 | D17 | 2026-10-13 | `LectureUser`는 **가입 이벤트로만 생성**한다(이미 있으면 무시). 회원 정보 변경 이벤트는 **있는 복제본만** `syncFrom`으로 갱신하고, 없으면 `LECTURE_USER_NOT_FOUND`로 실패시켜 미완료 이벤트로 남긴다(재시작 시 재처리) (#87) | `LectureUser`는 ID를 직접 넣어 `save()`가 `merge`로 동작한다. 가입·변경 리스너가 동시에 "없음"을 보고 생성하면 늦은 가입 처리가 먼저 커밋된 변경 정보를 PK 충돌 없이 UPDATE로 덮어쓴다. 생성 경로를 하나로 두면 동시 생성이 없어진다. 채팅 모듈(#79)과 같은 방식 | 변경 이벤트끼리 순서가 바뀌는 경우(재처리 등)는 `UserDto` 버전(또는 수정 시각) 도입을 회원 담당과 논의. 변경 이벤트가 가입보다 먼저 처리되면 재시작 전까지 복제본이 없어 판매자 닉네임이 `null`로 보인다(복제 도착 전과 같음) |
 | D18 | 2026-10-13 | 장바구니 (#92): (1) 담지 않은 강의를 빼면 무시하고 204. (2) 담기 거부는 본인 강의 `OWN_LECTURE_NOT_PURCHASABLE`(403, 주문에서도 재사용) → 판매 중이 아닌 강의(검수 대기·반려·삭제) `LECTURE_NOT_FOUND`(404) → 이미 담음 `ALREADY_IN_CART`(409) 순으로 검사. (3) 조회는 최근 담은 순. (4) 같은 회원의 동시 담기는 장바구니를 `INSERT … ON CONFLICT (user_id) DO NOTHING`으로 만들고, 같은 강의 중복은 부분 유일 인덱스 위반을 `ALREADY_IN_CART`로 바꾼다. (5) 개수 제한 없음 | (1) DELETE를 멱등하게 해 재시도·더블 클릭에도 오류가 없다 (2) 판매 중이 아닌 강의가 있다는 사실을 다른 회원에게 숨겨 상세 조회와 맞춘다 (3) 강의 목록 기본 정렬(최신순)과 같은 방향 (4) 더블 클릭 시 500 대신 409 (5) 기획서에 없음 | "이미 보유 중인 강의 거부"와 "주문 성공 시 빼기"는 주문 PR에서 추가 |
+| D19 | 2026-10-13 | 강의 파일 정책 (#89): 썸네일 `image/jpeg`·`image/png`·`image/webp` 5MB, 영상 `video/mp4` 2GB, 자료 `application/pdf` 50MB(`FileType`). 업로드 URL 만료는 공통 설정 10분(#88)을 그대로 쓴다 | 기획서에 값이 없어 브라우저 재생·열람이 되는 형식만 받는다. Presigned PUT은 Content-Type만 서명하고 크기는 서명하지 않으므로, 발급할 때 신청한 크기와 완료할 때 HEAD로 받은 실제 크기를 모두 검사한다. S3는 요청 시작 시점에 서명을 검사하므로 큰 영상도 만료 전에 업로드를 시작하면 된다 | 형식 추가(webm·mov, zip 등)는 프론트·기획과 다시 맞춤 |
+| D20 | 2026-10-13 | 업로드 완료(#89): S3에 객체가 없으면 409 `FILE_NOT_UPLOADED`, 크기가 신청과 다르거나 최대를 넘으면 400 `FILE_SIZE_MISMATCH`/`FILE_TOO_LARGE`. 두 경우 모두 `PENDING`으로 남겨 다시 올린 뒤 재요청할 수 있다. 이미 `UPLOADED`면 S3를 다시 확인하지 않고 204. 업로더가 아니면 403 `NOT_FILE_UPLOADER`, 없으면 404 `FILE_NOT_FOUND` | 재시도·더블 클릭에도 오류가 없게 멱등하게 한다(D18과 같음). 서버 역할에 삭제 권한이 없어 거부된 객체는 S3에 남지만 강의에 연결할 수 없다 | 오래된 `PENDING` 파일과 고아 객체 정리는 MVP 범위 밖 (4.4) |
+| D21 | 2026-10-13 | 강의 등록·정보 수정·콘텐츠 교체에 연결할 파일(#89): 없거나, 남의 것이거나, 업로드가 끝나지 않았거나, 용도(썸네일/영상/자료)가 맞지 않으면 모두 400 `INVALID_LECTURE_FILE`이고 detail 메시지만 다르다. 남의 파일과 없는 파일은 같은 메시지다. 강의 검사(없음 → 판매자 → 상태)를 먼저 하고 파일은 나중에 검사한다. 썸네일은 선택이며 값이 있을 때만 검사한다. 본인 파일은 여러 강의(같은 강의의 여러 콘텐츠 포함)에 다시 연결할 수 있다 | 프론트는 코드 하나로 분기하고, 다른 회원의 파일 ID가 있는지 드러내지 않는다. 남의 강의에 요청하면 파일과 관계없이 판매자 오류를 받는다. 판매 중 강의를 고치려면 삭제 후 재등록하므로(D11) 이미 올린 파일을 다시 쓸 수 있어야 한다 | - |

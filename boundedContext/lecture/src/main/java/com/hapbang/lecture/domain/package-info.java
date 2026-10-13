@@ -5,6 +5,7 @@
  *     <li>lecture_content: 강의 영상·자료 (file_id, sequence, content_type)</li>
  *     <li>cart: 회원별 장바구니 (user_id 유일)</li>
  *     <li>cart_item: 장바구니에 담은 강의 (cart_id, lecture_id, deleted_at)</li>
+ *     <li>file_resource: S3에 올린 강의 파일 (uploader_user_id, file_type, object_key 유일, status, deleted_at)</li>
  * </ul>
  */
 // 테이블은 Flyway 마이그레이션(src/main/resources/db/migration/)으로 만든다. 엔티티를 바꾸면 마이그레이션도 추가한다.
