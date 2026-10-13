@@ -206,7 +206,7 @@
 - AWS EC2 1대(t3.large까지), VPC 1개, S3 버킷 1개 범위에서만 운영한다. 범위 밖 서비스(RDS 등)는 추가하지 않는다.
 - S3 용도는 사진 및 영상 업로드다.
 - Nginx(React + HTTPS + `/api` 프록시), Spring, PostgreSQL을 모두 EC2에 Docker 컨테이너로 배포한다.
-- CI/CD는 GitHub Actions를 쓴다. PR마다 테스트를 실행하고, main·dev 병합 시 EC2로 배포한다.
+- CI/CD는 GitHub Actions를 쓴다. PR마다 테스트를 실행하고, dev 병합 시 EC2(dev)로 자동 배포한다. main 병합은 이미지까지만 만들고, 운영 배포는 Deploy prod 워크플로를 수동으로 실행한다(`docs/deploy/README.md`).
 
 ## 9. Git 워크플로우
 

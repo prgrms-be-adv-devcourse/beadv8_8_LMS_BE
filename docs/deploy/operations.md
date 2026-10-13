@@ -14,7 +14,7 @@ edge() { sudo -u deploy docker compose -f /opt/hapbang/compose.edge.yaml --env-f
 
 | 확인 | 방법 |
 | --- | --- |
-| 최근 배포 | 각 레포 Actions → Deploy |
+| 최근 배포 | 각 레포 Actions → Deploy (BE 운영은 Deploy prod) |
 | 서비스 응답 | 브라우저로 prod·dev 주소. `/api/...`는 인증 전 403이 정상 |
 | 컨테이너 | `dev ps`, `prod ps`, `edge ps` — app·web·postgres가 `(healthy)` |
 | 앱·DB 상태 | app의 `(healthy)`는 `/actuator/health`가 UP(DB 연결 포함)이라는 뜻이다. 직접 확인: `dev exec app bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080; printf "GET /actuator/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3; cat <&3'` (이미지에 curl이 없다). 외부(nginx)로는 열려 있지 않다 |
@@ -36,12 +36,15 @@ edge logs --tail 50 certbot       # 인증서 갱신
 
 ## 배포 실패 대응
 
-Actions의 Deploy run에서 실패한 job을 먼저 본다.
+Actions의 Deploy run(BE 운영은 Deploy prod run)에서 실패한 job을 먼저 본다. 아래의 `deploy` job 재실행은 Deploy prod run에서도 같다(`Re-run failed jobs`).
 
 | 실패 위치 | 원인 | 대응 |
 | --- | --- | --- |
 | `ci` | 테스트·린트·빌드·이미지 빌드 확인 실패 | 코드 수정 후 다시 병합 |
 | `build` | jar 받기·GHCR push 실패 | 로그 확인. 일시적이면 Re-run(jar artifact는 1일 보관) |
+| `resolve` — `main 브랜치에서 실행하세요` | Deploy prod를 main이 아닌 브랜치로 실행 | Run workflow에서 `Use workflow from: main`을 골라 다시 실행 |
+| `resolve` — `main에 포함되지 않은 커밋입니다` / `커밋을 찾을 수 없거나` | dev에만 있는 커밋, 오타, 짧은 sha가 여러 커밋에 해당 | main의 커밋 sha를 확인해 다시 실행(모호하면 더 길게) |
+| `resolve` — `이미지 ... 가 없습니다` | 그 커밋의 Deploy run이 실패(테스트 등)했거나 아직 진행 중 | 그 커밋의 Deploy run을 확인. 끝난 뒤 다시 실행 |
 | `deploy` — SSH 연결 타임아웃 | EC2 꺼짐(18:00 이후) | 서버가 켜진 뒤 `deploy` job Re-run |
 | `deploy` — `Host key verification failed` | 서버 재구축 등으로 호스트 키 변경 | `DEPLOY_KNOWN_HOSTS` Secret 갱신([server-setup.md](server-setup.md#5-배포-키github-secrets)) |
 | `deploy` — `Permission denied (publickey)` | 배포 키 불일치 | 서버 `authorized_keys`와 `DEPLOY_SSH_KEY` 확인 |
@@ -54,6 +57,10 @@ Actions의 Deploy run에서 실패한 job을 먼저 본다.
 | 경고 `서버의 ... 가 레포와 다릅니다` | 다른 환경 compose·edge·nginx·deploy.sh 반영 누락(배포는 진행됨) | [설정 반영](#설정-반영) |
 
 ## 롤백
+
+**BE 운영(prod)**: BE 레포 Actions → Deploy prod → Run workflow(`main`)에 **되돌릴 버전(정상이던 커밋)의 sha**를 넣고 실행한다. 그 커밋의 이미지(`:sha-<커밋>`)로 교체된다. 다시 최신으로 올릴 때도 같은 방법으로 최신 sha를 넣는다.
+
+**BE dev, FE(prod·dev)**
 
 1. 각 레포 Actions → Deploy에서 **되돌릴 버전(정상이던 커밋)의 run**을 연다.
 2. `Re-run jobs` → **`deploy`만** 선택해 다시 실행한다. 그 run의 커밋 이미지(`:sha-<커밋>`)로 교체된다.
@@ -70,9 +77,10 @@ FE·BE는 각각 롤백한다. DB 스키마가 바뀐 배포는 이미지 롤백
 
 `docker/`의 `compose.*.yaml`, `nginx/`, `deploy.sh`는 서버에 자동으로 반영되지 않는다(배포 키로 서버 설정을 바꿀 수 없게 하기 위함). PR 병합과 함께 직접 반영한다.
 
-BE 배포는 시작 전에 서버 설정을 **배포 브랜치의 최신 파일**과 비교한다. 배포 환경의 `compose.<env>.yaml`이 다르면 배포하지 않고 실패하며, 나머지 파일은 경고만 한다. compose를 바꾼 PR이 병합되면 Deploy가 실패하는 것이 정상이다. 반영한 뒤 `deploy` job을 다시 실행한다.
+BE 배포는 시작 전에 서버 설정을 **배포 브랜치의 최신 파일**(dev: `dev`, 운영: `main`)과 비교한다. 배포 환경의 `compose.<env>.yaml`이 다르면 배포하지 않고 실패하며, 나머지 파일은 경고만 한다. `compose.dev.yaml`을 바꾼 PR이 `dev`에 병합되면 Deploy가 실패하는 것이 정상이다. 반영한 뒤 `deploy` job을 다시 실행한다.
 
-- `compose.dev.yaml`은 `dev` 병합 때, `compose.prod.yaml`은 `main` 병합 때 반영한다. 서버에는 파일이 한 벌뿐이므로, 미리 반영하면 아직 반영 전인 브랜치의 배포가 실패한다.
+- `compose.dev.yaml`은 `dev` 병합 때, `compose.prod.yaml`은 `main` 병합 뒤 **운영 배포(Deploy prod) 전에** 반영한다. 서버에는 파일이 한 벌뿐이므로, 미리 반영하면 아직 반영 전인 브랜치의 배포가 실패한다.
+- `main` 병합은 배포하지 않으므로 compose가 달라도 실패하지 않는다. 반영하지 않고 Deploy prod를 실행하면 그때 실패한다.
 
 **로컬** (BE 레포 루트, 반영할 커밋으로 체크아웃한 상태)
 
@@ -103,7 +111,7 @@ sudo install -o root -g root -m 755 ~/hapbang-config/deploy.sh /usr/local/bin/ha
 
 | 바뀐 파일 | 적용 방법 |
 | --- | --- |
-| `compose.<env>.yaml`의 app·postgres | 해당 환경의 최근 **BE** Deploy run → `deploy` job 재실행 (또는 다음 BE 배포) |
+| `compose.<env>.yaml`의 app·postgres | dev: 최근 **BE** Deploy run → `deploy` job 재실행. prod: **지금 운영 중인 커밋 sha**([실행 중인 버전](#상태-확인))로 Deploy prod 실행. (또는 다음 BE 배포) |
 | `compose.<env>.yaml`의 web | 해당 환경의 최근 **FE** Deploy run → `deploy` job 재실행 (또는 다음 FE 배포) |
 | `nginx/`, `compose.edge.yaml` | `edge up -d --force-recreate` (1~2초 끊김) |
 | `deploy.sh` | 다음 배포부터 적용 |
@@ -112,7 +120,7 @@ sudo install -o root -g root -m 755 ~/hapbang-config/deploy.sh /usr/local/bin/ha
 
 | 하지 말 것 | 이유 | 대신 |
 | --- | --- | --- |
-| 서버에서 `docker compose ... up` 직접 실행(prod·dev) | 이미지 태그가 지정되지 않아 서버에 남아 있던 **예전 `:dev`/`:latest` 이미지로 바뀔 수 있다** | 최근 Deploy run의 `deploy` job 재실행 |
+| 서버에서 `docker compose ... up` 직접 실행(prod·dev) | 이미지 태그가 지정되지 않아 서버에 남아 있던 **예전 `:dev`/`:latest` 이미지로 바뀔 수 있다** | dev: 최근 Deploy run의 `deploy` job 재실행. BE 운영: 운영 중인 sha로 Deploy prod 실행 |
 | `docker compose ... down -v` | **DB 볼륨이 삭제된다** | 필요하면 [DB 초기화](#db-초기화) 절차 |
 | `docker system prune -a --volumes` | 이미지·DB 볼륨·인증서 볼륨까지 삭제 | `docker image prune -f` |
 | env 파일 내용을 `cat`해서 화면 공유·캡처 | 비밀값 노출 | `grep -c '^KEY='`로 존재만 확인 |
@@ -184,7 +192,7 @@ dev rm -f app postgres
 sudo docker volume rm hapbang-dev_postgres-data
 ```
 
-이후 Actions에서 해당 환경의 최근 BE Deploy run → `deploy` job을 재실행하면 postgres(새 볼륨)와 app이 올라온다. prod는 `dev`를 `prod`로 바꾼다.
+이후 Actions에서 dev의 최근 BE Deploy run → `deploy` job을 재실행하면 postgres(새 볼륨)와 app이 올라온다. prod는 `dev`를 `prod`로 바꾸고, 운영 중이던 sha로 Deploy prod를 실행한다.
 
 ## 인증서
 
@@ -216,3 +224,5 @@ read -rs PAT && echo "$PAT" | sudo -u deploy docker login ghcr.io -u <GitHub 아
 sudo -u deploy hapbang-deploy dev app <커밋 SHA 40자>    # SHA 생략 시 :dev / :latest
 sudo -u deploy docker logout ghcr.io
 ```
+
+- **prod는 SHA를 꼭 지정한다.** `:latest`는 `main`의 최신 빌드이지 운영 중인 버전이 아니다(BE 운영은 Deploy prod로 따로 배포한다).

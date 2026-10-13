@@ -1,0 +1,74 @@
+# EC2 배포 job. deploy.yml(dev 자동 배포)과 deploy-prod.yml(운영 수동 배포)이 호출한다.
+# 배포 전용 SSH 키로 EC2의 deploy.sh를 실행한다. 서버에서는 app 컨테이너만 교체된다.
+# GHCR이 private이므로 이 job의 읽기 전용 GITHUB_TOKEN(job 종료 시 만료)을 stdin으로 넘겨 pull에만 쓴다.
+# 권한은 호출한 job이 준다(contents: read, packages: read). Secrets는 secrets: inherit로 받는다.
+# 필요한 Secrets: DEPLOY_HOST, DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS (docker/README.md 참고)
+name: Deploy server
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: 배포 환경(prod|dev)
+        type: string
+        required: true
+      sha:
+        description: 배포할 커밋 sha(40자). 이 커밋의 이미지(:sha-<커밋>)를 배포한다
+        type: string
+        required: true
+      config-ref:
+        description: 서버 설정(docker/)을 비교할 브랜치
+        type: string
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      # 서버 설정(docker/)이 레포와 같은지 비교하는 데 쓴다.
+      # 배포할 커밋이 아니라 브랜치 최신과 비교한다. 이전 버전으로 되돌리는 롤백은 그 사이 바뀐 설정에 막히지 않는다.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.config-ref }}
+
+      - name: EC2 배포
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_ENV: ${{ inputs.env }}
+          TARGET_SHA: ${{ inputs.sha }}
+          CONFIG_REF: ${{ inputs.config-ref }}
+        run: |
+          # 서버·Secrets 준비 전에는 이미지 push까지만 하고 배포는 건너뛴다.
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "::warning::DEPLOY_HOST Secret이 없어 EC2 배포를 건너뜁니다."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          deploy_ssh() { ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "deploy@$DEPLOY_HOST" "$@"; }
+
+          # 1) 배포 전에 서버 설정이 레포와 같은지 확인한다(서버 설정은 수동 반영, docs/deploy/operations.md "설정 반영").
+          #    이번 환경의 compose가 다르면 배포하지 않는다.
+          #    나머지(다른 환경 compose·edge·nginx·deploy.sh)는 브랜치마다 반영 시점이 달라 경고만 한다.
+          config=$(deploy_ssh "$TARGET_ENV check" < /dev/null) || {
+            echo "::error::서버 설정 확인에 실패했습니다. 서버의 deploy.sh가 최신(check 지원)인지 확인하세요('설정 반영')."
+            exit 1
+          }
+          mismatch=0
+          while read -r _ sum file; do
+            [ "$sum" = "$(sha256sum "docker/$file" | cut -d' ' -f1)" ] && continue
+            if [ "$file" = "compose.$TARGET_ENV.yaml" ]; then
+              echo "::error::서버의 $file 가 레포($CONFIG_REF)와 달라 배포하지 않습니다. '설정 반영' 후 이 job을 다시 실행하세요."
+              mismatch=1
+            else
+              echo "::warning::서버의 $file 가 레포($CONFIG_REF)와 다릅니다. '설정 반영'으로 서버에 반영하세요."
+            fi
+          done < <(grep '^\[config\]' <<< "$config" || true)
+          [ "$mismatch" = 0 ] || exit 1
+
+          # 2) 지정한 커밋의 이미지(:sha-<SHA>)를 배포한다.
+          printf '%s %s\n' "$GITHUB_ACTOR" "$GHCR_TOKEN" | deploy_ssh "$TARGET_ENV app $TARGET_SHA"
