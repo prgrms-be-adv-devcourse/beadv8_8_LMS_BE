@@ -22,7 +22,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.hapbang.appearance.app.AppearanceUserService;
+import com.hapbang.appearance.app.AppearanceUserFacade;
+import com.hapbang.appearance.app.AppearanceUserSupport;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.appearance.out.AppearanceUserRepository;
@@ -40,7 +41,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>세션 로그인 → {@code @LoginUserId}로 회원 ID 주입</li>
  *     <li>출연 회원 자격 확인 → 실패하면 Problem Detail 응답</li>
  * </ul>
- * 아직 출연 API가 없어서 테스트 전용 컨트롤러로 확인한다. 출연 API가 생기면 실제 API로 흐름을 검증한다.
+ * 로그인·자격 확인 기반만 테스트 전용 컨트롤러로 확인한다. 실제 출연 API는 {@code AppearanceRequestApiE2ETest}에서 확인한다.
  */
 @IntegrationTest
 @AutoConfigureMockMvc
@@ -53,7 +54,10 @@ class AppearanceApiE2ETest {
     MockMvc mockMvc;
 
     @Autowired
-    AppearanceUserService appearanceUserService;
+    AppearanceUserFacade appearanceUserFacade;
+
+    @Autowired
+    AppearanceUserSupport appearanceUserSupport;
 
     @Autowired
     AppearanceUserRepository appearanceUserRepository;
@@ -74,7 +78,7 @@ class AppearanceApiE2ETest {
     @Test
     @DisplayName("로그인한 인플루언서는 세션의 회원 ID로 출연 회원 자격이 확인된다")
     void influencer() throws Exception {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(1L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(1L));
 
         mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -93,7 +97,7 @@ class AppearanceApiE2ETest {
     @Test
     @DisplayName("일반 유저는 403 Problem Detail (NOT_INFLUENCER), 한글 메시지가 UTF-8로 나간다")
     void normalUser() throws Exception {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.normalUser(3L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(3L));
 
         mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(3L, Role.USER)))
                 .andExpect(status().isForbidden())
@@ -104,7 +108,7 @@ class AppearanceApiE2ETest {
     @Test
     @DisplayName("회원 모듈에서 정지되면 같은 세션의 다음 요청은 403 (APPEARANCE_USER_NOT_ACTIVE)")
     void suspendedByUserModifiedEvent() throws Exception {
-        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(4L));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(4L));
         mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(4L, Role.INFLUENCER)))
                 .andExpect(status().isOk());
 
@@ -126,11 +130,11 @@ class AppearanceApiE2ETest {
     @RequiredArgsConstructor
     static class ParticipantProbeController {
 
-        private final AppearanceUserService appearanceUserService;
+        private final AppearanceUserSupport appearanceUserSupport;
 
         @GetMapping(PROBE_PATH)
         Long participant(@LoginUserId Long userId) {
-            return appearanceUserService.getParticipant(userId).getId();
+            return appearanceUserSupport.getParticipant(userId).getId();
         }
     }
 }
