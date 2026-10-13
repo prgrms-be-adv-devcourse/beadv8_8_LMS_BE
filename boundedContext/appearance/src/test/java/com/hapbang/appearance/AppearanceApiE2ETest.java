@@ -74,7 +74,7 @@ class AppearanceApiE2ETest {
     @Test
     @DisplayName("로그인한 인플루언서는 세션의 회원 ID로 출연 회원 자격이 확인된다")
     void influencer() throws Exception {
-        appearanceUserService.sync(AppearanceUserFixture.influencer(1L));
+        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(1L));
 
         mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(1L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
@@ -93,7 +93,7 @@ class AppearanceApiE2ETest {
     @Test
     @DisplayName("일반 유저는 403 Problem Detail (NOT_INFLUENCER), 한글 메시지가 UTF-8로 나간다")
     void normalUser() throws Exception {
-        appearanceUserService.sync(AppearanceUserFixture.normalUser(3L));
+        appearanceUserService.createIfAbsent(AppearanceUserFixture.normalUser(3L));
 
         mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(3L, Role.USER)))
                 .andExpect(status().isForbidden())
@@ -104,7 +104,7 @@ class AppearanceApiE2ETest {
     @Test
     @DisplayName("회원 모듈에서 정지되면 같은 세션의 다음 요청은 403 (APPEARANCE_USER_NOT_ACTIVE)")
     void suspendedByUserModifiedEvent() throws Exception {
-        appearanceUserService.sync(AppearanceUserFixture.influencer(4L));
+        appearanceUserService.createIfAbsent(AppearanceUserFixture.influencer(4L));
         mockMvc.perform(get(PROBE_PATH).with(TestLogin.as(4L, Role.INFLUENCER)))
                 .andExpect(status().isOk());
 

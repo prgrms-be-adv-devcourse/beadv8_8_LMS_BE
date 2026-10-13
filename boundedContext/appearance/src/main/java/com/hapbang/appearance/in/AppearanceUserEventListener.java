@@ -3,7 +3,7 @@ package com.hapbang.appearance.in;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.appearance.app.AppearanceUserService;
+import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 
@@ -15,22 +15,24 @@ import lombok.RequiredArgsConstructor;
  * {@code @ApplicationModuleListener}: 회원 모듈의 트랜잭션이 커밋된 뒤, 새 트랜잭션에서 처리한다.
  * 처리에 실패하면 Modulith 이벤트 저장소에 남고, 서버가 재시작될 때 다시 처리된다.
  * <p>
- * 가입·변경 모두 이벤트에 담긴 회원 정보를 그대로 반영한다 (없으면 생성, 있으면 갱신).
+ * 출연 회원은 가입 이벤트로만 만든다. 가입보다 먼저 온 변경 이벤트는 실패로 남았다가, 재시작 때 다시 처리된다.
  */
+// TODO(event): 변경 이벤트끼리 순서가 뒤바뀌면(실패한 변경 이벤트의 재처리 등) 옛 정보가 반영될 수 있다.
+//  UserDto에 버전(또는 수정 시각)이 생기면 더 새로운 이벤트만 반영하도록 바꾼다(#56).
 @Component
 @RequiredArgsConstructor
 public class AppearanceUserEventListener {
 
-    private final AppearanceUserService appearanceUserService;
+    private final AppearanceUserFacade appearanceUserFacade;
 
     @ApplicationModuleListener
     public void handle(UserJoinedEvent event) {
-        appearanceUserService.sync(event.user());
+        appearanceUserFacade.syncJoined(event.user());
     }
 
     /** 회원 정보(닉네임·역할·상태) 변경 */
     @ApplicationModuleListener
     public void handle(UserModifiedEvent event) {
-        appearanceUserService.sync(event.user());
+        appearanceUserFacade.syncModified(event.user());
     }
 }
