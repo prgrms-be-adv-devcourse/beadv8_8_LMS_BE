@@ -4,7 +4,7 @@
 
 - **이 레포는 공개(public)다.** 비밀값, 서버 IP, AWS 계정 정보, 키 파일 이름·내용, **서버 DB 이름·계정**을 레포·PR·이슈·커밋 메시지에 쓰지 않는다. 문서에는 `<EC2 주소>`, `<키 파일>`처럼 자리표시자만 쓴다.
 - **비밀값은 한 곳에만 둔다.** 서버 env 파일 또는 GitHub Secrets. 채팅·노션·스크린샷으로 옮기지 않는다.
-- **장기 토큰을 서버에 두지 않는다.** GHCR pull은 배포 job의 임시 토큰을 쓴다.
+- **장기 토큰을 서버에 두지 않는다.** GHCR pull은 배포 job의 임시 토큰을 쓰고, S3는 EC2 인스턴스 역할로 접근한다(AWS 액세스 키를 만들지 않는다).
 - AWS 지침: 액세스 키 등 유출 메일 2회 시 팀 AWS 지원 회수(2OUT), 계정 외부 공유·목적 외 사용은 즉시 회수(1OUT).
 
 ## 자격 증명 목록
@@ -16,6 +16,7 @@
 | 서버 호스트 키 | GitHub Secrets `DEPLOY_KNOWN_HOSTS` | Actions | 서버 위조 방지 | 서버 재구축 시 갱신 |
 | DB 비밀번호 | 서버 `/opt/hapbang/env/{prod,dev}.env` | 서버 관리자 | app → PostgreSQL | [DB 비밀번호 교체](#db-비밀번호-교체) |
 | 앱 비밀값(OAuth·결제 등) | 서버 env 파일 | 서버 관리자 | Spring | [env-vars.md](env-vars.md#값-변경-비밀값-교체-포함) |
+| S3 접근 | EC2 인스턴스 역할(키 없음). 버킷 이름은 서버 env `S3_BUCKET` | app 컨테이너(인스턴스 메타데이터) | Presigned URL 발급, 업로드 확인 | 자동(임시 자격 증명) → [s3.md](s3.md) |
 | GHCR 읽기 | 배포 job의 `GITHUB_TOKEN`(읽기 전용, job 종료 시 만료) | Actions | 서버의 이미지 pull | 자동 |
 | 개인 PAT | 만들지 않고 둔다. 수동 pull 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |

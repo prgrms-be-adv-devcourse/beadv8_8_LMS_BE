@@ -15,6 +15,7 @@
 | [operations.md](operations.md) | 상태 확인, 로그, 배포 실패 대응, 롤백, 설정 반영, DB 백업, 하지 말 것 |
 | [server-setup.md](server-setup.md) | 서버 최초 설정·재구축, 배포 키, 인증서 발급 |
 | [security.md](security.md) | 자격 증명 관리, 공개 레포 원칙, 유출 시 대응 |
+| [s3.md](s3.md) | 파일 업로드(S3) 구조, 버킷·IAM 역할 설정, 확인 절차, 로컬 S3Mock |
 
 ## 구조
 
