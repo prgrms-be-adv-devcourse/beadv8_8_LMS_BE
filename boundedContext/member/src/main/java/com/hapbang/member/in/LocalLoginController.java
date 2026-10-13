@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hapbang.global.response.RsData;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
@@ -33,7 +34,7 @@ public class LocalLoginController {
 
     /** 예: POST /api/v1/members/local-login?role=INFLUENCER&number=2 (number는 같은 역할의 몇 번째 계정, 생략하면 1) */
     @PostMapping("/api/v1/members/local-login")
-    public MemberMeResponse login(@RequestParam(name = "role") Role role,
+    public RsData<MemberMeResponse> login(@RequestParam(name = "role") Role role,
                                   @RequestParam(name = "number", defaultValue = "1") int number,
                                   HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         // 테스트 계정은 앱 시작 시 MemberDataInit이 만든다
@@ -51,6 +52,6 @@ public class LocalLoginController {
         context.setAuthentication(new OAuth2AuthenticationToken(principal, principal.getAuthorities(), "local"));
         securityContextRepository.saveContext(context, httpRequest, httpResponse);
 
-        return MemberMeResponse.from(user);
+        return RsData.ok("테스트 계정으로 로그인했습니다.", MemberMeResponse.from(user));
     }
 }
