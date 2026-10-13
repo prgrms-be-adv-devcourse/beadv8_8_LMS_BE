@@ -11,6 +11,7 @@ import org.postgresql.util.PSQLException;
 import org.postgresql.util.ServerErrorMessage;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.billing.domain.BillingErrorCode;
@@ -81,13 +82,27 @@ public class LedgerRecordUseCase {
         entityManager.flush();
         Map<Long, Wallet> wallets = new LinkedHashMap<>();
         for (Long walletId : operation.walletIds()) {
-            Wallet wallet = walletRepository.findByIdForUpdate(walletId)
-                    .orElseThrow(() -> new BillingException(BillingErrorCode.WALLET_NOT_FOUND));
-            // 락 조회는 이미 영속성 컨텍스트에 있던 지갑의 상태를 바꾸지 않으므로, 락을 잡은 뒤 최신 잔액으로 다시 읽는다.
-            entityManager.refresh(wallet);
-            wallets.put(walletId, wallet);
+            wallets.put(walletId, lockAndRefresh(walletId));
         }
         return wallets;
+    }
+
+    // 원장 기록 전에 지갑 잔액을 읽고 배분을 계산해야 하는 Billing 금융 작업(보류 등)이 record()와 같은 방식(flush → 락 → refresh)으로 지갑 하나를 잠근다.
+    // 락은 호출한 쪽 트랜잭션이 끝날 때까지 유지되어야 하므로 트랜잭션 없이 호출하면 거절한다(MANDATORY). 같은 트랜잭션의 이후 record()는 이미 잡은 락을 그대로 쓴다.
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Wallet lockWallet(Long walletId) {
+        // 같은 트랜잭션에서 앞서 바꾼 지갑 잔액을 먼저 DB에 반영해야 아래 refresh가 그 변경을 덮어쓰지 않는다.
+        entityManager.flush();
+        return lockAndRefresh(walletId);
+    }
+
+    // 지갑을 PESSIMISTIC_WRITE로 잠그고 DB의 최신 잔액으로 다시 읽으며, 없는 지갑은 만들지 않고 WALLET_NOT_FOUND로 거절한다.
+    private Wallet lockAndRefresh(Long walletId) {
+        Wallet wallet = walletRepository.findByIdForUpdate(walletId)
+                .orElseThrow(() -> new BillingException(BillingErrorCode.WALLET_NOT_FOUND));
+        // 락 조회는 이미 영속성 컨텍스트에 있던 지갑의 상태를 바꾸지 않으므로, 락을 잡은 뒤 최신 잔액으로 다시 읽는다.
+        entityManager.refresh(wallet);
+        return wallet;
     }
 
     // 이미 기록된 같은 작업이 요청과 줄마다 같으면 잔액을 다시 바꾸지 않고 기존 원장 ID를 돌려주고, 다르면 IDEMPOTENCY_KEY_CONFLICT로 거절한다.

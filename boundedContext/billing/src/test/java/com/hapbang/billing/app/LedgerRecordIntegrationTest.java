@@ -18,6 +18,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -382,6 +383,82 @@ class LedgerRecordIntegrationTest {
     }
 
     @Test
+    @DisplayName("lockWallet은 호출한 쪽 트랜잭션이 없으면 거절한다")
+    void lockWallet_requiresTransaction() {
+        Long walletId = wallet(1L);
+
+        assertThatThrownBy(() -> ledgerRecordUseCase.lockWallet(walletId))
+                .isInstanceOf(IllegalTransactionStateException.class);
+    }
+
+    @Test
+    @DisplayName("lockWallet은 먼저 읽은 지갑을 락 이후 최신 잔액으로 다시 읽고, 없는 지갑은 WALLET_NOT_FOUND로 거절한다")
+    void lockWallet_refreshesStaleWallet() throws Exception {
+        Long walletId = wallet(1L);
+        ledgerRecordUseCase.record(charge(walletId, "CHARGE:1", 1_000L));
+        CountDownLatch loaded = new CountDownLatch(1);
+        CountDownLatch committed = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> other = executor.submit(() -> {
+                await(loaded);
+                ledgerRecordUseCase.record(charge(walletId, "CHARGE:2", 500L));
+                committed.countDown();
+                return null;
+            });
+
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                Wallet stale = walletRepository.findById(walletId).orElseThrow();
+                loaded.countDown();
+                await(committed);
+                assertThat(stale.getChargeBalanceHp()).isEqualTo(1_000L);
+
+                Wallet locked = ledgerRecordUseCase.lockWallet(walletId);
+
+                assertThat(locked).isSameAs(stale);
+                assertThat(locked.getChargeBalanceHp()).isEqualTo(1_500L);
+            });
+            other.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertBillingError(() -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> ledgerRecordUseCase.lockWallet(999_999L)), BillingErrorCode.WALLET_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("lockWallet의 지갑 락은 트랜잭션이 끝날 때까지 유지되어 다른 트랜잭션의 record()가 커밋 후에 최신 잔액으로 반영된다")
+    void lockWallet_holdsLockUntilCommit() throws Exception {
+        Long walletId = wallet(1L);
+        ledgerRecordUseCase.record(charge(walletId, "CHARGE:1", 1_000L));
+        CountDownLatch locked = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> other;
+            TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+            other = transaction.execute(status -> {
+                ledgerRecordUseCase.lockWallet(walletId);
+                Future<?> waiting = executor.submit(() -> {
+                    await(locked);
+                    return ledgerRecordUseCase.record(charge(walletId, "CHARGE:2", 500L));
+                });
+                locked.countDown();
+                waitUntilLockWaiting();
+                // 락을 쥔 동안에는 다른 트랜잭션의 기록이 끝나지 않는다.
+                assertThat(waiting.isDone()).isFalse();
+                ledgerRecordUseCase.record(charge(walletId, "CHARGE:3", 100L));
+                return waiting;
+            });
+            other.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertBalances(walletId, 1_600L, 0L, 0L, 0L);
+        assertMatched(walletId);
+    }
+
+    @Test
     @DisplayName("저장소에서 읽은 원장 항목은 지갑에 다시 반영할 수 없다")
     void loadedLedgerCannotBeReapplied() {
         Long walletId = wallet(1L);
@@ -599,6 +676,24 @@ class LedgerRecordIntegrationTest {
     private void assertBillingError(Runnable action, BillingErrorCode errorCode) {
         assertThatThrownBy(action::run).isInstanceOfSatisfying(BillingException.class,
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(errorCode));
+    }
+
+    // 다른 트랜잭션의 락을 기다리는 세션이 생길 때까지 최대 10초 기다린다.
+    private void waitUntilLockWaiting() {
+        Instant deadline = Instant.now().plusSeconds(10);
+        while (Instant.now().isBefore(deadline)) {
+            Integer waiting = jdbcTemplate.queryForObject("SELECT count(*) FROM pg_locks WHERE NOT granted", Integer.class);
+            if (waiting != null && waiting > 0) {
+                return;
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            }
+        }
+        throw new AssertionError("다른 트랜잭션이 지갑 락 대기 상태가 되지 않았습니다.");
     }
 
     // 래치가 열릴 때까지 최대 10초 기다린다.

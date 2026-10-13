@@ -73,4 +73,17 @@ public class PointChargeUsage extends BillingUpdatedEntity {
         this.releasedHp = releasedHp;
         this.status = status;
     }
+
+    // 충전 건의 원금을 보류에 처음 배분한 내역을 만든다. 배분액 전부가 보류 중이고 소진·반환은 0이다.
+    public static PointChargeUsage held(PointCharge charge, PointHold pointHold, long amountHp) {
+        return PointChargeUsage.builder()
+                .charge(charge)
+                .pointHold(pointHold)
+                .amountHp(amountHp)
+                .remainingHeldHp(amountHp)
+                .consumedHp(0L)
+                .releasedHp(0L)
+                .status(PointChargeUsageStatus.HELD)
+                .build();
+    }
 }

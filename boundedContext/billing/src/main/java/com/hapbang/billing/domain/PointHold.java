@@ -99,4 +99,26 @@ public class PointHold extends BillingUpdatedEntity {
         this.releasedAt = releasedAt;
         this.canceledAt = canceledAt;
     }
+
+    // 참조 대상의 최초 보류를 만든다. 남은 보류액은 최초 보류액과 같고 상태는 HELD다.
+    public static PointHold held(Wallet wallet, BillingReferenceType referenceType, Long referenceId, long chargeHp,
+            long revenueHp, String idempotencyKey, Instant heldAt) {
+        return PointHold.builder()
+                .wallet(wallet)
+                .referenceType(referenceType)
+                .referenceId(referenceId)
+                .originalChargeHp(chargeHp)
+                .originalRevenueHp(revenueHp)
+                .heldChargeHp(chargeHp)
+                .heldRevenueHp(revenueHp)
+                .status(PointHoldStatus.HELD)
+                .idempotencyKey(idempotencyKey)
+                .heldAt(heldAt)
+                .build();
+    }
+
+    // 최초 보류 총액(충전 HP + 수익 HP)을 반환한다.
+    public long originalTotalHp() {
+        return Math.addExact(originalChargeHp, originalRevenueHp);
+    }
 }

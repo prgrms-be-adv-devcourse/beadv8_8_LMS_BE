@@ -96,4 +96,15 @@ public class PointCharge extends BillingUpdatedEntity {
         this.completedAt = completedAt;
         this.failedAt = failedAt;
     }
+
+    // 이 충전 건의 가용 원금에서 보류에 배분한 금액을 뺀다. 0 이하이면 INVALID_POINT_AMOUNT, 가용 원금을 넘으면 CHARGE_PRINCIPAL_MISMATCH로 거절한다.
+    public void reservePrincipal(long amountHp) {
+        if (amountHp <= 0) {
+            throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
+        }
+        if (amountHp > remainingPrincipalHp) {
+            throw new BillingException(BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
+        }
+        remainingPrincipalHp -= amountHp;
+    }
 }
