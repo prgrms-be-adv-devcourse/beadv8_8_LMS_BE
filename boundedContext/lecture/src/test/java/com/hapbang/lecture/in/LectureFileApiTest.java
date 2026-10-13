@@ -49,9 +49,10 @@ class LectureFileApiTest {
     void 인증된_인플루언서가_파일_정보를_등록하면_fileId만_받고_파일은_PENDING으로_남는다() throws Exception {
         String response = registerFile(SELLER_ID, Role.VERIFIED_INFLUENCER, "video/mp4", VIDEO.length)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.fileId").isNumber())
-                .andExpect(jsonPath("$.uploadUrl").doesNotExist())
-                .andExpect(jsonPath("$.expiresAt").doesNotExist())
+                .andExpect(jsonPath("$.statusCode").value(201))
+                .andExpect(jsonPath("$.data.fileId").isNumber())
+                .andExpect(jsonPath("$.data.uploadUrl").doesNotExist())
+                .andExpect(jsonPath("$.data.expiresAt").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
 
         FileResource file = fileResourceRepository.findById(fileId(response)).orElseThrow();
@@ -179,7 +180,8 @@ class LectureFileApiTest {
                                   "contents": [{"fileId": %d, "title": "1강", "contentType": "VIDEO"}]
                                 }
                                 """.formatted(fileId)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201));
     }
 
     private ResultActions registerFile(Long userId, Role role, String contentType, long fileSize)
@@ -196,6 +198,7 @@ class LectureFileApiTest {
     private Long registerVideo(long fileSize) throws Exception {
         String response = registerFile(SELLER_ID, Role.VERIFIED_INFLUENCER, "video/mp4", fileSize)
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
                 .andReturn().getResponse().getContentAsString();
         return fileId(response);
     }
@@ -215,6 +218,6 @@ class LectureFileApiTest {
     }
 
     private static Long fileId(String response) {
-        return ((Number) JsonPath.read(response, "$.fileId")).longValue();
+        return ((Number) JsonPath.read(response, "$.data.fileId")).longValue();
     }
 }

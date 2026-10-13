@@ -95,20 +95,21 @@ class LectureApiTest {
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.lectureId").value(lectureId))
-                .andExpect(jsonPath("$.sellerUserId").value(SELLER_ID))
-                .andExpect(jsonPath("$.sellerNickname").value("판매자"))
-                .andExpect(jsonPath("$.title").value("방송 장비 세팅 강의"))
-                .andExpect(jsonPath("$.priceHp").value(10000))
-                .andExpect(jsonPath("$.status").value("PENDING_INSPECTION"))
-                .andExpect(jsonPath("$.deleted").value(false))
-                .andExpect(jsonPath("$.reviewCount").value(0))
-                .andExpect(jsonPath("$.contents[0].title").value("1강 장비 고르기"))
-                .andExpect(jsonPath("$.contents[0].sequence").value(1))
-                .andExpect(jsonPath("$.contents[0].contentType").value("VIDEO"))
-                .andExpect(jsonPath("$.contents[1].title").value("장비 목록"))
-                .andExpect(jsonPath("$.contents[1].sequence").value(2))
-                .andExpect(jsonPath("$.contents[1].contentType").value("DOCUMENT"));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.lectureId").value(lectureId))
+                .andExpect(jsonPath("$.data.sellerUserId").value(SELLER_ID))
+                .andExpect(jsonPath("$.data.sellerNickname").value("판매자"))
+                .andExpect(jsonPath("$.data.title").value("방송 장비 세팅 강의"))
+                .andExpect(jsonPath("$.data.priceHp").value(10000))
+                .andExpect(jsonPath("$.data.status").value("PENDING_INSPECTION"))
+                .andExpect(jsonPath("$.data.deleted").value(false))
+                .andExpect(jsonPath("$.data.reviewCount").value(0))
+                .andExpect(jsonPath("$.data.contents[0].title").value("1강 장비 고르기"))
+                .andExpect(jsonPath("$.data.contents[0].sequence").value(1))
+                .andExpect(jsonPath("$.data.contents[0].contentType").value("VIDEO"))
+                .andExpect(jsonPath("$.data.contents[1].title").value("장비 목록"))
+                .andExpect(jsonPath("$.data.contents[1].sequence").value(2))
+                .andExpect(jsonPath("$.data.contents[1].contentType").value("DOCUMENT"));
     }
 
     @Test
@@ -129,17 +130,18 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.content[0].lectureId").value(lectureId))
-                .andExpect(jsonPath("$.content[0].title").value("방송 장비 세팅 강의"))
-                .andExpect(jsonPath("$.content[0].priceHp").value(10000))
-                .andExpect(jsonPath("$.content[0].sellerUserId").value(SELLER_ID))
-                .andExpect(jsonPath("$.content[0].sellerNickname").value("판매자"))
-                .andExpect(jsonPath("$.content[0].reviewCount").value(0))
-                .andExpect(jsonPath("$.page.number").value(0))
-                .andExpect(jsonPath("$.page.size").value(20))
-                .andExpect(jsonPath("$.page.totalElements").value(1))
-                .andExpect(jsonPath("$.page.totalPages").value(1));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(lectureId))
+                .andExpect(jsonPath("$.data.content[0].title").value("방송 장비 세팅 강의"))
+                .andExpect(jsonPath("$.data.content[0].priceHp").value(10000))
+                .andExpect(jsonPath("$.data.content[0].sellerUserId").value(SELLER_ID))
+                .andExpect(jsonPath("$.data.content[0].sellerNickname").value("판매자"))
+                .andExpect(jsonPath("$.data.content[0].reviewCount").value(0))
+                .andExpect(jsonPath("$.data.page.number").value(0))
+                .andExpect(jsonPath("$.data.page.size").value(20))
+                .andExpect(jsonPath("$.data.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data.page.totalPages").value(1));
     }
 
     @Test
@@ -148,7 +150,8 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].lectureId").value(lectureId));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(lectureId));
     }
 
     @Test
@@ -159,7 +162,8 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
     }
 
     @Test
@@ -170,8 +174,9 @@ class LectureApiTest {
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PENDING_INSPECTION"))
-                .andExpect(jsonPath("$.thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.status").value("PENDING_INSPECTION"))
+                .andExpect(jsonPath("$.data.thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
     }
 
     @Test
@@ -181,12 +186,14 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].lectureId").value(lectureId))
-                .andExpect(jsonPath("$.content[0].thumbnailUrl").value(nullValue()));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(lectureId))
+                .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value(nullValue()));
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.thumbnailUrl").value(nullValue()));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.thumbnailUrl").value(nullValue()));
     }
 
     @Test
@@ -198,8 +205,9 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].lectureId").value(lectureId))
-                .andExpect(jsonPath("$.content[0].thumbnailUrl").value(nullValue()));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(lectureId))
+                .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value(nullValue()));
     }
 
     @Test
@@ -208,8 +216,9 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(0))
-                .andExpect(jsonPath("$.page.totalElements").value(0));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content.length()").value(0))
+                .andExpect(jsonPath("$.data.page.totalElements").value(0));
     }
 
     @Test
@@ -235,17 +244,19 @@ class LectureApiTest {
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PENDING_INSPECTION"))
-                .andExpect(jsonPath("$.rejectionReason").value("영상 음질이 너무 낮습니다."))
-                .andExpect(jsonPath("$.contents.length()").value(1))
-                .andExpect(jsonPath("$.contents[0].title").value("1강 장비 고르기 (재녹음)"))
-                .andExpect(jsonPath("$.contents[0].sequence").value(1));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.status").value("PENDING_INSPECTION"))
+                .andExpect(jsonPath("$.data.rejectionReason").value("영상 음질이 너무 낮습니다."))
+                .andExpect(jsonPath("$.data.contents.length()").value(1))
+                .andExpect(jsonPath("$.data.contents[0].title").value("1강 장비 고르기 (재녹음)"))
+                .andExpect(jsonPath("$.data.contents[0].sequence").value(1));
 
         approve(lectureId);
 
         mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].lectureId").value(lectureId));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(lectureId));
     }
 
     @Test
@@ -275,10 +286,11 @@ class LectureApiTest {
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("ON_SALE"))
-                .andExpect(jsonPath("$.title").value("방송 장비 세팅 강의 (개정판)"))
-                .andExpect(jsonPath("$.description").value("2026년 장비 기준"))
-                .andExpect(jsonPath("$.priceHp").value(15000));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.status").value("ON_SALE"))
+                .andExpect(jsonPath("$.data.title").value("방송 장비 세팅 강의 (개정판)"))
+                .andExpect(jsonPath("$.data.description").value("2026년 장비 기준"))
+                .andExpect(jsonPath("$.data.priceHp").value(15000));
     }
 
     @Test
@@ -305,14 +317,16 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.page.totalElements").value(0));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.page.totalElements").value(0));
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.deleted").value(true));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.deleted").value(true));
     }
 
     @Test
@@ -326,12 +340,13 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures/me").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.page.totalElements").value(2))
-                .andExpect(jsonPath("$.content[0].lectureId").value(pendingLectureId))
-                .andExpect(jsonPath("$.content[0].status").value("PENDING_INSPECTION"))
-                .andExpect(jsonPath("$.content[0].deleted").value(false))
-                .andExpect(jsonPath("$.content[1].lectureId").value(deletedLectureId))
-                .andExpect(jsonPath("$.content[1].deleted").value(true));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.page.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(pendingLectureId))
+                .andExpect(jsonPath("$.data.content[0].status").value("PENDING_INSPECTION"))
+                .andExpect(jsonPath("$.data.content[0].deleted").value(false))
+                .andExpect(jsonPath("$.data.content[1].lectureId").value(deletedLectureId))
+                .andExpect(jsonPath("$.data.content[1].deleted").value(true));
     }
 
     @Test
@@ -344,8 +359,9 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures/me").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].deleted").value(true))
-                .andExpect(jsonPath("$.content[0].thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content[0].deleted").value(true))
+                .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
     }
 
     @Test
@@ -356,13 +372,14 @@ class LectureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures/admin/inspections").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.page.totalElements").value(2))
-                .andExpect(jsonPath("$.content[0].lectureId").value(firstLectureId))
-                .andExpect(jsonPath("$.content[0].sellerUserId").value(SELLER_ID))
-                .andExpect(jsonPath("$.content[0].sellerNickname").value("판매자"))
-                .andExpect(jsonPath("$.content[0].status").value("PENDING_INSPECTION"))
-                .andExpect(jsonPath("$.content[0].inspectionRequestedAt").isNotEmpty())
-                .andExpect(jsonPath("$.content[1].lectureId").value(secondLectureId));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.page.totalElements").value(2))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(firstLectureId))
+                .andExpect(jsonPath("$.data.content[0].sellerUserId").value(SELLER_ID))
+                .andExpect(jsonPath("$.data.content[0].sellerNickname").value("판매자"))
+                .andExpect(jsonPath("$.data.content[0].status").value("PENDING_INSPECTION"))
+                .andExpect(jsonPath("$.data.content[0].inspectionRequestedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.content[1].lectureId").value(secondLectureId));
     }
 
     @Test
@@ -412,8 +429,9 @@ class LectureApiTest {
         mockMvc.perform(get("/api/v1/lectures").param("keyword", "obs")
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.page.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].lectureId").value(obsLectureId));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.page.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(obsLectureId));
     }
 
     @Test
@@ -425,16 +443,18 @@ class LectureApiTest {
         mockMvc.perform(get("/api/v1/lectures").param("sort", "PRICE_ASC").param("size", "2")
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].priceHp").value(10000))
-                .andExpect(jsonPath("$.content[1].priceHp").value(20000))
-                .andExpect(jsonPath("$.page.totalElements").value(3))
-                .andExpect(jsonPath("$.page.totalPages").value(2));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content[0].priceHp").value(10000))
+                .andExpect(jsonPath("$.data.content[1].priceHp").value(20000))
+                .andExpect(jsonPath("$.data.page.totalElements").value(3))
+                .andExpect(jsonPath("$.data.page.totalPages").value(2));
         mockMvc.perform(get("/api/v1/lectures").param("sort", "PRICE_DESC").param("page", "1").param("size", "2")
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.content[0].priceHp").value(10000))
-                .andExpect(jsonPath("$.page.number").value(1));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].priceHp").value(10000))
+                .andExpect(jsonPath("$.data.page.number").value(1));
     }
 
     @Test
@@ -472,7 +492,7 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.detail", containsString("업로드가 끝나지 않은 파일")));
 
         mockMvc.perform(get("/api/v1/lectures/me").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
-                .andExpect(jsonPath("$.page.totalElements").value(0));
+                .andExpect(jsonPath("$.data.page.totalElements").value(0));
     }
 
     @Test
@@ -509,9 +529,11 @@ class LectureApiTest {
         Long thumbnail = uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL);
         Long video = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
         Long document = uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT);
-        register(SELLER_ID, thumbnail, video, document).andExpect(status().isCreated());
+        register(SELLER_ID, thumbnail, video, document).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201));
 
-        register(SELLER_ID, thumbnail, video, document).andExpect(status().isCreated());
+        register(SELLER_ID, thumbnail, video, document).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201));
     }
 
     @Test
@@ -526,7 +548,7 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"));
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
-                .andExpect(jsonPath("$.title").value("방송 장비 세팅 강의"));
+                .andExpect(jsonPath("$.data.title").value("방송 장비 세팅 강의"));
     }
 
     @Test
@@ -539,7 +561,7 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"));
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
-                .andExpect(jsonPath("$.contents.length()").value(2));
+                .andExpect(jsonPath("$.data.contents.length()").value(2));
     }
 
     @Test
@@ -590,8 +612,9 @@ class LectureApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
                 .andReturn().getResponse().getContentAsString();
-        Long lectureId = ((Number) JsonPath.read(response, "$.id")).longValue();
+        Long lectureId = ((Number) JsonPath.read(response, "$.data.id")).longValue();
         approve(lectureId);
         return lectureId;
     }
@@ -608,8 +631,9 @@ class LectureApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody(sellerId)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
                 .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(response, "$.id")).longValue();
+        return ((Number) JsonPath.read(response, "$.data.id")).longValue();
     }
 
     /** 썸네일만 정하고 영상·자료는 업로드를 마친 파일로 등록한다. 썸네일이 null이면 썸네일 없는 강의다 */
@@ -617,8 +641,9 @@ class LectureApiTest {
         String response = register(sellerId, thumbnailFileId, uploaded(sellerId, FileType.LECTURE_VIDEO),
                 uploaded(sellerId, FileType.LECTURE_DOCUMENT))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
                 .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(response, "$.id")).longValue();
+        return ((Number) JsonPath.read(response, "$.data.id")).longValue();
     }
 
     private ResultActions register(Long sellerId, Long thumbnailFileId, Long videoFileId, Long documentFileId)
