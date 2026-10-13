@@ -19,7 +19,9 @@ import org.hibernate.annotations.Check;
 @Table(name = "settlement", schema = "billing",
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_settlement_idempotency_key", columnNames = {"idempotency_key"}),
-                @UniqueConstraint(name = "uk_settlement_point_hold_id_source_type_source_id_payout_type", columnNames = {"point_hold_id", "source_type", "source_id", "payout_type"})
+                @UniqueConstraint(name = "uk_settlement_point_hold_id_source_type_source_id_payout_type", columnNames = {"point_hold_id", "source_type", "source_id", "payout_type"}),
+                // 지급 원천(출연 계약·주문 항목)은 보류·지급 유형과 관계없이 한 번만 정산한다 (#134, V202610131930)
+                @UniqueConstraint(name = "uk_settlement_source_type_source_id", columnNames = {"source_type", "source_id"})
         },
         indexes = {
                 @Index(name = "idx_settlement_1", columnList = "receiver_wallet_id"),
@@ -107,5 +109,25 @@ public class Settlement extends BillingUpdatedEntity {
         this.settledAt = settledAt;
         this.failedAt = failedAt;
         this.failureReason = failureReason;
+    }
+
+    // 보류에서 받는 쪽 수익 HP로 바로 지급을 마친 지급 건을 만든다. 총 지급액 = 지급 완료액, 예정·완료 시각은 처리 시각이다.
+    public static Settlement completed(Long receiverUserId, Long receiverWalletId, Long pointHoldId,
+            SettlementSourceType sourceType, Long sourceId, PayoutType payoutType, long amountHp,
+            String idempotencyKey, Instant settledAt) {
+        return Settlement.builder()
+                .receiverUserId(receiverUserId)
+                .receiverWalletId(receiverWalletId)
+                .pointHoldId(pointHoldId)
+                .sourceType(sourceType)
+                .sourceId(sourceId)
+                .payoutType(payoutType)
+                .grossAmountHp(amountHp)
+                .paidAmountHp(amountHp)
+                .status(SettlementStatus.COMPLETED)
+                .idempotencyKey(idempotencyKey)
+                .scheduledAt(settledAt)
+                .settledAt(settledAt)
+                .build();
     }
 }

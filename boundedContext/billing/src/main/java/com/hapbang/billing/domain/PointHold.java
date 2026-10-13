@@ -128,6 +128,28 @@ public class PointHold extends BillingUpdatedEntity {
         return status == PointHoldStatus.HELD || status == PointHoldStatus.PARTIALLY_PROCESSED;
     }
 
+    // 남은 보류액에서 HP 종류별 지급액을 뺀다. 남은 보류가 0이 되면 반환 이력이 있으면 MIXED, 없으면 PAID로 끝나며,
+    // 남으면 PARTIALLY_PROCESSED가 된다. 이미 끝난 보류는 HOLD_ALREADY_CLOSED, 남은 보류액을 넘으면 PAYOUT_AMOUNT_EXCEEDS_HELD로 거절한다.
+    // released_at은 반환으로 끝날 때만 남긴다(지급으로 끝나면 비워 둔다).
+    public void payout(long chargeHp, long revenueHp, boolean hasRelease) {
+        if (chargeHp < 0 || revenueHp < 0 || chargeHp + revenueHp <= 0) {
+            throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
+        }
+        if (!isOpen() || heldTotalHp() == 0) {
+            throw new BillingException(BillingErrorCode.HOLD_ALREADY_CLOSED);
+        }
+        if (chargeHp > heldChargeHp || revenueHp > heldRevenueHp) {
+            throw new BillingException(BillingErrorCode.PAYOUT_AMOUNT_EXCEEDS_HELD);
+        }
+        heldChargeHp -= chargeHp;
+        heldRevenueHp -= revenueHp;
+        if (heldTotalHp() > 0) {
+            status = PointHoldStatus.PARTIALLY_PROCESSED;
+            return;
+        }
+        status = hasRelease ? PointHoldStatus.MIXED : PointHoldStatus.PAID;
+    }
+
     // 남은 보류액에서 HP 종류별 반환액을 뺀다. 남은 보류가 0이 되면 지급 이력이 있으면 MIXED, 없으면 RELEASED로 끝내고 반환 시각을 남기며,
     // 남으면 PARTIALLY_PROCESSED가 된다. 이미 끝난 보류는 HOLD_ALREADY_CLOSED, 남은 보류액을 넘으면 RELEASE_AMOUNT_EXCEEDS_HELD로 거절한다.
     public void release(long chargeHp, long revenueHp, boolean hasPayout, Instant releasedAt) {

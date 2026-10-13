@@ -88,6 +88,20 @@ public class PointHoldDetail extends BillingCreatedEntity {
                 .build();
     }
 
+    // 보류에서 받는 쪽(판매자·게스트)에게 옮긴 지급 한 건을 출처 HP 종류별 금액으로 기록한다. 참조 대상은 보류의 업무 대상과 같다.
+    public static PointHoldDetail paidOut(PointHold pointHold, long chargeAmountHp, long revenueAmountHp,
+            String idempotencyKey) {
+        return PointHoldDetail.builder()
+                .pointHold(pointHold)
+                .referenceType(pointHold.getReferenceType())
+                .referenceId(pointHold.getReferenceId())
+                .actionType(HoldDetailActionType.PAYOUT)
+                .chargeAmountHp(chargeAmountHp)
+                .revenueAmountHp(revenueAmountHp)
+                .idempotencyKey(idempotencyKey)
+                .build();
+    }
+
     // 이 처리의 총액(충전 HP + 수익 HP)을 반환한다.
     public long totalAmountHp() {
         return Math.addExact(chargeAmountHp, revenueAmountHp);

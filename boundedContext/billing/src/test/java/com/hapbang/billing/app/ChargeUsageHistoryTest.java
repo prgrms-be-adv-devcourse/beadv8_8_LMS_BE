@@ -10,13 +10,15 @@ import org.junit.jupiter.api.Test;
 
 import com.hapbang.billing.app.ChargeUsageHistory.Allocation;
 import com.hapbang.billing.app.ChargeUsageHistory.Processing;
+import com.hapbang.billing.app.ChargeUsageHistory.UsageConsumption;
 import com.hapbang.billing.app.ChargeUsageHistory.UsageRelease;
+import com.hapbang.billing.app.PayoutResult.ChargeConsumption;
 import com.hapbang.billing.app.ReleaseResult.ChargeRestoration;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
 import com.hapbang.billing.domain.HoldDetailActionType;
 
-// 충전 원금 반환의 역순(LIFO) 배분과, 반환 상세를 순서대로 재생해 처리 건별 충전 건 복원을 재구성하는 규칙을 DB 없이 검증한다.
+// 충전 원금 반환의 역순(LIFO)·지급의 FIFO 배분과, 반환·지급 상세를 순서대로 재생해 처리 건별 충전 건 복원·소진을 재구성하는 규칙을 DB 없이 검증한다.
 class ChargeUsageHistoryTest {
 
     // 충전 #101에서 2,000, #102에서 3,000을 FIFO로 배분한 보류
@@ -72,15 +74,44 @@ class ChargeUsageHistoryTest {
     }
 
     @Test
-    @DisplayName("지급의 충전 원금 소진 순서는 아직 정하지 않았으므로 충전 HP를 지급한 상세는 재생하지 않고 거절한다")
-    void payoutWithChargeIsNotReplayable() {
-        assertBillingError(() -> ChargeUsageHistory.replay(ALLOCATIONS, List.of(
-                new Processing(10L, HoldDetailActionType.PAYOUT, 1_000L))), BillingErrorCode.HOLD_STATE_INCONSISTENT);
+    @DisplayName("충전 HP 지급은 최초 배분 순서(FIFO)로, 먼저 배분한 충전 건부터 소진하고 소진액으로 기록한다")
+    void consumeFifo() {
+        ChargeUsageHistory history = ChargeUsageHistory.replay(ALLOCATIONS, List.of());
 
-        // 수익 HP만 지급한 상세는 충전 원금 배분에 영향이 없다.
+        assertThat(history.consume(2_500L)).containsExactly(
+                new UsageConsumption(1L, 101L, 2_000L), new UsageConsumption(2L, 102L, 500L));
+        assertThat(history.matches(1L, 0L, 2_000L, 0L)).isTrue();
+        assertThat(history.matches(2L, 2_500L, 500L, 0L)).isTrue();
+    }
+
+    @Test
+    @DisplayName("반환(역순)·지급(FIFO)이 섞인 상세를 순서대로 재생하면 처리 건별 충전 건 복원·소진이 재구성된다")
+    void replayMixedReleaseAndPayout() {
         ChargeUsageHistory history = ChargeUsageHistory.replay(ALLOCATIONS, List.of(
-                new Processing(10L, HoldDetailActionType.PAYOUT, 0L)));
-        assertThat(history.restorationsOf(10L)).isEmpty();
+                new Processing(10L, HoldDetailActionType.RELEASE, 1_000L),
+                new Processing(11L, HoldDetailActionType.PAYOUT, 2_500L),
+                new Processing(12L, HoldDetailActionType.PAYOUT, 0L),
+                new Processing(13L, HoldDetailActionType.RELEASE, 1_500L)));
+
+        assertThat(history.restorationsOf(10L)).containsExactly(new ChargeRestoration(102L, 1_000L));
+        assertThat(history.consumptionsOf(11L)).containsExactly(
+                new ChargeConsumption(101L, 2_000L), new ChargeConsumption(102L, 500L));
+        assertThat(history.consumptionsOf(12L)).isEmpty();
+        assertThat(history.restorationsOf(13L)).containsExactly(new ChargeRestoration(102L, 1_500L));
+        // 배분액 = 남은 보류 + 소진 + 반환
+        assertThat(history.matches(1L, 0L, 2_000L, 0L)).isTrue();
+        assertThat(history.matches(2L, 0L, 500L, 2_500L)).isTrue();
+        // 지급 상세의 복원 내역, 반환 상세의 소진 내역은 없다.
+        assertBillingError(() -> history.restorationsOf(11L), BillingErrorCode.HOLD_STATE_INCONSISTENT);
+        assertBillingError(() -> history.consumptionsOf(10L), BillingErrorCode.HOLD_STATE_INCONSISTENT);
+    }
+
+    @Test
+    @DisplayName("남은 보류 합계보다 많은 충전 HP 지급은 HOLD_STATE_INCONSISTENT로 거절한다")
+    void consumeMoreThanHeld() {
+        assertBillingError(() -> ChargeUsageHistory.replay(ALLOCATIONS, List.of(
+                new Processing(10L, HoldDetailActionType.RELEASE, 1_000L),
+                new Processing(11L, HoldDetailActionType.PAYOUT, 4_001L))), BillingErrorCode.HOLD_STATE_INCONSISTENT);
     }
 
     @Test
