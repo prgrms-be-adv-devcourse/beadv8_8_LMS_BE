@@ -31,13 +31,13 @@ import com.hapbang.lecture.in.dto.LectureRegisterRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
-/** 강의 API (설계 8.1). Swagger 명세는 {@link ApiV1LectureControllerDocs} */
+/** 강의 API (설계 8.1). Swagger 명세는 {@link ApiV1LectureSpec} */
 // TODO: 5단계(/access)에서 구현한다.
 // 역할 검사(설계 9장): 목록은 비회원도 허용(SecurityConfig), 상세는 회원, 등록·수정·삭제·재검수 신청은 인증된 인플루언서(LectureFacade, D16).
 @RestController
 @RequestMapping("/api/v1/lectures")
 @RequiredArgsConstructor
-public class ApiV1LectureController implements ApiV1LectureControllerDocs {
+public class ApiV1LectureController implements ApiV1LectureSpec {
 
     private final LectureFacade lectureFacade;
 

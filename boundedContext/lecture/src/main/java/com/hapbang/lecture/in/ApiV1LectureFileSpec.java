@@ -8,7 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 강의 파일 업로드 API Swagger 명세 (설계 8.3). 매핑은 {@link ApiV1LectureFileController} */
 @Tag(name = "강의 파일", description = "썸네일·영상·자료의 S3 Presigned URL 업로드")
-public interface ApiV1LectureFileControllerDocs {
+public interface ApiV1LectureFileSpec {
 
     @Operation(summary = "업로드 URL 발급",
             description = "인증된 인플루언서. 파일 메타데이터를 PENDING으로 만들고 짧은 만료의 Presigned PUT URL을 준다.")

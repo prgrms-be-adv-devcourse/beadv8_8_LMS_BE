@@ -22,12 +22,12 @@ import com.hapbang.lecture.in.dto.ReviewUpdateRequest;
 
 import jakarta.validation.Valid;
 
-/** 강의 리뷰 API (설계 8.6). Swagger 명세는 {@link ApiV1LectureReviewControllerDocs} */
+/** 강의 리뷰 API (설계 8.6). Swagger 명세는 {@link ApiV1LectureReviewSpec} */
 // TODO: 13장 6단계에서 구현한다.
 // TODO(security): 리뷰 작성·수정·삭제는 관리자 불가(설계 9장). global SecurityConfig와 함께 추가한다.
 @RestController
 @RequestMapping("/api/v1/lectures")
-public class ApiV1LectureReviewController implements ApiV1LectureReviewControllerDocs {
+public class ApiV1LectureReviewController implements ApiV1LectureReviewSpec {
 
     @Override
     @GetMapping("/{lectureId}/reviews")

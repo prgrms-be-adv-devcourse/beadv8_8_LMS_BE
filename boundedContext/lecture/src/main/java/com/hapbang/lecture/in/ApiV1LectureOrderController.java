@@ -22,12 +22,12 @@ import com.hapbang.lecture.in.dto.SaleResponse;
 
 import jakarta.validation.Valid;
 
-/** 강의 주문 API (설계 8.5). Swagger 명세는 {@link ApiV1LectureOrderControllerDocs} */
+/** 강의 주문 API (설계 8.5). Swagger 명세는 {@link ApiV1LectureOrderSpec} */
 // TODO: 13장 3단계(주문·직접 확정·구매 취소), 5단계(재생 동의)에서 구현한다.
 // TODO(security): 유저·인플루언서·인증된 인플루언서만 허용한다(관리자 불가, 설계 9장). /sales는 인증된 인플루언서. global SecurityConfig와 함께 추가한다.
 @RestController
 @RequestMapping("/api/v1/lectures")
-public class ApiV1LectureOrderController implements ApiV1LectureOrderControllerDocs {
+public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
 
     @Override
     @PostMapping("/orders")

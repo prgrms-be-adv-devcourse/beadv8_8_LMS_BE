@@ -18,7 +18,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 강의 API Swagger 명세 (설계 8.1). 매핑은 {@link ApiV1LectureController} */
 @Tag(name = "강의", description = "강의 등록·수정·삭제·조회, 콘텐츠 시청 URL")
-public interface ApiV1LectureControllerDocs {
+public interface ApiV1LectureSpec {
 
     @Operation(summary = "강의 목록",
             description = "판매 중(ON_SALE)인 강의만. 비회원도 조회할 수 있다. 제목 검색, 정렬, 페이징(page·size, 최대 100). "

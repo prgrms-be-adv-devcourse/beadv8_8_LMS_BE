@@ -14,12 +14,12 @@ import com.hapbang.lecture.in.dto.FileUploadResponse;
 
 import jakarta.validation.Valid;
 
-/** 강의 파일 업로드 API (설계 8.3). Swagger 명세는 {@link ApiV1LectureFileControllerDocs} */
+/** 강의 파일 업로드 API (설계 8.3). Swagger 명세는 {@link ApiV1LectureFileSpec} */
 // TODO: 13장 5단계(S3 연동)에서 구현한다.
 // TODO(security): 인증된 인플루언서만 허용한다(설계 9장). global SecurityConfig와 함께 추가한다.
 @RestController
 @RequestMapping("/api/v1/lectures/files")
-public class ApiV1LectureFileController implements ApiV1LectureFileControllerDocs {
+public class ApiV1LectureFileController implements ApiV1LectureFileSpec {
 
     @Override
     @PostMapping

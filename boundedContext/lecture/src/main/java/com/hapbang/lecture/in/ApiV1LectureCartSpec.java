@@ -8,7 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 장바구니 API Swagger 명세 (설계 8.4). 매핑은 {@link ApiV1LectureCartController} */
 @Tag(name = "장바구니", description = "강의 담기·빼기·조회")
-public interface ApiV1LectureCartControllerDocs {
+public interface ApiV1LectureCartSpec {
 
     @Operation(summary = "장바구니 조회", description = "담은 뒤 판매 중지·삭제된 강의는 구매 불가(purchasable=false)로 표시한다.")
     CartResponse getCart(Long userId);
