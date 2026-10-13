@@ -100,6 +100,20 @@ public class PointChargeUsage extends BillingUpdatedEntity {
         status = statusOf(remainingHeldHp, consumedHp, releasedHp);
     }
 
+    // 이 배분의 남은 보류에서 지급으로 소진한 금액을 빼 소진액에 더하고 상태를 다시 정한다. 소진한 원금은 충전 건에 돌아가지 않는다.
+    // 0 이하이면 INVALID_POINT_AMOUNT, 남은 보류보다 많으면 HOLD_STATE_INCONSISTENT로 거절한다.
+    public void consume(long amountHp) {
+        if (amountHp <= 0) {
+            throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
+        }
+        if (amountHp > remainingHeldHp) {
+            throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
+        }
+        remainingHeldHp -= amountHp;
+        consumedHp += amountHp;
+        status = statusOf(remainingHeldHp, consumedHp, releasedHp);
+    }
+
     // 남은 보류가 있으면 처리 이력 유무로 HELD·PARTIALLY_PROCESSED, 없으면 소진·반환 이력으로 CONSUMED·RELEASED·MIXED를 정한다.
     static PointChargeUsageStatus statusOf(long remainingHeldHp, long consumedHp, long releasedHp) {
         if (remainingHeldHp > 0) {

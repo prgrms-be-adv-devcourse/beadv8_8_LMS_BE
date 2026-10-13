@@ -1,11 +1,13 @@
 package com.hapbang.billing.app;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeSet;
 
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.ServerErrorMessage;
@@ -82,6 +84,18 @@ public class LedgerRecordUseCase {
         entityManager.flush();
         Map<Long, Wallet> wallets = new LinkedHashMap<>();
         for (Long walletId : operation.walletIds()) {
+            wallets.put(walletId, lockAndRefresh(walletId));
+        }
+        return wallets;
+    }
+
+    // 두 지갑 이상을 바꾸는 Billing 금융 작업(지급·위약금 등)이 record()와 같은 방식(flush → ID 오름차순 락 → refresh)으로 지갑들을 먼저 잠근다.
+    // 보류·충전 건보다 먼저 모든 지갑을 잡아야 지갑 → 보류 → 충전 건 락 순서가 지켜진다. 트랜잭션 없이 호출하면 거절한다(MANDATORY).
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Map<Long, Wallet> lockWallets(Collection<Long> walletIds) {
+        entityManager.flush();
+        Map<Long, Wallet> wallets = new LinkedHashMap<>();
+        for (Long walletId : new TreeSet<>(walletIds)) {
             wallets.put(walletId, lockAndRefresh(walletId));
         }
         return wallets;

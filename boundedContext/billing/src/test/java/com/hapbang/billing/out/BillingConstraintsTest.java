@@ -212,6 +212,20 @@ class BillingConstraintsTest {
     }
 
     @Test
+    void 지급_원천은_보류와_지급_유형이_달라도_한_번만_정산한다() {
+        reject("""
+                INSERT INTO billing.settlement
+                    (receiver_user_id, receiver_wallet_id, point_hold_id, source_type, source_id,
+                     payout_type, gross_amount_hp, paid_amount_hp, status, idempotency_key,
+                     scheduled_at, created_at, updated_at)
+                SELECT receiver_user_id, receiver_wallet_id, point_hold_id, source_type, source_id,
+                       'PENALTY', gross_amount_hp, paid_amount_hp, status, 'penalty-settlement-key',
+                       scheduled_at, created_at, updated_at
+                FROM billing.settlement WHERE id = ?
+                """, "23505", "uk_settlement_source_type_source_id", settlement.getId());
+    }
+
+    @Test
     void 환전당_계좌와_송금행은_각각_최대_하나다() {
         reject("""
                 INSERT INTO billing.exchange_account (exchange_id, verification_status, created_at)
