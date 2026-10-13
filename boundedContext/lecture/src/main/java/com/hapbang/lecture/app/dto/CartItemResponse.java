@@ -8,15 +8,14 @@ public record CartItemResponse(
         Long lectureId,
         String title,
         long priceHp,
-        @Schema(nullable = true)
+        @Schema(description = "썸네일 조회 URL (Presigned GET, 1시간 유효). 썸네일이 없거나 볼 수 없으면 null", nullable = true)
         String thumbnailUrl,
         @Schema(description = "담은 뒤 판매 중지·삭제되면 false. 주문할 수 없다")
         boolean purchasable
 ) {
 
-    // TODO: 썸네일 URL은 5단계(S3, #90)에서 채운다.
-    public static CartItemResponse of(Lecture lecture) {
-        return new CartItemResponse(lecture.getId(), lecture.getTitle(), lecture.getPriceHp(), null,
+    public static CartItemResponse of(Lecture lecture, String thumbnailUrl) {
+        return new CartItemResponse(lecture.getId(), lecture.getTitle(), lecture.getPriceHp(), thumbnailUrl,
                 lecture.isOnSale());
     }
 }

@@ -24,6 +24,7 @@ public class CartSupport {
 
     private final CartRepository cartRepository;
     private final LectureRepository lectureRepository;
+    private final LectureThumbnailSupport lectureThumbnailSupport;
 
     /**
      * 최근 담은 순. 담은 뒤 판매 중지·삭제된 강의도 보여 주되 구매 불가로 표시하고 합계에서 뺀다.
@@ -36,10 +37,12 @@ public class CartSupport {
         // 삭제된 강의도 행이 남아 있으므로 함께 읽힌다
         Map<Long, Lecture> lectures = lectureRepository.findAllById(lectureIds).stream()
                 .collect(Collectors.toMap(Lecture::getId, Function.identity()));
+        Map<Long, String> thumbnailUrls = lectureThumbnailSupport.urlsOf(
+                lectures.values().stream().map(Lecture::getThumbnailFileId).toList());
         List<CartItemResponse> items = lectureIds.stream()
                 .map(lectures::get)
                 .filter(Objects::nonNull)
-                .map(CartItemResponse::of)
+                .map(lecture -> CartItemResponse.of(lecture, thumbnailUrls.get(lecture.getThumbnailFileId())))
                 .toList();
         return CartResponse.of(items);
     }

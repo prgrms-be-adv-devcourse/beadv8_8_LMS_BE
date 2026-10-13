@@ -70,6 +70,12 @@ public final class LectureFixture {
         return file;
     }
 
+    /** 파일을 삭제된 상태로 만든다. 파일 삭제 API가 아직 없어 필드를 직접 바꾼다 */
+    public static FileResource deleted(FileResource file) {
+        ReflectionTestUtils.setField(file, "deletedAt", NOW);
+        return file;
+    }
+
     /** 저장하지 않은 강의에 ID를 넣는다. 장바구니처럼 강의 ID로 참조하는 단위 테스트용 */
     public static Lecture withId(Lecture lecture, Long lectureId) {
         ReflectionTestUtils.setField(lecture, "id", lectureId);

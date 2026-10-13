@@ -172,6 +172,13 @@ class FileResourceTest {
     }
 
     @Test
+    void 업로드를_마치고_삭제되지_않은_파일만_볼_수_있다() {
+        assertThat(uploadedFile(SELLER_ID, FileType.LECTURE_THUMBNAIL).isViewable()).isTrue();
+        assertThat(pendingFile(SELLER_ID, FileType.LECTURE_THUMBNAIL).isViewable()).isFalse();
+        assertThat(deleted(uploadedFile(SELLER_ID, FileType.LECTURE_THUMBNAIL)).isViewable()).isFalse();
+    }
+
+    @Test
     void UPLOADED이고_본인이며_용도가_같으면_연결할_수_있다() {
         FileResource uploaded = pendingVideo();
         uploaded.markUploaded(NOW);

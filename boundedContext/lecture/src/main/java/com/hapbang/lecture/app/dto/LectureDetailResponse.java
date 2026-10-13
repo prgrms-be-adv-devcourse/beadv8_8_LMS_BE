@@ -16,7 +16,7 @@ public record LectureDetailResponse(
         String title,
         String description,
         long priceHp,
-        @Schema(nullable = true)
+        @Schema(description = "썸네일 조회 URL (Presigned GET, 1시간 유효). 썸네일이 없거나 볼 수 없으면 null", nullable = true)
         String thumbnailUrl,
         LectureStatus status,
         @Schema(description = "판매자·관리자에게만 내려준다", nullable = true)
@@ -30,8 +30,9 @@ public record LectureDetailResponse(
         LocalDateTime createdAt
 ) {
 
-    // TODO: 썸네일 URL은 5단계(S3), 평점·리뷰 수는 6단계(리뷰)에서 채운다.
-    public static LectureDetailResponse of(Lecture lecture, String sellerNickname, boolean showRejectionReason) {
+    // TODO: 평점·리뷰 수는 6단계(리뷰)에서 채운다.
+    public static LectureDetailResponse of(Lecture lecture, String sellerNickname, String thumbnailUrl,
+                                           boolean showRejectionReason) {
         return new LectureDetailResponse(
                 lecture.getId(),
                 lecture.getSellerUserId(),
@@ -39,7 +40,7 @@ public record LectureDetailResponse(
                 lecture.getTitle(),
                 lecture.getDescription(),
                 lecture.getPriceHp(),
-                null,
+                thumbnailUrl,
                 lecture.getStatus(),
                 showRejectionReason ? lecture.getRejectionReason() : null,
                 lecture.isDeleted(),

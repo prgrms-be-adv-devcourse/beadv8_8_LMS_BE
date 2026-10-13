@@ -2,6 +2,8 @@ package com.hapbang.lecture.in;
 
 import static com.hapbang.lecture.fixture.LectureFixture.uploadedFile;
 import static org.assertj.core.api.Assertions.*;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -25,6 +27,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import com.hapbang.lecture.domain.FileResource;
 import com.hapbang.lecture.domain.FileType;
 import com.hapbang.lecture.out.FileResourceRepository;
 import com.hapbang.shared.member.domain.Role;
@@ -101,8 +104,24 @@ class LectureCartApiTest {
     }
 
     @Test
+    void 담은_뒤_삭제된_강의도_장바구니에서_썸네일_URL이_나온다() throws Exception {
+        FileResource thumbnail = fileResourceRepository.save(uploadedFile(SELLER_ID, FileType.LECTURE_THUMBNAIL));
+        Long lectureId = registerOnSale("OBS 방송 세팅", 10_000, thumbnail.getId());
+        addItem(BUYER_ID, Role.USER, lectureId).andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].purchasable").value(false))
+                .andExpect(jsonPath("$.items[0].thumbnailUrl").value(allOf(
+                        containsString(thumbnail.getObjectKey()), containsString("X-Amz-Expires=3600"))));
+    }
+
+    @Test
     void 없는_강의와_판매_중이_아닌_강의는_담을_수_없다() throws Exception {
-        Long pendingLectureId = register("OBS 방송 세팅", 10_000);
+        Long pendingLectureId = register("OBS 방송 세팅", 10_000, null);
 
         addItem(BUYER_ID, Role.USER, 999_999L)
                 .andExpect(status().isNotFound())
@@ -261,21 +280,27 @@ class LectureCartApiTest {
     }
 
     private Long registerOnSale(String title, long priceHp) throws Exception {
-        Long lectureId = register(title, priceHp);
+        return registerOnSale(title, priceHp, null);
+    }
+
+    /** 썸네일이 null이면 썸네일 없는 강의다 */
+    private Long registerOnSale(String title, long priceHp, Long thumbnailFileId) throws Exception {
+        Long lectureId = register(title, priceHp, thumbnailFileId);
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/approve", lectureId)
                         .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
                 .andExpect(status().isNoContent());
         return lectureId;
     }
 
-    private Long register(String title, long priceHp) throws Exception {
+    private Long register(String title, long priceHp, Long thumbnailFileId) throws Exception {
         String body = """
                 {
                   "title": "%s",
                   "priceHp": %d,
+                  "thumbnailFileId": %d,
                   "contents": [{"fileId": %d, "title": "1강", "contentType": "VIDEO"}]
                 }
-                """.formatted(title, priceHp,
+                """.formatted(title, priceHp, thumbnailFileId,
                 fileResourceRepository.save(uploadedFile(SELLER_ID, FileType.LECTURE_VIDEO)).getId());
         String response = mockMvc.perform(post("/api/v1/lectures")
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
