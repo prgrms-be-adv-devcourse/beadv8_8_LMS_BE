@@ -632,7 +632,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 메서드 | 경로 | 권한 | 설명 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/lectures` | 모두(비회원 포함) | `ON_SALE` 목록. 검색어(제목), 정렬(최신·가격·평점), 페이징. 판매자 닉네임·평균 평점·리뷰 수 포함 |
-| GET | `/api/v1/lectures/{lectureId}` | 회원 | 상세 + 콘텐츠 목록(제목·순서·종류, 파일 URL 없음). 판매자·관리자는 비공개·삭제 상태도 조회. **보유 항목이 있는 구매자는 삭제된 강의도 조회한다** |
+| GET | `/api/v1/lectures/{lectureId}` | 회원 | 상세 + 콘텐츠 목록(제목·순서·종류, 파일 URL 없음). 판매자 본인은 비공개·삭제 상태도 조회. 관리자는 8.2의 `/admin/{lectureId}`로 조회한다(D30). **보유 항목이 있는 구매자는 삭제된 강의도 조회한다** |
 | POST | `/api/v1/lectures` | 인증된 인플루언서 | 등록 (메타 + 콘텐츠 목록) → `PENDING_INSPECTION` |
 | PATCH | `/api/v1/lectures/{lectureId}` | 판매자 본인 | 메타 수정 (재검수 없음) |
 | DELETE | `/api/v1/lectures/{lectureId}` | 판매자 본인 | Soft Delete |
@@ -647,9 +647,10 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/api/v1/lectures/inspections?status=PENDING_INSPECTION` | 검수 대기 목록 |
-| POST | `/api/v1/lectures/{lectureId}/inspection/approve` | 승인 → `ON_SALE`. 검수 대기 중에는 내용이 바뀌지 않으므로 추가 검사 없음 (D11) |
-| POST | `/api/v1/lectures/{lectureId}/inspection/reject` | 반려 `{reason}` → `REJECTED` |
+| GET | `/api/v1/lectures/admin/inspections?status=PENDING_INSPECTION` | 검수 대기 목록 |
+| GET | `/api/v1/lectures/admin/{lectureId}` | 강의 상세 + 콘텐츠 목록. 상태·삭제 여부와 관계없이 조회하고 반려 사유를 포함한다. 응답은 8.1 상세와 같다 (#103, D30) |
+| POST | `/api/v1/lectures/admin/{lectureId}/inspection/approve` | 승인 → `ON_SALE`. 검수 대기 중에는 내용이 바뀌지 않으므로 추가 검사 없음 (D11) |
+| POST | `/api/v1/lectures/admin/{lectureId}/inspection/reject` | 반려 `{reason}` → `REJECTED` |
 
 ### 8.3 파일
 
@@ -726,6 +727,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 리뷰 작성 | X | 구매자 | 구매자 | 구매자 | X |
 
 - 역할 검사는 Facade(`LectureFacade`, `LectureInspectionFacade`)의 `@PreAuthorize`로 한다. 관리자 API(`/admin` 경로)는 `SecurityConfig`도 함께 막는다 (D16).
+- 관리자의 강의 상세는 `/admin/{lectureId}`(`LectureInspectionFacade`)로 따로 두고, 일반 상세 API에는 역할 분기를 두지 않는다 (D30).
 - 콘텐츠 시청은 "판매자 본인 또는 관리자(또는 구매자)"라는 OR 조건이라 `@PreAuthorize`를 두지 않고 `LectureContentAccessSupport`가 판정한다. 관리자 여부는 회원 복제본(`LectureUser`)으로 본다 (D26).
 
 ---
@@ -921,4 +923,5 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D26 | 2026-10-13 | 콘텐츠 시청 URL(#91): (1) 판매자 본인과 관리자는 강의 상태와 관계없이(삭제된 강의 포함) 현재 콘텐츠의 URL을 받는다. 교체되어 지워진 콘텐츠는 `LECTURE_CONTENT_NOT_FOUND`(404). (2) 그 밖의 회원에게 판매 중이 아닌 강의는 `LECTURE_NOT_FOUND`(404), 판매 중인 강의는 `CONTENT_ACCESS_DENIED`(403). 검사 순서는 강의 → 권한 → 콘텐츠. (3) 관리자 여부는 판매자가 아닐 때만 회원 복제본 `LectureUser`(정상 상태 + `ADMIN`)로 판정하고, 복제본이 아직 없으면 관리자로 보지 않는다. (4) 역할 OR 조건이라 Facade에 `@PreAuthorize`를 두지 않는다(D16의 예외) | (1) 판매자는 삭제 후 재등록(D11) 전에도 자기 콘텐츠를 확인할 수 있어야 하고, 관리자는 검수용이다. 구매자는 현재(승인된) 콘텐츠만 본다(D11) (2) 상세 조회와 같이 비공개 강의가 있다는 사실을 숨긴다. 권한 검사를 콘텐츠 검사보다 먼저 해서 콘텐츠 ID도 드러내지 않는다 (3) 채팅(`ChatUser.isAdmin`)과 같은 방식 | 주문 구현 후 구매자 조건(4.6 "시청")을 403 자리에 넣는다: `PURCHASED`면 재생 동의 필요, `CONFIRMED`·`PAID_OUT`이면 허용, 삭제된 강의도 기존 구매자는 허용 |
 | D27 | 2026-10-13 | 자료(`DOCUMENT`) 시청 URL은 원본 파일명으로 내려받는다(`Content-Disposition: attachment; filename*=UTF-8''…`, 서명에 포함). 영상은 지정하지 않아 브라우저에서 재생한다. 이를 위해 global `S3FileStorage.presignDownload(key, expiry, attachmentFilename)`을 추가했다(#125) | 자료는 받아 두고 보는 파일이고, 브라우저 뷰어에서 저장하면 파일명이 UUID(object key)가 된다 | dev에서 실제 S3 응답 헤더 확인 |
 | D28 | 2026-10-13 | 강의 응답의 썸네일 URL (#90): (1) 목록·상세·내 강의·장바구니의 `thumbnailUrl`은 응답 때마다 Presigned GET(1시간, D23)을 발급한다. 강의 상태와 관계없이 썸네일 파일이 `UPLOADED`이고 삭제되지 않았으면 URL, 아니면 `null`이다. (2) 목록은 페이지의 썸네일 파일을 한 번에 읽는다(`LectureThumbnailSupport`). (3) 서명 중 AWS SDK 예외(`SdkException`)가 나면 그 항목과 남은 항목은 서명하지 않고 `null`로 응답하고, ERROR 로그를 요청당 1번 남긴다(URL은 기록하지 않음). 그 밖의 예외는 500이다. 이를 위해 강의 모듈이 `sdk-core`에 직접 의존한다. (4) 만료 시각은 응답에 넣지 않는다 | 장바구니에서 담은 강의를 알아보고 판매자가 비공개 강의를 확인하려면 상태와 관계없이 보여야 한다. 서명은 S3를 호출하지 않으므로 SDK 예외는 서버가 자격 증명(인스턴스 역할)을 가져오지 못한 경우이고, 이때는 모든 항목이 함께 실패하므로 썸네일 때문에 목록 전체가 500이 되지 않게 하면서 반복 서명과 로그 폭주를 막는다. 그 밖의 예외(key·만료 값 오류)는 버그라 감추지 않는다. 응답마다 URL이 달라 브라우저 캐시가 안 되는 것은 MVP에서 감수한다 | 구매한 강의 목록·검수 목록에 썸네일이 필요하면 `LectureThumbnailSupport`를 재사용한다 |
-| D29 | 2026-10-13 | 강의 API 성공 응답은 global `RsData{statusCode, message, data}`로 감싼다(#126). 201은 `@ResponseStatus(CREATED)` + `RsData.created`, 본문 없는 응답은 채팅·고객센터와 같이 `ResponseEntity<Void>`(204)다. 페이지 응답은 `data` 안에 PagedModel(`{content, page}`)로 들어간다. 오류는 그대로 ProblemDetail이다. message: 목록 "강의 목록을 조회했습니다.", 상세 "강의를 조회했습니다.", 등록 "강의를 등록했습니다.", 내 강의 "내 강의 목록을 조회했습니다.", 시청 URL "시청 URL을 발급했습니다.", 검수 목록 "검수 목록을 조회했습니다.", 파일 등록 "파일 정보를 등록했습니다.", 장바구니 "장바구니를 조회했습니다." | 팀 규칙(AGENTS.md 7장, 2026-10-13). 테스트는 채팅과 같이 `statusCode`·`data`만 확인하고 문구는 확인하지 않는다. 204를 `ResponseEntity<Void>`로 두면 Swagger에는 200(본문 없음)으로 표시되므로 `@Operation` 설명에 204를 적는다 | 프론트에 응답 형식 변경 공유(성공 본문이 모두 `data` 아래로 이동). 주문·리뷰(501 스텁)는 반환 타입만 바꿨고 message는 구현할 때 정한다 |
+| D29 | 2026-10-13 | 강의 API 성공 응답은 global `RsData{statusCode, message, data}`로 감싼다(#126). 201은 `@ResponseStatus(CREATED)` + `RsData.created`, 본문 없는 응답은 채팅·고객센터와 같이 `ResponseEntity<Void>`(204)다. 페이지 응답은 `data` 안에 PagedModel(`{content, page}`)로 들어간다. 오류는 그대로 ProblemDetail이다. message: 목록 "강의 목록을 조회했습니다.", 상세·관리자 상세 "강의를 조회했습니다.", 등록 "강의를 등록했습니다.", 내 강의 "내 강의 목록을 조회했습니다.", 시청 URL "시청 URL을 발급했습니다.", 검수 목록 "검수 목록을 조회했습니다.", 파일 등록 "파일 정보를 등록했습니다.", 장바구니 "장바구니를 조회했습니다." | 팀 규칙(AGENTS.md 7장, 2026-10-13). 테스트는 채팅과 같이 `statusCode`·`data`만 확인하고 문구는 확인하지 않는다. 204를 `ResponseEntity<Void>`로 두면 Swagger에는 200(본문 없음)으로 표시되므로 `@Operation` 설명에 204를 적는다 | 프론트에 응답 형식 변경 공유(성공 본문이 모두 `data` 아래로 이동). 주문·리뷰(501 스텁)는 반환 타입만 바꿨고 message는 구현할 때 정한다 |
+| D30 | 2026-10-13 | 관리자 강의 상세는 `GET /api/v1/lectures/admin/{lectureId}`(`LectureInspectionFacade.getLecture`)로 분리한다(#103). 상태·삭제 여부와 관계없이 조회하고 반려 사유도 보여 주며, 응답은 일반 상세(`LectureDetailResponse`)와 같다. 일반 상세 API는 그대로 판매자 본인만 판매 중이 아닌 강의를 보고, 관리자도 일반 상세로는 404다 | 관리자 API는 `/admin` 아래에 두고(D16, 2026-10-12 회의) `SecurityConfig`와 `@PreAuthorize`로 함께 막는다. 고객센터 `GET /inquiries/admin/{inquiryId}`와 같은 방식이다. 일반 상세에 역할 분기를 넣지 않아 기존 동작과 관리자 판별 방식(로그인 권한 vs 회원 복제본) 문제가 생기지 않는다 | 프론트에 검수 화면용 경로 공유 |

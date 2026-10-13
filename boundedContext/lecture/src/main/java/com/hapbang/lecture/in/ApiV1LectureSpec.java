@@ -43,7 +43,8 @@ public interface ApiV1LectureSpec {
     @Operation(summary = "강의 상세",
             description = "콘텐츠 목록(제목·순서·종류)을 포함하고 파일 URL은 없다. "
                     + "판매자 본인은 검수 대기·반려·삭제된 강의도 조회한다. "
-                    + "관리자의 비공개 강의 조회, 보유 중인 구매자의 삭제된 강의 조회는 추가 예정이다.")
+                    + "관리자는 GET /api/v1/lectures/admin/{lectureId}로 조회한다. "
+                    + "보유 중인 구매자의 삭제된 강의 조회는 추가 예정이다.")
     RsData<LectureDetailResponse> getLecture(Long userId, Long lectureId);
 
     @Operation(summary = "강의 등록",

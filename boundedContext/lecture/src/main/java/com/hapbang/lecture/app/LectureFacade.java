@@ -87,8 +87,7 @@ public class LectureFacade {
         return lectureSupport.getMyLectures(sellerUserId, pageable);
     }
 
-    /** 강의 상세 */
-    // TODO(security): 역할별 인가(설계 9장)가 들어오면 관리자도 검수 대기·반려·삭제된 강의 상세를 조회하게 한다.
+    /** 강의 상세. 관리자의 검수용 조회는 {@link LectureInspectionFacade#getLecture}다 (D30) */
     @Transactional(readOnly = true)
     public LectureDetailResponse getLecture(Long userId, Long lectureId) {
         return lectureSupport.getLecture(userId, lectureId);
