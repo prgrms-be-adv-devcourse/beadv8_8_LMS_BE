@@ -177,11 +177,12 @@ sequenceDiagram
 
 ### 4.5 Cart
 
-- 회원당 1개. 처음 담을 때 만든다. (`cart.user_id` 유일)
-- 같은 강의는 한 번만 담는다.
-- 담을 때 검사: 강의가 `ON_SALE`, 본인 강의가 아님(D5), 이미 보유 중(유효한 주문 항목이 있음)이 아님.
-- 담은 뒤 강의가 판매 중지·삭제되면 장바구니 조회 시 "구매 불가"로 표시하고, 주문 시에는 거부한다.
-- 결제(보류)가 성공하면 해당 강의들을 장바구니에서 뺀다.
+- 회원당 1개. 처음 담을 때 만든다. (`cart.user_id` 유일, 동시에 처음 담아도 하나만 생기도록 `INSERT … ON CONFLICT DO NOTHING`, D18)
+- 같은 강의는 한 번만 담는다. 동시에 담으면 부분 유일 인덱스가 막고 `ALREADY_IN_CART`(409)로 응답한다 (D18).
+- 담을 때 검사 순서: 본인 강의가 아님(D5, `OWN_LECTURE_NOT_PURCHASABLE` 403) → 강의가 `ON_SALE`(아니면 상세 조회처럼 `LECTURE_NOT_FOUND` 404) → 이미 담지 않음(`ALREADY_IN_CART` 409) → 이미 보유 중(유효한 주문 항목이 있음)이 아님(**주문 구현 때 추가**).
+- 담은 뒤 강의가 판매 중지·삭제되면 장바구니 조회 시 "구매 불가"(`purchasable=false`)로 표시하고 합계(`purchasableTotalHp`)에서 빼며, 주문 시에는 거부한다. 조회는 최근 담은 순이다.
+- 담지 않은 강의를 빼면 무시하고 204로 응답한다 (D18). 개수 제한은 없다.
+- 결제(보류)가 성공하면 해당 강의들을 장바구니에서 뺀다. (**주문 구현 때 추가**)
 - 정책상 Soft Delete가 원칙이므로 `cart_item`에 `deleted_at`을 둔다. (ERD에 없음)
 
 ### 4.6 LectureOrder / OrderItem
@@ -553,9 +554,9 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 **file_resource**: ERD와 같음. `file_type` = `LECTURE_THUMBNAIL` / `LECTURE_VIDEO` / `LECTURE_DOCUMENT`, `status` = `PENDING` / `UPLOADED`.
 
-**cart**: ERD와 같음. 유일 `(user_id)`.
+**cart**: ERD와 같음. 유일 `uc_cart_user_id (user_id)`.
 
-**cart_item**: ERD + `deleted_at` **추가**(정책 7). 유일 인덱스 `(cart_id, lecture_id) WHERE deleted_at IS NULL`.
+**cart_item**: ERD + `deleted_at` **추가**(정책 7). 부분 유일 인덱스 `uk_cart_item_cart_lecture (cart_id, lecture_id) WHERE deleted_at IS NULL`. `lecture_id`는 다른 애그리거트라 FK를 두지 않는다. 같은 트랜잭션에서 같은 강의를 빼고 다시 담으면 Hibernate가 INSERT를 UPDATE보다 먼저 실행해 이 인덱스에 걸린다(7.1 `lecture_content`와 같은 문제). 지금 API는 요청마다 한 동작이라 해당 없고, 주문 후 빼기를 넣을 때 다시 확인한다.
 
 **lecture_order**
 
@@ -895,3 +896,4 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D15 | 2026-10-12 | 컨트롤러의 Swagger 어노테이션(`@Tag`·`@Operation`, 이후 추가할 `@ApiResponse`·`@Parameter`도)은 같은 `in` 패키지의 명세 인터페이스 `ApiV1Lecture{X}Spec`(예: `ApiV1LectureSpec`, `ApiV1LectureCartSpec`)에 두고, 컨트롤러가 이를 `implements`하며 메서드에 `@Override`를 붙인다. 매핑·`@ResponseStatus`·바인딩(`@PathVariable`·`@RequestParam`·`@RequestBody`·`@Valid`·`@LoginUserId`)·`@PreAuthorize`는 컨트롤러에 남긴다. DTO 필드의 `@Schema`는 DTO에 그대로 둔다 (#74, 2026-10-13 `Docs`→`Spec` 이름 변경 #94) | 컨트롤러에서 경로·권한·호출 흐름이 잘 보이게 한다(2026-10-12 회의). 이름은 2026-10-13 회의에서 `Spec`으로 맞췄다(채팅 `ApiV1ChatSpec`과 같다). `~Api`는 매핑까지 담은 OpenAPI Generator 인터페이스와 헷갈리므로 쓰지 않는다. `in`의 `*Spec`은 Swagger 명세이고, `domain`의 `LectureContentSpec`은 콘텐츠 입력 값이다. springdoc은 구현한 인터페이스의 어노테이션을 읽고, Boot 기본 CGLIB 프록시(`spring.aop.proxy-target-class=true`)라 `@PreAuthorize` 컨트롤러도 그대로 매핑된다. 작업 전후 `/v3/api-docs`가 같음을 확인했다 | 다른 모듈 적용은 각 담당자 판단(AGENTS.md 11장 네이밍은 팀 합의 전) |
 | D16 | 2026-10-12 | 강의 모듈 `app`은 Facade/UseCase/Support로 구성한다. 컨트롤러·이벤트 리스너는 Facade만 호출하고 `@Transactional`은 Facade에 건다. 역할 검사는 Facade 메서드의 `@PreAuthorize`로 하고(판매자 기능 `VERIFIED_INFLUENCER`, 검수 `ADMIN`) 컨트롤러에는 두지 않는다. 관리자 API의 `/admin` 경로 검사(`SecurityConfig`)는 유지한다. D15의 "`@PreAuthorize`는 컨트롤러에 남긴다"를 대체한다 (#73) | 2026-10-12 회의의 "서비스단에서 검증"은 서비스 레이어(Facade/UseCase)를 뜻한다. 모듈을 서비스로 떼어내도 진입점에서 권한이 유지되고, 구조가 회원·지갑 모듈과 같아진다 | 역할 검사가 `@Valid` 검증 뒤에 실행되어, 권한 없는 사용자가 잘못된 요청을 보내면 403이 아니라 400을 받는다(PR #66) |
 | D17 | 2026-10-13 | `LectureUser`는 **가입 이벤트로만 생성**한다(이미 있으면 무시). 회원 정보 변경 이벤트는 **있는 복제본만** `syncFrom`으로 갱신하고, 없으면 `LECTURE_USER_NOT_FOUND`로 실패시켜 미완료 이벤트로 남긴다(재시작 시 재처리) (#87) | `LectureUser`는 ID를 직접 넣어 `save()`가 `merge`로 동작한다. 가입·변경 리스너가 동시에 "없음"을 보고 생성하면 늦은 가입 처리가 먼저 커밋된 변경 정보를 PK 충돌 없이 UPDATE로 덮어쓴다. 생성 경로를 하나로 두면 동시 생성이 없어진다. 채팅 모듈(#79)과 같은 방식 | 변경 이벤트끼리 순서가 바뀌는 경우(재처리 등)는 `UserDto` 버전(또는 수정 시각) 도입을 회원 담당과 논의. 변경 이벤트가 가입보다 먼저 처리되면 재시작 전까지 복제본이 없어 판매자 닉네임이 `null`로 보인다(복제 도착 전과 같음) |
+| D18 | 2026-10-13 | 장바구니 (#92): (1) 담지 않은 강의를 빼면 무시하고 204. (2) 담기 거부는 본인 강의 `OWN_LECTURE_NOT_PURCHASABLE`(403, 주문에서도 재사용) → 판매 중이 아닌 강의(검수 대기·반려·삭제) `LECTURE_NOT_FOUND`(404) → 이미 담음 `ALREADY_IN_CART`(409) 순으로 검사. (3) 조회는 최근 담은 순. (4) 같은 회원의 동시 담기는 장바구니를 `INSERT … ON CONFLICT (user_id) DO NOTHING`으로 만들고, 같은 강의 중복은 부분 유일 인덱스 위반을 `ALREADY_IN_CART`로 바꾼다. (5) 개수 제한 없음 | (1) DELETE를 멱등하게 해 재시도·더블 클릭에도 오류가 없다 (2) 판매 중이 아닌 강의가 있다는 사실을 다른 회원에게 숨겨 상세 조회와 맞춘다 (3) 강의 목록 기본 정렬(최신순)과 같은 방향 (4) 더블 클릭 시 500 대신 409 (5) 기획서에 없음 | "이미 보유 중인 강의 거부"와 "주문 성공 시 빼기"는 주문 PR에서 추가 |

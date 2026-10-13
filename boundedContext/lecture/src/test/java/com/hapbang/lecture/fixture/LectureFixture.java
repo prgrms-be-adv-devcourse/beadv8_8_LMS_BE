@@ -3,6 +3,8 @@ package com.hapbang.lecture.fixture;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.springframework.test.util.ReflectionTestUtils;
+
 import com.hapbang.lecture.domain.ContentType;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureContentSpec;
@@ -46,6 +48,12 @@ public final class LectureFixture {
     public static Lecture onSaleLecture() {
         Lecture lecture = pendingLecture();
         lecture.approve(ADMIN_ID, NOW);
+        return lecture;
+    }
+
+    /** 저장하지 않은 강의에 ID를 넣는다. 장바구니처럼 강의 ID로 참조하는 단위 테스트용 */
+    public static Lecture withId(Lecture lecture, Long lectureId) {
+        ReflectionTestUtils.setField(lecture, "id", lectureId);
         return lecture;
     }
 }
