@@ -21,7 +21,7 @@ import com.hapbang.lecture.app.dto.LectureDetailResponse;
 import com.hapbang.lecture.app.dto.LectureSort;
 import com.hapbang.lecture.app.dto.LectureSummaryResponse;
 import com.hapbang.lecture.app.dto.MyLectureResponse;
-import com.hapbang.lecture.in.dto.ContentAccessResponse;
+import com.hapbang.lecture.app.dto.ContentAccessResponse;
 import com.hapbang.lecture.in.dto.IdResponse;
 import com.hapbang.lecture.in.dto.LectureContentRequest;
 import com.hapbang.lecture.in.dto.LectureContentsReplaceRequest;
@@ -32,8 +32,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /** 강의 API (설계 8.1). Swagger 명세는 {@link ApiV1LectureSpec} */
-// TODO: 5단계(/access)에서 구현한다.
-// 역할 검사(설계 9장): 목록은 비회원도 허용(SecurityConfig), 상세는 회원, 등록·수정·삭제·재검수 신청은 인증된 인플루언서(LectureFacade, D16).
+// 역할 검사(설계 9장): 목록은 비회원도 허용(SecurityConfig), 상세는 회원, 등록·수정·삭제·재검수 신청은 인증된 인플루언서(LectureFacade, D16),
+// 콘텐츠 시청 URL은 판매자 본인·관리자(LectureContentAccessSupport, D26).
 @RestController
 @RequestMapping("/api/v1/lectures")
 @RequiredArgsConstructor
@@ -110,6 +110,6 @@ public class ApiV1LectureController implements ApiV1LectureSpec {
     @GetMapping("/{lectureId}/contents/{contentId}/access")
     public ContentAccessResponse getContentAccess(@LoginUserId Long userId,
             @PathVariable("lectureId") Long lectureId, @PathVariable("contentId") Long contentId) {
-        throw NotImplemented.yet();
+        return lectureFacade.getContentAccess(userId, lectureId, contentId);
     }
 }

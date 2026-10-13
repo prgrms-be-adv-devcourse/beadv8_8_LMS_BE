@@ -1,6 +1,7 @@
 package com.hapbang.lecture.domain;
 
 import com.hapbang.shared.member.domain.ReplicaUser;
+import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.dto.UserDto;
 
 import jakarta.persistence.Entity;
@@ -20,5 +21,10 @@ public class LectureUser extends ReplicaUser {
 
     public static LectureUser from(UserDto user) {
         return new LectureUser(user);
+    }
+
+    /** 정상 상태인 관리자. 강의 콘텐츠 검수용 시청에 쓴다 (D26) */
+    public boolean isAdmin() {
+        return isActive() && getRole() == Role.ADMIN;
     }
 }
