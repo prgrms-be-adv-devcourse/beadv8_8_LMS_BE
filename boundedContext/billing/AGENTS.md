@@ -159,10 +159,10 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 - 작업 완료 후 변경 파일, 테스트 명령 및 결과를 보고한다.
 ## 14. API 컨벤션 (2026-10-12 팀 회의 결정)
 
-Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적용 예시는 지갑 API(`ApiV1WalletController`, `ApiV1WalletControllerDocs`, `WalletFacade`)와 강의 모듈(`boundedContext/lecture`)이다.
+Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적용 예시는 지갑 API(`ApiV1WalletController`, `ApiV1WalletSpec`, `WalletFacade`)와 강의 모듈(`boundedContext/lecture`)이다.
 
 - **컨트롤러 이름**: `ApiV1{Module}Controller`로 통일한다 (예: `ApiV1WalletController`).
-- **Swagger 명세 분리**: `@Tag`·`@Operation` 등 Swagger 어노테이션은 같은 `in` 패키지의 `ApiV1{Module}ControllerDocs` 인터페이스에 둔다. 컨트롤러는 이 인터페이스를 `implements`하고 메서드에 `@Override`를 붙인다. 매핑·파라미터 바인딩·`@ResponseStatus`는 컨트롤러에 남긴다.
+- **Swagger 명세 분리**: `@Tag`·`@Operation` 등 Swagger 어노테이션은 같은 `in` 패키지의 `ApiV1{Module}Spec` 인터페이스에 둔다 (예: `ApiV1WalletController` → `ApiV1WalletSpec`). Billing은 강의 모듈의 `{Controller}Docs` 대신 이 이름을 쓴다. 컨트롤러는 이 인터페이스를 `implements`하고 메서드에 `@Override`를 붙인다. 매핑·파라미터 바인딩·`@ResponseStatus`는 컨트롤러에 남긴다.
 - **페이지네이션**: 요청은 Spring Data `Pageable`, 응답은 `Page`(global `PageConfig`가 `PagedModel` 형태로 직렬화)를 쓴다. 모듈 전용 페이지 응답 DTO를 만들지 않는다. 최대 페이지 크기는 100이다.
 - **관리자 API 경로**: 관리자 전용 API만 `/api/v1/{module}/admin/**` 아래에 둔다 (예: `/api/v1/wallets/admin/...`, `/api/v1/settlements/admin/...`). 관리자가 아닌 API에는 `admin`을 붙이지 않는다.
 - **권한 검사**:
