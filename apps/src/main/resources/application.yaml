@@ -9,6 +9,12 @@ spring:
   profiles:
     # 프로필을 지정하지 않으면 local로 실행한다. 운영은 SPRING_PROFILES_ACTIVE=prod로 지정한다.
     default: local
+  mvc:
+    formcontent:
+      filter:
+        # FormContentFilter는 PUT·PATCH·DELETE의 form 본문을 인증 전에 전부 메모리로 읽는다.
+        # 파일 업로드 경로는 nginx가 큰 본문(2GB)을 받으므로 끈다. form 본문 파라미터를 쓰는 PUT·PATCH·DELETE API는 두지 않는다(docs/deploy/s3.md)
+        enabled: false
   modulith:
     detection-strategy: explicitly-annotated
     events:
