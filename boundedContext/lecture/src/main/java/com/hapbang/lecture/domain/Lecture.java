@@ -112,6 +112,18 @@ public class Lecture {
         return List.copyOf(contents);
     }
 
+    /** 현재 콘텐츠 중에서 찾는다. 교체되어 지워진 콘텐츠나 다른 강의의 콘텐츠면 {@code LECTURE_CONTENT_NOT_FOUND} */
+    public LectureContent findContent(Long contentId) {
+        return contents.stream()
+                .filter(content -> content.getId().equals(contentId))
+                .findFirst()
+                .orElseThrow(() -> new LectureException(LectureErrorCode.LECTURE_CONTENT_NOT_FOUND));
+    }
+
+    public boolean isSeller(Long userId) {
+        return sellerUserId.equals(userId);
+    }
+
     public boolean isOnSale() {
         return !isDeleted() && status == LectureStatus.ON_SALE;
     }
@@ -199,6 +211,23 @@ public class Lecture {
         }
         this.deletedAt = now;
         this.updatedAt = now;
+    }
+
+    /**
+     * 콘텐츠(영상·자료)를 볼 수 있는 회원인지 확인한다 (D26).
+     * 판매자 본인과 관리자는 상태와 관계없이(삭제 포함) 볼 수 있다. 그 밖의 회원에게 판매 중이 아닌 강의는
+     * 상세 조회와 같이 없는 강의({@code LECTURE_NOT_FOUND})로 보이고, 판매 중인 강의는 {@code CONTENT_ACCESS_DENIED}다.
+     */
+    // TODO: 주문(결제 연동) 구현 후 구매자 조건을 더한다(설계 4.6 "시청").
+    //  본인 항목이 PURCHASED면 재생 동의 필요 오류, CONFIRMED·PAID_OUT이면 허용, 삭제된 강의도 기존 구매자는 허용.
+    public void validateContentViewer(Long userId, boolean admin) {
+        if (isSeller(userId) || admin) {
+            return;
+        }
+        if (!isOnSale()) {
+            throw new LectureException(LectureErrorCode.LECTURE_NOT_FOUND);
+        }
+        throw new LectureException(LectureErrorCode.CONTENT_ACCESS_DENIED);
     }
 
     /**

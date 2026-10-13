@@ -3,11 +3,11 @@ package com.hapbang.lecture.in;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import com.hapbang.lecture.app.dto.ContentAccessResponse;
 import com.hapbang.lecture.app.dto.LectureDetailResponse;
 import com.hapbang.lecture.app.dto.LectureSort;
 import com.hapbang.lecture.app.dto.LectureSummaryResponse;
 import com.hapbang.lecture.app.dto.MyLectureResponse;
-import com.hapbang.lecture.in.dto.ContentAccessResponse;
 import com.hapbang.lecture.in.dto.IdResponse;
 import com.hapbang.lecture.in.dto.LectureContentsReplaceRequest;
 import com.hapbang.lecture.in.dto.LectureInfoUpdateRequest;
@@ -64,8 +64,11 @@ public interface ApiV1LectureSpec {
     Page<MyLectureResponse> getMyLectures(Long userId, Pageable pageable);
 
     @Operation(summary = "콘텐츠 시청 URL 발급",
-            description = "구매자·판매자·관리자. 짧은 만료의 Presigned GET URL. "
-                    + "구매자 항목이 PURCHASED이면 영상·자료 모두 거부한다(재생 동의 필요). "
-                    + "구매자는 삭제되지 않은 콘텐츠만 받는다.")
+            description = "판매자 본인·관리자(검수용). 상태와 관계없이(삭제된 강의 포함) 현재 콘텐츠의 S3 Presigned GET URL을 "
+                    + "1시간 만료로 발급한다. 영상은 브라우저에서 재생되고, 자료(PDF)는 원본 파일명으로 내려받는다"
+                    + "(Content-Disposition: attachment). 만료 뒤에는 다시 발급받는다. "
+                    + "오류: 없는 강의 404 LECTURE_NOT_FOUND, 판매자·관리자가 아니면 판매 중이 아닌 강의는 404 LECTURE_NOT_FOUND이고 "
+                    + "판매 중인 강의는 403 CONTENT_ACCESS_DENIED, 이 강의에 없거나 교체된 콘텐츠는 404 LECTURE_CONTENT_NOT_FOUND. "
+                    + "구매자 시청(재생 동의 포함)은 주문 구현 후 추가 예정이다.")
     ContentAccessResponse getContentAccess(Long userId, Long lectureId, Long contentId);
 }
