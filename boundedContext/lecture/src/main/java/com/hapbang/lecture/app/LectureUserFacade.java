@@ -17,9 +17,15 @@ public class LectureUserFacade {
 
     private final LectureUserSyncUseCase lectureUserSyncUseCase;
 
-    /** 같은 회원 정보가 재전달돼도 복제본을 중복 생성하지 않는다. */
+    /** 가입 정보로 복제본을 만든다. 이미 있으면 무시한다. */
     @Transactional
-    public void sync(UserDto user) {
-        lectureUserSyncUseCase.sync(user);
+    public void syncJoined(UserDto user) {
+        lectureUserSyncUseCase.createIfAbsent(user);
+    }
+
+    /** 변경 정보로 있는 복제본을 갱신한다. 없으면 {@code LECTURE_USER_NOT_FOUND}로 실패한다. */
+    @Transactional
+    public void syncModified(UserDto user) {
+        lectureUserSyncUseCase.update(user);
     }
 }
