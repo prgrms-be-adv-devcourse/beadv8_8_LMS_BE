@@ -22,6 +22,13 @@ springdoc:
     path: /swagger-ui.html
 
 hapbang:
+  storage:
+    s3:
+      # 기본은 docker/compose.yaml의 S3Mock(가짜 키, 서명·만료 검사 없음).
+      # 실제 S3로 확인하려면 S3_ENDPOINT를 빈 값으로, S3_BUCKET·AWS_PROFILE을 지정한다(docs/deploy/s3.md)
+      endpoint: ${S3_ENDPOINT:http://localhost:9090}
+      bucket: ${S3_BUCKET:hapbang-local}
+      key-prefix: local
   local-login:
     # 구글 없이 역할로 로그인 (POST /api/v1/members/local-login) + 역할별 테스트 계정 생성. 서버에선 켜지 않는다
     enabled: true

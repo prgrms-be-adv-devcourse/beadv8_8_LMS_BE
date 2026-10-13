@@ -12,5 +12,20 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql
 
+  # 로컬용 S3 에뮬레이터 (application-local.yaml의 hapbang.storage.s3).
+  # 계정·토큰 없이 쓸 수 있고 CORS를 모두 허용한다. Presigned URL의 서명·만료는 검사하지 않는다.
+  s3mock:
+    image: adobe/s3mock:5.2.3
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: hapbang-local
+      # 앱을 다시 시작해도 올린 파일이 남도록 볼륨에 저장한다(DB의 파일 정보와 맞춘다)
+      COM_ADOBE_TESTING_S3MOCK_STORE_ROOT: /s3mockroot
+      COM_ADOBE_TESTING_S3MOCK_STORE_RETAIN_FILES_ON_EXIT: "true"
+    ports:
+      - "${S3MOCK_PORT:-9090}:9090"
+    volumes:
+      - s3mock-data:/s3mockroot
+
 volumes:
   postgres-data:
+  s3mock-data:
