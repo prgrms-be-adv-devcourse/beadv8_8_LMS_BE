@@ -2,13 +2,17 @@ package com.hapbang.billing.out;
 
 import static org.assertj.core.api.Assertions.*;
 
+import java.lang.reflect.Field;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.hapbang.testsupport.RepositoryTest;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.EntityManager;
 
 @RepositoryTest
@@ -100,5 +104,46 @@ class BillingSchemaTest {
                 WHERE table_type = 'BASE TABLE'
                   AND table_schema NOT IN ('billing', 'public', 'pg_catalog', 'information_schema')
                 """).getResultList()).isEmpty();
+    }
+
+    // #116에서 JPA 연관관계를 ID 필드로 바꾼 13개: 엔티티의 @Column 이름·NULL 허용이 Flyway 컬럼과 같고, 그 컬럼의 DB FK가 남아 있다.
+    @ParameterizedTest
+    @CsvSource({
+            "PointLedger, walletId, point_ledger, wallet_id, false",
+            "PointLedger, originalLedgerId, point_ledger, original_ledger_id, true",
+            "PointHold, walletId, point_hold, wallet_id, false",
+            "PointCharge, walletId, point_charge, wallet_id, false",
+            "PointChargeUsage, chargeId, point_charge_usage, charge_id, false",
+            "PointRefundRequest, walletId, point_refund_request, wallet_id, false",
+            "PointRefundRequest, pointHoldId, point_refund_request, point_hold_id, true",
+            "PointRefund, walletId, point_refund, wallet_id, false",
+            "PointRefund, chargeId, point_refund, charge_id, false",
+            "Settlement, receiverWalletId, settlement, receiver_wallet_id, false",
+            "Settlement, pointHoldId, settlement, point_hold_id, false",
+            "Exchange, walletId, exchange, wallet_id, false",
+            "Exchange, pointHoldId, exchange, point_hold_id, true"})
+    void ID로_바꾼_참조_필드는_기존_컬럼과_NULL_제약과_FK를_그대로_쓴다(String entity, String field, String table,
+            String column, boolean nullable) throws Exception {
+        Field idField = Class.forName("com.hapbang.billing.domain." + entity).getDeclaredField(field);
+        Column mapping = idField.getAnnotation(Column.class);
+        assertThat(idField.getType()).isEqualTo(Long.class);
+        assertThat(mapping.name()).isEqualTo(column);
+        assertThat(mapping.nullable()).isEqualTo(nullable);
+
+        assertThat(entityManager.createNativeQuery("""
+                SELECT is_nullable FROM information_schema.columns
+                WHERE table_schema = 'billing' AND table_name = :table AND column_name = :column
+                """, String.class).setParameter("table", table).setParameter("column", column).getSingleResult())
+                .isEqualTo(nullable ? "YES" : "NO");
+        assertThat(entityManager.createNativeQuery("""
+                SELECT count(*) FROM pg_constraint constraint_row
+                JOIN pg_class source_table ON source_table.oid = constraint_row.conrelid
+                JOIN pg_namespace ns ON ns.oid = source_table.relnamespace
+                JOIN pg_attribute attribute_row ON attribute_row.attrelid = constraint_row.conrelid
+                    AND attribute_row.attnum = ANY (constraint_row.conkey)
+                WHERE constraint_row.contype = 'f' AND ns.nspname = 'billing'
+                  AND source_table.relname = :table AND attribute_row.attname = :column
+                """, Long.class).setParameter("table", table).setParameter("column", column).getSingleResult())
+                .isEqualTo(1L);
     }
 }

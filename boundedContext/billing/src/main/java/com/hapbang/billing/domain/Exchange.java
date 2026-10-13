@@ -4,10 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
@@ -37,13 +34,11 @@ public class Exchange extends BillingUpdatedEntity {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "wallet_id", nullable = false)
-    private Wallet wallet;
+    @Column(name = "wallet_id", nullable = false)
+    private Long walletId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = true)
-    @JoinColumn(name = "point_hold_id", nullable = true)
-    private PointHold pointHold;
+    @Column(name = "point_hold_id", nullable = true)
+    private Long pointHoldId;
 
     @Column(name = "requested_amount_hp", nullable = false)
     private Long requestedAmountHp;
@@ -83,8 +78,8 @@ public class Exchange extends BillingUpdatedEntity {
     @Builder
     private Exchange(
             Long userId,
-            Wallet wallet,
-            PointHold pointHold,
+            Long walletId,
+            Long pointHoldId,
             Long requestedAmountHp,
             BigDecimal feeRate,
             Long feeAmountHp,
@@ -98,8 +93,8 @@ public class Exchange extends BillingUpdatedEntity {
             String failureReason
     ) {
         this.userId = userId;
-        this.wallet = wallet;
-        this.pointHold = pointHold;
+        this.walletId = walletId;
+        this.pointHoldId = pointHoldId;
         this.requestedAmountHp = requestedAmountHp;
         this.feeRate = feeRate;
         this.feeAmountHp = feeAmountHp;

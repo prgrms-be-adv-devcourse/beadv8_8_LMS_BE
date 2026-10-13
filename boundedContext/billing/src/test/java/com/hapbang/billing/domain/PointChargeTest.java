@@ -47,13 +47,13 @@ class PointChargeTest {
     @Test
     @DisplayName("최초 배분 내역은 배분액 전부가 보류 중이고 소진·반환은 0이다")
     void usageHeld() {
-        Wallet wallet = Wallet.create(1L);
-        PointCharge charge = BillingFixture.charge(wallet).build();
-        PointHold hold = PointHold.held(wallet, BillingReferenceType.LECTURE_ORDER, 1L, 3_000L, 0L,
+        PointHold hold = PointHold.held(1L, BillingReferenceType.LECTURE_ORDER, 1L, 3_000L, 0L,
                 "HOLD:LECTURE_ORDER:1", BillingFixture.NOW);
 
-        PointChargeUsage usage = PointChargeUsage.held(charge, hold, 3_000L);
+        PointChargeUsage usage = PointChargeUsage.held(101L, hold, 3_000L);
 
+        assertThat(usage.getChargeId()).isEqualTo(101L);
+        assertThat(usage.getPointHold()).isSameAs(hold);
         assertThat(usage.getAmountHp()).isEqualTo(3_000L);
         assertThat(usage.getRemainingHeldHp()).isEqualTo(3_000L);
         assertThat(usage.getConsumedHp()).isZero();

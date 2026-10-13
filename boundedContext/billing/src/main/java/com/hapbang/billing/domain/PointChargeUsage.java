@@ -30,9 +30,8 @@ import org.hibernate.annotations.Check;
 @Check(constraints = "(amount_hp > 0) AND (remaining_held_hp >= 0) AND (consumed_hp >= 0) AND (released_hp >= 0) AND (remaining_held_hp::numeric + consumed_hp + released_hp = amount_hp::numeric)")
 public class PointChargeUsage extends BillingUpdatedEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "charge_id", nullable = false)
-    private PointCharge charge;
+    @Column(name = "charge_id", nullable = false)
+    private Long chargeId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "point_hold_id", nullable = false)
@@ -57,7 +56,7 @@ public class PointChargeUsage extends BillingUpdatedEntity {
     // 빌더로 전달받은 충전 건·보류와 각 배분 금액·상태로 충전 원금 사용 내역을 초기화한다.
     @Builder
     private PointChargeUsage(
-            PointCharge charge,
+            Long chargeId,
             PointHold pointHold,
             Long amountHp,
             Long remainingHeldHp,
@@ -65,7 +64,7 @@ public class PointChargeUsage extends BillingUpdatedEntity {
             Long releasedHp,
             PointChargeUsageStatus status
     ) {
-        this.charge = charge;
+        this.chargeId = chargeId;
         this.pointHold = pointHold;
         this.amountHp = amountHp;
         this.remainingHeldHp = remainingHeldHp;
@@ -74,10 +73,10 @@ public class PointChargeUsage extends BillingUpdatedEntity {
         this.status = status;
     }
 
-    // 충전 건의 원금을 보류에 처음 배분한 내역을 만든다. 배분액 전부가 보류 중이고 소진·반환은 0이다.
-    public static PointChargeUsage held(PointCharge charge, PointHold pointHold, long amountHp) {
+    // 충전 건(ID로 참조, 다른 Aggregate)의 원금을 보류에 처음 배분한 내역을 만든다. 배분액 전부가 보류 중이고 소진·반환은 0이다.
+    public static PointChargeUsage held(Long chargeId, PointHold pointHold, long amountHp) {
         return PointChargeUsage.builder()
-                .charge(charge)
+                .chargeId(chargeId)
                 .pointHold(pointHold)
                 .amountHp(amountHp)
                 .remainingHeldHp(amountHp)

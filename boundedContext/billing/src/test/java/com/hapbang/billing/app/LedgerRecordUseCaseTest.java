@@ -61,6 +61,9 @@ class LedgerRecordUseCaseTest {
     void locksWalletsInIdOrder() {
         Wallet first = Wallet.create(10L);
         Wallet second = Wallet.create(20L);
+        // 저장소에서 읽은 지갑처럼 조회한 ID를 준다. 원장은 지갑을 ID로 가리킨다.
+        ReflectionTestUtils.setField(first, "id", 1L);
+        ReflectionTestUtils.setField(second, "id", 2L);
         given(walletRepository.findByIdForUpdate(1L)).willReturn(Optional.of(first));
         given(walletRepository.findByIdForUpdate(2L)).willReturn(Optional.of(second));
 

@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황", "3. 결정 기록", "7. 남은 일"을 갱신한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-10-13 (Issue #100 구현, PR 전)
+마지막 갱신: 2026-10-13 (Issue #116 구현, PR 전)
 
 ---
 
@@ -20,7 +20,8 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #57 | HP 원장 기록·잔액 버킷 이동·멱등성·역분개 검증·잔액 대사 | `feature/tkt-57` | #67 | 완료 |
 | #81 | 팀 공통 API 컨벤션 적용(지갑 역할 검사 Facade `@PreAuthorize`, Swagger Spec 인터페이스) | `feature/tkt-81` | #82 | 완료 |
 | #78 | Hold 최초 생성: 수익 HP 우선·충전 HP FIFO 배분, `POINT_CHARGE_USAGE` 배분 기록, 참조당 보류 1건 멱등성 | `feature/tkt-78` | #99 | 완료 |
-| #100 | Hold 부분·전체 반환: 충전 HP 우선·충전 원금 역순 복원, 반환 요청별 멱등성, 처리 이력 재생 대조. #71 공통 예외 처리 반영 | `feature/tkt-100` | - | 구현·테스트 완료 (PR 전) |
+| #100 | Hold 부분·전체 반환: 충전 HP 우선·충전 원금 역순 복원, 반환 요청별 멱등성, 처리 이력 재생 대조. #71 공통 예외 처리 반영 | `feature/tkt-100` | #114 | 완료 |
+| #116 | 멘토 리뷰 반영: Aggregate 간 JPA 연관관계 → ID 참조(13개), Enum 상수 Javadoc(18개), QueryDSL 도입 검토(보류) | `feature/tkt-116` | - | 구현·테스트 완료 (PR 전) |
 
 다음 후보: Hold Payout(지급), Charge(TossPayments 충전), Refund, Settlement(지급), Exchange(환전). 자세한 내용은 7장.
 
@@ -44,6 +45,7 @@ boundedContext/billing/src/main/java/com/hapbang/billing/
 | domain | `BillingErrorCode`, `BillingException` | 오류 코드(5장) |
 | domain | `PointHold`, `PointCharge`, `PointChargeUsage` | `PointHold.held`(최초 보류)·`release`(남은 보류 감소·상태 전이), `PointCharge.reservePrincipal`(가용 원금 감소)·`restorePrincipal`(복원), `PointChargeUsage.held`(최초 배분)·`release`(남은 보류 → 반환) |
 | domain | `PointHoldDetail` | `released`(반환 한 건 기록. 참조 대상 = 보류의 업무 대상) |
+| domain | (참조 방식) | Aggregate 간은 ID 필드(`walletId`, `chargeId`, `pointHoldId`, `originalLedgerId` 등), Aggregate 안만 `@ManyToOne`·`@OneToOne`(3.8) |
 | out | `WalletRepository` | `findByUserId`, `findByIdForUpdate`(PESSIMISTIC_WRITE) |
 | out | `PointChargeRepository` | `findAllocatableForUpdate`(배분 가능 충전 건을 완료 시각·ID 순으로 PESSIMISTIC_WRITE), `findAllByIdInForUpdate`(복원 대상을 ID 순으로 PESSIMISTIC_WRITE), `sumRemainingPrincipal` |
 | out | `PointHoldDetailRepository` | `findAllByPointHoldIdOrderByIdAsc`(재생 순서) |
@@ -150,6 +152,30 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 - **`RELEASE`는 정상 보류 해제**다. 원장 정정용 `REVERSAL`(원본 원장 참조)과 구분한다.
 - **강의 보류 단위 = 주문 항목 (2026-10-13 강의 담당 합의, 적용)**: `HoldCommand.HOLDABLE_REFERENCE_TYPES`의 `LECTURE_ORDER`를 `LECTURE_ORDER_ITEM`으로 바꿨다. 여러 강의를 함께 사면 항목마다 보류하고, 개별 취소는 그 항목의 보류만 반환한다. Enum 값과 DB CHECK에 이미 있어 **마이그레이션은 필요 없다**. `LECTURE_ORDER` Enum 값·CHECK는 남긴다(원장 참조 등 다른 용도, 기존 Flyway 수정 금지). 운영 코드에 보류 호출자가 아직 없어 `LECTURE_ORDER`로 만든 기존 보류는 없다. 있었다면 `ReleaseCommand`가 거절해 반환할 수 없으므로, 강의 연동 전에 보류가 만들어졌다면 확인이 필요하다. 강의 모듈 API는 이미 `orderItemId`를 쓴다(강의 코드는 바꾸지 않았다).
 
+### 3.8 JPA 연관관계·Enum·QueryDSL (#116, 멘토 리뷰)
+
+- **Aggregate 간 참조는 ID 필드**: 엔티티 필드만 `@ManyToOne` → `@Column Long xxxId`로 바꿨다. 컬럼 이름·타입·NOT NULL, DB FK 18개·UNIQUE·CHECK·인덱스는 그대로다(Flyway 변경 없음, `BillingSchemaTest`가 FK 18개 확인).
+    - 바꾼 13개: `PointLedger.walletId`·`originalLedgerId`, `PointHold.walletId`, `PointCharge.walletId`, `PointChargeUsage.chargeId`, `PointRefundRequest.walletId`·`pointHoldId`, `PointRefund.walletId`·`chargeId`, `Settlement.receiverWalletId`·`pointHoldId`, `Exchange.walletId`·`pointHoldId`.
+    - 유지한 5개(Aggregate 안): `PointHoldDetail.pointHold`, `PointChargeUsage.pointHold`(보류 Aggregate), `PointRefund.refundRequest`(환불 요청 Aggregate), `ExchangeAccount.exchange`, `ExchangePayout.exchange`(환전 Aggregate).
+    - Aggregate 구분: 지갑, 원장 항목(append-only, 행마다 독립), 충전 건, 보류(+상세·배분), 환불 요청(+환불), 지급, 환전(+계좌·송금).
+- **배분 생성도 ID**: `PointChargeUsage.held(chargeId, hold, amount)`는 충전 건 객체 대신 ID를 받는다. 배분 생성(`HoldCreateUseCase`)·반환(`HoldReleaseUseCase`)과 충전 원금 감소·복원은 두 Hold UseCase에서만 일어나고, 언제나 지갑 → (보류) → 충전 건 순서로 잠근 뒤 바뀐다.
+- **원장 반영 검사**: `Wallet.applyLedger`는 객체 동일성(`ledger.getWallet() == this`) 대신 `ledger.walletId == wallet.id`를 확인한다. ID가 없는(저장 전) 지갑에는 반영하지 않는다. 반영 경로는 그대로 `LedgerRecordUseCase` 하나(ArchUnit)이고, 지갑은 이미 ID로 잠근 뒤 반영한다.
+- **영향 없음을 확인한 것**: 지갑 ID 오름차순 락, 지갑 → 보류 → 충전 건 락 순서, `lockWallet`의 flush → 락 → refresh, 보류·반환 멱등성, `ChargeUsageHistory` 재생(배분의 `chargeId`만 쓴다), 원장 대사, 단일 트랜잭션. 기존 테스트를 고치지 않고 통과했다(엔티티 생성·조회 방식만 바꾼 테스트 제외).
+    - IDENTITY 전략이라 부모 INSERT가 `save` 시점에 끝나 ID로 자식을 만들 수 있다(연관관계가 하던 INSERT 순서 보장이 필요 없다).
+    - 지연 로딩 프록시로 지갑·충전 건을 읽던 곳(`hold.getWallet().getId()` 등)이 필드 읽기로 바뀌어 추가 SELECT·N+1 여지가 줄었다.
+- **JPQL**: `c.wallet.id`·`l.wallet.id`·`l.originalLedger.id`를 `c.walletId`·`l.walletId`·`l.originalLedgerId`로 바꿨다(JOIN 없음, 결과 같음). 파생 쿼리 `findByChargeIdAndPointHoldId`는 새 필드 `chargeId`로 그대로 해석된다.
+- **Enum**: 18개 Enum의 모든 상수에 의미를 Javadoc으로 적었다. `description` 필드는 읽는 곳(API 응답·화면)이 없어 만들지 않았고(Billing Enum은 응답 DTO에 없다), 강의 모듈 #112의 상수 Javadoc 방식을 따랐다. 상수 이름·순서·값은 그대로이고 DB 컬럼도 없다. `BillingEnumStorageTest`가 Enum 컬럼 CHECK 20개의 허용값과 상수 이름을 대조한다.
+- **QueryDSL은 도입하지 않았다(팀 결정 필요)**.
+    - Billing JPQL은 4개뿐이고 모두 조건이 고정된 단순 조회·합계다(동적 조건 없음, JOIN 없음). 멘토가 짚은 `sumAmountByWalletId`도 ID 필드로 바뀌어 경로 탐색이 없다. 전환 이점이 작다.
+    - 원본 `com.querydsl:querydsl-jpa`는 5.1.0(2024-01)에서 멈춰 Hibernate 7.4·Jakarta Persistence 3.2(Boot 4.1) 지원이 확인되지 않는다. 관리되는 포크 `io.github.openfeign.querydsl` 7.7이 있으나 팀이 검증한 적이 없다.
+    - 저장소 어느 모듈도 QueryDSL을 쓰지 않는다. 도입하면 Gradle annotationProcessor·Q 타입 생성 경로(`build/generated`, Git 제외)·CI 설정이 모든 모듈 규칙이 되므로 팀 합의 후 별도 Issue로 한다.
+    - 기존 JPQL 4개와 파생 쿼리는 그대로 쓴다(#116에서는 연관 경로 `x.wallet.id`를 ID 필드 `x.walletId`로만 바꿨다).
+    - **재검토 기준** (하나라도 생기면 다시 검토한다)
+        1. 조건을 골라 조합하는 동적 조회가 생길 때 (예: 관리자 원장·대사·지급·환전 목록의 기간·상태·회원 필터 + `Pageable`)
+        2. Billing 테이블끼리 JOIN하거나 DTO 프로젝션·집계가 여러 개로 늘어 문자열 JPQL의 오타·필드명 변경을 컴파일 시점에 잡아야 할 때
+        3. 다른 모듈이 먼저 도입해 팀 공통 버전·Gradle 설정이 정해졌을 때
+        4. 도입 전 확인: Hibernate 7.x·Jakarta Persistence 3.2 지원 버전, Gradle 9 annotationProcessor·멀티모듈 컴파일, IntelliJ·CI의 Q 타입 생성, 기존 비관적 락 쿼리(`@Lock`) 대체 여부
+
 ---
 
 ## 4. 다른 코드가 원장 기록을 호출할 때의 계약
@@ -195,7 +221,8 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 ## 6. 테스트
 
 - 실행: `./gradlew :billing:test --no-daemon`, 전체 `./gradlew check --no-daemon` (`ModularityTests` 포함).
-- 2026-10-13 기준(#100): Billing 284개, 전체 708개 통과 (`./gradlew check`, Gradle 테스트 결과 XML 합계).
+- 2026-10-13 기준(#116): Billing 300개, 전체 724개 통과 (`./gradlew clean :billing:test`, `./gradlew check`, Gradle 테스트 결과 XML 합계).
+- #116 추가: `BillingEnumStorageTest`(Enum 상수 = CHECK 허용값), `BillingSchemaTest`의 ID 필드 13개 컬럼 이름·NULL 제약·FK 대조, `BillingRepositoryTest`의 ID 참조 FK 거절(원장 지갑·원본 원장, 충전 건 지갑, 보류 지갑, 배분 충전 건), `WalletTest`의 ID 없는 지갑 반영 거절. `Wallet.applyLedger`의 지갑 ID 검사를 없애면 실패함을 확인했다.
 - `lockWallet` 테스트(트랜잭션 필수·refresh·커밋까지 락 유지)는 refresh·`MANDATORY`를 제거하면 실패함을 확인했다.
 - 보류 테스트: `HoldCreateIntegrationTest`(배분·멱등성·롤백·동시성 27개), `HoldCommandTest`, `HoldSplitTest`, `PointChargeTest`.
 - 반환 테스트: `HoldReleaseIntegrationTest`(부분·전체·멱등성·동시성·비정상 상태·정합성·롤백), `ReleaseCommandTest`, `ReleaseSplitTest`, `ChargeUsageHistoryTest`, `PointHoldReleaseTest`. 지급 기능이 없어 지급된 보류는 JDBC(상세·보류) + `record()`(원장)로 만든다. 역순→FIFO, 원금 대조·재생 대조·지갑 락·보류/배분/충전 건 refresh를 각각 제거하면 실패함을 확인했다. 저장 실패 롤백은 테스트 안에서 행 트리거(`RAISE EXCEPTION`)를 잠시 걸어 만든다. 충전 API가 없어 충전 건은 JDBC INSERT + 충전 원장 `record()`로 만든다.
@@ -222,6 +249,7 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 - **다른 모듈 연동**: appearance의 `out/billing/BillingClient`가 계약 초안이다(보류·반환·지급·일괄 정산, 멱등키). Billing 쪽 공개 API·DTO가 필요하다. `billing.app`은 Modulith상 다른 모듈에 공개된 패키지가 아니다. 보류는 B안이 확정되어 출연 쪽 `HoldCommand.idempotencyKey`(호출 측 키)와 맞지 않으므로 연동 시 출연 담당과 계약을 맞춘다. `HoldCommand`·`ReleaseCommand`가 Billing Enum(`BillingReferenceType`)을 쓰므로 공개 DTO는 별도로 정해야 한다. 반환은 출연 초안의 `ReleaseCommand(idempotencyKey, ..., amount, reason)`과 달리 금액 없는 전체 반환이 있고, 사유(`reason`)는 받지 않는다(원장 `description`에 남길지 연동 때 정한다). 반환 거절도 결과값이 아니라 예외로 알린다.
 
 ### 팀과 정할 것
+- QueryDSL 도입 여부와 버전(`io.github.openfeign.querydsl` 등), Q 타입 생성 규칙 (3.8).
 - Billing 관리자 API는 `/api/v1/{module}/admin/**` 규칙(`SecurityConfig`)에 따라 둔다(대사 API 등).
 - 락 대기 시간 상한(`lock_timeout`). 지금은 PostgreSQL 기본값(무제한 대기).
 - `UserModifiedEvent`(역할 변경)로 회원이 ADMIN이 될 때 지갑 처리.

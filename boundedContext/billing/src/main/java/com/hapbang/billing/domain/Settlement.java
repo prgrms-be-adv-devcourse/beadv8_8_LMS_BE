@@ -4,10 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
@@ -36,13 +33,11 @@ public class Settlement extends BillingUpdatedEntity {
     @Column(name = "receiver_user_id", nullable = false)
     private Long receiverUserId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "receiver_wallet_id", nullable = false)
-    private Wallet receiverWallet;
+    @Column(name = "receiver_wallet_id", nullable = false)
+    private Long receiverWalletId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "point_hold_id", nullable = false)
-    private PointHold pointHold;
+    @Column(name = "point_hold_id", nullable = false)
+    private Long pointHoldId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "source_type", nullable = false)
@@ -84,8 +79,8 @@ public class Settlement extends BillingUpdatedEntity {
     @Builder
     private Settlement(
             Long receiverUserId,
-            Wallet receiverWallet,
-            PointHold pointHold,
+            Long receiverWalletId,
+            Long pointHoldId,
             SettlementSourceType sourceType,
             Long sourceId,
             PayoutType payoutType,
@@ -99,8 +94,8 @@ public class Settlement extends BillingUpdatedEntity {
             String failureReason
     ) {
         this.receiverUserId = receiverUserId;
-        this.receiverWallet = receiverWallet;
-        this.pointHold = pointHold;
+        this.receiverWalletId = receiverWalletId;
+        this.pointHoldId = pointHoldId;
         this.sourceType = sourceType;
         this.sourceId = sourceId;
         this.payoutType = payoutType;

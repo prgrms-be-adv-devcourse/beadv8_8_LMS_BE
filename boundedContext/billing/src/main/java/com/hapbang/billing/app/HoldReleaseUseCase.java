@@ -116,7 +116,7 @@ public class HoldReleaseUseCase {
     private PointHold lockHold(ReleaseCommand command, Long walletId) {
         PointHold hold = pointHoldRepository.findByIdempotencyKey(command.holdKey())
                 .orElseThrow(() -> new BillingException(BillingErrorCode.HOLD_NOT_FOUND));
-        if (!hold.getWallet().getId().equals(walletId)) {
+        if (!hold.getWalletId().equals(walletId)) {
             throw new BillingException(BillingErrorCode.HOLD_OWNER_MISMATCH);
         }
         entityManager.refresh(hold, LockModeType.PESSIMISTIC_WRITE);
@@ -139,7 +139,7 @@ public class HoldReleaseUseCase {
         }
         ChargeUsageHistory history = ChargeUsageHistory.replay(
                 usages.stream()
-                        .map(usage -> new ChargeUsageHistory.Allocation(usage.getId(), usage.getCharge().getId(),
+                        .map(usage -> new ChargeUsageHistory.Allocation(usage.getId(), usage.getChargeId(),
                                 usage.getAmountHp()))
                         .toList(),
                 details.stream()
@@ -190,7 +190,7 @@ public class HoldReleaseUseCase {
         for (PointCharge charge : pointChargeRepository.findAllByIdInForUpdate(chargeIds)) {
             // 락 조회는 이미 영속성 컨텍스트에 있던 충전 건의 상태를 바꾸지 않으므로 락을 잡은 뒤 최신 원금으로 다시 읽는다.
             entityManager.refresh(charge);
-            if (!charge.getWallet().getId().equals(wallet.getId())) {
+            if (!charge.getWalletId().equals(wallet.getId())) {
                 throw new BillingException(BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
             }
             charges.put(charge.getId(), charge);

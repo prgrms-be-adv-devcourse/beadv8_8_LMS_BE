@@ -82,7 +82,7 @@ public class HoldCreateUseCase {
         verifyChargePrincipal(wallet, charges);
 
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        PointHold hold = save(PointHold.held(wallet, command.referenceType(), command.referenceId(), split.chargeHp(),
+        PointHold hold = save(PointHold.held(walletId, command.referenceType(), command.referenceId(), split.chargeHp(),
                 split.revenueHp(), key, now));
         List<HoldResult.ChargeAllocation> allocations = allocate(hold, charges, split.chargeHp());
         // record()는 시작할 때 flush하므로 위의 보류·배분·충전 원금 변경도 원장보다 먼저 같은 트랜잭션에서 DB에 반영된다.
@@ -95,7 +95,7 @@ public class HoldCreateUseCase {
     // 이미 있는 보류가 같은 지갑·같은 금액이면 다시 바꾸지 않고 처음 결과를 돌려주고, 다르면 IDEMPOTENCY_KEY_CONFLICT로 거절한다.
     // 보류는 있는데 원장 줄 수나 충전 원금 배분 합계가 맞지 않으면 HOLD_STATE_INCONSISTENT로 거절한다.
     private HoldResult replay(HoldCommand command, Wallet wallet, PointHold hold) {
-        if (!hold.getWallet().getId().equals(wallet.getId()) || hold.originalTotalHp() != command.amountHp()) {
+        if (!hold.getWalletId().equals(wallet.getId()) || hold.originalTotalHp() != command.amountHp()) {
             throw new BillingException(BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
         List<PointChargeUsage> usages = pointChargeUsageRepository.findAllByPointHoldIdOrderByIdAsc(hold.getId());
@@ -105,7 +105,7 @@ public class HoldCreateUseCase {
             throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
         }
         List<HoldResult.ChargeAllocation> allocations = usages.stream()
-                .map(usage -> new HoldResult.ChargeAllocation(usage.getCharge().getId(), usage.getAmountHp()))
+                .map(usage -> new HoldResult.ChargeAllocation(usage.getChargeId(), usage.getAmountHp()))
                 .toList();
         return HoldResult.of(hold, allocations, true);
     }
@@ -131,7 +131,7 @@ public class HoldCreateUseCase {
             }
             long amountHp = Math.min(remainingHp, charge.getRemainingPrincipalHp());
             charge.reservePrincipal(amountHp);
-            pointChargeUsageRepository.save(PointChargeUsage.held(charge, hold, amountHp));
+            pointChargeUsageRepository.save(PointChargeUsage.held(charge.getId(), hold, amountHp));
             allocations.add(new HoldResult.ChargeAllocation(charge.getId(), amountHp));
             remainingHp -= amountHp;
         }

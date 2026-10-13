@@ -36,6 +36,7 @@ import com.hapbang.billing.domain.PointChargeStatus;
 import com.hapbang.billing.domain.PointHoldStatus;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.out.PointChargeRepository;
 import com.hapbang.billing.out.PointChargeUsageRepository;
 import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.WalletRepository;
@@ -69,6 +70,9 @@ class HoldReleaseIntegrationTest {
 
     @Autowired
     PointChargeUsageRepository pointChargeUsageRepository;
+
+    @Autowired
+    PointChargeRepository pointChargeRepository;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -690,7 +694,7 @@ class HoldReleaseIntegrationTest {
             // 락 없이 먼저 읽어 영속성 컨텍스트에 올려 둔다.
             pointHoldRepository.findById(hold.holdId()).orElseThrow();
             pointChargeUsageRepository.findAllByPointHoldIdOrderByIdAsc(hold.holdId())
-                    .forEach(usage -> usage.getCharge().getRemainingPrincipalHp());
+                    .forEach(usage -> pointChargeRepository.findById(usage.getChargeId()).orElseThrow());
             // 그사이 다른 트랜잭션이 같은 보류를 반환하고 커밋한다.
             runInOtherThread(() -> release(1L, 1001L, "R1", 2_000L));
             results.add(release(1L, 1001L, "R2", 2_000L));

@@ -31,7 +31,7 @@ public interface PointChargeRepository extends Repository<PointCharge, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select c from PointCharge c
-            where c.wallet.id = :walletId
+            where c.walletId = :walletId
               and c.status in :statuses
               and c.remainingPrincipalHp > 0
             order by c.completedAt asc, c.id asc""")
@@ -47,7 +47,7 @@ public interface PointChargeRepository extends Repository<PointCharge, Long> {
     // 지갑의 지정 상태 충전 건 가용 원금 합계를 구하며, 없으면 0이다.
     @Query("""
             select coalesce(sum(c.remainingPrincipalHp), 0) from PointCharge c
-            where c.wallet.id = :walletId and c.status in :statuses""")
+            where c.walletId = :walletId and c.status in :statuses""")
     long sumRemainingPrincipal(@Param("walletId") Long walletId,
             @Param("statuses") Collection<PointChargeStatus> statuses);
 }

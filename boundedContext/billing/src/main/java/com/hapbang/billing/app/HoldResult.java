@@ -25,7 +25,7 @@ public record HoldResult(
 
     // 저장된 보류와 충전 건별 배분으로 결과를 만든다.
     static HoldResult of(PointHold hold, List<ChargeAllocation> chargeAllocations, boolean replayed) {
-        return new HoldResult(hold.getId(), hold.getWallet().getId(), hold.getReferenceType(), hold.getReferenceId(),
+        return new HoldResult(hold.getId(), hold.getWalletId(), hold.getReferenceType(), hold.getReferenceId(),
                 hold.originalTotalHp(), hold.getOriginalRevenueHp(), hold.getOriginalChargeHp(), chargeAllocations,
                 replayed);
     }

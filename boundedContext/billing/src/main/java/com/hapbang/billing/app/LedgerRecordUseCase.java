@@ -57,7 +57,7 @@ public class LedgerRecordUseCase {
             LedgerEntry entry = entries.get(line - 1);
             Wallet wallet = wallets.get(entry.walletId());
             PointLedger ledger = PointLedger.builder()
-                    .wallet(wallet)
+                    .walletId(wallet.getId())
                     .pointType(entry.pointType())
                     .balanceBucket(entry.balanceBucket())
                     .amountHp(entry.amountHp())
@@ -65,7 +65,7 @@ public class LedgerRecordUseCase {
                     .referenceType(operation.referenceType())
                     .referenceId(operation.referenceId())
                     .operationKey(operation.operationKey())
-                    .originalLedger(reversalTarget(entry, reversedInOperation))
+                    .originalLedgerId(reversalTargetId(entry, reversedInOperation))
                     .idempotencyKey(operation.idempotencyKey(line))
                     .description(operation.description())
                     .occurredAt(operation.occurredAt())
@@ -124,27 +124,26 @@ public class LedgerRecordUseCase {
 
     // 기록된 원장 줄이 요청 줄과 멱등키·지갑·HP 종류·버킷·금액·거래 유형·참조 대상·역분개 원본까지 같은지 확인한다(발생 시각·설명은 비교하지 않는다).
     private boolean isSameLine(LedgerOperation operation, int line, LedgerEntry entry, PointLedger ledger) {
-        Long originalLedgerId = ledger.getOriginalLedger() == null ? null : ledger.getOriginalLedger().getId();
         return operation.idempotencyKey(line).equals(ledger.getIdempotencyKey())
-                && entry.walletId().equals(ledger.getWallet().getId())
+                && entry.walletId().equals(ledger.getWalletId())
                 && entry.pointType() == ledger.getPointType()
                 && entry.balanceBucket() == ledger.getBalanceBucket()
                 && entry.amountHp() == ledger.getAmountHp()
                 && operation.transactionType() == ledger.getTransactionType()
                 && operation.referenceType() == ledger.getReferenceType()
                 && operation.referenceId().equals(ledger.getReferenceId())
-                && Objects.equals(entry.originalLedgerId(), originalLedgerId);
+                && Objects.equals(entry.originalLedgerId(), ledger.getOriginalLedgerId());
     }
 
-    // 역분개 줄이면 원본 원장을 조회해 지갑·HP 종류·버킷·반대 부호·누적 한도를 검증하고, 맞지 않으면 INVALID_REVERSAL로 거절한다.
-    private PointLedger reversalTarget(LedgerEntry entry, Map<Long, Long> reversedInOperation) {
+    // 역분개 줄이면 원본 원장을 조회해 지갑·HP 종류·버킷·반대 부호·누적 한도를 검증하고 원본 ID를 돌려주며, 맞지 않으면 INVALID_REVERSAL로 거절한다.
+    private Long reversalTargetId(LedgerEntry entry, Map<Long, Long> reversedInOperation) {
         if (entry.originalLedgerId() == null) {
             return null;
         }
         PointLedger original = pointLedgerRepository.findById(entry.originalLedgerId())
                 .orElseThrow(() -> new BillingException(BillingErrorCode.ORIGINAL_LEDGER_NOT_FOUND));
         if (original.getTransactionType() == LedgerTransactionType.REVERSAL
-                || !entry.walletId().equals(original.getWallet().getId())
+                || !entry.walletId().equals(original.getWalletId())
                 || entry.pointType() != original.getPointType()
                 || entry.balanceBucket() != original.getBalanceBucket()
                 || Long.signum(entry.amountHp()) == Long.signum(original.getAmountHp())) {
@@ -158,7 +157,7 @@ public class LedgerRecordUseCase {
             throw new BillingException(BillingErrorCode.INVALID_REVERSAL);
         }
         reversedInOperation.put(original.getId(), total);
-        return original;
+        return original.getId();
     }
 
     // 원장을 INSERT하고, 다른 요청이 같은 멱등키를 먼저 기록해 UNIQUE 충돌이 나면 IDEMPOTENCY_KEY_CONFLICT로 바꿔 전체를 롤백시킨다.
