@@ -53,9 +53,10 @@ class LectureThumbnailFailureApiTest {
 
         mockMvc.perform(get("/api/v1/lectures"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(2))
-                .andExpect(jsonPath("$.content[0].thumbnailUrl").value(nullValue()))
-                .andExpect(jsonPath("$.content[1].thumbnailUrl").value(nullValue()));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value(nullValue()))
+                .andExpect(jsonPath("$.data.content[1].thumbnailUrl").value(nullValue()));
         verify(s3FileStorage, times(1)).presignDownload(any(), any());
     }
 
@@ -68,8 +69,9 @@ class LectureThumbnailFailureApiTest {
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.lectureId").value(lectureId))
-                .andExpect(jsonPath("$.thumbnailUrl").value(nullValue()));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.lectureId").value(lectureId))
+                .andExpect(jsonPath("$.data.thumbnailUrl").value(nullValue()));
     }
 
     @Test

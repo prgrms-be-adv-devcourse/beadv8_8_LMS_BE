@@ -85,8 +85,8 @@ class LectureThumbnailQueryCountTest {
 
         assertThat(statementsOf(lectures)).isEqualTo(one);
         mockMvc.perform(lectures)
-                .andExpect(jsonPath("$.content.length()").value(3))
-                .andExpect(jsonPath("$.content[*].thumbnailUrl", everyItem(notNullValue())));
+                .andExpect(jsonPath("$.data.content.length()").value(3))
+                .andExpect(jsonPath("$.data.content[*].thumbnailUrl", everyItem(notNullValue())));
     }
 
     @Test
@@ -100,8 +100,8 @@ class LectureThumbnailQueryCountTest {
 
         assertThat(statementsOf(myLectures)).isEqualTo(one);
         mockMvc.perform(myLectures)
-                .andExpect(jsonPath("$.content.length()").value(3))
-                .andExpect(jsonPath("$.content[*].thumbnailUrl", everyItem(notNullValue())));
+                .andExpect(jsonPath("$.data.content.length()").value(3))
+                .andExpect(jsonPath("$.data.content[*].thumbnailUrl", everyItem(notNullValue())));
     }
 
     @Test
@@ -115,13 +115,14 @@ class LectureThumbnailQueryCountTest {
 
         assertThat(statementsOf(cart)).isEqualTo(one);
         mockMvc.perform(cart)
-                .andExpect(jsonPath("$.items.length()").value(3))
-                .andExpect(jsonPath("$.items[*].thumbnailUrl", everyItem(notNullValue())));
+                .andExpect(jsonPath("$.data.items.length()").value(3))
+                .andExpect(jsonPath("$.data.items[*].thumbnailUrl", everyItem(notNullValue())));
     }
 
     private long statementsOf(RequestBuilder request) throws Exception {
         statistics.clear();
-        mockMvc.perform(request).andExpect(status().isOk());
+        mockMvc.perform(request).andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200));
         return statistics.getPrepareStatementCount();
     }
 

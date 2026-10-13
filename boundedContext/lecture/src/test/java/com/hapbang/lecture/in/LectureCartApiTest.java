@@ -64,22 +64,24 @@ class LectureCartApiTest {
 
         mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(2))
-                .andExpect(jsonPath("$.items[0].lectureId").value(secondLectureId))
-                .andExpect(jsonPath("$.items[0].title").value("마이크 고르기"))
-                .andExpect(jsonPath("$.items[0].priceHp").value(5000))
-                .andExpect(jsonPath("$.items[0].thumbnailUrl").isEmpty())
-                .andExpect(jsonPath("$.items[0].purchasable").value(true))
-                .andExpect(jsonPath("$.items[1].lectureId").value(firstLectureId))
-                .andExpect(jsonPath("$.purchasableTotalHp").value(15000));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].lectureId").value(secondLectureId))
+                .andExpect(jsonPath("$.data.items[0].title").value("마이크 고르기"))
+                .andExpect(jsonPath("$.data.items[0].priceHp").value(5000))
+                .andExpect(jsonPath("$.data.items[0].thumbnailUrl").isEmpty())
+                .andExpect(jsonPath("$.data.items[0].purchasable").value(true))
+                .andExpect(jsonPath("$.data.items[1].lectureId").value(firstLectureId))
+                .andExpect(jsonPath("$.data.purchasableTotalHp").value(15000));
     }
 
     @Test
     void 장바구니가_없으면_빈_목록과_합계_0을_돌려준다() throws Exception {
         mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(0))
-                .andExpect(jsonPath("$.purchasableTotalHp").value(0));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.items.length()").value(0))
+                .andExpect(jsonPath("$.data.purchasableTotalHp").value(0));
     }
 
     @Test
@@ -95,12 +97,13 @@ class LectureCartApiTest {
 
         mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(2))
-                .andExpect(jsonPath("$.items[1].lectureId").value(deletedLectureId))
-                .andExpect(jsonPath("$.items[1].title").value("OBS 방송 세팅"))
-                .andExpect(jsonPath("$.items[1].purchasable").value(false))
-                .andExpect(jsonPath("$.items[0].purchasable").value(true))
-                .andExpect(jsonPath("$.purchasableTotalHp").value(5000));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[1].lectureId").value(deletedLectureId))
+                .andExpect(jsonPath("$.data.items[1].title").value("OBS 방송 세팅"))
+                .andExpect(jsonPath("$.data.items[1].purchasable").value(false))
+                .andExpect(jsonPath("$.data.items[0].purchasable").value(true))
+                .andExpect(jsonPath("$.data.purchasableTotalHp").value(5000));
     }
 
     @Test
@@ -114,8 +117,9 @@ class LectureCartApiTest {
 
         mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].purchasable").value(false))
-                .andExpect(jsonPath("$.items[0].thumbnailUrl").value(allOf(
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.items[0].purchasable").value(false))
+                .andExpect(jsonPath("$.data.items[0].thumbnailUrl").value(allOf(
                         containsString(thumbnail.getObjectKey()), containsString("X-Amz-Expires=3600"))));
     }
 
@@ -159,8 +163,9 @@ class LectureCartApiTest {
 
         mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(0))
-                .andExpect(jsonPath("$.purchasableTotalHp").value(0));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.items.length()").value(0))
+                .andExpect(jsonPath("$.data.purchasableTotalHp").value(0));
     }
 
     @Test
@@ -193,7 +198,8 @@ class LectureCartApiTest {
             addItem(userId, role, lectureId).andExpect(status().isNoContent());
             mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(userId, role)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.items[0].lectureId").value(lectureId));
+                    .andExpect(jsonPath("$.statusCode").value(200))
+                    .andExpect(jsonPath("$.data.items[0].lectureId").value(lectureId));
             removeItem(userId, role, lectureId).andExpect(status().isNoContent());
         }
     }
@@ -307,7 +313,8 @@ class LectureCartApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
                 .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(response, "$.id")).longValue();
+        return ((Number) JsonPath.read(response, "$.data.id")).longValue();
     }
 }

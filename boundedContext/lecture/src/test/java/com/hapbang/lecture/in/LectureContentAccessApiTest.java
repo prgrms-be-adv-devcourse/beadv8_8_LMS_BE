@@ -87,12 +87,13 @@ class LectureContentAccessApiTest {
 
         String response = access(SELLER_ID, Role.VERIFIED_INFLUENCER, lectureId, contentId(lectureId, 0))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
                 .andReturn().getResponse().getContentAsString();
 
-        LocalDateTime expiresAt = LocalDateTime.parse(JsonPath.read(response, "$.expiresAt"));
+        LocalDateTime expiresAt = LocalDateTime.parse(JsonPath.read(response, "$.data.expiresAt"));
         assertThat(expiresAt).isCloseTo(LocalDateTime.now().plusHours(1), within(10, ChronoUnit.SECONDS));
         HttpResponse<byte[]> download = http.send(
-                HttpRequest.newBuilder(URI.create(JsonPath.read(response, "$.url"))).GET().build(),
+                HttpRequest.newBuilder(URI.create(JsonPath.read(response, "$.data.url"))).GET().build(),
                 HttpResponse.BodyHandlers.ofByteArray());
         assertThat(download.statusCode()).isEqualTo(200);
         assertThat(download.body()).isEqualTo(VIDEO);
@@ -122,7 +123,8 @@ class LectureContentAccessApiTest {
 
         access(ADMIN_ID, Role.ADMIN, lectureId, contentId(lectureId, 0))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.url").isString());
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.url").isString());
     }
 
     @Test
@@ -189,7 +191,8 @@ class LectureContentAccessApiTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("LECTURE_CONTENT_NOT_FOUND"));
         access(SELLER_ID, Role.VERIFIED_INFLUENCER, lectureId, contentId(lectureId, 0))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200));
     }
 
     @Test
@@ -201,7 +204,8 @@ class LectureContentAccessApiTest {
                 .andExpect(status().isNoContent());
 
         access(SELLER_ID, Role.VERIFIED_INFLUENCER, lectureId, contentId)
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200));
     }
 
     @Test
@@ -216,8 +220,9 @@ class LectureContentAccessApiTest {
     private String accessUrl(Long userId, Role role, Long lectureId, Long contentId) throws Exception {
         String response = access(userId, role, lectureId, contentId)
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
                 .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(response, "$.url");
+        return JsonPath.read(response, "$.data.url");
     }
 
     private ResultActions access(Long userId, Role role, Long lectureId, Long contentId) throws Exception {
@@ -254,8 +259,9 @@ class LectureContentAccessApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(REGISTER_BODY.formatted(videoFileId, documentFileId)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
                 .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(response, "$.id")).longValue();
+        return ((Number) JsonPath.read(response, "$.data.id")).longValue();
     }
 
     /** 판매자가 상세 조회로 보는 index번째 콘텐츠의 ID */
@@ -263,8 +269,9 @@ class LectureContentAccessApiTest {
         String response = mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
                 .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(response, "$.contents[%d].contentId".formatted(index))).longValue();
+        return ((Number) JsonPath.read(response, "$.data.contents[%d].contentId".formatted(index))).longValue();
     }
 
     /** 판매자가 올린 파일을 업로드 완료 상태로 저장하고 본문을 S3Mock에 둔다 */
