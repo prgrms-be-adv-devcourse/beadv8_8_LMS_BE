@@ -102,7 +102,7 @@ com.hapbang.appearance
 | `out.AppearanceUserRepository` | 출연 회원 저장·조회 |
 | `out.billing.BillingClient` | Billing과 주고받는 값(계약) |
 | `out.billing.FakeBillingClient` | 계약 확정 전까지 쓰는 메모리 구현 |
-| `global.exception.AppearanceExceptionHandler` | 출연 컨트롤러의 오류를 Problem Detail로 응답 |
+| (삭제, #71) | 출연 예외는 global의 공통 핸들러(`com.hapbang.global.exception.GlobalExceptionHandler`)가 Problem Detail로 응답한다 |
 
 ### 3.3 설정 파일
 

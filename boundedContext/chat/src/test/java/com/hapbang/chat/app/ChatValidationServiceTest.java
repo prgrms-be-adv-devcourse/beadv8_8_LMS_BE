@@ -7,8 +7,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.hapbang.chat.domain.ChatErrorCode;
-import com.hapbang.chat.domain.ChatException;
+import com.hapbang.chat.app.exception.ChatErrorCode;
+import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;

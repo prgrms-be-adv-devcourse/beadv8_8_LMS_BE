@@ -40,8 +40,8 @@ class ChatMessageTest {
         ChatRoom room = directRoom();
 
         assertThatThrownBy(() -> ChatMessage.text(room, HOST_ID, content, NOW))
-                .isInstanceOf(ChatException.class)
-                .extracting("errorCode").isEqualTo(ChatErrorCode.EMPTY_MESSAGE);
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("메시지 내용이 비어 있습니다.");
         assertThat(room.getLastSequence()).isZero();
     }
 }

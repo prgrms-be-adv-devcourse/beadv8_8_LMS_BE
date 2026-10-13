@@ -2,6 +2,8 @@ package com.hapbang.appearance.domain;
 
 import org.springframework.http.HttpStatus;
 
+import com.hapbang.global.exception.BaseErrorCode;
+
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -10,7 +12,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Getter
 @RequiredArgsConstructor
-public enum AppearanceErrorCode {
+public enum AppearanceErrorCode implements BaseErrorCode {
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
 
     // 출연 회원 (호스트·게스트 자격)

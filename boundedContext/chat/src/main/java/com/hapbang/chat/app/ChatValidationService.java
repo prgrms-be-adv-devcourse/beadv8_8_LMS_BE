@@ -3,8 +3,8 @@ package com.hapbang.chat.app;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.hapbang.chat.domain.ChatErrorCode;
-import com.hapbang.chat.domain.ChatException;
+import com.hapbang.chat.app.exception.ChatErrorCode;
+import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.out.ChatUserRepository;
 

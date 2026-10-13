@@ -172,6 +172,34 @@
 - 모든 API는 `/api/v1/...` 아래에 둔다 (3장의 진입 경로 참고).
 - API 명세는 Swagger로 관리한다. 프론트와 API 설계를 먼저 맞추고, 명세(Controller)를 먼저 만들어 동시에 작업할 수 있게 한다.
 
+### 오류 응답 (global 공통 예외 처리, #71)
+
+- 모든 HTTP 오류는 `global`의 `GlobalExceptionHandler` 하나가 `ProblemDetail`(RFC 9457)로 응답한다 (2026-10-12 회의). **모듈은 `@RestControllerAdvice`를 만들지 않는다.**
+- 응답 본문: `status`, `detail`(메시지), `code`(프론트가 분기하는 식별자). 요청 값 오류는 `errors: [{field, message}]`를 더한다.
+- 공통 클래스 (`com.hapbang.global.exception`)
+    - `BaseErrorCode`: 오류 코드 계약. `getStatus()`, `getMessage()`, `getCode()`(기본값 enum 이름)
+    - `BusinessException`: 예상된 업무 실패. 모듈 예외의 부모다
+    - `GlobalErrorCode`: 공통 핸들러 전용 코드 (`INVALID_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `INTERNAL_ERROR`)
+- 모듈에서 할 일
+    - 오류 코드는 모듈의 `{Module}ErrorCode` enum에 정의하고 `BaseErrorCode`를 구현한다. 응답의 `code`는 enum 이름이다.
+    - 예외는 `{Module}Exception extends BusinessException`으로 만들고 `new {Module}Exception({Module}ErrorCode.X)`로 던진다.
+    - 메시지만 상황에 맞게 바꾸려면 상세 메시지 생성자(`new {Module}Exception(code, "상세")`)를 쓴다. `code`는 같다.
+    - 응답에 추가 정보가 필요하면 하위 예외에서 `addProperty(name, value)`를 쓴다. `code`·`errors`·표준 필드는 쓸 수 없다.
+    - 예상하지 못한 실패(버그, 외부 장애)는 `BusinessException`으로 감싸지 않는다. 공통 핸들러가 500 `INTERNAL_ERROR`로 응답하고, 내부 메시지는 응답에 넣지 않고 로그에만 남긴다.
+- 공통 핸들러가 처리하는 것
+
+| 상황 | 응답 |
+| --- | --- |
+| `BusinessException` | 오류 코드의 상태, `code`, `detail` (+ 추가 속성) |
+| `@Valid`·`@RequestParam` 검증 실패, 타입 불일치, 필수 파라미터 누락, JSON 형식 오류 | 400 `INVALID_REQUEST` + `errors` |
+| 컨트롤러·Facade의 `@PreAuthorize` 거절 | 로그인했으면 403 `FORBIDDEN`, 아니면 401 `UNAUTHORIZED` |
+| 그 밖의 Spring MVC 예외 (405, 415, 없는 경로 등) | 해당 상태 + `code`(공통 코드 또는 HTTP 상태 이름, 예: `METHOD_NOT_ALLOWED`) |
+| 처리하지 못한 예외 | 500 `INTERNAL_ERROR` |
+
+- 공통 핸들러가 처리하지 않는 것
+    - Security 필터에서 막힌 요청(로그인 안 함, `/api/v1/*/admin/**` URL 권한)은 컨트롤러에 오기 전이라 `SecurityConfig`가 응답한다 (본문 없음).
+    - STOMP(WebSocket) 오류는 HTTP가 아니라서 각 모듈의 `@MessageExceptionHandler`가 처리한다.
+
 ## 8. 인프라와 배포
 
 - AWS EC2 1대(t3.large까지), VPC 1개, S3 버킷 1개 범위에서만 운영한다. 범위 밖 서비스(RDS 등)는 추가하지 않는다.
@@ -199,7 +227,7 @@
 
 아래는 팀 합의 전이다. 에이전트가 임의로 정해서 코드에 넣지 않고 질문한다.
 
-- 코드 컨벤션 (네이밍, 패키지 구조, 예외·응답 포맷 등)
+- 코드 컨벤션 (네이밍, 패키지 구조 등. 오류 응답 형식은 7장 "오류 응답"에서 정했다)
 - 테스트 방식 (단위·통합 테스트 기준, 테스트용 DB)
 - 지갑 잔액 변경의 동시성 제어 방식
 - 지갑과 정산의 모듈·스키마 분리 방식

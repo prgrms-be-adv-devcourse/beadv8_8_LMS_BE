@@ -1,14 +1,11 @@
 package com.hapbang.lecture.domain;
 
-import lombok.Getter;
+import com.hapbang.global.exception.BusinessException;
 
-@Getter
-public class LectureException extends RuntimeException {
-
-    private final LectureErrorCode errorCode;
+/** 강의 업무 예외. global의 공통 핸들러(GlobalExceptionHandler)가 ProblemDetail로 응답한다 */
+public class LectureException extends BusinessException {
 
     public LectureException(LectureErrorCode errorCode) {
-        super(errorCode.getMessage());
-        this.errorCode = errorCode;
+        super(errorCode);
     }
 }

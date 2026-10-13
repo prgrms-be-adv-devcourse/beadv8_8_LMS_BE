@@ -76,6 +76,7 @@ class ChatApiE2ETest {
         assertThat(reused.chatRoomId()).isEqualTo(created.chatRoomId());
     }
 
+    // 컨트롤러 @PreAuthorize 거절은 global 공통 핸들러가 403 FORBIDDEN으로 응답한다 (서비스 검사 거절은 CHAT_NOT_ALLOWED)
     @Test
     void 일반_유저가_채팅방을_만들면_403_ProblemDetail() {
         ProblemDetail problem = client.post().uri("/api/v1/chats")
@@ -87,7 +88,7 @@ class ChatApiE2ETest {
                 .returnResult().getResponseBody();
 
         assertThat(problem).isNotNull();
-        assertThat(problem.getProperties()).containsEntry("code", "CHAT_NOT_ALLOWED");
+        assertThat(problem.getProperties()).containsEntry("code", "FORBIDDEN");
     }
 
     @Test
@@ -185,7 +186,7 @@ class ChatApiE2ETest {
                 .returnResult().getResponseBody();
 
         assertThat(problem).isNotNull();
-        assertThat(problem.getProperties()).containsEntry("code", "CHAT_NOT_ALLOWED");
+        assertThat(problem.getProperties()).containsEntry("code", "FORBIDDEN");
     }
 
     @Test
