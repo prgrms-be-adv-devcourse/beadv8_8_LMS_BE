@@ -55,4 +55,19 @@ public class InquiryFacade {
     public InquiryResponse getInquiry(Long inquiryId) {
         return inquirySupporter.getInquiry(inquiryId);
     }
+
+    @PreAuthorize(CustomerSupportRoles.ADMIN)
+    public InquiryResponse reply(Long inquiryId, Long adminUserId, String content) {
+        return InquiryResponse.of(inquiryUseCase.reply(inquiryId, adminUserId, content));
+    }
+
+    @PreAuthorize(CustomerSupportRoles.ADMIN)
+    public InquiryResponse editReply(Long inquiryId, Long replyId, String content) {
+        return InquiryResponse.of(inquiryUseCase.editReply(inquiryId, replyId, content));
+    }
+
+    @PreAuthorize(CustomerSupportRoles.ADMIN)
+    public void deleteReply(Long inquiryId, Long replyId) {
+        inquiryUseCase.deleteReply(inquiryId, replyId);
+    }
 }

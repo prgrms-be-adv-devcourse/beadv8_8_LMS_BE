@@ -9,6 +9,7 @@ import com.hapbang.customersupport.app.dto.InquirySort;
 import com.hapbang.customersupport.app.dto.InquirySummaryResponse;
 import com.hapbang.customersupport.domain.InquiryStatus;
 import com.hapbang.customersupport.in.dto.CreateInquiryRequest;
+import com.hapbang.customersupport.in.dto.InquiryReplyRequest;
 import com.hapbang.global.response.RsData;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,7 +25,7 @@ import jakarta.validation.constraints.Size;
  */
 @Tag(name = "고객센터 문의", description = """
         회원의 1:1 문의 접수, 내 문의 조회·삭제(유저·인플루언서·인증된 인플루언서).
-        관리자는 `/api/v1/inquiries/admin` 아래에서 모든 문의를 조회한다.""")
+        관리자는 `/api/v1/inquiries/admin` 아래에서 모든 문의를 조회하고 답변한다. 추가 문의는 새 문의로 접수한다.""")
 public interface ApiV1InquirySpec {
 
     int KEYWORD_MAX_LENGTH = 100;
@@ -42,7 +43,7 @@ public interface ApiV1InquirySpec {
             @Parameter(description = "정렬. LATEST(최신순, 기본) | OLDEST(오래된순)") InquirySort sort,
             Pageable pageable);
 
-    @Operation(summary = "내 문의 상세", description = "내가 접수한 문의만 볼 수 있다. 다른 회원의 문의는 404(INQUIRY_NOT_FOUND).")
+    @Operation(summary = "내 문의 상세", description = "관리자 답변을 함께 준다(오래된 답변부터). 내가 접수한 문의만 볼 수 있다. 다른 회원의 문의는 404(INQUIRY_NOT_FOUND).")
     RsData<InquiryResponse> getMyInquiry(Long userId, Long inquiryId);
 
     @Operation(summary = "내 문의 삭제", description = """
@@ -58,6 +59,21 @@ public interface ApiV1InquirySpec {
             @Parameter(description = "정렬. OLDEST(오래된순, 기본) | LATEST(최신순)") InquirySort sort,
             Pageable pageable);
 
-    @Operation(summary = "문의 상세 (관리자)", description = "모든 회원의 문의를 조회한다. 삭제된 문의는 404(INQUIRY_NOT_FOUND).")
+    @Operation(summary = "문의 상세 (관리자)", description = "모든 회원의 문의를 답변과 함께 조회한다. 삭제된 문의는 404(INQUIRY_NOT_FOUND).")
     RsData<InquiryResponse> getInquiry(Long inquiryId);
+
+    @Operation(summary = "답변 등록 (관리자)", description = """
+            답변을 등록하면(201) 문의가 답변 완료(ANSWERED)가 된다. 답변은 여러 번 달 수 있다.
+            회원이 삭제한 문의는 404(INQUIRY_NOT_FOUND).""")
+    RsData<InquiryResponse> replyInquiry(Long userId, Long inquiryId, @Valid InquiryReplyRequest request);
+
+    @Operation(summary = "답변 수정 (관리자)", description = """
+            답변 내용을 고친다. 어느 관리자든 고칠 수 있다. 문의 상태는 그대로다.
+            없거나 삭제된 답변은 404(INQUIRY_REPLY_NOT_FOUND).""")
+    RsData<InquiryResponse> editReply(Long inquiryId, Long replyId, @Valid InquiryReplyRequest request);
+
+    @Operation(summary = "답변 삭제 (관리자)", description = """
+            답변을 지운다(204, Soft Delete). 남은 답변이 없으면 문의가 답변 대기(WAITING)로 돌아간다.
+            없거나 삭제된 답변은 404(INQUIRY_REPLY_NOT_FOUND).""")
+    ResponseEntity<Void> deleteReply(Long inquiryId, Long replyId);
 }
