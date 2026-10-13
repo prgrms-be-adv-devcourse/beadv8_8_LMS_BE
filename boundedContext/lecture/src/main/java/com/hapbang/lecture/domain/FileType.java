@@ -4,7 +4,7 @@ import java.util.Set;
 
 /**
  * S3에 올리는 강의 파일의 용도와 용도별 허용 형식·최대 크기 (D19).
- * 업로드 URL은 크기를 서명하지 않으므로 발급할 때 신고한 크기와 완료할 때 실제 크기를 모두 이 값으로 검사한다.
+ * 등록할 때 신고한 크기를 이 값으로 검사하고, 본문은 신고한 크기(Content-Length)와 같아야 받는다(D24).
  */
 public enum FileType {
     LECTURE_THUMBNAIL("썸네일", Set.of("image/jpeg", "image/png", "image/webp"), 5 * Sizes.MB),
@@ -26,7 +26,7 @@ public enum FileType {
         return description;
     }
 
-    /** Content-Type은 업로드 URL 서명에 들어가므로 대소문자까지 그대로 비교한다 */
+    /** 등록할 때 받은 Content-Type을 그대로 비교한다. 본문을 올릴 때의 비교는 {@link FileResource#validateUploadable}이 한다 */
     public boolean allows(String contentType) {
         return allowedContentTypes.contains(contentType);
     }

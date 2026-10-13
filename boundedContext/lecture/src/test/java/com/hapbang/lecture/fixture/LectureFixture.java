@@ -53,7 +53,7 @@ public final class LectureFixture {
         return lecture;
     }
 
-    /** 업로드 URL만 발급한(S3에 올리지 않은) 파일 */
+    /** 파일 정보만 등록한(본문을 올리지 않은) 파일 */
     public static FileResource pendingFile(Long uploaderUserId, FileType fileType) {
         String contentType = switch (fileType) {
             case LECTURE_THUMBNAIL -> "image/png";
@@ -66,7 +66,7 @@ public final class LectureFixture {
     /** 업로드를 완료해 강의에 연결할 수 있는 파일. S3 없이 강의 API를 테스트할 때 저장해서 쓴다 */
     public static FileResource uploadedFile(Long uploaderUserId, FileType fileType) {
         FileResource file = pendingFile(uploaderUserId, fileType);
-        file.markUploaded(file.getFileSize(), NOW);
+        file.markUploaded(NOW);
         return file;
     }
 

@@ -3,10 +3,9 @@ package com.hapbang.lecture.in;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
-import java.io.ByteArrayInputStream;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +26,7 @@ import com.hapbang.testsupport.TestLogin;
 
 import com.jayway.jsonpath.JsonPath;
 
-// 파일 정보 등록 → S3(S3Mock)에 저장 → 완료 확인을 HTTP부터 S3까지 관통해 검증한다. 정책 값의 세부 규칙은 FileResourceTest가 맡는다.
+// 파일 정보 등록 → 본문 업로드(서버가 S3Mock에 저장) → 강의 연결을 HTTP부터 S3까지 관통해 검증한다. 정책 값의 세부 규칙은 FileResourceTest가 맡는다.
 @IntegrationTest
 @AutoConfigureMockMvc
 @Import(S3MockTestcontainersConfig.class)
@@ -88,73 +87,87 @@ class LectureFileApiTest {
     }
 
     @Test
-    void S3에_올린_뒤_완료하면_204이고_UPLOADED가_된다() throws Exception {
-        String response = registerFileResponse("video/mp4", VIDEO.length);
-        upload(fileId(response), VIDEO);
+    void 업로더가_본문을_올리면_204이고_S3에_저장되며_UPLOADED가_된다() throws Exception {
+        Long fileId = registerVideo(VIDEO.length);
 
-        complete(SELLER_ID, fileId(response)).andExpect(status().isNoContent());
+        uploadContent(SELLER_ID, fileId, "video/mp4", VIDEO).andExpect(status().isNoContent());
 
-        assertThat(fileResourceRepository.findById(fileId(response)).orElseThrow().getStatus())
-                .isEqualTo(FileStatus.UPLOADED);
+        FileResource file = fileResourceRepository.findById(fileId).orElseThrow();
+        assertThat(file.getStatus()).isEqualTo(FileStatus.UPLOADED);
+        assertThat(file.getUploadedAt()).isNotNull();
+        assertThat(s3FileStorage.find(file.getObjectKey())).hasValueSatisfying(stored -> {
+            assertThat(stored.size()).isEqualTo(VIDEO.length);
+            assertThat(stored.contentType()).isEqualTo("video/mp4");
+        });
     }
 
     @Test
-    void 올리지_않고_완료하면_409_FILE_NOT_UPLOADED이고_올린_뒤_다시_완료할_수_있다() throws Exception {
-        String response = registerFileResponse("video/mp4", VIDEO.length);
+    void 다른_회원이_올리면_403_NOT_FILE_UPLOADER이고_S3에_저장되지_않는다() throws Exception {
+        Long fileId = registerVideo(VIDEO.length);
 
-        complete(SELLER_ID, fileId(response))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("FILE_NOT_UPLOADED"));
-        assertThat(fileResourceRepository.findById(fileId(response)).orElseThrow().getStatus())
-                .isEqualTo(FileStatus.PENDING);
-
-        upload(fileId(response), VIDEO);
-        complete(SELLER_ID, fileId(response)).andExpect(status().isNoContent());
-    }
-
-    @Test
-    void 신청과_다른_크기로_올리면_400_FILE_SIZE_MISMATCH이고_PENDING으로_남는다() throws Exception {
-        String response = registerFileResponse("video/mp4", VIDEO.length + 1);
-        upload(fileId(response), VIDEO);
-
-        complete(SELLER_ID, fileId(response))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("FILE_SIZE_MISMATCH"));
-        assertThat(fileResourceRepository.findById(fileId(response)).orElseThrow().getStatus())
-                .isEqualTo(FileStatus.PENDING);
-    }
-
-    @Test
-    void 다른_회원이_완료하면_403_NOT_FILE_UPLOADER() throws Exception {
-        String response = registerFileResponse("video/mp4", VIDEO.length);
-        upload(fileId(response), VIDEO);
-
-        complete(OTHER_USER_ID, fileId(response))
+        uploadContent(OTHER_USER_ID, fileId, "video/mp4", VIDEO)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("NOT_FILE_UPLOADER"));
+
+        assertPendingAndNotStored(fileId);
     }
 
     @Test
-    void 없는_파일을_완료하면_404_FILE_NOT_FOUND() throws Exception {
-        complete(SELLER_ID, 999_999L)
+    void 이미_올린_파일에_다시_올리면_409_FILE_ALREADY_UPLOADED() throws Exception {
+        Long fileId = registerVideo(VIDEO.length);
+        uploadContent(SELLER_ID, fileId, "video/mp4", VIDEO).andExpect(status().isNoContent());
+
+        uploadContent(SELLER_ID, fileId, "video/mp4", VIDEO)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("FILE_ALREADY_UPLOADED"));
+    }
+
+    @Test
+    void 본문_길이를_모르면_411_FILE_LENGTH_REQUIRED() throws Exception {
+        Long fileId = registerVideo(VIDEO.length);
+
+        mockMvc.perform(put("/api/v1/lectures/files/{fileId}/content", fileId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .contentType("video/mp4"))
+                .andExpect(status().isLengthRequired())
+                .andExpect(jsonPath("$.code").value("FILE_LENGTH_REQUIRED"));
+
+        assertPendingAndNotStored(fileId);
+    }
+
+    @Test
+    void 등록_크기와_다른_본문이면_400_FILE_SIZE_MISMATCH이고_PENDING으로_남는다() throws Exception {
+        Long fileId = registerVideo(VIDEO.length + 1);
+
+        uploadContent(SELLER_ID, fileId, "video/mp4", VIDEO)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("FILE_SIZE_MISMATCH"));
+
+        assertPendingAndNotStored(fileId);
+    }
+
+    @Test
+    void 등록_형식과_다른_Content_Type이면_400_FILE_CONTENT_TYPE_MISMATCH() throws Exception {
+        Long fileId = registerVideo(VIDEO.length);
+
+        uploadContent(SELLER_ID, fileId, "application/octet-stream", VIDEO)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("FILE_CONTENT_TYPE_MISMATCH"));
+
+        assertPendingAndNotStored(fileId);
+    }
+
+    @Test
+    void 없는_파일에_올리면_404_FILE_NOT_FOUND() throws Exception {
+        uploadContent(SELLER_ID, 999_999L, "video/mp4", VIDEO)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("FILE_NOT_FOUND"));
     }
 
     @Test
-    void 이미_완료한_파일을_다시_완료하면_204() throws Exception {
-        String response = registerFileResponse("video/mp4", VIDEO.length);
-        upload(fileId(response), VIDEO);
-        complete(SELLER_ID, fileId(response)).andExpect(status().isNoContent());
-
-        complete(SELLER_ID, fileId(response)).andExpect(status().isNoContent());
-    }
-
-    @Test
-    void 완료한_파일로_강의를_등록할_수_있다() throws Exception {
-        String response = registerFileResponse("video/mp4", VIDEO.length);
-        upload(fileId(response), VIDEO);
-        complete(SELLER_ID, fileId(response)).andExpect(status().isNoContent());
+    void 올린_파일로_강의를_등록할_수_있다() throws Exception {
+        Long fileId = registerVideo(VIDEO.length);
+        uploadContent(SELLER_ID, fileId, "video/mp4", VIDEO).andExpect(status().isNoContent());
 
         mockMvc.perform(post("/api/v1/lectures")
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
@@ -165,7 +178,7 @@ class LectureFileApiTest {
                                   "priceHp": 10000,
                                   "contents": [{"fileId": %d, "title": "1강", "contentType": "VIDEO"}]
                                 }
-                                """.formatted(fileId(response))))
+                                """.formatted(fileId)))
                 .andExpect(status().isCreated());
     }
 
@@ -180,21 +193,25 @@ class LectureFileApiTest {
                         """.formatted(contentType, fileSize)));
     }
 
-    private String registerFileResponse(String contentType, long fileSize) throws Exception {
-        return registerFile(SELLER_ID, Role.VERIFIED_INFLUENCER, contentType, fileSize)
+    private Long registerVideo(long fileSize) throws Exception {
+        String response = registerFile(SELLER_ID, Role.VERIFIED_INFLUENCER, "video/mp4", fileSize)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+        return fileId(response);
     }
 
-    private ResultActions complete(Long userId, Long fileId) throws Exception {
-        return mockMvc.perform(post("/api/v1/lectures/files/{fileId}/complete", fileId)
-                .with(TestLogin.as(userId, Role.VERIFIED_INFLUENCER)).with(csrf()));
+    /** 브라우저처럼 파일 본문을 그대로 PUT 한다 */
+    private ResultActions uploadContent(Long userId, Long fileId, String contentType, byte[] body) throws Exception {
+        return mockMvc.perform(put("/api/v1/lectures/files/{fileId}/content", fileId)
+                .with(TestLogin.as(userId, Role.VERIFIED_INFLUENCER)).with(csrf())
+                .contentType(contentType)
+                .content(body));
     }
 
-    /** 파일 key로 S3(S3Mock)에 본문을 저장한다. 본문 업로드 API(#107) 전까지 업로드를 대신한다 */
-    private void upload(Long fileId, byte[] body) {
+    private void assertPendingAndNotStored(Long fileId) {
         FileResource file = fileResourceRepository.findById(fileId).orElseThrow();
-        s3FileStorage.upload(file.getObjectKey(), file.getContentType(), body.length, new ByteArrayInputStream(body));
+        assertThat(file.getStatus()).isEqualTo(FileStatus.PENDING);
+        assertThat(s3FileStorage.find(file.getObjectKey())).isEmpty();
     }
 
     private static Long fileId(String response) {

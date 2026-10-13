@@ -26,8 +26,10 @@ public enum LectureErrorCode implements BaseErrorCode {
     NOT_FILE_UPLOADER(HttpStatus.FORBIDDEN, "파일을 올린 회원만 처리할 수 있습니다."),
     UNSUPPORTED_FILE_CONTENT_TYPE(HttpStatus.BAD_REQUEST, "이 용도로 올릴 수 없는 파일 형식입니다."),
     FILE_TOO_LARGE(HttpStatus.BAD_REQUEST, "파일이 이 용도의 최대 크기를 넘습니다."),
-    FILE_SIZE_MISMATCH(HttpStatus.BAD_REQUEST, "올린 파일의 크기가 신청한 크기와 다릅니다. 다시 올려 주세요."),
-    FILE_NOT_UPLOADED(HttpStatus.CONFLICT, "파일이 아직 업로드되지 않았습니다. 업로드 URL로 올린 뒤 다시 요청해 주세요."),
+    FILE_SIZE_MISMATCH(HttpStatus.BAD_REQUEST, "올린 파일의 크기가 등록한 크기와 다릅니다."),
+    FILE_CONTENT_TYPE_MISMATCH(HttpStatus.BAD_REQUEST, "올린 파일의 형식(Content-Type)이 등록한 형식과 다릅니다."),
+    FILE_LENGTH_REQUIRED(HttpStatus.LENGTH_REQUIRED, "파일 크기(Content-Length)를 알 수 없습니다. Content-Length 헤더와 함께 보내 주세요."),
+    FILE_ALREADY_UPLOADED(HttpStatus.CONFLICT, "이미 올린 파일입니다. 다른 파일을 올리려면 파일 정보를 새로 등록해 주세요."),
     INVALID_LECTURE_FILE(HttpStatus.BAD_REQUEST, "강의에 연결할 수 없는 파일입니다.");
 
     private final HttpStatus status;
