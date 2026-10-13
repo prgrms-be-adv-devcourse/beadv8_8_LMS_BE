@@ -38,7 +38,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/v1/chats")
 @RequiredArgsConstructor
-public class ApiV1ChatController implements ApiV1ChatSwagger {
+public class ApiV1ChatController implements ApiV1ChatSpec {
 
     private static final int DEFAULT_PAGE_SIZE = 30;
     private static final String CHAT_ROLES = "hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER', 'ADMIN')";
@@ -55,7 +55,7 @@ public class ApiV1ChatController implements ApiV1ChatSwagger {
     @PreAuthorize(CHAT_ROLES)
     @PostMapping
     public ResponseEntity<ChatRoomResponse> createChatRoom(@LoginUserId Long userId,
-            @RequestBody CreateChatRoomRequest request) {
+                                                           @RequestBody CreateChatRoomRequest request) {
         ChatRoomCreateResult result = chatRoomFacade.createOrGet(userId, request.targetUserId());
         HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(result.room());
@@ -72,9 +72,10 @@ public class ApiV1ChatController implements ApiV1ChatSwagger {
     @PreAuthorize(CHAT_ROLES)
     @GetMapping("/{chatRoomId}/messages")
     public ChatMessagePageResponse getMessages(@LoginUserId Long userId,
-            @PathVariable("chatRoomId") Long chatRoomId,
-            @RequestParam(name = "cursor", required = false) Long cursor,
-            @RequestParam(name = "size", defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
+                                               @PathVariable("chatRoomId") Long chatRoomId,
+                                               @RequestParam(name = "cursor", required = false) Long cursor,
+                                               @RequestParam(name = "size",
+                                                       defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
         return chatMessageFacade.getMessages(chatRoomId, userId, cursor, size);
     }
 
@@ -88,8 +89,9 @@ public class ApiV1ChatController implements ApiV1ChatSwagger {
     @Override
     @DeleteMapping("/{chatRoomId}/members/me")
     public ResponseEntity<Void> leaveChatRoom(@LoginUserId Long userId,
-            @PathVariable("chatRoomId") Long chatRoomId,
-            @RequestParam(name = "participationVersion", required = false) Integer participationVersion) {
+                                              @PathVariable("chatRoomId") Long chatRoomId,
+                                              @RequestParam(name = "participationVersion", required = false)
+                                              Integer participationVersion) {
         ChatRoomLeaveResult result = chatRoomFacade.leave(chatRoomId, userId, participationVersion);
         if (result.left()) {
             chatMessageSender.deliver(result.leftNotice(), result.remainingUserIds());
@@ -104,7 +106,7 @@ public class ApiV1ChatController implements ApiV1ChatSwagger {
     @PreAuthorize(ADMIN)
     @GetMapping("/admin/{chatRoomId}/history")
     public ChatRoomHistoryResponse getHistory(@LoginUserId Long userId,
-            @PathVariable("chatRoomId") Long chatRoomId) {
+                                              @PathVariable("chatRoomId") Long chatRoomId) {
         return chatRoomFacade.getHistory(chatRoomId, userId);
     }
 }

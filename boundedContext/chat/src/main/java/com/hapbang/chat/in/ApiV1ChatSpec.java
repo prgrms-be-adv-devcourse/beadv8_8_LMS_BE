@@ -25,7 +25,7 @@ import jakarta.validation.constraints.Min;
         1:1 채팅방과 메시지 이력. 인플루언서 이상 또는 관리자만 쓸 수 있다.
         실시간 송수신은 STOMP라 여기에 없다: 연결 `/api/v1/chats/ws`, 보내기 `/pub/chats/{chatRoomId}/messages`,
         받기 `/user/queue/chats/messages`(메시지)·`/user/queue/chats/notifications`(새 메시지 알림)·`/user/queue/chats/errors`(오류)""")
-public interface ApiV1ChatSwagger {
+public interface ApiV1ChatSpec {
 
     int MAX_PAGE_SIZE = 100;
 
