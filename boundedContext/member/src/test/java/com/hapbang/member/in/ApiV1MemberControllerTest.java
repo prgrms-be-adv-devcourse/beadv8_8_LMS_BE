@@ -163,20 +163,34 @@ class ApiV1MemberControllerTest {
                 .andExpect(jsonPath("$.content[0].id").value(newer.getId()))
                 .andExpect(jsonPath("$.content[1].id").value(older.getId()))
                 .andExpect(jsonPath("$.content[0].email").doesNotExist())
-                .andExpect(jsonPath("$.page").value(0))
-                .andExpect(jsonPath("$.size").value(10))
-                .andExpect(jsonPath("$.totalElements").value(2))
-                .andExpect(jsonPath("$.totalPages").value(1));
+                .andExpect(jsonPath("$.page.number").value(0))
+                .andExpect(jsonPath("$.page.size").value(20))
+                .andExpect(jsonPath("$.page.totalElements").value(2))
+                .andExpect(jsonPath("$.page.totalPages").value(1));
     }
 
     @Test
-    @DisplayName("페이지 크기가 최대(50)를 넘으면 50으로 맞춘다")
+    @DisplayName("페이지 크기가 최대(100)를 넘으면 100으로 맞춘다")
     void influencers_maxSize() throws Exception {
         User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
 
-        mockMvc.perform(get("/api/v1/members/influencers?size=100").with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/influencers?size=200").with(TestLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.size").value(50));
+                .andExpect(jsonPath("$.page.size").value(100));
+    }
+
+    @Test
+    @DisplayName("정렬을 요청해도 인플루언서 목록은 최신 가입순으로 준다")
+    void influencers_fixedSort() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User older = saveMember("aaa1", Role.INFLUENCER, UserStatus.ACTIVE);
+        User newer = saveMember("zzz1", Role.INFLUENCER, UserStatus.ACTIVE);
+
+        mockMvc.perform(get("/api/v1/members/influencers?sort=nickname,asc")
+                        .with(TestLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(newer.getId()))
+                .andExpect(jsonPath("$.content[1].id").value(older.getId()));
     }
 
     @Test

@@ -4,6 +4,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,8 +25,6 @@ public class MemberFacade {
     private final MemberUpdateProfileUseCase memberUpdateProfileUseCase;
     private final MemberSupport memberSupport;
 
-    static final int DEFAULT_PAGE_SIZE = 10;
-    static final int MAX_PAGE_SIZE = 50;
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
     /** OAuth 로그인 (처음이면 가입) */
@@ -58,11 +57,11 @@ public class MemberFacade {
         return memberSupport.findUser(userId);
     }
 
-    /** 인플루언서 목록 (최신 가입순). 범위 밖 값은 맞춘다: page < 0 → 0, size < 1 → 10, size > 50 → 50 */
+    /** 인플루언서 목록 (최신 가입순). 정렬은 요청과 상관없이 고정 */
     @Transactional(readOnly = true)
-    public Page<User> findInfluencers(int page, int size) {
-        int pageSize = size < 1 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
-        return memberSupport.findInfluencers(PageRequest.of(Math.max(page, 0), pageSize, NEWEST_FIRST));
+    public Page<User> findInfluencers(Pageable pageable) {
+        return memberSupport.findInfluencers(
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
     }
 
     /** 회원 프로필 (정상 회원만) */
