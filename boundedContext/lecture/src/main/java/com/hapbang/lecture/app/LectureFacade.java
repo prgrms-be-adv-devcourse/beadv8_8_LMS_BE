@@ -8,6 +8,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.lecture.app.dto.ContentAccessResponse;
 import com.hapbang.lecture.app.dto.LectureDetailResponse;
 import com.hapbang.lecture.app.dto.LectureSort;
 import com.hapbang.lecture.app.dto.LectureSummaryResponse;
@@ -33,6 +34,7 @@ public class LectureFacade {
     private final LectureRequestInspectionUseCase lectureRequestInspectionUseCase;
     private final LectureDeleteUseCase lectureDeleteUseCase;
     private final LectureSupport lectureSupport;
+    private final LectureContentAccessSupport lectureContentAccessSupport;
 
     /** 강의 등록 */
     @PreAuthorize(VERIFIED_INFLUENCER)
@@ -90,5 +92,14 @@ public class LectureFacade {
     @Transactional(readOnly = true)
     public LectureDetailResponse getLecture(Long userId, Long lectureId) {
         return lectureSupport.getLecture(userId, lectureId);
+    }
+
+    /**
+     * 콘텐츠 시청 URL 발급.
+     * 판매자 본인 또는 관리자라는 OR 조건이라 역할 검사(@PreAuthorize)를 두지 않고 Support가 판정한다 (D26).
+     */
+    @Transactional(readOnly = true)
+    public ContentAccessResponse getContentAccess(Long userId, Long lectureId, Long contentId) {
+        return lectureContentAccessSupport.issue(userId, lectureId, contentId);
     }
 }

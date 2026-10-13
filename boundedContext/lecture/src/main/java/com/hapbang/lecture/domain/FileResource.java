@@ -109,7 +109,7 @@ public class FileResource {
         return status == FileStatus.UPLOADED;
     }
 
-    /** 업로드를 마치고 삭제되지 않은 파일만 조회 URL을 발급한다 (D26) */
+    /** 업로드를 마치고 삭제되지 않은 파일만 조회 URL을 발급한다 (D28) */
     public boolean isViewable() {
         return isUploaded() && deletedAt == null;
     }

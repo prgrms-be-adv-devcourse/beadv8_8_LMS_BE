@@ -1,8 +1,11 @@
 package com.hapbang.global.storage;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
+
+import org.springframework.http.ContentDisposition;
 
 import software.amazon.awssdk.awscore.retry.AwsRetryStrategy;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -78,10 +81,33 @@ public class S3FileStorage {
      * @param expiry 0보다 크고 7일(SigV4 최대) 이하
      */
     public PresignedUrl presignDownload(String key, Duration expiry) {
+        return presign(GetObjectRequest.builder(), key, expiry);
+    }
+
+    /**
+     * 내려받기용 Presigned GET URL. 브라우저가 열지 않고 {@code attachmentFilename}으로 저장하도록
+     * {@code Content-Disposition: attachment}를 응답 헤더로 지정한다(서명에 포함되어 바꿀 수 없다).
+     * 파일명은 RFC 5987({@code filename*=UTF-8''…})로 넣으므로 한글 파일명도 그대로 저장된다.
+     *
+     * @param expiry             0보다 크고 7일(SigV4 최대) 이하
+     * @param attachmentFilename 저장할 파일명. 비어 있을 수 없다
+     */
+    public PresignedUrl presignDownload(String key, Duration expiry, String attachmentFilename) {
+        if (attachmentFilename == null || attachmentFilename.isBlank()) {
+            throw new IllegalArgumentException("내려받을 파일명이 필요합니다.");
+        }
+        String disposition = ContentDisposition.attachment()
+                .filename(attachmentFilename, StandardCharsets.UTF_8)
+                .build()
+                .toString();
+        return presign(GetObjectRequest.builder().responseContentDisposition(disposition), key, expiry);
+    }
+
+    private PresignedUrl presign(GetObjectRequest.Builder getObjectBuilder, String key, Duration expiry) {
         if (expiry == null || expiry.isZero() || expiry.isNegative() || expiry.compareTo(MAX_URL_EXPIRY) > 0) {
             throw new IllegalArgumentException("조회 URL 만료는 0보다 크고 7일 이하여야 합니다: " + expiry);
         }
-        GetObjectRequest getObject = GetObjectRequest.builder()
+        GetObjectRequest getObject = getObjectBuilder
                 .bucket(properties.bucket())
                 .key(objectKey(key))
                 .build();

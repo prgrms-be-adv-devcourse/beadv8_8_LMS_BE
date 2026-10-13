@@ -84,7 +84,7 @@ class BillingRepositoryTest {
         assertThat(foundWallet.getUpdatedAt()).isEqualTo(foundWallet.getCreatedAt());
 
         PointCharge foundCharge = pointChargeRepository.findById(charge.getId()).orElseThrow();
-        assertThat(foundCharge.getWallet().getId()).isEqualTo(wallet.getId());
+        assertThat(foundCharge.getWalletId()).isEqualTo(wallet.getId());
         assertThat(foundCharge.getPgPaymentKey()).isEqualTo("fake-payment-key");
         assertThat(foundCharge.getRemainingPrincipalHp()).isEqualTo(6_000L);
         assertThat(foundCharge.getStatus()).isEqualTo(PointChargeStatus.COMPLETED);
@@ -96,15 +96,15 @@ class BillingRepositoryTest {
         assertThat(pointLedgerRepository.findById(ledger.getId()).orElseThrow().getAmountHp()).isEqualTo(-4_000L);
         assertThat(pointHoldDetailRepository.findById(detail.getId()).orElseThrow().getActionType())
                 .isEqualTo(HoldDetailActionType.RELEASE);
-        assertThat(pointChargeUsageRepository.findById(usage.getId()).orElseThrow().getCharge().getId())
+        assertThat(pointChargeUsageRepository.findById(usage.getId()).orElseThrow().getChargeId())
                 .isEqualTo(charge.getId());
-        assertThat(pointRefundRequestRepository.findById(request.getId()).orElseThrow().getPointHold()).isNull();
+        assertThat(pointRefundRequestRepository.findById(request.getId()).orElseThrow().getPointHoldId()).isNull();
         assertThat(pointRefundRepository.findById(refund.getId()).orElseThrow().getRefundRequest().getId())
                 .isEqualTo(request.getId());
         assertThat(settlementRepository.findById(settlement.getId()).orElseThrow().getSourceType())
                 .isEqualTo(SettlementSourceType.LECTURE_ORDER_ITEM);
         Exchange foundExchange = exchangeRepository.findById(exchange.getId()).orElseThrow();
-        assertThat(foundExchange.getPointHold()).isNull();
+        assertThat(foundExchange.getPointHoldId()).isNull();
         assertThat(foundExchange.getFeeRate()).isEqualByComparingTo(new BigDecimal("0.1000"));
         assertThat(exchangeAccountRepository.findById(account.getId()).orElseThrow().getAccountNumberEncrypted()).isNull();
         assertThat(exchangePayoutRepository.findById(payout.getId()).orElseThrow().getPayoutProvider())
@@ -125,7 +125,7 @@ class BillingRepositoryTest {
 
         List<PointRefund> refunds = pointRefundRepository.findAllByRefundRequestIdOrderByIdAsc(request.getId());
         assertThat(refunds).extracting(PointRefund::getId).containsExactly(firstRefund.getId(), secondRefund.getId());
-        assertThat(refunds).extracting(value -> value.getCharge().getId())
+        assertThat(refunds).extracting(PointRefund::getChargeId)
                 .containsExactly(first.getId(), second.getId());
     }
 
@@ -137,7 +137,7 @@ class BillingRepositoryTest {
         entityManager.clear();
 
         Exchange found = exchangeRepository.findById(exchange.getId()).orElseThrow();
-        assertThat(found.getPointHold()).isNull();
+        assertThat(found.getPointHoldId()).isNull();
         assertThat(exchangeAccountRepository.findByExchangeId(exchange.getId())).isEmpty();
         assertThat(exchangePayoutRepository.findByExchangeId(exchange.getId())).isEmpty();
 
@@ -159,14 +159,14 @@ class BillingRepositoryTest {
         pointLedgerRepository.save(ledger(wallet).balanceBucket(BalanceBucket.HELD)
                 .amountHp(4_000L).idempotencyKey("HOLD:100:2").build());
         PointLedger reversal = pointLedgerRepository.save(ledger(wallet).amountHp(4_000L)
-                .transactionType(LedgerTransactionType.REVERSAL).originalLedger(first)
+                .transactionType(LedgerTransactionType.REVERSAL).originalLedgerId(first.getId())
                 .operationKey("REVERSAL:100").idempotencyKey("REVERSAL:100:1").build());
         entityManager.flush();
         entityManager.clear();
 
         assertThat(pointLedgerRepository.findAllByOperationKeyOrderByIdAsc("HOLD:100"))
                 .extracting(PointLedger::getAmountHp).containsExactly(-4_000L, 4_000L);
-        assertThat(pointLedgerRepository.findById(reversal.getId()).orElseThrow().getOriginalLedger().getId())
+        assertThat(pointLedgerRepository.findById(reversal.getId()).orElseThrow().getOriginalLedgerId())
                 .isEqualTo(first.getId());
         assertThat(pointLedgerRepository.findByIdempotencyKey("HOLD:100:1").orElseThrow().getAmountHp())
                 .isEqualTo(-4_000L);
@@ -205,5 +205,38 @@ class BillingRepositoryTest {
         assertThat(found.getCreatedAt()).isEqualTo(createdAt.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
         assertThat(found.getUpdatedAt()).isAfterOrEqualTo(previousUpdate.truncatedTo(java.time.temporal.ChronoUnit.MICROS));
     }
-}
 
+    @Test
+    void ID로만_참조해도_없는_지갑_충전건_원본원장을_가리키면_DB_FK가_거절한다() {
+        Wallet wallet = walletRepository.save(Wallet.create(50L));
+        PointCharge charge = pointChargeRepository.save(charge(wallet).build());
+        PointHold hold = pointHoldRepository.save(hold(wallet).build());
+        long missing = Long.MAX_VALUE;
+
+        assertForeignKeyViolation(() -> pointLedgerRepository.save(ledger(wallet).walletId(missing)
+                .operationKey("HOLD:missing").idempotencyKey("HOLD:missing:1").build()), "fk_point_ledger_wallet_id");
+        assertForeignKeyViolation(() -> pointChargeRepository.save(charge(wallet).walletId(missing)
+                .pgOrderId("fake-order-missing").build()), "fk_point_charge_wallet_id");
+        assertForeignKeyViolation(() -> pointHoldRepository.save(hold(wallet).walletId(missing)
+                .idempotencyKey("hold-missing").build()), "fk_point_hold_wallet_id");
+        assertForeignKeyViolation(() -> pointChargeUsageRepository.save(usage(charge, hold).chargeId(missing).build()),
+                "fk_point_charge_usage_charge_id");
+        assertForeignKeyViolation(() -> pointLedgerRepository.save(ledger(wallet).amountHp(4_000L)
+                .transactionType(LedgerTransactionType.REVERSAL).originalLedgerId(missing)
+                .operationKey("REVERSAL:missing").idempotencyKey("REVERSAL:missing:1").build()),
+                "fk_point_ledger_original_ledger_id");
+    }
+
+    // 저장을 즉시 DB에 반영하면 지정한 FK 위반으로 실패하는지 확인한다. 실패한 문장은 SAVEPOINT로 되돌려 다음 확인을 이어 간다.
+    private void assertForeignKeyViolation(Runnable save, String constraint) {
+        entityManager.unwrap(org.hibernate.Session.class).doWork(connection ->
+                connection.createStatement().execute("SAVEPOINT fk_check"));
+        assertThatThrownBy(() -> {
+            save.run();
+            entityManager.flush();
+        }).hasStackTraceContaining(constraint);
+        entityManager.clear();
+        entityManager.unwrap(org.hibernate.Session.class).doWork(connection ->
+                connection.createStatement().execute("ROLLBACK TO SAVEPOINT fk_check"));
+    }
+}

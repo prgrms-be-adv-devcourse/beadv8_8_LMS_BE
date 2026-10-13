@@ -38,7 +38,7 @@ import com.hapbang.testsupport.TestLogin;
 
 import jakarta.persistence.EntityManagerFactory;
 
-// 목록 응답의 썸네일·닉네임을 강의마다 따로 조회하지 않는지(D26) 강의 수에 따른 SQL 문 수로 확인한다.
+// 목록 응답의 썸네일·닉네임을 강의마다 따로 조회하지 않는지(D28) 강의 수에 따른 SQL 문 수로 확인한다.
 @IntegrationTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {

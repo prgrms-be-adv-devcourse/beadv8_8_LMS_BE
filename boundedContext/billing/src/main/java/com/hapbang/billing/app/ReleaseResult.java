@@ -32,7 +32,7 @@ public record ReleaseResult(
     // 반환 상세와 그 반환의 충전 건별 원금 복원, 현재 보류 상태로 결과를 만든다.
     static ReleaseResult of(PointHold hold, PointHoldDetail detail, List<ChargeRestoration> chargeRestorations,
             boolean replayed) {
-        return new ReleaseResult(hold.getId(), detail.getId(), hold.getWallet().getId(), hold.getReferenceType(),
+        return new ReleaseResult(hold.getId(), detail.getId(), hold.getWalletId(), hold.getReferenceType(),
                 hold.getReferenceId(), detail.totalAmountHp(), detail.getChargeAmountHp(), detail.getRevenueAmountHp(),
                 chargeRestorations, hold.heldTotalHp(), hold.getStatus(), replayed);
     }

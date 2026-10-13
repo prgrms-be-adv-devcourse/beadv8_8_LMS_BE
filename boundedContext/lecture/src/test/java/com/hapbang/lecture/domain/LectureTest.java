@@ -223,4 +223,48 @@ class LectureTest {
                 .isInstanceOf(LectureException.class)
                 .extracting("errorCode").isEqualTo(LectureErrorCode.LECTURE_NOT_FOUND);
     }
+
+    @Test
+    void 판매자는_검수_대기_강의의_콘텐츠를_볼_수_있다() {
+        Lecture lecture = pendingLecture();
+
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(SELLER_ID, false));
+    }
+
+    @Test
+    void 판매자_관리자가_아니면_판매_중_강의는_CONTENT_ACCESS_DENIED() {
+        Lecture lecture = onSaleLecture();
+
+        assertThatThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false))
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(LectureErrorCode.CONTENT_ACCESS_DENIED);
+    }
+
+    @Test
+    void 관리자는_판매자가_아니어도_콘텐츠를_볼_수_있다() {
+        Lecture lecture = pendingLecture();
+
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(ADMIN_ID, true));
+    }
+
+    @Test
+    void 판매자와_관리자는_삭제된_강의의_콘텐츠도_볼_수_있다() {
+        Lecture lecture = onSaleLecture();
+        lecture.delete(SELLER_ID, NOW);
+
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(SELLER_ID, false));
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(ADMIN_ID, true));
+    }
+
+    @Test
+    void 판매자_관리자가_아니면_판매_중이_아닌_강의는_LECTURE_NOT_FOUND() {
+        Lecture deleted = onSaleLecture();
+        deleted.delete(SELLER_ID, NOW);
+
+        for (Lecture lecture : List.of(pendingLecture(), rejectedLecture(), deleted)) {
+            assertThatThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false))
+                    .isInstanceOf(LectureException.class)
+                    .extracting("errorCode").isEqualTo(LectureErrorCode.LECTURE_NOT_FOUND);
+        }
+    }
 }

@@ -100,7 +100,7 @@ class PointHoldReleaseTest {
     @Test
     @DisplayName("배분의 일부를 반환하면 PARTIALLY_PROCESSED, 전부 반환하면 RELEASED가 되고 배분액은 보존된다")
     void usageRelease() {
-        PointChargeUsage usage = PointChargeUsage.held(BillingFixture.charge(wallet).build(), hold(4_000L, 0L), 3_000L);
+        PointChargeUsage usage = PointChargeUsage.held(101L, hold(4_000L, 0L), 3_000L);
 
         usage.release(1_000L);
         assertThat(usage.getRemainingHeldHp()).isEqualTo(2_000L);
@@ -118,7 +118,7 @@ class PointHoldReleaseTest {
     @Test
     @DisplayName("배분의 남은 보류보다 많이 반환하면 HOLD_STATE_INCONSISTENT로 거절한다")
     void usageReleaseExceeds() {
-        PointChargeUsage usage = PointChargeUsage.held(BillingFixture.charge(wallet).build(), hold(4_000L, 0L), 3_000L);
+        PointChargeUsage usage = PointChargeUsage.held(101L, hold(4_000L, 0L), 3_000L);
 
         assertBillingError(() -> usage.release(3_001L), BillingErrorCode.HOLD_STATE_INCONSISTENT);
         assertBillingError(() -> usage.release(0L), BillingErrorCode.INVALID_POINT_AMOUNT);
@@ -165,7 +165,7 @@ class PointHoldReleaseTest {
     }
 
     private PointHold hold(long chargeHp, long revenueHp) {
-        return PointHold.held(wallet, BillingReferenceType.LECTURE_ORDER, 1L, chargeHp, revenueHp,
+        return PointHold.held(1L, BillingReferenceType.LECTURE_ORDER, 1L, chargeHp, revenueHp,
                 "HOLD:LECTURE_ORDER:1", BillingFixture.NOW);
     }
 

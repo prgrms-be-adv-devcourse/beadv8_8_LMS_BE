@@ -4,10 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
@@ -32,9 +29,8 @@ import org.hibernate.annotations.Check;
 @Check(constraints = "(completed_amount_hp >= 0 AND completed_amount_hp <= requested_amount_hp)")
 public class PointRefundRequest extends BillingUpdatedEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "wallet_id", nullable = false)
-    private Wallet wallet;
+    @Column(name = "wallet_id", nullable = false)
+    private Long walletId;
 
     @Column(name = "requested_amount_hp", nullable = false)
     private Long requestedAmountHp;
@@ -42,9 +38,8 @@ public class PointRefundRequest extends BillingUpdatedEntity {
     @Column(name = "completed_amount_hp", nullable = false)
     private Long completedAmountHp;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = true)
-    @JoinColumn(name = "point_hold_id", nullable = true)
-    private PointHold pointHold;
+    @Column(name = "point_hold_id", nullable = true)
+    private Long pointHoldId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
@@ -62,19 +57,19 @@ public class PointRefundRequest extends BillingUpdatedEntity {
     // 빌더로 전달받은 지갑·요청액·완료액·선택적 보류·처리 상태와 시각으로 환불 요청을 초기화한다.
     @Builder
     private PointRefundRequest(
-            Wallet wallet,
+            Long walletId,
             Long requestedAmountHp,
             Long completedAmountHp,
-            PointHold pointHold,
+            Long pointHoldId,
             PointRefundRequestStatus status,
             String idempotencyKey,
             Instant requestedAt,
             Instant completedAt
     ) {
-        this.wallet = wallet;
+        this.walletId = walletId;
         this.requestedAmountHp = requestedAmountHp;
         this.completedAmountHp = completedAmountHp;
-        this.pointHold = pointHold;
+        this.pointHoldId = pointHoldId;
         this.status = status;
         this.idempotencyKey = idempotencyKey;
         this.requestedAt = requestedAt;

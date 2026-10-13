@@ -18,7 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.core.exception.SdkException;
 
 /**
- * 강의 썸네일 조회 URL(Presigned GET). 응답할 때마다 발급한다 (D26).
+ * 강의 썸네일 조회 URL(Presigned GET). 응답할 때마다 발급한다 (D28).
  * <p>
  * 썸네일이 없거나, 업로드가 끝나지 않았거나, 삭제된 파일이면 URL이 없다(null).
  * 서명 중 AWS SDK 예외가 나면(서버가 자격 증명을 가져오지 못함 등) 응답 전체를 실패시키지 않고 남은 썸네일도 서명하지 않는다.

@@ -64,7 +64,8 @@ public class Wallet extends BillingUpdatedEntity {
         if (!ledger.isPendingApplication()) {
             throw new IllegalStateException("이미 반영했거나 저장소에서 읽은 원장 항목은 다시 반영할 수 없습니다.");
         }
-        if (ledger.getWallet() != this) {
+        // 원장은 지갑을 ID로 참조한다. 저장 전(ID 없는) 지갑이나 다른 지갑 ID의 원장은 반영하지 않는다.
+        if (getId() == null || !getId().equals(ledger.getWalletId())) {
             throw new IllegalArgumentException("다른 지갑의 원장 항목은 반영할 수 없습니다.");
         }
         long changed = changedBalance(balanceOf(ledger.getPointType(), ledger.getBalanceBucket()), ledger.getAmountHp());

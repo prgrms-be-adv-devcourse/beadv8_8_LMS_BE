@@ -27,7 +27,7 @@ import com.hapbang.testsupport.TestLogin;
 
 import software.amazon.awssdk.core.exception.SdkClientException;
 
-// 썸네일 URL 서명이 실패할 때의 응답 (D26). S3 경계(S3FileStorage)만 가짜로 바꾼다.
+// 썸네일 URL 서명이 실패할 때의 응답 (D28). S3 경계(S3FileStorage)만 가짜로 바꾼다.
 @IntegrationTest
 @AutoConfigureMockMvc
 class LectureThumbnailFailureApiTest {
