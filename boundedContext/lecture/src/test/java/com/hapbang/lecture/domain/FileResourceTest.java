@@ -7,13 +7,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class FileResourceTest {
 
     private static final long SIZE = 1_024L;
 
     @Test
-    void 업로드_URL을_만들면_PENDING이고_key는_용도와_UUID로만_만든다() {
+    void 파일_정보를_등록하면_PENDING이고_key는_용도와_UUID로만_만든다() {
         FileResource file = FileResource.create(SELLER_ID, FileType.LECTURE_VIDEO, "1강 장비 고르기.mp4", "video/mp4",
                 SIZE, NOW);
 
@@ -90,20 +91,69 @@ class FileResourceTest {
     }
 
     @Test
-    void 업로더가_아니면_NOT_FILE_UPLOADER로_거부한다() {
+    void 업로더가_아니면_본문을_올릴_수_없다() {
         FileResource file = pendingVideo();
 
-        assertThatThrownBy(() -> file.validateUploader(OTHER_USER_ID))
+        assertThatThrownBy(() -> file.validateUploadable(OTHER_USER_ID, "video/mp4", SIZE))
                 .isInstanceOf(LectureException.class)
                 .extracting("errorCode").isEqualTo(LectureErrorCode.NOT_FILE_UPLOADER);
-        assertThatCode(() -> file.validateUploader(SELLER_ID)).doesNotThrowAnyException();
     }
 
     @Test
-    void 업로드를_완료하면_UPLOADED와_완료_시각을_기록한다() {
+    void 이미_UPLOADED인_파일에는_다시_올릴_수_없다() {
+        FileResource file = pendingVideo();
+        file.markUploaded(NOW);
+
+        assertThatThrownBy(() -> file.validateUploadable(SELLER_ID, "video/mp4", SIZE))
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(LectureErrorCode.FILE_ALREADY_UPLOADED);
+    }
+
+    @Test
+    void 본문_길이를_모르면_FILE_LENGTH_REQUIRED로_거부한다() {
         FileResource file = pendingVideo();
 
-        file.markUploaded(SIZE, NOW.plusMinutes(1));
+        assertThatThrownBy(() -> file.validateUploadable(SELLER_ID, "video/mp4", -1))
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(LectureErrorCode.FILE_LENGTH_REQUIRED);
+    }
+
+    @Test
+    void 본문_길이가_등록_크기와_다르면_FILE_SIZE_MISMATCH로_거부한다() {
+        FileResource file = pendingVideo();
+
+        assertThatThrownBy(() -> file.validateUploadable(SELLER_ID, "video/mp4", SIZE + 1))
+                .extracting("errorCode").isEqualTo(LectureErrorCode.FILE_SIZE_MISMATCH);
+        assertThatThrownBy(() -> file.validateUploadable(SELLER_ID, "video/mp4", SIZE - 1))
+                .extracting("errorCode").isEqualTo(LectureErrorCode.FILE_SIZE_MISMATCH);
+        assertThat(file.getStatus()).isEqualTo(FileStatus.PENDING);
+    }
+
+    @Test
+    void Content_Type이_등록_값과_다르면_FILE_CONTENT_TYPE_MISMATCH로_거부한다() {
+        FileResource file = pendingVideo();
+
+        assertThatThrownBy(() -> file.validateUploadable(SELLER_ID, "video/webm", SIZE))
+                .extracting("errorCode").isEqualTo(LectureErrorCode.FILE_CONTENT_TYPE_MISMATCH);
+        assertThatThrownBy(() -> file.validateUploadable(SELLER_ID, null, SIZE))
+                .extracting("errorCode").isEqualTo(LectureErrorCode.FILE_CONTENT_TYPE_MISMATCH);
+        assertThatThrownBy(() -> file.validateUploadable(SELLER_ID, "", SIZE))
+                .extracting("errorCode").isEqualTo(LectureErrorCode.FILE_CONTENT_TYPE_MISMATCH);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"video/mp4", "VIDEO/MP4", "video/mp4; charset=binary", " video/mp4 "})
+    void Content_Type은_대소문자와_파라미터를_무시하고_비교한다(String contentType) {
+        FileResource file = pendingVideo();
+
+        assertThatCode(() -> file.validateUploadable(SELLER_ID, contentType, SIZE)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void 업로드를_마치면_UPLOADED와_완료_시각을_기록한다() {
+        FileResource file = pendingVideo();
+
+        file.markUploaded(NOW.plusMinutes(1));
 
         assertThat(file.getStatus()).isEqualTo(FileStatus.UPLOADED);
         assertThat(file.isUploaded()).isTrue();
@@ -112,22 +162,11 @@ class FileResourceTest {
     }
 
     @Test
-    void 실제_크기가_신고와_다르면_FILE_SIZE_MISMATCH이고_PENDING으로_남는다() {
+    void 이미_UPLOADED인_파일을_다시_완료해도_그대로다() {
         FileResource file = pendingVideo();
+        file.markUploaded(NOW.plusMinutes(1));
 
-        assertThatThrownBy(() -> file.markUploaded(SIZE + 1, NOW.plusMinutes(1)))
-                .isInstanceOf(LectureException.class)
-                .extracting("errorCode").isEqualTo(LectureErrorCode.FILE_SIZE_MISMATCH);
-        assertThat(file.getStatus()).isEqualTo(FileStatus.PENDING);
-        assertThat(file.getUploadedAt()).isNull();
-    }
-
-    @Test
-    void 이미_완료한_파일은_다시_완료해도_그대로다() {
-        FileResource file = pendingVideo();
-        file.markUploaded(SIZE, NOW.plusMinutes(1));
-
-        file.markUploaded(SIZE, NOW.plusMinutes(2));
+        file.markUploaded(NOW.plusMinutes(2));
 
         assertThat(file.getUploadedAt()).isEqualTo(NOW.plusMinutes(1));
     }
@@ -135,7 +174,7 @@ class FileResourceTest {
     @Test
     void UPLOADED이고_본인이며_용도가_같으면_연결할_수_있다() {
         FileResource uploaded = pendingVideo();
-        uploaded.markUploaded(SIZE, NOW);
+        uploaded.markUploaded(NOW);
 
         assertThatCode(() -> uploaded.validateAttachableBy(SELLER_ID, FileType.LECTURE_VIDEO))
                 .doesNotThrowAnyException();
@@ -145,7 +184,7 @@ class FileResourceTest {
     void 남의_파일_미완료_파일_용도가_다른_파일은_INVALID_LECTURE_FILE로_거부하고_메시지만_다르다() {
         FileResource pending = pendingVideo();
         FileResource uploaded = pendingVideo();
-        uploaded.markUploaded(SIZE, NOW);
+        uploaded.markUploaded(NOW);
 
         assertThatThrownBy(() -> uploaded.validateAttachableBy(OTHER_USER_ID, FileType.LECTURE_VIDEO))
                 .isInstanceOf(LectureException.class)
