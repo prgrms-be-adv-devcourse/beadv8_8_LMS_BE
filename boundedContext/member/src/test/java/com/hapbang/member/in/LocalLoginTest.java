@@ -64,10 +64,11 @@ class LocalLoginTest {
     }
 
     @Test
-    @DisplayName("만들어 두지 않은 번호면 404를 반환한다")
+    @DisplayName("만들어 두지 않은 번호면 404와 TEST_ACCOUNT_NOT_FOUND를 반환한다")
     void login_notCreatedNumber() throws Exception {
         login("role=INFLUENCER&number=3")
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TEST_ACCOUNT_NOT_FOUND"));
     }
 
     @Test

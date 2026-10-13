@@ -23,6 +23,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import com.hapbang.global.auth.LoginUserId;
+import com.hapbang.global.exception.BaseErrorCode;
+import com.hapbang.global.exception.BusinessException;
+import com.hapbang.global.exception.GlobalErrorCode;
 import com.hapbang.member.app.ChannelVerificationResult;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.domain.MemberErrorCode;
@@ -33,8 +36,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /** 채널 인증 API (치지직 연동) */
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/members/channels")
 @RequiredArgsConstructor
@@ -59,7 +64,7 @@ public class ApiV1MemberChannelController implements ApiV1MemberChannelSpec {
         return redirect(authorizeUrl);
     }
 
-    /** 브라우저 이동이라 JSON 대신 결과 화면으로 보낸다. 실패도 화면으로 (code에 오류 코드) */
+    /** 브라우저 이동이라 JSON 대신 결과 화면으로 보낸다. 업무 실패(BusinessException)도 화면으로 (code에 오류 코드) */
     @Override
     @GetMapping("/chzzk/callback")
     public ResponseEntity<Void> chzzkCallback(@LoginUserId Long userId,
@@ -70,15 +75,19 @@ public class ApiV1MemberChannelController implements ApiV1MemberChannelSpec {
             verifyState(request, state);
             if (code == null) {
                 // 치지직 동의를 취소하는 등 code 없이 돌아온 경우
-                throw new MemberException(MemberErrorCode.CHZZK_API_FAILED);
+                throw new MemberException(MemberErrorCode.CHZZK_REQUEST_REJECTED);
             }
             ChannelVerificationResult result = memberFacade.connectChzzkChannel(userId, code, state);
             if (result.roleChanged()) {
                 refreshSessionRole(userId, result.role(), request, response);
             }
             return redirect(resultUrl(result.isApproved() ? "approved" : "registered", null));
-        } catch (MemberException e) {
+        } catch (BusinessException e) {
             return redirect(resultUrl("failed", e.getErrorCode()));
+        } catch (RuntimeException e) {
+            // 외부 장애·예상하지 못한 오류. 브라우저 이동이라 공통 핸들러의 500 JSON 대신 여기서 로그를 남기고 실패 화면으로 보낸다
+            log.error("치지직 연동 콜백 실패", e);
+            return redirect(resultUrl("failed", GlobalErrorCode.INTERNAL_ERROR));
         }
     }
 
@@ -132,10 +141,11 @@ public class ApiV1MemberChannelController implements ApiV1MemberChannelSpec {
         securityContextRepository.saveContext(context, request, response);
     }
 
-    private String resultUrl(String result, MemberErrorCode errorCode) {
+    /** 실패 code는 JSON 오류 응답과 같은 기준(BaseErrorCode.getCode()) */
+    private String resultUrl(String result, BaseErrorCode errorCode) {
         UriComponentsBuilder url = UriComponentsBuilder.fromPath(RESULT_PATH).queryParam("chzzk", result);
         if (errorCode != null) {
-            url.queryParam("code", errorCode.name());
+            url.queryParam("code", errorCode.getCode());
         }
         return url.toUriString();
     }

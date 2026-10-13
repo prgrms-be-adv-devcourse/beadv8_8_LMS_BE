@@ -20,7 +20,9 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 치지직 Open API 호출 (채널 인증 전용, 로그인 아님).
- * 응답은 {code, message, content} 형태이고 content만 꺼낸다. 실패하면 CHZZK_API_FAILED(502).
+ * 응답은 {code, message, content} 형태이고 content만 꺼낸다.
+ * 치지직이 요청을 거절하면(4xx) CHZZK_REQUEST_REJECTED, 장애(연결·시간 초과·5xx·키 오류·이상한 응답)는 감싸지 않고 그대로 던진다
+ * (팀 규칙: 외부 장애는 BusinessException으로 감싸지 않는다 → 공통 핸들러 500 INTERNAL_ERROR).
  * 시간 제한은 application.yaml의 spring.http.clients (연결 3초, 읽기 5초). 재시도는 하지 않는다 (code는 1회용)
  */
 @Slf4j
@@ -86,7 +88,7 @@ public class ChzzkApiClient {
                 .map(Channel::followerCount)
                 .orElseThrow(() -> {
                     log.warn("치지직 채널 조회 결과에 채널 없음: channelId={}", channelId);
-                    return new MemberException(MemberErrorCode.CHZZK_API_FAILED);
+                    return new MemberException(MemberErrorCode.CHZZK_CHANNEL_NOT_FOUND);
                 });
     }
 
@@ -109,7 +111,7 @@ public class ChzzkApiClient {
     }
 
     /**
-     * 호출 실패(연결·4xx·5xx)와 빈 응답을 CHZZK_API_FAILED로 바꾼다. 원인은 로그로 구분한다.
+     * 치지직 호출. 요청 거절(4xx)만 업무 예외로 바꾸고, 장애는 원래 예외를 그대로 던진다. 원인은 로그로 구분한다.
      * 요청 내용(Client Secret·code·토큰)과 성공 응답(토큰)은 로그에 남기지 않는다
      */
     private <T> T call(String api, Supplier<ChzzkResponse<T>> request) {
@@ -121,22 +123,28 @@ public class ChzzkApiClient {
                 // 우리 앱 키(Client ID·Secret) 문제 (치지직 응답 message: INVALID_CLIENT). 사용자가 고칠 수 없으니 바로 확인해야 한다
                 log.error("치지직 {} 인증 실패 (Client ID·Secret 확인): body={}", api,
                         abbreviate(e.getResponseBodyAsString()));
-            } else {
-                // 치지직이 오류로 응답함. 4xx면 우리 요청 문제(code 만료 등), 5xx면 치지직 문제
-                log.warn("치지직 {} 오류 응답: status={}, body={}", api, e.getStatusCode(),
-                        abbreviate(e.getResponseBodyAsString()));
+                throw e;
             }
-            throw new MemberException(MemberErrorCode.CHZZK_API_FAILED);
+            if (e.getStatusCode().is4xxClientError()) {
+                // 치지직이 요청을 거절함 (code 만료·재사용 등). 사용자가 처음부터 다시 연동하면 된다
+                log.warn("치지직 {} 요청 거절: status={}, body={}", api, e.getStatusCode(),
+                        abbreviate(e.getResponseBodyAsString()));
+                throw new MemberException(MemberErrorCode.CHZZK_REQUEST_REJECTED, e);
+            }
+            // 치지직 5xx: 외부 장애
+            log.warn("치지직 {} 오류 응답: status={}, body={}", api, e.getStatusCode(),
+                    abbreviate(e.getResponseBodyAsString()));
+            throw e;
         } catch (RestClientException e) {
-            // 응답 자체를 못 받음: 연결 실패, 시간 초과(연결 3초·읽기 5초), 응답 해석 실패
+            // 응답 자체를 못 받음 (연결 실패, 시간 초과(연결 3초·읽기 5초), 응답 해석 실패): 외부 장애
             log.warn("치지직 {} 호출 실패: {}", api, e.getMessage());
-            throw new MemberException(MemberErrorCode.CHZZK_API_FAILED);
+            throw e;
         }
         if (response == null || response.content() == null) {
-            // HTTP는 성공인데 내용이 없음 (치지직 실패 응답 형식 {code, message})
-            log.warn("치지직 {} 응답에 content 없음: code={}, message={}", api,
-                    response == null ? null : response.code(), response == null ? null : response.message());
-            throw new MemberException(MemberErrorCode.CHZZK_API_FAILED);
+            // HTTP는 성공인데 내용이 없음 (치지직 실패 응답 형식 {code, message}): 예상하지 못한 응답
+            throw new IllegalStateException("치지직 " + api + " 응답에 content가 없습니다: code="
+                    + (response == null ? null : response.code()) + ", message="
+                    + (response == null ? null : response.message()));
         }
         return response.content();
     }

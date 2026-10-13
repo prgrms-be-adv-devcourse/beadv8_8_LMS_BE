@@ -18,6 +18,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -27,6 +28,7 @@ import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.client.HttpServerErrorException;
 
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.ChannelVerificationStatus;
@@ -178,15 +180,27 @@ class ApiV1MemberChannelControllerTest {
     }
 
     @Test
-    @DisplayName("콜백: 치지직 조회가 실패해도 토큰은 폐기하고 실패 화면으로")
-    void callback_chzzkFailed() throws Exception {
+    @DisplayName("콜백: 치지직이 요청을 거절하면 실패 화면으로 (code=CHZZK_REQUEST_REJECTED)")
+    void callback_rejected() throws Exception {
         User user = saveUser(Role.USER);
-        given(chzzkApiClient.issueToken("code-1", "state-1")).willReturn("token-1");
-        given(chzzkApiClient.findMe("token-1")).willThrow(new MemberException(MemberErrorCode.CHZZK_API_FAILED));
+        given(chzzkApiClient.issueToken("code-1", "state-1"))
+                .willThrow(new MemberException(MemberErrorCode.CHZZK_REQUEST_REJECTED));
 
         mockMvc.perform(get(CALLBACK).param("code", "code-1").param("state", "state-1")
                         .session(sessionWithState("state-1")).with(TestLogin.as(user.getId(), user.getRole())))
-                .andExpect(header().string("Location", "/mypage?chzzk=failed&code=CHZZK_API_FAILED"));
+                .andExpect(header().string("Location", "/mypage?chzzk=failed&code=CHZZK_REQUEST_REJECTED"));
+    }
+
+    @Test
+    @DisplayName("콜백: 치지직 장애여도 토큰은 폐기하고 실패 화면으로 (code=INTERNAL_ERROR)")
+    void callback_chzzkFailed() throws Exception {
+        User user = saveUser(Role.USER);
+        given(chzzkApiClient.issueToken("code-1", "state-1")).willReturn("token-1");
+        given(chzzkApiClient.findMe("token-1")).willThrow(new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR));
+
+        mockMvc.perform(get(CALLBACK).param("code", "code-1").param("state", "state-1")
+                        .session(sessionWithState("state-1")).with(TestLogin.as(user.getId(), user.getRole())))
+                .andExpect(header().string("Location", "/mypage?chzzk=failed&code=INTERNAL_ERROR"));
 
         verify(chzzkApiClient).revokeToken("token-1");
         assertThat(influencerChannelRepository.findAll()).isEmpty();
@@ -296,17 +310,17 @@ class ApiV1MemberChannelControllerTest {
     }
 
     @Test
-    @DisplayName("승인 요청: 치지직 조회가 실패하면 502, 채널 상태는 그대로")
+    @DisplayName("승인 요청: 치지직 장애면 공통 500 INTERNAL_ERROR, 채널 상태는 그대로")
     void approvalRequest_chzzkFailed() throws Exception {
         User user = saveUser(Role.USER);
         InfluencerChannel channel = saveChannel(user, "channel-1", 5);
         given(chzzkApiClient.findFollowerCount("channel-1"))
-                .willThrow(new MemberException(MemberErrorCode.CHZZK_API_FAILED));
+                .willThrow(new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR));
 
         mockMvc.perform(post(approvalRequest(channel))
                         .with(TestLogin.as(user.getId(), user.getRole())).with(csrf()))
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.code").value("CHZZK_API_FAILED"));
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
 
         assertThat(influencerChannelRepository.findById(channel.getId()).orElseThrow().getVerificationStatus())
                 .isEqualTo(ChannelVerificationStatus.REGISTERED);

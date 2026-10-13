@@ -18,7 +18,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
+import com.hapbang.global.exception.BusinessException;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 
@@ -88,7 +90,7 @@ class ChzzkApiClientTest {
     }
 
     @Test
-    @DisplayName("조회한 채널이 응답에 없으면 CHZZK_API_FAILED")
+    @DisplayName("조회한 채널이 응답에 없으면 CHZZK_CHANNEL_NOT_FOUND")
     void findFollowerCount_notFound() {
         server.expect(requestTo("https://openapi.chzzk.naver.com/open/v1/channels?channelIds=channel-1"))
                 .andRespond(withSuccess("""
@@ -97,7 +99,7 @@ class ChzzkApiClientTest {
 
         assertThatThrownBy(() -> client.findFollowerCount("channel-1"))
                 .isInstanceOf(MemberException.class)
-                .extracting("errorCode").isEqualTo(MemberErrorCode.CHZZK_API_FAILED);
+                .extracting("errorCode").isEqualTo(MemberErrorCode.CHZZK_CHANNEL_NOT_FOUND);
     }
 
     @Test
@@ -125,18 +127,41 @@ class ChzzkApiClientTest {
     }
 
     @Test
-    @DisplayName("치지직이 오류(4xx·5xx)를 주면 CHZZK_API_FAILED")
-    void apiError() {
+    @DisplayName("치지직이 요청을 거절하면(4xx) CHZZK_REQUEST_REJECTED, 원인 예외를 함께 담는다")
+    void requestRejected() {
+        server.expect(requestTo("https://openapi.chzzk.naver.com/auth/v1/token"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST));
+
+        assertThatThrownBy(() -> client.issueToken("used-code", "state-1"))
+                .isInstanceOf(MemberException.class)
+                .hasCauseInstanceOf(RestClientResponseException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.CHZZK_REQUEST_REJECTED);
+    }
+
+    @Test
+    @DisplayName("키 오류(401)·치지직 5xx는 외부 장애라 업무 예외로 감싸지 않고 그대로 던진다")
+    void externalFailure_notWrapped() {
         server.expect(requestTo("https://openapi.chzzk.naver.com/auth/v1/token"))
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
         server.expect(requestTo("https://openapi.chzzk.naver.com/open/v1/users/me"))
                 .andRespond(withServerError());
 
-        assertThatThrownBy(() -> client.issueToken("bad-code", "state-1"))
-                .isInstanceOf(MemberException.class)
-                .extracting("errorCode").isEqualTo(MemberErrorCode.CHZZK_API_FAILED);
+        assertThatThrownBy(() -> client.issueToken("code-1", "state-1"))
+                .isInstanceOf(RestClientResponseException.class)
+                .isNotInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> client.findMe("token-1"))
-                .isInstanceOf(MemberException.class)
-                .extracting("errorCode").isEqualTo(MemberErrorCode.CHZZK_API_FAILED);
+                .isInstanceOf(RestClientResponseException.class);
+    }
+
+    @Test
+    @DisplayName("성공 응답인데 content가 없으면 예상하지 못한 응답으로 보고 그대로 실패한다")
+    void emptyContent() {
+        server.expect(requestTo("https://openapi.chzzk.naver.com/open/v1/users/me"))
+                .andRespond(withSuccess("""
+                        {"code":500,"message":"INTERNAL_ERROR"}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.findMe("token-1"))
+                .isInstanceOf(IllegalStateException.class);
     }
 }
