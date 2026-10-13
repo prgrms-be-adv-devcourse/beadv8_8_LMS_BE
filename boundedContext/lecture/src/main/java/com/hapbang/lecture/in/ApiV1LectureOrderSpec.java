@@ -15,7 +15,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 강의 주문 API Swagger 명세 (설계 8.5). 매핑은 {@link ApiV1LectureOrderController} */
 @Tag(name = "강의 주문", description = "주문(HP 결제), 구매 확정, 구매 취소, 구매·판매 내역")
-public interface ApiV1LectureOrderControllerDocs {
+public interface ApiV1LectureOrderSpec {
 
     @Operation(summary = "주문",
             description = "장바구니 주문 또는 바로 구매(강의 1개). HP 보류까지 끝난 뒤 응답하며, 잔액이 부족하면 주문이 만들어지지 않는다. "

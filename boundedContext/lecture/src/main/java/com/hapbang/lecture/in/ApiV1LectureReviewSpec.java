@@ -13,7 +13,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 강의 리뷰 API Swagger 명세 (설계 8.6). 매핑은 {@link ApiV1LectureReviewController} */
 @Tag(name = "강의 리뷰", description = "리뷰 작성·수정·삭제, 평점")
-public interface ApiV1LectureReviewControllerDocs {
+public interface ApiV1LectureReviewSpec {
 
     @Operation(summary = "리뷰 목록", description = "최신순. 평균 평점·리뷰 수는 강의 목록·상세에서 준다.")
     Page<ReviewResponse> getReviews(Long lectureId, Pageable pageable);

@@ -21,12 +21,12 @@ import com.hapbang.lecture.in.dto.LectureRejectRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
-/** 강의 검수 API (설계 8.2, 관리자). Swagger 명세는 {@link ApiV1LectureInspectionControllerDocs} */
+/** 강의 검수 API (설계 8.2, 관리자). Swagger 명세는 {@link ApiV1LectureInspectionSpec} */
 @RestController
 // 관리자 API는 /admin 경로(SecurityConfig)와 LectureInspectionFacade의 @PreAuthorize로 함께 막는다 (D16)
 @RequestMapping("/api/v1/lectures/admin")
 @RequiredArgsConstructor
-public class ApiV1LectureInspectionController implements ApiV1LectureInspectionControllerDocs {
+public class ApiV1LectureInspectionController implements ApiV1LectureInspectionSpec {
 
     private final LectureInspectionFacade lectureInspectionFacade;
 
