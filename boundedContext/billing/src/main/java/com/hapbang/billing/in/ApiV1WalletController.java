@@ -9,11 +9,11 @@ import com.hapbang.global.auth.LoginUserId;
 
 import lombok.RequiredArgsConstructor;
 
-// 로그인한 회원 자신의 지갑만 다루는 지갑 API다. Swagger 명세는 ApiV1WalletControllerDocs에 둔다.
+// 로그인한 회원 자신의 지갑만 다루는 지갑 API다. Swagger 명세는 ApiV1WalletSpec에 둔다.
 @RestController
 @RequestMapping("/api/v1/wallets")
 @RequiredArgsConstructor
-public class ApiV1WalletController implements ApiV1WalletControllerDocs {
+public class ApiV1WalletController implements ApiV1WalletSpec {
 
     private final WalletFacade walletFacade;
 
