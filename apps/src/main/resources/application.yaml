@@ -72,17 +72,15 @@ hapbang:
   storage:
     s3:
       region: ap-northeast-2
-
-springdoc:
-  swagger-ui:
-    csrf:
-      # Swagger가 XSRF-TOKEN 쿠키를 읽어 X-XSRF-TOKEN 헤더로 자동 전송
-      enabled: true
-
-hapbang:
   chzzk:
     # 치지직 채널 인증 (치지직 개발자 센터 앱). 기본값을 두지 않는다 (서버 값은 compose가 넘긴다, docs/deploy/env-vars.md)
     client-id: ${CHZZK_CLIENT_ID}
     client-secret: ${CHZZK_CLIENT_SECRET}
     # 앱에 등록한 리디렉션 URL과 같아야 한다 (앱 하나에 하나만 등록돼 환경마다 다르다)
     redirect-uri: ${CHZZK_REDIRECT_URI}
+
+springdoc:
+  swagger-ui:
+    csrf:
+      # Swagger가 XSRF-TOKEN 쿠키를 읽어 X-XSRF-TOKEN 헤더로 자동 전송
+      enabled: true
