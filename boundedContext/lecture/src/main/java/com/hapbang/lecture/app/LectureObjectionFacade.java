@@ -17,6 +17,7 @@ public class LectureObjectionFacade {
 
     private final OrderObjectionFileUseCase orderObjectionFileUseCase;
     private final OrderObjectionResolveUseCase orderObjectionResolveUseCase;
+    private final OrderObjectionWithdrawUseCase orderObjectionWithdrawUseCase;
 
     @Transactional
     public void fileObjection(Long orderItemId, Long buyerUserId, Long inquiryId, String reason) {
@@ -32,5 +33,13 @@ public class LectureObjectionFacade {
         Objects.requireNonNull(inquiryId, "문의 ID는 필수입니다.");
         Objects.requireNonNull(adminUserId, "판단한 관리자 ID는 필수입니다.");
         orderObjectionResolveUseCase.resolveObjection(orderItemId, inquiryId, accepted, adminUserId);
+    }
+
+    @Transactional
+    public void withdrawObjection(Long orderItemId, Long buyerUserId, Long inquiryId) {
+        Objects.requireNonNull(orderItemId, "주문 항목 ID는 필수입니다.");
+        Objects.requireNonNull(buyerUserId, "구매자 ID는 필수입니다.");
+        Objects.requireNonNull(inquiryId, "문의 ID는 필수입니다.");
+        orderObjectionWithdrawUseCase.withdrawObjection(orderItemId, buyerUserId, inquiryId);
     }
 }

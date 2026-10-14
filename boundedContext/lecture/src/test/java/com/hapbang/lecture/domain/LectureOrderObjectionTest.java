@@ -25,7 +25,9 @@ class LectureOrderObjectionTest {
     private static final LocalDateTime SEPT_30 = LocalDateTime.of(2026, 9, 30, 10, 0);
     /** 9/30 구매의 지급 예정 시각 */
     private static final LocalDateTime PAYOUT_AT = LocalDateTime.of(2026, 10, 31, 0, 0);
-    private static final LocalDateTime OCT_5 = LocalDateTime.of(2026, 10, 5, 12, 0);
+    /** 9/30 구매의 자동 구매 확정 시각 */
+    private static final LocalDateTime AUTO_CONFIRM_AT = LocalDateTime.of(2026, 10, 8, 0, 0);
+    private static final LocalDateTime OCT_5 =LocalDateTime.of(2026, 10, 5, 12, 0);
     private static final LocalDateTime OCT_6 = LocalDateTime.of(2026, 10, 6, 12, 0);
 
     @Test
@@ -203,6 +205,110 @@ class LectureOrderObjectionTest {
         assertThatThrownBy(() -> order.cancelItem(1L, OCT_5))
                 .isInstanceOf(LectureException.class)
                 .extracting("errorCode").isEqualTo(LectureErrorCode.OBJECTION_FILED);
+    }
+
+    @Test
+    void 접수한_이의_제기를_철회하면_NONE이_되고_문의ID와_사유와_접수_시각을_비운다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
+
+        OrderItem item = order.withdrawObjection(1L, BUYER_ID, INQUIRY_ID);
+
+        assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
+        assertThat(item.getObjectionInquiryId()).isNull();
+        assertThat(item.getObjectionReason()).isNull();
+        assertThat(item.getObjectionFiledAt()).isNull();
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+    }
+
+    @Test
+    void 구매자가_아니면_철회할_수_없다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
+
+        assertRefused(() -> order.withdrawObjection(1L, 4L, INQUIRY_ID), Reason.NOT_BUYER);
+        assertThat(order.getItems().getFirst().getObjectionStatus()).isEqualTo(ObjectionStatus.FILED);
+    }
+
+    @Test
+    void 접수되지_않았거나_이미_판단한_이의_제기는_철회할_수_없다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L, 3L);
+        order.fileObjection(2L, BUYER_ID, 501L, REASON, OCT_5);
+        order.resolveObjection(2L, 501L, false, ADMIN_ID, OCT_6);
+        order.fileObjection(3L, BUYER_ID, 502L, REASON, OCT_5);
+        order.resolveObjection(3L, 502L, true, ADMIN_ID, OCT_6);
+
+        assertRefused(() -> order.withdrawObjection(1L, BUYER_ID, INQUIRY_ID), Reason.NOT_FILED);
+        assertRefused(() -> order.withdrawObjection(2L, BUYER_ID, 501L), Reason.NOT_FILED);
+        assertRefused(() -> order.withdrawObjection(3L, BUYER_ID, 502L), Reason.NOT_FILED);
+        assertThat(order.getItems()).extracting(OrderItem::getObjectionStatus)
+                .containsExactly(ObjectionStatus.NONE, ObjectionStatus.REJECTED, ObjectionStatus.ACCEPTED);
+    }
+
+    @Test
+    void 접수한_문의와_다른_문의로는_철회할_수_없다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
+
+        assertRefused(() -> order.withdrawObjection(1L, BUYER_ID, 501L), Reason.INQUIRY_MISMATCH);
+        assertThat(order.getItems().getFirst())
+                .extracting(OrderItem::getObjectionStatus, OrderItem::getObjectionInquiryId)
+                .containsExactly(ObjectionStatus.FILED, INQUIRY_ID);
+    }
+
+    @Test
+    void 여러_사유에_해당하면_철회는_구매자를_먼저_확인한다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L);
+        order.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
+
+        assertRefused(() -> order.withdrawObjection(1L, 4L, 501L), Reason.NOT_BUYER);
+        assertRefused(() -> order.withdrawObjection(2L, 4L, 501L), Reason.NOT_BUYER);
+    }
+
+    @Test
+    void 철회한_항목은_자동_구매_확정_시각_전이면_구매_취소할_수_있고_기한은_늘지_않는다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L);
+        order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
+        order.fileObjection(2L, BUYER_ID, 501L, REASON, OCT_5);
+        order.withdrawObjection(1L, BUYER_ID, INQUIRY_ID);
+        order.withdrawObjection(2L, BUYER_ID, 501L);
+
+        OrderItem canceled = order.cancelItem(1L, OCT_6);
+
+        assertThat(canceled.getStatus()).isEqualTo(OrderItemStatus.CANCELED);
+        assertThatThrownBy(() -> order.cancelItem(2L, AUTO_CONFIRM_AT))
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(LectureErrorCode.CANCEL_PERIOD_EXPIRED);
+    }
+
+    @Test
+    void 철회한_항목에_다른_문의로_다시_이의_제기할_수_있다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L);
+        order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
+        order.fileObjection(2L, BUYER_ID, 501L, REASON, OCT_5);
+        order.withdrawObjection(1L, BUYER_ID, INQUIRY_ID);
+        order.withdrawObjection(2L, BUYER_ID, 501L);
+
+        OrderItem refiled = order.fileObjection(1L, BUYER_ID, 502L, "다시 확인해 보니 내용이 다릅니다.", OCT_6);
+
+        assertThat(refiled).extracting(OrderItem::getObjectionStatus, OrderItem::getObjectionInquiryId)
+                .containsExactly(ObjectionStatus.FILED, 502L);
+        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 503L, REASON, PAYOUT_AT), Reason.PERIOD_EXPIRED);
+    }
+
+    @Test
+    void 철회한_구매_확정_항목은_지급_예정_시각부터_지급_대상이다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
+        OrderItem item = order.getItems().getFirst();
+        assertThat(item.isPayable(PAYOUT_AT)).isFalse();
+
+        order.withdrawObjection(1L, BUYER_ID, INQUIRY_ID);
+
+        assertThat(item.isPayable(PAYOUT_AT.minusNanos(1))).isFalse();
+        assertThat(item.isPayable(PAYOUT_AT)).isTrue();
     }
 
     private static LectureOrder placeWithItemIds(LocalDateTime now, Long... itemIds) {

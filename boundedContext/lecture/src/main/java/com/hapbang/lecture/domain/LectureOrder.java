@@ -153,6 +153,13 @@ public class LectureOrder {
         return item;
     }
 
+    /** 판단 전 이의 제기 철회. 항목은 접수 전 상태로 돌아가고 주문은 닫히지 않는다 (D52) */
+    public OrderItem withdrawObjection(Long orderItemId, Long buyerUserId, Long inquiryId) {
+        OrderItem item = findItem(orderItemId);
+        item.withdrawObjection(buyerUserId, inquiryId);
+        return item;
+    }
+
     /** PAID인 주문의 진행 상황. 취소된 주문은 {@code null} */
     public OrderProgress progress() {
         if (status == LectureOrderStatus.CANCELED) {

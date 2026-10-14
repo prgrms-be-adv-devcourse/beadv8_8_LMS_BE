@@ -134,6 +134,24 @@ class OrderPayoutObjectionTest {
     }
 
     @Test
+    void 철회한_항목은_지급_예정_시각이_지났으면_다음_지급_배치에서_지급한다() {
+        Long itemId = itemId(saveConfirmed(now().minusDays(20)));
+        lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON);
+        // 접수 중에 지급 예정 시각이 지나 지급 배치가 건너뛴다
+        jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = ? where id = ?",
+                now().minusDays(1), itemId);
+        orderPayoutUseCase.payOutDueItems();
+        assertThat(fakeBillingPort.payouts()).isEmpty();
+
+        lectureObjectionPort.withdrawObjection(itemId, BUYER_ID, INQUIRY_ID);
+        orderPayoutUseCase.payOutDueItems();
+
+        assertThat(fakeBillingPort.payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
+        assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
+                .containsExactly(OrderItemStatus.PAID_OUT, ObjectionStatus.NONE);
+    }
+
+    @Test
     void 지급이_먼저_커밋되면_접수는_ALREADY_PAID_OUT으로_거부된다() {
         Long itemId = itemId(saveConfirmed(now().minusDays(32)));
         orderPayoutUseCase.payOutDueItems();
