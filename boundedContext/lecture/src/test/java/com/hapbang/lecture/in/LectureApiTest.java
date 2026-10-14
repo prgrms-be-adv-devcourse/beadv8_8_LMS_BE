@@ -383,6 +383,86 @@ class LectureApiTest {
     }
 
     @Test
+    void 관리자는_검수_대기_강의_상세와_콘텐츠를_조회한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.lectureId").value(lectureId))
+                .andExpect(jsonPath("$.data.sellerNickname").value("판매자"))
+                .andExpect(jsonPath("$.data.status").value("PENDING_INSPECTION"))
+                .andExpect(jsonPath("$.data.deleted").value(false))
+                .andExpect(jsonPath("$.data.contents[0].title").value("1강 장비 고르기"))
+                .andExpect(jsonPath("$.data.contents[0].sequence").value(1))
+                .andExpect(jsonPath("$.data.contents[0].contentType").value("VIDEO"))
+                .andExpect(jsonPath("$.data.contents[1].title").value("장비 목록"))
+                .andExpect(jsonPath("$.data.contents[1].sequence").value(2))
+                .andExpect(jsonPath("$.data.contents[1].contentType").value("DOCUMENT"));
+    }
+
+    @Test
+    void 관리자는_반려된_강의를_반려_사유와_함께_조회한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        reject(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.rejectionReason").value("영상 음질이 너무 낮습니다."));
+    }
+
+    @Test
+    void 관리자는_판매_중인_강의와_삭제된_강의를_조회한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ON_SALE"))
+                .andExpect(jsonPath("$.data.deleted").value(false));
+
+        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+    }
+
+    @Test
+    void 관리자가_아니면_관리자_강의_상세를_조회할_수_없다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 관리자_강의_상세에서_없는_강의는_404() throws Exception {
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", 999_999L)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
+    }
+
+    @Test
+    void 관리자도_기존_강의_상세로는_검수_대기_강의를_볼_수_없다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
+    }
+
+    @Test
     void 인증된_인플루언서가_아니면_강의를_등록할_수_없다() throws Exception {
         mockMvc.perform(post("/api/v1/lectures")
                         .with(TestLogin.as(OTHER_USER_ID, Role.INFLUENCER)).with(csrf())

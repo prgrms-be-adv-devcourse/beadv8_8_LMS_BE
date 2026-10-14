@@ -77,6 +77,13 @@ public class LectureSupport {
                 lectureThumbnailSupport.urlOf(lecture.getThumbnailFileId()), seller);
     }
 
+    /** 관리자 검수용 강의 상세. 상태·삭제 여부와 관계없이 조회하고 반려 사유도 보여 준다 (D30). */
+    public LectureDetailResponse getLectureForInspection(Long lectureId) {
+        Lecture lecture = findLecture(lectureId);
+        return LectureDetailResponse.of(lecture, sellerNicknameSupport.of(lecture.getSellerUserId()),
+                lectureThumbnailSupport.urlOf(lecture.getThumbnailFileId()), true);
+    }
+
     /** 검수 목록. 삭제된 강의는 빠진다. 신청이 오래된 순이며 요청의 정렬은 무시한다. */
     public Page<InspectionLectureResponse> getInspections(LectureStatus status, Pageable pageable) {
         Page<Lecture> lectures = lectureRepository.findByStatusAndDeletedAtIsNull(status,
