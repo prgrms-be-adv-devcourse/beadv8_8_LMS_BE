@@ -37,7 +37,8 @@ public enum LectureErrorCode implements BaseErrorCode {
     FILE_ALREADY_UPLOADED(HttpStatus.CONFLICT, "이미 올린 파일입니다. 다른 파일을 올리려면 파일 정보를 새로 등록해 주세요."),
     INVALID_LECTURE_FILE(HttpStatus.BAD_REQUEST, "강의에 연결할 수 없는 파일입니다."),
     LECTURE_CONTENT_NOT_FOUND(HttpStatus.NOT_FOUND, "강의 콘텐츠를 찾을 수 없습니다."),
-    CONTENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "강의 콘텐츠를 볼 수 있는 회원이 아닙니다.");
+    CONTENT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "강의 콘텐츠를 볼 수 있는 회원이 아닙니다."),
+    PLAY_CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "재생 동의 후 볼 수 있습니다. 재생하면 구매가 확정되어 단순 변심으로 구매 취소할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

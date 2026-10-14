@@ -3,12 +3,15 @@ package com.hapbang.lecture.out;
 import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItem;
@@ -20,6 +23,7 @@ import jakarta.persistence.EntityManager;
 class LectureOrderRepositoryTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
+    private static final Long OTHER_BUYER_ID = 4L;
     private static final Long LECTURE_ID = 10L;
 
     @Autowired
@@ -62,8 +66,49 @@ class LectureOrderRepositoryTest {
                 .isEqualTo(2);
     }
 
+    @Test
+    void 보유_항목을_구매자와_강의로_찾고_취소한_항목은_빼고_찾는다() {
+        LectureOrder canceled = lectureOrderRepository.save(order());
+        flushAndClear();
+        canceled = lectureOrderRepository.findById(canceled.getId()).orElseThrow();
+        canceled.cancelItem(canceled.getItems().getFirst().getId(), NOW);
+        flushAndClear();
+        assertThat(lectureOrderRepository.findHeldItem(BUYER_ID, LECTURE_ID)).isEmpty();
+
+        Long repurchasedItemId = lectureOrderRepository.save(order()).getItems().getFirst().getId();
+        flushAndClear();
+
+        assertThat(lectureOrderRepository.findHeldItem(BUYER_ID, LECTURE_ID))
+                .hasValueSatisfying(item -> assertThat(item.getId()).isEqualTo(repurchasedItemId));
+        assertThat(lectureOrderRepository.findHeldItem(SELLER_ID, LECTURE_ID)).isEmpty();
+        assertThat(lectureOrderRepository.findHeldItem(BUYER_ID, 99L)).isEmpty();
+    }
+
+    @Test
+    void 시청_가능한_항목을_최근_구매순으로_조회한다() {
+        lectureOrderRepository.save(order(20L, NOW));
+        lectureOrderRepository.save(order(30L, NOW));
+        lectureOrderRepository.save(order(40L, NOW.plusDays(1)));
+        LectureOrder canceled = lectureOrderRepository.save(order(50L, NOW.plusDays(2)));
+        canceled.cancelItem(canceled.getItems().getFirst().getId(), NOW.plusDays(2));
+        lectureOrderRepository.save(LectureOrder.place(OTHER_BUYER_ID, List.of(withId(onSaleLecture(), 60L)),
+                Set.of(), NOW.plusDays(3)));
+        flushAndClear();
+
+        Page<OrderItem> page = lectureOrderRepository.findHeldItems(BUYER_ID, PageRequest.of(0, 2));
+
+        assertThat(page.getTotalElements()).isEqualTo(3);
+        assertThat(page.getContent()).extracting(OrderItem::getLectureId).containsExactly(40L, 30L);
+        assertThat(lectureOrderRepository.findHeldItems(BUYER_ID, PageRequest.of(1, 2)).getContent())
+                .extracting(OrderItem::getLectureId).containsExactly(20L);
+    }
+
     private static LectureOrder order() {
-        return LectureOrder.place(BUYER_ID, List.of(withId(onSaleLecture(), LECTURE_ID)), Set.of(), NOW);
+        return order(LECTURE_ID, NOW);
+    }
+
+    private static LectureOrder order(Long lectureId, LocalDateTime purchasedAt) {
+        return LectureOrder.place(BUYER_ID, List.of(withId(onSaleLecture(), lectureId)), Set.of(), purchasedAt);
     }
 
     private long countRows(String sql) {

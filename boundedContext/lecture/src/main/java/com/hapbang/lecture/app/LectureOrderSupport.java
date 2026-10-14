@@ -1,5 +1,7 @@
 package com.hapbang.lecture.app;
 
+import java.util.Optional;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -11,6 +13,7 @@ import com.hapbang.lecture.app.dto.OrderSummaryResponse;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.LectureOrderRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -28,6 +31,11 @@ public class LectureOrderSupport {
     public LectureOrder findOrder(Long buyerUserId, Long orderId) {
         return lectureOrderRepository.findByIdAndBuyerUserId(orderId, buyerUserId)
                 .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_NOT_FOUND));
+    }
+
+    /** 구매자가 이 강의를 보유한(구매·구매 확정·지급) 항목 */
+    public Optional<OrderItem> findHeldItem(Long buyerUserId, Long lectureId) {
+        return lectureOrderRepository.findHeldItem(buyerUserId, lectureId);
     }
 
     /** 최근 주문부터. 정렬은 고정이고 요청의 정렬은 무시한다. */
