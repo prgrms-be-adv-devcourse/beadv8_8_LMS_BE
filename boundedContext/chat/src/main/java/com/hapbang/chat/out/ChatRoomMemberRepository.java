@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -28,4 +29,14 @@ public interface ChatRoomMemberRepository extends JpaRepository<ChatRoomMember, 
             order by r.id desc
             """)
     List<ChatRoomMember> findActiveByUserId(@Param("userId") Long userId);
+
+    /**
+     * 마지막으로 읽은 순번을 올린다. 지금보다 작은 값이면 바꾸지 않아서, 읽음 처리가 동시에 와도 줄어들지 않는다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ChatRoomMember m set m.lastReadSequence = :sequence
+            where m.id = :memberId and m.lastReadSequence < :sequence
+            """)
+    int advanceLastReadSequence(@Param("memberId") Long memberId, @Param("sequence") long sequence);
 }

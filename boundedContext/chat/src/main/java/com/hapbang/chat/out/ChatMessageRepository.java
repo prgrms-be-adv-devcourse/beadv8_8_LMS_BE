@@ -1,5 +1,6 @@
 package com.hapbang.chat.out;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.domain.Limit;
@@ -23,6 +24,36 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             """)
     List<ChatMessage> findVisible(@Param("chatRoomId") Long chatRoomId, @Param("fromSequence") long fromSequence,
             @Param("beforeSequence") long beforeSequence, Limit limit);
+
+    /**
+     * 회원이 참여한 방마다 조회 범위 안의 가장 최근 메시지. 볼 수 있는 메시지가 없는 방은 빠진다.
+     */
+    @Query("""
+            select m from ChatMessage m, ChatRoomMember cm
+            where cm.chatRoom.id = m.chatRoom.id and cm.userId = :userId and cm.deletedAt is null
+              and m.chatRoom.id in :chatRoomIds
+              and m.roomSequence = (select max(m2.roomSequence) from ChatMessage m2
+                                    where m2.chatRoom.id = m.chatRoom.id and m2.deletedAt is null
+                                      and m2.roomSequence >= cm.visibleFromSequence)
+            """)
+    List<ChatMessage> findLastVisible(@Param("userId") Long userId,
+            @Param("chatRoomIds") Collection<Long> chatRoomIds);
+
+    /**
+     * 방마다 회원이 안 읽은 메시지 수. 조회 범위 안에서 마지막으로 읽은 순번 뒤에 온 상대(시스템 안내 포함) 메시지만 센다.
+     * 안 읽은 메시지가 없는 방은 빠진다.
+     */
+    @Query("""
+            select new com.hapbang.chat.out.ChatRoomUnreadCount(m.chatRoom.id, count(m))
+            from ChatMessage m, ChatRoomMember cm
+            where cm.chatRoom.id = m.chatRoom.id and cm.userId = :userId and cm.deletedAt is null
+              and m.chatRoom.id in :chatRoomIds
+              and m.roomSequence >= cm.visibleFromSequence and m.roomSequence > cm.lastReadSequence
+              and m.senderUserId <> :userId and m.deletedAt is null
+            group by m.chatRoom.id
+            """)
+    List<ChatRoomUnreadCount> countUnread(@Param("userId") Long userId,
+            @Param("chatRoomIds") Collection<Long> chatRoomIds);
 
     /**
      * 관리자 기록 조회용. 참여자별 조회 범위와 Soft Delete 여부와 관계없이 모두 조회한다.
