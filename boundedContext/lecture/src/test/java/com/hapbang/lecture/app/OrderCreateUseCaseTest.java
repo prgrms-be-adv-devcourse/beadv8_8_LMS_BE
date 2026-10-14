@@ -13,7 +13,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,14 +33,11 @@ import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.fake.FakeBillingPort;
-import com.hapbang.lecture.fake.FakeLectureSettlementPort;
-import com.hapbang.lecture.fake.FakeLectureSettlementPort.FakeSettlementErrorCode;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.LectureSettlementCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
@@ -69,22 +65,12 @@ class OrderCreateUseCaseTest {
     private FakeBillingPort billingPort;
 
     @Autowired
-    private FakeLectureSettlementPort settlementPort;
-
-    @Autowired
     @Qualifier(LectureConfig.CLOCK)
     private Clock clock;
 
     @BeforeEach
     void setUp() {
         billingPort.reset();
-        settlementPort.reset();
-    }
-
-    // 실패 설정이 같은 컨텍스트를 쓰는 다른 테스트 클래스로 넘어가지 않게 한다
-    @AfterEach
-    void tearDown() {
-        settlementPort.reset();
     }
 
     @Test
@@ -116,34 +102,6 @@ class OrderCreateUseCaseTest {
         OrderResponse saved = lectureOrderFacade.getOrder(BUYER_ID, response.orderId());
         assertThat(saved.items()).extracting(OrderItemResponse::purchasedAt).containsOnly(saved.orderedAt());
         assertThat(saved.orderedAt()).isAfterOrEqualTo(before.withNano(0));
-        // 항목마다 판매자 지급 예정이 항목 가격·구매 시각으로 등록된다 (#182)
-        assertThat(settlementPort.schedules())
-                .extracting(LectureSettlementCommand::buyerUserId, LectureSettlementCommand::sellerUserId,
-                        LectureSettlementCommand::orderItemId, LectureSettlementCommand::amountHp)
-                .containsExactly(
-                        tuple(BUYER_ID, SELLER_ID, response.items().get(0).orderItemId(), PRICE_HP),
-                        tuple(BUYER_ID, SELLER_ID, response.items().get(1).orderItemId(), 5_000L));
-        assertThat(settlementPort.schedules()).extracting(LectureSettlementCommand::purchasedAt)
-                .containsOnly(response.items().getFirst().purchasedAt().atZone(LectureConfig.ZONE).toInstant());
-    }
-
-    @Test
-    void 판매자_지급_예정_등록이_실패하면_주문과_보류가_모두_롤백된다() {
-        Lecture first = saveOnSale("OBS 방송 세팅", PRICE_HP);
-        Lecture second = saveOnSale("마이크 고르기", PRICE_HP);
-        cartFacade.addItem(BUYER_ID, first.getId());
-        settlementPort.failSchedulesWith(FakeSettlementErrorCode.WALLET_NOT_FOUND);
-        long ordersBefore = lectureOrderRepository.count();
-
-        assertThatThrownBy(() -> lectureOrderFacade.createOrder(BUYER_ID, List.of(first.getId(), second.getId())))
-                .isInstanceOf(BusinessException.class)
-                .extracting(e -> ((BusinessException) e).getErrorCode().getCode())
-                .isEqualTo("WALLET_NOT_FOUND");
-
-        assertThat(lectureOrderRepository.count()).isEqualTo(ordersBefore);
-        assertThat(cartLectureIds()).containsExactly(first.getId());
-        assertThat(billingPort.holds()).isEmpty();
-        assertThat(settlementPort.schedules()).isEmpty();
     }
 
     @Test
@@ -176,7 +134,6 @@ class OrderCreateUseCaseTest {
         assertThat(lectureOrderRepository.count()).isEqualTo(ordersBefore);
         assertThat(cartLectureIds()).containsExactlyInAnyOrder(first.getId(), second.getId());
         assertThat(billingPort.holds()).isEmpty();
-        assertThat(settlementPort.schedules()).isEmpty();
     }
 
     @Test

@@ -15,7 +15,6 @@ final class BillingKeys {
     static final String RELEASE_PREFIX = "RELEASE";
     static final String PAYOUT_PREFIX = "PAYOUT";
     static final String PENALTY_PREFIX = "PENALTY";
-    static final String SETTLEMENT_PREFIX = "SETTLEMENT";
 
     private BillingKeys() {
     }
@@ -55,12 +54,6 @@ final class BillingKeys {
     // 취소 사건 하나의 정산 키 PENALTY:{holdId}:{cancellationId}. 위약금 지급 건(Settlement)의 멱등키다.
     static String penalty(Long holdId, PenaltyCommand command) {
         return PENALTY_PREFIX + ":" + holdId + ":" + command.cancellationId();
-    }
-
-    // 강의 주문 항목의 지급 예정 건 멱등키 SETTLEMENT:LECTURE_ORDER_ITEM:{orderItemId} (#142). 주문 항목당 지급 건 1건이므로
-    // 원천(source_type, source_id)과 1:1이다. 이후 실제 지급의 지급 상세·원장 작업 키도 이 행에서 정한다(PROGRESS 3.11).
-    static String lectureSettlement(Long orderItemId) {
-        return SETTLEMENT_PREFIX + ":" + BillingReferenceType.LECTURE_ORDER_ITEM.name() + ":" + orderItemId;
     }
 
     // 이 취소 사건의 호스트 반환 상세 멱등키이자 반환 원장 작업 키
