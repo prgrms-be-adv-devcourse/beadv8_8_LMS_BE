@@ -4,6 +4,8 @@ dependencies {
     implementation(project(":global"))
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    // 요청 본문 검증(@Valid, @NotBlank). 관리자 반려 사유 (다른 모듈과 같음)
+    implementation("org.springframework.boot:spring-boot-starter-validation")
     // 구글 OAuth 로그인 처리(OAuth2UserService 구현)
     implementation("org.springframework.boot:spring-boot-starter-security-oauth2-client")
     // 치지직 Open API 호출 (채널 인증)
