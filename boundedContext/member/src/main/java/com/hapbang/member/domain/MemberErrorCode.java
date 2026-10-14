@@ -24,6 +24,8 @@ public enum MemberErrorCode implements BaseErrorCode {
     CHANNEL_APPROVAL_NOT_ALLOWED(HttpStatus.CONFLICT, "등록만 됐거나 반려된 채널만 승인 요청할 수 있습니다."),
     /** 심사 대기가 아닌 채널 (이미 처리됨 포함) */
     CHANNEL_REVIEW_NOT_ALLOWED(HttpStatus.CONFLICT, "심사 대기 중인 채널만 승인·반려할 수 있습니다."),
+    /** 채널 주인이 탈퇴 등으로 정상 회원이 아님 (목록을 거치지 않은 호출·처리 직전 탈퇴) */
+    CHANNEL_OWNER_INACTIVE(HttpStatus.CONFLICT, "탈퇴했거나 이용할 수 없는 회원의 채널입니다."),
     REJECTION_REASON_REQUIRED(HttpStatus.BAD_REQUEST, "반려 사유를 입력해 주세요."),
     INVALID_REJECTION_REASON_LENGTH(HttpStatus.BAD_REQUEST, "반려 사유는 500자 이하로 입력해 주세요."),
     CHANNEL_NOT_FOUND(HttpStatus.NOT_FOUND, "채널을 찾을 수 없습니다."),
