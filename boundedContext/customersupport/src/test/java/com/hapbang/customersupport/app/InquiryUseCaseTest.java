@@ -38,7 +38,7 @@ class InquiryUseCaseTest {
     @Test
     void 문의를_접수하면_답변_대기로_저장된다() {
         Inquiry created = inquiryUseCase.create(USER_ID, InquiryCategory.SERVICE_COMPLAINT,
-                "환전 계좌 변경이 저장되지 않아요", "실명 확인을 누르면 오류가 나요.");
+                "환전 계좌 변경이 저장되지 않아요", "실명 확인을 누르면 오류가 나요.", null);
 
         InquiryResponse found = inquirySupporter.getMyInquiry(created.getId(), USER_ID);
 
@@ -52,9 +52,9 @@ class InquiryUseCaseTest {
 
     @Test
     void 내_문의만_최신순으로_조회한다() {
-        Inquiry first = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "첫 문의", "내용");
-        inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용");
-        Inquiry second = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "두 번째 문의", "내용");
+        Inquiry first = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "첫 문의", "내용", null);
+        inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용", null);
+        Inquiry second = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "두 번째 문의", "내용", null);
 
         Page<InquirySummaryResponse> mine = inquirySupporter.getMyInquiries(USER_ID, null, InquirySort.LATEST,
                 PageRequest.of(0, 20));
@@ -66,9 +66,9 @@ class InquiryUseCaseTest {
 
     @Test
     void 페이지로_나눠_조회한다() {
-        Long first = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "1", "내용").getId();
-        Long second = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "2", "내용").getId();
-        Long third = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "3", "내용").getId();
+        Long first = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "1", "내용", null).getId();
+        Long second = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "2", "내용", null).getId();
+        Long third = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "3", "내용", null).getId();
 
         Page<InquirySummaryResponse> firstPage = inquirySupporter.getMyInquiries(USER_ID, null, InquirySort.LATEST,
                 PageRequest.of(0, 2));
@@ -83,8 +83,8 @@ class InquiryUseCaseTest {
 
     @Test
     void 오래된순으로_조회한다() {
-        Long first = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "1", "내용").getId();
-        Long second = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "2", "내용").getId();
+        Long first = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "1", "내용", null).getId();
+        Long second = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "2", "내용", null).getId();
 
         Page<InquirySummaryResponse> mine = inquirySupporter.getMyInquiries(USER_ID, null, InquirySort.OLDEST,
                 PageRequest.of(0, 20));
@@ -94,7 +94,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 다른_회원의_문의는_찾을_수_없다() {
-        Inquiry others = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용");
+        Inquiry others = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용", null);
 
         assertThatThrownBy(() -> inquirySupporter.getMyInquiry(others.getId(), USER_ID))
                 .isInstanceOfSatisfying(CustomerSupportException.class,
@@ -109,10 +109,10 @@ class InquiryUseCaseTest {
 
     @Test
     void 검색어가_제목이나_내용에_들어간_내_문의만_찾는다() {
-        Long byTitle = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "환전 계좌 변경", "저장이 안 돼요").getId();
-        Long byContent = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "오류 문의", "환전 신청이 실패해요").getId();
-        inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "모집 글 수정", "가능한가요?");
-        inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "환전 문의", "남의 문의");
+        Long byTitle = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "환전 계좌 변경", "저장이 안 돼요", null).getId();
+        Long byContent = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "오류 문의", "환전 신청이 실패해요", null).getId();
+        inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "모집 글 수정", "가능한가요?", null);
+        inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "환전 문의", "남의 문의", null);
 
         Page<InquirySummaryResponse> found = inquirySupporter.getMyInquiries(USER_ID, " 환전 ", InquirySort.LATEST,
                 PageRequest.of(0, 20));
@@ -124,7 +124,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 검색은_대소문자를_무시한다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "OAuth 로그인 오류", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "OAuth 로그인 오류", "내용", null).getId();
 
         Page<InquirySummaryResponse> found = inquirySupporter.getMyInquiries(USER_ID, "oauth", InquirySort.LATEST,
                 PageRequest.of(0, 20));
@@ -134,10 +134,10 @@ class InquiryUseCaseTest {
 
     @Test
     void 검색어의_퍼센트와_밑줄은_글자_그대로_찾는다() {
-        Long percent = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "수수료 10% 문의", "내용").getId();
-        inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "수수료 100원 문의", "내용");
-        Long underscore = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "a_b 오류", "내용").getId();
-        inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "axb 오류", "내용");
+        Long percent = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "수수료 10% 문의", "내용", null).getId();
+        inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "수수료 100원 문의", "내용", null);
+        Long underscore = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "a_b 오류", "내용", null).getId();
+        inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "axb 오류", "내용", null);
 
         assertThat(inquirySupporter.getMyInquiries(USER_ID, "10%", InquirySort.LATEST, PageRequest.of(0, 20))
                 .getContent()).extracting(InquirySummaryResponse::inquiryId).containsExactly(percent);
@@ -147,7 +147,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 내_문의를_삭제하면_목록과_상세에서_사라진다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
 
         inquiryUseCase.delete(inquiryId, USER_ID);
 
@@ -162,8 +162,8 @@ class InquiryUseCaseTest {
 
     @Test
     void 다른_회원의_문의나_이미_삭제된_문의는_삭제할_수_없다() {
-        Long othersId = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용").getId();
-        Long mineId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long othersId = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용", null).getId();
+        Long mineId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
         inquiryUseCase.delete(mineId, USER_ID);
 
         assertThatThrownBy(() -> inquiryUseCase.delete(othersId, USER_ID))
@@ -176,7 +176,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 답변이_달린_문의는_삭제할_수_없다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
         inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변");
 
         assertThatThrownBy(() -> inquiryUseCase.delete(inquiryId, USER_ID))
@@ -186,9 +186,9 @@ class InquiryUseCaseTest {
 
     @Test
     void 관리자_목록은_모든_회원의_문의를_상태별로_조회한다() {
-        Long waiting = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "대기", "내용").getId();
-        Long answered = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "완료", "내용").getId();
-        Long deleted = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "삭제", "내용").getId();
+        Long waiting = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "대기", "내용", null).getId();
+        Long answered = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "완료", "내용", null).getId();
+        Long deleted = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "삭제", "내용", null).getId();
         inquiryUseCase.reply(answered, ADMIN_ID, "답변");
         inquiryUseCase.delete(deleted, USER_ID);
 
@@ -202,7 +202,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 관리자가_답변하면_답변_완료가_되고_회원_상세에_답변이_보인다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
 
         Inquiry replied = inquiryUseCase.reply(inquiryId, ADMIN_ID, "첫 답변");
         inquiryUseCase.reply(inquiryId, ADMIN_ID, "추가 답변");
@@ -215,7 +215,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 회원이_삭제한_문의에는_답변할_수_없다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
         inquiryUseCase.delete(inquiryId, USER_ID);
 
         assertThatThrownBy(() -> inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변"))
@@ -225,7 +225,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 답변을_고치면_내용이_바뀌고_상태는_그대로다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
         Long replyId = replyIdOf(inquiryUseCase.reply(inquiryId, ADMIN_ID, "첫 답변"));
 
         inquiryUseCase.editReply(inquiryId, replyId, "고친 답변");
@@ -237,7 +237,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 남은_답변이_있으면_답변을_지워도_답변_완료다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
         Long firstId = replyIdOf(inquiryUseCase.reply(inquiryId, ADMIN_ID, "첫 답변"));
         inquiryUseCase.reply(inquiryId, ADMIN_ID, "추가 답변");
 
@@ -250,7 +250,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 마지막_답변을_지우면_답변_대기로_돌아가고_회원이_삭제할_수_있다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
         Long replyId = replyIdOf(inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변"));
 
         inquiryUseCase.deleteReply(inquiryId, replyId);
@@ -263,7 +263,7 @@ class InquiryUseCaseTest {
 
     @Test
     void 없거나_삭제된_답변은_고치거나_지울_수_없다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
         Long replyId = replyIdOf(inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변"));
         inquiryUseCase.deleteReply(inquiryId, replyId);
 
@@ -280,8 +280,8 @@ class InquiryUseCaseTest {
 
     @Test
     void 다른_문의의_답변은_고칠_수_없다() {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").getId();
-        Long otherId = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용").getId();
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
+        Long otherId = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용", null).getId();
         Long otherReplyId = replyIdOf(inquiryUseCase.reply(otherId, ADMIN_ID, "답변"));
 
         assertThatThrownBy(() -> inquiryUseCase.editReply(inquiryId, otherReplyId, "고친 답변"))
