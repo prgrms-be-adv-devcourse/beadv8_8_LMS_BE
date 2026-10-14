@@ -47,6 +47,10 @@
 | 저장소 | `HpTaskRepositoryTest` | `appearances.hp_tasks` 저장, 멱등 키 유니크, 대상별 최근 작업 | #137 |
 | 통합 | `AppearanceRequestRespondFacadeTest` | 수락·거절·취소, 반환 성공·실패, 기한 경과, 동시 처리, 상태 필터, 역할 | #137 |
 | E2E | `AppearanceRequestRespondApiE2ETest` | 수락·거절·취소 API와 상태 필터 (앱 전체) | #137 |
+| 단위 | `AppearanceRecruitTest` | 모집글 생성 검증(모집 인원·출연료·마감 일시)·보류 금액·상태 전이·수정·공개 여부 | #175 |
+| 저장소 | `AppearanceRecruitRepositoryTest` | `appearances.recruits` 저장, 공개 목록·내 목록 조회 | #175 |
+| 통합 | `AppearanceRecruitFacadeTest` | 올리기(HP 보류·Billing 거절·무응답), 역할별 권한, 조회, 수정 | #175 |
+| E2E | `AppearanceRecruitApiE2ETest` | 출연 모집글 API 5개 (앱 전체) | #175 |
 | 모듈 경계 | `ModularityTests` (apps) | 다른 모듈 내부 참조 없음 | — |
 
 ---
@@ -61,7 +65,8 @@
 | 위약금: 출연료 20,000 / 25,555 / 0 | 6,000 / 7,666 (7,666.5에서 끝전 버림) / 0 |
 | 출연 확인 마감: 방송 10/20 21:30 | 10/27 21:30 (7×24시간 뒤) |
 | 출연 취소 요청을 0 / 1 / 2회 보낸 상태 | 추가 요청 가능 / 가능 / 불가 |
-| 최저 출연료 0, 위약금 101%, 확인 기간 0, 최대 횟수 0 | 정책 객체 생성 실패 (앱이 시작되지 않음) |
+| 모집 인원 0 / 1 / 10 / 11명 (#175) | 불가 / 허용 / 허용 / 불가 |
+| 최저 출연료 0, 위약금 101%, 확인 기간 0, 최대 횟수 0, 최대 모집 인원 0 | 정책 객체 생성 실패 (앱이 시작되지 않음) |
 
 ### 3.2 설정 — `AppearanceConfigTest`
 
@@ -69,7 +74,7 @@
 
 | 케이스 | 기대 결과 |
 |---|---|
-| 기본 설정 | 최저 출연료 20,000 / 위약금 30% / 확인 기간 7일 / 취소 요청 최대 2회 |
+| 기본 설정 | 최저 출연료 20,000 / 위약금 30% / 확인 기간 7일 / 취소 요청 최대 2회 / 최대 모집 인원 10명 |
 | 설정 우선순위: 외부 설정으로 최저 출연료 30,000 | 30,000 (외부 설정이 우선). 우선순위 구조만 확인하며, 정책 값은 `appearance.yml`에서만 변경 |
 | 출연 Clock | 시간대 Asia/Seoul |
 | `appearance.billing.mode` 기본값 / `http` | Fake Billing 등록 / 미등록 |
@@ -371,3 +376,66 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 | 수락과 취소를 동시에 | 하나만 성공, 다른 쪽은 `CONCURRENT_UPDATE` 또는 `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`, 출연 + 작업 합계 1건 |
 | 상태 필터 `REJECTED·CANCELED` / 생략 / `HOLD_FAILED` | 거절 1건 / 전체 최신순 / `INVALID_REQUEST` |
 | 상세 | `version` 포함, 수락 후 `appearanceId`, 반환 상태 없음 |
+
+---
+
+## 8. 출연 모집글 (#175)
+
+### 8.1 모집글 규칙 — `AppearanceRecruitTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 올바른 값 | `HOLD_PENDING`, 성립 인원 0, 보류 금액 = 30,000 × 3 = 90,000 |
+| 모집 인원 1명 / 10명 | 허용 |
+| 모집 인원 0명 / 11명 | `RECRUIT_COUNT_OUT_OF_RANGE` ("모집 인원은 1명 이상 10명 이하여야 합니다.") |
+| 1인당 출연료 19,999 / 20,000 | `FEE_BELOW_MINIMUM` ("1인당 출연료는 최저 출연료(20,000 HP) 이상…") / 허용 |
+| 보류 금액이 long을 넘는 1인당 출연료 | `INVALID_REQUEST` |
+| 마감 = 현재 / 마감 < 현재 / 마감 = 방송 예정 일시 | `INVALID_RECRUIT_SCHEDULE` |
+| 빈 제목 / ftp URL / 예상 출연 시간 0 | `INVALID_REQUEST` (요청서와 같은 제한) |
+| 보류 성공 / 거절 / `HOLD_PENDING`이 아닌데 반영 | `RECRUITING` / `HOLD_FAILED` / `IllegalStateException` |
+| 호스트가 모집 중 수정 (null은 그대로) | 보낸 값만 바뀜 |
+| 다른 회원이 수정 | `NOT_RECRUIT_HOST` |
+| `HOLD_PENDING` 수정 / 모집 중이지만 마감 일시가 지남 | `APPEARANCE_RECRUIT_NOT_EDITABLE` |
+| 형식이 틀린 값으로 수정 | `INVALID_REQUEST`, 아무것도 바뀌지 않음 |
+| `HOLD_PENDING` 상세 확인 | `APPEARANCE_RECRUIT_NOT_FOUND` |
+
+### 8.2 저장소 — `AppearanceRecruitRepositoryTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 저장 후 조회 | 1인당 출연료·모집 인원·마감 일시 일치, 성립 인원 0, 마감 방식 null, 버전 기록 |
+| 공개 목록 조회 | 모집 중이고 마감 일시가 기준 시각 이후인 것만 (마감 일시 지난 모집 중·보류 처리 중 제외) |
+| 내 목록 조회 | 호스트·상태로 거름 |
+
+### 8.3 흐름 — `AppearanceRecruitFacadeTest`
+
+DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCER")`.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 올리기 | `RECRUITING`, 성립 인원 0, 응답 버전 = DB, Fake 보류(`APPEARANCE_RECRUIT`, 모집글 ID) 90,000, 호스트 잔액 −90,000 |
+| 같은 호스트가 두 번 올리기 | 2건 저장 (중복 제한 없음) |
+| 잔액 89,999 | Billing 오류 `INSUFFICIENT_BALANCE` 그대로, `HOLD_FAILED`, 내 목록·공개 목록 0건 |
+| Billing 무응답 | `BILLING_UNAVAILABLE` ("…내 모집글 목록에서 결과를 확인해 주세요."), `HOLD_PENDING` |
+| 모집 인원 11명 | `RECRUIT_COUNT_OUT_OF_RANGE`, 저장·보류 없음 |
+| 정지된 호스트 | `APPEARANCE_USER_NOT_ACTIVE` |
+| 세션 역할 USER | 올리기·수정·내 목록은 `AccessDeniedException`, 공개 목록·상세는 조회 가능 |
+| 공개 목록 | 모든 호스트의 모집 중 모집글, 최신순 |
+| 내 목록 / `CLOSED` 필터 / `HOLD_FAILED` 필터 | 내 글만 / 0건 / `INVALID_REQUEST` |
+| 상세 / 보류 처리 중 / 없는 ID | 다른 회원도 조회 / `APPEARANCE_RECRUIT_NOT_FOUND` / `APPEARANCE_RECRUIT_NOT_FOUND` |
+| 수정 / 같은 수정 반복 | 보낸 값만 바뀌고 버전 증가 / 버전 그대로 (멱등) |
+| 다른 회원이 수정 / 없는 모집글 | `NOT_RECRUIT_HOST` / `APPEARANCE_RECRUIT_NOT_FOUND` |
+
+### 8.4 E2E — `AppearanceRecruitApiE2ETest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 올리기 | 201, "출연 모집글을 올렸습니다.", `RECRUITING`, `feePerPerson`, `recruitCount`, `selectedCount` 0, `version` |
+| 모집 인원 11명 / 모집 인원 누락 | 400 `RECRUIT_COUNT_OUT_OF_RANGE` / 400 `INVALID_REQUEST` |
+| 잔액 부족 | 409 `INSUFFICIENT_BALANCE` |
+| 일반 유저(USER) 공개 목록·상세 / 올리기 | 200 / 403 `FORBIDDEN` |
+| 비로그인 공개 목록 | 401 (비회원 공개는 팀 합의 후) |
+| 내 목록 `status=RECRUITING` / `status=HOLD_PENDING` | 내 글 1건 / 400 `INVALID_REQUEST` |
+| 호스트 수정 / 다른 회원 수정 / 빈 수정 | 200 "출연 모집글을 수정했습니다." / 403 `NOT_RECRUIT_HOST` / 400 |
+| 없는 모집글 상세 | 404 `APPEARANCE_RECRUIT_NOT_FOUND` |
+| Swagger (`AppearanceSwaggerDocsTest`) | 올리기·상세·수정은 `RsDataAppearanceRecruitResDto`, 공개·내 목록은 `RsDataPageAppearanceRecruitSummaryResDto` → `PagedModelAppearanceRecruitSummaryResDto` |

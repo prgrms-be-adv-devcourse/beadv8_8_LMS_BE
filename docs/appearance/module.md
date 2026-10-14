@@ -34,7 +34,8 @@
 | 출연 요청 API 성공 응답 `RsData` | ✅ | #144 |
 | 출연 요청 응답(수락·거절·응답 전 취소), 출연 성립, HP 작업(반환) 기록·즉시 실행 | ✅ | #137 |
 | HP 작업 재시도·격리, 수락 기한 만료, 보류 재확인 (스케줄러) | ⬜ 예정 | — |
-| 출연 모집·지원 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
+| 출연 모집글 올리기(HP 보류)·조회·기본 정보 수정 | ✅ | #175 |
+| 모집 지원·수락, 모집 마감·취소 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
 
 ---
 
@@ -65,6 +66,7 @@
 | 호스트 일방 취소 위약금 | 출연료의 30%, 원 단위 미만 버림 | `appearance.policy.penalty-rate-percent` | `calculatePenalty(fee)` |
 | 출연 확인 기간 | 방송 예정 일시 + 7×24시간. 지나면 자동 확인(지급) | `appearance.policy.confirm-period` | `confirmDeadline(scheduledAt)` |
 | 출연 취소 요청 최대 횟수 | 출연 1건당 2회 (거절 후 1회 재요청) | `appearance.policy.max-cancel-request-count` | `canRequestCancel(count)` |
+| 모집 인원 | 1명 ~ 10명 (최소 1명은 고정, 최대는 설정) | `appearance.policy.max-recruit-count` | `isRecruitCountAllowed(count)` |
 
 - 정책 값은 `appearance.yml`에서만 바꾼다 (PR 리뷰를 거치도록). 환경 변수 등 외부 설정으로 덮어쓰지 않는다.
 - 잘못된 값(최저 출연료 0 이하, 위약금 비율 0~100 밖 등)이면 앱이 시작되지 않는다.
@@ -117,7 +119,13 @@ com.hapbang.appearance
 | `app.AppearanceUserSyncUseCase` | `createIfAbsent()`: 가입 정보로 생성 (있으면 무시) / `update()`: 변경 정보로 갱신 (없으면 실패) |
 | `app.AppearanceUserSupport` | `getParticipant()`: 자격 확인 후 출연 회원 반환 / `getGuest()`: 게스트 기준 메시지로 자격 확인 |
 | `domain.AppearanceRequest`, `AppearanceRequestStatus` | 출연 요청서와 상태. 생성 시 값 검증, 보류 결과 반영, 기본 정보 수정, 조회 권한 확인 |
-| `domain.AppearanceRequestRules` | 요청서 입력 값 길이·형식 제한 (도메인과 요청 DTO 검증이 같이 사용) |
+| `domain.AppearanceRequestRules` | 요청서·모집글 입력 값 길이·형식 제한 (도메인과 요청 DTO 검증이 같이 사용) |
+| `domain.AppearanceRecruit`, `AppearanceRecruitStatus`, `AppearanceRecruitCloseType`, `AppearanceRecruitContent` | 출연 모집글과 상태·마감 방식. 생성 시 값 검증, 보류 금액, 보류 결과 반영, 기본 정보 수정, 공개 여부 확인 (#175) |
+| `app.AppearanceRecruitFacade` | 출연 모집글 API 진입점. 메서드별 `@PreAuthorize`(공개 조회는 없음), 기능별 트랜잭션, 올리기 순서 조립 (#175) |
+| `app.AppearanceRecruitCreateUseCase`, `AppearanceRecruitHoldUseCase` | 올리기 1단계 저장 / 2·3단계 보류 요청·결과 반영 (#175) |
+| `app.AppearanceRecruitQueryUseCase`, `AppearanceRecruitUpdateUseCase`, `AppearanceRecruitSupport` | 공개·내 목록·상세 / 기본 정보 수정 / 저장소 접근 (#175) |
+| `in.ApiV1AppearanceRecruitController`, `ApiV1AppearanceRecruitSpec` | 출연 모집글 REST API와 Swagger 명세 (#175) |
+| `out.AppearanceRecruitRepository` | 출연 모집글 저장·목록 조회 (#175) |
 | `app.AppearanceRequestFacade` | 출연 요청서 API 진입점. `@PreAuthorize`, 기능별 트랜잭션, 보내기의 "저장 → HP 보류 → 상태 변경" 순서 조립 |
 | `app.AppearanceRequestCreateUseCase` | 보내기 1단계: 자격·값·중복 확인 후 `HOLD_PENDING` 저장 (자체 트랜잭션) |
 | `app.AppearanceRequestHoldUseCase` | 보내기 2·3단계: Billing 보류 요청(트랜잭션 밖), 결과 반영 `markRequested`/`markHoldFailed` (자체 트랜잭션) |
@@ -318,6 +326,25 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 - 마이그레이션(5.3·5.4): `V202610141109__create_appearance_and_hp_task_tables.sql` (#137)
 - 인덱스: 재시도 대상 `(status, next_attempt_at)`, 대상별 조회 `(ref_type, ref_id)`
 
+### 5.5 `appearances.recruits` — 출연 모집글 (#175)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `id` | BIGINT, PK | |
+| `host_id` | BIGINT | 호스트 회원 ID |
+| `title`, `host_channel_url`, `content` | VARCHAR(100), VARCHAR(255), TEXT | 수정 가능 |
+| `scheduled_at`, `expected_minutes` | TIMESTAMP, INTEGER | 방송 예정 일시, 예상 출연 시간(분) |
+| `fee_per_person`, `recruit_count` | BIGINT, INTEGER | 1인당 출연료, 모집 인원 |
+| `selected_count` | INTEGER | 현재 성립 인원 (지원 수락에서 늘어남) |
+| `recruit_deadline` | TIMESTAMP | 모집 마감 일시 |
+| `status` | VARCHAR(255) | `HOLD_PENDING`/`HOLD_FAILED`/`RECRUITING`/`CLOSED`/`CANCELED` |
+| `close_type`, `closed_at`, `canceled_at` | VARCHAR(255), TIMESTAMP, TIMESTAMP | 마감 방식(`DEADLINE`/`EARLY`)·마감 시각·취소 시각 (이후 처리에서 사용) |
+| `version`, `created_at`, `updated_at` | | 낙관적 락, 공통 시각 |
+
+- 제약: `fee_per_person > 0`, `recruit_count > 0`, `0 <= selected_count <= recruit_count`, `expected_minutes > 0`, `recruit_deadline < scheduled_at`
+- 인덱스: 공개 목록 `(status, created_at)`, 내 목록 `(host_id, created_at)`
+- 마이그레이션: `V202610141400__create_appearance_recruit_table.sql`
+
 ---
 
 ## 6. 출연 요청 (#98)
@@ -404,3 +431,49 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
 
 - 이번 "취소"는 **응답 전 호스트 취소**다. 출연 성립 후의 출연 취소 요청(게스트)·호스트 일방 취소(위약금)와 다르다.
 - 보내기 응답의 `version`이 DB 값과 같도록, 보류 성공(`REQUESTED`) 반영 후 바로 DB에 반영한 뒤 응답을 만든다 (테스트로 찾은 문제).
+
+---
+
+## 7. 출연 모집글 (#175)
+
+### 7.1 API
+
+| 메서드 | 경로 | 설명 | 권한 | 성공 메시지 |
+|---|---|---|---|---|
+| POST | `/api/v1/appearances/recruits` | 모집글 올리기 (HP 보류), 201 | 인플루언서 이상 | 출연 모집글을 올렸습니다. |
+| GET | `/api/v1/appearances/recruits` | 모집 중인 모집글 공개 목록 | 로그인 회원 누구나 | 모집 중인 출연 모집글 목록을 조회했습니다. |
+| GET | `/api/v1/appearances/recruits/mine?status=` | 내가 올린 모집글 목록 (상태 필터, 여러 개) | 인플루언서 이상 | 내 출연 모집글 목록을 조회했습니다. |
+| GET | `/api/v1/appearances/recruits/{recruitId}` | 상세 | 로그인 회원 누구나 | 출연 모집글을 조회했습니다. |
+| PATCH | `/api/v1/appearances/recruits/{recruitId}` | 기본 정보(제목·콘텐츠 설명·호스트 채널 URL) 수정 | 인플루언서 이상, 호스트만 | 출연 모집글을 수정했습니다. |
+
+- 목록은 `Pageable`(page·size, 기본 20, 최대 100), 최신순 고정. 성공 응답은 `RsData`.
+- 역할 검사는 Facade 메서드마다 `@PreAuthorize`를 붙인다 (공개 조회와 호스트 기능의 권한이 달라서). 공개 조회는 출연 회원 자격도 확인하지 않는다.
+- **비회원 공개 목록은 아직 열지 않았다.** global `SecurityConfig`에 `GET /api/v1/appearances/recruits` 허용을 추가해야 해서 팀 합의 후 진행한다 (지금은 401).
+
+### 7.2 모집글 올리기 흐름
+
+```
+Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 없음)
+  ① RecruitCreateUseCase.createPending  [트랜잭션 1, 커밋]
+       호스트 자격 → 값 검증(형식, 최저 출연료, 모집 인원 1~10, 현재 < 모집 마감 < 방송 예정 일시) → HOLD_PENDING 저장
+  ② RecruitHoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold(APPEARANCE_RECRUIT, 모집글 ID, 1인당 출연료 × 모집 인원)
+       ├─ 보류 성공                    → ③ markRecruiting [트랜잭션 2] → RECRUITING, 201
+       ├─ Billing 거절 (업무 예외)      → HOLD_FAILED 기록 → Billing 오류 그대로 (예: 409 INSUFFICIENT_BALANCE)
+       └─ 결과를 알 수 없음 (그 밖 예외) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE ("내 모집글 목록에서 확인")
+```
+
+### 7.3 규칙
+
+| 항목 | 규칙 | 근거 |
+|---|---|---|
+| 모집 인원 | 1명 ~ 10명 (`appearance.policy.max-recruit-count`) | 사용자 결정 (2026-10-14): 요청은 게스트 한 명을 지정하지만 모집은 게스트가 먼저 지원하는 방식이라 1명 모집도 허용 |
+| 1인당 출연료 | 최저 출연료(20,000 HP) 이상 | AGENTS.md 5장 |
+| 보류 금액 | 1인당 출연료 × 모집 인원, 모집글 단위 1건 | ISSUE.md APR-02 |
+| 모집 마감 일시 | 현재 < 모집 마감 < 방송 예정 일시 | 요청서 수락 기한과 같은 규칙 |
+| 중복 | 같은 호스트의 모집글 수 제한 없음 | 사용자 결정 (2026-10-14) |
+| 입력 제한 | 제목 100자, 채널 URL http(s) 255자, 설명 5,000자, 예상 출연 시간 1~1,440분 | 요청서와 같음 (`AppearanceRequestRules`) |
+| 공개 목록 | `RECRUITING`이고 모집 마감 일시가 지나지 않은 모집글 (마감 처리 전이어도 시각으로 거름) | |
+| 상세·내 목록 | `RECRUITING`·`CLOSED`·`CANCELED`. `HOLD_PENDING`·`HOLD_FAILED`는 올린 호스트에게도 숨김(404) | 요청서와 같음 |
+| 수정 | 호스트만, `RECRUITING`이고 모집 마감 일시 전까지. 동시 수정은 409 `CONCURRENT_UPDATE` | ISSUE.md APR-08 |
+| 응답 | 성립 인원(`selectedCount`), 버전 포함. 마감 방식·마감 시각·취소 시각은 이후 처리에서 채움 | |
+| 미정 | 방송 플랫폼·카테고리 등 분류, 검색·필터, 비회원 공개, 정지 호스트 모집글 노출 | 필요할 때 결정 |

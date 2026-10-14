@@ -56,6 +56,11 @@ Content-Type: application/problem+json
 | `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE` | 409 | 응답 대기 중인 출연 요청이 아닙니다. | 이미 수락·거절·취소된 요청서에 응답·취소 | #137 |
 | `APPEARANCE_REQUEST_EXPIRED` | 409 | 수락 기한이 지난 출연 요청입니다. | 현재 시각 ≥ 수락 기한 (만료 처리 전이어도) | #137 |
 | `APPEARANCE_REQUEST_MODIFIED` | 409 | 요청서 내용이 바뀌었습니다. 다시 확인한 뒤 수락해 주세요. | 수락 요청의 `version`이 현재 요청서와 다름 | #137 |
+| `RECRUIT_COUNT_OUT_OF_RANGE` | 400 | 모집 인원이 허용 범위를 벗어났습니다. | 모집 인원이 1~10명이 아님. `detail`은 "모집 인원은 1명 이상 10명 이하여야 합니다." | #175 |
+| `INVALID_RECRUIT_SCHEDULE` | 400 | 모집 마감 일시는 현재 이후이고 방송 예정 일시보다 앞서야 합니다. | 현재 < 모집 마감 일시 < 방송 예정 일시가 아님 | #175 |
+| `NOT_RECRUIT_HOST` | 403 | 출연 모집글을 올린 호스트만 수정할 수 있습니다. | 호스트가 아닌 회원이 모집글 수정 | #175 |
+| `APPEARANCE_RECRUIT_NOT_FOUND` | 404 | 출연 모집글을 찾을 수 없습니다. | 없는 모집글, 보류 미완료·실패 모집글 | #175 |
+| `APPEARANCE_RECRUIT_NOT_EDITABLE` | 409 | 모집 중인 출연 모집글만 수정할 수 있습니다. | `RECRUITING`이 아니거나 모집 마감 일시가 지난 모집글 수정 | #175 |
 | `CONCURRENT_UPDATE` | 409 | 다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요. | 같은 요청서를 동시에 바꿔 버전(낙관적 락)이 맞지 않음. UseCase가 반영 시점에 확인해 던진다 | #98 |
 | `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | 보류 결과를 알 수 없음(무응답 등). 요청서는 `HOLD_PENDING`으로 남음 | #98 |
 
