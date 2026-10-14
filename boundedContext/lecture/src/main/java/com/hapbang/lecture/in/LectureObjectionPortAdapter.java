@@ -25,4 +25,9 @@ class LectureObjectionPortAdapter implements LectureObjectionPort {
     public void resolveObjection(Long orderItemId, Long inquiryId, boolean accepted, Long adminUserId) {
         lectureObjectionFacade.resolveObjection(orderItemId, inquiryId, accepted, adminUserId);
     }
+
+    @Override
+    public void withdrawObjection(Long orderItemId, Long buyerUserId, Long inquiryId) {
+        lectureObjectionFacade.withdrawObjection(orderItemId, buyerUserId, inquiryId);
+    }
 }

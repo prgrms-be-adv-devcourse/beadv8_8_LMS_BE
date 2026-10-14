@@ -22,7 +22,7 @@
 | 장바구니 | 담기, 빼기, 조회 |
 | 주문 | 장바구니 주문, 바로 구매(강의 1개 주문), 주문 조회, 구매 확정(직접·첫 재생·자동), 구매 취소 |
 | 지급 시점 관리 | 구매일 다음 날부터 30일 경과 시 지갑 모듈에 지급 호출 |
-| 내용 다름 이의 제기 | 고객센터가 접수·판단할 때 호출하는 `LectureObjectionPort` 구현: 검증·지급 중단, 판단 결과 반영(반환 또는 지급) |
+| 내용 다름 이의 제기 | 고객센터가 접수·판단·철회할 때 호출하는 `LectureObjectionPort` 구현: 검증·지급 중단, 판단 결과 반영(반환 또는 지급), 판단 전 철회(지급 중단 해제, D52) |
 | 리뷰 | 작성·수정·삭제, 평점(1~5) 및 평균 |
 
 ### 1.2 강의 모듈이 하지 않는 일
@@ -229,7 +229,7 @@ stateDiagram-v2
 
 | `objection_status` | 의미 | 지급 | 구매 취소 |
 | --- | --- | --- | --- |
-| `NONE` | 이의 제기 없음 | 기간 경과 시 지급 | 확정 전이면 가능 |
+| `NONE` | 이의 제기 없음 (판단 전에 철회하면 이 상태로 돌아간다, D52) | 기간 경과 시 지급 (이미 지났으면 다음 지급 배치에서) | 확정 전이면 가능 |
 | `FILED` | 접수, 관리자 판단 대기 | **멈춤** | 불가 (이중 반환 방지) |
 | `ACCEPTED` | 인정 → 항목 `RETURNED` | 없음 | - |
 | `REJECTED` | 기각 | 기간 경과 시 지급 (이미 지났으면 다음 지급 배치에서) | 불가 |
@@ -243,6 +243,7 @@ stateDiagram-v2
 | 첫 재생 확정 | 본인 항목, `PURCHASED`, 구매자가 **재생 동의**를 제출할 때 (D7). 자동 구매 확정 시각이 지났으면 직접 확정과 같이 `AUTO`(D34). 이미 `CONFIRMED`·`PAID_OUT`이면 그대로 둔다 (D38) |
 | 구매 취소 | 본인 항목, `PURCHASED`, `now < auto_confirm_at`, `objection_status = NONE` |
 | 이의 제기 접수 (고객센터 호출) | 구매자 본인 항목, `PURCHASED` 또는 `CONFIRMED`, `now < payout_scheduled_at`, `objection_status = NONE` |
+| 이의 제기 철회 (고객센터 호출) | 구매자 본인 항목, `objection_status = FILED`, 접수한 문의 ID와 같음. 기한 없음. 철회하면 `NONE`으로 돌아가고 문의 ID·사유·접수 시각을 비운다 (D52) |
 | 지급 | `CONFIRMED`, `now >= payout_scheduled_at`, `objection_status ∈ {NONE, REJECTED}` |
 | 시청 | 본인 항목이 `CONFIRMED`·`PAID_OUT` (이의 제기 접수 중에도 시청 가능, 삭제된 강의 포함). `PURCHASED`면 재생 동의 후 (D38) |
 
@@ -363,6 +364,12 @@ public interface LectureObjectionPort {
      * 기각: REJECTED. 지급 시점이 지났으면 다음 지급 배치가 지급한다.
      */
     void resolveObjection(Long orderItemId, Long inquiryId, boolean accepted, Long adminUserId);
+
+    /**
+     * 판단 전 이의 제기를 철회해 지급 중단을 푼다 (고객센터 문의 삭제, #203, D52).
+     * 항목은 접수 전 상태(NONE)로 돌아간다. HP는 움직이지 않는다.
+     */
+    void withdrawObjection(Long orderItemId, Long buyerUserId, Long inquiryId);
 }
 ```
 
@@ -374,8 +381,9 @@ public interface LectureObjectionPort {
 | 접수 가능 조건 | 구매자 본인 항목, `PURCHASED` 또는 `CONFIRMED`, `objection_status = NONE`, `now < payout_scheduled_at` |
 | 접수 불가 사유 | 이 순서로 검사한다(D49): `NOT_BUYER`(없는 항목 포함) → `NOT_OBJECTIONABLE`(취소·반환된 항목) → `ALREADY_PAID_OUT` → `ALREADY_FILED`(접수·기각된 항목) → `PERIOD_EXPIRED` |
 | 판단 조건 | `objection_status = FILED`이고 `inquiryId`가 접수 때 저장한 값(`objection_inquiry_id`)과 같을 때만 처리. 아니면 `NOT_FILED`(없는 항목·이미 판단한 항목 포함) 또는 `INQUIRY_MISMATCH`. 판단한 관리자는 `objection_resolved_by_user_id`에 남긴다 |
+| 철회 조건 (D52) | 구매자 본인 항목이고 `objection_status = FILED`이며 `inquiryId`가 접수 때와 같을 때만 처리. 아니면 `NOT_BUYER`(없는 항목 포함) → `NOT_FILED`(이미 판단한 항목 포함) → `INQUIRY_MISMATCH` 순서로 검사한 사유. 새 사유는 없다. 철회하면 `NONE`으로 돌아가 지급·구매 취소·재접수가 원래 기한(`auto_confirm_at`, `payout_scheduled_at`) 그대로 가능하다 |
 | 필수 값 | null ID·빈 사유는 호출한 쪽 코드 오류라 `NullPointerException`·`IllegalArgumentException`이다 (`BillingPort` 요청 DTO와 같음) |
-| 잠금 | 인정은 주문을 닫을 수 있으므로 구매 취소처럼 주문 행을 잠근다(D46). 항목 ID로 주문 ID만 읽은 뒤 주문을 잠그고 항목을 읽는다. 접수·기각은 주문을 닫지 않아 항목의 낙관적 락만 쓴다 |
+| 잠금 | 인정은 주문을 닫을 수 있으므로 구매 취소처럼 주문 행을 잠근다(D46). 항목 ID로 주문 ID만 읽은 뒤 주문을 잠그고 항목을 읽는다. 접수·기각·철회는 주문을 닫지 않아 항목의 낙관적 락만 쓴다 |
 | 지급 배치와 경쟁 | 접수와 지급 배치가 같은 항목 행을 바꾸므로 `order_item.version` 낙관적 락으로 직렬화된다. 접수가 먼저면 지급 대상에서 빠지고, 지급이 먼저 커밋되면 접수가 `ALREADY_PAID_OUT`으로 거부된다(기한이 지난 뒤이므로 정책상 맞음). 두 트랜잭션이 겹치면 늦은 쪽이 낙관적 락 충돌로 실패하고, 접수 쪽이면 500이다. 다시 접수하면 사유가 응답된다 (D49) |
 | 고객센터 쪽 필요 사항 | `INQUIRY`에 대상(`target_type = LECTURE_ORDER_ITEM`, `target_id`) 컬럼 추가 (`changelog.md` 보류 항목) |
 
@@ -504,6 +512,8 @@ sequenceDiagram
     end
     CS-->>A: 처리 완료
 ```
+
+판단 전 철회 (#203, D52): 구매자가 이의 제기 문의를 삭제하면 고객센터가 문의 삭제와 같은 트랜잭션에서 `LectureObjectionPort.withdrawObjection(...)`을 호출한다. 강의 모듈은 항목을 `NONE`으로 되돌려 지급 중단을 푼다. 철회할 수 없으면(이미 판단함 등) `LectureObjectionRefusedException`이 나고 문의 삭제도 롤백된다. 이벤트로 하지 않는 이유는 D9와 같다: 거절을 문의 삭제에 되돌릴 수 없고, 지연·유실되면 지급이 멈춘 채로 남는다.
 
 ---
 
@@ -729,6 +739,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 같은 항목에 반환·지급이 두 번 호출 | 강의 상태 머신이 먼저 막고, billing도 남은 보류가 없으면 거부한다. 같은 반환 요청 ID로 다시 보내면 처음 결과를 돌려받는다 (6.2) |
 | 이벤트 중복 도착 (회원) | 가입 이벤트는 복제본이 이미 있으면 무시하고, 변경 이벤트는 있는 복제본만 갱신한다. 생성은 가입 이벤트로만 해서 가입·변경이 동시에 처리돼도 변경 정보를 덮어쓰지 않는다 (D17) |
 | 같은 이의 제기 판단이 두 번 호출 | `objection_status = FILED`가 아니면 예외로 거부 |
+| 이의 제기 철회 ↔ 판단 (같은 항목) | 항목 낙관적 락으로 직렬화. 앞선 쪽이 커밋된 뒤면 뒤 요청은 `NOT_FILED`, 두 트랜잭션이 겹치면 늦은 쪽이 낙관적 락 충돌(500, D33)로 실패한다. 철회 ↔ 지급 배치는 `FILED` 항목이 배치 대상이 아니라 겹치지 않는다 (D52) |
 | 이벤트 처리 실패 (서버 실행 중) | 6.1의 주기적 재제출 + 최대 시도 + 경보 |
 | 배치 다중 실행 | EC2 1대·애플리케이션 1개이므로 분산 락은 두지 않는다. 항목마다 별도 트랜잭션으로 처리해 한 건 실패가 전체를 막지 않게 한다 |
 
@@ -793,7 +804,7 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | 4 | 자동 구매 확정·지급 배치 → **강의 쪽 돈 한 바퀴 완료** | 지갑의 지급 (#145 ✅) | 스케줄링 #157 ✅, 자동 구매 확정 #149 ✅, 지급·판매 내역 #150 ✅ |
 | 5 | S3 업로드·재생 URL, 재생 동의 구매 확정 | 인프라(S3 버킷 권한) | S3 #88 ✅ #89 ✅ #90 ✅ #91 ✅, 서버 경유 업로드 #106 ✅ #107 ✅, 내려받기 파일명 #125 ✅, 재생 동의·구매자 시청·`/purchased` #158 ✅ |
 | 6 | 리뷰·평점, `LectureUser` 복제 | 회원 이벤트 | 회원 복제 #46 ✅ #87 ✅, 리뷰·평점 #155 ✅ |
-| 7 | 내용 다름 이의 제기 (`LectureObjectionPort` 구현) | 고객센터 호출부, `INQUIRY` 대상 컬럼 | 강의 구현 #156 ✅, 고객센터 호출부 #189 |
+| 7 | 내용 다름 이의 제기 (`LectureObjectionPort` 구현) | 고객센터 호출부, `INQUIRY` 대상 컬럼 | 강의 구현 #156 ✅, 고객센터 호출부 #189 ✅, 철회 #203 |
 | 공통 | 단계와 무관한 팀 공통 적용 | - | 공통 예외 #71 ✅, 관리자 권한·페이지 응답 #58 ✅, 성공 응답 RsData #126 ✅, enum 설명 #112 ✅ |
 
 ---
@@ -932,3 +943,4 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D49 | 2026-10-14 | 내용 다름 이의 제기 포트(#156): (1) `shared`의 `LectureObjectionRefusedException`은 `BusinessException`이 아닌 런타임 예외이고 사유를 담는다. 고객센터가 잡아서 자기 업무 예외로 바꿔 던진다. (2) 사유는 접수 5개 `NOT_BUYER`(없는 항목 포함) → `NOT_OBJECTIONABLE` → `ALREADY_PAID_OUT` → `ALREADY_FILED` → `PERIOD_EXPIRED` 순서로 검사하고, 판단 2개는 `NOT_FILED`(없는 항목·이미 판단한 항목 포함)·`INQUIRY_MISMATCH`다. 필수 값 누락은 NPE·IAE다. (3) 접수한 문의 ID(`objection_inquiry_id`)와 판단한 관리자(`objection_resolved_by_user_id`)를 저장한다. (4) 인정은 D46처럼 주문을 잠그고(항목 ID로 주문 ID만 읽은 뒤 잠금), 항목을 `RETURNED`로 바꿔 flush한 뒤 `release(full, "LECTURE-RETURN-{항목 ID}")`를 부르고 반환액이 가격과 같은지 확인한다(D43). 접수·기각은 항목 낙관적 락만 쓴다. 지급 중단·재개는 지급 배치가 `objection_status`로 거른다(D50). 처음에는 인정 시 `LectureSettlementPort.cancel`로 판매자 지급 예정 건도 취소했으나(#182), #188(#196)에서 지급 예정 건 연동이 제거되어 지금은 반환만 한다 | `shared`는 `global`에 의존하지 않아 `BusinessException`을 상속할 수 없고, 의존을 추가하면 모듈 구조가 바뀐다. 상태가 더 구체적인 사유라 기한보다 먼저 알린다(기각된 항목이 기한도 지났으면 `ALREADY_FILED`). 관리자 중복 클릭에도 고객센터가 409로 응답할 수 있게 판단 거부도 같은 예외로 알린다. 판단자는 HP 반환을 일으킨 근거라 강의 항목에도 남긴다 | 고객센터 호출부·HTTP 응답 형태는 #189. 접수와 지급 배치의 경쟁 테스트는 #150과 나중에 병합하는 PR이 추가 |
 | D50 | 2026-10-14 | 지급 배치(#150): 매일 01:00에 실행한다(cron `lecture.batch.payout-cron`, 기본 `0 0 1 * * *`, KST). 실행마다 `now`를 한 번 구하고 `CONFIRMED && payoutScheduledAt <= now && objectionStatus IN (NONE, REJECTED)`인 항목 ID를 모두 `payoutScheduledAt, id` 순으로 읽는다. 항목마다 새 트랜잭션(`TransactionTemplate`)에서 주문 애그리거트(`LectureOrder.payOutItem`)를 거쳐 `PAID_OUT`, `paidOutAt = 실제 지급 시각`으로 바꾸고 flush(낙관적 락 확인)한 뒤 같은 트랜잭션에서 `BillingPort.payout(PayoutCommand.full(구매자, LECTURE_ORDER_ITEM, 주문 항목 ID, "LECTURE-PAYOUT-{주문 항목 ID}", 판매자, LECTURE_ORDER_ITEM, 주문 항목 ID))`을 부른다. `paidHp ≠ 가격`이면 `IllegalStateException`(D43과 같음)으로 롤백하고, `replayed = true`는 같은 항목의 재시도 응답이라 정상으로 본다. 처리할 때 대상이 아니면(조회 뒤 이의 제기 접수가 먼저 커밋 등) 그대로 둔다. 예외는 루프에서 항목별로 잡고, 실패한 항목은 `CONFIRMED`로 남아 다음 실행에서 다시 처리한다. 지급은 주문을 닫지 않으므로 주문을 잠그지 않는다(D46) | 강의가 지급 시점·이의 제기를 판단하고 `payout`을 직접 부르는 방식(#150 (b)안)이다. 출연 모듈도 같은 구조이고, 지급 원천 추가·정책 변경(보류 기간, 이의 제기)이 원천 모듈 한 곳에서 끝나며, 서비스 분리 때 경계를 넘는 호출이 멱등한 `payout` 하나다. #142의 billing 지급 예정 건(`Settlement` SCHEDULED)은 쓰지 않는다(정리는 #188). 지급 시각은 HP가 실제로 옮겨진 때라 예정 시각(`payoutScheduledAt`)과 따로 남긴다 | #182가 넣은 강의 → billing 지급 예정 연동(`LectureSettlementPort`의 주문 시 등록, 구매 취소·이의 제기 인정 시 취소)은 #188(#196)에서 제거되어, 주문 항목에 지급 예정 건이 생기지 않고 `payout` 직접 호출이 동작한다. 판매자 탈퇴·지갑 없음으로 실패하는 항목은 매일 경고 로그로 다시 시도되며 별도 알림은 없다(탈퇴 처리는 #188) |
 | D51 | 2026-10-14 | 판매 내역 `GET /sales`(#150): 인증된 인플루언서만 본다(`LectureOrderFacade.getSales`의 메서드 `@PreAuthorize("hasRole('VERIFIED_INFLUENCER')")`가 클래스 권한보다 우선). 본인이 판매자인 주문 항목을 상태와 관계없이(구매 취소·반환 포함) `purchasedAt desc, id desc`로 고정 정렬해 페이지로 준다. 응답은 항목 ID·강의 ID·주문 시점 제목·가격·상태·구매 시각·지급 예정 시각·지급 시각·이의 제기 상태이고 구매자 정보와 금액 합계는 주지 않는다. message: "판매 내역을 조회했습니다." 조회용 인덱스 `(seller_user_id, purchased_at desc, id desc)`를 둔다 | 판매자가 구매 취소·반환까지 포함해 판매 흐름과 지급 예정을 한 목록에서 본다. 금액 합계는 운영 집계 필요가 정해지지 않아 두지 않는다(#188) | - |
+| D52 | 2026-10-14 | 이의 제기 철회(#203): 고객센터가 이의 제기 문의를 삭제할 때 같은 트랜잭션에서 `LectureObjectionPort.withdrawObjection(주문 항목 ID, 구매자 ID, 문의 ID)`을 동기 호출한다. 구매자 본인 항목이고 `objection_status = FILED`이며 문의 ID가 접수 때와 같을 때만 철회하고, 아니면 `NOT_BUYER`(없는 항목 포함) → `NOT_FILED`(이미 판단한 항목 포함) → `INQUIRY_MISMATCH` 순서로 검사한 사유로 거부한다(새 사유 없음). 철회하면 `objection_status`를 `NONE`으로 되돌리고 `objection_inquiry_id`·`objection_reason`·`objection_filed_at`을 비운다(새 상태 `WITHDRAWN`을 두지 않는다). 그래서 지급(지급 예정 시각이 지났으면 다음 지급 배치), 구매 취소(기한은 원래 `auto_confirm_at`), 재접수(기한은 원래 `payout_scheduled_at`)가 접수 전 규칙 그대로 된다. 기한은 검사하지 않고, 주문을 닫지 않으므로 항목 낙관적 락만 쓴다 | 이벤트 대신 동기 호출하는 근거는 D9와 같다(거절을 문의 삭제에 되돌릴 수 없고, 지연·유실되면 지급이 멈춘 채로 남는다). `NONE`으로 되돌리면 마이그레이션·새 enum 값이 없고 판매 내역의 `objectionStatus` 값도 늘지 않는다. 접수 중에는 HP가 움직이지 않아 필드를 비워도 돈 이력을 잃지 않고, 접수 기록은 고객센터 문의(Soft Delete)에 남는다. 접수·철회를 반복해도 이의 제기 기한이 상한이라 지급을 무한정 늦출 수 없다 | 강의 쪽에는 철회 이력이 남지 않는다. D44의 구매 취소 조건은 `objection_status = NONE`이므로 철회한 항목은 다시 구매 취소할 수 있다. 고객센터 호출부와 문의 삭제 차단(`OBJECTION_INQUIRY_NOT_DELETABLE`) 해제는 고객센터 담당 |

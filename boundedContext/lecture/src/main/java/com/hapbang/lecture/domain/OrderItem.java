@@ -192,7 +192,7 @@ public class OrderItem {
         this.paidOutAt = now;
     }
 
-    /** 구매 취소. 자동 구매 확정 시각 전까지, 이의 제기가 접수된 적 없는 항목만 된다 (D44) */
+    /** 구매 취소. 자동 구매 확정 시각 전까지, 이의 제기가 없는(접수 후 철회 포함) 항목만 된다 (D44, D52) */
     void cancel(LocalDateTime now) {
         requirePurchased();
         if (!now.isBefore(autoConfirmAt)) {
@@ -261,6 +261,27 @@ public class OrderItem {
         }
         this.objectionResolvedAt = now;
         this.objectionResolvedByUserId = adminUserId;
+    }
+
+    /**
+     * 판단 전 이의 제기 철회(고객센터 문의 삭제, #203). 접수 전 상태({@code NONE})로 되돌려 지급·구매 취소·재접수가
+     * 원래 기한 그대로 다시 가능해진다 (D52). 항목의 {@link #isWithdrawn()}(구매 취소·반환)과는 다른 말이다.
+     * 검사 순서: 구매자 → 접수 중인지 → 접수한 문의인지. HP는 움직이지 않는다(보류 유지).
+     */
+    void withdrawObjection(Long buyerUserId, Long inquiryId) {
+        if (!this.buyerUserId.equals(buyerUserId)) {
+            throw new LectureObjectionRefusedException(Reason.NOT_BUYER);
+        }
+        if (objectionStatus != ObjectionStatus.FILED) {
+            throw new LectureObjectionRefusedException(Reason.NOT_FILED);
+        }
+        if (!objectionInquiryId.equals(inquiryId)) {
+            throw new LectureObjectionRefusedException(Reason.INQUIRY_MISMATCH);
+        }
+        this.objectionStatus = ObjectionStatus.NONE;
+        this.objectionInquiryId = null;
+        this.objectionReason = null;
+        this.objectionFiledAt = null;
     }
 
     private void requirePurchased() {

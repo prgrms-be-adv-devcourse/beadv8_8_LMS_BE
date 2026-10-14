@@ -37,6 +37,7 @@ import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
 import com.hapbang.shared.lecture.port.LectureObjectionPort;
@@ -273,6 +274,49 @@ class LectureObjectionPortTest {
         assertThat(saved.items()).extracting(OrderItemResponse::status).containsOnly(OrderItemStatus.RETURNED);
         assertThat(saved.status()).isEqualTo(LectureOrderStatus.CANCELED);
         assertThat(billingPort.releases()).hasSize(2);
+    }
+
+    @Test
+    void 철회하면_NONE으로_저장되고_구매_취소하면_보류_HP를_반환한다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        Long orderItemId = order.items().getFirst().orderItemId();
+        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+
+        lectureObjectionPort.withdrawObjection(orderItemId, BUYER_ID, INQUIRY_ID);
+
+        OrderItem item = item(orderItemId);
+        assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
+        assertThat(item.getObjectionInquiryId()).isNull();
+        assertThat(item.getObjectionReason()).isNull();
+        assertThat(item.getObjectionFiledAt()).isNull();
+        assertThat(billingPort.releases()).isEmpty();
+
+        lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId);
+
+        assertThat(item(orderItemId).getStatus()).isEqualTo(OrderItemStatus.CANCELED);
+        assertThat(billingPort.releases()).singleElement()
+                .extracting(ReleaseCommand::referenceId).isEqualTo(orderItemId);
+    }
+
+    @Test
+    void 없는_항목은_철회할_수_없다() {
+        assertRefused(() -> lectureObjectionPort.withdrawObjection(999_999L, BUYER_ID, INQUIRY_ID),
+                Reason.NOT_BUYER);
+    }
+
+    @Test
+    void 호출한_쪽_트랜잭션이_롤백되면_철회도_롤백된다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        Long orderItemId = order.items().getFirst().orderItemId();
+        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            lectureObjectionPort.withdrawObjection(orderItemId, BUYER_ID, INQUIRY_ID);
+            throw new IllegalStateException("고객센터 문의 삭제 실패");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertFiledAndPurchased(orderItemId);
+        assertThat(item(orderItemId).getObjectionInquiryId()).isEqualTo(INQUIRY_ID);
     }
 
     private OrderResponse order(Lecture... lectures) {
