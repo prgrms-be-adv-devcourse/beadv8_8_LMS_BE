@@ -7,6 +7,10 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Objects;
+
+import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
+import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
 
 /**
  * 주문 항목(강의 하나). 구매 확정·구매 취소·지급·이의 제기는 항목 단위로 일어난다 (설계 4.6).
@@ -85,7 +89,13 @@ public class OrderItem {
 
     private LocalDateTime objectionFiledAt;
 
+    /** 이의 제기를 접수한 고객센터 문의 ID. 판단할 때 같은 문의인지 대조한다 */
+    private Long objectionInquiryId;
+
     private LocalDateTime objectionResolvedAt;
+
+    /** 이의 제기를 판단한 관리자 */
+    private Long objectionResolvedByUserId;
 
     @Version
     private Long version;
@@ -171,6 +181,64 @@ public class OrderItem {
         }
         this.status = OrderItemStatus.CANCELED;
         this.canceledAt = now;
+    }
+
+    /**
+     * 내용 다름 이의 제기 접수(고객센터 호출, 설계 6.2). 접수되면 지급과 구매 취소가 멈춘다.
+     * 검사 순서는 상태 → 기한이다(D49): 구매자 → 취소·반환 → 지급 → 이의 제기 이력 → 지급 예정 시각.
+     */
+    void fileObjection(Long buyerUserId, Long inquiryId, String reason, LocalDateTime now) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("이의 제기 사유는 필수입니다.");
+        }
+        if (!this.buyerUserId.equals(buyerUserId)) {
+            throw new LectureObjectionRefusedException(Reason.NOT_BUYER);
+        }
+        if (isWithdrawn()) {
+            throw new LectureObjectionRefusedException(Reason.NOT_OBJECTIONABLE);
+        }
+        if (status == OrderItemStatus.PAID_OUT) {
+            throw new LectureObjectionRefusedException(Reason.ALREADY_PAID_OUT);
+        }
+        if (objectionStatus != ObjectionStatus.NONE) {
+            throw new LectureObjectionRefusedException(Reason.ALREADY_FILED);
+        }
+        if (!now.isBefore(payoutScheduledAt)) {
+            throw new LectureObjectionRefusedException(Reason.PERIOD_EXPIRED);
+        }
+        this.objectionStatus = ObjectionStatus.FILED;
+        this.objectionInquiryId = Objects.requireNonNull(inquiryId, "문의 ID는 필수입니다.");
+        this.objectionReason = reason;
+        this.objectionFiledAt = now;
+    }
+
+    /**
+     * 이의 제기 판단(고객센터 호출, 설계 6.2). 접수된 항목이고 접수한 문의일 때만 처리한다.
+     * 인정하면 항목을 반환하고, 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다 (D3).
+     * 기각하면 항목 상태는 그대로이고 지급 예정 시각이 되면 지급 배치가 지급한다.
+     */
+    void resolveObjection(Long inquiryId, boolean accepted, Long adminUserId, LocalDateTime now) {
+        Objects.requireNonNull(adminUserId, "판단한 관리자 ID는 필수입니다.");
+        if (objectionStatus != ObjectionStatus.FILED) {
+            throw new LectureObjectionRefusedException(Reason.NOT_FILED);
+        }
+        if (!objectionInquiryId.equals(inquiryId)) {
+            throw new LectureObjectionRefusedException(Reason.INQUIRY_MISMATCH);
+        }
+        if (accepted) {
+            // 접수 중에는 구매 취소·지급이 멈추므로 끝난 거래일 수 없다
+            if (!isInProgress()) {
+                throw new IllegalStateException("이의 제기가 접수된 항목이 진행 중이 아닙니다. orderItemId=" + id
+                        + ", status=" + status);
+            }
+            this.objectionStatus = ObjectionStatus.ACCEPTED;
+            this.status = OrderItemStatus.RETURNED;
+            this.returnedAt = now;
+        } else {
+            this.objectionStatus = ObjectionStatus.REJECTED;
+        }
+        this.objectionResolvedAt = now;
+        this.objectionResolvedByUserId = adminUserId;
     }
 
     private void requirePurchased() {

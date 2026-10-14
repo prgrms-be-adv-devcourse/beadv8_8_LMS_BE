@@ -1,6 +1,7 @@
 package com.hapbang.lecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -24,12 +25,15 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
 import com.hapbang.billing.app.LedgerRecordUseCase;
 import com.hapbang.billing.app.WalletFacade;
 import com.hapbang.billing.domain.BalanceBucket;
+import com.hapbang.billing.domain.BillingException;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.lecture.config.LectureConfig;
@@ -44,6 +48,7 @@ import com.hapbang.member.domain.User;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.port.BillingPort;
 import com.hapbang.shared.billing.port.LectureSettlementPort;
+import com.hapbang.shared.lecture.port.LectureObjectionPort;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.DatabaseCleanUpListener;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
@@ -51,7 +56,7 @@ import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * 강의 주문·구매 취소가 shared BillingPort·LectureSettlementPort로 실제 billing을 호출해, 강의 주문 상태와 billing의 보류·반환·지급 예정 건이
+ * 강의 주문·구매 취소·이의 제기 인정(#156)이 shared BillingPort·LectureSettlementPort로 실제 billing을 호출해, 강의 주문 상태와 billing의 보류·반환·지급 예정 건이
  * 한 트랜잭션으로 함께 커밋·롤백되는지 실제 PostgreSQL로 확인한다 (#182). 잔액은 billing에 충전 API가 없어 충전 건·충전 원장을 직접 만든다.
  */
 @SpringBootTest
@@ -92,6 +97,12 @@ class LectureOrderSettlementIntegrationTest {
 
     @Autowired
     LectureSettlementPort lectureSettlementPort;
+
+    @Autowired
+    LectureObjectionPort lectureObjectionPort;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     @Test
     void shared_포트는_billing의_실제_Adapter로_주입된다() {
@@ -167,6 +178,53 @@ class LectureOrderSettlementIntegrationTest {
         assertThat(jdbcTemplate.queryForList(
                 "SELECT idempotency_key FROM billing.point_hold_detail ORDER BY id", String.class))
                 .containsExactly("RELEASE:" + holdId(orderItemId) + ":LECTURE-CANCEL-" + orderItemId);
+    }
+
+    @Test
+    void 이의_제기를_인정하면_보류_반환과_지급_예정_취소가_항목_반환과_함께_커밋된다() throws Exception {
+        User buyer = buyer("settlement-objection-accept");
+        Long buyerWalletId = fund(buyer.getId(), PRICE_HP);
+        walletFacade.getOrCreateWallet(SELLER_ID);
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+
+        // 고객센터처럼 문의 저장과 같은 트랜잭션에서 포트를 부른다
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                lectureObjectionPort.fileObjection(orderItemId, buyer.getId(), 1L, "강의 소개와 영상 내용이 다릅니다."));
+        assertThat(settlement(orderItemId)).containsEntry("status", "SCHEDULED");
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                lectureObjectionPort.resolveObjection(orderItemId, 1L, true, 1L));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status || ' ' || objection_status FROM lectures.order_item "
+                + "WHERE id = ?", String.class, orderItemId)).isEqualTo("RETURNED ACCEPTED");
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " 0 RELEASED");
+        assertThat(settlement(orderItemId)).containsEntry("status", "CANCELLED");
+        assertThat(availableChargeHp(buyerWalletId)).isEqualTo(PRICE_HP);
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT idempotency_key FROM billing.point_hold_detail ORDER BY id", String.class))
+                .containsExactly("RELEASE:" + holdId(orderItemId) + ":LECTURE-RETURN-" + orderItemId);
+    }
+
+    @Test
+    void 지급_예정_취소가_실패하면_반환과_이의_제기_인정이_모두_롤백된다() throws Exception {
+        User buyer = buyer("settlement-objection-cancel-fail");
+        Long buyerWalletId = fund(buyer.getId(), PRICE_HP);
+        walletFacade.getOrCreateWallet(SELLER_ID);
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+        lectureObjectionPort.fileObjection(orderItemId, buyer.getId(), 1L, "강의 소개와 영상 내용이 다릅니다.");
+        // 취소할 수 없는 지급 건 상태(지급 실패)를 Fixture로 만든다
+        jdbcTemplate.update("UPDATE billing.settlement SET status = 'FAILED', failed_at = now() WHERE source_id = ?",
+                orderItemId);
+
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                lectureObjectionPort.resolveObjection(orderItemId, 1L, true, 1L)))
+                .isInstanceOf(BillingException.class);
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status || ' ' || objection_status FROM lectures.order_item "
+                + "WHERE id = ?", String.class, orderItemId)).isEqualTo("PURCHASED FILED");
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " " + PRICE_HP + " HELD");
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_hold_detail", Integer.class))
+                .isZero();
+        assertThat(availableChargeHp(buyerWalletId)).isZero();
     }
 
     @Test
