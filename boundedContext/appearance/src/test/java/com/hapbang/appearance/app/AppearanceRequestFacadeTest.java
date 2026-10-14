@@ -131,7 +131,7 @@ class AppearanceRequestFacadeTest {
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
         assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FEE - 1);
-        assertThat(appearanceRequestFacade.getSent(HOST, PageRequest.of(0, 20)).getTotalElements()).isZero();
+        assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
     }
 
     @Test
@@ -154,7 +154,7 @@ class AppearanceRequestFacadeTest {
         assertErrorCode(() -> send(HOST, GUEST), AppearanceErrorCode.BILLING_UNAVAILABLE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
-        assertThat(appearanceRequestFacade.getSent(HOST, PageRequest.of(0, 20)).getTotalElements()).isZero();
+        assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
 
         fakeBillingClient.setUnavailable(false);
         assertErrorCode(() -> send(HOST, GUEST), AppearanceErrorCode.DUPLICATE_APPEARANCE_REQUEST);
@@ -235,7 +235,7 @@ class AppearanceRequestFacadeTest {
     @DisplayName("세션 역할이 일반 유저면 Facade의 @PreAuthorize에서 거절한다")
     void userRoleDenied() {
         assertThatThrownBy(() -> send(HOST, GUEST)).isInstanceOf(AccessDeniedException.class);
-        assertThatThrownBy(() -> appearanceRequestFacade.getSent(HOST, PageRequest.of(0, 20)))
+        assertThatThrownBy(() -> appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)))
                 .isInstanceOf(AccessDeniedException.class);
         assertThat(appearanceRequestRepository.count()).isZero();
     }
@@ -252,7 +252,7 @@ class AppearanceRequestFacadeTest {
     void demotedUserCannotList() {
         appearanceUserFacade.syncModified(AppearanceUserFixture.user(HOST, Role.USER, UserStatus.ACTIVE));
 
-        assertErrorCode(() -> appearanceRequestFacade.getSent(HOST, PageRequest.of(0, 20)),
+        assertErrorCode(() -> appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)),
                 AppearanceErrorCode.NOT_INFLUENCER);
     }
 
@@ -294,9 +294,9 @@ class AppearanceRequestFacadeTest {
         AppearanceRequestResDto toOther = send(HOST, OTHER);
         AppearanceRequestResDto fromOther = send(OTHER, HOST);
 
-        Page<AppearanceRequestSummaryResDto> sent = appearanceRequestFacade.getSent(HOST, PageRequest.of(0, 20));
+        Page<AppearanceRequestSummaryResDto> sent = appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20));
         Page<AppearanceRequestSummaryResDto> received =
-                appearanceRequestFacade.getReceived(HOST, PageRequest.of(0, 20));
+                appearanceRequestFacade.getReceived(HOST, null, PageRequest.of(0, 20));
 
         assertThat(sent.getContent()).extracting(AppearanceRequestSummaryResDto::id)
                 .containsExactly(toOther.id(), toGuest.id());
@@ -312,9 +312,9 @@ class AppearanceRequestFacadeTest {
         send(HOST, OTHER);
         AppearanceRequestResDto latest = send(HOST, 4L);
 
-        Page<AppearanceRequestSummaryResDto> firstPage = appearanceRequestFacade.getSent(HOST, PageRequest.of(0, 2));
+        Page<AppearanceRequestSummaryResDto> firstPage = appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 2));
         Page<AppearanceRequestSummaryResDto> secondPage =
-                appearanceRequestFacade.getSent(HOST, PageRequest.of(1, 2));
+                appearanceRequestFacade.getSent(HOST, null, PageRequest.of(1, 2));
 
         assertThat(firstPage.getTotalElements()).isEqualTo(3);
         assertThat(firstPage.getTotalPages()).isEqualTo(2);

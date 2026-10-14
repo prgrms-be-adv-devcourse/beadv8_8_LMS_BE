@@ -44,6 +44,19 @@ class AppearanceSwaggerDocsTest {
     }
 
     @Test
+    @DisplayName("수락·거절·응답 전 취소 응답 스키마도 RsData로 감싼 요청서다")
+    void respondSchemaIsRsData() throws Exception {
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(BASE + "/{requestId}/accept'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRequestResDto"))
+                .andExpect(jsonPath(BASE + "/{requestId}/reject'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRequestResDto"))
+                .andExpect(jsonPath(BASE + "/{requestId}/cancel'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRequestResDto"));
+    }
+
+    @Test
     @DisplayName("보낸·받은 목록 응답 스키마는 RsData의 data에 PagedModel(content, page)을 담는다")
     void listSchemaIsRsDataOfPagedModel() throws Exception {
         mockMvc.perform(get(API_DOCS))

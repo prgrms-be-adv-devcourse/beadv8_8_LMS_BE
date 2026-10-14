@@ -24,6 +24,9 @@ public final class AppearanceRequestRules {
     public static final int EXPECTED_MINUTES_MIN = 1;
     public static final int EXPECTED_MINUTES_MAX = 1440;
 
+    /** 거절 사유: 선택 입력, 500자 이하 (DB 컬럼 VARCHAR(500)) */
+    public static final int REJECT_REASON_MAX = 500;
+
     /** 공백만 있는 값 금지 (수정 요청에서 null은 허용하고, 값이 있으면 공백만으로는 안 된다) */
     public static final String NOT_BLANK_PATTERN = "(?s).*\\S.*";
 
@@ -54,6 +57,12 @@ public final class AppearanceRequestRules {
         if (expectedMinutes < EXPECTED_MINUTES_MIN || expectedMinutes > EXPECTED_MINUTES_MAX) {
             throw invalid("예상 출연 시간은 %d분 이상 %,d분 이하여야 합니다.".formatted(EXPECTED_MINUTES_MIN,
                     EXPECTED_MINUTES_MAX));
+        }
+    }
+
+    static void validateRejectReason(String reason) {
+        if (reason != null && reason.length() > REJECT_REASON_MAX) {
+            throw invalid("거절 사유는 %d자 이하여야 합니다.".formatted(REJECT_REASON_MAX));
         }
     }
 

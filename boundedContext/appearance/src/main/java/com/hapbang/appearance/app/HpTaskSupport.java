@@ -1,0 +1,45 @@
+package com.hapbang.appearance.app;
+
+import java.util.Optional;
+
+import org.springframework.stereotype.Service;
+
+import com.hapbang.appearance.domain.HpTask;
+import com.hapbang.appearance.domain.HpTaskRefType;
+import com.hapbang.appearance.domain.HpTaskStatus;
+import com.hapbang.appearance.domain.HpTaskType;
+import com.hapbang.appearance.out.HpTaskRepository;
+
+import lombok.RequiredArgsConstructor;
+
+/**
+ * HP 작업 저장소 접근. 트랜잭션은 호출한 쪽이 연다.
+ */
+@Service
+@RequiredArgsConstructor
+public class HpTaskSupport {
+
+    private final HpTaskRepository hpTaskRepository;
+
+    public HpTask save(HpTask task) {
+        return hpTaskRepository.save(task);
+    }
+
+    public HpTask getById(Long taskId) {
+        Optional<HpTask> found = hpTaskRepository.findById(taskId);
+        if (found.isEmpty()) {
+            throw new IllegalStateException("HP 작업이 없습니다: " + taskId);
+        }
+        return found.get();
+    }
+
+    /** 출연 요청서의 반환 진행 상태. 반환할 일이 없으면(거절·취소 전) null */
+    public HpTaskStatus findReleaseStatusOfRequest(Long requestId) {
+        Optional<HpTask> found = hpTaskRepository.findFirstByRefTypeAndRefIdAndTaskTypeOrderByIdDesc(
+                HpTaskRefType.APPEARANCE_REQUEST, requestId, HpTaskType.RELEASE);
+        if (found.isEmpty()) {
+            return null;
+        }
+        return found.get().getStatus();
+    }
+}

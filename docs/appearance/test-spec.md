@@ -40,6 +40,13 @@
 | 통합 | `AppearanceSwaggerDocsTest` | Swagger 명세의 성공 응답 스키마가 `RsData`인지 | #144 |
 | 통합 | `AppearanceRequestFacadeTest` | 요청서 보내기(HP 보류·잔액 부족·무응답·중복·동시 요청), 세션 역할(`@PreAuthorize`), 출연 회원 자격, 조회, 수정(멱등) | #98 |
 | E2E | `AppearanceRequestApiE2ETest` | 출연 요청서 API 5개: 세션 로그인·CSRF·역할 → 응답(`RsData`)·오류 형식 (앱 전체) | #98, #144 |
+| 단위 | `AppearanceRequestResponseTest` | 수락·거절·응답 전 취소 규칙 (행위자·상태·기한·버전·사유) | #137 |
+| 단위 | `AppearanceTest` | 출연 성립과 스냅샷 | #137 |
+| 단위 | `HpTaskTest` | HP 작업 생성·성공·실패 기록 | #137 |
+| 저장소 | `AppearanceRepositoryTest` | `appearances.appearances` 저장, 요청서 하나에 출연 하나 | #137 |
+| 저장소 | `HpTaskRepositoryTest` | `appearances.hp_tasks` 저장, 멱등 키 유니크, 대상별 최근 작업 | #137 |
+| 통합 | `AppearanceRequestRespondFacadeTest` | 수락·거절·취소, 반환 성공·실패, 기한 경과, 동시 처리, 상태 필터, 역할 | #137 |
+| E2E | `AppearanceRequestRespondApiE2ETest` | 수락·거절·취소 API와 상태 필터 (앱 전체) | #137 |
 | 모듈 경계 | `ModularityTests` (apps) | 다른 모듈 내부 참조 없음 | — |
 
 ---
@@ -273,6 +280,20 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 |---|---|
 | 보내기(201)·상세·수정의 응답 스키마 | `RsDataAppearanceRequestResDto` (`statusCode`, `message`, `data` → `AppearanceRequestResDto`) |
 | 보낸·받은 목록의 응답 스키마 | `RsDataPageAppearanceRequestSummaryResDto`, `data` → `PagedModelAppearanceRequestSummaryResDto`(`content`, `page`) |
+| 수락·거절·응답 전 취소의 응답 스키마 (#137) | `RsDataAppearanceRequestResDto` |
+
+### 5.4 출연 요청 응답 API — `AppearanceRequestRespondApiE2ETest` (#137)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 보내기 응답의 `version`으로 수락 | 200, "출연 요청을 수락했습니다.", `data.status` `ACCEPTED`, `data.appearanceId`, `data.respondedAt` |
+| 호스트가 수정한 뒤 옛 `version`으로 수락 / `version` 없이 수락 | 409 `APPEARANCE_REQUEST_MODIFIED` / 400 `INVALID_REQUEST` |
+| 사유와 함께 거절 | 200, `REJECTED`, `rejectReason`, `hpReleaseStatus` `DONE` |
+| 사유 501자 / Billing 무응답에서 거절 | 400 / 200 `REJECTED` + `hpReleaseStatus` `PENDING` |
+| 게스트가 취소 / 호스트가 응답 전 취소 | 403 `NOT_REQUEST_HOST` / 200 `CANCELED`, `DONE` |
+| 거절한 요청서를 수락 | 409 `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE` |
+| `status=REJECTED&status=CANCELED` / `status=REQUESTED` / `status=HOLD_FAILED` / `status=UNKNOWN` | 거절한 1건 / 0건 / 400 / 400 |
+| 일반 유저 세션으로 수락 | 403 `FORBIDDEN` |
 
 ---
 
@@ -281,3 +302,65 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 | 케이스 | 기대 결과 |
 |---|---|
 | 전체 모듈 구조 검증 | 다른 모듈의 내부 코드를 참조하지 않음 (출연 → `global`은 공개된 `auth`만 사용) |
+
+---
+
+## 7. 출연 요청 응답 (#137) 단위·저장소·통합 테스트
+
+### 7.1 응답 규칙 — `AppearanceRequestResponseTest`
+
+수락 기한: 보낸 시각 + 2일. 확인 순서: 행위자 → 상태 → 기한 → (수락) 버전.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 게스트가 본 버전으로 기한 전 수락 | `ACCEPTED`, 응답 시각 기록 |
+| 버전이 다름 / 호스트가 수락 / 기한과 같거나 지남 | `APPEARANCE_REQUEST_MODIFIED`(상태 그대로) / `NOT_REQUEST_GUEST` / `APPEARANCE_REQUEST_EXPIRED` |
+| 사유와 함께 거절 / 사유 없이 거절 | `REJECTED` + 사유·응답 시각 / 사유 null |
+| 사유 500자 / 501자 | 통과 / `INVALID_REQUEST` |
+| 호스트가 기한 전 취소 / 게스트가 취소 / 기한 지난 취소 | `CANCELED` + 취소 시각 / `NOT_REQUEST_HOST`("…취소할 수 있습니다.") / `APPEARANCE_REQUEST_EXPIRED` |
+| 거절한 요청서에 다시 거절·수락·취소 | `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE` |
+
+### 7.2 출연 — `AppearanceTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 수락된 요청서로 출연 생성 | `ESTABLISHED`, 출처 `REQUEST`, 출연료·방송 예정 일시는 요청서 값 그대로(스냅샷) |
+| 수락되지 않은 요청서로 생성 | `IllegalStateException` (코드 오류) |
+
+### 7.3 HP 작업 — `HpTaskTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 반환 작업 생성 / 금액 0 | `PENDING`, 시도 0, 바로 실행 가능 / `IllegalArgumentException` |
+| 성공 기록 | `DONE`, 시도 1, 완료 시각, 더는 실행 대상 아님 |
+| 실패 기록 | `PENDING` 유지, 시도 1, 오류, 다음 시도 시각 전에는 실행 대상 아님 |
+| 오류 1,500자 / 완료된 작업에 다시 기록 | 1,000자로 자름 / `IllegalStateException` |
+
+### 7.4 저장소 — `AppearanceRepositoryTest`, `HpTaskRepositoryTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 출연 저장 후 요청서 ID로 조회 | 스냅샷 값 일치, 버전 기록 |
+| 같은 요청서로 출연 두 번 | `DataIntegrityViolationException` (`uk_appearances_request_id`) |
+| 같은 멱등 키로 작업 두 번 | `DataIntegrityViolationException` (`uk_hp_tasks_idempotency_key`) |
+| 대상별 최근 작업 | 가장 나중에 기록한 작업 |
+
+### 7.5 흐름 — `AppearanceRequestRespondFacadeTest`
+
+DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCER")`.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 수락 | `ACCEPTED` + 출연 성립(스냅샷), 보류 30,000 그대로, HP 작업 없음 |
+| 호스트가 수정한 뒤 옛 버전으로 수락 | `APPEARANCE_REQUEST_MODIFIED`, 출연 없음 (보내기 응답의 `version`이 DB와 같은지도 함께 확인) |
+| 호스트가 수락 / 다른 회원이 수락 | `NOT_REQUEST_GUEST` / `APPEARANCE_REQUEST_NOT_FOUND` |
+| 요청 뒤 호스트 정지 | `APPEARANCE_USER_NOT_ACTIVE` ("호스트가 현재 출연 거래를 할 수 없는 회원입니다."), 출연 없음 |
+| 기한이 지났지만 아직 `REQUESTED` | 수락·거절·취소 모두 `APPEARANCE_REQUEST_EXPIRED`, 상태 그대로 |
+| 세션 역할 USER | 수락·거절·취소 모두 `AccessDeniedException` |
+| 사유와 함께 거절 | `REJECTED`, 반환 작업 1건(금액 30,000, 호스트, 멱등 키), `DONE`, 보류 0, 호스트 잔액 복구 |
+| Billing 무응답에서 거절 | `REJECTED` 성공, 작업 `PENDING`, 시도 1, 오류에 `BillingUnavailableException`, 다음 시도 시각, 보류 그대로 |
+| 응답 전 취소 / 게스트가 취소 | `CANCELED` + `DONE`(사유 `REQUEST_CANCELED`) / `NOT_REQUEST_HOST`, 작업 없음 |
+| 거절 후 다시 거절·취소 | `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`, 작업은 1건뿐 |
+| 수락과 취소를 동시에 | 하나만 성공, 다른 쪽은 `CONCURRENT_UPDATE` 또는 `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`, 출연 + 작업 합계 1건 |
+| 상태 필터 `REJECTED·CANCELED` / 생략 / `HOLD_FAILED` | 거절 1건 / 전체 최신순 / `INVALID_REQUEST` |
+| 상세 | `version` 포함, 수락 후 `appearanceId`, 반환 상태 없음 |
