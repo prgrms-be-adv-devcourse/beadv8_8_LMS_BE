@@ -253,7 +253,7 @@ class AppearanceRequestRespondFacadeTest {
     }
 
     @Test
-    @DisplayName("Billing이 반환을 거절하면(보류 없음) 거절은 성공하고, 작업은 PENDING으로 남아 Billing 오류 코드를 기록한다")
+    @DisplayName("Billing이 반환을 거절하면(보류 없음) 거절은 성공하고, 작업은 재시도 없이 바로 DEAD로 Billing 오류 코드를 기록한다")
     void rejectWhenBillingRejectsRelease() {
         AppearanceRequestResDto sent = send();
         fakeBillingClient.reset();
@@ -261,8 +261,9 @@ class AppearanceRequestRespondFacadeTest {
         AppearanceRequestResDto rejected = appearanceRequestFacade.reject(GUEST, sent.id(), null);
 
         assertThat(rejected.status()).isEqualTo(AppearanceRequestStatus.REJECTED);
-        assertThat(rejected.hpReleaseStatus()).isEqualTo(HpTaskStatus.PENDING);
+        assertThat(rejected.hpReleaseStatus()).isEqualTo(HpTaskStatus.DEAD);
         assertThat(onlyTask().getLastError()).isEqualTo("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.");
+        assertThat(onlyTask().getAttemptCount()).isEqualTo(1);
     }
 
     @Test

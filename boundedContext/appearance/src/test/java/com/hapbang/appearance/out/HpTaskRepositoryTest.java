@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 
 import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskReason;
@@ -63,5 +64,32 @@ class HpTaskRepositoryTest {
                 HpTaskRefType.APPEARANCE_REQUEST, 12L, HpTaskType.RELEASE).orElseThrow();
 
         assertThat(found.getId()).isEqualTo(latest.getId());
+    }
+
+    @Test
+    @DisplayName("재시도 대상: 대기 중이고 다음 시도 시각이 지났으며, 한 번 이상 시도했거나 만든 지 대기 시간이 지난 작업만")
+    void findRunnableIds() {
+        HpTask fresh = hpTaskRepository.saveAndFlush(release(12L, "APPEARANCE_REQUEST-12-RELEASE-1"));
+        HpTask failed = release(13L, "APPEARANCE_REQUEST-13-RELEASE-1");
+        failed.markFailed("timeout", NOW.plusMinutes(1));
+        hpTaskRepository.saveAndFlush(failed);
+        HpTask done = release(14L, "APPEARANCE_REQUEST-14-RELEASE-1");
+        done.markDone(NOW);
+        hpTaskRepository.saveAndFlush(done);
+        LocalDateTime createdAt = fresh.getCreatedAt();
+        PageRequest first100 = PageRequest.of(0, 100);
+
+        // 다음 시도 시각 전: 실패한 작업은 아직 아님. 새 작업은 대기 시간 기준(createdAt 이전)이라 아님
+        assertThat(hpTaskRepository.findRunnableIds(NOW, createdAt.minusMinutes(1), first100)).isEmpty();
+        // 다음 시도 시각이 지남: 실패한 작업만 (새 작업은 아직 대기 시간 안)
+        assertThat(hpTaskRepository.findRunnableIds(NOW.plusMinutes(1), createdAt.minusMinutes(1), first100))
+                .containsExactly(failed.getId());
+        // 대기 시간도 지남: 둘 다, 다음 시도 시각 순. 완료 작업은 제외
+        assertThat(hpTaskRepository.findRunnableIds(NOW.plusMinutes(1), createdAt, first100))
+                .containsExactly(fresh.getId(), failed.getId());
+        assertThat(hpTaskRepository.findRunnableIds(NOW.plusMinutes(1), createdAt, PageRequest.of(0, 1)))
+                .hasSize(1);
+        assertThat(hpTaskRepository.countByStatus(HpTaskStatus.PENDING)).isEqualTo(2);
+        assertThat(hpTaskRepository.countByStatus(HpTaskStatus.DONE)).isEqualTo(1);
     }
 }
