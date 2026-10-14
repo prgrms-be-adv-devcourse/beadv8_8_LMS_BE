@@ -2,6 +2,8 @@ package com.hapbang.billing.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -20,8 +22,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -34,6 +40,8 @@ import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointChargeStatus;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.out.PointHoldRepository;
+import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
@@ -45,10 +53,18 @@ class HoldCreateIntegrationTest {
     private static final Instant T2 = Instant.parse("2026-10-02T00:00:00Z");
     private static final Instant T3 = Instant.parse("2026-10-03T00:00:00Z");
     private static final String ORDER_KEY = "HOLD:LECTURE_ORDER_ITEM:1001";
+    private static final String RECRUIT_KEY = "HOLD:APPEARANCE_RECRUIT:7";
     private static final int THREADS = 8;
 
     @Autowired
     HoldFacade holdFacade;
+
+    // 조회 사이에 다른 트랜잭션을 끼워 넣기 위한 스파이. 따로 정하지 않으면 실제 저장소를 그대로 호출한다.
+    @MockitoSpyBean
+    PointHoldRepository pointHoldRepository;
+
+    @MockitoSpyBean
+    PointLedgerRepository pointLedgerRepository;
 
     @Autowired
     LedgerRecordUseCase ledgerRecordUseCase;
@@ -617,6 +633,100 @@ class HoldCreateIntegrationTest {
         assertInvariants(walletId);
     }
 
+    @Test
+    @DisplayName("늦은 요청의 첫 조회와 둘째 조회 사이에 다른 지갑의 같은 참조 대상 보류가 커밋되면 정합성 오류가 아니라 IDEMPOTENCY_KEY_CONFLICT로 거절한다")
+    void lookupRace_committedBetweenLookups_conflict() throws Exception {
+        Long winner = wallet(100L);
+        Long loser = wallet(101L);
+        charge(winner, 5_000L, T1);
+        charge(loser, 5_000L, T1);
+        Map<String, Object> loserBefore = walletSnapshot(loser);
+        LookupPause pause = pauseAfterLookup(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<BillingException> late = executor.submit(pause.target(
+                    () -> holdFailure(101L, BillingReferenceType.APPEARANCE_RECRUIT, 7L, 3_000L)));
+            await(pause.paused);
+            // 늦은 요청이 첫 조회만 마친 사이에 다른 지갑의 보류·원장이 함께 커밋된다.
+            assertThat(hold(100L, BillingReferenceType.APPEARANCE_RECRUIT, 7L, 3_000L).replayed()).isFalse();
+            pause.resume.countDown();
+
+            BillingException failure = late.get(60, TimeUnit.SECONDS);
+            assertThat(failure.getErrorCode()).isEqualTo(BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+            // 둘째 조회에서 커밋된 보류를 찾아 소유 지갑을 비교해 거절했으므로 INSERT까지 가지 않았다.
+            assertThat(failure.getCause()).isNull();
+        } finally {
+            pause.resume.countDown();
+            executor.shutdownNow();
+        }
+
+        assertConflictLeftNoTrace(winner, loser, loserBefore);
+    }
+
+    @Test
+    @DisplayName("늦은 요청이 두 조회를 모두 마친 뒤 다른 지갑의 보류가 커밋되면 PostgreSQL 멱등키 UNIQUE 위반을 IDEMPOTENCY_KEY_CONFLICT로 바꾼다")
+    void lookupRace_committedAfterLookups_uniqueViolation() throws Exception {
+        Long winner = wallet(100L);
+        Long loser = wallet(101L);
+        charge(winner, 5_000L, T1);
+        charge(loser, 5_000L, T1);
+        Map<String, Object> loserBefore = walletSnapshot(loser);
+        LookupPause pause = pauseAfterLookup(2);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<BillingException> late = executor.submit(pause.target(
+                    () -> holdFailure(101L, BillingReferenceType.APPEARANCE_RECRUIT, 7L, 3_000L)));
+            await(pause.paused);
+            // 늦은 요청은 원장·보류를 모두 없다고 본 상태에서, 다른 지갑의 보류가 커밋된다.
+            assertThat(hold(100L, BillingReferenceType.APPEARANCE_RECRUIT, 7L, 3_000L).replayed()).isFalse();
+            pause.resume.countDown();
+
+            assertUniqueViolationConflict(late.get(60, TimeUnit.SECONDS));
+        } finally {
+            pause.resume.countDown();
+            executor.shutdownNow();
+        }
+
+        assertConflictLeftNoTrace(winner, loser, loserBefore);
+    }
+
+    @Test
+    @DisplayName("다른 지갑이 같은 참조 대상 보류를 INSERT하고 커밋 전이면 늦은 INSERT가 커밋을 기다린 뒤 UNIQUE 위반을 IDEMPOTENCY_KEY_CONFLICT로 바꾼다")
+    void concurrentInsert_uncommittedHold_uniqueViolation() throws Exception {
+        Long winner = wallet(100L);
+        Long loser = wallet(101L);
+        charge(winner, 5_000L, T1);
+        charge(loser, 5_000L, T1);
+        Map<String, Object> loserBefore = walletSnapshot(loser);
+        CountDownLatch heldButNotCommitted = new CountDownLatch(1);
+        CountDownLatch commit = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            // 먼저 온 요청: 보류하고 커밋하지 않은 채 기다린다(보류 INSERT가 멱등키 UNIQUE 키를 잡고 있다).
+            Future<HoldResult> first = executor.submit(() -> new TransactionTemplate(transactionManager).execute(
+                    status -> {
+                        HoldResult result = hold(100L, BillingReferenceType.APPEARANCE_RECRUIT, 7L, 3_000L);
+                        heldButNotCommitted.countDown();
+                        await(commit);
+                        return result;
+                    }));
+            await(heldButNotCommitted);
+            // 늦은 요청: 커밋 전이라 원장·보류가 보이지 않고, 보류 INSERT에서 먼저 온 요청의 커밋을 기다린다.
+            Future<BillingException> late = executor.submit(
+                    () -> holdFailure(101L, BillingReferenceType.APPEARANCE_RECRUIT, 7L, 3_000L));
+            awaitBlockedOnLock();
+            commit.countDown();
+
+            assertThat(first.get(60, TimeUnit.SECONDS).replayed()).isFalse();
+            assertUniqueViolationConflict(late.get(60, TimeUnit.SECONDS));
+        } finally {
+            commit.countDown();
+            executor.shutdownNow();
+        }
+
+        assertConflictLeftNoTrace(winner, loser, loserBefore);
+    }
+
     // ---------------------------------------------------------------------------------------------
     // 도우미
     // ---------------------------------------------------------------------------------------------
@@ -771,6 +881,147 @@ class HoldCreateIntegrationTest {
         return jdbcTemplate.queryForList("""
                 SELECT idempotency_key || ' ' || point_type || ' ' || balance_bucket || ' ' || amount_hp
                 FROM billing.point_ledger WHERE operation_key = ? ORDER BY id""", String.class, operationKey);
+    }
+
+    // 보류 요청이 BillingException으로 실패해야 하며 그 예외를 돌려준다.
+    private BillingException holdFailure(Long userId, BillingReferenceType referenceType, Long referenceId,
+            long amountHp) {
+        try {
+            hold(userId, referenceType, referenceId, amountHp);
+        } catch (BillingException exception) {
+            return exception;
+        }
+        throw new AssertionError("보류 요청이 실패해야 합니다.");
+    }
+
+    // 충돌 오류가 실제 PostgreSQL의 보류 멱등키 UNIQUE 위반에서 바뀐 것인지 확인한다.
+    // isDuplicateHold는 원인 예외의 서버 오류가 SQLSTATE 23505이고 제약 이름이 uk_point_hold_idempotency_key인지 본다.
+    private static void assertUniqueViolationConflict(BillingException failure) {
+        assertThat(failure.getErrorCode()).isEqualTo(BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(failure.getCause()).isInstanceOfSatisfying(DataIntegrityViolationException.class,
+                cause -> assertThat(HoldCreateUseCase.isDuplicateHold(cause)).isTrue());
+    }
+
+    // 같은 참조 대상 경쟁에서 진 지갑은 지갑·충전 원금·보류·배분·원장이 그대로이고, 이긴 지갑의 보류 하나만 남았는지 확인한다.
+    // 이긴 지갑의 재요청은 처음 보류를 돌려받고, 진 지갑의 재요청은 계속 충돌로 거절된다.
+    private void assertConflictLeftNoTrace(Long winner, Long loser, Map<String, Object> loserBefore) {
+        assertThat(walletSnapshot(loser)).isEqualTo(loserBefore);
+        assertThat(jdbcTemplate.queryForList("SELECT wallet_id FROM billing.point_hold", Long.class))
+                .containsExactly(winner);
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_charge_usage", Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT DISTINCT wallet_id FROM billing.point_ledger WHERE operation_key = ?", Long.class,
+                RECRUIT_KEY)).containsExactly(winner);
+        assertThat(ledgerLines(RECRUIT_KEY)).hasSize(2);
+        assertBalances(winner, 2_000L, 0L, 3_000L, 0L);
+
+        assertThat(hold(100L, BillingReferenceType.APPEARANCE_RECRUIT, 7L, 3_000L).replayed()).isTrue();
+        assertBillingError(() -> hold(101L, BillingReferenceType.APPEARANCE_RECRUIT, 7L, 3_000L),
+                BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        assertThat(walletSnapshot(loser)).isEqualTo(loserBefore);
+        assertInvariants(winner);
+        assertInvariants(loser);
+    }
+
+    // 한 지갑의 잔액·충전 원금·보류·배분·원장 상태를 비교할 수 있게 모은다.
+    private Map<String, Object> walletSnapshot(Long walletId) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("wallet", jdbcTemplate.queryForMap("""
+                SELECT charge_balance_hp, revenue_balance_hp, held_charge_hp, held_revenue_hp
+                FROM billing.wallet WHERE id = ?""", walletId));
+        snapshot.put("charges", jdbcTemplate.queryForList(
+                "SELECT id, remaining_principal_hp FROM billing.point_charge WHERE wallet_id = ? ORDER BY id",
+                walletId));
+        snapshot.put("holds", jdbcTemplate.queryForList(
+                "SELECT id FROM billing.point_hold WHERE wallet_id = ? ORDER BY id", walletId));
+        snapshot.put("usages", jdbcTemplate.queryForList("""
+                SELECT u.id FROM billing.point_charge_usage u JOIN billing.point_charge c ON c.id = u.charge_id
+                WHERE c.wallet_id = ? ORDER BY u.id""", walletId));
+        snapshot.put("ledgers", jdbcTemplate.queryForList(
+                "SELECT id, idempotency_key, amount_hp FROM billing.point_ledger WHERE wallet_id = ? ORDER BY id",
+                walletId));
+        return snapshot;
+    }
+
+    // 표시한 요청 스레드가 기존 원장·보류 조회를 lookupNumber번째로 마친 직후 멈추게 한다.
+    // 조회 순서와 관계없이 "첫 조회 뒤" 또는 "두 조회 뒤"에 다른 트랜잭션을 끼워 넣을 수 있다. 다른 스레드의 조회는 그대로 실행한다.
+    private LookupPause pauseAfterLookup(int lookupNumber) {
+        LookupPause pause = new LookupPause(lookupNumber);
+        Answer<Object> ledgerLookup = pause.after(defaultAnswer(pointLedgerRepository));
+        Answer<Object> holdLookup = pause.after(defaultAnswer(pointHoldRepository));
+        doAnswer(ledgerLookup).when(pointLedgerRepository).findAllByOperationKeyOrderByIdAsc(anyString());
+        doAnswer(holdLookup).when(pointHoldRepository).findByIdempotencyKey(anyString());
+        return pause;
+    }
+
+    // 스파이의 기본 동작(실제 저장소 호출)을 가져온다.
+    @SuppressWarnings("unchecked")
+    private static Answer<Object> defaultAnswer(Object spy) {
+        return (Answer<Object>) Mockito.mockingDetails(spy).getMockCreationSettings().getDefaultAnswer();
+    }
+
+    private static final class LookupPause {
+
+        private final int lookupNumber;
+        // 표시한 스레드만 조회 횟수를 센다. 값이 없으면 멈추지 않는다.
+        private final ThreadLocal<Integer> lookups = new ThreadLocal<>();
+        final CountDownLatch paused = new CountDownLatch(1);
+        final CountDownLatch resume = new CountDownLatch(1);
+
+        LookupPause(int lookupNumber) {
+            this.lookupNumber = lookupNumber;
+        }
+
+        <T> Callable<T> target(Callable<T> task) {
+            return () -> {
+                lookups.set(0);
+                try {
+                    return task.call();
+                } finally {
+                    lookups.remove();
+                }
+            };
+        }
+
+        Answer<Object> after(Answer<Object> lookup) {
+            return invocation -> {
+                Object result = lookup.answer(invocation);
+                Integer count = lookups.get();
+                if (count != null) {
+                    lookups.set(count + 1);
+                    if (count + 1 == lookupNumber) {
+                        paused.countDown();
+                        await(resume);
+                    }
+                }
+                return result;
+            };
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(30, TimeUnit.SECONDS)) {
+                throw new AssertionError("대기 시간이 지났습니다.");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(exception);
+        }
+    }
+
+    // 다른 트랜잭션이 락(여기서는 같은 UNIQUE 키의 커밋 전 INSERT)을 기다리는 상태가 될 때까지 기다린다.
+    private void awaitBlockedOnLock() throws InterruptedException {
+        for (int i = 0; i < 300; i++) {
+            Integer waiting = jdbcTemplate.queryForObject("SELECT count(*) FROM pg_locks WHERE NOT granted",
+                    Integer.class);
+            if (waiting != null && waiting > 0) {
+                return;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("락 대기 상태가 되지 않았습니다.");
     }
 
     // 실행이 BillingException으로 실패하고 그 오류 코드가 기대값인지 확인한다.
