@@ -140,12 +140,45 @@ class ChatRoomUseCaseTest {
                 .filteredOn(member -> member.userId().equals(GUEST_ID))
                 .extracting(ChatRoomMemberResponse::participationVersion)
                 .containsExactly(2);
-        assertThat(contentsSeenBy(chatRoomId, HOST_ID)).isEqualTo(hostBefore);
+        assertThat(contentsSeenBy(chatRoomId, HOST_ID)).first().isEqualTo("게스트님이 다시 들어왔습니다.");
+        assertThat(contentsSeenBy(chatRoomId, HOST_ID)).containsSubsequence(hostBefore);
         assertThat(contentsSeenBy(chatRoomId, GUEST_ID)).isEmpty();
         assertThat(chatRoomLogRepository.findByChatRoom_IdOrderByIdAsc(chatRoomId))
                 .extracting(ChatRoomLog::getEventType, ChatRoomLog::getActorUserId)
                 .endsWith(tuple(ChatRoomEventType.MEMBER_LEFT, GUEST_ID),
                         tuple(ChatRoomEventType.MEMBER_REJOINED, GUEST_ID));
+    }
+
+    @Test
+    void 재입장하면_남아_있던_사람에게만_보이는_재입장_안내를_남긴다() {
+        Long chatRoomId = createRoom();
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+
+        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+
+        assertThat(result.rejoinNotices()).singleElement().satisfies(notice -> {
+            assertThat(notice.messageType()).isEqualTo(ChatMessageType.SYSTEM);
+            assertThat(notice.senderUserId()).isEqualTo(GUEST_ID);
+            assertThat(notice.content()).isEqualTo("게스트님이 다시 들어왔습니다.");
+        });
+        assertThat(result.remainingUserIds()).containsExactly(HOST_ID);
+        assertThat(contentsSeenBy(chatRoomId, HOST_ID)).first().isEqualTo("게스트님이 다시 들어왔습니다.");
+        assertThat(contentsSeenBy(chatRoomId, GUEST_ID)).isEmpty();
+        assertThat(result.room().lastMessage()).isNull();
+        assertThat(result.room().unreadCount()).isZero();
+        assertThat(chatRoomSupporter.getMyRooms(HOST_ID)).singleElement()
+                .extracting(ChatRoomResponse::unreadCount).isEqualTo(2L);
+    }
+
+    @Test
+    void 둘_다_참여_중인_방을_다시_시작하면_재입장_안내를_남기지_않는다() {
+        Long chatRoomId = createRoom();
+
+        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
+
+        assertThat(result.rejoinNotices()).isEmpty();
+        assertThat(result.remainingUserIds()).isEmpty();
+        assertThat(contentsSeenBy(chatRoomId, HOST_ID)).isEmpty();
     }
 
     @Test
@@ -317,8 +350,9 @@ class ChatRoomUseCaseTest {
                 .containsExactly(
                         tuple(1L, "방송 일정 맞춰요"),
                         tuple(2L, "게스트님이 나갔습니다."),
-                        tuple(3L, "호스트님이 나갔습니다."),
-                        tuple(4L, "게스트님이 나갔습니다."));
+                        tuple(3L, "게스트님이 다시 들어왔습니다."),
+                        tuple(4L, "호스트님이 나갔습니다."),
+                        tuple(5L, "게스트님이 나갔습니다."));
         assertThat(history.logs()).extracting(ChatRoomLogResponse::eventType)
                 .containsExactly(ChatRoomEventType.ROOM_CREATED, ChatRoomEventType.MEMBER_JOINED,
                         ChatRoomEventType.MEMBER_JOINED, ChatRoomEventType.MEMBER_LEFT,

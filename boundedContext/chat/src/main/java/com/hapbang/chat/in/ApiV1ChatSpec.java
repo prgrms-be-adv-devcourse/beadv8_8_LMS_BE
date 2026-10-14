@@ -34,7 +34,9 @@ public interface ApiV1ChatSpec {
 
     @Operation(summary = "채팅방 생성", description = """
             상대와의 종료되지 않은 방이 있으면 재사용하고(200), 없으면 새로 만든다(201).
-            퇴장했던 방이면 재입장하며, 재입장 이전 메시지는 볼 수 없다.""")
+            퇴장했던 방이면 재입장하며, 재입장 이전 메시지는 볼 수 없다.
+            재입장하면 남아 있던 회원에게 재입장 안내(SYSTEM, "{닉네임}님이 다시 들어왔습니다.")가 `/user/queue/chats/messages`로 간다.
+            재입장한 본인에게는 안내가 보이지 않는다.""")
     ResponseEntity<RsData<ChatRoomResponse>> createChatRoom(Long userId, @Valid CreateChatRoomRequest request);
 
     @Operation(summary = "내 채팅방 목록", description = """
