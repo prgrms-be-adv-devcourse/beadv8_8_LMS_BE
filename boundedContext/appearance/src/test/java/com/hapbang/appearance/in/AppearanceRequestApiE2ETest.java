@@ -99,44 +99,34 @@ class AppearanceRequestApiE2ETest {
         String response = mockMvc.perform(createRequest(hostId, createBody(guestId, 30_000)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(response, "$.data.id")).longValue();
+        return ((Number) JsonPath.read(response, "$.id")).longValue();
     }
 
     @Test
-    @DisplayName("요청서 보내기 → 보낸·받은 목록 → 상세 → 수정 흐름 (성공 응답은 RsData: statusCode, message, data)")
+    @DisplayName("요청서 보내기 → 보낸·받은 목록 → 상세 → 수정 흐름")
     void fullFlow() throws Exception {
-        // 보내기: HTTP 201, 본문 statusCode 201, data에 요청서
-        String created = mockMvc.perform(createRequest(HOST, createBody(GUEST, 30_000)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.statusCode").value(201))
-                .andExpect(jsonPath("$.message").value("출연 요청을 보냈습니다."))
-                .andExpect(jsonPath("$.data.status").value("REQUESTED"))
-                .andReturn().getResponse().getContentAsString();
-        long requestId = ((Number) JsonPath.read(created, "$.data.id")).longValue();
+        // 보내기: 201, REQUESTED
+        long requestId = sendRequest(HOST, GUEST);
 
-        // 보낸 목록 (호스트): data에 PagedModel(content, page)
+        // 보낸 목록 (호스트): PagedModel 형식
         mockMvc.perform(get(BASE + "/sent").with(TestLogin.as(HOST, Role.INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.statusCode").value(200))
-                .andExpect(jsonPath("$.message").value("보낸 출연 요청 목록을 조회했습니다."))
-                .andExpect(jsonPath("$.data.content[0].id").value(requestId))
-                .andExpect(jsonPath("$.data.content[0].status").value("REQUESTED"))
-                .andExpect(jsonPath("$.data.page.totalElements").value(1));
+                .andExpect(jsonPath("$.content[0].id").value(requestId))
+                .andExpect(jsonPath("$.content[0].status").value("REQUESTED"))
+                .andExpect(jsonPath("$.page.totalElements").value(1));
 
         // 받은 목록 (게스트)
         mockMvc.perform(get(BASE + "/received").with(TestLogin.as(GUEST, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("받은 출연 요청 목록을 조회했습니다."))
-                .andExpect(jsonPath("$.data.content[0].id").value(requestId))
-                .andExpect(jsonPath("$.data.content[0].hostId").value(HOST));
+                .andExpect(jsonPath("$.content[0].id").value(requestId))
+                .andExpect(jsonPath("$.content[0].hostId").value(HOST));
 
         // 상세 (게스트)
         mockMvc.perform(get(BASE + "/" + requestId).with(TestLogin.as(GUEST, Role.INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("출연 요청서를 조회했습니다."))
-                .andExpect(jsonPath("$.data.title").value("주말 게임 합방 출연 요청"))
-                .andExpect(jsonPath("$.data.fee").value(30_000))
-                .andExpect(jsonPath("$.data.expectedMinutes").value(60));
+                .andExpect(jsonPath("$.title").value("주말 게임 합방 출연 요청"))
+                .andExpect(jsonPath("$.fee").value(30_000))
+                .andExpect(jsonPath("$.expectedMinutes").value(60));
 
         // 수정 (호스트): 보낸 값만 바뀐다
         mockMvc.perform(patch(BASE + "/" + requestId).with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf())
@@ -145,10 +135,9 @@ class AppearanceRequestApiE2ETest {
                                 {"title": "제목 수정", "hostChannelUrl": "https://chzzk.naver.com/host"}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("출연 요청서를 수정했습니다."))
-                .andExpect(jsonPath("$.data.title").value("제목 수정"))
-                .andExpect(jsonPath("$.data.hostChannelUrl").value("https://chzzk.naver.com/host"))
-                .andExpect(jsonPath("$.data.content").value("같이 신작 게임을 플레이하는 콘텐츠입니다."));
+                .andExpect(jsonPath("$.title").value("제목 수정"))
+                .andExpect(jsonPath("$.hostChannelUrl").value("https://chzzk.naver.com/host"))
+                .andExpect(jsonPath("$.content").value("같이 신작 게임을 플레이하는 콘텐츠입니다."));
     }
 
     @Test
@@ -189,8 +178,6 @@ class AppearanceRequestApiE2ETest {
     void feeBelowMinimum() throws Exception {
         mockMvc.perform(createRequest(HOST, createBody(GUEST, 19_999)))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.data").doesNotExist())
                 .andExpect(jsonPath("$.code").value("FEE_BELOW_MINIMUM"))
                 .andExpect(jsonPath("$.detail").value("출연료는 최저 출연료(20,000 HP) 이상이어야 합니다."));
     }

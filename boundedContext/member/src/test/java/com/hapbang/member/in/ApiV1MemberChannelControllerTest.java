@@ -217,10 +217,8 @@ class ApiV1MemberChannelControllerTest {
         mockMvc.perform(post(approvalRequest(channel)).session(session)
                         .with(TestLogin.as(user.getId(), user.getRole())).with(csrf()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.statusCode").value(200))
-                .andExpect(jsonPath("$.message").value("채널이 승인되었습니다."))
-                .andExpect(jsonPath("$.data.status").value("APPROVED"))
-                .andExpect(jsonPath("$.data.role").value("INFLUENCER"));
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.role").value("INFLUENCER"));
 
         assertThat(userRepository.findById(user.getId()).orElseThrow().getRole()).isEqualTo(Role.INFLUENCER);
         InfluencerChannel saved = influencerChannelRepository.findById(channel.getId()).orElseThrow();
@@ -241,9 +239,8 @@ class ApiV1MemberChannelControllerTest {
         mockMvc.perform(post(approvalRequest(channel))
                         .with(TestLogin.as(user.getId(), user.getRole())).with(csrf()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("채널 승인을 요청했습니다."))
-                .andExpect(jsonPath("$.data.status").value("PENDING"))
-                .andExpect(jsonPath("$.data.role").value("USER"));
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.role").value("USER"));
 
         InfluencerChannel saved = influencerChannelRepository.findById(channel.getId()).orElseThrow();
         assertThat(saved.getVerificationStatus()).isEqualTo(ChannelVerificationStatus.PENDING);
@@ -339,12 +336,12 @@ class ApiV1MemberChannelControllerTest {
 
         mockMvc.perform(get("/api/v1/members/channels/me").with(TestLogin.as(user.getId(), user.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(2))
-                .andExpect(jsonPath("$.data[0].channelUrl").value("https://chzzk.naver.com/channel-1"))
-                .andExpect(jsonPath("$.data[0].status").value("REGISTERED"))
-                .andExpect(jsonPath("$.data[0].followerCount").value(5))
-                .andExpect(jsonPath("$.data[0].followerCountAt").isNotEmpty())
-                .andExpect(jsonPath("$.data[1].status").value("APPROVED"));
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].channelUrl").value("https://chzzk.naver.com/channel-1"))
+                .andExpect(jsonPath("$[0].status").value("REGISTERED"))
+                .andExpect(jsonPath("$[0].followerCount").value(5))
+                .andExpect(jsonPath("$[0].followerCountAt").isNotEmpty())
+                .andExpect(jsonPath("$[1].status").value("APPROVED"));
     }
 
     private User saveUser(Role role) {

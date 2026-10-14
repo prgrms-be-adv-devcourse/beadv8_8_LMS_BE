@@ -2,13 +2,13 @@ package com.hapbang.billing.app;
 
 import java.util.List;
 
+import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.PayoutType;
 import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.PointHoldStatus;
 import com.hapbang.billing.domain.Settlement;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.billing.domain.SettlementSourceType;
 
 // 지급 결과로, Billing 엔티티 대신 지급 건·출처 HP 종류별 지급액·충전 건별 소진과 재요청 여부를 담는다.
 // 지급액·소진 내역은 지급을 처리한 당시의 값이고, 남은 보류액과 보류 상태는 응답 시점의 값이다.

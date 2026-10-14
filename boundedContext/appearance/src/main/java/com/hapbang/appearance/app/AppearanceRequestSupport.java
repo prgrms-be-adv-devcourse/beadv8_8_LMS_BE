@@ -1,6 +1,5 @@
 package com.hapbang.appearance.app;
 
-import java.util.Collection;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -60,27 +59,19 @@ public class AppearanceRequestSupport {
         appearanceRequestRepository.flush();
     }
 
-    // TODO(검색·필터): 기간·키워드 조건이 정해지면 조건 객체(예: AppearanceRequestSearchCondition)를 받아
-    //  Specification 등으로 조회 조건을 조합한다. 보이는 상태 제한과 최신순 정렬은 그대로 유지한다.
+    // TODO(검색·필터): 상태·기간·키워드 조건이 정해지면 조건 객체(예: AppearanceRequestSearchCondition)를 받아
+    //  Specification 등으로 조회 조건을 조합한다. 보이는 상태(VISIBLE) 제한과 최신순 정렬은 그대로 유지한다.
 
-    /**
-     * 보낸 요청 목록 (호스트). 최신순
-     *
-     * @param statuses 조회할 상태 (보이는 상태 중에서만, 호출한 쪽이 확인한다)
-     */
-    public Page<AppearanceRequest> findSent(Long hostId, Collection<AppearanceRequestStatus> statuses,
-                                            Pageable pageable) {
-        return appearanceRequestRepository.findByHostIdAndStatusIn(hostId, statuses, latestFirst(pageable));
+    /** 보낸 요청 목록 (호스트). 보이는 상태만, 최신순 */
+    public Page<AppearanceRequest> findSent(Long hostId, Pageable pageable) {
+        return appearanceRequestRepository.findByHostIdAndStatusIn(hostId, AppearanceRequestStatus.VISIBLE,
+                latestFirst(pageable));
     }
 
-    /**
-     * 받은 요청 목록 (게스트). 최신순
-     *
-     * @param statuses 조회할 상태 (보이는 상태 중에서만, 호출한 쪽이 확인한다)
-     */
-    public Page<AppearanceRequest> findReceived(Long guestId, Collection<AppearanceRequestStatus> statuses,
-                                                Pageable pageable) {
-        return appearanceRequestRepository.findByGuestIdAndStatusIn(guestId, statuses, latestFirst(pageable));
+    /** 받은 요청 목록 (게스트). 보이는 상태만, 최신순 */
+    public Page<AppearanceRequest> findReceived(Long guestId, Pageable pageable) {
+        return appearanceRequestRepository.findByGuestIdAndStatusIn(guestId, AppearanceRequestStatus.VISIBLE,
+                latestFirst(pageable));
     }
 
     private Pageable latestFirst(Pageable pageable) {

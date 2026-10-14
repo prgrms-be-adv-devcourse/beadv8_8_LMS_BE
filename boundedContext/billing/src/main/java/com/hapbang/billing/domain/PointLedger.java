@@ -9,9 +9,6 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
-
-import com.hapbang.shared.billing.domain.BillingReferenceType;
-
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;

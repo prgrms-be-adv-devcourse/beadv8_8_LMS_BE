@@ -7,7 +7,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.billing.fixture.BillingFixture;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 // 보류·충전 원금 배분·충전 건의 반환 상태 전이와 금액 한도를 DB 없이 검증한다.
 class PointHoldReleaseTest {

@@ -1,7 +1,5 @@
 package com.hapbang.appearance.app;
 
-import java.util.List;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -10,12 +8,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestSummaryResDto;
-import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceRequestContent;
-import com.hapbang.appearance.domain.AppearanceRequestStatus;
 import com.hapbang.appearance.out.billing.BillingClient.HoldResult;
 
 import lombok.RequiredArgsConstructor;
@@ -25,11 +21,11 @@ import lombok.RequiredArgsConstructor;
  * <ul>
  *     <li>역할 검사: 여기서 {@code @PreAuthorize}로 로그인 세션의 역할(인플루언서 이상, 관리자 제외)을 확인한다.
  *     출연 회원 자격(정지·강등)과 업무 규칙은 UseCase·도메인이 확인한다.</li>
- *     <li>트랜잭션: 기능 하나를 한 트랜잭션으로 여기서 연다. 단, Billing 호출이 끼는 기능(보내기, 거절, 응답 전 취소)은
- *     업무 상태를 먼저 커밋하고 Billing을 불러야 해서 여기서 열지 않고, 각 UseCase 단계가 연다.</li>
+ *     <li>트랜잭션: 기능 하나를 한 트랜잭션으로 여기서 연다. 단, 보내기({@link #create})는 Billing 호출을 사이에 두고
+ *     "저장 → HP 보류 → 상태 변경"을 따로 커밋해야 해서 여기서 열지 않고, 각 UseCase 단계가 연다.</li>
  * </ul>
  */
-// TODO(scheduler): HOLD_PENDING 재확인·만료·HP 작업 재시도 스케줄러는 로그인 정보가 없어 @PreAuthorize를 통과할 수 없다.
+// TODO(scheduler): HOLD_PENDING 재확인·만료 스케줄러는 로그인 정보가 없어 @PreAuthorize를 통과할 수 없다.
 //  스케줄러용 진입점(역할 검사 없는 Facade)을 따로 두고 같은 UseCase를 쓴다.
 @Service
 @RequiredArgsConstructor
@@ -40,10 +36,6 @@ public class AppearanceRequestFacade {
     private final AppearanceRequestHoldUseCase appearanceRequestHoldUseCase;
     private final AppearanceRequestQueryUseCase appearanceRequestQueryUseCase;
     private final AppearanceRequestUpdateUseCase appearanceRequestUpdateUseCase;
-    private final AppearanceRequestAcceptUseCase appearanceRequestAcceptUseCase;
-    private final AppearanceRequestRejectUseCase appearanceRequestRejectUseCase;
-    private final AppearanceRequestCancelUseCase appearanceRequestCancelUseCase;
-    private final HpTaskExecuteUseCase hpTaskExecuteUseCase;
 
     /**
      * 출연 요청서를 보내고 출연료만큼 HP를 보류한다. 트랜잭션은 단계마다 따로 열린다.
@@ -66,15 +58,13 @@ public class AppearanceRequestFacade {
     }
 
     @Transactional(readOnly = true)
-    public Page<AppearanceRequestSummaryResDto> getSent(Long userId, List<AppearanceRequestStatus> statuses,
-                                                        Pageable pageable) {
-        return appearanceRequestQueryUseCase.getSent(userId, statuses, pageable);
+    public Page<AppearanceRequestSummaryResDto> getSent(Long userId, Pageable pageable) {
+        return appearanceRequestQueryUseCase.getSent(userId, pageable);
     }
 
     @Transactional(readOnly = true)
-    public Page<AppearanceRequestSummaryResDto> getReceived(Long userId, List<AppearanceRequestStatus> statuses,
-                                                            Pageable pageable) {
-        return appearanceRequestQueryUseCase.getReceived(userId, statuses, pageable);
+    public Page<AppearanceRequestSummaryResDto> getReceived(Long userId, Pageable pageable) {
+        return appearanceRequestQueryUseCase.getReceived(userId, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -86,36 +76,5 @@ public class AppearanceRequestFacade {
     public AppearanceRequestResDto updateBasicInfo(Long userId, Long requestId, String title, String content,
                                                    String hostChannelUrl) {
         return appearanceRequestUpdateUseCase.updateBasicInfo(userId, requestId, title, content, hostChannelUrl);
-    }
-
-    /**
-     * 수락 (게스트). 요청서 {@code ACCEPTED} + 출연 성립이 한 트랜잭션이다. HP는 이동하지 않는다.
-     */
-    @Transactional
-    public AppearanceRequestResDto accept(Long guestId, Long requestId, Long viewedVersion) {
-        Appearance appearance = appearanceRequestAcceptUseCase.accept(guestId, requestId, viewedVersion);
-        return appearanceRequestQueryUseCase.getDetail(guestId, appearance.getRequestId());
-    }
-
-    /**
-     * 거절 (게스트).
-     * <ol>
-     *     <li>[트랜잭션 1] 요청서 {@code REJECTED} + 반환 작업 기록 (커밋)</li>
-     *     <li>[트랜잭션 없음] 반환 작업 1회 실행. 실패해도 거절은 성공으로 응답하고, 작업은 대기로 남는다</li>
-     * </ol>
-     */
-    public AppearanceRequestResDto reject(Long guestId, Long requestId, String reason) {
-        Long taskId = appearanceRequestRejectUseCase.reject(guestId, requestId, reason);
-        hpTaskExecuteUseCase.execute(taskId);
-        return appearanceRequestQueryUseCase.getDetail(guestId, requestId);
-    }
-
-    /**
-     * 응답 전 취소 (호스트). 흐름은 거절과 같다.
-     */
-    public AppearanceRequestResDto cancel(Long hostId, Long requestId) {
-        Long taskId = appearanceRequestCancelUseCase.cancel(hostId, requestId);
-        hpTaskExecuteUseCase.execute(taskId);
-        return appearanceRequestQueryUseCase.getDetail(hostId, requestId);
     }
 }

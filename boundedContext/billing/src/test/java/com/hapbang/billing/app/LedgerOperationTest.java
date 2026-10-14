@@ -12,9 +12,9 @@ import org.junit.jupiter.api.Test;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
+import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 // 원장 기록 요청(LedgerOperation·LedgerEntry)의 입력 검증·멱등키·버킷 이동 구성을 검증한다.
 class LedgerOperationTest {

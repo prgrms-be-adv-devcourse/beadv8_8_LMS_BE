@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.lecture.app.dto.InspectionLectureResponse;
-import com.hapbang.lecture.app.dto.LectureDetailResponse;
 import com.hapbang.lecture.domain.LectureStatus;
 
 import lombok.RequiredArgsConstructor;
@@ -30,12 +29,6 @@ public class LectureInspectionFacade {
     @Transactional(readOnly = true)
     public Page<InspectionLectureResponse> getInspections(LectureStatus status, Pageable pageable) {
         return lectureSupport.getInspections(status, pageable);
-    }
-
-    /** 검수용 강의 상세 (검수 대기·반려·삭제 포함, 반려 사유 포함) */
-    @Transactional(readOnly = true)
-    public LectureDetailResponse getLecture(Long lectureId) {
-        return lectureSupport.getLectureForInspection(lectureId);
     }
 
     /** 검수 승인 */
