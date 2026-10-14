@@ -166,15 +166,25 @@ class LectureOrderTest {
     }
 
     @Test
-    void 자동_확정_시각이_지난_뒤_재생_동의해도_첫_재생으로_기록된다() {
+    void 자동_확정_시각이_지난_뒤_재생_동의하면_자동_확정으로_기록된다() {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L);
-        LocalDateTime now = LocalDateTime.of(2026, 10, 9, 9, 0);
 
-        OrderItem item = order.consentToPlay(1L, now);
+        OrderItem item = order.consentToPlay(1L, LocalDateTime.of(2026, 10, 9, 9, 0));
 
         assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+        assertThat(item.getConfirmationType()).isEqualTo(ConfirmationType.AUTO);
+        assertThat(item.getConfirmedAt()).isEqualTo(LocalDateTime.of(2026, 10, 8, 0, 0));
+    }
+
+    @Test
+    void 자동_확정_시각_직전에_재생_동의하면_첫_재생으로_기록된다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        LocalDateTime lastMoment = LocalDateTime.of(2026, 10, 7, 23, 59, 59);
+
+        OrderItem item = order.consentToPlay(1L, lastMoment);
+
         assertThat(item.getConfirmationType()).isEqualTo(ConfirmationType.FIRST_PLAY);
-        assertThat(item.getConfirmedAt()).isEqualTo(now);
+        assertThat(item.getConfirmedAt()).isEqualTo(lastMoment);
     }
 
     @Test

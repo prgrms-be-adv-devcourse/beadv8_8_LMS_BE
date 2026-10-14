@@ -35,7 +35,8 @@ public interface ApiV1LectureOrderSpec {
     @Operation(summary = "재생 동의",
             description = "본인 항목, PURCHASED → CONFIRMED(FIRST_PLAY). 첫 재생·자료 다운로드 전에 프론트가 동의서"
                     + "(\"재생하면 구매가 확정되어 단순 변심으로 구매 취소할 수 없습니다\")를 보여 주고 동의하면 호출한다. "
-                    + "이후 콘텐츠 시청 URL을 발급받을 수 있다. 자동 구매 확정 시각이 지났어도 FIRST_PLAY로 기록한다. "
+                    + "이후 콘텐츠 시청 URL을 발급받을 수 있다. 자동 구매 확정 시각(autoConfirmAt)이 이미 지났으면 "
+                    + "직접 확정과 같이 CONFIRMED(AUTO), confirmedAt = autoConfirmAt으로 기록한다. "
                     + "이미 CONFIRMED·PAID_OUT이면 바꾸지 않고 200으로 항목을 응답한다. "
                     + "오류: 남의 주문·없는 주문 404 ORDER_NOT_FOUND, 주문에 없는 항목 404 ORDER_ITEM_NOT_FOUND, "
                     + "구매 취소·반환된 항목 409 ORDER_ITEM_NOT_PURCHASED.")

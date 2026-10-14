@@ -129,15 +129,11 @@ public class OrderItem {
      */
     void confirm(LocalDateTime now) {
         requirePurchased();
-        if (now.isBefore(autoConfirmAt)) {
-            markConfirmed(ConfirmationType.DIRECT, now);
-        } else {
-            markConfirmed(ConfirmationType.AUTO, autoConfirmAt);
-        }
+        confirmFirstOf(ConfirmationType.DIRECT, now);
     }
 
     /**
-     * 재생 동의(첫 재생 확정, D7). 자동 구매 확정 시각이 지났어도 구매자가 동의한 사건이므로 첫 재생으로 기록한다 (D38).
+     * 재생 동의(첫 재생 확정, D7). 직접 확정과 같이 자동 구매 확정 시각이 이미 지났으면 자동 확정으로 기록한다 (D34, D38).
      * 이미 구매 확정·지급된 항목은 그대로 둔다(멱등).
      */
     void consentToPlay(LocalDateTime now) {
@@ -145,7 +141,7 @@ public class OrderItem {
             return;
         }
         requirePurchased();
-        markConfirmed(ConfirmationType.FIRST_PLAY, now);
+        confirmFirstOf(ConfirmationType.FIRST_PLAY, now);
     }
 
     /** 구매 취소. 자동 구매 확정 시각 전까지만 된다 */
@@ -161,6 +157,18 @@ public class OrderItem {
     private void requirePurchased() {
         if (status != OrderItemStatus.PURCHASED) {
             throw new LectureException(LectureErrorCode.ORDER_ITEM_NOT_PURCHASED);
+        }
+    }
+
+    /**
+     * 구매 확정은 직접 확정·첫 재생·자동 확정 중 먼저 온 것이다. 자동 구매 확정 시각이 지났으면(배치가 아직 처리하지 않은 경우)
+     * 먼저 온 사건인 자동 확정으로 기록해, 배치 실행 시점과 관계없이 같은 결과가 되게 한다.
+     */
+    private void confirmFirstOf(ConfirmationType type, LocalDateTime now) {
+        if (now.isBefore(autoConfirmAt)) {
+            markConfirmed(type, now);
+        } else {
+            markConfirmed(ConfirmationType.AUTO, autoConfirmAt);
         }
     }
 
