@@ -15,16 +15,21 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
+import org.springframework.messaging.simp.stomp.ConnectionLostException;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
+import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
 import com.hapbang.chat.app.ChatUserUseCase;
@@ -56,6 +61,9 @@ class ChatStompE2ETest {
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
+
+    @Autowired
+    private ConfigurableApplicationContext applicationContext;
 
     private RestTestClient client;
     private WebSocketStompClient stompClient;
@@ -183,16 +191,38 @@ class ChatStompE2ETest {
         assertThat(error.clientMessageId()).isEqualTo("client-3");
     }
 
+    /**
+     * 거절된 구독은 서버가 PROTOCOL_ERROR로 연결을 닫는 것으로 확인한다.
+     * Spring은 ERROR 프레임을 보낸 직후 연결을 닫아서, 다른 전송과 겹치면 ERROR 프레임이 클라이언트에 도착하지 않을 수 있다(#173).
+     * 그래서 ERROR 프레임은 도착했을 때만 문구를 확인한다.
+     */
     @Test
     void 회원_큐가_아닌_경로는_구독할_수_없다() throws Exception {
-        BlockingQueue<String> errorFrames = new LinkedBlockingQueue<>();
-        StompSession outsider = connect(OTHER_INFLUENCER_ID, errorFrames);
+        BlockingQueue<CloseStatus> outsiderDisconnects = new LinkedBlockingQueue<>();
+        ApplicationListener<SessionDisconnectEvent> disconnectListener = event -> {
+            if (event.getUser() != null && String.valueOf(OTHER_INFLUENCER_ID).equals(event.getUser().getName())) {
+                outsiderDisconnects.add(event.getCloseStatus());
+            }
+        };
+        applicationContext.addApplicationListener(disconnectListener);
+        try {
+            StompEvents events = new StompEvents();
+            StompSession outsider = connect(OTHER_INFLUENCER_ID, events);
+            assertThat(outsider.isConnected()).isTrue();
 
-        outsider.subscribe("/queue/chats/messages", new StompSessionHandlerAdapter() {
-        });
+            outsider.subscribe("/queue/chats/messages", new StompSessionHandlerAdapter() {
+            });
 
-        String error = errorFrames.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertThat(error).isNotNull().contains("구독할 수 없는 경로");
+            CloseStatus closeStatus = outsiderDisconnects.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            assertThat(closeStatus).isNotNull();
+            assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+            assertThat(events.transportErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isInstanceOf(ConnectionLostException.class);
+            assertThat(outsider.isConnected()).isFalse();
+            assertThat(events.errorFrames).allSatisfy(error -> assertThat(error).contains("구독할 수 없는 경로"));
+        } finally {
+            applicationContext.removeApplicationListener(disconnectListener);
+        }
     }
 
     private Long createRoom(Long userId, Long targetUserId) {
@@ -221,10 +251,10 @@ class ChatStompE2ETest {
     }
 
     private StompSession connect(Long userId) throws Exception {
-        return connect(userId, new LinkedBlockingQueue<>());
+        return connect(userId, new StompEvents());
     }
 
-    private StompSession connect(Long userId, BlockingQueue<String> errorFrames) throws Exception {
+    private StompSession connect(Long userId, StompEvents events) throws Exception {
         WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
         handshakeHeaders.add(HttpHeaders.COOKIE, E2ESession.login(client, userId, Role.INFLUENCER).cookieHeader());
         StompSessionHandlerAdapter handler = new StompSessionHandlerAdapter() {
@@ -235,7 +265,12 @@ class ChatStompE2ETest {
 
             @Override
             public void handleFrame(StompHeaders headers, Object payload) {
-                errorFrames.add(String.valueOf(headers.getFirst("message")));
+                events.errorFrames.add(String.valueOf(headers.getFirst("message")));
+            }
+
+            @Override
+            public void handleTransportError(StompSession session, Throwable exception) {
+                events.transportErrors.add(exception);
             }
         };
         return stompClient.connectAsync(wsUrl(), handshakeHeaders, new StompHeaders(), handler)
@@ -267,5 +302,13 @@ class ChatStompE2ETest {
      */
     private void waitForSubscriptions() throws InterruptedException {
         Thread.sleep(300);
+    }
+
+    /**
+     * 세션 핸들러가 받은 ERROR 프레임 문구와 전송 오류(연결 끊김 등).
+     */
+    private static class StompEvents {
+        private final BlockingQueue<String> errorFrames = new LinkedBlockingQueue<>();
+        private final BlockingQueue<Throwable> transportErrors = new LinkedBlockingQueue<>();
     }
 }
