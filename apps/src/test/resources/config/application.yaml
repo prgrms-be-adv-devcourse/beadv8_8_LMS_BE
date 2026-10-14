@@ -1,0 +1,7 @@
+# apps 테스트 전용 설정. src/test 아래라 배포 jar와 앱 실행에는 포함되지 않는다.
+# Boot는 classpath:/config/application.yaml을 classpath:/application.yaml보다 우선하므로 main 값을 덮어쓴다.
+# main 파일을 대신하지 않고 아래 값만 바꾼다 (같은 이름의 루트 파일을 두면 main application.yaml을 가린다).
+hapbang:
+  scheduling:
+    # 배치(@ConditionalOnSchedulingEnabled)가 테스트 데이터를 바꾸지 않게 끈다. 배치 테스트는 배치 메서드를 직접 호출한다
+    enabled: false
