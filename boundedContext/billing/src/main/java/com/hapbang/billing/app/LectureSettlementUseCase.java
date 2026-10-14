@@ -15,6 +15,7 @@ import com.hapbang.billing.domain.SettlementStatus;
 import com.hapbang.billing.out.SettlementRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.dto.LectureSettlementCommand;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
