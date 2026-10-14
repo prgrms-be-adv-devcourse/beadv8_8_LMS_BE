@@ -26,7 +26,7 @@ class AppearanceRequestRepositoryTest {
     private static final Long HOST = 1L;
     private static final Long GUEST = 2L;
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 13, 12, 0);
-    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2);
+    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2, 10);
 
     @Autowired
     AppearanceRequestRepository appearanceRequestRepository;

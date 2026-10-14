@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class AppearancePolicyTest {
 
-    private final AppearancePolicy policy = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2);
+    private final AppearancePolicy policy = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2, 10);
 
     @Test
     @DisplayName("최저 출연료보다 적으면 미달로 판단한다")
@@ -45,15 +45,26 @@ class AppearancePolicyTest {
     }
 
     @Test
+    @DisplayName("모집 인원은 1명 이상 최대 모집 인원(10명) 이하만 허용한다")
+    void recruitCount() {
+        assertThat(policy.isRecruitCountAllowed(0)).isFalse();
+        assertThat(policy.isRecruitCountAllowed(1)).isTrue();
+        assertThat(policy.isRecruitCountAllowed(10)).isTrue();
+        assertThat(policy.isRecruitCountAllowed(11)).isFalse();
+    }
+
+    @Test
     @DisplayName("잘못된 정책 값으로는 만들 수 없다")
     void invalidPolicy() {
-        assertThatThrownBy(() -> new AppearancePolicy(0, 30, Duration.ofDays(7), 2))
+        assertThatThrownBy(() -> new AppearancePolicy(0, 30, Duration.ofDays(7), 2, 10))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new AppearancePolicy(20_000, 101, Duration.ofDays(7), 2))
+        assertThatThrownBy(() -> new AppearancePolicy(20_000, 101, Duration.ofDays(7), 2, 10))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new AppearancePolicy(20_000, 30, Duration.ZERO, 2))
+        assertThatThrownBy(() -> new AppearancePolicy(20_000, 30, Duration.ZERO, 2, 10))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new AppearancePolicy(20_000, 30, Duration.ofDays(7), 0))
+        assertThatThrownBy(() -> new AppearancePolicy(20_000, 30, Duration.ofDays(7), 0, 10))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2, 0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

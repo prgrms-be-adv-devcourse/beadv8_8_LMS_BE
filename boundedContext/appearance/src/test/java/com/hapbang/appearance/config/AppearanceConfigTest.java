@@ -35,6 +35,7 @@ class AppearanceConfigTest {
             assertThat(policy.penaltyRatePercent()).isEqualTo(30);
             assertThat(policy.confirmPeriod()).isEqualTo(Duration.ofDays(7));
             assertThat(policy.maxCancelRequestCount()).isEqualTo(2);
+            assertThat(policy.maxRecruitCount()).isEqualTo(10);
         });
     }
 
@@ -47,6 +48,14 @@ class AppearanceConfigTest {
     void externalPropertyOverridesYaml() {
         contextRunner.withPropertyValues("appearance.policy.minimum-fee=30000")
                 .run(context -> assertThat(context.getBean(AppearancePolicy.class).minimumFee()).isEqualTo(30_000));
+    }
+
+    @Test
+    @DisplayName("설정 바인딩은 config의 AppearancePolicyProperties가 하고, 도메인 AppearancePolicy에는 어노테이션이 없다")
+    void policyIsFrameworkFree() {
+        assertThat(AppearancePolicy.class.getAnnotations()).isEmpty();
+        contextRunner.run(context -> assertThat(context).hasSingleBean(AppearancePolicyProperties.class)
+                .hasSingleBean(AppearancePolicy.class));
     }
 
     @Test

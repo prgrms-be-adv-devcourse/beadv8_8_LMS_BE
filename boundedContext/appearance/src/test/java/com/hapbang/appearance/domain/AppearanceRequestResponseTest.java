@@ -25,7 +25,7 @@ class AppearanceRequestResponseTest {
     private static final LocalDateTime DEADLINE = SENT_AT.plusDays(2);
     private static final LocalDateTime BEFORE_DEADLINE = DEADLINE.minusMinutes(1);
     private static final Long VERSION = 3L;
-    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2);
+    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2, 10);
 
     private static AppearanceRequest requested() {
         AppearanceRequest request = AppearanceRequest.create(HOST, GUEST, AppearanceRequestFixture.content(SENT_AT),

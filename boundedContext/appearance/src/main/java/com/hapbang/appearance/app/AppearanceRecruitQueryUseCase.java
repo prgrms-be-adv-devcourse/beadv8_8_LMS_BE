@@ -1,0 +1,82 @@
+package com.hapbang.appearance.app;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+
+import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
+import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
+import com.hapbang.appearance.config.AppearanceConfig;
+import com.hapbang.appearance.domain.AppearanceErrorCode;
+import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearanceRecruit;
+import com.hapbang.appearance.domain.AppearanceRecruitStatus;
+
+import lombok.RequiredArgsConstructor;
+
+/**
+ * 출연 모집글 조회 (공개 목록, 내가 올린 목록, 상세). 트랜잭션은 호출한 {@link AppearanceRecruitFacade}가 연다 (읽기 전용).
+ * <ul>
+ *     <li>공개 목록·상세: 로그인한 회원이면 역할과 관계없이 볼 수 있다 (AGENTS.md 6장 "모집글 조회").
+ *     출연 회원 자격은 확인하지 않는다.</li>
+ *     <li>내가 올린 목록: 호스트 본인의 목록이라 출연 회원 자격(정지·강등)을 확인한다.</li>
+ * </ul>
+ */
+@Service
+@RequiredArgsConstructor
+public class AppearanceRecruitQueryUseCase {
+
+    private final AppearanceRecruitSupport appearanceRecruitSupport;
+    private final AppearanceUserSupport appearanceUserSupport;
+    @Qualifier(AppearanceConfig.CLOCK)
+    private final Clock clock;
+
+    /** 공개 목록. 모집 중이고 마감 일시가 지나지 않은 모집글, 최신순 */
+    public Page<AppearanceRecruitSummaryResDto> getOpen(Pageable pageable) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        Page<AppearanceRecruit> recruits = appearanceRecruitSupport.findOpen(now, pageable);
+        return recruits.map(AppearanceRecruitSummaryResDto::from);
+    }
+
+    /**
+     * 내가 올린 모집글 목록 (호스트).
+     *
+     * @param statuses 상태 필터. 비어 있으면 보이는 상태 전체. 보류 처리 중·실패 상태는 넣을 수 없다
+     */
+    public Page<AppearanceRecruitSummaryResDto> getMine(Long userId, List<AppearanceRecruitStatus> statuses,
+                                                        Pageable pageable) {
+        appearanceUserSupport.getParticipant(userId);
+        Page<AppearanceRecruit> recruits = appearanceRecruitSupport.findByHost(userId, visibleOnly(statuses),
+                pageable);
+        return recruits.map(AppearanceRecruitSummaryResDto::from);
+    }
+
+    /**
+     * 모집글 상세. 보류가 끝나지 않았거나 실패한 모집글은 없는 것으로 응답한다.
+     *
+     * @throws AppearanceException 없거나 볼 수 없는 모집글({@code APPEARANCE_RECRUIT_NOT_FOUND})
+     */
+    public AppearanceRecruitResDto getDetail(Long recruitId) {
+        AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);
+        recruit.validateVisible();
+        return AppearanceRecruitResDto.from(recruit);
+    }
+
+    private List<AppearanceRecruitStatus> visibleOnly(List<AppearanceRecruitStatus> statuses) {
+        if (statuses == null || statuses.isEmpty()) {
+            return AppearanceRecruitStatus.VISIBLE;
+        }
+        for (AppearanceRecruitStatus status : statuses) {
+            if (!status.isVisible()) {
+                throw new AppearanceException(AppearanceErrorCode.INVALID_REQUEST,
+                        "조회할 수 없는 상태입니다: " + status);
+            }
+        }
+        return statuses;
+    }
+}

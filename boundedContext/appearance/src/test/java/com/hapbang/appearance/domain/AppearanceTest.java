@@ -16,7 +16,7 @@ class AppearanceTest {
 
     private static final LocalDateTime SENT_AT = LocalDateTime.of(2026, 10, 13, 12, 0);
     private static final LocalDateTime ACCEPTED_AT = SENT_AT.plusDays(1);
-    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2);
+    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2, 10);
 
     private static AppearanceRequest requested() {
         AppearanceRequest request = AppearanceRequest.create(1L, 2L, AppearanceRequestFixture.content(SENT_AT),
