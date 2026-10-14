@@ -1,6 +1,8 @@
-package com.hapbang.billing.domain;
+package com.hapbang.shared.billing.domain;
 
 // 지급의 근거가 되는 강의 주문 항목·출연 요청·모집 참가자의 종류를 구분한다.
+// 강의·출연이 BillingPort로 지급·위약금 정산을 요청할 때 쓰는 공통 계약이며, 지급 건(SETTLEMENT)에 상수 이름 그대로 저장한다.
+// 상수 이름은 DB CHECK 허용값이므로 바꾸지 않는다.
 public enum SettlementSourceType {
     /** 강의 주문 항목. 강의 판매 수익을 판매자에게 지급한다(구매일 D+30) */
     LECTURE_ORDER_ITEM,
