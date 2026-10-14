@@ -1,5 +1,6 @@
 package com.hapbang.member.app;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Optional;
@@ -125,11 +126,11 @@ public class MemberFacade {
     }
 
     /**
-     * 프로필 사진 올리기: 본인·정상 회원·형식·크기 검사 → S3 업로드 → key 저장.
+     * 프로필 사진 올리기: 본인·정상 회원·형식·크기·내용(매직 넘버) 검사 → S3 업로드 → key 저장.
      * 트랜잭션을 두지 않는다: 업로드하는 동안 DB 커넥션을 잡지 않도록 저장(UseCase)만 트랜잭션으로 한다
      */
     public User uploadProfileImage(Long userId, Long memberId, String contentType, long contentLength,
-                                   InputStream body) {
+                                   InputStream body) throws IOException {
         if (!userId.equals(memberId)) {
             throw new MemberException(MemberErrorCode.PROFILE_IMAGE_FORBIDDEN);
         }

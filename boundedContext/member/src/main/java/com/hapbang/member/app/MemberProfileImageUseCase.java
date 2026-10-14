@@ -1,6 +1,9 @@
 package com.hapbang.member.app;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.SequenceInputStream;
 import java.time.Duration;
 
 import org.springframework.stereotype.Service;
@@ -24,10 +27,14 @@ public class MemberProfileImageUseCase {
     private final S3FileStorage s3FileStorage;
 
     /** 검사 후 새 key로 S3에 올리고 key를 돌려준다. DB를 쓰지 않으므로 트랜잭션 밖에서 부른다 */
-    public String store(Long userId, String contentType, long contentLength, InputStream body) {
+    public String store(Long userId, String contentType, long contentLength, InputStream body) throws IOException {
         ProfileImage.validate(contentType, contentLength);
+        byte[] head = body.readNBytes(ProfileImage.SIGNATURE_LENGTH);
+        ProfileImage.validateSignature(contentType, head);
         String key = ProfileImage.newKey(userId);
-        s3FileStorage.upload(key, ProfileImage.baseType(contentType), contentLength, body);
+        // 읽은 앞부분과 남은 스트림을 이어 붙여 올린다 (전체를 메모리에 모으지 않는다)
+        s3FileStorage.upload(key, ProfileImage.baseType(contentType), contentLength,
+                new SequenceInputStream(new ByteArrayInputStream(head), body));
         return key;
     }
 

@@ -51,6 +51,34 @@ class ProfileImageTest {
     }
 
     @Test
+    @DisplayName("파일 앞부분(매직 넘버)이 헤더 형식과 맞으면 통과한다")
+    void validateSignature_matches() {
+        assertThatCode(() -> ProfileImage.validateSignature("image/jpeg", bytes(0xFF, 0xD8, 0xFF, 0xE0)))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> ProfileImage.validateSignature("image/png",
+                bytes(0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A))).doesNotThrowAnyException();
+        assertThatCode(() -> ProfileImage.validateSignature("image/WEBP; q=1",
+                bytes('R', 'I', 'F', 'F', 1, 2, 3, 4, 'W', 'E', 'B', 'P'))).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("헤더와 내용 형식이 다르거나 너무 짧으면 PROFILE_IMAGE_CONTENT_MISMATCH")
+    void validateSignature_mismatch() {
+        byte[] jpeg = bytes(0xFF, 0xD8, 0xFF, 0xE0);
+        byte[] riffNotWebp = bytes('R', 'I', 'F', 'F', 1, 2, 3, 4, 'W', 'A', 'V', 'E');
+
+        for (Runnable call : new Runnable[] {
+                () -> ProfileImage.validateSignature("image/png", jpeg),
+                () -> ProfileImage.validateSignature("image/webp", riffNotWebp),
+                () -> ProfileImage.validateSignature("image/jpeg", bytes(0xFF, 0xD8)),
+                () -> ProfileImage.validateSignature("image/png", new byte[0])}) {
+            assertThatThrownBy(call::run)
+                    .isInstanceOf(MemberException.class)
+                    .extracting("errorCode").isEqualTo(MemberErrorCode.PROFILE_IMAGE_CONTENT_MISMATCH);
+        }
+    }
+
+    @Test
     @DisplayName("S3 key는 member/profile/{회원ID}/{uuid}이고 올릴 때마다 다르다")
     void newKey() {
         String first = ProfileImage.newKey(7L);
@@ -58,5 +86,13 @@ class ProfileImageTest {
 
         assertThat(first).matches("member/profile/7/[0-9a-f-]{36}");
         assertThat(second).isNotEqualTo(first);
+    }
+
+    private static byte[] bytes(int... values) {
+        byte[] result = new byte[values.length];
+        for (int i = 0; i < values.length; i++) {
+            result[i] = (byte) values[i];
+        }
+        return result;
     }
 }

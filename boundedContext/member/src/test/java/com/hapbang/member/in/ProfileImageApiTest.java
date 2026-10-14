@@ -33,7 +33,10 @@ import com.hapbang.testsupport.TestLogin;
 @Import(S3MockTestcontainersConfig.class)
 class ProfileImageApiTest {
 
-    private static final byte[] IMAGE = {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3};
+    /** 진짜 PNG 시그니처 + 내용. 판별에 읽는 앞 12바이트보다 길게 해서 이어 붙인 업로드도 확인한다 */
+    private static final byte[] IMAGE = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4, 5, 6};
+    /** 진짜 WebP 시그니처: "RIFF" + 크기 4바이트 + "WEBP" */
+    private static final byte[] WEBP = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P', 1, 2};
 
     @Autowired
     MockMvc mockMvc;
@@ -66,7 +69,7 @@ class ProfileImageApiTest {
     @DisplayName("올린 사진은 내 정보·회원 프로필·인플루언서 목록에 조회 URL로 나온다")
     void urlInResponses() throws Exception {
         User influencer = userRepository.save(MemberFixture.member(Role.INFLUENCER));
-        mockMvc.perform(upload(influencer, influencer.getId(), "image/webp", IMAGE)).andExpect(status().isOk());
+        mockMvc.perform(upload(influencer, influencer.getId(), "image/webp", WEBP)).andExpect(status().isOk());
         User viewer = userRepository.save(MemberFixture.user());
 
         mockMvc.perform(get("/api/v1/members/me").with(TestLogin.as(influencer.getId(), influencer.getRole())))
@@ -98,6 +101,19 @@ class ProfileImageApiTest {
         mockMvc.perform(upload(user, user.getId(), "image/gif", IMAGE))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PROFILE_IMAGE_TYPE"));
+    }
+
+    @Test
+    @DisplayName("헤더만 image/png이고 내용이 다른 파일이면 400 PROFILE_IMAGE_CONTENT_MISMATCH, 지정하지 않는다")
+    void upload_contentMismatch() throws Exception {
+        User user = userRepository.save(MemberFixture.user());
+        byte[] html = "<html><script>alert(1)</script></html>".getBytes();
+
+        mockMvc.perform(upload(user, user.getId(), "image/png", html))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PROFILE_IMAGE_CONTENT_MISMATCH"));
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getProfileImageKey()).isNull();
     }
 
     @Test
