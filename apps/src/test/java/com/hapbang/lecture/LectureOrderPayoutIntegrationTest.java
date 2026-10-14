@@ -14,6 +14,11 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -29,6 +34,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
@@ -51,6 +58,7 @@ import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.port.BillingPort;
+import com.hapbang.shared.lecture.port.LectureObjectionPort;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.DatabaseCleanUpListener;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
@@ -104,6 +112,12 @@ class LectureOrderPayoutIntegrationTest {
 
     @Autowired
     BillingPort billingPort;
+
+    @Autowired
+    LectureObjectionPort lectureObjectionPort;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     private final AtomicInteger sequence = new AtomicInteger();
 
@@ -391,6 +405,107 @@ class LectureOrderPayoutIntegrationTest {
         assertThat(wallet(sellerWalletId)).containsEntry("revenue_balance_hp", PRICE_HP);
         assertThat(wallet(buyerWalletId)).containsEntry("held_charge_hp", 0L);
         assertThat(settlementCount()).isEqualTo(1);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 이의 제기 인정 (#156): 보류 반환만, 지급 건 없음
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    void 이의_제기를_인정하면_보류_반환이_항목_반환과_함께_커밋되고_지급_건은_만들지_않는다() {
+        User buyer = buyer("payout-objection-accept");
+        Long buyerWalletId = fundCharge(buyer.getId(), PRICE_HP);
+        walletFacade.getOrCreateWallet(SELLER_ID);
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+
+        // 고객센터처럼 문의 저장과 같은 트랜잭션에서 포트를 부른다
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                lectureObjectionPort.fileObjection(orderItemId, buyer.getId(), 1L, "강의 소개와 영상 내용이 다릅니다."));
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                lectureObjectionPort.resolveObjection(orderItemId, 1L, true, 1L));
+
+        assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("RETURNED ACCEPTED");
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " 0 RELEASED");
+        assertThat(jdbcTemplate.queryForList("SELECT idempotency_key FROM billing.point_hold_detail", String.class))
+                .containsExactly("RELEASE:" + holdId(orderItemId) + ":LECTURE-RETURN-" + orderItemId);
+        assertThat(settlementCount()).isZero();
+        assertThat(wallet(buyerWalletId)).containsEntry("charge_balance_hp", PRICE_HP);
+    }
+
+    @Test
+    void 지급이_끝난_항목은_보류가_닫혀_반환할_수_없어_이의_제기_인정이_billing_오류로_모두_롤백된다() {
+        // 강의는 지급된 항목의 이의 제기 접수를 막고(ALREADY_PAID_OUT), 지급 배치(#150)는 이의 제기 중인 항목을 지급하지 않는다.
+        // 그 순서를 지키지 않고 billing 지급이 먼저 끝난 경우에도 반환은 billing이 거절하고 판단은 롤백된다는 확인이다.
+        User buyer = buyer("payout-objection-after-payout");
+        fundCharge(buyer.getId(), PRICE_HP);
+        Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_ID).getId();
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+        lectureObjectionPort.fileObjection(orderItemId, buyer.getId(), 1L, "강의 소개와 영상 내용이 다릅니다.");
+        billingPort.payout(payout(buyer, orderItemId, "LECTURE-PAYOUT-" + orderItemId));
+        Map<String, Object> before = financialSnapshot();
+
+        assertBillingError(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                lectureObjectionPort.resolveObjection(orderItemId, 1L, true, 1L)), "HOLD_ALREADY_CLOSED");
+
+        assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("PURCHASED FILED");
+        assertThat(financialSnapshot()).isEqualTo(before);
+        assertThat(wallet(sellerWalletId)).containsEntry("revenue_balance_hp", PRICE_HP);
+    }
+
+    @Test
+    void 이의_제기_인정과_지급이_동시에_와도_보류는_한쪽으로만_처리되고_HP가_두_번_움직이지_않는다() throws Exception {
+        User buyer = buyer("payout-objection-race");
+        Long buyerWalletId = fundCharge(buyer.getId(), PRICE_HP);
+        Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_ID).getId();
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+        lectureObjectionPort.fileObjection(orderItemId, buyer.getId(), 1L, "강의 소개와 영상 내용이 다릅니다.");
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Boolean> accept = executor.submit(() -> attempt(start, () -> new TransactionTemplate(
+                    transactionManager).executeWithoutResult(status ->
+                    lectureObjectionPort.resolveObjection(orderItemId, 1L, true, 1L))));
+            Future<Boolean> pay = executor.submit(() -> attempt(start,
+                    () -> billingPort.payout(payout(buyer, orderItemId, "LECTURE-PAYOUT-" + orderItemId))));
+            start.countDown();
+            boolean accepted = accept.get(60, TimeUnit.SECONDS);
+            boolean paid = pay.get(60, TimeUnit.SECONDS);
+
+            // 보류는 구매자 지갑·보류 락으로 직렬화되어 정확히 한쪽만 성공한다
+            assertThat(accepted ^ paid).isTrue();
+            if (accepted) {
+                assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("RETURNED ACCEPTED");
+                assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " 0 RELEASED");
+                assertThat(settlementCount()).isZero();
+            } else {
+                assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("PURCHASED FILED");
+                assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " 0 PAID");
+                assertThat(settlementCount()).isEqualTo(1);
+            }
+        }
+        // 어느 쪽이든 HP 총량은 항목 가격 하나다(구매자 반환 또는 판매자 지급, 중복 없음)
+        long buyerAvailable = (Long) wallet(buyerWalletId).get("charge_balance_hp");
+        long sellerRevenue = (Long) wallet(sellerWalletId).get("revenue_balance_hp");
+        assertThat(buyerAvailable + sellerRevenue).isEqualTo(PRICE_HP);
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_hold_detail", Integer.class))
+                .isEqualTo(1);
+    }
+
+    // 시작 신호를 기다렸다가 실행하고 성공 여부를 돌려준다. billing 업무 예외(먼저 끝난 쪽 때문에 보류가 닫힘)는 실패로 센다.
+    private static boolean attempt(CountDownLatch start, Runnable action) throws InterruptedException {
+        start.await(10, TimeUnit.SECONDS);
+        try {
+            action.run();
+            return true;
+        } catch (BusinessException exception) {
+            assertThat(exception.getErrorCode().getCode()).isEqualTo("HOLD_ALREADY_CLOSED");
+            return false;
+        }
+    }
+
+    private String itemStatusAndObjection(Long orderItemId) {
+        return jdbcTemplate.queryForObject("SELECT status || ' ' || objection_status FROM lectures.order_item "
+                + "WHERE id = ?", String.class, orderItemId);
     }
 
     // ---------------------------------------------------------------------------------------------

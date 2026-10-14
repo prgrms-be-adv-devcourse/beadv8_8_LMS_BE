@@ -39,6 +39,15 @@ public class LectureOrderSupport {
                 .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_NOT_FOUND));
     }
 
+    /**
+     * 이 주문 항목이 속한 주문을 잠가서 읽는다(구매자 확인 없음). 구매자를 모르는 쪽(이의 제기 판단)이 주문을 닫을 수 있을 때 쓴다 (D46).
+     * 주문 ID만 먼저 읽어, 잠그기 전에 항목을 영속성 컨텍스트에 올리지 않는다.
+     */
+    public Optional<LectureOrder> findOrderForUpdateByItemId(Long orderItemId) {
+        return lectureOrderRepository.findOrderIdByItemId(orderItemId)
+                .flatMap(lectureOrderRepository::findForUpdateById);
+    }
+
     /** 이 주문 항목이 속한 주문 (배치용, 구매자 확인 없음) */
     public LectureOrder findOrderByItemId(Long orderItemId) {
         return lectureOrderRepository.findByItemId(orderItemId)

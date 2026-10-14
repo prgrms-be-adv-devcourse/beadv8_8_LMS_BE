@@ -38,6 +38,18 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     @Query("select o from LectureOrder o where o.id = :id and o.buyerUserId = :buyerUserId")
     Optional<LectureOrder> findForUpdate(@Param("id") Long id, @Param("buyerUserId") Long buyerUserId);
 
+    /**
+     * 주문을 행 잠금으로 읽는다. 구매자를 모르는 변경(이의 제기 인정)이 주문을 닫을 수 있을 때 쓴다 (D46).
+     * 항목은 잠근 뒤에 읽어야 하므로 함께 읽지 않는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from LectureOrder o where o.id = :id")
+    Optional<LectureOrder> findForUpdateById(@Param("id") Long id);
+
+    /** 이 주문 항목이 속한 주문의 ID. 주문을 잠그기 전에 항목 엔티티를 읽지 않도록 ID만 읽는다 */
+    @Query("select i.order.id from OrderItem i where i.id = :itemId")
+    Optional<Long> findOrderIdByItemId(@Param("itemId") Long itemId);
+
     /** 구매자가 이 강의를 보유한 항목. 부분 유일 인덱스로 많아야 하나다 */
     default Optional<OrderItem> findHeldItem(Long buyerUserId, Long lectureId) {
         return findItem(buyerUserId, lectureId, HELD_STATUSES);
