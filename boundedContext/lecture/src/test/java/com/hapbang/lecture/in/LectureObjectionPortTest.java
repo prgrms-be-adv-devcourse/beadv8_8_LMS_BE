@@ -20,6 +20,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.global.exception.BusinessException;
 import com.hapbang.lecture.app.LectureOrderFacade;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
@@ -33,6 +34,8 @@ import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.fake.FakeBillingPort;
+import com.hapbang.lecture.fake.FakeLectureSettlementPort;
+import com.hapbang.lecture.fake.FakeLectureSettlementPort.FakeSettlementErrorCode;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -43,7 +46,7 @@ import com.hapbang.shared.lecture.port.LectureObjectionPort;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 고객센터가 부르는 이의 제기 포트를 직접 호출해 DB·HP 반환(Fake billing)·트랜잭션 참여까지 확인한다.
+ * 고객센터가 부르는 이의 제기 포트를 직접 호출해 DB·HP 반환과 지급 예정 취소(Fake billing)·트랜잭션 참여까지 확인한다.
  * 상태 규칙과 기한 경계는 LectureOrderObjectionTest가 맡는다.
  */
 @IntegrationTest
@@ -70,6 +73,9 @@ class LectureObjectionPortTest {
     private FakeBillingPort billingPort;
 
     @Autowired
+    private FakeLectureSettlementPort settlementPort;
+
+    @Autowired
     private PlatformTransactionManager transactionManager;
 
     @Autowired
@@ -79,6 +85,7 @@ class LectureObjectionPortTest {
     @BeforeEach
     void setUp() {
         billingPort.reset();
+        settlementPort.reset();
     }
 
     @Test
@@ -117,7 +124,7 @@ class LectureObjectionPortTest {
     }
 
     @Test
-    void 인정하면_항목이_반환되고_그_항목의_보류_HP를_전부_반환한다() {
+    void 인정하면_항목이_반환되고_그_항목의_보류_HP를_전부_반환하고_지급_예정을_취소한다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         Long orderItemId = order.items().getFirst().orderItemId();
         lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
@@ -137,6 +144,7 @@ class LectureObjectionPortTest {
             assertThat(release.releaseRequestId()).isEqualTo("LECTURE-RETURN-" + orderItemId);
             assertThat(release.isFull()).isTrue();
         });
+        assertThat(settlementPort.cancels()).containsExactly(orderItemId);
         assertThat(lectureOrderFacade.getOrder(BUYER_ID, order.orderId()).status())
                 .isEqualTo(LectureOrderStatus.PAID);
     }
@@ -154,6 +162,7 @@ class LectureObjectionPortTest {
         assertThat(item.getStatus()).isEqualTo(OrderItemStatus.PURCHASED);
         assertThat(item.getObjectionResolvedByUserId()).isEqualTo(ADMIN_ID);
         assertThat(billingPort.releases()).isEmpty();
+        assertThat(settlementPort.cancels()).isEmpty();
     }
 
     @Test
@@ -168,6 +177,21 @@ class LectureObjectionPortTest {
 
         assertFiledAndPurchased(orderItemId);
         assertThat(billingPort.releases()).isEmpty();
+    }
+
+    @Test
+    void 지급_예정_취소가_실패하면_반환과_판단을_롤백한다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        Long orderItemId = order.items().getFirst().orderItemId();
+        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        settlementPort.failCancelsWith(FakeSettlementErrorCode.SETTLEMENT_INVALID_STATE);
+
+        assertThatThrownBy(() -> lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID))
+                .isInstanceOf(BusinessException.class);
+
+        assertFiledAndPurchased(orderItemId);
+        assertThat(billingPort.releases()).isEmpty();
+        assertThat(settlementPort.cancels()).isEmpty();
     }
 
     @Test
@@ -266,6 +290,7 @@ class LectureObjectionPortTest {
         assertThat(saved.items()).extracting(OrderItemResponse::status).containsOnly(OrderItemStatus.RETURNED);
         assertThat(saved.status()).isEqualTo(LectureOrderStatus.CANCELED);
         assertThat(billingPort.releases()).hasSize(2);
+        assertThat(settlementPort.cancels()).containsExactlyInAnyOrderElementsOf(itemIds);
     }
 
     private OrderResponse order(Lecture... lectures) {

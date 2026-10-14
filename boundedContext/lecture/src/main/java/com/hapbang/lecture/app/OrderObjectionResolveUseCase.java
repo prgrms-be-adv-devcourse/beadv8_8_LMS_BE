@@ -14,12 +14,14 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 import com.hapbang.shared.billing.port.BillingPort;
+import com.hapbang.shared.billing.port.LectureSettlementPort;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
 
 /**
- * 이의 제기 판단 (설계 6.4). 인정하면 항목 반환과 그 항목의 보류 HP 반환을 호출한 쪽(고객센터) 트랜잭션에서 함께 한다 (D3·D9).
- * 반환은 billing이 차감했던 HP 종류 그대로 한다 (D42).
+ * 이의 제기 판단 (설계 6.4). 인정하면 항목 반환, 그 항목의 보류 HP 반환, 판매자 지급 예정 건 취소(#182)를
+ * 호출한 쪽(고객센터) 트랜잭션에서 함께 한다 (D3·D9). 반환은 billing이 차감했던 HP 종류 그대로 한다 (D42).
+ * 기각은 지급 예정 건을 그대로 두고, 지급 예정 시각이 지나면 지급 배치가 지급한다.
  */
 @Service
 public class OrderObjectionResolveUseCase {
@@ -30,14 +32,17 @@ public class OrderObjectionResolveUseCase {
     private final LectureOrderSupport lectureOrderSupport;
     private final LectureOrderRepository lectureOrderRepository;
     private final BillingPort billingPort;
+    private final LectureSettlementPort lectureSettlementPort;
     private final Clock clock;
 
     public OrderObjectionResolveUseCase(LectureOrderSupport lectureOrderSupport,
                                         LectureOrderRepository lectureOrderRepository, BillingPort billingPort,
+                                        LectureSettlementPort lectureSettlementPort,
                                         @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderSupport = lectureOrderSupport;
         this.lectureOrderRepository = lectureOrderRepository;
         this.billingPort = billingPort;
+        this.lectureSettlementPort = lectureSettlementPort;
         this.clock = clock;
     }
 
@@ -60,5 +65,7 @@ public class OrderObjectionResolveUseCase {
             throw new IllegalStateException("이의 제기 인정 반환액이 항목 가격과 다릅니다. orderItemId=" + item.getId()
                     + ", priceHp=" + item.getPriceHp() + ", result=" + result);
         }
+        // 구매 취소와 같이 반환 다음에 판매자 지급 예정 건을 취소한다. billing 락 순서(지갑 → 보류 → 지급 건)를 지킨다 (#182)
+        lectureSettlementPort.cancel(item.getId());
     }
 }
