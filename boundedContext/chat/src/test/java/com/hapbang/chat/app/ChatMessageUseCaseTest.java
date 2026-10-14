@@ -147,7 +147,8 @@ class ChatMessageUseCaseTest {
         assertThat(chatMessageSupporter.getMessages(chatRoomId, GUEST_ID, 3L, 30).messages()).isEmpty();
         assertThat(chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 30).messages())
                 .extracting(ChatMessageResponse::content)
-                .containsExactly("다시 왔어요", "게스트님이 나갔습니다.", "저도 나가기 전", "나가기 전 메시지");
+                .containsExactly("다시 왔어요", "게스트님이 다시 들어왔습니다.", "게스트님이 나갔습니다.", "저도 나가기 전",
+                        "나가기 전 메시지");
     }
 
     @Test

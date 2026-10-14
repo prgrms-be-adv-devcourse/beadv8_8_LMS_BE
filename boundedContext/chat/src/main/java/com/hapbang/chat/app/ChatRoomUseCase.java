@@ -1,6 +1,7 @@
 package com.hapbang.chat.app;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -42,7 +43,7 @@ public class ChatRoomUseCase {
      * 1:1 채팅을 시작한다.
      * <ul>
      *     <li>두 사람의 종료되지 않은 방이 있으면 재사용하고, 퇴장했던 사람은 바로 재입장시킨다.
-     *     재입장한 사람은 재입장 이전 메시지를 볼 수 없다.</li>
+     *     재입장한 사람은 재입장 이전 메시지를 볼 수 없다. 남아 있던 사람에게 보낼 재입장 안내를 같은 트랜잭션에서 남긴다.</li>
      *     <li>없으면 새 방을 만든다. 동시에 만들면 유일 제약에 걸리므로 {@link ChatRoomFacade}가 다시 시도한다.</li>
      * </ul>
      */
@@ -61,8 +62,14 @@ public class ChatRoomUseCase {
                 ChatRoom.directKeyOf(requesterId, targetUserId));
         if (existing.isPresent()) {
             ChatRoom chatRoom = existing.get();
-            rejoinLeftMembers(chatRoom, now);
-            return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom, requesterId), false);
+            List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId());
+            List<Long> remainingUserIds = members.stream()
+                    .filter(ChatRoomMember::isActive)
+                    .map(ChatRoomMember::getUserId)
+                    .toList();
+            List<ChatMessageResponse> rejoinNotices = rejoinLeftMembers(chatRoom, members, now);
+            return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom, requesterId), false,
+                    rejoinNotices, rejoinNotices.isEmpty() ? List.of() : remainingUserIds);
         }
 
         ChatRoom chatRoom = chatRoomRepository.saveAndFlush(ChatRoom.createDirect(requesterId, targetUserId, now));
@@ -73,7 +80,7 @@ public class ChatRoomUseCase {
         }
         log.info("채팅방 생성 chatRoomId={}, requesterId={}, targetUserId={}", chatRoom.getId(), requesterId,
                 targetUserId);
-        return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom, requesterId), true);
+        return ChatRoomCreateResult.created(chatRoomSupporter.toResponse(chatRoom, requesterId));
     }
 
     /**
@@ -140,16 +147,28 @@ public class ChatRoomUseCase {
                 chatRoom.readableSequence(lastReadSequence));
     }
 
-    private void rejoinLeftMembers(ChatRoom chatRoom, LocalDateTime now) {
-        for (ChatRoomMember member : chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId())) {
+    /**
+     * 퇴장했던 회원을 재입장시킨다. 재입장 안내를 먼저 저장한 뒤 재입장시켜서, 안내는 남아 있던 회원에게만 보이고
+     * 재입장한 회원의 조회 범위(안내 다음 순번부터)에는 들어가지 않는다.
+     *
+     * @return 남아 있던 회원에게 보낼 재입장 안내. 재입장한 회원이 없으면 빈 목록
+     */
+    private List<ChatMessageResponse> rejoinLeftMembers(ChatRoom chatRoom, List<ChatRoomMember> members,
+            LocalDateTime now) {
+        List<ChatMessageResponse> rejoinNotices = new ArrayList<>();
+        for (ChatRoomMember member : members) {
             if (!member.isActive()) {
+                ChatMessage rejoinNotice = chatMessageRepository.save(ChatMessage.rejoinNotice(chatRoom,
+                        member.getUserId(), chatRoomSupporter.displayNicknameOf(member.getUserId()), now));
                 member.rejoin(now);
                 chatRoomLogRepository.save(
                         ChatRoomLog.record(chatRoom, member.getUserId(), ChatRoomEventType.MEMBER_REJOINED, now));
+                rejoinNotices.add(ChatMessageResponse.from(rejoinNotice));
                 log.info("채팅방 재입장 chatRoomId={}, userId={}, visibleFromSequence={}", chatRoom.getId(),
                         member.getUserId(), member.getVisibleFromSequence());
             }
         }
+        return rejoinNotices;
     }
 
 }

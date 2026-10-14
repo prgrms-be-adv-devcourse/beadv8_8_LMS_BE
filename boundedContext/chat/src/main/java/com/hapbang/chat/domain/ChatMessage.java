@@ -84,6 +84,14 @@ public class ChatMessage {
         return new ChatMessage(chatRoom, leftUserId, ChatMessageType.SYSTEM, nickname + "님이 나갔습니다.", now);
     }
 
+    /**
+     * 퇴장했던 회원이 다시 들어왔음을 알리는 시스템 메시지. 서버만 만든다. 보낸 사람은 재입장한 회원으로 기록한다.
+     */
+    public static ChatMessage rejoinNotice(ChatRoom chatRoom, Long rejoinedUserId, String nickname,
+            LocalDateTime now) {
+        return new ChatMessage(chatRoom, rejoinedUserId, ChatMessageType.SYSTEM, nickname + "님이 다시 들어왔습니다.", now);
+    }
+
     public boolean isDeleted() {
         return deletedAt != null;
     }

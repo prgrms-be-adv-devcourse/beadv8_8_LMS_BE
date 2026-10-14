@@ -44,4 +44,14 @@ class ChatMessageTest {
                 .hasMessage("메시지 내용이 비어 있습니다.");
         assertThat(room.getLastSequence()).isZero();
     }
+
+    @Test
+    void 재입장_안내는_재입장한_회원이_보낸_시스템_메시지다() {
+        ChatMessage notice = ChatMessage.rejoinNotice(directRoom(), GUEST_ID, "게스트", NOW);
+
+        assertThat(notice.getMessageType()).isEqualTo(ChatMessageType.SYSTEM);
+        assertThat(notice.getSenderUserId()).isEqualTo(GUEST_ID);
+        assertThat(notice.getContent()).isEqualTo("게스트님이 다시 들어왔습니다.");
+        assertThat(notice.getRoomSequence()).isEqualTo(1);
+    }
 }

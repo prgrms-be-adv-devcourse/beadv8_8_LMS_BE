@@ -158,6 +158,35 @@ class ChatStompE2ETest {
         assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
     }
 
+    @Test
+    void 나간_상대가_다시_채팅을_시작하면_남은_사람에게만_재입장_안내가_실시간으로_간다() throws Exception {
+        Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
+        client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
+                .headers(E2ESession.login(client, GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
+                .exchange()
+                .expectStatus().isNoContent();
+        StompSession host = connect(HOST_ID);
+        StompSession guest = connect(GUEST_ID);
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
+                ChatMessageResponse.class);
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
+                ChatMessageResponse.class);
+        waitForSubscriptions();
+
+        client.post().uri("/api/v1/chats")
+                .headers(E2ESession.login(client, GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
+                .body(new CreateChatRoomRequest(HOST_ID))
+                .exchange()
+                .expectStatus().isOk();
+
+        ChatMessageResponse rejoinNotice = hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(rejoinNotice).isNotNull();
+        assertThat(rejoinNotice.messageType()).isEqualTo(ChatMessageType.SYSTEM);
+        assertThat(rejoinNotice.content()).isEqualTo("게스트님이 다시 들어왔습니다.");
+        assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(messageContents(chatRoomId, HOST_ID)).first().isEqualTo("게스트님이 다시 들어왔습니다.");
+    }
+
     // 화면 닫기(연결 끊김)는 퇴장이 아니다.
     @Test
     void 연결이_끊겨도_퇴장으로_처리하지_않는다() throws Exception {
