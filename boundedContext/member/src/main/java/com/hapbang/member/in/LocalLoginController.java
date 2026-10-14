@@ -52,6 +52,6 @@ public class LocalLoginController {
         context.setAuthentication(new OAuth2AuthenticationToken(principal, principal.getAuthorities(), "local"));
         securityContextRepository.saveContext(context, httpRequest, httpResponse);
 
-        return RsData.ok("테스트 계정으로 로그인했습니다.", MemberMeResponse.from(user));
+        return RsData.ok("테스트 계정으로 로그인했습니다.", MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey())));
     }
 }

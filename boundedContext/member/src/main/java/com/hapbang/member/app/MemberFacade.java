@@ -1,5 +1,6 @@
 package com.hapbang.member.app;
 
+import java.io.InputStream;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,6 +35,7 @@ public class MemberFacade {
     private final MemberChannelRegisterUseCase memberChannelRegisterUseCase;
     private final MemberChannelApprovalUseCase memberChannelApprovalUseCase;
     private final MemberChannelSupport memberChannelSupport;
+    private final MemberProfileImageUseCase memberProfileImageUseCase;
 
     // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
     private static final String USER_ONLY = "hasRole('USER')";
@@ -120,5 +122,30 @@ public class MemberFacade {
     @Transactional(readOnly = true)
     public List<InfluencerChannel> findChannels(Long userId) {
         return memberChannelSupport.findChannels(userId);
+    }
+
+    /**
+     * 프로필 사진 올리기: 본인·정상 회원·형식·크기 검사 → S3 업로드 → key 저장.
+     * 트랜잭션을 두지 않는다: 업로드하는 동안 DB 커넥션을 잡지 않도록 저장(UseCase)만 트랜잭션으로 한다
+     */
+    public User uploadProfileImage(Long userId, Long memberId, String contentType, long contentLength,
+                                   InputStream body) {
+        if (!userId.equals(memberId)) {
+            throw new MemberException(MemberErrorCode.PROFILE_IMAGE_FORBIDDEN);
+        }
+        // 우리 DB로 판단할 수 있는 건 업로드 전에 막는다 (저장 때 한 번 더 확인)
+        memberSupport.findActiveUser(userId);
+        String key = memberProfileImageUseCase.store(userId, contentType, contentLength, body);
+        return memberProfileImageUseCase.change(userId, key);
+    }
+
+    /** 프로필 사진 연결 해제 (DB에서만, S3 파일은 그대로) */
+    public User deleteProfileImage(Long userId) {
+        return memberProfileImageUseCase.change(userId, null);
+    }
+
+    /** 프로필 사진 조회 URL (응답을 만들 때 쓴다). 사진이 없으면 null */
+    public String profileImageUrl(String key) {
+        return memberProfileImageUseCase.urlOf(key);
     }
 }
