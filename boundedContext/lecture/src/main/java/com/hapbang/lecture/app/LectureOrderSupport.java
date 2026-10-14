@@ -33,6 +33,12 @@ public class LectureOrderSupport {
                 .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_NOT_FOUND));
     }
 
+    /** 이 주문 항목이 속한 주문 (배치용, 구매자 확인 없음) */
+    public LectureOrder findOrderByItemId(Long orderItemId) {
+        return lectureOrderRepository.findByItemId(orderItemId)
+                .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_ITEM_NOT_FOUND));
+    }
+
     /** 구매자가 이 강의를 보유한(구매·구매 확정·지급) 항목 */
     public Optional<OrderItem> findHeldItem(Long buyerUserId, Long lectureId) {
         return lectureOrderRepository.findHeldItem(buyerUserId, lectureId);
