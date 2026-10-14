@@ -10,6 +10,7 @@ import com.hapbang.customersupport.app.dto.InquirySummaryResponse;
 import com.hapbang.customersupport.domain.InquiryStatus;
 import com.hapbang.customersupport.in.dto.CreateInquiryRequest;
 import com.hapbang.customersupport.in.dto.InquiryReplyRequest;
+import com.hapbang.customersupport.in.dto.ObjectionResolutionRequest;
 import com.hapbang.global.response.RsData;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,7 +31,12 @@ public interface ApiV1InquirySpec {
 
     int KEYWORD_MAX_LENGTH = 100;
 
-    @Operation(summary = "문의 접수", description = "새 문의를 접수한다(201). 접수한 문의는 답변 대기(WAITING) 상태다.")
+    @Operation(summary = "문의 접수", description = """
+            새 문의를 접수한다(201). 접수한 문의는 답변 대기(WAITING) 상태다.
+            강의 내용 다름 이의 제기(`LECTURE_CONTENT_DISPUTE`)는 `orderItemId`(강의 주문 항목 ID)가 필수이고, 접수하면 그 항목의 판매자 지급이 멈춘다.
+            `orderItemId`가 없으면 400(INQUIRY_TARGET_REQUIRED), 다른 유형에 보내면 400(INQUIRY_TARGET_NOT_ALLOWED).
+            접수할 수 없으면 문의가 만들어지지 않는다: 404(OBJECTION_NOT_BUYER), 409(OBJECTION_NOT_OBJECTIONABLE,
+            OBJECTION_ALREADY_PAID_OUT, OBJECTION_ALREADY_FILED, OBJECTION_PERIOD_EXPIRED).""")
     RsData<InquiryResponse> createInquiry(Long userId, @Valid CreateInquiryRequest request);
 
     @Operation(summary = "내 문의 목록", description = """
@@ -48,7 +54,8 @@ public interface ApiV1InquirySpec {
 
     @Operation(summary = "내 문의 삭제", description = """
             답변 대기(WAITING)인 내 문의만 삭제할 수 있다(204). 답변 완료면 409(INQUIRY_NOT_DELETABLE).
-            다른 회원의 문의나 이미 삭제된 문의는 404(INQUIRY_NOT_FOUND). 본문은 분쟁 확인용으로 남는다(Soft Delete).""")
+            다른 회원의 문의나 이미 삭제된 문의는 404(INQUIRY_NOT_FOUND). 본문은 분쟁 확인용으로 남는다(Soft Delete).
+            강의 내용 다름 이의 제기 문의는 아직 삭제할 수 없다 409(OBJECTION_INQUIRY_NOT_DELETABLE). 철회 연동 후 판단 전 철회로 바뀐다.""")
     ResponseEntity<Void> deleteInquiry(Long userId, Long inquiryId);
 
     @Operation(summary = "문의 목록 (관리자)", description = """
@@ -72,8 +79,15 @@ public interface ApiV1InquirySpec {
             없거나 삭제된 답변은 404(INQUIRY_REPLY_NOT_FOUND).""")
     RsData<InquiryResponse> editReply(Long inquiryId, Long replyId, @Valid InquiryReplyRequest request);
 
+    @Operation(summary = "이의 제기 판단 (관리자)", description = """
+            강의 내용 다름 이의 제기를 인정(`accepted: true`)하거나 기각한다. 판단 안내 답변(`content`)을 함께 달아 답변 완료(ANSWERED)가 된다.
+            인정하면 해당 주문 항목의 HP를 구매자에게 반환하고, 기각하면 지급 예정 시각에 판매자에게 지급한다. 판단은 한 번만 한다.
+            이의 제기 문의가 아니면 400(NOT_OBJECTION_INQUIRY), 이미 판단했으면 409(OBJECTION_ALREADY_RESOLVED),
+            강의 쪽에서 판단할 수 없으면 409(OBJECTION_NOT_FILED, OBJECTION_INQUIRY_MISMATCH). 삭제된 문의는 404(INQUIRY_NOT_FOUND).""")
+    RsData<InquiryResponse> resolveObjection(Long userId, Long inquiryId, @Valid ObjectionResolutionRequest request);
+
     @Operation(summary = "답변 삭제 (관리자)", description = """
-            답변을 지운다(204, Soft Delete). 남은 답변이 없으면 문의가 답변 대기(WAITING)로 돌아간다.
+            답변을 지운다(204, Soft Delete). 남은 답변이 없으면 문의가 답변 대기(WAITING)로 돌아간다(판단한 이의 제기는 답변 완료로 남는다).
             없거나 삭제된 답변은 404(INQUIRY_REPLY_NOT_FOUND).""")
     ResponseEntity<Void> deleteReply(Long inquiryId, Long replyId);
 }

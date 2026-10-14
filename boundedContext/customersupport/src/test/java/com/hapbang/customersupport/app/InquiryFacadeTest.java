@@ -39,7 +39,7 @@ class InquiryFacadeTest {
     void 접수_응답에_ID와_작성_시각이_담긴다() {
         loginAs("USER");
 
-        InquiryResponse created = inquiryFacade.create(USER_ID, InquiryCategory.OTHER, "제목", "내용");
+        InquiryResponse created = inquiryFacade.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null);
 
         assertThat(created.inquiryId()).isNotNull();
         assertThat(created.createdAt()).isNotNull();
@@ -49,7 +49,7 @@ class InquiryFacadeTest {
     @Test
     void 답변_응답에_기존_답변과_새_답변의_ID와_작성_시각이_담긴다() {
         loginAs("USER");
-        Long inquiryId = inquiryFacade.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").inquiryId();
+        Long inquiryId = inquiryFacade.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).inquiryId();
         loginAs("ADMIN");
         inquiryFacade.reply(inquiryId, ADMIN_ID, "첫 답변");
 
@@ -66,7 +66,7 @@ class InquiryFacadeTest {
     @Test
     void 답변_수정_응답에_답변_목록이_담긴다() {
         loginAs("USER");
-        Long inquiryId = inquiryFacade.create(USER_ID, InquiryCategory.OTHER, "제목", "내용").inquiryId();
+        Long inquiryId = inquiryFacade.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).inquiryId();
         loginAs("ADMIN");
         Long replyId = inquiryFacade.reply(inquiryId, ADMIN_ID, "첫 답변").replies().getFirst().replyId();
 

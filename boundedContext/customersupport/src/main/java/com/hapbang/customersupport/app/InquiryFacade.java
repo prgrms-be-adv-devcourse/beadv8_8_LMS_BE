@@ -26,8 +26,9 @@ public class InquiryFacade {
     private final InquirySupporter inquirySupporter;
 
     @PreAuthorize(CustomerSupportRoles.MEMBER)
-    public InquiryResponse create(Long userId, InquiryCategory category, String title, String content) {
-        return InquiryResponse.of(inquiryUseCase.create(userId, category, title, content));
+    public InquiryResponse create(Long userId, InquiryCategory category, String title, String content,
+                                  Long orderItemId) {
+        return InquiryResponse.of(inquiryUseCase.create(userId, category, title, content, orderItemId));
     }
 
     @PreAuthorize(CustomerSupportRoles.MEMBER)
@@ -64,6 +65,11 @@ public class InquiryFacade {
     @PreAuthorize(CustomerSupportRoles.ADMIN)
     public InquiryResponse editReply(Long inquiryId, Long replyId, String content) {
         return InquiryResponse.of(inquiryUseCase.editReply(inquiryId, replyId, content));
+    }
+
+    @PreAuthorize(CustomerSupportRoles.ADMIN)
+    public InquiryResponse resolveObjection(Long inquiryId, Long adminUserId, boolean accepted, String replyContent) {
+        return InquiryResponse.of(inquiryUseCase.resolveObjection(inquiryId, adminUserId, accepted, replyContent));
     }
 
     @PreAuthorize(CustomerSupportRoles.ADMIN)
