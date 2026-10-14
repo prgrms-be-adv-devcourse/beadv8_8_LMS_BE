@@ -49,6 +49,11 @@ spring:
     jdbc:
       # 세션 테이블(spring_session)을 앱 시작 시 만든다 (이미 있으면 건너뜀)
       initialize-schema: always
+  task:
+    scheduling:
+      pool:
+        # @Scheduled 배치 스레드 수 (SchedulingConfig). 기본 1개면 긴 배치가 다른 배치를 늦춘다
+        size: 4
   security:
     oauth2:
       client:
@@ -75,6 +80,10 @@ management:
       show-details: never
 
 hapbang:
+  scheduling:
+    # @ConditionalOnSchedulingEnabled 배치 빈을 만든다. apps 테스트는 src/test/resources/config/application.yaml에서 끈다.
+    # 모듈 테스트는 이 파일을 읽지 않아 꺼져 있다
+    enabled: true
   storage:
     s3:
       region: ap-northeast-2

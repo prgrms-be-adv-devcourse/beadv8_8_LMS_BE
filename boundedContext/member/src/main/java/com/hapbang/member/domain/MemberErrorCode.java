@@ -14,6 +14,10 @@ public enum MemberErrorCode implements BaseErrorCode {
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다."),
     /** 로컬 로그인: 해당 역할·번호의 테스트 계정이 없음 */
     TEST_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "테스트 계정이 없습니다."),
+    INVALID_PROFILE_IMAGE_TYPE(HttpStatus.BAD_REQUEST, "프로필 사진은 jpeg·png·webp만 올릴 수 있습니다."),
+    INVALID_PROFILE_IMAGE_SIZE(HttpStatus.BAD_REQUEST, "프로필 사진은 5MB 이하로 올려 주세요."),
+    /** 주소의 회원 ID가 내 ID가 아님 (회원 ID는 프로필에서 공개라 404로 숨기지 않는다) */
+    PROFILE_IMAGE_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 프로필 사진만 올릴 수 있습니다."),
     INVALID_NICKNAME_LENGTH(HttpStatus.BAD_REQUEST, "닉네임은 2~12자로 입력해 주세요."),
     INVALID_NICKNAME_CHARACTER(HttpStatus.BAD_REQUEST, "닉네임은 한글·영문·숫자·공백·밑줄만 쓸 수 있습니다."),
     INVALID_NICKNAME_SPACE(HttpStatus.BAD_REQUEST, "닉네임에 공백을 연속으로 쓸 수 없습니다."),

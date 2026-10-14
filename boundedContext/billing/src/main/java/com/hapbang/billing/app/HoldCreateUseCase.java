@@ -29,6 +29,7 @@ import com.hapbang.billing.out.PointChargeUsageRepository;
 import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
+import com.hapbang.shared.billing.dto.HoldCommand;
 
 import lombok.RequiredArgsConstructor;
 
@@ -54,24 +55,30 @@ public class HoldCreateUseCase {
     private final PointLedgerRepository pointLedgerRepository;
     private final LedgerRecordUseCase ledgerRecordUseCase;
 
-    // 지갑 락 → 기존 보류 확인 → 배분 계산 → 충전 건 락·원금 대조 → 보류 저장·FIFO 배분 → 원장 기록 순으로 처리한다.
+    // 지갑 락 → 기존 원장·보류 확인 → 배분 계산 → 충전 건 락·원금 대조 → 보류 저장·FIFO 배분 → 원장 기록 순으로 처리한다.
     // 호출한 쪽 트랜잭션이 있으면 그 안에서 실행되며, 어느 단계든 실패하면 보류·배분·충전 원금·원장·지갑 변경이 모두 롤백된다.
     @Transactional
     public HoldResult hold(HoldCommand command) {
+        BillingCommandValidator.verify(command);
         // 금융 거래에서는 지갑을 자동 생성하지 않는다.
         Long walletId = walletRepository.findByUserId(command.userId())
                 .map(Wallet::getId)
                 .orElseThrow(() -> new BillingException(BillingErrorCode.WALLET_NOT_FOUND));
         // 같은 지갑의 보류·원장 기록은 이 락으로 직렬화되므로, 락 이후의 조회는 먼저 커밋된 보류와 원장을 본다.
+        // 다른 지갑의 같은 참조 대상 보류는 이 락으로 막히지 않고, 보류 멱등키 UNIQUE가 최종으로 막는다.
         Wallet wallet = ledgerRecordUseCase.lockWallet(walletId);
 
-        String key = command.idempotencyKey();
+        // READ COMMITTED에서는 SELECT마다 그 시점에 커밋된 데이터를 보므로 원장을 먼저, 보류를 나중에 읽는다.
+        // 보류와 원장은 한 트랜잭션에서 함께 커밋되므로, 먼저 읽은 원장이 보이면 나중에 읽는 보류도 반드시 보인다.
+        // 반대 순서면 두 조회 사이에 다른 지갑의 보류가 커밋될 때 원장만 보여 정상 경쟁을 불일치로 잘못 판단한다.
+        String key = BillingKeys.hold(command);
+        boolean ledgerExists = !pointLedgerRepository.findAllByOperationKeyOrderByIdAsc(key).isEmpty();
         Optional<PointHold> existing = pointHoldRepository.findByIdempotencyKey(key);
         if (existing.isPresent()) {
             return replay(command, wallet, existing.get());
         }
         // 보류 없이 원장만 있는 상태는 정상 재요청이 아니므로 새로 보류하지 않는다.
-        if (!pointLedgerRepository.findAllByOperationKeyOrderByIdAsc(key).isEmpty()) {
+        if (ledgerExists) {
             throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
         }
 
@@ -161,7 +168,7 @@ public class HoldCreateUseCase {
         return (hold.getOriginalRevenueHp() > 0 ? 2 : 0) + (hold.getOriginalChargeHp() > 0 ? 2 : 0);
     }
 
-    // 보류를 INSERT하고, 다른 지갑의 같은 참조 대상 보류가 먼저 커밋되어 멱등키 UNIQUE 충돌이 나면 IDEMPOTENCY_KEY_CONFLICT로 바꿔 전체를 롤백시킨다.
+    // 보류를 INSERT하고, 조회 이후 다른 지갑의 같은 참조 대상 보류가 먼저 커밋되어(또는 커밋 전 INSERT를 기다린 뒤) 멱등키 UNIQUE 충돌이 나면 IDEMPOTENCY_KEY_CONFLICT로 바꿔 전체를 롤백시킨다.
     private PointHold save(PointHold hold) {
         try {
             return pointHoldRepository.save(hold);

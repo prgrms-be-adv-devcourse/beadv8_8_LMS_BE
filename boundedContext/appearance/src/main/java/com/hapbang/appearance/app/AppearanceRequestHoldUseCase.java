@@ -53,11 +53,15 @@ public class AppearanceRequestHoldUseCase {
         }
     }
 
-    /** 보류 성공 → {@code REQUESTED} */
+    /**
+     * 보류 성공 → {@code REQUESTED}.
+     * 응답에 담는 버전이 DB와 같도록 바로 반영(flush)한 뒤 응답을 만든다. 게스트는 이 버전으로 수락한다.
+     */
     @Transactional
     public AppearanceRequestResDto markRequested(Long requestId) {
         AppearanceRequest request = appearanceRequestSupport.getById(requestId);
         request.markRequested();
+        appearanceRequestSupport.flush();
         return AppearanceRequestResDto.from(request);
     }
 

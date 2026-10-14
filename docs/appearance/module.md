@@ -1,7 +1,7 @@
 # 출연(Appearance) 모듈: 정책과 구조
 
 출연 모듈이 지키는 정책, 모듈 구조, 다른 모듈과의 연동, DB 스키마를 정리한 문서다.
-현재 구현된 범위(#26, #31, #50, #98)를 기준으로 하며, 기능이 추가될 때마다 함께 갱신한다.
+현재 구현된 범위(#26, #31, #50, #98, #144, #137)를 기준으로 하며, 기능이 추가될 때마다 함께 갱신한다.
 
 - 오류 코드: [error-codes.md](error-codes.md)
 - 테스트 명세: [test-spec.md](test-spec.md)
@@ -31,7 +31,10 @@
 | 출연 회원 복제, 호스트·게스트 자격 확인, 팀 공통 로그인 적용 | ✅ | #31 |
 | 회원 정보 변경 이벤트 반영 | ✅ | #50 |
 | 출연 요청서 보내기(HP 보류)·조회·기본 정보 수정 | ✅ | #98 |
-| 출연 요청 응답(수락·거절·만료·취소) / 출연 모집·지원 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
+| 출연 요청 API 성공 응답 `RsData` | ✅ | #144 |
+| 출연 요청 응답(수락·거절·응답 전 취소), 출연 성립, HP 작업(반환) 기록·즉시 실행 | ✅ | #137 |
+| HP 작업 재시도·격리, 수락 기한 만료, 보류 재확인 (스케줄러) | ⬜ 예정 | — |
+| 출연 모집·지원 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
 
 ---
 
@@ -120,11 +123,19 @@ com.hapbang.appearance
 | `app.AppearanceRequestHoldUseCase` | 보내기 2·3단계: Billing 보류 요청(트랜잭션 밖), 결과 반영 `markRequested`/`markHoldFailed` (자체 트랜잭션) |
 | `app.AppearanceRequestQueryUseCase` | 보낸·받은 목록, 상세 (출연 회원 자격과 조회 권한 확인) |
 | `app.AppearanceRequestUpdateUseCase` | 기본 정보 수정 |
+| `domain.Appearance`, `AppearanceStatus`, `AppearanceSourceType` | 출연(성립 후 공통 단위). 출연료·방송 예정 일시 스냅샷 |
+| `domain.HpTask`, `HpTaskStatus`·`HpTaskType`·`HpTaskRefType`·`HpTaskReason` | HP 작업(반환 등 Billing 호출 한 건). 기록·성공·실패 |
+| `app.AppearanceRequestAcceptUseCase` | 수락: 요청서 `ACCEPTED` + 출연 성립 (Facade 트랜잭션) |
+| `app.AppearanceRequestRejectUseCase`, `AppearanceRequestCancelUseCase` | 거절·응답 전 취소: 상태 변경 + 반환 작업 기록 (자체 트랜잭션) |
+| `app.AppearanceRequestReleaseRecorder` | 거절·취소 공통: 상태 반영(버전 충돌 409) + 반환 작업 기록 |
+| `app.HpTaskExecuteUseCase` | HP 작업 1회 실행: Billing 호출(트랜잭션 밖) → 성공 `DONE` / 실패 기록 (`TransactionTemplate`) |
+| `app.AppearanceSupport`, `HpTaskSupport` | 출연·HP 작업 저장소 접근 |
 | `app.AppearanceRequestSupport` | 요청서 저장소 접근: `getById`, `existsInProgress`, `saveNow`, `findSent`, `findReceived` (최신순 고정) |
 | `in.ApiV1AppearanceRequestController`, `ApiV1AppearanceRequestSpec` | 출연 요청서 REST API(Facade만 호출)와 Swagger 명세 (요청 값 검증은 Spec에) |
 | `in.AppearanceUserEventListener` | 회원 가입·변경 이벤트 수신 → `AppearanceUserFacade` |
 | `out.AppearanceUserRepository` | 출연 회원 저장·조회 |
 | `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
+| `out.AppearanceRepository`, `HpTaskRepository` | 출연, HP 작업 저장·조회 |
 | `out.billing.BillingClient` | Billing과 주고받는 값(계약) |
 | `out.billing.FakeBillingClient` | 계약 확정 전까지 쓰는 메모리 구현 (테스트에서 잔액·무응답 조절) |
 | `out.billing.BillingUnavailableException` | Billing 무응답(타임아웃 등). 처리 여부를 알 수 없어 같은 멱등 키로 다시 확인해야 함 |
@@ -185,10 +196,35 @@ com.hapbang.appearance
 - `refType`: `APPEARANCE_REQUEST`(출연 요청서) / `APPEARANCE_RECRUIT`(출연 모집글). 보류는 이 단위로 1건이고, 반환·지급은 나눠서 처리한다.
 - 멱등 키 형식: `{refType}-{refId}-{동작}-{순번}` (예: `APPEARANCE_REQUEST-12-HOLD-1`, `BillingClient.idempotencyKey()`로 만든다). 같은 키로 다시 요청하면 처음 결과를 돌려받는다.
 - Billing이 응답하지 않으면 `BillingUnavailableException`. 출연 모듈은 대상을 그대로 두고 나중에 같은 멱등 키로 다시 확인한다.
+- **반환·지급처럼 업무 상태 변경 뒤에 하는 Billing 호출은 HP 작업(`appearances.hp_tasks`)으로 기록하고 실행한다** (아래 4.3, #137).
 - 사유
     - 반환: `REQUEST_REJECTED`, `REQUEST_EXPIRED`, `REQUEST_CANCELED`, `CANCEL_AGREED`, `NO_SHOW`, `RECRUIT_UNDERFILLED`, `RECRUIT_CANCELED`, `HOST_CANCELED`
     - 지급: `APPEARANCE_CONFIRMED`, `HOST_CANCEL_PENALTY`
 - 구현체는 `appearance.billing.mode`로 고른다. 현재는 `fake`(메모리 구현)만 있으며, 계약이 확정되면 HTTP 구현으로 교체한다.
+
+### 4.3 HP 작업 (실패한 Billing 호출의 기록·재처리, #137)
+
+Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모름, 커밋 직후 서버 종료, 영구 실패, 중복 실행)를 출연 모듈 안에서 처리한다. 멘토링 답변("모듈 내부에서 처리, DLQ 등")과 팀 의견("모듈마다 실패 처리 방식이 다를 수 있다")에 따랐다.
+
+```
+[거절·응답 전 취소]
+  트랜잭션 ┌ 요청서 → REJECTED / CANCELED
+          └ hp_tasks에 반환 작업 PENDING 기록 (멱등 키 APPEARANCE_REQUEST-{id}-RELEASE-1)
+  커밋 → 반환 작업 1회 실행 (트랜잭션 밖에서 Billing 호출)
+          ├ 성공 → DONE
+          └ 실패 → PENDING 유지, 시도 횟수 +1, 마지막 오류, 다음 시도 시각 기록 (사용자 요청은 성공으로 응답)
+[재시도 스케줄러, 예정]
+  다음 시도 시각이 지난 PENDING 작업 실행, 간격 늘리기, 최대 횟수 초과 시 DEAD(격리, DLQ) + 오류 로그
+```
+
+| 상태 | 의미 | 화면 (`hpReleaseStatus`) |
+|---|---|---|
+| `PENDING` | 처리 대기 또는 재시도 중 | "HP 반환 처리 중" |
+| `DONE` | 완료 | "반환 완료" |
+| `DEAD` | 최대 재시도 초과, 격리 | "반환 지연, 고객센터 문의" |
+
+- 왜 이 방식인가: Modulith 이벤트 재실행은 시도 횟수·격리를 업무 기준으로 관리하기 어렵고, 요청서에 상태 컬럼을 두면 Billing 호출이 생기는 테이블마다 같은 컬럼·재시도 로직이 반복된다. HP 작업 테이블 하나로 반환·지급·정산을 같은 방식으로 처리한다.
+- 멱등 키가 같아 여러 번 실행해도 HP가 두 번 움직이지 않는다 (같은 키로 작업을 두 번 기록하는 것도 DB가 막음).
 
 ---
 
@@ -223,7 +259,8 @@ com.hapbang.appearance
 | `fee` | BIGINT | 출연료 (HP) |
 | `accept_deadline` | TIMESTAMP(6) | 수락 기한 |
 | `status` | VARCHAR(255) | `HOLD_PENDING` / `HOLD_FAILED` / `REQUESTED` / `ACCEPTED` / `REJECTED` / `EXPIRED` / `CANCELED` |
-| `reject_reason`, `responded_at`, `canceled_at` | VARCHAR(500), TIMESTAMP(6) | 게스트 응답·만료·취소 처리에서 사용 (현재 비어 있음) |
+| `reject_reason` | VARCHAR(500) | 거절 사유 (선택) |
+| `responded_at`, `canceled_at` | TIMESTAMP(6) | 게스트 응답(수락·거절) 시각, 호스트 응답 전 취소 시각 |
 | `version` | BIGINT | 낙관적 락 |
 | `created_at`, `updated_at` | TIMESTAMP(6) | 생성·수정 시각 (JPA Auditing) |
 
@@ -231,6 +268,45 @@ com.hapbang.appearance
 - 제약: 자기 자신에게 요청 불가(`host_id <> guest_id`), `fee > 0`, `expected_minutes > 0`, `accept_deadline < scheduled_at`
 - **부분 유니크 인덱스** `uk_appearance_requests_pending_host_guest`: `(host_id, guest_id) where status in ('HOLD_PENDING', 'REQUESTED')`. 같은 호스트·게스트의 진행 중 요청서를 1건으로 제한한다 (동시 요청 차단).
 - 인덱스: 보낸 목록 `(host_id, created_at)`, 받은 목록 `(guest_id, created_at)`
+
+### 5.3 `appearances.appearances` — 출연 (#137)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `id` | BIGINT, PK (identity) | 출연 ID |
+| `source_type` | VARCHAR(255) | `REQUEST` / `RECRUIT` |
+| `request_id` / `application_id` | BIGINT, 각각 유니크 | 출처 요청서 / 모집 지원 (요청서·지원 하나에 출연 하나) |
+| `recruit_id` | BIGINT | 모집글 (모집 처리에서 사용) |
+| `host_id`, `guest_id` | BIGINT | 회원 ID |
+| `fee` | BIGINT | 출연료 **스냅샷** (지급·위약금·반환 기준) |
+| `scheduled_at` | TIMESTAMP(6) | 방송 예정 일시 **스냅샷** (D+7·취소 요청 마감 기준) |
+| `status` | VARCHAR(255) | `ESTABLISHED` (이후 상태는 출연 취소 요청·확인·취소 처리에서) |
+| `established_at` | TIMESTAMP(6) | 성립 시각 |
+| `confirm_type`, `penalty_amount`, `confirmed_at`, `no_show_at`, `disputed_at`, `canceled_at` | | 출연 확인·취소 처리에서 사용 (현재 비어 있음) |
+| `version`, `created_at`, `updated_at` | | 낙관적 락, 생성·수정 시각 |
+
+- 제약: 출처는 하나만 (`REQUEST`면 `request_id`만, `RECRUIT`면 `application_id`만), `fee > 0`
+- 스냅샷을 두는 이유: 바뀌어서가 아니라 계산 기준을 출연 한 곳에 두기 위해서다. 출연은 요청서(`fee`)와 모집(1인당 출연료) 양쪽에서 생기므로, 출처 구분이나 다른 테이블 조회 없이 출연만 보고 계산한다.
+
+### 5.4 `appearances.hp_tasks` — HP 작업 (#137)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `id` | BIGINT, PK (identity) | 작업 ID |
+| `task_type` | VARCHAR(255) | `RELEASE` (지급·정산은 이후 추가) |
+| `ref_type`, `ref_id` | VARCHAR(255), BIGINT | 대상(HP 보류 단위): `APPEARANCE_REQUEST` + 요청서 ID 등 |
+| `appearance_id` | BIGINT | 관련 출연 (지급·위약금에서 사용) |
+| `member_id` | BIGINT | HP를 받는 회원 (반환이면 호스트) |
+| `amount` | BIGINT | 금액 |
+| `reason` | VARCHAR(255) | Billing 사유 (`REQUEST_REJECTED`, `REQUEST_CANCELED` 등) |
+| `idempotency_key` | VARCHAR(255), 유니크 | Billing 멱등 키 |
+| `status` | VARCHAR(255) | `PENDING` / `DONE` / `DEAD` |
+| `attempt_count`, `next_attempt_at`, `last_error` | INTEGER, TIMESTAMP(6), VARCHAR(1000) | 시도 횟수, 다음 시도 시각, 마지막 오류 |
+| `completed_at` | TIMESTAMP(6) | 완료 시각 |
+| `version`, `created_at`, `updated_at` | | 낙관적 락, 생성·수정 시각 |
+
+- 마이그레이션(5.3·5.4): `V202610141109__create_appearance_and_hp_task_tables.sql` (#137)
+- 인덱스: 재시도 대상 `(status, next_attempt_at)`, 대상별 조회 `(ref_type, ref_id)`
 
 ---
 
@@ -246,9 +322,21 @@ com.hapbang.appearance
 | GET | `/api/v1/appearances/requests/{requestId}` | 요청서 상세 (호스트·게스트) | 200 |
 | PATCH | `/api/v1/appearances/requests/{requestId}` | 기본 정보 수정 (호스트, `REQUESTED`까지) | 200 |
 
+- **성공 응답은 팀 공통 `RsData`로 감싼다** (#144, AGENTS.md 7장): `{ "statusCode": 201, "message": "...", "data": { … } }`. 요청서·목록은 `data` 안에 들어간다. 오류는 그대로 Problem Detail이다.
+
+| API | `message` |
+|---|---|
+| 보내기 (201) | 출연 요청을 보냈습니다. |
+| 보낸 목록 | 보낸 출연 요청 목록을 조회했습니다. |
+| 받은 목록 | 받은 출연 요청 목록을 조회했습니다. |
+| 상세 | 출연 요청서를 조회했습니다. |
+| 수정 | 출연 요청서를 수정했습니다. |
+
+- 생성은 `@ResponseStatus(HttpStatus.CREATED)` + `RsData.created(...)`로 HTTP 상태와 본문 `statusCode`를 같게 맞춘다. 앞으로 추가하는 출연 API도 처음부터 `RsData`로 만들고, 본문이 없으면 `ResponseEntity<Void>`(204)를 쓴다.
+
 - 권한: 로그인(401은 보안 필터) → Facade `@PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")`(거절 시 공통 403 `FORBIDDEN`) → UseCase에서 출연 회원 자격 재확인(`NOT_INFLUENCER`·`APPEARANCE_USER_NOT_ACTIVE`). 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등은 서비스 확인이 막는다 (조회 포함).
 - 쓰기 요청(POST·PATCH)은 CSRF 토큰(`X-XSRF-TOKEN` 헤더)이 필요하다 (global SecurityConfig).
-- 목록은 `Pageable`(page, size; 기본 20, 최대 100). **정렬은 최신순(`createdAt` desc, `id` desc) 고정**이며 `sort` 값은 무시한다. 응답은 팀 공통 PagedModel 형식(`content`, `page`).
+- 목록은 `Pageable`(page, size; 기본 20, 최대 100). **정렬은 최신순(`createdAt` desc, `id` desc) 고정**이며 `sort` 값은 무시한다. 응답은 `RsData`의 `data`에 팀 공통 PagedModel 형식(`content`, `page`).
 - 검색·필터(상태, 기간, 키워드 등)는 아직 정하지 않았다. 정해지면 조건 객체를 받아 조회 조건을 조합하고, 보이는 상태 제한과 최신순 정렬은 유지한다.
 - 응답에는 회원 ID(`hostId`, `guestId`)만 담고 닉네임은 담지 않는다. 목록마다 회원 정보를 함께 조회하는 부담을 피하기 위해서이며, 화면에 필요한 닉네임은 회원 프로필 API로 조회한다.
 - 수정은 보낸 값만 바꾸고 보내지 않은(null) 값은 그대로 둔다. 하나도 보내지 않으면 400.
@@ -281,3 +369,28 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
 | 입력 값 제한 | 제목 100자, 채널 URL http(s) 255자, 설명 5,000자, 예상 출연 시간 1~1,440분 (`AppearanceRequestRules`) | DB 컬럼과 맞추고, 요청 DTO와 도메인 양쪽에서 확인 |
 | 상태 충돌 응답 | 중복·잔액 부족·수정 불가 상태는 409 | 강의·채팅 모듈과 같은 기준 |
 | 동시 수정 | 같은 요청서를 동시에 수정·응답하면 버전(`@Version`)이 맞지 않는 쪽을 409 `CONCURRENT_UPDATE` | 나중에 커밋하려던 요청이 앞선 변경을 모르고 덮어쓰지 않게 한다 |
+
+### 6.4 수락·거절·응답 전 취소 (#137)
+
+| 메서드 | 경로 | 설명 | 성공 |
+|---|---|---|---|
+| POST | `/api/v1/appearances/requests/{requestId}/accept` | 수락 (게스트). 본문 `{"version": n}` | 200 "출연 요청을 수락했습니다." |
+| POST | `/api/v1/appearances/requests/{requestId}/reject` | 거절 (게스트). 본문 `{"reason": "..."}` (선택, 500자) | 200 "출연 요청을 거절했습니다." |
+| POST | `/api/v1/appearances/requests/{requestId}/cancel` | 응답 전 취소 (호스트). 본문 없음 | 200 "출연 요청을 취소했습니다." |
+| GET | `.../sent?status=`, `.../received?status=` | 목록 상태 필터. 여러 번 보낼 수 있음, 생략하면 전체, 숨김 상태는 400 | 200 |
+
+| 규칙 | 내용 | 이유 |
+|---|---|---|
+| 확인 순서 | 행위자(게스트/호스트) → 응답 대기(`REQUESTED`) → 수락 기한 → (수락) 버전 | |
+| 수락 기한 | DB 상태와 관계없이 **현재 시각 ≥ 수락 기한이면** 수락·거절·취소를 막는다 (409 `APPEARANCE_REQUEST_EXPIRED`) | 만료 처리(스케줄러)가 조금 늦어도 기한 지난 수락이 통과하지 않게. 막는 건 이벤트가 아니라 각 요청 안의 시각 비교다 |
+| 수락 버전 | 게스트가 본 요청서 `version`을 본문으로 보내고, 다르면 409 `APPEARANCE_REQUEST_MODIFIED` | 게스트가 본 조건 그대로 동의하도록. HTTP 표준 ETag/If-Match 대신 본문 필드로 받아 프론트가 다루기 쉽게 |
+| 호스트 정지 | 요청을 보낸 뒤 호스트가 정지·탈퇴·강등됐으면 수락 불가 (403) | 거래할 수 없는 회원과 출연을 맺지 않음 |
+| 수락 시 HP | 이동 없음. 요청서의 보류를 출연이 그대로 쓴다 | 지급·반환은 이후 출연 단위로 |
+| 거절·취소 시 HP | 보류 전액 반환. HP 작업으로 기록하고 커밋 후 실행 (4.3). 반환이 실패해도 거절·취소는 성공으로 응답하고 `hpReleaseStatus`로 진행 상태를 알린다 | |
+| 동시 처리 | 같은 요청서를 동시에 수락·거절·취소하면 먼저 반영된 쪽만 성공, 나머지는 409 (`CONCURRENT_UPDATE` 또는 `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`) | 먼저 반영된 쪽 우선 (낙관적 락) |
+| 같은 행동 반복 | 이미 응답한 요청서에 다시 응답하면 409 | |
+| 상세 응답 추가 | `version`, `rejectReason`, `respondedAt`, `canceledAt`, `appearanceId`(수락 시), `hpReleaseStatus`(거절·취소 시) | |
+| 미정 | 게스트 일정 겹침 확인 안 함, 상대방 알림 범위 밖 | |
+
+- 이번 "취소"는 **응답 전 호스트 취소**다. 출연 성립 후의 출연 취소 요청(게스트)·호스트 일방 취소(위약금)와 다르다.
+- 보내기 응답의 `version`이 DB 값과 같도록, 보류 성공(`REQUESTED`) 반영 후 바로 DB에 반영한 뒤 응답을 만든다 (테스트로 찾은 문제).

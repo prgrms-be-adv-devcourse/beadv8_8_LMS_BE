@@ -33,6 +33,10 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     DUPLICATE_APPEARANCE_REQUEST(HttpStatus.CONFLICT, "이미 처리 중이거나 응답 대기 중인 출연 요청이 있습니다."),
     INSUFFICIENT_HP(HttpStatus.CONFLICT, "HP 잔액이 부족합니다."),
     APPEARANCE_REQUEST_NOT_EDITABLE(HttpStatus.CONFLICT, "게스트가 응답하기 전인 출연 요청서만 수정할 수 있습니다."),
+    NOT_REQUEST_GUEST(HttpStatus.FORBIDDEN, "출연 요청을 받은 게스트만 응답할 수 있습니다."),
+    APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE(HttpStatus.CONFLICT, "응답 대기 중인 출연 요청이 아닙니다."),
+    APPEARANCE_REQUEST_EXPIRED(HttpStatus.CONFLICT, "수락 기한이 지난 출연 요청입니다."),
+    APPEARANCE_REQUEST_MODIFIED(HttpStatus.CONFLICT, "요청서 내용이 바뀌었습니다. 다시 확인한 뒤 수락해 주세요."),
 
     // 공통
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요."),

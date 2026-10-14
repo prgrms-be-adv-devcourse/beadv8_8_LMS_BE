@@ -29,4 +29,11 @@ class LectureInspectionFacadeTest {
         assertThatThrownBy(() -> lectureInspectionFacade.reject(1L, 1L, "반려 사유"))
                 .isInstanceOf(AccessDeniedException.class);
     }
+
+    @Test
+    @WithMockUser(roles = "VERIFIED_INFLUENCER")
+    void 관리자가_아니면_검수_강의_상세를_조회할_수_없다() {
+        assertThatThrownBy(() -> lectureInspectionFacade.getLecture(1L))
+                .isInstanceOf(AccessDeniedException.class);
+    }
 }
