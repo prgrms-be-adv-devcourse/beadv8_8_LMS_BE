@@ -4,11 +4,14 @@ import java.time.Instant;
 
 import org.springframework.stereotype.Service;
 
+import com.hapbang.shared.billing.dto.LectureSettlementCommand;
+
 import lombok.RequiredArgsConstructor;
 
 // 강의 판매 수익 지급 예정 건 관리의 Billing 모듈 진입점이며, 트랜잭션은 UseCase가 연다(#142).
 // 강의 구매·취소와 고객센터 이의 제기 처리가 업무 판단을 마친 뒤 부르는 내부 금융 기능이라 역할 검사(@PreAuthorize)를 두지 않는다.
-// 아직 다른 모듈이 부르지 않는다. 강의 연동(#146) 때 shared 포트를 넓힐지, 별도 정산 포트를 둘지 정한다.
+// 다른 모듈은 이 클래스가 아니라 shared의 LectureSettlementPort(구현: in.LectureSettlementPortAdapter)로 schedule·cancel을 부른다(#182).
+// 중단·재개·지급 가능 판단은 아직 Billing 내부 기능이다(고객센터 연동 때 포트에 더한다).
 @Service
 @RequiredArgsConstructor
 public class LectureSettlementFacade {

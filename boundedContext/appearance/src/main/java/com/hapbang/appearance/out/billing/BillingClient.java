@@ -24,9 +24,9 @@ import com.hapbang.shared.billing.port.BillingPort;
  * </ul>
  * {@link BillingPort}를 상속하지 않는다. 상속하면 출연의 Fake가 앱 전체의 {@link BillingPort} 빈이 되어 다른 모듈에 주입될 수 있다.
  * <p>
- * 구현체는 {@code appearance.billing.mode} 값으로 고른다. 지금은 {@link FakeBillingClient}만 있다.
+ * 구현체는 {@code appearance.billing.mode} 값으로 고른다: {@code fake}(기본값) → {@link FakeBillingClient},
+ * {@code billing-port} → 실제 Billing을 부르는 {@link BillingPortClient}(#182).
  */
-// TODO(billing): 외부 연동 교체 단계에서 BillingPort를 부르는 구현체를 추가한다.
 public interface BillingClient {
 
     /** 참조 대상(요청서·모집글) 하나에 호스트의 HP를 보류한다. 잔액이 부족하면 409 {@code INSUFFICIENT_BALANCE} */
