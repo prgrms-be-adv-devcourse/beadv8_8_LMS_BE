@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
+import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLogResponse;
 import com.hapbang.chat.app.dto.ChatRoomMemberResponse;
@@ -22,6 +23,7 @@ import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.chat.out.ChatRoomLogRepository;
 import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatRoomRepository;
+import com.hapbang.chat.out.ChatRoomUnreadCount;
 import com.hapbang.chat.out.ChatUserRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -54,8 +56,12 @@ public class ChatRoomSupporter {
                 .findByChatRoom_IdInAndDeletedAtIsNull(rooms.stream().map(ChatRoom::getId).toList()).stream()
                 .collect(Collectors.groupingBy(member -> member.getChatRoom().getId()));
         Map<Long, String> nicknames = findNicknames(membersByRoom.values().stream().flatMap(List::stream).toList());
+        List<Long> roomIds = rooms.stream().map(ChatRoom::getId).toList();
+        Map<Long, ChatMessageResponse> lastMessages = findLastMessages(userId, roomIds);
+        Map<Long, Long> unreadCounts = countUnread(userId, roomIds);
         return rooms.stream()
-                .map(room -> ChatRoomResponse.of(room, toMemberResponses(membersByRoom.get(room.getId()), nicknames)))
+                .map(room -> ChatRoomResponse.of(room, toMemberResponses(membersByRoom.get(room.getId()), nicknames),
+                        lastMessages.get(room.getId()), unreadCounts.getOrDefault(room.getId(), 0L)))
                 .toList();
     }
 
@@ -78,15 +84,28 @@ public class ChatRoomSupporter {
                 chatRoom.getEndedAt(), toMemberResponses(members, findNicknames(members)), logs, messages);
     }
 
-    /** 채팅방 응답 (참여자·닉네임 포함). 채팅 시작 응답에도 쓴다 */
-    public ChatRoomResponse toResponse(ChatRoom chatRoom) {
+    /** 채팅방 응답 (참여자·닉네임, 조회한 회원 기준 마지막 메시지·안 읽은 수 포함). 채팅 시작 응답에도 쓴다 */
+    public ChatRoomResponse toResponse(ChatRoom chatRoom, Long userId) {
         List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId());
-        return ChatRoomResponse.of(chatRoom, toMemberResponses(members, findNicknames(members)));
+        List<Long> roomIds = List.of(chatRoom.getId());
+        return ChatRoomResponse.of(chatRoom, toMemberResponses(members, findNicknames(members)),
+                findLastMessages(userId, roomIds).get(chatRoom.getId()),
+                countUnread(userId, roomIds).getOrDefault(chatRoom.getId(), 0L));
     }
 
     /** 표시용 닉네임. 탈퇴 회원은 '탈퇴한 회원', 복제 정보가 없으면 '회원 {id}' */
     public String displayNicknameOf(Long userId) {
         return chatUserRepository.findById(userId).map(ChatUser::getDisplayNickname).orElse("회원 " + userId);
+    }
+
+    private Map<Long, ChatMessageResponse> findLastMessages(Long userId, List<Long> chatRoomIds) {
+        return chatMessageRepository.findLastVisible(userId, chatRoomIds).stream()
+                .collect(Collectors.toMap(message -> message.getChatRoom().getId(), ChatMessageResponse::from));
+    }
+
+    private Map<Long, Long> countUnread(Long userId, List<Long> chatRoomIds) {
+        return chatMessageRepository.countUnread(userId, chatRoomIds).stream()
+                .collect(Collectors.toMap(ChatRoomUnreadCount::chatRoomId, ChatRoomUnreadCount::unreadCount));
     }
 
     private Map<Long, String> findNicknames(List<ChatRoomMember> members) {

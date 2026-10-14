@@ -85,4 +85,18 @@ class AppearanceRecruitRepositoryTest {
         assertThat(found.getContent()).extracting(AppearanceRecruit::getId).containsExactly(mine.getId());
         assertThat(closedOnly.getTotalElements()).isZero();
     }
+
+    @Test
+    @DisplayName("배치 조회: 기준 시각 이전에 만든 보류 처리 중 모집글만")
+    void findStaleHoldPending() {
+        saveRecruiting(HOST, NOW);
+        AppearanceRecruit pending = appearanceRecruitRepository.saveAndFlush(
+                AppearanceRecruit.create(HOST, AppearanceRecruitFixture.content(NOW), POLICY, NOW));
+        LocalDateTime createdAt = pending.getCreatedAt();
+
+        assertThat(appearanceRecruitRepository.findIdsByStatusAndCreatedBefore(AppearanceRecruitStatus.HOLD_PENDING,
+                createdAt.minusSeconds(1), FIRST_PAGE)).isEmpty();
+        assertThat(appearanceRecruitRepository.findIdsByStatusAndCreatedBefore(AppearanceRecruitStatus.HOLD_PENDING,
+                createdAt, FIRST_PAGE)).containsExactly(pending.getId());
+    }
 }

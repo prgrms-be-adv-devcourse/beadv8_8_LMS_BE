@@ -62,7 +62,7 @@ public class ChatRoomUseCase {
         if (existing.isPresent()) {
             ChatRoom chatRoom = existing.get();
             rejoinLeftMembers(chatRoom, now);
-            return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom), false);
+            return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom, requesterId), false);
         }
 
         ChatRoom chatRoom = chatRoomRepository.saveAndFlush(ChatRoom.createDirect(requesterId, targetUserId, now));
@@ -73,7 +73,7 @@ public class ChatRoomUseCase {
         }
         log.info("채팅방 생성 chatRoomId={}, requesterId={}, targetUserId={}", chatRoom.getId(), requesterId,
                 targetUserId);
-        return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom), true);
+        return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom, requesterId), true);
     }
 
     /**
@@ -118,6 +118,26 @@ public class ChatRoomUseCase {
         }
         log.info("채팅방 퇴장 chatRoomId={}, userId={}, roomEnded={}", chatRoomId, userId, roomEnded);
         return new ChatRoomLeaveResult(true, ChatMessageResponse.from(leftNotice), remainingUserIds, roomEnded);
+    }
+
+    /**
+     * 메시지를 읽음 처리한다. 마지막으로 읽은 순번은 줄어들지 않고, 방의 마지막 순번을 넘지 않는다.
+     * 메시지 전송과 겹쳐도 되도록 방을 잠그지 않는다. 그 사이 발급된 순번은 다음 읽음 처리에 반영된다.
+     *
+     * @param lastReadSequence 화면에 보여 준 가장 최근 메시지의 방 순번
+     */
+    public void markRead(Long chatRoomId, Long userId, long lastReadSequence) {
+        ChatRoom chatRoom = chatRoomRepository.findById(chatRoomId)
+                .filter(room -> !room.isEnded() && room.getDeletedAt() == null)
+                .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
+        ChatRoomMember member = chatRoomMemberRepository
+                .findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, userId)
+                .filter(ChatRoomMember::isActive)
+                .orElseThrow(() -> new ChatException(ChatErrorCode.NOT_CHAT_ROOM_MEMBER));
+        chatValidationService.validateCanChat(userId);
+
+        chatRoomMemberRepository.advanceLastReadSequence(member.getId(),
+                chatRoom.readableSequence(lastReadSequence));
     }
 
     private void rejoinLeftMembers(ChatRoom chatRoom, LocalDateTime now) {

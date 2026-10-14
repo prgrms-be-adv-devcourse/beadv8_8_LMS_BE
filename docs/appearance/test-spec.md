@@ -52,6 +52,9 @@
 | 저장소 | `AppearanceRecruitRepositoryTest` | `appearances.recruits` 저장, 공개 목록·내 목록 조회 | #175 |
 | 통합 | `AppearanceRecruitFacadeTest` | 올리기(HP 보류·Billing 거절·무응답), 역할별 권한, 조회, 수정 | #175 |
 | E2E | `AppearanceRecruitApiE2ETest` | 출연 모집글 API 5개 (앱 전체) | #175 |
+| 단위 | `HpTaskRetryPolicyTest`, `AppearanceBatchRulesTest` | 재시도 정책(지수 백오프+지터), 만료·멱등한 보류 결과 반영 | #187 |
+| 통합 | `AppearanceBatchUseCaseTest` | 보류 재확인, 수락 기한 만료, HP 작업 재시도·격리, 지표 | #187 |
+| 단위 | `AppearanceBatchConditionTest` | 배치 빈은 팀 스케줄링 스위치가 켜질 때만 | #187 |
 | 모듈 경계 | `ModularityTests` (apps) | 다른 모듈 내부 참조 없음 | — |
 
 ---
@@ -450,3 +453,64 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 | 제목만 바꾸기 | 제목만 바뀐 새 객체, 원래 객체는 그대로 |
 | 바꾸려는 URL 형식 오류 | `INVALID_REQUEST` |
 | (설정) `AppearanceConfigTest` | 도메인 `AppearancePolicy`에 어노테이션 없음, `AppearancePolicyProperties`·`AppearancePolicy` 빈 각 1개 |
+
+---
+
+## 9. 출연 배치 (#187)
+
+### 9.1 재시도 정책 — `HpTaskRetryPolicyTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 1·2·3·6·7·40번째 시도 (지터 0) | 1분·2분·4분·32분·1시간·1시간 뒤 |
+| 난수 0.5 | 간격의 10% 추가 (1분 → 66초, 1시간 → 66분) |
+| 9번째 / 10번째 시도 | 남음 / 다 씀 |
+| 기본 간격 0, 최대 < 기본, 횟수 0, 지터 1.5 | 생성 실패 |
+
+### 9.2 도메인 — `HpTaskTest`, `AppearanceBatchRulesTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 결과를 알 수 없는 실패 (최대 3회 정책) | 1회 후 1분 뒤, 2회 후 2분 뒤, 3회째 `DEAD`(완료 시각 기록, 실행 대상 아님) |
+| Billing 거절 기록 | 바로 `DEAD`, 시도 1, 오류 기록, 이후 결과 기록 불가 |
+| 수락 기한 1초 전 / 기한과 같음 | 만료 대상 아님 / 대상, 만료하면 `EXPIRED` |
+| 기한 전 만료 / 거절된 요청서 만료 | `IllegalStateException` |
+| 요청서 `markRequested` 두 번 / `HOLD_FAILED` 두 번 | 그대로(멱등) / 그대로, 이후 `markRequested`는 예외 |
+| 모집글 `markRecruiting` 두 번 | 그대로, 이후 `markHoldFailed`는 예외 |
+| (변경) `AppearanceRequestTest` 이미 `REQUESTED`에 다시 반영 | 같은 결과는 그대로, 다른 결과는 예외 |
+
+### 9.3 저장소
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `HpTaskRepositoryTest` | 재시도 대상 조회 | 다음 시도 시각 전 제외, 처음 시도 전 작업은 대기 시간 지나야 포함, 완료 제외, 다음 시도 시각 순, 건수 제한, 상태별 개수 |
+| `AppearanceRequestRepositoryTest` | 만료 대상 / 보류 재확인 대상 | 수락 기한과 같거나 지난 `REQUESTED` / 기준 시각 이전에 만든 `HOLD_PENDING` |
+| `AppearanceRecruitRepositoryTest` | 보류 재확인 대상 | 기준 시각 이전에 만든 `HOLD_PENDING` 모집글만 |
+
+### 9.4 흐름 — `AppearanceBatchUseCaseTest`
+
+DB와 Fake Billing을 쓴다. 시각 조건은 DB의 만든 시각·다음 시도 시각을 과거로 옮겨 만든다.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 1분 넘게 `HOLD_PENDING`인 요청서 재확인 | `REQUESTED`, 보류 30,000 |
+| Billing이 처음 요청을 이미 처리한 경우 | `REQUESTED`, HP는 한 번만 빠짐 |
+| 재확인 때 잔액 부족 | `HOLD_FAILED` |
+| 1분이 안 됨 / 여전히 Billing 무응답 | 그대로 `HOLD_PENDING` (정리 0건) |
+| 모집글 재확인 | `RECRUITING`, 보류 90,000 |
+| 수락 기한이 지난 `HOLD_PENDING` (S5) | 재확인 → `REQUESTED` → 만료 → `EXPIRED` + 반환 `DONE`, 잔액 복구 |
+| 수락 기한이 지난 `REQUESTED` 만료 | `EXPIRED`, 작업 사유 `REQUEST_EXPIRED` `DONE`, 보류 0, 상세 `hpReleaseStatus` `DONE` |
+| 수락 기한 전 | 그대로 `REQUESTED`, 작업 없음 |
+| 만료 때 반환 실패 / 다시 실행 | `EXPIRED` 확정, 작업 `PENDING` 시도 1 / 만료 0건 |
+| 반환 실패 작업: 다음 시도 시각 전 / 후 | 실행 안 함 / `DONE`, 시도 2, 잔액 복구, 지표 done +1 |
+| 계속 실패 | 2~9회는 `PENDING`(마지막 간격 약 1시간), 10회째 `DEAD`, 지표 격리 수 1 |
+| 재시도 때 Billing 거절 (보류 없음) | 바로 `DEAD`, `HOLD_NOT_FOUND: …` |
+| 처음 시도 전 작업: 만든 직후 / 1분 뒤 | 가져가지 않음 / 실행 |
+| (변경) `AppearanceRequestRespondFacadeTest` 거절 때 Billing 반환 거절 | 작업 `PENDING` → **`DEAD`** |
+
+### 9.5 배치 빈 — `AppearanceBatchConditionTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| `hapbang.scheduling.enabled` 없음 / `false` | 배치 빈 없음 |
+| `true` | 배치 빈 1개 |

@@ -7,7 +7,7 @@ import com.hapbang.global.scheduling.ConditionalOnSchedulingEnabled;
 
 import lombok.RequiredArgsConstructor;
 
-/** 지급 배치. 기본 매일 01:00에 실행한다 (설계 10장, D49). 처리는 {@link OrderPayoutUseCase}가 한다 */
+/** 지급 배치. 기본 매일 01:00에 실행한다 (설계 10장, D50). 처리는 {@link OrderPayoutUseCase}가 한다 */
 @Component
 @ConditionalOnSchedulingEnabled
 @RequiredArgsConstructor

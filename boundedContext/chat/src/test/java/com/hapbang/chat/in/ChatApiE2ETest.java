@@ -22,6 +22,7 @@ import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
+import com.hapbang.chat.in.dto.ReadChatRoomRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
 import com.hapbang.global.response.RsData;
@@ -133,6 +134,29 @@ class ChatApiE2ETest {
         assertThat(myRooms(login(GUEST_ID, Role.VERIFIED_INFLUENCER)))
                 .extracting(ChatRoomResponse::chatRoomId).containsExactly(chatRoomId);
         assertThat(myRooms(login(OTHER_INFLUENCER_ID, Role.INFLUENCER))).isEmpty();
+    }
+
+    @Test
+    void 읽음_처리하면_204_순번이_없으면_400() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
+
+        client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
+                .headers(guest::applyTo)
+                .body(new ReadChatRoomRequest(0L))
+                .exchange()
+                .expectStatus().isNoContent();
+
+        ProblemDetail problem = client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
+                .headers(guest::applyTo)
+                .body(new ReadChatRoomRequest(null))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody(ProblemDetail.class)
+                .returnResult().getResponseBody();
+        assertThat(problem).isNotNull();
+        assertThat(problem.getProperties()).containsEntry("code", "INVALID_REQUEST");
+        assertThat(myRooms(guest)).singleElement().extracting(ChatRoomResponse::unreadCount).isEqualTo(0L);
     }
 
     @Test

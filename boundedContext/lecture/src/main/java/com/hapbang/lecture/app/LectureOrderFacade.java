@@ -74,7 +74,7 @@ public class LectureOrderFacade {
         return purchasedLectureSupport.getPurchasedLectures(userId, pageable);
     }
 
-    /** 판매 내역. 강의를 판매하는 인증된 인플루언서만 본다 (메서드 권한이 클래스 권한보다 우선한다, D50) */
+    /** 판매 내역. 강의를 판매하는 인증된 인플루언서만 본다 (메서드 권한이 클래스 권한보다 우선한다, D51) */
     @PreAuthorize("hasRole('VERIFIED_INFLUENCER')")
     @Transactional(readOnly = true)
     public Page<SaleResponse> getSales(Long userId, Pageable pageable) {

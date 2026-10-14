@@ -10,6 +10,8 @@ dependencies {
     implementation("io.swagger.core.v3:swagger-annotations-jakarta:2.2.55")
     // 역할 검사(@PreAuthorize)와 거절 예외(AccessDeniedException). 메서드 보안은 global SecurityConfig가 켠다
     implementation("org.springframework.security:spring-security-core")
+    // HP 작업 처리 지표(Micrometer). 앱에서는 Actuator의 MeterRegistry에 등록된다
+    implementation("io.micrometer:micrometer-core")
     // 테스트에서 로그인 상태 만들기 (TestLogin)
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }

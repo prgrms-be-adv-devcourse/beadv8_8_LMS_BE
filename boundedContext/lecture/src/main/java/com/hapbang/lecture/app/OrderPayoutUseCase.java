@@ -21,7 +21,7 @@ import com.hapbang.shared.billing.port.BillingPort;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 지급 (#150, D49). 지급 예정 시각(구매일 다음 날부터 30일 경과)이 지나고 이의 제기가 없거나 기각된 {@code CONFIRMED} 항목의
+ * 지급 (#150, D50). 지급 예정 시각(구매일 다음 날부터 30일 경과)이 지나고 이의 제기가 없거나 기각된 {@code CONFIRMED} 항목의
  * 보류 HP를 판매자 수익 HP로 옮기고 {@code PAID_OUT}으로 바꾼다. 지급은 billing이 차감했던 HP 종류 그대로 한다 (D42).
  * <ul>
  *     <li>항목마다 새 트랜잭션을 열고, 그 안에서 항목 상태 변경과 {@code BillingPort.payout}을 함께 한다 (D3).
@@ -34,7 +34,7 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class OrderPayoutUseCase {
 
-    /** 지급 요청 ID. 항목은 한 번만 지급되므로 항목 ID로 정해진다 (D43, D49) */
+    /** 지급 요청 ID. 항목은 한 번만 지급되므로 항목 ID로 정해진다 (D43, D50) */
     private static final String PAYOUT_REQUEST_ID_PREFIX = "LECTURE-PAYOUT-";
 
     private final LectureOrderRepository lectureOrderRepository;

@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import com.hapbang.appearance.domain.AppearancePolicy;
+import com.hapbang.appearance.domain.HpTaskRetryPolicy;
 import com.hapbang.appearance.shared.time.AppearanceTime;
 
 /**
@@ -14,11 +15,12 @@ import com.hapbang.appearance.shared.time.AppearanceTime;
  * <ul>
  *     <li>정책 수치({@code appearance.policy.*})를 {@link AppearancePolicyProperties}로 읽어 도메인의 {@link AppearancePolicy}로 등록한다.
  *     값은 {@code appearance.yml}에 있고, 전역 application.yaml의 {@code spring.config.import}로 읽힌다.</li>
+ *     <li>배치 설정({@code appearance.batch.*})을 {@link AppearanceBatchProperties}로 읽고, HP 작업 재시도 정책을 등록한다.</li>
  *     <li>현재 시각은 {@link #CLOCK} 빈으로만 얻는다. 테스트에서는 고정 시각의 Clock으로 바꿔 끼운다.</li>
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(AppearancePolicyProperties.class)
+@EnableConfigurationProperties({AppearancePolicyProperties.class, AppearanceBatchProperties.class})
 public class AppearanceConfig {
 
     /**
@@ -29,6 +31,11 @@ public class AppearanceConfig {
     @Bean
     AppearancePolicy appearancePolicy(AppearancePolicyProperties properties) {
         return properties.toPolicy();
+    }
+
+    @Bean
+    HpTaskRetryPolicy hpTaskRetryPolicy(AppearanceBatchProperties properties) {
+        return properties.toRetryPolicy();
     }
 
     @Bean(CLOCK)

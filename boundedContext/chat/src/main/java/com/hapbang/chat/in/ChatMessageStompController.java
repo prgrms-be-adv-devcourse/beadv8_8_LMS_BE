@@ -18,14 +18,21 @@ import com.hapbang.chat.in.dto.ChatErrorMessage;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.websocket.ChatMessageSender;
 import com.hapbang.chat.in.websocket.ChatWebSocketConfig;
+import com.hapbang.global.exception.GlobalErrorCode;
 
 import jakarta.validation.Valid;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 클라이언트가 /pub/chats/{chatRoomId}/messages로 보내면 DB에 저장한 뒤
  * 현재 참여자에게 /user/queue/chats/messages로 전달하고, 받는 사람에게 새 메시지 알림을 보낸다.
+ * <p>
+ * 보낼 때 붙인 {@code clientMessageId}는 전달되는 메시지와 오류에 그대로 돌려준다. STOMP 전송에는 응답 확인이 없어서,
+ * 프론트는 이 값으로 어느 메시지가 성공·실패했는지 구분한다.
  */
+@Slf4j
 @Controller
 @RequiredArgsConstructor
 public class ChatMessageStompController {
@@ -37,16 +44,31 @@ public class ChatMessageStompController {
     public void sendMessage(@DestinationVariable("chatRoomId") Long chatRoomId,
             @Valid @Payload SendChatMessageRequest request, Principal principal) {
         Long senderId = Long.valueOf(principal.getName());
-        SentChatMessage sent = chatMessageFacade.send(chatRoomId, senderId, request.content());
+        SentChatMessage sent;
+        try {
+            sent = chatMessageFacade.send(chatRoomId, senderId, request.content());
+        } catch (RuntimeException exception) {
+            throw new SendFailedException(exception, request.clientMessageId());
+        }
 
-        chatMessageSender.deliver(sent.message(), sent.deliverToUserIds());
+        chatMessageSender.deliver(sent.message().withClientMessageId(request.clientMessageId()),
+                sent.deliverToUserIds());
         chatMessageSender.notifyNewMessage(sent.message(), sent.notifyUserIds());
     }
 
-    @MessageExceptionHandler(ChatException.class)
+    /**
+     * 전송 실패. 업무 오류는 오류 코드를, 예상하지 못한 오류는 내부 메시지 없이 INTERNAL_ERROR를 보낸다.
+     */
+    @MessageExceptionHandler(SendFailedException.class)
     @SendToUser(destinations = ChatWebSocketConfig.ERROR_QUEUE, broadcast = false)
-    public ChatErrorMessage handleChatException(ChatException exception) {
-        return new ChatErrorMessage(exception.getErrorCode().getCode(), exception.getMessage());
+    public ChatErrorMessage handleSendFailure(SendFailedException exception) {
+        if (exception.getCause() instanceof ChatException chatException) {
+            return new ChatErrorMessage(chatException.getErrorCode().getCode(), chatException.getMessage(),
+                    exception.getClientMessageId());
+        }
+        log.error("채팅 메시지 전송 실패", exception.getCause());
+        return new ChatErrorMessage(GlobalErrorCode.INTERNAL_ERROR.getCode(),
+                GlobalErrorCode.INTERNAL_ERROR.getMessage(), exception.getClientMessageId());
     }
 
     @MessageExceptionHandler(MethodArgumentNotValidException.class)
@@ -58,6 +80,27 @@ public class ChatMessageStompController {
                         .map(error -> error.getDefaultMessage())
                         .findFirst()
                         .orElse(ChatErrorCode.INVALID_REQUEST.getMessage());
-        return new ChatErrorMessage(ChatErrorCode.INVALID_REQUEST.getCode(), message);
+        return new ChatErrorMessage(ChatErrorCode.INVALID_REQUEST.getCode(), message, clientMessageIdOf(exception));
+    }
+
+    /** 검증에 실패한 요청 본문에서 clientMessageId를 꺼낸다. 본문을 읽지 못했으면 null */
+    private String clientMessageIdOf(MethodArgumentNotValidException exception) {
+        if (exception.getBindingResult() != null
+                && exception.getBindingResult().getTarget() instanceof SendChatMessageRequest request) {
+            return request.clientMessageId();
+        }
+        return null;
+    }
+
+    /** 전송 실패 원인과 실패한 전송의 clientMessageId를 오류 처리기로 넘긴다 */
+    @Getter
+    static class SendFailedException extends RuntimeException {
+
+        private final String clientMessageId;
+
+        SendFailedException(RuntimeException cause, String clientMessageId) {
+            super(cause);
+            this.clientMessageId = clientMessageId;
+        }
     }
 }

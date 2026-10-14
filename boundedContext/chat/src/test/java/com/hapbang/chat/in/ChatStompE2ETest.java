@@ -96,15 +96,17 @@ class ChatStompE2ETest {
                 "/user/queue/chats/notifications", ChatNotification.class);
         waitForSubscriptions();
 
-        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("금요일 밤 9시 괜찮으세요?"));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("금요일 밤 9시 괜찮으세요?", "client-1"));
 
         ChatMessageResponse received = guestMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(received).isNotNull();
         assertThat(received.content()).isEqualTo("금요일 밤 9시 괜찮으세요?");
         assertThat(received.senderUserId()).isEqualTo(HOST_ID);
         assertThat(received.roomSequence()).isEqualTo(1);
+        assertThat(received.clientMessageId()).isEqualTo("client-1");
         assertThat(hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS))
-                .extracting(ChatMessageResponse::messageId).isEqualTo(received.messageId());
+                .extracting(ChatMessageResponse::messageId, ChatMessageResponse::clientMessageId)
+                .containsExactly(received.messageId(), "client-1");
 
         ChatNotification notification = guestNotifications.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(notification).isNotNull();
@@ -139,11 +141,12 @@ class ChatStompE2ETest {
         assertThat(leftNotice.content()).isEqualTo("게스트님이 나갔습니다.");
         assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
 
-        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("아직 계세요?"));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("아직 계세요?", "client-2"));
 
         ChatErrorMessage error = hostErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(error).isNotNull();
         assertThat(error.code()).isEqualTo("CHAT_PARTNER_LEFT");
+        assertThat(error.clientMessageId()).isEqualTo("client-2");
         assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
     }
 
@@ -158,7 +161,7 @@ class ChatStompE2ETest {
                 ChatMessageResponse.class);
         waitForSubscriptions();
 
-        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("다시 오면 보세요"));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("다시 오면 보세요", null));
 
         assertThat(hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
         assertThat(messageContents(chatRoomId, GUEST_ID)).containsExactly("다시 오면 보세요");
@@ -171,12 +174,13 @@ class ChatStompE2ETest {
         BlockingQueue<ChatErrorMessage> errors = subscribe(host, "/user/queue/chats/errors", ChatErrorMessage.class);
         waitForSubscriptions();
 
-        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest(" "));
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest(" ", "client-3"));
 
         ChatErrorMessage error = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(error).isNotNull();
         assertThat(error.code()).isEqualTo("INVALID_REQUEST");
         assertThat(error.message()).isEqualTo("메시지 내용이 비어 있습니다.");
+        assertThat(error.clientMessageId()).isEqualTo("client-3");
     }
 
     @Test

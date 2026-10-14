@@ -1,7 +1,10 @@
 package com.hapbang.appearance.app;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.domain.HpTask;
@@ -41,5 +44,15 @@ public class HpTaskSupport {
             return null;
         }
         return found.get().getStatus();
+    }
+
+    /** 재시도 배치가 실행할 작업 ID (최대 {@code limit}건) */
+    public List<Long> findRunnableIds(LocalDateTime now, LocalDateTime graceCutoff, int limit) {
+        return hpTaskRepository.findRunnableIds(now, graceCutoff, PageRequest.of(0, limit));
+    }
+
+    /** 상태별 작업 수 (지표용) */
+    public long countByStatus(HpTaskStatus status) {
+        return hpTaskRepository.countByStatus(status);
     }
 }

@@ -16,5 +16,21 @@ appearance:
     max-recruit-count: 10
   billing:
     # fake: 외부 연동 교체 전까지 쓰는 메모리 구현 (Billing 규칙을 흉내 냄)
-    # TODO(billing): 외부 연동 교체 단계에서 BillingPort 구현을 추가하고 이 값을 바꾼다.
+    # billing-port: 실제 Billing을 shared BillingPort로 부르는 구현 (BillingPortClient, #182)
+    # TODO(billing): 출연 담당이 실제 연동을 확인한 뒤 이 값을 billing-port로 바꾼다.
     mode: fake
+  batch:
+    # 배치는 hapbang.scheduling.enabled=true일 때만 돈다 (팀 공통 #157, 앱에서만 켜짐). 모든 cron은 KST
+    # 실행 순서를 엇갈리게 둔다: 보류 재확인(00초) → 수락 기한 만료(20초) → HP 작업 재시도(40초)
+    hold-recheck-cron: "0 * * * * *"
+    expire-cron: "20 * * * * *"
+    hp-task-retry-cron: "40 * * * * *"
+    # 한 번 실행할 때 처리할 최대 건수 (나머지는 다음 주기)
+    batch-size: 100
+    # 방금 시작된 처리(보내기·거절 직후 즉시 실행)와 겹치지 않도록 이 시간이 지난 것만 배치가 가져간다
+    pending-grace: 1m
+    # HP 작업 재시도: 지수 백오프 + 지터 (1분 → 2분 → 4분 → … → 최대 1시간, 10회 실패 시 격리)
+    retry-base-delay: 1m
+    retry-max-delay: 1h
+    retry-max-attempts: 10
+    retry-jitter-ratio: 0.2

@@ -112,7 +112,7 @@ public class LectureOrder {
 
     /**
      * 지급(배치). 지급 대상이면 {@code PAID_OUT}으로 바꾼 항목을, 아니면(배치가 조회한 뒤 이의 제기가 먼저 접수된 경우 등)
-     * 그대로 두고 빈 값을 돌려준다 (D49). 지급은 주문을 닫지 않는다. 보류 HP 지급은 호출한 쪽이 같은 트랜잭션에서 한다
+     * 그대로 두고 빈 값을 돌려준다 (D50). 지급은 주문을 닫지 않는다. 보류 HP 지급은 호출한 쪽이 같은 트랜잭션에서 한다
      */
     public Optional<OrderItem> payOutItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
@@ -128,6 +128,28 @@ public class LectureOrder {
         OrderItem item = findItem(orderItemId);
         item.cancel(now);
         closeIfAllItemsEnded(now);
+        return item;
+    }
+
+    /** 내용 다름 이의 제기 접수. 접수된 항목은 지급·구매 취소되지 않는다 (설계 6.2) */
+    public OrderItem fileObjection(Long orderItemId, Long buyerUserId, Long inquiryId, String reason,
+                                   LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        item.fileObjection(buyerUserId, inquiryId, reason, now);
+        return item;
+    }
+
+    /**
+     * 이의 제기 판단. 인정해서 끝나지 않은 항목이 남지 않으면 주문도 취소한다.
+     * 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다
+     */
+    public OrderItem resolveObjection(Long orderItemId, Long inquiryId, boolean accepted, Long adminUserId,
+                                      LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        item.resolveObjection(inquiryId, accepted, adminUserId, now);
+        if (accepted) {
+            closeIfAllItemsEnded(now);
+        }
         return item;
     }
 

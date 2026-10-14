@@ -40,6 +40,15 @@ public class LectureOrderSupport {
                 .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_NOT_FOUND));
     }
 
+    /**
+     * 이 주문 항목이 속한 주문을 잠가서 읽는다(구매자 확인 없음). 구매자를 모르는 쪽(이의 제기 판단)이 주문을 닫을 수 있을 때 쓴다 (D46).
+     * 주문 ID만 먼저 읽어, 잠그기 전에 항목을 영속성 컨텍스트에 올리지 않는다.
+     */
+    public Optional<LectureOrder> findOrderForUpdateByItemId(Long orderItemId) {
+        return lectureOrderRepository.findOrderIdByItemId(orderItemId)
+                .flatMap(lectureOrderRepository::findForUpdateById);
+    }
+
     /** 이 주문 항목이 속한 주문 (배치용, 구매자 확인 없음) */
     public LectureOrder findOrderByItemId(Long orderItemId) {
         return lectureOrderRepository.findByItemId(orderItemId)
@@ -67,7 +76,7 @@ public class LectureOrderSupport {
         return OrderResponse.of(findOrder(buyerUserId, orderId));
     }
 
-    /** 판매자의 판매 내역. 최근 구매순이고 정렬은 쿼리에 고정되어 요청의 정렬은 무시한다 (D50) */
+    /** 판매자의 판매 내역. 최근 구매순이고 정렬은 쿼리에 고정되어 요청의 정렬은 무시한다 (D51) */
     public Page<SaleResponse> getSales(Long sellerUserId, Pageable pageable) {
         PageRequest unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
         return lectureOrderRepository.findSales(sellerUserId, unsorted).map(SaleResponse::of);

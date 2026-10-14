@@ -33,7 +33,7 @@
 | 출연 요청서 보내기(HP 보류)·조회·기본 정보 수정 | ✅ | #98 |
 | 출연 요청 API 성공 응답 `RsData` | ✅ | #144 |
 | 출연 요청 응답(수락·거절·응답 전 취소), 출연 성립, HP 작업(반환) 기록·즉시 실행 | ✅ | #137 |
-| HP 작업 재시도·격리, 수락 기한 만료, 보류 재확인 (스케줄러) | ⬜ 예정 | — |
+| HP 작업 재시도·격리, 수락 기한 만료, 보류 재확인 (배치) | ✅ | #187 |
 | 출연 모집글 올리기(HP 보류)·조회·기본 정보 수정 | ✅ | #175 |
 | 모집 지원·수락, 모집 마감·취소 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
 
@@ -139,7 +139,11 @@ com.hapbang.appearance
 | `app.AppearanceRequestAcceptUseCase` | 수락: 요청서 `ACCEPTED` + 출연 성립 (Facade 트랜잭션) |
 | `app.AppearanceRequestRejectUseCase`, `AppearanceRequestCancelUseCase` | 거절·응답 전 취소: 상태 변경 + 반환 작업 기록 (자체 트랜잭션) |
 | `app.AppearanceRequestReleaseRecorder` | 거절·취소 공통: 상태 반영(버전 충돌 409) + 반환 작업 기록 |
-| `app.HpTaskExecuteUseCase` | HP 작업 1회 실행: Billing 호출(트랜잭션 밖) → 성공 `DONE` / 실패 기록 (`TransactionTemplate`) |
+| `app.HpTaskExecuteUseCase` | HP 작업 1회 실행: Billing 호출(트랜잭션 밖) → 성공 `DONE` / Billing 거절 `DEAD` / 그 밖 실패는 재시도 정책대로 (`TransactionTemplate`) |
+| `in.AppearanceBatch` | 배치 주기 정의(`@ConditionalOnSchedulingEnabled`). UseCase를 직접 호출 (#187) |
+| `app.AppearanceHoldRecheckUseCase`, `AppearanceRequestExpireUseCase`, `HpTaskRetryUseCase` | 보류 재확인 / 수락 기한 만료 / HP 작업 재시도 (#187) |
+| `app.HpTaskMetrics` | HP 작업 지표(Micrometer) 등록·갱신 (#187) |
+| `domain.HpTaskRetryPolicy`, `config.AppearanceBatchProperties` | 재시도 정책(지수 백오프+지터) / 배치 설정 바인딩 (#187) |
 | `app.AppearanceSupport`, `HpTaskSupport` | 출연·HP 작업 저장소 접근 |
 | `app.AppearanceRequestSupport` | 요청서 저장소 접근: `getById`, `existsInProgress`, `saveNow`, `findSent`, `findReceived` (최신순 고정) |
 | `in.ApiV1AppearanceRequestController`, `ApiV1AppearanceRequestSpec` | 출연 요청서 REST API(Facade만 호출)와 Swagger 명세 (요청 값 검증은 Spec에) |
@@ -242,19 +246,20 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
   커밋 → 반환 작업 1회 실행 (트랜잭션 밖에서 Billing 호출)
           ├ 성공 → DONE
           └ 실패 → PENDING 유지, 시도 횟수 +1, 마지막 오류, 다음 시도 시각 기록 (사용자 요청은 성공으로 응답)
-[재시도 스케줄러, 예정]
-  다음 시도 시각이 지난 PENDING 작업 실행, 간격 늘리기, 최대 횟수 초과 시 DEAD(격리, DLQ) + 오류 로그
+          (Billing 거절이면 바로 DEAD)
+[HP 작업 재시도 배치, #187]
+  다음 시도 시각이 지난 PENDING 작업 실행, 지수 백오프로 간격 늘리기, 10회 실패 시 DEAD(격리) + 오류 로그 (8.4)
 ```
 
 | 상태 | 의미 | 화면 (`hpReleaseStatus`) |
 |---|---|---|
 | `PENDING` | 처리 대기 또는 재시도 중 | "HP 반환 처리 중" |
 | `DONE` | 완료 | "반환 완료" |
-| `DEAD` | 최대 재시도 초과, 격리 | "반환 지연, 고객센터 문의" |
+| `DEAD` | Billing 거절 또는 최대 재시도 초과, 격리 | "반환 지연, 고객센터 문의" |
 
 - 왜 이 방식인가: Modulith 이벤트 재실행은 시도 횟수·격리를 업무 기준으로 관리하기 어렵고, 요청서에 상태 컬럼을 두면 Billing 호출이 생기는 테이블마다 같은 컬럼·재시도 로직이 반복된다. HP 작업 테이블 하나로 반환·지급·정산을 같은 방식으로 처리한다.
 - 멱등 키(= Billing 반환 요청 ID)가 같아 여러 번 실행해도 HP가 두 번 움직이지 않는다 (같은 키로 작업을 두 번 기록하는 것도 DB가 막음).
-- 실패 기록(`last_error`): Billing이 거절하면 `{Billing 오류 코드}: {메시지}`, 결과를 알 수 없으면 `{예외 종류}: {메시지}`. 둘을 나눠 처리(격리·재시도)하는 것은 재시도 스케줄러에서 정한다.
+- 실패 기록(`last_error`): Billing이 거절하면 `{Billing 오류 코드}: {메시지}`(바로 `DEAD`), 결과를 알 수 없으면 `{예외 종류}: {메시지}`(재시도). 8.4 참고.
 
 ---
 
@@ -489,3 +494,63 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 | 수정 | 호스트만, `RECRUITING`이고 모집 마감 일시 전까지. 동시 수정은 409 `CONCURRENT_UPDATE` | ISSUE.md APR-08 |
 | 응답 | 성립 인원(`selectedCount`), 버전 포함. 마감 방식·마감 시각·취소 시각은 이후 처리에서 채움 | |
 | 미정 | 방송 플랫폼·카테고리 등 분류, 검색·필터, 비회원 공개, 정지 호스트 모집글 노출 | 필요할 때 결정 |
+
+---
+
+## 8. 출연 배치 (#187)
+
+### 8.1 구조
+
+```
+in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
+  ├ 00초 AppearanceHoldRecheckUseCase.recheckDue()   보류 처리 중 요청서·모집글 재확인
+  ├ 20초 AppearanceRequestExpireUseCase.expireDue()  수락 기한 만료 + 반환
+  └ 40초 HpTaskRetryUseCase.retryDue()               HP 작업 재시도·격리 + 지표 갱신
+```
+
+- 팀 공통 스케줄링 규칙(#157)을 따른다: `hapbang.scheduling.enabled=true`일 때만 배치 빈이 생기고(앱에서만 켜짐), 배치 클래스는 주기만 정하고 처리는 UseCase가 한다. 테스트는 UseCase를 직접 부른다.
+- 배치는 로그인 회원이 아니라 시스템이 실행하므로 역할 검사(`@PreAuthorize`)가 있는 Facade를 거치지 않고 UseCase를 직접 부른다 (팀 강의 배치와 같은 방식, ISSUE.md APR-26).
+- 한 번에 최대 100건(`batch-size`), 건마다 짧은 트랜잭션, 건마다 예외를 잡아 다음 건을 계속 처리한다. 같은 배치는 이전 실행이 끝나야 다음 실행이 시작된다.
+- 설정: `appearance.yml`의 `appearance.batch.*` (주기, 건수, 대기 시간, 재시도 정책). `config.AppearanceBatchProperties`가 읽는다.
+
+### 8.2 HP 보류 재확인
+
+| 대상 | 처리 | 결과 |
+|---|---|---|
+| 만든 지 1분(`pending-grace`) 넘게 `HOLD_PENDING`인 요청서·모집글 | 같은 보류를 다시 요청 (보내기·올리기의 HoldUseCase 그대로) | 성공 → `REQUESTED`/`RECRUITING`, Billing 거절 → `HOLD_FAILED`, 여전히 알 수 없음 → 그대로 두고 다음 주기 |
+
+- Billing은 같은 참조 대상의 보류를 다시 받으면 처음 결과를 돌려준다(`replayed`). 처음 요청이 Billing에서 처리됐어도 두 번 보류되지 않는다.
+- 1분 대기는 진행 중인 보내기·올리기 요청과 겹치지 않게 하는 장치다. 겹쳐도 Billing이 같은 결과를 주고, 보류 결과 반영(`markRequested`·`markRecruiting`·`markHoldFailed`)이 멱등이라 안전하다.
+- 수락 기한이 이미 지난 요청서도 보류 결과대로 `REQUESTED`로 정리하고, 같은 분의 만료 배치가 `EXPIRED` + 반환한다 (APR-26 S5). 이 경우의 불편은 고객센터에서 처리한다.
+
+### 8.3 수락 기한 만료
+
+| 대상 | 처리 |
+|---|---|
+| `REQUESTED`이고 수락 기한이 지난 요청서 | [트랜잭션] `EXPIRED` + 반환 작업 기록(사유 `REQUEST_EXPIRED`) → [트랜잭션 밖] 반환 작업 1회 실행 |
+
+- 거절·응답 전 취소와 같은 흐름이다. 반환이 실패해도 만료는 확정되고 작업은 재시도 대기로 남는다.
+- 수락·거절·취소는 기한이 지나면 막히므로(#137 D3) 만료와 동시에 일어나지 않는다.
+
+### 8.4 HP 작업 재시도·격리
+
+| 결과 | 처리 |
+|---|---|
+| 성공 | `DONE` |
+| Billing 거절 (업무 예외) | **바로 `DEAD`**. 다시 보내도 결과가 같으므로 재시도하지 않고 Billing 오류 코드·메시지를 기록 (APR-26 S3) |
+| 결과를 알 수 없는 실패 | 지수 백오프 + 지터로 다음 시도 시각 결정: 1분 → 2분 → 4분 → … → 최대 1시간 (+0~20%). **10회 실패 시 `DEAD`** |
+
+- 재시도 대상: `PENDING`이고 다음 시도 시각이 지났으며, 한 번 이상 시도했거나 만든 지 1분이 지난 작업. 거절·취소 직후 요청 안에서 바로 실행 중인 작업과 겹치지 않게 하기 위해서다.
+- 같은 작업을 동시에 실행해도 같은 반환 요청 ID라 Billing은 한 번만 처리하고, 결과 기록은 대기 중일 때만 한다(버전 충돌이면 먼저 기록한 쪽을 따름).
+- 재시도 정책: `domain.HpTaskRetryPolicy` (`appearance.batch.retry-*`).
+
+### 8.5 모니터링
+
+| 장치 | 내용 | 확인 방법 |
+|---|---|---|
+| 격리 로그 | `DEAD`가 되는 순간 ERROR 로그 `[HP_TASK_DEAD] taskId=…, type=…, ref=APPEARANCE_REQUEST-12, memberId=…, amount=…, attempts=…, error=…` | `docker logs <컨테이너> 2>&1 \| grep HP_TASK_DEAD` |
+| 지표 (Micrometer) | `appearance.hp_task.executions{result=done\|retry\|dead}`, `appearance.hp_task.pending`, `appearance.hp_task.dead` (재시도 배치 실행 시점 값) | 앱의 `MeterRegistry`에 등록됨. 보는 경로(`/actuator/metrics`, Prometheus)는 팀 합의 후 연다 |
+| DB | `select * from appearances.hp_tasks where status = 'DEAD'` | 언제든 |
+
+- Prometheus + Grafana 대시보드·알림은 `docker/compose*.yaml` 변경이 필요해 팀 결정 사항이다.
+- 배치 조회용 인덱스: `V202610141700__add_appearance_batch_indexes.sql` (요청서 `(status, accept_deadline)`, `(status, created_at)`)
