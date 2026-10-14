@@ -132,6 +132,17 @@ class ProfileImageApiTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    @DisplayName("Swagger 문서에 업로드 본문이 이미지 파일(jpeg·png·webp)로 나와 파일 선택으로 보낼 수 있다")
+    void swaggerRequestBody() throws Exception {
+        String content = "$.paths['/api/v1/members/files/{memberId}/content'].put.requestBody.content";
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(content + "['image/png'].schema.format").value("binary"))
+                .andExpect(jsonPath(content + "['image/jpeg']").exists())
+                .andExpect(jsonPath(content + "['image/webp']").exists());
+    }
+
     private MockHttpServletRequestBuilder upload(User loginUser, Long memberId, String contentType, byte[] body) {
         return put("/api/v1/members/files/{memberId}/content", memberId)
                 .contentType(contentType)

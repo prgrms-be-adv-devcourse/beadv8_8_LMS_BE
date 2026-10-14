@@ -8,6 +8,9 @@ import org.springframework.data.web.PagedModel;
 import com.hapbang.global.response.RsData;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -39,7 +42,12 @@ public interface ApiV1MemberSpec {
                     + "Content-Type은 image/jpeg·image/png·image/webp, Content-Length 필수(최대 5MB). "
                     + "{memberId}에는 내 회원 ID를 넣는다 (팀 업로드 경로 규칙 PUT /files/{id}/content, 프로필 사진은 회원당 하나). "
                     + "남의 ID면 403 PROFILE_IMAGE_FORBIDDEN, 형식·크기 위반 400. 올릴 때마다 새 파일로 저장하고 바로 프로필로 지정한다. "
-                    + "Swagger의 Try it out으로는 파일 본문을 보낼 수 없어 curl 등으로 확인한다.")
+                    + "Swagger에서는 형식을 고르고 파일을 선택해 보낸다.",
+            requestBody = @RequestBody(required = true, content = {
+                    @Content(mediaType = "image/jpeg", schema = @Schema(type = "string", format = "binary")),
+                    @Content(mediaType = "image/png", schema = @Schema(type = "string", format = "binary")),
+                    @Content(mediaType = "image/webp", schema = @Schema(type = "string", format = "binary"))
+            }))
     RsData<MemberMeResponse> uploadProfileImage(Long userId, Long memberId, HttpServletRequest request) throws IOException;
 
     @Operation(summary = "프로필 사진 삭제",
