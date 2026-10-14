@@ -117,6 +117,28 @@ public class LectureOrder {
         return item;
     }
 
+    /** 내용 다름 이의 제기 접수. 접수된 항목은 지급·구매 취소되지 않는다 (설계 6.2) */
+    public OrderItem fileObjection(Long orderItemId, Long buyerUserId, Long inquiryId, String reason,
+                                   LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        item.fileObjection(buyerUserId, inquiryId, reason, now);
+        return item;
+    }
+
+    /**
+     * 이의 제기 판단. 인정해서 끝나지 않은 항목이 남지 않으면 주문도 취소한다.
+     * 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다
+     */
+    public OrderItem resolveObjection(Long orderItemId, Long inquiryId, boolean accepted, Long adminUserId,
+                                      LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        item.resolveObjection(inquiryId, accepted, adminUserId, now);
+        if (accepted) {
+            closeIfAllItemsEnded(now);
+        }
+        return item;
+    }
+
     /** PAID인 주문의 진행 상황. 취소된 주문은 {@code null} */
     public OrderProgress progress() {
         if (status == LectureOrderStatus.CANCELED) {
