@@ -3,10 +3,9 @@ package com.hapbang.appearance.domain;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 /**
- * 출연 정책 수치. 값은 {@code appearance.yml}의 {@code appearance.policy}에서 주입한다.
+ * 출연 정책 수치. 값은 {@code appearance.yml}의 {@code appearance.policy}에 있고,
+ * 설정 객체({@code config.AppearancePolicyProperties})가 읽어 이 객체로 바꿔 등록한다. 이 클래스는 Spring을 모른다.
  * <p>
  * 정책 수치는 코드에 직접 쓰지 않고 반드시 이 클래스를 거친다(AGENTS.md 5장).
  *
@@ -16,7 +15,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param maxCancelRequestCount 출연 1건당 출연 취소 요청 최대 횟수
  * @param maxRecruitCount       출연 모집글 하나의 최대 모집 인원 (최소는 1명)
  */
-@ConfigurationProperties(prefix = "appearance.policy")
 public record AppearancePolicy(
         long minimumFee,
         int penaltyRatePercent,

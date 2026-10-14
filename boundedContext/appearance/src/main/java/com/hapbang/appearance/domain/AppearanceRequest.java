@@ -5,7 +5,7 @@ import java.util.Objects;
 
 import com.hapbang.shared.jpa.BaseEntity;
 
-import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -24,7 +24,7 @@ import lombok.NoArgsConstructor;
  *     <li>보낼 때 출연료만큼 HP를 보류한다. 저장 직후는 {@code HOLD_PENDING}이고, 보류 결과에 따라
  *     {@code REQUESTED} 또는 {@code HOLD_FAILED}가 된다.</li>
  *     <li>보낸 뒤 수정할 수 있는 것은 제목·콘텐츠 설명·호스트 채널 URL뿐이며, 게스트 응답 전({@code REQUESTED})까지만 가능하다.</li>
- *     <li>입력 값 제한은 {@link AppearanceRequestRules}에 있고, 만들 때와 수정할 때 이 클래스에서도 다시 확인한다
+ *     <li>입력 값 제한은 {@link AppearanceContentRules}(요청서·모집글 공통)와 {@link AppearanceRequestRules}(거절 사유)에 있고, 만들 때와 수정할 때 이 클래스에서도 다시 확인한다
  *     (요청 DTO 검증을 거치지 않는 호출도 막기 위해).</li>
  * </ul>
  */
@@ -44,11 +44,9 @@ public class AppearanceRequest extends BaseEntity {
     /** 요청을 받는 게스트 회원 ID. 호스트와 같을 수 없다 */
     private Long guestId;
 
-    /** 제목. 공백 불가, 100자 이하. 수정 가능 */
-    private String title;
-
-    /** 호스트 채널 URL. http(s)://로 시작, 255자 이하. 수정 가능 */
-    private String hostChannelUrl;
+    /** 기본 정보(제목·호스트 채널 URL·콘텐츠 설명). 등록 후 수정할 수 있는 값 */
+    @Embedded
+    private AppearanceBasicInfo basicInfo;
 
     /** 방송 예정 일시 */
     private LocalDateTime scheduledAt;
@@ -56,9 +54,6 @@ public class AppearanceRequest extends BaseEntity {
     /** 예상 출연 시간(분). 1 ~ 1,440 */
     private int expectedMinutes;
 
-    /** 콘텐츠 설명. 공백 불가, 5,000자 이하. 수정 가능 */
-    @Column(columnDefinition = "text")
-    private String content;
 
     /** 출연료 (HP). 최저 출연료({@link AppearancePolicy#minimumFee()}) 이상 */
     private long fee;
@@ -82,14 +77,13 @@ public class AppearanceRequest extends BaseEntity {
     @Version
     private Long version;
 
-    private AppearanceRequest(Long hostId, Long guestId, AppearanceRequestContent requestContent) {
+    private AppearanceRequest(Long hostId, Long guestId, AppearanceBasicInfo basicInfo,
+                              AppearanceRequestContent requestContent) {
         this.hostId = hostId;
         this.guestId = guestId;
-        this.title = requestContent.title();
-        this.hostChannelUrl = requestContent.hostChannelUrl();
+        this.basicInfo = basicInfo;
         this.scheduledAt = requestContent.scheduledAt();
         this.expectedMinutes = requestContent.expectedMinutes();
-        this.content = requestContent.content();
         this.fee = requestContent.fee();
         this.acceptDeadline = requestContent.acceptDeadline();
         this.status = AppearanceRequestStatus.HOLD_PENDING;
@@ -103,10 +97,9 @@ public class AppearanceRequest extends BaseEntity {
      */
     public static AppearanceRequest create(Long hostId, Long guestId, AppearanceRequestContent requestContent,
                                            AppearancePolicy policy, LocalDateTime now) {
-        AppearanceRequestRules.validateTitle(requestContent.title());
-        AppearanceRequestRules.validateHostChannelUrl(requestContent.hostChannelUrl());
-        AppearanceRequestRules.validateContent(requestContent.content());
-        AppearanceRequestRules.validateExpectedMinutes(requestContent.expectedMinutes());
+        AppearanceBasicInfo basicInfo = AppearanceBasicInfo.of(requestContent.title(), requestContent.hostChannelUrl(),
+                requestContent.content());
+        AppearanceContentRules.validateExpectedMinutes(requestContent.expectedMinutes());
         if (hostId.equals(guestId)) {
             throw new AppearanceException(AppearanceErrorCode.CANNOT_REQUEST_SELF);
         }
@@ -119,7 +112,7 @@ public class AppearanceRequest extends BaseEntity {
                 || !requestContent.acceptDeadline().isBefore(requestContent.scheduledAt())) {
             throw new AppearanceException(AppearanceErrorCode.INVALID_REQUEST_SCHEDULE);
         }
-        return new AppearanceRequest(hostId, guestId, requestContent);
+        return new AppearanceRequest(hostId, guestId, basicInfo, requestContent);
     }
 
     /** HP 보류 성공 → 게스트 응답 대기 */
@@ -148,24 +141,7 @@ public class AppearanceRequest extends BaseEntity {
         if (status != AppearanceRequestStatus.REQUESTED) {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_NOT_EDITABLE);
         }
-        if (title != null) {
-            AppearanceRequestRules.validateTitle(title);
-        }
-        if (content != null) {
-            AppearanceRequestRules.validateContent(content);
-        }
-        if (hostChannelUrl != null) {
-            AppearanceRequestRules.validateHostChannelUrl(hostChannelUrl);
-        }
-        if (title != null) {
-            this.title = title;
-        }
-        if (content != null) {
-            this.content = content;
-        }
-        if (hostChannelUrl != null) {
-            this.hostChannelUrl = hostChannelUrl;
-        }
+        this.basicInfo = basicInfo.withChanges(title, content, hostChannelUrl);
     }
 
     /**
@@ -241,6 +217,18 @@ public class AppearanceRequest extends BaseEntity {
         if (!status.isVisible() || !(isHost(userId) || isGuest(userId))) {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_NOT_FOUND);
         }
+    }
+
+    public String getTitle() {
+        return basicInfo.getTitle();
+    }
+
+    public String getHostChannelUrl() {
+        return basicInfo.getHostChannelUrl();
+    }
+
+    public String getContent() {
+        return basicInfo.getContent();
     }
 
     public boolean isHost(Long userId) {

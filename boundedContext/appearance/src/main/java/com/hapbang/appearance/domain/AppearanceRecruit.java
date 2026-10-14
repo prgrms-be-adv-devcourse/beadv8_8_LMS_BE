@@ -4,7 +4,7 @@ import java.time.LocalDateTime;
 
 import com.hapbang.shared.jpa.BaseEntity;
 
-import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -23,7 +23,8 @@ import lombok.NoArgsConstructor;
  *     <li>올릴 때 1인당 출연료 × 모집 인원만큼 HP를 보류한다. 저장 직후는 {@code HOLD_PENDING}이고, 보류 결과에 따라
  *     {@code RECRUITING} 또는 {@code HOLD_FAILED}가 된다.</li>
  *     <li>올린 뒤 수정할 수 있는 것은 제목·콘텐츠 설명·호스트 채널 URL뿐이며, 모집 중이고 마감 일시 전까지만 가능하다.</li>
- *     <li>입력 값 형식 제한은 출연 요청서와 같다({@link AppearanceRequestRules}). 만들 때와 수정할 때 이 클래스에서도 다시 확인한다.</li>
+ *     <li>기본 정보(제목·콘텐츠 설명·호스트 채널 URL)는 출연 요청서와 같은 값 객체({@link AppearanceBasicInfo})로 두고,
+ *     형식 제한도 요청서와 같은 {@link AppearanceContentRules}를 쓴다.</li>
  * </ul>
  */
 @Entity
@@ -39,11 +40,9 @@ public class AppearanceRecruit extends BaseEntity {
     /** 모집글을 올린 호스트 회원 ID */
     private Long hostId;
 
-    /** 제목. 공백 불가, 100자 이하. 수정 가능 */
-    private String title;
-
-    /** 호스트 채널 URL. http(s)://로 시작, 255자 이하. 수정 가능 */
-    private String hostChannelUrl;
+    /** 기본 정보(제목·호스트 채널 URL·콘텐츠 설명). 등록 후 수정할 수 있는 값 */
+    @Embedded
+    private AppearanceBasicInfo basicInfo;
 
     /** 방송 예정 일시 */
     private LocalDateTime scheduledAt;
@@ -51,9 +50,6 @@ public class AppearanceRecruit extends BaseEntity {
     /** 예상 출연 시간(분). 1 ~ 1,440 */
     private int expectedMinutes;
 
-    /** 콘텐츠 설명. 공백 불가, 5,000자 이하. 수정 가능 */
-    @Column(columnDefinition = "text")
-    private String content;
 
     /** 1인당 출연료 (HP). 최저 출연료({@link AppearancePolicy#minimumFee()}) 이상 */
     private long feePerPerson;
@@ -84,13 +80,11 @@ public class AppearanceRecruit extends BaseEntity {
     @Version
     private Long version;
 
-    private AppearanceRecruit(Long hostId, AppearanceRecruitContent recruitContent) {
+    private AppearanceRecruit(Long hostId, AppearanceBasicInfo basicInfo, AppearanceRecruitContent recruitContent) {
         this.hostId = hostId;
-        this.title = recruitContent.title();
-        this.hostChannelUrl = recruitContent.hostChannelUrl();
+        this.basicInfo = basicInfo;
         this.scheduledAt = recruitContent.scheduledAt();
         this.expectedMinutes = recruitContent.expectedMinutes();
-        this.content = recruitContent.content();
         this.feePerPerson = recruitContent.feePerPerson();
         this.recruitCount = recruitContent.recruitCount();
         this.selectedCount = 0;
@@ -106,10 +100,9 @@ public class AppearanceRecruit extends BaseEntity {
      */
     public static AppearanceRecruit create(Long hostId, AppearanceRecruitContent recruitContent,
                                            AppearancePolicy policy, LocalDateTime now) {
-        AppearanceRequestRules.validateTitle(recruitContent.title());
-        AppearanceRequestRules.validateHostChannelUrl(recruitContent.hostChannelUrl());
-        AppearanceRequestRules.validateContent(recruitContent.content());
-        AppearanceRequestRules.validateExpectedMinutes(recruitContent.expectedMinutes());
+        AppearanceBasicInfo basicInfo = AppearanceBasicInfo.of(recruitContent.title(), recruitContent.hostChannelUrl(),
+                recruitContent.content());
+        AppearanceContentRules.validateExpectedMinutes(recruitContent.expectedMinutes());
         if (policy.isBelowMinimumFee(recruitContent.feePerPerson())) {
             throw new AppearanceException(AppearanceErrorCode.FEE_BELOW_MINIMUM,
                     "1인당 출연료는 최저 출연료(%,d HP) 이상이어야 합니다.".formatted(policy.minimumFee()));
@@ -124,7 +117,7 @@ public class AppearanceRecruit extends BaseEntity {
                 || !recruitContent.recruitDeadline().isBefore(recruitContent.scheduledAt())) {
             throw new AppearanceException(AppearanceErrorCode.INVALID_RECRUIT_SCHEDULE);
         }
-        AppearanceRecruit recruit = new AppearanceRecruit(hostId, recruitContent);
+        AppearanceRecruit recruit = new AppearanceRecruit(hostId, basicInfo, recruitContent);
         // 보류할 금액을 계산할 수 있는지 저장 전에 확인한다
         recruit.totalFee();
         return recruit;
@@ -172,24 +165,7 @@ public class AppearanceRecruit extends BaseEntity {
         if (status != AppearanceRecruitStatus.RECRUITING || !now.isBefore(recruitDeadline)) {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_EDITABLE);
         }
-        if (title != null) {
-            AppearanceRequestRules.validateTitle(title);
-        }
-        if (content != null) {
-            AppearanceRequestRules.validateContent(content);
-        }
-        if (hostChannelUrl != null) {
-            AppearanceRequestRules.validateHostChannelUrl(hostChannelUrl);
-        }
-        if (title != null) {
-            this.title = title;
-        }
-        if (content != null) {
-            this.content = content;
-        }
-        if (hostChannelUrl != null) {
-            this.hostChannelUrl = hostChannelUrl;
-        }
+        this.basicInfo = basicInfo.withChanges(title, content, hostChannelUrl);
     }
 
     /**
@@ -202,6 +178,18 @@ public class AppearanceRecruit extends BaseEntity {
         if (!status.isVisible()) {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
         }
+    }
+
+    public String getTitle() {
+        return basicInfo.getTitle();
+    }
+
+    public String getHostChannelUrl() {
+        return basicInfo.getHostChannelUrl();
+    }
+
+    public String getContent() {
+        return basicInfo.getContent();
     }
 
     public boolean isHost(Long userId) {

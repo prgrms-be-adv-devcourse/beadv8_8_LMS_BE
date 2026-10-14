@@ -1,6 +1,6 @@
 package com.hapbang.appearance.in.dto;
 
-import com.hapbang.appearance.domain.AppearanceRequestRules;
+import com.hapbang.appearance.domain.AppearanceContentRules;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.AssertTrue;
@@ -12,18 +12,18 @@ import jakarta.validation.constraints.Size;
  */
 public record UpdateAppearanceRequestReqDto(
         @Schema(description = "제목. 보내지 않으면 그대로")
-        @Size(max = AppearanceRequestRules.TITLE_MAX, message = "제목은 100자 이하여야 합니다.")
-        @Pattern(regexp = AppearanceRequestRules.NOT_BLANK_PATTERN, message = "제목은 공백일 수 없습니다.")
+        @Size(max = AppearanceContentRules.TITLE_MAX, message = "제목은 100자 이하여야 합니다.")
+        @Pattern(regexp = AppearanceContentRules.NOT_BLANK_PATTERN, message = "제목은 공백일 수 없습니다.")
         String title,
 
         @Schema(description = "콘텐츠 설명. 보내지 않으면 그대로")
-        @Size(max = AppearanceRequestRules.CONTENT_MAX, message = "콘텐츠 설명은 5000자 이하여야 합니다.")
-        @Pattern(regexp = AppearanceRequestRules.NOT_BLANK_PATTERN, message = "콘텐츠 설명은 공백일 수 없습니다.")
+        @Size(max = AppearanceContentRules.CONTENT_MAX, message = "콘텐츠 설명은 5000자 이하여야 합니다.")
+        @Pattern(regexp = AppearanceContentRules.NOT_BLANK_PATTERN, message = "콘텐츠 설명은 공백일 수 없습니다.")
         String content,
 
         @Schema(description = "호스트 채널 URL. 보내지 않으면 그대로")
-        @Size(max = AppearanceRequestRules.URL_MAX, message = "호스트 채널 URL은 255자 이하여야 합니다.")
-        @Pattern(regexp = AppearanceRequestRules.URL_PATTERN, message = "호스트 채널 URL은 http:// 또는 https://로 시작해야 합니다.")
+        @Size(max = AppearanceContentRules.URL_MAX, message = "호스트 채널 URL은 255자 이하여야 합니다.")
+        @Pattern(regexp = AppearanceContentRules.URL_PATTERN, message = "호스트 채널 URL은 http:// 또는 https://로 시작해야 합니다.")
         String hostChannelUrl
 ) {
 

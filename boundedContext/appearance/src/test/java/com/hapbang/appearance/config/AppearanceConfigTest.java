@@ -51,6 +51,14 @@ class AppearanceConfigTest {
     }
 
     @Test
+    @DisplayName("설정 바인딩은 config의 AppearancePolicyProperties가 하고, 도메인 AppearancePolicy에는 어노테이션이 없다")
+    void policyIsFrameworkFree() {
+        assertThat(AppearancePolicy.class.getAnnotations()).isEmpty();
+        contextRunner.run(context -> assertThat(context).hasSingleBean(AppearancePolicyProperties.class)
+                .hasSingleBean(AppearancePolicy.class));
+    }
+
+    @Test
     @DisplayName("출연 Clock은 한국 시간대를 쓴다")
     void clockUsesSeoulZone() {
         contextRunner.run(context -> {
