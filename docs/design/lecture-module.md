@@ -493,7 +493,7 @@ sequenceDiagram
     CS->>LEC: LectureObjectionPort.resolveObjection(...)
     alt 인정
         LEC->>LEC: ACCEPTED, 항목 RETURNED
-        LEC->>WAL: returnLectureOrderItem(...)
+        LEC->>WAL: BillingPort.release(full, "LECTURE-RETURN-{itemId}") (D43)
         LEC->>LEC: 모든 항목이 끝났으면 주문 CANCELED
     else 기각
         LEC->>LEC: REJECTED (지급 시점이 지났으면 다음 지급 배치가 지급)
