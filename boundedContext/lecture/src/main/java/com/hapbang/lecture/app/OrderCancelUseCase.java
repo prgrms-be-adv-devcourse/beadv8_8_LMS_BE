@@ -40,7 +40,8 @@ public class OrderCancelUseCase {
     }
 
     public OrderItemResponse cancel(Long buyerUserId, Long orderId, Long orderItemId) {
-        LectureOrder order = lectureOrderSupport.findOrder(buyerUserId, orderId);
+        // 같은 주문의 다른 항목 구매 취소와 동시에 와도 마지막 항목 판정(주문 CANCELED)이 빠지지 않도록 주문을 잠근다 (D45)
+        LectureOrder order = lectureOrderSupport.findOrderForUpdate(buyerUserId, orderId);
         OrderItem item = order.cancelItem(orderItemId, LocalDateTime.now(clock));
         // 같은 항목을 동시에 바꾼 요청(낙관적 락 충돌)을 billing 호출 전에 확인한다 (설계 6.2)
         lectureOrderRepository.flush();

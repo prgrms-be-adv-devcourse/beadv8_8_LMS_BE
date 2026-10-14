@@ -4,14 +4,20 @@ import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.authorization.AuthorizationDeniedException;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.lecture.app.dto.OrderItemResponse;
@@ -97,6 +103,35 @@ class OrderCancelUseCaseTest {
         assertThat(saved.canceledAt()).isNotNull();
         assertThat(billingPort.releases()).extracting(ReleaseCommand::referenceId)
                 .containsExactlyElementsOf(order.items().stream().map(OrderItemResponse::orderItemId).toList());
+    }
+
+    @Test
+    void 마지막_두_항목을_동시에_구매_취소해도_주문이_취소된다() throws Exception {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
+        // 두 취소가 모두 반환 단계에 들어갈 때까지 기다리게 해, 주문을 잠그지 않으면 서로의 취소를 보지 못하게 한다
+        billingPort.holdReleasesUntil(2, Duration.ofSeconds(1));
+        SecurityContext securityContext = SecurityContextHolder.getContext();
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            List<Future<OrderItemResponse>> futures = order.items().stream()
+                    .map(item -> executor.submit(() -> {
+                        SecurityContextHolder.setContext(securityContext);
+                        try {
+                            return lectureOrderFacade.cancel(BUYER_ID, order.orderId(), item.orderItemId());
+                        } finally {
+                            SecurityContextHolder.clearContext();
+                        }
+                    }))
+                    .toList();
+            for (Future<OrderItemResponse> future : futures) {
+                assertThat(future.get().status()).isEqualTo(OrderItemStatus.CANCELED);
+            }
+        }
+
+        OrderResponse saved = lectureOrderFacade.getOrder(BUYER_ID, order.orderId());
+        assertThat(saved.items()).extracting(OrderItemResponse::status).containsOnly(OrderItemStatus.CANCELED);
+        assertThat(saved.status()).isEqualTo(LectureOrderStatus.CANCELED);
+        assertThat(billingPort.releases()).hasSize(2);
     }
 
     @Test

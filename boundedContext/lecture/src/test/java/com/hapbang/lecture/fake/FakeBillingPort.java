@@ -1,9 +1,12 @@
 package com.hapbang.lecture.fake;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -42,6 +45,8 @@ public class FakeBillingPort implements BillingPort {
     private final List<HoldCommand> holds = new CopyOnWriteArrayList<>();
     private final List<ReleaseCommand> releases = new CopyOnWriteArrayList<>();
     private volatile Long releasedHpOverride;
+    private volatile CountDownLatch releaseGate;
+    private volatile Duration releaseGateTimeout;
 
     public void reset() {
         balances.clear();
@@ -49,6 +54,7 @@ public class FakeBillingPort implements BillingPort {
         holds.clear();
         releases.clear();
         releasedHpOverride = null;
+        releaseGate = null;
     }
 
     public void setBalance(Long userId, long balanceHp) {
@@ -58,6 +64,15 @@ public class FakeBillingPort implements BillingPort {
     /** 다음 반환부터 이 금액을 반환했다고 응답한다 (반환 결과 검증용) */
     public void overrideReleasedHp(long releasedHp) {
         this.releasedHpOverride = releasedHp;
+    }
+
+    /**
+     * 반환 요청이 {@code parties}개 모일 때까지(최대 {@code timeout}) 반환을 멈춘다. 동시 요청이 서로의 커밋 전에
+     * 같은 상태를 읽게 만들어 경쟁을 재현한다. 호출한 쪽이 잠금으로 직렬화하면 앞 요청은 시간이 지나 그대로 진행한다.
+     */
+    public void holdReleasesUntil(int parties, Duration timeout) {
+        this.releaseGateTimeout = timeout;
+        this.releaseGate = new CountDownLatch(parties);
     }
 
     /** 커밋된 보류 */
@@ -93,6 +108,7 @@ public class FakeBillingPort implements BillingPort {
         if (hold == null || !hold.userId().equals(command.userId())) {
             throw new IllegalStateException("보류가 없습니다: " + command.referenceId());
         }
+        awaitReleaseGate();
         long releasedHp = releasedHpOverride != null ? releasedHpOverride : hold.amountHp();
         onCompletion(() -> releases.add(command), () -> {
         });
@@ -108,6 +124,19 @@ public class FakeBillingPort implements BillingPort {
     @Override
     public PenaltyResultDto settlePenalty(PenaltyCommand command) {
         throw new UnsupportedOperationException("강의는 위약금을 정산하지 않는다");
+    }
+
+    private void awaitReleaseGate() {
+        CountDownLatch gate = releaseGate;
+        if (gate == null) {
+            return;
+        }
+        gate.countDown();
+        try {
+            gate.await(releaseGateTimeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static void onCompletion(Runnable afterCommit, Runnable afterRollback) {

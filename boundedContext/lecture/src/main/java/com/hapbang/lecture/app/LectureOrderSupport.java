@@ -33,6 +33,12 @@ public class LectureOrderSupport {
                 .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_NOT_FOUND));
     }
 
+    /** 구매자 본인의 주문을 잠가서 읽는다. 주문을 닫을 수 있는 변경에 쓴다 (D45) */
+    public LectureOrder findOrderForUpdate(Long buyerUserId, Long orderId) {
+        return lectureOrderRepository.findForUpdate(orderId, buyerUserId)
+                .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_NOT_FOUND));
+    }
+
     /** 구매자가 이 강의를 보유한(구매·구매 확정·지급) 항목 */
     public Optional<OrderItem> findHeldItem(Long buyerUserId, Long lectureId) {
         return lectureOrderRepository.findHeldItem(buyerUserId, lectureId);
