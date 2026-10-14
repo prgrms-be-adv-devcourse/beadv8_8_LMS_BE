@@ -9,7 +9,7 @@ import lombok.RequiredArgsConstructor;
  * 출연 요청서 상태.
  * <pre>
  * HOLD_PENDING ─보류 성공─▶ REQUESTED ─▶ ACCEPTED / REJECTED / EXPIRED / CANCELED
- *              └─잔액 부족─▶ HOLD_FAILED
+ *              └─Billing 거절(잔액 부족 등)─▶ HOLD_FAILED
  * </pre>
  * 수락·거절·만료·취소는 게스트 응답 처리에서 쓴다.
  */
@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum AppearanceRequestStatus {
     HOLD_PENDING("HP 보류 처리 중. 저장 후 보류 결과를 기다리며, Billing 무응답이면 이 상태로 남는다"),
-    HOLD_FAILED("HP 보류 실패. 잔액 부족으로 등록되지 않았고 기록으로만 남는다"),
+    HOLD_FAILED("HP 보류 실패. Billing이 거절해(잔액 부족 등) 등록되지 않았고 기록으로만 남는다"),
     REQUESTED("응답 대기. HP 보류가 끝나 게스트의 수락·거절을 기다린다"),
     ACCEPTED("수락. 게스트가 수락해 출연이 성립했다"),
     REJECTED("거절. 게스트가 거절해 보류 HP를 호스트에게 반환했다"),

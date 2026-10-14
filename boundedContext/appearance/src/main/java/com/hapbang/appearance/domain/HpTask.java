@@ -22,7 +22,9 @@ import lombok.NoArgsConstructor;
  *     <li>업무 상태 변경(예: 요청서 거절)과 같은 트랜잭션에 {@code PENDING}으로 기록한다. 커밋 직후 서버가 죽어도 할 일이 남는다.</li>
  *     <li>커밋 후 실행해 성공하면 {@code DONE}, 실패하면 시도 횟수·오류·다음 시도 시각을 남기고 {@code PENDING}으로 둔다.</li>
  *     <li>재시도와 격리({@code DEAD})는 재시도 스케줄러가 맡는다 (스케줄러 처리에서 추가).</li>
- *     <li>멱등 키는 Billing 요청에 그대로 쓴다. 다시 실행해도 HP가 두 번 움직이지 않는다.</li>
+ *     <li>멱등 키는 Billing 요청 ID(반환 요청 ID 등)로 그대로 쓴다. 같은 ID로 다시 보내면 Billing이 처음 결과를 돌려주므로
+ *     다시 실행해도 HP가 두 번 움직이지 않는다.</li>
+ *     <li>사유는 출연 내부 기록이다. Billing 요청에는 사유가 없다.</li>
  * </ul>
  */
 @Entity
@@ -59,7 +61,7 @@ public class HpTask extends BaseEntity {
     @Enumerated(EnumType.STRING)
     private HpTaskReason reason;
 
-    /** Billing 멱등 키. 형식 {@code {refType}-{refId}-{동작}-{순번}} */
+    /** Billing 요청 ID(반환 요청 ID 등)로 쓰는 멱등 키. 형식 {@code {refType}-{refId}-{동작}-{순번}} ({@link #requestId}) */
     private String idempotencyKey;
 
     @Enumerated(EnumType.STRING)
@@ -102,6 +104,14 @@ public class HpTask extends BaseEntity {
             throw new IllegalArgumentException("반환 금액은 1 이상이어야 합니다: " + amount);
         }
         return new HpTask(HpTaskType.RELEASE, refType, refId, hostId, amount, reason, idempotencyKey, now);
+    }
+
+    /**
+     * Billing 요청 ID를 만든다. 형식 {@code {refType}-{refId}-{동작}-{순번}} (예: {@code APPEARANCE_REQUEST-12-RELEASE-1}).
+     * Billing이 허용하는 문자(영문·숫자·'-'·'_')만 쓴다. 같은 업무 요청이면 항상 같은 값이 나온다.
+     */
+    public static String requestId(HpTaskRefType refType, Long refId, HpTaskType taskType, int sequence) {
+        return "%s-%d-%s-%d".formatted(refType.name(), refId, taskType.name(), sequence);
     }
 
     /** 실행할 차례인지 (대기 중이고 다음 시도 시각이 지났는지) */
