@@ -1,6 +1,7 @@
 package com.hapbang.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
@@ -10,6 +11,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.scheduling.config.CronTask;
+import org.springframework.scheduling.config.ScheduledTask;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
+import org.springframework.scheduling.config.Task;
 import org.springframework.test.annotation.DirtiesContext;
 
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
@@ -27,6 +32,9 @@ class SchedulingEnabledTest {
     @Autowired
     ThreadPoolTaskScheduler taskScheduler;
 
+    @Autowired
+    ScheduledTaskHolder scheduledTaskHolder;
+
     @Test
     void 배치_빈의_Scheduled_메서드가_주기대로_실행된다() {
         await().atMost(Duration.ofSeconds(5))
@@ -39,6 +47,19 @@ class SchedulingEnabledTest {
         await().atMost(Duration.ofSeconds(5))
                 .untilAsserted(() -> assertThat(probeBatch.threadNames).isNotEmpty());
         assertThat(probeBatch.threadNames).allSatisfy(name -> assertThat(name).startsWith("scheduling-"));
+    }
+
+    @Test
+    void 강의_배치가_정한_cron으로_등록된다() {
+        // 모듈 테스트에서는 배치 빈이 꺼져 있어 등록 여부와 cron 해석은 여기서만 확인할 수 있다
+        assertThat(scheduledTaskHolder.getScheduledTasks())
+                .extracting(ScheduledTask::getTask)
+                .filteredOn(CronTask.class::isInstance)
+                .map(CronTask.class::cast)
+                .extracting(Task::toString, CronTask::getExpression)
+                .contains(
+                        tuple("com.hapbang.lecture.app.OrderAutoConfirmBatch.run", "0 */10 * * * *"),
+                        tuple("com.hapbang.lecture.app.OrderPayoutBatch.run", "0 0 1 * * *"));
     }
 
     @Test

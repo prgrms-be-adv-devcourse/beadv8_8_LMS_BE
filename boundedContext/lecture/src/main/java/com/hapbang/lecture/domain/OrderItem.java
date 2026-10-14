@@ -160,6 +160,25 @@ public class OrderItem {
         markConfirmed(ConfirmationType.AUTO, autoConfirmAt);
     }
 
+    /**
+     * 지급 대상인지 (설계 4.6 불변식). 구매 확정 상태이고 지급 예정 시각이 지났으며, 이의 제기가 없거나 기각된 항목이다.
+     * 이의 제기 접수 중({@code FILED})이면 지급을 멈추고, 인정({@code ACCEPTED})되면 반환 대상이다.
+     */
+    public boolean isPayable(LocalDateTime now) {
+        return status == OrderItemStatus.CONFIRMED
+                && !now.isBefore(payoutScheduledAt)
+                && (objectionStatus == ObjectionStatus.NONE || objectionStatus == ObjectionStatus.REJECTED);
+    }
+
+    /** 지급(배치, #150). 판매자에게 보류 HP를 옮기는 billing 호출은 호출한 쪽이 같은 트랜잭션에서 한다 (D49) */
+    void payOut(LocalDateTime now) {
+        if (!isPayable(now)) {
+            throw new IllegalStateException("지급 대상이 아닌 주문 항목입니다: " + id);
+        }
+        this.status = OrderItemStatus.PAID_OUT;
+        this.paidOutAt = now;
+    }
+
     /** 구매 취소. 자동 구매 확정 시각 전까지, 이의 제기가 접수된 적 없는 항목만 된다 (D44) */
     void cancel(LocalDateTime now) {
         requirePurchased();

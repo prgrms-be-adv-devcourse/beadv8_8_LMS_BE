@@ -28,7 +28,7 @@ import com.hapbang.testsupport.TestLogin;
 
 import jakarta.persistence.EntityManagerFactory;
 
-// 주문 목록·시청 가능한 강의 목록이 주문·항목마다 따로 조회하지 않는지 개수에 따른 SQL 문 수로 확인한다.
+// 주문 목록·시청 가능한 강의 목록·판매 내역이 주문·항목마다 따로 조회하지 않는지 개수에 따른 SQL 문 수로 확인한다.
 @IntegrationTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
@@ -83,6 +83,19 @@ class LectureOrderQueryCountTest {
 
         assertThat(statementsOf(purchased)).isEqualTo(one);
         mockMvc.perform(purchased).andExpect(jsonPath("$.data.content.length()").value(6));
+    }
+
+    @Test
+    void 항목이_늘어도_판매_내역_조회_SQL_수는_같다() throws Exception {
+        RequestBuilder sales = get("/api/v1/lectures/sales").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER));
+        saveOrder();
+        long one = statementsOf(sales);
+
+        saveOrder();
+        saveOrder();
+
+        assertThat(statementsOf(sales)).isEqualTo(one);
+        mockMvc.perform(sales).andExpect(jsonPath("$.data.content.length()").value(6));
     }
 
     private long statementsOf(RequestBuilder request) throws Exception {

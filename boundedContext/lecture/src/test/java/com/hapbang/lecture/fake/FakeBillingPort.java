@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import com.hapbang.global.exception.BaseErrorCode;
 import com.hapbang.global.exception.BusinessException;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
@@ -34,6 +35,8 @@ import lombok.RequiredArgsConstructor;
  *     <li>회원별 잔액을 정하지 않으면 잔액은 충분하다. 정하면 보류할 때마다 줄고, 모자라면 409 {@code INSUFFICIENT_BALANCE}다.</li>
  *     <li>실제 billing처럼 호출한 쪽 트랜잭션을 따른다. 커밋된 보류·반환만 기록하고, 롤백되면 잔액을 되돌린다.</li>
  *     <li>보류가 없는 참조 대상은 반환할 수 없다. 반환액은 보류액이다({@link #overrideReleasedHp}로 바꿀 수 있다).</li>
+ *     <li>보류가 없는 참조 대상은 지급할 수 없다. 지급액은 보류액이다({@link #overridePaidHp}로 바꿀 수 있다).
+ *     보류 없이 저장한 Fixture 주문은 {@link #assumeHeld}로 보류가 있다고 정한다.</li>
  * </ul>
  * 컨텍스트가 테스트 사이에 재사용되므로 테스트마다 {@link #reset()}한다.
  */
@@ -44,7 +47,12 @@ public class FakeBillingPort implements BillingPort {
     private final Map<Long, HoldCommand> heldItems = new ConcurrentHashMap<>();
     private final List<HoldCommand> holds = new CopyOnWriteArrayList<>();
     private final List<ReleaseCommand> releases = new CopyOnWriteArrayList<>();
+    private final List<PayoutCommand> payouts = new CopyOnWriteArrayList<>();
+    /** 지급한 참조 대상 ID → 지급 요청 ID (같은 대상을 다른 요청 ID로 다시 지급하지 못하게 한다) */
+    private final Map<Long, String> paidItems = new ConcurrentHashMap<>();
     private volatile Long releasedHpOverride;
+    private volatile Long paidHpOverride;
+    private volatile Long failingPayoutReferenceId;
     private volatile CountDownLatch releaseGate;
     private volatile Duration releaseGateTimeout;
 
@@ -53,7 +61,11 @@ public class FakeBillingPort implements BillingPort {
         heldItems.clear();
         holds.clear();
         releases.clear();
+        payouts.clear();
+        paidItems.clear();
         releasedHpOverride = null;
+        paidHpOverride = null;
+        failingPayoutReferenceId = null;
         releaseGate = null;
     }
 
@@ -64,6 +76,22 @@ public class FakeBillingPort implements BillingPort {
     /** 다음 반환부터 이 금액을 반환했다고 응답한다 (반환 결과 검증용) */
     public void overrideReleasedHp(long releasedHp) {
         this.releasedHpOverride = releasedHp;
+    }
+
+    /** 다음 지급부터 이 금액을 지급했다고 응답한다 (지급 결과 검증용) */
+    public void overridePaidHp(long paidHp) {
+        this.paidHpOverride = paidHp;
+    }
+
+    /** 이 참조 대상의 지급을 billing 업무 오류로 거절한다({@code null}이면 해제). 지갑이 없는 판매자 등 */
+    public void failPayoutFor(Long referenceId) {
+        this.failingPayoutReferenceId = referenceId;
+    }
+
+    /** 보류 없이 저장한 주문 항목에 보류가 있다고 정한다 (Fixture 주문을 지급할 때) */
+    public void assumeHeld(Long userId, Long orderItemId, long amountHp) {
+        heldItems.put(orderItemId, new HoldCommand(userId, BillingReferenceType.LECTURE_ORDER_ITEM, orderItemId,
+                amountHp));
     }
 
     /**
@@ -83,6 +111,11 @@ public class FakeBillingPort implements BillingPort {
     /** 커밋된 반환 */
     public List<ReleaseCommand> releases() {
         return List.copyOf(releases);
+    }
+
+    /** 커밋된 지급 */
+    public List<PayoutCommand> payouts() {
+        return List.copyOf(payouts);
     }
 
     @Override
@@ -118,7 +151,24 @@ public class FakeBillingPort implements BillingPort {
 
     @Override
     public PayoutResultDto payout(PayoutCommand command) {
-        throw new UnsupportedOperationException("강의 지급은 #150에서 연동한다");
+        HoldCommand hold = heldItems.get(command.referenceId());
+        if (hold == null || !hold.userId().equals(command.payerUserId())) {
+            throw new IllegalStateException("보류가 없습니다: " + command.referenceId());
+        }
+        if (command.referenceId().equals(failingPayoutReferenceId)) {
+            throw new BusinessException(FakeBillingErrorCode.WALLET_NOT_FOUND);
+        }
+        String paidRequestId = paidItems.putIfAbsent(command.referenceId(), command.payoutRequestId());
+        if (paidRequestId != null && !paidRequestId.equals(command.payoutRequestId())) {
+            throw new BusinessException(FakeBillingErrorCode.PAYOUT_ALREADY_SETTLED);
+        }
+        long paidHp = paidHpOverride != null ? paidHpOverride : hold.amountHp();
+        if (paidRequestId == null) {
+            onCompletion(() -> payouts.add(command), () -> paidItems.remove(command.referenceId()));
+        }
+        return new PayoutResultDto(command.referenceType(), command.referenceId(), command.payoutRequestId(),
+                command.receiverUserId(), command.sourceType(), command.sourceId(), paidHp, hold.amountHp() - paidHp,
+                paidRequestId != null);
     }
 
     @Override
@@ -159,7 +209,9 @@ public class FakeBillingPort implements BillingPort {
     @Getter
     @RequiredArgsConstructor
     public enum FakeBillingErrorCode implements BaseErrorCode {
-        INSUFFICIENT_BALANCE(HttpStatus.CONFLICT, "HP 잔액이 부족합니다.");
+        INSUFFICIENT_BALANCE(HttpStatus.CONFLICT, "HP 잔액이 부족합니다."),
+        WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "지갑을 찾을 수 없습니다."),
+        PAYOUT_ALREADY_SETTLED(HttpStatus.CONFLICT, "이미 지급한 대상입니다.");
 
         private final HttpStatus status;
         private final String message;

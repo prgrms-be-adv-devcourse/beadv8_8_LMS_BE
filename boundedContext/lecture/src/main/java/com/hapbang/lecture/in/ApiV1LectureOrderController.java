@@ -19,17 +19,15 @@ import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.app.dto.OrderSummaryResponse;
 import com.hapbang.lecture.app.dto.PurchasedLectureResponse;
+import com.hapbang.lecture.app.dto.SaleResponse;
 import com.hapbang.lecture.in.dto.OrderCreateRequest;
-import com.hapbang.lecture.in.dto.SaleResponse;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /** 강의 주문 API (설계 8.5). Swagger 명세는 {@link ApiV1LectureOrderSpec} */
 // 성공은 global RsData로 감싸고, 오류는 global 공통 핸들러가 ProblemDetail로 응답한다 (D29). message는 구현할 때 정한다.
-// 역할 검사(유저·인플루언서·인증된 인플루언서, 관리자 불가)는 LectureOrderFacade의 @PreAuthorize가 한다.
-// TODO: 판매 내역은 #150에서 구현한다.
-// TODO(security): /sales는 인증된 인플루언서만 허용한다. 구현할 때 Facade에 추가한다.
+// 역할 검사(유저·인플루언서·인증된 인플루언서, 관리자 불가. 판매 내역은 인증된 인플루언서만)는 LectureOrderFacade의 @PreAuthorize가 한다.
 @RestController
 @RequestMapping("/api/v1/lectures")
 @RequiredArgsConstructor
@@ -89,6 +87,6 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
     @GetMapping("/sales")
     public RsData<Page<SaleResponse>> getSales(@LoginUserId Long userId,
             Pageable pageable) {
-        throw NotImplemented.yet();
+        return RsData.ok("판매 내역을 조회했습니다.", lectureOrderFacade.getSales(userId, pageable));
     }
 }
