@@ -136,14 +136,20 @@ public class AppearanceRecruit extends BaseEntity {
         }
     }
 
-    /** HP 보류 성공 → 모집 중 */
+    /** HP 보류 성공 → 모집 중. 이미 반영됐으면 그대로 둔다 (올리기 요청과 보류 재확인 배치가 함께 반영해도 안전하도록) */
     public void markRecruiting() {
+        if (status == AppearanceRecruitStatus.RECRUITING) {
+            return;
+        }
         requireStatus(AppearanceRecruitStatus.HOLD_PENDING);
         this.status = AppearanceRecruitStatus.RECRUITING;
     }
 
-    /** Billing이 HP 보류를 거절함 (잔액 부족 등) */
+    /** Billing이 HP 보류를 거절함 (잔액 부족 등). 이미 반영됐으면 그대로 둔다 */
     public void markHoldFailed() {
+        if (status == AppearanceRecruitStatus.HOLD_FAILED) {
+            return;
+        }
         requireStatus(AppearanceRecruitStatus.HOLD_PENDING);
         this.status = AppearanceRecruitStatus.HOLD_FAILED;
     }

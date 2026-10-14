@@ -115,14 +115,23 @@ public class AppearanceRequest extends BaseEntity {
         return new AppearanceRequest(hostId, guestId, basicInfo, requestContent);
     }
 
-    /** HP 보류 성공 → 게스트 응답 대기 */
+    /**
+     * HP 보류 성공 → 게스트 응답 대기. 이미 반영됐으면 그대로 둔다
+     * (보내기 요청과 보류 재확인 배치가 같은 결과를 함께 반영해도 안전하도록).
+     */
     public void markRequested() {
+        if (status == AppearanceRequestStatus.REQUESTED) {
+            return;
+        }
         requireStatus(AppearanceRequestStatus.HOLD_PENDING);
         this.status = AppearanceRequestStatus.REQUESTED;
     }
 
-    /** 잔액 부족으로 HP 보류 실패 */
+    /** Billing이 HP 보류를 거절함 (잔액 부족 등). 이미 반영됐으면 그대로 둔다 */
     public void markHoldFailed() {
+        if (status == AppearanceRequestStatus.HOLD_FAILED) {
+            return;
+        }
         requireStatus(AppearanceRequestStatus.HOLD_PENDING);
         this.status = AppearanceRequestStatus.HOLD_FAILED;
     }
@@ -189,6 +198,25 @@ public class AppearanceRequest extends BaseEntity {
         requireRespondable(true, AppearanceErrorCode.NOT_REQUEST_HOST, now);
         this.status = AppearanceRequestStatus.CANCELED;
         this.canceledAt = now;
+    }
+
+    /** 만료 처리할 차례인지: 응답 대기 중이고 수락 기한이 지났다 */
+    public boolean isExpirable(LocalDateTime now) {
+        return status == AppearanceRequestStatus.REQUESTED && !now.isBefore(acceptDeadline);
+    }
+
+    /**
+     * 수락 기한까지 응답이 없어 만료한다. 보류 HP는 호스트에게 반환해야 한다 (호출한 쪽이 HP 작업을 기록한다).
+     * 수락·거절·취소는 기한이 지나면 막히므로 만료와 동시에 일어나지 않는다.
+     *
+     * @throws IllegalStateException 만료 처리할 차례가 아닐 때 (호출한 쪽이 {@link #isExpirable}로 먼저 확인한다)
+     */
+    public void expire(LocalDateTime now) {
+        if (!isExpirable(now)) {
+            throw new IllegalStateException("만료할 수 없는 출연 요청서입니다: %s, 수락 기한 %s".formatted(status,
+                    acceptDeadline));
+        }
+        this.status = AppearanceRequestStatus.EXPIRED;
     }
 
     /**

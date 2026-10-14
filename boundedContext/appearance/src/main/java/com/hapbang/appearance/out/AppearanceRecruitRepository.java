@@ -2,10 +2,13 @@ package com.hapbang.appearance.out;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
@@ -19,4 +22,13 @@ public interface AppearanceRecruitRepository extends JpaRepository<AppearanceRec
     /** 내가 올린 모집글 목록 */
     Page<AppearanceRecruit> findByHostIdAndStatusIn(Long hostId, Collection<AppearanceRecruitStatus> statuses,
                                                     Pageable pageable);
+
+    /** 보류 재확인 배치: 이 상태이면서 기준 시각 이전·같은 때 만든 모집글 ID, 오래된 순 */
+    @Query("""
+            select r.id from AppearanceRecruit r
+            where r.status = :status and r.createdAt <= :cutoff
+            order by r.createdAt, r.id
+            """)
+    List<Long> findIdsByStatusAndCreatedBefore(@Param("status") AppearanceRecruitStatus status,
+                                               @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
 }

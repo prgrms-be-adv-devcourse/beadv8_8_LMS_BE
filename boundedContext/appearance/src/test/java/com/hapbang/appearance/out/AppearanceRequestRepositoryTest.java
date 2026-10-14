@@ -107,4 +107,26 @@ class AppearanceRequestRepositoryTest {
         assertThat(sent.getTotalElements()).isEqualTo(1);
         assertThat(received.getContent()).extracting(AppearanceRequest::getId).containsExactly(requested.getId());
     }
+
+    @Test
+    @DisplayName("배치 조회: 수락 기한이 지난 응답 대기 요청서, 기준 시각 이전에 만든 보류 처리 중 요청서")
+    void batchQueries() {
+        AppearanceRequest requested = newRequest(HOST, GUEST);
+        requested.markRequested();
+        appearanceRequestRepository.saveAndFlush(requested);
+        AppearanceRequest pending = appearanceRequestRepository.saveAndFlush(newRequest(HOST, 3L));
+        PageRequest first100 = PageRequest.of(0, 100);
+
+        // 수락 기한(NOW + 2일) 기준
+        assertThat(appearanceRequestRepository.findIdsByStatusAndAcceptDeadlineBefore(
+                AppearanceRequestStatus.REQUESTED, NOW.plusDays(2).minusSeconds(1), first100)).isEmpty();
+        assertThat(appearanceRequestRepository.findIdsByStatusAndAcceptDeadlineBefore(
+                AppearanceRequestStatus.REQUESTED, NOW.plusDays(2), first100)).containsExactly(requested.getId());
+        // 만든 시각 기준
+        LocalDateTime createdAt = pending.getCreatedAt();
+        assertThat(appearanceRequestRepository.findIdsByStatusAndCreatedBefore(
+                AppearanceRequestStatus.HOLD_PENDING, createdAt.minusSeconds(1), first100)).isEmpty();
+        assertThat(appearanceRequestRepository.findIdsByStatusAndCreatedBefore(
+                AppearanceRequestStatus.HOLD_PENDING, createdAt, first100)).containsExactly(pending.getId());
+    }
 }

@@ -26,8 +26,8 @@ import lombok.RequiredArgsConstructor;
  *     업무 상태를 먼저 커밋하고 Billing을 불러야 해서 여기서 열지 않고, 각 UseCase 단계가 연다.</li>
  * </ul>
  */
-// TODO(scheduler): HOLD_PENDING 재확인·만료·HP 작업 재시도 스케줄러는 로그인 정보가 없어 @PreAuthorize를 통과할 수 없다.
-//  스케줄러용 진입점(역할 검사 없는 Facade)을 따로 두고 같은 UseCase를 쓴다.
+// 배치(보류 재확인·수락 기한 만료·HP 작업 재시도)는 로그인 회원이 아니라 시스템이 실행하므로 이 Facade를 거치지 않고
+// in.AppearanceBatch가 UseCase를 직접 부른다 (팀 강의 배치와 같은 방식, ISSUE.md APR-26).
 @Service
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")
