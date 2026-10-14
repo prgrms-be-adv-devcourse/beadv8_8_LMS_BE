@@ -23,16 +23,15 @@ public record LectureDetailResponse(
         String rejectionReason,
         @Schema(description = "삭제된 강의. 판매자·관리자·보유 중인 구매자만 조회할 수 있다")
         boolean deleted,
-        @Schema(description = "평균 평점. 반환된 항목의 리뷰는 평균·개수에서 뺀다. 리뷰가 없으면 null", nullable = true)
+        @Schema(description = "평균 평점(소수 첫째 자리까지 반올림). 반환된 항목의 리뷰는 평균·개수에서 뺀다. 리뷰가 없으면 null", nullable = true)
         Double averageRating,
         long reviewCount,
         List<LectureContentResponse> contents,
         LocalDateTime createdAt
 ) {
 
-    // TODO: 평점·리뷰 수는 6단계(리뷰)에서 채운다.
     public static LectureDetailResponse of(Lecture lecture, String sellerNickname, String thumbnailUrl,
-                                           boolean showRejectionReason) {
+                                           LectureRating rating, boolean showRejectionReason) {
         return new LectureDetailResponse(
                 lecture.getId(),
                 lecture.getSellerUserId(),
@@ -44,8 +43,8 @@ public record LectureDetailResponse(
                 lecture.getStatus(),
                 showRejectionReason ? lecture.getRejectionReason() : null,
                 lecture.isDeleted(),
-                null,
-                0,
+                rating.averageRating(),
+                rating.reviewCount(),
                 lecture.getContents().stream().map(LectureContentResponse::from).toList(),
                 lecture.getCreatedAt()
         );

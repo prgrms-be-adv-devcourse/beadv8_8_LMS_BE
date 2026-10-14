@@ -118,6 +118,11 @@ public class OrderItem {
         return status == OrderItemStatus.PURCHASED;
     }
 
+    /** 리뷰를 쓸 수 있는지. 구매 확정 후(구매 확정, 지급)에만 쓴다 (D5) */
+    public boolean isReviewable() {
+        return status == OrderItemStatus.CONFIRMED || status == OrderItemStatus.PAID_OUT;
+    }
+
     /** 구매 취소·반환되어 HP가 구매자에게 돌아갔는지 */
     public boolean isWithdrawn() {
         return status == OrderItemStatus.CANCELED || status == OrderItemStatus.RETURNED;

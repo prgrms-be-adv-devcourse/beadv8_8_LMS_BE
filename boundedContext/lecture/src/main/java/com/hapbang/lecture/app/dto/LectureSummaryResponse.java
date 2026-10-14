@@ -14,14 +14,14 @@ public record LectureSummaryResponse(
         Long sellerUserId,
         @Schema(description = "판매자 닉네임. 탈퇴 회원은 \"탈퇴한 회원\"")
         String sellerNickname,
-        @Schema(description = "평균 평점. 반환된 항목의 리뷰는 평균·개수에서 뺀다. 리뷰가 없으면 null", nullable = true)
+        @Schema(description = "평균 평점(소수 첫째 자리까지 반올림). 반환된 항목의 리뷰는 평균·개수에서 뺀다. 리뷰가 없으면 null", nullable = true)
         Double averageRating,
         long reviewCount
 ) {
 
-    // TODO: 평점·리뷰 수는 6단계(리뷰)에서 채운다.
-    public static LectureSummaryResponse of(Lecture lecture, String sellerNickname, String thumbnailUrl) {
+    public static LectureSummaryResponse of(Lecture lecture, String sellerNickname, String thumbnailUrl,
+                                            LectureRating rating) {
         return new LectureSummaryResponse(lecture.getId(), lecture.getTitle(), lecture.getPriceHp(), thumbnailUrl,
-                lecture.getSellerUserId(), sellerNickname, null, 0);
+                lecture.getSellerUserId(), sellerNickname, rating.averageRating(), rating.reviewCount());
     }
 }

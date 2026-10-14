@@ -36,7 +36,7 @@ public interface ApiV1LectureSpec {
                                                      - `LATEST`: 최신순(기본)
                                                      - `PRICE_ASC`: 가격 낮은순
                                                      - `PRICE_DESC`: 가격 높은순
-                                                     - `RATING`: 평점순. 리뷰 기능 전까지는 최신순으로 정렬된다""")
+                                                     - `RATING`: 평점순. 평균 평점 → 리뷰 수 → 최신순이고, 리뷰가 없는 강의는 맨 뒤""")
                                              LectureSort sort,
                                              Pageable pageable);
 

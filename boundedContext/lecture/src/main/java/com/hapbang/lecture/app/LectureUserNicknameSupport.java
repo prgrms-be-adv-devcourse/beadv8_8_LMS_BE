@@ -12,26 +12,26 @@ import com.hapbang.lecture.out.LectureUserRepository;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 강의 회원 복제본에서 판매자 닉네임을 읽는다. 회원 복제가 아직 도착하지 않은 판매자의 닉네임은 null이다.
+ * 강의 회원 복제본에서 판매자·리뷰 작성자 닉네임을 읽는다. 회원 복제가 아직 도착하지 않은 회원의 닉네임은 null이다.
  */
 @Component
 @RequiredArgsConstructor
-class SellerNicknameSupport {
+class LectureUserNicknameSupport {
 
     private static final String WITHDRAWN_NICKNAME = "탈퇴한 회원";
 
     private final LectureUserRepository lectureUserRepository;
 
-    String of(Long sellerUserId) {
-        return lectureUserRepository.findById(sellerUserId)
-                .map(SellerNicknameSupport::display)
+    String of(Long userId) {
+        return lectureUserRepository.findById(userId)
+                .map(LectureUserNicknameSupport::display)
                 .orElse(null);
     }
 
-    /** 회원 복제가 아직 도착하지 않은 판매자는 빠진다 */
-    Map<Long, String> of(Collection<Long> sellerUserIds) {
-        return lectureUserRepository.findAllById(sellerUserIds).stream()
-                .collect(Collectors.toMap(LectureUser::getId, SellerNicknameSupport::display));
+    /** 회원 복제가 아직 도착하지 않은 회원은 빠진다 */
+    Map<Long, String> of(Collection<Long> userIds) {
+        return lectureUserRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(LectureUser::getId, LectureUserNicknameSupport::display));
     }
 
     private static String display(LectureUser user) {

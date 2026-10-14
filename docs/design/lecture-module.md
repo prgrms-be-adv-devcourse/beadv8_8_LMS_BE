@@ -261,8 +261,9 @@ stateDiagram-v2
 
 - 주문 항목 1건당 살아 있는 리뷰 1개. 한 회원은 한 강의에 리뷰를 하나만 유지한다. 삭제 후 재작성은 새 행으로 만들며, 그래서 유일 제약은 모두 `WHERE deleted_at IS NULL` 부분 인덱스로 건다(7.1).
 - 작성 조건: 본인 항목이 `CONFIRMED`·`PAID_OUT` (D5). 구매 확정 전 리뷰를 허용하면 리뷰 작성 후 구매 취소가 가능해지기 때문이다.
-- 평점은 1~5 정수. 평균 평점과 리뷰 수는 MVP에서 조회 시 집계한다. 목록 성능 문제가 생기면 `lecture`에 캐시 컬럼을 추가한다.
-- 항목이 `RETURNED`가 되면 리뷰는 남기되 평균 평점·리뷰 수에서 제외한다 (D5).
+- 평점은 1~5 정수. 본문은 선택이며 1,000자 이하다 (D41). 평균 평점과 리뷰 수는 MVP에서 조회 시 집계한다. 목록 성능 문제가 생기면 `lecture`에 캐시 컬럼을 추가한다.
+- 항목이 `RETURNED`가 되면 리뷰는 남기되 리뷰 목록·평균 평점·리뷰 수에서 제외한다 (D5, D41). 반환 여부는 컬럼으로 복사하지 않고 조회할 때 `order_item`과 JOIN해 판정한다.
+- 반환 후 같은 강의를 다시 사서 새 리뷰를 쓰면, 반환된 항목에 남은 기존 리뷰를 Soft Delete하고 새 리뷰로 대체한다 (D41).
 
 ### 4.8 LectureUser (회원 복제)
 
@@ -696,12 +697,14 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/api/v1/lectures/{lectureId}/reviews` | 리뷰 목록 + 평균 평점 |
-| POST | `/api/v1/lectures/{lectureId}/reviews` | `{orderItemId, rating, content}` 작성 |
-| PATCH | `/api/v1/lectures/reviews/{reviewId}` | 작성자 본인 수정 |
-| DELETE | `/api/v1/lectures/reviews/{reviewId}` | 작성자 본인 Soft Delete |
+| GET | `/api/v1/lectures/{lectureId}/reviews` | 리뷰 목록 (최신순, 페이징). 평균 평점·리뷰 수는 강의 목록·상세에서 준다 |
+| POST | `/api/v1/lectures/{lectureId}/reviews` | `{orderItemId, rating, content}` 작성 (201, `{id}`) |
+| PATCH | `/api/v1/lectures/reviews/{reviewId}` | 작성자 본인 수정 (204) |
+| DELETE | `/api/v1/lectures/reviews/{reviewId}` | 작성자 본인 Soft Delete (204) |
 
-> 비회원 목록 조회(`GET /api/v1/lectures`)는 global `SecurityConfig`가 허용한다(#58). 그 밖의 강의 API는 로그인이 필요하고, 역할 인가는 Facade의 `@PreAuthorize`로 한다(D16, 9장). 아직 남은 역할 인가는 `/sales`(#150)·리뷰(#155)이며 코드에 `TODO(security)`로 표시되어 있다.
+오류 코드는 D41을 따른다.
+
+> 비회원 목록 조회(`GET /api/v1/lectures`)는 global `SecurityConfig`가 허용한다(#58). 그 밖의 강의 API는 로그인이 필요하고, 역할 인가는 Facade의 `@PreAuthorize`로 한다(D16, 9장). 아직 남은 역할 인가는 `/sales`(#150)이며 코드에 `TODO(security)`로 표시되어 있다.
 
 ### 8.7 용어 ↔ 코드 이름 (제안)
 
@@ -731,7 +734,8 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 검수 승인·반려 | X | X | X | X | O |
 | 장바구니·주문·구매 확정·구매 취소·이의 제기 | X | O | O | O | X |
 | 콘텐츠 시청 | X | 구매자 | 구매자 | 구매자·판매자 | O (검수용) |
-| 리뷰 작성 | X | 구매자 | 구매자 | 구매자 | X |
+| 리뷰 작성·수정·삭제 | X | 구매자 | 구매자 | 구매자 | X |
+| 리뷰 목록 | X | O | O | O | O |
 
 - 역할 검사는 Facade(`LectureFacade`, `LectureInspectionFacade`)의 `@PreAuthorize`로 한다. 관리자 API(`/admin` 경로)는 `SecurityConfig`도 함께 막는다 (D16).
 - 관리자의 강의 상세는 `/admin/{lectureId}`(`LectureInspectionFacade`)로 따로 두고, 일반 상세 API에는 역할 분기를 두지 않는다 (D30).
@@ -945,3 +949,4 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D38 | 2026-10-14 | 재생 동의와 구매자 시청(#158): (1) 재생 동의는 본인 `PURCHASED` 항목을 `CONFIRMED`·`FIRST_PLAY`, `confirmedAt` = 동의 시각으로 바꾼다. 자동 구매 확정 시각이 이미 지났으면(배치 처리 전) 직접 확정(D34)과 같이 `AUTO`, `confirmedAt = autoConfirmAt`이다. 별도 동의 시각 필드는 두지 않는다. (2) 이미 `CONFIRMED`·`PAID_OUT`이면 바꾸지 않고 200으로 항목을 응답하고, `CANCELED`·`RETURNED`는 409 `ORDER_ITEM_NOT_PURCHASED`. (3) 시청 URL은 없는 강의 404 → 판매자·관리자 허용 → 보유 항목이 `PURCHASED`면 403 `PLAY_CONSENT_REQUIRED`(ProblemDetail에 `orderId`·`orderItemId`), `CONFIRMED`·`PAID_OUT`이면 강의 상태와 관계없이 허용 → 그 밖에는 D26 → 콘텐츠 404 순으로 검사한다. 보유 항목은 요청에 `orderItemId`를 받지 않고 구매자 ID + 강의 ID로 찾는다. (4) 강의 상세는 보유 항목이 있는 구매자에게 삭제된 강의도 보여 준다(판매 중이 아닐 때만 보유 항목을 조회). (5) 구매 취소·반환한 회원은 구매하지 않은 회원과 같다 | (1) 구매 확정은 직접 확정·첫 재생·D+7 중 먼저 온 것이고, D+7이 지나면 확정 효력은 이미 `autoConfirmAt`에 생겼다. 처음에는 `FIRST_PLAY`·동의 시각으로 정했으나(2026-10-14), 그러면 배치가 먼저 돌았는지에 따라 같은 행동이 `AUTO`/`FIRST_PLAY`로 갈리고 `confirmedAt`이 실제로 취소가 막힌 시각보다 늦어진다는 PR #165 리뷰(Codex)를 받아 `AUTO`로 바꿨다. 재생 동의가 취소 권리를 포기시키는 경우는 `FIRST_PLAY`·`confirmedAt`으로 이미 남으므로, 아무것도 바꾸지 않는 기한 후·확정 후 동의를 위한 `playConsentedAt` 필드는 MVP에서 두지 않는다 (2) 두 탭·더블 클릭에도 오류가 없다 (3) `/access` 요청에는 주문 정보가 없으므로 오류 응답만으로 동의 API를 호출할 수 있게 한다. 보유 항목은 부분 유일 인덱스(`uk_order_item_buyer_lecture_owned`)로 구매자·강의당 하나뿐이다 (4)·(5) D5 | 재생 동의와 구매 취소·직접 확정, 재생 동의끼리 동시에 오면 낙관적 락 충돌로 한쪽이 500이다(D33과 같음). #149 배치는 `PURCHASED`만 대상이라 영향 없음 |
 | D39 | 2026-10-14 | 시청 가능한 강의 `GET /purchased`(#158): 보유 항목(`PURCHASED`·`CONFIRMED`·`PAID_OUT`)마다 한 줄이고 `purchasedAt`·`id` 내림차순으로 고정한다. 판매자가 삭제한 강의도 포함하고(`lectureDeleted`), 제목·썸네일은 현재 강의 기준이다(썸네일은 D28). 취소 후 다시 산 강의는 현재 보유 항목 하나만 나온다. 페이지의 강의와 썸네일은 한 번에 읽는다. 유저·인플루언서·인증된 인플루언서만 쓴다(관리자 불가) | 구매한 강의는 계속 시청하는 상품이라 보관함처럼 보여 준다. 판매자가 메타 정보를 고쳐도(D11) 구매자가 같은 강의로 알아볼 수 있다. `itemStatus`가 `PURCHASED`면 프론트가 재생 동의서를 먼저 보여 준다 | - |
 | D40 | 2026-10-13 | S3 접근 공통 코드는 global `global/storage`의 `S3FileStorage`에 둔다(#88, Q10 종결). 강의는 모듈 key(`lecture/{fileType}/{uuid}`)만 넘기고 환경 prefix(`local/`·`dev/`·`prod/`)는 storage가 붙인다. DB에는 모듈 key를 저장한다. 강의 모듈에는 S3 클라이언트를 두지 않는다(11장) | 출연 등 다른 모듈도 같은 버킷과 인스턴스 역할을 쓰므로 설정과 서명 로직을 한 곳에 둔다. 환경 prefix를 DB에 넣지 않아 환경 간 데이터 이동에도 key가 그대로다 | - |
+| D41 | 2026-10-14 | 리뷰·평점(#155): (1) 본인 주문 항목이 `CONFIRMED`·`PAID_OUT`일 때만 쓴다. 강의 상태(삭제 포함)는 보지 않는다. 검사 순서는 없는 강의 404 `LECTURE_NOT_FOUND` → 남의 항목·없는 항목·경로와 다른 강의의 항목 404 `ORDER_ITEM_NOT_FOUND` → 구매 확정 전·취소·반환 409 `ORDER_ITEM_NOT_REVIEWABLE`(detail만 다름) → 이미 쓴 강의 409 `ALREADY_REVIEWED`. 동시 작성은 부분 유일 인덱스 위반을 `ALREADY_REVIEWED`로 바꾼다. (2) 평점은 1~5, 본문은 선택이고 1,000자 이하다. 비었거나 공백만 있으면 `null`로 저장한다. 수정은 평점·본문을 모두 바꾼다. (3) 수정·삭제는 작성자 본인만 하며 항목 상태와 관계없다. 남의 리뷰는 403 `NOT_REVIEW_WRITER`, 없거나 삭제된 리뷰는 404 `REVIEW_NOT_FOUND`다. 작성·수정·삭제는 관리자 불가(Facade `@PreAuthorize`), 목록은 로그인한 회원 모두 본다. (4) 반환된 항목의 리뷰는 행을 남기되 리뷰 목록·평균 평점·리뷰 수에서 뺀다. 같은 강의를 다시 산 회원이 새 리뷰를 쓰면 반환된 항목의 기존 리뷰를 같은 트랜잭션에서 Soft Delete하고 대체한다. (5) 평균 평점은 조회할 때 `order_item`과 JOIN해 집계하고 소수 첫째 자리까지 반올림(HALF_UP)한다. 리뷰가 없으면 `null`이다. 평점순(`RATING`)은 반올림 전 평균 내림차순 → 리뷰 수 내림차순 → 최신순이고, 리뷰가 없는 강의는 맨 뒤다. (6) 리뷰 목록은 최신순으로 고정하고 판매 중이 아닌 강의는 강의 상세와 같이 판매자·보유 구매자만 본다(그 밖에는 404 `LECTURE_NOT_FOUND`). message: 목록 "리뷰 목록을 조회했습니다.", 작성 "리뷰를 작성했습니다." | (1) 리뷰 후 구매 취소 방지(D5). 삭제된 강의도 구매자는 계속 보는 상품이다. 남의 주문은 드러내지 않는다(D32) (2) 기획서에 값이 없어 평점만 남기는 리뷰를 허용하고 길이만 제한한다 (3) 리뷰는 공개 목록에 있어 존재를 숨길 이유가 없다(`NOT_LECTURE_SELLER`와 같음) (4) 목록에 보이는 개수와 `reviewCount`를 맞춘다. 반환 리뷰는 목록에 없어 작성자가 찾아 지울 수 없으므로, 그대로 두면 다시 산 강의에 리뷰를 쓸 수 없다 (5) 반환 여부를 컬럼으로 복사하지 않으면 이의 제기(7단계)에서 고칠 곳이 없다. 같은 스키마라 모듈 경계 위반이 아니다(4.7). 리뷰 1개짜리 5.0과 100개짜리 5.0을 리뷰 수로 나눈다 | 평점순은 강의마다 상관 서브쿼리로 집계하므로 강의가 많아지면 4.7의 캐시 컬럼을 검토한다. 리뷰 동시 수정은 낙관적 락 없이 나중 요청이 이긴다 |
