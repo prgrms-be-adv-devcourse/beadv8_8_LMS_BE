@@ -2,8 +2,8 @@ package com.hapbang.member.in;
 
 import java.io.IOException;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PagedModel;
 
 import com.hapbang.global.response.RsData;
 
@@ -30,7 +30,7 @@ public interface ApiV1MemberSpec {
     @Operation(summary = "인플루언서 목록",
             description = "로그인한 회원. 인플루언서·인증된 인플루언서 중 정상 회원만, 최신 가입순. "
                     + "page·size로 페이징(최대 100). 정렬은 바꿀 수 없다.")
-    RsData<PagedModel<MemberProfileResponse>> influencers(Pageable pageable);
+    RsData<Page<MemberProfileResponse>> influencers(Pageable pageable);
 
     @Operation(summary = "회원 프로필",
             description = "로그인한 회원. 공개 정보(id·닉네임·역할·프로필 이미지)와 등록된 채널 전부 "

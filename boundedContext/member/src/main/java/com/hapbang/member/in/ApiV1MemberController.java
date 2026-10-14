@@ -2,8 +2,8 @@ package com.hapbang.member.in;
 
 import java.io.IOException;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PagedModel;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -47,11 +47,10 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
     /** 인플루언서 목록 (최신 가입순) */
     @Override
     @GetMapping("/influencers")
-    public RsData<PagedModel<MemberProfileResponse>> influencers(Pageable pageable) {
-        // RsData 안에서도 팀 표준 페이지 형태({content, page})가 되도록 PagedModel로 직접 감싼다
+    public RsData<Page<MemberProfileResponse>> influencers(Pageable pageable) {
         return RsData.ok("인플루언서 목록을 조회했습니다.",
-                new PagedModel<>(memberFacade.findInfluencers(pageable).map(user ->
-                        MemberProfileResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey())))));
+                memberFacade.findInfluencers(pageable).map(user ->
+                        MemberProfileResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()))));
     }
 
     /** 회원 프로필 (등록된 채널 포함). 숫자만 받아 /local-login 같은 다른 주소와 겹치지 않게 한다 */
