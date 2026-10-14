@@ -22,7 +22,7 @@ import com.hapbang.testsupport.RepositoryTest;
 class AppearanceRepositoryTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 14, 12, 0);
-    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2);
+    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2, 10);
 
     @Autowired
     AppearanceRepository appearanceRepository;

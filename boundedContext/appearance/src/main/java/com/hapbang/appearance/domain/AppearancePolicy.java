@@ -14,15 +14,20 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param penaltyRatePercent    호스트 일방 취소 위약금 비율 (%)
  * @param confirmPeriod         방송 예정 일시부터 출연 확인을 받을 수 있는 기간. 지나면 자동 확인
  * @param maxCancelRequestCount 출연 1건당 출연 취소 요청 최대 횟수
+ * @param maxRecruitCount       출연 모집글 하나의 최대 모집 인원 (최소는 1명)
  */
 @ConfigurationProperties(prefix = "appearance.policy")
 public record AppearancePolicy(
         long minimumFee,
         int penaltyRatePercent,
         Duration confirmPeriod,
-        int maxCancelRequestCount) {
+        int maxCancelRequestCount,
+        int maxRecruitCount) {
 
     private static final int PERCENT = 100;
+
+    /** 최소 모집 인원. 모집은 게스트가 먼저 지원하는 방식이라 1명 모집도 허용한다 */
+    public static final int MIN_RECRUIT_COUNT = 1;
 
     public AppearancePolicy {
         if (minimumFee <= 0) {
@@ -36,6 +41,9 @@ public record AppearancePolicy(
         }
         if (maxCancelRequestCount < 1) {
             throw new IllegalArgumentException("출연 취소 요청 최대 횟수는 1 이상이어야 합니다.");
+        }
+        if (maxRecruitCount < MIN_RECRUIT_COUNT) {
+            throw new IllegalArgumentException("최대 모집 인원은 1 이상이어야 합니다.");
         }
     }
 
@@ -58,6 +66,11 @@ public record AppearancePolicy(
      */
     public LocalDateTime confirmDeadline(LocalDateTime scheduledAt) {
         return scheduledAt.plus(confirmPeriod);
+    }
+
+    /** 모집 인원이 1명 이상, 최대 모집 인원 이하인지 */
+    public boolean isRecruitCountAllowed(int recruitCount) {
+        return recruitCount >= MIN_RECRUIT_COUNT && recruitCount <= maxRecruitCount;
     }
 
     /**

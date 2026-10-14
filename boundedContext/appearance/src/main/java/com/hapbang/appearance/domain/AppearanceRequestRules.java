@@ -3,7 +3,8 @@ package com.hapbang.appearance.domain;
 import java.util.regex.Pattern;
 
 /**
- * 출연 요청서 입력 값의 길이·형식 제한. 도메인({@link AppearanceRequest})과 요청 DTO의 Bean Validation이 같이 쓴다.
+ * 출연 요청서·모집글 입력 값의 길이·형식 제한. 도메인({@link AppearanceRequest}, {@link AppearanceRecruit})과
+ * 요청 DTO의 Bean Validation이 같이 쓴다.
  * <p>
  * 길이는 DB 컬럼(마이그레이션)과 맞춘다: 제목 VARCHAR(100), 호스트 채널 URL VARCHAR(255), 콘텐츠 설명 TEXT.
  * 정책 수치(최저 출연료 등)가 아니라 형식 제한이라 {@link AppearancePolicy}가 아닌 여기에 둔다.

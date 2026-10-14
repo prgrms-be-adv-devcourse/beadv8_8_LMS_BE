@@ -20,7 +20,7 @@ class AppearanceRequestTest {
     private static final Long GUEST = 2L;
     private static final Long OTHER = 3L;
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 13, 12, 0);
-    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2);
+    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2, 10);
 
     private static AppearanceRequest create(AppearanceRequestContent content) {
         return AppearanceRequest.create(HOST, GUEST, content, POLICY, NOW);

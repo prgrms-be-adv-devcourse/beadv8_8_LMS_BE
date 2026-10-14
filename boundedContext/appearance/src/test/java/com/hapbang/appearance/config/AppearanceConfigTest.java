@@ -35,6 +35,7 @@ class AppearanceConfigTest {
             assertThat(policy.penaltyRatePercent()).isEqualTo(30);
             assertThat(policy.confirmPeriod()).isEqualTo(Duration.ofDays(7));
             assertThat(policy.maxCancelRequestCount()).isEqualTo(2);
+            assertThat(policy.maxRecruitCount()).isEqualTo(10);
         });
     }
 

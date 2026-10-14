@@ -37,6 +37,13 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     APPEARANCE_REQUEST_EXPIRED(HttpStatus.CONFLICT, "수락 기한이 지난 출연 요청입니다."),
     APPEARANCE_REQUEST_MODIFIED(HttpStatus.CONFLICT, "요청서 내용이 바뀌었습니다. 다시 확인한 뒤 수락해 주세요."),
 
+    // 출연 모집글
+    RECRUIT_COUNT_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "모집 인원이 허용 범위를 벗어났습니다."),
+    INVALID_RECRUIT_SCHEDULE(HttpStatus.BAD_REQUEST, "모집 마감 일시는 현재 이후이고 방송 예정 일시보다 앞서야 합니다."),
+    NOT_RECRUIT_HOST(HttpStatus.FORBIDDEN, "출연 모집글을 올린 호스트만 수정할 수 있습니다."),
+    APPEARANCE_RECRUIT_NOT_FOUND(HttpStatus.NOT_FOUND, "출연 모집글을 찾을 수 없습니다."),
+    APPEARANCE_RECRUIT_NOT_EDITABLE(HttpStatus.CONFLICT, "모집 중인 출연 모집글만 수정할 수 있습니다."),
+
     // 공통
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요."),
 
