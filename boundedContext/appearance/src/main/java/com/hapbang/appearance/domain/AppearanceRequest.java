@@ -1,7 +1,6 @@
 package com.hapbang.appearance.domain;
 
 import java.time.LocalDateTime;
-import java.util.Objects;
 
 import com.hapbang.shared.jpa.BaseEntity;
 
@@ -165,69 +164,6 @@ public class AppearanceRequest extends BaseEntity {
         }
         if (hostChannelUrl != null) {
             this.hostChannelUrl = hostChannelUrl;
-        }
-    }
-
-    /**
-     * 게스트가 수락한다. 수락 후 출연({@link Appearance})이 성립하며, HP는 이동하지 않는다(보류 유지).
-     *
-     * @param viewedVersion 게스트가 화면에서 본 요청서 버전. 그사이 호스트가 수정했으면 수락을 막는다
-     *                      (게스트가 본 조건 그대로 동의하도록)
-     * @throws AppearanceException 게스트가 아님({@code NOT_REQUEST_GUEST}), 응답 대기 중이 아님
-     *                             ({@code APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE}), 수락 기한 지남({@code APPEARANCE_REQUEST_EXPIRED}),
-     *                             요청서가 수정됨({@code APPEARANCE_REQUEST_MODIFIED})
-     */
-    public void accept(Long guestId, Long viewedVersion, LocalDateTime now) {
-        requireRespondable(isGuest(guestId), AppearanceErrorCode.NOT_REQUEST_GUEST, now);
-        if (!Objects.equals(version, viewedVersion)) {
-            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_MODIFIED);
-        }
-        this.status = AppearanceRequestStatus.ACCEPTED;
-        this.respondedAt = now;
-    }
-
-    /**
-     * 게스트가 거절한다. 보류 HP는 호스트에게 반환해야 한다 (호출한 쪽이 HP 작업을 기록한다).
-     *
-     * @param reason 거절 사유 (선택, 500자 이하)
-     * @throws AppearanceException 게스트가 아님, 응답 대기 중이 아님, 수락 기한 지남, 사유 형식 오류({@code INVALID_REQUEST})
-     */
-    public void reject(Long guestId, String reason, LocalDateTime now) {
-        requireRespondable(isGuest(guestId), AppearanceErrorCode.NOT_REQUEST_GUEST, now);
-        AppearanceRequestRules.validateRejectReason(reason);
-        this.status = AppearanceRequestStatus.REJECTED;
-        this.rejectReason = reason;
-        this.respondedAt = now;
-    }
-
-    /**
-     * 호스트가 게스트 응답 전에 취소한다 (응답 전 취소). 보류 HP는 호스트에게 반환해야 한다.
-     * 출연 성립 후의 호스트 일방 취소(위약금)와 다르다.
-     *
-     * @throws AppearanceException 호스트가 아님({@code NOT_REQUEST_HOST}), 응답 대기 중이 아님, 수락 기한 지남
-     */
-    public void cancel(Long hostId, LocalDateTime now) {
-        if (!isHost(hostId)) {
-            throw new AppearanceException(AppearanceErrorCode.NOT_REQUEST_HOST, "출연 요청서를 보낸 호스트만 취소할 수 있습니다.");
-        }
-        requireRespondable(true, AppearanceErrorCode.NOT_REQUEST_HOST, now);
-        this.status = AppearanceRequestStatus.CANCELED;
-        this.canceledAt = now;
-    }
-
-    /**
-     * 수락·거절·응답 전 취소가 가능한지 확인한다. 순서: 행위자 → 상태 → 수락 기한.
-     * 수락 기한은 DB 상태가 아니라 현재 시각으로 확인한다. 만료 처리(상태 변경·반환)가 아직 안 됐어도 기한이 지나면 막는다.
-     */
-    private void requireRespondable(boolean isActor, AppearanceErrorCode notActorError, LocalDateTime now) {
-        if (!isActor) {
-            throw new AppearanceException(notActorError);
-        }
-        if (status != AppearanceRequestStatus.REQUESTED) {
-            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE);
-        }
-        if (!now.isBefore(acceptDeadline)) {
-            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_EXPIRED);
         }
     }
 

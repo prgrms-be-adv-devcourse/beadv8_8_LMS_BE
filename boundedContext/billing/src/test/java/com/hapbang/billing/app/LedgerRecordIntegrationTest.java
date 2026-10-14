@@ -25,13 +25,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
+import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointLedger;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 원장 기록과 지갑 잔액 변경의 트랜잭션·멱등성·동시성을 실제 PostgreSQL로 검증한다.

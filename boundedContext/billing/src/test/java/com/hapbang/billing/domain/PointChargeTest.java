@@ -7,7 +7,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.billing.fixture.BillingFixture;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 // 충전 건 가용 원금의 보류 배분(감소) 규칙을 DB 없이 검증한다.
 class PointChargeTest {

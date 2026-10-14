@@ -15,7 +15,6 @@ import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.global.response.RsData;
 import com.hapbang.lecture.app.LectureInspectionFacade;
 import com.hapbang.lecture.app.dto.InspectionLectureResponse;
-import com.hapbang.lecture.app.dto.LectureDetailResponse;
 import com.hapbang.lecture.domain.LectureStatus;
 import com.hapbang.lecture.in.dto.LectureRejectRequest;
 
@@ -38,12 +37,6 @@ public class ApiV1LectureInspectionController implements ApiV1LectureInspectionS
             @RequestParam(name = "status", defaultValue = "PENDING_INSPECTION") LectureStatus status,
             Pageable pageable) {
         return RsData.ok("검수 목록을 조회했습니다.", lectureInspectionFacade.getInspections(status, pageable));
-    }
-
-    @Override
-    @GetMapping("/{lectureId}")
-    public RsData<LectureDetailResponse> getLecture(@PathVariable("lectureId") Long lectureId) {
-        return RsData.ok("강의를 조회했습니다.", lectureInspectionFacade.getLecture(lectureId));
     }
 
     @Override

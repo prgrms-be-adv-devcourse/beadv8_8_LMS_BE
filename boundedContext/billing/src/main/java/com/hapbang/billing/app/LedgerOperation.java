@@ -8,8 +8,8 @@ import java.util.TreeSet;
 
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
+import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.LedgerTransactionType;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 // 하나의 비즈니스 작업(operationKey)으로 함께 기록할 원장 줄들과 공통 거래 정보를 담는 원장 기록 요청이다.
 public record LedgerOperation(

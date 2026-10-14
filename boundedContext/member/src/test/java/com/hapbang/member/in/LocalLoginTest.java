@@ -44,14 +44,14 @@ class LocalLoginTest {
     void login() throws Exception {
         MvcResult result = login("role=INFLUENCER")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.role").value("INFLUENCER"))
-                .andExpect(jsonPath("$.data.email").value("test-influencer@hapbang.local"))
+                .andExpect(jsonPath("$.role").value("INFLUENCER"))
+                .andExpect(jsonPath("$.email").value("test-influencer@hapbang.local"))
                 .andReturn();
         MockHttpSession session = (MockHttpSession) result.getRequest().getSession(false);
 
         mockMvc.perform(get("/api/v1/members/me").session(session))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.role").value("INFLUENCER"));
+                .andExpect(jsonPath("$.role").value("INFLUENCER"));
     }
 
     @Test
@@ -85,7 +85,7 @@ class LocalLoginTest {
     /** 로컬 로그인 후 응답의 회원 ID */
     private String loggedInId(String query) throws Exception {
         String json = login(query).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return JsonPath.read(json, "$.data.id").toString();
+        return JsonPath.read(json, "$.id").toString();
     }
 
     @Test

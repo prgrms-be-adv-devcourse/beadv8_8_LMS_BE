@@ -2,10 +2,10 @@ package com.hapbang.billing.app;
 
 import java.util.List;
 
+import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.PointHoldStatus;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 // 반환 결과로, Billing 엔티티 대신 이 반환 요청이 되돌린 HP 종류별 금액·충전 건별 원금 복원과 재요청 여부를 담는다.
 // 반환액·복원 내역은 반환을 처리한 당시의 값이고, 남은 보류액과 보류 상태는 응답 시점의 값이다.

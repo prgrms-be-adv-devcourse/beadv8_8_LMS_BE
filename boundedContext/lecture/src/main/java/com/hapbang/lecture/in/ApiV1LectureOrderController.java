@@ -14,28 +14,22 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.global.response.RsData;
-import com.hapbang.lecture.app.LectureOrderFacade;
-import com.hapbang.lecture.app.dto.OrderItemResponse;
-import com.hapbang.lecture.app.dto.OrderResponse;
-import com.hapbang.lecture.app.dto.OrderSummaryResponse;
-import com.hapbang.lecture.app.dto.PurchasedLectureResponse;
 import com.hapbang.lecture.in.dto.OrderCreateRequest;
+import com.hapbang.lecture.in.dto.OrderItemResponse;
+import com.hapbang.lecture.in.dto.OrderResponse;
+import com.hapbang.lecture.in.dto.OrderSummaryResponse;
+import com.hapbang.lecture.in.dto.PurchasedLectureResponse;
 import com.hapbang.lecture.in.dto.SaleResponse;
 
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 
 /** 강의 주문 API (설계 8.5). Swagger 명세는 {@link ApiV1LectureOrderSpec} */
 // 성공은 global RsData로 감싸고, 오류는 global 공통 핸들러가 ProblemDetail로 응답한다 (D29). message는 구현할 때 정한다.
-// 역할 검사(유저·인플루언서·인증된 인플루언서, 관리자 불가)는 LectureOrderFacade의 @PreAuthorize가 한다.
-// TODO: 주문·구매 취소는 billing 계약(#145) 이후 #146에서, 판매 내역은 #150에서 구현한다.
-// TODO(security): /sales는 인증된 인플루언서만 허용한다. 구현할 때 Facade에 추가한다.
+// TODO: 13장 3단계(주문·직접 확정·구매 취소), 5단계(재생 동의)에서 구현한다.
+// TODO(security): 유저·인플루언서·인증된 인플루언서만 허용한다(관리자 불가, 설계 9장). /sales는 인증된 인플루언서. global SecurityConfig와 함께 추가한다.
 @RestController
 @RequestMapping("/api/v1/lectures")
-@RequiredArgsConstructor
 public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
-
-    private final LectureOrderFacade lectureOrderFacade;
 
     @Override
     @PostMapping("/orders")
@@ -48,27 +42,27 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
     @GetMapping("/orders")
     public RsData<Page<OrderSummaryResponse>> getMyOrders(@LoginUserId Long userId,
             Pageable pageable) {
-        return RsData.ok("주문 목록을 조회했습니다.", lectureOrderFacade.getOrders(userId, pageable));
+        throw NotImplemented.yet();
     }
 
     @Override
     @GetMapping("/orders/{orderId}")
     public RsData<OrderResponse> getOrder(@LoginUserId Long userId, @PathVariable("orderId") Long orderId) {
-        return RsData.ok("주문을 조회했습니다.", lectureOrderFacade.getOrder(userId, orderId));
+        throw NotImplemented.yet();
     }
 
     @Override
     @PostMapping("/orders/{orderId}/items/{orderItemId}/confirm")
     public RsData<OrderItemResponse> confirm(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
             @PathVariable("orderItemId") Long orderItemId) {
-        return RsData.ok("구매를 확정했습니다.", lectureOrderFacade.confirm(userId, orderId, orderItemId));
+        throw NotImplemented.yet();
     }
 
     @Override
     @PostMapping("/orders/{orderId}/items/{orderItemId}/play-consent")
     public RsData<OrderItemResponse> consentToPlay(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
             @PathVariable("orderItemId") Long orderItemId) {
-        return RsData.ok("재생에 동의했습니다.", lectureOrderFacade.consentToPlay(userId, orderId, orderItemId));
+        throw NotImplemented.yet();
     }
 
     @Override
@@ -82,7 +76,7 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
     @GetMapping("/purchased")
     public RsData<Page<PurchasedLectureResponse>> getPurchasedLectures(@LoginUserId Long userId,
             Pageable pageable) {
-        return RsData.ok("시청 가능한 강의 목록을 조회했습니다.", lectureOrderFacade.getPurchasedLectures(userId, pageable));
+        throw NotImplemented.yet();
     }
 
     @Override

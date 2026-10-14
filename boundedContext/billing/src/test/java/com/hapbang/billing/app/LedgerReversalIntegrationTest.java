@@ -22,11 +22,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
+import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 원장 단위 역분개 정책(부분·누적 한도·원본 일치·역분개의 역분개 금지·롤백)을 실제 PostgreSQL로 검증한다.

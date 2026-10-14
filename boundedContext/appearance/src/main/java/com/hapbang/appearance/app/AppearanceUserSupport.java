@@ -62,23 +62,4 @@ public class AppearanceUserSupport {
             throw new AppearanceException(errorCode, detail);
         }
     }
-
-    /**
-     * 출연 요청을 보낸 호스트가 지금도 거래할 수 있는지 확인한다 (게스트가 수락할 때). 메시지만 호스트 기준으로 바꾼다.
-     *
-     * @throws AppearanceException 호스트가 없거나({@code APPEARANCE_USER_NOT_FOUND}), 정지·탈퇴·강등됐을 때
-     */
-    public AppearanceUser getHost(Long hostId) {
-        try {
-            return getParticipant(hostId);
-        } catch (AppearanceException exception) {
-            AppearanceErrorCode errorCode = exception.getErrorCode();
-            String detail = switch (errorCode) {
-                case APPEARANCE_USER_NOT_FOUND -> "호스트 회원 정보를 찾을 수 없습니다.";
-                case APPEARANCE_USER_NOT_ACTIVE, NOT_INFLUENCER -> "호스트가 현재 출연 거래를 할 수 없는 회원입니다.";
-                default -> exception.getMessage();
-            };
-            throw new AppearanceException(errorCode, detail);
-        }
-    }
 }

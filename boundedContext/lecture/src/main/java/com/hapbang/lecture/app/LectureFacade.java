@@ -87,7 +87,8 @@ public class LectureFacade {
         return lectureSupport.getMyLectures(sellerUserId, pageable);
     }
 
-    /** 강의 상세. 관리자의 검수용 조회는 {@link LectureInspectionFacade#getLecture}다 (D30) */
+    /** 강의 상세 */
+    // TODO(security): 역할별 인가(설계 9장)가 들어오면 관리자도 검수 대기·반려·삭제된 강의 상세를 조회하게 한다.
     @Transactional(readOnly = true)
     public LectureDetailResponse getLecture(Long userId, Long lectureId) {
         return lectureSupport.getLecture(userId, lectureId);
@@ -95,7 +96,7 @@ public class LectureFacade {
 
     /**
      * 콘텐츠 시청 URL 발급.
-     * 판매자 본인 또는 관리자 또는 구매자라는 OR 조건이라 역할 검사(@PreAuthorize)를 두지 않고 Support가 판정한다 (D26, D38).
+     * 판매자 본인 또는 관리자라는 OR 조건이라 역할 검사(@PreAuthorize)를 두지 않고 Support가 판정한다 (D26).
      */
     @Transactional(readOnly = true)
     public ContentAccessResponse getContentAccess(Long userId, Long lectureId, Long contentId) {

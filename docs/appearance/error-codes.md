@@ -1,7 +1,6 @@
 # 출연(Appearance) 모듈: 오류 코드
 
 출연 API의 오류는 Problem Detail(RFC 9457) 형식으로 응답한다. 오류 코드가 추가되면 이 문서도 함께 갱신한다.
-성공 응답은 이 형식이 아니라 팀 공통 `RsData`(`statusCode`, `message`, `data`)다 ([module.md](module.md) 6.1, #144).
 
 - 정책과 구조: [module.md](module.md)
 - 테스트 명세: [test-spec.md](test-spec.md)
@@ -41,22 +40,18 @@ Content-Type: application/problem+json
 
 | 코드 | 상태 | 기본 메시지 | 발생 상황 | 이슈 |
 |---|---|---|---|---|
-| `INVALID_REQUEST` | 400 | 요청 값이 올바르지 않습니다. | 요청 값 형식·범위 오류, 읽을 수 없는 요청 본문, 거절 사유 500자 초과, 숨김 상태로 목록 필터. 검증 오류면 `errors`에 항목별 메시지. 도메인 형식 확인에 걸리면 `detail`에 제한 내용 | #26, #98, #137 |
+| `INVALID_REQUEST` | 400 | 요청 값이 올바르지 않습니다. | 요청 값 형식·범위 오류, 읽을 수 없는 요청 본문. 검증 오류면 `errors`에 항목별 메시지. 도메인 형식 확인에 걸리면 `detail`에 제한 내용 | #26, #98 |
 | `APPEARANCE_USER_NOT_FOUND` | 404 | 출연 회원 정보를 찾을 수 없습니다. | 출연 모듈에 복제된 회원 정보가 없음 (가입 이벤트 미반영 등) | #31 |
 | `APPEARANCE_USER_NOT_ACTIVE` | 403 | 현재 이용할 수 없는 회원입니다. | 탈퇴(`WITHDRAWN`)·정지(`SUSPENDED`) 회원이 출연 거래에 참여 | #31 |
 | `NOT_INFLUENCER` | 403 | 인플루언서 이상만 출연 거래에 참여할 수 있습니다. | 출연 회원(복제된 역할)이 일반 유저·관리자. 세션 역할 검사(`@PreAuthorize`) 거절은 공통 `FORBIDDEN` | #31, #98 |
 | `CANNOT_REQUEST_SELF` | 400 | 자기 자신에게는 출연을 요청할 수 없습니다. | 호스트와 게스트가 같음 | #98 |
 | `FEE_BELOW_MINIMUM` | 400 | 출연료가 최저 출연료보다 적습니다. | 출연료 < 최저 출연료. `detail`에 최저 출연료 금액 표시 | #98 |
 | `INVALID_REQUEST_SCHEDULE` | 400 | 수락 기한은 현재 이후이고 방송 예정 일시보다 앞서야 합니다. | 현재 < 수락 기한 < 방송 예정 일시가 아님 | #98 |
-| `NOT_REQUEST_HOST` | 403 | 출연 요청서를 보낸 호스트만 수정할 수 있습니다. | 게스트가 요청서 수정. 응답 전 취소는 `detail`이 "…취소할 수 있습니다." | #98, #137 |
+| `NOT_REQUEST_HOST` | 403 | 출연 요청서를 보낸 호스트만 수정할 수 있습니다. | 게스트가 요청서 수정 | #98 |
 | `APPEARANCE_REQUEST_NOT_FOUND` | 404 | 출연 요청서를 찾을 수 없습니다. | 없는 요청서, 호스트·게스트가 아닌 회원의 조회, 보류 미완료·실패 요청서 | #98 |
 | `DUPLICATE_APPEARANCE_REQUEST` | 409 | 이미 처리 중이거나 응답 대기 중인 출연 요청이 있습니다. | 같은 게스트에게 진행 중인 요청서가 있음 (동시 요청 포함) | #98 |
 | `INSUFFICIENT_HP` | 409 | HP 잔액이 부족합니다. | 출연료만큼 HP 보류 실패 | #98 |
 | `APPEARANCE_REQUEST_NOT_EDITABLE` | 409 | 게스트가 응답하기 전인 출연 요청서만 수정할 수 있습니다. | `REQUESTED`가 아닌 요청서 수정 | #98 |
-| `NOT_REQUEST_GUEST` | 403 | 출연 요청을 받은 게스트만 응답할 수 있습니다. | 게스트가 아닌 회원(호스트 등)이 수락·거절 | #137 |
-| `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE` | 409 | 응답 대기 중인 출연 요청이 아닙니다. | 이미 수락·거절·취소된 요청서에 응답·취소 | #137 |
-| `APPEARANCE_REQUEST_EXPIRED` | 409 | 수락 기한이 지난 출연 요청입니다. | 현재 시각 ≥ 수락 기한 (만료 처리 전이어도) | #137 |
-| `APPEARANCE_REQUEST_MODIFIED` | 409 | 요청서 내용이 바뀌었습니다. 다시 확인한 뒤 수락해 주세요. | 수락 요청의 `version`이 현재 요청서와 다름 | #137 |
 | `CONCURRENT_UPDATE` | 409 | 다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요. | 같은 요청서를 동시에 바꿔 버전(낙관적 락)이 맞지 않음. UseCase가 반영 시점에 확인해 던진다 | #98 |
 | `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | Billing 무응답. 요청서는 `HOLD_PENDING`으로 남음 | #98 |
 

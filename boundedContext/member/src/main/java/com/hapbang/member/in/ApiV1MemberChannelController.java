@@ -26,7 +26,6 @@ import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.global.exception.BaseErrorCode;
 import com.hapbang.global.exception.BusinessException;
 import com.hapbang.global.exception.GlobalErrorCode;
-import com.hapbang.global.response.RsData;
 import com.hapbang.member.app.ChannelVerificationResult;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.domain.MemberErrorCode;
@@ -95,23 +94,21 @@ public class ApiV1MemberChannelController implements ApiV1MemberChannelSpec {
     /** 내 채널 목록 (상태·반려 사유 포함) */
     @Override
     @GetMapping("/me")
-    public RsData<List<MyChannelResponse>> myChannels(@LoginUserId Long userId) {
-        return RsData.ok("내 채널 목록을 조회했습니다.",
-                memberFacade.findChannels(userId).stream().map(MyChannelResponse::from).toList());
+    public List<MyChannelResponse> myChannels(@LoginUserId Long userId) {
+        return memberFacade.findChannels(userId).stream().map(MyChannelResponse::from).toList();
     }
 
     /** 채널 승인 요청. 자동 승인으로 유저 → 인플루언서가 되면 세션 권한도 바꾼다 */
     @Override
     @PostMapping("/{channelId:\\d+}/approval-request")
-    public RsData<ChannelVerificationResponse> requestApproval(@LoginUserId Long userId,
+    public ChannelVerificationResponse requestApproval(@LoginUserId Long userId,
                                                        @PathVariable(name = "channelId") Long channelId,
                                                        HttpServletRequest request, HttpServletResponse response) {
         ChannelVerificationResult result = memberFacade.requestChannelApproval(userId, channelId);
         if (result.roleChanged()) {
             refreshSessionRole(userId, result.role(), request, response);
         }
-        return RsData.ok(result.isApproved() ? "채널이 승인되었습니다." : "채널 승인을 요청했습니다.",
-                ChannelVerificationResponse.from(result));
+        return ChannelVerificationResponse.from(result);
     }
 
     /** 세션에 보관한 state와 같아야 한다 (남의 code를 끼워 넣는 공격 차단). 한 번 쓰면 지운다 */

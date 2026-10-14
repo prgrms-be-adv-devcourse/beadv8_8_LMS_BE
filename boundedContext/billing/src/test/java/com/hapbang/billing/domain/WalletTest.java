@@ -10,8 +10,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import com.hapbang.shared.billing.domain.BillingReferenceType;
-
 // 지갑의 원장 반영(버킷별 증감·음수 방지·오버플로 방지)을 DB 없이 검증한다.
 class WalletTest {
 

@@ -20,7 +20,6 @@ import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.Settlement;
 import com.hapbang.billing.domain.Wallet;
-import com.hapbang.shared.billing.dto.PayoutCommand;
 
 import lombok.RequiredArgsConstructor;
 
@@ -41,7 +40,6 @@ public class HoldPayoutUseCase {
     // 호출한 쪽 트랜잭션이 있으면 그 안에서 실행되며, 어느 단계든 실패하면 모든 변경이 롤백된다.
     @Transactional
     public PayoutResult payout(PayoutCommand command) {
-        BillingCommandValidator.verify(command);
         Long payerWalletId = holdProcessing.walletIdOf(command.payerUserId());
         Long receiverWalletId = holdProcessing.walletIdOf(command.receiverUserId());
         // 같은 지갑 안의 이동은 충전 HP를 수익 HP로 바꾸는 것이 되므로(HP 간 전환 금지) 거절한다.
@@ -50,10 +48,10 @@ public class HoldPayoutUseCase {
         }
         // 보류·충전 건보다 먼저 두 지갑을 ID 오름차순으로 잠근다. 반대 방향 지급이 동시에 와도 같은 순서로 잠가 교착이 없다.
         Map<Long, Wallet> wallets = ledgerRecordUseCase.lockWallets(List.of(payerWalletId, receiverWalletId));
-        PointHold hold = holdProcessing.lockHold(BillingKeys.hold(command), payerWalletId);
+        PointHold hold = holdProcessing.lockHold(command.holdKey(), payerWalletId);
         HoldProcessing.verifySource(hold, command.sourceType(), command.sourceId());
 
-        String key = BillingKeys.payout(hold.getId(), command);
+        String key = command.idempotencyKey(hold.getId());
         HoldState state = holdProcessing.load(hold);
 
         Optional<PointHoldDetail> existing = state.detail(key);
