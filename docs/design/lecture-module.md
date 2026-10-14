@@ -259,8 +259,9 @@ stateDiagram-v2
 
 - 주문 항목 1건당 살아 있는 리뷰 1개. 한 회원은 한 강의에 리뷰를 하나만 유지한다. 삭제 후 재작성은 새 행으로 만들며, 그래서 유일 제약은 모두 `WHERE deleted_at IS NULL` 부분 인덱스로 건다(7.1).
 - 작성 조건: 본인 항목이 `CONFIRMED`·`PAID_OUT` (D5). 구매 확정 전 리뷰를 허용하면 리뷰 작성 후 구매 취소가 가능해지기 때문이다.
-- 평점은 1~5 정수. 평균 평점과 리뷰 수는 MVP에서 조회 시 집계한다. 목록 성능 문제가 생기면 `lecture`에 캐시 컬럼을 추가한다.
-- 항목이 `RETURNED`가 되면 리뷰는 남기되 평균 평점·리뷰 수에서 제외한다 (D5).
+- 평점은 1~5 정수. 본문은 선택이며 1,000자 이하다 (D47). 평균 평점과 리뷰 수는 MVP에서 조회 시 집계한다. 목록 성능 문제가 생기면 `lecture`에 캐시 컬럼을 추가한다.
+- 항목이 `RETURNED`가 되면 리뷰는 남기되 리뷰 목록·평균 평점·리뷰 수에서 제외한다 (D5, D47). 반환 여부는 컬럼으로 복사하지 않고 조회할 때 `order_item`과 JOIN해 판정한다.
+- 반환 후 같은 강의를 다시 사서 새 리뷰를 쓰면, 반환된 항목에 남은 기존 리뷰를 Soft Delete하고 새 리뷰로 대체한다 (D47).
 
 ### 4.8 LectureUser (회원 복제)
 
@@ -660,12 +661,14 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/api/v1/lectures/{lectureId}/reviews` | 리뷰 목록 + 평균 평점 |
-| POST | `/api/v1/lectures/{lectureId}/reviews` | `{orderItemId, rating, content}` 작성 |
-| PATCH | `/api/v1/lectures/reviews/{reviewId}` | 작성자 본인 수정 |
-| DELETE | `/api/v1/lectures/reviews/{reviewId}` | 작성자 본인 Soft Delete |
+| GET | `/api/v1/lectures/{lectureId}/reviews` | 리뷰 목록 (최신순, 페이징). 평균 평점·리뷰 수는 강의 목록·상세에서 준다 |
+| POST | `/api/v1/lectures/{lectureId}/reviews` | `{orderItemId, rating, content}` 작성 (201, `{id}`) |
+| PATCH | `/api/v1/lectures/reviews/{reviewId}` | 작성자 본인 수정 (204) |
+| DELETE | `/api/v1/lectures/reviews/{reviewId}` | 작성자 본인 Soft Delete (204) |
 
-> 비회원 목록 조회(`GET /api/v1/lectures`)는 global `SecurityConfig`가 허용한다(#58). 그 밖의 강의 API는 로그인이 필요하고, 역할 인가는 Facade의 `@PreAuthorize`로 한다(D16, 9장). 아직 남은 역할 인가는 `/sales`(#150)·리뷰(#155)이며 코드에 `TODO(security)`로 표시되어 있다.
+오류 코드는 D47을 따른다.
+
+> 비회원 목록 조회(`GET /api/v1/lectures`)는 global `SecurityConfig`가 허용한다(#58). 그 밖의 강의 API는 로그인이 필요하고, 역할 인가는 Facade의 `@PreAuthorize`로 한다(D16, 9장). 아직 남은 역할 인가는 `/sales`(#150)이며 코드에 `TODO(security)`로 표시되어 있다.
 
 ### 8.7 용어 ↔ 코드 이름 (제안)
 
@@ -695,7 +698,8 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 검수 승인·반려 | X | X | X | X | O |
 | 장바구니·주문·구매 확정·구매 취소·이의 제기 | X | O | O | O | X |
 | 콘텐츠 시청 | X | 구매자 | 구매자 | 구매자·판매자 | O (검수용) |
-| 리뷰 작성 | X | 구매자 | 구매자 | 구매자 | X |
+| 리뷰 작성·수정·삭제 | X | 구매자 | 구매자 | 구매자 | X |
+| 리뷰 목록 | X | O | O | O | O |
 
 - 역할 검사는 Facade(`LectureFacade`, `LectureInspectionFacade`)의 `@PreAuthorize`로 한다. 관리자 API(`/admin` 경로)는 `SecurityConfig`도 함께 막는다 (D16).
 - 관리자의 강의 상세는 `/admin/{lectureId}`(`LectureInspectionFacade`)로 따로 두고, 일반 상세 API에는 역할 분기를 두지 않는다 (D30).
@@ -916,3 +920,4 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D44 | 2026-10-14 | 구매 취소는 `objection_status = NONE`일 때만 된다. `FILED`·`REJECTED`이면 409 `OBJECTION_FILED`다(#146 2차, D33 갱신). 이의 제기 접수 경로(#156)가 생기기 전이라 지금은 항상 `NONE`이고, 도메인 단위 테스트로만 확인한다 | 4.6 불변식(이의 제기 중 구매 취소 불가, 이중 반환 방지)을 접수 경로보다 먼저 도메인에 둔다. 기각(`REJECTED`)된 항목도 접수된 적이 있으므로 같은 코드로 거부한다 | #156에서 통합 테스트 보강 |
 | D45 | 2026-10-14 | 같은 강의를 동시에 주문해 보유 검사를 둘 다 통과하면, 주문 저장(`saveAndFlush`)의 부분 유일 인덱스 `uk_order_item_buyer_lecture_owned` 위반을 409 `ALREADY_OWNED_LECTURE`로 바꾼다. 다른 제약 위반은 그대로 전파한다(500) | 중복 클릭은 사용자에게 예상된 실패이고, 순차 요청의 보유 검사와 같은 응답이 된다. 보류 호출 전에 걸리므로 HP는 움직이지 않는다 | - |
 | D46 | 2026-10-14 | 주문을 닫을 수 있는 변경(구매 취소, 이후 이의 제기 인정)은 주문 행을 비관적 잠금(`PESSIMISTIC_WRITE`)으로 읽는다(`LectureOrderRepository.findForUpdate`). 항목은 잠근 뒤에 읽는다 | 낙관적 락은 항목에만 있어, 서로 다른 마지막 두 항목을 동시에 취소하면 둘 다 상대 항목을 `PURCHASED`로 보고 주문이 `PAID`로 남았다(PR #172 Codex 리뷰). 주문 `@Version`으로 막으면 정상 요청 하나가 500으로 실패하므로 기다리게 한다. 잠금 순서는 주문 → 항목 → billing 지갑이고, 직접 확정·재생 동의·자동 구매 확정은 주문을 닫지 않아 잠그지 않는다 | #156에서 같은 조회 사용 |
+| D47 | 2026-10-14 | 리뷰·평점(#155): (1) 본인 주문 항목이 `CONFIRMED`·`PAID_OUT`일 때만 쓴다. 강의 상태(삭제 포함)는 보지 않는다. 검사 순서는 없는 강의 404 `LECTURE_NOT_FOUND` → 남의 항목·없는 항목·경로와 다른 강의의 항목 404 `ORDER_ITEM_NOT_FOUND` → 구매 확정 전·취소·반환 409 `ORDER_ITEM_NOT_REVIEWABLE`(detail만 다름) → 이미 쓴 강의 409 `ALREADY_REVIEWED`. 동시 작성은 리뷰 부분 유일 인덱스 2개의 UNIQUE 위반(SQLState `23505` + 서버가 보낸 제약 이름)만 `ALREADY_REVIEWED`로 바꾸고, 그 밖의 무결성 위반은 그대로 던져 500 `INTERNAL_ERROR`가 된다(AGENTS.md 7장, billing `WalletCreateUseCase`와 같은 판별). (2) 평점은 1~5, 본문은 선택이고 1,000자 이하다. 비었거나 공백만 있으면 `null`로 저장한다. 수정은 평점·본문을 모두 바꾼다. (3) 수정·삭제는 작성자 본인만 하며 항목 상태와 관계없다. 남의 리뷰는 403 `NOT_REVIEW_WRITER`, 없거나 삭제된 리뷰는 404 `REVIEW_NOT_FOUND`다. 작성·수정·삭제는 관리자 불가(Facade `@PreAuthorize`), 목록은 로그인한 회원 모두 본다. (4) 반환된 항목의 리뷰는 행을 남기되 리뷰 목록·평균 평점·리뷰 수에서 뺀다. 같은 강의를 다시 산 회원이 새 리뷰를 쓰면 반환된 항목의 기존 리뷰를 같은 트랜잭션에서 Soft Delete하고 대체한다. (5) 평균 평점은 조회할 때 `order_item`과 JOIN해 집계하고 소수 첫째 자리까지 반올림(HALF_UP)한다. 리뷰가 없으면 `null`이다. 평점순(`RATING`)은 반올림 전 평균 내림차순 → 리뷰 수 내림차순 → 최신순이고, 리뷰가 없는 강의는 맨 뒤다. (6) 리뷰 목록은 최신순으로 고정하고 판매 중이 아닌 강의는 강의 상세와 같이 판매자·보유 구매자만 본다(그 밖에는 404 `LECTURE_NOT_FOUND`). message: 목록 "리뷰 목록을 조회했습니다.", 작성 "리뷰를 작성했습니다." | (1) 리뷰 후 구매 취소 방지(D5). 삭제된 강의도 구매자는 계속 보는 상품이다. 남의 주문은 드러내지 않는다(D32) (2) 기획서에 값이 없어 평점만 남기는 리뷰를 허용하고 길이만 제한한다 (3) 리뷰는 공개 목록에 있어 존재를 숨길 이유가 없다(`NOT_LECTURE_SELLER`와 같음) (4) 목록에 보이는 개수와 `reviewCount`를 맞춘다. 반환 리뷰는 목록에 없어 작성자가 찾아 지울 수 없으므로, 그대로 두면 다시 산 강의에 리뷰를 쓸 수 없다 (5) 반환 여부를 컬럼으로 복사하지 않으면 이의 제기(7단계)에서 고칠 곳이 없다. 같은 스키마라 모듈 경계 위반이 아니다(4.7). 리뷰 1개짜리 5.0과 100개짜리 5.0을 리뷰 수로 나눈다 | 평점순은 강의마다 상관 서브쿼리로 집계하므로 강의가 많아지면 4.7의 캐시 컬럼을 검토한다. 리뷰 동시 수정은 낙관적 락 없이 나중 요청이 이긴다 |

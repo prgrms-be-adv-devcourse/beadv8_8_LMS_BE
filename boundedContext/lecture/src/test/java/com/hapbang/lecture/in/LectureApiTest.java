@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -101,6 +102,9 @@ class LectureApiTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void setUp() {
@@ -588,6 +592,57 @@ class LectureApiTest {
     }
 
     @Test
+    void 강의_목록과_상세에_반올림한_평균_평점과_리뷰_수가_나오고_반환된_항목의_리뷰는_빠진다() throws Exception {
+        Long lectureId = registerOnSale("OBS 방송 세팅", 10_000);
+        review(lectureId, 4L, 5);
+        review(lectureId, 5L, 4);
+        review(lectureId, 6L, 4);
+        Long returned = review(lectureId, 7L, 1);
+        jdbcTemplate.update("update lectures.order_item set status = 'RETURNED' where id = ?", returned);
+
+        mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].averageRating").value(4.3))
+                .andExpect(jsonPath("$.data.content[0].reviewCount").value(3));
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.averageRating").value(4.3))
+                .andExpect(jsonPath("$.data.reviewCount").value(3));
+    }
+
+    @Test
+    void 리뷰가_없는_강의의_평균_평점은_null이다() throws Exception {
+        Long lectureId = registerOnSale("OBS 방송 세팅", 10_000);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.averageRating").value(nullValue()))
+                .andExpect(jsonPath("$.data.reviewCount").value(0));
+    }
+
+    @Test
+    void 평점순으로_정렬하면_리뷰가_없는_강의는_뒤에_온다() throws Exception {
+        Long noReview = registerOnSale("리뷰 없는 강의", 10_000);
+        Long low = registerOnSale("평점 낮은 강의", 10_000);
+        Long high = registerOnSale("평점 높은 강의", 10_000);
+        review(low, 4L, 3);
+        review(high, 4L, 5);
+
+        mockMvc.perform(get("/api/v1/lectures").param("sort", "RATING")
+                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(high))
+                .andExpect(jsonPath("$.data.content[1].lectureId").value(low))
+                .andExpect(jsonPath("$.data.content[2].lectureId").value(noReview))
+                .andExpect(jsonPath("$.data.page.totalElements").value(3));
+        mockMvc.perform(get("/api/v1/lectures").param("sort", "RATING").param("keyword", "낮은")
+                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(low));
+    }
+
+    @Test
     void 요청_값이_잘못되면_400과_잘못된_항목을_알려_준다() throws Exception {
         mockMvc.perform(post("/api/v1/lectures")
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
@@ -753,6 +808,23 @@ class LectureApiTest {
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
                         .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
                 .andExpect(status().isNoContent());
+    }
+
+    /** 구매자가 강의를 사서 직접 구매 확정하고 리뷰를 쓴다. 주문 항목 ID를 돌려준다 */
+    private Long review(Long lectureId, Long buyerId, int rating) throws Exception {
+        Lecture lecture = lectureRepository.findById(lectureId).orElseThrow();
+        LectureOrder order = lectureOrderRepository.save(
+                LectureOrderFixture.order(buyerId, List.of(lecture), LocalDateTime.now(LectureConfig.ZONE)));
+        Long orderItemId = order.getItems().getFirst().getId();
+        mockMvc.perform(post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/confirm", order.getId(), orderItemId)
+                        .with(TestLogin.as(buyerId, Role.USER)).with(csrf()))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/lectures/{lectureId}/reviews", lectureId)
+                        .with(TestLogin.as(buyerId, Role.USER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orderItemId\": %d, \"rating\": %d}".formatted(orderItemId, rating)))
+                .andExpect(status().isCreated());
+        return orderItemId;
     }
 
     /** 주문 생성 API(HP 보류)가 생기기 전에는 픽스처로 주문을 저장한다 */

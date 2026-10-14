@@ -68,6 +68,11 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
             + "order by i.autoConfirmAt, i.id")
     List<Long> findAutoConfirmDueItemIds(@Param("now") LocalDateTime now);
 
+    /** 구매자 본인의 주문 항목. 남의 항목은 없는 항목과 같게 본다 (D32) */
+    @Query("select i from OrderItem i where i.id = :orderItemId and i.buyerUserId = :buyerUserId")
+    Optional<OrderItem> findItemOfBuyer(@Param("orderItemId") Long orderItemId,
+                                        @Param("buyerUserId") Long buyerUserId);
+
     @Query("select i from OrderItem i "
             + "where i.buyerUserId = :buyerUserId and i.lectureId = :lectureId and i.status in :statuses")
     Optional<OrderItem> findItem(@Param("buyerUserId") Long buyerUserId, @Param("lectureId") Long lectureId,
