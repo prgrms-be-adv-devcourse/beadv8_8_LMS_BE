@@ -22,7 +22,7 @@ import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
 
-// 실제 PostgreSQL이 보낸 무결성 위반으로 리뷰 중복 판별(ReviewWriteUseCase.isDuplicateReview)을 확인한다.
+// 실제 PostgreSQL이 보낸 무결성 위반으로 유일 인덱스 판별(UniqueIndexViolation)을 확인한다.
 @RepositoryTest
 class ReviewDuplicateDetectionTest {
 
@@ -50,7 +50,7 @@ class ReviewDuplicateDetectionTest {
             lectureReviewRepository.save(LectureReview.write(item, BUYER_ID, 3, null, NOW));
             lectureReviewRepository.flush();
         }).isInstanceOfSatisfying(DataIntegrityViolationException.class,
-                exception -> assertThat(ReviewWriteUseCase.isDuplicateReview(exception)).isTrue());
+                exception -> assertThat(isReviewDuplicate(exception)).isTrue());
     }
 
     @Test
@@ -62,7 +62,11 @@ class ReviewDuplicateDetectionTest {
 
         assertThatThrownBy(() -> lectureReviewRepository.flush())
                 .isInstanceOfSatisfying(DataIntegrityViolationException.class,
-                        exception -> assertThat(ReviewWriteUseCase.isDuplicateReview(exception)).isFalse());
+                        exception -> assertThat(isReviewDuplicate(exception)).isFalse());
+    }
+
+    private static boolean isReviewDuplicate(DataIntegrityViolationException exception) {
+        return UniqueIndexViolation.isOf(exception, "uk_lecture_review_order_item", "uk_lecture_review_lecture_reviewer");
     }
 
     private OrderItem confirmedItem() {

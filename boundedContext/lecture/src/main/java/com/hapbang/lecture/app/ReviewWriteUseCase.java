@@ -2,10 +2,7 @@ package com.hapbang.lecture.app;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.Set;
 
-import org.postgresql.util.PSQLException;
-import org.postgresql.util.ServerErrorMessage;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -26,10 +23,9 @@ import com.hapbang.lecture.out.LectureReviewRepository;
 @Service
 public class ReviewWriteUseCase {
 
-    static final String UNIQUE_VIOLATION = "23505";
-    /** 마이그레이션 {@code V202610141250}의 부분 유일 인덱스 */
-    static final Set<String> DUPLICATE_REVIEW_CONSTRAINTS =
-            Set.of("uk_lecture_review_order_item", "uk_lecture_review_lecture_reviewer");
+    /** 주문 항목 1건당, 한 회원·한 강의당 살아 있는 리뷰를 하나만 두는 부분 유일 인덱스 (D47) */
+    private static final String ORDER_ITEM_INDEX = "uk_lecture_review_order_item";
+    private static final String LECTURE_REVIEWER_INDEX = "uk_lecture_review_lecture_reviewer";
 
     private final LectureReviewRepository lectureReviewRepository;
     private final LectureSupport lectureSupport;
@@ -61,26 +57,11 @@ public class ReviewWriteUseCase {
             lectureReviewRepository.flush();
             return saved.getId();
         } catch (DataIntegrityViolationException exception) {
-            if (!isDuplicateReview(exception)) {
+            if (!UniqueIndexViolation.isOf(exception, ORDER_ITEM_INDEX, LECTURE_REVIEWER_INDEX)) {
                 throw exception;
             }
             throw new LectureException(LectureErrorCode.ALREADY_REVIEWED);
         }
-    }
-
-    /** 예외 원인의 PostgreSQL 오류가 UNIQUE 위반(23505)이고, 서버가 보낸 제약 이름이 리뷰 유일 인덱스인지 */
-    static boolean isDuplicateReview(DataIntegrityViolationException exception) {
-        // 오류 메시지 문자열은 서버 언어(lc_messages)에 따라 달라지므로 구조화된 제약 이름 필드를 쓴다
-        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
-            if (cause instanceof PSQLException postgresException) {
-                ServerErrorMessage serverError = postgresException.getServerErrorMessage();
-                return serverError != null
-                        && UNIQUE_VIOLATION.equals(serverError.getSQLState())
-                        && serverError.getConstraint() != null
-                        && DUPLICATE_REVIEW_CONSTRAINTS.contains(serverError.getConstraint());
-            }
-        }
-        return false;
     }
 
     /**
