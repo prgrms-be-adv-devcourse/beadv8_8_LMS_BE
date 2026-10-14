@@ -19,8 +19,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public interface ApiV1LectureOrderSpec {
 
     @Operation(summary = "주문",
-            description = "장바구니 주문 또는 바로 구매(강의 1개). HP 보류까지 끝난 뒤 응답하며, 잔액이 부족하면 주문이 만들어지지 않는다. "
-                    + "판매 중이 아닌 강의, 본인 강의, 이미 보유 중인 강의, 같은 강의 중복은 주문할 수 없다. 주문한 강의는 장바구니에서 빠진다.")
+            description = "장바구니 주문 또는 바로 구매(강의 1개). 항목마다 HP 보류까지 끝난 뒤 응답하며(수익 HP부터 쓰고 부족분은 충전 HP), "
+                    + "잔액이 부족하면 주문이 만들어지지 않고 장바구니도 그대로다. 주문한 강의는 장바구니에서 빠진다. "
+                    + "강의 하나라도 주문할 수 없으면 주문 전체를 거부한다. "
+                    + "오류: 빈 목록·같은 강의 중복 400 INVALID_REQUEST, 본인 강의 403 OWN_LECTURE_NOT_PURCHASABLE, "
+                    + "없거나 판매 중이 아닌 강의 404 LECTURE_NOT_FOUND, 이미 보유 중인 강의 409 ALREADY_OWNED_LECTURE, "
+                    + "잔액 부족 409 INSUFFICIENT_BALANCE.")
     RsData<OrderResponse> createOrder(Long userId, OrderCreateRequest request);
 
     @Operation(summary = "내 주문 목록", description = "최근 주문부터.")
@@ -43,8 +47,11 @@ public interface ApiV1LectureOrderSpec {
     RsData<OrderItemResponse> consentToPlay(Long userId, Long orderId, Long orderItemId);
 
     @Operation(summary = "구매 취소",
-            description = "본인 항목, PURCHASED이고 autoConfirmAt 전, 이의 제기 없음. HP 반환까지 끝난 뒤 응답한다. "
-                    + "모든 항목이 끝나면 주문도 CANCELED가 된다.")
+            description = "본인 항목, PURCHASED이고 autoConfirmAt 전, 이의 제기 없음. 그 항목의 보류 HP를 결제할 때 쓴 HP 종류 그대로 "
+                    + "반환한 뒤 응답한다. 모든 항목이 끝나면 주문도 CANCELED가 된다. "
+                    + "오류: 남의 주문·없는 주문 404 ORDER_NOT_FOUND, 주문에 없는 항목 404 ORDER_ITEM_NOT_FOUND, "
+                    + "이미 확정·취소·반환된 항목 409 ORDER_ITEM_NOT_PURCHASED, autoConfirmAt이 지남 409 CANCEL_PERIOD_EXPIRED, "
+                    + "이의 제기가 접수된 항목 409 OBJECTION_FILED.")
     RsData<OrderItemResponse> cancel(Long userId, Long orderId, Long orderItemId);
 
     @Operation(summary = "시청 가능한 강의",

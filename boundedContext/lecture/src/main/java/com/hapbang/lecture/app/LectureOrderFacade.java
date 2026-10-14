@@ -1,5 +1,7 @@
 package com.hapbang.lecture.app;
 
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -22,9 +24,17 @@ import lombok.RequiredArgsConstructor;
 public class LectureOrderFacade {
 
     private final LectureOrderSupport lectureOrderSupport;
+    private final OrderCreateUseCase orderCreateUseCase;
     private final OrderConfirmUseCase orderConfirmUseCase;
+    private final OrderCancelUseCase orderCancelUseCase;
     private final OrderPlayConsentUseCase orderPlayConsentUseCase;
     private final PurchasedLectureSupport purchasedLectureSupport;
+
+    /** 주문 (장바구니 주문·바로 구매). 항목마다 HP를 보류한다 */
+    @Transactional
+    public OrderResponse createOrder(Long userId, List<Long> lectureIds) {
+        return orderCreateUseCase.create(userId, lectureIds);
+    }
 
     /** 내 주문 목록 */
     @Transactional(readOnly = true)
@@ -42,6 +52,12 @@ public class LectureOrderFacade {
     @Transactional
     public OrderItemResponse confirm(Long userId, Long orderId, Long orderItemId) {
         return orderConfirmUseCase.confirm(userId, orderId, orderItemId);
+    }
+
+    /** 구매 취소. 그 항목의 보류 HP를 반환한다 */
+    @Transactional
+    public OrderItemResponse cancel(Long userId, Long orderId, Long orderItemId) {
+        return orderCancelUseCase.cancel(userId, orderId, orderItemId);
     }
 
     /** 재생 동의 (첫 재생 구매 확정) */

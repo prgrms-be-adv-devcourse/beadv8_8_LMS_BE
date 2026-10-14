@@ -79,6 +79,15 @@ public class LectureOrder {
         return List.copyOf(items);
     }
 
+    /**
+     * 모든 항목의 HP 보류가 성공한 뒤의 시각으로 주문 시각과 항목의 구매 시각·기한을 다시 정한다 (D35).
+     * 보류에 주문 항목 ID가 필요해 주문을 먼저 저장하므로, 저장할 때 넣은 시각을 이 시각으로 바꾼다.
+     */
+    public void stampPaidAt(LocalDateTime now) {
+        this.orderedAt = now;
+        items.forEach(item -> item.stampPurchasedAt(now));
+    }
+
     /** 구매자의 직접 구매 확정. 자동 구매 확정 시각이 지났으면 자동 확정으로 기록한다 (D34) */
     public OrderItem confirmItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
