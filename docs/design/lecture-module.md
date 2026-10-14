@@ -347,7 +347,7 @@ stateDiagram-v2
 고객센터가 접수 창구를 유지하면서, 접수·판단을 **고객센터 트랜잭션 안에서** 강의 모듈에 바로 반영한다(16장 D9). 접수가 저장되는 순간 항목도 `FILED`가 되어 지급이 멈춘다.
 
 ```java
-// shared 모듈 (예: com.hapbang.shared.lecture) — 강의 모듈이 구현, 고객센터 모듈이 호출
+// shared 모듈 com.hapbang.shared.lecture.port (#156) — 강의 모듈이 구현(in/LectureObjectionPortAdapter), 고객센터 모듈이 호출
 // 모든 메서드는 호출한 쪽(고객센터)의 트랜잭션에 참여한다. 예외가 나면 고객센터 쪽 변경도 함께 롤백된다.
 public interface LectureObjectionPort {
 
@@ -368,12 +368,15 @@ public interface LectureObjectionPort {
 
 | 항목 | 내용 |
 | --- | --- |
-| 위치 | `shared`에 인터페이스와 `LectureObjectionRefusedException`을 두고 강의 모듈이 구현한다. 고객센터는 강의 모듈에 Gradle 의존을 걸지 않는다 |
+| 위치 | `shared`에 인터페이스(`shared.lecture.port`)와 `LectureObjectionRefusedException`(`shared.lecture.exception`)을 두고 강의 모듈이 구현한다. 고객센터는 강의 모듈에 Gradle 의존을 걸지 않는다 |
 | 트랜잭션 | 고객센터의 문의 저장과 강의 항목 변경(인정 시 지갑 반환까지)이 함께 커밋·롤백된다. 접수 불가 예외가 나면 고객센터는 문의를 만들지 않고 구매자에게 사유를 응답한다 |
+| 예외 형태 (D49) | `shared`는 `global`에 의존하지 않으므로 `LectureObjectionRefusedException`은 `BusinessException`이 아닌 런타임 예외이고 사유(`getReason()`)를 담는다. 공통 핸들러는 이 예외를 500으로 응답하므로 고객센터가 잡아서 자기 업무 예외로 바꿔 던진다. 예외가 난 트랜잭션은 이미 롤백 전용이라, 잡고 정상 처리로 바꾸면 커밋할 때 `UnexpectedRollbackException`이 난다 |
 | 접수 가능 조건 | 구매자 본인 항목, `PURCHASED` 또는 `CONFIRMED`, `objection_status = NONE`, `now < payout_scheduled_at` |
-| 접수 불가 사유 | `NOT_BUYER`, `PERIOD_EXPIRED`, `ALREADY_FILED`, `NOT_OBJECTIONABLE`(취소·반환된 항목), `ALREADY_PAID_OUT` |
-| 판단 조건 | `objection_status = FILED`이고 `inquiryId`가 접수 때 저장한 값과 같을 때만 처리. 아니면 예외 |
-| 지급 배치와 경쟁 | 접수와 지급 배치가 같은 항목 행을 바꾸므로 `order_item.version` 낙관적 락으로 직렬화된다. 접수가 먼저면 지급 대상에서 빠지고, 지급이 먼저면 접수가 `ALREADY_PAID_OUT`으로 거부된다(기한이 지난 뒤이므로 정책상 맞음) |
+| 접수 불가 사유 | 이 순서로 검사한다(D49): `NOT_BUYER`(없는 항목 포함) → `NOT_OBJECTIONABLE`(취소·반환된 항목) → `ALREADY_PAID_OUT` → `ALREADY_FILED`(접수·기각된 항목) → `PERIOD_EXPIRED` |
+| 판단 조건 | `objection_status = FILED`이고 `inquiryId`가 접수 때 저장한 값(`objection_inquiry_id`)과 같을 때만 처리. 아니면 `NOT_FILED`(없는 항목·이미 판단한 항목 포함) 또는 `INQUIRY_MISMATCH`. 판단한 관리자는 `objection_resolved_by_user_id`에 남긴다 |
+| 필수 값 | null ID·빈 사유는 호출한 쪽 코드 오류라 `NullPointerException`·`IllegalArgumentException`이다 (`BillingPort` 요청 DTO와 같음) |
+| 잠금 | 인정은 주문을 닫을 수 있으므로 구매 취소처럼 주문 행을 잠근다(D46). 항목 ID로 주문 ID만 읽은 뒤 주문을 잠그고 항목을 읽는다. 접수·기각은 주문을 닫지 않아 항목의 낙관적 락만 쓴다 |
+| 지급 배치와 경쟁 | 접수와 지급 배치가 같은 항목 행을 바꾸므로 `order_item.version` 낙관적 락으로 직렬화된다. 접수가 먼저면 지급 대상에서 빠지고, 지급이 먼저 커밋되면 접수가 `ALREADY_PAID_OUT`으로 거부된다(기한이 지난 뒤이므로 정책상 맞음). 두 트랜잭션이 겹치면 늦은 쪽이 낙관적 락 충돌로 실패하고, 접수 쪽이면 500이다. 다시 접수하면 사유가 응답된다 (D49) |
 | 고객센터 쪽 필요 사항 | `INQUIRY`에 대상(`target_type = LECTURE_ORDER_ITEM`, `target_id`) 컬럼 추가 (`changelog.md` 보류 항목) |
 
 ### 6.3 이벤트 계약 (제안)
@@ -570,7 +573,9 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | objection_status | varchar | `NONE` / `FILED` / `ACCEPTED` / `REJECTED` |
 | objection_reason | text | **추가** |
 | objection_filed_at | timestamp | |
+| objection_inquiry_id | bigint | **추가** (#156). 접수한 고객센터 문의 ID. 판단할 때 대조한다. 다른 모듈 ID라 FK 없음 |
 | objection_resolved_at | timestamp | **추가** |
+| objection_resolved_by_user_id | bigint | **추가** (#156). 판단한 관리자 ID |
 | version | bigint | **추가**. 낙관적 락 (10장) |
 
 인덱스
@@ -714,7 +719,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 구매 취소 ↔ 자동 구매 확정 배치가 같은 항목을 동시에 변경 | `order_item.version` 낙관적 락. 늦은 쪽은 실패하고, 같은 트랜잭션의 지갑 반환도 함께 롤백된다 (사용자 요청이면 충돌 오류) |
 | 이의 제기 접수 ↔ 지급 배치 | 둘 다 항목 행을 바꾸므로 낙관적 락으로 직렬화. `FILED`가 먼저 커밋되면 지급 대상에서 빠지고, 지급이 먼저면 접수가 `ALREADY_PAID_OUT`으로 거부된다 (6.2 `LectureObjectionPort`) |
 | 같은 주문의 여러 항목 반환·지급이 동시에 처리 | 보류가 항목 단위라(D36) 항목마다 별도 보류다. 서로 다른 항목의 반환·지급은 경쟁하지 않는다 (6.2) |
-| 같은 주문의 마지막 두 항목을 동시에 구매 취소 | 구매 취소는 주문 행을 잠가(`SELECT ... FOR UPDATE`) 읽는다. 뒤 요청은 앞 요청이 커밋한 항목 상태를 보고 마지막 항목이면 주문을 `CANCELED`로 바꾼다 (D46). 이의 제기 인정(#156)도 같은 조회를 쓴다 |
+| 같은 주문의 마지막 두 항목을 동시에 구매 취소 | 구매 취소는 주문 행을 잠가(`SELECT ... FOR UPDATE`) 읽는다. 뒤 요청은 앞 요청이 커밋한 항목 상태를 보고 마지막 항목이면 주문을 `CANCELED`로 바꾼다 (D46). 이의 제기 인정(#156)도 주문 행을 잠그되, 구매자를 모르므로 항목 ID로 주문을 찾아 잠근다(D49) |
 | 승인 중 판매자가 콘텐츠 수정 | 발생하지 않음. 검수 대기 중에는 콘텐츠를 수정할 수 없다 (D11) |
 | 주문 버튼 중복 클릭 | `(buyer_user_id, lecture_id)` 부분 유일 인덱스로 같은 강의의 두 번째 주문이 보류 호출 전에 실패하고 409 `ALREADY_OWNED_LECTURE`로 응답 (D45) |
 | 같은 구매자의 동시 결제 (강의 주문 + 출연 요청 등) | `BillingPort.hold`의 지갑 잠금으로 잔액 검사와 보류를 원자적으로 처리 (billing 구현) |
@@ -786,7 +791,7 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | 4 | 자동 구매 확정·지급 배치 → **강의 쪽 돈 한 바퀴 완료** | 지갑의 지급 (#145 ✅) | 스케줄링 #157 ✅, 자동 구매 확정 #149 ✅, 지급·판매 내역 #150 |
 | 5 | S3 업로드·재생 URL, 재생 동의 구매 확정 | 인프라(S3 버킷 권한) | S3 #88 ✅ #89 ✅ #90 ✅ #91 ✅, 서버 경유 업로드 #106 ✅ #107 ✅, 내려받기 파일명 #125 ✅, 재생 동의·구매자 시청·`/purchased` #158 ✅ |
 | 6 | 리뷰·평점, `LectureUser` 복제 | 회원 이벤트 | 회원 복제 #46 ✅ #87 ✅, 리뷰·평점 #155 |
-| 7 | 내용 다름 이의 제기 (`LectureObjectionPort` 구현) | 고객센터 호출부, `INQUIRY` 대상 컬럼 | #156 |
+| 7 | 내용 다름 이의 제기 (`LectureObjectionPort` 구현) | 고객센터 호출부, `INQUIRY` 대상 컬럼 | 강의 구현 #156, 고객센터 호출부 #189 |
 | 공통 | 단계와 무관한 팀 공통 적용 | - | 공통 예외 #71 ✅, 관리자 권한·페이지 응답 #58 ✅, 성공 응답 RsData #126 ✅, enum 설명 #112 ✅ |
 
 ---
@@ -922,3 +927,4 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D46 | 2026-10-14 | 주문을 닫을 수 있는 변경(구매 취소, 이후 이의 제기 인정)은 주문 행을 비관적 잠금(`PESSIMISTIC_WRITE`)으로 읽는다(`LectureOrderRepository.findForUpdate`). 항목은 잠근 뒤에 읽는다 | 낙관적 락은 항목에만 있어, 서로 다른 마지막 두 항목을 동시에 취소하면 둘 다 상대 항목을 `PURCHASED`로 보고 주문이 `PAID`로 남았다(PR #172 Codex 리뷰). 주문 `@Version`으로 막으면 정상 요청 하나가 500으로 실패하므로 기다리게 한다. 잠금 순서는 주문 → 항목 → billing 지갑이고, 직접 확정·재생 동의·자동 구매 확정은 주문을 닫지 않아 잠그지 않는다 | #156에서 같은 조회 사용 |
 | D47 | 2026-10-14 | 리뷰·평점(#155): (1) 본인 주문 항목이 `CONFIRMED`·`PAID_OUT`일 때만 쓴다. 강의 상태(삭제 포함)는 보지 않는다. 검사 순서는 없는 강의 404 `LECTURE_NOT_FOUND` → 남의 항목·없는 항목·경로와 다른 강의의 항목 404 `ORDER_ITEM_NOT_FOUND` → 구매 확정 전·취소·반환 409 `ORDER_ITEM_NOT_REVIEWABLE`(detail만 다름) → 이미 쓴 강의 409 `ALREADY_REVIEWED`. 동시 작성은 리뷰 부분 유일 인덱스 2개의 UNIQUE 위반(SQLState `23505` + 서버가 보낸 제약 이름)만 `ALREADY_REVIEWED`로 바꾸고, 그 밖의 무결성 위반은 그대로 던져 500 `INTERNAL_ERROR`가 된다(AGENTS.md 7장, billing `WalletCreateUseCase`와 같은 판별). (2) 평점은 1~5, 본문은 선택이고 1,000자 이하다. 비었거나 공백만 있으면 `null`로 저장한다. 수정은 평점·본문을 모두 바꾼다. (3) 수정·삭제는 작성자 본인만 하며 항목 상태와 관계없다. 남의 리뷰는 403 `NOT_REVIEW_WRITER`, 없거나 삭제된 리뷰는 404 `REVIEW_NOT_FOUND`다. 작성·수정·삭제는 관리자 불가(Facade `@PreAuthorize`), 목록은 로그인한 회원 모두 본다. (4) 반환된 항목의 리뷰는 행을 남기되 리뷰 목록·평균 평점·리뷰 수에서 뺀다. 같은 강의를 다시 산 회원이 새 리뷰를 쓰면 반환된 항목의 기존 리뷰를 같은 트랜잭션에서 Soft Delete하고 대체한다. (5) 평균 평점은 조회할 때 `order_item`과 JOIN해 집계하고 소수 첫째 자리까지 반올림(HALF_UP)한다. 리뷰가 없으면 `null`이다. 평점순(`RATING`)은 반올림 전 평균 내림차순 → 리뷰 수 내림차순 → 최신순이고, 리뷰가 없는 강의는 맨 뒤다. (6) 리뷰 목록은 최신순으로 고정하고 판매 중이 아닌 강의는 강의 상세와 같이 판매자·보유 구매자만 본다(그 밖에는 404 `LECTURE_NOT_FOUND`). message: 목록 "리뷰 목록을 조회했습니다.", 작성 "리뷰를 작성했습니다." | (1) 리뷰 후 구매 취소 방지(D5). 삭제된 강의도 구매자는 계속 보는 상품이다. 남의 주문은 드러내지 않는다(D32) (2) 기획서에 값이 없어 평점만 남기는 리뷰를 허용하고 길이만 제한한다 (3) 리뷰는 공개 목록에 있어 존재를 숨길 이유가 없다(`NOT_LECTURE_SELLER`와 같음) (4) 목록에 보이는 개수와 `reviewCount`를 맞춘다. 반환 리뷰는 목록에 없어 작성자가 찾아 지울 수 없으므로, 그대로 두면 다시 산 강의에 리뷰를 쓸 수 없다 (5) 반환 여부를 컬럼으로 복사하지 않으면 이의 제기(7단계)에서 고칠 곳이 없다. 같은 스키마라 모듈 경계 위반이 아니다(4.7). 리뷰 1개짜리 5.0과 100개짜리 5.0을 리뷰 수로 나눈다 | 평점순은 강의마다 상관 서브쿼리로 집계하므로 강의가 많아지면 4.7의 캐시 컬럼을 검토한다. 리뷰 동시 수정은 낙관적 락 없이 나중 요청이 이긴다 |
 | D48 | 2026-10-14 | 동시 요청의 유일 인덱스 위반 판별을 강의 모듈 `UniqueIndexViolation` 하나로 통일한다(#184). 원인 체인의 `PSQLException`에서 SQLState `23505`와 서버가 보낸 제약 이름이 지정한 인덱스일 때만 업무 오류(409)로 바꾸고, 그 밖의 무결성 위반은 그대로 던져 500 `INTERNAL_ERROR`가 된다. 대상: 장바구니 담기 `uk_cart_item_cart_lecture` → `ALREADY_IN_CART`(D18), 주문 `uk_order_item_buyer_lecture_owned` → `ALREADY_OWNED_LECTURE`(D45), 리뷰 `uk_lecture_review_order_item`·`uk_lecture_review_lecture_reviewer` → `ALREADY_REVIEWED`(D47) | 장바구니는 모든 무결성 위반을 409로 바꿔 예상하지 못한 결함을 가렸다(AGENTS.md 7장 위반). 주문이 쓰던 Hibernate `getConstraintName()`은 Hibernate 7.4.5 `PostgreSQLDialect`가 오류 메시지의 영어 문구(`constraint "…"`)에서 뽑으므로 DB 메시지 언어(`lc_messages`)가 한국어면 `null`이 되어 409가 500이 된다. billing `WalletCreateUseCase`와 같은 방식이다 | 모듈 공통(global)으로 올릴지는 범위 밖 |
+| D49 | 2026-10-14 | 내용 다름 이의 제기 포트(#156): (1) `shared`의 `LectureObjectionRefusedException`은 `BusinessException`이 아닌 런타임 예외이고 사유를 담는다. 고객센터가 잡아서 자기 업무 예외로 바꿔 던진다. (2) 사유는 접수 5개 `NOT_BUYER`(없는 항목 포함) → `NOT_OBJECTIONABLE` → `ALREADY_PAID_OUT` → `ALREADY_FILED` → `PERIOD_EXPIRED` 순서로 검사하고, 판단 2개는 `NOT_FILED`(없는 항목·이미 판단한 항목 포함)·`INQUIRY_MISMATCH`다. 필수 값 누락은 NPE·IAE다. (3) 접수한 문의 ID(`objection_inquiry_id`)와 판단한 관리자(`objection_resolved_by_user_id`)를 저장한다. (4) 인정은 D46처럼 주문을 잠그고(항목 ID로 주문 ID만 읽은 뒤 잠금), 항목을 `RETURNED`로 바꿔 flush한 뒤 `release(full, "LECTURE-RETURN-{항목 ID}")`를 부르고 반환액이 가격과 같은지 확인한다(D43). 접수·기각은 항목 낙관적 락만 쓴다 | `shared`는 `global`에 의존하지 않아 `BusinessException`을 상속할 수 없고, 의존을 추가하면 모듈 구조가 바뀐다. 상태가 더 구체적인 사유라 기한보다 먼저 알린다(기각된 항목이 기한도 지났으면 `ALREADY_FILED`). 관리자 중복 클릭에도 고객센터가 409로 응답할 수 있게 판단 거부도 같은 예외로 알린다. 판단자는 HP 반환을 일으킨 근거라 강의 항목에도 남긴다 | 고객센터 호출부·HTTP 응답 형태는 #189. 접수와 지급 배치의 경쟁 테스트는 #150과 나중에 병합하는 PR이 추가 |
