@@ -11,10 +11,8 @@ import com.hapbang.lecture.domain.LectureStatus;
 
 public interface LectureRepository extends JpaRepository<Lecture, Long> {
 
-    /** 평균 평점·리뷰 수 집계 조건. 삭제된 리뷰와 반환된 항목의 리뷰는 빠진다 (D5, {@link LectureReviewRepository}) */
-    String VISIBLE_REVIEWS_OF_LECTURE = "from LectureReview r join OrderItem i on i.id = r.orderItemId "
-            + "where r.lectureId = l.id and r.deletedAt is null "
-            + "and i.status <> com.hapbang.lecture.domain.OrderItemStatus.RETURNED";
+    /** 강의({@code l})의 평균 평점·리뷰 수 집계 대상. 리뷰 목록과 같은 조건이다 (D5) */
+    String VISIBLE_REVIEWS_OF_LECTURE = LectureReviewRepository.VISIBLE_REVIEWS + " and r.lectureId = l.id";
 
     /** 판매 중인 강의 중 제목에 검색어가 들어간 강의. 검색어의 {@code %}·{@code _}는 글자 그대로 찾는다 */
     String ON_SALE_WITH_KEYWORD = "from Lecture l where l.status = com.hapbang.lecture.domain.LectureStatus.ON_SALE "
