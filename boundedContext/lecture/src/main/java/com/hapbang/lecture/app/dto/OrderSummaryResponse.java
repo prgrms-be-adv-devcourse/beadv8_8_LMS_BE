@@ -1,7 +1,8 @@
-package com.hapbang.lecture.in.dto;
+package com.hapbang.lecture.app.dto;
 
 import java.time.LocalDateTime;
 
+import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderProgress;
 
@@ -18,4 +19,9 @@ public record OrderSummaryResponse(
         int itemCount,
         LocalDateTime orderedAt
 ) {
+
+    public static OrderSummaryResponse of(LectureOrder order) {
+        return new OrderSummaryResponse(order.getId(), order.getTotalAmountHp(), order.getStatus(), order.progress(),
+                order.getItems().getFirst().getLectureTitleSnapshot(), order.getItems().size(), order.getOrderedAt());
+    }
 }

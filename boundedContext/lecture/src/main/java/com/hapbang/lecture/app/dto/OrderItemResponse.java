@@ -1,9 +1,10 @@
-package com.hapbang.lecture.in.dto;
+package com.hapbang.lecture.app.dto;
 
 import java.time.LocalDateTime;
 
 import com.hapbang.lecture.domain.ConfirmationType;
 import com.hapbang.lecture.domain.ObjectionStatus;
+import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
 
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -31,4 +32,11 @@ public record OrderItemResponse(
         LocalDateTime returnedAt,
         ObjectionStatus objectionStatus
 ) {
+
+    public static OrderItemResponse of(OrderItem item) {
+        return new OrderItemResponse(item.getId(), item.getLectureId(), item.getLectureTitleSnapshot(),
+                item.getPriceHp(), item.getStatus(), item.getPurchasedAt(), item.getConfirmedAt(),
+                item.getConfirmationType(), item.getAutoConfirmAt(), item.getPayoutScheduledAt(),
+                item.getCanceledAt(), item.getReturnedAt(), item.getObjectionStatus());
+    }
 }
