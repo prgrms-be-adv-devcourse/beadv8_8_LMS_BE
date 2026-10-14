@@ -3,13 +3,13 @@ package com.hapbang.appearance.in;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.appearance.app.AppearanceRequestFacade;
@@ -18,11 +18,13 @@ import com.hapbang.appearance.app.dto.AppearanceRequestSummaryResDto;
 import com.hapbang.appearance.in.dto.CreateAppearanceRequestReqDto;
 import com.hapbang.appearance.in.dto.UpdateAppearanceRequestReqDto;
 import com.hapbang.global.auth.LoginUserId;
+import com.hapbang.global.response.RsData;
 
 import lombok.RequiredArgsConstructor;
 
 /**
  * 출연 요청서 REST API. Swagger 명세는 {@link ApiV1AppearanceRequestSpec}. 로직은 {@link AppearanceRequestFacade}만 부른다.
+ * 성공 응답은 {@link RsData}로 감싸고, 200이 아니면 {@code @ResponseStatus}로 HTTP 상태를 본문 {@code statusCode}와 같게 맞춘다.
  * <p>
  * 권한 확인 순서
  * <ol>
@@ -41,37 +43,43 @@ public class ApiV1AppearanceRequestController implements ApiV1AppearanceRequestS
 
     @Override
     @PostMapping
-    public ResponseEntity<AppearanceRequestResDto> create(@LoginUserId Long userId,
-                                                          @RequestBody CreateAppearanceRequestReqDto request) {
+    @ResponseStatus(HttpStatus.CREATED)
+    public RsData<AppearanceRequestResDto> create(@LoginUserId Long userId,
+                                                  @RequestBody CreateAppearanceRequestReqDto request) {
         AppearanceRequestResDto response = appearanceRequestFacade.create(userId, request.guestId(),
                 request.toContent());
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return RsData.created("출연 요청을 보냈습니다.", response);
     }
 
     @Override
     @GetMapping("/sent")
-    public Page<AppearanceRequestSummaryResDto> getSent(@LoginUserId Long userId, Pageable pageable) {
-        return appearanceRequestFacade.getSent(userId, pageable);
+    public RsData<Page<AppearanceRequestSummaryResDto>> getSent(@LoginUserId Long userId, Pageable pageable) {
+        Page<AppearanceRequestSummaryResDto> sent = appearanceRequestFacade.getSent(userId, pageable);
+        return RsData.ok("보낸 출연 요청 목록을 조회했습니다.", sent);
     }
 
     @Override
     @GetMapping("/received")
-    public Page<AppearanceRequestSummaryResDto> getReceived(@LoginUserId Long userId, Pageable pageable) {
-        return appearanceRequestFacade.getReceived(userId, pageable);
+    public RsData<Page<AppearanceRequestSummaryResDto>> getReceived(@LoginUserId Long userId, Pageable pageable) {
+        Page<AppearanceRequestSummaryResDto> received = appearanceRequestFacade.getReceived(userId, pageable);
+        return RsData.ok("받은 출연 요청 목록을 조회했습니다.", received);
     }
 
     @Override
     @GetMapping("/{requestId}")
-    public AppearanceRequestResDto getDetail(@LoginUserId Long userId, @PathVariable("requestId") Long requestId) {
-        return appearanceRequestFacade.getDetail(userId, requestId);
+    public RsData<AppearanceRequestResDto> getDetail(@LoginUserId Long userId,
+                                                     @PathVariable("requestId") Long requestId) {
+        AppearanceRequestResDto detail = appearanceRequestFacade.getDetail(userId, requestId);
+        return RsData.ok("출연 요청서를 조회했습니다.", detail);
     }
 
     @Override
     @PatchMapping("/{requestId}")
-    public AppearanceRequestResDto updateBasicInfo(@LoginUserId Long userId,
-                                                   @PathVariable("requestId") Long requestId,
-                                                   @RequestBody UpdateAppearanceRequestReqDto request) {
-        return appearanceRequestFacade.updateBasicInfo(userId, requestId, request.title(), request.content(),
-                request.hostChannelUrl());
+    public RsData<AppearanceRequestResDto> updateBasicInfo(@LoginUserId Long userId,
+                                                           @PathVariable("requestId") Long requestId,
+                                                           @RequestBody UpdateAppearanceRequestReqDto request) {
+        AppearanceRequestResDto updated = appearanceRequestFacade.updateBasicInfo(userId, requestId,
+                request.title(), request.content(), request.hostChannelUrl());
+        return RsData.ok("출연 요청서를 수정했습니다.", updated);
     }
 }
