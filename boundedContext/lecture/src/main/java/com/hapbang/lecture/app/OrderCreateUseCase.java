@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -85,8 +84,7 @@ public class OrderCreateUseCase {
         try {
             lectureOrderRepository.saveAndFlush(order);
         } catch (DataIntegrityViolationException e) {
-            if (e.getCause() instanceof ConstraintViolationException violation
-                    && OWNED_LECTURE_INDEX.equals(violation.getConstraintName())) {
+            if (UniqueIndexViolation.isOf(e, OWNED_LECTURE_INDEX)) {
                 throw new LectureException(LectureErrorCode.ALREADY_OWNED_LECTURE);
             }
             throw e;
