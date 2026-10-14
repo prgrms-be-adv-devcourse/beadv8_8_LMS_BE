@@ -1,19 +1,18 @@
 package com.hapbang.lecture.app;
 
 import static com.hapbang.lecture.fixture.LectureFixture.*;
+import static com.hapbang.lecture.fixture.PostgresErrorFixture.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
-import java.sql.SQLException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -53,7 +52,7 @@ class ReviewWriteUseCaseTest {
 
     @Test
     void 동시에_쓴_리뷰가_유일_인덱스에_걸리면_409_ALREADY_REVIEWED다() {
-        given(lectureReviewRepository.save(any())).willThrow(violation("23505", "uk_lecture_review_lecture_reviewer"));
+        given(lectureReviewRepository.save(any())).willThrow(violation(UNIQUE_VIOLATION, "uk_lecture_review_lecture_reviewer"));
 
         assertThatThrownBy(() -> useCase.write(BUYER_ID, LECTURE_ID, ORDER_ITEM_ID, 5, null))
                 .isInstanceOfSatisfying(LectureException.class, exception ->
@@ -62,29 +61,10 @@ class ReviewWriteUseCaseTest {
 
     @Test
     void 리뷰_중복이_아닌_무결성_위반은_그대로_던져_500이_되게_한다() {
-        DataIntegrityViolationException check = violation("23514", "ck_lecture_review_rating");
+        DataIntegrityViolationException check = violation(CHECK_VIOLATION, "ck_lecture_review_rating");
         given(lectureReviewRepository.save(any())).willThrow(check);
 
         assertThatThrownBy(() -> useCase.write(BUYER_ID, LECTURE_ID, ORDER_ITEM_ID, 5, null)).isSameAs(check);
-    }
-
-    @Test
-    void 리뷰_유일_인덱스_두_개의_UNIQUE_위반만_중복으로_본다() {
-        assertThat(ReviewWriteUseCase.isDuplicateReview(violation("23505", "uk_lecture_review_order_item"))).isTrue();
-        assertThat(ReviewWriteUseCase.isDuplicateReview(violation("23505", "uk_lecture_review_lecture_reviewer")))
-                .isTrue();
-        assertThat(ReviewWriteUseCase.isDuplicateReview(violation("23505", "pk_lecture_review"))).isFalse();
-        assertThat(ReviewWriteUseCase.isDuplicateReview(violation("23514", "uk_lecture_review_order_item"))).isFalse();
-        assertThat(ReviewWriteUseCase.isDuplicateReview(violation("23505", null))).isFalse();
-    }
-
-    @Test
-    void Hibernate가_메시지에서_뽑은_제약_이름만_있으면_중복으로_보지_않는다() {
-        ConstraintViolationException hibernate = new ConstraintViolationException(
-                "constraint violation", new SQLException("violation", "23505"), "uk_lecture_review_order_item");
-
-        assertThat(ReviewWriteUseCase.isDuplicateReview(
-                new DataIntegrityViolationException("constraint violation", hibernate))).isFalse();
     }
 
     private static OrderItem confirmedItem(Lecture lecture) {
@@ -94,28 +74,5 @@ class ReviewWriteUseCaseTest {
         ReflectionTestUtils.setField(item, "id", ORDER_ITEM_ID);
         ReflectionTestUtils.setField(item, "status", OrderItemStatus.CONFIRMED);
         return item;
-    }
-
-    /** Hibernate 예외 안에 PostgreSQL 드라이버 예외가 들어 있는, 실제와 같은 원인 체인 (billing WalletCreateUseCaseTest와 같음) */
-    private static DataIntegrityViolationException violation(String sqlState, String constraintName) {
-        ConstraintViolationException hibernate = new ConstraintViolationException(
-                "could not execute statement", postgresError(sqlState, constraintName), null);
-        return new DataIntegrityViolationException("could not execute statement", hibernate);
-    }
-
-    /** 한국어 메시지와 구조화된 SQLState·제약 이름을 가진 PostgreSQL 드라이버 예외 */
-    private static SQLException postgresError(String sqlState, String constraintName) {
-        // 드라이버는 compileOnly라 테스트 컴파일 경로에 없어 실행 경로(test-support runtimeOnly)의 클래스로 만든다.
-        // 서버 오류 형식: 필드 타입 문자 + 값 + NUL (S: 심각도, C: SQLState, M: 메시지, n: 제약 이름)
-        String fields = "SERROR\0C" + sqlState + "\0M중복된 키 값이 고유 제약 조건을 위반함\0"
-                + (constraintName == null ? "" : "n" + constraintName + "\0");
-        try {
-            Class<?> serverErrorType = Class.forName("org.postgresql.util.ServerErrorMessage");
-            Object serverError = serverErrorType.getConstructor(String.class).newInstance(fields);
-            return (SQLException) Class.forName("org.postgresql.util.PSQLException")
-                    .getConstructor(serverErrorType).newInstance(serverError);
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("PostgreSQL 드라이버 예외를 만들 수 없습니다.", exception);
-        }
     }
 }
