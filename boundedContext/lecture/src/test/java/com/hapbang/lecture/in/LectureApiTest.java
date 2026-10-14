@@ -16,6 +16,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 import org.hamcrest.Matcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,11 +27,18 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.FileResource;
 import com.hapbang.lecture.domain.FileType;
+import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureUser;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.FileResourceRepository;
+import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -46,6 +56,7 @@ class LectureApiTest {
     private static final Long SELLER_ID = 1L;
     private static final Long OTHER_USER_ID = 2L;
     private static final Long ADMIN_ID = 3L;
+    private static final Long BUYER_ID = 4L;
 
     private static final String UPDATE_INFO_BODY = """
             {
@@ -81,6 +92,15 @@ class LectureApiTest {
 
     @Autowired
     private FileResourceRepository fileResourceRepository;
+
+    @Autowired
+    private LectureRepository lectureRepository;
+
+    @Autowired
+    private LectureOrderRepository lectureOrderRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @BeforeEach
     void setUp() {
@@ -327,6 +347,36 @@ class LectureApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.deleted").value(true));
+    }
+
+    @Test
+    void 보유_중인_구매자는_삭제된_강의_상세를_조회한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+        purchase(lectureId);
+        deleteLecture(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.deleted").value(true))
+                .andExpect(jsonPath("$.data.rejectionReason").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents.length()").value(2));
+    }
+
+    @Test
+    void 구매_취소한_회원에게_삭제된_강의는_404다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+        LectureOrder order = purchase(lectureId);
+        transactionTemplate.executeWithoutResult(status -> lectureOrderRepository.findById(order.getId())
+                .orElseThrow()
+                .cancelItem(order.getItems().getFirst().getId(), LocalDateTime.now(LectureConfig.ZONE)));
+        deleteLecture(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
     }
 
     @Test
@@ -697,6 +747,19 @@ class LectureApiTest {
         Long lectureId = ((Number) JsonPath.read(response, "$.data.id")).longValue();
         approve(lectureId);
         return lectureId;
+    }
+
+    private void deleteLecture(Long lectureId) throws Exception {
+        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    /** 주문 생성 API(HP 보류)가 생기기 전에는 픽스처로 주문을 저장한다 */
+    private LectureOrder purchase(Long lectureId) {
+        Lecture lecture = lectureRepository.findById(lectureId).orElseThrow();
+        return lectureOrderRepository.save(
+                LectureOrderFixture.order(BUYER_ID, List.of(lecture), LocalDateTime.now(LectureConfig.ZONE)));
     }
 
     private void approve(Long lectureId) throws Exception {

@@ -4,10 +4,12 @@ import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class LectureTest {
 
@@ -228,14 +230,14 @@ class LectureTest {
     void 판매자는_검수_대기_강의의_콘텐츠를_볼_수_있다() {
         Lecture lecture = pendingLecture();
 
-        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(SELLER_ID, false));
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(SELLER_ID, false, null));
     }
 
     @Test
     void 판매자_관리자가_아니면_판매_중_강의는_CONTENT_ACCESS_DENIED() {
         Lecture lecture = onSaleLecture();
 
-        assertThatThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false))
+        assertThatThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false, null))
                 .isInstanceOf(LectureException.class)
                 .extracting("errorCode").isEqualTo(LectureErrorCode.CONTENT_ACCESS_DENIED);
     }
@@ -244,7 +246,7 @@ class LectureTest {
     void 관리자는_판매자가_아니어도_콘텐츠를_볼_수_있다() {
         Lecture lecture = pendingLecture();
 
-        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(ADMIN_ID, true));
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(ADMIN_ID, true, null));
     }
 
     @Test
@@ -252,8 +254,8 @@ class LectureTest {
         Lecture lecture = onSaleLecture();
         lecture.delete(SELLER_ID, NOW);
 
-        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(SELLER_ID, false));
-        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(ADMIN_ID, true));
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(SELLER_ID, false, null));
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(ADMIN_ID, true, null));
     }
 
     @Test
@@ -262,9 +264,54 @@ class LectureTest {
         deleted.delete(SELLER_ID, NOW);
 
         for (Lecture lecture : List.of(pendingLecture(), rejectedLecture(), deleted)) {
-            assertThatThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false))
+            assertThatThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false, null))
                     .isInstanceOf(LectureException.class)
                     .extracting("errorCode").isEqualTo(LectureErrorCode.LECTURE_NOT_FOUND);
         }
+    }
+
+    @Test
+    void 재생_동의_전_구매자는_PLAY_CONSENT_REQUIRED와_주문_ID를_받는다() {
+        Lecture lecture = withId(onSaleLecture(), 10L);
+        OrderItem purchased = heldItem(lecture);
+
+        assertThatThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false, purchased))
+                .isInstanceOfSatisfying(PlayConsentRequiredException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(LectureErrorCode.PLAY_CONSENT_REQUIRED);
+                    assertThat(e.getProperties()).containsExactly(entry("orderId", 100L), entry("orderItemId", 1000L));
+                });
+    }
+
+    @Test
+    void 구매_확정한_구매자는_콘텐츠를_볼_수_있다() {
+        Lecture lecture = withId(onSaleLecture(), 10L);
+        OrderItem confirmed = heldItem(lecture);
+        confirmed.getOrder().confirmItem(confirmed.getId(), NOW);
+        OrderItem paidOut = heldItem(lecture);
+        paidOut.getOrder().confirmItem(paidOut.getId(), NOW);
+        // 지급 메서드가 아직 없어(#149) 상태만 넣는다
+        ReflectionTestUtils.setField(paidOut, "status", OrderItemStatus.PAID_OUT);
+
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false, confirmed));
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false, paidOut));
+    }
+
+    @Test
+    void 구매_확정한_구매자는_삭제된_강의의_콘텐츠도_볼_수_있다() {
+        Lecture lecture = withId(onSaleLecture(), 10L);
+        OrderItem confirmed = heldItem(lecture);
+        confirmed.getOrder().consentToPlay(confirmed.getId(), NOW);
+        lecture.delete(SELLER_ID, NOW);
+
+        assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false, confirmed));
+    }
+
+    /** {@code OTHER_USER_ID}가 산 항목(주문 ID 100, 항목 ID 1000) */
+    private static OrderItem heldItem(Lecture lecture) {
+        LectureOrder order = LectureOrder.place(OTHER_USER_ID, List.of(lecture), Set.of(), NOW);
+        ReflectionTestUtils.setField(order, "id", 100L);
+        OrderItem item = order.getItems().getFirst();
+        ReflectionTestUtils.setField(item, "id", 1000L);
+        return item;
     }
 }
