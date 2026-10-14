@@ -51,14 +51,26 @@ Content-Type: application/problem+json
 | `NOT_REQUEST_HOST` | 403 | 출연 요청서를 보낸 호스트만 수정할 수 있습니다. | 게스트가 요청서 수정. 응답 전 취소는 `detail`이 "…취소할 수 있습니다." | #98, #137 |
 | `APPEARANCE_REQUEST_NOT_FOUND` | 404 | 출연 요청서를 찾을 수 없습니다. | 없는 요청서, 호스트·게스트가 아닌 회원의 조회, 보류 미완료·실패 요청서 | #98 |
 | `DUPLICATE_APPEARANCE_REQUEST` | 409 | 이미 처리 중이거나 응답 대기 중인 출연 요청이 있습니다. | 같은 게스트에게 진행 중인 요청서가 있음 (동시 요청 포함) | #98 |
-| `INSUFFICIENT_HP` | 409 | HP 잔액이 부족합니다. | 출연료만큼 HP 보류 실패 | #98 |
 | `APPEARANCE_REQUEST_NOT_EDITABLE` | 409 | 게스트가 응답하기 전인 출연 요청서만 수정할 수 있습니다. | `REQUESTED`가 아닌 요청서 수정 | #98 |
 | `NOT_REQUEST_GUEST` | 403 | 출연 요청을 받은 게스트만 응답할 수 있습니다. | 게스트가 아닌 회원(호스트 등)이 수락·거절 | #137 |
 | `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE` | 409 | 응답 대기 중인 출연 요청이 아닙니다. | 이미 수락·거절·취소된 요청서에 응답·취소 | #137 |
 | `APPEARANCE_REQUEST_EXPIRED` | 409 | 수락 기한이 지난 출연 요청입니다. | 현재 시각 ≥ 수락 기한 (만료 처리 전이어도) | #137 |
 | `APPEARANCE_REQUEST_MODIFIED` | 409 | 요청서 내용이 바뀌었습니다. 다시 확인한 뒤 수락해 주세요. | 수락 요청의 `version`이 현재 요청서와 다름 | #137 |
 | `CONCURRENT_UPDATE` | 409 | 다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요. | 같은 요청서를 동시에 바꿔 버전(낙관적 락)이 맞지 않음. UseCase가 반영 시점에 확인해 던진다 | #98 |
-| `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | Billing 무응답. 요청서는 `HOLD_PENDING`으로 남음 | #98 |
+| `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | 보류 결과를 알 수 없음(무응답 등). 요청서는 `HOLD_PENDING`으로 남음 | #98 |
+
+### Billing 오류 (그대로 전달, #168)
+
+출연 요청서 보내기에서 Billing이 HP 보류를 거절하면 출연 오류로 바꾸지 않고 **Billing 오류 코드·메시지를 그대로** 응답한다.
+요청서는 `HOLD_FAILED`로 기록만 남는다. (이전의 `INSUFFICIENT_HP`는 없앴다.)
+
+| code | HTTP | detail | 상황 |
+|---|---|---|---|
+| `INSUFFICIENT_BALANCE` | 409 | HP 잔액이 부족합니다. | 출연료만큼 보류할 잔액이 없음 |
+| `WALLET_NOT_FOUND` | 404 | 지갑을 찾을 수 없습니다. | 호스트 지갑이 없음 |
+
+- 반환·지급은 업무 상태를 커밋한 뒤 처리하므로 사용자 응답에 Billing 오류가 나가지 않는다. Billing 오류는 HP 작업 `last_error`에 `{code}: {메시지}`로 기록된다.
+- Fake Billing은 Billing 오류 코드를 `out/billing/FakeBillingErrorCode.java`에 같은 값으로 옮겨 두었다.
 
 - 정의 위치: `boundedContext/appearance/src/main/java/com/hapbang/appearance/domain/AppearanceErrorCode.java`
 - 출연 예외는 `throw new AppearanceException(AppearanceErrorCode.XXX)`로 던진다. 상황별 메시지가 필요하면 두 번째 인자로 넘긴다.

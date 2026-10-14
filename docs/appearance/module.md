@@ -136,9 +136,9 @@ com.hapbang.appearance
 | `out.AppearanceUserRepository` | 출연 회원 저장·조회 |
 | `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
 | `out.AppearanceRepository`, `HpTaskRepository` | 출연, HP 작업 저장·조회 |
-| `out.billing.BillingClient` | Billing과 주고받는 값(계약) |
-| `out.billing.FakeBillingClient` | 계약 확정 전까지 쓰는 메모리 구현 (테스트에서 잔액·무응답 조절) |
-| `out.billing.BillingUnavailableException` | Billing 무응답(타임아웃 등). 처리 여부를 알 수 없어 같은 멱등 키로 다시 확인해야 함 |
+| `out.billing.BillingClient` | Billing 연동 창구. 메서드·요청·응답은 shared `BillingPort`와 같다 |
+| `out.billing.FakeBillingClient`, `FakeBillingErrorCode`, `FakeBillingException` | 외부 연동 교체 전까지 쓰는 메모리 구현. Billing 규칙·오류 코드를 흉내 냄 (테스트에서 잔액·지갑·무응답 조절) |
+| `out.billing.BillingUnavailableException` | 처리 여부를 알 수 없는 실패(무응답 등). 같은 요청으로 다시 확인해야 함 |
 | (삭제, #71) | 출연 예외는 global의 공통 핸들러(`com.hapbang.global.exception.GlobalExceptionHandler`)가 Problem Detail로 응답한다 |
 
 ### 3.3 설정 파일
@@ -157,7 +157,7 @@ com.hapbang.appearance
 |---|---|---|---|
 | 회원 | 이벤트 수신 | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ |
 | 회원 (global) | 로그인 | `@LoginUserId`로 세션의 회원 ID | ✅ |
-| 지갑+정산 (billing) | HTTP API | 보류, 반환, 지급, 일괄 정산 | 계약 초안 + Fake 구현 |
+| 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`) | 보류, 반환, 지급, 위약금 | 계약 맞춤 + Fake 구현 (실제 연동은 외부 연동 교체 단계) |
 | 고객센터 | 이벤트 발행 | 이의 제기 (패널티 요청) | 예정 |
 
 ### 4.1 회원 정보 복제
@@ -182,25 +182,34 @@ com.hapbang.appearance
     - 가입보다 변경 이벤트가 먼저 처리되면, 그 변경은 서버 재시작 때까지 반영되지 않는다.
     - 이벤트에 버전·발생 시각이 없어서, 변경 이벤트끼리 순서가 바뀌어 처리되면(실패한 변경 이벤트의 재처리 등) 옛 정보가 반영될 수 있다. 회원 이벤트에 버전이 생기면 더 새로운 이벤트만 반영하도록 바꾼다 (#56).
 
-### 4.2 Billing 연동 (계약 초안)
+### 4.2 Billing 연동 (#168)
 
-출연 모듈은 "언제, 어떤 금액·사유로 Billing을 호출하는지"만 책임진다. 계약은 `out/billing/BillingClient.java` 한 파일에 있다.
+출연 모듈은 "언제, 어떤 금액으로 Billing을 호출하는지"만 책임진다. 출연 쪽 창구는 `out/billing/BillingClient.java`이고,
+메서드·요청·응답은 Billing이 shared에 둔 연동 계약(`shared.billing.port.BillingPort`, `shared.billing.dto.*`)과 같다
+(Billing 담당과 정리한 기준: 위약금 처리·70:30 계산만 출연 방식, 나머지는 Billing 기준).
 
-| 동작 | 요청 값 | 응답 값 |
+| 동작 | 요청 (shared DTO) | 응답 |
 |---|---|---|
-| 보류 | idempotencyKey, refType, refId, hostId, amount | `HELD` / `INSUFFICIENT_BALANCE`, 보류 총액 |
-| 반환 | idempotencyKey, refType, refId, hostId, amount, reason | 남은 보류 금액 |
-| 지급 | idempotencyKey, refType, refId, appearanceId, guestId, amount, reason | 남은 보류 금액 |
-| 일괄 정산 | idempotencyKey, refType, refId, items(지급/반환, 받는 사람, 출연 ID, 금액, 사유) | 남은 보류 금액 (전부 성공 또는 전부 실패) |
+| 보류 | `HoldCommand(userId, referenceType, referenceId, amountHp)` | `HoldResultDto(heldHp, replayed)` |
+| 반환 | `ReleaseCommand(userId, referenceType, referenceId, releaseRequestId, amountHp \| null=전체)` | `ReleaseResultDto(releasedHp, remainingHeldHp, replayed)` |
+| 지급 | `PayoutCommand(payerUserId, referenceType, referenceId, payoutRequestId, receiverUserId, sourceType, sourceId, amountHp \| null)` | `PayoutResultDto(paidHp, remainingHeldHp, replayed)` |
+| 위약금 | `PenaltyCommand(payerUserId, referenceType, referenceId, cancellationId, receiverUserId, sourceType, sourceId, releaseAmountHp, payoutAmountHp)` | `PenaltyResultDto(releasedHp, paidHp, remainingHeldHp, replayed)` |
 
-- `refType`: `APPEARANCE_REQUEST`(출연 요청서) / `APPEARANCE_RECRUIT`(출연 모집글). 보류는 이 단위로 1건이고, 반환·지급은 나눠서 처리한다.
-- 멱등 키 형식: `{refType}-{refId}-{동작}-{순번}` (예: `APPEARANCE_REQUEST-12-HOLD-1`, `BillingClient.idempotencyKey()`로 만든다). 같은 키로 다시 요청하면 처음 결과를 돌려받는다.
-- Billing이 응답하지 않으면 `BillingUnavailableException`. 출연 모듈은 대상을 그대로 두고 나중에 같은 멱등 키로 다시 확인한다.
+- 참조 유형(`BillingReferenceType`): `APPEARANCE_REQUEST`(출연 요청서) / `APPEARANCE_RECRUIT`(출연 모집글). 보류는 이 단위로 1건이다.
+- **보류 멱등 키는 Billing이 만든다** (`HOLD:{참조 유형}:{참조 ID}`). 같은 대상·같은 회원·같은 금액으로 다시 보내면 처음 보류를 돌려준다(`replayed=true`).
+- **반환·지급·위약금은 출연이 만든 요청 ID로 구분한다.** 형식 `{대상}-{대상 ID}-{동작}-{순번}` (예: `APPEARANCE_REQUEST-12-RELEASE-1`, `HpTask.requestId()`).
+  영문·숫자·`-`·`_`만 쓴다. 재시도할 때 같은 값을 쓰므로 HP가 두 번 움직이지 않는다.
+- 반환·지급 요청에는 **사유가 없다.** 사유(`HpTaskReason`)는 출연 HP 작업에만 기록한다.
+- 지급 원천(`SettlementSourceType`)은 **출연 계약 ID**다: 1:1은 `APPEARANCE_REQUEST` + 출연 ID(요청서 ID 아님), 1:N은 `RECRUIT_APPEARANCE` + 게스트별 출연 ID. 한 원천은 정상 지급·위약금을 합쳐 한 번만 정산된다.
+- 위약금은 출연이 계산한다 (`AppearancePolicy.calculatePenalty`, 출연료의 30%, 끝전 버림). Billing은 받은 반환액·위약금을 한 트랜잭션으로 옮긴다.
+- **Billing이 거절하면 Billing 업무 예외**(`BusinessException` 하위)가 난다. 출연은 코드·메시지를 바꾸지 않고 그대로 응답한다
+  (예: 잔액 부족 409 `INSUFFICIENT_BALANCE`, 지갑 없음 404 `WALLET_NOT_FOUND`).
+- 그 밖의 예외(`BillingUnavailableException` 등)는 처리됐는지 알 수 없는 실패다. 대상을 그대로 두고 같은 요청으로 다시 확인한다.
+- 출연은 Billing을 **DB 트랜잭션 밖에서** 부른다. Billing은 호출한 쪽 트랜잭션에 참여하므로, 트랜잭션 안에서 부르고 예외를 잡으면 롤백 전용 트랜잭션을 이어 쓰게 된다.
 - **반환·지급처럼 업무 상태 변경 뒤에 하는 Billing 호출은 HP 작업(`appearances.hp_tasks`)으로 기록하고 실행한다** (아래 4.3, #137).
-- 사유
-    - 반환: `REQUEST_REJECTED`, `REQUEST_EXPIRED`, `REQUEST_CANCELED`, `CANCEL_AGREED`, `NO_SHOW`, `RECRUIT_UNDERFILLED`, `RECRUIT_CANCELED`, `HOST_CANCELED`
-    - 지급: `APPEARANCE_CONFIRMED`, `HOST_CANCEL_PENALTY`
-- 구현체는 `appearance.billing.mode`로 고른다. 현재는 `fake`(메모리 구현)만 있으며, 계약이 확정되면 HTTP 구현으로 교체한다.
+- `BillingClient`는 `BillingPort`를 상속하지 않는다. 상속하면 출연의 Fake가 앱 전체의 `BillingPort` 빈이 되어 다른 모듈에 주입될 수 있다.
+- 구현체는 `appearance.billing.mode`로 고른다. **외부 연동 교체 단계 전까지 `fake`(메모리 구현)만 쓴다.**
+  Fake는 Billing 구현의 규칙(보류 1건, 요청 ID 재전송, 거절 코드·메시지)을 흉내 내며, 오류 코드는 `FakeBillingErrorCode`에 Billing 값을 그대로 옮겨 두었다.
 
 ### 4.3 HP 작업 (실패한 Billing 호출의 기록·재처리, #137)
 
@@ -224,7 +233,8 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 | `DEAD` | 최대 재시도 초과, 격리 | "반환 지연, 고객센터 문의" |
 
 - 왜 이 방식인가: Modulith 이벤트 재실행은 시도 횟수·격리를 업무 기준으로 관리하기 어렵고, 요청서에 상태 컬럼을 두면 Billing 호출이 생기는 테이블마다 같은 컬럼·재시도 로직이 반복된다. HP 작업 테이블 하나로 반환·지급·정산을 같은 방식으로 처리한다.
-- 멱등 키가 같아 여러 번 실행해도 HP가 두 번 움직이지 않는다 (같은 키로 작업을 두 번 기록하는 것도 DB가 막음).
+- 멱등 키(= Billing 반환 요청 ID)가 같아 여러 번 실행해도 HP가 두 번 움직이지 않는다 (같은 키로 작업을 두 번 기록하는 것도 DB가 막음).
+- 실패 기록(`last_error`): Billing이 거절하면 `{Billing 오류 코드}: {메시지}`, 결과를 알 수 없으면 `{예외 종류}: {메시지}`. 둘을 나눠 처리(격리·재시도)하는 것은 재시도 스케줄러에서 정한다.
 
 ---
 
@@ -298,8 +308,8 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 | `appearance_id` | BIGINT | 관련 출연 (지급·위약금에서 사용) |
 | `member_id` | BIGINT | HP를 받는 회원 (반환이면 호스트) |
 | `amount` | BIGINT | 금액 |
-| `reason` | VARCHAR(255) | Billing 사유 (`REQUEST_REJECTED`, `REQUEST_CANCELED` 등) |
-| `idempotency_key` | VARCHAR(255), 유니크 | Billing 멱등 키 |
+| `reason` | VARCHAR(255) | 사유 (`REQUEST_REJECTED`, `REQUEST_CANCELED` 등). 출연 내부 기록이며 Billing에는 보내지 않는다 |
+| `idempotency_key` | VARCHAR(255), 유니크 | Billing 요청 ID(반환 요청 ID 등)로 쓰는 멱등 키 |
 | `status` | VARCHAR(255) | `PENDING` / `DONE` / `DEAD` |
 | `attempt_count`, `next_attempt_at`, `last_error` | INTEGER, TIMESTAMP(6), VARCHAR(1000) | 시도 횟수, 다음 시도 시각, 마지막 오류 |
 | `completed_at` | TIMESTAMP(6) | 완료 시각 |
@@ -349,14 +359,14 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
   ① CreateUseCase.createPending  [트랜잭션 1, 커밋]
        호스트 자격 → 값 검증(형식, 자기 자신, 최저 출연료, 현재 < 수락 기한 < 방송 예정 일시) → 게스트 자격
        → 진행 중 요청 확인 → HOLD_PENDING 저장 (부분 유니크 인덱스 위반이면 DUPLICATE)
-  ② HoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold, 멱등 키 APPEARANCE_REQUEST-{id}-HOLD-1
-       ├─ HELD                 → ③ HoldUseCase.markRequested  [트랜잭션 2] → REQUESTED, 201
-       ├─ INSUFFICIENT_BALANCE → ③ HoldUseCase.markHoldFailed [트랜잭션 2] → HOLD_FAILED, 409 INSUFFICIENT_HP
-       └─ 무응답(예외)          → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE
+  ② HoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold (보류 키는 Billing이 요청서로 만듦)
+       ├─ 보류 성공                    → ③ HoldUseCase.markRequested [트랜잭션 2] → REQUESTED, 201
+       ├─ Billing 거절 (업무 예외)      → HOLD_FAILED 기록 [트랜잭션 2] → Billing 오류 그대로 (예: 409 INSUFFICIENT_BALANCE)
+       └─ 결과를 알 수 없음 (그 밖 예외) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE
 ```
 
 - 저장을 먼저 커밋하는 이유: Billing을 기다리는 동안 DB 트랜잭션을 잡지 않고, 보류 결과와 관계없이 요청서 기록이 남게 하기 위해서다.
-- `HOLD_PENDING`으로 남은 요청서는 이후 스케줄러가 같은 멱등 키로 다시 확인해 `REQUESTED`/`HOLD_FAILED`로 정리한다 (예정). Billing의 재요청 방식이 정해지면 맞춘다.
+- `HOLD_PENDING`으로 남은 요청서는 이후 스케줄러가 같은 요청서로 보류를 다시 보내 확인하고 `REQUESTED`/`HOLD_FAILED`로 정리한다 (예정). Billing은 같은 보류를 다시 받으면 처음 결과를 돌려준다.
 
 ### 6.3 규칙
 
