@@ -34,7 +34,7 @@ import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 주문 조회와 직접 구매 확정을 DB까지 확인한다. 주문은 HP 보류 없이 픽스처로 저장한다(주문 생성은 billing 계약 #145 이후).
+ * 주문 조회와 직접 구매 확정을 DB까지 확인한다. 주문은 HP 보류 없이 픽스처로 저장한다(주문 생성·구매 취소는 OrderCreateUseCaseTest·OrderCancelUseCaseTest).
  * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
 @IntegrationTest

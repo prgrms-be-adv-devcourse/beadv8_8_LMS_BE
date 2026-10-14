@@ -46,7 +46,7 @@
 | dev가 인터넷에 공개(Swagger 포함) | 누구나 API 명세 조회·호출 가능 | edge에서 dev를 팀 IP 또는 Basic 인증으로 제한 |
 | SSH 22 전체 개방 | Actions 배포 때문. 키 인증만 허용 | 접근 로그 주기 확인(`sudo journalctl -u ssh`) |
 | Deploy prod 검사가 워크플로 안에 있음 | 실수(다른 브랜치·dev 커밋)만 막는다. 쓰기 권한자가 워크플로를 고친 브랜치로 실행하면 우회되고, 배포 Secrets는 레포 단위라 어느 브랜치에서나 쓸 수 있다 | GitHub Environment `prod`·`dev`를 만들어 배포 브랜치를 제한하고 `DEPLOY_*` Secrets를 Environment로 옮김 |
-| `main`·`dev` 직접 push 가능 | 브랜치 보호 없음. CI 통과해야 배포는 됨 | 필요 시 ruleset |
+| main으로 가는 PR 출발 브랜치 검사가 이름만 봄 | ruleset `protect-main-dev`가 PR·`verify`·`source-branch`(dev, `release/review-N`만 허용, #180)를 요구한다. 승인 수는 0이라 이름을 맞춘 브랜치는 통과한다 | main 전용 ruleset으로 승인 1개 이상 요구 |
 | GitHub Actions 메이저 버전 태그(`@v7` 등) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
 | DB 백업 없음 | 수동 절차만 | 정기 백업 결정 |
 

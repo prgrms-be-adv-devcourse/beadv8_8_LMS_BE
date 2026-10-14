@@ -28,7 +28,7 @@ import lombok.RequiredArgsConstructor;
 /** 강의 주문 API (설계 8.5). Swagger 명세는 {@link ApiV1LectureOrderSpec} */
 // 성공은 global RsData로 감싸고, 오류는 global 공통 핸들러가 ProblemDetail로 응답한다 (D29). message는 구현할 때 정한다.
 // 역할 검사(유저·인플루언서·인증된 인플루언서, 관리자 불가)는 LectureOrderFacade의 @PreAuthorize가 한다.
-// TODO: 주문·구매 취소는 billing 계약(#145) 이후 #146에서, 판매 내역은 #150에서 구현한다.
+// TODO: 판매 내역은 #150에서 구현한다.
 // TODO(security): /sales는 인증된 인플루언서만 허용한다. 구현할 때 Facade에 추가한다.
 @RestController
 @RequestMapping("/api/v1/lectures")
@@ -41,7 +41,7 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
     @PostMapping("/orders")
     @ResponseStatus(HttpStatus.CREATED)
     public RsData<OrderResponse> createOrder(@LoginUserId Long userId, @Valid @RequestBody OrderCreateRequest request) {
-        throw NotImplemented.yet();
+        return RsData.created("주문했습니다.", lectureOrderFacade.createOrder(userId, request.lectureIds()));
     }
 
     @Override
@@ -75,7 +75,7 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
     @PostMapping("/orders/{orderId}/items/{orderItemId}/cancel")
     public RsData<OrderItemResponse> cancel(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
             @PathVariable("orderItemId") Long orderItemId) {
-        throw NotImplemented.yet();
+        return RsData.ok("구매를 취소했습니다.", lectureOrderFacade.cancel(userId, orderId, orderItemId));
     }
 
     @Override

@@ -342,6 +342,31 @@ class LectureOrderTest {
         assertThat(order.progress()).isNull();
     }
 
+    @Test
+    void 보류_후_시각으로_구매_시각과_기한을_다시_정한다() {
+        LectureOrder order = placeWithItemIds(LocalDateTime.of(2026, 10, 7, 23, 59, 59), 1L, 2L);
+        LocalDateTime paidAt = LocalDateTime.of(2026, 10, 8, 0, 0, 1);
+
+        order.stampPaidAt(paidAt);
+
+        assertThat(order.getOrderedAt()).isEqualTo(paidAt);
+        assertThat(order.getItems())
+                .extracting(OrderItem::getPurchasedAt, OrderItem::getAutoConfirmAt, OrderItem::getPayoutScheduledAt)
+                .containsOnly(tuple(paidAt, LocalDateTime.of(2026, 10, 16, 0, 0), LocalDateTime.of(2026, 11, 8, 0, 0)));
+    }
+
+    @Test
+    void 이의_제기가_접수된_항목은_구매_취소할_수_없다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L);
+        // 이의 제기 접수·판단(#156)이 아직 없어 상태만 넣는다
+        ReflectionTestUtils.setField(order.getItems().get(0), "objectionStatus", ObjectionStatus.FILED);
+        ReflectionTestUtils.setField(order.getItems().get(1), "objectionStatus", ObjectionStatus.REJECTED);
+
+        assertErrorCode(() -> order.cancelItem(1L, SEPT_30), LectureErrorCode.OBJECTION_FILED);
+        assertErrorCode(() -> order.cancelItem(2L, SEPT_30), LectureErrorCode.OBJECTION_FILED);
+        assertThat(order.getItems()).extracting(OrderItem::getStatus).containsOnly(OrderItemStatus.PURCHASED);
+    }
+
     private static LectureOrder placeWithItemIds(LocalDateTime now, Long... itemIds) {
         List<Lecture> lectures = LongStream.rangeClosed(1, itemIds.length)
                 .mapToObj(i -> withId(onSaleLecture(), i * 10))

@@ -27,6 +27,7 @@ public enum LectureErrorCode implements BaseErrorCode {
     ORDER_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "주문 항목을 찾을 수 없습니다."),
     ORDER_ITEM_NOT_PURCHASED(HttpStatus.CONFLICT, "이미 구매 확정·취소된 항목입니다."),
     CANCEL_PERIOD_EXPIRED(HttpStatus.CONFLICT, "구매 취소 기간이 지났습니다. 구매일 다음 날부터 7일 이내에만 취소할 수 있습니다."),
+    OBJECTION_FILED(HttpStatus.CONFLICT, "이의 제기가 접수된 항목은 구매 취소할 수 없습니다."),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다."),
     NOT_FILE_UPLOADER(HttpStatus.FORBIDDEN, "파일을 올린 회원만 처리할 수 있습니다."),
     UNSUPPORTED_FILE_CONTENT_TYPE(HttpStatus.BAD_REQUEST, "이 용도로 올릴 수 없는 파일 형식입니다."),
