@@ -41,7 +41,7 @@ import com.hapbang.testsupport.TestLogin;
 
 import jakarta.persistence.EntityManagerFactory;
 
-// 목록 응답의 썸네일·닉네임·평균 평점을 강의마다(리뷰 목록은 작성자 닉네임을 리뷰마다) 따로 조회하지 않는지(D28, D41)
+// 목록 응답의 썸네일·닉네임·평균 평점을 강의마다(리뷰 목록은 작성자 닉네임을 리뷰마다) 따로 조회하지 않는지(D28, D42)
 // 강의·리뷰 수에 따른 SQL 문 수로 확인한다.
 @IntegrationTest
 @AutoConfigureMockMvc

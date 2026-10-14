@@ -57,7 +57,7 @@ public class ReviewWriteUseCase {
     }
 
     /**
-     * 반환된 항목의 리뷰는 목록·평균에 보이지 않아 작성자가 찾아 지울 수 없다. 다시 산 강의에 새 리뷰를 쓰면 대체한다 (D41).
+     * 반환된 항목의 리뷰는 목록·평균에 보이지 않아 작성자가 찾아 지울 수 없다. 다시 산 강의에 새 리뷰를 쓰면 대체한다 (D42).
      * 그 밖의 기존 리뷰가 있으면 {@code ALREADY_REVIEWED}다.
      */
     private void replaceReturned(LectureReview existing, Long userId, LocalDateTime now) {

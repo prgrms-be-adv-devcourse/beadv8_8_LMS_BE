@@ -31,7 +31,7 @@ public class LectureReviewSupport {
     }
 
     /**
-     * 강의 상세를 볼 수 있는 회원만 조회한다(판매 중이 아니면 판매자·보유 구매자만, D41). 반환된 항목의 리뷰는 빠진다(D5).
+     * 강의 상세를 볼 수 있는 회원만 조회한다(판매 중이 아니면 판매자·보유 구매자만, D42). 반환된 항목의 리뷰는 빠진다(D5).
      * 최신순이며 요청의 정렬은 무시한다.
      */
     public Page<ReviewResponse> getReviews(Long userId, Long lectureId, Pageable pageable) {
