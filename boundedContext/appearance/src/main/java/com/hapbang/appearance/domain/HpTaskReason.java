@@ -3,7 +3,7 @@ package com.hapbang.appearance.domain;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-/** HP 작업 사유. Billing 원장에 거래 사유로 남으며, Billing의 사유와 이름이 같다 */
+/** HP 작업 사유. 출연 내부 기록이며 Billing에는 보내지 않는다 (Billing 반환·지급 요청에는 사유가 없다) */
 @Getter
 @RequiredArgsConstructor
 public enum HpTaskReason {

@@ -32,6 +32,15 @@ class HpTaskTest {
     }
 
     @Test
+    @DisplayName("Billing 요청 ID는 {대상}-{대상 ID}-{동작}-{순번}이고 Billing이 허용하는 문자(영문·숫자·'-'·'_')만 쓴다")
+    void requestId() {
+        String requestId = HpTask.requestId(HpTaskRefType.APPEARANCE_REQUEST, 12L, HpTaskType.RELEASE, 1);
+
+        assertThat(requestId).isEqualTo(KEY);
+        assertThat(requestId).matches("[A-Za-z0-9_-]{1,200}");
+    }
+
+    @Test
     @DisplayName("반환 금액이 0 이하면 만들 수 없다")
     void positiveAmount() {
         assertThatThrownBy(() -> HpTask.release(HpTaskRefType.APPEARANCE_REQUEST, 12L, 1L, 0,

@@ -1,9 +1,10 @@
 package com.hapbang.appearance.out.billing;
 
 /**
- * Billing이 응답하지 않을 때(타임아웃, 연결 실패 등) {@link BillingClient}가 던진다.
+ * Billing 요청이 처리됐는지 알 수 없을 때(응답 없음, 연결 실패 등) {@link BillingClient}가 던진다.
+ * Billing이 거절한 경우(잔액 부족 등)는 이 예외가 아니라 Billing 업무 예외다.
  * <p>
- * 요청이 Billing에서 처리됐는지 알 수 없는 상태다. 호출한 쪽은 대상을 그대로 두고, 나중에 같은 멱등 키로 다시 요청해 결과를 확인한다.
+ * 호출한 쪽은 대상을 그대로 두고, 나중에 같은 요청(같은 참조 대상·같은 요청 ID)으로 다시 보내 결과를 확인한다.
  */
 public class BillingUnavailableException extends RuntimeException {
 

@@ -196,13 +196,14 @@ class AppearanceRequestApiE2ETest {
     }
 
     @Test
-    @DisplayName("잔액이 부족하면 409 (INSUFFICIENT_HP)")
-    void insufficientHp() throws Exception {
+    @DisplayName("잔액이 부족하면 Billing 오류 그대로 409 INSUFFICIENT_BALANCE")
+    void insufficientBalance() throws Exception {
         fakeBillingClient.setBalance(HOST, 10_000);
 
         mockMvc.perform(createRequest(HOST, createBody(GUEST, 30_000)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INSUFFICIENT_HP"));
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"))
+                .andExpect(jsonPath("$.detail").value("HP 잔액이 부족합니다."));
     }
 
     @Test
