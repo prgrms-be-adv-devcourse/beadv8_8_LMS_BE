@@ -229,6 +229,69 @@ class LectureOrderTest {
     }
 
     @Test
+    void 자동_구매_확정_시각이_지나면_AUTO로_확정하고_확정_시각은_자동_구매_확정_시각이다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+
+        OrderItem item = order.autoConfirmItem(1L, LocalDateTime.of(2026, 10, 8, 3, 0));
+
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+        assertThat(item.getConfirmationType()).isEqualTo(ConfirmationType.AUTO);
+        assertThat(item.getConfirmedAt()).isEqualTo(LocalDateTime.of(2026, 10, 8, 0, 0));
+    }
+
+    @Test
+    void 자동_구매_확정_시각과_같으면_자동_확정한다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+
+        OrderItem item = order.autoConfirmItem(1L, LocalDateTime.of(2026, 10, 8, 0, 0));
+
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+        assertThat(item.getConfirmationType()).isEqualTo(ConfirmationType.AUTO);
+    }
+
+    @Test
+    void 자동_구매_확정_시각_전이면_자동_확정해도_그대로다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+
+        OrderItem item = order.autoConfirmItem(1L, LocalDateTime.of(2026, 10, 8, 0, 0).minusNanos(1));
+
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.PURCHASED);
+        assertThat(item.getConfirmationType()).isNull();
+        assertThat(item.getConfirmedAt()).isNull();
+    }
+
+    @Test
+    void 이미_구매_확정된_항목은_자동_확정해도_그대로다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+
+        OrderItem item = order.autoConfirmItem(1L, LocalDateTime.of(2026, 10, 9, 0, 0));
+
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+        assertThat(item.getConfirmationType()).isEqualTo(ConfirmationType.DIRECT);
+        assertThat(item.getConfirmedAt()).isEqualTo(SEPT_30);
+    }
+
+    @Test
+    void 구매_취소된_항목은_자동_확정해도_그대로다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.cancelItem(1L, SEPT_30);
+
+        OrderItem item = order.autoConfirmItem(1L, LocalDateTime.of(2026, 10, 9, 0, 0));
+
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CANCELED);
+        assertThat(item.getConfirmationType()).isNull();
+    }
+
+    @Test
+    void 주문에_없는_항목은_자동_확정할_수_없다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+
+        assertErrorCode(() -> order.autoConfirmItem(99L, LocalDateTime.of(2026, 10, 9, 0, 0)),
+                LectureErrorCode.ORDER_ITEM_NOT_FOUND);
+    }
+
+    @Test
     void 자동_확정_시각_직전까지_구매_취소할_수_있다() {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L);
         LocalDateTime lastMoment = LocalDateTime.of(2026, 10, 7, 23, 59, 59);

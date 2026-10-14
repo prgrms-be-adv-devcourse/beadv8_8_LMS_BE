@@ -144,6 +144,17 @@ public class OrderItem {
         confirmFirstOf(ConfirmationType.FIRST_PLAY, now);
     }
 
+    /**
+     * 자동 구매 확정(배치, #149). 직접 확정과 같이 {@code AUTO}, {@code confirmedAt = autoConfirmAt}으로 기록한다 (D34).
+     * 구매 상태가 아니거나(배치가 조회한 뒤 직접 확정·재생 동의·구매 취소가 먼저 된 경우) 기한 전이면 그대로 둔다(D41).
+     */
+    void autoConfirm(LocalDateTime now) {
+        if (status != OrderItemStatus.PURCHASED || now.isBefore(autoConfirmAt)) {
+            return;
+        }
+        markConfirmed(ConfirmationType.AUTO, autoConfirmAt);
+    }
+
     /** 구매 취소. 자동 구매 확정 시각 전까지만 된다 */
     void cancel(LocalDateTime now) {
         requirePurchased();
