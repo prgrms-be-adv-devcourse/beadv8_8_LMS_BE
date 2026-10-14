@@ -1,5 +1,7 @@
 package com.hapbang.appearance.in;
 
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -9,13 +11,17 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.appearance.app.AppearanceRequestFacade;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestSummaryResDto;
+import com.hapbang.appearance.domain.AppearanceRequestStatus;
+import com.hapbang.appearance.in.dto.AcceptAppearanceRequestReqDto;
 import com.hapbang.appearance.in.dto.CreateAppearanceRequestReqDto;
+import com.hapbang.appearance.in.dto.RejectAppearanceRequestReqDto;
 import com.hapbang.appearance.in.dto.UpdateAppearanceRequestReqDto;
 import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.global.response.RsData;
@@ -53,15 +59,20 @@ public class ApiV1AppearanceRequestController implements ApiV1AppearanceRequestS
 
     @Override
     @GetMapping("/sent")
-    public RsData<Page<AppearanceRequestSummaryResDto>> getSent(@LoginUserId Long userId, Pageable pageable) {
-        Page<AppearanceRequestSummaryResDto> sent = appearanceRequestFacade.getSent(userId, pageable);
+    public RsData<Page<AppearanceRequestSummaryResDto>> getSent(@LoginUserId Long userId,
+            @RequestParam(name = "status", required = false) List<AppearanceRequestStatus> statuses,
+            Pageable pageable) {
+        Page<AppearanceRequestSummaryResDto> sent = appearanceRequestFacade.getSent(userId, statuses, pageable);
         return RsData.ok("보낸 출연 요청 목록을 조회했습니다.", sent);
     }
 
     @Override
     @GetMapping("/received")
-    public RsData<Page<AppearanceRequestSummaryResDto>> getReceived(@LoginUserId Long userId, Pageable pageable) {
-        Page<AppearanceRequestSummaryResDto> received = appearanceRequestFacade.getReceived(userId, pageable);
+    public RsData<Page<AppearanceRequestSummaryResDto>> getReceived(@LoginUserId Long userId,
+            @RequestParam(name = "status", required = false) List<AppearanceRequestStatus> statuses,
+            Pageable pageable) {
+        Page<AppearanceRequestSummaryResDto> received = appearanceRequestFacade.getReceived(userId, statuses,
+                pageable);
         return RsData.ok("받은 출연 요청 목록을 조회했습니다.", received);
     }
 
@@ -81,5 +92,31 @@ public class ApiV1AppearanceRequestController implements ApiV1AppearanceRequestS
         AppearanceRequestResDto updated = appearanceRequestFacade.updateBasicInfo(userId, requestId,
                 request.title(), request.content(), request.hostChannelUrl());
         return RsData.ok("출연 요청서를 수정했습니다.", updated);
+    }
+
+    @Override
+    @PostMapping("/{requestId}/accept")
+    public RsData<AppearanceRequestResDto> accept(@LoginUserId Long userId,
+                                                  @PathVariable("requestId") Long requestId,
+                                                  @RequestBody AcceptAppearanceRequestReqDto request) {
+        AppearanceRequestResDto accepted = appearanceRequestFacade.accept(userId, requestId, request.version());
+        return RsData.ok("출연 요청을 수락했습니다.", accepted);
+    }
+
+    @Override
+    @PostMapping("/{requestId}/reject")
+    public RsData<AppearanceRequestResDto> reject(@LoginUserId Long userId,
+                                                  @PathVariable("requestId") Long requestId,
+                                                  @RequestBody RejectAppearanceRequestReqDto request) {
+        AppearanceRequestResDto rejected = appearanceRequestFacade.reject(userId, requestId, request.reason());
+        return RsData.ok("출연 요청을 거절했습니다.", rejected);
+    }
+
+    @Override
+    @PostMapping("/{requestId}/cancel")
+    public RsData<AppearanceRequestResDto> cancel(@LoginUserId Long userId,
+                                                  @PathVariable("requestId") Long requestId) {
+        AppearanceRequestResDto canceled = appearanceRequestFacade.cancel(userId, requestId);
+        return RsData.ok("출연 요청을 취소했습니다.", canceled);
     }
 }
