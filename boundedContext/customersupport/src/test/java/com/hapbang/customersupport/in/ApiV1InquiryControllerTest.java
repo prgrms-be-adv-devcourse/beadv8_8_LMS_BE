@@ -1,5 +1,7 @@
 package com.hapbang.customersupport.in;
 
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -19,8 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.customersupport.app.InquiryUseCase;
 import com.hapbang.customersupport.domain.InquiryCategory;
-import com.hapbang.customersupport.fake.FakeLectureObjectionPort;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
+import com.hapbang.shared.lecture.port.LectureObjectionPort;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
@@ -42,11 +44,11 @@ class ApiV1InquiryControllerTest {
     InquiryUseCase inquiryUseCase;
 
     @Autowired
-    FakeLectureObjectionPort lectureObjectionPort;
+    LectureObjectionPort lectureObjectionPort;
 
     @BeforeEach
     void resetLectureObjectionPort() {
-        lectureObjectionPort.reset();
+        reset(lectureObjectionPort);
     }
 
     @ParameterizedTest
@@ -410,7 +412,8 @@ class ApiV1InquiryControllerTest {
 
     @Test
     void 강의_모듈이_이의_제기를_거절하면_사유_코드로_응답한다() throws Exception {
-        lectureObjectionPort.refuseNext(LectureObjectionRefusedException.Reason.PERIOD_EXPIRED);
+        doThrow(new LectureObjectionRefusedException(LectureObjectionRefusedException.Reason.PERIOD_EXPIRED))
+                .when(lectureObjectionPort).fileObjection(any(), any(), any(), any());
 
         mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)

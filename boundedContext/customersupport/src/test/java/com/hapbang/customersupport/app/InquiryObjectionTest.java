@@ -1,6 +1,8 @@
 package com.hapbang.customersupport.app;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,13 +17,14 @@ import com.hapbang.customersupport.domain.InquiryCategory;
 import com.hapbang.customersupport.domain.InquiryStatus;
 import com.hapbang.customersupport.domain.InquiryTargetType;
 import com.hapbang.customersupport.domain.ObjectionResult;
-import com.hapbang.customersupport.fake.FakeLectureObjectionPort;
 import com.hapbang.customersupport.out.InquiryRepository;
+import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
+import com.hapbang.shared.lecture.port.LectureObjectionPort;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 강의 내용 다름 이의 제기 접수·판단. 강의 모듈은 {@link FakeLectureObjectionPort}로 대신한다.
+ * 강의 내용 다름 이의 제기 접수·판단. 강의 모듈은 Mockito 목({@code LectureObjectionPortMockConfig})으로 대신한다.
  */
 @IntegrationTest
 class InquiryObjectionTest {
@@ -37,11 +40,11 @@ class InquiryObjectionTest {
     private InquiryRepository inquiryRepository;
 
     @Autowired
-    private FakeLectureObjectionPort lectureObjectionPort;
+    private LectureObjectionPort lectureObjectionPort;
 
     @BeforeEach
     void setUp() {
-        lectureObjectionPort.reset();
+        reset(lectureObjectionPort);
     }
 
     @Test
@@ -52,15 +55,14 @@ class InquiryObjectionTest {
         assertThat(saved.getCategory()).isEqualTo(InquiryCategory.LECTURE_CONTENT_DISPUTE);
         assertThat(saved.getTargetType()).isEqualTo(InquiryTargetType.LECTURE_ORDER_ITEM);
         assertThat(saved.getTargetId()).isEqualTo(ORDER_ITEM_ID);
-        assertThat(lectureObjectionPort.filed()).containsExactly(
-                new FakeLectureObjectionPort.Filed(ORDER_ITEM_ID, USER_ID, inquiry.getId(), "커리큘럼과 내용이 달라요."));
+        verify(lectureObjectionPort).fileObjection(ORDER_ITEM_ID, USER_ID, inquiry.getId(), "커리큘럼과 내용이 달라요.");
     }
 
     @ParameterizedTest
     @EnumSource(value = Reason.class, names = {"NOT_BUYER", "NOT_OBJECTIONABLE", "ALREADY_PAID_OUT", "ALREADY_FILED",
             "PERIOD_EXPIRED"})
     void 강의_모듈이_접수를_거절하면_문의를_만들지_않고_사유별_코드로_실패한다(Reason reason) {
-        lectureObjectionPort.refuseNext(reason);
+        refuseFile(reason);
 
         assertThatThrownBy(this::fileDispute)
                 .isInstanceOf(CustomerSupportException.class)
@@ -75,7 +77,7 @@ class InquiryObjectionTest {
                 "내용", null))
                 .isInstanceOf(CustomerSupportException.class)
                 .extracting("errorCode").isEqualTo(CustomerSupportErrorCode.INQUIRY_TARGET_REQUIRED);
-        assertThat(lectureObjectionPort.filed()).isEmpty();
+        verifyNoInteractions(lectureObjectionPort);
     }
 
     @Test
@@ -97,14 +99,14 @@ class InquiryObjectionTest {
         assertThat(resolved.getStatus()).isEqualTo(InquiryStatus.ANSWERED);
         assertThat(resolved.getReplies()).singleElement()
                 .satisfies(reply -> assertThat(reply.getContent()).isEqualTo("확인 결과 내용이 달라 반환합니다."));
-        assertThat(lectureObjectionPort.resolved()).containsExactly(
-                new FakeLectureObjectionPort.Resolved(ORDER_ITEM_ID, inquiryId, true, ADMIN_ID));
+        verify(lectureObjectionPort).resolveObjection(ORDER_ITEM_ID, inquiryId, true, ADMIN_ID);
     }
 
     @Test
     void 강의_모듈이_판단을_거절하면_판단과_답변이_저장되지_않는다() {
         Long inquiryId = fileDispute().getId();
-        lectureObjectionPort.refuseNext(Reason.NOT_FILED);
+        doThrow(new LectureObjectionRefusedException(Reason.NOT_FILED)).when(lectureObjectionPort)
+                .resolveObjection(any(), any(), anyBoolean(), any());
 
         assertThatThrownBy(() -> inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, false, "기각합니다."))
                 .isInstanceOf(CustomerSupportException.class)
@@ -124,7 +126,7 @@ class InquiryObjectionTest {
         assertThatThrownBy(() -> inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "인정합니다."))
                 .isInstanceOf(CustomerSupportException.class)
                 .extracting("errorCode").isEqualTo(CustomerSupportErrorCode.OBJECTION_ALREADY_RESOLVED);
-        assertThat(lectureObjectionPort.resolved()).hasSize(1);
+        verify(lectureObjectionPort, times(1)).resolveObjection(any(), any(), anyBoolean(), any());
     }
 
     @Test
@@ -155,6 +157,17 @@ class InquiryObjectionTest {
 
         Inquiry inquiry = inquiryRepository.findWithRepliesByIdAndDeletedAtIsNull(inquiryId).orElseThrow();
         assertThat(inquiry.getStatus()).isEqualTo(InquiryStatus.ANSWERED);
+    }
+
+    @Test
+    void 모든_거절_사유에_오류_코드가_정해진다() {
+        assertThat(Reason.values()).allSatisfy(reason -> assertThat(CustomerSupportErrorCode.of(reason))
+                .isNotEqualTo(CustomerSupportErrorCode.OBJECTION_REFUSED));
+    }
+
+    private void refuseFile(Reason reason) {
+        doThrow(new LectureObjectionRefusedException(reason)).when(lectureObjectionPort)
+                .fileObjection(any(), any(), any(), any());
     }
 
     private Inquiry fileDispute() {

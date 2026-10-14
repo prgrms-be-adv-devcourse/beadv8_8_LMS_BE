@@ -28,12 +28,17 @@ public enum CustomerSupportErrorCode implements BaseErrorCode {
     OBJECTION_ALREADY_FILED(HttpStatus.CONFLICT, "이미 이의 제기한 항목입니다."),
     OBJECTION_PERIOD_EXPIRED(HttpStatus.CONFLICT, "이의 제기 기간이 지났습니다."),
     OBJECTION_NOT_FILED(HttpStatus.CONFLICT, "판단을 기다리는 이의 제기가 없습니다."),
-    OBJECTION_INQUIRY_MISMATCH(HttpStatus.CONFLICT, "이의 제기를 접수한 문의가 아닙니다.");
+    OBJECTION_INQUIRY_MISMATCH(HttpStatus.CONFLICT, "이의 제기를 접수한 문의가 아닙니다."),
+    // 고객센터가 아직 코드를 두지 않은 새 사유. 메시지는 강의 쪽 사유 메시지로 응답한다
+    OBJECTION_REFUSED(HttpStatus.CONFLICT, "이의 제기를 처리할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;
 
-    /** 강의 모듈의 거절 사유에 맞는 오류 코드. 사유가 늘면 컴파일 오류로 알 수 있게 default를 두지 않는다 */
+    /**
+     * 강의 모듈의 거절 사유에 맞는 오류 코드. 강의가 사유를 추가해도 고객센터 컴파일이 깨지지 않게, 모르는 사유는
+     * {@link #OBJECTION_REFUSED}로 응답한다. 프론트가 따로 분기해야 하는 사유면 여기에 코드를 추가한다.
+     */
     public static CustomerSupportErrorCode of(LectureObjectionRefusedException.Reason reason) {
         return switch (reason) {
             case NOT_BUYER -> OBJECTION_NOT_BUYER;
@@ -43,6 +48,7 @@ public enum CustomerSupportErrorCode implements BaseErrorCode {
             case PERIOD_EXPIRED -> OBJECTION_PERIOD_EXPIRED;
             case NOT_FILED -> OBJECTION_NOT_FILED;
             case INQUIRY_MISMATCH -> OBJECTION_INQUIRY_MISMATCH;
+            default -> OBJECTION_REFUSED;
         };
     }
 }
