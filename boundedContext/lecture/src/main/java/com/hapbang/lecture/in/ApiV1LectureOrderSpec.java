@@ -63,6 +63,6 @@ public interface ApiV1LectureOrderSpec {
     @Operation(summary = "판매 내역",
             description = "인증된 인플루언서. 본인 강의가 팔린 주문 항목을 상태와 관계없이(구매 취소·반환 포함) 최근 구매순으로 보여 준다. "
                     + "지급 예정 시각이 지나고 구매 확정·이의 제기 없음(또는 기각)이면 매일 01:00 지급 배치에서 PAID_OUT이 된다. "
-                    + "제목·가격은 주문 시점 값이다. 오류: 인증된 인플루언서가 아니면 403 FORBIDDEN.")
+                    + "제목·가격은 주문 시점 값이다. 오류: 비로그인 401, 인증된 인플루언서가 아닌 회원 403 FORBIDDEN.")
     RsData<Page<SaleResponse>> getSales(Long userId, Pageable pageable);
 }
