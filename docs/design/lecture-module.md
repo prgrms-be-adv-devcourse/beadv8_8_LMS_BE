@@ -750,13 +750,13 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 ```
 com.hapbang.lecture
 ├── package-info.java   (@ApplicationModule)
-├── in/                 Controller, Swagger 명세 인터페이스(`ApiV1Lecture*Spec`, D15), 회원 이벤트 리스너, 요청 DTO (구현 전 스텁의 응답 DTO 포함)
-├── app/                Facade(진입점·역할 검사), UseCase(쓰기 동작 하나당 하나), Support(공통 조회), 응답 DTO(트랜잭션 안에서 변환), 배치, LectureObjectionPort 구현
+├── in/                 Controller, Swagger 명세 인터페이스(`ApiV1Lecture*Spec`, D15), 회원 이벤트 리스너, 요청 DTO (구현 전 스텁의 응답 DTO 포함), 다른 모듈이 부르는 shared 포트 구현(`LectureObjectionPortAdapter`, #156)
+├── app/                Facade(진입점·역할 검사), UseCase(쓰기 동작 하나당 하나), Support(공통 조회), 응답 DTO(트랜잭션 안에서 변환), 배치. 포트 어댑터는 Facade(`LectureObjectionFacade`)만 호출한다
 ├── domain/             엔티티·상태, LectureErrorCode(BaseErrorCode 구현)·LectureException(BusinessException 상속) (package-info.java: 테이블·제약 목록, TODO(db))
 ├── out/                Repository
 └── config/             LectureConfig (강의 Clock `lectureClock`, D37)
 
-com.hapbang.shared.lecture                         다른 모듈과 주고받는 포트·이벤트 (예정, 이의 제기 #156의 LectureObjectionPort)
+com.hapbang.shared.lecture                         다른 모듈과 주고받는 계약 (#156: port.LectureObjectionPort, exception.LectureObjectionRefusedException)
 ```
 
 - `app`은 회원 모듈(`MemberFacade`)과 같은 Facade/UseCase/Support 구조다. 컨트롤러·이벤트 리스너는 Facade만 호출하고, `@Transactional`은 Facade 메서드에 건다 (D16). 예외: 파일 본문 업로드는 UseCase가 짧은 트랜잭션을 직접 나눈다 (D25).

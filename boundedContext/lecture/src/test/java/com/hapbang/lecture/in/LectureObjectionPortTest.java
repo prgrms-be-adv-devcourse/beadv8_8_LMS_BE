@@ -230,6 +230,10 @@ class LectureObjectionPortTest {
 
         assertRefused(() -> lectureObjectionPort.resolveObjection(999_999L, INQUIRY_ID, true, ADMIN_ID),
                 Reason.NOT_FILED);
+        assertRefused(() -> lectureObjectionPort.resolveObjection(999_999L, INQUIRY_ID, false, ADMIN_ID),
+                Reason.NOT_FILED);
+        assertRefused(() -> lectureObjectionPort.resolveObjection(orderItemId, 501L, false, ADMIN_ID),
+                Reason.INQUIRY_MISMATCH);
         assertRefused(() -> lectureObjectionPort.resolveObjection(orderItemId, 501L, true, ADMIN_ID),
                 Reason.INQUIRY_MISMATCH);
         assertFiledAndPurchased(orderItemId);

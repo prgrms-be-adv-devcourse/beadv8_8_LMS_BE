@@ -2,6 +2,7 @@ package com.hapbang.lecture.app;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -47,9 +48,12 @@ public class OrderObjectionResolveUseCase {
     }
 
     public void resolveObjection(Long orderItemId, Long inquiryId, boolean accepted, Long adminUserId) {
-        // 인정은 주문을 닫을 수 있으므로 구매 취소처럼 주문을 잠근다 (D46). 없는 항목은 판단할 이의 제기가 없는 것이다
-        LectureOrder order = lectureOrderSupport.findOrderForUpdateByItemId(orderItemId)
-                .orElseThrow(() -> new LectureObjectionRefusedException(Reason.NOT_FILED));
+        // 인정은 주문을 닫을 수 있으므로 구매 취소처럼 주문을 잠근다 (D46). 기각은 주문을 닫지 않아 항목의 낙관적 락만 쓴다 (D49)
+        Optional<LectureOrder> found = accepted
+                ? lectureOrderSupport.findOrderForUpdateByItemId(orderItemId)
+                : lectureOrderRepository.findByItemId(orderItemId);
+        // 없는 항목은 판단할 이의 제기가 없는 것이다
+        LectureOrder order = found.orElseThrow(() -> new LectureObjectionRefusedException(Reason.NOT_FILED));
         OrderItem item = order.resolveObjection(orderItemId, inquiryId, accepted, adminUserId,
                 LocalDateTime.now(clock));
         // 같은 항목을 동시에 바꾼 변경(낙관적 락 충돌)을 billing 호출 전에 확인한다 (설계 6.2)
