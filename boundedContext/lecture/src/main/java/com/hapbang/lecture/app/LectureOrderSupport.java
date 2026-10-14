@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.app.dto.OrderSummaryResponse;
+import com.hapbang.lecture.app.dto.SaleResponse;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrder;
@@ -73,5 +74,11 @@ public class LectureOrderSupport {
 
     public OrderResponse getOrder(Long buyerUserId, Long orderId) {
         return OrderResponse.of(findOrder(buyerUserId, orderId));
+    }
+
+    /** 판매자의 판매 내역. 최근 구매순이고 정렬은 쿼리에 고정되어 요청의 정렬은 무시한다 (D51) */
+    public Page<SaleResponse> getSales(Long sellerUserId, Pageable pageable) {
+        PageRequest unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+        return lectureOrderRepository.findSales(sellerUserId, unsorted).map(SaleResponse::of);
     }
 }

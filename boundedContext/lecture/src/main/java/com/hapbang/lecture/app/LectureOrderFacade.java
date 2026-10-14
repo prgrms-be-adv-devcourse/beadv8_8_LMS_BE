@@ -12,11 +12,13 @@ import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.app.dto.OrderSummaryResponse;
 import com.hapbang.lecture.app.dto.PurchasedLectureResponse;
+import com.hapbang.lecture.app.dto.SaleResponse;
 
 import lombok.RequiredArgsConstructor;
 
 /**
  * 강의 주문 진입점 (설계 8.5). 유저·인플루언서·인증된 인플루언서만 쓴다. 관리자는 불가 (설계 9장, D16).
+ * 판매 내역은 인증된 인플루언서만 쓴다.
  */
 @Service
 @RequiredArgsConstructor
@@ -70,5 +72,12 @@ public class LectureOrderFacade {
     @Transactional(readOnly = true)
     public Page<PurchasedLectureResponse> getPurchasedLectures(Long userId, Pageable pageable) {
         return purchasedLectureSupport.getPurchasedLectures(userId, pageable);
+    }
+
+    /** 판매 내역. 강의를 판매하는 인증된 인플루언서만 본다 (메서드 권한이 클래스 권한보다 우선한다, D51) */
+    @PreAuthorize("hasRole('VERIFIED_INFLUENCER')")
+    @Transactional(readOnly = true)
+    public Page<SaleResponse> getSales(Long userId, Pageable pageable) {
+        return lectureOrderSupport.getSales(userId, pageable);
     }
 }

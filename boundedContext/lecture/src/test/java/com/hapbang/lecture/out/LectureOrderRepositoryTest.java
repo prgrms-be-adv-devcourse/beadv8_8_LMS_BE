@@ -13,8 +13,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.testsupport.RepositoryTest;
 
@@ -146,6 +149,49 @@ class LectureOrderRepositoryTest {
     }
 
     @Test
+    void 지급_시각이_지나고_이의_제기가_없거나_기각된_구매_확정_항목_ID만_지급_예정_시각_순으로_조회한다() {
+        // 구매일 + 31일 00:00이 지급 예정 시각이다. 10-01 구매분은 11-01, 10-02 구매분은 11-02 00:00
+        LocalDateTime oct1 = LocalDateTime.of(2026, 10, 1, 10, 0);
+        LocalDateTime now = LocalDateTime.of(2026, 11, 2, 0, 0);
+        Long laterDue = itemId(saveConfirmed(20L, LocalDateTime.of(2026, 10, 2, 23, 0)));
+        Long earlierDue = itemId(saveConfirmed(30L, oct1));
+        Long sameDueLaterId = itemId(saveConfirmed(40L, oct1.plusHours(1)));
+        Long rejected = itemId(withObjection(saveConfirmed(50L, oct1), ObjectionStatus.REJECTED));
+        withObjection(saveConfirmed(60L, oct1), ObjectionStatus.FILED);
+        withObjection(saveConfirmed(70L, oct1), ObjectionStatus.ACCEPTED);
+        saveConfirmed(80L, LocalDateTime.of(2026, 10, 3, 0, 0));
+        save(order(90L, oct1));
+        LectureOrder paidOut = saveConfirmed(100L, oct1);
+        paidOut.payOutItem(itemId(paidOut), now);
+        flushAndClear();
+
+        List<Long> dueItemIds = lectureOrderRepository.findPayoutDueItemIds(now);
+
+        // 지급 예정 시각이 now와 같은 10-02 구매분까지 대상이다. 10-03 구매분(11-03 00:00), 구매 확정 전 항목,
+        // 이의 제기 접수·인정 항목, 이미 지급한 항목은 빠진다. 지급 예정 시각이 같으면 ID 순이다
+        assertThat(dueItemIds).containsExactly(earlierDue, sameDueLaterId, rejected, laterDue);
+    }
+
+    @Test
+    void 판매자의_주문_항목을_상태와_관계없이_최근_구매순으로_조회한다() {
+        Long first = itemId(save(order(20L, NOW)));
+        Long second = itemId(save(order(30L, NOW)));
+        LectureOrder canceled = save(order(40L, NOW.plusDays(1)));
+        canceled.cancelItem(itemId(canceled), NOW.plusDays(1));
+        Lecture otherSellers = withId(onSaleLecture(), 50L);
+        ReflectionTestUtils.setField(otherSellers, "sellerUserId", OTHER_BUYER_ID);
+        save(LectureOrder.place(BUYER_ID, List.of(otherSellers), Set.of(), NOW.plusDays(2)));
+        flushAndClear();
+
+        Page<OrderItem> page = lectureOrderRepository.findSales(SELLER_ID, PageRequest.of(0, 2));
+
+        assertThat(page.getTotalElements()).isEqualTo(3);
+        assertThat(page.getContent()).extracting(OrderItem::getId).containsExactly(itemId(canceled), second);
+        assertThat(lectureOrderRepository.findSales(SELLER_ID, PageRequest.of(1, 2)).getContent())
+                .extracting(OrderItem::getId).containsExactly(first);
+    }
+
+    @Test
     void 주문_항목_ID로_주문을_찾는다() {
         LectureOrder saved = lectureOrderRepository.save(LectureOrder.place(BUYER_ID,
                 List.of(withId(onSaleLecture(), 20L), withId(onSaleLecture(), 30L)), Set.of(), NOW));
@@ -155,6 +201,23 @@ class LectureOrderRepositoryTest {
         assertThat(lectureOrderRepository.findByItemId(secondItemId))
                 .hasValueSatisfying(order -> assertThat(order.getId()).isEqualTo(saved.getId()));
         assertThat(lectureOrderRepository.findByItemId(99_999L)).isEmpty();
+    }
+
+    private LectureOrder save(LectureOrder order) {
+        return lectureOrderRepository.save(order);
+    }
+
+    /** 구매 시각에 바로 구매 확정한 주문 */
+    private LectureOrder saveConfirmed(Long lectureId, LocalDateTime purchasedAt) {
+        LectureOrder order = save(order(lectureId, purchasedAt));
+        order.confirmItem(itemId(order), purchasedAt);
+        return order;
+    }
+
+    // 이의 제기 접수·판단(#156)이 아직 없어 상태만 넣는다
+    private static LectureOrder withObjection(LectureOrder order, ObjectionStatus objectionStatus) {
+        ReflectionTestUtils.setField(order.getItems().getFirst(), "objectionStatus", objectionStatus);
+        return order;
     }
 
     private static Long itemId(LectureOrder order) {

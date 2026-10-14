@@ -80,6 +80,21 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
             + "order by i.autoConfirmAt, i.id")
     List<Long> findAutoConfirmDueItemIds(@Param("now") LocalDateTime now);
 
+    /**
+     * 지급 대상(구매 확정 상태이고 지급 예정 시각이 지났으며 이의 제기가 없거나 기각된) 항목 ID.
+     * 지급 예정 시각이 빠른 순, 같으면 ID 순이다 (D50). 조건은 {@code OrderItem.isPayable}과 같다
+     */
+    @Query("select i.id from OrderItem i "
+            + "where i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED and i.payoutScheduledAt <= :now "
+            + "and i.objectionStatus in (com.hapbang.lecture.domain.ObjectionStatus.NONE, "
+            + "com.hapbang.lecture.domain.ObjectionStatus.REJECTED) "
+            + "order by i.payoutScheduledAt, i.id")
+    List<Long> findPayoutDueItemIds(@Param("now") LocalDateTime now);
+
+    /** 판매자의 판매 내역(모든 상태의 주문 항목). 최근 구매순으로 고정한다 (D51) */
+    @Query("select i from OrderItem i where i.sellerUserId = :sellerUserId order by i.purchasedAt desc, i.id desc")
+    Page<OrderItem> findSales(@Param("sellerUserId") Long sellerUserId, Pageable pageable);
+
     /** 구매자 본인의 주문 항목. 남의 항목은 없는 항목과 같게 본다 (D32) */
     @Query("select i from OrderItem i where i.id = :orderItemId and i.buyerUserId = :buyerUserId")
     Optional<OrderItem> findItemOfBuyer(@Param("orderItemId") Long orderItemId,

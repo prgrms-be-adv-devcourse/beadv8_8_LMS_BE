@@ -15,6 +15,8 @@ class LectureOrderTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
     private static final LocalDateTime SEPT_30 = LocalDateTime.of(2026, 9, 30, 10, 0);
+    /** 9월 30일 구매 항목의 지급 예정 시각 */
+    private static final LocalDateTime PAYOUT_AT = LocalDateTime.of(2026, 10, 31, 0, 0);
 
     @Test
     void 구매일_다음날부터_7일이_지나면_자동_구매_확정_시각이다() {
@@ -289,6 +291,90 @@ class LectureOrderTest {
 
         assertErrorCode(() -> order.autoConfirmItem(99L, LocalDateTime.of(2026, 10, 9, 0, 0)),
                 LectureErrorCode.ORDER_ITEM_NOT_FOUND);
+    }
+
+    @Test
+    void 지급_시각이_지난_구매_확정_항목은_지급하고_지급_시각을_기록한다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        LocalDateTime now = LocalDateTime.of(2026, 10, 31, 1, 0);
+
+        assertThat(order.payOutItem(1L, now)).hasValueSatisfying(item -> {
+            assertThat(item.getId()).isEqualTo(1L);
+            assertThat(item.getStatus()).isEqualTo(OrderItemStatus.PAID_OUT);
+            assertThat(item.getPaidOutAt()).isEqualTo(now);
+        });
+        assertThat(order.getStatus()).isEqualTo(LectureOrderStatus.PAID);
+        assertThat(order.progress()).isEqualTo(OrderProgress.COMPLETED);
+    }
+
+    @Test
+    void 지급_시각과_같으면_지급한다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+
+        assertThat(order.payOutItem(1L, PAYOUT_AT)).isPresent();
+        assertThat(order.getItems().get(0).getStatus()).isEqualTo(OrderItemStatus.PAID_OUT);
+    }
+
+    @Test
+    void 지급_시각_전이면_지급하지_않는다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+
+        assertThat(order.payOutItem(1L, PAYOUT_AT.minusNanos(1))).isEmpty();
+        assertThat(order.getItems().get(0).getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+        assertThat(order.getItems().get(0).getPaidOutAt()).isNull();
+    }
+
+    @Test
+    void 이의_제기가_접수되거나_인정된_항목은_지급하지_않는다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L);
+        order.confirmItem(1L, SEPT_30);
+        order.confirmItem(2L, SEPT_30);
+        // 이의 제기 접수·판단(#156)이 아직 없어 상태만 넣는다
+        ReflectionTestUtils.setField(order.getItems().get(0), "objectionStatus", ObjectionStatus.FILED);
+        ReflectionTestUtils.setField(order.getItems().get(1), "objectionStatus", ObjectionStatus.ACCEPTED);
+
+        assertThat(order.payOutItem(1L, PAYOUT_AT)).isEmpty();
+        assertThat(order.payOutItem(2L, PAYOUT_AT)).isEmpty();
+        assertThat(order.getItems()).extracting(OrderItem::getStatus).containsOnly(OrderItemStatus.CONFIRMED);
+    }
+
+    @Test
+    void 이의_제기가_기각된_항목은_지급한다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        ReflectionTestUtils.setField(order.getItems().get(0), "objectionStatus", ObjectionStatus.REJECTED);
+
+        assertThat(order.payOutItem(1L, PAYOUT_AT)).isPresent();
+        assertThat(order.getItems().get(0).getStatus()).isEqualTo(OrderItemStatus.PAID_OUT);
+    }
+
+    @Test
+    void 구매_확정_전이거나_취소되거나_이미_지급된_항목은_지급하지_않는다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L, 3L);
+        order.cancelItem(2L, SEPT_30);
+        order.confirmItem(3L, SEPT_30);
+        LocalDateTime firstPayout = PAYOUT_AT.plusHours(1);
+        order.payOutItem(3L, firstPayout);
+
+        assertThat(order.payOutItem(1L, PAYOUT_AT.plusDays(1))).isEmpty();
+        assertThat(order.payOutItem(2L, PAYOUT_AT.plusDays(1))).isEmpty();
+        assertThat(order.payOutItem(3L, PAYOUT_AT.plusDays(1))).isEmpty();
+        assertThat(order.getItems())
+                .extracting(OrderItem::getStatus, OrderItem::getPaidOutAt)
+                .containsExactly(
+                        tuple(OrderItemStatus.PURCHASED, null),
+                        tuple(OrderItemStatus.CANCELED, null),
+                        tuple(OrderItemStatus.PAID_OUT, firstPayout));
+    }
+
+    @Test
+    void 주문에_없는_항목은_지급할_수_없다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+
+        assertErrorCode(() -> order.payOutItem(99L, PAYOUT_AT), LectureErrorCode.ORDER_ITEM_NOT_FOUND);
     }
 
     @Test
