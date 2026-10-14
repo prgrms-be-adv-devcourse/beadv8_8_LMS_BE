@@ -37,8 +37,9 @@
 | 통합 | `AppearanceUserFacadeTest` | 출연 회원 생성·갱신(Facade), 자격 확인(Support) | #31, #50, #98 |
 | 통합 | `AppearanceUserEventListenerTest` | 회원 가입·정보 변경 이벤트 수신 | #31, #50 |
 | E2E | `AppearanceApiE2ETest` | 세션 로그인 → 자격 확인 → 오류 응답, 회원 정지 반영 (앱 전체) | #31, #50 |
+| 통합 | `AppearanceSwaggerDocsTest` | Swagger 명세의 성공 응답 스키마가 `RsData`인지 | #144 |
 | 통합 | `AppearanceRequestFacadeTest` | 요청서 보내기(HP 보류·잔액 부족·무응답·중복·동시 요청), 세션 역할(`@PreAuthorize`), 출연 회원 자격, 조회, 수정(멱등) | #98 |
-| E2E | `AppearanceRequestApiE2ETest` | 출연 요청서 API 5개: 세션 로그인·CSRF·역할 → 응답·오류 형식 (앱 전체) | #98 |
+| E2E | `AppearanceRequestApiE2ETest` | 출연 요청서 API 5개: 세션 로그인·CSRF·역할 → 응답(`RsData`)·오류 형식 (앱 전체) | #98, #144 |
 | 모듈 경계 | `ModularityTests` (apps) | 다른 모듈 내부 참조 없음 | — |
 
 ---
@@ -248,20 +249,30 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 ### 5.2 출연 요청서 API — `AppearanceRequestApiE2ETest`
 
 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Fake Billing)를 띄우고 실제 API를 호출한다. 쓰기 요청은 `csrf()`를 함께 보낸다.
+성공 응답은 `RsData`라서 값은 `$.data.…`에서 확인하고, `statusCode`·`message`도 함께 확인한다 (#144).
 
 | 케이스 | 기대 결과 |
 |---|---|
-| 보내기 → 보낸 목록 → 받은 목록 → 상세 → 수정 | 201 `REQUESTED` → `content[0]`·`page.totalElements` 1 → 게스트 목록에 호스트 ID → 상세 필드 일치 → 보낸 값만 바뀜 |
+| 보내기 → 보낸 목록 → 받은 목록 → 상세 → 수정 | HTTP·`statusCode` 201, `data.status` `REQUESTED` → `data.content[0]`·`data.page.totalElements` 1 → 게스트 목록에 호스트 ID → 상세 필드 일치 → 보낸 값만 바뀜. 단계마다 `message` 문구 확인 |
 | 로그인하지 않고 목록 조회 | 401 (보안 필터) |
 | 일반 유저 세션으로 목록 조회, 관리자 세션으로 보내기 | 403 Problem Detail, `code: FORBIDDEN` (Facade `@PreAuthorize`, 공통 핸들러) |
 | 제목 공백·URL 형식 오류·출연료 누락 | 400, `code: INVALID_REQUEST`, `errors`에 `title`·`hostChannelUrl`·`fee` |
-| 출연료 19,999 | 400, `code: FEE_BELOW_MINIMUM`, `detail`에 최저 출연료 |
+| 출연료 19,999 | 400 Problem Detail(`data` 없음), `code: FEE_BELOW_MINIMUM`, `detail`에 최저 출연료 |
 | 잔액 10,000에서 30,000 요청 | 409, `code: INSUFFICIENT_HP` |
 | 응답 대기 중인 게스트에게 다시 보내기 | 409, `code: DUPLICATE_APPEARANCE_REQUEST` |
 | Billing 무응답 | 503, `code: BILLING_UNAVAILABLE` |
 | 다른 회원 상세 조회 / 게스트 수정 | 404 `APPEARANCE_REQUEST_NOT_FOUND` / 403 `NOT_REQUEST_HOST` |
 | 빈 본문(`{}`)으로 수정 | 400, `code: INVALID_REQUEST` |
 | CSRF 토큰 없이 보내기 | 403 (보안 필터) |
+
+### 5.3 Swagger 명세 — `AppearanceSwaggerDocsTest`
+
+`/v3/api-docs`를 요청해 명세의 응답 스키마가 실제 응답과 같은지 확인한다 (강의 모듈 `LectureSwaggerDocsTest`와 같은 방식).
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 보내기(201)·상세·수정의 응답 스키마 | `RsDataAppearanceRequestResDto` (`statusCode`, `message`, `data` → `AppearanceRequestResDto`) |
+| 보낸·받은 목록의 응답 스키마 | `RsDataPageAppearanceRequestSummaryResDto`, `data` → `PagedModelAppearanceRequestSummaryResDto`(`content`, `page`) |
 
 ---
 

@@ -1,6 +1,7 @@
 # 출연(Appearance) 모듈: 오류 코드
 
 출연 API의 오류는 Problem Detail(RFC 9457) 형식으로 응답한다. 오류 코드가 추가되면 이 문서도 함께 갱신한다.
+성공 응답은 이 형식이 아니라 팀 공통 `RsData`(`statusCode`, `message`, `data`)다 ([module.md](module.md) 6.1, #144).
 
 - 정책과 구조: [module.md](module.md)
 - 테스트 명세: [test-spec.md](test-spec.md)

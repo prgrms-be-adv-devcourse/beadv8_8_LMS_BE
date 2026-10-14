@@ -246,9 +246,21 @@ com.hapbang.appearance
 | GET | `/api/v1/appearances/requests/{requestId}` | 요청서 상세 (호스트·게스트) | 200 |
 | PATCH | `/api/v1/appearances/requests/{requestId}` | 기본 정보 수정 (호스트, `REQUESTED`까지) | 200 |
 
+- **성공 응답은 팀 공통 `RsData`로 감싼다** (#144, AGENTS.md 7장): `{ "statusCode": 201, "message": "...", "data": { … } }`. 요청서·목록은 `data` 안에 들어간다. 오류는 그대로 Problem Detail이다.
+
+| API | `message` |
+|---|---|
+| 보내기 (201) | 출연 요청을 보냈습니다. |
+| 보낸 목록 | 보낸 출연 요청 목록을 조회했습니다. |
+| 받은 목록 | 받은 출연 요청 목록을 조회했습니다. |
+| 상세 | 출연 요청서를 조회했습니다. |
+| 수정 | 출연 요청서를 수정했습니다. |
+
+- 생성은 `@ResponseStatus(HttpStatus.CREATED)` + `RsData.created(...)`로 HTTP 상태와 본문 `statusCode`를 같게 맞춘다. 앞으로 추가하는 출연 API도 처음부터 `RsData`로 만들고, 본문이 없으면 `ResponseEntity<Void>`(204)를 쓴다.
+
 - 권한: 로그인(401은 보안 필터) → Facade `@PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")`(거절 시 공통 403 `FORBIDDEN`) → UseCase에서 출연 회원 자격 재확인(`NOT_INFLUENCER`·`APPEARANCE_USER_NOT_ACTIVE`). 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등은 서비스 확인이 막는다 (조회 포함).
 - 쓰기 요청(POST·PATCH)은 CSRF 토큰(`X-XSRF-TOKEN` 헤더)이 필요하다 (global SecurityConfig).
-- 목록은 `Pageable`(page, size; 기본 20, 최대 100). **정렬은 최신순(`createdAt` desc, `id` desc) 고정**이며 `sort` 값은 무시한다. 응답은 팀 공통 PagedModel 형식(`content`, `page`).
+- 목록은 `Pageable`(page, size; 기본 20, 최대 100). **정렬은 최신순(`createdAt` desc, `id` desc) 고정**이며 `sort` 값은 무시한다. 응답은 `RsData`의 `data`에 팀 공통 PagedModel 형식(`content`, `page`).
 - 검색·필터(상태, 기간, 키워드 등)는 아직 정하지 않았다. 정해지면 조건 객체를 받아 조회 조건을 조합하고, 보이는 상태 제한과 최신순 정렬은 유지한다.
 - 응답에는 회원 ID(`hostId`, `guestId`)만 담고 닉네임은 담지 않는다. 목록마다 회원 정보를 함께 조회하는 부담을 피하기 위해서이며, 화면에 필요한 닉네임은 회원 프로필 API로 조회한다.
 - 수정은 보낸 값만 바꾸고 보내지 않은(null) 값은 그대로 둔다. 하나도 보내지 않으면 400.
