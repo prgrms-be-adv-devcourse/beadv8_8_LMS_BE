@@ -109,6 +109,9 @@ public class InfluencerChannel extends BaseEntity {
         }
         this.followerCount = followerCount;
         this.requestedAt = now;
+        // 반려 후 다시 요청하면 지난 처리 정보를 지운다 (심사 대기에는 처리 정보가 없다)
+        this.verifiedAt = null;
+        this.verifiedBy = null;
         this.rejectionReason = null;
         if (meetsFollowerCount(followerCount)) {
             approveAutomatically(now);

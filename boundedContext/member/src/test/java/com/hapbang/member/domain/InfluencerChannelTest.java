@@ -167,7 +167,7 @@ class InfluencerChannelTest {
     }
 
     @Test
-    @DisplayName("반려된 채널은 다시 승인 요청할 수 있고, 사유가 지워진다")
+    @DisplayName("반려된 채널은 다시 승인 요청할 수 있고, 지난 처리 정보(사유·처리 시각·관리자)가 지워진다")
     void requestApproval_afterReject() {
         InfluencerChannel channel = pending();
         channel.reject(ADMIN_ID, "방송 시간 부족", NOW);
@@ -175,7 +175,10 @@ class InfluencerChannelTest {
         channel.requestApproval(7, NOW.plusDays(2));
 
         assertThat(channel.getVerificationStatus()).isEqualTo(ChannelVerificationStatus.PENDING);
+        assertThat(channel.getRequestedAt()).isEqualTo(NOW.plusDays(2));
         assertThat(channel.getRejectionReason()).isNull();
+        assertThat(channel.getVerifiedAt()).isNull();
+        assertThat(channel.getVerifiedBy()).isNull();
     }
 
     private InfluencerChannel register(int followerCount) {
