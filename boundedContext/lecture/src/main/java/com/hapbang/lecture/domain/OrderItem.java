@@ -18,7 +18,10 @@ import java.time.LocalDateTime;
  * </ul>
  */
 @Entity
-@Table(name = "order_item", schema = "lectures")
+@Table(name = "order_item", schema = "lectures",
+        // 판매 내역 조회용 (D50)
+        indexes = @Index(name = "idx_order_item_seller_purchased_at",
+                columnList = "seller_user_id, purchased_at DESC, id DESC"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class OrderItem {
