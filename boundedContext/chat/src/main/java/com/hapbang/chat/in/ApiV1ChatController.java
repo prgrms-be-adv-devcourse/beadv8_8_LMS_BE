@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -21,6 +22,7 @@ import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
+import com.hapbang.chat.in.dto.ReadChatRoomRequest;
 import com.hapbang.chat.in.websocket.ChatMessageSender;
 import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.global.response.RsData;
@@ -74,6 +76,18 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
                                                        @RequestParam(name = "size",
                                                                defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
         return RsData.ok("메시지 이력을 조회했습니다.", chatMessageFacade.getMessages(chatRoomId, userId, cursor, size));
+    }
+
+    /**
+     * 메시지를 읽음 처리한다. 방 목록의 안 읽은 수가 이 순번 뒤의 상대 메시지 수로 바뀐다. 본문 없이 204다.
+     */
+    @Override
+    @PutMapping("/{chatRoomId}/read")
+    public ResponseEntity<Void> markRead(@LoginUserId Long userId,
+                                         @PathVariable("chatRoomId") Long chatRoomId,
+                                         @RequestBody ReadChatRoomRequest request) {
+        chatRoomFacade.markRead(chatRoomId, userId, request.lastReadSequence());
+        return ResponseEntity.noContent().build();
     }
 
     /**
