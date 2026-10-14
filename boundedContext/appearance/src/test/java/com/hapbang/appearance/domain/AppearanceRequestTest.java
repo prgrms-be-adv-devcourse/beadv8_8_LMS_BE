@@ -130,11 +130,12 @@ class AppearanceRequestTest {
         }
 
         @Test
-        @DisplayName("HOLD_PENDING이 아니면 보류 결과를 다시 반영할 수 없다")
+        @DisplayName("이미 REQUESTED면 같은 결과는 그대로 두고(멱등), 다른 결과(HOLD_FAILED)는 반영할 수 없다")
         void onlyFromHoldPending() {
             AppearanceRequest request = requested();
 
-            assertThatThrownBy(request::markRequested).isInstanceOf(IllegalStateException.class);
+            request.markRequested();
+            assertThat(request.getStatus()).isEqualTo(AppearanceRequestStatus.REQUESTED);
             assertThatThrownBy(request::markHoldFailed).isInstanceOf(IllegalStateException.class);
         }
     }

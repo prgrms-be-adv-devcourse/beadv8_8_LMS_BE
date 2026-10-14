@@ -1,6 +1,8 @@
 package com.hapbang.appearance.app;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -85,5 +87,17 @@ public class AppearanceRequestSupport {
 
     private Pageable latestFirst(Pageable pageable) {
         return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST_FIRST);
+    }
+
+    /** 수락 기한 만료 배치: 응답 대기 중이고 수락 기한이 지난 요청서 ID (최대 {@code limit}건) */
+    public List<Long> findExpiredIds(LocalDateTime now, int limit) {
+        return appearanceRequestRepository.findIdsByStatusAndAcceptDeadlineBefore(AppearanceRequestStatus.REQUESTED,
+                now, PageRequest.of(0, limit));
+    }
+
+    /** 보류 재확인 배치: 기준 시각 이전에 만들어져 아직 보류 처리 중인 요청서 ID (최대 {@code limit}건) */
+    public List<Long> findStaleHoldPendingIds(LocalDateTime cutoff, int limit) {
+        return appearanceRequestRepository.findIdsByStatusAndCreatedBefore(AppearanceRequestStatus.HOLD_PENDING,
+                cutoff, PageRequest.of(0, limit));
     }
 }
