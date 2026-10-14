@@ -31,6 +31,9 @@ public class InfluencerChannel extends BaseEntity {
     /** 자동 승인 기준 (정책: 팔로워 10명 이상) */
     public static final int AUTO_APPROVE_FOLLOWER_COUNT = 10;
 
+    /** 반려 사유 최대 길이 (앞뒤 공백 제외, 2026-10-14 결정: 출연 거절 사유와 같은 500자) */
+    public static final int REJECTION_REASON_MAX = 500;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -106,12 +109,39 @@ public class InfluencerChannel extends BaseEntity {
         }
         this.followerCount = followerCount;
         this.requestedAt = now;
+        // 반려 후 다시 요청하면 지난 처리 정보를 지운다 (심사 대기에는 처리 정보가 없다)
+        this.verifiedAt = null;
+        this.verifiedBy = null;
         this.rejectionReason = null;
         if (meetsFollowerCount(followerCount)) {
             approveAutomatically(now);
         } else {
             this.verificationStatus = ChannelVerificationStatus.PENDING;
         }
+    }
+
+    /** 관리자 승인 (심사 대기만). 승인한 관리자 ID를 남긴다 */
+    public void approve(Long adminId, LocalDateTime now) {
+        requirePending();
+        this.verificationStatus = ChannelVerificationStatus.APPROVED;
+        this.verifiedAt = now;
+        this.verifiedBy = adminId;
+    }
+
+    /** 관리자 반려 (심사 대기만). 사유 필수(최대 500자), 회원은 다시 승인 요청할 수 있다 */
+    public void reject(Long adminId, String reason, LocalDateTime now) {
+        requirePending();
+        if (reason == null || reason.isBlank()) {
+            throw new MemberException(MemberErrorCode.REJECTION_REASON_REQUIRED);
+        }
+        String stripped = reason.strip();
+        if (stripped.length() > REJECTION_REASON_MAX) {
+            throw new MemberException(MemberErrorCode.INVALID_REJECTION_REASON_LENGTH);
+        }
+        this.verificationStatus = ChannelVerificationStatus.REJECTED;
+        this.verifiedAt = now;
+        this.verifiedBy = adminId;
+        this.rejectionReason = stripped;
     }
 
     /** 등록만 됐거나 반려된 채널만 승인 요청할 수 있다 */
@@ -130,6 +160,12 @@ public class InfluencerChannel extends BaseEntity {
 
     public boolean isApproved() {
         return verificationStatus == ChannelVerificationStatus.APPROVED;
+    }
+
+    private void requirePending() {
+        if (verificationStatus != ChannelVerificationStatus.PENDING) {
+            throw new MemberException(MemberErrorCode.CHANNEL_REVIEW_NOT_ALLOWED);
+        }
     }
 
     private static boolean meetsFollowerCount(int followerCount) {

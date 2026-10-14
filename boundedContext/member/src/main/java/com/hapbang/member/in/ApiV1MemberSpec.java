@@ -41,7 +41,8 @@ public interface ApiV1MemberSpec {
             description = "로그인한 회원 본인. 요청 본문이 이미지 그대로다 (multipart 아님). "
                     + "Content-Type은 image/jpeg·image/png·image/webp, Content-Length 필수(최대 5MB). "
                     + "{memberId}에는 내 회원 ID를 넣는다 (팀 업로드 경로 규칙 PUT /files/{id}/content, 프로필 사진은 회원당 하나). "
-                    + "남의 ID면 403 PROFILE_IMAGE_FORBIDDEN, 형식·크기 위반 400. 올릴 때마다 새 파일로 저장하고 바로 프로필로 지정한다. "
+                    + "남의 ID면 403 PROFILE_IMAGE_FORBIDDEN, 형식·크기 위반 400, "
+                    + "파일 내용(앞부분 바이트)이 Content-Type 형식과 다르면 400 PROFILE_IMAGE_CONTENT_MISMATCH. 올릴 때마다 새 파일로 저장하고 바로 프로필로 지정한다. "
                     + "Swagger에서는 형식을 고르고 파일을 선택해 보낸다.",
             requestBody = @RequestBody(required = true, content = {
                     @Content(mediaType = "image/jpeg", schema = @Schema(type = "string", format = "binary")),
