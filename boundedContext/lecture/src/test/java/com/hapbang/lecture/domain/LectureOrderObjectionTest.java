@@ -27,7 +27,7 @@ class LectureOrderObjectionTest {
     private static final LocalDateTime PAYOUT_AT = LocalDateTime.of(2026, 10, 31, 0, 0);
     /** 9/30 구매의 자동 구매 확정 시각 */
     private static final LocalDateTime AUTO_CONFIRM_AT = LocalDateTime.of(2026, 10, 8, 0, 0);
-    private static final LocalDateTime OCT_5 =LocalDateTime.of(2026, 10, 5, 12, 0);
+    private static final LocalDateTime OCT_5 = LocalDateTime.of(2026, 10, 5, 12, 0);
     private static final LocalDateTime OCT_6 = LocalDateTime.of(2026, 10, 6, 12, 0);
 
     @Test
