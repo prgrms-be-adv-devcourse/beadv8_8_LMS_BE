@@ -15,11 +15,10 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 import com.hapbang.shared.billing.port.BillingPort;
-import com.hapbang.shared.billing.port.LectureSettlementPort;
 
 /**
- * 구매 취소 (설계 6.4). 항목 상태 변경, 그 항목의 보류 HP 반환, 판매자 지급 예정 건 취소(#182)를 호출한 Facade의 한 트랜잭션에서 한다 (D3).
- * 반환은 billing이 차감했던 HP 종류 그대로 한다 (D42). 반환이나 지급 예정 취소가 실패하면 항목 상태 변경까지 모두 롤백된다.
+ * 구매 취소 (설계 6.4). 항목 상태 변경과 그 항목의 보류 HP 반환을 호출한 Facade의 한 트랜잭션에서 한다 (D3).
+ * 반환은 billing이 차감했던 HP 종류 그대로 한다 (D42).
  */
 @Service
 public class OrderCancelUseCase {
@@ -30,16 +29,13 @@ public class OrderCancelUseCase {
     private final LectureOrderSupport lectureOrderSupport;
     private final LectureOrderRepository lectureOrderRepository;
     private final BillingPort billingPort;
-    private final LectureSettlementPort lectureSettlementPort;
     private final Clock clock;
 
     public OrderCancelUseCase(LectureOrderSupport lectureOrderSupport, LectureOrderRepository lectureOrderRepository,
-                              BillingPort billingPort, LectureSettlementPort lectureSettlementPort,
-                              @Qualifier(LectureConfig.CLOCK) Clock clock) {
+                              BillingPort billingPort, @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderSupport = lectureOrderSupport;
         this.lectureOrderRepository = lectureOrderRepository;
         this.billingPort = billingPort;
-        this.lectureSettlementPort = lectureSettlementPort;
         this.clock = clock;
     }
 
@@ -57,8 +53,6 @@ public class OrderCancelUseCase {
             throw new IllegalStateException("구매 취소 반환액이 항목 가격과 다릅니다. orderItemId=" + item.getId()
                     + ", priceHp=" + item.getPriceHp() + ", result=" + result);
         }
-        // 반환 다음에 판매자 지급 예정 건을 취소한다 (#182). billing 락 순서(지갑 → 보류 → 지급 건)를 지키려고 반환 → 취소 순서로 부른다
-        lectureSettlementPort.cancel(item.getId());
         return OrderItemResponse.of(item);
     }
 }

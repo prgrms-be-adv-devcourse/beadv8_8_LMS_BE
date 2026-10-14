@@ -11,7 +11,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +20,6 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
 
-import com.hapbang.global.exception.BusinessException;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.config.LectureConfig;
@@ -32,8 +30,6 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.fake.FakeBillingPort;
-import com.hapbang.lecture.fake.FakeLectureSettlementPort;
-import com.hapbang.lecture.fake.FakeLectureSettlementPort.FakeSettlementErrorCode;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -64,22 +60,12 @@ class OrderCancelUseCaseTest {
     private FakeBillingPort billingPort;
 
     @Autowired
-    private FakeLectureSettlementPort settlementPort;
-
-    @Autowired
     @Qualifier(LectureConfig.CLOCK)
     private Clock clock;
 
     @BeforeEach
     void setUp() {
         billingPort.reset();
-        settlementPort.reset();
-    }
-
-    // 실패 설정이 같은 컨텍스트를 쓰는 다른 테스트 클래스로 넘어가지 않게 한다
-    @AfterEach
-    void tearDown() {
-        settlementPort.reset();
     }
 
     @Test
@@ -98,8 +84,6 @@ class OrderCancelUseCaseTest {
             assertThat(release.releaseRequestId()).isEqualTo("LECTURE-CANCEL-" + canceledItemId);
             assertThat(release.isFull()).isTrue();
         });
-        // 반환 다음에 그 항목의 판매자 지급 예정만 취소된다 (#182)
-        assertThat(settlementPort.cancels()).containsExactly(canceledItemId);
         OrderResponse saved = lectureOrderFacade.getOrder(BUYER_ID, order.orderId());
         assertThat(saved.status()).isEqualTo(LectureOrderStatus.PAID);
         assertThat(saved.items()).extracting(OrderItemResponse::status)
@@ -183,23 +167,6 @@ class OrderCancelUseCaseTest {
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(billingPort.releases()).isEmpty();
-        assertThat(settlementPort.cancels()).isEmpty();
-        assertThat(itemStatus(order.orderId())).isEqualTo(OrderItemStatus.PURCHASED);
-    }
-
-    @Test
-    void 판매자_지급_예정_취소가_실패하면_반환과_구매_취소가_모두_롤백된다() {
-        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
-        Long orderItemId = order.items().getFirst().orderItemId();
-        settlementPort.failCancelsWith(FakeSettlementErrorCode.SETTLEMENT_INVALID_STATE);
-
-        assertThatThrownBy(() -> lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId))
-                .isInstanceOf(BusinessException.class)
-                .extracting(e -> ((BusinessException) e).getErrorCode().getCode())
-                .isEqualTo("SETTLEMENT_INVALID_STATE");
-
-        assertThat(billingPort.releases()).isEmpty();
-        assertThat(settlementPort.cancels()).isEmpty();
         assertThat(itemStatus(order.orderId())).isEqualTo(OrderItemStatus.PURCHASED);
     }
 
