@@ -35,7 +35,6 @@ import com.hapbang.billing.app.HoldResult.ChargeAllocation;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
-import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointChargeStatus;
 import com.hapbang.billing.domain.PointType;
@@ -43,6 +42,8 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // HP 보류 생성의 수익 HP 우선·충전 HP FIFO 배분, 보류·배분·원장·지갑 정합성, 멱등성, 롤백, 동시성을 실제 PostgreSQL로 검증한다.

@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.billing.domain.*;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;

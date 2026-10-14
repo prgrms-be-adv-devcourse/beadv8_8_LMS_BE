@@ -15,7 +15,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.hapbang.billing.domain.AccountVerificationStatus;
 import com.hapbang.billing.domain.BalanceBucket;
-import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.ExchangePayoutStatus;
 import com.hapbang.billing.domain.ExchangeStatus;
 import com.hapbang.billing.domain.HoldDetailActionType;
@@ -29,8 +28,9 @@ import com.hapbang.billing.domain.PointHoldStatus;
 import com.hapbang.billing.domain.PointRefundRequestStatus;
 import com.hapbang.billing.domain.PointRefundStatus;
 import com.hapbang.billing.domain.PointType;
-import com.hapbang.billing.domain.SettlementSourceType;
 import com.hapbang.billing.domain.SettlementStatus;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;

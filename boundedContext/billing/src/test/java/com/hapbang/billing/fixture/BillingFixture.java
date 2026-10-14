@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 import com.hapbang.billing.domain.*;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
 
 /** 실제 PG 키·계좌정보를 사용하지 않는 영속성 테스트 데이터. */
 public final class BillingFixture {

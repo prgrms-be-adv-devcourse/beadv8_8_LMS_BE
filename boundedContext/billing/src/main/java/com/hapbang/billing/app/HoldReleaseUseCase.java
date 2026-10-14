@@ -16,6 +16,7 @@ import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
 
 import lombok.RequiredArgsConstructor;
 
@@ -35,13 +36,14 @@ public class HoldReleaseUseCase {
     // 호출한 쪽 트랜잭션이 있으면 그 안에서 실행되며, 어느 단계든 실패하면 모든 변경이 롤백된다.
     @Transactional
     public ReleaseResult release(ReleaseCommand command) {
+        BillingCommandValidator.verify(command);
         Long walletId = holdProcessing.walletIdOf(command.userId());
         // 보류·배분·충전 원금은 소유 지갑의 락 아래에서만 바뀌므로, 이 락으로 같은 지갑의 보류·반환·지급이 직렬화된다.
         // lockWallet이 먼저 flush하므로 이후 refresh가 같은 트랜잭션의 미반영 변경을 지우지 않는다.
         Wallet wallet = ledgerRecordUseCase.lockWallet(walletId);
-        PointHold hold = holdProcessing.lockHold(command.holdKey(), walletId);
+        PointHold hold = holdProcessing.lockHold(BillingKeys.hold(command), walletId);
 
-        String key = command.idempotencyKey(hold.getId());
+        String key = BillingKeys.release(hold.getId(), command);
         HoldState state = holdProcessing.load(hold);
 
         Optional<PointHoldDetail> existing = state.detail(key);
