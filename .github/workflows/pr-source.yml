@@ -1,0 +1,31 @@
+# main으로 가는 PR은 dev 또는 release/review-N에서만 병합한다(#180). 기능 브랜치가 main으로 직접 병합된 #176의 재발 방지.
+# ruleset protect-main-dev의 필수 체크(source-branch)로 쓴다. dev로 가는 PR은 검사 없이 통과하므로 dev PR을 막지 않는다.
+# 브랜치 이름만 보는 검사라 실수를 막는 용도다. 이름을 맞춘 브랜치는 통과한다.
+name: PR source
+
+on:
+  pull_request:
+    branches: [main, dev]
+    # edited: PR을 연 뒤 base를 main으로 바꿔도 다시 검사한다(기본 types에는 없다).
+    types: [opened, synchronize, reopened, edited]
+
+# 코드를 받지 않고 이벤트 값만 본다.
+permissions: {}
+
+jobs:
+  source-branch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: main으로 가는 PR은 dev 또는 release/review-N에서만 허용
+        if: github.base_ref == 'main'
+        env:
+          HEAD: ${{ github.head_ref }}
+          # 포크에서 같은 이름의 브랜치로 여는 PR은 막는다.
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          if [ "$SAME_REPO" = true ] && { [ "$HEAD" = dev ] || [[ "$HEAD" =~ ^release/review-[0-9]+$ ]]; }; then
+            echo "허용: $HEAD → main"
+          else
+            echo "::error::main으로는 dev 또는 release/review-N 브랜치에서만 PR할 수 있습니다 (현재: $HEAD)"
+            exit 1
+          fi

@@ -51,6 +51,8 @@ BE를 운영(prod)에 올리는 절차다. `main`에 병합해도 운영은 바�
 
 GitHub에서 base `main` ← compare `dev` PR을 만들어 병합한다.
 
+- main으로 가는 PR은 `dev` 또는 `release/review-N` 브랜치에서만 병합할 수 있다. 다른 브랜치에서 열면 `PR source / source-branch` 체크가 실패한다(#180).
+
 - **FE도 함께 내보낼 때**: FE는 `main` 병합 즉시 운영에 배포된다. 새 FE가 이번 BE 변경(새 API 등)을 쓰면, **BE 운영 배포(5·6단계)를 끝낸 뒤** FE를 `main`에 병합한다.
 
 ### 2. main 빌드 확인, 배포할 sha 정하기
