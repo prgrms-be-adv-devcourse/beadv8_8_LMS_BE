@@ -107,6 +107,17 @@ public class OrderItem {
         return status == OrderItemStatus.PURCHASED || status == OrderItemStatus.CONFIRMED;
     }
 
+    /** 구매자가 보유 중인지(구매, 구매 확정, 지급). 보유 중이면 시청할 수 있고 다시 살 수 없다 (D5) */
+    public boolean isHeld() {
+        return status == OrderItemStatus.PURCHASED || status == OrderItemStatus.CONFIRMED
+                || status == OrderItemStatus.PAID_OUT;
+    }
+
+    /** 영상·자료를 보기 전에 재생 동의가 필요한지 (D7·D8) */
+    public boolean requiresPlayConsent() {
+        return status == OrderItemStatus.PURCHASED;
+    }
+
     /** 구매 취소·반환되어 HP가 구매자에게 돌아갔는지 */
     public boolean isWithdrawn() {
         return status == OrderItemStatus.CANCELED || status == OrderItemStatus.RETURNED;
@@ -123,6 +134,18 @@ public class OrderItem {
         } else {
             markConfirmed(ConfirmationType.AUTO, autoConfirmAt);
         }
+    }
+
+    /**
+     * 재생 동의(첫 재생 확정, D7). 자동 구매 확정 시각이 지났어도 구매자가 동의한 사건이므로 첫 재생으로 기록한다 (D38).
+     * 이미 구매 확정·지급된 항목은 그대로 둔다(멱등).
+     */
+    void consentToPlay(LocalDateTime now) {
+        if (status == OrderItemStatus.CONFIRMED || status == OrderItemStatus.PAID_OUT) {
+            return;
+        }
+        requirePurchased();
+        markConfirmed(ConfirmationType.FIRST_PLAY, now);
     }
 
     /** 구매 취소. 자동 구매 확정 시각 전까지만 된다 */

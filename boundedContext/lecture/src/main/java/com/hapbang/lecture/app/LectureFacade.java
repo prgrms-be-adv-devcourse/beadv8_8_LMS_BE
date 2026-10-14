@@ -95,7 +95,7 @@ public class LectureFacade {
 
     /**
      * 콘텐츠 시청 URL 발급.
-     * 판매자 본인 또는 관리자라는 OR 조건이라 역할 검사(@PreAuthorize)를 두지 않고 Support가 판정한다 (D26).
+     * 판매자 본인 또는 관리자 또는 구매자라는 OR 조건이라 역할 검사(@PreAuthorize)를 두지 않고 Support가 판정한다 (D26, D38).
      */
     @Transactional(readOnly = true)
     public ContentAccessResponse getContentAccess(Long userId, Long lectureId, Long contentId) {

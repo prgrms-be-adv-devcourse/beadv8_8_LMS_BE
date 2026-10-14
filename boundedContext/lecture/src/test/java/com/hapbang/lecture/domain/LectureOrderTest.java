@@ -150,6 +150,72 @@ class LectureOrderTest {
 
         assertErrorCode(() -> order.confirmItem(99L, SEPT_30), LectureErrorCode.ORDER_ITEM_NOT_FOUND);
         assertErrorCode(() -> order.cancelItem(99L, SEPT_30), LectureErrorCode.ORDER_ITEM_NOT_FOUND);
+        assertErrorCode(() -> order.consentToPlay(99L, SEPT_30), LectureErrorCode.ORDER_ITEM_NOT_FOUND);
+    }
+
+    @Test
+    void 재생_동의하면_첫_재생으로_구매_확정된다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        LocalDateTime now = LocalDateTime.of(2026, 10, 3, 9, 0);
+
+        OrderItem item = order.consentToPlay(1L, now);
+
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+        assertThat(item.getConfirmationType()).isEqualTo(ConfirmationType.FIRST_PLAY);
+        assertThat(item.getConfirmedAt()).isEqualTo(now);
+    }
+
+    @Test
+    void 자동_확정_시각이_지난_뒤_재생_동의해도_첫_재생으로_기록된다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        LocalDateTime now = LocalDateTime.of(2026, 10, 9, 9, 0);
+
+        OrderItem item = order.consentToPlay(1L, now);
+
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+        assertThat(item.getConfirmationType()).isEqualTo(ConfirmationType.FIRST_PLAY);
+        assertThat(item.getConfirmedAt()).isEqualTo(now);
+    }
+
+    @Test
+    void 이미_확정한_항목에_재생_동의하면_그대로_둔다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+
+        OrderItem item = order.consentToPlay(1L, SEPT_30.plusDays(1));
+
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+        assertThat(item.getConfirmationType()).isEqualTo(ConfirmationType.DIRECT);
+        assertThat(item.getConfirmedAt()).isEqualTo(SEPT_30);
+    }
+
+    @Test
+    void 지급된_항목에_재생_동의하면_그대로_둔다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        // 지급 메서드가 아직 없어(#149) 상태만 넣는다
+        ReflectionTestUtils.setField(order.getItems().getFirst(), "status", OrderItemStatus.PAID_OUT);
+
+        OrderItem item = order.consentToPlay(1L, SEPT_30.plusDays(31));
+
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.PAID_OUT);
+        assertThat(item.getConfirmationType()).isEqualTo(ConfirmationType.DIRECT);
+    }
+
+    @Test
+    void 취소한_항목은_재생_동의할_수_없다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L);
+        order.cancelItem(1L, SEPT_30);
+
+        assertErrorCode(() -> order.consentToPlay(1L, SEPT_30), LectureErrorCode.ORDER_ITEM_NOT_PURCHASED);
+    }
+
+    @Test
+    void 재생_동의한_항목은_구매_취소할_수_없다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.consentToPlay(1L, SEPT_30);
+
+        assertErrorCode(() -> order.cancelItem(1L, SEPT_30), LectureErrorCode.ORDER_ITEM_NOT_PURCHASED);
     }
 
     @Test

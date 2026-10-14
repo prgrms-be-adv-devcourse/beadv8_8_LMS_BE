@@ -214,14 +214,24 @@ public class Lecture {
     }
 
     /**
-     * 콘텐츠(영상·자료)를 볼 수 있는 회원인지 확인한다 (D26).
-     * 판매자 본인과 관리자는 상태와 관계없이(삭제 포함) 볼 수 있다. 그 밖의 회원에게 판매 중이 아닌 강의는
-     * 상세 조회와 같이 없는 강의({@code LECTURE_NOT_FOUND})로 보이고, 판매 중인 강의는 {@code CONTENT_ACCESS_DENIED}다.
+     * 콘텐츠(영상·자료)를 볼 수 있는 회원인지 확인한다 (D26, D38).
+     * <ul>
+     *     <li>판매자 본인과 관리자는 상태와 관계없이(삭제 포함) 볼 수 있다.</li>
+     *     <li>이 강의를 보유한 구매자는 판매자가 삭제한 뒤에도 볼 수 있다(D5). 다만 구매 확정 전이면 재생 동의가 필요하다(D7·D8).</li>
+     *     <li>그 밖의 회원에게 판매 중이 아닌 강의는 상세 조회와 같이 없는 강의({@code LECTURE_NOT_FOUND})로 보이고,
+     *     판매 중인 강의는 {@code CONTENT_ACCESS_DENIED}다.</li>
+     * </ul>
+     *
+     * @param heldItem 회원이 이 강의를 보유한 주문 항목. 없으면 {@code null}
      */
-    // TODO: 주문(결제 연동) 구현 후 구매자 조건을 더한다(설계 4.6 "시청").
-    //  본인 항목이 PURCHASED면 재생 동의 필요 오류, CONFIRMED·PAID_OUT이면 허용, 삭제된 강의도 기존 구매자는 허용.
-    public void validateContentViewer(Long userId, boolean admin) {
+    public void validateContentViewer(Long userId, boolean admin, OrderItem heldItem) {
         if (isSeller(userId) || admin) {
+            return;
+        }
+        if (heldItem != null && heldItem.isHeld()) {
+            if (heldItem.requiresPlayConsent()) {
+                throw new PlayConsentRequiredException(heldItem);
+            }
             return;
         }
         if (!isOnSale()) {
