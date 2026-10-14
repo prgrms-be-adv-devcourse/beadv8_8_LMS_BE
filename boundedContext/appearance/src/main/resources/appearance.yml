@@ -16,5 +16,6 @@ appearance:
     max-recruit-count: 10
   billing:
     # fake: 외부 연동 교체 전까지 쓰는 메모리 구현 (Billing 규칙을 흉내 냄)
-    # TODO(billing): 외부 연동 교체 단계에서 BillingPort 구현을 추가하고 이 값을 바꾼다.
+    # billing-port: 실제 Billing을 shared BillingPort로 부르는 구현 (BillingPortClient, #182)
+    # TODO(billing): 출연 담당이 실제 연동을 확인한 뒤 이 값을 billing-port로 바꾼다.
     mode: fake

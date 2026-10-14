@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -138,6 +140,22 @@ class BillingCommandsTest {
         assertThat(command.releaseAmountHp()).isEqualTo(10_500L);
         assertThat(command.payoutAmountHp()).isEqualTo(4_500L);
         assertThat(penalty(REQUEST, "C2", 5_000L, 5_000L).payoutAmountHp()).isEqualTo(5_000L);
+    }
+
+    @Test
+    @DisplayName("강의 지급 예정 등록 요청은 필수 값만 검사하고 금액은 검사하지 않는다 (#182)")
+    void lectureSettlementCommand() {
+        Instant purchasedAt = Instant.parse("2026-10-13T06:00:00Z");
+
+        assertThatThrownBy(() -> new LectureSettlementCommand(null, 2L, 5001L, 10_000L, purchasedAt))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new LectureSettlementCommand(1L, null, 5001L, 10_000L, purchasedAt))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new LectureSettlementCommand(1L, 2L, null, 10_000L, purchasedAt))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new LectureSettlementCommand(1L, 2L, 5001L, 10_000L, null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatCode(() -> new LectureSettlementCommand(1L, 2L, 5001L, 0L, purchasedAt)).doesNotThrowAnyException();
     }
 
     private static PenaltyCommand penalty(BillingReferenceType referenceType, String cancellationId, long releaseHp,

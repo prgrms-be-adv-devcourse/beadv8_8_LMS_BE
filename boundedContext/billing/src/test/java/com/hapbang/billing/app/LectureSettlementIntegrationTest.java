@@ -38,6 +38,7 @@ import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.LectureSettlementCommand;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
