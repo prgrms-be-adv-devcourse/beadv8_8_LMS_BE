@@ -34,8 +34,10 @@ import com.hapbang.appearance.domain.AppearanceRequestStatus;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRequestRepository;
-import com.hapbang.appearance.out.billing.BillingClient.RefType;
 import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.FakeBillingErrorCode;
+import com.hapbang.appearance.out.billing.FakeBillingException;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
@@ -107,6 +109,14 @@ class AppearanceRequestFacadeTest {
                 .extracting("errorCode").isEqualTo(errorCode);
     }
 
+    /** Billing 거절은 출연 오류로 바꾸지 않고 Billing 오류(코드·메시지) 그대로 나온다 */
+    private static void assertBillingRejected(Runnable action, FakeBillingErrorCode errorCode) {
+        assertThatThrownBy(action::run)
+                .isInstanceOf(FakeBillingException.class)
+                .hasMessage(errorCode.getMessage())
+                .extracting("errorCode").isEqualTo(errorCode);
+    }
+
     // ---------------------------------------------------------------------------------------------
     // 보내기
     // ---------------------------------------------------------------------------------------------
@@ -118,16 +128,16 @@ class AppearanceRequestFacadeTest {
 
         assertThat(response.status()).isEqualTo(AppearanceRequestStatus.REQUESTED);
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.REQUESTED);
-        assertThat(fakeBillingClient.heldAmount(RefType.APPEARANCE_REQUEST, response.id())).isEqualTo(FEE);
+        assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, response.id())).isEqualTo(FEE);
         assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE - FEE);
     }
 
     @Test
-    @DisplayName("잔액이 부족하면 INSUFFICIENT_HP, 요청서는 HOLD_FAILED로 남고 목록에 보이지 않는다")
-    void insufficientHp() {
+    @DisplayName("잔액이 부족하면 Billing 오류 INSUFFICIENT_BALANCE 그대로, 요청서는 HOLD_FAILED로 남고 목록에 보이지 않는다")
+    void insufficientBalance() {
         fakeBillingClient.setBalance(HOST, FEE - 1);
 
-        assertErrorCode(() -> send(HOST, GUEST), AppearanceErrorCode.INSUFFICIENT_HP);
+        assertBillingRejected(() -> send(HOST, GUEST), FakeBillingErrorCode.INSUFFICIENT_BALANCE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
         assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FEE - 1);
@@ -138,12 +148,22 @@ class AppearanceRequestFacadeTest {
     @DisplayName("잔액 부족으로 실패한 뒤에는 같은 게스트에게 다시 보낼 수 있다")
     void retryAfterHoldFailed() {
         fakeBillingClient.setBalance(HOST, FEE - 1);
-        assertErrorCode(() -> send(HOST, GUEST), AppearanceErrorCode.INSUFFICIENT_HP);
+        assertBillingRejected(() -> send(HOST, GUEST), FakeBillingErrorCode.INSUFFICIENT_BALANCE);
         fakeBillingClient.setBalance(HOST, FEE);
 
         AppearanceRequestResDto response = send(HOST, GUEST);
 
         assertThat(response.status()).isEqualTo(AppearanceRequestStatus.REQUESTED);
+    }
+
+    @Test
+    @DisplayName("잔액 부족 외의 Billing 거절(지갑 없음)도 그대로 응답하고 요청서는 HOLD_FAILED")
+    void walletNotFound() {
+        fakeBillingClient.removeWallet(HOST);
+
+        assertBillingRejected(() -> send(HOST, GUEST), FakeBillingErrorCode.WALLET_NOT_FOUND);
+
+        assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
     }
 
     @Test

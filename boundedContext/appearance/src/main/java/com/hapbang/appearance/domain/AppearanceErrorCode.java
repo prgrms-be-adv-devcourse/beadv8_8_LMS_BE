@@ -31,7 +31,6 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     NOT_REQUEST_HOST(HttpStatus.FORBIDDEN, "출연 요청서를 보낸 호스트만 수정할 수 있습니다."),
     APPEARANCE_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "출연 요청서를 찾을 수 없습니다."),
     DUPLICATE_APPEARANCE_REQUEST(HttpStatus.CONFLICT, "이미 처리 중이거나 응답 대기 중인 출연 요청이 있습니다."),
-    INSUFFICIENT_HP(HttpStatus.CONFLICT, "HP 잔액이 부족합니다."),
     APPEARANCE_REQUEST_NOT_EDITABLE(HttpStatus.CONFLICT, "게스트가 응답하기 전인 출연 요청서만 수정할 수 있습니다."),
     NOT_REQUEST_GUEST(HttpStatus.FORBIDDEN, "출연 요청을 받은 게스트만 응답할 수 있습니다."),
     APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE(HttpStatus.CONFLICT, "응답 대기 중인 출연 요청이 아닙니다."),
