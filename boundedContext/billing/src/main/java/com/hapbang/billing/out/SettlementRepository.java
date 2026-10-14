@@ -19,6 +19,9 @@ public interface SettlementRepository extends Repository<Settlement, Long> {
     // 멱등키로 기존 수익 HP 지급 정보를 조회한다.
     Optional<Settlement> findByIdempotencyKey(String idempotencyKey);
 
+    // 지급 원천(출연 계약·주문 항목)의 지급 건을 조회한다. 원천당 지급 건은 1건이다(uk_settlement_source_type_source_id).
+    Optional<Settlement> findBySourceTypeAndSourceId(SettlementSourceType sourceType, Long sourceId);
+
     // 지급 원천(출연 계약·주문 항목)에 보류·지급 유형과 관계없이 지급이 있는지 확인한다.
     boolean existsBySourceTypeAndSourceId(SettlementSourceType sourceType, Long sourceId);
 
