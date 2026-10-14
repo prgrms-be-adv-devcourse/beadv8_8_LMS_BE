@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.app.dto.OrderSummaryResponse;
+import com.hapbang.lecture.app.dto.PurchasedLectureResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -22,6 +23,8 @@ public class LectureOrderFacade {
 
     private final LectureOrderSupport lectureOrderSupport;
     private final OrderConfirmUseCase orderConfirmUseCase;
+    private final OrderPlayConsentUseCase orderPlayConsentUseCase;
+    private final PurchasedLectureSupport purchasedLectureSupport;
 
     /** 내 주문 목록 */
     @Transactional(readOnly = true)
@@ -39,5 +42,17 @@ public class LectureOrderFacade {
     @Transactional
     public OrderItemResponse confirm(Long userId, Long orderId, Long orderItemId) {
         return orderConfirmUseCase.confirm(userId, orderId, orderItemId);
+    }
+
+    /** 재생 동의 (첫 재생 구매 확정) */
+    @Transactional
+    public OrderItemResponse consentToPlay(Long userId, Long orderId, Long orderItemId) {
+        return orderPlayConsentUseCase.consentToPlay(userId, orderId, orderItemId);
+    }
+
+    /** 시청 가능한 강의 */
+    @Transactional(readOnly = true)
+    public Page<PurchasedLectureResponse> getPurchasedLectures(Long userId, Pageable pageable) {
+        return purchasedLectureSupport.getPurchasedLectures(userId, pageable);
     }
 }

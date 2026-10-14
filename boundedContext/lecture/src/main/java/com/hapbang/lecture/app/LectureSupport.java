@@ -32,6 +32,7 @@ public class LectureSupport {
     private final LectureRepository lectureRepository;
     private final SellerNicknameSupport sellerNicknameSupport;
     private final LectureThumbnailSupport lectureThumbnailSupport;
+    private final LectureOrderSupport lectureOrderSupport;
 
     public Lecture findLecture(Long lectureId) {
         return lectureRepository.findById(lectureId)
@@ -65,12 +66,13 @@ public class LectureSupport {
     }
 
     /**
-     * 판매 중이 아니거나 삭제된 강의는 판매자 본인만 조회한다. 다른 회원에게는 없는 강의로 보인다.
+     * 판매 중이 아니거나 삭제된 강의는 판매자 본인과 이 강의를 보유한 구매자만 조회한다(D5, D38). 다른 회원에게는 없는 강의로 보인다.
+     * 보유 항목은 판매 중이 아닐 때만 읽는다.
      */
     public LectureDetailResponse getLecture(Long userId, Long lectureId) {
         Lecture lecture = findLecture(lectureId);
         boolean seller = lecture.getSellerUserId().equals(userId);
-        if (!seller && !lecture.isOnSale()) {
+        if (!seller && !lecture.isOnSale() && lectureOrderSupport.findHeldItem(userId, lectureId).isEmpty()) {
             throw new LectureException(LectureErrorCode.LECTURE_NOT_FOUND);
         }
         return LectureDetailResponse.of(lecture, sellerNicknameSupport.of(lecture.getSellerUserId()),

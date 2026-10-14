@@ -86,6 +86,13 @@ public class LectureOrder {
         return item;
     }
 
+    /** 재생 동의. 구매 확정(첫 재생)으로 기록하고, 이미 확정·지급된 항목은 그대로 둔다 (D38) */
+    public OrderItem consentToPlay(Long orderItemId, LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        item.consentToPlay(now);
+        return item;
+    }
+
     /** 구매 취소. 끝나지 않은 항목이 남지 않으면 주문도 취소한다. 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다 */
     public OrderItem cancelItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
