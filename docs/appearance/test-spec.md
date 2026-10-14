@@ -47,6 +47,7 @@
 | 저장소 | `HpTaskRepositoryTest` | `appearances.hp_tasks` 저장, 멱등 키 유니크, 대상별 최근 작업 | #137 |
 | 통합 | `AppearanceRequestRespondFacadeTest` | 수락·거절·취소, 반환 성공·실패, 기한 경과, 동시 처리, 상태 필터, 역할 | #137 |
 | E2E | `AppearanceRequestRespondApiE2ETest` | 수락·거절·취소 API와 상태 필터 (앱 전체) | #137 |
+| 단위 | `AppearanceBasicInfoTest` | 요청서·모집글 공통 기본 정보: 형식 검증, 보낸 값만 바꾼 새 객체 | #175 |
 | 단위 | `AppearanceRecruitTest` | 모집글 생성 검증(모집 인원·출연료·마감 일시)·보류 금액·상태 전이·수정·공개 여부 | #175 |
 | 저장소 | `AppearanceRecruitRepositoryTest` | `appearances.recruits` 저장, 공개 목록·내 목록 조회 | #175 |
 | 통합 | `AppearanceRecruitFacadeTest` | 올리기(HP 보류·Billing 거절·무응답), 역할별 권한, 조회, 수정 | #175 |
@@ -439,3 +440,13 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 | 호스트 수정 / 다른 회원 수정 / 빈 수정 | 200 "출연 모집글을 수정했습니다." / 403 `NOT_RECRUIT_HOST` / 400 |
 | 없는 모집글 상세 | 404 `APPEARANCE_RECRUIT_NOT_FOUND` |
 | Swagger (`AppearanceSwaggerDocsTest`) | 올리기·상세·수정은 `RsDataAppearanceRecruitResDto`, 공개·내 목록은 `RsDataPageAppearanceRecruitSummaryResDto` → `PagedModelAppearanceRecruitSummaryResDto` |
+
+### 8.5 기본 정보 값 객체 — `AppearanceBasicInfoTest` (#175 리팩터링)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 형식이 맞는 값 | 생성 |
+| 제목 공백·101자 / ftp URL / 설명 5,001자 | `INVALID_REQUEST` |
+| 제목만 바꾸기 | 제목만 바뀐 새 객체, 원래 객체는 그대로 |
+| 바꾸려는 URL 형식 오류 | `INVALID_REQUEST` |
+| (설정) `AppearanceConfigTest` | 도메인 `AppearancePolicy`에 어노테이션 없음, `AppearancePolicyProperties`·`AppearancePolicy` 빈 각 1개 |

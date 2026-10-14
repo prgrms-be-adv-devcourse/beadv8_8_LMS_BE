@@ -58,7 +58,7 @@
 
 ### 2.2 정책 수치
 
-정책 수치는 코드에 직접 쓰지 않고 `AppearancePolicy`로만 사용한다. 값은 `boundedContext/appearance/src/main/resources/appearance.yml`에 있다.
+정책 수치는 코드에 직접 쓰지 않고 `AppearancePolicy`로만 사용한다. 값은 `boundedContext/appearance/src/main/resources/appearance.yml`에 있고, `config.AppearancePolicyProperties`가 읽어 `AppearancePolicy`로 바꾼다.
 
 | 항목 | 값 | 설정 키 | 계산 메서드 |
 |---|---|---|---|
@@ -111,15 +111,18 @@ com.hapbang.appearance
 
 | 클래스 | 역할 |
 |---|---|
-| `config.AppearanceConfig` | `AppearancePolicy` 등록, `appearanceClock` 빈 |
-| `domain.AppearancePolicy` | 정책 수치와 계산 |
+| `config.AppearanceConfig` | `AppearancePolicyProperties`를 도메인 `AppearancePolicy`로 바꿔 등록, `appearanceClock` 빈 |
+| `config.AppearancePolicyProperties` | `appearance.policy.*` 설정 바인딩 (`@ConfigurationProperties`). 도메인이 Spring을 모르도록 여기서만 바인딩 |
+| `domain.AppearancePolicy` | 정책 수치와 계산 (Spring 의존 없는 순수 record, 값 검증) |
 | `domain.AppearanceUser` | 출연 회원(복제 회원). `validateCanAppear()`로 참여 자격 확인 |
 | `domain.AppearanceErrorCode`, `AppearanceException` | 오류 코드와 업무 예외 |
 | `app.AppearanceUserFacade` | 회원 이벤트 리스너의 진입점: `syncJoined()` / `syncModified()` (트랜잭션, 역할 검사 없음) |
 | `app.AppearanceUserSyncUseCase` | `createIfAbsent()`: 가입 정보로 생성 (있으면 무시) / `update()`: 변경 정보로 갱신 (없으면 실패) |
 | `app.AppearanceUserSupport` | `getParticipant()`: 자격 확인 후 출연 회원 반환 / `getGuest()`: 게스트 기준 메시지로 자격 확인 |
 | `domain.AppearanceRequest`, `AppearanceRequestStatus` | 출연 요청서와 상태. 생성 시 값 검증, 보류 결과 반영, 기본 정보 수정, 조회 권한 확인 |
-| `domain.AppearanceRequestRules` | 요청서·모집글 입력 값 길이·형식 제한 (도메인과 요청 DTO 검증이 같이 사용) |
+| `domain.AppearanceBasicInfo` | 요청서·모집글 공통 기본 정보(제목·채널 URL·설명) 값 객체(`@Embeddable`). `of()`로 만들 때, `withChanges()`로 보낸 값만 바꿀 때 형식 검증 |
+| `domain.AppearanceContentRules` | 요청서·모집글 공통 입력 값 길이·형식 제한 (도메인과 요청 DTO 검증이 같이 사용) |
+| `domain.AppearanceRequestRules` | 요청서 전용 제한 (거절 사유 500자) |
 | `domain.AppearanceRecruit`, `AppearanceRecruitStatus`, `AppearanceRecruitCloseType`, `AppearanceRecruitContent` | 출연 모집글과 상태·마감 방식. 생성 시 값 검증, 보류 금액, 보류 결과 반영, 기본 정보 수정, 공개 여부 확인 (#175) |
 | `app.AppearanceRecruitFacade` | 출연 모집글 API 진입점. 메서드별 `@PreAuthorize`(공개 조회는 없음), 기능별 트랜잭션, 올리기 순서 조립 (#175) |
 | `app.AppearanceRecruitCreateUseCase`, `AppearanceRecruitHoldUseCase` | 올리기 1단계 저장 / 2·3단계 보류 요청·결과 반영 (#175) |
@@ -148,6 +151,15 @@ com.hapbang.appearance
 | `out.billing.FakeBillingClient`, `FakeBillingErrorCode`, `FakeBillingException` | 외부 연동 교체 전까지 쓰는 메모리 구현. Billing 규칙·오류 코드를 흉내 냄 (테스트에서 잔액·지갑·무응답 조절) |
 | `out.billing.BillingUnavailableException` | 처리 여부를 알 수 없는 실패(무응답 등). 같은 요청으로 다시 확인해야 함 |
 | (삭제, #71) | 출연 예외는 global의 공통 핸들러(`com.hapbang.global.exception.GlobalExceptionHandler`)가 Problem Detail로 응답한다 |
+
+**계층별 책임 (2026-10-14 정리, ISSUE.md APR-25)**
+
+| 계층 | 맡는 일 |
+|---|---|
+| 도메인 | 엔티티 자신의 값과 넘겨받은 값만으로 판단할 수 있는 규칙: 값 검증, 상태 전이, 행위자·기한 확인, 금액 계산. Repository·Billing·Spring 빈을 모른다 (현재 시각도 값으로 받는다) |
+| UseCase | DB·다른 데이터·외부 시스템이 필요한 일과 단계 순서: 출연 회원 자격 확인, 중복 확인, Billing 호출, 낙관적 락 충돌 → 409, 저장 |
+| Facade | 역할 검사(`@PreAuthorize`), 트랜잭션 경계, UseCase 조립 |
+| Controller | 세션에서 회원 ID 추출(`@LoginUserId`), 요청 값 형식 검증(Spec의 `@Valid`), `RsData` 응답 |
 
 ### 3.3 설정 파일
 
@@ -471,7 +483,7 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 | 보류 금액 | 1인당 출연료 × 모집 인원, 모집글 단위 1건 | ISSUE.md APR-02 |
 | 모집 마감 일시 | 현재 < 모집 마감 < 방송 예정 일시 | 요청서 수락 기한과 같은 규칙 |
 | 중복 | 같은 호스트의 모집글 수 제한 없음 | 사용자 결정 (2026-10-14) |
-| 입력 제한 | 제목 100자, 채널 URL http(s) 255자, 설명 5,000자, 예상 출연 시간 1~1,440분 | 요청서와 같음 (`AppearanceRequestRules`) |
+| 입력 제한 | 제목 100자, 채널 URL http(s) 255자, 설명 5,000자, 예상 출연 시간 1~1,440분 | 요청서와 같음 (`AppearanceBasicInfo`, `AppearanceContentRules`) |
 | 공개 목록 | `RECRUITING`이고 모집 마감 일시가 지나지 않은 모집글 (마감 처리 전이어도 시각으로 거름) | |
 | 상세·내 목록 | `RECRUITING`·`CLOSED`·`CANCELED`. `HOLD_PENDING`·`HOLD_FAILED`는 올린 호스트에게도 숨김(404) | 요청서와 같음 |
 | 수정 | 호스트만, `RECRUITING`이고 모집 마감 일시 전까지. 동시 수정은 409 `CONCURRENT_UPDATE` | ISSUE.md APR-08 |
