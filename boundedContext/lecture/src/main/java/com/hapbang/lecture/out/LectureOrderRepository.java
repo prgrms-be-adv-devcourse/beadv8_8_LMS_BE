@@ -1,5 +1,6 @@
 package com.hapbang.lecture.out;
 
+import java.util.Collection;
 import java.util.Optional;
 import java.util.Set;
 
@@ -33,6 +34,16 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     default Page<OrderItem> findHeldItems(Long buyerUserId, Pageable pageable) {
         return findItems(buyerUserId, HELD_STATUSES, pageable);
     }
+
+    /** 주어진 강의 중 구매자가 보유한 강의 ID (주문 생성 검사용) */
+    default Set<Long> findHeldLectureIds(Long buyerUserId, Collection<Long> lectureIds) {
+        return findLectureIds(buyerUserId, lectureIds, HELD_STATUSES);
+    }
+
+    @Query("select i.lectureId from OrderItem i "
+            + "where i.buyerUserId = :buyerUserId and i.lectureId in :lectureIds and i.status in :statuses")
+    Set<Long> findLectureIds(@Param("buyerUserId") Long buyerUserId, @Param("lectureIds") Collection<Long> lectureIds,
+                             @Param("statuses") Set<OrderItemStatus> statuses);
 
     @Query("select i from OrderItem i "
             + "where i.buyerUserId = :buyerUserId and i.lectureId = :lectureId and i.status in :statuses")

@@ -144,11 +144,14 @@ public class OrderItem {
         confirmFirstOf(ConfirmationType.FIRST_PLAY, now);
     }
 
-    /** 구매 취소. 자동 구매 확정 시각 전까지만 된다 */
+    /** 구매 취소. 자동 구매 확정 시각 전까지, 이의 제기가 접수된 적 없는 항목만 된다 (D43) */
     void cancel(LocalDateTime now) {
         requirePurchased();
         if (!now.isBefore(autoConfirmAt)) {
             throw new LectureException(LectureErrorCode.CANCEL_PERIOD_EXPIRED);
+        }
+        if (objectionStatus != ObjectionStatus.NONE) {
+            throw new LectureException(LectureErrorCode.OBJECTION_FILED);
         }
         this.status = OrderItemStatus.CANCELED;
         this.canceledAt = now;
@@ -178,7 +181,8 @@ public class OrderItem {
         this.confirmedAt = confirmedAt;
     }
 
-    private void stampPurchasedAt(LocalDateTime now) {
+    /** 구매 시각과 그로부터 계산하는 기한을 정한다 (설계 5장) */
+    void stampPurchasedAt(LocalDateTime now) {
         LocalDate purchaseDate = now.toLocalDate();
         this.purchasedAt = now;
         this.autoConfirmAt = purchaseDate.plusDays(AUTO_CONFIRM_DAYS).atStartOfDay();

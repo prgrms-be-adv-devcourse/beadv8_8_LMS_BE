@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -48,8 +49,11 @@ class LectureOrderRepositoryTest {
         lectureOrderRepository.save(order());
         flushAndClear();
 
+        // 주문 생성은 이 제약 이름으로 동시 주문을 구분해 ALREADY_OWNED_LECTURE로 응답한다 (D44)
         assertThatThrownBy(() -> lectureOrderRepository.saveAndFlush(order()))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .cause().isInstanceOf(ConstraintViolationException.class)
+                .extracting("constraintName").isEqualTo("uk_order_item_buyer_lecture_owned");
     }
 
     @Test
@@ -101,6 +105,22 @@ class LectureOrderRepositoryTest {
         assertThat(page.getContent()).extracting(OrderItem::getLectureId).containsExactly(40L, 30L);
         assertThat(lectureOrderRepository.findHeldItems(BUYER_ID, PageRequest.of(1, 2)).getContent())
                 .extracting(OrderItem::getLectureId).containsExactly(20L);
+    }
+
+    @Test
+    void 구매자가_보유한_강의_ID만_찾는다() {
+        lectureOrderRepository.save(order(20L, NOW));
+        LectureOrder confirmed = lectureOrderRepository.save(order(30L, NOW));
+        confirmed.confirmItem(confirmed.getItems().getFirst().getId(), NOW);
+        LectureOrder canceled = lectureOrderRepository.save(order(40L, NOW));
+        canceled.cancelItem(canceled.getItems().getFirst().getId(), NOW);
+        lectureOrderRepository.save(LectureOrder.place(OTHER_BUYER_ID, List.of(withId(onSaleLecture(), 50L)),
+                Set.of(), NOW));
+        flushAndClear();
+
+        Set<Long> held = lectureOrderRepository.findHeldLectureIds(BUYER_ID, List.of(20L, 30L, 40L, 50L, 99L));
+
+        assertThat(held).containsExactlyInAnyOrder(20L, 30L);
     }
 
     private static LectureOrder order() {

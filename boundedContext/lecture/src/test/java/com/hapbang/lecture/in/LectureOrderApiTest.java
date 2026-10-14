@@ -10,9 +10,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -20,14 +22,16 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.fake.FakeBillingPort;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
+import com.jayway.jsonpath.JsonPath;
 
-// 주문 조회·직접 구매 확정·재생 동의·시청 가능한 강의 API를 HTTP부터 DB까지 관통해 검증한다. 상태 전이·기한 규칙은 LectureOrderTest가 맡는다.
+// 주문·주문 조회·직접 구매 확정·구매 취소·재생 동의·시청 가능한 강의 API를 HTTP부터 DB까지 관통해 검증한다. 상태 전이·기한 규칙은 LectureOrderTest가 맡는다.
 @IntegrationTest
 @AutoConfigureMockMvc
 class LectureOrderApiTest {
@@ -46,6 +50,67 @@ class LectureOrderApiTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private FakeBillingPort billingPort;
+
+    @BeforeEach
+    void setUp() {
+        billingPort.reset();
+    }
+
+    @Test
+    void 주문하면_201과_주문을_응답한다() throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+
+        mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
+                .andExpect(jsonPath("$.message").value("주문했습니다."))
+                .andExpect(jsonPath("$.data.orderId").isNumber())
+                .andExpect(jsonPath("$.data.status").value("PAID"))
+                .andExpect(jsonPath("$.data.totalAmountHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].lectureId").value(lecture.getId()))
+                .andExpect(jsonPath("$.data.items[0].status").value("PURCHASED"));
+    }
+
+    @Test
+    void 잔액이_부족하면_409_INSUFFICIENT_BALANCE다() throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+        billingPort.setBalance(BUYER_ID, PRICE_HP - 1_000L);
+
+        mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"));
+    }
+
+    @Test
+    void 구매_취소하면_200과_CANCELED_항목을_응답한다() throws Exception {
+        String body = mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long orderId = JsonPath.parse(body).read("$.data.orderId", Long.class);
+        Long orderItemId = JsonPath.parse(body).read("$.data.items[0].orderItemId", Long.class);
+
+        mockMvc.perform(cancelItem(orderId, orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.message").value("구매를 취소했습니다."))
+                .andExpect(jsonPath("$.data.orderItemId").value(orderItemId))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.canceledAt").isString());
+    }
+
+    @Test
+    void 기간이_지난_구매_취소는_409_CANCEL_PERIOD_EXPIRED다() throws Exception {
+        LectureOrder order = save(BUYER_ID, LocalDateTime.now(LectureConfig.ZONE).minusDays(8));
+
+        mockMvc.perform(cancelItem(order.getId(), order.getItems().getFirst().getId())
+                        .with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CANCEL_PERIOD_EXPIRED"));
+    }
 
     @Test
     void 내_주문_목록을_조회한다() throws Exception {
@@ -127,6 +192,10 @@ class LectureOrderApiTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/lectures/purchased").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden());
+        mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(cancelItem(order.getId(), orderItemId).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -197,6 +266,17 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.content[1].lectureDeleted").value(true));
     }
 
+    private static MockHttpServletRequestBuilder createOrder(Long lectureId) {
+        return post("/api/v1/lectures/orders").with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"lectureIds\": [" + lectureId + "]}");
+    }
+
+    private static MockHttpServletRequestBuilder cancelItem(Long orderId, Long orderItemId) {
+        return post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/cancel", orderId, orderItemId)
+                .with(csrf());
+    }
+
     private static MockHttpServletRequestBuilder confirm(Long orderId, Long orderItemId) {
         return post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/confirm", orderId, orderItemId)
                 .with(csrf());
@@ -221,7 +301,7 @@ class LectureOrderApiTest {
         return lectureOrderRepository.save(LectureOrderFixture.order(buyerUserId, List.of(lecture), purchasedAt));
     }
 
-    /** 구매 취소 API(HP 반환)가 생기기 전에는 도메인 메서드로 취소한다. 항목 변경은 영속 상태에서만 저장된다 */
+    /** HP 보류 없이 저장한 주문이라 구매 취소 API 대신 도메인 메서드로 취소한다. 항목 변경은 영속 상태에서만 저장된다 */
     private void cancel(LectureOrder order, LocalDateTime now) {
         transactionTemplate.executeWithoutResult(status -> lectureOrderRepository.findById(order.getId())
                 .orElseThrow()
