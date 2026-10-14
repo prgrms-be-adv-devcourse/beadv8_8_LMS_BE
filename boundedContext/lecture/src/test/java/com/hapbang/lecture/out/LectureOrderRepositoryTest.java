@@ -49,7 +49,7 @@ class LectureOrderRepositoryTest {
         lectureOrderRepository.save(order());
         flushAndClear();
 
-        // 주문 생성은 이 제약 이름으로 동시 주문을 구분해 ALREADY_OWNED_LECTURE로 응답한다 (D44)
+        // 주문 생성은 이 제약 이름으로 동시 주문을 구분해 ALREADY_OWNED_LECTURE로 응답한다 (D45)
         assertThatThrownBy(() -> lectureOrderRepository.saveAndFlush(order()))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .cause().isInstanceOf(ConstraintViolationException.class)
@@ -121,6 +121,44 @@ class LectureOrderRepositoryTest {
         Set<Long> held = lectureOrderRepository.findHeldLectureIds(BUYER_ID, List.of(20L, 30L, 40L, 50L, 99L));
 
         assertThat(held).containsExactlyInAnyOrder(20L, 30L);
+    }
+
+    @Test
+    void 기한이_지난_구매_항목_ID만_자동_구매_확정_시각_순으로_조회한다() {
+        // 구매일 + 8일 00:00이 자동 구매 확정 시각이다. 10-01 구매분은 10-09, 10-02 구매분은 10-10 00:00
+        LocalDateTime oct1 = LocalDateTime.of(2026, 10, 1, 10, 0);
+        LocalDateTime now = LocalDateTime.of(2026, 10, 10, 0, 0);
+        Long laterDue = itemId(lectureOrderRepository.save(order(20L, oct1.plusDays(1))));
+        Long sameDayLaterDue = itemId(lectureOrderRepository.save(order(30L, LocalDateTime.of(2026, 10, 2, 23, 0))));
+        Long earlierDue = itemId(lectureOrderRepository.save(order(40L, oct1)));
+        lectureOrderRepository.save(order(50L, LocalDateTime.of(2026, 10, 3, 0, 0)));
+        LectureOrder confirmed = lectureOrderRepository.save(order(60L, oct1));
+        confirmed.confirmItem(itemId(confirmed), oct1);
+        LectureOrder canceled = lectureOrderRepository.save(order(70L, oct1));
+        canceled.cancelItem(itemId(canceled), oct1);
+        flushAndClear();
+
+        List<Long> dueItemIds = lectureOrderRepository.findAutoConfirmDueItemIds(now);
+
+        // 기한이 now와 같은 10-02 구매분까지 대상이고, 10-03 구매분(10-11 00:00)과 확정·취소 항목은 빠진다.
+        // 기한이 같으면 ID 순이다
+        assertThat(dueItemIds).containsExactly(earlierDue, laterDue, sameDayLaterDue);
+    }
+
+    @Test
+    void 주문_항목_ID로_주문을_찾는다() {
+        LectureOrder saved = lectureOrderRepository.save(LectureOrder.place(BUYER_ID,
+                List.of(withId(onSaleLecture(), 20L), withId(onSaleLecture(), 30L)), Set.of(), NOW));
+        Long secondItemId = saved.getItems().get(1).getId();
+        flushAndClear();
+
+        assertThat(lectureOrderRepository.findByItemId(secondItemId))
+                .hasValueSatisfying(order -> assertThat(order.getId()).isEqualTo(saved.getId()));
+        assertThat(lectureOrderRepository.findByItemId(99_999L)).isEmpty();
+    }
+
+    private static Long itemId(LectureOrder order) {
+        return order.getItems().getFirst().getId();
     }
 
     private static LectureOrder order() {

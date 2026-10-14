@@ -11,12 +11,9 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestSummaryResDto;
 import com.hapbang.appearance.domain.Appearance;
-import com.hapbang.appearance.domain.AppearanceErrorCode;
-import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceRequestContent;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
-import com.hapbang.appearance.out.billing.BillingClient.HoldResult;
 
 import lombok.RequiredArgsConstructor;
 
@@ -49,19 +46,16 @@ public class AppearanceRequestFacade {
      * 출연 요청서를 보내고 출연료만큼 HP를 보류한다. 트랜잭션은 단계마다 따로 열린다.
      * <ol>
      *     <li>[트랜잭션 1] 자격·값·중복 확인 후 {@code HOLD_PENDING}으로 저장 (커밋)</li>
-     *     <li>[트랜잭션 없음] Billing에 보류 요청. 무응답이면 {@code HOLD_PENDING}으로 두고 503</li>
-     *     <li>[트랜잭션 2] 보류 성공 → {@code REQUESTED}, 잔액 부족 → {@code HOLD_FAILED} + 409</li>
+     *     <li>[트랜잭션 없음] Billing에 보류 요청. 결과를 알 수 없으면 {@code HOLD_PENDING}으로 두고 503,
+     *     Billing이 거절하면(잔액 부족 등) {@code HOLD_FAILED}로 기록하고 Billing 응답 그대로 (예: 409 {@code INSUFFICIENT_BALANCE})</li>
+     *     <li>[트랜잭션 2] 보류 성공 → {@code REQUESTED}</li>
      * </ol>
      */
     public AppearanceRequestResDto create(Long hostId, Long guestId, AppearanceRequestContent content) {
         AppearanceRequest request = appearanceRequestCreateUseCase.createPending(hostId, guestId, content);
 
-        HoldResult holdResult = appearanceRequestHoldUseCase.requestHold(request);
+        appearanceRequestHoldUseCase.requestHold(request);
 
-        if (!holdResult.isHeld()) {
-            appearanceRequestHoldUseCase.markHoldFailed(request.getId());
-            throw new AppearanceException(AppearanceErrorCode.INSUFFICIENT_HP);
-        }
         return appearanceRequestHoldUseCase.markRequested(request.getId());
     }
 

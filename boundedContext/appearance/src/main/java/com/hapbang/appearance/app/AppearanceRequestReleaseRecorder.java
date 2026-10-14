@@ -11,8 +11,7 @@ import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskReason;
 import com.hapbang.appearance.domain.HpTaskRefType;
-import com.hapbang.appearance.out.billing.BillingClient;
-import com.hapbang.appearance.out.billing.BillingClient.RefType;
+import com.hapbang.appearance.domain.HpTaskType;
 
 import lombok.RequiredArgsConstructor;
 
@@ -23,9 +22,6 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class AppearanceRequestReleaseRecorder {
-
-    private static final String RELEASE_ACTION = "RELEASE";
-    private static final int FIRST = 1;
 
     private final AppearanceRequestSupport appearanceRequestSupport;
     private final HpTaskSupport hpTaskSupport;
@@ -41,10 +37,11 @@ public class AppearanceRequestReleaseRecorder {
             // 같은 요청서를 동시에 수락·거절·취소하면 먼저 반영된 쪽만 성공한다
             throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
         }
-        String idempotencyKey = BillingClient.idempotencyKey(RefType.APPEARANCE_REQUEST, request.getId(),
-                RELEASE_ACTION, FIRST);
+        // 요청서 하나의 반환은 한 번뿐이라 순번은 1이다. 재시도해도 같은 반환 요청 ID를 쓴다.
+        String releaseRequestId = HpTask.requestId(HpTaskRefType.APPEARANCE_REQUEST, request.getId(),
+                HpTaskType.RELEASE, 1);
         HpTask task = HpTask.release(HpTaskRefType.APPEARANCE_REQUEST, request.getId(), request.getHostId(),
-                request.getFee(), reason, idempotencyKey, now);
+                request.getFee(), reason, releaseRequestId, now);
         return hpTaskSupport.save(task).getId();
     }
 }

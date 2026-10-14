@@ -80,7 +80,7 @@ public class OrderCreateUseCase {
         return lectureIds.stream().map(lectures::get).toList();
     }
 
-    /** 보유 검사를 동시에 통과한 같은 강의 주문은 부분 유일 인덱스에 걸린다. 이미 보유한 강의로 응답한다 (D44) */
+    /** 보유 검사를 동시에 통과한 같은 강의 주문은 부분 유일 인덱스에 걸린다. 이미 보유한 강의로 응답한다 (D45) */
     private void save(LectureOrder order) {
         try {
             lectureOrderRepository.saveAndFlush(order);
@@ -93,7 +93,7 @@ public class OrderCreateUseCase {
         }
     }
 
-    /** 항목마다 그 가격을 보류한다 (D36). 결과가 요청과 다르면 돈이 맞지 않으므로 주문 전체를 롤백한다 (D42) */
+    /** 항목마다 그 가격을 보류한다 (D36). 결과가 요청과 다르면 돈이 맞지 않으므로 주문 전체를 롤백한다 (D43) */
     private void hold(Long buyerUserId, OrderItem item) {
         HoldResultDto result = billingPort.hold(new HoldCommand(buyerUserId, BillingReferenceType.LECTURE_ORDER_ITEM,
                 item.getId(), item.getPriceHp()));

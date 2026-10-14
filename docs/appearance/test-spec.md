@@ -74,37 +74,41 @@
 | 출연 Clock | 시간대 Asia/Seoul |
 | `appearance.billing.mode` 기본값 / `http` | Fake Billing 등록 / 미등록 |
 
-### 3.3 Fake Billing — `FakeBillingClientTest`
+### 3.3 Fake Billing — `FakeBillingClientTest` (#168에서 Billing 기준으로 다시 씀)
 
-**Fake Billing 동작 규칙**
+**Fake Billing 동작 규칙** (Billing 구현의 보류·반환·지급·위약금 UseCase를 따른다)
 
 | # | 규칙 |
 |---|---|
-| F1 | 모든 회원은 잔액 10,000,000 HP로 시작한다 (테스트에서 변경 가능) |
-| F2 | 보류: 잔액이 충분하면 잔액에서 빼고 `HELD`. 부족하면 아무것도 바꾸지 않고 `INSUFFICIENT_BALANCE` (예외 아님) |
-| F3 | 보류는 대상(요청서·모집글) 단위로 쌓인다 |
-| F4 | 반환: 보류에서 빼서 호스트 잔액에 더한다 |
-| F5 | 지급: 보류에서 빼서 게스트 잔액에 더한다 |
-| F6 | 일괄 정산: 총액이 보류 금액 이하인지 먼저 확인한 뒤 적용한다 (전부 성공 또는 전부 실패) |
-| F7 | 보류보다 많이 반환·지급하려 하면 예외를 던진다 |
-| F8 | 같은 멱등 키로 다시 요청하면 처리하지 않고 처음 결과를 돌려준다 |
-| F9 | 같은 멱등 키를 다른 종류의 요청에 쓰면 예외 |
-| F10 | 금액 0 이하, 빈 멱등 키, 빈 정산 항목은 Billing 호출 전에 막는다 |
+| F1 | 모든 회원은 지갑과 잔액 10,000,000 HP로 시작한다 (테스트에서 잔액·지갑 없음 변경 가능). 충전·수익 HP는 나누지 않는다 |
+| F2 | 보류: 참조 대상당 1건. 잔액이 부족하면 보류를 만들지 않고 `INSUFFICIENT_BALANCE`(409) 예외 |
+| F3 | 같은 대상·같은 회원·같은 금액으로 다시 보류하면 처음 보류를 돌려준다(`replayed`). 다른 회원·금액이면 `IDEMPOTENCY_KEY_CONFLICT` |
+| F4 | 반환·지급·위약금은 요청 ID로 구분한다. 같은 요청 ID 재전송은 처음 결과(`replayed`), 같은 ID에 다른 내용이면 `IDEMPOTENCY_KEY_CONFLICT` |
+| F5 | 보류 없음 `HOLD_NOT_FOUND`, 다른 회원의 보류 `HOLD_OWNER_MISMATCH`, 남은 보류 0에 새 요청 `HOLD_ALREADY_CLOSED`, 남은 보류 초과 `RELEASE_/PAYOUT_AMOUNT_EXCEEDS_HELD`·`PENALTY_BASE_EXCEEDS_HELD` |
+| F6 | 지급: 자기 자신 `PAYOUT_TO_PAYER`, 원천 유형 불일치 `PAYOUT_SOURCE_MISMATCH`, 같은 원천(또는 출연 요청 보류)에 두 번째 지급 `PAYOUT_ALREADY_SETTLED` |
+| F7 | 위약금: 출연이 계산한 반환액·위약금을 함께 옮긴다 (Billing은 비율 계산 안 함). 위약금 0이면 `PENALTY_AMOUNT_ZERO` |
+| F8 | 금액 0 이하 `INVALID_POINT_AMOUNT`, 지갑 없음 `WALLET_NOT_FOUND` |
+| F9 | 거절은 `FakeBillingException`(공통 업무 예외)이며 코드·HTTP 상태·메시지가 Billing과 같다 |
+| F10 | 무응답 설정(`setUnavailable(true)`)이면 아무것도 처리하지 않고 `BillingUnavailableException`(업무 예외 아님) |
 | F11 | 메모리에만 저장하므로 앱이 재시작되면 기록이 사라진다 |
-| F12 | 무응답으로 설정하면(`setUnavailable(true)`) 모든 요청에 `BillingUnavailableException`을 던지고 아무것도 처리하지 않는다. `reset()`하면 다시 응답한다 |
 
 | 케이스 | 기대 결과 | 규칙 |
 |---|---|---|
-| 잔액 50,000에서 30,000 보류 | `HELD`, 보류 30,000, 잔액 20,000 | F2 |
-| 잔액 10,000에서 30,000 보류 | `INSUFFICIENT_BALANCE`, 잔액·보류 변화 없음 | F2 |
-| 같은 멱등 키로 보류 두 번 | 한 번만 처리 (잔액 20,000) | F8 |
-| 30,000 보류 후 전액 반환 | 남은 보류 0, 호스트 잔액 50,000 | F4 |
-| 30,000 보류 후 전액 지급 | 남은 보류 0, 게스트 잔액 30,000 | F5 |
-| 30,000 보류 후 일괄 정산 (위약금 9,000 지급 + 21,000 반환) | 남은 보류 0, 게스트 9,000, 호스트 41,000 | F6 |
-| 30,000 보류 후 40,000 일괄 정산 | 예외, 보류 30,000 그대로 | F6, F7 |
-| 빈 멱등 키, 금액 0 | 요청 객체 생성 실패 | F10 |
-| 무응답 설정 후 보류 → `reset()` 후 보류 | 예외, 잔액 변화 없음 → `HELD` | F12 |
-| 멱등 키 만들기 (`APPEARANCE_REQUEST`, 12, `HOLD`, 1) | `APPEARANCE_REQUEST-12-HOLD-1` | — |
+| 잔액 50,000에서 30,000 보류 | 보류 30,000, `replayed` false, 잔액 20,000 | F2 |
+| 잔액 10,000에서 30,000 보류 | `INSUFFICIENT_BALANCE`(409, "HP 잔액이 부족합니다."), 잔액·보류 변화 없음 | F2, F9 |
+| 잔액 부족 뒤 잔액을 채워 다시 보류 | 새로 보류 | F2 |
+| 같은 보류 두 번 / 다른 금액·다른 회원 | 처음 보류(`replayed`), 잔액 한 번만 빠짐 / `IDEMPOTENCY_KEY_CONFLICT` | F3 |
+| 금액 0 / 지갑 없음 | `INVALID_POINT_AMOUNT` / `WALLET_NOT_FOUND` | F8 |
+| 보류할 수 없는 참조 유형으로 요청 생성 | `IllegalArgumentException` (shared DTO 구조 검사) | — |
+| 30,000 보류 후 전액 반환 / 같은 반환 요청 ID 재전송 | 호스트 잔액 50,000 / 처음 결과(`replayed`), 두 번 반환 안 함 | F4 |
+| 10,000 부분 반환 후 전체 반환 | 남은 20,000 반환 | — |
+| 반환: 보류 없음 / 다른 회원 / 30,001 / 끝난 보류에 새 ID / 같은 ID에 다른 금액 | `HOLD_NOT_FOUND` / `HOLD_OWNER_MISMATCH` / `RELEASE_AMOUNT_EXCEEDS_HELD` / `HOLD_ALREADY_CLOSED` / `IDEMPOTENCY_KEY_CONFLICT` | F4, F5 |
+| 반환 요청 ID에 ':' | `IllegalArgumentException` | — |
+| 30,000 지급 / 재전송 | 게스트 30,000, 보류 0 / `replayed` | F4 |
+| 지급: 자기 자신 / 원천 `RECRUIT_APPEARANCE` / 30,001 / 지급 뒤 다른 출연으로 또 지급 | `PAYOUT_TO_PAYER` / `PAYOUT_SOURCE_MISMATCH` / `PAYOUT_AMOUNT_EXCEEDS_HELD` / `PAYOUT_ALREADY_SETTLED` | F5, F6 |
+| 위약금 (반환 21,000 + 위약금 9,000) / 재전송 | 게스트 9,000, 호스트 41,000, 보류 0 / `replayed` | F7 |
+| 위약금 0 / 합계 30,001 / 같은 취소 ID에 다른 금액 / 다른 취소 ID로 또 정산 | `PENALTY_AMOUNT_ZERO` / `PENALTY_BASE_EXCEEDS_HELD`(보류 그대로) / `IDEMPOTENCY_KEY_CONFLICT` / `PAYOUT_ALREADY_SETTLED` | F4, F6, F7 |
+| 무응답 설정 후 보류 → 해제 후 보류 | `BillingUnavailableException`, 잔액 변화 없음 → 새로 보류 | F10 |
 
 ### 3.4 출연 회원 자격 — `AppearanceUserTest`
 
@@ -217,7 +221,8 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 | 케이스 | 기대 결과 |
 |---|---|
 | 보내기 | `REQUESTED`, 보류 30,000, 호스트 잔액 −30,000 |
-| 잔액 29,999에서 보내기 | `INSUFFICIENT_HP`, 요청서 `HOLD_FAILED`, 잔액 그대로, 보낸 목록 0건 |
+| 잔액 29,999에서 보내기 | Billing 오류 `INSUFFICIENT_BALANCE` 그대로(메시지 포함), 요청서 `HOLD_FAILED`, 잔액 그대로, 보낸 목록 0건 |
+| 호스트 지갑 없음 (#168) | Billing 오류 `WALLET_NOT_FOUND` 그대로, 요청서 `HOLD_FAILED` |
 | 잔액 부족 실패 뒤 잔액을 채우고 같은 게스트에게 다시 보내기 | `REQUESTED` |
 | Billing 무응답 | `BILLING_UNAVAILABLE`, 요청서 `HOLD_PENDING`, 보낸 목록 0건. 응답이 돌아와도 바로 다시 보내면 `DUPLICATE_APPEARANCE_REQUEST` |
 | 응답 대기 중인 게스트에게 다시 보내기 / 다른 게스트에게 보내기 | `DUPLICATE_APPEARANCE_REQUEST` / `REQUESTED` (보류 2건) |
@@ -265,7 +270,7 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 | 일반 유저 세션으로 목록 조회, 관리자 세션으로 보내기 | 403 Problem Detail, `code: FORBIDDEN` (Facade `@PreAuthorize`, 공통 핸들러) |
 | 제목 공백·URL 형식 오류·출연료 누락 | 400, `code: INVALID_REQUEST`, `errors`에 `title`·`hostChannelUrl`·`fee` |
 | 출연료 19,999 | 400 Problem Detail(`data` 없음), `code: FEE_BELOW_MINIMUM`, `detail`에 최저 출연료 |
-| 잔액 10,000에서 30,000 요청 | 409, `code: INSUFFICIENT_HP` |
+| 잔액 10,000에서 30,000 요청 | 409, `code: INSUFFICIENT_BALANCE`, `detail: HP 잔액이 부족합니다.` (Billing 오류 그대로) |
 | 응답 대기 중인 게스트에게 다시 보내기 | 409, `code: DUPLICATE_APPEARANCE_REQUEST` |
 | Billing 무응답 | 503, `code: BILLING_UNAVAILABLE` |
 | 다른 회원 상세 조회 / 게스트 수정 | 404 `APPEARANCE_REQUEST_NOT_FOUND` / 403 `NOT_REQUEST_HOST` |
@@ -332,6 +337,7 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 | 케이스 | 기대 결과 |
 |---|---|
 | 반환 작업 생성 / 금액 0 | `PENDING`, 시도 0, 바로 실행 가능 / `IllegalArgumentException` |
+| Billing 요청 ID 만들기 (`APPEARANCE_REQUEST`, 12, `RELEASE`, 1) (#168) | `APPEARANCE_REQUEST-12-RELEASE-1`, Billing 허용 문자만 |
 | 성공 기록 | `DONE`, 시도 1, 완료 시각, 더는 실행 대상 아님 |
 | 실패 기록 | `PENDING` 유지, 시도 1, 오류, 다음 시도 시각 전에는 실행 대상 아님 |
 | 오류 1,500자 / 완료된 작업에 다시 기록 | 1,000자로 자름 / `IllegalStateException` |
@@ -359,6 +365,7 @@ DB와 Fake Billing을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "IN
 | 세션 역할 USER | 수락·거절·취소 모두 `AccessDeniedException` |
 | 사유와 함께 거절 | `REJECTED`, 반환 작업 1건(금액 30,000, 호스트, 멱등 키), `DONE`, 보류 0, 호스트 잔액 복구 |
 | Billing 무응답에서 거절 | `REJECTED` 성공, 작업 `PENDING`, 시도 1, 오류에 `BillingUnavailableException`, 다음 시도 시각, 보류 그대로 |
+| Billing이 반환을 거절(보류 없음)할 때 거절 (#168) | `REJECTED` 성공, 작업 `PENDING`, 오류 `HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.` |
 | 응답 전 취소 / 게스트가 취소 | `CANCELED` + `DONE`(사유 `REQUEST_CANCELED`) / `NOT_REQUEST_HOST`, 작업 없음 |
 | 거절 후 다시 거절·취소 | `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`, 작업은 1건뿐 |
 | 수락과 취소를 동시에 | 하나만 성공, 다른 쪽은 `CONCURRENT_UPDATE` 또는 `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`, 출연 + 작업 합계 1건 |

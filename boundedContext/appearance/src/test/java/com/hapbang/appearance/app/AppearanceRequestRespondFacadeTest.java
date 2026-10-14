@@ -42,7 +42,7 @@ import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRepository;
 import com.hapbang.appearance.out.AppearanceRequestRepository;
 import com.hapbang.appearance.out.HpTaskRepository;
-import com.hapbang.appearance.out.billing.BillingClient.RefType;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.appearance.out.billing.FakeBillingClient;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -141,7 +141,7 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(appearance.getRequestId()).isEqualTo(sent.id());
         assertThat(appearance.getFee()).isEqualTo(FEE);
         assertThat(appearance.getScheduledAt()).isEqualTo(sent.scheduledAt());
-        assertThat(fakeBillingClient.heldAmount(RefType.APPEARANCE_REQUEST, sent.id())).isEqualTo(FEE);
+        assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, sent.id())).isEqualTo(FEE);
         assertThat(hpTaskRepository.count()).isZero();
     }
 
@@ -231,7 +231,7 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(task.getMemberId()).isEqualTo(HOST);
         assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_REQUEST-" + sent.id() + "-RELEASE-1");
         assertThat(task.getAttemptCount()).isEqualTo(1);
-        assertThat(fakeBillingClient.heldAmount(RefType.APPEARANCE_REQUEST, sent.id())).isZero();
+        assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, sent.id())).isZero();
         assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
     }
 
@@ -249,7 +249,20 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(task.getAttemptCount()).isEqualTo(1);
         assertThat(task.getLastError()).contains("BillingUnavailableException");
         assertThat(task.getNextAttemptAt()).isAfter(task.getCreatedAt());
-        assertThat(fakeBillingClient.heldAmount(RefType.APPEARANCE_REQUEST, sent.id())).isEqualTo(FEE);
+        assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, sent.id())).isEqualTo(FEE);
+    }
+
+    @Test
+    @DisplayName("Billing이 반환을 거절하면(보류 없음) 거절은 성공하고, 작업은 PENDING으로 남아 Billing 오류 코드를 기록한다")
+    void rejectWhenBillingRejectsRelease() {
+        AppearanceRequestResDto sent = send();
+        fakeBillingClient.reset();
+
+        AppearanceRequestResDto rejected = appearanceRequestFacade.reject(GUEST, sent.id(), null);
+
+        assertThat(rejected.status()).isEqualTo(AppearanceRequestStatus.REJECTED);
+        assertThat(rejected.hpReleaseStatus()).isEqualTo(HpTaskStatus.PENDING);
+        assertThat(onlyTask().getLastError()).isEqualTo("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.");
     }
 
     @Test

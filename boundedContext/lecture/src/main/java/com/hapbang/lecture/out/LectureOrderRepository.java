@@ -1,6 +1,8 @@
 package com.hapbang.lecture.out;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -55,6 +57,16 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
             + "where i.buyerUserId = :buyerUserId and i.lectureId in :lectureIds and i.status in :statuses")
     Set<Long> findLectureIds(@Param("buyerUserId") Long buyerUserId, @Param("lectureIds") Collection<Long> lectureIds,
                              @Param("statuses") Set<OrderItemStatus> statuses);
+
+    /** 이 주문 항목이 속한 주문 */
+    @Query("select i.order from OrderItem i where i.id = :itemId")
+    Optional<LectureOrder> findByItemId(@Param("itemId") Long itemId);
+
+    /** 자동 구매 확정 대상(구매 상태이고 기한이 지난) 항목 ID. 기한이 빠른 순, 같으면 ID 순이다 (D41) */
+    @Query("select i.id from OrderItem i "
+            + "where i.status = com.hapbang.lecture.domain.OrderItemStatus.PURCHASED and i.autoConfirmAt <= :now "
+            + "order by i.autoConfirmAt, i.id")
+    List<Long> findAutoConfirmDueItemIds(@Param("now") LocalDateTime now);
 
     @Query("select i from OrderItem i "
             + "where i.buyerUserId = :buyerUserId and i.lectureId = :lectureId and i.status in :statuses")

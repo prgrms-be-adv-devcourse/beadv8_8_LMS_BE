@@ -13,6 +13,6 @@ appearance:
     # 출연 1건당 출연 취소 요청 최대 횟수 (거절 후 1회 재요청)
     max-cancel-request-count: 2
   billing:
-    # fake: Billing API 계약 확정 전까지 쓰는 메모리 구현
-    # TODO(billing): 계약이 확정되면 실제 HTTP 구현을 추가하고 이 값을 바꾼다.
+    # fake: 외부 연동 교체 전까지 쓰는 메모리 구현 (Billing 규칙을 흉내 냄)
+    # TODO(billing): 외부 연동 교체 단계에서 BillingPort 구현을 추가하고 이 값을 바꾼다.
     mode: fake

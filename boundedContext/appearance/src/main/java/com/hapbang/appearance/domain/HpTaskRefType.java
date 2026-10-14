@@ -3,7 +3,7 @@ package com.hapbang.appearance.domain;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-/** HP 작업의 대상. HP 보류가 걸린 단위이며 Billing의 참조 타입과 이름이 같다 */
+/** HP 작업의 대상. HP 보류가 걸린 단위이며 Billing 참조 유형({@code BillingReferenceType})과 이름이 같다 */
 @Getter
 @RequiredArgsConstructor
 public enum HpTaskRefType {
