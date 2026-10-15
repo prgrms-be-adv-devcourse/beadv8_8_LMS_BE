@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -13,6 +14,7 @@ import com.hapbang.appearance.domain.AppearanceApplication;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
+import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 
 import lombok.RequiredArgsConstructor;
 
@@ -24,6 +26,8 @@ import lombok.RequiredArgsConstructor;
  * <p>
  * 모집글은 공유 잠금으로 읽는다. 지원끼리는 막지 않고, 같은 모집글의 마감과는 순서가 정해져
  * 마감된 모집글에 대기 지원이 남지 않는다 (APR-28 C9).
+ * <p>
+ * 지원이 저장되면 지원 도착 이벤트({@link AppearanceApplicationSubmittedEvent})를 발행한다 (APR-29).
  */
 @Service
 @RequiredArgsConstructor
@@ -35,6 +39,7 @@ public class AppearanceApplicationApplyUseCase {
     private final AppearanceApplicationSupport appearanceApplicationSupport;
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceUserSupport appearanceUserSupport;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -54,6 +59,8 @@ public class AppearanceApplicationApplyUseCase {
         }
         try {
             AppearanceApplication saved = appearanceApplicationSupport.saveNow(application);
+            // 지원 도착을 알린다. 받는 쪽은 커밋 뒤에 처리한다 (@ApplicationModuleListener, ISSUE.md APR-29)
+            eventPublisher.publishEvent(new AppearanceApplicationSubmittedEvent(saved.toDto(recruit)));
             return AppearanceApplicationResDto.from(saved, null);
         } catch (DataIntegrityViolationException exception) {
             // 위 확인을 동시에 통과한 지원은 DB 유니크 제약에서 막힌다.
