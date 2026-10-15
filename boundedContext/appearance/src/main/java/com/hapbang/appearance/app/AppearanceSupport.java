@@ -1,5 +1,8 @@
 package com.hapbang.appearance.app;
 
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -32,5 +35,17 @@ public class AppearanceSupport {
             return null;
         }
         return found.get().getId();
+    }
+
+    /** 모집 지원 ID별 성립한 출연 ID. 성립하지 않은 지원은 결과에 없다 */
+    public Map<Long, Long> findIdsByApplicationIds(Collection<Long> applicationIds) {
+        Map<Long, Long> appearanceIds = new HashMap<>();
+        if (applicationIds.isEmpty()) {
+            return appearanceIds;
+        }
+        for (Appearance appearance : appearanceRepository.findByApplicationIdIn(applicationIds)) {
+            appearanceIds.put(appearance.getApplicationId(), appearance.getId());
+        }
+        return appearanceIds;
     }
 }

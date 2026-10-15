@@ -16,12 +16,13 @@ public record AppearanceRecruitSummaryResDto(
         @Schema(description = "1인당 출연료 (HP)") long feePerPerson,
         @Schema(description = "모집 인원") int recruitCount,
         @Schema(description = "현재 성립 인원") int selectedCount,
+        @Schema(description = "지원자 수: 게스트가 취소한 지원만 뺀 전체 지원 (대기·수락·미선정)") long applicantCount,
         @Schema(description = "모집 마감 일시 (KST)") LocalDateTime recruitDeadline,
         AppearanceRecruitStatus status,
         LocalDateTime createdAt
 ) {
 
-    public static AppearanceRecruitSummaryResDto from(AppearanceRecruit recruit) {
+    public static AppearanceRecruitSummaryResDto from(AppearanceRecruit recruit, long applicantCount) {
         return new AppearanceRecruitSummaryResDto(
                 recruit.getId(),
                 recruit.getHostId(),
@@ -30,6 +31,7 @@ public record AppearanceRecruitSummaryResDto(
                 recruit.getFeePerPerson(),
                 recruit.getRecruitCount(),
                 recruit.getSelectedCount(),
+                applicantCount,
                 recruit.getRecruitDeadline(),
                 recruit.getStatus(),
                 recruit.getCreatedAt());

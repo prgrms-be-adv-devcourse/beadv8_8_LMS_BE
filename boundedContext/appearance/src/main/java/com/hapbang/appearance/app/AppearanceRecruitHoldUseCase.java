@@ -67,7 +67,8 @@ public class AppearanceRecruitHoldUseCase {
         AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);
         recruit.markRecruiting();
         appearanceRecruitSupport.flush();
-        return AppearanceRecruitResDto.from(recruit);
+        // 방금 올린 모집글이라 지원이 없다
+        return AppearanceRecruitResDto.from(recruit, 0);
     }
 
     /** 보류 거절 → {@code HOLD_FAILED} (기록으로만 남긴다) */

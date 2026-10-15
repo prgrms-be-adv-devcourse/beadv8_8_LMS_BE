@@ -20,6 +20,7 @@ public record AppearanceRecruitResDto(
         @Schema(description = "1인당 출연료 (HP)") long feePerPerson,
         @Schema(description = "모집 인원") int recruitCount,
         @Schema(description = "현재 성립 인원") int selectedCount,
+        @Schema(description = "지원자 수: 게스트가 취소한 지원만 뺀 전체 지원 (대기·수락·미선정)") long applicantCount,
         @Schema(description = "모집 마감 일시 (KST)") LocalDateTime recruitDeadline,
         AppearanceRecruitStatus status,
         @Schema(description = "마감 방식 (마감된 경우): DEADLINE 기한 도래 / EARLY 조기 마감") AppearanceRecruitCloseType closeType,
@@ -30,7 +31,7 @@ public record AppearanceRecruitResDto(
         LocalDateTime updatedAt
 ) {
 
-    public static AppearanceRecruitResDto from(AppearanceRecruit recruit) {
+    public static AppearanceRecruitResDto from(AppearanceRecruit recruit, long applicantCount) {
         return new AppearanceRecruitResDto(
                 recruit.getId(),
                 recruit.getHostId(),
@@ -42,6 +43,7 @@ public record AppearanceRecruitResDto(
                 recruit.getFeePerPerson(),
                 recruit.getRecruitCount(),
                 recruit.getSelectedCount(),
+                applicantCount,
                 recruit.getRecruitDeadline(),
                 recruit.getStatus(),
                 recruit.getCloseType(),

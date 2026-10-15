@@ -43,6 +43,15 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     NOT_RECRUIT_HOST(HttpStatus.FORBIDDEN, "출연 모집글을 올린 호스트만 수정할 수 있습니다."),
     APPEARANCE_RECRUIT_NOT_FOUND(HttpStatus.NOT_FOUND, "출연 모집글을 찾을 수 없습니다."),
     APPEARANCE_RECRUIT_NOT_EDITABLE(HttpStatus.CONFLICT, "모집 중인 출연 모집글만 수정할 수 있습니다."),
+    APPEARANCE_RECRUIT_NOT_OPEN(HttpStatus.CONFLICT, "모집 중인 출연 모집글이 아닙니다."),
+    RECRUIT_FULL(HttpStatus.CONFLICT, "모집 인원이 모두 찼습니다."),
+
+    // 출연 모집 지원
+    CANNOT_APPLY_OWN_RECRUIT(HttpStatus.BAD_REQUEST, "자신이 올린 모집글에는 지원할 수 없습니다."),
+    DUPLICATE_APPLICATION(HttpStatus.CONFLICT, "이미 지원한 모집글입니다. 지원을 취소했거나 거절된 경우에도 다시 지원할 수 없습니다."),
+    APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "지원을 찾을 수 없습니다."),
+    NOT_APPLICATION_GUEST(HttpStatus.FORBIDDEN, "지원한 게스트만 지원을 취소할 수 있습니다."),
+    APPLICATION_NOT_PENDING(HttpStatus.CONFLICT, "호스트 응답을 기다리는 지원이 아닙니다."),
 
     // 공통
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요."),
