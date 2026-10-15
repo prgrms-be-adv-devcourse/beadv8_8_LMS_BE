@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.InfluencerChannel;
+import com.hapbang.member.domain.InfluencerUpgradeRequest;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.OAuthProvider;
@@ -37,9 +38,12 @@ public class MemberFacade {
     private final MemberChannelApprovalUseCase memberChannelApprovalUseCase;
     private final MemberChannelSupport memberChannelSupport;
     private final MemberProfileImageUseCase memberProfileImageUseCase;
+    private final MemberUpgradeRequestUseCase memberUpgradeRequestUseCase;
 
     // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
     private static final String USER_ONLY = "hasRole('USER')";
+    // 승급 신청은 인플루언서만 (인증된 인플루언서·유저·관리자 불가)
+    private static final String INFLUENCER_ONLY = "hasRole('INFLUENCER')";
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
     /** OAuth 로그인 (처음이면 가입) */
@@ -117,6 +121,19 @@ public class MemberFacade {
         }
         int followerCount = memberChzzkUseCase.fetchFollowerCount(channel.getChannelIdentifier());
         return memberChannelApprovalUseCase.request(userId, channelId, followerCount);
+    }
+
+    /** 승급 신청 (인플루언서만, 심사 대기 중이면 409) */
+    @PreAuthorize(INFLUENCER_ONLY)
+    @Transactional
+    public InfluencerUpgradeRequest requestUpgrade(Long userId, String reason) {
+        return memberUpgradeRequestUseCase.request(userId, reason);
+    }
+
+    /** 내 승급 신청 내역 (최신순) */
+    @Transactional(readOnly = true)
+    public List<InfluencerUpgradeRequest> findMyUpgradeRequests(Long userId) {
+        return memberUpgradeRequestUseCase.findMine(userId);
     }
 
     /** 회원의 채널 전부 (내 채널 목록, 회원 프로필) */
