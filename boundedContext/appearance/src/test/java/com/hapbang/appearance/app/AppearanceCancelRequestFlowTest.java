@@ -218,6 +218,9 @@ class AppearanceCancelRequestFlowTest {
                     .isZero();
             assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
             assertThat(applicationEvents.stream(AppearanceCancelRequestAcceptedEvent.class)).hasSize(1);
+            // 반환 진행 상태는 출연 상세에만 보이고, 요청서 상세(거절·취소·만료 반환용)에는 섞이지 않는다
+            assertThat(accepted.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(appearanceRequestFacade.getDetail(HOST, established.requestId()).hpReleaseStatus()).isNull();
         }
 
         @Test
@@ -316,6 +319,7 @@ class AppearanceCancelRequestFlowTest {
             assertThat(accepted.status()).isEqualTo(AppearanceStatus.CANCELED_BY_AGREEMENT);
             assertThat(appearanceRecruitFacade.getDetail(HOST, established.recruitId()).selectedCount()).isZero();
             assertThat(releaseTasks(HpTaskRefType.APPEARANCE_RECRUIT, established.recruitId())).isEmpty();
+            assertThat(accepted.hpReleaseStatus()).isNull(); // 마감 전이라 반환하지 않음 (보류 유지)
             assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, established.recruitId()))
                     .isEqualTo(FEE);
             assertThat(appearanceApplicationFacade.accept(HOST, secondApplication).appearanceId()).isNotNull();
@@ -355,6 +359,22 @@ class AppearanceCancelRequestFlowTest {
             assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, established.recruitId()))
                     .isZero();
             assertThat(appearanceRecruitFacade.getDetail(HOST, established.recruitId()).selectedCount()).isZero();
+        }
+
+        @Test
+        @DisplayName("반환 진행 상태가 섞이지 않는다: 마감 반환이 처리 중(PENDING)인데 합의 취소 반환이 끝나도(DONE) 모집글 상세는 마감 반환 상태, 출연 상세는 합의 취소 반환 상태")
+        void releaseStatusNotMixed() {
+            RecruitAppearance established = establishFromRecruit(3);
+            fakeBillingClient.setUnavailable(true);
+            appearanceRecruitFacade.closeEarly(HOST, established.recruitId()); // 미달 2명분 반환 실패 → PENDING
+            fakeBillingClient.setUnavailable(false);
+            requestCancel(established.appearanceId());
+
+            AppearanceResDto accepted = appearanceFacade.acceptCancel(HOST, established.appearanceId());
+
+            assertThat(accepted.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, established.recruitId()).hpReleaseStatus())
+                    .isEqualTo(HpTaskStatus.PENDING);
         }
 
         @Test

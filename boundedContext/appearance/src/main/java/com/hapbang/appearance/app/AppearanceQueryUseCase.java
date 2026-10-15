@@ -22,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 출연 조회 (내 출연 목록, 상세). 트랜잭션은 호출한 {@link AppearanceFacade}가 연다 (읽기 전용).
  * 출연은 호스트·게스트 두 사람만 볼 수 있다. 제목은 출처(요청서·모집글)에서 가져온다.
+ * 상세의 반환 진행 상태는 이 출연 단위 반환(합의 취소)만 본다 (요청서·모집글 상세의 반환과 섞지 않는다).
  */
 @Service
 @RequiredArgsConstructor
@@ -31,6 +32,7 @@ public class AppearanceQueryUseCase {
     private final AppearanceCancelRequestSupport appearanceCancelRequestSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceTitleSupport appearanceTitleSupport;
+    private final HpTaskSupport hpTaskSupport;
 
     /**
      * 내 출연 목록. 최신순.
@@ -65,7 +67,8 @@ public class AppearanceQueryUseCase {
         for (AppearanceCancelRequest cancelRequest : appearanceCancelRequestSupport.findByAppearance(appearanceId)) {
             cancelRequests.add(AppearanceCancelRequestResDto.from(cancelRequest));
         }
-        return AppearanceResDto.from(appearance, appearanceTitleSupport.titleOf(appearance), cancelRequests);
+        return AppearanceResDto.from(appearance, appearanceTitleSupport.titleOf(appearance), cancelRequests,
+                hpTaskSupport.findReleaseStatusOfAppearance(appearance));
     }
 
     private static List<AppearanceStatus> orAll(List<AppearanceStatus> statuses) {

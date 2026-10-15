@@ -6,6 +6,7 @@ import java.util.List;
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceSourceType;
 import com.hapbang.appearance.domain.AppearanceStatus;
+import com.hapbang.appearance.domain.HpTaskStatus;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -26,17 +27,21 @@ public record AppearanceResDto(
         @Schema(description = "성립 시각") LocalDateTime establishedAt,
         @Schema(description = "취소 시각 (취소된 경우)") LocalDateTime canceledAt,
         @Schema(description = "출연 취소 요청 이력 (순번 순, 최대 2건)") List<AppearanceCancelRequestResDto> cancelRequests,
+        @Schema(description = "이 출연의 반환(합의 취소) 진행 상태. 반환할 일이 없으면 null (모집글 마감 전 합의 취소는 보류 유지라 null). "
+                + "PENDING 처리 중 / DONE 완료 / DEAD 실패(고객센터 확인)") HpTaskStatus hpReleaseStatus,
         @Schema(description = "출연 버전") Long version,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
 
     public static AppearanceResDto from(Appearance appearance, String title,
-                                        List<AppearanceCancelRequestResDto> cancelRequests) {
+                                        List<AppearanceCancelRequestResDto> cancelRequests,
+                                        HpTaskStatus hpReleaseStatus) {
         return new AppearanceResDto(appearance.getId(), appearance.getSourceType(), appearance.getRequestId(),
                 appearance.getRecruitId(), appearance.getApplicationId(), title, appearance.getHostId(),
                 appearance.getGuestId(), appearance.getFee(), appearance.getScheduledAt(), appearance.getStatus(),
-                appearance.getEstablishedAt(), appearance.getCanceledAt(), cancelRequests, appearance.getVersion(),
+                appearance.getEstablishedAt(), appearance.getCanceledAt(), cancelRequests, hpReleaseStatus,
+                appearance.getVersion(),
                 appearance.getCreatedAt(), appearance.getUpdatedAt());
     }
 }

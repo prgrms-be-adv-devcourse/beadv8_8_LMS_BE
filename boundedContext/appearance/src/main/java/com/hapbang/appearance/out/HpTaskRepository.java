@@ -10,15 +10,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.appearance.domain.HpTask;
-import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
-import com.hapbang.appearance.domain.HpTaskType;
 
 public interface HpTaskRepository extends JpaRepository<HpTask, Long> {
 
-    /** 대상(요청서·모집글)의 가장 최근 작업 (종류별) */
-    Optional<HpTask> findFirstByRefTypeAndRefIdAndTaskTypeOrderByIdDesc(HpTaskRefType refType, Long refId,
-                                                                       HpTaskType taskType);
+    /** 멱등 키(= Billing 요청 ID)로 작업 하나를 찾는다. 키는 유니크다 */
+    Optional<HpTask> findByIdempotencyKey(String idempotencyKey);
 
     /**
      * 재시도 배치가 실행할 작업 ID. 대기 중이고 다음 시도 시각이 지났으며, 이미 한 번 이상 시도했거나 만든 지 대기 시간이 지난 작업.

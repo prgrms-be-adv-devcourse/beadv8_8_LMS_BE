@@ -467,6 +467,8 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
 - 이번 "취소"는 **응답 전 호스트 취소**다. 출연 성립 후의 출연 취소 요청(게스트)·호스트 일방 취소(위약금)와 다르다.
 - 보내기 응답의 `version`이 DB 값과 같도록, 보류 성공(`REQUESTED`) 반영 후 바로 DB에 반영한 뒤 응답을 만든다 (테스트로 찾은 문제).
 
+- 요청서 상세의 `hpReleaseStatus`는 거절·응답 전 취소·만료 반환(`APPEARANCE_REQUEST-{id}-RELEASE-1`)만 보여 준다. 성립 뒤 합의 취소 반환은 출연 상세에서 본다 (#231).
+
 ---
 
 ## 7. 출연 모집글 (#175)
@@ -511,7 +513,7 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 | 공개 목록 | `RECRUITING`이고 모집 마감 일시가 지나지 않은 모집글 (마감 처리 전이어도 시각으로 거름) | |
 | 상세·내 목록 | `RECRUITING`·`CLOSED`·`CANCELED`. `HOLD_PENDING`·`HOLD_FAILED`는 올린 호스트에게도 숨김(404) | 요청서와 같음 |
 | 수정 | 호스트만, `RECRUITING`이고 모집 마감 일시 전까지. 동시 수정은 409 `CONCURRENT_UPDATE` | ISSUE.md APR-08 |
-| 응답 | 성립 인원(`selectedCount`), 지원자 수(`applicantCount`, #195), 마감 방식·마감 시각(#222), 마감 반환 진행 상태(`hpReleaseStatus`, 호스트만, #222), 버전 포함. 취소 시각은 모집 취소에서 채움 | |
+| 응답 | 성립 인원(`selectedCount`), 지원자 수(`applicantCount`, #195), 마감 방식·마감 시각(#222), 마감 반환 진행 상태(`hpReleaseStatus`, 호스트만, 마감 반환만 — 합의 취소 반환은 출연 상세, #222·#231), 버전 포함. 취소 시각은 모집 취소에서 채움 | |
 | 미정 | 방송 플랫폼·카테고리 등 분류, 검색·필터, 비회원 공개, 정지 호스트 모집글 노출 | 필요할 때 결정 |
 
 ---
@@ -758,7 +760,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 자동 거절 | 매분 30초 배치. 처리 중이고 방송 예정 일시와 같거나 지난 요청 → `AUTO_REJECTED`, 출연 유지, HP 이동 없음 | AGENTS.md, K5 |
 | 동시 처리 | 출연 행 배타 잠금(`FOR UPDATE`)으로 요청·수락·거절·자동 거절을 차례로 처리. 모집 출처 수락은 모집글 → 출연 순서로 잠가 지원 수락·마감과 교착 상태가 없다 (APR-28 C9와 같은 순서) | |
 | 알림 | 요청 도착(→ 호스트), 수락·거절·자동 거절(→ 게스트) 이벤트 발행 (11장) | K7 |
-| 반환 진행 상태 | 이번에는 출연 상세에 담지 않는다. 모집 마감 후 합의 취소 반환은 모집글 상세 `hpReleaseStatus`(가장 최근 반환 작업)에 보일 수 있다 | |
+| 반환 진행 상태 | 출연 상세 `hpReleaseStatus` = 이 출연 단위 반환(합의 취소)만. 요청서 상세는 거절·취소·만료 반환만, 모집글 상세는 마감 반환만 보여 서로 섞이지 않는다 (반환 요청 ID로 정확히 찾음). 모집글 마감 전 합의 취소는 반환이 없어 null | 코드리뷰 (APR-31 K8) |
 
 ### 12.4 `appearances.cancel_requests` 스키마
 

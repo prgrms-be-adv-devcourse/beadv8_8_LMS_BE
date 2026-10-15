@@ -314,8 +314,9 @@ class AppearanceRecruitCloseTest {
             assertThat(results).allSatisfy(result -> assertThat(result)
                     .isInstanceOfAny(AppearanceRecruitResDto.class, AppearanceApplicationResDto.class,
                             AppearanceException.class));
-            // 수락이 먼저 커밋되면 마감은 버전 충돌로 막히거나(CONCURRENT_UPDATE) 그 뒤에 성공한다.
-            // 마감이 먼저 커밋되면 수락은 막힌다(CONCURRENT_UPDATE 또는 APPEARANCE_RECRUIT_NOT_OPEN).
+            // 둘 다 모집글을 배타 잠금으로 읽어 차례로 처리된다 (APR-28 C9).
+            // 수락이 먼저면 마감은 잠금을 기다린 뒤 최신 성립 인원으로 마감하고, 마감이 먼저면 수락은 APPEARANCE_RECRUIT_NOT_OPEN.
+            // 잠금 전에 읽은 값이 어긋나면 버전 확인이 CONCURRENT_UPDATE로 막는다 (안전장치).
             assertThat(results).filteredOn(AppearanceException.class::isInstance)
                     .allSatisfy(error -> assertThat(((AppearanceException) error).getErrorCode()).isIn(
                             AppearanceErrorCode.CONCURRENT_UPDATE, AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN))

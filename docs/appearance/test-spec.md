@@ -733,12 +733,13 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 묶음 | 케이스 | 기대 결과 |
 |---|---|---|
 | 요청서 출처 | 요청 | `CANCEL_REQUESTED`, 이력 1건, `AppearanceCancelRequestedEvent` 1건(호스트·출연·제목) |
-| 요청서 출처 | 수락 | `CANCELED_BY_AGREEMENT`, 반환 30,000 `CANCEL_AGREED`·출연별 반환 요청 ID·`DONE`, 보류 0, 잔액 원래대로, 수락 이벤트 1건 |
+| 요청서 출처 | 수락 | `CANCELED_BY_AGREEMENT`, 반환 30,000 `CANCEL_AGREED`·출연별 반환 요청 ID·`DONE`, 보류 0, 잔액 원래대로, 수락 이벤트 1건, 출연 상세 `hpReleaseStatus` `DONE`·요청서 상세는 null |
 | 요청서 출처 | 거절 → 재요청 → 거절 → 3번째 | `ESTABLISHED`·거절 사유·거절 이벤트(`autoRejected=false`) → 순번 1·2 → `CANCEL_REQUEST_LIMIT_EXCEEDED`, HP 작업 없음 |
 | 요청서 출처 | 거부 | 요청 없이 수락 `CANCEL_REQUEST_NOT_PENDING`, 공백 사유 `INVALID_REQUEST`, 호스트 요청 `NOT_APPEARANCE_GUEST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 처리 중 재요청 `CANCEL_REQUEST_ALREADY_PENDING`, 게스트 수락 `NOT_APPEARANCE_HOST`, 없는 출연 `APPEARANCE_NOT_FOUND` |
 | 요청서 출처 | 방송 예정 일시 지남 | 요청·수락·거절 `APPEARANCE_SCHEDULE_PASSED` |
 | 요청서 출처 | Billing 무응답에서 수락 | 합의 취소 성공, 반환 작업 `PENDING` |
-| 모집 출처 | 정원 1, 마감 전 수락 | 성립 인원 0, 반환 없음, 보류 30,000 유지, 빈자리에 다른 지원자 수락 성공 (전에는 `RECRUIT_FULL`) |
+| 모집 출처 | 정원 1, 마감 전 수락 | 성립 인원 0, 반환 없음(출연 `hpReleaseStatus` null), 보류 30,000 유지, 빈자리에 다른 지원자 수락 성공 (전에는 `RECRUIT_FULL`) |
+| 모집 출처 | 정원 3·성립 1, 마감 반환 실패(`PENDING`) 뒤 합의 취소 반환 성공 | 출연 상세 `DONE`, 모집글 상세는 마감 반환 `PENDING` 그대로 (가려지지 않음) |
 | 모집 출처 | 마감 전 수락 후 조기 마감 | 마감 반환 `RECRUIT_CLOSED` 30,000 1건, 보류 0 |
 | 모집 출처 | 마감 후 수락 | 반환 30,000 `CANCEL_AGREED`·`APPEARANCE_RECRUIT-{id}-RELEASE-APPEARANCE-{id}`·`DONE`, 보류 0, 성립 인원 0 |
 | 모집 출처 | 합의 취소 수락 + 빈자리 지원 수락 동시 | 결과는 응답 또는 업무 예외뿐(교착 상태 없음), 합의 취소는 성공, 성립 인원 = 유지 중인 출연 수 |
