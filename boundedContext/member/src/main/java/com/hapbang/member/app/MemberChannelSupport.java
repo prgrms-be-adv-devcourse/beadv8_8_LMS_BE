@@ -2,7 +2,6 @@ package com.hapbang.member.app;
 
 import java.util.List;
 
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -15,7 +14,6 @@ import com.hapbang.member.domain.User;
 import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.shared.member.event.UserModifiedEvent;
 
 import lombok.RequiredArgsConstructor;
 
@@ -25,7 +23,7 @@ import lombok.RequiredArgsConstructor;
 public class MemberChannelSupport {
 
     private final InfluencerChannelRepository influencerChannelRepository;
-    private final ApplicationEventPublisher eventPublisher;
+    private final MemberSupport memberSupport;
 
     /** 내 채널만. 남의 채널이거나 없으면 CHANNEL_NOT_FOUND (남의 채널이 있는지도 알려 주지 않는다) */
     public InfluencerChannel findMyChannel(Long userId, Long channelId) {
@@ -54,8 +52,7 @@ public class MemberChannelSupport {
     public ChannelVerificationResult applyResult(User user, InfluencerChannel channel) {
         boolean roleChanged = channel.isApproved() && user.getRole() == Role.USER;
         if (roleChanged) {
-            user.changeRole(Role.INFLUENCER);
-            eventPublisher.publishEvent(new UserModifiedEvent(user.toDto()));
+            memberSupport.changeRole(user, Role.INFLUENCER);
         }
         return new ChannelVerificationResult(channel.getVerificationStatus(), user.getRole(), roleChanged);
     }
