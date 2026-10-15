@@ -49,7 +49,7 @@ public class ApiV1MemberChannelReviewController implements ApiV1MemberChannelRev
     @Override
     @PostMapping("/{channelId}/reject")
     public ResponseEntity<Void> reject(@LoginUserId Long adminId, @PathVariable("channelId") Long channelId,
-                                       @Valid @RequestBody ChannelRejectRequest request) {
+                                       @Valid @RequestBody RejectRequest request) {
         memberChannelReviewFacade.reject(adminId, channelId, request.reason());
         return ResponseEntity.noContent().build();
     }

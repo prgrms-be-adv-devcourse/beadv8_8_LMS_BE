@@ -32,5 +32,5 @@ public interface ApiV1MemberChannelReviewSpec {
             description = "관리자만 (그 외 403). 심사 대기 → 반려(204). 사유 필수·500자 이하 (어기면 400). "
                     + "회원은 내 채널 목록에서 사유를 보고 다시 승인 요청할 수 있다. 오류 코드는 승인과 같다.")
     @ApiResponse(responseCode = "204", description = "반려됨 (본문 없음)")
-    ResponseEntity<Void> reject(Long adminId, Long channelId, ChannelRejectRequest request);
+    ResponseEntity<Void> reject(Long adminId, Long channelId, RejectRequest request);
 }
