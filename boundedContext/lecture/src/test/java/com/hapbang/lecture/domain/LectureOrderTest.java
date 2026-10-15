@@ -378,6 +378,98 @@ class LectureOrderTest {
     }
 
     @Test
+    void 지급_실패를_기록하면_횟수와_마지막_코드_시각이_남는다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        LocalDateTime secondFailure = PAYOUT_AT.plusDays(1);
+
+        order.recordPayoutFailure(1L, "WALLET_NOT_FOUND", false, PAYOUT_AT);
+        assertThat(order.recordPayoutFailure(1L, "ObjectOptimisticLockingFailureException", false, secondFailure))
+                .isPresent();
+
+        assertThat(order.getItems().get(0))
+                .extracting(OrderItem::getPayoutFailureCount, OrderItem::getLastPayoutFailureCode,
+                        OrderItem::getLastPayoutFailedAt, OrderItem::getPayoutQuarantinedAt, OrderItem::getStatus)
+                .containsExactly(2, "ObjectOptimisticLockingFailureException", secondFailure, null,
+                        OrderItemStatus.CONFIRMED);
+    }
+
+    @Test
+    void 영구_실패는_처음_실패할_때_격리한다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        order.recordPayoutFailure(1L, "WALLET_NOT_FOUND", false, PAYOUT_AT);
+
+        order.recordPayoutFailure(1L, "PAYOUT_ALREADY_SETTLED", true, PAYOUT_AT.plusDays(1));
+
+        OrderItem item = order.getItems().get(0);
+        assertThat(item.getPayoutQuarantinedAt()).isEqualTo(PAYOUT_AT.plusDays(1));
+        assertThat(item.isPayoutQuarantined()).isTrue();
+        assertThat(item.getPayoutFailureCount()).isEqualTo(2);
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+    }
+
+    @Test
+    void 격리된_항목은_지급_대상이_아니다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        order.recordPayoutFailure(1L, "PAYOUT_ALREADY_SETTLED", true, PAYOUT_AT);
+
+        assertThat(order.getItems().get(0).isPayable(PAYOUT_AT.plusDays(1))).isFalse();
+        assertThat(order.payOutItem(1L, PAYOUT_AT.plusDays(1))).isEmpty();
+        assertThat(order.getItems().get(0).getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
+    }
+
+    @Test
+    void 지급_대상이_아니게_된_항목에는_지급_실패를_기록하지_않는다() {
+        // 늦은 쪽의 낙관적 락 충돌로 실패한 경우: 다른 실행이 먼저 지급했거나 이의 제기 접수가 먼저 커밋되었다
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L, 3L, 4L);
+        order.confirmItem(2L, SEPT_30);
+        order.payOutItem(2L, PAYOUT_AT);
+        order.confirmItem(3L, SEPT_30);
+        ReflectionTestUtils.setField(order.getItems().get(2), "objectionStatus", ObjectionStatus.FILED);
+        order.confirmItem(4L, SEPT_30);
+        order.recordPayoutFailure(4L, "PAYOUT_ALREADY_SETTLED", true, PAYOUT_AT);
+
+        assertThat(order.recordPayoutFailure(1L, "WALLET_NOT_FOUND", true, PAYOUT_AT)).isEmpty();
+        assertThat(order.recordPayoutFailure(2L, "WALLET_NOT_FOUND", true, PAYOUT_AT)).isEmpty();
+        assertThat(order.recordPayoutFailure(3L, "WALLET_NOT_FOUND", true, PAYOUT_AT)).isEmpty();
+        // 이미 격리된 항목은 지급 배치가 처리하지 않으므로 기록도 바뀌지 않는다
+        assertThat(order.recordPayoutFailure(4L, "HOLD_ALREADY_CLOSED", true, PAYOUT_AT.plusDays(1))).isEmpty();
+        assertThat(order.getItems())
+                .extracting(OrderItem::getPayoutFailureCount, OrderItem::getLastPayoutFailureCode,
+                        OrderItem::getPayoutQuarantinedAt)
+                .containsExactly(tuple(0, null, null), tuple(0, null, null), tuple(0, null, null),
+                        tuple(1, "PAYOUT_ALREADY_SETTLED", PAYOUT_AT));
+    }
+
+    @Test
+    void 격리를_해제하면_격리_시각만_비우고_실패_기록은_남긴다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        order.recordPayoutFailure(1L, "PAYOUT_ALREADY_SETTLED", true, PAYOUT_AT);
+
+        order.releasePayoutQuarantine(1L);
+
+        OrderItem item = order.getItems().get(0);
+        assertThat(item)
+                .extracting(OrderItem::getPayoutFailureCount, OrderItem::getLastPayoutFailureCode,
+                        OrderItem::getLastPayoutFailedAt, OrderItem::getPayoutQuarantinedAt)
+                .containsExactly(1, "PAYOUT_ALREADY_SETTLED", PAYOUT_AT, null);
+        assertThat(item.isPayable(PAYOUT_AT.plusDays(1))).isTrue();
+    }
+
+    @Test
+    void 격리되지_않은_항목은_격리를_해제할_수_없다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L);
+        order.confirmItem(1L, SEPT_30);
+        order.recordPayoutFailure(1L, "WALLET_NOT_FOUND", false, PAYOUT_AT);
+
+        assertErrorCode(() -> order.releasePayoutQuarantine(1L), LectureErrorCode.PAYOUT_NOT_QUARANTINED);
+        assertErrorCode(() -> order.releasePayoutQuarantine(99L), LectureErrorCode.ORDER_ITEM_NOT_FOUND);
+    }
+
+    @Test
     void 자동_확정_시각_직전까지_구매_취소할_수_있다() {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L);
         LocalDateTime lastMoment = LocalDateTime.of(2026, 10, 7, 23, 59, 59);

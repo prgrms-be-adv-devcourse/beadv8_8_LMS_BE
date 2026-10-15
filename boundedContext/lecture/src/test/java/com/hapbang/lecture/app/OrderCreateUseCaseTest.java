@@ -12,6 +12,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -205,6 +206,47 @@ class OrderCreateUseCaseTest {
     }
 
     @Test
+    void 다건_주문은_강의_ID_오름차순으로_항목을_만든다() {
+        Lecture first = saveOnSale("OBS 방송 세팅", PRICE_HP);
+        Lecture second = saveOnSale("마이크 고르기", 5_000L);
+
+        OrderResponse response = lectureOrderFacade.createOrder(BUYER_ID, List.of(second.getId(), first.getId()));
+
+        assertThat(response.items()).extracting(OrderItemResponse::lectureId)
+                .containsExactly(first.getId(), second.getId());
+        // 항목 INSERT(IDENTITY)도 같은 순서로 실행된다 (D55)
+        assertThat(response.items()).extracting(OrderItemResponse::orderItemId).isSorted();
+    }
+
+    @Test
+    void 반대_순서로_동시에_다건_주문하면_하나는_성공하고_하나는_ALREADY_OWNED_LECTURE다() throws Exception {
+        // 두 주문이 같은 유일 인덱스 키를 서로 다른 순서로 잡으면 교착(40P01, 500)이 난다. 여러 번 겨뤄 확인한다
+        SecurityContext securityContext = SecurityContextHolder.getContext();
+        for (int round = 0; round < 10; round++) {
+            Long first = saveOnSale("OBS 방송 세팅", PRICE_HP).getId();
+            Long second = saveOnSale("마이크 고르기", 5_000L).getId();
+            CountDownLatch start = new CountDownLatch(1);
+            List<Object> results = new ArrayList<>();
+            try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+                List<Future<Object>> futures = List.of(
+                        executor.submit(orderOnSignal(securityContext, start, List.of(first, second))),
+                        executor.submit(orderOnSignal(securityContext, start, List.of(second, first))));
+                start.countDown();
+                for (Future<Object> future : futures) {
+                    results.add(future.get(30, TimeUnit.SECONDS));
+                }
+            }
+
+            assertThat(results).as("round %d: %s", round, results)
+                    .filteredOn(OrderResponse.class::isInstance).hasSize(1);
+            assertThat(results).as("round %d: %s", round, results)
+                    .filteredOn(LectureErrorCode.ALREADY_OWNED_LECTURE::equals).hasSize(1);
+        }
+        // 실패한 주문의 보류는 모두 롤백되고, 성공한 주문의 항목 2개만 보류된다
+        assertThat(billingPort.holds()).hasSize(20);
+    }
+
+    @Test
     @WithMockUser(roles = "ADMIN")
     void 관리자는_주문할_수_없다() {
         Long lectureId = saveOnSale("OBS 방송 세팅", PRICE_HP).getId();
@@ -212,6 +254,24 @@ class OrderCreateUseCaseTest {
         assertThatThrownBy(() -> lectureOrderFacade.createOrder(ADMIN_ID, List.of(lectureId)))
                 .isInstanceOf(AuthorizationDeniedException.class);
         assertThat(billingPort.holds()).isEmpty();
+    }
+
+    /** 신호를 받으면 주문한다. 업무 실패는 오류 코드로, 그 밖의 예외(교착 등)는 예외 그대로 돌려준다 */
+    private Callable<Object> orderOnSignal(SecurityContext securityContext, CountDownLatch start,
+                                           List<Long> lectureIds) {
+        return () -> {
+            SecurityContextHolder.setContext(securityContext);
+            start.await();
+            try {
+                return lectureOrderFacade.createOrder(BUYER_ID, lectureIds);
+            } catch (LectureException e) {
+                return e.getErrorCode();
+            } catch (RuntimeException e) {
+                return e;
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
+        };
     }
 
     private void assertRejected(Long buyerUserId, List<Long> lectureIds, LectureErrorCode errorCode) {

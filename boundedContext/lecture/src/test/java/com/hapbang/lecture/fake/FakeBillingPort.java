@@ -53,6 +53,7 @@ public class FakeBillingPort implements BillingPort {
     private volatile Long releasedHpOverride;
     private volatile Long paidHpOverride;
     private volatile Long failingPayoutReferenceId;
+    private volatile FakeBillingErrorCode payoutFailureCode;
     private volatile CountDownLatch releaseGate;
     private volatile Duration releaseGateTimeout;
 
@@ -66,6 +67,7 @@ public class FakeBillingPort implements BillingPort {
         releasedHpOverride = null;
         paidHpOverride = null;
         failingPayoutReferenceId = null;
+        payoutFailureCode = null;
         releaseGate = null;
     }
 
@@ -83,8 +85,14 @@ public class FakeBillingPort implements BillingPort {
         this.paidHpOverride = paidHp;
     }
 
-    /** 이 참조 대상의 지급을 billing 업무 오류로 거절한다({@code null}이면 해제). 지갑이 없는 판매자 등 */
+    /** 이 참조 대상의 지급을 지갑 없음({@code WALLET_NOT_FOUND}, 일시 실패)으로 거절한다({@code null}이면 해제) */
     public void failPayoutFor(Long referenceId) {
+        failPayoutFor(referenceId, FakeBillingErrorCode.WALLET_NOT_FOUND);
+    }
+
+    /** 이 참조 대상의 지급을 이 billing 업무 오류로 거절한다({@code null}이면 해제). 오류 분류별 지급 배치 확인용 (D54) */
+    public void failPayoutFor(Long referenceId, FakeBillingErrorCode code) {
+        this.payoutFailureCode = code;
         this.failingPayoutReferenceId = referenceId;
     }
 
@@ -156,7 +164,7 @@ public class FakeBillingPort implements BillingPort {
             throw new IllegalStateException("보류가 없습니다: " + command.referenceId());
         }
         if (command.referenceId().equals(failingPayoutReferenceId)) {
-            throw new BusinessException(FakeBillingErrorCode.WALLET_NOT_FOUND);
+            throw new BusinessException(payoutFailureCode);
         }
         String paidRequestId = paidItems.putIfAbsent(command.referenceId(), command.payoutRequestId());
         if (paidRequestId != null && !paidRequestId.equals(command.payoutRequestId())) {
@@ -211,7 +219,11 @@ public class FakeBillingPort implements BillingPort {
     public enum FakeBillingErrorCode implements BaseErrorCode {
         INSUFFICIENT_BALANCE(HttpStatus.CONFLICT, "HP 잔액이 부족합니다."),
         WALLET_NOT_FOUND(HttpStatus.NOT_FOUND, "지갑을 찾을 수 없습니다."),
-        PAYOUT_ALREADY_SETTLED(HttpStatus.CONFLICT, "이미 지급한 대상입니다.");
+        PAYOUT_ALREADY_SETTLED(HttpStatus.CONFLICT, "이미 지급한 대상입니다."),
+        HOLD_NOT_FOUND(HttpStatus.NOT_FOUND, "HP 보류를 찾을 수 없습니다."),
+        HOLD_ALREADY_CLOSED(HttpStatus.CONFLICT, "남은 보류 HP가 없어 더 처리할 수 없습니다."),
+        IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "같은 작업 키로 다른 내용의 원장 기록이 요청되었습니다."),
+        HOLD_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다.");
 
         private final HttpStatus status;
         private final String message;
