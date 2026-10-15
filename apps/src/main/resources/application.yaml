@@ -93,6 +93,15 @@ hapbang:
     client-secret: ${CHZZK_CLIENT_SECRET}
     # 앱에 등록한 리디렉션 URL과 같아야 한다 (앱 하나에 하나만 등록돼 환경마다 다르다)
     redirect-uri: ${CHZZK_REDIRECT_URI}
+  billing:
+    # HP 충전(TossPayments 테스트 결제). 값이 없으면 앱은 뜨고 충전 API만 503 CHARGE_UNAVAILABLE로 거절한다
+    toss:
+      # 토스페이먼츠 개발자센터 > API 키 > 테스트 시크릿 키(test_sk_… 또는 위젯용 test_gsk_…). 코드·로그에 남기지 않는다
+      secret-key: ${TOSS_PAYMENTS_SECRET_KEY:}
+    payment-key:
+      # 결제키(paymentKey) 암호화 키(AES-256, Base64 32바이트)와 중복 식별용 HMAC 키(Base64 32바이트 이상). 서로 다른 값을 쓴다
+      encryption-key: ${BILLING_PAYMENT_KEY_ENCRYPTION_KEY:}
+      hmac-key: ${BILLING_PAYMENT_KEY_HMAC_KEY:}
 
 springdoc:
   swagger-ui:
