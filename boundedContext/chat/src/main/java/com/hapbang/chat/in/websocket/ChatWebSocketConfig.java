@@ -7,6 +7,8 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
+import org.springframework.web.socket.server.support.HttpSessionHandshakeInterceptor;
 
 import lombok.RequiredArgsConstructor;
 
@@ -36,6 +38,7 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public static final String ERROR_QUEUE = CHAT_QUEUE_PREFIX + "/errors";
 
     private final ChatStompInterceptor chatStompInterceptor;
+    private final ChatWebSocketSessionRegistry chatWebSocketSessionRegistry;
 
     /**
      * 웹소켓 핸드셰이크를 허용할 프론트 출처 (프로필별 {@code hapbang.chat.websocket.allowed-origins}).
@@ -47,7 +50,15 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint(ENDPOINT).setAllowedOrigins(allowedOrigins);
+        // HTTP 세션 ID를 웹소켓 세션 속성에 남긴다. 로그아웃하면 그 세션으로 맺은 연결만 닫는다(#242)
+        HttpSessionHandshakeInterceptor httpSessionInterceptor = new HttpSessionHandshakeInterceptor();
+        httpSessionInterceptor.setCopyAllAttributes(false);
+        registry.addEndpoint(ENDPOINT).setAllowedOrigins(allowedOrigins).addInterceptors(httpSessionInterceptor);
+    }
+
+    @Override
+    public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
+        registration.addDecoratorFactory(chatWebSocketSessionRegistry);
     }
 
     @Override

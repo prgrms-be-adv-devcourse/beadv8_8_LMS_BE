@@ -38,11 +38,19 @@ public class ChatUserUseCase {
         chatUserRepository.save(ChatUser.create(user));
     }
 
-    public void update(UserDto user) {
+    /**
+     * 복제 정보를 갱신한다. 회원 변경 이벤트는 프로필 수정에도 오므로, 이번 변경으로 채팅할 수 없게 됐는지
+     * (채팅 가능 → 불가: 정지·탈퇴·일반 유저로 강등)를 갱신 전후로 비교해 돌려준다.
+     *
+     * @return 이번 변경으로 채팅할 수 없게 됐으면 true. 프로필 수정이나 채팅 가능 여부가 그대로인 변경은 false
+     */
+    public boolean update(UserDto user) {
         validate(user);
         ChatUser chatUser = chatUserRepository.findById(user.id())
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_USER_NOT_FOUND));
+        boolean couldChat = chatUser.canChat();
         chatUser.syncFrom(user);
+        return couldChat && !chatUser.canChat();
     }
 
     private void validate(UserDto user) {

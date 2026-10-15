@@ -1,5 +1,6 @@
 package com.hapbang.global.config;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,7 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +21,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.event.UserLoggedOutEvent;
 import com.hapbang.testsupport.TestLogin;
 
 // 실제 SecurityConfig를 거쳐 공통 권한 규칙을 검증한다. 컨트롤러는 테스트 전용이다.
@@ -26,10 +31,34 @@ import com.hapbang.testsupport.TestLogin;
         "spring.security.oauth2.client.registration.google.client-secret=test"
 })
 @Import({SecurityConfig.class, SecurityConfigTest.SampleController.class})
+@RecordApplicationEvents
 class SecurityConfigTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ApplicationEvents events;
+
+    @Test
+    void 로그아웃하면_회원_ID와_끝나는_세션_ID로_로그아웃_이벤트를_발행한다() throws Exception {
+        MockHttpSession session = new MockHttpSession(null, "session-1");
+
+        mockMvc.perform(post("/api/v1/members/logout").session(session).with(TestLogin.as(7L, Role.INFLUENCER))
+                        .with(csrf()))
+                .andExpect(status().isOk());
+
+        assertThat(events.stream(UserLoggedOutEvent.class)).containsExactly(new UserLoggedOutEvent(7L, "session-1"));
+        assertThat(session.isInvalid()).isTrue();
+    }
+
+    @Test
+    void 로그인하지_않은_로그아웃은_이벤트를_발행하지_않는다() throws Exception {
+        mockMvc.perform(post("/api/v1/members/logout").with(csrf()))
+                .andExpect(status().isOk());
+
+        assertThat(events.stream(UserLoggedOutEvent.class)).isEmpty();
+    }
 
     @Test
     void 관리자_API는_로그인하지_않으면_401() throws Exception {

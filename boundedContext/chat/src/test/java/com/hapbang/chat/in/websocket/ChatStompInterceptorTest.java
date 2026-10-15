@@ -12,9 +12,11 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
 
+import com.hapbang.chat.app.ChatUserFacade;
+
 class ChatStompInterceptorTest {
 
-    private final ChatStompInterceptor interceptor = new ChatStompInterceptor();
+    private final ChatStompInterceptor interceptor = new ChatStompInterceptor(mock(ChatUserFacade.class));
     private final MessageChannel channel = mock(MessageChannel.class);
 
     @ParameterizedTest
