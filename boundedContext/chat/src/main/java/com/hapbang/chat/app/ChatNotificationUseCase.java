@@ -54,7 +54,7 @@ public class ChatNotificationUseCase {
 
     /** 출연 요청 도착: 호스트가 게스트에게 */
     public Optional<ChatNotificationResult> notifyAppearanceRequestSent(AppearanceRequestDto request) {
-        return notify(NotificationKind.APPEARANCE_REQUEST_SENT, request.requestId(), request.hostId(),
+        return notify(NotificationKind.APPEARANCE_REQUEST_SENT, request.requestId(), null, request.hostId(),
                 request.guestId(), nickname -> """
                         %s님이 출연을 요청했습니다.
                         제목: %s
@@ -67,13 +67,16 @@ public class ChatNotificationUseCase {
     /** 출연 모집 지원 도착: 게스트가 호스트에게 */
     public Optional<ChatNotificationResult> notifyAppearanceApplicationSubmitted(AppearanceApplicationDto application) {
         return notify(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, application.applicationId(),
-                application.guestId(), application.hostId(), nickname -> """
+                application.recruitId(), application.guestId(), application.hostId(), nickname -> """
                         %s님이 출연 모집에 지원했습니다.
                         모집글: %s""".formatted(nickname, application.recruitTitle()));
     }
 
-    private Optional<ChatNotificationResult> notify(NotificationKind kind, Long referenceId, Long senderId,
-            Long receiverId, Function<String, String> contentOf) {
+    /**
+     * @param parentReferenceId 알림 대상의 상위 출연 건 ID (지원 알림의 모집글 ID). 없으면 null
+     */
+    private Optional<ChatNotificationResult> notify(NotificationKind kind, Long referenceId, Long parentReferenceId,
+            Long senderId, Long receiverId, Function<String, String> contentOf) {
         if (chatMessageRepository.existsByNotificationKindAndReferenceId(kind, referenceId)) {
             log.info("이미 남긴 채팅 알림 kind={}, referenceId={}", kind, referenceId);
             return Optional.empty();
@@ -87,7 +90,7 @@ public class ChatNotificationUseCase {
         LocalDateTime now = LocalDateTime.now();
         OpenedRoom opened = chatRoomUseCase.openDirectRoom(senderId, receiverId, now);
         ChatMessage message = chatMessageRepository.save(ChatMessage.notification(opened.chatRoom(), senderId, kind,
-                referenceId, contentOf.apply(chatRoomSupporter.displayNicknameOf(senderId)), now));
+                referenceId, parentReferenceId, contentOf.apply(chatRoomSupporter.displayNicknameOf(senderId)), now));
         List<Long> deliverToUserIds = chatRoomMemberRepository
                 .findByChatRoom_IdAndDeletedAtIsNull(opened.chatRoom().getId()).stream()
                 .filter(ChatRoomMember::isActive)
