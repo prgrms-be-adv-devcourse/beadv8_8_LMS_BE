@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import com.hapbang.appearance.app.AppearanceHoldRecheckUseCase;
+import com.hapbang.appearance.app.AppearanceRecruitDeadlineCloseUseCase;
 import com.hapbang.appearance.app.AppearanceRequestExpireUseCase;
 import com.hapbang.appearance.app.HpTaskRetryUseCase;
 
@@ -19,6 +20,7 @@ class AppearanceBatchConditionTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withBean(AppearanceHoldRecheckUseCase.class, () -> mock(AppearanceHoldRecheckUseCase.class))
+            .withBean(AppearanceRecruitDeadlineCloseUseCase.class, () -> mock(AppearanceRecruitDeadlineCloseUseCase.class))
             .withBean(AppearanceRequestExpireUseCase.class, () -> mock(AppearanceRequestExpireUseCase.class))
             .withBean(HpTaskRetryUseCase.class, () -> mock(HpTaskRetryUseCase.class))
             .withUserConfiguration(AppearanceBatch.class);

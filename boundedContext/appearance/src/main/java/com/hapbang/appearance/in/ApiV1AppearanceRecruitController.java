@@ -70,8 +70,9 @@ public class ApiV1AppearanceRecruitController implements ApiV1AppearanceRecruitS
 
     @Override
     @GetMapping("/{recruitId}")
-    public RsData<AppearanceRecruitResDto> getDetail(@PathVariable("recruitId") Long recruitId) {
-        AppearanceRecruitResDto detail = appearanceRecruitFacade.getDetail(recruitId);
+    public RsData<AppearanceRecruitResDto> getDetail(@LoginUserId Long userId,
+                                                     @PathVariable("recruitId") Long recruitId) {
+        AppearanceRecruitResDto detail = appearanceRecruitFacade.getDetail(userId, recruitId);
         return RsData.ok("출연 모집글을 조회했습니다.", detail);
     }
 
@@ -83,5 +84,13 @@ public class ApiV1AppearanceRecruitController implements ApiV1AppearanceRecruitS
         AppearanceRecruitResDto updated = appearanceRecruitFacade.updateBasicInfo(userId, recruitId,
                 request.title(), request.content(), request.hostChannelUrl());
         return RsData.ok("출연 모집글을 수정했습니다.", updated);
+    }
+
+    @Override
+    @PostMapping("/{recruitId}/close")
+    public RsData<AppearanceRecruitResDto> closeEarly(@LoginUserId Long userId,
+                                                      @PathVariable("recruitId") Long recruitId) {
+        AppearanceRecruitResDto closed = appearanceRecruitFacade.closeEarly(userId, recruitId);
+        return RsData.ok("출연 모집을 마감했습니다.", closed);
     }
 }

@@ -72,7 +72,7 @@ class AppearanceSwaggerDocsTest {
     }
 
     @Test
-    @DisplayName("모집글 올리기(201)·상세·수정은 RsData로 감싼 모집글, 공개·내 목록은 RsData의 PagedModel이다")
+    @DisplayName("모집글 올리기(201)·상세·수정·조기 마감은 RsData로 감싼 모집글, 공개·내 목록은 RsData의 PagedModel이다")
     void recruitSchemaIsRsData() throws Exception {
         String recruits = "$.paths['/api/v1/appearances/recruits";
         mockMvc.perform(get(API_DOCS))
@@ -82,6 +82,8 @@ class AppearanceSwaggerDocsTest {
                 .andExpect(jsonPath(recruits + "/{recruitId}'].get.responses['200'].content['*/*'].schema['$ref']")
                         .value("#/components/schemas/RsDataAppearanceRecruitResDto"))
                 .andExpect(jsonPath(recruits + "/{recruitId}'].patch.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRecruitResDto"))
+                .andExpect(jsonPath(recruits + "/{recruitId}/close'].post.responses['200'].content['*/*'].schema['$ref']")
                         .value("#/components/schemas/RsDataAppearanceRecruitResDto"))
                 .andExpect(jsonPath(recruits + "'].get.responses['200'].content['*/*'].schema['$ref']")
                         .value("#/components/schemas/RsDataPageAppearanceRecruitSummaryResDto"))

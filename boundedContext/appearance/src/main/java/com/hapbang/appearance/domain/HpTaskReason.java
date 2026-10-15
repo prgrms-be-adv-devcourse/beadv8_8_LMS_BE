@@ -9,7 +9,8 @@ import lombok.RequiredArgsConstructor;
 public enum HpTaskReason {
     REQUEST_REJECTED("게스트가 출연 요청을 거절"),
     REQUEST_CANCELED("게스트 응답 전에 호스트가 출연 요청을 취소"),
-    REQUEST_EXPIRED("수락 기한까지 게스트 응답 없음");
+    REQUEST_EXPIRED("수락 기한까지 게스트 응답 없음"),
+    RECRUIT_CLOSED("모집 마감 때 성립하지 못한 인원분");
 
     // 합의 취소·노쇼·지급 등은 해당 처리에서 추가한다.
 

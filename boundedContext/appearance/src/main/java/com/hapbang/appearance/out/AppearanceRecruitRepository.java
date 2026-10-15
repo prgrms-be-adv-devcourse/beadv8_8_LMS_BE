@@ -31,4 +31,13 @@ public interface AppearanceRecruitRepository extends JpaRepository<AppearanceRec
             """)
     List<Long> findIdsByStatusAndCreatedBefore(@Param("status") AppearanceRecruitStatus status,
                                                @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
+
+    /** 기한 마감 배치: 이 상태이면서 모집 마감 일시가 기준 시각 이전·같은 모집글 ID, 마감 일시가 이른 순 */
+    @Query("""
+            select r.id from AppearanceRecruit r
+            where r.status = :status and r.recruitDeadline <= :now
+            order by r.recruitDeadline, r.id
+            """)
+    List<Long> findIdsByStatusAndDeadlinePassed(@Param("status") AppearanceRecruitStatus status,
+                                                @Param("now") LocalDateTime now, Pageable pageable);
 }

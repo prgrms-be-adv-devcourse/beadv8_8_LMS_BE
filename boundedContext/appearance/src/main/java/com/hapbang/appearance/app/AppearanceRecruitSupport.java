@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -52,6 +53,19 @@ public class AppearanceRecruitSupport {
         appearanceRecruitRepository.flush();
     }
 
+    /**
+     * 모집글·지원 변경을 바로 DB에 반영한다. 다른 요청이 먼저 바꿨으면(버전 충돌) 409로 바꿔 던진다.
+     *
+     * @throws AppearanceException 동시 처리 충돌({@code CONCURRENT_UPDATE})
+     */
+    public void flushOrConflict() {
+        try {
+            appearanceRecruitRepository.flush();
+        } catch (ObjectOptimisticLockingFailureException exception) {
+            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
+        }
+    }
+
     // TODO(검색·필터): 플랫폼·카테고리·기간 등 조건이 정해지면 조건 객체(예: AppearanceRecruitSearchCondition)를 받아
     //  조회 조건을 조합한다. 보이는 상태 제한과 최신순 정렬은 그대로 유지한다.
 
@@ -76,6 +90,12 @@ public class AppearanceRecruitSupport {
 
     private Pageable latestFirst(Pageable pageable) {
         return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST_FIRST);
+    }
+
+    /** 기한 마감 배치: 모집 중이고 마감 일시가 지난 모집글 ID (최대 {@code limit}건) */
+    public List<Long> findDeadlinePassedIds(LocalDateTime now, int limit) {
+        return appearanceRecruitRepository.findIdsByStatusAndDeadlinePassed(AppearanceRecruitStatus.RECRUITING, now,
+                PageRequest.of(0, limit));
     }
 
     /** 보류 재확인 배치: 기준 시각 이전에 만들어져 아직 보류 처리 중인 모집글 ID (최대 {@code limit}건) */

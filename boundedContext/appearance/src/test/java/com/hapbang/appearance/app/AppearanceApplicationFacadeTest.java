@@ -136,7 +136,7 @@ class AppearanceApplicationFacadeTest {
             assertThat(applied.status()).isEqualTo(AppearanceApplicationStatus.APPLIED);
             assertThat(applied.message()).isEqualTo("지원합니다.");
             assertThat(applied.appearanceId()).isNull();
-            assertThat(appearanceRecruitFacade.getDetail(recruitId).applicantCount()).isEqualTo(1);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).applicantCount()).isEqualTo(1);
         }
 
         @Test
@@ -232,7 +232,7 @@ class AppearanceApplicationFacadeTest {
 
             assertThat(withdrawn.status()).isEqualTo(AppearanceApplicationStatus.WITHDRAWN);
             assertThat(withdrawn.withdrawnAt()).isNotNull();
-            assertThat(appearanceRecruitFacade.getDetail(recruitId).applicantCount()).isZero();
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).applicantCount()).isZero();
         }
 
         @Test
@@ -268,11 +268,11 @@ class AppearanceApplicationFacadeTest {
             AppearanceApplicationStatus status = appearanceApplicationFacade.getMine(GUEST, null, FIRST_PAGE)
                     .getContent().getFirst().status();
             if (status == AppearanceApplicationStatus.WITHDRAWN) {
-                assertThat(appearanceRecruitFacade.getDetail(recruitId).selectedCount()).isZero();
+                assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).selectedCount()).isZero();
                 assertThat(appearanceRepository.count()).isZero();
             } else {
                 assertThat(status).isEqualTo(AppearanceApplicationStatus.SELECTED);
-                assertThat(appearanceRecruitFacade.getDetail(recruitId).selectedCount()).isEqualTo(1);
+                assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).selectedCount()).isEqualTo(1);
                 assertThat(appearanceRepository.count()).isEqualTo(1);
             }
         }
@@ -300,7 +300,7 @@ class AppearanceApplicationFacadeTest {
             assertThat(appearance.getRecruitId()).isEqualTo(recruitId);
             assertThat(appearance.getGuestId()).isEqualTo(GUEST);
             assertThat(appearance.getFee()).isEqualTo(30_000);
-            AppearanceRecruitResDto recruit = appearanceRecruitFacade.getDetail(recruitId);
+            AppearanceRecruitResDto recruit = appearanceRecruitFacade.getDetail(HOST, recruitId);
             assertThat(recruit.selectedCount()).isEqualTo(1);
             assertThat(recruit.applicantCount()).isEqualTo(1);
             assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId))
@@ -317,7 +317,7 @@ class AppearanceApplicationFacadeTest {
 
             assertErrorCode(() -> appearanceApplicationFacade.accept(HOST, second.id()), AppearanceErrorCode.RECRUIT_FULL);
 
-            assertThat(appearanceRecruitFacade.getDetail(recruitId).status().name()).isEqualTo("RECRUITING");
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).status().name()).isEqualTo("RECRUITING");
             assertThat(appearanceRepository.count()).isEqualTo(1);
         }
 
@@ -350,7 +350,7 @@ class AppearanceApplicationFacadeTest {
             assertErrorCode(() -> appearanceApplicationFacade.accept(HOST, applied.id()),
                     AppearanceErrorCode.APPEARANCE_USER_NOT_ACTIVE);
 
-            assertThat(appearanceRecruitFacade.getDetail(recruitId).selectedCount()).isZero();
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).selectedCount()).isZero();
             assertThat(appearanceApplicationFacade.getApplicants(HOST, recruitId, null, FIRST_PAGE).getContent()
                     .getFirst().status()).isEqualTo(AppearanceApplicationStatus.APPLIED);
             assertThat(appearanceRepository.count()).isZero();
@@ -374,7 +374,7 @@ class AppearanceApplicationFacadeTest {
                     .allSatisfy(error -> assertThat(((AppearanceException) error).getErrorCode())
                             .isIn(AppearanceErrorCode.CONCURRENT_UPDATE, AppearanceErrorCode.RECRUIT_FULL))
                     .hasSize(2);
-            assertThat(appearanceRecruitFacade.getDetail(recruitId).selectedCount()).isEqualTo(1);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).selectedCount()).isEqualTo(1);
             assertThat(appearanceRepository.count()).isEqualTo(1);
         }
     }
@@ -394,7 +394,7 @@ class AppearanceApplicationFacadeTest {
 
             assertThat(rejected.status()).isEqualTo(AppearanceApplicationStatus.NOT_SELECTED);
             assertThat(rejected.respondedAt()).isNotNull();
-            assertThat(appearanceRecruitFacade.getDetail(recruitId).applicantCount()).isEqualTo(1);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).applicantCount()).isEqualTo(1);
             assertErrorCode(() -> apply(GUEST, recruitId), AppearanceErrorCode.DUPLICATE_APPLICATION);
         }
 
@@ -462,7 +462,7 @@ class AppearanceApplicationFacadeTest {
             appearanceApplicationFacade.reject(HOST, apply(GUEST2, recruitId).id());
             appearanceApplicationFacade.withdraw(GUEST3, apply(GUEST3, recruitId).id());
 
-            assertThat(appearanceRecruitFacade.getDetail(recruitId).applicantCount()).isEqualTo(2);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).applicantCount()).isEqualTo(2);
             assertThat(appearanceRecruitFacade.getOpen(FIRST_PAGE).getContent())
                     .extracting(summary -> summary.id() + ":" + summary.applicantCount())
                     .containsExactly(emptyRecruitId + ":0", recruitId + ":2");

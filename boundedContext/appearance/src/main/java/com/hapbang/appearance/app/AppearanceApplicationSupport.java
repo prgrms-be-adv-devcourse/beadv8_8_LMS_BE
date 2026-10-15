@@ -2,6 +2,7 @@ package com.hapbang.appearance.app;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -69,6 +70,11 @@ public class AppearanceApplicationSupport {
         } catch (ObjectOptimisticLockingFailureException exception) {
             throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
         }
+    }
+
+    /** 모집글의 대기 중(응답 전) 지원 전부 */
+    public List<AppearanceApplication> findPendingByRecruit(Long recruitId) {
+        return appearanceApplicationRepository.findByRecruitIdAndStatus(recruitId, AppearanceApplicationStatus.APPLIED);
     }
 
     /** 모집글의 지원자 목록 (호스트). 최신순 */
