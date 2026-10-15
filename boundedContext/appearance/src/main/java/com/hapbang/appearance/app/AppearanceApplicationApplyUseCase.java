@@ -21,6 +21,9 @@ import lombok.RequiredArgsConstructor;
  * <p>
  * 확인 순서: 게스트 자격 → 모집글이 보이는지 → 지원할 수 있는지(자기 모집글 아님, 모집 중·마감 전, 메시지 길이) → 첫 지원인지.
  * 정원이 찼어도 지원은 받는다 (ISSUE.md APR-27 A2). 같은 게스트가 동시에 두 번 지원하면 DB 유니크 제약이 막는다.
+ * <p>
+ * 모집글은 공유 잠금으로 읽는다. 지원끼리는 막지 않고, 같은 모집글의 마감과는 순서가 정해져
+ * 마감된 모집글에 대기 지원이 남지 않는다 (APR-28 C9).
  */
 @Service
 @RequiredArgsConstructor
@@ -41,7 +44,7 @@ public class AppearanceApplicationApplyUseCase {
      */
     public AppearanceApplicationResDto apply(Long guestId, Long recruitId, String message) {
         appearanceUserSupport.getParticipant(guestId);
-        AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);
+        AppearanceRecruit recruit = appearanceRecruitSupport.getForApply(recruitId);
         recruit.validateVisible();
         AppearanceApplication application = AppearanceApplication.apply(recruit, guestId, message,
                 LocalDateTime.now(clock));

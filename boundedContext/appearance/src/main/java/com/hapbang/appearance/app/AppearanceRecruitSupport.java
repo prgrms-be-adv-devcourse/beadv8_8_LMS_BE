@@ -36,11 +36,38 @@ public class AppearanceRecruitSupport {
      * @throws AppearanceException 없는 모집글({@code APPEARANCE_RECRUIT_NOT_FOUND})
      */
     public AppearanceRecruit getById(Long recruitId) {
-        Optional<AppearanceRecruit> found = appearanceRecruitRepository.findById(recruitId);
-        if (found.isEmpty()) {
+        return found(appearanceRecruitRepository.findById(recruitId));
+    }
+
+    /**
+     * 지원할 모집글을 공유 잠금으로 읽는다. 지원 트랜잭션이 끝날 때까지 마감이 기다리게 해서,
+     * 마감이 방금 들어온 지원을 놓치고 대기 지원으로 남기지 않도록 한다 (ISSUE.md APR-28 C9).
+     *
+     * @throws AppearanceException 없는 모집글({@code APPEARANCE_RECRUIT_NOT_FOUND})
+     */
+    public AppearanceRecruit getForApply(Long recruitId) {
+        return found(appearanceRecruitRepository.findByIdForShare(recruitId));
+    }
+
+    /**
+     * 마감·수락할 모집글을 배타 잠금으로 읽는다 (C9).
+     * <ul>
+     *     <li>마감: 진행 중인 지원·수락이 커밋된 뒤의 최신 상태·성립 인원으로 마감하고, 그동안 새 지원은 기다렸다가 마감된 모집글을 본다.</li>
+     *     <li>잠그는 순서를 모집글 → 지원으로 맞춘다. 마감과 수락이 둘 다 모집글을 먼저 잠가야 서로 상대가 잡은 행을 기다리는
+     *     교착 상태(deadlock)가 생기지 않는다.</li>
+     * </ul>
+     *
+     * @throws AppearanceException 없는 모집글({@code APPEARANCE_RECRUIT_NOT_FOUND})
+     */
+    public AppearanceRecruit getForUpdate(Long recruitId) {
+        return found(appearanceRecruitRepository.findByIdForUpdate(recruitId));
+    }
+
+    private AppearanceRecruit found(Optional<AppearanceRecruit> recruit) {
+        if (recruit.isEmpty()) {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
         }
-        return found.get();
+        return recruit.get();
     }
 
     /** 저장하고 바로 DB에 반영한다 */

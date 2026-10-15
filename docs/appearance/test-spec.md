@@ -661,11 +661,13 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 조기 마감 | Billing 무응답 → 재시도 배치 | 마감 성공 + `PENDING`, 보류 그대로 → 재시도 후 `DONE`, 보류 0 |
 | 조기 마감 | 다른 회원 / 다시 마감 / 마감 일시 지남 / 보류 처리 중 | `NOT_RECRUIT_HOST` / `APPEARANCE_RECRUIT_NOT_OPEN` / `APPEARANCE_RECRUIT_NOT_OPEN`(반환 작업 없음) / `APPEARANCE_RECRUIT_NOT_FOUND` |
 | 마감 뒤 | 새 지원 / 대기 지원 수락 / 미선정 지원 취소 | `APPEARANCE_RECRUIT_NOT_OPEN` / `APPEARANCE_RECRUIT_NOT_OPEN` / `APPLICATION_NOT_PENDING` |
-| 동시성 | 조기 마감과 마지막 대기 지원 수락 동시 | 실패는 많아야 1건(`CONCURRENT_UPDATE` 또는 `APPEARANCE_RECRUIT_NOT_OPEN`). 출연 수 = 성립 인원, 마감됐으면 보류 = 성립 × 30,000, 아니면 보류 90,000, 호스트 잔액 = 기본 − 보류 |
+| 동시성 | 조기 마감과 마지막 대기 지원 수락 동시 | 결과는 모두 응답 또는 업무 예외(교착 상태·500 원인 없음). 실패는 많아야 1건(`CONCURRENT_UPDATE` 또는 `APPEARANCE_RECRUIT_NOT_OPEN`). 출연 수 = 성립 인원, 마감됐으면 보류 = 성립 × 30,000, 아니면 보류 90,000, 호스트 잔액 = 기본 − 보류 |
 | 기한 마감 | 마감 일시 지남, 수락 1·대기 1 | 1건, `CLOSED`(`DEADLINE`), 마감 시각 = 모집 마감 일시, 대기 → `NOT_SELECTED`, 반환 `DONE`, 보류 30,000 |
 | 기한 마감 | 마감 일시 전 1건 + 지남 1건, 두 번 실행 | 1건 → 0건, 전인 모집글은 `RECRUITING`, 반환 작업 1건 |
 | 기한 마감 | 정원이 찬 모집글 | 마감 1건, 반환 작업 없음 |
 | 기한 마감 | 마감 일시가 지난 `HOLD_PENDING` (C5) | 마감 배치만으로는 0건·작업 없음 → 보류 재확인 후 마감 배치 1건, `CLOSED`, 90,000 반환, 잔액 원래대로 |
+| 동시성 | 조기 마감과 새 지원 2건 동시 (3회 반복, C9) | 마감은 성공, 지원은 성공 또는 `APPEARANCE_RECRUIT_NOT_OPEN`. 마감된 모집글에 `APPLIED` 지원 0건 |
+| 기한 마감 | 대상 2건 중 1건 처리 중 충돌(`CONCURRENT_UPDATE`) (C8) | 1건만 마감, 충돌 건은 `RECRUITING`·반환 작업 없음(롤백) → 다음 실행에서 마감·반환 작업 1건 |
 | 역할 | 세션 USER / ADMIN | `AccessDeniedException` |
 
 ### 11.5 E2E — `AppearanceRecruitApiE2ETest`

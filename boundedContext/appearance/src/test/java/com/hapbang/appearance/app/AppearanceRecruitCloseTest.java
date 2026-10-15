@@ -2,6 +2,9 @@ package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -27,7 +30,9 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceApplicationStatus;
@@ -75,6 +80,9 @@ class AppearanceRecruitCloseTest {
 
     @Autowired
     AppearanceRecruitDeadlineCloseUseCase appearanceRecruitDeadlineCloseUseCase;
+
+    @MockitoSpyBean
+    AppearanceRecruitCloseRecorder appearanceRecruitCloseRecorder;
 
     @Autowired
     AppearanceHoldRecheckUseCase appearanceHoldRecheckUseCase;
@@ -303,6 +311,9 @@ class AppearanceRecruitCloseTest {
                     () -> appearanceRecruitFacade.closeEarly(HOST, recruitId),
                     () -> appearanceApplicationFacade.accept(HOST, applicationId)));
 
+            assertThat(results).allSatisfy(result -> assertThat(result)
+                    .isInstanceOfAny(AppearanceRecruitResDto.class, AppearanceApplicationResDto.class,
+                            AppearanceException.class));
             // 수락이 먼저 커밋되면 마감은 버전 충돌로 막히거나(CONCURRENT_UPDATE) 그 뒤에 성공한다.
             // 마감이 먼저 커밋되면 수락은 막힌다(CONCURRENT_UPDATE 또는 APPEARANCE_RECRUIT_NOT_OPEN).
             assertThat(results).filteredOn(AppearanceException.class::isInstance)
@@ -319,6 +330,33 @@ class AppearanceRecruitCloseTest {
             }
             assertThat(fakeBillingClient.balanceOf(HOST))
                     .isEqualTo(FakeBillingClient.DEFAULT_BALANCE - heldOf(recruitId));
+        }
+
+        @Test
+        @DisplayName("조기 마감과 새 지원이 동시에 와도 마감된 모집글에 대기(APPLIED) 지원이 남지 않는다 (C9, 3회 반복)")
+        void concurrentCloseAndApply() throws Exception {
+            for (int round = 0; round < 3; round++) {
+                Long recruitId = postRecruit(3);
+
+                List<Object> results = runConcurrently(List.of(
+                        () -> appearanceRecruitFacade.closeEarly(HOST, recruitId),
+                        () -> appearanceApplicationFacade.apply(GUEST, recruitId, "지원합니다."),
+                        () -> appearanceApplicationFacade.apply(GUEST2, recruitId, "지원합니다.")));
+
+                // 마감은 항상 성공하고, 지원은 마감보다 먼저면 성공(이후 NOT_SELECTED), 나중이면 APPEARANCE_RECRUIT_NOT_OPEN
+                assertThat(results.getFirst()).isInstanceOf(AppearanceRecruitResDto.class);
+                assertThat(results.subList(1, 3)).allSatisfy(result -> {
+                    if (result instanceof AppearanceException error) {
+                        assertThat(error.getErrorCode()).isEqualTo(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
+                    } else {
+                        assertThat(result).isInstanceOf(AppearanceApplicationResDto.class);
+                    }
+                });
+                assertThat(appearanceApplicationFacade.getApplicants(HOST, recruitId,
+                        List.of(AppearanceApplicationStatus.APPLIED), FIRST_PAGE).getContent()).isEmpty();
+                assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).status())
+                        .isEqualTo(AppearanceRecruitStatus.CLOSED);
+            }
         }
     }
 
@@ -371,6 +409,30 @@ class AppearanceRecruitCloseTest {
             assertThat(appearanceRecruitDeadlineCloseUseCase.closeDue()).isEqualTo(1);
             assertThat(releaseTasksOf(recruitId)).isEmpty();
             assertThat(heldOf(recruitId)).isEqualTo(FEE);
+        }
+
+        @Test
+        @DisplayName("한 모집글 처리 중 충돌이 나면 그 건만 롤백하고 건너뛴 뒤 나머지는 마감하고, 다음 실행에서 마감한다 (C8)")
+        void skipConflictAndRetryNextRun() {
+            Long conflictId = postRecruit(3);
+            Long otherId = postRecruit(3);
+            passDeadline(conflictId);
+            passDeadline(otherId);
+            doThrow(new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE)).doCallRealMethod()
+                    .when(appearanceRecruitCloseRecorder)
+                    .closeApplicationsAndRecordRelease(argThat(recruit -> recruit.getId().equals(conflictId)), any());
+
+            assertThat(appearanceRecruitDeadlineCloseUseCase.closeDue()).isEqualTo(1);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, conflictId).status())
+                    .isEqualTo(AppearanceRecruitStatus.RECRUITING);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, otherId).status())
+                    .isEqualTo(AppearanceRecruitStatus.CLOSED);
+            assertThat(releaseTasksOf(conflictId)).isEmpty();
+
+            assertThat(appearanceRecruitDeadlineCloseUseCase.closeDue()).isEqualTo(1);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, conflictId).status())
+                    .isEqualTo(AppearanceRecruitStatus.CLOSED);
+            assertThat(releaseTasksOf(conflictId)).hasSize(1);
         }
 
         @Test

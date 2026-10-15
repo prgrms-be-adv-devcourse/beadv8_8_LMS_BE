@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
  * 출연 모집 조기 마감 (호스트). 모집글을 {@code CLOSED}로 바꾸고 대기 중 지원 정리·반환 작업 기록까지 한다.
  * <p>
  * 반환은 Billing 호출이라 커밋 뒤에 실행해야 해서, Facade가 아니라 여기서 트랜잭션을 연다 (요청서 거절과 같은 방식).
+ * 모집글은 배타 잠금으로 읽어 진행 중인 지원·수락이 끝난 뒤의 최신 값으로 마감한다 (ISSUE.md APR-28 C9).
  */
 @Service
 @RequiredArgsConstructor
@@ -37,7 +38,7 @@ public class AppearanceRecruitCloseUseCase {
     @Transactional
     public Long closeEarly(Long hostId, Long recruitId) {
         appearanceUserSupport.getParticipant(hostId);
-        AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);
+        AppearanceRecruit recruit = appearanceRecruitSupport.getForUpdate(recruitId);
         recruit.validateVisible();
 
         LocalDateTime now = LocalDateTime.now(clock);
