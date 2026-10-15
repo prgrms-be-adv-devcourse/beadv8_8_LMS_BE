@@ -34,6 +34,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -168,6 +169,43 @@ class LectureOrderPayoutIntegrationTest {
 
         assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " " + PRICE_HP + " HELD");
         assertThat(sellerWalletCount(SELLER_WITHOUT_WALLET_ID)).isZero();
+    }
+
+    @Test
+    void 같은_강의들을_반대_순서로_동시에_주문해도_교착_없이_한_주문만_보류와_원장을_남긴다() throws Exception {
+        // 항목을 강의 ID 순서로 만들어 늦은 주문은 앞 주문을 기다렸다가 409로 끝난다 (D55). 정렬 전에는 40P01(500)이었다
+        User buyer = buyer("order-reverse-race");
+        Long buyerWalletId = fundCharge(buyer.getId(), 2 * PRICE_HP);
+        Long first = saveOnSaleLecture(SELLER_ID).getId();
+        Long second = saveOnSaleLecture(SELLER_ID).getId();
+        // 강의 모듈의 회원 복제는 가입 이벤트로 비동기로 만들어진다
+        await().until(() -> jdbcTemplate.queryForObject("SELECT count(*) FROM lectures.lecture_user WHERE id = ?",
+                Integer.class, buyer.getId()) == 1);
+        CountDownLatch start = new CountDownLatch(1);
+
+        List<String> results;
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            List<Future<String>> futures = List.of(
+                    executor.submit(() -> orderOnSignal(buyer, start, first + ", " + second)),
+                    executor.submit(() -> orderOnSignal(buyer, start, second + ", " + first)));
+            start.countDown();
+            results = List.of(futures.get(0).get(30, TimeUnit.SECONDS), futures.get(1).get(30, TimeUnit.SECONDS));
+        }
+
+        assertThat(results).containsExactlyInAnyOrder("201", "409 ALREADY_OWNED_LECTURE");
+        List<Long> itemIds = jdbcTemplate.queryForList(
+                "SELECT id FROM lectures.order_item WHERE buyer_user_id = ? ORDER BY lecture_id", Long.class,
+                buyer.getId());
+        assertThat(itemIds).hasSize(2);
+        assertThat(holds()).containsExactly(
+                "HOLD:LECTURE_ORDER_ITEM:" + itemIds.get(0) + " " + PRICE_HP + " HELD",
+                "HOLD:LECTURE_ORDER_ITEM:" + itemIds.get(1) + " " + PRICE_HP + " HELD");
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT DISTINCT operation_key FROM billing.point_ledger WHERE operation_key LIKE 'HOLD:%'",
+                String.class)).containsExactlyInAnyOrder(
+                "HOLD:LECTURE_ORDER_ITEM:" + itemIds.get(0), "HOLD:LECTURE_ORDER_ITEM:" + itemIds.get(1));
+        assertThat(wallet(buyerWalletId)).containsEntry("charge_balance_hp", 0L)
+                .containsEntry("held_charge_hp", 2 * PRICE_HP);
     }
 
     @Test
@@ -980,7 +1018,21 @@ class LectureOrderPayoutIntegrationTest {
         return order(buyer, List.of(lectureId));
     }
 
-    // 여러 강의를 한 주문으로 산다(항목 순서 = 요청 순서)
+    // 신호를 받으면 주문하고 상태(실패면 상태와 code)를 돌려준다
+    private String orderOnSignal(User buyer, CountDownLatch start, String ids) throws Exception {
+        start.await();
+        MockHttpServletResponse response = mockMvc.perform(post("/api/v1/lectures/orders").with(csrf())
+                        .with(TestLogin.as(buyer.getId(), Role.USER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lectureIds\": [" + ids + "]}"))
+                .andReturn().getResponse();
+        if (response.getStatus() == 201) {
+            return "201";
+        }
+        return response.getStatus() + " " + JsonPath.read(response.getContentAsString(), "$.code");
+    }
+
+    // 여러 강의를 한 주문으로 산다(항목 순서 = 강의 ID 오름차순, D55)
     private Map<String, Object> order(User buyer, List<Long> lectureIds) {
         String ids = String.join(", ", lectureIds.stream().map(String::valueOf).toList());
         AtomicReference<String> body = new AtomicReference<>();
