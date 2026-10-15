@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum AppearanceRecruitStatus {
-    HOLD_PENDING("HP 보류 처리 중. 저장 후 보류 결과를 기다리며, 결과를 알 수 없으면 이 상태로 남는다"),
+    HOLD_PENDING("HP 보류 처리 중. 저장 후 보류 결과를 기다리며, 결과를 알 수 없으면 이 상태로 남아 보류 재확인 배치가 정리한다"),
     HOLD_FAILED("HP 보류 실패. Billing이 거절해(잔액 부족 등) 등록되지 않았고 기록으로만 남는다"),
     RECRUITING("모집 중. HP 보류가 끝나 게스트의 지원을 받는다"),
     CLOSED("모집 마감. 마감 일시가 지났거나 호스트가 조기 마감해 더 이상 지원·수락할 수 없다"),

@@ -1,7 +1,7 @@
 # 출연(Appearance) 모듈: 정책과 구조
 
 출연 모듈이 지키는 정책, 모듈 구조, 다른 모듈과의 연동, DB 스키마를 정리한 문서다.
-현재 구현된 범위(#26, #31, #50, #98, #144, #137)를 기준으로 하며, 기능이 추가될 때마다 함께 갱신한다.
+현재 구현된 범위(#26, #31, #50, #98, #144, #137, #168, #175, #187, #195)를 기준으로 하며, 기능이 추가될 때마다 함께 갱신한다.
 
 - 오류 코드: [error-codes.md](error-codes.md)
 - 테스트 명세: [test-spec.md](test-spec.md)
@@ -35,7 +35,8 @@
 | 출연 요청 응답(수락·거절·응답 전 취소), 출연 성립, HP 작업(반환) 기록·즉시 실행 | ✅ | #137 |
 | HP 작업 재시도·격리, 수락 기한 만료, 보류 재확인 (배치) | ✅ | #187 |
 | 출연 모집글 올리기(HP 보류)·조회·기본 정보 수정 | ✅ | #175 |
-| 모집 지원·수락, 모집 마감·취소 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
+| 모집 지원·지원 취소·수락(출연 성립)·거절, 모집글 지원자 수 | ✅ | #195 |
+| 모집 마감·취소 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
 
 ---
 
@@ -104,7 +105,8 @@ com.hapbang.appearance
 
 - 예외: 외부 호출(Billing)을 사이에 두고 단계별로 따로 커밋해야 하는 기능(요청서 보내기)은 Facade가 트랜잭션을 열지 않고, 각 UseCase 메서드가 직접 연다.
 - 세션 역할 검사(`@PreAuthorize`)는 Facade에서, 출연 회원 자격(정지·강등)과 업무 규칙은 UseCase·도메인에서 확인한다.
-- 스케줄러·이벤트 리스너는 로그인 정보가 없으므로 `@PreAuthorize`가 없는 별도 Facade를 쓴다 (예: `AppearanceUserFacade`).
+- 이벤트 리스너는 로그인 정보가 없으므로 `@PreAuthorize`가 없는 별도 Facade를 쓴다 (예: `AppearanceUserFacade`).
+- 배치(`in.AppearanceBatch`)는 시스템이 실행하므로 Facade를 거치지 않고 UseCase를 직접 부른다 (팀 강의 배치와 같은 방식, 8장).
 - `global`, `shared` 패키지는 팀 공통 방식이 정해지지 않아 출연 모듈 안에 임시로 둔 것이다. 옮길 조건은 각 `package-info.java`에 적었다.
 
 ### 3.2 주요 클래스
@@ -129,6 +131,11 @@ com.hapbang.appearance
 | `app.AppearanceRecruitQueryUseCase`, `AppearanceRecruitUpdateUseCase`, `AppearanceRecruitSupport` | 공개·내 목록·상세 / 기본 정보 수정 / 저장소 접근 (#175) |
 | `in.ApiV1AppearanceRecruitController`, `ApiV1AppearanceRecruitSpec` | 출연 모집글 REST API와 Swagger 명세 (#175) |
 | `out.AppearanceRecruitRepository` | 출연 모집글 저장·목록 조회 (#175) |
+| `domain.AppearanceApplication`, `AppearanceApplicationStatus` | 출연 모집 지원과 상태. 지원·취소·수락·거절 (#195) |
+| `app.AppearanceApplicationFacade` | 출연 모집 지원 API 진입점 (`@PreAuthorize`, 기능별 트랜잭션) (#195) |
+| `app.AppearanceApplicationApplyUseCase`, `…WithdrawUseCase`, `…RespondUseCase`, `…QueryUseCase`, `AppearanceApplicationSupport` | 지원 / 지원 취소 / 수락·거절(출연 성립) / 지원자·내 지원 목록 / 저장소 접근·지원자 수 (#195) |
+| `in.ApiV1AppearanceApplicationController`, `ApiV1AppearanceApplicationSpec` | 출연 모집 지원 REST API와 Swagger 명세 (#195) |
+| `out.AppearanceApplicationRepository` | 지원 저장·목록·지원자 수(모집글별 묶음 조회) (#195) |
 | `app.AppearanceRequestFacade` | 출연 요청서 API 진입점. `@PreAuthorize`, 기능별 트랜잭션, 보내기의 "저장 → HP 보류 → 상태 변경" 순서 조립 |
 | `app.AppearanceRequestCreateUseCase` | 보내기 1단계: 자격·값·중복 확인 후 `HOLD_PENDING` 저장 (자체 트랜잭션) |
 | `app.AppearanceRequestHoldUseCase` | 보내기 2·3단계: Billing 보류 요청(트랜잭션 밖), 결과 반영 `markRequested`/`markHoldFailed` (자체 트랜잭션) |
@@ -152,6 +159,7 @@ com.hapbang.appearance
 | `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
 | `out.AppearanceRepository`, `HpTaskRepository` | 출연, HP 작업 저장·조회 |
 | `out.billing.BillingClient` | Billing 연동 창구. 메서드·요청·응답은 shared `BillingPort`와 같다 |
+| `out.billing.BillingPortClient` | 실제 Billing 연동 구현. `appearance.billing.mode=billing-port`일 때만 등록되어 shared `BillingPort`로 그대로 넘긴다 (Billing #182) |
 | `out.billing.FakeBillingClient`, `FakeBillingErrorCode`, `FakeBillingException` | 외부 연동 교체 전까지 쓰는 메모리 구현. Billing 규칙·오류 코드를 흉내 냄 (테스트에서 잔액·지갑·무응답 조절) |
 | `out.billing.BillingUnavailableException` | 처리 여부를 알 수 없는 실패(무응답 등). 같은 요청으로 다시 확인해야 함 |
 | (삭제, #71) | 출연 예외는 global의 공통 핸들러(`com.hapbang.global.exception.GlobalExceptionHandler`)가 Problem Detail로 응답한다 |
@@ -181,7 +189,7 @@ com.hapbang.appearance
 |---|---|---|---|
 | 회원 | 이벤트 수신 | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ |
 | 회원 (global) | 로그인 | `@LoginUserId`로 세션의 회원 ID | ✅ |
-| 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`) | 보류, 반환, 지급, 위약금 | 계약 맞춤 + Fake 구현 (실제 연동은 외부 연동 교체 단계) |
+| 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`) | 보류, 반환, 지급, 위약금 | 계약 맞춤 + Fake 사용 중. 실제 연동 구현(`BillingPortClient`)은 Billing #182로 추가됨, `mode` 전환은 외부 연동 교체 단계 |
 | 고객센터 | 이벤트 발행 | 이의 제기 (패널티 요청) | 예정 |
 
 ### 4.1 회원 정보 복제
@@ -232,7 +240,8 @@ com.hapbang.appearance
 - 출연은 Billing을 **DB 트랜잭션 밖에서** 부른다. Billing은 호출한 쪽 트랜잭션에 참여하므로, 트랜잭션 안에서 부르고 예외를 잡으면 롤백 전용 트랜잭션을 이어 쓰게 된다.
 - **반환·지급처럼 업무 상태 변경 뒤에 하는 Billing 호출은 HP 작업(`appearances.hp_tasks`)으로 기록하고 실행한다** (아래 4.3, #137).
 - `BillingClient`는 `BillingPort`를 상속하지 않는다. 상속하면 출연의 Fake가 앱 전체의 `BillingPort` 빈이 되어 다른 모듈에 주입될 수 있다.
-- 구현체는 `appearance.billing.mode`로 고른다. **외부 연동 교체 단계 전까지 `fake`(메모리 구현)만 쓴다.**
+- 구현체는 `appearance.billing.mode`로 고른다. **외부 연동 교체 단계 전까지 기본값 `fake`(메모리 구현)를 쓴다.**
+  `billing-port`로 바꾸면 실제 Billing을 shared `BillingPort`로 부르는 `BillingPortClient`가 등록된다 (Billing 담당이 #182로 추가). 값을 잘못 쓰면 어느 구현도 등록되지 않아 앱이 뜨지 않는다.
   Fake는 Billing 구현의 규칙(보류 1건, 요청 ID 재전송, 거절 코드·메시지)을 흉내 내며, 오류 코드는 `FakeBillingErrorCode`에 Billing 값을 그대로 옮겨 두었다.
 
 ### 4.3 HP 작업 (실패한 Billing 호출의 기록·재처리, #137)
@@ -410,7 +419,7 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
 ```
 
 - 저장을 먼저 커밋하는 이유: Billing을 기다리는 동안 DB 트랜잭션을 잡지 않고, 보류 결과와 관계없이 요청서 기록이 남게 하기 위해서다.
-- `HOLD_PENDING`으로 남은 요청서는 이후 스케줄러가 같은 요청서로 보류를 다시 보내 확인하고 `REQUESTED`/`HOLD_FAILED`로 정리한다 (예정). Billing은 같은 보류를 다시 받으면 처음 결과를 돌려준다.
+- `HOLD_PENDING`으로 남은 요청서는 보류 재확인 배치가 같은 요청서로 보류를 다시 보내 확인하고 `REQUESTED`/`HOLD_FAILED`로 정리한다 (8.2, #187). Billing은 같은 보류를 다시 받으면 처음 결과를 돌려준다.
 
 ### 6.3 규칙
 
@@ -492,7 +501,7 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 | 공개 목록 | `RECRUITING`이고 모집 마감 일시가 지나지 않은 모집글 (마감 처리 전이어도 시각으로 거름) | |
 | 상세·내 목록 | `RECRUITING`·`CLOSED`·`CANCELED`. `HOLD_PENDING`·`HOLD_FAILED`는 올린 호스트에게도 숨김(404) | 요청서와 같음 |
 | 수정 | 호스트만, `RECRUITING`이고 모집 마감 일시 전까지. 동시 수정은 409 `CONCURRENT_UPDATE` | ISSUE.md APR-08 |
-| 응답 | 성립 인원(`selectedCount`), 버전 포함. 마감 방식·마감 시각·취소 시각은 이후 처리에서 채움 | |
+| 응답 | 성립 인원(`selectedCount`), 지원자 수(`applicantCount`, #195), 버전 포함. 마감 방식·마감 시각·취소 시각은 이후 처리에서 채움 | |
 | 미정 | 방송 플랫폼·카테고리 등 분류, 검색·필터, 비회원 공개, 정지 호스트 모집글 노출 | 필요할 때 결정 |
 
 ---
@@ -554,3 +563,61 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 
 - Prometheus + Grafana 대시보드·알림은 `docker/compose*.yaml` 변경이 필요해 팀 결정 사항이다.
 - 배치 조회용 인덱스: `V202610141700__add_appearance_batch_indexes.sql` (요청서 `(status, accept_deadline)`, `(status, created_at)`)
+
+---
+
+## 9. 출연 모집 지원과 수락 (#195)
+
+### 9.1 API
+
+| 메서드 | 경로 | 설명 | 권한 | 성공 메시지 |
+|---|---|---|---|---|
+| POST | `/api/v1/appearances/recruits/{recruitId}/applications` | 지원 (메시지 선택, 500자), 201 | 게스트 | 출연 모집에 지원했습니다. |
+| GET | `/api/v1/appearances/recruits/{recruitId}/applications?status=` | 지원자 목록 | 모집글 호스트만 | 지원자 목록을 조회했습니다. |
+| GET | `/api/v1/appearances/applications/mine?status=` | 내 지원 목록 | 게스트 | 내 지원 목록을 조회했습니다. |
+| POST | `/api/v1/appearances/applications/{applicationId}/withdraw` | 지원 취소 | 지원한 게스트 | 지원을 취소했습니다. |
+| POST | `/api/v1/appearances/applications/{applicationId}/accept` | 수락 → 출연 성립 | 모집글 호스트 | 지원을 수락했습니다. |
+| POST | `/api/v1/appearances/applications/{applicationId}/reject` | 거절 (사유 없음) | 모집글 호스트 | 지원을 거절했습니다. |
+
+- 모두 인플루언서 이상(Facade 클래스 `@PreAuthorize`), 출연 회원 자격(정지·강등) 확인. 목록은 `Pageable`, 최신순 고정, 상태 필터는 여러 개.
+- 모집글 응답(목록·상세)에 **지원자 수 `applicantCount`**를 담는다: 게스트가 취소한 지원만 뺀 전체 지원(대기·수락·미선정). 화면에 보일지는 화면이 정한다 (ISSUE.md APR-27 A6).
+- 지원 응답(목록 포함)에는 수락된 경우 성립한 출연 ID(`appearanceId`)가 있다 (한 페이지를 한 번에 조회).
+
+### 9.2 상태
+
+```
+APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인원 +1)
+        ├호스트 거절─▶ NOT_SELECTED
+        └게스트 취소─▶ WITHDRAWN
+```
+
+### 9.3 규칙
+
+| 항목 | 규칙 | 근거 |
+|---|---|---|
+| 지원 가능 | 모집 중(`RECRUITING`)이고 모집 마감 일시 전, 자기 모집글 아님 (400 `CANNOT_APPLY_OWN_RECRUIT` / 409 `APPEARANCE_RECRUIT_NOT_OPEN`) | |
+| 1회 지원 | 모집글·게스트당 1건(DB 유니크 `uk_appearance_applications_recruit_guest`). 취소·거절돼도 재지원 불가 (409 `DUPLICATE_APPLICATION`), 동시 지원도 DB가 막음 | AGENTS.md 5장, APR-09 |
+| 정원이 찬 뒤 | **지원은 받고 수락만 막는다** (409 `RECRUIT_FULL`). 자동 마감하지 않는다 | APR-27 A2: 출연 취소 요청으로 마감 전까지 빈자리가 생길 수 있음 |
+| 지원 취소 | 지원한 게스트만(403 `NOT_APPLICATION_GUEST`), 호스트 응답 전(`APPLIED`)만 (409 `APPLICATION_NOT_PENDING`) | |
+| 수락 | 확인 순서: 호스트 자격 → 호스트·모집 중·마감 전 → 대기 중 지원 → 정원 → 게스트 자격(A5). 지원 `SELECTED` + 성립 인원 +1 + 출연 성립이 한 트랜잭션, HP 이동 없음(모집글 보류 유지) | APR-27 |
+| 동시 수락 | 모집글 버전(낙관적 락)으로 한 번에 하나만 반영, 나머지 409 `CONCURRENT_UPDATE` 또는 `RECRUIT_FULL` → 정원을 넘지 않음 | A3 |
+| 거절 | 사유 없이 `NOT_SELECTED` | A4 |
+| 출연 | 출처 `RECRUIT`, `application_id`(유니크)·`recruit_id`, 출연료 = 1인당 출연료, 방송 예정 일시 스냅샷. 지급 원천은 `RECRUIT_APPEARANCE` + 출연 ID | APR-23 |
+| 일정 겹침 | 확인하지 않음 | A7 |
+| 남은 일 | 모집 마감 때 대기 중인 지원 `NOT_SELECTED` 정리, 미달 인원분 반환 (모집 마감 이슈) | |
+
+### 9.4 `appearances.applications` 스키마
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `id` | BIGINT, PK | |
+| `recruit_id` | BIGINT, FK → `appearances.recruits` | 모집글 |
+| `guest_id` | BIGINT | 게스트 회원 ID |
+| `message` | VARCHAR(500) | 지원 메시지 (선택) |
+| `status` | VARCHAR(255) | `APPLIED`/`SELECTED`/`NOT_SELECTED`/`WITHDRAWN` |
+| `responded_at`, `withdrawn_at` | TIMESTAMP | 호스트 응답 시각, 게스트 취소 시각 |
+| `version`, `created_at`, `updated_at` | | 낙관적 락, 공통 시각 |
+
+- 유니크: `uk_appearance_applications_recruit_guest (recruit_id, guest_id)`
+- 인덱스: 지원자 목록·지원자 수 `(recruit_id, created_at)`, 내 지원 목록 `(guest_id, created_at)`
+- 마이그레이션: `V202610151050__create_appearance_application_table.sql`

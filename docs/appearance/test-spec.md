@@ -26,7 +26,8 @@
 |---|---|---|---|
 | 단위 | `AppearancePolicyTest` | 정책 수치 계산 | #26 |
 | 단위 | `AppearanceConfigTest` | 설정 값 주입, Clock, Billing 구현 선택 | #26 |
-| 단위 | `FakeBillingClientTest` | Fake Billing 동작 규칙 | #26 |
+| 단위 | `FakeBillingClientTest` | Fake Billing 동작 규칙 | #26, #168 |
+| 단위 | `BillingClientModeTest` | `appearance.billing.mode`에 따른 Billing 구현 선택 (Billing 담당 추가) | #182 |
 | 단위 | `AppearanceUserTest` | 출연 회원 참여 자격 | #31 |
 | 단위 | `AppearanceExceptionHandlerTest` | 출연 예외 → 공통 핸들러의 Problem Detail | #26, #31, #71 |
 | 단위 | `AppearanceRequestTest` | 출연 요청서 생성 검증·상태 전이·수정·조회 권한 | #98 |
@@ -55,6 +56,10 @@
 | 단위 | `HpTaskRetryPolicyTest`, `AppearanceBatchRulesTest` | 재시도 정책(지수 백오프+지터), 만료·멱등한 보류 결과 반영 | #187 |
 | 통합 | `AppearanceBatchUseCaseTest` | 보류 재확인, 수락 기한 만료, HP 작업 재시도·격리, 지표 | #187 |
 | 단위 | `AppearanceBatchConditionTest` | 배치 빈은 팀 스케줄링 스위치가 켜질 때만 | #187 |
+| 단위 | `AppearanceApplicationTest` | 모집 지원·취소·수락·거절, 모집글 쪽 확인, 모집 출연 성립 | #195 |
+| 저장소 | `AppearanceApplicationRepositoryTest` | `appearances.applications` 저장, 재지원 유니크, 지원자 수 | #195 |
+| 통합 | `AppearanceApplicationFacadeTest` | 지원·취소·수락·거절·조회, 동시 지원·동시 수락 | #195 |
+| E2E | `AppearanceApplicationApiE2ETest` | 출연 모집 지원 API 6개 (앱 전체) | #195 |
 | 모듈 경계 | `ModularityTests` (apps) | 다른 모듈 내부 참조 없음 | — |
 
 ---
@@ -81,7 +86,18 @@
 | 기본 설정 | 최저 출연료 20,000 / 위약금 30% / 확인 기간 7일 / 취소 요청 최대 2회 / 최대 모집 인원 10명 |
 | 설정 우선순위: 외부 설정으로 최저 출연료 30,000 | 30,000 (외부 설정이 우선). 우선순위 구조만 확인하며, 정책 값은 `appearance.yml`에서만 변경 |
 | 출연 Clock | 시간대 Asia/Seoul |
-| `appearance.billing.mode` 기본값 / `http` | Fake Billing 등록 / 미등록 |
+| `appearance.billing.mode` 기본값 / 잘못된 값(`http`) | Fake Billing 등록 / 미등록 |
+
+### 3.2-1 Billing 구현 선택 — `BillingClientModeTest` (Billing 담당 추가, #182)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| `mode` 없음 / `fake` | `FakeBillingClient`만 등록 (기본값) |
+| `billing-port` | `BillingPortClient`만 등록, shared `BillingPort`로 위임 |
+| 잘못된 값(`billingport`, `billing_port`, `http`, 빈 값) | 어느 구현도 등록되지 않음 (조용히 실제·가짜로 바뀌지 않음) |
+| `BILLING-PORT` / `FAKE` | 대소문자 구분 없이 같은 값 |
+
+- apps `AppearanceBillingPortIntegrationTest`(Billing 담당 추가, #182)는 `billing-port`로 실제 Billing과 연동되는지 확인한다.
 
 ### 3.3 Fake Billing — `FakeBillingClientTest` (#168에서 Billing 기준으로 다시 씀)
 
@@ -514,3 +530,88 @@ DB와 Fake Billing을 쓴다. 시각 조건은 DB의 만든 시각·다음 시�
 |---|---|
 | `hapbang.scheduling.enabled` 없음 / `false` | 배치 빈 없음 |
 | `true` | 배치 빈 1개 |
+
+---
+
+## 10. 출연 모집 지원과 수락 (#195)
+
+### 10.1 구성
+
+| 종류 | 테스트 | 확인 대상 |
+|---|---|---|
+| 단위 | `AppearanceApplicationTest` | 지원·취소·수락·거절 규칙, 모집글 쪽 확인(호스트·모집 중·정원), 모집 출연 성립 |
+| 저장소 | `AppearanceApplicationRepositoryTest` | 저장, 재지원 유니크, 지원자 수(취소 제외·묶음 조회), 목록, 지원당 출연 1건 |
+| 통합 | `AppearanceApplicationFacadeTest` | 지원(동시 지원 포함)·취소·수락(정원·자격·동시 수락)·거절·조회·지원자 수, 역할 |
+| E2E | `AppearanceApplicationApiE2ETest` | API 6개, RsData, 400/403/404/409, 공개 목록 지원자 수 |
+| 통합 | `AppearanceSwaggerDocsTest` (추가) | 지원 API 응답 스키마, 모집글 요약의 `applicantCount` |
+
+### 10.2 단위 — `AppearanceApplicationTest`
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 지원 | 모집 중·마감 전 / 메시지 없음 | `APPLIED`, 메시지 저장 / 메시지 null |
+| 지원 | 메시지 500자 / 501자 | 허용 / `INVALID_REQUEST` |
+| 지원 | 자기 모집글 | `CANNOT_APPLY_OWN_RECRUIT` |
+| 지원 | 보류 처리 중 모집글 / 마감 일시와 같은 시각 | `APPEARANCE_RECRUIT_NOT_OPEN` |
+| 지원 | 정원이 찬 모집글 | `APPLIED` (지원은 받음) |
+| 취소 | 지원한 게스트가 대기 중 취소 | `WITHDRAWN` + 취소 시각 |
+| 취소 | 다른 회원 / 이미 취소 / 이미 수락 | `NOT_APPLICATION_GUEST` / `APPLICATION_NOT_PENDING` / `APPLICATION_NOT_PENDING` |
+| 응답 | 수락 / 거절 | `SELECTED` / `NOT_SELECTED` + 응답 시각 |
+| 응답 | 취소된 지원 수락 / 거절된 지원 다시 거절 | `APPLICATION_NOT_PENDING` |
+| 모집글 | 다른 회원이 응답 / 마감 일시 지남 | `NOT_RECRUIT_HOST`("…지원에 응답할 수 있습니다.") / `APPEARANCE_RECRUIT_NOT_OPEN` |
+| 모집글 | 정원 2명에 성립 2번 → 3번째 | 성립 2, 가득 참, `RECRUIT_FULL`, 상태는 `RECRUITING` 그대로 |
+| 출연 | 수락된 지원으로 성립 | 출처 `RECRUIT`, 호스트·게스트, 출연료 30,000(1인당), 방송 예정 일시 스냅샷, 요청서 ID 없음, `ESTABLISHED` |
+| 출연 | 수락 안 된 지원으로 성립 | `IllegalStateException` (코드 오류) |
+
+### 10.3 저장소 — `AppearanceApplicationRepositoryTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 저장 후 조회 | `APPLIED`, 메시지, 버전·생성 시각 |
+| 취소한 뒤 같은 게스트가 다시 저장 | `DataIntegrityViolationException` (`uk_appearance_applications_recruit_guest`), 지원 여부 조회는 상태와 무관하게 true |
+| 지원자 수: 대기·미선정·취소 각 1건 | 2 (취소 제외). 여러 모집글 묶음 조회에서 지원 없는 모집글은 결과에 없음 |
+| 모집글별 / 게스트별 목록 | 모집글의 2건 / 내 지원 최신순, `SELECTED` 필터는 0건 |
+| 같은 지원으로 출연 두 번 | `DataIntegrityViolationException`, 지원 ID로 출연 조회 |
+
+### 10.4 흐름 — `AppearanceApplicationFacadeTest`
+
+DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCER")`, 동시 처리 테스트는 스레드마다 인플루언서 인증을 넣는다.
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 지원 | 지원 | `APPLIED`, 메시지, 출연 ID 없음, 모집글 지원자 수 1 |
+| 지원 | 다시 지원 / 취소 후 다시 지원 | `DUPLICATE_APPLICATION` |
+| 지원 | 같은 게스트가 동시에 5번 | 1건 저장, 4건 `DUPLICATE_APPLICATION` |
+| 지원 | 자기 모집글 / 없는 모집글 / 마감 일시 지남 | `CANNOT_APPLY_OWN_RECRUIT` / `APPEARANCE_RECRUIT_NOT_FOUND` / `APPEARANCE_RECRUIT_NOT_OPEN` |
+| 지원 | 보류 처리 중 모집글 | `APPEARANCE_RECRUIT_NOT_FOUND` (목록에 없는 모집글) |
+| 지원 | 정원 1명이 찬 뒤 | 지원 `APPLIED` |
+| 지원 | 정지된 게스트 | `APPEARANCE_USER_NOT_ACTIVE` |
+| 취소 | 취소 | `WITHDRAWN`, 지원자 수 0 |
+| 취소 | 다른 회원 / 수락된 지원 / 없는 지원 | `NOT_APPLICATION_GUEST` / `APPLICATION_NOT_PENDING` / `APPLICATION_NOT_FOUND` |
+| 취소 | 게스트 취소와 호스트 수락 동시 | 1건 성공, 1건 `CONCURRENT_UPDATE` 또는 `APPLICATION_NOT_PENDING`. 취소됐으면 성립 인원 0·출연 없음, 수락됐으면 성립 인원 1·출연 1건 |
+| 수락 | 수락 | `SELECTED`, 출연(출처 `RECRUIT`, 지원·모집글 ID, 게스트, 30,000), 성립 인원 1, 지원자 수 1, 보류 90,000 그대로, 잔액 변화 없음 |
+| 수락 | 정원 1명이 찬 뒤 두 번째 수락 | `RECRUIT_FULL`, 모집글 `RECRUITING`, 출연 1건 |
+| 수락 | 다른 회원 / 거절된 지원 / 마감 일시 지남 | `NOT_RECRUIT_HOST` / `APPLICATION_NOT_PENDING` / `APPEARANCE_RECRUIT_NOT_OPEN`, 출연 없음 |
+| 수락 | 지원 뒤 게스트 정지 | `APPEARANCE_USER_NOT_ACTIVE`, 성립 인원 0, 지원 `APPLIED` 그대로, 출연 없음 |
+| 수락 | 마지막 한 자리에 지원 3건 동시 수락 | 1건 성공, 2건 `CONCURRENT_UPDATE` 또는 `RECRUIT_FULL`, 성립 인원 1, 출연 1건 |
+| 거절 | 거절 | `NOT_SELECTED`, 지원자 수에 남음, 그 게스트 재지원 `DUPLICATE_APPLICATION` |
+| 거절 | 다른 회원 | `NOT_RECRUIT_HOST` |
+| 조회 | 지원자 목록 | 최신순, 수락된 지원만 출연 ID, `APPLIED` 필터, 호스트가 아니면 "…지원자 목록을 볼 수 있습니다." |
+| 조회 | 내 지원 목록 | 내 지원만 최신순, `WITHDRAWN` 필터 |
+| 조회 | 모집글 지원자 수 (수락·거절·취소 각 1) | 상세 2, 공개 목록·내 모집글 목록도 2, 지원 없는 모집글 0 |
+| 역할 | 세션 역할 USER / ADMIN | 지원·취소·수락·거절·지원자 목록·내 지원 목록 모두 `AccessDeniedException` |
+
+### 10.5 E2E — `AppearanceApplicationApiE2ETest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 지원 / 다시 지원 | 201 "출연 모집에 지원했습니다.", `APPLIED`, 모집글 ID, 메시지 / 409 `DUPLICATE_APPLICATION` |
+| 요청 본문 없이 지원 (메시지 선택) | 201, `APPLIED`, 메시지 없음 |
+| 메시지 501자 / 자기 모집글 / 일반 유저 | 400 `INVALID_REQUEST` / 400 `CANNOT_APPLY_OWN_RECRUIT` / 403 `FORBIDDEN` |
+| 정원 1명: 첫 수락 / 두 번째 수락 / 모집글 상세 | 200 "지원을 수락했습니다.", `SELECTED`, 출연 ID / 409 `RECRUIT_FULL` / `RECRUITING`, 성립 1, 지원자 2 |
+| 다른 회원 수락 / 호스트 거절 | 403 `NOT_RECRUIT_HOST` / 200 "지원을 거절했습니다.", `NOT_SELECTED` |
+| 다른 회원 취소 / 취소 / 다시 취소 | 403 `NOT_APPLICATION_GUEST` / 200 "지원을 취소했습니다.", `WITHDRAWN` / 409 `APPLICATION_NOT_PENDING` |
+| 지원자 목록(호스트, `status=APPLIED`) / 게스트가 지원자 목록 | 200 "지원자 목록을 조회했습니다.", 2건 / 403 `NOT_RECRUIT_HOST` |
+| 내 지원 목록 / `status=UNKNOWN` | 200 "내 지원 목록을 조회했습니다.", 내 것 1건 / 400 `INVALID_REQUEST` |
+| 일반 유저의 공개 모집글 목록 | `applicantCount` 1 |
+| 없는 지원 수락 | 404 `APPLICATION_NOT_FOUND` |

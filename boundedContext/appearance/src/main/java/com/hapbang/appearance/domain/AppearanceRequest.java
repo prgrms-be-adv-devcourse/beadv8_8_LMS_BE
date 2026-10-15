@@ -64,13 +64,13 @@ public class AppearanceRequest extends BaseEntity {
     @Enumerated(EnumType.STRING)
     private AppearanceRequestStatus status;
 
-    /** 게스트 거절 사유 (게스트 응답 처리에서 사용) */
+    /** 게스트 거절 사유 (선택, 500자 이하) */
     private String rejectReason;
 
-    /** 게스트 응답(수락·거절) 시각 (게스트 응답 처리에서 사용) */
+    /** 게스트 응답(수락·거절) 시각 */
     private LocalDateTime respondedAt;
 
-    /** 호스트 취소 시각 (취소 처리에서 사용) */
+    /** 호스트 응답 전 취소 시각 */
     private LocalDateTime canceledAt;
 
     /** 낙관적 락. 동시에 수정·응답할 때 나중 것을 막는다 */

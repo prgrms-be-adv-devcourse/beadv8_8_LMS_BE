@@ -175,6 +175,51 @@ public class AppearanceRecruit extends BaseEntity {
     }
 
     /**
+     * 이 게스트가 지금 지원할 수 있는지 확인한다. 정원이 찼어도 지원은 받는다
+     * (성립한 출연이 취소되면 마감 전까지 빈자리가 생길 수 있어서, ISSUE.md APR-27 A2).
+     *
+     * @throws AppearanceException 자기 모집글({@code CANNOT_APPLY_OWN_RECRUIT}),
+     *                             모집 중이 아니거나 마감 일시가 지남({@code APPEARANCE_RECRUIT_NOT_OPEN})
+     */
+    public void validateApplicable(Long guestId, LocalDateTime now) {
+        if (isHost(guestId)) {
+            throw new AppearanceException(AppearanceErrorCode.CANNOT_APPLY_OWN_RECRUIT);
+        }
+        requireOpen(now);
+    }
+
+    /**
+     * 호스트가 지원에 응답(수락·거절)할 수 있는지 확인한다.
+     *
+     * @throws AppearanceException 호스트가 아님({@code NOT_RECRUIT_HOST}),
+     *                             모집 중이 아니거나 마감 일시가 지남({@code APPEARANCE_RECRUIT_NOT_OPEN})
+     */
+    public void validateRespondable(Long userId, LocalDateTime now) {
+        if (!isHost(userId)) {
+            throw new AppearanceException(AppearanceErrorCode.NOT_RECRUIT_HOST,
+                    "출연 모집글을 올린 호스트만 지원에 응답할 수 있습니다.");
+        }
+        requireOpen(now);
+    }
+
+    /**
+     * 지원 수락으로 성립 인원을 하나 늘린다. 정원이 찼으면 수락할 수 없다 (자동 마감은 하지 않는다).
+     * 같은 모집글에 동시에 수락하면 버전(낙관적 락)이 맞지 않는 쪽이 막혀 정원을 넘지 않는다.
+     *
+     * @throws AppearanceException 정원이 참({@code RECRUIT_FULL})
+     */
+    public void increaseSelected() {
+        if (isFull()) {
+            throw new AppearanceException(AppearanceErrorCode.RECRUIT_FULL);
+        }
+        this.selectedCount++;
+    }
+
+    public boolean isFull() {
+        return selectedCount >= recruitCount;
+    }
+
+    /**
      * 공개된 모집글인지 확인한다. 보류가 끝나지 않았거나 실패한 모집글은 올린 호스트에게도 숨긴다.
      * 볼 수 없으면 모집글이 있다는 사실도 알리지 않도록 "없음"으로 응답한다.
      *
@@ -200,6 +245,13 @@ public class AppearanceRecruit extends BaseEntity {
 
     public boolean isHost(Long userId) {
         return hostId.equals(userId);
+    }
+
+    /** 모집 중이고 마감 일시 전인지. 마감 처리 전이어도 마감 일시가 지나면 닫힌 것으로 본다 */
+    private void requireOpen(LocalDateTime now) {
+        if (status != AppearanceRecruitStatus.RECRUITING || !now.isBefore(recruitDeadline)) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
+        }
     }
 
     private void requireStatus(AppearanceRecruitStatus expected) {

@@ -33,7 +33,7 @@ import com.hapbang.shared.billing.dto.ReleaseResultDto;
  * </ul>
  * Billing과 다른 점: 충전 HP·수익 HP를 나누지 않고 잔액 하나로 다룬다. 앱이 재시작되면 기록이 모두 사라진다.
  */
-// TODO(billing): 외부 연동 교체 단계에서 BillingPort 구현체로 바꾸고, 운영·개발 서버에서는 mode 값을 바꿔 이 구현을 끈다.
+// TODO(billing): 외부 연동 교체 단계에서 실제 연동(BillingPortClient, #182로 추가됨)을 확인한 뒤 mode를 billing-port로 바꿔 이 구현을 끈다.
 @Component
 @ConditionalOnProperty(prefix = "appearance.billing", name = "mode", havingValue = "fake", matchIfMissing = true)
 public class FakeBillingClient implements BillingClient {

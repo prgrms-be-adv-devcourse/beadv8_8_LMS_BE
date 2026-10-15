@@ -144,7 +144,7 @@ public class HpTask extends BaseEntity {
     /**
      * Billing 처리 실패. 대기 상태로 두고 다음 시도 시각을 정한다.
      *
-     * @param retryAt 다음 시도 시각 (간격 정책은 재시도 스케줄러에서 정한다)
+     * @param retryAt 다음 시도 시각 (보통은 {@link #recordFailure}가 재시도 정책으로 정한다)
      */
     public void markFailed(String error, LocalDateTime retryAt) {
         requirePending();

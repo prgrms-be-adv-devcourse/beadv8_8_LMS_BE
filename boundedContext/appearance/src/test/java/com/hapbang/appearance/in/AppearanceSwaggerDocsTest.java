@@ -90,4 +90,25 @@ class AppearanceSwaggerDocsTest {
                 .andExpect(jsonPath(SCHEMAS + "RsDataPageAppearanceRecruitSummaryResDto.properties.data['$ref']")
                         .value("#/components/schemas/PagedModelAppearanceRecruitSummaryResDto"));
     }
+
+    @Test
+    @DisplayName("모집 지원 API: 지원(201)·취소·수락·거절은 RsData로 감싼 지원, 지원자·내 지원 목록은 RsData의 PagedModel")
+    void applicationSchemaIsRsData() throws Exception {
+        String paths = "$.paths['/api/v1/appearances";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(paths + "/recruits/{recruitId}/applications'].post.responses['201'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceApplicationResDto"))
+                .andExpect(jsonPath(paths + "/applications/{applicationId}/accept'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceApplicationResDto"))
+                .andExpect(jsonPath(paths + "/applications/{applicationId}/reject'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceApplicationResDto"))
+                .andExpect(jsonPath(paths + "/applications/{applicationId}/withdraw'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceApplicationResDto"))
+                .andExpect(jsonPath(paths + "/recruits/{recruitId}/applications'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataPageAppearanceApplicationResDto"))
+                .andExpect(jsonPath(paths + "/applications/mine'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataPageAppearanceApplicationResDto"))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceRecruitSummaryResDto.properties.applicantCount").exists());
+    }
 }

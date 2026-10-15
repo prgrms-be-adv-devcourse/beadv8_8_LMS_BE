@@ -28,6 +28,7 @@ public class AppearanceRecruitUpdateUseCase {
 
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceUserSupport appearanceUserSupport;
+    private final AppearanceApplicationSupport appearanceApplicationSupport;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -45,6 +46,6 @@ public class AppearanceRecruitUpdateUseCase {
         } catch (ObjectOptimisticLockingFailureException exception) {
             throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
         }
-        return AppearanceRecruitResDto.from(recruit);
+        return AppearanceRecruitResDto.from(recruit, appearanceApplicationSupport.countApplicants(recruitId));
     }
 }

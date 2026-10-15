@@ -1,6 +1,7 @@
 package com.hapbang.appearance.domain;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 import com.hapbang.shared.jpa.BaseEntity;
 
@@ -38,10 +39,10 @@ public class Appearance extends BaseEntity {
     /** 출처 출연 요청서 (요청에서 성립한 경우) */
     private Long requestId;
 
-    /** 출처 모집 지원 (모집에서 성립한 경우, 모집 처리에서 사용) */
+    /** 출처 모집 지원 (모집에서 성립한 경우) */
     private Long applicationId;
 
-    /** 모집글 (모집별 조회용, 모집 처리에서 사용) */
+    /** 모집글 (모집에서 성립한 경우, 모집별 조회용) */
     private Long recruitId;
 
     private Long hostId;
@@ -86,6 +87,31 @@ public class Appearance extends BaseEntity {
         this.scheduledAt = request.getScheduledAt();
         this.status = AppearanceStatus.ESTABLISHED;
         this.establishedAt = now;
+    }
+
+    private Appearance(AppearanceRecruit recruit, AppearanceApplication application, LocalDateTime now) {
+        this.sourceType = AppearanceSourceType.RECRUIT;
+        this.applicationId = application.getId();
+        this.recruitId = recruit.getId();
+        this.hostId = recruit.getHostId();
+        this.guestId = application.getGuestId();
+        this.fee = recruit.getFeePerPerson();
+        this.scheduledAt = recruit.getScheduledAt();
+        this.status = AppearanceStatus.ESTABLISHED;
+        this.establishedAt = now;
+    }
+
+    /**
+     * 수락된 출연 모집 지원으로 출연을 만든다 (출연 성립). 출연료는 모집글의 1인당 출연료다.
+     * HP는 이동하지 않고 모집글의 보류를 그대로 쓴다.
+     */
+    public static Appearance establishFrom(AppearanceRecruit recruit, AppearanceApplication application,
+                                           LocalDateTime now) {
+        if (application.getStatus() != AppearanceApplicationStatus.SELECTED
+                || !Objects.equals(application.getRecruitId(), recruit.getId())) {
+            throw new IllegalStateException("이 모집글에서 수락된 지원으로만 출연을 만들 수 있습니다: " + application.getStatus());
+        }
+        return new Appearance(recruit, application, now);
     }
 
     /**
