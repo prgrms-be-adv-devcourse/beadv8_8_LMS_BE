@@ -59,7 +59,7 @@ public class AppearanceApplicationRespondUseCase {
 
         appearanceApplicationSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(recruit, application, now));
-        return AppearanceApplicationResDto.from(application, appearance.getId());
+        return AppearanceApplicationResDto.from(application, recruit, appearance.getId());
     }
 
     /**
@@ -75,6 +75,6 @@ public class AppearanceApplicationRespondUseCase {
         application.reject(now);
 
         appearanceApplicationSupport.flushOrConflict();
-        return AppearanceApplicationResDto.from(application, null);
+        return AppearanceApplicationResDto.from(application, recruit, null);
     }
 }

@@ -61,7 +61,7 @@ public class AppearanceApplicationApplyUseCase {
             AppearanceApplication saved = appearanceApplicationSupport.saveNow(application);
             // 지원 도착을 알린다. 받는 쪽은 커밋 뒤에 처리한다 (@ApplicationModuleListener, ISSUE.md APR-29)
             eventPublisher.publishEvent(new AppearanceApplicationSubmittedEvent(saved.toDto(recruit)));
-            return AppearanceApplicationResDto.from(saved, null);
+            return AppearanceApplicationResDto.from(saved, recruit, null);
         } catch (DataIntegrityViolationException exception) {
             // 위 확인을 동시에 통과한 지원은 DB 유니크 제약에서 막힌다.
             if (isRecruitGuestConflict(exception)) {

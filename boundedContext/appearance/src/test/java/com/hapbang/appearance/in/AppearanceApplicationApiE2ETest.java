@@ -218,10 +218,33 @@ class AppearanceApplicationApiE2ETest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("내 지원 목록을 조회했습니다."))
                 .andExpect(jsonPath("$.data.content[0].id").value(mine))
+                .andExpect(jsonPath("$.data.content[0].recruitTitle").value("주말 게임 합방 게스트 모집"))
+                .andExpect(jsonPath("$.data.content[0].recruitScheduledAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.content[0].recruitStatus").value("RECRUITING"))
                 .andExpect(jsonPath("$.data.page.totalElements").value(1));
         mockMvc.perform(get(APPLICATIONS + "/mine?status=UNKNOWN").with(TestLogin.as(GUEST, Role.INFLUENCER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("모집글 상세의 myApplication: 지원한 게스트는 내 지원, 지원 안 한 회원·호스트는 null (#243)")
+    void myApplicationInDetail() throws Exception {
+        long recruitId = postRecruit(3);
+        long mine = apply(GUEST, recruitId);
+
+        mockMvc.perform(get(RECRUITS + "/" + recruitId).with(TestLogin.as(GUEST, Role.INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.myApplication.id").value(mine))
+                .andExpect(jsonPath("$.data.myApplication.status").value("APPLIED"))
+                .andExpect(jsonPath("$.data.myApplication.message").value("지원합니다."))
+                .andExpect(jsonPath("$.data.myApplication.appearanceId").doesNotExist());
+        mockMvc.perform(get(RECRUITS + "/" + recruitId).with(TestLogin.as(VIEWER, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.myApplication").doesNotExist());
+        mockMvc.perform(get(RECRUITS + "/" + recruitId).with(TestLogin.as(HOST, Role.INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.myApplication").doesNotExist());
     }
 
     @Test

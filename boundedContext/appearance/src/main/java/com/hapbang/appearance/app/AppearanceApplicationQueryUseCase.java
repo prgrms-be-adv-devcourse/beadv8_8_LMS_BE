@@ -19,7 +19,8 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 출연 모집 지원 조회: 모집글의 지원자 목록(호스트만), 내 지원 목록(게스트). 트랜잭션은 호출한 Facade가 연다 (읽기 전용).
- * 수락된 지원에는 성립한 출연 ID를 함께 담는다 (한 페이지를 한 번에 조회).
+ * 수락된 지원에는 성립한 출연 ID를, 모든 지원에는 모집글의 현재 제목·방송 예정 일시·상태를 함께 담는다
+ * (한 페이지를 한 번에 조회, ISSUE.md APR-33).
  */
 @Service
 @RequiredArgsConstructor
@@ -46,7 +47,9 @@ public class AppearanceApplicationQueryUseCase {
             throw new AppearanceException(AppearanceErrorCode.NOT_RECRUIT_HOST,
                     "출연 모집글을 올린 호스트만 지원자 목록을 볼 수 있습니다.");
         }
-        return withAppearanceIds(appearanceApplicationSupport.findByRecruit(recruitId, orAll(statuses), pageable));
+        Page<AppearanceApplication> applications = appearanceApplicationSupport.findByRecruit(recruitId,
+                orAll(statuses), pageable);
+        return toResponses(applications, Map.of(recruitId, recruit));
     }
 
     /**
@@ -57,17 +60,25 @@ public class AppearanceApplicationQueryUseCase {
     public Page<AppearanceApplicationResDto> getMine(Long userId, List<AppearanceApplicationStatus> statuses,
                                                      Pageable pageable) {
         appearanceUserSupport.getParticipant(userId);
-        return withAppearanceIds(appearanceApplicationSupport.findByGuest(userId, orAll(statuses), pageable));
+        Page<AppearanceApplication> applications = appearanceApplicationSupport.findByGuest(userId, orAll(statuses),
+                pageable);
+        List<Long> recruitIds = new ArrayList<>();
+        for (AppearanceApplication application : applications) {
+            recruitIds.add(application.getRecruitId());
+        }
+        return toResponses(applications, appearanceRecruitSupport.findAllByIds(recruitIds));
     }
 
-    private Page<AppearanceApplicationResDto> withAppearanceIds(Page<AppearanceApplication> applications) {
+    /** 한 페이지의 성립 출연 ID를 한 번에 찾아 응답으로 바꾼다. 모집글은 호출한 쪽이 모아 넘긴다 */
+    private Page<AppearanceApplicationResDto> toResponses(Page<AppearanceApplication> applications,
+                                                          Map<Long, AppearanceRecruit> recruits) {
         List<Long> applicationIds = new ArrayList<>();
         for (AppearanceApplication application : applications) {
             applicationIds.add(application.getId());
         }
         Map<Long, Long> appearanceIds = appearanceSupport.findIdsByApplicationIds(applicationIds);
         return applications.map(application -> AppearanceApplicationResDto.from(application,
-                appearanceIds.get(application.getId())));
+                recruits.get(application.getRecruitId()), appearanceIds.get(application.getId())));
     }
 
     private static List<AppearanceApplicationStatus> orAll(List<AppearanceApplicationStatus> statuses) {

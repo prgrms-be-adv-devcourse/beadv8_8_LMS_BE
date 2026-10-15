@@ -30,17 +30,20 @@ public record AppearanceRecruitResDto(
         @Schema(description = "모집 전체 취소 사유 (선택, 취소된 경우)") String cancelReason,
         @Schema(description = "마감 반환(성립하지 못한 인원분) 진행 상태. 호스트에게만 보이며, 반환할 금액이 없거나 마감 전이면 null. "
                 + "PENDING 처리 중 / DONE 완료 / DEAD 실패(고객센터 확인)") HpTaskStatus hpReleaseStatus,
+        @Schema(description = "조회한 회원의 이 모집글 지원 (지원·취소·미선정 등 상태 그대로). 지원한 적이 없거나 호스트 본인이면 null. "
+                + "한 모집글에는 한 번만 지원할 수 있어 최대 한 건이다") AppearanceApplicationResDto myApplication,
         @Schema(description = "모집글 버전") Long version,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
 
     public static AppearanceRecruitResDto from(AppearanceRecruit recruit, long applicantCount) {
-        return from(recruit, applicantCount, null);
+        return from(recruit, applicantCount, null, null);
     }
 
     public static AppearanceRecruitResDto from(AppearanceRecruit recruit, long applicantCount,
-                                               HpTaskStatus hpReleaseStatus) {
+                                               HpTaskStatus hpReleaseStatus,
+                                               AppearanceApplicationResDto myApplication) {
         return new AppearanceRecruitResDto(
                 recruit.getId(),
                 recruit.getHostId(),
@@ -60,6 +63,7 @@ public record AppearanceRecruitResDto(
                 recruit.getCanceledAt(),
                 recruit.getCancelReason(),
                 hpReleaseStatus,
+                myApplication,
                 recruit.getVersion(),
                 recruit.getCreatedAt(),
                 recruit.getUpdatedAt());

@@ -5,15 +5,18 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
+import com.hapbang.appearance.domain.AppearanceApplication;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
@@ -30,6 +33,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>내가 올린 목록: 호스트 본인의 목록이라 출연 회원 자격(정지·강등)을 확인한다.</li>
  *     <li>모든 응답에 지원자 수(취소한 지원만 뺀 전체 지원)를 담는다. 화면에 보일지는 화면이 정한다 (ISSUE.md APR-27 A6).</li>
  *     <li>상세의 마감 반환 진행 상태는 호스트 본인의 돈이라 호스트에게만 담는다 (APR-28 C4).</li>
+ *     <li>상세에 조회한 회원의 지원을 담는다. 호스트 본인이거나 지원한 적이 없으면 null (APR-33).</li>
  * </ul>
  */
 @Service
@@ -39,6 +43,7 @@ public class AppearanceRecruitQueryUseCase {
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceApplicationSupport appearanceApplicationSupport;
+    private final AppearanceSupport appearanceSupport;
     private final HpTaskSupport hpTaskSupport;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
@@ -75,8 +80,24 @@ public class AppearanceRecruitQueryUseCase {
         if (recruit.isHost(userId)) {
             hpReleaseStatus = hpTaskSupport.findReleaseStatusOfRecruit(recruitId);
         }
+        AppearanceApplicationResDto myApplication = findMyApplication(userId, recruit);
         return AppearanceRecruitResDto.from(recruit, appearanceApplicationSupport.countApplicants(recruitId),
-                hpReleaseStatus);
+                hpReleaseStatus, myApplication);
+    }
+
+    /** 조회한 회원의 지원. 호스트 본인(자기 글에는 지원할 수 없다)이거나 지원한 적이 없으면 null */
+    private AppearanceApplicationResDto findMyApplication(Long userId, AppearanceRecruit recruit) {
+        if (recruit.isHost(userId)) {
+            return null;
+        }
+        Optional<AppearanceApplication> found = appearanceApplicationSupport.findByRecruitAndGuest(recruit.getId(),
+                userId);
+        if (found.isEmpty()) {
+            return null;
+        }
+        AppearanceApplication application = found.get();
+        Map<Long, Long> appearanceIds = appearanceSupport.findIdsByApplicationIds(List.of(application.getId()));
+        return AppearanceApplicationResDto.from(application, recruit, appearanceIds.get(application.getId()));
     }
 
     /** 한 페이지의 모집글 지원자 수를 한 번에 세어 담는다 (모집글마다 따로 세지 않도록) */
