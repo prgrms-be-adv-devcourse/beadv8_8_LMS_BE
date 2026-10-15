@@ -116,6 +116,18 @@ class AppearanceApplicationApiE2ETest {
     }
 
     @Test
+    @DisplayName("메시지는 선택이라 요청 본문 없이 지원해도 201, 메시지 null")
+    void applyWithoutBody() throws Exception {
+        long recruitId = postRecruit(3);
+
+        mockMvc.perform(post(RECRUITS + "/" + recruitId + "/applications")
+                        .with(TestLogin.as(GUEST, Role.INFLUENCER)).with(csrf()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("APPLIED"))
+                .andExpect(jsonPath("$.data.message").doesNotExist());
+    }
+
+    @Test
     @DisplayName("메시지 501자 400, 자기 모집글 400 CANNOT_APPLY_OWN_RECRUIT, 일반 유저 403 FORBIDDEN")
     void applyRejected() throws Exception {
         long recruitId = postRecruit(3);

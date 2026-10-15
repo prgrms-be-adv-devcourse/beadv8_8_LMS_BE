@@ -4,14 +4,12 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceApplication;
-import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 
@@ -55,7 +53,7 @@ public class AppearanceApplicationRespondUseCase {
         recruit.increaseSelected();
         appearanceUserSupport.getGuest(application.getGuestId());
 
-        flushOrConflict();
+        appearanceApplicationSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(recruit, application, now));
         return AppearanceApplicationResDto.from(application, appearance.getId());
     }
@@ -72,16 +70,7 @@ public class AppearanceApplicationRespondUseCase {
 
         application.reject(now);
 
-        flushOrConflict();
+        appearanceApplicationSupport.flushOrConflict();
         return AppearanceApplicationResDto.from(application, null);
-    }
-
-    /** 지원·모집글 변경을 바로 반영한다. 다른 요청이 먼저 바꿨으면(버전 충돌) 409 */
-    private void flushOrConflict() {
-        try {
-            appearanceApplicationSupport.flush();
-        } catch (ObjectOptimisticLockingFailureException exception) {
-            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
-        }
     }
 }

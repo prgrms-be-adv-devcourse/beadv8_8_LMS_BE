@@ -2,6 +2,7 @@ package com.hapbang.appearance.app;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -72,7 +73,10 @@ public class AppearanceRecruitQueryUseCase {
 
     /** 한 페이지의 모집글 지원자 수를 한 번에 세어 담는다 (모집글마다 따로 세지 않도록) */
     private Page<AppearanceRecruitSummaryResDto> toSummaries(Page<AppearanceRecruit> recruits) {
-        List<Long> recruitIds = recruits.map(AppearanceRecruit::getId).getContent();
+        List<Long> recruitIds = new ArrayList<>();
+        for (AppearanceRecruit recruit : recruits) {
+            recruitIds.add(recruit.getId());
+        }
         Map<Long, Long> applicantCounts = appearanceApplicationSupport.countApplicants(recruitIds);
         return recruits.map(recruit -> AppearanceRecruitSummaryResDto.from(recruit,
                 applicantCounts.getOrDefault(recruit.getId(), 0L)));

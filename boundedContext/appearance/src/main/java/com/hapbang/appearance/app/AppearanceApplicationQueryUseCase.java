@@ -1,5 +1,6 @@
 package com.hapbang.appearance.app;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -60,7 +61,10 @@ public class AppearanceApplicationQueryUseCase {
     }
 
     private Page<AppearanceApplicationResDto> withAppearanceIds(Page<AppearanceApplication> applications) {
-        List<Long> applicationIds = applications.map(AppearanceApplication::getId).getContent();
+        List<Long> applicationIds = new ArrayList<>();
+        for (AppearanceApplication application : applications) {
+            applicationIds.add(application.getId());
+        }
         Map<Long, Long> appearanceIds = appearanceSupport.findIdsByApplicationIds(applicationIds);
         return applications.map(application -> AppearanceApplicationResDto.from(application,
                 appearanceIds.get(application.getId())));

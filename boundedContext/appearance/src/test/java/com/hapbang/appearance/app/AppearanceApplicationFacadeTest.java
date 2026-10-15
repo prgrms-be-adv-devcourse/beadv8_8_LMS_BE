@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -156,7 +157,8 @@ class AppearanceApplicationFacadeTest {
         void concurrentDuplicate() throws Exception {
             Long recruitId = postRecruit(3);
 
-            List<Object> results = runConcurrently(5, () -> AppearanceApplicationFacadeTest.this.apply(GUEST, recruitId));
+            List<Object> results = runConcurrently(
+                    Collections.nCopies(5, () -> AppearanceApplicationFacadeTest.this.apply(GUEST, recruitId)));
 
             assertThat(results).filteredOn(AppearanceApplicationResDto.class::isInstance).hasSize(1);
             assertThat(results).filteredOn(AppearanceException.class::isInstance)
@@ -247,6 +249,33 @@ class AppearanceApplicationFacadeTest {
             assertErrorCode(() -> appearanceApplicationFacade.withdraw(GUEST, 999_999L),
                     AppearanceErrorCode.APPLICATION_NOT_FOUND);
         }
+
+        @Test
+        @DisplayName("게스트 취소와 호스트 수락이 동시에 오면 한쪽만 성공한다. 취소됐으면 출연이 없고, 수락됐으면 출연이 성립한다")
+        void concurrentWithdrawAndAccept() throws Exception {
+            Long recruitId = postRecruit(3);
+            Long applicationId = apply(GUEST, recruitId).id();
+
+            List<Object> results = runConcurrently(List.of(
+                    () -> appearanceApplicationFacade.withdraw(GUEST, applicationId),
+                    () -> appearanceApplicationFacade.accept(HOST, applicationId)));
+
+            assertThat(results).filteredOn(AppearanceApplicationResDto.class::isInstance).hasSize(1);
+            assertThat(results).filteredOn(AppearanceException.class::isInstance)
+                    .singleElement()
+                    .satisfies(error -> assertThat(((AppearanceException) error).getErrorCode())
+                            .isIn(AppearanceErrorCode.CONCURRENT_UPDATE, AppearanceErrorCode.APPLICATION_NOT_PENDING));
+            AppearanceApplicationStatus status = appearanceApplicationFacade.getMine(GUEST, null, FIRST_PAGE)
+                    .getContent().getFirst().status();
+            if (status == AppearanceApplicationStatus.WITHDRAWN) {
+                assertThat(appearanceRecruitFacade.getDetail(recruitId).selectedCount()).isZero();
+                assertThat(appearanceRepository.count()).isZero();
+            } else {
+                assertThat(status).isEqualTo(AppearanceApplicationStatus.SELECTED);
+                assertThat(appearanceRecruitFacade.getDetail(recruitId).selectedCount()).isEqualTo(1);
+                assertThat(appearanceRepository.count()).isEqualTo(1);
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -334,22 +363,11 @@ class AppearanceApplicationFacadeTest {
             List<Long> applicationIds = List.of(apply(GUEST, recruitId).id(), apply(GUEST2, recruitId).id(),
                     apply(GUEST3, recruitId).id());
 
-            List<Object> results = new ArrayList<>();
-            ExecutorService executor = Executors.newFixedThreadPool(3);
-            CountDownLatch start = new CountDownLatch(1);
-            try {
-                List<Future<Object>> futures = new ArrayList<>();
-                for (Long applicationId : applicationIds) {
-                    futures.add(executor.submit(asInfluencer(start,
-                            () -> appearanceApplicationFacade.accept(HOST, applicationId))));
-                }
-                start.countDown();
-                for (Future<Object> future : futures) {
-                    results.add(future.get());
-                }
-            } finally {
-                executor.shutdown();
+            List<Callable<Object>> accepts = new ArrayList<>();
+            for (Long applicationId : applicationIds) {
+                accepts.add(() -> appearanceApplicationFacade.accept(HOST, applicationId));
             }
+            List<Object> results = runConcurrently(accepts);
 
             assertThat(results).filteredOn(AppearanceApplicationResDto.class::isInstance).hasSize(1);
             assertThat(results).filteredOn(AppearanceException.class::isInstance)
@@ -471,13 +489,13 @@ class AppearanceApplicationFacadeTest {
 
     // ---------------------------------------------------------------------------------------------
 
-    /** 같은 작업을 여러 스레드에서 동시에 실행하고, 결과(응답 또는 예외)를 모은다 */
-    private List<Object> runConcurrently(int threads, Callable<Object> task) throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(threads);
+    /** 작업들을 각자 다른 스레드에서 동시에 실행하고, 결과(응답 또는 예외)를 순서대로 모은다 */
+    private List<Object> runConcurrently(List<Callable<Object>> tasks) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(tasks.size());
         CountDownLatch start = new CountDownLatch(1);
         try {
             List<Future<Object>> futures = new ArrayList<>();
-            for (int i = 0; i < threads; i++) {
+            for (Callable<Object> task : tasks) {
                 futures.add(executor.submit(asInfluencer(start, task)));
             }
             start.countDown();

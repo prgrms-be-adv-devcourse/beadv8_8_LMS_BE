@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.domain.AppearanceApplication;
@@ -57,9 +58,17 @@ public class AppearanceApplicationSupport {
         return appearanceApplicationRepository.saveAndFlush(application);
     }
 
-    /** 변경 내용을 바로 DB에 반영한다 (버전 충돌을 여기서 확인하기 위해) */
-    public void flush() {
-        appearanceApplicationRepository.flush();
+    /**
+     * 지원·모집글 변경을 바로 DB에 반영한다. 다른 요청이 먼저 바꿨으면(버전 충돌) 409로 바꿔 던진다.
+     *
+     * @throws AppearanceException 동시 처리 충돌({@code CONCURRENT_UPDATE})
+     */
+    public void flushOrConflict() {
+        try {
+            appearanceApplicationRepository.flush();
+        } catch (ObjectOptimisticLockingFailureException exception) {
+            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
+        }
     }
 
     /** 모집글의 지원자 목록 (호스트). 최신순 */

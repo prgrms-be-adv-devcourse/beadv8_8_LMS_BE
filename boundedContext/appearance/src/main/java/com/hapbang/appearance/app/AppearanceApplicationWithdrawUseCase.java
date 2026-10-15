@@ -4,13 +4,11 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceApplication;
-import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 
 import lombok.RequiredArgsConstructor;
@@ -38,11 +36,7 @@ public class AppearanceApplicationWithdrawUseCase {
         appearanceUserSupport.getParticipant(guestId);
         AppearanceApplication application = appearanceApplicationSupport.getById(applicationId);
         application.withdraw(guestId, LocalDateTime.now(clock));
-        try {
-            appearanceApplicationSupport.flush();
-        } catch (ObjectOptimisticLockingFailureException exception) {
-            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
-        }
+        appearanceApplicationSupport.flushOrConflict();
         return AppearanceApplicationResDto.from(application, null);
     }
 }

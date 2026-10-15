@@ -30,7 +30,7 @@ public interface ApiV1AppearanceApplicationSpec {
             + "APPLIED·SELECTED·NOT_SELECTED·WITHDRAWN";
 
     @Operation(summary = "출연 모집 지원 (게스트)", description = """
-            모집 중이고 모집 마감 일시 전인 모집글에 지원한다. 메시지는 선택(500자 이하). 201 `APPLIED`.
+            모집 중이고 모집 마감 일시 전인 모집글에 지원한다. 메시지는 선택(500자 이하)이고, 요청 본문 없이 보내도 된다. 201 `APPLIED`.
             - 한 모집글에 한 번만 지원할 수 있다. 취소했거나 거절돼도 다시 지원하면 409 `DUPLICATE_APPLICATION`
             - 자기 모집글이면 400 `CANNOT_APPLY_OWN_RECRUIT`, 모집 중이 아니거나 마감 일시가 지났으면 409 `APPEARANCE_RECRUIT_NOT_OPEN`
             - 정원이 찼어도 지원할 수 있다 (빈자리가 생기면 호스트가 수락할 수 있음)""")

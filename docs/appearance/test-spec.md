@@ -588,6 +588,7 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 지원 | 정지된 게스트 | `APPEARANCE_USER_NOT_ACTIVE` |
 | 취소 | 취소 | `WITHDRAWN`, 지원자 수 0 |
 | 취소 | 다른 회원 / 수락된 지원 / 없는 지원 | `NOT_APPLICATION_GUEST` / `APPLICATION_NOT_PENDING` / `APPLICATION_NOT_FOUND` |
+| 취소 | 게스트 취소와 호스트 수락 동시 | 1건 성공, 1건 `CONCURRENT_UPDATE` 또는 `APPLICATION_NOT_PENDING`. 취소됐으면 성립 인원 0·출연 없음, 수락됐으면 성립 인원 1·출연 1건 |
 | 수락 | 수락 | `SELECTED`, 출연(출처 `RECRUIT`, 지원·모집글 ID, 게스트, 30,000), 성립 인원 1, 지원자 수 1, 보류 90,000 그대로, 잔액 변화 없음 |
 | 수락 | 정원 1명이 찬 뒤 두 번째 수락 | `RECRUIT_FULL`, 모집글 `RECRUITING`, 출연 1건 |
 | 수락 | 다른 회원 / 거절된 지원 / 마감 일시 지남 | `NOT_RECRUIT_HOST` / `APPLICATION_NOT_PENDING` / `APPEARANCE_RECRUIT_NOT_OPEN`, 출연 없음 |
@@ -605,6 +606,7 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 케이스 | 기대 결과 |
 |---|---|
 | 지원 / 다시 지원 | 201 "출연 모집에 지원했습니다.", `APPLIED`, 모집글 ID, 메시지 / 409 `DUPLICATE_APPLICATION` |
+| 요청 본문 없이 지원 (메시지 선택) | 201, `APPLIED`, 메시지 없음 |
 | 메시지 501자 / 자기 모집글 / 일반 유저 | 400 `INVALID_REQUEST` / 400 `CANNOT_APPLY_OWN_RECRUIT` / 403 `FORBIDDEN` |
 | 정원 1명: 첫 수락 / 두 번째 수락 / 모집글 상세 | 200 "지원을 수락했습니다.", `SELECTED`, 출연 ID / 409 `RECRUIT_FULL` / `RECRUITING`, 성립 1, 지원자 2 |
 | 다른 회원 수락 / 호스트 거절 | 403 `NOT_RECRUIT_HOST` / 200 "지원을 거절했습니다.", `NOT_SELECTED` |

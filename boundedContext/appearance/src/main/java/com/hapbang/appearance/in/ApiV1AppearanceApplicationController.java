@@ -42,8 +42,9 @@ public class ApiV1AppearanceApplicationController implements ApiV1AppearanceAppl
     @ResponseStatus(HttpStatus.CREATED)
     public RsData<AppearanceApplicationResDto> apply(@LoginUserId Long userId,
                                                      @PathVariable("recruitId") Long recruitId,
-                                                     @RequestBody ApplyAppearanceRecruitReqDto request) {
-        AppearanceApplicationResDto applied = appearanceApplicationFacade.apply(userId, recruitId, request.message());
+                                                     @RequestBody(required = false) ApplyAppearanceRecruitReqDto request) {
+        String message = request == null ? null : request.message();
+        AppearanceApplicationResDto applied = appearanceApplicationFacade.apply(userId, recruitId, message);
         return RsData.created("출연 모집에 지원했습니다.", applied);
     }
 
