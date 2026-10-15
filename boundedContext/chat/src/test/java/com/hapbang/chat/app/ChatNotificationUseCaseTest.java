@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatNotificationResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
@@ -60,6 +61,7 @@ class ChatNotificationUseCaseTest {
         assertThat(message.messageType()).isEqualTo(ChatMessageType.NOTIFICATION);
         assertThat(message.notificationKind()).isEqualTo(NotificationKind.APPEARANCE_REQUEST_SENT);
         assertThat(message.referenceId()).isEqualTo(10L);
+        assertThat(message.parentReferenceId()).isNull();
         assertThat(message.senderUserId()).isEqualTo(HOST_ID);
         assertThat(message.content()).isEqualTo("""
                 호스트님이 출연을 요청했습니다.
@@ -85,11 +87,24 @@ class ChatNotificationUseCaseTest {
         ChatMessageResponse message = result.sent().message();
         assertThat(message.notificationKind()).isEqualTo(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED);
         assertThat(message.referenceId()).isEqualTo(20L);
+        assertThat(message.parentReferenceId()).isEqualTo(7L);
         assertThat(message.senderUserId()).isEqualTo(GUEST_ID);
         assertThat(message.content()).isEqualTo("""
                 게스트님이 출연 모집에 지원했습니다.
                 모집글: 주말 게임 합방 모집""");
         assertThat(result.sent().notifyUserIds()).containsExactly(HOST_ID);
+    }
+
+    @Test
+    void 관리자_기록_조회에도_알림_종류와_출연_건_ID가_담긴다() {
+        Long chatRoomId = chatNotificationUseCase.notifyAppearanceApplicationSubmitted(
+                new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID, GUEST_ID, SCHEDULED_AT))
+                .orElseThrow().sent().message().chatRoomId();
+
+        assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID).messages()).singleElement()
+                .extracting(ChatMessageHistoryResponse::notificationKind, ChatMessageHistoryResponse::referenceId,
+                        ChatMessageHistoryResponse::parentReferenceId)
+                .containsExactly(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, 20L, 7L);
     }
 
     @Test

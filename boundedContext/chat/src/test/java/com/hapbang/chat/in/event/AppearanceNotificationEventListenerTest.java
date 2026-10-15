@@ -71,8 +71,9 @@ class AppearanceNotificationEventListenerTest {
 
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatMessageRepository.findAll())
                 .singleElement()
-                .extracting(ChatMessage::getNotificationKind)
-                .isEqualTo(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED));
+                .extracting(ChatMessage::getNotificationKind, ChatMessage::getReferenceId,
+                        ChatMessage::getParentReferenceId)
+                .containsExactly(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, 20L, 7L));
     }
 
     @Test
