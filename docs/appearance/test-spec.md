@@ -787,7 +787,8 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 일방 취소 | 처리 중 취소 요청 | 확인 없이 `CANCEL_REQUEST_CONFIRM_REQUIRED`(출연 그대로, HP 작업 없음) → 확인하면 취소 + `CLOSED_BY_HOST_CANCEL` + 위약금 지급 |
 | 일방 취소 | 거부 | 게스트 `NOT_APPEARANCE_HOST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 다시 취소·합의 취소된 출연 `APPEARANCE_NOT_CANCELABLE`, 방송 예정 일시 지남 `APPEARANCE_SCHEDULE_PASSED` |
 | 일방 취소 | 모집 출처 (정원 1) | 모집글 보류 30,000 정산(0), 키 `APPEARANCE_RECRUIT-{id}-PENALTY-APPEARANCE-{id}`, 성립 인원 1 그대로, 대기 지원 수락 `RECRUIT_FULL` |
-| 일방 취소 | Billing 무응답 | 취소 성공, `hpPenaltyStatus` `PENDING` |
+| 일방 취소 | Billing 무응답 → 재시도 배치 → 다시 실행 | 취소 성공·`PENDING`(게스트 잔액 그대로) → `DONE`, 위약금은 한 번만 지급(게스트 +9,000, 호스트 −9,000) |
+| 일방 취소 | Billing 거절 (게스트 지갑 없음) | 취소 성공, 재시도 없이 `DEAD`(시도 1회), 마지막 오류 `WALLET_NOT_FOUND: …` |
 | 전체 취소 | 모집 중, 3명 중 2명 성립·1명 대기 | `CANCELED`·사유·`hpReleaseStatus` `DONE`, 출연 2건 일방 취소(위약금 9,000씩·같은 사유), 대기 지원 `NOT_SELECTED`, 빈자리 반환 30,000 `RECRUIT_CANCELED`, 보류 0, 호스트 −18,000·게스트 +9,000씩 |
 | 전체 취소 | 성립 0명 | 위약금 없음, 90,000 반환, 호스트 잔액 원래대로 |
 | 전체 취소 | 마감 뒤 | 위약금 1건, 반환은 마감 반환(`RECRUIT_CLOSED`)뿐, 보류 0 |

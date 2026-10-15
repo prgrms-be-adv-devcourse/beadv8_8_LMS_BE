@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
 
 /**
- * 호스트 일방 취소·모집 전체 취소 요청. 요청 본문 없이 보내도 된다 (사유 없음, 확인 없음).
+ * 출연 호스트 일방 취소 요청. 요청 본문 없이 보내도 된다 (사유 없음, 확인 없음). 모집 전체 취소는 {@link CancelAppearanceRecruitReqDto}.
  */
 public record HostCancelAppearanceReqDto(
         @Schema(description = "취소 사유 (선택, 500자 이하)", example = "방송 일정이 갑자기 취소되었습니다.")

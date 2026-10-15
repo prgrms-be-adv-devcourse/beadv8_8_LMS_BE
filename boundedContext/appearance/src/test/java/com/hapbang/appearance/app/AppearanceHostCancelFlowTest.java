@@ -88,6 +88,12 @@ class AppearanceHostCancelFlowTest {
     HpTaskRepository hpTaskRepository;
 
     @Autowired
+    HpTaskRetryUseCase hpTaskRetryUseCase;
+
+    @Autowired
+    HpTaskExecuteUseCase hpTaskExecuteUseCase;
+
+    @Autowired
     FakeBillingClient fakeBillingClient;
 
     @Autowired
@@ -250,8 +256,8 @@ class AppearanceHostCancelFlowTest {
         }
 
         @Test
-        @DisplayName("정산이 실패해도 취소는 성공하고 위약금 정산 작업은 PENDING으로 남는다")
-        void penaltyFails() {
+        @DisplayName("정산 결과를 모르면 취소는 성공하고 작업은 PENDING → 재시도 배치가 DONE으로 처리하며, 다시 실행해도 위약금은 한 번만 지급된다")
+        void penaltyRetried() {
             Long appearanceId = establishFromRequest().appearanceId();
             fakeBillingClient.setUnavailable(true);
 
@@ -259,6 +265,33 @@ class AppearanceHostCancelFlowTest {
 
             assertThat(canceled.status()).isEqualTo(AppearanceStatus.CANCELED_BY_HOST);
             assertThat(canceled.hpPenaltyStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE);
+
+            fakeBillingClient.setUnavailable(false);
+            HpTask task = onlyTask(HpTaskType.PENALTY);
+            jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?",
+                    now().minusSeconds(1), task.getId());
+            hpTaskRetryUseCase.retryDue();
+            hpTaskExecuteUseCase.execute(task.getId()); // 이미 DONE이면 다시 실행하지 않는다
+
+            assertThat(appearanceFacade.getDetail(HOST, appearanceId).hpPenaltyStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + PENALTY);
+            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE - PENALTY);
+        }
+
+        @Test
+        @DisplayName("Billing이 위약금 정산을 거절하면(게스트 지갑 없음) 재시도 없이 DEAD, Billing 오류 코드를 기록한다. 취소는 그대로")
+        void penaltyRejected() {
+            Long appearanceId = establishFromRequest().appearanceId();
+            fakeBillingClient.removeWallet(GUEST);
+
+            AppearanceResDto canceled = appearanceFacade.hostCancel(HOST, appearanceId, false, null);
+
+            assertThat(canceled.status()).isEqualTo(AppearanceStatus.CANCELED_BY_HOST);
+            assertThat(canceled.hpPenaltyStatus()).isEqualTo(HpTaskStatus.DEAD);
+            HpTask task = onlyTask(HpTaskType.PENALTY);
+            assertThat(task.getAttemptCount()).isEqualTo(1);
+            assertThat(task.getLastError()).startsWith("WALLET_NOT_FOUND");
         }
     }
 

@@ -8,8 +8,8 @@ import org.springframework.data.domain.Pageable;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
+import com.hapbang.appearance.in.dto.CancelAppearanceRecruitReqDto;
 import com.hapbang.appearance.in.dto.CreateAppearanceRecruitReqDto;
-import com.hapbang.appearance.in.dto.HostCancelAppearanceReqDto;
 import com.hapbang.appearance.in.dto.UpdateAppearanceRecruitReqDto;
 import com.hapbang.global.response.RsData;
 
@@ -84,5 +84,5 @@ public interface ApiV1AppearanceRecruitSpec {
             - 호스트가 아니면 403 `NOT_RECRUIT_HOST`, 모집 중·마감이 아니면 409 `APPEARANCE_RECRUIT_NOT_CANCELABLE`,
               방송 예정 일시가 지났으면 409 `APPEARANCE_SCHEDULE_PASSED`
             - 정산이 늦어져도 취소는 성공으로 응답한다. 빈자리 반환 진행 상태는 `hpReleaseStatus`, 출연별 위약금은 출연 상세에서 본다""")
-    RsData<AppearanceRecruitResDto> cancel(Long userId, Long recruitId, @Valid HostCancelAppearanceReqDto request);
+    RsData<AppearanceRecruitResDto> cancel(Long userId, Long recruitId, @Valid CancelAppearanceRecruitReqDto request);
 }

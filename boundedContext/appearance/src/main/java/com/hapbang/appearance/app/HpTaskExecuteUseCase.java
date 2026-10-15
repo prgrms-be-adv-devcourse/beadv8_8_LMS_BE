@@ -78,12 +78,16 @@ public class HpTaskExecuteUseCase {
         record(taskId, pending -> pending.markDone(LocalDateTime.now(clock)));
     }
 
-    /** 작업 종류에 맞는 Billing 요청을 보낸다 */
+    /**
+     * 작업 종류에 맞는 Billing 요청을 보낸다. 값을 돌려주는 switch 식이라 작업 종류가 늘었는데 분기를 빠뜨리면 컴파일되지 않는다
+     * (분기 없이 Billing을 부르지 않고 완료로 기록되는 일을 막는다).
+     */
     private void request(HpTask task) {
-        switch (task.getTaskType()) {
+        Object result = switch (task.getTaskType()) {
             case RELEASE -> billingClient.release(toReleaseCommand(task));
             case PENALTY -> billingClient.settlePenalty(toPenaltyCommand(task));
-        }
+        };
+        log.debug("HP 작업 Billing 처리 taskId={}, result={}", task.getId(), result);
     }
 
     /**
