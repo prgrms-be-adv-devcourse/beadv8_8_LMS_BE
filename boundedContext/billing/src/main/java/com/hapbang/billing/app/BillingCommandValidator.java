@@ -56,7 +56,8 @@ final class BillingCommandValidator {
         }
     }
 
-    private static void requirePositive(long amountHp) {
+    // 금액이 0 이하이면 INVALID_POINT_AMOUNT로 거절한다(Billing 내부 보류·확정 차감·반환 요청도 쓴다, #241).
+    static void requirePositive(long amountHp) {
         if (amountHp <= 0) {
             throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
         }

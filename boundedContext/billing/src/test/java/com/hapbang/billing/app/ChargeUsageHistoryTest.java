@@ -121,6 +121,47 @@ class ChargeUsageHistoryTest {
                 BillingErrorCode.HOLD_STATE_INCONSISTENT);
     }
 
+    @Test
+    @DisplayName("확정 차감(CAPTURE) 상세는 지급과 같이 배분 순서(FIFO)로 소진해 재생하고, 처리 건별 소진을 재구성한다 (#241)")
+    void captureReplaysFifo() {
+        ChargeUsageHistory history = ChargeUsageHistory.replay(ALLOCATIONS, List.of(
+                new Processing(10L, HoldDetailActionType.CAPTURE, 2_500L),
+                new Processing(11L, HoldDetailActionType.RELEASE, 1_000L)));
+
+        assertThat(history.consumptionsOf(10L)).containsExactly(new ChargeConsumption(101L, 2_000L),
+                new ChargeConsumption(102L, 500L));
+        assertThat(history.restorationsOf(11L)).containsExactly(new ChargeRestoration(102L, 1_000L));
+        assertThat(history.matches(1L, 0L, 2_000L, 0L)).isTrue();
+        assertThat(history.matches(2L, 1_500L, 500L, 1_000L)).isTrue();
+    }
+
+    @Test
+    @DisplayName("충전 건을 지정한 상세는 규칙과 관계없이 그 충전 건 배분에서만 소진·반환하고, 이후 규칙 처리는 남은 배분으로 이어진다 (#241)")
+    void targetedChargeReplay() {
+        ChargeUsageHistory history = ChargeUsageHistory.replay(ALLOCATIONS, List.of(
+                // FIFO라면 #101부터지만 지정한 #102에서 소진
+                new Processing(10L, HoldDetailActionType.CAPTURE, 3_000L, 102L),
+                // 역순이라면 #102부터지만 지정한 #101에서 반환
+                new Processing(11L, HoldDetailActionType.RELEASE, 500L, 101L)));
+
+        assertThat(history.consumptionsOf(10L)).containsExactly(new ChargeConsumption(102L, 3_000L));
+        assertThat(history.restorationsOf(11L)).containsExactly(new ChargeRestoration(101L, 500L));
+        assertThat(history.remainingOf(101L)).isEqualTo(1_500L);
+        assertThat(history.remainingOf(102L)).isZero();
+        assertThat(history.remainingOf(999L)).isNull();
+        // 남은 처리는 규칙대로(남은 보류가 있는 배분부터)
+        assertThat(history.release(1_500L)).containsExactly(new UsageRelease(1L, 101L, 1_500L));
+    }
+
+    @Test
+    @DisplayName("지정한 충전 건이 배분에 없거나 남은 보류보다 많으면 이력이 어긋난 것이므로 HOLD_STATE_INCONSISTENT다 (#241)")
+    void targetedChargeInconsistent() {
+        assertBillingError(() -> ChargeUsageHistory.replay(ALLOCATIONS, List.of(
+                new Processing(10L, HoldDetailActionType.CAPTURE, 100L, 999L))), BillingErrorCode.HOLD_STATE_INCONSISTENT);
+        assertBillingError(() -> ChargeUsageHistory.replay(ALLOCATIONS, List.of(
+                new Processing(10L, HoldDetailActionType.RELEASE, 2_001L, 101L))), BillingErrorCode.HOLD_STATE_INCONSISTENT);
+    }
+
     private static void assertBillingError(Runnable action, BillingErrorCode errorCode) {
         assertThatThrownBy(action::run).isInstanceOfSatisfying(BillingException.class,
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(errorCode));

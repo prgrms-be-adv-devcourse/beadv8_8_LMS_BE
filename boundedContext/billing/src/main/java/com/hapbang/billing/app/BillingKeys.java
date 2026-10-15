@@ -16,6 +16,7 @@ final class BillingKeys {
     static final String PAYOUT_PREFIX = "PAYOUT";
     static final String PENALTY_PREFIX = "PENALTY";
     static final String CHARGE_PREFIX = "CHARGE";
+    static final String CAPTURE_PREFIX = "CAPTURE";
 
     private BillingKeys() {
     }
@@ -45,6 +46,16 @@ final class BillingKeys {
     // 충전 원장 작업 키 CHARGE:{chargeId}. 충전 건 하나에 충전 원장은 한 번만 기록된다 (#224).
     static String charge(Long chargeId) {
         return CHARGE_PREFIX + ":" + chargeId;
+    }
+
+    // 반환 멱등키 RELEASE:{holdId}:{releaseRequestId}. Billing 내부 반환(#241)도 같은 형식이다.
+    static String release(Long holdId, String releaseRequestId) {
+        return RELEASE_PREFIX + ":" + holdId + ":" + releaseRequestId;
+    }
+
+    // 확정 차감 멱등키 CAPTURE:{holdId}:{captureRequestId}. 확정 차감 상세 멱등키이자 원장 작업 키다 (#241).
+    static String capture(Long holdId, String captureRequestId) {
+        return CAPTURE_PREFIX + ":" + holdId + ":" + captureRequestId;
     }
 
     // 반환 멱등키 RELEASE:{holdId}:{releaseRequestId}. 반환 상세 멱등키이자 원장 작업 키다.

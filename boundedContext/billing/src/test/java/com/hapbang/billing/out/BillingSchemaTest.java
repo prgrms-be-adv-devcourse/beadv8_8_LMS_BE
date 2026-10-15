@@ -71,7 +71,8 @@ class BillingSchemaTest {
                 JOIN pg_namespace target_ns ON target_ns.oid = target_table.relnamespace
                 WHERE constraint_row.contype = 'f' AND source_ns.nspname = 'billing'
                 """).getResultList();
-        assertThat(foreignKeys).hasSize(18);
+        // 18개 + 보류 상세의 지정 충전 건(target_charge_id → point_charge, #241)
+        assertThat(foreignKeys).hasSize(19);
         for (Object row : foreignKeys) {
             assertThat((Object[]) row).containsExactly("billing", "a"); // NO ACTION
         }
@@ -121,7 +122,9 @@ class BillingSchemaTest {
             "Settlement, receiverWalletId, settlement, receiver_wallet_id, false",
             "Settlement, pointHoldId, settlement, point_hold_id, false",
             "Exchange, walletId, exchange, wallet_id, false",
-            "Exchange, pointHoldId, exchange, point_hold_id, true"})
+            "Exchange, pointHoldId, exchange, point_hold_id, true",
+            // #241: 보류 상세가 처리할 충전 건(다른 Aggregate라 ID 참조)
+            "PointHoldDetail, targetChargeId, point_hold_detail, target_charge_id, true"})
     void ID로_바꾼_참조_필드는_기존_컬럼과_NULL_제약과_FK를_그대로_쓴다(String entity, String field, String table,
             String column, boolean nullable) throws Exception {
         Field idField = Class.forName("com.hapbang.billing.domain." + entity).getDeclaredField(field);

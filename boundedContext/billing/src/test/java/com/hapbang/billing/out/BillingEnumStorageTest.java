@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -25,6 +26,7 @@ import com.hapbang.billing.domain.PgProvider;
 import com.hapbang.billing.domain.PointChargeStatus;
 import com.hapbang.billing.domain.PointChargeUsageStatus;
 import com.hapbang.billing.domain.PointHoldStatus;
+import com.hapbang.billing.domain.PointHoldType;
 import com.hapbang.billing.domain.PointRefundRequestStatus;
 import com.hapbang.billing.domain.PointRefundStatus;
 import com.hapbang.billing.domain.PointType;
@@ -54,6 +56,7 @@ class BillingEnumStorageTest {
         columns.put("ck_point_ledger_reference_type", BillingReferenceType.class);
         columns.put("ck_point_hold_reference_type", BillingReferenceType.class);
         columns.put("ck_point_hold_status", PointHoldStatus.class);
+        columns.put("ck_point_hold_type", PointHoldType.class);
         columns.put("ck_point_hold_detail_reference_type", BillingReferenceType.class);
         columns.put("ck_point_hold_detail_action_type", HoldDetailActionType.class);
         columns.put("ck_point_charge_pg_provider", PgProvider.class);
@@ -74,7 +77,10 @@ class BillingEnumStorageTest {
                 JOIN pg_namespace ns ON ns.oid = constraint_row.connamespace
                 WHERE ns.nspname = 'billing' AND constraint_row.contype = 'c'
                   AND pg_get_constraintdef(constraint_row.oid) ~ '''[A-Z][A-Z_]*'''
-                """, String.class).getResultList();
+                """, String.class).getResultList().stream()
+                // 보류 종류와 HP 구성이 맞는지 보는 CHECK(#241)는 Enum 값 목록이 아니라 업무 규칙이라 뺀다
+                .filter(name -> !NON_ENUM_CHECKS.contains(name))
+                .toList();
         // 값이 하나뿐인 CHECK는 PostgreSQL이 IN 대신 = 로 저장하므로 대문자 문자열 상수가 있는 CHECK를 모두 찾는다.
         assertThat(enumChecks).as("Enum 컬럼 CHECK 전부를 확인한다").containsExactlyInAnyOrderElementsOf(columns.keySet());
 
@@ -82,6 +88,9 @@ class BillingEnumStorageTest {
                 .as(constraint)
                 .containsExactlyInAnyOrderElementsOf(Arrays.stream(enumType.getEnumConstants()).map(Enum::name).toList()));
     }
+
+    // 대문자 문자열 상수를 쓰지만 Enum 저장값 목록이 아닌 CHECK
+    private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""

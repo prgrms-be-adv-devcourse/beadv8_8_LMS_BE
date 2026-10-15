@@ -28,6 +28,10 @@ public enum BillingErrorCode implements BaseErrorCode {
     PAYOUT_TO_PAYER(HttpStatus.BAD_REQUEST, "보류한 회원 자신에게는 지급할 수 없습니다."),
     PAYOUT_SOURCE_MISMATCH(HttpStatus.BAD_REQUEST, "지급 원천이 보류의 거래 대상과 맞지 않습니다."),
     PAYOUT_ALREADY_SETTLED(HttpStatus.CONFLICT, "같은 출연 계약·주문 항목(또는 같은 출연 요청)에 이미 지급했습니다."),
+    // 종류별 보류·확정 차감 (#241)
+    CAPTURE_AMOUNT_EXCEEDS_HELD(HttpStatus.CONFLICT, "확정 차감 금액이 남은 보류 HP보다 많습니다."),
+    HOLD_TYPE_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "이 보류 종류에서는 할 수 없는 처리입니다."),
+    HOLD_CHARGE_NOT_FOUND(HttpStatus.BAD_REQUEST, "보류에 배분되지 않은 충전 건입니다."),
     // HP 충전 (#224)
     CHARGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 HP 충전을 사용할 수 없습니다."),
     CHARGE_AMOUNT_INVALID(HttpStatus.BAD_REQUEST, "충전 금액은 1,000 HP 이상, 1,000 HP 단위여야 합니다."),
