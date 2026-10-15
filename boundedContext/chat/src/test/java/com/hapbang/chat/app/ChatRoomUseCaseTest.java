@@ -341,7 +341,7 @@ class ChatRoomUseCaseTest {
         chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        ChatRoomHistoryResponse history = chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID);
+        ChatRoomHistoryResponse history = chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 100);
 
         assertThat(history.status()).isEqualTo(ChatRoomStatus.ENDED);
         assertThat(history.endedAt()).isNotNull();
@@ -364,7 +364,7 @@ class ChatRoomUseCaseTest {
     void 관리자가_아니면_기록을_조회할_수_없다() {
         Long chatRoomId = createRoom();
 
-        assertThatThrownBy(() -> chatRoomSupporter.getHistory(chatRoomId, HOST_ID))
+        assertThatThrownBy(() -> chatRoomSupporter.getHistory(chatRoomId, HOST_ID, null, 100))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.ADMIN_ONLY);
     }

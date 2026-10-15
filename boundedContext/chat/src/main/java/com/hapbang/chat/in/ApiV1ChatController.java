@@ -121,7 +121,10 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
     @Override
     @GetMapping("/admin/{chatRoomId}/history")
     public RsData<ChatRoomHistoryResponse> getHistory(@LoginUserId Long userId,
-                                                      @PathVariable("chatRoomId") Long chatRoomId) {
-        return RsData.ok("채팅 기록을 조회했습니다.", chatRoomFacade.getHistory(chatRoomId, userId));
+                                                      @PathVariable("chatRoomId") Long chatRoomId,
+                                                      @RequestParam(name = "cursor", required = false) String cursor,
+                                                      @RequestParam(name = "size",
+                                                              defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
+        return RsData.ok("채팅 기록을 조회했습니다.", chatRoomFacade.getHistory(chatRoomId, userId, cursor, size));
     }
 }

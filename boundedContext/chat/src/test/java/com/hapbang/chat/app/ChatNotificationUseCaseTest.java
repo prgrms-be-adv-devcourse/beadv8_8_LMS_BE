@@ -101,7 +101,7 @@ class ChatNotificationUseCaseTest {
                 new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID, GUEST_ID, SCHEDULED_AT))
                 .orElseThrow().sent().message().chatRoomId();
 
-        assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID).messages()).singleElement()
+        assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 100).messages()).singleElement()
                 .extracting(ChatMessageHistoryResponse::notificationKind, ChatMessageHistoryResponse::referenceId,
                         ChatMessageHistoryResponse::parentReferenceId)
                 .containsExactly(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, 20L, 7L);
