@@ -38,7 +38,8 @@
 | 모집 지원·지원 취소·수락(출연 성립)·거절, 모집글 지원자 수 | ✅ | #195 |
 | 모집 마감 (기한 마감 배치·조기 마감, 대기 지원 정리, 미달 인원분 반환) | ✅ | #222 |
 | 출연 알림 이벤트 발행 (요청 도착·지원 도착, shared 이벤트) | ✅ | #227 |
-| 모집 취소 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
+| 출연 조회, 출연 취소 요청·수락(합의 취소)·거절·자동 거절, 취소 알림 이벤트 | ✅ | #231 |
+| 호스트 일방 취소·모집 취소 / 출연 확인 | ⬜ 예정 | — |
 
 ---
 
@@ -132,6 +133,9 @@ com.hapbang.appearance
 | `app.AppearanceRecruitCreateUseCase`, `AppearanceRecruitHoldUseCase` | 올리기 1단계 저장 / 2·3단계 보류 요청·결과 반영 (#175) |
 | `app.AppearanceRecruitQueryUseCase`, `AppearanceRecruitUpdateUseCase`, `AppearanceRecruitSupport` | 공개·내 목록·상세 / 기본 정보 수정 / 저장소 접근 (#175) |
 | `app.AppearanceRecruitCloseUseCase`, `AppearanceRecruitDeadlineCloseUseCase`, `AppearanceRecruitCloseRecorder` | 조기 마감 / 기한 마감 배치 / 마감 뒷정리(대기 지원 미선정, 반환 작업 기록) (#222) |
+| `domain.AppearanceCancelRequest`, `AppearanceCancelRequestStatus`, `AppearanceRole` | 출연 취소 요청(순번·사유·거절 사유·상태) / 내 출연 목록의 참여 쪽 (#231) |
+| `app.AppearanceFacade`, `AppearanceQueryUseCase`, `AppearanceCancelRequestUseCase`, `AppearanceCancelRespondUseCase`, `AppearanceCancelAutoRejectUseCase`, `AppearanceCancelRequestSupport`, `AppearanceTitleSupport` | 출연 API 진입점 / 조회 / 취소 요청 / 수락·거절 / 자동 거절 배치 / 저장소 접근 / 출처 제목 (#231) |
+| `in.ApiV1AppearanceController`, `ApiV1AppearanceSpec` | 출연 조회·취소 요청 REST API와 Swagger 명세 (#231) |
 | `in.ApiV1AppearanceRecruitController`, `ApiV1AppearanceRecruitSpec` | 출연 모집글 REST API와 Swagger 명세 (#175) |
 | `out.AppearanceRecruitRepository` | 출연 모집글 저장·목록 조회 (#175) |
 | `domain.AppearanceApplication`, `AppearanceApplicationStatus` | 출연 모집 지원과 상태. 지원·취소·수락·거절 (#195) |
@@ -521,6 +525,7 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
   ├ 00초 AppearanceHoldRecheckUseCase.recheckDue()   보류 처리 중 요청서·모집글 재확인
   ├ 10초 AppearanceRecruitDeadlineCloseUseCase.closeDue()  모집 기한 마감 + 미달분 반환 (#222, 10장)
   ├ 20초 AppearanceRequestExpireUseCase.expireDue()  수락 기한 만료 + 반환
+  ├ 30초 AppearanceCancelAutoRejectUseCase.rejectDue()  출연 취소 요청 자동 거절 (#231, 12장)
   └ 40초 HpTaskRetryUseCase.retryDue()               HP 작업 재시도·격리 + 지표 갱신
 ```
 
@@ -682,6 +687,9 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 |---|---|---|---|
 | `AppearanceRequestSentEvent(AppearanceRequestDto request)` | `requestId`, `hostId`, `guestId`, `title`, `fee`, `scheduledAt`, `acceptDeadline` | 요청서가 `HOLD_PENDING` → `REQUESTED`로 **실제로 바뀔 때 한 번** (보내기 요청 또는 보류 재확인 배치) | 게스트 (`guestId`) |
 | `AppearanceApplicationSubmittedEvent(AppearanceApplicationDto application)` | `applicationId`, `recruitId`, `recruitTitle`, `hostId`, `guestId`, `appliedAt` | 지원이 저장됐을 때 (`APPLIED`) | 호스트 (`hostId`) |
+| `AppearanceCancelRequestedEvent(AppearanceCancelRequestDto cancelRequest)` | `cancelRequestId`, `appearanceId`, `title`, `hostId`, `guestId`, `sequence`, `scheduledAt` | 게스트가 출연 취소를 요청했을 때 (#231) | 호스트 (`hostId`) |
+| `AppearanceCancelRequestAcceptedEvent(AppearanceCancelRequestDto cancelRequest)` | 〃 | 호스트가 수락해 합의 취소됐을 때 | 게스트 (`guestId`) |
+| `AppearanceCancelRequestRejectedEvent(AppearanceCancelRequestDto cancelRequest, boolean autoRejected)` | 〃 + `autoRejected` | 호스트가 거절했을 때(`false`), 방송 예정 일시까지 응답이 없어 자동 거절됐을 때(`true`) | 게스트 (`guestId`) |
 
 - 발행: UseCase가 `ApplicationEventPublisher.publishEvent` (요청서 `AppearanceRequestHoldUseCase.markRequested`, 지원 `AppearanceApplicationApplyUseCase`). 트랜잭션 안에서 발행한다.
 - DTO는 엔티티의 `toDto()`로 만든다. 지원 메시지는 담지 않는다. 닉네임은 받는 쪽의 회원 복제본으로 찾는다.
@@ -707,3 +715,66 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 
 - 출연 처리가 롤백되면 이벤트는 받는 쪽에 가지 않는다. 받는 쪽이 실패해도 출연 처리는 되돌려지지 않는다 (최종 일관성).
 - 같은 이벤트가 재처리로 두 번 올 수 있으니, 받는 쪽은 `requestId`·`applicationId`로 중복을 거를 수 있다.
+
+---
+
+## 12. 출연 조회와 출연 취소 요청 (#231)
+
+### 12.1 API
+
+| 메서드 | 경로 | 설명 | 권한 | 성공 메시지 |
+|---|---|---|---|---|
+| GET | `/api/v1/appearances?role=HOST\|GUEST&status=` | 내 출연 목록 (`role` 필수, 상태 필터 여러 개), 최신순 | 인플루언서 이상 | 내 출연 목록을 조회했습니다. |
+| GET | `/api/v1/appearances/{appearanceId}` | 출연 상세 + 취소 요청 이력 | 호스트·게스트만 (그 밖은 404) | 출연을 조회했습니다. |
+| POST | `/api/v1/appearances/{appearanceId}/cancel-requests` | 취소 요청 (사유 필수) | 게스트 | 출연 취소를 요청했습니다. |
+| POST | `/api/v1/appearances/{appearanceId}/cancel-requests/accept` | 처리 중인 요청 수락 (합의 취소) | 호스트 | 출연 취소 요청을 수락했습니다. |
+| POST | `/api/v1/appearances/{appearanceId}/cancel-requests/reject` | 처리 중인 요청 거절 (거절 사유 선택, 본문 없어도 됨) | 호스트 | 출연 취소 요청을 거절했습니다. |
+
+- 출연 ID는 숫자만 받는다 (`/requests`·`/recruits`·`/applications` 경로와 섞이지 않도록). 응답은 모두 출연 상세(`AppearanceResDto`).
+- 제목은 출처(요청서·모집글)의 제목이다 (출연은 제목을 따로 저장하지 않는다).
+- 처리 중인 요청은 출연당 하나라, 수락·거절은 요청 ID가 아니라 출연 ID로 부른다.
+
+### 12.2 상태
+
+```
+출연:      ESTABLISHED ─취소 요청─▶ CANCEL_REQUESTED ─수락─▶ CANCELED_BY_AGREEMENT
+                 ▲                        │
+                 └──거절·자동 거절────────┘   (1회 더 요청 가능, 출연당 최대 2회)
+취소 요청: REQUESTED → ACCEPTED / REJECTED / AUTO_REJECTED
+```
+
+### 12.3 규칙
+
+| 항목 | 규칙 | 근거 |
+|---|---|---|
+| 요청 | 출연의 게스트만(403 `NOT_APPEARANCE_GUEST`), `ESTABLISHED`일 때(처리 중이면 409 `CANCEL_REQUEST_ALREADY_PENDING`, 그 밖은 409 `APPEARANCE_NOT_CANCELABLE`), 방송 예정 일시 전(409 `APPEARANCE_SCHEDULE_PASSED`), 사유 필수 500자 | AGENTS.md, APR-31 K2 |
+| 횟수 | 출연 1건당 2번(`appearance.policy.max-cancel-request-count`), 다시 요청은 거절된 뒤에만 (409 `CANCEL_REQUEST_LIMIT_EXCEEDED`) | AGENTS.md |
+| 철회 | 게스트는 보낸 요청을 철회할 수 없다 | K3 |
+| 응답 | 출연의 호스트만(403 `NOT_APPEARANCE_HOST`), 처리 중인 요청이 있을 때(409 `CANCEL_REQUEST_NOT_PENDING`), 방송 예정 일시 전 | AGENTS.md |
+| 수락 HP — 요청서 | 출연료 전액 반환. HP 작업 `RELEASE`, 사유 `CANCEL_AGREED`, 반환 요청 ID `APPEARANCE_REQUEST-{요청서 ID}-RELEASE-APPEARANCE-{출연 ID}` | AGENTS.md |
+| 수락 HP — 모집, 마감 전 | 모집글 성립 인원 −1, 반환 없음(보류 유지). 빈자리에 다른 지원자 수락 가능, 다시 채우지 않으면 마감 반환에 함께 들어감. 지원은 `SELECTED` 그대로 | AGENTS.md, K4 |
+| 수락 HP — 모집, 마감 후 | 성립 인원 −1 + 그 자리 출연료 바로 반환 (반환 요청 ID `APPEARANCE_RECRUIT-{모집글 ID}-RELEASE-APPEARANCE-{출연 ID}`, 마감 반환 `…-RELEASE-1`과 겹치지 않음) | AGENTS.md |
+| 거절 | 출연 `ESTABLISHED`로 유지, 거절 사유 선택 500자. HP 이동 없음 | K2 |
+| 자동 거절 | 매분 30초 배치. 처리 중이고 방송 예정 일시와 같거나 지난 요청 → `AUTO_REJECTED`, 출연 유지, HP 이동 없음 | AGENTS.md, K5 |
+| 동시 처리 | 출연 행 배타 잠금(`FOR UPDATE`)으로 요청·수락·거절·자동 거절을 차례로 처리. 모집 출처 수락은 모집글 → 출연 순서로 잠가 지원 수락·마감과 교착 상태가 없다 (APR-28 C9와 같은 순서) | |
+| 알림 | 요청 도착(→ 호스트), 수락·거절·자동 거절(→ 게스트) 이벤트 발행 (11장) | K7 |
+| 반환 진행 상태 | 이번에는 출연 상세에 담지 않는다. 모집 마감 후 합의 취소 반환은 모집글 상세 `hpReleaseStatus`(가장 최근 반환 작업)에 보일 수 있다 | |
+
+### 12.4 `appearances.cancel_requests` 스키마
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `id` | BIGINT, PK | |
+| `appearance_id` | BIGINT, FK → `appearances.appearances` | 출연 |
+| `host_id`, `guest_id` | BIGINT | 호스트·게스트 (출연과 같음) |
+| `sequence` | INTEGER | 출연에서 몇 번째 요청인지 (1부터) |
+| `reason` | VARCHAR(500) | 취소 사유 (필수) |
+| `status` | VARCHAR(255) | `REQUESTED`/`ACCEPTED`/`REJECTED`/`AUTO_REJECTED` |
+| `reject_reason` | VARCHAR(500) | 거절 사유 (선택) |
+| `responded_at` | TIMESTAMP | 응답·자동 거절 시각 (요청 시각은 `created_at`) |
+| `version`, `created_at`, `updated_at` | | 낙관적 락, 공통 시각 |
+
+- 유니크: `(appearance_id, sequence)`, 처리 중인 요청은 출연당 하나 `uk_appearance_cancel_requests_pending (appearance_id) where status = 'REQUESTED'`
+- 출연 목록 인덱스 변경: `(host_id)`·`(guest_id)` → `(host_id, created_at)`·`(guest_id, created_at)`
+- 마이그레이션: `V202610151521__create_appearance_cancel_request_table.sql`
+- Soft Delete: 출연 모듈은 Delete API·`deleted_at` 없이 상태로 끝낸다 (팀 합의, ISSUE.md APR-31)

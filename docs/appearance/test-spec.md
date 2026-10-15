@@ -54,6 +54,7 @@
 | 통합 | `AppearanceRecruitFacadeTest` | 올리기(HP 보류·Billing 거절·무응답), 역할별 권한, 조회, 수정 | #175 |
 | E2E | `AppearanceRecruitApiE2ETest` | 출연 모집글 API 6개 (앱 전체, 조기 마감 포함) | #175, #222 |
 | 통합 | `AppearanceRecruitCloseTest` | 조기 마감·기한 마감 배치·반환·동시성 | #222 |
+| 단위·저장소·통합·E2E | `AppearanceCancelRequestTest`, `AppearanceCancelRequestRepositoryTest`, `AppearanceCancelRequestFlowTest`, `AppearanceApiCancelE2ETest` | 출연 조회, 출연 취소 요청·응답·자동 거절 | #231 |
 | 단위 | `HpTaskRetryPolicyTest`, `AppearanceBatchRulesTest` | 재시도 정책(지수 백오프+지터), 만료·멱등한 보류 결과 반영 | #187 |
 | 통합 | `AppearanceBatchUseCaseTest` | 보류 재확인, 수락 기한 만료, HP 작업 재시도·격리, 지표 | #187 |
 | 단위 | `AppearanceBatchConditionTest` | 배치 빈은 팀 스케줄링 스위치가 켜질 때만 | #187 |
@@ -695,3 +696,65 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 통합 | 〃 | 다시 지원 / 자기 모집글 지원 | `DUPLICATE_APPLICATION` / `CANNOT_APPLY_OWN_RECRUIT`, 추가 발행 없음 |
 | 통합 | 〃 | 모집글 올리기만 | 알림 이벤트 0건 |
 | apps | `ModularityTests` | 출연 → shared 의존 | 통과 (shared는 boundedContext를 모름) |
+
+---
+
+## 13. 출연 조회와 출연 취소 요청 (#231)
+
+### 13.1 구성
+
+| 종류 | 테스트 | 확인 대상 |
+|---|---|---|
+| 단위 | `AppearanceCancelRequestTest` | 요청(사유·게스트·처리 중·방송 예정 일시·횟수·성립 상태), 수락·거절·자동 거절, 응답 가능 확인, 볼 수 있는 사람, 모집글 성립 인원 감소, 출연별 반환 요청 ID |
+| 저장소 | `AppearanceCancelRequestRepositoryTest` | 저장·처리 중 요청·횟수·이력, 처리 중 요청 부분 유니크, 순번 유니크, 자동 거절 대상(조인), 출연 목록·출처 조회·잠금 조회 |
+| 통합 | `AppearanceCancelRequestFlowTest` | 요청서 출처(요청·수락 반환·거절·횟수·거부·방송 예정 일시·반환 실패), 모집 출처(마감 전·마감 반환에 포함·마감 후 반환·동시 수락), 자동 거절 배치, 수락·거절 동시, 조회, 역할, 이벤트 |
+| E2E | `AppearanceApiCancelE2ETest` | 조회(role 필수)·상세·다른 회원 404·일반 유저 403, 요청→거절→재요청→수락 흐름과 오류 코드, CSRF, 숫자 아닌 경로 |
+| 통합 | `AppearanceSwaggerDocsTest`, `AppearanceBatchConditionTest` (변경) | 출연 API 응답 스키마, 배치에 자동 거절 추가 |
+
+### 13.2 단위 — `AppearanceCancelRequestTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 게스트가 성립 출연에 요청 (사유 앞뒤 공백) | `REQUESTED`, 순번 1, 사유 다듬음, 출연 `CANCEL_REQUESTED` |
+| 사유 없음·공백·501자 / 500자 | `INVALID_REQUEST` (출연 상태 그대로) / 허용 |
+| 호스트·다른 회원 요청 / 처리 중 다시 요청 | `NOT_APPEARANCE_GUEST` / `CANCEL_REQUEST_ALREADY_PENDING` |
+| 방송 예정 일시 정각 / 1초 전 | `APPEARANCE_SCHEDULE_PASSED` / 허용 |
+| 거절 후 재요청 / 3번째 | 순번 2 / `CANCEL_REQUEST_LIMIT_EXCEEDED` ("출연 1건당 2번까지") |
+| 합의 취소된 출연에 요청 | `APPEARANCE_NOT_CANCELABLE` |
+| 수락 / 거절(사유·공백) / 자동 거절 | `ACCEPTED`+`CANCELED_BY_AGREEMENT`+취소 시각 / `REJECTED`+사유(공백은 null)+`ESTABLISHED` / `AUTO_REJECTED`, 사유 없음 |
+| 응답 가능 확인 | 요청 없음 `CANCEL_REQUEST_NOT_PENDING`, 게스트 `NOT_APPEARANCE_HOST`, 방송 예정 일시 `APPEARANCE_SCHEDULE_PASSED` |
+| 응답된 요청에 다시 응답 | `CANCEL_REQUEST_NOT_PENDING` |
+| 볼 수 있는 사람 | 호스트·게스트만, 그 밖 `APPEARANCE_NOT_FOUND` |
+| 모집글 성립 인원 감소 | 1 → 0, 0에서 `IllegalStateException` |
+| 출연별 반환 요청 ID | `APPEARANCE_RECRUIT-5-RELEASE-APPEARANCE-12`, 마감 반환 ID와 다름 |
+
+### 13.3 흐름 — `AppearanceCancelRequestFlowTest`
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 요청서 출처 | 요청 | `CANCEL_REQUESTED`, 이력 1건, `AppearanceCancelRequestedEvent` 1건(호스트·출연·제목) |
+| 요청서 출처 | 수락 | `CANCELED_BY_AGREEMENT`, 반환 30,000 `CANCEL_AGREED`·출연별 반환 요청 ID·`DONE`, 보류 0, 잔액 원래대로, 수락 이벤트 1건 |
+| 요청서 출처 | 거절 → 재요청 → 거절 → 3번째 | `ESTABLISHED`·거절 사유·거절 이벤트(`autoRejected=false`) → 순번 1·2 → `CANCEL_REQUEST_LIMIT_EXCEEDED`, HP 작업 없음 |
+| 요청서 출처 | 거부 | 요청 없이 수락 `CANCEL_REQUEST_NOT_PENDING`, 공백 사유 `INVALID_REQUEST`, 호스트 요청 `NOT_APPEARANCE_GUEST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 처리 중 재요청 `CANCEL_REQUEST_ALREADY_PENDING`, 게스트 수락 `NOT_APPEARANCE_HOST`, 없는 출연 `APPEARANCE_NOT_FOUND` |
+| 요청서 출처 | 방송 예정 일시 지남 | 요청·수락·거절 `APPEARANCE_SCHEDULE_PASSED` |
+| 요청서 출처 | Billing 무응답에서 수락 | 합의 취소 성공, 반환 작업 `PENDING` |
+| 모집 출처 | 정원 1, 마감 전 수락 | 성립 인원 0, 반환 없음, 보류 30,000 유지, 빈자리에 다른 지원자 수락 성공 (전에는 `RECRUIT_FULL`) |
+| 모집 출처 | 마감 전 수락 후 조기 마감 | 마감 반환 `RECRUIT_CLOSED` 30,000 1건, 보류 0 |
+| 모집 출처 | 마감 후 수락 | 반환 30,000 `CANCEL_AGREED`·`APPEARANCE_RECRUIT-{id}-RELEASE-APPEARANCE-{id}`·`DONE`, 보류 0, 성립 인원 0 |
+| 모집 출처 | 합의 취소 수락 + 빈자리 지원 수락 동시 | 결과는 응답 또는 업무 예외뿐(교착 상태 없음), 합의 취소는 성공, 성립 인원 = 유지 중인 출연 수 |
+| 자동 거절 | 방송 예정 일시 지난 요청, 두 번 실행 | 1건 → 0건, `AUTO_REJECTED`, 출연 `ESTABLISHED`, HP 작업 없음, 거절 이벤트(`autoRejected=true`) |
+| 자동 거절 | 방송 예정 일시 전 | 0건, `CANCEL_REQUESTED` 그대로 |
+| 동시성 | 같은 요청에 수락·거절 동시 | 1건만 성공, 나머지 `CANCEL_REQUEST_NOT_PENDING` 또는 `CONCURRENT_UPDATE`, 결과에 맞게 보류 0 또는 30,000 |
+| 조회 | 내 출연 목록·상세 | 호스트 목록 최신순(모집·요청), 제목은 출처 제목, 게스트 `CANCEL_REQUESTED` 필터, 다른 쪽 역할 0건, 다른 회원 상세 `APPEARANCE_NOT_FOUND` |
+| 역할 | 세션 USER / ADMIN | 5개 기능 모두 `AccessDeniedException` |
+
+### 13.4 E2E — `AppearanceApiCancelE2ETest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| `role=GUEST` 목록 / `role` 없음 | 200 "내 출연 목록을 조회했습니다.", 1건·제목 / 400 |
+| 호스트 상세 / 다른 회원 / 일반 유저 | 200 `ESTABLISHED`·이력 없음 / 404 `APPEARANCE_NOT_FOUND` / 403 `FORBIDDEN` |
+| 사유 없이 요청 / 요청 / 다시 요청 | 400 `INVALID_REQUEST` / 200 "출연 취소를 요청했습니다.", `CANCEL_REQUESTED` / 409 `CANCEL_REQUEST_ALREADY_PENDING` |
+| 게스트 수락 / 호스트 거절(본문 없음) | 403 `NOT_APPEARANCE_HOST` / 200 "출연 취소 요청을 거절했습니다.", `ESTABLISHED`, `REJECTED` |
+| 재요청 → 수락 / 3번째 요청 | 200 "출연 취소 요청을 수락했습니다.", `CANCELED_BY_AGREEMENT`, 이력 2번째 `ACCEPTED` / 409 `APPEARANCE_NOT_CANCELABLE` |
+| CSRF 없음 / `/api/v1/appearances/abc` | 403 / 404 |
