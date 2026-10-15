@@ -19,6 +19,7 @@ create table appearances.applications
     constraint uk_appearance_applications_recruit_guest unique (recruit_id, guest_id)
 );
 
--- 모집글의 지원자 목록(호스트)·지원자 수: recruit_id로 찾는다 (유니크 인덱스의 앞 컬럼이 recruit_id라 그대로 쓴다)
+-- 모집글의 지원자 목록(호스트, 최신순). 지원자 수 집계도 recruit_id로 찾는다
+create index idx_appearance_applications_recruit_id_created_at on appearances.applications (recruit_id, created_at);
 -- 내 지원 목록(게스트, 최신순)
 create index idx_appearance_applications_guest_id_created_at on appearances.applications (guest_id, created_at);

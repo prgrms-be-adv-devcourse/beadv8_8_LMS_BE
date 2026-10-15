@@ -475,6 +475,17 @@ class AppearanceApplicationFacadeTest {
     @WithMockUser(roles = "USER")
     @DisplayName("세션 역할이 USER면 지원·취소·수락·거절·목록 모두 막힌다 (@PreAuthorize)")
     void userRole() {
+        assertAllDenied();
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("세션 역할이 ADMIN이어도 지원·취소·수락·거절·목록 모두 막힌다 (인플루언서만)")
+    void adminRole() {
+        assertAllDenied();
+    }
+
+    private void assertAllDenied() {
         assertThatThrownBy(() -> appearanceApplicationFacade.apply(GUEST, 1L, null))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> appearanceApplicationFacade.withdraw(GUEST, 1L))
@@ -482,6 +493,8 @@ class AppearanceApplicationFacadeTest {
         assertThatThrownBy(() -> appearanceApplicationFacade.accept(HOST, 1L))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> appearanceApplicationFacade.reject(HOST, 1L))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> appearanceApplicationFacade.getApplicants(HOST, 1L, null, FIRST_PAGE))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> appearanceApplicationFacade.getMine(GUEST, null, FIRST_PAGE))
                 .isInstanceOf(AccessDeniedException.class);

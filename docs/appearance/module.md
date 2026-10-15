@@ -618,6 +618,6 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 | `responded_at`, `withdrawn_at` | TIMESTAMP | 호스트 응답 시각, 게스트 취소 시각 |
 | `version`, `created_at`, `updated_at` | | 낙관적 락, 공통 시각 |
 
-- 유니크: `uk_appearance_applications_recruit_guest (recruit_id, guest_id)` — 지원자 목록·지원자 수 조회도 이 인덱스(앞 컬럼 `recruit_id`)를 쓴다
-- 인덱스: 내 지원 목록 `(guest_id, created_at)`
+- 유니크: `uk_appearance_applications_recruit_guest (recruit_id, guest_id)`
+- 인덱스: 지원자 목록·지원자 수 `(recruit_id, created_at)`, 내 지원 목록 `(guest_id, created_at)`
 - 마이그레이션: `V202610151050__create_appearance_application_table.sql`

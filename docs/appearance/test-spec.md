@@ -599,7 +599,7 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 조회 | 지원자 목록 | 최신순, 수락된 지원만 출연 ID, `APPLIED` 필터, 호스트가 아니면 "…지원자 목록을 볼 수 있습니다." |
 | 조회 | 내 지원 목록 | 내 지원만 최신순, `WITHDRAWN` 필터 |
 | 조회 | 모집글 지원자 수 (수락·거절·취소 각 1) | 상세 2, 공개 목록·내 모집글 목록도 2, 지원 없는 모집글 0 |
-| 역할 | 세션 역할 USER | 지원·취소·수락·거절·목록 모두 `AccessDeniedException` |
+| 역할 | 세션 역할 USER / ADMIN | 지원·취소·수락·거절·지원자 목록·내 지원 목록 모두 `AccessDeniedException` |
 
 ### 10.5 E2E — `AppearanceApplicationApiE2ETest`
 
