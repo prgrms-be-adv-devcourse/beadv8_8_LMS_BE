@@ -50,6 +50,11 @@ public class AppearanceApplicationSupport {
         return appearanceApplicationRepository.existsByRecruitIdAndGuestId(recruitId, guestId);
     }
 
+    /** 이 게스트의 이 모집글 지원 (모집글 상세의 내 지원). 지원한 적이 없으면 빈 값 */
+    public Optional<AppearanceApplication> findByRecruitAndGuest(Long recruitId, Long guestId) {
+        return appearanceApplicationRepository.findByRecruitIdAndGuestId(recruitId, guestId);
+    }
+
     /**
      * 저장하고 바로 DB에 반영한다. 같은 게스트가 같은 모집글에 동시에 지원하면 유니크 제약에서 예외가 난다.
      *

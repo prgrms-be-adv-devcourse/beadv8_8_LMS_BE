@@ -40,6 +40,7 @@
 | 출연 알림 이벤트 발행 (요청 도착·지원 도착, shared 이벤트) | ✅ | #227 |
 | 출연 조회, 출연 취소 요청·수락(합의 취소)·거절·자동 거절, 취소 알림 이벤트 | ✅ | #231 |
 | 호스트 일방 취소(위약금 30%)·모집 전체 취소 | ✅ | #239 |
+| FE 모집 화면 응답 보강 (모집 상세 내 지원, 지원 행의 모집글 제목·일시·상태) | ✅ | #243 |
 | 출연 확인·이의 제기 | ⬜ 예정 | — |
 
 ---
@@ -482,7 +483,7 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
 | POST | `/api/v1/appearances/recruits` | 모집글 올리기 (HP 보류), 201 | 인플루언서 이상 | 출연 모집글을 올렸습니다. |
 | GET | `/api/v1/appearances/recruits` | 모집 중인 모집글 공개 목록 | 로그인 회원 누구나 | 모집 중인 출연 모집글 목록을 조회했습니다. |
 | GET | `/api/v1/appearances/recruits/mine?status=` | 내가 올린 모집글 목록 (상태 필터, 여러 개) | 인플루언서 이상 | 내 출연 모집글 목록을 조회했습니다. |
-| GET | `/api/v1/appearances/recruits/{recruitId}` | 상세 (마감 반환 진행 상태 `hpReleaseStatus`는 호스트에게만) | 로그인 회원 누구나 | 출연 모집글을 조회했습니다. |
+| GET | `/api/v1/appearances/recruits/{recruitId}` | 상세 (마감 반환 진행 상태 `hpReleaseStatus`는 호스트에게만, 조회한 회원의 지원 `myApplication` #243) | 로그인 회원 누구나 | 출연 모집글을 조회했습니다. |
 | PATCH | `/api/v1/appearances/recruits/{recruitId}` | 기본 정보(제목·콘텐츠 설명·호스트 채널 URL) 수정 | 인플루언서 이상, 호스트만 | 출연 모집글을 수정했습니다. |
 | POST | `/api/v1/appearances/recruits/{recruitId}/close` | 조기 마감 (#222, 10장) | 인플루언서 이상, 호스트만 | 출연 모집을 마감했습니다. |
 
@@ -598,6 +599,8 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 - 모두 인플루언서 이상(Facade 클래스 `@PreAuthorize`), 출연 회원 자격(정지·강등) 확인. 목록은 `Pageable`, 최신순 고정, 상태 필터는 여러 개.
 - 모집글 응답(목록·상세)에 **지원자 수 `applicantCount`**를 담는다: 게스트가 취소한 지원만 뺀 전체 지원(대기·수락·미선정). 화면에 보일지는 화면이 정한다 (ISSUE.md APR-27 A6).
 - 지원 응답(목록 포함)에는 수락된 경우 성립한 출연 ID(`appearanceId`)가 있다 (한 페이지를 한 번에 조회).
+- 지원 응답(목록 포함)에는 모집글의 **현재** 제목·방송 예정 일시·상태(`recruitTitle`·`recruitScheduledAt`·`recruitStatus`)가 있다. 지원 시점에 저장하지 않고 조회 때 모집글을 읽는다 (한 페이지의 모집글을 한 번에, #243 APR-33).
+- 모집글 상세에는 조회한 회원의 지원 `myApplication`(같은 지원 응답 모양)이 있다. 재지원 불가라 최대 1건이고, 취소·미선정도 상태 그대로 담는다. 지원한 적이 없거나 호스트 본인이면 `null` (#243).
 
 ### 9.2 상태
 
