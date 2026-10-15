@@ -2,6 +2,7 @@ package com.hapbang.chat.out;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -55,6 +56,10 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             """)
     List<ChatRoomUnreadCount> countUnread(@Param("userId") Long userId,
             @Param("chatRoomIds") Collection<Long> chatRoomIds);
+
+    /** 같은 전송 ID로 이미 저장한 메시지 (재전송 확인) */
+    Optional<ChatMessage> findByChatRoom_IdAndSenderUserIdAndClientMessageId(Long chatRoomId, Long senderUserId,
+            String clientMessageId);
 
     /** 같은 출연 이벤트로 이미 알림을 남겼는지 */
     boolean existsByNotificationKindAndReferenceId(NotificationKind notificationKind, Long referenceId);

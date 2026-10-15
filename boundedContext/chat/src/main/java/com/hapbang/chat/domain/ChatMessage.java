@@ -55,6 +55,9 @@ public class ChatMessage {
     @Column(nullable = false)
     private LocalDateTime sentAt;
 
+    /** 보낸 사람이 붙인 전송 ID. 같은 방·보낸 사람 안에서 유일하며, 재전송을 알아보는 데 쓴다. 없으면 null */
+    private String clientMessageId;
+
     /** 알림 메시지의 종류. 일반·시스템 메시지는 null */
     @Enumerated(EnumType.STRING)
     private NotificationKind notificationKind;
@@ -77,9 +80,19 @@ public class ChatMessage {
         this.sentAt = now;
     }
 
-    public static ChatMessage text(ChatRoom chatRoom, Long senderUserId, String content, LocalDateTime now) {
+    /**
+     * @param clientMessageId 보낸 사람이 붙인 전송 ID. 없으면 null
+     */
+    public static ChatMessage text(ChatRoom chatRoom, Long senderUserId, String content, String clientMessageId,
+            LocalDateTime now) {
         Assert.state(hasContent(content), "메시지 내용이 비어 있습니다.");
-        return new ChatMessage(chatRoom, senderUserId, ChatMessageType.TEXT, content, now);
+        ChatMessage message = new ChatMessage(chatRoom, senderUserId, ChatMessageType.TEXT, content, now);
+        message.clientMessageId = clientMessageId;
+        return message;
+    }
+
+    public boolean isSentBy(Long userId) {
+        return senderUserId.equals(userId);
     }
 
     /** 보낼 수 있는 메시지 내용인지. UseCase가 도메인 호출 전에 같은 기준으로 검사한다 */

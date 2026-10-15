@@ -23,8 +23,8 @@ public class ChatMessageFacade {
      * STOMP로만 호출된다. STOMP 처리 스레드에는 Spring Security 인증 정보가 없어 {@code @PreAuthorize}를 붙이지 않는다.
      * 역할은 UseCase가 채팅 회원의 복제된 역할로 검사한다.
      */
-    public SentChatMessage send(Long chatRoomId, Long senderId, String content) {
-        return chatMessageUseCase.send(chatRoomId, senderId, content);
+    public SentChatMessage send(Long chatRoomId, Long senderId, String content, String clientMessageId) {
+        return chatMessageUseCase.send(chatRoomId, senderId, content, clientMessageId);
     }
 
     @PreAuthorize(ChatRoles.CHAT)

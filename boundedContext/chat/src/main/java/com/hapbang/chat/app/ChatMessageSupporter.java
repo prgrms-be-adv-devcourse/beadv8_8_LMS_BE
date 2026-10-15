@@ -46,7 +46,7 @@ public class ChatMessageSupporter {
         List<ChatMessageResponse> messages = chatMessageRepository
                 .findVisible(chatRoomId, member.getVisibleFromSequence(), beforeSequence, Limit.of(size + 1))
                 .stream()
-                .map(ChatMessageResponse::from)
+                .map(message -> ChatMessageResponse.of(message, userId))
                 .toList();
         if (messages.size() <= size) {
             return new ChatMessagePageResponse(messages, null);
