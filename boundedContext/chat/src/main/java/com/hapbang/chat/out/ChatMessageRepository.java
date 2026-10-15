@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.chat.domain.ChatMessage;
+import com.hapbang.chat.domain.NotificationKind;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
 
@@ -54,6 +55,9 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             """)
     List<ChatRoomUnreadCount> countUnread(@Param("userId") Long userId,
             @Param("chatRoomIds") Collection<Long> chatRoomIds);
+
+    /** 같은 출연 이벤트로 이미 알림을 남겼는지 */
+    boolean existsByNotificationKindAndReferenceId(NotificationKind notificationKind, Long referenceId);
 
     /**
      * 관리자 기록 조회용. 참여자별 조회 범위와 Soft Delete 여부와 관계없이 모두 조회한다.

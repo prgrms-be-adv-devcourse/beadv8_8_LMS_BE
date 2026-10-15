@@ -54,4 +54,23 @@ class ChatMessageTest {
         assertThat(notice.getContent()).isEqualTo("게스트님이 다시 들어왔습니다.");
         assertThat(notice.getRoomSequence()).isEqualTo(1);
     }
+
+    @Test
+    void 알림_메시지는_종류와_출연_건_ID를_가진다() {
+        ChatMessage notification = ChatMessage.notification(directRoom(), HOST_ID,
+                NotificationKind.APPEARANCE_REQUEST_SENT, 10L, "호스트님이 출연을 요청했습니다.", NOW);
+
+        assertThat(notification.getMessageType()).isEqualTo(ChatMessageType.NOTIFICATION);
+        assertThat(notification.getNotificationKind()).isEqualTo(NotificationKind.APPEARANCE_REQUEST_SENT);
+        assertThat(notification.getReferenceId()).isEqualTo(10L);
+        assertThat(notification.getSenderUserId()).isEqualTo(HOST_ID);
+    }
+
+    @Test
+    void 알림_종류나_출연_건_ID가_없으면_만들_수_없다() {
+        assertThatIllegalStateException().isThrownBy(() -> ChatMessage.notification(directRoom(), HOST_ID, null, 10L,
+                "내용", NOW));
+        assertThatIllegalStateException().isThrownBy(() -> ChatMessage.notification(directRoom(), HOST_ID,
+                NotificationKind.APPEARANCE_REQUEST_SENT, null, "내용", NOW));
+    }
 }

@@ -27,7 +27,9 @@ import jakarta.validation.constraints.Min;
         1:1 채팅방과 메시지 이력. 인플루언서 이상 또는 관리자만 쓸 수 있다.
         실시간 송수신은 STOMP라 여기에 없다: 연결 `/api/v1/chats/ws`, 보내기 `/pub/chats/{chatRoomId}/messages`,
         받기 `/user/queue/chats/messages`(메시지)·`/user/queue/chats/notifications`(새 메시지 알림)·`/user/queue/chats/errors`(오류).
-        보낼 때 `clientMessageId`(선택, 64자 이하)를 붙이면 전달되는 메시지와 오류에 그대로 돌려준다.""")
+        보낼 때 `clientMessageId`(선택, 64자 이하)를 붙이면 전달되는 메시지와 오류에 그대로 돌려준다.
+        출연 요청 도착·모집 지원 도착은 호스트-게스트 1:1 방에 알림 메시지(`messageType: NOTIFICATION`)로 온다.
+        `notificationKind`(APPEARANCE_REQUEST_SENT: 요청서 ID, APPEARANCE_APPLICATION_SUBMITTED: 지원 ID)와 `referenceId`로 출연 건을 찾는다.""")
 public interface ApiV1ChatSpec {
 
     int MAX_PAGE_SIZE = 100;
