@@ -58,7 +58,7 @@ public class ChatRoomFacade {
     }
 
     @PreAuthorize(ChatRoles.ADMIN)
-    public ChatRoomHistoryResponse getHistory(Long chatRoomId, Long adminId) {
-        return chatRoomSupporter.getHistory(chatRoomId, adminId);
+    public ChatRoomHistoryResponse getHistory(Long chatRoomId, Long adminId, String cursor, int size) {
+        return chatRoomSupporter.getHistory(chatRoomId, adminId, cursor, size);
     }
 }

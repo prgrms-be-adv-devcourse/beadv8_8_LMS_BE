@@ -70,7 +70,14 @@ public interface ApiV1ChatSpec {
             @Parameter(description = "참여 세대. 보내면 지연 도착한 옛 요청이 재입장한 참여를 끝내지 않는다")
             Integer participationVersion);
 
-    @Operation(summary = "채팅 기록 조회 (관리자)",
-            description = "분쟁 확인용. 종료된 방과 참여자별로 숨겨진 메시지까지 포함한다. 관리자만 쓸 수 있다.")
-    RsData<ChatRoomHistoryResponse> getHistory(Long userId, Long chatRoomId);
+    @Operation(summary = "채팅 기록 조회 (관리자)", description = """
+            분쟁 확인용. 종료된 방과 참여자별로 숨겨진 메시지까지 포함한다. 관리자만 쓸 수 있다.
+            메시지와 입퇴장 기록을 하나의 시간순 흐름(시각, 같은 시각이면 기록 → 메시지)으로 보고 오래된 것부터 나눠 준다.
+            `logs`·`messages`는 이 페이지 구간의 항목이고, 다음 페이지는 응답의 `nextCursor`를 `cursor`로 보낸다.
+            `nextCursor`가 null이면 마지막 페이지다. 형식이 틀린 커서는 400(INVALID_REQUEST).""")
+    RsData<ChatRoomHistoryResponse> getHistory(Long userId, Long chatRoomId,
+            @Parameter(description = "이전 응답의 nextCursor. 없으면 처음부터") String cursor,
+            @Parameter(description = "페이지 크기 (기본 30, 기록과 메시지를 합친 개수)")
+            @Min(value = 1, message = "size는 1 이상이어야 합니다.")
+            @Max(value = MAX_PAGE_SIZE, message = "size는 " + MAX_PAGE_SIZE + " 이하여야 합니다.") int size);
 }

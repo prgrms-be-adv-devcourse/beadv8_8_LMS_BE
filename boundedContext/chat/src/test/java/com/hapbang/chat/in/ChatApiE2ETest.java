@@ -182,6 +182,25 @@ class ChatApiE2ETest {
     }
 
     @Test
+    void 관리자_기록_조회_size가_상한을_넘거나_커서가_틀리면_400() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        E2ESession admin = login(ADMIN_ID, Role.ADMIN);
+
+        client.get().uri("/api/v1/chats/admin/{id}/history?size=101", chatRoomId)
+                .header(HttpHeaders.COOKIE, admin.cookieHeader())
+                .exchange()
+                .expectStatus().isBadRequest();
+        ProblemDetail problem = client.get().uri("/api/v1/chats/admin/{id}/history?cursor=bad", chatRoomId)
+                .header(HttpHeaders.COOKIE, admin.cookieHeader())
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody(ProblemDetail.class)
+                .returnResult().getResponseBody();
+        assertThat(problem).isNotNull();
+        assertThat(problem.getProperties()).containsEntry("code", "INVALID_REQUEST");
+    }
+
+    @Test
     void 관리자가_아니면_기록_조회는_403() {
         E2ESession host = login(HOST_ID, Role.INFLUENCER);
         Long chatRoomId = createRoom(host, GUEST_ID, HttpStatus.CREATED).chatRoomId();
