@@ -3,6 +3,7 @@ package com.hapbang.appearance.domain;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
+import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.jpa.BaseEntity;
 
 import jakarta.persistence.Embedded;
@@ -118,13 +119,21 @@ public class AppearanceRequest extends BaseEntity {
     /**
      * HP 보류 성공 → 게스트 응답 대기. 이미 반영됐으면 그대로 둔다
      * (보내기 요청과 보류 재확인 배치가 같은 결과를 함께 반영해도 안전하도록).
+     *
+     * @return 이번에 {@code REQUESTED}로 바뀌었으면 true, 이미 반영돼 있었으면 false (요청 도착 알림을 한 번만 보내는 데 쓴다)
      */
-    public void markRequested() {
+    public boolean markRequested() {
         if (status == AppearanceRequestStatus.REQUESTED) {
-            return;
+            return false;
         }
         requireStatus(AppearanceRequestStatus.HOLD_PENDING);
         this.status = AppearanceRequestStatus.REQUESTED;
+        return true;
+    }
+
+    /** 다른 모듈에 넘기는 요청서 정보 (요청 도착 이벤트) */
+    public AppearanceRequestDto toDto() {
+        return new AppearanceRequestDto(id, hostId, guestId, getTitle(), fee, scheduledAt, acceptDeadline);
     }
 
     /** Billing이 HP 보류를 거절함 (잔액 부족 등). 이미 반영됐으면 그대로 둔다 */

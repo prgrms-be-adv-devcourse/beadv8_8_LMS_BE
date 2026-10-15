@@ -677,3 +677,21 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 다른 회원 조기 마감 / 일반 유저 | 403 `NOT_RECRUIT_HOST` / 403 `FORBIDDEN` |
 | 호스트 조기 마감 / 다시 마감 | 200 "출연 모집을 마감했습니다.", `CLOSED`, `EARLY`, 마감 시각, `hpReleaseStatus` `DONE` / 409 `APPEARANCE_RECRUIT_NOT_OPEN` |
 | 일반 유저가 상세 / 공개 목록 | `CLOSED`, `hpReleaseStatus` 없음 / 0건 |
+
+---
+
+## 12. 출연 알림 이벤트 (#227)
+
+| 종류 | 테스트 | 케이스 | 기대 결과 |
+|---|---|---|---|
+| 단위 | `AppearanceBatchRulesTest` | 보류 성공 반영: 처음 / 이미 `REQUESTED` | true(바뀜) / false(그대로) |
+| 단위 | `AppearanceRequestTest` | 요청서 `toDto()` | 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한 |
+| 단위 | `AppearanceApplicationTest` | 지원 `toDto(모집글)` / 다른 모집글 | 모집글 제목·호스트 포함 / `IllegalArgumentException` |
+| 통합 | `AppearanceEventPublishTest` | 요청서 보내기 성공 | `AppearanceRequestSentEvent` 1건, 내용 일치 |
+| 통합 | 〃 | Billing 보류 거절 | 0건 |
+| 통합 | 〃 | 보류 결과 모름 → 보류 재확인 배치 | 0건 → 1건 (같은 요청서 ID) |
+| 통합 | 〃 | 이미 `REQUESTED`인데 보류 성공을 다시 반영 | 1건 그대로 (중복 없음) |
+| 통합 | 〃 | 지원 | `AppearanceApplicationSubmittedEvent` 1건, 내용 일치 |
+| 통합 | 〃 | 다시 지원 / 자기 모집글 지원 | `DUPLICATE_APPLICATION` / `CANNOT_APPLY_OWN_RECRUIT`, 추가 발행 없음 |
+| 통합 | 〃 | 모집글 올리기만 | 알림 이벤트 0건 |
+| apps | `ModularityTests` | 출연 → shared 의존 | 통과 (shared는 boundedContext를 모름) |

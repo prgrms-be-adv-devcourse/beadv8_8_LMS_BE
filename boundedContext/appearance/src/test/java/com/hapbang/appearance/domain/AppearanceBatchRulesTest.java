@@ -56,8 +56,10 @@ class AppearanceBatchRulesTest {
     @DisplayName("요청서 보류 결과를 두 번 반영해도 그대로다 (보내기 요청과 재확인 배치가 겹쳐도 안전)")
     void requestHoldResultIsIdempotent() {
         AppearanceRequest request = requested();
-        request.markRequested();
+        assertThat(request.markRequested()).isFalse(); // 이미 반영됨 → 바뀌지 않음 (요청 도착 이벤트를 다시 보내지 않는다)
         assertThat(request.getStatus()).isEqualTo(AppearanceRequestStatus.REQUESTED);
+        assertThat(AppearanceRequest.create(1L, 2L, AppearanceRequestFixture.content(NOW), POLICY, NOW).markRequested())
+                .isTrue();
 
         AppearanceRequest failed = AppearanceRequest.create(1L, 2L, AppearanceRequestFixture.content(NOW), POLICY, NOW);
         failed.markHoldFailed();

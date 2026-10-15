@@ -37,6 +37,7 @@
 | 출연 모집글 올리기(HP 보류)·조회·기본 정보 수정 | ✅ | #175 |
 | 모집 지원·지원 취소·수락(출연 성립)·거절, 모집글 지원자 수 | ✅ | #195 |
 | 모집 마감 (기한 마감 배치·조기 마감, 대기 지원 정리, 미달 인원분 반환) | ✅ | #222 |
+| 출연 알림 이벤트 발행 (요청 도착·지원 도착, shared 이벤트) | ✅ | #227 |
 | 모집 취소 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
 
 ---
@@ -668,3 +669,41 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 | 마감 뒤 | 지원·수락·거절·조기 마감 409 `APPEARANCE_RECRUIT_NOT_OPEN`, 미선정된 지원 취소 409 `APPLICATION_NOT_PENDING`. 공개 목록에서 빠지고 상세·내 목록에는 `CLOSED`로 보임 | |
 | 알림 | 마감·미선정 안내는 이번 범위 밖 (나중 기능) | C2 |
 | 남은 일 | 마감 후 출연 취소(합의)로 빈자리가 생기면 그 출연료 반환 — 출연 취소 요청 이슈. 같은 모집글 보류에서 반환이 더 생기면 반환 요청 ID 순번을 나눈다 | AGENTS.md "출연 취소 요청" |
+
+---
+
+## 11. 출연 알림 이벤트 (#227)
+
+출연 쪽에서 일어난 일을 `shared` 이벤트로 알린다. 출연은 받는 쪽(채팅 등)을 모른다. 받는 쪽 구현은 각 모듈 담당이 한다 (ISSUE.md APR-29).
+
+### 11.1 이벤트
+
+| 이벤트 (`shared.appearance.event`) | 담는 DTO (`shared.appearance.dto`) | 언제 발행 | 누가 알면 되나 |
+|---|---|---|---|
+| `AppearanceRequestSentEvent(AppearanceRequestDto request)` | `requestId`, `hostId`, `guestId`, `title`, `fee`, `scheduledAt`, `acceptDeadline` | 요청서가 `HOLD_PENDING` → `REQUESTED`로 **실제로 바뀔 때 한 번** (보내기 요청 또는 보류 재확인 배치) | 게스트 (`guestId`) |
+| `AppearanceApplicationSubmittedEvent(AppearanceApplicationDto application)` | `applicationId`, `recruitId`, `recruitTitle`, `hostId`, `guestId`, `appliedAt` | 지원이 저장됐을 때 (`APPLIED`) | 호스트 (`hostId`) |
+
+- 발행: UseCase가 `ApplicationEventPublisher.publishEvent` (요청서 `AppearanceRequestHoldUseCase.markRequested`, 지원 `AppearanceApplicationApplyUseCase`). 트랜잭션 안에서 발행한다.
+- DTO는 엔티티의 `toDto()`로 만든다. 지원 메시지는 담지 않는다. 닉네임은 받는 쪽의 회원 복제본으로 찾는다.
+- 보류가 실패한 요청서(`HOLD_FAILED`)·결과를 모르는 요청서(`HOLD_PENDING`)·막힌 지원은 발행하지 않는다.
+
+### 11.2 받는 쪽 예시 (참고)
+
+```java
+// {모듈}/in/event/{모듈}AppearanceEventListener.java
+@ApplicationModuleListener   // 출연 트랜잭션 커밋 뒤, 새 트랜잭션·비동기. 실패하면 Modulith 발행 기록에 남아 재처리
+public void on(AppearanceRequestSentEvent event) {
+    AppearanceRequestDto request = event.request();
+    facade.notifyAppearanceRequested(request.guestId(), request.hostId(), request.requestId(), request.title());
+}
+
+@ApplicationModuleListener
+public void on(AppearanceApplicationSubmittedEvent event) {
+    AppearanceApplicationDto application = event.application();
+    facade.notifyRecruitApplied(application.hostId(), application.guestId(), application.recruitId(),
+            application.recruitTitle());
+}
+```
+
+- 출연 처리가 롤백되면 이벤트는 받는 쪽에 가지 않는다. 받는 쪽이 실패해도 출연 처리는 되돌려지지 않는다 (최종 일관성).
+- 같은 이벤트가 재처리로 두 번 올 수 있으니, 받는 쪽은 `requestId`·`applicationId`로 중복을 거를 수 있다.
