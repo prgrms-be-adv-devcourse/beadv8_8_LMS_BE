@@ -55,6 +55,13 @@ public class ChatMessage {
     @Column(nullable = false)
     private LocalDateTime sentAt;
 
+    /** 알림 메시지의 종류. 일반·시스템 메시지는 null */
+    @Enumerated(EnumType.STRING)
+    private NotificationKind notificationKind;
+
+    /** 알림이 가리키는 출연 건 ID (다른 모듈의 ID). 일반·시스템 메시지는 null */
+    private Long referenceId;
+
     private LocalDateTime deletedAt;
 
     private ChatMessage(ChatRoom chatRoom, Long senderUserId, ChatMessageType messageType, String content,
@@ -90,6 +97,19 @@ public class ChatMessage {
     public static ChatMessage rejoinNotice(ChatRoom chatRoom, Long rejoinedUserId, String nickname,
             LocalDateTime now) {
         return new ChatMessage(chatRoom, rejoinedUserId, ChatMessageType.SYSTEM, nickname + "님이 다시 들어왔습니다.", now);
+    }
+
+    /**
+     * 다른 모듈의 이벤트로 남기는 알림 메시지. 서버만 만든다. 보낸 사람은 행위자(예: 출연을 요청한 호스트)로 기록한다.
+     */
+    public static ChatMessage notification(ChatRoom chatRoom, Long senderUserId, NotificationKind kind,
+            Long referenceId, String content, LocalDateTime now) {
+        Assert.state(kind != null && referenceId != null, "알림 종류와 대상 ID가 필요합니다.");
+        Assert.state(hasContent(content), "알림 내용이 비어 있습니다.");
+        ChatMessage message = new ChatMessage(chatRoom, senderUserId, ChatMessageType.NOTIFICATION, content, now);
+        message.notificationKind = kind;
+        message.referenceId = referenceId;
+        return message;
     }
 
     public boolean isDeleted() {

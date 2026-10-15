@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
+import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatMessage;
@@ -48,6 +49,20 @@ public class ChatRoomUseCase {
      * </ul>
      */
     public ChatRoomCreateResult createOrGet(Long requesterId, Long targetUserId) {
+        OpenedRoom opened = openDirectRoom(requesterId, targetUserId, LocalDateTime.now());
+        ChatRoomResponse room = chatRoomSupporter.toResponse(opened.chatRoom(), requesterId);
+        if (opened.created()) {
+            return ChatRoomCreateResult.created(room);
+        }
+        return new ChatRoomCreateResult(room, false, opened.rejoinNotices(), opened.remainingUserIds());
+    }
+
+    /**
+     * 두 회원의 1:1 방을 연다. 종료되지 않은 방이 있으면 잠그고 재사용하며 나갔던 사람을 재입장시키고, 없으면 새로 만든다.
+     * 채팅 시작({@link #createOrGet})과 출연 알림({@link ChatNotificationUseCase})이 같은 규칙을 쓴다.
+     * 새 방을 동시에 만들면 유일 제약(direct_key)에 걸리므로 호출한 Facade가 다시 시도한다.
+     */
+    public OpenedRoom openDirectRoom(Long requesterId, Long targetUserId, LocalDateTime now) {
         if (requesterId == null || targetUserId == null) {
             throw new ChatException(ChatErrorCode.INVALID_REQUEST);
         }
@@ -57,7 +72,6 @@ public class ChatRoomUseCase {
         chatValidationService.validateCanChat(requesterId);
         chatValidationService.validateCanChat(targetUserId);
 
-        LocalDateTime now = LocalDateTime.now();
         Optional<ChatRoom> existing = chatRoomRepository.findActiveDirectForUpdate(
                 ChatRoom.directKeyOf(requesterId, targetUserId));
         if (existing.isPresent()) {
@@ -68,8 +82,7 @@ public class ChatRoomUseCase {
                     .map(ChatRoomMember::getUserId)
                     .toList();
             List<ChatMessageResponse> rejoinNotices = rejoinLeftMembers(chatRoom, members, now);
-            return new ChatRoomCreateResult(chatRoomSupporter.toResponse(chatRoom, requesterId), false,
-                    rejoinNotices, rejoinNotices.isEmpty() ? List.of() : remainingUserIds);
+            return new OpenedRoom(chatRoom, false, rejoinNotices, rejoinNotices.isEmpty() ? List.of() : remainingUserIds);
         }
 
         ChatRoom chatRoom = chatRoomRepository.saveAndFlush(ChatRoom.createDirect(requesterId, targetUserId, now));
@@ -80,7 +93,7 @@ public class ChatRoomUseCase {
         }
         log.info("채팅방 생성 chatRoomId={}, requesterId={}, targetUserId={}", chatRoom.getId(), requesterId,
                 targetUserId);
-        return ChatRoomCreateResult.created(chatRoomSupporter.toResponse(chatRoom, requesterId));
+        return new OpenedRoom(chatRoom, true, List.of(), List.of());
     }
 
     /**
@@ -153,6 +166,16 @@ public class ChatRoomUseCase {
      *
      * @return 남아 있던 회원에게 보낼 재입장 안내. 재입장한 회원이 없으면 빈 목록
      */
+    /**
+     * 연 방. 기존 방이면 잠긴 상태다.
+     *
+     * @param rejoinNotices    나갔던 회원을 재입장시켰으면 남아 있던 회원에게 보낼 재입장 안내
+     * @param remainingUserIds 재입장 안내를 받을 회원
+     */
+    public record OpenedRoom(ChatRoom chatRoom, boolean created, List<ChatMessageResponse> rejoinNotices,
+            List<Long> remainingUserIds) {
+    }
+
     private List<ChatMessageResponse> rejoinLeftMembers(ChatRoom chatRoom, List<ChatRoomMember> members,
             LocalDateTime now) {
         List<ChatMessageResponse> rejoinNotices = new ArrayList<>();
