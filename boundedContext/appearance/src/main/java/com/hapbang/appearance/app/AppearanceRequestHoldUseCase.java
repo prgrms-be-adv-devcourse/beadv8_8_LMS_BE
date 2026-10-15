@@ -23,7 +23,7 @@ import lombok.extern.slf4j.Slf4j;
  *     Billing이 거절하면 요청서를 {@code HOLD_FAILED}로 남기고 Billing 응답을 그대로 던진다.</li>
  *     <li>{@link #markRequested}: 보류 성공을 요청서에 반영한다. 트랜잭션을 연다.</li>
  * </ul>
- * 보류 멱등 키는 Billing이 참조 대상(요청서)으로 만든다. 이후 {@code HOLD_PENDING} 재확인 스케줄러도 같은 요청서로 이 기능을 다시 쓴다.
+ * 보류 멱등 키는 Billing이 참조 대상(요청서)으로 만든다. {@code HOLD_PENDING} 보류 재확인 배치({@link AppearanceHoldRecheckUseCase})도 같은 요청서로 이 기능을 다시 쓴다.
  * 거절 기록은 같은 클래스 안 메서드 호출이라 {@code @Transactional}이 적용되지 않아 {@link TransactionTemplate}으로 연다.
  */
 @Slf4j
