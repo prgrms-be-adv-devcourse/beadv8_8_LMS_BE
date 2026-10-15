@@ -34,7 +34,7 @@
 | 회원 역할 변경(승급), 회원 정보의 원본 | 회원(member) |
 | 강의 내용 다름 이의 제기의 자동 판정 | MVP 범위 밖 |
 
-> 강의 모듈은 "언제, 누구에게, 얼마를" 옮겨야 하는지만 판단해 HP 작업으로 기록하고, 강의 트랜잭션 밖에서 강의가 소유한 Port `BillingClient`로 지갑 모듈에 요청한다(6.2, D56·D57). 실제 HP 이동과 정합성은 지갑 모듈 한 곳에서 처리한다(기획서 아키텍처 절). 고객센터와는 접수 동기 호출과 판단·철회 이벤트로, 회원과는 이벤트로 연동한다.
+> 강의 모듈은 "언제, 누구에게, 얼마를" 옮겨야 하는지만 판단해 HP 작업으로 기록하고, 강의 트랜잭션 밖에서 shared의 `BillingApiClient`로 지갑 모듈 내부 HTTP API에 요청한다(6.2, D62). 실제 HP 이동과 정합성은 지갑 모듈 한 곳에서 처리한다(기획서 아키텍처 절). 고객센터와는 접수 내부 HTTP 호출과 판단·철회 이벤트로, 회원과는 이벤트로 연동한다.
 
 ---
 
@@ -76,8 +76,8 @@ flowchart LR
 
     member["회원 모듈"] -- "UserJoinedEvent<br/>회원 정보 변경 이벤트" --> U
     O --> T
-    T == "HP 보류 / 반환 / 지급<br/>(BillingClient, 트랜잭션 밖 동기 호출)" ==> billing["지갑 모듈"]
-    cs["고객센터 모듈"] == "이의 제기 접수<br/>(LectureObjectionClient, 트랜잭션 밖 동기 호출)" ==> O
+    T == "HP 보류 / 반환 / 지급<br/>(BillingApiClient → 내부 HTTP)" ==> billing["지갑 모듈"]
+    cs["고객센터 모듈"] == "이의 제기 접수<br/>(LectureApiClient → 내부 HTTP)" ==> O
     cs -- "판단·철회 명령 이벤트" --> O
     O -- "명령 결과·반환 결과 이벤트" --> cs
     F -. "업로드(서버 경유) / 조회 Presigned GET" .-> S3[(S3)]
@@ -85,8 +85,8 @@ flowchart LR
 
 - 다른 모듈의 엔티티·Repository를 쓰지 않는다. 판매자·구매자·리뷰 작성자는 `*_user_id`(Long)로만 참조한다.
 - 닉네임 표시에 필요한 회원 정보는 `LectureUser`(회원 복제, `ReplicaUser` 상속)로 강의 스키마 안에 둔다. 같은 스키마 안의 JOIN은 허용된다.
-- 다른 모듈과의 트랜잭션은 공유하지 않는다. 강의는 자기 로컬 트랜잭션만 보장하고, 다른 모듈 호출은 강의 트랜잭션 밖에서 한다 (6.1 원칙, D56).
-- 모듈 간 계약(DTO·이벤트·안정적인 enum과 오류 코드)은 기존 회원 이벤트(`shared/member/event/UserJoinedEvent`)와 같은 방식으로 `shared` 모듈에 둔다(예: `com.hapbang.shared.lecture.event`). 호출 인터페이스(Port)는 소비 모듈 안에 두고, 모놀리스 연결은 `apps`의 In-process Adapter가 한다 (D56).
+- 다른 모듈과의 트랜잭션은 공유하지 않는다. 강의는 자기 로컬 트랜잭션만 보장하고, 다른 모듈 HTTP 호출은 강의 트랜잭션 밖에서 한다 (6.1 원칙, D62).
+- 모듈 간 데이터 계약과 공통 HTTP Client SDK는 `shared.[제공 모듈].dto|domain|event|out`에 둔다. bounded context 사이의 Java Port와 Application 직접 호출은 두지 않으며, `apps`는 bootstrap과 공통 설정만 담당한다 (D62).
 
 ---
 
@@ -340,75 +340,80 @@ stateDiagram-v2
 
 ## 6. 모듈 간 연동
 
-이 장은 **목표 구조**(D56~D61, #246)를 적는다. 현재 코드가 아직 옛 방식인 흐름은 6.1 "전환 상태" 표에 있다.
+이 장은 **목표 구조**(D62, #271)를 적는다. D56의 Port + In-process Adapter 구조는 구현 전에 폐기했고, D57~D61의 제품·복구 결정은 HTTP 경계에 맞춰 이어 간다.
 
 ### 6.1 연동 방식
 
 | 상대 모듈 | 내용 | 방식 |
 | --- | --- | --- |
-| 지갑 | 주문 항목별 HP 보류, 구매 취소·이의 제기 인정 반환, 지급 | 강의가 소유한 Port `lecture.out.billing.BillingClient`를 **강의 트랜잭션 밖에서** 동기 호출한다. 호출은 HP 작업(`LectureHpTask`)으로 먼저 기록하고 실행한다 (D56, D57) |
-| 고객센터 | 이의 제기 접수 | 고객센터가 소유한 Port `customersupport.out.lecture.LectureObjectionClient`로 고객센터 트랜잭션 밖에서 동기 호출한다. 강의는 명령 이력으로 멱등하게 처리한다 (D60) |
+| 지갑 | 주문 항목별 HP 보류, 구매 취소·이의 제기 인정 반환, 지급 | `shared.billing.out.BillingApiClient`로 지갑 내부 HTTP API를 **강의 트랜잭션 밖에서** 호출한다. 호출은 HP 작업(`LectureHpTask`)으로 먼저 기록하고 실행한다 (D57, D62) |
+| 고객센터 | 이의 제기 접수 | `shared.lecture.out.LectureApiClient`로 강의 내부 HTTP API를 고객센터 트랜잭션 밖에서 호출한다. 강의는 명령 이력으로 멱등하게 처리한다 (D60, D62) |
 | 고객센터 | 이의 제기 판단·철회 | 명령 이벤트 → 강의 처리 → 결과 이벤트. 인정한 건의 HP 반환 완료·조치 필요는 별도 이벤트다 (D60) |
 | 회원 | 가입, 회원 정보 변경 | 이벤트 |
 
-#### 원칙 (D56)
+#### 원칙 (D62)
 
 1. **로컬 트랜잭션만 보장한다.** 다른 모듈의 저장 결과와 함께 커밋·롤백된다는 계약을 두지 않는다.
-2. **Port는 소비 모듈이 소유한다.** 강의 → billing `lecture.out.billing.BillingClient`, 출연 → billing `appearance.out.billing.BillingClient`, 고객센터 → 강의 `customersupport.out.lecture.LectureObjectionClient`.
-3. **모듈 간 연동 계약은 데이터 계약이다.** 직렬화 가능한 DTO·이벤트·안정적인 enum과 오류 코드만 둔다. `shared.billing.domain`에는 `BillingReferenceType`, `SettlementSourceType`, `BillingFailureCode` 같은 데이터 계약을 둔다. Port·엔티티·Repository·공유 Java 예외는 두지 않는다. `.contract` 같은 새 패키지는 만들지 않고 기존 `shared.billing.dto`·`domain`·`event`를 쓴다. 강의 계약도 같은 모양(`shared.lecture.dto`·`domain`·`event`)으로 둔다.
-4. **모놀리스 연결은 조립 모듈 `apps`의 In-process Adapter가 한다.** Adapter는 소비 모듈의 Port를 구현하고 제공 모듈의 공개 Application 진입점을 부른다. 제공 모듈의 내부 오류는 Adapter가 공유 오류 코드 결과로 바꾼다.
+2. **동기 경계는 제공 모듈의 내부 HTTP API다.** 소비 모듈은 제공 모듈의 주소와 URI 계약만 알고, 제공 모듈 Java Application·domain·Repository 타입을 참조하지 않는다.
+3. **shared는 데이터 계약과 공통 HTTP Client SDK를 제공한다.** DTO·이벤트·안정적인 enum·오류 코드와 `shared.[제공 모듈].out.*ApiClient`를 둔다. Java Port·엔티티·Repository·공유 `BusinessException`은 두지 않는다.
+4. **`apps`는 bootstrap-only다.** 애플리케이션 시작과 공통 설정만 담당하며 bounded context를 연결하는 Adapter나 업무 로직을 두지 않는다. 단일 앱에서도 Client는 self-HTTP를 사용한다.
 5. **동기 연동도 호출자 트랜잭션 밖에서 한다.** 로컬 상태와 작업을 먼저 커밋하고, 멱등 키로 호출한 뒤, 결과를 짧은 로컬 트랜잭션으로 기록한다.
 6. **비동기 연동은 이벤트 계약을 쓴다.** 이벤트 발행은 로컬 상태 변경과 같은 트랜잭션에 기록되고(Spring Modulith 이벤트 발행 기록), `@ApplicationModuleListener`가 별도 트랜잭션에서 처리한다.
 7. **완료 상태와 처리 중 상태를 나눈다.** `PAID`·`PURCHASED`·`CANCELED`·`RETURNED`·`PAID_OUT`은 보류·반환·지급이 실제로 끝난 뒤에만 쓴다.
 8. **재시도는 명시적인 작업·명령 기록에 근거한다.** 같은 요청 ID + 같은 payload는 기존 결과를 재현하고, 같은 요청 ID + 다른 payload는 충돌이다.
-9. **HTTP와 Kafka의 호출 모양을 같다고 가정하지 않는다** (6.2 "서비스 분리 시").
+9. **self-HTTP와 분리 배포 HTTP는 같은 계약을 쓴다.** 서비스 분리 시 provider별 base URL만 바꾼다. Kafka는 동기 Client의 대체 구현으로 가장하지 않는다 (6.2 "서비스 분리 시").
 10. **작업 실행은 중복·중단을 견딘다.** 한 실행기만 원자적으로 선점하고, 실행 중 프로세스가 끝나면 lease가 지난 뒤 다시 선점한다. 시간·건수는 설정으로 둔다 (D57).
 
 - `AGENTS.md`의 "모듈 간 통신은 Spring Event 기본"에서 동기 호출로 남는 것은 HP 이동(보류·반환·지급)과 이의 제기 접수뿐이다. 둘 다 요청자에게 결과(잔액 부족, 접수 불가 사유)를 바로 알려야 하기 때문이다. 판단·철회는 이벤트다.
-- 최종 구조에는 shared Port(`shared.billing.port.BillingPort`, `shared.lecture.port.LectureObjectionPort`)와 모듈 간 공유 Java 예외(`LectureObjectionRefusedException`)가 **남지 않는다** (#256, #257).
+- 최종 구조에는 shared Port(`shared.billing.port.BillingPort`, `shared.lecture.port.LectureObjectionPort`), 소비 모듈 Port, `apps` 연결 Adapter와 모듈 간 공유 Java 예외(`LectureObjectionRefusedException`)가 **남지 않는다** (#280).
 
 #### 의존 방향
 
 ```
-강의 app (UseCase, HP 작업 실행기)
-  → lecture.out.billing.BillingClient            강의 소유 Port, 결과는 BillingCallResult
-      ← apps InProcessLectureBillingAdapter      @Transactional(NEVER), billing 오류 → BillingFailureCode
-          → billing 공개 Application 진입점        자기 로컬 트랜잭션만 연다
+강의 HP 작업 실행기
+  → shared.billing.out.BillingApiClient
+      → POST /internal/v1/billing/{holds|releases|payouts}
+          → billing Controller → billing Application (billing 로컬 트랜잭션)
 
-고객센터 app
-  → customersupport.out.lecture.LectureObjectionClient
-      ← apps InProcessLectureObjectionAdapter
-          → 강의 공개 Application 진입점 (이의 제기 접수)
+고객센터 접수 실행기
+  → shared.lecture.out.LectureApiClient
+      → 강의 내부 HTTP Controller → 강의 Application (강의 로컬 트랜잭션)
 
-shared (데이터 계약만)
+shared (데이터 계약 + 공통 HTTP Client SDK)
   billing.dto     HoldCommand, ReleaseCommand, PayoutCommand, PenaltyCommand, *ResultDto
   billing.domain  BillingReferenceType, SettlementSourceType, BillingFailureCode
+  billing.out     BillingApiClient, BillingCallResult, BillingCallException
   lecture.dto     이의 제기 접수 명령·결과
   lecture.domain  LectureObjectionFailureCode
+  lecture.out     LectureApiClient
   lecture.event   이의 제기 판단·철회 명령, 명령 결과, 반환 결과 이벤트 (V1)
+
+apps
+  bootstrap, scheduling, security·HTTP 공통 설정만 담당
 ```
 
 #### 전환 상태
 
-코드는 아직 옛 방식이다. 흐름마다 아래 티켓에서 바꾼다. **#256·#257이 끝나면 이 표를 지우고** 위 구조만 남긴다.
+코드는 아직 shared Port와 같은 JVM 전파 트랜잭션을 사용한다. 흐름마다 아래 티켓에서 바꾸고, **#280이 끝나면 이 표를 지운다.**
 
 | 흐름 | 현재 구현 | 목표 구조 | 변경 티켓 | 전환 완료 조건 |
 | --- | --- | --- | --- | --- |
-| billing 호출 seam | UseCase가 shared `BillingPort`를 직접 호출 | 강의 `BillingClient` + `apps` In-process Adapter | #247 | 강의 main·test가 `shared.billing.port`를 import하지 않는다 |
-| HP 작업 기반, 구매 취소 반환 | 강의 트랜잭션 안에서 `release`, 바로 `CANCELED` | `CANCEL_PENDING` + RELEASE 작업 → `CANCELED` | #248 | 구매 취소 트랜잭션 안에서 billing을 부르지 않는다 |
-| 이의 제기 인정 반환 | 고객센터 트랜잭션 안에서 `RETURNED` + `release` | `RETURN_PENDING` + RELEASE 작업 → `RETURNED`, 반환 결과 이벤트 | #249 | Adapter `release`에 `NEVER` |
-| 지급 | 항목마다 한 트랜잭션에서 `PAID_OUT` + `payout`, 실패는 `order_item`의 D54 컬럼 | `PAYOUT_PENDING` + PAYOUT 작업 → `PAID_OUT` | #250, 지급 실패 레거시 정리 티켓(#268) | Adapter `payout`에 `NEVER`, D54 데이터 이관 확인 |
-| 주문 보류 | 주문 저장과 `hold`를 한 트랜잭션에서 | `HOLD_PENDING` + HOLD 작업 → `PAID`, 실패 시 보상 → `HOLD_FAILED` | #251 | Adapter `hold`에 `NEVER` |
-| 이의 제기 명령 멱등 | 항목 상태로만 판정 | 명령 이력(`objection_command`) | #252 | 세 명령을 다시 보내도 같은 결과 |
-| 이의 제기 접수 | 고객센터 트랜잭션 안에서 `LectureObjectionPort.fileObjection` | 문의 커밋 → `LectureObjectionClient` 동기 시도 → 결과 기록 | #253 | 문의 저장 트랜잭션 안에서 강의를 부르지 않는다 |
-| 이의 제기 판단·철회 | 고객센터 트랜잭션 안에서 `resolveObjection`·`withdrawObjection` | 명령 이벤트 → 강의 처리 → 결과 이벤트 | 이벤트 재발행 [Global] 티켓(#266), #254, #255 | 판단·삭제 트랜잭션 안에서 강의를 부르지 않는다 |
-| shared Port 제거 | `BillingPort`·`BillingPortAdapter`, `LectureObjectionPort`·`LectureObjectionPortAdapter`·`LectureObjectionRefusedException` | 삭제, 구조 테스트 | #256, #257 | 저장소에 해당 타입이 없다 |
+| 공통 billing HTTP 계약 | shared `BillingPort` | `BillingApiClient` + DTO·오류 계약 | #272 | self-HTTP와 분리 배포가 같은 Client 코드를 쓴다 |
+| billing 진입점 | Java `BillingPortAdapter` | `/internal/v1/billing/*` Controller | #273 | 요청마다 billing 로컬 트랜잭션으로 처리한다 |
+| 출연 billing 연동 | 기본 `fake` 또는 shared Port | 실제 `BillingApiClient` + 기존 `HpTask` | #274 | fake 기본 모드가 없고 외부 호출이 출연 트랜잭션 밖이다 |
+| HP 작업 기반 | 강의 트랜잭션 안에서 billing 호출 | `LectureHpTask` 선점·재시도·관리자 복구 | #275 | 외부 호출과 결과 기록 트랜잭션이 분리된다 |
+| 주문 보류 | 주문 저장과 `hold`를 한 트랜잭션에서 | `HOLD_PENDING` + 항목별 HOLD/보상 작업 | #276 | 완료 상태가 실제 HP 이동과 일치한다 |
+| 구매 취소·반환·지급 | 상태 변경과 `release`·`payout`을 한 트랜잭션에서 | `*_PENDING` + RELEASE/PAYOUT 작업 | #277, #268 | D54 이관과 접근·리뷰 규칙이 적용된다 |
+| 이의 제기 접수·명령 | shared Port와 항목 상태만 사용 | 강의 내부 HTTP + 명령 Inbox | #278 | 같은 명령을 다시 보내도 같은 결과다 |
+| 고객센터 연동 | 고객센터 트랜잭션 안 Java 호출 | 문의 커밋 → 내부 HTTP, 판단·철회는 이벤트 | #279, #266, #267 | 고객센터 로컬 트랜잭션과 원격 호출이 분리된다 |
+| 레거시 제거 | shared/provider Port와 Port Adapter | 삭제 + 구조 테스트, `apps` bootstrap-only | #280 | 저장소에 모듈 간 Java 연결 타입이 없다 |
 
 하위 티켓의 의존 관계 (13장 8단계)
 
-- 하드 의존: #247 → #248 → {#249, #250, #251}. 같은 항목 상태·인덱스·조회 조건을 고치므로 병합은 #249 → #250 → #251 순서를 권한다(#249가 #254의 선행이라 고객센터 줄을 빨리 연다).
-- 이의 제기: #253 ← #252 / #254 ← #249, #252, 이벤트 재발행 [Global] 티켓(#266) / #255 ← #253, #254 / 이의 제기 실패 명령 운영 복구 티켓(#267) ← #255.
-- 마무리: #256 ← #247~#251, **출연 실제 billing 연동**(지금 `appearance.billing.mode` 기본값이 `fake`) / #257 ← #252~#255.
+- HTTP 기반: #272 → #273 → #274, #275.
+- 강의 HP: #275 → #276 → #277. 지급 실패 레거시 정리 #268은 #277과 프론트 전환 뒤다.
+- 이의 제기: #278 → #279, 이벤트 재발행 #266은 #279의 선행이며 실패 명령 운영 복구 #267은 #279 후행이다.
+- 마무리: #280은 #273·#274·#276·#277·#278·#279가 끝난 뒤 진행한다.
 
 #### 실행 중 실패한 이벤트의 재처리 (D61)
 
@@ -427,27 +432,28 @@ Spring Modulith 2.1.1의 재발행 기능(`IncompleteEventPublications`, `Resubm
 - 10회 뒤 자동으로 멈추게 하려면 dead 상태 저장, 오래된 dead 행이 배치를 막지 않는 조회, 관리자 재발행, 재시작 재발행 제외, 감사 기록이 필요하다. 이번에는 하지 않는다.
 - 알림은 ERROR 로그와 counter까지다. 실제 호출·메시지 알림은 모니터링을 연동할 때 따로 설정한다.
 
-### 6.2 동기 인터페이스
+### 6.2 동기 HTTP 인터페이스
 
-#### 지갑: 강의 소유 Port `BillingClient` (D56, #247)
+#### 지갑: shared `BillingApiClient` (D62, #272·#273)
+
+`BillingApiClient`는 인터페이스 Port가 아니라 shared에 있는 공통 HTTP Client SDK다. 강의와 출연은 같은 구현을 주입받고 provider별 `hapbang.clients.billing.base-url`만 설정한다. 단일 앱은 자기 주소를, 서비스 분리 뒤에는 billing 서비스 주소를 사용한다.
 
 ```java
-// lecture.out.billing — 강의 모듈이 소유한다. 구현은 apps의 In-process Adapter
-public interface BillingClient {
+// shared.billing.out — URI, 직렬화, timeout, ProblemDetail 변환을 감춘다.
+public class BillingApiClient {
     BillingCallResult<HoldResultDto> hold(HoldCommand command);
     BillingCallResult<ReleaseResultDto> release(ReleaseCommand command);
     BillingCallResult<PayoutResultDto> payout(PayoutCommand command);
+    BillingCallResult<PenaltyResultDto> settlePenalty(PenaltyCommand command);
 }
 
-// billing이 응답한 결과: 성공 또는 확정 실패
 public sealed interface BillingCallResult<T> {
     record Succeeded<T>(T value) implements BillingCallResult<T> {}
     record Failed<T>(BillingFailureCode code, String detail) implements BillingCallResult<T> {}
 }
 
-// 결과를 받지 못한 실패. 결과 타입이 아니라 런타임 예외다
 public class BillingCallException extends RuntimeException {
-    BillingCallFailureKind kind;   // RETRYABLE: 호출 전에 실패했음이 확실 / UNKNOWN_RESULT: 처리됐는지 모름
+    BillingCallFailureKind kind;   // RETRYABLE 또는 UNKNOWN_RESULT
 }
 ```
 
@@ -455,17 +461,17 @@ public class BillingCallException extends RuntimeException {
 | --- | --- |
 | 요청·결과 DTO | 기존 `shared.billing.dto`의 `HoldCommand`·`ReleaseCommand`·`PayoutCommand`와 `*ResultDto`를 그대로 쓴다 |
 | `Failed` | billing이 응답한 확정 실패다. 업무 거절(`INSUFFICIENT_BALANCE`)만이 아니라 재시도 대상(`WALLET_NOT_FOUND`)과 불변식 위반(`HOLD_STATE_INCONSISTENT`)도 들어오므로 "거절"이라 부르지 않는다. 분류는 실행기가 작업 유형별로 한다 (D57) |
-| `BillingCallException` | 연결 자체가 안 됨 → `RETRYABLE`. 응답 타임아웃·응답 유실 → `UNKNOWN_RESULT`. In-process에서 billing 트랜잭션이 롤백된 것이 확실한 기술 예외 → `RETRYABLE`. `Throwable`·원인 문자열은 결과에 넣지 않고 로그와 `lecture_hp_task_attempt`에만 남긴다 |
+| `BillingCallException` | 연결 전 실패가 확실함 → `RETRYABLE`. read timeout·응답 유실처럼 처리 여부를 모름 → `UNKNOWN_RESULT`. `Throwable`·원인 문자열은 결과에 넣지 않고 로그와 `lecture_hp_task_attempt`에만 남긴다 |
 | 응답 검증 | 예상하지 못한 응답 형식, 결과 금액이 항목 가격과 다름 → 실행기가 `INVARIANT_VIOLATION`으로 본다 |
-| 트랜잭션 | Adapter 메서드에 `@Transactional(propagation = NEVER)`를 붙인다. 활성 트랜잭션 안에서 부르면 billing에 들어가기 전에 실패한다. 흐름을 옮긴 티켓마다 붙인다(hold #251, release #249, payout #250). Port 인터페이스에는 Spring 애노테이션을 붙이지 않는다. Fake·직접 생성 테스트에서는 이 검사가 빠지므로 통합 테스트로도 확인한다 (12장) |
-| billing 진입점 | 호출자 트랜잭션 참여를 계약으로 두지 않고 자기 로컬 트랜잭션만 연다 (#256) |
+| 트랜잭션 | 강의는 상태와 작업을 먼저 커밋한 뒤 Client를 호출한다. HTTP라 Java 트랜잭션이 전파되지 않으며, 통합 테스트에서 호출 시 강의 트랜잭션이 비활성인지 확인한다 (#275~#277) |
+| billing 진입점 | `POST /internal/v1/billing/{holds|releases|payouts|penalty-settlements}`. 요청 하나를 billing 로컬 트랜잭션 하나로 처리한다 (#273) |
 | 멱등 키 | 보류는 참조 대상(`HOLD:LECTURE_ORDER_ITEM:{항목 ID}`, 항목당 1건). 반환·지급은 작업의 요청 ID: 구매 취소 `LECTURE-CANCEL-{항목 ID}`, 이의 제기 인정 `LECTURE-RETURN-{항목 ID}`, 보류 보상 `LECTURE-HOLD-COMPENSATE-{항목 ID}`, 지급 `LECTURE-PAYOUT-{항목 ID}` (D43) |
 | `replayed` | 결과 불명 뒤 같은 작업을 다시 실행하면 billing이 처음 결과를 `replayed = true`로 돌려준다. 같은 작업·같은 payload의 재현은 정상이다. 다른 payload 충돌(`IDEMPOTENCY_KEY_CONFLICT`)과 금액 불일치는 불변식 위반이다 (D43 수정) |
 | 혼합 HP | billing이 항목마다 수익 HP → 충전 HP 순서로 보류하고, 반환·지급은 그 항목에서 차감한 HP 종류 그대로다 (D42) |
 | 동시성 | 같은 구매자의 동시 결제는 billing이 지갑 잠금으로 직렬화한다. 보류가 항목마다 별개라 같은 주문의 다른 항목 반환·지급은 서로 영향이 없다 |
-| 테스트 | 강의 모듈 테스트 컨텍스트에는 billing 빈이 없으므로 테스트 소스의 `BillingClient` Fake를 쓴다. 실제 연결과 트랜잭션 밖 호출은 `apps` 통합 테스트로 확인한다 (12장) |
+| 테스트 | 강의 단위·통합 테스트는 `BillingApiClient`의 테스트 대역 또는 HTTP stub을 쓴다. 실제 self-HTTP, 오류 본문, timeout과 트랜잭션 경계는 전체 앱 통합 테스트로 확인한다 (12장) |
 
-`BillingFailureCode` (`shared.billing.domain`, D56). billing 내부 `BillingErrorCode`(HTTP 상태·메시지를 가진 billing의 오류 모델) 전체가 아니라, 보류·반환·지급·위약금 호출에서 실제로 나올 수 있는 코드만 둔다. 목록은 billing 담당이 확인한다(#256).
+`BillingFailureCode` (`shared.billing.domain`, D62). billing 내부 `BillingErrorCode` 전체가 아니라, 보류·반환·지급·위약금 호출에서 실제로 나올 수 있는 코드만 둔다. 목록은 billing 담당이 확인한다(#272·#273).
 
 | 묶음 | 코드 |
 | --- | --- |
@@ -476,29 +482,29 @@ public class BillingCallException extends RuntimeException {
 | 위약금 (출연) | `PENALTY_BASE_EXCEEDS_HELD`, `PENALTY_AMOUNT_ZERO` |
 | 변환 불가 | `UNMAPPED` |
 
-- In-process Adapter는 billing `BillingErrorCode` → `BillingFailureCode` 변환을 `default` 없는 `switch`로 쓴다. billing에 새 코드가 생기면 컴파일 오류로 드러난다.
-- `UNMAPPED`는 HTTP Adapter가 처음 보는 문자열을 받았을 때만 쓴다. 실행기는 `INVARIANT_VIOLATION`으로 분류한다. 원래 코드 문자열은 사용자용 `detail`에 넣지 않고 Adapter 로그와 `lecture_hp_task_attempt.raw_error_code`에만 남긴다.
+- billing 내부 API는 `BillingErrorCode`를 `ProblemDetail.code`로 응답하고, `BillingApiClient`가 이를 `BillingFailureCode`로 변환한다. billing 코드 전체 대조는 `default` 없는 `switch`와 테스트로 고정한다.
+- `UNMAPPED`는 Client가 처음 보는 HTTP 오류 문자열을 받았을 때만 쓴다. 실행기는 `INVARIANT_VIOLATION`으로 분류한다. 원래 코드 문자열은 사용자용 `detail`에 넣지 않고 Client 로그와 `lecture_hp_task_attempt.raw_error_code`에만 남긴다.
 
-#### 강의: 이의 제기 접수 진입점 (고객센터가 호출, D60, #253)
+#### 강의: 이의 제기 접수 내부 HTTP (고객센터가 호출, D60·D62, #278·#279)
 
-고객센터는 자기 Port `LectureObjectionClient`로 접수를 요청하고, `apps`의 `InProcessLectureObjectionAdapter`가 강의의 공개 Application 진입점을 부른다. 문의는 먼저 커밋되고, 호출은 고객센터 트랜잭션 밖에서 한다.
+고객센터는 shared의 `LectureApiClient`로 강의 내부 HTTP endpoint에 접수를 요청한다. 문의는 먼저 커밋되고, 호출은 고객센터 트랜잭션 밖에서 한다. 강의 Controller는 shared 요청 DTO를 강의 명령으로 바꾸고 강의 로컬 트랜잭션을 연다.
 
 | 항목 | 내용 |
 | --- | --- |
 | 요청 (`shared.lecture.dto`) | `commandId = FILE:{inquiryId}`, `correlationId`, `inquiryId`, `orderItemId`, `buyerUserId`, `reason`. 전송 재시도에도 `commandId`는 같다 |
 | 결과 | 성공 또는 `LectureObjectionFailureCode`. 예상된 거절은 예외가 아니라 결과다. 결과를 받지 못하면 연동 예외(결과 불명)다 |
-| 강의 처리 | 한 강의 트랜잭션에서 명령 이력 확인 → 항목 `objection FILED` → 명령 결과 기록. 같은 `commandId` + 같은 payload면 처음 결과를 재현한다 (D60, #252) |
+| 강의 처리 | 한 강의 트랜잭션에서 명령 이력 확인 → 항목 `objection FILED` → 명령 결과 기록. 같은 `commandId` + 같은 payload면 처음 결과를 재현한다 (D60, #278) |
 | 접수 가능 조건 | 구매자 본인 항목, `PURCHASED` 또는 `CONFIRMED`, `objection_status = NONE`, `now < payout_scheduled_at` |
 | 거절 코드 (`LectureObjectionFailureCode`) | 접수: `NOT_BUYER`(없는 항목 포함) → `NOT_OBJECTIONABLE`(구매 완료 전·취소·반환 진행 중이거나 끝난 항목) → `ALREADY_PAID_OUT` → `ALREADY_FILED`(접수·판단된 항목) → `PERIOD_EXPIRED` 순서로 검사한다(D49). `PAYOUT_PENDING`은 지급 예정 시각이 지난 뒤에만 생기므로 `PERIOD_EXPIRED`(이미 판단됐으면 `ALREADY_FILED`)다. 판단·철회: `NOT_BUYER`·`NOT_FILED`·`INQUIRY_MISMATCH`. 명령 충돌: `IDEMPOTENCY_KEY_CONFLICT` |
 | 필수 값 | null ID·빈 사유는 호출한 쪽 코드 오류라 `NullPointerException`·`IllegalArgumentException`이다 |
-| 지급 배치와 경쟁 | 접수와 지급 대상 선점이 같은 항목 행을 바꾸므로 `order_item.version` 낙관적 락으로 직렬화된다. 접수가 먼저 커밋되면 지급 대상에서 빠지고, 지급 선점(`PAYOUT_PENDING`)이 먼저 커밋되면 접수는 `PERIOD_EXPIRED`다. 지급 작업이 `DEAD`가 되어도 항목은 `PAYOUT_PENDING`이고 접수 기한은 다시 열리지 않는다. 겹친 낙관적 락 충돌은 재시도할 수 있는 실패라 거절로 저장하지 않는다 (#252) |
+| 지급 배치와 경쟁 | 접수와 지급 대상 선점이 같은 항목 행을 바꾸므로 `order_item.version` 낙관적 락으로 직렬화된다. 접수가 먼저 커밋되면 지급 대상에서 빠지고, 지급 선점(`PAYOUT_PENDING`)이 먼저 커밋되면 접수는 `PERIOD_EXPIRED`다. 지급 작업이 `DEAD`가 되어도 항목은 `PAYOUT_PENDING`이고 접수 기한은 다시 열리지 않는다. 겹친 낙관적 락 충돌은 재시도할 수 있는 실패라 거절로 저장하지 않는다 (#278) |
 
-#### 서비스 분리 시 (D56)
+#### 서비스 분리 시 (D62)
 
 | 전환 | 바꾸는 것 | 유지하는 것 |
 | --- | --- | --- |
-| In-process → HTTP | 소비 모듈 쪽 Adapter만 HTTP 클라이언트로 바꾼다. 응답 오류 문자열을 `BillingFailureCode`·`LectureObjectionFailureCode`로 바꾸고, 타임아웃·연결 실패를 `BillingCallException(kind)`로 바꾼다. 호출 제한 시간은 lease보다 짧게 둔다(`lecture.hp-task.billing-call-timeout`, 그때 추가) | Port, 결과 타입, HP 작업, 도메인 상태 전이, DTO |
-| In-process → Kafka | 동기 결과를 돌려주는 `BillingClient`를 Kafka request/reply로 흉내 내지 않는다. HP 작업 실행기를 **작업 발행(dispatcher) + 결과 수신(consumer)** 으로 바꾼다. 작업은 `PROCESSING`에서 결과 이벤트를 기다리고, 결과 이벤트가 같은 `claimToken`·요청 ID일 때만 기록한다 | 작업 모델, 도메인 상태 전이, DTO·오류 코드 계약 |
+| self-HTTP → 분리 배포 HTTP | `hapbang.clients.[provider].base-url`을 해당 서비스 주소로 바꾸고 내부 인증·네트워크 정책을 분리 환경에 맞춘다 | shared Client, URI·DTO·오류·멱등 계약, HP 작업, 도메인 상태 전이 |
+| HTTP → Kafka | 동기 `BillingApiClient`를 Kafka request/reply로 흉내 내지 않는다. HP 작업 실행기를 **작업 발행(dispatcher) + 결과 수신(consumer)** 으로 바꾼다. 작업은 결과 이벤트를 기다리고, 같은 요청 ID·claim 정보일 때만 기록한다 | 작업 모델, 도메인 상태 전이, DTO·오류 코드 계약 |
 | 이의 제기 판단·철회 | 이벤트 계약 그대로 브로커만 바꾼다 | 이벤트 V1 계약, 명령 이력 |
 
 ### 6.3 이벤트 계약
@@ -509,11 +515,11 @@ public class BillingCallException extends RuntimeException {
 | --- | --- | --- | --- | --- |
 | `UserJoinedEvent` (기존) | 회원 | 강의 | `UserDto` | `LectureUser` 생성 (있으면 무시, D17) |
 | `UserModifiedEvent` (#56) | 회원 | 강의 | `UserDto` | `LectureUser.syncFrom` (없으면 실패, D17) |
-| `LectureObjectionResolutionRequestedV1` (#254) | 고객센터 | 강의 | 공통 필드 + `accepted`, `adminUserId` | 명령 이력 확인 → 인정이면 `ACCEPTED` + `RETURN_PENDING` + RELEASE 작업, 기각이면 `REJECTED` → 결과 이벤트 |
-| `LectureObjectionWithdrawalRequestedV1` (#254) | 고객센터 | 강의 | 공통 필드 + `buyerUserId` | 명령 이력 확인 → `NONE`으로 되돌림(D52) → 결과 이벤트 |
-| `LectureObjectionCommandCompletedV1` (#254) | 강의 | 고객센터 | `eventId`, `causationId`(명령 이벤트 ID), `commandId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `success`, `failureCode`, `hpReturnStatus`(인정 성공이면 `PENDING`, 그 밖에는 `null`) | 판단·철회 결과 기록 (D60) |
-| `LectureObjectionReturnCompletedV1` (#249) | 강의 | 고객센터 | `eventId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `returnedHp` | `hpReturnStatus = COMPLETED` |
-| `LectureObjectionReturnActionRequiredV1` (#249) | 강의 | 고객센터 | `eventId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `failureCode` | `hpReturnStatus = ACTION_REQUIRED` (이미 `COMPLETED`면 무시) |
+| `LectureObjectionResolutionRequestedV1` (#279) | 고객센터 | 강의 | 공통 필드 + `accepted`, `adminUserId` | 명령 이력 확인 → 인정이면 `ACCEPTED` + `RETURN_PENDING` + RELEASE 작업, 기각이면 `REJECTED` → 결과 이벤트 |
+| `LectureObjectionWithdrawalRequestedV1` (#279) | 고객센터 | 강의 | 공통 필드 + `buyerUserId` | 명령 이력 확인 → `NONE`으로 되돌림(D52) → 결과 이벤트 |
+| `LectureObjectionCommandCompletedV1` (#279) | 강의 | 고객센터 | `eventId`, `causationId`(명령 이벤트 ID), `commandId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `success`, `failureCode`, `hpReturnStatus`(인정 성공이면 `PENDING`, 그 밖에는 `null`) | 판단·철회 결과 기록 (D60) |
+| `LectureObjectionReturnCompletedV1` (#277) | 강의 | 고객센터 | `eventId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `returnedHp` | `hpReturnStatus = COMPLETED` |
+| `LectureObjectionReturnActionRequiredV1` (#277) | 강의 | 고객센터 | `eventId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `failureCode` | `hpReturnStatus = ACTION_REQUIRED` (이미 `COMPLETED`면 무시) |
 
 - 명령 이벤트 공통 필드: `eventId`(이번 발행의 ID), `commandId`(논리 명령의 멱등 키, `RESOLVE:{inquiryId}`·`WITHDRAW:{inquiryId}`), `occurredAt`, `inquiryId`, `correlationId`(접수부터 반환까지 한 흐름), `orderItemId`. 네 ID는 역할이 달라 따로 저장하고 로그에 남긴다.
 - 강의 리스너는 예상된 업무 거절이면 **예외를 던지지 않고** 실패 결과 이벤트를 발행한다(무한 재시도 방지). 낙관적 락 충돌처럼 다시 하면 될 수 있는 실패와 DB·타임아웃 같은 기술 실패는 예외를 던져 이벤트 발행 기록에 남기고 재발행(D61)으로 다시 처리한다.
@@ -532,7 +538,7 @@ sequenceDiagram
     Note over LEC: 트랜잭션 1
     LEC->>LEC: 검증 → 주문 HOLD_PENDING, 항목 HOLD_PENDING (강의 ID 오름차순), 항목마다 HOLD 작업
     Note over LEC,WAL: 트랜잭션 밖, 항목 순서대로 한 번씩
-    LEC->>WAL: BillingClient.hold(구매자, LECTURE_ORDER_ITEM, itemId, price)
+    LEC->>WAL: BillingApiClient.hold(구매자, LECTURE_ORDER_ITEM, itemId, price)
     WAL-->>LEC: Succeeded / Failed / BillingCallException
     Note over LEC: 짧은 트랜잭션: 작업 결과 기록
     alt 모든 보류 성공
@@ -540,7 +546,7 @@ sequenceDiagram
         LEC-->>B: 201 {order: PAID}
     else 확정 거절 (예: 잔액 부족)
         LEC->>LEC: 주문·항목 HOLD_COMPENSATING, 실행 전 HOLD 작업 SKIPPED, 성공한 보류마다 RELEASE 작업
-        LEC->>WAL: BillingClient.release(full, "LECTURE-HOLD-COMPENSATE-{itemId}") 한 번씩
+        LEC->>WAL: BillingApiClient.release(full, "LECTURE-HOLD-COMPENSATE-{itemId}") 한 번씩
         alt 보상까지 끝남
             LEC->>LEC: 주문·항목 HOLD_FAILED
             LEC-->>B: 409 INSUFFICIENT_BALANCE (billing 코드 그대로)
@@ -569,7 +575,7 @@ sequenceDiagram
     Note over LEC: 트랜잭션 1
     LEC->>LEC: PURCHASED && now < auto_confirm_at && 이의 제기 없음 검사<br/>→ CANCEL_PENDING + RELEASE 작업 (버전 확인)
     Note over LEC,WAL: 트랜잭션 밖, 한 번
-    LEC->>WAL: BillingClient.release(full, "LECTURE-CANCEL-{itemId}")
+    LEC->>WAL: BillingApiClient.release(full, "LECTURE-CANCEL-{itemId}")
     WAL-->>LEC: 반환 결과
     Note over LEC: 짧은 트랜잭션: 주문 잠금 (D46)
     LEC->>LEC: releasedHp = price 확인 → CANCELED, 모든 항목이 끝났으면 주문 CANCELED
@@ -596,7 +602,7 @@ sequenceDiagram
         LEC->>LEC: PAYOUT_PENDING + PAYOUT 작업 (버전 확인)
     end
     SCH->>TASK: 선점한 작업을 한 번씩 실행
-    TASK->>WAL: BillingClient.payout(항목 보류 → 판매자, "LECTURE-PAYOUT-{itemId}") (트랜잭션 밖)
+    TASK->>WAL: BillingApiClient.payout(항목 보류 → 판매자, "LECTURE-PAYOUT-{itemId}") (트랜잭션 밖)
     Note over TASK: 짧은 트랜잭션
     TASK->>LEC: paidHp = price 확인 → PAID_OUT, paid_out_at
     opt 실패
@@ -619,7 +625,7 @@ sequenceDiagram
     Note over CS: 트랜잭션 1
     CS->>CS: 문의 저장 (target = orderItemId), 연동 상태 FILING
     Note over CS,LEC: 트랜잭션 밖
-    CS->>LEC: LectureObjectionClient.file(commandId = FILE:{inquiryId}, ...)
+    CS->>LEC: LectureApiClient.file(commandId = FILE:{inquiryId}, ...)
     LEC->>LEC: 강의 트랜잭션: 명령 이력 확인 → objection FILED (지급 멈춤) → 결과 기록
     alt 접수 성공
         Note over CS: 짧은 트랜잭션
@@ -636,7 +642,7 @@ sequenceDiagram
 
 - 구매자는 강의 모듈의 주문 조회 API에서 `orderItemId`를 받아 고객센터 문의에 담는다.
 - 202 뒤에 재시도에서 거절되면 문의를 지우지 않고 `FILE_REJECTED`와 사유를 목록·상세에 보여 준다 (D60).
-- API 클라이언트가 같은 문의를 다시 보내면 문의가 새로 생긴다. 요청 멱등 키를 도입하기 전까지는 막지 못한다(#253에 기록).
+- API 클라이언트가 같은 문의를 다시 보내면 문의가 새로 생긴다. 요청 멱등 키를 도입하기 전까지는 막지 못한다(#279에 기록).
 
 #### 관리자 판단과 판단 전 철회 (D60)
 
@@ -658,7 +664,7 @@ sequenceDiagram
     end
     LEC--)CS: LectureObjectionCommandCompletedV1 (인정이면 hpReturnStatus = PENDING)
     CS->>CS: ANSWERED + objectionResult + 판단 답변 (+ hpReturnStatus)
-    LEC->>WAL: BillingClient.release (HP 작업 실행기, 트랜잭션 밖)
+    LEC->>WAL: BillingApiClient.release (HP 작업 실행기, 트랜잭션 밖)
     Note over LEC: 짧은 트랜잭션: 주문 잠금 (D46)
     LEC->>LEC: RETURNED, returned_at, 모든 항목이 끝났으면 주문 CANCELED
     LEC--)CS: LectureObjectionReturnCompletedV1 (작업 DEAD면 ReturnActionRequiredV1)
@@ -712,7 +718,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | total_amount_hp | bigint | 항목 가격 합 |
 | status | varchar | `HOLD_PENDING` / `HOLD_COMPENSATING` / `HOLD_FAILED` / `PAID` / `CANCELED` (4.6, D58) |
 | ordered_at | timestamp | 주문 시도 시각 (주문·HOLD 작업을 저장한 시각). 구매 완료 시각과 다르다 (D58) |
-| paid_at | timestamp | **추가** (#251). 모든 보류가 성공해 `PAID`가 된 시각. 그 전에는 null |
+| paid_at | timestamp | **추가** (#276). 모든 보류가 성공해 `PAID`가 된 시각. 그 전에는 null |
 | canceled_at | timestamp | 모든 항목이 `CANCELED`·`RETURNED`가 된 시각 (4.6 파생 상태 `CANCELED`) |
 
 **order_item**
@@ -726,7 +732,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | buyer_user_id | bigint | **추가**. 보유 여부 유일 인덱스용 비정규화 |
 | lecture_title_snapshot | varchar | |
 | price_hp | bigint | 주문 시점 가격 |
-| status | varchar | `HOLD_PENDING` / `HOLD_COMPENSATING` / `HOLD_FAILED` / `PURCHASED` / `CONFIRMED` / `CANCEL_PENDING` / `CANCELED` / `RETURN_PENDING` / `RETURNED` / `PAYOUT_PENDING` / `PAID_OUT` (4.6, #248~#251) |
+| status | varchar | `HOLD_PENDING` / `HOLD_COMPENSATING` / `HOLD_FAILED` / `PURCHASED` / `CONFIRMED` / `CANCEL_PENDING` / `CANCELED` / `RETURN_PENDING` / `RETURNED` / `PAYOUT_PENDING` / `PAID_OUT` (4.6, #275~#277) |
 | purchased_at | timestamp | **추가**. 구매일 기준. 보류 완료 전에는 null (`auto_confirm_at`·`payout_scheduled_at`도 같음, D58) |
 | confirmed_at | timestamp | |
 | confirmation_type | varchar | **추가**. `DIRECT` / `FIRST_PLAY` / `AUTO` |
@@ -741,7 +747,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | objection_inquiry_id | bigint | **추가** (#156). 접수한 고객센터 문의 ID. 판단할 때 대조한다. 다른 모듈 ID라 FK 없음 |
 | objection_resolved_at | timestamp | **추가** |
 | objection_resolved_by_user_id | bigint | **추가** (#156). 판단한 관리자 ID |
-| payout_failure_count | int | **deprecated** (#218, D54 → D59). 지급 실패 횟수. #250 이관 뒤에는 쓰지 않고 이력으로만 남는다 |
+| payout_failure_count | int | **deprecated** (#218, D54 → D59). 지급 실패 횟수. #277 이관 뒤에는 쓰지 않고 이력으로만 남는다 |
 | last_payout_failure_code | varchar(100) | **deprecated** (#218, D54 → D59). 마지막 지급 실패 코드 |
 | last_payout_failed_at | timestamp | **deprecated** (#218, D54 → D59). 마지막 지급 실패 시각 |
 | payout_quarantined_at | timestamp | **deprecated** (#218, D54 → D59). 지급 격리 시각. 격리는 PAYOUT 작업 `DEAD`로 바뀐다. 물리 제거는 지급 실패 레거시 정리 티켓(#268)에서 별도 합의 후 |
@@ -749,7 +755,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 인덱스
 
-- 유일 `uk_order_item_buyer_lecture_owned (buyer_user_id, lecture_id) WHERE status IN ('HOLD_PENDING','HOLD_COMPENSATING','PURCHASED','CONFIRMED','CANCEL_PENDING','RETURN_PENDING','PAYOUT_PENDING','PAID_OUT')` — 같은 강의 중복 보유 방지 (D5). HP가 남아 있을 수 있는 처리 중 상태를 포함하고 `HOLD_FAILED`·`CANCELED`·`RETURNED`는 뺀다(D58, D59). 지금은 `PURCHASED`·`CONFIRMED`·`PAID_OUT`만이고, 상태를 더하는 티켓(#248~#251)마다 인덱스를 다시 만든다
+- 유일 `uk_order_item_buyer_lecture_owned (buyer_user_id, lecture_id) WHERE status IN ('HOLD_PENDING','HOLD_COMPENSATING','PURCHASED','CONFIRMED','CANCEL_PENDING','RETURN_PENDING','PAYOUT_PENDING','PAID_OUT')` — 같은 강의 중복 보유 방지 (D5). HP가 남아 있을 수 있는 처리 중 상태를 포함하고 `HOLD_FAILED`·`CANCELED`·`RETURNED`는 뺀다(D58, D59). 지금은 `PURCHASED`·`CONFIRMED`·`PAID_OUT`만이고, 상태를 더하는 티켓(#275~#277)마다 인덱스를 다시 만든다
 - `(status, auto_confirm_at)`, `(status, payout_scheduled_at)` — 배치 조회용
 - `(seller_user_id, purchased_at desc, id desc)` — 판매 내역 조회용 (D51)
 
@@ -757,7 +763,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 **lecture_user** (**신규**, 회원 복제): `id`(회원 ID), `nickname`, `role`, `status`, `created_at`, `updated_at`. 채팅 모듈의 `CHAT_USER`와 같은 패턴.
 
-**lecture_hp_task** (**신규**, #248, D57): HP 작업. 강의의 보류·반환·지급 호출 한 건. 삭제하지 않는다.
+**lecture_hp_task** (**신규**, #275, D57): HP 작업. 강의의 보류·반환·지급 호출 한 건. 삭제하지 않는다.
 
 | 컬럼 | 타입 | 비고 |
 | --- | --- | --- |
@@ -785,7 +791,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 인덱스: `(status, next_attempt_at)`, `(status, lease_until)`, `(order_item_id)`, `(order_id)`.
 
-**lecture_hp_task_attempt** (**신규**, #248, D57): 선점 한 번 = 한 행. 선점할 때 만들고 실행 결과를 한 번만 기록한 뒤 다시 바꾸지 않는다. 삭제하지 않는다. 작업의 현재 상태와 시도 이력을 나눈다.
+**lecture_hp_task_attempt** (**신규**, #275, D57): 선점 한 번 = 한 행. 선점할 때 만들고 실행 결과를 한 번만 기록한 뒤 다시 바꾸지 않는다. 삭제하지 않는다. 작업의 현재 상태와 시도 이력을 나눈다.
 
 | 컬럼 | 타입 | 비고 |
 | --- | --- | --- |
@@ -799,7 +805,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | error_detail | varchar(1000) | 예외 종류·메시지 (진단용, 관리자만) |
 | started_at, completed_at | timestamp | |
 
-**objection_command** (**신규**, #252, D60): 이의 제기 명령 처리 이력(inbox). 삭제하지 않는다. 항목이 다시 `NONE`이 되거나 새 문의가 생겨도 과거 결과를 재현한다.
+**objection_command** (**신규**, #278, D60): 이의 제기 명령 처리 이력(inbox). 삭제하지 않는다. 항목이 다시 `NONE`이 되거나 새 문의가 생겨도 과거 결과를 재현한다.
 
 | 컬럼 | 타입 | 비고 |
 | --- | --- | --- |
@@ -814,7 +820,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | failure_code | varchar | `LectureObjectionFailureCode` |
 | processed_at | timestamp | |
 
-- 재시도하면 성공할 수 있는 실패(순서 지연, 낙관적 락 충돌)와 기술 실패(DB·타임아웃)는 결과로 저장하지 않는다 (#252).
+- 재시도하면 성공할 수 있는 실패(순서 지연, 낙관적 락 충돌)와 기술 실패(DB·타임아웃)는 결과로 저장하지 않는다 (#278).
 
 ### 7.2 ERD 반영 필요 목록
 
@@ -826,7 +832,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 - [ ] `LECTURE_ORDER`: `status` 값 정의(`PAID`/`CANCELED`), `canceled_at` 의미 정의
 - [ ] `ORDER_ITEM`: `buyer_user_id`, `purchased_at`, `confirmation_type`, `paid_out_at`, `objection_reason`, `objection_resolved_at`, `version` 추가, `refunded_at` → `returned_at`, `status` 값 정의
 - [ ] `LECTURE_USER` 추가
-- [ ] `LECTURE_ORDER`·`ORDER_ITEM` 처리 중 상태와 `paid_at`, `LECTURE_HP_TASK`·`LECTURE_HP_TASK_ATTEMPT`·`OBJECTION_COMMAND` 추가 (#248~#252, D57~D60)
+- [ ] `LECTURE_ORDER`·`ORDER_ITEM` 처리 중 상태와 `paid_at`, `LECTURE_HP_TASK`·`LECTURE_HP_TASK_ATTEMPT`·`OBJECTION_COMMAND` 추가 (#275~#278, D57~D60)
 
 ---
 
@@ -859,7 +865,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | POST | `/api/v1/lectures/admin/{lectureId}/inspection/approve` | 승인 → `ON_SALE`. 검수 대기 중에는 내용이 바뀌지 않으므로 추가 검사 없음 (D11) |
 | POST | `/api/v1/lectures/admin/{lectureId}/inspection/reject` | 반려 `{reason}` → `REJECTED` |
 
-### 8.2.1 HP 작업 (관리자, D57, #248)
+### 8.2.1 HP 작업 (관리자, D57, #275)
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
@@ -873,8 +879,8 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/api/v1/lectures/admin/payout-failures` | #250부터 HP 작업 조회(`taskType = PAYOUT`)에 위임한다. 응답 형태는 프론트 전환 기간 동안 유지한다 |
-| POST | `/api/v1/lectures/admin/payout-failures/{orderItemId}/retry` | #250부터 그 항목 PAYOUT 작업의 관리자 재시도에 위임한다 |
+| GET | `/api/v1/lectures/admin/payout-failures` | #277부터 HP 작업 조회(`taskType = PAYOUT`)에 위임한다. 응답 형태는 프론트 전환 기간 동안 유지한다 |
+| POST | `/api/v1/lectures/admin/payout-failures/{orderItemId}/retry` | #277부터 그 항목 PAYOUT 작업의 관리자 재시도에 위임한다 |
 
 - 프론트가 8.2.1로 옮긴 뒤 지급 실패 레거시 정리 티켓(#268)에서 이 경로를 없앤다. 기존 데이터의 이관 건수 검증과 일정 기간의 대조가 먼저다 (D59).
 
@@ -998,7 +1004,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 실행 중 서버 종료, 느린 billing 호출 | lease(5분)가 지나면 다른 실행기가 다시 선점한다. lease는 호출을 끊는 제한 시간이 아니라 결과 기록 권한과 재선점 시점을 정한다. 앞 호출이 그 뒤에도 실행 중일 수 있으며, billing 멱등 키가 중복 HP 이동을, `claimToken` 검사가 늦은 결과의 반영을 막는다. 보장하는 것은 "외부 호출이 하나뿐"이 아니라 "한 선점의 결과만 작업에 반영된다"이다 (D57) |
 | 같은 항목에 반환·지급이 두 번 호출 | 강의 상태 머신이 먼저 막고(처리 중 상태에서는 다른 HP 전이 불가), billing도 남은 보류가 없으면 거부한다. 같은 요청 ID로 다시 보내면 처음 결과를 돌려받는다 (6.2) |
 | 이벤트 중복 도착 (회원) | 가입 이벤트는 복제본이 이미 있으면 무시하고, 변경 이벤트는 있는 복제본만 갱신한다. 생성은 가입 이벤트로만 해서 가입·변경이 동시에 처리돼도 변경 정보를 덮어쓰지 않는다 (D17) |
-| 이의 제기 명령 중복·재전달 | 명령 이력(`objection_command`)이 `commandId`로 처음 결과를 재현하고, payload가 다르면 `IDEMPOTENCY_KEY_CONFLICT`다. 판단·철회 이후 늦게 도착한 접수 재시도도 원래 결과를 재현한다 (D60, #252) |
+| 이의 제기 명령 중복·재전달 | 명령 이력(`objection_command`)이 `commandId`로 처음 결과를 재현하고, payload가 다르면 `IDEMPOTENCY_KEY_CONFLICT`다. 판단·철회 이후 늦게 도착한 접수 재시도도 원래 결과를 재현한다 (D60, #278) |
 | 이의 제기 판단 ↔ 철회 (같은 문의) | 고객센터가 `FILED`에서 조건부 갱신으로 하나만 선점한다. 진 쪽은 409 `OBJECTION_IN_PROGRESS`, 같은 요청 재시도는 202 (D60) |
 | 이벤트 처리 실패 (서버 실행 중) | 이벤트 재발행(D61, 6.1) |
 | 배치 다중 실행 | EC2 1대·애플리케이션 1개이지만, HP 작업은 선점과 lease로 다중 실행기에서도 한 실행기만 결과를 기록한다. 지급 대상 선점·자동 구매 확정은 항목마다 별도 트랜잭션과 낙관적 락으로 처리해 한 건 실패가 전체를 막지 않게 한다 |
@@ -1024,16 +1030,17 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 com.hapbang.lecture
 ├── package-info.java   (@ApplicationModule)
 ├── in/                 Controller, Swagger 명세 인터페이스(`ApiV1Lecture*Spec`, D15), 회원·이의 제기 명령 이벤트 리스너, 요청 DTO (구현 전 스텁의 응답 DTO 포함)
-├── app/                Facade(진입점·역할 검사), UseCase(쓰기 동작 하나당 하나), Support(공통 조회), 응답 DTO(트랜잭션 안에서 변환), 배치, HP 작업 실행기. 다른 모듈이 `apps` Adapter로 부르는 공개 Application 진입점(이의 제기 접수, D60)
+├── app/                Facade(진입점·역할 검사), UseCase(쓰기 동작 하나당 하나), Support(공통 조회), 응답 DTO(트랜잭션 안에서 변환), 배치, HP 작업 실행기, 내부 HTTP가 호출하는 이의 제기 접수 진입점(D60)
 ├── domain/             엔티티·상태, LectureErrorCode(BaseErrorCode 구현)·LectureException(BusinessException 상속) (package-info.java: 테이블·제약 목록, TODO(db))
-├── out/                Repository, 강의가 소유한 Outbound Port(`out.billing.BillingClient`, `BillingCallResult`, `BillingCallException`, D56)
+├── out/                Repository. 다른 bounded context용 Java Port는 두지 않는다(D62)
 └── config/             LectureConfig (강의 Clock `lectureClock`, D37), HP 작업 설정(`lecture.hp-task.*`, D57)
 
-com.hapbang.shared.lecture                         다른 모듈과 주고받는 데이터 계약: dto(이의 제기 접수 명령·결과), domain(LectureObjectionFailureCode), event(V1 이벤트) (D56)
-com.hapbang.apps (조립 모듈)                         In-process Adapter: InProcessLectureBillingAdapter, InProcessLectureObjectionAdapter (D56)
+com.hapbang.shared.lecture                         dto(이의 제기 접수 명령·결과), domain(오류 코드), event(V1), out(LectureApiClient) (D62)
+com.hapbang.shared.billing                         dto(HP 명령·결과), domain(참조·오류 코드), event, out(BillingApiClient·호출 결과/예외) (D62)
+com.hapbang.apps                                   bootstrap, scheduling, security·HTTP 공통 설정만 담당 (D62)
 ```
 
-- 지금은 `in/LectureObjectionPortAdapter`(shared `LectureObjectionPort` 구현, #156)가 있다. #257에서 지운다 (6.1 전환 상태).
+- 지금은 `in/LectureObjectionPortAdapter`(shared `LectureObjectionPort` 구현, #156)가 있다. #280에서 지운다 (6.1 전환 상태).
 - `app`은 회원 모듈(`MemberFacade`)과 같은 Facade/UseCase/Support 구조다. 컨트롤러·이벤트 리스너는 Facade만 호출하고, `@Transactional`은 Facade 메서드에 건다 (D16). 예외: 파일 본문 업로드(D25)와 billing을 부르는 흐름(주문 생성·구매 취소·HP 작업 실행, D57)은 트랜잭션 없는 Facade가 짧은 트랜잭션들을 나눠 부르고, billing 호출은 그 사이 트랜잭션 밖에서 한다.
 - 예외 응답은 global `GlobalExceptionHandler`가 `ProblemDetail` + `code`로 만든다(#71). 강의 모듈은 예외 처리기를 두지 않고 `new LectureException(LectureErrorCode.X)`로 던진다.
 - S3는 global `S3FileStorage`를 `app`에서 쓴다. 강의 모듈에 S3 클라이언트를 두지 않는다 (D40).
@@ -1046,11 +1053,11 @@ com.hapbang.apps (조립 모듈)                         In-process Adapter: InP
 | --- | --- |
 | 상태 전이·불변식 (`Lecture`, `OrderItem`), 5장 시간 계산 | 순수 단위 테스트, `Clock` 고정 |
 | Repository, 부분 유일 인덱스 | `@RepositoryTest` (PostgreSQL Testcontainers) |
-| 주문·취소·지급의 상태 전이와 HP 작업 기록, `Succeeded`·`Failed`·`BillingCallException` 결과별 처리 | `@IntegrationTest` + 테스트 소스의 `BillingClient` Fake |
+| 주문·취소·지급의 상태 전이와 HP 작업 기록, `Succeeded`·`Failed`·`BillingCallException` 결과별 처리 | `@IntegrationTest` + `BillingApiClient` 테스트 대역 또는 HTTP stub |
 | HP 작업 선점·lease·`claimToken`·재시도·`DEAD`, 겹친 실행기, 결과 기록 실패 뒤 재실행 | `@IntegrationTest` (`Clock` 고정, 두 실행기를 동시에) |
-| **트랜잭션 밖 호출** — 활성 강의 트랜잭션 안에서 `BillingClient`를 부르면 바로 실패하는지, 트랜잭션 없이 부르면 billing 로컬 트랜잭션으로 실행되는지, 실행기의 외부 호출 구간에는 강의 트랜잭션이 없고 결과 기록 구간에는 있는지 | 전체 앱 컨텍스트 + 실제 billing으로 `apps` 통합 테스트 (`LectureOrderBillingIntegrationTest` 등). `@Transactional(NEVER)`는 Fake에서는 검사되지 않으므로 이 테스트가 필요하다 |
+| **트랜잭션 밖 호출** — Client 호출 구간에는 강의 트랜잭션이 없고, HTTP 요청은 billing 로컬 트랜잭션으로 실행되며, 결과 기록 구간에만 새 강의 트랜잭션이 있는지 | 전체 앱 컨텍스트 + 실제 self-HTTP 통합 테스트. 성공 뒤 결과 기록 실패, timeout과 같은 멱등 키 재호출도 확인한다 |
 | 이의 제기 접수(동기)·판단·철회(이벤트), 명령 이력 멱등, 접수 ↔ 지급 대상 선점 경쟁 | `@IntegrationTest` (이벤트는 `TransactionTemplate` 안에서 발행하고 `await()`) |
-| 모듈 경계 | 기존 `ModularityTests`. #256·#257에서 shared `..port..` 패키지와 다른 모듈 Repository·엔티티·예외 의존을 막는 구조 테스트를 더한다. 구조 테스트는 의존 방향만 검사하고, 트랜잭션 밖 호출은 위 통합 테스트로 확인한다 |
+| 모듈 경계 | 기존 `ModularityTests`. #280에서 shared `..port..`, 다른 모듈 Application·Repository·엔티티·예외 의존과 `apps`의 모듈 연결 구현을 막는 구조 테스트를 더한다. 트랜잭션 밖 호출은 위 통합 테스트로 확인한다 |
 
 > **스키마 생성**: 모든 환경과 테스트가 Flyway 마이그레이션으로 스키마를 만들고 Hibernate는 `validate`만 한다 (D13, `docs/db-migration.md`). 강의 마이그레이션은 `boundedContext/lecture/src/main/resources/db/migration/`에 둔다.
 
@@ -1069,7 +1076,7 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | 5 | S3 업로드·재생 URL, 재생 동의 구매 확정 | 인프라(S3 버킷 권한) | S3 #88 ✅ #89 ✅ #90 ✅ #91 ✅, 서버 경유 업로드 #106 ✅ #107 ✅, 내려받기 파일명 #125 ✅, 재생 동의·구매자 시청·`/purchased` #158 ✅ |
 | 6 | 리뷰·평점, `LectureUser` 복제 | 회원 이벤트 | 회원 복제 #46 ✅ #87 ✅, 리뷰·평점 #155 ✅ |
 | 7 | 내용 다름 이의 제기 (`LectureObjectionPort` 구현) | 고객센터 호출부, `INQUIRY` 대상 컬럼 | 강의 구현 #156 ✅, 고객센터 호출부 #189 ✅, 철회 #203 |
-| 8 | 모듈 간 트랜잭션 제거와 계약 경계 재설계 (D56~D61, 6.1 전환 상태). 의존 관계는 6.1 "하위 티켓의 의존 관계" | 고객센터·billing 담당, 출연 실제 billing 연동(#256) | 설계 #246, HP 작업 줄 #247 → #248 → #249 → #250 → #251, 이의 제기 줄 #252 → #253·#254 → #255, 이벤트 재발행 [Global] 티켓(#266), 이의 제기 실패 명령 운영 복구 티켓(#267), 지급 실패 레거시 정리 티켓(#268), 마무리 #256·#257 |
+| 8 | 내부 HTTP 경계와 로컬 트랜잭션 기반으로 재설계 (D62, 6.1 전환 상태) | 고객센터·billing·출연 담당 | 상위 #271, HTTP 기반 #272 → #273 → #274·#275, 강의 HP #275 → #276 → #277, 이의 제기 #278 → #279, 이벤트 재발행 #266, 실패 명령 복구 #267, 지급 실패 레거시 정리 #268, 마무리 #280 |
 | 공통 | 단계와 무관한 팀 공통 적용 | - | 공통 예외 #71 ✅, 관리자 권한·페이지 응답 #58 ✅, 성공 응답 RsData #126 ✅, enum 설명 #112 ✅ |
 
 ---
@@ -1159,7 +1166,7 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | --- | --- | --- | --- | --- | --- |
 | D1 | 2026-10-08 | AMENDED → D36·D56·D58: 보류 요청 하나(잔액 조회 없이 보류)는 유지. 같은 트랜잭션의 동기 호출은 트랜잭션 밖 HOLD 작업으로 대체 | 강의 주문 시 HP 보류는 이벤트가 아니라 **지갑 모듈 인터페이스 동기 호출**(`LectureHpPort.holdForLectureOrder`)로 한다. 호출은 Java 인터페이스(같은 JVM)이며, 잔액 조회와 보류를 따로 두지 않고 **보류 요청 하나**로 한다 | 주문 응답에서 바로 성공·잔액 부족을 알 수 있고, 결제 대기·결제 실패 상태와 결과 이벤트가 필요 없어진다. 잔액 조회만 따로 하면 조회와 보류 사이에 잔액이 바뀔 수 있어 실패 처리를 그대로 남겨야 한다 | 지갑 담당과 인터페이스 합의, `AGENTS.md` "Spring Event 기본" 규칙의 예외로 팀 공유. → `LectureHpPort`(주문 단위 보류)는 D36으로 대체 |
 | D2 | 2026-10-08 | ACTIVE | 강의 썸네일(사진)·영상·자료 등 강의 파일은 모두 S3에 저장한다 (`FileResource` + Presigned URL, 4.4) | 사진·영상 등 파일 저장소로 S3를 쓰기로 함 | `AGENTS.md` 8장의 "S3 용도는 사진 및 영상 업로드" 문구에 자료 파일 포함 여부를 팀과 맞춤 |
-| D3 | 2026-10-08 | SUPERSEDED → D36·D56·D57·D59: 한 트랜잭션으로 묶는 방식은 처리 중 상태 + HP 작업으로 대체 | 구매 취소·이의 제기 인정 시 HP 반환과 D+30 지급도 **동기 호출**(`LectureHpPort.returnLectureOrderItem`, `payoutLectureOrderItem`)로 하고, 강의 항목 상태 변경과 한 트랜잭션으로 묶는다 | HP 이동과 강의 상태가 함께 커밋·롤백되어 처리 중 상태(`*_PENDING`), 지갑 완료 이벤트, 지갑 이벤트 재처리가 필요 없어진다 | 지갑 담당과 인터페이스 합의 (Q15). → 호출 대상은 D36으로 대체, 한 트랜잭션 원칙은 유지 |
+| D3 | 2026-10-08 | SUPERSEDED → D36·D57·D59·D62: 한 트랜잭션으로 묶는 방식은 처리 중 상태 + HP 작업으로 대체 | 구매 취소·이의 제기 인정 시 HP 반환과 D+30 지급도 **동기 호출**(`LectureHpPort.returnLectureOrderItem`, `payoutLectureOrderItem`)로 하고, 강의 항목 상태 변경과 한 트랜잭션으로 묶는다 | HP 이동과 강의 상태가 함께 커밋·롤백되어 처리 중 상태(`*_PENDING`), 지갑 완료 이벤트, 지갑 이벤트 재처리가 필요 없어진다 | 지갑 담당과 인터페이스 합의 (Q15). → 호출 대상은 D36으로 대체, 한 트랜잭션 원칙은 유지 |
 | D4 | 2026-10-08 | AMENDED → D9·D60: 고객센터 접수는 유지. 이벤트 통보·`filedAt` 검증은 대체 | MVP에서 내용 다름 이의 제기는 **고객센터가 접수**하고 이벤트로 강의 모듈에 알린다(안 A). 강의 모듈은 `filedAt` 기준으로 검증해 지급을 멈추거나 접수 불가를 통보한다 | `AGENTS.md`·정책과 일치하고 문서 변경이 없다 | **D9로 보완**: 이벤트 대신 동기 호출 |
 | D5 | 2026-10-08 | AMENDED → D58·D59: 보유 판정에 처리 중 상태 추가, 반환 진행 중부터 리뷰 집계 제외 | (1) 판매자는 자기 강의를 담거나 살 수 없다. (2) 같은 강의는 보유 중(`PURCHASED`·`CONFIRMED`·`PAID_OUT`)이면 다시 살 수 없고, 취소·반환 후에만 재구매할 수 있다. (3) 삭제된 강의도 기존 구매자는 계속 볼 수 있다(목록·신규 판매만 중단, 지급도 그대로). (4) 리뷰는 구매 확정 후에만 쓰고, 반환된 항목의 리뷰는 남기되 평균에서 뺀다 | 자기 거래로 리뷰·실적 조작 방지, 구매한 강의는 계속 시청하는 상품, 돈을 낸 구매자 보호, 리뷰 후 구매 취소 방지 | 기획 문서(정책 6)에 반영할지 팀과 맞춤 |
 | D6 | 2026-10-08 | ACTIVE | (1) 강의 가격은 1,000 HP 이상, 1,000 HP 단위. 무료 강의 없음. (2) ~~재검수 중 기존 구매자는 승인본(`approved_revision`)을 본다~~ → D11로 해당 없음 | (1) 충전·환전의 1,000원 단위와 맞춤 (2) 검수받지 않은 수정본 노출 방지 | 정책 6에 반영할지 팀과 맞춤 |
@@ -1192,7 +1199,7 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D33 | 2026-10-14 | ACTIVE | 구매 확정·구매 취소 거부 코드를 나눈다: 이미 확정·취소·반환된 항목 409 `ORDER_ITEM_NOT_PURCHASED`, 자동 구매 확정 시각이 지난 뒤의 취소 409 `CANCEL_PERIOD_EXPIRED`. 이의 제기 접수 중 취소 거부 코드는 이의 제기(7단계)에서 추가한다(→ D44에서 #146 2차에 추가). 같은 항목을 동시에 바꿔 생기는 낙관적 락 충돌(`order_item.version`)은 지금처럼 500 `INTERNAL_ERROR`로 둔다 | 프론트가 "기간 지남"과 "이미 확정됨"을 다른 문구로 보여 줄 수 있다. 낙관적 락 충돌의 409 처리는 global 공통 핸들러 변경이라 범위 밖이다 | 낙관적 락 충돌 응답(위험 요소로 기록) |
 | D34 | 2026-10-14 | ACTIVE | 자동 구매 확정 시각이 지났는데 아직 `PURCHASED`인 항목(배치가 처리하기 전)에 직접 확정 요청이 오면 `CONFIRMED`·`AUTO`, `confirmedAt = autoConfirmAt`으로 기록하고 200으로 응답한다 | 구매 확정은 직접 확정·첫 재생·D+7 중 먼저 오는 것이고, 이 경우 먼저 온 것은 D+7이다. 자동 구매 확정 배치(#149)도 같은 규칙으로 기록한다 | #149 배치에서 같은 규칙 사용 (→ D41) |
 | D35 | 2026-10-14 | ACTIVE (D58에서 재확인) | 구매 시각(`purchasedAt`)과 그로부터 계산하는 기한은 모든 주문 항목의 HP 보류가 성공한 뒤의 시각으로 정한다(6.4). 보류에 주문 항목 ID가 필요해 주문을 먼저 저장(flush)하므로, 저장할 때의 시각을 보류 후 시각으로 한 번 더 바꾼다 | 자정 직전에 시작해 지갑 잠금을 기다리다 자정을 넘긴 주문이 전날 구매로 기록되어 구매 취소·이의 제기 기한이 하루 짧아지는 것을 막는다 | 주문 생성(#145 이후)에서 구현 |
-| D36 | 2026-10-14 | AMENDED → D56: 항목 단위 보류와 요청·결과 DTO는 유지. shared `BillingPort`는 강의 소유 `BillingClient`로 대체 | HP 보류는 주문 단위가 아니라 **주문 항목 단위**다(참조 유형 `LECTURE_ORDER_ITEM`, 참조 ID = 주문 항목 ID, 2026-10-13 billing 담당과 합의). 강의는 billing을 직접 의존하지 않고 `shared`의 billing 연동 계약(포트·요청·응답)으로 호출한다(#145, 모듈 간 API 연동·이벤트는 `shared`에 두는 팀 결정). D1·D3의 `LectureHpPort`(주문 단위 보류)를 대체한다 | billing이 참조 대상당 보류 1건으로 구현했고, 모듈은 `shared`에만 의존해 서비스로 떼어낼 수 있게 한다 | 6.2·4.6·6.4 본문을 다시 쓰고 P10·D10은 D41로 정리했다(#146 2차) |
+| D36 | 2026-10-14 | AMENDED → D62: 항목 단위 보류와 요청·결과 DTO는 유지. shared `BillingPort`는 `BillingApiClient`와 내부 HTTP API로 대체 | HP 보류는 주문 단위가 아니라 **주문 항목 단위**다(참조 유형 `LECTURE_ORDER_ITEM`, 참조 ID = 주문 항목 ID, 2026-10-13 billing 담당과 합의). 강의는 billing을 직접 의존하지 않고 `shared`의 billing 연동 계약(Client SDK·요청·응답)으로 호출한다(#145, 모듈 간 API 연동·이벤트는 `shared`에 두는 팀 결정). D1·D3의 `LectureHpPort`(주문 단위 보류)를 대체한다 | billing이 참조 대상당 보류 1건으로 구현했고, 모듈은 `shared`에만 의존해 서비스로 떼어낼 수 있게 한다 | 6.2·4.6·6.4 본문을 다시 쓰고 P10·D10은 D41로 정리했다(#146 2차) |
 | D37 | 2026-10-14 | ACTIVE | 강의 모듈의 현재 시각은 `LectureConfig.CLOCK`(`lectureClock`, Asia/Seoul) 빈으로 얻는다. 기한 판정 도메인 메서드는 `now`를 인자로 받고, 기한 경계는 단위 테스트에서 고정 시각으로 확인한다. 기존 코드의 `LocalDateTime.now()`는 이번에 바꾸지 않는다 | 출연 모듈(`AppearanceConfig.CLOCK`)과 같은 방식. 서버 기본 시간대와 관계없이 KST로 계산한다(설계 5장) | - |
 | D38 | 2026-10-14 | AMENDED → D59: `PAYOUT_PENDING`도 시청, 처리 중(`HOLD_*`·`CANCEL_PENDING`·`RETURN_PENDING`) 항목은 시청 불가 | 재생 동의와 구매자 시청(#158): (1) 재생 동의는 본인 `PURCHASED` 항목을 `CONFIRMED`·`FIRST_PLAY`, `confirmedAt` = 동의 시각으로 바꾼다. 자동 구매 확정 시각이 이미 지났으면(배치 처리 전) 직접 확정(D34)과 같이 `AUTO`, `confirmedAt = autoConfirmAt`이다. 별도 동의 시각 필드는 두지 않는다. (2) 이미 `CONFIRMED`·`PAID_OUT`이면 바꾸지 않고 200으로 항목을 응답하고, `CANCELED`·`RETURNED`는 409 `ORDER_ITEM_NOT_PURCHASED`. (3) 시청 URL은 없는 강의 404 → 판매자·관리자 허용 → 보유 항목이 `PURCHASED`면 403 `PLAY_CONSENT_REQUIRED`(ProblemDetail에 `orderId`·`orderItemId`), `CONFIRMED`·`PAID_OUT`이면 강의 상태와 관계없이 허용 → 그 밖에는 D26 → 콘텐츠 404 순으로 검사한다. 보유 항목은 요청에 `orderItemId`를 받지 않고 구매자 ID + 강의 ID로 찾는다. (4) 강의 상세는 보유 항목이 있는 구매자에게 삭제된 강의도 보여 준다(판매 중이 아닐 때만 보유 항목을 조회). (5) 구매 취소·반환한 회원은 구매하지 않은 회원과 같다 | (1) 구매 확정은 직접 확정·첫 재생·D+7 중 먼저 온 것이고, D+7이 지나면 확정 효력은 이미 `autoConfirmAt`에 생겼다. 처음에는 `FIRST_PLAY`·동의 시각으로 정했으나(2026-10-14), 그러면 배치가 먼저 돌았는지에 따라 같은 행동이 `AUTO`/`FIRST_PLAY`로 갈리고 `confirmedAt`이 실제로 취소가 막힌 시각보다 늦어진다는 PR #165 리뷰(Codex)를 받아 `AUTO`로 바꿨다. 재생 동의가 취소 권리를 포기시키는 경우는 `FIRST_PLAY`·`confirmedAt`으로 이미 남으므로, 아무것도 바꾸지 않는 기한 후·확정 후 동의를 위한 `playConsentedAt` 필드는 MVP에서 두지 않는다 (2) 두 탭·더블 클릭에도 오류가 없다 (3) `/access` 요청에는 주문 정보가 없으므로 오류 응답만으로 동의 API를 호출할 수 있게 한다. 보유 항목은 부분 유일 인덱스(`uk_order_item_buyer_lecture_owned`)로 구매자·강의당 하나뿐이다 (4)·(5) D5 | 재생 동의와 구매 취소·직접 확정, 재생 동의끼리 동시에 오면 낙관적 락 충돌로 한쪽이 500이다(D33과 같음). #149 배치는 `PURCHASED`만 대상이라 영향 없음 |
 | D39 | 2026-10-14 | AMENDED → D59: 목록 대상에 `PAYOUT_PENDING` 추가 | 시청 가능한 강의 `GET /purchased`(#158): 보유 항목(`PURCHASED`·`CONFIRMED`·`PAID_OUT`)마다 한 줄이고 `purchasedAt`·`id` 내림차순으로 고정한다. 판매자가 삭제한 강의도 포함하고(`lectureDeleted`), 제목·썸네일은 현재 강의 기준이다(썸네일은 D28). 취소 후 다시 산 강의는 현재 보유 항목 하나만 나온다. 페이지의 강의와 썸네일은 한 번에 읽는다. 유저·인플루언서·인증된 인플루언서만 쓴다(관리자 불가) | 구매한 강의는 계속 시청하는 상품이라 보관함처럼 보여 준다. 판매자가 메타 정보를 고쳐도(D11) 구매자가 같은 강의로 알아볼 수 있다. `itemStatus`가 `PURCHASED`면 프론트가 재생 동의서를 먼저 보여 준다 | - |
@@ -1212,9 +1219,10 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D53 | 2026-10-15 | ACTIVE | 판매자 수정용 파일 ID(#219): 강의 상세(`LectureDetailResponse`)에 `thumbnailFileId`, 콘텐츠(`LectureContentResponse`)에 `fileId`를 더한다. 일반 상세 `GET /{lectureId}`는 판매자 본인에게만 값을 주고 그 밖의 회원(구매자 포함)은 `null`이다. 관리자 상세(`/admin/{lectureId}`, D30)는 값을 준다. 반려 사유와 같은 기준(판매자 본인·관리자)이다. 정보 수정의 `thumbnailFileId`는 지금 의미(`null` = 썸네일 없음, 전체 덮어쓰기)를 유지하고, 썸네일을 유지하려면 상세에서 받은 값을 다시 보낸다. 콘텐츠 교체도 `fileId`만 받으며, 바꾸지 않은 강은 받은 `fileId`를 다시 보낸다(D21 재연결). 원본 파일명·크기는 내려주지 않는다 | 수정 API가 요구하는 값을 조회로 알 수 있어야 같은 파일(영상 최대 2GB)을 다시 올리지 않는다. 다른 회원에게는 내려주지 않아 D21의 "다른 회원의 파일 ID를 드러내지 않는다"를 지킨다. 같은 DTO에서 역할별로 필드를 비우는 방식은 `rejectionReason`이 이미 쓰고 있어 FE 분기가 늘지 않는다. PATCH 의미를 바꾸지 않아 기존 FE 요청이 깨지지 않는다 | 판매자는 삭제한 강의도 상세로 조회하므로, 그 파일 ID로 새 강의를 등록할 수 있다(D11 재등록). 원본 파일명 표시는 필요해지면 따로 정한다 |
 | D54 | 2026-10-15 | SUPERSEDED → D57·D59: 항목 컬럼 실패 기록·격리는 HP 작업으로 대체. 실패 분류 근거는 D57로 이전, 컬럼은 레거시 정리 티켓에서 정리 | 지급 실패 분류와 격리(#218, D50 변경): (1) 지급 배치는 실패를 `BusinessException.getErrorCode().getCode()` 문자열로 나눈다. `WALLET_NOT_FOUND`가 아닌 업무 예외(`HOLD_ALREADY_CLOSED`, `PAYOUT_ALREADY_SETTLED`, `HOLD_STATE_INCONSISTENT`, `IDEMPOTENCY_KEY_CONFLICT`, `HOLD_NOT_FOUND` 등)와 지급액 불일치(`PayoutAmountMismatchException`, 코드 `PAYOUT_AMOUNT_MISMATCH`)는 영구 실패, `WALLET_NOT_FOUND`와 업무 예외가 아닌 예외(낙관적 락 충돌, `40P01` 등 DB 오류, 모르는 예외, 코드는 예외 클래스 이름)는 일시 실패다. (2) `order_item`에 `payout_failure_count`·`last_payout_failure_code`(100자)·`last_payout_failed_at`·`payout_quarantined_at`을 더한다. 실패는 지급 트랜잭션이 롤백된 뒤 루프에서 새 트랜잭션으로 기록하고, 아직 지급 대상(`isPayable`)인 항목에만 남긴다. 영구 실패는 처음 실패할 때 격리하고 ERROR, 일시 실패는 횟수 제한 없이 매일 다시 시도하며 3회 이상이면 ERROR, 그 전에는 WARN이다. (3) 지급 대상 조건(`isPayable`·`findPayoutDueItemIds`)에 "격리되지 않음"을 더한다. (4) 관리자 API: `GET /admin/payout-failures`(실패 기록이 있는 `CONFIRMED` 항목, 최근 실패순 고정, 필터 없음), `POST /admin/payout-failures/{orderItemId}/retry`(격리 해제만, 204, 없는 항목 404 `ORDER_ITEM_NOT_FOUND`, 격리되지 않은 항목 409 `PAYOUT_NOT_QUARANTINED`). (5) 지급에 성공해도, 격리를 해제해도 실패 기록은 남긴다. (6) 영구 실패도 지급 완료(`PAID_OUT`)로 보지 않는다 | 재시도해도 풀리지 않는 실패가 매일 반복되며 경고 로그만 남았다(#211 검증). 결정 표에 없는 billing 코드도 재시도로 풀리지 않으므로 업무 예외는 지갑 없음만 빼고 영구로 본다(2026-10-15 질문). 잘못 격리돼도 관리자가 해제할 수 있어 비용이 작고, 반대로 영구 실패를 일시로 보면 무한 재시도가 다시 생긴다. 실패 기록을 지급 대상인 항목으로 좁혀, 실패 원인이 된 다른 트랜잭션(이의 제기 인정 등)이 커밋 전이어도 그 행 락을 기다리지 않는다. 별도 테이블 대신 컬럼을 두어 배치 조회 조건 하나로 격리를 반영한다. billing·shared 계약은 바꾸지 않는다 | 알림은 ERROR 로그뿐이다. 격리 해제한 관리자는 로그로만 남긴다. dev DB에 남은 강의 지급 예정 건(`billing.settlement`)이 있는 항목은 배포 후 첫 지급 배치에서 격리된다(보정은 범위 밖) |
 | D55 | 2026-10-15 | AMENDED → D58: 교착 시 롤백되는 것은 주문 트랜잭션뿐(보류 전) | 다건 주문의 항목 순서(#218, D45 보충): 주문할 때 `lectureIds`를 강의 ID 오름차순으로 정렬한 뒤 강의를 읽고 항목을 만든다. 저장(IDENTITY INSERT)도 이 순서다. `40P01` 재시도는 넣지 않고, 그래도 교착이 나면 주문·보류·원장 전체가 롤백되고 500 `INTERNAL_ERROR`다. 주문 응답의 `items`는 요청 순서가 아니라 강의 ID 오름차순이다. 정렬해도 같은 강의가 두 번 있으면 그대로 남아 D31대로 거부되고, 장바구니 정리는 요청 값을 그대로 쓴다 | 같은 구매자가 `[A,B]`·`[B,A]`를 동시에 주문하면 `uk_order_item_buyer_lecture_owned`에서 교차 대기로 교착(`40P01`)이 나 한쪽이 500이었다(#211 재현). INSERT 순서가 같으면 늦은 주문은 교착 없이 앞 주문을 기다렸다가 D45 경로로 409 `ALREADY_OWNED_LECTURE`를 받는다. 순서를 맞추면 교착이 생기지 않으므로 재시도 로직은 두지 않는다 | 응답 항목 순서 변경은 PR 프론트 참고로 알린다 |
-| D56 | 2026-10-16 | ACTIVE | 모듈 간 연동 원칙과 seam(#246): (1) 로컬 트랜잭션만 보장하고 다른 모듈과 함께 커밋·롤백되는 계약을 두지 않는다. (2) Port는 소비 모듈이 소유한다(강의 `lecture.out.billing.BillingClient`, 출연 `appearance.out.billing.BillingClient`, 고객센터 `customersupport.out.lecture.LectureObjectionClient`). (3) 모듈 간 연동 계약에는 직렬화 가능한 DTO·이벤트·안정적인 enum 및 오류 코드만 둔다. `shared.billing.domain`에는 `BillingReferenceType`, `SettlementSourceType`, `BillingFailureCode` 같은 데이터 계약을 둔다. Port·엔티티·Repository·공유 Java 예외는 두지 않는다. `.contract` 패키지는 만들지 않고 기존 DTO도 옮기지 않으며, #256은 `shared.billing.port`만 지운다. 강의 계약도 `shared.lecture.dto`·`domain`·`event`로 둔다. (4) 모놀리스 연결은 `apps`의 In-process Adapter가 소비 모듈 Port를 구현해 제공 모듈의 공개 Application 진입점을 부른다. (5) 동기 연동도 호출자 트랜잭션 밖에서 하고, 로컬 상태·작업 커밋 → 멱등 키 호출 → 짧은 트랜잭션으로 결과 기록 순서다. (6) 비동기 연동은 이벤트 계약(발행은 로컬 변경과 같은 트랜잭션, `@ApplicationModuleListener`). (7) `PAID`·`PURCHASED`·`CANCELED`·`RETURNED`·`PAID_OUT`은 HP 이동이 실제로 끝난 뒤에만 쓴다. (8) 재시도는 작업·명령 기록에 근거하고, 같은 요청 ID + 다른 payload는 충돌이다. (9) 강의 `BillingClient`의 결과는 `BillingCallResult` = `Succeeded(T)` / `Failed(BillingFailureCode, detail)` 두 가지다. 결과를 받지 못한 실패는 결과가 아니라 `BillingCallException(kind = RETRYABLE / UNKNOWN_RESULT)`이고, 원인은 로그와 시도 기록에만 남긴다. (10) `BillingFailureCode`는 보류·반환·지급·위약금 호출에서 나올 수 있는 billing 코드 19개 + `UNMAPPED`다(6.2). In-process 변환은 `default` 없는 `switch`, `UNMAPPED`는 HTTP에서 처음 보는 문자열에만 쓰고 불변식 위반으로 분류한다. (11) Adapter 메서드에 `@Transactional(NEVER)`를 흐름을 옮긴 즉시 붙인다(hold #251, release #249, payout #250). #256은 구조 테스트와 통합 테스트로 고정한다. (12) In-process → HTTP는 소비 쪽 Adapter만 바꾼다. Kafka는 `BillingClient`를 request/reply로 흉내 내지 않고 HP 작업 dispatcher + 결과 consumer로 바꾼다 | 모듈 간 전파 트랜잭션은 한 모듈의 예외가 다른 모듈의 커밋을 롤백 전용으로 만들고(D49), 서비스로 떼어낼 때 그대로 깨진다. 계약을 데이터로만 두면 transport(In-process·HTTP·Kafka)를 바꿔도 도메인 상태 전이와 작업 모델이 남는다. `Failed`를 "거절"이라 부르지 않는 이유는 재시도 대상·불변식 위반도 같은 모양으로 오기 때문이다. billing 내부 `BillingErrorCode`는 HTTP 상태·메시지를 가진 billing의 오류 모델이라 공유하지 않는다 | 하위 티켓 #247~#257과 6.1 전환 상태 표. `BillingFailureCode` 목록은 billing 담당 확인. 강의·고객센터·billing 담당 확인 |
-| D57 | 2026-10-16 | ACTIVE | 강의 HP 작업 `LectureHpTask`(#248): (1) 유형 `HOLD`·`RELEASE`·`PAYOUT`, 상태 `PENDING`·`PROCESSING`·`COMPLETED`·`DEAD`. `COMPLETED`는 결과(`SUCCEEDED`, HOLD의 확정 거절 `REJECTED`, 실행 전에 필요 없어진 HOLD `SKIPPED`)를 갖는다. (2) 선점은 조건부 UPDATE로 `PENDING` 또는 lease가 지난 `PROCESSING`만 `PROCESSING`으로 바꾸고 `claimToken`·`leaseUntil`을 쓴다. 요청 안 즉시 실행과 배치가 같은 `claim()`을 쓴다. (3) 선점에 성공할 때만 `attemptCount`·`totalAttemptCount`를 1 올리고 `lecture_hp_task_attempt` 행을 만든다. lease가 지나 다시 선점하면 앞 시도를 `LEASE_EXPIRED`(분류는 결과 불명)로 닫되 횟수는 새 선점에서만 오른다. 10번째 시도의 lease가 지나면 새로 선점하지 않고 `DEAD`다. (4) billing 호출은 트랜잭션 밖, 결과 기록은 짧은 트랜잭션이고 `claimToken`이 같을 때만 기록한다. 늦게 돌아온 앞 실행의 결과는 작업도 시도 행도 덮지 않고 `late result ignored` 경고 로그만 남긴다. (5) 실패는 `classify(taskType, code)`로 `TERMINAL_REJECTION`·`RETRYABLE`·`UNKNOWN_RESULT`·`INVARIANT_VIOLATION`으로 나눈다. HOLD: `INSUFFICIENT_BALANCE` 확정 거절(작업 `COMPLETED`·`REJECTED` → 주문 보상), `WALLET_NOT_FOUND` 재시도, 그 밖의 코드는 불변식 위반. RELEASE: `WALLET_NOT_FOUND` 재시도, 그 밖은 불변식 위반. PAYOUT: `WALLET_NOT_FOUND` 재시도, `PAYOUT_ALREADY_SETTLED` 확정 거절(`DEAD`), 그 밖은 불변식 위반. `UNMAPPED`·결과 금액 불일치·예상 못 한 응답은 불변식 위반이다. `BillingCallException`은 `kind`대로, 그 밖의 예외는 결과 불명이다. (6) 재시도 대상·결과 불명은 지수 백오프 + 지터로 다시 시도하고 `retry-max-attempts`를 넘으면 `DEAD`, 불변식 위반과 RELEASE·PAYOUT의 확정 거절은 바로 `DEAD`다. (7) 설정 `lecture.hp-task.*`: `lease` 5m, `retry-cron` `0 * * * * *`, `batch-size` 100, `retry-base-delay` 1m, `retry-max-delay` 1h, `retry-jitter-ratio` 0.2, `retry-max-attempts` 10. (8) `DEAD`가 되면 ERROR 로그 `[LECTURE_HP_TASK_DEAD]`와 Micrometer counter를 남긴다. 실제 호출·메시지 알림은 모니터링을 연동할 때 따로 설정한다. (9) 관리자 API(8.2.1): 목록(필터 `status`·`taskType`·`referenceType`·`orderId`/`orderItemId`·`errorCode`), 상세(시도 이력), 재시도 204(`DEAD` → `PENDING`, `attemptCount`만 0, `totalAttemptCount` 유지, `manualRetryCount` +1, 관리자·시각 기록). (10) 사용자에게는 원래 작업 상태가 아니라 `processingStatus`(`PROCESSING`·`DELAYED`·`ACTION_REQUIRED`)를 보여 준다 | 출연의 HP 작업(#137, #187)은 billing 멱등 키로 HP 중복 이동은 막지만 같은 작업의 외부 호출이 동시에 두 번 나갈 수 있고, 다중 인스턴스·Kafka 전환에 대비해 공통 기반은 선점을 갖는다. 선점은 불필요한 중복 실행을, billing 멱등 키는 선점이 깨져도 HP 중복 이동을, `claimToken`은 늦은 결과가 최신 상태를 덮는 것을 막는다. 5분 lease는 호출을 끊는 제한 시간이 아니라 결과 기록 권한과 재선점 시점을 정한다(앞 호출이 그 뒤에도 실행 중일 수 있다). 오류 분류를 코드 하나에 붙이지 않고 작업 유형별로 하는 이유는 같은 코드라도 작업에 따라 의미가 달라서다(예: HOLD의 `INSUFFICIENT_BALANCE`는 정상 거절, RELEASE에서는 나올 수 없음). 관리자 재시도가 누적 횟수를 지우면 감사 이력이 사라진다 | #248 구현. `SchedulingEnabledTest`에 HP 작업 배치 cron 추가 |
-| D58 | 2026-10-16 | ACTIVE | 주문 보류(#251): 다건 강의 주문은 항목별로 HP를 보류한다. 일부 보류가 실패하면 이미 성공한 항목 보류를 RELEASE 작업(`LECTURE-HOLD-COMPENSATE-{항목 ID}`)으로 보상한다. 모든 보류가 성공한 경우에만 주문을 `PAID`, 항목을 `PURCHASED`로 전이하고 해당 강의를 장바구니에서 제거한다. 확정적 거절과 보상이 모두 완료되면 409를 응답한다. 보류 결과가 불명확하거나 보상이 진행 중이면 202와 처리 중 주문 DTO를 응답한다. 처리 중·실패 주문은 주문 내역과 관리자 화면에는 표시하되, 구매한 강의와 콘텐츠 접근 대상에서는 제외한다. 세부: (1) 주문 상태 `HOLD_PENDING` → `PAID` / `HOLD_COMPENSATING` → `HOLD_FAILED`, 항목은 주문 전체 단계를 복제한 같은 값을 갖고 개별 보류 결과는 HOLD 작업이 나타낸다. (2) 요청 안에서는 커밋 → 항목 순서대로 보류 1회 시도 → 실패하면 RELEASE 작업 기록 → 보상 1회 시도 → 안 끝났으면 202이고, 요청을 붙잡지 않는다. (3) 확정 거절이 나오면 실행 전 HOLD 작업은 `SKIPPED`로 닫고, 결과를 모르는 HOLD 작업은 끝까지 확인해 성공이면 보상한다. 모든 HOLD 작업이 끝나고 보상이 모두 `COMPLETED`일 때만 `HOLD_FAILED`다(남은 보류 HP 없음 확인). (4) 응답은 201 `PAID` / 409 원래 billing 코드(강의 오류 코드가 같은 `code` 문자열) / 202 + `RsData.data`의 `orderId`·`status`, 컨트롤러는 `ResponseEntity<RsData<OrderResponse>>`. (5) `ordered_at`은 주문 시도 시각, `paid_at`·`purchased_at`은 모든 보류 성공을 기록한 시각이고 그 전에는 `purchased_at`·`auto_confirm_at`·`payout_scheduled_at`이 null이다(D35). (6) 장바구니는 `PAID` 결과 기록 트랜잭션에서 주문한 강의 ID만 멱등하게 빼고, 처리 중·실패면 그대로 둔다. (7) 부분 유일 인덱스는 `HOLD_PENDING`·`HOLD_COMPENSATING`을 포함하고 `HOLD_FAILED`는 뺀다. 작업이 `DEAD`라 처리 중에 남아도 재구매는 막힌다. (8) 판매 내역에서 `HOLD_*` 항목은 뺀다 | 보류를 강의 트랜잭션 밖으로 빼면 "주문은 보류가 성공한 경우에만 존재한다"를 지킬 수 없어 처리 중 상태가 필요하다. 503은 "처리되지 않았으니 다시 보내도 된다"는 뜻이라, 이미 주문이 저장되고 일부 HP가 보류됐을 수 있으며 백그라운드에서 계속 처리되는 상황에 맞지 않고 프론트의 POST 재시도로 중복 주문 위험이 생긴다. 출연은 503 `BILLING_UNAVAILABLE`을 쓰지만 강의가 따를 근거는 아니다. 장바구니를 먼저 비우고 실패 시 복원하면 처리 중 사용자가 바꾼 장바구니를 덮을 수 있다. 주문 단위 1회 보류는 billing 계약과 D36·D42를 다시 바꿔야 한다 | 프론트에 202 응답·처리 중 주문 표시 공유. 출연의 503 응답은 202 모델 검토 대상(출연 담당) |
-| D59 | 2026-10-16 | ACTIVE | 반환·지급 진행 상태(#248~#250): (1) 구매 취소는 `CANCEL_PENDING` + RELEASE 작업을 커밋하고 트랜잭션 밖에서 반환을 1회 시도해, 끝나면 200 + `CANCELED`, 아니면 202 + `CANCEL_PENDING`이다. 이의 제기 인정은 `ACCEPTED` + `RETURN_PENDING` + RELEASE 작업이다. (2) `CANCEL_PENDING`·`RETURN_PENDING`은 주문 내역에 보이고, 보유 강의·재생·자료·재구매·구매 확정·지급·새 리뷰에서 막히며 부분 유일 인덱스에 들어간다. 작업이 `DEAD`여도 이 상태에 남는다. (3) `RETURN_PENDING`부터 기존 리뷰를 공개 목록·평균·리뷰 수에서 빼고 행은 남긴다. 리뷰 수정·Soft Delete 권한은 그대로이고, 수정을 막을지는 별도 제품 결정이다. (4) 반환 완료를 기록하는 트랜잭션이 주문 행을 잠그고(D46) 마지막 항목이면 주문을 `CANCELED`로 닫는다. 결과 금액이 가격과 다르면 불변식 위반이다(D43). (5) 지급은 01:00 배치가 `CONFIRMED` → `PAYOUT_PENDING` + PAYOUT 작업(`LECTURE-PAYOUT-{항목 ID}`)을 짧은 트랜잭션으로 선점하고, 실행·재시도는 HP 작업 배치가 한다. `PAYOUT_PENDING`은 보유·시청·리뷰를 유지하고 구매 취소·이의 제기를 막는다. 작업이 `DEAD`여도 `PAYOUT_PENDING` + `ACTION_REQUIRED`다. (6) `PAYOUT_PENDING`에 이의 제기를 접수하면 `PERIOD_EXPIRED`(이미 판단된 건은 `ALREADY_FILED`)이고, 지급 작업이 `DEAD`가 되어도 기한은 다시 열리지 않는다. `CANCEL_PENDING`·`RETURN_PENDING`은 `NOT_OBJECTIONABLE`이다. (7) D54 이관: ① 기존 격리·지급 실패 데이터를 PAYOUT 작업으로 옮긴다(`CONFIRMED`이고 실패 기록이 있는 항목 → `PAYOUT_PENDING` + 작업, 격리됐으면 `DEAD`, 아니면 `PENDING`, 실패 횟수·마지막 코드·시각을 옮김) ② 공통 조회가 기존 데이터까지 돌려주는지 확인 ③ `/admin/payout-failures`를 공통 조회·재시도에 위임해 프론트 전환 기간 동안 호환 ④ 전환 뒤 기존 컬럼 쓰기 중단 ⑤ 컬럼은 deprecated 이력으로 문서화 ⑥ 물리 제거는 별도 합의·마이그레이션 | 완료 상태는 실제 HP 이동이 끝났다는 뜻이어야 사용자 화면·판매 내역·지급 판단이 billing 원장과 어긋나지 않는다. 취소를 요청한 순간부터 콘텐츠를 막아야 반환이 끝난 뒤의 상태와 어긋나지 않는다. `PAYOUT_PENDING`은 지급 예정 시각이 지나야 생기므로 접수 기한도 지났고, 지급 장애는 운영 복구 대상이지 만료된 이의 제기를 다시 여는 사유가 아니다. 지급만 무제한 재시도·별도 실패 모델을 둘 이유가 없고, 기존 컬럼과 작업을 함께 쓰면 진실이 둘이 된다 | #248~#250 구현, 지급 실패 레거시 정리 티켓(#268). 프론트에 202·처리 중 상태·`/admin/payout-failures` 전환 공유 |
-| D60 | 2026-10-16 | ACTIVE | 이의 제기 접수·판단·철회(#252~#255): (1) 접수: 고객센터가 문의 + 연동 상태 `FILING`을 커밋하고 트랜잭션 밖에서 `LectureObjectionClient`로 동기 시도한다(`commandId = FILE:{inquiryId}`, `correlationId`). 성공 → `FILED`. 요청 안에서 확정 거절 → `FILE_REJECTED` + Soft Delete를 커밋한 뒤에만 4xx + 사유 코드(사용자는 문의가 생기지 않은 것으로 봄, 명령 ID·사유는 보존). 결과 불명이나 결과 기록 실패 → 202 `FILING`, 같은 `commandId`로 재시도. 202 뒤 거절 → `FILE_REJECTED`를 지우지 않고 "접수 불가 · 사유"로 보여 준다(사용자용 메시지만). (2) 판단·철회: 고객센터가 조건부 갱신(`FILED`이고 버전이 같을 때)으로 `RESOLUTION_PENDING` 또는 `WITHDRAWAL_PENDING` 하나만 선점하고, 같은 트랜잭션에 명령 이벤트 V1을 기록한다. 갱신 0건이면 다시 읽어 같은 종류·같은 payload의 처리 중이면 202, 반대 명령이나 다른 payload면 409 `OBJECTION_IN_PROGRESS`(고객센터 코드), 이미 끝났으면 그 결과(판단 200, 삭제 204)를 돌려준다. 비교를 위해 `commandId`와 payload hash(판단: 인정 여부·답변·관리자, 철회: 구매자)를 저장한다. (3) 강의는 명령 이력(`objection_command`)으로 멱등하게 처리하고, 도메인 변경·명령 결과·결과 이벤트를 한 트랜잭션에 기록한다. 업무 거절은 실패 결과 이벤트, 재시도 가능한 충돌·기술 실패는 예외(이벤트 재발행 대상)다. (4) 결과: 인정 성공 → `ANSWERED` + `objectionResult = ACCEPTED` + 판단 답변 + `hpReturnStatus = PENDING`(한 트랜잭션), 기각 성공 → `ANSWERED` + `REJECTED` + 답변 + `hpReturnStatus = null`, 철회 성공 → `WITHDRAWN` + `deleted_at`. 강의 쪽 최종 거절(`NOT_FILED`·`INQUIRY_MISMATCH` 등 상태 불일치)은 `RESOLUTION_FAILED`·`WITHDRAWAL_FAILED`이고, 사용자에게는 "처리 지연 · 확인 중", 관리자에게만 실패 코드·`commandId`를 보여 준다. (5) `hpReturnStatus`는 `PENDING < ACTION_REQUIRED < COMPLETED` 순서로만 바뀐다. `COMPLETED`는 되돌리지 않고, 반환 완료가 판단 결과보다 먼저 와도 뒤늦은 판단 결과가 `PENDING`으로 되돌리지 않는다. 관리자 재시도로 `ACTION_REQUIRED`를 `PENDING`으로 돌리지 않는다. 이벤트는 `LectureObjectionReturnCompletedV1`·`LectureObjectionReturnActionRequiredV1`. (6) `*_FAILED`는 같은 `commandId`로 다시 보내면 실패가 재현되므로 원인 보정 뒤 새 복구 명령 ID를 발급하는 운영 복구가 필요하다(이의 제기 실패 명령 운영 복구 티켓(#267)) | 접수는 거절 사유를 요청자에게 바로 돌려줘야 하므로 동기 시도를 유지하고, 판단·철회는 결과를 기다릴 필요가 없어 이벤트로 한다. 요청 안의 즉시 거절과 202 뒤의 지연 거절은 사용자가 처리 중을 본 적이 있는지가 다르다. 낙관적 락 예외에만 기대면 공통 처리에서 500이 된다. "환불"은 충전 HP의 PG 현금화(4장 용어)라 `refundStatus`가 아니라 `hpReturnStatus`다. `RESOLUTION_REJECTED`는 "관리자가 기각함"과 헷갈린다 | #252~#255 구현, 이의 제기 실패 명령 운영 복구 티켓(#267). 고객센터 담당 확인, 프론트에 202·처리 중 표시 공유 |
-| D61 | 2026-10-16 | ACTIVE | 실행 중 이벤트 재발행(Q17 종결): Spring Modulith 2.1.1의 재발행 기능으로 1분마다, 발행 후 5분이 지난 실패·미완료 이벤트를 100건씩 다시 보낸다. `PUBLISHED`·`PROCESSING`·`RESUBMITTED`에 5분 stale 판정을 두고 1분마다 확인한다. 자동 중단은 없고, 재발행 10회 도달(`completionAttempts = 11`) 시 ERROR 로그 + Micrometer counter를 남긴다. 재시작 재발행(`republish-outstanding-events-on-restart: true`)은 유지한다. global 공통 설정이라 이벤트 재발행 [Global] 티켓(#266)에서 만들고 상세는 그 티켓 문서에 둔다 | 지금은 재시작 때만 미완료 이벤트를 다시 보내 서버가 떠 있는 동안 실패한 이벤트가 남는다(Q17). 2.1.1은 `getCompletionAttempts()`·`getLastResubmissionDate()`·`ResubmissionOptions`(`withBatchSize`·`withMinAge`·`withMaxInFlight`·`withFilter`)를 지원한다. 10회 뒤 자동 중단은 `FAILED`만 재발행되는 점, DB에서 100건을 먼저 읽고 Java filter를 적용해 오래된 건이 뒤 이벤트를 굶길 수 있는 점, 재시작 재발행이 다시 보내는 점 때문에 설정만으로 보장되지 않는다 | 이벤트 재발행 [Global] 티켓(#266) (#254 선행). 자동 중단이 필요해지면 dead 상태·조회·관리자 재발행·재시작 제외·감사 기록을 따로 설계 |
+| D56 | 2026-10-16 | SUPERSEDED → D62 | 모듈 간 연동 원칙과 seam(#246): (1) 로컬 트랜잭션만 보장하고 다른 모듈과 함께 커밋·롤백되는 계약을 두지 않는다. (2) Port는 소비 모듈이 소유한다(강의 `lecture.out.billing.BillingClient`, 출연 `appearance.out.billing.BillingClient`, 고객센터 `customersupport.out.lecture.LectureObjectionClient`). (3) 모듈 간 연동 계약에는 직렬화 가능한 DTO·이벤트·안정적인 enum 및 오류 코드만 둔다. `shared.billing.domain`에는 `BillingReferenceType`, `SettlementSourceType`, `BillingFailureCode` 같은 데이터 계약을 둔다. Port·엔티티·Repository·공유 Java 예외는 두지 않는다. `.contract` 패키지는 만들지 않고 기존 DTO도 옮기지 않으며, #256은 `shared.billing.port`만 지운다. 강의 계약도 `shared.lecture.dto`·`domain`·`event`로 둔다. (4) 모놀리스 연결은 `apps`의 In-process Adapter가 소비 모듈 Port를 구현해 제공 모듈의 공개 Application 진입점을 부른다. (5) 동기 연동도 호출자 트랜잭션 밖에서 하고, 로컬 상태·작업 커밋 → 멱등 키 호출 → 짧은 트랜잭션으로 결과 기록 순서다. (6) 비동기 연동은 이벤트 계약(발행은 로컬 변경과 같은 트랜잭션, `@ApplicationModuleListener`). (7) `PAID`·`PURCHASED`·`CANCELED`·`RETURNED`·`PAID_OUT`은 HP 이동이 실제로 끝난 뒤에만 쓴다. (8) 재시도는 작업·명령 기록에 근거하고, 같은 요청 ID + 다른 payload는 충돌이다. (9) 강의 `BillingClient`의 결과는 `BillingCallResult` = `Succeeded(T)` / `Failed(BillingFailureCode, detail)` 두 가지다. 결과를 받지 못한 실패는 결과가 아니라 `BillingCallException(kind = RETRYABLE / UNKNOWN_RESULT)`이고, 원인은 로그와 시도 기록에만 남긴다. (10) `BillingFailureCode`는 보류·반환·지급·위약금 호출에서 나올 수 있는 billing 코드 19개 + `UNMAPPED`다(6.2). In-process 변환은 `default` 없는 `switch`, `UNMAPPED`는 HTTP에서 처음 보는 문자열에만 쓰고 불변식 위반으로 분류한다. (11) Adapter 메서드에 `@Transactional(NEVER)`를 흐름을 옮긴 즉시 붙인다(hold #251, release #249, payout #250). #256은 구조 테스트와 통합 테스트로 고정한다. (12) In-process → HTTP는 소비 쪽 Adapter만 바꾼다. Kafka는 `BillingClient`를 request/reply로 흉내 내지 않고 HP 작업 dispatcher + 결과 consumer로 바꾼다 | 모듈 간 전파 트랜잭션은 한 모듈의 예외가 다른 모듈의 커밋을 롤백 전용으로 만들고(D49), 서비스로 떼어낼 때 그대로 깨진다. 계약을 데이터로만 두면 transport(In-process·HTTP·Kafka)를 바꿔도 도메인 상태 전이와 작업 모델이 남는다. `Failed`를 "거절"이라 부르지 않는 이유는 재시도 대상·불변식 위반도 같은 모양으로 오기 때문이다. billing 내부 `BillingErrorCode`는 HTTP 상태·메시지를 가진 billing의 오류 모델이라 공유하지 않는다 | 하위 티켓 #247~#257과 6.1 전환 상태 표. `BillingFailureCode` 목록은 billing 담당 확인. 강의·고객센터·billing 담당 확인 |
+| D57 | 2026-10-16 | AMENDED → D62 | 강의 HP 작업 `LectureHpTask`(#275): (1) 유형 `HOLD`·`RELEASE`·`PAYOUT`, 상태 `PENDING`·`PROCESSING`·`COMPLETED`·`DEAD`. `COMPLETED`는 결과(`SUCCEEDED`, HOLD의 확정 거절 `REJECTED`, 실행 전에 필요 없어진 HOLD `SKIPPED`)를 갖는다. (2) 선점은 조건부 UPDATE로 `PENDING` 또는 lease가 지난 `PROCESSING`만 `PROCESSING`으로 바꾸고 `claimToken`·`leaseUntil`을 쓴다. 요청 안 즉시 실행과 배치가 같은 `claim()`을 쓴다. (3) 선점에 성공할 때만 `attemptCount`·`totalAttemptCount`를 1 올리고 `lecture_hp_task_attempt` 행을 만든다. lease가 지나 다시 선점하면 앞 시도를 `LEASE_EXPIRED`(분류는 결과 불명)로 닫되 횟수는 새 선점에서만 오른다. 10번째 시도의 lease가 지나면 새로 선점하지 않고 `DEAD`다. (4) billing 호출은 트랜잭션 밖, 결과 기록은 짧은 트랜잭션이고 `claimToken`이 같을 때만 기록한다. 늦게 돌아온 앞 실행의 결과는 작업도 시도 행도 덮지 않고 `late result ignored` 경고 로그만 남긴다. (5) 실패는 `classify(taskType, code)`로 `TERMINAL_REJECTION`·`RETRYABLE`·`UNKNOWN_RESULT`·`INVARIANT_VIOLATION`으로 나눈다. HOLD: `INSUFFICIENT_BALANCE` 확정 거절(작업 `COMPLETED`·`REJECTED` → 주문 보상), `WALLET_NOT_FOUND` 재시도, 그 밖의 코드는 불변식 위반. RELEASE: `WALLET_NOT_FOUND` 재시도, 그 밖은 불변식 위반. PAYOUT: `WALLET_NOT_FOUND` 재시도, `PAYOUT_ALREADY_SETTLED` 확정 거절(`DEAD`), 그 밖은 불변식 위반. `UNMAPPED`·결과 금액 불일치·예상 못 한 응답은 불변식 위반이다. `BillingCallException`은 `kind`대로, 그 밖의 예외는 결과 불명이다. (6) 재시도 대상·결과 불명은 지수 백오프 + 지터로 다시 시도하고 `retry-max-attempts`를 넘으면 `DEAD`, 불변식 위반과 RELEASE·PAYOUT의 확정 거절은 바로 `DEAD`다. (7) 설정 `lecture.hp-task.*`: `lease` 5m, `retry-cron` `0 * * * * *`, `batch-size` 100, `retry-base-delay` 1m, `retry-max-delay` 1h, `retry-jitter-ratio` 0.2, `retry-max-attempts` 10. (8) `DEAD`가 되면 ERROR 로그 `[LECTURE_HP_TASK_DEAD]`와 Micrometer counter를 남긴다. 실제 호출·메시지 알림은 모니터링을 연동할 때 따로 설정한다. (9) 관리자 API(8.2.1): 목록(필터 `status`·`taskType`·`referenceType`·`orderId`/`orderItemId`·`errorCode`), 상세(시도 이력), 재시도 204(`DEAD` → `PENDING`, `attemptCount`만 0, `totalAttemptCount` 유지, `manualRetryCount` +1, 관리자·시각 기록). (10) 사용자에게는 원래 작업 상태가 아니라 `processingStatus`(`PROCESSING`·`DELAYED`·`ACTION_REQUIRED`)를 보여 준다 | 출연의 HP 작업(#137, #187)은 billing 멱등 키로 HP 중복 이동은 막지만 같은 작업의 외부 호출이 동시에 두 번 나갈 수 있고, 다중 인스턴스·Kafka 전환에 대비해 공통 기반은 선점을 갖는다. 선점은 불필요한 중복 실행을, billing 멱등 키는 선점이 깨져도 HP 중복 이동을, `claimToken`은 늦은 결과가 최신 상태를 덮는 것을 막는다. 5분 lease는 호출을 끊는 제한 시간이 아니라 결과 기록 권한과 재선점 시점을 정한다(앞 호출이 그 뒤에도 실행 중일 수 있다). 오류 분류를 코드 하나에 붙이지 않고 작업 유형별로 하는 이유는 같은 코드라도 작업에 따라 의미가 달라서다(예: HOLD의 `INSUFFICIENT_BALANCE`는 정상 거절, RELEASE에서는 나올 수 없음). 관리자 재시도가 누적 횟수를 지우면 감사 이력이 사라진다 | #275 구현. `SchedulingEnabledTest`에 HP 작업 배치 cron 추가 |
+| D58 | 2026-10-16 | AMENDED → D62 | 주문 보류(#276): 다건 강의 주문은 항목별로 HP를 보류한다. 일부 보류가 실패하면 이미 성공한 항목 보류를 RELEASE 작업(`LECTURE-HOLD-COMPENSATE-{항목 ID}`)으로 보상한다. 모든 보류가 성공한 경우에만 주문을 `PAID`, 항목을 `PURCHASED`로 전이하고 해당 강의를 장바구니에서 제거한다. 확정적 거절과 보상이 모두 완료되면 409를 응답한다. 보류 결과가 불명확하거나 보상이 진행 중이면 202와 처리 중 주문 DTO를 응답한다. 처리 중·실패 주문은 주문 내역과 관리자 화면에는 표시하되, 구매한 강의와 콘텐츠 접근 대상에서는 제외한다. 세부: (1) 주문 상태 `HOLD_PENDING` → `PAID` / `HOLD_COMPENSATING` → `HOLD_FAILED`, 항목은 주문 전체 단계를 복제한 같은 값을 갖고 개별 보류 결과는 HOLD 작업이 나타낸다. (2) 요청 안에서는 커밋 → 항목 순서대로 보류 1회 시도 → 실패하면 RELEASE 작업 기록 → 보상 1회 시도 → 안 끝났으면 202이고, 요청을 붙잡지 않는다. (3) 확정 거절이 나오면 실행 전 HOLD 작업은 `SKIPPED`로 닫고, 결과를 모르는 HOLD 작업은 끝까지 확인해 성공이면 보상한다. 모든 HOLD 작업이 끝나고 보상이 모두 `COMPLETED`일 때만 `HOLD_FAILED`다(남은 보류 HP 없음 확인). (4) 응답은 201 `PAID` / 409 원래 billing 코드(강의 오류 코드가 같은 `code` 문자열) / 202 + `RsData.data`의 `orderId`·`status`, 컨트롤러는 `ResponseEntity<RsData<OrderResponse>>`. (5) `ordered_at`은 주문 시도 시각, `paid_at`·`purchased_at`은 모든 보류 성공을 기록한 시각이고 그 전에는 `purchased_at`·`auto_confirm_at`·`payout_scheduled_at`이 null이다(D35). (6) 장바구니는 `PAID` 결과 기록 트랜잭션에서 주문한 강의 ID만 멱등하게 빼고, 처리 중·실패면 그대로 둔다. (7) 부분 유일 인덱스는 `HOLD_PENDING`·`HOLD_COMPENSATING`을 포함하고 `HOLD_FAILED`는 뺀다. 작업이 `DEAD`라 처리 중에 남아도 재구매는 막힌다. (8) 판매 내역에서 `HOLD_*` 항목은 뺀다 | 보류를 강의 트랜잭션 밖으로 빼면 "주문은 보류가 성공한 경우에만 존재한다"를 지킬 수 없어 처리 중 상태가 필요하다. 503은 "처리되지 않았으니 다시 보내도 된다"는 뜻이라, 이미 주문이 저장되고 일부 HP가 보류됐을 수 있으며 백그라운드에서 계속 처리되는 상황에 맞지 않고 프론트의 POST 재시도로 중복 주문 위험이 생긴다. 출연은 503 `BILLING_UNAVAILABLE`을 쓰지만 강의가 따를 근거는 아니다. 장바구니를 먼저 비우고 실패 시 복원하면 처리 중 사용자가 바꾼 장바구니를 덮을 수 있다. 주문 단위 1회 보류는 billing 계약과 D36·D42를 다시 바꿔야 한다 | 프론트에 202 응답·처리 중 주문 표시 공유. 출연의 503 응답은 202 모델 검토 대상(출연 담당) |
+| D59 | 2026-10-16 | AMENDED → D62 | 반환·지급 진행 상태(#275·#277): (1) 구매 취소는 `CANCEL_PENDING` + RELEASE 작업을 커밋하고 트랜잭션 밖에서 반환을 1회 시도해, 끝나면 200 + `CANCELED`, 아니면 202 + `CANCEL_PENDING`이다. 이의 제기 인정은 `ACCEPTED` + `RETURN_PENDING` + RELEASE 작업이다. (2) `CANCEL_PENDING`·`RETURN_PENDING`은 주문 내역에 보이고, 보유 강의·재생·자료·재구매·구매 확정·지급·새 리뷰에서 막히며 부분 유일 인덱스에 들어간다. 작업이 `DEAD`여도 이 상태에 남는다. (3) `RETURN_PENDING`부터 기존 리뷰를 공개 목록·평균·리뷰 수에서 빼고 행은 남긴다. 리뷰 수정·Soft Delete 권한은 그대로이고, 수정을 막을지는 별도 제품 결정이다. (4) 반환 완료를 기록하는 트랜잭션이 주문 행을 잠그고(D46) 마지막 항목이면 주문을 `CANCELED`로 닫는다. 결과 금액이 가격과 다르면 불변식 위반이다(D43). (5) 지급은 01:00 배치가 `CONFIRMED` → `PAYOUT_PENDING` + PAYOUT 작업(`LECTURE-PAYOUT-{항목 ID}`)을 짧은 트랜잭션으로 선점하고, 실행·재시도는 HP 작업 배치가 한다. `PAYOUT_PENDING`은 보유·시청·리뷰를 유지하고 구매 취소·이의 제기를 막는다. 작업이 `DEAD`여도 `PAYOUT_PENDING` + `ACTION_REQUIRED`다. (6) `PAYOUT_PENDING`에 이의 제기를 접수하면 `PERIOD_EXPIRED`(이미 판단된 건은 `ALREADY_FILED`)이고, 지급 작업이 `DEAD`가 되어도 기한은 다시 열리지 않는다. `CANCEL_PENDING`·`RETURN_PENDING`은 `NOT_OBJECTIONABLE`이다. (7) D54 이관: ① 기존 격리·지급 실패 데이터를 PAYOUT 작업으로 옮긴다(`CONFIRMED`이고 실패 기록이 있는 항목 → `PAYOUT_PENDING` + 작업, 격리됐으면 `DEAD`, 아니면 `PENDING`, 실패 횟수·마지막 코드·시각을 옮김) ② 공통 조회가 기존 데이터까지 돌려주는지 확인 ③ `/admin/payout-failures`를 공통 조회·재시도에 위임해 프론트 전환 기간 동안 호환 ④ 전환 뒤 기존 컬럼 쓰기 중단 ⑤ 컬럼은 deprecated 이력으로 문서화 ⑥ 물리 제거는 별도 합의·마이그레이션 | 완료 상태는 실제 HP 이동이 끝났다는 뜻이어야 사용자 화면·판매 내역·지급 판단이 billing 원장과 어긋나지 않는다. 취소를 요청한 순간부터 콘텐츠를 막아야 반환이 끝난 뒤의 상태와 어긋나지 않는다. `PAYOUT_PENDING`은 지급 예정 시각이 지나야 생기므로 접수 기한도 지났고, 지급 장애는 운영 복구 대상이지 만료된 이의 제기를 다시 여는 사유가 아니다. 지급만 무제한 재시도·별도 실패 모델을 둘 이유가 없고, 기존 컬럼과 작업을 함께 쓰면 진실이 둘이 된다 | #275·#277 구현, 지급 실패 레거시 정리 티켓(#268). 프론트에 202·처리 중 상태·`/admin/payout-failures` 전환 공유 |
+| D60 | 2026-10-16 | AMENDED → D62 | 이의 제기 접수·판단·철회(#278·#279): (1) 접수: 고객센터가 문의 + 연동 상태 `FILING`을 커밋하고 트랜잭션 밖에서 `LectureApiClient`로 동기 시도한다(`commandId = FILE:{inquiryId}`, `correlationId`). 성공 → `FILED`. 요청 안에서 확정 거절 → `FILE_REJECTED` + Soft Delete를 커밋한 뒤에만 4xx + 사유 코드(사용자는 문의가 생기지 않은 것으로 봄, 명령 ID·사유는 보존). 결과 불명이나 결과 기록 실패 → 202 `FILING`, 같은 `commandId`로 재시도. 202 뒤 거절 → `FILE_REJECTED`를 지우지 않고 "접수 불가 · 사유"로 보여 준다(사용자용 메시지만). (2) 판단·철회: 고객센터가 조건부 갱신(`FILED`이고 버전이 같을 때)으로 `RESOLUTION_PENDING` 또는 `WITHDRAWAL_PENDING` 하나만 선점하고, 같은 트랜잭션에 명령 이벤트 V1을 기록한다. 갱신 0건이면 다시 읽어 같은 종류·같은 payload의 처리 중이면 202, 반대 명령이나 다른 payload면 409 `OBJECTION_IN_PROGRESS`(고객센터 코드), 이미 끝났으면 그 결과(판단 200, 삭제 204)를 돌려준다. 비교를 위해 `commandId`와 payload hash(판단: 인정 여부·답변·관리자, 철회: 구매자)를 저장한다. (3) 강의는 명령 이력(`objection_command`)으로 멱등하게 처리하고, 도메인 변경·명령 결과·결과 이벤트를 한 트랜잭션에 기록한다. 업무 거절은 실패 결과 이벤트, 재시도 가능한 충돌·기술 실패는 예외(이벤트 재발행 대상)다. (4) 결과: 인정 성공 → `ANSWERED` + `objectionResult = ACCEPTED` + 판단 답변 + `hpReturnStatus = PENDING`(한 트랜잭션), 기각 성공 → `ANSWERED` + `REJECTED` + 답변 + `hpReturnStatus = null`, 철회 성공 → `WITHDRAWN` + `deleted_at`. 강의 쪽 최종 거절(`NOT_FILED`·`INQUIRY_MISMATCH` 등 상태 불일치)은 `RESOLUTION_FAILED`·`WITHDRAWAL_FAILED`이고, 사용자에게는 "처리 지연 · 확인 중", 관리자에게만 실패 코드·`commandId`를 보여 준다. (5) `hpReturnStatus`는 `PENDING < ACTION_REQUIRED < COMPLETED` 순서로만 바뀐다. `COMPLETED`는 되돌리지 않고, 반환 완료가 판단 결과보다 먼저 와도 뒤늦은 판단 결과가 `PENDING`으로 되돌리지 않는다. 관리자 재시도로 `ACTION_REQUIRED`를 `PENDING`으로 돌리지 않는다. 이벤트는 `LectureObjectionReturnCompletedV1`·`LectureObjectionReturnActionRequiredV1`. (6) `*_FAILED`는 같은 `commandId`로 다시 보내면 실패가 재현되므로 원인 보정 뒤 새 복구 명령 ID를 발급하는 운영 복구가 필요하다(이의 제기 실패 명령 운영 복구 티켓(#267)) | 접수는 거절 사유를 요청자에게 바로 돌려줘야 하므로 동기 시도를 유지하고, 판단·철회는 결과를 기다릴 필요가 없어 이벤트로 한다. 요청 안의 즉시 거절과 202 뒤의 지연 거절은 사용자가 처리 중을 본 적이 있는지가 다르다. 낙관적 락 예외에만 기대면 공통 처리에서 500이 된다. "환불"은 충전 HP의 PG 현금화(4장 용어)라 `refundStatus`가 아니라 `hpReturnStatus`다. `RESOLUTION_REJECTED`는 "관리자가 기각함"과 헷갈린다 | #278·#279 구현, 이의 제기 실패 명령 운영 복구 티켓(#267). 고객센터 담당 확인, 프론트에 202·처리 중 표시 공유 |
+| D61 | 2026-10-16 | ACTIVE | 실행 중 이벤트 재발행(Q17 종결): Spring Modulith 2.1.1의 재발행 기능으로 1분마다, 발행 후 5분이 지난 실패·미완료 이벤트를 100건씩 다시 보낸다. `PUBLISHED`·`PROCESSING`·`RESUBMITTED`에 5분 stale 판정을 두고 1분마다 확인한다. 자동 중단은 없고, 재발행 10회 도달(`completionAttempts = 11`) 시 ERROR 로그 + Micrometer counter를 남긴다. 재시작 재발행(`republish-outstanding-events-on-restart: true`)은 유지한다. global 공통 설정이라 이벤트 재발행 [Global] 티켓(#266)에서 만들고 상세는 그 티켓 문서에 둔다 | 지금은 재시작 때만 미완료 이벤트를 다시 보내 서버가 떠 있는 동안 실패한 이벤트가 남는다(Q17). 2.1.1은 `getCompletionAttempts()`·`getLastResubmissionDate()`·`ResubmissionOptions`(`withBatchSize`·`withMinAge`·`withMaxInFlight`·`withFilter`)를 지원한다. 10회 뒤 자동 중단은 `FAILED`만 재발행되는 점, DB에서 100건을 먼저 읽고 Java filter를 적용해 오래된 건이 뒤 이벤트를 굶길 수 있는 점, 재시작 재발행이 다시 보내는 점 때문에 설정만으로 보장되지 않는다 | 이벤트 재발행 [Global] 티켓(#266) (#279의 선행). 자동 중단이 필요해지면 dead 상태·조회·관리자 재발행·재시작 제외·감사 기록을 따로 설계 |
+| D62 | 2026-10-16 | ACTIVE | bounded context 동기 연동은 제공 모듈의 내부 HTTP API와 `shared.[provider].out.*ApiClient`를 사용한다. 단일 앱도 self-HTTP로 호출하고 서비스 분리 시 provider별 base URL만 바꾼다. `apps`는 bootstrap-only이며 모듈 연결 Adapter를 두지 않는다. 소비 모듈은 로컬 상태와 내구성 있는 작업을 먼저 커밋하고 트랜잭션 밖에서 HTTP를 호출한 뒤 짧은 결과 트랜잭션으로 완료 상태를 기록한다. shared에는 DTO·이벤트·안정적인 enum·오류 코드와 공통 HTTP Client SDK만 두고 Java Port·엔티티·Repository·공유 `BusinessException`은 두지 않는다. HTTP 오류는 안정적인 실패 코드 결과로, 연결 전 실패는 `RETRYABLE`, 처리 여부를 모르는 timeout·응답 유실은 `UNKNOWN_RESULT`로 분류한다. HP 작업이 명령 유실 방지·재시도를 담당하므로 범용 Outbox를 먼저 도입하지 않는다. 판단·철회 이벤트는 Spring Modulith Publication Registry와 D61 재발행을 사용한다. Kafka를 도입하면 HTTP Client를 request/reply로 바꾸지 않고 작업 dispatcher와 결과 consumer로 전환한다 | 같은 JVM 전파 트랜잭션과 Java 타입 결합은 서비스 분리 경계를 숨긴다. 반대로 self-HTTP는 현재도 실제 직렬화·오류·timeout 경계를 검증하고, 분리 시 배포 주소만 바뀐다. 공통 Client는 URI와 transport 세부를 한곳에 모아 소비 모듈이 billing 구현과 API 경로를 중복해서 알지 않게 한다 | 상위 #271, 구현 #272~#280. D56은 폐기하고 D57~D60의 제품·복구 결정은 HTTP 운송에 맞춰 유지한다 |
