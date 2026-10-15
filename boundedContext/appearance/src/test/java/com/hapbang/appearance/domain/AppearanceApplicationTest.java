@@ -127,6 +127,22 @@ class AppearanceApplicationTest {
         }
     }
 
+    @Test
+    @DisplayName("모집 마감 정리: 대기 중 지원은 NOT_SELECTED, 응답 시각은 비어 있다. 이미 응답·취소된 지원은 APPLICATION_NOT_PENDING")
+    void closeUnselected() {
+        AppearanceApplication pending = applied();
+        pending.closeUnselected();
+        assertThat(pending.getStatus()).isEqualTo(AppearanceApplicationStatus.NOT_SELECTED);
+        assertThat(pending.getRespondedAt()).isNull();
+
+        AppearanceApplication selected = applied();
+        selected.select(NOW);
+        assertErrorCode(selected::closeUnselected, AppearanceErrorCode.APPLICATION_NOT_PENDING);
+        AppearanceApplication withdrawn = applied();
+        withdrawn.withdraw(GUEST, NOW);
+        assertErrorCode(withdrawn::closeUnselected, AppearanceErrorCode.APPLICATION_NOT_PENDING);
+    }
+
     @Nested
     @DisplayName("호스트 응답")
     class Respond {

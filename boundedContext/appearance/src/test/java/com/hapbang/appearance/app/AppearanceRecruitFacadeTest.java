@@ -178,7 +178,7 @@ class AppearanceRecruitFacadeTest {
                 .isInstanceOf(AccessDeniedException.class);
 
         assertThat(appearanceRecruitFacade.getOpen(FIRST_PAGE).getTotalElements()).isZero();
-        assertErrorCode(() -> appearanceRecruitFacade.getDetail(1L), AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
+        assertErrorCode(() -> appearanceRecruitFacade.getDetail(HOST, 1L), AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -220,7 +220,7 @@ class AppearanceRecruitFacadeTest {
     void getDetail() {
         AppearanceRecruitResDto posted = post(HOST);
 
-        AppearanceRecruitResDto detail = appearanceRecruitFacade.getDetail(posted.id());
+        AppearanceRecruitResDto detail = appearanceRecruitFacade.getDetail(HOST, posted.id());
 
         assertThat(detail.content()).isEqualTo("같이 신작 게임을 플레이할 게스트를 모집합니다.");
         assertThat(detail.recruitDeadline()).isEqualTo(posted.recruitDeadline());
@@ -230,9 +230,9 @@ class AppearanceRecruitFacadeTest {
         Long pendingId = appearanceRecruitRepository.findAll().stream()
                 .filter(recruit -> recruit.getStatus() == AppearanceRecruitStatus.HOLD_PENDING)
                 .findFirst().orElseThrow().getId();
-        assertErrorCode(() -> appearanceRecruitFacade.getDetail(pendingId),
+        assertErrorCode(() -> appearanceRecruitFacade.getDetail(HOST, pendingId),
                 AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
-        assertErrorCode(() -> appearanceRecruitFacade.getDetail(999_999L),
+        assertErrorCode(() -> appearanceRecruitFacade.getDetail(HOST, 999_999L),
                 AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
     }
 

@@ -54,12 +54,23 @@ public interface ApiV1AppearanceRecruitSpec {
             @Parameter(hidden = true) Pageable pageable);
 
     @Operation(summary = "출연 모집글 상세", description = """
-            로그인한 회원이면 누구나 볼 수 있다. 목록에 나오지 않는 모집글(보류 처리 중·실패)이면 404 `APPEARANCE_RECRUIT_NOT_FOUND`.""")
-    RsData<AppearanceRecruitResDto> getDetail(Long recruitId);
+            로그인한 회원이면 누구나 볼 수 있다. 목록에 나오지 않는 모집글(보류 처리 중·실패)이면 404 `APPEARANCE_RECRUIT_NOT_FOUND`.
+            마감 반환 진행 상태(`hpReleaseStatus`)는 호스트에게만 담긴다.""")
+    RsData<AppearanceRecruitResDto> getDetail(Long userId, Long recruitId);
 
     @Operation(summary = "출연 모집글 기본 정보 수정", description = """
             제목·콘텐츠 설명·호스트 채널 URL만 수정한다. 보낸 값만 바꾸고, 보내지 않은 값은 그대로 둔다.
             호스트만(다른 회원은 403 `NOT_RECRUIT_HOST`), 모집 중이고 모집 마감 일시 전까지만(이후 409 `APPEARANCE_RECRUIT_NOT_EDITABLE`) 가능하다.""")
     RsData<AppearanceRecruitResDto> updateBasicInfo(Long userId, Long recruitId,
                                                     @Valid UpdateAppearanceRecruitReqDto request);
+
+    @Operation(summary = "출연 모집 조기 마감 (호스트)", description = """
+            모집 마감 일시 전에 모집을 마감한다. 성립 인원이 0명이어도 마감할 수 있다. 200 `CLOSED`(마감 방식 `EARLY`).
+            - 응답을 기다리던 지원은 모두 `NOT_SELECTED`가 된다
+            - 1인당 출연료 × (모집 인원 − 성립 인원)만큼 보류 HP를 호스트에게 돌려준다. 정원이 다 찼으면 돌려줄 금액이 없다.
+              반환이 늦어져도 마감은 성공으로 응답하고, 진행 상태는 `hpReleaseStatus`로 확인한다
+            - 호스트가 아니면 403 `NOT_RECRUIT_HOST`, 모집 중이 아니거나 마감 일시가 지났으면 409 `APPEARANCE_RECRUIT_NOT_OPEN`
+            - 같은 모집글을 동시에 처리(수락 등)하면 먼저 반영된 쪽만 성공하고 나머지는 409 `CONCURRENT_UPDATE`
+            - 마감 일시가 지나면 배치가 1분 안에 같은 방식으로 마감한다 (마감 방식 `DEADLINE`)""")
+    RsData<AppearanceRecruitResDto> closeEarly(Long userId, Long recruitId);
 }

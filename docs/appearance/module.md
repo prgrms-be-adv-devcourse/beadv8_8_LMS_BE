@@ -36,7 +36,8 @@
 | HP 작업 재시도·격리, 수락 기한 만료, 보류 재확인 (배치) | ✅ | #187 |
 | 출연 모집글 올리기(HP 보류)·조회·기본 정보 수정 | ✅ | #175 |
 | 모집 지원·지원 취소·수락(출연 성립)·거절, 모집글 지원자 수 | ✅ | #195 |
-| 모집 마감·취소 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
+| 모집 마감 (기한 마감 배치·조기 마감, 대기 지원 정리, 미달 인원분 반환) | ✅ | #222 |
+| 모집 취소 / 출연 취소 요청 / 출연 확인 | ⬜ 예정 | — |
 
 ---
 
@@ -125,10 +126,11 @@ com.hapbang.appearance
 | `domain.AppearanceBasicInfo` | 요청서·모집글 공통 기본 정보(제목·채널 URL·설명) 값 객체(`@Embeddable`). `of()`로 만들 때, `withChanges()`로 보낸 값만 바꿀 때 형식 검증 |
 | `domain.AppearanceContentRules` | 요청서·모집글 공통 입력 값 길이·형식 제한 (도메인과 요청 DTO 검증이 같이 사용) |
 | `domain.AppearanceRequestRules` | 요청서 전용 제한 (거절 사유 500자) |
-| `domain.AppearanceRecruit`, `AppearanceRecruitStatus`, `AppearanceRecruitCloseType`, `AppearanceRecruitContent` | 출연 모집글과 상태·마감 방식. 생성 시 값 검증, 보류 금액, 보류 결과 반영, 기본 정보 수정, 공개 여부 확인 (#175) |
+| `domain.AppearanceRecruit`, `AppearanceRecruitStatus`, `AppearanceRecruitCloseType`, `AppearanceRecruitContent` | 출연 모집글과 상태·마감 방식. 생성 시 값 검증, 보류 금액, 보류 결과 반영, 기본 정보 수정, 공개 여부 확인 (#175), 조기·기한 마감과 반환 금액 (#222) |
 | `app.AppearanceRecruitFacade` | 출연 모집글 API 진입점. 메서드별 `@PreAuthorize`(공개 조회는 없음), 기능별 트랜잭션, 올리기 순서 조립 (#175) |
 | `app.AppearanceRecruitCreateUseCase`, `AppearanceRecruitHoldUseCase` | 올리기 1단계 저장 / 2·3단계 보류 요청·결과 반영 (#175) |
 | `app.AppearanceRecruitQueryUseCase`, `AppearanceRecruitUpdateUseCase`, `AppearanceRecruitSupport` | 공개·내 목록·상세 / 기본 정보 수정 / 저장소 접근 (#175) |
+| `app.AppearanceRecruitCloseUseCase`, `AppearanceRecruitDeadlineCloseUseCase`, `AppearanceRecruitCloseRecorder` | 조기 마감 / 기한 마감 배치 / 마감 뒷정리(대기 지원 미선정, 반환 작업 기록) (#222) |
 | `in.ApiV1AppearanceRecruitController`, `ApiV1AppearanceRecruitSpec` | 출연 모집글 REST API와 Swagger 명세 (#175) |
 | `out.AppearanceRecruitRepository` | 출연 모집글 저장·목록 조회 (#175) |
 | `domain.AppearanceApplication`, `AppearanceApplicationStatus` | 출연 모집 지원과 상태. 지원·취소·수락·거절 (#195) |
@@ -256,6 +258,8 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
           ├ 성공 → DONE
           └ 실패 → PENDING 유지, 시도 횟수 +1, 마지막 오류, 다음 시도 시각 기록 (사용자 요청은 성공으로 응답)
           (Billing 거절이면 바로 DEAD)
+[모집 마감, #222]
+  같은 흐름. 모집글 → CLOSED + 대기 지원 NOT_SELECTED + 성립하지 못한 인원분 반환 작업 (멱등 키 APPEARANCE_RECRUIT-{id}-RELEASE-1)
 [HP 작업 재시도 배치, #187]
   다음 시도 시각이 지난 PENDING 작업 실행, 지수 백오프로 간격 늘리기, 10회 실패 시 DEAD(격리) + 오류 로그 (8.4)
 ```
@@ -364,12 +368,12 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 | `selected_count` | INTEGER | 현재 성립 인원 (지원 수락에서 늘어남) |
 | `recruit_deadline` | TIMESTAMP | 모집 마감 일시 |
 | `status` | VARCHAR(255) | `HOLD_PENDING`/`HOLD_FAILED`/`RECRUITING`/`CLOSED`/`CANCELED` |
-| `close_type`, `closed_at`, `canceled_at` | VARCHAR(255), TIMESTAMP, TIMESTAMP | 마감 방식(`DEADLINE`/`EARLY`)·마감 시각·취소 시각 (이후 처리에서 사용) |
+| `close_type`, `closed_at`, `canceled_at` | VARCHAR(255), TIMESTAMP, TIMESTAMP | 마감 방식(`DEADLINE`/`EARLY`)·마감 시각(기한 마감은 모집 마감 일시, 조기 마감은 마감한 시각, #222)·취소 시각 |
 | `version`, `created_at`, `updated_at` | | 낙관적 락, 공통 시각 |
 
 - 제약: `fee_per_person > 0`, `recruit_count > 0`, `0 <= selected_count <= recruit_count`, `expected_minutes > 0`, `recruit_deadline < scheduled_at`
-- 인덱스: 공개 목록 `(status, created_at)`, 내 목록 `(host_id, created_at)`
-- 마이그레이션: `V202610141400__create_appearance_recruit_table.sql`
+- 인덱스: 공개 목록 `(status, created_at)`, 내 목록 `(host_id, created_at)`, 기한 마감 배치 `(status, recruit_deadline)` (#222)
+- 마이그레이션: `V202610141400__create_appearance_recruit_table.sql`, `V202610151153__add_appearance_recruit_deadline_index.sql`
 
 ---
 
@@ -469,8 +473,9 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
 | POST | `/api/v1/appearances/recruits` | 모집글 올리기 (HP 보류), 201 | 인플루언서 이상 | 출연 모집글을 올렸습니다. |
 | GET | `/api/v1/appearances/recruits` | 모집 중인 모집글 공개 목록 | 로그인 회원 누구나 | 모집 중인 출연 모집글 목록을 조회했습니다. |
 | GET | `/api/v1/appearances/recruits/mine?status=` | 내가 올린 모집글 목록 (상태 필터, 여러 개) | 인플루언서 이상 | 내 출연 모집글 목록을 조회했습니다. |
-| GET | `/api/v1/appearances/recruits/{recruitId}` | 상세 | 로그인 회원 누구나 | 출연 모집글을 조회했습니다. |
+| GET | `/api/v1/appearances/recruits/{recruitId}` | 상세 (마감 반환 진행 상태 `hpReleaseStatus`는 호스트에게만) | 로그인 회원 누구나 | 출연 모집글을 조회했습니다. |
 | PATCH | `/api/v1/appearances/recruits/{recruitId}` | 기본 정보(제목·콘텐츠 설명·호스트 채널 URL) 수정 | 인플루언서 이상, 호스트만 | 출연 모집글을 수정했습니다. |
+| POST | `/api/v1/appearances/recruits/{recruitId}/close` | 조기 마감 (#222, 10장) | 인플루언서 이상, 호스트만 | 출연 모집을 마감했습니다. |
 
 - 목록은 `Pageable`(page·size, 기본 20, 최대 100), 최신순 고정. 성공 응답은 `RsData`.
 - 역할 검사는 Facade 메서드마다 `@PreAuthorize`를 붙인다 (공개 조회와 호스트 기능의 권한이 달라서). 공개 조회는 출연 회원 자격도 확인하지 않는다.
@@ -501,7 +506,7 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 | 공개 목록 | `RECRUITING`이고 모집 마감 일시가 지나지 않은 모집글 (마감 처리 전이어도 시각으로 거름) | |
 | 상세·내 목록 | `RECRUITING`·`CLOSED`·`CANCELED`. `HOLD_PENDING`·`HOLD_FAILED`는 올린 호스트에게도 숨김(404) | 요청서와 같음 |
 | 수정 | 호스트만, `RECRUITING`이고 모집 마감 일시 전까지. 동시 수정은 409 `CONCURRENT_UPDATE` | ISSUE.md APR-08 |
-| 응답 | 성립 인원(`selectedCount`), 지원자 수(`applicantCount`, #195), 버전 포함. 마감 방식·마감 시각·취소 시각은 이후 처리에서 채움 | |
+| 응답 | 성립 인원(`selectedCount`), 지원자 수(`applicantCount`, #195), 마감 방식·마감 시각(#222), 마감 반환 진행 상태(`hpReleaseStatus`, 호스트만, #222), 버전 포함. 취소 시각은 모집 취소에서 채움 | |
 | 미정 | 방송 플랫폼·카테고리 등 분류, 검색·필터, 비회원 공개, 정지 호스트 모집글 노출 | 필요할 때 결정 |
 
 ---
@@ -513,6 +518,7 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 ```
 in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
   ├ 00초 AppearanceHoldRecheckUseCase.recheckDue()   보류 처리 중 요청서·모집글 재확인
+  ├ 10초 AppearanceRecruitDeadlineCloseUseCase.closeDue()  모집 기한 마감 + 미달분 반환 (#222, 10장)
   ├ 20초 AppearanceRequestExpireUseCase.expireDue()  수락 기한 만료 + 반환
   └ 40초 HpTaskRetryUseCase.retryDue()               HP 작업 재시도·격리 + 지표 갱신
 ```
@@ -587,7 +593,7 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 
 ```
 APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인원 +1)
-        ├호스트 거절─▶ NOT_SELECTED
+        ├호스트 거절 또는 응답 없이 모집 마감(#222)─▶ NOT_SELECTED
         └게스트 취소─▶ WITHDRAWN
 ```
 
@@ -600,11 +606,11 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 | 정원이 찬 뒤 | **지원은 받고 수락만 막는다** (409 `RECRUIT_FULL`). 자동 마감하지 않는다 | APR-27 A2: 출연 취소 요청으로 마감 전까지 빈자리가 생길 수 있음 |
 | 지원 취소 | 지원한 게스트만(403 `NOT_APPLICATION_GUEST`), 호스트 응답 전(`APPLIED`)만 (409 `APPLICATION_NOT_PENDING`) | |
 | 수락 | 확인 순서: 호스트 자격 → 호스트·모집 중·마감 전 → 대기 중 지원 → 정원 → 게스트 자격(A5). 지원 `SELECTED` + 성립 인원 +1 + 출연 성립이 한 트랜잭션, HP 이동 없음(모집글 보류 유지) | APR-27 |
-| 동시 수락 | 모집글 버전(낙관적 락)으로 한 번에 하나만 반영, 나머지 409 `CONCURRENT_UPDATE` 또는 `RECRUIT_FULL` → 정원을 넘지 않음 | A3 |
+| 동시 수락 | 모집글 배타 잠금(#222 C9)으로 차례로 처리되고 버전(낙관적 락)도 확인 → 나머지는 409 `RECRUIT_FULL`(또는 `CONCURRENT_UPDATE`), 정원을 넘지 않음 | A3 |
 | 거절 | 사유 없이 `NOT_SELECTED` | A4 |
 | 출연 | 출처 `RECRUIT`, `application_id`(유니크)·`recruit_id`, 출연료 = 1인당 출연료, 방송 예정 일시 스냅샷. 지급 원천은 `RECRUIT_APPEARANCE` + 출연 ID | APR-23 |
 | 일정 겹침 | 확인하지 않음 | A7 |
-| 남은 일 | 모집 마감 때 대기 중인 지원 `NOT_SELECTED` 정리, 미달 인원분 반환 (모집 마감 이슈) | |
+| 모집 마감 | 대기 중인 지원은 `NOT_SELECTED`(응답 시각 없음), 미달 인원분 반환 (10장) | #222 |
 
 ### 9.4 `appearances.applications` 스키마
 
@@ -615,9 +621,50 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 | `guest_id` | BIGINT | 게스트 회원 ID |
 | `message` | VARCHAR(500) | 지원 메시지 (선택) |
 | `status` | VARCHAR(255) | `APPLIED`/`SELECTED`/`NOT_SELECTED`/`WITHDRAWN` |
-| `responded_at`, `withdrawn_at` | TIMESTAMP | 호스트 응답 시각, 게스트 취소 시각 |
+| `responded_at`, `withdrawn_at` | TIMESTAMP | 호스트 응답 시각(모집 마감으로 미선정되면 비어 있음), 게스트 취소 시각 |
 | `version`, `created_at`, `updated_at` | | 낙관적 락, 공통 시각 |
 
 - 유니크: `uk_appearance_applications_recruit_guest (recruit_id, guest_id)`
 - 인덱스: 지원자 목록·지원자 수 `(recruit_id, created_at)`, 내 지원 목록 `(guest_id, created_at)`
 - 마이그레이션: `V202610151050__create_appearance_application_table.sql`
+
+---
+
+## 10. 출연 모집 마감 (#222)
+
+### 10.1 API·배치
+
+| 진입 | 대상 | 마감 방식 | 마감 시각 |
+|---|---|---|---|
+| `POST /api/v1/appearances/recruits/{recruitId}/close` (호스트, 인플루언서 이상) | 모집 중이고 마감 일시 전 (성립 0명이어도 가능) | `EARLY` | 마감한 시각 |
+| 배치 매분 10초 `AppearanceRecruitDeadlineCloseUseCase.closeDue()` | 모집 중이고 마감 일시가 지난 모집글 (마감 일시 이른 순, 최대 100건) | `DEADLINE` | 모집 마감 일시 |
+
+### 10.2 흐름
+
+```
+[조기 마감] AppearanceRecruitFacade.closeEarly (@PreAuthorize, 트랜잭션 없음)
+  ① RecruitCloseUseCase.closeEarly  [트랜잭션, 커밋]
+       호스트 자격 → 보이는 모집글(보류 처리 중·실패는 404) → 호스트·모집 중·마감 전 → CLOSED(EARLY)
+       → RecruitCloseRecorder: 대기 지원 NOT_SELECTED → flush(버전 충돌 409) → 반환 작업 기록(금액 > 0일 때)
+  ② HpTaskExecuteUseCase.execute  [트랜잭션 밖]  반환 1회 실행 (실패해도 마감은 성공, 작업은 재시도 대기)
+  ③ 상세 조회로 응답 (hpReleaseStatus 포함)
+[기한 마감 배치] 모집글마다 [트랜잭션] 같은 상태 확인 → CLOSED(DEADLINE) → RecruitCloseRecorder (커밋) → [트랜잭션 밖] 반환 1회 실행
+```
+
+### 10.3 규칙
+
+| 항목 | 규칙 | 근거 |
+|---|---|---|
+| 반환 금액 | 1인당 출연료 × (모집 인원 − 성립 인원). 성립 0명이면 전액. 금액을 정해 부분 반환(`ReleaseCommand.partial`) | APR-06, APR-28 C3 |
+| 정원이 다 찬 채 마감 | 돌려줄 금액이 0이라 반환 작업을 만들지 않음 (`hpReleaseStatus` 없음). 보류는 출연 확인·취소 때 쓰임 | C7 |
+| 성립 0명 | 모집 취소가 아니라 `CLOSED` + 전액 반환 | APR-06 |
+| 대기 중 지원 | 모두 `NOT_SELECTED`. 호스트가 거절한 것이 아니라 응답 시각은 비워 둠 | C2 |
+| 성립한 지원·출연 | 그대로 (`SELECTED`, 출연 유지). 보류에는 성립 인원 × 1인당 출연료가 남음 | |
+| 반환 작업 | 사유 `RECRUIT_CLOSED`, 멱등 키 `APPEARANCE_RECRUIT-{id}-RELEASE-1`. 실행·재시도·격리는 요청서 반환과 같음 (4.3, 8.4) | |
+| 반환 진행 상태 | 모집글 상세 `hpReleaseStatus`, 호스트에게만 | C4 |
+| 보류 처리 중 모집글 | 마감 배치 대상 아님. 보류 재확인(00초)이 `RECRUITING`으로 정리하면 다음 마감 배치(10초)가 마감. `HOLD_FAILED`는 그대로. 보류 결과를 모르는 동안은 반환하지 않음 | C5 |
+| 동시 처리 | 모집글 행 잠금으로 순서를 정한다: 지원은 공유 잠금(`FOR SHARE`, 지원끼리는 막지 않음), 마감·수락은 배타 잠금(`FOR UPDATE`). 마감은 진행 중인 지원·수락이 커밋된 뒤의 최신 값으로 처리하고, 그 뒤의 지원·수락은 409 `APPEARANCE_RECRUIT_NOT_OPEN`. 마감과 수락은 둘 다 모집글 → 지원 순서로 잠가 교착 상태가 없다. 지원 취소와 겹치면 지원 버전으로 409 `CONCURRENT_UPDATE` | C9 |
+| 배치 실패 | 한 모집글 처리 중 예외(버전 충돌 등)가 나면 그 건만 롤백·건너뛰고 다음 주기에 다시 | C8 |
+| 마감 뒤 | 지원·수락·거절·조기 마감 409 `APPEARANCE_RECRUIT_NOT_OPEN`, 미선정된 지원 취소 409 `APPLICATION_NOT_PENDING`. 공개 목록에서 빠지고 상세·내 목록에는 `CLOSED`로 보임 | |
+| 알림 | 마감·미선정 안내는 이번 범위 밖 (나중 기능) | C2 |
+| 남은 일 | 마감 후 출연 취소(합의)로 빈자리가 생기면 그 출연료 반환 — 출연 취소 요청 이슈. 같은 모집글 보류에서 반환이 더 생기면 반환 요청 ID 순번을 나눈다 | AGENTS.md "출연 취소 요청" |

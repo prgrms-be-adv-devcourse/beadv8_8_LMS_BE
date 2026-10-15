@@ -49,7 +49,7 @@ public class AppearanceApplication extends BaseEntity {
     @Enumerated(EnumType.STRING)
     private AppearanceApplicationStatus status;
 
-    /** 호스트 응답(수락·거절) 시각 */
+    /** 호스트 응답(수락·거절) 시각. 모집 마감으로 미선정되면 비어 있다 (모집글의 마감 시각을 본다) */
     private LocalDateTime respondedAt;
 
     /** 게스트 지원 취소 시각 */
@@ -116,6 +116,16 @@ public class AppearanceApplication extends BaseEntity {
         requirePending();
         this.status = AppearanceApplicationStatus.NOT_SELECTED;
         this.respondedAt = now;
+    }
+
+    /**
+     * 호스트가 응답하지 않은 채 모집이 마감돼 미선정으로 정리한다. 호스트가 거절한 것이 아니라서 응답 시각은 남기지 않는다.
+     *
+     * @throws AppearanceException 대기 중이 아님({@code APPLICATION_NOT_PENDING})
+     */
+    public void closeUnselected() {
+        requirePending();
+        this.status = AppearanceApplicationStatus.NOT_SELECTED;
     }
 
     public boolean isGuest(Long userId) {
