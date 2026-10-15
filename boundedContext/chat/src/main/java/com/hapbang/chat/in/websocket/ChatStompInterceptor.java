@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 /**
  * STOMP 연결·구독·보내기를 검사한다 (#235).
  * <ul>
- *     <li>CONNECT: 웹소켓 핸드셰이크의 로그인 세션 사용자({@link Principal})로 회원을 식별한다.
+ *     <li>CONNECT·STOMP(연결 프레임): 웹소켓 핸드셰이크의 로그인 세션 사용자({@link Principal})로 회원을 식별한다.
  *     핸드셰이크 요청도 global SecurityConfig를 거치므로, 로그인하지 않으면 연결 자체가 401로 막힌다.
  *     {@code Principal.getName()}은 회원 ID다(회원 모듈의 OAuth2 로그인 사용자).
  *     세션 역할이 채팅 역할(인플루언서·인증된 인플루언서·관리자)이 아니면 거절한다. 로그인 이후 강등·정지는
@@ -42,7 +42,8 @@ public class ChatStompInterceptor implements ChannelInterceptor {
             return message;
         }
         switch (accessor.getCommand()) {
-            case CONNECT -> checkChatUser(accessor.getUser());
+            // STOMP 1.2의 STOMP 프레임도 Spring은 CONNECT와 같은 연결로 처리한다. 둘 다 검사해야 우회되지 않는다
+            case CONNECT, STOMP -> checkChatUser(accessor.getUser());
             case SUBSCRIBE -> requireDestination(accessor.getDestination(), ChatWebSocketConfig.USER_PREFIX + "/",
                     "구독할 수 없는 경로입니다: ");
             case SEND -> requireDestination(accessor.getDestination(), ChatWebSocketConfig.APP_PREFIX + "/",

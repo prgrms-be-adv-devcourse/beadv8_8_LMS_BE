@@ -4,6 +4,7 @@ import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.lang.reflect.Type;
+import java.net.URI;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
@@ -28,8 +29,11 @@ import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHttpHeaders;
+import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
@@ -269,9 +273,35 @@ class ChatStompE2ETest {
     }
 
     @Test
-    void 허용하지_않은_출처에서는_웹소켓에_연결할_수_없다() {
+    void STOMP_프레임으로_연결해도_채팅_역할이_아니면_거절된다() throws Exception {
+        WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
+        handshakeHeaders.add(HttpHeaders.COOKIE, E2ESession.login(client, USER_ID, Role.USER).cookieHeader());
+        BlockingQueue<String> serverFrames = new LinkedBlockingQueue<>();
+
+        CloseStatus closeStatus = closeStatusOf(USER_ID, () -> new StandardWebSocketClient().execute(
+                new TextWebSocketHandler() {
+                    @Override
+                    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                        // WebSocketStompClient는 CONNECT만 보내므로 STOMP 1.2의 STOMP 프레임을 직접 보낸다
+                        session.sendMessage(new TextMessage("STOMP\naccept-version:1.2\nhost:localhost\n\n\u0000"));
+                    }
+
+                    @Override
+                    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+                        serverFrames.add(message.getPayload());
+                    }
+                }, handshakeHeaders, URI.create(wsUrl())).get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+        assertThat(serverFrames).noneMatch(frame -> frame.startsWith("CONNECTED"));
+    }
+
+    @Test
+    void 허용하지_않은_출처에서는_웹소켓_핸드셰이크가_403이다() {
         assertThatThrownBy(() -> connectFrom(HOST_ID, "https://evil.example.com"))
-                .isInstanceOf(ExecutionException.class);
+                .isInstanceOf(ExecutionException.class)
+                // Tomcat 웹소켓 클라이언트는 업그레이드 응답 상태를 "[403]"으로 메시지에 담는다
+                .rootCause().hasMessageContaining("[403]");
     }
 
     @Test
