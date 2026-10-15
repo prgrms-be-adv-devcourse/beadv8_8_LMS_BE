@@ -4,11 +4,13 @@ import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.lang.reflect.Type;
+import java.net.URI;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,8 +29,11 @@ import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHttpHeaders;
+import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
@@ -226,6 +231,85 @@ class ChatStompE2ETest {
      * 그래서 ERROR 프레임은 도착했을 때만 문구를 확인한다.
      */
     @Test
+    void 다른_회원_큐로_직접_보내면_연결이_끊기고_상대에게_전달되지_않는다() throws Exception {
+        StompSession host = connect(HOST_ID);
+        BlockingQueue<byte[]> hostMessages = subscribe(host, "/user/queue/chats/messages", byte[].class);
+        StompEvents guestEvents = new StompEvents();
+        StompSession guest = connect(GUEST_ID, Role.INFLUENCER, guestEvents);
+        waitForSubscriptions();
+
+        CloseStatus closeStatus = closeStatusOf(GUEST_ID, () -> guest.send("/user/" + HOST_ID
+                + "/queue/chats/messages", "{\"content\": \"위조\"}".getBytes()));
+
+        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+        assertThat(guestEvents.errorFrames).allSatisfy(error -> assertThat(error).contains("보낼 수 없는 경로"));
+        assertThat(hostMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
+    }
+
+    @Test
+    void 브로커로_직접_보내면_연결이_끊긴다() throws Exception {
+        StompSession guest = connect(GUEST_ID);
+
+        CloseStatus closeStatus = closeStatusOf(GUEST_ID,
+                () -> guest.send("/queue/chats/messages", "{\"content\": \"위조\"}".getBytes()));
+
+        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+    }
+
+    @Test
+    void 채팅_역할이_아닌_회원은_연결할_수_없다() throws Exception {
+        StompEvents events = new StompEvents();
+
+        CloseStatus closeStatus = closeStatusOf(USER_ID, () -> {
+            try {
+                connect(USER_ID, Role.USER, events);
+            } catch (ExecutionException | TimeoutException rejected) {
+                // 연결 거절은 연결 종료로 확인한다
+            }
+        });
+
+        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+        assertThat(events.errorFrames).allSatisfy(error -> assertThat(error).contains("인플루언서 이상 또는 관리자만"));
+    }
+
+    @Test
+    void STOMP_프레임으로_연결해도_채팅_역할이_아니면_거절된다() throws Exception {
+        WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
+        handshakeHeaders.add(HttpHeaders.COOKIE, E2ESession.login(client, USER_ID, Role.USER).cookieHeader());
+        BlockingQueue<String> serverFrames = new LinkedBlockingQueue<>();
+
+        CloseStatus closeStatus = closeStatusOf(USER_ID, () -> new StandardWebSocketClient().execute(
+                new TextWebSocketHandler() {
+                    @Override
+                    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                        // WebSocketStompClient는 CONNECT만 보내므로 STOMP 1.2의 STOMP 프레임을 직접 보낸다
+                        session.sendMessage(new TextMessage("STOMP\naccept-version:1.2\nhost:localhost\n\n\u0000"));
+                    }
+
+                    @Override
+                    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+                        serverFrames.add(message.getPayload());
+                    }
+                }, handshakeHeaders, URI.create(wsUrl())).get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+        assertThat(serverFrames).noneMatch(frame -> frame.startsWith("CONNECTED"));
+    }
+
+    @Test
+    void 허용하지_않은_출처에서는_웹소켓_핸드셰이크가_403이다() {
+        assertThatThrownBy(() -> connectFrom(HOST_ID, "https://evil.example.com"))
+                .isInstanceOf(ExecutionException.class)
+                // Tomcat 웹소켓 클라이언트는 업그레이드 응답 상태를 "[403]"으로 메시지에 담는다
+                .rootCause().hasMessageContaining("[403]");
+    }
+
+    @Test
+    void 허용한_출처에서는_웹소켓에_연결할_수_있다() throws Exception {
+        assertThat(connectFrom(HOST_ID, "http://localhost:5173").isConnected()).isTrue();
+    }
+
+    @Test
     void 회원_큐가_아닌_경로는_구독할_수_없다() throws Exception {
         BlockingQueue<CloseStatus> outsiderDisconnects = new LinkedBlockingQueue<>();
         ApplicationListener<SessionDisconnectEvent> disconnectListener = event -> {
@@ -284,8 +368,47 @@ class ChatStompE2ETest {
     }
 
     private StompSession connect(Long userId, StompEvents events) throws Exception {
+        return connect(userId, Role.INFLUENCER, events);
+    }
+
+    private StompSession connectFrom(Long userId, String origin) throws Exception {
         WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
         handshakeHeaders.add(HttpHeaders.COOKIE, E2ESession.login(client, userId, Role.INFLUENCER).cookieHeader());
+        handshakeHeaders.setOrigin(origin);
+        return stompClient.connectAsync(wsUrl(), handshakeHeaders, new StompHeaders(), new StompSessionHandlerAdapter() {
+        }).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * 동작을 실행한 뒤 그 회원의 연결이 서버에서 닫힌 상태를 기다린다. 거절된 프레임은 ERROR 프레임이 오지 않을 수 있어(#173)
+     * 연결 종료로 확인한다.
+     */
+    private CloseStatus closeStatusOf(Long userId, ThrowingRunnable action) throws Exception {
+        BlockingQueue<CloseStatus> disconnects = new LinkedBlockingQueue<>();
+        ApplicationListener<SessionDisconnectEvent> listener = event -> {
+            if (event.getUser() != null && String.valueOf(userId).equals(event.getUser().getName())) {
+                disconnects.add(event.getCloseStatus());
+            }
+        };
+        applicationContext.addApplicationListener(listener);
+        try {
+            action.run();
+            CloseStatus closeStatus = disconnects.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            assertThat(closeStatus).isNotNull();
+            return closeStatus;
+        } finally {
+            applicationContext.removeApplicationListener(listener);
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    private StompSession connect(Long userId, Role role, StompEvents events) throws Exception {
+        WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
+        handshakeHeaders.add(HttpHeaders.COOKIE, E2ESession.login(client, userId, role).cookieHeader());
         StompSessionHandlerAdapter handler = new StompSessionHandlerAdapter() {
             @Override
             public Type getPayloadType(StompHeaders headers) {
