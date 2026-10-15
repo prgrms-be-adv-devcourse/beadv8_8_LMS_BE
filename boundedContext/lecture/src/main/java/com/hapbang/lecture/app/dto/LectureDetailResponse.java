@@ -18,6 +18,9 @@ public record LectureDetailResponse(
         long priceHp,
         @Schema(description = "썸네일 조회 URL (Presigned GET, 1시간 유효). 썸네일이 없거나 볼 수 없으면 null", nullable = true)
         String thumbnailUrl,
+        @Schema(description = "썸네일 파일 ID. 판매자·관리자에게만 내려준다. 정보 수정에서 썸네일을 유지하려면 이 값을 다시 보낸다 (D53)",
+                nullable = true)
+        Long thumbnailFileId,
         LectureStatus status,
         @Schema(description = "판매자·관리자에게만 내려준다", nullable = true)
         String rejectionReason,
@@ -30,8 +33,9 @@ public record LectureDetailResponse(
         LocalDateTime createdAt
 ) {
 
+    /** 판매자 본인(일반 상세)·관리자(검수 상세)면 {@code sellerView}로 반려 사유와 파일 ID를 보여 준다 (D53) */
     public static LectureDetailResponse of(Lecture lecture, String sellerNickname, String thumbnailUrl,
-                                           LectureRating rating, boolean showRejectionReason) {
+                                           LectureRating rating, boolean sellerView) {
         return new LectureDetailResponse(
                 lecture.getId(),
                 lecture.getSellerUserId(),
@@ -40,12 +44,13 @@ public record LectureDetailResponse(
                 lecture.getDescription(),
                 lecture.getPriceHp(),
                 thumbnailUrl,
+                sellerView ? lecture.getThumbnailFileId() : null,
                 lecture.getStatus(),
-                showRejectionReason ? lecture.getRejectionReason() : null,
+                sellerView ? lecture.getRejectionReason() : null,
                 lecture.isDeleted(),
                 rating.averageRating(),
                 rating.reviewCount(),
-                lecture.getContents().stream().map(LectureContentResponse::from).toList(),
+                lecture.getContents().stream().map(content -> LectureContentResponse.from(content, sellerView)).toList(),
                 lecture.getCreatedAt()
         );
     }

@@ -90,7 +90,7 @@ public class LectureSupport {
         return lecture;
     }
 
-    /** 볼 수 있는 강의는 {@link #findViewableLecture}와 같다. 반려 사유는 판매자 본인에게만 보여 준다 */
+    /** 볼 수 있는 강의는 {@link #findViewableLecture}와 같다. 반려 사유와 파일 ID는 판매자 본인에게만 보여 준다 (D53) */
     public LectureDetailResponse getLecture(Long userId, Long lectureId) {
         Lecture lecture = findViewableLecture(userId, lectureId);
         boolean seller = lecture.getSellerUserId().equals(userId);
@@ -99,7 +99,7 @@ public class LectureSupport {
                 seller);
     }
 
-    /** 관리자 검수용 강의 상세. 상태·삭제 여부와 관계없이 조회하고 반려 사유도 보여 준다 (D30). */
+    /** 관리자 검수용 강의 상세. 상태·삭제 여부와 관계없이 조회하고 반려 사유와 파일 ID도 보여 준다 (D30, D53). */
     public LectureDetailResponse getLectureForInspection(Long lectureId) {
         Lecture lecture = findLecture(lectureId);
         return LectureDetailResponse.of(lecture, nicknameSupport.of(lecture.getSellerUserId()),
