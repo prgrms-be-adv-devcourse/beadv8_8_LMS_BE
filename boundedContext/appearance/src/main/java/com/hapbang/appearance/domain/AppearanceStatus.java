@@ -9,7 +9,7 @@ import lombok.RequiredArgsConstructor;
  * ESTABLISHED ⇄ CANCEL_REQUESTED (거절되면 ESTABLISHED로 복귀)
  *     → CONFIRMED / NO_SHOW / CANCELED_BY_HOST / CANCELED_BY_AGREEMENT
  * </pre>
- * 지금은 성립({@code ESTABLISHED})만 쓰고, 나머지는 출연 취소 요청·확인·취소 처리에서 쓴다.
+ * 성립·출연 취소 요청·합의 취소(#231)를 쓰고, 확인·노쇼·호스트 일방 취소는 이후 처리에서 쓴다.
  */
 @Getter
 @RequiredArgsConstructor
