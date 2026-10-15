@@ -39,7 +39,8 @@
 | 모집 마감 (기한 마감 배치·조기 마감, 대기 지원 정리, 미달 인원분 반환) | ✅ | #222 |
 | 출연 알림 이벤트 발행 (요청 도착·지원 도착, shared 이벤트) | ✅ | #227 |
 | 출연 조회, 출연 취소 요청·수락(합의 취소)·거절·자동 거절, 취소 알림 이벤트 | ✅ | #231 |
-| 호스트 일방 취소·모집 취소 / 출연 확인 | ⬜ 예정 | — |
+| 호스트 일방 취소(위약금 30%)·모집 전체 취소 | ✅ | #239 |
+| 출연 확인·이의 제기 | ⬜ 예정 | — |
 
 ---
 
@@ -135,7 +136,8 @@ com.hapbang.appearance
 | `app.AppearanceRecruitCloseUseCase`, `AppearanceRecruitDeadlineCloseUseCase`, `AppearanceRecruitCloseRecorder` | 조기 마감 / 기한 마감 배치 / 마감 뒷정리(대기 지원 미선정, 반환 작업 기록) (#222) |
 | `domain.AppearanceCancelRequest`, `AppearanceCancelRequestStatus`, `AppearanceRole` | 출연 취소 요청(순번·사유·거절 사유·상태) / 내 출연 목록의 참여 쪽 (#231) |
 | `app.AppearanceFacade`, `AppearanceQueryUseCase`, `AppearanceCancelRequestUseCase`, `AppearanceCancelRespondUseCase`, `AppearanceCancelAutoRejectUseCase`, `AppearanceCancelRequestSupport`, `AppearanceTitleSupport` | 출연 API 진입점 / 조회 / 취소 요청 / 수락·거절 / 자동 거절 배치 / 저장소 접근 / 출처 제목 (#231) |
-| `in.ApiV1AppearanceController`, `ApiV1AppearanceSpec` | 출연 조회·취소 요청 REST API와 Swagger 명세 (#231) |
+| `in.ApiV1AppearanceController`, `ApiV1AppearanceSpec` | 출연 조회·취소 요청·호스트 일방 취소 REST API와 Swagger 명세 (#231, #239) |
+| `app.AppearanceHostCancelUseCase`, `AppearanceRecruitCancelUseCase`, `AppearanceHostCancelRecorder`, `domain.AppearanceCancelReasonRules` | 출연 일방 취소 / 모집 전체 취소 / 출연 1건 일방 취소 + 위약금 정산 작업 기록(둘이 함께 씀) / 취소 사유 규칙 (#239) |
 | `in.ApiV1AppearanceRecruitController`, `ApiV1AppearanceRecruitSpec` | 출연 모집글 REST API와 Swagger 명세 (#175) |
 | `out.AppearanceRecruitRepository` | 출연 모집글 저장·목록 조회 (#175) |
 | `domain.AppearanceApplication`, `AppearanceApplicationStatus` | 출연 모집 지원과 상태. 지원·취소·수락·거절 (#195) |
@@ -780,3 +782,48 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 - 출연 목록 인덱스 변경: `(host_id)`·`(guest_id)` → `(host_id, created_at)`·`(guest_id, created_at)`
 - 마이그레이션: `V202610151521__create_appearance_cancel_request_table.sql`
 - Soft Delete: 출연 모듈은 Delete API·`deleted_at` 없이 상태로 끝낸다 (팀 합의, ISSUE.md APR-31)
+
+---
+
+## 13. 호스트 일방 취소·모집 전체 취소 (#239)
+
+### 13.1 API
+
+| 메서드 | 경로 | 설명 | 권한 | 성공 메시지 |
+|---|---|---|---|---|
+| POST | `/api/v1/appearances/{appearanceId}/host-cancel` | 출연 일방 취소 (위약금 30%) | 출연의 호스트 | 출연을 취소했습니다. |
+| POST | `/api/v1/appearances/recruits/{recruitId}/cancel` | 모집 전체 취소 | 모집글 호스트 | 출연 모집을 취소했습니다. |
+
+- 요청 본문(선택): `{"reason": "…(500자 이하)", "confirmPendingCancelRequest": true}`. 본문 없이 보내도 된다.
+- 응답: 일방 취소는 출연 상세(`penaltyAmount`, `hostCancelReason`, `hpPenaltyStatus` 추가), 모집 전체 취소는 모집글 상세(`cancelReason` 추가, `hpReleaseStatus`는 빈자리 반환).
+- 경로 이름은 요청서의 `/cancel`(응답 전 취소), 출연의 `/cancel-requests`(게스트 요청)와 구분한다 (APR-32 H6).
+
+### 13.2 규칙
+
+| 항목 | 규칙 | 근거 |
+|---|---|---|
+| 일방 취소 조건 | 출연의 호스트(403 `NOT_APPEARANCE_HOST`), `ESTABLISHED` 또는 `CANCEL_REQUESTED`(그 밖 409 `APPEARANCE_NOT_CANCELABLE`), 방송 예정 일시 전(409 `APPEARANCE_SCHEDULE_PASSED`) | AGENTS.md |
+| 위약금 | 출연료 × `penalty-rate-percent`(30%), 원 단위 미만 버림. 나머지는 호스트에게 반환. Billing `settlePenalty` 한 번에 (보류에서 위약금 지급 + 반환) | AGENTS.md, APR-23 |
+| 처리 중인 취소 요청 | `confirmPendingCancelRequest: true` 없으면 409 `CANCEL_REQUEST_CONFIRM_REQUIRED`(아무것도 바뀌지 않음). 확인하면 요청은 `CLOSED_BY_HOST_CANCEL`로 끝나고 게스트에게 위약금 지급 | AGENTS.md, APR-04, H2 |
+| 모집 출처 자리 | 일방 취소해도 성립 인원을 줄이지 않는다 (그 자리 보류는 정산되어 다시 열 수 없음). 합의 취소(보류 유지라 다시 열림)와 다르다 | H3 |
+| 사유 | 선택 500자. 모집 전체 취소는 모집글과 모든 출연에 같은 사유 | H1 |
+| 모집 전체 취소 조건 | 모집글 호스트(403 `NOT_RECRUIT_HOST`), `RECRUITING`·`CLOSED`(그 밖 409 `APPEARANCE_RECRUIT_NOT_CANCELABLE`, 보류 처리 중·실패는 404), 방송 예정 일시 전 | APR-06 |
+| 모집 전체 취소 처리 | 모집글 `CANCELED` + 진행 중 출연(성립·취소 요청 중)마다 일방 취소 + 대기 지원 `NOT_SELECTED` + 빈자리 반환. 하나라도 처리 중인 취소 요청이 있으면 확인 값 필요(먼저 모두 확인한 뒤 바꾼다) | AGENTS.md, APR-06 |
+| 빈자리 반환 | 모집 중이면 1인당 출연료 × (모집 인원 − 성립 인원) — 합의 취소로 빈 자리 포함, 일방 취소된 자리 제외. 마감 뒤면 마감 때 반환해 없음. 반환 요청 ID는 마감 반환과 같은 `APPEARANCE_RECRUIT-{id}-RELEASE-1`(모집글당 하나), 사유 `RECRUIT_CANCELED` | H4 |
+| 정산 실행 | 출연마다 위약금 작업 + 빈자리 반환 1건을 같은 트랜잭션에 기록하고 커밋 뒤 각각 1회 실행. 실패한 작업만 재시도·격리, 취소는 성공 응답 | H4 |
+| 동시 처리 | 잠금 순서 모집글 → 출연(ID 순). 지원 수락·마감·합의 취소와 같은 순서라 교착 상태 없음 | APR-28 C9 |
+| 알림 | 이번에는 이벤트를 발행하지 않는다 | H5 |
+
+### 13.3 HP 작업 (위약금 정산)
+
+| 컬럼 | 반환(`RELEASE`) | 위약금 정산(`PENALTY`) |
+|---|---|---|
+| `member_id` | 반환받는 호스트 | 보류한 호스트 (나머지를 반환받음) |
+| `amount` | 반환액 | 정산 기준액 = 출연료 |
+| `receiver_id`, `payout_amount` | 비움 | 게스트, 위약금 (호스트 반환 몫 = `amount − payout_amount`) |
+| `appearance_id` | 비움 | 출연 ID (Billing 지급 원천 ID) |
+| 멱등 키 (= Billing 요청 ID) | `…-RELEASE-1` / `…-RELEASE-APPEARANCE-{출연 ID}` | `{APPEARANCE_REQUEST·APPEARANCE_RECRUIT}-{보류 ID}-PENALTY-APPEARANCE-{출연 ID}` (= 취소 ID) |
+
+- 지급 원천: 요청서 출처 `APPEARANCE_REQUEST`, 모집 출처 `RECRUIT_APPEARANCE` (+ 출연 ID).
+- 제약 `ck_hp_tasks_penalty`: `PENALTY`면 받는 회원·출연 ID·위약금(1 이상, 기준액 이하) 필수, 그 밖은 비움.
+- 마이그레이션: `V202610151702__add_appearance_host_cancel_columns.sql` (`hp_tasks.receiver_id`·`payout_amount`, `appearances.host_cancel_reason`, `recruits.cancel_reason`)
