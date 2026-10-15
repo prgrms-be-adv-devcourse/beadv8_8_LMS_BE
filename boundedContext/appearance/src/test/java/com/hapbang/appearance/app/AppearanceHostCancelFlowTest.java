@@ -2,6 +2,8 @@ package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doCallRealMethod;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -27,6 +29,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
@@ -92,6 +95,9 @@ class AppearanceHostCancelFlowTest {
 
     @Autowired
     HpTaskExecuteUseCase hpTaskExecuteUseCase;
+
+    @MockitoSpyBean
+    HpTaskSupport hpTaskSupport;
 
     @Autowired
     FakeBillingClient fakeBillingClient;
@@ -333,6 +339,31 @@ class AppearanceHostCancelFlowTest {
         }
 
         @Test
+        @DisplayName("앞 작업의 결과 기록이 실패해도(DB 오류 등) 예외 없이 취소가 성공으로 응답되고 뒤 작업도 실행된다. 기록 못 한 작업은 PENDING → 재시도로 DONE, 위약금은 한 번만")
+        void executeContinuesAfterRecordFailure() {
+            Long recruitId = postRecruit(2);
+            establishFromRecruit(recruitId, GUEST);
+            // 실행 순서: 위약금 작업(조회 → 결과 기록), 빈자리 반환(조회 → 결과 기록). 위약금 작업의 결과 기록만 실패시킨다
+            doCallRealMethod().doThrow(new IllegalStateException("DB 연결 끊김")).doCallRealMethod()
+                    .when(hpTaskSupport).getById(any());
+
+            AppearanceRecruitResDto canceled = appearanceRecruitFacade.cancel(HOST, recruitId, false, null);
+
+            assertThat(canceled.status()).isEqualTo(AppearanceRecruitStatus.CANCELED);
+            assertThat(onlyTask(HpTaskType.PENALTY).getStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(onlyTask(HpTaskType.RELEASE).getStatus()).isEqualTo(HpTaskStatus.DONE);
+
+            HpTask penalty = onlyTask(HpTaskType.PENALTY);
+            jdbcTemplate.update("update appearances.hp_tasks set created_at = ?, next_attempt_at = ? where id = ?",
+                    now().minusMinutes(2), now().minusSeconds(1), penalty.getId());
+            hpTaskRetryUseCase.retryDue();
+
+            assertThat(onlyTask(HpTaskType.PENALTY).getStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + PENALTY);
+            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isZero();
+        }
+
+        @Test
         @DisplayName("성립 0명: 위약금 없이 전액 90,000 반환")
         void noneSelected() {
             Long recruitId = postRecruit(3);
@@ -436,6 +467,17 @@ class AppearanceHostCancelFlowTest {
             assertThat(results).allSatisfy(result -> assertThat(result).isInstanceOfAny(
                     AppearanceRecruitResDto.class, AppearanceApplicationResDto.class, AppearanceException.class));
             assertThat(results.getFirst()).isInstanceOf(AppearanceRecruitResDto.class);
+            if (results.get(1) instanceof AppearanceException error) {
+                // 전체 취소가 먼저: 수락은 막히고 성립 출연 1건만 일방 취소, 빈자리 1명분 반환
+                assertThat(error.getErrorCode()).isEqualTo(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
+                assertThat(tasksOf(HpTaskType.PENALTY)).hasSize(1);
+                assertThat(onlyTask(HpTaskType.RELEASE).getAmount()).isEqualTo(FEE);
+            } else {
+                // 수락이 먼저: 출연 2건 모두 일방 취소, 빈자리 없음
+                assertThat(results.get(1)).isInstanceOf(AppearanceApplicationResDto.class);
+                assertThat(tasksOf(HpTaskType.PENALTY)).hasSize(2);
+                assertThat(tasksOf(HpTaskType.RELEASE)).isEmpty();
+            }
             assertThat(appearanceFacade.getMine(HOST, AppearanceRole.HOST,
                     List.of(AppearanceStatus.ESTABLISHED, AppearanceStatus.CANCEL_REQUESTED), PageRequest.of(0, 20))
                     .getTotalElements()).isZero();

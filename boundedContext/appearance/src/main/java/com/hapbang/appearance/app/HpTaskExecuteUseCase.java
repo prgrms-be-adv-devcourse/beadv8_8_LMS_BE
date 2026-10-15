@@ -37,7 +37,9 @@ import lombok.extern.slf4j.Slf4j;
  *         <li>결과를 알 수 없는 실패 → 재시도 정책에 따라 다음 시도 시각을 정하고, 최대 횟수에 닿으면 {@code DEAD}</li>
  *     </ul></li>
  *     <li>격리되면 {@code [HP_TASK_DEAD]} 오류 로그를 남긴다 (로그에서 이 문자열로 찾는다).</li>
- *     <li>실패해도 예외를 밖으로 던지지 않는다. 업무 상태(거절·취소·만료)는 이미 커밋됐다.</li>
+ *     <li>실패해도 예외를 밖으로 던지지 않는다. 업무 상태(거절·취소·만료)는 이미 커밋됐다.
+ *     결과 기록 같은 처리 중 예외(DB 오류 등)도 로그만 남기고, 작업은 대기로 남아 재시도 배치가 다시 실행한다
+ *     (같은 요청 ID라 Billing은 한 번만 처리한다). 여러 작업을 이어서 실행하는 호출(모집 전체 취소)도 앞 작업 때문에 멈추지 않는다.</li>
  *     <li>같은 작업을 두 곳에서 동시에 실행해도 같은 반환 요청 ID라 Billing은 한 번만 처리한다.
  *     결과 기록은 대기 중일 때만 하고, 버전 충돌이면 먼저 기록한 쪽을 따른다.</li>
  *     <li>결과 기록은 같은 클래스 안 메서드 호출이라 {@code @Transactional}이 적용되지 않으므로 {@link TransactionTemplate}으로 연다.</li>
@@ -57,6 +59,14 @@ public class HpTaskExecuteUseCase {
     private final Clock clock;
 
     public void execute(Long taskId) {
+        try {
+            run(taskId);
+        } catch (RuntimeException unexpected) {
+            log.error("HP 작업 실행 중 예외, 작업은 대기로 남아 재시도 배치가 다시 실행한다 taskId={}", taskId, unexpected);
+        }
+    }
+
+    private void run(Long taskId) {
         HpTask task = hpTaskSupport.getById(taskId);
         if (!task.isRunnable(LocalDateTime.now(clock))) {
             return;

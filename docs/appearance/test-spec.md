@@ -795,7 +795,8 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 전체 취소 | 모집 중 합의 취소된 자리 | 위약금 없음, 빈자리 반환 60,000 (합의 취소 자리 포함) |
 | 전체 취소 | 처리 중 취소 요청 | 확인 없이 `CANCEL_REQUEST_CONFIRM_REQUIRED`(모집글 `RECRUITING`, 일방 취소 0건) → 확인하면 요청 `CLOSED_BY_HOST_CANCEL`, 위약금 2건 |
 | 전체 취소 | 거부 | 다른 회원 `NOT_RECRUIT_HOST`, 다시 취소 `APPEARANCE_RECRUIT_NOT_CANCELABLE`, 방송 예정 일시 지남 `APPEARANCE_SCHEDULE_PASSED`, 보류 처리 중 `APPEARANCE_RECRUIT_NOT_FOUND` |
-| 동시성 | 전체 취소 + 대기 지원 수락 | 결과는 응답·업무 예외뿐(교착 상태 없음), 전체 취소 성공, 진행 중 출연 0건, 보류 0 |
+| 동시성 | 전체 취소 + 대기 지원 수락 | 결과는 응답·업무 예외뿐(교착 상태 없음), 전체 취소 성공, 진행 중 출연 0건, 보류 0. 수락이 먼저면 위약금 2건·빈자리 반환 없음, 막혔으면(`APPEARANCE_RECRUIT_NOT_OPEN`) 위약금 1건·빈자리 30,000 |
+| 전체 취소 | 앞 작업(위약금)의 결과 기록 실패 (DB 오류 흉내) | 예외 없이 취소 성공 응답, 뒤 작업(빈자리 반환)도 `DONE`, 위약금 작업은 `PENDING` → 재시도로 `DONE`, 위약금은 한 번만 지급 |
 | 역할 | 세션 USER / ADMIN | 일방 취소·전체 취소 `AccessDeniedException` |
 
 ### 14.3 E2E·기타
