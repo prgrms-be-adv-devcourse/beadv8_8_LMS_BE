@@ -3,6 +3,8 @@ package com.hapbang.lecture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -33,6 +35,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -45,8 +48,11 @@ import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.global.exception.BusinessException;
+import com.hapbang.lecture.app.LectureOrderSupport;
+import com.hapbang.lecture.app.OrderPayoutUseCase;
 import com.hapbang.lecture.domain.ContentType;
 import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureContentSpec;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -57,6 +63,7 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
+import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
 import com.hapbang.shared.billing.port.BillingPort;
 import com.hapbang.shared.lecture.port.LectureObjectionPort;
 import com.hapbang.shared.member.domain.Role;
@@ -69,9 +76,10 @@ import com.jayway.jsonpath.JsonPath;
  * 강의 판매 수익을 강의가 shared {@link BillingPort#payout}으로 직접 지급하는 방식(#188)을 실제 billing·PostgreSQL로 확인한다.
  * <ul>
  *     <li>구매·구매 취소는 보류·반환만 billing을 부르고 지급 건(SETTLEMENT)을 만들지 않는다. 강의 주문 변경과 한 트랜잭션이다.</li>
- *     <li>지급은 강의(#150)가 지급 시점·이의 제기·판매자 상태를 판단한 뒤 부른다. 강의 지급 코드는 아직 dev에 없으므로
- *     #150의 호출 형태({@code PayoutCommand.full(구매자, LECTURE_ORDER_ITEM, 항목 ID, "LECTURE-PAYOUT-{항목 ID}", 판매자,
- *     LECTURE_ORDER_ITEM, 항목 ID)})로 billing을 직접 부른다.</li>
+ *     <li>지급은 강의(#150)가 지급 시점·이의 제기를 판단한 뒤 부른다. billing 규칙은 #150의 호출 형태
+ *     ({@code PayoutCommand.full(구매자, LECTURE_ORDER_ITEM, 항목 ID, "LECTURE-PAYOUT-{항목 ID}", 판매자,
+ *     LECTURE_ORDER_ITEM, 항목 ID)})로 billing을 직접 불러 보고, 강의 상태 전이와 함께 커밋·롤백되는지는 실제 지급 배치
+ *     ({@link OrderPayoutUseCase})로 본다.</li>
  * </ul>
  * 잔액은 billing에 충전 API가 없어 충전 건·충전 원장(수익 HP는 지급 원장)을 직접 만든다.
  */
@@ -118,6 +126,13 @@ class LectureOrderPayoutIntegrationTest {
 
     @Autowired
     PlatformTransactionManager transactionManager;
+
+    @Autowired
+    OrderPayoutUseCase orderPayoutUseCase;
+
+    // 지급 배치가 항목을 읽은 직후에 멈추게 해 그 사이에 이의 제기 접수·인정을 커밋한다 (스파이는 실제 메서드를 부른다)
+    @MockitoSpyBean
+    LectureOrderSupport lectureOrderSupport;
 
     private final AtomicInteger sequence = new AtomicInteger();
 
@@ -509,6 +524,408 @@ class LectureOrderPayoutIntegrationTest {
     }
 
     // ---------------------------------------------------------------------------------------------
+    // 실제 지급 배치(#150) + 실제 billing: 항목 상태 전이와 지급이 함께 커밋·롤백된다
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    void 지급_배치는_판매자_지갑이_없으면_항목을_CONFIRMED로_두고_지갑이_생긴_뒤_다음_실행에서_같은_요청_ID로_지급한다() {
+        User buyer = buyer("batch-seller-wallet-later");
+        Long buyerWalletId = fundCharge(buyer.getId(), PRICE_HP);
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_WITHOUT_WALLET_ID).getId()));
+        makePayoutDue(orderItemId);
+        Map<String, Object> before = financialSnapshot();
+
+        // WALLET_NOT_FOUND는 배치가 항목별로 잡고 넘어간다. 항목 상태 변경도 billing 변경도 남지 않는다
+        orderPayoutUseCase.payOutDueItems();
+
+        assertThat(itemStatus(orderItemId)).isEqualTo("CONFIRMED");
+        assertThat(financialSnapshot()).isEqualTo(before);
+        assertThat(sellerWalletCount(SELLER_WITHOUT_WALLET_ID)).isZero();
+
+        Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_WITHOUT_WALLET_ID).getId();
+        orderPayoutUseCase.payOutDueItems();
+
+        String key = "PAYOUT:" + holdId(orderItemId) + ":LECTURE-PAYOUT-" + orderItemId;
+        assertThat(itemStatus(orderItemId)).isEqualTo("PAID_OUT");
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " 0 PAID");
+        assertThat(settlements()).containsExactly(key + " " + SELLER_WITHOUT_WALLET_ID + " " + sellerWalletId
+                + " LECTURE_ORDER_ITEM " + orderItemId + " NORMAL 10000 10000 COMPLETED");
+        assertThat(ledgerLines(key)).containsExactly(
+                buyerWalletId + " CHARGE HELD -10000",
+                sellerWalletId + " REVENUE AVAILABLE 10000");
+        assertThat(wallet(sellerWalletId)).containsEntry("revenue_balance_hp", PRICE_HP);
+
+        // 이미 지급한 항목은 다음 실행의 대상이 아니다
+        Map<String, Object> paid = financialSnapshot();
+        orderPayoutUseCase.payOutDueItems();
+        assertThat(financialSnapshot()).isEqualTo(paid);
+    }
+
+    @Test
+    void 이의_제기가_기각된_항목은_지급_예정_시각이_지나면_지급_배치가_실제로_지급한다() {
+        User buyer = buyer("batch-objection-rejected");
+        fundCharge(buyer.getId(), PRICE_HP);
+        Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_ID).getId();
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+        lectureObjectionPort.fileObjection(orderItemId, buyer.getId(), 1L, "강의 소개와 영상 내용이 다릅니다.");
+        makePayoutDue(orderItemId);
+
+        // 접수 중에는 지급 예정 시각이 지나도 지급하지 않는다
+        Map<String, Object> filed = financialSnapshot();
+        orderPayoutUseCase.payOutDueItems();
+        assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("CONFIRMED FILED");
+        assertThat(financialSnapshot()).isEqualTo(filed);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                lectureObjectionPort.resolveObjection(orderItemId, 1L, false, 1L));
+        orderPayoutUseCase.payOutDueItems();
+
+        assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("PAID_OUT REJECTED");
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " 0 PAID");
+        assertThat(settlementCount()).isEqualTo(1);
+        assertThat(wallet(sellerWalletId)).containsEntry("revenue_balance_hp", PRICE_HP);
+    }
+
+    @Test
+    void 지급_배치가_항목을_읽은_뒤_이의_제기_접수가_커밋_전이면_배치는_항목_행_락을_기다렸다가_낙관적_락으로_롤백된다()
+            throws Exception {
+        User buyer = buyer("batch-filing-race");
+        fundCharge(buyer.getId(), PRICE_HP);
+        Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_ID).getId();
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+        makePayoutDue(orderItemId);
+        CountDownLatch loaded = new CountDownLatch(1);
+        CountDownLatch resumeBatch = new CountDownLatch(1);
+        pauseBatchAfterRead(orderItemId, loaded, resumeBatch);
+        CountDownLatch filed = new CountDownLatch(1);
+        CountDownLatch commitFiling = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<?> batch = executor.submit(() -> orderPayoutUseCase.payOutDueItems());
+            assertThat(loaded.await(30, TimeUnit.SECONDS)).isTrue();
+            // 지급 예정 시각 직전에 시작한 접수를 재현한다. 접수는 기한 전에만 되므로 기한만 뒤로 미루고(version은 그대로)
+            // 실제 접수 포트로 접수한다. 접수 트랜잭션은 flush로 항목 행을 잠근 채 커밋하지 않고 기다린다
+            jdbcTemplate.update("UPDATE lectures.order_item SET payout_scheduled_at = ? WHERE id = ?",
+                    Timestamp.valueOf(LocalDateTime.now().plusDays(1)), orderItemId);
+            Future<?> filing = executor.submit(() -> new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(status -> {
+                        lectureObjectionPort.fileObjection(orderItemId, buyer.getId(), 1L, "강의 소개와 영상 내용이 다릅니다.");
+                        filed.countDown();
+                        awaitLatch(commitFiling);
+                    }));
+            assertThat(filed.await(30, TimeUnit.SECONDS)).isTrue();
+            resumeBatch.countDown();
+            // 배치의 PAID_OUT UPDATE가 접수 트랜잭션의 항목 행 락을 기다린다(billing 호출 전)
+            awaitLockWaiters(1);
+            commitFiling.countDown();
+            filing.get(30, TimeUnit.SECONDS);
+            batch.get(30, TimeUnit.SECONDS);
+        }
+
+        // 접수가 커밋되면 배치의 UPDATE는 version이 달라 0행이 되어 롤백되고, billing을 부르지 않는다
+        assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("CONFIRMED FILED");
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " " + PRICE_HP + " HELD");
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_hold_detail", Integer.class))
+                .isZero();
+        assertThat(settlementCount()).isZero();
+        assertThat(wallet(sellerWalletId)).containsEntry("revenue_balance_hp", 0L);
+    }
+
+    @Test
+    void 지급_배치가_항목을_읽은_뒤_이의_제기_인정이_반환까지_마치고_커밋_전이어도_배치는_기다리지_않고_롤백되어_billing을_부르지_않는다()
+            throws Exception {
+        User buyer = buyer("batch-objection-race");
+        Long buyerWalletId = fundCharge(buyer.getId(), PRICE_HP);
+        Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_ID).getId();
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+        makePayoutDue(orderItemId);
+        CountDownLatch loaded = new CountDownLatch(1);
+        CountDownLatch resumeBatch = new CountDownLatch(1);
+        pauseBatchAfterRead(orderItemId, loaded, resumeBatch);
+        CountDownLatch released = new CountDownLatch(1);
+        CountDownLatch commitAccept = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<?> batch = executor.submit(() -> orderPayoutUseCase.payOutDueItems());
+            assertThat(loaded.await(30, TimeUnit.SECONDS)).isTrue();
+            // 지급 예정 시각 직전에 시작한 접수가 지금 커밋된 것과 같다(접수 API는 기한 뒤 접수를 거부하므로 행을 직접 바꾼다)
+            jdbcTemplate.update("""
+                    UPDATE lectures.order_item SET objection_status = 'FILED', objection_inquiry_id = 1,
+                        objection_reason = '강의 소개와 영상 내용이 다릅니다.', objection_filed_at = now(),
+                        version = version + 1
+                    WHERE id = ?""", orderItemId);
+            // 인정 트랜잭션은 주문 → 항목 → 구매자 지갑 → 보류를 잠그고 반환까지 마친 뒤 커밋하지 않고 기다린다
+            Future<?> accept = executor.submit(() -> new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(status -> {
+                        lectureObjectionPort.resolveObjection(orderItemId, 1L, true, 1L);
+                        released.countDown();
+                        awaitLatch(commitAccept);
+                    }));
+            assertThat(released.await(30, TimeUnit.SECONDS)).isTrue();
+            resumeBatch.countDown();
+            // 커밋된 행의 version이 이미 접수로 바뀌어 배치의 UPDATE ... WHERE version = (읽은 값)은 인정 트랜잭션의 락을
+            // 기다리지 않고 0행으로 끝난다. 인정이 커밋되기 전에 배치가 끝나므로 배치와 인정 사이에 대기 관계가 없다
+            batch.get(30, TimeUnit.SECONDS);
+            assertThat(accept.isDone()).isFalse();
+            commitAccept.countDown();
+            accept.get(30, TimeUnit.SECONDS);
+        }
+
+        // 배치의 PAID_OUT 변경은 billing 호출 전 flush에서 version 충돌로 실패해 지급을 부르지 않는다
+        assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("RETURNED ACCEPTED");
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " 0 RELEASED");
+        assertThat(jdbcTemplate.queryForList("SELECT action_type FROM billing.point_hold_detail", String.class))
+                .containsExactly("RELEASE");
+        assertThat(settlementCount()).isZero();
+        assertThat(wallet(buyerWalletId)).containsEntry("charge_balance_hp", PRICE_HP)
+                .containsEntry("held_charge_hp", 0L);
+        assertThat(wallet(sellerWalletId)).containsEntry("revenue_balance_hp", 0L);
+        // 원장 합: 구매자 충전 +10,000만 남는다(보류·반환은 서로 상쇄, 지급 원장 없음)
+        assertThat(jdbcTemplate.queryForObject("SELECT sum(amount_hp) FROM billing.point_ledger", Long.class))
+                .isEqualTo(PRICE_HP);
+
+        // 반환이 먼저 커밋된 항목은 다음 배치 실행에서도 대상이 아니다(재시도해도 지급하지 않는다)
+        Map<String, Object> returned = financialSnapshot();
+        orderPayoutUseCase.payOutDueItems();
+        assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("RETURNED ACCEPTED");
+        assertThat(financialSnapshot()).isEqualTo(returned);
+    }
+
+    @Test
+    void 같은_주문의_한_항목_지급과_다른_항목_구매_취소가_구매자_지갑_락에서_만나도_교착_없이_모두_처리된다() throws Exception {
+        // 같은 항목의 지급(CONFIRMED)과 구매 취소(PURCHASED)는 상태가 겹치지 않는다. 겹치는 금융 자원은 구매자 지갑이다
+        User buyer = buyer("batch-cancel-race");
+        Long buyerWalletId = fundCharge(buyer.getId(), 2 * PRICE_HP);
+        Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_ID).getId();
+        Map<String, Object> order = order(buyer, List.of(saveOnSaleLecture(SELLER_ID).getId(),
+                saveOnSaleLecture(SELLER_ID).getId()));
+        Long payItemId = itemIdAt(order, 0);
+        Long cancelItemId = itemIdAt(order, 1);
+        makePayoutDue(payItemId);
+        CountDownLatch walletLocked = new CountDownLatch(1);
+        CountDownLatch releaseWallet = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(3)) {
+            // 구매자 지갑을 먼저 잡아 두 트랜잭션이 각자 앞 단계 락(지급: 항목 A, 취소: 주문·항목 B)을 쥔 채 지갑에서 만나게 한다
+            Future<?> blocker = executor.submit(() -> holdRowLock("SELECT id FROM billing.wallet WHERE id = ?",
+                    buyerWalletId, walletLocked, releaseWallet));
+            assertThat(walletLocked.await(30, TimeUnit.SECONDS)).isTrue();
+            Future<?> batch = executor.submit(() -> orderPayoutUseCase.payOutDueItems());
+            Future<Integer> cancel = executor.submit(() -> cancelItem(buyer, orderId(order), cancelItemId));
+            awaitLockWaiters(2);
+            releaseWallet.countDown();
+            blocker.get(30, TimeUnit.SECONDS);
+            batch.get(30, TimeUnit.SECONDS);
+            assertThat(cancel.get(30, TimeUnit.SECONDS)).isEqualTo(200);
+        }
+
+        assertThat(itemStatus(payItemId)).isEqualTo("PAID_OUT");
+        assertThat(itemStatus(cancelItemId)).isEqualTo("CANCELED");
+        assertThat(holds()).containsExactlyInAnyOrder(
+                "HOLD:LECTURE_ORDER_ITEM:" + payItemId + " 0 PAID",
+                "HOLD:LECTURE_ORDER_ITEM:" + cancelItemId + " 0 RELEASED");
+        assertThat(settlementCount()).isEqualTo(1);
+        assertThat(wallet(buyerWalletId)).containsEntry("charge_balance_hp", PRICE_HP)
+                .containsEntry("held_charge_hp", 0L);
+        assertThat(wallet(sellerWalletId)).containsEntry("revenue_balance_hp", PRICE_HP);
+        // 원장 합 = 충전 20,000 (지급분은 판매자 수익 HP로 옮겨졌을 뿐 총량은 같다)
+        assertThat(jdbcTemplate.queryForObject("SELECT sum(amount_hp) FROM billing.point_ledger", Long.class))
+                .isEqualTo(2 * PRICE_HP);
+    }
+
+    @Test
+    void 같은_주문의_이의_제기_인정과_다른_항목_구매_취소는_주문_락으로_직렬화되어_주문이_취소로_닫힌다() throws Exception {
+        User buyer = buyer("accept-cancel-race");
+        Long buyerWalletId = fundCharge(buyer.getId(), 2 * PRICE_HP);
+        Map<String, Object> order = order(buyer, List.of(saveOnSaleLecture(SELLER_ID).getId(),
+                saveOnSaleLecture(SELLER_ID).getId()));
+        Long acceptItemId = itemIdAt(order, 0);
+        Long cancelItemId = itemIdAt(order, 1);
+        lectureObjectionPort.fileObjection(acceptItemId, buyer.getId(), 1L, "강의 소개와 영상 내용이 다릅니다.");
+        CountDownLatch orderLocked = new CountDownLatch(1);
+        CountDownLatch releaseOrder = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(3)) {
+            Future<?> blocker = executor.submit(() -> holdRowLock("SELECT id FROM lectures.lecture_order WHERE id = ?",
+                    orderId(order), orderLocked, releaseOrder));
+            assertThat(orderLocked.await(30, TimeUnit.SECONDS)).isTrue();
+            Future<?> accept = executor.submit(() -> new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(status -> lectureObjectionPort.resolveObjection(acceptItemId, 1L, true, 1L)));
+            Future<Integer> cancel = executor.submit(() -> cancelItem(buyer, orderId(order), cancelItemId));
+            // 둘 다 주문 행 락에서 기다린다(항목·지갑 락을 잡기 전)
+            awaitLockWaiters(2);
+            releaseOrder.countDown();
+            blocker.get(30, TimeUnit.SECONDS);
+            accept.get(30, TimeUnit.SECONDS);
+            assertThat(cancel.get(30, TimeUnit.SECONDS)).isEqualTo(200);
+        }
+
+        // 늦은 쪽이 앞 변경의 커밋을 보고 마지막 항목으로 판정해 주문을 닫는다
+        assertThat(itemStatusAndObjection(acceptItemId)).isEqualTo("RETURNED ACCEPTED");
+        assertThat(itemStatus(cancelItemId)).isEqualTo("CANCELED");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM lectures.lecture_order WHERE id = ?", String.class,
+                orderId(order))).isEqualTo("CANCELED");
+        assertThat(holds()).containsExactlyInAnyOrder(
+                "HOLD:LECTURE_ORDER_ITEM:" + acceptItemId + " 0 RELEASED",
+                "HOLD:LECTURE_ORDER_ITEM:" + cancelItemId + " 0 RELEASED");
+        assertThat(settlementCount()).isZero();
+        assertThat(wallet(buyerWalletId)).containsEntry("charge_balance_hp", 2 * PRICE_HP)
+                .containsEntry("held_charge_hp", 0L);
+    }
+
+    @Test
+    void 같은_항목의_이의_제기_인정이_동시에_두_번_와도_반환은_한_번이고_늦은_쪽은_NOT_FILED로_롤백된다() throws Exception {
+        User buyer = buyer("double-accept-race");
+        Long buyerWalletId = fundCharge(buyer.getId(), PRICE_HP);
+        Map<String, Object> order = order(buyer, saveOnSaleLecture(SELLER_ID).getId());
+        Long orderItemId = orderItemId(order);
+        lectureObjectionPort.fileObjection(orderItemId, buyer.getId(), 1L, "강의 소개와 영상 내용이 다릅니다.");
+        CountDownLatch orderLocked = new CountDownLatch(1);
+        CountDownLatch releaseOrder = new CountDownLatch(1);
+        List<Future<String>> accepts;
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(3)) {
+            Future<?> blocker = executor.submit(() -> holdRowLock("SELECT id FROM lectures.lecture_order WHERE id = ?",
+                    orderId(order), orderLocked, releaseOrder));
+            assertThat(orderLocked.await(30, TimeUnit.SECONDS)).isTrue();
+            accepts = List.of(executor.submit(() -> acceptOutcome(orderItemId)),
+                    executor.submit(() -> acceptOutcome(orderItemId)));
+            awaitLockWaiters(2);
+            releaseOrder.countDown();
+            blocker.get(30, TimeUnit.SECONDS);
+            assertThat(List.of(accepts.get(0).get(30, TimeUnit.SECONDS), accepts.get(1).get(30, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder("ACCEPTED", "NOT_FILED");
+        }
+
+        assertThat(itemStatusAndObjection(orderItemId)).isEqualTo("RETURNED ACCEPTED");
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " 0 RELEASED");
+        assertThat(jdbcTemplate.queryForList("SELECT action_type FROM billing.point_hold_detail", String.class))
+                .containsExactly("RELEASE");
+        assertThat(wallet(buyerWalletId)).containsEntry("charge_balance_hp", PRICE_HP)
+                .containsEntry("held_charge_hp", 0L);
+    }
+
+    // 지급 배치가 이 항목의 주문·항목을 읽은 직후 멈추게 한다(항목은 지연 로딩이라 여기서 읽어 둔다)
+    private void pauseBatchAfterRead(Long orderItemId, CountDownLatch loaded, CountDownLatch resume) {
+        doAnswer(invocation -> {
+            LectureOrder order = (LectureOrder) invocation.callRealMethod();
+            order.getItems();
+            loaded.countDown();
+            assertThat(resume.await(30, TimeUnit.SECONDS)).isTrue();
+            return order;
+        }).when(lectureOrderSupport).findOrderByItemId(eq(orderItemId));
+    }
+
+    // 한 행을 FOR UPDATE로 잠근 트랜잭션을 열어 두고, 풀어 줄 때까지 기다렸다가 커밋한다
+    private void holdRowLock(String select, Long id, CountDownLatch locked, CountDownLatch release) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            jdbcTemplate.queryForList(select + " FOR UPDATE", id);
+            locked.countDown();
+            awaitLatch(release);
+        });
+    }
+
+    // 다른 트랜잭션의 락을 기다리는(아직 얻지 못한) 세션이 n개 이상이 될 때까지 기다린다
+    private void awaitLockWaiters(int sessions) {
+        await().atMost(30, TimeUnit.SECONDS).until(() -> jdbcTemplate.queryForObject(
+                "SELECT count(DISTINCT pid) FROM pg_locks WHERE NOT granted", Integer.class) >= sessions);
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            assertThat(latch.await(30, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private int cancelItem(User buyer, Long orderId, Long orderItemId) throws Exception {
+        return mockMvc.perform(post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/cancel", orderId,
+                        orderItemId).with(csrf()).with(TestLogin.as(buyer.getId(), Role.USER)))
+                .andReturn().getResponse().getStatus();
+    }
+
+    // 이의 제기 인정을 한 트랜잭션에서 시도하고 결과(성공 ACCEPTED 또는 거절 사유)를 돌려준다
+    private String acceptOutcome(Long orderItemId) {
+        try {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                    lectureObjectionPort.resolveObjection(orderItemId, 1L, true, 1L));
+            return "ACCEPTED";
+        } catch (LectureObjectionRefusedException exception) {
+            return exception.getReason().name();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Long itemIdAt(Map<String, Object> order, int index) {
+        return ((Number) ((List<Map<String, Object>>) order.get("items")).get(index).get("orderItemId")).longValue();
+    }
+
+    @Test
+    void 지급_배치가_동시에_두_번_실행되어도_같은_항목은_한_번만_지급된다() throws Exception {
+        User buyer = buyer("batch-double-run");
+        Long buyerWalletId = fundCharge(buyer.getId(), PRICE_HP);
+        Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_ID).getId();
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+        makePayoutDue(orderItemId);
+        // 두 실행이 모두 지급 전 항목을 읽은 뒤에 진행하게 한다(같은 version을 본 두 트랜잭션)
+        CountDownLatch bothLoaded = new CountDownLatch(2);
+        doAnswer(invocation -> {
+            LectureOrder order = (LectureOrder) invocation.callRealMethod();
+            order.getItems();
+            bothLoaded.countDown();
+            assertThat(bothLoaded.await(30, TimeUnit.SECONDS)).isTrue();
+            return order;
+        }).when(lectureOrderSupport).findOrderByItemId(eq(orderItemId));
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<?> first = executor.submit(() -> orderPayoutUseCase.payOutDueItems());
+            Future<?> second = executor.submit(() -> orderPayoutUseCase.payOutDueItems());
+            // 늦은 쪽은 항목 행 락을 기다렸다가 version 충돌로 끝난다(교착이면 시간 초과)
+            first.get(60, TimeUnit.SECONDS);
+            second.get(60, TimeUnit.SECONDS);
+        }
+
+        String key = "PAYOUT:" + holdId(orderItemId) + ":LECTURE-PAYOUT-" + orderItemId;
+        assertThat(itemStatus(orderItemId)).isEqualTo("PAID_OUT");
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " 0 PAID");
+        assertThat(jdbcTemplate.queryForList("SELECT action_type FROM billing.point_hold_detail", String.class))
+                .containsExactly("PAYOUT");
+        assertThat(settlementCount()).isEqualTo(1);
+        assertThat(ledgerLines(key)).hasSize(2);
+        assertThat(wallet(sellerWalletId)).containsEntry("revenue_balance_hp", PRICE_HP);
+        assertThat(wallet(buyerWalletId)).containsEntry("charge_balance_hp", 0L).containsEntry("held_charge_hp", 0L);
+    }
+
+    @Test
+    void 지급_배치는_billing의_원천_중복_오류를_지급_완료로_보지_않고_항목을_CONFIRMED로_남긴다() {
+        // #142·#182 방식의 지급 예정 건(SCHEDULED)이 남은 항목: 실행할 때마다 PAYOUT_ALREADY_SETTLED로 실패한다
+        User buyer = buyer("batch-legacy-scheduled");
+        fundCharge(buyer.getId(), PRICE_HP);
+        Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_ID).getId();
+        Long orderItemId = orderItemId(order(buyer, saveOnSaleLecture(SELLER_ID).getId()));
+        insertLegacySettlement(orderItemId, sellerWalletId, "SCHEDULED");
+        makePayoutDue(orderItemId);
+        Map<String, Object> before = financialSnapshot();
+
+        orderPayoutUseCase.payOutDueItems();
+        orderPayoutUseCase.payOutDueItems();
+
+        assertThat(itemStatus(orderItemId)).isEqualTo("CONFIRMED");
+        assertThat(financialSnapshot()).isEqualTo(before);
+        assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " " + PRICE_HP + " HELD");
+    }
+
+    // 구매 확정되고 지급 예정 시각이 지난 항목으로 만든다(배치 조회 조건, OrderItem.isPayable)
+    private void makePayoutDue(Long orderItemId) {
+        jdbcTemplate.update("""
+                UPDATE lectures.order_item SET status = 'CONFIRMED', confirmation_type = 'DIRECT',
+                    confirmed_at = purchased_at, payout_scheduled_at = ? WHERE id = ?""",
+                Timestamp.valueOf(LocalDateTime.now().minusDays(1)), orderItemId);
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // 도우미
     // ---------------------------------------------------------------------------------------------
 
@@ -560,11 +977,17 @@ class LectureOrderPayoutIntegrationTest {
 
     // 강의를 주문하고 응답의 data를 돌려준다. 강의 모듈의 회원 복제는 가입 이벤트로 비동기로 만들어지므로 성공할 때까지 기다린다.
     private Map<String, Object> order(User buyer, Long lectureId) {
+        return order(buyer, List.of(lectureId));
+    }
+
+    // 여러 강의를 한 주문으로 산다(항목 순서 = 요청 순서)
+    private Map<String, Object> order(User buyer, List<Long> lectureIds) {
+        String ids = String.join(", ", lectureIds.stream().map(String::valueOf).toList());
         AtomicReference<String> body = new AtomicReference<>();
         await().untilAsserted(() -> body.set(mockMvc.perform(post("/api/v1/lectures/orders").with(csrf())
                         .with(TestLogin.as(buyer.getId(), Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"lectureIds\": [" + lectureId + "]}"))
+                        .content("{\"lectureIds\": [" + ids + "]}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString()));
         return JsonPath.read(body.get(), "$.data");
