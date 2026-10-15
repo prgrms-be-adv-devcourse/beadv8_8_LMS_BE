@@ -3,6 +3,8 @@ package com.hapbang.billing.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -63,5 +65,51 @@ class PointChargeTest {
         assertThat(hold.getStatus()).isEqualTo(PointHoldStatus.HELD);
         assertThat(hold.getHeldChargeHp()).isEqualTo(hold.getOriginalChargeHp());
         assertThat(hold.originalTotalHp()).isEqualTo(3_000L);
+    }
+
+    @Test
+    @DisplayName("충전 주문은 승인 전(PENDING)이라 가용 원금 0이고, 승인 요청 시작 → 확정에서 충전 금액 전부가 가용 원금이 된다 (#224)")
+    void chargeConfirmFlow() {
+        Instant now = Instant.parse("2026-10-15T01:00:00Z");
+        PointCharge charge = PointCharge.requested(1L, 10_000L, "HPCHG-order", now);
+
+        assertThat(charge.getStatus()).isEqualTo(PointChargeStatus.PENDING);
+        assertThat(charge.getRemainingPrincipalHp()).isZero();
+        assertThat(charge.getPaymentAmountKrw()).isEqualTo(10_000L);
+        assertThat(charge.isSettled()).isFalse();
+
+        charge.startConfirm("v1:encrypted", "a".repeat(64));
+        assertThat(charge.getStatus()).isEqualTo(PointChargeStatus.PROCESSING);
+        assertThat(charge.hasPaymentKeyHash("a".repeat(64))).isTrue();
+        assertThat(charge.hasPaymentKeyHash("b".repeat(64))).isFalse();
+        assertThat(charge.getRemainingPrincipalHp()).isZero();
+
+        charge.noteUnresolved("CONFIRM_NO_RESPONSE");
+        assertThat(charge.getFailureReason()).isEqualTo("CONFIRM_NO_RESPONSE");
+
+        charge.complete(now.plusSeconds(1));
+        assertThat(charge.getStatus()).isEqualTo(PointChargeStatus.COMPLETED);
+        assertThat(charge.getRemainingPrincipalHp()).isEqualTo(10_000L);
+        assertThat(charge.getCompletedAt()).isEqualTo(now.plusSeconds(1));
+        assertThat(charge.getFailureReason()).isNull();
+        assertThat(charge.isSettled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("승인 실패는 PROCESSING에서만 FAILED가 되고 원금은 0이다. 순서가 틀린 전이는 거절한다 (#224)")
+    void chargeFailAndInvalidTransitions() {
+        Instant now = Instant.parse("2026-10-15T01:00:00Z");
+        PointCharge pending = PointCharge.requested(1L, 1_000L, "HPCHG-order", now);
+        assertThatThrownBy(() -> pending.complete(now)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> pending.fail("x", now)).isInstanceOf(IllegalStateException.class);
+
+        pending.startConfirm("v1:encrypted", "a".repeat(64));
+        pending.fail("REJECT_CARD_PAYMENT: 한도초과", now);
+        assertThat(pending.getStatus()).isEqualTo(PointChargeStatus.FAILED);
+        assertThat(pending.getFailedAt()).isEqualTo(now);
+        assertThat(pending.getRemainingPrincipalHp()).isZero();
+        assertThatThrownBy(() -> pending.startConfirm("v1:other", "b".repeat(64)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> pending.complete(now)).isInstanceOf(IllegalStateException.class);
     }
 }
