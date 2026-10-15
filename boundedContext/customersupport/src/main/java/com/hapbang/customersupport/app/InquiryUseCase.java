@@ -76,19 +76,24 @@ public class InquiryUseCase {
 
     /**
      * 내 문의를 삭제한다(Soft Delete). 답변 대기일 때만 할 수 있다. 다른 회원의 문의나 이미 삭제된 문의는 404.
-     * 이의 제기 문의는 강의 모듈의 철회 연동(#203) 전까지 삭제할 수 없다.
+     * 이의 제기 문의면 같은 트랜잭션에서 강의 모듈의 이의 제기를 철회해 지급 중단을 푼다. 판단하면 답변 완료가 되므로
+     * 판단 전에만 철회된다. 강의 모듈이 철회를 거절하면 문의도 삭제되지 않는다.
      */
     public void delete(Long inquiryId, Long userId) {
         Inquiry inquiry = inquiryRepository.findByIdAndDeletedAtIsNull(inquiryId)
                 .filter(found -> found.isWrittenBy(userId))
                 .orElseThrow(() -> new CustomerSupportException(CustomerSupportErrorCode.INQUIRY_NOT_FOUND));
-        if (inquiry.isLectureDispute()) {
-            throw new CustomerSupportException(CustomerSupportErrorCode.OBJECTION_INQUIRY_NOT_DELETABLE);
-        }
         if (!inquiry.isWaiting()) {
             throw new CustomerSupportException(CustomerSupportErrorCode.INQUIRY_NOT_DELETABLE);
         }
         inquiry.delete(LocalDateTime.now());
+        if (inquiry.isLectureDispute()) {
+            try {
+                lectureObjectionPort.withdrawObjection(inquiry.getTargetId(), userId, inquiryId);
+            } catch (LectureObjectionRefusedException exception) {
+                throw refused(exception);
+            }
+        }
     }
 
     /** 관리자 답변. 답변을 달면 문의가 답변 완료가 된다. 회원이 삭제한 문의는 404 */

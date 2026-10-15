@@ -139,12 +139,45 @@ class InquiryObjectionTest {
     }
 
     @Test
-    void 이의_제기_문의는_철회_연동_전까지_삭제할_수_없다() {
+    void 판단_전_이의_제기_문의를_삭제하면_강의_모듈에_철회한다() {
         Long inquiryId = fileDispute().getId();
+
+        inquiryUseCase.delete(inquiryId, USER_ID);
+
+        verify(lectureObjectionPort).withdrawObjection(ORDER_ITEM_ID, USER_ID, inquiryId);
+        assertThat(inquiryRepository.findByIdAndDeletedAtIsNull(inquiryId)).isEmpty();
+    }
+
+    @Test
+    void 강의_모듈이_철회를_거절하면_문의가_삭제되지_않는다() {
+        Long inquiryId = fileDispute().getId();
+        doThrow(new LectureObjectionRefusedException(Reason.NOT_FILED)).when(lectureObjectionPort)
+                .withdrawObjection(any(), any(), any());
 
         assertThatThrownBy(() -> inquiryUseCase.delete(inquiryId, USER_ID))
                 .isInstanceOf(CustomerSupportException.class)
-                .extracting("errorCode").isEqualTo(CustomerSupportErrorCode.OBJECTION_INQUIRY_NOT_DELETABLE);
+                .extracting("errorCode").isEqualTo(CustomerSupportErrorCode.OBJECTION_NOT_FILED);
+        assertThat(inquiryRepository.findByIdAndDeletedAtIsNull(inquiryId)).isPresent();
+    }
+
+    @Test
+    void 판단한_이의_제기_문의는_삭제할_수_없고_철회하지_않는다() {
+        Long inquiryId = fileDispute().getId();
+        inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, false, "기각합니다.");
+
+        assertThatThrownBy(() -> inquiryUseCase.delete(inquiryId, USER_ID))
+                .isInstanceOf(CustomerSupportException.class)
+                .extracting("errorCode").isEqualTo(CustomerSupportErrorCode.INQUIRY_NOT_DELETABLE);
+        verify(lectureObjectionPort, never()).withdrawObjection(any(), any(), any());
+    }
+
+    @Test
+    void 일반_문의를_삭제하면_철회하지_않는다() {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
+
+        inquiryUseCase.delete(inquiryId, USER_ID);
+
+        verifyNoInteractions(lectureObjectionPort);
     }
 
     @Test

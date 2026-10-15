@@ -55,7 +55,8 @@ public interface ApiV1InquirySpec {
     @Operation(summary = "내 문의 삭제", description = """
             답변 대기(WAITING)인 내 문의만 삭제할 수 있다(204). 답변 완료면 409(INQUIRY_NOT_DELETABLE).
             다른 회원의 문의나 이미 삭제된 문의는 404(INQUIRY_NOT_FOUND). 본문은 분쟁 확인용으로 남는다(Soft Delete).
-            강의 내용 다름 이의 제기 문의는 아직 삭제할 수 없다 409(OBJECTION_INQUIRY_NOT_DELETABLE). 철회 연동 후 판단 전 철회로 바뀐다.""")
+            강의 내용 다름 이의 제기 문의를 삭제하면 이의 제기를 철회하고 판매자 지급 중단을 푼다. 같은 주문 항목으로 다시 이의 제기할 수 있다.
+            강의 쪽에서 철회할 수 없으면 삭제되지 않는다: 404(OBJECTION_NOT_BUYER), 409(OBJECTION_NOT_FILED, OBJECTION_INQUIRY_MISMATCH).""")
     ResponseEntity<Void> deleteInquiry(Long userId, Long inquiryId);
 
     @Operation(summary = "문의 목록 (관리자)", description = """

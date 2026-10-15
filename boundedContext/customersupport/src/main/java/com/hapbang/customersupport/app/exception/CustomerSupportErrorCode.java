@@ -17,11 +17,9 @@ public enum CustomerSupportErrorCode implements BaseErrorCode {
     INQUIRY_REPLY_NOT_FOUND(HttpStatus.NOT_FOUND, "답변을 찾을 수 없습니다."),
     INQUIRY_TARGET_REQUIRED(HttpStatus.BAD_REQUEST, "강의 내용 다름 이의 제기는 주문 항목 ID가 필요합니다."),
     INQUIRY_TARGET_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "주문 항목 ID는 강의 내용 다름 이의 제기에만 보낼 수 있습니다."),
-    // 이의 제기 문의 철회는 강의 모듈의 철회 연동(#203) 전까지 막는다. 지우면 강의 항목의 지급이 계속 멈춘다
-    OBJECTION_INQUIRY_NOT_DELETABLE(HttpStatus.CONFLICT, "이의 제기 문의는 아직 삭제할 수 없습니다."),
     NOT_OBJECTION_INQUIRY(HttpStatus.BAD_REQUEST, "강의 내용 다름 이의 제기 문의가 아닙니다."),
     OBJECTION_ALREADY_RESOLVED(HttpStatus.CONFLICT, "이미 판단한 이의 제기입니다."),
-    // 강의 모듈의 접수·판단 거절 사유 (LectureObjectionRefusedException.Reason). 메시지는 강의 쪽 사유 메시지를 쓴다
+    // 강의 모듈의 접수·판단·철회 거절 사유 (LectureObjectionRefusedException.Reason). 메시지는 강의 쪽 사유 메시지를 쓴다
     OBJECTION_NOT_BUYER(HttpStatus.NOT_FOUND, "구매자 본인의 주문 항목이 아닙니다."),
     OBJECTION_NOT_OBJECTIONABLE(HttpStatus.CONFLICT, "구매 취소되었거나 반환된 항목은 이의 제기할 수 없습니다."),
     OBJECTION_ALREADY_PAID_OUT(HttpStatus.CONFLICT, "이미 판매자에게 지급된 항목은 이의 제기할 수 없습니다."),

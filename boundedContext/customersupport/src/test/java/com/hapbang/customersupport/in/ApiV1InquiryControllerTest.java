@@ -473,12 +473,24 @@ class ApiV1InquiryControllerTest {
     }
 
     @Test
-    void 이의_제기_문의를_삭제하면_409() throws Exception {
+    void 이의_제기_문의를_삭제하면_204_이의_제기를_철회한다() throws Exception {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.LECTURE_CONTENT_DISPUTE, "내용이 달라요",
                 "달라요.", 100L).getId();
 
         mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
+                .andExpect(status().isNoContent());
+        verify(lectureObjectionPort).withdrawObjection(100L, USER_ID, inquiryId);
+    }
+
+    @Test
+    void 강의_모듈이_철회를_거절하면_사유_코드로_응답한다() throws Exception {
+        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.LECTURE_CONTENT_DISPUTE, "내용이 달라요",
+                "달라요.", 100L).getId();
+        doThrow(new LectureObjectionRefusedException(LectureObjectionRefusedException.Reason.INQUIRY_MISMATCH))
+                .when(lectureObjectionPort).withdrawObjection(any(), any(), any());
+
+        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("OBJECTION_INQUIRY_NOT_DELETABLE"));
+                .andExpect(jsonPath("$.code").value("OBJECTION_INQUIRY_MISMATCH"));
     }
 }
