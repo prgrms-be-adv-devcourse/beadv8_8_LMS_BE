@@ -27,7 +27,9 @@ import com.hapbang.testsupport.PostgresTestcontainersConfig;
                 "spring.modulith.events.completion-mode=delete",
                 // global의 SecurityConfig(oauth2Login)가 구글 등록 정보를 요구한다
                 "spring.security.oauth2.client.registration.google.client-id=test",
-                "spring.security.oauth2.client.registration.google.client-secret=test"
+                "spring.security.oauth2.client.registration.google.client-secret=test",
+                // 웹소켓 허용 출처 검사(#235)용 프론트 출처
+                "hapbang.chat.websocket.allowed-origins=http://localhost:5173"
         })
 @Import({PostgresTestcontainersConfig.class, E2ELoginConfig.class, E2ELoginConfig.TestSessionLoginController.class})
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,

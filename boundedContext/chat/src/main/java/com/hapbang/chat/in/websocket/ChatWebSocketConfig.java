@@ -1,5 +1,6 @@
 package com.hapbang.chat.in.websocket;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
@@ -36,10 +37,17 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final ChatStompInterceptor chatStompInterceptor;
 
+    /**
+     * 웹소켓 핸드셰이크를 허용할 프론트 출처 (프로필별 {@code hapbang.chat.websocket.allowed-origins}).
+     * 세션 쿠키 인증이라 모든 출처를 허용하면 다른 사이트가 로그인한 사용자의 연결을 열 수 있다(#235).
+     * 비어 있으면 같은 출처와 Origin 헤더가 없는 요청(테스트 클라이언트)만 허용한다.
+     */
+    @Value("${hapbang.chat.websocket.allowed-origins:}")
+    private String[] allowedOrigins;
+
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // TODO(security): CORS·허용 출처 정책이 정해지면 프론트 도메인만 허용한다. 지금은 모든 출처를 허용한다.
-        registry.addEndpoint(ENDPOINT).setAllowedOriginPatterns("*");
+        registry.addEndpoint(ENDPOINT).setAllowedOrigins(allowedOrigins);
     }
 
     @Override

@@ -22,6 +22,10 @@ springdoc:
     path: /swagger-ui.html
 
 hapbang:
+  chat:
+    websocket:
+      # 채팅 웹소켓 핸드셰이크를 허용할 프론트 출처 (#235). 여러 개면 쉼표로 구분한다
+      allowed-origins: http://localhost:5173
   storage:
     s3:
       # 기본은 docker/compose.yaml의 S3Mock(가짜 키, 서명·만료 검사 없음).
