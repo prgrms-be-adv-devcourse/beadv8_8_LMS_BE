@@ -1,5 +1,6 @@
 package com.hapbang.member.out;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,4 +37,8 @@ public interface InfluencerChannelRepository extends JpaRepository<InfluencerCha
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from InfluencerChannel c where c.id = :id and c.deletedAt is null")
     Optional<InfluencerChannel> findByIdForUpdate(@Param("id") Long id);
+
+    /** 여러 회원의 채널을 상태별로 한 번에 (승급 심사 목록에 승인된 채널 붙이기, N+1 방지) */
+    List<InfluencerChannel> findByUserIdInAndVerificationStatusAndDeletedAtIsNullOrderByIdAsc(
+            Collection<Long> userIds, ChannelVerificationStatus status);
 }

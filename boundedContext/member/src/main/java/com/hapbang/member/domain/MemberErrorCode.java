@@ -39,6 +39,10 @@ public enum MemberErrorCode implements BaseErrorCode {
     UPGRADE_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "승급 신청을 찾을 수 없습니다."),
     /** 심사 대기가 아닌 신청 (이미 처리됨 포함) */
     UPGRADE_REQUEST_REVIEW_NOT_ALLOWED(HttpStatus.CONFLICT, "심사 대기 중인 승급 신청만 승인·반려할 수 있습니다."),
+    /** 신청한 회원이 탈퇴 등으로 정상 회원이 아님 (목록을 거치지 않은 호출·처리 직전 탈퇴) */
+    UPGRADE_REQUEST_MEMBER_INACTIVE(HttpStatus.CONFLICT, "탈퇴했거나 이용할 수 없는 회원의 승급 신청입니다."),
+    /** 승인하려는데 회원이 더는 인플루언서가 아님 (인플루언서만 인증된 인플루언서가 된다) */
+    UPGRADE_MEMBER_NOT_INFLUENCER(HttpStatus.CONFLICT, "인플루언서인 회원만 승급할 수 있습니다."),
     CHANNEL_NOT_FOUND(HttpStatus.NOT_FOUND, "채널을 찾을 수 없습니다."),
     CHANNEL_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록된 채널입니다."),
     INVALID_CHZZK_STATE(HttpStatus.BAD_REQUEST, "치지직 연동 요청이 올바르지 않습니다. 처음부터 다시 시도해 주세요."),
