@@ -90,4 +90,30 @@ class ChatUserUseCaseTest {
         assertThat(chatUser.isWithdrawn()).isTrue();
         assertThat(chatUser.getDisplayNickname()).isEqualTo(ChatUser.WITHDRAWN_NICKNAME);
     }
+
+    @Test
+    void 프로필만_수정하면_채팅할_수_없게_된_것이_아니다() {
+        chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
+
+        assertThat(chatUserUseCase.update(activeUser(HOST_ID, "새닉네임", Role.INFLUENCER))).isFalse();
+    }
+
+    @Test
+    void 채팅할_수_있던_회원이_정지_탈퇴_강등되면_채팅할_수_없게_된_것이다() {
+        chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
+        chatUserUseCase.createIfAbsent(activeUser(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER));
+        chatUserUseCase.createIfAbsent(activeUser(ADMIN_ID, "관리자", Role.ADMIN));
+
+        assertThat(chatUserUseCase.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, UserStatus.SUSPENDED))).isTrue();
+        assertThat(chatUserUseCase.update(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN)))
+                .isTrue();
+        assertThat(chatUserUseCase.update(activeUser(ADMIN_ID, "관리자", Role.USER))).isTrue();
+    }
+
+    @Test
+    void 원래_채팅할_수_없던_회원의_변경은_채팅할_수_없게_된_것이_아니다() {
+        chatUserUseCase.createIfAbsent(activeUser(USER_ID, "유저", Role.USER));
+
+        assertThat(chatUserUseCase.update(activeUser(USER_ID, "새닉네임", Role.USER))).isFalse();
+    }
 }

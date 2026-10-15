@@ -1,5 +1,6 @@
 package com.hapbang.global.config;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -11,13 +12,16 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
+import com.hapbang.global.auth.UserLoggedOutEventPublisher;
+
 @Configuration
 // 관리자 API 외의 역할 검사는 각 모듈 서비스 레이어(Facade)의 @PreAuthorize로 한다 (2026-10-12 회의)
 @EnableMethodSecurity
 public class SecurityConfig {
     // Swagger 설정을 위한 최초 생성
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, ApplicationEventPublisher eventPublisher)
+            throws Exception {
         http
                 // 세션 쿠키 인증이라 CSRF를 막는다. XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보내야 통과
                 .csrf(csrf -> csrf.spa())
@@ -43,6 +47,8 @@ public class SecurityConfig {
                 .logout(logout -> logout
                         .logoutRequestMatcher(PathPatternRequestMatcher.withDefaults()
                                 .matcher(HttpMethod.POST, "/api/v1/members/logout"))
+                        // 세션을 없애기 전에 로그아웃 이벤트를 발행한다 (채팅이 그 세션의 웹소켓 연결을 닫는다, #242)
+                        .addLogoutHandler(new UserLoggedOutEventPublisher(eventPublisher))
                         // 리다이렉트 없이 200만 응답 (프론트가 화면 이동 처리)
                         .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler())
                         .deleteCookies("SESSION"))
