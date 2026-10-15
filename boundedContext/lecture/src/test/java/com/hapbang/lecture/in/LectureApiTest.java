@@ -3,6 +3,7 @@ package com.hapbang.lecture.in;
 import static com.hapbang.lecture.fixture.LectureFixture.deleted;
 import static com.hapbang.lecture.fixture.LectureFixture.pendingFile;
 import static com.hapbang.lecture.fixture.LectureFixture.uploadedFile;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.nullValue;
@@ -232,6 +233,152 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content[0].lectureId").value(lectureId))
                 .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value(nullValue()));
+    }
+
+    @Test
+    void 판매자는_상세에서_썸네일과_콘텐츠의_파일_ID를_받는다() throws Exception {
+        Long thumbnailFileId = uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL);
+        Long videoFileId = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
+        Long documentFileId = uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT);
+        Long lectureId = registeredId(register(SELLER_ID, thumbnailFileId, videoFileId, documentFileId));
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(thumbnailFileId))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(videoFileId))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(documentFileId));
+    }
+
+    @Test
+    void 판매자가_아닌_회원과_보유_중인_구매자는_파일_ID를_받지_않는다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(nullValue()));
+
+        purchase(lectureId);
+        deleteLecture(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.deleted").value(true))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(nullValue()));
+    }
+
+    @Test
+    void 관리자_강의_상세에는_파일_ID가_나온다() throws Exception {
+        Long thumbnailFileId = uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL);
+        Long videoFileId = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
+        Long documentFileId = uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT);
+        Long lectureId = registeredId(register(SELLER_ID, thumbnailFileId, videoFileId, documentFileId));
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(thumbnailFileId))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(videoFileId))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(documentFileId));
+    }
+
+    @Test
+    void 판매자가_상세에서_받은_썸네일_ID를_다시_보내면_제목만_고쳐도_썸네일이_유지된다() throws Exception {
+        FileResource thumbnail = uploadedThumbnail(SELLER_ID);
+        Long lectureId = register(SELLER_ID, thumbnail.getId());
+        approve(lectureId);
+        Long thumbnailFileId = idAt(sellerDetail(lectureId), "$.data.thumbnailFileId");
+
+        mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title": "방송 장비 세팅 강의 (개정판)", "priceHp": 10000, "thumbnailFileId": %d}
+                                """.formatted(thumbnailFileId)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.title").value("방송 장비 세팅 강의 (개정판)"))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(thumbnail.getId()))
+                .andExpect(jsonPath("$.data.thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
+    }
+
+    @Test
+    void 정보_수정에서_썸네일_ID를_null로_보내면_썸네일이_지워진다() throws Exception {
+        Long lectureId = register(SELLER_ID, uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL));
+
+        mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title": "방송 장비 세팅 강의", "priceHp": 10000, "thumbnailFileId": null}
+                                """))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.thumbnailUrl").value(nullValue()));
+    }
+
+    @Test
+    void 반려된_강의에서_한_강만_새_파일로_바꾸고_나머지는_상세에서_받은_파일_ID로_교체한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        reject(lectureId);
+        String detail = sellerDetail(lectureId);
+        Long keptFileId = idAt(detail, "$.data.contents[0].fileId");
+        Long oldContentId = idAt(detail, "$.data.contents[0].contentId");
+        Long newFileId = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
+
+        mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"contents": [
+                                  {"fileId": %d, "title": "1강 장비 고르기", "contentType": "VIDEO"},
+                                  {"fileId": %d, "title": "2강 장비 연결 (재녹음)", "contentType": "VIDEO"}
+                                ]}
+                                """.formatted(keptFileId, newFileId)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.contents.length()").value(2))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(keptFileId))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(newFileId))
+                .andExpect(jsonPath("$.data.contents[1].title").value("2강 장비 연결 (재녹음)"));
+        // 같은 파일이어도 교체한 콘텐츠는 새 행이다
+        assertThat(idAt(sellerDetail(lectureId), "$.data.contents[0].contentId")).isNotEqualTo(oldContentId);
+    }
+
+    @Test
+    void 판매자는_삭제한_강의의_파일_ID로_새_강의를_등록한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+        deleteLecture(lectureId);
+        String detail = sellerDetail(lectureId);
+
+        register(SELLER_ID, idAt(detail, "$.data.thumbnailFileId"), idAt(detail, "$.data.contents[0].fileId"),
+                idAt(detail, "$.data.contents[1].fileId"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201));
     }
 
     @Test
@@ -867,6 +1014,26 @@ class LectureApiTest {
                 .with(TestLogin.as(sellerId, Role.VERIFIED_INFLUENCER)).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(REGISTER_BODY.formatted(thumbnailFileId, videoFileId, documentFileId)));
+    }
+
+    private static Long registeredId(ResultActions registered) throws Exception {
+        String response = registered
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
+                .andReturn().getResponse().getContentAsString();
+        return idAt(response, "$.data.id");
+    }
+
+    /** 판매자 본인이 조회한 강의 상세 응답 본문 */
+    private String sellerDetail(Long lectureId) throws Exception {
+        return mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private static Long idAt(String response, String path) {
+        return ((Number) JsonPath.read(response, path)).longValue();
     }
 
     private ResultActions replaceContents(Long userId, Long lectureId, Long videoFileId) throws Exception {

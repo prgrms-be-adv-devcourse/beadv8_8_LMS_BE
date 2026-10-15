@@ -42,7 +42,8 @@ public interface ApiV1LectureSpec {
 
     @Operation(summary = "강의 상세",
             description = "콘텐츠 목록(제목·순서·종류)을 포함하고 파일 URL은 없다. "
-                    + "판매자 본인은 검수 대기·반려·삭제된 강의도 조회한다. "
+                    + "판매자 본인은 검수 대기·반려·삭제된 강의도 조회하고, 수정에 다시 쓸 썸네일·콘텐츠의 파일 ID"
+                    + "(thumbnailFileId, contents[].fileId)를 받는다. 그 밖의 회원에게 파일 ID는 null이다. "
                     + "관리자는 GET /api/v1/lectures/admin/{lectureId}로 조회한다. "
                     + "이 강의를 보유한(항목이 PURCHASED·CONFIRMED·PAID_OUT) 구매자는 판매자가 삭제한 강의도 조회한다.")
     RsData<LectureDetailResponse> getLecture(Long userId, Long lectureId);
@@ -52,7 +53,9 @@ public interface ApiV1LectureSpec {
     RsData<IdResponse> register(Long userId, LectureRegisterRequest request);
 
     @Operation(summary = "강의 정보 수정",
-            description = "판매자 본인. 제목·소개·가격·썸네일. 재검수 대상이 아니며 삭제 전이면 어느 상태에서든 수정할 수 있다(204).")
+            description = "판매자 본인. 제목·소개·가격·썸네일 전체를 덮어쓴다. thumbnailFileId가 null이면 썸네일을 지우므로, "
+                    + "유지하려면 상세의 thumbnailFileId를 그대로 보낸다. "
+                    + "재검수 대상이 아니며 삭제 전이면 어느 상태에서든 수정할 수 있다(204).")
     ResponseEntity<Void> updateInfo(Long userId, Long lectureId, LectureInfoUpdateRequest request);
 
     @Operation(summary = "강의 삭제",
@@ -61,6 +64,7 @@ public interface ApiV1LectureSpec {
 
     @Operation(summary = "콘텐츠 목록 교체",
             description = "판매자 본인. 반려(REJECTED)된 강의만. 목록 전체를 교체하며 상태는 반려 그대로다. "
+                    + "바꾸지 않는 강은 상세의 contents[].fileId를 다시 보내면 파일을 다시 올리지 않아도 된다. "
                     + "판매 중인 강의는 삭제 후 다시 등록한다(204).")
     ResponseEntity<Void> replaceContents(Long userId, Long lectureId, LectureContentsReplaceRequest request);
 
