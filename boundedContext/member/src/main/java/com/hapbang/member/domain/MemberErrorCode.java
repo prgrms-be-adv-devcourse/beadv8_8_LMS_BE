@@ -30,6 +30,15 @@ public enum MemberErrorCode implements BaseErrorCode {
     CHANNEL_OWNER_INACTIVE(HttpStatus.CONFLICT, "탈퇴했거나 이용할 수 없는 회원의 채널입니다."),
     REJECTION_REASON_REQUIRED(HttpStatus.BAD_REQUEST, "반려 사유를 입력해 주세요."),
     INVALID_REJECTION_REASON_LENGTH(HttpStatus.BAD_REQUEST, "반려 사유는 500자 이하로 입력해 주세요."),
+    /** 승급 신청은 인플루언서만 (유저·이미 인증된 인플루언서는 불가) */
+    UPGRADE_NOT_ALLOWED(HttpStatus.FORBIDDEN, "인플루언서만 승급을 신청할 수 있습니다."),
+    UPGRADE_REASON_REQUIRED(HttpStatus.BAD_REQUEST, "승급 신청 사유를 입력해 주세요."),
+    INVALID_UPGRADE_REASON_LENGTH(HttpStatus.BAD_REQUEST, "승급 신청 사유는 500자 이하로 입력해 주세요."),
+    /** 회원당 심사 대기 신청은 1건 (동시 신청으로 DB 인덱스에 막혀도 같은 코드) */
+    UPGRADE_REQUEST_ALREADY_PENDING(HttpStatus.CONFLICT, "이미 심사 중인 승급 신청이 있습니다."),
+    UPGRADE_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "승급 신청을 찾을 수 없습니다."),
+    /** 심사 대기가 아닌 신청 (이미 처리됨 포함) */
+    UPGRADE_REQUEST_REVIEW_NOT_ALLOWED(HttpStatus.CONFLICT, "심사 대기 중인 승급 신청만 승인·반려할 수 있습니다."),
     CHANNEL_NOT_FOUND(HttpStatus.NOT_FOUND, "채널을 찾을 수 없습니다."),
     CHANNEL_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록된 채널입니다."),
     INVALID_CHZZK_STATE(HttpStatus.BAD_REQUEST, "치지직 연동 요청이 올바르지 않습니다. 처음부터 다시 시도해 주세요."),
