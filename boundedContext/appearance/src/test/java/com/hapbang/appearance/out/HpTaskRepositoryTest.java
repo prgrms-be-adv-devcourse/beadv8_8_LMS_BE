@@ -15,7 +15,6 @@ import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskReason;
 import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
-import com.hapbang.appearance.domain.HpTaskType;
 import com.hapbang.testsupport.RepositoryTest;
 
 @RepositoryTest
@@ -54,16 +53,14 @@ class HpTaskRepositoryTest {
     }
 
     @Test
-    @DisplayName("대상별 가장 최근 작업을 찾는다")
-    void findLatestByRef() {
-        hpTaskRepository.saveAndFlush(release(12L, "APPEARANCE_REQUEST-12-RELEASE-1"));
-        HpTask latest = hpTaskRepository.saveAndFlush(release(12L, "APPEARANCE_REQUEST-12-RELEASE-2"));
-        hpTaskRepository.saveAndFlush(release(13L, "APPEARANCE_REQUEST-13-RELEASE-1"));
+    @DisplayName("멱등 키(= Billing 요청 ID)로 작업 하나를 정확히 찾는다. 같은 대상의 다른 반환과 섞이지 않는다")
+    void findByIdempotencyKey() {
+        HpTask closeRelease = hpTaskRepository.saveAndFlush(release(12L, "APPEARANCE_REQUEST-12-RELEASE-1"));
+        hpTaskRepository.saveAndFlush(release(12L, "APPEARANCE_REQUEST-12-RELEASE-APPEARANCE-30"));
 
-        HpTask found = hpTaskRepository.findFirstByRefTypeAndRefIdAndTaskTypeOrderByIdDesc(
-                HpTaskRefType.APPEARANCE_REQUEST, 12L, HpTaskType.RELEASE).orElseThrow();
-
-        assertThat(found.getId()).isEqualTo(latest.getId());
+        assertThat(hpTaskRepository.findByIdempotencyKey("APPEARANCE_REQUEST-12-RELEASE-1")).get()
+                .extracting(HpTask::getId).isEqualTo(closeRelease.getId());
+        assertThat(hpTaskRepository.findByIdempotencyKey("APPEARANCE_REQUEST-12-RELEASE-2")).isEmpty();
     }
 
     @Test

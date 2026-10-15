@@ -113,4 +113,23 @@ class AppearanceSwaggerDocsTest {
                         .value("#/components/schemas/RsDataPageAppearanceApplicationResDto"))
                 .andExpect(jsonPath(SCHEMAS + "AppearanceRecruitSummaryResDto.properties.applicantCount").exists());
     }
+
+    @Test
+    @DisplayName("출연 API: 상세·취소 요청·수락·거절은 RsData로 감싼 출연, 내 출연 목록은 RsData의 PagedModel (#231)")
+    void appearanceSchemaIsRsData() throws Exception {
+        String paths = "$.paths['/api/v1/appearances";
+        String detail = "#/components/schemas/RsDataAppearanceResDto";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(paths + "'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataPageAppearanceSummaryResDto"))
+                .andExpect(jsonPath(paths + "/{appearanceId}'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value(detail))
+                .andExpect(jsonPath(paths + "/{appearanceId}/cancel-requests'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value(detail))
+                .andExpect(jsonPath(paths + "/{appearanceId}/cancel-requests/accept'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value(detail))
+                .andExpect(jsonPath(paths + "/{appearanceId}/cancel-requests/reject'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value(detail));
+    }
 }

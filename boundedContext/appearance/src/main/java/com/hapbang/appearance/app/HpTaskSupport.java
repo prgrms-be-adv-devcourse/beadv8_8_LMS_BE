@@ -7,6 +7,7 @@ import java.util.Optional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
@@ -36,20 +37,37 @@ public class HpTaskSupport {
         return found.get();
     }
 
-    /** 출연 요청서의 반환 진행 상태. 반환할 일이 없으면(거절·취소 전) null */
+    /**
+     * 출연 요청서의 반환(거절·응답 전 취소·만료) 진행 상태. 반환할 일이 없으면 null.
+     * 성립 뒤 합의 취소 반환은 출연 단위라 여기에 섞지 않는다 ({@link #findReleaseStatusOfAppearance}).
+     */
     public HpTaskStatus findReleaseStatusOfRequest(Long requestId) {
-        Optional<HpTask> found = hpTaskRepository.findFirstByRefTypeAndRefIdAndTaskTypeOrderByIdDesc(
-                HpTaskRefType.APPEARANCE_REQUEST, requestId, HpTaskType.RELEASE);
-        if (found.isEmpty()) {
-            return null;
-        }
-        return found.get().getStatus();
+        return statusOf(HpTask.requestId(HpTaskRefType.APPEARANCE_REQUEST, requestId, HpTaskType.RELEASE, 1));
     }
 
-    /** 출연 모집글의 반환 진행 상태 (가장 최근 반환 작업). 반환할 일이 없으면(마감 전, 정원이 다 찬 채 마감) null */
+    /**
+     * 출연 모집글의 마감 반환(성립하지 못한 인원분) 진행 상태. 반환할 일이 없으면(마감 전, 정원이 다 찬 채 마감) null.
+     * 마감 뒤 합의 취소로 생긴 출연별 반환은 섞지 않는다 (마감 반환이 실패했는데 다른 반환 결과로 가려지지 않도록).
+     */
     public HpTaskStatus findReleaseStatusOfRecruit(Long recruitId) {
-        Optional<HpTask> found = hpTaskRepository.findFirstByRefTypeAndRefIdAndTaskTypeOrderByIdDesc(
-                HpTaskRefType.APPEARANCE_RECRUIT, recruitId, HpTaskType.RELEASE);
+        return statusOf(HpTask.requestId(HpTaskRefType.APPEARANCE_RECRUIT, recruitId, HpTaskType.RELEASE, 1));
+    }
+
+    /**
+     * 출연 하나의 반환(합의 취소 등) 진행 상태. 반환할 일이 없으면(성립 중, 모집글 마감 전 합의 취소) null.
+     * 출연이 쓰는 보류(요청서 또는 모집글)에서 출연 단위 반환 요청 ID로 찾는다.
+     */
+    public HpTaskStatus findReleaseStatusOfAppearance(Appearance appearance) {
+        if (appearance.isFromRecruit()) {
+            return statusOf(HpTask.appearanceRequestId(HpTaskRefType.APPEARANCE_RECRUIT, appearance.getRecruitId(),
+                    HpTaskType.RELEASE, appearance.getId()));
+        }
+        return statusOf(HpTask.appearanceRequestId(HpTaskRefType.APPEARANCE_REQUEST, appearance.getRequestId(),
+                HpTaskType.RELEASE, appearance.getId()));
+    }
+
+    private HpTaskStatus statusOf(String idempotencyKey) {
+        Optional<HpTask> found = hpTaskRepository.findByIdempotencyKey(idempotencyKey);
         if (found.isEmpty()) {
             return null;
         }

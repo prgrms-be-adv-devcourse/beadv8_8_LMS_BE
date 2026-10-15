@@ -217,6 +217,21 @@ public class AppearanceRecruit extends BaseEntity {
         this.selectedCount++;
     }
 
+    /**
+     * 성립한 출연이 합의 취소돼 성립 인원을 하나 줄인다 (ISSUE.md APR-31 K4). 모집 중이면 빈자리에 다른 지원자를 수락할 수 있고,
+     * 다시 채우지 않으면 마감 때 그 자리 출연료도 함께 반환된다. 마감 뒤면 호출한 쪽이 그 자리 출연료를 바로 반환한다.
+     */
+    public void decreaseSelected() {
+        if (selectedCount <= 0) {
+            throw new IllegalStateException("성립 인원이 없는 출연 모집글입니다: id=" + id);
+        }
+        this.selectedCount--;
+    }
+
+    public boolean isClosed() {
+        return status == AppearanceRecruitStatus.CLOSED;
+    }
+
     public boolean isFull() {
         return selectedCount >= recruitCount;
     }

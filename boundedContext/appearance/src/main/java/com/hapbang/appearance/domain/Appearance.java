@@ -123,4 +123,103 @@ public class Appearance extends BaseEntity {
         }
         return new Appearance(request, now);
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // 출연 취소 요청 (#231). 요청·응답 기록은 AppearanceCancelRequest에 남기고, 출연은 진행 상태만 가진다.
+
+    /**
+     * 게스트의 출연 취소 요청을 받는다 → {@code CANCEL_REQUESTED}. 재요청은 거절돼 {@code ESTABLISHED}로 돌아온 뒤에만 된다.
+     *
+     * @param previousCount 이 출연에 이미 보낸 취소 요청 수
+     * @param maxCount      출연 1건당 최대 취소 요청 수 ({@link AppearancePolicy#maxCancelRequestCount()})
+     * @throws AppearanceException 게스트가 아님({@code NOT_APPEARANCE_GUEST}), 처리 중인 요청이 있음
+     *                             ({@code CANCEL_REQUEST_ALREADY_PENDING}), 성립 상태가 아님({@code APPEARANCE_NOT_CANCELABLE}),
+     *                             방송 예정 일시가 지남({@code APPEARANCE_SCHEDULE_PASSED}), 횟수 초과({@code CANCEL_REQUEST_LIMIT_EXCEEDED})
+     */
+    public void requestCancel(Long userId, int previousCount, int maxCount, LocalDateTime now) {
+        if (!isGuest(userId)) {
+            throw new AppearanceException(AppearanceErrorCode.NOT_APPEARANCE_GUEST);
+        }
+        if (status == AppearanceStatus.CANCEL_REQUESTED) {
+            throw new AppearanceException(AppearanceErrorCode.CANCEL_REQUEST_ALREADY_PENDING);
+        }
+        if (status != AppearanceStatus.ESTABLISHED) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_NOT_CANCELABLE);
+        }
+        requireBeforeScheduled(now);
+        if (previousCount >= maxCount) {
+            throw new AppearanceException(AppearanceErrorCode.CANCEL_REQUEST_LIMIT_EXCEEDED,
+                    "출연 취소 요청은 출연 1건당 %d번까지 할 수 있습니다.".formatted(maxCount));
+        }
+        this.status = AppearanceStatus.CANCEL_REQUESTED;
+    }
+
+    /**
+     * 호스트가 처리 중인 취소 요청에 응답(수락·거절)할 수 있는지 확인한다. 응답은 방송 예정 일시 전까지만 받는다.
+     *
+     * @throws AppearanceException 호스트가 아님({@code NOT_APPEARANCE_HOST}), 처리 중인 요청 없음({@code CANCEL_REQUEST_NOT_PENDING}),
+     *                             방송 예정 일시가 지남({@code APPEARANCE_SCHEDULE_PASSED})
+     */
+    public void validateCancelRespondable(Long userId, LocalDateTime now) {
+        if (!isHost(userId)) {
+            throw new AppearanceException(AppearanceErrorCode.NOT_APPEARANCE_HOST);
+        }
+        if (status != AppearanceStatus.CANCEL_REQUESTED) {
+            throw new AppearanceException(AppearanceErrorCode.CANCEL_REQUEST_NOT_PENDING);
+        }
+        requireBeforeScheduled(now);
+    }
+
+    /** 호스트가 취소 요청을 수락했다 → 합의 취소 (위약금 없음) */
+    public void agreeCancel(LocalDateTime now) {
+        requireStatus(AppearanceStatus.CANCEL_REQUESTED);
+        this.status = AppearanceStatus.CANCELED_BY_AGREEMENT;
+        this.canceledAt = now;
+    }
+
+    /** 취소 요청이 거절(호스트 거절·자동 거절)됐다 → 출연 유지 */
+    public void keepAfterCancelRejected() {
+        requireStatus(AppearanceStatus.CANCEL_REQUESTED);
+        this.status = AppearanceStatus.ESTABLISHED;
+    }
+
+    /** 자동 거절 대상인지 (취소 요청 처리 중이고 방송 예정 일시와 같거나 지남) */
+    public boolean isCancelRequestDue(LocalDateTime now) {
+        return status == AppearanceStatus.CANCEL_REQUESTED && !now.isBefore(scheduledAt);
+    }
+
+    /**
+     * 출연의 호스트·게스트만 볼 수 있다. 다른 회원에게는 있다는 사실도 알리지 않는다.
+     *
+     * @throws AppearanceException {@code APPEARANCE_NOT_FOUND}
+     */
+    public void validateViewableBy(Long userId) {
+        if (!(isHost(userId) || isGuest(userId))) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_NOT_FOUND);
+        }
+    }
+
+    public boolean isHost(Long userId) {
+        return hostId.equals(userId);
+    }
+
+    public boolean isGuest(Long userId) {
+        return guestId.equals(userId);
+    }
+
+    public boolean isFromRecruit() {
+        return sourceType == AppearanceSourceType.RECRUIT;
+    }
+
+    private void requireBeforeScheduled(LocalDateTime now) {
+        if (!now.isBefore(scheduledAt)) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_SCHEDULE_PASSED);
+        }
+    }
+
+    private void requireStatus(AppearanceStatus expected) {
+        if (status != expected) {
+            throw new IllegalStateException("출연 상태가 %s가 아닙니다: %s".formatted(expected, status));
+        }
+    }
 }

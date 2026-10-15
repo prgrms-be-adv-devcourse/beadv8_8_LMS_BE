@@ -2,7 +2,9 @@ package com.hapbang.appearance.app;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -129,5 +131,17 @@ public class AppearanceRecruitSupport {
     public List<Long> findStaleHoldPendingIds(LocalDateTime cutoff, int limit) {
         return appearanceRecruitRepository.findIdsByStatusAndCreatedBefore(AppearanceRecruitStatus.HOLD_PENDING,
                 cutoff, PageRequest.of(0, limit));
+    }
+
+    /** 모집글 ID별 제목 (출연 목록 응답용, 한 번에 조회). 없는 ID는 결과에 없다 */
+    public Map<Long, String> findTitles(Collection<Long> recruitIds) {
+        Map<Long, String> titles = new HashMap<>();
+        if (recruitIds.isEmpty()) {
+            return titles;
+        }
+        for (AppearanceRecruit recruit : appearanceRecruitRepository.findAllById(recruitIds)) {
+            titles.put(recruit.getId(), recruit.getTitle());
+        }
+        return titles;
     }
 }

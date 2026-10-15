@@ -123,6 +123,16 @@ public class HpTask extends BaseEntity {
         return "%s-%d-%s-%d".formatted(refType.name(), refId, taskType.name(), sequence);
     }
 
+    /**
+     * 출연 1건에 대한 Billing 요청 ID. 형식 {@code {refType}-{refId}-{동작}-APPEARANCE-{출연 ID}}
+     * (예: {@code APPEARANCE_RECRUIT-5-RELEASE-APPEARANCE-12}). 모집글 하나의 보류에서 출연별로 반환할 때 마감 반환
+     * ({@code …-RELEASE-1})과 겹치지 않게 한다. 출연 하나는 한 가지 방식(합의 취소·노쇼 등)으로만 끝나므로 출연당 하나다.
+     */
+    public static String appearanceRequestId(HpTaskRefType refType, Long refId, HpTaskType taskType,
+                                             Long appearanceId) {
+        return "%s-%d-%s-APPEARANCE-%d".formatted(refType.name(), refId, taskType.name(), appearanceId);
+    }
+
     public boolean isPending() {
         return status == HpTaskStatus.PENDING;
     }

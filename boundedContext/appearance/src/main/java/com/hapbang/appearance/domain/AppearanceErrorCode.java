@@ -53,6 +53,16 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     NOT_APPLICATION_GUEST(HttpStatus.FORBIDDEN, "지원한 게스트만 지원을 취소할 수 있습니다."),
     APPLICATION_NOT_PENDING(HttpStatus.CONFLICT, "호스트 응답을 기다리는 지원이 아닙니다."),
 
+    // 출연·출연 취소 요청 (#231)
+    APPEARANCE_NOT_FOUND(HttpStatus.NOT_FOUND, "출연을 찾을 수 없습니다."),
+    NOT_APPEARANCE_GUEST(HttpStatus.FORBIDDEN, "출연하는 게스트만 출연 취소를 요청할 수 있습니다."),
+    NOT_APPEARANCE_HOST(HttpStatus.FORBIDDEN, "출연의 호스트만 출연 취소 요청에 응답할 수 있습니다."),
+    APPEARANCE_NOT_CANCELABLE(HttpStatus.CONFLICT, "출연 취소를 요청할 수 있는 출연이 아닙니다."),
+    APPEARANCE_SCHEDULE_PASSED(HttpStatus.CONFLICT, "방송 예정 일시가 지난 출연입니다."),
+    CANCEL_REQUEST_ALREADY_PENDING(HttpStatus.CONFLICT, "처리 중인 출연 취소 요청이 있습니다."),
+    CANCEL_REQUEST_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "출연 취소 요청 횟수를 모두 사용했습니다."),
+    CANCEL_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "처리 중인 출연 취소 요청이 없습니다."),
+
     // 공통
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요."),
 
