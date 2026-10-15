@@ -1,6 +1,7 @@
 package com.hapbang.chat.in;
 
 import java.security.Principal;
+import java.util.List;
 
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
@@ -9,6 +10,7 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.handler.annotation.support.MethodArgumentNotValidException;
 import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.stereotype.Controller;
+import org.springframework.util.StringUtils;
 
 import com.hapbang.chat.app.ChatMessageFacade;
 import com.hapbang.chat.app.dto.SentChatMessage;
@@ -29,8 +31,9 @@ import lombok.extern.slf4j.Slf4j;
  * 클라이언트가 /pub/chats/{chatRoomId}/messages로 보내면 DB에 저장한 뒤
  * 현재 참여자에게 /user/queue/chats/messages로 전달하고, 받는 사람에게 새 메시지 알림을 보낸다.
  * <p>
- * 보낼 때 붙인 {@code clientMessageId}는 전달되는 메시지와 오류에 그대로 돌려준다. STOMP 전송에는 응답 확인이 없어서,
- * 프론트는 이 값으로 어느 메시지가 성공·실패했는지 구분한다.
+ * 보낼 때 붙인 {@code clientMessageId}는 보낸 사람에게 전달되는 메시지와 오류에 그대로 돌려준다. STOMP 전송에는 응답 확인이
+ * 없어서, 프론트는 이 값으로 어느 메시지가 성공·실패했는지 구분한다. 같은 ID로 다시 보내면 새로 저장하지 않고 기존 메시지를
+ * 보낸 사람에게만 다시 보낸다(#261).
  */
 @Slf4j
 @Controller
@@ -44,15 +47,21 @@ public class ChatMessageStompController {
     public void sendMessage(@DestinationVariable("chatRoomId") Long chatRoomId,
             @Valid @Payload SendChatMessageRequest request, Principal principal) {
         Long senderId = Long.valueOf(principal.getName());
+        // 빈 전송 ID는 보내지 않은 것으로 본다
+        String clientMessageId = StringUtils.hasText(request.clientMessageId()) ? request.clientMessageId() : null;
         SentChatMessage sent;
         try {
-            sent = chatMessageFacade.send(chatRoomId, senderId, request.content());
+            sent = chatMessageFacade.send(chatRoomId, senderId, request.content(), clientMessageId);
         } catch (RuntimeException exception) {
             throw new SendFailedException(exception, request.clientMessageId());
         }
 
-        chatMessageSender.deliver(sent.message().withClientMessageId(request.clientMessageId()),
-                sent.deliverToUserIds());
+        // 전송 ID는 보낸 사람에게만 담는다. 재전송이면 보낸 사람에게만 다시 가고 알림은 없다
+        List<Long> others = sent.deliverToUserIds().stream().filter(userId -> !userId.equals(senderId)).toList();
+        if (sent.deliverToUserIds().contains(senderId)) {
+            chatMessageSender.deliver(sent.message().withClientMessageId(clientMessageId), List.of(senderId));
+        }
+        chatMessageSender.deliver(sent.message(), others);
         chatMessageSender.notifyNewMessage(sent.message(), sent.notifyUserIds());
     }
 

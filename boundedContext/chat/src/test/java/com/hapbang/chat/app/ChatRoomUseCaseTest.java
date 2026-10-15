@@ -104,8 +104,8 @@ class ChatRoomUseCaseTest {
     @Test
     void 한_명이_나가면_나간_사람은_조회할_수_없고_남은_사람은_기존_기록과_퇴장_안내를_본다() {
         Long chatRoomId = createRoom();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요");
-        chatMessageUseCase.send(chatRoomId, GUEST_ID, "반갑습니다");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null);
+        chatMessageUseCase.send(chatRoomId, GUEST_ID, "반갑습니다", null);
 
         ChatRoomLeaveResult result = chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
@@ -127,7 +127,7 @@ class ChatRoomUseCaseTest {
     @Test
     void 남은_사람이_있는_방에서_다시_시작하면_같은_방에_재입장하고_재입장한_사람만_빈_기록으로_시작한다() {
         Long chatRoomId = createRoom();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null);
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
         List<String> hostBefore = contentsSeenBy(chatRoomId, HOST_ID);
 
@@ -196,7 +196,7 @@ class ChatRoomUseCaseTest {
     @Test
     void 두_사람_모두_나가면_방이_종료되고_다음_대화는_새_방에서_시작한다() {
         Long chatRoomId = createRoom();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null);
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         ChatRoomLeaveResult lastLeave = chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
@@ -335,7 +335,7 @@ class ChatRoomUseCaseTest {
     @Test
     void 관리자는_종료된_방과_숨겨진_메시지까지_기록을_조회한다() {
         Long chatRoomId = createRoom();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "방송 일정 맞춰요");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "방송 일정 맞춰요", null);
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
         chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
         chatRoomUseCase.leave(chatRoomId, HOST_ID, null);

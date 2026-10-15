@@ -100,7 +100,8 @@ public class ChatRoomSupporter {
 
     private Map<Long, ChatMessageResponse> findLastMessages(Long userId, List<Long> chatRoomIds) {
         return chatMessageRepository.findLastVisible(userId, chatRoomIds).stream()
-                .collect(Collectors.toMap(message -> message.getChatRoom().getId(), ChatMessageResponse::from));
+                .collect(Collectors.toMap(message -> message.getChatRoom().getId(),
+                        message -> ChatMessageResponse.of(message, userId)));
     }
 
     private Map<Long, Long> countUnread(Long userId, List<Long> chatRoomIds) {

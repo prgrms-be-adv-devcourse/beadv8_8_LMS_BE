@@ -129,7 +129,8 @@ class ChatStompE2ETest {
         assertThat(received.content()).isEqualTo("금요일 밤 9시 괜찮으세요?");
         assertThat(received.senderUserId()).isEqualTo(HOST_ID);
         assertThat(received.roomSequence()).isEqualTo(1);
-        assertThat(received.clientMessageId()).isEqualTo("client-1");
+        // 전송 ID는 보낸 사람에게만 담긴다 (#261)
+        assertThat(received.clientMessageId()).isNull();
         assertThat(hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS))
                 .extracting(ChatMessageResponse::messageId, ChatMessageResponse::clientMessageId)
                 .containsExactly(received.messageId(), "client-1");
@@ -141,6 +142,35 @@ class ChatStompE2ETest {
         assertThat(hostNotifications.poll(500, TimeUnit.MILLISECONDS)).isNull();
 
         assertThat(messageContents(chatRoomId, GUEST_ID)).containsExactly("금요일 밤 9시 괜찮으세요?");
+    }
+
+    @Test
+    void 같은_전송_ID로_다시_보내면_보낸_사람에게만_기존_메시지가_다시_가고_상대는_한_번만_받는다() throws Exception {
+        Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
+        StompSession host = connect(HOST_ID);
+        StompSession guest = connect(GUEST_ID);
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
+                ChatMessageResponse.class);
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
+                ChatMessageResponse.class);
+        BlockingQueue<ChatNotification> guestNotifications = subscribe(guest,
+                "/user/queue/chats/notifications", ChatNotification.class);
+        waitForSubscriptions();
+
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("안녕하세요", "client-1"));
+        ChatMessageResponse first = hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("안녕하세요", "client-1"));
+        ChatMessageResponse resent = hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        assertThat(first).isNotNull();
+        assertThat(resent).isNotNull();
+        assertThat(resent.messageId()).isEqualTo(first.messageId());
+        assertThat(resent.clientMessageId()).isEqualTo("client-1");
+        assertThat(guestMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+        assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(guestNotifications.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+        assertThat(guestNotifications.poll(500, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(messageContents(chatRoomId, GUEST_ID)).containsExactly("안녕하세요");
     }
 
     @Test
