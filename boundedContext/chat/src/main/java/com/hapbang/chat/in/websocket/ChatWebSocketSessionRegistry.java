@@ -41,7 +41,13 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
             @Override
             public void afterConnectionEstablished(WebSocketSession session) throws Exception {
                 sessions.put(session.getId(), session);
-                super.afterConnectionEstablished(session);
+                try {
+                    super.afterConnectionEstablished(session);
+                } catch (Exception exception) {
+                    // Spring이 오류로 닫으면 afterConnectionClosed도 오지만, 남지 않도록 먼저 지운다
+                    sessions.remove(session.getId());
+                    throw exception;
+                }
             }
 
             @Override
