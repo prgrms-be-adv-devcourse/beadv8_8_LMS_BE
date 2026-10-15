@@ -224,4 +224,24 @@ class AppearanceRecruitApiE2ETest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("APPEARANCE_RECRUIT_NOT_FOUND"));
     }
+
+    @Test
+    @DisplayName("모집 전체 취소: 다른 회원 403 NOT_RECRUIT_HOST, 호스트(본문 없음) 200 CANCELED·빈자리 반환 DONE, 다시 취소 409 APPEARANCE_RECRUIT_NOT_CANCELABLE")
+    void cancelRecruit() throws Exception {
+        long recruitId = postRecruit(HOST);
+        String path = BASE + "/" + recruitId + "/cancel";
+
+        mockMvc.perform(post(path).with(TestLogin.as(OTHER, Role.INFLUENCER)).with(csrf()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_RECRUIT_HOST"));
+        mockMvc.perform(post(path).with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("출연 모집을 취소했습니다."))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"))
+                .andExpect(jsonPath("$.data.canceledAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.hpReleaseStatus").value("DONE"));
+        mockMvc.perform(post(path).with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("APPEARANCE_RECRUIT_NOT_CANCELABLE"));
+    }
 }

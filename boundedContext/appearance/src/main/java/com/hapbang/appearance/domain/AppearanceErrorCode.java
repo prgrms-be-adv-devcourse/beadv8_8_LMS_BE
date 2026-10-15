@@ -63,6 +63,11 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     CANCEL_REQUEST_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "출연 취소 요청 횟수를 모두 사용했습니다."),
     CANCEL_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "처리 중인 출연 취소 요청이 없습니다."),
 
+    // 호스트 일방 취소·모집 전체 취소 (#239)
+    CANCEL_REQUEST_CONFIRM_REQUIRED(HttpStatus.CONFLICT,
+            "처리 중인 출연 취소 요청이 있습니다. 확인 후 다시 시도해 주세요."),
+    APPEARANCE_RECRUIT_NOT_CANCELABLE(HttpStatus.CONFLICT, "취소할 수 있는 출연 모집글이 아닙니다."),
+
     // 공통
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요."),
 

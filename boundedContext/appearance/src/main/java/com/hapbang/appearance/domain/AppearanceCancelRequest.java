@@ -119,6 +119,13 @@ public class AppearanceCancelRequest extends BaseEntity {
         this.respondedAt = now;
     }
 
+    /** 호스트가 처리 중인 요청을 확인하고 출연을 일방 취소했다 → 요청 종료 (APR-32 H2) */
+    public void closeByHostCancel(LocalDateTime now) {
+        requirePending();
+        this.status = AppearanceCancelRequestStatus.CLOSED_BY_HOST_CANCEL;
+        this.respondedAt = now;
+    }
+
     public boolean isPending() {
         return status == AppearanceCancelRequestStatus.REQUESTED;
     }

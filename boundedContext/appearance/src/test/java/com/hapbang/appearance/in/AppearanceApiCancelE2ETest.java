@@ -167,4 +167,28 @@ class AppearanceApiCancelE2ETest {
         mockMvc.perform(get(BASE + "/abc").with(TestLogin.as(GUEST, Role.INFLUENCER)))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    @DisplayName("호스트 일방 취소: 처리 중인 취소 요청이 있으면 확인 없이 409 CANCEL_REQUEST_CONFIRM_REQUIRED, 확인하면 200 CANCELED_BY_HOST·위약금 9,000·정산 DONE. 게스트는 403")
+    void hostCancel() throws Exception {
+        long appearanceId = establish();
+        String path = BASE + "/" + appearanceId + "/host-cancel";
+        mockMvc.perform(postAs(GUEST, BASE + "/" + appearanceId + "/cancel-requests", "{\"reason\": \"사유\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(postAs(GUEST, path, null))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_APPEARANCE_HOST"));
+        mockMvc.perform(postAs(HOST, path, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CANCEL_REQUEST_CONFIRM_REQUIRED"));
+        mockMvc.perform(postAs(HOST, path, "{\"reason\": \"방송 취소\", \"confirmPendingCancelRequest\": true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("출연을 취소했습니다."))
+                .andExpect(jsonPath("$.data.status").value("CANCELED_BY_HOST"))
+                .andExpect(jsonPath("$.data.penaltyAmount").value(9_000))
+                .andExpect(jsonPath("$.data.hostCancelReason").value("방송 취소"))
+                .andExpect(jsonPath("$.data.hpPenaltyStatus").value("DONE"))
+                .andExpect(jsonPath("$.data.cancelRequests[0].status").value("CLOSED_BY_HOST_CANCEL"));
+    }
 }

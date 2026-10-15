@@ -13,10 +13,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskRetryPolicy;
+import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.global.exception.BusinessException;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 
 import lombok.RequiredArgsConstructor;
@@ -59,7 +62,7 @@ public class HpTaskExecuteUseCase {
             return;
         }
         try {
-            billingClient.release(toReleaseCommand(task));
+            request(task);
         } catch (BusinessException rejected) {
             String error = rejected.getErrorCode().getCode() + ": " + rejected.getMessage();
             record(taskId, pending -> pending.markDead(error, LocalDateTime.now(clock)));
@@ -73,6 +76,26 @@ public class HpTaskExecuteUseCase {
             return;
         }
         record(taskId, pending -> pending.markDone(LocalDateTime.now(clock)));
+    }
+
+    /** 작업 종류에 맞는 Billing 요청을 보낸다 */
+    private void request(HpTask task) {
+        switch (task.getTaskType()) {
+            case RELEASE -> billingClient.release(toReleaseCommand(task));
+            case PENALTY -> billingClient.settlePenalty(toPenaltyCommand(task));
+        }
+    }
+
+    /**
+     * 위약금 정산 작업 → Billing 위약금 정산 요청 (#239). 멱등 키를 취소 ID로 쓰고, 보류에서 위약금은 게스트에게 지급하고
+     * 나머지는 호스트에게 반환한다. 지급 원천은 출연(요청서 출처 {@code APPEARANCE_REQUEST}, 모집 출처 {@code RECRUIT_APPEARANCE})이다.
+     */
+    private PenaltyCommand toPenaltyCommand(HpTask task) {
+        SettlementSourceType sourceType = task.getRefType() == HpTaskRefType.APPEARANCE_RECRUIT
+                ? SettlementSourceType.RECRUIT_APPEARANCE : SettlementSourceType.APPEARANCE_REQUEST;
+        return new PenaltyCommand(task.getMemberId(), BillingReferenceType.valueOf(task.getRefType().name()),
+                task.getRefId(), task.getIdempotencyKey(), task.getReceiverId(), sourceType, task.getAppearanceId(),
+                task.releaseAmountOfPenalty(), task.getPayoutAmount());
     }
 
     /** 반환 작업 → Billing 반환 요청. 작업의 멱등 키를 반환 요청 ID로 쓰고, 기록한 금액만큼 반환한다 */

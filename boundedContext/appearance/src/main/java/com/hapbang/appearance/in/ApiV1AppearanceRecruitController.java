@@ -20,6 +20,7 @@ import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.in.dto.CreateAppearanceRecruitReqDto;
+import com.hapbang.appearance.in.dto.HostCancelAppearanceReqDto;
 import com.hapbang.appearance.in.dto.UpdateAppearanceRecruitReqDto;
 import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.global.response.RsData;
@@ -92,5 +93,16 @@ public class ApiV1AppearanceRecruitController implements ApiV1AppearanceRecruitS
                                                       @PathVariable("recruitId") Long recruitId) {
         AppearanceRecruitResDto closed = appearanceRecruitFacade.closeEarly(userId, recruitId);
         return RsData.ok("출연 모집을 마감했습니다.", closed);
+    }
+
+    @Override
+    @PostMapping("/{recruitId}/cancel")
+    public RsData<AppearanceRecruitResDto> cancel(@LoginUserId Long userId,
+                                                  @PathVariable("recruitId") Long recruitId,
+                                                  @RequestBody(required = false) HostCancelAppearanceReqDto request) {
+        String reason = request == null ? null : request.reason();
+        boolean confirmed = request != null && request.confirmed();
+        AppearanceRecruitResDto canceled = appearanceRecruitFacade.cancel(userId, recruitId, confirmed, reason);
+        return RsData.ok("출연 모집을 취소했습니다.", canceled);
     }
 }

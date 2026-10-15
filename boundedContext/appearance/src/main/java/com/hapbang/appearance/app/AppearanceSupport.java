@@ -2,6 +2,7 @@ package com.hapbang.appearance.app;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -121,5 +122,11 @@ public class AppearanceSupport {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_NOT_FOUND);
         }
         return appearance.get();
+    }
+
+    /** 모집글에서 성립해 진행 중(성립·취소 요청 처리 중)인 출연을 배타 잠금으로 읽는다. 모집 전체 취소용, 출연 ID 순 */
+    public List<Appearance> findActiveByRecruitForUpdate(Long recruitId) {
+        return appearanceRepository.findByRecruitForUpdate(recruitId,
+                List.of(AppearanceStatus.ESTABLISHED, AppearanceStatus.CANCEL_REQUESTED));
     }
 }
