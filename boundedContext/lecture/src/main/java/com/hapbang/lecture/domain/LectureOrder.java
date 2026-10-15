@@ -123,6 +123,23 @@ public class LectureOrder {
         return Optional.of(item);
     }
 
+    /**
+     * 지급 실패 기록(배치, D54). 기록하면 그 항목을, 지급 대상이 아니게 되어 기록하지 않으면 빈 값을 돌려준다.
+     * 주문을 닫지 않는다
+     */
+    public Optional<OrderItem> recordPayoutFailure(Long orderItemId, String code, boolean quarantine,
+                                                   LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        return item.recordPayoutFailure(code, quarantine, now) ? Optional.of(item) : Optional.empty();
+    }
+
+    /** 지급 격리 해제(관리자, D54). 주문을 닫지 않는다 */
+    public OrderItem releasePayoutQuarantine(Long orderItemId) {
+        OrderItem item = findItem(orderItemId);
+        item.releasePayoutQuarantine();
+        return item;
+    }
+
     /** 구매 취소. 끝나지 않은 항목이 남지 않으면 주문도 취소한다. 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다 */
     public OrderItem cancelItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);

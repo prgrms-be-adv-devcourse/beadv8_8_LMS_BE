@@ -937,8 +937,9 @@ class LectureOrderPayoutIntegrationTest {
     }
 
     @Test
-    void 지급_배치는_billing의_원천_중복_오류를_지급_완료로_보지_않고_항목을_CONFIRMED로_남긴다() {
-        // #142·#182 방식의 지급 예정 건(SCHEDULED)이 남은 항목: 실행할 때마다 PAYOUT_ALREADY_SETTLED로 실패한다
+    void 지급_배치는_billing의_원천_중복_오류를_지급_완료로_보지_않고_항목을_CONFIRMED로_남긴_채_격리한다() {
+        // #142·#182 방식의 지급 예정 건(SCHEDULED)이 남은 항목: 다시 시도해도 PAYOUT_ALREADY_SETTLED로 실패하므로
+        // 처음 실패할 때 격리되고 다음 실행에서는 billing을 부르지 않는다 (D54)
         User buyer = buyer("batch-legacy-scheduled");
         fundCharge(buyer.getId(), PRICE_HP);
         Long sellerWalletId = walletFacade.getOrCreateWallet(SELLER_ID).getId();
@@ -951,6 +952,12 @@ class LectureOrderPayoutIntegrationTest {
         orderPayoutUseCase.payOutDueItems();
 
         assertThat(itemStatus(orderItemId)).isEqualTo("CONFIRMED");
+        assertThat(jdbcTemplate.queryForMap("""
+                SELECT payout_failure_count, last_payout_failure_code, payout_quarantined_at IS NOT NULL AS quarantined
+                FROM lectures.order_item WHERE id = ?""", orderItemId))
+                .containsEntry("payout_failure_count", 1)
+                .containsEntry("last_payout_failure_code", "PAYOUT_ALREADY_SETTLED")
+                .containsEntry("quarantined", true);
         assertThat(financialSnapshot()).isEqualTo(before);
         assertThat(holds()).containsExactly("HOLD:LECTURE_ORDER_ITEM:" + orderItemId + " " + PRICE_HP + " HELD");
     }

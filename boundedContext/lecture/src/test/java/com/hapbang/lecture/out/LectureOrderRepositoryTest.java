@@ -173,6 +173,46 @@ class LectureOrderRepositoryTest {
     }
 
     @Test
+    void 지급이_격리된_항목은_지급_대상_조회에서_빠진다() {
+        LocalDateTime oct1 = LocalDateTime.of(2026, 10, 1, 10, 0);
+        LocalDateTime now = LocalDateTime.of(2026, 11, 2, 0, 0);
+        LectureOrder quarantined = saveConfirmed(20L, oct1);
+        quarantined.recordPayoutFailure(itemId(quarantined), "PAYOUT_ALREADY_SETTLED", true, now);
+        LectureOrder failedOnce = saveConfirmed(30L, oct1);
+        failedOnce.recordPayoutFailure(itemId(failedOnce), "WALLET_NOT_FOUND", false, now);
+        flushAndClear();
+
+        // 일시 실패만 기록된 항목은 다시 시도한다 (D54)
+        assertThat(lectureOrderRepository.findPayoutDueItemIds(now)).containsExactly(itemId(failedOnce));
+    }
+
+    @Test
+    void 지급_실패_목록은_실패_기록이_있는_구매_확정_항목만_최근_실패순으로_조회한다() {
+        LocalDateTime oct1 = LocalDateTime.of(2026, 10, 1, 10, 0);
+        LocalDateTime nov1 = LocalDateTime.of(2026, 11, 1, 1, 0);
+        LectureOrder older = saveConfirmed(20L, oct1);
+        older.recordPayoutFailure(itemId(older), "WALLET_NOT_FOUND", false, nov1);
+        LectureOrder newer = saveConfirmed(30L, oct1);
+        newer.recordPayoutFailure(itemId(newer), "PAYOUT_ALREADY_SETTLED", true, nov1.plusDays(1));
+        LectureOrder sameTimeLaterId = saveConfirmed(40L, oct1);
+        sameTimeLaterId.recordPayoutFailure(itemId(sameTimeLaterId), "WALLET_NOT_FOUND", false, nov1.plusDays(1));
+        // 실패한 뒤 지급된 항목(실패 기록은 남음)과 실패 기록이 없는 항목은 빠진다
+        LectureOrder paidAfterFailure = saveConfirmed(50L, oct1);
+        paidAfterFailure.recordPayoutFailure(itemId(paidAfterFailure), "WALLET_NOT_FOUND", false, nov1);
+        paidAfterFailure.payOutItem(itemId(paidAfterFailure), nov1.plusDays(1));
+        saveConfirmed(60L, oct1);
+        flushAndClear();
+
+        Page<OrderItem> page = lectureOrderRepository.findPayoutFailures(PageRequest.of(0, 2));
+
+        assertThat(page.getTotalElements()).isEqualTo(3);
+        assertThat(page.getContent()).extracting(OrderItem::getId)
+                .containsExactly(itemId(sameTimeLaterId), itemId(newer));
+        assertThat(lectureOrderRepository.findPayoutFailures(PageRequest.of(1, 2)).getContent())
+                .extracting(OrderItem::getId).containsExactly(itemId(older));
+    }
+
+    @Test
     void 판매자의_주문_항목을_상태와_관계없이_최근_구매순으로_조회한다() {
         Long first = itemId(save(order(20L, NOW)));
         Long second = itemId(save(order(30L, NOW)));
