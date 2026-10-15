@@ -100,6 +100,19 @@ public class OrderItem {
     /** 이의 제기를 판단한 관리자 */
     private Long objectionResolvedByUserId;
 
+    /** 지급 실패 횟수. 지급에 성공하거나 격리를 해제해도 이력으로 남긴다 (D54) */
+    @Column(nullable = false)
+    private int payoutFailureCount;
+
+    /** 마지막 지급 실패 코드 (billing 오류 코드, {@code PAYOUT_AMOUNT_MISMATCH} 또는 예외 클래스 이름) */
+    @Column(length = 100)
+    private String lastPayoutFailureCode;
+
+    private LocalDateTime lastPayoutFailedAt;
+
+    /** 지급 격리 시각. 재시도로 풀리지 않는 실패로 지급 배치에서 뺀 시각이고, {@code null}이면 격리되지 않았다 (D54) */
+    private LocalDateTime payoutQuarantinedAt;
+
     @Version
     private Long version;
 
@@ -180,7 +193,13 @@ public class OrderItem {
     public boolean isPayable(LocalDateTime now) {
         return status == OrderItemStatus.CONFIRMED
                 && !now.isBefore(payoutScheduledAt)
-                && (objectionStatus == ObjectionStatus.NONE || objectionStatus == ObjectionStatus.REJECTED);
+                && (objectionStatus == ObjectionStatus.NONE || objectionStatus == ObjectionStatus.REJECTED)
+                && !isPayoutQuarantined();
+    }
+
+    /** 지급이 격리되었는지. 격리된 항목은 관리자가 해제할 때까지 지급 배치가 처리하지 않는다 (D54) */
+    public boolean isPayoutQuarantined() {
+        return payoutQuarantinedAt != null;
     }
 
     /** 지급(배치, #150). 판매자에게 보류 HP를 옮기는 billing 호출은 호출한 쪽이 같은 트랜잭션에서 한다 (D50) */
@@ -190,6 +209,33 @@ public class OrderItem {
         }
         this.status = OrderItemStatus.PAID_OUT;
         this.paidOutAt = now;
+    }
+
+    /**
+     * 지급 실패 기록(배치, D54). 지급 트랜잭션이 롤백된 뒤 새 트랜잭션에서 남긴다. 아직 지급 대상인 항목에만 남기고,
+     * 그 사이 대상이 아니게 되었으면(다른 실행이 먼저 지급, 이의 제기 접수, 이미 격리) 바꾸지 않고 {@code false}를 돌려준다.
+     * 그래서 실패 원인이 된 다른 트랜잭션이 아직 커밋 전이어도 그 행 락을 기다리지 않는다.
+     * {@code quarantine}이면 격리 시각을 남긴다.
+     */
+    boolean recordPayoutFailure(String code, boolean quarantine, LocalDateTime now) {
+        if (!isPayable(now)) {
+            return false;
+        }
+        this.payoutFailureCount++;
+        this.lastPayoutFailureCode = code;
+        this.lastPayoutFailedAt = now;
+        if (quarantine) {
+            this.payoutQuarantinedAt = now;
+        }
+        return true;
+    }
+
+    /** 지급 격리 해제(관리자, D54). 다음 지급 배치가 다시 시도한다. 실패 기록은 이력으로 남긴다 */
+    void releasePayoutQuarantine() {
+        if (!isPayoutQuarantined()) {
+            throw new LectureException(LectureErrorCode.PAYOUT_NOT_QUARANTINED);
+        }
+        this.payoutQuarantinedAt = null;
     }
 
     /** 구매 취소. 자동 구매 확정 시각 전까지, 이의 제기가 없는(접수 후 철회 포함) 항목만 된다 (D44, D52) */

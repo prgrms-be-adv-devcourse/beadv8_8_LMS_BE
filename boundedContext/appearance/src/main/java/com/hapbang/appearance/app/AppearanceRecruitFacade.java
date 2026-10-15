@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>역할 검사: 올리기·수정·내 목록은 {@code @PreAuthorize}로 인플루언서 이상(관리자 제외)만 허용한다.
  *     공개 목록·상세는 로그인한 회원이면 누구나 볼 수 있어 역할을 검사하지 않는다 (AGENTS.md 6장).
  *     그래서 요청서 Facade와 달리 메서드마다 붙인다.</li>
- *     <li>트랜잭션: 기능 하나를 한 트랜잭션으로 여기서 연다. 단, 올리기는 Billing 호출이 끼어 저장을 먼저 커밋해야 해서
+ *     <li>트랜잭션: 기능 하나를 한 트랜잭션으로 여기서 연다. 단, 올리기·조기 마감은 Billing 호출이 끼어 저장을 먼저 커밋해야 해서
  *     여기서 열지 않고 각 UseCase 단계가 연다.</li>
  * </ul>
  */
@@ -37,6 +37,8 @@ public class AppearanceRecruitFacade {
     private final AppearanceRecruitHoldUseCase appearanceRecruitHoldUseCase;
     private final AppearanceRecruitQueryUseCase appearanceRecruitQueryUseCase;
     private final AppearanceRecruitUpdateUseCase appearanceRecruitUpdateUseCase;
+    private final AppearanceRecruitCloseUseCase appearanceRecruitCloseUseCase;
+    private final HpTaskExecuteUseCase hpTaskExecuteUseCase;
 
     /**
      * 출연 모집글을 올리고 1인당 출연료 × 모집 인원만큼 HP를 보류한다. 트랜잭션은 단계마다 따로 열린다.
@@ -69,8 +71,8 @@ public class AppearanceRecruitFacade {
     }
 
     @Transactional(readOnly = true)
-    public AppearanceRecruitResDto getDetail(Long recruitId) {
-        return appearanceRecruitQueryUseCase.getDetail(recruitId);
+    public AppearanceRecruitResDto getDetail(Long userId, Long recruitId) {
+        return appearanceRecruitQueryUseCase.getDetail(userId, recruitId);
     }
 
     @PreAuthorize(INFLUENCER_ONLY)
@@ -78,5 +80,22 @@ public class AppearanceRecruitFacade {
     public AppearanceRecruitResDto updateBasicInfo(Long userId, Long recruitId, String title, String content,
                                                    String hostChannelUrl) {
         return appearanceRecruitUpdateUseCase.updateBasicInfo(userId, recruitId, title, content, hostChannelUrl);
+    }
+
+    /**
+     * 조기 마감 (호스트). 성립 인원이 0명이어도 할 수 있다.
+     * <ol>
+     *     <li>[트랜잭션 1] 모집글 {@code CLOSED}(조기 마감) + 대기 중 지원 미선정 + 성립하지 못한 인원분 반환 작업 기록 (커밋)</li>
+     *     <li>[트랜잭션 없음] 반환 작업 1회 실행. 실패해도 마감은 성공으로 응답하고, 작업은 대기로 남는다.
+     *     정원이 다 차서 돌려줄 금액이 없으면 건너뛴다</li>
+     * </ol>
+     */
+    @PreAuthorize(INFLUENCER_ONLY)
+    public AppearanceRecruitResDto closeEarly(Long hostId, Long recruitId) {
+        Long releaseTaskId = appearanceRecruitCloseUseCase.closeEarly(hostId, recruitId);
+        if (releaseTaskId != null) {
+            hpTaskExecuteUseCase.execute(releaseTaskId);
+        }
+        return appearanceRecruitQueryUseCase.getDetail(hostId, recruitId);
     }
 }

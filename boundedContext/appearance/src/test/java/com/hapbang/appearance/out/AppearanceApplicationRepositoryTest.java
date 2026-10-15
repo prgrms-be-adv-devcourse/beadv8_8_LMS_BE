@@ -105,6 +105,22 @@ class AppearanceApplicationRepositoryTest {
     }
 
     @Test
+    @DisplayName("모집글의 대기 중 지원만 모두 가져온다 (마감 정리용, 다른 모집글·응답된 지원 제외)")
+    void findPendingByRecruit() {
+        AppearanceRecruit recruit = saveRecruit();
+        AppearanceRecruit other = saveRecruit();
+        AppearanceApplication pending = saveApplication(recruit, 2L);
+        AppearanceApplication selected = saveApplication(recruit, 3L);
+        selected.select(NOW);
+        appearanceApplicationRepository.saveAndFlush(selected);
+        saveApplication(other, 2L);
+
+        assertThat(appearanceApplicationRepository.findByRecruitIdAndStatus(recruit.getId(),
+                AppearanceApplicationStatus.APPLIED)).extracting(AppearanceApplication::getId)
+                .containsExactly(pending.getId());
+    }
+
+    @Test
     @DisplayName("모집글별·게스트별 목록을 상태로 거른다")
     void findByRecruitAndGuest() {
         AppearanceRecruit recruit = saveRecruit();

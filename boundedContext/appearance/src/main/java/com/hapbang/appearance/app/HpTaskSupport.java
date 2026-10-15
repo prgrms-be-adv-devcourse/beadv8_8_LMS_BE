@@ -46,6 +46,16 @@ public class HpTaskSupport {
         return found.get().getStatus();
     }
 
+    /** 출연 모집글의 반환 진행 상태 (가장 최근 반환 작업). 반환할 일이 없으면(마감 전, 정원이 다 찬 채 마감) null */
+    public HpTaskStatus findReleaseStatusOfRecruit(Long recruitId) {
+        Optional<HpTask> found = hpTaskRepository.findFirstByRefTypeAndRefIdAndTaskTypeOrderByIdDesc(
+                HpTaskRefType.APPEARANCE_RECRUIT, recruitId, HpTaskType.RELEASE);
+        if (found.isEmpty()) {
+            return null;
+        }
+        return found.get().getStatus();
+    }
+
     /** 재시도 배치가 실행할 작업 ID (최대 {@code limit}건) */
     public List<Long> findRunnableIds(LocalDateTime now, LocalDateTime graceCutoff, int limit) {
         return hpTaskRepository.findRunnableIds(now, graceCutoff, PageRequest.of(0, limit));

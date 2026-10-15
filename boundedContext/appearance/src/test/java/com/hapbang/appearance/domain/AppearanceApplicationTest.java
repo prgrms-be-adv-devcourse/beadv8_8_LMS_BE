@@ -9,8 +9,10 @@ import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
+import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 
 /**
  * 출연 모집 지원 규칙과, 지원·응답에 쓰는 모집글 쪽 확인(모집 중·호스트·정원), 모집 출연 성립.
@@ -127,6 +129,22 @@ class AppearanceApplicationTest {
         }
     }
 
+    @Test
+    @DisplayName("모집 마감 정리: 대기 중 지원은 NOT_SELECTED, 응답 시각은 비어 있다. 이미 응답·취소된 지원은 APPLICATION_NOT_PENDING")
+    void closeUnselected() {
+        AppearanceApplication pending = applied();
+        pending.closeUnselected();
+        assertThat(pending.getStatus()).isEqualTo(AppearanceApplicationStatus.NOT_SELECTED);
+        assertThat(pending.getRespondedAt()).isNull();
+
+        AppearanceApplication selected = applied();
+        selected.select(NOW);
+        assertErrorCode(selected::closeUnselected, AppearanceErrorCode.APPLICATION_NOT_PENDING);
+        AppearanceApplication withdrawn = applied();
+        withdrawn.withdraw(GUEST, NOW);
+        assertErrorCode(withdrawn::closeUnselected, AppearanceErrorCode.APPLICATION_NOT_PENDING);
+    }
+
     @Nested
     @DisplayName("호스트 응답")
     class Respond {
@@ -217,5 +235,21 @@ class AppearanceApplicationTest {
             assertThatThrownBy(() -> Appearance.establishFrom(recruit, application, NOW))
                     .isInstanceOf(IllegalStateException.class);
         }
+    }
+
+    @Test
+    @DisplayName("다른 모듈에 넘기는 지원 정보는 모집글 제목·호스트를 함께 담는다. 다른 모집글을 주면 IllegalArgumentException")
+    void toDto() {
+        AppearanceRecruit recruit = recruiting(3);
+        AppearanceApplication application = AppearanceApplication.apply(recruit, GUEST, "지원합니다.", NOW);
+
+        AppearanceApplicationDto dto = application.toDto(recruit);
+
+        assertThat(dto.recruitTitle()).isEqualTo(recruit.getTitle());
+        assertThat(dto.hostId()).isEqualTo(HOST);
+        assertThat(dto.guestId()).isEqualTo(GUEST);
+        AppearanceRecruit other = AppearanceRecruit.create(HOST, AppearanceRecruitFixture.content(NOW), POLICY, NOW);
+        ReflectionTestUtils.setField(other, "id", 999L);
+        assertThatThrownBy(() -> application.toDto(other)).isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -185,4 +185,77 @@ class AppearanceRecruitTest {
 
         recruiting().validateVisible();
     }
+
+    @Nested
+    @DisplayName("모집 마감")
+    class Close {
+
+        private final LocalDateTime deadline = NOW.plusDays(2);
+
+        @Test
+        @DisplayName("조기 마감: 호스트가 모집 중·마감 일시 전에 하면 CLOSED, 마감 방식 EARLY, 마감 시각은 지금. 성립 0명이어도 된다")
+        void closeEarly() {
+            AppearanceRecruit recruit = recruiting();
+
+            recruit.closeEarly(HOST, NOW.plusHours(1));
+
+            assertThat(recruit.getStatus()).isEqualTo(AppearanceRecruitStatus.CLOSED);
+            assertThat(recruit.getCloseType()).isEqualTo(AppearanceRecruitCloseType.EARLY);
+            assertThat(recruit.getClosedAt()).isEqualTo(NOW.plusHours(1));
+        }
+
+        @Test
+        @DisplayName("조기 마감: 다른 회원 NOT_RECRUIT_HOST, 마감 일시 지남·이미 마감·보류 처리 중 APPEARANCE_RECRUIT_NOT_OPEN")
+        void closeEarlyRejected() {
+            AppearanceRecruit recruit = recruiting();
+            assertErrorCode(() -> recruit.closeEarly(OTHER, NOW), AppearanceErrorCode.NOT_RECRUIT_HOST);
+            assertErrorCode(() -> recruit.closeEarly(HOST, deadline), AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
+
+            recruit.closeEarly(HOST, NOW);
+            assertErrorCode(() -> recruit.closeEarly(HOST, NOW), AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
+
+            AppearanceRecruit pending = create(AppearanceRecruitFixture.content(NOW));
+            assertErrorCode(() -> pending.closeEarly(HOST, NOW), AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
+        }
+
+        @Test
+        @DisplayName("기한 마감 대상: 모집 중이고 마감 일시와 같거나 지남. 1초 전·보류 처리 중·이미 마감은 아니다")
+        void deadlinePassed() {
+            AppearanceRecruit recruit = recruiting();
+            assertThat(recruit.isDeadlinePassed(deadline.minusSeconds(1))).isFalse();
+            assertThat(recruit.isDeadlinePassed(deadline)).isTrue();
+
+            assertThat(create(AppearanceRecruitFixture.content(NOW)).isDeadlinePassed(deadline)).isFalse();
+            recruit.closeEarly(HOST, NOW);
+            assertThat(recruit.isDeadlinePassed(deadline)).isFalse();
+        }
+
+        @Test
+        @DisplayName("기한 마감: CLOSED, 마감 방식 DEADLINE, 마감 시각은 처리 시각이 아니라 모집 마감 일시. 대상이 아니면 IllegalStateException")
+        void closeByDeadline() {
+            AppearanceRecruit recruit = recruiting();
+            assertThatThrownBy(() -> recruit.closeByDeadline(deadline.minusSeconds(1)))
+                    .isInstanceOf(IllegalStateException.class);
+
+            recruit.closeByDeadline(deadline.plusSeconds(30));
+
+            assertThat(recruit.getStatus()).isEqualTo(AppearanceRecruitStatus.CLOSED);
+            assertThat(recruit.getCloseType()).isEqualTo(AppearanceRecruitCloseType.DEADLINE);
+            assertThat(recruit.getClosedAt()).isEqualTo(deadline);
+        }
+
+        @Test
+        @DisplayName("돌려줄 금액 = 1인당 출연료 × (모집 인원 − 성립 인원): 0명 90,000 / 1명 60,000 / 정원 다 참 0")
+        void unfilledFee() {
+            AppearanceRecruit recruit = recruiting();
+            assertThat(recruit.unfilledFee()).isEqualTo(90_000);
+
+            recruit.increaseSelected();
+            assertThat(recruit.unfilledFee()).isEqualTo(60_000);
+
+            recruit.increaseSelected();
+            recruit.increaseSelected();
+            assertThat(recruit.unfilledFee()).isZero();
+        }
+    }
 }

@@ -17,6 +17,9 @@ public interface AppearanceApplicationRepository extends JpaRepository<Appearanc
     /** 이 게스트가 이 모집글에 지원한 적이 있는지 (상태 무관, 재지원 불가) */
     boolean existsByRecruitIdAndGuestId(Long recruitId, Long guestId);
 
+    /** 모집글의 이 상태 지원 전부 (모집 마감 때 대기 중 지원 정리용) */
+    List<AppearanceApplication> findByRecruitIdAndStatus(Long recruitId, AppearanceApplicationStatus status);
+
     /** 모집글의 지원자 목록 (호스트) */
     Page<AppearanceApplication> findByRecruitIdAndStatusIn(Long recruitId,
                                                            Collection<AppearanceApplicationStatus> statuses,

@@ -49,10 +49,11 @@
 | 통합 | `AppearanceRequestRespondFacadeTest` | 수락·거절·취소, 반환 성공·실패, 기한 경과, 동시 처리, 상태 필터, 역할 | #137 |
 | E2E | `AppearanceRequestRespondApiE2ETest` | 수락·거절·취소 API와 상태 필터 (앱 전체) | #137 |
 | 단위 | `AppearanceBasicInfoTest` | 요청서·모집글 공통 기본 정보: 형식 검증, 보낸 값만 바꾼 새 객체 | #175 |
-| 단위 | `AppearanceRecruitTest` | 모집글 생성 검증(모집 인원·출연료·마감 일시)·보류 금액·상태 전이·수정·공개 여부 | #175 |
+| 단위 | `AppearanceRecruitTest` | 모집글 생성 검증(모집 인원·출연료·마감 일시)·보류 금액·상태 전이·수정·공개 여부, 마감·돌려줄 금액 | #175, #222 |
 | 저장소 | `AppearanceRecruitRepositoryTest` | `appearances.recruits` 저장, 공개 목록·내 목록 조회 | #175 |
 | 통합 | `AppearanceRecruitFacadeTest` | 올리기(HP 보류·Billing 거절·무응답), 역할별 권한, 조회, 수정 | #175 |
-| E2E | `AppearanceRecruitApiE2ETest` | 출연 모집글 API 5개 (앱 전체) | #175 |
+| E2E | `AppearanceRecruitApiE2ETest` | 출연 모집글 API 6개 (앱 전체, 조기 마감 포함) | #175, #222 |
+| 통합 | `AppearanceRecruitCloseTest` | 조기 마감·기한 마감 배치·반환·동시성 | #222 |
 | 단위 | `HpTaskRetryPolicyTest`, `AppearanceBatchRulesTest` | 재시도 정책(지수 백오프+지터), 만료·멱등한 보류 결과 반영 | #187 |
 | 통합 | `AppearanceBatchUseCaseTest` | 보류 재확인, 수락 기한 만료, HP 작업 재시도·격리, 지표 | #187 |
 | 단위 | `AppearanceBatchConditionTest` | 배치 빈은 팀 스케줄링 스위치가 켜질 때만 | #187 |
@@ -615,3 +616,82 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 내 지원 목록 / `status=UNKNOWN` | 200 "내 지원 목록을 조회했습니다.", 내 것 1건 / 400 `INVALID_REQUEST` |
 | 일반 유저의 공개 모집글 목록 | `applicantCount` 1 |
 | 없는 지원 수락 | 404 `APPLICATION_NOT_FOUND` |
+
+---
+
+## 11. 출연 모집 마감 (#222)
+
+### 11.1 구성
+
+| 종류 | 테스트 | 확인 대상 |
+|---|---|---|
+| 단위 | `AppearanceRecruitTest` (모집 마감) | 조기 마감·기한 마감 조건, 마감 방식·시각, 돌려줄 금액 |
+| 단위 | `AppearanceApplicationTest` (추가) | 마감 때 대기 지원 미선정 정리 |
+| 저장소 | `AppearanceRecruitRepositoryTest`, `AppearanceApplicationRepositoryTest` (추가) | 기한 마감 대상 조회, 모집글의 대기 지원 조회 |
+| 통합 | `AppearanceRecruitCloseTest` | 조기 마감(0명·일부·정원·반환 실패·거부·마감 뒤·동시 수락), 기한 마감 배치(보류 처리 중 흐름 포함), 역할 |
+| E2E | `AppearanceRecruitApiE2ETest` (추가) | 조기 마감 API, 반환 진행 상태 호스트만, 공개 목록에서 빠짐 |
+| 통합 | `AppearanceSwaggerDocsTest`, `AppearanceBatchConditionTest` (변경) | 조기 마감 응답 스키마, 배치 빈에 마감 UseCase 추가 |
+
+### 11.2 단위
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 조기 마감 | 호스트, 모집 중, 마감 일시 전 (성립 0명) | `CLOSED`, `EARLY`, 마감 시각 = 지금 |
+| 조기 마감 | 다른 회원 / 마감 일시와 같은 시각 / 이미 마감 / 보류 처리 중 | `NOT_RECRUIT_HOST` / `APPEARANCE_RECRUIT_NOT_OPEN` ×3 |
+| 기한 마감 대상 | 마감 일시 1초 전 / 마감 일시 / 보류 처리 중 / 이미 마감 | 아님 / 대상 / 아님 / 아님 |
+| 기한 마감 | 대상 아님 / 마감 일시 30초 뒤 처리 | `IllegalStateException` / `CLOSED`, `DEADLINE`, 마감 시각 = 모집 마감 일시 |
+| 돌려줄 금액 | 30,000 × 3명에 성립 0 / 1 / 3 | 90,000 / 60,000 / 0 |
+| 지원 정리 | 대기 중 / 수락됨 / 취소됨 | `NOT_SELECTED`, 응답 시각 없음 / `APPLICATION_NOT_PENDING` / `APPLICATION_NOT_PENDING` |
+
+### 11.3 저장소
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 기한 마감 대상: 마감 일시 지남 2건(마감 일시 다름)·아직 1건·조기 마감됨 1건 | 지난 2건만, 마감 일시 이른 순. 기준 시각을 1초 당기면 1건 |
+| 모집글의 대기 지원: 대기 1·수락 1, 다른 모집글 대기 1 | 이 모집글의 대기 1건만 |
+
+### 11.4 흐름 — `AppearanceRecruitCloseTest`
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 조기 마감 | 성립 0명, 대기 지원 1 | `CLOSED`(`EARLY`), 대기 → `NOT_SELECTED`, 반환 작업 `RECRUIT_CLOSED` 90,000 `DONE`, 멱등 키 `APPEARANCE_RECRUIT-{id}-RELEASE-1`, 보류 0, 호스트 잔액 원래대로 |
+| 조기 마감 | 수락 1·대기 1·취소 1 | 60,000 반환, 보류 30,000 남음, `SELECTED`·`NOT_SELECTED`·`WITHDRAWN`, 지원자 수 2 그대로, 출연 1건 유지 |
+| 조기 마감 | 정원 1명이 찬 뒤 | `CLOSED`, 반환 작업 없음, `hpReleaseStatus` null, 보류 30,000 그대로 |
+| 조기 마감 | 상세를 호스트 / 다른 회원이 조회 | `hpReleaseStatus` `DONE` / null |
+| 조기 마감 | Billing 무응답 → 재시도 배치 | 마감 성공 + `PENDING`, 보류 그대로 → 재시도 후 `DONE`, 보류 0 |
+| 조기 마감 | 다른 회원 / 다시 마감 / 마감 일시 지남 / 보류 처리 중 | `NOT_RECRUIT_HOST` / `APPEARANCE_RECRUIT_NOT_OPEN` / `APPEARANCE_RECRUIT_NOT_OPEN`(반환 작업 없음) / `APPEARANCE_RECRUIT_NOT_FOUND` |
+| 마감 뒤 | 새 지원 / 대기 지원 수락 / 미선정 지원 취소 | `APPEARANCE_RECRUIT_NOT_OPEN` / `APPEARANCE_RECRUIT_NOT_OPEN` / `APPLICATION_NOT_PENDING` |
+| 동시성 | 조기 마감과 마지막 대기 지원 수락 동시 | 결과는 모두 응답 또는 업무 예외(교착 상태·500 원인 없음). 실패는 많아야 1건(`CONCURRENT_UPDATE` 또는 `APPEARANCE_RECRUIT_NOT_OPEN`). 출연 수 = 성립 인원, 마감됐으면 보류 = 성립 × 30,000, 아니면 보류 90,000, 호스트 잔액 = 기본 − 보류 |
+| 기한 마감 | 마감 일시 지남, 수락 1·대기 1 | 1건, `CLOSED`(`DEADLINE`), 마감 시각 = 모집 마감 일시, 대기 → `NOT_SELECTED`, 반환 `DONE`, 보류 30,000 |
+| 기한 마감 | 마감 일시 전 1건 + 지남 1건, 두 번 실행 | 1건 → 0건, 전인 모집글은 `RECRUITING`, 반환 작업 1건 |
+| 기한 마감 | 정원이 찬 모집글 | 마감 1건, 반환 작업 없음 |
+| 기한 마감 | 마감 일시가 지난 `HOLD_PENDING` (C5) | 마감 배치만으로는 0건·작업 없음 → 보류 재확인 후 마감 배치 1건, `CLOSED`, 90,000 반환, 잔액 원래대로 |
+| 동시성 | 조기 마감과 새 지원 2건 동시 (3회 반복, C9) | 마감은 성공, 지원은 성공 또는 `APPEARANCE_RECRUIT_NOT_OPEN`. 마감된 모집글에 `APPLIED` 지원 0건 |
+| 기한 마감 | 대상 2건 중 1건 처리 중 충돌(`CONCURRENT_UPDATE`) (C8) | 1건만 마감, 충돌 건은 `RECRUITING`·반환 작업 없음(롤백) → 다음 실행에서 마감·반환 작업 1건 |
+| 역할 | 세션 USER / ADMIN | `AccessDeniedException` |
+
+### 11.5 E2E — `AppearanceRecruitApiE2ETest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 다른 회원 조기 마감 / 일반 유저 | 403 `NOT_RECRUIT_HOST` / 403 `FORBIDDEN` |
+| 호스트 조기 마감 / 다시 마감 | 200 "출연 모집을 마감했습니다.", `CLOSED`, `EARLY`, 마감 시각, `hpReleaseStatus` `DONE` / 409 `APPEARANCE_RECRUIT_NOT_OPEN` |
+| 일반 유저가 상세 / 공개 목록 | `CLOSED`, `hpReleaseStatus` 없음 / 0건 |
+
+---
+
+## 12. 출연 알림 이벤트 (#227)
+
+| 종류 | 테스트 | 케이스 | 기대 결과 |
+|---|---|---|---|
+| 단위 | `AppearanceBatchRulesTest` | 보류 성공 반영: 처음 / 이미 `REQUESTED` | true(바뀜) / false(그대로) |
+| 단위 | `AppearanceRequestTest` | 요청서 `toDto()` | 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한 |
+| 단위 | `AppearanceApplicationTest` | 지원 `toDto(모집글)` / 다른 모집글 | 모집글 제목·호스트 포함 / `IllegalArgumentException` |
+| 통합 | `AppearanceEventPublishTest` | 요청서 보내기 성공 | `AppearanceRequestSentEvent` 1건, 내용 일치 |
+| 통합 | 〃 | Billing 보류 거절 | 0건 |
+| 통합 | 〃 | 보류 결과 모름 → 보류 재확인 배치 | 0건 → 1건 (같은 요청서 ID) |
+| 통합 | 〃 | 이미 `REQUESTED`인데 보류 성공을 다시 반영 | 1건 그대로 (중복 없음) |
+| 통합 | 〃 | 지원 | `AppearanceApplicationSubmittedEvent` 1건, 내용 일치 |
+| 통합 | 〃 | 다시 지원 / 자기 모집글 지원 | `DUPLICATE_APPLICATION` / `CANNOT_APPLY_OWN_RECRUIT`, 추가 발행 없음 |
+| 통합 | 〃 | 모집글 올리기만 | 알림 이벤트 0건 |
+| apps | `ModularityTests` | 출연 → shared 의존 | 통과 (shared는 boundedContext를 모름) |

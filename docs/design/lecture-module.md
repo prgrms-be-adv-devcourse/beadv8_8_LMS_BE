@@ -304,7 +304,7 @@ stateDiagram-v2
 | 회원 | 가입, 회원 정보 변경 | 이벤트 |
 
 - `AGENTS.md`의 "모듈 간 통신은 Spring Event를 기본"에서 **HP 이동과, 지급을 멈추거나 HP를 되돌리는 이의 제기 처리만 예외**로 동기 호출한다. 돈과 관련된 상태 변경을 한 트랜잭션으로 묶어 한쪽만 반영되는 경우를 없애기 위해서다. 회원 복제만 이벤트로 남는다.
-- 지갑 호출이 예외를 던지면 강의 상태 변경도 함께 롤백된다. 사용자 요청이면 오류로 응답하고, 배치면 그 항목을 건너뛰고 다음 실행에서 다시 시도한다.
+- 지갑 호출이 예외를 던지면 강의 상태 변경도 함께 롤백된다. 사용자 요청이면 오류로 응답하고, 배치면 그 항목을 건너뛴다. 지급 배치는 실패를 분류해 일시 실패는 다음 실행에서 다시 시도하고, 영구 실패는 격리한다(6.4, D54).
 - 이벤트는 이미 설정된 Spring Modulith 이벤트 발행 기록(JDBC, `republish-outstanding-events-on-restart: true`)을 쓴다. 이벤트는 발행한 트랜잭션과 함께 기록되므로 커밋된 상태 변경의 이벤트는 유실되지 않는다(최소 1회 전달).
 - 받는 쪽은 `@ApplicationModuleListener`(커밋 후, 비동기, 새 트랜잭션)로 받고 **멱등하게** 처리한다(상태 전이 검사로 중복 무시).
 
@@ -426,6 +426,7 @@ sequenceDiagram
 ```
 
 - 주문 행을 먼저 저장하는 이유: 보류의 참조 ID(주문 항목 ID)가 필요하고, `(buyer_user_id, lecture_id)` 부분 유일 인덱스 위반(중복 주문)을 보류 전에 걸러내기 위해서다. 보유 검사를 동시에 통과한 같은 강의 주문은 이 인덱스에 걸리고 409 `ALREADY_OWNED_LECTURE`로 응답한다(D45).
+- 항목은 요청 순서와 관계없이 **강의 ID 오름차순**으로 만들고 저장한다. 같은 구매자가 같은 강의들을 다른 순서(`[A,B]`·`[B,A]`)로 동시에 주문해도 유일 인덱스 키를 같은 순서로 잡으므로 교착(`40P01`)이 생기지 않고, 늦은 주문은 앞 주문을 기다렸다가 D45 경로로 409를 받는다. 주문 응답의 `items`도 이 순서다(D55).
 - 구매 시각(`purchased_at`)은 **모든 항목의 보류가 정상 반환된 직후** `Clock`으로 한 번 캡처한 시각이다(D35). 보류 전에 계산하면, 23:59에 시작한 주문이 지갑 잠금 대기 후 00:01에 보류될 때 전날 구매로 기록되어 취소·이의 제기 기한이 하루 빨라진다.
 
 #### 구매 취소
@@ -446,7 +447,7 @@ sequenceDiagram
 
 #### 자동 구매 확정과 지급 (배치)
 
-항목마다 별도 트랜잭션으로 처리한다. 한 항목의 지갑 호출이 실패하면 그 항목만 롤백되어 `CONFIRMED`로 남고, 다음 배치에서 다시 시도한다.
+항목마다 별도 트랜잭션으로 처리한다. 한 항목의 지갑 호출이 실패하면 그 항목만 롤백되어 `CONFIRMED`로 남는다. 지급 배치는 실패를 분류해 다음 배치에서 다시 시도하거나 격리한다(D54, 아래 "지급 실패 처리").
 
 - 스케줄러는 대상 항목 ID만 조회하고, 항목 처리는 **별도 빈의 `@Transactional` 메서드** 또는 `TransactionTemplate`으로 항목마다 새 트랜잭션을 연다(같은 클래스 안에서 호출하면 프록시를 거치지 않아 트랜잭션이 생기지 않는다).
 - 예외는 **트랜잭션 밖(스케줄러 루프)에서** 항목별로 잡아 로그를 남기고 다음 항목으로 넘어간다. 트랜잭션 안에서 잡으면 rollback-only 상태로 커밋이 실패하거나 앞선 처리까지 롤백될 수 있다.
@@ -465,7 +466,28 @@ sequenceDiagram
         LEC->>WAL: BillingPort.payout(항목 보류 → 판매자, D50)
         WAL->>WAL: 판매자 수익 HP 지급 + 원장
     end
+    opt 지급 실패 (지급 트랜잭션 롤백)
+        LEC->>LEC: 새 트랜잭션: 실패 횟수·코드·시각 기록, 영구 실패면 격리 (D54)
+    end
 ```
+
+#### 지급 실패 처리 (D54)
+
+| 분류 | 오류 | 처리 |
+| --- | --- | --- |
+| 영구 | `WALLET_NOT_FOUND`가 아닌 업무 예외(`HOLD_ALREADY_CLOSED`, `PAYOUT_ALREADY_SETTLED`, `HOLD_STATE_INCONSISTENT`, `IDEMPOTENCY_KEY_CONFLICT`, `HOLD_NOT_FOUND` 등), 지급액 불일치(`PAYOUT_AMOUNT_MISMATCH`) | 처음 실패할 때 격리(`payout_quarantined_at`)하고 ERROR 로그. 관리자가 해제할 때까지 배치 대상에서 빠진다 |
+| 일시 | `WALLET_NOT_FOUND`, 업무 예외가 아닌 예외(낙관적 락 충돌, 교착 등 DB 오류, 조회 실패, 모르는 예외) | 매일 다시 시도한다(횟수 제한 없음). 실패 횟수가 3회 이상이면 ERROR, 그 전에는 WARN 로그 |
+
+- 어느 쪽도 지급 완료(`PAID_OUT`)로 보지 않는다. `HOLD_ALREADY_CLOSED`·`PAYOUT_ALREADY_SETTLED`도 항목은 `CONFIRMED`로 남는다.
+- billing 오류는 `BusinessException.getErrorCode().getCode()` 문자열로 구분한다. billing·shared 계약은 바꾸지 않는다.
+- 실패는 지급 트랜잭션과 함께 롤백되므로 루프에서 **새 트랜잭션**으로 기록한다(`payout_failure_count`, `last_payout_failure_code`, `last_payout_failed_at`). 기록 대상은 아직 지급 대상인 항목뿐이다. 그 사이 다른 실행이 지급했거나 이의 제기 접수가 먼저 커밋되었으면 기록하지 않아, 아직 커밋 전인 다른 트랜잭션의 행 락을 기다리지 않는다. 기록이 실패하면 ERROR 로그만 남기고, 항목은 격리되지 않은 채 다음 실행에서 다시 처리된다.
+- 지급에 성공해도, 격리를 해제해도 실패 기록은 이력으로 남는다.
+
+운영 절차 (격리된 항목)
+
+1. 관리자가 `GET /api/v1/lectures/admin/payout-failures`에서 격리된 항목(`payoutQuarantinedAt` 있음)과 마지막 실패 코드를 확인한다.
+2. 원인을 billing 데이터에서 먼저 고친다. 예: `PAYOUT_ALREADY_SETTLED`는 #142·#182 방식의 지급 예정 건(`billing.settlement`의 `SCHEDULED`·`SUSPENDED`)이 남은 경우다. `HOLD_ALREADY_CLOSED`는 보류가 이미 반환·지급되어 닫힌 경우라, 강의 항목 상태와 billing 보류를 대조해 어느 쪽이 맞는지 판단한다.
+3. `POST /api/v1/lectures/admin/payout-failures/{orderItemId}/retry`로 격리를 해제한다. 바로 지급하지 않고, 다음 지급 배치가 같은 지급 요청 ID(`LECTURE-PAYOUT-{항목 ID}`)로 다시 시도한다. 다시 영구 실패하면 다시 격리된다.
 
 #### 내용 다름 이의 제기 (고객센터 접수 + 동기 호출, 16장 D4·D9)
 
@@ -586,6 +608,10 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | objection_inquiry_id | bigint | **추가** (#156). 접수한 고객센터 문의 ID. 판단할 때 대조한다. 다른 모듈 ID라 FK 없음 |
 | objection_resolved_at | timestamp | **추가** |
 | objection_resolved_by_user_id | bigint | **추가** (#156). 판단한 관리자 ID |
+| payout_failure_count | int | **추가** (#218). 지급 실패 횟수, 기본 0. 지급·격리 해제 후에도 남는다 (D54) |
+| last_payout_failure_code | varchar(100) | **추가** (#218). 마지막 지급 실패 코드 |
+| last_payout_failed_at | timestamp | **추가** (#218). 마지막 지급 실패 시각 |
+| payout_quarantined_at | timestamp | **추가** (#218). 지급 격리 시각. 값이 있으면 지급 배치 대상에서 빠진다 |
 | version | bigint | **추가**. 낙관적 락 (10장) |
 
 인덱스
@@ -640,6 +666,13 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | POST | `/api/v1/lectures/admin/{lectureId}/inspection/approve` | 승인 → `ON_SALE`. 검수 대기 중에는 내용이 바뀌지 않으므로 추가 검사 없음 (D11) |
 | POST | `/api/v1/lectures/admin/{lectureId}/inspection/reject` | 반려 `{reason}` → `REJECTED` |
 
+### 8.2.1 지급 실패 (관리자, D54)
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/api/v1/lectures/admin/payout-failures` | 지급 실패 기록이 있는 미지급(`CONFIRMED`) 항목. 최근 실패순(`lastPayoutFailedAt desc, id desc`) 고정, 필터 없음. 항목·주문·강의 ID, 판매자·구매자 ID, 가격, 지급 예정 시각, 실패 횟수, 마지막 코드·시각, 격리 시각 |
+| POST | `/api/v1/lectures/admin/payout-failures/{orderItemId}/retry` | 격리 해제 → 다음 지급 배치에서 다시 시도(204). 바로 지급하지 않는다. 없는 항목 404 `ORDER_ITEM_NOT_FOUND`, 격리되지 않은 항목 409 `PAYOUT_NOT_QUARANTINED` |
+
 ### 8.3 파일
 
 | 메서드 | 경로 | 권한 | 설명 |
@@ -664,7 +697,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| POST | `/api/v1/lectures/orders` | `{lectureIds}` 주문 (바로 구매는 1개). HP 보류까지 끝난 뒤 응답. 잔액 부족이면 오류 |
+| POST | `/api/v1/lectures/orders` | `{lectureIds}` 주문 (바로 구매는 1개). HP 보류까지 끝난 뒤 응답. 잔액 부족이면 오류. 응답의 `items`는 강의 ID 오름차순 (D55) |
 | GET | `/api/v1/lectures/orders` | 내 주문 목록 |
 | GET | `/api/v1/lectures/orders/{orderId}` | 주문 상세 (항목 상태 + 4.6 파생 상태) |
 | POST | `/api/v1/lectures/orders/{orderId}/items/{orderItemId}/confirm` | 직접 구매 확정 |
@@ -712,13 +745,14 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 강의 상세 | X | O | O | O | O |
 | 강의 등록·수정·삭제·재검수 신청 | X | X | X | O (본인) | X |
 | 검수 승인·반려 | X | X | X | X | O |
+| 지급 실패 조회·격리 해제 | X | X | X | X | O |
 | 장바구니·주문·구매 확정·구매 취소·이의 제기 | X | O | O | O | X |
 | 판매 내역 | X | X | X | O (본인 판매분) | X |
 | 콘텐츠 시청 | X | 구매자 | 구매자 | 구매자·판매자 | O (검수용) |
 | 리뷰 작성·수정·삭제 | X | 구매자 | 구매자 | 구매자 | X |
 | 리뷰 목록 | X | O | O | O | O |
 
-- 역할 검사는 Facade(`LectureFacade`, `LectureInspectionFacade`, `LectureOrderFacade`)의 `@PreAuthorize`로 한다. 관리자 API(`/admin` 경로)는 `SecurityConfig`도 함께 막는다 (D16).
+- 역할 검사는 Facade(`LectureFacade`, `LectureInspectionFacade`, `LectureOrderFacade`, `LecturePayoutAdminFacade`)의 `@PreAuthorize`로 한다. 관리자 API(`/admin` 경로)는 `SecurityConfig`도 함께 막는다 (D16).
 - 관리자의 강의 상세는 `/admin/{lectureId}`(`LectureInspectionFacade`)로 따로 두고, 일반 상세 API에는 역할 분기를 두지 않는다 (D30).
 - 콘텐츠 시청은 "판매자 본인 또는 관리자 또는 구매자"라는 OR 조건이라 `@PreAuthorize`를 두지 않고 `LectureContentAccessSupport`가 판정한다. 관리자 여부는 회원 복제본(`LectureUser`)으로, 구매자 여부는 보유 항목으로 본다 (D26, D38).
 
@@ -734,8 +768,9 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 같은 주문의 마지막 두 항목을 동시에 구매 취소 | 구매 취소는 주문 행을 잠가(`SELECT ... FOR UPDATE`) 읽는다. 뒤 요청은 앞 요청이 커밋한 항목 상태를 보고 마지막 항목이면 주문을 `CANCELED`로 바꾼다 (D46). 이의 제기 인정(#156)도 주문 행을 잠그되, 구매자를 모르므로 항목 ID로 주문을 찾아 잠근다(D49) |
 | 승인 중 판매자가 콘텐츠 수정 | 발생하지 않음. 검수 대기 중에는 콘텐츠를 수정할 수 없다 (D11) |
 | 주문 버튼 중복 클릭 | `(buyer_user_id, lecture_id)` 부분 유일 인덱스로 같은 강의의 두 번째 주문이 보류 호출 전에 실패하고 409 `ALREADY_OWNED_LECTURE`로 응답 (D45) |
+| 같은 강의들을 다른 순서로 동시에 다건 주문 (`[A,B]`·`[B,A]`) | 항목을 강의 ID 오름차순으로 만들어 유일 인덱스 키를 같은 순서로 잡는다. 늦은 주문은 교착 없이 앞 주문을 기다렸다가 409 `ALREADY_OWNED_LECTURE`. 그래도 교착(`40P01`)이 나면 재시도하지 않고 전체 롤백 후 500 (D55) |
 | 같은 구매자의 동시 결제 (강의 주문 + 출연 요청 등) | `BillingPort.hold`의 지갑 잠금으로 잔액 검사와 보류를 원자적으로 처리 (billing 구현) |
-| 지갑 호출 실패 | 강의 상태 변경도 롤백. 사용자 요청은 오류 응답, 지급 배치는 다음 실행에서 다시 시도 |
+| 지갑 호출 실패 | 강의 상태 변경도 롤백. 사용자 요청은 오류 응답. 지급 배치는 새 트랜잭션에서 실패를 기록하고, 일시 실패는 다음 실행에서 다시 시도, 영구 실패는 격리 (D54) |
 | 같은 항목에 반환·지급이 두 번 호출 | 강의 상태 머신이 먼저 막고, billing도 남은 보류가 없으면 거부한다. 같은 반환 요청 ID로 다시 보내면 처음 결과를 돌려받는다 (6.2) |
 | 이벤트 중복 도착 (회원) | 가입 이벤트는 복제본이 이미 있으면 무시하고, 변경 이벤트는 있는 복제본만 갱신한다. 생성은 가입 이벤트로만 해서 가입·변경이 동시에 처리돼도 변경 정보를 덮어쓰지 않는다 (D17) |
 | 같은 이의 제기 판단이 두 번 호출 | `objection_status = FILED`가 아니면 예외로 거부 |
@@ -748,7 +783,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 배치 | 주기 | 대상 |
 | --- | --- | --- |
 | 자동 구매 확정 | 10분마다 (`lecture.batch.auto-confirm-cron`, 기본 `0 */10 * * * *`, D41) | `PURCHASED` && `auto_confirm_at <= now` |
-| 지급 | 매일 01:00 (`lecture.batch.payout-cron`, 기본 `0 0 1 * * *`, D50) | `CONFIRMED` && `payout_scheduled_at <= now` && `objection_status IN (NONE, REJECTED)` |
+| 지급 | 매일 01:00 (`lecture.batch.payout-cron`, 기본 `0 0 1 * * *`, D50) | `CONFIRMED` && `payout_scheduled_at <= now` && `objection_status IN (NONE, REJECTED)` && `payout_quarantined_at IS NULL` (D54) |
 
 - 지갑 동시성 제어 방식(`AGENTS.md` 11장 미정)은 강의 모듈이 정하지 않는다. 강의 모듈은 상태 머신과 트랜잭션 경계를 보장하고, 지갑의 보장은 `shared` billing 연동 계약(#145)을 따른다(Q15는 D36으로 대체).
 - 스케줄링은 #157에서 켰다(`apps`의 `SchedulingConfig`). 배치 빈은 global `@ConditionalOnSchedulingEnabled`(`hapbang.scheduling.enabled`)를 붙여 앱에서만 실행되고 테스트에서는 꺼진다. 테스트는 처리 빈의 메서드를 직접 호출한다. cron에는 `zone = "Asia/Seoul"`을 쓴다.
@@ -801,7 +836,7 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | 1 | `LectureHpPort` 합의(6.2, Q15 → D36: `shared` billing 연동 계약 #145), `LectureObjectionPort` 합의(고객센터), 회원 이벤트 합의(Q9, Q17), `shared`에 인터페이스·이벤트 record 추가, Swagger Controller 명세 (**명세 완료**: 8장 전체 스텁, 본문 501, D14) | 지갑·고객센터·회원 담당 | 명세 #48 ✅ #74 ✅ #94 ✅ |
 | 2 | `Lecture`·`LectureContent` 등록·조회·검수, 반려 후 콘텐츠 수정 (파일은 ID만, S3 연동 전) | - | #55 ✅ #73 ✅, 관리자 상세 #103 ✅ |
 | 3 | 장바구니, 주문 생성(`BillingPort` 항목별 보류, 테스트는 Fake), 직접 구매 확정, 구매 취소 | 지갑의 보류 구현·반환 (#145 ✅) | 장바구니 #92 ✅, 주문 조회·직접 확정 #146 1차(#152) ✅, 주문 생성·구매 취소 #146 2차 ✅ |
-| 4 | 자동 구매 확정·지급 배치 → **강의 쪽 돈 한 바퀴 완료** | 지갑의 지급 (#145 ✅) | 스케줄링 #157 ✅, 자동 구매 확정 #149 ✅, 지급·판매 내역 #150 ✅ |
+| 4 | 자동 구매 확정·지급 배치 → **강의 쪽 돈 한 바퀴 완료** | 지갑의 지급 (#145 ✅) | 스케줄링 #157 ✅, 자동 구매 확정 #149 ✅, 지급·판매 내역 #150 ✅, 지급 실패 격리·다건 주문 순서 #218 |
 | 5 | S3 업로드·재생 URL, 재생 동의 구매 확정 | 인프라(S3 버킷 권한) | S3 #88 ✅ #89 ✅ #90 ✅ #91 ✅, 서버 경유 업로드 #106 ✅ #107 ✅, 내려받기 파일명 #125 ✅, 재생 동의·구매자 시청·`/purchased` #158 ✅ |
 | 6 | 리뷰·평점, `LectureUser` 복제 | 회원 이벤트 | 회원 복제 #46 ✅ #87 ✅, 리뷰·평점 #155 ✅ |
 | 7 | 내용 다름 이의 제기 (`LectureObjectionPort` 구현) | 고객센터 호출부, `INQUIRY` 대상 컬럼 | 강의 구현 #156 ✅, 고객센터 호출부 #189 ✅, 철회 #203 |
@@ -941,7 +976,9 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | D47 | 2026-10-14 | 리뷰·평점(#155): (1) 본인 주문 항목이 `CONFIRMED`·`PAID_OUT`일 때만 쓴다. 강의 상태(삭제 포함)는 보지 않는다. 검사 순서는 없는 강의 404 `LECTURE_NOT_FOUND` → 남의 항목·없는 항목·경로와 다른 강의의 항목 404 `ORDER_ITEM_NOT_FOUND` → 구매 확정 전·취소·반환 409 `ORDER_ITEM_NOT_REVIEWABLE`(detail만 다름) → 이미 쓴 강의 409 `ALREADY_REVIEWED`. 동시 작성은 리뷰 부분 유일 인덱스 2개의 UNIQUE 위반(SQLState `23505` + 서버가 보낸 제약 이름)만 `ALREADY_REVIEWED`로 바꾸고, 그 밖의 무결성 위반은 그대로 던져 500 `INTERNAL_ERROR`가 된다(AGENTS.md 7장, billing `WalletCreateUseCase`와 같은 판별). (2) 평점은 1~5, 본문은 선택이고 1,000자 이하다. 비었거나 공백만 있으면 `null`로 저장한다. 수정은 평점·본문을 모두 바꾼다. (3) 수정·삭제는 작성자 본인만 하며 항목 상태와 관계없다. 남의 리뷰는 403 `NOT_REVIEW_WRITER`, 없거나 삭제된 리뷰는 404 `REVIEW_NOT_FOUND`다. 작성·수정·삭제는 관리자 불가(Facade `@PreAuthorize`), 목록은 로그인한 회원 모두 본다. (4) 반환된 항목의 리뷰는 행을 남기되 리뷰 목록·평균 평점·리뷰 수에서 뺀다. 같은 강의를 다시 산 회원이 새 리뷰를 쓰면 반환된 항목의 기존 리뷰를 같은 트랜잭션에서 Soft Delete하고 대체한다. (5) 평균 평점은 조회할 때 `order_item`과 JOIN해 집계하고 소수 첫째 자리까지 반올림(HALF_UP)한다. 리뷰가 없으면 `null`이다. 평점순(`RATING`)은 반올림 전 평균 내림차순 → 리뷰 수 내림차순 → 최신순이고, 리뷰가 없는 강의는 맨 뒤다. (6) 리뷰 목록은 최신순으로 고정하고 판매 중이 아닌 강의는 강의 상세와 같이 판매자·보유 구매자만 본다(그 밖에는 404 `LECTURE_NOT_FOUND`). message: 목록 "리뷰 목록을 조회했습니다.", 작성 "리뷰를 작성했습니다." | (1) 리뷰 후 구매 취소 방지(D5). 삭제된 강의도 구매자는 계속 보는 상품이다. 남의 주문은 드러내지 않는다(D32) (2) 기획서에 값이 없어 평점만 남기는 리뷰를 허용하고 길이만 제한한다 (3) 리뷰는 공개 목록에 있어 존재를 숨길 이유가 없다(`NOT_LECTURE_SELLER`와 같음) (4) 목록에 보이는 개수와 `reviewCount`를 맞춘다. 반환 리뷰는 목록에 없어 작성자가 찾아 지울 수 없으므로, 그대로 두면 다시 산 강의에 리뷰를 쓸 수 없다 (5) 반환 여부를 컬럼으로 복사하지 않으면 이의 제기(7단계)에서 고칠 곳이 없다. 같은 스키마라 모듈 경계 위반이 아니다(4.7). 리뷰 1개짜리 5.0과 100개짜리 5.0을 리뷰 수로 나눈다 | 평점순은 강의마다 상관 서브쿼리로 집계하므로 강의가 많아지면 4.7의 캐시 컬럼을 검토한다. 리뷰 동시 수정은 낙관적 락 없이 나중 요청이 이긴다 |
 | D48 | 2026-10-14 | 동시 요청의 유일 인덱스 위반 판별을 강의 모듈 `UniqueIndexViolation` 하나로 통일한다(#184). 원인 체인의 `PSQLException`에서 SQLState `23505`와 서버가 보낸 제약 이름이 지정한 인덱스일 때만 업무 오류(409)로 바꾸고, 그 밖의 무결성 위반은 그대로 던져 500 `INTERNAL_ERROR`가 된다. 대상: 장바구니 담기 `uk_cart_item_cart_lecture` → `ALREADY_IN_CART`(D18), 주문 `uk_order_item_buyer_lecture_owned` → `ALREADY_OWNED_LECTURE`(D45), 리뷰 `uk_lecture_review_order_item`·`uk_lecture_review_lecture_reviewer` → `ALREADY_REVIEWED`(D47) | 장바구니는 모든 무결성 위반을 409로 바꿔 예상하지 못한 결함을 가렸다(AGENTS.md 7장 위반). 주문이 쓰던 Hibernate `getConstraintName()`은 Hibernate 7.4.5 `PostgreSQLDialect`가 오류 메시지의 영어 문구(`constraint "…"`)에서 뽑으므로 DB 메시지 언어(`lc_messages`)가 한국어면 `null`이 되어 409가 500이 된다. billing `WalletCreateUseCase`와 같은 방식이다 | 모듈 공통(global)으로 올릴지는 범위 밖 |
 | D49 | 2026-10-14 | 내용 다름 이의 제기 포트(#156): (1) `shared`의 `LectureObjectionRefusedException`은 `BusinessException`이 아닌 런타임 예외이고 사유를 담는다. 고객센터가 잡아서 자기 업무 예외로 바꿔 던진다. (2) 사유는 접수 5개 `NOT_BUYER`(없는 항목 포함) → `NOT_OBJECTIONABLE` → `ALREADY_PAID_OUT` → `ALREADY_FILED` → `PERIOD_EXPIRED` 순서로 검사하고, 판단 2개는 `NOT_FILED`(없는 항목·이미 판단한 항목 포함)·`INQUIRY_MISMATCH`다. 필수 값 누락은 NPE·IAE다. (3) 접수한 문의 ID(`objection_inquiry_id`)와 판단한 관리자(`objection_resolved_by_user_id`)를 저장한다. (4) 인정은 D46처럼 주문을 잠그고(항목 ID로 주문 ID만 읽은 뒤 잠금), 항목을 `RETURNED`로 바꿔 flush한 뒤 `release(full, "LECTURE-RETURN-{항목 ID}")`를 부르고 반환액이 가격과 같은지 확인한다(D43). 접수·기각은 항목 낙관적 락만 쓴다. 지급 중단·재개는 지급 배치가 `objection_status`로 거른다(D50). 처음에는 인정 시 `LectureSettlementPort.cancel`로 판매자 지급 예정 건도 취소했으나(#182), #188(#196)에서 지급 예정 건 연동이 제거되어 지금은 반환만 한다 | `shared`는 `global`에 의존하지 않아 `BusinessException`을 상속할 수 없고, 의존을 추가하면 모듈 구조가 바뀐다. 상태가 더 구체적인 사유라 기한보다 먼저 알린다(기각된 항목이 기한도 지났으면 `ALREADY_FILED`). 관리자 중복 클릭에도 고객센터가 409로 응답할 수 있게 판단 거부도 같은 예외로 알린다. 판단자는 HP 반환을 일으킨 근거라 강의 항목에도 남긴다 | 고객센터 호출부·HTTP 응답 형태는 #189. 접수와 지급 배치의 경쟁 테스트는 #150과 나중에 병합하는 PR이 추가 |
-| D50 | 2026-10-14 | 지급 배치(#150): 매일 01:00에 실행한다(cron `lecture.batch.payout-cron`, 기본 `0 0 1 * * *`, KST). 실행마다 `now`를 한 번 구하고 `CONFIRMED && payoutScheduledAt <= now && objectionStatus IN (NONE, REJECTED)`인 항목 ID를 모두 `payoutScheduledAt, id` 순으로 읽는다. 항목마다 새 트랜잭션(`TransactionTemplate`)에서 주문 애그리거트(`LectureOrder.payOutItem`)를 거쳐 `PAID_OUT`, `paidOutAt = 실제 지급 시각`으로 바꾸고 flush(낙관적 락 확인)한 뒤 같은 트랜잭션에서 `BillingPort.payout(PayoutCommand.full(구매자, LECTURE_ORDER_ITEM, 주문 항목 ID, "LECTURE-PAYOUT-{주문 항목 ID}", 판매자, LECTURE_ORDER_ITEM, 주문 항목 ID))`을 부른다. `paidHp ≠ 가격`이면 `IllegalStateException`(D43과 같음)으로 롤백하고, `replayed = true`는 같은 항목의 재시도 응답이라 정상으로 본다. 처리할 때 대상이 아니면(조회 뒤 이의 제기 접수가 먼저 커밋 등) 그대로 둔다. 예외는 루프에서 항목별로 잡고, 실패한 항목은 `CONFIRMED`로 남아 다음 실행에서 다시 처리한다. 지급은 주문을 닫지 않으므로 주문을 잠그지 않는다(D46) | 강의가 지급 시점·이의 제기를 판단하고 `payout`을 직접 부르는 방식(#150 (b)안)이다. 출연 모듈도 같은 구조이고, 지급 원천 추가·정책 변경(보류 기간, 이의 제기)이 원천 모듈 한 곳에서 끝나며, 서비스 분리 때 경계를 넘는 호출이 멱등한 `payout` 하나다. #142의 billing 지급 예정 건(`Settlement` SCHEDULED)은 쓰지 않는다(정리는 #188). 지급 시각은 HP가 실제로 옮겨진 때라 예정 시각(`payoutScheduledAt`)과 따로 남긴다 | #182가 넣은 강의 → billing 지급 예정 연동(`LectureSettlementPort`의 주문 시 등록, 구매 취소·이의 제기 인정 시 취소)은 #188(#196)에서 제거되어, 주문 항목에 지급 예정 건이 생기지 않고 `payout` 직접 호출이 동작한다. 판매자 탈퇴·지갑 없음으로 실패하는 항목은 매일 경고 로그로 다시 시도되며 별도 알림은 없다(탈퇴 처리는 #188) |
+| D50 | 2026-10-14 | 지급 배치(#150): 매일 01:00에 실행한다(cron `lecture.batch.payout-cron`, 기본 `0 0 1 * * *`, KST). 실행마다 `now`를 한 번 구하고 `CONFIRMED && payoutScheduledAt <= now && objectionStatus IN (NONE, REJECTED)`인 항목 ID를 모두 `payoutScheduledAt, id` 순으로 읽는다. 항목마다 새 트랜잭션(`TransactionTemplate`)에서 주문 애그리거트(`LectureOrder.payOutItem`)를 거쳐 `PAID_OUT`, `paidOutAt = 실제 지급 시각`으로 바꾸고 flush(낙관적 락 확인)한 뒤 같은 트랜잭션에서 `BillingPort.payout(PayoutCommand.full(구매자, LECTURE_ORDER_ITEM, 주문 항목 ID, "LECTURE-PAYOUT-{주문 항목 ID}", 판매자, LECTURE_ORDER_ITEM, 주문 항목 ID))`을 부른다. `paidHp ≠ 가격`이면 `IllegalStateException`(D43과 같음)으로 롤백하고, `replayed = true`는 같은 항목의 재시도 응답이라 정상으로 본다. 처리할 때 대상이 아니면(조회 뒤 이의 제기 접수가 먼저 커밋 등) 그대로 둔다. 예외는 루프에서 항목별로 잡고, 실패한 항목은 `CONFIRMED`로 남아 다음 실행에서 다시 처리한다. 지급은 주문을 닫지 않으므로 주문을 잠그지 않는다(D46) | 강의가 지급 시점·이의 제기를 판단하고 `payout`을 직접 부르는 방식(#150 (b)안)이다. 출연 모듈도 같은 구조이고, 지급 원천 추가·정책 변경(보류 기간, 이의 제기)이 원천 모듈 한 곳에서 끝나며, 서비스 분리 때 경계를 넘는 호출이 멱등한 `payout` 하나다. #142의 billing 지급 예정 건(`Settlement` SCHEDULED)은 쓰지 않는다(정리는 #188). 지급 시각은 HP가 실제로 옮겨진 때라 예정 시각(`payoutScheduledAt`)과 따로 남긴다 | #182가 넣은 강의 → billing 지급 예정 연동(`LectureSettlementPort`의 주문 시 등록, 구매 취소·이의 제기 인정 시 취소)은 #188(#196)에서 제거되어, 주문 항목에 지급 예정 건이 생기지 않고 `payout` 직접 호출이 동작한다. 판매자 탈퇴·지갑 없음으로 실패하는 항목은 매일 경고 로그로 다시 시도되며 별도 알림은 없다(탈퇴 처리는 #188). → 실패 처리는 D54(#218)로 바꿨다: 영구 실패는 격리, 일시 실패는 기록 후 재시도(3회 이상 ERROR) |
 | D51 | 2026-10-14 | 판매 내역 `GET /sales`(#150): 인증된 인플루언서만 본다(`LectureOrderFacade.getSales`의 메서드 `@PreAuthorize("hasRole('VERIFIED_INFLUENCER')")`가 클래스 권한보다 우선). 본인이 판매자인 주문 항목을 상태와 관계없이(구매 취소·반환 포함) `purchasedAt desc, id desc`로 고정 정렬해 페이지로 준다. 응답은 항목 ID·강의 ID·주문 시점 제목·가격·상태·구매 시각·지급 예정 시각·지급 시각·이의 제기 상태이고 구매자 정보와 금액 합계는 주지 않는다. message: "판매 내역을 조회했습니다." 조회용 인덱스 `(seller_user_id, purchased_at desc, id desc)`를 둔다 | 판매자가 구매 취소·반환까지 포함해 판매 흐름과 지급 예정을 한 목록에서 본다. 금액 합계는 운영 집계 필요가 정해지지 않아 두지 않는다(#188) | - |
 | D52 | 2026-10-14 | 이의 제기 철회(#203): 고객센터가 이의 제기 문의를 삭제할 때 같은 트랜잭션에서 `LectureObjectionPort.withdrawObjection(주문 항목 ID, 구매자 ID, 문의 ID)`을 동기 호출한다. 구매자 본인 항목이고 `objection_status = FILED`이며 문의 ID가 접수 때와 같을 때만 철회하고, 아니면 `NOT_BUYER`(없는 항목 포함) → `NOT_FILED`(이미 판단한 항목 포함) → `INQUIRY_MISMATCH` 순서로 검사한 사유로 거부한다(새 사유 없음). 철회하면 `objection_status`를 `NONE`으로 되돌리고 `objection_inquiry_id`·`objection_reason`·`objection_filed_at`을 비운다(새 상태 `WITHDRAWN`을 두지 않는다). 그래서 지급(지급 예정 시각이 지났으면 다음 지급 배치), 구매 취소(기한은 원래 `auto_confirm_at`), 재접수(기한은 원래 `payout_scheduled_at`)가 접수 전 규칙 그대로 된다. 기한은 검사하지 않고, 주문을 닫지 않으므로 항목 낙관적 락만 쓴다 | 이벤트 대신 동기 호출하는 근거는 D9와 같다(거절을 문의 삭제에 되돌릴 수 없고, 지연·유실되면 지급이 멈춘 채로 남는다). `NONE`으로 되돌리면 마이그레이션·새 enum 값이 없고 판매 내역의 `objectionStatus` 값도 늘지 않는다. 접수 중에는 HP가 움직이지 않아 필드를 비워도 돈 이력을 잃지 않고, 접수 기록은 고객센터 문의(Soft Delete)에 남는다. 접수·철회를 반복해도 이의 제기 기한이 상한이라 지급을 무한정 늦출 수 없다 | 강의 쪽에는 철회 이력이 남지 않는다. D44의 구매 취소 조건은 `objection_status = NONE`이므로 철회한 항목은 다시 구매 취소할 수 있다. 고객센터 호출부와 문의 삭제 차단(`OBJECTION_INQUIRY_NOT_DELETABLE`) 해제는 고객센터 담당 |
 | D53 | 2026-10-15 | 판매자 수정용 파일 ID(#219): 강의 상세(`LectureDetailResponse`)에 `thumbnailFileId`, 콘텐츠(`LectureContentResponse`)에 `fileId`를 더한다. 일반 상세 `GET /{lectureId}`는 판매자 본인에게만 값을 주고 그 밖의 회원(구매자 포함)은 `null`이다. 관리자 상세(`/admin/{lectureId}`, D30)는 값을 준다. 반려 사유와 같은 기준(판매자 본인·관리자)이다. 정보 수정의 `thumbnailFileId`는 지금 의미(`null` = 썸네일 없음, 전체 덮어쓰기)를 유지하고, 썸네일을 유지하려면 상세에서 받은 값을 다시 보낸다. 콘텐츠 교체도 `fileId`만 받으며, 바꾸지 않은 강은 받은 `fileId`를 다시 보낸다(D21 재연결). 원본 파일명·크기는 내려주지 않는다 | 수정 API가 요구하는 값을 조회로 알 수 있어야 같은 파일(영상 최대 2GB)을 다시 올리지 않는다. 다른 회원에게는 내려주지 않아 D21의 "다른 회원의 파일 ID를 드러내지 않는다"를 지킨다. 같은 DTO에서 역할별로 필드를 비우는 방식은 `rejectionReason`이 이미 쓰고 있어 FE 분기가 늘지 않는다. PATCH 의미를 바꾸지 않아 기존 FE 요청이 깨지지 않는다 | 판매자는 삭제한 강의도 상세로 조회하므로, 그 파일 ID로 새 강의를 등록할 수 있다(D11 재등록). 원본 파일명 표시는 필요해지면 따로 정한다 |
+| D54 | 2026-10-15 | 지급 실패 분류와 격리(#218, D50 변경): (1) 지급 배치는 실패를 `BusinessException.getErrorCode().getCode()` 문자열로 나눈다. `WALLET_NOT_FOUND`가 아닌 업무 예외(`HOLD_ALREADY_CLOSED`, `PAYOUT_ALREADY_SETTLED`, `HOLD_STATE_INCONSISTENT`, `IDEMPOTENCY_KEY_CONFLICT`, `HOLD_NOT_FOUND` 등)와 지급액 불일치(`PayoutAmountMismatchException`, 코드 `PAYOUT_AMOUNT_MISMATCH`)는 영구 실패, `WALLET_NOT_FOUND`와 업무 예외가 아닌 예외(낙관적 락 충돌, `40P01` 등 DB 오류, 모르는 예외, 코드는 예외 클래스 이름)는 일시 실패다. (2) `order_item`에 `payout_failure_count`·`last_payout_failure_code`(100자)·`last_payout_failed_at`·`payout_quarantined_at`을 더한다. 실패는 지급 트랜잭션이 롤백된 뒤 루프에서 새 트랜잭션으로 기록하고, 아직 지급 대상(`isPayable`)인 항목에만 남긴다. 영구 실패는 처음 실패할 때 격리하고 ERROR, 일시 실패는 횟수 제한 없이 매일 다시 시도하며 3회 이상이면 ERROR, 그 전에는 WARN이다. (3) 지급 대상 조건(`isPayable`·`findPayoutDueItemIds`)에 "격리되지 않음"을 더한다. (4) 관리자 API: `GET /admin/payout-failures`(실패 기록이 있는 `CONFIRMED` 항목, 최근 실패순 고정, 필터 없음), `POST /admin/payout-failures/{orderItemId}/retry`(격리 해제만, 204, 없는 항목 404 `ORDER_ITEM_NOT_FOUND`, 격리되지 않은 항목 409 `PAYOUT_NOT_QUARANTINED`). (5) 지급에 성공해도, 격리를 해제해도 실패 기록은 남긴다. (6) 영구 실패도 지급 완료(`PAID_OUT`)로 보지 않는다 | 재시도해도 풀리지 않는 실패가 매일 반복되며 경고 로그만 남았다(#211 검증). 결정 표에 없는 billing 코드도 재시도로 풀리지 않으므로 업무 예외는 지갑 없음만 빼고 영구로 본다(2026-10-15 질문). 잘못 격리돼도 관리자가 해제할 수 있어 비용이 작고, 반대로 영구 실패를 일시로 보면 무한 재시도가 다시 생긴다. 실패 기록을 지급 대상인 항목으로 좁혀, 실패 원인이 된 다른 트랜잭션(이의 제기 인정 등)이 커밋 전이어도 그 행 락을 기다리지 않는다. 별도 테이블 대신 컬럼을 두어 배치 조회 조건 하나로 격리를 반영한다. billing·shared 계약은 바꾸지 않는다 | 알림은 ERROR 로그뿐이다. 격리 해제한 관리자는 로그로만 남긴다. dev DB에 남은 강의 지급 예정 건(`billing.settlement`)이 있는 항목은 배포 후 첫 지급 배치에서 격리된다(보정은 범위 밖) |
+| D55 | 2026-10-15 | 다건 주문의 항목 순서(#218, D45 보충): 주문할 때 `lectureIds`를 강의 ID 오름차순으로 정렬한 뒤 강의를 읽고 항목을 만든다. 저장(IDENTITY INSERT)도 이 순서다. `40P01` 재시도는 넣지 않고, 그래도 교착이 나면 주문·보류·원장 전체가 롤백되고 500 `INTERNAL_ERROR`다. 주문 응답의 `items`는 요청 순서가 아니라 강의 ID 오름차순이다. 정렬해도 같은 강의가 두 번 있으면 그대로 남아 D31대로 거부되고, 장바구니 정리는 요청 값을 그대로 쓴다 | 같은 구매자가 `[A,B]`·`[B,A]`를 동시에 주문하면 `uk_order_item_buyer_lecture_owned`에서 교차 대기로 교착(`40P01`)이 나 한쪽이 500이었다(#211 재현). INSERT 순서가 같으면 늦은 주문은 교착 없이 앞 주문을 기다렸다가 D45 경로로 409 `ALREADY_OWNED_LECTURE`를 받는다. 순서를 맞추면 교착이 생기지 않으므로 재시도 로직은 두지 않는다 | 응답 항목 순서 변경은 PR 프론트 참고로 알린다 |

@@ -25,6 +25,8 @@ import lombok.NoArgsConstructor;
  *     <li>올린 뒤 수정할 수 있는 것은 제목·콘텐츠 설명·호스트 채널 URL뿐이며, 모집 중이고 마감 일시 전까지만 가능하다.</li>
  *     <li>기본 정보(제목·콘텐츠 설명·호스트 채널 URL)는 출연 요청서와 같은 값 객체({@link AppearanceBasicInfo})로 두고,
  *     형식 제한도 요청서와 같은 {@link AppearanceContentRules}를 쓴다.</li>
+ *     <li>마감 일시가 지나면 배치가, 그 전에는 호스트가 직접(조기 마감) 마감한다. 마감하면 성립하지 못한 인원분 HP를
+ *     호스트에게 돌려준다 (ISSUE.md APR-06, APR-28).</li>
  * </ul>
  */
 @Entity
@@ -66,11 +68,11 @@ public class AppearanceRecruit extends BaseEntity {
     @Enumerated(EnumType.STRING)
     private AppearanceRecruitStatus status;
 
-    /** 마감 방식 (모집 마감 처리에서 사용) */
+    /** 마감 방식 (마감된 경우) */
     @Enumerated(EnumType.STRING)
     private AppearanceRecruitCloseType closeType;
 
-    /** 마감 시각 (모집 마감 처리에서 사용) */
+    /** 마감 시각 (마감된 경우). 기한 마감은 모집 마감 일시, 조기 마감은 호스트가 마감한 시각 */
     private LocalDateTime closedAt;
 
     /** 모집 전체 취소 시각 (모집 취소 처리에서 사용) */
@@ -220,6 +222,43 @@ public class AppearanceRecruit extends BaseEntity {
     }
 
     /**
+     * 호스트가 마감 일시 전에 직접 마감한다(조기 마감). 성립 인원이 0명이어도 할 수 있고, 처리는 기한 마감과 같다.
+     *
+     * @throws AppearanceException 호스트가 아님({@code NOT_RECRUIT_HOST}),
+     *                             모집 중이 아니거나 마감 일시가 지남({@code APPEARANCE_RECRUIT_NOT_OPEN})
+     */
+    public void closeEarly(Long userId, LocalDateTime now) {
+        if (!isHost(userId)) {
+            throw new AppearanceException(AppearanceErrorCode.NOT_RECRUIT_HOST,
+                    "출연 모집글을 올린 호스트만 모집을 마감할 수 있습니다.");
+        }
+        requireOpen(now);
+        close(AppearanceRecruitCloseType.EARLY, now);
+    }
+
+    /** 기한 마감 대상인지 (모집 중이고 마감 일시가 지났는지) */
+    public boolean isDeadlinePassed(LocalDateTime now) {
+        return status == AppearanceRecruitStatus.RECRUITING && !now.isBefore(recruitDeadline);
+    }
+
+    /** 마감 일시가 지나 마감한다 (배치). 마감 시각은 모집 마감 일시로 남긴다 */
+    public void closeByDeadline(LocalDateTime now) {
+        if (!isDeadlinePassed(now)) {
+            throw new IllegalStateException("기한 마감 대상이 아닌 출연 모집글입니다: id=%d, status=%s"
+                    .formatted(id, status));
+        }
+        close(AppearanceRecruitCloseType.DEADLINE, recruitDeadline);
+    }
+
+    /**
+     * 마감 때 호스트에게 돌려줄 금액 = 1인당 출연료 × (모집 인원 − 성립 인원). 정원이 다 찼으면 0.
+     * 올릴 때 전체 금액을 계산할 수 있는지 확인했으므로 넘치지 않는다.
+     */
+    public long unfilledFee() {
+        return Math.multiplyExact(feePerPerson, recruitCount - selectedCount);
+    }
+
+    /**
      * 공개된 모집글인지 확인한다. 보류가 끝나지 않았거나 실패한 모집글은 올린 호스트에게도 숨긴다.
      * 볼 수 없으면 모집글이 있다는 사실도 알리지 않도록 "없음"으로 응답한다.
      *
@@ -245,6 +284,12 @@ public class AppearanceRecruit extends BaseEntity {
 
     public boolean isHost(Long userId) {
         return hostId.equals(userId);
+    }
+
+    private void close(AppearanceRecruitCloseType type, LocalDateTime closedAt) {
+        this.status = AppearanceRecruitStatus.CLOSED;
+        this.closeType = type;
+        this.closedAt = closedAt;
     }
 
     /** 모집 중이고 마감 일시 전인지. 마감 처리 전이어도 마감 일시가 지나면 닫힌 것으로 본다 */

@@ -99,4 +99,21 @@ class AppearanceRecruitRepositoryTest {
         assertThat(appearanceRecruitRepository.findIdsByStatusAndCreatedBefore(AppearanceRecruitStatus.HOLD_PENDING,
                 createdAt, FIRST_PAGE)).containsExactly(pending.getId());
     }
+
+    @Test
+    @DisplayName("기한 마감 대상: 모집 중이고 마감 일시가 기준 시각과 같거나 지난 모집글만, 마감 일시가 이른 순")
+    void findDeadlinePassed() {
+        AppearanceRecruit later = saveRecruiting(HOST, NOW.plusHours(1));
+        AppearanceRecruit earlier = saveRecruiting(HOST, NOW);
+        saveRecruiting(HOST, NOW.plusDays(1)); // 마감 일시가 아직 안 지남
+        AppearanceRecruit closed = saveRecruiting(HOST, NOW);
+        closed.closeEarly(HOST, NOW);
+        appearanceRecruitRepository.saveAndFlush(closed);
+        LocalDateTime laterDeadline = later.getRecruitDeadline();
+
+        assertThat(appearanceRecruitRepository.findIdsByStatusAndDeadlinePassed(AppearanceRecruitStatus.RECRUITING,
+                laterDeadline, FIRST_PAGE)).containsExactly(earlier.getId(), later.getId());
+        assertThat(appearanceRecruitRepository.findIdsByStatusAndDeadlinePassed(AppearanceRecruitStatus.RECRUITING,
+                laterDeadline.minusSeconds(1), FIRST_PAGE)).containsExactly(earlier.getId());
+    }
 }

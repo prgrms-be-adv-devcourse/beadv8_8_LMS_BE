@@ -53,8 +53,11 @@ public class OrderCreateUseCase {
     }
 
     public OrderResponse create(Long buyerUserId, List<Long> lectureIds) {
-        LectureOrder order = LectureOrder.place(buyerUserId, findLectures(lectureIds),
-                lectureOrderRepository.findHeldLectureIds(buyerUserId, lectureIds), LocalDateTime.now(clock));
+        // 항목을 강의 ID 오름차순으로 만들어 INSERT 순서를 같게 한다. 같은 구매자가 같은 강의들을 다른 순서로 동시에
+        // 주문해도 늦은 쪽은 교착 없이 앞 주문을 기다렸다가 보유 강의 중복(D45)으로 끝난다 (D55)
+        List<Long> sortedLectureIds = lectureIds.stream().sorted().toList();
+        LectureOrder order = LectureOrder.place(buyerUserId, findLectures(sortedLectureIds),
+                lectureOrderRepository.findHeldLectureIds(buyerUserId, sortedLectureIds), LocalDateTime.now(clock));
         // 보류의 참조 ID(주문 항목 ID)를 얻고, 같은 강의의 동시 주문을 보류 전에 걸러낸다
         save(order);
         order.getItems().forEach(item -> hold(buyerUserId, item));
@@ -67,7 +70,7 @@ public class OrderCreateUseCase {
     }
 
     /**
-     * 요청 순서대로 강의를 읽는다. 같은 강의가 두 번 있으면 그대로 넘겨 도메인이 거부하게 한다(D31).
+     * 받은 순서대로 강의를 읽는다. 같은 강의가 두 번 있으면 그대로 넘겨 도메인이 거부하게 한다(D31).
      * 없는 강의는 판매 중이 아닌 강의와 같게 본다.
      */
     private List<Lecture> findLectures(List<Long> lectureIds) {

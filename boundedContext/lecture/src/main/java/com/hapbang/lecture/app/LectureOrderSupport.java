@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.app.dto.OrderSummaryResponse;
+import com.hapbang.lecture.app.dto.PayoutFailureResponse;
 import com.hapbang.lecture.app.dto.SaleResponse;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
@@ -80,5 +81,11 @@ public class LectureOrderSupport {
     public Page<SaleResponse> getSales(Long sellerUserId, Pageable pageable) {
         PageRequest unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
         return lectureOrderRepository.findSales(sellerUserId, unsorted).map(SaleResponse::of);
+    }
+
+    /** 지급 실패 기록이 있는 미지급 항목. 최근 실패순이고 정렬은 쿼리에 고정되어 요청의 정렬은 무시한다 (D54) */
+    public Page<PayoutFailureResponse> getPayoutFailures(Pageable pageable) {
+        PageRequest unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+        return lectureOrderRepository.findPayoutFailures(unsorted).map(PayoutFailureResponse::of);
     }
 }

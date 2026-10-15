@@ -188,6 +188,36 @@ class AppearanceRecruitApiE2ETest {
     }
 
     @Test
+    @DisplayName("조기 마감하면 200, CLOSED(EARLY), 반환 진행 상태 DONE(호스트만). 다른 회원 403, 다시 마감 409, 일반 유저 403")
+    void closeEarly() throws Exception {
+        long recruitId = postRecruit(HOST);
+
+        mockMvc.perform(post(BASE + "/" + recruitId + "/close").with(TestLogin.as(OTHER, Role.INFLUENCER)).with(csrf()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_RECRUIT_HOST"));
+        mockMvc.perform(post(BASE + "/" + recruitId + "/close").with(TestLogin.as(VIEWER, Role.USER)).with(csrf()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(post(BASE + "/" + recruitId + "/close").with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("출연 모집을 마감했습니다."))
+                .andExpect(jsonPath("$.data.status").value("CLOSED"))
+                .andExpect(jsonPath("$.data.closeType").value("EARLY"))
+                .andExpect(jsonPath("$.data.closedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.hpReleaseStatus").value("DONE"));
+        mockMvc.perform(post(BASE + "/" + recruitId + "/close").with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("APPEARANCE_RECRUIT_NOT_OPEN"));
+        mockMvc.perform(get(BASE + "/" + recruitId).with(TestLogin.as(VIEWER, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CLOSED"))
+                .andExpect(jsonPath("$.data.hpReleaseStatus").isEmpty());
+        mockMvc.perform(get(BASE).with(TestLogin.as(VIEWER, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page.totalElements").value(0));
+    }
+
+    @Test
     @DisplayName("없는 모집글 상세는 404 APPEARANCE_RECRUIT_NOT_FOUND")
     void notFound() throws Exception {
         mockMvc.perform(get(BASE + "/999999").with(TestLogin.as(VIEWER, Role.USER)))
