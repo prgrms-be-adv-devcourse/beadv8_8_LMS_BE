@@ -75,8 +75,11 @@ public class AppearanceRecruit extends BaseEntity {
     /** 마감 시각 (마감된 경우). 기한 마감은 모집 마감 일시, 조기 마감은 호스트가 마감한 시각 */
     private LocalDateTime closedAt;
 
-    /** 모집 전체 취소 시각 (모집 취소 처리에서 사용) */
+    /** 모집 전체 취소 시각 (취소된 경우, #239) */
     private LocalDateTime canceledAt;
+
+    /** 모집 전체 취소 사유 (선택, #239) */
+    private String cancelReason;
 
     /** 낙관적 락. 동시에 수정·지원 수락할 때 나중 것을 막는다 */
     @Version
@@ -226,6 +229,45 @@ public class AppearanceRecruit extends BaseEntity {
             throw new IllegalStateException("성립 인원이 없는 출연 모집글입니다: id=" + id);
         }
         this.selectedCount--;
+    }
+
+    /**
+     * 호스트가 모집 전체를 취소할 수 있는지 확인한다 (상태를 바꾸지 않는다). 모집 중·마감 후 모두, 방송 예정 일시 전까지 (APR-06).
+     *
+     * @throws AppearanceException 호스트가 아님({@code NOT_RECRUIT_HOST}), 모집 중·마감이 아님({@code APPEARANCE_RECRUIT_NOT_CANCELABLE}),
+     *                             방송 예정 일시 지남({@code APPEARANCE_SCHEDULE_PASSED})
+     */
+    public void validateCancelable(Long userId, LocalDateTime now) {
+        if (!isHost(userId)) {
+            throw new AppearanceException(AppearanceErrorCode.NOT_RECRUIT_HOST,
+                    "출연 모집글을 올린 호스트만 모집을 취소할 수 있습니다.");
+        }
+        if (status != AppearanceRecruitStatus.RECRUITING && status != AppearanceRecruitStatus.CLOSED) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_CANCELABLE);
+        }
+        if (!now.isBefore(scheduledAt)) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_SCHEDULE_PASSED, "방송 예정 일시가 지난 모집글입니다.");
+        }
+    }
+
+    /**
+     * 모집 전체를 취소한다 → {@code CANCELED}. 성립한 출연의 일방 취소(위약금)는 호출한 쪽이 출연마다 한다.
+     * 성립 인원은 그대로 둔다 (일방 취소된 자리의 보류는 위약금·반환으로 정산되므로 다시 열지 않는다, H3).
+     *
+     * @param reason 사유 (선택, 500자 이하)
+     * @return 비어 있는 자리 때문에 돌려줄 금액. 모집 중이면 1인당 출연료 × (모집 인원 − 성립 인원), 마감 뒤면 마감 때 이미 반환해 0
+     */
+    public long cancel(Long userId, String reason, LocalDateTime now) {
+        validateCancelable(userId, now);
+        String trimmed = AppearanceCancelReasonRules.optional(reason);
+        long vacancyFee = 0;
+        if (status == AppearanceRecruitStatus.RECRUITING) {
+            vacancyFee = unfilledFee();
+        }
+        this.status = AppearanceRecruitStatus.CANCELED;
+        this.cancelReason = trimmed;
+        this.canceledAt = now;
+        return vacancyFee;
     }
 
     public boolean isClosed() {

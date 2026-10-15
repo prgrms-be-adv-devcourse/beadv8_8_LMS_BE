@@ -55,6 +55,7 @@
 | E2E | `AppearanceRecruitApiE2ETest` | 출연 모집글 API 6개 (앱 전체, 조기 마감 포함) | #175, #222 |
 | 통합 | `AppearanceRecruitCloseTest` | 조기 마감·기한 마감 배치·반환·동시성 | #222 |
 | 단위·저장소·통합·E2E | `AppearanceCancelRequestTest`, `AppearanceCancelRequestRepositoryTest`, `AppearanceCancelRequestFlowTest`, `AppearanceApiCancelE2ETest` | 출연 조회, 출연 취소 요청·응답·자동 거절 | #231 |
+| 단위·통합 | `AppearanceHostCancelTest`, `AppearanceHostCancelFlowTest` (+ E2E·Swagger·`HpTaskRepositoryTest` 추가) | 호스트 일방 취소·모집 전체 취소·위약금 정산 | #239 |
 | 단위 | `HpTaskRetryPolicyTest`, `AppearanceBatchRulesTest` | 재시도 정책(지수 백오프+지터), 만료·멱등한 보류 결과 반영 | #187 |
 | 통합 | `AppearanceBatchUseCaseTest` | 보류 재확인, 수락 기한 만료, HP 작업 재시도·격리, 지표 | #187 |
 | 단위 | `AppearanceBatchConditionTest` | 배치 빈은 팀 스케줄링 스위치가 켜질 때만 | #187 |
@@ -759,3 +760,50 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 게스트 수락 / 호스트 거절(본문 없음) | 403 `NOT_APPEARANCE_HOST` / 200 "출연 취소 요청을 거절했습니다.", `ESTABLISHED`, `REJECTED` |
 | 재요청 → 수락 / 3번째 요청 | 200 "출연 취소 요청을 수락했습니다.", `CANCELED_BY_AGREEMENT`, 이력 2번째 `ACCEPTED` / 409 `APPEARANCE_NOT_CANCELABLE` |
 | CSRF 없음 / `/api/v1/appearances/abc` | 403 / 404 |
+
+---
+
+## 14. 호스트 일방 취소·모집 전체 취소 (#239)
+
+### 14.1 단위 — `AppearanceHostCancelTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 성립 출연 일방 취소 (30,000) | `CANCELED_BY_HOST`, 위약금 9,000, 사유 다듬음, 취소 시각 |
+| 33,333 출연 / 공백 사유 | 위약금 9,999 (원 단위 미만 버림) / 사유 null |
+| 게스트·다른 회원 / 방송 예정 일시 / 사유 501자 | `NOT_APPEARANCE_HOST` / `APPEARANCE_SCHEDULE_PASSED` / `INVALID_REQUEST` (상태 그대로) |
+| 합의 취소된 출연 / 이미 일방 취소 | `APPEARANCE_NOT_CANCELABLE` |
+| 처리 중 취소 요청, 확인 없음 / 확인 | `CANCEL_REQUEST_CONFIRM_REQUIRED`(상태 그대로) / 취소 + 요청 `CLOSED_BY_HOST_CANCEL` |
+| 모집 중 3명 중 1명 성립 전체 취소 | `CANCELED`, 빈자리 60,000, 성립 인원 1 그대로, 사유·시각 |
+| 마감 뒤 전체 취소 | 빈자리 0 |
+| 다른 회원 / 방송 예정 일시 / 보류 처리 중 / 이미 취소 | `NOT_RECRUIT_HOST` / `APPEARANCE_SCHEDULE_PASSED` / `APPEARANCE_RECRUIT_NOT_CANCELABLE` ×2 |
+| 위약금 정산 작업 | `PENALTY`, 기준액 30,000·위약금 9,000·반환 몫 21,000, 받는 회원·출연 ID. 위약금 0·기준액 초과는 `IllegalArgumentException` |
+
+### 14.2 흐름 — `AppearanceHostCancelFlowTest`
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 일방 취소 | 요청서 출처 | `CANCELED_BY_HOST`, 위약금 9,000·사유·`hpPenaltyStatus` `DONE`, 작업 `PENALTY`·`HOST_CANCELED`·`APPEARANCE_REQUEST-{id}-PENALTY-APPEARANCE-{id}`, 보류 0, 호스트 −9,000·게스트 +9,000 |
+| 일방 취소 | 처리 중 취소 요청 | 확인 없이 `CANCEL_REQUEST_CONFIRM_REQUIRED`(출연 그대로, HP 작업 없음) → 확인하면 취소 + `CLOSED_BY_HOST_CANCEL` + 위약금 지급 |
+| 일방 취소 | 거부 | 게스트 `NOT_APPEARANCE_HOST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 다시 취소·합의 취소된 출연 `APPEARANCE_NOT_CANCELABLE`, 방송 예정 일시 지남 `APPEARANCE_SCHEDULE_PASSED` |
+| 일방 취소 | 모집 출처 (정원 1) | 모집글 보류 30,000 정산(0), 키 `APPEARANCE_RECRUIT-{id}-PENALTY-APPEARANCE-{id}`, 성립 인원 1 그대로, 대기 지원 수락 `RECRUIT_FULL` |
+| 일방 취소 | Billing 무응답 → 재시도 배치 → 다시 실행 | 취소 성공·`PENDING`(게스트 잔액 그대로) → `DONE`, 위약금은 한 번만 지급(게스트 +9,000, 호스트 −9,000) |
+| 일방 취소 | Billing 거절 (게스트 지갑 없음) | 취소 성공, 재시도 없이 `DEAD`(시도 1회), 마지막 오류 `WALLET_NOT_FOUND: …` |
+| 전체 취소 | 모집 중, 3명 중 2명 성립·1명 대기 | `CANCELED`·사유·`hpReleaseStatus` `DONE`, 출연 2건 일방 취소(위약금 9,000씩·같은 사유), 대기 지원 `NOT_SELECTED`, 빈자리 반환 30,000 `RECRUIT_CANCELED`, 보류 0, 호스트 −18,000·게스트 +9,000씩 |
+| 전체 취소 | 성립 0명 | 위약금 없음, 90,000 반환, 호스트 잔액 원래대로 |
+| 전체 취소 | 마감 뒤 | 위약금 1건, 반환은 마감 반환(`RECRUIT_CLOSED`)뿐, 보류 0 |
+| 전체 취소 | 모집 중 합의 취소된 자리 | 위약금 없음, 빈자리 반환 60,000 (합의 취소 자리 포함) |
+| 전체 취소 | 처리 중 취소 요청 | 확인 없이 `CANCEL_REQUEST_CONFIRM_REQUIRED`(모집글 `RECRUITING`, 일방 취소 0건) → 확인하면 요청 `CLOSED_BY_HOST_CANCEL`, 위약금 2건 |
+| 전체 취소 | 거부 | 다른 회원 `NOT_RECRUIT_HOST`, 다시 취소 `APPEARANCE_RECRUIT_NOT_CANCELABLE`, 방송 예정 일시 지남 `APPEARANCE_SCHEDULE_PASSED`, 보류 처리 중 `APPEARANCE_RECRUIT_NOT_FOUND` |
+| 동시성 | 전체 취소 + 대기 지원 수락 | 결과는 응답·업무 예외뿐(교착 상태 없음), 전체 취소 성공, 진행 중 출연 0건, 보류 0. 수락이 먼저면 위약금 2건·빈자리 반환 없음, 막혔으면(`APPEARANCE_RECRUIT_NOT_OPEN`) 위약금 1건·빈자리 30,000 |
+| 전체 취소 | 앞 작업(위약금)의 결과 기록 실패 (DB 오류 흉내) | 예외 없이 취소 성공 응답, 뒤 작업(빈자리 반환)도 `DONE`, 위약금 작업은 `PENDING` → 재시도로 `DONE`, 위약금은 한 번만 지급 |
+| 역할 | 세션 USER / ADMIN | 일방 취소·전체 취소 `AccessDeniedException` |
+
+### 14.3 E2E·기타
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceApiCancelE2ETest` | 처리 중 요청 있는 출연: 게스트 / 확인 없음 / 확인 | 403 `NOT_APPEARANCE_HOST` / 409 `CANCEL_REQUEST_CONFIRM_REQUIRED` / 200 "출연을 취소했습니다.", `CANCELED_BY_HOST`, 위약금 9,000, 사유, `hpPenaltyStatus` `DONE`, 요청 `CLOSED_BY_HOST_CANCEL` |
+| `AppearanceRecruitApiE2ETest` | 다른 회원 / 호스트(본문 없음) / 다시 | 403 `NOT_RECRUIT_HOST` / 200 "출연 모집을 취소했습니다.", `CANCELED`, 취소 시각, `hpReleaseStatus` `DONE` / 409 `APPEARANCE_RECRUIT_NOT_CANCELABLE` |
+| `AppearanceSwaggerDocsTest` | 일방 취소·전체 취소 응답 스키마 | `RsDataAppearanceResDto` / `RsDataAppearanceRecruitResDto` |
+| `HpTaskRepositoryTest` | 위약금 정산 작업 저장 / 반환 작업에 위약금 값 | 받는 회원·위약금·출연 ID 저장 / `ck_hp_tasks_penalty` 위반 |

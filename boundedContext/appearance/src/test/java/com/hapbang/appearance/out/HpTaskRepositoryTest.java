@@ -10,11 +10,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskReason;
 import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
+import com.hapbang.appearance.domain.HpTaskType;
 import com.hapbang.testsupport.RepositoryTest;
 
 @RepositoryTest
@@ -88,5 +90,24 @@ class HpTaskRepositoryTest {
                 .hasSize(1);
         assertThat(hpTaskRepository.countByStatus(HpTaskStatus.PENDING)).isEqualTo(2);
         assertThat(hpTaskRepository.countByStatus(HpTaskStatus.DONE)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("위약금 정산 작업을 저장한다 (받는 회원·위약금·출연 ID). 반환 작업에 위약금 값이 있으면 ck_hp_tasks_penalty에 걸린다")
+    void savePenalty() {
+        HpTask saved = hpTaskRepository.saveAndFlush(HpTask.penalty(HpTaskRefType.APPEARANCE_REQUEST, 12L, 1L, 30_000,
+                2L, 9_000, 30L, HpTaskReason.HOST_CANCELED, "APPEARANCE_REQUEST-12-PENALTY-APPEARANCE-30", NOW));
+
+        HpTask found = hpTaskRepository.findById(saved.getId()).orElseThrow();
+        assertThat(found.getTaskType()).isEqualTo(HpTaskType.PENALTY);
+        assertThat(found.getReceiverId()).isEqualTo(2L);
+        assertThat(found.getPayoutAmount()).isEqualTo(9_000);
+        assertThat(found.getAppearanceId()).isEqualTo(30L);
+
+        HpTask broken = release(13L, "APPEARANCE_REQUEST-13-RELEASE-1");
+        ReflectionTestUtils.setField(broken, "payoutAmount", 1L);
+        assertThatThrownBy(() -> hpTaskRepository.saveAndFlush(broken))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasStackTraceContaining("ck_hp_tasks_penalty");
     }
 }

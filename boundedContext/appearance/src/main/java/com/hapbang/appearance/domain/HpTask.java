@@ -52,14 +52,20 @@ public class HpTask extends BaseEntity {
     /** 대상 ID (요청서·모집글 ID) */
     private Long refId;
 
-    /** 관련 출연 ID. 지급·위약금처럼 출연 단위 작업에서 쓴다 (반환은 null, 지급 처리에서 채운다) */
+    /** 관련 출연 ID. 위약금 정산처럼 출연 단위 작업에서 쓰고, Billing 지급 원천 ID가 된다 (반환은 null) */
     private Long appearanceId;
 
-    /** HP를 받는 회원 (반환이면 호스트) */
+    /** 보류한 회원 = 반환받는 회원 (호스트) */
     private Long memberId;
 
-    /** 옮길 HP. 1 이상 */
+    /** 이 작업이 옮기는 HP 전체. 1 이상. 위약금 정산이면 정산 기준액(= 호스트 반환액 + 게스트 위약금) */
     private long amount;
+
+    /** 위약금을 받는 회원 (게스트). 위약금 정산에서만 쓴다 */
+    private Long receiverId;
+
+    /** {@code amount} 중 받는 회원에게 지급하는 위약금. 위약금 정산에서만 쓴다 (나머지는 호스트에게 반환) */
+    private Long payoutAmount;
 
     /** 작업 사유 (거절·취소·만료 등). 출연 내부 기록이며 Billing에는 보내지 않는다 */
     @Enumerated(EnumType.STRING)
@@ -113,6 +119,34 @@ public class HpTask extends BaseEntity {
             throw new IllegalArgumentException("반환 금액은 1 이상이어야 합니다: " + amount);
         }
         return new HpTask(HpTaskType.RELEASE, refType, refId, hostId, amount, reason, idempotencyKey, now);
+    }
+
+    /**
+     * 위약금 정산 작업을 만든다 (호스트 일방 취소, ISSUE.md APR-32). 보류에서 위약금은 게스트에게 지급하고 나머지는 호스트에게 반환한다.
+     *
+     * @param hostId        보류한 호스트 (나머지를 반환받는다)
+     * @param baseAmount    정산 기준액 = 이 출연의 출연료
+     * @param guestId       위약금을 받는 게스트
+     * @param penaltyAmount 위약금 (1 이상, 기준액 이하)
+     * @param appearanceId  출연 ID (Billing 지급 원천 ID)
+     */
+    public static HpTask penalty(HpTaskRefType refType, Long refId, Long hostId, long baseAmount, Long guestId,
+                                 long penaltyAmount, Long appearanceId, HpTaskReason reason, String idempotencyKey,
+                                 LocalDateTime now) {
+        if (penaltyAmount < 1 || penaltyAmount > baseAmount) {
+            throw new IllegalArgumentException("위약금은 1 이상, 기준액 이하여야 합니다: penalty=%d, base=%d"
+                    .formatted(penaltyAmount, baseAmount));
+        }
+        HpTask task = new HpTask(HpTaskType.PENALTY, refType, refId, hostId, baseAmount, reason, idempotencyKey, now);
+        task.receiverId = guestId;
+        task.payoutAmount = penaltyAmount;
+        task.appearanceId = appearanceId;
+        return task;
+    }
+
+    /** 위약금 정산에서 호스트에게 반환하는 몫 (기준액 − 위약금) */
+    public long releaseAmountOfPenalty() {
+        return amount - payoutAmount;
     }
 
     /**

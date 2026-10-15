@@ -68,7 +68,8 @@ public class AppearanceQueryUseCase {
             cancelRequests.add(AppearanceCancelRequestResDto.from(cancelRequest));
         }
         return AppearanceResDto.from(appearance, appearanceTitleSupport.titleOf(appearance), cancelRequests,
-                hpTaskSupport.findReleaseStatusOfAppearance(appearance));
+                hpTaskSupport.findReleaseStatusOfAppearance(appearance),
+                hpTaskSupport.findPenaltyStatusOfAppearance(appearance));
     }
 
     private static List<AppearanceStatus> orAll(List<AppearanceStatus> statuses) {

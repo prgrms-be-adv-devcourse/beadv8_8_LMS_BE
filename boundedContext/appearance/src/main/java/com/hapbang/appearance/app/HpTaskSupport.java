@@ -46,7 +46,8 @@ public class HpTaskSupport {
     }
 
     /**
-     * 출연 모집글의 마감 반환(성립하지 못한 인원분) 진행 상태. 반환할 일이 없으면(마감 전, 정원이 다 찬 채 마감) null.
+     * 출연 모집글의 빈자리 반환(마감 때 성립하지 못한 인원분, 또는 모집 중 전체 취소 때 빈자리) 진행 상태.
+     * 반환할 일이 없으면(마감 전, 정원이 다 찬 채 마감) null. 모집글 하나에서 둘 중 하나만 생겨 같은 반환 요청 ID를 쓴다.
      * 마감 뒤 합의 취소로 생긴 출연별 반환은 섞지 않는다 (마감 반환이 실패했는데 다른 반환 결과로 가려지지 않도록).
      */
     public HpTaskStatus findReleaseStatusOfRecruit(Long recruitId) {
@@ -64,6 +65,21 @@ public class HpTaskSupport {
         }
         return statusOf(HpTask.appearanceRequestId(HpTaskRefType.APPEARANCE_REQUEST, appearance.getRequestId(),
                 HpTaskType.RELEASE, appearance.getId()));
+    }
+
+    /** 출연 하나의 위약금 정산(호스트 일방 취소) 진행 상태. 일방 취소 전이면 null (#239) */
+    public HpTaskStatus findPenaltyStatusOfAppearance(Appearance appearance) {
+        return statusOf(penaltyRequestId(appearance));
+    }
+
+    /** 출연 하나의 위약금 정산 요청 ID (= Billing 취소 ID). 출연이 쓰는 보류(요청서·모집글) 단위로 만든다 */
+    public static String penaltyRequestId(Appearance appearance) {
+        if (appearance.isFromRecruit()) {
+            return HpTask.appearanceRequestId(HpTaskRefType.APPEARANCE_RECRUIT, appearance.getRecruitId(),
+                    HpTaskType.PENALTY, appearance.getId());
+        }
+        return HpTask.appearanceRequestId(HpTaskRefType.APPEARANCE_REQUEST, appearance.getRequestId(),
+                HpTaskType.PENALTY, appearance.getId());
     }
 
     private HpTaskStatus statusOf(String idempotencyKey) {

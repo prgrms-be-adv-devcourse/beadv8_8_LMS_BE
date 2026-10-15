@@ -27,6 +27,7 @@ public record AppearanceRecruitResDto(
         @Schema(description = "마감 방식 (마감된 경우): DEADLINE 기한 도래 / EARLY 조기 마감") AppearanceRecruitCloseType closeType,
         @Schema(description = "마감 시각 (마감된 경우)") LocalDateTime closedAt,
         @Schema(description = "모집 전체 취소 시각 (취소된 경우)") LocalDateTime canceledAt,
+        @Schema(description = "모집 전체 취소 사유 (선택, 취소된 경우)") String cancelReason,
         @Schema(description = "마감 반환(성립하지 못한 인원분) 진행 상태. 호스트에게만 보이며, 반환할 금액이 없거나 마감 전이면 null. "
                 + "PENDING 처리 중 / DONE 완료 / DEAD 실패(고객센터 확인)") HpTaskStatus hpReleaseStatus,
         @Schema(description = "모집글 버전") Long version,
@@ -57,6 +58,7 @@ public record AppearanceRecruitResDto(
                 recruit.getCloseType(),
                 recruit.getClosedAt(),
                 recruit.getCanceledAt(),
+                recruit.getCancelReason(),
                 hpReleaseStatus,
                 recruit.getVersion(),
                 recruit.getCreatedAt(),

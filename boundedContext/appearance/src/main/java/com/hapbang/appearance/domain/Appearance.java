@@ -64,7 +64,11 @@ public class Appearance extends BaseEntity {
     // 아래는 출연 확인·취소 처리에서 채운다
     private String confirmType;
 
+    /** 호스트 일방 취소 위약금 (게스트에게 지급, #239) */
     private Long penaltyAmount;
+
+    /** 호스트 일방 취소 사유 (선택, #239). 모집 전체 취소면 모집글 취소 사유와 같다 */
+    private String hostCancelReason;
 
     private LocalDateTime confirmedAt;
 
@@ -221,5 +225,57 @@ public class Appearance extends BaseEntity {
         if (status != expected) {
             throw new IllegalStateException("출연 상태가 %s가 아닙니다: %s".formatted(expected, status));
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 호스트 일방 취소 (#239)
+
+    /**
+     * 호스트가 출연을 일방 취소한다 → {@code CANCELED_BY_HOST}. 위약금 = 출연료 × 위약금 비율(원 단위 미만 버림),
+     * 나머지는 호스트에게 반환한다 (AGENTS.md, ISSUE.md APR-23·APR-32).
+     * <p>
+     * 처리 중인 게스트 취소 요청이 있으면 호스트가 확인해야 한다 (APR-04, H2). 그 요청의 종료는 호출한 쪽이 한다.
+     *
+     * @param confirmPendingCancelRequest 처리 중인 취소 요청이 있어도 일방 취소하겠다는 호스트의 확인
+     * @param reason                      사유 (선택, 500자 이하)
+     * @return 게스트에게 지급할 위약금
+     * @throws AppearanceException 호스트가 아님({@code NOT_APPEARANCE_HOST}), 성립·취소 요청 중이 아님({@code APPEARANCE_NOT_CANCELABLE}),
+     *                             방송 예정 일시 지남({@code APPEARANCE_SCHEDULE_PASSED}), 확인 없음({@code CANCEL_REQUEST_CONFIRM_REQUIRED}),
+     *                             사유 500자 초과({@code INVALID_REQUEST})
+     */
+    public long cancelByHost(Long userId, boolean confirmPendingCancelRequest, String reason, AppearancePolicy policy,
+                             LocalDateTime now) {
+        validateHostCancelable(userId, confirmPendingCancelRequest, now);
+        String trimmed = AppearanceCancelReasonRules.optional(reason);
+        long penalty = policy.calculatePenalty(fee);
+        this.status = AppearanceStatus.CANCELED_BY_HOST;
+        this.penaltyAmount = penalty;
+        this.hostCancelReason = trimmed;
+        this.canceledAt = now;
+        return penalty;
+    }
+
+    /**
+     * 호스트가 일방 취소할 수 있는지 확인한다 (상태를 바꾸지 않는다). 모집 전체 취소가 바꾸기 전에 모든 출연을 먼저 확인할 때도 쓴다.
+     *
+     * @throws AppearanceException {@link #cancelByHost}와 같다 (사유 제외)
+     */
+    public void validateHostCancelable(Long userId, boolean confirmPendingCancelRequest, LocalDateTime now) {
+        if (!isHost(userId)) {
+            throw new AppearanceException(AppearanceErrorCode.NOT_APPEARANCE_HOST,
+                    "출연의 호스트만 출연을 취소할 수 있습니다.");
+        }
+        if (status != AppearanceStatus.ESTABLISHED && status != AppearanceStatus.CANCEL_REQUESTED) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_NOT_CANCELABLE, "취소할 수 있는 출연이 아닙니다.");
+        }
+        requireBeforeScheduled(now);
+        if (hasPendingCancelRequest() && !confirmPendingCancelRequest) {
+            throw new AppearanceException(AppearanceErrorCode.CANCEL_REQUEST_CONFIRM_REQUIRED);
+        }
+    }
+
+    /** 게스트의 취소 요청이 처리 중인지 */
+    public boolean hasPendingCancelRequest() {
+        return status == AppearanceStatus.CANCEL_REQUESTED;
     }
 }

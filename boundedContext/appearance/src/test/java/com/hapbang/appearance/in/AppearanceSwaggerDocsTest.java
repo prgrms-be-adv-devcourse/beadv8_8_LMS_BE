@@ -132,4 +132,16 @@ class AppearanceSwaggerDocsTest {
                 .andExpect(jsonPath(paths + "/{appearanceId}/cancel-requests/reject'].post.responses['200'].content['*/*'].schema['$ref']")
                         .value(detail));
     }
+
+    @Test
+    @DisplayName("호스트 일방 취소는 RsData로 감싼 출연, 모집 전체 취소는 RsData로 감싼 모집글 (#239)")
+    void hostCancelSchemaIsRsData() throws Exception {
+        String paths = "$.paths['/api/v1/appearances";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(paths + "/{appearanceId}/host-cancel'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceResDto"))
+                .andExpect(jsonPath(paths + "/recruits/{recruitId}/cancel'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRecruitResDto"));
+    }
 }

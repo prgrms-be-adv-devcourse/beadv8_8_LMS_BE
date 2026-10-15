@@ -17,6 +17,7 @@ import com.hapbang.appearance.app.dto.AppearanceResDto;
 import com.hapbang.appearance.app.dto.AppearanceSummaryResDto;
 import com.hapbang.appearance.domain.AppearanceRole;
 import com.hapbang.appearance.domain.AppearanceStatus;
+import com.hapbang.appearance.in.dto.HostCancelAppearanceReqDto;
 import com.hapbang.appearance.in.dto.RejectAppearanceCancelReqDto;
 import com.hapbang.appearance.in.dto.RequestAppearanceCancelReqDto;
 import com.hapbang.global.auth.LoginUserId;
@@ -80,5 +81,16 @@ public class ApiV1AppearanceController implements ApiV1AppearanceSpec {
         String reason = request == null ? null : request.reason();
         AppearanceResDto rejected = appearanceFacade.rejectCancel(userId, appearanceId, reason);
         return RsData.ok("출연 취소 요청을 거절했습니다.", rejected);
+    }
+
+    @Override
+    @PostMapping("/{appearanceId:\\d+}/host-cancel")
+    public RsData<AppearanceResDto> hostCancel(@LoginUserId Long userId,
+                                               @PathVariable("appearanceId") Long appearanceId,
+                                               @RequestBody(required = false) HostCancelAppearanceReqDto request) {
+        String reason = request == null ? null : request.reason();
+        boolean confirmed = request != null && request.confirmed();
+        AppearanceResDto canceled = appearanceFacade.hostCancel(userId, appearanceId, confirmed, reason);
+        return RsData.ok("출연을 취소했습니다.", canceled);
     }
 }

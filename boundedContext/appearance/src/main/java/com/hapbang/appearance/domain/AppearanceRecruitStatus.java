@@ -12,7 +12,7 @@ import lombok.RequiredArgsConstructor;
  *              │                       └─▶ CANCELED (모집 중 모집 전체 취소)
  *              └─Billing 거절(잔액 부족 등)─▶ HOLD_FAILED
  * </pre>
- * 마감은 기한 마감 배치·조기 마감(#222), 취소는 모집 취소 처리에서 쓴다.
+ * 마감은 기한 마감 배치·조기 마감(#222), 취소는 모집 전체 취소(#239)에서 쓴다.
  */
 @Getter
 @RequiredArgsConstructor

@@ -36,6 +36,15 @@ public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
      */
     Optional<SourceRef> findSourceRefById(Long id);
 
+    /**
+     * 모집글에서 성립해 아직 진행 중인 출연(이 상태들)을 배타 잠금으로 읽는다. 모집 전체 취소용 (#239).
+     * 출연 ID 순으로 잠가 여러 출연을 잠글 때도 순서가 같다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Appearance a where a.recruitId = :recruitId and a.status in :statuses order by a.id")
+    List<Appearance> findByRecruitForUpdate(@Param("recruitId") Long recruitId,
+                                            @Param("statuses") Collection<AppearanceStatus> statuses);
+
     /** 출연 행을 배타 잠금({@code FOR UPDATE})으로 읽는다. 같은 출연의 취소 요청·응답·자동 거절을 차례로 처리한다 */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from Appearance a where a.id = :id")
