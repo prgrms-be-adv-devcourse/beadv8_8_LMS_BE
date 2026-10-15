@@ -33,7 +33,7 @@ import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingPort;
+import com.hapbang.lecture.fake.FakeBillingClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -63,7 +63,7 @@ class OrderCreateUseCaseTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingPort billingPort;
+    private FakeBillingClient billingClient;
 
     @Autowired
     @Qualifier(LectureConfig.CLOCK)
@@ -71,7 +71,7 @@ class OrderCreateUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        billingPort.reset();
+        billingClient.reset();
     }
 
     @Test
@@ -91,7 +91,7 @@ class OrderCreateUseCaseTest {
                         tuple(first.getId(), "OBS 방송 세팅", PRICE_HP, OrderItemStatus.PURCHASED),
                         tuple(second.getId(), "마이크 고르기", 5_000L, OrderItemStatus.PURCHASED));
         assertThat(response.items()).allSatisfy(item -> assertThat(item.purchasedAt()).isAfterOrEqualTo(before));
-        assertThat(billingPort.holds())
+        assertThat(billingClient.holds())
                 .extracting(HoldCommand::userId, HoldCommand::referenceType, HoldCommand::referenceId,
                         HoldCommand::amountHp)
                 .containsExactly(
@@ -124,7 +124,7 @@ class OrderCreateUseCaseTest {
         cartFacade.addItem(BUYER_ID, first.getId());
         cartFacade.addItem(BUYER_ID, second.getId());
         // 첫 항목은 보류되고 두 번째 항목에서 잔액이 모자란다
-        billingPort.setBalance(BUYER_ID, PRICE_HP + 1_000L);
+        billingClient.setBalance(BUYER_ID, PRICE_HP + 1_000L);
         long ordersBefore = lectureOrderRepository.count();
 
         assertThatThrownBy(() -> lectureOrderFacade.createOrder(BUYER_ID, List.of(first.getId(), second.getId())))
@@ -134,7 +134,7 @@ class OrderCreateUseCaseTest {
 
         assertThat(lectureOrderRepository.count()).isEqualTo(ordersBefore);
         assertThat(cartLectureIds()).containsExactlyInAnyOrder(first.getId(), second.getId());
-        assertThat(billingPort.holds()).isEmpty();
+        assertThat(billingClient.holds()).isEmpty();
     }
 
     @Test
@@ -202,7 +202,7 @@ class OrderCreateUseCaseTest {
 
         assertThat(results).filteredOn(OrderResponse.class::isInstance).hasSize(1);
         assertThat(results).filteredOn(LectureErrorCode.ALREADY_OWNED_LECTURE::equals).hasSize(1);
-        assertThat(billingPort.holds()).hasSize(1);
+        assertThat(billingClient.holds()).hasSize(1);
     }
 
     @Test
@@ -243,7 +243,7 @@ class OrderCreateUseCaseTest {
                     .filteredOn(LectureErrorCode.ALREADY_OWNED_LECTURE::equals).hasSize(1);
         }
         // 실패한 주문의 보류는 모두 롤백되고, 성공한 주문의 항목 2개만 보류된다
-        assertThat(billingPort.holds()).hasSize(20);
+        assertThat(billingClient.holds()).hasSize(20);
     }
 
     @Test
@@ -253,7 +253,7 @@ class OrderCreateUseCaseTest {
 
         assertThatThrownBy(() -> lectureOrderFacade.createOrder(ADMIN_ID, List.of(lectureId)))
                 .isInstanceOf(AuthorizationDeniedException.class);
-        assertThat(billingPort.holds()).isEmpty();
+        assertThat(billingClient.holds()).isEmpty();
     }
 
     /** 신호를 받으면 주문한다. 업무 실패는 오류 코드로, 그 밖의 예외(교착 등)는 예외 그대로 돌려준다 */
@@ -282,7 +282,7 @@ class OrderCreateUseCaseTest {
                 .extracting("errorCode").isEqualTo(errorCode);
 
         assertThat(lectureOrderRepository.count()).isEqualTo(ordersBefore);
-        assertThat(billingPort.holds()).isEmpty();
+        assertThat(billingClient.holds()).isEmpty();
     }
 
     private List<Long> cartLectureIds() {

@@ -13,11 +13,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.lecture.out.billing.BillingClient;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
-import com.hapbang.shared.billing.port.BillingPort;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -25,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
  * 지급 (#150, D50). 지급 예정 시각(구매일 다음 날부터 30일 경과)이 지나고 이의 제기가 없거나 기각된 {@code CONFIRMED} 항목의
  * 보류 HP를 판매자 수익 HP로 옮기고 {@code PAID_OUT}으로 바꾼다. 지급은 billing이 차감했던 HP 종류 그대로 한다 (D42).
  * <ul>
- *     <li>항목마다 새 트랜잭션을 열고, 그 안에서 항목 상태 변경과 {@code BillingPort.payout}을 함께 한다 (D3).
+ *     <li>항목마다 새 트랜잭션을 열고, 그 안에서 항목 상태 변경과 {@code BillingClient.payout}을 함께 한다 (D3).
  *     billing이 실패하면 항목 상태도 롤백된다.</li>
  *     <li>예외는 트랜잭션 밖에서 항목별로 잡아 다음 항목으로 넘어간다. 실패한 항목은 {@code CONFIRMED}로 남는다 (설계 6.4).</li>
  *     <li>실패는 {@link PayoutFailure}로 분류해 새 트랜잭션에서 항목에 기록한다(D54). 일시 실패는 다음 실행에서 다시 처리하고,
@@ -43,18 +43,18 @@ public class OrderPayoutUseCase {
 
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureOrderSupport lectureOrderSupport;
-    private final BillingPort billingPort;
+    private final BillingClient billingClient;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public OrderPayoutUseCase(LectureOrderRepository lectureOrderRepository,
                               LectureOrderSupport lectureOrderSupport,
-                              BillingPort billingPort,
+                              BillingClient billingClient,
                               PlatformTransactionManager transactionManager,
                               @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureOrderSupport = lectureOrderSupport;
-        this.billingPort = billingPort;
+        this.billingClient = billingClient;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -89,9 +89,10 @@ public class OrderPayoutUseCase {
     }
 
     private void requestPayout(OrderItem item) {
-        PayoutResultDto result = billingPort.payout(PayoutCommand.full(item.getBuyerUserId(),
-                BillingReferenceType.LECTURE_ORDER_ITEM, item.getId(), PAYOUT_REQUEST_ID_PREFIX + item.getId(),
-                item.getSellerUserId(), SettlementSourceType.LECTURE_ORDER_ITEM, item.getId()));
+        PayoutResultDto result = LectureBillingFailureMapper.valueOrThrow(billingClient.payout(PayoutCommand.full(
+                item.getBuyerUserId(), BillingReferenceType.LECTURE_ORDER_ITEM, item.getId(),
+                PAYOUT_REQUEST_ID_PREFIX + item.getId(), item.getSellerUserId(), SettlementSourceType.LECTURE_ORDER_ITEM,
+                item.getId())));
         // 항목 보류는 항목 가격 그대로 걸었으므로 전부 지급하면 가격과 같아야 한다 (D43)
         if (result.paidHp() != item.getPriceHp()) {
             throw new PayoutAmountMismatchException("지급액이 항목 가격과 다릅니다. orderItemId=" + item.getId()
@@ -103,8 +104,10 @@ public class OrderPayoutUseCase {
      * 롤백된 지급의 실패를 분류해 새 트랜잭션에서 기록하고 로그를 남긴다. 격리했으면 {@code true}다 (D54).
      * 기록이 실패해도(같은 항목을 동시에 바꾼 경우 등) 항목은 격리되지 않은 채 남아 다음 실행에서 다시 처리된다.
      */
-    private boolean handleFailure(Long itemId, RuntimeException exception) {
-        PayoutFailure failure = PayoutFailure.of(exception);
+    private boolean handleFailure(Long itemId, RuntimeException payoutException) {
+        PayoutFailure failure = PayoutFailure.of(payoutException);
+        // billing 결과를 받지 못한 실패는 원인 예외를 로그에 남긴다 (D62)
+        RuntimeException exception = PayoutFailure.diagnosticException(payoutException);
         Optional<OrderItem> recorded;
         try {
             recorded = transaction.execute(status -> recordFailure(itemId, failure, LocalDateTime.now(clock)));

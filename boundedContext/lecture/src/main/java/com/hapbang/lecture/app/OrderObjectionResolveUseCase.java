@@ -11,10 +11,10 @@ import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.lecture.out.billing.BillingClient;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
-import com.hapbang.shared.billing.port.BillingPort;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
 
@@ -32,15 +32,15 @@ public class OrderObjectionResolveUseCase {
 
     private final LectureOrderSupport lectureOrderSupport;
     private final LectureOrderRepository lectureOrderRepository;
-    private final BillingPort billingPort;
+    private final BillingClient billingClient;
     private final Clock clock;
 
     public OrderObjectionResolveUseCase(LectureOrderSupport lectureOrderSupport,
-                                        LectureOrderRepository lectureOrderRepository, BillingPort billingPort,
+                                        LectureOrderRepository lectureOrderRepository, BillingClient billingClient,
                                         @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderSupport = lectureOrderSupport;
         this.lectureOrderRepository = lectureOrderRepository;
-        this.billingPort = billingPort;
+        this.billingClient = billingClient;
         this.clock = clock;
     }
 
@@ -59,8 +59,9 @@ public class OrderObjectionResolveUseCase {
             return;
         }
 
-        ReleaseResultDto result = billingPort.release(ReleaseCommand.full(item.getBuyerUserId(),
-                BillingReferenceType.LECTURE_ORDER_ITEM, item.getId(), RELEASE_REQUEST_ID_PREFIX + item.getId()));
+        ReleaseResultDto result = LectureBillingFailureMapper.valueOrThrow(billingClient.release(ReleaseCommand.full(
+                item.getBuyerUserId(), BillingReferenceType.LECTURE_ORDER_ITEM, item.getId(),
+                RELEASE_REQUEST_ID_PREFIX + item.getId())));
         // 항목 보류는 항목 가격 그대로 걸었으므로 전부 반환하면 가격과 같아야 한다 (D43)
         if (result.releasedHp() != item.getPriceHp()) {
             throw new IllegalStateException("이의 제기 인정 반환액이 항목 가격과 다릅니다. orderItemId=" + item.getId()

@@ -21,10 +21,10 @@ import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.CartRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.out.billing.BillingClient;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
-import com.hapbang.shared.billing.port.BillingPort;
 
 /**
  * 주문 (장바구니 주문·바로 구매, 설계 6.4). 주문 저장, 항목별 HP 보류, 장바구니 정리를 호출한 Facade의 한 트랜잭션에서 한다.
@@ -39,16 +39,16 @@ public class OrderCreateUseCase {
     private final LectureRepository lectureRepository;
     private final LectureOrderRepository lectureOrderRepository;
     private final CartRepository cartRepository;
-    private final BillingPort billingPort;
+    private final BillingClient billingClient;
     private final Clock clock;
 
     public OrderCreateUseCase(LectureRepository lectureRepository, LectureOrderRepository lectureOrderRepository,
-                              CartRepository cartRepository, BillingPort billingPort,
+                              CartRepository cartRepository, BillingClient billingClient,
                               @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureRepository = lectureRepository;
         this.lectureOrderRepository = lectureOrderRepository;
         this.cartRepository = cartRepository;
-        this.billingPort = billingPort;
+        this.billingClient = billingClient;
         this.clock = clock;
     }
 
@@ -96,8 +96,8 @@ public class OrderCreateUseCase {
 
     /** 항목마다 그 가격을 보류한다 (D36). 결과가 요청과 다르면 돈이 맞지 않으므로 주문 전체를 롤백한다 (D43) */
     private void hold(Long buyerUserId, OrderItem item) {
-        HoldResultDto result = billingPort.hold(new HoldCommand(buyerUserId, BillingReferenceType.LECTURE_ORDER_ITEM,
-                item.getId(), item.getPriceHp()));
+        HoldResultDto result = LectureBillingFailureMapper.valueOrThrow(billingClient.hold(new HoldCommand(buyerUserId,
+                BillingReferenceType.LECTURE_ORDER_ITEM, item.getId(), item.getPriceHp())));
         if (result.replayed() || result.heldHp() != item.getPriceHp()) {
             throw new IllegalStateException("주문 항목 보류 결과가 요청과 다릅니다. orderItemId=" + item.getId()
                     + ", priceHp=" + item.getPriceHp() + ", result=" + result);

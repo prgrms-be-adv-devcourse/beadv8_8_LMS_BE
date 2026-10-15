@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -22,6 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.billing.app.HoldFacade;
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
 import com.hapbang.billing.app.LedgerRecordUseCase;
@@ -35,11 +37,14 @@ import com.hapbang.lecture.domain.ContentType;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureContentSpec;
 import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.integration.lecture.billing.InProcessLectureBillingAdapter;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.out.billing.BillingClient;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.DatabaseCleanUpListener;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
@@ -47,8 +52,8 @@ import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * 강의 주문·지급이 shared BillingPort로 실제 billing 모듈(BillingPortAdapter)을 호출하는지 확인한다.
- * 강의 모듈 테스트는 Fake billing을 쓰므로, 실제 빈 연결과 billing 예외가 강의 트랜잭션을 롤백하는지,
+ * 강의 주문·구매 취소·지급이 강의 BillingClient(apps의 In-process Adapter)로 실제 billing 모듈을 호출하는지 확인한다 (D62).
+ * 강의 모듈 테스트는 Fake billing을 쓰므로, 실제 빈 연결과 billing 거절이 강의 트랜잭션을 롤백하고 billing과 같은 오류로 응답하는지,
  * 지급 요청(요청 ID 형식·지급 원천)을 billing이 받아들이는지는 여기서 본다.
  * billing에 충전 API가 없어 충전은 billing 테스트와 같이 충전 건과 충전 원장을 직접 기록한다.
  */
@@ -86,6 +91,17 @@ class LectureOrderBillingIntegrationTest {
     @Autowired
     JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    BillingClient billingClient;
+
+    @Autowired
+    HoldFacade holdFacade;
+
+    @Test
+    void 강의_BillingClient는_In_process_Adapter로_주입된다() {
+        assertThat(AopUtils.getTargetClass(billingClient)).isEqualTo(InProcessLectureBillingAdapter.class);
+    }
+
     @Test
     void 잔액이_없으면_실제_billing이_보류를_거절하고_주문이_남지_않는다() {
         User buyer = memberFacade.oauthLogin(OAuthProvider.GOOGLE, "lecture-order-billing-sub",
@@ -99,9 +115,42 @@ class LectureOrderBillingIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"lectureIds\": [" + lectureId + "]}"))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE")));
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"))
+                .andExpect(jsonPath("$.detail").value("HP 잔액이 부족합니다.")));
 
         assertThat(lectureOrderRepository.count()).isEqualTo(ordersBefore);
+    }
+
+    @Test
+    void 반환이_실제_billing에서_거절되면_구매_취소가_롤백되고_billing과_같은_오류로_응답한다() throws Exception {
+        User buyer = memberFacade.oauthLogin(OAuthProvider.GOOGLE, "lecture-cancel-billing-sub",
+                "lecture-cancel-billing@example.com", "취소구매자");
+        Wallet buyerWallet = await().until(() -> walletRepository.findByUserId(buyer.getId()).orElse(null),
+                wallet -> wallet != null);
+        charge(buyerWallet.getId(), PRICE_HP);
+        String body = mockMvc.perform(post("/api/v1/lectures/orders").with(csrf())
+                        .with(TestLogin.as(buyer.getId(), Role.USER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lectureIds\": [" + saveOnSaleLecture().getId() + "]}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long orderId = JsonPath.parse(body).read("$.data.orderId", Long.class);
+        Long orderItemId = JsonPath.parse(body).read("$.data.items[0].orderItemId", Long.class);
+        // 구매 취소와 다른 반환 요청 ID로 보류를 먼저 닫는다. 같은 요청 ID면 처음 결과를 다시 돌려줘 성공한다
+        holdFacade.release(ReleaseCommand.full(buyer.getId(), BillingReferenceType.LECTURE_ORDER_ITEM, orderItemId,
+                "TEST-CLOSE-" + orderItemId));
+
+        mockMvc.perform(post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/cancel", orderId, orderItemId)
+                        .with(csrf())
+                        .with(TestLogin.as(buyer.getId(), Role.USER)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("HOLD_ALREADY_CLOSED"))
+                .andExpect(jsonPath("$.detail").value("남은 보류 HP가 없어 더 처리할 수 없습니다."));
+
+        assertThat(jdbcTemplate.queryForObject("select status from lectures.order_item where id = ?", String.class,
+                orderItemId)).isEqualTo("PURCHASED");
+        assertThat(jdbcTemplate.queryForObject("select status from lectures.lecture_order where id = ?", String.class,
+                orderId)).isEqualTo("PAID");
     }
 
     @Test

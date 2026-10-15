@@ -20,7 +20,7 @@ import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.out.CartRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
-import com.hapbang.shared.billing.port.BillingPort;
+import com.hapbang.lecture.out.billing.BillingClient;
 
 // 주문 저장 중 무결성 위반 중 보유 강의 중복만 409로 바꾸는지 DB 없이 검증한다(서버 메시지가 한국어여도 같아야 한다).
 // 실제 동시 주문은 OrderCreateUseCaseTest가 맡는다.
@@ -32,7 +32,7 @@ class OrderCreateViolationTest {
     private final LectureRepository lectureRepository = mock(LectureRepository.class);
     private final LectureOrderRepository lectureOrderRepository = mock(LectureOrderRepository.class);
     private final OrderCreateUseCase useCase = new OrderCreateUseCase(lectureRepository, lectureOrderRepository,
-            mock(CartRepository.class), mock(BillingPort.class),
+            mock(CartRepository.class), mock(BillingClient.class),
             Clock.fixed(NOW.atZone(LectureConfig.ZONE).toInstant(), LectureConfig.ZONE));
 
     @BeforeEach

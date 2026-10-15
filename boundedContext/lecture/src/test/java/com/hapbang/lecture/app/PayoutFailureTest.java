@@ -11,23 +11,28 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import com.hapbang.global.exception.BaseErrorCode;
 import com.hapbang.global.exception.BusinessException;
+import com.hapbang.lecture.domain.LectureErrorCode;
+import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.OrderItem;
-import com.hapbang.lecture.fake.FakeBillingPort.FakeBillingErrorCode;
+import com.hapbang.lecture.out.billing.BillingCallException;
+import com.hapbang.lecture.out.billing.BillingCallFailureKind;
+import com.hapbang.shared.billing.domain.BillingFailureCode;
 
 // 지급 실패를 재시도로 풀릴 수 있는 일시 실패와 격리할 영구 실패로 나누는 규칙 (D54)
 class PayoutFailureTest {
 
     @Test
     void 지갑_없음은_일시_실패다() {
-        PayoutFailure failure = PayoutFailure.of(new BusinessException(FakeBillingErrorCode.WALLET_NOT_FOUND));
+        PayoutFailure failure = PayoutFailure.of(new LectureException(LectureErrorCode.WALLET_NOT_FOUND));
 
         assertThat(failure).isEqualTo(new PayoutFailure("WALLET_NOT_FOUND", false));
     }
 
     @ParameterizedTest
-    @EnumSource(value = FakeBillingErrorCode.class, mode = EnumSource.Mode.EXCLUDE, names = "WALLET_NOT_FOUND")
-    void 지갑_없음이_아닌_업무_예외는_영구_실패다(FakeBillingErrorCode code) {
-        PayoutFailure failure = PayoutFailure.of(new BusinessException(code));
+    @EnumSource(value = BillingFailureCode.class, mode = EnumSource.Mode.EXCLUDE, names = {"WALLET_NOT_FOUND", "UNMAPPED"})
+    void 지갑_없음이_아닌_billing_실패는_영구_실패다(BillingFailureCode code) {
+        PayoutFailure failure = PayoutFailure.of(
+                new LectureException(LectureBillingFailureMapper.toLectureErrorCode(code), "billing 메시지"));
 
         assertThat(failure).isEqualTo(new PayoutFailure(code.name(), true));
     }
@@ -77,5 +82,28 @@ class PayoutFailureTest {
         };
 
         assertThat(PayoutFailure.of(new BusinessException(longCode)).code()).hasSize(100);
+    }
+
+    @Test
+    void billing_결과를_받지_못한_실패는_원인_예외_이름으로_일시_실패다() {
+        BillingCallException exception = new BillingCallException(BillingCallFailureKind.RETRYABLE,
+                new CannotAcquireLockException("deadlock detected"));
+
+        assertThat(PayoutFailure.of(exception)).isEqualTo(new PayoutFailure("CannotAcquireLockException", false));
+    }
+
+    @Test
+    void billing_결과를_받지_못한_실패의_진단_예외는_원인_예외다() {
+        CannotAcquireLockException cause = new CannotAcquireLockException("deadlock detected");
+
+        assertThat(PayoutFailure.diagnosticException(new BillingCallException(BillingCallFailureKind.RETRYABLE, cause)))
+                .isSameAs(cause);
+    }
+
+    @Test
+    void 그_밖의_예외는_그대로_진단_예외다() {
+        PayoutAmountMismatchException mismatch = new PayoutAmountMismatchException("지급액이 항목 가격과 다릅니다.");
+
+        assertThat(PayoutFailure.diagnosticException(mismatch)).isSameAs(mismatch);
     }
 }

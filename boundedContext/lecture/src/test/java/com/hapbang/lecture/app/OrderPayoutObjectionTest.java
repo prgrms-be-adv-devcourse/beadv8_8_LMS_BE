@@ -30,7 +30,7 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingPort;
+import com.hapbang.lecture.fake.FakeBillingClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -69,7 +69,7 @@ class OrderPayoutObjectionTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingPort fakeBillingPort;
+    private FakeBillingClient fakeBillingClient;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -89,7 +89,7 @@ class OrderPayoutObjectionTest {
 
     @BeforeEach
     void setUp() {
-        fakeBillingPort.reset();
+        fakeBillingClient.reset();
     }
 
     @AfterEach
@@ -111,7 +111,7 @@ class OrderPayoutObjectionTest {
 
         orderPayoutUseCase.payOutDueItems();
 
-        assertThat(fakeBillingPort.payouts()).extracting(PayoutCommand::referenceId).containsExactly(rejected);
+        assertThat(fakeBillingClient.payouts()).extracting(PayoutCommand::referenceId).containsExactly(rejected);
         assertThat(item(rejected)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.PAID_OUT, ObjectionStatus.REJECTED);
         assertThat(item(accepted)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
@@ -128,7 +128,7 @@ class OrderPayoutObjectionTest {
 
         orderPayoutUseCase.payOutDueItems();
 
-        assertThat(fakeBillingPort.payouts()).isEmpty();
+        assertThat(fakeBillingClient.payouts()).isEmpty();
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.CONFIRMED, ObjectionStatus.FILED);
     }
@@ -141,12 +141,12 @@ class OrderPayoutObjectionTest {
         jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = ? where id = ?",
                 now().minusDays(1), itemId);
         orderPayoutUseCase.payOutDueItems();
-        assertThat(fakeBillingPort.payouts()).isEmpty();
+        assertThat(fakeBillingClient.payouts()).isEmpty();
 
         lectureObjectionPort.withdrawObjection(itemId, BUYER_ID, INQUIRY_ID);
         orderPayoutUseCase.payOutDueItems();
 
-        assertThat(fakeBillingPort.payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
+        assertThat(fakeBillingClient.payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.PAID_OUT, ObjectionStatus.NONE);
     }
@@ -181,7 +181,7 @@ class OrderPayoutObjectionTest {
         batch.get(10, TimeUnit.SECONDS);
 
         // 배치의 항목 변경은 version이 달라 flush에서 실패하고, billing 지급까지 함께 롤백된다
-        assertThat(fakeBillingPort.payouts()).isEmpty();
+        assertThat(fakeBillingClient.payouts()).isEmpty();
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.CONFIRMED, ObjectionStatus.FILED);
     }
@@ -209,7 +209,7 @@ class OrderPayoutObjectionTest {
                 .hasCauseInstanceOf(ObjectOptimisticLockingFailureException.class);
         assertRefused(() -> lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
                 Reason.ALREADY_PAID_OUT);
-        assertThat(fakeBillingPort.payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
+        assertThat(fakeBillingClient.payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.PAID_OUT, ObjectionStatus.NONE);
     }
@@ -252,7 +252,7 @@ class OrderPayoutObjectionTest {
         LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture),
                 purchasedAt));
         Long itemId = itemId(order);
-        fakeBillingPort.assumeHeld(BUYER_ID, itemId, PRICE_HP);
+        fakeBillingClient.assumeHeld(BUYER_ID, itemId, PRICE_HP);
         transactionTemplate.executeWithoutResult(status ->
                 lectureOrderRepository.findById(order.getId()).orElseThrow().confirmItem(itemId, purchasedAt));
         return order;

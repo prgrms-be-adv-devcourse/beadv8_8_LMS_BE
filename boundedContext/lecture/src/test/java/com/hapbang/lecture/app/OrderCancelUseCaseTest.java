@@ -29,10 +29,11 @@ import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingPort;
+import com.hapbang.lecture.fake.FakeBillingClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.testsupport.IntegrationTest;
@@ -57,7 +58,7 @@ class OrderCancelUseCaseTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingPort billingPort;
+    private FakeBillingClient billingClient;
 
     @Autowired
     @Qualifier(LectureConfig.CLOCK)
@@ -65,7 +66,7 @@ class OrderCancelUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        billingPort.reset();
+        billingClient.reset();
     }
 
     @Test
@@ -77,7 +78,7 @@ class OrderCancelUseCaseTest {
 
         assertThat(response.status()).isEqualTo(OrderItemStatus.CANCELED);
         assertThat(response.canceledAt()).isNotNull();
-        assertThat(billingPort.releases()).singleElement().satisfies(release -> {
+        assertThat(billingClient.releases()).singleElement().satisfies(release -> {
             assertThat(release.userId()).isEqualTo(BUYER_ID);
             assertThat(release.referenceType()).isEqualTo(BillingReferenceType.LECTURE_ORDER_ITEM);
             assertThat(release.referenceId()).isEqualTo(canceledItemId);
@@ -101,7 +102,7 @@ class OrderCancelUseCaseTest {
         OrderResponse saved = lectureOrderFacade.getOrder(BUYER_ID, order.orderId());
         assertThat(saved.status()).isEqualTo(LectureOrderStatus.CANCELED);
         assertThat(saved.canceledAt()).isNotNull();
-        assertThat(billingPort.releases()).extracting(ReleaseCommand::referenceId)
+        assertThat(billingClient.releases()).extracting(ReleaseCommand::referenceId)
                 .containsExactlyElementsOf(order.items().stream().map(OrderItemResponse::orderItemId).toList());
     }
 
@@ -109,7 +110,7 @@ class OrderCancelUseCaseTest {
     void 마지막_두_항목을_동시에_구매_취소해도_주문이_취소된다() throws Exception {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         // 두 취소가 모두 반환 단계에 들어갈 때까지 기다리게 해, 주문을 잠그지 않으면 서로의 취소를 보지 못하게 한다
-        billingPort.holdReleasesUntil(2, Duration.ofSeconds(1));
+        billingClient.holdReleasesUntil(2, Duration.ofSeconds(1));
         SecurityContext securityContext = SecurityContextHolder.getContext();
 
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
@@ -131,7 +132,7 @@ class OrderCancelUseCaseTest {
         OrderResponse saved = lectureOrderFacade.getOrder(BUYER_ID, order.orderId());
         assertThat(saved.items()).extracting(OrderItemResponse::status).containsOnly(OrderItemStatus.CANCELED);
         assertThat(saved.status()).isEqualTo(LectureOrderStatus.CANCELED);
-        assertThat(billingPort.releases()).hasSize(2);
+        assertThat(billingClient.releases()).hasSize(2);
     }
 
     @Test
@@ -143,7 +144,7 @@ class OrderCancelUseCaseTest {
         assertErrorCode(() -> lectureOrderFacade.cancel(BUYER_ID, expired.getId(), orderItemId),
                 LectureErrorCode.CANCEL_PERIOD_EXPIRED);
 
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(billingClient.releases()).isEmpty();
         assertThat(itemStatus(expired.getId())).isEqualTo(OrderItemStatus.PURCHASED);
     }
 
@@ -154,19 +155,35 @@ class OrderCancelUseCaseTest {
 
         assertErrorCode(() -> lectureOrderFacade.cancel(OTHER_BUYER_ID, order.orderId(), orderItemId),
                 LectureErrorCode.ORDER_NOT_FOUND);
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(billingClient.releases()).isEmpty();
     }
 
     @Test
     void 반환액이_항목_가격과_다르면_구매_취소를_롤백한다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        billingPort.overrideReleasedHp(PRICE_HP - 1_000L);
+        billingClient.overrideReleasedHp(PRICE_HP - 1_000L);
 
         assertThatThrownBy(() -> lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId))
                 .isInstanceOf(IllegalStateException.class);
 
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(billingClient.releases()).isEmpty();
+        assertThat(itemStatus(order.orderId())).isEqualTo(OrderItemStatus.PURCHASED);
+    }
+
+    @Test
+    void 반환이_실패하면_구매_취소를_롤백하고_billing과_같은_오류로_끝난다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        Long orderItemId = order.items().getFirst().orderItemId();
+        billingClient.failReleaseFor(orderItemId, BillingFailureCode.HOLD_ALREADY_CLOSED, "남은 보류 HP가 없습니다.");
+
+        assertThatThrownBy(() -> lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId))
+                .isInstanceOfSatisfying(LectureException.class, exception -> {
+                    assertThat(exception.getErrorCode()).isEqualTo(LectureErrorCode.HOLD_ALREADY_CLOSED);
+                    assertThat(exception.getMessage()).isEqualTo("남은 보류 HP가 없습니다.");
+                });
+
+        assertThat(billingClient.releases()).isEmpty();
         assertThat(itemStatus(order.orderId())).isEqualTo(OrderItemStatus.PURCHASED);
     }
 
@@ -179,7 +196,7 @@ class OrderCancelUseCaseTest {
         assertThatThrownBy(() -> lectureOrderFacade.cancel(BUYER_ID, saved.getId(),
                 saved.getItems().getFirst().getId()))
                 .isInstanceOf(AuthorizationDeniedException.class);
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(billingClient.releases()).isEmpty();
     }
 
     private OrderResponse order(Lecture... lectures) {

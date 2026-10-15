@@ -32,10 +32,11 @@ import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingPort;
+import com.hapbang.lecture.fake.FakeBillingClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
@@ -68,7 +69,7 @@ class LectureObjectionPortTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingPort billingPort;
+    private FakeBillingClient billingClient;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -79,7 +80,7 @@ class LectureObjectionPortTest {
 
     @BeforeEach
     void setUp() {
-        billingPort.reset();
+        billingClient.reset();
     }
 
     @Test
@@ -97,7 +98,7 @@ class LectureObjectionPortTest {
         assertThatThrownBy(() -> lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId))
                 .isInstanceOf(LectureException.class)
                 .extracting("errorCode").isEqualTo(LectureErrorCode.OBJECTION_FILED);
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(billingClient.releases()).isEmpty();
     }
 
     @Test
@@ -131,7 +132,7 @@ class LectureObjectionPortTest {
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.ACCEPTED);
         assertThat(item.getObjectionResolvedAt()).isNotNull();
         assertThat(item.getObjectionResolvedByUserId()).isEqualTo(ADMIN_ID);
-        assertThat(billingPort.releases()).singleElement().satisfies(release -> {
+        assertThat(billingClient.releases()).singleElement().satisfies(release -> {
             assertThat(release.userId()).isEqualTo(BUYER_ID);
             assertThat(release.referenceType()).isEqualTo(BillingReferenceType.LECTURE_ORDER_ITEM);
             assertThat(release.referenceId()).isEqualTo(orderItemId);
@@ -154,7 +155,7 @@ class LectureObjectionPortTest {
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.REJECTED);
         assertThat(item.getStatus()).isEqualTo(OrderItemStatus.PURCHASED);
         assertThat(item.getObjectionResolvedByUserId()).isEqualTo(ADMIN_ID);
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(billingClient.releases()).isEmpty();
     }
 
     @Test
@@ -162,13 +163,28 @@ class LectureObjectionPortTest {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
         lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
-        billingPort.overrideReleasedHp(PRICE_HP - 1_000L);
+        billingClient.overrideReleasedHp(PRICE_HP - 1_000L);
 
         assertThatThrownBy(() -> lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID))
                 .isInstanceOf(IllegalStateException.class);
 
         assertFiledAndPurchased(orderItemId);
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(billingClient.releases()).isEmpty();
+    }
+
+    @Test
+    void 인정_반환이_실패하면_판단을_롤백하고_billing과_같은_오류로_끝난다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        Long orderItemId = order.items().getFirst().orderItemId();
+        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        billingClient.failReleaseFor(orderItemId, BillingFailureCode.HOLD_ALREADY_CLOSED, "남은 보류 HP가 없습니다.");
+
+        assertThatThrownBy(() -> lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID))
+                .isInstanceOfSatisfying(LectureException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(LectureErrorCode.HOLD_ALREADY_CLOSED));
+
+        assertFiledAndPurchased(orderItemId);
+        assertThat(billingClient.releases()).isEmpty();
     }
 
     // #156의 "반환 뒤 billing 단계(지급 예정 취소) 실패 → 판단 롤백"은 #188에서 지급 예정 취소가 없어졌다. billing 업무 예외로
@@ -199,7 +215,7 @@ class LectureObjectionPortTest {
 
         assertRefused(() -> lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID),
                 Reason.NOT_FILED);
-        assertThat(billingPort.releases()).hasSize(1);
+        assertThat(billingClient.releases()).hasSize(1);
     }
 
     @Test
@@ -258,7 +274,7 @@ class LectureObjectionPortTest {
             lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID + itemId, REASON);
         }
         // 두 판단이 모두 반환 단계에 들어갈 때까지 기다리게 해, 주문을 잠그지 않으면 서로의 반환을 보지 못하게 한다
-        billingPort.holdReleasesUntil(2, Duration.ofSeconds(1));
+        billingClient.holdReleasesUntil(2, Duration.ofSeconds(1));
 
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
             List<Future<?>> futures = itemIds.stream()
@@ -273,7 +289,7 @@ class LectureObjectionPortTest {
         OrderResponse saved = lectureOrderFacade.getOrder(BUYER_ID, order.orderId());
         assertThat(saved.items()).extracting(OrderItemResponse::status).containsOnly(OrderItemStatus.RETURNED);
         assertThat(saved.status()).isEqualTo(LectureOrderStatus.CANCELED);
-        assertThat(billingPort.releases()).hasSize(2);
+        assertThat(billingClient.releases()).hasSize(2);
     }
 
     @Test
@@ -289,12 +305,12 @@ class LectureObjectionPortTest {
         assertThat(item.getObjectionInquiryId()).isNull();
         assertThat(item.getObjectionReason()).isNull();
         assertThat(item.getObjectionFiledAt()).isNull();
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(billingClient.releases()).isEmpty();
 
         lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId);
 
         assertThat(item(orderItemId).getStatus()).isEqualTo(OrderItemStatus.CANCELED);
-        assertThat(billingPort.releases()).singleElement()
+        assertThat(billingClient.releases()).singleElement()
                 .extracting(ReleaseCommand::referenceId).isEqualTo(orderItemId);
     }
 

@@ -23,7 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
-import com.hapbang.lecture.fake.FakeBillingPort;
+import com.hapbang.lecture.fake.FakeBillingClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -53,11 +53,11 @@ class LectureOrderApiTest {
     private TransactionTemplate transactionTemplate;
 
     @Autowired
-    private FakeBillingPort billingPort;
+    private FakeBillingClient billingClient;
 
     @BeforeEach
     void setUp() {
-        billingPort.reset();
+        billingClient.reset();
     }
 
     @Test
@@ -79,7 +79,7 @@ class LectureOrderApiTest {
     @Test
     void 잔액이_부족하면_409_INSUFFICIENT_BALANCE다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
-        billingPort.setBalance(BUYER_ID, PRICE_HP - 1_000L);
+        billingClient.setBalance(BUYER_ID, PRICE_HP - 1_000L);
 
         mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())

@@ -1,6 +1,7 @@
 package com.hapbang.lecture.app;
 
 import com.hapbang.global.exception.BusinessException;
+import com.hapbang.lecture.out.billing.BillingCallException;
 
 /**
  * 지급 실패 분류 (D54). 다음 실행에서 다시 시도할 일시 실패와, 다시 시도해도 풀리지 않아 격리할 영구 실패로 나눈다.
@@ -22,15 +23,27 @@ record PayoutFailure(String code, boolean permanent) {
     private static final String WALLET_NOT_FOUND = "WALLET_NOT_FOUND";
 
     static PayoutFailure of(RuntimeException exception) {
-        if (exception instanceof BusinessException businessException) {
+        RuntimeException diagnostic = diagnosticException(exception);
+        if (diagnostic instanceof BusinessException businessException) {
             String code = businessException.getErrorCode().getCode();
             return new PayoutFailure(truncate(code), !WALLET_NOT_FOUND.equals(code));
         }
-        if (exception instanceof PayoutAmountMismatchException) {
+        if (diagnostic instanceof PayoutAmountMismatchException) {
             return new PayoutFailure(PayoutAmountMismatchException.CODE, true);
         }
-        String name = exception.getClass().getSimpleName();
-        return new PayoutFailure(truncate(name.isEmpty() ? exception.getClass().getName() : name), false);
+        String name = diagnostic.getClass().getSimpleName();
+        return new PayoutFailure(truncate(name.isEmpty() ? diagnostic.getClass().getName() : name), false);
+    }
+
+    /**
+     * 분류·로그에 쓸 예외. billing 결과를 받지 못한 실패({@link BillingCallException})는 감싼 원인 예외다.
+     * billing 예외를 그대로 받던 때와 같은 실패 코드·로그를 남기기 위한 임시 호환이며, #250에서 HP 작업으로 옮길 때 없앤다 (D62).
+     */
+    static RuntimeException diagnosticException(RuntimeException exception) {
+        if (exception instanceof BillingCallException && exception.getCause() instanceof RuntimeException cause) {
+            return cause;
+        }
+        return exception;
     }
 
     private static String truncate(String code) {
