@@ -38,6 +38,7 @@ public class AppearanceRecruitFacade {
     private final AppearanceRecruitQueryUseCase appearanceRecruitQueryUseCase;
     private final AppearanceRecruitUpdateUseCase appearanceRecruitUpdateUseCase;
     private final AppearanceRecruitCloseUseCase appearanceRecruitCloseUseCase;
+    private final AppearanceRecruitCancelUseCase appearanceRecruitCancelUseCase;
     private final HpTaskExecuteUseCase hpTaskExecuteUseCase;
 
     /**
@@ -95,6 +96,24 @@ public class AppearanceRecruitFacade {
         Long releaseTaskId = appearanceRecruitCloseUseCase.closeEarly(hostId, recruitId);
         if (releaseTaskId != null) {
             hpTaskExecuteUseCase.execute(releaseTaskId);
+        }
+        return appearanceRecruitQueryUseCase.getDetail(hostId, recruitId);
+    }
+
+    /**
+     * 모집 전체 취소 (호스트, #239). 모집 중·마감 후 모두, 방송 예정 일시 전까지.
+     * <ol>
+     *     <li>[트랜잭션 1] 모집글 {@code CANCELED} + 성립 출연마다 일방 취소(위약금) + 대기 지원 미선정 + 빈자리 반환 작업 기록 (커밋)</li>
+     *     <li>[트랜잭션 없음] HP 작업을 하나씩 1회 실행. 실패한 작업만 재시도 대기로 남고, 모집 취소는 성공으로 응답한다</li>
+     * </ol>
+     */
+    @PreAuthorize(INFLUENCER_ONLY)
+    public AppearanceRecruitResDto cancel(Long hostId, Long recruitId, boolean confirmPendingCancelRequest,
+                                          String reason) {
+        List<Long> taskIds = appearanceRecruitCancelUseCase.cancel(hostId, recruitId, confirmPendingCancelRequest,
+                reason);
+        for (Long taskId : taskIds) {
+            hpTaskExecuteUseCase.execute(taskId);
         }
         return appearanceRecruitQueryUseCase.getDetail(hostId, recruitId);
     }

@@ -9,6 +9,7 @@ import com.hapbang.appearance.app.dto.AppearanceResDto;
 import com.hapbang.appearance.app.dto.AppearanceSummaryResDto;
 import com.hapbang.appearance.domain.AppearanceRole;
 import com.hapbang.appearance.domain.AppearanceStatus;
+import com.hapbang.appearance.in.dto.HostCancelAppearanceReqDto;
 import com.hapbang.appearance.in.dto.RejectAppearanceCancelReqDto;
 import com.hapbang.appearance.in.dto.RequestAppearanceCancelReqDto;
 import com.hapbang.global.response.RsData;
@@ -64,4 +65,16 @@ public interface ApiV1AppearanceSpec {
             처리 중인 취소 요청을 거절한다. 출연은 `ESTABLISHED`로 유지되고, 게스트는 1번 더 요청할 수 있다.
             거절 사유는 선택(500자 이하)이며 요청 본문 없이 보내도 된다. 오류는 수락과 같다.""")
     RsData<AppearanceResDto> rejectCancel(Long userId, Long appearanceId, @Valid RejectAppearanceCancelReqDto request);
+
+    @Operation(summary = "호스트 일방 취소", description = """
+            성립한 출연을 방송 예정 일시 전에 호스트가 취소한다. 출연은 `CANCELED_BY_HOST`.
+            - 게스트에게 위약금(출연료의 30%, 원 단위 미만 버림)을 지급하고 나머지는 호스트에게 반환한다. 정산이 늦어져도 취소는 성공으로 응답하고,
+              진행 상태는 `hpPenaltyStatus`로 확인한다
+            - 게스트의 출연 취소 요청이 처리 중이면 `confirmPendingCancelRequest: true` 없이는 409 `CANCEL_REQUEST_CONFIRM_REQUIRED`.
+              확인하고 취소하면 그 요청은 `CLOSED_BY_HOST_CANCEL`로 끝나고, 게스트에게 위약금이 지급된다
+            - 사유는 선택(500자 이하), 요청 본문 없이 보내도 된다
+            - 호스트가 아니면 403 `NOT_APPEARANCE_HOST`, 성립·취소 요청 중이 아니면 409 `APPEARANCE_NOT_CANCELABLE`,
+              방송 예정 일시가 지났으면 409 `APPEARANCE_SCHEDULE_PASSED`
+            - 모집에서 성립한 출연이면 그 자리는 다시 열리지 않는다 (보류가 위약금·반환으로 정산됨)""")
+    RsData<AppearanceResDto> hostCancel(Long userId, Long appearanceId, @Valid HostCancelAppearanceReqDto request);
 }

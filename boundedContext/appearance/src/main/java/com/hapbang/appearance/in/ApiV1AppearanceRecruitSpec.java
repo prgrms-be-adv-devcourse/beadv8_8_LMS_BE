@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
+import com.hapbang.appearance.in.dto.CancelAppearanceRecruitReqDto;
 import com.hapbang.appearance.in.dto.CreateAppearanceRecruitReqDto;
 import com.hapbang.appearance.in.dto.UpdateAppearanceRecruitReqDto;
 import com.hapbang.global.response.RsData;
@@ -73,4 +74,15 @@ public interface ApiV1AppearanceRecruitSpec {
             - 같은 모집글을 동시에 처리(수락 등)하면 먼저 반영된 쪽만 성공하고 나머지는 409 `CONCURRENT_UPDATE`
             - 마감 일시가 지나면 배치가 1분 안에 같은 방식으로 마감한다 (마감 방식 `DEADLINE`)""")
     RsData<AppearanceRecruitResDto> closeEarly(Long userId, Long recruitId);
+
+    @Operation(summary = "출연 모집 전체 취소 (호스트)", description = """
+            모집 중이거나 마감된 모집글을 방송 예정 일시 전에 취소한다. 모집글은 `CANCELED`.
+            - 성립한 출연마다 호스트 일방 취소로 처리한다 (게스트마다 위약금 30%, 나머지는 호스트에게)
+            - 응답을 기다리던 지원은 `NOT_SELECTED`, 비어 있는 자리의 보류는 호스트에게 반환한다 (마감 뒤면 이미 반환됨)
+            - 처리 중인 게스트 출연 취소 요청이 하나라도 있으면 `confirmPendingCancelRequest: true` 없이는 409 `CANCEL_REQUEST_CONFIRM_REQUIRED`
+            - 사유는 선택(500자 이하)이며 모든 출연에 똑같이 남는다. 요청 본문 없이 보내도 된다
+            - 호스트가 아니면 403 `NOT_RECRUIT_HOST`, 모집 중·마감이 아니면 409 `APPEARANCE_RECRUIT_NOT_CANCELABLE`,
+              방송 예정 일시가 지났으면 409 `APPEARANCE_SCHEDULE_PASSED`
+            - 정산이 늦어져도 취소는 성공으로 응답한다. 빈자리 반환 진행 상태는 `hpReleaseStatus`, 출연별 위약금은 출연 상세에서 본다""")
+    RsData<AppearanceRecruitResDto> cancel(Long userId, Long recruitId, @Valid CancelAppearanceRecruitReqDto request);
 }
