@@ -55,7 +55,7 @@ import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 /**
- * 출연 모집 마감(조기 마감 Facade, 기한 마감 배치 UseCase)을 DB와 Fake Billing으로 확인한다.
+ * 출연 모집 마감(조기 마감 Facade, 기한 마감 배치 UseCase)을 DB와 Billing 대역으로 확인한다.
  * 모집글은 1인당 30,000 HP × 3명(보류 90,000)이다. 마감 일시는 DB 값을 과거로 옮겨 지난 것으로 만든다.
  */
 @AppearanceIntegrationTest

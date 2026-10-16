@@ -44,7 +44,7 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 
 /**
- * 출연 요청서 보내기·조회·수정 흐름을 DB와 Fake Billing으로 확인한다.
+ * 출연 요청서 보내기·조회·수정 흐름을 DB와 Billing 대역으로 확인한다.
  * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
 @AppearanceIntegrationTest

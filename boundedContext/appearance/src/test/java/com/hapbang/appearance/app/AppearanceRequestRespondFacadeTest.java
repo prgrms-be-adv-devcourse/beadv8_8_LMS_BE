@@ -51,7 +51,7 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 
 /**
- * 출연 요청 응답(수락·거절·응답 전 취소) 흐름을 DB와 Fake Billing으로 확인한다.
+ * 출연 요청 응답(수락·거절·응답 전 취소) 흐름을 DB와 Billing 대역으로 확인한다.
  * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
 @AppearanceIntegrationTest

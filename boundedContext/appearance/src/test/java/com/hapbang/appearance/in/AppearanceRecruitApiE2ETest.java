@@ -32,7 +32,7 @@ import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Fake Billing)를 띄우고 출연 모집글 API를 호출한다.
+ * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 출연 모집글 API를 호출한다.
  * 성공 응답은 RsData다.
  */
 @AppearanceIntegrationTest

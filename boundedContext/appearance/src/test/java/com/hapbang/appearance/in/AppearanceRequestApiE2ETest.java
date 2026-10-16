@@ -35,7 +35,7 @@ import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Fake Billing)를 띄우고 출연 요청서 API를 호출한다.
+ * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 출연 요청서 API를 호출한다.
  * 로그인은 팀 공통 {@link TestLogin}, 쓰기 요청은 CSRF 토큰을 함께 보낸다.
  */
 @AppearanceIntegrationTest

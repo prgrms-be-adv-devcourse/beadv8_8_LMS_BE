@@ -53,7 +53,7 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 
 /**
- * 출연 확인·불참·자동 확인을 DB와 Fake Billing으로 확인한다 (ISSUE.md APR-35).
+ * 출연 확인·불참·자동 확인을 DB와 Billing 대역으로 확인한다 (ISSUE.md APR-35).
  * 출연료 30,000 HP. 확인 → 게스트에게 30,000 지급, 불참 → 호스트에게 30,000 반환. Billing은 대역이라 보낸 지급·반환 요청 내용을 본다
  * (실제 잔액 변화는 apps 통합 테스트).
  * 방송 예정 일시는 출연 행의 스냅샷 값을 SQL로 옮겨 "방송이 끝난 뒤"를 만든다.

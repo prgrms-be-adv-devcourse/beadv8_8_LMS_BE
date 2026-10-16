@@ -68,11 +68,11 @@ class HpTaskTest {
         HpTask task = release();
         LocalDateTime retryAt = NOW.plusMinutes(1);
 
-        task.markFailed("BillingUnavailableException: timeout", retryAt);
+        task.markFailed("IllegalStateException: timeout", retryAt);
 
         assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
         assertThat(task.getAttemptCount()).isEqualTo(1);
-        assertThat(task.getLastError()).isEqualTo("BillingUnavailableException: timeout");
+        assertThat(task.getLastError()).isEqualTo("IllegalStateException: timeout");
         assertThat(task.isRunnable(NOW)).isFalse();
         assertThat(task.isRunnable(retryAt)).isTrue();
     }

@@ -58,7 +58,7 @@ import com.jayway.jsonpath.JsonPath;
  *     <li>Billing 담당의 {@code AppearanceBillingPortIntegrationTest}(#182)와는 별개 파일이다.</li>
  * </ul>
  */
-@SpringBootTest(properties = "appearance.billing.mode=billing-port")
+@SpringBootTest
 @AutoConfigureMockMvc
 @Import(PostgresTestcontainersConfig.class)
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,

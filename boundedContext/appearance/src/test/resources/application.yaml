@@ -3,7 +3,4 @@
 spring:
   config:
     # 테스트에는 apps 모듈이 없으므로, 전역 application.yaml처럼 출연 설정 파일을 직접 읽는다.
-    # 뒤에 읽는 파일이 앞 파일 값을 덮는다: 출연 설정을 읽고, 테스트용 값만 덮어쓴다 (#289)
-    import:
-      - classpath:appearance.yml
-      - classpath:appearance-test.yml
+    import: classpath:appearance.yml

@@ -42,7 +42,7 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 
 /**
- * 출연 배치(보류 재확인, 수락 기한 만료, HP 작업 재시도)를 DB와 Fake Billing으로 확인한다.
+ * 출연 배치(보류 재확인, 수락 기한 만료, HP 작업 재시도)를 DB와 Billing 대역으로 확인한다.
  * 테스트에서는 배치 스케줄이 꺼져 있으므로 UseCase를 직접 부른다.
  * 시각 조건은 DB의 만든 시각·다음 시도 시각을 과거로 옮겨 만든다.
  */

@@ -32,7 +32,7 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.TestLogin;
 
 /**
- * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB, Fake Billing)를 띄우고 출연 조회·취소 요청 API를 호출한다.
+ * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB, Billing 대역)를 띄우고 출연 조회·취소 요청 API를 호출한다.
  * 출연 성립까지는 Facade로 준비한다 (세션 역할은 {@code @WithMockUser}, API 호출은 {@link TestLogin}).
  */
 @AppearanceIntegrationTest

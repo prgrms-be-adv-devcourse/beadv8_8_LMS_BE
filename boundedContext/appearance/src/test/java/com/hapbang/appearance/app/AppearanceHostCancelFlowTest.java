@@ -61,7 +61,7 @@ import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 /**
- * 호스트 일방 취소·모집 전체 취소를 DB와 Fake Billing으로 확인한다 (ISSUE.md APR-32).
+ * 호스트 일방 취소·모집 전체 취소를 DB와 Billing 대역으로 확인한다 (ISSUE.md APR-32).
  * 출연료 30,000 HP → 위약금 9,000(게스트) + 반환 21,000(호스트). Billing은 대역이라 보낸 정산 요청 내용을 본다
  * (실제 잔액 변화는 apps 통합 테스트).
  */

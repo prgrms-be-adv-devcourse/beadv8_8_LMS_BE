@@ -22,10 +22,11 @@ import com.hapbang.shared.billing.port.BillingPort;
  *     <li>그 밖의 예외는 처리됐는지 알 수 없는 실패다. 같은 요청으로 다시 보내 결과를 확인한다.</li>
  *     <li>출연은 DB 트랜잭션 밖에서 부른다. 업무 상태를 먼저 커밋하고 Billing 결과는 따로 기록한다.</li>
  * </ul>
- * {@link BillingPort}를 상속하지 않는다. 상속하면 출연의 Fake가 앱 전체의 {@link BillingPort} 빈이 되어 다른 모듈에 주입될 수 있다.
+ * {@link BillingPort}를 상속하지 않는다. 출연은 이 인터페이스만 알고, 구현을 바꾸면(MSA 분리 때 HTTP 등) UseCase는 그대로 둔다
+ * (ISSUE.md APR-34).
  * <p>
- * 구현체는 {@code appearance.billing.mode} 값으로 고른다: {@code fake}(기본값) → {@link FakeBillingClient},
- * {@code billing-port} → 실제 Billing을 부르는 {@link BillingPortClient}(#182).
+ * 구현은 실제 Billing을 shared {@link BillingPort}로 부르는 {@link BillingPortClient}(#182) 하나다.
+ * 출연 모듈 테스트는 Mockito 대역을 쓴다 (#289).
  */
 public interface BillingClient {
 
