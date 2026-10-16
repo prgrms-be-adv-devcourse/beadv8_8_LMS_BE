@@ -43,6 +43,7 @@
 | FE 모집 화면 응답 보강 (모집 상세 내 지원, 지원 행의 모집글 제목·일시·상태) | ✅ | #243 |
 | 출연 확인(확인·불참)·D+7 자동 확인, 지급 HP 작업. 이의 제기는 고객센터 관할 | ✅ | #282 |
 | Billing 실제 연동 (Fake Billing·`mode` 설정 삭제, 실제 Billing 통합 테스트) | ✅ | #289 |
+| 정리: 작업 뒤 상세 조회 읽기 전용 트랜잭션, 충돌 변환 통합 | ✅ | #293 |
 
 ---
 
@@ -900,4 +901,15 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | `appearance/out/billing/BillingPortClient` (Billing 담당, #182 `2b66849`) | `@ConditionalOnProperty(mode=billing-port)` 제거, 문서 주석 갱신. 위임 코드는 그대로 | 구현이 하나뿐이라 켜고 끄는 조건이 필요 없음 |
 | `appearance/.../out/billing/BillingClientModeTest` (Billing 담당, #182) | 삭제 | `mode` 값에 따라 Fake·실제 구현을 고르는지 보는 테스트라 대상이 없어짐 |
 | apps `AppearanceBillingPortIntegrationTest` (Billing 담당, #182) | `properties = "appearance.billing.mode=billing-port"` 제거, "Fake 빈이 없다" 확인 줄·`FakeBillingClient` import·쓰지 않게 된 `ApplicationContext` 제거, 첫 테스트 이름을 `출연_BillingClient로_BillingPortClient가_주입된다`로, 클래스 주석 갱신, `@DirtiesContext` 추가. 나머지 테스트는 그대로 | `FakeBillingClient` 클래스가 없어 컴파일이 깨지고, `mode` 설정이 없어짐. `@DirtiesContext`: `mode` 속성이 빠지며 `SecurityCookieTest`와 같은 컨텍스트를 쓰게 됐는데, `csrf()` 테스트 도구가 CSRF 저장소를 세션 방식으로 바꿔 끼워 `SecurityCookieTest`가 실패했다 (PR CI) |
+
+## 16. 정리 (#293)
+
+동작(응답·오류 코드·HP 처리)은 바꾸지 않은 정리다 (ISSUE.md APR-37).
+
+| 항목 | 내용 |
+|---|---|
+| 작업 뒤 상세 조회 | 조회 UseCase의 상세 메서드(`AppearanceRequestQueryUseCase.getDetail`, `AppearanceRecruitQueryUseCase.getDetail`, `AppearanceQueryUseCase.getDetail`·`getDetailWithoutParticipantCheck`)가 `@Transactional(readOnly = true)`. Billing 호출 때문에 트랜잭션 없이 도는 Facade 메서드 10곳(요청서 보내기·거절·취소, 모집글 올리기·조기 마감·전체 취소, 취소 요청 수락, 일방 취소, 출연 확인, 불참)도 상세를 한 시점의 값으로 읽는다. Facade 트랜잭션 안이면 합류한다. "트랜잭션은 Facade가 연다" 규칙의 예외 |
+| 동시 처리 충돌 → 409 | 낙관적 락 충돌을 `CONCURRENT_UPDATE`로 바꾸는 곳을 Support의 `flushOrConflict()`로 통일. 요청서 Support에 추가하고 모집글 수정·요청서 수정·수락·반환 기록 4곳의 try/catch를 없앴다 |
+| 그대로 둔 것 | `HpTaskExecuteUseCase`의 결과 기록 충돌은 409가 아니라 "다른 실행이 먼저 기록함" 로그만 (R2) |
+| 회원 이벤트 순서 | `AppearanceUserEventListener`의 `TODO(event)` 삭제. 공통 `ReplicaUser`가 회원 버전으로 옛 정보를 무시 (회원 #292) |
 

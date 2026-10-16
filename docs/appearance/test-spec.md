@@ -865,3 +865,29 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | `AppearanceModuleIntegrationTest` | Billing 창구가 대역인지 확인 |
 | 출연 모듈 흐름·E2E 테스트 | 잔액·보류 확인 → Billing에 보낸 요청 확인. 실패는 `BillingStubs` |
 
+## 17. 정리 (#293)
+
+### 17.1 작업 뒤 상세 조회 트랜잭션 — `AppearanceDetailReadTransactionTest`
+
+상세 조회가 처음 읽는 Support `getById` 호출 시점에 트랜잭션이 있는지·읽기 전용인지 기록한다 (`@MockitoSpyBean`).
+
+| 케이스 (트랜잭션 없는 Facade) | 기대 결과 |
+|---|---|
+| 요청서 거절 → 반환 실행 → 상세 | 마지막 읽기가 읽기 전용 트랜잭션 안 (`true/true`) |
+| 모집글 조기 마감 → 반환 실행 → 상세 | 같음 |
+| 출연 확인 → 지급 실행 → 회원 자격 확인 없는 상세 | 같음 |
+
+- 읽기 전용 트랜잭션을 빼면 실패하는 것을 확인했다 (요청서 거절 케이스).
+
+### 17.2 낙관적 락 충돌 — `AppearanceConcurrentUpdateTest`
+
+스레드 타이밍에 기대지 않는다. 행을 읽은 직후 다른 트랜잭션(REQUIRES_NEW)이 같은 행의 버전을 먼저 올려 커밋한 상황을 만든다 (`@MockitoSpyBean`으로 `getById`를 가로챔).
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 요청서 기본 정보 수정 | 409 `CONCURRENT_UPDATE`, 제목 그대로 |
+| 요청서 수락 | 409 `CONCURRENT_UPDATE`, 요청서 `REQUESTED` 그대로, 출연 없음 |
+| 요청서 거절 (반환 기록) | 409 `CONCURRENT_UPDATE`, 요청서 그대로, HP 작업 없음 |
+| 모집글 기본 정보 수정 | 409 `CONCURRENT_UPDATE`, 제목 그대로 |
+| HP 작업 결과 기록 중 다른 실행이 먼저 기록 | 예외 없이 끝남, 먼저 기록한 결과(`DONE`, 시도 9) 그대로 (409 아님, APR-37 R2) |
+
