@@ -473,19 +473,19 @@ DB와 Billing 대역을 쓴다. 시각 조건은 DB의 만든 시각·다음 시
 
 | 케이스 | 기대 결과 |
 |---|---|
-| 1분 넘게 `HOLD_PENDING`인 요청서 재확인 | `REQUESTED`, 보류 30,000 |
-| Billing이 처음 요청을 이미 처리한 경우 | `REQUESTED`, HP는 한 번만 빠짐 |
-| 재확인 때 잔액 부족 | `HOLD_FAILED` |
+| 1분 넘게 `HOLD_PENDING`인 요청서 재확인 | `REQUESTED`, Billing에 보류 요청(요청서·30,000) |
+| Billing이 처음 요청을 이미 처리했을 수 있는 경우 | `REQUESTED`, 처음과 같은 보류 요청(같은 호스트·요청서·금액)을 다시 보냄 (Billing이 처음 보류를 돌려주는 것은 16장 실제 Billing으로 확인) |
+| 재확인 때 Billing 거절(잔액 부족) | `HOLD_FAILED` |
 | 1분이 안 됨 / 여전히 Billing 무응답 | 그대로 `HOLD_PENDING` (정리 0건) |
-| 모집글 재확인 | `RECRUITING`, 보류 90,000 |
-| 수락 기한이 지난 `HOLD_PENDING` (S5) | 재확인 → `REQUESTED` → 만료 → `EXPIRED` + 반환 `DONE`, 잔액 복구 |
-| 수락 기한이 지난 `REQUESTED` 만료 | `EXPIRED`, 작업 사유 `REQUEST_EXPIRED` `DONE`, 보류 0, 상세 `hpReleaseStatus` `DONE` |
+| 모집글 재확인 | `RECRUITING`, Billing에 보류 요청(`APPEARANCE_RECRUIT`, 90,000) |
+| 수락 기한이 지난 `HOLD_PENDING` (S5) | 재확인 → `REQUESTED` → 만료 → `EXPIRED` + 반환 `DONE`, 반환 요청 30,000 |
+| 수락 기한이 지난 `REQUESTED` 만료 | `EXPIRED`, 작업 사유 `REQUEST_EXPIRED` `DONE`, 반환 요청(요청 ID = 작업 키, 30,000), 상세 `hpReleaseStatus` `DONE` |
 | 수락 기한 전 | 그대로 `REQUESTED`, 작업 없음 |
 | 만료 때 반환 실패 / 다시 실행 | `EXPIRED` 확정, 작업 `PENDING` 시도 1 / 만료 0건 |
-| 반환 실패 작업: 다음 시도 시각 전 / 후 | 실행 안 함 / `DONE`, 시도 2, 잔액 복구, 지표 done +1 |
+| 반환 실패 작업: 다음 시도 시각 전 / 후 | 실행 안 함 / `DONE`, 시도 2, 같은 반환 요청 ID로 다시 보냄, 지표 done +1 |
 | 계속 실패 | 2~9회는 `PENDING`(마지막 간격 약 1시간), 10회째 `DEAD`, 지표 격리 수 1 |
-| 재시도 때 Billing 거절 (보류 없음) | 바로 `DEAD`, `HOLD_NOT_FOUND: …` |
-| 처음 시도 전 작업: 만든 직후 / 1분 뒤 | 가져가지 않음 / 실행 |
+| 재시도 때 Billing 거절 (대역이 `HOLD_NOT_FOUND`로 거절) | 바로 `DEAD`, `HOLD_NOT_FOUND: …` |
+| 처음 시도 전 작업: 만든 직후 / 1분 뒤 | 가져가지 않음(반환 요청 없음) / 실행 → `DONE`, 반환 요청 1번. (#289 전에는 Fake에 보류가 없어 `DEAD`였다. 대역은 기본 성공이라 `DONE`) |
 | (변경) `AppearanceRequestRespondFacadeTest` 거절 때 Billing 반환 거절 | 작업 `PENDING` → **`DEAD`** |
 
 ### 9.5 배치 빈 — `AppearanceBatchConditionTest`

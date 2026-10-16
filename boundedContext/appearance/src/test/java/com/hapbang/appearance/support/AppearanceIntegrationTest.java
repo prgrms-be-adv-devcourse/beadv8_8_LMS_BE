@@ -6,6 +6,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+import org.springframework.test.context.bean.override.mockito.MockReset;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.hapbang.appearance.out.billing.BillingClient;
@@ -18,13 +19,14 @@ import com.hapbang.testsupport.IntegrationTest;
  *     <li>대역은 Billing 규칙(잔액·보류·멱등)을 흉내 내지 않는다. 테스트는 출연 업무 규칙과 Billing에 보낸 요청 내용만 확인한다
  *     ({@link BillingCalls}). 실패는 {@link BillingStubs}로 만든다.</li>
  *     <li>돈이 실제로 맞게 움직이는지는 apps의 {@code AppearanceBillingFlowIntegrationTest}(실제 Billing)가 확인한다.</li>
- *     <li>대역은 테스트마다 초기화된다 (Mockito 기본 동작).</li>
+ *     <li>대역은 테스트가 끝날 때마다 설정(실패 stub)과 호출 기록을 초기화한다 ({@code MockReset.AFTER}).
+ *     그래서 테스트 안에서 {@link BillingStubs#unavailable}로 바꾼 상태를 되돌리지 않아도 다음 테스트에 이어지지 않는다.</li>
  * </ul>
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
 @IntegrationTest
-@MockitoBean(types = BillingClient.class)
+@MockitoBean(types = BillingClient.class, reset = MockReset.AFTER)
 public @interface AppearanceIntegrationTest {
 }
