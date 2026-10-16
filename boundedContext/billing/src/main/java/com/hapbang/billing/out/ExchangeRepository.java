@@ -10,6 +10,7 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.billing.domain.Exchange;
+import com.hapbang.billing.domain.ExchangeStatus;
 
 import jakarta.persistence.LockModeType;
 
@@ -32,4 +33,14 @@ public interface ExchangeRepository extends Repository<Exchange, Long> {
 
     // 지갑의 환전 신청을 최신순(ID 내림차순)으로 조회한다.
     Page<Exchange> findAllByWalletIdOrderByIdDesc(Long walletId, Pageable pageable);
+
+    // 관리자 처리 전에 잠글 지갑을 알기 위해 환전의 지갑 ID만 락 없이 읽는다(엔티티를 영속성 컨텍스트에 올리지 않는다, #294).
+    @Query("select e.walletId from Exchange e where e.id = :id")
+    Optional<Long> findWalletIdById(@Param("id") Long id);
+
+    // 관리자 목록: 상태별 오래된 순(승인 대기 처리용) (#294)
+    Page<Exchange> findAllByStatusOrderByIdAsc(ExchangeStatus status, Pageable pageable);
+
+    // 관리자 목록: 상태별 최신순(처리 이력 조회용) (#294)
+    Page<Exchange> findAllByStatusOrderByIdDesc(ExchangeStatus status, Pageable pageable);
 }

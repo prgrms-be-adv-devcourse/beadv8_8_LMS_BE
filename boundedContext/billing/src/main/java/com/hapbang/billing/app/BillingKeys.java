@@ -25,6 +25,7 @@ final class BillingKeys {
     static final String REFUND_HOLD_REQUEST_PREFIX = "REFUND-";
     static final String EXCHANGE_PREFIX = "EXCHANGE";
     static final String EXCHANGE_CANCEL_REQUEST_PREFIX = "EXCHANGE-CANCEL-";
+    static final String EXCHANGE_REJECT_REQUEST_PREFIX = "EXCHANGE-REJECT-";
 
     private BillingKeys() {
     }
@@ -87,6 +88,11 @@ final class BillingKeys {
     // 환전 신청 취소의 보류 반환 요청 ID EXCHANGE-CANCEL-{exchangeId}. 신청 하나는 한 번만 취소 반환된다 (#285).
     static String exchangeCancelRequestId(Long exchangeId) {
         return EXCHANGE_CANCEL_REQUEST_PREFIX + exchangeId;
+    }
+
+    // 관리자 환전 거절의 보류 반환 요청 ID EXCHANGE-REJECT-{exchangeId}. 신청 하나는 취소·거절 중 하나로만 한 번 반환된다 (#294).
+    static String exchangeRejectRequestId(Long exchangeId) {
+        return EXCHANGE_REJECT_REQUEST_PREFIX + exchangeId;
     }
 
     // 개별 환불의 보류 확정 차감·반환 요청 ID REFUND-{refundId}. 확정 차감(CAPTURE:)과 반환(RELEASE:)은 접두사가 달라

@@ -52,6 +52,11 @@ public enum BillingErrorCode implements BaseErrorCode {
     EXCHANGE_IDEMPOTENCY_KEY_INVALID(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더는 영문·숫자·-·_ 1~64자여야 합니다."),
     EXCHANGE_NOT_FOUND(HttpStatus.NOT_FOUND, "환전 신청을 찾을 수 없습니다."),
     EXCHANGE_NOT_CANCELABLE(HttpStatus.CONFLICT, "관리자 승인 전인 환전 신청만 취소할 수 있습니다."),
+    // 관리자 환전 승인·거절 (#294)
+    EXCHANGE_ALREADY_REVIEWED(HttpStatus.CONFLICT, "이미 처리되었거나 승인·거절할 수 없는 상태의 환전 신청입니다."),
+    EXCHANGE_APPLICANT_NOT_SYNCED(HttpStatus.CONFLICT, "신청자의 회원 정보가 아직 Billing에 반영되지 않아 승인할 수 없습니다."),
+    EXCHANGE_APPLICANT_NOT_ELIGIBLE(HttpStatus.CONFLICT, "신청자가 정상 상태의 인플루언서가 아니어서 승인할 수 없습니다."),
+    EXCHANGE_REJECTION_REASON_INVALID(HttpStatus.BAD_REQUEST, "거절 사유는 앞뒤 공백을 빼고 1~500자여야 합니다."),
     // 가상 송금 Mock 은행 API (#288, 로컬·테스트 전용)
     MOCK_PAYOUT_FORBIDDEN(HttpStatus.FORBIDDEN, "가상 송금 API 접근 키가 올바르지 않습니다."),
     MOCK_PAYOUT_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Idempotency-Key와 지급 요청 ID가 같은 UUID여야 합니다."),

@@ -21,7 +21,8 @@ public record ExchangeResponse(
         long feeAmount,
         @Schema(description = "예상 수령액(원) = 신청 금액 − 수수료")
         long expectedPayoutAmount,
-        @Schema(description = "REQUESTED(관리자 승인 전, 취소 가능), CANCELED(회원 취소, 보류 HP 반환), "
+        @Schema(description = "REQUESTED(관리자 승인 전, 취소 가능), APPROVED(관리자 승인, 송금 대기·취소 불가), "
+                + "REJECTED(관리자 거절, 보류 HP 반환), CANCELED(회원 취소, 보류 HP 반환), "
                 + "PROCESSING·COMPLETED·FAILED·UNKNOWN(송금 단계, 후속 기능)")
         ExchangeStatus status,
         @Schema(description = "잠정 정산 예정일(KST). 신청일이 1~9일이면 당월 10일, 10일 이후면 다음 달 10일이고 토·일요일이면 "

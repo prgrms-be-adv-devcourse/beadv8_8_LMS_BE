@@ -35,6 +35,8 @@ import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.SettlementStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -75,6 +77,8 @@ class BillingEnumStorageTest {
         columns.put("ck_exchange_payout_payout_provider", PayoutProvider.class);
         columns.put("ck_exchange_payout_status", ExchangePayoutStatus.class);
         columns.put("ck_mock_payout_transfer_status", MockPayoutTransferStatus.class);
+        columns.put("ck_billing_user_role", Role.class);
+        columns.put("ck_billing_user_status", UserStatus.class);
 
         List<String> enumChecks = entityManager.createNativeQuery("""
                 SELECT constraint_row.conname FROM pg_constraint constraint_row
@@ -98,7 +102,9 @@ class BillingEnumStorageTest {
     // ck_exchange_5는 취소 상태와 취소 시각이 함께 있어야 한다는 규칙(#285)
     // ck_mock_payout_transfer_2는 가상 송금 상태별 거래 번호·실패 코드·완료 시각 규칙(#288)
     private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5", "ck_point_refund_5", "ck_exchange_5",
-            "ck_mock_payout_transfer_2");
+            "ck_mock_payout_transfer_2",
+            // ck_exchange_7·8은 승인·거절 상태와 처리 기록이 함께 있어야 한다는 규칙(#294)
+            "ck_exchange_7", "ck_exchange_8");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""

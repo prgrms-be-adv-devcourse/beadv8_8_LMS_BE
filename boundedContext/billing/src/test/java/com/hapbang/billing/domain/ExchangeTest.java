@@ -77,6 +77,81 @@ class ExchangeTest {
     }
 
     @Test
+    @DisplayName("관리자 승인: REQUESTED → APPROVED, 관리자·시각을 남기고 정산 예정일은 그대로다. 같은 관리자만 멱등 대상이다")
+    void approve() {
+        Exchange exchange = Exchange.requested(2L, 3L, 1_000L, "k", T0.plusSeconds(60), T0);
+
+        exchange.approve(9L, T0.plusSeconds(5));
+
+        assertThat(exchange.getStatus()).isEqualTo(ExchangeStatus.APPROVED);
+        assertThat(exchange.getApprovedBy()).isEqualTo(9L);
+        assertThat(exchange.getApprovedAt()).isEqualTo(T0.plusSeconds(5));
+        assertThat(exchange.getPayoutScheduledAt()).isEqualTo(T0.plusSeconds(60));
+        assertThat(exchange.isApprovedBy(9L)).isTrue();
+        assertThat(exchange.isApprovedBy(8L)).isFalse();
+        assertThatThrownBy(() -> exchange.approve(9L, T0)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_ALREADY_REVIEWED);
+        assertThatThrownBy(() -> exchange.reject(9L, "사유", T0)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_ALREADY_REVIEWED);
+        // 승인 후에는 회원이 취소할 수 없다
+        assertThatThrownBy(() -> exchange.cancel(T0)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_NOT_CANCELABLE);
+    }
+
+    @Test
+    @DisplayName("관리자 거절: REQUESTED → REJECTED, 사유는 앞뒤 공백을 빼고 저장한다. 같은 관리자·같은 사유만 멱등 대상이다")
+    void reject() {
+        Exchange exchange = Exchange.requested(2L, 3L, 1_000L, "k", T0, T0);
+
+        exchange.reject(9L, "  계좌 불일치  ", T0.plusSeconds(5));
+
+        assertThat(exchange.getStatus()).isEqualTo(ExchangeStatus.REJECTED);
+        assertThat(exchange.getRejectedBy()).isEqualTo(9L);
+        assertThat(exchange.getRejectedAt()).isEqualTo(T0.plusSeconds(5));
+        assertThat(exchange.getRejectionReason()).isEqualTo("계좌 불일치");
+        assertThat(exchange.isRejectedBy(9L, "계좌 불일치")).isTrue();
+        assertThat(exchange.isRejectedBy(9L, "다른 사유")).isFalse();
+        assertThat(exchange.isRejectedBy(8L, "계좌 불일치")).isFalse();
+        assertThatThrownBy(() -> exchange.approve(9L, T0)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_ALREADY_REVIEWED);
+        assertThatThrownBy(() -> exchange.cancel(T0)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_NOT_CANCELABLE);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ExchangeStatus.class, names = {"CANCELED", "PROCESSING", "COMPLETED", "FAILED", "UNKNOWN"})
+    @DisplayName("취소·송금 단계 신청은 승인·거절할 수 없다")
+    void notReviewable(ExchangeStatus status) {
+        Exchange exchange = Exchange.requested(2L, 3L, 1_000L, "k", T0, T0);
+        ReflectionTestUtils.setField(exchange, "status", status);
+
+        assertThatThrownBy(() -> exchange.approve(9L, T0)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_ALREADY_REVIEWED);
+        assertThatThrownBy(() -> exchange.reject(9L, "사유", T0)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_ALREADY_REVIEWED);
+        assertThat(exchange.getApprovedBy()).isNull();
+        assertThat(exchange.getRejectedBy()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "   ", "\t\n"})
+    @DisplayName("거절 사유가 비었거나 공백뿐이면 EXCHANGE_REJECTION_REASON_INVALID")
+    void blankRejectionReason(String reason) {
+        assertThatThrownBy(() -> Exchange.normalizeRejectionReason(reason)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_REJECTION_REASON_INVALID);
+        assertThatThrownBy(() -> Exchange.normalizeRejectionReason(null)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_REJECTION_REASON_INVALID);
+    }
+
+    @Test
+    @DisplayName("거절 사유는 앞뒤 공백을 뺀 길이로 1~500자다")
+    void rejectionReasonLength() {
+        assertThat(Exchange.normalizeRejectionReason("  " + "가".repeat(500) + "  ")).hasSize(500);
+        assertThatThrownBy(() -> Exchange.normalizeRejectionReason("가".repeat(501))).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_REJECTION_REASON_INVALID);
+    }
+
+    @Test
     @DisplayName("보류는 한 번만, REQUESTED에서만 연결한다")
     void attachHoldOnce() {
         Exchange exchange = Exchange.requested(2L, 3L, 1_000L, "k", T0, T0);
