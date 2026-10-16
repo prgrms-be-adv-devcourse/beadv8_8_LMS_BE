@@ -46,6 +46,8 @@ public class ExchangeReviewUseCase {
     private final ExchangeLocks exchangeLocks;
     private final InternalHoldFacade internalHoldFacade;
     private final ExchangeAccountCipher exchangeAccountCipher;
+    // 승인 시각·정산 회차 판단 시각 (#305). 테스트는 이 빈을 바꿔 정산일 경계를 검증한다
+    private final ExchangePayoutClock exchangePayoutClock;
 
     @Transactional
     public AdminExchangeResult approve(Long adminId, Long exchangeId) {
@@ -62,8 +64,13 @@ public class ExchangeReviewUseCase {
             throw new BillingException(BillingErrorCode.EXCHANGE_APPLICANT_NOT_ELIGIBLE);
         }
         exchangeLocks.requireFullyHeld(exchange);
-        exchange.approve(adminId, now());
-        log.info("환전 승인 exchangeId={}, adminId={}", exchangeId, adminId);
+        // 정산 회차 확정 (#305): 정산일 00:00 KST 전 승인만 그 회차, 당일·이후 승인은 다음 회차
+        Instant approvedAt = exchangePayoutClock.now();
+        Instant provisional = exchange.getPayoutScheduledAt();
+        exchange.approve(adminId, approvedAt, ExchangeSettlementRound.forApproval(provisional, approvedAt));
+        log.info("환전 승인 exchangeId={}, adminId={}, settlementRound={}{}", exchangeId, adminId,
+                ExchangeSettlementRound.dateOf(exchange.getPayoutScheduledAt()),
+                provisional.equals(exchange.getPayoutScheduledAt()) ? "" : " (정산일 이후 승인으로 다음 회차)");
         return resultOf(exchange);
     }
 

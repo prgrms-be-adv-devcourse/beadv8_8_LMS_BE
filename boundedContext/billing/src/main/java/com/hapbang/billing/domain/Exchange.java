@@ -221,6 +221,18 @@ public class Exchange extends BillingUpdatedEntity {
         this.approvedAt = approvedAt;
     }
 
+    // 관리자 승인 + 정산 회차 확정 (#305): REQUESTED → APPROVED이고 정산 예정 시각을 승인 때 정한 회차로 둔다(정산일 전 승인이면 신청 때
+    // 잠정 회차 그대로, 정산일 당일·이후 승인이면 다음 회차). 회차는 승인 시각보다 뒤여야 한다(지난 회차로 확정하지 않는다).
+    // 이후 은행 장애·서버 중단으로 회차를 바꾸지 않는다. 그 밖의 상태는 EXCHANGE_ALREADY_REVIEWED
+    public void approve(Long adminId, Instant approvedAt, Instant payoutScheduledAt) {
+        requireRequested();
+        if (payoutScheduledAt == null || !payoutScheduledAt.isAfter(approvedAt)) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_STATE_INCONSISTENT);
+        }
+        approve(adminId, approvedAt);
+        this.payoutScheduledAt = payoutScheduledAt;
+    }
+
     // 관리자 거절 (#294): REQUESTED → REJECTED. 사유는 앞뒤 공백을 뺀 값(1~500자)이어야 한다. 보류 반환은 호출한 쪽이 같은 트랜잭션에서 한다.
     public void reject(Long adminId, String reason, Instant rejectedAt) {
         requireRequested();

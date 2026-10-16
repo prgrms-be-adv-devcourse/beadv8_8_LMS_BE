@@ -99,6 +99,28 @@ class ExchangeTest {
     }
 
     @Test
+    @DisplayName("승인 + 회차 확정(#305): 정한 정산 예정 시각을 저장한다. 회차가 승인 시각보다 뒤가 아니면 거절하고, 승인 대기가 아니면 409")
+    void approveWithRound() {
+        Exchange exchange = Exchange.requested(2L, 3L, 1_000L, "k", T0.plusSeconds(60), T0);
+
+        exchange.approve(9L, T0.plusSeconds(70), T0.plusSeconds(86_400));
+
+        assertThat(exchange.getStatus()).isEqualTo(ExchangeStatus.APPROVED);
+        assertThat(exchange.getApprovedAt()).isEqualTo(T0.plusSeconds(70));
+        assertThat(exchange.getPayoutScheduledAt()).isEqualTo(T0.plusSeconds(86_400));
+        assertThatThrownBy(() -> exchange.approve(9L, T0, T0.plusSeconds(86_400))).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_ALREADY_REVIEWED);
+
+        Exchange pastRound = Exchange.requested(2L, 3L, 1_000L, "k", T0.plusSeconds(60), T0);
+        assertThatThrownBy(() -> pastRound.approve(9L, T0.plusSeconds(70), T0.plusSeconds(70))).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_STATE_INCONSISTENT);
+        assertThatThrownBy(() -> pastRound.approve(9L, T0.plusSeconds(70), null)).extracting("errorCode")
+                .isEqualTo(BillingErrorCode.EXCHANGE_STATE_INCONSISTENT);
+        assertThat(pastRound.getStatus()).isEqualTo(ExchangeStatus.REQUESTED);
+        assertThat(pastRound.getPayoutScheduledAt()).isEqualTo(T0.plusSeconds(60));
+    }
+
+    @Test
     @DisplayName("관리자 거절: REQUESTED → REJECTED, 사유는 앞뒤 공백을 빼고 저장한다. 같은 관리자·같은 사유만 멱등 대상이다")
     void reject() {
         Exchange exchange = Exchange.requested(2L, 3L, 1_000L, "k", T0, T0);

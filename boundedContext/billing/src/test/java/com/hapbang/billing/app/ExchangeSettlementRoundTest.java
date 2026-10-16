@@ -97,6 +97,66 @@ class ExchangeSettlementRoundTest {
     }
 
     // ---------------------------------------------------------------------------------------------
+    // 4) 관리자 승인 때 정산 회차 확정 (#305): 정산일 00:00 KST 전 승인만 그 회차, 당일·이후 승인은 다음 회차
+    //    2026-10-10(토)→10-12(월), 2026-11-10(화), 2026-12-10(목), 2027-01-10(일)→01-11(월), 2026-05-10(일)→05-11(월)
+    // ---------------------------------------------------------------------------------------------
+
+    @ParameterizedTest
+    @CsvSource({
+            // 잠정 정산일, 승인 시각(KST), 확정 정산일
+            // 정산일이 평일(11-10 화)
+            "2026-11-10, 2026-11-09T23:59:59.999999, 2026-11-10", // 정산일 전날 마지막 순간 → 그 회차
+            "2026-11-10, 2026-11-10T00:00:00, 2026-12-10",        // 정산일 00:00 정각 → 다음 회차
+            "2026-11-10, 2026-11-10T09:00:00, 2026-12-10",        // 정산일 당일 → 다음 회차
+            "2026-11-10, 2026-11-15T10:00:00, 2026-12-10",        // 정산일 이후 → 다음 회차
+            "2026-11-10, 2026-11-05T10:00:00, 2026-11-10",        // 정산일 전 → 그 회차
+            // 10일이 토요일(10-10 → 10-12 월): 주말 보정한 정산일 00:00이 마감
+            "2026-10-12, 2026-10-10T15:00:00, 2026-10-12",        // 10일(토) 승인 → 그 회차(12일 월)
+            "2026-10-12, 2026-10-11T23:59:59, 2026-10-12",        // 11일(일) 밤 → 그 회차
+            "2026-10-12, 2026-10-12T00:00:00, 2026-11-10",        // 12일(월) 00:00 → 다음 회차
+            // 10일이 일요일(05-10 → 05-11 월)
+            "2026-05-11, 2026-05-10T12:00:00, 2026-05-11",        // 10일(일) 승인 → 그 회차(11일 월)
+            "2026-05-11, 2026-05-11T09:00:00, 2026-06-10",        // 11일(월) 승인 → 다음 회차
+            // 연말·연초: 12-10(목) 다음 회차는 2027-01-10(일) → 01-11(월)
+            "2026-12-10, 2026-12-10T10:00:00, 2027-01-11",
+            "2026-12-10, 2026-12-31T23:59:59, 2027-01-11",
+            "2027-01-11, 2027-01-10T12:00:00, 2027-01-11",        // 2027-01-10(일) 승인 → 그 회차(11일 월)
+            "2027-01-11, 2027-01-11T00:00:00, 2027-02-10",
+            // 여러 달 늦은 승인: 승인 시각 뒤 가장 가까운 회차(건너뛴 회차로 돌아가지 않는다)
+            "2026-10-12, 2026-11-03T10:00:00, 2026-11-10",
+            "2026-10-12, 2026-12-11T10:00:00, 2027-01-11",
+    })
+    @DisplayName("승인 회차: 정산일 00:00 KST 전 승인이면 잠정 회차 그대로, 그 시각·이후 승인이면 승인 뒤 첫 회차(주말 보정·연도 변경 포함)")
+    void forApproval(LocalDate provisional, java.time.LocalDateTime approvedKst, LocalDate expected) {
+        Instant provisionalAt = provisional.atStartOfDay(ExchangeSettlementRound.KST).toInstant();
+        Instant approvedAt = approvedKst.atZone(ExchangeSettlementRound.KST).toInstant();
+
+        Instant round = ExchangeSettlementRound.forApproval(provisionalAt, approvedAt);
+
+        assertThat(ExchangeSettlementRound.dateOf(round)).isEqualTo(expected);
+        assertThat(round).isEqualTo(expected.atStartOfDay(ExchangeSettlementRound.KST).toInstant());
+        assertThat(round).isAfter(approvedAt);
+        assertThat(round.atZone(ExchangeSettlementRound.KST).getDayOfWeek()).isNotIn(DayOfWeek.SATURDAY,
+                DayOfWeek.SUNDAY);
+    }
+
+    @Test
+    @DisplayName("승인 뒤 첫 회차는 항상 승인 시각보다 뒤이고 평일 00:00 KST다(2026~2027년 매시간 확인)")
+    void firstRoundAfterIsAlwaysFutureWeekday() {
+        Instant at = LocalDate.of(2026, 1, 1).atStartOfDay(ExchangeSettlementRound.KST).toInstant();
+        Instant end = LocalDate.of(2028, 1, 1).atStartOfDay(ExchangeSettlementRound.KST).toInstant();
+        for (; at.isBefore(end); at = at.plusSeconds(3_600)) {
+            Instant round = ExchangeSettlementRound.firstRoundAfter(at);
+            assertThat(round).isAfter(at);
+            assertThat(round.atZone(ExchangeSettlementRound.KST).toLocalTime()).isEqualTo(java.time.LocalTime.MIDNIGHT);
+            assertThat(round.atZone(ExchangeSettlementRound.KST).getDayOfWeek()).isNotIn(DayOfWeek.SATURDAY,
+                    DayOfWeek.SUNDAY);
+            // 한 달 안쪽(다음 달 정산일까지) 회차다
+            assertThat(round).isBefore(at.plus(java.time.Duration.ofDays(36)));
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // 계좌번호 마스킹
     // ---------------------------------------------------------------------------------------------
 

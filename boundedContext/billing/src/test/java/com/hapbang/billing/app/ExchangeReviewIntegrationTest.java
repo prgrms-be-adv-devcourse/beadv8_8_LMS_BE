@@ -2,8 +2,10 @@ package com.hapbang.billing.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doReturn;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +29,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
@@ -89,6 +92,10 @@ class ExchangeReviewIntegrationTest {
     @Autowired
     WalletReconciliationUseCase walletReconciliationUseCase;
 
+    // 승인 시각(정산 회차 확정 기준, #305). 바꾸지 않은 테스트는 실제 시각을 쓴다
+    @MockitoSpyBean
+    ExchangePayoutClock exchangePayoutClock;
+
     @Autowired
     JdbcTemplate jdbcTemplate;
 
@@ -123,6 +130,63 @@ class ExchangeReviewIntegrationTest {
         assertThat(count("billing.exchange_payout")).isZero();
         assertThat(count("billing.mock_payout_transfer")).isZero();
         assertConsistent(walletId);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 승인 때 정산 회차 확정 (#305)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("정산일 00:00 KST 전에 승인하면 신청 때 잠정 회차 그대로다(마감 1µs 전)")
+    void approveBeforeCutoffKeepsRound() {
+        influencer(Role.INFLUENCER, UserStatus.ACTIVE, 5_000L);
+        Long exchangeId = request(5_000L);
+        Instant provisional = scheduledAt(exchangeId);
+        doReturn(provisional.minus(1, ChronoUnit.MICROS)).when(exchangePayoutClock).now();
+
+        AdminExchangeResult result = reviewUseCase.approve(ADMIN, exchangeId);
+
+        assertThat(scheduledAt(exchangeId)).isEqualTo(provisional);
+        assertThat(result.settlementRoundDate()).isEqualTo(ExchangeSettlementRound.dateOf(provisional));
+        assertThat(result.approvedAt()).isEqualTo(provisional.minus(1, ChronoUnit.MICROS));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0", "3600", "432000", "2678400"})
+    @DisplayName("정산일 00:00 KST 정각·당일·이후에 승인하면 승인 뒤 첫 회차로 옮긴다(보류·원장은 그대로, 승인 응답에도 반영)")
+    void approveOnOrAfterCutoffMovesToNextRound(long secondsAfterCutoff) {
+        Long walletId = influencer(Role.INFLUENCER, UserStatus.ACTIVE, 5_000L);
+        Long exchangeId = request(5_000L);
+        Instant provisional = scheduledAt(exchangeId);
+        Instant approvedAt = provisional.plusSeconds(secondsAfterCutoff);
+        doReturn(approvedAt).when(exchangePayoutClock).now();
+        Map<String, Object> walletBefore = walletRow(walletId);
+        long ledgerBefore = count("billing.point_ledger");
+
+        AdminExchangeResult result = reviewUseCase.approve(ADMIN, exchangeId);
+
+        Instant expected = ExchangeSettlementRound.firstRoundAfter(approvedAt);
+        assertThat(scheduledAt(exchangeId)).isEqualTo(expected).isAfter(approvedAt).isAfter(provisional);
+        assertThat(result.settlementRoundDate()).isEqualTo(ExchangeSettlementRound.dateOf(expected));
+        assertThat(exchangeRow(exchangeId)).containsEntry("status", "APPROVED");
+        assertThat(holdOf(exchangeId)).containsEntry("status", "HELD").containsEntry("held_revenue_hp", 5_000L);
+        assertThat(walletRow(walletId)).isEqualTo(walletBefore);
+        assertThat(count("billing.point_ledger")).isEqualTo(ledgerBefore);
+    }
+
+    @Test
+    @DisplayName("승인에 실패하면(회원 복제본 없음) 회차도 바꾸지 않는다")
+    void failedApprovalKeepsRound() {
+        influencerWithoutReplica(5_000L);
+        Long exchangeId = request(5_000L);
+        Instant provisional = scheduledAt(exchangeId);
+        doReturn(provisional.plusSeconds(86_400)).when(exchangePayoutClock).now();
+
+        assertBillingError(() -> reviewUseCase.approve(ADMIN, exchangeId),
+                BillingErrorCode.EXCHANGE_APPLICANT_NOT_SYNCED);
+
+        assertThat(scheduledAt(exchangeId)).isEqualTo(provisional);
+        assertThat(exchangeRow(exchangeId)).containsEntry("status", "REQUESTED");
     }
 
     @Test
@@ -519,6 +583,11 @@ class ExchangeReviewIntegrationTest {
                     WHERE reference_type = 'EXCHANGE' AND reference_id = ?""", Long.class, id)).isZero();
         }
         assertThat(walletReconciliationUseCase.reconcile(walletId).matched()).isTrue();
+    }
+
+    private Instant scheduledAt(Long exchangeId) {
+        return jdbcTemplate.queryForObject("SELECT payout_scheduled_at FROM billing.exchange WHERE id = ?",
+                java.time.OffsetDateTime.class, exchangeId).toInstant();
     }
 
     private Map<String, Object> exchangeRow(Long exchangeId) {

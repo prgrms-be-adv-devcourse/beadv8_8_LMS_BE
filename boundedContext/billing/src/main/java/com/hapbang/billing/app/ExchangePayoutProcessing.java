@@ -256,6 +256,12 @@ public class ExchangePayoutProcessing {
                 PageRequest.of(0, limit));
     }
 
+    // 정산 실행 대상 환전 ID (#305): 관리자 승인(APPROVED)이고 정산 예정 시각이 dueAt 이전·같은 환전, afterId 다음부터 ID 오름차순 limit건
+    @Transactional(readOnly = true)
+    public List<Long> dueExchangeIds(Instant dueAt, long afterId, int limit) {
+        return exchangeRepository.findDueIdsAfter(ExchangeStatus.APPROVED, dueAt, afterId, PageRequest.of(0, limit));
+    }
+
     // 관리자 조회: 상태별 송금 시도(운영자 확인 대상 등), 오래된 순
     @Transactional(readOnly = true)
     public Page<AdminExchangePayoutResult> attempts(ExchangePayoutStatus status, Pageable pageable) {
