@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
@@ -27,6 +28,8 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 출연 모집글 조회 (공개 목록, 내가 올린 목록, 상세). 트랜잭션은 호출한 {@link AppearanceRecruitFacade}가 연다 (읽기 전용).
+ * 상세 조회는 스스로 읽기 전용 트랜잭션을 연다: Billing 호출 때문에 트랜잭션 없이 도는 Facade 메서드가 작업 뒤 상세를 다시 읽을 때도
+ * 한 시점의 값으로 응답하기 위해서다. Facade 트랜잭션 안에서 부르면 그 트랜잭션에 합류한다 (ISSUE.md APR-37 R1).
  * <ul>
  *     <li>공개 목록·상세: 로그인한 회원이면 역할과 관계없이 볼 수 있다 (AGENTS.md 6장 "모집글 조회").
  *     출연 회원 자격은 확인하지 않는다.</li>
@@ -73,6 +76,7 @@ public class AppearanceRecruitQueryUseCase {
      *
      * @throws AppearanceException 없거나 볼 수 없는 모집글({@code APPEARANCE_RECRUIT_NOT_FOUND})
      */
+    @Transactional(readOnly = true)
     public AppearanceRecruitResDto getDetail(Long userId, Long recruitId) {
         AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);
         recruit.validateVisible();

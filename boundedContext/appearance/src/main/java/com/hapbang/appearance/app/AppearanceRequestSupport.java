@@ -11,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -62,6 +63,20 @@ public class AppearanceRequestSupport {
     /** 수정 내용을 바로 DB에 반영한다 (응답의 수정 시각을 맞추기 위해) */
     public void flush() {
         appearanceRequestRepository.flush();
+    }
+
+    /**
+     * 요청서 변경을 바로 DB에 반영한다. 다른 요청이 먼저 바꿨으면(버전 충돌) 409로 바꿔 던진다.
+     * 커밋 때 충돌이 나면 공통 핸들러가 500으로 응답하므로, 반영 시점에 업무 예외로 바꾼다.
+     *
+     * @throws AppearanceException 동시 처리 충돌({@code CONCURRENT_UPDATE})
+     */
+    public void flushOrConflict() {
+        try {
+            appearanceRequestRepository.flush();
+        } catch (ObjectOptimisticLockingFailureException exception) {
+            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
+        }
     }
 
     // TODO(검색·필터): 기간·키워드 조건이 정해지면 조건 객체(예: AppearanceRequestSearchCondition)를 받아

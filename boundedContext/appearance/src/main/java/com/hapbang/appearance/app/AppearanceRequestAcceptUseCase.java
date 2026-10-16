@@ -4,12 +4,10 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.Appearance;
-import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRequest;
 
@@ -43,12 +41,8 @@ public class AppearanceRequestAcceptUseCase {
 
         LocalDateTime now = LocalDateTime.now(clock);
         request.accept(guestId, viewedVersion, now);
-        try {
-            appearanceRequestSupport.flush();
-        } catch (ObjectOptimisticLockingFailureException exception) {
-            // 같은 요청서를 동시에 수락·거절·취소하면 먼저 반영된 쪽만 성공한다
-            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
-        }
+        // 같은 요청서를 동시에 수락·거절·취소하면 먼저 반영된 쪽만 성공한다
+        appearanceRequestSupport.flushOrConflict();
         return appearanceSupport.saveNow(Appearance.establishFrom(request, now));
     }
 }
