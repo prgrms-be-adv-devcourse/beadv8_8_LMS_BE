@@ -8,6 +8,7 @@ import static org.mockito.Mockito.reset;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
@@ -88,7 +89,7 @@ class OrderPayoutUseCaseTest {
         LectureOrder due = saveConfirmed(overdue);
         LectureOrder notDue = saveConfirmed(now().minusDays(20));
         LectureOrder purchased = saveHeld(overdue);
-        LocalDateTime before = now();
+        LocalDateTime before = nowInDbPrecision();
 
         orderPayoutUseCase.payOutDueItems();
 
@@ -148,7 +149,7 @@ class OrderPayoutUseCaseTest {
     void 영구_오류는_첫_실패에_격리되고_다음_실행에서_대상에서_빠진다() {
         LectureOrder order = saveConfirmed(now().minusDays(32));
         fakeBillingPort.failPayoutFor(itemId(order), FakeBillingErrorCode.PAYOUT_ALREADY_SETTLED);
-        LocalDateTime before = now();
+        LocalDateTime before = nowInDbPrecision();
 
         orderPayoutUseCase.payOutDueItems();
         orderPayoutUseCase.payOutDueItems();
@@ -261,6 +262,14 @@ class OrderPayoutUseCaseTest {
 
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
+    }
+
+    /**
+     * 저장한 시각(TIMESTAMP(6))과 비교할 기준. 저장하면 마이크로초 아래가 잘리므로, 지급 배치가 이 직후 같은 마이크로초 안에서
+     * 읽은 시각도 기준 이후로 보도록 기준도 마이크로초로 맞춘다(마이크로초보다 정밀한 시계를 쓰는 Windows·Linux에서 간헐 실패, #312)
+     */
+    private LocalDateTime nowInDbPrecision() {
+        return now().truncatedTo(ChronoUnit.MICROS);
     }
 
     /** {@code purchasedAt}에 사서 보류가 있는 주문 (구매 상태) */
