@@ -922,5 +922,69 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 테스트 시계 | `@AppearanceIntegrationTest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
 | 시각 만들기 | 테스트는 DB의 시각 값(`scheduled_at`·`recruit_deadline`·`created_at`·`next_attempt_at`)을 고치지 않는다. 실제 순서대로 시계를 돌린다: 모집 마감(기한 마감 배치) → 방송 → 확인 기간 끝, 실패한 작업의 다음 시도 시각, 배치 대기 시간(1분). 남은 SQL 변경은 낙관적 락 충돌을 만드는 버전 올리기뿐 |
 | 그대로 둔 것 | apps `AppearanceBillingFlowIntegrationTest`는 아직 방송 시각을 SQL로 옮긴다 (테스트 시계는 출연 모듈 테스트 코드라 apps에서 바로 쓸 수 없음) |
-| 시나리오 표 | 저장소 밖 `hapbang_be/SCENARIOS.md` (171개 시나리오, 오류 코드 42개의 HTTP 확인 위치) |
+| 시나리오 표 | 저장소 밖 `hapbang_be/SCENARIOS.md` (1~10장 179개 시나리오 + 정책·제한 21개, 오류 코드 45개의 HTTP 확인 위치) |
+
+## 18. 출연 수익 내부 조회 (#301)
+
+Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지급 상태를 가져가는 **내부 전용** 조회다 (ISSUE.md APR-39). 읽기 전용이고, 출연 확인·취소·위약금·지급 로직은 바꾸지 않는다.
+
+### 18.1 연동 방식
+
+| 항목 | 내용 |
+|---|---|
+| 호출 | Billing이 HTTP(`RestClient`)로 부른다. 같은 서버 안 주소로 부르고 nginx를 거치지 않는다 |
+| 경로 | `GET /api/v1/internal/appearances/earnings/summary`, `GET /api/v1/internal/appearances/earnings` (팀 API 경로 규칙의 예외, 합의) |
+| 인증 | 헤더 `X-Internal-Api-Key` (설정 `internal.api.key`, 환경변수 `INTERNAL_API_KEY`). 맞으면 `ROLE_INTERNAL`, 틀리거나 없으면 401. 회원 세션으로는 부를 수 없다. 필터·전용 보안 체인은 Billing 공통부 |
+| 외부 노출 | nginx가 `/api/v1/internal/**`을 막는다 (Billing 공통부). Swagger에 나오지 않는다 |
+| 출연 쪽 방어 | ① 보안 체인의 키 검증(공통부) ② `AppearanceEarningFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
+| 회원 ID | 쿼리 파라미터 `memberId`. 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
+| 응답 | 성공 `RsData`, 오류 Problem Detail. 공통 DTO(shared `billing.earning`)가 들어오면 그 모양으로 담는다 (지금은 같은 모양의 출연 DTO) |
+| 시각 | `LocalDateTime`(오프셋 없는 ISO 8601), 모두 Asia/Seoul |
+
+공통부(인증 체인·shared DTO·설정·환경변수)가 dev에 들어오기 전까지는 분류 규칙·쿼리·Facade까지만 있고, 컨트롤러와 HTTP 테스트는 그 뒤에 붙인다.
+
+### 18.2 수익 분류 (`domain.AppearanceEarningRule`)
+
+기준 회원은 게스트(수익을 받는 쪽)다. **출연 1건 = 수익 1건**이고, 지급·위약금 HP 작업(`PAYOUT`·`PENALTY`, 출연마다 많아야 1건)의 상태로 지급 상태를 정한다. 반환(`RELEASE`)은 호스트에게 돌아가는 돈이라 섞지 않는다.
+
+| 출연 상태 | 작업 | 지급 상태 | 종류 | 금액 | 미지급 합계 |
+|---|---|---|---|---|---|
+| `ESTABLISHED` | - | `CONFIRMATION_PENDING` | 출연료 | `fee` | 포함 |
+| `CANCEL_REQUESTED` | - | `ON_HOLD` | 출연료 | `fee` | 포함 |
+| `CONFIRMED` | `PENDING` / `DEAD` / `DONE` | `PROCESSING` / `FAILED` / `COMPLETED` | 출연료 | `fee` | `COMPLETED`만 제외 |
+| `CANCELED_BY_HOST` | `PENDING` / `DEAD` / `DONE` | `PROCESSING` / `FAILED` / `COMPLETED` | 위약금 | `penalty_amount` | `COMPLETED`만 제외 |
+| `ABSENT`, `CANCELED_BY_AGREEMENT` | - | `CANCELED` | 출연료 | `fee` | 제외 |
+
+- 공통 상태 중 `SCHEDULED`는 출연에 없다 (요약에서 항상 0). 확인하는 순간 지급을 실행해 "지급 시각은 정해졌는데 실행 전"인 단계가 없기 때문이다 (강의의 D+30 지급 예정과 다름).
+- 일방 취소된 출연은 위약금 한 건으로만 센다 (출연료와 중복 집계 없음). 모집은 성립한 게스트마다 한 건이고, 모집글 보류 전체나 미선정 지원은 세지 않는다.
+- 확인·일방 취소는 상태 변경과 지급·위약금 작업 기록을 한 트랜잭션에서 하므로 작업이 없을 수 없다. DB 제약이 이 짝을 보장하지 않으므로, 작업이 없으면 **`FAILED`로 보여 주고 `[EARNING_TASK_MISSING]` ERROR 로그**를 남긴다 (N2).
+- 요약과 목록은 같은 규칙을 쓴다. 목록 조회 조건은 규칙을 모든 조합에 적용해 만들어(`conditionOf`) 분류와 어긋나지 않는다.
+
+### 18.3 요약 (`summary`)
+
+- 파라미터: `memberId`(필수), `earningType`(선택, `APPEARANCE_FEE`·`APPEARANCE_PENALTY`)
+- 응답: 미지급 5개 버킷 `confirmationPending`·`scheduled`·`onHold`·`processing`·`failed`, 각각 `amountHp`(HP)·`count`. 페이지와 상관없이 전체 기준. `COMPLETED`·`CANCELED`는 들어가지 않는다
+- 쿼리: (출연 상태, 작업 상태)별 건수·출연료 합계·위약금 합계를 한 번에 읽고 Java에서 분류해 접는다
+
+### 18.4 목록
+
+- 파라미터: `memberId`(필수), `status`(여러 개, 공통 7종), `earningType`, `page`(0부터)·`size`(기본 20, 최대 100, 팀 공통)
+- `status`를 보내지 않으면 미지급 4종(요약과 같은 범위). `COMPLETED`·`CANCELED`는 고를 때만 나온다
+- 출연과 상관없는 값(`SCHEDULED`, `LECTURE_SALE`)만 고르면 400이 아니라 빈 결과 (N4). 없는 enum 문자열은 400
+- 정렬: `statusUpdatedAt` 내림차순 → `sourceId`(출연 ID) 내림차순 고정. 출연 1건 = 1행이라 순서가 정해지고, 같은 시각이 페이지 경계에 걸려도 중복·누락이 없다
+
+| 필드 | 값 |
+|---|---|
+| `sourceType` | `APPEARANCE_REQUEST`(요청 출처) / `RECRUIT_APPEARANCE`(모집 출처). Billing 지급·위약금 요청의 원천과 같다 |
+| `sourceId` | 출연 ID (Billing 지급·위약금 요청의 원천 ID와 같다) |
+| `earningType` | `APPEARANCE_FEE` / `APPEARANCE_PENALTY` |
+| `title` | 출처 요청서·모집글의 현재 제목 (내 출연 목록과 같음) |
+| `amountHp` | 출연료, 위약금이면 위약금 |
+| `status` | 18.2 지급 상태 |
+| `payoutScheduledAt` | 항상 `null` (호스트가 방송 뒤 7일 안에 언제든 확인할 수 있어 지급 시각이 정해지지 않음) |
+| `statusUpdatedAt` | `coalesce(작업 완료 시각, 확인 시각, 취소 시각, 불참 시각, 출연 수정 시각)`: 완료·실패는 작업 완료 시각(`DONE`·`DEAD` 모두 기록), 처리 중은 확인·일방 취소 시각, 취소는 불참·합의 취소 시각, 확인 대기·보류는 출연 수정 시각 |
+
+### 18.5 인덱스
+
+`V202610161849__add_hp_tasks_appearance_id_index.sql`: `hp_tasks (appearance_id)`. 출연에 지급·위약금 작업을 붙여 읽는 조인용 (기존에는 `(ref_type, ref_id)`만 있었음).
 
