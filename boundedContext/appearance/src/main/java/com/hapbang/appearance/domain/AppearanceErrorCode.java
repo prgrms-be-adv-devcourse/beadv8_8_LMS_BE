@@ -68,6 +68,11 @@ public enum AppearanceErrorCode implements BaseErrorCode {
             "처리 중인 출연 취소 요청이 있습니다. 확인 후 다시 시도해 주세요."),
     APPEARANCE_RECRUIT_NOT_CANCELABLE(HttpStatus.CONFLICT, "취소할 수 있는 출연 모집글이 아닙니다."),
 
+    // 출연 확인 (#282)
+    APPEARANCE_NOT_CONFIRMABLE(HttpStatus.CONFLICT, "출연 확인을 할 수 있는 출연이 아닙니다."),
+    APPEARANCE_CONFIRM_NOT_OPEN(HttpStatus.CONFLICT, "방송 예정 일시가 지난 뒤에 출연 확인을 할 수 있습니다."),
+    APPEARANCE_CONFIRM_PERIOD_ENDED(HttpStatus.CONFLICT, "출연 확인 기간이 지났습니다. 출연은 자동으로 확인됩니다."),
+
     // 공통
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요."),
 

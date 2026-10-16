@@ -41,7 +41,7 @@ public class HpTask extends BaseEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** 작업 종류 (Billing에 요청하는 동작: 지금은 반환) */
+    /** 작업 종류 (Billing에 요청하는 동작: 반환·위약금 정산·지급) */
     @Enumerated(EnumType.STRING)
     private HpTaskType taskType;
 
@@ -52,19 +52,22 @@ public class HpTask extends BaseEntity {
     /** 대상 ID (요청서·모집글 ID) */
     private Long refId;
 
-    /** 관련 출연 ID. 위약금 정산처럼 출연 단위 작업에서 쓰고, Billing 지급 원천 ID가 된다 (반환은 null) */
+    /** 관련 출연 ID. 위약금 정산·지급처럼 출연 단위 작업에서 쓰고, Billing 지급 원천 ID가 된다 (반환은 null) */
     private Long appearanceId;
 
-    /** 보류한 회원 = 반환받는 회원 (호스트) */
+    /** 보류한 회원 (호스트). 반환받는 회원이자 지급·위약금을 내는 회원 */
     private Long memberId;
 
     /** 이 작업이 옮기는 HP 전체. 1 이상. 위약금 정산이면 정산 기준액(= 호스트 반환액 + 게스트 위약금) */
     private long amount;
 
-    /** 위약금을 받는 회원 (게스트). 위약금 정산에서만 쓴다 */
+    /** 받는 회원 (게스트). 위약금 정산·지급에서만 쓴다 */
     private Long receiverId;
 
-    /** {@code amount} 중 받는 회원에게 지급하는 위약금. 위약금 정산에서만 쓴다 (나머지는 호스트에게 반환) */
+    /**
+     * {@code amount} 중 받는 회원에게 주는 HP. 위약금 정산이면 위약금(나머지는 호스트에게 반환), 지급이면 {@code amount}와 같다.
+     * 위약금 정산·지급에서만 쓴다
+     */
     private Long payoutAmount;
 
     /** 작업 사유 (거절·취소·만료 등). 출연 내부 기록이며 Billing에는 보내지 않는다 */
@@ -144,6 +147,26 @@ public class HpTask extends BaseEntity {
         return task;
     }
 
+    /**
+     * 지급 작업을 만든다 (출연 확인, ISSUE.md APR-35 E7). 보류에서 출연료를 게스트에게 지급한다.
+     *
+     * @param hostId       보류한 호스트 (지급하는 회원)
+     * @param amount       지급액 = 이 출연의 출연료
+     * @param guestId      받는 게스트
+     * @param appearanceId 출연 ID (Billing 지급 원천 ID)
+     */
+    public static HpTask payout(HpTaskRefType refType, Long refId, Long hostId, long amount, Long guestId,
+                                Long appearanceId, HpTaskReason reason, String idempotencyKey, LocalDateTime now) {
+        if (amount < 1) {
+            throw new IllegalArgumentException("지급 금액은 1 이상이어야 합니다: " + amount);
+        }
+        HpTask task = new HpTask(HpTaskType.PAYOUT, refType, refId, hostId, amount, reason, idempotencyKey, now);
+        task.receiverId = guestId;
+        task.payoutAmount = amount;
+        task.appearanceId = appearanceId;
+        return task;
+    }
+
     /** 위약금 정산에서 호스트에게 반환하는 몫 (기준액 − 위약금) */
     public long releaseAmountOfPenalty() {
         return amount - payoutAmount;
@@ -160,7 +183,7 @@ public class HpTask extends BaseEntity {
     /**
      * 출연 1건에 대한 Billing 요청 ID. 형식 {@code {refType}-{refId}-{동작}-APPEARANCE-{출연 ID}}
      * (예: {@code APPEARANCE_RECRUIT-5-RELEASE-APPEARANCE-12}). 모집글 하나의 보류에서 출연별로 반환할 때 마감 반환
-     * ({@code …-RELEASE-1})과 겹치지 않게 한다. 출연 하나는 한 가지 방식(합의 취소·노쇼 등)으로만 끝나므로 출연당 하나다.
+     * ({@code …-RELEASE-1})과 겹치지 않게 한다. 출연 하나는 한 가지 방식(합의 취소·불참 등)으로만 끝나므로 출연당 하나다.
      */
     public static String appearanceRequestId(HpTaskRefType refType, Long refId, HpTaskType taskType,
                                              Long appearanceId) {

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
+import com.hapbang.appearance.app.AppearanceAutoConfirmUseCase;
 import com.hapbang.appearance.app.AppearanceCancelAutoRejectUseCase;
 import com.hapbang.appearance.app.AppearanceHoldRecheckUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitDeadlineCloseUseCase;
@@ -25,6 +26,7 @@ class AppearanceBatchConditionTest {
             .withBean(AppearanceRequestExpireUseCase.class, () -> mock(AppearanceRequestExpireUseCase.class))
             .withBean(AppearanceCancelAutoRejectUseCase.class, () -> mock(AppearanceCancelAutoRejectUseCase.class))
             .withBean(HpTaskRetryUseCase.class, () -> mock(HpTaskRetryUseCase.class))
+            .withBean(AppearanceAutoConfirmUseCase.class, () -> mock(AppearanceAutoConfirmUseCase.class))
             .withUserConfiguration(AppearanceBatch.class);
 
     @Test

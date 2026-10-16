@@ -1,5 +1,6 @@
 package com.hapbang.appearance.app;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -122,6 +123,16 @@ public class AppearanceSupport {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_NOT_FOUND);
         }
         return appearance.get();
+    }
+
+    /**
+     * 자동 확인 대상 출연 ID (최대 {@code limit}건, #282). 성립 상태이고 방송 예정 일시가 기준 시각 이전인 출연.
+     *
+     * @param scheduledCutoff 지금 − 확인 기간. 방송 예정 일시가 이 시각 이전이면 확인 기간이 끝났다
+     */
+    public List<Long> findAutoConfirmDueIds(LocalDateTime scheduledCutoff, int limit) {
+        return appearanceRepository.findIdsByStatusAndScheduledAtUpTo(AppearanceStatus.ESTABLISHED, scheduledCutoff,
+                PageRequest.of(0, limit));
     }
 
     /** 모집글에서 성립해 진행 중(성립·취소 요청 처리 중)인 출연을 배타 잠금으로 읽는다. 모집 전체 취소용, 출연 ID 순 */
