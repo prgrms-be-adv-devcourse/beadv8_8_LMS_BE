@@ -77,6 +77,7 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.DatabaseCleanUpListener;
+import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.ModuleTestConfiguration;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
 import com.hapbang.testsupport.TestLogin;
@@ -97,6 +98,8 @@ import com.hapbang.testsupport.TestLogin;
                 "hapbang.storage.s3.bucket=test",
                 "hapbang.storage.s3.region=ap-northeast-2",
                 "hapbang.storage.s3.key-prefix=test",
+                // global 내부 API 보안(InternalApiSecurityConfig)이 키를 요구한다 (#300)
+                "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.billing.mock-payout.enabled=true",
                 "hapbang.billing.mock-payout.connect-timeout=1s",
                 "hapbang.billing.mock-payout.read-timeout=1s",
