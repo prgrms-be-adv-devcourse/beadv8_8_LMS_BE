@@ -59,9 +59,13 @@ public class InfluencerChannel extends BaseEntity {
     @Column(nullable = false)
     private String channelUrl;
 
-    /** 등록·승인 요청 시점의 팔로워 수 */
+    /** 팔로워 수 (등록·승인 요청·일일 갱신 때 치지직에서 조회) */
     @Column(nullable = false)
     private int followerCount;
+
+    /** 팔로워 수를 치지직에서 마지막으로 조회한 시각 */
+    @Column(nullable = false)
+    private LocalDateTime followerCountUpdatedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -94,6 +98,7 @@ public class InfluencerChannel extends BaseEntity {
                                              String channelName, int followerCount, LocalDateTime now) {
         InfluencerChannel channel = new InfluencerChannel(user, platform, channelIdentifier, channelName);
         channel.followerCount = followerCount;
+        channel.followerCountUpdatedAt = now;
         if (meetsFollowerCount(followerCount)) {
             channel.approveAutomatically(now);
         } else {
@@ -108,6 +113,7 @@ public class InfluencerChannel extends BaseEntity {
             throw new MemberException(MemberErrorCode.CHANNEL_APPROVAL_NOT_ALLOWED);
         }
         this.followerCount = followerCount;
+        this.followerCountUpdatedAt = now;
         this.requestedAt = now;
         // 반려 후 다시 요청하면 지난 처리 정보를 지운다 (심사 대기에는 처리 정보가 없다)
         this.verifiedAt = null;
@@ -148,14 +154,6 @@ public class InfluencerChannel extends BaseEntity {
     public boolean canRequestApproval() {
         return verificationStatus == ChannelVerificationStatus.REGISTERED
                 || verificationStatus == ChannelVerificationStatus.REJECTED;
-    }
-
-    /**
-     * 팔로워 수를 조회한 시각. 팔로워 수는 등록·승인 요청 때만 바뀌므로 승인 요청 시각, 없으면 등록 시각.
-     * TODO(배치): 팔로워 수를 주기적으로 갱신하게 되면 전용 컬럼(follower_count_updated_at)으로 바꾼다
-     */
-    public LocalDateTime followerCountAt() {
-        return requestedAt != null ? requestedAt : getCreatedAt();
     }
 
     public boolean isApproved() {

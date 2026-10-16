@@ -14,7 +14,7 @@ public record MyChannelResponse(Long id, ChannelPlatform platform, String channe
 
     public static MyChannelResponse from(InfluencerChannel channel) {
         return new MyChannelResponse(channel.getId(), channel.getPlatform(), channel.getChannelName(),
-                channel.getChannelUrl(), channel.getFollowerCount(), channel.followerCountAt(),
+                channel.getChannelUrl(), channel.getFollowerCount(), channel.getFollowerCountUpdatedAt(),
                 channel.getVerificationStatus(), channel.getRejectionReason(), channel.getRequestedAt());
     }
 }

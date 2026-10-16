@@ -81,14 +81,15 @@ class InfluencerChannelTest {
     }
 
     @Test
-    @DisplayName("팔로워 기준 시각은 승인 요청 전이면 등록 시각, 요청 후면 요청 시각")
-    void followerCountAt() {
-        InfluencerChannel channel = register(5);
-        org.springframework.test.util.ReflectionTestUtils.setField(channel, "createdAt", NOW.minusDays(3));
-        assertThat(channel.followerCountAt()).isEqualTo(NOW.minusDays(3));
+    @DisplayName("팔로워 수를 조회한 시각은 등록 때 기록되고 승인 요청 때 다시 조회한 시각으로 바뀐다")
+    void followerCountUpdatedAt() {
+        InfluencerChannel channel = InfluencerChannel.register(user, ChannelPlatform.CHZZK, "channel-1", "테스트 채널",
+                5, NOW.minusDays(3));
+        assertThat(channel.getFollowerCountUpdatedAt()).isEqualTo(NOW.minusDays(3));
 
         channel.requestApproval(7, NOW);
-        assertThat(channel.followerCountAt()).isEqualTo(NOW);
+        assertThat(channel.getFollowerCount()).isEqualTo(7);
+        assertThat(channel.getFollowerCountUpdatedAt()).isEqualTo(NOW);
     }
 
     @Test
