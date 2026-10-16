@@ -117,6 +117,29 @@ class AppearanceUserEventListenerTest {
     }
 
     @Test
+    @DisplayName("이미 반영한 회원 버전보다 크지 않은 변경 이벤트는 무시한다 (순서 뒤바뀜·중복, 회원 #292)")
+    void ignoresStaleUserModified() {
+        appearanceUserFacade.syncJoined(new UserDto(11L, "user11", Role.INFLUENCER, UserStatus.ACTIVE, 0L));
+        transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(
+                new UserDto(11L, "renamed11-v2", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 2L))));
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
+                appearanceUserRepository.findById(11L).orElseThrow().getNickname()).isEqualTo("renamed11-v2"));
+
+        // 늦게 도착한 v1, 중복된 v2
+        transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(
+                new UserDto(11L, "renamed11-v1", Role.INFLUENCER, UserStatus.SUSPENDED, 1L))));
+        transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(
+                new UserDto(11L, "renamed11-dup", Role.INFLUENCER, UserStatus.SUSPENDED, 2L))));
+
+        await().during(Duration.ofMillis(500)).atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+            AppearanceUser found = appearanceUserRepository.findById(11L).orElseThrow();
+            assertThat(found.getNickname()).isEqualTo("renamed11-v2");
+            assertThat(found.getRole()).isEqualTo(Role.VERIFIED_INFLUENCER);
+            assertThat(found.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        });
+    }
+
+    @Test
     @DisplayName("변경 이벤트를 발행한 트랜잭션이 롤백되면 반영하지 않는다")
     void ignoresUserModifiedWhenPublisherRollsBack() {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(9L));
