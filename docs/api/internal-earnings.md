@@ -146,8 +146,9 @@ LectureEarningPageDto getEarnings(long sellerUserId, Collection<LectureEarningSt
 | `getReason()` | 언제 | `getStatus()` / `getCode()` |
 | --- | --- | --- |
 | `REJECTED` | 4xx (요청 값 오류, 내부 키 오류 401) | HTTP 상태 / `ProblemDetail.code`(401은 본문이 없어 `null`) |
-| `UNAVAILABLE` | 연결 실패, 응답 시간 초과, 5xx, `data` 없음 | 0(응답 없음) 또는 HTTP 상태 / `null` |
+| `UNAVAILABLE` | 연결 실패, 응답 시간 초과, 5xx, 읽을 수 없는 성공 응답(깨진 JSON, 계약에 없는 enum 값, 본문·`data` 없음, 204 등) | 응답을 받았으면 그 HTTP 상태, 받지 못했으면 0 / `null` |
 
+- 어떤 실패든 Spring `RestClientException`이 아니라 `LectureApiCallException`으로 나온다.
 - 조회라 `UNAVAILABLE`은 그대로 다시 불러도 안전하다.
 - 응답 시각은 `+09:00`이지만, 앱 Jackson이 읽으면서 **같은 시각의 UTC offset으로 바꿀 수 있다.** 날짜로 나눌 때는 KST(`Asia/Seoul`)로 바꿔 쓴다.
 

@@ -151,6 +151,21 @@ class LectureApiClientTest {
         assertUnavailable(() -> client().getEarningSummary(7L), 503);
     }
 
+    @Test
+    void 읽을_수_없는_성공_응답은_호출_불가_예외로_바뀐다() {
+        respond(200, "application/json", "{\"statusCode\":200,\"data\":{\"content\":[");
+        assertUnavailable(() -> client().getEarnings(7L, List.of(), 0, 20), 200);
+
+        // 모르는 상태 문자열(계약에 없는 값)
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"content":[{"sourceId":1,"status":"NEW_STATUS"}],
+                 "page":{"size":20,"number":0,"totalElements":1,"totalPages":1}}}""");
+        assertUnavailable(() -> client().getEarnings(7L, List.of(), 0, 20), 200);
+
+        respond(204, null, null);
+        assertUnavailable(() -> client().getEarningSummary(7L), 204);
+    }
+
     private static void assertUnavailable(Runnable call, int status) {
         assertThatThrownBy(call::run).isInstanceOfSatisfying(LectureApiCallException.class, e -> {
             assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.UNAVAILABLE);
