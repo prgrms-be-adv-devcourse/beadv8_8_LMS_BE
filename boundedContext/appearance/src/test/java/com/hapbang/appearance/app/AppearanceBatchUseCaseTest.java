@@ -11,10 +11,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.config.AppearanceBatchProperties;
+import com.hapbang.appearance.domain.AppearanceErrorCode;
+import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
@@ -230,6 +233,29 @@ class AppearanceBatchUseCaseTest {
                 assertThat(hold.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_RECRUIT);
                 assertThat(hold.amountHp()).isEqualTo(AppearanceRecruitFixture.TOTAL_FEE);
             });
+        }
+
+        @Test
+        @DisplayName("보류 처리 중인 모집글을 재확인할 때 Billing이 거절하면(잔액 부족) HOLD_FAILED로 정리하고, 목록·상세에 보이지 않는다")
+        void recheckRecruitToHoldFailed() {
+            BillingStubs.unavailable(billingClient);
+            assertThatThrownBy(() -> appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now())))
+                    .isInstanceOf(RuntimeException.class);
+            Long recruitId = appearanceRecruitRepository.findAll().getFirst().getId();
+            BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
+            pendingGracePassed();
+
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
+
+            assertThat(appearanceRecruitRepository.findById(recruitId).orElseThrow().getStatus())
+                    .isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
+            assertThat(BillingCalls.holds(billingClient)).hasSize(2)
+                    .allSatisfy(hold -> assertThat(hold.referenceId()).isEqualTo(recruitId));
+            assertThat(appearanceRecruitFacade.getMine(HOST, null, PageRequest.of(0, 10)).getContent()).isEmpty();
+            assertThatThrownBy(() -> appearanceRecruitFacade.getDetail(HOST, recruitId))
+                    .isInstanceOf(AppearanceException.class)
+                    .extracting("errorCode").isEqualTo(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero(); // 정리된 모집글은 다시 가져가지 않는다
         }
 
         @Test

@@ -311,6 +311,45 @@ class AppearanceHostCancelFlowTest {
             assertThat(task.getAttemptCount()).isEqualTo(1);
             assertThat(task.getLastError()).startsWith("WALLET_NOT_FOUND");
         }
+
+        @Test
+        @DisplayName("일방 취소(확인함)와 합의 취소 수락이 동시에 와도 한쪽만 반영된다: 위약금 정산 또는 전액 반환 중 하나만 Billing에 요청")
+        void concurrentHostCancelAndAgreedCancel() throws Exception {
+            Long appearanceId = establishFromRequest().appearanceId();
+            appearanceFacade.requestCancel(GUEST, appearanceId, "일정이 생겼습니다.");
+
+            List<Object> results = runConcurrently(List.of(
+                    () -> appearanceFacade.hostCancel(HOST, appearanceId, true, null),
+                    () -> appearanceFacade.acceptCancel(HOST, appearanceId)));
+
+            List<AppearanceResDto> succeeded = new ArrayList<>();
+            for (Object result : results) {
+                if (result instanceof AppearanceResDto response) {
+                    succeeded.add(response);
+                } else {
+                    assertThat(result).isInstanceOf(AppearanceException.class).extracting("errorCode")
+                            .isIn(AppearanceErrorCode.APPEARANCE_NOT_CANCELABLE,
+                                    AppearanceErrorCode.CANCEL_REQUEST_NOT_PENDING, AppearanceErrorCode.CONCURRENT_UPDATE);
+                }
+            }
+            assertThat(succeeded).hasSize(1);
+            AppearanceResDto detail = appearanceFacade.getDetail(HOST, appearanceId);
+            assertThat(detail.cancelRequests()).singleElement().extracting(request -> request.status())
+                    .isNotEqualTo(AppearanceCancelRequestStatus.REQUESTED);
+            if (detail.status() == AppearanceStatus.CANCELED_BY_HOST) {
+                assertThat(detail.cancelRequests().getFirst().status())
+                        .isEqualTo(AppearanceCancelRequestStatus.CLOSED_BY_HOST_CANCEL);
+                assertThat(tasksOf(HpTaskType.PENALTY)).hasSize(1);
+                assertThat(tasksOf(HpTaskType.RELEASE)).isEmpty();
+                assertThat(BillingCalls.releases(billingClient)).isEmpty();
+            } else {
+                assertThat(detail.status()).isEqualTo(AppearanceStatus.CANCELED_BY_AGREEMENT);
+                assertThat(detail.cancelRequests().getFirst().status()).isEqualTo(AppearanceCancelRequestStatus.ACCEPTED);
+                assertThat(tasksOf(HpTaskType.RELEASE)).hasSize(1);
+                assertThat(tasksOf(HpTaskType.PENALTY)).isEmpty();
+                assertThat(BillingCalls.penalties(billingClient)).isEmpty();
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -470,6 +509,37 @@ class AppearanceHostCancelFlowTest {
                     "select id from appearances.recruits where status = 'HOLD_PENDING'", Long.class);
             assertErrorCode(() -> appearanceRecruitFacade.cancel(HOST, pendingId, false, null),
                     AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
+        }
+
+        @Test
+        @DisplayName("모집 전체 취소(확인 없음)와 게스트 취소 요청이 동시에 오면 한쪽만 반영된다: 취소가 먼저면 위약금 정산, "
+                + "요청이 먼저면 취소는 CANCEL_REQUEST_CONFIRM_REQUIRED로 막히고 아무것도 바뀌지 않는다")
+        void concurrentCancelAndGuestCancelRequest() throws Exception {
+            Long recruitId = postRecruit(1);
+            Long appearanceId = establishFromRecruit(recruitId, GUEST);
+
+            List<Object> results = runConcurrently(List.of(
+                    () -> appearanceRecruitFacade.cancel(HOST, recruitId, false, null),
+                    () -> appearanceFacade.requestCancel(GUEST, appearanceId, "일정이 생겼습니다.")));
+
+            AppearanceResDto detail = appearanceFacade.getDetail(HOST, appearanceId);
+            if (results.getFirst() instanceof AppearanceRecruitResDto canceled) {
+                assertThat(canceled.status()).isEqualTo(AppearanceRecruitStatus.CANCELED);
+                assertThat(results.get(1)).isInstanceOf(AppearanceException.class).extracting("errorCode")
+                        .isIn(AppearanceErrorCode.APPEARANCE_NOT_CANCELABLE, AppearanceErrorCode.CONCURRENT_UPDATE);
+                assertThat(detail.status()).isEqualTo(AppearanceStatus.CANCELED_BY_HOST);
+                assertThat(detail.cancelRequests()).isEmpty();
+                assertThat(tasksOf(HpTaskType.PENALTY)).hasSize(1);
+            } else {
+                assertThat(results.getFirst()).isInstanceOf(AppearanceException.class).extracting("errorCode")
+                        .isIn(AppearanceErrorCode.CANCEL_REQUEST_CONFIRM_REQUIRED, AppearanceErrorCode.CONCURRENT_UPDATE);
+                assertThat(results.get(1)).isInstanceOf(AppearanceResDto.class);
+                assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).status())
+                        .isEqualTo(AppearanceRecruitStatus.RECRUITING);
+                assertThat(detail.status()).isEqualTo(AppearanceStatus.CANCEL_REQUESTED);
+                assertThat(hpTaskRepository.count()).isZero();
+                assertThat(BillingCalls.penalties(billingClient)).isEmpty();
+            }
         }
 
         @Test
