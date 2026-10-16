@@ -25,7 +25,9 @@ public record AdminExchangeResponse(
         @Schema(description = "예상 수령액(원) = 신청 금액 − 수수료")
         long expectedPayoutAmount,
         @Schema(description = "REQUESTED(승인 대기), APPROVED(승인, 보류 유지·송금 대기), REJECTED(거절, 보류 반환), "
-                + "CANCELED(회원 취소), PROCESSING·COMPLETED·FAILED·UNKNOWN(송금 단계, 후속 기능)")
+                + "CANCELED(회원 취소), PROCESSING(송금 결과 대기), UNKNOWN(결과 불명·운영자 확인, 보류 유지), "
+                + "COMPLETED(송금 성공, 보류 확정 차감), FAILED(송금 시도 확정 실패, 보류 유지·관리자 판단 대기), "
+                + "FINAL_FAILED(관리자 최종 실패 확정, 보류 반환)")
         ExchangeStatus status,
         @Schema(description = "잠정 정산 예정일(매월 10일, 토·일이면 다음 월요일, 공휴일 미반영). 실제 송금일이 아니다. 승인해도 바뀌지 않는다")
         LocalDate settlementRoundDate,
@@ -38,6 +40,16 @@ public record AdminExchangeResponse(
         Long rejectedBy,
         Instant rejectedAt,
         String rejectionReason,
+        @Schema(description = "송금 성공 시각(COMPLETED)")
+        Instant completedAt,
+        @Schema(description = "마지막 송금 시도의 확정 실패 시각(FAILED·FINAL_FAILED)")
+        Instant failedAt,
+        @Schema(description = "마지막 송금 시도의 실패 사유(예: MOCK_PAYOUT_FAILED:MOCK_TRANSFER_REJECTED)")
+        String failureReason,
+        @Schema(description = "최종 실패로 종료한 관리자 회원 ID")
+        Long finalFailedBy,
+        Instant finalFailedAt,
+        String finalFailureReason,
         Account account,
         @Schema(description = "신청자의 현재 회원 정보(Billing 회원 복제본). 복제본이 없으면 null이며 그 신청은 승인할 수 없다(409)")
         Applicant applicant
@@ -50,6 +62,8 @@ public record AdminExchangeResponse(
                 result.feeRate(), result.feeAmountHp(), result.payoutAmountKrw(), result.status(),
                 result.settlementRoundDate(), result.requestedAt(), result.canceledAt(), result.approvedBy(),
                 result.approvedAt(), result.rejectedBy(), result.rejectedAt(), result.rejectionReason(),
+                result.completedAt(), result.failedAt(), result.failureReason(), result.finalFailedBy(),
+                result.finalFailedAt(), result.finalFailureReason(),
                 new Account(account.bankCode(), account.accountNumberMasked(), account.accountHolderName(),
                         account.verificationStatus()),
                 applicant == null ? null : new Applicant(applicant.nickname(), applicant.role(), applicant.status(),

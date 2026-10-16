@@ -8,6 +8,9 @@ package com.hapbang.billing.out;
 // 3) 클라이언트는 재시도하지 않는다(호출 1번 = HTTP 요청 1번). 재시도 횟수·간격은 호출한 쪽 정책이다
 public interface PayoutTransferClient {
 
+    // 지금 송금을 요청할 수 있는지(Mock이 꺼진 환경이면 false, 송금 시도를 만들기 전에 확인한다, #304)
+    boolean isAvailable();
+
     // 송금을 요청한다.
     PayoutTransferResult send(PayoutTransferRequest request);
 

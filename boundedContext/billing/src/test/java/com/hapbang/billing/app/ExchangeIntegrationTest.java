@@ -454,8 +454,12 @@ class ExchangeIntegrationTest {
     void notCancelableAfterApproval(String status) {
         Long walletId = influencerWithRevenue(10_000L);
         Long exchangeId = request(INFLUENCER, "key-1", 4_000L).exchangeId();
-        // 승인·송금 기능은 후속 Issue다. 그 상태로 넘어간 신청을 직접 만든다
-        jdbcTemplate.update("UPDATE billing.exchange SET status = ? WHERE id = ?", status, exchangeId);
+        // 그 상태로 넘어간 신청을 직접 만든다. 완료·실패는 시각이 함께 있어야 한다(ck_exchange_10·11, #304)
+        jdbcTemplate.update("""
+                UPDATE billing.exchange SET status = ?,
+                    completed_at = CASE WHEN ? = 'COMPLETED' THEN now() END,
+                    failed_at = CASE WHEN ? = 'FAILED' THEN now() END
+                WHERE id = ?""", status, status, status, exchangeId);
 
         assertBillingError(() -> exchangeProcessing.cancel(INFLUENCER, exchangeId),
                 BillingErrorCode.EXCHANGE_NOT_CANCELABLE);
