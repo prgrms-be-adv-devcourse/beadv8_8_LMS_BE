@@ -810,4 +810,62 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | `AppearanceApiCancelE2ETest` | 처리 중 요청 있는 출연: 게스트 / 확인 없음 / 확인 | 403 `NOT_APPEARANCE_HOST` / 409 `CANCEL_REQUEST_CONFIRM_REQUIRED` / 200 "출연을 취소했습니다.", `CANCELED_BY_HOST`, 위약금 9,000, 사유, `hpPenaltyStatus` `DONE`, 요청 `CLOSED_BY_HOST_CANCEL` |
 | `AppearanceRecruitApiE2ETest` | 다른 회원 / 호스트(본문 없음) / 다시 | 403 `NOT_RECRUIT_HOST` / 200 "출연 모집을 취소했습니다.", `CANCELED`, 취소 시각, `hpReleaseStatus` `DONE` / 409 `APPEARANCE_RECRUIT_NOT_CANCELABLE` |
 | `AppearanceSwaggerDocsTest` | 일방 취소·전체 취소 응답 스키마 | `RsDataAppearanceResDto` / `RsDataAppearanceRecruitResDto` |
-| `HpTaskRepositoryTest` | 위약금 정산 작업 저장 / 반환 작업에 위약금 값 | 받는 회원·위약금·출연 ID 저장 / `ck_hp_tasks_penalty` 위반 |
+| `HpTaskRepositoryTest` | 위약금 정산 작업 저장 / 반환 작업에 위약금 값 | 받는 회원·위약금·출연 ID 저장 / `ck_hp_tasks_receiver` 위반 (#282에서 제약 이름 변경) |
+
+## 15. 출연 확인 (#282)
+
+출연료 30,000. 확인 기간 = 방송 예정 일시 ~ 방송 예정 일시 + 7일 전. 흐름·E2E 테스트는 출연 행의 방송 예정 일시를 SQL로 옮겨 "방송이 끝난 뒤"를 만든다.
+
+### 15.1 단위 — `AppearanceConfirmTest`
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 확인 | 방송 예정 일시 그 시각 | `CONFIRMED`, 확인 방식 `HOST`, 확인 시각 |
+| 확인 | 확인 기간 끝나기 1초 전 | `CONFIRMED` |
+| 확인 | 방송 예정 일시 1초 전 / 확인 기간이 끝난 시각 | `APPEARANCE_CONFIRM_NOT_OPEN` / `APPEARANCE_CONFIRM_PERIOD_ENDED` (상태 그대로) |
+| 확인 | 게스트·다른 회원 | `NOT_APPEARANCE_HOST` "출연의 호스트만 출연을 확인할 수 있습니다." |
+| 불참 | 불참 | `ABSENT`, 불참 시각, 사유 다듬음, 확인 방식·시각 없음 |
+| 불참 | 공백 사유 / 501자 | null / `INVALID_REQUEST` "불참 사유는 500자 이하여야 합니다." (상태 그대로) |
+| 불참 | 기간 밖 | 확인과 같은 오류 |
+| 상태 | 확인 뒤 불참·다시 확인, 불참 뒤 확인 | `APPEARANCE_NOT_CONFIRMABLE` "이미 출연 확인에 응답한 출연입니다." (번복 불가) |
+| 상태 | 취소 요청 처리 중 | `APPEARANCE_NOT_CONFIRMABLE` "처리 중인 출연 취소 요청이 정리된 뒤…" → 거절로 성립이 된 뒤 확인 가능 |
+| 상태 | 일방 취소·합의 취소된 출연 | `APPEARANCE_NOT_CONFIRMABLE` "취소된 출연입니다." |
+| 자동 확인 | 기간 끝 1초 전 / 그 시각 | 대상 아님 / 대상 → `CONFIRMED`, `AUTO` |
+| 자동 확인 | 불참·취소 요청 중 출연, 대상 아닌데 호출 | 대상 아님, `IllegalStateException` |
+| 지급 작업 | `HpTask.payout` | `PAYOUT`, 받는 회원 게스트, 지급액 = 출연료, 출연 ID, `PENDING`. 0원은 `IllegalArgumentException` |
+| 보류 대상 | 요청서 출처 출연 | `APPEARANCE_REQUEST` + 요청서 ID |
+
+### 15.2 저장소
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceRepositoryTest` | 자동 확인 대상 (기준 시각 이전·같음·1초 뒤·이미 확인) | 성립 + 방송 예정 일시 ≤ 기준만, 오래된 순, 건수 제한 |
+| `HpTaskRepositoryTest` | 지급 작업 저장 / 지급액 ≠ 출연료 | 받는 회원·지급액·출연 ID·사유 저장 / `ck_hp_tasks_receiver` 위반 |
+
+### 15.3 흐름 — `AppearanceConfirmFlowTest`
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 확인 | 요청서 출처 | `CONFIRMED`·`HOST`·`hpPayoutStatus` `DONE`, 작업 `PAYOUT`·`APPEARANCE_CONFIRMED`·`APPEARANCE_REQUEST-{id}-PAYOUT-APPEARANCE-{id}`(지급액 30,000, 받는 회원 게스트), 보류 0, 호스트 −30,000·게스트 +30,000 |
+| 확인 | 모집 출처 (정원 3, 성립 2): 하나 확인·하나 불참 | 키 `APPEARANCE_RECRUIT-…-PAYOUT-…`·`…-RELEASE-APPEARANCE-…`, 모집글 보류 90,000 → 60,000 → 30,000, 게스트1 +30,000, 게스트2 그대로, 호스트 −60,000 |
+| 확인 | 거부 | 방송 전 `APPEARANCE_CONFIRM_NOT_OPEN`, 게스트 `NOT_APPEARANCE_HOST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 기간 끝 `APPEARANCE_CONFIRM_PERIOD_ENDED`. 출연 `ESTABLISHED`, 작업 없음, 잔액 그대로 |
+| 확인 | 확인 뒤 불참·다시 확인 | `APPEARANCE_NOT_CONFIRMABLE`, 지급 1건, 반환 0건 |
+| 확인 | 방송 뒤 취소 요청 처리 중 | `APPEARANCE_NOT_CONFIRMABLE` → 자동 거절 배치 뒤 확인 성공 |
+| 확인 | 정지된 호스트·게스트 | 확인 성공(응답은 출연 상세), 지급 `DONE`·게스트 +30,000. 같은 호스트의 상세 조회는 `APPEARANCE_USER_NOT_ACTIVE` |
+| 확인 | Billing 무응답 → 재시도 배치 → 다시 실행 | 확인 성공·`PENDING`(게스트 그대로) → `DONE`, 지급은 한 번 |
+| 확인 | Billing 거절 (게스트 지갑 없음) | 확인 성공, `DEAD`(시도 1회), 마지막 오류 `WALLET_NOT_FOUND: …` |
+| 불참 | 요청서 출처 | `ABSENT`·사유·불참 시각·`hpReleaseStatus` `DONE`·`hpPayoutStatus` 없음, 작업 `RELEASE`·`APPEARANCE_ABSENT`·`…-RELEASE-APPEARANCE-{id}`, 보류 0, 호스트·게스트 잔액 원래대로 |
+| 불참 | 확인과 불참 동시 | 1건만 성공, 나머지 `APPEARANCE_NOT_CONFIRMABLE` 또는 `CONCURRENT_UPDATE`, HP 작업 1건, 잔액은 성공한 쪽대로 |
+| 자동 확인 | 기간 끝난 출연·기간 안 출연(1분 남음)·불참 출연 | 1건만 `CONFIRMED`·`AUTO`·지급 `DONE`, 나머지 그대로 |
+| 자동 확인 | 취소 요청 처리 중 | 건너뜀 → 자동 거절 뒤 다음 실행에서 확인 → 또 실행해도 0건, 지급 1건 |
+| 자동 확인 | Billing 무응답 | 확인은 하고 지급 작업만 `PENDING` |
+| 역할 | 세션 USER / ADMIN | 확인·불참 `AccessDeniedException` |
+
+### 15.4 E2E·기타
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceApiCancelE2ETest` | 확인: 방송 전 / 게스트 / 호스트(본문 없음) / 다시 불참 | 409 `APPEARANCE_CONFIRM_NOT_OPEN` / 403 `NOT_APPEARANCE_HOST` / 200 "출연을 확인했습니다.", `CONFIRMED`·`HOST`·확인 시각·`hpPayoutStatus` `DONE` / 409 `APPEARANCE_NOT_CONFIRMABLE` |
+| `AppearanceApiCancelE2ETest` | 불참: 사유 501자 / 다른 회원 / 호스트 / 본문 없음 | 400 `INVALID_REQUEST` / 404 `APPEARANCE_NOT_FOUND` / 200 "불참으로 처리했습니다.", `ABSENT`·사유·불참 시각·`hpReleaseStatus` `DONE` / 200, 사유 없음 |
+| `AppearanceSwaggerDocsTest` | 확인·불참 응답 스키마 | `RsDataAppearanceResDto` |
+| `AppearanceBatchConditionTest` | 자동 확인 UseCase 추가 | 스위치 true면 배치 빈 생성 |

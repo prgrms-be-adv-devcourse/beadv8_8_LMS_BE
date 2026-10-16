@@ -55,16 +55,11 @@ public class HpTaskSupport {
     }
 
     /**
-     * 출연 하나의 반환(합의 취소 등) 진행 상태. 반환할 일이 없으면(성립 중, 모집글 마감 전 합의 취소) null.
-     * 출연이 쓰는 보류(요청서 또는 모집글)에서 출연 단위 반환 요청 ID로 찾는다.
+     * 출연 하나의 반환(합의 취소·불참) 진행 상태. 반환할 일이 없으면(성립 중, 모집글 마감 전 합의 취소) null.
+     * 출연이 쓰는 보류(요청서 또는 모집글)에서 출연 단위 반환 요청 ID로 찾는다. 한 출연은 둘 중 하나로만 끝난다.
      */
     public HpTaskStatus findReleaseStatusOfAppearance(Appearance appearance) {
-        if (appearance.isFromRecruit()) {
-            return statusOf(HpTask.appearanceRequestId(HpTaskRefType.APPEARANCE_RECRUIT, appearance.getRecruitId(),
-                    HpTaskType.RELEASE, appearance.getId()));
-        }
-        return statusOf(HpTask.appearanceRequestId(HpTaskRefType.APPEARANCE_REQUEST, appearance.getRequestId(),
-                HpTaskType.RELEASE, appearance.getId()));
+        return statusOf(releaseRequestId(appearance));
     }
 
     /** 출연 하나의 위약금 정산(호스트 일방 취소) 진행 상태. 일방 취소 전이면 null (#239) */
@@ -72,14 +67,29 @@ public class HpTaskSupport {
         return statusOf(penaltyRequestId(appearance));
     }
 
-    /** 출연 하나의 위약금 정산 요청 ID (= Billing 취소 ID). 출연이 쓰는 보류(요청서·모집글) 단위로 만든다 */
+    /** 출연 하나의 지급(출연 확인) 진행 상태. 확인 전이면 null (#282) */
+    public HpTaskStatus findPayoutStatusOfAppearance(Appearance appearance) {
+        return statusOf(payoutRequestId(appearance));
+    }
+
+    /** 출연 하나의 반환 요청 ID (합의 취소·불참). 출연이 쓰는 보류(요청서·모집글) 단위로 만든다 */
+    public static String releaseRequestId(Appearance appearance) {
+        return appearanceRequestId(appearance, HpTaskType.RELEASE);
+    }
+
+    /** 출연 하나의 위약금 정산 요청 ID (= Billing 취소 ID) */
     public static String penaltyRequestId(Appearance appearance) {
-        if (appearance.isFromRecruit()) {
-            return HpTask.appearanceRequestId(HpTaskRefType.APPEARANCE_RECRUIT, appearance.getRecruitId(),
-                    HpTaskType.PENALTY, appearance.getId());
-        }
-        return HpTask.appearanceRequestId(HpTaskRefType.APPEARANCE_REQUEST, appearance.getRequestId(),
-                HpTaskType.PENALTY, appearance.getId());
+        return appearanceRequestId(appearance, HpTaskType.PENALTY);
+    }
+
+    /** 출연 하나의 지급 요청 ID (= Billing 지급 요청 ID, #282) */
+    public static String payoutRequestId(Appearance appearance) {
+        return appearanceRequestId(appearance, HpTaskType.PAYOUT);
+    }
+
+    private static String appearanceRequestId(Appearance appearance, HpTaskType taskType) {
+        return HpTask.appearanceRequestId(appearance.holdRefType(), appearance.holdRefId(), taskType,
+                appearance.getId());
     }
 
     private HpTaskStatus statusOf(String idempotencyKey) {

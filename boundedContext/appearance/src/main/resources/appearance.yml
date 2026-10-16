@@ -21,12 +21,13 @@ appearance:
     mode: fake
   batch:
     # 배치는 hapbang.scheduling.enabled=true일 때만 돈다 (팀 공통 #157, 앱에서만 켜짐). 모든 cron은 KST
-    # 실행 순서를 엇갈리게 둔다: 보류 재확인(00초) → 모집 기한 마감(10초) → 수락 기한 만료(20초) → 출연 취소 요청 자동 거절(30초) → HP 작업 재시도(40초)
+    # 실행 순서를 엇갈리게 둔다: 보류 재확인(00초) → 모집 기한 마감(10초) → 수락 기한 만료(20초) → 출연 취소 요청 자동 거절(30초) → HP 작업 재시도(40초) → 출연 자동 확인(50초)
     hold-recheck-cron: "0 * * * * *"
     recruit-close-cron: "10 * * * * *"
     expire-cron: "20 * * * * *"
     cancel-auto-reject-cron: "30 * * * * *"
     hp-task-retry-cron: "40 * * * * *"
+    auto-confirm-cron: "50 * * * * *"
     # 한 번 실행할 때 처리할 최대 건수 (나머지는 다음 주기)
     batch-size: 100
     # 방금 시작된 처리(보내기·거절 직후 즉시 실행)와 겹치지 않도록 이 시간이 지난 것만 배치가 가져간다
