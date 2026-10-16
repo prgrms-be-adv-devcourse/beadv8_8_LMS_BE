@@ -16,7 +16,7 @@ import com.hapbang.appearance.shared.time.AppearanceTime;
  *     <li>정책 수치({@code appearance.policy.*})를 {@link AppearancePolicyProperties}로 읽어 도메인의 {@link AppearancePolicy}로 등록한다.
  *     값은 {@code appearance.yml}에 있고, 전역 application.yaml의 {@code spring.config.import}로 읽힌다.</li>
  *     <li>배치 설정({@code appearance.batch.*})을 {@link AppearanceBatchProperties}로 읽고, HP 작업 재시도 정책을 등록한다.</li>
- *     <li>현재 시각은 {@link #CLOCK} 빈으로만 얻는다. 테스트에서는 고정 시각의 Clock으로 바꿔 끼운다.</li>
+ *     <li>현재 시각은 {@link #CLOCK} 빈으로만 얻는다. 출연 통합 테스트에서는 실제 시각으로 흐르되 앞으로 돌릴 수 있는 테스트 시계를 우선 주입한다 (#297).</li>
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)

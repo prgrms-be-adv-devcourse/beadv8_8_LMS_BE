@@ -215,7 +215,7 @@ class AppearanceRequestRespondFacadeTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("거절하면 REJECTED + 사유 기록, 반환 작업이 바로 실행되어 DONE, 호스트 잔액이 돌아온다")
+    @DisplayName("거절하면 REJECTED + 사유 기록, 반환 작업이 바로 실행되어 DONE, Billing에 호스트 반환 요청")
     void reject() {
         AppearanceRequestResDto sent = send();
 

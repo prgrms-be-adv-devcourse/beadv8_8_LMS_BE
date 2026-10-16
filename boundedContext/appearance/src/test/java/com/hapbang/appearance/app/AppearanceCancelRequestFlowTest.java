@@ -3,7 +3,6 @@ package com.hapbang.appearance.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,7 +17,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -34,7 +32,6 @@ import com.hapbang.appearance.app.dto.AppearanceCancelRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceResDto;
 import com.hapbang.appearance.app.dto.AppearanceSummaryResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceCancelRequestStatus;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
@@ -50,6 +47,7 @@ import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
@@ -105,8 +103,7 @@ class AppearanceCancelRequestFlowTest {
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -118,7 +115,7 @@ class AppearanceCancelRequestFlowTest {
 
 
     private LocalDateTime now() {
-        return LocalDateTime.now(clock);
+        return clock.now();
     }
 
     /** 호스트가 게스트에게 보낸 요청서가 수락돼 성립한 출연 */
@@ -142,9 +139,10 @@ class AppearanceCancelRequestFlowTest {
         return appearanceFacade.requestCancel(GUEST, appearanceId, "일정이 생겼습니다.");
     }
 
+    /** 출연의 방송 예정 일시가 지난다 (테스트 시계를 앞으로) */
     private void passSchedule(Long appearanceId) {
-        jdbcTemplate.update("update appearances.appearances set scheduled_at = ? where id = ?",
-                now().minusMinutes(1), appearanceId);
+        clock.advanceTo(jdbcTemplate.queryForObject("select scheduled_at from appearances.appearances where id = ?",
+                LocalDateTime.class, appearanceId));
     }
 
     private List<HpTask> releaseTasks(HpTaskRefType refType, Long refId) {
@@ -196,7 +194,7 @@ class AppearanceCancelRequestFlowTest {
         }
 
         @Test
-        @DisplayName("수락: 합의 취소, 출연료 30,000 전액 반환(CANCEL_AGREED, 출연별 반환 요청 ID, DONE), 보류 0, 게스트에게 알릴 이벤트")
+        @DisplayName("수락: 합의 취소, Billing에 출연료 30,000 전액 반환 요청(CANCEL_AGREED, 출연별 반환 요청 ID, DONE), 게스트에게 알릴 이벤트")
         void accept() {
             RequestAppearance established = establishFromRequest(GUEST);
             requestCancel(established.appearanceId());

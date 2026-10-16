@@ -2,8 +2,9 @@ package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
-import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,7 +19,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -28,7 +28,6 @@ import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceConfirmType;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
@@ -43,6 +42,7 @@ import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
@@ -56,7 +56,7 @@ import com.hapbang.shared.member.domain.UserStatus;
  * 출연 확인·불참·자동 확인을 DB와 Billing 대역으로 확인한다 (ISSUE.md APR-35).
  * 출연료 30,000 HP. 확인 → 게스트에게 30,000 지급, 불참 → 호스트에게 30,000 반환. Billing은 대역이라 보낸 지급·반환 요청 내용을 본다
  * (실제 잔액 변화는 apps 통합 테스트).
- * 방송 예정 일시는 출연 행의 스냅샷 값을 SQL로 옮겨 "방송이 끝난 뒤"를 만든다.
+ * 시각은 실제 순서대로 테스트 시계를 앞으로 돌려 만든다 (모집 마감 → 방송 → 확인 기간 끝, #297).
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
@@ -87,6 +87,9 @@ class AppearanceConfirmFlowTest {
     AppearanceAutoConfirmUseCase appearanceAutoConfirmUseCase;
 
     @Autowired
+    AppearanceRecruitDeadlineCloseUseCase appearanceRecruitDeadlineCloseUseCase;
+
+    @Autowired
     AppearanceCancelAutoRejectUseCase appearanceCancelAutoRejectUseCase;
 
     @Autowired
@@ -105,8 +108,7 @@ class AppearanceConfirmFlowTest {
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -115,9 +117,8 @@ class AppearanceConfirmFlowTest {
         }
     }
 
-
     private LocalDateTime now() {
-        return LocalDateTime.now(clock);
+        return clock.now();
     }
 
     /** 요청서가 수락돼 성립한 출연 */
@@ -138,20 +139,31 @@ class AppearanceConfirmFlowTest {
         return appearanceApplicationFacade.accept(HOST, applicationId).appearanceId();
     }
 
-    /** 출연의 방송 예정 일시(스냅샷)를 지금 기준으로 옮긴다 */
-    private void scheduleAt(Long appearanceId, LocalDateTime scheduledAt) {
-        jdbcTemplate.update("update appearances.appearances set scheduled_at = ? where id = ?", scheduledAt,
-                appearanceId);
+    private LocalDateTime scheduledAtOf(Long appearanceId) {
+        return jdbcTemplate.queryForObject("select scheduled_at from appearances.appearances where id = ?",
+                LocalDateTime.class, appearanceId);
     }
 
-    /** 방송이 막 끝나 확인 기간 안에 있다 (방송 예정 일시 = 1시간 전) */
+    /** 모집 마감 일시가 지나 기한 마감 배치가 돈다 (방송 전에 일어나는 일) */
+    private void recruitDeadlinePassed(Long recruitId) {
+        clock.advanceTo(jdbcTemplate.queryForObject("select recruit_deadline from appearances.recruits where id = ?",
+                LocalDateTime.class, recruitId));
+        appearanceRecruitDeadlineCloseUseCase.closeDue();
+    }
+
+    /** 방송이 끝나 확인 기간에 들어선다 (시계를 방송 예정 일시 1시간 뒤로) */
     private void broadcastEnded(Long appearanceId) {
-        scheduleAt(appearanceId, now().minusHours(1));
+        clock.advanceTo(scheduledAtOf(appearanceId).plusHours(1));
     }
 
-    /** 확인 기간(7일)이 끝났다 (방송 예정 일시 = 7일 1분 전) */
+    /** 확인 기간(방송 예정 일시 + 7일)이 끝난다 */
     private void confirmPeriodEnded(Long appearanceId) {
-        scheduleAt(appearanceId, now().minusDays(7).minusMinutes(1));
+        clock.advanceTo(scheduledAtOf(appearanceId).plusDays(7));
+    }
+
+    /** 실패한 HP 작업의 다음 시도 시각이 된다 */
+    private void retryTimeReached(HpTask task) {
+        clock.advanceTo(hpTaskRepository.findById(task.getId()).orElseThrow().getNextAttemptAt());
     }
 
     private List<HpTask> tasksOf(HpTaskType type) {
@@ -185,7 +197,7 @@ class AppearanceConfirmFlowTest {
     class Confirm {
 
         @Test
-        @DisplayName("요청서 출처: CONFIRMED(HOST), 지급 작업 PAYOUT·APPEARANCE_CONFIRMED·DONE, 게스트 +30,000, 보류 0")
+        @DisplayName("요청서 출처: CONFIRMED(HOST), 지급 작업 PAYOUT·APPEARANCE_CONFIRMED·DONE, Billing에 게스트 지급 30,000(출연료 전부) 요청")
         void fromRequest() {
             RequestAppearance established = establishFromRequest();
             broadcastEnded(established.appearanceId());
@@ -219,14 +231,14 @@ class AppearanceConfirmFlowTest {
         }
 
         @Test
-        @DisplayName("모집 출처(정원 3, 성립 2): 한 출연 확인 → 게스트 지급 30,000, 다른 출연 불참 → 호스트 반환 30,000, "
-                + "모집글 보류는 출연별로 줄어든다 (90,000 → 60,000 → 30,000)")
+        @DisplayName("모집 출처(정원 3, 성립 2): 마감 배치가 빈자리 30,000 반환 → 방송 뒤 한 출연 확인 → 게스트 지급 30,000, "
+                + "다른 출연 불참 → 호스트 반환 30,000 (보류 90,000을 모두 정산하는 요청)")
         void fromRecruit() {
             Long recruitId = postRecruit(3);
             Long first = establishFromRecruit(recruitId, GUEST);
             Long second = establishFromRecruit(recruitId, GUEST2);
+            recruitDeadlinePassed(recruitId);
             broadcastEnded(first);
-            broadcastEnded(second);
 
             appearanceFacade.confirm(HOST, first);
             assertThat(BillingCalls.payouts(billingClient)).singleElement().satisfies(payout -> {
@@ -242,19 +254,22 @@ class AppearanceConfirmFlowTest {
             assertThat(absent.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
             assertThat(onlyTask(HpTaskType.PAYOUT).getIdempotencyKey())
                     .isEqualTo("APPEARANCE_RECRUIT-%d-PAYOUT-APPEARANCE-%d".formatted(recruitId, first));
-            assertThat(onlyTask(HpTaskType.RELEASE).getIdempotencyKey())
-                    .isEqualTo("APPEARANCE_RECRUIT-%d-RELEASE-APPEARANCE-%d".formatted(recruitId, second));
-            assertThat(BillingCalls.releases(billingClient)).singleElement().satisfies(release -> {
+            assertThat(tasksOf(HpTaskType.RELEASE)).extracting(HpTask::getReason, HpTask::getIdempotencyKey)
+                    .containsExactlyInAnyOrder(
+                            tuple(HpTaskReason.RECRUIT_CLOSED, "APPEARANCE_RECRUIT-%d-RELEASE-1".formatted(recruitId)),
+                            tuple(HpTaskReason.APPEARANCE_ABSENT,
+                                    "APPEARANCE_RECRUIT-%d-RELEASE-APPEARANCE-%d".formatted(recruitId, second)));
+            assertThat(BillingCalls.releases(billingClient)).allSatisfy(release -> {
                 assertThat(release.referenceId()).isEqualTo(recruitId);
                 assertThat(release.amountHp()).isEqualTo(FEE);
-            });
+            }).hasSize(2);
             assertThat(BillingCalls.payouts(billingClient)).extracting(PayoutCommand::receiverUserId)
                     .containsExactly(GUEST);
         }
 
         @Test
         @DisplayName("방송 예정 일시 전 APPEARANCE_CONFIRM_NOT_OPEN, 게스트 NOT_APPEARANCE_HOST, 다른 회원 APPEARANCE_NOT_FOUND, "
-                + "확인 기간 끝 APPEARANCE_CONFIRM_PERIOD_ENDED. 어느 경우도 작업·잔액이 바뀌지 않는다")
+                + "확인 기간 끝 APPEARANCE_CONFIRM_PERIOD_ENDED. 어느 경우도 작업이 생기지 않고 Billing에 지급을 요청하지 않는다")
         void rejected() {
             Long appearanceId = establishFromRequest().appearanceId();
 
@@ -338,8 +353,7 @@ class AppearanceConfirmFlowTest {
 
             BillingStubs.available(billingClient);
             HpTask task = onlyTask(HpTaskType.PAYOUT);
-            jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?",
-                    now().minusSeconds(1), task.getId());
+            retryTimeReached(task);
             hpTaskRetryUseCase.retryDue();
             hpTaskExecuteUseCase.execute(task.getId()); // 이미 DONE이면 다시 실행하지 않는다
 
@@ -371,7 +385,7 @@ class AppearanceConfirmFlowTest {
     class Absent {
 
         @Test
-        @DisplayName("요청서 출처: ABSENT·사유, 반환 작업 RELEASE·APPEARANCE_ABSENT·DONE, 호스트에게 30,000 반환, 보류 0, 게스트 그대로")
+        @DisplayName("요청서 출처: ABSENT·사유, 반환 작업 RELEASE·APPEARANCE_ABSENT·DONE, Billing에 호스트 반환 30,000 요청, 지급 요청 없음")
         void fromRequest() {
             RequestAppearance established = establishFromRequest();
             broadcastEnded(established.appearanceId());
@@ -436,17 +450,17 @@ class AppearanceConfirmFlowTest {
     class AutoConfirm {
 
         @Test
-        @DisplayName("확인 기간이 끝난 성립 출연만 CONFIRMED(AUTO) + 지급 DONE. 기간 안·불참·취소 요청 중 출연은 그대로")
+        @DisplayName("확인 기간이 끝난 성립 출연만 CONFIRMED(AUTO) + 지급 DONE. 하루 늦게 성립해 기간 안인 출연·불참 처리한 출연은 그대로")
         void confirmDue() {
             Long due = establishFromRequest().appearanceId();
-            Long recruitId = postRecruit(3);
-            Long notYet = establishFromRecruit(recruitId, GUEST);
+            Long recruitId = postRecruit(1);
             Long absent = establishFromRecruit(recruitId, GUEST2);
-            confirmPeriodEnded(due);
-            scheduleAt(notYet, now().minusDays(7).plusMinutes(1));
+            clock.advance(Duration.ofDays(1));
+            Long notYet = establishFromRequest().appearanceId(); // 방송 예정 일시가 하루 늦다
+            recruitDeadlinePassed(recruitId);
             broadcastEnded(absent);
             appearanceFacade.markAbsent(HOST, absent, null);
-            confirmPeriodEnded(absent);
+            confirmPeriodEnded(due); // due·absent는 기간 끝, notYet은 하루 남음
 
             int confirmed = appearanceAutoConfirmUseCase.confirmDue();
 

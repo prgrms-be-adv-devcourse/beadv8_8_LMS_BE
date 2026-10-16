@@ -353,7 +353,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 | 요청 뒤 호스트 정지 | `APPEARANCE_USER_NOT_ACTIVE` ("호스트가 현재 출연 거래를 할 수 없는 회원입니다."), 출연 없음 |
 | 기한이 지났지만 아직 `REQUESTED` | 수락·거절·취소 모두 `APPEARANCE_REQUEST_EXPIRED`, 상태 그대로 |
 | 세션 역할 USER | 수락·거절·취소 모두 `AccessDeniedException` |
-| 사유와 함께 거절 | `REJECTED`, 반환 작업 1건(금액 30,000, 호스트, 멱등 키), `DONE`, 보류 0, 호스트 잔액 복구 |
+| 사유와 함께 거절 | `REJECTED`, 반환 작업 1건(금액 30,000, 호스트, 멱등 키), `DONE`, Billing에 호스트 반환 요청 |
 | Billing 무응답에서 거절 | `REJECTED` 성공, 작업 `PENDING`, 시도 1, 오류에 대역의 무응답 예외, 다음 시도 시각, 보류 그대로 |
 | Billing이 반환을 거절(보류 없음)할 때 거절 (#168) | `REJECTED` 성공, 작업 `PENDING`, 오류 `HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.` |
 | 응답 전 취소 / 게스트가 취소 | `CANCELED` + `DONE`(사유 `REQUEST_CANCELED`) / `NOT_REQUEST_HOST`, 작업 없음 |
@@ -626,14 +626,14 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 조기 마감 | 수락 1·대기 1·취소 1 | 60,000 반환, 보류 30,000 남음, `SELECTED`·`NOT_SELECTED`·`WITHDRAWN`, 지원자 수 2 그대로, 출연 1건 유지 |
 | 조기 마감 | 정원 1명이 찬 뒤 | `CLOSED`, 반환 작업 없음, `hpReleaseStatus` null, 보류 30,000 그대로 |
 | 조기 마감 | 상세를 호스트 / 다른 회원이 조회 | `hpReleaseStatus` `DONE` / null |
-| 조기 마감 | Billing 무응답 → 재시도 배치 | 마감 성공 + `PENDING`, 보류 그대로 → 재시도 후 `DONE`, 보류 0 |
+| 조기 마감 | Billing 무응답 → 재시도 배치 | 마감 성공 + `PENDING`, 반환 요청 없음 → 다음 시도 시각이 되어 재시도 후 `DONE`, 90,000 반환 요청 |
 | 조기 마감 | 다른 회원 / 다시 마감 / 마감 일시 지남 / 보류 처리 중 | `NOT_RECRUIT_HOST` / `APPEARANCE_RECRUIT_NOT_OPEN` / `APPEARANCE_RECRUIT_NOT_OPEN`(반환 작업 없음) / `APPEARANCE_RECRUIT_NOT_FOUND` |
 | 마감 뒤 | 새 지원 / 대기 지원 수락 / 미선정 지원 취소 | `APPEARANCE_RECRUIT_NOT_OPEN` / `APPEARANCE_RECRUIT_NOT_OPEN` / `APPLICATION_NOT_PENDING` |
 | 동시성 | 조기 마감과 마지막 대기 지원 수락 동시 | 결과는 모두 응답 또는 업무 예외(교착 상태·500 원인 없음). 실패는 많아야 1건(`CONCURRENT_UPDATE` 또는 `APPEARANCE_RECRUIT_NOT_OPEN`). 출연 수 = 성립 인원, 마감됐으면 보류 = 성립 × 30,000, 아니면 보류 90,000, 호스트 잔액 = 기본 − 보류 |
 | 기한 마감 | 마감 일시 지남, 수락 1·대기 1 | 1건, `CLOSED`(`DEADLINE`), 마감 시각 = 모집 마감 일시, 대기 → `NOT_SELECTED`, 반환 `DONE`, 보류 30,000 |
 | 기한 마감 | 마감 일시 전 1건 + 지남 1건, 두 번 실행 | 1건 → 0건, 전인 모집글은 `RECRUITING`, 반환 작업 1건 |
 | 기한 마감 | 정원이 찬 모집글 | 마감 1건, 반환 작업 없음 |
-| 기한 마감 | 마감 일시가 지난 `HOLD_PENDING` (C5) | 마감 배치만으로는 0건·작업 없음 → 보류 재확인 후 마감 배치 1건, `CLOSED`, 90,000 반환, 잔액 원래대로 |
+| 기한 마감 | 마감 일시가 지난 `HOLD_PENDING` (C5) | 마감 배치만으로는 0건·작업 없음 → 보류 재확인 후 마감 배치 1건, `CLOSED`, 90,000 반환 요청 |
 | 동시성 | 조기 마감과 새 지원 2건 동시 (3회 반복, C9) | 마감은 성공, 지원은 성공 또는 `APPEARANCE_RECRUIT_NOT_OPEN`. 마감된 모집글에 `APPLIED` 지원 0건 |
 | 기한 마감 | 대상 2건 중 1건 처리 중 충돌(`CONCURRENT_UPDATE`) (C8) | 1건만 마감, 충돌 건은 `RECRUITING`·반환 작업 없음(롤백) → 다음 실행에서 마감·반환 작업 1건 |
 | 역할 | 세션 USER / ADMIN | `AccessDeniedException` |
@@ -700,19 +700,19 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 묶음 | 케이스 | 기대 결과 |
 |---|---|---|
 | 요청서 출처 | 요청 | `CANCEL_REQUESTED`, 이력 1건, `AppearanceCancelRequestedEvent` 1건(호스트·출연·제목) |
-| 요청서 출처 | 수락 | `CANCELED_BY_AGREEMENT`, 반환 30,000 `CANCEL_AGREED`·출연별 반환 요청 ID·`DONE`, 보류 0, 잔액 원래대로, 수락 이벤트 1건, 출연 상세 `hpReleaseStatus` `DONE`·요청서 상세는 null |
+| 요청서 출처 | 수락 | `CANCELED_BY_AGREEMENT`, Billing에 반환 30,000 요청 `CANCEL_AGREED`·출연별 반환 요청 ID·`DONE`, 수락 이벤트 1건, 출연 상세 `hpReleaseStatus` `DONE`·요청서 상세는 null |
 | 요청서 출처 | 거절 → 재요청 → 거절 → 3번째 | `ESTABLISHED`·거절 사유·거절 이벤트(`autoRejected=false`) → 순번 1·2 → `CANCEL_REQUEST_LIMIT_EXCEEDED`, HP 작업 없음 |
 | 요청서 출처 | 거부 | 요청 없이 수락 `CANCEL_REQUEST_NOT_PENDING`, 공백 사유 `INVALID_REQUEST`, 호스트 요청 `NOT_APPEARANCE_GUEST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 처리 중 재요청 `CANCEL_REQUEST_ALREADY_PENDING`, 게스트 수락 `NOT_APPEARANCE_HOST`, 없는 출연 `APPEARANCE_NOT_FOUND` |
 | 요청서 출처 | 방송 예정 일시 지남 | 요청·수락·거절 `APPEARANCE_SCHEDULE_PASSED` |
 | 요청서 출처 | Billing 무응답에서 수락 | 합의 취소 성공, 반환 작업 `PENDING` |
 | 모집 출처 | 정원 1, 마감 전 수락 | 성립 인원 0, 반환 없음(출연 `hpReleaseStatus` null), 보류 30,000 유지, 빈자리에 다른 지원자 수락 성공 (전에는 `RECRUIT_FULL`) |
 | 모집 출처 | 정원 3·성립 1, 마감 반환 실패(`PENDING`) 뒤 합의 취소 반환 성공 | 출연 상세 `DONE`, 모집글 상세는 마감 반환 `PENDING` 그대로 (가려지지 않음) |
-| 모집 출처 | 마감 전 수락 후 조기 마감 | 마감 반환 `RECRUIT_CLOSED` 30,000 1건, 보류 0 |
-| 모집 출처 | 마감 후 수락 | 반환 30,000 `CANCEL_AGREED`·`APPEARANCE_RECRUIT-{id}-RELEASE-APPEARANCE-{id}`·`DONE`, 보류 0, 성립 인원 0 |
+| 모집 출처 | 마감 전 수락 후 조기 마감 | 마감 반환 `RECRUIT_CLOSED` 30,000 1건 (합의 취소한 자리 포함) |
+| 모집 출처 | 마감 후 수락 | 반환 30,000 `CANCEL_AGREED`·`APPEARANCE_RECRUIT-{id}-RELEASE-APPEARANCE-{id}`·`DONE`, 성립 인원 0 |
 | 모집 출처 | 합의 취소 수락 + 빈자리 지원 수락 동시 | 결과는 응답 또는 업무 예외뿐(교착 상태 없음), 합의 취소는 성공, 성립 인원 = 유지 중인 출연 수 |
 | 자동 거절 | 방송 예정 일시 지난 요청, 두 번 실행 | 1건 → 0건, `AUTO_REJECTED`, 출연 `ESTABLISHED`, HP 작업 없음, 거절 이벤트(`autoRejected=true`) |
 | 자동 거절 | 방송 예정 일시 전 | 0건, `CANCEL_REQUESTED` 그대로 |
-| 동시성 | 같은 요청에 수락·거절 동시 | 1건만 성공, 나머지 `CANCEL_REQUEST_NOT_PENDING` 또는 `CONCURRENT_UPDATE`, 결과에 맞게 보류 0 또는 30,000 |
+| 동시성 | 같은 요청에 수락·거절 동시 | 1건만 성공, 나머지 `CANCEL_REQUEST_NOT_PENDING` 또는 `CONCURRENT_UPDATE`, 결과에 맞게 반환 요청 1건 또는 없음 |
 | 조회 | 내 출연 목록·상세 | 호스트 목록 최신순(모집·요청), 제목은 출처 제목, 게스트 `CANCEL_REQUESTED` 필터, 다른 쪽 역할 0건, 다른 회원 상세 `APPEARANCE_NOT_FOUND` |
 | 역할 | 세션 USER / ADMIN | 5개 기능 모두 `AccessDeniedException` |
 
@@ -749,19 +749,19 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 
 | 묶음 | 케이스 | 기대 결과 |
 |---|---|---|
-| 일방 취소 | 요청서 출처 | `CANCELED_BY_HOST`, 위약금 9,000·사유·`hpPenaltyStatus` `DONE`, 작업 `PENALTY`·`HOST_CANCELED`·`APPEARANCE_REQUEST-{id}-PENALTY-APPEARANCE-{id}`, 보류 0, 호스트 −9,000·게스트 +9,000 |
+| 일방 취소 | 요청서 출처 | `CANCELED_BY_HOST`, 위약금 9,000·사유·`hpPenaltyStatus` `DONE`, 작업 `PENALTY`·`HOST_CANCELED`·`APPEARANCE_REQUEST-{id}-PENALTY-APPEARANCE-{id}`, Billing에 게스트 지급 9,000 + 호스트 반환 21,000 요청 |
 | 일방 취소 | 처리 중 취소 요청 | 확인 없이 `CANCEL_REQUEST_CONFIRM_REQUIRED`(출연 그대로, HP 작업 없음) → 확인하면 취소 + `CLOSED_BY_HOST_CANCEL` + 위약금 지급 |
 | 일방 취소 | 거부 | 게스트 `NOT_APPEARANCE_HOST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 다시 취소·합의 취소된 출연 `APPEARANCE_NOT_CANCELABLE`, 방송 예정 일시 지남 `APPEARANCE_SCHEDULE_PASSED` |
 | 일방 취소 | 모집 출처 (정원 1) | 모집글 보류 30,000 정산(0), 키 `APPEARANCE_RECRUIT-{id}-PENALTY-APPEARANCE-{id}`, 성립 인원 1 그대로, 대기 지원 수락 `RECRUIT_FULL` |
 | 일방 취소 | Billing 무응답 → 재시도 배치 → 다시 실행 | 취소 성공·`PENDING`(게스트 잔액 그대로) → `DONE`, 위약금은 한 번만 지급(게스트 +9,000, 호스트 −9,000) |
 | 일방 취소 | Billing 거절 (게스트 지갑 없음) | 취소 성공, 재시도 없이 `DEAD`(시도 1회), 마지막 오류 `WALLET_NOT_FOUND: …` |
-| 전체 취소 | 모집 중, 3명 중 2명 성립·1명 대기 | `CANCELED`·사유·`hpReleaseStatus` `DONE`, 출연 2건 일방 취소(위약금 9,000씩·같은 사유), 대기 지원 `NOT_SELECTED`, 빈자리 반환 30,000 `RECRUIT_CANCELED`, 보류 0, 호스트 −18,000·게스트 +9,000씩 |
-| 전체 취소 | 성립 0명 | 위약금 없음, 90,000 반환, 호스트 잔액 원래대로 |
-| 전체 취소 | 마감 뒤 | 위약금 1건, 반환은 마감 반환(`RECRUIT_CLOSED`)뿐, 보류 0 |
+| 전체 취소 | 모집 중, 3명 중 2명 성립·1명 대기 | `CANCELED`·사유·`hpReleaseStatus` `DONE`, 출연 2건 일방 취소(위약금 9,000씩·같은 사유), 대기 지원 `NOT_SELECTED`, 빈자리 반환 30,000 `RECRUIT_CANCELED`, Billing 요청 합계 = 보류 90,000 |
+| 전체 취소 | 성립 0명 | 위약금 없음, 90,000 반환 요청 |
+| 전체 취소 | 마감 뒤 | 위약금 1건, 반환은 마감 반환(`RECRUIT_CLOSED`)뿐 |
 | 전체 취소 | 모집 중 합의 취소된 자리 | 위약금 없음, 빈자리 반환 60,000 (합의 취소 자리 포함) |
 | 전체 취소 | 처리 중 취소 요청 | 확인 없이 `CANCEL_REQUEST_CONFIRM_REQUIRED`(모집글 `RECRUITING`, 일방 취소 0건) → 확인하면 요청 `CLOSED_BY_HOST_CANCEL`, 위약금 2건 |
 | 전체 취소 | 거부 | 다른 회원 `NOT_RECRUIT_HOST`, 다시 취소 `APPEARANCE_RECRUIT_NOT_CANCELABLE`, 방송 예정 일시 지남 `APPEARANCE_SCHEDULE_PASSED`, 보류 처리 중 `APPEARANCE_RECRUIT_NOT_FOUND` |
-| 동시성 | 전체 취소 + 대기 지원 수락 | 결과는 응답·업무 예외뿐(교착 상태 없음), 전체 취소 성공, 진행 중 출연 0건, 보류 0. 수락이 먼저면 위약금 2건·빈자리 반환 없음, 막혔으면(`APPEARANCE_RECRUIT_NOT_OPEN`) 위약금 1건·빈자리 30,000 |
+| 동시성 | 전체 취소 + 대기 지원 수락 | 결과는 응답·업무 예외뿐(교착 상태 없음), 전체 취소 성공, 진행 중 출연 0건, Billing 요청 합계 = 보류 60,000. 수락이 먼저면 위약금 2건·빈자리 반환 없음, 막혔으면(`APPEARANCE_RECRUIT_NOT_OPEN`) 위약금 1건·빈자리 30,000 |
 | 전체 취소 | 앞 작업(위약금)의 결과 기록 실패 (DB 오류 흉내) | 예외 없이 취소 성공 응답, 뒤 작업(빈자리 반환)도 `DONE`, 위약금 작업은 `PENDING` → 재시도로 `DONE`, 위약금은 한 번만 지급 |
 | 역할 | 세션 USER / ADMIN | 일방 취소·전체 취소 `AccessDeniedException` |
 
@@ -776,7 +776,7 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 
 ## 15. 출연 확인 (#282)
 
-출연료 30,000. 확인 기간 = 방송 예정 일시 ~ 방송 예정 일시 + 7일 전. 흐름·E2E 테스트는 출연 행의 방송 예정 일시를 SQL로 옮겨 "방송이 끝난 뒤"를 만든다.
+출연료 30,000. 확인 기간 = 방송 예정 일시 ~ 방송 예정 일시 + 7일 전. 흐름·E2E 테스트는 테스트 시계를 실제 순서대로 앞으로 돌려 "방송이 끝난 뒤"를 만든다 (모집 출처는 모집 마감 배치가 먼저, #297).
 
 ### 15.1 단위 — `AppearanceConfirmTest`
 
@@ -808,17 +808,17 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 
 | 묶음 | 케이스 | 기대 결과 |
 |---|---|---|
-| 확인 | 요청서 출처 | `CONFIRMED`·`HOST`·`hpPayoutStatus` `DONE`, 작업 `PAYOUT`·`APPEARANCE_CONFIRMED`·`APPEARANCE_REQUEST-{id}-PAYOUT-APPEARANCE-{id}`(지급액 30,000, 받는 회원 게스트), 보류 0, 호스트 −30,000·게스트 +30,000 |
-| 확인 | 모집 출처 (정원 3, 성립 2): 하나 확인·하나 불참 | 키 `APPEARANCE_RECRUIT-…-PAYOUT-…`·`…-RELEASE-APPEARANCE-…`, 모집글 보류 90,000 → 60,000 → 30,000, 게스트1 +30,000, 게스트2 그대로, 호스트 −60,000 |
+| 확인 | 요청서 출처 | `CONFIRMED`·`HOST`·`hpPayoutStatus` `DONE`, 작업 `PAYOUT`·`APPEARANCE_CONFIRMED`·`APPEARANCE_REQUEST-{id}-PAYOUT-APPEARANCE-{id}`(지급액 30,000, 받는 회원 게스트), Billing에 게스트 지급 30,000 요청 |
+| 확인 | 모집 출처 (정원 3, 성립 2): 마감 배치 → 방송 → 하나 확인·하나 불참 | 마감 반환 30,000(`…-RELEASE-1`) → 지급 30,000(`…-PAYOUT-APPEARANCE-…`) → 불참 반환 30,000(`…-RELEASE-APPEARANCE-…`), 요청 합계 = 보류 90,000 |
 | 확인 | 거부 | 방송 전 `APPEARANCE_CONFIRM_NOT_OPEN`, 게스트 `NOT_APPEARANCE_HOST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 기간 끝 `APPEARANCE_CONFIRM_PERIOD_ENDED`. 출연 `ESTABLISHED`, 작업 없음, 잔액 그대로 |
 | 확인 | 확인 뒤 불참·다시 확인 | `APPEARANCE_NOT_CONFIRMABLE`, 지급 1건, 반환 0건 |
 | 확인 | 방송 뒤 취소 요청 처리 중 | `APPEARANCE_NOT_CONFIRMABLE` → 자동 거절 배치 뒤 확인 성공 |
-| 확인 | 정지된 호스트·게스트 | 확인 성공(응답은 출연 상세), 지급 `DONE`·게스트 +30,000. 같은 호스트의 상세 조회는 `APPEARANCE_USER_NOT_ACTIVE` |
+| 확인 | 정지된 호스트·게스트 | 확인 성공(응답은 출연 상세), 지급 `DONE`·게스트 지급 요청. 같은 호스트의 상세 조회는 `APPEARANCE_USER_NOT_ACTIVE` |
 | 확인 | Billing 무응답 → 재시도 배치 → 다시 실행 | 확인 성공·`PENDING`(게스트 그대로) → `DONE`, 지급은 한 번 |
 | 확인 | Billing 거절 (게스트 지갑 없음) | 확인 성공, `DEAD`(시도 1회), 마지막 오류 `WALLET_NOT_FOUND: …` |
-| 불참 | 요청서 출처 | `ABSENT`·사유·불참 시각·`hpReleaseStatus` `DONE`·`hpPayoutStatus` 없음, 작업 `RELEASE`·`APPEARANCE_ABSENT`·`…-RELEASE-APPEARANCE-{id}`, 보류 0, 호스트·게스트 잔액 원래대로 |
+| 불참 | 요청서 출처 | `ABSENT`·사유·불참 시각·`hpReleaseStatus` `DONE`·`hpPayoutStatus` 없음, 작업 `RELEASE`·`APPEARANCE_ABSENT`·`…-RELEASE-APPEARANCE-{id}`, Billing에 호스트 반환 30,000 요청, 지급 요청 없음 |
 | 불참 | 확인과 불참 동시 | 1건만 성공, 나머지 `APPEARANCE_NOT_CONFIRMABLE` 또는 `CONCURRENT_UPDATE`, HP 작업 1건, 잔액은 성공한 쪽대로 |
-| 자동 확인 | 기간 끝난 출연·기간 안 출연(1분 남음)·불참 출연 | 1건만 `CONFIRMED`·`AUTO`·지급 `DONE`, 나머지 그대로 |
+| 자동 확인 | 기간 끝난 출연·하루 늦게 성립해 기간 안인 출연·불참 출연 | 1건만 `CONFIRMED`·`AUTO`·지급 `DONE`, 나머지 그대로 |
 | 자동 확인 | 취소 요청 처리 중 | 건너뜀 → 자동 거절 뒤 다음 실행에서 확인 → 또 실행해도 0건, 지급 1건 |
 | 자동 확인 | Billing 무응답 | 확인은 하고 지급 작업만 `PENDING` |
 | 역할 | 세션 USER / ADMIN | 확인·불참 `AccessDeniedException` |
@@ -892,3 +892,53 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 모집글 기본 정보 수정 | 409 `CONCURRENT_UPDATE`, 제목 그대로 |
 | HP 작업 결과 기록 중 다른 실행이 먼저 기록 | 예외 없이 끝남, 먼저 기록한 결과(`DONE`, 시도 9) 그대로 (409 아님, APR-37 R2) |
 
+## 18. 시나리오 전수 확인 (#297)
+
+전체 시나리오 표는 저장소 밖 `hapbang_be/SCENARIOS.md`에 있다 (`시나리오 | 예상 결과 | 테스트 위치`, 확인 단계 🌐 E2E / 🔷 서비스 / 💰 실제 Billing / 🧩 단위).
+
+### 18.1 테스트 시계 — `AppearanceTestClock`, `AppearanceTestClockTest`, `AppearanceTestClockWiringTest`
+
+출연 통합 테스트(`@AppearanceIntegrationTest`)의 시계. 운영처럼 실제 시각으로 흐르되 테스트가 앞으로 돌릴 수 있고, 테스트마다 처음으로 돌아간다.
+"기한이 지난 뒤"는 DB 값을 고치지 않고 시계를 실제 순서대로 돌려 만든다 (모집 마감 → 방송 → 확인 기간 끝, 다음 시도 시각, 배치 대기 시간).
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 앞당기지 않음 | 기준 시계와 같고 한국 시간대 |
+| `advance` 여러 번 | 앞당긴 만큼 쌓임 |
+| `advanceTo(목표)` / 이미 지난 목표 | 목표 1밀리초 뒤("같거나 지나면" 조건을 넘김) / 그대로 |
+| 뒤로 돌리기 | `IllegalArgumentException` |
+| `reset` | 앞당김 없음 |
+| 시간대만 바꾼 시계 | 원래 시계의 앞당김을 따라감 |
+| 주입 (통합) | `@Qualifier(CLOCK)` 주입은 테스트 시계, 시각을 쓰는 출연 빈 20개 이상이 모두 같은 시계, 운영 Clock 빈은 그대로 |
+| 앞당긴 뒤 / 다음 테스트 | 실제 시각 + 10일 / 처음 시각으로 돌아가 있음 |
+
+- 주의: 생성 시각(`created_at`)은 JPA Auditing이 실제 시각으로 기록한다 (팀 공통 test-support 설정). 시계를 앞당긴 뒤에 만든 행은 바로 그만큼 "오래된 행"이 되어 배치 대기 조건(1분)을 넘으므로, 대기 시간을 보는 테스트는 행을 먼저 만들고 시계를 돌린다.
+
+### 18.2 오류 코드 HTTP — `AppearanceErrorCodeApiE2ETest`
+
+서비스 테스트에서만 보던 오류 코드를 HTTP로 확인한다 (상태·`code`·`detail`). 출연 오류 코드 42개 중 41개가 E2E로 확인된다. `CONCURRENT_UPDATE`는 서비스 단계(17.2).
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 출연 요청 | 나에게 보내기 / 수락 기한이 방송 예정 일시 이후 | 400 `CANNOT_REQUEST_SELF` / 400 `INVALID_REQUEST_SCHEDULE` |
+| 출연 요청 | 호스트가 자기 요청 수락 / 거절된 요청서 수정 | 403 `NOT_REQUEST_GUEST` / 409 `APPEARANCE_REQUEST_NOT_EDITABLE` |
+| 출연 요청 | 수락 기한이 지남(만료 배치 전) | 409 `APPEARANCE_REQUEST_EXPIRED` |
+| 출연 모집 | 모집 마감 일시가 방송 예정 일시 이후 / 마감된 모집글 수정 | 400 `INVALID_RECRUIT_SCHEDULE` / 409 `APPEARANCE_RECRUIT_NOT_EDITABLE` |
+| 출연 | 호스트가 취소 요청 / 처리 중 요청 없이 응답 / 거절 두 번 뒤 세 번째 | 403 `NOT_APPEARANCE_GUEST` / 409 `CANCEL_REQUEST_NOT_PENDING` / 409 `CANCEL_REQUEST_LIMIT_EXCEEDED` |
+| 출연 | 방송 예정 일시 지남: 취소 요청·일방 취소 / 확인 기간 끝: 확인·불참 | 409 `APPEARANCE_SCHEDULE_PASSED` / 409 `APPEARANCE_CONFIRM_PERIOD_ENDED` |
+
+### 18.3 빈칸 채운 테스트
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceBatchUseCaseTest` › 보류 재확인 | 보류 처리 중 모집글 재확인 중 Billing 거절(잔액 부족) | `HOLD_FAILED`, 같은 모집글로 보류 요청 2번, 내 목록·상세에 안 보임, 다시 가져가지 않음 |
+| `AppearanceHostCancelFlowTest` › 일방 취소 | 일방 취소(확인함)와 합의 취소 수락 동시 | 한쪽만 성공: `CANCELED_BY_HOST`(요청 `CLOSED_BY_HOST_CANCEL`, 위약금만) 또는 `CANCELED_BY_AGREEMENT`(요청 `ACCEPTED`, 반환만) |
+| `AppearanceHostCancelFlowTest` › 모집 전체 취소 | 모집 전체 취소(확인 없음)와 게스트 취소 요청 동시 | 취소가 먼저: 출연 `CANCELED_BY_HOST`·위약금 1건·요청 없음 / 요청이 먼저: 취소는 `CANCEL_REQUEST_CONFIRM_REQUIRED`(또는 충돌), 모집 `RECRUITING`·출연 `CANCEL_REQUESTED`·HP 작업 없음 |
+| `AppearanceBatchScheduleTest` | appearance.yml cron 6개 | 모두 올바르고 매분 한 번, 서로 다른 초(0·10·20·30·40·50) |
+| `AppearanceBatchScheduleTest` | 스위치를 켜고 띄움 | `@Scheduled` 메서드 수 = 검사 표 6개, 6개가 yml cron 그대로 스케줄러에 등록 |
+| `AppearanceBatchScheduleTest` | `@Scheduled` 기본값 | yml과 같고 시간대 `Asia/Seoul` |
+| `AppearanceBatchScheduleTest` | 배치 메서드 호출 | 맞는 UseCase를 한 번씩 |
+
+### 18.4 테스트 이름 정리
+
+Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는 것처럼 읽히던 표현("보류 0", "게스트 +30,000", "호스트 잔액 원래대로")을 "Billing에 ○○ 요청"으로 바꿨다 (9개, 이 문서 표도 같이). 실제 잔액은 16장(apps)에서만 확인한다.

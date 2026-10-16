@@ -6,14 +6,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,10 +22,10 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.hapbang.appearance.app.AppearanceRequestFacade;
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.TestLogin;
 
@@ -59,8 +57,7 @@ class AppearanceApiCancelE2ETest {
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -187,10 +184,10 @@ class AppearanceApiCancelE2ETest {
                 .andExpect(jsonPath("$.data.cancelRequests[0].status").value("CLOSED_BY_HOST_CANCEL"));
     }
 
-    /** 방송이 막 끝났다 (출연의 방송 예정 일시 = 1시간 전) */
+    /** 방송이 끝나 확인 기간에 들어선다 (테스트 시계를 방송 예정 일시 1시간 뒤로) */
     private void broadcastEnded(long appearanceId) {
-        jdbcTemplate.update("update appearances.appearances set scheduled_at = ? where id = ?",
-                LocalDateTime.now(clock).minusHours(1), appearanceId);
+        clock.advanceTo(jdbcTemplate.queryForObject("select scheduled_at from appearances.appearances where id = ?",
+                LocalDateTime.class, appearanceId).plusHours(1));
     }
 
     @Test

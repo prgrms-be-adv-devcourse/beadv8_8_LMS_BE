@@ -3,7 +3,7 @@ package com.hapbang.appearance.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -12,7 +12,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -21,7 +20,6 @@ import org.springframework.test.context.event.RecordApplicationEvents;
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
@@ -30,6 +28,7 @@ import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRequestRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.global.exception.BusinessException;
@@ -81,8 +80,7 @@ class AppearanceEventPublishTest {
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -93,7 +91,7 @@ class AppearanceEventPublishTest {
 
 
     private LocalDateTime now() {
-        return LocalDateTime.now(clock);
+        return clock.now();
     }
 
     private List<AppearanceRequestSentEvent> requestSentEvents() {
@@ -148,8 +146,7 @@ class AppearanceEventPublishTest {
             assertThat(requestSentEvents()).isEmpty();
 
             Long requestId = appearanceRequestRepository.findAll().getFirst().getId();
-            jdbcTemplate.update("update appearances.requests set created_at = ? where id = ?",
-                    now().minusMinutes(2), requestId);
+            clock.advance(Duration.ofMinutes(2)); // 재확인 배치는 1분 넘게 지난 보류 처리 중 요청서만 가져간다
             appearanceHoldRecheckUseCase.recheckDue();
 
             assertThat(requestSentEvents()).hasSize(1);
