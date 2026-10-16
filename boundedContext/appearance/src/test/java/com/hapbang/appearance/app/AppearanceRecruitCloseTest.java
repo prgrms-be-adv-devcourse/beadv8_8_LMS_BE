@@ -6,7 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
 
-import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,7 +21,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -33,7 +32,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceApplicationStatus;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
@@ -50,6 +48,7 @@ import com.hapbang.appearance.out.AppearanceRepository;
 import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
@@ -107,8 +106,7 @@ class AppearanceRecruitCloseTest {
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -119,7 +117,7 @@ class AppearanceRecruitCloseTest {
 
 
     private LocalDateTime now() {
-        return LocalDateTime.now(clock);
+        return clock.now();
     }
 
     /** 호스트가 1인당 30,000 HP로 정원 {@code recruitCount}명 모집글을 올린다 */
@@ -132,10 +130,11 @@ class AppearanceRecruitCloseTest {
         return appearanceApplicationFacade.apply(guestId, recruitId, "지원합니다.").id();
     }
 
-    /** 모집 마감 일시를 1분 전으로 옮기고, 옮긴 값을 돌려준다 */
+    /** 모집 마감 일시가 지난다 (테스트 시계를 앞으로). 그 마감 일시를 돌려준다 */
     private LocalDateTime passDeadline(Long recruitId) {
-        LocalDateTime deadline = now().minusMinutes(1).withNano(0);
-        jdbcTemplate.update("update appearances.recruits set recruit_deadline = ? where id = ?", deadline, recruitId);
+        LocalDateTime deadline = jdbcTemplate.queryForObject(
+                "select recruit_deadline from appearances.recruits where id = ?", LocalDateTime.class, recruitId);
+        clock.advanceTo(deadline);
         return deadline;
     }
 
@@ -170,7 +169,7 @@ class AppearanceRecruitCloseTest {
     class CloseEarly {
 
         @Test
-        @DisplayName("성립 0명: CLOSED(EARLY), 대기 지원 NOT_SELECTED, 90,000 전액 반환(RECRUIT_CLOSED, DONE), 호스트 잔액 원래대로")
+        @DisplayName("성립 0명: CLOSED(EARLY), 대기 지원 NOT_SELECTED, Billing에 90,000 전액 반환 요청(RECRUIT_CLOSED, DONE)")
         void noneSelected() {
             Long recruitId = postRecruit(3);
             apply(GUEST, recruitId);
@@ -248,8 +247,7 @@ class AppearanceRecruitCloseTest {
 
             BillingStubs.available(billingClient);
             HpTask task = releaseTasksOf(recruitId).getFirst();
-            jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?",
-                    now().minusSeconds(1), task.getId());
+            clock.advanceTo(task.getNextAttemptAt()); // 다음 시도 시각이 된다
             hpTaskRetryUseCase.retryDue();
 
             assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).hpReleaseStatus())
@@ -383,8 +381,9 @@ class AppearanceRecruitCloseTest {
         @Test
         @DisplayName("마감 일시 전인 모집글은 그대로 두고, 한 번 마감한 모집글은 다시 마감하지 않는다")
         void notDueAndOnce() {
-            Long openId = postRecruit(3);
             Long dueId = postRecruit(3);
+            clock.advance(Duration.ofDays(1));
+            Long openId = postRecruit(3); // 하루 늦게 올려 마감 일시도 하루 늦다
             passDeadline(dueId);
 
             assertThat(appearanceRecruitDeadlineCloseUseCase.closeDue()).isEqualTo(1);
@@ -437,9 +436,7 @@ class AppearanceRecruitCloseTest {
             assertThatThrownBy(() -> postRecruit(3)).isInstanceOf(RuntimeException.class);
             BillingStubs.available(billingClient);
             Long recruitId = appearanceRecruitRepository.findAll().getFirst().getId();
-            jdbcTemplate.update("update appearances.recruits set created_at = ? where id = ?",
-                    now().minusMinutes(2), recruitId);
-            passDeadline(recruitId);
+            passDeadline(recruitId); // 이틀이 지나 보류 재확인 대기 시간(1분)도 지났다
 
             assertThat(appearanceRecruitDeadlineCloseUseCase.closeDue()).isZero();
             assertThat(releaseTasksOf(recruitId)).isEmpty();

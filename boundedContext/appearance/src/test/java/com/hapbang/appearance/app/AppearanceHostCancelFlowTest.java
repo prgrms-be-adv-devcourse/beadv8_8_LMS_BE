@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doCallRealMethod;
 
-import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +20,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -34,7 +33,6 @@ import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceApplicationStatus;
 import com.hapbang.appearance.domain.AppearanceCancelRequestStatus;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -52,6 +50,7 @@ import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
@@ -99,6 +98,9 @@ class AppearanceHostCancelFlowTest {
     HpTaskRetryUseCase hpTaskRetryUseCase;
 
     @Autowired
+    AppearanceRecruitDeadlineCloseUseCase appearanceRecruitDeadlineCloseUseCase;
+
+    @Autowired
     HpTaskExecuteUseCase hpTaskExecuteUseCase;
 
     @MockitoSpyBean
@@ -111,8 +113,7 @@ class AppearanceHostCancelFlowTest {
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -123,7 +124,7 @@ class AppearanceHostCancelFlowTest {
 
 
     private LocalDateTime now() {
-        return LocalDateTime.now(clock);
+        return clock.now();
     }
 
     /** 요청서가 수락돼 성립한 출연 */
@@ -180,7 +181,7 @@ class AppearanceHostCancelFlowTest {
     class HostCancel {
 
         @Test
-        @DisplayName("요청서 출처: CANCELED_BY_HOST, 위약금 9,000 게스트 지급 + 21,000 호스트 반환(PENALTY·HOST_CANCELED·DONE), 보류 0")
+        @DisplayName("요청서 출처: CANCELED_BY_HOST, Billing에 위약금 9,000 게스트 지급 + 21,000 호스트 반환(합계 = 출연료 30,000) 요청 (PENALTY·HOST_CANCELED·DONE)")
         void fromRequest() {
             RequestAppearance established = establishFromRequest();
 
@@ -248,8 +249,8 @@ class AppearanceHostCancelFlowTest {
                     AppearanceErrorCode.APPEARANCE_NOT_CANCELABLE);
 
             Long passed = establishFromRecruit(postRecruit(1), GUEST3);
-            jdbcTemplate.update("update appearances.appearances set scheduled_at = ? where id = ?",
-                    now().minusMinutes(1), passed);
+            clock.advanceTo(jdbcTemplate.queryForObject("select scheduled_at from appearances.appearances where id = ?",
+                    LocalDateTime.class, passed));
             assertErrorCode(() -> appearanceFacade.hostCancel(HOST, passed, false, null),
                     AppearanceErrorCode.APPEARANCE_SCHEDULE_PASSED);
         }
@@ -287,8 +288,7 @@ class AppearanceHostCancelFlowTest {
 
             BillingStubs.available(billingClient);
             HpTask task = onlyTask(HpTaskType.PENALTY);
-            jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?",
-                    now().minusSeconds(1), task.getId());
+            clock.advanceTo(task.getNextAttemptAt()); // 다음 시도 시각이 된다
             hpTaskRetryUseCase.retryDue();
             hpTaskExecuteUseCase.execute(task.getId()); // 이미 DONE이면 다시 실행하지 않는다
 
@@ -319,7 +319,7 @@ class AppearanceHostCancelFlowTest {
     class RecruitCancel {
 
         @Test
-        @DisplayName("모집 중, 3명 중 2명 성립·1명 대기: CANCELED, 출연 2건 위약금 9,000씩, 대기 지원 NOT_SELECTED, 빈자리 30,000 반환, 보류 0")
+        @DisplayName("모집 중, 3명 중 2명 성립·1명 대기: CANCELED, 출연 2건 위약금 9,000씩, 대기 지원 NOT_SELECTED, 빈자리 30,000 반환 (Billing 요청 합계 = 보류 90,000)")
         void recruiting() {
             Long recruitId = postRecruit(3);
             Long first = establishFromRecruit(recruitId, GUEST);
@@ -367,8 +367,7 @@ class AppearanceHostCancelFlowTest {
             assertThat(onlyTask(HpTaskType.RELEASE).getStatus()).isEqualTo(HpTaskStatus.DONE);
 
             HpTask penalty = onlyTask(HpTaskType.PENALTY);
-            jdbcTemplate.update("update appearances.hp_tasks set created_at = ?, next_attempt_at = ? where id = ?",
-                    now().minusMinutes(2), now().minusSeconds(1), penalty.getId());
+            clock.advance(Duration.ofMinutes(2)); // 한 번도 기록하지 못한 작업은 배치 대기 시간(1분)이 지나야 재시도 대상
             hpTaskRetryUseCase.retryDue();
 
             assertThat(onlyTask(HpTaskType.PENALTY).getStatus()).isEqualTo(HpTaskStatus.DONE);
@@ -390,7 +389,7 @@ class AppearanceHostCancelFlowTest {
         }
 
         @Test
-        @DisplayName("마감 뒤 취소: 빈자리는 마감 때 이미 반환돼 위약금 정산만, 보류 0")
+        @DisplayName("마감 뒤 취소: 빈자리는 마감 때 이미 반환돼 위약금 정산만 요청한다 (반환 요청은 마감 때 1건뿐)")
         void afterClose() {
             Long recruitId = postRecruit(2);
             establishFromRecruit(recruitId, GUEST);
@@ -455,8 +454,12 @@ class AppearanceHostCancelFlowTest {
                     AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_CANCELABLE);
 
             Long passed = postRecruit(1);
-            jdbcTemplate.update("update appearances.recruits set scheduled_at = ?, recruit_deadline = ? where id = ?",
-                    now().minusMinutes(1), now().minusMinutes(2), passed);
+            // 실제 순서: 모집 마감 일시 → 기한 마감 배치(빈자리 반환) → 방송 예정 일시
+            clock.advanceTo(jdbcTemplate.queryForObject("select recruit_deadline from appearances.recruits where id = ?",
+                    LocalDateTime.class, passed));
+            appearanceRecruitDeadlineCloseUseCase.closeDue();
+            clock.advanceTo(jdbcTemplate.queryForObject("select scheduled_at from appearances.recruits where id = ?",
+                    LocalDateTime.class, passed));
             assertErrorCode(() -> appearanceRecruitFacade.cancel(HOST, passed, false, null),
                     AppearanceErrorCode.APPEARANCE_SCHEDULE_PASSED);
 
@@ -470,7 +473,7 @@ class AppearanceHostCancelFlowTest {
         }
 
         @Test
-        @DisplayName("모집 전체 취소와 지원 수락이 동시에 와도 교착 상태가 없고, 취소됐으면 진행 중인 출연이 남지 않으며 보류는 0")
+        @DisplayName("모집 전체 취소와 지원 수락이 동시에 와도 교착 상태가 없고, 취소됐으면 진행 중인 출연이 남지 않으며 Billing 요청 합계 = 보류 60,000")
         void concurrentCancelAndAccept() throws Exception {
             Long recruitId = postRecruit(2);
             establishFromRecruit(recruitId, GUEST);

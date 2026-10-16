@@ -6,14 +6,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 
-import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -22,7 +20,6 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
@@ -34,6 +31,7 @@ import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingStubs;
 
 /**
@@ -86,8 +84,7 @@ class AppearanceConcurrentUpdateTest {
     PlatformTransactionManager transactionManager;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -96,7 +93,7 @@ class AppearanceConcurrentUpdateTest {
     }
 
     private LocalDateTime now() {
-        return LocalDateTime.now(clock);
+        return clock.now();
     }
 
     /** 별도 트랜잭션(REQUIRES_NEW)으로 SQL을 실행하고 커밋한다 = "다른 요청이 먼저 바꿔 커밋함" */
@@ -191,8 +188,7 @@ class AppearanceConcurrentUpdateTest {
         BillingStubs.available(billingClient);
         HpTask task = hpTaskRepository.findAll().getFirst();
         assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
-        jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?", now().minusSeconds(1),
-                task.getId());
+        clock.advanceTo(task.getNextAttemptAt()); // 다음 시도 시각이 된다
         // 실행 시작의 첫 읽기는 그대로, 결과 기록 트랜잭션의 읽기 직후 다른 실행이 DONE으로 먼저 기록해 커밋한다
         doCallRealMethod().doAnswer(invocation -> {
             Object loaded = invocation.callRealMethod();

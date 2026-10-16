@@ -3,7 +3,6 @@ package com.hapbang.appearance.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -19,7 +18,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -30,7 +28,6 @@ import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceApplicationStatus;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -42,6 +39,7 @@ import com.hapbang.appearance.out.AppearanceRecruitRepository;
 import com.hapbang.appearance.out.AppearanceRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.shared.member.domain.Role;
@@ -83,8 +81,7 @@ class AppearanceApplicationFacadeTest {
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -104,11 +101,10 @@ class AppearanceApplicationFacadeTest {
         return appearanceApplicationFacade.apply(guestId, recruitId, "지원합니다.");
     }
 
-    /** 모집 마감 일시를 지난 시각으로 옮긴다 (마감 처리 전 상태) */
+    /** 모집 마감 일시가 지난다 (테스트 시계를 앞으로, 기한 마감 배치는 아직) */
     private void passDeadline(Long recruitId) {
-        LocalDateTime now = LocalDateTime.now(clock);
-        jdbcTemplate.update("update appearances.recruits set recruit_deadline = ? where id = ?",
-                now.minusMinutes(1), recruitId);
+        clock.advanceTo(jdbcTemplate.queryForObject("select recruit_deadline from appearances.recruits where id = ?",
+                LocalDateTime.class, recruitId));
     }
 
     private static void assertErrorCode(Runnable action, AppearanceErrorCode errorCode) {

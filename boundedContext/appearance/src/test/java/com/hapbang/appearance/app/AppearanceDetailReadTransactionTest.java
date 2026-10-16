@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 
-import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,18 +12,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 
 /**
  * Billing 호출 때문에 트랜잭션 없이 도는 Facade 메서드도, 작업 뒤 상세를 다시 읽을 때는 읽기 전용 트랜잭션 하나에서 읽는다
@@ -62,8 +60,7 @@ class AppearanceDetailReadTransactionTest {
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     /** getById가 불릴 때마다 "트랜잭션 안인지, 읽기 전용인지"를 남긴다 */
     private final List<String> transactionStates = new ArrayList<>();
@@ -128,8 +125,8 @@ class AppearanceDetailReadTransactionTest {
         AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
                 AppearanceRequestFixture.content(LocalDateTime.now(clock)));
         Long appearanceId = appearanceRequestFacade.accept(GUEST, sent.id(), sent.version()).appearanceId();
-        jdbcTemplate.update("update appearances.appearances set scheduled_at = ? where id = ?",
-                LocalDateTime.now(clock).minusHours(1), appearanceId);
+        clock.advanceTo(jdbcTemplate.queryForObject("select scheduled_at from appearances.appearances where id = ?",
+                LocalDateTime.class, appearanceId).plusHours(1)); // 방송이 끝났다
         recordTransactionOnGetById();
 
         appearanceFacade.confirm(HOST, appearanceId);

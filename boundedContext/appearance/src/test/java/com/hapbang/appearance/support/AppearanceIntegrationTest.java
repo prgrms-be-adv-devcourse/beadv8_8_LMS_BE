@@ -6,6 +6,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockReset;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -21,6 +23,7 @@ import com.hapbang.testsupport.IntegrationTest;
  *     <li>돈이 실제로 맞게 움직이는지는 apps의 {@code AppearanceBillingFlowIntegrationTest}(실제 Billing)가 확인한다.</li>
  *     <li>대역은 테스트가 끝날 때마다 설정(실패 stub)과 호출 기록을 초기화한다 ({@code MockReset.AFTER}).
  *     그래서 테스트 안에서 {@link BillingStubs#unavailable}로 바꾼 상태를 되돌리지 않아도 다음 테스트에 이어지지 않는다.</li>
+ *     <li>시계는 {@link AppearanceTestClock}이다. 실제 시각으로 흐르고, 테스트가 앞으로 돌릴 수 있으며, 테스트마다 처음으로 돌아간다 (#297).</li>
  * </ul>
  */
 @Target(ElementType.TYPE)
@@ -28,5 +31,7 @@ import com.hapbang.testsupport.IntegrationTest;
 @Documented
 @IntegrationTest
 @MockitoBean(types = BillingClient.class, reset = MockReset.AFTER)
+@Import(AppearanceTestClockConfig.class)
+@ExtendWith(AppearanceTestClock.ResetExtension.class)
 public @interface AppearanceIntegrationTest {
 }
