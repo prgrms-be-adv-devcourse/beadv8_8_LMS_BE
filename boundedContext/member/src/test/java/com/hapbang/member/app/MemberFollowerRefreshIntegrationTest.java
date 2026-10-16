@@ -1,9 +1,13 @@
 package com.hapbang.member.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willAnswer;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -16,8 +20,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
@@ -47,7 +53,7 @@ class MemberFollowerRefreshIntegrationTest {
     @Autowired
     UserRepository userRepository;
 
-    @Autowired
+    @MockitoSpyBean
     InfluencerChannelRepository influencerChannelRepository;
 
     @Autowired
@@ -159,6 +165,24 @@ class MemberFollowerRefreshIntegrationTest {
         List<String> firstChunk = identifiers(channels.subList(0, 20));
         given(chzzkApiClient.findFollowerCounts(firstChunk)).willThrow(new ResourceAccessException("시간 초과"));
         given(chzzkApiClient.findFollowerCounts(List.of("channel-21"))).willReturn(Map.of("channel-21", 50));
+
+        FollowerRefreshResult result = useCase.refreshAll();
+
+        assertThat(result).isEqualTo(new FollowerRefreshResult(21, 1, 0, 1, false));
+        assertThat(find(channels.get(0)).getFollowerCount()).isEqualTo(1);
+        assertThat(find(channels.get(20)).getFollowerCount()).isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("묶음 저장이 DB 오류로 실패하면 그 묶음만 롤백하고 다음 묶음은 갱신한다")
+    void failedSaveSkipped() {
+        List<InfluencerChannel> channels = twentyOneChannels();
+        given(chzzkApiClient.findFollowerCounts(identifiers(channels.subList(0, 20)))).willReturn(Map.of(
+                "channel-01", 10, "channel-02", 20));
+        given(chzzkApiClient.findFollowerCounts(List.of("channel-21"))).willReturn(Map.of("channel-21", 50));
+        // 첫 묶음의 두 번째 채널 저장에서 DB 오류 → 앞서 저장한 첫 채널도 함께 롤백되어야 한다
+        willThrow(new DataAccessResourceFailureException("DB 연결 끊김"))
+                .given(influencerChannelRepository).updateFollowerCount(eq(channels.get(1).getId()), anyInt(), any());
 
         FollowerRefreshResult result = useCase.refreshAll();
 

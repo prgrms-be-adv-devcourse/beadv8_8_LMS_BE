@@ -23,7 +23,7 @@ import lombok.extern.slf4j.Slf4j;
  * <ul>
  *     <li>치지직 조회는 트랜잭션 밖, 저장은 묶음마다 별도 트랜잭션. 팔로워 수·조회 시각 두 칸만 바꾼다.</li>
  *     <li>치지직 결과에 없는 채널(삭제·정지 등)은 그대로 두고 로그만 남긴다.</li>
- *     <li>묶음 조회가 실패하면 다음 묶음으로 넘어간다. 앱 키 오류(401)는 남은 묶음도 모두 실패하므로 바로 중단한다.</li>
+ *     <li>묶음 조회·저장이 실패하면 그 묶음만 건너뛰고(저장은 묶음째 롤백) 다음 묶음으로 넘어간다. 앱 키 오류(401)는 남은 묶음도 모두 실패하므로 바로 중단한다.</li>
  * </ul>
  */
 @Slf4j
@@ -62,9 +62,15 @@ public class MemberFollowerRefreshUseCase {
                 continue;
             }
             LocalDateTime now = LocalDateTime.now();
-            int saved = transactionTemplate.execute(status -> save(chunk, counts, now));
-            updated += saved;
-            missing += chunk.size() - saved;
+            try {
+                int saved = transactionTemplate.execute(status -> save(chunk, counts, now));
+                updated += saved;
+                missing += chunk.size() - saved;
+            } catch (RuntimeException e) {
+                // 저장 실패는 그 묶음만 롤백되고 다음 묶음으로 넘어간다 (조회 실패와 같은 규칙)
+                failedChunks++;
+                log.warn("팔로워 갱신 묶음 저장 실패, 다음 묶음으로: {}", e.getMessage());
+            }
         }
         log.info("팔로워 갱신 완료: 대상={}, 갱신={}, 치지직에 없음={}, 실패 묶음={}",
                 targets.size(), updated, missing, failedChunks);
