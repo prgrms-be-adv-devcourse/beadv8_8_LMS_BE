@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestSummaryResDto;
@@ -18,6 +19,8 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 출연 요청서 조회 (보낸 목록, 받은 목록, 상세). 트랜잭션은 호출한 {@link AppearanceRequestFacade}가 연다 (읽기 전용).
+ * 상세 조회는 스스로 읽기 전용 트랜잭션을 연다: Billing 호출 때문에 트랜잭션 없이 도는 Facade 메서드가 작업 뒤 상세를 다시 읽을 때도
+ * 한 시점의 값으로 응답하기 위해서다. Facade 트랜잭션 안에서 부르면 그 트랜잭션에 합류한다 (ISSUE.md APR-37 R1).
  * 모든 조회에서 출연 회원 자격(정지·강등)을 먼저 확인한다.
  */
 @Service
@@ -59,6 +62,7 @@ public class AppearanceRequestQueryUseCase {
      *
      * @throws AppearanceException 없거나 볼 수 없는 요청서({@code APPEARANCE_REQUEST_NOT_FOUND})
      */
+    @Transactional(readOnly = true)
     public AppearanceRequestResDto getDetail(Long userId, Long requestId) {
         appearanceUserSupport.getParticipant(userId);
         AppearanceRequest request = appearanceRequestSupport.getById(requestId);

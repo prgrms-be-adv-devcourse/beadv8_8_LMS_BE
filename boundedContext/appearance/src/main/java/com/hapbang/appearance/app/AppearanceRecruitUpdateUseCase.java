@@ -4,12 +4,10 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
-import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 
@@ -41,11 +39,7 @@ public class AppearanceRecruitUpdateUseCase {
         AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);
         recruit.validateVisible();
         recruit.updateBasicInfo(userId, title, content, hostChannelUrl, LocalDateTime.now(clock));
-        try {
-            appearanceRecruitSupport.flush();
-        } catch (ObjectOptimisticLockingFailureException exception) {
-            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
-        }
+        appearanceRecruitSupport.flushOrConflict();
         return AppearanceRecruitResDto.from(recruit, appearanceApplicationSupport.countApplicants(recruitId));
     }
 }

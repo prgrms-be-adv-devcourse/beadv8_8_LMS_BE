@@ -16,9 +16,8 @@ import lombok.RequiredArgsConstructor;
  * 처리에 실패하면 Modulith 이벤트 저장소에 남고, 서버가 재시작될 때 다시 처리된다.
  * <p>
  * 출연 회원은 가입 이벤트로만 만든다. 가입보다 먼저 온 변경 이벤트는 실패로 남았다가, 재시작 때 다시 처리된다.
+ * 변경 이벤트의 순서가 뒤바뀌거나 중복돼도 공통 {@code ReplicaUser}가 회원 버전을 비교해 옛 정보는 무시한다 (회원 #292).
  */
-// TODO(event): 변경 이벤트끼리 순서가 뒤바뀌면(실패한 변경 이벤트의 재처리 등) 옛 정보가 반영될 수 있다.
-//  UserDto에 버전(또는 수정 시각)이 생기면 더 새로운 이벤트만 반영하도록 바꾼다(#56).
 @Component
 @RequiredArgsConstructor
 public class AppearanceUserEventListener {
