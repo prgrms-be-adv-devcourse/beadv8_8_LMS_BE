@@ -6,7 +6,8 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
-import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.appearance.domain.AppearanceEarningStatus;
+import com.hapbang.shared.appearance.domain.AppearanceEarningType;
 
 /**
  * 출연 수익 분류 규칙 (#301, ISSUE.md APR-39). 게스트 기준, 출연 1건 = 수익 1건이다.
@@ -14,11 +15,11 @@ import com.hapbang.shared.billing.domain.SettlementSourceType;
  *
  * <table>
  *     <tr><th>출연 상태</th><th>작업</th><th>지급 상태</th><th>종류</th><th>금액</th></tr>
- *     <tr><td>ESTABLISHED</td><td>-</td><td>CONFIRMATION_PENDING</td><td>FEE</td><td>출연료</td></tr>
- *     <tr><td>CANCEL_REQUESTED</td><td>-</td><td>ON_HOLD</td><td>FEE</td><td>출연료</td></tr>
- *     <tr><td>CONFIRMED</td><td>PENDING / DEAD / DONE</td><td>PROCESSING / FAILED / COMPLETED</td><td>FEE</td><td>출연료</td></tr>
- *     <tr><td>CANCELED_BY_HOST</td><td>PENDING / DEAD / DONE</td><td>PROCESSING / FAILED / COMPLETED</td><td>PENALTY</td><td>위약금</td></tr>
- *     <tr><td>ABSENT, CANCELED_BY_AGREEMENT</td><td>-</td><td>CANCELED</td><td>FEE</td><td>출연료</td></tr>
+ *     <tr><td>ESTABLISHED</td><td>-</td><td>CONFIRMATION_PENDING</td><td>APPEARANCE_FEE</td><td>출연료</td></tr>
+ *     <tr><td>CANCEL_REQUESTED</td><td>-</td><td>ON_HOLD</td><td>APPEARANCE_FEE</td><td>출연료</td></tr>
+ *     <tr><td>CONFIRMED</td><td>PENDING / DEAD / DONE</td><td>PROCESSING / FAILED / COMPLETED</td><td>APPEARANCE_FEE</td><td>출연료</td></tr>
+ *     <tr><td>CANCELED_BY_HOST</td><td>PENDING / DEAD / DONE</td><td>PROCESSING / FAILED / COMPLETED</td><td>APPEARANCE_PENALTY</td><td>위약금</td></tr>
+ *     <tr><td>ABSENT, CANCELED_BY_AGREEMENT</td><td>-</td><td>CANCELED</td><td>APPEARANCE_FEE</td><td>출연료</td></tr>
  * </table>
  *
  * 확인·일방 취소는 상태 변경과 작업 기록을 한 트랜잭션에서 하므로 작업이 없을 수 없다. 그래도 DB 제약이 짝을 보장하지는 않으므로
@@ -28,6 +29,9 @@ public final class AppearanceEarningRule {
 
     /** 지급 상태를 정하는 데 쓰는 HP 작업 종류 (반환은 게스트 수익이 아니라 섞지 않는다) */
     public static final Set<HpTaskType> EARNING_TASK_TYPES = EnumSet.of(HpTaskType.PAYOUT, HpTaskType.PENALTY);
+
+    private static final AppearanceEarningType FEE = AppearanceEarningType.APPEARANCE_FEE;
+    private static final AppearanceEarningType PENALTY = AppearanceEarningType.APPEARANCE_PENALTY;
 
     /** 지급·위약금 작업이 있어야 하는 출연 상태 */
     private static final Set<AppearanceStatus> TASK_REQUIRED = EnumSet.of(AppearanceStatus.CONFIRMED,
@@ -41,12 +45,11 @@ public final class AppearanceEarningRule {
      */
     public static Classification classify(AppearanceStatus status, HpTaskStatus taskStatus) {
         return switch (status) {
-            case ESTABLISHED -> Classification.of(AppearanceEarningStatus.CONFIRMATION_PENDING, AppearanceEarningType.FEE);
-            case CANCEL_REQUESTED -> Classification.of(AppearanceEarningStatus.ON_HOLD, AppearanceEarningType.FEE);
-            case CONFIRMED -> byTask(taskStatus, AppearanceEarningType.FEE);
-            case CANCELED_BY_HOST -> byTask(taskStatus, AppearanceEarningType.PENALTY);
-            case ABSENT, CANCELED_BY_AGREEMENT -> Classification.of(AppearanceEarningStatus.CANCELED,
-                    AppearanceEarningType.FEE);
+            case ESTABLISHED -> Classification.of(AppearanceEarningStatus.CONFIRMATION_PENDING, FEE);
+            case CANCEL_REQUESTED -> Classification.of(AppearanceEarningStatus.ON_HOLD, FEE);
+            case CONFIRMED -> byTask(taskStatus, FEE);
+            case CANCELED_BY_HOST -> byTask(taskStatus, PENALTY);
+            case ABSENT, CANCELED_BY_AGREEMENT -> Classification.of(AppearanceEarningStatus.CANCELED, FEE);
         };
     }
 
@@ -68,12 +71,6 @@ public final class AppearanceEarningRule {
             return appearance.getPenaltyAmount() == null ? 0 : appearance.getPenaltyAmount();
         }
         return appearance.getFee();
-    }
-
-    /** 지급 원천 (Billing 지급·위약금 요청에 보내는 값과 같다): 요청 출처 APPEARANCE_REQUEST, 모집 출처 RECRUIT_APPEARANCE */
-    public static SettlementSourceType sourceTypeOf(Appearance appearance) {
-        return appearance.isFromRecruit() ? SettlementSourceType.RECRUIT_APPEARANCE
-                : SettlementSourceType.APPEARANCE_REQUEST;
     }
 
     /**

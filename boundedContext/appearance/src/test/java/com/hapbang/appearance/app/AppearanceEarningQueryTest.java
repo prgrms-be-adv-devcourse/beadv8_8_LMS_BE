@@ -25,13 +25,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.test.context.support.WithMockUser;
 
-import com.hapbang.appearance.app.dto.AppearanceEarningBucketResDto;
-import com.hapbang.appearance.app.dto.AppearanceEarningItemResDto;
-import com.hapbang.appearance.app.dto.AppearanceEarningSummaryResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.domain.Appearance;
-import com.hapbang.appearance.domain.AppearanceEarningStatus;
-import com.hapbang.appearance.domain.AppearanceEarningType;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.HpTask;
@@ -46,7 +41,11 @@ import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
-import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.appearance.domain.AppearanceEarningStatus;
+import com.hapbang.shared.appearance.domain.AppearanceEarningType;
+import com.hapbang.shared.appearance.dto.AppearanceEarningAmountDto;
+import com.hapbang.shared.appearance.dto.AppearanceEarningItemDto;
+import com.hapbang.shared.appearance.dto.AppearanceEarningSummaryDto;
 
 /**
  * 출연 수익 조회 (#301, ISSUE.md APR-39). 실제 흐름(보내기·수락·취소 요청·일방 취소·확인·불참·모집)으로 상태를 만들고
@@ -127,17 +126,17 @@ class AppearanceEarningQueryTest {
         }
     }
 
-    private List<AppearanceEarningItemResDto> list(Long memberId, List<AppearanceEarningStatus> statuses,
+    private List<AppearanceEarningItemDto> list(Long memberId, List<AppearanceEarningStatus> statuses,
                                                    AppearanceEarningType type) {
         return appearanceEarningFacade.find(memberId, statuses, type, ALL).getContent();
     }
 
-    private static Map<Long, AppearanceEarningItemResDto> byId(List<AppearanceEarningItemResDto> items) {
-        return items.stream().collect(Collectors.toMap(AppearanceEarningItemResDto::sourceId, item -> item));
+    private static Map<Long, AppearanceEarningItemDto> byId(List<AppearanceEarningItemDto> items) {
+        return items.stream().collect(Collectors.toMap(AppearanceEarningItemDto::sourceId, item -> item));
     }
 
-    private static AppearanceEarningBucketResDto bucket(long amount, long count) {
-        return new AppearanceEarningBucketResDto(amount, count);
+    private static AppearanceEarningAmountDto bucket(long amount, long count) {
+        return new AppearanceEarningAmountDto(amount, count);
     }
 
     /** 한 게스트에게 지급 상태가 모두 다른 출연 9건 */
@@ -189,7 +188,7 @@ class AppearanceEarningQueryTest {
         void summary() {
             allStates();
 
-            AppearanceEarningSummaryResDto summary = appearanceEarningFacade.summarize(GUEST, null);
+            AppearanceEarningSummaryDto summary = appearanceEarningFacade.summarize(GUEST, null);
 
             assertThat(summary.confirmationPending()).isEqualTo(bucket(20_000, 1));
             assertThat(summary.scheduled()).isEqualTo(bucket(0, 0));
@@ -199,29 +198,29 @@ class AppearanceEarningQueryTest {
         }
 
         @Test
-        @DisplayName("목록: 출연마다 한 줄, 지급 상태·종류·금액. 일방 취소는 위약금 한 줄만(출연료와 중복 없음), 원천은 Billing 지급 요청과 같은 값, 지급 예정 시각은 null")
+        @DisplayName("목록: 출연마다 한 줄, 지급 상태·종류·금액. 일방 취소는 위약금 한 줄만(출연료와 중복 없음), 원천 APPEARANCE + 출연 ID, 지급 예정 시각은 null")
         void items() {
             AllStates s = allStates();
 
-            Map<Long, AppearanceEarningItemResDto> items = byId(list(GUEST, List.of(AppearanceEarningStatus.values()),
+            Map<Long, AppearanceEarningItemDto> items = byId(list(GUEST, List.of(AppearanceEarningStatus.values()),
                     null));
 
             assertThat(items).hasSize(9);
-            assertThat(items.values()).extracting(AppearanceEarningItemResDto::sourceId, AppearanceEarningItemResDto::status,
-                    AppearanceEarningItemResDto::earningType, AppearanceEarningItemResDto::amountHp)
+            assertThat(items.values()).extracting(AppearanceEarningItemDto::sourceId, AppearanceEarningItemDto::status,
+                    AppearanceEarningItemDto::earningType, AppearanceEarningItemDto::amountHp)
                     .containsExactlyInAnyOrder(
-                            tuple(s.pending(), AppearanceEarningStatus.CONFIRMATION_PENDING, AppearanceEarningType.FEE, 20_000L),
-                            tuple(s.onHold(), AppearanceEarningStatus.ON_HOLD, AppearanceEarningType.FEE, 21_000L),
-                            tuple(s.feeDone(), AppearanceEarningStatus.COMPLETED, AppearanceEarningType.FEE, 30_000L),
-                            tuple(s.feeProcessing(), AppearanceEarningStatus.PROCESSING, AppearanceEarningType.FEE, 22_000L),
-                            tuple(s.feeFailed(), AppearanceEarningStatus.FAILED, AppearanceEarningType.FEE, 23_000L),
-                            tuple(s.penaltyDone(), AppearanceEarningStatus.COMPLETED, AppearanceEarningType.PENALTY, 9_000L),
-                            tuple(s.penaltyProcessing(), AppearanceEarningStatus.PROCESSING, AppearanceEarningType.PENALTY,
+                            tuple(s.pending(), AppearanceEarningStatus.CONFIRMATION_PENDING, AppearanceEarningType.APPEARANCE_FEE, 20_000L),
+                            tuple(s.onHold(), AppearanceEarningStatus.ON_HOLD, AppearanceEarningType.APPEARANCE_FEE, 21_000L),
+                            tuple(s.feeDone(), AppearanceEarningStatus.COMPLETED, AppearanceEarningType.APPEARANCE_FEE, 30_000L),
+                            tuple(s.feeProcessing(), AppearanceEarningStatus.PROCESSING, AppearanceEarningType.APPEARANCE_FEE, 22_000L),
+                            tuple(s.feeFailed(), AppearanceEarningStatus.FAILED, AppearanceEarningType.APPEARANCE_FEE, 23_000L),
+                            tuple(s.penaltyDone(), AppearanceEarningStatus.COMPLETED, AppearanceEarningType.APPEARANCE_PENALTY, 9_000L),
+                            tuple(s.penaltyProcessing(), AppearanceEarningStatus.PROCESSING, AppearanceEarningType.APPEARANCE_PENALTY,
                                     9_000L),
-                            tuple(s.absent(), AppearanceEarningStatus.CANCELED, AppearanceEarningType.FEE, 30_000L),
-                            tuple(s.agreed(), AppearanceEarningStatus.CANCELED, AppearanceEarningType.FEE, 30_000L));
+                            tuple(s.absent(), AppearanceEarningStatus.CANCELED, AppearanceEarningType.APPEARANCE_FEE, 30_000L),
+                            tuple(s.agreed(), AppearanceEarningStatus.CANCELED, AppearanceEarningType.APPEARANCE_FEE, 30_000L));
             assertThat(items.values()).allSatisfy(item -> {
-                assertThat(item.sourceType()).isEqualTo(SettlementSourceType.APPEARANCE_REQUEST);
+                assertThat(item.sourceType()).isEqualTo("APPEARANCE");
                 assertThat(item.title()).isEqualTo(AppearanceRequestFixture.content(clock.now()).title());
                 assertThat(item.payoutScheduledAt()).isNull();
             });
@@ -235,7 +234,7 @@ class AppearanceEarningQueryTest {
         void statusUpdatedAt() {
             AllStates s = allStates();
 
-            Map<Long, AppearanceEarningItemResDto> items = byId(list(GUEST, List.of(AppearanceEarningStatus.values()),
+            Map<Long, AppearanceEarningItemDto> items = byId(list(GUEST, List.of(AppearanceEarningStatus.values()),
                     null));
 
             assertThat(items.get(s.feeDone()).statusUpdatedAt())
@@ -292,13 +291,13 @@ class AppearanceEarningQueryTest {
         void defaultUnpaid() {
             AllStates s = allStates();
 
-            assertThat(list(GUEST, null, null)).extracting(AppearanceEarningItemResDto::sourceId)
+            assertThat(list(GUEST, null, null)).extracting(AppearanceEarningItemDto::sourceId)
                     .containsExactlyInAnyOrder(s.pending(), s.onHold(), s.feeProcessing(), s.feeFailed(),
                             s.penaltyProcessing());
             assertThat(list(GUEST, List.of(AppearanceEarningStatus.COMPLETED), null))
-                    .extracting(AppearanceEarningItemResDto::sourceId).containsExactlyInAnyOrder(s.feeDone(), s.penaltyDone());
+                    .extracting(AppearanceEarningItemDto::sourceId).containsExactlyInAnyOrder(s.feeDone(), s.penaltyDone());
             assertThat(list(GUEST, List.of(AppearanceEarningStatus.CANCELED), null))
-                    .extracting(AppearanceEarningItemResDto::sourceId).containsExactlyInAnyOrder(s.absent(), s.agreed());
+                    .extracting(AppearanceEarningItemDto::sourceId).containsExactlyInAnyOrder(s.absent(), s.agreed());
         }
 
         @Test
@@ -306,23 +305,26 @@ class AppearanceEarningQueryTest {
         void byType() {
             AllStates s = allStates();
 
-            AppearanceEarningSummaryResDto penalty = appearanceEarningFacade.summarize(GUEST, AppearanceEarningType.PENALTY);
+            AppearanceEarningSummaryDto penalty = appearanceEarningFacade.summarize(GUEST, AppearanceEarningType.APPEARANCE_PENALTY);
             assertThat(penalty.processing()).isEqualTo(bucket(9_000, 1));
             assertThat(penalty.confirmationPending()).isEqualTo(bucket(0, 0));
             assertThat(penalty.failed()).isEqualTo(bucket(0, 0));
-            assertThat(list(GUEST, null, AppearanceEarningType.PENALTY)).extracting(AppearanceEarningItemResDto::sourceId)
+            assertThat(list(GUEST, null, AppearanceEarningType.APPEARANCE_PENALTY)).extracting(AppearanceEarningItemDto::sourceId)
                     .containsExactly(s.penaltyProcessing());
-            assertThat(list(GUEST, null, AppearanceEarningType.FEE)).extracting(AppearanceEarningItemResDto::sourceId)
+            assertThat(list(GUEST, null, AppearanceEarningType.APPEARANCE_FEE)).extracting(AppearanceEarningItemDto::sourceId)
                     .containsExactlyInAnyOrder(s.pending(), s.onHold(), s.feeProcessing(), s.feeFailed());
         }
 
         @Test
-        @DisplayName("빈 상태 목록(출연에 없는 공통 상태만 고른 경우, 예: SCHEDULED)이나 맞는 조합이 없는 필터는 빈 결과 (N4)")
+        @DisplayName("출연에 없는 공통 상태(SCHEDULED)만 고르거나 맞는 조합이 없는 필터는 빈 결과 (N4). 빈 상태 목록은 고르지 않은 것과 같다")
         void noMatch() {
-            allStates();
+            AllStates s = allStates();
 
-            assertThat(list(GUEST, List.of(), null)).isEmpty();
-            assertThat(list(GUEST, List.of(AppearanceEarningStatus.CONFIRMATION_PENDING), AppearanceEarningType.PENALTY))
+            assertThat(list(GUEST, List.of(AppearanceEarningStatus.SCHEDULED), null)).isEmpty();
+            assertThat(list(GUEST, List.of(), null)).extracting(AppearanceEarningItemDto::sourceId)
+                    .containsExactlyInAnyOrder(s.pending(), s.onHold(), s.feeProcessing(), s.feeFailed(),
+                            s.penaltyProcessing());
+            assertThat(list(GUEST, List.of(AppearanceEarningStatus.CONFIRMATION_PENDING), AppearanceEarningType.APPEARANCE_PENALTY))
                     .isEmpty();
         }
     }
@@ -333,7 +335,7 @@ class AppearanceEarningQueryTest {
     class Member {
 
         @Test
-        @DisplayName("모집 1:N: 성립한 게스트마다 1인 출연료 한 건(원천 RECRUIT_APPEARANCE, 제목은 모집글), 미선정 게스트는 없음, 모집글 보류 전체는 세지 않는다")
+        @DisplayName("모집 1:N: 성립한 게스트마다 1인 출연료 한 건(원천 APPEARANCE + 출연 ID, 제목은 모집글), 미선정 게스트는 없음, 모집글 보류 전체는 세지 않는다")
         void recruitPerGuest() {
             Long recruitId = appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(clock.now())).id();
             Long first = appearanceApplicationFacade.accept(HOST,
@@ -346,7 +348,7 @@ class AppearanceEarningQueryTest {
             for (Long[] guestAndAppearance : new Long[][]{{GUEST, first}, {GUEST2, second}}) {
                 assertThat(list(guestAndAppearance[0], null, null)).singleElement().satisfies(item -> {
                     assertThat(item.sourceId()).isEqualTo(guestAndAppearance[1]);
-                    assertThat(item.sourceType()).isEqualTo(SettlementSourceType.RECRUIT_APPEARANCE);
+                    assertThat(item.sourceType()).isEqualTo("APPEARANCE");
                     assertThat(item.amountHp()).isEqualTo(AppearanceRecruitFixture.FEE_PER_PERSON);
                     assertThat(item.title()).isEqualTo(AppearanceRecruitFixture.content(clock.now()).title());
                 });
@@ -363,7 +365,7 @@ class AppearanceEarningQueryTest {
 
             assertThat(list(HOST, List.of(AppearanceEarningStatus.values()), null)).isEmpty();
             assertThat(list(GUEST2, null, null)).isEmpty();
-            AppearanceEarningSummaryResDto unknown = appearanceEarningFacade.summarize(999L, null);
+            AppearanceEarningSummaryDto unknown = appearanceEarningFacade.summarize(999L, null);
             assertThat(List.of(unknown.confirmationPending(), unknown.scheduled(), unknown.onHold(), unknown.processing(),
                     unknown.failed())).containsOnly(bucket(0, 0));
         }
@@ -391,14 +393,14 @@ class AppearanceEarningQueryTest {
         @DisplayName("요약 합계 = 기본 목록을 끝까지 넘긴 합계, 페이지끼리 중복·누락 없음 (2건씩)")
         void summaryMatchesAllPages() {
             allStates();
-            AppearanceEarningSummaryResDto summary = appearanceEarningFacade.summarize(GUEST, null);
+            AppearanceEarningSummaryDto summary = appearanceEarningFacade.summarize(GUEST, null);
             long summaryAmount = summary.confirmationPending().amountHp() + summary.onHold().amountHp()
                     + summary.processing().amountHp() + summary.failed().amountHp();
             long summaryCount = summary.confirmationPending().count() + summary.onHold().count()
                     + summary.processing().count() + summary.failed().count();
 
-            List<AppearanceEarningItemResDto> collected = new ArrayList<>();
-            Page<AppearanceEarningItemResDto> page = appearanceEarningFacade.find(GUEST, null, null, PageRequest.of(0, 2));
+            List<AppearanceEarningItemDto> collected = new ArrayList<>();
+            Page<AppearanceEarningItemDto> page = appearanceEarningFacade.find(GUEST, null, null, PageRequest.of(0, 2));
             collected.addAll(page.getContent());
             while (page.hasNext()) {
                 page = appearanceEarningFacade.find(GUEST, null, null, page.nextPageable());
@@ -407,9 +409,9 @@ class AppearanceEarningQueryTest {
 
             assertThat(page.getTotalElements()).isEqualTo(summaryCount);
             assertThat(collected).hasSize((int) summaryCount);
-            assertThat(collected.stream().map(AppearanceEarningItemResDto::sourceId).collect(Collectors.toSet()))
+            assertThat(collected.stream().map(AppearanceEarningItemDto::sourceId).collect(Collectors.toSet()))
                     .hasSize((int) summaryCount);
-            assertThat(collected.stream().mapToLong(AppearanceEarningItemResDto::amountHp).sum()).isEqualTo(summaryAmount);
+            assertThat(collected.stream().mapToLong(AppearanceEarningItemDto::amountHp).sum()).isEqualTo(summaryAmount);
         }
 
         @Test
@@ -424,9 +426,9 @@ class AppearanceEarningQueryTest {
             jdbcTemplate.update("update appearances.appearances set updated_at = ? where guest_id = ?", same, GUEST);
 
             List<Long> firstPage = appearanceEarningFacade.find(GUEST, null, null, PageRequest.of(0, 2)).getContent()
-                    .stream().map(AppearanceEarningItemResDto::sourceId).toList();
+                    .stream().map(AppearanceEarningItemDto::sourceId).toList();
             List<Long> secondPage = appearanceEarningFacade.find(GUEST, null, null, PageRequest.of(1, 2)).getContent()
-                    .stream().map(AppearanceEarningItemResDto::sourceId).toList();
+                    .stream().map(AppearanceEarningItemDto::sourceId).toList();
 
             List<Long> expected = ids.stream().sorted((a, b) -> Long.compare(b, a)).toList();
             assertThat(firstPage).containsExactlyElementsOf(expected.subList(0, 2));
@@ -441,11 +443,11 @@ class AppearanceEarningQueryTest {
         void ignoresRequestedSort() {
             allStates();
             List<Long> expected = appearanceEarningFacade.find(GUEST, null, null, ALL).getContent().stream()
-                    .map(AppearanceEarningItemResDto::sourceId).toList();
+                    .map(AppearanceEarningItemDto::sourceId).toList();
 
             for (Sort sort : List.of(Sort.by("statusUpdatedAt"), Sort.by(Sort.Direction.ASC, "fee"))) {
                 assertThat(appearanceEarningFacade.find(GUEST, null, null, PageRequest.of(0, 100, sort)).getContent())
-                        .as(sort.toString()).extracting(AppearanceEarningItemResDto::sourceId)
+                        .as(sort.toString()).extracting(AppearanceEarningItemDto::sourceId)
                         .containsExactlyElementsOf(expected);
             }
         }
@@ -463,7 +465,7 @@ class AppearanceEarningQueryTest {
             BillingStubs.available(billingClient);
 
             assertThat(list(GUEST, List.of(AppearanceEarningStatus.PROCESSING), null))
-                    .extracting(AppearanceEarningItemResDto::sourceId).containsExactly(later, earlier);
+                    .extracting(AppearanceEarningItemDto::sourceId).containsExactly(later, earlier);
         }
     }
 
