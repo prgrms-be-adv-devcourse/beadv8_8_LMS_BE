@@ -5,7 +5,6 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -29,10 +28,6 @@ import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
 /** 판매 수익 조회 (#300). 분류는 {@link LectureOrderRepository#EARNING_STATUS}가 하고, 여기서는 계약 DTO로 바꾼다 */
 @Component
 public class LectureEarningSupport {
-
-    /** 지급 예정 시각을 정할 수 없는 상태. 이 상태의 {@code payoutScheduledAt}은 {@code null}이다 */
-    private static final Set<LectureEarningStatus> UNSCHEDULED = Set.of(LectureEarningStatus.ON_HOLD,
-            LectureEarningStatus.FAILED, LectureEarningStatus.CANCELED);
 
     private final LectureOrderRepository lectureOrderRepository;
     private final Clock clock;
@@ -74,9 +69,9 @@ public class LectureEarningSupport {
 
     private static LectureEarningItemDto toItem(EarningRow row) {
         OrderItem item = row.item();
-        OffsetDateTime payoutScheduledAt = UNSCHEDULED.contains(row.status())
-                ? null
-                : toOffset(item.getPayoutScheduledAt());
+        OffsetDateTime payoutScheduledAt = row.status().hasPayoutSchedule()
+                ? toOffset(item.getPayoutScheduledAt())
+                : null;
         return new LectureEarningItemDto(LectureEarningItemDto.SOURCE_TYPE, item.getId(),
                 LectureEarningType.LECTURE_SALE, item.getLectureTitleSnapshot(), item.getPriceHp(), row.status(),
                 payoutScheduledAt, toOffset(row.statusUpdatedAt()));

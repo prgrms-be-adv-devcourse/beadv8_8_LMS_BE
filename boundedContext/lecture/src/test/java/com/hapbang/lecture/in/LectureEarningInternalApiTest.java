@@ -112,7 +112,7 @@ class LectureEarningInternalApiTest {
                 .andExpect(jsonPath("$.data.page.totalElements").value(2))
                 .andExpect(jsonPath("$.data.page.totalPages").value(2))
                 // 지급(now)이 구매 확정(now)과 같은 시각이면 항목 ID 역순이라 나중에 만든 지급 완료 항목이 먼저다
-                .andExpect(jsonPath("$.data.content[0].sourceType").value("LECTURE_ORDER_ITEM"))
+                .andExpect(jsonPath("$.data.content[0].sourceType").value("LECTURE"))
                 .andExpect(jsonPath("$.data.content[0].sourceId").value(itemId(paidOut)))
                 .andExpect(jsonPath("$.data.content[0].earningType").value("LECTURE_SALE"))
                 .andExpect(jsonPath("$.data.content[0].title").value(TITLE))
@@ -132,7 +132,7 @@ class LectureEarningInternalApiTest {
         LectureOrder onHold = save(now);
         inTransaction(onHold, order -> order.fileObjection(itemId(order), BUYER_ID, 500L, "내용이 다릅니다.", now));
         LectureOrder failed = confirmed(now.minusDays(32));
-        inTransaction(failed, order -> order.recordPayoutFailure(itemId(order), "WALLET_NOT_FOUND", false, now));
+        inTransaction(failed, order -> order.recordPayoutFailure(itemId(order), "PAYOUT_ALREADY_SETTLED", true, now));
         LectureOrder canceled = save(now);
         inTransaction(canceled, order -> order.cancelItem(itemId(order), now));
 

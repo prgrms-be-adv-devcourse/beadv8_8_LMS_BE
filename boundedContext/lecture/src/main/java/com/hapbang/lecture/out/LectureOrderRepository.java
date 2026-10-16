@@ -32,7 +32,7 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     String EARNING_ON_HOLD = "i.objectionStatus = com.hapbang.lecture.domain.ObjectionStatus.FILED";
     String EARNING_PURCHASED = "i.status = com.hapbang.lecture.domain.OrderItemStatus.PURCHASED";
     String EARNING_FAILED = "i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED "
-            + "and i.payoutFailureCount > 0";
+            + "and i.payoutQuarantinedAt is not null";
     String EARNING_DUE = "i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED "
             + "and i.payoutScheduledAt <= :now";
     String EARNING_CONFIRMED = "i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED";
@@ -40,8 +40,9 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
 
     /**
      * 판매 수익 상태 (#300). 요약·목록·필터가 모두 이 식 하나로 분류한다. 위에서부터 먼저 맞는 조건을 쓴다.
-     * 이의 제기 접수 중이면 구매 확정 전후와 관계없이 지급 중단, 실패 기록(격리 포함)이 있으면 실패다.
-     * 처리 중은 실패 기록이 없는 지급 대상이라 {@link #findPayoutDueItemIds}·{@code OrderItem.isPayable}과 같은 조건이다.
+     * 이의 제기 접수 중이면 구매 확정 전후와 관계없이 지급 중단(구매 취소도 막힌다, D44), 지급이 격리되었으면 실패다.
+     * 처리 중은 지급 대상이라 {@link #findPayoutDueItemIds}·{@code OrderItem.isPayable}과 같은 조건이다. 일시 실패와
+     * 격리 해제 뒤의 항목은 다음 지급 배치가 다시 시도하므로 처리 중이다 (D54).
      * 구매 취소·반환은 모두 {@code CANCELED}다. Hibernate가 매핑하지 않은 enum은 식의 결과로 쓸 수 없어
      * {@link LectureEarningStatus} 상수 이름 문자열을 낸다
      */
@@ -62,7 +63,7 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     String EARNING_STATUS_UPDATED_AT = "case "
             + "when " + EARNING_ON_HOLD + " then i.objectionFiledAt "
             + "when " + EARNING_PURCHASED + " then greatest(i.purchasedAt, coalesce(i.objectionResolvedAt, i.purchasedAt)) "
-            + "when " + EARNING_FAILED + " then i.lastPayoutFailedAt "
+            + "when " + EARNING_FAILED + " then i.payoutQuarantinedAt "
             + "when " + EARNING_DUE
             + " then greatest(i.payoutScheduledAt, coalesce(i.objectionResolvedAt, i.payoutScheduledAt)) "
             + "when " + EARNING_CONFIRMED + " then greatest(i.confirmedAt, coalesce(i.objectionResolvedAt, i.confirmedAt)) "

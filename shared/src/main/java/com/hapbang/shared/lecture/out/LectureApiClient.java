@@ -66,7 +66,7 @@ public class LectureApiClient {
     /**
      * 판매자의 판매 수익 목록. 상태 변경 최신순이다.
      *
-     * @param statuses 비어 있으면 아직 지급하지 않은 수익만
+     * @param statuses 비어 있거나 {@code null}이면 아직 지급하지 않은 수익만
      * @param page     페이지 번호 (0부터)
      * @param size     페이지 크기 (최대 100)
      */
@@ -75,7 +75,9 @@ public class LectureApiClient {
         return call(restClient.get()
                 .uri(builder -> {
                     builder.path(EARNINGS_PATH).queryParam("userId", sellerUserId);
-                    statuses.forEach(status -> builder.queryParam("status", status.name()));
+                    if (statuses != null) {
+                        statuses.forEach(status -> builder.queryParam("status", status.name()));
+                    }
                     return builder.queryParam("page", page).queryParam("size", size).build();
                 }), PAGE);
     }

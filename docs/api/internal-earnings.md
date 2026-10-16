@@ -29,8 +29,8 @@ billing #295(내 HP 거래 내역·지급 예정 요약)이 강의·출연의 **
 | `CONFIRMATION_PENDING` | 구매 확정 대기. 취소될 수 있다 | O (`confirmationPending`) |
 | `SCHEDULED` | 지급 예정. 확정되었고 지급 예정 시각 전 | O (`scheduled`) |
 | `ON_HOLD` | 지급 중단(이의 제기) | O (`onHold`) |
-| `PROCESSING` | 처리 중. 지급 예정 시각이 지나 다음 지급 처리에서 지급 | O (`processing`) |
-| `FAILED` | 지급 실패. 다시 시도하거나 관리자 조치를 기다린다 | O (`failed`) |
+| `PROCESSING` | 처리 중. 지급 예정 시각이 지나 다음 지급 처리에서 지급(일시 실패 뒤 재시도 포함) | O (`processing`) |
+| `FAILED` | 지급 실패. 다시 시도해도 풀리지 않아 지급이 격리되어 관리자 조치를 기다린다 | O (`failed`) |
 | `COMPLETED` | 지급 완료 | X |
 | `CANCELED` | 취소·반환되어 지급하지 않는다 | X |
 
@@ -63,7 +63,7 @@ billing #295(내 HP 거래 내역·지급 예정 요약)이 강의·출연의 **
 ```
 
 - 수익이 없는 상태도 `{0, 0}`으로 준다.
-- `asOf`는 분류 기준 시각이다(지급 예정 시각이 지났는지를 이 시각으로 판정한다).
+- `asOf`는 분류 기준 시각이다(지급 예정 시각이 지났는지를 이 시각으로 판정한다). #295 계약 코멘트의 요약 필드에 더한 필드라 무시해도 된다. 출연(#301)도 같은 필드를 둘지 맞춘다.
 - 오류: `userId` 없음 400 `INVALID_REQUEST`.
 
 ### 3.2 `GET /api/v1/internal/lectures/earnings`
@@ -73,7 +73,7 @@ billing #295(내 HP 거래 내역·지급 예정 요약)이 강의·출연의 **
 | 쿼리 | 필수 | 설명 |
 | --- | --- | --- |
 | `userId` | O | 판매자 회원 ID |
-| `status` | X | 여러 번 줄 수 있다(`status=SCHEDULED&status=FAILED`). **생략하면 아직 지급하지 않은 다섯 상태만**. `COMPLETED`·`CANCELED`는 지정해야 나온다 |
+| `status` | X | 여러 번 줄 수 있다(`status=SCHEDULED&status=FAILED`). **생략하면 아직 지급하지 않은 다섯 상태만**. `COMPLETED`·`CANCELED`는 지정해야 나온다. Client에 `null`·빈 목록을 주면 생략과 같다 |
 | `page`, `size` | X | 1장 공통 규칙 |
 
 ```json
@@ -83,7 +83,7 @@ billing #295(내 HP 거래 내역·지급 예정 요약)이 강의·출연의 **
   "data": {
     "content": [
       {
-        "sourceType": "LECTURE_ORDER_ITEM",
+        "sourceType": "LECTURE",
         "sourceId": 31,
         "earningType": "LECTURE_SALE",
         "title": "방송 장비 세팅 강의",
@@ -100,7 +100,7 @@ billing #295(내 HP 거래 내역·지급 예정 요약)이 강의·출연의 **
 
 | 필드 | 설명 |
 | --- | --- |
-| `sourceType` | 항상 `LECTURE_ORDER_ITEM`. billing 지급 원천(`SettlementSourceType`) 이름과 같아 지급 기록과 대조할 수 있다 |
+| `sourceType` | 항상 `LECTURE`(출연은 `APPEARANCE`, #295·티켓 5장). `sourceId`의 종류는 주문 항목이고, billing 지급 기록(`SettlementSourceType.LECTURE_ORDER_ITEM`)의 원천 ID와 같다 |
 | `sourceId` | 주문 항목 ID (지급 단위) |
 | `earningType` | 항상 `LECTURE_SALE` |
 | `title` | 주문 시점 강의 제목 |
@@ -117,10 +117,10 @@ billing #295(내 HP 거래 내역·지급 예정 요약)이 강의·출연의 **
 
 | 상태 | 강의 주문 항목 조건 | `statusUpdatedAt` |
 | --- | --- | --- |
-| `ON_HOLD` | 이의 제기 접수 중(`FILED`). 구매 확정 전후 모두 | 접수 시각 |
+| `ON_HOLD` | 이의 제기 접수 중(`FILED`). 구매 확정 전후 모두. 티켓 4장 표에는 구매 확정 뒤만 있지만, 접수되면 구매 취소가 막히고(D44) 지급도 멈추므로 구매 확정 전도 지급 중단으로 본다 | 접수 시각 |
 | `CONFIRMATION_PENDING` | `PURCHASED` | 구매 시각(이의 제기가 기각됐으면 기각 시각) |
-| `FAILED` | `CONFIRMED` + 지급 실패 기록 있음(격리 포함, 격리를 풀어도 지급될 때까지) | 마지막 실패 시각 |
-| `PROCESSING` | `CONFIRMED` + 지급 예정 시각 지남. 매일 01:00 지급 배치 대상과 같다 | 지급 예정 시각(그 뒤에 기각됐으면 기각 시각) |
+| `FAILED` | `CONFIRMED` + 지급 격리됨(다시 시도해도 풀리지 않는 실패, D54) | 격리 시각 |
+| `PROCESSING` | `CONFIRMED` + 지급 예정 시각 지남 + 격리 안 됨. 매일 01:00 지급 배치 대상(`findPayoutDueItemIds`)과 같다. 일시 실패(지갑 없음 등)와 격리 해제 뒤의 항목도 다음 배치가 다시 시도하므로 여기다 | 지급 예정 시각(그 뒤에 기각됐으면 기각 시각) |
 | `SCHEDULED` | `CONFIRMED` + 지급 예정 시각 전 | 구매 확정 시각(이의 제기가 기각됐으면 기각 시각) |
 | `COMPLETED` | `PAID_OUT` | 지급 시각 |
 | `CANCELED` | `CANCELED`(구매 취소) · `RETURNED`(이의 제기 인정 반환) | 취소 시각 · 반환 시각 |
@@ -157,7 +157,8 @@ LectureEarningPageDto getEarnings(long sellerUserId, Collection<LectureEarningSt
 | 한계 | 이유 |
 | --- | --- |
 | 구매 취소와 반환이 같은 `CANCELED`다 | 공통 상태에 반환이 따로 없다. 나눠 보여야 하면 공통 계약에 필드를 더하고 출연과 다시 맞춘다 |
-| 이의 제기 철회·격리 해제는 `statusUpdatedAt`이 바뀌지 않는다 | 강의 항목에 그 시각이 남지 않는다(D52·D54) |
+| 이의 제기 철회·격리 해제는 `statusUpdatedAt`이 바뀌지 않는다(격리 해제된 항목은 지급 예정 시각으로 보인다) | 강의 항목에 그 시각이 남지 않는다(D52·D54) |
+| 일시 실패한 항목은 실패가 아니라 처리 중으로 보인다 | 다음 배치가 자동으로 다시 시도한다. 실패 횟수·코드는 관리자 API(`/admin/payout-failures`)에서 본다 |
 | offset 페이지라 조회하는 동안 상태가 바뀌면 항목이 페이지 사이에서 중복되거나 빠질 수 있다 | 정렬 키(`statusUpdatedAt`)가 상태 변경으로 바뀐다. 커서 페이지는 이번 범위 밖이다 |
 | 요약과 목록은 같은 시점의 값이 아니다 | 호출이 두 번이라 그 사이 지급 배치 등이 돌 수 있다. 요약의 `asOf`로 기준 시각을 알 수 있다 |
 | 분류가 deprecated 컬럼(D54의 지급 실패 기록)에 기댄다 | HP 작업 전환(#277·#268)을 재개하면 `PAYOUT_PENDING`→`PROCESSING`, 작업 `DEAD`→`FAILED`로 다시 대응시킨다. 상태 이름은 그대로다 |

@@ -80,15 +80,15 @@ class LectureEarningRepositoryTest {
         LectureOrder failedOnce = confirmed(DUE_PURCHASE, 1_000L);
         failedOnce.recordPayoutFailure(itemId(failedOnce), "WALLET_NOT_FOUND", false, NOW_AT.minusDays(1));
         confirmed(NOT_DUE_PURCHASE, 1_000L);
+        LectureOrder quarantined = confirmed(DUE_PURCHASE, 1_000L);
+        quarantined.recordPayoutFailure(itemId(quarantined), "PAYOUT_ALREADY_SETTLED", true, NOW_AT.minusDays(1));
         flushAndClear();
 
-        List<Long> processing = itemIds(PROCESSING);
-
-        // 지급 배치 대상 중 실패 기록이 없는 항목이 처리 중이다. 실패 기록이 있는 항목은 실패로 보인다
-        assertThat(processing).containsExactlyInAnyOrder(due, sameDueLater, itemId(rejected));
-        assertThat(lectureOrderRepository.findPayoutDueItemIds(NOW_AT))
-                .containsExactlyInAnyOrder(due, sameDueLater, itemId(rejected), itemId(failedOnce));
-        assertThat(itemIds(FAILED)).containsExactly(itemId(failedOnce));
+        // 처리 중은 지급 배치 대상과 같다. 일시 실패한 항목도 다음 배치가 다시 시도하므로 처리 중이고, 격리된 항목만 빠진다
+        assertThat(itemIds(PROCESSING))
+                .containsExactlyInAnyOrder(due, sameDueLater, itemId(rejected), itemId(failedOnce))
+                .containsExactlyInAnyOrderElementsOf(lectureOrderRepository.findPayoutDueItemIds(NOW_AT));
+        assertThat(itemIds(FAILED)).containsExactly(itemId(quarantined));
     }
 
     @Test
@@ -117,18 +117,18 @@ class LectureEarningRepositoryTest {
     }
 
     @Test
-    void 지급_실패_기록이_있으면_격리_여부와_관계없이_실패다() {
+    void 격리된_항목만_실패이고_일시_실패와_격리_해제는_처리_중이다() {
         LectureOrder failedOnce = confirmed(DUE_PURCHASE, 1_000L);
         failedOnce.recordPayoutFailure(itemId(failedOnce), "WALLET_NOT_FOUND", false, NOW_AT.minusDays(2));
         LectureOrder quarantined = confirmed(DUE_PURCHASE, 2_000L);
         quarantined.recordPayoutFailure(itemId(quarantined), "PAYOUT_ALREADY_SETTLED", true, NOW_AT.minusDays(2));
-        // 격리를 풀어도 실패 기록은 남아 다음 지급까지 실패로 보인다 (D54)
+        // 격리를 풀면 다음 지급 배치가 다시 시도한다 (D54)
         LectureOrder released = confirmed(DUE_PURCHASE, 4_000L);
         released.recordPayoutFailure(itemId(released), "PAYOUT_ALREADY_SETTLED", true, NOW_AT.minusDays(2));
         released.releasePayoutQuarantine(itemId(released));
         flushAndClear();
 
-        assertThat(summary()).containsOnly(entry(FAILED, total(3, 7_000L)));
+        assertThat(summary()).containsOnly(entry(FAILED, total(1, 2_000L)), entry(PROCESSING, total(2, 5_000L)));
     }
 
     @Test
@@ -196,7 +196,7 @@ class LectureEarningRepositoryTest {
     void 지정한_상태의_항목만_나온다() {
         Long scheduled = itemId(confirmed(NOT_DUE_PURCHASE, 1_000L));
         LectureOrder failed = confirmed(DUE_PURCHASE, 1_000L);
-        failed.recordPayoutFailure(itemId(failed), "WALLET_NOT_FOUND", false, NOW_AT.minusDays(1));
+        failed.recordPayoutFailure(itemId(failed), "PAYOUT_ALREADY_SETTLED", true, NOW_AT.minusDays(1));
         purchased(RECENT_PURCHASE, 1_000L);
         LectureOrder paidOut = confirmed(DUE_PURCHASE, 1_000L);
         paidOut.payOutItem(itemId(paidOut), NOW_AT.minusDays(1));
@@ -233,7 +233,7 @@ class LectureEarningRepositoryTest {
         fileObjection(onHold, filedAt);
         LocalDateTime failedAt = NOW_AT.minusDays(1);
         LectureOrder failed = confirmed(DUE_PURCHASE, 1_000L);
-        failed.recordPayoutFailure(itemId(failed), "WALLET_NOT_FOUND", false, failedAt);
+        failed.recordPayoutFailure(itemId(failed), "PAYOUT_ALREADY_SETTLED", true, failedAt);
         LocalDateTime paidOutAt = NOW_AT.minusDays(2);
         LectureOrder completed = confirmed(DUE_PURCHASE, 1_000L);
         completed.payOutItem(itemId(completed), paidOutAt);

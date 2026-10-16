@@ -89,7 +89,7 @@ class LectureApiClientTest {
     void 목록_조회는_상태_여러_개와_페이지를_쿼리로_보낸다() {
         respond(200, "application/json", """
                 {"statusCode":200,"message":"판매 수익 목록을 조회했습니다.","data":{
-                  "content":[{"sourceType":"LECTURE_ORDER_ITEM","sourceId":31,"earningType":"LECTURE_SALE",
+                  "content":[{"sourceType":"LECTURE","sourceId":31,"earningType":"LECTURE_SALE",
                     "title":"방송 장비 세팅 강의","amountHp":10000,"status":"FAILED",
                     "statusUpdatedAt":"2026-11-04T01:00:00+09:00"}],
                   "page":{"size":20,"number":1,"totalElements":21,"totalPages":2}}}""");
@@ -108,6 +108,16 @@ class LectureApiClientTest {
             assertThat(item.payoutScheduledAt()).isNull();
             assertThat(item.statusUpdatedAt()).isEqualTo(OffsetDateTime.parse("2026-11-04T01:00:00+09:00"));
         });
+    }
+
+    @Test
+    void 상태를_null로_주면_상태_조건_없이_보낸다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"content":[],
+                 "page":{"size":20,"number":0,"totalElements":0,"totalPages":0}}}""");
+
+        assertThat(client().getEarnings(7L, null, 0, 20).content()).isEmpty();
+        assertThat(requests).containsExactly("/api/v1/internal/lectures/earnings?userId=7&page=0&size=20 key=" + API_KEY);
     }
 
     @Test

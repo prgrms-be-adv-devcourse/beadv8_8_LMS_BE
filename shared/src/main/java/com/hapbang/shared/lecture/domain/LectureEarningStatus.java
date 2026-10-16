@@ -14,9 +14,9 @@ public enum LectureEarningStatus {
     SCHEDULED,
     /** 지급 중단(이의 제기). 판단 결과에 따라 지급하거나 구매자에게 반환한다 */
     ON_HOLD,
-    /** 처리 중. 지급 예정 시각이 지나 다음 지급 배치에서 지급한다 */
+    /** 처리 중. 지급 예정 시각이 지나 다음 지급 배치에서 지급한다(일시 실패 뒤 재시도 포함) */
     PROCESSING,
-    /** 지급 실패. 다음 지급 배치가 다시 시도하거나 관리자 조치를 기다린다 */
+    /** 지급 실패. 다시 시도해도 풀리지 않는 실패라 지급이 격리되어 관리자 조치를 기다린다 */
     FAILED,
     /** 지급 완료 */
     COMPLETED,
@@ -26,5 +26,10 @@ public enum LectureEarningStatus {
     /** 아직 지급하지 않은 수익인지. 요약은 이 상태만 합한다 */
     public boolean isUnpaid() {
         return this != COMPLETED && this != CANCELED;
+    }
+
+    /** 지급 예정 시각을 정할 수 있는지. 지급 중단·실패·취소는 언제 지급할지 알 수 없어 {@code payoutScheduledAt}이 없다 */
+    public boolean hasPayoutSchedule() {
+        return this != ON_HOLD && this != FAILED && this != CANCELED;
     }
 }

@@ -27,8 +27,8 @@ public interface ApiV1LectureEarningInternalSpec {
             - `CONFIRMATION_PENDING`: 구매 확정 대기. 구매 취소될 수 있다
             - `SCHEDULED`: 지급 예정. 구매 확정, 지급 예정 시각 전
             - `ON_HOLD`: 지급 중단(이의 제기 접수 중)
-            - `PROCESSING`: 처리 중. 지급 예정 시각이 지나 다음 지급 배치(매일 01:00)에서 지급
-            - `FAILED`: 지급 실패(재시도 대기 또는 관리자 조치 필요)
+            - `PROCESSING`: 처리 중. 지급 예정 시각이 지나 다음 지급 배치(매일 01:00)에서 지급(일시 실패 뒤 재시도 포함)
+            - `FAILED`: 지급 실패. 지급이 격리되어 관리자 조치 필요
             - `COMPLETED`: 지급 완료
             - `CANCELED`: 구매 취소 또는 이의 제기 인정 반환""";
 

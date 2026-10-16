@@ -15,7 +15,7 @@ import com.hapbang.shared.lecture.domain.LectureEarningType;
  * @param title             주문 시점 강의 제목
  * @param amountHp          받을 금액 (주문 시점 가격, HP)
  * @param status            지급 진행 상태
- * @param payoutScheduledAt 지급 예정 시각. 지급 중단·실패·취소처럼 시각을 정할 수 없으면 {@code null}
+ * @param payoutScheduledAt 지급 예정 시각. 시각을 정할 수 없으면({@link LectureEarningStatus#hasPayoutSchedule()}) {@code null}
  * @param statusUpdatedAt   지금 상태가 된 시각
  */
 public record LectureEarningItemDto(
@@ -39,6 +39,6 @@ public record LectureEarningItemDto(
         Objects.requireNonNull(statusUpdatedAt, "statusUpdatedAt은 필수입니다.");
     }
 
-    /** 지급 원천 이름과 같다 (billing {@code SettlementSourceType.LECTURE_ORDER_ITEM}) */
-    public static final String SOURCE_TYPE = "LECTURE_ORDER_ITEM";
+    /** 수익 출처. 출연은 {@code APPEARANCE}다 (#295). {@code sourceId}는 주문 항목 ID다 */
+    public static final String SOURCE_TYPE = "LECTURE";
 }
