@@ -54,6 +54,9 @@ class MemberConcurrentUpdateIntegrationTest {
         inNewTransaction(() -> memberUpdateProfileUseCase.update(user.getId(), "새닉네임"));
 
         assertThat(find(user).getVersion()).isEqualTo(1L);
+        // 이벤트에도 올라간 버전이 담긴다 (flush 뒤 발행)
+        assertThat(events.stream(UserModifiedEvent.class)).singleElement()
+                .satisfies(event -> assertThat(event.user().version()).isEqualTo(1L));
     }
 
     @Test

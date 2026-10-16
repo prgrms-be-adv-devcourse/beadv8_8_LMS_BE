@@ -58,8 +58,8 @@ public class User extends SourceUser {
         changeProfile(getNickname(), role, getStatus());
     }
 
-    /** 다른 모듈에 넘길 회원 정보 */
+    /** 다른 모듈에 넘길 회원 정보. 버전은 flush 뒤에 불러야 올라간 값이 담긴다 (MemberSupport.flush) */
     public UserDto toDto() {
-        return new UserDto(getId(), getNickname(), getRole(), getStatus());
+        return new UserDto(getId(), getNickname(), getRole(), getStatus(), version);
     }
 }
