@@ -42,7 +42,7 @@ class ChatMessageUseCaseTest {
 
     @Test
     void 참여자가_보내면_두_사람_모두에게_전달되고_상대만_알림을_받는다() {
-        SentChatMessage sent = chatMessageUseCase.send(chatRoomId, HOST_ID, "다음 주 금요일 어떠세요?");
+        SentChatMessage sent = chatMessageUseCase.send(chatRoomId, HOST_ID, "다음 주 금요일 어떠세요?", null);
 
         assertThat(sent.message().messageId()).isNotNull();
         assertThat(sent.message().roomSequence()).isEqualTo(1);
@@ -55,7 +55,7 @@ class ChatMessageUseCaseTest {
     void 상대가_나간_동안에는_메시지를_보낼_수_없다() {
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "아직 계세요?"))
+        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "아직 계세요?", null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_PARTNER_LEFT);
     }
@@ -65,14 +65,14 @@ class ChatMessageUseCaseTest {
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
         chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
 
-        SentChatMessage sent = chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 이야기해요");
+        SentChatMessage sent = chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 이야기해요", null);
 
         assertThat(sent.notifyUserIds()).containsExactly(GUEST_ID);
     }
 
     @Test
     void 참여자가_아니면_메시지를_보낼_수_없다() {
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, OTHER_INFLUENCER_ID, "끼어들기"))
+        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, OTHER_INFLUENCER_ID, "끼어들기", null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
     }
@@ -81,7 +81,7 @@ class ChatMessageUseCaseTest {
     void 나간_방에는_메시지를_보낼_수_없다() {
         chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
 
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔어요"))
+        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔어요", null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
     }
@@ -91,7 +91,7 @@ class ChatMessageUseCaseTest {
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
         chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
 
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕"))
+        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕", null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_ROOM_NOT_FOUND);
     }
@@ -100,7 +100,7 @@ class ChatMessageUseCaseTest {
     void 일반_유저로_강등된_참여자는_보내지도_조회하지도_못한다() {
         chatUserUseCase.update(activeUser(HOST_ID, "호스트", Role.USER));
 
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요"))
+        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_NOT_ALLOWED);
         assertThatThrownBy(() -> chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 30))
@@ -110,7 +110,7 @@ class ChatMessageUseCaseTest {
 
     @Test
     void 빈_메시지는_보낼_수_없다() {
-        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "  "))
+        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "  ", null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.EMPTY_MESSAGE);
     }
@@ -118,7 +118,7 @@ class ChatMessageUseCaseTest {
     @Test
     void 메시지를_최신순으로_순번_커서_페이지_조회한다() {
         for (int i = 1; i <= 5; i++) {
-            chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지" + i);
+            chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지" + i, null);
         }
 
         ChatMessagePageResponse first = chatMessageSupporter.getMessages(chatRoomId, GUEST_ID, null, 3);
@@ -135,11 +135,11 @@ class ChatMessageUseCaseTest {
     // 수용 테스트 4: 재입장 뒤 새 메시지는 양쪽에 보이고, 오래된 cursor를 보내도 이전 기록은 나오지 않는다.
     @Test
     void 재입장한_사람은_오래된_커서로도_재입장_이전_메시지를_볼_수_없다() {
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "나가기 전 메시지");
-        chatMessageUseCase.send(chatRoomId, GUEST_ID, "저도 나가기 전");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "나가기 전 메시지", null);
+        chatMessageUseCase.send(chatRoomId, GUEST_ID, "저도 나가기 전", null);
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
         chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
-        chatMessageUseCase.send(chatRoomId, GUEST_ID, "다시 왔어요");
+        chatMessageUseCase.send(chatRoomId, GUEST_ID, "다시 왔어요", null);
 
         assertThat(chatMessageSupporter.getMessages(chatRoomId, GUEST_ID, null, 30).messages())
                 .extracting(ChatMessageResponse::content)

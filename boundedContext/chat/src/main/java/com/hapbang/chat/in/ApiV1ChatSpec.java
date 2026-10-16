@@ -27,7 +27,9 @@ import jakarta.validation.constraints.Min;
         1:1 채팅방과 메시지 이력. 인플루언서 이상 또는 관리자만 쓸 수 있다.
         실시간 송수신은 STOMP라 여기에 없다: 연결 `/api/v1/chats/ws`, 보내기 `/pub/chats/{chatRoomId}/messages`,
         받기 `/user/queue/chats/messages`(메시지)·`/user/queue/chats/notifications`(새 메시지 알림)·`/user/queue/chats/errors`(오류).
-        보낼 때 `clientMessageId`(선택, 64자 이하)를 붙이면 전달되는 메시지와 오류에 그대로 돌려준다.
+        보낼 때 `clientMessageId`(선택, 64자 이하)를 붙이면 보낸 사람에게 전달되는 메시지와 오류에 그대로 돌려준다.
+        같은 방에서 같은 `clientMessageId`로 다시 보내면 새로 저장하지 않고 기존 메시지를 보낸 사람에게만 다시 보낸다(알림 없음).
+        `clientMessageId`는 보낸 사람 본인 메시지에만 담긴다(실시간 전달·메시지 이력·방 목록의 마지막 메시지).
         출연 요청 도착·모집 지원 도착은 호스트-게스트 1:1 방에 알림 메시지(`messageType: NOTIFICATION`)로 온다.
         `notificationKind`와 `referenceId`·`parentReferenceId`로 출연 건을 찾는다:
         APPEARANCE_REQUEST_SENT는 `referenceId` = 요청서 ID, APPEARANCE_APPLICATION_SUBMITTED는 `referenceId` = 지원 ID·`parentReferenceId` = 모집글 ID.""")
@@ -68,7 +70,14 @@ public interface ApiV1ChatSpec {
             @Parameter(description = "참여 세대. 보내면 지연 도착한 옛 요청이 재입장한 참여를 끝내지 않는다")
             Integer participationVersion);
 
-    @Operation(summary = "채팅 기록 조회 (관리자)",
-            description = "분쟁 확인용. 종료된 방과 참여자별로 숨겨진 메시지까지 포함한다. 관리자만 쓸 수 있다.")
-    RsData<ChatRoomHistoryResponse> getHistory(Long userId, Long chatRoomId);
+    @Operation(summary = "채팅 기록 조회 (관리자)", description = """
+            분쟁 확인용. 종료된 방과 참여자별로 숨겨진 메시지까지 포함한다. 관리자만 쓸 수 있다.
+            메시지와 입퇴장 기록을 하나의 시간순 흐름(시각, 같은 시각이면 기록 → 메시지)으로 보고 오래된 것부터 나눠 준다.
+            `logs`·`messages`는 이 페이지 구간의 항목이고, 다음 페이지는 응답의 `nextCursor`를 `cursor`로 보낸다.
+            `nextCursor`가 null이면 마지막 페이지다. 형식이 틀린 커서는 400(INVALID_REQUEST).""")
+    RsData<ChatRoomHistoryResponse> getHistory(Long userId, Long chatRoomId,
+            @Parameter(description = "이전 응답의 nextCursor. 없으면 처음부터") String cursor,
+            @Parameter(description = "페이지 크기 (기본 30, 기록과 메시지를 합친 개수)")
+            @Min(value = 1, message = "size는 1 이상이어야 합니다.")
+            @Max(value = MAX_PAGE_SIZE, message = "size는 " + MAX_PAGE_SIZE + " 이하여야 합니다.") int size);
 }

@@ -2,9 +2,11 @@ package com.hapbang.chat.in;
 
 import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.*;
 
 import java.lang.reflect.Type;
 import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
@@ -28,6 +30,7 @@ import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHttpHeaders;
@@ -49,8 +52,12 @@ import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
+import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.global.response.RsData;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.dto.UserDto;
+import com.hapbang.shared.member.event.UserModifiedEvent;
 
 /**
  * 실제 서버를 띄워 STOMP(WebSocketStompClient)로 채팅 흐름을 검증한다.
@@ -69,6 +76,12 @@ class ChatStompE2ETest {
 
     @Autowired
     private ConfigurableApplicationContext applicationContext;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private ChatUserRepository chatUserRepository;
 
     private RestTestClient client;
     private WebSocketStompClient stompClient;
@@ -116,7 +129,8 @@ class ChatStompE2ETest {
         assertThat(received.content()).isEqualTo("금요일 밤 9시 괜찮으세요?");
         assertThat(received.senderUserId()).isEqualTo(HOST_ID);
         assertThat(received.roomSequence()).isEqualTo(1);
-        assertThat(received.clientMessageId()).isEqualTo("client-1");
+        // 전송 ID는 보낸 사람에게만 담긴다 (#261)
+        assertThat(received.clientMessageId()).isNull();
         assertThat(hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS))
                 .extracting(ChatMessageResponse::messageId, ChatMessageResponse::clientMessageId)
                 .containsExactly(received.messageId(), "client-1");
@@ -128,6 +142,35 @@ class ChatStompE2ETest {
         assertThat(hostNotifications.poll(500, TimeUnit.MILLISECONDS)).isNull();
 
         assertThat(messageContents(chatRoomId, GUEST_ID)).containsExactly("금요일 밤 9시 괜찮으세요?");
+    }
+
+    @Test
+    void 같은_전송_ID로_다시_보내면_보낸_사람에게만_기존_메시지가_다시_가고_상대는_한_번만_받는다() throws Exception {
+        Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
+        StompSession host = connect(HOST_ID);
+        StompSession guest = connect(GUEST_ID);
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
+                ChatMessageResponse.class);
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
+                ChatMessageResponse.class);
+        BlockingQueue<ChatNotification> guestNotifications = subscribe(guest,
+                "/user/queue/chats/notifications", ChatNotification.class);
+        waitForSubscriptions();
+
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("안녕하세요", "client-1"));
+        ChatMessageResponse first = hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("안녕하세요", "client-1"));
+        ChatMessageResponse resent = hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+        assertThat(first).isNotNull();
+        assertThat(resent).isNotNull();
+        assertThat(resent.messageId()).isEqualTo(first.messageId());
+        assertThat(resent.clientMessageId()).isEqualTo("client-1");
+        assertThat(guestMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+        assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(guestNotifications.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
+        assertThat(guestNotifications.poll(500, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(messageContents(chatRoomId, GUEST_ID)).containsExactly("안녕하세요");
     }
 
     @Test
@@ -310,6 +353,66 @@ class ChatStompE2ETest {
     }
 
     @Test
+    void 로그아웃하면_그_세션의_연결만_닫히고_다른_기기_연결은_유지된다() throws Exception {
+        E2ESession loggingOut = E2ESession.login(client, HOST_ID, Role.INFLUENCER);
+        StompSession closing = connectWith(loggingOut, new StompEvents());
+        StompSession otherDevice = connect(HOST_ID);
+
+        CloseStatus closeStatus = closeStatusOf(HOST_ID, () -> client.post().uri("/api/v1/members/logout")
+                .headers(loggingOut::applyTo)
+                .exchange()
+                .expectStatus().isOk());
+
+        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
+        assertThat(closeStatus.getReason()).isEqualTo("LOGGED_OUT");
+        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS)).until(() -> !closing.isConnected());
+        assertThat(otherDevice.isConnected()).isTrue();
+        assertThatThrownBy(() -> connectWith(loggingOut, new StompEvents())).isInstanceOf(ExecutionException.class);
+    }
+
+    @Test
+    void 채팅할_수_없게_강등되면_그_회원의_모든_연결이_닫힌다() throws Exception {
+        StompSession first = connect(HOST_ID);
+        StompSession second = connect(HOST_ID);
+
+        CloseStatus closeStatus = closeStatusOf(HOST_ID,
+                () -> publishModified(activeUser(HOST_ID, "호스트", Role.USER)));
+
+        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
+        assertThat(closeStatus.getReason()).isEqualTo("CHAT_NOT_ALLOWED");
+        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS))
+                .until(() -> !first.isConnected() && !second.isConnected());
+    }
+
+    // 회원 변경 이벤트는 프로필 수정에도 온다. 채팅할 수 있는 회원의 프로필 수정으로 소켓을 닫지 않는다
+    @Test
+    void 프로필_수정처럼_채팅_가능_여부가_그대로인_변경은_연결을_유지한다() throws Exception {
+        StompSession host = connect(HOST_ID);
+
+        publishModified(activeUser(HOST_ID, "새닉네임", Role.INFLUENCER));
+
+        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS)).until(() -> chatUserRepository.findById(HOST_ID)
+                .map(user -> user.getNickname().equals("새닉네임")).orElse(false));
+        assertThat(host.isConnected()).isTrue();
+    }
+
+    @Test
+    void 정지된_회원은_세션_역할이_인플루언서여도_연결할_수_없다() throws Exception {
+        chatUserUseCase.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, UserStatus.SUSPENDED));
+        StompEvents events = new StompEvents();
+
+        CloseStatus closeStatus = closeStatusOf(HOST_ID, () -> {
+            try {
+                connect(HOST_ID, Role.INFLUENCER, events);
+            } catch (ExecutionException | TimeoutException rejected) {
+                // 연결 거절은 연결 종료로 확인한다
+            }
+        });
+
+        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+    }
+
+    @Test
     void 회원_큐가_아닌_경로는_구독할_수_없다() throws Exception {
         BlockingQueue<CloseStatus> outsiderDisconnects = new LinkedBlockingQueue<>();
         ApplicationListener<SessionDisconnectEvent> disconnectListener = event -> {
@@ -401,14 +504,22 @@ class ChatStompE2ETest {
         }
     }
 
+    private void publishModified(UserDto user) {
+        transactionTemplate.executeWithoutResult(status -> applicationContext.publishEvent(new UserModifiedEvent(user)));
+    }
+
     @FunctionalInterface
     private interface ThrowingRunnable {
         void run() throws Exception;
     }
 
     private StompSession connect(Long userId, Role role, StompEvents events) throws Exception {
+        return connectWith(E2ESession.login(client, userId, role), events);
+    }
+
+    private StompSession connectWith(E2ESession login, StompEvents events) throws Exception {
         WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
-        handshakeHeaders.add(HttpHeaders.COOKIE, E2ESession.login(client, userId, role).cookieHeader());
+        handshakeHeaders.add(HttpHeaders.COOKIE, login.cookieHeader());
         StompSessionHandlerAdapter handler = new StompSessionHandlerAdapter() {
             @Override
             public Type getPayloadType(StompHeaders headers) {

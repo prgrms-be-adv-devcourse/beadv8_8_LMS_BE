@@ -454,6 +454,64 @@ class AppearanceApplicationFacadeTest {
         }
 
         @Test
+        @DisplayName("내 지원 목록 각 행에 모집글의 현재 제목·방송 예정 일시·상태 (제목 수정·모집 취소가 그대로 보인다) (#243)")
+        void mineWithRecruit() {
+            Long recruitA = postRecruit(3);
+            Long recruitB = postRecruit(3);
+            apply(GUEST, recruitA);
+            apply(GUEST, recruitB);
+            appearanceRecruitFacade.updateBasicInfo(HOST, recruitA, "제목 바꿈", null, null);
+            appearanceRecruitFacade.cancel(HOST, recruitB, false, null);
+            AppearanceRecruitResDto a = appearanceRecruitFacade.getDetail(HOST, recruitA);
+
+            List<AppearanceApplicationResDto> mine = appearanceApplicationFacade.getMine(GUEST, null, FIRST_PAGE)
+                    .getContent();
+
+            assertThat(mine).extracting(row -> row.recruitId() + ":" + row.recruitTitle() + ":" + row.recruitStatus())
+                    .containsExactly(recruitB + ":주말 게임 합방 게스트 모집:CANCELED",
+                            recruitA + ":제목 바꿈:RECRUITING");
+            assertThat(mine.get(1).recruitScheduledAt()).isEqualTo(a.scheduledAt());
+        }
+
+        @Test
+        @DisplayName("지원자 목록·지원·수락 응답에도 모집글 제목이 담긴다 (#243)")
+        void recruitTitleInOtherResponses() {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto applied = apply(GUEST, recruitId);
+            AppearanceApplicationResDto accepted = appearanceApplicationFacade.accept(HOST, applied.id());
+
+            assertThat(applied.recruitTitle()).isEqualTo("주말 게임 합방 게스트 모집");
+            assertThat(accepted.recruitTitle()).isEqualTo("주말 게임 합방 게스트 모집");
+            assertThat(appearanceApplicationFacade.getApplicants(HOST, recruitId, null, FIRST_PAGE).getContent())
+                    .extracting(AppearanceApplicationResDto::recruitTitle).containsExactly("주말 게임 합방 게스트 모집");
+        }
+
+        @Test
+        @DisplayName("모집글 상세의 내 지원: 지원한 게스트는 상태 그대로(대기·수락+출연 ID·취소), 지원 안 한 회원·호스트는 null (#243)")
+        void myApplicationInDetail() {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto applied = apply(GUEST, recruitId);
+            AppearanceApplicationResDto toWithdraw = apply(GUEST2, recruitId);
+
+            AppearanceApplicationResDto pending = appearanceRecruitFacade.getDetail(GUEST, recruitId).myApplication();
+            assertThat(pending.id()).isEqualTo(applied.id());
+            assertThat(pending.status()).isEqualTo(AppearanceApplicationStatus.APPLIED);
+            assertThat(pending.message()).isEqualTo("지원합니다.");
+            assertThat(pending.appearanceId()).isNull();
+
+            AppearanceApplicationResDto accepted = appearanceApplicationFacade.accept(HOST, applied.id());
+            appearanceApplicationFacade.withdraw(GUEST2, toWithdraw.id());
+            AppearanceApplicationResDto selected = appearanceRecruitFacade.getDetail(GUEST, recruitId).myApplication();
+            assertThat(selected.status()).isEqualTo(AppearanceApplicationStatus.SELECTED);
+            assertThat(selected.appearanceId()).isEqualTo(accepted.appearanceId());
+            assertThat(appearanceRecruitFacade.getDetail(GUEST2, recruitId).myApplication().status())
+                    .isEqualTo(AppearanceApplicationStatus.WITHDRAWN);
+
+            assertThat(appearanceRecruitFacade.getDetail(GUEST3, recruitId).myApplication()).isNull();
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).myApplication()).isNull();
+        }
+
+        @Test
         @DisplayName("모집글 목록·상세의 지원자 수는 취소만 빼고 센다 (대기·수락·미선정)")
         void applicantCountInRecruit() {
             Long recruitId = postRecruit(3);

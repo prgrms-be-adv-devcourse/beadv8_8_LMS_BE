@@ -1,7 +1,9 @@
 package com.hapbang.chat.out;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -56,11 +58,31 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     List<ChatRoomUnreadCount> countUnread(@Param("userId") Long userId,
             @Param("chatRoomIds") Collection<Long> chatRoomIds);
 
+    /** 같은 전송 ID로 이미 저장한 메시지 (재전송 확인) */
+    Optional<ChatMessage> findByChatRoom_IdAndSenderUserIdAndClientMessageId(Long chatRoomId, Long senderUserId,
+            String clientMessageId);
+
     /** 같은 출연 이벤트로 이미 알림을 남겼는지 */
     boolean existsByNotificationKindAndReferenceId(NotificationKind notificationKind, Long referenceId);
 
-    /**
-     * 관리자 기록 조회용. 참여자별 조회 범위와 Soft Delete 여부와 관계없이 모두 조회한다.
-     */
+    /** 방의 모든 메시지 (Soft Delete 포함, 순번 순서) */
     List<ChatMessage> findByChatRoom_IdOrderByRoomSequenceAsc(Long chatRoomId);
+
+    /**
+     * 관리자 기록 조회 첫 페이지. 참여자별 조회 범위와 Soft Delete 여부와 관계없이 (보낸 시각, ID) 순서로 조회한다.
+     */
+    List<ChatMessage> findByChatRoom_IdOrderBySentAtAscIdAsc(Long chatRoomId, Limit limit);
+
+    /**
+     * 관리자 기록 조회 다음 페이지. 커서 시각 이후이거나, 같은 시각이면 {@code idAfter}보다 큰 메시지 (#263).
+     * 행 비교로 써야 (chat_room_id, sent_at, id) 인덱스의 범위 조건이 되어 커서 앞 항목을 다시 훑지 않는다.
+     */
+    @Query("""
+            select m from ChatMessage m
+            where m.chatRoom.id = :chatRoomId
+              and (m.sentAt, m.id) > (:at, :idAfter)
+            order by m.sentAt asc, m.id asc
+            """)
+    List<ChatMessage> findHistoryAfter(@Param("chatRoomId") Long chatRoomId, @Param("at") LocalDateTime at,
+            @Param("idAfter") long idAfter, Limit limit);
 }

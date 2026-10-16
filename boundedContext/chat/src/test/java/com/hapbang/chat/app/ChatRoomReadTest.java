@@ -49,9 +49,9 @@ class ChatRoomReadTest {
 
     @Test
     void 상대가_보낸_메시지만_안_읽은_수로_센다() {
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요");
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "출연 문의드려요");
-        chatMessageUseCase.send(chatRoomId, GUEST_ID, "네 말씀하세요");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "출연 문의드려요", null);
+        chatMessageUseCase.send(chatRoomId, GUEST_ID, "네 말씀하세요", null);
 
         ChatRoomResponse guestRoom = myRoom(GUEST_ID);
         assertThat(guestRoom.unreadCount()).isEqualTo(2);
@@ -63,9 +63,9 @@ class ChatRoomReadTest {
 
     @Test
     void 읽음_처리하면_그_뒤에_온_메시지만_센다() {
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째");
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째");
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "세 번째");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "세 번째", null);
 
         chatRoomUseCase.markRead(chatRoomId, GUEST_ID, 2);
 
@@ -74,8 +74,8 @@ class ChatRoomReadTest {
 
     @Test
     void 읽음_처리는_줄어들지_않는다() {
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째");
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
         chatRoomUseCase.markRead(chatRoomId, GUEST_ID, 2);
 
         chatRoomUseCase.markRead(chatRoomId, GUEST_ID, 1);
@@ -85,10 +85,10 @@ class ChatRoomReadTest {
 
     @Test
     void 아직_없는_순번까지_읽음_처리하면_마지막_순번까지만_반영된다() {
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
         chatRoomUseCase.markRead(chatRoomId, GUEST_ID, 100);
 
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
 
         assertThat(myRoom(GUEST_ID).unreadCount()).isEqualTo(1);
     }
@@ -104,14 +104,14 @@ class ChatRoomReadTest {
 
     @Test
     void 재입장하면_재입장_이전_메시지는_마지막_메시지와_안_읽은_수에_들어가지_않는다() {
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "나가기 전");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "나가기 전", null);
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         ChatRoomResponse rejoined = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID).room();
 
         assertThat(rejoined.lastMessage()).isNull();
         assertThat(rejoined.unreadCount()).isZero();
-        chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔네요");
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔네요", null);
         assertThat(myRoom(GUEST_ID).unreadCount()).isEqualTo(1);
     }
 

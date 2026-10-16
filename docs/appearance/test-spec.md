@@ -601,6 +601,9 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 거절 | 다른 회원 | `NOT_RECRUIT_HOST` |
 | 조회 | 지원자 목록 | 최신순, 수락된 지원만 출연 ID, `APPLIED` 필터, 호스트가 아니면 "…지원자 목록을 볼 수 있습니다." |
 | 조회 | 내 지원 목록 | 내 지원만 최신순, `WITHDRAWN` 필터 |
+| 조회 | 내 지원 목록의 모집글 값 (#243): 모집글 A 제목 수정, 모집글 B 전체 취소 | 각 행에 현재 제목(`제목 바꿈`)·방송 예정 일시·상태(`RECRUITING` / `CANCELED`) |
+| 조회 | 지원·수락 응답, 지원자 목록 (#243) | 모집글 제목이 담긴다 |
+| 조회 | 모집글 상세의 내 지원 (#243) | 지원한 게스트: `APPLIED`·메시지·출연 ID 없음 → 수락 뒤 `SELECTED`·출연 ID. 취소한 게스트 `WITHDRAWN`. 지원 안 한 회원·호스트 `null` |
 | 조회 | 모집글 지원자 수 (수락·거절·취소 각 1) | 상세 2, 공개 목록·내 모집글 목록도 2, 지원 없는 모집글 0 |
 | 역할 | 세션 역할 USER / ADMIN | 지원·취소·수락·거절·지원자 목록·내 지원 목록 모두 `AccessDeniedException` |
 
@@ -615,7 +618,8 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 다른 회원 수락 / 호스트 거절 | 403 `NOT_RECRUIT_HOST` / 200 "지원을 거절했습니다.", `NOT_SELECTED` |
 | 다른 회원 취소 / 취소 / 다시 취소 | 403 `NOT_APPLICATION_GUEST` / 200 "지원을 취소했습니다.", `WITHDRAWN` / 409 `APPLICATION_NOT_PENDING` |
 | 지원자 목록(호스트, `status=APPLIED`) / 게스트가 지원자 목록 | 200 "지원자 목록을 조회했습니다.", 2건 / 403 `NOT_RECRUIT_HOST` |
-| 내 지원 목록 / `status=UNKNOWN` | 200 "내 지원 목록을 조회했습니다.", 내 것 1건 / 400 `INVALID_REQUEST` |
+| 내 지원 목록 / `status=UNKNOWN` | 200 "내 지원 목록을 조회했습니다.", 내 것 1건, `recruitTitle`·`recruitScheduledAt`·`recruitStatus`(`RECRUITING`) (#243) / 400 `INVALID_REQUEST` |
+| 모집글 상세 `myApplication` (#243): 지원한 게스트 / 일반 유저 / 호스트 | 지원 ID·`APPLIED`·메시지·출연 ID 없음 / 없음 / 없음 |
 | 일반 유저의 공개 모집글 목록 | `applicantCount` 1 |
 | 없는 지원 수락 | 404 `APPLICATION_NOT_FOUND` |
 

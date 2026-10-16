@@ -133,6 +133,18 @@ public class AppearanceRecruitSupport {
                 cutoff, PageRequest.of(0, limit));
     }
 
+    /** 모집글 ID별 모집글 (지원 목록 응답용, 한 번에 조회). 없는 ID는 결과에 없다 */
+    public Map<Long, AppearanceRecruit> findAllByIds(Collection<Long> recruitIds) {
+        Map<Long, AppearanceRecruit> recruits = new HashMap<>();
+        if (recruitIds.isEmpty()) {
+            return recruits;
+        }
+        for (AppearanceRecruit recruit : appearanceRecruitRepository.findAllById(recruitIds)) {
+            recruits.put(recruit.getId(), recruit);
+        }
+        return recruits;
+    }
+
     /** 모집글 ID별 제목 (출연 목록 응답용, 한 번에 조회). 없는 ID는 결과에 없다 */
     public Map<Long, String> findTitles(Collection<Long> recruitIds) {
         Map<Long, String> titles = new HashMap<>();

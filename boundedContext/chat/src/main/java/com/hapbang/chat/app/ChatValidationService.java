@@ -32,6 +32,11 @@ public class ChatValidationService {
         return chatUser;
     }
 
+    /** 채팅할 수 있는 회원인지. 복제본이 없으면 false */
+    public boolean canChat(Long userId) {
+        return chatUserRepository.findById(userId).map(ChatUser::canChat).orElse(false);
+    }
+
     public void validateCanChat(Long userId) {
         getChattableUser(userId);
     }

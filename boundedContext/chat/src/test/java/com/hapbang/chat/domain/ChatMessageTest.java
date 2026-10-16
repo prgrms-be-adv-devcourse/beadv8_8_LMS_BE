@@ -14,8 +14,8 @@ class ChatMessageTest {
     void 텍스트_메시지는_방_순번을_받는다() {
         ChatRoom room = directRoom();
 
-        ChatMessage first = ChatMessage.text(room, HOST_ID, "안녕하세요", NOW);
-        ChatMessage second = ChatMessage.text(room, GUEST_ID, "반갑습니다", NOW);
+        ChatMessage first = ChatMessage.text(room, HOST_ID, "안녕하세요", null, NOW);
+        ChatMessage second = ChatMessage.text(room, GUEST_ID, "반갑습니다", null, NOW);
 
         assertThat(first.getMessageType()).isEqualTo(ChatMessageType.TEXT);
         assertThat(first.getRoomSequence()).isEqualTo(1);
@@ -39,7 +39,7 @@ class ChatMessageTest {
     void 내용이_비어_있으면_보낼_수_없고_순번도_쓰지_않는다(String content) {
         ChatRoom room = directRoom();
 
-        assertThatThrownBy(() -> ChatMessage.text(room, HOST_ID, content, NOW))
+        assertThatThrownBy(() -> ChatMessage.text(room, HOST_ID, content, null, NOW))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("메시지 내용이 비어 있습니다.");
         assertThat(room.getLastSequence()).isZero();
