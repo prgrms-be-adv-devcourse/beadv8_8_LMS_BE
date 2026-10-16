@@ -96,6 +96,9 @@ hapbang:
     lecture:
       # 강의 내부 API 주소 (D62, shared LectureApiClient). 단일 앱은 자기 자신을 부른다. 서비스를 나누면 강의 서비스 주소로 바꾼다
       base-url: http://localhost:${server.port:8080}
+    appearance:
+      # 출연 내부 API 주소 (D62, shared AppearanceApiClient, #301). 단일 앱은 자기 자신을 부른다. 서비스를 나누면 출연 서비스 주소로 바꾼다
+      base-url: http://localhost:${server.port:8080}
   chzzk:
     # 치지직 채널 인증 (치지직 개발자 센터 앱). 기본값을 두지 않는다 (서버 값은 compose가 넘긴다, docs/deploy/env-vars.md)
     client-id: ${CHZZK_CLIENT_ID}
