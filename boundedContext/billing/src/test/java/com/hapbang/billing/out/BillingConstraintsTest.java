@@ -235,6 +235,14 @@ class BillingConstraintsTest {
                 "23514", "ck_exchange_", exchange.getId());
     }
 
+    // 취소 시각은 CANCELED에만 있고, CANCELED에는 반드시 있다 (#285)
+    @ParameterizedTest
+    @ValueSource(strings = {"status = 'CANCELED'", "canceled_at = now()", "status = 'UNDEFINED'"})
+    void 환전_취소_상태와_취소_시각은_함께_있다(String assignment) {
+        reject("UPDATE billing.exchange SET " + assignment + " WHERE id = ?",
+                "23514", "ck_exchange_", exchange.getId());
+    }
+
     @Test
     void 같은_충전과_보류의_배분행은_하나다() {
         reject("""

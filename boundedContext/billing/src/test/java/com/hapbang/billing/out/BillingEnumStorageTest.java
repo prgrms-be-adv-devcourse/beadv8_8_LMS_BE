@@ -93,7 +93,8 @@ class BillingEnumStorageTest {
 
     // 대문자 문자열 상수를 쓰지만 Enum 저장값 목록이 아닌 CHECK
     // ck_point_refund_5는 운영자 확인 상태면 원인이 있어야 한다는 규칙(#260)
-    private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5", "ck_point_refund_5");
+    // ck_exchange_5는 취소 상태와 취소 시각이 함께 있어야 한다는 규칙(#285)
+    private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5", "ck_point_refund_5", "ck_exchange_5");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""
