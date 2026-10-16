@@ -82,7 +82,7 @@
 ### 2.3 시간
 
 - 출연 모듈의 시각은 모두 한국 시간(Asia/Seoul)으로 다룬다. DB는 `timestamp`(시간대 없음), Java는 `LocalDateTime`.
-- 기한·마감처럼 로직에 쓰는 현재 시각은 `appearanceClock` 빈(`Clock`)으로만 얻는다. 테스트에서는 고정 시각을 넣는다.
+- 기한·마감처럼 로직에 쓰는 현재 시각은 `appearanceClock` 빈(`Clock`)으로만 얻는다. 도메인 단위 테스트는 시각을 값으로 넣고, 출연 통합 테스트는 실제 시각으로 흐르되 앞으로 돌릴 수 있는 테스트 시계(`AppearanceTestClock`)를 쓴다 (#297).
 
 ---
 
@@ -912,4 +912,15 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 동시 처리 충돌 → 409 | 낙관적 락 충돌을 `CONCURRENT_UPDATE`로 바꾸는 곳을 Support의 `flushOrConflict()`로 통일. 요청서 Support에 추가하고 모집글 수정·요청서 수정·수락·반환 기록 4곳의 try/catch를 없앴다 |
 | 그대로 둔 것 | `HpTaskExecuteUseCase`의 결과 기록 충돌은 409가 아니라 "다른 실행이 먼저 기록함" 로그만 (R2) |
 | 회원 이벤트 순서 | `AppearanceUserEventListener`의 `TODO(event)` 삭제. 공통 `ReplicaUser`가 회원 버전으로 옛 정보를 무시 (회원 #292) |
+
+## 17. 시나리오 전수 확인 (#297)
+
+운영 동작은 바꾸지 않았다 (ISSUE.md APR-38). 운영 코드는 `AppearanceConfig`의 Clock 설명 주석만 고쳤다.
+
+| 항목 | 내용 |
+|---|---|
+| 테스트 시계 | `@AppearanceIntegrationTest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
+| 시각 만들기 | 테스트는 DB의 시각 값(`scheduled_at`·`recruit_deadline`·`created_at`·`next_attempt_at`)을 고치지 않는다. 실제 순서대로 시계를 돌린다: 모집 마감(기한 마감 배치) → 방송 → 확인 기간 끝, 실패한 작업의 다음 시도 시각, 배치 대기 시간(1분). 남은 SQL 변경은 낙관적 락 충돌을 만드는 버전 올리기뿐 |
+| 그대로 둔 것 | apps `AppearanceBillingFlowIntegrationTest`는 아직 방송 시각을 SQL로 옮긴다 (테스트 시계는 출연 모듈 테스트 코드라 apps에서 바로 쓸 수 없음) |
+| 시나리오 표 | 저장소 밖 `hapbang_be/SCENARIOS.md` (171개 시나리오, 오류 코드 42개의 HTTP 확인 위치) |
 
