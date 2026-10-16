@@ -27,7 +27,7 @@
 
 | 기능 | 상태 | 이슈 |
 |---|---|---|
-| 모듈 기반 (정책 설정, Clock, 오류 응답, Billing 계약과 Fake) | ✅ | #26 |
+| 모듈 기반 (정책 설정, Clock, 오류 응답, Billing 계약) | ✅ | #26 |
 | 출연 회원 복제, 호스트·게스트 자격 확인, 팀 공통 로그인 적용 | ✅ | #31 |
 | 회원 정보 변경 이벤트 반영 | ✅ | #50 |
 | 출연 요청서 보내기(HP 보류)·조회·기본 정보 수정 | ✅ | #98 |
@@ -42,6 +42,7 @@
 | 호스트 일방 취소(위약금 30%)·모집 전체 취소 | ✅ | #239 |
 | FE 모집 화면 응답 보강 (모집 상세 내 지원, 지원 행의 모집글 제목·일시·상태) | ✅ | #243 |
 | 출연 확인(확인·불참)·D+7 자동 확인, 지급 HP 작업. 이의 제기는 고객센터 관할 | ✅ | #282 |
+| Billing 실제 연동 (Fake Billing·`mode` 설정 삭제, 실제 Billing 통합 테스트) | ✅ | #289 |
 
 ---
 
@@ -169,9 +170,7 @@ com.hapbang.appearance
 | `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
 | `out.AppearanceRepository`, `HpTaskRepository` | 출연, HP 작업 저장·조회 |
 | `out.billing.BillingClient` | Billing 연동 창구. 메서드·요청·응답은 shared `BillingPort`와 같다 |
-| `out.billing.BillingPortClient` | 실제 Billing 연동 구현. `appearance.billing.mode=billing-port`일 때만 등록되어 shared `BillingPort`로 그대로 넘긴다 (Billing #182) |
-| `out.billing.FakeBillingClient`, `FakeBillingErrorCode`, `FakeBillingException` | 외부 연동 교체 전까지 쓰는 메모리 구현. Billing 규칙·오류 코드를 흉내 냄 (테스트에서 잔액·지갑·무응답 조절) |
-| `out.billing.BillingUnavailableException` | 처리 여부를 알 수 없는 실패(무응답 등). 같은 요청으로 다시 확인해야 함 |
+| `out.billing.BillingPortClient` | 실제 Billing 연동 구현(유일한 구현). shared `BillingPort`로 그대로 넘긴다 (Billing #182, #289부터 항상 사용) |
 | (삭제, #71) | 출연 예외는 global의 공통 핸들러(`com.hapbang.global.exception.GlobalExceptionHandler`)가 Problem Detail로 응답한다 |
 
 **계층별 책임 (2026-10-14 정리, ISSUE.md APR-25)**
@@ -199,7 +198,7 @@ com.hapbang.appearance
 |---|---|---|---|
 | 회원 | 이벤트 수신 | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ |
 | 회원 (global) | 로그인 | `@LoginUserId`로 세션의 회원 ID | ✅ |
-| 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`) | 보류, 반환, 지급, 위약금 | 계약 맞춤 + Fake 사용 중. 실제 연동 구현(`BillingPortClient`)은 Billing #182로 추가됨, `mode` 전환은 외부 연동 교체 단계 |
+| 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`, 같은 서버 안 Java 호출) | 보류, 반환, 지급, 위약금 | ✅ 실제 연동 (#289). MSA 분리 때 API로 전환 예정 (APR-34) |
 | 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
 
 ### 4.1 회원 정보 복제
@@ -246,13 +245,11 @@ com.hapbang.appearance
 - 위약금은 출연이 계산한다 (`AppearancePolicy.calculatePenalty`, 출연료의 30%, 끝전 버림). Billing은 받은 반환액·위약금을 한 트랜잭션으로 옮긴다.
 - **Billing이 거절하면 Billing 업무 예외**(`BusinessException` 하위)가 난다. 출연은 코드·메시지를 바꾸지 않고 그대로 응답한다
   (예: 잔액 부족 409 `INSUFFICIENT_BALANCE`, 지갑 없음 404 `WALLET_NOT_FOUND`).
-- 그 밖의 예외(`BillingUnavailableException` 등)는 처리됐는지 알 수 없는 실패다. 대상을 그대로 두고 같은 요청으로 다시 확인한다.
+- 그 밖의 예외(업무 예외가 아닌 런타임 예외)는 처리됐는지 알 수 없는 실패다. 대상을 그대로 두고 같은 요청으로 다시 확인한다.
 - 출연은 Billing을 **DB 트랜잭션 밖에서** 부른다. Billing은 호출한 쪽 트랜잭션에 참여하므로, 트랜잭션 안에서 부르고 예외를 잡으면 롤백 전용 트랜잭션을 이어 쓰게 된다.
 - **반환·지급처럼 업무 상태 변경 뒤에 하는 Billing 호출은 HP 작업(`appearances.hp_tasks`)으로 기록하고 실행한다** (아래 4.3, #137).
-- `BillingClient`는 `BillingPort`를 상속하지 않는다. 상속하면 출연의 Fake가 앱 전체의 `BillingPort` 빈이 되어 다른 모듈에 주입될 수 있다.
-- 구현체는 `appearance.billing.mode`로 고른다. **외부 연동 교체 단계 전까지 기본값 `fake`(메모리 구현)를 쓴다.**
-  `billing-port`로 바꾸면 실제 Billing을 shared `BillingPort`로 부르는 `BillingPortClient`가 등록된다 (Billing 담당이 #182로 추가). 값을 잘못 쓰면 어느 구현도 등록되지 않아 앱이 뜨지 않는다.
-  Fake는 Billing 구현의 규칙(보류 1건, 요청 ID 재전송, 거절 코드·메시지)을 흉내 내며, 오류 코드는 `FakeBillingErrorCode`에 Billing 값을 그대로 옮겨 두었다.
+- `BillingClient`는 `BillingPort`를 상속하지 않는다. 출연 코드는 자기 인터페이스만 알아, MSA 분리 때 구현만 바꾼다 (APR-34).
+- 구현은 실제 Billing을 shared `BillingPort`로 부르는 `BillingPortClient`(Billing 담당 #182) 하나다. #289에서 메모리 구현(Fake)과 `appearance.billing.mode` 설정을 없앴다 (15장).
 
 ### 4.3 HP 작업 (실패한 Billing 호출의 기록·재처리, #137)
 
@@ -878,5 +875,29 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 
 - Billing 요청: `PayoutCommand.partial(호스트, 보류 종류, 보류 ID, 지급 요청 ID, 게스트, 원천 종류, 출연 ID, 출연료)`. 원천 종류는 요청서 출처 `APPEARANCE_REQUEST`, 모집 출처 `RECRUIT_APPEARANCE`. 모집글 보류에는 다른 출연의 몫이 함께 있어 금액을 정해 지급한다.
 - 제약 `ck_hp_tasks_receiver` (`ck_hp_tasks_penalty` 대체): `RELEASE`는 받는 회원·지급액 비움, `PENALTY`는 받는 회원·출연 ID 필수·위약금 1 이상 기준액 이하, `PAYOUT`은 받는 회원·출연 ID 필수·`payout_amount = amount`.
-- 테스트는 출연 모듈 테스트(Billing 규칙을 따르는 Fake)로 한다. apps `AppearanceBillingPortIntegrationTest`는 Billing 담당 파일이라 출연이 손대지 않는다. 운영 기본값은 아직 `mode=fake`(11단계에서 전환).
+- 출연 업무 규칙은 출연 모듈 테스트(Billing 대역)로, 실제 지급·반환은 apps `AppearanceBillingFlowIntegrationTest`(실제 Billing)로 확인한다 (#289, 15장).
 - 마이그레이션 `V202610161050__add_appearance_confirm_columns.sql`: `no_show_at` → `absent_at`, `absent_reason` 추가, `disputed_at` 삭제, 인덱스 `(status, scheduled_at)`, 제약 교체.
+
+## 15. Billing 실제 연동 (#289)
+
+### 15.1 바뀐 것
+
+| 항목 | 전 | 후 |
+|---|---|---|
+| 출연이 부르는 Billing | `appearance.billing.mode` 기본값 `fake` → 출연 모듈 안의 메모리 구현 `FakeBillingClient`. 배포 서버에서도 출연 HP가 Billing 지갑에 기록되지 않음 | 항상 `BillingPortClient` → shared `BillingPort` → Billing 모듈 (실제 지갑·원장) |
+| Fake Billing | `FakeBillingClient`·`FakeBillingErrorCode`·`FakeBillingException`·`BillingUnavailableException` (main) | 삭제 |
+| 설정 | `appearance.billing.mode` (`fake`/`billing-port`) | 삭제 (구현이 하나뿐) |
+| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
+| 실제 Billing 확인 | Billing 담당 `AppearanceBillingPortIntegrationTest`(보류·거절 반환 일부) | 출연 `AppearanceBillingFlowIntegrationTest`(apps)가 출연 API 전체 흐름을 실제 Billing으로 확인 (16장 test-spec) |
+
+- 출연은 현금을 다루지 않는다(HP만). 현금은 Billing 충전(Toss 테스트 결제)으로만 들어온다. 실제 Billing에 연결해도 실제 현금은 오가지 않는다 (APR-36).
+- 서버의 기존 출연 데이터(Fake 보류만 있던 건)는 조치하지 않는다 (H5). 그런 건을 반환·지급하면 Billing이 거절해 HP 작업이 `DEAD`가 된다.
+
+### 15.2 Billing 담당 파일에서 바꾼 것 (Billing 담당과 합의, APR-36 H3)
+
+| 파일 (만든 사람·커밋) | 바꾼 것 | 이유 |
+|---|---|---|
+| `appearance/out/billing/BillingPortClient` (Billing 담당, #182 `2b66849`) | `@ConditionalOnProperty(mode=billing-port)` 제거, 문서 주석 갱신. 위임 코드는 그대로 | 구현이 하나뿐이라 켜고 끄는 조건이 필요 없음 |
+| `appearance/.../out/billing/BillingClientModeTest` (Billing 담당, #182) | 삭제 | `mode` 값에 따라 Fake·실제 구현을 고르는지 보는 테스트라 대상이 없어짐 |
+| apps `AppearanceBillingPortIntegrationTest` (Billing 담당, #182) | `properties = "appearance.billing.mode=billing-port"` 제거, "Fake 빈이 없다" 확인 줄·`FakeBillingClient` import·쓰지 않게 된 `ApplicationContext` 제거, 첫 테스트 이름을 `출연_BillingClient로_BillingPortClient가_주입된다`로, 클래스 주석 갱신. 나머지 테스트는 그대로 | `FakeBillingClient` 클래스가 없어 컴파일이 깨지고, `mode` 설정이 없어짐 |
+
