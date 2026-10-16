@@ -41,6 +41,9 @@ public final class BillingCalls {
     /**
      * 이 보류 대상에 Billing이 받아들인 반환 HP 합계 (대역이 실패로 설정돼 예외를 던진 요청은 빼고 센다).
      * 남은 보류 금액은 Billing이 정하므로, 출연 테스트는 "얼마를 돌려 달라고 했는지"만 본다.
+     * <p>
+     * 전제: 대역의 설정(stub)은 실패({@link BillingStubs}의 {@code doThrow})에만 쓴다. 그래서 설정이 걸린 호출({@code stubInfo() != null})을
+     * 실패로 본다. 성공 응답을 돌려주는 설정({@code doReturn} 등)을 추가하면 이 판단을 함께 바꿔야 한다.
      */
     public static long releasedAmount(BillingClient billingClient, BillingReferenceType referenceType,
                                       Long referenceId) {

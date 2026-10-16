@@ -273,6 +273,56 @@ class AppearanceBillingFlowIntegrationTest {
         }
 
         @Test
+        @DisplayName("마감 전 합의 취소: 반환 없이 보류 유지(자리 다시 열림) → 조기 마감에서 그 자리까지 빈자리 30,000 반환 → 남은 1명 확인 지급 → 보류 0")
+        void agreedCancelBeforeClose() throws Exception {
+            long hostWallet = fund(HOST, 2 * FEE);
+            long guestWallet = wallet(GUEST);
+            long guest2Wallet = wallet(GUEST2);
+            long recruitId = postRecruit(2);
+            long canceled = applyAndAccept(recruitId, GUEST);
+            long kept = applyAndAccept(recruitId, GUEST2);
+
+            agreeCancel(canceled);
+            assertThat(heldHp(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isEqualTo(2 * FEE);
+            assertThat(chargeBalance(hostWallet)).isZero();
+
+            perform(HOST, API + "/recruits/" + recruitId + "/close", null).andExpect(status().isOk());
+            assertThat(heldHp(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isEqualTo(FEE);
+            assertThat(chargeBalance(hostWallet)).isEqualTo(FEE);
+
+            broadcastEnded(kept);
+            perform(HOST, API + "/" + kept + "/confirm", null).andExpect(status().isOk());
+            assertThat(heldHp(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isZero();
+            assertThat(revenueBalance(guest2Wallet)).isEqualTo(FEE);
+            assertThat(revenueBalance(guestWallet)).isZero();
+            assertThat(taskStates()).containsExactly("RELEASE DONE", "PAYOUT DONE");
+        }
+
+        @Test
+        @DisplayName("마감 뒤 합의 취소: 정원이 다 차 마감 반환 없음 → 합의 취소한 1인분 30,000을 출연별로 바로 반환 → 남은 1명 확인 지급 → 보류 0")
+        void agreedCancelAfterClose() throws Exception {
+            long hostWallet = fund(HOST, 2 * FEE);
+            long guestWallet = wallet(GUEST);
+            long guest2Wallet = wallet(GUEST2);
+            long recruitId = postRecruit(2);
+            long canceled = applyAndAccept(recruitId, GUEST);
+            long kept = applyAndAccept(recruitId, GUEST2);
+            perform(HOST, API + "/recruits/" + recruitId + "/close", null).andExpect(status().isOk());
+            assertThat(heldHp(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isEqualTo(2 * FEE);
+
+            agreeCancel(canceled);
+            assertThat(heldHp(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isEqualTo(FEE);
+            assertThat(chargeBalance(hostWallet)).isEqualTo(FEE);
+
+            broadcastEnded(kept);
+            perform(HOST, API + "/" + kept + "/confirm", null).andExpect(status().isOk());
+            assertThat(heldHp(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isZero();
+            assertThat(revenueBalance(guest2Wallet)).isEqualTo(FEE);
+            assertThat(revenueBalance(guestWallet)).isZero();
+            assertThat(taskStates()).containsExactly("RELEASE DONE", "PAYOUT DONE");
+        }
+
+        @Test
         @DisplayName("잔액이 부족하면 409 INSUFFICIENT_BALANCE, 모집글은 HOLD_FAILED")
         void insufficientBalance() throws Exception {
             fund(HOST, 3 * FEE - 1_000);
@@ -389,6 +439,15 @@ class AppearanceBillingFlowIntegrationTest {
                 "{\"message\": \"지원합니다.\"}").andExpect(status().isCreated()), "$.data.id");
         return idOf(perform(HOST, API + "/applications/" + applicationId + "/accept", null)
                 .andExpect(status().isOk()), "$.data.appearanceId");
+    }
+
+    /** 게스트가 출연 취소를 요청하고 호스트가 수락한다 (합의 취소) */
+    private void agreeCancel(long appearanceId) throws Exception {
+        perform(GUEST, API + "/" + appearanceId + "/cancel-requests", "{\"reason\": \"일정이 생겼습니다.\"}")
+                .andExpect(status().isOk());
+        perform(HOST, API + "/" + appearanceId + "/cancel-requests/accept", null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELED_BY_AGREEMENT"));
     }
 
     /** 방송이 막 끝났다 (출연의 방송 예정 일시 = 1시간 전, 확인 기간 안) */
