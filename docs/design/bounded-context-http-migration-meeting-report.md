@@ -2,7 +2,7 @@
 
 > 안건: shared Java Port와 같은 JVM 전파 트랜잭션에서 내부 HTTP·로컬 트랜잭션 구조로 전환  
 > 작성일: 2026-10-16  
-> 적용 범위: 지갑·정산(billing), 출연(appearance), 강의(lecture), 고객센터(customersupport), shared, apps  
+> 적용 범위: 정산(billing), 출연(appearance), 강의(lecture), 고객센터(customersupport), shared, apps
 > 관련 결정: D56(SUPERSEDED), D57~D60(AMENDED), D61(ACTIVE), D62(ACTIVE)  
 > 관련 티켓: #271~#280, 후행 #266~#268
 
@@ -84,7 +84,7 @@ Lecture / Appearance / CustomerSupport
 - 분산 트랜잭션 또는 2PC 도입
 - 모든 모듈 간 통신을 HTTP로 일괄 변경
 - 범용 Outbox 프레임워크 선도입
-- 지갑·정산의 금융 규칙 변경
+- 정산의 금융 규칙 변경
 - 주문 원본을 billing에 복제
 
 ---
@@ -612,10 +612,10 @@ flowchart LR
 
 ### 단계 2 — billing 내부 HTTP API
 
-- `/internal/v1/billing/holds`
-- `/internal/v1/billing/releases`
-- `/internal/v1/billing/payouts`
-- `/internal/v1/billing/penalty-settlements`
+- `/api/v1/internal/billing/holds`
+- `/api/v1/internal/billing/releases`
+- `/api/v1/internal/billing/payouts`
+- `/api/v1/internal/billing/penalty-settlements`
 - billing 로컬 트랜잭션
 - 멱등 결과 재현
 - 내부 endpoint 보호
@@ -789,13 +789,11 @@ flowchart LR
 
 ### D. 내부 HTTP 성공 응답 포맷
 
-확정할 내용:
-
-- 내부 API도 `RsData`로 감쌀지, 성공 DTO를 직접 반환할지
-- `replayed`와 correlation 정보를 body 또는 header 중 어디에 둘지
-- 204가 필요한 endpoint 여부
-
-오류는 기존 global `ProblemDetail`의 `status`·`code`·`detail` 계약을 재사용한다.
+- 내부 API의 성공 응답도 global `RsData{statusCode, message, data}`로 감싼다.
+- 컨트롤러는 `RsData.ok(message, data)`·`RsData.created(message, data)`·`RsData.of(status, message, data)`를 사용한다.
+- HTTP 상태가 상황마다 달라지거나 응답 헤더가 필요할 때만 `ResponseEntity<RsData<T>>`로 HTTP 상태와 본문의 `statusCode`를 일치시킨다.
+- `replayed`와 correlation 정보처럼 Client가 결과 판정에 사용하는 값은 성공 DTO에 둔다. 본문 없는 204가 필요한 endpoint만 `ResponseEntity<Void>`를 사용한다.
+- 오류는 기존 global `ProblemDetail`의 `status`·`code`·`detail` 계약을 재사용한다.
 
 ### E. 전환 기간 Port와 HTTP 동시 운영 범위
 

@@ -12,7 +12,7 @@
 
 | 상대 모듈 | 내용 | 방식 |
 | --- | --- | --- |
-| 지갑 | 주문 항목별 HP 보류, 구매 취소·이의 제기 인정 반환, 지급 | `shared.billing.out.BillingApiClient`로 지갑 내부 HTTP API를 **강의 트랜잭션 밖에서** 호출한다. 호출은 HP 작업(`LectureHpTask`)으로 먼저 기록하고 실행한다 (D57, D62) |
+| 정산 | 주문 항목별 HP 보류, 구매 취소·이의 제기 인정 반환, 지급 | `shared.billing.out.BillingApiClient`로 정산 내부 HTTP API를 **강의 트랜잭션 밖에서** 호출한다. 호출은 HP 작업(`LectureHpTask`)으로 먼저 기록하고 실행한다 (D57, D62) |
 | 고객센터 | 이의 제기 접수 | `shared.lecture.out.LectureApiClient`로 강의 내부 HTTP API를 고객센터 트랜잭션 밖에서 호출한다. 강의는 명령 이력으로 멱등하게 처리한다 (D60, D62) |
 | 고객센터 | 이의 제기 판단·철회 | 명령 이벤트 → 강의 처리 → 결과 이벤트. 인정한 건의 HP 반환 완료·조치 필요는 별도 이벤트다 (D60) |
 | 회원 | 가입, 회원 정보 변경 | 이벤트 |
@@ -38,7 +38,7 @@
 ```
 강의 HP 작업 실행기
   → shared.billing.out.BillingApiClient
-      → POST /internal/v1/billing/{holds|releases|payouts}
+      → POST /api/v1/internal/billing/{holds|releases|payouts}
           → billing Controller → billing Application (billing 로컬 트랜잭션)
 
 고객센터 접수 실행기
@@ -65,7 +65,7 @@ apps
 | 흐름 | 현재 구현 | 목표 구조 | 변경 티켓 | 전환 완료 조건 |
 | --- | --- | --- | --- | --- |
 | 공통 billing HTTP 계약 | shared `BillingPort` | `BillingApiClient` + DTO·오류 계약 | #272 | self-HTTP와 분리 배포가 같은 Client 코드를 쓴다 |
-| billing 진입점 | Java `BillingPortAdapter` | `/internal/v1/billing/*` Controller | #273 | 요청마다 billing 로컬 트랜잭션으로 처리한다 |
+| billing 진입점 | Java `BillingPortAdapter` | `/api/v1/internal/billing/*` Controller | #273 | 요청마다 billing 로컬 트랜잭션으로 처리한다 |
 | 출연 billing 연동 | 기본 `fake` 또는 shared Port | 실제 `BillingApiClient` + 기존 `HpTask` | #274 | fake 기본 모드가 없고 외부 호출이 출연 트랜잭션 밖이다 |
 | HP 작업 기반 | 강의 트랜잭션 안에서 billing 호출 | `LectureHpTask` 선점·재시도·관리자 복구 | #275 | 외부 호출과 결과 기록 트랜잭션이 분리된다 |
 | 주문 보류 | 주문 저장과 `hold`를 한 트랜잭션에서 | `HOLD_PENDING` + 항목별 HOLD/보상 작업 | #276 | 완료 상태가 실제 HP 이동과 일치한다 |
@@ -130,7 +130,8 @@ public class BillingCallException extends RuntimeException {
 | `BillingCallException` | 연결 전 실패가 확실함 → `RETRYABLE`. read timeout·응답 유실처럼 처리 여부를 모름 → `UNKNOWN_RESULT`. `Throwable`·원인 문자열은 결과에 넣지 않고 로그와 `lecture_hp_task_attempt`에만 남긴다 |
 | 응답 검증 | 예상하지 못한 응답 형식, 결과 금액이 항목 가격과 다름 → 실행기가 `INVARIANT_VIOLATION`으로 본다 |
 | 트랜잭션 | 강의는 상태와 작업을 먼저 커밋한 뒤 Client를 호출한다. HTTP라 Java 트랜잭션이 전파되지 않으며, 통합 테스트에서 호출 시 강의 트랜잭션이 비활성인지 확인한다 (#275~#277) |
-| billing 진입점 | `POST /internal/v1/billing/{holds|releases|payouts|penalty-settlements}`. 요청 하나를 billing 로컬 트랜잭션 하나로 처리한다 (#273) |
+| billing 진입점 | `POST /api/v1/internal/billing/holds`·`releases`·`payouts`·`penalty-settlements`. 요청 하나를 billing 로컬 트랜잭션 하나로 처리한다 (#273) |
+| 성공 응답 | global `RsData{statusCode, message, data}`로 감싼다. 상태가 상황마다 달라지거나 응답 헤더가 필요할 때만 `ResponseEntity<RsData<T>>`를 사용한다 |
 | 멱등 키 | 보류는 참조 대상(`HOLD:LECTURE_ORDER_ITEM:{항목 ID}`, 항목당 1건). 반환·지급은 작업의 요청 ID: 구매 취소 `LECTURE-CANCEL-{항목 ID}`, 이의 제기 인정 `LECTURE-RETURN-{항목 ID}`, 보류 보상 `LECTURE-HOLD-COMPENSATE-{항목 ID}`, 지급 `LECTURE-PAYOUT-{항목 ID}` (D43) |
 | `replayed` | 결과 불명 뒤 같은 작업을 다시 실행하면 billing이 처음 결과를 `replayed = true`로 돌려준다. 같은 작업·같은 payload의 재현은 정상이다. 다른 payload 충돌(`IDEMPOTENCY_KEY_CONFLICT`)과 금액 불일치는 불변식 위반이다 (D43 수정) |
 | 혼합 HP | billing이 항목마다 수익 HP → 충전 HP 순서로 보류하고, 반환·지급은 그 항목에서 차감한 HP 종류 그대로다 (D42) |
