@@ -71,6 +71,60 @@ class ChatMessageResendTest {
     }
 
     @Test
+    void 같은_전송_ID에_본문이_달라도_기존_메시지를_돌려준다() {
+        SentChatMessage first = chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", "client-1");
+
+        SentChatMessage resent = chatMessageUseCase.send(chatRoomId, HOST_ID, "고친 내용", "client-1");
+
+        assertThat(resent.message().messageId()).isEqualTo(first.message().messageId());
+        assertThat(resent.message().content()).isEqualTo("안녕하세요");
+        assertThat(chatMessageRepository.count()).isEqualTo(1);
+    }
+
+    // 재전송 방지는 같은 참여 안에서만 적용한다 (#311)
+    @Test
+    void 나갔다가_재입장한_뒤_옛_전송_ID로_보내면_새_메시지로_저장하고_상대에게_알린다() {
+        SentChatMessage beforeLeave = chatMessageUseCase.send(chatRoomId, HOST_ID, "나가기 전", "client-1");
+        chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
+        chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
+
+        SentChatMessage afterRejoin = chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔어요", "client-1");
+
+        assertThat(afterRejoin.message().messageId()).isNotEqualTo(beforeLeave.message().messageId());
+        assertThat(afterRejoin.message().content()).isEqualTo("다시 왔어요");
+        assertThat(afterRejoin.notifyUserIds()).containsExactly(GUEST_ID);
+        assertThat(afterRejoin.deliverToUserIds()).containsExactlyInAnyOrder(HOST_ID, GUEST_ID);
+        assertThat(chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 30).messages())
+                .extracting(ChatMessageResponse::content, ChatMessageResponse::clientMessageId)
+                .containsExactly(tuple("다시 왔어요", "client-1"));
+        // 재입장 이전 메시지의 전송 ID는 비워져 유일 인덱스와 겹치지 않는다
+        assertThat(chatMessageRepository.findById(beforeLeave.message().messageId()))
+                .hasValueSatisfying(message -> assertThat(message.getClientMessageId()).isNull());
+    }
+
+    @Test
+    void 재입장_뒤에도_같은_참여_안의_재전송은_기존_메시지를_돌려준다() {
+        chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
+        chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
+        SentChatMessage first = chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔어요", "client-1");
+
+        SentChatMessage resent = chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔어요", "client-1");
+
+        assertThat(resent.message().messageId()).isEqualTo(first.message().messageId());
+        assertThat(resent.notifyUserIds()).isEmpty();
+    }
+
+    @Test
+    void 상대의_전송_ID는_재입장해도_비우지_않는다() {
+        SentChatMessage guestMessage = chatMessageUseCase.send(chatRoomId, GUEST_ID, "게스트", "guest-1");
+        chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
+        chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
+
+        assertThat(chatMessageRepository.findById(guestMessage.message().messageId()))
+                .hasValueSatisfying(message -> assertThat(message.getClientMessageId()).isEqualTo("guest-1"));
+    }
+
+    @Test
     void 전송_ID가_다르거나_없으면_각각_저장한다() {
         chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", "client-1");
         chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", "client-2");

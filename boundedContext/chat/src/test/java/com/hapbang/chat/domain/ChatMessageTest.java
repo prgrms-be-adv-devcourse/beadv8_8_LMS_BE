@@ -74,4 +74,13 @@ class ChatMessageTest {
         assertThatIllegalStateException().isThrownBy(() -> ChatMessage.notification(directRoom(), HOST_ID,
                 NotificationKind.APPEARANCE_REQUEST_SENT, null, null, "내용", NOW));
     }
+
+    @Test
+    void 본문은_2000자까지_보낼_수_있다() {
+        String content = "가".repeat(ChatMessage.MAX_CONTENT_LENGTH);
+
+        assertThat(ChatMessage.text(directRoom(), HOST_ID, content, null, NOW).getContent()).hasSize(2000);
+        assertThatIllegalStateException()
+                .isThrownBy(() -> ChatMessage.text(directRoom(), HOST_ID, content + "가", null, NOW));
+    }
 }

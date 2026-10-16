@@ -7,6 +7,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -57,6 +58,19 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             """)
     List<ChatRoomUnreadCount> countUnread(@Param("userId") Long userId,
             @Param("chatRoomIds") Collection<Long> chatRoomIds);
+
+    /**
+     * 회원이 이 방에서 보낸 메시지의 전송 ID를 비운다. 재입장할 때 불러, 재전송 방지(#261)를 같은 참여 안으로 한정한다 (#311).
+     * 재입장 처리 중인 엔티티가 영속성 컨텍스트에서 떨어지지 않도록 비우지(clear) 않는다.
+     *
+     * @return 비운 메시지 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update ChatMessage m set m.clientMessageId = null
+            where m.chatRoom.id = :chatRoomId and m.senderUserId = :senderUserId and m.clientMessageId is not null
+            """)
+    int clearClientMessageIds(@Param("chatRoomId") Long chatRoomId, @Param("senderUserId") Long senderUserId);
 
     /** 같은 전송 ID로 이미 저장한 메시지 (재전송 확인) */
     Optional<ChatMessage> findByChatRoom_IdAndSenderUserIdAndClientMessageId(Long chatRoomId, Long senderUserId,

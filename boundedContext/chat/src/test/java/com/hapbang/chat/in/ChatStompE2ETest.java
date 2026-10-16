@@ -44,6 +44,7 @@ import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.ChatErrorMessage;
@@ -410,6 +411,30 @@ class ChatStompE2ETest {
         });
 
         assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+    }
+
+    @Test
+    void STOMP로_2000자를_넘는_메시지를_보내면_전송_ID와_함께_오류가_간다() throws Exception {
+        Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
+        StompSession host = connect(HOST_ID);
+        BlockingQueue<ChatErrorMessage> errors = subscribe(host, "/user/queue/chats/errors", ChatErrorMessage.class);
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
+                ChatMessageResponse.class);
+        waitForSubscriptions();
+
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest(
+                "가".repeat(ChatMessage.MAX_CONTENT_LENGTH + 1), "too-long-1"));
+
+        ChatErrorMessage error = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(error).isNotNull();
+        assertThat(error.code()).isEqualTo("INVALID_REQUEST");
+        assertThat(error.message()).isEqualTo("메시지는 2000자 이하여야 합니다.");
+        assertThat(error.clientMessageId()).isEqualTo("too-long-1");
+
+        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest(
+                "가".repeat(ChatMessage.MAX_CONTENT_LENGTH), "max-1"));
+        assertThat(hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                .extracting(ChatMessageResponse::clientMessageId).isEqualTo("max-1");
     }
 
     @Test

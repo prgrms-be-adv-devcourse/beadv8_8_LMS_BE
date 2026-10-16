@@ -31,6 +31,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatMessage {
 
+    /** 회원이 보내는 메시지 본문의 최대 길이 (#311). 요청 검증(SendChatMessageRequest)과 같은 값을 쓴다 */
+    public static final int MAX_CONTENT_LENGTH = 2000;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -86,6 +89,7 @@ public class ChatMessage {
     public static ChatMessage text(ChatRoom chatRoom, Long senderUserId, String content, String clientMessageId,
             LocalDateTime now) {
         Assert.state(hasContent(content), "메시지 내용이 비어 있습니다.");
+        Assert.state(fitsLength(content), "메시지 내용이 너무 깁니다.");
         ChatMessage message = new ChatMessage(chatRoom, senderUserId, ChatMessageType.TEXT, content, now);
         message.clientMessageId = clientMessageId;
         return message;
@@ -98,6 +102,11 @@ public class ChatMessage {
     /** 보낼 수 있는 메시지 내용인지. UseCase가 도메인 호출 전에 같은 기준으로 검사한다 */
     public static boolean hasContent(String content) {
         return content != null && !content.isBlank();
+    }
+
+    /** 보낼 수 있는 길이인지 ({@link #MAX_CONTENT_LENGTH}자 이하). 시스템·알림 메시지는 대상이 아니다 */
+    public static boolean fitsLength(String content) {
+        return content.length() <= MAX_CONTENT_LENGTH;
     }
 
     /**
