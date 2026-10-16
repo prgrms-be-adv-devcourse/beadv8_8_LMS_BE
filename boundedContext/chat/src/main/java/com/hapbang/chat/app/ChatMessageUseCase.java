@@ -35,8 +35,8 @@ public class ChatMessageUseCase {
     /**
      * 메시지를 보낸다. 방을 잠그고 순번을 발급한다. 상대가 나간 동안에는 보낼 수 없다(조회만 허용).
      * <p>
-     * 같은 전송 ID로 이미 저장한 메시지가 있으면(응답을 놓친 클라이언트의 재전송) 새로 저장하지 않고 기존 메시지를
-     * 보낸 사람에게만 다시 전달한다. 알림·안 읽은 수는 다시 올리지 않는다(#261). 같은 방의 전송은 방 잠금으로 줄을 서므로
+     * 같은 참여 안에서 같은 전송 ID로 이미 저장한 메시지가 있으면(응답을 놓친 클라이언트의 재전송) 새로 저장하지 않고
+     * 기존 메시지를 보낸 사람에게만 다시 전달한다. 본문이 달라도 기존 메시지를 돌려준다. 재입장 이전에 쓴 전송 ID는 새 메시지로 저장한다(#311). 알림·안 읽은 수는 다시 올리지 않는다(#261). 같은 방의 전송은 방 잠금으로 줄을 서므로
      * 동시 재전송도 한 번만 저장된다.
      *
      * @param clientMessageId 보낸 사람이 붙인 전송 ID. 없으면 중복을 확인하지 않는다
@@ -52,13 +52,16 @@ public class ChatMessageUseCase {
                 .stream()
                 .filter(ChatRoomMember::isActive)
                 .toList();
-        if (activeMembers.stream().noneMatch(member -> member.getUserId().equals(senderId))) {
-            throw new ChatException(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
-        }
+        ChatRoomMember sender = activeMembers.stream()
+                .filter(member -> member.getUserId().equals(senderId))
+                .findFirst()
+                .orElseThrow(() -> new ChatException(ChatErrorCode.NOT_CHAT_ROOM_MEMBER));
         chatValidationService.validateCanChat(senderId);
         if (clientMessageId != null) {
+            // 재전송은 같은 참여 안에서만 본다. 재입장 이전 메시지는 재입장 때 전송 ID를 비우지만, 한 번 더 확인한다(#311)
             Optional<ChatMessage> resent = chatMessageRepository
-                    .findByChatRoom_IdAndSenderUserIdAndClientMessageId(chatRoomId, senderId, clientMessageId);
+                    .findByChatRoom_IdAndSenderUserIdAndClientMessageId(chatRoomId, senderId, clientMessageId)
+                    .filter(message -> sender.canView(message.getRoomSequence()));
             if (resent.isPresent()) {
                 log.info("재전송이라 기존 메시지를 돌려줌 chatRoomId={}, messageId={}", chatRoomId, resent.get().getId());
                 return new SentChatMessage(ChatMessageResponse.from(resent.get()), List.of(senderId), List.of());
