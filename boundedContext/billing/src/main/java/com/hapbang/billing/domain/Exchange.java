@@ -18,7 +18,7 @@ import org.hibernate.annotations.Check;
 
 // 수익 HP 환전 요청의 보류 연결, 수수료, KRW 송금 예정액과 처리 상태를 보관한다.
 // 신청(#285): 수수료·예상 수령액을 신청 시 확정해 저장하고, 신청과 같은 트랜잭션에서 수익 HP를 REVENUE_ONLY로 보류해 연결한다.
-// 회원 취소는 관리자 승인 전(REQUESTED)에만 할 수 있다. 승인·송금 상태 전이는 후속 Issue에서 더한다.
+// 회원 취소는 관리자 승인 전(REQUESTED)에만 할 수 있다. 관리자 승인·거절은 #294(REQUESTED → APPROVED·REJECTED), 송금 상태 전이는 후속 Issue.
 // payoutScheduledAt은 잠정 정산 예정 시각(매월 10일, 토·일이면 다음 월요일의 00:00 KST)이다. 공휴일을 반영하지 않아 실제 송금일로
 // 단정하지 않는다. 공휴일 보정·지급 대상 마감은 정산 Scheduler Issue에서 최종 반영한다.
 @Entity
@@ -40,6 +40,8 @@ public class Exchange extends BillingUpdatedEntity {
     public static final BigDecimal FEE_RATE = new BigDecimal("0.1000");
     /** 최소 환전 금액이자 환전 단위 */
     public static final long UNIT_HP = 1_000L;
+    /** 거절 사유 최대 길이(앞뒤 공백 제외, #294) */
+    public static final int REJECTION_REASON_MAX = 500;
 
     @Column(name = "user_id", nullable = false)
     private Long userId;
@@ -86,6 +88,23 @@ public class Exchange extends BillingUpdatedEntity {
 
     @Column(name = "canceled_at", nullable = true, columnDefinition = "timestamptz")
     private Instant canceledAt;
+
+    // 승인한 관리자 회원 ID·시각 (#294). 송금 단계로 넘어가도 지우지 않는다
+    @Column(name = "approved_by", nullable = true)
+    private Long approvedBy;
+
+    @Column(name = "approved_at", nullable = true, columnDefinition = "timestamptz")
+    private Instant approvedAt;
+
+    // 거절한 관리자 회원 ID·시각·사유 (#294)
+    @Column(name = "rejected_by", nullable = true)
+    private Long rejectedBy;
+
+    @Column(name = "rejected_at", nullable = true, columnDefinition = "timestamptz")
+    private Instant rejectedAt;
+
+    @Column(name = "rejection_reason", nullable = true, length = 500)
+    private String rejectionReason;
 
     // 빌더로 전달받은 회원·지갑·선택적 보류·환전 금액·수수료·처리 상태와 시각으로 환전 요청을 초기화한다.
     @Builder
@@ -168,5 +187,48 @@ public class Exchange extends BillingUpdatedEntity {
 
     public boolean isCanceled() {
         return status == ExchangeStatus.CANCELED;
+    }
+
+    // 이 관리자가 이미 승인한 신청인지(같은 관리자의 승인 재요청은 멱등 성공). 송금 단계로 넘어간 뒤의 재요청은 아니다
+    public boolean isApprovedBy(Long adminId) {
+        return status == ExchangeStatus.APPROVED && adminId.equals(approvedBy);
+    }
+
+    // 이 관리자가 같은 사유로 이미 거절한 신청인지(같은 관리자·같은 사유의 거절 재요청은 멱등 성공)
+    public boolean isRejectedBy(Long adminId, String reason) {
+        return status == ExchangeStatus.REJECTED && adminId.equals(rejectedBy) && reason.equals(rejectionReason);
+    }
+
+    // 관리자 승인 (#294): REQUESTED → APPROVED. 보류는 그대로 두고 잠정 정산 예정일도 바꾸지 않는다.
+    // 그 밖의 상태(다른 관리자가 처리함·거절·취소·송금 단계)는 EXCHANGE_ALREADY_REVIEWED. 멱등 재요청은 호출한 쪽이 isApprovedBy로 먼저 거른다.
+    public void approve(Long adminId, Instant approvedAt) {
+        requireRequested();
+        this.status = ExchangeStatus.APPROVED;
+        this.approvedBy = adminId;
+        this.approvedAt = approvedAt;
+    }
+
+    // 관리자 거절 (#294): REQUESTED → REJECTED. 사유는 앞뒤 공백을 뺀 값(1~500자)이어야 한다. 보류 반환은 호출한 쪽이 같은 트랜잭션에서 한다.
+    public void reject(Long adminId, String reason, Instant rejectedAt) {
+        requireRequested();
+        this.status = ExchangeStatus.REJECTED;
+        this.rejectedBy = adminId;
+        this.rejectedAt = rejectedAt;
+        this.rejectionReason = normalizeRejectionReason(reason);
+    }
+
+    // 거절 사유를 앞뒤 공백을 빼서 검사한다. 비었거나 500자를 넘으면 EXCHANGE_REJECTION_REASON_INVALID
+    public static String normalizeRejectionReason(String reason) {
+        String normalized = reason == null ? "" : reason.strip();
+        if (normalized.isEmpty() || normalized.length() > REJECTION_REASON_MAX) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_REJECTION_REASON_INVALID);
+        }
+        return normalized;
+    }
+
+    private void requireRequested() {
+        if (status != ExchangeStatus.REQUESTED) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_ALREADY_REVIEWED);
+        }
     }
 }

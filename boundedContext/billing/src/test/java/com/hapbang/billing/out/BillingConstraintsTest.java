@@ -235,6 +235,22 @@ class BillingConstraintsTest {
                 "23514", "ck_exchange_", exchange.getId());
     }
 
+    // 승인·거절 기록은 해당 상태와 함께만 있고, 거절 사유는 앞뒤 공백 없는 1~500자다 (#294)
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "status = 'APPROVED'",
+            "approved_by = 1",
+            "approved_by = 1, approved_at = now()",
+            "status = 'REJECTED'",
+            "rejected_by = 1, rejected_at = now(), rejection_reason = 'x'",
+            "status = 'REJECTED', rejected_by = 1, rejected_at = now(), rejection_reason = ' x'",
+            "status = 'REJECTED', rejected_by = 1, rejected_at = now(), rejection_reason = ''",
+            "status = 'CANCELED', canceled_at = now(), approved_by = 1, approved_at = now()"})
+    void 환전_승인_거절_기록은_상태와_함께_있다(String assignment) {
+        reject("UPDATE billing.exchange SET " + assignment + " WHERE id = ?",
+                "23514", "ck_exchange_", exchange.getId());
+    }
+
     // 취소 시각은 CANCELED에만 있고, CANCELED에는 반드시 있다 (#285)
     @ParameterizedTest
     @ValueSource(strings = {"status = 'CANCELED'", "canceled_at = now()", "status = 'UNDEFINED'"})

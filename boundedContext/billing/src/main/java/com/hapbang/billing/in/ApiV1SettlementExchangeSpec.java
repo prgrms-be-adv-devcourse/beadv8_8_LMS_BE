@@ -34,7 +34,7 @@ public interface ApiV1SettlementExchangeSpec {
 
     @Operation(summary = "환전 신청 취소",
             description = "관리자 승인 전(REQUESTED)인 내 신청을 취소하고 보류한 수익 HP를 모두 반환한다(200 CANCELED). 이미 취소한 신청은 "
-                    + "반환 없이 같은 결과(200 CANCELED). 승인·송금 단계 이후는 409 EXCHANGE_NOT_CANCELABLE. 없거나 남의 신청은 404 "
+                    + "반환 없이 같은 결과(200 CANCELED). 관리자가 승인·거절한 신청과 송금 단계 이후는 409 EXCHANGE_NOT_CANCELABLE. 없거나 남의 신청은 404 "
                     + "EXCHANGE_NOT_FOUND.")
     RsData<ExchangeResponse> cancel(Long userId, Long exchangeId);
 }

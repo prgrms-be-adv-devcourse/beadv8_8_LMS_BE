@@ -22,7 +22,7 @@ class BillingSchemaTest {
     private EntityManager entityManager;
 
     @Test
-    void Flyway로_13개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
+    void Flyway로_14개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
         assertThat(entityManager.createNativeQuery("""
                 SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'billing' AND table_type = 'BASE TABLE'
@@ -32,8 +32,10 @@ class BillingSchemaTest {
                         "point_charge", "point_charge_usage", "point_refund_request", "point_refund",
                         "settlement", "exchange", "exchange_account", "exchange_payout",
                         // 가상 송금 Mock 은행 기록 (#288)
-                        "mock_payout_transfer");
-        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(13);
+                        "mock_payout_transfer",
+                        // 회원 복제본 (#294)
+                        "billing_user");
+        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(14);
         assertThat(entityManager.getEntityManagerFactory().getProperties().get("hibernate.hbm2ddl.auto"))
                 .isEqualTo("validate");
     }
@@ -44,7 +46,9 @@ class BillingSchemaTest {
                 SELECT table_name, column_name, data_type FROM information_schema.columns
                 WHERE table_schema = 'billing' AND column_name LIKE '%\\_at' ESCAPE '\\'
                   AND data_type <> 'timestamp with time zone'
+                  AND table_name <> 'billing_user'
                 """).getResultList();
+        // 회원 복제본(#294)은 shared BaseEntity(LocalDateTime)·다른 모듈 복제본에 맞춰 TIMESTAMP다(금융 시각 아님)
         assertThat(invalidTimes).isEmpty();
 
         List<?> invalidAmounts = entityManager.createNativeQuery("""
