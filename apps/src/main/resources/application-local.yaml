@@ -38,6 +38,11 @@ hapbang:
     client-id: ${CHZZK_CLIENT_ID:local-placeholder}
     client-secret: ${CHZZK_CLIENT_SECRET:local-placeholder}
     redirect-uri: http://localhost:8080/api/v1/members/channels/chzzk/callback
+  billing:
+    mock-payout:
+      # 가상 송금 Mock 은행 API·HTTP Client (#288). 로컬에서만 켠다. 실제로 켜지려면 local 프로필을 "활성화"해야 한다
+      # (SPRING_PROFILES_ACTIVE=local). 프로필 미지정(기본 프로필 local)이나 dev·prod에서는 이 값이 있어도 꺼진다(실제 송금 없음)
+      enabled: true
   local-login:
     # 구글 없이 역할로 로그인 (POST /api/v1/members/local-login) + 역할별 테스트 계정 생성. 서버에선 켜지 않는다
     enabled: true

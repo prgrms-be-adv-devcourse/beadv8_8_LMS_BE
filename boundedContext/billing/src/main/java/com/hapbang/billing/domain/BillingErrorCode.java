@@ -52,6 +52,14 @@ public enum BillingErrorCode implements BaseErrorCode {
     EXCHANGE_IDEMPOTENCY_KEY_INVALID(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더는 영문·숫자·-·_ 1~64자여야 합니다."),
     EXCHANGE_NOT_FOUND(HttpStatus.NOT_FOUND, "환전 신청을 찾을 수 없습니다."),
     EXCHANGE_NOT_CANCELABLE(HttpStatus.CONFLICT, "관리자 승인 전인 환전 신청만 취소할 수 있습니다."),
+    // 가상 송금 Mock 은행 API (#288, 로컬·테스트 전용)
+    MOCK_PAYOUT_FORBIDDEN(HttpStatus.FORBIDDEN, "가상 송금 API 접근 키가 올바르지 않습니다."),
+    MOCK_PAYOUT_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Idempotency-Key와 지급 요청 ID가 같은 UUID여야 합니다."),
+    MOCK_PAYOUT_IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "같은 지급 요청 ID로 다른 내용의 송금이 요청되었습니다."),
+    MOCK_PAYOUT_NOT_FOUND(HttpStatus.NOT_FOUND, "가상 송금 요청을 찾을 수 없습니다."),
+    MOCK_PAYOUT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 가상 송금을 처리할 수 없습니다."),
+    // SERVER_ERROR 시나리오(요청을 처리하지 않고 끝난 5xx)
+    MOCK_PAYOUT_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "가상 송금 처리 중 오류가 발생했습니다."),
     // 아래 500 코드는 불변식이 깨진 상황이라 응답 detail에 내부 상태를 드러내지 않고, 원인은 code와 로그로 구분한다.
     CHARGE_PRINCIPAL_MISMATCH(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
     HOLD_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
