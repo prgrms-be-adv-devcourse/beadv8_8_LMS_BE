@@ -63,6 +63,16 @@ class SchedulingEnabledTest {
     }
 
     @Test
+    void 회원_팔로워_갱신_배치가_정한_cron으로_등록된다() {
+        assertThat(scheduledTaskHolder.getScheduledTasks())
+                .extracting(ScheduledTask::getTask)
+                .filteredOn(CronTask.class::isInstance)
+                .map(CronTask.class::cast)
+                .extracting(Task::toString, CronTask::getExpression)
+                .contains(tuple("com.hapbang.member.in.MemberFollowerRefreshBatch.run", "0 0 10 * * *"));
+    }
+
+    @Test
     void 스케줄러_스레드는_4개다() {
         assertThat(taskScheduler.getScheduledThreadPoolExecutor().getCorePoolSize()).isEqualTo(4);
     }
