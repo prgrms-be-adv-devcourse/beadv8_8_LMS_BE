@@ -1,8 +1,11 @@
 package com.hapbang.billing.in;
 
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import com.hapbang.billing.domain.ExchangePayoutStatus;
 import com.hapbang.billing.domain.ExchangeStatus;
 import com.hapbang.global.response.RsData;
 
@@ -11,8 +14,8 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
-// 관리자 환전 조회·승인·거절 API의 Swagger 명세이며, 매핑은 ApiV1SettlementExchangeAdminController가 맡는다 (#294).
-@Tag(name = "환전 관리(관리자)", description = "환전 신청을 승인·거절한다. 실제 송금은 하지 않는다(정산일 송금은 후속 기능)")
+// 관리자 환전 조회·승인·거절(#294)·송금 운영자 처리(#304) API의 Swagger 명세이며, 매핑은 ApiV1SettlementExchangeAdminController가 맡는다.
+@Tag(name = "환전 관리(관리자)", description = "환전 신청을 승인·거절하고, 송금 결과 불명·확정 실패 건을 확인·재송금·최종 실패 처리한다")
 public interface ApiV1SettlementExchangeAdminSpec {
 
     @Operation(summary = "환전 신청 목록",
@@ -39,4 +42,38 @@ public interface ApiV1SettlementExchangeAdminSpec {
                     + "EXCHANGE_REJECTION_REASON_INVALID, 비었으면 400 INVALID_REQUEST). 같은 관리자·같은 사유의 재거절은 처음 결과(200, "
                     + "다시 반환하지 않음), 다른 관리자·다른 사유·승인된 신청·취소된 신청은 409 EXCHANGE_ALREADY_REVIEWED.")
     RsData<AdminExchangeResponse> reject(Long adminId, Long exchangeId, @Valid ExchangeRejectRequest request);
+
+    @Operation(summary = "환전 송금 시도 목록(운영자 확인 대상)",
+            description = "관리자. 송금 시도 상태별(기본 MANUAL_REVIEW_REQUIRED) 페이지(최대 100), 오래된 순. 운영자 확인 대상은 은행 409·4xx "
+                    + "거절, 성공 응답 불일치, 최초 송금 요청 후 24시간 동안 결과가 확정되지 않은 시도다(보류 유지, 자동 처리 중단). "
+                    + "송금 시도가 확정 실패한 환전(관리자 판단 대기)은 환전 목록의 status=FAILED로 조회한다. 계좌번호는 담지 않는다.")
+    RsData<Page<AdminExchangePayoutResponse>> getPayoutAttempts(
+            @Parameter(description = "송금 시도 상태(기본 MANUAL_REVIEW_REQUIRED)") ExchangePayoutStatus status,
+            Pageable pageable);
+
+    @Operation(summary = "환전 송금 시도 이력", description = "관리자. 환전의 송금 시도 전부(시도 번호 순). 없으면 404 EXCHANGE_NOT_FOUND.")
+    RsData<List<AdminExchangePayoutResponse>> getPayoutAttemptsOf(Long exchangeId);
+
+    @Operation(summary = "환전 송금 결과 재확인",
+            description = "관리자. 결과가 확정되지 않은 마지막 송금 시도(PROCESSING·UNKNOWN·MANUAL_REVIEW_REQUIRED)를 **기존 지급 요청 ID**로 "
+                    + "은행에 조회만 한다(새로 보내지 않는다). 성공이면 보류 확정 차감 후 COMPLETED, 은행 확정 실패면 FAILED(보류 유지), "
+                    + "운영자 확인 시도인데 은행에 그 ID의 기록이 없으면(마지막 송금·자동 확인 후 1분 경과) 송금되지 않은 것으로 보고 "
+                    + "FAILED(BANK_RECORD_NOT_FOUND). 결과를 여전히 모르면 상태 그대로. 재확인한 관리자·시각을 남긴다. 그 밖의 상태는 409 "
+                    + "EXCHANGE_PAYOUT_NOT_CHECKABLE, 송금을 쓸 수 없는 환경이면 503 EXCHANGE_PAYOUT_UNAVAILABLE.")
+    RsData<AdminExchangePayoutResponse> recheckPayout(Long adminId, Long exchangeId);
+
+    @Operation(summary = "환전 수동 재송금",
+            description = "관리자. 마지막 송금 시도가 은행 확정 실패(환전 FAILED)인 환전만 **새 지급 요청 ID**의 새 시도로 다시 보낸다(보낸 "
+                    + "관리자 기록). 결과 대기·결과 불명·운영자 확인(성공 가능성이 남음)·성공·최종 실패 등 그 밖의 상태는 409 "
+                    + "EXCHANGE_PAYOUT_NOT_RETRYABLE. 확정 실패는 자동으로 다시 보내지 않는다.")
+    RsData<AdminExchangePayoutResponse> retryPayout(Long adminId, Long exchangeId);
+
+    @Operation(summary = "환전 최종 실패 확정",
+            description = "관리자. 마지막 송금 시도가 은행 확정 실패(환전 FAILED)인 환전을 FINAL_FAILED로 종료하고, 보류한 수익 HP 전부를 "
+                    + "신청자의 수익 HP(가용)로 반환한다(한 트랜잭션). 결과 불명·운영자 확인 시도는 먼저 결과 재확인으로 실패를 확정해야 "
+                    + "한다(임의로 실패 처리·반환할 수 없다). 성공·결과 대기·그 밖의 상태는 409 EXCHANGE_PAYOUT_NOT_FINALIZABLE. "
+                    + "사유는 앞뒤 공백을 뺀 1~500자(400 EXCHANGE_FINAL_FAILURE_REASON_INVALID). 같은 관리자·같은 사유 재요청은 처음 결과"
+                    + "(다시 반환하지 않음). 이후 재송금·확정 차감은 하지 않는다.")
+    RsData<AdminExchangeResponse> failPayoutFinally(Long adminId, Long exchangeId,
+            @Valid ExchangeFinalFailureRequest request);
 }

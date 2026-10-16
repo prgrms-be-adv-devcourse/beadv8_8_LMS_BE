@@ -57,6 +57,15 @@ public enum BillingErrorCode implements BaseErrorCode {
     EXCHANGE_APPLICANT_NOT_SYNCED(HttpStatus.CONFLICT, "신청자의 회원 정보가 아직 Billing에 반영되지 않아 승인할 수 없습니다."),
     EXCHANGE_APPLICANT_NOT_ELIGIBLE(HttpStatus.CONFLICT, "신청자가 정상 상태의 인플루언서가 아니어서 승인할 수 없습니다."),
     EXCHANGE_REJECTION_REASON_INVALID(HttpStatus.BAD_REQUEST, "거절 사유는 앞뒤 공백을 빼고 1~500자여야 합니다."),
+    // 환전 가상 송금 실행 (#304)
+    EXCHANGE_NOT_PAYABLE(HttpStatus.CONFLICT, "관리자가 승인한 환전 신청만 송금할 수 있습니다."),
+    EXCHANGE_PAYOUT_NOT_DUE(HttpStatus.CONFLICT, "정산 예정일 전에는 환전 송금을 할 수 없습니다."),
+    EXCHANGE_PAYOUT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 환전 송금을 처리할 수 없습니다."),
+    // 환전 송금 운영자 처리 (#304)
+    EXCHANGE_PAYOUT_NOT_RETRYABLE(HttpStatus.CONFLICT, "송금이 확정 실패한 환전만 다시 송금할 수 있습니다."),
+    EXCHANGE_PAYOUT_NOT_FINALIZABLE(HttpStatus.CONFLICT, "송금 실패가 확정된 환전만 최종 실패로 종료할 수 있습니다."),
+    EXCHANGE_PAYOUT_NOT_CHECKABLE(HttpStatus.CONFLICT, "결과를 다시 확인할 송금 시도가 없습니다."),
+    EXCHANGE_FINAL_FAILURE_REASON_INVALID(HttpStatus.BAD_REQUEST, "최종 실패 사유는 앞뒤 공백을 빼고 1~500자여야 합니다."),
     // 가상 송금 Mock 은행 API (#288, 로컬·테스트 전용)
     MOCK_PAYOUT_FORBIDDEN(HttpStatus.FORBIDDEN, "가상 송금 API 접근 키가 올바르지 않습니다."),
     MOCK_PAYOUT_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Idempotency-Key와 지급 요청 ID가 같은 UUID여야 합니다."),

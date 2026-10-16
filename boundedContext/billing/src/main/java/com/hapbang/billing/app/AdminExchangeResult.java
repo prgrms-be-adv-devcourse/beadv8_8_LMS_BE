@@ -30,6 +30,12 @@ public record AdminExchangeResult(
         Long rejectedBy,
         Instant rejectedAt,
         String rejectionReason,
+        Instant completedAt,
+        Instant failedAt,
+        String failureReason,
+        Long finalFailedBy,
+        Instant finalFailedAt,
+        String finalFailureReason,
         Account account,
         Applicant applicant
 ) {
@@ -40,7 +46,9 @@ public record AdminExchangeResult(
                 exchange.getFeeRate(), exchange.getFeeAmountHp(), exchange.getPayoutAmountKrw(), exchange.getStatus(),
                 ExchangeSettlementRound.dateOf(exchange.getPayoutScheduledAt()), exchange.getRequestedAt(),
                 exchange.getCanceledAt(), exchange.getApprovedBy(), exchange.getApprovedAt(), exchange.getRejectedBy(),
-                exchange.getRejectedAt(), exchange.getRejectionReason(),
+                exchange.getRejectedAt(), exchange.getRejectionReason(), exchange.getCompletedAt(),
+                exchange.getFailedAt(), exchange.getFailureReason(), exchange.getFinalFailedBy(),
+                exchange.getFinalFailedAt(), exchange.getFinalFailureReason(),
                 new Account(account.getBankCode(), maskedAccountNumber, account.getAccountHolderName(),
                         account.getVerificationStatus()),
                 applicant == null ? null : new Applicant(applicant.getNickname(), applicant.getRole(),

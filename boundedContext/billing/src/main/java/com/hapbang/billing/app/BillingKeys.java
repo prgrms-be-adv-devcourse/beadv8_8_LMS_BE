@@ -26,6 +26,8 @@ final class BillingKeys {
     static final String EXCHANGE_PREFIX = "EXCHANGE";
     static final String EXCHANGE_CANCEL_REQUEST_PREFIX = "EXCHANGE-CANCEL-";
     static final String EXCHANGE_REJECT_REQUEST_PREFIX = "EXCHANGE-REJECT-";
+    static final String EXCHANGE_PAYOUT_CAPTURE_REQUEST_PREFIX = "EXCHANGE-PAYOUT-";
+    static final String EXCHANGE_PAYOUT_FAIL_REQUEST_PREFIX = "EXCHANGE-PAYOUT-FAIL-";
 
     private BillingKeys() {
     }
@@ -93,6 +95,18 @@ final class BillingKeys {
     // 관리자 환전 거절의 보류 반환 요청 ID EXCHANGE-REJECT-{exchangeId}. 신청 하나는 취소·거절 중 하나로만 한 번 반환된다 (#294).
     static String exchangeRejectRequestId(Long exchangeId) {
         return EXCHANGE_REJECT_REQUEST_PREFIX + exchangeId;
+    }
+
+    // 환전 송금 성공의 보류 확정 차감 요청 ID EXCHANGE-PAYOUT-{exchangeId}. 송금 시도가 여러 번이어도 환전마다 고정이라
+    // 확정 차감은 한 번만 된다(같은 ID 재요청은 처음 결과) (#304).
+    static String exchangePayoutCaptureRequestId(Long exchangeId) {
+        return EXCHANGE_PAYOUT_CAPTURE_REQUEST_PREFIX + exchangeId;
+    }
+
+    // 환전 최종 실패의 보류 반환 요청 ID EXCHANGE-PAYOUT-FAIL-{exchangeId}. 환전마다 고정이라 최종 실패 반환은 한 번만 된다.
+    // 한 환전의 보류는 취소·거절·최종 실패 반환과 송금 성공 확정 차감 중 하나로만 끝난다 (#304).
+    static String exchangePayoutFailRequestId(Long exchangeId) {
+        return EXCHANGE_PAYOUT_FAIL_REQUEST_PREFIX + exchangeId;
     }
 
     // 개별 환불의 보류 확정 차감·반환 요청 ID REFUND-{refundId}. 확정 차감(CAPTURE:)과 반환(RELEASE:)은 접두사가 달라

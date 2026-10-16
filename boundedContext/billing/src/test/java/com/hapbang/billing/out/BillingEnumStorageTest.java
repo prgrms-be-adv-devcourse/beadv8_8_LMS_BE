@@ -104,7 +104,11 @@ class BillingEnumStorageTest {
     private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5", "ck_point_refund_5", "ck_exchange_5",
             "ck_mock_payout_transfer_2",
             // ck_exchange_7·8은 승인·거절 상태와 처리 기록이 함께 있어야 한다는 규칙(#294)
-            "ck_exchange_7", "ck_exchange_8");
+            "ck_exchange_7", "ck_exchange_8",
+            // ck_exchange_10·11·ck_exchange_payout_3·4는 송금 완료·실패 상태와 시각·거래 번호가 함께 있어야 한다는 규칙(#304)
+            "ck_exchange_10", "ck_exchange_11", "ck_exchange_payout_3", "ck_exchange_payout_4",
+            // ck_exchange_12는 최종 실패 상태와 종료 기록, ck_exchange_payout_6은 운영자 확인 상태와 그 시각이 함께 있어야 한다는 규칙(#304)
+            "ck_exchange_12", "ck_exchange_payout_6");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""

@@ -18,24 +18,18 @@ import com.hapbang.billing.domain.BillingUser;
 import com.hapbang.billing.domain.Exchange;
 import com.hapbang.billing.domain.ExchangeAccount;
 import com.hapbang.billing.domain.ExchangeStatus;
-import com.hapbang.billing.domain.PointHold;
-import com.hapbang.billing.domain.PointHoldStatus;
-import com.hapbang.billing.domain.PointHoldType;
 import com.hapbang.billing.out.BillingUserRepository;
 import com.hapbang.billing.out.ExchangeAccountRepository;
 import com.hapbang.billing.out.ExchangeRepository;
-import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 // 관리자 환전 승인·거절과 조회 (#294). 역할 검사는 ExchangeAdminFacade가 한다.
-// 잠금 순서(지갑 → 환전 → 보류, #285 계약): ① 환전의 지갑 ID를 락 없이 읽고 ② 그 지갑 ③ 환전을 잠근 뒤 최신 상태로 다시 판단하고
-// ④ 보류를 잠가 정합성을 확인한다. 회원 취소(ExchangeProcessing.cancel)도 같은 순서라 승인·거절·취소가 경쟁하면 지갑 락에서 차례가
-// 정해지고 먼저 커밋한 하나만 상태를 바꾼다(뒤쪽은 바뀐 상태를 보고 409).
+// 잠금 순서(지갑 → 환전 → 보류, #285 계약)와 보류 정합성 확인은 ExchangeLocks(송금 실행 #304와 공유): ① 환전의 지갑 ID를 락 없이
+// 읽고 ② 그 지갑 ③ 환전을 잠근 뒤 최신 상태로 다시 판단하고 ④ 보류를 잠가 정합성을 확인한다. 회원 취소(ExchangeProcessing.cancel)도
+// 같은 순서라 승인·거절·취소가 경쟁하면 지갑 락에서 차례가 정해지고 먼저 커밋한 하나만 상태를 바꾼다(뒤쪽은 바뀐 상태를 보고 409).
 // - 승인: REQUESTED → APPROVED. 신청자 Billing 회원 복제본이 정상 상태의 인플루언서여야 한다(없으면 EXCHANGE_APPLICANT_NOT_SYNCED,
 //   자격 없음 EXCHANGE_APPLICANT_NOT_ELIGIBLE, 둘 다 409). 보류 유지, 확정 차감·송금 없음, 잠정 정산 예정일 그대로
 // - 거절: REQUESTED → REJECTED + 보류 전액 반환(같은 트랜잭션). 신청자 회원 상태와 무관하다. 반환은 신청자 회원 ID로 한다
@@ -49,15 +43,13 @@ public class ExchangeReviewUseCase {
     private final ExchangeRepository exchangeRepository;
     private final ExchangeAccountRepository exchangeAccountRepository;
     private final BillingUserRepository billingUserRepository;
-    private final PointHoldRepository pointHoldRepository;
-    private final LedgerRecordUseCase ledgerRecordUseCase;
+    private final ExchangeLocks exchangeLocks;
     private final InternalHoldFacade internalHoldFacade;
     private final ExchangeAccountCipher exchangeAccountCipher;
-    private final EntityManager entityManager;
 
     @Transactional
     public AdminExchangeResult approve(Long adminId, Long exchangeId) {
-        Exchange exchange = lock(exchangeId);
+        Exchange exchange = exchangeLocks.lock(exchangeId);
         if (exchange.isApprovedBy(adminId)) {
             return resultOf(exchange);
         }
@@ -69,7 +61,7 @@ public class ExchangeReviewUseCase {
         if (!applicant.canReceiveExchangeApproval()) {
             throw new BillingException(BillingErrorCode.EXCHANGE_APPLICANT_NOT_ELIGIBLE);
         }
-        requireHeldForExchange(exchange);
+        exchangeLocks.requireFullyHeld(exchange);
         exchange.approve(adminId, now());
         log.info("환전 승인 exchangeId={}, adminId={}", exchangeId, adminId);
         return resultOf(exchange);
@@ -78,14 +70,14 @@ public class ExchangeReviewUseCase {
     @Transactional
     public AdminExchangeResult reject(Long adminId, Long exchangeId, String reason) {
         String normalized = Exchange.normalizeRejectionReason(reason);
-        Exchange exchange = lock(exchangeId);
+        Exchange exchange = exchangeLocks.lock(exchangeId);
         if (exchange.isRejectedBy(adminId, normalized)) {
             return resultOf(exchange);
         }
         if (exchange.getStatus() != ExchangeStatus.REQUESTED) {
             throw new BillingException(BillingErrorCode.EXCHANGE_ALREADY_REVIEWED);
         }
-        requireHeldForExchange(exchange);
+        exchangeLocks.requireFullyHeld(exchange);
         exchange.reject(adminId, normalized, now());
         ReleaseResult released = internalHoldFacade.release(InternalReleaseCommand.full(exchange.getUserId(),
                 BillingReferenceType.EXCHANGE, exchange.getId(), BillingKeys.exchangeRejectRequestId(exchange.getId())));
@@ -114,47 +106,6 @@ public class ExchangeReviewUseCase {
                 : exchangeAccountRepository.findAllByExchangeIdIn(ids).stream()
                         .collect(Collectors.toMap(account -> account.getExchange().getId(), Function.identity()));
         return page.map(exchange -> resultOf(exchange, accounts.get(exchange.getId())));
-    }
-
-    // 지갑 → 환전 순서로 잠그고 환전을 DB 최신 상태로 다시 읽는다. 지갑 ID는 엔티티를 올리지 않고 읽는다(잠금 전 상태로 판단하지 않게).
-    private Exchange lock(Long exchangeId) {
-        Long walletId = exchangeRepository.findWalletIdById(exchangeId)
-                .orElseThrow(() -> new BillingException(BillingErrorCode.EXCHANGE_NOT_FOUND));
-        ledgerRecordUseCase.lockWallet(walletId);
-        Exchange exchange = exchangeRepository.findByIdForUpdate(exchangeId)
-                .orElseThrow(() -> new BillingException(BillingErrorCode.EXCHANGE_NOT_FOUND));
-        entityManager.refresh(exchange);
-        if (!exchange.getWalletId().equals(walletId)) {
-            throw new BillingException(BillingErrorCode.EXCHANGE_STATE_INCONSISTENT);
-        }
-        return exchange;
-    }
-
-    // 환전 신청의 보류를 잠그고(지갑·환전 다음) 승인·거절할 수 있는 상태인지 확인한다: 이 환전의 수익 HP 전용 보류이고, 손대지 않은
-    // 보류 상태(HELD)이며, 남은 수익 HP 보류가 신청 금액 그대로이고 충전 HP는 없다.
-    private void requireHeldForExchange(Exchange exchange) {
-        if (exchange.getPointHoldId() == null) {
-            throw inconsistent(exchange, "보류 없음");
-        }
-        PointHold hold = pointHoldRepository.findById(exchange.getPointHoldId())
-                .orElseThrow(() -> inconsistent(exchange, "보류 행 없음"));
-        entityManager.refresh(hold, LockModeType.PESSIMISTIC_WRITE);
-        boolean consistent = hold.getWalletId().equals(exchange.getWalletId())
-                && hold.getReferenceType() == BillingReferenceType.EXCHANGE
-                && hold.getReferenceId().equals(exchange.getId())
-                && hold.getHoldType() == PointHoldType.REVENUE_ONLY
-                && hold.getStatus() == PointHoldStatus.HELD
-                && hold.getHeldRevenueHp().longValue() == exchange.getRequestedAmountHp().longValue()
-                && hold.getHeldChargeHp().longValue() == 0L;
-        if (!consistent) {
-            throw inconsistent(exchange, "holdId=" + hold.getId() + ", status=" + hold.getStatus() + ", type="
-                    + hold.getHoldType() + ", heldRevenue=" + hold.getHeldRevenueHp());
-        }
-    }
-
-    private BillingException inconsistent(Exchange exchange, String detail) {
-        log.error("환전 보류 정합성 불일치로 관리자 처리를 중단한다 exchangeId={}, {}", exchange.getId(), detail);
-        return new BillingException(BillingErrorCode.EXCHANGE_STATE_INCONSISTENT);
     }
 
     private AdminExchangeResult resultOf(Exchange exchange) {

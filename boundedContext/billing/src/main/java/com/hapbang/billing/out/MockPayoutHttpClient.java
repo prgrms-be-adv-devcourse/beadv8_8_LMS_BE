@@ -61,6 +61,7 @@ public class MockPayoutHttpClient implements PayoutTransferClient {
     }
 
     // Mock 은행을 부를 수 있는지(MockPayoutActivation: 설정 + 활성 프로필이 전부 local·test)
+    @Override
     public boolean isAvailable() {
         return available;
     }
