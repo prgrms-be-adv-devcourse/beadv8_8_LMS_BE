@@ -66,6 +66,11 @@ public enum BillingErrorCode implements BaseErrorCode {
     EXCHANGE_PAYOUT_NOT_FINALIZABLE(HttpStatus.CONFLICT, "송금 실패가 확정된 환전만 최종 실패로 종료할 수 있습니다."),
     EXCHANGE_PAYOUT_NOT_CHECKABLE(HttpStatus.CONFLICT, "결과를 다시 확인할 송금 시도가 없습니다."),
     EXCHANGE_FINAL_FAILURE_REASON_INVALID(HttpStatus.BAD_REQUEST, "최종 실패 사유는 앞뒤 공백을 빼고 1~500자여야 합니다."),
+    // 지급 예정 수익 통합 조회 (#295). 강의·출연 중 한쪽이라도 조회하지 못하면 부분 결과를 주지 않고 전체를 실패시킨다
+    EARNING_SOURCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 수익 내역을 조회할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    // 강의·출연 내부 API가 요청을 거절했다(4xx: 내부 API 키·요청 계약 불일치). 다시 시도해도 같아 운영자 확인이 필요하다
+    EARNING_SOURCE_REJECTED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 수익 내역을 조회할 수 없습니다."),
+    EARNING_PAGE_TOO_DEEP(HttpStatus.BAD_REQUEST, "수익 목록은 앞쪽 1,000건까지만 조회할 수 있습니다((page + 1) × size ≤ 1,000)."),
     // 가상 송금 Mock 은행 API (#288, 로컬·테스트 전용)
     MOCK_PAYOUT_FORBIDDEN(HttpStatus.FORBIDDEN, "가상 송금 API 접근 키가 올바르지 않습니다."),
     MOCK_PAYOUT_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Idempotency-Key와 지급 요청 ID가 같은 UUID여야 합니다."),
