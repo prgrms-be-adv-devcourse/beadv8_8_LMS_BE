@@ -899,5 +899,5 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 |---|---|---|
 | `appearance/out/billing/BillingPortClient` (Billing 담당, #182 `2b66849`) | `@ConditionalOnProperty(mode=billing-port)` 제거, 문서 주석 갱신. 위임 코드는 그대로 | 구현이 하나뿐이라 켜고 끄는 조건이 필요 없음 |
 | `appearance/.../out/billing/BillingClientModeTest` (Billing 담당, #182) | 삭제 | `mode` 값에 따라 Fake·실제 구현을 고르는지 보는 테스트라 대상이 없어짐 |
-| apps `AppearanceBillingPortIntegrationTest` (Billing 담당, #182) | `properties = "appearance.billing.mode=billing-port"` 제거, "Fake 빈이 없다" 확인 줄·`FakeBillingClient` import·쓰지 않게 된 `ApplicationContext` 제거, 첫 테스트 이름을 `출연_BillingClient로_BillingPortClient가_주입된다`로, 클래스 주석 갱신. 나머지 테스트는 그대로 | `FakeBillingClient` 클래스가 없어 컴파일이 깨지고, `mode` 설정이 없어짐 |
+| apps `AppearanceBillingPortIntegrationTest` (Billing 담당, #182) | `properties = "appearance.billing.mode=billing-port"` 제거, "Fake 빈이 없다" 확인 줄·`FakeBillingClient` import·쓰지 않게 된 `ApplicationContext` 제거, 첫 테스트 이름을 `출연_BillingClient로_BillingPortClient가_주입된다`로, 클래스 주석 갱신, `@DirtiesContext` 추가. 나머지 테스트는 그대로 | `FakeBillingClient` 클래스가 없어 컴파일이 깨지고, `mode` 설정이 없어짐. `@DirtiesContext`: `mode` 속성이 빠지며 `SecurityCookieTest`와 같은 컨텍스트를 쓰게 됐는데, `csrf()` 테스트 도구가 CSRF 저장소를 세션 방식으로 바꿔 끼워 `SecurityCookieTest`가 실패했다 (PR CI) |
 

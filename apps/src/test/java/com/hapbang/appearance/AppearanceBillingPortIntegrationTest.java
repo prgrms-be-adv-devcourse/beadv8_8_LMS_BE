@@ -22,6 +22,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -55,6 +56,9 @@ import com.jayway.jsonpath.JsonPath;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+// csrf() 테스트 도구가 이 컨텍스트의 CSRF 저장소를 세션 방식으로 바꿔 끼운다. 같은 설정의 다른 테스트(SecurityCookieTest 등)가
+// 이 컨텍스트를 이어 쓰면 XSRF-TOKEN 쿠키가 나오지 않으므로, 이 클래스가 끝나면 컨텍스트를 버린다 (#289)
+@DirtiesContext
 @Import(PostgresTestcontainersConfig.class)
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
