@@ -21,6 +21,8 @@ public class MemberUpdateProfileUseCase {
         User user = memberSupport.findUser(userId);
         if (nickname != null) {
             user.changeNickname(nickname);
+            // 역할 변경과 겹치면 409 (이벤트 발행 전)
+            memberSupport.flush();
             eventPublisher.publishEvent(new UserModifiedEvent(user.toDto()));
         }
         return user;
