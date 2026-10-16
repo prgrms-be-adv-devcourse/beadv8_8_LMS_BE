@@ -71,6 +71,11 @@ public enum BillingErrorCode implements BaseErrorCode {
     // 강의·출연 내부 API가 요청을 거절했다(4xx: 내부 API 키·요청 계약 불일치). 다시 시도해도 같아 운영자 확인이 필요하다
     EARNING_SOURCE_REJECTED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 수익 내역을 조회할 수 없습니다."),
     EARNING_PAGE_TOO_DEEP(HttpStatus.BAD_REQUEST, "수익 목록은 앞쪽 1,000건까지만 조회할 수 있습니다((page + 1) × size ≤ 1,000)."),
+    // 기존 회원 BillingUser Backfill (#324). 회원 내부 API를 조회하지 못하거나 응답이 계약과 다르면 실행 전체를 멈춘다(이미 반영한 회원은 유지)
+    MEMBER_SOURCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보를 조회할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    // 회원 내부 API가 요청을 거절했다(4xx: 내부 API 키·요청 계약 불일치). 다시 시도해도 같아 운영자 확인이 필요하다
+    MEMBER_SOURCE_REJECTED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보를 조회할 수 없습니다."),
+    BACKFILL_ALREADY_RUNNING(HttpStatus.CONFLICT, "회원 정보 Backfill이 이미 실행 중입니다."),
     // 가상 송금 Mock 은행 API (#288, 로컬·테스트 전용)
     MOCK_PAYOUT_FORBIDDEN(HttpStatus.FORBIDDEN, "가상 송금 API 접근 키가 올바르지 않습니다."),
     MOCK_PAYOUT_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Idempotency-Key와 지급 요청 ID가 같은 UUID여야 합니다."),
