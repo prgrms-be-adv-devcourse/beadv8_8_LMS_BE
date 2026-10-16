@@ -13,7 +13,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,19 +33,21 @@ import com.hapbang.appearance.domain.AppearanceRequestStatus;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRequestRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
-import com.hapbang.appearance.out.billing.FakeBillingErrorCode;
-import com.hapbang.appearance.out.billing.FakeBillingException;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
+import com.hapbang.global.exception.BusinessException;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
  * 출연 요청서 보내기·조회·수정 흐름을 DB와 Fake Billing으로 확인한다.
  * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceRequestFacadeTest {
 
@@ -71,7 +72,7 @@ class AppearanceRequestFacadeTest {
     AppearanceRequestRepository appearanceRequestRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     @Qualifier(AppearanceConfig.CLOCK)
@@ -84,10 +85,6 @@ class AppearanceRequestFacadeTest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(OTHER));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
@@ -110,9 +107,9 @@ class AppearanceRequestFacadeTest {
     }
 
     /** Billing 거절은 출연 오류로 바꾸지 않고 Billing 오류(코드·메시지) 그대로 나온다 */
-    private static void assertBillingRejected(Runnable action, FakeBillingErrorCode errorCode) {
+    private static void assertBillingRejected(Runnable action, Rejection errorCode) {
         assertThatThrownBy(action::run)
-                .isInstanceOf(FakeBillingException.class)
+                .isInstanceOf(BusinessException.class)
                 .hasMessage(errorCode.getMessage())
                 .extracting("errorCode").isEqualTo(errorCode);
     }
@@ -122,34 +119,37 @@ class AppearanceRequestFacadeTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("보내면 출연료만큼 HP를 보류하고 REQUESTED가 된다")
+    @DisplayName("보내면 Billing에 호스트·요청서·출연료로 보류를 요청하고 REQUESTED가 된다")
     void create() {
         AppearanceRequestResDto response = send(HOST, GUEST);
 
         assertThat(response.status()).isEqualTo(AppearanceRequestStatus.REQUESTED);
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.REQUESTED);
-        assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, response.id())).isEqualTo(FEE);
-        assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE - FEE);
+        assertThat(BillingCalls.holds(billingClient)).singleElement().satisfies(hold -> {
+            assertThat(hold.userId()).isEqualTo(HOST);
+            assertThat(hold.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_REQUEST);
+            assertThat(hold.referenceId()).isEqualTo(response.id());
+            assertThat(hold.amountHp()).isEqualTo(FEE);
+        });
     }
 
     @Test
-    @DisplayName("잔액이 부족하면 Billing 오류 INSUFFICIENT_BALANCE 그대로, 요청서는 HOLD_FAILED로 남고 목록에 보이지 않는다")
+    @DisplayName("Billing이 보류를 거절하면(잔액 부족) 그 오류 그대로, 요청서는 HOLD_FAILED로 남고 목록에 보이지 않는다")
     void insufficientBalance() {
-        fakeBillingClient.setBalance(HOST, FEE - 1);
+        BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
-        assertBillingRejected(() -> send(HOST, GUEST), FakeBillingErrorCode.INSUFFICIENT_BALANCE);
+        assertBillingRejected(() -> send(HOST, GUEST), Rejection.INSUFFICIENT_BALANCE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
-        assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FEE - 1);
         assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
     }
 
     @Test
-    @DisplayName("잔액 부족으로 실패한 뒤에는 같은 게스트에게 다시 보낼 수 있다")
+    @DisplayName("보류 거절로 실패한 뒤에는 같은 게스트에게 다시 보낼 수 있다")
     void retryAfterHoldFailed() {
-        fakeBillingClient.setBalance(HOST, FEE - 1);
-        assertBillingRejected(() -> send(HOST, GUEST), FakeBillingErrorCode.INSUFFICIENT_BALANCE);
-        fakeBillingClient.setBalance(HOST, FEE);
+        BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
+        assertBillingRejected(() -> send(HOST, GUEST), Rejection.INSUFFICIENT_BALANCE);
+        BillingStubs.available(billingClient);
 
         AppearanceRequestResDto response = send(HOST, GUEST);
 
@@ -159,9 +159,9 @@ class AppearanceRequestFacadeTest {
     @Test
     @DisplayName("잔액 부족 외의 Billing 거절(지갑 없음)도 그대로 응답하고 요청서는 HOLD_FAILED")
     void walletNotFound() {
-        fakeBillingClient.removeWallet(HOST);
+        BillingStubs.reject(billingClient, Rejection.WALLET_NOT_FOUND);
 
-        assertBillingRejected(() -> send(HOST, GUEST), FakeBillingErrorCode.WALLET_NOT_FOUND);
+        assertBillingRejected(() -> send(HOST, GUEST), Rejection.WALLET_NOT_FOUND);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
     }
@@ -169,14 +169,14 @@ class AppearanceRequestFacadeTest {
     @Test
     @DisplayName("Billing이 응답하지 않으면 BILLING_UNAVAILABLE, 요청서는 HOLD_PENDING으로 남고 바로 다시 보내면 중복으로 막힌다")
     void billingUnavailable() {
-        fakeBillingClient.setUnavailable(true);
+        BillingStubs.unavailable(billingClient);
 
         assertErrorCode(() -> send(HOST, GUEST), AppearanceErrorCode.BILLING_UNAVAILABLE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
         assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
 
-        fakeBillingClient.setUnavailable(false);
+        BillingStubs.available(billingClient);
         assertErrorCode(() -> send(HOST, GUEST), AppearanceErrorCode.DUPLICATE_APPEARANCE_REQUEST);
     }
 
@@ -187,7 +187,7 @@ class AppearanceRequestFacadeTest {
 
         assertErrorCode(() -> send(HOST, GUEST), AppearanceErrorCode.DUPLICATE_APPEARANCE_REQUEST);
         assertThat(send(HOST, OTHER).status()).isEqualTo(AppearanceRequestStatus.REQUESTED);
-        assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE - FEE * 2);
+        assertThat(BillingCalls.holds(billingClient)).hasSize(2);
     }
 
     @Test

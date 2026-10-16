@@ -13,7 +13,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -49,18 +48,21 @@ import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestAcceptedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
  * 출연 취소 요청(요청·수락·거절·자동 거절)과 출연 조회를 DB와 Fake Billing으로 확인한다 (ISSUE.md APR-31).
  * 출연료는 30,000 HP. 방송 예정 일시는 DB 값을 과거로 옮겨 지난 것으로 만든다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @RecordApplicationEvents
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceCancelRequestFlowTest {
@@ -94,7 +96,7 @@ class AppearanceCancelRequestFlowTest {
     HpTaskRepository hpTaskRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     ApplicationEvents applicationEvents;
@@ -114,10 +116,6 @@ class AppearanceCancelRequestFlowTest {
         applicationEvents.clear();
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
@@ -214,9 +212,11 @@ class AppearanceCancelRequestFlowTest {
             assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_REQUEST-%d-RELEASE-APPEARANCE-%d"
                     .formatted(established.requestId(), established.appearanceId()));
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DONE);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, established.requestId()))
-                    .isZero();
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
+            assertThat(BillingCalls.releases(billingClient)).singleElement().satisfies(release -> {
+                assertThat(release.referenceId()).isEqualTo(established.requestId());
+                assertThat(release.releaseRequestId()).isEqualTo(task.getIdempotencyKey());
+                assertThat(release.amountHp()).isEqualTo(FEE);
+            });
             assertThat(applicationEvents.stream(AppearanceCancelRequestAcceptedEvent.class)).hasSize(1);
             // 반환 진행 상태는 출연 상세에만 보이고, 요청서 상세(거절·취소·만료 반환용)에는 섞이지 않는다
             assertThat(accepted.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
@@ -290,7 +290,7 @@ class AppearanceCancelRequestFlowTest {
         void releaseFails() {
             RequestAppearance established = establishFromRequest(GUEST);
             requestCancel(established.appearanceId());
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
 
             AppearanceResDto accepted = appearanceFacade.acceptCancel(HOST, established.appearanceId());
 
@@ -320,8 +320,7 @@ class AppearanceCancelRequestFlowTest {
             assertThat(appearanceRecruitFacade.getDetail(HOST, established.recruitId()).selectedCount()).isZero();
             assertThat(releaseTasks(HpTaskRefType.APPEARANCE_RECRUIT, established.recruitId())).isEmpty();
             assertThat(accepted.hpReleaseStatus()).isNull(); // 마감 전이라 반환하지 않음 (보류 유지)
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, established.recruitId()))
-                    .isEqualTo(FEE);
+            assertThat(BillingCalls.releases(billingClient)).isEmpty();
             assertThat(appearanceApplicationFacade.accept(HOST, secondApplication).appearanceId()).isNotNull();
         }
 
@@ -337,8 +336,7 @@ class AppearanceCancelRequestFlowTest {
             assertThat(releaseTasks(HpTaskRefType.APPEARANCE_RECRUIT, established.recruitId()))
                     .extracting(HpTask::getReason, HpTask::getAmount)
                     .containsExactly(org.assertj.core.groups.Tuple.tuple(HpTaskReason.RECRUIT_CLOSED, FEE));
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, established.recruitId()))
-                    .isZero();
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::amountHp).containsExactly(FEE);
         }
 
         @Test
@@ -356,8 +354,8 @@ class AppearanceCancelRequestFlowTest {
             assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_RECRUIT-%d-RELEASE-APPEARANCE-%d"
                     .formatted(established.recruitId(), established.appearanceId()));
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DONE);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, established.recruitId()))
-                    .isZero();
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::releaseRequestId)
+                    .contains(task.getIdempotencyKey());
             assertThat(appearanceRecruitFacade.getDetail(HOST, established.recruitId()).selectedCount()).isZero();
         }
 
@@ -365,9 +363,9 @@ class AppearanceCancelRequestFlowTest {
         @DisplayName("반환 진행 상태가 섞이지 않는다: 마감 반환이 처리 중(PENDING)인데 합의 취소 반환이 끝나도(DONE) 모집글 상세는 마감 반환 상태, 출연 상세는 합의 취소 반환 상태")
         void releaseStatusNotMixed() {
             RecruitAppearance established = establishFromRecruit(3);
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
             appearanceRecruitFacade.closeEarly(HOST, established.recruitId()); // 미달 2명분 반환 실패 → PENDING
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             requestCancel(established.appearanceId());
 
             AppearanceResDto accepted = appearanceFacade.acceptCancel(HOST, established.appearanceId());
@@ -463,12 +461,11 @@ class AppearanceCancelRequestFlowTest {
                     .satisfies(error -> assertThat(((AppearanceException) error).getErrorCode()).isIn(
                             AppearanceErrorCode.CANCEL_REQUEST_NOT_PENDING, AppearanceErrorCode.CONCURRENT_UPDATE));
             AppearanceResDto detail = appearanceFacade.getDetail(HOST, established.appearanceId());
-            long held = fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, established.requestId());
             if (detail.status() == AppearanceStatus.CANCELED_BY_AGREEMENT) {
-                assertThat(held).isZero();
+                assertThat(BillingCalls.releases(billingClient)).hasSize(1);
             } else {
                 assertThat(detail.status()).isEqualTo(AppearanceStatus.ESTABLISHED);
-                assertThat(held).isEqualTo(FEE);
+                assertThat(BillingCalls.releases(billingClient)).isEmpty();
             }
         }
     }

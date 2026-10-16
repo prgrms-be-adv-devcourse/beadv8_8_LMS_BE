@@ -13,7 +13,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,16 +42,19 @@ import com.hapbang.appearance.out.AppearanceRepository;
 import com.hapbang.appearance.out.AppearanceRequestRepository;
 import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
  * 출연 요청 응답(수락·거절·응답 전 취소) 흐름을 DB와 Fake Billing으로 확인한다.
  * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceRequestRespondFacadeTest {
 
@@ -83,7 +85,7 @@ class AppearanceRequestRespondFacadeTest {
     HpTaskRepository hpTaskRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     TransactionTemplate transactionTemplate;
@@ -102,10 +104,6 @@ class AppearanceRequestRespondFacadeTest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(OTHER));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private AppearanceRequestResDto send() {
         return appearanceRequestFacade.create(HOST, GUEST, AppearanceRequestFixture.content(LocalDateTime.now(clock)));
@@ -141,7 +139,7 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(appearance.getRequestId()).isEqualTo(sent.id());
         assertThat(appearance.getFee()).isEqualTo(FEE);
         assertThat(appearance.getScheduledAt()).isEqualTo(sent.scheduledAt());
-        assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, sent.id())).isEqualTo(FEE);
+        assertThat(BillingCalls.releases(billingClient)).isEmpty(); // 수락은 HP를 옮기지 않는다 (보류 유지)
         assertThat(hpTaskRepository.count()).isZero();
     }
 
@@ -231,15 +229,14 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(task.getMemberId()).isEqualTo(HOST);
         assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_REQUEST-" + sent.id() + "-RELEASE-1");
         assertThat(task.getAttemptCount()).isEqualTo(1);
-        assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, sent.id())).isZero();
-        assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
+        assertReleaseSent(sent.id());
     }
 
     @Test
     @DisplayName("반환이 실패해도 거절은 성공하고, 작업은 PENDING으로 남아 시도 횟수·오류·다음 시도 시각을 기록한다")
     void rejectWhenReleaseFails() {
         AppearanceRequestResDto sent = send();
-        fakeBillingClient.setUnavailable(true);
+        BillingStubs.unavailable(billingClient);
 
         AppearanceRequestResDto rejected = appearanceRequestFacade.reject(GUEST, sent.id(), null);
 
@@ -247,16 +244,15 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(rejected.hpReleaseStatus()).isEqualTo(HpTaskStatus.PENDING);
         HpTask task = onlyTask();
         assertThat(task.getAttemptCount()).isEqualTo(1);
-        assertThat(task.getLastError()).contains("BillingUnavailableException");
+        assertThat(task.getLastError()).isEqualTo("IllegalStateException: Billing 응답 없음 (테스트)");
         assertThat(task.getNextAttemptAt()).isAfter(task.getCreatedAt());
-        assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, sent.id())).isEqualTo(FEE);
     }
 
     @Test
     @DisplayName("Billing이 반환을 거절하면(보류 없음) 거절은 성공하고, 작업은 재시도 없이 바로 DEAD로 Billing 오류 코드를 기록한다")
     void rejectWhenBillingRejectsRelease() {
         AppearanceRequestResDto sent = send();
-        fakeBillingClient.reset();
+        BillingStubs.reject(billingClient, Rejection.HOLD_NOT_FOUND);
 
         AppearanceRequestResDto rejected = appearanceRequestFacade.reject(GUEST, sent.id(), null);
 
@@ -277,7 +273,7 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(canceled.canceledAt()).isNotNull();
         assertThat(canceled.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
         assertThat(onlyTask().getReason().name()).isEqualTo("REQUEST_CANCELED");
-        assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
+        assertReleaseSent(sent.id());
     }
 
     @Test
@@ -390,4 +386,14 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(detail.hpReleaseStatus()).isNull();
     }
 
+    /** Billing에 요청서 보류 전액 반환을 요청했는지 (반환 요청 ID {@code APPEARANCE_REQUEST-{id}-RELEASE-1}) */
+    private void assertReleaseSent(Long requestId) {
+        assertThat(BillingCalls.releases(billingClient)).singleElement().satisfies(release -> {
+            assertThat(release.userId()).isEqualTo(HOST);
+            assertThat(release.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_REQUEST);
+            assertThat(release.referenceId()).isEqualTo(requestId);
+            assertThat(release.releaseRequestId()).isEqualTo("APPEARANCE_REQUEST-" + requestId + "-RELEASE-1");
+            assertThat(release.amountHp()).isEqualTo(FEE);
+        });
+    }
 }

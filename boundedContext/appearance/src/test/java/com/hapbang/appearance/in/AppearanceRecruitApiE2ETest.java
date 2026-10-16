@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Clock;
 import java.time.LocalDateTime;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,9 +23,11 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
@@ -34,7 +35,7 @@ import com.jayway.jsonpath.JsonPath;
  * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Fake Billing)를 띄우고 출연 모집글 API를 호출한다.
  * 성공 응답은 RsData다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 class AppearanceRecruitApiE2ETest {
 
@@ -50,7 +51,7 @@ class AppearanceRecruitApiE2ETest {
     AppearanceUserFacade appearanceUserFacade;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     @Qualifier(AppearanceConfig.CLOCK)
@@ -63,10 +64,6 @@ class AppearanceRecruitApiE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(VIEWER));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private String createBody(long feePerPerson, int recruitCount) {
         LocalDateTime now = LocalDateTime.now(clock);
@@ -117,9 +114,9 @@ class AppearanceRecruitApiE2ETest {
     }
 
     @Test
-    @DisplayName("잔액이 부족하면 Billing 오류 그대로 409 INSUFFICIENT_BALANCE")
+    @DisplayName("Billing이 잔액 부족으로 보류를 거절하면 그 오류 그대로 409 INSUFFICIENT_BALANCE")
     void insufficientBalance() throws Exception {
-        fakeBillingClient.setBalance(HOST, 89_999);
+        BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
         mockMvc.perform(createRequest(HOST, Role.INFLUENCER, createBody(30_000, 3)))
                 .andExpect(status().isConflict())

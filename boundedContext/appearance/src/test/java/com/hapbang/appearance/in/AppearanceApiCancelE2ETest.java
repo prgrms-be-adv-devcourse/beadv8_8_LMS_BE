@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Clock;
 import java.time.LocalDateTime;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,16 +27,15 @@ import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 
 /**
  * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB, Fake Billing)를 띄우고 출연 조회·취소 요청 API를 호출한다.
  * 출연 성립까지는 Facade로 준비한다 (세션 역할은 {@code @WithMockUser}, API 호출은 {@link TestLogin}).
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceApiCancelE2ETest {
@@ -58,9 +56,6 @@ class AppearanceApiCancelE2ETest {
     AppearanceRequestFacade appearanceRequestFacade;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
-
-    @Autowired
     JdbcTemplate jdbcTemplate;
 
     @Autowired
@@ -75,10 +70,6 @@ class AppearanceApiCancelE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(VIEWER));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     /** 요청서가 수락돼 성립한 출연 ID */
     private long establish() {

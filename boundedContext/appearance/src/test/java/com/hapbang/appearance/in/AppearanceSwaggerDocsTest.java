@@ -10,12 +10,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
 
 /**
  * Swagger 명세(/v3/api-docs)의 출연 요청서 성공 응답 스키마가 실제 응답(RsData)과 같은지 확인한다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 class AppearanceSwaggerDocsTest {
 

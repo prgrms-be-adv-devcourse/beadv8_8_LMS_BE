@@ -14,7 +14,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -41,17 +40,18 @@ import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRecruitRepository;
 import com.hapbang.appearance.out.AppearanceRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
  * 출연 모집 지원·취소·수락·거절·조회 흐름을 DB와 Fake Billing으로 확인한다.
  * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceApplicationFacadeTest {
 
@@ -77,7 +77,7 @@ class AppearanceApplicationFacadeTest {
     AppearanceRepository appearanceRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -93,10 +93,6 @@ class AppearanceApplicationFacadeTest {
         }
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     /** 호스트가 정원 {@code recruitCount}명, 1인당 30,000 HP로 모집글을 올린다 */
     private Long postRecruit(int recruitCount) {
@@ -186,9 +182,9 @@ class AppearanceApplicationFacadeTest {
         @Test
         @DisplayName("보류 처리 중인 모집글에는 지원할 수 없다 (목록에 없는 모집글이라 APPEARANCE_RECRUIT_NOT_FOUND)")
         void holdPendingRecruit() {
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> postRecruit(3)).isInstanceOf(AppearanceException.class);
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             Long pendingId = appearanceRecruitRepository.findAll().getFirst().getId();
 
             assertErrorCode(() -> AppearanceApplicationFacadeTest.this.apply(GUEST, pendingId),
@@ -288,7 +284,7 @@ class AppearanceApplicationFacadeTest {
         void accept() {
             Long recruitId = postRecruit(3);
             AppearanceApplicationResDto applied = apply(GUEST, recruitId);
-            long balanceBefore = fakeBillingClient.balanceOf(HOST);
+            BillingStubs.available(billingClient); // 모집글 보류 요청 기록을 지운다
 
             AppearanceApplicationResDto accepted = appearanceApplicationFacade.accept(HOST, applied.id());
 
@@ -303,9 +299,7 @@ class AppearanceApplicationFacadeTest {
             AppearanceRecruitResDto recruit = appearanceRecruitFacade.getDetail(HOST, recruitId);
             assertThat(recruit.selectedCount()).isEqualTo(1);
             assertThat(recruit.applicantCount()).isEqualTo(1);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId))
-                    .isEqualTo(90_000);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(balanceBefore);
+            assertThat(BillingCalls.none(billingClient)).isTrue();
         }
 
         @Test

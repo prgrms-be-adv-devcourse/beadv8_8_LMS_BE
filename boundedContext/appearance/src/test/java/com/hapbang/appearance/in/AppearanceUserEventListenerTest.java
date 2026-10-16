@@ -21,13 +21,13 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
-import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
 
 /**
  * 회원 모듈이 가입·변경 이벤트를 발행한 것처럼 만들고, 출연 회원이 생기는지 확인한다.
  * 리스너는 발행한 트랜잭션이 커밋된 뒤에 실행되므로 트랜잭션 안에서 발행하고, 결과가 생길 때까지 기다린다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 class AppearanceUserEventListenerTest {
 
     @Autowired

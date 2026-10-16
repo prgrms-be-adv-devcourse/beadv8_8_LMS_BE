@@ -15,7 +15,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -51,15 +50,22 @@ import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.dto.PenaltyCommand;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
  * 호스트 일방 취소·모집 전체 취소를 DB와 Fake Billing으로 확인한다 (ISSUE.md APR-32).
- * 출연료 30,000 HP → 위약금 9,000(게스트) + 반환 21,000(호스트). 잔액은 Fake Billing 기본 잔액에서 본다.
+ * 출연료 30,000 HP → 위약금 9,000(게스트) + 반환 21,000(호스트). Billing은 대역이라 보낸 정산 요청 내용을 본다
+ * (실제 잔액 변화는 apps 통합 테스트).
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceHostCancelFlowTest {
 
@@ -70,7 +76,6 @@ class AppearanceHostCancelFlowTest {
     private static final Long OTHER = 5L;
     private static final long FEE = 30_000L;
     private static final long PENALTY = 9_000L;
-    private static final long BASE = FakeBillingClient.DEFAULT_BALANCE;
 
     @Autowired
     AppearanceFacade appearanceFacade;
@@ -100,7 +105,7 @@ class AppearanceHostCancelFlowTest {
     HpTaskSupport hpTaskSupport;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -116,10 +121,6 @@ class AppearanceHostCancelFlowTest {
         }
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
@@ -194,10 +195,17 @@ class AppearanceHostCancelFlowTest {
             assertThat(task.getReason()).isEqualTo(HpTaskReason.HOST_CANCELED);
             assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_REQUEST-%d-PENALTY-APPEARANCE-%d"
                     .formatted(established.requestId(), established.appearanceId()));
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, established.requestId()))
-                    .isZero();
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE - PENALTY);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + PENALTY);
+            assertThat(BillingCalls.penalties(billingClient)).singleElement().satisfies(penalty -> {
+                assertThat(penalty.payerUserId()).isEqualTo(HOST);
+                assertThat(penalty.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_REQUEST);
+                assertThat(penalty.referenceId()).isEqualTo(established.requestId());
+                assertThat(penalty.cancellationId()).isEqualTo(task.getIdempotencyKey());
+                assertThat(penalty.receiverUserId()).isEqualTo(GUEST);
+                assertThat(penalty.sourceType()).isEqualTo(SettlementSourceType.APPEARANCE_REQUEST);
+                assertThat(penalty.sourceId()).isEqualTo(established.appearanceId());
+                assertThat(penalty.releaseAmountHp()).isEqualTo(FEE - PENALTY);
+                assertThat(penalty.payoutAmountHp()).isEqualTo(PENALTY);
+            });
         }
 
         @Test
@@ -217,7 +225,8 @@ class AppearanceHostCancelFlowTest {
             assertThat(canceled.status()).isEqualTo(AppearanceStatus.CANCELED_BY_HOST);
             assertThat(canceled.cancelRequests().getFirst().status())
                     .isEqualTo(AppearanceCancelRequestStatus.CLOSED_BY_HOST_CANCEL);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + PENALTY);
+            assertThat(BillingCalls.penalties(billingClient)).extracting(PenaltyCommand::payoutAmountHp)
+                    .containsExactly(PENALTY);
         }
 
         @Test
@@ -254,7 +263,11 @@ class AppearanceHostCancelFlowTest {
 
             appearanceFacade.hostCancel(HOST, appearanceId, false, null);
 
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isZero();
+            assertThat(BillingCalls.penalties(billingClient)).singleElement().satisfies(penalty -> {
+                assertThat(penalty.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_RECRUIT);
+                assertThat(penalty.sourceType()).isEqualTo(SettlementSourceType.RECRUIT_APPEARANCE);
+                assertThat(penalty.releaseAmountHp() + penalty.payoutAmountHp()).isEqualTo(FEE);
+            });
             assertThat(onlyTask(HpTaskType.PENALTY).getIdempotencyKey())
                     .isEqualTo("APPEARANCE_RECRUIT-%d-PENALTY-APPEARANCE-%d".formatted(recruitId, appearanceId));
             assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).selectedCount()).isEqualTo(1);
@@ -265,15 +278,14 @@ class AppearanceHostCancelFlowTest {
         @DisplayName("정산 결과를 모르면 취소는 성공하고 작업은 PENDING → 재시도 배치가 DONE으로 처리하며, 다시 실행해도 위약금은 한 번만 지급된다")
         void penaltyRetried() {
             Long appearanceId = establishFromRequest().appearanceId();
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
 
             AppearanceResDto canceled = appearanceFacade.hostCancel(HOST, appearanceId, false, null);
 
             assertThat(canceled.status()).isEqualTo(AppearanceStatus.CANCELED_BY_HOST);
             assertThat(canceled.hpPenaltyStatus()).isEqualTo(HpTaskStatus.PENDING);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE);
 
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             HpTask task = onlyTask(HpTaskType.PENALTY);
             jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?",
                     now().minusSeconds(1), task.getId());
@@ -281,15 +293,15 @@ class AppearanceHostCancelFlowTest {
             hpTaskExecuteUseCase.execute(task.getId()); // 이미 DONE이면 다시 실행하지 않는다
 
             assertThat(appearanceFacade.getDetail(HOST, appearanceId).hpPenaltyStatus()).isEqualTo(HpTaskStatus.DONE);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + PENALTY);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE - PENALTY);
+            assertThat(BillingCalls.penalties(billingClient)).extracting(PenaltyCommand::cancellationId)
+                    .containsExactly(task.getIdempotencyKey());
         }
 
         @Test
         @DisplayName("Billing이 위약금 정산을 거절하면(게스트 지갑 없음) 재시도 없이 DEAD, Billing 오류 코드를 기록한다. 취소는 그대로")
         void penaltyRejected() {
             Long appearanceId = establishFromRequest().appearanceId();
-            fakeBillingClient.removeWallet(GUEST);
+            BillingStubs.reject(billingClient, Rejection.WALLET_NOT_FOUND);
 
             AppearanceResDto canceled = appearanceFacade.hostCancel(HOST, appearanceId, false, null);
 
@@ -332,10 +344,11 @@ class AppearanceHostCancelFlowTest {
             HpTask vacancy = onlyTask(HpTaskType.RELEASE);
             assertThat(vacancy.getReason()).isEqualTo(HpTaskReason.RECRUIT_CANCELED);
             assertThat(vacancy.getAmount()).isEqualTo(FEE);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isZero();
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE - 2 * PENALTY);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + PENALTY);
-            assertThat(fakeBillingClient.balanceOf(GUEST2)).isEqualTo(BASE + PENALTY);
+            assertThat(BillingCalls.penalties(billingClient))
+                    .extracting(PenaltyCommand::receiverUserId, PenaltyCommand::payoutAmountHp)
+                    .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple(GUEST, PENALTY),
+                            org.assertj.core.groups.Tuple.tuple(GUEST2, PENALTY));
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::amountHp).containsExactly(FEE);
         }
 
         @Test
@@ -359,8 +372,9 @@ class AppearanceHostCancelFlowTest {
             hpTaskRetryUseCase.retryDue();
 
             assertThat(onlyTask(HpTaskType.PENALTY).getStatus()).isEqualTo(HpTaskStatus.DONE);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + PENALTY);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isZero();
+            // 처음 실행은 Billing까지 갔고 결과 기록만 실패했다. 재시도는 같은 취소 ID로 다시 보내 Billing이 한 번만 처리한다
+            assertThat(BillingCalls.penalties(billingClient)).extracting(PenaltyCommand::cancellationId)
+                    .containsExactly(penalty.getIdempotencyKey(), penalty.getIdempotencyKey());
         }
 
         @Test
@@ -372,7 +386,7 @@ class AppearanceHostCancelFlowTest {
 
             assertThat(tasksOf(HpTaskType.PENALTY)).isEmpty();
             assertThat(onlyTask(HpTaskType.RELEASE).getAmount()).isEqualTo(3 * FEE);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE);
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::amountHp).containsExactly(3 * FEE);
         }
 
         @Test
@@ -387,8 +401,9 @@ class AppearanceHostCancelFlowTest {
             assertThat(tasksOf(HpTaskType.PENALTY)).hasSize(1);
             assertThat(tasksOf(HpTaskType.RELEASE)).extracting(HpTask::getReason)
                     .containsExactly(HpTaskReason.RECRUIT_CLOSED);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isZero();
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE - PENALTY);
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::amountHp).containsExactly(FEE);
+            assertThat(BillingCalls.penalties(billingClient)).extracting(PenaltyCommand::payoutAmountHp)
+                    .containsExactly(PENALTY);
         }
 
         @Test
@@ -403,7 +418,8 @@ class AppearanceHostCancelFlowTest {
 
             assertThat(tasksOf(HpTaskType.PENALTY)).isEmpty();
             assertThat(onlyTask(HpTaskType.RELEASE).getAmount()).isEqualTo(2 * FEE);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE);
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::amountHp)
+                    .containsExactly(2 * FEE);
         }
 
         @Test
@@ -444,9 +460,9 @@ class AppearanceHostCancelFlowTest {
             assertErrorCode(() -> appearanceRecruitFacade.cancel(HOST, passed, false, null),
                     AppearanceErrorCode.APPEARANCE_SCHEDULE_PASSED);
 
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> postRecruit(1)).isInstanceOf(RuntimeException.class);
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             Long pendingId = jdbcTemplate.queryForObject(
                     "select id from appearances.recruits where status = 'HOLD_PENDING'", Long.class);
             assertErrorCode(() -> appearanceRecruitFacade.cancel(HOST, pendingId, false, null),
@@ -481,7 +497,15 @@ class AppearanceHostCancelFlowTest {
             assertThat(appearanceFacade.getMine(HOST, AppearanceRole.HOST,
                     List.of(AppearanceStatus.ESTABLISHED, AppearanceStatus.CANCEL_REQUESTED), PageRequest.of(0, 20))
                     .getTotalElements()).isZero();
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isZero();
+            // 모집글 보류(2명분 60,000)를 위약금 정산·빈자리 반환으로 모두 처리해 달라고 보냈다
+            long settled = 0;
+            for (PenaltyCommand penalty : BillingCalls.penalties(billingClient)) {
+                settled += penalty.releaseAmountHp() + penalty.payoutAmountHp();
+            }
+            for (ReleaseCommand release : BillingCalls.releases(billingClient)) {
+                settled += release.amountHp();
+            }
+            assertThat(settled).isEqualTo(2 * FEE);
         }
     }
 

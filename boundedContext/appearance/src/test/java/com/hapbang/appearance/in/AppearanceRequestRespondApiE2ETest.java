@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Clock;
 import java.time.LocalDateTime;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,16 +23,18 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 /**
  * 출연 요청 응답 API(수락·거절·응답 전 취소)와 목록 상태 필터를 앱 전체로 호출한다. 성공 응답은 RsData다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 class AppearanceRequestRespondApiE2ETest {
 
@@ -48,7 +49,7 @@ class AppearanceRequestRespondApiE2ETest {
     AppearanceUserFacade appearanceUserFacade;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     @Qualifier(AppearanceConfig.CLOCK)
@@ -60,10 +61,6 @@ class AppearanceRequestRespondApiE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(GUEST));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     /** 요청서를 보내고 응답의 {id, version}을 돌려준다 */
     private long[] send() throws Exception {
@@ -138,7 +135,7 @@ class AppearanceRequestRespondApiE2ETest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
-        fakeBillingClient.setUnavailable(true);
+        BillingStubs.unavailable(billingClient);
         mockMvc.perform(postAs(GUEST, "/" + sent[0] + "/reject", "{}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("REJECTED"))
