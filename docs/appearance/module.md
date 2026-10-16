@@ -879,4 +879,4 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 - Billing 요청: `PayoutCommand.partial(호스트, 보류 종류, 보류 ID, 지급 요청 ID, 게스트, 원천 종류, 출연 ID, 출연료)`. 원천 종류는 요청서 출처 `APPEARANCE_REQUEST`, 모집 출처 `RECRUIT_APPEARANCE`. 모집글 보류에는 다른 출연의 몫이 함께 있어 금액을 정해 지급한다.
 - 제약 `ck_hp_tasks_receiver` (`ck_hp_tasks_penalty` 대체): `RELEASE`는 받는 회원·지급액 비움, `PENALTY`는 받는 회원·출연 ID 필수·위약금 1 이상 기준액 이하, `PAYOUT`은 받는 회원·출연 ID 필수·`payout_amount = amount`.
 - 테스트는 출연 모듈 테스트(Billing 규칙을 따르는 Fake)로 한다. apps `AppearanceBillingPortIntegrationTest`는 Billing 담당 파일이라 출연이 손대지 않는다. 운영 기본값은 아직 `mode=fake`(11단계에서 전환).
-- 마이그레이션 `V202610161400__add_appearance_confirm_columns.sql`: `no_show_at` → `absent_at`, `absent_reason` 추가, `disputed_at` 삭제, 인덱스 `(status, scheduled_at)`, 제약 교체.
+- 마이그레이션 `V202610161050__add_appearance_confirm_columns.sql`: `no_show_at` → `absent_at`, `absent_reason` 추가, `disputed_at` 삭제, 인덱스 `(status, scheduled_at)`, 제약 교체.
