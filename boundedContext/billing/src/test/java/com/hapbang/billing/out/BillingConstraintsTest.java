@@ -300,16 +300,84 @@ class BillingConstraintsTest {
     }
 
     @Test
-    void 환전당_계좌와_송금행은_각각_최대_하나다() {
+    void 환전당_계좌는_하나다() {
         reject("""
                 INSERT INTO billing.exchange_account (exchange_id, verification_status, created_at)
                 VALUES (?, 'PENDING', CURRENT_TIMESTAMP)
                 """, "23505", "uk_exchange_account_exchange_id", exchange.getId());
-        reject("""
+    }
+
+    // 환전 1건에 송금 시도 여러 건이지만 시도 번호는 고유하고, 확정 실패가 아닌 시도는 최대 1건이다 (#304)
+    @Test
+    void 환전의_송금_시도는_번호가_고유하고_실패가_아닌_시도는_하나다() {
+        reject(insertPayout("another-mock-request-1", 1, "FAILED"), "23505",
+                "uk_exchange_payout_exchange_id_attempt_no", exchange.getId());
+        reject(insertPayout("another-mock-request-2", 2, "PROCESSING"), "23505", "uk_exchange_payout_active",
+                exchange.getId());
+        reject(insertPayout("another-mock-request-3", 0, "FAILED"), "23514", "ck_exchange_payout_2",
+                exchange.getId());
+        reject(insertPayout("mock-request-1", 2, "FAILED"), "23505", "uk_exchange_payout_payout_request_id",
+                exchange.getId());
+    }
+
+    @Test
+    void 확정_실패한_시도_뒤에는_새_시도를_만들_수_있다() {
+        entityManager.createNativeQuery("""
+                UPDATE billing.exchange_payout SET status = 'FAILED', failed_at = now() WHERE id = ?1""")
+                .setParameter(1, payout.getId()).executeUpdate();
+        entityManager.createNativeQuery(insertPayout("another-mock-request", 2, "PROCESSING").replace("?", "?1"))
+                .setParameter(1, exchange.getId()).executeUpdate();
+        assertThat(entityManager.createNativeQuery("SELECT count(*) FROM billing.exchange_payout WHERE exchange_id = ?1")
+                .setParameter(1, exchange.getId()).getSingleResult()).isEqualTo(2L);
+    }
+
+    // 성공이면 거래 번호·완료 시각, 확정 실패면 실패 시각이 상태와 함께 있다 (#304)
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "status = 'COMPLETED'",
+            "status = 'COMPLETED', completed_at = now()",
+            "completed_at = now()",
+            "status = 'FAILED'",
+            "failed_at = now()",
+            "status = 'UNDEFINED'"})
+    void 송금_시도_결과_기록은_상태와_함께_있다(String assignment) {
+        reject("UPDATE billing.exchange_payout SET " + assignment + " WHERE id = ?",
+                "23514", "ck_exchange_payout_", payout.getId());
+    }
+
+    // 운영자 확인이면 그 시각이 있고, 자동 확인 횟수는 0 이상, 관리자 재확인 기록은 쌍이다 (#304)
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "status = 'MANUAL_REVIEW_REQUIRED'",
+            "result_check_count = -1",
+            "manual_checked_by = 1",
+            "manual_checked_at = now()"})
+    void 송금_시도_운영자_확인_기록은_상태와_함께_있다(String assignment) {
+        reject("UPDATE billing.exchange_payout SET " + assignment + " WHERE id = ?",
+                "23514", "ck_exchange_payout_", payout.getId());
+    }
+
+    // 환전 COMPLETED ⇔ 완료 시각, FAILED·FINAL_FAILED ⇔ 실패 시각, FINAL_FAILED ⇔ 종료 관리자·시각·사유(1~500자, trim) (#304)
+    @ParameterizedTest
+    @ValueSource(strings = {"status = 'COMPLETED'", "completed_at = now()", "status = 'FAILED'", "failed_at = now()",
+            "status = 'FINAL_FAILED', failed_at = now()",
+            "final_failed_by = 1, final_failed_at = now(), final_failure_reason = 'x'",
+            "status = 'FINAL_FAILED', failed_at = now(), final_failed_by = 1, final_failed_at = now(), "
+                    + "final_failure_reason = ' x'",
+            "status = 'FINAL_FAILED', final_failed_by = 1, final_failed_at = now(), final_failure_reason = 'x'"})
+    void 환전_송금_완료_실패_시각은_상태와_함께_있다(String assignment) {
+        reject("UPDATE billing.exchange SET " + assignment + " WHERE id = ?",
+                "23514", "ck_exchange_", exchange.getId());
+    }
+
+    private static String insertPayout(String payoutRequestId, int attemptNo, String status) {
+        String failedAt = "FAILED".equals(status) ? "CURRENT_TIMESTAMP" : "NULL";
+        return """
                 INSERT INTO billing.exchange_payout
-                    (exchange_id, payout_provider, payout_request_id, amount_krw, status, requested_at, created_at)
-                VALUES (?, 'MOCK', 'another-mock-request', 900, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, "23505", "uk_exchange_payout_exchange_id", exchange.getId());
+                    (exchange_id, attempt_no, payout_provider, payout_request_id, amount_krw, status, requested_at,
+                     failed_at, last_checked_at, created_at)
+                VALUES (?, %d, 'MOCK', '%s', 900, '%s', CURRENT_TIMESTAMP, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """.formatted(attemptNo, payoutRequestId, status, failedAt);
     }
 
     @Test

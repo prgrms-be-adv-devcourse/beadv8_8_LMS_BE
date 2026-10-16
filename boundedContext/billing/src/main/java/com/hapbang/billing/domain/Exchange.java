@@ -18,7 +18,10 @@ import org.hibernate.annotations.Check;
 
 // 수익 HP 환전 요청의 보류 연결, 수수료, KRW 송금 예정액과 처리 상태를 보관한다.
 // 신청(#285): 수수료·예상 수령액을 신청 시 확정해 저장하고, 신청과 같은 트랜잭션에서 수익 HP를 REVENUE_ONLY로 보류해 연결한다.
-// 회원 취소는 관리자 승인 전(REQUESTED)에만 할 수 있다. 관리자 승인·거절은 #294(REQUESTED → APPROVED·REJECTED), 송금 상태 전이는 후속 Issue.
+// 회원 취소는 관리자 승인 전(REQUESTED)에만 할 수 있다. 관리자 승인·거절은 #294(REQUESTED → APPROVED·REJECTED).
+// 송금 상태 전이 (#304): APPROVED → PROCESSING(시도 저장) → COMPLETED(성공·확정 차감) | FAILED(시도 확정 실패, 보류 유지) |
+// UNKNOWN(결과 불명·운영자 확인, 보류 유지), PROCESSING ↔ UNKNOWN(결과 확인). FAILED → PROCESSING(관리자 수동 재송금) |
+// FINAL_FAILED(관리자 최종 실패 확정, 보류 전부 반환).
 // payoutScheduledAt은 잠정 정산 예정 시각(매월 10일, 토·일이면 다음 월요일의 00:00 KST)이다. 공휴일을 반영하지 않아 실제 송금일로
 // 단정하지 않는다. 공휴일 보정·지급 대상 마감은 정산 Scheduler Issue에서 최종 반영한다.
 @Entity
@@ -105,6 +108,16 @@ public class Exchange extends BillingUpdatedEntity {
 
     @Column(name = "rejection_reason", nullable = true, length = 500)
     private String rejectionReason;
+
+    // 최종 실패로 종료한 관리자 회원 ID·시각·사유 (#304)
+    @Column(name = "final_failed_by", nullable = true)
+    private Long finalFailedBy;
+
+    @Column(name = "final_failed_at", nullable = true, columnDefinition = "timestamptz")
+    private Instant finalFailedAt;
+
+    @Column(name = "final_failure_reason", nullable = true, length = 500)
+    private String finalFailureReason;
 
     // 빌더로 전달받은 회원·지갑·선택적 보류·환전 금액·수수료·처리 상태와 시각으로 환전 요청을 초기화한다.
     @Builder
@@ -224,6 +237,86 @@ public class Exchange extends BillingUpdatedEntity {
             throw new BillingException(BillingErrorCode.EXCHANGE_REJECTION_REASON_INVALID);
         }
         return normalized;
+    }
+
+    // 정산 예정 시각이 됐는지. 이 시각 전에는 승인된 환전도 송금하지 않는다 (#304)
+    public boolean isPayoutDue(Instant now) {
+        return !now.isBefore(payoutScheduledAt);
+    }
+
+    // 송금 결과를 기다리는 상태인지(PROCESSING·UNKNOWN). 이때는 새 송금 대신 마지막 시도의 결과를 확인한다 (#304)
+    public boolean isPayoutInFlight() {
+        return status == ExchangeStatus.PROCESSING || status == ExchangeStatus.UNKNOWN;
+    }
+
+    // 송금 시도 시작 (#304): APPROVED(첫 시도) 또는 FAILED(확정 실패 뒤 관리자 수동 재송금) → PROCESSING. 이전 실패 시각·사유는 지운다
+    // (시도별 실패 기록은 ExchangePayout에 남는다). 승인 기록은 그대로 둔다. 그 밖의 상태는 EXCHANGE_NOT_PAYABLE
+    public void startPayout() {
+        if (status != ExchangeStatus.APPROVED && status != ExchangeStatus.FAILED) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_NOT_PAYABLE);
+        }
+        this.status = ExchangeStatus.PROCESSING;
+        this.failedAt = null;
+        this.failureReason = null;
+    }
+
+    // 송금 결과 대기 (#304): Mock 은행이 접수했고 결과는 아직이다
+    public void payoutProcessing() {
+        requirePayoutInFlight();
+        this.status = ExchangeStatus.PROCESSING;
+    }
+
+    // 송금 결과 불명·운영자 확인 필요 (#304). 보류를 유지한다
+    public void payoutUnknown() {
+        requirePayoutInFlight();
+        this.status = ExchangeStatus.UNKNOWN;
+    }
+
+    // 송금 성공 (#304). 보류 확정 차감은 호출한 쪽이 같은 트랜잭션에서 한다
+    public void completePayout(Instant completedAt) {
+        requirePayoutInFlight();
+        this.status = ExchangeStatus.COMPLETED;
+        this.completedAt = completedAt;
+    }
+
+    // 마지막 송금 시도 확정 실패 (#304). 보류는 반환하지 않는다(다시 송금할 수 있다)
+    public void failPayout(String reason, Instant failedAt) {
+        requirePayoutInFlight();
+        this.status = ExchangeStatus.FAILED;
+        this.failedAt = failedAt;
+        this.failureReason = reason;
+    }
+
+    // 관리자 최종 실패 확정 (#304): FAILED(마지막 시도 확정 실패)만 → FINAL_FAILED. 보류 반환은 호출한 쪽이 같은 트랜잭션에서 한다.
+    // 마지막 시도의 실패 시각·사유는 그대로 둔다. 그 밖의 상태는 EXCHANGE_PAYOUT_NOT_FINALIZABLE. 멱등 재요청은 isFinalFailedBy로 먼저 거른다
+    public void failFinally(Long adminId, String reason, Instant finalFailedAt) {
+        if (status != ExchangeStatus.FAILED) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_PAYOUT_NOT_FINALIZABLE);
+        }
+        this.status = ExchangeStatus.FINAL_FAILED;
+        this.finalFailedBy = adminId;
+        this.finalFailedAt = finalFailedAt;
+        this.finalFailureReason = normalizeFinalFailureReason(reason);
+    }
+
+    // 이 관리자가 같은 사유로 이미 최종 실패 확정한 환전인지(같은 요청 재시도는 멱등 성공, 다시 반환하지 않는다)
+    public boolean isFinalFailedBy(Long adminId, String reason) {
+        return status == ExchangeStatus.FINAL_FAILED && adminId.equals(finalFailedBy) && reason.equals(finalFailureReason);
+    }
+
+    // 최종 실패 사유를 앞뒤 공백을 빼서 검사한다. 비었거나 500자를 넘으면 EXCHANGE_FINAL_FAILURE_REASON_INVALID
+    public static String normalizeFinalFailureReason(String reason) {
+        String normalized = reason == null ? "" : reason.strip();
+        if (normalized.isEmpty() || normalized.length() > REJECTION_REASON_MAX) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_FINAL_FAILURE_REASON_INVALID);
+        }
+        return normalized;
+    }
+
+    private void requirePayoutInFlight() {
+        if (!isPayoutInFlight()) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_STATE_INCONSISTENT);
+        }
     }
 
     private void requireRequested() {

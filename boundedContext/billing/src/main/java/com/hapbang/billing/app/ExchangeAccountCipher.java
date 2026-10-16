@@ -48,6 +48,17 @@ class ExchangeAccountCipher {
                 accountNumber.getBytes(StandardCharsets.UTF_8));
     }
 
+    // 송금 요청에 넣을 계좌번호 원문 (#304). 메모리에서만 쓰고 저장·로그에 남기지 않는다. 복호화하지 못하면 EXCHANGE_ACCOUNT_UNREADABLE
+    String decrypt(Long exchangeId, String encrypted) {
+        try {
+            return paymentKeyCipher.decrypt(encrypted);
+        } catch (RuntimeException exception) {
+            log.error("환전 계좌번호를 복호화하지 못해 송금 요청을 만들 수 없다: exchangeId={}, cause={}", exchangeId,
+                    exception.getClass().getSimpleName());
+            throw new BillingException(BillingErrorCode.EXCHANGE_ACCOUNT_UNREADABLE);
+        }
+    }
+
     // 암호문을 마스킹한 계좌번호로 바꾼다. 키가 없거나 복호화할 수 없으면 전부 가린 값을 돌려준다(조회는 막지 않는다).
     String masked(Long exchangeId, String encrypted) {
         try {
