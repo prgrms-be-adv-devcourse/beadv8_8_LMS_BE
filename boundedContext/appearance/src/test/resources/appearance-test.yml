@@ -1,0 +1,5 @@
+# 출연 모듈 테스트 전용 덮어쓰기 (src/test, 배포 jar에 없음). application.yaml이 appearance.yml 다음에 읽는다.
+appearance:
+  billing:
+    # 출연 모듈 테스트에는 Billing 모듈이 없어 메모리 구현을 쓴다. 실제 Billing 연동은 apps 통합 테스트가 확인한다 (#289)
+    mode: fake
