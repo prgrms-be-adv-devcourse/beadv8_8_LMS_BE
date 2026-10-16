@@ -28,7 +28,8 @@ import jakarta.validation.Valid;
 @Tag(name = "출연", description = """
         출연 요청 수락·모집 선정으로 성립한 출연. 내 출연 조회와 게스트의 출연 취소 요청, 호스트의 수락(합의 취소)·거절,
         호스트 일방 취소, 방송 뒤 출연 확인·불참.
-        정상 상태의 인플루언서 이상만 쓸 수 있다 (관리자 제외). 출연은 호스트·게스트만 볼 수 있다.""")
+        정상 상태의 인플루언서 이상만 쓸 수 있다 (관리자 제외). 단, 출연 확인·불참은 거래를 마무리하는 동작이라 정지된 회원도 할 수 있다.
+        출연은 호스트·게스트만 볼 수 있다.""")
 public interface ApiV1AppearanceSpec {
 
     String STATUS_FILTER = "상태 필터. 여러 번 보낼 수 있다 (예: status=ESTABLISHED&status=CANCEL_REQUESTED). 생략하면 전체";

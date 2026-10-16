@@ -859,7 +859,7 @@ DB와 Fake Billing을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCE
 | 자동 확인 | 기간 끝난 출연·기간 안 출연(1분 남음)·불참 출연 | 1건만 `CONFIRMED`·`AUTO`·지급 `DONE`, 나머지 그대로 |
 | 자동 확인 | 취소 요청 처리 중 | 건너뜀 → 자동 거절 뒤 다음 실행에서 확인 → 또 실행해도 0건, 지급 1건 |
 | 자동 확인 | Billing 무응답 | 확인은 하고 지급 작업만 `PENDING` |
-| 역할 | 세션 USER | 확인·불참 `AccessDeniedException` |
+| 역할 | 세션 USER / ADMIN | 확인·불참 `AccessDeniedException` |
 
 ### 15.4 E2E·기타
 

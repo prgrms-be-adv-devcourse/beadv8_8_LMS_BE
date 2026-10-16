@@ -484,6 +484,15 @@ class AppearanceConfirmFlowTest {
                 .isInstanceOf(AccessDeniedException.class);
     }
 
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("세션 역할이 ADMIN이어도 출연 확인·불참이 막힌다 (인플루언서만)")
+    void adminRole() {
+        assertThatThrownBy(() -> appearanceFacade.confirm(HOST, 1L)).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> appearanceFacade.markAbsent(HOST, 1L, null))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
     /** 작업들을 각자 다른 스레드에서 동시에 실행하고, 결과(응답 또는 예외)를 순서대로 모은다 */
     private List<Object> runConcurrently(List<Callable<Object>> tasks) throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(tasks.size());
