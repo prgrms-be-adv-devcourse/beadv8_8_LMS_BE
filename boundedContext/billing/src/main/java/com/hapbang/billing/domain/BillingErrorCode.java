@@ -40,11 +40,19 @@ public enum BillingErrorCode implements BaseErrorCode {
     CHARGE_PAYMENT_KEY_CONFLICT(HttpStatus.CONFLICT, "다른 결제로 처리 중이거나 처리된 충전 주문, 또는 이미 사용된 결제입니다."),
     CHARGE_ALREADY_FAILED(HttpStatus.CONFLICT, "결제가 승인되지 않아 끝난 충전 주문입니다. 새 충전 주문으로 다시 결제해 주세요."),
     CHARGE_PAYMENT_REJECTED(HttpStatus.BAD_REQUEST, "결제가 승인되지 않았습니다."),
+    // 충전 HP 환불 (#260)
+    REFUND_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 HP 환불을 사용할 수 없습니다."),
+    REFUND_AMOUNT_INVALID(HttpStatus.BAD_REQUEST, "환불 금액은 1,000 HP 이상, 1,000 HP 단위여야 합니다."),
+    REFUND_IDEMPOTENCY_KEY_INVALID(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더는 영문·숫자·-·_ 1~64자여야 합니다."),
+    REFUND_NOT_FOUND(HttpStatus.NOT_FOUND, "환불 요청을 찾을 수 없습니다."),
+    REFUND_NOT_CANCELABLE(HttpStatus.CONFLICT, "환불이 이미 진행되었거나 끝나 취소할 수 없습니다."),
     // 아래 500 코드는 불변식이 깨진 상황이라 응답 detail에 내부 상태를 드러내지 않고, 원인은 code와 로그로 구분한다.
     CHARGE_PRINCIPAL_MISMATCH(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
     HOLD_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
     // PG 승인 결과가 충전 주문과 맞지 않는다(주문·결제키·금액). 충전하지 않고 운영자 확인 대상으로 남긴다 (#224)
-    CHARGE_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다.");
+    CHARGE_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
+    // 환불 요청·충전 건별 취소·보류 기록이 서로 맞지 않는다(완료액 초과 등) (#260)
+    REFUND_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다.");
 
     private final HttpStatus status;
     private final String message;

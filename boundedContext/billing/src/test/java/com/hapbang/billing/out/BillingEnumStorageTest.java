@@ -29,6 +29,7 @@ import com.hapbang.billing.domain.PointHoldStatus;
 import com.hapbang.billing.domain.PointHoldType;
 import com.hapbang.billing.domain.PointRefundRequestStatus;
 import com.hapbang.billing.domain.PointRefundStatus;
+import com.hapbang.billing.domain.RefundManualReviewReason;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.SettlementStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
@@ -64,6 +65,7 @@ class BillingEnumStorageTest {
         columns.put("ck_point_charge_usage_status", PointChargeUsageStatus.class);
         columns.put("ck_point_refund_request_status", PointRefundRequestStatus.class);
         columns.put("ck_point_refund_status", PointRefundStatus.class);
+        columns.put("ck_point_refund_manual_review_reason", RefundManualReviewReason.class);
         columns.put("ck_settlement_source_type", SettlementSourceType.class);
         columns.put("ck_settlement_payout_type", PayoutType.class);
         columns.put("ck_settlement_status", SettlementStatus.class);
@@ -90,7 +92,8 @@ class BillingEnumStorageTest {
     }
 
     // 대문자 문자열 상수를 쓰지만 Enum 저장값 목록이 아닌 CHECK
-    private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5");
+    // ck_point_refund_5는 운영자 확인 상태면 원인이 있어야 한다는 규칙(#260)
+    private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5", "ck_point_refund_5");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""
