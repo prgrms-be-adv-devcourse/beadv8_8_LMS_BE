@@ -9,6 +9,7 @@ import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -107,7 +108,7 @@ class AppearanceBatchScheduleTest {
     }
 
     @Test
-    @DisplayName("스위치를 켜면 배치 6개가 appearance.yml의 cron 그대로 스케줄러에 등록된다")
+    @DisplayName("스위치를 켜면 배치 6개(@Scheduled 메서드 전부)가 appearance.yml의 cron 그대로 스케줄러에 등록된다")
     void registeredWithYamlCron() {
         contextRunner.withUserConfiguration(SchedulingOn.class).run(context -> {
             Map<String, String> registered = new HashMap<>();
@@ -119,6 +120,10 @@ class AppearanceBatchScheduleTest {
                 }
             }
 
+            // 배치를 새로 추가하면 이 표(SCHEDULES)에도 넣어야 검사에 들어온다
+            assertThat(Arrays.stream(AppearanceBatch.class.getDeclaredMethods())
+                    .filter(method -> method.isAnnotationPresent(Scheduled.class)).count())
+                    .isEqualTo(SCHEDULES.size());
             assertThat(registered).hasSize(SCHEDULES.size());
             SCHEDULES.forEach((method, schedule) -> assertThat(registered.get(method)).as(method)
                     .isEqualTo(context.getEnvironment().getRequiredProperty("appearance.batch." + schedule.key())));

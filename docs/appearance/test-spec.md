@@ -912,6 +912,8 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 주입 (통합) | `@Qualifier(CLOCK)` 주입은 테스트 시계, 시각을 쓰는 출연 빈 20개 이상이 모두 같은 시계, 운영 Clock 빈은 그대로 |
 | 앞당긴 뒤 / 다음 테스트 | 실제 시각 + 10일 / 처음 시각으로 돌아가 있음 |
 
+- 주의: 생성 시각(`created_at`)은 JPA Auditing이 실제 시각으로 기록한다 (팀 공통 test-support 설정). 시계를 앞당긴 뒤에 만든 행은 바로 그만큼 "오래된 행"이 되어 배치 대기 조건(1분)을 넘으므로, 대기 시간을 보는 테스트는 행을 먼저 만들고 시계를 돌린다.
+
 ### 18.2 오류 코드 HTTP — `AppearanceErrorCodeApiE2ETest`
 
 서비스 테스트에서만 보던 오류 코드를 HTTP로 확인한다 (상태·`code`·`detail`). 출연 오류 코드 42개 중 41개가 E2E로 확인된다. `CONCURRENT_UPDATE`는 서비스 단계(17.2).
@@ -933,7 +935,7 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | `AppearanceHostCancelFlowTest` › 일방 취소 | 일방 취소(확인함)와 합의 취소 수락 동시 | 한쪽만 성공: `CANCELED_BY_HOST`(요청 `CLOSED_BY_HOST_CANCEL`, 위약금만) 또는 `CANCELED_BY_AGREEMENT`(요청 `ACCEPTED`, 반환만) |
 | `AppearanceHostCancelFlowTest` › 모집 전체 취소 | 모집 전체 취소(확인 없음)와 게스트 취소 요청 동시 | 취소가 먼저: 출연 `CANCELED_BY_HOST`·위약금 1건·요청 없음 / 요청이 먼저: 취소는 `CANCEL_REQUEST_CONFIRM_REQUIRED`(또는 충돌), 모집 `RECRUITING`·출연 `CANCEL_REQUESTED`·HP 작업 없음 |
 | `AppearanceBatchScheduleTest` | appearance.yml cron 6개 | 모두 올바르고 매분 한 번, 서로 다른 초(0·10·20·30·40·50) |
-| `AppearanceBatchScheduleTest` | 스위치를 켜고 띄움 | 6개가 yml cron 그대로 스케줄러에 등록 |
+| `AppearanceBatchScheduleTest` | 스위치를 켜고 띄움 | `@Scheduled` 메서드 수 = 검사 표 6개, 6개가 yml cron 그대로 스케줄러에 등록 |
 | `AppearanceBatchScheduleTest` | `@Scheduled` 기본값 | yml과 같고 시간대 `Asia/Seoul` |
 | `AppearanceBatchScheduleTest` | 배치 메서드 호출 | 맞는 UseCase를 한 번씩 |
 
