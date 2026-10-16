@@ -11,8 +11,6 @@ import org.springframework.boot.test.context.ConfigDataApplicationContextInitial
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import com.hapbang.appearance.domain.AppearancePolicy;
-import com.hapbang.appearance.out.billing.BillingClient;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
 import com.hapbang.appearance.shared.time.AppearanceTime;
 
 /**
@@ -23,7 +21,7 @@ class AppearanceConfigTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withInitializer(new ConfigDataApplicationContextInitializer())
-            .withUserConfiguration(AppearanceConfig.class, FakeBillingClient.class);
+            .withUserConfiguration(AppearanceConfig.class);
 
     @Test
     @DisplayName("appearance.yml의 정책 값이 AppearancePolicy로 들어온다")
@@ -40,8 +38,7 @@ class AppearanceConfigTest {
     }
 
     /**
-     * 설정 우선순위만 확인한다. 외부 설정으로 덮어쓰는 것은 billing.mode 전환에 쓰며,
-     * 정책 값은 appearance.yml에서만 바꾼다(운영 규칙).
+     * 설정 우선순위만 확인한다. 정책 값은 appearance.yml에서만 바꾼다(운영 규칙).
      */
     @Test
     @DisplayName("설정 우선순위: 외부 설정이 appearance.yml 값보다 우선한다")
@@ -66,13 +63,5 @@ class AppearanceConfigTest {
 
             assertThat(clock.getZone()).isEqualTo(AppearanceTime.ZONE);
         });
-    }
-
-    @Test
-    @DisplayName("billing.mode가 fake면 Fake Billing이 등록되고, 다른 값이면 등록되지 않는다")
-    void fakeBillingClientIsConditional() {
-        contextRunner.run(context -> assertThat(context).hasSingleBean(BillingClient.class));
-        contextRunner.withPropertyValues("appearance.billing.mode=http")
-                .run(context -> assertThat(context).doesNotHaveBean(FakeBillingClient.class));
     }
 }

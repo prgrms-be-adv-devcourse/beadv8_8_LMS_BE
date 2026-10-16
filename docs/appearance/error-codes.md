@@ -95,7 +95,7 @@ Content-Type: application/problem+json
 | `WALLET_NOT_FOUND` | 404 | 지갑을 찾을 수 없습니다. | 호스트 지갑이 없음 |
 
 - 반환·지급은 업무 상태를 커밋한 뒤 처리하므로 사용자 응답에 Billing 오류가 나가지 않는다. Billing 오류는 HP 작업 `last_error`에 `{code}: {메시지}`로 기록된다.
-- Fake Billing은 Billing 오류 코드를 `out/billing/FakeBillingErrorCode.java`에 같은 값으로 옮겨 두었다.
+- 출연은 실제 Billing(`BillingPort`)의 오류를 그대로 쓴다 (#289에서 Fake Billing과 그 오류 코드 복사본을 없앴다).
 
 - 정의 위치: `boundedContext/appearance/src/main/java/com/hapbang/appearance/domain/AppearanceErrorCode.java`
 - 출연 예외는 `throw new AppearanceException(AppearanceErrorCode.XXX)`로 던진다. 상황별 메시지가 필요하면 두 번째 인자로 넘긴다.

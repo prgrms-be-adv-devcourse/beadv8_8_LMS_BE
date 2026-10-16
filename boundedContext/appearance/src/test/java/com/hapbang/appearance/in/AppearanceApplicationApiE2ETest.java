@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Clock;
 import java.time.LocalDateTime;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,17 +22,16 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Fake Billing)를 띄우고 출연 모집 지원 API를 호출한다.
+ * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 출연 모집 지원 API를 호출한다.
  * 성공 응답은 RsData다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 class AppearanceApplicationApiE2ETest {
 
@@ -51,9 +49,6 @@ class AppearanceApplicationApiE2ETest {
     AppearanceUserFacade appearanceUserFacade;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
-
-    @Autowired
     @Qualifier(AppearanceConfig.CLOCK)
     Clock clock;
 
@@ -65,10 +60,6 @@ class AppearanceApplicationApiE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(VIEWER));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private MockHttpServletRequestBuilder postAs(long userId, String path, String body) {
         return post(path).with(TestLogin.as(userId, Role.INFLUENCER)).with(csrf())

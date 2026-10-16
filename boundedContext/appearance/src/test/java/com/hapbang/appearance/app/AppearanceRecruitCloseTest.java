@@ -16,7 +16,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -49,15 +48,17 @@ import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRecruitRepository;
 import com.hapbang.appearance.out.AppearanceRepository;
 import com.hapbang.appearance.out.HpTaskRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 출연 모집 마감(조기 마감 Facade, 기한 마감 배치 UseCase)을 DB와 Fake Billing으로 확인한다.
+ * 출연 모집 마감(조기 마감 Facade, 기한 마감 배치 UseCase)을 DB와 Billing 대역으로 확인한다.
  * 모집글은 1인당 30,000 HP × 3명(보류 90,000)이다. 마감 일시는 DB 값을 과거로 옮겨 지난 것으로 만든다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceRecruitCloseTest {
 
@@ -100,7 +101,7 @@ class AppearanceRecruitCloseTest {
     HpTaskRepository hpTaskRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -116,10 +117,6 @@ class AppearanceRecruitCloseTest {
         }
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
@@ -156,8 +153,9 @@ class AppearanceRecruitCloseTest {
         return tasks;
     }
 
-    private long heldOf(Long recruitId) {
-        return fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId);
+    /** 이 모집글 보류에서 Billing에 돌려 달라고 해 받아들여진 HP 합계 */
+    private long releasedOf(Long recruitId) {
+        return BillingCalls.releasedAmount(billingClient, BillingReferenceType.APPEARANCE_RECRUIT, recruitId);
     }
 
     private static void assertErrorCode(Runnable action, AppearanceErrorCode errorCode) {
@@ -188,8 +186,7 @@ class AppearanceRecruitCloseTest {
             assertThat(task.getReason()).isEqualTo(HpTaskReason.RECRUIT_CLOSED);
             assertThat(task.getAmount()).isEqualTo(TOTAL);
             assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_RECRUIT-" + recruitId + "-RELEASE-1");
-            assertThat(heldOf(recruitId)).isZero();
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
+            assertThat(releasedOf(recruitId)).isEqualTo(TOTAL);
         }
 
         @Test
@@ -208,8 +205,7 @@ class AppearanceRecruitCloseTest {
             assertThat(statusOf(GUEST2)).isEqualTo(AppearanceApplicationStatus.NOT_SELECTED);
             assertThat(statusOf(GUEST3)).isEqualTo(AppearanceApplicationStatus.WITHDRAWN);
             assertThat(releaseTasksOf(recruitId).getFirst().getAmount()).isEqualTo(2 * FEE);
-            assertThat(heldOf(recruitId)).isEqualTo(FEE);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE - FEE);
+            assertThat(releasedOf(recruitId)).isEqualTo(2 * FEE);
             assertThat(appearanceRepository.count()).isEqualTo(1);
         }
 
@@ -224,7 +220,7 @@ class AppearanceRecruitCloseTest {
             assertThat(closed.status()).isEqualTo(AppearanceRecruitStatus.CLOSED);
             assertThat(closed.hpReleaseStatus()).isNull();
             assertThat(releaseTasksOf(recruitId)).isEmpty();
-            assertThat(heldOf(recruitId)).isEqualTo(FEE);
+            assertThat(releasedOf(recruitId)).isZero();
         }
 
         @Test
@@ -242,15 +238,15 @@ class AppearanceRecruitCloseTest {
         @DisplayName("반환이 실패해도 마감은 성공하고 작업은 PENDING으로 남는다. 재시도 배치가 처리하면 DONE")
         void releaseFails() {
             Long recruitId = postRecruit(3);
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
 
             AppearanceRecruitResDto closed = appearanceRecruitFacade.closeEarly(HOST, recruitId);
 
             assertThat(closed.status()).isEqualTo(AppearanceRecruitStatus.CLOSED);
             assertThat(closed.hpReleaseStatus()).isEqualTo(HpTaskStatus.PENDING);
-            assertThat(heldOf(recruitId)).isEqualTo(TOTAL);
+            assertThat(releasedOf(recruitId)).isZero();
 
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             HpTask task = releaseTasksOf(recruitId).getFirst();
             jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?",
                     now().minusSeconds(1), task.getId());
@@ -258,7 +254,7 @@ class AppearanceRecruitCloseTest {
 
             assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).hpReleaseStatus())
                     .isEqualTo(HpTaskStatus.DONE);
-            assertThat(heldOf(recruitId)).isZero();
+            assertThat(releasedOf(recruitId)).isEqualTo(TOTAL);
         }
 
         @Test
@@ -276,9 +272,9 @@ class AppearanceRecruitCloseTest {
             assertErrorCode(() -> appearanceRecruitFacade.closeEarly(HOST, overdueId),
                     AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
 
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> postRecruit(3)).isInstanceOf(RuntimeException.class);
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             Long pendingId = appearanceRecruitRepository.findAll().stream()
                     .filter(recruit -> recruit.getStatus() == AppearanceRecruitStatus.HOLD_PENDING)
                     .findFirst().orElseThrow().getId();
@@ -324,13 +320,11 @@ class AppearanceRecruitCloseTest {
             AppearanceRecruitResDto detail = appearanceRecruitFacade.getDetail(HOST, recruitId);
             assertThat(appearanceRepository.count()).isEqualTo(detail.selectedCount());
             if (detail.status() == AppearanceRecruitStatus.CLOSED) {
-                assertThat(heldOf(recruitId)).isEqualTo(detail.selectedCount() * FEE);
+                assertThat(releasedOf(recruitId)).isEqualTo(TOTAL - detail.selectedCount() * FEE);
             } else {
                 assertThat(detail.selectedCount()).isEqualTo(1);
-                assertThat(heldOf(recruitId)).isEqualTo(TOTAL);
+                assertThat(releasedOf(recruitId)).isZero();
             }
-            assertThat(fakeBillingClient.balanceOf(HOST))
-                    .isEqualTo(FakeBillingClient.DEFAULT_BALANCE - heldOf(recruitId));
         }
 
         @Test
@@ -383,7 +377,7 @@ class AppearanceRecruitCloseTest {
             assertThat(detail.closedAt()).isEqualTo(deadline);
             assertThat(detail.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
             assertThat(statusOf(GUEST2)).isEqualTo(AppearanceApplicationStatus.NOT_SELECTED);
-            assertThat(heldOf(recruitId)).isEqualTo(FEE);
+            assertThat(releasedOf(recruitId)).isEqualTo(2 * FEE);
         }
 
         @Test
@@ -409,7 +403,7 @@ class AppearanceRecruitCloseTest {
 
             assertThat(appearanceRecruitDeadlineCloseUseCase.closeDue()).isEqualTo(1);
             assertThat(releaseTasksOf(recruitId)).isEmpty();
-            assertThat(heldOf(recruitId)).isEqualTo(FEE);
+            assertThat(releasedOf(recruitId)).isZero();
         }
 
         @Test
@@ -439,9 +433,9 @@ class AppearanceRecruitCloseTest {
         @Test
         @DisplayName("마감 일시가 지난 보류 처리 중 모집글: 마감 배치만으로는 건드리지 않고, 보류 재확인 뒤 마감 배치가 CLOSED + 전액 반환 (C5)")
         void holdPendingThenClose() {
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> postRecruit(3)).isInstanceOf(RuntimeException.class);
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             Long recruitId = appearanceRecruitRepository.findAll().getFirst().getId();
             jdbcTemplate.update("update appearances.recruits set created_at = ? where id = ?",
                     now().minusMinutes(2), recruitId);
@@ -456,8 +450,7 @@ class AppearanceRecruitCloseTest {
             assertThat(appearanceRecruitRepository.findById(recruitId).orElseThrow().getStatus())
                     .isEqualTo(AppearanceRecruitStatus.CLOSED);
             assertThat(releaseTasksOf(recruitId).getFirst().getAmount()).isEqualTo(TOTAL);
-            assertThat(heldOf(recruitId)).isZero();
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
+            assertThat(releasedOf(recruitId)).isEqualTo(TOTAL);
         }
     }
 

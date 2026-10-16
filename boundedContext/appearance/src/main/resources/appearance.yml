@@ -1,7 +1,6 @@
 # 출연 모듈 전용 설정.
 # apps의 application.yaml과 경로가 겹치지 않도록 파일 이름을 따로 두고, 전역 application.yaml의 spring.config.import로 읽는다.
 # 정책 값(appearance.policy)은 이 파일에서만 바꾼다. 환경 변수 등 외부 설정으로 덮어쓰지 않는다.
-# 외부 설정 덮어쓰기는 billing.mode 전환(예: APPEARANCE_BILLING_MODE)에만 쓴다.
 appearance:
   policy:
     # 최저 출연료 (1인당, HP)
@@ -14,11 +13,6 @@ appearance:
     max-cancel-request-count: 2
     # 출연 모집글 하나의 최대 모집 인원 (최소 1명)
     max-recruit-count: 10
-  billing:
-    # fake: 외부 연동 교체 전까지 쓰는 메모리 구현 (Billing 규칙을 흉내 냄)
-    # billing-port: 실제 Billing을 shared BillingPort로 부르는 구현 (BillingPortClient, #182)
-    # TODO(billing): 출연 담당이 실제 연동을 확인한 뒤 이 값을 billing-port로 바꾼다.
-    mode: fake
   batch:
     # 배치는 hapbang.scheduling.enabled=true일 때만 돈다 (팀 공통 #157, 앱에서만 켜짐). 모든 cron은 KST
     # 실행 순서를 엇갈리게 둔다: 보류 재확인(00초) → 모집 기한 마감(10초) → 수락 기한 만료(20초) → 출연 취소 요청 자동 거절(30초) → HP 작업 재시도(40초) → 출연 자동 확인(50초)

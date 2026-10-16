@@ -13,7 +13,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -42,18 +41,24 @@ import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 출연 확인·불참·자동 확인을 DB와 Fake Billing으로 확인한다 (ISSUE.md APR-35).
- * 출연료 30,000 HP. 확인 → 게스트에게 30,000 지급, 불참 → 호스트에게 30,000 반환. 잔액은 Fake Billing 기본 잔액에서 본다.
+ * 출연 확인·불참·자동 확인을 DB와 Billing 대역으로 확인한다 (ISSUE.md APR-35).
+ * 출연료 30,000 HP. 확인 → 게스트에게 30,000 지급, 불참 → 호스트에게 30,000 반환. Billing은 대역이라 보낸 지급·반환 요청 내용을 본다
+ * (실제 잔액 변화는 apps 통합 테스트).
  * 방송 예정 일시는 출연 행의 스냅샷 값을 SQL로 옮겨 "방송이 끝난 뒤"를 만든다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceConfirmFlowTest {
 
@@ -62,7 +67,6 @@ class AppearanceConfirmFlowTest {
     private static final Long GUEST2 = 3L;
     private static final Long OTHER = 4L;
     private static final long FEE = 30_000L;
-    private static final long BASE = FakeBillingClient.DEFAULT_BALANCE;
 
     @Autowired
     AppearanceFacade appearanceFacade;
@@ -95,7 +99,7 @@ class AppearanceConfirmFlowTest {
     HpTaskRepository hpTaskRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -111,10 +115,6 @@ class AppearanceConfirmFlowTest {
         }
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
@@ -206,10 +206,16 @@ class AppearanceConfirmFlowTest {
             assertThat(task.getAmount()).isEqualTo(FEE);
             assertThat(task.getPayoutAmount()).isEqualTo(FEE);
             assertThat(task.getAppearanceId()).isEqualTo(established.appearanceId());
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, established.requestId()))
-                    .isZero();
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE - FEE);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+            assertThat(BillingCalls.payouts(billingClient)).singleElement().satisfies(payout -> {
+                assertThat(payout.payerUserId()).isEqualTo(HOST);
+                assertThat(payout.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_REQUEST);
+                assertThat(payout.referenceId()).isEqualTo(established.requestId());
+                assertThat(payout.payoutRequestId()).isEqualTo(task.getIdempotencyKey());
+                assertThat(payout.receiverUserId()).isEqualTo(GUEST);
+                assertThat(payout.sourceType()).isEqualTo(SettlementSourceType.APPEARANCE_REQUEST);
+                assertThat(payout.sourceId()).isEqualTo(established.appearanceId());
+                assertThat(payout.amountHp()).isEqualTo(FEE);
+            });
         }
 
         @Test
@@ -223,8 +229,13 @@ class AppearanceConfirmFlowTest {
             broadcastEnded(second);
 
             appearanceFacade.confirm(HOST, first);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId))
-                    .isEqualTo(2 * FEE);
+            assertThat(BillingCalls.payouts(billingClient)).singleElement().satisfies(payout -> {
+                assertThat(payout.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_RECRUIT);
+                assertThat(payout.referenceId()).isEqualTo(recruitId);
+                assertThat(payout.sourceType()).isEqualTo(SettlementSourceType.RECRUIT_APPEARANCE);
+                assertThat(payout.sourceId()).isEqualTo(first);
+                assertThat(payout.amountHp()).isEqualTo(FEE);
+            });
             AppearanceResDto absent = appearanceFacade.markAbsent(HOST, second, null);
 
             assertThat(absent.status()).isEqualTo(AppearanceStatus.ABSENT);
@@ -233,11 +244,12 @@ class AppearanceConfirmFlowTest {
                     .isEqualTo("APPEARANCE_RECRUIT-%d-PAYOUT-APPEARANCE-%d".formatted(recruitId, first));
             assertThat(onlyTask(HpTaskType.RELEASE).getIdempotencyKey())
                     .isEqualTo("APPEARANCE_RECRUIT-%d-RELEASE-APPEARANCE-%d".formatted(recruitId, second));
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId))
-                    .isEqualTo(FEE);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
-            assertThat(fakeBillingClient.balanceOf(GUEST2)).isEqualTo(BASE);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE - 2 * FEE);
+            assertThat(BillingCalls.releases(billingClient)).singleElement().satisfies(release -> {
+                assertThat(release.referenceId()).isEqualTo(recruitId);
+                assertThat(release.amountHp()).isEqualTo(FEE);
+            });
+            assertThat(BillingCalls.payouts(billingClient)).extracting(PayoutCommand::receiverUserId)
+                    .containsExactly(GUEST);
         }
 
         @Test
@@ -259,7 +271,7 @@ class AppearanceConfirmFlowTest {
 
             assertThat(appearanceFacade.getDetail(HOST, appearanceId).status()).isEqualTo(AppearanceStatus.ESTABLISHED);
             assertThat(tasksOf(HpTaskType.PAYOUT)).isEmpty();
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE);
+            assertThat(BillingCalls.payouts(billingClient)).isEmpty();
         }
 
         @Test
@@ -276,7 +288,8 @@ class AppearanceConfirmFlowTest {
 
             assertThat(tasksOf(HpTaskType.PAYOUT)).hasSize(1);
             assertThat(tasksOf(HpTaskType.RELEASE)).isEmpty();
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+            assertThat(BillingCalls.payouts(billingClient)).extracting(PayoutCommand::receiverUserId)
+                    .containsExactly(GUEST);
         }
 
         @Test
@@ -305,7 +318,8 @@ class AppearanceConfirmFlowTest {
 
             assertThat(confirmed.status()).isEqualTo(AppearanceStatus.CONFIRMED);
             assertThat(confirmed.hpPayoutStatus()).isEqualTo(HpTaskStatus.DONE);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+            assertThat(BillingCalls.payouts(billingClient)).extracting(PayoutCommand::receiverUserId)
+                    .containsExactly(GUEST);
             assertErrorCode(() -> appearanceFacade.getDetail(HOST, appearanceId),
                     AppearanceErrorCode.APPEARANCE_USER_NOT_ACTIVE);
         }
@@ -315,15 +329,14 @@ class AppearanceConfirmFlowTest {
         void payoutRetried() {
             Long appearanceId = establishFromRequest().appearanceId();
             broadcastEnded(appearanceId);
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
 
             AppearanceResDto confirmed = appearanceFacade.confirm(HOST, appearanceId);
 
             assertThat(confirmed.status()).isEqualTo(AppearanceStatus.CONFIRMED);
             assertThat(confirmed.hpPayoutStatus()).isEqualTo(HpTaskStatus.PENDING);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE);
 
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             HpTask task = onlyTask(HpTaskType.PAYOUT);
             jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?",
                     now().minusSeconds(1), task.getId());
@@ -331,7 +344,8 @@ class AppearanceConfirmFlowTest {
             hpTaskExecuteUseCase.execute(task.getId()); // 이미 DONE이면 다시 실행하지 않는다
 
             assertThat(appearanceFacade.getDetail(HOST, appearanceId).hpPayoutStatus()).isEqualTo(HpTaskStatus.DONE);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+            assertThat(BillingCalls.payouts(billingClient)).extracting(PayoutCommand::payoutRequestId)
+                    .containsExactly(task.getIdempotencyKey());
         }
 
         @Test
@@ -339,7 +353,7 @@ class AppearanceConfirmFlowTest {
         void payoutRejected() {
             Long appearanceId = establishFromRequest().appearanceId();
             broadcastEnded(appearanceId);
-            fakeBillingClient.removeWallet(GUEST);
+            BillingStubs.reject(billingClient, Rejection.WALLET_NOT_FOUND);
 
             AppearanceResDto confirmed = appearanceFacade.confirm(HOST, appearanceId);
 
@@ -375,10 +389,13 @@ class AppearanceConfirmFlowTest {
             assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_REQUEST-%d-RELEASE-APPEARANCE-%d"
                     .formatted(established.requestId(), established.appearanceId()));
             assertThat(task.getAmount()).isEqualTo(FEE);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, established.requestId()))
-                    .isZero();
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE);
+            assertThat(BillingCalls.releases(billingClient)).singleElement().satisfies(release -> {
+                assertThat(release.userId()).isEqualTo(HOST);
+                assertThat(release.referenceId()).isEqualTo(established.requestId());
+                assertThat(release.releaseRequestId()).isEqualTo(task.getIdempotencyKey());
+                assertThat(release.amountHp()).isEqualTo(FEE);
+            });
+            assertThat(BillingCalls.payouts(billingClient)).isEmpty();
         }
 
         @Test
@@ -403,12 +420,12 @@ class AppearanceConfirmFlowTest {
             }
             assertThat(succeeded).hasSize(1);
             assertThat(tasksOf(HpTaskType.PAYOUT).size() + tasksOf(HpTaskType.RELEASE).size()).isEqualTo(1);
-            long guestGain = fakeBillingClient.balanceOf(GUEST) - BASE;
             if (succeeded.getFirst().status() == AppearanceStatus.CONFIRMED) {
-                assertThat(guestGain).isEqualTo(FEE);
+                assertThat(BillingCalls.payouts(billingClient)).hasSize(1);
+                assertThat(BillingCalls.releases(billingClient)).isEmpty();
             } else {
-                assertThat(guestGain).isZero();
-                assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE);
+                assertThat(BillingCalls.releases(billingClient)).hasSize(1);
+                assertThat(BillingCalls.payouts(billingClient)).isEmpty();
             }
         }
     }
@@ -441,7 +458,7 @@ class AppearanceConfirmFlowTest {
             assertThat(appearanceFacade.getDetail(HOST, notYet).status()).isEqualTo(AppearanceStatus.ESTABLISHED);
             assertThat(appearanceFacade.getDetail(HOST, absent).status()).isEqualTo(AppearanceStatus.ABSENT);
             assertThat(onlyTask(HpTaskType.PAYOUT).getAppearanceId()).isEqualTo(due);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+            assertThat(BillingCalls.payouts(billingClient)).extracting(PayoutCommand::sourceId).containsExactly(due);
         }
 
         @Test
@@ -457,7 +474,7 @@ class AppearanceConfirmFlowTest {
             assertThat(appearanceAutoConfirmUseCase.confirmDue()).isEqualTo(1);
             assertThat(appearanceAutoConfirmUseCase.confirmDue()).isZero();
             assertThat(tasksOf(HpTaskType.PAYOUT)).hasSize(1);
-            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+            assertThat(BillingCalls.payouts(billingClient)).hasSize(1);
         }
 
         @Test
@@ -465,7 +482,7 @@ class AppearanceConfirmFlowTest {
         void payoutUnknown() {
             Long appearanceId = establishFromRequest().appearanceId();
             confirmPeriodEnded(appearanceId);
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
 
             assertThat(appearanceAutoConfirmUseCase.confirmDue()).isEqualTo(1);
 

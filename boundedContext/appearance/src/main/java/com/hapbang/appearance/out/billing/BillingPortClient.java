@@ -1,6 +1,5 @@
 package com.hapbang.appearance.out.billing;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.shared.billing.dto.HoldCommand;
@@ -18,8 +17,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 실제 Billing 모듈을 shared {@link BillingPort}로 부르는 {@link BillingClient} 구현 (#182).
  * <p>
- * {@code appearance.billing.mode=billing-port}일 때만 빈으로 등록된다. 기본값은 여전히 {@code fake}({@link FakeBillingClient})이고,
- * 이 값을 바꾸는 시점은 출연 담당이 정한다.
+ * 출연의 유일한 {@link BillingClient} 구현이다. 출연 모듈 안의 메모리 구현(Fake)과 {@code appearance.billing.mode} 설정은 #289에서 없앴다.
  * <ul>
  *     <li>요청·응답을 그대로 넘긴다. Billing 업무 예외({@code BusinessException} 하위, 예: 409 {@code INSUFFICIENT_BALANCE})도 바꾸지 않고 전파한다.</li>
  *     <li>트랜잭션은 열지 않는다. Billing UseCase가 REQUIRED로 열거나 호출한 쪽 트랜잭션에 참여한다.
@@ -27,7 +25,6 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  */
 @Component
-@ConditionalOnProperty(prefix = "appearance.billing", name = "mode", havingValue = "billing-port")
 @RequiredArgsConstructor
 public class BillingPortClient implements BillingClient {
 
