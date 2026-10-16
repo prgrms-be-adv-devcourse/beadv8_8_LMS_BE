@@ -189,9 +189,10 @@
 | 인플루언서가 있는 상태에서 `UserModifiedEvent`(닉네임 변경, VERIFIED_INFLUENCER, SUSPENDED) 발행 후 커밋 | 닉네임·역할·상태 갱신, 출연 회원은 1명 그대로 (최대 5초 대기) |
 | 출연 회원이 없는 상태에서 `UserModifiedEvent` 발행 후 커밋 | 출연 회원 생성 안 됨 (0.5초 동안 확인). 처리 실패로 남아 재시작 때 재처리 |
 | 가입 → 변경(닉네임·VERIFIED_INFLUENCER) 반영 뒤 같은 `UserJoinedEvent`를 다시 발행 | 변경된 닉네임·역할 유지, 출연 회원 1명 (늦은 가입 이벤트 무시) |
+| 버전 2 변경 반영 뒤 버전 1(늦게 도착)·버전 2(중복) 변경 이벤트 발행 | 버전 2의 닉네임·역할·상태 유지 (0.5초 동안 확인, #293) |
 | `UserModifiedEvent`(WITHDRAWN)를 발행한 트랜잭션이 롤백 | 상태 ACTIVE 그대로 |
 
-- 변경 이벤트끼리 순서가 바뀌어 처리되는 경우는 막지 않는다 (이벤트에 버전이 없음, [module.md](module.md) 4.1 참고).
+- 변경 이벤트 순서 뒤바뀜·중복은 공통 `ReplicaUser`가 회원 버전으로 걸러낸다 (회원 #292, [module.md](module.md) 4.1 참고). 출연 쪽은 그 동작이 출연 회원에도 적용되는지만 확인한다.
 
 ### 4.5 출연 요청서 저장소 — `AppearanceRequestRepositoryTest`
 
