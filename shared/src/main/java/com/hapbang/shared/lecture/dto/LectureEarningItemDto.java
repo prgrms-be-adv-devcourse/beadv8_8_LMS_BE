@@ -1,6 +1,7 @@
 package com.hapbang.shared.lecture.dto;
 
 import java.time.OffsetDateTime;
+import java.util.Objects;
 
 import com.hapbang.shared.lecture.domain.LectureEarningStatus;
 import com.hapbang.shared.lecture.domain.LectureEarningType;
@@ -27,6 +28,16 @@ public record LectureEarningItemDto(
         OffsetDateTime payoutScheduledAt,
         OffsetDateTime statusUpdatedAt
 ) {
+
+    // 지급 예정 시각만 비어 있을 수 있다. 빠진 응답은 Client가 읽을 수 없는 응답으로 거절한다
+    public LectureEarningItemDto {
+        Objects.requireNonNull(sourceType, "sourceType은 필수입니다.");
+        Objects.requireNonNull(sourceId, "sourceId는 필수입니다.");
+        Objects.requireNonNull(earningType, "earningType은 필수입니다.");
+        Objects.requireNonNull(title, "title은 필수입니다.");
+        Objects.requireNonNull(status, "status는 필수입니다.");
+        Objects.requireNonNull(statusUpdatedAt, "statusUpdatedAt은 필수입니다.");
+    }
 
     /** 지급 원천 이름과 같다 (billing {@code SettlementSourceType.LECTURE_ORDER_ITEM}) */
     public static final String SOURCE_TYPE = "LECTURE_ORDER_ITEM";

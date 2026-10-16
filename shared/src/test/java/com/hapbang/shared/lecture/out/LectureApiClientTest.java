@@ -166,6 +166,30 @@ class LectureApiClientTest {
         assertUnavailable(() -> client().getEarningSummary(7L), 204);
     }
 
+    @Test
+    void 필수_필드가_빠진_성공_응답은_호출_불가_예외로_바뀐다() {
+        respond(200, "application/json", "{\"statusCode\":200,\"message\":\"\",\"data\":{}}");
+        assertUnavailable(() -> client().getEarningSummary(7L), 200);
+        assertUnavailable(() -> client().getEarnings(7L, List.of(), 0, 20), 200);
+
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"content":[{}],
+                 "page":{"size":20,"number":0,"totalElements":1,"totalPages":1}}}""");
+        assertUnavailable(() -> client().getEarnings(7L, List.of(), 0, 20), 200);
+    }
+
+    @Test
+    void 서버_오류의_ProblemDetail_code도_예외에_담는다() {
+        respond(500, "application/problem+json", "{\"status\":500,\"code\":\"INTERNAL_ERROR\"}");
+
+        assertThatThrownBy(() -> client().getEarningSummary(7L))
+                .isInstanceOfSatisfying(LectureApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.UNAVAILABLE);
+                    assertThat(e.getStatus()).isEqualTo(500);
+                    assertThat(e.getCode()).isEqualTo("INTERNAL_ERROR");
+                });
+    }
+
     private static void assertUnavailable(Runnable call, int status) {
         assertThatThrownBy(call::run).isInstanceOfSatisfying(LectureApiCallException.class, e -> {
             assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.UNAVAILABLE);

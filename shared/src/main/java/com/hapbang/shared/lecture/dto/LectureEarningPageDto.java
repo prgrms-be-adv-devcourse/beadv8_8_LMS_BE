@@ -1,6 +1,7 @@
 package com.hapbang.shared.lecture.dto;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 판매 수익 목록 한 페이지 (#300). 강의 API의 페이지 응답({@code content} + {@code page}) 모양 그대로다.
@@ -9,6 +10,12 @@ import java.util.List;
  * @param page    페이지 정보
  */
 public record LectureEarningPageDto(List<LectureEarningItemDto> content, PageMetadata page) {
+
+    // 빠진 응답은 Client가 읽을 수 없는 응답으로 거절한다. null 항목도 받지 않는다
+    public LectureEarningPageDto {
+        content = List.copyOf(Objects.requireNonNull(content, "content는 필수입니다."));
+        Objects.requireNonNull(page, "page는 필수입니다.");
+    }
 
     /**
      * @param size          페이지 크기

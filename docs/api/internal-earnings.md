@@ -146,7 +146,7 @@ LectureEarningPageDto getEarnings(long sellerUserId, Collection<LectureEarningSt
 | `getReason()` | 언제 | `getStatus()` / `getCode()` |
 | --- | --- | --- |
 | `REJECTED` | 4xx (요청 값 오류, 내부 키 오류 401) | HTTP 상태 / `ProblemDetail.code`(401은 본문이 없어 `null`) |
-| `UNAVAILABLE` | 연결 실패, 응답 시간 초과, 5xx, 읽을 수 없는 성공 응답(깨진 JSON, 계약에 없는 enum 값, 본문·`data` 없음, 204 등) | 응답을 받았으면 그 HTTP 상태, 받지 못했으면 0 / `null` |
+| `UNAVAILABLE` | 연결 실패, 응답 시간 초과, 5xx, 읽을 수 없는 성공 응답(깨진 JSON, 계약에 없는 enum 값, 필수 필드 없음, 본문·`data` 없음, 204 등) | 응답을 받았으면 그 HTTP 상태, 받지 못했으면 0 / 5xx 본문의 `ProblemDetail.code`(예: `INTERNAL_ERROR`), 그 밖에는 `null` |
 
 - 어떤 실패든 Spring `RestClientException`이 아니라 `LectureApiCallException`으로 나온다.
 - 조회라 `UNAVAILABLE`은 그대로 다시 불러도 안전하다.
