@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -433,6 +434,20 @@ class AppearanceEarningQueryTest {
             Set<Long> union = new HashSet<>(firstPage);
             union.addAll(secondPage);
             assertThat(union).containsExactlyInAnyOrderElementsOf(ids);
+        }
+
+        @Test
+        @DisplayName("요청에 정렬(sort)이 와도 무시하고 고정 순서: 계약 필드명(statusUpdatedAt)·엔티티 속성(fee) 어느 쪽이든 예외 없이 같은 순서")
+        void ignoresRequestedSort() {
+            allStates();
+            List<Long> expected = appearanceEarningFacade.find(GUEST, null, null, ALL).getContent().stream()
+                    .map(AppearanceEarningItemResDto::sourceId).toList();
+
+            for (Sort sort : List.of(Sort.by("statusUpdatedAt"), Sort.by(Sort.Direction.ASC, "fee"))) {
+                assertThat(appearanceEarningFacade.find(GUEST, null, null, PageRequest.of(0, 100, sort)).getContent())
+                        .as(sort.toString()).extracting(AppearanceEarningItemResDto::sourceId)
+                        .containsExactlyElementsOf(expected);
+            }
         }
 
         @Test

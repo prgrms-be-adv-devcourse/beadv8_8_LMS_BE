@@ -939,7 +939,7 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 | 출연 쪽 방어 | ① 보안 체인의 키 검증(공통부) ② `AppearanceEarningFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
 | 회원 ID | 쿼리 파라미터 `memberId`. 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
 | 응답 | 성공 `RsData`, 오류 Problem Detail. 공통 DTO(shared `billing.earning`)가 들어오면 그 모양으로 담는다 (지금은 같은 모양의 출연 DTO) |
-| 시각 | `LocalDateTime`(오프셋 없는 ISO 8601), 모두 Asia/Seoul |
+| 시각 | `LocalDateTime`(오프셋 없는 ISO 8601), 모두 Asia/Seoul (Billing 합의 확정). 작업 완료·확인·취소·불참 시각은 출연 Clock(Asia/Seoul)으로 기록하고, 출연 수정 시각(`updated_at`)은 JPA Auditing이 JVM 기본 시간대로 기록하므로 앱 컨테이너의 `TZ: Asia/Seoul`(compose dev·prod, CI)에 기댄다 |
 
 공통부(인증 체인·shared DTO·설정·환경변수)가 dev에 들어오기 전까지는 분류 규칙·쿼리·Facade까지만 있고, 컨트롤러와 HTTP 테스트는 그 뒤에 붙인다.
 
@@ -971,7 +971,7 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 - 파라미터: `memberId`(필수), `status`(여러 개, 공통 7종), `earningType`, `page`(0부터)·`size`(기본 20, 최대 100, 팀 공통)
 - `status`를 보내지 않으면 미지급 4종(요약과 같은 범위). `COMPLETED`·`CANCELED`는 고를 때만 나온다
 - 출연과 상관없는 값(`SCHEDULED`, `LECTURE_SALE`)만 고르면 400이 아니라 빈 결과 (N4). 없는 enum 문자열은 400
-- 정렬: `statusUpdatedAt` 내림차순 → `sourceId`(출연 ID) 내림차순 고정. 출연 1건 = 1행이라 순서가 정해지고, 같은 시각이 페이지 경계에 걸려도 중복·누락이 없다
+- 정렬: `statusUpdatedAt` 내림차순 → `sourceId`(출연 ID) 내림차순 고정. 요청의 `sort`는 무시한다. 출연 1건 = 1행이라 순서가 정해지고, 같은 시각이 페이지 경계에 걸려도 중복·누락이 없다
 
 | 필드 | 값 |
 |---|---|

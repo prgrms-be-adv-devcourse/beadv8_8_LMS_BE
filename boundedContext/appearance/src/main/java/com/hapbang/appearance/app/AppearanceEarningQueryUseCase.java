@@ -35,7 +35,8 @@ import lombok.extern.slf4j.Slf4j;
  * <ul>
  *     <li>기준 회원은 게스트(수익을 받는 쪽)다. 출연 1건 = 수익 1건이고, 일방 취소된 출연은 위약금 한 건으로만 센다.</li>
  *     <li>출연 쪽에 데이터가 없는 회원이면 0원 요약·빈 목록이다 (회원 복제를 확인하지 않는다: 동기화가 늦어도 Billing 화면이 깨지지 않게).</li>
- *     <li>있어야 할 지급·위약금 작업이 없는 출연은 FAILED로 보여 주고 ERROR 로그를 남긴다 (APR-39 N2).</li>
+ *     <li>있어야 할 지급·위약금 작업이 없는 출연은 FAILED로 보여 주고 로그를 남긴다 (APR-39 N2). 목록은 출연 ID와 함께 ERROR,
+ *     요약은 묶음이라 출연 ID 없이 WARN (태그 {@code [EARNING_TASK_MISSING]}으로 같이 찾는다).</li>
  * </ul>
  */
 @Slf4j
@@ -59,7 +60,8 @@ public class AppearanceEarningQueryUseCase {
                 continue;
             }
             if (classification.missingTask()) {
-                log.error("[EARNING_TASK_MISSING] 지급·위약금 작업이 없는 출연 guestId={} status={} count={}", memberId,
+                // 요약은 묶음이라 출연 ID를 모른다. 출연 ID는 목록 조회의 ERROR 로그로 남는다
+                log.warn("[EARNING_TASK_MISSING] 지급·위약금 작업이 없는 출연 guestId={} status={} count={}", memberId,
                         group.status(), group.count());
             }
             long amount = group.status() == AppearanceStatus.CANCELED_BY_HOST ? group.penaltySum() : group.feeSum();
@@ -89,7 +91,10 @@ public class AppearanceEarningQueryUseCase {
             return Page.empty(pageable);
         }
         Page<AppearanceEarningRow> rows = appearanceEarningSupport.find(memberId, condition, pageable);
-        List<Appearance> appearances = rows.getContent().stream().map(AppearanceEarningRow::appearance).toList();
+        List<Appearance> appearances = new ArrayList<>();
+        for (AppearanceEarningRow row : rows.getContent()) {
+            appearances.add(row.appearance());
+        }
         Map<Long, String> titles = appearanceTitleSupport.titlesOf(appearances);
         List<AppearanceEarningItemResDto> items = new ArrayList<>();
         for (AppearanceEarningRow row : rows.getContent()) {
@@ -102,8 +107,8 @@ public class AppearanceEarningQueryUseCase {
         Appearance appearance = row.appearance();
         Classification classification = AppearanceEarningRule.classify(appearance.getStatus(), row.taskStatus());
         if (classification.missingTask()) {
-            log.error("[EARNING_TASK_MISSING] 지급·위약금 작업이 없는 출연 appearanceId={} status={}", appearance.getId(),
-                    appearance.getStatus());
+            log.error("[EARNING_TASK_MISSING] 지급·위약금 작업이 없는 출연 guestId={} appearanceId={} status={}",
+                    appearance.getGuestId(), appearance.getId(), appearance.getStatus());
         }
         return new AppearanceEarningItemResDto(AppearanceEarningRule.sourceTypeOf(appearance), appearance.getId(),
                 classification.type(), title, AppearanceEarningRule.amountOf(appearance), classification.status(),
