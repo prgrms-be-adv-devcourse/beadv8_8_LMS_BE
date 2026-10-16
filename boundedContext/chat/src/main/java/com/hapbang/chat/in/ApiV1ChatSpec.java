@@ -27,6 +27,7 @@ import jakarta.validation.constraints.Min;
         1:1 채팅방과 메시지 이력. 인플루언서 이상 또는 관리자만 쓸 수 있다.
         실시간 송수신은 STOMP라 여기에 없다: 연결 `/api/v1/chats/ws`, 보내기 `/pub/chats/{chatRoomId}/messages`,
         받기 `/user/queue/chats/messages`(메시지)·`/user/queue/chats/notifications`(새 메시지 알림)·`/user/queue/chats/errors`(오류).
+        보내는 본문(`content`)은 공백만으로 이뤄질 수 없고 2,000자 이하다. 넘으면 오류 큐로 INVALID_REQUEST가 `clientMessageId`와 함께 온다.
         보낼 때 `clientMessageId`(선택, 64자 이하)를 붙이면 보낸 사람에게 전달되는 메시지와 오류에 그대로 돌려준다.
         같은 참여 안에서 같은 `clientMessageId`로 다시 보내면 새로 저장하지 않고 기존 메시지를 보낸 사람에게만 다시 보낸다(알림 없음, 본문이 달라도 기존 메시지).
         나갔다가 재입장한 뒤에는 이전에 쓴 `clientMessageId`로 보내도 새 메시지로 저장한다.

@@ -12,6 +12,7 @@ import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.SentChatMessage;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.shared.member.domain.Role;
@@ -106,6 +107,17 @@ class ChatMessageUseCaseTest {
         assertThatThrownBy(() -> chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 30))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_NOT_ALLOWED);
+    }
+
+    @Test
+    void 본문이_2000자를_넘으면_보낼_수_없다() {
+        String tooLong = "가".repeat(ChatMessage.MAX_CONTENT_LENGTH + 1);
+
+        assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, tooLong, null))
+                .isInstanceOf(ChatException.class)
+                .extracting("errorCode").isEqualTo(ChatErrorCode.INVALID_REQUEST);
+        assertThat(chatMessageUseCase.send(chatRoomId, HOST_ID, "가".repeat(ChatMessage.MAX_CONTENT_LENGTH), null)
+                .message().content()).hasSize(ChatMessage.MAX_CONTENT_LENGTH);
     }
 
     @Test

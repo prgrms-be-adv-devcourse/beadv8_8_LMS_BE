@@ -45,6 +45,10 @@ public class ChatMessageUseCase {
         if (!ChatMessage.hasContent(content)) {
             throw new ChatException(ChatErrorCode.EMPTY_MESSAGE);
         }
+        if (!ChatMessage.fitsLength(content)) {
+            throw new ChatException(ChatErrorCode.INVALID_REQUEST,
+                    "메시지는 " + ChatMessage.MAX_CONTENT_LENGTH + "자 이하여야 합니다.");
+        }
         ChatRoom chatRoom = chatRoomRepository.findByIdForUpdate(chatRoomId)
                 .filter(room -> !room.isEnded())
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
