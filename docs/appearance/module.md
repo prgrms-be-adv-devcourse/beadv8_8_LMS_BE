@@ -930,18 +930,27 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 
 ### 18.1 연동 방식
 
+강의 내부 API(#300)와 같은 공통 규칙을 따른다 (docs/api/internal-earnings.md 1장). 출연만 다른 점은 표 아래에 모았다.
+
 | 항목 | 내용 |
 |---|---|
-| 호출 | Billing이 HTTP(`RestClient`)로 부른다. 같은 서버 안 주소로 부르고 nginx를 거치지 않는다 |
-| 경로 | `GET /api/v1/internal/appearances/earnings/summary`, `GET /api/v1/internal/appearances/earnings` (팀 API 경로 규칙의 예외, 합의) |
-| 인증 | 헤더 `X-Internal-Api-Key` (설정 `internal.api.key`, 환경변수 `INTERNAL_API_KEY`). 맞으면 `ROLE_INTERNAL`, 틀리거나 없으면 401. 회원 세션으로는 부를 수 없다. 필터·전용 보안 체인은 Billing 공통부 |
-| 외부 노출 | nginx가 `/api/v1/internal/**`을 막는다 (Billing 공통부). Swagger에 나오지 않는다 |
+| 호출 | Billing이 shared `AppearanceApiClient`(18.6)로 부른다. 같은 서버 안 주소(`http://localhost:8080`)로 부르고 nginx를 거치지 않는다 |
+| 경로 | `GET /api/v1/internal/appearances/earnings/summary`, `GET /api/v1/internal/appearances/earnings` (공통 규칙 `/api/v1/internal/<제공 모듈>/...`) |
+| 인증 | 헤더 `X-Internal-Api-Key`(`shared.internal.InternalApiHeaders`), 설정 `hapbang.internal-api.key`(환경변수 `HAPBANG_INTERNAL_API_KEY`). 맞으면 `ROLE_INTERNAL`, 틀리거나 없으면 본문 없는 401. 회원 세션으로는 부를 수 없고, 반대로 내부 키로 회원 API를 부를 수 없다. 필터·전용 보안 체인은 global(#300·#307) |
+| 외부 노출 | nginx가 `/api/v1/internal`을 밖에서 404로 막는다 (공통부). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영은 Swagger가 꺼져 있다 |
 | 출연 쪽 방어 | ① 보안 체인의 키 검증(공통부) ② `AppearanceEarningFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
-| 회원 ID | 쿼리 파라미터 `memberId`. 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
-| 응답 | 성공 `RsData`, 오류 Problem Detail. 공통 DTO(shared `billing.earning`)가 들어오면 그 모양으로 담는다 (지금은 같은 모양의 출연 DTO) |
-| 시각 | `LocalDateTime`(오프셋 없는 ISO 8601), 모두 Asia/Seoul (Billing 합의 확정). 작업 완료·확인·취소·불참 시각은 출연 Clock(Asia/Seoul)으로 기록하고, 출연 수정 시각(`updated_at`)은 JPA Auditing이 JVM 기본 시간대로 기록하므로 앱 컨테이너의 `TZ: Asia/Seoul`(compose dev·prod, CI)에 기댄다 |
+| 회원 ID | 쿼리 파라미터 `userId` (게스트). 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
+| 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). `null` 필드는 응답 JSON에서 빠진다(공통 Jackson 설정) |
+| 시각 | `LocalDateTime`(**offset 없는** ISO 8601), 모두 Asia/Seoul (Billing 합의 확정, 강의 계약 뒤에도 유지). 작업 완료·확인·취소·불참 시각은 출연 Clock(Asia/Seoul)으로 기록하고, 출연 수정 시각(`updated_at`)은 JPA Auditing이 JVM 기본 시간대로 기록하므로 앱 컨테이너의 `TZ: Asia/Seoul`(compose dev·prod, CI)에 기댄다 |
 
-공통부(인증 체인·shared DTO·설정·환경변수)가 dev에 들어오기 전까지는 분류 규칙·쿼리·Facade까지만 있고, 컨트롤러와 HTTP 테스트는 그 뒤에 붙인다.
+**강의 계약과 다른 점** (#301 PR에 공유)
+
+| 항목 | 강의 #300 | 출연 | 이유 |
+|---|---|---|---|
+| 시각 | `OffsetDateTime`(`+09:00`) | `LocalDateTime`(KST, offset 없음) | Billing과 먼저 합의(APR-39 N1). 기존 출연 API·DB 규칙·FE 해석과 같다. Billing이 합칠 때 출연 시각을 KST로 읽으면 된다 |
+| 요약 `asOf` | 있음(분류 기준 시각) | 없음 | 출연 분류는 저장된 상태만 보고 조회 시각에 기대지 않는다. 강의 문서도 "무시해도 된다"는 추가 필드 |
+| `earningType` 필터 | 없음(종류가 하나) | 있음(선택) | Billing 요청. 출연은 출연료·위약금 두 종류 |
+| `SCHEDULED` | 쓴다 | 값만 있고 나오지 않는다 | 18.2 |
 
 ### 18.2 수익 분류 (`domain.AppearanceEarningRule`)
 
@@ -962,29 +971,53 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 
 ### 18.3 요약 (`summary`)
 
-- 파라미터: `memberId`(필수), `earningType`(선택, `APPEARANCE_FEE`·`APPEARANCE_PENALTY`)
-- 응답: 미지급 5개 버킷 `confirmationPending`·`scheduled`·`onHold`·`processing`·`failed`, 각각 `amountHp`(HP)·`count`. 페이지와 상관없이 전체 기준. `COMPLETED`·`CANCELED`는 들어가지 않는다
+- 파라미터: `userId`(필수), `earningType`(선택, `APPEARANCE_FEE`·`APPEARANCE_PENALTY`)
+- 응답: 미지급 5개 버킷 `confirmationPending`·`scheduled`(항상 0)·`onHold`·`processing`·`failed`, 각각 `amountHp`(HP)·`count`. 페이지와 상관없이 전체 기준. `COMPLETED`·`CANCELED`는 들어가지 않는다. `asOf`는 없다
 - 쿼리: (출연 상태, 작업 상태)별 건수·출연료 합계·위약금 합계를 한 번에 읽고 Java에서 분류해 접는다
+- 오류: `userId` 없음·1 미만, 없는 `earningType` → 400 `INVALID_REQUEST`
 
 ### 18.4 목록
 
-- 파라미터: `memberId`(필수), `status`(여러 개, 공통 7종), `earningType`, `page`(0부터)·`size`(기본 20, 최대 100, 팀 공통)
-- `status`를 보내지 않으면 미지급 4종(요약과 같은 범위). `COMPLETED`·`CANCELED`는 고를 때만 나온다
-- 출연과 상관없는 값(`SCHEDULED`, `LECTURE_SALE`)만 고르면 400이 아니라 빈 결과 (N4). 없는 enum 문자열은 400
-- 정렬: `statusUpdatedAt` 내림차순 → `sourceId`(출연 ID) 내림차순 고정. 요청의 `sort`는 무시한다. 출연 1건 = 1행이라 순서가 정해지고, 같은 시각이 페이지 경계에 걸려도 중복·누락이 없다
+- 파라미터: `userId`(필수), `status`(여러 번, 공통 7종), `earningType`(선택), `page`(0부터)·`size`(기본 20, 최대 100, 팀 공통)
+- `status`를 보내지 않거나 비우면 미지급 상태만(요약과 같은 범위, 강의와 같다). `COMPLETED`·`CANCELED`는 고를 때만 나온다
+- 출연에 없는 상태(`SCHEDULED`)만 고르면 400이 아니라 빈 결과 (N4). 계약에 없는 문자열(`PAID`, 다른 모듈 종류 `LECTURE_SALE` 등)은 400 `INVALID_REQUEST`(`errors[0].field` = `status`·`earningType`). Billing은 타입이 있는 Client로 부르므로 다른 모듈의 값을 보낼 수 없다
+- 정렬: `statusUpdatedAt` 내림차순 → `sourceId`(출연 ID) 내림차순 고정. 요청의 `sort`는 무시한다(페이지 번호·크기만 쓴다). 출연 1건 = 1행이라 순서가 정해지고, 같은 시각이 페이지 경계에 걸려도 중복·누락이 없다. 강의 목록과 같은 키라 Billing이 두 목록을 같은 기준으로 합칠 수 있다
+- 응답 `data`: `{content, page: {size, number, totalElements, totalPages}}`
 
 | 필드 | 값 |
 |---|---|
-| `sourceType` | `APPEARANCE_REQUEST`(요청 출처) / `RECRUIT_APPEARANCE`(모집 출처). Billing 지급·위약금 요청의 원천과 같다 |
-| `sourceId` | 출연 ID (Billing 지급·위약금 요청의 원천 ID와 같다) |
+| `sourceType` | 항상 `APPEARANCE` (강의는 `LECTURE`) |
+| `sourceId` | 출연 ID. Billing 지급·위약금 기록의 원천 ID와 같다. Billing 기록의 원천 종류는 요청 출처 `APPEARANCE_REQUEST`·모집 출처 `RECRUIT_APPEARANCE`로 나뉘지만 둘 다 출연 ID라 `sourceId` 하나로 맞춰 볼 수 있다 |
 | `earningType` | `APPEARANCE_FEE` / `APPEARANCE_PENALTY` |
 | `title` | 출처 요청서·모집글의 현재 제목 (내 출연 목록과 같음) |
 | `amountHp` | 출연료, 위약금이면 위약금 |
 | `status` | 18.2 지급 상태 |
-| `payoutScheduledAt` | 항상 `null` (호스트가 방송 뒤 7일 안에 언제든 확인할 수 있어 지급 시각이 정해지지 않음) |
+| `payoutScheduledAt` | 항상 `null`이라 응답에서 빠진다 (호스트가 방송 뒤 7일 안에 언제든 확인할 수 있어 지급 시각이 정해지지 않음) |
 | `statusUpdatedAt` | `coalesce(작업 완료 시각, 확인 시각, 취소 시각, 불참 시각, 출연 수정 시각)`: 완료·실패는 작업 완료 시각(`DONE`·`DEAD` 모두 기록), 처리 중은 확인·일방 취소 시각, 취소는 불참·합의 취소 시각, 확인 대기·보류는 출연 수정 시각 |
 
 ### 18.5 인덱스
 
 `V202610161849__add_hp_tasks_appearance_id_index.sql`: `hp_tasks (appearance_id)`. 출연에 지급·위약금 작업을 붙여 읽는 조인용 (기존에는 `(ref_type, ref_id)`만 있었음).
+
+### 18.6 Client (`shared.appearance.out.AppearanceApiClient`)
+
+Billing은 URI·헤더를 직접 만들지 않고 이 Client를 주입받는다 (강의 `LectureApiClient`와 같은 방식, D62).
+
+```java
+AppearanceEarningSummaryDto getEarningSummary(long guestUserId);
+AppearanceEarningSummaryDto getEarningSummary(long guestUserId, AppearanceEarningType earningType);
+AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarningStatus> statuses, int page, int size);
+AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarningStatus> statuses,
+                                     AppearanceEarningType earningType, int page, int size);
+```
+
+| 설정 | 기본값 | 설명 |
+|---|---|---|
+| `hapbang.clients.appearance.base-url` | `http://localhost:${server.port:8080}` (apps) | 출연 서비스 주소. **이 값이 있을 때만 Client 빈이 생긴다**(모듈 테스트에는 없다) |
+| `hapbang.clients.appearance.connect-timeout` | 2s | 연결 제한 시간 |
+| `hapbang.clients.appearance.read-timeout` | 5s | 응답 제한 시간 |
+| `hapbang.internal-api.key` | (환경 변수) | Client가 헤더에 붙인다 |
+
+- 실패는 `AppearanceApiCallException`이다(shared는 global에 의존하지 않아 `BusinessException`이 아니다). `REJECTED`: 4xx(요청 값 오류, 키 오류 401), `UNAVAILABLE`: 연결 실패·시간 초과·5xx·읽을 수 없는 성공 응답(깨진 JSON, 계약에 없는 enum 값, 필수 필드 없음, `data` 없음). `getStatus()`·`getCode()`는 강의와 같다. 조회라 `UNAVAILABLE`은 다시 불러도 안전하다.
+- `statuses`가 `null`이거나 비어 있으면 상태 조건 없이 보낸다(= 미지급만). `earningType`이 `null`이면 둘 다.
 
