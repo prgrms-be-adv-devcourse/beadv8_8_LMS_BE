@@ -942,3 +942,87 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 ### 18.4 테스트 이름 정리
 
 Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는 것처럼 읽히던 표현("보류 0", "게스트 +30,000", "호스트 잔액 원래대로")을 "Billing에 ○○ 요청"으로 바꿨다 (9개, 이 문서 표도 같이). 실제 잔액은 16장(apps)에서만 확인한다.
+
+## 19. 출연 수익 내부 조회 (#301)
+
+### 19.1 분류 규칙 — `AppearanceEarningRuleTest` (단위)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 성립·취소 요청 중·불참·합의 취소 + 작업 {없음, PENDING, DONE, DEAD} | 작업과 상관없이 `CONFIRMATION_PENDING`·`ON_HOLD`·`CANCELED`·`CANCELED` (출연료) |
+| 확인 / 일방 취소 + PENDING·DEAD·DONE | `PROCESSING`·`FAILED`·`COMPLETED` (출연료 / 위약금) |
+| 확인 / 일방 취소 + 작업 없음 | `FAILED` + 작업 없음 표시 (N2) |
+| 모든 출연 상태 × 작업 4가지 | 모두 분류됨 |
+| 조회 조건 | 지급 상태 128개 부분집합 × 종류 3개: 조건이 고르는 조합 = 분류가 그 상태·종류인 조합 |
+| 빈 조건 | 상태 없음, 지급 예정(`SCHEDULED`)만, 위약금 + 확인 대기 → 조회하지 않음 |
+| 작업 종류 | 지급·위약금만 (반환 제외) |
+
+### 19.2 조회 — `AppearanceEarningQueryTest` (통합, 실제 흐름으로 상태를 만듦)
+
+한 게스트에게 9건: 확인 대기 20,000, 보류(취소 요청 중) 21,000, 확인 + 지급 완료 30,000, 확인 + 결과 모름 22,000, 확인 + Billing 거절 23,000, 일방 취소 + 정산 완료(위약금 9,000), 일방 취소 + 결과 모름(위약금 9,000), 불참, 합의 취소.
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 분류 | 요약 | 확인 대기 20,000·1 / 지급 예정 0 / 보류 21,000·1 / 처리 중 31,000·2 / 실패 23,000·1 |
+| 분류 | 목록 (전체 상태) | 9건, 상태·종류·금액 위와 같음. 일방 취소는 위약금 한 줄만, 원천 `APPEARANCE`·출연 ID, 제목, 지급 예정 시각 null |
+| 분류 | 상태 기준 시각 | 완료·실패 = 작업 완료 시각, 처리 중 = 확인·일방 취소 시각, 취소 = 불참·합의 취소 시각, 확인 대기·보류 = 출연 수정 시각 |
+| 분류 | 확인·일방 취소의 작업 | Billing 결과를 몰라도 지급·위약금 작업이 함께 기록됨 (위약금 9,000) |
+| 분류 | 작업이 없는 확인 건(삭제로 재현) | 요약 실패 30,000·1, 목록 `FAILED` |
+| 필터 | 기본 | 미지급 5건. 완료(출연료·위약금 2건)·취소(2건)는 고를 때만 |
+| 필터 | 종류 | 위약금: 요약 처리 중 9,000·1, 목록 1건. 출연료: 미지급 4건 |
+| 필터 | 맞는 것 없음 | 지급 예정(`SCHEDULED`)만, 위약금 + 확인 대기 → 빈 결과. 빈 상태 목록은 고르지 않은 것과 같음(미지급 5건) |
+| 회원 | 모집 1:N | 성립 게스트 2명 각각 1인 출연료 한 건(원천 `APPEARANCE`·출연 ID, 모집글 제목), 미선정 게스트 없음 |
+| 회원 | 다른 회원 | 호스트로 조회하면 빈 결과, 출연이 없는 회원은 0원·빈 목록 |
+| 회원 | 회원 ID null·0·-1 | `INVALID_REQUEST` |
+| 페이지 | 2건씩 끝까지 | 건수·금액 합계 = 요약, 중복 없음 |
+| 페이지 | 같은 상태 기준 시각 4건 | 출연 ID 내림차순, 페이지 경계에서 중복·누락 없음 |
+| 페이지 | 요청에 정렬(`sort=statusUpdatedAt`, `sort=fee`)이 옴 | 무시하고 고정 순서 그대로, 예외 없음 |
+| 페이지 | 시각이 다름 | 나중에 확인한 출연이 먼저 |
+| 권한 | 인플루언서 세션만 | 요약·목록 `AccessDeniedException` (내부 호출 `ROLE_INTERNAL`만) |
+
+### 19.3 상태 계약 — `AppearanceEarningStatusTest` (shared 단위)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 상태 이름 | 강의와 같은 7개 (`CONFIRMATION_PENDING`·`SCHEDULED`·`ON_HOLD`·`PROCESSING`·`FAILED`·`COMPLETED`·`CANCELED`) |
+| 미지급 | 완료·취소를 뺀 5개 |
+
+### 19.4 내부 API — `AppearanceEarningInternalApiTest` (통합, 보안 체인부터 DB까지 MockMvc)
+
+흐름: 확인 대기 20,000 1건 + 확인했지만 Billing 결과 모름(처리 중) 22,000 1건.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 요약 (키 있음) | 200 `RsData`, 메시지, 확인 대기 20,000·1 / 지급 예정 0 / 처리 중 22,000·1, `asOf` 없음. `earningType=APPEARANCE_PENALTY`면 0 |
+| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` 필드 없음, `statusUpdatedAt`은 offset 없는 시각 |
+| 기본·페이지 (`size=1`) | 미지급 2건 중 최근(확인한 출연) 먼저, `page {size 1, number 0, totalElements 2, totalPages 2}`. 값 없는 `status=`도 미지급 2건(Spring이 빈 목록으로 바꿈). `status=SCHEDULED`만이면 빈 결과 |
+| 출연이 없는 회원 | 0원 요약·빈 목록 |
+| 요청 값 오류 | `userId` 없음(`errors[0].field`=`userId`), `userId=0`, `status=PAID`(`status`), `earningType=LECTURE_SALE`(`earningType`) → 400 `INVALID_REQUEST` |
+| 인증 | 키 없음(본문 없는 401)·틀림·회원 로그인만 → 401 |
+| 내부 키로 회원 API | `GET /api/v1/appearances` → 401 |
+
+### 19.5 Client — `AppearanceApiClientTest` (shared 단위, 가짜 HTTP 서버)
+
+강의 `LectureApiClientTest`와 같은 범위.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 요약 | `userId`·키 헤더(종류를 주면 `earningType`)를 붙여 보내고 `data`를 돌려줌 |
+| 목록 | `status` 여러 개·`earningType`·`page`·`size` 쿼리, 빠진 `payoutScheduledAt`은 null, offset 없는 시각을 `LocalDateTime`으로 읽음 |
+| 상태 null | 상태 조건 없이 보냄 |
+| 4xx (ProblemDetail / 401 본문 없음) | `REJECTED` + 상태 + `code`(401은 null) |
+| 연결 실패·시간 초과·503 | `UNAVAILABLE` (상태 0 / 0 / 503) |
+| 깨진 JSON·모르는 상태 값·204 | `UNAVAILABLE` |
+| 필수 필드 없음 (`data {}`, 항목 `{}`) | `UNAVAILABLE` |
+| 500 ProblemDetail | `UNAVAILABLE` + `code` `INTERNAL_ERROR` |
+
+### 19.6 그 밖
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `SharedAppearanceDependencyTest` (shared) | shared.appearance 의존 | 출연·다른 업무 모듈·global·shared.lecture를 참조하지 않음 |
+| `AppearanceEarningSelfHttpIntegrationTest` (apps, 실제 포트) | Client 빈 | 앱 설정으로 1개 생김 |
+| 〃 | Client로 자기 자신 호출 | 출연이 없는 게스트 0원 요약·빈 페이지 (`page {20, 0, 0, 0}`) |
+| 〃 | 키가 틀린 Client | `REJECTED` 401 |
+| 〃 | 명세 `/v3/api-docs` | 두 경로·`X-Internal-Api-Key` 헤더가 나오고 키 값은 없음 |
+
