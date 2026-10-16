@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestExecutionListeners;
 
 import com.hapbang.testsupport.DatabaseCleanUpListener;
+import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.ModuleTestConfiguration;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
 
@@ -28,6 +29,8 @@ import com.hapbang.testsupport.PostgresTestcontainersConfig;
                 // global의 SecurityConfig(oauth2Login)가 구글 등록 정보를 요구한다
                 "spring.security.oauth2.client.registration.google.client-id=test",
                 "spring.security.oauth2.client.registration.google.client-secret=test",
+                // global 내부 API 보안(InternalApiSecurityConfig)이 키를 요구한다 (#300)
+                "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 // 웹소켓 허용 출처 검사(#235)용 프론트 출처
                 "hapbang.chat.websocket.allowed-origins=http://localhost:5173"
         })

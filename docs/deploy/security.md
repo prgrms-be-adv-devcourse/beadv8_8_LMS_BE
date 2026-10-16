@@ -21,6 +21,7 @@
 | 개인 PAT | 만들지 않고 둔다. 수동 pull 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |
 | TLS 개인 키 | edge `letsencrypt` 볼륨 | 서버 | HTTPS | 재발급 시 자동 교체 |
+| 내부 API 키 | 서버 env `HAPBANG_INTERNAL_API_KEY` | app 컨테이너 | 모듈 간 내부 HTTP API(`/api/v1/internal/**`) 인증 (#300) | 서버 env 값을 바꾸고 재배포([env-vars.md](env-vars.md#값-변경-비밀값-교체-포함)). 같은 앱이 부르고 받으므로 한 번에 바뀐다 |
 
 ## 구조상 보호 장치
 
@@ -31,6 +32,7 @@
 | 서버 설정 수동 반영 | 배포 키·Actions로 compose·nginx를 바꿀 수 없음 |
 | GHCR private + 읽기 전용 임시 토큰 | 서버가 탈취돼도 레지스트리에 이미지를 올릴 수 없음 |
 | 외부 포트는 edge(80·443)만 | app·DB에 직접 접근 불가 |
+| 내부 API 차단 | edge nginx가 `/api/v1/internal/`을 404로 끊고, 앱도 내부 API 키가 없으면 401 (#300) |
 | 미등록 도메인 차단 | IP 직접 접근·스캐너에 응답하지 않음(80 연결 종료, 443 핸드셰이크 거부) |
 | HTTPS + HSTS, forward-headers | 쿠키에 Secure, https 리다이렉트 |
 | `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |
