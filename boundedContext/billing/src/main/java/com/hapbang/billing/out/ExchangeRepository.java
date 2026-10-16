@@ -1,5 +1,7 @@
 package com.hapbang.billing.out;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -37,6 +39,15 @@ public interface ExchangeRepository extends Repository<Exchange, Long> {
     // 관리자 처리 전에 잠글 지갑을 알기 위해 환전의 지갑 ID만 락 없이 읽는다(엔티티를 영속성 컨텍스트에 올리지 않는다, #294).
     @Query("select e.walletId from Exchange e where e.id = :id")
     Optional<Long> findWalletIdById(@Param("id") Long id);
+
+    // 정산 실행 대상 (#305): 주어진 상태이고 정산 예정 시각이 기준 시각 이전·같은 환전 ID를 afterId 다음부터 ID 오름차순으로 읽는다
+    // (ID 커서 페이지. 처리 중 예외로 상태가 그대로인 환전을 같은 실행에서 다시 읽지 않는다). idx_exchange_3 (status, payout_scheduled_at)
+    @Query("""
+            select e.id from Exchange e
+            where e.status = :status and e.payoutScheduledAt <= :dueAt and e.id > :afterId
+            order by e.id asc""")
+    List<Long> findDueIdsAfter(@Param("status") ExchangeStatus status, @Param("dueAt") Instant dueAt,
+            @Param("afterId") long afterId, Pageable pageable);
 
     // 관리자 목록: 상태별 오래된 순(승인 대기 처리용) (#294)
     Page<Exchange> findAllByStatusOrderByIdAsc(ExchangeStatus status, Pageable pageable);

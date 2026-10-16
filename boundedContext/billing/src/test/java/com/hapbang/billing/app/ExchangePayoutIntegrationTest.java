@@ -876,6 +876,8 @@ class ExchangePayoutIntegrationTest {
             if (walletId == null) {
                 walletId = influencer(50_000L);
             }
+            // 매 회차를 정산일 전 승인으로 시작한다(앞 회차가 앞당긴 시각으로 승인하면 정산일 이후 승인이라 다음 회차로 옮겨진다, #305)
+            timeShift = Duration.ZERO;
             Long exchangeId = approvedExchange(10_000L);
             plan(MockPayoutScenario.FAILED, MockPayoutScenario.SUCCESS);
             timeShift = AFTER_SCHEDULE;
