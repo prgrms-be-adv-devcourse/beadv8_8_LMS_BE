@@ -1,7 +1,6 @@
 package com.hapbang.appearance.app;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -49,8 +48,15 @@ import lombok.extern.slf4j.Slf4j;
 public class AppearanceEarningQueryUseCase {
 
     /** 아직 받지 못한 수익 (요약·기본 목록 범위) */
-    private static final Set<AppearanceEarningStatus> UNPAID = EnumSet.copyOf(
-            Arrays.stream(AppearanceEarningStatus.values()).filter(AppearanceEarningStatus::isUnpaid).toList());
+    private static final Set<AppearanceEarningStatus> UNPAID = EnumSet.noneOf(AppearanceEarningStatus.class);
+
+    static {
+        for (AppearanceEarningStatus status : AppearanceEarningStatus.values()) {
+            if (status.isUnpaid()) {
+                UNPAID.add(status);
+            }
+        }
+    }
 
     private final AppearanceEarningSupport appearanceEarningSupport;
     private final AppearanceTitleSupport appearanceTitleSupport;

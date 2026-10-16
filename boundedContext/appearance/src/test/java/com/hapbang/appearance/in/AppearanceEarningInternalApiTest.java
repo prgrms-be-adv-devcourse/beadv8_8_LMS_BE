@@ -166,7 +166,7 @@ class AppearanceEarningInternalApiTest {
     }
 
     @Test
-    @DisplayName("상태를 주지 않으면 아직 받지 못한 수익만, page·size로 나눈다. 출연에 없는 상태(SCHEDULED)만 고르면 빈 결과")
+    @DisplayName("상태를 주지 않거나 값 없이 주면 아직 받지 못한 수익만, page·size로 나눈다. 출연에 없는 상태(SCHEDULED)만 고르면 빈 결과")
     void defaultAndPaging() throws Exception {
         Long processing = pendingAndProcessing();
 
@@ -179,6 +179,10 @@ class AppearanceEarningInternalApiTest {
                 .andExpect(jsonPath("$.data.page.number").value(0))
                 .andExpect(jsonPath("$.data.page.totalElements").value(2))
                 .andExpect(jsonPath("$.data.page.totalPages").value(2));
+        // 값 없는 status(?status=)는 Spring이 빈 목록으로 바꿔 고르지 않은 것과 같다
+        mockMvc.perform(internal(get(EARNINGS).param("userId", GUEST.toString()).param("status", "")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page.totalElements").value(2));
         mockMvc.perform(internal(get(EARNINGS).param("userId", GUEST.toString()).param("status", "SCHEDULED")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(0))
