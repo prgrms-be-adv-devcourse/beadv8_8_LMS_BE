@@ -15,7 +15,9 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-// 환전별 선택적 계좌 정보를 위한 확장용 모델이며, 현재 MVP에서는 실제 계좌 입력·암호화·검증을 수행하지 않는다.
+// 환전 신청 당시 입력한 송금 계좌의 스냅샷이다(환전 1건당 1행). 계좌를 미리 등록하지 않고 신청마다 입력한다(#285 A안).
+// 계좌번호는 AES-256-GCM 암호문(PaymentKeyCipher)으로만 저장하고, 응답에는 마스킹한 값만 쓴다.
+// 실제 계좌 존재 확인·실명 인증은 하지 않으므로 검증 상태는 PENDING으로 두고 VERIFIED로 저장하지 않는다. 신청 후 바꾸지 않는다.
 @Entity
 @Table(name = "exchange_account", schema = "billing",
         uniqueConstraints = {
@@ -61,5 +63,17 @@ public class ExchangeAccount extends BillingCreatedEntity {
         this.accountHolderName = accountHolderName;
         this.verificationStatus = verificationStatus;
         this.verifiedAt = verifiedAt;
+    }
+
+    // 확인하지 않은 테스트 계좌 스냅샷(검증 상태 PENDING, 검증 시각 없음)
+    public static ExchangeAccount unverified(Exchange exchange, String bankCode, String accountNumberEncrypted,
+            String accountHolderName) {
+        return ExchangeAccount.builder()
+                .exchange(exchange)
+                .bankCode(bankCode)
+                .accountNumberEncrypted(accountNumberEncrypted)
+                .accountHolderName(accountHolderName)
+                .verificationStatus(AccountVerificationStatus.PENDING)
+                .build();
     }
 }

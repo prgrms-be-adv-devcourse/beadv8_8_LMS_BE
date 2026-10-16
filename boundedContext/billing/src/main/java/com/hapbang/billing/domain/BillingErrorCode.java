@@ -46,13 +46,24 @@ public enum BillingErrorCode implements BaseErrorCode {
     REFUND_IDEMPOTENCY_KEY_INVALID(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더는 영문·숫자·-·_ 1~64자여야 합니다."),
     REFUND_NOT_FOUND(HttpStatus.NOT_FOUND, "환불 요청을 찾을 수 없습니다."),
     REFUND_NOT_CANCELABLE(HttpStatus.CONFLICT, "환불이 이미 진행되었거나 끝나 취소할 수 없습니다."),
+    // 수익 HP 환전 신청 (#285)
+    EXCHANGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 환전 신청을 사용할 수 없습니다."),
+    EXCHANGE_AMOUNT_INVALID(HttpStatus.BAD_REQUEST, "환전 금액은 1,000 HP 이상, 1,000 HP 단위여야 합니다."),
+    EXCHANGE_IDEMPOTENCY_KEY_INVALID(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더는 영문·숫자·-·_ 1~64자여야 합니다."),
+    EXCHANGE_NOT_FOUND(HttpStatus.NOT_FOUND, "환전 신청을 찾을 수 없습니다."),
+    EXCHANGE_NOT_CANCELABLE(HttpStatus.CONFLICT, "관리자 승인 전인 환전 신청만 취소할 수 있습니다."),
     // 아래 500 코드는 불변식이 깨진 상황이라 응답 detail에 내부 상태를 드러내지 않고, 원인은 code와 로그로 구분한다.
     CHARGE_PRINCIPAL_MISMATCH(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
     HOLD_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
     // PG 승인 결과가 충전 주문과 맞지 않는다(주문·결제키·금액). 충전하지 않고 운영자 확인 대상으로 남긴다 (#224)
     CHARGE_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
     // 환불 요청·충전 건별 취소·보류 기록이 서로 맞지 않는다(완료액 초과 등) (#260)
-    REFUND_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다.");
+    REFUND_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
+    // 환전 신청·수익 HP 보류 기록이 서로 맞지 않는다(보류 금액·종류 불일치 등) (#285)
+    EXCHANGE_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
+    // 저장된 환전 계좌번호 암호문을 복호화하지 못했다(암호화 키 없음·키 변경·암호문 손상). 같은 신청인지 판단할 수 없으므로
+    // 새 신청·충돌(409)로 보지 않고 거절한다 (#285)
+    EXCHANGE_ACCOUNT_UNREADABLE(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다.");
 
     private final HttpStatus status;
     private final String message;
