@@ -10,6 +10,7 @@ import com.hapbang.shared.member.dto.UserDto;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -27,6 +28,10 @@ public class User extends SourceUser {
     private String profileImageKey;
 
     private LocalDateTime deletedAt;
+
+    /** 낙관적 락 버전. 동시에 수정하면 늦게 저장하는 쪽이 실패한다 (값은 JPA가 관리, MemberSupport.flush가 409로 바꾼다) */
+    @Version
+    private Long version;
 
     private User(String email, String nickname) {
         super(Nickname.validate(nickname), Role.USER, UserStatus.ACTIVE);

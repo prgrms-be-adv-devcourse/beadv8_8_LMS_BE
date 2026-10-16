@@ -44,6 +44,8 @@ public class MemberProfileImageUseCase {
     public User change(Long userId, String key) {
         User user = memberSupport.findActiveUser(userId);
         user.changeProfileImage(key);
+        // 역할 변경과 겹치면 409
+        memberSupport.flush();
         return user;
     }
 
