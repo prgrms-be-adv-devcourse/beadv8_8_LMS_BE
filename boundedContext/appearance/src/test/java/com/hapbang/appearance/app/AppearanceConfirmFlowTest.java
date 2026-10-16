@@ -1,0 +1,522 @@
+package com.hapbang.appearance.app;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.test.context.support.WithMockUser;
+
+import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
+import com.hapbang.appearance.app.dto.AppearanceResDto;
+import com.hapbang.appearance.config.AppearanceConfig;
+import com.hapbang.appearance.domain.AppearanceConfirmType;
+import com.hapbang.appearance.domain.AppearanceErrorCode;
+import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearanceStatus;
+import com.hapbang.appearance.domain.HpTask;
+import com.hapbang.appearance.domain.HpTaskReason;
+import com.hapbang.appearance.domain.HpTaskStatus;
+import com.hapbang.appearance.domain.HpTaskType;
+import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
+import com.hapbang.appearance.fixture.AppearanceRequestFixture;
+import com.hapbang.appearance.fixture.AppearanceUserFixture;
+import com.hapbang.appearance.out.HpTaskRepository;
+import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.testsupport.IntegrationTest;
+
+/**
+ * 출연 확인·불참·자동 확인을 DB와 Fake Billing으로 확인한다 (ISSUE.md APR-35).
+ * 출연료 30,000 HP. 확인 → 게스트에게 30,000 지급, 불참 → 호스트에게 30,000 반환. 잔액은 Fake Billing 기본 잔액에서 본다.
+ * 방송 예정 일시는 출연 행의 스냅샷 값을 SQL로 옮겨 "방송이 끝난 뒤"를 만든다.
+ */
+@IntegrationTest
+@WithMockUser(roles = "INFLUENCER")
+class AppearanceConfirmFlowTest {
+
+    private static final Long HOST = 1L;
+    private static final Long GUEST = 2L;
+    private static final Long GUEST2 = 3L;
+    private static final Long OTHER = 4L;
+    private static final long FEE = 30_000L;
+    private static final long BASE = FakeBillingClient.DEFAULT_BALANCE;
+
+    @Autowired
+    AppearanceFacade appearanceFacade;
+
+    @Autowired
+    AppearanceRequestFacade appearanceRequestFacade;
+
+    @Autowired
+    AppearanceRecruitFacade appearanceRecruitFacade;
+
+    @Autowired
+    AppearanceApplicationFacade appearanceApplicationFacade;
+
+    @Autowired
+    AppearanceUserFacade appearanceUserFacade;
+
+    @Autowired
+    AppearanceAutoConfirmUseCase appearanceAutoConfirmUseCase;
+
+    @Autowired
+    AppearanceCancelAutoRejectUseCase appearanceCancelAutoRejectUseCase;
+
+    @Autowired
+    HpTaskRetryUseCase hpTaskRetryUseCase;
+
+    @Autowired
+    HpTaskExecuteUseCase hpTaskExecuteUseCase;
+
+    @Autowired
+    HpTaskRepository hpTaskRepository;
+
+    @Autowired
+    FakeBillingClient fakeBillingClient;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    @Qualifier(AppearanceConfig.CLOCK)
+    Clock clock;
+
+    @BeforeEach
+    void setUp() {
+        for (Long id : List.of(HOST, GUEST, GUEST2, OTHER)) {
+            appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(id));
+        }
+    }
+
+    @AfterEach
+    void tearDown() {
+        fakeBillingClient.reset();
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.now(clock);
+    }
+
+    /** 요청서가 수락돼 성립한 출연 */
+    private RequestAppearance establishFromRequest() {
+        AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
+                AppearanceRequestFixture.content(now()));
+        return new RequestAppearance(sent.id(),
+                appearanceRequestFacade.accept(GUEST, sent.id(), sent.version()).appearanceId());
+    }
+
+    private Long postRecruit(int recruitCount) {
+        return appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now(), FEE, recruitCount)).id();
+    }
+
+    /** 게스트가 지원하고 호스트가 수락해 성립한 출연 ID */
+    private Long establishFromRecruit(Long recruitId, Long guestId) {
+        Long applicationId = appearanceApplicationFacade.apply(guestId, recruitId, "지원합니다.").id();
+        return appearanceApplicationFacade.accept(HOST, applicationId).appearanceId();
+    }
+
+    /** 출연의 방송 예정 일시(스냅샷)를 지금 기준으로 옮긴다 */
+    private void scheduleAt(Long appearanceId, LocalDateTime scheduledAt) {
+        jdbcTemplate.update("update appearances.appearances set scheduled_at = ? where id = ?", scheduledAt,
+                appearanceId);
+    }
+
+    /** 방송이 막 끝나 확인 기간 안에 있다 (방송 예정 일시 = 1시간 전) */
+    private void broadcastEnded(Long appearanceId) {
+        scheduleAt(appearanceId, now().minusHours(1));
+    }
+
+    /** 확인 기간(7일)이 끝났다 (방송 예정 일시 = 7일 1분 전) */
+    private void confirmPeriodEnded(Long appearanceId) {
+        scheduleAt(appearanceId, now().minusDays(7).minusMinutes(1));
+    }
+
+    private List<HpTask> tasksOf(HpTaskType type) {
+        List<HpTask> tasks = new ArrayList<>();
+        for (HpTask task : hpTaskRepository.findAll()) {
+            if (task.getTaskType() == type) {
+                tasks.add(task);
+            }
+        }
+        return tasks;
+    }
+
+    private HpTask onlyTask(HpTaskType type) {
+        List<HpTask> tasks = tasksOf(type);
+        assertThat(tasks).hasSize(1);
+        return tasks.getFirst();
+    }
+
+    private static void assertErrorCode(Runnable action, AppearanceErrorCode errorCode) {
+        assertThatThrownBy(action::run)
+                .isInstanceOf(AppearanceException.class)
+                .extracting("errorCode").isEqualTo(errorCode);
+    }
+
+    private record RequestAppearance(Long requestId, Long appearanceId) {
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    @Nested
+    @DisplayName("출연 확인")
+    class Confirm {
+
+        @Test
+        @DisplayName("요청서 출처: CONFIRMED(HOST), 지급 작업 PAYOUT·APPEARANCE_CONFIRMED·DONE, 게스트 +30,000, 보류 0")
+        void fromRequest() {
+            RequestAppearance established = establishFromRequest();
+            broadcastEnded(established.appearanceId());
+
+            AppearanceResDto confirmed = appearanceFacade.confirm(HOST, established.appearanceId());
+
+            assertThat(confirmed.status()).isEqualTo(AppearanceStatus.CONFIRMED);
+            assertThat(confirmed.confirmType()).isEqualTo(AppearanceConfirmType.HOST);
+            assertThat(confirmed.confirmedAt()).isNotNull();
+            assertThat(confirmed.hpPayoutStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(confirmed.hpReleaseStatus()).isNull();
+            HpTask task = onlyTask(HpTaskType.PAYOUT);
+            assertThat(task.getReason()).isEqualTo(HpTaskReason.APPEARANCE_CONFIRMED);
+            assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_REQUEST-%d-PAYOUT-APPEARANCE-%d"
+                    .formatted(established.requestId(), established.appearanceId()));
+            assertThat(task.getMemberId()).isEqualTo(HOST);
+            assertThat(task.getReceiverId()).isEqualTo(GUEST);
+            assertThat(task.getAmount()).isEqualTo(FEE);
+            assertThat(task.getPayoutAmount()).isEqualTo(FEE);
+            assertThat(task.getAppearanceId()).isEqualTo(established.appearanceId());
+            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, established.requestId()))
+                    .isZero();
+            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE - FEE);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+        }
+
+        @Test
+        @DisplayName("모집 출처(정원 3, 성립 2): 한 출연 확인 → 게스트 지급 30,000, 다른 출연 불참 → 호스트 반환 30,000, "
+                + "모집글 보류는 출연별로 줄어든다 (90,000 → 60,000 → 30,000)")
+        void fromRecruit() {
+            Long recruitId = postRecruit(3);
+            Long first = establishFromRecruit(recruitId, GUEST);
+            Long second = establishFromRecruit(recruitId, GUEST2);
+            broadcastEnded(first);
+            broadcastEnded(second);
+
+            appearanceFacade.confirm(HOST, first);
+            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId))
+                    .isEqualTo(2 * FEE);
+            AppearanceResDto absent = appearanceFacade.markAbsent(HOST, second, null);
+
+            assertThat(absent.status()).isEqualTo(AppearanceStatus.ABSENT);
+            assertThat(absent.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(onlyTask(HpTaskType.PAYOUT).getIdempotencyKey())
+                    .isEqualTo("APPEARANCE_RECRUIT-%d-PAYOUT-APPEARANCE-%d".formatted(recruitId, first));
+            assertThat(onlyTask(HpTaskType.RELEASE).getIdempotencyKey())
+                    .isEqualTo("APPEARANCE_RECRUIT-%d-RELEASE-APPEARANCE-%d".formatted(recruitId, second));
+            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId))
+                    .isEqualTo(FEE);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+            assertThat(fakeBillingClient.balanceOf(GUEST2)).isEqualTo(BASE);
+            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE - 2 * FEE);
+        }
+
+        @Test
+        @DisplayName("방송 예정 일시 전 APPEARANCE_CONFIRM_NOT_OPEN, 게스트 NOT_APPEARANCE_HOST, 다른 회원 APPEARANCE_NOT_FOUND, "
+                + "확인 기간 끝 APPEARANCE_CONFIRM_PERIOD_ENDED. 어느 경우도 작업·잔액이 바뀌지 않는다")
+        void rejected() {
+            Long appearanceId = establishFromRequest().appearanceId();
+
+            assertErrorCode(() -> appearanceFacade.confirm(HOST, appearanceId),
+                    AppearanceErrorCode.APPEARANCE_CONFIRM_NOT_OPEN);
+            broadcastEnded(appearanceId);
+            assertErrorCode(() -> appearanceFacade.confirm(GUEST, appearanceId),
+                    AppearanceErrorCode.NOT_APPEARANCE_HOST);
+            assertErrorCode(() -> appearanceFacade.markAbsent(OTHER, appearanceId, null),
+                    AppearanceErrorCode.APPEARANCE_NOT_FOUND);
+            confirmPeriodEnded(appearanceId);
+            assertErrorCode(() -> appearanceFacade.confirm(HOST, appearanceId),
+                    AppearanceErrorCode.APPEARANCE_CONFIRM_PERIOD_ENDED);
+
+            assertThat(appearanceFacade.getDetail(HOST, appearanceId).status()).isEqualTo(AppearanceStatus.ESTABLISHED);
+            assertThat(tasksOf(HpTaskType.PAYOUT)).isEmpty();
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE);
+        }
+
+        @Test
+        @DisplayName("한 번 응답하면 번복할 수 없다: 확인 뒤 불참·다시 확인 모두 APPEARANCE_NOT_CONFIRMABLE, 지급은 한 번")
+        void noChange() {
+            Long appearanceId = establishFromRequest().appearanceId();
+            broadcastEnded(appearanceId);
+            appearanceFacade.confirm(HOST, appearanceId);
+
+            assertErrorCode(() -> appearanceFacade.markAbsent(HOST, appearanceId, "불참"),
+                    AppearanceErrorCode.APPEARANCE_NOT_CONFIRMABLE);
+            assertErrorCode(() -> appearanceFacade.confirm(HOST, appearanceId),
+                    AppearanceErrorCode.APPEARANCE_NOT_CONFIRMABLE);
+
+            assertThat(tasksOf(HpTaskType.PAYOUT)).hasSize(1);
+            assertThat(tasksOf(HpTaskType.RELEASE)).isEmpty();
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+        }
+
+        @Test
+        @DisplayName("방송 예정 일시가 지났는데 취소 요청이 처리 중이면 APPEARANCE_NOT_CONFIRMABLE → 자동 거절 배치 뒤에는 확인할 수 있다")
+        void pendingCancelRequest() {
+            Long appearanceId = establishFromRequest().appearanceId();
+            appearanceFacade.requestCancel(GUEST, appearanceId, "일정이 생겼습니다.");
+            broadcastEnded(appearanceId);
+
+            assertErrorCode(() -> appearanceFacade.confirm(HOST, appearanceId),
+                    AppearanceErrorCode.APPEARANCE_NOT_CONFIRMABLE);
+
+            appearanceCancelAutoRejectUseCase.rejectDue();
+            assertThat(appearanceFacade.confirm(HOST, appearanceId).status()).isEqualTo(AppearanceStatus.CONFIRMED);
+        }
+
+        @Test
+        @DisplayName("정지된 호스트도 확인할 수 있고(응답은 출연 상세), 정지된 게스트에게도 지급된다. 상세 조회는 정지 회원이면 막힌다")
+        void suspendedMembers() {
+            Long appearanceId = establishFromRequest().appearanceId();
+            broadcastEnded(appearanceId);
+            appearanceUserFacade.syncModified(AppearanceUserFixture.user(HOST, Role.INFLUENCER, UserStatus.SUSPENDED));
+            appearanceUserFacade.syncModified(AppearanceUserFixture.user(GUEST, Role.INFLUENCER, UserStatus.SUSPENDED));
+
+            AppearanceResDto confirmed = appearanceFacade.confirm(HOST, appearanceId);
+
+            assertThat(confirmed.status()).isEqualTo(AppearanceStatus.CONFIRMED);
+            assertThat(confirmed.hpPayoutStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+            assertErrorCode(() -> appearanceFacade.getDetail(HOST, appearanceId),
+                    AppearanceErrorCode.APPEARANCE_USER_NOT_ACTIVE);
+        }
+
+        @Test
+        @DisplayName("지급 결과를 모르면 확인은 성공하고 작업은 PENDING → 재시도 배치가 DONE, 다시 실행해도 지급은 한 번")
+        void payoutRetried() {
+            Long appearanceId = establishFromRequest().appearanceId();
+            broadcastEnded(appearanceId);
+            fakeBillingClient.setUnavailable(true);
+
+            AppearanceResDto confirmed = appearanceFacade.confirm(HOST, appearanceId);
+
+            assertThat(confirmed.status()).isEqualTo(AppearanceStatus.CONFIRMED);
+            assertThat(confirmed.hpPayoutStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE);
+
+            fakeBillingClient.setUnavailable(false);
+            HpTask task = onlyTask(HpTaskType.PAYOUT);
+            jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?",
+                    now().minusSeconds(1), task.getId());
+            hpTaskRetryUseCase.retryDue();
+            hpTaskExecuteUseCase.execute(task.getId()); // 이미 DONE이면 다시 실행하지 않는다
+
+            assertThat(appearanceFacade.getDetail(HOST, appearanceId).hpPayoutStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+        }
+
+        @Test
+        @DisplayName("Billing이 지급을 거절하면(게스트 지갑 없음) 재시도 없이 DEAD, Billing 오류 코드를 기록한다. 확인은 그대로")
+        void payoutRejected() {
+            Long appearanceId = establishFromRequest().appearanceId();
+            broadcastEnded(appearanceId);
+            fakeBillingClient.removeWallet(GUEST);
+
+            AppearanceResDto confirmed = appearanceFacade.confirm(HOST, appearanceId);
+
+            assertThat(confirmed.status()).isEqualTo(AppearanceStatus.CONFIRMED);
+            assertThat(confirmed.hpPayoutStatus()).isEqualTo(HpTaskStatus.DEAD);
+            HpTask task = onlyTask(HpTaskType.PAYOUT);
+            assertThat(task.getAttemptCount()).isEqualTo(1);
+            assertThat(task.getLastError()).startsWith("WALLET_NOT_FOUND");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    @Nested
+    @DisplayName("불참")
+    class Absent {
+
+        @Test
+        @DisplayName("요청서 출처: ABSENT·사유, 반환 작업 RELEASE·APPEARANCE_ABSENT·DONE, 호스트에게 30,000 반환, 보류 0, 게스트 그대로")
+        void fromRequest() {
+            RequestAppearance established = establishFromRequest();
+            broadcastEnded(established.appearanceId());
+
+            AppearanceResDto absent = appearanceFacade.markAbsent(HOST, established.appearanceId(),
+                    "연락이 되지 않았습니다.");
+
+            assertThat(absent.status()).isEqualTo(AppearanceStatus.ABSENT);
+            assertThat(absent.absentReason()).isEqualTo("연락이 되지 않았습니다.");
+            assertThat(absent.absentAt()).isNotNull();
+            assertThat(absent.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(absent.hpPayoutStatus()).isNull();
+            HpTask task = onlyTask(HpTaskType.RELEASE);
+            assertThat(task.getReason()).isEqualTo(HpTaskReason.APPEARANCE_ABSENT);
+            assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_REQUEST-%d-RELEASE-APPEARANCE-%d"
+                    .formatted(established.requestId(), established.appearanceId()));
+            assertThat(task.getAmount()).isEqualTo(FEE);
+            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, established.requestId()))
+                    .isZero();
+            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE);
+        }
+
+        @Test
+        @DisplayName("확인과 불참이 동시에 오면 한쪽만 반영된다: HP 작업 1건, 다른 쪽은 APPEARANCE_NOT_CONFIRMABLE 또는 CONCURRENT_UPDATE")
+        void concurrentConfirmAndAbsent() throws Exception {
+            Long appearanceId = establishFromRequest().appearanceId();
+            broadcastEnded(appearanceId);
+
+            List<Object> results = runConcurrently(List.of(
+                    () -> appearanceFacade.confirm(HOST, appearanceId),
+                    () -> appearanceFacade.markAbsent(HOST, appearanceId, null)));
+
+            List<AppearanceResDto> succeeded = new ArrayList<>();
+            for (Object result : results) {
+                if (result instanceof AppearanceResDto response) {
+                    succeeded.add(response);
+                } else {
+                    assertThat(result).isInstanceOf(AppearanceException.class)
+                            .extracting("errorCode").isIn(AppearanceErrorCode.APPEARANCE_NOT_CONFIRMABLE,
+                                    AppearanceErrorCode.CONCURRENT_UPDATE);
+                }
+            }
+            assertThat(succeeded).hasSize(1);
+            assertThat(tasksOf(HpTaskType.PAYOUT).size() + tasksOf(HpTaskType.RELEASE).size()).isEqualTo(1);
+            long guestGain = fakeBillingClient.balanceOf(GUEST) - BASE;
+            if (succeeded.getFirst().status() == AppearanceStatus.CONFIRMED) {
+                assertThat(guestGain).isEqualTo(FEE);
+            } else {
+                assertThat(guestGain).isZero();
+                assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(BASE);
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    @Nested
+    @DisplayName("자동 확인 (배치)")
+    class AutoConfirm {
+
+        @Test
+        @DisplayName("확인 기간이 끝난 성립 출연만 CONFIRMED(AUTO) + 지급 DONE. 기간 안·불참·취소 요청 중 출연은 그대로")
+        void confirmDue() {
+            Long due = establishFromRequest().appearanceId();
+            Long recruitId = postRecruit(3);
+            Long notYet = establishFromRecruit(recruitId, GUEST);
+            Long absent = establishFromRecruit(recruitId, GUEST2);
+            confirmPeriodEnded(due);
+            scheduleAt(notYet, now().minusDays(7).plusMinutes(1));
+            broadcastEnded(absent);
+            appearanceFacade.markAbsent(HOST, absent, null);
+            confirmPeriodEnded(absent);
+
+            int confirmed = appearanceAutoConfirmUseCase.confirmDue();
+
+            assertThat(confirmed).isEqualTo(1);
+            AppearanceResDto detail = appearanceFacade.getDetail(HOST, due);
+            assertThat(detail.status()).isEqualTo(AppearanceStatus.CONFIRMED);
+            assertThat(detail.confirmType()).isEqualTo(AppearanceConfirmType.AUTO);
+            assertThat(detail.hpPayoutStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(appearanceFacade.getDetail(HOST, notYet).status()).isEqualTo(AppearanceStatus.ESTABLISHED);
+            assertThat(appearanceFacade.getDetail(HOST, absent).status()).isEqualTo(AppearanceStatus.ABSENT);
+            assertThat(onlyTask(HpTaskType.PAYOUT).getAppearanceId()).isEqualTo(due);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+        }
+
+        @Test
+        @DisplayName("취소 요청이 처리 중인 출연은 건너뛰고, 자동 거절로 성립이 된 뒤 다음 실행에서 확인된다. 다시 실행해도 지급은 한 번")
+        void afterCancelAutoReject() {
+            Long appearanceId = establishFromRequest().appearanceId();
+            appearanceFacade.requestCancel(GUEST, appearanceId, "일정이 생겼습니다.");
+            confirmPeriodEnded(appearanceId);
+
+            assertThat(appearanceAutoConfirmUseCase.confirmDue()).isZero();
+
+            appearanceCancelAutoRejectUseCase.rejectDue();
+            assertThat(appearanceAutoConfirmUseCase.confirmDue()).isEqualTo(1);
+            assertThat(appearanceAutoConfirmUseCase.confirmDue()).isZero();
+            assertThat(tasksOf(HpTaskType.PAYOUT)).hasSize(1);
+            assertThat(fakeBillingClient.balanceOf(GUEST)).isEqualTo(BASE + FEE);
+        }
+
+        @Test
+        @DisplayName("지급 결과를 모르면 자동 확인은 그대로 하고 지급 작업만 PENDING으로 남는다 (재시도 배치가 이어서 한다)")
+        void payoutUnknown() {
+            Long appearanceId = establishFromRequest().appearanceId();
+            confirmPeriodEnded(appearanceId);
+            fakeBillingClient.setUnavailable(true);
+
+            assertThat(appearanceAutoConfirmUseCase.confirmDue()).isEqualTo(1);
+
+            AppearanceResDto detail = appearanceFacade.getDetail(HOST, appearanceId);
+            assertThat(detail.status()).isEqualTo(AppearanceStatus.CONFIRMED);
+            assertThat(detail.hpPayoutStatus()).isEqualTo(HpTaskStatus.PENDING);
+        }
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("세션 역할이 USER면 출연 확인·불참이 막힌다 (@PreAuthorize)")
+    void userRole() {
+        assertThatThrownBy(() -> appearanceFacade.confirm(HOST, 1L)).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> appearanceFacade.markAbsent(HOST, 1L, null))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    /** 작업들을 각자 다른 스레드에서 동시에 실행하고, 결과(응답 또는 예외)를 순서대로 모은다 */
+    private List<Object> runConcurrently(List<Callable<Object>> tasks) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(tasks.size());
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<Object>> futures = new ArrayList<>();
+            for (Callable<Object> task : tasks) {
+                futures.add(executor.submit(asInfluencer(start, task)));
+            }
+            start.countDown();
+            List<Object> results = new ArrayList<>();
+            for (Future<Object> future : futures) {
+                results.add(future.get());
+            }
+            return results;
+        } finally {
+            executor.shutdown();
+        }
+    }
+
+    /** 다른 스레드에서도 인플루언서 세션으로 실행하고, 예외는 결과로 돌려준다 */
+    private Callable<Object> asInfluencer(CountDownLatch start, Callable<Object> task) {
+        return () -> {
+            SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken("test", null,
+                    List.of(new SimpleGrantedAuthority("ROLE_INFLUENCER"))));
+            try {
+                start.await();
+                return task.call();
+            } catch (RuntimeException exception) {
+                return exception;
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
+        };
+    }
+}

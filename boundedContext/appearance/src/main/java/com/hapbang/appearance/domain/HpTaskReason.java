@@ -13,9 +13,9 @@ public enum HpTaskReason {
     RECRUIT_CLOSED("모집 마감 때 성립하지 못한 인원분"),
     CANCEL_AGREED("게스트의 출연 취소 요청을 호스트가 수락 (합의 취소)"),
     HOST_CANCELED("호스트 일방 취소 (게스트에게 위약금 지급)"),
-    RECRUIT_CANCELED("모집 전체 취소 때 비어 있는 자리");
-
-    // 합의 취소·노쇼·지급 등은 해당 처리에서 추가한다.
+    RECRUIT_CANCELED("모집 전체 취소 때 비어 있는 자리"),
+    APPEARANCE_CONFIRMED("출연 확인 (호스트 확인 또는 D+7 자동 확인) → 게스트에게 출연료 지급"),
+    APPEARANCE_ABSENT("게스트 불참 (호스트 부정 응답) → 호스트에게 출연료 반환");
 
     private final String description;
 }
