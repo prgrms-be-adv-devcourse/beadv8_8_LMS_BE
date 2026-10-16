@@ -10,6 +10,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-restclient")
     // Facade 역할 검사(@PreAuthorize). 메서드 보안은 global SecurityConfig가 켠다
     implementation("org.springframework.security:spring-security-core")
+    // 가상 송금 Mock 은행 API 경로만의 보안 체인(SecurityFilterChain, #288). 실행 시 클래스는 global이 이미 넣는다
+    implementation("org.springframework.security:spring-security-config")
+    implementation("org.springframework.security:spring-security-web")
     // Swagger 명세용 어노테이션(@Tag, @Operation). global의 springdoc 3.1.1이 쓰는 버전과 맞춘다
     implementation(libs.swagger.annotations)
     // 지갑 중복 생성 판별에 PSQLException의 제약 이름을 쓴다. 드라이버는 실행 시 apps(runtimeOnly)가 넣어 준다

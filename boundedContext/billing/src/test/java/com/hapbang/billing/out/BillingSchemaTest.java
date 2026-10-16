@@ -22,7 +22,7 @@ class BillingSchemaTest {
     private EntityManager entityManager;
 
     @Test
-    void Flyway로_12개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
+    void Flyway로_13개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
         assertThat(entityManager.createNativeQuery("""
                 SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'billing' AND table_type = 'BASE TABLE'
@@ -30,8 +30,10 @@ class BillingSchemaTest {
                 .containsExactlyInAnyOrder(
                         "wallet", "point_ledger", "point_hold", "point_hold_detail",
                         "point_charge", "point_charge_usage", "point_refund_request", "point_refund",
-                        "settlement", "exchange", "exchange_account", "exchange_payout");
-        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(12);
+                        "settlement", "exchange", "exchange_account", "exchange_payout",
+                        // 가상 송금 Mock 은행 기록 (#288)
+                        "mock_payout_transfer");
+        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(13);
         assertThat(entityManager.getEntityManagerFactory().getProperties().get("hibernate.hbm2ddl.auto"))
                 .isEqualTo("validate");
     }
