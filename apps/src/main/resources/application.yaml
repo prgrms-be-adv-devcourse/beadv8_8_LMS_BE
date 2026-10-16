@@ -87,6 +87,9 @@ hapbang:
   storage:
     s3:
       region: ap-northeast-2
+  internal-api:
+    # 모듈 간 내부 HTTP API(/api/v1/internal/**) 키 (#300). 기본값을 두지 않는다 → 서버에 값이 없으면 기동 실패 (docs/deploy/env-vars.md)
+    key: ${HAPBANG_INTERNAL_API_KEY}
   chzzk:
     # 치지직 채널 인증 (치지직 개발자 센터 앱). 기본값을 두지 않는다 (서버 값은 compose가 넘긴다, docs/deploy/env-vars.md)
     client-id: ${CHZZK_CLIENT_ID}

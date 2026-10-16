@@ -33,6 +33,9 @@ hapbang:
       endpoint: ${S3_ENDPOINT:http://localhost:9090}
       bucket: ${S3_BUCKET:hapbang-local}
       key-prefix: local
+  internal-api:
+    # 키가 없어도 로컬 실행·테스트는 되게 한다. 서버는 환경 변수로만 받는다 (#300)
+    key: ${HAPBANG_INTERNAL_API_KEY:local-placeholder}
   chzzk:
     # 키가 없어도 로컬 실행·테스트는 되게 한다 (채널 인증만 안 됨). 실제 키는 루트 .env
     client-id: ${CHZZK_CLIENT_ID:local-placeholder}
