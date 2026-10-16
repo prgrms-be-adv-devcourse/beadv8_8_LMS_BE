@@ -168,6 +168,56 @@ class BillingConstraintsTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"cancel_request_count = -1", "result_check_count = -1"})
+    void 개별_환불의_PG_요청_횟수와_결과_재확인_횟수는_음수가_아니다(String assignment) {
+        reject("UPDATE billing.point_refund SET " + assignment + " WHERE id = ?",
+                "23514", "ck_point_refund_3", refund.getId());
+    }
+
+    @Test
+    void PG_취소를_요청한_건은_최초_요청_시각이_있다() {
+        reject("UPDATE billing.point_refund SET cancel_request_count = 1 WHERE id = ?",
+                "23514", "ck_point_refund_4", refund.getId());
+    }
+
+    @Test
+    void 운영자_확인_건은_원인과_전환_시각이_있고_원인은_정해진_값이다() {
+        reject("UPDATE billing.point_refund SET status = 'MANUAL_REVIEW_REQUIRED' WHERE id = ?",
+                "23514", "ck_point_refund_5", refund.getId());
+        reject("UPDATE billing.point_refund SET manual_review_reason = 'UNDEFINED' WHERE id = ?",
+                "23514", "ck_point_refund_manual_review_reason", refund.getId());
+    }
+
+    @Test
+    void 한_환불_요청은_충전_건_하나를_한_번만_취소한다() {
+        PointCharge second = persist(charge(wallet).pgOrderId("order-second").build());
+        PointRefund other = persist(refund(wallet, second, request).idempotencyKey("refund-2").build());
+        entityManager.flush();
+
+        reject("UPDATE billing.point_refund SET charge_id = ? WHERE id = ?",
+                "23505", "uk_point_refund_refund_request_id_charge_id", charge.getId(), other.getId());
+    }
+
+    // PG 취소 멱등키는 TossPayments 상점 전체에서 한 번만 쓰여야 한다. 다른 개별 환불과 같은 키는 저장할 수 없다 (#260)
+    @Test
+    void 개별_환불의_PG_취소_멱등키는_중복되지_않는다() {
+        PointCharge second = persist(charge(wallet).pgOrderId("order-second").build());
+        PointRefund other = persist(refund(wallet, second, request).idempotencyKey("refund-2").build());
+        entityManager.flush();
+
+        reject("UPDATE billing.point_refund SET idempotency_key = ? WHERE id = ?",
+                "23505", "uk_point_refund_idempotency_key", refund.getIdempotencyKey(), other.getId());
+    }
+
+    // 환불 누계는 음수가 아니고, 가용 원금 + 환불 누계가 충전 금액을 넘지 않는다(같은 원금 이중 차감 방지, #260)
+    @ParameterizedTest
+    @ValueSource(strings = {"refunded_amount_hp = -1", "refunded_amount_hp = amount_hp - remaining_principal_hp + 1"})
+    void 충전_건_환불_누계는_가용_원금과_합쳐_충전_금액을_넘지_않는다(String assignment) {
+        reject("UPDATE billing.point_charge SET " + assignment + " WHERE id = ?",
+                "23514", "ck_point_charge_4", charge.getId());
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"paid_amount_hp = -1", "paid_amount_hp = 2001"})
     void 지급누계는_총지급액_범위에_있다(String assignment) {
         reject("UPDATE billing.settlement SET " + assignment + " WHERE id = ?",
@@ -264,7 +314,10 @@ class BillingConstraintsTest {
             case "point_hold" -> persist(hold(wallet).idempotencyKey("second").build());
             case "point_hold_detail" -> persist(detail(hold).idempotencyKey("second").build());
             case "point_refund_request" -> persist(refundRequest(wallet).idempotencyKey("second").build());
-            case "point_refund" -> persist(refund(wallet, charge, request).idempotencyKey("second").build());
+            // 한 환불 요청은 충전 건 하나를 한 번만 취소하므로(#260) 다른 환불 요청의 행을 만든다
+            case "point_refund" -> persist(refund(wallet, charge,
+                    persist(refundRequest(wallet).idempotencyKey("second-request").build()))
+                    .idempotencyKey("second").build());
             case "settlement" -> persist(settlement(wallet, hold).sourceId(102L).idempotencyKey("second").build());
             case "exchange" -> persist(exchange(wallet).idempotencyKey("second").build());
             default -> throw new IllegalArgumentException(table);

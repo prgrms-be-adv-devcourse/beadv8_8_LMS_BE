@@ -8,9 +8,9 @@ import lombok.RequiredArgsConstructor;
 // 다른 모듈에 공개하지 않는다(강의·출연은 shared BillingPort의 hold·release·payout·settlePenalty를 그대로 쓴다).
 // 트랜잭션은 UseCase가 연다(호출한 쪽 트랜잭션이 있으면 참여). 결과는 Billing 내부 결과(충전 건별 배분·소진·복원 포함)다.
 //
-// 사용 예 (환불): hold(POINT_REFUND_REQUEST, 환불 요청 ID, 금액) → PG 결제 건(충전 건)별 취소
-//   성공: capture(ofCharge(..., "REFUND-{요청}-{충전건}", 충전 건 ID, null))
-//   실패 확정: release(ofCharge(..., "REFUND-{요청}-{충전건}-RELEASE", 충전 건 ID, null))
+// 사용 예 (환불, #260 RefundProcessing): hold(POINT_REFUND_REQUEST, 환불 요청 ID, 금액) → PG 결제 건(충전 건)별 취소
+//   성공: capture(ofCharge(..., "REFUND-{개별 환불 ID}", 충전 건 ID, PG가 취소한 금액))
+//   실패 확정·PG 미요청 종료: release(ofCharge(..., "REFUND-{개별 환불 ID}", 충전 건 ID, 그 결제 건 금액))
 //   결과 불명확: 아무것도 하지 않음(보류 유지, 재조회 후 위 둘 중 하나)
 // 사용 예 (환전): hold(EXCHANGE, 환전 ID, 금액) → 송금 성공 capture(full) / 최종 거절·취소 release(full) / 불명확 보류 유지
 @Service

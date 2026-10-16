@@ -55,7 +55,7 @@ public final class BillingFixture {
     public static PointRefundRequest.PointRefundRequestBuilder refundRequest(Wallet wallet) {
         return PointRefundRequest.builder().walletId(wallet.getId())
                 .requestedAmountHp(2_000L).completedAmountHp(0L)
-                .status(PointRefundRequestStatus.PENDING)
+                .status(PointRefundRequestStatus.REQUESTED)
                 .idempotencyKey("refund-request-1").requestedAt(NOW);
     }
 

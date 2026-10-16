@@ -2,6 +2,9 @@ package com.hapbang.billing.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -80,5 +83,20 @@ class BillingKeysTest {
         assertThat((BillingKeys.payout(Long.MAX_VALUE, payout) + ":3").length()).isLessThanOrEqualTo(255);
         assertThat((BillingKeys.penaltyRelease(Long.MAX_VALUE, penalty) + ":4").length()).isLessThanOrEqualTo(255);
         assertThat((BillingKeys.penaltyPayout(Long.MAX_VALUE, penalty) + ":3").length()).isLessThanOrEqualTo(255);
+    }
+
+    @Test
+    @DisplayName("PG 취소 멱등키는 DB ID와 무관한 hapbang-refund-cancel-{UUID}이고 만들 때마다 다르며, TossPayments 키(300자)·취소 사유(200자) 제한 안이다")
+    void refundCancelKeyIsUnique() {
+        Set<String> keys = new HashSet<>();
+        for (int i = 0; i < 10_000; i++) {
+            keys.add(BillingKeys.refundCancel());
+        }
+
+        assertThat(keys).hasSize(10_000)
+                .allMatch(key -> key.matches("hapbang-refund-cancel-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"));
+        String key = keys.iterator().next();
+        assertThat(key.length()).isLessThanOrEqualTo(255);
+        assertThat((RefundProcessUseCase.CANCEL_REASON_PREFIX + "[" + key + "]").length()).isLessThanOrEqualTo(200);
     }
 }
