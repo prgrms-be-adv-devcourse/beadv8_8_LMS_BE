@@ -1,10 +1,8 @@
 package com.hapbang.appearance.app;
 
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
-import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRequest;
 
@@ -35,11 +33,7 @@ public class AppearanceRequestUpdateUseCase {
         AppearanceRequest request = appearanceRequestSupport.getById(requestId);
         request.validateViewableBy(userId);
         request.updateBasicInfo(userId, title, content, hostChannelUrl);
-        try {
-            appearanceRequestSupport.flush();
-        } catch (ObjectOptimisticLockingFailureException exception) {
-            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
-        }
+        appearanceRequestSupport.flushOrConflict();
         return AppearanceRequestResDto.from(request);
     }
 }
