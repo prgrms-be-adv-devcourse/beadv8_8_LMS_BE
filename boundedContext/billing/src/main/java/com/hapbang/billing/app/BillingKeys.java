@@ -23,6 +23,8 @@ final class BillingKeys {
     static final String REFUND_PREFIX = "REFUND";
     static final String REFUND_CANCEL_PREFIX = "hapbang-refund-cancel-";
     static final String REFUND_HOLD_REQUEST_PREFIX = "REFUND-";
+    static final String EXCHANGE_PREFIX = "EXCHANGE";
+    static final String EXCHANGE_CANCEL_REQUEST_PREFIX = "EXCHANGE-CANCEL-";
 
     private BillingKeys() {
     }
@@ -75,6 +77,16 @@ final class BillingKeys {
     // 이전 응답을 돌려주거나(멱등키 15일) 다른 결제의 취소를 우리 취소로 오인할 수 있다 (#260).
     static String refundCancel() {
         return REFUND_CANCEL_PREFIX + UUID.randomUUID();
+    }
+
+    // 회원 환전 신청 멱등키 EXCHANGE:{walletId}:{클라이언트 Idempotency-Key}. 같은 회원의 같은 키만 같은 신청이다 (#285).
+    static String exchangeRequest(Long walletId, String clientKey) {
+        return EXCHANGE_PREFIX + ":" + walletId + ":" + clientKey;
+    }
+
+    // 환전 신청 취소의 보류 반환 요청 ID EXCHANGE-CANCEL-{exchangeId}. 신청 하나는 한 번만 취소 반환된다 (#285).
+    static String exchangeCancelRequestId(Long exchangeId) {
+        return EXCHANGE_CANCEL_REQUEST_PREFIX + exchangeId;
     }
 
     // 개별 환불의 보류 확정 차감·반환 요청 ID REFUND-{refundId}. 확정 차감(CAPTURE:)과 반환(RELEASE:)은 접두사가 달라

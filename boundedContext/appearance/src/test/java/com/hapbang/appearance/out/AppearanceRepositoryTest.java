@@ -10,6 +10,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearancePolicy;
@@ -63,5 +65,29 @@ class AppearanceRepositoryTest {
         assertThatThrownBy(() -> appearanceRepository.saveAndFlush(Appearance.establishFrom(request, NOW.plusHours(2))))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasStackTraceContaining("uk_appearances_request_id");
+    }
+
+    @Test
+    @DisplayName("자동 확인 대상 ID (#282): 성립 상태이고 방송 예정 일시가 기준 시각 이하, 방송 예정 일시가 오래된 순, 건수 제한")
+    void findAutoConfirmDueIds() {
+        LocalDateTime cutoff = NOW.plusDays(1);
+        Appearance older = establishedAt(cutoff.minusDays(1));
+        Appearance atCutoff = establishedAt(cutoff);
+        establishedAt(cutoff.plusSeconds(1));
+        Appearance confirmed = establishedAt(cutoff.minusDays(2));
+        confirmed.confirmByHost(1L, POLICY, cutoff.minusDays(2));
+        appearanceRepository.saveAndFlush(confirmed);
+
+        assertThat(appearanceRepository.findIdsByStatusAndScheduledAtUpTo(AppearanceStatus.ESTABLISHED, cutoff,
+                PageRequest.of(0, 100))).containsExactly(older.getId(), atCutoff.getId());
+        assertThat(appearanceRepository.findIdsByStatusAndScheduledAtUpTo(AppearanceStatus.ESTABLISHED, cutoff,
+                PageRequest.of(0, 1))).containsExactly(older.getId());
+    }
+
+    /** 방송 예정 일시를 정해 성립한 출연을 저장한다 */
+    private Appearance establishedAt(LocalDateTime scheduledAt) {
+        Appearance appearance = Appearance.establishFrom(acceptedRequest(), NOW.plusHours(1));
+        ReflectionTestUtils.setField(appearance, "scheduledAt", scheduledAt);
+        return appearanceRepository.saveAndFlush(appearance);
     }
 }

@@ -17,6 +17,7 @@ import com.hapbang.appearance.app.dto.AppearanceResDto;
 import com.hapbang.appearance.app.dto.AppearanceSummaryResDto;
 import com.hapbang.appearance.domain.AppearanceRole;
 import com.hapbang.appearance.domain.AppearanceStatus;
+import com.hapbang.appearance.in.dto.AbsentAppearanceReqDto;
 import com.hapbang.appearance.in.dto.HostCancelAppearanceReqDto;
 import com.hapbang.appearance.in.dto.RejectAppearanceCancelReqDto;
 import com.hapbang.appearance.in.dto.RequestAppearanceCancelReqDto;
@@ -92,5 +93,23 @@ public class ApiV1AppearanceController implements ApiV1AppearanceSpec {
         boolean confirmed = request != null && request.confirmed();
         AppearanceResDto canceled = appearanceFacade.hostCancel(userId, appearanceId, confirmed, reason);
         return RsData.ok("출연을 취소했습니다.", canceled);
+    }
+
+    @Override
+    @PostMapping("/{appearanceId:\\d+}/confirm")
+    public RsData<AppearanceResDto> confirm(@LoginUserId Long userId,
+                                            @PathVariable("appearanceId") Long appearanceId) {
+        AppearanceResDto confirmed = appearanceFacade.confirm(userId, appearanceId);
+        return RsData.ok("출연을 확인했습니다.", confirmed);
+    }
+
+    @Override
+    @PostMapping("/{appearanceId:\\d+}/absent")
+    public RsData<AppearanceResDto> markAbsent(@LoginUserId Long userId,
+                                               @PathVariable("appearanceId") Long appearanceId,
+                                               @RequestBody(required = false) AbsentAppearanceReqDto request) {
+        String reason = request == null ? null : request.reason();
+        AppearanceResDto absent = appearanceFacade.markAbsent(userId, appearanceId, reason);
+        return RsData.ok("불참으로 처리했습니다.", absent);
     }
 }

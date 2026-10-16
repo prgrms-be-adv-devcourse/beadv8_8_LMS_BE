@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 출연 조회 (내 출연 목록, 상세). 트랜잭션은 호출한 {@link AppearanceFacade}가 연다 (읽기 전용).
  * 출연은 호스트·게스트 두 사람만 볼 수 있다. 제목은 출처(요청서·모집글)에서 가져온다.
- * 상세의 반환 진행 상태는 이 출연 단위 반환(합의 취소)만 본다 (요청서·모집글 상세의 반환과 섞지 않는다).
+ * 상세의 반환 진행 상태는 이 출연 단위 반환(합의 취소·불참)만 본다 (요청서·모집글 상세의 반환과 섞지 않는다).
  */
 @Service
 @RequiredArgsConstructor
@@ -61,6 +61,15 @@ public class AppearanceQueryUseCase {
      */
     public AppearanceResDto getDetail(Long userId, Long appearanceId) {
         appearanceUserSupport.getParticipant(userId);
+        return getDetailWithoutParticipantCheck(userId, appearanceId);
+    }
+
+    /**
+     * 출연 상세. 출연 회원 자격(정지·강등)을 보지 않는다. 자격과 관계없이 할 수 있는 출연 확인·불참의 응답에 쓴다 (#282, APR-35 E5).
+     *
+     * @throws AppearanceException 없거나 호스트·게스트가 아님({@code APPEARANCE_NOT_FOUND})
+     */
+    public AppearanceResDto getDetailWithoutParticipantCheck(Long userId, Long appearanceId) {
         Appearance appearance = appearanceSupport.getById(appearanceId);
         appearance.validateViewableBy(userId);
         List<AppearanceCancelRequestResDto> cancelRequests = new ArrayList<>();
@@ -69,7 +78,8 @@ public class AppearanceQueryUseCase {
         }
         return AppearanceResDto.from(appearance, appearanceTitleSupport.titleOf(appearance), cancelRequests,
                 hpTaskSupport.findReleaseStatusOfAppearance(appearance),
-                hpTaskSupport.findPenaltyStatusOfAppearance(appearance));
+                hpTaskSupport.findPenaltyStatusOfAppearance(appearance),
+                hpTaskSupport.findPayoutStatusOfAppearance(appearance));
     }
 
     private static List<AppearanceStatus> orAll(List<AppearanceStatus> statuses) {

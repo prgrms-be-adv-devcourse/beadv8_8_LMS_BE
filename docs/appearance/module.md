@@ -41,7 +41,7 @@
 | 출연 조회, 출연 취소 요청·수락(합의 취소)·거절·자동 거절, 취소 알림 이벤트 | ✅ | #231 |
 | 호스트 일방 취소(위약금 30%)·모집 전체 취소 | ✅ | #239 |
 | FE 모집 화면 응답 보강 (모집 상세 내 지원, 지원 행의 모집글 제목·일시·상태) | ✅ | #243 |
-| 출연 확인·이의 제기 | ⬜ 예정 | — |
+| 출연 확인(확인·불참)·D+7 자동 확인, 지급 HP 작업. 이의 제기는 고객센터 관할 | ✅ | #282 |
 
 ---
 
@@ -200,7 +200,7 @@ com.hapbang.appearance
 | 회원 | 이벤트 수신 | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ |
 | 회원 (global) | 로그인 | `@LoginUserId`로 세션의 회원 ID | ✅ |
 | 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`) | 보류, 반환, 지급, 위약금 | 계약 맞춤 + Fake 사용 중. 실제 연동 구현(`BillingPortClient`)은 Billing #182로 추가됨, `mode` 전환은 외부 연동 교체 단계 |
-| 고객센터 | 이벤트 발행 | 이의 제기 (패널티 요청) | 예정 |
+| 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
 
 ### 4.1 회원 정보 복제
 
@@ -336,9 +336,12 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 | `host_id`, `guest_id` | BIGINT | 회원 ID |
 | `fee` | BIGINT | 출연료 **스냅샷** (지급·위약금·반환 기준) |
 | `scheduled_at` | TIMESTAMP(6) | 방송 예정 일시 **스냅샷** (D+7·취소 요청 마감 기준) |
-| `status` | VARCHAR(255) | `ESTABLISHED` (이후 상태는 출연 취소 요청·확인·취소 처리에서) |
+| `status` | VARCHAR(255) | `ESTABLISHED` / `CANCEL_REQUESTED` / `CONFIRMED` / `ABSENT` / `CANCELED_BY_HOST` / `CANCELED_BY_AGREEMENT` |
 | `established_at` | TIMESTAMP(6) | 성립 시각 |
-| `confirm_type`, `penalty_amount`, `confirmed_at`, `no_show_at`, `disputed_at`, `canceled_at` | | 출연 확인·취소 처리에서 사용 (현재 비어 있음) |
+| `confirm_type`, `confirmed_at` | VARCHAR(255), TIMESTAMP(6) | 출연 확인 방식(`HOST`/`AUTO`)·시각 (#282) |
+| `absent_at`, `absent_reason` | TIMESTAMP(6), VARCHAR(500) | 불참 처리 시각·사유 (#282, 예전 `no_show_at`) |
+| `penalty_amount`, `host_cancel_reason` | BIGINT, VARCHAR(500) | 호스트 일방 취소 위약금·사유 (#239) |
+| `canceled_at` | TIMESTAMP(6) | 취소 시각 (합의 취소·일방 취소) |
 | `version`, `created_at`, `updated_at` | | 낙관적 락, 생성·수정 시각 |
 
 - 제약: 출처는 하나만 (`REQUEST`면 `request_id`만, `RECRUIT`면 `application_id`만), `fee > 0`
@@ -531,7 +534,8 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
   ├ 10초 AppearanceRecruitDeadlineCloseUseCase.closeDue()  모집 기한 마감 + 미달분 반환 (#222, 10장)
   ├ 20초 AppearanceRequestExpireUseCase.expireDue()  수락 기한 만료 + 반환
   ├ 30초 AppearanceCancelAutoRejectUseCase.rejectDue()  출연 취소 요청 자동 거절 (#231, 12장)
-  └ 40초 HpTaskRetryUseCase.retryDue()               HP 작업 재시도·격리 + 지표 갱신
+  ├ 40초 HpTaskRetryUseCase.retryDue()               HP 작업 재시도·격리 + 지표 갱신
+  └ 50초 AppearanceAutoConfirmUseCase.confirmDue()   출연 자동 확인 + 지급 (#282, 14장)
 ```
 
 - 팀 공통 스케줄링 규칙(#157)을 따른다: `hapbang.scheduling.enabled=true`일 때만 배치 빈이 생기고(앱에서만 켜짐), 배치 클래스는 주기만 정하고 처리는 UseCase가 한다. 테스트는 UseCase를 직접 부른다.
@@ -828,5 +832,51 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 멱등 키 (= Billing 요청 ID) | `…-RELEASE-1` / `…-RELEASE-APPEARANCE-{출연 ID}` | `{APPEARANCE_REQUEST·APPEARANCE_RECRUIT}-{보류 ID}-PENALTY-APPEARANCE-{출연 ID}` (= 취소 ID) |
 
 - 지급 원천: 요청서 출처 `APPEARANCE_REQUEST`, 모집 출처 `RECRUIT_APPEARANCE` (+ 출연 ID).
-- 제약 `ck_hp_tasks_penalty`: `PENALTY`면 받는 회원·출연 ID·위약금(1 이상, 기준액 이하) 필수, 그 밖은 비움.
+- 제약 `ck_hp_tasks_penalty`: `PENALTY`면 받는 회원·출연 ID·위약금(1 이상, 기준액 이하) 필수, 그 밖은 비움. (#282에서 `ck_hp_tasks_receiver`로 바뀜, 14.3)
 - 마이그레이션: `V202610151702__add_appearance_host_cancel_columns.sql` (`hp_tasks.receiver_id`·`payout_amount`, `appearances.host_cancel_reason`, `recruits.cancel_reason`)
+
+## 14. 출연 확인 (#282)
+
+### 14.1 API·배치
+
+| 메서드 | 경로 | 설명 | 권한 | 성공 메시지 |
+|---|---|---|---|---|
+| POST | `/api/v1/appearances/{appearanceId}/confirm` | 출연 확인 → 게스트에게 출연료 지급 | 출연의 호스트 | 출연을 확인했습니다. |
+| POST | `/api/v1/appearances/{appearanceId}/absent` | 불참 → 호스트에게 출연료 반환. 본문(선택) `{"reason": "…(500자 이하)"}` | 출연의 호스트 | 불참으로 처리했습니다. |
+| 배치 | 매분 50초 `AppearanceAutoConfirmUseCase.confirmDue()` | 확인 기간이 끝난 성립 출연 자동 확인 + 지급 | 시스템 | — |
+
+- 응답은 출연 상세. 추가 필드: `confirmType`(`HOST`/`AUTO`), `confirmedAt`, `absentAt`, `absentReason`, `hpPayoutStatus`(지급 진행 상태). 불참의 반환 진행 상태는 기존 `hpReleaseStatus`.
+- 이름: AGENTS.md의 "노쇼(부정 응답)"를 코드·API에서는 **불참(`ABSENT`)**으로 쓴다 (APR-35 E1).
+
+### 14.2 규칙
+
+| 항목 | 규칙 | 근거 |
+|---|---|---|
+| 응답 기간 | 방송 예정 일시 ≤ 지금 < 방송 예정 일시 + `confirm-period`(7일). 전이면 409 `APPEARANCE_CONFIRM_NOT_OPEN`, 지나면 409 `APPEARANCE_CONFIRM_PERIOD_ENDED` | AGENTS.md, APR-05 |
+| 응답할 수 있는 상태 | `ESTABLISHED`만. 이미 응답함·취소 요청 처리 중·취소됨은 409 `APPEARANCE_NOT_CONFIRMABLE`(`detail`로 이유 구분) | E3 |
+| 번복 | 불가. 확인·불참 중 한 번만 (응답 즉시 돈이 움직임) | E3 |
+| 응답하는 사람 | 출연의 호스트만(403 `NOT_APPEARANCE_HOST`, `detail` "출연의 호스트만 출연을 확인할 수 있습니다."). 다른 회원은 404 | |
+| 회원 자격 | **보지 않는다.** 정지된 호스트도 응답할 수 있고 정지된 게스트에게도 지급한다 (거래 마무리). 응답도 자격 확인 없이 출연 상세를 돌려준다. 역할 검사(`@PreAuthorize`)는 그대로 | E5 |
+| 불참 사유 | 선택 500자 | E2 |
+| 자동 확인 | 매분 50초. `ESTABLISHED`이고 방송 예정 일시 + 7일 ≤ 지금인 출연 → `CONFIRMED`(`AUTO`) + 지급. 출연마다 잠금 뒤 다시 확인해 그사이 호스트가 응답했으면 건너뜀 | AGENTS.md |
+| 취소 요청 처리 중 | 방송 예정 일시에 자동 거절 배치(30초)가 `ESTABLISHED`로 되돌린 뒤 응답·자동 확인 대상이 된다 (그 전 최대 1분은 409) | #231 |
+| 잠금 | 출연 행만 배타 잠금. 모집글은 잠그지 않는다: 방송 예정 일시가 지나면 모집글을 바꾸는 처리(지원 수락·마감·합의 취소·모집 전체 취소)가 모두 막혀 있다 | |
+| 지급·반환 실행 | 상태 변경 + HP 작업 기록을 한 트랜잭션에 커밋한 뒤 1회 실행. 실패하면 작업만 재시도·격리, 응답은 성공 | APR-22 |
+| 이의 제기 | 출연 관할 아님. 불참 게스트 패널티는 고객센터 문의로 접수 (출연은 API·기록 없음, `disputed_at` 컬럼 삭제) | E4 |
+| 알림 | 이벤트를 발행하지 않는다 | E6 |
+
+### 14.3 HP 작업 (지급)
+
+| 컬럼 | 지급(`PAYOUT`, 확인) | 반환(`RELEASE`, 불참) |
+|---|---|---|
+| `member_id` | 보류한 호스트 (지급하는 회원) | 반환받는 호스트 |
+| `amount` | 출연료 | 출연료 |
+| `receiver_id`, `payout_amount` | 게스트, 출연료 (= `amount`) | 비움 |
+| `appearance_id` | 출연 ID (Billing 지급 원천 ID) | 비움 |
+| 사유 | `APPEARANCE_CONFIRMED` | `APPEARANCE_ABSENT` |
+| 멱등 키 (= Billing 요청 ID) | `{APPEARANCE_REQUEST·APPEARANCE_RECRUIT}-{보류 ID}-PAYOUT-APPEARANCE-{출연 ID}` | `…-RELEASE-APPEARANCE-{출연 ID}` (합의 취소와 같은 형식, 출연 하나는 하나로만 끝남) |
+
+- Billing 요청: `PayoutCommand.partial(호스트, 보류 종류, 보류 ID, 지급 요청 ID, 게스트, 원천 종류, 출연 ID, 출연료)`. 원천 종류는 요청서 출처 `APPEARANCE_REQUEST`, 모집 출처 `RECRUIT_APPEARANCE`. 모집글 보류에는 다른 출연의 몫이 함께 있어 금액을 정해 지급한다.
+- 제약 `ck_hp_tasks_receiver` (`ck_hp_tasks_penalty` 대체): `RELEASE`는 받는 회원·지급액 비움, `PENALTY`는 받는 회원·출연 ID 필수·위약금 1 이상 기준액 이하, `PAYOUT`은 받는 회원·출연 ID 필수·`payout_amount = amount`.
+- 테스트는 출연 모듈 테스트(Billing 규칙을 따르는 Fake)로 한다. apps `AppearanceBillingPortIntegrationTest`는 Billing 담당 파일이라 출연이 손대지 않는다. 운영 기본값은 아직 `mode=fake`(11단계에서 전환).
+- 마이그레이션 `V202610161050__add_appearance_confirm_columns.sql`: `no_show_at` → `absent_at`, `absent_reason` 추가, `disputed_at` 삭제, 인덱스 `(status, scheduled_at)`, 제약 교체.

@@ -1,5 +1,6 @@
 package com.hapbang.appearance.out;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -44,6 +45,18 @@ public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
     @Query("select a from Appearance a where a.recruitId = :recruitId and a.status in :statuses order by a.id")
     List<Appearance> findByRecruitForUpdate(@Param("recruitId") Long recruitId,
                                             @Param("statuses") Collection<AppearanceStatus> statuses);
+
+    /**
+     * 자동 확인 대상 출연 ID: 이 상태이고 방송 예정 일시가 기준 시각 이전 (= 방송 예정 일시 + 확인 기간 ≤ 지금).
+     * 방송 예정 일시가 오래된 순 (#282)
+     */
+    @Query("""
+            select a.id from Appearance a
+            where a.status = :status and a.scheduledAt <= :cutoff
+            order by a.scheduledAt, a.id
+            """)
+    List<Long> findIdsByStatusAndScheduledAtUpTo(@Param("status") AppearanceStatus status,
+                                                 @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
 
     /** 출연 행을 배타 잠금({@code FOR UPDATE})으로 읽는다. 같은 출연의 취소 요청·응답·자동 거절을 차례로 처리한다 */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
