@@ -30,7 +30,6 @@ import com.hapbang.billing.app.ReleaseResult.ChargeRestoration;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
-import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointChargeStatus;
 import com.hapbang.billing.domain.PointHoldStatus;
@@ -40,6 +39,9 @@ import com.hapbang.billing.out.PointChargeRepository;
 import com.hapbang.billing.out.PointChargeUsageRepository;
 import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.WalletRepository;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // HP 보류 부분·전체 반환의 충전 HP 우선·충전 원금 역순 복원, 보류·상세·배분·충전 원금·원장·지갑 정합성,

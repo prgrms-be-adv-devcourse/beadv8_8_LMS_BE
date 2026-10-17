@@ -50,11 +50,13 @@ class ApiV1MemberControllerTest {
 
         mockMvc.perform(get("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(user.getId()))
-                .andExpect(jsonPath("$.email").value("tester1@example.com"))
-                .andExpect(jsonPath("$.nickname").value("tester1"))
-                .andExpect(jsonPath("$.role").value("USER"))
-                .andExpect(jsonPath("$.status").value("ACTIVE"));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.message").value("내 정보를 조회했습니다."))
+                .andExpect(jsonPath("$.data.id").value(user.getId()))
+                .andExpect(jsonPath("$.data.email").value("tester1@example.com"))
+                .andExpect(jsonPath("$.data.nickname").value("tester1"))
+                .andExpect(jsonPath("$.data.role").value("USER"))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
     }
 
     @Test
@@ -99,7 +101,7 @@ class ApiV1MemberControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"새 닉네임\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nickname").value("새 닉네임"));
+                .andExpect(jsonPath("$.data.nickname").value("새 닉네임"));
 
         assertThat(userRepository.findById(user.getId()).orElseThrow().getNickname()).isEqualTo("새 닉네임");
     }
@@ -113,7 +115,7 @@ class ApiV1MemberControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nickname").value("tester1"));
+                .andExpect(jsonPath("$.data.nickname").value("tester1"));
     }
 
     @Test
@@ -167,14 +169,14 @@ class ApiV1MemberControllerTest {
 
         mockMvc.perform(get("/api/v1/members/influencers").with(TestLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(2))
-                .andExpect(jsonPath("$.content[0].id").value(newer.getId()))
-                .andExpect(jsonPath("$.content[1].id").value(older.getId()))
-                .andExpect(jsonPath("$.content[0].email").doesNotExist())
-                .andExpect(jsonPath("$.page.number").value(0))
-                .andExpect(jsonPath("$.page.size").value(20))
-                .andExpect(jsonPath("$.page.totalElements").value(2))
-                .andExpect(jsonPath("$.page.totalPages").value(1));
+                .andExpect(jsonPath("$.data.content.length()").value(2))
+                .andExpect(jsonPath("$.data.content[0].id").value(newer.getId()))
+                .andExpect(jsonPath("$.data.content[1].id").value(older.getId()))
+                .andExpect(jsonPath("$.data.content[0].email").doesNotExist())
+                .andExpect(jsonPath("$.data.page.number").value(0))
+                .andExpect(jsonPath("$.data.page.size").value(20))
+                .andExpect(jsonPath("$.data.page.totalElements").value(2))
+                .andExpect(jsonPath("$.data.page.totalPages").value(1));
     }
 
     @Test
@@ -184,7 +186,7 @@ class ApiV1MemberControllerTest {
 
         mockMvc.perform(get("/api/v1/members/influencers?size=200").with(TestLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.page.size").value(100));
+                .andExpect(jsonPath("$.data.page.size").value(100));
     }
 
     @Test
@@ -197,8 +199,8 @@ class ApiV1MemberControllerTest {
         mockMvc.perform(get("/api/v1/members/influencers?sort=nickname,asc")
                         .with(TestLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].id").value(newer.getId()))
-                .andExpect(jsonPath("$.content[1].id").value(older.getId()));
+                .andExpect(jsonPath("$.data.content[0].id").value(newer.getId()))
+                .andExpect(jsonPath("$.data.content[1].id").value(older.getId()));
     }
 
     @Test
@@ -216,13 +218,13 @@ class ApiV1MemberControllerTest {
 
         mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(TestLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(target.getId()))
-                .andExpect(jsonPath("$.nickname").value("target1"))
-                .andExpect(jsonPath("$.role").value("INFLUENCER"))
-                .andExpect(jsonPath("$.email").doesNotExist())
+                .andExpect(jsonPath("$.data.id").value(target.getId()))
+                .andExpect(jsonPath("$.data.nickname").value("target1"))
+                .andExpect(jsonPath("$.data.role").value("INFLUENCER"))
+                .andExpect(jsonPath("$.data.email").doesNotExist())
                 // S3 공통 설정 전이라 사진 자리는 있고 값은 null
-                .andExpect(jsonPath("$.profileImageUrl").hasJsonPath())
-                .andExpect(jsonPath("$.profileImageUrl").value(nullValue()));
+                .andExpect(jsonPath("$.data.profileImageUrl").hasJsonPath())
+                .andExpect(jsonPath("$.data.profileImageUrl").value(nullValue()));
     }
 
     @Test
@@ -237,13 +239,13 @@ class ApiV1MemberControllerTest {
 
         mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(TestLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.channels.length()").value(2))
-                .andExpect(jsonPath("$.channels[0].channelName").value("본채널"))
-                .andExpect(jsonPath("$.channels[0].followerCount").value(20))
-                .andExpect(jsonPath("$.channels[1].channelName").value("서브채널"))
-                .andExpect(jsonPath("$.channels[1].channelUrl").value("https://chzzk.naver.com/channel-2"))
-                .andExpect(jsonPath("$.channels[0].status").doesNotExist())
-                .andExpect(jsonPath("$.channels[0].rejectionReason").doesNotExist());
+                .andExpect(jsonPath("$.data.channels.length()").value(2))
+                .andExpect(jsonPath("$.data.channels[0].channelName").value("본채널"))
+                .andExpect(jsonPath("$.data.channels[0].followerCount").value(20))
+                .andExpect(jsonPath("$.data.channels[1].channelName").value("서브채널"))
+                .andExpect(jsonPath("$.data.channels[1].channelUrl").value("https://chzzk.naver.com/channel-2"))
+                .andExpect(jsonPath("$.data.channels[0].status").doesNotExist())
+                .andExpect(jsonPath("$.data.channels[0].rejectionReason").doesNotExist());
     }
 
     @Test

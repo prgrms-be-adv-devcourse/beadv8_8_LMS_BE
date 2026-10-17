@@ -1,11 +1,17 @@
 package com.hapbang.appearance.app;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -59,22 +65,68 @@ public class AppearanceRequestSupport {
         appearanceRequestRepository.flush();
     }
 
-    // TODO(검색·필터): 상태·기간·키워드 조건이 정해지면 조건 객체(예: AppearanceRequestSearchCondition)를 받아
-    //  Specification 등으로 조회 조건을 조합한다. 보이는 상태(VISIBLE) 제한과 최신순 정렬은 그대로 유지한다.
-
-    /** 보낸 요청 목록 (호스트). 보이는 상태만, 최신순 */
-    public Page<AppearanceRequest> findSent(Long hostId, Pageable pageable) {
-        return appearanceRequestRepository.findByHostIdAndStatusIn(hostId, AppearanceRequestStatus.VISIBLE,
-                latestFirst(pageable));
+    /**
+     * 요청서 변경을 바로 DB에 반영한다. 다른 요청이 먼저 바꿨으면(버전 충돌) 409로 바꿔 던진다.
+     * 커밋 때 충돌이 나면 공통 핸들러가 500으로 응답하므로, 반영 시점에 업무 예외로 바꾼다.
+     *
+     * @throws AppearanceException 동시 처리 충돌({@code CONCURRENT_UPDATE})
+     */
+    public void flushOrConflict() {
+        try {
+            appearanceRequestRepository.flush();
+        } catch (ObjectOptimisticLockingFailureException exception) {
+            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
+        }
     }
 
-    /** 받은 요청 목록 (게스트). 보이는 상태만, 최신순 */
-    public Page<AppearanceRequest> findReceived(Long guestId, Pageable pageable) {
-        return appearanceRequestRepository.findByGuestIdAndStatusIn(guestId, AppearanceRequestStatus.VISIBLE,
-                latestFirst(pageable));
+    // TODO(검색·필터): 기간·키워드 조건이 정해지면 조건 객체(예: AppearanceRequestSearchCondition)를 받아
+    //  Specification 등으로 조회 조건을 조합한다. 보이는 상태 제한과 최신순 정렬은 그대로 유지한다.
+
+    /**
+     * 보낸 요청 목록 (호스트). 최신순
+     *
+     * @param statuses 조회할 상태 (보이는 상태 중에서만, 호출한 쪽이 확인한다)
+     */
+    public Page<AppearanceRequest> findSent(Long hostId, Collection<AppearanceRequestStatus> statuses,
+                                            Pageable pageable) {
+        return appearanceRequestRepository.findByHostIdAndStatusIn(hostId, statuses, latestFirst(pageable));
+    }
+
+    /**
+     * 받은 요청 목록 (게스트). 최신순
+     *
+     * @param statuses 조회할 상태 (보이는 상태 중에서만, 호출한 쪽이 확인한다)
+     */
+    public Page<AppearanceRequest> findReceived(Long guestId, Collection<AppearanceRequestStatus> statuses,
+                                                Pageable pageable) {
+        return appearanceRequestRepository.findByGuestIdAndStatusIn(guestId, statuses, latestFirst(pageable));
     }
 
     private Pageable latestFirst(Pageable pageable) {
         return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST_FIRST);
+    }
+
+    /** 수락 기한 만료 배치: 응답 대기 중이고 수락 기한이 지난 요청서 ID (최대 {@code limit}건) */
+    public List<Long> findExpiredIds(LocalDateTime now, int limit) {
+        return appearanceRequestRepository.findIdsByStatusAndAcceptDeadlineBefore(AppearanceRequestStatus.REQUESTED,
+                now, PageRequest.of(0, limit));
+    }
+
+    /** 보류 재확인 배치: 기준 시각 이전에 만들어져 아직 보류 처리 중인 요청서 ID (최대 {@code limit}건) */
+    public List<Long> findStaleHoldPendingIds(LocalDateTime cutoff, int limit) {
+        return appearanceRequestRepository.findIdsByStatusAndCreatedBefore(AppearanceRequestStatus.HOLD_PENDING,
+                cutoff, PageRequest.of(0, limit));
+    }
+
+    /** 요청서 ID별 제목 (출연 목록 응답용, 한 번에 조회). 없는 ID는 결과에 없다 */
+    public Map<Long, String> findTitles(Collection<Long> requestIds) {
+        Map<Long, String> titles = new HashMap<>();
+        if (requestIds.isEmpty()) {
+            return titles;
+        }
+        for (AppearanceRequest request : appearanceRequestRepository.findAllById(requestIds)) {
+            titles.put(request.getId(), request.getTitle());
+        }
+        return titles;
     }
 }

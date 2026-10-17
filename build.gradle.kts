@@ -2,10 +2,9 @@ import io.spring.gradle.dependencymanagement.dsl.DependencyManagementExtension
 import org.springframework.boot.gradle.plugin.SpringBootPlugin
 
 plugins {
-    id("org.springframework.boot") version "4.1.1" apply false
-    id("io.spring.dependency-management") version "1.1.7" apply false
+    alias(libs.plugins.spring.boot) apply false
+    alias(libs.plugins.spring.dependency.management) apply false
 }
-val springModulithVersion by extra("2.1.1")
 
 description = "hapbang"
 
@@ -31,7 +30,7 @@ subprojects {
     extensions.configure<DependencyManagementExtension> {
         imports {
             mavenBom(SpringBootPlugin.BOM_COORDINATES)
-            mavenBom("org.springframework.modulith:spring-modulith-bom:$springModulithVersion")
+            mavenBom(rootProject.libs.spring.modulith.bom.get().toString())
         }
     }
 

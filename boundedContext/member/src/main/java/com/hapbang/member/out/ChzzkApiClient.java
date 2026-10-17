@@ -1,7 +1,9 @@
 package com.hapbang.member.out;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.core.ParameterizedTypeReference;
@@ -32,6 +34,8 @@ public class ChzzkApiClient {
 
     static final String API_BASE_URL = "https://openapi.chzzk.naver.com";
     static final String AUTHORIZE_URL = "https://chzzk.naver.com/account-interlock";
+    /** 채널 조회 API가 한 번에 받는 채널 ID 최대 개수 (치지직 문서) */
+    public static final int MAX_CHANNELS_PER_REQUEST = 20;
     /** 오류 응답 본문은 이 길이까지만 로그에 남긴다 */
     private static final int LOG_BODY_MAX_LENGTH = 300;
 
@@ -90,6 +94,26 @@ public class ChzzkApiClient {
                     log.warn("치지직 채널 조회 결과에 채널 없음: channelId={}", channelId);
                     return new MemberException(MemberErrorCode.CHZZK_CHANNEL_NOT_FOUND);
                 });
+    }
+
+    /**
+     * 여러 채널의 팔로워 수 (최대 20개, 채널 ID → 팔로워 수). ID는 쉼표로 이어 보낸다 (실제 호출로 확인, 10/16).
+     * 치지직 결과에 없는 채널(삭제·정지 등)은 Map에 들어 있지 않다
+     */
+    public Map<String, Integer> findFollowerCounts(List<String> channelIds) {
+        if (channelIds.isEmpty() || channelIds.size() > MAX_CHANNELS_PER_REQUEST) {
+            throw new IllegalArgumentException(
+                    "채널 ID는 1~" + MAX_CHANNELS_PER_REQUEST + "개여야 합니다: " + channelIds.size());
+        }
+        ChannelsResponse channels = call("채널 묶음 조회", () -> restClient.get()
+                .uri(uri -> uri.path("/open/v1/channels")
+                        .queryParam("channelIds", String.join(",", channelIds)).build())
+                .header("Client-Id", properties.clientId())
+                .header("Client-Secret", properties.clientSecret())
+                .retrieve()
+                .body(new ParameterizedTypeReference<ChzzkResponse<ChannelsResponse>>() {}));
+        return channels.data().stream()
+                .collect(Collectors.toMap(Channel::channelId, Channel::followerCount, (first, second) -> first));
     }
 
     /**

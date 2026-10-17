@@ -98,6 +98,13 @@ public class ChatRoom {
         return lastSequence + 1;
     }
 
+    /**
+     * 읽음 처리할 순번. 아직 발급하지 않은 순번까지 읽음 처리하지 않게 마지막 순번을 넘지 않는다.
+     */
+    public long readableSequence(long requestedSequence) {
+        return Math.min(requestedSequence, lastSequence);
+    }
+
     public void end(LocalDateTime now) {
         if (isEnded()) {
             return;

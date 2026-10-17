@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 import com.hapbang.billing.domain.*;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
 
 /** 실제 PG 키·계좌정보를 사용하지 않는 영속성 테스트 데이터. */
 public final class BillingFixture {
@@ -53,7 +55,7 @@ public final class BillingFixture {
     public static PointRefundRequest.PointRefundRequestBuilder refundRequest(Wallet wallet) {
         return PointRefundRequest.builder().walletId(wallet.getId())
                 .requestedAmountHp(2_000L).completedAmountHp(0L)
-                .status(PointRefundRequestStatus.PENDING)
+                .status(PointRefundRequestStatus.REQUESTED)
                 .idempotencyKey("refund-request-1").requestedAt(NOW);
     }
 
@@ -86,7 +88,7 @@ public final class BillingFixture {
     }
 
     public static ExchangePayout.ExchangePayoutBuilder payout(Exchange exchange) {
-        return ExchangePayout.builder().exchange(exchange).payoutProvider(PayoutProvider.MOCK)
+        return ExchangePayout.builder().exchange(exchange).attemptNo(1).payoutProvider(PayoutProvider.MOCK)
                 .payoutRequestId("mock-request-1").amountKrw(900L)
                 .status(ExchangePayoutStatus.PENDING).requestedAt(NOW);
     }

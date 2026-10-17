@@ -22,7 +22,7 @@ class BillingSchemaTest {
     private EntityManager entityManager;
 
     @Test
-    void Flyway로_12개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
+    void Flyway로_14개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
         assertThat(entityManager.createNativeQuery("""
                 SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'billing' AND table_type = 'BASE TABLE'
@@ -30,8 +30,12 @@ class BillingSchemaTest {
                 .containsExactlyInAnyOrder(
                         "wallet", "point_ledger", "point_hold", "point_hold_detail",
                         "point_charge", "point_charge_usage", "point_refund_request", "point_refund",
-                        "settlement", "exchange", "exchange_account", "exchange_payout");
-        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(12);
+                        "settlement", "exchange", "exchange_account", "exchange_payout",
+                        // 가상 송금 Mock 은행 기록 (#288)
+                        "mock_payout_transfer",
+                        // 회원 복제본 (#294)
+                        "billing_user");
+        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(14);
         assertThat(entityManager.getEntityManagerFactory().getProperties().get("hibernate.hbm2ddl.auto"))
                 .isEqualTo("validate");
     }
@@ -42,7 +46,9 @@ class BillingSchemaTest {
                 SELECT table_name, column_name, data_type FROM information_schema.columns
                 WHERE table_schema = 'billing' AND column_name LIKE '%\\_at' ESCAPE '\\'
                   AND data_type <> 'timestamp with time zone'
+                  AND table_name <> 'billing_user'
                 """).getResultList();
+        // 회원 복제본(#294)은 shared BaseEntity(LocalDateTime)·다른 모듈 복제본에 맞춰 TIMESTAMP다(금융 시각 아님)
         assertThat(invalidTimes).isEmpty();
 
         List<?> invalidAmounts = entityManager.createNativeQuery("""
@@ -71,7 +77,8 @@ class BillingSchemaTest {
                 JOIN pg_namespace target_ns ON target_ns.oid = target_table.relnamespace
                 WHERE constraint_row.contype = 'f' AND source_ns.nspname = 'billing'
                 """).getResultList();
-        assertThat(foreignKeys).hasSize(18);
+        // 18개 + 보류 상세의 지정 충전 건(target_charge_id → point_charge, #241)
+        assertThat(foreignKeys).hasSize(19);
         for (Object row : foreignKeys) {
             assertThat((Object[]) row).containsExactly("billing", "a"); // NO ACTION
         }
@@ -121,7 +128,9 @@ class BillingSchemaTest {
             "Settlement, receiverWalletId, settlement, receiver_wallet_id, false",
             "Settlement, pointHoldId, settlement, point_hold_id, false",
             "Exchange, walletId, exchange, wallet_id, false",
-            "Exchange, pointHoldId, exchange, point_hold_id, true"})
+            "Exchange, pointHoldId, exchange, point_hold_id, true",
+            // #241: 보류 상세가 처리할 충전 건(다른 Aggregate라 ID 참조)
+            "PointHoldDetail, targetChargeId, point_hold_detail, target_charge_id, true"})
     void ID로_바꾼_참조_필드는_기존_컬럼과_NULL_제약과_FK를_그대로_쓴다(String entity, String field, String table,
             String column, boolean nullable) throws Exception {
         Field idField = Class.forName("com.hapbang.billing.domain." + entity).getDeclaredField(field);

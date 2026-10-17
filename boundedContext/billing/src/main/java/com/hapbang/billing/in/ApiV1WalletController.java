@@ -1,7 +1,9 @@
 package com.hapbang.billing.in;
 
+import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.billing.app.WalletFacade;
@@ -24,5 +26,15 @@ public class ApiV1WalletController implements ApiV1WalletSpec {
     @GetMapping("/me")
     public RsData<WalletResponse> me(@LoginUserId Long userId) {
         return RsData.ok("내 지갑을 조회했습니다.", WalletResponse.from(walletFacade.getMyWallet(userId)));
+    }
+
+    // 내 HP 거래 내역을 작업 단위 최신순으로 조회한다 (#295). page·size 범위 검사는 명세(ApiV1WalletSpec)의 제약이 한다.
+    @Override
+    @GetMapping("/me/transactions")
+    public RsData<Page<WalletTransactionResponse>> transactions(@LoginUserId Long userId,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size) {
+        return RsData.ok("HP 거래 내역을 조회했습니다.",
+                walletFacade.getMyTransactions(userId, page, size).map(WalletTransactionResponse::from));
     }
 }

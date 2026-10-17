@@ -1,5 +1,6 @@
 package com.hapbang.billing.app;
 
+import org.springframework.data.domain.Page;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
@@ -13,12 +14,19 @@ import lombok.RequiredArgsConstructor;
 public class WalletFacade {
 
     private final WalletCreateUseCase walletCreateUseCase;
+    private final WalletTransactionQueryUseCase walletTransactionQueryUseCase;
 
     // 로그인한 회원의 지갑을 조회하고, 없으면 만들어 반환한다.
     // 관리자는 HP를 쓰지 않으므로 지갑을 만들기 전에 역할 검사(@PreAuthorize)로 거절한다 (2026-10-12 회의).
     @PreAuthorize("hasAnyRole('USER', 'INFLUENCER', 'VERIFIED_INFLUENCER')")
     public Wallet getMyWallet(Long userId) {
         return walletCreateUseCase.getOrCreate(userId);
+    }
+
+    // 로그인한 회원의 HP 거래 내역을 작업 단위 최신순으로 조회한다 (#295). 역할은 내 지갑 조회와 같다(관리자 403).
+    @PreAuthorize("hasAnyRole('USER', 'INFLUENCER', 'VERIFIED_INFLUENCER')")
+    public Page<WalletTransactionResult> getMyTransactions(Long userId, int page, int size) {
+        return walletTransactionQueryUseCase.list(userId, page, size);
     }
 
     // 회원 ID로 지갑을 조회하고, 없으면 네 가지 잔액이 0인 지갑을 만들어 반환한다.

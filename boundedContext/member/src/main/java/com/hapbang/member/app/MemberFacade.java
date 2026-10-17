@@ -1,5 +1,7 @@
 package com.hapbang.member.app;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.InfluencerChannel;
+import com.hapbang.member.domain.InfluencerUpgradeRequest;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.OAuthProvider;
@@ -34,15 +37,25 @@ public class MemberFacade {
     private final MemberChannelRegisterUseCase memberChannelRegisterUseCase;
     private final MemberChannelApprovalUseCase memberChannelApprovalUseCase;
     private final MemberChannelSupport memberChannelSupport;
+    private final MemberProfileImageUseCase memberProfileImageUseCase;
+    private final MemberUpgradeRequestUseCase memberUpgradeRequestUseCase;
+    private final MemberFollowerRefreshUseCase memberFollowerRefreshUseCase;
 
     // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
     private static final String USER_ONLY = "hasRole('USER')";
+    // 승급 신청은 인플루언서만 (인증된 인플루언서·유저·관리자 불가)
+    private static final String INFLUENCER_ONLY = "hasRole('INFLUENCER')";
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
     /** OAuth 로그인 (처음이면 가입) */
     @Transactional
     public User oauthLogin(OAuthProvider provider, String providerUserId, String email, String nickname) {
         return memberOAuthLoginUseCase.login(provider, providerUserId, email, nickname);
+    }
+
+    /** 채널 팔로워 수 일일 갱신 (배치용, 묶음마다 트랜잭션을 UseCase가 직접 연다) */
+    public FollowerRefreshResult refreshFollowerCounts() {
+        return memberFollowerRefreshUseCase.refreshAll();
     }
 
     /** 역할별 테스트 계정 만들기 (이미 있으면 건너뜀) */
@@ -116,9 +129,47 @@ public class MemberFacade {
         return memberChannelApprovalUseCase.request(userId, channelId, followerCount);
     }
 
+    /** 승급 신청 (인플루언서만, 심사 대기 중이면 409) */
+    @PreAuthorize(INFLUENCER_ONLY)
+    @Transactional
+    public InfluencerUpgradeRequest requestUpgrade(Long userId, String reason) {
+        return memberUpgradeRequestUseCase.request(userId, reason);
+    }
+
+    /** 내 승급 신청 내역 (최신순) */
+    @Transactional(readOnly = true)
+    public List<InfluencerUpgradeRequest> findMyUpgradeRequests(Long userId) {
+        return memberUpgradeRequestUseCase.findMine(userId);
+    }
+
     /** 회원의 채널 전부 (내 채널 목록, 회원 프로필) */
     @Transactional(readOnly = true)
     public List<InfluencerChannel> findChannels(Long userId) {
         return memberChannelSupport.findChannels(userId);
+    }
+
+    /**
+     * 프로필 사진 올리기: 본인·정상 회원·형식·크기·내용(매직 넘버) 검사 → S3 업로드 → key 저장.
+     * 트랜잭션을 두지 않는다: 업로드하는 동안 DB 커넥션을 잡지 않도록 저장(UseCase)만 트랜잭션으로 한다
+     */
+    public User uploadProfileImage(Long userId, Long memberId, String contentType, long contentLength,
+                                   InputStream body) throws IOException {
+        if (!userId.equals(memberId)) {
+            throw new MemberException(MemberErrorCode.PROFILE_IMAGE_FORBIDDEN);
+        }
+        // 우리 DB로 판단할 수 있는 건 업로드 전에 막는다 (저장 때 한 번 더 확인)
+        memberSupport.findActiveUser(userId);
+        String key = memberProfileImageUseCase.store(userId, contentType, contentLength, body);
+        return memberProfileImageUseCase.change(userId, key);
+    }
+
+    /** 프로필 사진 연결 해제 (DB에서만, S3 파일은 그대로) */
+    public User deleteProfileImage(Long userId) {
+        return memberProfileImageUseCase.change(userId, null);
+    }
+
+    /** 프로필 사진 조회 URL (응답을 만들 때 쓴다). 사진이 없으면 null */
+    public String profileImageUrl(String key) {
+        return memberProfileImageUseCase.urlOf(key);
     }
 }

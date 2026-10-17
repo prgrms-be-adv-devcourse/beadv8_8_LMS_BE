@@ -24,6 +24,8 @@ import lombok.NoArgsConstructor;
  * <ul>
  *     <li>{@code visibleFromSequence}: 이 참여자가 볼 수 있는 첫 메시지 순번. 재입장하면 재입장 이후로 옮긴다.</li>
  *     <li>{@code participationVersion}: 참여 세대. 재입장할 때마다 1 늘어나며, 지연 도착한 옛 퇴장 요청을 구별한다.</li>
+ *     <li>{@code lastReadSequence}: 마지막으로 읽은 메시지 순번. 입장·재입장하면 그때까지의 메시지는 읽은 것으로 본다.
+ *     읽음 처리는 동시에 와도 줄어들지 않게 Repository의 조건부 갱신으로 올린다.</li>
  * </ul>
  */
 @Entity
@@ -57,6 +59,9 @@ public class ChatRoomMember {
     @Column(nullable = false)
     private int participationVersion;
 
+    @Column(nullable = false)
+    private long lastReadSequence;
+
     private LocalDateTime deletedAt;
 
     private ChatRoomMember(ChatRoom chatRoom, Long userId, LocalDateTime now) {
@@ -65,6 +70,7 @@ public class ChatRoomMember {
         this.joinedAt = now;
         this.visibleFromSequence = chatRoom.nextVisibleSequence();
         this.participationVersion = 1;
+        this.lastReadSequence = chatRoom.getLastSequence();
     }
 
     public static ChatRoomMember join(ChatRoom chatRoom, Long userId, LocalDateTime now) {
@@ -91,6 +97,7 @@ public class ChatRoomMember {
         this.leftAt = null;
         this.visibleFromSequence = chatRoom.nextVisibleSequence();
         this.participationVersion++;
+        this.lastReadSequence = chatRoom.getLastSequence();
     }
 
     public boolean canView(long roomSequence) {

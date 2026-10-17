@@ -3,7 +3,7 @@ package com.hapbang.appearance.in.dto;
 import java.time.LocalDateTime;
 
 import com.hapbang.appearance.domain.AppearanceRequestContent;
-import com.hapbang.appearance.domain.AppearanceRequestRules;
+import com.hapbang.appearance.domain.AppearanceContentRules;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
@@ -24,13 +24,13 @@ public record CreateAppearanceRequestReqDto(
 
         @Schema(example = "주말 게임 합방 출연 요청")
         @NotBlank(message = "제목은 필수입니다.")
-        @Size(max = AppearanceRequestRules.TITLE_MAX, message = "제목은 100자 이하여야 합니다.")
+        @Size(max = AppearanceContentRules.TITLE_MAX, message = "제목은 100자 이하여야 합니다.")
         String title,
 
         @Schema(example = "https://www.youtube.com/@host")
         @NotBlank(message = "호스트 채널 URL은 필수입니다.")
-        @Size(max = AppearanceRequestRules.URL_MAX, message = "호스트 채널 URL은 255자 이하여야 합니다.")
-        @Pattern(regexp = AppearanceRequestRules.URL_PATTERN, message = "호스트 채널 URL은 http:// 또는 https://로 시작해야 합니다.")
+        @Size(max = AppearanceContentRules.URL_MAX, message = "호스트 채널 URL은 255자 이하여야 합니다.")
+        @Pattern(regexp = AppearanceContentRules.URL_PATTERN, message = "호스트 채널 URL은 http:// 또는 https://로 시작해야 합니다.")
         String hostChannelUrl,
 
         @Schema(description = "방송 예정 일시 (KST)", example = "2026-10-20T21:00:00")
@@ -40,12 +40,12 @@ public record CreateAppearanceRequestReqDto(
         @Schema(description = "예상 출연 시간(분)", example = "60")
         @NotNull(message = "예상 출연 시간은 필수입니다.")
         @Positive(message = "예상 출연 시간은 1분 이상이어야 합니다.")
-        @Max(value = AppearanceRequestRules.EXPECTED_MINUTES_MAX, message = "예상 출연 시간은 1440분(24시간) 이하여야 합니다.")
+        @Max(value = AppearanceContentRules.EXPECTED_MINUTES_MAX, message = "예상 출연 시간은 1440분(24시간) 이하여야 합니다.")
         Integer expectedMinutes,
 
         @Schema(description = "콘텐츠 설명")
         @NotBlank(message = "콘텐츠 설명은 필수입니다.")
-        @Size(max = AppearanceRequestRules.CONTENT_MAX, message = "콘텐츠 설명은 5000자 이하여야 합니다.")
+        @Size(max = AppearanceContentRules.CONTENT_MAX, message = "콘텐츠 설명은 5000자 이하여야 합니다.")
         String content,
 
         @Schema(description = "출연료 (HP). 최저 출연료 이상", example = "30000")
