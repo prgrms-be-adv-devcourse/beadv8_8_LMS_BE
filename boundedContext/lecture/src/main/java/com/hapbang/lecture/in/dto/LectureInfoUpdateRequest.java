@@ -10,7 +10,7 @@ public record LectureInfoUpdateRequest(
         String description,
         @Schema(description = "1,000 HP 이상, 1,000 HP 단위")
         @NotNull Long priceHp,
-        @Schema(nullable = true)
+        @Schema(description = "null이면 썸네일을 지운다. 유지하려면 상세의 thumbnailFileId를 그대로 보낸다", nullable = true)
         Long thumbnailFileId
 ) {
 }

@@ -2,10 +2,16 @@ package com.hapbang.billing.app;
 
 import org.springframework.stereotype.Service;
 
+import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.PayoutCommand;
+import com.hapbang.shared.billing.dto.PenaltyCommand;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
+
 import lombok.RequiredArgsConstructor;
 
 // HP 보류·반환·지급·위약금 정산의 Billing 모듈 진입점이며, 트랜잭션은 UseCase가 연다.
 // 강의·출연 서비스가 결제자 본인 확인을 마친 뒤 호출하는 내부 금융 기능이라 역할 검사(@PreAuthorize)를 두지 않는다.
+// 다른 모듈은 이 클래스가 아니라 shared의 BillingPort(구현: in.BillingPortAdapter)로 호출한다. 이 클래스는 Billing 내부 결과(충전 건별 배분 등)를 돌려준다.
 @Service
 @RequiredArgsConstructor
 public class HoldFacade {
@@ -32,8 +38,8 @@ public class HoldFacade {
         return holdPayoutUseCase.payout(command);
     }
 
-    // 호스트 일방 취소 위약금을 정산한다: 정산 기준액의 30%(소수점 버림)를 게스트에게 지급하고 나머지를 호스트에게 반환한다(한 트랜잭션).
-    // 같은 취소 ID로 다시 보내면 처음 정산 결과를 돌려준다.
+    // 호스트 일방 취소 위약금을 정산한다: 출연이 계산한 호스트 반환액을 반환하고 게스트 지급액을 위약금으로 지급한다(한 트랜잭션).
+    // 위약금 비율은 출연이 정하며 Billing은 계산하지 않는다. 같은 취소 ID·같은 금액으로 다시 보내면 처음 정산 결과를 돌려준다.
     public PenaltyResult settlePenalty(PenaltyCommand command) {
         return penaltySettlementUseCase.settle(command);
     }

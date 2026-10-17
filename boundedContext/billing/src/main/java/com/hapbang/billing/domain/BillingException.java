@@ -12,4 +12,9 @@ public class BillingException extends BusinessException {
     public BillingException(BillingErrorCode errorCode, Throwable cause) {
         super(errorCode, cause);
     }
+
+    // 같은 code에 상황별 상세 메시지를 응답 detail로 쓴다. detail이 null이면 기본 메시지다.
+    public BillingException(BillingErrorCode errorCode, String detail) {
+        super(errorCode, detail);
+    }
 }

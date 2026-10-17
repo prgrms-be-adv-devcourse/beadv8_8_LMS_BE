@@ -1,0 +1,21 @@
+# 의존성 버전을 한곳에서 관리한다 (Gradle Version Catalog).
+# Spring Boot BOM이 관리하는 라이브러리(spring-boot-starter-* 등)는 버전을 적지 않는다. 여기에는 BOM 밖의 버전만 둔다.
+
+[versions]
+spring-boot = "4.1.1"
+spring-dependency-management = "1.1.7"
+spring-modulith = "2.1.1"
+# global의 springdoc가 쓰는 swagger-core와 맞춘다
+springdoc = "3.1.1"
+swagger-annotations = "2.2.55"
+awssdk = "2.55.5"
+
+[libraries]
+spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }
+springdoc-openapi-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+swagger-annotations = { module = "io.swagger.core.v3:swagger-annotations-jakarta", version.ref = "swagger-annotations" }
+awssdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awssdk" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }

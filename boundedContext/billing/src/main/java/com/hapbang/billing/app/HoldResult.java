@@ -2,8 +2,8 @@ package com.hapbang.billing.app;
 
 import java.util.List;
 
-import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.PointHold;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 // 보류 결과로, Billing 엔티티 대신 보류 ID·HP 종류별 최초 보류액·충전 건별 배분과 재요청 여부를 담는다.
 public record HoldResult(

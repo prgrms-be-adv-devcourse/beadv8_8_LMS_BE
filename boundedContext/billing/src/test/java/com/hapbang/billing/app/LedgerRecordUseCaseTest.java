@@ -24,13 +24,13 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
-import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointLedger;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 import jakarta.persistence.EntityManager;
 

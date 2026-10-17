@@ -10,8 +10,8 @@ import com.hapbang.shared.member.domain.Role;
 public record MemberProfileDetailResponse(Long id, String nickname, Role role, String profileImageUrl,
                                           List<ChannelResponse> channels) {
 
-    public static MemberProfileDetailResponse from(User user, List<InfluencerChannel> channels) {
-        MemberProfileResponse profile = MemberProfileResponse.from(user);
+    public static MemberProfileDetailResponse from(User user, String profileImageUrl, List<InfluencerChannel> channels) {
+        MemberProfileResponse profile = MemberProfileResponse.from(user, profileImageUrl);
         return new MemberProfileDetailResponse(profile.id(), profile.nickname(), profile.role(),
                 profile.profileImageUrl(), channels.stream().map(ChannelResponse::from).toList());
     }

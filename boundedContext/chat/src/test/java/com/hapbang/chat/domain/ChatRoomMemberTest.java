@@ -14,6 +14,18 @@ class ChatRoomMemberTest {
         assertThat(member.isActive()).isTrue();
         assertThat(member.getVisibleFromSequence()).isEqualTo(1);
         assertThat(member.getParticipationVersion()).isEqualTo(1);
+        assertThat(member.getLastReadSequence()).isZero();
+    }
+
+    @Test
+    void 입장하면_이미_있는_메시지는_읽은_것으로_본다() {
+        ChatRoom room = directRoom();
+        room.issueSequence();
+        room.issueSequence();
+
+        ChatRoomMember member = ChatRoomMember.join(room, HOST_ID, NOW);
+
+        assertThat(member.getLastReadSequence()).isEqualTo(2);
     }
 
     @Test
@@ -51,6 +63,7 @@ class ChatRoomMemberTest {
         assertThat(member.getJoinedAt()).isEqualTo(NOW.plusHours(2));
         assertThat(member.getVisibleFromSequence()).isEqualTo(4);
         assertThat(member.getParticipationVersion()).isEqualTo(2);
+        assertThat(member.getLastReadSequence()).isEqualTo(3);
         assertThat(member.canView(3)).isFalse();
         assertThat(member.canView(4)).isTrue();
     }

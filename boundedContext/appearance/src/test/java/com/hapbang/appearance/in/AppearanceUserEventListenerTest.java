@@ -21,13 +21,13 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
-import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
 
 /**
  * 회원 모듈이 가입·변경 이벤트를 발행한 것처럼 만들고, 출연 회원이 생기는지 확인한다.
  * 리스너는 발행한 트랜잭션이 커밋된 뒤에 실행되므로 트랜잭션 안에서 발행하고, 결과가 생길 때까지 기다린다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 class AppearanceUserEventListenerTest {
 
     @Autowired
@@ -114,6 +114,29 @@ class AppearanceUserEventListenerTest {
             assertThat(found.getRole()).isEqualTo(Role.VERIFIED_INFLUENCER);
         });
         assertThat(appearanceUserRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("이미 반영한 회원 버전보다 크지 않은 변경 이벤트는 무시한다 (순서 뒤바뀜·중복, 회원 #292)")
+    void ignoresStaleUserModified() {
+        appearanceUserFacade.syncJoined(new UserDto(11L, "user11", Role.INFLUENCER, UserStatus.ACTIVE, 0L));
+        transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(
+                new UserDto(11L, "renamed11-v2", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 2L))));
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
+                appearanceUserRepository.findById(11L).orElseThrow().getNickname()).isEqualTo("renamed11-v2"));
+
+        // 늦게 도착한 v1, 중복된 v2
+        transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(
+                new UserDto(11L, "renamed11-v1", Role.INFLUENCER, UserStatus.SUSPENDED, 1L))));
+        transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(
+                new UserDto(11L, "renamed11-dup", Role.INFLUENCER, UserStatus.SUSPENDED, 2L))));
+
+        await().during(Duration.ofMillis(500)).atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+            AppearanceUser found = appearanceUserRepository.findById(11L).orElseThrow();
+            assertThat(found.getNickname()).isEqualTo("renamed11-v2");
+            assertThat(found.getRole()).isEqualTo(Role.VERIFIED_INFLUENCER);
+            assertThat(found.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        });
     }
 
     @Test

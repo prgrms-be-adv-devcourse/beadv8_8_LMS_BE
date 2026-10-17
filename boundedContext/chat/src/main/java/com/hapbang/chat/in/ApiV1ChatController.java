@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -16,11 +17,13 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.chat.app.ChatMessageFacade;
 import com.hapbang.chat.app.ChatRoomFacade;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
+import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
+import com.hapbang.chat.in.dto.ReadChatRoomRequest;
 import com.hapbang.chat.in.websocket.ChatMessageSender;
 import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.global.response.RsData;
@@ -49,12 +52,16 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
 
     /**
      * 1:1 채팅을 시작한다. 새로 만들면 201, 종료되지 않은 기존 방을 재사용하면 200.
+     * 퇴장했던 회원이 재입장하면 남아 있던 회원에게 재입장 안내가 실시간으로 간다.
      */
     @Override
     @PostMapping
     public ResponseEntity<RsData<ChatRoomResponse>> createChatRoom(@LoginUserId Long userId,
                                                                    @RequestBody CreateChatRoomRequest request) {
         ChatRoomCreateResult result = chatRoomFacade.createOrGet(userId, request.targetUserId());
+        for (ChatMessageResponse rejoinNotice : result.rejoinNotices()) {
+            chatMessageSender.deliver(rejoinNotice, result.remainingUserIds());
+        }
         HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
         String message = result.created() ? "채팅방을 만들었습니다." : "기존 채팅방을 불러왔습니다.";
         return ResponseEntity.status(status).body(RsData.of(status, message, result.room()));
@@ -74,6 +81,18 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
                                                        @RequestParam(name = "size",
                                                                defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
         return RsData.ok("메시지 이력을 조회했습니다.", chatMessageFacade.getMessages(chatRoomId, userId, cursor, size));
+    }
+
+    /**
+     * 메시지를 읽음 처리한다. 방 목록의 안 읽은 수가 이 순번 뒤의 상대 메시지 수로 바뀐다. 본문 없이 204다.
+     */
+    @Override
+    @PutMapping("/{chatRoomId}/read")
+    public ResponseEntity<Void> markRead(@LoginUserId Long userId,
+                                         @PathVariable("chatRoomId") Long chatRoomId,
+                                         @RequestBody ReadChatRoomRequest request) {
+        chatRoomFacade.markRead(chatRoomId, userId, request.lastReadSequence());
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -102,7 +121,10 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
     @Override
     @GetMapping("/admin/{chatRoomId}/history")
     public RsData<ChatRoomHistoryResponse> getHistory(@LoginUserId Long userId,
-                                                      @PathVariable("chatRoomId") Long chatRoomId) {
-        return RsData.ok("채팅 기록을 조회했습니다.", chatRoomFacade.getHistory(chatRoomId, userId));
+                                                      @PathVariable("chatRoomId") Long chatRoomId,
+                                                      @RequestParam(name = "cursor", required = false) String cursor,
+                                                      @RequestParam(name = "size",
+                                                              defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
+        return RsData.ok("채팅 기록을 조회했습니다.", chatRoomFacade.getHistory(chatRoomId, userId, cursor, size));
     }
 }

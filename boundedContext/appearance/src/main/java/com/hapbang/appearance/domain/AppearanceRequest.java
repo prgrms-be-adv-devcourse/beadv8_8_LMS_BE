@@ -1,10 +1,12 @@
 package com.hapbang.appearance.domain;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
+import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.jpa.BaseEntity;
 
-import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -23,7 +25,7 @@ import lombok.NoArgsConstructor;
  *     <li>보낼 때 출연료만큼 HP를 보류한다. 저장 직후는 {@code HOLD_PENDING}이고, 보류 결과에 따라
  *     {@code REQUESTED} 또는 {@code HOLD_FAILED}가 된다.</li>
  *     <li>보낸 뒤 수정할 수 있는 것은 제목·콘텐츠 설명·호스트 채널 URL뿐이며, 게스트 응답 전({@code REQUESTED})까지만 가능하다.</li>
- *     <li>입력 값 제한은 {@link AppearanceRequestRules}에 있고, 만들 때와 수정할 때 이 클래스에서도 다시 확인한다
+ *     <li>입력 값 제한은 {@link AppearanceContentRules}(요청서·모집글 공통)와 {@link AppearanceRequestRules}(거절 사유)에 있고, 만들 때와 수정할 때 이 클래스에서도 다시 확인한다
  *     (요청 DTO 검증을 거치지 않는 호출도 막기 위해).</li>
  * </ul>
  */
@@ -43,11 +45,9 @@ public class AppearanceRequest extends BaseEntity {
     /** 요청을 받는 게스트 회원 ID. 호스트와 같을 수 없다 */
     private Long guestId;
 
-    /** 제목. 공백 불가, 100자 이하. 수정 가능 */
-    private String title;
-
-    /** 호스트 채널 URL. http(s)://로 시작, 255자 이하. 수정 가능 */
-    private String hostChannelUrl;
+    /** 기본 정보(제목·호스트 채널 URL·콘텐츠 설명). 등록 후 수정할 수 있는 값 */
+    @Embedded
+    private AppearanceBasicInfo basicInfo;
 
     /** 방송 예정 일시 */
     private LocalDateTime scheduledAt;
@@ -55,9 +55,6 @@ public class AppearanceRequest extends BaseEntity {
     /** 예상 출연 시간(분). 1 ~ 1,440 */
     private int expectedMinutes;
 
-    /** 콘텐츠 설명. 공백 불가, 5,000자 이하. 수정 가능 */
-    @Column(columnDefinition = "text")
-    private String content;
 
     /** 출연료 (HP). 최저 출연료({@link AppearancePolicy#minimumFee()}) 이상 */
     private long fee;
@@ -68,27 +65,26 @@ public class AppearanceRequest extends BaseEntity {
     @Enumerated(EnumType.STRING)
     private AppearanceRequestStatus status;
 
-    /** 게스트 거절 사유 (게스트 응답 처리에서 사용) */
+    /** 게스트 거절 사유 (선택, 500자 이하) */
     private String rejectReason;
 
-    /** 게스트 응답(수락·거절) 시각 (게스트 응답 처리에서 사용) */
+    /** 게스트 응답(수락·거절) 시각 */
     private LocalDateTime respondedAt;
 
-    /** 호스트 취소 시각 (취소 처리에서 사용) */
+    /** 호스트 응답 전 취소 시각 */
     private LocalDateTime canceledAt;
 
     /** 낙관적 락. 동시에 수정·응답할 때 나중 것을 막는다 */
     @Version
     private Long version;
 
-    private AppearanceRequest(Long hostId, Long guestId, AppearanceRequestContent requestContent) {
+    private AppearanceRequest(Long hostId, Long guestId, AppearanceBasicInfo basicInfo,
+                              AppearanceRequestContent requestContent) {
         this.hostId = hostId;
         this.guestId = guestId;
-        this.title = requestContent.title();
-        this.hostChannelUrl = requestContent.hostChannelUrl();
+        this.basicInfo = basicInfo;
         this.scheduledAt = requestContent.scheduledAt();
         this.expectedMinutes = requestContent.expectedMinutes();
-        this.content = requestContent.content();
         this.fee = requestContent.fee();
         this.acceptDeadline = requestContent.acceptDeadline();
         this.status = AppearanceRequestStatus.HOLD_PENDING;
@@ -102,10 +98,9 @@ public class AppearanceRequest extends BaseEntity {
      */
     public static AppearanceRequest create(Long hostId, Long guestId, AppearanceRequestContent requestContent,
                                            AppearancePolicy policy, LocalDateTime now) {
-        AppearanceRequestRules.validateTitle(requestContent.title());
-        AppearanceRequestRules.validateHostChannelUrl(requestContent.hostChannelUrl());
-        AppearanceRequestRules.validateContent(requestContent.content());
-        AppearanceRequestRules.validateExpectedMinutes(requestContent.expectedMinutes());
+        AppearanceBasicInfo basicInfo = AppearanceBasicInfo.of(requestContent.title(), requestContent.hostChannelUrl(),
+                requestContent.content());
+        AppearanceContentRules.validateExpectedMinutes(requestContent.expectedMinutes());
         if (hostId.equals(guestId)) {
             throw new AppearanceException(AppearanceErrorCode.CANNOT_REQUEST_SELF);
         }
@@ -118,17 +113,34 @@ public class AppearanceRequest extends BaseEntity {
                 || !requestContent.acceptDeadline().isBefore(requestContent.scheduledAt())) {
             throw new AppearanceException(AppearanceErrorCode.INVALID_REQUEST_SCHEDULE);
         }
-        return new AppearanceRequest(hostId, guestId, requestContent);
+        return new AppearanceRequest(hostId, guestId, basicInfo, requestContent);
     }
 
-    /** HP 보류 성공 → 게스트 응답 대기 */
-    public void markRequested() {
+    /**
+     * HP 보류 성공 → 게스트 응답 대기. 이미 반영됐으면 그대로 둔다
+     * (보내기 요청과 보류 재확인 배치가 같은 결과를 함께 반영해도 안전하도록).
+     *
+     * @return 이번에 {@code REQUESTED}로 바뀌었으면 true, 이미 반영돼 있었으면 false (요청 도착 알림을 한 번만 보내는 데 쓴다)
+     */
+    public boolean markRequested() {
+        if (status == AppearanceRequestStatus.REQUESTED) {
+            return false;
+        }
         requireStatus(AppearanceRequestStatus.HOLD_PENDING);
         this.status = AppearanceRequestStatus.REQUESTED;
+        return true;
     }
 
-    /** 잔액 부족으로 HP 보류 실패 */
+    /** 다른 모듈에 넘기는 요청서 정보 (요청 도착 이벤트) */
+    public AppearanceRequestDto toDto() {
+        return new AppearanceRequestDto(id, hostId, guestId, getTitle(), fee, scheduledAt, acceptDeadline);
+    }
+
+    /** Billing이 HP 보류를 거절함 (잔액 부족 등). 이미 반영됐으면 그대로 둔다 */
     public void markHoldFailed() {
+        if (status == AppearanceRequestStatus.HOLD_FAILED) {
+            return;
+        }
         requireStatus(AppearanceRequestStatus.HOLD_PENDING);
         this.status = AppearanceRequestStatus.HOLD_FAILED;
     }
@@ -147,23 +159,88 @@ public class AppearanceRequest extends BaseEntity {
         if (status != AppearanceRequestStatus.REQUESTED) {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_NOT_EDITABLE);
         }
-        if (title != null) {
-            AppearanceRequestRules.validateTitle(title);
+        this.basicInfo = basicInfo.withChanges(title, content, hostChannelUrl);
+    }
+
+    /**
+     * 게스트가 수락한다. 수락 후 출연({@link Appearance})이 성립하며, HP는 이동하지 않는다(보류 유지).
+     *
+     * @param viewedVersion 게스트가 화면에서 본 요청서 버전. 그사이 호스트가 수정했으면 수락을 막는다
+     *                      (게스트가 본 조건 그대로 동의하도록)
+     * @throws AppearanceException 게스트가 아님({@code NOT_REQUEST_GUEST}), 응답 대기 중이 아님
+     *                             ({@code APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE}), 수락 기한 지남({@code APPEARANCE_REQUEST_EXPIRED}),
+     *                             요청서가 수정됨({@code APPEARANCE_REQUEST_MODIFIED})
+     */
+    public void accept(Long guestId, Long viewedVersion, LocalDateTime now) {
+        requireRespondable(isGuest(guestId), AppearanceErrorCode.NOT_REQUEST_GUEST, now);
+        if (!Objects.equals(version, viewedVersion)) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_MODIFIED);
         }
-        if (content != null) {
-            AppearanceRequestRules.validateContent(content);
+        this.status = AppearanceRequestStatus.ACCEPTED;
+        this.respondedAt = now;
+    }
+
+    /**
+     * 게스트가 거절한다. 보류 HP는 호스트에게 반환해야 한다 (호출한 쪽이 HP 작업을 기록한다).
+     *
+     * @param reason 거절 사유 (선택, 500자 이하)
+     * @throws AppearanceException 게스트가 아님, 응답 대기 중이 아님, 수락 기한 지남, 사유 형식 오류({@code INVALID_REQUEST})
+     */
+    public void reject(Long guestId, String reason, LocalDateTime now) {
+        requireRespondable(isGuest(guestId), AppearanceErrorCode.NOT_REQUEST_GUEST, now);
+        AppearanceRequestRules.validateRejectReason(reason);
+        this.status = AppearanceRequestStatus.REJECTED;
+        this.rejectReason = reason;
+        this.respondedAt = now;
+    }
+
+    /**
+     * 호스트가 게스트 응답 전에 취소한다 (응답 전 취소). 보류 HP는 호스트에게 반환해야 한다.
+     * 출연 성립 후의 호스트 일방 취소(위약금)와 다르다.
+     *
+     * @throws AppearanceException 호스트가 아님({@code NOT_REQUEST_HOST}), 응답 대기 중이 아님, 수락 기한 지남
+     */
+    public void cancel(Long hostId, LocalDateTime now) {
+        if (!isHost(hostId)) {
+            throw new AppearanceException(AppearanceErrorCode.NOT_REQUEST_HOST, "출연 요청서를 보낸 호스트만 취소할 수 있습니다.");
         }
-        if (hostChannelUrl != null) {
-            AppearanceRequestRules.validateHostChannelUrl(hostChannelUrl);
+        requireRespondable(true, AppearanceErrorCode.NOT_REQUEST_HOST, now);
+        this.status = AppearanceRequestStatus.CANCELED;
+        this.canceledAt = now;
+    }
+
+    /** 만료 처리할 차례인지: 응답 대기 중이고 수락 기한이 지났다 */
+    public boolean isExpirable(LocalDateTime now) {
+        return status == AppearanceRequestStatus.REQUESTED && !now.isBefore(acceptDeadline);
+    }
+
+    /**
+     * 수락 기한까지 응답이 없어 만료한다. 보류 HP는 호스트에게 반환해야 한다 (호출한 쪽이 HP 작업을 기록한다).
+     * 수락·거절·취소는 기한이 지나면 막히므로 만료와 동시에 일어나지 않는다.
+     *
+     * @throws IllegalStateException 만료 처리할 차례가 아닐 때 (호출한 쪽이 {@link #isExpirable}로 먼저 확인한다)
+     */
+    public void expire(LocalDateTime now) {
+        if (!isExpirable(now)) {
+            throw new IllegalStateException("만료할 수 없는 출연 요청서입니다: %s, 수락 기한 %s".formatted(status,
+                    acceptDeadline));
         }
-        if (title != null) {
-            this.title = title;
+        this.status = AppearanceRequestStatus.EXPIRED;
+    }
+
+    /**
+     * 수락·거절·응답 전 취소가 가능한지 확인한다. 순서: 행위자 → 상태 → 수락 기한.
+     * 수락 기한은 DB 상태가 아니라 현재 시각으로 확인한다. 만료 처리(상태 변경·반환)가 아직 안 됐어도 기한이 지나면 막는다.
+     */
+    private void requireRespondable(boolean isActor, AppearanceErrorCode notActorError, LocalDateTime now) {
+        if (!isActor) {
+            throw new AppearanceException(notActorError);
         }
-        if (content != null) {
-            this.content = content;
+        if (status != AppearanceRequestStatus.REQUESTED) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE);
         }
-        if (hostChannelUrl != null) {
-            this.hostChannelUrl = hostChannelUrl;
+        if (!now.isBefore(acceptDeadline)) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_EXPIRED);
         }
     }
 
@@ -177,6 +254,18 @@ public class AppearanceRequest extends BaseEntity {
         if (!status.isVisible() || !(isHost(userId) || isGuest(userId))) {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_NOT_FOUND);
         }
+    }
+
+    public String getTitle() {
+        return basicInfo.getTitle();
+    }
+
+    public String getHostChannelUrl() {
+        return basicInfo.getHostChannelUrl();
+    }
+
+    public String getContent() {
+        return basicInfo.getContent();
     }
 
     public boolean isHost(Long userId) {

@@ -4,13 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class InfluencerChannelTest {
 
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 12, 16, 0);
+    private static final Long ADMIN_ID = 99L;
 
     private final User user = User.join("tester1@example.com", "tester1");
 
@@ -76,14 +81,15 @@ class InfluencerChannelTest {
     }
 
     @Test
-    @DisplayName("팔로워 기준 시각은 승인 요청 전이면 등록 시각, 요청 후면 요청 시각")
-    void followerCountAt() {
-        InfluencerChannel channel = register(5);
-        org.springframework.test.util.ReflectionTestUtils.setField(channel, "createdAt", NOW.minusDays(3));
-        assertThat(channel.followerCountAt()).isEqualTo(NOW.minusDays(3));
+    @DisplayName("팔로워 수를 조회한 시각은 등록 때 기록되고 승인 요청 때 다시 조회한 시각으로 바뀐다")
+    void followerCountUpdatedAt() {
+        InfluencerChannel channel = InfluencerChannel.register(user, ChannelPlatform.CHZZK, "channel-1", "테스트 채널",
+                5, NOW.minusDays(3));
+        assertThat(channel.getFollowerCountUpdatedAt()).isEqualTo(NOW.minusDays(3));
 
         channel.requestApproval(7, NOW);
-        assertThat(channel.followerCountAt()).isEqualTo(NOW);
+        assertThat(channel.getFollowerCount()).isEqualTo(7);
+        assertThat(channel.getFollowerCountUpdatedAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -93,7 +99,97 @@ class InfluencerChannelTest {
         assertThat(register(10).canRequestApproval()).isFalse();
     }
 
+    @Test
+    @DisplayName("심사 대기 채널을 관리자가 승인하면 승인한 관리자와 시각이 남는다")
+    void approve() {
+        InfluencerChannel channel = pending();
+
+        channel.approve(ADMIN_ID, NOW.plusDays(1));
+
+        assertThat(channel.getVerificationStatus()).isEqualTo(ChannelVerificationStatus.APPROVED);
+        assertThat(channel.getVerifiedBy()).isEqualTo(ADMIN_ID);
+        assertThat(channel.getVerifiedAt()).isEqualTo(NOW.plusDays(1));
+    }
+
+    @Test
+    @DisplayName("심사 대기 채널을 반려하면 앞뒤 공백을 지운 사유가 남는다")
+    void reject() {
+        InfluencerChannel channel = pending();
+
+        channel.reject(ADMIN_ID, "  방송 시간 부족  ", NOW.plusDays(1));
+
+        assertThat(channel.getVerificationStatus()).isEqualTo(ChannelVerificationStatus.REJECTED);
+        assertThat(channel.getRejectionReason()).isEqualTo("방송 시간 부족");
+        assertThat(channel.getVerifiedBy()).isEqualTo(ADMIN_ID);
+        assertThat(channel.getVerifiedAt()).isEqualTo(NOW.plusDays(1));
+    }
+
+    @Test
+    @DisplayName("반려 사유는 앞뒤 공백을 빼고 500자까지 되고, 넘으면 400")
+    void reject_reasonLength() {
+        InfluencerChannel channel = pending();
+        assertThatThrownBy(() -> channel.reject(ADMIN_ID, "가".repeat(501), NOW))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.INVALID_REJECTION_REASON_LENGTH);
+
+        channel.reject(ADMIN_ID, " " + "가".repeat(500) + " ", NOW);
+
+        assertThat(channel.getRejectionReason()).hasSize(500);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    @DisplayName("반려 사유가 없으면 400")
+    void reject_reasonRequired(String reason) {
+        InfluencerChannel channel = pending();
+
+        assertThatThrownBy(() -> channel.reject(ADMIN_ID, reason, NOW))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.REJECTION_REASON_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("심사 대기가 아닌 채널(등록만 됨·승인·반려)은 승인·반려할 수 없다")
+    void review_notPending() {
+        InfluencerChannel registered = register(5);
+        InfluencerChannel approved = register(10);
+        InfluencerChannel rejected = pending();
+        rejected.reject(ADMIN_ID, "사유", NOW);
+
+        for (InfluencerChannel channel : List.of(registered, approved, rejected)) {
+            assertThatThrownBy(() -> channel.approve(ADMIN_ID, NOW))
+                    .isInstanceOf(MemberException.class)
+                    .extracting("errorCode").isEqualTo(MemberErrorCode.CHANNEL_REVIEW_NOT_ALLOWED);
+            assertThatThrownBy(() -> channel.reject(ADMIN_ID, "사유", NOW))
+                    .isInstanceOf(MemberException.class)
+                    .extracting("errorCode").isEqualTo(MemberErrorCode.CHANNEL_REVIEW_NOT_ALLOWED);
+        }
+    }
+
+    @Test
+    @DisplayName("반려된 채널은 다시 승인 요청할 수 있고, 지난 처리 정보(사유·처리 시각·관리자)가 지워진다")
+    void requestApproval_afterReject() {
+        InfluencerChannel channel = pending();
+        channel.reject(ADMIN_ID, "방송 시간 부족", NOW);
+
+        channel.requestApproval(7, NOW.plusDays(2));
+
+        assertThat(channel.getVerificationStatus()).isEqualTo(ChannelVerificationStatus.PENDING);
+        assertThat(channel.getRequestedAt()).isEqualTo(NOW.plusDays(2));
+        assertThat(channel.getRejectionReason()).isNull();
+        assertThat(channel.getVerifiedAt()).isNull();
+        assertThat(channel.getVerifiedBy()).isNull();
+    }
+
     private InfluencerChannel register(int followerCount) {
         return InfluencerChannel.register(user, ChannelPlatform.CHZZK, "channel-1", "테스트 채널", followerCount, NOW);
+    }
+
+    /** 팔로워 미달로 승인 요청해 심사 대기가 된 채널 */
+    private InfluencerChannel pending() {
+        InfluencerChannel channel = register(5);
+        channel.requestApproval(5, NOW);
+        return channel;
     }
 }

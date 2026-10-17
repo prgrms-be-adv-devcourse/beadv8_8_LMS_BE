@@ -29,10 +29,15 @@ import org.springframework.test.context.TestExecutionListeners;
         "hapbang.storage.s3.endpoint=http://localhost:9",
         "hapbang.storage.s3.bucket=test",
         "hapbang.storage.s3.region=ap-northeast-2",
-        "hapbang.storage.s3.key-prefix=test"
+        "hapbang.storage.s3.key-prefix=test",
+        // global의 내부 API 보안(InternalApiSecurityConfig)이 키를 요구한다. 내부 API 테스트는 이 키로 호출한다
+        "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY
 })
 @Import(PostgresTestcontainersConfig.class)
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
 public @interface IntegrationTest {
+
+    /** 테스트 내부 API 키 */
+    String INTERNAL_API_KEY = "test-internal-api-key";
 }
