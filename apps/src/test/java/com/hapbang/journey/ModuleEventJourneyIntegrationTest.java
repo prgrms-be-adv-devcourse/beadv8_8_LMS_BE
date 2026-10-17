@@ -9,6 +9,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.sql.Timestamp;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +47,9 @@ import com.hapbang.shared.member.event.UserModifiedEvent;
  */
 @JourneyTest
 class ModuleEventJourneyIntegrationTest {
+
+    /** 이 테스트에서 발행한 이벤트를 가리는 기준 시각 */
+    private Timestamp eventCheckpoint;
 
     @Autowired
     private MockMvc mockMvc;
@@ -83,11 +88,13 @@ class ModuleEventJourneyIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        eventCheckpoint = fixtures.eventCheckpoint();
         sessions = new JourneySessions(sessionRepository);
     }
 
     @AfterEach
     void deleteSessions() {
+        fixtures.awaitEventsCompletedSince(eventCheckpoint);
         sessions.deleteAll();
     }
 

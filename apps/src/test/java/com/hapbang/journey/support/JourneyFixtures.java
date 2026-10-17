@@ -101,6 +101,23 @@ public class JourneyFixtures {
                 List.of(LedgerEntry.of(walletId, PointType.CHARGE, BalanceBucket.AVAILABLE, amountHp))));
     }
 
+    /** 이벤트 확인 기준 시각 (DB 시각). 테스트 시작 때 잡아 두고 {@link #awaitEventsCompletedSince}에 넘긴다 */
+    public Timestamp eventCheckpoint() {
+        return jdbcTemplate.queryForObject("SELECT clock_timestamp()", Timestamp.class);
+    }
+
+    /**
+     * 기준 시각 이후 발행된 Modulith 이벤트가 모두 처리될 때까지 기다린다. 테스트가 끝난 뒤 DB 정리(DatabaseCleanUpListener)가
+     * 처리 중인 리스너보다 먼저 돌면, 리스너가 정리된 DB에 이전 테스트 데이터를 다시 쓰거나 실패한 이벤트가 남기 때문이다.
+     * 실패해 남은 이벤트가 있으면 시간 초과로 드러난다. event_publication은 테이블 정리 대상이 아니어서 기준 시각으로 거른다.
+     */
+    public void awaitEventsCompletedSince(Timestamp checkpoint) {
+        await().atMost(EVENT_TIMEOUT).untilAsserted(() -> assertThat(jdbcTemplate.queryForList("""
+                SELECT listener_id FROM event_publication
+                WHERE completion_date IS NULL AND publication_date >= ?""", String.class, checkpoint))
+                .as("처리되지 않은 이벤트").isEmpty());
+    }
+
     /** DB에서 새로 읽은 지갑 */
     public Wallet wallet(Long userId) {
         return walletRepository.findByUserId(userId).orElseThrow();

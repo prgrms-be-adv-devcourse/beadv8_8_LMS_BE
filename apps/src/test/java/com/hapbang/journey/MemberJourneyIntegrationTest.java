@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.sql.Timestamp;
 import java.time.Duration;
 
 import org.junit.jupiter.api.AfterEach;
@@ -28,6 +29,7 @@ import com.hapbang.appearance.out.AppearanceUserRepository;
 import com.hapbang.billing.out.BillingUserRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.chat.out.ChatUserRepository;
+import com.hapbang.journey.support.JourneyFixtures;
 import com.hapbang.journey.support.JourneySessions;
 import com.hapbang.journey.support.JourneyTest;
 import com.hapbang.lecture.out.LectureUserRepository;
@@ -50,6 +52,9 @@ import jakarta.servlet.http.Cookie;
 @JourneyTest
 class MemberJourneyIntegrationTest {
 
+    /** 이 테스트에서 발행한 이벤트를 가리는 기준 시각 */
+    private Timestamp eventCheckpoint;
+
     private static final Duration EVENT_TIMEOUT = Duration.ofSeconds(10);
     private static final Long ADMIN_ID = 900_001L;
     private static final String CHANNEL_ID = "journey-chzzk-channel";
@@ -59,6 +64,9 @@ class MemberJourneyIntegrationTest {
 
     @Autowired
     private MemberFacade memberFacade;
+
+    @Autowired
+    private JourneyFixtures fixtures;
 
     @Autowired
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
@@ -85,11 +93,13 @@ class MemberJourneyIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        eventCheckpoint = fixtures.eventCheckpoint();
         sessions = new JourneySessions(sessionRepository);
     }
 
     @AfterEach
     void deleteSessions() {
+        fixtures.awaitEventsCompletedSince(eventCheckpoint);
         sessions.deleteAll();
     }
 

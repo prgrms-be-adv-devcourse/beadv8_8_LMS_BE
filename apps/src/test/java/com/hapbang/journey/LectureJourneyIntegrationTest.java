@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,9 @@ import com.jayway.jsonpath.JsonPath;
 @Import(S3MockTestcontainersConfig.class)
 class LectureJourneyIntegrationTest {
 
+    /** 이 테스트에서 발행한 이벤트를 가리는 기준 시각 */
+    private Timestamp eventCheckpoint;
+
     private static final long FUNDED_HP = 50_000;
     private static final long PRICE_HP = 10_000;
     private static final Long ADMIN_ID = 900_001L;
@@ -63,8 +67,15 @@ class LectureJourneyIntegrationTest {
     private Long sellerId;
     private Long buyerId;
 
+    /** DB 정리 전에 이 테스트의 비동기 이벤트 처리가 끝나기를 기다린다 */
+    @AfterEach
+    void awaitEvents() {
+        fixtures.awaitEventsCompletedSince(eventCheckpoint);
+    }
+
     @BeforeEach
     void setUp() {
+        eventCheckpoint = fixtures.eventCheckpoint();
         sellerId = fixtures.member("journey-seller", "여정판매자", Role.VERIFIED_INFLUENCER);
         buyerId = fixtures.user("journey-buyer", "여정구매자");
         fixtures.fund(buyerId, FUNDED_HP, "lecture-buyer");
@@ -83,6 +94,9 @@ class LectureJourneyIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content("""
                                 {"lectureId": %d}""".formatted(lectureId)))
                 .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(buyerId, Role.USER)))
+                .andExpect(jsonPath("$.data.items[0].lectureId").value(lectureId))
+                .andExpect(jsonPath("$.data.purchasableTotalHp").value(PRICE_HP));
         ResultActions ordered = order(lectureId);
         Long orderId = longOf(ordered, "$.data.orderId");
         Long orderItemId = longOf(ordered, "$.data.items[0].orderItemId");
@@ -108,7 +122,16 @@ class LectureJourneyIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.url").isNotEmpty());
 
-        // 지급 예정 시각(구매일 + 31일)이 지나면 지급 배치가 보류 HP를 판매자 수익 HP로 옮긴다
+        // 구매 확정만으로는 지급하지 않는다: 지급 예정 시각(구매일 + 31일) 전에는 배치가 돌아도 보류가 유지된다
+        orderPayoutUseCase.payOutDueItems();
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM lectures.order_item WHERE id = ?", String.class,
+                orderItemId)).isEqualTo("CONFIRMED");
+        assertThat(fixtures.wallet(sellerId).getRevenueBalanceHp()).isZero();
+        assertThat(fixtures.heldHp(BillingReferenceType.LECTURE_ORDER_ITEM, orderItemId)).isEqualTo(PRICE_HP);
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.settlement WHERE source_id = ?",
+                Long.class, orderItemId)).isZero();
+
+        // 지급 예정 시각이 지나면 지급 배치가 보류 HP를 판매자 수익 HP로 옮긴다
         jdbcTemplate.update("UPDATE lectures.order_item SET payout_scheduled_at = ? WHERE id = ?",
                 Timestamp.valueOf(LocalDateTime.now().minusDays(1)), orderItemId);
         orderPayoutUseCase.payOutDueItems();

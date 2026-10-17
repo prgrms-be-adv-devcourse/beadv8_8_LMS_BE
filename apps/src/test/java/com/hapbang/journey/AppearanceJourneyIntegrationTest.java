@@ -3,15 +3,18 @@ package com.hapbang.journey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,6 +45,9 @@ import com.jayway.jsonpath.JsonPath;
 @JourneyTest
 class AppearanceJourneyIntegrationTest {
 
+    /** 이 테스트에서 발행한 이벤트를 가리는 기준 시각 */
+    private Timestamp eventCheckpoint;
+
     private static final long FUNDED_HP = 100_000;
     private static final long FEE = 30_000;
     private static final long PENALTY = 9_000; // 출연료의 30%
@@ -65,8 +71,15 @@ class AppearanceJourneyIntegrationTest {
     private Long hostId;
     private Long guestId;
 
+    /** DB 정리 전에 이 테스트의 비동기 이벤트 처리가 끝나기를 기다린다 */
+    @AfterEach
+    void awaitEvents() {
+        fixtures.awaitEventsCompletedSince(eventCheckpoint);
+    }
+
     @BeforeEach
     void setUp() {
+        eventCheckpoint = fixtures.eventCheckpoint();
         hostId = fixtures.member("journey-host", "여정호스트", Role.INFLUENCER);
         guestId = fixtures.member("journey-guest", "여정게스트", Role.INFLUENCER);
         fixtures.fund(hostId, FUNDED_HP, "appearance-host");
@@ -89,9 +102,7 @@ class AppearanceJourneyIntegrationTest {
         assertThat(fixtures.heldHp(BillingReferenceType.APPEARANCE_REQUEST, requestId)).isEqualTo(FEE);
         assertThat(fixtures.wallet(hostId).getChargeBalanceHp()).isEqualTo(FUNDED_HP - FEE);
         // 게스트가 호스트와의 1:1 방에서 출연 요청 알림을 받는다
-        await().atMost(JourneyFixtures.EVENT_TIMEOUT).untilAsserted(() -> assertThat(notification(
-                NotificationKind.APPEARANCE_REQUEST_SENT, requestId)).hasValueSatisfying(message ->
-                assertThat(message.getSenderUserId()).isEqualTo(hostId)));
+        assertReceived(guestId, hostId, NotificationKind.APPEARANCE_REQUEST_SENT, requestId);
 
         Long appearanceId = longOf(perform(guestId, "/api/v1/appearances/requests/" + requestId + "/accept",
                 """
@@ -119,11 +130,9 @@ class AppearanceJourneyIntegrationTest {
         assertThat(fixtures.heldHp(BillingReferenceType.APPEARANCE_RECRUIT, recruitId)).isEqualTo(FEE * 3);
 
         Long applicationId = apply(recruitId);
-        await().atMost(JourneyFixtures.EVENT_TIMEOUT).untilAsserted(() -> assertThat(notification(
-                NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, applicationId)).hasValueSatisfying(message -> {
-                    assertThat(message.getSenderUserId()).isEqualTo(guestId);
-                    assertThat(message.getParentReferenceId()).isEqualTo(recruitId);
-                }));
+        ChatMessage submitted = assertReceived(hostId, guestId, NotificationKind.APPEARANCE_APPLICATION_SUBMITTED,
+                applicationId);
+        assertThat(submitted.getParentReferenceId()).isEqualTo(recruitId);
 
         perform(hostId, "/api/v1/appearances/applications/" + applicationId + "/accept", null)
                 .andExpect(status().isOk())
@@ -198,6 +207,27 @@ class AppearanceJourneyIntegrationTest {
     private List<String> hpTasks() {
         return jdbcTemplate.queryForList("SELECT task_type || ' ' || status FROM appearances.hp_tasks ORDER BY id",
                 String.class);
+    }
+
+    /**
+     * 알림이 보낸 사람·받는 사람 두 명이 참여한 1:1 방에 남고, 받는 사람이 자기 권한으로 메시지 이력을 조회해 볼 수 있는지 확인한다.
+     */
+    private ChatMessage assertReceived(Long receiverId, Long senderId, NotificationKind kind, Long referenceId)
+            throws Exception {
+        await().atMost(JourneyFixtures.EVENT_TIMEOUT).until(() -> notification(kind, referenceId).isPresent());
+        ChatMessage message = notification(kind, referenceId).orElseThrow();
+        assertThat(message.getSenderUserId()).isEqualTo(senderId);
+        Long chatRoomId = message.getChatRoom().getId();
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT user_id FROM chats.chat_room_member
+                WHERE chat_room_id = ? AND left_at IS NULL AND deleted_at IS NULL""", Long.class, chatRoomId))
+                .containsExactlyInAnyOrder(senderId, receiverId);
+        mockMvc.perform(get("/api/v1/chats/{id}/messages", chatRoomId).with(TestLogin.as(receiverId, Role.INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.messages[0].messageType").value("NOTIFICATION"))
+                .andExpect(jsonPath("$.data.messages[0].notificationKind").value(kind.name()))
+                .andExpect(jsonPath("$.data.messages[0].referenceId").value(referenceId));
+        return message;
     }
 
     private Optional<ChatMessage> notification(NotificationKind kind, Long referenceId) {
