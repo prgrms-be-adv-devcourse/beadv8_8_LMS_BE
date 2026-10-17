@@ -28,7 +28,7 @@ import com.hapbang.testsupport.PostgresTestcontainersConfig;
 @Documented
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(PostgresTestcontainersConfig.class)
+@Import({PostgresTestcontainersConfig.class, JourneyFixtures.class})
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
 @DirtiesContext
