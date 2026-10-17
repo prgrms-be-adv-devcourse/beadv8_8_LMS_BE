@@ -27,10 +27,10 @@ import com.hapbang.appearance.app.AppearanceUserSupport;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.appearance.out.AppearanceUserRepository;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserModifiedEvent;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 
 import lombok.RequiredArgsConstructor;
@@ -43,7 +43,7 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  * 로그인·자격 확인 기반만 테스트 전용 컨트롤러로 확인한다. 실제 출연 API는 {@code AppearanceRequestApiE2ETest}에서 확인한다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 @Import(AppearanceApiE2ETest.ParticipantProbeController.class)
 class AppearanceApiE2ETest {

@@ -13,6 +13,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
+import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 
 class AppearanceRequestTest {
 
@@ -20,7 +21,7 @@ class AppearanceRequestTest {
     private static final Long GUEST = 2L;
     private static final Long OTHER = 3L;
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 13, 12, 0);
-    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2);
+    private static final AppearancePolicy POLICY = new AppearancePolicy(20_000, 30, Duration.ofDays(7), 2, 10);
 
     private static AppearanceRequest create(AppearanceRequestContent content) {
         return AppearanceRequest.create(HOST, GUEST, content, POLICY, NOW);
@@ -130,11 +131,12 @@ class AppearanceRequestTest {
         }
 
         @Test
-        @DisplayName("HOLD_PENDING이 아니면 보류 결과를 다시 반영할 수 없다")
+        @DisplayName("이미 REQUESTED면 같은 결과는 그대로 두고(멱등), 다른 결과(HOLD_FAILED)는 반영할 수 없다")
         void onlyFromHoldPending() {
             AppearanceRequest request = requested();
 
-            assertThatThrownBy(request::markRequested).isInstanceOf(IllegalStateException.class);
+            request.markRequested();
+            assertThat(request.getStatus()).isEqualTo(AppearanceRequestStatus.REQUESTED);
             assertThatThrownBy(request::markHoldFailed).isInstanceOf(IllegalStateException.class);
         }
     }
@@ -225,5 +227,20 @@ class AppearanceRequestTest {
         void visibleStatus(AppearanceRequestStatus status) {
             assertThat(status.isVisible()).isTrue();
         }
+    }
+
+    @Test
+    @DisplayName("다른 모듈에 넘기는 요청서 정보: 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한")
+    void toDto() {
+        AppearanceRequest request = requested();
+
+        AppearanceRequestDto dto = request.toDto();
+
+        assertThat(dto.hostId()).isEqualTo(HOST);
+        assertThat(dto.guestId()).isEqualTo(GUEST);
+        assertThat(dto.title()).isEqualTo(request.getTitle());
+        assertThat(dto.fee()).isEqualTo(AppearanceRequestFixture.FEE);
+        assertThat(dto.scheduledAt()).isEqualTo(request.getScheduledAt());
+        assertThat(dto.acceptDeadline()).isEqualTo(request.getAcceptDeadline());
     }
 }

@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
@@ -27,7 +28,9 @@ import org.springframework.test.web.servlet.RequestBuilder;
 import com.hapbang.lecture.domain.FileType;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureUser;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.FileResourceRepository;
+import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
 import com.hapbang.shared.member.domain.Role;
@@ -38,7 +41,8 @@ import com.hapbang.testsupport.TestLogin;
 
 import jakarta.persistence.EntityManagerFactory;
 
-// 목록 응답의 썸네일·닉네임을 강의마다 따로 조회하지 않는지(D28) 강의 수에 따른 SQL 문 수로 확인한다.
+// 목록 응답의 썸네일·닉네임·평균 평점을 강의마다(리뷰 목록은 작성자 닉네임을 리뷰마다) 따로 조회하지 않는지(D28, D47)
+// 강의·리뷰 수에 따른 SQL 문 수로 확인한다.
 @IntegrationTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
@@ -61,6 +65,12 @@ class LectureThumbnailQueryCountTest {
 
     @Autowired
     private FileResourceRepository fileResourceRepository;
+
+    @Autowired
+    private LectureOrderRepository lectureOrderRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private EntityManagerFactory entityManagerFactory;
@@ -87,6 +97,40 @@ class LectureThumbnailQueryCountTest {
         mockMvc.perform(lectures)
                 .andExpect(jsonPath("$.data.content.length()").value(3))
                 .andExpect(jsonPath("$.data.content[*].thumbnailUrl", everyItem(notNullValue())));
+    }
+
+    @Test
+    void 리뷰가_있는_강의가_늘어도_목록_조회_SQL_수는_정렬과_관계없이_같다() throws Exception {
+        RequestBuilder latest = get("/api/v1/lectures");
+        RequestBuilder rating = get("/api/v1/lectures").param("sort", "RATING");
+        reviewAll(saveOnSaleLectures(1, newSeller()));
+        long latestOne = statementsOf(latest);
+        long ratingOne = statementsOf(rating);
+
+        reviewAll(saveOnSaleLectures(2, newSeller()));
+
+        assertThat(statementsOf(latest)).isEqualTo(latestOne);
+        assertThat(statementsOf(rating)).isEqualTo(ratingOne);
+        mockMvc.perform(rating)
+                .andExpect(jsonPath("$.data.content.length()").value(3))
+                .andExpect(jsonPath("$.data.content[*].averageRating", everyItem(notNullValue())));
+    }
+
+    @Test
+    void 리뷰가_늘어도_리뷰_목록_SQL_수는_같다() throws Exception {
+        Long lectureId = saveOnSaleLectures(1, newSeller()).getFirst();
+        RequestBuilder reviews = get("/api/v1/lectures/{lectureId}/reviews", lectureId)
+                .with(TestLogin.as(BUYER_ID, Role.USER));
+        saveReview(lectureId, newSeller());
+        long one = statementsOf(reviews);
+
+        saveReview(lectureId, newSeller());
+        saveReview(lectureId, newSeller());
+
+        assertThat(statementsOf(reviews)).isEqualTo(one);
+        mockMvc.perform(reviews)
+                .andExpect(jsonPath("$.data.content.length()").value(3))
+                .andExpect(jsonPath("$.data.content[*].reviewerNickname", everyItem(notNullValue())));
     }
 
     @Test
@@ -144,6 +188,21 @@ class LectureThumbnailQueryCountTest {
             lectureIds.add(lectureRepository.save(lecture).getId());
         }
         return lectureIds;
+    }
+
+    private void reviewAll(List<Long> lectureIds) {
+        lectureIds.forEach(lectureId -> saveReview(lectureId, newSeller()));
+    }
+
+    /** 회원 복제본이 있는 회원이 구매 확정한 항목으로 쓴 리뷰 */
+    private void saveReview(Long lectureId, Long reviewerId) {
+        Lecture lecture = lectureRepository.findById(lectureId).orElseThrow();
+        Long orderItemId = lectureOrderRepository.save(LectureOrderFixture.order(reviewerId, List.of(lecture), NOW))
+                .getItems().getFirst().getId();
+        jdbcTemplate.update("update lectures.order_item set status = 'CONFIRMED' where id = ?", orderItemId);
+        jdbcTemplate.update("insert into lectures.lecture_review "
+                + "(lecture_id, order_item_id, reviewer_user_id, rating, created_at, updated_at) "
+                + "values (?, ?, ?, 4, now(), now())", lectureId, orderItemId, reviewerId);
     }
 
     private void addItems(List<Long> lectureIds) throws Exception {

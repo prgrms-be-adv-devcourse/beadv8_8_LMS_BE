@@ -7,6 +7,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.billing.fixture.BillingFixture;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
 
 // 보류·충전 원금 배분의 지급 상태 전이와 금액 한도, 지급 상세·지급 건 생성을 DB 없이 검증한다.
 class PointHoldPayoutTest {

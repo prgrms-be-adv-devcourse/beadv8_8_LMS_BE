@@ -19,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,12 +28,19 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.global.storage.S3FileStorage;
+import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.FileResource;
 import com.hapbang.lecture.domain.FileType;
+import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureUser;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.FileResourceRepository;
+import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -43,7 +51,7 @@ import com.hapbang.testsupport.TestLogin;
 
 import com.jayway.jsonpath.JsonPath;
 
-// 콘텐츠 시청 URL 발급을 HTTP부터 S3(S3Mock)까지 관통해 검증한다. 누가 볼 수 있는지의 세부 규칙은 LectureTest가 맡는다.
+// 콘텐츠 시청 URL 발급(판매자·관리자·구매자)을 HTTP부터 S3(S3Mock)까지 관통해 검증한다. 누가 볼 수 있는지의 세부 규칙은 LectureTest가 맡는다.
 @IntegrationTest
 @AutoConfigureMockMvc
 @Import(S3MockTestcontainersConfig.class)
@@ -52,6 +60,7 @@ class LectureContentAccessApiTest {
     private static final Long SELLER_ID = 1L;
     private static final Long OTHER_USER_ID = 2L;
     private static final Long ADMIN_ID = 3L;
+    private static final Long BUYER_ID = 4L;
     private static final byte[] VIDEO = {1, 2, 3, 4, 5};
 
     private static final String REGISTER_BODY = """
@@ -76,6 +85,15 @@ class LectureContentAccessApiTest {
 
     @Autowired
     private LectureUserRepository lectureUserRepository;
+
+    @Autowired
+    private LectureRepository lectureRepository;
+
+    @Autowired
+    private LectureOrderRepository lectureOrderRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -199,13 +217,74 @@ class LectureContentAccessApiTest {
     void 판매자는_삭제된_강의의_콘텐츠_URL을_받는다() throws Exception {
         Long lectureId = registerLecture();
         Long contentId = contentId(lectureId, 0);
-        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
-                .andExpect(status().isNoContent());
+        deleteLecture(lectureId);
 
         access(SELLER_ID, Role.VERIFIED_INFLUENCER, lectureId, contentId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200));
+    }
+
+    @Test
+    void 재생_동의_전_구매자는_영상과_자료_모두_403_PLAY_CONSENT_REQUIRED와_주문_ID를_받는다() throws Exception {
+        Long lectureId = registerLecture();
+        approve(lectureId);
+        LectureOrder order = purchase(lectureId);
+
+        for (int index : new int[] {0, 1}) {
+            access(BUYER_ID, Role.USER, lectureId, contentId(lectureId, index))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("PLAY_CONSENT_REQUIRED"))
+                    .andExpect(jsonPath("$.orderId").value(order.getId()))
+                    .andExpect(jsonPath("$.orderItemId").value(order.getItems().getFirst().getId()));
+        }
+    }
+
+    @Test
+    void 재생_동의한_구매자는_영상_URL로_영상을_받는다() throws Exception {
+        Long lectureId = register(storedFile(FileType.LECTURE_VIDEO, "1강.mp4", "video/mp4", VIDEO).getId(),
+                storedFile(FileType.LECTURE_DOCUMENT, "장비 목록.pdf", "application/pdf", new byte[] {9}).getId());
+        approve(lectureId);
+        consentToPlay(purchase(lectureId));
+
+        String url = accessUrl(BUYER_ID, Role.USER, lectureId, contentId(lectureId, 0));
+
+        HttpResponse<byte[]> download = http.send(HttpRequest.newBuilder(URI.create(url)).GET().build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(download.statusCode()).isEqualTo(200);
+        assertThat(download.body()).isEqualTo(VIDEO);
+    }
+
+    @Test
+    void 구매_확정한_구매자는_판매자가_삭제한_강의의_콘텐츠도_받는다() throws Exception {
+        Long lectureId = registerLecture();
+        approve(lectureId);
+        Long contentId = contentId(lectureId, 1);
+        consentToPlay(purchase(lectureId));
+        deleteLecture(lectureId);
+
+        access(BUYER_ID, Role.USER, lectureId, contentId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.url").isString());
+    }
+
+    @Test
+    void 구매_취소한_회원은_콘텐츠를_볼_수_없다() throws Exception {
+        Long lectureId = registerLecture();
+        approve(lectureId);
+        Long contentId = contentId(lectureId, 0);
+        LectureOrder order = purchase(lectureId);
+        transactionTemplate.executeWithoutResult(status -> lectureOrderRepository.findById(order.getId())
+                .orElseThrow()
+                .cancelItem(order.getItems().getFirst().getId(), LocalDateTime.now(LectureConfig.ZONE)));
+
+        access(BUYER_ID, Role.USER, lectureId, contentId)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CONTENT_ACCESS_DENIED"));
+        deleteLecture(lectureId);
+        access(BUYER_ID, Role.USER, lectureId, contentId)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
     }
 
     @Test
@@ -234,6 +313,26 @@ class LectureContentAccessApiTest {
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/approve", lectureId)
                         .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
                 .andExpect(status().isNoContent());
+    }
+
+    private void deleteLecture(Long lectureId) throws Exception {
+        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    /** 주문 생성 API(HP 보류)가 생기기 전에는 픽스처로 주문을 저장한다 */
+    private LectureOrder purchase(Long lectureId) {
+        Lecture lecture = lectureRepository.findById(lectureId).orElseThrow();
+        return lectureOrderRepository.save(
+                LectureOrderFixture.order(BUYER_ID, List.of(lecture), LocalDateTime.now(LectureConfig.ZONE)));
+    }
+
+    private void consentToPlay(LectureOrder order) throws Exception {
+        mockMvc.perform(post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/play-consent", order.getId(),
+                        order.getItems().getFirst().getId())
+                        .with(TestLogin.as(BUYER_ID, Role.USER)).with(csrf()))
+                .andExpect(status().isOk());
     }
 
     private void reject(Long lectureId) throws Exception {

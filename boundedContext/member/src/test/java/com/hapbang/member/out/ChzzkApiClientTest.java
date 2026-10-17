@@ -11,6 +11,10 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -87,6 +91,44 @@ class ChzzkApiClientTest {
                         """, MediaType.APPLICATION_JSON));
 
         assertThat(client.findFollowerCount("channel-1")).isEqualTo(12);
+    }
+
+    @Test
+    @DisplayName("묶음 조회: 채널 ID를 쉼표로 이어 한 번에 보내고, 응답에 없는 채널은 결과에서 빠진다")
+    void findFollowerCounts() {
+        server.expect(requestTo("https://openapi.chzzk.naver.com/open/v1/channels?channelIds=channel-1,channel-2,channel-3"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Client-Id", "client-1"))
+                .andExpect(header("Client-Secret", "secret-1"))
+                .andRespond(withSuccess("""
+                        {"code":200,"message":null,"content":{"data":[
+                         {"channelId":"channel-1","channelName":"방송인1","followerCount":12,"verifiedMark":false},
+                         {"channelId":"channel-3","channelName":"방송인3","followerCount":30,"verifiedMark":false}]}}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(client.findFollowerCounts(List.of("channel-1", "channel-2", "channel-3")))
+                .isEqualTo(Map.of("channel-1", 12, "channel-3", 30));
+    }
+
+    @Test
+    @DisplayName("묶음 조회는 1~20개만 받는다 (치지직 한도)")
+    void findFollowerCounts_size() {
+        assertThatThrownBy(() -> client.findFollowerCounts(List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> client.findFollowerCounts(Collections.nCopies(21, "channel-1")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("묶음 조회에서 앱 키 오류(401)는 감싸지 않고 그대로 던진다 (배치가 보고 중단)")
+    void findFollowerCounts_unauthorized() {
+        server.expect(requestTo("https://openapi.chzzk.naver.com/open/v1/channels?channelIds=channel-1"))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body("{\"code\":401,\"message\":\"INVALID_CLIENT\"}")
+                        .contentType(MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.findFollowerCounts(List.of("channel-1")))
+                .isInstanceOf(RestClientResponseException.class)
+                .isNotInstanceOf(BusinessException.class);
     }
 
     @Test

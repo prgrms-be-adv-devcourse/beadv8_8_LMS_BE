@@ -7,12 +7,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 @Schema(description = """
         내용 다름 이의 제기 상태
-        - `NONE`: 이의 제기 없음
+        - `NONE`: 이의 제기 없음 (접수 후 판단 전에 철회한 경우 포함)
         - `FILED`: 접수되어 관리자 판단을 기다린다. 구매 취소할 수 없다
         - `ACCEPTED`: 인정. HP가 반환되었다
         - `REJECTED`: 기각""")
 public enum ObjectionStatus {
-    /** 이의 제기 없음 */
+    /** 이의 제기 없음. 판단 전에 철회하면 이 상태로 돌아간다 (D52) */
     NONE,
     /** 접수, 관리자 판단 대기. 지급과 구매 취소를 멈춘다 */
     FILED,

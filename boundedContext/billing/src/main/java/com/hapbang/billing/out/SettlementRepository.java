@@ -5,7 +5,7 @@ import java.util.Optional;
 import org.springframework.data.repository.Repository;
 
 import com.hapbang.billing.domain.Settlement;
-import com.hapbang.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
 
 // 수익 HP 지급 정보의 저장·조회를 담당하며 금융 데이터 삭제 메서드는 제공하지 않는다.
 public interface SettlementRepository extends Repository<Settlement, Long> {

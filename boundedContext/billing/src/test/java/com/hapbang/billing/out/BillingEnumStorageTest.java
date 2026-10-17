@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -15,9 +16,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.hapbang.billing.domain.AccountVerificationStatus;
 import com.hapbang.billing.domain.BalanceBucket;
-import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.ExchangePayoutStatus;
 import com.hapbang.billing.domain.ExchangeStatus;
+import com.hapbang.billing.domain.MockPayoutTransferStatus;
 import com.hapbang.billing.domain.HoldDetailActionType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PayoutProvider;
@@ -26,11 +27,16 @@ import com.hapbang.billing.domain.PgProvider;
 import com.hapbang.billing.domain.PointChargeStatus;
 import com.hapbang.billing.domain.PointChargeUsageStatus;
 import com.hapbang.billing.domain.PointHoldStatus;
+import com.hapbang.billing.domain.PointHoldType;
 import com.hapbang.billing.domain.PointRefundRequestStatus;
 import com.hapbang.billing.domain.PointRefundStatus;
+import com.hapbang.billing.domain.RefundManualReviewReason;
 import com.hapbang.billing.domain.PointType;
-import com.hapbang.billing.domain.SettlementSourceType;
 import com.hapbang.billing.domain.SettlementStatus;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -54,6 +60,7 @@ class BillingEnumStorageTest {
         columns.put("ck_point_ledger_reference_type", BillingReferenceType.class);
         columns.put("ck_point_hold_reference_type", BillingReferenceType.class);
         columns.put("ck_point_hold_status", PointHoldStatus.class);
+        columns.put("ck_point_hold_type", PointHoldType.class);
         columns.put("ck_point_hold_detail_reference_type", BillingReferenceType.class);
         columns.put("ck_point_hold_detail_action_type", HoldDetailActionType.class);
         columns.put("ck_point_charge_pg_provider", PgProvider.class);
@@ -61,6 +68,7 @@ class BillingEnumStorageTest {
         columns.put("ck_point_charge_usage_status", PointChargeUsageStatus.class);
         columns.put("ck_point_refund_request_status", PointRefundRequestStatus.class);
         columns.put("ck_point_refund_status", PointRefundStatus.class);
+        columns.put("ck_point_refund_manual_review_reason", RefundManualReviewReason.class);
         columns.put("ck_settlement_source_type", SettlementSourceType.class);
         columns.put("ck_settlement_payout_type", PayoutType.class);
         columns.put("ck_settlement_status", SettlementStatus.class);
@@ -68,13 +76,19 @@ class BillingEnumStorageTest {
         columns.put("ck_exchange_account_verification_status", AccountVerificationStatus.class);
         columns.put("ck_exchange_payout_payout_provider", PayoutProvider.class);
         columns.put("ck_exchange_payout_status", ExchangePayoutStatus.class);
+        columns.put("ck_mock_payout_transfer_status", MockPayoutTransferStatus.class);
+        columns.put("ck_billing_user_role", Role.class);
+        columns.put("ck_billing_user_status", UserStatus.class);
 
         List<String> enumChecks = entityManager.createNativeQuery("""
                 SELECT constraint_row.conname FROM pg_constraint constraint_row
                 JOIN pg_namespace ns ON ns.oid = constraint_row.connamespace
                 WHERE ns.nspname = 'billing' AND constraint_row.contype = 'c'
                   AND pg_get_constraintdef(constraint_row.oid) ~ '''[A-Z][A-Z_]*'''
-                """, String.class).getResultList();
+                """, String.class).getResultList().stream()
+                // 보류 종류와 HP 구성이 맞는지 보는 CHECK(#241)는 Enum 값 목록이 아니라 업무 규칙이라 뺀다
+                .filter(name -> !NON_ENUM_CHECKS.contains(name))
+                .toList();
         // 값이 하나뿐인 CHECK는 PostgreSQL이 IN 대신 = 로 저장하므로 대문자 문자열 상수가 있는 CHECK를 모두 찾는다.
         assertThat(enumChecks).as("Enum 컬럼 CHECK 전부를 확인한다").containsExactlyInAnyOrderElementsOf(columns.keySet());
 
@@ -82,6 +96,19 @@ class BillingEnumStorageTest {
                 .as(constraint)
                 .containsExactlyInAnyOrderElementsOf(Arrays.stream(enumType.getEnumConstants()).map(Enum::name).toList()));
     }
+
+    // 대문자 문자열 상수를 쓰지만 Enum 저장값 목록이 아닌 CHECK
+    // ck_point_refund_5는 운영자 확인 상태면 원인이 있어야 한다는 규칙(#260)
+    // ck_exchange_5는 취소 상태와 취소 시각이 함께 있어야 한다는 규칙(#285)
+    // ck_mock_payout_transfer_2는 가상 송금 상태별 거래 번호·실패 코드·완료 시각 규칙(#288)
+    private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5", "ck_point_refund_5", "ck_exchange_5",
+            "ck_mock_payout_transfer_2",
+            // ck_exchange_7·8은 승인·거절 상태와 처리 기록이 함께 있어야 한다는 규칙(#294)
+            "ck_exchange_7", "ck_exchange_8",
+            // ck_exchange_10·11·ck_exchange_payout_3·4는 송금 완료·실패 상태와 시각·거래 번호가 함께 있어야 한다는 규칙(#304)
+            "ck_exchange_10", "ck_exchange_11", "ck_exchange_payout_3", "ck_exchange_payout_4",
+            // ck_exchange_12는 최종 실패 상태와 종료 기록, ck_exchange_payout_6은 운영자 확인 상태와 그 시각이 함께 있어야 한다는 규칙(#304)
+            "ck_exchange_12", "ck_exchange_payout_6");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""

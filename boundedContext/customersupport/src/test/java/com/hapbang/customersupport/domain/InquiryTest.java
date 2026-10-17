@@ -13,6 +13,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 class InquiryTest {
 
     private static final Long USER_ID = 1L;
+    private static final Long ADMIN_ID = 9L;
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 14, 12, 0);
 
     @Test
     void 문의를_만들면_답변_대기_상태다() {
@@ -78,5 +80,43 @@ class InquiryTest {
         inquiry.delete(LocalDateTime.now());
 
         assertThatIllegalStateException().isThrownBy(() -> inquiry.delete(LocalDateTime.now()));
+    }
+
+    @Test
+    void 이의_제기_문의는_대상_주문_항목을_가진다() {
+        Inquiry inquiry = Inquiry.createLectureDispute(USER_ID, "내용이 달라요", "커리큘럼과 달라요.", 100L);
+
+        assertThat(inquiry.getCategory()).isEqualTo(InquiryCategory.LECTURE_CONTENT_DISPUTE);
+        assertThat(inquiry.getTargetType()).isEqualTo(InquiryTargetType.LECTURE_ORDER_ITEM);
+        assertThat(inquiry.getTargetId()).isEqualTo(100L);
+        assertThat(inquiry.isLectureDispute()).isTrue();
+        assertThat(inquiry.isObjectionResolved()).isFalse();
+    }
+
+    @Test
+    void 이의_제기는_대상_없이_만들_수_없다() {
+        assertThatIllegalStateException()
+                .isThrownBy(() -> Inquiry.create(USER_ID, InquiryCategory.LECTURE_CONTENT_DISPUTE, "제목", "내용"));
+    }
+
+    @Test
+    void 이의_제기를_판단하면_결과와_답변이_남고_답변_완료가_된다() {
+        Inquiry inquiry = Inquiry.createLectureDispute(USER_ID, "내용이 달라요", "커리큘럼과 달라요.", 100L);
+
+        inquiry.resolveObjection(ADMIN_ID, false, "기각합니다.", NOW);
+
+        assertThat(inquiry.getObjectionResult()).isEqualTo(ObjectionResult.REJECTED);
+        assertThat(inquiry.getObjectionResolvedBy()).isEqualTo(ADMIN_ID);
+        assertThat(inquiry.getObjectionResolvedAt()).isEqualTo(NOW);
+        assertThat(inquiry.getStatus()).isEqualTo(InquiryStatus.ANSWERED);
+        assertThat(inquiry.getReplies()).hasSize(1);
+        assertThatIllegalStateException().isThrownBy(() -> inquiry.resolveObjection(ADMIN_ID, true, "인정", NOW));
+    }
+
+    @Test
+    void 이의_제기가_아닌_문의는_판단할_수_없다() {
+        Inquiry inquiry = Inquiry.create(USER_ID, InquiryCategory.OTHER, "제목", "내용");
+
+        assertThatIllegalStateException().isThrownBy(() -> inquiry.resolveObjection(ADMIN_ID, true, "인정", NOW));
     }
 }

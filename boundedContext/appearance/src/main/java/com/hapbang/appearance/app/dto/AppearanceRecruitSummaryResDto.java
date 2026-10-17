@@ -1,0 +1,39 @@
+package com.hapbang.appearance.app.dto;
+
+import java.time.LocalDateTime;
+
+import com.hapbang.appearance.domain.AppearanceRecruit;
+import com.hapbang.appearance.domain.AppearanceRecruitStatus;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+
+/** 출연 모집글 목록의 한 줄 (콘텐츠 설명·채널 URL 제외) */
+public record AppearanceRecruitSummaryResDto(
+        Long id,
+        Long hostId,
+        String title,
+        @Schema(description = "방송 예정 일시 (KST)") LocalDateTime scheduledAt,
+        @Schema(description = "1인당 출연료 (HP)") long feePerPerson,
+        @Schema(description = "모집 인원") int recruitCount,
+        @Schema(description = "현재 성립 인원") int selectedCount,
+        @Schema(description = "지원자 수: 게스트가 취소한 지원만 뺀 전체 지원 (대기·수락·미선정)") long applicantCount,
+        @Schema(description = "모집 마감 일시 (KST)") LocalDateTime recruitDeadline,
+        AppearanceRecruitStatus status,
+        LocalDateTime createdAt
+) {
+
+    public static AppearanceRecruitSummaryResDto from(AppearanceRecruit recruit, long applicantCount) {
+        return new AppearanceRecruitSummaryResDto(
+                recruit.getId(),
+                recruit.getHostId(),
+                recruit.getTitle(),
+                recruit.getScheduledAt(),
+                recruit.getFeePerPerson(),
+                recruit.getRecruitCount(),
+                recruit.getSelectedCount(),
+                applicantCount,
+                recruit.getRecruitDeadline(),
+                recruit.getStatus(),
+                recruit.getCreatedAt());
+    }
+}

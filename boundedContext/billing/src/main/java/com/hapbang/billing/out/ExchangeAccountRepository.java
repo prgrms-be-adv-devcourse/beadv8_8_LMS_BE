@@ -1,5 +1,7 @@
 package com.hapbang.billing.out;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.repository.Repository;
@@ -17,4 +19,7 @@ public interface ExchangeAccountRepository extends Repository<ExchangeAccount, L
 
     // 환전 ID에 연결된 환전 계좌 정보를 조회한다.
     Optional<ExchangeAccount> findByExchangeId(Long exchangeId);
+
+    // 여러 환전의 계좌 스냅샷을 한 번에 조회한다(목록 조회용).
+    List<ExchangeAccount> findAllByExchangeIdIn(Collection<Long> exchangeIds);
 }

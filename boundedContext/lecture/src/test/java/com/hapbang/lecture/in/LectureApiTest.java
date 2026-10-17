@@ -3,6 +3,7 @@ package com.hapbang.lecture.in;
 import static com.hapbang.lecture.fixture.LectureFixture.deleted;
 import static com.hapbang.lecture.fixture.LectureFixture.pendingFile;
 import static com.hapbang.lecture.fixture.LectureFixture.uploadedFile;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.nullValue;
@@ -16,19 +17,30 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 import org.hamcrest.Matcher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.FileResource;
 import com.hapbang.lecture.domain.FileType;
+import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureUser;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.FileResourceRepository;
+import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -46,6 +58,7 @@ class LectureApiTest {
     private static final Long SELLER_ID = 1L;
     private static final Long OTHER_USER_ID = 2L;
     private static final Long ADMIN_ID = 3L;
+    private static final Long BUYER_ID = 4L;
 
     private static final String UPDATE_INFO_BODY = """
             {
@@ -81,6 +94,18 @@ class LectureApiTest {
 
     @Autowired
     private FileResourceRepository fileResourceRepository;
+
+    @Autowired
+    private LectureRepository lectureRepository;
+
+    @Autowired
+    private LectureOrderRepository lectureOrderRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void setUp() {
@@ -211,6 +236,152 @@ class LectureApiTest {
     }
 
     @Test
+    void 판매자는_상세에서_썸네일과_콘텐츠의_파일_ID를_받는다() throws Exception {
+        Long thumbnailFileId = uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL);
+        Long videoFileId = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
+        Long documentFileId = uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT);
+        Long lectureId = registeredId(register(SELLER_ID, thumbnailFileId, videoFileId, documentFileId));
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(thumbnailFileId))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(videoFileId))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(documentFileId));
+    }
+
+    @Test
+    void 판매자가_아닌_회원과_보유_중인_구매자는_파일_ID를_받지_않는다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(nullValue()));
+
+        purchase(lectureId);
+        deleteLecture(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.deleted").value(true))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(nullValue()));
+    }
+
+    @Test
+    void 관리자_강의_상세에는_파일_ID가_나온다() throws Exception {
+        Long thumbnailFileId = uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL);
+        Long videoFileId = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
+        Long documentFileId = uploaded(SELLER_ID, FileType.LECTURE_DOCUMENT);
+        Long lectureId = registeredId(register(SELLER_ID, thumbnailFileId, videoFileId, documentFileId));
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(thumbnailFileId))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(videoFileId))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(documentFileId));
+    }
+
+    @Test
+    void 판매자가_상세에서_받은_썸네일_ID를_다시_보내면_제목만_고쳐도_썸네일이_유지된다() throws Exception {
+        FileResource thumbnail = uploadedThumbnail(SELLER_ID);
+        Long lectureId = register(SELLER_ID, thumbnail.getId());
+        approve(lectureId);
+        Long thumbnailFileId = idAt(sellerDetail(lectureId), "$.data.thumbnailFileId");
+
+        mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title": "방송 장비 세팅 강의 (개정판)", "priceHp": 10000, "thumbnailFileId": %d}
+                                """.formatted(thumbnailFileId)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.title").value("방송 장비 세팅 강의 (개정판)"))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(thumbnail.getId()))
+                .andExpect(jsonPath("$.data.thumbnailUrl").value(thumbnailUrlOf(thumbnail)));
+    }
+
+    @Test
+    void 정보_수정에서_썸네일_ID를_null로_보내면_썸네일이_지워진다() throws Exception {
+        Long lectureId = register(SELLER_ID, uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL));
+
+        mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title": "방송 장비 세팅 강의", "priceHp": 10000, "thumbnailFileId": null}
+                                """))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.thumbnailFileId").value(nullValue()))
+                .andExpect(jsonPath("$.data.thumbnailUrl").value(nullValue()));
+    }
+
+    @Test
+    void 반려된_강의에서_한_강만_새_파일로_바꾸고_나머지는_상세에서_받은_파일_ID로_교체한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        reject(lectureId);
+        String detail = sellerDetail(lectureId);
+        Long keptFileId = idAt(detail, "$.data.contents[0].fileId");
+        Long oldContentId = idAt(detail, "$.data.contents[0].contentId");
+        Long newFileId = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
+
+        mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"contents": [
+                                  {"fileId": %d, "title": "1강 장비 고르기", "contentType": "VIDEO"},
+                                  {"fileId": %d, "title": "2강 장비 연결 (재녹음)", "contentType": "VIDEO"}
+                                ]}
+                                """.formatted(keptFileId, newFileId)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.contents.length()").value(2))
+                .andExpect(jsonPath("$.data.contents[0].fileId").value(keptFileId))
+                .andExpect(jsonPath("$.data.contents[1].fileId").value(newFileId))
+                .andExpect(jsonPath("$.data.contents[1].title").value("2강 장비 연결 (재녹음)"));
+        // 같은 파일이어도 교체한 콘텐츠는 새 행이다
+        assertThat(idAt(sellerDetail(lectureId), "$.data.contents[0].contentId")).isNotEqualTo(oldContentId);
+    }
+
+    @Test
+    void 판매자는_삭제한_강의의_파일_ID로_새_강의를_등록한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+        deleteLecture(lectureId);
+        String detail = sellerDetail(lectureId);
+
+        register(SELLER_ID, idAt(detail, "$.data.thumbnailFileId"), idAt(detail, "$.data.contents[0].fileId"),
+                idAt(detail, "$.data.contents[1].fileId"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201));
+    }
+
+    @Test
     void 검수_대기_중인_강의는_목록에_나오지_않는다() throws Exception {
         register(SELLER_ID);
 
@@ -330,6 +501,36 @@ class LectureApiTest {
     }
 
     @Test
+    void 보유_중인_구매자는_삭제된_강의_상세를_조회한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+        purchase(lectureId);
+        deleteLecture(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.deleted").value(true))
+                .andExpect(jsonPath("$.data.rejectionReason").value(nullValue()))
+                .andExpect(jsonPath("$.data.contents.length()").value(2));
+    }
+
+    @Test
+    void 구매_취소한_회원에게_삭제된_강의는_404다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+        LectureOrder order = purchase(lectureId);
+        transactionTemplate.executeWithoutResult(status -> lectureOrderRepository.findById(order.getId())
+                .orElseThrow()
+                .cancelItem(order.getItems().getFirst().getId(), LocalDateTime.now(LectureConfig.ZONE)));
+        deleteLecture(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
+    }
+
+    @Test
     void 내가_등록한_강의는_삭제된_강의를_포함해_최근_등록순으로_나오고_다른_판매자의_강의는_빠진다() throws Exception {
         Long deletedLectureId = register(SELLER_ID);
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", deletedLectureId)
@@ -380,6 +581,86 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.data.content[0].status").value("PENDING_INSPECTION"))
                 .andExpect(jsonPath("$.data.content[0].inspectionRequestedAt").isNotEmpty())
                 .andExpect(jsonPath("$.data.content[1].lectureId").value(secondLectureId));
+    }
+
+    @Test
+    void 관리자는_검수_대기_강의_상세와_콘텐츠를_조회한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.lectureId").value(lectureId))
+                .andExpect(jsonPath("$.data.sellerNickname").value("판매자"))
+                .andExpect(jsonPath("$.data.status").value("PENDING_INSPECTION"))
+                .andExpect(jsonPath("$.data.deleted").value(false))
+                .andExpect(jsonPath("$.data.contents[0].title").value("1강 장비 고르기"))
+                .andExpect(jsonPath("$.data.contents[0].sequence").value(1))
+                .andExpect(jsonPath("$.data.contents[0].contentType").value("VIDEO"))
+                .andExpect(jsonPath("$.data.contents[1].title").value("장비 목록"))
+                .andExpect(jsonPath("$.data.contents[1].sequence").value(2))
+                .andExpect(jsonPath("$.data.contents[1].contentType").value("DOCUMENT"));
+    }
+
+    @Test
+    void 관리자는_반려된_강의를_반려_사유와_함께_조회한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        reject(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.rejectionReason").value("영상 음질이 너무 낮습니다."));
+    }
+
+    @Test
+    void 관리자는_판매_중인_강의와_삭제된_강의를_조회한다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+        approve(lectureId);
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ON_SALE"))
+                .andExpect(jsonPath("$.data.deleted").value(false));
+
+        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+    }
+
+    @Test
+    void 관리자가_아니면_관리자_강의_상세를_조회할_수_없다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 관리자_강의_상세에서_없는_강의는_404() throws Exception {
+        mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", 999_999L)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
+    }
+
+    @Test
+    void 관리자도_기존_강의_상세로는_검수_대기_강의를_볼_수_없다() throws Exception {
+        Long lectureId = register(SELLER_ID);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
     }
 
     @Test
@@ -455,6 +736,57 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].priceHp").value(10000))
                 .andExpect(jsonPath("$.data.page.number").value(1));
+    }
+
+    @Test
+    void 강의_목록과_상세에_반올림한_평균_평점과_리뷰_수가_나오고_반환된_항목의_리뷰는_빠진다() throws Exception {
+        Long lectureId = registerOnSale("OBS 방송 세팅", 10_000);
+        review(lectureId, 4L, 5);
+        review(lectureId, 5L, 4);
+        review(lectureId, 6L, 4);
+        Long returned = review(lectureId, 7L, 1);
+        jdbcTemplate.update("update lectures.order_item set status = 'RETURNED' where id = ?", returned);
+
+        mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].averageRating").value(4.3))
+                .andExpect(jsonPath("$.data.content[0].reviewCount").value(3));
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.averageRating").value(4.3))
+                .andExpect(jsonPath("$.data.reviewCount").value(3));
+    }
+
+    @Test
+    void 리뷰가_없는_강의의_평균_평점은_null이다() throws Exception {
+        Long lectureId = registerOnSale("OBS 방송 세팅", 10_000);
+
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.averageRating").value(nullValue()))
+                .andExpect(jsonPath("$.data.reviewCount").value(0));
+    }
+
+    @Test
+    void 평점순으로_정렬하면_리뷰가_없는_강의는_뒤에_온다() throws Exception {
+        Long noReview = registerOnSale("리뷰 없는 강의", 10_000);
+        Long low = registerOnSale("평점 낮은 강의", 10_000);
+        Long high = registerOnSale("평점 높은 강의", 10_000);
+        review(low, 4L, 3);
+        review(high, 4L, 5);
+
+        mockMvc.perform(get("/api/v1/lectures").param("sort", "RATING")
+                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(high))
+                .andExpect(jsonPath("$.data.content[1].lectureId").value(low))
+                .andExpect(jsonPath("$.data.content[2].lectureId").value(noReview))
+                .andExpect(jsonPath("$.data.page.totalElements").value(3));
+        mockMvc.perform(get("/api/v1/lectures").param("sort", "RATING").param("keyword", "낮은")
+                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].lectureId").value(low));
     }
 
     @Test
@@ -619,6 +951,36 @@ class LectureApiTest {
         return lectureId;
     }
 
+    private void deleteLecture(Long lectureId) throws Exception {
+        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    /** 구매자가 강의를 사서 직접 구매 확정하고 리뷰를 쓴다. 주문 항목 ID를 돌려준다 */
+    private Long review(Long lectureId, Long buyerId, int rating) throws Exception {
+        Lecture lecture = lectureRepository.findById(lectureId).orElseThrow();
+        LectureOrder order = lectureOrderRepository.save(
+                LectureOrderFixture.order(buyerId, List.of(lecture), LocalDateTime.now(LectureConfig.ZONE)));
+        Long orderItemId = order.getItems().getFirst().getId();
+        mockMvc.perform(post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/confirm", order.getId(), orderItemId)
+                        .with(TestLogin.as(buyerId, Role.USER)).with(csrf()))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/lectures/{lectureId}/reviews", lectureId)
+                        .with(TestLogin.as(buyerId, Role.USER)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orderItemId\": %d, \"rating\": %d}".formatted(orderItemId, rating)))
+                .andExpect(status().isCreated());
+        return orderItemId;
+    }
+
+    /** 주문 생성 API(HP 보류)가 생기기 전에는 픽스처로 주문을 저장한다 */
+    private LectureOrder purchase(Long lectureId) {
+        Lecture lecture = lectureRepository.findById(lectureId).orElseThrow();
+        return lectureOrderRepository.save(
+                LectureOrderFixture.order(BUYER_ID, List.of(lecture), LocalDateTime.now(LectureConfig.ZONE)));
+    }
+
     private void approve(Long lectureId) throws Exception {
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/approve", lectureId)
                         .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
@@ -652,6 +1014,26 @@ class LectureApiTest {
                 .with(TestLogin.as(sellerId, Role.VERIFIED_INFLUENCER)).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(REGISTER_BODY.formatted(thumbnailFileId, videoFileId, documentFileId)));
+    }
+
+    private static Long registeredId(ResultActions registered) throws Exception {
+        String response = registered
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
+                .andReturn().getResponse().getContentAsString();
+        return idAt(response, "$.data.id");
+    }
+
+    /** 판매자 본인이 조회한 강의 상세 응답 본문 */
+    private String sellerDetail(Long lectureId) throws Exception {
+        return mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
+                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private static Long idAt(String response, String path) {
+        return ((Number) JsonPath.read(response, path)).longValue();
     }
 
     private ResultActions replaceContents(Long userId, Long lectureId, Long videoFileId) throws Exception {

@@ -170,6 +170,7 @@
 ## 7. API 규칙
 
 - 모든 API는 `/api/v1/...` 아래에 둔다 (3장의 진입 경로 참고).
+- 모듈 간 내부 HTTP API는 `/api/v1/internal/<모듈>/...`에 둔다. 회원 세션이 아니라 `X-Internal-Api-Key`로 인증하고, 서버 밖에서는 nginx가 404로 막는다 (D63, `docs/api/internal-earnings.md`).
 - API 명세는 Swagger로 관리한다. 프론트와 API 설계를 먼저 맞추고, 명세(Controller)를 먼저 만들어 동시에 작업할 수 있게 한다.
 - 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. nginx는 이 경로에만 큰 본문을 허용한다 (`docs/deploy/s3.md`, #106).
 

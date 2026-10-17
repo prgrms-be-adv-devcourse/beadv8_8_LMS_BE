@@ -1,8 +1,10 @@
 package com.hapbang.member.out;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -18,4 +20,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** 역할·상태로 회원 목록 (인플루언서 목록) */
     Page<User> findByRoleInAndStatus(Collection<Role> roles, UserStatus status, Pageable pageable);
+
+    /** 내부 회원 목록(키셋): afterId보다 큰 ID를 오름차순으로 limit개. 모든 역할·상태 포함 (#303) */
+    List<User> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
 }

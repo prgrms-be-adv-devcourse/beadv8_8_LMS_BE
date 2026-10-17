@@ -22,16 +22,15 @@ import com.hapbang.billing.app.ReleaseResult.ChargeRestoration;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
-import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.HoldDetailActionType;
 import com.hapbang.billing.domain.PointCharge;
 import com.hapbang.billing.domain.PointChargeUsage;
 import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.PointHoldStatus;
+import com.hapbang.billing.domain.PointHoldType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Settlement;
-import com.hapbang.billing.domain.SettlementSourceType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.PointChargeRepository;
 import com.hapbang.billing.out.PointChargeUsageRepository;
@@ -40,6 +39,8 @@ import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.SettlementRepository;
 import com.hapbang.billing.out.WalletRepository;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.SettlementSourceType;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -115,7 +116,7 @@ class HoldProcessing {
                         .toList(),
                 details.stream()
                         .map(detail -> new ChargeUsageHistory.Processing(detail.getId(), detail.getActionType(),
-                                detail.getChargeAmountHp()))
+                                detail.getChargeAmountHp(), detail.getTargetChargeId()))
                         .toList());
         for (PointChargeUsage usage : usages) {
             if (!history.matches(usage.getId(), usage.getRemainingHeldHp(), usage.getConsumedHp(),
@@ -138,12 +139,20 @@ class HoldProcessing {
     // 반환 한 건을 적용한다: 충전 HP를 배분 역순으로 반환하고 원래 충전 건(ID 오름차순으로 잠금)의 가용 원금에 되돌린 뒤,
     // 보류를 줄이고 반환 상세를 저장한다. 원장은 기록하지 않는다.
     ReleaseApplied release(HoldState state, Wallet owner, ReleaseSplit split, String detailKey, Instant releasedAt) {
+        return release(state, owner, split, detailKey, releasedAt, null);
+    }
+
+    // 반환 한 건을 적용한다. targetChargeId를 주면 충전 HP를 그 충전 건 배분에서만 반환한다(CHARGE_ONLY 보류, #241).
+    // 남은 보류가 0이 되면 지급·확정 차감 이력이 있을 때 MIXED다.
+    ReleaseApplied release(HoldState state, Wallet owner, ReleaseSplit split, String detailKey, Instant releasedAt,
+            Long targetChargeId) {
         List<UsageRelease> usageReleases = split.chargeHp() > 0
-                ? state.history().release(split.chargeHp()) : List.of();
+                ? state.history().release(split.chargeHp(), targetChargeId) : List.of();
         restoreCharges(owner, state.usages(), usageReleases);
-        state.hold().release(split.chargeHp(), split.revenueHp(), state.has(HoldDetailActionType.PAYOUT), releasedAt);
-        PointHoldDetail detail = saveDetail(
-                PointHoldDetail.released(state.hold(), split.chargeHp(), split.revenueHp(), detailKey));
+        state.hold().release(split.chargeHp(), split.revenueHp(),
+                state.has(HoldDetailActionType.PAYOUT) || state.has(HoldDetailActionType.CAPTURE), releasedAt);
+        PointHoldDetail detail = saveDetail(PointHoldDetail.released(state.hold(), split.chargeHp(), split.revenueHp(),
+                detailKey, targetChargeId));
         state.details().add(detail);
         return new ReleaseApplied(detail, ChargeUsageHistory.toRestorations(usageReleases));
     }
@@ -157,11 +166,30 @@ class HoldProcessing {
         for (UsageConsumption consumption : consumptions) {
             usagesById.get(consumption.usageId()).consume(consumption.amountHp());
         }
-        state.hold().payout(split.chargeHp(), split.revenueHp(), state.has(HoldDetailActionType.RELEASE));
+        // 남은 보류가 0이 되면 반환·확정 차감 이력이 있을 때 MIXED다
+        state.hold().payout(split.chargeHp(), split.revenueHp(),
+                state.has(HoldDetailActionType.RELEASE) || state.has(HoldDetailActionType.CAPTURE));
         PointHoldDetail detail = saveDetail(
                 PointHoldDetail.paidOut(state.hold(), split.chargeHp(), split.revenueHp(), detailKey));
         state.details().add(detail);
         return new PayoutApplied(detail, ChargeUsageHistory.toConsumptions(consumptions));
+    }
+
+    // 확정 차감 한 건을 적용한다 (#241): 충전 HP를 배분 순서(FIFO)로, targetChargeId를 주면 그 충전 건 배분에서만 소진하고
+    // (원금은 충전 건에 되돌리지 않는다), 보류를 줄이고 확정 차감 상세를 저장한다. 원장은 기록하지 않는다.
+    CaptureApplied capture(HoldState state, CaptureSplit split, String detailKey, Long targetChargeId) {
+        List<UsageConsumption> consumptions = split.chargeHp() > 0
+                ? state.history().consume(split.chargeHp(), targetChargeId) : List.of();
+        Map<Long, PointChargeUsage> usagesById = byId(state.usages());
+        for (UsageConsumption consumption : consumptions) {
+            usagesById.get(consumption.usageId()).consume(consumption.amountHp());
+        }
+        state.hold().capture(split.chargeHp(), split.revenueHp(),
+                state.has(HoldDetailActionType.RELEASE) || state.has(HoldDetailActionType.PAYOUT));
+        PointHoldDetail detail = saveDetail(PointHoldDetail.captured(state.hold(), split.chargeHp(), split.revenueHp(),
+                detailKey, targetChargeId));
+        state.details().add(detail);
+        return new CaptureApplied(detail, ChargeUsageHistory.toConsumptions(consumptions));
     }
 
     // 반환할 충전 건을 ID 오름차순으로 잠그고(지갑 → 보류 → 충전 건) 배분별 남은 보류를 줄이고 원래 충전 건의 가용 원금을 늘린다.
@@ -205,6 +233,27 @@ class HoldProcessing {
     // 멱등키로 지급 건을 찾는다.
     Optional<Settlement> settlement(String idempotencyKey) {
         return settlementRepository.findByIdempotencyKey(idempotencyKey);
+    }
+
+    // 충전 건을 지정한 처리(CHARGE_ONLY 보류의 PG 결제 건별 확정 차감·반환, #241)의 충전 HP 금액을 정한다.
+    // CHARGE_ONLY가 아니면 HOLD_TYPE_NOT_SUPPORTED, 이 보류에 배분되지 않은 충전 건이면 HOLD_CHARGE_NOT_FOUND다.
+    // 금액은 요청 값 그대로다(요청 단계에서 필수). 0 이하이면 INVALID_POINT_AMOUNT, 그 배분의 남은 보류를 넘으면 exceeded로 거절하고
+    // 다른 충전 건으로 나눠 처리하지 않는다.
+    long targetedChargeAmount(HoldState state, Long chargeId, long amountHp, BillingErrorCode exceeded) {
+        if (state.hold().getHoldType() != PointHoldType.CHARGE_ONLY) {
+            throw new BillingException(BillingErrorCode.HOLD_TYPE_NOT_SUPPORTED);
+        }
+        Long remainingHp = state.history().remainingOf(chargeId);
+        if (remainingHp == null) {
+            throw new BillingException(BillingErrorCode.HOLD_CHARGE_NOT_FOUND);
+        }
+        if (amountHp <= 0) {
+            throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
+        }
+        if (amountHp > remainingHp) {
+            throw new BillingException(exceeded);
+        }
+        return amountHp;
     }
 
     // 지급 원천(출연 계약·강의 주문 항목)은 지급 유형과 관계없이 한 번만 정산한다. 한 출연 계약의 정상 지급과 위약금은 함께 성립할 수 없다.
@@ -306,6 +355,24 @@ class HoldProcessing {
         return entries;
     }
 
+    // 확정 차감 원장 줄 (#241): 보류한 지갑의 충전 HP 보류·수익 HP 보류를 줄이기만 한다(받는 지갑 없음, 회원 밖으로 나간 HP).
+    // 금액이 0인 HP 종류는 줄을 만들지 않는다.
+    static List<LedgerEntry> captureEntries(Long walletId, CaptureSplit split) {
+        List<LedgerEntry> entries = new ArrayList<>();
+        if (split.chargeHp() > 0) {
+            entries.add(LedgerEntry.of(walletId, PointType.CHARGE, BalanceBucket.HELD, -split.chargeHp()));
+        }
+        if (split.revenueHp() > 0) {
+            entries.add(LedgerEntry.of(walletId, PointType.REVENUE, BalanceBucket.HELD, -split.revenueHp()));
+        }
+        return entries;
+    }
+
+    // 확정 차감 원장의 기대 줄 수(HP 종류별 보류 감소 1줄)
+    static int captureLines(PointHoldDetail detail) {
+        return (detail.getChargeAmountHp() > 0 ? 1 : 0) + (detail.getRevenueAmountHp() > 0 ? 1 : 0);
+    }
+
     // 반환 원장의 기대 줄 수(HP 종류별 이동 2줄)
     static int releaseLines(PointHoldDetail detail) {
         return (detail.getChargeAmountHp() > 0 ? 2 : 0) + (detail.getRevenueAmountHp() > 0 ? 2 : 0);
@@ -337,5 +404,9 @@ class HoldProcessing {
 
     // 적용한 지급 한 건: 저장한 상세와 충전 건별 소진
     record PayoutApplied(PointHoldDetail detail, List<ChargeConsumption> consumptions) {
+    }
+
+    // 적용한 확정 차감 한 건: 저장한 상세와 충전 건별 소진 (#241)
+    record CaptureApplied(PointHoldDetail detail, List<ChargeConsumption> consumptions) {
     }
 }

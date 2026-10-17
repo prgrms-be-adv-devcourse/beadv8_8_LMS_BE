@@ -22,6 +22,7 @@ import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
+import com.hapbang.chat.in.dto.ReadChatRoomRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
 import com.hapbang.global.response.RsData;
@@ -136,6 +137,29 @@ class ChatApiE2ETest {
     }
 
     @Test
+    void 읽음_처리하면_204_순번이_없으면_400() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
+
+        client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
+                .headers(guest::applyTo)
+                .body(new ReadChatRoomRequest(0L))
+                .exchange()
+                .expectStatus().isNoContent();
+
+        ProblemDetail problem = client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
+                .headers(guest::applyTo)
+                .body(new ReadChatRoomRequest(null))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody(ProblemDetail.class)
+                .returnResult().getResponseBody();
+        assertThat(problem).isNotNull();
+        assertThat(problem.getProperties()).containsEntry("code", "INVALID_REQUEST");
+        assertThat(myRooms(guest)).singleElement().extracting(ChatRoomResponse::unreadCount).isEqualTo(0L);
+    }
+
+    @Test
     void 방을_나가면_204_다시_보내도_204_이후_메시지_조회는_403() {
         Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
         E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
@@ -155,6 +179,25 @@ class ChatApiE2ETest {
                 .returnResult().getResponseBody();
         assertThat(problem).isNotNull();
         assertThat(problem.getProperties()).containsEntry("code", "NOT_CHAT_ROOM_MEMBER");
+    }
+
+    @Test
+    void 관리자_기록_조회_size가_상한을_넘거나_커서가_틀리면_400() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        E2ESession admin = login(ADMIN_ID, Role.ADMIN);
+
+        client.get().uri("/api/v1/chats/admin/{id}/history?size=101", chatRoomId)
+                .header(HttpHeaders.COOKIE, admin.cookieHeader())
+                .exchange()
+                .expectStatus().isBadRequest();
+        ProblemDetail problem = client.get().uri("/api/v1/chats/admin/{id}/history?cursor=bad", chatRoomId)
+                .header(HttpHeaders.COOKIE, admin.cookieHeader())
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody(ProblemDetail.class)
+                .returnResult().getResponseBody();
+        assertThat(problem).isNotNull();
+        assertThat(problem.getProperties()).containsEntry("code", "INVALID_REQUEST");
     }
 
     @Test

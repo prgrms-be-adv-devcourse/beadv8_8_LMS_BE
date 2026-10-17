@@ -12,7 +12,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Clock;
 import java.time.LocalDateTime;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,17 +26,19 @@ import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.app.AppearanceUserSupport;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Fake Billing)를 띄우고 출연 요청서 API를 호출한다.
+ * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 출연 요청서 API를 호출한다.
  * 로그인은 팀 공통 {@link TestLogin}, 쓰기 요청은 CSRF 토큰을 함께 보낸다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 class AppearanceRequestApiE2ETest {
 
@@ -56,7 +57,7 @@ class AppearanceRequestApiE2ETest {
     AppearanceUserSupport appearanceUserSupport;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     @Qualifier(AppearanceConfig.CLOCK)
@@ -69,10 +70,6 @@ class AppearanceRequestApiE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(OTHER));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private String createBody(long guestId, long fee) {
         LocalDateTime now = LocalDateTime.now(clock);
@@ -99,34 +96,44 @@ class AppearanceRequestApiE2ETest {
         String response = mockMvc.perform(createRequest(hostId, createBody(guestId, 30_000)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(response, "$.id")).longValue();
+        return ((Number) JsonPath.read(response, "$.data.id")).longValue();
     }
 
     @Test
-    @DisplayName("요청서 보내기 → 보낸·받은 목록 → 상세 → 수정 흐름")
+    @DisplayName("요청서 보내기 → 보낸·받은 목록 → 상세 → 수정 흐름 (성공 응답은 RsData: statusCode, message, data)")
     void fullFlow() throws Exception {
-        // 보내기: 201, REQUESTED
-        long requestId = sendRequest(HOST, GUEST);
+        // 보내기: HTTP 201, 본문 statusCode 201, data에 요청서
+        String created = mockMvc.perform(createRequest(HOST, createBody(GUEST, 30_000)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
+                .andExpect(jsonPath("$.message").value("출연 요청을 보냈습니다."))
+                .andExpect(jsonPath("$.data.status").value("REQUESTED"))
+                .andReturn().getResponse().getContentAsString();
+        long requestId = ((Number) JsonPath.read(created, "$.data.id")).longValue();
 
-        // 보낸 목록 (호스트): PagedModel 형식
+        // 보낸 목록 (호스트): data에 PagedModel(content, page)
         mockMvc.perform(get(BASE + "/sent").with(TestLogin.as(HOST, Role.INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].id").value(requestId))
-                .andExpect(jsonPath("$.content[0].status").value("REQUESTED"))
-                .andExpect(jsonPath("$.page.totalElements").value(1));
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.message").value("보낸 출연 요청 목록을 조회했습니다."))
+                .andExpect(jsonPath("$.data.content[0].id").value(requestId))
+                .andExpect(jsonPath("$.data.content[0].status").value("REQUESTED"))
+                .andExpect(jsonPath("$.data.page.totalElements").value(1));
 
         // 받은 목록 (게스트)
         mockMvc.perform(get(BASE + "/received").with(TestLogin.as(GUEST, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].id").value(requestId))
-                .andExpect(jsonPath("$.content[0].hostId").value(HOST));
+                .andExpect(jsonPath("$.message").value("받은 출연 요청 목록을 조회했습니다."))
+                .andExpect(jsonPath("$.data.content[0].id").value(requestId))
+                .andExpect(jsonPath("$.data.content[0].hostId").value(HOST));
 
         // 상세 (게스트)
         mockMvc.perform(get(BASE + "/" + requestId).with(TestLogin.as(GUEST, Role.INFLUENCER)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("주말 게임 합방 출연 요청"))
-                .andExpect(jsonPath("$.fee").value(30_000))
-                .andExpect(jsonPath("$.expectedMinutes").value(60));
+                .andExpect(jsonPath("$.message").value("출연 요청서를 조회했습니다."))
+                .andExpect(jsonPath("$.data.title").value("주말 게임 합방 출연 요청"))
+                .andExpect(jsonPath("$.data.fee").value(30_000))
+                .andExpect(jsonPath("$.data.expectedMinutes").value(60));
 
         // 수정 (호스트): 보낸 값만 바뀐다
         mockMvc.perform(patch(BASE + "/" + requestId).with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf())
@@ -135,9 +142,10 @@ class AppearanceRequestApiE2ETest {
                                 {"title": "제목 수정", "hostChannelUrl": "https://chzzk.naver.com/host"}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("제목 수정"))
-                .andExpect(jsonPath("$.hostChannelUrl").value("https://chzzk.naver.com/host"))
-                .andExpect(jsonPath("$.content").value("같이 신작 게임을 플레이하는 콘텐츠입니다."));
+                .andExpect(jsonPath("$.message").value("출연 요청서를 수정했습니다."))
+                .andExpect(jsonPath("$.data.title").value("제목 수정"))
+                .andExpect(jsonPath("$.data.hostChannelUrl").value("https://chzzk.naver.com/host"))
+                .andExpect(jsonPath("$.data.content").value("같이 신작 게임을 플레이하는 콘텐츠입니다."));
     }
 
     @Test
@@ -178,18 +186,21 @@ class AppearanceRequestApiE2ETest {
     void feeBelowMinimum() throws Exception {
         mockMvc.perform(createRequest(HOST, createBody(GUEST, 19_999)))
                 .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.data").doesNotExist())
                 .andExpect(jsonPath("$.code").value("FEE_BELOW_MINIMUM"))
                 .andExpect(jsonPath("$.detail").value("출연료는 최저 출연료(20,000 HP) 이상이어야 합니다."));
     }
 
     @Test
-    @DisplayName("잔액이 부족하면 409 (INSUFFICIENT_HP)")
-    void insufficientHp() throws Exception {
-        fakeBillingClient.setBalance(HOST, 10_000);
+    @DisplayName("Billing이 잔액 부족으로 보류를 거절하면 그 오류 그대로 409 INSUFFICIENT_BALANCE")
+    void insufficientBalance() throws Exception {
+        BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
         mockMvc.perform(createRequest(HOST, createBody(GUEST, 30_000)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INSUFFICIENT_HP"));
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"))
+                .andExpect(jsonPath("$.detail").value("HP 잔액이 부족합니다."));
     }
 
     @Test
@@ -205,7 +216,7 @@ class AppearanceRequestApiE2ETest {
     @Test
     @DisplayName("Billing이 응답하지 않으면 503 (BILLING_UNAVAILABLE)")
     void billingUnavailable() throws Exception {
-        fakeBillingClient.setUnavailable(true);
+        BillingStubs.unavailable(billingClient);
 
         mockMvc.perform(createRequest(HOST, createBody(GUEST, 30_000)))
                 .andExpect(status().isServiceUnavailable())
