@@ -68,10 +68,15 @@ public class JourneyFixtures {
     /** 가입한 뒤 역할을 바꾼 회원 (예: 인플루언서). 각 모듈 복제본에 새 역할이 반영될 때까지 기다린다 */
     public Long member(String googleSub, String nickname, Role role) {
         Long userId = user(googleSub, nickname);
+        changeRole(userId, role);
+        return userId;
+    }
+
+    /** 회원 모듈의 역할 변경(실제 UserModifiedEvent)으로 역할을 바꾸고, 각 모듈 복제본에 반영될 때까지 기다린다 */
+    public void changeRole(Long userId, Role role) {
         transactionTemplate.executeWithoutResult(status ->
                 memberSupport.changeRole(userRepository.findById(userId).orElseThrow(), role));
         awaitReplicas(userId, role);
-        return userId;
     }
 
     private void awaitReplicas(Long userId, Role role) {

@@ -37,6 +37,8 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-client-test")
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    // 여정 테스트의 STOMP 클라이언트 (#326 시나리오 5). 실행 시에는 chat 모듈이 이미 웹소켓을 넣지만 컴파일 클래스패스에는 없다
+    testImplementation("org.springframework.boot:spring-boot-starter-websocket")
 }
 
 // 배포 이미지(docker/Dockerfile)와 CI가 이 이름으로 jar를 찾는다.
