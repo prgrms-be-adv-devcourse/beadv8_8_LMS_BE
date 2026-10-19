@@ -26,6 +26,9 @@ public class PostgresTestcontainersConfig {
             registry.add("spring.flyway.baseline-on-migrate", () -> "true");
             registry.add("spring.flyway.baseline-version", () -> "0");
             registry.add("spring.flyway.out-of-order", () -> "true");
+            // 테스트 DB 정리에서 테이블 없는 기본 네임스페이스를 건너뛴다 (빈 "truncate table " 경고 제거). 비우기 필터만 바뀐다
+            registry.add("spring.jpa.properties.hibernate.hbm2ddl.schema_filter_provider",
+                    TruncateSchemaFilterProvider.class::getName);
         };
     }
 }
