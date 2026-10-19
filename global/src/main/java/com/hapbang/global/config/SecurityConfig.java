@@ -31,7 +31,7 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         // 헬스체크 (Docker healthcheck용). 서버 nginx가 /actuator를 프록시하지 않아 컨테이너·서버 안에서만 접근한다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
-                        // 로컬 로그인 (로컬에서만 켜짐. 서버엔 컨트롤러가 없어 404)
+                        // 로컬 로그인 (local·dev에서만 켜짐. 운영(prod)엔 컨트롤러가 없어 404)
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/local-login").permitAll()
                         // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)
                         .requestMatchers(HttpMethod.GET, "/api/v1/lectures").permitAll()
