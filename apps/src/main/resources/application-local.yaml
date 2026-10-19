@@ -47,5 +47,5 @@ hapbang:
       # (SPRING_PROFILES_ACTIVE=local). 프로필 미지정(기본 프로필 local)이나 dev·prod에서는 이 값이 있어도 꺼진다(실제 송금 없음)
       enabled: true
   local-login:
-    # 구글 없이 역할로 로그인 (POST /api/v1/members/local-login) + 역할별 테스트 계정 생성. 서버에선 켜지 않는다
+    # 구글 없이 역할로 로그인 (POST /api/v1/members/local-login) + 역할별 테스트 계정 생성. 운영(prod)에서는 켜지 않는다
     enabled: true

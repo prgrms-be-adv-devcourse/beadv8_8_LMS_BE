@@ -6,6 +6,10 @@ spring:
     password: ${DB_PASSWORD}
 
 hapbang:
+  local-login:
+    # 구글 없이 역할로 로그인 (POST /api/v1/members/local-login) + 역할별 테스트 계정 생성 (#332).
+    # 팀 테스트용으로 dev에서도 켠다. 공개 주소라 누구나 모든 역할로 로그인할 수 있다. 운영(prod)에서는 켜지 않는다
+    enabled: true
   chat:
     websocket:
       # 채팅 웹소켓 핸드셰이크를 허용할 프론트 출처 (#235). 여러 개면 쉼표로 구분한다
