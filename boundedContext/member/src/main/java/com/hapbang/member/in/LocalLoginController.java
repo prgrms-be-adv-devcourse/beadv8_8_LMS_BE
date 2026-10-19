@@ -23,7 +23,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
-/** 로컬 로그인 (구글 없이 역할로 로그인). hapbang.local-login.enabled=true일 때만 생긴다 */
+/** 로컬 로그인 (구글 없이 역할로 로그인). hapbang.local-login.enabled=true일 때만 생긴다 (local·dev, 운영은 꺼짐) */
 @RestController
 @ConditionalOnProperty(name = "hapbang.local-login.enabled", havingValue = "true")
 @RequiredArgsConstructor
