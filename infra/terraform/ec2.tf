@@ -1,0 +1,88 @@
+data "aws_ami" "ubuntu" {
+  count = var.ami_id == null ? 1 : 0
+
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  }
+}
+
+resource "aws_key_pair" "this" {
+  key_name   = "${var.name_prefix}-key"
+  public_key = var.public_key
+
+  tags = var.tags
+
+  # AWS가 공개 키를 돌려주지 않아 가져온 키 페어와 비교할 수 없다. 키를 바꿀 때는 새 이름으로 만든다.
+  lifecycle {
+    ignore_changes = [public_key]
+  }
+}
+
+resource "aws_instance" "server" {
+  ami                    = var.ami_id != null ? var.ami_id : data.aws_ami.ubuntu[0].id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.server.id]
+  key_name               = aws_key_pair.this.key_name
+  iam_instance_profile   = aws_iam_instance_profile.server.name
+
+  # docs/deploy/server-setup.md의 사전 준비와 1단계. 이후 단계(설정 파일, 비밀값, 인증서, 배포 키)는 사람이 한다.
+  user_data = file("${path.module}/user_data.sh")
+
+  # 크레딧을 다 쓰면 기준 성능으로 떨어진다. unlimited의 추가 요금을 피한다.
+  credit_specification {
+    cpu_credits = "standard"
+  }
+
+  # IMDSv2만 허용한다. 컨테이너(Docker bridge) 안의 앱도 인스턴스 역할 자격 증명을 받도록 hop limit은 2다.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+    http_protocol_ipv6          = "disabled"
+    instance_metadata_tags      = "disabled"
+  }
+
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = var.root_volume_size
+    iops                  = 3000
+    throughput            = 125
+    encrypted             = var.root_volume_encrypted
+    delete_on_termination = true
+
+    tags = merge(var.tags, { Name = "${var.name_prefix}-ec2" })
+  }
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-ec2" })
+
+  # AMI와 user_data는 처음 만들 때만 쓴다. 새 AMI가 나오거나 스크립트를 고쳐도 서버를 다시 만들지 않는다.
+  lifecycle {
+    ignore_changes = [ami, user_data]
+  }
+}
+
+# aws_instance는 기본 네트워크 인터페이스에 태그를 붙이지 않는다.
+resource "aws_ec2_tag" "network_interface" {
+  for_each = merge(var.tags, { Name = "${var.name_prefix}-ec2" })
+
+  resource_id = aws_instance.server.primary_network_interface_id
+  key         = each.key
+  value       = each.value
+}
+
+# 인스턴스를 다시 만들어도 DuckDNS가 가리키는 IP가 바뀌지 않도록 Elastic IP를 쓴다.
+resource "aws_eip" "server" {
+  domain = "vpc"
+
+  tags = merge(var.tags, { Name = "${var.name_prefix}-eip" })
+}
+
+resource "aws_eip_association" "server" {
+  instance_id   = aws_instance.server.id
+  allocation_id = aws_eip.server.id
+}
