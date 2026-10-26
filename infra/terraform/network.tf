@@ -1,5 +1,9 @@
 # 서버 1대 구성이라 퍼블릭 서브넷 하나만 둔다. 프라이빗 서브넷·NAT 게이트웨이는 쓰지 않는다.
 
+locals {
+  availability_zone = coalesce(var.availability_zone, "${var.region}a")
+}
+
 resource "aws_vpc" "this" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -18,10 +22,10 @@ resource "aws_internet_gateway" "this" {
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.this.id
   cidr_block              = var.public_subnet_cidr
-  availability_zone       = var.availability_zone
+  availability_zone       = local.availability_zone
   map_public_ip_on_launch = false
 
-  tags = merge(var.tags, { Name = "${var.name_prefix}-subnet-public1-${var.availability_zone}" })
+  tags = merge(var.tags, { Name = "${var.name_prefix}-subnet-public1-${local.availability_zone}" })
 }
 
 resource "aws_route_table" "public" {

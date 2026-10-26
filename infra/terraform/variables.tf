@@ -12,9 +12,9 @@ variable "region" {
 }
 
 variable "availability_zone" {
-  description = "퍼블릭 서브넷과 EC2를 둘 가용 영역"
+  description = "퍼블릭 서브넷과 EC2를 둘 가용 영역. null이면 region의 a 영역(<region>a)"
   type        = string
-  default     = "ap-northeast-2a"
+  default     = null
 }
 
 variable "name_prefix" {
