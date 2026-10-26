@@ -16,6 +16,7 @@
 | [server-setup.md](server-setup.md) | 서버 최초 설정·재구축, 배포 키, 인증서 발급 |
 | [security.md](security.md) | 자격 증명 관리, 공개 레포 원칙, 유출 시 대응 |
 | [s3.md](s3.md) | 파일 업로드(S3) 구조, 버킷·IAM 역할 설정, 확인 절차, 로컬 S3Mock |
+| [infra/terraform](../../infra/terraform/README.md) | AWS 리소스(EC2·네트워크·S3·IAM) 코드, 다른 계정으로 옮기기 |
 
 ## 구조
 
