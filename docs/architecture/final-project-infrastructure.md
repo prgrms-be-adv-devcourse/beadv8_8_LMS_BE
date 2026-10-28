@@ -399,11 +399,11 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 ### EC2 운영 방식
 
 - **진입점**: 1차 전환에서는 edge nginx와 Let's Encrypt 설정을 그대로 쓴다. edge nginx는 TLS 종료와 도메인별 prod/dev 분기만 맡고, 그 뒤 경로 routing은 아래 API Gateway가 맡는다. 80·443을 edge nginx가 쓰므로 k3s ServiceLB는 끈다(`--disable servicelb`). nginx의 큰 본문 업로드 경로(#106)와 인증서 갱신을 Gateway로 옮기는 일은 기능이 안정된 뒤 별도로 판단한다.
-- **cluster API**: 6443은 인터넷에 공개하지 않고 같은 node security group에서 medium → large만 허용한다. 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
+- **cluster API**: 6443은 인터넷에 공개하지 않고 같은 node security group에서 medium → large만 허용한다. 사람은 SSH tunnel로 접근한다([로컬 kubectl 접근](../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
 - **namespace**: EC2에는 `hapbang-prod`, `hapbang-platform`(Kafka·Redis·검색·관측성)을 둔다. dev는 로컬·PR k3d가 기본이며 전환 기간의 임시 namespace를 상시 구조로 굳히지 않는다.
 - **S3 권한**: 모듈 앱이 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
 - **이미지**: GHCR private image를 `imagePullSecret`으로 받는다. 태그는 지금처럼 `sha-<커밋>`을 고정해 쓴다.
-- **자동 중지**: 매일 18:00 instance 중지는 node shutdown이다. kubelet graceful node shutdown(`shutdownGracePeriod`, `shutdownGracePeriodCriticalPods`)을 k3s `--kubelet-arg`로 설정한다. 이 설정이 없으면 pod는 4장의 종료 순서를 밟지 못하고 끝날 수 있다([Kubernetes node shutdown](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/)). instance 중지 때 OS가 실제로 기다려 주는 시간 안에 drain이 끝나는지 실측한다.
+- **자동 중지**: 매일 18:00 instance 중지는 node shutdown이다. kubelet graceful node shutdown(`shutdownGracePeriod`, `shutdownGracePeriodCriticalPods`)은 kubelet CLI 플래그가 없으므로 k3s의 kubelet drop-in 설정 파일로 두고, Ubuntu logind의 `InhibitDelayMaxSec`도 함께 올린다(설정은 [AWS 2노드 k3s 배치](../deploy/aws-k3s.md#k3s-설치)). 이 설정이 없으면 pod는 4장의 종료 순서를 밟지 못하고 끝날 수 있다([Kubernetes node shutdown](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/)). instance 중지 때 OS가 실제로 기다려 주는 시간 안에 drain이 끝나는지 실측한다.
 
 ### API Gateway
 
