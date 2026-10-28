@@ -7,7 +7,7 @@
 - **`docs/GLOSSARY.md`**: 이 레포의 유비쿼터스 언어(용어집)다.
 - **`docs/policy.md`**: 돈·HP 규칙과 역할·권한 표다. 모듈별 정책은 아래 모듈 문서의 "정책 요약" 장에 있다. 원본은 레포 밖 기획서("결제·HP·정산 정책" 표 등)이고, 레포 문서는 그 요약이다. 레포 문서에 없는 정책 수치는 지어내지 않고 묻는다.
 - **모듈 문서**: 모듈의 정책·설계·결정 기록(D번호, 예: D46)이다. 작업할 모듈의 문서를 읽는다.
-  - 강의: `docs/lecture/module.md`(2장 정책 요약, P번호)
+  - 강의: `docs/lecture/module.md`(2장 정책 요약, P번호), 결정 기록은 `docs/lecture/decisions.md`
   - 출연: `docs/appearance/module.md`(2장 정책 요약)
 - **`docs/adr/`**: 있으면 작업할 영역에 닿는 ADR을 읽는다.
 

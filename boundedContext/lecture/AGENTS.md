@@ -1,6 +1,6 @@
 # Lecture Module — AGENTS.md
 
-강의 모듈 코드를 고칠 때 지킬 것이다. 루트 `AGENTS.md`의 공통 규칙을 따르고, 정책·설계·결정 기록(D번호)은 [`docs/lecture/module.md`](../../docs/lecture/module.md)에 있다.
+강의 모듈 코드를 고칠 때 지킬 것이다. 루트 `AGENTS.md`의 공통 규칙을 따르고, 정책·설계는 [`docs/lecture/module.md`](../../docs/lecture/module.md)(문서 지도에서 연동·참고 문서로 이어진다), 결정 기록(D번호)은 [`docs/lecture/decisions.md`](../../docs/lecture/decisions.md)에 있다.
 
 ## 정책 해석
 
