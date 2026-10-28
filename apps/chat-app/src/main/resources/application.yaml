@@ -1,5 +1,5 @@
 # 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
-# Flyway 이력·Modulith 발행 기록은 앱 스키마에 둔다. 기존 모놀리스 DB의 이력 전환은 별도 작업이다.
+# Flyway 이력·Modulith 발행 기록은 앱 스키마에 둔다. 모놀리스가 만든 기존 DB는 앱 분리 시점의 마지막 마이그레이션(baseline-version)으로 baseline하고, 그 뒤 버전만 실행한다.
 spring:
   application:
     name: chat-app
@@ -15,7 +15,7 @@ spring:
       jdbc:
         schema-initialization:
           enabled: true
-        schema: chat
+        schema: chats
       republish-outstanding-events-on-restart: true
       completion-mode: archive
   jpa:
@@ -24,11 +24,11 @@ spring:
       ddl-auto: validate
   flyway:
     baseline-on-migrate: true
-    baseline-version: 0
+    baseline-version: 202610162130
     out-of-order: true
-    default-schema: chat
+    default-schema: chats
     schemas:
-    - chat
+    - chats
   http:
     clients:
       connect-timeout: 3s
