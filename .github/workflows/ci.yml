@@ -41,8 +41,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v5
 
       # jar는 apps/build/libs/app.jar로 나온다(apps/build.gradle.kts).
+      # --parallel로 모듈 테스트를 동시에 돌린다. 테스트 JVM마다 Postgres 컨테이너를 따로 띄우므로 모듈끼리 DB를 공유하지 않는다.
       - name: 테스트·jar 빌드
-        run: ./gradlew check :apps:bootJar --no-daemon
+        run: ./gradlew check :apps:bootJar --no-daemon --parallel
 
       - name: 테스트 리포트 업로드
         if: failure()
