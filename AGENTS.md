@@ -74,8 +74,10 @@
 
 ## 8. 인프라와 배포
 
-- AWS EC2 1대(t3.large까지), VPC 1개, S3 버킷 1개 범위에서만 운영한다. 범위 밖 서비스(RDS 등)는 추가하지 않는다. S3 용도는 사진 및 영상 업로드다.
-- 서버 구성(Nginx·Spring·PostgreSQL을 EC2에 Docker 컨테이너로)과 배포 흐름(PR마다 테스트, dev 병합 시 자동 배포, 운영은 Deploy prod 워크플로를 수동 실행)은 [`docs/deploy/README.md`](docs/deploy/README.md)에 있다.
+- AWS 범위는 **EC2 2대(t3.large 1대, t3.medium 1대), VPC 1개, public subnet 1개, S3 버킷 1개**다. EKS, RDS, ElastiCache, MSK, ELB 등 범위 밖 managed service나 EC2를 임의로 추가하지 않는다.
+- 두 EC2는 하나의 k3s cluster를 구성한다. `t3.large`는 server/`core-data`, `t3.medium`은 agent/`app-observe`다. 단일 `core-data` node에 stateful workload를 두므로 고가용성이라고 표현하지 않는다.
+- node 배치, network·security group, S3 IAM, storage, Terraform과 전환 규칙은 [`docs/deploy/aws-k3s.md`](docs/deploy/aws-k3s.md)를 따른다.
+- 현재 Docker Compose 운영은 [`docs/deploy/README.md`](docs/deploy/README.md)를 따른다. k3s 전환 전에는 현재/목표 상태를 섞어 이미 배포된 것처럼 쓰지 않는다.
 
 ## 9. Git 워크플로우
 
