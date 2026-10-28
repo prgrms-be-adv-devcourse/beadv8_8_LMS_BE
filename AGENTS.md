@@ -19,35 +19,36 @@
 ## 2. 기술 스택
 
 - Java 25 (Gradle Toolchain), Spring Boot 4.1.1, Gradle 멀티모듈
-- DB: PostgreSQL 1개
+- DB: PostgreSQL 인스턴스 1개, 모듈마다 database를 따로 둔다 (#338).
 - 인증: OAuth 소셜 로그인 + Session
 - 결제: 충전 예치금 + HP 원장 + TossPayments 테스트 API
-- 이벤트: Spring Event (1차). Kafka 도입 여부는 최종 프로젝트에서 판단한다.
+- 이벤트: 모듈 간 비동기 연동은 이벤트로 하고, 브로커는 Kafka다 (#339).
+- Redis: 채팅 실시간 전달(Streams·Pub/Sub)에 쓴다 (#340).
 - Front-End: React (별도 레포)
-- 팀 합의 없이 새 인프라·미들웨어(Kafka, Redis 등)를 도입하지 않는다.
+- 팀 합의 없이 새 인프라·미들웨어를 도입하지 않는다.
 
 ## 3. 모듈 구조와 경계
 
 세미 프로젝트는 **멀티모듈 모놀리스**다. 모듈은 바운디드 컨텍스트 단위이며, 각 모듈을 그대로 서비스로 떼어낼 수 있어야 한다.
 
-| 모듈 | 책임 | API 진입 경로 |
+| 모듈 (Gradle·database) | 책임 | API 진입 경로 |
 | --- | --- | --- |
-| 회원 | OAuth 로그인, 역할, 채널 인증, 승급 | `/api/v1/members` |
-| 출연 | 출연 요청·모집, 수락·거절·취소, 출연 취소 요청, 확인, 이의 제기, 파일(S3) | `/api/v1/appearances` |
-| 강의 | 강의, 장바구니, 주문, 리뷰, 파일(S3) | `/api/v1/lectures` |
-| 지갑 + 정산 | HP 충전·환불, 원장, 보류, 지급, 환전 | `/api/v1/wallets`, `/api/v1/settlements` |
-| 채팅 | 1:1 대화, 알림, 차단 | `/api/v1/chatRooms` |
-| 고객센터 | 공지, FAQ, 문의, 이의 제기 접수 | `/api/v1/inquiries` |
+| 회원 (`member`) | OAuth 로그인, 역할, 채널 인증, 승급 | `/api/v1/members` |
+| 출연 (`appearance`) | 출연 요청·모집, 수락·거절·취소, 출연 취소 요청, 확인, 파일(S3) | `/api/v1/appearances` |
+| 강의 (`lecture`) | 강의, 장바구니, 주문, 리뷰, 파일(S3) | `/api/v1/lectures` |
+| 지갑 (`billing`) | HP 충전·환불, 원장, 보류, 지급, 환전 (지급·환전을 통틀어 "정산") | `/api/v1/wallets`, `/api/v1/settlements` |
+| 채팅 (`chat`) | 1:1 대화, 알림, 차단 | `/api/v1/chats` |
+| 고객센터 (`customersupport`) | 공지, FAQ, 문의, 이의 제기 접수 | `/api/v1/inquiries` |
 
 ### 경계 규칙 (반드시 지킨다)
 
 - 회원 도메인은 반드시 별도 모듈로 분리한다.
 - 다른 모듈은 **회원 ID(Long)로만 참조**한다. 다른 모듈의 엔티티를 `@ManyToOne` 등 JPA 연관관계로 걸지 않는다.
-- 모듈 간 **테이블 JOIN 금지, 스키마 간 FK 금지**. 모듈은 ID와 Event로만 연결한다.
+- 모듈 간 **테이블 JOIN 금지, database 간 FK 금지**. 모듈은 ID와 이벤트로만 연결한다.
 - 다른 모듈의 Repository·엔티티를 직접 사용하지 않는다.
 - 컨텍스트 간에 필요한 유저 정보는 테이블을 복제하여 연결한다 (기획서 참고 사항).
-- 모듈 간 통신은 Spring Event를 기본으로 한다. 단, 즉시 결과가 필요한 HP 이동(보류·반환·지급)과 이의 제기 접수는 제공 모듈의 내부 HTTP API를 호출할 수 있다. 동기 HTTP 호출은 소비 모듈의 로컬 트랜잭션 밖에서 실행하고, `shared`의 DTO·공통 HTTP Client 계약만 사용한다 (`docs/lecture/decisions.md` D62).
-- DB는 하나이며, 컨텍스트별로 스키마를 분리한다. 스키마 이름은 모듈명과 동일하게 한다.
+- 모듈 간 통신은 이벤트를 기본으로 한다. 단, 즉시 결과가 필요한 HP 이동(보류·반환·지급)과 이의 제기 접수는 제공 모듈의 내부 HTTP API를 호출할 수 있다. 동기 HTTP 호출은 소비 모듈의 로컬 트랜잭션 밖에서 실행하고, `shared`의 DTO·공통 HTTP Client 계약만 사용한다 (`docs/lecture/decisions.md` D62).
+- 모듈마다 database를 분리하고, database 이름은 위 표의 모듈 이름을 따른다. 모듈은 자기 database에만 연결하고, 다른 모듈의 database·테이블·트랜잭션을 쓰지 않는다.
 - 이 규칙을 지키기 어려운 요구가 나오면 임의로 우회하지 말고 질문한다.
 
 ## 4. 용어 (유비쿼터스 언어)
@@ -98,8 +99,6 @@
 
 - 코드 컨벤션 (네이밍, 패키지 구조 등. 오류 응답 형식은 [`docs/api/conventions.md`](docs/api/conventions.md)에서 정했다)
 - 테스트 방식 (단위·통합 테스트 기준, 테스트용 DB)
-- 지갑 잔액 변경의 동시성 제어 방식
-- 지갑과 정산의 모듈·스키마 분리 방식
 
 ## 12. 작업별로 읽을 문서
 
