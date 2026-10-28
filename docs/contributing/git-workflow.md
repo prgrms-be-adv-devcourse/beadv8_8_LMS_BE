@@ -30,7 +30,8 @@
 
 ## 5. 병합과 이슈 닫기
 
-- 병합은 merge commit으로 한다: `gh pr merge <N> --merge`.
+- feature → dev는 squash merge로 한다. 커밋 하나로 합쳐지므로 병합할 때 커밋 제목을 [커밋 규칙](commit.md)대로 적는다: `gh pr merge <N> --squash --subject "<유형>: <제목> (#N)"`.
+- dev → main은 merge commit으로 한다: `gh pr merge <N> --merge`.
 - `close #N`·`Resolve #N`은 `dev` 병합으로는 이슈를 닫지 않는다(기본 브랜치가 `main`). 병합 뒤 `gh issue close <N> --reason completed`로 닫고 Status를 Done으로 바꾼다.
 
 ## 6. 배포 확인
