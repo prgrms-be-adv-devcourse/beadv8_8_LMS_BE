@@ -3,7 +3,7 @@
 작성일: 2026-10-22
 최종 갱신: 2026-10-28
 
-전제: 팀의 **AWS EC2 2대(t3.large·t3.medium)와 S3 버킷 1개**에 실제로 배포해 시연하는 포트폴리오 프로젝트다. 로컬 k3d는 같은 Kubernetes manifest(Kustomize)를 개발 PC와 CI에서 검증하는 보조 환경이다. AWS node 역할과 배치의 기준 문서는 [AWS 2노드 k3s 배치](../deploy/aws-k3s.md)다.
+전제: 팀의 **AWS EC2 2대(t3.large·t3.medium)와 S3 버킷 1개**에 실제로 배포해 시연하는 포트폴리오 프로젝트다. 로컬 k3d는 같은 Kubernetes manifest(Kustomize·Helm)를 개발 PC와 CI에서 검증하는 보조 환경이다. 이 문서의 결정 기록은 #369다. AWS node 역할과 배치의 기준 문서는 [AWS 2노드 k3s 배치](../deploy/aws-k3s.md)다.
 
 이 문서는 최종 목표 구조의 기준 문서다. Elasticsearch 통합의 근거와 대안 비교는 [Elasticsearch 통합 범위 조사](./elasticsearch-consolidation-research.md)에 남기고, 충돌할 때는 이 문서의 결론을 따른다. 별도의 Draw.io 파일은 현재 관리하지 않으며 아래 텍스트 구조와 각 절의 완료 증거를 아키텍처 기준으로 사용한다.
 
@@ -16,10 +16,10 @@
 | EC2 | t3.large 1대 + t3.medium 1대, 각각 Ubuntu 24.04·gp3 50 GB·EIP 1개 | large는 `core-data`, medium은 `app-observe`로 사용한다. 상세 배치는 전용 문서를 따른다 |
 | CPU credit | **standard** 모드 | 기준선 이상 부하가 이어져 credit을 다 쓰면 CPU가 기준선으로 제한된다. 부하 test 결과에 credit 잔량을 함께 기록한다 |
 | 운영 시간 | 09:00~18:00 자동 시작·중지 | 매일 instance가 중지된다. 그 시간에 잡힌 `@Scheduled` 작업은 실행되지 않고, 종료 처리가 시연이 아니라 실제 요구다 |
-| 환경 | 현재 Compose는 prod·dev가 large에 함께 있고, k3s는 prod 중심 2노드 목표 구조다 | 현재와 목표 상태를 섞지 않는다 |
+| 환경 | 현재 Compose는 prod·dev가 large에 함께 있다. 앱별 구조 전환(#363) 뒤 자동 배포는 멈춰 있다 | k3s에는 **prod(main)만** 둔다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
 | network | 프로젝트 전용 VPC 1개, public subnet 1개, Internet Gateway. private subnet·NAT 없음 | 두 node는 같은 subnet에서 private IP로 cluster 통신한다 |
 | security group | 22·80·443 inbound 전체 허용 | k3s API(6443), Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다 |
-| 진입점 | edge nginx + Let's Encrypt. ELB·ACM 없음 | 외부 TLS 종료와 큰 본문 업로드 설정이 edge nginx에 있다 |
+| 진입점 | edge nginx + Let's Encrypt(certbot). ELB·ACM 없음 | 외부 TLS 종료, 큰 본문 업로드, 내부 API 차단이 edge nginx에 있다. k3s에서는 이 책임을 Envoy Gateway와 cert-manager가 넘겨받고 nginx는 쓰지 않는다 |
 | 이미지 | GHCR private. ECR 없음 | cluster는 GHCR pull secret이 필요하다 |
 | S3 | 버킷 1개, 사진·영상 업로드 전용(`dev/*`·`prod/*` prefix). 인스턴스 역할로 접근 | metrics·logs·traces·vector 저장 같은 다른 용도로 쓰려면 IAM 정책과 팀 합의를 바꿔야 한다 |
 | instance metadata | IMDSv2 required, hop limit 2 | container·pod 안에서도 인스턴스 역할 자격 증명을 받을 수 있다 |
@@ -35,11 +35,14 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | Kafka | 도입 | 모듈 간 비동기 이벤트, outbox, 멱등 소비, retry/DLT, replay |
 | Redis Streams | 채팅 모듈에 도입 | consumer group, ACK·pending·claim, 실시간 전달 실패 복구 |
 | Redis Pub/Sub·TTL | 채팅·알림 보조로 도입 | 다중 앱 replica fan-out, 접속 상태·짧은 수명 데이터 |
-| 알림(notification) 모듈 | 채팅에서 분리 (8장) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구, 첫 분리 service 후보 |
-| Elasticsearch + `search` 모듈 | **도입 확정** (9장, #234) | 이벤트 기반 색인, nori 한국어 검색, alias 재색인, 고객센터 hybrid RAG |
-| k3s(server 1 + agent 1) + Kustomize | 도입. 로컬·CI는 같은 manifest를 k3d로 검증 | 실제 서버의 Kubernetes 배포, rolling update, probe, node별 workload 분리와 자원 예산 관리 |
-| 모듈별 PostgreSQL database | 도입. instance는 환경마다 1개, database만 모듈별로 (10장) | database-per-bounded-context, 모듈별 계정·migration·outbox |
-| API Gateway (Gateway API + k3s 내장 Traefik) | 도입. Spring Cloud Gateway는 조건부 | 모듈별 routing, 모듈 분리 seam, rate limit, 내부 API 차단, trace 시작점 |
+| 앱 구조 | 앱 1개 = bounded context 1개 = database 1개. #363의 앱 6개에 `notification-app`·`search-app`을 더해 8개 | 서비스별 빌드·배포·장애 격리 |
+| 알림(notification) | 채팅에서 분리해 `notification-app`으로 (8장) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구 |
+| Elasticsearch + `search-app` | **도입 확정** (9장, #234) | 이벤트 기반 색인, nori 한국어 검색, alias 재색인, 고객센터 hybrid RAG |
+| k3s(server 1 + agent 1) + Kustomize + Helm | 도입. 로컬·CI는 같은 manifest를 k3d로 검증. 잘 관리되는 공식·준공식 차트만 Helm으로 | 실제 서버의 Kubernetes 배포, rolling update, probe, node별 workload 분리와 자원 예산 관리 |
+| 모듈별 PostgreSQL database | 도입. instance는 1개, database만 앱별로 (10장) | database-per-bounded-context, 앱별 계정·migration·outbox |
+| API Gateway (Envoy Gateway) | 도입. edge nginx와 k3s 내장 Traefik은 쓰지 않음 | TLS 종료, 모듈별 routing, JWT 서명 검증, 내부 API 차단, trace 시작점 |
+| JWT 인증 | 세션을 대체. member-app이 발급(RS256·JWKS), Envoy가 검증, 앱이 `@PreAuthorize`로 인가 | stateless 인증, Gateway 인증 위임과 헤더 위조 방지 |
+| Resilience4j | 각 앱의 rate limit과 앱 간 HTTP 호출의 timeout·circuit breaker | 남용 경로 보호, 장애 전파 차단 |
 | Graceful Shutdown | 모든 workload에 도입 | 신규 작업 차단, in-flight drain, 종료 순서와 제한 시간 |
 | Grafana observability stack | 도입 | Prometheus metrics, Alloy 수집, Loki logs, Tempo traces, Grafana dashboard·alert |
 | Mimir·Elastic Observability | 제외 | 단일 Prometheus와 기능이 겹치고 2노드 메모리·디스크를 추가로 사용 |
@@ -60,31 +63,32 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 
 ## 현재 레포에서 출발할 수 있는 기반
 
-- 멀티모듈 모놀리스이며 컨텍스트 간 연결이 ID와 Event로 제한되어 있어 Kafka seam을 만들기 좋다.
+- #363으로 업무 모듈이 독립 Spring Boot 앱 6개(`apps/*-app`)와 공통 라이브러리(`common/*`)로 나뉘었다. 컨텍스트 간 연결이 ID와 Event로 제한되어 있어 Kafka seam을 만들기 좋다. 다만 앱 사이 통신(#280, #339)과 인증 전환(#370)이 끝나기 전에는 일부 앱이 단독으로 기동하지 못한다(`docs/architecture/app-modules.md`).
 - Spring Modulith JDBC event publication registry, 미완료 이벤트 재발행, 완료 archive가 이미 설정되어 있다. Spring Modulith는 업무 트랜잭션 안에 publication을 기록하고 broker externalization 실패도 재제출할 수 있다([공식 문서](https://docs.spring.io/spring-modulith/reference/events.html#fundamentals-of-event-externalization)).
 - 채팅은 메시지를 PostgreSQL에 먼저 저장하고 커밋 뒤 내장 STOMP broker로 보낸다. `clientMessageId`와 방별 sequence도 있어 중복·순서 테스트의 기반이 있다.
-- Spring Session JDBC를 이미 사용하므로 모듈 앱 간 HTTP session 공유를 별도 Redis Session 도입 없이 시험할 수 있다.
 - EC2의 Docker Compose 배포, healthcheck, CI, 이미지 롤백이 있어 k3s 전환 전후를 비교할 기준선이 있다.
 
 ## 목표 구조
 
 ```text
 Client
-  ├─ HTTP ───────────────┐
-  └─ STOMP/WebSocket ────┤
-                         ▼  :443 (Elastic IP)
-                 edge nginx (Let's Encrypt)
-                         │
+  ├─ HTTP (React·API, Authorization: Bearer) ─┐
+  └─ STOMP/WebSocket ─────────────────────────┤
+                                              ▼  :443 (large EIP)
    ── 이하 EC2 t3.large(server/core-data) + t3.medium(agent/app-observe) k3s cluster ──
                          │
-         Traefik Gateway (Gateway API HTTPRoute)
-           모듈별 route · rate limit · traceparent
+               ServiceLB (large에서만 80·443)
+                         │
+         Envoy Gateway (Gateway API HTTPRoute)
+           TLS(cert-manager) · JWT 서명 검증 → X-User-* 헤더
+           모듈별 route · 내부 API 차단 · traceparent
                          │
                          ▼
-          모듈 앱 6개 (앱마다 replica 1개, #356)
-          member · billing · appearance · lecture · chat · customer-support
+          모듈 앱 8개 (앱마다 replica 1개) + React 정적 서버
+          member · billing · appearance · lecture · chat
+          customer-support · notification · search
+            │  X-User-* 헤더로 @PreAuthorize, Resilience4j rate limit
             │
-            ├──── Spring Session JDBC
             ├──── PostgreSQL  ← 업무·HP 원장·채팅 이력의 source of truth
             │
             ├─ domain event → Modulith publication/outbox → Kafka
@@ -96,9 +100,8 @@ Client
                                                │
                                                └─ Redis Pub/Sub → 각 app의 로컬 WebSocket session
 
-PostgreSQL instance 1개 (환경마다 1개, 10장)
-  ├─ platform DB ───── Spring Session
-  ├─ member DB ─────── 회원
+PostgreSQL instance 1개 (prod만, 10장)
+  ├─ member DB ─────── 회원, refresh token
   ├─ appearance DB ─── 출연
   ├─ lecture DB ────── 강의
   ├─ billing DB ────── 지갑·정산
@@ -237,7 +240,7 @@ Redis Streams는 append-only log, consumer group, 명시적 ACK, pending/claim�
 - Pub/Sub 전달을 일부 유실시켜도 재접속 history sync로 동일한 최종 상태가 된다.
 - 선택한 관측성 UI에서 stream length, pending count/age, claim, failed stream, 전달 latency를 볼 수 있다.
 
-## 3. k3s on EC2 + Kustomize — 실제 서버의 Kubernetes 배포
+## 3. k3s on EC2 + Kustomize·Helm — 실제 서버의 Kubernetes 배포
 
 ### k3s와 k3d의 역할
 
@@ -250,37 +253,41 @@ k3d는 k3s와 다른 배포판이 아니다. 같은 k3s를 Docker container 안�
 | CI | k3d | PR마다 cluster 생성 → manifest 적용 → smoke/E2E → 삭제를 짧게 반복한다 |
 | node 장애 실험 | EC2 2노드 + 로컬 k3d multi-node | EC2에서는 medium 중지와 large 중지의 서로 다른 영향을 기록하고, 3개 이상 server가 필요한 control-plane HA는 로컬 실험으로 구분한다 |
 
-EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd HA에는 server node 3대 이상이 필요하다([k3s quick start](https://docs.k3s.io/quick-start), [HA 문서](https://docs.k3s.io/datastore/ha-embedded)). medium이 내려가면 large의 모듈 앱과 stateful workload는 남지만 medium의 모듈 앱과 관측성이 멈춘다. large가 내려가면 control plane, PostgreSQL과 Elasticsearch가 함께 사라져 서비스가 중단된다. 이 차이를 숨기지 않고 pod 장애와 node 장애 시연 결과를 분리한다.
+EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd HA에는 server node 3대 이상이 필요하다([k3s quick start](https://docs.k3s.io/quick-start), [HA 문서](https://docs.k3s.io/datastore/ha-embedded)). medium이 내려가면 large의 모듈 앱과 stateful workload는 남지만 medium의 모듈 앱과 관측성이 멈춘다. large가 내려가면 control plane, 진입점(Envoy proxy), PostgreSQL과 Elasticsearch가 함께 사라져 서비스가 중단된다. 이 차이를 숨기지 않고 pod 장애와 node 장애 시연 결과를 분리한다.
 
 ### EC2 2노드 자원 예산
 
-아래 예산은 cgroup limit 기준의 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. 모듈 앱은 6개이고 앱마다 replica 1개다(#356). 앱은 두 node에 세 개씩 나누고, stateful workload는 large에 고정한다.
+아래 예산은 cgroup limit 기준의 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. EC2에는 prod 한 벌만 둔다. 모듈 앱은 8개이고 앱마다 replica 1개다. 앱은 두 node에 네 개씩 나누고, stateful workload는 large에 고정한다. Envoy·cert-manager·ECK operator 값은 차트 기본값을 낮춘 추정값이라 설치 뒤 다시 잰다.
 
 | t3.large `core-data` | 예산 |
 | --- | ---: |
 | OS | 350 MiB |
-| k3s server + containerd + system pod + Traefik | 1,650 MiB |
+| k3s server + containerd + system pod (Traefik 끔) | 1,650 MiB |
 | PostgreSQL | 768 MiB |
 | Kafka | 700 MiB |
 | Redis | 64 MiB |
 | Elasticsearch | 1,536 MiB |
-| 모듈 앱 3개(member·billing·appearance) × 512 MiB | 1,536 MiB |
-| **합계** | **6,604 MiB** |
+| 모듈 앱 4개(member·billing·appearance·search) × 448 MiB | 1,792 MiB |
+| Envoy proxy | 256 MiB |
+| **합계** | **7,116 MiB** |
 
-사용 가능 메모리를 약 7.6 GiB로 보면 약 1.1 GiB가 남는다. 이 여유는 filesystem cache, rolling surge pod 1개(512 MiB)와 오차에 쓴다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다.
+사용 가능 메모리를 약 7.6 GiB로 보면 약 0.65 GiB가 남는다. 이 여유는 rolling surge pod 1개(448 MiB), filesystem cache와 오차에 쓴다. large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
 
 | t3.medium `app-observe` | 예산 |
 | --- | ---: |
 | OS | 350 MiB |
 | k3s agent + containerd | 400 MiB |
-| 모듈 앱 3개(lecture·chat·customer-support) × 512 MiB | 1,536 MiB |
-| React Nginx | 64 MiB |
-| Prometheus·Loki·Tempo·Grafana·Alloy | 800 MiB |
-| **합계** | **3,150 MiB** |
+| 모듈 앱 4개(lecture·chat·customer-support·notification) × 384 MiB | 1,536 MiB |
+| Envoy Gateway controller | 128 MiB |
+| ECK operator | 256 MiB |
+| cert-manager (controller·webhook·cainjector) | 150 MiB |
+| React 정적 서버 | 64 MiB |
+| Prometheus·Loki·Tempo·Grafana·Alloy | 600 MiB |
+| **합계** | **3,484 MiB** |
 
-사용 가능 메모리를 약 3.7 GiB로 보면 약 0.6 GiB가 남는다. rolling surge pod 1개를 받으면 거의 남지 않으므로 medium의 앱은 한 번에 하나씩 배포하고, 별도 관측성 backend를 추가하지 않는다.
+사용 가능 메모리를 약 3.7 GiB로 보면 약 0.3 GiB가 남는다. surge pod를 받을 여유가 없으므로 medium의 앱은 `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성은 보존 한도를 줄여 600 MiB 안에 두고 별도 backend를 추가하지 않는다.
 
-앱 배치는 시작값이다. customer-support(Spring AI)와 chat(WebSocket session)은 메모리를 더 쓸 수 있으므로 앱별 RSS를 먼저 잰다. 어느 앱이든 768 MiB로 올려야 하면 medium의 여유가 사라진다. 그때는 그 앱을 large로 옮기거나 관측성 보존 한도를 줄인다.
+앱 limit은 448 MiB로 시작한다. 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
 
 #### 과거 단일-node 측정 기록
 
@@ -386,125 +393,155 @@ Elasticsearch는 검색과 RAG만 담당한다. logs·metrics·traces를 Elastic
 
 #### 현재 권고
 
-**EC2 k3s에는 prod 중심 workload만 배치하고 dev 검증은 PR별 k3d와 로컬을 기본으로 한다.** 모듈 앱 6개는 위 예산 표대로 두 node에 나누고, rolling update는 `maxSurge: 1`, `maxUnavailable: 0`으로 한 앱씩 진행한다.
+**EC2 k3s에는 prod(main) 한 벌만 둔다. dev 서버는 없애고, 개발 확인은 로컬과 PR k3d에서 한다.** 앱 8개는 위 예산 표대로 두 node에 나눈다.
 
-FE가 dev 서버로 API를 확인하고 있다(#332)는 전환 제약이 있다. ES 필수 조건에서는 dev와 prod의 상시 동시 배치를 목표로 삼지 않고, 전환 일정과 대체 검증 경로를 프론트와 먼저 합의한다. 서버에 올리기 전에 `free -m`, `kubectl top`과 선택한 관측성 UI의 node memory로 이 표를 실측값으로 바꾼다.
+dev 서버가 없어지면 프론트가 dev 서버로 API를 확인하던 경로(#332)도 사라진다. 전환 일정과 로컬 확인 방법을 프론트와 먼저 합의한다. 로컬에서는 BE 앱을 compose나 k3d로 띄우고, 역할별 테스트 계정 로그인은 local profile에서만 켠다. 서버에 올리기 전에 `free -m`, `kubectl top`과 선택한 관측성 UI의 node memory로 이 표를 실측값으로 바꾼다.
 
-Spring pod는 우선 512 MiB limit으로 시작하되 최종 기능에서 OOM·과도한 GC가 확인되면 768 MiB로 올리고 같은 node의 일시 workload를 줄인다.
-
-CPU는 2 vCPU의 standard credit이다. JVM pod 여러 개가 동시에 시작하면 credit을 소모하고 시작이 느려진다. node 재시작 때는 앱 3개가 한꺼번에 뜨므로 startupProbe 여유를 넉넉히 둔다.
+CPU는 2 vCPU의 standard credit이다. JVM pod 여러 개가 동시에 시작하면 credit을 소모하고 시작이 느려진다. node 재시작 때는 앱 4개가 한꺼번에 뜨므로 startupProbe 여유를 넉넉히 둔다.
 
 large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검색/RAG index가 들어간다. medium의 50 GB에는 application image와 Prometheus·Loki·Tempo data가 들어간다. 각 저장소에 크기·기간 retention을 두고 Compose에서 k3s로 넘어가는 기간에는 Docker와 containerd가 image를 따로 저장하므로 node별 디스크 여유를 먼저 확인한다.
 
 ### EC2 운영 방식
 
-- **진입점**: 1차 전환에서는 edge nginx와 Let's Encrypt 설정을 그대로 쓴다. edge nginx는 TLS 종료와 도메인별 prod/dev 분기만 맡고, 그 뒤 경로 routing은 아래 API Gateway가 맡는다. 80·443을 edge nginx가 쓰므로 k3s ServiceLB는 끈다(`--disable servicelb`). nginx의 큰 본문 업로드 경로(#106)와 인증서 갱신을 Gateway로 옮기는 일은 기능이 안정된 뒤 별도로 판단한다.
+- **진입점**: nginx는 쓰지 않는다. k3s는 `--disable traefik`으로 설치하고, Envoy Gateway가 유일한 진입점이다. Envoy proxy Service는 `LoadBalancer`이고, k3s 내장 ServiceLB가 node의 80·443을 Envoy로 연결한다. ServiceLB는 node label로 large에서만 켠다([k3s networking 문서](https://docs.k3s.io/networking/networking-services)). DNS와 80·443 security group이 large EIP만 가리키기 때문이다. medium의 앱에는 Envoy가 cluster 내부 Service로 보낸다.
+- **TLS**: cert-manager(공식 Helm 차트)가 Let's Encrypt에서 prod 도메인 인증서를 Gateway API HTTP-01 solver로 발급·갱신한다. 지금 edge nginx 옆의 certbot을 대신한다.
 - **cluster API**: 6443은 인터넷에 공개하지 않고 같은 node security group에서 medium → large만 허용한다. 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
-- **namespace**: EC2에는 `hapbang-prod`, `hapbang-platform`(Kafka·Redis·검색·관측성)을 둔다. dev는 로컬·PR k3d가 기본이며 전환 기간의 임시 namespace를 상시 구조로 굳히지 않는다.
+- **namespace**: `hapbang-prod`(모듈 앱·React·PostgreSQL), `hapbang-platform`(Kafka·Redis·Elasticsearch·관측성)과 Envoy Gateway·cert-manager·ECK operator의 system namespace를 둔다. dev namespace는 두지 않는다.
 - **S3 권한**: 모듈 앱이 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
 - **이미지**: GHCR private image를 `imagePullSecret`으로 받는다. 태그는 지금처럼 `sha-<커밋>`을 고정해 쓴다.
 - **자동 중지**: 매일 18:00 instance 중지는 node shutdown이다. kubelet graceful node shutdown(`shutdownGracePeriod`, `shutdownGracePeriodCriticalPods`)을 k3s `--kubelet-arg`로 설정한다. 이 설정이 없으면 pod는 4장의 종료 순서를 밟지 못하고 끝날 수 있다([Kubernetes node shutdown](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/)). instance 중지 때 OS가 실제로 기다려 주는 시간 안에 drain이 끝나는지 실측한다.
 
-### API Gateway
+### API Gateway — Envoy Gateway
 
-#### 왜 넣는가
+#### 맡는 책임
 
-지금은 외부 진입점이 edge nginx 하나이고 뒤에는 멀티모듈 monolith 하나만 있다. 경로만 나누는 역할이라면 Gateway는 nginx와 책임이 겹친다. 그래서 Gateway는 **nginx 설정 파일로는 관리하기 어렵고, 모듈 분리와 장애 시연에 실제로 쓰이는 책임**만 맡는다.
-
-| 책임 | 내용 | 지금 담당 |
+| 책임 | 내용 | 지금(Compose) 담당 |
 | --- | --- | --- |
-| 모듈 단위 routing | `/api/v1/lectures/**`, `/api/v1/appearances/**`처럼 3장의 모듈 진입 경로마다 route를 두고, 그 모듈 앱의 Service로 보낸다 | edge nginx의 `/api` 한 줄 |
-| 모듈 분리 seam | 모듈 앱을 더 나누거나 합칠 때 route의 backend만 바꾼다. 프론트 주소와 쿠키는 그대로다 | 없음 |
-| rate limit | 로그인, HP 충전 요청, 고객센터 RAG 질문처럼 남용되면 비용이 드는 경로에 경로별 한도를 둔다 | 없음 |
-| 내부 API 차단 | `/api/v1/internal/**`는 외부 route를 만들지 않는다. cluster 안 service 호출로만 닿는다 | edge nginx가 404 |
-| trace 시작점 | 요청마다 W3C `traceparent`를 만들거나 이어 받고 access log를 JSON으로 남겨 Alloy가 수집한다 | 없음 |
-| canary·rolling 검증 | route weight로 새 version에 일부 요청만 보낸다(stretch) | 없음 |
+| TLS 종료 | cert-manager가 발급한 인증서로 443을 종료하고 80은 HTTPS로 redirect한다 | edge nginx + certbot |
+| 모듈 단위 routing | AGENTS.md 3장의 모듈 진입 경로마다 `HTTPRoute`를 두고 그 앱의 Service로 보낸다. `/`는 React 정적 서버로 보낸다 | edge nginx의 `/api` 한 줄 |
+| JWT 서명 검증 | `SecurityPolicy`의 JWT provider가 member-app JWKS(`remoteJWKS`)로 서명·만료·발급자를 확인한다. `optional: true`로 둔다. 검증한 claim을 `X-User-Id`·`X-User-Roles` 헤더로 넘긴다(`claimToHeaders`) | 없음(세션) |
+| 헤더 위조 차단 | 모든 route에서 외부 요청에 붙은 `X-User-*` 헤더를 먼저 지운다 | 없음 |
+| 내부 API 차단 | `/api/v1/internal/**`은 `HTTPRoute`를 만들지 않는다. cluster 안 Service 호출로만 닿는다 | edge nginx가 404 |
+| 큰 본문 업로드 | 업로드 경로(`PUT /api/v1/{모듈}/files/{id}/content`)에만 긴 timeout을 건다(`BackendTrafficPolicy`·`ClientTrafficPolicy`) | edge nginx의 2GB 허용 |
+| trace 시작점 | 요청마다 W3C `traceparent`를 만들거나 이어 받아 OTLP로 보내고, access log를 JSON으로 남겨 Alloy가 수집한다 | 없음 |
 
-인증·인가는 Gateway로 옮기지 않는다. 회원 session은 Spring Session JDBC로 앱이 소유하고, 권한 판단도 앱의 Spring Security와 `@PreAuthorize`가 한다. Gateway가 session을 해석하게 만들면 인증 책임이 두 곳으로 나뉜다. Gateway는 쿠키와 `X-XSRF-TOKEN` header를 그대로 전달하기만 한다.
+rate limit은 Gateway가 아니라 각 앱의 Resilience4j가 맡는다(아래).
 
-#### 구현 후보
+#### 인증 흐름
+
+JWT는 암호화가 아니라 **서명**이다. payload는 누구나 Base64로 풀어 읽을 수 있으므로 회원 ID·역할 외의 정보를 넣지 않는다. 서명 검증은 "member-app의 개인 키로 서명됐고, 그 뒤 내용이 바뀌지 않았는가"를 공개 키로 확인하는 일이다.
+
+1. member-app이 Google OAuth 로그인 뒤 access token(RS256, 15분)을 발급한다. 개인 키는 member-app만 갖고, 공개 키는 JWKS endpoint로 공개한다(#370).
+2. refresh token(14일)은 `member` database에 저장하고 쓸 때마다 회전한다. refresh 경로로만 가는 `HttpOnly; Secure; SameSite=Strict` 쿠키로 준다. 로그아웃하면 폐기한다.
+3. 프론트는 access token을 메모리에 두고 `Authorization: Bearer`로 보낸다. 새로고침하면 시작할 때 refresh를 한 번 호출한다. Bearer 헤더는 브라우저가 자동으로 싣지 않으므로 API의 CSRF 보호(`X-XSRF-TOKEN`)는 뺀다.
+4. Envoy가 서명을 검증한다. 위조·만료 토큰은 401로 거절하고, 토큰이 없는 요청은 헤더 없이 통과시킨다. 로그인이 필요한지는 각 앱의 Security 설정이 정한다. 그래서 비로그인 경로 목록을 Envoy와 앱 두 곳에 적지 않는다.
+5. 앱은 `X-User-*` 헤더로 인증 객체를 만들고 `@PreAuthorize`로 인가한다(#371). 앱은 서명을 다시 검증하지 않으므로, NetworkPolicy로 앱의 외부 API 포트에는 Envoy만 접근하게 한다. 앱 간 내부 API는 지금처럼 `X-Internal-Api-Key`로 인증한다.
+6. 채팅: 브라우저의 WebSocket upgrade 요청에는 Bearer 헤더를 실을 수 없다. chat-app은 STOMP CONNECT frame의 토큰을 JWKS로 직접 검증한다. 토큰을 URL query에 싣지 않는다(access log에 남는다). 연결 뒤 강제 종료는 회원 이벤트(#242)를 따른다.
+7. 발급한 JWT는 회수할 수 없다. 정지·역할 변경은 다음 refresh에서 막히고, 최대 15분(access token 수명) 늦게 반영된다.
+
+OAuth 진행 상태(authorization request)는 HttpSession 대신 짧은 수명의 암호화 쿠키에 저장한다. 그래서 Spring Session과 그 저장소였던 `platform` database가 필요 없다.
+
+#### rate limit — 각 앱의 Resilience4j
+
+- 대상: 로그인, HP 충전 요청, 고객센터 RAG 질문처럼 남용되면 비용이 드는 경로
+- key: `X-User-Id`가 있으면 회원 ID, 없으면 client IP. client IP는 Envoy가 넣는 `X-Forwarded-For`에서 읽고 Envoy만 신뢰한다(`server.forward-headers-strategy=native`)
+- 한도를 넘으면 429를 `ProblemDetail`로 응답한다
+- RateLimiter는 앱 프로세스 메모리에서 센다. 앱마다 replica가 1개라 앱 하나의 한도가 곧 전체 한도다. replica를 늘리면 한도도 replica 수만큼 늘어나므로, 그때 공유 저장소 방식을 다시 판단한다
+- 구현은 쓰는 앱에 먼저 두고, 두 앱 이상이 같은 코드를 쓰면 `common`으로 옮긴다
+- 앱 간 내부 HTTP 호출(#280)의 timeout·circuit breaker도 Resilience4j로 통일한다
+
+#### 구현 후보와 판단
 
 | 후보 | 형태 | 장점 | 이 프로젝트에서의 한계 |
 | --- | --- | --- | --- |
-| **Kubernetes Gateway API + Traefik** | k3s에 내장된 Traefik v3의 Gateway API provider. `Gateway`·`HTTPRoute` resource | 추가 설치 없음(설정으로 켬). Go process라 가볍다. Ingress의 후속 표준 API. WebSocket upgrade, OpenTelemetry tracing, rate limit middleware 지원 | 사용자 정의 로직은 middleware 조합까지만 가능하다. Java로 filter를 짤 수 없다. rate limit 상태는 Traefik instance 메모리에 있다(replica 1개라 문제없음) |
-| Spring Cloud Gateway (WebFlux) | 별도 Spring Boot 앱 | 팀이 익숙한 Java filter. Redis 기반 token bucket `RequestRateLimiter`, `ws`/`wss` routing, route별 circuit breaker | **JVM이 하나 더** 상주한다. 3장 자원 예산은 이미 빠듯하다. Reactive stack이라 기존 MVC 코드와 관례가 다르다 |
-| edge nginx 확장 | 지금 설정에 route와 `limit_req` 추가 | 추가 component 없음 | 서버 파일을 직접 고치는 방식(`docs/deploy/operations.md`의 설정 반영 절차)이라 cluster 배포와 버전 관리가 따로 논다. route weight·trace 연동이 약하다 |
-| Envoy Gateway, Kong, APISIX | 전용 gateway 제품 | 기능이 가장 많다 | control plane과 data plane, 또는 별도 DB가 필요하며 2노드 자원 예산에서 우선순위가 낮다 |
+| **Envoy Gateway (선택)** | Gateway API 구현. controller + Gateway마다 Envoy proxy Deployment | OSS에서 JWT 검증(`SecurityPolicy`), claim의 헤더 전달, WebSocket, OpenTelemetry tracing을 지원한다. 공식 Helm 차트 | controller와 proxy가 상시 pod다. Helm 기본값(controller 요청 256Mi, proxy 요청 512Mi)이 커서 예산에 맞게 낮춘다 |
+| Traefik (k3s 내장) | k3s 기본 ingress, Gateway API provider | 추가 설치 없음 | JWT middleware는 유료 Traefik Hub 전용이다. OSS에서는 요청마다 다른 서비스를 부르는 ForwardAuth나, 시작할 때마다 인터넷에서 받는 실험적 plugin으로만 할 수 있다 |
+| Spring Cloud Gateway | 별도 Spring Boot 앱 | 팀이 익숙한 Java filter, JWKS 검증 | **JVM이 하나 더** 상주한다. WebSocket 프록시는 WebFlux 버전만 지원한다 |
+| edge nginx 확장 | 지금 설정에 route 추가 | 추가 component 없음 | nginx를 없애기로 했다. 서버 파일을 직접 고치는 방식이라 cluster 배포와 버전 관리가 따로 논다 |
 
-k3s는 Traefik v3를 기본으로 배포한다. Gateway API 지원은 기본으로 꺼져 있고, `HelmChartConfig`로 `providers.kubernetesGateway.enabled`를 켠다([k3s networking 문서](https://docs.k3s.io/networking/networking-services)). Spring Cloud Gateway의 Redis rate limiter는 Stripe 방식의 token bucket이고 `spring-boot-starter-data-redis-reactive`가 필요하다. 기본 `KeyResolver`는 `Principal` 이름을 쓰고, key가 없으면 요청을 거절한다([Spring Cloud Gateway 문서](https://docs.spring.io/spring-cloud-gateway/reference/spring-cloud-gateway-server-webflux/gatewayfilter-factories/requestratelimiter-factory.html)). 이 프로젝트는 session을 앱이 해석하므로, Gateway에서는 principal을 알 수 없다. 그래서 어느 후보든 rate limit key는 client IP나 session 쿠키 값으로 둔다.
+근거: [Envoy Gateway JWT Authentication](https://gateway.envoyproxy.io/docs/tasks/security/jwt-authentication/), [Traefik JWT middleware(Hub 전용)](https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/jwt/), [Spring Cloud Gateway 문서](https://docs.spring.io/spring-cloud-gateway/reference/).
 
-참고로 Kubernetes 커뮤니티의 Ingress NGINX controller는 2026년 3월에 은퇴해 더는 보안 수정이 나오지 않는다. 공식 안내는 Gateway API나 다른 controller로 옮기라는 것이다([Kubernetes blog](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/)). 이 프로젝트의 edge nginx는 Ingress controller가 아니라 일반 nginx라 이 은퇴의 영향은 없다. 다만 cluster 안 routing을 새로 만들 때 Ingress NGINX를 고르지 않는 근거가 된다.
+판단: **Envoy Gateway를 쓴다.** 새 JVM 없이 TLS·routing·JWT 검증·internal 차단을 한곳에서 맡고, route와 정책이 `k8s/` manifest 안의 `HTTPRoute`·`SecurityPolicy`로 앱과 같은 PR에서 관리된다.
 
-#### 판단
-
-**Gateway API + k3s 내장 Traefik을 권고**한다.
-- 새 component나 JVM 없이 위 책임을 모두 맡을 수 있다.
-- route가 `k8s/` manifest 안의 `HTTPRoute`로 들어가므로 앱과 같은 PR·배포로 관리된다.
-- 모듈을 떼어 낼 때 backend만 바꾸는 seam도 `HTTPRoute`로 충분하다.
-
-다음이 실제로 필요해질 때 Spring Cloud Gateway를 다시 검토한다. 그때는 3장 자원 예산에서 JVM 하나 몫을 먼저 확보한다.
-- 분리된 모듈 service 앞에서 Java filter로 응답을 조합하거나 변환해야 할 때
-- route별 circuit breaker·retry를 코드로 시험해야 할 때
-
-구성 순서: edge nginx(TLS, 도메인) → Traefik Gateway(`hapbang-prod`·`hapbang-dev`의 `HTTPRoute`) → 모듈 앱별 Service. 정적 web도 같은 Gateway의 `/` route로 보낸다. 큰 본문 업로드 경로는 Traefik이 본문을 buffering하거나 크기를 제한하지 않는지 spike로 확인한다. edge nginx의 2GB 허용 설정과 동작이 같아야 한다.
+참고로 Kubernetes 커뮤니티의 Ingress NGINX controller는 2026년 3월에 은퇴해 더는 보안 수정이 나오지 않는다([Kubernetes blog](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/)). cluster 안 routing을 Ingress가 아니라 Gateway API로 만드는 근거다.
 
 #### 완료 증거
 
-- `HTTPRoute` 하나의 backend만 바꿔 특정 모듈 경로를 다른 Service로 보내도 프론트 요청과 session이 그대로 동작한다.
-- rate limit 한도를 넘긴 k6 요청이 429로 거절되고, 선택한 관측성 UI에 route별 요청·거절 수가 나온다.
+- `HTTPRoute` 하나의 backend만 바꿔 특정 모듈 경로를 다른 Service로 보내도 프론트 요청과 로그인이 그대로 동작한다.
+- 만료·위조 토큰은 401이고, 토큰 없는 요청은 통과한다. 외부에서 보낸 `X-User-Id`는 앱에 닿지 않는다.
 - 외부에서 `/api/v1/internal/**`를 호출하면 앱에 닿지 않는다.
-- STOMP WebSocket이 Gateway를 거쳐 연결되고, rolling update 때 재연결된다.
-- Gateway가 시작한 trace가 Tempo에서 앱 transaction과 Kafka publish까지 이어진다.
+- 2GB 업로드가 끝까지 성공한다.
+- STOMP WebSocket이 Envoy를 거쳐 연결되고, CONNECT에서 토큰이 검증되며, rolling update 때 재연결된다.
+- rate limit 한도를 넘긴 k6 요청이 앱에서 429로 거절되고, 선택한 관측성 UI에 거절 수가 나온다.
+- cert-manager가 인증서를 자동으로 갱신한다.
+- Envoy가 시작한 trace가 Tempo에서 앱 transaction과 Kafka publish까지 이어진다.
 
 ### workload 구성
 
-- 모듈 앱 6개(`member-app`, `billing-app`, `appearance-app`, `lecture-app`, `chat-app`, `customer-support-app`): 앱마다 Deployment 1개, replica 1개. node 배치는 위 자원 예산 표를 따른다.
+- 모듈 앱 8개(`member-app`, `billing-app`, `appearance-app`, `lecture-app`, `chat-app`, `customer-support-app`, `notification-app`, `search-app`): 앱마다 Deployment 1개, replica 1개. node 배치는 위 자원 예산 표를 따른다.
+- React 정적 서버: FE 레포의 이미지를 그대로 pod로 띄운다. 이미지 안의 정적 서버도 nginx에서 static-web-server로 바꾼다(prgrms-be-adv-devcourse/beadv8_8_LMS_FE#126).
 - PostgreSQL, Kafka, Redis, Elasticsearch: StatefulSet과 large의 local-path volume. `core-data` required node affinity를 사용하며 medium으로 volume이 이동한다고 가정하지 않는다.
+- Envoy Gateway: proxy는 large, controller는 medium. cert-manager와 ECK operator는 medium.
 - observability stack: `hapbang-platform` namespace에서 prod를 관측한다. 로컬·PR k3d 결과는 테스트 artifact로 남긴다.
 
-replica가 1개라서 rolling update는 새 pod가 ready가 된 뒤 기존 pod를 내리는 `maxSurge: 1`, `maxUnavailable: 0`으로 한다. node가 멈추면 그 node의 앱은 node가 다시 뜰 때까지 멈춘다. 앱별 replica를 늘리는 것은 시연할 때만 하고, 그 전에 node 여유를 확인한다.
+replica가 1개라서 large의 앱은 새 pod가 ready가 된 뒤 기존 pod를 내리는 `maxSurge: 1`, `maxUnavailable: 0`으로 배포한다. medium의 앱은 surge 여유가 없어 `maxUnavailable: 1`로 배포하고 잠깐 멈추는 것을 허용한다. node가 멈추면 그 node의 앱은 node가 다시 뜰 때까지 멈춘다. 앱별 replica를 늘리는 것은 시연할 때만 하고, 그 전에 node 여유를 확인한다.
 
-### manifest 관리 — Kustomize
+### manifest 관리 — Kustomize와 Helm
 
-Helm은 쓰지 않는다. manifest는 레포의 `k8s/` 아래에 평문 YAML로 두고, kubectl에 내장된 Kustomize로 환경별 차이만 덮어쓴다(`kubectl apply -k`). 별도 도구와 template 문법이 없고, 배포되는 YAML이 레포에 그대로 보인다.
+우리가 만든 앱과 직접 쓰는 workload는 레포의 `k8s/` 아래에 평문 YAML로 두고 Kustomize로 환경별 차이만 덮어쓴다(`kubectl apply -k`). 잘 관리되는 공식·준공식 차트가 있는 component만 Helm으로 설치한다. Helm CLI는 쓰지 않고, k3s 내장 helm-controller의 `HelmChart` resource(`valuesContent`)를 manifest로 커밋한다.
 
 ```text
 k8s/
-  base/          모듈 앱 6개, Gateway route, NetworkPolicy, 공용 platform(Kafka·Redis·ES·관측 stack)
-  overlays/
-    local/       k3d: replica·resource 축소, topology spread
-    dev/         로컬·PR k3d 검증용. EC2 상시 배치는 기본 범위 밖
-    prod/        EC2 k3s prod namespace
+  cluster/       namespace, HelmChart(Envoy Gateway·cert-manager·ECK operator), GatewayClass·Gateway, ClusterIssuer
+  components/    Kustomize Component: core-data required affinity, app-observe 배치 같은 공통 patch
+  platform/      hapbang-platform: Kafka·Redis(직접 manifest), Elasticsearch(ECK CR), 관측성(HelmChart)
+    base/
+    overlays/    local(k3d), prod
+  apps/          hapbang-prod: 모듈 앱 8개, React, PostgreSQL(HelmChart), HTTPRoute, SecurityPolicy, NetworkPolicy
+    base/
+    overlays/    local(k3d), prod
 ```
 
-base에 둘 것:
-- Deployment, Service, Gateway API `HTTPRoute`(모듈 경로별), Traefik middleware(rate limit)
+CI 자동 배포는 `k8s/apps/overlays/prod`만 적용한다. `cluster/`와 `platform/`은 자주 바뀌지 않고 잘못 건드리면 데이터가 위험하므로 수동으로만 적용한다. 그래서 앱 롤백이 stateful workload를 건드리지 않는다.
+
+| 대상 | 설치 방식 | 이유 |
+| --- | --- | --- |
+| Envoy Gateway | 공식 Helm 차트 | Envoy 프로젝트가 직접 관리한다 |
+| cert-manager | 공식 Helm 차트 | CNCF Graduated |
+| Elasticsearch | ECK operator(Elastic 공식 Helm 차트) + Elasticsearch CR | ES 9.x를 지원하면서 관리가 이어지는 유일한 경로다. 예전 `elastic/helm-charts`는 2023년에 보관(archived)됐고 9.x 차트가 없다. nori는 커스텀 이미지를 `spec.image`로 지정한다. ECK의 ES 기본 메모리 2Gi는 1.5Gi로, operator limit 1Gi는 256Mi로 낮춘다. ECK 자체는 Elastic License 2.0이며 자체 운영에는 제한이 없다 |
+| PostgreSQL | CloudPirates `postgres` 차트 | 공식 `postgres` 이미지를 쓰는 일반 차트다. CloudNativePG(CNCF)는 instance가 1개라 failover를 쓸 수 없고 S3 백업도 범위 밖이라 operator 비용만 남는다 |
+| 관측성 | Grafana·prometheus-community 공식 차트 | 설정이 복잡해 차트의 이득이 크다 |
+| Kafka | StatefulSet 직접 작성(`apache/kafka`, single-node KRaft) | Apache 공식 차트가 없다. Strimzi operator는 기본 384Mi를 상시로 쓴다 |
+| Redis | StatefulSet 직접 작성(`redis:8`, AOF + PVC) | Redis Ltd의 OSS용 공식 차트가 없다. OT redis-operator는 기본 500Mi로 Redis 예산(64 MiB)보다 크다 |
+
+Bitnami 차트는 쓰지 않는다. 2025년 8월부터 버전별 무료 이미지가 `bitnamilegacy`로 옮겨져 보안 패치가 나오지 않는다. 모든 차트는 버전을 고정하고 resource·node affinity·retention을 values에 적는다.
+
+apps base에 둘 것:
+- Deployment, Service, `HTTPRoute`(모듈 경로별), `SecurityPolicy`
 - startup/readiness/liveness probe, resource request/limit
-- ConfigMap. Secret은 커밋하지 않고 서버에서 만든다
-- PodDisruptionBudget, graceful shutdown
-- NetworkPolicy(metadata endpoint 접근 제한 포함). k3s 내장 network policy controller로 동작하는지 확인한다
+- ConfigMap. Secret(JWT 개인 키, DB 계정, 내부 API key)은 커밋하지 않고 서버에서 만든다
+- graceful shutdown(4장)
+- NetworkPolicy: 앱의 외부 API 포트는 Envoy만, 내부 API는 앱끼리만, metadata endpoint는 S3를 쓰는 앱만. k3s 내장 network policy controller로 동작하는지 확인한다
 - migration Job 또는 단일 migration 실행 전략
-- 앱별 Kafka·Redis·PostgreSQL·ES endpoint 주입
+- 앱별 Kafka·Redis·PostgreSQL·ES endpoint와 member-app JWKS 주소 주입
 
-overlay에서 바꿀 것: image tag(`kustomize edit set image`), replica 수, resource limit, namespace, 환경별 ConfigMap 값. 앱별 node 배치(node affinity)는 prod와 multi-node local overlay에 적용한다.
+overlay에서 바꿀 것: image tag(`kustomize edit set image`), resource limit, 환경별 ConfigMap 값. local overlay는 k3d 단일 node라 node affinity를 뺀다.
 
-Helm을 빼면 Kafka, Redis, Elasticsearch, Prometheus, Loki, Tempo, Grafana도 공식 chart 대신 StatefulSet·Deployment manifest를 직접 쓴다. 손이 더 가지만, 설정 하나하나가 메모리 예산과 보존 한도에 직접 묶여 있어 직접 쓰는 편이 예산 관리에는 오히려 낫다. k3s 내장 Traefik 설정만은 k3s가 제공하는 `HelmChartConfig` manifest로 바꾼다. 이것은 k3s의 내장 controller가 처리하므로 Helm CLI가 필요하지 않다.
-
-배포와 롤백도 kubectl로 한다.
-1. `kubectl apply -k k8s/overlays/<env>`
+배포와 롤백은 kubectl로 한다.
+1. `kubectl apply -k k8s/apps/overlays/prod`
 2. `kubectl rollout status --timeout`으로 새 pod가 준비되기를 기다린다.
 3. 실패하면 `kubectl rollout undo`로 Deployment를 직전 revision으로 되돌리고 배포를 실패로 표시한다.
 
-Helm의 `--atomic` 같은 release 단위 롤백은 없다. 그래서 ConfigMap 변경은 이름에 hash가 붙는 Kustomize `configMapGenerator`로 만든다. 그러면 `rollout undo`가 이전 ConfigMap까지 함께 되돌린다.
+Kustomize로 관리하는 앱에는 release 단위 롤백이 없다. 그래서 ConfigMap 변경은 이름에 hash가 붙는 `configMapGenerator`로 만든다. 그러면 `rollout undo`가 이전 ConfigMap까지 함께 되돌린다.
 
 ### CI 검증
 
-- `kubectl kustomize`로 overlay별 rendering
-- kubeconform 같은 schema validation
-- PR: k3d cluster 생성 → `kubectl apply -k overlays/local` → migration → smoke/E2E → cluster 삭제
-- PR: 모듈 앱 사이 session 공유·WebSocket·Kafka·Redis 흐름 검증
-- dev 병합: 현재 Compose 자동 배포는 전환 완료 전까지 유지하고, k3s manifest는 PR k3d에서 검증
-- prod k3s: 승인된 main image를 `kubectl apply -k` → `rollout status` → 실패 시 `rollout undo`
+- 지금(#363 이후): 필수 체크 `verify` job 하나가 `verifyModuleStructure` → 앱별 `check bootJar` → 앱별 이미지 빌드(push 안 함)를 실행한다. matrix 전환은 앱별 이미지 발행(#374)과 함께 판단한다.
+- 배포: #363부터 `deploy.yml`의 자동 trigger가 꺼져 있다. 앱별 이미지 발행과 prod 배포는 #374에서 다시 작성한다.
+- manifest: `kubectl kustomize`로 overlay별 rendering, kubeconform 같은 schema validation
+- PR: k3d cluster 생성 → `kubectl apply -k k8s/apps/overlays/local` → migration → smoke/E2E → cluster 삭제
+- PR: 앱 사이 JWT 헤더 인증·WebSocket·Kafka·Redis 흐름 검증
+- prod k3s: 수동 dispatch로 승인된 main image를 `kubectl apply -k` → `rollout status` → 실패 시 `rollout undo`
 - EC2: rolling update 중 HTTP 요청과 WebSocket 재연결 결과 기록
 - EC2: 자원 사용량(`kubectl top`)이 예산 안인지 배포 후 기록
 
@@ -514,7 +551,7 @@ graceful shutdown은 단순히 HTTP 요청을 기다리는 option이 아니다. 
 
 ### 종료 계약과 순서
 
-`DrainCoordinator`를 종료 순서를 소유하는 깊은 module로 두고 종료 동작을 여러 listener에 흩뿌리지 않는다. interface는 `drain(deadline)` 하나이며 내부에서 Web, Kafka, Redis용 drain adapter를 정해진 순서로 호출한다. 상태는 `ACCEPTING → DRAINING → STOPPED`이며 중복 호출해도 같은 결과인 idempotent operation이다. Kubernetes `preStop`은 localhost의 내부 drain endpoint를 호출하고 짧게 endpoint 전파를 기다린다. endpoint는 `/api/v1/internal/operations/drain`으로 두고 loopback과 내부 key로 제한하며 외부 Ingress에는 노출하지 않는다.
+`DrainCoordinator`를 종료 순서를 소유하는 깊은 module로 두고 종료 동작을 여러 listener에 흩뿌리지 않는다. interface는 `drain(deadline)` 하나이며 내부에서 Web, Kafka, Redis용 drain adapter를 정해진 순서로 호출한다. 상태는 `ACCEPTING → DRAINING → STOPPED`이며 중복 호출해도 같은 결과인 idempotent operation이다. Kubernetes `preStop`은 localhost의 내부 drain endpoint를 호출하고 짧게 endpoint 전파를 기다린다. endpoint는 `/api/v1/internal/operations/drain`으로 두고 loopback과 내부 key로 제한하며 Envoy에는 route를 만들지 않는다.
 
 종료 순서는 다음으로 고정한다.
 
@@ -606,7 +643,7 @@ EC2에서 부하 test를 할 때는 다음을 지킨다.
 
 - k6는 EC2 밖(개발 PC나 GitHub Actions runner)에서 실행한다. 같은 host에서 k6를 돌리면 부하 생성기가 2 vCPU를 나눠 써서 측정값이 왜곡된다.
 - t3 standard credit 모드에서는 credit이 바닥나면 CPU가 기준선으로 제한된다. 각 실행 전후의 CloudWatch `CPUCreditBalance`를 결과와 함께 기록한다. credit 소진 구간의 p95는 코드 성능이 아니라 instance 제한으로 해석한다.
-- prod와 dev가 같은 host를 쓰므로 부하 test는 dev namespace를 대상으로, 팀이 서버를 쓰지 않는 시간대에 하고 미리 공지한다. 결과에는 그 시간 prod pod의 자원 사용량도 함께 남긴다.
+- EC2에는 prod만 있으므로 부하 test는 prod를 대상으로, 팀이 서버를 쓰지 않는 시간대에 하고 미리 공지한다. 결과에는 그 시간 node별 자원 사용량도 함께 남긴다. 반복 실험은 로컬 k3d에서 먼저 한다.
 - 위 초기 목표(100 RPS 10분 등)가 2노드에서 유지되지 않으면 목표를 낮추는 것이 아니라 node별 CPU credit, DB connection, GC 병목을 JFR과 dashboard로 설명하는 것을 결과물로 삼는다.
 
 ## 6. SonarQube Cloud — CI 품질 gate
@@ -737,7 +774,12 @@ Chroma, Weaviate, Milvus도 Spring AI가 지원한다. 그러나 Qdrant와 같�
 
 ### Kafka schema와 API/event contract
 
-schema registry 서버(Apicurio, Confluent 등)는 **두지 않는다.** producer와 consumer가 같은 monolith 이미지로 함께 배포되므로, 서로 다른 version이 runtime에 섞이는 문제는 rolling update 순간에만 생긴다. 그 짧은 구간은 아래 호환성 규칙과 consumer 멱등 처리로 다룬다. runtime registry가 막아 주는 문제가 없는데 서버와 운영 부담만 늘어난다.
+schema registry 서버(Apicurio, Confluent 등)는 **두지 않는다.** 앱이 따로 배포되므로(#363) version이 다른 producer와 consumer가 꽤 오래 함께 돌 수 있다. 예를 들어 billing-app만 먼저 배포된 경우다. 이 문제는 runtime registry 대신 아래 두 가지로 막는다.
+
+- 레포 schema 파일과 CI 호환성 검사가 breaking 변경을 PR 단계에서 막는다.
+- **배포 순서 규칙**: `eventVersion`을 올리는 변경은 consumer 앱(upcaster 포함)을 먼저 배포하고, 그 뒤에 producer 앱을 배포한다.
+
+registry 서버는 메모리 예산(3장)에 들어가지 않고, 위 두 가지가 막지 못하는 문제가 아직 없다.
 
 대신 schema를 **레포의 파일**로 관리하고 **CI에서 호환성을 검사**한다.
 
@@ -754,7 +796,7 @@ schema registry 서버(Apicurio, Confluent 등)는 **두지 않는다.** produce
 
 CI는 생성된 OpenAPI를 `dev` 기준 spec과 비교하고 backward-incompatible 변경이면 실패시킨다. `openapi-diff`는 `--fail-on-incompatible` 검사를 제공한다([공식 저장소](https://github.com/OpenAPITools/openapi-diff)). schema 변경 PR에서는 old producer/new consumer와 new producer/old consumer contract test도 실행한다.
 
-registry는 알림이나 검색을 **별도 service로 떼어 내 따로 배포**하게 될 때 다시 검토한다. 그때는 version이 다른 producer와 consumer가 runtime에 오래 공존하기 때문이다. 이 경우 broker를 schema registry가 내장된 Redpanda로 바꾸는 방안도 함께 비교한다(1장).
+registry는 배포 순서 규칙을 지킬 수 없게 될 때 다시 검토한다. 예를 들어 같은 event를 소비하는 앱이 많아져 순서를 맞추기 어려워질 때다. 이 경우 broker를 schema registry가 내장된 Redpanda로 바꾸는 방안도 함께 비교한다(1장).
 
 ### JFR + JDK Mission Control
 
@@ -798,12 +840,12 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 ### 지금 넣지 않는 것
 
 - **Debezium**: 현재 Spring Modulith publication/outbox externalization과 같은 DB→Kafka 전달 책임을 하나 더 만든다. CDC 자체를 비교하는 별도 실험이 아니라면 제외한다.
-- **Spring Cloud Gateway 상시 운영**: Gateway 책임은 Gateway API + Traefik이 맡는다. JVM을 하나 더 두는 것은 3장 "API Gateway"의 재검토 조건이 생기고 자원 예산을 확보한 뒤에 한다.
-- **Ingress NGINX controller**: 2026년 3월에 은퇴해 보안 수정이 나오지 않는다. cluster 안 routing은 Gateway API로 만든다.
+- **Spring Cloud Gateway, k3s 내장 Traefik**: Gateway 책임은 Envoy Gateway가 맡는다(3장 "API Gateway").
+- **nginx(edge nginx, Ingress NGINX controller)**: 진입점은 Envoy Gateway 하나다. Ingress NGINX controller는 2026년 3월에 은퇴해 보안 수정도 나오지 않는다.
 - **Prometheus 장기 저장 + Mimir 장기 저장, Elastic Observability 추가**: 같은 telemetry signal의 backend를 두 벌 운영하지 않는다.
 - **Pyroscope**: 이 포트폴리오에서는 JFR/JMC가 JVM code-level profiling 증거를 담당한다. 별도 continuous-profile backend까지 더하지 않는다.
 - **JConsole·VisualVM 상시 운영**: 필요할 때 로컬에서 쓰는 수동 도구일 뿐 배포 component나 포트폴리오 증거 pipeline으로 만들지 않는다.
-- **Helm**: 쓰지 않는다. 환경별 차이는 Kustomize overlay로 충분하고, Kafka·ES·관측 stack도 메모리 예산에 맞춰 manifest를 직접 쓴다.
+- **Bitnami 차트와 추가 operator**(Strimzi, CloudNativePG, redis-operator): Bitnami는 무료 이미지에 보안 패치가 없고, operator는 상시 메모리를 쓰는데 instance 1개 구성에서 얻는 것이 적다. 쓰는 차트는 3장 "manifest 관리"의 표로 정한다.
 - **Terraform Kubernetes provider**: in-cluster resource는 `k8s/` manifest가 소유한다.
 - **service mesh, Vault, 다중 Kubernetes cluster**: 현재 시연할 통신·secret rotation·multi-cluster 문제가 없어 stack 수만 늘어난다.
 - **AWS 관리형 대체**(EKS, RDS, ElastiCache, MSK, ELB·ACM, ECR, Amazon Managed Prometheus·Grafana, OpenSearch Service, Bedrock): AGENTS.md 8장의 EC2 2대·VPC 1개·S3 1개 범위를 넘는다. "실운영이라면 무엇으로 바꿀지"는 11장과 포트폴리오 ADR로만 남긴다.
@@ -826,11 +868,11 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 
 | 항목 | 내용 |
 | --- | --- |
-| 모듈·schema | Gradle 모듈 `:notification`, DB schema `notification`. 다른 모듈은 `shared`의 이벤트 계약만 공유한다 |
+| 앱·database | `notification-app`, database `notification`. 다른 앱은 `common/shared`의 이벤트 계약만 공유한다 |
 | API | `/api/v1/notifications`: 목록(cursor), 읽지 않은 수, 읽음 처리, 전체 읽음 |
 | 입력 | 각 모듈의 integration event (1장 Kafka). 알림 모듈이 모든 이벤트를 구독하고, 발행하는 모듈은 알림의 존재를 모른다 |
 | 저장 | 받는 사람별 알림 행(종류, 참조 ID, 본문에 필요한 값, 읽은 시각, 만든 시각). 원본 이벤트의 `eventId`와 받는 사람으로 유일 인덱스를 두어 중복 소비를 흡수한다 |
-| 실시간 전달 | 저장이 commit된 뒤 Redis Pub/Sub으로 각 app replica에 fan-out하고, 그 replica의 WebSocket session에 보낸다. 2장 채팅과 같은 `RealtimeFanout` seam을 쓰되 destination은 알림 전용(`/user/queue/notifications`)이다 |
+| 실시간 전달 | 저장이 commit된 뒤 Redis Pub/Sub으로 발행하고, 사용자의 WebSocket session을 가진 앱이 받아 보낸다. 2장 채팅과 같은 `RealtimeFanout` seam을 쓰되 destination은 알림 전용(`/user/queue/notifications`)이다. 어느 앱이 알림용 WebSocket을 받을지는 아래 "결정 필요" |
 | 복구 | 실시간 전달은 유실될 수 있다. 재접속 때 마지막으로 받은 알림 ID 이후를 REST로 다시 읽는다. PostgreSQL 알림 행이 진실의 원천이다 |
 | 회원 정보 | 받는 사람의 상태(정지·탈퇴)와 닉네임은 회원 이벤트로 만든 복제본에서 읽는다. 다른 모듈처럼 가입 이벤트로만 만들고 변경 이벤트로 갱신한다 |
 | 보존 | 읽은 알림의 보존 기간은 기획서에 없다. 정하기 전에는 지우지 않는다. 지우게 되더라도 Soft Delete 규칙을 따른다 |
@@ -859,22 +901,20 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 
 ### 배포 단위
 
-먼저 **같은 이미지 안의 모듈**로 분리한다. 모듈 경계(자기 schema, 이벤트로만 입력, 다른 모듈 Repository 미사용)를 지키면 나중에 떼어 내는 비용은 Gateway route 하나와 Kafka consumer group 이동으로 끝난다.
-
-알림은 이벤트만 받고 다른 모듈을 동기 호출하지 않는다. 그래서 별도 service로 떼어 내기 가장 쉬운 후보다. 포트폴리오에서 "첫 번째로 분리한 service"를 보여 주려면 알림이 맞다. 다만 별도 Deployment는 JVM 하나를 더 띄우므로 medium의 모듈 앱·Grafana 관측성 stack과 메모리를 경쟁한다. 분리 전 3장의 node별 예산에 512 MiB pod와 rolling surge를 추가하고, 여유가 없으면 시연할 때만 scale out한다.
+처음부터 **별도 앱 `notification-app`**으로 만든다(앱 1개 = bounded context 1개). 알림은 이벤트만 받고 다른 앱을 동기 호출하지 않으므로 독립 배포가 가장 쉽다. 3장 예산에서 medium의 앱(384 MiB)으로 잡았고, chat-app과 같은 node에 둔다. 메모리가 모자라면 시연할 때만 띄운다.
 
 ### 결정 필요
 
 - AGENTS.md 3장 모듈 표에서 채팅의 책임이 "1:1 대화, 알림, 차단"이다. 알림을 떼어 내려면 이 표를 바꾸는 팀 합의가 필요하다.
 - 알림 종류(위 후보), 읽은 알림 보존 기간, 일반 유저도 알림을 받는지(현재는 못 받음), 이메일 등 앱 밖 채널 여부
-- 같은 이미지 안의 모듈로 둘지, 처음부터 별도 Deployment로 띄울지
+- 알림용 WebSocket을 어느 앱이 받을지: chat-app의 연결을 재사용해 chat-app이 Redis Pub/Sub 알림을 전달할지, notification-app이 자체 STOMP endpoint를 둘지(프론트 연결이 2개가 됨)
 
 ### 완료 증거
 
 - 일반 유저 계정이 강의 구매 확정·충전 완료 알림을 받는다.
 - 같은 integration event를 두 번 소비해도 알림은 한 번만 생긴다.
-- app replica 2개 중 어느 쪽에 연결되어 있어도 실시간 알림이 도착한다. 실시간 전달을 일부러 유실시켜도 재접속 후 목록이 같다.
-- 알림 모듈을 끈 동안 쌓인 이벤트가 재시작 후 consumer lag가 줄면서 모두 알림이 된다.
+- 실시간 알림이 WebSocket으로 도착한다. 실시간 전달을 일부러 유실시켜도 재접속 후 목록이 같다.
+- notification-app을 끈 동안 쌓인 이벤트가 재시작 후 consumer lag가 줄면서 모두 알림이 된다.
 - 채팅 모듈에 다른 모듈의 이벤트 listener가 남지 않는다.
 
 ## 9. 검색(search) 모듈과 Elasticsearch (#234)
@@ -894,7 +934,7 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 
 | 항목 | 내용 |
 | --- | --- |
-| 모듈 | Gradle 모듈 `:search`. `search`는 통합 검색 index만 소유한다. 고객센터는 RAG index를 직접 소유하며, 두 모듈은 물리 cluster와 공통 client 설정만 공유한다 |
+| 앱 | `search-app`, database `search`. `search`는 통합 검색 index만 소유한다. 고객센터(`customer-support-app`)는 RAG index를 직접 소유하며, 두 앱은 물리 cluster만 공유한다 |
 | 입력 | 1장 Kafka의 integration event. 강의 등록·수정·삭제·판매 상태 변경, 모집글 등록·수정·마감, 인플루언서 프로필 변경 등. 발행하는 모듈은 검색의 존재를 모른다 |
 | 진실의 원천 | 각 모듈의 PostgreSQL. ES index는 언제든 원본에서 다시 만들 수 있는 projection이다 |
 | API | `GET /api/v1/search?type=LECTURE\|RECRUIT\|INFLUENCER&keyword=...`(통합 검색, 페이지). 자동완성·추천은 범위 밖 |
@@ -916,11 +956,11 @@ nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https:/
 
 ### 운영
 
-- **배치**: `hapbang-platform` namespace의 StatefulSet, 단일 노드(`discovery.type=single-node`), replica shard 0. 단일 node라 HA는 없다고 README에 적는다.
-- **메모리**: 3장 예산대로 컨테이너 제한 1 GiB(heap 512 MiB), 최소 768 MiB.
+- **배치**: `hapbang-platform` namespace에 ECK의 Elasticsearch CR로 만든다. node 1개(`nodeSets[].count: 1`), replica shard 0. 단일 node라 HA는 없다고 README에 적는다.
+- **메모리**: 3장 예산대로 컨테이너 limit 1.5 GiB(heap은 limit의 50% 이하). ECK 기본값 2Gi를 그대로 두지 않는다. 대기 상태 측정으로는 1 GiB(heap 512 MiB)도 떴으므로 부하 측정 뒤 줄일 수 있다.
 - **host 설정**: host에 `vm.max_map_count=262144`를 설정한다(k3s 설치 때 sysctl로 고정).
-- **보안**: security를 켜 두고 앱 계정 비밀번호는 Secret으로 넣는다. 9200 port는 security group과 Gateway route에 열지 않고, NetworkPolicy로 검색 모듈 pod만 접근하게 한다.
-- **환경 분리**: prod와 dev가 같은 ES를 쓰게 되면 index 이름에 환경 prefix를 붙인다.
+- **보안**: security를 켜 두고 앱 계정 비밀번호는 Secret으로 넣는다. 9200 port는 security group과 Gateway route에 열지 않고, NetworkPolicy로 search-app과 customer-support-app pod만 접근하게 한다.
+- **환경**: EC2에는 prod만 두므로 ES도 하나다. index 이름에 환경 prefix를 붙이지 않는다.
 - **백업**: S3 snapshot은 S3 용도를 넘으므로 하지 않는다. 원본에서 다시 만들 수 있으므로 재색인 절차를 복구 수단으로 둔다.
 - **관측**: Prometheus/Grafana에서 index별 문서 수, 색인 지연, consumer lag, 검색 p95, heap·GC를 본다.
 - **조회·관리 GUI — Elasticvue**: index, mapping, 문서, analyzer 결과를 확인할 때 Elasticvue를 쓴다. 오픈소스(MIT)이고 ES 모든 version을 지원한다([Elasticvue](https://github.com/cars10/elasticvue)).
@@ -946,15 +986,15 @@ ES는 통합 검색과 고객센터 RAG의 공통 **물리 검색 플랫폼**으
 
 - "인플루언서" 등 서비스 용어가 사용자 사전대로 분석되고, 형태소 단위 검색과 relevance 정렬이 PostgreSQL `LIKE`보다 나은 결과를 golden query set으로 보인다.
 - 강의 수정 이벤트 뒤 정해 둔 시간 안에 검색 결과에 반영되고, 같은 이벤트를 두 번 받아도 문서가 하나다.
-- 검색 모듈을 멈춘 동안 쌓인 이벤트가 재시작 후 반영되고, consumer lag가 0으로 돌아온다.
+- search-app을 멈춘 동안 쌓인 이벤트가 재시작 후 반영되고, consumer lag가 0으로 돌아온다.
 - mapping 변경 재색인을 alias 교체로 하는 동안 검색 API가 끊기지 않는다.
 - ES를 지우고 다시 만들어도 초기 적재만으로 같은 문서 수가 된다.
 
 ## 10. 모듈별 database 분리
 
-모듈마다 database를 나누는 것은 확정이다. 이 장은 **instance까지 나눌지**를 판단하고, 분리에 따라 바뀌는 것을 정리한다.
+모듈마다 database를 나누는 것은 확정이다(AGENTS.md 3장, #338). #363은 중간 단계로 database 하나에 앱별 스키마를 나눴다(`docs/architecture/app-modules.md`). 스키마는 권한을 걸어야 JOIN이 막히지만 database는 connection 자체가 다른 database에 붙지 못하므로, 목표는 database 분리로 유지하고 #338에서 스키마를 database로 옮긴다. 이 장은 **instance까지 나눌지**를 판단하고, 분리에 따라 바뀌는 것을 정리한다.
 
-### 판단: instance는 환경마다 1개, database만 모듈별로
+### 판단: instance는 1개, database만 앱별로
 
 | 기준 | instance 1개 + 모듈별 database | 모듈별 instance |
 | --- | --- | --- |
@@ -968,16 +1008,15 @@ ES는 통합 검색과 고객센터 RAG의 공통 **물리 검색 플랫폼**으
 
 근거: "It is not possible to access more than one database per connection"([PostgreSQL Managing Databases](https://www.postgresql.org/docs/current/managing-databases.html)). `shared_buffers` 기본값 128 MB([PostgreSQL Resource Consumption](https://www.postgresql.org/docs/current/runtime-config-resource.html)).
 
-모듈별 instance가 더 얻는 것은 모듈별 PITR, 독립 업그레이드, process 격리다. 모두 단일 EC2에서는 효과가 작거나 필요 없다. 그 대가는 3장 예산을 넘는 메모리다. 따라서 **환경(prod, dev)마다 instance 1개를 두고, 그 안에서 모듈마다 database를 나눈다.** 환경 사이는 instance로 나눈다. dev는 local-login이 공개되어 있으므로(#332) prod와 같은 instance에 두지 않는다.
+모듈별 instance가 더 얻는 것은 모듈별 PITR, 독립 업그레이드, process 격리다. 모두 단일 EC2에서는 효과가 작거나 필요 없다. 그 대가는 3장 예산을 넘는 메모리다. 따라서 **instance 1개를 두고, 그 안에서 앱마다 database를 나눈다.** EC2에는 prod만 두므로 instance도 하나다. 개발용 DB는 로컬과 PR k3d에서 띄운다.
 
 instance를 나누는 시점은 모듈을 별도 service로 떼어 내 따로 배포하거나, 관리형 DB(RDS 등)로 옮길 때다(11장).
 
 ### database 목록
 
-| database | 소유 모듈 | 내용 |
+| database | 소유 앱 | 내용 |
 | --- | --- | --- |
-| `platform` | 공통 | Spring Session |
-| `member` | 회원 | 회원, 역할, 채널 인증 |
+| `member` | 회원 | 회원, 역할, 채널 인증, refresh token |
 | `appearance` | 출연 | 출연 요청·모집, 회원 복제본 |
 | `lecture` | 강의 | 강의, 장바구니, 주문, 리뷰, 회원 복제본 |
 | `billing` | 지갑·정산 | 지갑, 원장, 보류, 지급, 환전 |
@@ -985,6 +1024,8 @@ instance를 나누는 시점은 모듈을 별도 service로 떼어 내 따로 �
 | `customersupport` | 고객센터 | 공지, FAQ, 문의, RAG 색인 작업·재처리 상태(검색 문서는 고객센터 소유 ES index) |
 | `notification` | 알림 | 알림, 회원 복제본, inbox |
 | `search` | 검색 | 이벤트 inbox, 색인 상태(문서는 ES) |
+
+Spring Session을 쓰지 않으므로(3장 "인증 흐름") 공용 `platform` database는 두지 않는다.
 
 ### 분리하면 바뀌는 것 (instance 결정과 무관)
 
@@ -994,26 +1035,22 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
    - 지금 강의 주문 생성은 주문 저장과 billing의 HP 보류를 한 transaction으로 처리한다(`OrderCreateUseCase` → `BillingPort.hold`).
    - database가 다르면 이 둘을 원자적으로 묶을 수 없다. 분리 전에 내부 API 전환(#271~#281)과 보상 처리(보류 실패 시 주문 취소, 주문 실패 시 보류 반환)를 끝내야 한다.
    - 출연 모듈도 `BillingPort`를 같은 방식(호출한 쪽 transaction 안)으로 부르므로 같은 작업이 필요하다.
-2. **Modulith 이벤트 저장소를 모듈별 outbox로 바꾼다.**
+2. **Modulith 이벤트 저장소는 앱마다 자기 database에 둔다.**
    - Spring Modulith의 JDBC publication registry는 `DataSource` 하나에 묶인다(`JdbcEventPublicationAutoConfiguration`, 2.1.1 소스 확인).
-   - 업무 data와 publication이 다른 database에 있으면 "업무 transaction 안에서 이벤트를 기록한다"는 outbox 보장이 깨진다.
-   - 그래서 모듈 database마다 `outbox` table을 두고 업무와 같은 transaction에서 기록한다. relay가 각 database의 outbox를 읽어 Kafka로 보낸다. 1장의 `IntegrationEventPublisher` seam 뒤에서 이 구현을 바꾼다.
-3. **`DataSource`, JPA, transaction manager가 모듈마다 생긴다.**
-   - 모듈마다 `DataSource`, `EntityManagerFactory`, `PlatformTransactionManager`를 둔다.
-   - `@Transactional`은 자기 모듈의 transaction manager를 지정한다. 모듈별 meta-annotation(예: `@LectureTransactional`)으로 감싸면 실수로 다른 모듈 transaction에 들어가는 일을 막을 수 있다.
-4. **Flyway를 database마다 실행한다.**
-   - 지금은 Flyway 하나가 모든 모듈 SQL을 읽는다. 앞으로는 모듈별 Flyway bean이 자기 migration 위치와 자기 `DataSource`만 쓴다.
-   - 버전 충돌 검사(`uniq -d`)는 모듈 안에서만 의미가 생긴다.
+   - 앱마다 database가 하나이므로 업무 data와 publication이 같은 database에 있다. "업무 transaction 안에서 이벤트를 기록한다"는 outbox 보장이 앱 안에서 그대로 지켜진다.
+   - 각 앱이 자기 registry의 publication을 Kafka로 externalization한다. 1장의 `IntegrationEventPublisher` seam 뒤에서 구현한다.
+3. **앱마다 `DataSource`와 Flyway가 하나씩이다.** 앱 하나가 database 하나에만 붙으므로 모놀리스처럼 모듈별 transaction manager를 나눌 필요가 없다. 버전 충돌 검사(`uniq -d`)는 앱 안에서만 의미가 있다.
+4. **기존 데이터와 migration 이력을 옮긴다.** 지금 운영 DB는 database 하나에 모든 모듈 table과 Flyway 이력이 있다. 앱별 database로 옮길 때 데이터와 이력을 보존하는 절차가 필요하다(#338, `docs/architecture/app-modules.md`).
 5. **connection 수를 다시 계산한다.**
-   - 모듈 앱은 자기 database와 `platform`(session)에만 pool을 연다. 총 connection은 `(앱 수 + rolling surge pod 수) × 앱이 여는 pool 수 × pool 크기`다.
-   - 앱 6개와 surge pod 1개가 pool 두 개를 5개씩 열면 이론상 70개다. `max_connections`는 계산값에 여유를 더해 정한다. connection마다 backend process 메모리가 드므로 3장 PostgreSQL 예산도 함께 다시 잰다.
-6. **test 지원을 바꾼다.** `:test-support`의 DB 정리와 Testcontainers 설정이 database 여러 개를 다루도록 바뀐다. 모듈 test는 자기 database만 띄운다.
+   - 앱은 자기 database에만 pool을 연다. 총 connection은 `(앱 수 + rolling surge pod 수) × pool 크기`다.
+   - 앱 8개와 surge pod 1개가 pool을 5개씩 열면 이론상 45개다. `max_connections`는 계산값에 여유를 더해 정한다. connection마다 backend process 메모리가 드므로 3장 PostgreSQL 예산도 함께 다시 잰다.
+6. **test 지원을 바꾼다.** 앱 test는 자기 database만 띄운다. `common/test-support`의 DB 정리와 Testcontainers 설정이 이에 맞는지 확인한다.
 
 ### 진행 순서
 
 1. 모듈을 넘는 동기 호출을 내부 API와 보상 처리로 바꾼다(#271~#281).
-2. 모듈별 outbox와 relay를 `IntegrationEventPublisher` 뒤에 만든다(Kafka 도입과 함께).
-3. 모듈별 `DataSource`·JPA·transaction manager·Flyway 설정을 만들고, schema 하나씩 database로 옮긴다. 데이터 이전은 모듈별 `pg_dump`/restore로 한다.
+2. 앱별 publication externalization을 `IntegrationEventPublisher` 뒤에 만든다(Kafka 도입과 함께, #339).
+3. #363의 앱별 스키마를 하나씩 앱별 database로 옮긴다. 데이터 이전은 `pg_dump`/restore로 하고 Flyway 이력을 보존한다(#338).
 4. connection 수와 PostgreSQL 메모리를 재측정한다(실행 전 허락).
 
 ### 완료 증거
@@ -1037,7 +1074,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 지금 넣지 않는 이유:
 - 현재 2노드는 node별 역할과 메모리 상한이 고정돼 있어 lag에 따라 pod를 늘릴 여유가 작다(3장).
-- Kafka consumer가 monolith 앱 안에 있어 lag 때문에 앱 전체를 늘리게 된다. 이것은 잘못된 확장이다.
+- Kafka consumer가 web과 같은 앱 프로세스 안에 있어 lag 때문에 HTTP를 받는 앱 전체를 늘리게 된다. 이것은 잘못된 확장이다.
 
 실서비스에서 도입할 조건:
 - 알림·검색 consumer처럼 lag가 쌓이는 처리가 **web과 분리된 worker workload**로 떨어져 있다.
@@ -1064,8 +1101,8 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 1. 현재 schema·transaction·모듈 간 동기 호출을 inventory하고 database 소유권 확정
 2. 모듈을 넘는 동기 변경을 내부 HTTP interface와 보상 처리로 전환
-3. 업무와 같은 database transaction에 기록되는 모듈별 outbox 설계
-4. 모듈별 DataSource·JPA·transaction manager·Flyway와 최소 권한 계정 구성
+3. 앱별 publication registry가 업무와 같은 database transaction에 기록되는지 확인
+4. #363의 앱별 스키마를 앱별 database로 옮기고 최소 권한 계정 구성(#338)
 5. Testcontainers에 동일 database·계정 구조를 만들고 cross-database 접근 차단 test
 6. schema별 `pg_dump`/restore, HP 원장 합계·row count·미처리 event 검증
 
@@ -1083,13 +1120,13 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 2. Redis Streams consumer group, ACK/pending/claim/failed stream
 3. Redis Pub/Sub fan-out과 재접속 history sync
 4. 장애·중복·순서 테스트
-5. `:notification` 모듈과 database, 알림 API, integration event 소비와 `eventId` 멱등 처리
+5. `notification-app`과 database, 알림 API, integration event 소비와 `eventId` 멱등 처리
 6. 알림 실시간 전달과 재접속 복구, 채팅의 출연 알림 listener 제거
 
 ### Phase 5 — 검색(ES)과 고객센터 RAG
 
 1. 공개 FAQ·공지·정책 corpus와 답변 거절 기준 확정
-2. nori와 사용자 사전을 넣은 Elasticsearch image, `:search` 모듈, 색인 이벤트 소비
+2. nori와 사용자 사전을 넣은 Elasticsearch image, `search-app`, 색인 이벤트 소비
 3. `search`와 `customersupport`의 index pattern·role/API key·alias 소유권 분리
 4. Spring AI `ElasticsearchVectorStore` ETL과 native client 기반 BM25 + dense vector + RRF retriever 구현
 5. 초기 적재, 멱등 재색인, 게시 취소 반영, alias 교체, 원본·index 수 비교 job
@@ -1113,13 +1150,14 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 ### Phase 8 — EC2 k3s 전환과 현행 AWS IaC
 
-1. `k8s/` Kustomize base·overlay와 로컬 k3d bootstrap, PR CI smoke/E2E
-2. 모듈 앱 6개 Deployment(앱마다 replica 1개)와 probe·resource limit·migration·drain 설정
-3. EC2에 k3s 설치 후 dev namespace부터 전환하고 Compose upstream으로 rollback 가능하게 유지
-4. 모듈별 `HTTPRoute`, rate limit, 내부 API 차단, 큰 본문 업로드 검증
-5. rolling update, pod 강제 종료, EC2 자동 중지·재시작과 자원 사용량 기록
-6. prod 전환 후 Compose와 기존 배포 script 제거
-7. 실제 EC2·EIP·network·security group·S3·IAM을 Terraform으로 import하고 zero-change plan 검증
+1. JWT 인증 전환: member-app 발급·refresh·JWKS(#370), 앱 공용 헤더 인증 필터와 chat STOMP 검증(#371)
+2. `k8s/` 구조(cluster·components·platform·apps)와 Helm 차트, 로컬 k3d bootstrap, PR CI smoke/E2E(#373)
+3. 모듈 앱 8개 Deployment(앱마다 replica 1개)와 probe·resource limit·migration·drain 설정
+4. Envoy Gateway·cert-manager·ServiceLB, `HTTPRoute`·`SecurityPolicy`, 헤더 위조 차단, 내부 API 차단, 큰 본문 업로드 검증(#372)
+5. 앱별 이미지 발행과 prod 배포 workflow(#374). EC2에 k3s를 설치하고 prod만 전환한다. 전환 검증 전까지 Compose 이미지로 되돌릴 수 있게 둔다
+6. rolling update, pod 강제 종료, EC2 자동 중지·재시작과 자원 사용량 기록
+7. prod 전환 후 Compose, edge nginx, dev 서버와 기존 배포 script 제거
+8. 실제 EC2·EIP·network·security group·S3·IAM을 Terraform으로 import하고 zero-change plan 검증
 
 ### Phase 9 — 포트폴리오 증거
 

@@ -13,12 +13,12 @@
 docker build -f apps/member-app/Dockerfile apps/member-app/build/libs
 ```
 
-현재 변경은 구조·빌드·실행 기반까지다. 기존 Spring Event, 프로세스 내부 포트와 세션 인증의 서비스 간 전환은 남아 있다. 독립 서버에서 거래가 모두 동작하는 상태로 간주하지 않는다. CI/CD 워크플로는 dev 버전을 유지하므로 기존 단일 앱 구조를 전제한다. 앱별 CI/CD는 인프라 담당자의 별도 전환과 검증이 필요하다.
+현재 변경은 구조·빌드·실행 기반까지다. 기존 Spring Event, 프로세스 내부 포트와 세션 인증의 서비스 간 전환은 남아 있다(인증은 JWT로 전환, #370). 독립 서버에서 거래가 모두 동작하는 상태로 간주하지 않는다. CI는 앱별 테스트·jar·이미지 빌드를 검증한다. 자동 배포는 멈춰 있고, 앱별 이미지와 prod 단일 k3s 배포로 다시 작성한다(#374).
 
 ## 문서
 
 - [배포·운영](docs/deploy/README.md): 환경 주소, 배포 흐름, 환경변수 추가, 운영·보안 가이드
-- [최종 프로젝트 인프라 설계](docs/architecture/final-project-infrastructure.md): k3s, 모듈별 DB, Kafka·Redis, Elasticsearch·관측성 목표 구조와 구현 순서
+- [최종 프로젝트 인프라 설계](docs/architecture/final-project-infrastructure.md): k3s, Envoy Gateway·JWT, 앱별 DB, Kafka·Redis, Elasticsearch·관측성 목표 구조와 구현 순서
 - [Elasticsearch 통합 범위 조사](docs/architecture/elasticsearch-consolidation-research.md): Elasticsearch 검색·Vector DB 선택과 Elastic Observability 제외 근거
 - [앱 구조와 전환 범위](docs/architecture/app-modules.md)
 - [로컬 실행](docs/dev/local.md)
