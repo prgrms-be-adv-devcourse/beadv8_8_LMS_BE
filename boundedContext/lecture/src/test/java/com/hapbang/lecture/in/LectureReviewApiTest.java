@@ -247,7 +247,9 @@ class LectureReviewApiTest {
     @Test
     void 탈퇴한_회원의_리뷰는_탈퇴한_회원으로_나온다() throws Exception {
         writtenReview(BUYER_ID, lecture, confirmedItem(BUYER_ID, lecture), 5);
-        lectureUserRepository.save(LectureUser.from(new UserDto(BUYER_ID, "구매자", Role.USER, UserStatus.WITHDRAWN)));
+        LectureUser buyer = lectureUserRepository.findById(BUYER_ID).orElseThrow();
+        buyer.syncFrom(new UserDto(BUYER_ID, "구매자", Role.USER, UserStatus.WITHDRAWN));
+        lectureUserRepository.save(buyer);
 
         reviews(lecture).andExpect(jsonPath("$.data.content[0].reviewerNickname").value("탈퇴한 회원"));
     }

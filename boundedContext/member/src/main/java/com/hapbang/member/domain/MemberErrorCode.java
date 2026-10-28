@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum MemberErrorCode implements BaseErrorCode {
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다."),
+    /** 같은 회원을 동시에 수정해 늦게 저장한 쪽이 실패 (관리자 역할 변경과 본인 수정이 겹칠 때 등). 다시 시도하면 된다 */
+    MEMBER_CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 변경과 겹쳤어요. 다시 시도해 주세요."),
     /** 로컬 로그인: 해당 역할·번호의 테스트 계정이 없음 */
     TEST_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, "테스트 계정이 없습니다."),
     INVALID_PROFILE_IMAGE_TYPE(HttpStatus.BAD_REQUEST, "프로필 사진은 jpeg·png·webp만 올릴 수 있습니다."),

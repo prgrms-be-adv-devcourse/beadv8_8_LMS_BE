@@ -19,6 +19,7 @@ import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.global.exception.BusinessException;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 
@@ -27,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * HP 작업 실행. 대기 중인 작업 하나를 Billing에 요청하고 결과를 기록한다.
- * 거절·응답 전 취소·만료 직후 한 번, 그 뒤로는 HP 작업 재시도 배치가 부른다.
+ * 업무 처리(거절·취소·마감·확인 등) 직후 한 번, 그 뒤로는 HP 작업 재시도 배치가 부른다.
  * <ul>
  *     <li>작업을 기록한 트랜잭션이 커밋된 뒤에 부른다. Billing 호출은 트랜잭션 밖에서 하고, 결과 기록만 짧은 트랜잭션으로 한다.</li>
  *     <li>결과
@@ -96,8 +97,25 @@ public class HpTaskExecuteUseCase {
         Object result = switch (task.getTaskType()) {
             case RELEASE -> billingClient.release(toReleaseCommand(task));
             case PENALTY -> billingClient.settlePenalty(toPenaltyCommand(task));
+            case PAYOUT -> billingClient.payout(toPayoutCommand(task));
         };
         log.debug("HP 작업 Billing 처리 taskId={}, result={}", task.getId(), result);
+    }
+
+    /**
+     * 지급 작업 → Billing 지급 요청 (#282). 멱등 키를 지급 요청 ID로 쓰고, 보류에서 기록한 금액(출연료)만큼 게스트에게 지급한다.
+     * 전체 지급이 아니라 금액을 정한 지급이다: 모집글 보류에는 다른 출연의 몫이 함께 있다.
+     */
+    private PayoutCommand toPayoutCommand(HpTask task) {
+        return PayoutCommand.partial(task.getMemberId(), BillingReferenceType.valueOf(task.getRefType().name()),
+                task.getRefId(), task.getIdempotencyKey(), task.getReceiverId(), sourceTypeOf(task),
+                task.getAppearanceId(), task.getPayoutAmount());
+    }
+
+    /** 지급 원천 종류: 요청서 보류면 {@code APPEARANCE_REQUEST}, 모집글 보류면 {@code RECRUIT_APPEARANCE} (원천 ID는 출연 ID) */
+    private static SettlementSourceType sourceTypeOf(HpTask task) {
+        return task.getRefType() == HpTaskRefType.APPEARANCE_RECRUIT
+                ? SettlementSourceType.RECRUIT_APPEARANCE : SettlementSourceType.APPEARANCE_REQUEST;
     }
 
     /**
@@ -105,10 +123,9 @@ public class HpTaskExecuteUseCase {
      * 나머지는 호스트에게 반환한다. 지급 원천은 출연(요청서 출처 {@code APPEARANCE_REQUEST}, 모집 출처 {@code RECRUIT_APPEARANCE})이다.
      */
     private PenaltyCommand toPenaltyCommand(HpTask task) {
-        SettlementSourceType sourceType = task.getRefType() == HpTaskRefType.APPEARANCE_RECRUIT
-                ? SettlementSourceType.RECRUIT_APPEARANCE : SettlementSourceType.APPEARANCE_REQUEST;
         return new PenaltyCommand(task.getMemberId(), BillingReferenceType.valueOf(task.getRefType().name()),
-                task.getRefId(), task.getIdempotencyKey(), task.getReceiverId(), sourceType, task.getAppearanceId(),
+                task.getRefId(), task.getIdempotencyKey(), task.getReceiverId(), sourceTypeOf(task),
+                task.getAppearanceId(),
                 task.releaseAmountOfPenalty(), task.getPayoutAmount());
     }
 

@@ -3,7 +3,6 @@ package com.hapbang.appearance.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -14,13 +13,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -31,7 +28,6 @@ import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceApplicationStatus;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -41,17 +37,19 @@ import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRecruitRepository;
 import com.hapbang.appearance.out.AppearanceRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
-import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 출연 모집 지원·취소·수락·거절·조회 흐름을 DB와 Fake Billing으로 확인한다.
+ * 출연 모집 지원·취소·수락·거절·조회 흐름을 DB와 Billing 대역으로 확인한다.
  * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceApplicationFacadeTest {
 
@@ -77,14 +75,13 @@ class AppearanceApplicationFacadeTest {
     AppearanceRepository appearanceRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -93,10 +90,6 @@ class AppearanceApplicationFacadeTest {
         }
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     /** 호스트가 정원 {@code recruitCount}명, 1인당 30,000 HP로 모집글을 올린다 */
     private Long postRecruit(int recruitCount) {
@@ -108,11 +101,10 @@ class AppearanceApplicationFacadeTest {
         return appearanceApplicationFacade.apply(guestId, recruitId, "지원합니다.");
     }
 
-    /** 모집 마감 일시를 지난 시각으로 옮긴다 (마감 처리 전 상태) */
+    /** 모집 마감 일시가 지난다 (테스트 시계를 앞으로, 기한 마감 배치는 아직) */
     private void passDeadline(Long recruitId) {
-        LocalDateTime now = LocalDateTime.now(clock);
-        jdbcTemplate.update("update appearances.recruits set recruit_deadline = ? where id = ?",
-                now.minusMinutes(1), recruitId);
+        clock.advanceTo(jdbcTemplate.queryForObject("select recruit_deadline from appearances.recruits where id = ?",
+                LocalDateTime.class, recruitId));
     }
 
     private static void assertErrorCode(Runnable action, AppearanceErrorCode errorCode) {
@@ -186,9 +178,9 @@ class AppearanceApplicationFacadeTest {
         @Test
         @DisplayName("보류 처리 중인 모집글에는 지원할 수 없다 (목록에 없는 모집글이라 APPEARANCE_RECRUIT_NOT_FOUND)")
         void holdPendingRecruit() {
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> postRecruit(3)).isInstanceOf(AppearanceException.class);
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             Long pendingId = appearanceRecruitRepository.findAll().getFirst().getId();
 
             assertErrorCode(() -> AppearanceApplicationFacadeTest.this.apply(GUEST, pendingId),
@@ -288,7 +280,7 @@ class AppearanceApplicationFacadeTest {
         void accept() {
             Long recruitId = postRecruit(3);
             AppearanceApplicationResDto applied = apply(GUEST, recruitId);
-            long balanceBefore = fakeBillingClient.balanceOf(HOST);
+            BillingStubs.available(billingClient); // 모집글 보류 요청 기록을 지운다
 
             AppearanceApplicationResDto accepted = appearanceApplicationFacade.accept(HOST, applied.id());
 
@@ -303,9 +295,7 @@ class AppearanceApplicationFacadeTest {
             AppearanceRecruitResDto recruit = appearanceRecruitFacade.getDetail(HOST, recruitId);
             assertThat(recruit.selectedCount()).isEqualTo(1);
             assertThat(recruit.applicantCount()).isEqualTo(1);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId))
-                    .isEqualTo(90_000);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(balanceBefore);
+            assertThat(BillingCalls.none(billingClient)).isTrue();
         }
 
         @Test
@@ -451,6 +441,64 @@ class AppearanceApplicationFacadeTest {
                     .extracting(AppearanceApplicationResDto::id).containsExactly(b.id(), a.id());
             assertThat(appearanceApplicationFacade.getMine(GUEST, List.of(AppearanceApplicationStatus.WITHDRAWN),
                     FIRST_PAGE).getContent()).extracting(AppearanceApplicationResDto::id).containsExactly(a.id());
+        }
+
+        @Test
+        @DisplayName("내 지원 목록 각 행에 모집글의 현재 제목·방송 예정 일시·상태 (제목 수정·모집 취소가 그대로 보인다) (#243)")
+        void mineWithRecruit() {
+            Long recruitA = postRecruit(3);
+            Long recruitB = postRecruit(3);
+            apply(GUEST, recruitA);
+            apply(GUEST, recruitB);
+            appearanceRecruitFacade.updateBasicInfo(HOST, recruitA, "제목 바꿈", null, null);
+            appearanceRecruitFacade.cancel(HOST, recruitB, false, null);
+            AppearanceRecruitResDto a = appearanceRecruitFacade.getDetail(HOST, recruitA);
+
+            List<AppearanceApplicationResDto> mine = appearanceApplicationFacade.getMine(GUEST, null, FIRST_PAGE)
+                    .getContent();
+
+            assertThat(mine).extracting(row -> row.recruitId() + ":" + row.recruitTitle() + ":" + row.recruitStatus())
+                    .containsExactly(recruitB + ":주말 게임 합방 게스트 모집:CANCELED",
+                            recruitA + ":제목 바꿈:RECRUITING");
+            assertThat(mine.get(1).recruitScheduledAt()).isEqualTo(a.scheduledAt());
+        }
+
+        @Test
+        @DisplayName("지원자 목록·지원·수락 응답에도 모집글 제목이 담긴다 (#243)")
+        void recruitTitleInOtherResponses() {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto applied = apply(GUEST, recruitId);
+            AppearanceApplicationResDto accepted = appearanceApplicationFacade.accept(HOST, applied.id());
+
+            assertThat(applied.recruitTitle()).isEqualTo("주말 게임 합방 게스트 모집");
+            assertThat(accepted.recruitTitle()).isEqualTo("주말 게임 합방 게스트 모집");
+            assertThat(appearanceApplicationFacade.getApplicants(HOST, recruitId, null, FIRST_PAGE).getContent())
+                    .extracting(AppearanceApplicationResDto::recruitTitle).containsExactly("주말 게임 합방 게스트 모집");
+        }
+
+        @Test
+        @DisplayName("모집글 상세의 내 지원: 지원한 게스트는 상태 그대로(대기·수락+출연 ID·취소), 지원 안 한 회원·호스트는 null (#243)")
+        void myApplicationInDetail() {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto applied = apply(GUEST, recruitId);
+            AppearanceApplicationResDto toWithdraw = apply(GUEST2, recruitId);
+
+            AppearanceApplicationResDto pending = appearanceRecruitFacade.getDetail(GUEST, recruitId).myApplication();
+            assertThat(pending.id()).isEqualTo(applied.id());
+            assertThat(pending.status()).isEqualTo(AppearanceApplicationStatus.APPLIED);
+            assertThat(pending.message()).isEqualTo("지원합니다.");
+            assertThat(pending.appearanceId()).isNull();
+
+            AppearanceApplicationResDto accepted = appearanceApplicationFacade.accept(HOST, applied.id());
+            appearanceApplicationFacade.withdraw(GUEST2, toWithdraw.id());
+            AppearanceApplicationResDto selected = appearanceRecruitFacade.getDetail(GUEST, recruitId).myApplication();
+            assertThat(selected.status()).isEqualTo(AppearanceApplicationStatus.SELECTED);
+            assertThat(selected.appearanceId()).isEqualTo(accepted.appearanceId());
+            assertThat(appearanceRecruitFacade.getDetail(GUEST2, recruitId).myApplication().status())
+                    .isEqualTo(AppearanceApplicationStatus.WITHDRAWN);
+
+            assertThat(appearanceRecruitFacade.getDetail(GUEST3, recruitId).myApplication()).isNull();
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).myApplication()).isNull();
         }
 
         @Test

@@ -39,6 +39,7 @@ public class MemberFacade {
     private final MemberChannelSupport memberChannelSupport;
     private final MemberProfileImageUseCase memberProfileImageUseCase;
     private final MemberUpgradeRequestUseCase memberUpgradeRequestUseCase;
+    private final MemberFollowerRefreshUseCase memberFollowerRefreshUseCase;
 
     // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
     private static final String USER_ONLY = "hasRole('USER')";
@@ -50,6 +51,11 @@ public class MemberFacade {
     @Transactional
     public User oauthLogin(OAuthProvider provider, String providerUserId, String email, String nickname) {
         return memberOAuthLoginUseCase.login(provider, providerUserId, email, nickname);
+    }
+
+    /** 채널 팔로워 수 일일 갱신 (배치용, 묶음마다 트랜잭션을 UseCase가 직접 연다) */
+    public FollowerRefreshResult refreshFollowerCounts() {
+        return memberFollowerRefreshUseCase.refreshAll();
     }
 
     /** 역할별 테스트 계정 만들기 (이미 있으면 건너뜀) */

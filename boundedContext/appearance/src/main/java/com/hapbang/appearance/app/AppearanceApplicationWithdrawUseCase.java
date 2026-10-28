@@ -10,6 +10,7 @@ import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceApplication;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearanceRecruit;
 
 import lombok.RequiredArgsConstructor;
 
@@ -24,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 public class AppearanceApplicationWithdrawUseCase {
 
     private final AppearanceApplicationSupport appearanceApplicationSupport;
+    private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
@@ -37,6 +39,7 @@ public class AppearanceApplicationWithdrawUseCase {
         AppearanceApplication application = appearanceApplicationSupport.getById(applicationId);
         application.withdraw(guestId, LocalDateTime.now(clock));
         appearanceApplicationSupport.flushOrConflict();
-        return AppearanceApplicationResDto.from(application, null);
+        AppearanceRecruit recruit = appearanceRecruitSupport.getById(application.getRecruitId());
+        return AppearanceApplicationResDto.from(application, recruit, null);
     }
 }

@@ -3,17 +3,15 @@ package com.hapbang.appearance.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -22,26 +20,28 @@ import org.springframework.test.context.event.RecordApplicationEvents;
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRequestRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.global.exception.BusinessException;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
  * 출연 알림 이벤트(요청 도착·지원 도착)가 언제, 몇 번, 무엇을 담아 발행되는지 확인한다 (ISSUE.md APR-29).
  * 받는 쪽(채팅)은 이 모듈에 없으므로 발행만 기록해서 본다 ({@link RecordApplicationEvents}).
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @RecordApplicationEvents
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceEventPublishTest {
@@ -74,14 +74,13 @@ class AppearanceEventPublishTest {
     AppearanceRequestRepository appearanceRequestRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -90,13 +89,9 @@ class AppearanceEventPublishTest {
         applicationEvents.clear();
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private LocalDateTime now() {
-        return LocalDateTime.now(clock);
+        return clock.now();
     }
 
     private List<AppearanceRequestSentEvent> requestSentEvents() {
@@ -132,7 +127,7 @@ class AppearanceEventPublishTest {
         @Test
         @DisplayName("Billing이 보류를 거절하면(HOLD_FAILED) 발행하지 않는다")
         void holdRejected() {
-            fakeBillingClient.setBalance(HOST, 0);
+            BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
             assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, GUEST, AppearanceRequestFixture.content(now())))
                     .isInstanceOf(BusinessException.class);
@@ -143,16 +138,15 @@ class AppearanceEventPublishTest {
         @Test
         @DisplayName("보류 결과를 모르면(HOLD_PENDING) 발행하지 않고, 보류 재확인 배치가 REQUESTED로 정리할 때 한 번 발행한다")
         void holdPendingThenRecheck() {
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, GUEST, AppearanceRequestFixture.content(now())))
                     .isInstanceOf(AppearanceException.class)
                     .extracting("errorCode").isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE);
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             assertThat(requestSentEvents()).isEmpty();
 
             Long requestId = appearanceRequestRepository.findAll().getFirst().getId();
-            jdbcTemplate.update("update appearances.requests set created_at = ? where id = ?",
-                    now().minusMinutes(2), requestId);
+            clock.advance(Duration.ofMinutes(2)); // 재확인 배치는 1분 넘게 지난 보류 처리 중 요청서만 가져간다
             appearanceHoldRecheckUseCase.recheckDue();
 
             assertThat(requestSentEvents()).hasSize(1);

@@ -12,11 +12,11 @@ import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceUser;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceUserRepository;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.IntegrationTest;
 
-@IntegrationTest
+@AppearanceIntegrationTest
 class AppearanceUserFacadeTest {
 
     @Autowired

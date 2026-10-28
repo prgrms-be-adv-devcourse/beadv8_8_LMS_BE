@@ -17,7 +17,7 @@ boundedContext/{모듈}/src/main/resources/db/migration/V{yyyyMMddHHmm}__{설명
 예) boundedContext/lecture/src/main/resources/db/migration/V202610121104__create_lecture_tables.sql
 ```
 
-- 버전은 **작성 시각(KST, 분 단위)**으로 쓴다. 여러 모듈이 Flyway 하나와 이력 테이블(`public.flyway_schema_history`) 하나를 함께 쓰므로, 1·2·3 같은 순번을 쓰면 팀원끼리 번호가 겹친다.
+- 버전은 **작성 시각(KST, 분 단위)**으로 쓴다(`date +%Y%m%d%H%M`). 미래 시각은 쓰지 않는다. 여러 모듈이 Flyway 하나와 이력 테이블(`public.flyway_schema_history`) 하나를 함께 쓰므로, 1·2·3 같은 순번을 쓰면 팀원끼리 번호가 겹친다.
 - 먼저 작성했지만 늦게 병합된 마이그레이션(이미 적용된 버전보다 낮은 버전)도 실행되도록 `out-of-order: true`로 설정했다. 모듈마다 스키마가 달라 실행 순서가 바뀌어도 안전하다. 같은 모듈 안에서는 앞선 마이그레이션에 의존하는 파일이 먼저 병합되지 않게 한다.
 - `V`는 대문자, 버전과 설명 사이는 밑줄 **두 개**(`__`). 형식이 틀리면 Flyway가 오류 없이 파일을 무시한다.
 - 설명은 영어 소문자와 `_`로 쓰고 **모듈 이름을 넣는다** (`create_lecture_tables`, `add_lecture_level`). 앱 실행 시에는 모든 모듈의 SQL이 한 폴더로 합쳐지므로, 이름으로 어느 모듈 것인지 알 수 있게 한다.
@@ -51,6 +51,12 @@ boundedContext/{모듈}/src/main/resources/db/migration/V{yyyyMMddHHmm}__{설명
 ## 규칙
 
 - **dev에 병합된 마이그레이션 파일은 고치지 않는다.** Flyway가 체크섬을 검사하므로 이미 적용된 서버에서 시작이 실패한다. 바꿀 내용은 새 파일로 추가한다. 병합 전(PR 진행 중)에는 고쳐도 된다.
+- 모든 모듈 SQL을 Flyway 하나가 읽어 버전이 같으면 앱이 뜨지 않는다. PR 전에 겹치는 버전이 없는지 확인한다(#156):
+
+  ```bash
+  git ls-tree -r --name-only origin/dev | grep db/migration/V | sed 's#.*/V##; s#__.*##' | sort | uniq -d
+  ```
+
 - 엔티티를 바꾸는 PR에는 마이그레이션을 함께 넣는다. 빠뜨리면 `validate`에 걸려 테스트가 실패한다.
 - 다른 모듈 스키마의 테이블을 만들거나 참조하지 않는다. 스키마 간 FK는 금지다 (AGENTS.md 3장).
 - 돈이 오가는 데이터는 Hard Delete 하지 않는다. 컬럼·테이블 삭제 마이그레이션은 팀과 먼저 확인한다.

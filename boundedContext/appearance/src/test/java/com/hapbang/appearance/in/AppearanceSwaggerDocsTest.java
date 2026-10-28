@@ -10,12 +10,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
 
 /**
  * Swagger 명세(/v3/api-docs)의 출연 요청서 성공 응답 스키마가 실제 응답(RsData)과 같은지 확인한다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 class AppearanceSwaggerDocsTest {
 
@@ -143,5 +143,17 @@ class AppearanceSwaggerDocsTest {
                         .value("#/components/schemas/RsDataAppearanceResDto"))
                 .andExpect(jsonPath(paths + "/recruits/{recruitId}/cancel'].post.responses['200'].content['*/*'].schema['$ref']")
                         .value("#/components/schemas/RsDataAppearanceRecruitResDto"));
+    }
+
+    @Test
+    @DisplayName("출연 확인·불참은 RsData로 감싼 출연 (#282)")
+    void confirmSchemaIsRsData() throws Exception {
+        String paths = "$.paths['/api/v1/appearances";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(paths + "/{appearanceId}/confirm'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceResDto"))
+                .andExpect(jsonPath(paths + "/{appearanceId}/absent'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceResDto"));
     }
 }

@@ -22,13 +22,14 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 
 import jakarta.persistence.EntityManagerFactory;
 
-// 주문 목록·시청 가능한 강의 목록·판매 내역이 주문·항목마다 따로 조회하지 않는지 개수에 따른 SQL 문 수로 확인한다.
+// 주문 목록·시청 가능한 강의 목록·판매 내역·판매 수익이 주문·항목마다 따로 조회하지 않는지 개수에 따른 SQL 문 수로 확인한다.
 @IntegrationTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
@@ -96,6 +97,25 @@ class LectureOrderQueryCountTest {
 
         assertThat(statementsOf(sales)).isEqualTo(one);
         mockMvc.perform(sales).andExpect(jsonPath("$.data.content.length()").value(6));
+    }
+
+    @Test
+    void 항목이_늘어도_수익_조회_SQL_수는_같다() throws Exception {
+        RequestBuilder earnings = get("/api/v1/internal/lectures/earnings").param("userId", SELLER_ID.toString())
+                .header(InternalApiHeaders.API_KEY, IntegrationTest.INTERNAL_API_KEY);
+        RequestBuilder summary = get("/api/v1/internal/lectures/earnings/summary")
+                .param("userId", SELLER_ID.toString())
+                .header(InternalApiHeaders.API_KEY, IntegrationTest.INTERNAL_API_KEY);
+        saveOrder();
+        long oneEarnings = statementsOf(earnings);
+        long oneSummary = statementsOf(summary);
+
+        saveOrder();
+        saveOrder();
+
+        assertThat(statementsOf(earnings)).isEqualTo(oneEarnings);
+        assertThat(statementsOf(summary)).isEqualTo(oneSummary);
+        mockMvc.perform(earnings).andExpect(jsonPath("$.data.content.length()").value(6));
     }
 
     private long statementsOf(RequestBuilder request) throws Exception {

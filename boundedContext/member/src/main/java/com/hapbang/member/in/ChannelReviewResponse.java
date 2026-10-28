@@ -16,7 +16,7 @@ public record ChannelReviewResponse(Long channelId, Long memberId, String nickna
     public static ChannelReviewResponse from(InfluencerChannel channel) {
         return new ChannelReviewResponse(channel.getId(), channel.getUser().getId(), channel.getUser().getNickname(),
                 channel.getPlatform(), channel.getChannelName(), channel.getChannelUrl(),
-                channel.getFollowerCount(), channel.followerCountAt(),
+                channel.getFollowerCount(), channel.getFollowerCountUpdatedAt(),
                 channel.getVerificationStatus(), channel.getRequestedAt(),
                 channel.getVerifiedAt(), channel.getVerifiedBy(), channel.getRejectionReason());
     }

@@ -7,7 +7,6 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,19 +27,22 @@ import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRecruitRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
-import com.hapbang.appearance.out.billing.FakeBillingErrorCode;
-import com.hapbang.appearance.out.billing.FakeBillingException;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
+import com.hapbang.global.exception.BusinessException;
+import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 출연 모집글 올리기·조회·수정 흐름을 DB와 Fake Billing으로 확인한다.
+ * 출연 모집글 올리기·조회·수정 흐름을 DB와 Billing 대역으로 확인한다.
  * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceRecruitFacadeTest {
 
@@ -58,7 +60,7 @@ class AppearanceRecruitFacadeTest {
     AppearanceRecruitRepository appearanceRecruitRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
     @Qualifier(AppearanceConfig.CLOCK)
@@ -70,10 +72,6 @@ class AppearanceRecruitFacadeTest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(OTHER));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
@@ -107,10 +105,11 @@ class AppearanceRecruitFacadeTest {
         assertThat(response.status()).isEqualTo(AppearanceRecruitStatus.RECRUITING);
         assertThat(response.selectedCount()).isZero();
         assertThat(response.version()).isEqualTo(findOnly().getVersion());
-        assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, response.id()))
-                .isEqualTo(AppearanceRecruitFixture.TOTAL_FEE);
-        assertThat(fakeBillingClient.balanceOf(HOST))
-                .isEqualTo(FakeBillingClient.DEFAULT_BALANCE - AppearanceRecruitFixture.TOTAL_FEE);
+        HoldCommand hold = BillingCalls.holds(billingClient).getFirst();
+        assertThat(hold.userId()).isEqualTo(HOST);
+        assertThat(hold.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_RECRUIT);
+        assertThat(hold.referenceId()).isEqualTo(response.id());
+        assertThat(hold.amountHp()).isEqualTo(AppearanceRecruitFixture.TOTAL_FEE);
     }
 
     @Test
@@ -123,13 +122,13 @@ class AppearanceRecruitFacadeTest {
     }
 
     @Test
-    @DisplayName("잔액이 부족하면 Billing 오류 INSUFFICIENT_BALANCE 그대로, 모집글은 HOLD_FAILED로 남고 목록에 보이지 않는다")
+    @DisplayName("Billing이 보류를 거절하면(잔액 부족) 그 오류 그대로, 모집글은 HOLD_FAILED로 남고 목록에 보이지 않는다")
     void insufficientBalance() {
-        fakeBillingClient.setBalance(HOST, AppearanceRecruitFixture.TOTAL_FEE - 1);
+        BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
         assertThatThrownBy(() -> post(HOST))
-                .isInstanceOf(FakeBillingException.class)
-                .extracting("errorCode").isEqualTo(FakeBillingErrorCode.INSUFFICIENT_BALANCE);
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(Rejection.INSUFFICIENT_BALANCE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
         assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getTotalElements()).isZero();
@@ -139,7 +138,7 @@ class AppearanceRecruitFacadeTest {
     @Test
     @DisplayName("Billing 결과를 알 수 없으면 BILLING_UNAVAILABLE(내 모집글 목록 안내), 모집글은 HOLD_PENDING")
     void billingUnavailable() {
-        fakeBillingClient.setUnavailable(true);
+        BillingStubs.unavailable(billingClient);
 
         assertThatThrownBy(() -> post(HOST))
                 .isInstanceOf(AppearanceException.class)
@@ -156,7 +155,7 @@ class AppearanceRecruitFacadeTest {
                 AppearanceRecruitFixture.content(now(), 30_000, 11)), AppearanceErrorCode.RECRUIT_COUNT_OUT_OF_RANGE);
 
         assertThat(appearanceRecruitRepository.count()).isZero();
-        assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
+        assertThat(BillingCalls.none(billingClient)).isTrue();
     }
 
     @Test
@@ -225,7 +224,7 @@ class AppearanceRecruitFacadeTest {
         assertThat(detail.content()).isEqualTo("같이 신작 게임을 플레이할 게스트를 모집합니다.");
         assertThat(detail.recruitDeadline()).isEqualTo(posted.recruitDeadline());
 
-        fakeBillingClient.setUnavailable(true);
+        BillingStubs.unavailable(billingClient);
         assertThatThrownBy(() -> post(HOST)).isInstanceOf(AppearanceException.class);
         Long pendingId = appearanceRecruitRepository.findAll().stream()
                 .filter(recruit -> recruit.getStatus() == AppearanceRecruitStatus.HOLD_PENDING)

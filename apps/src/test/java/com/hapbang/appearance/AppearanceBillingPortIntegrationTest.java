@@ -19,10 +19,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,7 +33,6 @@ import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.out.AppearanceRequestRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.out.billing.BillingPortClient;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
 import com.hapbang.billing.app.LedgerRecordUseCase;
@@ -51,12 +50,15 @@ import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * {@code appearance.billing.mode=billing-port}로 띄우면 출연이 Fake 대신 {@link BillingPortClient}로 실제 billing을 호출하는지 확인한다 (#182).
- * 기본값은 여전히 fake라서, 이 테스트는 Adapter가 준비됐다는 확인이며 운영 연동 전환(mode 변경)은 출연 담당이 정한다.
+ * 출연이 {@link BillingPortClient}로 실제 billing을 호출하는지 확인한다 (#182).
+ * 출연의 Fake Billing과 {@code appearance.billing.mode} 설정은 #289에서 없어져, 출연은 항상 {@link BillingPortClient}를 쓴다.
  * 출연은 업무 상태를 먼저 커밋하고 트랜잭션 밖에서 billing을 부르는 설계(보류 직접 호출, 반환은 HpTask)이므로, 같은 트랜잭션 원자성은 검증 대상이 아니다.
  */
-@SpringBootTest(properties = "appearance.billing.mode=billing-port")
+@SpringBootTest
 @AutoConfigureMockMvc
+// csrf() 테스트 도구가 이 컨텍스트의 CSRF 저장소를 세션 방식으로 바꿔 끼운다. 같은 설정의 다른 테스트(SecurityCookieTest 등)가
+// 이 컨텍스트를 이어 쓰면 XSRF-TOKEN 쿠키가 나오지 않으므로, 이 클래스가 끝나면 컨텍스트를 버린다 (#289)
+@DirtiesContext
 @Import(PostgresTestcontainersConfig.class)
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
@@ -70,9 +72,6 @@ class AppearanceBillingPortIntegrationTest {
 
     @Autowired
     MockMvc mockMvc;
-
-    @Autowired
-    ApplicationContext applicationContext;
 
     @Autowired
     BillingClient billingClient;
@@ -109,9 +108,8 @@ class AppearanceBillingPortIntegrationTest {
     }
 
     @Test
-    void billing_port_모드에서는_Fake가_아니라_BillingPortClient가_주입된다() {
+    void 출연_BillingClient로_BillingPortClient가_주입된다() {
         assertThat(AopUtils.getTargetClass(billingClient)).isEqualTo(BillingPortClient.class);
-        assertThat(applicationContext.getBeanNamesForType(FakeBillingClient.class)).isEmpty();
     }
 
     @Test

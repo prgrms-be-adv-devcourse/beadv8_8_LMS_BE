@@ -141,7 +141,7 @@ class BillingRepositoryTest {
         Exchange found = exchangeRepository.findById(exchange.getId()).orElseThrow();
         assertThat(found.getPointHoldId()).isNull();
         assertThat(exchangeAccountRepository.findByExchangeId(exchange.getId())).isEmpty();
-        assertThat(exchangePayoutRepository.findByExchangeId(exchange.getId())).isEmpty();
+        assertThat(exchangePayoutRepository.findTopByExchangeIdOrderByAttemptNoDesc(exchange.getId())).isEmpty();
 
         ExchangeAccount account = exchangeAccountRepository.save(account(found).build());
         ExchangePayout payout = exchangePayoutRepository.save(payout(found).build());
@@ -150,7 +150,7 @@ class BillingRepositoryTest {
 
         assertThat(exchangeAccountRepository.findByExchangeId(exchange.getId()).orElseThrow().getId())
                 .isEqualTo(account.getId());
-        assertThat(exchangePayoutRepository.findByExchangeId(exchange.getId()).orElseThrow().getId())
+        assertThat(exchangePayoutRepository.findTopByExchangeIdOrderByAttemptNoDesc(exchange.getId()).orElseThrow().getId())
                 .isEqualTo(payout.getId());
     }
 

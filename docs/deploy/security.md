@@ -7,6 +7,14 @@
 - **장기 토큰을 서버에 두지 않는다.** GHCR pull은 배포 job의 임시 토큰을 쓰고, S3는 EC2 인스턴스 역할로 접근한다(AWS 액세스 키를 만들지 않는다).
 - AWS 지침: 액세스 키 등 유출 메일 2회 시 팀 AWS 지원 회수(2OUT), 계정 외부 공유·목적 외 사용은 즉시 회수(1OUT).
 
+## AWS 계정
+
+- 계정은 다른 팀과 같이 쓴다. 리소스 이름은 `team08-hapbang-*`, 태그는 `Team=devcos-team08`이다(`infra/terraform`).
+- 그룹 정책이 IAM 사용자·액세스 키 생성을 거부한다. 서버는 EC2 인스턴스 역할로 접근한다.
+- 계정이 AWS Organizations에 속해 있고 SCP/RCP는 조회할 수 없다. 조직 정책으로 거부되면 상세 이유 없이 `Access Denied`만 온다.
+- `aws iam simulate-principal-policy`는 조직 정책과 네트워크 조건을 반영하지 않는다. 허용으로 나와도 실제 요청으로 확인한다.
+- Codex 등 외부 서비스에 검토를 맡길 때도 버킷 이름·계정 ID·URL·토큰을 빼고 넘긴다.
+
 ## 자격 증명 목록
 
 | 자격 증명 | 보관 위치 | 접근 가능 | 용도 | 교체 |
@@ -21,6 +29,7 @@
 | 개인 PAT | 만들지 않고 둔다. 수동 pull 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |
 | TLS 개인 키 | edge `letsencrypt` 볼륨 | 서버 | HTTPS | 재발급 시 자동 교체 |
+| 내부 API 키 | 서버 env `HAPBANG_INTERNAL_API_KEY` | app 컨테이너 | 모듈 간 내부 HTTP API(`/api/v1/internal/**`) 인증 (#300) | 서버 env 값을 바꾸고 재배포([env-vars.md](env-vars.md#값-변경-비밀값-교체-포함)). 같은 앱이 부르고 받으므로 한 번에 바뀐다 |
 
 ## 구조상 보호 장치
 
@@ -31,6 +40,7 @@
 | 서버 설정 수동 반영 | 배포 키·Actions로 compose·nginx를 바꿀 수 없음 |
 | GHCR private + 읽기 전용 임시 토큰 | 서버가 탈취돼도 레지스트리에 이미지를 올릴 수 없음 |
 | 외부 포트는 edge(80·443)만 | app·DB에 직접 접근 불가 |
+| 내부 API 차단 | edge nginx가 `/api/v1/internal/`을 404로 끊고, 앱도 내부 API 키가 없으면 401 (#300) |
 | 미등록 도메인 차단 | IP 직접 접근·스캐너에 응답하지 않음(80 연결 종료, 443 핸드셰이크 거부) |
 | HTTPS + HSTS, forward-headers | 쿠키에 Secure, https 리다이렉트 |
 | `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |

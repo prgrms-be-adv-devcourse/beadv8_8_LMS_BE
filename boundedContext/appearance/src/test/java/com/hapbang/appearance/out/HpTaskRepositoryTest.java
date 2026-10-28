@@ -93,7 +93,7 @@ class HpTaskRepositoryTest {
     }
 
     @Test
-    @DisplayName("위약금 정산 작업을 저장한다 (받는 회원·위약금·출연 ID). 반환 작업에 위약금 값이 있으면 ck_hp_tasks_penalty에 걸린다")
+    @DisplayName("위약금 정산 작업을 저장한다 (받는 회원·위약금·출연 ID). 반환 작업에 위약금 값이 있으면 ck_hp_tasks_receiver에 걸린다")
     void savePenalty() {
         HpTask saved = hpTaskRepository.saveAndFlush(HpTask.penalty(HpTaskRefType.APPEARANCE_REQUEST, 12L, 1L, 30_000,
                 2L, 9_000, 30L, HpTaskReason.HOST_CANCELED, "APPEARANCE_REQUEST-12-PENALTY-APPEARANCE-30", NOW));
@@ -108,6 +108,27 @@ class HpTaskRepositoryTest {
         ReflectionTestUtils.setField(broken, "payoutAmount", 1L);
         assertThatThrownBy(() -> hpTaskRepository.saveAndFlush(broken))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasStackTraceContaining("ck_hp_tasks_penalty");
+                .hasStackTraceContaining("ck_hp_tasks_receiver");
+    }
+
+    @Test
+    @DisplayName("지급 작업을 저장한다 (받는 회원·지급액 = 출연료·출연 ID, #282). 지급액이 출연료와 다르면 ck_hp_tasks_receiver에 걸린다")
+    void savePayout() {
+        HpTask saved = hpTaskRepository.saveAndFlush(HpTask.payout(HpTaskRefType.APPEARANCE_RECRUIT, 5L, 1L, 30_000,
+                2L, 31L, HpTaskReason.APPEARANCE_CONFIRMED, "APPEARANCE_RECRUIT-5-PAYOUT-APPEARANCE-31", NOW));
+
+        HpTask found = hpTaskRepository.findById(saved.getId()).orElseThrow();
+        assertThat(found.getTaskType()).isEqualTo(HpTaskType.PAYOUT);
+        assertThat(found.getReason()).isEqualTo(HpTaskReason.APPEARANCE_CONFIRMED);
+        assertThat(found.getReceiverId()).isEqualTo(2L);
+        assertThat(found.getPayoutAmount()).isEqualTo(30_000);
+        assertThat(found.getAppearanceId()).isEqualTo(31L);
+
+        HpTask broken = HpTask.payout(HpTaskRefType.APPEARANCE_RECRUIT, 5L, 1L, 30_000, 3L, 32L,
+                HpTaskReason.APPEARANCE_CONFIRMED, "APPEARANCE_RECRUIT-5-PAYOUT-APPEARANCE-32", NOW);
+        ReflectionTestUtils.setField(broken, "payoutAmount", 29_999L);
+        assertThatThrownBy(() -> hpTaskRepository.saveAndFlush(broken))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasStackTraceContaining("ck_hp_tasks_receiver");
     }
 }

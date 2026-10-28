@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Clock;
 import java.time.LocalDateTime;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,17 +22,16 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 /**
- * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Fake Billing)를 띄우고 출연 모집 지원 API를 호출한다.
+ * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 출연 모집 지원 API를 호출한다.
  * 성공 응답은 RsData다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 class AppearanceApplicationApiE2ETest {
 
@@ -51,9 +49,6 @@ class AppearanceApplicationApiE2ETest {
     AppearanceUserFacade appearanceUserFacade;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
-
-    @Autowired
     @Qualifier(AppearanceConfig.CLOCK)
     Clock clock;
 
@@ -65,10 +60,6 @@ class AppearanceApplicationApiE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(VIEWER));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     private MockHttpServletRequestBuilder postAs(long userId, String path, String body) {
         return post(path).with(TestLogin.as(userId, Role.INFLUENCER)).with(csrf())
@@ -218,10 +209,33 @@ class AppearanceApplicationApiE2ETest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("내 지원 목록을 조회했습니다."))
                 .andExpect(jsonPath("$.data.content[0].id").value(mine))
+                .andExpect(jsonPath("$.data.content[0].recruitTitle").value("주말 게임 합방 게스트 모집"))
+                .andExpect(jsonPath("$.data.content[0].recruitScheduledAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.content[0].recruitStatus").value("RECRUITING"))
                 .andExpect(jsonPath("$.data.page.totalElements").value(1));
         mockMvc.perform(get(APPLICATIONS + "/mine?status=UNKNOWN").with(TestLogin.as(GUEST, Role.INFLUENCER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("모집글 상세의 myApplication: 지원한 게스트는 내 지원, 지원 안 한 회원·호스트는 null (#243)")
+    void myApplicationInDetail() throws Exception {
+        long recruitId = postRecruit(3);
+        long mine = apply(GUEST, recruitId);
+
+        mockMvc.perform(get(RECRUITS + "/" + recruitId).with(TestLogin.as(GUEST, Role.INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.myApplication.id").value(mine))
+                .andExpect(jsonPath("$.data.myApplication.status").value("APPLIED"))
+                .andExpect(jsonPath("$.data.myApplication.message").value("지원합니다."))
+                .andExpect(jsonPath("$.data.myApplication.appearanceId").doesNotExist());
+        mockMvc.perform(get(RECRUITS + "/" + recruitId).with(TestLogin.as(VIEWER, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.myApplication").doesNotExist());
+        mockMvc.perform(get(RECRUITS + "/" + recruitId).with(TestLogin.as(HOST, Role.INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.myApplication").doesNotExist());
     }
 
     @Test

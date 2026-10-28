@@ -62,7 +62,10 @@ public class Appearance extends BaseEntity {
     private LocalDateTime establishedAt;
 
     // 아래는 출연 확인·취소 처리에서 채운다
-    private String confirmType;
+
+    /** 출연 확인 방식 (확인된 경우, #282): HOST 호스트 확인 / AUTO D+7 자동 확인 */
+    @Enumerated(EnumType.STRING)
+    private AppearanceConfirmType confirmType;
 
     /** 호스트 일방 취소 위약금 (게스트에게 지급, #239) */
     private Long penaltyAmount;
@@ -70,11 +73,14 @@ public class Appearance extends BaseEntity {
     /** 호스트 일방 취소 사유 (선택, #239). 모집 전체 취소면 모집글 취소 사유와 같다 */
     private String hostCancelReason;
 
+    /** 출연 확인 시각 (#282) */
     private LocalDateTime confirmedAt;
 
-    private LocalDateTime noShowAt;
+    /** 불참 처리 시각 (호스트 부정 응답, #282) */
+    private LocalDateTime absentAt;
 
-    private LocalDateTime disputedAt;
+    /** 불참 사유 (선택, #282) */
+    private String absentReason;
 
     private LocalDateTime canceledAt;
 
@@ -277,5 +283,97 @@ public class Appearance extends BaseEntity {
     /** 게스트의 취소 요청이 처리 중인지 */
     public boolean hasPendingCancelRequest() {
         return status == AppearanceStatus.CANCEL_REQUESTED;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 출연 확인 (#282). 방송 예정 일시부터 확인 기간(D+7) 전까지 호스트가 응답하고, 응답이 없으면 배치가 자동 확인한다.
+
+    /**
+     * 호스트가 출연을 확인한다 → {@code CONFIRMED}(확인 방식 {@code HOST}). 게스트에게 출연료를 지급하는 것은 호출한 쪽이 기록한다.
+     *
+     * @throws AppearanceException {@link #validateConfirmable}과 같다
+     */
+    public void confirmByHost(Long userId, AppearancePolicy policy, LocalDateTime now) {
+        validateConfirmable(userId, policy, now);
+        confirm(AppearanceConfirmType.HOST, now);
+    }
+
+    /**
+     * 호스트가 게스트 불참으로 응답한다 → {@code ABSENT}. 출연료를 호스트에게 반환하는 것은 호출한 쪽이 기록한다.
+     * 이의 제기(노쇼 게스트 패널티)는 고객센터 관할이라 출연은 기록하지 않는다 (ISSUE.md APR-35 E4).
+     *
+     * @param reason 사유 (선택, 500자 이하)
+     * @throws AppearanceException {@link #validateConfirmable}과 같고, 사유 500자 초과({@code INVALID_REQUEST})
+     */
+    public void markAbsent(Long userId, String reason, AppearancePolicy policy, LocalDateTime now) {
+        validateConfirmable(userId, policy, now);
+        String trimmed = AppearanceCancelReasonRules.optional(reason, "불참 사유");
+        this.status = AppearanceStatus.ABSENT;
+        this.absentAt = now;
+        this.absentReason = trimmed;
+    }
+
+    /**
+     * 자동 확인 대상인지: 성립 상태이고 확인 기간이 끝났다 (방송 예정 일시 + 확인 기간 ≤ 지금).
+     * 취소 요청 처리 중인 출연은 자동 거절 배치가 먼저 성립으로 되돌린 뒤 대상이 된다.
+     */
+    public boolean isAutoConfirmDue(AppearancePolicy policy, LocalDateTime now) {
+        return status == AppearanceStatus.ESTABLISHED && !now.isBefore(policy.confirmDeadline(scheduledAt));
+    }
+
+    /** 확인 기간이 끝나 자동 확인한다 → {@code CONFIRMED}(확인 방식 {@code AUTO}) */
+    public void confirmAutomatically(AppearancePolicy policy, LocalDateTime now) {
+        if (!isAutoConfirmDue(policy, now)) {
+            throw new IllegalStateException("자동 확인 대상이 아닙니다: status=%s, scheduledAt=%s".formatted(status,
+                    scheduledAt));
+        }
+        confirm(AppearanceConfirmType.AUTO, now);
+    }
+
+    /**
+     * 호스트가 출연 확인(확인·불참)에 응답할 수 있는지 확인한다. 응답은 한 번뿐이다 (번복 불가, APR-35 E3).
+     * 회원 자격(정지·강등)은 보지 않는다. 거래를 마무리하는 동작이라 막지 않는다 (E5).
+     *
+     * @throws AppearanceException 호스트가 아님({@code NOT_APPEARANCE_HOST}), 성립 상태가 아님({@code APPEARANCE_NOT_CONFIRMABLE}),
+     *                             방송 예정 일시 전({@code APPEARANCE_CONFIRM_NOT_OPEN}), 확인 기간 끝남({@code APPEARANCE_CONFIRM_PERIOD_ENDED})
+     */
+    public void validateConfirmable(Long userId, AppearancePolicy policy, LocalDateTime now) {
+        if (!isHost(userId)) {
+            throw new AppearanceException(AppearanceErrorCode.NOT_APPEARANCE_HOST, "출연의 호스트만 출연을 확인할 수 있습니다.");
+        }
+        if (status != AppearanceStatus.ESTABLISHED) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_NOT_CONFIRMABLE, notConfirmableMessage());
+        }
+        if (now.isBefore(scheduledAt)) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_CONFIRM_NOT_OPEN);
+        }
+        if (!now.isBefore(policy.confirmDeadline(scheduledAt))) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_CONFIRM_PERIOD_ENDED);
+        }
+    }
+
+    private String notConfirmableMessage() {
+        return switch (status) {
+            case CONFIRMED, ABSENT -> "이미 출연 확인에 응답한 출연입니다.";
+            case CANCEL_REQUESTED -> "처리 중인 출연 취소 요청이 정리된 뒤 출연을 확인할 수 있습니다.";
+            case CANCELED_BY_HOST, CANCELED_BY_AGREEMENT -> "취소된 출연입니다.";
+            case ESTABLISHED -> throw new IllegalStateException("성립 상태는 확인할 수 있습니다.");
+        };
+    }
+
+    private void confirm(AppearanceConfirmType type, LocalDateTime now) {
+        this.status = AppearanceStatus.CONFIRMED;
+        this.confirmType = type;
+        this.confirmedAt = now;
+    }
+
+    /** 이 출연의 HP가 걸린 보류 종류 (요청서 또는 모집글) */
+    public HpTaskRefType holdRefType() {
+        return isFromRecruit() ? HpTaskRefType.APPEARANCE_RECRUIT : HpTaskRefType.APPEARANCE_REQUEST;
+    }
+
+    /** 이 출연의 HP가 걸린 보류 대상 ID (요청서 ID 또는 모집글 ID) */
+    public Long holdRefId() {
+        return isFromRecruit() ? recruitId : requestId;
     }
 }

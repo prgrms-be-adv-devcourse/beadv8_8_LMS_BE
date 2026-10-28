@@ -18,6 +18,7 @@ import com.hapbang.billing.domain.AccountVerificationStatus;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.ExchangePayoutStatus;
 import com.hapbang.billing.domain.ExchangeStatus;
+import com.hapbang.billing.domain.MockPayoutTransferStatus;
 import com.hapbang.billing.domain.HoldDetailActionType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PayoutProvider;
@@ -29,10 +30,13 @@ import com.hapbang.billing.domain.PointHoldStatus;
 import com.hapbang.billing.domain.PointHoldType;
 import com.hapbang.billing.domain.PointRefundRequestStatus;
 import com.hapbang.billing.domain.PointRefundStatus;
+import com.hapbang.billing.domain.RefundManualReviewReason;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.SettlementStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -64,6 +68,7 @@ class BillingEnumStorageTest {
         columns.put("ck_point_charge_usage_status", PointChargeUsageStatus.class);
         columns.put("ck_point_refund_request_status", PointRefundRequestStatus.class);
         columns.put("ck_point_refund_status", PointRefundStatus.class);
+        columns.put("ck_point_refund_manual_review_reason", RefundManualReviewReason.class);
         columns.put("ck_settlement_source_type", SettlementSourceType.class);
         columns.put("ck_settlement_payout_type", PayoutType.class);
         columns.put("ck_settlement_status", SettlementStatus.class);
@@ -71,6 +76,9 @@ class BillingEnumStorageTest {
         columns.put("ck_exchange_account_verification_status", AccountVerificationStatus.class);
         columns.put("ck_exchange_payout_payout_provider", PayoutProvider.class);
         columns.put("ck_exchange_payout_status", ExchangePayoutStatus.class);
+        columns.put("ck_mock_payout_transfer_status", MockPayoutTransferStatus.class);
+        columns.put("ck_billing_user_role", Role.class);
+        columns.put("ck_billing_user_status", UserStatus.class);
 
         List<String> enumChecks = entityManager.createNativeQuery("""
                 SELECT constraint_row.conname FROM pg_constraint constraint_row
@@ -90,7 +98,17 @@ class BillingEnumStorageTest {
     }
 
     // 대문자 문자열 상수를 쓰지만 Enum 저장값 목록이 아닌 CHECK
-    private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5");
+    // ck_point_refund_5는 운영자 확인 상태면 원인이 있어야 한다는 규칙(#260)
+    // ck_exchange_5는 취소 상태와 취소 시각이 함께 있어야 한다는 규칙(#285)
+    // ck_mock_payout_transfer_2는 가상 송금 상태별 거래 번호·실패 코드·완료 시각 규칙(#288)
+    private static final Set<String> NON_ENUM_CHECKS = Set.of("ck_point_hold_5", "ck_point_refund_5", "ck_exchange_5",
+            "ck_mock_payout_transfer_2",
+            // ck_exchange_7·8은 승인·거절 상태와 처리 기록이 함께 있어야 한다는 규칙(#294)
+            "ck_exchange_7", "ck_exchange_8",
+            // ck_exchange_10·11·ck_exchange_payout_3·4는 송금 완료·실패 상태와 시각·거래 번호가 함께 있어야 한다는 규칙(#304)
+            "ck_exchange_10", "ck_exchange_11", "ck_exchange_payout_3", "ck_exchange_payout_4",
+            // ck_exchange_12는 최종 실패 상태와 종료 기록, ck_exchange_payout_6은 운영자 확인 상태와 그 시각이 함께 있어야 한다는 규칙(#304)
+            "ck_exchange_12", "ck_exchange_payout_6");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""

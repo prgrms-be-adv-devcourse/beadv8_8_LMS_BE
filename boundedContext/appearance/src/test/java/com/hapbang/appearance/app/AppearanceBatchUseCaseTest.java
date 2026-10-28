@@ -3,23 +3,21 @@ package com.hapbang.appearance.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
-import com.hapbang.appearance.domain.AppearancePolicy;
+import com.hapbang.appearance.config.AppearanceBatchProperties;
+import com.hapbang.appearance.domain.AppearanceErrorCode;
+import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
@@ -33,17 +31,22 @@ import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRecruitRepository;
 import com.hapbang.appearance.out.AppearanceRequestRepository;
 import com.hapbang.appearance.out.HpTaskRepository;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.out.billing.BillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
+import com.hapbang.appearance.support.BillingCalls;
+import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
+import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 출연 배치(보류 재확인, 수락 기한 만료, HP 작업 재시도)를 DB와 Fake Billing으로 확인한다.
+ * 출연 배치(보류 재확인, 수락 기한 만료, HP 작업 재시도)를 DB와 Billing 대역으로 확인한다.
  * 테스트에서는 배치 스케줄이 꺼져 있으므로 UseCase를 직접 부른다.
  * 시각 조건은 DB의 만든 시각·다음 시도 시각을 과거로 옮겨 만든다.
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceBatchUseCaseTest {
 
@@ -82,17 +85,13 @@ class AppearanceBatchUseCaseTest {
     HpTaskRepository hpTaskRepository;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    BillingClient billingClient;
 
     @Autowired
-    AppearancePolicy appearancePolicy;
+    AppearanceBatchProperties appearanceBatchProperties;
 
     @Autowired
-    JdbcTemplate jdbcTemplate;
-
-    @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -100,21 +99,16 @@ class AppearanceBatchUseCaseTest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(GUEST));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
-
     private LocalDateTime now() {
-        return LocalDateTime.now(clock);
+        return clock.now();
     }
 
     /** Billing 무응답 상태로 보내 HOLD_PENDING 요청서를 만든다 */
     private Long sendHoldPending() {
-        fakeBillingClient.setUnavailable(true);
+        BillingStubs.unavailable(billingClient);
         assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, GUEST, AppearanceRequestFixture.content(now())))
                 .isInstanceOf(RuntimeException.class);
-        fakeBillingClient.setUnavailable(false);
+        BillingStubs.available(billingClient);
         return onlyRequest().getId();
     }
 
@@ -134,27 +128,27 @@ class AppearanceBatchUseCaseTest {
         return tasks.getFirst();
     }
 
-    /** 만든 시각을 과거로 옮긴다 (대기 시간 1분이 지난 것으로) */
-    private void ageCreatedAt(String table, Long id) {
-        jdbcTemplate.update("update appearances." + table + " set created_at = ? where id = ?",
-                now().minusMinutes(2), id);
+    /** 배치 대기 시간(1분)이 지난다: 방금 시작된 처리와 겹치지 않도록 배치는 이보다 오래된 것만 가져간다 */
+    private void pendingGracePassed() {
+        clock.advance(appearanceBatchProperties.pendingGrace().plusSeconds(1));
     }
 
-    /** HP 작업의 다음 시도 시각을 지금 이전으로 옮긴다 */
-    private void makeTaskDue(Long taskId) {
-        jdbcTemplate.update("update appearances.hp_tasks set next_attempt_at = ? where id = ?",
-                now().minusSeconds(1), taskId);
+    /** 실패한 HP 작업의 다음 시도 시각이 된다 */
+    private void retryTimeReached(Long taskId) {
+        clock.advanceTo(hpTaskRepository.findById(taskId).orElseThrow().getNextAttemptAt());
     }
 
-    /** 수락 기한이 이미 지난(이틀 + 1분 전에 보낸) 요청서를 저장한다 */
-    private AppearanceRequest saveOverdue(boolean requested) {
-        LocalDateTime sentAt = now().minusDays(2).minusMinutes(1);
-        AppearanceRequest request = AppearanceRequest.create(HOST, GUEST, AppearanceRequestFixture.content(sentAt),
-                appearancePolicy, sentAt);
-        if (requested) {
-            request.markRequested();
-        }
-        return appearanceRequestRepository.saveAndFlush(request);
+    /**
+     * 보낸 요청서의 수락 기한(보낸 뒤 2일)이 지난다. 만료 배치는 아직 돌지 않았다.
+     * requested가 false면 보류 결과를 모르는 채(HOLD_PENDING)로 기한이 지난다
+     */
+    private AppearanceRequest sentAndDeadlinePassed(boolean requested) {
+        Long requestId = requested
+                ? appearanceRequestFacade.create(HOST, GUEST, AppearanceRequestFixture.content(now())).id()
+                : sendHoldPending();
+        AppearanceRequest request = appearanceRequestRepository.findById(requestId).orElseThrow();
+        clock.advanceTo(request.getAcceptDeadline());
+        return request;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -166,34 +160,41 @@ class AppearanceBatchUseCaseTest {
         @DisplayName("보류 처리 중으로 1분 넘게 남은 요청서를 다시 보류해 REQUESTED로 정리한다")
         void recheckToRequested() {
             Long requestId = sendHoldPending();
-            ageCreatedAt("requests", requestId);
+            pendingGracePassed();
 
             int resolved = appearanceHoldRecheckUseCase.recheckDue();
 
             assertThat(resolved).isEqualTo(1);
             assertThat(statusOf(requestId)).isEqualTo(AppearanceRequestStatus.REQUESTED);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, requestId)).isEqualTo(FEE);
+            assertThat(BillingCalls.holds(billingClient)).singleElement().satisfies(hold -> {
+                assertThat(hold.referenceId()).isEqualTo(requestId);
+                assertThat(hold.amountHp()).isEqualTo(FEE);
+            });
         }
 
         @Test
-        @DisplayName("Billing이 처음 요청을 이미 처리했어도 같은 보류를 돌려받아 HP는 한 번만 빠진다")
+        @DisplayName("재확인은 처음과 같은 보류 요청(같은 호스트·요청서·금액)을 다시 보낸다. Billing이 이미 처리했으면 처음 보류를 돌려준다(멱등, 실제 확인은 apps 통합 테스트)")
         void alreadyHeldOnce() {
-            Long requestId = sendHoldPending();
-            fakeBillingClient.hold(new HoldCommand(HOST, BillingReferenceType.APPEARANCE_REQUEST, requestId, FEE));
-            ageCreatedAt("requests", requestId);
+            BillingStubs.unavailable(billingClient);
+            assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, GUEST, AppearanceRequestFixture.content(now())))
+                    .isInstanceOf(RuntimeException.class);
+            HoldCommand first = BillingCalls.holds(billingClient).getFirst();
+            BillingStubs.available(billingClient);
+            Long requestId = onlyRequest().getId();
+            pendingGracePassed();
 
             appearanceHoldRecheckUseCase.recheckDue();
 
             assertThat(statusOf(requestId)).isEqualTo(AppearanceRequestStatus.REQUESTED);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE - FEE);
+            assertThat(BillingCalls.holds(billingClient)).containsExactly(first);
         }
 
         @Test
         @DisplayName("Billing이 거절하면(잔액 부족) HOLD_FAILED로 정리한다")
         void recheckToHoldFailed() {
             Long requestId = sendHoldPending();
-            fakeBillingClient.setBalance(HOST, FEE - 1);
-            ageCreatedAt("requests", requestId);
+            BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
+            pendingGracePassed();
 
             assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
 
@@ -208,8 +209,8 @@ class AppearanceBatchUseCaseTest {
             assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero();
             assertThat(statusOf(requestId)).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
 
-            ageCreatedAt("requests", requestId);
-            fakeBillingClient.setUnavailable(true);
+            pendingGracePassed();
+            BillingStubs.unavailable(billingClient);
             assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero();
             assertThat(statusOf(requestId)).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
         }
@@ -217,26 +218,50 @@ class AppearanceBatchUseCaseTest {
         @Test
         @DisplayName("보류 처리 중인 모집글도 다시 보류해 RECRUITING으로 정리한다")
         void recheckRecruit() {
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now())))
                     .isInstanceOf(RuntimeException.class);
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             Long recruitId = appearanceRecruitRepository.findAll().getFirst().getId();
-            ageCreatedAt("recruits", recruitId);
+            pendingGracePassed();
 
             appearanceHoldRecheckUseCase.recheckDue();
 
             assertThat(appearanceRecruitRepository.findById(recruitId).orElseThrow().getStatus())
                     .isEqualTo(AppearanceRecruitStatus.RECRUITING);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId))
-                    .isEqualTo(AppearanceRecruitFixture.TOTAL_FEE);
+            assertThat(BillingCalls.holds(billingClient)).singleElement().satisfies(hold -> {
+                assertThat(hold.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_RECRUIT);
+                assertThat(hold.amountHp()).isEqualTo(AppearanceRecruitFixture.TOTAL_FEE);
+            });
+        }
+
+        @Test
+        @DisplayName("보류 처리 중인 모집글을 재확인할 때 Billing이 거절하면(잔액 부족) HOLD_FAILED로 정리하고, 목록·상세에 보이지 않는다")
+        void recheckRecruitToHoldFailed() {
+            BillingStubs.unavailable(billingClient);
+            assertThatThrownBy(() -> appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now())))
+                    .isInstanceOf(RuntimeException.class);
+            Long recruitId = appearanceRecruitRepository.findAll().getFirst().getId();
+            BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
+            pendingGracePassed();
+
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
+
+            assertThat(appearanceRecruitRepository.findById(recruitId).orElseThrow().getStatus())
+                    .isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
+            assertThat(BillingCalls.holds(billingClient)).hasSize(2)
+                    .allSatisfy(hold -> assertThat(hold.referenceId()).isEqualTo(recruitId));
+            assertThat(appearanceRecruitFacade.getMine(HOST, null, PageRequest.of(0, 10)).getContent()).isEmpty();
+            assertThatThrownBy(() -> appearanceRecruitFacade.getDetail(HOST, recruitId))
+                    .isInstanceOf(AppearanceException.class)
+                    .extracting("errorCode").isEqualTo(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero(); // 정리된 모집글은 다시 가져가지 않는다
         }
 
         @Test
         @DisplayName("수락 기한이 지난 보류 처리 중 요청서는 REQUESTED로 정리한 뒤 만료 배치가 EXPIRED + 반환한다 (S5)")
         void recheckThenExpire() {
-            AppearanceRequest overdue = saveOverdue(false);
-            ageCreatedAt("requests", overdue.getId());
+            AppearanceRequest overdue = sentAndDeadlinePassed(false); // 이틀이 지나 배치 대기 시간도 지났다
 
             appearanceHoldRecheckUseCase.recheckDue();
             assertThat(statusOf(overdue.getId())).isEqualTo(AppearanceRequestStatus.REQUESTED);
@@ -244,7 +269,7 @@ class AppearanceBatchUseCaseTest {
             appearanceRequestExpireUseCase.expireDue();
             assertThat(statusOf(overdue.getId())).isEqualTo(AppearanceRequestStatus.EXPIRED);
             assertThat(onlyTask().getStatus()).isEqualTo(HpTaskStatus.DONE);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::amountHp).containsExactly(FEE);
         }
     }
 
@@ -256,8 +281,7 @@ class AppearanceBatchUseCaseTest {
         @Test
         @DisplayName("수락 기한이 지난 응답 대기 요청서를 EXPIRED로 바꾸고 보류 HP를 반환한다 (사유 REQUEST_EXPIRED)")
         void expire() {
-            AppearanceRequest overdue = saveOverdue(true);
-            fakeBillingClient.hold(new HoldCommand(HOST, BillingReferenceType.APPEARANCE_REQUEST, overdue.getId(), FEE));
+            AppearanceRequest overdue = sentAndDeadlinePassed(true);
 
             int expired = appearanceRequestExpireUseCase.expireDue();
 
@@ -266,7 +290,11 @@ class AppearanceBatchUseCaseTest {
             HpTask task = onlyTask();
             assertThat(task.getReason()).isEqualTo(HpTaskReason.REQUEST_EXPIRED);
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DONE);
-            assertThat(fakeBillingClient.heldAmount(BillingReferenceType.APPEARANCE_REQUEST, overdue.getId())).isZero();
+            assertThat(BillingCalls.releases(billingClient)).singleElement().satisfies(release -> {
+                assertThat(release.referenceId()).isEqualTo(overdue.getId());
+                assertThat(release.releaseRequestId()).isEqualTo(task.getIdempotencyKey());
+                assertThat(release.amountHp()).isEqualTo(FEE);
+            });
             assertThat(appearanceRequestFacade.getDetail(HOST, overdue.getId()).hpReleaseStatus())
                     .isEqualTo(HpTaskStatus.DONE);
         }
@@ -285,8 +313,8 @@ class AppearanceBatchUseCaseTest {
         @Test
         @DisplayName("반환이 실패해도 만료는 확정되고 작업은 재시도 대기로 남는다. 다시 실행해도 만료는 한 번뿐이다")
         void releaseFails() {
-            AppearanceRequest overdue = saveOverdue(true);
-            fakeBillingClient.setUnavailable(true);
+            AppearanceRequest overdue = sentAndDeadlinePassed(true);
+            BillingStubs.unavailable(billingClient);
 
             appearanceRequestExpireUseCase.expireDue();
 
@@ -307,7 +335,7 @@ class AppearanceBatchUseCaseTest {
         private HpTask failedRelease() {
             AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
                     AppearanceRequestFixture.content(now()));
-            fakeBillingClient.setUnavailable(true);
+            BillingStubs.unavailable(billingClient);
             appearanceRequestFacade.reject(GUEST, sent.id(), null);
             return onlyTask();
         }
@@ -316,17 +344,18 @@ class AppearanceBatchUseCaseTest {
         @DisplayName("다음 시도 시각 전에는 실행하지 않고, 지나면 다시 실행해 DONE")
         void retryWhenDue() {
             HpTask task = failedRelease();
-            fakeBillingClient.setUnavailable(false);
+            BillingStubs.available(billingClient);
             double doneBefore = hpTaskMetrics.executions("done");
 
             assertThat(hpTaskRetryUseCase.retryDue()).isZero();
 
-            makeTaskDue(task.getId());
+            retryTimeReached(task.getId());
             assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
             HpTask retried = onlyTask();
             assertThat(retried.getStatus()).isEqualTo(HpTaskStatus.DONE);
             assertThat(retried.getAttemptCount()).isEqualTo(2);
-            assertThat(fakeBillingClient.balanceOf(HOST)).isEqualTo(FakeBillingClient.DEFAULT_BALANCE);
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::releaseRequestId)
+                    .containsExactly(task.getIdempotencyKey());
             assertThat(hpTaskMetrics.executions("done")).isEqualTo(doneBefore + 1);
         }
 
@@ -337,7 +366,7 @@ class AppearanceBatchUseCaseTest {
             LocalDateTime previousNext = task.getNextAttemptAt();
 
             for (int attempt = 2; attempt <= 9; attempt++) {
-                makeTaskDue(task.getId());
+                retryTimeReached(task.getId());
                 hpTaskRetryUseCase.retryDue();
                 HpTask retried = onlyTask();
                 assertThat(retried.getStatus()).isEqualTo(HpTaskStatus.PENDING);
@@ -346,13 +375,13 @@ class AppearanceBatchUseCaseTest {
             }
             assertThat(previousNext).isAfter(now().plusMinutes(59));
 
-            makeTaskDue(task.getId());
+            retryTimeReached(task.getId());
             hpTaskRetryUseCase.retryDue();
 
             HpTask dead = onlyTask();
             assertThat(dead.getStatus()).isEqualTo(HpTaskStatus.DEAD);
             assertThat(dead.getAttemptCount()).isEqualTo(10);
-            assertThat(dead.getLastError()).contains("BillingUnavailableException");
+            assertThat(dead.getLastError()).isEqualTo("IllegalStateException: Billing 응답 없음 (테스트)");
             assertThat(hpTaskMetrics.deadCount()).isEqualTo(1);
         }
 
@@ -360,8 +389,9 @@ class AppearanceBatchUseCaseTest {
         @DisplayName("Billing이 거절하면 재시도하지 않고 바로 DEAD (Billing 오류 코드 기록)")
         void deadOnRejection() {
             HpTask task = failedRelease();
-            fakeBillingClient.reset();
-            makeTaskDue(task.getId());
+            BillingStubs.available(billingClient);
+            BillingStubs.reject(billingClient, Rejection.HOLD_NOT_FOUND);
+            retryTimeReached(task.getId());
 
             hpTaskRetryUseCase.retryDue();
 
@@ -379,11 +409,13 @@ class AppearanceBatchUseCaseTest {
                     HpTaskReason.REQUEST_REJECTED, "APPEARANCE_REQUEST-99-RELEASE-1", now().minusSeconds(1)));
 
             assertThat(hpTaskRetryUseCase.retryDue()).isZero();
+            assertThat(BillingCalls.releases(billingClient)).isEmpty();
 
-            ageCreatedAt("hp_tasks", fresh.getId());
+            pendingGracePassed();
             assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
-            // 보류가 없어 Billing이 거절 → 바로 DEAD
-            assertThat(onlyTask().getStatus()).isEqualTo(HpTaskStatus.DEAD);
+            assertThat(onlyTask().getStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::releaseRequestId)
+                    .containsExactly("APPEARANCE_REQUEST-99-RELEASE-1");
         }
     }
 }

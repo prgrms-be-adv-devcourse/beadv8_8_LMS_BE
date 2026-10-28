@@ -63,6 +63,29 @@ class SchedulingEnabledTest {
     }
 
     @Test
+    void 회원_팔로워_갱신_배치가_정한_cron으로_등록된다() {
+        assertThat(scheduledTaskHolder.getScheduledTasks())
+                .extracting(ScheduledTask::getTask)
+                .filteredOn(CronTask.class::isInstance)
+                .map(CronTask.class::cast)
+                .extracting(Task::toString, CronTask::getExpression)
+                .contains(tuple("com.hapbang.member.in.MemberFollowerRefreshBatch.run", "0 0 10 * * *"));
+    }
+
+    @Test
+    void 환전_정산_배치와_송금_결과_확인_배치가_정한_cron으로_등록된다() {
+        // #305: 정산은 매일 10:05~23:05 매시 5분, 결과 확인은 5분마다(15초). 둘 다 Asia/Seoul
+        assertThat(scheduledTaskHolder.getScheduledTasks())
+                .extracting(ScheduledTask::getTask)
+                .filteredOn(CronTask.class::isInstance)
+                .map(CronTask.class::cast)
+                .extracting(Task::toString, CronTask::getExpression)
+                .contains(
+                        tuple("com.hapbang.billing.app.ExchangeSettlementBatch.run", "0 5 10-23 * * *"),
+                        tuple("com.hapbang.billing.app.ExchangePayoutRecoveryBatch.run", "15 */5 * * * *"));
+    }
+
+    @Test
     void 스케줄러_스레드는_4개다() {
         assertThat(taskScheduler.getScheduledThreadPoolExecutor().getCorePoolSize()).isEqualTo(4);
     }

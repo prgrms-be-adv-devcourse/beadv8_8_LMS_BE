@@ -27,7 +27,7 @@
 
 | 기능 | 상태 | 이슈 |
 |---|---|---|
-| 모듈 기반 (정책 설정, Clock, 오류 응답, Billing 계약과 Fake) | ✅ | #26 |
+| 모듈 기반 (정책 설정, Clock, 오류 응답, Billing 계약) | ✅ | #26 |
 | 출연 회원 복제, 호스트·게스트 자격 확인, 팀 공통 로그인 적용 | ✅ | #31 |
 | 회원 정보 변경 이벤트 반영 | ✅ | #50 |
 | 출연 요청서 보내기(HP 보류)·조회·기본 정보 수정 | ✅ | #98 |
@@ -40,7 +40,10 @@
 | 출연 알림 이벤트 발행 (요청 도착·지원 도착, shared 이벤트) | ✅ | #227 |
 | 출연 조회, 출연 취소 요청·수락(합의 취소)·거절·자동 거절, 취소 알림 이벤트 | ✅ | #231 |
 | 호스트 일방 취소(위약금 30%)·모집 전체 취소 | ✅ | #239 |
-| 출연 확인·이의 제기 | ⬜ 예정 | — |
+| FE 모집 화면 응답 보강 (모집 상세 내 지원, 지원 행의 모집글 제목·일시·상태) | ✅ | #243 |
+| 출연 확인(확인·불참)·D+7 자동 확인, 지급 HP 작업. 이의 제기는 고객센터 관할 | ✅ | #282 |
+| Billing 실제 연동 (Fake Billing·`mode` 설정 삭제, 실제 Billing 통합 테스트) | ✅ | #289 |
+| 정리: 작업 뒤 상세 조회 읽기 전용 트랜잭션, 충돌 변환 통합 | ✅ | #293 |
 
 ---
 
@@ -79,7 +82,7 @@
 ### 2.3 시간
 
 - 출연 모듈의 시각은 모두 한국 시간(Asia/Seoul)으로 다룬다. DB는 `timestamp`(시간대 없음), Java는 `LocalDateTime`.
-- 기한·마감처럼 로직에 쓰는 현재 시각은 `appearanceClock` 빈(`Clock`)으로만 얻는다. 테스트에서는 고정 시각을 넣는다.
+- 기한·마감처럼 로직에 쓰는 현재 시각은 `appearanceClock` 빈(`Clock`)으로만 얻는다. 도메인 단위 테스트는 시각을 값으로 넣고, 출연 통합 테스트는 실제 시각으로 흐르되 앞으로 돌릴 수 있는 테스트 시계(`AppearanceTestClock`)를 쓴다 (#297).
 
 ---
 
@@ -168,9 +171,7 @@ com.hapbang.appearance
 | `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
 | `out.AppearanceRepository`, `HpTaskRepository` | 출연, HP 작업 저장·조회 |
 | `out.billing.BillingClient` | Billing 연동 창구. 메서드·요청·응답은 shared `BillingPort`와 같다 |
-| `out.billing.BillingPortClient` | 실제 Billing 연동 구현. `appearance.billing.mode=billing-port`일 때만 등록되어 shared `BillingPort`로 그대로 넘긴다 (Billing #182) |
-| `out.billing.FakeBillingClient`, `FakeBillingErrorCode`, `FakeBillingException` | 외부 연동 교체 전까지 쓰는 메모리 구현. Billing 규칙·오류 코드를 흉내 냄 (테스트에서 잔액·지갑·무응답 조절) |
-| `out.billing.BillingUnavailableException` | 처리 여부를 알 수 없는 실패(무응답 등). 같은 요청으로 다시 확인해야 함 |
+| `out.billing.BillingPortClient` | 실제 Billing 연동 구현(유일한 구현). shared `BillingPort`로 그대로 넘긴다 (Billing #182, #289부터 항상 사용) |
 | (삭제, #71) | 출연 예외는 global의 공통 핸들러(`com.hapbang.global.exception.GlobalExceptionHandler`)가 Problem Detail로 응답한다 |
 
 **계층별 책임 (2026-10-14 정리, ISSUE.md APR-25)**
@@ -198,8 +199,8 @@ com.hapbang.appearance
 |---|---|---|---|
 | 회원 | 이벤트 수신 | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ |
 | 회원 (global) | 로그인 | `@LoginUserId`로 세션의 회원 ID | ✅ |
-| 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`) | 보류, 반환, 지급, 위약금 | 계약 맞춤 + Fake 사용 중. 실제 연동 구현(`BillingPortClient`)은 Billing #182로 추가됨, `mode` 전환은 외부 연동 교체 단계 |
-| 고객센터 | 이벤트 발행 | 이의 제기 (패널티 요청) | 예정 |
+| 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`, 같은 서버 안 Java 호출) | 보류, 반환, 지급, 위약금 | ✅ 실제 연동 (#289). MSA 분리 때 API로 전환 예정 (APR-34) |
+| 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
 
 ### 4.1 회원 정보 복제
 
@@ -216,12 +217,12 @@ com.hapbang.appearance
 - **모든 회원 이벤트는 회원 모듈의 트랜잭션이 커밋된 뒤에만 반영한다** (`@ApplicationModuleListener`, 새 트랜잭션에서 처리). 회원 쪽 처리가 롤백되면 출연 회원도 바뀌지 않는다.
 - **출연 회원은 가입 이벤트로만 만든다.** 늦게 처리된 가입 이벤트가 이미 반영된 변경 정보를 덮어쓰지 않게 하기 위해서다 (채팅·강의 모듈과 같은 방식).
     - 복제 회원은 ID를 직접 넣기 때문에 JPA `save()`가 merge로 동작한다. 가입·변경이 각자 "없으면 생성"하면 PK 충돌 없이 나중 것이 덮어쓴다.
-- 변경 이벤트는 도착한 순서대로 그대로 반영한다.
+- 변경 이벤트는 회원 버전(`UserDto.version`)으로 걸러 반영한다. 공통 `ReplicaUser.syncFrom`이 이미 반영한 버전보다 크지 않은 정보(늦게 온·중복된 이벤트)를 무시한다 (회원 #292, 출연 마이그레이션 `V202610161501`은 회원 담당 추가).
 - 처리에 실패하면 Modulith 이벤트 저장소(`event_publication`)에 남고, 서버가 재시작될 때 다시 처리된다 (`republish-outstanding-events-on-restart`). 주기적으로 재시도하지는 않는다.
 - 회원이 정지·탈퇴 상태로 바뀌면 이후 출연 거래 자격 확인에서 `APPEARANCE_USER_NOT_ACTIVE`가 된다.
 - 한계 (팀에서 수용)
     - 가입보다 변경 이벤트가 먼저 처리되면, 그 변경은 서버 재시작 때까지 반영되지 않는다.
-    - 이벤트에 버전·발생 시각이 없어서, 변경 이벤트끼리 순서가 바뀌어 처리되면(실패한 변경 이벤트의 재처리 등) 옛 정보가 반영될 수 있다. 회원 이벤트에 버전이 생기면 더 새로운 이벤트만 반영하도록 바꾼다 (#56).
+    - ~~변경 이벤트 순서가 바뀌면 옛 정보가 반영될 수 있다 (#56)~~ → 회원 #292의 버전 비교로 해결.
 
 ### 4.2 Billing 연동 (#168)
 
@@ -245,13 +246,11 @@ com.hapbang.appearance
 - 위약금은 출연이 계산한다 (`AppearancePolicy.calculatePenalty`, 출연료의 30%, 끝전 버림). Billing은 받은 반환액·위약금을 한 트랜잭션으로 옮긴다.
 - **Billing이 거절하면 Billing 업무 예외**(`BusinessException` 하위)가 난다. 출연은 코드·메시지를 바꾸지 않고 그대로 응답한다
   (예: 잔액 부족 409 `INSUFFICIENT_BALANCE`, 지갑 없음 404 `WALLET_NOT_FOUND`).
-- 그 밖의 예외(`BillingUnavailableException` 등)는 처리됐는지 알 수 없는 실패다. 대상을 그대로 두고 같은 요청으로 다시 확인한다.
+- 그 밖의 예외(업무 예외가 아닌 런타임 예외)는 처리됐는지 알 수 없는 실패다. 대상을 그대로 두고 같은 요청으로 다시 확인한다.
 - 출연은 Billing을 **DB 트랜잭션 밖에서** 부른다. Billing은 호출한 쪽 트랜잭션에 참여하므로, 트랜잭션 안에서 부르고 예외를 잡으면 롤백 전용 트랜잭션을 이어 쓰게 된다.
 - **반환·지급처럼 업무 상태 변경 뒤에 하는 Billing 호출은 HP 작업(`appearances.hp_tasks`)으로 기록하고 실행한다** (아래 4.3, #137).
-- `BillingClient`는 `BillingPort`를 상속하지 않는다. 상속하면 출연의 Fake가 앱 전체의 `BillingPort` 빈이 되어 다른 모듈에 주입될 수 있다.
-- 구현체는 `appearance.billing.mode`로 고른다. **외부 연동 교체 단계 전까지 기본값 `fake`(메모리 구현)를 쓴다.**
-  `billing-port`로 바꾸면 실제 Billing을 shared `BillingPort`로 부르는 `BillingPortClient`가 등록된다 (Billing 담당이 #182로 추가). 값을 잘못 쓰면 어느 구현도 등록되지 않아 앱이 뜨지 않는다.
-  Fake는 Billing 구현의 규칙(보류 1건, 요청 ID 재전송, 거절 코드·메시지)을 흉내 내며, 오류 코드는 `FakeBillingErrorCode`에 Billing 값을 그대로 옮겨 두었다.
+- `BillingClient`는 `BillingPort`를 상속하지 않는다. 출연 코드는 자기 인터페이스만 알아, MSA 분리 때 구현만 바꾼다 (APR-34).
+- 구현은 실제 Billing을 shared `BillingPort`로 부르는 `BillingPortClient`(Billing 담당 #182) 하나다. #289에서 메모리 구현(Fake)과 `appearance.billing.mode` 설정을 없앴다 (15장).
 
 ### 4.3 HP 작업 (실패한 Billing 호출의 기록·재처리, #137)
 
@@ -335,9 +334,12 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 | `host_id`, `guest_id` | BIGINT | 회원 ID |
 | `fee` | BIGINT | 출연료 **스냅샷** (지급·위약금·반환 기준) |
 | `scheduled_at` | TIMESTAMP(6) | 방송 예정 일시 **스냅샷** (D+7·취소 요청 마감 기준) |
-| `status` | VARCHAR(255) | `ESTABLISHED` (이후 상태는 출연 취소 요청·확인·취소 처리에서) |
+| `status` | VARCHAR(255) | `ESTABLISHED` / `CANCEL_REQUESTED` / `CONFIRMED` / `ABSENT` / `CANCELED_BY_HOST` / `CANCELED_BY_AGREEMENT` |
 | `established_at` | TIMESTAMP(6) | 성립 시각 |
-| `confirm_type`, `penalty_amount`, `confirmed_at`, `no_show_at`, `disputed_at`, `canceled_at` | | 출연 확인·취소 처리에서 사용 (현재 비어 있음) |
+| `confirm_type`, `confirmed_at` | VARCHAR(255), TIMESTAMP(6) | 출연 확인 방식(`HOST`/`AUTO`)·시각 (#282) |
+| `absent_at`, `absent_reason` | TIMESTAMP(6), VARCHAR(500) | 불참 처리 시각·사유 (#282, 예전 `no_show_at`) |
+| `penalty_amount`, `host_cancel_reason` | BIGINT, VARCHAR(500) | 호스트 일방 취소 위약금·사유 (#239) |
+| `canceled_at` | TIMESTAMP(6) | 취소 시각 (합의 취소·일방 취소) |
 | `version`, `created_at`, `updated_at` | | 낙관적 락, 생성·수정 시각 |
 
 - 제약: 출처는 하나만 (`REQUEST`면 `request_id`만, `RECRUIT`면 `application_id`만), `fee > 0`
@@ -482,7 +484,7 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
 | POST | `/api/v1/appearances/recruits` | 모집글 올리기 (HP 보류), 201 | 인플루언서 이상 | 출연 모집글을 올렸습니다. |
 | GET | `/api/v1/appearances/recruits` | 모집 중인 모집글 공개 목록 | 로그인 회원 누구나 | 모집 중인 출연 모집글 목록을 조회했습니다. |
 | GET | `/api/v1/appearances/recruits/mine?status=` | 내가 올린 모집글 목록 (상태 필터, 여러 개) | 인플루언서 이상 | 내 출연 모집글 목록을 조회했습니다. |
-| GET | `/api/v1/appearances/recruits/{recruitId}` | 상세 (마감 반환 진행 상태 `hpReleaseStatus`는 호스트에게만) | 로그인 회원 누구나 | 출연 모집글을 조회했습니다. |
+| GET | `/api/v1/appearances/recruits/{recruitId}` | 상세 (마감 반환 진행 상태 `hpReleaseStatus`는 호스트에게만, 조회한 회원의 지원 `myApplication` #243) | 로그인 회원 누구나 | 출연 모집글을 조회했습니다. |
 | PATCH | `/api/v1/appearances/recruits/{recruitId}` | 기본 정보(제목·콘텐츠 설명·호스트 채널 URL) 수정 | 인플루언서 이상, 호스트만 | 출연 모집글을 수정했습니다. |
 | POST | `/api/v1/appearances/recruits/{recruitId}/close` | 조기 마감 (#222, 10장) | 인플루언서 이상, 호스트만 | 출연 모집을 마감했습니다. |
 
@@ -530,7 +532,8 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
   ├ 10초 AppearanceRecruitDeadlineCloseUseCase.closeDue()  모집 기한 마감 + 미달분 반환 (#222, 10장)
   ├ 20초 AppearanceRequestExpireUseCase.expireDue()  수락 기한 만료 + 반환
   ├ 30초 AppearanceCancelAutoRejectUseCase.rejectDue()  출연 취소 요청 자동 거절 (#231, 12장)
-  └ 40초 HpTaskRetryUseCase.retryDue()               HP 작업 재시도·격리 + 지표 갱신
+  ├ 40초 HpTaskRetryUseCase.retryDue()               HP 작업 재시도·격리 + 지표 갱신
+  └ 50초 AppearanceAutoConfirmUseCase.confirmDue()   출연 자동 확인 + 지급 (#282, 14장)
 ```
 
 - 팀 공통 스케줄링 규칙(#157)을 따른다: `hapbang.scheduling.enabled=true`일 때만 배치 빈이 생기고(앱에서만 켜짐), 배치 클래스는 주기만 정하고 처리는 UseCase가 한다. 테스트는 UseCase를 직접 부른다.
@@ -598,6 +601,8 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 - 모두 인플루언서 이상(Facade 클래스 `@PreAuthorize`), 출연 회원 자격(정지·강등) 확인. 목록은 `Pageable`, 최신순 고정, 상태 필터는 여러 개.
 - 모집글 응답(목록·상세)에 **지원자 수 `applicantCount`**를 담는다: 게스트가 취소한 지원만 뺀 전체 지원(대기·수락·미선정). 화면에 보일지는 화면이 정한다 (ISSUE.md APR-27 A6).
 - 지원 응답(목록 포함)에는 수락된 경우 성립한 출연 ID(`appearanceId`)가 있다 (한 페이지를 한 번에 조회).
+- 지원 응답(목록 포함)에는 모집글의 **현재** 제목·방송 예정 일시·상태(`recruitTitle`·`recruitScheduledAt`·`recruitStatus`)가 있다. 지원 시점에 저장하지 않고 조회 때 모집글을 읽는다 (한 페이지의 모집글을 한 번에, #243 APR-33).
+- 모집글 상세에는 조회한 회원의 지원 `myApplication`(같은 지원 응답 모양)이 있다. 재지원 불가라 최대 1건이고, 취소·미선정도 상태 그대로 담는다. 지원한 적이 없거나 호스트 본인이면 `null` (#243).
 
 ### 9.2 상태
 
@@ -825,5 +830,194 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 멱등 키 (= Billing 요청 ID) | `…-RELEASE-1` / `…-RELEASE-APPEARANCE-{출연 ID}` | `{APPEARANCE_REQUEST·APPEARANCE_RECRUIT}-{보류 ID}-PENALTY-APPEARANCE-{출연 ID}` (= 취소 ID) |
 
 - 지급 원천: 요청서 출처 `APPEARANCE_REQUEST`, 모집 출처 `RECRUIT_APPEARANCE` (+ 출연 ID).
-- 제약 `ck_hp_tasks_penalty`: `PENALTY`면 받는 회원·출연 ID·위약금(1 이상, 기준액 이하) 필수, 그 밖은 비움.
+- 제약 `ck_hp_tasks_penalty`: `PENALTY`면 받는 회원·출연 ID·위약금(1 이상, 기준액 이하) 필수, 그 밖은 비움. (#282에서 `ck_hp_tasks_receiver`로 바뀜, 14.3)
 - 마이그레이션: `V202610151702__add_appearance_host_cancel_columns.sql` (`hp_tasks.receiver_id`·`payout_amount`, `appearances.host_cancel_reason`, `recruits.cancel_reason`)
+
+## 14. 출연 확인 (#282)
+
+### 14.1 API·배치
+
+| 메서드 | 경로 | 설명 | 권한 | 성공 메시지 |
+|---|---|---|---|---|
+| POST | `/api/v1/appearances/{appearanceId}/confirm` | 출연 확인 → 게스트에게 출연료 지급 | 출연의 호스트 | 출연을 확인했습니다. |
+| POST | `/api/v1/appearances/{appearanceId}/absent` | 불참 → 호스트에게 출연료 반환. 본문(선택) `{"reason": "…(500자 이하)"}` | 출연의 호스트 | 불참으로 처리했습니다. |
+| 배치 | 매분 50초 `AppearanceAutoConfirmUseCase.confirmDue()` | 확인 기간이 끝난 성립 출연 자동 확인 + 지급 | 시스템 | — |
+
+- 응답은 출연 상세. 추가 필드: `confirmType`(`HOST`/`AUTO`), `confirmedAt`, `absentAt`, `absentReason`, `hpPayoutStatus`(지급 진행 상태). 불참의 반환 진행 상태는 기존 `hpReleaseStatus`.
+- 이름: AGENTS.md의 "노쇼(부정 응답)"를 코드·API에서는 **불참(`ABSENT`)**으로 쓴다 (APR-35 E1).
+
+### 14.2 규칙
+
+| 항목 | 규칙 | 근거 |
+|---|---|---|
+| 응답 기간 | 방송 예정 일시 ≤ 지금 < 방송 예정 일시 + `confirm-period`(7일). 전이면 409 `APPEARANCE_CONFIRM_NOT_OPEN`, 지나면 409 `APPEARANCE_CONFIRM_PERIOD_ENDED` | AGENTS.md, APR-05 |
+| 응답할 수 있는 상태 | `ESTABLISHED`만. 이미 응답함·취소 요청 처리 중·취소됨은 409 `APPEARANCE_NOT_CONFIRMABLE`(`detail`로 이유 구분) | E3 |
+| 번복 | 불가. 확인·불참 중 한 번만 (응답 즉시 돈이 움직임) | E3 |
+| 응답하는 사람 | 출연의 호스트만(403 `NOT_APPEARANCE_HOST`, `detail` "출연의 호스트만 출연을 확인할 수 있습니다."). 다른 회원은 404 | |
+| 회원 자격 | **보지 않는다.** 정지된 호스트도 응답할 수 있고 정지된 게스트에게도 지급한다 (거래 마무리). 응답도 자격 확인 없이 출연 상세를 돌려준다. 역할 검사(`@PreAuthorize`)는 그대로 | E5 |
+| 불참 사유 | 선택 500자 | E2 |
+| 자동 확인 | 매분 50초. `ESTABLISHED`이고 방송 예정 일시 + 7일 ≤ 지금인 출연 → `CONFIRMED`(`AUTO`) + 지급. 출연마다 잠금 뒤 다시 확인해 그사이 호스트가 응답했으면 건너뜀 | AGENTS.md |
+| 취소 요청 처리 중 | 방송 예정 일시에 자동 거절 배치(30초)가 `ESTABLISHED`로 되돌린 뒤 응답·자동 확인 대상이 된다 (그 전 최대 1분은 409) | #231 |
+| 잠금 | 출연 행만 배타 잠금. 모집글은 잠그지 않는다: 방송 예정 일시가 지나면 모집글을 바꾸는 처리(지원 수락·마감·합의 취소·모집 전체 취소)가 모두 막혀 있다 | |
+| 지급·반환 실행 | 상태 변경 + HP 작업 기록을 한 트랜잭션에 커밋한 뒤 1회 실행. 실패하면 작업만 재시도·격리, 응답은 성공 | APR-22 |
+| 이의 제기 | 출연 관할 아님. 불참 게스트 패널티는 고객센터 문의로 접수 (출연은 API·기록 없음, `disputed_at` 컬럼 삭제) | E4 |
+| 알림 | 이벤트를 발행하지 않는다 | E6 |
+
+### 14.3 HP 작업 (지급)
+
+| 컬럼 | 지급(`PAYOUT`, 확인) | 반환(`RELEASE`, 불참) |
+|---|---|---|
+| `member_id` | 보류한 호스트 (지급하는 회원) | 반환받는 호스트 |
+| `amount` | 출연료 | 출연료 |
+| `receiver_id`, `payout_amount` | 게스트, 출연료 (= `amount`) | 비움 |
+| `appearance_id` | 출연 ID (Billing 지급 원천 ID) | 비움 |
+| 사유 | `APPEARANCE_CONFIRMED` | `APPEARANCE_ABSENT` |
+| 멱등 키 (= Billing 요청 ID) | `{APPEARANCE_REQUEST·APPEARANCE_RECRUIT}-{보류 ID}-PAYOUT-APPEARANCE-{출연 ID}` | `…-RELEASE-APPEARANCE-{출연 ID}` (합의 취소와 같은 형식, 출연 하나는 하나로만 끝남) |
+
+- Billing 요청: `PayoutCommand.partial(호스트, 보류 종류, 보류 ID, 지급 요청 ID, 게스트, 원천 종류, 출연 ID, 출연료)`. 원천 종류는 요청서 출처 `APPEARANCE_REQUEST`, 모집 출처 `RECRUIT_APPEARANCE`. 모집글 보류에는 다른 출연의 몫이 함께 있어 금액을 정해 지급한다.
+- 제약 `ck_hp_tasks_receiver` (`ck_hp_tasks_penalty` 대체): `RELEASE`는 받는 회원·지급액 비움, `PENALTY`는 받는 회원·출연 ID 필수·위약금 1 이상 기준액 이하, `PAYOUT`은 받는 회원·출연 ID 필수·`payout_amount = amount`.
+- 출연 업무 규칙은 출연 모듈 테스트(Billing 대역)로, 실제 지급·반환은 apps `AppearanceBillingFlowIntegrationTest`(실제 Billing)로 확인한다 (#289, 15장).
+- 마이그레이션 `V202610161050__add_appearance_confirm_columns.sql`: `no_show_at` → `absent_at`, `absent_reason` 추가, `disputed_at` 삭제, 인덱스 `(status, scheduled_at)`, 제약 교체.
+
+## 15. Billing 실제 연동 (#289)
+
+### 15.1 바뀐 것
+
+| 항목 | 전 | 후 |
+|---|---|---|
+| 출연이 부르는 Billing | `appearance.billing.mode` 기본값 `fake` → 출연 모듈 안의 메모리 구현 `FakeBillingClient`. 배포 서버에서도 출연 HP가 Billing 지갑에 기록되지 않음 | 항상 `BillingPortClient` → shared `BillingPort` → Billing 모듈 (실제 지갑·원장) |
+| Fake Billing | `FakeBillingClient`·`FakeBillingErrorCode`·`FakeBillingException`·`BillingUnavailableException` (main) | 삭제 |
+| 설정 | `appearance.billing.mode` (`fake`/`billing-port`) | 삭제 (구현이 하나뿐) |
+| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
+| 실제 Billing 확인 | Billing 담당 `AppearanceBillingPortIntegrationTest`(보류·거절 반환 일부) | 출연 `AppearanceBillingFlowIntegrationTest`(apps)가 출연 API 전체 흐름을 실제 Billing으로 확인 (16장 test-spec) |
+
+- 출연은 현금을 다루지 않는다(HP만). 현금은 Billing 충전(Toss 테스트 결제)으로만 들어온다. 실제 Billing에 연결해도 실제 현금은 오가지 않는다 (APR-36).
+- 서버의 기존 출연 데이터(Fake 보류만 있던 건)는 조치하지 않는다 (H5). 그런 건을 반환·지급하면 Billing이 거절해 HP 작업이 `DEAD`가 된다.
+
+### 15.2 Billing 담당 파일에서 바꾼 것 (Billing 담당과 합의, APR-36 H3)
+
+| 파일 (만든 사람·커밋) | 바꾼 것 | 이유 |
+|---|---|---|
+| `appearance/out/billing/BillingPortClient` (Billing 담당, #182 `2b66849`) | `@ConditionalOnProperty(mode=billing-port)` 제거, 문서 주석 갱신. 위임 코드는 그대로 | 구현이 하나뿐이라 켜고 끄는 조건이 필요 없음 |
+| `appearance/.../out/billing/BillingClientModeTest` (Billing 담당, #182) | 삭제 | `mode` 값에 따라 Fake·실제 구현을 고르는지 보는 테스트라 대상이 없어짐 |
+| apps `AppearanceBillingPortIntegrationTest` (Billing 담당, #182) | `properties = "appearance.billing.mode=billing-port"` 제거, "Fake 빈이 없다" 확인 줄·`FakeBillingClient` import·쓰지 않게 된 `ApplicationContext` 제거, 첫 테스트 이름을 `출연_BillingClient로_BillingPortClient가_주입된다`로, 클래스 주석 갱신, `@DirtiesContext` 추가. 나머지 테스트는 그대로 | `FakeBillingClient` 클래스가 없어 컴파일이 깨지고, `mode` 설정이 없어짐. `@DirtiesContext`: `mode` 속성이 빠지며 `SecurityCookieTest`와 같은 컨텍스트를 쓰게 됐는데, `csrf()` 테스트 도구가 CSRF 저장소를 세션 방식으로 바꿔 끼워 `SecurityCookieTest`가 실패했다 (PR CI) |
+
+## 16. 정리 (#293)
+
+동작(응답·오류 코드·HP 처리)은 바꾸지 않은 정리다 (ISSUE.md APR-37).
+
+| 항목 | 내용 |
+|---|---|
+| 작업 뒤 상세 조회 | 조회 UseCase의 상세 메서드(`AppearanceRequestQueryUseCase.getDetail`, `AppearanceRecruitQueryUseCase.getDetail`, `AppearanceQueryUseCase.getDetail`·`getDetailWithoutParticipantCheck`)가 `@Transactional(readOnly = true)`. Billing 호출 때문에 트랜잭션 없이 도는 Facade 메서드 10곳(요청서 보내기·거절·취소, 모집글 올리기·조기 마감·전체 취소, 취소 요청 수락, 일방 취소, 출연 확인, 불참)도 상세를 한 시점의 값으로 읽는다. Facade 트랜잭션 안이면 합류한다. "트랜잭션은 Facade가 연다" 규칙의 예외 |
+| 동시 처리 충돌 → 409 | 낙관적 락 충돌을 `CONCURRENT_UPDATE`로 바꾸는 곳을 Support의 `flushOrConflict()`로 통일. 요청서 Support에 추가하고 모집글 수정·요청서 수정·수락·반환 기록 4곳의 try/catch를 없앴다 |
+| 그대로 둔 것 | `HpTaskExecuteUseCase`의 결과 기록 충돌은 409가 아니라 "다른 실행이 먼저 기록함" 로그만 (R2) |
+| 회원 이벤트 순서 | `AppearanceUserEventListener`의 `TODO(event)` 삭제. 공통 `ReplicaUser`가 회원 버전으로 옛 정보를 무시 (회원 #292) |
+
+## 17. 시나리오 전수 확인 (#297)
+
+운영 동작은 바꾸지 않았다 (ISSUE.md APR-38). 운영 코드는 `AppearanceConfig`의 Clock 설명 주석만 고쳤다.
+
+| 항목 | 내용 |
+|---|---|
+| 테스트 시계 | `@AppearanceIntegrationTest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
+| 시각 만들기 | 테스트는 DB의 시각 값(`scheduled_at`·`recruit_deadline`·`created_at`·`next_attempt_at`)을 고치지 않는다. 실제 순서대로 시계를 돌린다: 모집 마감(기한 마감 배치) → 방송 → 확인 기간 끝, 실패한 작업의 다음 시도 시각, 배치 대기 시간(1분). 남은 SQL 변경은 낙관적 락 충돌을 만드는 버전 올리기뿐 |
+| 그대로 둔 것 | apps `AppearanceBillingFlowIntegrationTest`는 아직 방송 시각을 SQL로 옮긴다 (테스트 시계는 출연 모듈 테스트 코드라 apps에서 바로 쓸 수 없음) |
+| 시나리오 표 | 저장소 밖 `hapbang_be/SCENARIOS.md` (1~10장 179개 시나리오 + 정책·제한 21개, 오류 코드 45개의 HTTP 확인 위치) |
+
+## 18. 출연 수익 내부 조회 (#301)
+
+Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지급 상태를 가져가는 **내부 전용** 조회다 (ISSUE.md APR-39). 읽기 전용이고, 출연 확인·취소·위약금·지급 로직은 바꾸지 않는다.
+
+### 18.1 연동 방식
+
+강의 내부 API(#300)와 같은 공통 규칙을 따른다 (docs/api/internal-earnings.md 1장, 출연 절은 6·7장). 출연만 다른 점은 표 아래에 모았다.
+
+| 항목 | 내용 |
+|---|---|
+| 호출 | Billing이 shared `AppearanceApiClient`(18.6)로 부른다. 같은 서버 안 주소(`http://localhost:8080`)로 부르고 nginx를 거치지 않는다 |
+| 경로 | `GET /api/v1/internal/appearances/earnings/summary`, `GET /api/v1/internal/appearances/earnings` (공통 규칙 `/api/v1/internal/<제공 모듈>/...`) |
+| 인증 | 헤더 `X-Internal-Api-Key`(`shared.internal.InternalApiHeaders`), 설정 `hapbang.internal-api.key`(환경변수 `HAPBANG_INTERNAL_API_KEY`). 맞으면 `ROLE_INTERNAL`, 틀리거나 없으면 본문 없는 401. 회원 세션으로는 부를 수 없고, 반대로 내부 키로 회원 API를 부를 수 없다. 필터·전용 보안 체인은 global(#300·#307) |
+| 외부 노출 | nginx가 `/api/v1/internal`을 밖에서 404로 막는다 (공통부). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영은 Swagger가 꺼져 있다 |
+| 출연 쪽 방어 | ① 보안 체인의 키 검증(공통부) ② `AppearanceEarningFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
+| 회원 ID | 쿼리 파라미터 `userId` (게스트). 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
+| 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). `null` 필드는 응답 JSON에서 빠진다(공통 Jackson 설정) |
+| 시각 | `LocalDateTime`(**offset 없는** ISO 8601), 모두 Asia/Seoul (Billing 합의 확정, 강의 계약 뒤에도 유지). 작업 완료·확인·취소·불참 시각은 출연 Clock(Asia/Seoul)으로 기록하고, 출연 수정 시각(`updated_at`)은 JPA Auditing이 JVM 기본 시간대로 기록하므로 앱 컨테이너의 `TZ: Asia/Seoul`(compose dev·prod, CI)에 기댄다 |
+
+**강의 계약과 다른 점** (#301 PR에 공유)
+
+| 항목 | 강의 #300 | 출연 | 이유 |
+|---|---|---|---|
+| 시각 | `OffsetDateTime`(`+09:00`) | `LocalDateTime`(KST, offset 없음) | Billing과 먼저 합의(APR-39 N1). 기존 출연 API·DB 규칙·FE 해석과 같다. Billing이 합칠 때 출연 시각을 KST로 읽으면 된다 |
+| 요약 `asOf` | 있음(분류 기준 시각) | 없음 | 출연 분류는 저장된 상태만 보고 조회 시각에 기대지 않는다. 강의 문서도 "무시해도 된다"는 추가 필드 |
+| `earningType` 필터 | 없음(종류가 하나) | 있음(선택) | Billing 요청. 출연은 출연료·위약금 두 종류 |
+| `SCHEDULED` | 쓴다 | 값만 있고 나오지 않는다 | 18.2 |
+
+### 18.2 수익 분류 (`domain.AppearanceEarningRule`)
+
+기준 회원은 게스트(수익을 받는 쪽)다. **출연 1건 = 수익 1건**이고, 지급·위약금 HP 작업(`PAYOUT`·`PENALTY`, 출연마다 많아야 1건)의 상태로 지급 상태를 정한다. 반환(`RELEASE`)은 호스트에게 돌아가는 돈이라 섞지 않는다.
+
+| 출연 상태 | 작업 | 지급 상태 | 종류 | 금액 | 미지급 합계 |
+|---|---|---|---|---|---|
+| `ESTABLISHED` | - | `CONFIRMATION_PENDING` | 출연료 | `fee` | 포함 |
+| `CANCEL_REQUESTED` | - | `ON_HOLD` | 출연료 | `fee` | 포함 |
+| `CONFIRMED` | `PENDING` / `DEAD` / `DONE` | `PROCESSING` / `FAILED` / `COMPLETED` | 출연료 | `fee` | `COMPLETED`만 제외 |
+| `CANCELED_BY_HOST` | `PENDING` / `DEAD` / `DONE` | `PROCESSING` / `FAILED` / `COMPLETED` | 위약금 | `penalty_amount` | `COMPLETED`만 제외 |
+| `ABSENT`, `CANCELED_BY_AGREEMENT` | - | `CANCELED` | 출연료 | `fee` | 제외 |
+
+- 공통 상태 중 `SCHEDULED`는 출연에 없다 (요약에서 항상 0). 확인하는 순간 지급을 실행해 "지급 시각은 정해졌는데 실행 전"인 단계가 없기 때문이다 (강의의 D+30 지급 예정과 다름).
+- 일방 취소된 출연은 위약금 한 건으로만 센다 (출연료와 중복 집계 없음). 모집은 성립한 게스트마다 한 건이고, 모집글 보류 전체나 미선정 지원은 세지 않는다.
+- 확인·일방 취소는 상태 변경과 지급·위약금 작업 기록을 한 트랜잭션에서 하므로 작업이 없을 수 없다. DB 제약이 이 짝을 보장하지 않으므로, 작업이 없으면 **`FAILED`로 보여 주고 `[EARNING_TASK_MISSING]` ERROR 로그**를 남긴다 (N2).
+- 요약과 목록은 같은 규칙을 쓴다. 목록 조회 조건은 규칙을 모든 조합에 적용해 만들어(`conditionOf`) 분류와 어긋나지 않는다.
+
+### 18.3 요약 (`summary`)
+
+- 파라미터: `userId`(필수), `earningType`(선택, `APPEARANCE_FEE`·`APPEARANCE_PENALTY`)
+- 응답: 미지급 5개 버킷 `confirmationPending`·`scheduled`(항상 0)·`onHold`·`processing`·`failed`, 각각 `amountHp`(HP)·`count`. 페이지와 상관없이 전체 기준. `COMPLETED`·`CANCELED`는 들어가지 않는다. `asOf`는 없다
+- 쿼리: (출연 상태, 작업 상태)별 건수·출연료 합계·위약금 합계를 한 번에 읽고 Java에서 분류해 접는다
+- 오류: `userId` 없음·1 미만, 없는 `earningType` → 400 `INVALID_REQUEST`
+
+### 18.4 목록
+
+- 파라미터: `userId`(필수), `status`(여러 번, 공통 7종), `earningType`(선택), `page`(0부터)·`size`(기본 20, 최대 100, 팀 공통)
+- `status`를 보내지 않거나 비우면 미지급 상태만(요약과 같은 범위, 강의와 같다). `COMPLETED`·`CANCELED`는 고를 때만 나온다
+- 출연에 없는 상태(`SCHEDULED`)만 고르면 400이 아니라 빈 결과 (N4). 계약에 없는 문자열(`PAID`, 다른 모듈 종류 `LECTURE_SALE` 등)은 400 `INVALID_REQUEST`(`errors[0].field` = `status`·`earningType`). Billing은 타입이 있는 Client로 부르므로 다른 모듈의 값을 보낼 수 없다
+- 정렬: `statusUpdatedAt` 내림차순 → `sourceId`(출연 ID) 내림차순 고정. 요청의 `sort`는 무시한다(페이지 번호·크기만 쓴다). 출연 1건 = 1행이라 순서가 정해지고, 같은 시각이 페이지 경계에 걸려도 중복·누락이 없다. 강의 목록과 같은 키라 Billing이 두 목록을 같은 기준으로 합칠 수 있다
+- 응답 `data`: `{content, page: {size, number, totalElements, totalPages}}`
+
+| 필드 | 값 |
+|---|---|
+| `sourceType` | 항상 `APPEARANCE` (강의는 `LECTURE`) |
+| `sourceId` | 출연 ID. Billing 지급·위약금 기록의 원천 ID와 같다. Billing 기록의 원천 종류는 요청 출처 `APPEARANCE_REQUEST`·모집 출처 `RECRUIT_APPEARANCE`로 나뉘지만 둘 다 출연 ID라 `sourceId` 하나로 맞춰 볼 수 있다 |
+| `earningType` | `APPEARANCE_FEE` / `APPEARANCE_PENALTY` |
+| `title` | 출처 요청서·모집글의 현재 제목 (내 출연 목록과 같음) |
+| `amountHp` | 출연료, 위약금이면 위약금 |
+| `status` | 18.2 지급 상태 |
+| `payoutScheduledAt` | 항상 `null`이라 응답에서 빠진다 (호스트가 방송 뒤 7일 안에 언제든 확인할 수 있어 지급 시각이 정해지지 않음) |
+| `statusUpdatedAt` | `coalesce(작업 완료 시각, 확인 시각, 취소 시각, 불참 시각, 출연 수정 시각)`: 완료·실패는 작업 완료 시각(`DONE`·`DEAD` 모두 기록), 처리 중은 확인·일방 취소 시각, 취소는 불참·합의 취소 시각, 확인 대기·보류는 출연 수정 시각 |
+
+### 18.5 인덱스
+
+`V202610161849__add_hp_tasks_appearance_id_index.sql`: `hp_tasks (appearance_id)`. 출연에 지급·위약금 작업을 붙여 읽는 조인용 (기존에는 `(ref_type, ref_id)`만 있었음).
+
+### 18.6 Client (`shared.appearance.out.AppearanceApiClient`)
+
+Billing은 URI·헤더를 직접 만들지 않고 이 Client를 주입받는다 (강의 `LectureApiClient`와 같은 방식, D62).
+
+```java
+AppearanceEarningSummaryDto getEarningSummary(long guestUserId);
+AppearanceEarningSummaryDto getEarningSummary(long guestUserId, AppearanceEarningType earningType);
+AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarningStatus> statuses, int page, int size);
+AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarningStatus> statuses,
+                                     AppearanceEarningType earningType, int page, int size);
+```
+
+| 설정 | 기본값 | 설명 |
+|---|---|---|
+| `hapbang.clients.appearance.base-url` | `http://localhost:${server.port:8080}` (apps) | 출연 서비스 주소. **이 값이 있을 때만 Client 빈이 생긴다**(모듈 테스트에는 없다) |
+| `hapbang.clients.appearance.connect-timeout` | 2s | 연결 제한 시간 |
+| `hapbang.clients.appearance.read-timeout` | 5s | 응답 제한 시간 |
+| `hapbang.internal-api.key` | (환경 변수) | Client가 헤더에 붙인다 |
+
+- 실패는 `AppearanceApiCallException`이다(shared는 global에 의존하지 않아 `BusinessException`이 아니다). `REJECTED`: 4xx(요청 값 오류, 키 오류 401), `UNAVAILABLE`: 연결 실패·시간 초과·5xx·읽을 수 없는 성공 응답(깨진 JSON, 계약에 없는 enum 값, 필수 필드 없음, `data` 없음). `getStatus()`·`getCode()`는 강의와 같다. 조회라 `UNAVAILABLE`은 다시 불러도 안전하다.
+- `statuses`가 `null`이거나 비어 있으면 상태 조건 없이 보낸다(= 미지급만). `earningType`이 `null`이면 둘 다.
+

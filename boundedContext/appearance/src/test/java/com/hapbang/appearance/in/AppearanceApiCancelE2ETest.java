@@ -6,17 +6,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.time.Clock;
 import java.time.LocalDateTime;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -24,19 +22,18 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.hapbang.appearance.app.AppearanceRequestFacade;
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
-import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
-import com.hapbang.appearance.out.billing.FakeBillingClient;
+import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 
 /**
- * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB, Fake Billing)를 띄우고 출연 조회·취소 요청 API를 호출한다.
+ * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB, Billing 대역)를 띄우고 출연 조회·취소 요청 API를 호출한다.
  * 출연 성립까지는 Facade로 준비한다 (세션 역할은 {@code @WithMockUser}, API 호출은 {@link TestLogin}).
  */
-@IntegrationTest
+@AppearanceIntegrationTest
 @AutoConfigureMockMvc
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceApiCancelE2ETest {
@@ -57,11 +54,10 @@ class AppearanceApiCancelE2ETest {
     AppearanceRequestFacade appearanceRequestFacade;
 
     @Autowired
-    FakeBillingClient fakeBillingClient;
+    JdbcTemplate jdbcTemplate;
 
     @Autowired
-    @Qualifier(AppearanceConfig.CLOCK)
-    Clock clock;
+    AppearanceTestClock clock;
 
     @BeforeEach
     void setUp() {
@@ -71,10 +67,6 @@ class AppearanceApiCancelE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(VIEWER));
     }
 
-    @AfterEach
-    void tearDown() {
-        fakeBillingClient.reset();
-    }
 
     /** 요청서가 수락돼 성립한 출연 ID */
     private long establish() {
@@ -190,5 +182,65 @@ class AppearanceApiCancelE2ETest {
                 .andExpect(jsonPath("$.data.hostCancelReason").value("방송 취소"))
                 .andExpect(jsonPath("$.data.hpPenaltyStatus").value("DONE"))
                 .andExpect(jsonPath("$.data.cancelRequests[0].status").value("CLOSED_BY_HOST_CANCEL"));
+    }
+
+    /** 방송이 끝나 확인 기간에 들어선다 (테스트 시계를 방송 예정 일시 1시간 뒤로) */
+    private void broadcastEnded(long appearanceId) {
+        clock.advanceTo(jdbcTemplate.queryForObject("select scheduled_at from appearances.appearances where id = ?",
+                LocalDateTime.class, appearanceId).plusHours(1));
+    }
+
+    @Test
+    @DisplayName("출연 확인 (#282): 방송 전 409 APPEARANCE_CONFIRM_NOT_OPEN, 게스트 403, 호스트(본문 없음) 200 CONFIRMED·HOST·지급 DONE, "
+            + "다시 응답 409 APPEARANCE_NOT_CONFIRMABLE")
+    void confirm() throws Exception {
+        long appearanceId = establish();
+        String path = BASE + "/" + appearanceId + "/confirm";
+
+        mockMvc.perform(postAs(HOST, path, null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("APPEARANCE_CONFIRM_NOT_OPEN"));
+        broadcastEnded(appearanceId);
+        mockMvc.perform(postAs(GUEST, path, null))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_APPEARANCE_HOST"));
+        mockMvc.perform(postAs(HOST, path, null))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("출연을 확인했습니다."))
+                .andExpect(jsonPath("$.data.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.data.confirmType").value("HOST"))
+                .andExpect(jsonPath("$.data.confirmedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.hpPayoutStatus").value("DONE"));
+        mockMvc.perform(postAs(HOST, BASE + "/" + appearanceId + "/absent", null))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("APPEARANCE_NOT_CONFIRMABLE"));
+    }
+
+    @Test
+    @DisplayName("불참 (#282): 사유 501자 400 INVALID_REQUEST, 다른 회원 404, 호스트 200 ABSENT·사유·반환 DONE, 본문 없이도 200")
+    void absent() throws Exception {
+        long appearanceId = establish();
+        long other = establish();
+        broadcastEnded(appearanceId);
+        broadcastEnded(other);
+        String path = BASE + "/" + appearanceId + "/absent";
+
+        mockMvc.perform(postAs(HOST, path, "{\"reason\": \"%s\"}".formatted("가".repeat(501))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(postAs(OTHER, path, null))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("APPEARANCE_NOT_FOUND"));
+        mockMvc.perform(postAs(HOST, path, "{\"reason\": \"연락이 되지 않았습니다.\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("불참으로 처리했습니다."))
+                .andExpect(jsonPath("$.data.status").value("ABSENT"))
+                .andExpect(jsonPath("$.data.absentReason").value("연락이 되지 않았습니다."))
+                .andExpect(jsonPath("$.data.absentAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.hpReleaseStatus").value("DONE"));
+        mockMvc.perform(postAs(HOST, BASE + "/" + other + "/absent", null))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ABSENT"))
+                .andExpect(jsonPath("$.data.absentReason").doesNotExist());
     }
 }

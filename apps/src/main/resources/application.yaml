@@ -87,6 +87,21 @@ hapbang:
   storage:
     s3:
       region: ap-northeast-2
+  internal-api:
+    # 모듈 간 내부 HTTP API(/api/v1/internal/**) 키 (#300). 기본값을 두지 않는다 → 서버에 값이 없으면 기동 실패 (docs/deploy/env-vars.md)
+    # 없을 때 빈 값으로 둔다(#307): 설정 바인딩은 풀 수 없는 ${...}를 글자 그대로 남겨 키 검사(InternalApiProperties)를 통과시키므로,
+    # 빈 값이 되게 해야 검사가 거부해 기동 실패한다. 로컬 기본값은 application-local.yaml이 정한다
+    key: ${HAPBANG_INTERNAL_API_KEY:}
+  clients:
+    lecture:
+      # 강의 내부 API 주소 (D62, shared LectureApiClient). 단일 앱은 자기 자신을 부른다. 서비스를 나누면 강의 서비스 주소로 바꾼다
+      base-url: http://localhost:${server.port:8080}
+    appearance:
+      # 출연 내부 API 주소 (D62, shared AppearanceApiClient, #301). 단일 앱은 자기 자신을 부른다. 서비스를 나누면 출연 서비스 주소로 바꾼다
+      base-url: http://localhost:${server.port:8080}
+    member:
+      # 회원 내부 API 주소 (D62, shared MemberApiClient, #303). 단일 앱은 자기 자신을 부른다. 서비스를 나누면 회원 서비스 주소로 바꾼다
+      base-url: http://localhost:${server.port:8080}
   chzzk:
     # 치지직 채널 인증 (치지직 개발자 센터 앱). 기본값을 두지 않는다 (서버 값은 compose가 넘긴다, docs/deploy/env-vars.md)
     client-id: ${CHZZK_CLIENT_ID}

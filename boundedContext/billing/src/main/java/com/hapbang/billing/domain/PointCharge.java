@@ -28,7 +28,7 @@ import org.hibernate.annotations.Check;
         })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Check(constraints = "(amount_hp >= 1000 AND amount_hp % 1000 = 0) AND (payment_amount_krw > 0) AND (remaining_principal_hp >= 0 AND remaining_principal_hp <= amount_hp)")
+@Check(constraints = "(amount_hp >= 1000 AND amount_hp % 1000 = 0) AND (payment_amount_krw > 0) AND (remaining_principal_hp >= 0 AND remaining_principal_hp <= amount_hp) AND (refunded_amount_hp >= 0 AND refunded_amount_hp + remaining_principal_hp <= amount_hp)")
 public class PointCharge extends BillingUpdatedEntity {
 
     @Column(name = "wallet_id", nullable = false)
@@ -42,6 +42,11 @@ public class PointCharge extends BillingUpdatedEntity {
 
     @Column(name = "remaining_principal_hp", nullable = false)
     private Long remainingPrincipalHp;
+
+    // PG 취소로 환불을 마친 금액의 누계 (#260). 환불 보류에 배분되며 이미 가용 원금에서 빠진 금액이다.
+    // 가용 원금 + 환불 누계 ≤ 충전 금액(ck_point_charge_4)이라 같은 원금을 두 번 환불하지 않는다.
+    @Column(name = "refunded_amount_hp", nullable = false)
+    private long refundedAmountHp;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "pg_provider", nullable = false)
@@ -123,10 +128,27 @@ public class PointCharge extends BillingUpdatedEntity {
         if (status != PointChargeStatus.COMPLETED && status != PointChargeStatus.PARTIALLY_REFUNDED) {
             throw new BillingException(BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
         }
-        if (amountHp > this.amountHp - remainingPrincipalHp) {
+        // 환불을 마친 원금은 보류에 배분된 원금이 아니므로 되돌려 받을 수 있는 한도에서 뺀다 (#260)
+        if (amountHp > this.amountHp - remainingPrincipalHp - refundedAmountHp) {
             throw new BillingException(BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
         }
         remainingPrincipalHp += amountHp;
+    }
+
+    // PG 취소 성공으로 환불 보류에서 확정 차감한 금액을 환불 누계에 더한다 (#260). 가용 원금은 보류할 때 이미 줄었으므로 바꾸지 않는다.
+    // 충전 금액 전부를 환불하면 REFUNDED, 아니면 PARTIALLY_REFUNDED다. 보류에 배분되지 않은 원금까지 환불하게 되면 CHARGE_PRINCIPAL_MISMATCH다.
+    public void refund(long amountHp) {
+        if (amountHp <= 0) {
+            throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
+        }
+        if (status != PointChargeStatus.COMPLETED && status != PointChargeStatus.PARTIALLY_REFUNDED) {
+            throw new BillingException(BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
+        }
+        if (amountHp > this.amountHp - remainingPrincipalHp - refundedAmountHp) {
+            throw new BillingException(BillingErrorCode.CHARGE_PRINCIPAL_MISMATCH);
+        }
+        refundedAmountHp += amountHp;
+        status = refundedAmountHp == this.amountHp ? PointChargeStatus.REFUNDED : PointChargeStatus.PARTIALLY_REFUNDED;
     }
 
     // 결제 전 충전 주문을 만든다(PENDING). 1 HP = 1원이고, 승인 전이라 가용 원금은 0이다 (#224).

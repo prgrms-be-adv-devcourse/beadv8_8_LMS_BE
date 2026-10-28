@@ -181,6 +181,8 @@ public class ChatRoomUseCase {
         List<ChatMessageResponse> rejoinNotices = new ArrayList<>();
         for (ChatRoomMember member : members) {
             if (!member.isActive()) {
+                // 이전 참여에서 쓴 전송 ID는 무효다. 재입장 뒤 같은 ID로 보내면 새 메시지로 저장한다(#311)
+                chatMessageRepository.clearClientMessageIds(chatRoom.getId(), member.getUserId());
                 ChatMessage rejoinNotice = chatMessageRepository.save(ChatMessage.rejoinNotice(chatRoom,
                         member.getUserId(), chatRoomSupporter.displayNicknameOf(member.getUserId()), now));
                 member.rejoin(now);

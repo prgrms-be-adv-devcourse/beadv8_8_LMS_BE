@@ -25,6 +25,11 @@ import com.sun.net.httpserver.HttpServer;
 // - GET /v1/payments/orders/{orderId}: 승인 이후 상태(DONE·CANCELED 등)의 결제를 돌려준다. 결제가 없거나 아직 승인 전
 //   (READY·IN_PROGRESS)이면 404 NOT_FOUND_PAYMENT다(실제 TossPayments 동작, 2026-10-15 실제 테스트 결제로 확인).
 // - nextConfirm·nextLookup: 주문별로 다음 응답의 장애 유형을 정한다(거절·5xx·응답 지연 등).
+// - POST /v1/payments/{paymentKey}/cancel (#260): 승인된 결제를 부분 취소한다. 취소마다 cancels[]에 한 건(transactionKey·cancelAmount·
+//   cancelReason·cancelStatus DONE)을 더하고 balanceAmount를 줄인다(전부 취소면 CANCELED, 일부면 PARTIAL_CANCELED). 남은 금액보다
+//   많으면 403 NOT_CANCELABLE_AMOUNT. Idempotency-Key가 같은 재요청은 처음 응답을 그대로 돌려준다.
+// - GET /v1/payments/{paymentKey} (#260): 승인 이후 결제(취소 이력 포함)를 돌려준다. 없거나 승인 전이면 404 NOT_FOUND_PAYMENT.
+// - nextCancel·nextPaymentLookup: 주문별로 다음 취소·결제키 조회 응답의 장애 유형을 정한다.
 public class FakeTossPaymentsServer implements AutoCloseable {
 
     private static final Pattern STRING_FIELD = Pattern.compile("\"(\\w+)\"\\s*:\\s*\"([^\"]*)\"");
@@ -34,6 +39,12 @@ public class FakeTossPaymentsServer implements AutoCloseable {
     private final Map<String, Payment> payments = new ConcurrentHashMap<>();
     private final Map<String, Deque<Fault>> confirmFaults = new ConcurrentHashMap<>();
     private final Map<String, Deque<Fault>> lookupFaults = new ConcurrentHashMap<>();
+    private final Map<String, Deque<Fault>> cancelFaults = new ConcurrentHashMap<>();
+    private final Map<String, Deque<Response>> cancelRejections = new ConcurrentHashMap<>();
+    private final Map<String, Deque<Fault>> paymentLookupFaults = new ConcurrentHashMap<>();
+    private final Map<String, List<Cancel>> cancels = new ConcurrentHashMap<>();
+    private volatile long cancelDelayMillis;
+    private int transactionSequence;
     private final Map<String, Response> idempotentResponses = new ConcurrentHashMap<>();
     private final Map<String, Boolean> idempotentInProgress = new ConcurrentHashMap<>();
     private final List<Request> requests = new ArrayList<>();
@@ -48,6 +59,7 @@ public class FakeTossPaymentsServer implements AutoCloseable {
         }
         server.createContext("/v1/payments/confirm", this::confirm);
         server.createContext("/v1/payments/orders/", this::lookup);
+        server.createContext("/v1/payments/", this::payment);
         server.setExecutor(Executors.newCachedThreadPool());
         server.start();
     }
@@ -74,6 +86,48 @@ public class FakeTossPaymentsServer implements AutoCloseable {
 
     public String statusOf(String orderId) {
         return payments.get(orderId).status();
+    }
+
+    // 다음 취소 요청 하나에 장애를 넣는다(주문별 순서대로 하나씩 쓴다, #260).
+    public void nextCancel(String orderId, Fault fault) {
+        cancelFaults.computeIfAbsent(orderId, key -> new ArrayDeque<>()).add(fault);
+    }
+
+    // 다음 취소 요청 하나를 지정한 상태·코드로 거절한다(취소하지 않음, #260 2차).
+    public void nextCancelRejection(String orderId, int status, String code) {
+        cancelRejections.computeIfAbsent(orderId, key -> new ArrayDeque<>())
+                .add(error(status, code, code + " 거절"));
+    }
+
+    // 다음 결제키 조회 하나에 장애를 넣는다(#260).
+    public void nextPaymentLookup(String orderId, Fault fault) {
+        paymentLookupFaults.computeIfAbsent(orderId, key -> new ArrayDeque<>()).add(fault);
+    }
+
+    // 모든 취소 응답을 이 시간만큼 늦춘다(동시 요청 재현용, #260).
+    public void cancelDelay(long millis) {
+        this.cancelDelayMillis = millis;
+    }
+
+    // 우리 서버를 거치지 않은 취소(상점 관리자 화면 등)를 넣는다(#260).
+    public synchronized void cancelDirectly(String orderId, long amount, String reason) {
+        applyCancel(payments.get(orderId), amount, reason);
+    }
+
+    // 주문의 취소 이력(#260)
+    public synchronized List<Cancel> cancelsOf(String orderId) {
+        return List.copyOf(cancels.getOrDefault(orderId, List.of()));
+    }
+
+    // 주문의 남은 취소 가능 금액(#260)
+    public synchronized long balanceOf(String orderId) {
+        return payments.get(orderId).amount() - canceledAmount(orderId);
+    }
+
+    // 받은 취소 요청 수(재요청 포함, #260)
+    public synchronized long cancelCount() {
+        return requests.stream().filter(request -> request.method().equals("POST")
+                && request.path().endsWith("/cancel")).count();
     }
 
     // 다음 승인 요청 하나에 장애를 넣는다(주문별 순서대로 하나씩 쓴다).
@@ -113,6 +167,11 @@ public class FakeTossPaymentsServer implements AutoCloseable {
         payments.clear();
         confirmFaults.clear();
         lookupFaults.clear();
+        cancelFaults.clear();
+        cancelRejections.clear();
+        paymentLookupFaults.clear();
+        cancels.clear();
+        cancelDelayMillis = 0;
         idempotentResponses.clear();
         idempotentInProgress.clear();
         requests.clear();
@@ -179,7 +238,9 @@ public class FakeTossPaymentsServer implements AutoCloseable {
                 approve(fields);
                 yield error(500, "UNKNOWN_PAYMENT_ERROR", "결제에 실패했어요.");
             }
-            case NONE, UNREACHABLE, CONFLICT_PROCESSING, RATE_LIMITED, AUTH_ERROR -> approve(fields);
+            case NONE, UNREACHABLE, CONFLICT_PROCESSING, RATE_LIMITED, AUTH_ERROR, CANCEL_REJECTED, PROVIDER_ERROR,
+                    ALREADY_CANCELED, CANCEL_DIFFERENT_AMOUNT, CANCEL_WITHOUT_MARKER, HIDE_CANCELS,
+                    CANCEL_TWICE -> approve(fields);
         };
         if (idempotencyKey != null) {
             idempotentResponses.put(idempotencyKey, response);
@@ -221,6 +282,164 @@ public class FakeTossPaymentsServer implements AutoCloseable {
                 || "IN_PROGRESS".equals(payment.status());
         send(exchange, notApproved ? error(404, "NOT_FOUND_PAYMENT", "존재하지 않는 결제 정보 입니다.")
                 : new Response(200, payment.json()));
+    }
+
+    // /v1/payments/{paymentKey}/cancel(POST)·/v1/payments/{paymentKey}(GET) (#260)
+    private void payment(HttpExchange exchange) throws IOException {
+        String rest = exchange.getRequestURI().getPath().substring("/v1/payments/".length());
+        if ("POST".equals(exchange.getRequestMethod()) && rest.endsWith("/cancel")) {
+            cancel(exchange, rest.substring(0, rest.length() - "/cancel".length()));
+            return;
+        }
+        record(exchange, null);
+        Payment payment = byPaymentKey(rest);
+        Fault fault = poll(paymentLookupFaults, payment == null ? null : payment.orderId());
+        if (fault == Fault.SERVER_ERROR) {
+            send(exchange, error(500, "FAILED_INTERNAL_SYSTEM_PROCESSING", "내부 시스템 처리 작업이 실패했습니다."));
+            return;
+        }
+        if (fault == Fault.TIMEOUT_NOT_APPROVED) {
+            sleep(timeoutMillis);
+        }
+        boolean notApproved = payment == null || "READY".equals(payment.status())
+                || "IN_PROGRESS".equals(payment.status());
+        if (!notApproved && fault == Fault.HIDE_CANCELS) {
+            String json = payment.json();
+            send(exchange, new Response(200, json.substring(0, json.length() - 1) + ",\"cancels\":[]}"));
+            return;
+        }
+        send(exchange, notApproved ? error(404, "NOT_FOUND_PAYMENT", "존재하지 않는 결제 정보 입니다.")
+                : new Response(200, paymentJson(payment)));
+    }
+
+    private void cancel(HttpExchange exchange, String paymentKey) throws IOException {
+        String body = read(exchange.getRequestBody());
+        record(exchange, body);
+        Map<String, String> fields = fields(body);
+        Payment payment = byPaymentKey(paymentKey);
+        String idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+        Fault fault = poll(cancelFaults, payment == null ? null : payment.orderId());
+        if (fault == Fault.UNREACHABLE) {
+            exchange.close();
+            return;
+        }
+        // 취소를 판단하지 않은 응답(처리 중 충돌·요청 한도·일시 오류)은 멱등키 응답으로 기록하지 않는다
+        if (fault == Fault.CONFLICT_PROCESSING) {
+            send(exchange, error(409, "IDEMPOTENT_REQUEST_PROCESSING", "이전 멱등 요청이 처리 중입니다."));
+            return;
+        }
+        if (fault == Fault.RATE_LIMITED) {
+            send(exchange, error(429, "TOO_MANY_REQUESTS", "요청량이 많습니다."));
+            return;
+        }
+        if (fault == Fault.PROVIDER_ERROR) {
+            send(exchange, error(400, "PROVIDER_ERROR", "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
+            return;
+        }
+        if (idempotencyKey != null) {
+            Response cached = idempotentResponses.get(idempotencyKey);
+            if (cached != null) {
+                send(exchange, cached);
+                return;
+            }
+            if (idempotentInProgress.putIfAbsent(idempotencyKey, true) != null) {
+                send(exchange, error(409, "IDEMPOTENT_REQUEST_PROCESSING", "이전 멱등 요청이 처리 중입니다."));
+                return;
+            }
+        }
+        sleep(cancelDelayMillis);
+        long amount = Long.parseLong(fields.get("cancelAmount"));
+        String reason = fields.get("cancelReason");
+        Deque<Response> rejections = payment == null ? null : cancelRejections.get(payment.orderId());
+        Response rejection = rejections == null ? null : rejections.poll();
+        Response response = rejection != null ? rejection : switch (fault) {
+            case CANCEL_REJECTED -> error(403, "NOT_CANCELABLE_PAYMENT", "취소 할 수 없는 결제 입니다.");
+            case INVALID_REQUEST -> error(400, "INVALID_REQUEST", "잘못된 요청입니다.");
+            case SERVER_ERROR -> error(500, "FAILED_INTERNAL_SYSTEM_PROCESSING", "내부 시스템 처리 작업이 실패했습니다.");
+            case ALREADY_CANCELED -> error(400, "ALREADY_CANCELED_PAYMENT", "이미 취소된 결제 입니다.");
+            case TIMEOUT_NOT_APPROVED -> {
+                sleep(timeoutMillis);
+                yield error(500, "FAILED_INTERNAL_SYSTEM_PROCESSING", "응답 지연");
+            }
+            case APPROVE_THEN_TIMEOUT -> {
+                Response canceled = cancelPayment(payment, amount, reason);
+                sleep(timeoutMillis);
+                yield canceled;
+            }
+            case APPROVE_THEN_SERVER_ERROR -> {
+                cancelPayment(payment, amount, reason);
+                yield error(500, "FAILED_INTERNAL_SYSTEM_PROCESSING", "내부 시스템 처리 작업이 실패했습니다.");
+            }
+            // PG가 요청과 다른 금액을 취소했다(이상 응답 재현)
+            case CANCEL_DIFFERENT_AMOUNT -> cancelPayment(payment, amount / 2, reason);
+            // 같은 취소를 두 번 처리한 응답(PG 중복 취소 재현)
+            case CANCEL_TWICE -> {
+                cancelPayment(payment, amount, reason);
+                yield cancelPayment(payment, amount, reason);
+            }
+            // 취소하지 않고 취소 이력에 우리 표식이 없는 200 응답(이상 응답 재현)
+            case CANCEL_WITHOUT_MARKER -> new Response(200, paymentJson(payment));
+            default -> cancelPayment(payment, amount, reason);
+        };
+        if (idempotencyKey != null) {
+            idempotentResponses.put(idempotencyKey, response);
+            idempotentInProgress.remove(idempotencyKey);
+        }
+        send(exchange, response);
+    }
+
+    private synchronized Response cancelPayment(Payment payment, long amount, String reason) {
+        if (payment == null) {
+            return error(404, "NOT_FOUND_PAYMENT", "존재하지 않는 결제 정보 입니다.");
+        }
+        if ("CANCELED".equals(payment.status())) {
+            return error(400, "ALREADY_CANCELED_PAYMENT", "이미 취소된 결제 입니다.");
+        }
+        if (!"DONE".equals(payment.status()) && !"PARTIAL_CANCELED".equals(payment.status())) {
+            return error(403, "NOT_CANCELABLE_PAYMENT", "취소 할 수 없는 결제 입니다.");
+        }
+        if (amount > payment.amount() - canceledAmount(payment.orderId())) {
+            return error(403, "NOT_CANCELABLE_AMOUNT", "취소 할 수 없는 금액 입니다.");
+        }
+        return new Response(200, paymentJson(applyCancel(payment, amount, reason)));
+    }
+
+    private Payment applyCancel(Payment payment, long amount, String reason) {
+        cancels.computeIfAbsent(payment.orderId(), key -> new ArrayList<>())
+                .add(new Cancel("tcancel_" + (++transactionSequence), amount, reason, "DONE"));
+        String status = canceledAmount(payment.orderId()) == payment.amount() ? "CANCELED" : "PARTIAL_CANCELED";
+        Payment canceled = new Payment(payment.paymentKey(), payment.orderId(), status, payment.amount());
+        payments.put(payment.orderId(), canceled);
+        return canceled;
+    }
+
+    private long canceledAmount(String orderId) {
+        return cancels.getOrDefault(orderId, List.of()).stream().mapToLong(Cancel::amount).sum();
+    }
+
+    private Payment byPaymentKey(String paymentKey) {
+        return payments.values().stream().filter(payment -> payment.paymentKey().equals(paymentKey)).findFirst()
+                .orElse(null);
+    }
+
+    // 결제 JSON에 남은 취소 가능 금액과 취소 이력을 넣는다
+    private synchronized String paymentJson(Payment payment) {
+        StringBuilder history = new StringBuilder("[");
+        List<Cancel> list = cancels.getOrDefault(payment.orderId(), List.of());
+        for (int i = 0; i < list.size(); i++) {
+            Cancel cancel = list.get(i);
+            history.append(i == 0 ? "" : ",")
+                    .append("{\"transactionKey\":\"").append(cancel.transactionKey())
+                    .append("\",\"cancelAmount\":").append(cancel.amount())
+                    .append(",\"cancelReason\":\"").append(cancel.reason())
+                    .append("\",\"canceledAt\":\"2026-10-15T11:00:00+09:00\",\"cancelStatus\":\"")
+                    .append(cancel.status()).append("\"}");
+        }
+        history.append("]");
+        long balance = payment.amount() - canceledAmount(payment.orderId());
+        String json = payment.json().replace("\"balanceAmount\":" + payment.amount() + ",",
+                "\"balanceAmount\":" + balance + ",");
+        return json.substring(0, json.length() - 1) + ",\"cancels\":" + history + "}";
     }
 
     private synchronized void record(HttpExchange exchange, String body) {
@@ -311,7 +530,25 @@ public class FakeTossPaymentsServer implements AutoCloseable {
         // 429 요청 한도 초과 — 결제 판단 없음
         RATE_LIMITED,
         // 401 UNAUTHORIZED_KEY(시크릿 키 설정 오류) — 결제 판단 없음
-        AUTH_ERROR
+        AUTH_ERROR,
+        // 취소 거절(403 NOT_CANCELABLE_PAYMENT) — 취소 안 됨 확정 (#260)
+        CANCEL_REJECTED,
+        // 400 PROVIDER_ERROR(일시 오류) — 취소 여부 모름 (#260)
+        PROVIDER_ERROR,
+        // 400 ALREADY_CANCELED_PAYMENT(실제 취소 없이) — 우리 취소가 먼저 처리됐을 수 있는 거절 (#260)
+        ALREADY_CANCELED,
+        // 요청 금액의 절반만 취소한 성공 응답 (#260)
+        CANCEL_DIFFERENT_AMOUNT,
+        // 취소하지 않고 취소 이력에 우리 표식 없이 200 응답 (#260)
+        CANCEL_WITHOUT_MARKER,
+        // 결제키 조회에서 취소 이력을 비워 응답(취소 반영 지연 재현, #260)
+        HIDE_CANCELS,
+        // 같은 취소를 두 번 처리(PG 중복 취소 재현, #260 2차)
+        CANCEL_TWICE
+    }
+
+    // 취소 이력 한 건 (#260)
+    public record Cancel(String transactionKey, long amount, String reason, String status) {
     }
 
     public record Request(String method, String path, String authorization, String idempotencyKey, String body) {

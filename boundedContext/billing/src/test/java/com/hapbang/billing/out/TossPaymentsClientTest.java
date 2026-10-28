@@ -118,6 +118,64 @@ class TossPaymentsClientTest {
     }
 
     @Test
+    @DisplayName("취소는 결제키 경로·지정한 멱등키·cancelReason·cancelAmount로 요청하고 취소 이력이 담긴 Payment를 Paid로 돌려준다 (#260)")
+    void cancel() {
+        client.confirm(PAYMENT_KEY, ORDER_ID, 10_000L);
+
+        TossResult result = client.cancel(PAYMENT_KEY, "hapbang-refund-cancel-1-2", 3_000L,
+                "HP 환불 [hapbang-refund-cancel-1-2]");
+
+        assertThat(result).isInstanceOfSatisfying(TossResult.Paid.class, paid -> {
+            assertThat(paid.payment().status()).isEqualTo("PARTIAL_CANCELED");
+            assertThat(paid.payment().balanceAmount()).isEqualTo(7_000L);
+            assertThat(paid.payment().cancels()).singleElement().satisfies(cancel -> {
+                assertThat(cancel.cancelAmount()).isEqualTo(3_000L);
+                assertThat(cancel.isDone()).isTrue();
+                assertThat(cancel.hasMarker("[hapbang-refund-cancel-1-2]")).isTrue();
+                assertThat(cancel.hasMarker("[hapbang-refund-cancel-1-20]")).isFalse();
+                assertThat(cancel.transactionKey()).isNotBlank();
+            });
+        });
+        Request request = SERVER.requests().getLast();
+        assertThat(request.path()).isEqualTo("/v1/payments/" + PAYMENT_KEY + "/cancel");
+        assertThat(request.idempotencyKey()).isEqualTo("hapbang-refund-cancel-1-2");
+        assertThat(request.body()).contains("\"cancelAmount\":3000", "[hapbang-refund-cancel-1-2]");
+        assertThat(client.findByPaymentKey(PAYMENT_KEY, "label")).isInstanceOfSatisfying(TossResult.Paid.class,
+                paid -> assertThat(paid.payment().cancels()).hasSize(1));
+        assertThat(result.toString()).doesNotContain(PAYMENT_KEY);
+    }
+
+    @Test
+    @DisplayName("취소 거절(403 NOT_CANCELABLE_PAYMENT·NOT_CANCELABLE_AMOUNT)은 Rejected, 일시 오류(PROVIDER_ERROR)·5xx·409·429·응답 없음은 Unknown, 결제키 조회 404는 NotFound다 (#260)")
+    void cancelClassification() {
+        client.confirm(PAYMENT_KEY, ORDER_ID, 10_000L);
+
+        SERVER.nextCancel(ORDER_ID, Fault.CANCEL_REJECTED);
+        assertThat(client.cancel(PAYMENT_KEY, "key-1", 1_000L, "r [key-1]"))
+                .isEqualTo(new TossResult.Rejected(403, "NOT_CANCELABLE_PAYMENT", "취소 할 수 없는 결제 입니다."));
+        assertThat(client.cancel(PAYMENT_KEY, "key-2", 20_000L, "r [key-2]")).isInstanceOfSatisfying(
+                TossResult.Rejected.class, rejected -> assertThat(rejected.code()).isEqualTo("NOT_CANCELABLE_AMOUNT"));
+        SERVER.nextCancel(ORDER_ID, Fault.PROVIDER_ERROR);
+        assertThat(client.cancel(PAYMENT_KEY, "key-3", 1_000L, "r [key-3]"))
+                .isEqualTo(new TossResult.Unknown("400:PROVIDER_ERROR"));
+        SERVER.nextCancelRejection(ORDER_ID, 403, "NOT_AVAILABLE_BANK");
+        assertThat(client.cancel(PAYMENT_KEY, "key-7", 1_000L, "r [key-7]"))
+                .isEqualTo(new TossResult.Unknown("403:NOT_AVAILABLE_BANK"));
+        SERVER.nextCancel(ORDER_ID, Fault.SERVER_ERROR);
+        assertThat(client.cancel(PAYMENT_KEY, "key-4", 1_000L, "r [key-4]"))
+                .isEqualTo(new TossResult.Unknown("500:FAILED_INTERNAL_SYSTEM_PROCESSING"));
+        SERVER.nextCancel(ORDER_ID, Fault.CONFLICT_PROCESSING);
+        assertThat(client.cancel(PAYMENT_KEY, "key-5", 1_000L, "r [key-5]"))
+                .isEqualTo(new TossResult.Unknown("409:IDEMPOTENT_REQUEST_PROCESSING"));
+        SERVER.nextCancel(ORDER_ID, Fault.UNREACHABLE);
+        assertThat(client.cancel(PAYMENT_KEY, "key-6", 1_000L, "r [key-6]")).isInstanceOf(TossResult.Unknown.class);
+        assertThat(SERVER.cancelsOf(ORDER_ID)).isEmpty();
+
+        assertThat(client.findByPaymentKey("tgen_missing", "label"))
+                .isEqualTo(new TossResult.NotFound("NOT_FOUND_PAYMENT"));
+    }
+
+    @Test
     @DisplayName("시크릿 키가 없으면 꺼진 상태다. 설정 문자열에도 시크릿 키를 드러내지 않는다")
     void notConfigured() {
         TossPaymentsProperties none = new TossPaymentsProperties(null, " ", null, null);
