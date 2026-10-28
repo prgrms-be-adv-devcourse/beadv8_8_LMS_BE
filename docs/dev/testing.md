@@ -37,6 +37,6 @@
 - 실패 격리는 `@MockitoSpyBean`으로 특정 항목 조회가 실패하도록 해 확인한다.
 - 기존 통합 `SchedulingEnabledTest` 시나리오는 Git 이력을 참고해 앱별 배치 등록·cron 검증으로 옮긴다.
 
-## CI 전환
+## CI
 
-워크플로는 dev 버전을 사용한다. 기존 `verify`는 제거된 `:apps:bootJar`를 호출하므로 앱별 구조에 맞는 CI 수정이 필요하다.
+PR의 `verify`(`.github/workflows/ci.yml`)는 `./gradlew verifyModuleStructure`로 모듈 구조를 검사하고, `./gradlew check bootJar --parallel`로 여섯 앱과 common 라이브러리를 테스트해 앱별 jar를 만든 뒤, 앱마다 자기 `Dockerfile`로 이미지가 빌드되는지 확인한다(push하지 않음). `verifyModuleStructure`는 `--parallel`과 함께 실행하면 Gradle이 막으므로 따로 실행한다.
