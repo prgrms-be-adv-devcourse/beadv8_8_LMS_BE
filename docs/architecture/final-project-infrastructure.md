@@ -285,7 +285,7 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | Prometheus·Loki·Tempo·Grafana·Alloy | 600 MiB |
 | **합계** | **3,484 MiB** |
 
-사용 가능 메모리를 약 3.7 GiB로 보면 약 0.3 GiB가 남는다. surge pod를 받을 여유가 없으므로 medium의 앱은 `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성은 보존 한도를 줄여 600 MiB 안에 두고 별도 backend를 추가하지 않는다.
+사용 가능 메모리를 약 3.7 GiB로 보면 약 0.3 GiB가 남는다. surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성은 보존 한도를 줄여 600 MiB 안에 두고 별도 backend를 추가하지 않는다.
 
 앱 limit은 448 MiB로 시작한다. 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
 
@@ -403,7 +403,7 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 
 ### EC2 운영 방식
 
-- **진입점**: nginx는 쓰지 않는다. Envoy Gateway가 유일한 진입점이다. Envoy proxy Service는 `LoadBalancer`이고, k3s 내장 ServiceLB가 node의 80·443을 Envoy로 연결한다. ServiceLB는 node label로 large에서만 켠다([k3s networking 문서](https://docs.k3s.io/networking/networking-services)). DNS와 80·443 security group이 large EIP만 가리키기 때문이다. medium의 앱에는 Envoy가 cluster 내부 Service로 보낸다.
+- **진입점**: nginx는 쓰지 않는다. Envoy Gateway가 유일한 진입점이다. Envoy proxy Service는 `LoadBalancer`이고, k3s 내장 ServiceLB가 node의 80·443을 Envoy로 연결한다. ServiceLB는 large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙여 large에서만 켠다. 이 label이 붙은 node가 하나도 없으면 모든 node가 후보가 된다([k3s networking 문서](https://docs.k3s.io/networking/networking-services)). Envoy proxy Service는 `externalTrafficPolicy: Local`로 두어 Envoy가 실제 client IP를 보게 한다. DNS와 80·443 security group이 large EIP만 가리키기 때문이다. medium의 앱에는 Envoy가 cluster 내부 Service로 보낸다.
   - 지금 설치한 cluster는 Compose의 edge nginx가 80·443을 쓰므로 servicelb를 끄고, k3s 기본 Traefik은 켜진 채로 두었다([k3s 설치](../deploy/aws-k3s.md#k3s-설치)). 첫 설치 때 svclb의 hostPort DNAT가 edge nginx보다 먼저 80·443을 가로챘다. 그래서 **edge nginx를 멈춘 뒤에** servicelb를 켜고 Traefik을 끈다. 이 전환 동안 외부 접속이 잠깐 끊긴다([전환 순서](../deploy/aws-k3s.md#전환-순서)).
 - **TLS**: cert-manager(공식 Helm 차트)가 Let's Encrypt에서 prod 도메인 인증서를 Gateway API HTTP-01 solver로 발급·갱신한다. 지금 edge nginx 옆의 certbot을 대신한다.
 - **cluster API**: 6443은 인터넷에 공개하지 않고 같은 node security group에서 medium → large만 허용한다. 사람은 SSH tunnel로 접근한다([로컬 kubectl 접근](../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
@@ -420,7 +420,7 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 | --- | --- | --- |
 | TLS 종료 | cert-manager가 발급한 인증서로 443을 종료하고 80은 HTTPS로 redirect한다 | edge nginx + certbot |
 | 모듈 단위 routing | AGENTS.md 3장의 모듈 진입 경로마다 `HTTPRoute`를 두고 그 앱의 Service로 보낸다. `/`는 React 정적 서버로 보낸다 | edge nginx의 `/api` 한 줄 |
-| JWT 서명 검증 | `SecurityPolicy`의 JWT provider가 member-app JWKS(`remoteJWKS`)로 서명·만료·발급자를 확인한다. `optional: true`로 둔다. 검증한 claim을 `X-User-Id`·`X-User-Roles` 헤더로 넘긴다(`claimToHeaders`) | 없음(세션) |
+| JWT 서명 검증 | `SecurityPolicy`의 JWT provider가 member-app JWKS(`remoteJWKS`)로 서명·만료·발급자를 확인한다. `optional: true`로 둔다. 검증한 claim `sub`·`role`을 `X-User-Id`·`X-User-Role` 헤더로 넘긴다(`claimToHeaders`). 회원의 역할은 하나라 `role`은 문자열 하나다. Envoy의 `claimToHeaders`는 배열 claim을 넘기지 못하므로 배열로 만들지 않는다 | 없음(세션) |
 | 헤더 위조 차단 | 모든 route에서 외부 요청에 붙은 `X-User-*` 헤더를 먼저 지운다 | 없음 |
 | 내부 API 차단 | `/api/v1/internal/**`은 `HTTPRoute`를 만들지 않는다. cluster 안 Service 호출로만 닿는다 | edge nginx가 404 |
 | 큰 본문 업로드 | 업로드 경로(`PUT /api/v1/{모듈}/files/{id}/content`)에만 긴 timeout을 건다(`BackendTrafficPolicy`·`ClientTrafficPolicy`) | edge nginx의 2GB 허용 |
@@ -438,14 +438,16 @@ JWT는 암호화가 아니라 **서명**이다. payload는 누구나 Base64로 �
 4. Envoy가 서명을 검증한다. 위조·만료 토큰은 401로 거절하고, 토큰이 없는 요청은 헤더 없이 통과시킨다. 로그인이 필요한지는 각 앱의 Security 설정이 정한다. 그래서 비로그인 경로 목록을 Envoy와 앱 두 곳에 적지 않는다.
 5. 앱은 `X-User-*` 헤더로 인증 객체를 만들고 `@PreAuthorize`로 인가한다(#371). 앱은 서명을 다시 검증하지 않으므로, NetworkPolicy로 앱의 외부 API 포트에는 Envoy만 접근하게 한다. 앱 간 내부 API는 지금처럼 `X-Internal-Api-Key`로 인증한다.
 6. 채팅: 브라우저의 WebSocket upgrade 요청에는 Bearer 헤더를 실을 수 없다. chat-app은 STOMP CONNECT frame의 토큰을 JWKS로 직접 검증한다. 토큰을 URL query에 싣지 않는다(access log에 남는다). 연결 뒤 강제 종료는 회원 이벤트(#242)를 따른다.
-7. 발급한 JWT는 회수할 수 없다. 정지·역할 변경은 다음 refresh에서 막히고, 최대 15분(access token 수명) 늦게 반영된다.
+7. 발급한 JWT는 회수할 수 없다. 정지·역할 변경은 다음 refresh에서 막히고, 최대 15분(access token 수명) 늦게 반영된다. 그래서 HP가 움직이는 경로(보류·반환·지급·환전)와 역할 조건이 있는 거래(출연 거래는 활동 중인 인플루언서 이상, `docs/policy.md`)는 토큰의 `role`만 믿지 않고, 각 앱이 복제한 회원 상태를 함께 확인한다(#371).
+8. `docs/policy.md`의 "로그인 상태는 서버 세션으로 유지"와 "역할 변경은 다시 로그인하지 않아도 바로 반영"은 JWT 전환과 맞지 않는다. policy를 어떻게 고칠지는 팀이 정한다(#370).
 
 OAuth 진행 상태(authorization request)는 HttpSession 대신 짧은 수명의 암호화 쿠키에 저장한다. 그래서 Spring Session과 그 저장소였던 `platform` database가 필요 없다.
 
 #### rate limit — 각 앱의 Resilience4j
 
 - 대상: 로그인, HP 충전 요청, 고객센터 RAG 질문처럼 남용되면 비용이 드는 경로
-- key: `X-User-Id`가 있으면 회원 ID, 없으면 client IP. client IP는 Envoy가 넣는 `X-Forwarded-For`에서 읽고 Envoy만 신뢰한다(`server.forward-headers-strategy=native`)
+- key: `X-User-Id`가 있으면 회원 ID, 없으면 client IP
+- client IP 신뢰 경계: Envoy 앞에는 신뢰할 proxy가 없으므로 `ClientTrafficPolicy`의 `X-Forwarded-For` 신뢰 hop 수는 0으로 둔다. Envoy는 실제 접속 주소를 `X-Forwarded-For` 맨 뒤에 붙인다. 앱(`server.forward-headers-strategy=native`, Tomcat `RemoteIpValve`)은 오른쪽부터 읽어 cluster 내부 주소가 아닌 첫 주소를 client IP로 쓴다. 그래서 클라이언트가 앞쪽에 넣은 값은 무시된다. Envoy가 실제 client IP를 보는지(ServiceLB와 `externalTrafficPolicy: Local`)는 설치 뒤 access log로 확인한다
 - 한도를 넘으면 429를 `ProblemDetail`로 응답한다
 - RateLimiter는 앱 프로세스 메모리에서 센다. 앱마다 replica가 1개라 앱 하나의 한도가 곧 전체 한도다. replica를 늘리면 한도도 replica 수만큼 늘어나므로, 그때 공유 저장소 방식을 다시 판단한다
 - 구현은 쓰는 앱에 먼저 두고, 두 앱 이상이 같은 코드를 쓰면 `common`으로 옮긴다
@@ -470,6 +472,8 @@ OAuth 진행 상태(authorization request)는 HttpSession 대신 짧은 수명�
 
 - `HTTPRoute` 하나의 backend만 바꿔 특정 모듈 경로를 다른 Service로 보내도 프론트 요청과 로그인이 그대로 동작한다.
 - 만료·위조 토큰은 401이고, 토큰 없는 요청은 통과한다. 외부에서 보낸 `X-User-Id`는 앱에 닿지 않는다.
+- Envoy가 아닌 pod에서 앱의 외부 API 포트를 호출하면 NetworkPolicy가 막는다.
+- 위조한 `X-Forwarded-For`를 보내도 rate limit key(client IP)가 바뀌지 않는다.
 - 외부에서 `/api/v1/internal/**`를 호출하면 앱에 닿지 않는다.
 - 2GB 업로드가 끝까지 성공한다.
 - STOMP WebSocket이 Envoy를 거쳐 연결되고, CONNECT에서 토큰이 검증되며, rolling update 때 재연결된다.
@@ -485,7 +489,7 @@ OAuth 진행 상태(authorization request)는 HttpSession 대신 짧은 수명�
 - Envoy Gateway: proxy는 large, controller는 medium. cert-manager와 ECK operator는 medium.
 - observability stack: `hapbang-platform` namespace에서 prod를 관측한다. 로컬·PR k3d 결과는 테스트 artifact로 남긴다.
 
-replica가 1개라서 large의 앱은 새 pod가 ready가 된 뒤 기존 pod를 내리는 `maxSurge: 1`, `maxUnavailable: 0`으로 배포한다. medium의 앱은 surge 여유가 없어 `maxUnavailable: 1`로 배포하고 잠깐 멈추는 것을 허용한다. node가 멈추면 그 node의 앱은 node가 다시 뜰 때까지 멈춘다. 앱별 replica를 늘리는 것은 시연할 때만 하고, 그 전에 node 여유를 확인한다.
+replica가 1개라서 large의 앱은 새 pod가 ready가 된 뒤 기존 pod를 내리는 `maxSurge: 1`, `maxUnavailable: 0`으로 배포한다. medium의 앱은 surge 여유가 없어 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 잠깐 멈추는 것을 허용한다. `maxSurge`를 생략하면 기본값 25%가 1로 올림되어 surge pod가 생기므로 반드시 0으로 적는다. node가 멈추면 그 node의 앱은 node가 다시 뜰 때까지 멈춘다. 앱별 replica를 늘리는 것은 시연할 때만 하고, 그 전에 node 여유를 확인한다.
 
 ### manifest 관리 — Kustomize와 Helm
 
@@ -522,7 +526,7 @@ apps base에 둘 것:
 - startup/readiness/liveness probe, resource request/limit
 - ConfigMap. Secret(JWT 개인 키, DB 계정, 내부 API key)은 커밋하지 않고 서버에서 만든다
 - graceful shutdown(4장)
-- NetworkPolicy: 앱의 외부 API 포트는 Envoy만, 내부 API는 앱끼리만, metadata endpoint는 S3를 쓰는 앱만. k3s 내장 network policy controller로 동작하는지 확인한다
+- NetworkPolicy: 앱의 외부 API 포트는 Envoy만, 내부 API는 앱끼리만, metadata endpoint는 S3를 쓰는 앱만. 앱이 `X-User-*` 헤더를 믿으므로 이것이 헤더 위조를 막는 마지막 방어선이다. k3s 내장 network policy controller가 실제로 막는지 아래 완료 증거로 확인한다
 - migration Job 또는 단일 migration 실행 전략
 - 앱별 Kafka·Redis·PostgreSQL·ES endpoint와 member-app JWKS 주소 주입
 

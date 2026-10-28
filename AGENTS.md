@@ -42,6 +42,8 @@
 | 채팅 (`chat`) | 1:1 대화, 알림, 차단 | `/api/v1/chats` |
 | 고객센터 (`customersupport`) | 공지, FAQ, 문의, 이의 제기 접수 | `/api/v1/inquiries` |
 
+최종 프로젝트에서는 #363으로 모듈마다 독립 앱(`apps/*-app`)이 되었고, 알림(`notification`)·검색(`search`)을 별도 앱으로 더하는 계획이 [`docs/architecture/final-project-infrastructure.md`](docs/architecture/final-project-infrastructure.md) 8·9장에 있다. 위 표는 팀 합의 뒤 바꾼다.
+
 ### 경계 규칙 (반드시 지킨다)
 
 - 회원 도메인은 반드시 별도 모듈로 분리한다.

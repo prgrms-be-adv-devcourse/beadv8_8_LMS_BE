@@ -102,7 +102,7 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 4. `k8s/cluster`, `k8s/platform`을 수동으로 적용하고, local k3d에서 검증한 `k8s/apps/overlays/prod`를 적용한다. dev namespace는 만들지 않는다. 이 단계까지 외부 진입은 계속 Compose의 edge nginx다.
 5. 모듈 앱이 정한 node에 배치됐는지 확인한다.
 6. stateful workload가 large 외 node에 배치되지 않는 구조 test를 둔다.
-7. 진입점 전환: edge nginx를 먼저 멈춘다. 그다음 large의 `/etc/rancher/k3s/config.yaml`에서 `disable`의 `servicelb`를 빼고 `traefik`을 넣은 뒤 k3s를 재시작한다. ServiceLB 활성 label은 large에만 붙인다. Envoy proxy가 80·443을 받는지, Traefik이 지워졌는지, cert-manager가 인증서를 발급했는지 확인한다. edge nginx가 떠 있는 동안 servicelb를 켜면 svclb가 80·443을 가로챈다(아래 "k3s 설치" 2단계 기록). 이 동안 외부 접속이 잠깐 끊기므로 미리 공지한다.
+7. 진입점 전환: edge nginx를 먼저 멈춘다. 그다음 large의 `/etc/rancher/k3s/config.yaml`에서 `disable`의 `servicelb`를 빼고 `traefik`을 넣은 뒤 k3s를 재시작한다. large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙인다(붙인 node가 없으면 모든 node가 ServiceLB 후보가 된다). Envoy proxy Service는 `externalTrafficPolicy: Local`로 둔다. Envoy proxy가 80·443을 받는지, Traefik이 지워졌는지, cert-manager가 인증서를 발급했는지 확인한다. edge nginx가 떠 있는 동안 servicelb를 켜면 svclb가 80·443을 가로챈다(아래 "k3s 설치" 2단계 기록). 이 동안 외부 접속이 잠깐 끊기므로 미리 공지한다.
 8. rolling update, pod 종료, medium node 중지와 large node 중지의 서로 다른 결과를 기록한다.
 9. prod 전환과 rollback 검증이 끝난 뒤에만 Compose 배포 경로, edge nginx와 dev 서버를 제거한다.
 
