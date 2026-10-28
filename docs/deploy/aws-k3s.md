@@ -22,8 +22,8 @@
 
 | EC2 | k3s 역할 | node label | 주 역할 |
 | --- | --- | --- | --- |
-| `t3.large` | server/control plane | `hapbang.io/pool=core-data` | 외부 진입점, PostgreSQL, stateful middleware |
-| `t3.medium` | agent | `hapbang.io/pool=app-observe` | 모듈 앱, React, 관측성 workload |
+| `t3.large` | server/control plane | `hapbang.io/pool=core-data` | 외부 진입점(Envoy proxy), PostgreSQL, stateful middleware, 모듈 앱 일부 |
+| `t3.medium` | agent | `hapbang.io/pool=app-observe` | 모듈 앱, React, controller·operator, 관측성 workload |
 
 `core-data` 전체를 `NoSchedule`로 taint하지 않는다. 모듈 앱 일부를 large에도 배치해야 두 node의 자원 예산 안에 들어가기 때문이다.
 
@@ -31,11 +31,12 @@
 
 | Workload | 기본 node | 배치 규칙 |
 | --- | --- | --- |
-| k3s server, Traefik | large | 외부 HTTPS 진입과 control plane |
+| k3s server, ServiceLB, Envoy proxy | large | control plane과 외부 HTTPS 진입. 진입점 전환([전환 순서](#전환-순서) 7) 뒤에는 Traefik을 끄고 ServiceLB를 large에서만 켠다 |
 | PostgreSQL | large | `core-data` required node affinity |
 | Kafka, Redis, Elasticsearch | large | 도입 시 `core-data` required node affinity |
-| 모듈 앱 6개 | 양쪽 | 앱마다 replica 1개. large에 member·billing·appearance, medium에 lecture·chat·customer-support를 두고 시작한다([자원 예산](../architecture/final-project-infrastructure.md#ec2-2노드-자원-예산)) |
-| React Nginx | medium 우선 | stateless workload |
+| 모듈 앱 8개 | 양쪽 | 앱마다 replica 1개. large에 member·billing·appearance·search(448 MiB), medium에 lecture·chat·customer-support·notification(384 MiB)을 두고 시작한다([자원 예산](../architecture/final-project-infrastructure.md#ec2-2노드-자원-예산)) |
+| Envoy Gateway controller, cert-manager, ECK operator | medium | stateless controller |
+| React 정적 서버 | medium | stateless workload |
 | Prometheus·Loki·Tempo·Grafana | medium | 제한형 관측성 profile과 비교 기준선 |
 
 StatefulSet과 local volume을 다른 node로 자동 이동할 수 있다고 가정하지 않는다. large 장애 시 PostgreSQL과 Elasticsearch가 함께 중단되므로 이 구성은 고가용성이 아니다. 두 node의 목적은 workload 분리, rolling update와 장애 관찰이며 node 장애 무중단을 보장하는 것이 아니다.
@@ -45,10 +46,12 @@ StatefulSet과 local volume을 다른 node로 자동 이동할 수 있다고 가
 ```text
 Client
   → t3.large EIP :80/:443
-  → Traefik
+  → ServiceLB → Envoy proxy (TLS, JWT 서명 검증, route)
   → cluster Service
-  → large/medium의 application pod
+  → large/medium의 모듈 앱 pod
 ```
+
+위는 진입점 전환([전환 순서](#전환-순서) 7) 뒤의 목표 흐름이다. 그 전까지 외부 진입은 Compose의 edge nginx다. 목표 구조에서는 nginx를 쓰지 않는다. TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다. EC2에는 prod(main) 한 벌만 두고 dev 서버는 두지 않는다. 진입점과 인증 흐름은 [최종 인프라 설계 3장](../architecture/final-project-infrastructure.md#api-gateway--envoy-gateway)을 따른다.
 
 - 서비스 DNS는 large EIP만 가리킨다.
 - medium EIP는 node 관리와 outbound 통신용이다. application 진입점으로 사용하지 않는다.
@@ -64,7 +67,7 @@ Client
 
 ## S3와 IAM
 
-파일 업로드는 Spring application이 받은 stream을 `global/storage`의 `S3FileStorage`로 전달하는 서버 경유 방식이다. application replica가 양쪽 node에서 동일하게 동작하도록 두 EC2에 같은 S3 접근 instance role을 연결한다.
+파일 업로드는 앱이 받은 stream을 `S3FileStorage`로 전달하는 서버 경유 방식이다. 앱이 양쪽 node에서 동일하게 동작하도록 두 EC2에 같은 S3 접근 instance role을 연결한다.
 
 - static access key를 pod에 주입하지 않는다.
 - 두 EC2 모두 IMDSv2를 강제한다.
@@ -96,13 +99,14 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 1~3은 2026-10-28에 끝냈다. 절차는 아래 [k3s 설치](#k3s-설치)에 있다.
 
 1. (완료) 두 EC2의 private IP 통신, security group, IMDSv2와 IAM role을 검증한다.
-2. (완료) large에 k3s server를 설치하고 `core-data` label을 적용한다.
+2. (완료) large에 k3s server를 설치하고 `core-data` label을 적용한다. servicelb는 끄고 k3s 기본 Traefik은 켜진 상태다.
 3. (완료) medium을 agent로 join하고 `app-observe` label을 적용한다.
-4. local k3d에서 검증한 Kustomize manifest를 dev namespace부터 적용한다.
+4. `k8s/cluster`, `k8s/platform`을 수동으로 적용하고, local k3d에서 검증한 `k8s/apps/overlays/prod`를 적용한다. dev namespace는 만들지 않는다. 이 단계까지 외부 진입은 계속 Compose의 edge nginx다.
 5. 모듈 앱이 정한 node에 배치됐는지 확인한다.
 6. stateful workload가 large 외 node에 배치되지 않는 구조 test를 둔다.
-7. rolling update, pod 종료, medium node 중지와 large node 중지의 서로 다른 결과를 기록한다.
-8. prod 전환과 rollback 검증이 끝난 뒤에만 Compose 배포 경로를 제거한다.
+7. 진입점 전환: edge nginx를 먼저 멈춘다. 그다음 large의 `/etc/rancher/k3s/config.yaml`에서 `disable`의 `servicelb`를 빼고 `traefik`을 넣은 뒤 k3s를 재시작한다. large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙인다(붙인 node가 없으면 모든 node가 ServiceLB 후보가 된다). Envoy proxy Service는 `externalTrafficPolicy: Local`로 둔다. Envoy proxy가 80·443을 받는지, Traefik이 지워졌는지, cert-manager가 인증서를 발급했는지 확인한다. edge nginx가 떠 있는 동안 servicelb를 켜면 svclb가 80·443을 가로챈다(아래 "k3s 설치" 2단계 기록). 이 동안 외부 접속이 잠깐 끊기므로 미리 공지한다.
+8. rolling update, pod 종료, medium node 중지와 large node 중지의 서로 다른 결과를 기록한다.
+9. prod 전환과 rollback 검증이 끝난 뒤에만 Compose 배포 경로, edge nginx와 dev 서버를 제거한다.
 
 ## k3s 설치
 
@@ -111,7 +115,7 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 | 항목 | 값 |
 | --- | --- |
 | 버전 | `v1.36.5+k3s1`. 두 node와 로컬 k3d가 같은 버전을 쓴다 |
-| servicelb | 끈다. 80·443은 Compose의 edge nginx가 받는다 |
+| servicelb | 끈다. 80·443은 Compose의 edge nginx가 받는다. Envoy로 진입점을 옮길 때 켠다([전환 순서](#전환-순서) 7) |
 | graceful node shutdown | `shutdownGracePeriod` 60s, `shutdownGracePeriodCriticalPods` 20s |
 | logind `InhibitDelayMaxSec` | 90s |
 | 시간대 | 두 node 모두 `Asia/Seoul` |

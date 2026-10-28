@@ -20,7 +20,9 @@
 
 - Java 25 (Gradle Toolchain), Spring Boot 4.1.1, Gradle 멀티모듈
 - DB: PostgreSQL 인스턴스 1개, 모듈마다 database를 따로 둔다 (#338).
-- 인증: OAuth 소셜 로그인 + Session
+- 인증: OAuth 소셜 로그인 + JWT. member-app이 발급(RS256, JWKS)하고 Envoy Gateway가 서명을 검증해 사용자 헤더로 넘긴다. 앱은 `@PreAuthorize`로 인가한다 (#369, #370). 전환 전 코드는 세션을 쓴다.
+- 진입점(k3s 목표 구조): Envoy Gateway(Kubernetes Gateway API). nginx는 쓰지 않는다. 현재 Compose 운영은 edge nginx다.
+- 회복성: rate limit과 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 Resilience4j로 한다.
 - 결제: 충전 예치금 + HP 원장 + TossPayments 테스트 API
 - 이벤트: 모듈 간 비동기 연동은 이벤트로 하고, 브로커는 Kafka다 (#339).
 - Redis: 채팅 실시간 전달(Streams·Pub/Sub)에 쓴다 (#340).
@@ -39,6 +41,8 @@
 | 지갑 (`billing`) | HP 충전·환불, 원장, 보류, 지급, 환전 (지급·환전을 통틀어 "정산") | `/api/v1/wallets`, `/api/v1/settlements` |
 | 채팅 (`chat`) | 1:1 대화, 알림, 차단 | `/api/v1/chats` |
 | 고객센터 (`customersupport`) | 공지, FAQ, 문의, 이의 제기 접수 | `/api/v1/inquiries` |
+
+최종 프로젝트에서는 #363으로 모듈마다 독립 앱(`apps/*-app`)이 되었고, 알림(`notification`)·검색(`search`)을 별도 앱으로 더하는 계획이 [`docs/architecture/final-project-infrastructure.md`](docs/architecture/final-project-infrastructure.md) 8·9장에 있다. 위 표는 팀 합의 뒤 바꾼다.
 
 ### 경계 규칙 (반드시 지킨다)
 
@@ -68,8 +72,8 @@
 - 모든 API는 `/api/v1/...` 아래에 둔다 (3장의 진입 경로 참고).
 - API 명세는 Swagger로 관리한다. 프론트와 API 설계를 먼저 맞추고, 명세(Controller)를 먼저 만들어 동시에 작업할 수 있게 한다.
 - 성공 응답은 `global`의 `RsData`(`statusCode`, `message`, `data`)로 감싼다. 오류는 `global`의 `GlobalExceptionHandler` 하나가 `ProblemDetail`(+ `code`)로 응답한다. **모듈은 `@RestControllerAdvice`를 만들지 않고**, `{Module}ErrorCode implements BaseErrorCode`와 `{Module}Exception extends BusinessException`만 둔다.
-- 모듈 간 내부 HTTP API는 `/api/v1/internal/<모듈>/...`에 둔다. 회원 세션이 아니라 `X-Internal-Api-Key`로 인증하고, 서버 밖에서는 nginx가 404로 막는다 (D63, `docs/api/internal-earnings.md`).
-- 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. nginx는 이 경로에만 큰 본문을 허용한다 (`docs/deploy/s3.md`, #106).
+- 모듈 간 내부 HTTP API는 `/api/v1/internal/<모듈>/...`에 둔다. 회원 인증이 아니라 `X-Internal-Api-Key`로 인증하고, 서버 밖에서는 진입점이 막는다. 현재 Compose는 edge nginx가 404로, k3s 목표 구조는 Envoy에 route를 만들지 않는다 (D63, `docs/api/internal-earnings.md`).
+- 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. 진입점은 이 경로에만 큰 본문을 허용한다. 현재 Compose는 edge nginx, k3s 목표 구조는 Envoy timeout 설정이다 (`docs/deploy/s3.md`, #106).
 - RsData 반환 방법, 오류 코드·예외 작성법, 공통 핸들러가 처리하는 상황은 [`docs/api/conventions.md`](docs/api/conventions.md)에 있다.
 
 ## 8. 인프라와 배포
