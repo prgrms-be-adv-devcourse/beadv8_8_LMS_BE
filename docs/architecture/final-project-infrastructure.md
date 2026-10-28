@@ -18,7 +18,7 @@
 | 운영 시간 | 09:00~18:00 자동 시작·중지 | 매일 instance가 중지된다. 그 시간에 잡힌 `@Scheduled` 작업은 실행되지 않고, 종료 처리가 시연이 아니라 실제 요구다 |
 | 환경 | 현재 Compose는 prod·dev가 large에 함께 있고, k3s는 prod 중심 2노드 목표 구조다 | 현재와 목표 상태를 섞지 않는다 |
 | network | 프로젝트 전용 VPC 1개, public subnet 1개, Internet Gateway. private subnet·NAT 없음 | 두 node는 같은 subnet에서 private IP로 cluster 통신한다 |
-| security group | 22·80·443 inbound 전체 허용 | k3s API(6443), Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다 |
+| security group | 22·80·443 inbound 전체 허용. 6443은 kubectl 사용자 IP `/32`만 허용(2026-10-28) | Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다. k3s API(6443)는 사용자 IP `/32` 외에는 열지 않는다 |
 | 진입점 | edge nginx + Let's Encrypt. ELB·ACM 없음 | 외부 TLS 종료와 큰 본문 업로드 설정이 edge nginx에 있다 |
 | 이미지 | GHCR private. ECR 없음 | cluster는 GHCR pull secret이 필요하다 |
 | S3 | 버킷 1개, 사진·영상 업로드 전용(`dev/*`·`prod/*` prefix). 인스턴스 역할로 접근 | metrics·logs·traces·vector 저장 같은 다른 용도로 쓰려면 IAM 정책과 팀 합의를 바꿔야 한다 |
@@ -399,7 +399,7 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 ### EC2 운영 방식
 
 - **진입점**: 1차 전환에서는 edge nginx와 Let's Encrypt 설정을 그대로 쓴다. edge nginx는 TLS 종료와 도메인별 prod/dev 분기만 맡고, 그 뒤 경로 routing은 아래 API Gateway가 맡는다. 80·443을 edge nginx가 쓰므로 k3s ServiceLB는 끈다(`--disable servicelb`). nginx의 큰 본문 업로드 경로(#106)와 인증서 갱신을 Gateway로 옮기는 일은 기능이 안정된 뒤 별도로 판단한다.
-- **cluster API**: 6443은 인터넷에 공개하지 않고 같은 node security group에서 medium → large만 허용한다. 사람은 SSH tunnel로 접근한다([로컬 kubectl 접근](../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
+- **cluster API**: 6443은 같은 node security group에서 medium → large를 허용하고, 사람은 kubectl을 쓰는 사람의 IP만 `/32`로 허용해 EIP로 직접 접근한다([로컬 kubectl 접근](../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
 - **namespace**: EC2에는 `hapbang-prod`, `hapbang-platform`(Kafka·Redis·검색·관측성)을 둔다. dev는 로컬·PR k3d가 기본이며 전환 기간의 임시 namespace를 상시 구조로 굳히지 않는다.
 - **S3 권한**: 모듈 앱이 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
 - **이미지**: GHCR private image를 `imagePullSecret`으로 받는다. 태그는 지금처럼 `sha-<커밋>`을 고정해 쓴다.
