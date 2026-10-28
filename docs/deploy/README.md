@@ -1,6 +1,6 @@
 # 배포 개요
 
-현재 합방은 EC2 1대에 **운영(prod)**과 **개발 서버(dev)**를 함께 올린다. FE·BE 레포가 각자 이미지를 만들고, 서버 구성(compose·nginx·배포 스크립트)은 BE 레포 `docker/`에 있다. 최종 프로젝트의 EC2 2노드 k3s 구조는 [aws-k3s.md](aws-k3s.md)의 목표 상태이며 아직 현재 운영 구성으로 간주하지 않는다.
+현재 합방은 EC2 1대에 **운영(prod)**과 **개발 서버(dev)**를 함께 올린다. FE·BE 레포가 각자 이미지를 만들고, 서버 구성(compose·nginx·배포 스크립트)은 BE 레포 `docker/`에 있다. 최종 프로젝트용 EC2 2노드 k3s cluster는 구성했지만(2026-10-28) 아직 workload를 올리지 않았다. 운영은 계속 아래 Compose 구성이며, k3s 배치는 [aws-k3s.md](aws-k3s.md)의 목표 상태다.
 
 | 환경 | 주소 | 브랜치 | Swagger |
 | --- | --- | --- | --- |
@@ -16,7 +16,7 @@
 | [server-setup.md](server-setup.md) | 서버 최초 설정·재구축, 배포 키, 인증서 발급 |
 | [security.md](security.md) | 자격 증명 관리, 공개 레포 원칙, 유출 시 대응 |
 | [s3.md](s3.md) | 파일 업로드(S3) 구조, 버킷·IAM 역할 설정, 확인 절차, 로컬 S3Mock |
-| [aws-k3s.md](aws-k3s.md) | 최종 프로젝트 AWS 2노드 k3s 역할, workload 배치, network·IAM·storage와 전환 순서 |
+| [aws-k3s.md](aws-k3s.md) | 최종 프로젝트 AWS 2노드 k3s 역할, workload 배치, network·IAM·storage, 전환 순서, 설치·로컬 kubectl 접근 |
 | [infra/terraform](../../infra/terraform/README.md) | AWS 리소스(EC2·네트워크·S3·IAM) 코드, 다른 계정으로 옮기기 |
 
 ## 구조
