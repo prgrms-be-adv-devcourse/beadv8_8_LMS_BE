@@ -2,27 +2,41 @@
 
 ## Gradle
 
-- Gradle 모듈 이름은 `:lecture`, `:global` 등이다 (`:boundedContext:lecture` 아님).
-- `./gradlew check`는 Docker(Testcontainers)가 필요하다.
-- Boot 앱은 `apps` 하나뿐이고 나머지는 `java-library`다. 모듈 테스트는 `apps`의 yaml을 읽지 않는다.
-- Gradle이 테스트를 up-to-date로 건너뛸 수 있다. 실제 실행 여부는 `build/test-results/test/TEST-*.xml`로 확인한다.
+- 앱: `:member-app`, `:billing-app`, `:appearance-app`, `:lecture-app`, `:chat-app`, `:customer-support-app`.
+- 공통 라이브러리: `:shared`, `:test-support`, `:kafka`, `:redis`.
+- `./gradlew check`는 활성 테스트를 실행하며 PostgreSQL Testcontainers를 사용하는 테스트는 Docker가 필요하다.
+- `./gradlew verifyModuleStructure`는 앱 간 실행 의존과 common → 앱 의존을 막고 필수 실행 파일을 검사한다.
+- 앱별 검증: `./gradlew :member-app:check :member-app:bootJar`.
+- 실제 실행 여부는 `apps/<앱>/build/test-results/test/TEST-*.xml`로 확인한다. up-to-date로 생략된 테스트를 새 실행으로 보고하지 않는다.
 
-## apps 통합 테스트
+## 테스트 경계
 
-- 시작할 때 테스트 계정(8개)이 만들어지고 각 모듈로 복제된다. 행 개수는 절대값 대신 변경 전후로 비교한다.
-- `hapbang.internal-api.key`가 비면 앱이 시작하지 않는다. `@IntegrationTest`는 키를 넣지만, 직접 `@SpringBootTest(properties = …)`를 쓰는 테스트는 `"hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY`를 넣어야 한다 (#309가 빠뜨려 dev CI 44건 실패 → #313). 새 필수 설정을 더할 때는 `git grep -l '@SpringBootTest'`로 이런 테스트를 함께 고친다.
-- apps 테스트에서만 설정을 바꾸려면 `apps/src/test/resources/config/application.yaml`을 쓴다 (`classpath:/config/`가 main `application.yaml`보다 우선). 프로필 파일(`application-local.yaml`)의 값은 이걸로 덮어쓸 수 없다. 루트 `application.yaml`을 test에 두면 main 파일 전체를 가린다.
-- apps의 Jackson으로 읽은 `OffsetDateTime`은 같은 시각의 UTC offset으로 바뀐다 (응답 본문은 `+09:00`). 내부 API Client 테스트는 instant로 비교한다.
-- S3를 쓰는 테스트는 [S3 문서](../deploy/s3.md)의 "테스트"를 따른다.
+기존 업무 모듈 테스트와 앱 내부 global 테스트는 각 앱의 `src/test`에 있다. `common/test-support`가 PostgreSQL·S3Mock·테스트 로그인 지원을 제공한다. 앱 테스트가 다른 앱을 Gradle 의존으로 가져와 모든 빈을 한 컨텍스트에 올리면 독립 배포 경계를 검증할 수 없으므로 금지한다.
+
+기존 단일 `apps`의 통합 테스트는 현재 `check`에 포함되지 않는다. 이전 시나리오는 Git 이력에서 확인하고 서비스 간 HTTP·이벤트·인증으로 전환하면서 재작성해야 한다. 현재 테스트 통과는 분산 거래 전체의 동작 보장이 아니다. 자세한 미완료 범위는 [앱 구조](../architecture/app-modules.md)를 따른다.
+
+다른 서비스의 포트를 대체하는 Fake는 테스트 소스에만 둔다. 앱 실행을 위해 Fake를 운영 소스에 넣지 않는다.
+
+## 설정과 내부 API
+
+- 내부 API 키가 필수인 컨텍스트는 `hapbang.internal-api.key`를 테스트 값으로 설정한다. `@IntegrationTest`는 테스트 키를 제공한다. 직접 `@SpringBootTest`를 쓰는 테스트도 필요한 값을 명시해야 한다.
+- 앱의 YAML이 테스트에 영향을 주지 않도록 테스트 설정의 우선순위와 활성 프로필을 확인한다. 실제 기동 검증과 서비스 일부만 로드하는 테스트를 구분한다.
+- Jackson으로 읽은 `OffsetDateTime`의 offset이 UTC로 정규화될 수 있으므로 같은 시각인지 확인할 때는 instant를 비교한다.
+- S3를 호출하는 테스트는 [S3 문서](../deploy/s3.md)의 테스트 설정을 사용한다.
 
 ## 이벤트 리스너
 
-- `@ApplicationModuleListener`를 붙인 리스너는 `TransactionTemplate` 안에서 `publishEvent`하고 `await()`로 결과를 기다린다 (리스너가 커밋 뒤 비동기로 돈다, [모듈 연동](module-integration.md)).
-- "처리되지 않음"은 `await().during(Duration.ofMillis(500))`로 확인한다.
-- 실패한 이벤트가 남으면 종료 시 `publications left unfinished` 로그가 찍히는데, 이는 정상이다.
+- `@ApplicationModuleListener`를 테스트할 때는 `TransactionTemplate` 안에서 이벤트를 발행하고 `await()`로 커밋 뒤 비동기 처리를 확인한다.
+- "처리되지 않음"은 `await().during(Duration.ofMillis(500))`처럼 관찰 구간을 둔다.
+- 이 검증은 같은 JVM 내부의 Spring Event 처리다. 다른 앱으로 전달되는 Kafka 연동 검증이 아니다.
+- 실패한 이벤트가 남으면 종료 시 `publications left unfinished` 로그가 찍힐 수 있다.
 
 ## 배치
 
-- 배치를 켠(`hapbang.scheduling.enabled=true`) `@SpringBootTest`에는 `@DirtiesContext`를 붙인다. 붙이지 않으면 캐시된 컨텍스트에서 배치가 계속 돌아 다른 테스트의 DB를 바꾼다.
-- 실패 격리는 `@MockitoSpyBean`으로 Support 조회가 한 항목에서만 예외를 던지게 해서 확인한다.
-- 배치 빈 등록과 cron 해석은 apps `SchedulingEnabledTest`(스케줄링을 켠 컨텍스트)로 확인한다. 다른 테스트가 통과하는 것만으로는 등록 여부를 알 수 없다. 새 배치는 `SchedulingEnabledTest`의 모듈별 cron 등록 테스트(예: `강의_배치가_정한_cron으로_등록된다`)에 (`패키지.클래스.메서드`, cron) 튜플을 더한다 (`ScheduledTaskHolder`).
+- 배치를 켠 `@SpringBootTest`에는 `@DirtiesContext`를 붙여 캐시된 컨텍스트의 배치가 다음 테스트 DB를 바꾸지 않도록 한다.
+- 실패 격리는 `@MockitoSpyBean`으로 특정 항목 조회가 실패하도록 해 확인한다.
+- 기존 통합 `SchedulingEnabledTest` 시나리오는 Git 이력을 참고해 앱별 배치 등록·cron 검증으로 옮긴다.
+
+## CI
+
+PR의 `verify`(`.github/workflows/ci.yml`)는 `./gradlew verifyModuleStructure`로 모듈 구조를 검사하고, `./gradlew check bootJar --parallel`로 여섯 앱과 common 라이브러리를 테스트해 앱별 jar를 만든 뒤, 앱마다 자기 `Dockerfile`로 이미지가 빌드되는지 확인한다(push하지 않음). `verifyModuleStructure`는 `--parallel`과 함께 실행하면 Gradle이 막으므로 따로 실행한다.

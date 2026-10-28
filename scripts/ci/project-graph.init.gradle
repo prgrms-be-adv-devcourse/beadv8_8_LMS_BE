@@ -1,0 +1,23 @@
+import groovy.json.JsonOutput
+import org.gradle.api.artifacts.ProjectDependency
+
+// Gradle이 실제로 구성한 의존 관계를 사용한다. build.gradle.kts 텍스트를 정규식으로 추측하지 않는다.
+gradle.projectsEvaluated {
+    def root = gradle.rootProject
+    root.tasks.register('writeCiProjectGraph') {
+        doLast {
+            def graph = root.subprojects.collect { p ->
+                [
+                    id: p.path,
+                    directory: root.relativePath(p.projectDir).replace('\\', '/'),
+                    dependencies: p.configurations.collectMany { c ->
+                        c.allDependencies.withType(ProjectDependency).collect { it.path }
+                    }.unique().sort()
+                ]
+            }.sort { it.id }
+            def output = root.file(root.findProperty('ciProjectGraphFile') ?: 'build/ci/project-graph.json')
+            output.parentFile.mkdirs()
+            output.text = JsonOutput.prettyPrint(JsonOutput.toJson(graph)) + '\n'
+        }
+    }
+}

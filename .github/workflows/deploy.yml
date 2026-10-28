@@ -3,11 +3,16 @@
 # ci: 테스트하고 jar를 만든다(ci.yml 재사용, 읽기 권한).
 # build: ci가 테스트한 jar를 이미지에 담아 GHCR에 올린다(packages: write는 이 job에만).
 # deploy: (dev만) deploy-server.yml로 EC2에 배포한다.
+#
+# 일시 중지(#356): 단일 앱(apps/build/libs/app.jar, docker/Dockerfile)을 전제로 한 흐름이라 앱별 구조에서는 동작하지 않는다.
+# 앱별 서비스 간 통신이 끝나기 전에는 새 앱으로 서버를 바꿀 수 없으므로(docs/architecture/app-modules.md),
+# push 트리거를 빼고 dev 서버는 마지막으로 배포한 이미지를 유지한다. 앱별 배포로 다시 작성할 때 트리거를 되살린다.
+# 아래 job은 다시 작성할 때 참고하도록 남긴다. ci.yml이 더는 workflow_call을 받지 않아 수동 실행하면 바로 실패한다.
+# dev 롤백은 지금처럼 되돌릴 버전의 이전 Deploy run에서 deploy job만 다시 실행한다.
 name: Deploy
 
 on:
-  push:
-    branches: [main, dev]
+  workflow_dispatch:
 
 # 같은 브랜치의 배포는 순서대로 실행한다.
 concurrency:

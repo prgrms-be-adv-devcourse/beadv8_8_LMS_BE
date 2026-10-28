@@ -26,6 +26,12 @@ services:
     volumes:
       - s3mock-data:/s3mockroot
 
+  # 로컬용 Redis (common/redis). 앱의 spring-boot-docker-compose가 감지해 spring.data.redis.*를 넣는다
+  redis:
+    image: redis:8
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
 volumes:
   postgres-data:
   s3mock-data:

@@ -1,18 +1,17 @@
 rootProject.name = "hapbang"
 
-// boundedContext는 Gradle 프로젝트가 아닌 업무 모듈을 묶는 디렉터리다.
-val boundedContexts = listOf(
-    "member",
-    "appearance",
-    "lecture",
-    "billing",
-    "chat",
-    "customersupport",
+// apps/common은 디렉터리이며 자체 Gradle 프로젝트나 통합 실행 서버가 아니다.
+val applications = listOf(
+    "member-app", "billing-app", "appearance-app",
+    "lecture-app", "chat-app", "customer-support-app",
 )
+val libraries = listOf("kafka", "redis", "shared", "test-support")
 
-boundedContexts.forEach { context ->
-    include(":$context")
-    project(":$context").projectDir = file("boundedContext/$context")
+applications.forEach { name ->
+    include(":$name")
+    project(":$name").projectDir = file("apps/$name")
 }
-
-include(":apps", ":global", ":shared", ":test-support")
+libraries.forEach { name ->
+    include(":$name")
+    project(":$name").projectDir = file("common/$name")
+}
