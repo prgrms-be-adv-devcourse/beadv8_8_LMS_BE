@@ -1,0 +1,69 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+# Flyway 이력·Modulith 발행 기록은 앱 스키마에 둔다. 기존 모놀리스 DB의 이력 전환은 별도 작업이다.
+spring:
+  application:
+    name: billing-app
+  profiles:
+    default: local
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
+  modulith:
+    detection-strategy: explicitly-annotated
+    events:
+      jdbc:
+        schema-initialization:
+          enabled: true
+        schema: billing
+      republish-outstanding-events-on-restart: true
+      completion-mode: archive
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+    out-of-order: true
+    default-schema: billing
+    schemas:
+    - billing
+  http:
+    clients:
+      connect-timeout: 3s
+      read-timeout: 5s
+  task:
+    scheduling:
+      pool:
+        size: 4
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+hapbang:
+  scheduling:
+    enabled: true
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:}"
+  billing:
+    toss:
+      secret-key: "${TOSS_PAYMENTS_SECRET_KEY:}"
+    payment-key:
+      encryption-key: "${BILLING_PAYMENT_KEY_ENCRYPTION_KEY:}"
+      hmac-key: "${BILLING_PAYMENT_KEY_HMAC_KEY:}"
+  clients:
+    member:
+      base-url: "${MEMBER_API_BASE_URL}"
+    lecture:
+      base-url: "${LECTURE_API_BASE_URL}"
+    appearance:
+      base-url: "${APPEARANCE_API_BASE_URL}"
+springdoc:
+  swagger-ui:
+    csrf:
+      enabled: true

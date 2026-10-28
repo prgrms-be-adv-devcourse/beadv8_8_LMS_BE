@@ -1,0 +1,17 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+spring:
+  datasource:
+    url: "${DB_URL}"
+    username: "${DB_USERNAME}"
+    password: "${DB_PASSWORD}"
+hapbang:
+  chat:
+    websocket:
+      allowed-origins: https://hapbang.duckdns.org
+server:
+  forward-headers-strategy: native
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

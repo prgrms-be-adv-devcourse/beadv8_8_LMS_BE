@@ -1,0 +1,26 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  docker:
+    compose:
+      file: docker/compose.yaml
+      lifecycle-management: start-only
+springdoc:
+  swagger-ui:
+    path: "/swagger-ui.html"
+hapbang:
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
+  billing:
+    mock-payout:
+      enabled: true
+  clients:
+    member:
+      base-url: http://localhost:8081
+    lecture:
+      base-url: http://localhost:8084
+    appearance:
+      base-url: http://localhost:8083
+server:
+  port: "${SERVER_PORT:8082}"
