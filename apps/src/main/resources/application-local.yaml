@@ -22,6 +22,10 @@ springdoc:
     path: /swagger-ui.html
 
 hapbang:
+  chat:
+    websocket:
+      # 채팅 웹소켓 핸드셰이크를 허용할 프론트 출처 (#235). 여러 개면 쉼표로 구분한다
+      allowed-origins: http://localhost:5173
   storage:
     s3:
       # 기본은 docker/compose.yaml의 S3Mock(가짜 키, 서명·만료 검사 없음).
@@ -29,11 +33,19 @@ hapbang:
       endpoint: ${S3_ENDPOINT:http://localhost:9090}
       bucket: ${S3_BUCKET:hapbang-local}
       key-prefix: local
+  internal-api:
+    # 키가 없어도 로컬 실행·테스트는 되게 한다. 서버는 환경 변수로만 받는다 (#300)
+    key: ${HAPBANG_INTERNAL_API_KEY:local-placeholder}
   chzzk:
     # 키가 없어도 로컬 실행·테스트는 되게 한다 (채널 인증만 안 됨). 실제 키는 루트 .env
     client-id: ${CHZZK_CLIENT_ID:local-placeholder}
     client-secret: ${CHZZK_CLIENT_SECRET:local-placeholder}
     redirect-uri: http://localhost:8080/api/v1/members/channels/chzzk/callback
+  billing:
+    mock-payout:
+      # 가상 송금 Mock 은행 API·HTTP Client (#288). 로컬에서만 켠다. 실제로 켜지려면 local 프로필을 "활성화"해야 한다
+      # (SPRING_PROFILES_ACTIVE=local). 프로필 미지정(기본 프로필 local)이나 dev·prod에서는 이 값이 있어도 꺼진다(실제 송금 없음)
+      enabled: true
   local-login:
     # 구글 없이 역할로 로그인 (POST /api/v1/members/local-login) + 역할별 테스트 계정 생성. 서버에선 켜지 않는다
     enabled: true

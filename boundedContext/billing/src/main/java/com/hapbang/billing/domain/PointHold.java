@@ -8,6 +8,9 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
+
+import com.hapbang.shared.billing.domain.BillingReferenceType;
+
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -25,7 +28,7 @@ import org.hibernate.annotations.Check;
         })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Check(constraints = "(original_charge_hp >= 0) AND (original_revenue_hp >= 0) AND (held_charge_hp >= 0 AND held_charge_hp <= original_charge_hp) AND (held_revenue_hp >= 0 AND held_revenue_hp <= original_revenue_hp)")
+@Check(constraints = "(original_charge_hp >= 0) AND (original_revenue_hp >= 0) AND (held_charge_hp >= 0 AND held_charge_hp <= original_charge_hp) AND (held_revenue_hp >= 0 AND held_revenue_hp <= original_revenue_hp) AND ((hold_type <> 'CHARGE_ONLY' OR original_revenue_hp = 0) AND (hold_type <> 'REVENUE_ONLY' OR original_charge_hp = 0))")
 public class PointHold extends BillingUpdatedEntity {
 
     @Column(name = "wallet_id", nullable = false)
@@ -57,6 +60,11 @@ public class PointHold extends BillingUpdatedEntity {
     @Column(name = "idempotency_key", nullable = false)
     private String idempotencyKey;
 
+    // 보류할 때 쓸 수 있는 HP 종류 (#241). 기존 보류는 모두 MIXED다.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "hold_type", nullable = false)
+    private PointHoldType holdType = PointHoldType.MIXED;
+
     @Column(name = "held_at", nullable = false, columnDefinition = "timestamptz")
     private Instant heldAt;
 
@@ -80,7 +88,8 @@ public class PointHold extends BillingUpdatedEntity {
             String idempotencyKey,
             Instant heldAt,
             Instant releasedAt,
-            Instant canceledAt
+            Instant canceledAt,
+            PointHoldType holdType
     ) {
         this.walletId = walletId;
         this.referenceType = referenceType;
@@ -94,12 +103,25 @@ public class PointHold extends BillingUpdatedEntity {
         this.heldAt = heldAt;
         this.releasedAt = releasedAt;
         this.canceledAt = canceledAt;
+        this.holdType = holdType == null ? PointHoldType.MIXED : holdType;
     }
 
     // 참조 대상의 최초 보류를 만든다. 남은 보류액은 최초 보류액과 같고 상태는 HELD다.
     public static PointHold held(Long walletId, BillingReferenceType referenceType, Long referenceId, long chargeHp,
             long revenueHp, String idempotencyKey, Instant heldAt) {
+        return held(walletId, referenceType, referenceId, chargeHp, revenueHp, idempotencyKey, heldAt,
+                PointHoldType.MIXED);
+    }
+
+    // 보류 종류를 정해 최초 보류를 만든다 (#241). 종류와 HP 종류별 구성이 맞지 않으면(CHARGE_ONLY에 수익 HP 등) 호출 오류다.
+    public static PointHold held(Long walletId, BillingReferenceType referenceType, Long referenceId, long chargeHp,
+            long revenueHp, String idempotencyKey, Instant heldAt, PointHoldType holdType) {
+        if ((holdType == PointHoldType.CHARGE_ONLY && revenueHp != 0)
+                || (holdType == PointHoldType.REVENUE_ONLY && chargeHp != 0)) {
+            throw new IllegalArgumentException("보류 종류와 HP 구성이 맞지 않습니다: " + holdType);
+        }
         return PointHold.builder()
+                .holdType(holdType)
                 .walletId(walletId)
                 .referenceType(referenceType)
                 .referenceId(referenceId)
@@ -132,6 +154,24 @@ public class PointHold extends BillingUpdatedEntity {
     // 남으면 PARTIALLY_PROCESSED가 된다. 이미 끝난 보류는 HOLD_ALREADY_CLOSED, 남은 보류액을 넘으면 PAYOUT_AMOUNT_EXCEEDS_HELD로 거절한다.
     // released_at은 반환으로 끝날 때만 남긴다(지급으로 끝나면 비워 둔다).
     public void payout(long chargeHp, long revenueHp, boolean hasRelease) {
+        reduce(chargeHp, revenueHp, BillingErrorCode.PAYOUT_AMOUNT_EXCEEDS_HELD);
+        if (heldTotalHp() == 0) {
+            status = hasRelease ? PointHoldStatus.MIXED : PointHoldStatus.PAID;
+        }
+    }
+
+    // 남은 보류액에서 HP 종류별 확정 차감액을 뺀다 (#241). 남은 보류가 0이 되면 다른 처리(반환·지급) 이력이 있으면 MIXED,
+    // 없으면 CAPTURED로 끝나며, 남으면 PARTIALLY_PROCESSED가 된다. 이미 끝난 보류는 HOLD_ALREADY_CLOSED,
+    // 남은 보류액을 넘으면 CAPTURE_AMOUNT_EXCEEDS_HELD로 거절한다.
+    public void capture(long chargeHp, long revenueHp, boolean hasOtherAction) {
+        reduce(chargeHp, revenueHp, BillingErrorCode.CAPTURE_AMOUNT_EXCEEDS_HELD);
+        if (heldTotalHp() == 0) {
+            status = hasOtherAction ? PointHoldStatus.MIXED : PointHoldStatus.CAPTURED;
+        }
+    }
+
+    // 남은 보류에서 HP 종류별 금액을 빼고, 남은 보류가 있으면 PARTIALLY_PROCESSED로 둔다(0이 되면 호출한 처리가 최종 상태를 정한다).
+    private void reduce(long chargeHp, long revenueHp, BillingErrorCode exceeded) {
         if (chargeHp < 0 || revenueHp < 0 || chargeHp + revenueHp <= 0) {
             throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
         }
@@ -139,15 +179,13 @@ public class PointHold extends BillingUpdatedEntity {
             throw new BillingException(BillingErrorCode.HOLD_ALREADY_CLOSED);
         }
         if (chargeHp > heldChargeHp || revenueHp > heldRevenueHp) {
-            throw new BillingException(BillingErrorCode.PAYOUT_AMOUNT_EXCEEDS_HELD);
+            throw new BillingException(exceeded);
         }
         heldChargeHp -= chargeHp;
         heldRevenueHp -= revenueHp;
         if (heldTotalHp() > 0) {
             status = PointHoldStatus.PARTIALLY_PROCESSED;
-            return;
         }
-        status = hasRelease ? PointHoldStatus.MIXED : PointHoldStatus.PAID;
     }
 
     // 남은 보류액에서 HP 종류별 반환액을 뺀다. 남은 보류가 0이 되면 지급 이력이 있으면 MIXED, 없으면 RELEASED로 끝내고 반환 시각을 남기며,

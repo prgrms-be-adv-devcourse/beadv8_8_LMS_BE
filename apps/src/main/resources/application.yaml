@@ -49,6 +49,11 @@ spring:
     jdbc:
       # 세션 테이블(spring_session)을 앱 시작 시 만든다 (이미 있으면 건너뜀)
       initialize-schema: always
+  task:
+    scheduling:
+      pool:
+        # @Scheduled 배치 스레드 수 (SchedulingConfig). 기본 1개면 긴 배치가 다른 배치를 늦춘다
+        size: 4
   security:
     oauth2:
       client:
@@ -75,15 +80,43 @@ management:
       show-details: never
 
 hapbang:
+  scheduling:
+    # @ConditionalOnSchedulingEnabled 배치 빈을 만든다. apps 테스트는 src/test/resources/config/application.yaml에서 끈다.
+    # 모듈 테스트는 이 파일을 읽지 않아 꺼져 있다
+    enabled: true
   storage:
     s3:
       region: ap-northeast-2
+  internal-api:
+    # 모듈 간 내부 HTTP API(/api/v1/internal/**) 키 (#300). 기본값을 두지 않는다 → 서버에 값이 없으면 기동 실패 (docs/deploy/env-vars.md)
+    # 없을 때 빈 값으로 둔다(#307): 설정 바인딩은 풀 수 없는 ${...}를 글자 그대로 남겨 키 검사(InternalApiProperties)를 통과시키므로,
+    # 빈 값이 되게 해야 검사가 거부해 기동 실패한다. 로컬 기본값은 application-local.yaml이 정한다
+    key: ${HAPBANG_INTERNAL_API_KEY:}
+  clients:
+    lecture:
+      # 강의 내부 API 주소 (D62, shared LectureApiClient). 단일 앱은 자기 자신을 부른다. 서비스를 나누면 강의 서비스 주소로 바꾼다
+      base-url: http://localhost:${server.port:8080}
+    appearance:
+      # 출연 내부 API 주소 (D62, shared AppearanceApiClient, #301). 단일 앱은 자기 자신을 부른다. 서비스를 나누면 출연 서비스 주소로 바꾼다
+      base-url: http://localhost:${server.port:8080}
+    member:
+      # 회원 내부 API 주소 (D62, shared MemberApiClient, #303). 단일 앱은 자기 자신을 부른다. 서비스를 나누면 회원 서비스 주소로 바꾼다
+      base-url: http://localhost:${server.port:8080}
   chzzk:
     # 치지직 채널 인증 (치지직 개발자 센터 앱). 기본값을 두지 않는다 (서버 값은 compose가 넘긴다, docs/deploy/env-vars.md)
     client-id: ${CHZZK_CLIENT_ID}
     client-secret: ${CHZZK_CLIENT_SECRET}
     # 앱에 등록한 리디렉션 URL과 같아야 한다 (앱 하나에 하나만 등록돼 환경마다 다르다)
     redirect-uri: ${CHZZK_REDIRECT_URI}
+  billing:
+    # HP 충전(TossPayments 테스트 결제). 값이 없으면 앱은 뜨고 충전 API만 503 CHARGE_UNAVAILABLE로 거절한다
+    toss:
+      # 토스페이먼츠 개발자센터 > API 키 > 테스트 시크릿 키(test_sk_… 또는 위젯용 test_gsk_…). 코드·로그에 남기지 않는다
+      secret-key: ${TOSS_PAYMENTS_SECRET_KEY:}
+    payment-key:
+      # 결제키(paymentKey) 암호화 키(AES-256, Base64 32바이트)와 중복 식별용 HMAC 키(Base64 32바이트 이상). 서로 다른 값을 쓴다
+      encryption-key: ${BILLING_PAYMENT_KEY_ENCRYPTION_KEY:}
+      hmac-key: ${BILLING_PAYMENT_KEY_HMAC_KEY:}
 
 springdoc:
   swagger-ui:

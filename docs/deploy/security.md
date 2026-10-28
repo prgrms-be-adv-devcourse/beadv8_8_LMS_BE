@@ -21,6 +21,7 @@
 | 개인 PAT | 만들지 않고 둔다. 수동 pull 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |
 | TLS 개인 키 | edge `letsencrypt` 볼륨 | 서버 | HTTPS | 재발급 시 자동 교체 |
+| 내부 API 키 | 서버 env `HAPBANG_INTERNAL_API_KEY` | app 컨테이너 | 모듈 간 내부 HTTP API(`/api/v1/internal/**`) 인증 (#300) | 서버 env 값을 바꾸고 재배포([env-vars.md](env-vars.md#값-변경-비밀값-교체-포함)). 같은 앱이 부르고 받으므로 한 번에 바뀐다 |
 
 ## 구조상 보호 장치
 
@@ -31,6 +32,7 @@
 | 서버 설정 수동 반영 | 배포 키·Actions로 compose·nginx를 바꿀 수 없음 |
 | GHCR private + 읽기 전용 임시 토큰 | 서버가 탈취돼도 레지스트리에 이미지를 올릴 수 없음 |
 | 외부 포트는 edge(80·443)만 | app·DB에 직접 접근 불가 |
+| 내부 API 차단 | edge nginx가 `/api/v1/internal/`을 404로 끊고, 앱도 내부 API 키가 없으면 401 (#300) |
 | 미등록 도메인 차단 | IP 직접 접근·스캐너에 응답하지 않음(80 연결 종료, 443 핸드셰이크 거부) |
 | HTTPS + HSTS, forward-headers | 쿠키에 Secure, https 리다이렉트 |
 | `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |
@@ -46,7 +48,7 @@
 | dev가 인터넷에 공개(Swagger 포함) | 누구나 API 명세 조회·호출 가능 | edge에서 dev를 팀 IP 또는 Basic 인증으로 제한 |
 | SSH 22 전체 개방 | Actions 배포 때문. 키 인증만 허용 | 접근 로그 주기 확인(`sudo journalctl -u ssh`) |
 | Deploy prod 검사가 워크플로 안에 있음 | 실수(다른 브랜치·dev 커밋)만 막는다. 쓰기 권한자가 워크플로를 고친 브랜치로 실행하면 우회되고, 배포 Secrets는 레포 단위라 어느 브랜치에서나 쓸 수 있다 | GitHub Environment `prod`·`dev`를 만들어 배포 브랜치를 제한하고 `DEPLOY_*` Secrets를 Environment로 옮김 |
-| `main`·`dev` 직접 push 가능 | 브랜치 보호 없음. CI 통과해야 배포는 됨 | 필요 시 ruleset |
+| main으로 가는 PR 출발 브랜치 검사가 이름만 봄 | ruleset `protect-main-dev`가 PR·`verify`·`source-branch`(dev, `release/review-N`만 허용, #180)를 요구한다. 승인 수는 0이라 이름을 맞춘 브랜치는 통과한다 | main 전용 ruleset으로 승인 1개 이상 요구 |
 | GitHub Actions 메이저 버전 태그(`@v7` 등) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
 | DB 백업 없음 | 수동 절차만 | 정기 백업 결정 |
 

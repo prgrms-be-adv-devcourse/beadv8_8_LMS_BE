@@ -22,11 +22,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
-import com.hapbang.billing.domain.BillingReferenceType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 지갑 캐시와 원장 합계의 대사 결과·불일치 탐지·일관된 읽기 시점을 실제 PostgreSQL로 검증한다.

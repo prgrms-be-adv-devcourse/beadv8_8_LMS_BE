@@ -6,6 +6,10 @@ spring:
     password: ${DB_PASSWORD}
 
 hapbang:
+  chat:
+    websocket:
+      # 채팅 웹소켓 핸드셰이크를 허용할 프론트 출처 (#235). 여러 개면 쉼표로 구분한다
+      allowed-origins: https://dev.hapbang.duckdns.org
   storage:
     s3:
       # 공개 레포라 버킷 이름은 서버 env 파일에만 둔다. 접근은 EC2 인스턴스 역할로 한다(docs/deploy/s3.md)

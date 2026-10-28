@@ -21,14 +21,21 @@ import com.hapbang.billing.domain.HoldDetailActionType;
 // 지급 규칙: 최초 FIFO 배분 순서(배분 ID 오름차순)로, 남은 보류가 있는 배분부터 소진한다 (2026-10-13 확정, #134).
 // 두 규칙 모두 처리 시점의 남은 보류만 쓰므로 반환·지급이 섞여도 순서대로 재생하면 같은 결과가 나온다.
 // 규칙을 바꾸면 이미 기록된 상세를 재구성할 수 없으므로 바꾸지 않는다.
+// 확정 차감(CAPTURE, #241)은 지급과 같은 소진 규칙(배분 순서)이다. 상세에 처리할 충전 건(target_charge_id)이 있으면
+// 규칙 대신 그 충전 건의 배분에서만 처리한다(CHARGE_ONLY 보류의 PG 결제 건별 환불 확정·반환). 기존 상세는 충전 건이 비어 있어 결과가 같다.
 final class ChargeUsageHistory {
 
     // 충전 건 하나를 보류에 처음 배분한 내역이다. 배분 순서(ID 오름차순)로 넘긴다.
     record Allocation(Long usageId, Long chargeId, long amountHp) {
     }
 
-    // 보류의 반환·지급 상세 한 건 중 충전 HP 부분이다. 처리 순서(ID 오름차순)로 넘긴다.
-    record Processing(Long detailId, HoldDetailActionType actionType, long chargeAmountHp) {
+    // 보류의 반환·지급·확정 차감 상세 한 건 중 충전 HP 부분이다. 처리 순서(ID 오름차순)로 넘긴다.
+    // targetChargeId가 있으면 그 충전 건의 배분에서만 처리한다.
+    record Processing(Long detailId, HoldDetailActionType actionType, long chargeAmountHp, Long targetChargeId) {
+
+        Processing(Long detailId, HoldDetailActionType actionType, long chargeAmountHp) {
+            this(detailId, actionType, chargeAmountHp, null);
+        }
     }
 
     // 배분 하나에서 반환한 원금이다.
@@ -58,15 +65,59 @@ final class ChargeUsageHistory {
         for (Processing processing : processings) {
             if (processing.actionType() == HoldDetailActionType.RELEASE) {
                 List<UsageRelease> releases = processing.chargeAmountHp() == 0
-                        ? List.of() : history.release(processing.chargeAmountHp());
+                        ? List.of() : history.release(processing.chargeAmountHp(), processing.targetChargeId());
                 history.restorationsByDetailId.put(processing.detailId(), toRestorations(releases));
             } else {
+                // 지급(PAYOUT)과 확정 차감(CAPTURE)은 같은 소진 규칙이다
                 List<UsageConsumption> consumptions = processing.chargeAmountHp() == 0
-                        ? List.of() : history.consume(processing.chargeAmountHp());
+                        ? List.of() : history.consume(processing.chargeAmountHp(), processing.targetChargeId());
                 history.consumptionsByDetailId.put(processing.detailId(), toConsumptions(consumptions));
             }
         }
         return history;
+    }
+
+    // 충전 건을 지정했으면 그 배분에서만, 아니면 규칙(배분 역순)으로 반환한다.
+    List<UsageRelease> release(long chargeHp, Long targetChargeId) {
+        if (targetChargeId == null) {
+            return release(chargeHp);
+        }
+        Slot slot = targetSlot(targetChargeId, chargeHp);
+        slot.remainingHeldHp -= chargeHp;
+        slot.releasedHp += chargeHp;
+        return List.of(new UsageRelease(slot.allocation.usageId(), slot.allocation.chargeId(), chargeHp));
+    }
+
+    // 충전 건을 지정했으면 그 배분에서만, 아니면 규칙(배분 순서)으로 소진한다.
+    List<UsageConsumption> consume(long chargeHp, Long targetChargeId) {
+        if (targetChargeId == null) {
+            return consume(chargeHp);
+        }
+        Slot slot = targetSlot(targetChargeId, chargeHp);
+        slot.remainingHeldHp -= chargeHp;
+        slot.consumedHp += chargeHp;
+        return List.of(new UsageConsumption(slot.allocation.usageId(), slot.allocation.chargeId(), chargeHp));
+    }
+
+    // 지정한 충전 건의 배분 남은 보류(재생 중 값)를 돌려준다. 이 보류에 배분되지 않은 충전 건이면 null이다.
+    Long remainingOf(Long chargeId) {
+        return slots.stream()
+                .filter(slot -> slot.allocation.chargeId().equals(chargeId))
+                .findFirst()
+                .map(slot -> slot.remainingHeldHp)
+                .orElse(null);
+    }
+
+    // 지정한 충전 건의 배분을 찾고, 없거나 남은 보류가 모자라면 이력이 어긋난 것이므로 HOLD_STATE_INCONSISTENT로 거절한다.
+    private Slot targetSlot(Long chargeId, long chargeHp) {
+        Slot slot = slots.stream()
+                .filter(candidate -> candidate.allocation.chargeId().equals(chargeId))
+                .findFirst()
+                .orElseThrow(() -> new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT));
+        if (chargeHp > slot.remainingHeldHp) {
+            throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
+        }
+        return slot;
     }
 
     // 남은 보류가 있는 배분을 최초 배분의 역순으로 채워 충전 HP 반환액을 나누고, 그만큼 남은 보류를 줄이고 반환액을 늘린다.

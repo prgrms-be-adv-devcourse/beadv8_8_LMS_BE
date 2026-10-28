@@ -14,6 +14,6 @@ public record ChannelResponse(ChannelPlatform platform, String channelName, Stri
 
     public static ChannelResponse from(InfluencerChannel channel) {
         return new ChannelResponse(channel.getPlatform(), channel.getChannelName(), channel.getChannelUrl(),
-                channel.getFollowerCount(), channel.followerCountAt());
+                channel.getFollowerCount(), channel.getFollowerCountUpdatedAt());
     }
 }

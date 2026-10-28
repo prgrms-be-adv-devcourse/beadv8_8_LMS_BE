@@ -18,6 +18,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class CartAddItemUseCase {
 
+    /** 장바구니에 살아 있는 같은 강의를 하나만 두는 부분 유일 인덱스 (D18) */
+    private static final String CART_LECTURE_INDEX = "uk_cart_item_cart_lecture";
+
     private final CartRepository cartRepository;
     private final LectureSupport lectureSupport;
 
@@ -30,6 +33,9 @@ public class CartAddItemUseCase {
         try {
             cartRepository.flush();
         } catch (DataIntegrityViolationException exception) {
+            if (!UniqueIndexViolation.isOf(exception, CART_LECTURE_INDEX)) {
+                throw exception;
+            }
             throw new LectureException(LectureErrorCode.ALREADY_IN_CART);
         }
     }

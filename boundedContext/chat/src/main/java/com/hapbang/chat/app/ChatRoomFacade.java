@@ -52,8 +52,13 @@ public class ChatRoomFacade {
         return chatRoomUseCase.leave(chatRoomId, userId, participationVersion);
     }
 
+    @PreAuthorize(ChatRoles.CHAT)
+    public void markRead(Long chatRoomId, Long userId, long lastReadSequence) {
+        chatRoomUseCase.markRead(chatRoomId, userId, lastReadSequence);
+    }
+
     @PreAuthorize(ChatRoles.ADMIN)
-    public ChatRoomHistoryResponse getHistory(Long chatRoomId, Long adminId) {
-        return chatRoomSupporter.getHistory(chatRoomId, adminId);
+    public ChatRoomHistoryResponse getHistory(Long chatRoomId, Long adminId, String cursor, int size) {
+        return chatRoomSupporter.getHistory(chatRoomId, adminId, cursor, size);
     }
 }

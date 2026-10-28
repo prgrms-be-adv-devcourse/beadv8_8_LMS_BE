@@ -22,6 +22,7 @@ import com.hapbang.customersupport.app.dto.InquirySummaryResponse;
 import com.hapbang.customersupport.domain.InquiryStatus;
 import com.hapbang.customersupport.in.dto.CreateInquiryRequest;
 import com.hapbang.customersupport.in.dto.InquiryReplyRequest;
+import com.hapbang.customersupport.in.dto.ObjectionResolutionRequest;
 import com.hapbang.global.auth.LoginUserId;
 import com.hapbang.global.response.RsData;
 
@@ -45,7 +46,7 @@ public class ApiV1InquiryController implements ApiV1InquirySpec {
     public RsData<InquiryResponse> createInquiry(@LoginUserId Long userId,
                                                  @RequestBody CreateInquiryRequest request) {
         InquiryResponse response = inquiryFacade.create(userId, request.category(), request.title(),
-                request.content());
+                request.content(), request.orderItemId());
         return RsData.created("문의를 접수했습니다.", response);
     }
 
@@ -106,6 +107,15 @@ public class ApiV1InquiryController implements ApiV1InquirySpec {
                                              @PathVariable("replyId") Long replyId,
                                              @RequestBody InquiryReplyRequest request) {
         return RsData.ok("답변을 수정했습니다.", inquiryFacade.editReply(inquiryId, replyId, request.content()));
+    }
+
+    @Override
+    @PostMapping("/admin/{inquiryId}/objection-resolution")
+    public RsData<InquiryResponse> resolveObjection(@LoginUserId Long userId,
+                                                    @PathVariable("inquiryId") Long inquiryId,
+                                                    @RequestBody ObjectionResolutionRequest request) {
+        return RsData.ok("이의 제기를 판단했습니다.",
+                inquiryFacade.resolveObjection(inquiryId, userId, request.accepted(), request.content()));
     }
 
     @Override

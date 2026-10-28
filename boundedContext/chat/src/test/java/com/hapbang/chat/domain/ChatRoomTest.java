@@ -55,6 +55,16 @@ class ChatRoomTest {
     }
 
     @Test
+    void 읽음_처리_순번은_마지막_순번을_넘지_않는다() {
+        ChatRoom room = directRoom();
+        room.issueSequence();
+        room.issueSequence();
+
+        assertThat(room.readableSequence(1)).isEqualTo(1);
+        assertThat(room.readableSequence(100)).isEqualTo(2);
+    }
+
+    @Test
     void 채팅방_로그를_남긴다() {
         ChatRoomLog log = ChatRoomLog.record(directRoom(), HOST_ID, ChatRoomEventType.ROOM_CREATED, NOW);
 
