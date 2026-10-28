@@ -403,13 +403,14 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 
 ### EC2 운영 방식
 
-- **진입점**: nginx는 쓰지 않는다. k3s는 `--disable traefik`으로 설치하고, Envoy Gateway가 유일한 진입점이다. Envoy proxy Service는 `LoadBalancer`이고, k3s 내장 ServiceLB가 node의 80·443을 Envoy로 연결한다. ServiceLB는 node label로 large에서만 켠다([k3s networking 문서](https://docs.k3s.io/networking/networking-services)). DNS와 80·443 security group이 large EIP만 가리키기 때문이다. medium의 앱에는 Envoy가 cluster 내부 Service로 보낸다.
+- **진입점**: nginx는 쓰지 않는다. Envoy Gateway가 유일한 진입점이다. Envoy proxy Service는 `LoadBalancer`이고, k3s 내장 ServiceLB가 node의 80·443을 Envoy로 연결한다. ServiceLB는 node label로 large에서만 켠다([k3s networking 문서](https://docs.k3s.io/networking/networking-services)). DNS와 80·443 security group이 large EIP만 가리키기 때문이다. medium의 앱에는 Envoy가 cluster 내부 Service로 보낸다.
+  - 지금 설치한 cluster는 Compose의 edge nginx가 80·443을 쓰므로 servicelb를 끄고, k3s 기본 Traefik은 켜진 채로 두었다([k3s 설치](../deploy/aws-k3s.md#k3s-설치)). 첫 설치 때 svclb의 hostPort DNAT가 edge nginx보다 먼저 80·443을 가로챘다. 그래서 **edge nginx를 멈춘 뒤에** servicelb를 켜고 Traefik을 끈다. 이 전환 동안 외부 접속이 잠깐 끊긴다([전환 순서](../deploy/aws-k3s.md#전환-순서)).
 - **TLS**: cert-manager(공식 Helm 차트)가 Let's Encrypt에서 prod 도메인 인증서를 Gateway API HTTP-01 solver로 발급·갱신한다. 지금 edge nginx 옆의 certbot을 대신한다.
-- **cluster API**: 6443은 인터넷에 공개하지 않고 같은 node security group에서 medium → large만 허용한다. 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
+- **cluster API**: 6443은 인터넷에 공개하지 않고 같은 node security group에서 medium → large만 허용한다. 사람은 SSH tunnel로 접근한다([로컬 kubectl 접근](../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
 - **namespace**: `hapbang-prod`(모듈 앱·React·PostgreSQL), `hapbang-platform`(Kafka·Redis·Elasticsearch·관측성)과 Envoy Gateway·cert-manager·ECK operator의 system namespace를 둔다. dev namespace는 두지 않는다.
 - **S3 권한**: 모듈 앱이 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
 - **이미지**: GHCR private image를 `imagePullSecret`으로 받는다. 태그는 지금처럼 `sha-<커밋>`을 고정해 쓴다.
-- **자동 중지**: 매일 18:00 instance 중지는 node shutdown이다. kubelet graceful node shutdown(`shutdownGracePeriod`, `shutdownGracePeriodCriticalPods`)을 k3s `--kubelet-arg`로 설정한다. 이 설정이 없으면 pod는 4장의 종료 순서를 밟지 못하고 끝날 수 있다([Kubernetes node shutdown](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/)). instance 중지 때 OS가 실제로 기다려 주는 시간 안에 drain이 끝나는지 실측한다.
+- **자동 중지**: 매일 18:00 instance 중지는 node shutdown이다. kubelet graceful node shutdown(`shutdownGracePeriod`, `shutdownGracePeriodCriticalPods`)은 kubelet CLI 플래그가 없으므로 k3s의 kubelet drop-in 설정 파일로 두고, Ubuntu logind의 `InhibitDelayMaxSec`도 함께 올린다(설정은 [AWS 2노드 k3s 배치](../deploy/aws-k3s.md#k3s-설치)). 이 설정이 없으면 pod는 4장의 종료 순서를 밟지 못하고 끝날 수 있다([Kubernetes node shutdown](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/)). instance 중지 때 OS가 실제로 기다려 주는 시간 안에 drain이 끝나는지 실측한다.
 
 ### API Gateway — Envoy Gateway
 
