@@ -23,9 +23,9 @@
 | EC2 | k3s 역할 | node label | 주 역할 |
 | --- | --- | --- | --- |
 | `t3.large` | server/control plane | `hapbang.io/pool=core-data` | 외부 진입점, PostgreSQL, stateful middleware |
-| `t3.medium` | agent | `hapbang.io/pool=app-observe` | application, Batch, React, 관측성 workload |
+| `t3.medium` | agent | `hapbang.io/pool=app-observe` | 모듈 앱, React, 관측성 workload |
 
-`core-data` 전체를 `NoSchedule`로 taint하지 않는다. Spring application과 Quartz replica 하나를 large에도 배치해 pod 분산과 rolling update를 시연해야 하기 때문이다.
+`core-data` 전체를 `NoSchedule`로 taint하지 않는다. 모듈 앱 일부를 large에도 배치해야 두 node의 자원 예산 안에 들어가기 때문이다.
 
 ## Workload 배치
 
@@ -33,14 +33,12 @@
 | --- | --- | --- |
 | k3s server, Traefik | large | 외부 HTTPS 진입과 control plane |
 | PostgreSQL | large | `core-data` required node affinity |
-| Kafka, Valkey, Elasticsearch | large | 도입 시 `core-data` required node affinity |
-| Spring application | 양쪽 | replica 2개를 hostname topology spread로 한 개씩 배치 |
-| Quartz scheduler | 양쪽 | replica 2개를 한 개씩 배치. Quartz JDBC clustering 사용 |
-| Spring Batch 실행 pod | medium 우선 | `app-observe` preferred affinity. checkpoint와 재시작은 DB가 보장 |
+| Kafka, Redis, Elasticsearch | large | 도입 시 `core-data` required node affinity |
+| 모듈 앱 6개 | 양쪽 | 앱마다 replica 1개. large에 member·billing·appearance, medium에 lecture·chat·customer-support를 두고 시작한다([자원 예산](../architecture/final-project-infrastructure.md#ec2-2노드-자원-예산)) |
 | React Nginx | medium 우선 | stateless workload |
 | Prometheus·Loki·Tempo·Grafana | medium | 제한형 관측성 profile과 비교 기준선 |
 
-StatefulSet과 local volume을 다른 node로 자동 이동할 수 있다고 가정하지 않는다. large 장애 시 PostgreSQL과 Elasticsearch가 함께 중단되므로 이 구성은 고가용성이 아니다. 두 node의 목적은 workload 분리, pod replica, rolling update와 장애 관찰이며 node 장애 무중단을 보장하는 것이 아니다.
+StatefulSet과 local volume을 다른 node로 자동 이동할 수 있다고 가정하지 않는다. large 장애 시 PostgreSQL과 Elasticsearch가 함께 중단되므로 이 구성은 고가용성이 아니다. 두 node의 목적은 workload 분리, rolling update와 장애 관찰이며 node 장애 무중단을 보장하는 것이 아니다.
 
 ## Network와 외부 노출
 
@@ -54,7 +52,7 @@ Client
 
 - 서비스 DNS는 large EIP만 가리킨다.
 - medium EIP는 node 관리와 outbound 통신용이다. application 진입점으로 사용하지 않는다.
-- PostgreSQL 5432, Kafka 9092, Valkey 6379, Elasticsearch 9200, Grafana 3000을 인터넷에 공개하지 않는다.
+- PostgreSQL 5432, Kafka 9092, Redis 6379, Elasticsearch 9200, Grafana 3000을 인터넷에 공개하지 않는다.
 - k3s node 간 통신은 public IP가 아니라 private IP를 사용한다.
 - 공통 cluster security group은 같은 security group을 source로 다음 inbound만 허용한다.
   - TCP 6443: agent → server API
@@ -96,7 +94,7 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 2. large에 k3s server를 설치하고 `core-data` label을 적용한다.
 3. medium을 agent로 join하고 `app-observe` label을 적용한다.
 4. local k3d에서 검증한 Kustomize manifest를 dev namespace부터 적용한다.
-5. application과 Quartz replica가 node별로 분산됐는지 확인한다.
+5. 모듈 앱이 정한 node에 배치됐는지 확인한다.
 6. stateful workload가 large 외 node에 배치되지 않는 구조 test를 둔다.
 7. rolling update, pod 종료, medium node 중지와 large node 중지의 서로 다른 결과를 기록한다.
 8. prod 전환과 rollback 검증이 끝난 뒤에만 Compose 배포 경로를 제거한다.

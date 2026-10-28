@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | EC2 | t3.large 1대 + t3.medium 1대, 각각 Ubuntu 24.04·gp3 50 GB·EIP 1개 | large는 `core-data`, medium은 `app-observe`로 사용한다. 상세 배치는 전용 문서를 따른다 |
 | CPU credit | **standard** 모드 | 기준선 이상 부하가 이어져 credit을 다 쓰면 CPU가 기준선으로 제한된다. 부하 test 결과에 credit 잔량을 함께 기록한다 |
-| 운영 시간 | 09:00~18:00 자동 시작·중지 | 매일 instance가 중지된다. 그 시간에 잡힌 schedule은 실행되지 않으므로 misfire와 종료 처리가 시연이 아니라 실제 요구다 |
+| 운영 시간 | 09:00~18:00 자동 시작·중지 | 매일 instance가 중지된다. 그 시간에 잡힌 `@Scheduled` 작업은 실행되지 않고, 종료 처리가 시연이 아니라 실제 요구다 |
 | 환경 | 현재 Compose는 prod·dev가 large에 함께 있고, k3s는 prod 중심 2노드 목표 구조다 | 현재와 목표 상태를 섞지 않는다 |
 | network | 프로젝트 전용 VPC 1개, public subnet 1개, Internet Gateway. private subnet·NAT 없음 | 두 node는 같은 subnet에서 private IP로 cluster 통신한다 |
 | security group | 22·80·443 inbound 전체 허용 | k3s API(6443), Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다 |
@@ -33,17 +33,14 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | 기술 | 선택 | 보여 줄 역량 |
 | --- | --- | --- |
 | Kafka | 도입 | 모듈 간 비동기 이벤트, outbox, 멱등 소비, retry/DLT, replay |
-| Redis Streams (구현은 Valkey 권고) | 채팅 모듈에 도입 | consumer group, ACK·pending·claim, 실시간 전달 실패 복구 |
+| Redis Streams | 채팅 모듈에 도입 | consumer group, ACK·pending·claim, 실시간 전달 실패 복구 |
 | Redis Pub/Sub·TTL | 채팅·알림 보조로 도입 | 다중 앱 replica fan-out, 접속 상태·짧은 수명 데이터 |
-| 알림(notification) 모듈 | 채팅에서 분리 (10장) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구, 첫 분리 service 후보 |
-| Elasticsearch + `search` 모듈 | **도입 확정** (11장, #234) | 이벤트 기반 색인, nori 한국어 검색, alias 재색인, 고객센터 hybrid RAG |
+| 알림(notification) 모듈 | 채팅에서 분리 (8장) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구, 첫 분리 service 후보 |
+| Elasticsearch + `search` 모듈 | **도입 확정** (9장, #234) | 이벤트 기반 색인, nori 한국어 검색, alias 재색인, 고객센터 hybrid RAG |
 | k3s(server 1 + agent 1) + Kustomize | 도입. 로컬·CI는 같은 manifest를 k3d로 검증 | 실제 서버의 Kubernetes 배포, rolling update, probe, node별 workload 분리와 자원 예산 관리 |
-| 모듈별 PostgreSQL database | 도입. instance는 환경마다 1개, database만 모듈별로 (12장) | database-per-bounded-context, 모듈별 계정·migration·outbox |
-| Quartz + JDBC JobStore clustering | 도입 | 영속 schedule, misfire, 다중 scheduler failover |
-| Spring Batch | 대량 처리 job에만 도입 | chunk checkpoint, 실행 이력, 중단·재시작 |
+| 모듈별 PostgreSQL database | 도입. instance는 환경마다 1개, database만 모듈별로 (10장) | database-per-bounded-context, 모듈별 계정·migration·outbox |
 | API Gateway (Gateway API + k3s 내장 Traefik) | 도입. Spring Cloud Gateway는 조건부 | 모듈별 routing, 모듈 분리 seam, rate limit, 내부 API 차단, trace 시작점 |
 | Graceful Shutdown | 모든 workload에 도입 | 신규 작업 차단, in-flight drain, 종료 순서와 제한 시간 |
-| 별도 분산 락(ShedLock·범용 advisory lock) | 제외 | Quartz clustering과 책임이 겹치는 이중 잠금 방지 |
 | Grafana observability stack | 도입 | Prometheus metrics, Alloy 수집, Loki logs, Tempo traces, Grafana dashboard·alert |
 | Mimir·Elastic Observability | 제외 | 단일 Prometheus와 기능이 겹치고 2노드 메모리·디스크를 추가로 사용 |
 | k6 | 도입 | 기술 도입 전후 성능을 수치로 설명 |
@@ -57,18 +54,17 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 
 1. PostgreSQL 트랜잭션에서 발생한 도메인 이벤트가 Kafka까지 유실 없이 전달된다.
 2. 채팅 메시지는 PostgreSQL에 보존되고, Redis 장애·중복 소비가 있어도 다시 전달하거나 이력으로 복구된다.
-3. 동일 이미지를 EC2의 k3s에 여러 replica로 띄우고, 장애를 낸 뒤 지표·로그·trace와 재처리로 복구한다.
+3. 모듈 앱을 EC2 2노드 k3s에 나눠 띄우고, 장애를 낸 뒤 지표·로그·trace와 재처리로 복구한다.
 4. 고객센터 AI는 공개 문서에서 찾은 근거만 답하고, 근거가 없으면 답변을 거절하며 실제 검색 문서를 출처로 반환한다.
-5. rolling update가 시작되면 새 일을 받지 않고 진행 중인 batch를 checkpoint에서 멈춘 뒤, 새 pod가 같은 job instance를 이어서 처리한다.
+5. rolling update가 시작되면 기존 pod는 새 일을 받지 않고 진행 중인 요청과 메시지 처리를 끝낸 뒤 종료하고, 남은 메시지는 새 pod가 이어서 처리한다.
 
 ## 현재 레포에서 출발할 수 있는 기반
 
 - 멀티모듈 모놀리스이며 컨텍스트 간 연결이 ID와 Event로 제한되어 있어 Kafka seam을 만들기 좋다.
 - Spring Modulith JDBC event publication registry, 미완료 이벤트 재발행, 완료 archive가 이미 설정되어 있다. Spring Modulith는 업무 트랜잭션 안에 publication을 기록하고 broker externalization 실패도 재제출할 수 있다([공식 문서](https://docs.spring.io/spring-modulith/reference/events.html#fundamentals-of-event-externalization)).
 - 채팅은 메시지를 PostgreSQL에 먼저 저장하고 커밋 뒤 내장 STOMP broker로 보낸다. `clientMessageId`와 방별 sequence도 있어 중복·순서 테스트의 기반이 있다.
-- Spring Session JDBC를 이미 사용하므로 앱 replica 간 HTTP session 공유를 별도 Redis Session 도입 없이 시험할 수 있다.
+- Spring Session JDBC를 이미 사용하므로 모듈 앱 간 HTTP session 공유를 별도 Redis Session 도입 없이 시험할 수 있다.
 - EC2의 Docker Compose 배포, healthcheck, CI, 이미지 롤백이 있어 k3s 전환 전후를 비교할 기준선이 있다.
-- 운영 코드에 `@Scheduled` 메서드가 13개 있으므로 replica 확장 시 중복 실행 문제를 포트폴리오 과제로 보여 줄 수 있다.
 
 ## 목표 구조
 
@@ -84,13 +80,13 @@ Client
          Traefik Gateway (Gateway API HTTPRoute)
            모듈별 route · rate limit · traceparent
                          │
-            ┌────────────┴────────────┐
-            ▼                         ▼
-       app replica A             app replica B
-            │                         │
-            ├──── Spring Session JDBC ┤
-            ├──────── PostgreSQL ─────┤  ← 업무·HP 원장·채팅 이력의 source of truth
-            │                         │
+                         ▼
+          모듈 앱 6개 (앱마다 replica 1개, #356)
+          member · billing · appearance · lecture · chat · customer-support
+            │
+            ├──── Spring Session JDBC
+            ├──── PostgreSQL  ← 업무·HP 원장·채팅 이력의 source of truth
+            │
             ├─ domain event → Modulith publication/outbox → Kafka
             │                                            ├─ 모듈 projection 소비자
             │                                            ├─ notification 모듈·감사 소비자
@@ -100,12 +96,8 @@ Client
                                                │
                                                └─ Redis Pub/Sub → 각 app의 로컬 WebSocket session
 
-별도 Quartz scheduler workload(2 replicas)
-  ├─ 같은 이미지 + Quartz JDBC JobStore clustering → PostgreSQL QRTZ_* tables
-  └─ trigger → Spring Batch job → PostgreSQL BATCH_* metadata + 업무 tables
-
-PostgreSQL instance 1개 (환경마다 1개, 12장)
-  ├─ platform DB ───── session·Quartz·Batch metadata
+PostgreSQL instance 1개 (환경마다 1개, 10장)
+  ├─ platform DB ───── Spring Session
   ├─ member DB ─────── 회원
   ├─ appearance DB ─── 출연
   ├─ lecture DB ────── 강의
@@ -140,7 +132,7 @@ Kafka에는 모든 Spring Event를 보내지 않고, 컨텍스트 밖에서 의�
 시연하기 좋은 흐름은 다음과 같다.
 
 1. 회원 상태·역할 변경 → 출연·강의·채팅의 회원 복제 데이터 갱신
-2. 출연·강의·지갑·회원·고객센터 이벤트 → notification 모듈의 알림 생성(10장)과 감사 projection
+2. 출연·강의·지갑·회원·고객센터 이벤트 → notification 모듈의 알림 생성(8장)과 감사 projection
 3. 강의 구매 확정·지급 예정 → 정산 projection
 
 HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원장 변경은 PostgreSQL 트랜잭션과 멱등키가 책임지고, Kafka는 완료된 사실을 다른 컨텍스트에 전달한다.
@@ -164,14 +156,14 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 | 항목 | Apache Kafka (KRaft) | Redpanda |
 | --- | --- | --- |
 | 구현 | JVM. KRaft로 ZooKeeper 없이 broker 1개 실행 | C++(Seastar), 단일 binary. JVM·ZooKeeper 없음 |
-| schema registry | 별도 서버 필요. 이 문서는 registry 없이 레포 schema 파일과 CI 검사로 대신한다(9장) | **broker에 내장**(port 8081). Avro, Protobuf, JSON Schema |
+| schema registry | 별도 서버 필요. 이 문서는 registry 없이 레포 schema 파일과 CI 검사로 대신한다(7장) | **broker에 내장**(port 8081). Avro, Protobuf, JSON Schema |
 | 공식 메모리 요구 | 운영 최소치를 정하지 않음. heap은 설정으로 조절(이 문서 예산은 heap 512 MiB에 700 MiB) | 운영 broker는 **core당 최소 2 GB, core 최소 2개**. development mode는 최소 메모리를 강제하지 않는다. Docker 실행은 개발·test 용도라고 명시 |
 | license | Apache 2.0 | Community Edition은 BSL. Redpanda를 남에게 상업 streaming·queue 서비스로 제공하는 것만 금지하고, 각 코드는 4년 뒤 Apache 2.0으로 바뀐다 |
 | 생태계 | Kafka 공식 문서, 운영 지표, Testcontainers | Kafka client 호환, Testcontainers Redpanda module, 자체 CLI(`rpk`)와 Console |
 
 근거: Redpanda production requirements("at least 2 GB of memory per core", "at least two physical CPU cores")([문서](https://docs.redpanda.com/current/deploy/redpanda/manual/production/requirements/)), development mode("No minimal memory limits are enforced")([문서](https://docs.redpanda.com/current/reference/rpk/rpk-redpanda/rpk-redpanda-mode/)), Docker quickstart("only for development and testing purposes")([문서](https://docs.redpanda.com/current/get-started/quick-start/)), schema registry 내장([문서](https://docs.redpanda.com/current/manage/schema-reg/schema-reg-overview/)), license([문서](https://docs.redpanda.com/current/get-started/licensing/overview/)).
 
-**구성 요소 수로는 Redpanda가 가볍다.** broker와 schema registry가 한 binary다. 다만 이 문서는 registry 서버를 쓰지 않으므로(9장) 이 장점이 지금은 크지 않다. **메모리로는 공식 문서상 더 가볍다고 할 수 없다.**
+**구성 요소 수로는 Redpanda가 가볍다.** broker와 schema registry가 한 binary다. 다만 이 문서는 registry 서버를 쓰지 않으므로(7장) 이 장점이 지금은 크지 않다. **메모리로는 공식 문서상 더 가볍다고 할 수 없다.**
 - Redpanda의 운영 최소치는 2 core × 2 GB = 4 GB다. t3.large 8 GiB의 절반이라 3장 예산에 들어가지 않는다.
 - t3.large에 맞추려면 development mode에 `--smp 1`과 작은 `--memory`로 돌려야 한다. 문서가 개발·test 용도라고 한 구성을 운영 서버에 두는 셈이고, 이 경우 필요한 메모리를 문서로 정할 수 없다.
 - Kafka는 heap을 직접 정하므로 예산을 설정으로 맞출 수 있다(현재 700 MiB, heap 256 MiB면 더 줄일 수 있다).
@@ -211,21 +203,11 @@ Redis Streams를 채팅 이력 DB나 STOMP broker처럼 사용하지 않는다.
 
 Redis Streams는 append-only log, consumer group, 명시적 ACK, pending/claim을 제공한다([공식 문서](https://redis.io/docs/latest/develop/data-types/streams/)). Pub/Sub은 fire-and-forget이지만 여기서는 PostgreSQL 이력으로 다시 읽을 수 있으므로 실시간 fan-out에 사용할 수 있다.
 
-### Redis와 Valkey
+### Redis 선택
 
-Valkey는 Redis가 BSD license를 떠난 뒤 Linux Foundation이 BSD로 이어 가는 fork다. 첫 release는 7.2.5다([Valkey history](https://valkey.io/topics/history/)). Redis는 7.2까지 BSD-3였고, 7.4~7.8은 RSALv2·SSPLv1, Redis 8부터는 RSALv2·SSPLv1·AGPLv3 중 하나를 고르는 tri-license다([Redis licenses](https://redis.io/legal/licenses/)).
+**Redis를 쓴다**(팀 결정, 2026-10-28). Redis 8은 RSALv2·SSPLv1·AGPLv3 중 하나를 고르는 tri-license다([Redis licenses](https://redis.io/legal/licenses/)). 이 프로젝트는 Redis를 수정해 다른 사람에게 서비스로 제공하지 않으므로 license 제한에 걸리지 않는다.
 
-| 항목 | Redis 8 | Valkey 8 |
-| --- | --- | --- |
-| 이 문서가 쓰는 기능 (Streams, consumer group, `XAUTOCLAIM`, Pub/Sub, TTL) | 지원 | 지원. Redis 7.2 기준 명령과 RESP protocol이 같다 |
-| Spring 연동 | `spring-boot-starter-data-redis`(Lettuce) | 같은 starter와 client로 접속한다 |
-| license | RSALv2 / SSPLv1 / AGPLv3 중 선택 | BSD-3 |
-| 검색·vector | Redis Query Engine이 Redis 8 core에 포함. Spring AI Redis Vector Store가 이를 전제로 한다 | 별도 module(valkey-search). Spring AI Redis Vector Store와의 호환은 확인되지 않았다 |
-| AWS 관리형으로 옮길 때 | ElastiCache for Redis OSS. Redis 8 지원 여부는 그때 확인 | ElastiCache·MemoryDB가 Valkey를 지원 |
-
-이 프로젝트는 채팅 전달용 Streams·Pub/Sub·TTL만 쓰고 vector 검색은 Elasticsearch가 맡는다. 따라서 Redis와 Valkey 사이의 검색 기능 차이는 선택 기준이 아니다. Redis를 수정해서 다른 사람에게 서비스로 제공하는 것이 아니므로 AGPL의 network 조항이 걸릴 일도 없다. 그래도 license가 단순하고 AWS 관리형으로 옮기는 경로가 열려 있는 **Valkey를 기본으로 권고**한다. vector 저장소를 Redis Query Engine으로 바꾸지 않는다.
-
-이 문서의 "Redis Streams", "Redis Pub/Sub"은 제품 이름이 아니라 명령 집합을 가리킨다. Valkey를 써도 설계와 명령은 같다. 3장 자원 예산의 측정값은 Redis 8.2이고, Valkey로 바꾸면 다시 잰다.
+쓰는 기능은 Streams, consumer group, `XAUTOCLAIM`, Pub/Sub, TTL이다. vector 검색은 Elasticsearch가 맡으므로 Redis Query Engine은 쓰지 않는다. 앱은 `spring-boot-starter-data-redis`(Lettuce)로 접속한다. Valkey(Redis 7.2에서 갈라진 BSD fork)도 같은 명령과 RESP protocol을 지원하므로, 나중에 바꾸더라도 앱 코드는 그대로 두고 접속 주소만 바꾸면 된다([Valkey history](https://valkey.io/topics/history/)). 3장 자원 예산의 측정값은 Redis 8.2다.
 
 ### 메시지 흐름
 
@@ -268,11 +250,11 @@ k3d는 k3s와 다른 배포판이 아니다. 같은 k3s를 Docker container 안�
 | CI | k3d | PR마다 cluster 생성 → manifest 적용 → smoke/E2E → 삭제를 짧게 반복한다 |
 | node 장애 실험 | EC2 2노드 + 로컬 k3d multi-node | EC2에서는 medium 중지와 large 중지의 서로 다른 영향을 기록하고, 3개 이상 server가 필요한 control-plane HA는 로컬 실험으로 구분한다 |
 
-EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd HA에는 server node 3대 이상이 필요하다([k3s quick start](https://docs.k3s.io/quick-start), [HA 문서](https://docs.k3s.io/datastore/ha-embedded)). medium이 내려가면 large의 application replica와 stateful workload는 남지만 관측성과 일부 compute가 사라진다. large가 내려가면 control plane, PostgreSQL과 Elasticsearch가 함께 사라져 서비스가 중단된다. 이 차이를 숨기지 않고 pod 장애와 node 장애 시연 결과를 분리한다.
+EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd HA에는 server node 3대 이상이 필요하다([k3s quick start](https://docs.k3s.io/quick-start), [HA 문서](https://docs.k3s.io/datastore/ha-embedded)). medium이 내려가면 large의 모듈 앱과 stateful workload는 남지만 medium의 모듈 앱과 관측성이 멈춘다. large가 내려가면 control plane, PostgreSQL과 Elasticsearch가 함께 사라져 서비스가 중단된다. 이 차이를 숨기지 않고 pod 장애와 node 장애 시연 결과를 분리한다.
 
 ### EC2 2노드 자원 예산
 
-아래 예산은 cgroup limit 기준의 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. Spring app과 Quartz는 두 node에 하나씩 분산하고, stateful workload는 large에 고정한다.
+아래 예산은 cgroup limit 기준의 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. 모듈 앱은 6개이고 앱마다 replica 1개다(#356). 앱은 두 node에 세 개씩 나누고, stateful workload는 large에 고정한다.
 
 | t3.large `core-data` | 예산 |
 | --- | ---: |
@@ -280,26 +262,25 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | k3s server + containerd + system pod + Traefik | 1,650 MiB |
 | PostgreSQL | 768 MiB |
 | Kafka | 700 MiB |
-| Valkey | 64 MiB |
+| Redis | 64 MiB |
 | Elasticsearch | 1,536 MiB |
-| Spring application 1개 | 512 MiB |
-| Quartz scheduler 1개 | 512 MiB |
-| **합계** | **6,092 MiB** |
+| 모듈 앱 3개(member·billing·appearance) × 512 MiB | 1,536 MiB |
+| **합계** | **6,604 MiB** |
 
-사용 가능 메모리를 약 7.6 GiB로 보면 약 1.6 GiB를 filesystem cache, rolling surge와 오차에 남긴다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다.
+사용 가능 메모리를 약 7.6 GiB로 보면 약 1.1 GiB가 남는다. 이 여유는 filesystem cache, rolling surge pod 1개(512 MiB)와 오차에 쓴다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다.
 
 | t3.medium `app-observe` | 예산 |
 | --- | ---: |
 | OS | 350 MiB |
 | k3s agent + containerd | 400 MiB |
-| Spring application 1개 | 512 MiB |
-| Quartz scheduler 1개 | 512 MiB |
+| 모듈 앱 3개(lecture·chat·customer-support) × 512 MiB | 1,536 MiB |
 | React Nginx | 64 MiB |
 | Prometheus·Loki·Tempo·Grafana·Alloy | 800 MiB |
-| **합계** | **2,638 MiB** |
-| Spring Batch 실행 pod(실행 중에만) | +512 MiB |
+| **합계** | **3,150 MiB** |
 
-사용 가능 메모리를 약 3.7 GiB로 보면 Batch 실행 중 약 0.5 GiB가 남는다. 이 여유는 page cache와 rolling update에 사용하며 별도 관측성 backend를 추가하지 않는다.
+사용 가능 메모리를 약 3.7 GiB로 보면 약 0.6 GiB가 남는다. rolling surge pod 1개를 받으면 거의 남지 않으므로 medium의 앱은 한 번에 하나씩 배포하고, 별도 관측성 backend를 추가하지 않는다.
+
+앱 배치는 시작값이다. customer-support(Spring AI)와 chat(WebSocket session)은 메모리를 더 쓸 수 있으므로 앱별 RSS를 먼저 잰다. 어느 앱이든 768 MiB로 올려야 하면 medium의 여유가 사라진다. 그때는 그 앱을 large로 옮기거나 관측성 보존 한도를 줄인다.
 
 #### 과거 단일-node 측정 기록
 
@@ -329,7 +310,7 @@ t3.large는 8 GiB지만 kernel이 일부를 예약하므로 당시 계산은 **�
 
 측정에서 얻은 결론은 둘이다.
 - **JVM pod는 limit 근처까지 메모리를 쓴다.** 부하가 가벼워도 heap 상한까지 늘어나므로, 예산은 사용량이 아니라 limit으로 잡는다.
-- **현재 앱은 512 MiB로도 돈다.** 다만 빈 DB에 가벼운 조회만 한 결과다. Kafka client, Quartz, Spring Batch, Spring AI가 들어가면 metaspace와 heap이 늘어나므로 최종 구성에서 다시 잰다.
+- **현재 앱은 512 MiB로도 돈다.** 다만 빈 DB에 가벼운 조회만 한 결과다. Kafka client, Redis client, Spring AI가 들어가면 metaspace와 heap이 늘어나므로 최종 구성에서 다시 잰다.
 
 k3s 자체는 측정하지 않고 공식 resource profiling 값을 쓴다. single-node server(SQLite)와 가벼운 workload에서 k3s와 containerd가 p95 **1,596 MiB**를 썼다. 이 값에는 OS와 pod가 들어가지 않는다([k3s resource profiling](https://docs.k3s.io/reference/resource-profiling)).
 
@@ -355,34 +336,32 @@ k3s 자체는 측정하지 않고 공식 resource profiling 값을 쓴다. singl
 
 #### 과거 시나리오 A — prod만 단일 EC2에 올린다
 
-prod는 web 2 + scheduler 1, pod limit은 768 MiB다.
+prod는 앱 pod 3개, pod limit은 768 MiB다.
 
 | 상태 | 합계 | 7.6 GiB 대비 여유 |
 | --- | --- | --- |
 | 평상시 | 3,750 + 532 + 768×3 = **6,586 MiB (6.4 GiB)** | 약 1.2 GiB |
 | rolling update (surge pod 1개) | 6,586 + 768 = **7,354 MiB (7.2 GiB)** | 약 0.4 GiB |
-| Quartz failover 시연 (scheduler 2) | 6,586 + 768 = **7,354 MiB (7.2 GiB)** | 약 0.4 GiB |
 
-**들어간다.** 다만 rolling update와 failover 시연을 동시에 하면 7.9 GiB가 되어 넘는다. 남는 0.4 GiB는 page cache와 kubelet eviction 기준(기본 `memory.available<100Mi`)에 쓰인다. pod limit을 512 MiB로 낮추면 평상시 5.7 GiB, rolling 때 6.2 GiB로 여유가 1.4 GiB 이상이 된다. 앱 기능이 다 들어간 뒤 512 MiB로 버티는지 재 보고 정한다.
+**들어간다.** 남는 0.4 GiB는 page cache와 kubelet eviction 기준(기본 `memory.available<100Mi`)에 쓰인다. pod limit을 512 MiB로 낮추면 평상시 5.7 GiB, rolling 때 6.2 GiB로 여유가 1.4 GiB 이상이 된다. 앱 기능이 다 들어간 뒤 512 MiB로 버티는지 재 보고 정한다.
 
 #### 과거 시나리오 B — prod와 dev를 단일 EC2에 함께 올린다
 
-dev는 web·scheduler 겸용 pod 1개와 작은 PostgreSQL로 둔다. Kafka·Redis·관측 stack은 prod와 함께 쓴다(topic·key prefix, namespace label로 구분).
+dev는 앱 pod 1개와 작은 PostgreSQL로 둔다. Kafka·Redis·관측 stack은 prod와 함께 쓴다(topic·key prefix, namespace label로 구분).
 
 | 구성 | 평상시 | rolling update | 판단 |
 | --- | --- | --- | --- |
 | prod pod 768 × 3, dev pod 768 × 1, dev DB 512 | **7,886 MiB (7.7 GiB)** | 8,654 MiB | **들어가지 않는다** |
 | prod pod 768 × 3, dev pod 512 × 1, dev DB 256 | **7,374 MiB (7.2 GiB)** | 8,142 MiB | 평상시만 겨우 들어가고 배포할 수 없다 |
 | 모든 pod 512 (prod 3 + dev 1), dev DB 256 | **6,606 MiB (6.5 GiB)** | 7,118 MiB | 들어간다. 단 512 MiB가 최종 기능에서 버티는지가 전제 |
-| 위 + Kafka heap 256 MiB | 약 **6.2 GiB** | 약 6.7 GiB | rolling 때도 여유 약 0.9 GiB. PostgreSQL instance는 환경마다 1개를 유지한다(12장) |
+| 위 + Kafka heap 256 MiB | 약 **6.2 GiB** | 약 6.7 GiB | rolling 때도 여유 약 0.9 GiB. PostgreSQL instance는 환경마다 1개를 유지한다(10장) |
 
 **pod limit을 512 MiB로 줄이지 않으면 두 환경은 함께 들어가지 않는다.** 함께 올리려면 다음을 모두 받아들여야 한다.
 - 모든 Spring pod를 512 MiB로 줄인다. 최종 기능에서 OOM이나 GC 지연이 생기면 바로 넘친다.
-- prod 배포(surge)와 Quartz failover 시연을 겹치지 않는다.
-- dev에는 replica 1개뿐이라, rolling update·failover 시연은 prod에서만 한다.
+- dev에는 replica 1개뿐이라, rolling update 시연은 prod에서만 한다.
 - k6 부하 test는 공용 Kafka·DB·관측 stack을 같이 흔든다. prod에 영향이 없는 시간에만 한다.
 
-#### 과거 단일-node Elasticsearch 측정 (#234, 11장)
+#### 과거 단일-node Elasticsearch 측정 (#234, 9장)
 
 ES 9.1.5를 단일 노드로 띄워 대기 상태만 쟀다. 요청은 보내지 않았다.
 
@@ -407,13 +386,13 @@ Elasticsearch는 검색과 RAG만 담당한다. logs·metrics·traces를 Elastic
 
 #### 현재 권고
 
-**EC2 k3s에는 prod 중심 workload만 배치하고 dev 검증은 PR별 k3d와 로컬을 기본으로 한다.** Spring application과 Quartz는 large와 medium에 하나씩 분산하고, rolling surge는 node별 여유와 scheduler 결과를 보고 허용한다.
+**EC2 k3s에는 prod 중심 workload만 배치하고 dev 검증은 PR별 k3d와 로컬을 기본으로 한다.** 모듈 앱 6개는 위 예산 표대로 두 node에 나누고, rolling update는 `maxSurge: 1`, `maxUnavailable: 0`으로 한 앱씩 진행한다.
 
 FE가 dev 서버로 API를 확인하고 있다(#332)는 전환 제약이 있다. ES 필수 조건에서는 dev와 prod의 상시 동시 배치를 목표로 삼지 않고, 전환 일정과 대체 검증 경로를 프론트와 먼저 합의한다. 서버에 올리기 전에 `free -m`, `kubectl top`과 선택한 관측성 UI의 node memory로 이 표를 실측값으로 바꾼다.
 
 Spring pod는 우선 512 MiB limit으로 시작하되 최종 기능에서 OOM·과도한 GC가 확인되면 768 MiB로 올리고 같은 node의 일시 workload를 줄인다.
 
-CPU는 2 vCPU의 standard credit이다. JVM pod 여러 개가 동시에 시작하면 credit을 소모하고 시작이 느려진다. startupProbe 여유를 넉넉히 두고, rolling update는 `maxSurge: 1`로 한 pod씩 교체한다.
+CPU는 2 vCPU의 standard credit이다. JVM pod 여러 개가 동시에 시작하면 credit을 소모하고 시작이 느려진다. node 재시작 때는 앱 3개가 한꺼번에 뜨므로 startupProbe 여유를 넉넉히 둔다.
 
 large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검색/RAG index가 들어간다. medium의 50 GB에는 application image와 Prometheus·Loki·Tempo data가 들어간다. 각 저장소에 크기·기간 retention을 두고 Compose에서 k3s로 넘어가는 기간에는 Docker와 containerd가 image를 따로 저장하므로 node별 디스크 여유를 먼저 확인한다.
 
@@ -421,10 +400,10 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 
 - **진입점**: 1차 전환에서는 edge nginx와 Let's Encrypt 설정을 그대로 쓴다. edge nginx는 TLS 종료와 도메인별 prod/dev 분기만 맡고, 그 뒤 경로 routing은 아래 API Gateway가 맡는다. 80·443을 edge nginx가 쓰므로 k3s ServiceLB는 끈다(`--disable servicelb`). nginx의 큰 본문 업로드 경로(#106)와 인증서 갱신을 Gateway로 옮기는 일은 기능이 안정된 뒤 별도로 판단한다.
 - **cluster API**: 6443은 인터넷에 공개하지 않고 같은 node security group에서 medium → large만 허용한다. 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
-- **namespace**: EC2에는 `hapbang-prod`, `hapbang-platform`(Kafka·Valkey·검색·관측성)을 둔다. dev는 로컬·PR k3d가 기본이며 전환 기간의 임시 namespace를 상시 구조로 굳히지 않는다.
-- **S3 권한**: application replica가 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
+- **namespace**: EC2에는 `hapbang-prod`, `hapbang-platform`(Kafka·Redis·검색·관측성)을 둔다. dev는 로컬·PR k3d가 기본이며 전환 기간의 임시 namespace를 상시 구조로 굳히지 않는다.
+- **S3 권한**: 모듈 앱이 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
 - **이미지**: GHCR private image를 `imagePullSecret`으로 받는다. 태그는 지금처럼 `sha-<커밋>`을 고정해 쓴다.
-- **자동 중지**: 매일 18:00 instance 중지는 node shutdown이다. kubelet graceful node shutdown(`shutdownGracePeriod`, `shutdownGracePeriodCriticalPods`)을 k3s `--kubelet-arg`로 설정한다. 이 설정이 없으면 pod는 6장의 종료 순서를 밟지 못하고 끝날 수 있다([Kubernetes node shutdown](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/)). instance 중지 때 OS가 실제로 기다려 주는 시간 안에 Batch `STOPPED`가 기록되는지 실측한다.
+- **자동 중지**: 매일 18:00 instance 중지는 node shutdown이다. kubelet graceful node shutdown(`shutdownGracePeriod`, `shutdownGracePeriodCriticalPods`)을 k3s `--kubelet-arg`로 설정한다. 이 설정이 없으면 pod는 4장의 종료 순서를 밟지 못하고 끝날 수 있다([Kubernetes node shutdown](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/)). instance 중지 때 OS가 실제로 기다려 주는 시간 안에 drain이 끝나는지 실측한다.
 
 ### API Gateway
 
@@ -434,8 +413,8 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 
 | 책임 | 내용 | 지금 담당 |
 | --- | --- | --- |
-| 모듈 단위 routing | `/api/v1/lectures/**`, `/api/v1/appearances/**`처럼 3장의 모듈 진입 경로마다 route를 둔다. 지금은 전부 같은 `hapbang-web`으로 보낸다 | edge nginx의 `/api` 한 줄 |
-| 모듈 분리 seam | 모듈을 별도 service로 떼어 낼 때(D62 내부 API 전환 이후) route의 backend만 바꾼다. 프론트 주소와 쿠키는 그대로다 | 없음 |
+| 모듈 단위 routing | `/api/v1/lectures/**`, `/api/v1/appearances/**`처럼 3장의 모듈 진입 경로마다 route를 두고, 그 모듈 앱의 Service로 보낸다 | edge nginx의 `/api` 한 줄 |
+| 모듈 분리 seam | 모듈 앱을 더 나누거나 합칠 때 route의 backend만 바꾼다. 프론트 주소와 쿠키는 그대로다 | 없음 |
 | rate limit | 로그인, HP 충전 요청, 고객센터 RAG 질문처럼 남용되면 비용이 드는 경로에 경로별 한도를 둔다 | 없음 |
 | 내부 API 차단 | `/api/v1/internal/**`는 외부 route를 만들지 않는다. cluster 안 service 호출로만 닿는다 | edge nginx가 404 |
 | trace 시작점 | 요청마다 W3C `traceparent`를 만들거나 이어 받고 access log를 JSON으로 남겨 Alloy가 수집한다 | 없음 |
@@ -467,7 +446,7 @@ k3s는 Traefik v3를 기본으로 배포한다. Gateway API 지원은 기본으�
 - 분리된 모듈 service 앞에서 Java filter로 응답을 조합하거나 변환해야 할 때
 - route별 circuit breaker·retry를 코드로 시험해야 할 때
 
-구성 순서: edge nginx(TLS, 도메인) → Traefik Gateway(`hapbang-prod`·`hapbang-dev`의 `HTTPRoute`) → `hapbang-web` Service. 정적 web도 같은 Gateway의 `/` route로 보낸다. 큰 본문 업로드 경로는 Traefik이 본문을 buffering하거나 크기를 제한하지 않는지 spike로 확인한다. edge nginx의 2GB 허용 설정과 동작이 같아야 한다.
+구성 순서: edge nginx(TLS, 도메인) → Traefik Gateway(`hapbang-prod`·`hapbang-dev`의 `HTTPRoute`) → 모듈 앱별 Service. 정적 web도 같은 Gateway의 `/` route로 보낸다. 큰 본문 업로드 경로는 Traefik이 본문을 buffering하거나 크기를 제한하지 않는지 spike로 확인한다. edge nginx의 2GB 허용 설정과 동작이 같아야 한다.
 
 #### 완료 증거
 
@@ -479,12 +458,11 @@ k3s는 Traefik v3를 기본으로 배포한다. Gateway API 지원은 기본으�
 
 ### workload 구성
 
-- `hapbang-web`: 앱 2 replica, scheduling disabled, HTTP/WebSocket 담당
-- `hapbang-scheduler`: 같은 이미지, 2 replica를 node별로 하나씩 배치하고 외부 Service에 노출하지 않는다. Quartz가 시작한 대량 업무는 Spring Batch가 실행하고, 종료 때 checkpoint에서 멈췄다가 다시 시작한다.
-- PostgreSQL, Kafka, Valkey, Elasticsearch: StatefulSet과 large의 local-path volume. `core-data` required node affinity를 사용하며 medium으로 volume이 이동한다고 가정하지 않는다.
+- 모듈 앱 6개(`member-app`, `billing-app`, `appearance-app`, `lecture-app`, `chat-app`, `customer-support-app`): 앱마다 Deployment 1개, replica 1개. node 배치는 위 자원 예산 표를 따른다.
+- PostgreSQL, Kafka, Redis, Elasticsearch: StatefulSet과 large의 local-path volume. `core-data` required node affinity를 사용하며 medium으로 volume이 이동한다고 가정하지 않는다.
 - observability stack: `hapbang-platform` namespace에서 prod를 관측한다. 로컬·PR k3d 결과는 테스트 artifact로 남긴다.
 
-web과 scheduler를 같은 이미지의 다른 workload로 분리한다. scheduler 두 개는 동일한 Quartz JDBC JobStore cluster로 실행한다. 이 구성은 이미지와 업무 구현을 하나로 유지하면서 scheduler pod failover를 시연한다. scheduler workload에 별도 ShedLock이나 advisory lock을 추가하지 않는다.
+replica가 1개라서 rolling update는 새 pod가 ready가 된 뒤 기존 pod를 내리는 `maxSurge: 1`, `maxUnavailable: 0`으로 한다. node가 멈추면 그 node의 앱은 node가 다시 뜰 때까지 멈춘다. 앱별 replica를 늘리는 것은 시연할 때만 하고, 그 전에 node 여유를 확인한다.
 
 ### manifest 관리 — Kustomize
 
@@ -492,7 +470,7 @@ Helm은 쓰지 않는다. manifest는 레포의 `k8s/` 아래에 평문 YAML로 
 
 ```text
 k8s/
-  base/          앱(web·scheduler), Gateway route, NetworkPolicy, 공용 platform(Kafka·Valkey·ES·관측 stack)
+  base/          모듈 앱 6개, Gateway route, NetworkPolicy, 공용 platform(Kafka·Redis·ES·관측 stack)
   overlays/
     local/       k3d: replica·resource 축소, topology spread
     dev/         로컬·PR k3d 검증용. EC2 상시 배치는 기본 범위 밖
@@ -506,11 +484,11 @@ base에 둘 것:
 - PodDisruptionBudget, graceful shutdown
 - NetworkPolicy(metadata endpoint 접근 제한 포함). k3s 내장 network policy controller로 동작하는지 확인한다
 - migration Job 또는 단일 migration 실행 전략
-- web/scheduler profile 분리, Kafka·Valkey·PostgreSQL·ES endpoint 주입
+- 앱별 Kafka·Redis·PostgreSQL·ES endpoint 주입
 
-overlay에서 바꿀 것: image tag(`kustomize edit set image`), replica 수, resource limit, namespace, 환경별 ConfigMap 값. application·Quartz의 topology spread는 prod와 multi-node local overlay에 적용한다.
+overlay에서 바꿀 것: image tag(`kustomize edit set image`), replica 수, resource limit, namespace, 환경별 ConfigMap 값. 앱별 node 배치(node affinity)는 prod와 multi-node local overlay에 적용한다.
 
-Helm을 빼면 Kafka, Valkey, Elasticsearch, Prometheus, Loki, Tempo, Grafana도 공식 chart 대신 StatefulSet·Deployment manifest를 직접 쓴다. 손이 더 가지만, 설정 하나하나가 메모리 예산과 보존 한도에 직접 묶여 있어 직접 쓰는 편이 예산 관리에는 오히려 낫다. k3s 내장 Traefik 설정만은 k3s가 제공하는 `HelmChartConfig` manifest로 바꾼다. 이것은 k3s의 내장 controller가 처리하므로 Helm CLI가 필요하지 않다.
+Helm을 빼면 Kafka, Redis, Elasticsearch, Prometheus, Loki, Tempo, Grafana도 공식 chart 대신 StatefulSet·Deployment manifest를 직접 쓴다. 손이 더 가지만, 설정 하나하나가 메모리 예산과 보존 한도에 직접 묶여 있어 직접 쓰는 편이 예산 관리에는 오히려 낫다. k3s 내장 Traefik 설정만은 k3s가 제공하는 `HelmChartConfig` manifest로 바꾼다. 이것은 k3s의 내장 controller가 처리하므로 Helm CLI가 필요하지 않다.
 
 배포와 롤백도 kubectl로 한다.
 1. `kubectl apply -k k8s/overlays/<env>`
@@ -524,141 +502,39 @@ Helm의 `--atomic` 같은 release 단위 롤백은 없다. 그래서 ConfigMap �
 - `kubectl kustomize`로 overlay별 rendering
 - kubeconform 같은 schema validation
 - PR: k3d cluster 생성 → `kubectl apply -k overlays/local` → migration → smoke/E2E → cluster 삭제
-- PR: 두 app replica 사이 session·WebSocket·Kafka·Valkey 흐름 검증
+- PR: 모듈 앱 사이 session 공유·WebSocket·Kafka·Redis 흐름 검증
 - dev 병합: 현재 Compose 자동 배포는 전환 완료 전까지 유지하고, k3s manifest는 PR k3d에서 검증
 - prod k3s: 승인된 main image를 `kubectl apply -k` → `rollout status` → 실패 시 `rollout undo`
 - EC2: rolling update 중 HTTP 요청과 WebSocket 재연결 결과 기록
-- EC2: 실행 중인 Spring Batch job을 포함한 rolling update에서 `STOPPED → restart → COMPLETED`와 업무 중복 0건 검증
 - EC2: 자원 사용량(`kubectl top`)이 예산 안인지 배포 후 기록
 
-## 4. Quartz — 영속 scheduler와 cluster failover
+## 4. Graceful Shutdown — 전체 workload drain
 
-기존 13개 `@Scheduled` 작업은 최종적으로 Quartz job으로 옮긴다. 단순히 cron 표현식만 바꾸는 것이 아니라 **언제 실행해야 하는지**와 **실제 업무를 어떻게 멱등 처리하는지**를 분리한다.
-
-### 책임
-
-- Quartz `Trigger`와 JDBC JobStore: 실행 시각, 영속 schedule, misfire 정책, cluster node 선택
-- 짧은 job: bounded application service를 한 번 호출하고 결과를 audit
-- 긴 job: `BatchJobLauncher` interface에 job 이름과 업무 식별 parameter를 전달한 뒤 반환
-- 업무 DB constraint/inbox: 같은 job이 재실행되어도 돈과 상태가 한 번만 바뀐다는 최종 보장
-- 관측성 stack: trigger 지연, 획득 node, misfire, launch 성공·실패, cluster recovery 관측
-
-Spring Boot는 Quartz가 있으면 scheduler를 auto-configure하고 JDBC JobStore도 지원한다. 기본 schema 초기화 script는 재시작 때 기존 table과 trigger를 지울 수 있으므로 production profile에서는 자동 초기화를 사용하지 않고 Flyway migration으로 `QRTZ_*` schema를 관리한다([Spring Boot 공식 문서](https://docs.spring.io/spring-boot/reference/io/quartz.html)). 두 scheduler replica는 같은 Quartz table을 공유하고 `org.quartz.jobStore.isClustered=true`, 고유 instance ID를 사용한다. Quartz 공식 문서는 여러 instance가 같은 table을 사용할 때 clustering을 반드시 켜야 한다고 명시하며, check-in 주기가 실패 instance 감지 속도에 영향을 준다([Quartz JDBC JobStore 문서](https://www.quartz-scheduler.org/documentation/quartz-2.5.x/configuration/ConfigJobStoreTX.html)).
-
-job별로 다음을 명시한다.
-
-- identity와 cron/timezone
-- misfire instruction: 누락분을 즉시 1회 실행할지, 건너뛸지
-- 동일 job의 동시 실행 금지 여부
-- retry 대상과 횟수; 무한 retry 금지
-- 업무 멱등키와 실행 결과 audit
-- node 강제 종료 후 recovery 기대 결과
-
-Quartz recovery도 exactly-once를 보장하지 않는다. failover 순간에는 동일 업무가 다시 시도될 수 있으므로 HP 지급·반환·환전은 참조 거래 ID의 unique constraint와 상태 전이 조건으로 멱등해야 한다.
-
-Quartz job 안에서 장시간 대상 목록을 직접 loop 처리하지 않는다. 짧은 job은 application service를 호출하고, 긴 job은 `BatchJobLauncher` interface를 통해 Spring Batch 실행만 시작한다. Quartz가 아는 것은 schedule과 launch 결과뿐이며 chunk, checkpoint, `JobExecution` 상태를 소유하지 않는다.
-
-`spring.quartz.wait-for-jobs-to-complete-on-shutdown`은 `false`로 둔다. Quartz wrapper는 Batch launch까지만 하는 짧은 job이므로, 장시간 Batch 완료를 Quartz shutdown이 기다리지 않는다([Spring Boot application properties](https://docs.spring.io/spring-boot/4.1/appendix/application-properties/index.html), [Quartz shutdown API](https://www.quartz-scheduler.org/api/2.5.x/org/quartz/Scheduler.html)).
-
-### EC2 운영 시간과 misfire
-
-EC2는 09:00~18:00에만 켜져 있다. 그래서 misfire 정책은 시연용 옵션이 아니라 지금 서버에서 실제로 필요한 기능이다. 레포의 기본 cron(서버 env로 바꾸지 않았다면)은 다음과 같다.
-
-| job | 기본 cron (Asia/Seoul) | 서버가 꺼진 시간과 겹치는 부분 |
-| --- | --- | --- |
-| 강의 지급 `OrderPayoutBatch` | 매일 01:00 | **항상 꺼져 있는 시각이라 한 번도 실행되지 않는다** |
-| 환전 정산 `ExchangeSettlementBatch` | 매일 10~23시 :05 | 18시 이후 실행분은 실행되지 않는다 |
-| 팔로워 갱신 `MemberFollowerRefreshBatch` | 매일 10:00 | 없음 |
-
-`@Scheduled`에는 misfire 개념이 없다. 꺼져 있는 동안 지나간 실행은 그냥 건너뛴다. Quartz JDBC JobStore는 trigger를 DB에 보존하므로, 시작할 때 놓친 실행을 찾아 job별 misfire instruction대로 처리한다. 예를 들어 지급처럼 하루 한 번은 꼭 돌아야 하는 job은 "즉시 1회 실행 후 원래 일정 유지"로 두고, 매분 polling job은 "놓친 실행 건너뜀"으로 둔다. 09:00 시작 직후 실행분이 몰려 CPU credit을 한꺼번에 쓰지 않도록, 즉시 실행하는 job들의 시작을 분산한다.
-
-운영 중인 세미 프로젝트 서버에서 강의 지급 cron이 env로 바뀌어 있는지는 별도로 확인한다. Quartz 이전을 기다리지 않고 cron 시각만 운영 시간 안으로 옮겨야 할 수도 있다.
-
-### 분산 락과의 경계
-
-기본안에는 ShedLock이나 application 전역 PostgreSQL advisory lock을 추가하지 않는다. Quartz JDBC clustering이 scheduler node 조정과 trigger 획득을 이미 담당하는데 job 바깥에 다른 lease를 겹치면, 서로 다른 timeout·실패 판정으로 실행 누락이나 진단하기 어려운 교착 상태를 만들 수 있다.
-
-선택지는 다음 둘 중 하나이며 한 job에 혼용하지 않는다.
-
-| 상황 | 선택 |
-| --- | --- |
-| 영속 schedule, misfire, 운영 중 trigger 변경, failover 이력을 보여 줌 | **Quartz JDBC clustering** |
-| 기존 `@Scheduled`를 유지하고 겹친 실행만 막음 | **ShedLock JDBC**를 Quartz 대신 사용 |
-
-ShedLock 자체도 full-fledged distributed scheduler가 아니며, 다른 node의 같은 실행을 기다리지 않고 건너뛰는 lock이라고 설명한다([공식 저장소](https://github.com/lukas-krecan/ShedLock)). PostgreSQL advisory lock은 DB가 의미를 강제하지 않는 application-defined lock이다. 꼭 Quartz 밖의 짧은 운영 임계 구역에 필요할 때만 transaction-level lock을 후보로 검토하고, scheduler 실행 제어에는 쓰지 않는다([PostgreSQL 공식 문서](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ADVISORY)). HP 지갑 잔액 변경의 동시성 제어는 팀 미정 항목이므로 여기서 advisory lock·row lock·낙관적 lock 중 하나로 확정하지 않는다. 별도 ADR에서 경합 test와 원장 불변식 결과를 비교해 결정한다.
-
-### 완료 증거
-
-- scheduler 2개에서 같은 trigger가 정상 상황에 한 번만 실행된다.
-- 실행 중 한 pod를 종료하면 다른 node가 실패를 감지하고 정책대로 recovery한다.
-- 긴 중단 뒤 재시작할 때 각 job의 misfire 정책 차이가 test와 dashboard에 드러난다.
-- EC2가 18:00에 중지된 뒤 다음 날 09:00에 켜지면, 밤사이 놓친 지급 job이 정책대로 한 번만 실행된 기록이 남는다.
-- 같은 trigger가 Batch launch를 재시도해도 같은 업무 parameter의 중복 `JobInstance`가 만들어지지 않는다.
-
-## 5. Spring Batch — 대량 처리, checkpoint와 restart
-
-Spring Batch는 schedule이나 application 전체 종료를 소유하지 않는다. Quartz나 운영자 명령이 `BatchJobLauncher` interface로 실행을 요청하면, Batch가 item 읽기, chunk transaction, checkpoint, 실행 이력, stop·restart를 담당한다. application service는 item 한 건의 지급·환전·상태 전이와 멱등성을 계속 소유한다.
-
-Spring Batch의 chunk 지향 처리는 commit interval마다 transaction을 commit하고 실행 상태를 저장하므로 대량 작업의 재시작 지점을 제공한다([Spring Batch chunk 공식 문서](https://docs.spring.io/spring-batch/reference/step/chunk-oriented-processing.html)). 단건의 짧은 상태 전이는 application service로 충분하며, 다건 scan·장시간 처리·운영 중단 후 재개가 필요한 job만 Batch로 옮긴다.
-
-현재 13개 작업은 다음처럼 나눈 뒤 실제 대상 건수와 실행 시간을 측정해 확정한다.
-
-| 분류 | 1차 선택 | 이유 |
-| --- | --- | --- |
-| 강의 D+30 지급, 환전 정산, 팔로워 전체 갱신 | Spring Batch 후보 | 대량 순회, page/chunk, 실행 이력과 중단 후 재개가 의미 있음 |
-| 강의 자동 구매 확정 | 대상 건수가 커지면 Spring Batch | 현재는 단순 반복이지만 장시간 실행 기준을 넘으면 checkpoint 가치가 생김 |
-| 출연 만료·자동 거절·보류 재확인·HP 작업 재시도 | Quartz + bounded UseCase | 매분 제한된 건수만 처리하고 다음 실행이 자연스러운 retry 역할을 함 |
-| 충전·환불·환전 송금 결과 확인 | Quartz + bounded UseCase | 짧은 polling/reconciliation 작업이며 기존 외부 요청 ID와 상태 머신이 핵심임 |
-
-Batch 도입 기준은 `한 번의 실행이 종료 유예 시간보다 길 수 있는가`, `중간 진행 지점을 저장할 가치가 있는가`, `운영자가 실행 이력과 restart를 제어해야 하는가`다. 세 조건이 약하면 Quartz가 application service를 한 번 호출하는 구조를 유지한다.
-
-### 실행·중단·재시작 정책
-
-- 월별 환전, D+30 강의 지급처럼 대상이 많은 작업은 안정적인 정렬 key로 page/chunk 처리한다. chunk 크기는 부하 test로 정하고 측정값을 남긴다.
-- `JobParameters`는 업무 실행을 유일하게 식별한다. 예: `settlementDate`, `policyVersion`. pod ID나 현재 timestamp를 넣어 매번 새 `JobInstance`를 만들지 않는다.
-- stateful `ItemReader`는 `ItemStream`으로 위치와 `ExecutionContext`를 commit 직전에 `JobRepository`에 저장한다([Spring Batch ItemStream 공식 문서](https://docs.spring.io/spring-batch/reference/readers-and-writers/item-stream.html)). 완료된 step은 restart에서 건너뛰며, checkpoint는 재처리 범위를 줄이지만 exactly-once를 보장하지 않는다.
-- PostgreSQL 안에서 끝나는 상태 전이는 여러 item을 한 chunk transaction으로 묶을 수 있다. 지급·환전처럼 원격 side effect가 섞이면 작은 chunk 또는 item 단위 transaction을 사용하고, 참조 거래 ID·외부 요청 ID로 재호출을 멱등 처리한다. `외부 성공 후 DB 반영 실패`는 조회·reconciliation으로 수렴시키며 Batch retry를 분산 transaction의 대체물로 쓰지 않는다.
-- `JobOperator.stop`은 실행을 즉시 죽이지 않고 framework가 제어권을 되찾을 때 `STOPPED` 상태와 checkpoint를 저장한다. 각 실행의 `JobExecutionShutdownHook`은 JVM 종료 신호를 같은 stop 경로로 보내는 안전망이다. reader·processor·writer는 stop을 무시하는 무제한 blocking I/O를 만들지 않는다([Spring Batch stop 공식 문서](https://docs.spring.io/spring-batch/reference/job/advanced-meta-data.html)).
-- 재기동 시 `STOPPED` 또는 `FAILED`인 동일 `JobInstance`를 restart한다. 비정상 종료로 metadata가 `STARTED`에 남으면 owner가 사라졌고 checkpoint가 유효한지 확인한 recovery 절차에서만 `JobOperator.recover`를 실행한다([Spring Batch 6 공식 문서](https://docs.spring.io/spring-batch/reference/api/org/springframework/batch/core/launch/JobOperator.html)).
-
-### 완료 증거
-
-- 동일 업무 parameter로 중복 launch해도 실행 가능한 `JobInstance`가 하나다.
-- 실패·중단 후 restart하면 checkpoint부터 이어지고 전체 대상의 업무 결과에 누락·중복이 없다.
-- 지급·환전 item을 재실행해도 참조 거래 ID와 외부 요청 ID 기준 결과가 한 번이다.
-- `BATCH_*` metadata에서 처리량, skip, retry, stop, restart 이력을 조회할 수 있다.
-- 1,000건 처리 중 `JobOperator.stop`을 보내면 `STOPPED`가 기록되고 restart 후 `COMPLETED`가 된다.
-- `SIGKILL`로 `STARTED` 상태를 남긴 뒤 recovery runbook의 `recover → restart → COMPLETED`를 시연한다.
-
-## 6. Graceful Shutdown — 전체 workload drain
-
-graceful shutdown은 단순히 HTTP 요청을 기다리는 option이 아니다. web·consumer·scheduler·batch가 **새 작업을 받는 단계부터 차례로 닫히고**, PostgreSQL connection은 checkpoint와 상태 저장이 끝날 때까지 살아 있어야 한다. Spring Boot 4.1은 embedded Tomcat의 graceful shutdown을 기본 활성화하며, application context 종료의 이른 `SmartLifecycle` phase에서 새 요청을 막고 기존 요청에 종료 유예 시간을 준다. phase별 timeout은 `spring.lifecycle.timeout-per-shutdown-phase`로 설정한다([Spring Boot 공식 문서](https://docs.spring.io/spring-boot/4.1/reference/web/graceful-shutdown.html)).
+graceful shutdown은 단순히 HTTP 요청을 기다리는 option이 아니다. web·consumer가 **새 작업을 받는 단계부터 차례로 닫히고**, PostgreSQL connection은 진행 중인 처리의 상태 저장이 끝날 때까지 살아 있어야 한다. Spring Boot 4.1은 embedded Tomcat의 graceful shutdown을 기본 활성화하며, application context 종료의 이른 `SmartLifecycle` phase에서 새 요청을 막고 기존 요청에 종료 유예 시간을 준다. phase별 timeout은 `spring.lifecycle.timeout-per-shutdown-phase`로 설정한다([Spring Boot 공식 문서](https://docs.spring.io/spring-boot/4.1/reference/web/graceful-shutdown.html)).
 
 ### 종료 계약과 순서
 
-`DrainCoordinator`를 종료 순서를 소유하는 깊은 module로 두고 종료 동작을 여러 listener에 흩뿌리지 않는다. interface는 `drain(deadline)` 하나이며 내부에서 Web, Quartz, Batch, Kafka, Redis용 drain adapter를 정해진 순서로 호출한다. 상태는 `ACCEPTING → DRAINING → STOPPED`이며 중복 호출해도 같은 결과인 idempotent operation이다. Kubernetes `preStop`은 localhost의 내부 drain endpoint를 호출하고 짧게 endpoint 전파를 기다린다. endpoint는 `/api/v1/internal/operations/drain`으로 두고 loopback과 내부 key로 제한하며 외부 Ingress에는 노출하지 않는다.
+`DrainCoordinator`를 종료 순서를 소유하는 깊은 module로 두고 종료 동작을 여러 listener에 흩뿌리지 않는다. interface는 `drain(deadline)` 하나이며 내부에서 Web, Kafka, Redis용 drain adapter를 정해진 순서로 호출한다. 상태는 `ACCEPTING → DRAINING → STOPPED`이며 중복 호출해도 같은 결과인 idempotent operation이다. Kubernetes `preStop`은 localhost의 내부 drain endpoint를 호출하고 짧게 endpoint 전파를 기다린다. endpoint는 `/api/v1/internal/operations/drain`으로 두고 loopback과 내부 key로 제한하며 외부 Ingress에는 노출하지 않는다.
 
 종료 순서는 다음으로 고정한다.
 
 1. Kubernetes가 Pod를 `Terminating`으로 만들면 EndpointSlice의 `ready`가 `false`가 되어 일반 Service traffic에서 제외된다. 동시에 `preStop`이 drain을 시작한다. Kubernetes는 `preStop` 실행 전부터 전체 종료 유예 시간을 세고, hook과 process 종료가 모두 그 안에 끝나지 않으면 강제 종료한다([Kubernetes Pod 종료 흐름](https://kubernetes.io/docs/tutorials/services/pods-and-endpoint-termination-flow/), [container lifecycle hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/)).
 2. readiness를 `OUT_OF_SERVICE`로 바꾸고 application-level `acceptingWork=false` gate를 닫는다. web은 새 long-running command를 거절하고, 기존 짧은 HTTP 요청은 Spring Boot/Tomcat이 마칠 시간을 준다. WebSocket client에는 재연결 신호를 보낸 뒤 session을 닫으며, 재접속 후 PostgreSQL history sync로 gap을 복구한다.
-3. scheduler workload는 Quartz를 standby로 전환해 새 trigger 획득과 새 Batch launch를 막는다. Quartz는 **시작 책임만** 가지므로 종료 때 장시간 업무 완료를 무기한 기다리지 않는다.
-4. `BatchDrainAdapter`가 이 pod 소유 execution만 stop하고 제한 시간 안에 `STOPPED`가 되었는지 확인한다. Graceful Shutdown은 stop 구현과 checkpoint 규칙을 알지 않고 section 5의 Batch interface만 호출한다.
-5. Kafka listener는 새 poll 처리를 멈추고 현재 record까지만 끝낸 뒤 offset을 commit한다. 처리 결과가 commit되지 않은 record는 다음 consumer가 다시 받고 inbox 멱등성으로 흡수한다. Redis Streams worker는 새 `XREADGROUP`을 멈추고 DB commit과 fan-out이 끝난 건만 `XACK`한다. 미완료 건은 pending에 남아 다른 worker가 `XAUTOCLAIM`한다.
-6. in-flight HTTP, WebSocket close, consumer, Batch 상태 저장이 끝난 다음 Quartz와 executor를 종료한다. DataSource/HikariCP는 이 과정의 마지막까지 유지하고 Spring context가 닫을 때 종료한다. 종료 callback에서 DB pool을 직접 먼저 닫지 않는다.
+3. Kafka listener는 새 poll 처리를 멈추고 현재 record까지만 끝낸 뒤 offset을 commit한다. 처리 결과가 commit되지 않은 record는 다음 consumer가 다시 받고 inbox 멱등성으로 흡수한다. Redis Streams worker는 새 `XREADGROUP`을 멈추고 DB commit과 fan-out이 끝난 건만 `XACK`한다. 미완료 건은 pending에 남아 다른 worker가 `XAUTOCLAIM`한다.
+4. in-flight HTTP, WebSocket close, consumer 처리가 끝난 다음 executor를 종료한다. DataSource/HikariCP는 이 과정의 마지막까지 유지하고 Spring context가 닫을 때 종료한다. 종료 callback에서 DB pool을 직접 먼저 닫지 않는다.
 
-Kubernetes 설정의 시작값은 `terminationGracePeriodSeconds: 120`, `preStop` drain·전파 예산 10초, application drain 예산 최대 90초, 강제 종료 전 여유 20초로 둔다. 이 숫자는 운영 SLO가 아니라 k6와 Batch 장애 test에서 측정해 조정할 초기값이다. `preStop`과 Spring의 phase timeout을 단순 합산했을 때 120초를 넘지 않게 CI에서 실제 종료 시간을 잰다.
+Kubernetes 설정의 시작값은 `terminationGracePeriodSeconds: 120`, `preStop` drain·전파 예산 10초, application drain 예산 최대 90초, 강제 종료 전 여유 20초로 둔다. 이 숫자는 운영 SLO가 아니라 k6와 장애 test에서 측정해 조정할 초기값이다. `preStop`과 Spring의 phase timeout을 단순 합산했을 때 120초를 넘지 않게 CI에서 실제 종료 시간을 잰다.
 
-EC2 매일 중지(18:00)는 pod 하나가 아니라 node 전체의 종료다. graceful node shutdown이 켜져 있으면 kubelet은 `shutdownGracePeriod` 안에서 일반 pod를 먼저 종료한다. 이때 pod에 주어지는 시간은 자기 `terminationGracePeriodSeconds`가 아니라 node 종료 예산으로 제한될 수 있다. 일반 pod 몫(`shutdownGracePeriod - shutdownGracePeriodCriticalPods`)을 scheduler pod의 drain 예산보다 길게 잡는다. instance 중지 때 OS가 그만큼 기다려 주는지는 실제 중지로 확인한다. 기다려 주지 않으면 18:00 전에 scheduler를 standby로 바꾸는 Quartz job을 두어, 장시간 Batch가 중지 직전에 시작되지 않게 한다.
+EC2 매일 중지(18:00)는 pod 하나가 아니라 node 전체의 종료다. graceful node shutdown이 켜져 있으면 kubelet은 `shutdownGracePeriod` 안에서 일반 pod를 먼저 종료한다. 이때 pod에 주어지는 시간은 자기 `terminationGracePeriodSeconds`가 아니라 node 종료 예산으로 제한될 수 있다. 일반 pod 몫(`shutdownGracePeriod - shutdownGracePeriodCriticalPods`)을 앱 pod의 drain 예산보다 길게 잡는다. instance 중지 때 OS가 그만큼 기다려 주는지는 실제 중지로 확인한다. 기다려 주지 않으면 그 결과를 기록하고, 끝내지 못한 처리가 Kafka 재전달과 Redis pending claim으로 복구되는지 확인한다.
 
 ### 완료 증거
 
-- scheduler pod에 `SIGTERM`을 보내면 Graceful Shutdown이 section 5의 Batch stop interface를 호출하고 grace period 안에 종료한다.
-- rolling update 동안 새 HTTP 요청은 다른 ready pod로 가고, 기존 요청은 deadline 안에 끝나며, WebSocket은 재연결 후 history gap이 없다.
+- 앱 pod에 `SIGTERM`을 보내면 새 요청을 거절하고 in-flight 요청과 consumer 처리를 마친 뒤 grace period 안에 종료한다.
+- rolling update 동안 새 HTTP 요청은 새로 ready가 된 pod로 가고, 기존 요청은 deadline 안에 끝나며, WebSocket은 재연결 후 history gap이 없다.
 - Kafka current record와 Redis pending message를 처리 중 종료해도 재할당·claim 뒤 최종 결과가 한 번이고, 종료 과정에서 DataSource closed 오류가 없다.
-- 선택한 관측성 UI에 drain 시작·완료·timeout, 현재 Batch status, checkpoint, restart count, forced termination 지표와 동일 correlation ID의 log를 남긴다.
+- 선택한 관측성 UI에 drain 시작·완료·timeout, restart count, forced termination 지표와 동일 correlation ID의 log를 남긴다.
 
-## 7. Grafana observability stack과 부하 테스트
+## 5. Grafana observability stack과 부하 테스트
 
 관측성은 **Prometheus + Alloy + Loki + Tempo + Grafana** 한 벌로 고정한다. 애플리케이션과 gateway는 Micrometer와 OpenTelemetry로 계측하고 metrics는 Prometheus, logs는 Loki, traces는 Tempo가 저장한다. Elasticsearch는 검색·Vector DB로만 사용한다.
 
@@ -668,12 +544,12 @@ EC2 매일 중지(18:00)는 pod 하나가 아니라 node 전체의 종료다. gr
 
 비교 실험은 다음을 한 세트로 구성한다.
 
-- Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, Redis pending, Quartz, HP task 노출
+- Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, Redis pending, HP task 노출
 - Prometheus: `/actuator/prometheus`와 infrastructure exporter를 직접 scrape하고 local TSDB·PromQL·rule 평가 담당
 - Grafana Alloy: pod log 수집과 OTLP trace 수신·전달 담당. Mimir로 바꿀 때만 metrics scrape·remote write까지 확장
 - Loki: JSON log 저장; `traceId`, `correlationId`, `eventId`, 배포 version으로 연결
 - Tempo: HTTP → 업무 transaction → Kafka publish/consume → chat delivery trace 저장
-- Grafana: Prometheus·Loki·Tempo datasource와 API, Kafka, chat, HP/Quartz, Kubernetes dashboard·alert
+- Grafana: Prometheus·Loki·Tempo datasource와 API, Kafka, chat, HP, Kubernetes dashboard·alert
 - k6: 일반 API, WebSocket, 돈 흐름 재시도 시나리오
 
 기준선에서는 **Prometheus가 metrics를 직접 scrape**하고, Alloy는 logs·traces를 Loki·Tempo로 전달한다. Grafana는 세 backend를 조회한다. Prometheus remote-write receiver는 공식 문서가 일반 scrape의 대체 수단으로 적합하지 않다고 명시하므로, collector를 하나처럼 보이게 만들기 위해 `Alloy scrape → Prometheus remote write receiver`를 기본 구성으로 쓰지 않는다([Prometheus Remote Write Receiver](https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver)). Prometheus와 Mimir를 동시에 장기 저장소로 두지 않는다.
@@ -733,7 +609,7 @@ EC2에서 부하 test를 할 때는 다음을 지킨다.
 - prod와 dev가 같은 host를 쓰므로 부하 test는 dev namespace를 대상으로, 팀이 서버를 쓰지 않는 시간대에 하고 미리 공지한다. 결과에는 그 시간 prod pod의 자원 사용량도 함께 남긴다.
 - 위 초기 목표(100 RPS 10분 등)가 2노드에서 유지되지 않으면 목표를 낮추는 것이 아니라 node별 CPU credit, DB connection, GC 병목을 JFR과 dashboard로 설명하는 것을 결과물로 삼는다.
 
-## 8. SonarQube Cloud — CI 품질 gate
+## 6. SonarQube Cloud — CI 품질 gate
 
 **self-hosted SonarQube Server가 아니라 SonarQube Cloud를 도입한다.** 이 프로젝트에서 보여 줄 것은 SonarQube 운영이 아니라 지속적인 code quality 통제이므로 cluster에 서버를 하나 더 올리지 않는다.
 
@@ -745,7 +621,7 @@ EC2에서 부하 test를 할 때는 다음을 지킨다.
 
 SonarQube Cloud는 GitHub Actions 분석, PR decoration, quality gate 실패 시 job/merge 차단을 지원한다([공식 GitHub integration 문서](https://docs.sonarsource.com/sonarqube-cloud/discovering-sonarcloud/integration-with-devops-platforms/github)). Coverage 자체를 계산하지는 않으므로 JaCoCo가 report를 먼저 만들고 scanner가 import해야 한다([공식 coverage 문서](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/test-coverage/overview)). 현재 프로젝트의 Java 25·Gradle 조합이 분석 시점의 지원 범위에 포함되는지는 실제 scanner spike로 먼저 확인하고 결과를 ADR에 기록한다.
 
-## 9. 추가할 가치가 있는 포트폴리오 항목
+## 7. 추가할 가치가 있는 포트폴리오 항목
 
 아래 순서까지만 추가한다. 핵심 흐름의 장애·복구 test가 완성되기 전에 stretch 항목부터 넣지 않는다.
 
@@ -780,7 +656,7 @@ Gradle 공식 plugin은 `src/testFixtures` source set과 별도 consumable varia
 
 ### Testcontainers + Toxiproxy
 
-repository·serialization·멱등 consumer test는 mock broker가 아니라 Testcontainers의 PostgreSQL, Kafka, Valkey를 사용한다. Toxiproxy를 application과 dependency 사이에 두고 latency, timeout, connection cut을 test code에서 재현한다. Testcontainers 공식 Toxiproxy module도 이 구성을 client resilience와 multi-container 장애 시험 용도로 제공한다([공식 문서](https://java.testcontainers.org/modules/toxiproxy/)).
+repository·serialization·멱등 consumer test는 mock broker가 아니라 Testcontainers의 PostgreSQL, Kafka, Redis를 사용한다. Toxiproxy를 application과 dependency 사이에 두고 latency, timeout, connection cut을 test code에서 재현한다. Testcontainers 공식 Toxiproxy module도 이 구성을 client resilience와 multi-container 장애 시험 용도로 제공한다([공식 문서](https://java.testcontainers.org/modules/toxiproxy/)).
 
 최소 장애 test matrix는 다음과 같다.
 
@@ -788,8 +664,6 @@ repository·serialization·멱등 consumer test는 mock broker가 아니라 Test
 - Kafka consumer 처리 중 connection cut → retry/DLT → inbox 중복 0건
 - Redis `XACK` 직전 worker 종료 → pending claim → 채팅 DB 중복 0건
 - PostgreSQL commit 응답 timeout → 같은 command 재시도 → HP 원장 불변식 유지
-- Quartz job 실행 중 scheduler node 종료 → recovery → 업무 결과 한 번
-- Spring Batch chunk 처리 중 SIGTERM → `STOPPED` checkpoint → 동일 instance restart → 누락·중복 0건
 
 ### Spring AI + Elasticsearch — 고객센터 근거 기반 답변
 
@@ -852,7 +726,7 @@ Spring AI는 `VectorStore` interface 뒤에 여러 구현을 제공한다([Sprin
 | pgvector | 기존 PostgreSQL extension | 추가 process 없음. 원본과 같은 DB라 backup·권한·Flyway를 함께 관리. SQL·JSON metadata filter | Elasticsearch가 필수인 최종안에서는 vector backend가 중복된다. PostgreSQL 업무 부하와도 CPU·메모리를 경쟁한다 |
 | Qdrant | 전용 vector DB (별도 server) | payload filter와 vector 검색이 전용 엔진에 최적화. Spring AI 지원 | stateful workload와 backup 대상이 하나 더 는다. 원본과 다른 저장소라 색인 동기화 실패를 따로 다뤄야 한다 |
 | Redis (Query Engine) | 채팅용으로 들이는 Redis를 재사용 | 새 server 없이 vector 검색. 응답이 빠르다 | Spring AI Redis Vector Store는 Redis Stack(Search and Query)을 전제로 한다([문서](https://docs.spring.io/spring-ai/reference/api/vectordbs/redis.html)). vector가 메모리에 상주하고, 채팅 전달용 Redis와 영속성·eviction 정책이 섞인다 |
-| **Elasticsearch (선택)** | 11장의 물리 cluster에 고객센터 소유 index 추가 | BM25와 kNN hybrid 검색, nori 한국어 분석. 새 server가 늘지 않음 | 일반 검색과 RAG가 자원을 공유하므로 index·권한 분리와 동시 부하 검증이 필요하다 |
+| **Elasticsearch (선택)** | 9장의 물리 cluster에 고객센터 소유 index 추가 | BM25와 kNN hybrid 검색, nori 한국어 분석. 새 server가 늘지 않음 | 일반 검색과 RAG가 자원을 공유하므로 index·권한 분리와 동시 부하 검증이 필요하다 |
 | Amazon S3 Vectors | AWS 관리형 vector bucket | 서버 없이 사용량만큼 과금. metadata filter. Spring AI S3 Vector Store 지원 | 새 bucket 종류와 `s3vectors` IAM namespace를 쓴다([AWS 문서](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors.html)). "S3 버킷 1개, 업로드 용도" 범위를 넘으므로 팀 합의가 필요하다. 조직 SCP 허용 여부와 서울 region 지원을 먼저 확인한다. 자주 쓰지 않는 query는 지연이 1초 가까이 될 수 있다 |
 | PostgreSQL 전문 검색만 | vector 없이 `tsvector` | embedding API 호출과 비용 없음. 가장 단순한 기준선 | 기본 설정에는 한국어 사전이 없어 형태소 단위 검색이 약하다. 의미가 같은 다른 표현을 찾지 못한다 |
 | Spring AI `SimpleVectorStore` | 앱 메모리 | 의존성 없음 | 공식 문서가 test·demo 전용이라고 명시한다. 단위 test의 fake로만 쓴다 |
@@ -926,17 +800,16 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 - **Debezium**: 현재 Spring Modulith publication/outbox externalization과 같은 DB→Kafka 전달 책임을 하나 더 만든다. CDC 자체를 비교하는 별도 실험이 아니라면 제외한다.
 - **Spring Cloud Gateway 상시 운영**: Gateway 책임은 Gateway API + Traefik이 맡는다. JVM을 하나 더 두는 것은 3장 "API Gateway"의 재검토 조건이 생기고 자원 예산을 확보한 뒤에 한다.
 - **Ingress NGINX controller**: 2026년 3월에 은퇴해 보안 수정이 나오지 않는다. cluster 안 routing은 Gateway API로 만든다.
-- **Quartz + ShedLock/advisory lock 중첩**: 같은 job 실행권의 owner가 둘이 된다. Quartz cluster 하나만 owner로 둔다.
 - **Prometheus 장기 저장 + Mimir 장기 저장, Elastic Observability 추가**: 같은 telemetry signal의 backend를 두 벌 운영하지 않는다.
 - **Pyroscope**: 이 포트폴리오에서는 JFR/JMC가 JVM code-level profiling 증거를 담당한다. 별도 continuous-profile backend까지 더하지 않는다.
 - **JConsole·VisualVM 상시 운영**: 필요할 때 로컬에서 쓰는 수동 도구일 뿐 배포 component나 포트폴리오 증거 pipeline으로 만들지 않는다.
 - **Helm**: 쓰지 않는다. 환경별 차이는 Kustomize overlay로 충분하고, Kafka·ES·관측 stack도 메모리 예산에 맞춰 manifest를 직접 쓴다.
 - **Terraform Kubernetes provider**: in-cluster resource는 `k8s/` manifest가 소유한다.
 - **service mesh, Vault, 다중 Kubernetes cluster**: 현재 시연할 통신·secret rotation·multi-cluster 문제가 없어 stack 수만 늘어난다.
-- **AWS 관리형 대체**(EKS, RDS, ElastiCache, MSK, ELB·ACM, ECR, Amazon Managed Prometheus·Grafana, OpenSearch Service, Bedrock): AGENTS.md 8장의 EC2 2대·VPC 1개·S3 1개 범위를 넘는다. "실운영이라면 무엇으로 바꿀지"는 13장과 포트폴리오 ADR로만 남긴다.
+- **AWS 관리형 대체**(EKS, RDS, ElastiCache, MSK, ELB·ACM, ECR, Amazon Managed Prometheus·Grafana, OpenSearch Service, Bedrock): AGENTS.md 8장의 EC2 2대·VPC 1개·S3 1개 범위를 넘는다. "실운영이라면 무엇으로 바꿀지"는 11장과 포트폴리오 ADR로만 남긴다.
 - **EC2 instance 상향·추가**: t3.large + t3.medium이 상한이다. node별 자원 예산을 넘으면 상시 profile을 줄이고, 그래도 부족하면 팀과 운영진에게 먼저 묻는다.
 
-## 10. 알림(notification) 모듈 분리
+## 8. 알림(notification) 모듈 분리
 
 ### 현재 상태와 문제
 
@@ -957,7 +830,7 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 | API | `/api/v1/notifications`: 목록(cursor), 읽지 않은 수, 읽음 처리, 전체 읽음 |
 | 입력 | 각 모듈의 integration event (1장 Kafka). 알림 모듈이 모든 이벤트를 구독하고, 발행하는 모듈은 알림의 존재를 모른다 |
 | 저장 | 받는 사람별 알림 행(종류, 참조 ID, 본문에 필요한 값, 읽은 시각, 만든 시각). 원본 이벤트의 `eventId`와 받는 사람으로 유일 인덱스를 두어 중복 소비를 흡수한다 |
-| 실시간 전달 | 저장이 commit된 뒤 Valkey Pub/Sub으로 각 app replica에 fan-out하고, 그 replica의 WebSocket session에 보낸다. 2장 채팅과 같은 `RealtimeFanout` seam을 쓰되 destination은 알림 전용(`/user/queue/notifications`)이다 |
+| 실시간 전달 | 저장이 commit된 뒤 Redis Pub/Sub으로 각 app replica에 fan-out하고, 그 replica의 WebSocket session에 보낸다. 2장 채팅과 같은 `RealtimeFanout` seam을 쓰되 destination은 알림 전용(`/user/queue/notifications`)이다 |
 | 복구 | 실시간 전달은 유실될 수 있다. 재접속 때 마지막으로 받은 알림 ID 이후를 REST로 다시 읽는다. PostgreSQL 알림 행이 진실의 원천이다 |
 | 회원 정보 | 받는 사람의 상태(정지·탈퇴)와 닉네임은 회원 이벤트로 만든 복제본에서 읽는다. 다른 모듈처럼 가입 이벤트로만 만들고 변경 이벤트로 갱신한다 |
 | 보존 | 읽은 알림의 보존 기간은 기획서에 없다. 정하기 전에는 지우지 않는다. 지우게 되더라도 Soft Delete 규칙을 따른다 |
@@ -988,7 +861,7 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 
 먼저 **같은 이미지 안의 모듈**로 분리한다. 모듈 경계(자기 schema, 이벤트로만 입력, 다른 모듈 Repository 미사용)를 지키면 나중에 떼어 내는 비용은 Gateway route 하나와 Kafka consumer group 이동으로 끝난다.
 
-알림은 이벤트만 받고 다른 모듈을 동기 호출하지 않는다. 그래서 별도 service로 떼어 내기 가장 쉬운 후보다. 포트폴리오에서 "첫 번째로 분리한 service"를 보여 주려면 알림이 맞다. 다만 별도 Deployment는 JVM 하나를 더 띄우므로 medium의 Batch·Grafana 관측성 stack과 메모리를 경쟁한다. 분리 전 3장의 node별 예산에 512 MiB pod와 rolling surge를 추가하고, 여유가 없으면 시연할 때만 scale out한다.
+알림은 이벤트만 받고 다른 모듈을 동기 호출하지 않는다. 그래서 별도 service로 떼어 내기 가장 쉬운 후보다. 포트폴리오에서 "첫 번째로 분리한 service"를 보여 주려면 알림이 맞다. 다만 별도 Deployment는 JVM 하나를 더 띄우므로 medium의 모듈 앱·Grafana 관측성 stack과 메모리를 경쟁한다. 분리 전 3장의 node별 예산에 512 MiB pod와 rolling surge를 추가하고, 여유가 없으면 시연할 때만 scale out한다.
 
 ### 결정 필요
 
@@ -1004,7 +877,7 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 - 알림 모듈을 끈 동안 쌓인 이벤트가 재시작 후 consumer lag가 줄면서 모두 알림이 된다.
 - 채팅 모듈에 다른 모듈의 이벤트 listener가 남지 않는다.
 
-## 11. 검색(search) 모듈과 Elasticsearch (#234)
+## 9. 검색(search) 모듈과 Elasticsearch (#234)
 
 ### 현재 상태
 
@@ -1036,10 +909,10 @@ nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https:/
 
 ### 색인과 재색인
 
-1. **초기 적재**: Spring Batch job이 각 모듈의 공개 조회 API(또는 내부 API, D62)를 page 단위로 읽어 새 index에 bulk로 넣는다. 다른 모듈의 DB를 직접 읽지 않는다. 5장의 chunk·checkpoint·restart 규칙을 그대로 쓴다.
+1. **초기 적재**: 각 모듈의 공개 조회 API(또는 내부 API, D62)를 page 단위로 읽어 새 index에 bulk로 넣는다. 다른 모듈의 DB를 직접 읽지 않는다. 실행 방식은 아직 정하지 않았다.
 2. **실시간 반영**: Kafka consumer가 이벤트마다 문서를 upsert·delete한다. inbox로 멱등 처리하고, 실패는 retry와 DLT로 보낸다.
 3. **재색인**: 사전이나 mapping을 바꾸면 versioned index(`lectures-v2`)를 새로 만들어 초기 적재를 다시 돌린다. 그동안 들어온 이벤트는 두 index에 모두 쓰고, 검증한 뒤 alias를 원자적으로 바꾼다. 이전 index는 확인한 뒤 지운다.
-4. **정합성 점검**: 원본 수와 index 문서 수를 비교하는 Quartz job을 두고, 차이가 나면 선택한 관측성 UI에 alert한다.
+4. **정합성 점검**: 원본 수와 index 문서 수를 비교하는 주기 작업을 두고, 차이가 나면 선택한 관측성 UI에 alert한다.
 
 ### 운영
 
@@ -1077,7 +950,7 @@ ES는 통합 검색과 고객센터 RAG의 공통 **물리 검색 플랫폼**으
 - mapping 변경 재색인을 alias 교체로 하는 동안 검색 API가 끊기지 않는다.
 - ES를 지우고 다시 만들어도 초기 적재만으로 같은 문서 수가 된다.
 
-## 12. 모듈별 database 분리
+## 10. 모듈별 database 분리
 
 모듈마다 database를 나누는 것은 확정이다. 이 장은 **instance까지 나눌지**를 판단하고, 분리에 따라 바뀌는 것을 정리한다.
 
@@ -1097,13 +970,13 @@ ES는 통합 검색과 고객센터 RAG의 공통 **물리 검색 플랫폼**으
 
 모듈별 instance가 더 얻는 것은 모듈별 PITR, 독립 업그레이드, process 격리다. 모두 단일 EC2에서는 효과가 작거나 필요 없다. 그 대가는 3장 예산을 넘는 메모리다. 따라서 **환경(prod, dev)마다 instance 1개를 두고, 그 안에서 모듈마다 database를 나눈다.** 환경 사이는 instance로 나눈다. dev는 local-login이 공개되어 있으므로(#332) prod와 같은 instance에 두지 않는다.
 
-instance를 나누는 시점은 모듈을 별도 service로 떼어 내 따로 배포하거나, 관리형 DB(RDS 등)로 옮길 때다(13장).
+instance를 나누는 시점은 모듈을 별도 service로 떼어 내 따로 배포하거나, 관리형 DB(RDS 등)로 옮길 때다(11장).
 
 ### database 목록
 
 | database | 소유 모듈 | 내용 |
 | --- | --- | --- |
-| `platform` | 공통 | Spring Session, Quartz, Spring Batch metadata |
+| `platform` | 공통 | Spring Session |
 | `member` | 회원 | 회원, 역할, 채널 인증 |
 | `appearance` | 출연 | 출연 요청·모집, 회원 복제본 |
 | `lecture` | 강의 | 강의, 장바구니, 주문, 리뷰, 회원 복제본 |
@@ -1132,11 +1005,9 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
    - 지금은 Flyway 하나가 모든 모듈 SQL을 읽는다. 앞으로는 모듈별 Flyway bean이 자기 migration 위치와 자기 `DataSource`만 쓴다.
    - 버전 충돌 검사(`uniq -d`)는 모듈 안에서만 의미가 생긴다.
 5. **connection 수를 다시 계산한다.**
-   - pod 하나가 모듈 수만큼 connection pool을 연다. 총 connection은 `pod 수 × database 수 × pool 크기`다.
-   - application 2개 + scheduler 2개와 rolling surge 1개가 database 9개에 pool 5개씩 열면 이론상 225개다. 모든 workload가 모든 database pool을 열지 않도록 모듈별 사용 DataSource를 제한해야 한다.
-   - 모듈별 pool은 web 2~3개로 작게 두고, scheduler는 쓰는 database의 pool만 연다. `max_connections`는 계산값에 여유를 더해 정한다. connection마다 backend process 메모리가 드므로 3장 PostgreSQL 예산(512 MiB)도 함께 다시 잰다.
-6. **Spring Batch checkpoint가 업무 commit과 원자적이지 않다.** Batch metadata는 `platform`, 업무 data는 모듈 database에 있다. 그래서 chunk 처리 중 종료되면 이미 commit된 chunk가 다시 처리될 수 있다. writer의 멱등성(참조 거래 ID 유일 키, 조건부 상태 전이)으로 결과 중복을 막는다(5장).
-7. **test 지원을 바꾼다.** `:test-support`의 DB 정리와 Testcontainers 설정이 database 여러 개를 다루도록 바뀐다. 모듈 test는 자기 database만 띄운다.
+   - 모듈 앱은 자기 database와 `platform`(session)에만 pool을 연다. 총 connection은 `(앱 수 + rolling surge pod 수) × 앱이 여는 pool 수 × pool 크기`다.
+   - 앱 6개와 surge pod 1개가 pool 두 개를 5개씩 열면 이론상 70개다. `max_connections`는 계산값에 여유를 더해 정한다. connection마다 backend process 메모리가 드므로 3장 PostgreSQL 예산도 함께 다시 잰다.
+6. **test 지원을 바꾼다.** `:test-support`의 DB 정리와 Testcontainers 설정이 database 여러 개를 다루도록 바뀐다. 모듈 test는 자기 database만 띄운다.
 
 ### 진행 순서
 
@@ -1152,13 +1023,13 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
 - 업무 commit 직후 앱을 종료해도 모듈 outbox의 이벤트가 재기동 후 Kafka로 나간다.
 - rolling update 중 최대 connection 수가 `max_connections` 안에 있다.
 
-## 13. 실서비스 전환 시 고려사항
+## 11. 실서비스 전환 시 고려사항
 
 이 장은 포트폴리오 범위(EC2 2대)에서는 **구현하지 않는다.** 실제 트래픽을 받는 서비스로 옮길 때 검토할 항목을 남겨 두는 곳이다.
 
 ### 모듈별 PostgreSQL instance
 
-12장은 환경마다 instance 1개로 정했다. 모듈을 별도 service로 떼어 내 따로 배포하거나 관리형 DB(RDS 등)로 옮기면 instance도 모듈별로 나눈다. 그때 얻는 것은 모듈별 시점 복구(PITR), 독립 업그레이드, 자원·장애 격리다. database가 이미 나뉘어 있으므로, 옮길 때는 모듈 database 하나를 `pg_dump`/restore하고 연결 정보만 바꾸면 된다.
+10장은 환경마다 instance 1개로 정했다. 모듈을 별도 service로 떼어 내 따로 배포하거나 관리형 DB(RDS 등)로 옮기면 instance도 모듈별로 나눈다. 그때 얻는 것은 모듈별 시점 복구(PITR), 독립 업그레이드, 자원·장애 격리다. database가 이미 나뉘어 있으므로, 옮길 때는 모듈 database 하나를 `pg_dump`/restore하고 연결 정보만 바꾸면 된다.
 
 ### KEDA — 이벤트 양에 따른 consumer 자동 확장
 
@@ -1172,7 +1043,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 - 알림·검색 consumer처럼 lag가 쌓이는 처리가 **web과 분리된 worker workload**로 떨어져 있다.
 - node를 늘릴 수 있는 cluster(다중 node, 또는 관리형 Kubernetes)가 있다.
 - topic partition 수가 목표 최대 replica 수 이상이다. 한 consumer group에서 동시에 일하는 consumer는 partition 수를 넘을 수 없다.
-- scale-in 때 처리 중인 record가 6장의 종료 순서(현재 record까지 처리 후 offset commit)를 따른다.
+- scale-in 때 처리 중인 record가 4장의 종료 순서(현재 record까지 처리 후 offset commit)를 따른다.
 
 확인할 것: `consumer lag 증가 → replica 증가 → lag 회복 → scale-in`이 dashboard에 보이는지, scale-in과 rebalance 중에 중복 처리가 inbox 멱등성으로 흡수되는지.
 
@@ -1183,7 +1054,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 1. EC2 현재 Compose의 container별 메모리·CPU·디스크 사용량과 CPU credit 추이를 측정해 3장 자원 예산 확정
 2. k6 시나리오와 현재 Compose 기준 결과 저장 (EC2 밖에서 실행, credit 잔량 함께 기록)
 3. 공통 correlation/event ID와 구조화 로그
-4. Prometheus·Alloy·Loki·Tempo·Grafana 연결. Mimir 비교는 7장 비교표에만 남김
+4. Prometheus·Alloy·Loki·Tempo·Grafana 연결. Mimir 비교는 5장 비교표에만 남김
 5. SonarQube Cloud + JaCoCo PR quality gate 연결
 6. 각 업무 모듈의 data fixture를 `src/testFixtures`로 분리하고 `:test-support`는 공통 infrastructure로 유지
 7. Testcontainers 공통 fixture와 Toxiproxy 장애 test 기반 구축
@@ -1215,68 +1086,54 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 5. `:notification` 모듈과 database, 알림 API, integration event 소비와 `eventId` 멱등 처리
 6. 알림 실시간 전달과 재접속 복구, 채팅의 출연 알림 listener 제거
 
-### Phase 5 — Quartz
-
-1. 13개 `@Scheduled`의 실행 의미·misfire·멱등키 분류. EC2 운영 시간 밖 cron부터 확인
-2. 돈과 거래의 핵심 job부터 Quartz `JobDetail`/`Trigger`로 이전
-3. JDBC JobStore + clustering, scheduler 2 replicas 구성
-4. 중복 trigger·misfire·node failover test와 dashboard
-
-### Phase 6 — Spring Batch
-
-1. 실행 시간·대상 건수 기준으로 Batch 후보를 확정
-2. `BatchJobLauncher` interface와 업무 식별 `JobParameters` 정의
-3. 대량 job을 chunk·checkpoint 구조로 구현하고 item 업무는 기존 멱등 application service에 위임
-4. stop·restart·recover, 원격 side effect 재호출, metadata/업무 database 비원자성 test
-
-### Phase 7 — 검색(ES)과 고객센터 RAG
+### Phase 5 — 검색(ES)과 고객센터 RAG
 
 1. 공개 FAQ·공지·정책 corpus와 답변 거절 기준 확정
 2. nori와 사용자 사전을 넣은 Elasticsearch image, `:search` 모듈, 색인 이벤트 소비
 3. `search`와 `customersupport`의 index pattern·role/API key·alias 소유권 분리
 4. Spring AI `ElasticsearchVectorStore` ETL과 native client 기반 BM25 + dense vector + RRF retriever 구현
-5. Spring Batch 초기 적재, 멱등 재색인, 게시 취소 반영, alias 교체, 원본·index 수 비교 job
+5. 초기 적재, 멱등 재색인, 게시 취소 반영, alias 교체, 원본·index 수 비교 job
 6. 실제 검색 metadata 기반 `sources`와 근거 부족 시 답변 거절 구현
 7. BM25/vector/hybrid golden question, 비공개 filter, 근거 없음, prompt injection 평가
 
-### Phase 8 — Grafana observability stack
+### Phase 6 — Grafana observability stack
 
 1. Micrometer metrics와 OpenTelemetry trace, 구조화 JSON log 계측
 2. Prometheus scrape·retention과 Alloy logs/OTLP pipeline 구성
 3. Loki·Tempo 저장 한도와 Grafana datasource 연결
-4. API·Kafka·Redis·Quartz·Batch·Elasticsearch dashboard와 alert 구성
+4. API·Kafka·Redis·Elasticsearch dashboard와 alert 구성
 5. k6 부하에서 metrics → trace → logs 상관관계와 node별 memory·CPU·disk/day 기록
 
-### Phase 9 — Graceful Shutdown
+### Phase 7 — Graceful Shutdown
 
-1. `DrainCoordinator.drain(deadline)`과 Web·Quartz·Batch·Kafka·Redis drain adapter 구현
+1. `DrainCoordinator.drain(deadline)`과 Web·Kafka·Redis drain adapter 구현
 2. readiness와 신규 작업 gate, WebSocket 재연결, DataSource 최종 종료 순서 검증
 3. `SIGTERM`, deadline 초과, 중복 drain 호출, `SIGKILL` 통합 test
 4. `terminationGracePeriodSeconds`와 node shutdown budget을 실측값으로 확정
 
-### Phase 10 — EC2 k3s 전환과 현행 AWS IaC
+### Phase 8 — EC2 k3s 전환과 현행 AWS IaC
 
 1. `k8s/` Kustomize base·overlay와 로컬 k3d bootstrap, PR CI smoke/E2E
-2. web 2 replicas + Quartz scheduler 분리, probe·resource limit·migration·drain 설정
+2. 모듈 앱 6개 Deployment(앱마다 replica 1개)와 probe·resource limit·migration·drain 설정
 3. EC2에 k3s 설치 후 dev namespace부터 전환하고 Compose upstream으로 rollback 가능하게 유지
 4. 모듈별 `HTTPRoute`, rate limit, 내부 API 차단, 큰 본문 업로드 검증
 5. rolling update, pod 강제 종료, EC2 자동 중지·재시작과 자원 사용량 기록
 6. prod 전환 후 Compose와 기존 배포 script 제거
 7. 실제 EC2·EIP·network·security group·S3·IAM을 Terraform으로 import하고 zero-change plan 검증
 
-### Phase 11 — 포트폴리오 증거
+### Phase 9 — 포트폴리오 증거
 
 1. 정상 흐름과 장애 복구 sequence diagram
 2. 기술 선택·대안·한계를 기록한 ADR
 3. Grafana dashboard와 k6 전후 metrics·logs·traces 상관관계
 4. baseline/after JFR과 JMC 분석 report
 5. Kafka/Redis/pod 강제 종료 demo script
-6. Spring Batch stop·restart·recover demo와 별도의 Graceful Shutdown drain demo
+6. Graceful Shutdown drain demo
 7. OpenAPI·AsyncAPI와 schema compatibility 실패 PR 예시
 8. RAG 검색 근거·답변 거절·출처 반환 평가 report
 9. Sonar quality gate 결과
 10. Terraform zero-change plan과 실제 배포 AWS diagram
-11. “실운영이라면 무엇을 빼거나 managed service로 바꿀지” 명시(13장)
+11. “실운영이라면 무엇을 빼거나 managed service로 바꿀지” 명시(11장)
 
 ## 범위 통제
 
@@ -1285,8 +1142,6 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 - Kafka와 Redis Streams에 같은 integration event를 중복 발행
 - HP 원장이나 채팅 이력을 Kafka/Redis에만 저장
 - 모든 module이 KafkaTemplate·RedisTemplate을 직접 호출
-- 같은 scheduled job에 Quartz clustering과 ShedLock/advisory lock을 중복 적용
-- Quartz job 안에서 장시간 대량 loop를 돌리거나, Spring Batch와 Quartz 양쪽에 checkpoint·retry 책임을 중복 배치
 - 분산 락을 unique constraint·조건부 update·멱등키의 대체물로 사용
 - Prometheus server와 Mimir를 목적 구분 없이 이중 metrics 저장소로 운영하거나, Elasticsearch에 같은 telemetry를 중복 저장
 - self-hosted SonarQube를 cluster의 필수 runtime dependency로 포함

@@ -113,7 +113,7 @@ EDOT / OTel SDK + Elastic Agent gateway
 
 Elasticsearch는 heap 밖의 off-heap buffer와 filesystem cache가 필요하므로 heap을 컨테이너 RAM의 50% 이하로 두라고 공식 문서가 권장한다. 실제 process 사용량은 `Xmx`보다 커지는 것이 정상이다([Elasticsearch JVM settings](https://www.elastic.co/docs/reference/elasticsearch/jvm-settings)). 따라서 `Xmx=512MiB`라면 컨테이너 1 GiB가 사실상 최저 실험선이고, 일반 검색·HNSW vector·지속적인 telemetry ingest를 함께 넣으려면 더 큰 여유가 필요하다.
 
-Kibana 공식 sizing guidance는 일반적인 analytics 사용에서 1 vCPU와 2 GB부터 시작하도록 안내하며, 일부 고급 기능에서도 최소 2 GB를 권장한다([Kibana traffic scaling](https://www.elastic.co/docs/deploy-manage/production-guidance/kibana-traffic-scaling-considerations), [Kibana memory](https://www.elastic.co/docs/deploy-manage/production-guidance/kibana-configure-memory)). 여기에 Elastic Agent gateway와 telemetry 보존 공간도 추가된다. medium의 4 GiB에는 application·Quartz와 Grafana 관측성 stack이 이미 배치되므로 Kibana 2 GB를 상시 추가하기 어렵다.
+Kibana 공식 sizing guidance는 일반적인 analytics 사용에서 1 vCPU와 2 GB부터 시작하도록 안내하며, 일부 고급 기능에서도 최소 2 GB를 권장한다([Kibana traffic scaling](https://www.elastic.co/docs/deploy-manage/production-guidance/kibana-traffic-scaling-considerations), [Kibana memory](https://www.elastic.co/docs/deploy-manage/production-guidance/kibana-configure-memory)). 여기에 Elastic Agent gateway와 telemetry 보존 공간도 추가된다. medium의 4 GiB에는 모듈 앱과 Grafana 관측성 stack이 이미 배치되므로 Kibana 2 GB를 상시 추가하기 어렵다.
 
 또한 검색 content와 telemetry time series는 수명과 write pattern이 다르다. Elastic도 content와 계속 누적되는 time-series data를 구분하며, logs·metrics에는 data stream과 retention lifecycle이 필요하다고 설명한다([Elasticsearch data lifecycle](https://www.elastic.co/docs/manage-data/lifecycle), [Data streams](https://www.elastic.co/docs/manage-data/data-store/data-streams)). large의 50 GB에서 로그 폭증이 검색 index merge와 RAG query를 방해할 수 있으므로, 관측성 통합안을 채택한다면 짧은 lifecycle이 필요하다.
 
@@ -204,7 +204,7 @@ Redis logs·slowlog·keyspace·eviction·hit/miss metrics도 Elastic integration
 1. Prometheus·Loki·Tempo·Grafana 기준선
 2. Elastic Agent gateway + Elasticsearch + Kibana로 logs·metrics·traces 전체 교체
 
-Kibana를 위해 medium의 application·Quartz·Batch·Grafana stack을 내려야 하므로 정상 2노드 topology와 관측성 backend 비교를 동시에 보여줄 수 없다. 검색·RAG Elasticsearch에 telemetry ingest까지 추가하면 장애 격리도 약해진다. 따라서 이 profile과 아래 구성은 구현 티켓으로 만들지 않는다.
+Kibana를 위해 medium의 모듈 앱·Grafana stack을 내려야 하므로 정상 2노드 topology와 관측성 backend 비교를 동시에 보여줄 수 없다. 검색·RAG Elasticsearch에 telemetry ingest까지 추가하면 장애 격리도 약해진다. 따라서 이 profile과 아래 구성은 구현 티켓으로 만들지 않는다.
 
 구성은 다음과 같다.
 
@@ -257,7 +257,7 @@ RAG와 같은 물리 cluster를 사용하되 index·계정·adapter 소유권은
 - Prometheus scrape·retention·alert rule
 - Alloy의 pod log 수집과 OTLP trace pipeline
 - Loki·Tempo retention과 Grafana datasource 연결
-- API·Kafka·Valkey·Quartz·Batch·Kubernetes dashboard·alert
+- API·Kafka·Redis·Kubernetes dashboard·alert
 - Elasticsearch exporter/API metrics dashboard
 
 - cluster health와 unassigned shard
