@@ -159,7 +159,7 @@ sudo grep -q servicelb /etc/rancher/k3s/config.yaml && sudo grep -q core-data /e
   && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='v1.36.5+k3s1' sh -s - server
 ```
 
-설치 명령은 config 확인 조건 뒤에만 실행한다. config 없이 설치하면 servicelb가 켜지고, svclb pod의 hostPort 80·443 규칙이 edge nginx보다 먼저 요청을 받는다. 2026-10-28 첫 설치 때 이 때문에 prod·dev가 Traefik 404를 반환했고, k3s를 uninstall해 복구했다.
+설치 명령은 config 확인 조건 뒤에만 실행한다. 2026-10-28 첫 설치는 config가 적용되지 않아 servicelb가 켜진 상태였다. 그때 large에서는 `docker-proxy`가 80·443을 계속 listen하고 있었는데, 밖에서는 Traefik 404와 `TRAEFIK DEFAULT CERT`가 돌아왔다. k3s를 uninstall하자 edge nginx 응답이 돌아왔다. 당시 svclb pod 상태는 기록하지 못했다. hostPort는 socket을 bind하지 않고 CNI portmap의 iptables DNAT 규칙으로 구현되므로, Docker가 같은 port를 쓰고 있어도 scheduler는 충돌을 모르고 svclb pod를 배치한다. 그래서 DNAT 규칙이 docker-proxy보다 먼저 요청을 받은 것으로 본다.
 
 설치 뒤 확인한다. 밖에서 prod·dev 응답(http 301, `/actuator/health` 200, Let's Encrypt 인증서)도 함께 본다.
 
@@ -177,6 +177,7 @@ join token은 large의 `/var/lib/rancher/k3s/server/node-token`이다. 레포·�
 nc -zv <large private IP> 6443
 
 sudo mkdir -p /etc/rancher/k3s
+sudo install -m 600 /dev/null /etc/rancher/k3s/config.yaml   # token이 기본 권한으로 잠깐이라도 노출되지 않게 먼저 600으로 만든다
 sudo tee /etc/rancher/k3s/config.yaml >/dev/null <<'CONF'
 server: https://<large private IP>:6443
 token: <node-token>
@@ -184,9 +185,8 @@ node-ip: <medium private IP>
 node-label:
   - hapbang.io/pool=app-observe
 CONF
-sudo chmod 600 /etc/rancher/k3s/config.yaml
 
-sudo grep -q '^server: https://' /etc/rancher/k3s/config.yaml \
+sudo grep -qx 'server: https://<large private IP>:6443' /etc/rancher/k3s/config.yaml \
   && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='v1.36.5+k3s1' sh -s - agent
 ```
 
@@ -204,11 +204,28 @@ large에서 실행한다.
 | pod의 S3 instance role | medium에 `nodeSelector`를 건 curl pod에서 IMDSv2 token을 받아 `meta-data/iam/security-credentials/` 조회 | instance role 이름 |
 | graceful shutdown | 각 node에서 `systemd-inhibit --list \| grep -i kubelet` | `kubelet ... shutdown ... delay` |
 
+검증 pod는 `--rm`으로 만들고 끝나면 지워진다.
+
+```bash
+# node 간 pod 통신
+sudo kubectl run net-test --rm -it --restart=Never --image=busybox:1.36 \
+  --overrides='{"spec":{"nodeSelector":{"hapbang.io/pool":"app-observe"}}}' \
+  -- nslookup kubernetes.default.svc.cluster.local
+
+# pod의 S3 instance role
+sudo kubectl run imds-test --rm -it --restart=Never --image=curlimages/curl:8.10.1 \
+  --overrides='{"spec":{"nodeSelector":{"hapbang.io/pool":"app-observe"}}}' \
+  -- sh -c 'T=$(curl -s -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60"); curl -s -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/iam/security-credentials/; echo'
+```
+
 busybox `nslookup`은 `kubernetes.default` 같은 짧은 이름에 search domain을 붙이지 못해 `NXDOMAIN`을 낸다. 전체 이름으로 확인한다.
 
 ### 되돌리기
 
 large는 `sudo /usr/local/bin/k3s-uninstall.sh`, medium은 `sudo /usr/local/bin/k3s-agent-uninstall.sh`를 실행한다. uninstall은 `KUBE-`·`CNI-`·flannel iptables 규칙만 지우고 Docker 규칙은 남긴다. `/etc/rancher/k3s`와 `/var/lib/rancher/k3s`도 지우므로 재설치 때 config와 kubelet drop-in을 다시 만든다. logind의 `zz-` 파일은 남는다.
+
+- medium만 다시 join할 때는 uninstall 전에 large에서 `sudo kubectl delete node <medium node 이름>`을 먼저 실행한다. 그러지 않으면 같은 hostname의 node password가 cluster에 남아 재join이 거절된다.
+- uninstall은 `/var/lib/rancher/k3s`의 local-path volume도 지운다. stateful workload(PostgreSQL·Kafka·Elasticsearch)를 올린 뒤에는 drain과 backup을 먼저 하지 않으면 데이터를 되살릴 수 없다.
 
 ## 로컬 kubectl 접근
 
@@ -217,11 +234,11 @@ large는 `sudo /usr/local/bin/k3s-uninstall.sh`, medium은 `sudo /usr/local/bin/
 - large의 `/etc/rancher/k3s/k3s.yaml`은 cluster-admin 자격 증명이다. 로컬에 받으면 권한을 `600`으로 두고 레포·채팅에 올리지 않는다.
 - kubeconfig의 cluster·context·user 이름이 모두 `default`라서, 다른 kubeconfig와 합치기 전에 이름을 바꾼다.
 - instance가 18:00에 중지되면 tunnel도 끊긴다. 서버가 켜진 뒤 다시 연다.
+- 로컬 파일은 server의 원본과 따로 논다. k3s client 인증서가 갱신되거나 만료되면(기본 1년) 1~3단계를 다시 한다.
 
 ```bash
 # 1) kubeconfig 받기 (SSH 접속 방법은 각자의 키·Host 설정을 쓴다)
-ssh ubuntu@<large EIP> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/hapbang-k3s.yaml
-chmod 600 ~/.kube/hapbang-k3s.yaml
+(umask 077; ssh ubuntu@<large EIP> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/hapbang-k3s.yaml)
 
 # 2) 이름을 hapbang-k3s로, 주소를 tunnel 포트(16443)로 바꾼다 (macOS sed)
 sed -E -i '' \
@@ -231,8 +248,9 @@ sed -E -i '' \
 
 # 3) 기존 kubeconfig에 합친다 (kubectx는 KUBECONFIG에 여러 파일을 나열하는 방식을 지원하지 않는다)
 cp ~/.kube/config ~/.kube/config.bak
-KUBECONFIG=~/.kube/config:~/.kube/hapbang-k3s.yaml kubectl config view --flatten > ~/.kube/config.merged
-mv ~/.kube/config.merged ~/.kube/config && chmod 600 ~/.kube/config
+(umask 077; KUBECONFIG=~/.kube/config:~/.kube/hapbang-k3s.yaml kubectl config view --flatten > ~/.kube/config.merged) \
+  && kubectl --kubeconfig ~/.kube/config.merged config get-contexts hapbang-k3s \
+  && mv ~/.kube/config.merged ~/.kube/config
 
 # 4) tunnel을 열고 context를 바꾼다
 ssh -fN -L 16443:127.0.0.1:6443 ubuntu@<large EIP>
