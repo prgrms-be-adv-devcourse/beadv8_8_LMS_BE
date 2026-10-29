@@ -12,12 +12,13 @@ configMapGenerator:
     literals:
       - SPRING_PROFILES_ACTIVE=prod
       - TZ=Asia/Seoul
+      - HAPBANG_INTERNAL_API_PORT=8081
       # 75%는 chat-app이 384Mi에서 OOMKilled됐다(#373 로컬 k3d). heap을 줄여 non-heap(metaspace·thread) 몫을 남긴다.
       - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60
       - DB_URL=jdbc:postgresql://postgres.hapbang-platform.svc.cluster.local:5432/billing
       - DB_USERNAME=billing
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
-      - MEMBER_API_BASE_URL=http://member-app:8080
-      - LECTURE_API_BASE_URL=http://lecture-app:8080
-      - APPEARANCE_API_BASE_URL=http://appearance-app:8080
+      - MEMBER_API_BASE_URL=http://member-app:8081
+      - LECTURE_API_BASE_URL=http://lecture-app:8081
+      - APPEARANCE_API_BASE_URL=http://appearance-app:8081

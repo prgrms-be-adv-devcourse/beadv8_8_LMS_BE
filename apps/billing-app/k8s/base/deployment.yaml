@@ -38,6 +38,8 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            - name: internal
+              containerPort: 8081
           envFrom:
             - configMapRef:
                 name: billing-app-config
