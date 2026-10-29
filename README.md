@@ -21,6 +21,7 @@ docker build -f apps/member-app/Dockerfile apps/member-app/build/libs
 - [최종 프로젝트 인프라 설계](docs/architecture/final-project-infrastructure.md): k3s, Envoy Gateway·JWT, 앱별 DB, Kafka·Redis, Elasticsearch·관측성 목표 구조와 구현 순서
 - [Elasticsearch 통합 범위 조사](docs/architecture/elasticsearch-consolidation-research.md): Elasticsearch 검색·Vector DB 선택과 Elastic Observability 제외 근거
 - [앱 구조와 전환 범위](docs/architecture/app-modules.md)
+- [채팅 고도화 설계 검토](docs/chat/final-design.md): 다대다 채팅방, Redis Pub/Sub 전달, 회원 이벤트 Kafka 전환
 - [로컬 실행](docs/dev/local.md)
 - [빌드와 테스트](docs/dev/testing.md)
 - [모듈 연동](docs/dev/module-integration.md)
