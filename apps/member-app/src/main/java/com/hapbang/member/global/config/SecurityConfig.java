@@ -31,6 +31,8 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         // 헬스체크 (Docker healthcheck용). 서버 nginx가 /actuator를 프록시하지 않아 컨테이너·서버 안에서만 접근한다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                        // JWT 공개 키 목록 (Envoy·chat-app이 cluster 안에서 받는다, #370)
+                        .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json").permitAll()
                         // 로컬 로그인 (local·dev에서만 켜짐. 운영(prod)엔 컨트롤러가 없어 404)
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/local-login").permitAll()
                         // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)

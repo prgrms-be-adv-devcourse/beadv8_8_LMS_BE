@@ -14,7 +14,9 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 
 import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.KeyUse;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
@@ -39,7 +41,11 @@ public class JwtConfig {
             return fromPem(properties.privateKey());
         }
         log.warn("hapbang.jwt.private-key가 없어 임시 서명 키를 만듭니다. 재시작하면 발급한 토큰이 모두 무효가 됩니다 (local·테스트 전용).");
-        return new RSAKeyGenerator(EPHEMERAL_KEY_SIZE).keyIDFromThumbprint(true).generate();
+        return new RSAKeyGenerator(EPHEMERAL_KEY_SIZE)
+                .keyUse(KeyUse.SIGNATURE)
+                .algorithm(JWSAlgorithm.RS256)
+                .keyIDFromThumbprint(true)
+                .generate();
     }
 
     @Bean
@@ -65,7 +71,12 @@ public class JwtConfig {
         RSAPublicKey publicKey = (RSAPublicKey) keyFactory.generatePublic(
                 new RSAPublicKeySpec(privateKey.getModulus(), privateKey.getPublicExponent()));
         try {
-            return new RSAKey.Builder(publicKey).privateKey(privateKey).keyIDFromThumbprint().build();
+            return new RSAKey.Builder(publicKey)
+                    .privateKey(privateKey)
+                    .keyUse(KeyUse.SIGNATURE)
+                    .algorithm(JWSAlgorithm.RS256)
+                    .keyIDFromThumbprint()
+                    .build();
         } catch (JOSEException e) {
             throw new IllegalStateException("JWT 서명 키의 kid를 계산하지 못했습니다.", e);
         }
