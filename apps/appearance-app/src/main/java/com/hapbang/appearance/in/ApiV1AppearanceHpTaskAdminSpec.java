@@ -20,14 +20,16 @@ import io.swagger.v3.oas.annotations.tags.Tag;
         출연이 Billing에 요청하는 HP 이동(반환·위약금 정산·지급) 작업을 관리자가 확인하고, 격리된(DEAD) 작업을 다시 실행한다.
         작업은 실패하면 간격을 늘려 가며 자동으로 다시 시도하고, Billing이 거절하거나 재시도를 다 써도 실패하면 격리된다.
         격리돼도 업무 상태(거절·확인·취소)는 되돌리지 않으므로, 원인을 고친 뒤 같은 작업을 다시 실행하는 것이 복구 방법이다.
-        관리자(`ADMIN`)만 쓸 수 있다 (그 밖의 로그인 회원은 403 `FORBIDDEN`, 비로그인 401 `UNAUTHORIZED`).""")
+        관리자(`ADMIN`)만 쓸 수 있다 (그 밖의 로그인 회원은 403, 비로그인 401).
+        로그인 뒤 정지되거나 관리자 권한을 잃었으면 403 `APPEARANCE_USER_NOT_ACTIVE` / `NOT_ADMIN`이다
+        (출연이 복제한 회원 정보로 다시 확인한다).""")
 public interface ApiV1AppearanceHpTaskAdminSpec {
 
     @Operation(summary = "HP 작업 목록", description = """
             상태별 HP 작업 목록. `status`를 생략하면 격리된(`DEAD`) 작업이다.
             마지막으로 바뀐 작업부터(격리 작업이면 격리된 순서), 페이지는 page·size(기본 20, 최대 100).
             작업 종류·대상(요청서·모집글, 출연)·금액·시도 횟수·마지막 오류·격리 시각(`completedAt`)·다시 시도 기록을 담는다.""")
-    RsData<Page<HpTaskAdminResDto>> getTasks(
+    RsData<Page<HpTaskAdminResDto>> getTasks(Long adminId,
             @Parameter(description = "PENDING 대기·재시도 중 / DONE 완료 / DEAD 격리. 생략하면 DEAD") HpTaskStatus status,
             @Parameter(hidden = true) Pageable pageable);
 

@@ -1039,8 +1039,9 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 |---|---|---|
 | 단위 | `HpTaskTest` (추가 4개) | 다시 시도 전이, 재시도 횟수 초기화, 다시 시도 기록 누적, DEAD가 아니면 거절 |
 | 저장소 | `HpTaskRepositoryTest` (추가 2개) | 다시 시도한 작업의 배치 대기 시간 기준, 다시 시도 컬럼 제약 |
-| 통합 | `HpTaskAdminFacadeTest` (10개) | 목록(상태·정렬·담는 값), 다시 시도 결과 3가지(성공·다시 거절·결과 모름), 다시 시도 뒤 배치 대기, 409·404, 두 번 누름, 관리자만 |
-| E2E | `AppearanceHpTaskAdminApiE2ETest` (3개) | HTTP 응답(`RsData`·Problem Detail), 보안 필터 403·401, 없는 상태 값 400 |
+| 통합 | `HpTaskAdminFacadeTest` (11개) | 목록(상태·정렬·담는 값), 다시 시도 결과 3가지(성공·다시 거절·결과 모름), 다시 시도 뒤 배치 대기, 409·404, 두 번 누름, 복제본으로 관리자 재확인(정지·강등), 관리자만 |
+| 통합 | `AppearanceConcurrentUpdateTest` (추가 1개) | 동시 다시 시도 → 409 `CONCURRENT_UPDATE` |
+| E2E | `AppearanceHpTaskAdminApiE2ETest` (4개) | HTTP 응답(`RsData`·Problem Detail), 보안 필터 403·401, 강등된 관리자 403 `NOT_ADMIN`, 없는 상태 값 400 |
 | 통합 | `AppearanceSwaggerDocsTest` (추가 1개) | 두 API의 성공 응답 스키마가 `RsData` |
 
 ### 20.2 단위 — `HpTaskTest`
@@ -1065,7 +1066,9 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 다시 시도 | `DONE` 작업 | 409 `HP_TASK_NOT_DEAD`, Billing 호출 없음, 다시 시도 기록 없음 |
 | 다시 시도 | 없는 작업 | 404 `HP_TASK_NOT_FOUND` |
 | 다시 시도 | 성공한 뒤 한 번 더 누름 | 409 `HP_TASK_NOT_DEAD`, 다시 시도 1회 그대로 |
+| 권한 | 세션은 관리자, 복제본이 정지 → 다시 시도·목록 / 복제본이 USER(강등) → 다시 시도 | 403 `APPEARANCE_USER_NOT_ACTIVE` ×2 / 403 `NOT_ADMIN`. 작업 `DEAD`·다시 시도 0회 그대로, Billing 호출 없음 |
 | 권한 | 인플루언서가 목록·다시 시도 | `AccessDeniedException`, 작업은 `DEAD` 그대로 |
+| 동시 (`AppearanceConcurrentUpdateTest`) | 격리 작업을 읽은 직후 다른 트랜잭션이 버전을 올려 커밋 | 409 `CONCURRENT_UPDATE`, 작업 `DEAD`·다시 시도 0회 그대로, Billing 호출 없음 |
 
 ### 20.3-1 저장소 — `HpTaskRepositoryTest`
 
@@ -1080,10 +1083,11 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 |---|---|
 | 관리자: 목록(`status` 생략) → 다시 시도 → 한 번 더 → `status=DEAD` 목록 | 200 메시지·`DEAD` 1건(종류·마지막 오류·격리 시각, `page.totalElements` 1) → 200 `DONE`·다시 시도 1회·관리자 ID → 409 `HP_TASK_NOT_DEAD` → 0건 |
 | 없는 작업 다시 시도 / `status=UNKNOWN` | 404 `HP_TASK_NOT_FOUND` / 400 |
+| 세션 관리자, 복제본 USER(강등): 다시 시도·목록 | 403 `NOT_ADMIN` ×2 |
 | 인증된 인플루언서 목록·다시 시도 / 비로그인 목록 | 보안 필터에서 403 / 401. 작업은 `DEAD`, 다시 시도 0회 그대로 |
 
 ### 20.5 확인하지 않은 것
 
-- 두 관리자가 같은 작업을 동시에 다시 시도하면 버전 충돌로 한쪽이 409 `CONCURRENT_UPDATE`다(늦게 누르면 이미 대기라 409 `HP_TASK_NOT_DEAD`). 기존 낙관적 락 흐름(`HpTaskSupport.flushOrConflict`, 17.2와 같은 방식)이라 따로 동시성 테스트를 두지 않았다.
+- 두 관리자가 실제 스레드로 동시에 누르는 경우는 타이밍에 기대지 않도록, 위 동시 테스트처럼 "읽은 직후 다른 트랜잭션이 먼저 커밋"으로 만든다(17.2와 같은 방식). 늦게 누르면 이미 대기라 409 `HP_TASK_NOT_DEAD`다.
 - 같은 작업이 두 곳에서 동시에 Billing에 가도 HP는 한 번만 움직인다: Billing이 지갑을 잠근 뒤 같은 요청 ID 기록을 확인해 두 번째는 처음 결과를 돌려주고, 출연은 대기 중일 때만 결과를 기록한다(버전 충돌이면 먼저 기록한 쪽). 실제 Billing으로 확인하는 일은 Mock Billing·HTTP 전환 작업에서 한다.
 - E2E는 이 이슈 시점의 방식(MockMvc)으로 썼다. 출연 E2E를 RestAssured로 바꾸는 작업(#390)이 먼저 병합되면 그 방식에 맞춘다.

@@ -23,6 +23,7 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     APPEARANCE_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "출연 회원 정보를 찾을 수 없습니다."),
     APPEARANCE_USER_NOT_ACTIVE(HttpStatus.FORBIDDEN, "현재 이용할 수 없는 회원입니다."),
     NOT_INFLUENCER(HttpStatus.FORBIDDEN, "인플루언서 이상만 출연 거래에 참여할 수 있습니다."),
+    NOT_ADMIN(HttpStatus.FORBIDDEN, "관리자만 이용할 수 있습니다."),
 
     // 출연 요청서
     CANNOT_REQUEST_SELF(HttpStatus.BAD_REQUEST, "자기 자신에게는 출연을 요청할 수 없습니다."),

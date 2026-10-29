@@ -27,18 +27,24 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class HpTaskManualRetryUseCase {
 
+    private final AppearanceUserSupport appearanceUserSupport;
     private final HpTaskSupport hpTaskSupport;
 
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
     /**
-     * @throws com.hapbang.appearance.domain.AppearanceException 작업 없음({@code HP_TASK_NOT_FOUND}),
+     * 관리자 자격(정상 상태의 관리자)을 먼저 확인한다 (관리자 API 서비스 단 검증).
+     *
+     * @throws com.hapbang.appearance.domain.AppearanceException 관리자 자격 없음({@code APPEARANCE_USER_NOT_FOUND},
+     *                                                          {@code APPEARANCE_USER_NOT_ACTIVE}, {@code NOT_ADMIN}),
+     *                                                          작업 없음({@code HP_TASK_NOT_FOUND}),
      *                                                          격리된 작업이 아님({@code HP_TASK_NOT_DEAD}),
      *                                                          동시 처리 충돌({@code CONCURRENT_UPDATE})
      */
     @Transactional
     public void reopen(Long adminId, Long taskId) {
+        appearanceUserSupport.getAdmin(adminId);
         HpTask task = hpTaskSupport.getForAdmin(taskId);
         int previousAttempts = task.getAttemptCount();
         String previousError = task.getLastError();

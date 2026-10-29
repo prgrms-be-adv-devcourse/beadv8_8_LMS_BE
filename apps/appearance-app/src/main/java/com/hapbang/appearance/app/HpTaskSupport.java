@@ -44,8 +44,11 @@ public class HpTaskSupport {
      * @throws AppearanceException 작업 없음({@code HP_TASK_NOT_FOUND})
      */
     public HpTask getForAdmin(Long taskId) {
-        return hpTaskRepository.findById(taskId)
-                .orElseThrow(() -> new AppearanceException(AppearanceErrorCode.HP_TASK_NOT_FOUND));
+        Optional<HpTask> found = hpTaskRepository.findById(taskId);
+        if (found.isEmpty()) {
+            throw new AppearanceException(AppearanceErrorCode.HP_TASK_NOT_FOUND);
+        }
+        return found.get();
     }
 
     /** 상태별 작업 목록 (관리자). 정렬은 요청과 관계없이 마지막으로 바뀐 작업부터 */

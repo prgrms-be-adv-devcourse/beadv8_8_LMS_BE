@@ -24,7 +24,10 @@ import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
 import com.hapbang.appearance.domain.HpTask;
+import com.hapbang.appearance.domain.HpTaskReason;
+import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
+import com.hapbang.appearance.domain.HpTaskType;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
@@ -32,7 +35,11 @@ import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.AppearanceTestClock;
+import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.BillingStubs.Rejection;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 
 /**
  * 낙관적 락 충돌 처리 (ISSUE.md APR-37). 스레드 타이밍에 기대지 않고, 행을 읽은 직후 다른 트랜잭션이 같은 행을 먼저 바꿔
@@ -49,6 +56,7 @@ class AppearanceConcurrentUpdateTest {
 
     private static final Long HOST = 1L;
     private static final Long GUEST = 2L;
+    private static final Long ADMIN = 900L;
 
     @Autowired
     AppearanceRequestFacade appearanceRequestFacade;
@@ -61,6 +69,9 @@ class AppearanceConcurrentUpdateTest {
 
     @Autowired
     HpTaskExecuteUseCase hpTaskExecuteUseCase;
+
+    @Autowired
+    HpTaskAdminFacade hpTaskAdminFacade;
 
     @MockitoSpyBean
     AppearanceRequestSupport appearanceRequestSupport;
@@ -202,5 +213,35 @@ class AppearanceConcurrentUpdateTest {
         HpTask recorded = hpTaskRepository.findById(task.getId()).orElseThrow();
         assertThat(recorded.getStatus()).isEqualTo(HpTaskStatus.DONE);
         assertThat(recorded.getAttemptCount()).isEqualTo(9); // 먼저 기록한 실행의 값 그대로 (덮어쓰지 않음)
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("관리자 다시 시도(#397): 격리 작업을 읽은 직후 다른 관리자가 먼저 바꿔 커밋하면 409 CONCURRENT_UPDATE, 작업·다시 시도 기록 그대로, Billing 호출 없음")
+    void manualRetryConflict() {
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.user(ADMIN, Role.ADMIN, UserStatus.ACTIVE));
+        HpTask released = hpTaskRepository.saveAndFlush(HpTask.release(HpTaskRefType.APPEARANCE_REQUEST, 11L, HOST,
+                30_000L, HpTaskReason.REQUEST_REJECTED,
+                HpTask.requestId(HpTaskRefType.APPEARANCE_REQUEST, 11L, HpTaskType.RELEASE, 1), now()));
+        BillingStubs.reject(billingClient, Rejection.HOLD_NOT_FOUND);
+        hpTaskExecuteUseCase.execute(released.getId()); // Billing 거절 → 작업 DEAD
+        BillingStubs.available(billingClient);
+        HpTask dead = hpTaskRepository.findById(released.getId()).orElseThrow();
+        assertThat(dead.getStatus()).isEqualTo(HpTaskStatus.DEAD);
+        doAnswer(invocation -> {
+            Object loaded = invocation.callRealMethod();
+            commitInOtherTransaction("update appearances.hp_tasks set version = version + 1 where id = ?",
+                    dead.getId());
+            return loaded;
+        }).when(hpTaskSupport).getForAdmin(dead.getId());
+
+        assertThatThrownBy(() -> hpTaskAdminFacade.retry(ADMIN, dead.getId()))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.CONCURRENT_UPDATE));
+
+        HpTask after = hpTaskRepository.findById(dead.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(HpTaskStatus.DEAD);
+        assertThat(after.getManualRetryCount()).isZero();
+        assertThat(BillingCalls.none(billingClient)).isTrue();
     }
 }

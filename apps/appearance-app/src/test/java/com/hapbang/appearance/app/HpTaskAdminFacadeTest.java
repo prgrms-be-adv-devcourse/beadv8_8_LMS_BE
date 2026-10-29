@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,7 @@ import com.hapbang.appearance.domain.HpTaskReason;
 import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
 import com.hapbang.appearance.domain.HpTaskType;
+import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
@@ -32,6 +34,8 @@ import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 
 /**
  * 관리자 HP 작업 조회·다시 시도 (#397). DB와 Billing 대역으로 확인한다.
@@ -47,6 +51,9 @@ class HpTaskAdminFacadeTest {
 
     @Autowired
     HpTaskAdminFacade hpTaskAdminFacade;
+
+    @Autowired
+    AppearanceUserFacade appearanceUserFacade;
 
     @Autowired
     HpTaskExecuteUseCase hpTaskExecuteUseCase;
@@ -68,6 +75,11 @@ class HpTaskAdminFacadeTest {
 
     @Autowired
     AppearanceTestClock clock;
+
+    @BeforeEach
+    void setUp() {
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.user(ADMIN, Role.ADMIN, UserStatus.ACTIVE));
+    }
 
     private LocalDateTime now() {
         return clock.now();
@@ -109,7 +121,7 @@ class HpTaskAdminFacadeTest {
             Long second = deadTask(12L);
             releaseTask(13L); // 성공 → DONE
 
-            Page<HpTaskAdminResDto> page = hpTaskAdminFacade.getTasks(HpTaskStatus.DEAD, PageRequest.of(0, 20));
+            Page<HpTaskAdminResDto> page = hpTaskAdminFacade.getTasks(ADMIN, HpTaskStatus.DEAD, PageRequest.of(0, 20));
 
             assertThat(page.getTotalElements()).isEqualTo(2);
             assertThat(page.getContent()).extracting(HpTaskAdminResDto::id).containsExactly(second, first);
@@ -133,7 +145,7 @@ class HpTaskAdminFacadeTest {
             deadTask(11L);
             Long done = releaseTask(12L);
 
-            Page<HpTaskAdminResDto> page = hpTaskAdminFacade.getTasks(HpTaskStatus.DONE, PageRequest.of(0, 20));
+            Page<HpTaskAdminResDto> page = hpTaskAdminFacade.getTasks(ADMIN, HpTaskStatus.DONE, PageRequest.of(0, 20));
 
             assertThat(page.getContent()).extracting(HpTaskAdminResDto::id).containsExactly(done);
         }
@@ -247,12 +259,35 @@ class HpTaskAdminFacadeTest {
     }
 
     @Test
+    @DisplayName("세션은 관리자지만 로그인 뒤 정지됐으면 403 APPEARANCE_USER_NOT_ACTIVE, 관리자 권한을 잃었으면 403 NOT_ADMIN (작업 그대로, Billing 호출 없음)")
+    void adminRecheckedFromReplica() {
+        Long taskId = deadTask(11L);
+
+        appearanceUserFacade.syncModified(AppearanceUserFixture.user(ADMIN, Role.ADMIN, UserStatus.SUSPENDED));
+        assertThatThrownBy(() -> hpTaskAdminFacade.retry(ADMIN, taskId))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.APPEARANCE_USER_NOT_ACTIVE));
+        assertThatThrownBy(() -> hpTaskAdminFacade.getTasks(ADMIN, HpTaskStatus.DEAD, PageRequest.of(0, 20)))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.APPEARANCE_USER_NOT_ACTIVE));
+
+        appearanceUserFacade.syncModified(AppearanceUserFixture.user(ADMIN, Role.USER, UserStatus.ACTIVE));
+        assertThatThrownBy(() -> hpTaskAdminFacade.retry(ADMIN, taskId))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.NOT_ADMIN));
+
+        assertThat(task(taskId).getStatus()).isEqualTo(HpTaskStatus.DEAD);
+        assertThat(task(taskId).getManualRetryCount()).isZero();
+        assertThat(BillingCalls.none(billingClient)).isTrue();
+    }
+
+    @Test
     @WithMockUser(roles = "INFLUENCER")
     @DisplayName("관리자가 아니면 목록·다시 시도 모두 거절 (AccessDenied)")
     void adminOnly() {
         Long taskId = deadTask(11L);
 
-        assertThatThrownBy(() -> hpTaskAdminFacade.getTasks(HpTaskStatus.DEAD, PageRequest.of(0, 20)))
+        assertThatThrownBy(() -> hpTaskAdminFacade.getTasks(ADMIN, HpTaskStatus.DEAD, PageRequest.of(0, 20)))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> hpTaskAdminFacade.retry(ADMIN, taskId))
                 .isInstanceOf(AccessDeniedException.class);

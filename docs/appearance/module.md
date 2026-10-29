@@ -1040,17 +1040,17 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 | POST | `/api/v1/appearances/admin/hp-tasks/{taskId}/retry` | 격리 작업 다시 시도. 실행 뒤 작업을 200으로 돌려준다 |
 
 - 응답 한 건(`HpTaskAdminResDto`): 작업 종류·대상(요청서·모집글, 출연 ID)·보류 회원·받는 회원·금액(위약금·지급액)·사유·멱등 키·상태·시도 횟수·다음 시도 시각·마지막 오류·완료(격리) 시각·생성 시각·다시 시도 기록 3개.
-- 권한: 보안 설정이 `/api/v1/*/admin/**`를 관리자만 통과시키고(그 밖 403, 비로그인 401), `HpTaskAdminFacade`도 `@PreAuthorize("hasRole('ADMIN')")`로 확인한다.
+- 권한 (관리자 API 3중 방어): ① 보안 설정이 `/api/v1/*/admin/**`를 관리자만 통과시키고(그 밖 403, 비로그인 401) ② `HpTaskAdminFacade`의 `@PreAuthorize("hasRole('ADMIN')")`가 세션 역할을 확인하고 ③ 복제한 회원 정보로 지금도 정상 상태의 관리자인지 확인한다(`AppearanceUserSupport.getAdmin`, 목록·다시 시도 모두). 세션 역할은 로그인 시점 값이라, 로그인 뒤 정지되면 403 `APPEARANCE_USER_NOT_ACTIVE`, 관리자 권한을 잃으면 403 `NOT_ADMIN`이다.
 
 ### 19.2 다시 시도 흐름
 
 ```
-[트랜잭션] 작업 조회(없으면 404 HP_TASK_NOT_FOUND) → DEAD 확인(아니면 409 HP_TASK_NOT_DEAD)
+[트랜잭션] 관리자 자격 확인(정지 403 APPEARANCE_USER_NOT_ACTIVE / 강등 403 NOT_ADMIN) → 작업 조회(없으면 404 HP_TASK_NOT_FOUND) → DEAD 확인(아니면 409 HP_TASK_NOT_DEAD)
           → PENDING, 시도 횟수 0, 다음 시도 시각 = 지금, 완료 시각 비움, 다시 시도 기록(횟수+1·관리자·시각)
           → 바로 반영해 버전 충돌이면 409 CONCURRENT_UPDATE → [HP_TASK_MANUAL_RETRY] 로그 (커밋)
 [트랜잭션 밖] HpTaskExecuteUseCase.execute — 업무 처리 직후 실행과 같은 1회 실행
           → 성공 DONE / Billing 거절 DEAD / 결과 모름 PENDING(재시도 배치가 이어서)
-→ 실행 뒤 작업을 응답 (다시 실패해도 200, 결과는 status로 본다)
+[읽기 전용 트랜잭션] 실행 뒤 작업을 읽어 응답 (다시 실패해도 200, 결과는 status로 본다)
 ```
 
 - 재시도 배치는 처음 시도 전 작업을 "시작한 지" 대기 시간(1분)이 지나야 가져간다. 시작 시각은 다시 시도한 작업이면 `last_manual_retry_at`, 아니면 `created_at`이다. 다시 시도하면 시도 횟수가 0이 되고 만든 시각은 오래전이라, 만든 시각만 보면 관리자 요청 안에서 실행 중인 작업을 배치가 함께 실행하기 때문이다. 실행 결과를 기록하지 못하고 끊기면 1분 뒤 배치가 이어받는다.

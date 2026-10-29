@@ -31,10 +31,10 @@ public class ApiV1AppearanceHpTaskAdminController implements ApiV1AppearanceHpTa
 
     @Override
     @GetMapping
-    public RsData<Page<HpTaskAdminResDto>> getTasks(
+    public RsData<Page<HpTaskAdminResDto>> getTasks(@LoginUserId Long adminId,
             @RequestParam(name = "status", defaultValue = "DEAD") HpTaskStatus status,
             Pageable pageable) {
-        Page<HpTaskAdminResDto> tasks = hpTaskAdminFacade.getTasks(status, pageable);
+        Page<HpTaskAdminResDto> tasks = hpTaskAdminFacade.getTasks(adminId, status, pageable);
         return RsData.ok("HP 작업 목록을 조회했습니다.", tasks);
     }
 

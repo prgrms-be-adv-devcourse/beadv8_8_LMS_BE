@@ -6,17 +6,20 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.app.HpTaskExecuteUseCase;
 import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskReason;
 import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskType;
+import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
@@ -24,6 +27,7 @@ import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.TestLogin;
 
 /**
@@ -52,6 +56,14 @@ class AppearanceHpTaskAdminApiE2ETest {
 
     @Autowired
     AppearanceTestClock clock;
+
+    @Autowired
+    AppearanceUserFacade appearanceUserFacade;
+
+    @BeforeEach
+    void setUp() {
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.user(ADMIN, Role.ADMIN, UserStatus.ACTIVE));
+    }
 
     private long deadTask() {
         BillingStubs.reject(billingClient, Rejection.HOLD_NOT_FOUND);
@@ -102,6 +114,20 @@ class AppearanceHpTaskAdminApiE2ETest {
                 .andExpect(jsonPath("$.code").value("HP_TASK_NOT_FOUND"));
         mockMvc.perform(get(BASE + "?status=UNKNOWN").with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("세션은 관리자지만 관리자 권한을 잃었으면(복제본 USER) 목록·다시 시도 403 NOT_ADMIN")
+    void demotedAdmin() throws Exception {
+        long taskId = deadTask();
+        appearanceUserFacade.syncModified(AppearanceUserFixture.user(ADMIN, Role.USER, UserStatus.ACTIVE));
+
+        mockMvc.perform(post(BASE + "/" + taskId + "/retry").with(TestLogin.as(ADMIN, Role.ADMIN)).with(csrf()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_ADMIN"));
+        mockMvc.perform(get(BASE).with(TestLogin.as(ADMIN, Role.ADMIN)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_ADMIN"));
     }
 
     @Test
