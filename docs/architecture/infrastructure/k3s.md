@@ -204,7 +204,7 @@ k8s/
     overlays/    local(k3d), prod
 ```
 
-공용 Gateway·TLS·platform 정책은 `k8s/gateway/`, 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 `apps/<앱>/k8s/base/`에 둔다(#372). React 정적 서버는 `web:80` Service로 #374에서 배포한다.
+공용 Gateway·TLS·IMDS 차단 정책은 `k8s/gateway/`, 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 `apps/<앱>/k8s/base/`에 둔다(#372). React 정적 서버는 `web:80` Service로 #374에서 배포한다.
 
 CI 자동 배포는 앱마다 `apps/<앱>/k8s/overlays/prod`만 적용한다. `cluster/`와 `platform/`은 자주 바뀌지 않고 잘못 건드리면 데이터가 위험하므로 수동으로만 적용한다. 그래서 앱 배포·롤백이 PostgreSQL 같은 stateful workload를 건드리지 않는다.
 

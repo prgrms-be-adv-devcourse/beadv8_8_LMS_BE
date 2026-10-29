@@ -103,6 +103,7 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 3. (완료) medium을 agent로 join하고 `app-observe` label을 적용한다.
 4. `k8s/cluster`, `k8s/platform`을 수동으로 적용하고, local k3d에서 검증한 앱마다의 `apps/<앱>/k8s/overlays/prod`를 적용한다. dev namespace는 만들지 않는다. 이 단계까지 외부 진입은 계속 Compose의 edge nginx다. 적용 순서와 확인 명령은 [k8s manifest](k8s.md)를 따른다.
    - (완료) `cluster`·`platform` 적용. PostgreSQL 앱 role 로그인, Redis PING, Kafka broker 응답, Elasticsearch green과 nori 분석, 관측성 5종 Running을 확인했다. 적용 직후 메모리는 large 4.4 GiB(Compose 포함), medium 1.3 GiB였다. 앱 prod overlay는 앱 이미지와 SealedSecret 준비 뒤 적용한다.
+   - (완료) IMDS 차단(`k8s/gateway/base/metadata-networkpolicy.yaml`)은 Gateway와 무관해 먼저 적용했다. 그때 있던 `hapbang-prod`·`hapbang-platform`·`elastic-system`에만 걸었고, `envoy-gateway-system`·`cert-manager`는 Gateway 설치 때 함께 건다. 적용 뒤 platform pod가 모두 Running이고 Elasticsearch가 green인 것을 확인했다. pod에서 IMDS가 실제로 막히는지는 아직 확인하지 않았다.
    - (완료) `k8s/platform` 전에 large에 Elasticsearch용 `vm.max_map_count=1048576`을 sysctl로 고정한다(`/etc/sysctl.d/`). ES 9의 권장값이다([ECK virtual memory](https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/virtual-memory)).
    - (완료, 사용자 보관) Sealed Secrets controller가 뜨면 바로 [키를 백업](#sealed-secrets-키-백업)한 뒤 SealedSecret을 만든다.
 5. 모듈 앱이 정한 node에 배치됐는지 확인한다.

@@ -9,7 +9,7 @@
 | 경로 | namespace | 내용 | 적용 |
 | --- | --- | --- | --- |
 | `k8s/cluster` | kube-system 외 | namespace, `local-path-retain` StorageClass, HelmChart(ECK operator, Sealed Secrets) | 수동 |
-| `k8s/gateway/{install,base,overlays}` | envoy-gateway-system·cert-manager 외 | 공용 Envoy·TLS·Grafana·platform 정책. [Gateway 절차](gateway.md) | 수동 |
+| `k8s/gateway/{install,base,overlays}` | envoy-gateway-system·cert-manager 외 | 공용 Envoy·TLS·Grafana·IMDS 차단 정책. [Gateway 절차](gateway.md) | 수동 |
 | `k8s/components/core-data` | - | `hapbang.io/pool: core-data` label에 large required node affinity를 붙이는 Kustomize Component | platform이 사용 |
 | `k8s/platform/{base,overlays/local,overlays/prod}` | hapbang-platform | PostgreSQL(HelmChart), Kafka·Redis(StatefulSet), Elasticsearch(ECK CR, nori는 init container로 설치), 관측성 HelmChart 5개 | 수동 |
 | `apps/<앱>/k8s/{base,overlays/local,overlays/prod}` | hapbang-prod | 앱 Deployment·Service·ConfigMap·HTTPRoute·SecurityPolicy·NetworkPolicy. overlay는 이미지와 Secret | prod는 앱마다 배포 workflow(#374) |
@@ -20,7 +20,7 @@
 - Helm CLI는 쓰지 않는다. 차트는 k3s 내장 helm-controller의 `HelmChart`(`helm.cattle.io/v1`)로 설치하고 values는 `valuesContent`에 적는다([k3s Helm](https://docs.k3s.io/add-ons/helm)).
 - platform의 StatefulSet은 `hapbang.io/pool: core-data` label을 붙이면 component가 affinity를 넣는다. HelmChart와 Elasticsearch CR에는 component가 닿지 않으므로 values·`podTemplate`에 같은 affinity를 직접 적는다.
 - 앱은 지금 있는 6개만 둔다. notification·search는 각 앱 티켓에서 더한다. appearance·lecture·customer-support는 다른 앱 프로세스에만 있는 Port 구현 때문에 단독으로 기동하지 못해 `replicas: 0`이다(#280).
-- 공용 Envoy Gateway·cert-manager와 platform 정책은 `k8s/gateway/`에 있다([Gateway 구성](gateway.md), #372). 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 각 앱의 `apps/<앱>/k8s/base/`에 있다. 앱 외부 8080·내부 8081을 분리한다. Kafka·Redis는 cluster 내부 NetworkPolicy로 접근을 제한한다.
+- 공용 Envoy Gateway·cert-manager와 IMDS 차단 정책은 `k8s/gateway/`에 있다([Gateway 구성](gateway.md), #372). 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 각 앱의 `apps/<앱>/k8s/base/`에 있다. 앱 외부 8080·내부 8081을 분리한다. platform(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)에는 ingress NetworkPolicy를 두지 않는다.
 
 ## 버전
 
