@@ -9,9 +9,13 @@ import java.net.ServerSocket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeoutException;
+import java.util.function.BooleanSupplier;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,10 +36,18 @@ import com.hapbang.shared.billing.dto.ReleaseResultDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+
 // 지갑 내부 API Client의 요청 모양·응답 해제·실패 분류(D64)를 가짜 HTTP 서버로 확인한다 (#272). 실제 지갑 API는 #273이 확인한다.
+// Circuit Breaker·짧은 Retry·TimeLimiter(#411)도 여기서 확인한다. 재시도 대기는 테스트 시간을 줄이려고 10ms로 둔다.
 class BillingApiClientTest {
 
     private static final String API_KEY = "unit-internal-api-key";
+    private static final BillingClientProperties.Retry FAST_RETRY =
+            new BillingClientProperties.Retry(null, Duration.ofMillis(10), null, null);
+    private static final String HOLD_SUCCEEDED = """
+            {"statusCode":200,"message":"","data":{
+              "referenceType":"LECTURE_ORDER_ITEM","referenceId":31,"heldHp":10000,"replayed":false}}""";
 
     private HttpServer server;
     private final List<Request> requests = new CopyOnWriteArrayList<>();
@@ -43,6 +55,8 @@ class BillingApiClientTest {
     private volatile String contentType;
     private volatile String body;
     private volatile long delayMillis;
+    /** 차례로 쓸 응답. 비면 {@link #respond}로 정한 응답을 쓴다 */
+    private final Deque<Response> queued = new ConcurrentLinkedDeque<>();
 
     @BeforeEach
     void setUp() throws IOException {
@@ -53,11 +67,13 @@ class BillingApiClientTest {
                     exchange.getRequestHeaders().getFirst("Content-Type"),
                     new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
             sleep(delayMillis);
-            byte[] bytes = body == null ? new byte[0] : body.getBytes(StandardCharsets.UTF_8);
-            if (contentType != null) {
-                exchange.getResponseHeaders().add("Content-Type", contentType);
+            Response next = queued.poll();
+            Response response = next != null ? next : new Response(status, contentType, body);
+            byte[] bytes = response.body() == null ? new byte[0] : response.body().getBytes(StandardCharsets.UTF_8);
+            if (response.contentType() != null) {
+                exchange.getResponseHeaders().add("Content-Type", response.contentType());
             }
-            exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
+            exchange.sendResponseHeaders(response.status(), bytes.length == 0 ? -1 : bytes.length);
             if (bytes.length > 0) {
                 exchange.getResponseBody().write(bytes);
             }
@@ -247,6 +263,106 @@ class BillingApiClientTest {
                 });
     }
 
+    @Test
+    void 재시도_가능한_실패는_짧게_3번까지_보내고_마지막_예외를_던진다() {
+        respond(429, "application/problem+json", """
+                {"status":429,"detail":"요청이 너무 많습니다.","code":"TOO_MANY_REQUESTS"}""");
+
+        assertRetryable(() -> client().hold(holdCommand()), 429, "TOO_MANY_REQUESTS");
+        assertThat(requests).hasSize(3);
+    }
+
+    @Test
+    void 재시도_중_성공하면_성공_결과를_돌려준다() {
+        queue(new Response(408, null, null));
+        respond(200, "application/json", HOLD_SUCCEEDED);
+
+        assertThat(client().hold(holdCommand())).isInstanceOf(BillingCallResult.Succeeded.class);
+        assertThat(requests).hasSize(2);
+    }
+
+    @Test
+    void 결과_불명과_지갑이_응답한_실패는_다시_보내지_않는다() {
+        respond(500, null, null);
+        assertUnknown(() -> client().hold(holdCommand()), 500, null);
+        assertThat(requests).hasSize(1);
+
+        respond(409, "application/problem+json", """
+                {"status":409,"detail":"HP 잔액이 부족합니다.","code":"INSUFFICIENT_BALANCE"}""");
+        assertThat(client().hold(holdCommand())).isInstanceOf(BillingCallResult.Failed.class);
+        assertThat(requests).hasSize(2);
+    }
+
+    @Test
+    void 결과를_받지_못한_실패가_임계값을_넘으면_회로가_열리고_요청을_보내지_않는다() {
+        BillingApiClient client = client(circuitBreaker(Duration.ofMinutes(1)));
+        respond(500, null, null);
+        assertUnknown(() -> client.hold(holdCommand()), 500, null);
+        assertUnknown(() -> client.hold(holdCommand()), 500, null);
+        assertThat(client.isCircuitOpen()).isTrue();
+
+        // 요청을 보내지 않았으니 처리되지 않은 것이 확실하다 (D66). 짧은 Retry도 다시 보내지 않는다
+        assertRetryable(() -> client.hold(holdCommand()), 0, BillingApiClient.CIRCUIT_OPEN);
+        assertThat(requests).hasSize(2);
+    }
+
+    @Test
+    void 열린_회로는_호출이_없어도_대기_뒤_시험_중이_되고_시험_호출이_성공하면_닫힌다() {
+        BillingApiClient client = client(circuitBreaker(Duration.ofMillis(100)));
+        respond(503, null, null);
+        assertUnknown(() -> client.hold(holdCommand()), 503, null);
+        assertUnknown(() -> client.hold(holdCommand()), 503, null);
+        assertThat(client.isCircuitOpen()).isTrue();
+
+        // 배치는 열린 회로에 호출하지 않으므로(D67) 호출 없이 넘어가야 한다
+        await(() -> client.circuitBreaker().getState() == CircuitBreaker.State.HALF_OPEN);
+        assertThat(client.isCircuitOpen()).isFalse();
+
+        respond(200, "application/json", HOLD_SUCCEEDED);
+        assertThat(client.hold(holdCommand())).isInstanceOf(BillingCallResult.Succeeded.class);
+
+        assertThat(client.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+    }
+
+    @Test
+    void 지갑이_응답한_실패와_429와_락_대기_초과로는_회로가_열리지_않는다() {
+        BillingApiClient client = client(circuitBreaker(Duration.ofMinutes(1)));
+        respond(409, "application/problem+json", """
+                {"status":409,"detail":"HP 잔액이 부족합니다.","code":"INSUFFICIENT_BALANCE"}""");
+        client.hold(holdCommand());
+        client.hold(holdCommand());
+
+        respond(429, null, null);
+        assertRetryable(() -> client.hold(holdCommand()), 429, null);
+
+        respond(503, "application/problem+json", """
+                {"status":503,"detail":"잠시 후 다시 시도해 주세요.","code":"HP_LOCK_TIMEOUT"}""");
+        assertUnknown(() -> client.hold(holdCommand()), 503, "HP_LOCK_TIMEOUT");
+        assertUnknown(() -> client.hold(holdCommand()), 503, "HP_LOCK_TIMEOUT");
+
+        assertThat(client.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(client.circuitBreaker().getMetrics().getNumberOfFailedCalls()).isZero();
+    }
+
+    @Test
+    void 시도가_시간_상한을_넘으면_결과_불명이다() {
+        respond(200, "application/json", HOLD_SUCCEEDED);
+        delayMillis = 1_000L;
+        BillingApiClient client = new BillingApiClient(RestClient.builder(),
+                new BillingClientProperties(baseUrl(), Duration.ofMillis(500), Duration.ofSeconds(5),
+                        new BillingClientProperties.Resilience(null, FAST_RETRY, Duration.ofMillis(200))),
+                API_KEY);
+
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> client.hold(holdCommand()))
+                .isInstanceOfSatisfying(BillingCallException.class, e -> {
+                    assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.UNKNOWN_RESULT);
+                    assertThat(e.getHttpStatus()).isZero();
+                    assertThat(e).hasRootCauseInstanceOf(TimeoutException.class);
+                });
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(900));
+    }
+
     private static void assertUnknown(Runnable call, int status, String rawCode) {
         assertThatThrownBy(call::run).isInstanceOfSatisfying(BillingCallException.class, e -> {
             assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.UNKNOWN_RESULT);
@@ -261,13 +377,47 @@ class BillingApiClientTest {
         this.body = body;
     }
 
+    private void queue(Response response) {
+        queued.addLast(response);
+    }
+
+    private String baseUrl() {
+        return "http://127.0.0.1:" + server.getAddress().getPort();
+    }
+
     private BillingApiClient client() {
-        return client("http://127.0.0.1:" + server.getAddress().getPort());
+        return client(baseUrl());
+    }
+
+    private BillingApiClient client(BillingClientProperties.CircuitBreaker circuitBreaker) {
+        return client(baseUrl(), circuitBreaker);
     }
 
     private static BillingApiClient client(String baseUrl) {
-        return new BillingApiClient(RestClient.builder(),
-                new BillingClientProperties(baseUrl, Duration.ofMillis(500), Duration.ofMillis(300)), API_KEY);
+        return client(baseUrl, null);
+    }
+
+    private static BillingApiClient client(String baseUrl, BillingClientProperties.CircuitBreaker circuitBreaker) {
+        return new BillingApiClient(RestClient.builder(), new BillingClientProperties(baseUrl, Duration.ofMillis(500),
+                Duration.ofMillis(300), new BillingClientProperties.Resilience(circuitBreaker, FAST_RETRY, null)),
+                API_KEY);
+    }
+
+    /** 호출 2번 중 절반이 실패하면 열리는 작은 회로. 시험 호출은 1번이다 */
+    private static BillingClientProperties.CircuitBreaker circuitBreaker(Duration openDuration) {
+        return new BillingClientProperties.CircuitBreaker(4, 2, 50f, null, null, openDuration, 1);
+    }
+
+    private static HoldCommand holdCommand() {
+        return new HoldCommand(7L, BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 10_000L);
+    }
+
+    private static void await(BooleanSupplier condition) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+        while (!condition.getAsBoolean()) {
+            assertThat(System.nanoTime()).as("2초 안에 조건이 맞아야 한다").isLessThan(deadline);
+            sleep(20);
+        }
     }
 
     private static void sleep(long millis) {
@@ -283,5 +433,9 @@ class BillingApiClientTest {
 
     /** 가짜 서버가 받은 요청 */
     private record Request(String method, String path, String apiKey, String contentType, String body) {
+    }
+
+    /** 가짜 서버가 보낼 응답 */
+    private record Response(int status, String contentType, String body) {
     }
 }

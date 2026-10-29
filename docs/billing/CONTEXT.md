@@ -58,9 +58,9 @@
 - 이슈 #273 본문에 없는 락 대기 상한(1.4: `lock_timeout`, `HP_LOCK_TIMEOUT`, 충전·환불·환전 Facade 변환)을 #273에 포함한다. Client 응답 timeout(5초)과 무제한 락 대기가 맞지 않아 내부 API와 함께 정했다. PR 본문에 이 사유를 적는다.
 - 범위 밖: Resilience4j 적용(별도 이슈, 동시 진행), `BillingPort` 삭제와 내부 Command 변환(#280), correlation ID(tracing 도입 때).
 
-## 2. Billing Client 회복성 — Resilience4j (이슈 번호 미정)
+## 2. Billing Client 회복성 — Resilience4j (#411)
 
-2026-10-29 `/grill-with-docs`로 정했다. 대상은 shared `BillingApiClient`이고, 실패 분류는 [`docs/api/internal-billing.md`](../api/internal-billing.md) 2장(강의 D64)을 따른다. **강의 합의 필요** 표시가 붙은 항목은 강의 실행기 동작이 바뀌거나 D64를 보강하므로, 강의 담당과 합의해 강의 결정 기록에 새 D번호로 남긴 뒤 구현한다. 계약 문서와 강의 문서는 합의 뒤에 고친다.
+2026-10-29 `/grill-with-docs`로 정했다. 대상은 shared `BillingApiClient`이고, 실패 분류는 [`docs/api/internal-billing.md`](../api/internal-billing.md) 2장(강의 D64·D66)을 따른다. **강의 합의** 표시가 붙은 항목은 강의 실행기 동작이 바뀌거나 D64를 보강해서 강의 담당과 합의했고(2026-10-29, 제안대로), 강의 결정 기록 D66~D68에 남겼다.
 
 ### 2.1 구조
 
@@ -76,22 +76,26 @@
 - 다음은 `BillingCallException`이어도 세지 않는다.
   - 429: 과부하 신호이지 장애가 아니다.
   - 503 `HP_LOCK_TIMEOUT`(1.4): 특정 지갑의 락 경합이라, 세면 회원 한 명의 경합으로 모든 회원의 호출이 막힌다. 분류는 그대로 UNKNOWN_RESULT다.
-- 값: count 기반 창 20, 최소 호출 10, 실패율 50%, OPEN 30초, HALF_OPEN 허용 3회, 느린 호출 4초(응답 timeout 5초보다 짧고 `lock_timeout` 3초보다 길다).
-- OPEN이라 요청을 보내지 않으면 `BillingCallException(RETRYABLE, 0, rawCode = "CIRCUIT_OPEN")`을 던진다. 요청이 지갑에 닿지 않은 것이 확실하므로 RETRYABLE이다. **강의 합의 필요**(D64 보강, D58 보상 판단과 연결).
-- 강의 HP 작업 배치는 선점 전에 CB가 OPEN이면 그 회차를 건너뛴다. 그래야 지갑 장애가 길어져도 정상 작업이 시도 횟수를 다 써서 `DEAD`가 되지 않는다. Client는 CB 상태를 알려 주는 메서드를 제공한다. **강의 합의 필요**(D57 실행기 변경).
+- 값: count 기반 창 20, 최소 호출 10, 실패율 50%, OPEN 30초, HALF_OPEN 허용 3회, 느린 호출 4초(응답 timeout 5초보다 짧고 `lock_timeout` 3초보다 길다), 느린 호출 비율 50%(실패율과 같게. 기본값 100%면 느린 호출로는 사실상 열리지 않는다).
+- OPEN이라 요청을 보내지 않으면 `BillingCallException(RETRYABLE, 0, rawCode = "CIRCUIT_OPEN")`을 던진다. 요청이 지갑에 닿지 않은 것이 확실하므로 RETRYABLE이다. **강의 합의 → D66**(D64 보강, D58 보상 판단과 연결).
+- 강의 HP 작업 배치는 선점 전에 CB가 OPEN이면 그 회차를 건너뛴다. 그래야 지갑 장애가 길어져도 정상 작업이 시도 횟수를 다 써서 `DEAD`가 되지 않는다. Client는 CB 상태를 알려 주는 `isCircuitOpen()`을 제공한다(OPEN·FORCED_OPEN이면 `true`, HALF_OPEN은 `false`). **강의 합의 → D67**(D57 실행기 변경). 실행기 변경은 강의 후속 이슈에서 한다.
+  - 배치가 열린 회로를 부르지 않으므로 OPEN → HALF_OPEN 자동 전이를 켠다(`automaticTransitionFromOpenToHalfOpenEnabled`). 끄면 호출이 있어야 HALF_OPEN이 되어, 주문 요청이 없을 때 회로가 계속 열려 배치가 영원히 건너뛴다.
 - CB 상태는 Micrometer 지표와 health에 노출한다. readiness에는 넣지 않는다. 지갑 장애로 강의·출연 pod까지 트래픽에서 빠지면 안 되기 때문이다.
+  - 지표: `resilience4j-micrometer`로 CB·Retry 지표를 Resilience4j 기본 이름(`resilience4j.circuitbreaker.*`, `resilience4j.retry.calls`)과 `name=billing` 태그로 낸다(`BillingClientMetrics`).
+  - health: `/actuator/health`의 `billingClient`(`BillingClientHealthIndicator`). CLOSED면 UP, OPEN·HALF_OPEN이면 UNKNOWN이고 DOWN은 쓰지 않는다(Resilience4j 기본 동작). 상세에 state·실패율·느린 호출 비율·호출 수를 담는다. k8s probe는 liveness·readiness 그룹만 보므로 pod에는 영향이 없다.
+  - 앱에는 actuator가 있으므로 shared는 `spring-boot-health`를 compileOnly로만 쓴다.
 
 ### 2.3 TimeLimiter
 
-- 소켓 timeout(연결 2초, 응답 5초)은 그대로 두고, TimeLimiter는 전체 상한(예: 8초)으로 둔다.
+- 소켓 timeout(연결 2초, 응답 5초)은 그대로 두고, TimeLimiter는 시도 한 번의 전체 상한 8초로 둔다. 소켓 timeout 합(7초)이 먼저 끝나는 것이 정상이고, TimeLimiter는 그것이 동작하지 않을 때의 안전망이다.
 - 시간 초과는 반드시 UNKNOWN_RESULT다. 시간이 다 돼도 HTTP 요청은 뒤에서 계속 돌아 지갑이 커밋할 수 있기 때문이다.
 - 실행 스레드는 가상 스레드다.
-- 주문 요청 하나의 시간 예산은 10초다. 넘으면 남은 항목은 배치로 넘기고 202(처리 중)로 응답한다(D58 흐름). **강의 합의 필요**.
+- 주문 요청 하나의 시간 예산은 10초다. 넘으면 남은 항목은 배치로 넘기고 202(처리 중)로 응답한다(D58 흐름). **강의 합의 → D68**, 구현은 #276.
 
 ### 2.4 짧은 Retry
 
 - RETRYABLE만 재시도한다(연결 거부, 408·425·429). UNKNOWN_RESULT, `Failed`, `CIRCUIT_OPEN`은 재시도하지 않고 HP 작업 백오프(D57)에 맡긴다.
-- 첫 호출을 포함해 3회, 200ms에서 시작해 두 배씩 늘리고 지터를 둔다. 기다리는 시간은 최대 약 0.6초다.
+- 첫 호출을 포함해 3회, 200ms에서 시작해 두 배씩 늘리고 지터 0.2(±20%, 강의 HP 작업 `retry-jitter-ratio`와 같다)를 둔다. 기다리는 시간은 최대 약 0.7초다.
 - 429의 `Retry-After`는 따르지 않는다.
 - 다 실패하면 마지막 `BillingCallException`을 그대로 던진다. 실행기 분류는 바뀌지 않는다.
 - 주문 요청 안 즉시 실행과 HP 작업 배치에 같은 정책을 쓴다.
@@ -101,10 +105,11 @@
 
 - 이번에는 `BillingApiClient`만 바꾼다. `LectureApiClient`·`AppearanceApiClient`·`MemberApiClient`는 공통 부분이 보이면 그때 `common`으로 옮긴다.
 - `BillingApiClientTest`를 늘린다.
-  - CB 전이(CLOSED → OPEN → HALF_OPEN)
-  - OPEN → RETRYABLE(`CIRCUIT_OPEN`)
-  - RETRYABLE만 재시도
+  - CB 전이(CLOSED → OPEN → HALF_OPEN → CLOSED)
+  - OPEN이면 요청을 보내지 않음(`CIRCUIT_OPEN` = RETRYABLE, `isCircuitOpen()`), 호출 없이 HALF_OPEN으로 자동 전이
+  - RETRYABLE만 재시도, 재시도 중 성공
   - 시간 초과 → UNKNOWN_RESULT
-  - 429·`HP_LOCK_TIMEOUT`은 CB 실패로 세지 않음
+  - `Failed`·429·`HP_LOCK_TIMEOUT`은 CB 실패로 세지 않음
+- 설정 기본값·바인딩(`BillingClientPropertiesTest`), health 상태(`BillingClientHealthIndicatorTest`), base-url이 있을 때만 Client·지표·health 빈이 생기는지(`BillingClientWiringTest`)도 확인한다.
 - Toxiproxy 장애 주입은 최종 프로젝트 포트폴리오 항목으로 따로 둔다.
-- 합의 뒤 고칠 문서: `docs/api/internal-billing.md` 2·3장, 강의 결정 기록(새 D번호), `docs/lecture/integration.md` 6.2, `docs/billing/test-spec.md` PORT 항목.
+- 함께 고친 문서: `docs/api/internal-billing.md` 2·3장, 강의 결정 기록 D66~D68(D57·D58·D64 상태), `docs/lecture/integration.md` 6.2, `docs/billing/test-spec.md` BT-PORT-04.
