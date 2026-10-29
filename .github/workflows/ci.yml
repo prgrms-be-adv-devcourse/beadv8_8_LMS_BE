@@ -94,7 +94,7 @@ jobs:
           # 공용 인프라(k8s/)와 앱마다의 manifest(apps/<앱>/k8s)를 모두 검사한다.
           for dir in k8s/cluster k8s/platform/overlays/* k8s/gateway/install/* k8s/gateway/overlays/* apps/*-app/k8s/overlays/*; do
             echo "::group::$dir"
-            kubectl kustomize "$dir" | kubeconform -strict -summary \
+            kubectl --context k3d-hapbang kustomize "$dir" | kubeconform -strict -summary \
               -kubernetes-version 1.36.5 \
               -schema-location "/tmp/gateway-schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
               -schema-location default \

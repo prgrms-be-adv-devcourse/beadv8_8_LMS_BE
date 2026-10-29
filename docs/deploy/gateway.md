@@ -128,5 +128,5 @@ export MEMBER_JWKS_URI='http://member-app.hapbang-prod.svc.cluster.local:8080/<�
 - WebSocket 양방향 frame, Grafana 익명 데이터 차단·로그인·Secure session·인증 후 조회·Live WebSocket을 확인했다.
 - 지정한 W3C trace ID가 Envoy → Alloy → Tempo에 도착하는 것을 Grafana datasource proxy로 조회했다.
 - 로컬 인증서의 갱신 시점을 앞당겨 revision 증가와 Envoy의 TLS reload를 확인한 뒤 renewBefore 설정을 복원했다. Let's Encrypt의 실제 발급·갱신 검증은 아니다.
-- `verifyModuleStructure`, 전체 `check bootJar`, 고정 CRD schema 검사, Python lint를 통과했다. 최신 dev의 출연 RestAssured 변경(#402)을 병합하고 출연 check를 다시 통과했다.
+- `verifyModuleStructure`, 전체 `check bootJar`, 고정 CRD schema 검사, Python lint를 통과했다. 최신 dev의 출연 RestAssured 변경(#402)을 병합하고 출연 check를 다시 통과했다. 강의 HP 작업 실행기(#275)가 추가한 Billing Client 주소도 8081로 맞추고 통합 check를 다시 통과했다.
 - EC2·DNS·security group·운영 nginx·운영 데이터는 변경하지 않았다. IMDS 정책의 실제 AWS 동작, 인터넷 client IP, 실제 STOMP JWT와 FE 통합은 운영 전환 전에 확인한다.

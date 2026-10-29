@@ -21,4 +21,4 @@ configMapGenerator:
       - DB_USERNAME=lecture
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
-      - BILLING_API_BASE_URL=http://billing-app:8080
+      - BILLING_API_BASE_URL=http://billing-app:8081

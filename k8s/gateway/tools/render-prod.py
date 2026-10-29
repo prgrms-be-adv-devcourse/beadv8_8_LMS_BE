@@ -36,7 +36,9 @@ docs = []
 for path in paths:
     docs.extend(
         yaml.safe_load_all(
-            subprocess.check_output(["kubectl", "kustomize", path], text=True)
+            subprocess.check_output(
+                ["kubectl", "--context", "hapbang-k3s", "kustomize", path], text=True
+            )
         )
     )
 for d in docs:

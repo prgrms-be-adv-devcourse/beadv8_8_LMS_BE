@@ -176,7 +176,13 @@ docs.append(
 for app in ("member", "appearance", "lecture", "billing", "chat", "customer-support"):
     rendered = yaml.safe_load_all(
         subprocess.check_output(
-            ["kubectl", "kustomize", str(ROOT / f"apps/{app}-app/k8s/overlays/local")],
+            [
+                "kubectl",
+                "--context",
+                CTX,
+                "kustomize",
+                str(ROOT / f"apps/{app}-app/k8s/overlays/local"),
+            ],
             text=True,
         )
     )
