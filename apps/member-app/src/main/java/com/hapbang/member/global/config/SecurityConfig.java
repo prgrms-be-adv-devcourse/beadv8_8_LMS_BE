@@ -24,7 +24,10 @@ public class SecurityConfig {
             throws Exception {
         http
                 // 세션 쿠키 인증이라 CSRF를 막는다. XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보내야 통과
-                .csrf(csrf -> csrf.spa())
+                .csrf(csrf -> csrf.spa()
+                        // 재발급·로그아웃은 SameSite=Strict refresh token 쿠키로만 동작해 다른 사이트 요청에 쿠키가 붙지 않는다 (#370).
+                        // 세션 제거와 함께 CSRF 자체를 뺄 때까지 이 경로만 제외한다
+                        .ignoringRequestMatchers("/api/v1/members/auth/**"))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         // 예외가 나면 Spring이 /error로 보내는데, 막혀 있으면 원래 오류 대신 401이 나간다
@@ -33,6 +36,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         // JWT 공개 키 목록 (Envoy·chat-app이 cluster 안에서 받는다, #370)
                         .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json").permitAll()
+                        // 재발급·로그아웃 (access token이 만료된 상태에서 refresh token 쿠키로 부른다, #370)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/members/auth/refresh", "/api/v1/members/auth/logout")
+                        .permitAll()
                         // 로컬 로그인 (local·dev에서만 켜짐. 운영(prod)엔 컨트롤러가 없어 404)
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/local-login").permitAll()
                         // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)

@@ -40,6 +40,7 @@ public class MemberFacade {
     private final MemberProfileImageUseCase memberProfileImageUseCase;
     private final MemberUpgradeRequestUseCase memberUpgradeRequestUseCase;
     private final MemberFollowerRefreshUseCase memberFollowerRefreshUseCase;
+    private final MemberTokenUseCase memberTokenUseCase;
 
     // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
     private static final String USER_ONLY = "hasRole('USER')";
@@ -171,5 +172,21 @@ public class MemberFacade {
     /** 프로필 사진 조회 URL (응답을 만들 때 쓴다). 사진이 없으면 null */
     public String profileImageUrl(String key) {
         return memberProfileImageUseCase.urlOf(key);
+    }
+
+    /** 로그인 토큰 발급 (access token + refresh token, #370) */
+    public TokenPair issueTokens(Long userId, Role role) {
+        return memberTokenUseCase.issue(userId, role);
+    }
+
+    /** refresh token으로 재발급. 회원의 최신 역할·상태를 읽는다 */
+    @Transactional(readOnly = true)
+    public TokenPair refreshTokens(String refreshToken) {
+        return memberTokenUseCase.refresh(refreshToken);
+    }
+
+    /** 로그아웃: 이 기기의 refresh token 폐기 */
+    public void logout(String refreshToken) {
+        memberTokenUseCase.logout(refreshToken);
     }
 }
