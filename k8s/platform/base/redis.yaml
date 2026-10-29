@@ -1,0 +1,85 @@
+# 채팅 실시간 전달용 Redis(Streams·Pub/Sub, #340). 단일 instance라 고가용성이 아니다.
+# Redis Ltd의 OSS용 공식 차트가 없어 직접 작성한다(docs/architecture/final-project-infrastructure.md 3장).
+# 인증은 두지 않는다. cluster 밖에 열지 않고, 접근 제한은 NetworkPolicy(#372)가 맡는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: redis
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: redis
+    hapbang.io/pool: core-data
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: redis:8.10.3
+          # AOF로 매초 디스크에 기록한다. Streams가 지워지지 않도록 메모리가 차면 쓰기를 거절한다(noeviction).
+          # maxmemory는 limit 64Mi에서 AOF rewrite fork와 버퍼 여유를 뺀 값이다.
+          args:
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --save
+            - ""
+            - --maxmemory
+            - 48mb
+            - --maxmemory-policy
+            - noeviction
+            - --protected-mode
+            - "no"
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 64Mi
+          readinessProbe:
+            exec:
+              command: [redis-cli, ping]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: [redis-cli, ping]
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path-retain
+        resources:
+          requests:
+            storage: 1Gi

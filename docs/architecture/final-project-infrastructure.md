@@ -1,7 +1,7 @@
 # 최종 프로젝트 포트폴리오 인프라 설계
 
 작성일: 2026-10-22
-최종 갱신: 2026-10-28
+최종 갱신: 2026-10-29
 
 전제: 팀의 **AWS EC2 2대(t3.large·t3.medium)와 S3 버킷 1개**에 실제로 배포해 시연하는 포트폴리오 프로젝트다. 로컬 k3d는 같은 Kubernetes manifest(Kustomize·Helm)를 개발 PC와 CI에서 검증하는 보조 환경이다. 이 문서의 결정 기록은 #369다. AWS node 역할과 배치의 기준 문서는 [AWS 2노드 k3s 배치](../deploy/aws-k3s.md)다.
 
@@ -249,8 +249,8 @@ k3d는 k3s와 다른 배포판이 아니다. 같은 k3s를 Docker container 안�
 | 위치 | 도구 | 이유 |
 | --- | --- | --- |
 | EC2 large + medium | **k3s** server 1 + agent 1 | Ubuntu host에 직접 설치하고 systemd로 기동한다. node 역할은 [AWS 2노드 k3s 배치](../deploy/aws-k3s.md)를 따른다 |
-| 개발 PC (macOS) | k3d | k3s는 Linux용이다([k3s requirements](https://docs.k3s.io/installation/requirements)). k3d는 Docker만 있으면 같은 manifest를 띄운다 |
-| CI | k3d | PR마다 cluster 생성 → manifest 적용 → smoke/E2E → 삭제를 짧게 반복한다 |
+| 개발 PC (macOS) | k3d | k3s는 Linux용이다([k3s requirements](https://docs.k3s.io/installation/requirements)). k3d는 Docker만 있으면 같은 manifest를 띄운다. server 1(`core-data`) + agent 1(`app-observe`)에 EC2 node의 메모리 제한을 걸어 node별 예산까지 확인한다([k8s manifest](../deploy/k8s.md)) |
+| CI | 렌더링·schema 검사 | 지금은 `kubectl kustomize`와 kubeconform만 돈다(#373). PR마다 k3d에 적용하는 smoke/E2E는 앱이 모두 단독 기동한 뒤(#280·#339) 더한다 |
 | node 장애 실험 | EC2 2노드 + 로컬 k3d multi-node | EC2에서는 medium 중지와 large 중지의 서로 다른 영향을 기록하고, 3개 이상 server가 필요한 control-plane HA는 로컬 실험으로 구분한다 |
 
 EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd HA에는 server node 3대 이상이 필요하다([k3s quick start](https://docs.k3s.io/quick-start), [HA 문서](https://docs.k3s.io/datastore/ha-embedded)). medium이 내려가면 large의 모듈 앱과 stateful workload는 남지만 medium의 모듈 앱과 관측성이 멈춘다. large가 내려가면 control plane, 진입점(Envoy proxy), PostgreSQL과 Elasticsearch가 함께 사라져 서비스가 중단된다. 이 차이를 숨기지 않고 pod 장애와 node 장애 시연 결과를 분리한다.
@@ -281,13 +281,14 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | Envoy Gateway controller | 128 MiB |
 | ECK operator | 256 MiB |
 | cert-manager (controller·webhook·cainjector) | 150 MiB |
+| Sealed Secrets controller (#373) | 64 MiB |
 | React 정적 서버 | 64 MiB |
-| Prometheus·Loki·Tempo·Grafana·Alloy | 600 MiB |
-| **합계** | **3,484 MiB** |
+| Prometheus·Loki·Tempo·Grafana·Alloy | 1,032 MiB |
+| **합계** | **3,980 MiB** |
 
-사용 가능 메모리를 약 3.7 GiB로 보면 약 0.3 GiB가 남는다. surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성은 보존 한도를 줄여 600 MiB 안에 두고 별도 backend를 추가하지 않는다.
+사용 가능 메모리를 약 3.7 GiB로 보면 **약 0.3 GiB가 넘친다.** 관측성은 처음 600 MiB로 잡았지만 로컬 k3d idle 실측(#373)에서 Grafana 13(258 MiB)과 차트 기본 scrape의 Prometheus(292 MiB)가 그 limit에서 OOMKilled되어 실측에 여유를 더한 값으로 올렸다. 지금은 notification-app·Envoy·cert-manager가 아직 없어 실제로는 들어간다. 그 셋이 올라가기 전에 Prometheus scrape 범위와 보존 한도를 줄여 다시 맞춘다(#343). surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성에는 별도 backend를 추가하지 않는다.
 
-앱 limit은 448 MiB로 시작한다. 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
+앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
 
 #### 과거 단일-node 측정 기록
 
@@ -407,7 +408,7 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
   - 지금 설치한 cluster는 Compose의 edge nginx가 80·443을 쓰므로 servicelb를 끄고, k3s 기본 Traefik은 켜진 채로 두었다([k3s 설치](../deploy/aws-k3s.md#k3s-설치)). 첫 설치 때 svclb의 hostPort DNAT가 edge nginx보다 먼저 80·443을 가로챘다. 그래서 **edge nginx를 멈춘 뒤에** servicelb를 켜고 Traefik을 끈다. 이 전환 동안 외부 접속이 잠깐 끊긴다([전환 순서](../deploy/aws-k3s.md#전환-순서)).
 - **TLS**: cert-manager(공식 Helm 차트)가 Let's Encrypt에서 prod 도메인 인증서를 Gateway API HTTP-01 solver로 발급·갱신한다. 지금 edge nginx 옆의 certbot을 대신한다.
 - **cluster API**: 6443은 같은 node security group에서 medium → large를 허용하고, 사람은 kubectl을 쓰는 사람의 IP만 `/32`로 허용해 EIP로 직접 접근한다([로컬 kubectl 접근](../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
-- **namespace**: `hapbang-prod`(모듈 앱·React·PostgreSQL), `hapbang-platform`(Kafka·Redis·Elasticsearch·관측성)과 Envoy Gateway·cert-manager·ECK operator의 system namespace를 둔다. dev namespace는 두지 않는다.
+- **namespace**: `hapbang-prod`(모듈 앱·React), `hapbang-platform`(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)과 Envoy Gateway·cert-manager·ECK operator의 system namespace를 둔다. dev namespace는 두지 않는다.
 - **S3 권한**: 모듈 앱이 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
 - **이미지**: GHCR private image를 `imagePullSecret`으로 받는다. 태그는 지금처럼 `sha-<커밋>`을 고정해 쓴다.
 - **자동 중지**: 매일 18:00 instance 중지는 node shutdown이다. kubelet graceful node shutdown(`shutdownGracePeriod`, `shutdownGracePeriodCriticalPods`)은 kubelet CLI 플래그가 없으므로 k3s의 kubelet drop-in 설정 파일로 두고, Ubuntu logind의 `InhibitDelayMaxSec`도 함께 올린다(설정은 [AWS 2노드 k3s 배치](../deploy/aws-k3s.md#k3s-설치)). 이 설정이 없으면 pod는 4장의 종료 순서를 밟지 못하고 끝날 수 있다([Kubernetes node shutdown](https://kubernetes.io/docs/concepts/cluster-administration/node-shutdown/)). instance 중지 때 OS가 실제로 기다려 주는 시간 안에 drain이 끝나는지 실측한다.
@@ -493,21 +494,27 @@ replica가 1개라서 large의 앱은 새 pod가 ready가 된 뒤 기존 pod를 
 
 ### manifest 관리 — Kustomize와 Helm
 
-우리가 만든 앱과 직접 쓰는 workload는 레포의 `k8s/` 아래에 평문 YAML로 두고 Kustomize로 환경별 차이만 덮어쓴다(`kubectl apply -k`). 잘 관리되는 공식·준공식 차트가 있는 component만 Helm으로 설치한다. Helm CLI는 쓰지 않고, k3s 내장 helm-controller의 `HelmChart` resource(`valuesContent`)를 manifest로 커밋한다.
+우리가 만든 앱과 직접 쓰는 workload는 평문 YAML로 두고 Kustomize로 환경별 차이만 덮어쓴다(`kubectl apply -k`). 잘 관리되는 공식·준공식 차트가 있는 component만 Helm으로 설치한다. Helm CLI는 쓰지 않고, k3s 내장 helm-controller의 `HelmChart` resource(`valuesContent`)를 manifest로 커밋한다.
+
+앱 manifest는 앱마다 `apps/<앱>/k8s/`에 Dockerfile과 함께 둔다(#373). 모노레포지만 모듈을 그대로 서비스로 떼어낼 수 있어야 하므로(AGENTS.md 3장) 앱 디렉터리만으로 빌드·배포할 수 있게 하고, 루트 `k8s/`를 참조하지 않는다. 루트 `k8s/`에는 앱들이 함께 쓰는 인프라만 둔다.
 
 ```text
-k8s/
-  cluster/       namespace, HelmChart(Envoy Gateway·cert-manager·ECK operator), GatewayClass·Gateway, ClusterIssuer
-  components/    Kustomize Component: core-data required affinity, app-observe 배치 같은 공통 patch
-  platform/      hapbang-platform: Kafka·Redis(직접 manifest), Elasticsearch(ECK CR), 관측성(HelmChart)
+apps/<앱>/
+  Dockerfile
+  k8s/           hapbang-prod: Deployment, Service, ConfigMap(<앱>-config)
     base/
-    overlays/    local(k3d), prod
-  apps/          hapbang-prod: 모듈 앱 8개, React, PostgreSQL(HelmChart), HTTPRoute, SecurityPolicy, NetworkPolicy
+    overlays/    local(k3d), prod(이미지 태그, SealedSecret <앱>-secrets)
+k8s/
+  cluster/       namespace, Retain StorageClass, HelmChart(Envoy Gateway·cert-manager·ECK operator·Sealed Secrets), GatewayClass·Gateway, ClusterIssuer
+  components/    Kustomize Component: platform의 core-data required affinity
+  platform/      hapbang-platform: PostgreSQL(HelmChart), Kafka·Redis(직접 manifest), Elasticsearch(ECK CR·nori Dockerfile), 관측성(HelmChart)
     base/
     overlays/    local(k3d), prod
 ```
 
-CI 자동 배포는 `k8s/apps/overlays/prod`만 적용한다. `cluster/`와 `platform/`은 자주 바뀌지 않고 잘못 건드리면 데이터가 위험하므로 수동으로만 적용한다. 그래서 앱 롤백이 stateful workload를 건드리지 않는다.
+React 정적 서버, HTTPRoute, SecurityPolicy, NetworkPolicy의 위치는 진입점 작업(#372)에서 정한다.
+
+CI 자동 배포는 앱마다 `apps/<앱>/k8s/overlays/prod`만 적용한다. `cluster/`와 `platform/`은 자주 바뀌지 않고 잘못 건드리면 데이터가 위험하므로 수동으로만 적용한다. 그래서 앱 배포·롤백이 PostgreSQL 같은 stateful workload를 건드리지 않는다.
 
 | 대상 | 설치 방식 | 이유 |
 | --- | --- | --- |
@@ -515,25 +522,26 @@ CI 자동 배포는 `k8s/apps/overlays/prod`만 적용한다. `cluster/`와 `pla
 | cert-manager | 공식 Helm 차트 | CNCF Graduated |
 | Elasticsearch | ECK operator(Elastic 공식 Helm 차트) + Elasticsearch CR | ES 9.x를 지원하면서 관리가 이어지는 유일한 경로다. 예전 `elastic/helm-charts`는 2023년에 보관(archived)됐고 9.x 차트가 없다. nori는 커스텀 이미지를 `spec.image`로 지정한다. ECK의 ES 기본 메모리 2Gi는 1.5Gi로, operator limit 1Gi는 256Mi로 낮춘다. ECK 자체는 Elastic License 2.0이며 자체 운영에는 제한이 없다 |
 | PostgreSQL | CloudPirates `postgres` 차트 | 공식 `postgres` 이미지를 쓰는 일반 차트다. CloudNativePG(CNCF)는 instance가 1개라 failover를 쓸 수 없고 S3 백업도 범위 밖이라 operator 비용만 남는다 |
-| 관측성 | Grafana·prometheus-community 공식 차트 | 설정이 복잡해 차트의 이득이 크다 |
+| 관측성 | prometheus-community `prometheus`, grafana-community `loki`·`tempo`·`grafana`, grafana `alloy` 차트 | 설정이 복잡해 차트의 이득이 크다. Loki·Tempo·Grafana의 OSS 차트는 2026년에 grafana 저장소에서 grafana-community로 옮겨졌다(각 차트 README). Prometheus는 부속 component가 예산에 없어 kube-prometheus-stack이 아니라 단독 차트를 쓴다 |
+| Sealed Secrets | bitnami `sealed-secrets` 차트 (#373) | prod Secret을 암호화해 레포에 커밋한다. 서버에서 `kubectl create secret`으로 손으로 만들면 manifest와 서버 상태가 갈라진다. Bitnami 카탈로그 변경(`bitnamilegacy`) 대상이 아니다([공지](https://github.com/bitnami/containers/issues/83267)) |
 | Kafka | StatefulSet 직접 작성(`apache/kafka`, single-node KRaft) | Apache 공식 차트가 없다. Strimzi operator는 기본 384Mi를 상시로 쓴다 |
 | Redis | StatefulSet 직접 작성(`redis:8`, AOF + PVC) | Redis Ltd의 OSS용 공식 차트가 없다. OT redis-operator는 기본 500Mi로 Redis 예산(64 MiB)보다 크다 |
 
 Bitnami 차트는 쓰지 않는다. 2025년 8월부터 버전별 무료 이미지가 `bitnamilegacy`로 옮겨져 보안 패치가 나오지 않는다. 모든 차트는 버전을 고정하고 resource·node affinity·retention을 values에 적는다.
 
-apps base에 둘 것:
+앱 base(`apps/<앱>/k8s/base`)에 둘 것:
 - Deployment, Service, `HTTPRoute`(모듈 경로별), `SecurityPolicy`
 - startup/readiness/liveness probe, resource request/limit
-- ConfigMap. Secret(JWT 개인 키, DB 계정, 내부 API key)은 커밋하지 않고 서버에서 만든다
+- ConfigMap. Secret(JWT 개인 키, DB 계정, 내부 API key)은 앱마다 하나(`<앱>-secrets`)이고 평문으로 커밋하지 않는다. prod는 SealedSecret으로 암호화해 prod overlay에 커밋하고, local overlay는 가짜 값을 쓴다(#373)
 - graceful shutdown(4장)
 - NetworkPolicy: 앱의 외부 API 포트는 Envoy만, 내부 API는 앱끼리만, metadata endpoint는 S3를 쓰는 앱만. 앱이 `X-User-*` 헤더를 믿으므로 이것이 헤더 위조를 막는 마지막 방어선이다. k3s 내장 network policy controller가 실제로 막는지 아래 완료 증거로 확인한다
 - migration Job 또는 단일 migration 실행 전략
 - 앱별 Kafka·Redis·PostgreSQL·ES endpoint와 member-app JWKS 주소 주입
 
-overlay에서 바꿀 것: image tag(`kustomize edit set image`), resource limit, 환경별 ConfigMap 값. local overlay는 k3d 단일 node라 node affinity를 뺀다.
+overlay에서 바꿀 것: image tag(`kustomize edit set image`), resource limit, 환경별 ConfigMap 값. local overlay도 node affinity를 그대로 쓴다. 로컬 k3d를 EC2와 같은 2노드로 띄워 node별 예산을 확인하기 때문이다(#373).
 
 배포와 롤백은 kubectl로 한다.
-1. `kubectl apply -k k8s/apps/overlays/prod`
+1. `kubectl apply -k apps/<앱>/k8s/overlays/prod`
 2. `kubectl rollout status --timeout`으로 새 pod가 준비되기를 기다린다.
 3. 실패하면 `kubectl rollout undo`로 Deployment를 직전 revision으로 되돌리고 배포를 실패로 표시한다.
 
@@ -543,8 +551,8 @@ Kustomize로 관리하는 앱에는 release 단위 롤백이 없다. 그래서 C
 
 - 지금(#363 이후): 필수 체크 `verify` job 하나가 `verifyModuleStructure` → 앱별 `check bootJar` → 앱별 이미지 빌드(push 안 함)를 실행한다. matrix 전환은 앱별 이미지 발행(#374)과 함께 판단한다.
 - 배포: #363부터 `deploy.yml`의 자동 trigger가 꺼져 있다. 앱별 이미지 발행과 prod 배포는 #374에서 다시 작성한다.
-- manifest: `kubectl kustomize`로 overlay별 rendering, kubeconform 같은 schema validation
-- PR: k3d cluster 생성 → `kubectl apply -k k8s/apps/overlays/local` → migration → smoke/E2E → cluster 삭제
+- manifest(#373): `manifests` job이 `kubectl kustomize`로 overlay별 rendering → kubeconform `-strict`로 Kubernetes·CRD schema 검사. 필수 체크는 아니다
+- PR(앱이 모두 단독 기동한 뒤): k3d cluster 생성 → 앱마다 `kubectl apply -k apps/<앱>/k8s/overlays/local` → migration → smoke/E2E → cluster 삭제
 - PR: 앱 사이 JWT 헤더 인증·WebSocket·Kafka·Redis 흐름 검증
 - prod k3s: 수동 dispatch로 승인된 main image를 `kubectl apply -k` → `rollout status` → 실패 시 `rollout undo`
 - EC2: rolling update 중 HTTP 요청과 WebSocket 재연결 결과 기록
@@ -963,7 +971,7 @@ nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https:/
 
 - **배치**: `hapbang-platform` namespace에 ECK의 Elasticsearch CR로 만든다. node 1개(`nodeSets[].count: 1`), replica shard 0. 단일 node라 HA는 없다고 README에 적는다.
 - **메모리**: 3장 예산대로 컨테이너 limit 1.5 GiB(heap은 limit의 50% 이하). ECK 기본값 2Gi를 그대로 두지 않는다. 대기 상태 측정으로는 1 GiB(heap 512 MiB)도 떴으므로 부하 측정 뒤 줄일 수 있다.
-- **host 설정**: host에 `vm.max_map_count=262144`를 설정한다(k3s 설치 때 sysctl로 고정).
+- **host 설정**: large host에 `vm.max_map_count=1048576`을 설정한다(k3s 설치 때 sysctl로 고정). 262144는 ES 8.15 이하 값이다([ECK virtual memory](https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/virtual-memory)). 로컬 k3d는 Docker Desktop VM 값을 바꾸지 않고 `node.store.allow_mmap: false`로 띄운다.
 - **보안**: security를 켜 두고 앱 계정 비밀번호는 Secret으로 넣는다. 9200 port는 security group과 Gateway route에 열지 않고, NetworkPolicy로 search-app과 customer-support-app pod만 접근하게 한다.
 - **환경**: EC2에는 prod만 두므로 ES도 하나다. index 이름에 환경 prefix를 붙이지 않는다.
 - **백업**: S3 snapshot은 S3 용도를 넘으므로 하지 않는다. 원본에서 다시 만들 수 있으므로 재색인 절차를 복구 수단으로 둔다.
@@ -1156,7 +1164,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 ### Phase 8 — EC2 k3s 전환과 현행 AWS IaC
 
 1. JWT 인증 전환: member-app 발급·refresh·JWKS(#370), 앱 공용 헤더 인증 필터와 chat STOMP 검증(#371)
-2. `k8s/` 구조(cluster·components·platform·apps)와 Helm 차트, 로컬 k3d bootstrap, PR CI smoke/E2E(#373)
+2. `k8s/` 구조(cluster·components·platform·apps)와 Helm 차트, 로컬 k3d bootstrap, CI 렌더링·schema 검사(#373). PR CI smoke/E2E는 앱이 모두 단독 기동한 뒤
 3. 모듈 앱 8개 Deployment(앱마다 replica 1개)와 probe·resource limit·migration·drain 설정
 4. Envoy Gateway·cert-manager·ServiceLB, `HTTPRoute`·`SecurityPolicy`, 헤더 위조 차단, 내부 API 차단, 큰 본문 업로드 검증(#372)
 5. 앱별 이미지 발행과 prod 배포 workflow(#374). EC2에 k3s를 설치하고 prod만 전환한다. 전환 검증 전까지 Compose 이미지로 되돌릴 수 있게 둔다

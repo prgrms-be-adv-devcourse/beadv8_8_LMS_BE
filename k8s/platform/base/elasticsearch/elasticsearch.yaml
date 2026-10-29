@@ -1,0 +1,45 @@
+# 검색·고객센터 RAG용 Elasticsearch(docs/architecture/final-project-infrastructure.md 9장). ECK operator가 관리한다.
+# node 1개라 고가용성이 아니다. index는 replica shard 0으로 만든다.
+# nori가 들어간 이미지(같은 폴더의 Dockerfile)는 overlay가 spec.image로 지정한다.
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: hapbang
+spec:
+  version: 9.5.5
+  # Elasticsearch CR을 지워도 PVC(검색 index)는 남긴다. index는 원본에서 재색인할 수 있지만 실수로 지우지 않게 한다.
+  volumeClaimDeletePolicy: DeleteOnScaledownOnly
+  nodeSets:
+    - name: default
+      count: 1
+      podTemplate:
+        spec:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: hapbang.io/pool
+                        operator: In
+                        values: [core-data]
+          containers:
+            - name: elasticsearch
+              # ECK 기본 2Gi를 예산 1.5Gi로 낮춘다. heap은 limit의 50% 이하로 둔다(ES JVM settings 문서).
+              env:
+                - name: ES_JAVA_OPTS
+                  value: -Xms768m -Xmx768m
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 1536Mi
+                limits:
+                  memory: 1536Mi
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: local-path-retain
+            resources:
+              requests:
+                storage: 10Gi

@@ -1,0 +1,128 @@
+# 모듈 간 integration event용 Kafka(#339). broker와 controller를 한 process로 합친 single-node KRaft다.
+# 고가용성이 아니다. broker가 내려가 있는 동안의 이벤트는 앱의 Modulith publication(outbox)에 남는다.
+# Apache 공식 차트가 없어 직접 작성한다(docs/architecture/final-project-infrastructure.md 1·3장).
+# 환경 변수 규칙(KAFKA_ + 속성 이름)과 단일 node 예시: https://github.com/apache/kafka/tree/4.4.0/docker/examples
+# 인증은 두지 않는다. cluster 밖에 열지 않고, 접근 제한은 NetworkPolicy(#372)가 맡는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  labels:
+    app.kubernetes.io/name: kafka
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: kafka
+  ports:
+    - name: broker
+      port: 9092
+      targetPort: broker
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  labels:
+    app.kubernetes.io/name: kafka
+    hapbang.io/pool: core-data
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka
+    spec:
+      # 이미지의 appuser(uid·gid 1000)가 volume에 쓸 수 있게 한다.
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: kafka
+          image: apache/kafka:4.4.0
+          env:
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: broker,controller
+            - name: KAFKA_LISTENERS
+              value: PLAINTEXT://:9092,CONTROLLER://:9093
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: PLAINTEXT://kafka.hapbang-platform.svc.cluster.local:9092
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: 1@localhost:9093
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: CONTROLLER
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: PLAINTEXT
+            # KRaft storage 식별자. 처음 format할 때만 쓰이므로 바꾸지 않는다.
+            - name: CLUSTER_ID
+              value: kPETokImQqe8usYUIfbj1A
+            # broker가 1개라 내부 topic과 일반 topic 모두 replication factor 1이다.
+            # 내부 topic 기본값 3을 그대로 두면 consumer group과 transaction이 동작하지 않는다.
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR
+              value: "1"
+            - name: KAFKA_MIN_INSYNC_REPLICAS
+              value: "1"
+            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+              value: "0"
+            - name: KAFKA_LOG_DIRS
+              value: /var/lib/kafka/data
+            # 디스크 상한(PVC 5Gi는 local-path가 강제하지 않는다). retention.bytes는 partition마다 적용된다.
+            - name: KAFKA_LOG_RETENTION_HOURS
+              value: "72"
+            - name: KAFKA_LOG_RETENTION_BYTES
+              value: "268435456"
+            - name: KAFKA_LOG_SEGMENT_BYTES
+              value: "67108864"
+            # 기본 heap 1G를 예산(limit 700Mi)에 맞춘다.
+            - name: KAFKA_HEAP_OPTS
+              value: -Xms512m -Xmx512m
+          ports:
+            - name: broker
+              containerPort: 9092
+            - name: controller
+              containerPort: 9093
+          resources:
+            requests:
+              cpu: 100m
+              memory: 700Mi
+            limits:
+              memory: 700Mi
+          startupProbe:
+            tcpSocket:
+              port: broker
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: broker
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: broker
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path-retain
+        resources:
+          requests:
+            storage: 5Gi

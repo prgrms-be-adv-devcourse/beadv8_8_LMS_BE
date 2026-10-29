@@ -59,3 +59,35 @@ jobs:
             docker build -f "$app/Dockerfile" "$app/build/libs"
             echo "::endgroup::"
           done
+
+  # k8s/·apps/<앱>/k8s manifest를 overlay별로 렌더링하고 Kubernetes·CRD schema로 검사한다(#373). cluster에 적용하지는 않는다.
+  # HelmChart의 valuesContent는 문자열이라 차트 values는 검사되지 않는다. 실제 기동은 로컬 k3d로 확인한다(docs/deploy/k8s.md).
+  manifests:
+    runs-on: ubuntu-24.04
+    env:
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      # HelmChart·Elasticsearch 같은 CRD schema. 결과가 바뀌지 않게 커밋을 고정한다.
+      CRDS_CATALOG_REF: 3eb90d47aba8d61919d4419dd38301536e32a94b
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: kubeconform 설치
+        run: |
+          curl -sSfLo kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
+          tar xzf kubeconform.tar.gz kubeconform
+          sudo install kubeconform /usr/local/bin/
+
+      # -strict는 schema에 없는 필드(오타)를 오류로 본다. Kubernetes 버전은 EC2 k3s(v1.36.5+k3s1)와 맞춘다.
+      - name: 렌더링·schema 검사
+        run: |
+          # 공용 인프라(k8s/)와 앱마다의 manifest(apps/<앱>/k8s)를 모두 검사한다.
+          for dir in k8s/cluster k8s/platform/overlays/* apps/*-app/k8s/overlays/*; do
+            echo "::group::$dir"
+            kubectl kustomize "$dir" | kubeconform -strict -summary \
+              -kubernetes-version 1.36.5 \
+              -schema-location default \
+              -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/${CRDS_CATALOG_REF}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+            echo "::endgroup::"
+          done

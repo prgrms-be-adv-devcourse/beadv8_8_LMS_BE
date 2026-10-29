@@ -35,7 +35,7 @@
 | PostgreSQL | large | `core-data` required node affinity |
 | Kafka, Redis, Elasticsearch | large | 도입 시 `core-data` required node affinity |
 | 모듈 앱 8개 | 양쪽 | 앱마다 replica 1개. large에 member·billing·appearance·search(448 MiB), medium에 lecture·chat·customer-support·notification(384 MiB)을 두고 시작한다([자원 예산](../architecture/final-project-infrastructure.md#ec2-2노드-자원-예산)) |
-| Envoy Gateway controller, cert-manager, ECK operator | medium | stateless controller |
+| Envoy Gateway controller, cert-manager, ECK operator, Sealed Secrets controller | medium | stateless controller. Sealed Secrets의 개인 키는 Secret이라 controller와 함께 옮겨진다([키 백업](#sealed-secrets-키-백업)) |
 | React 정적 서버 | medium | stateless workload |
 | Prometheus·Loki·Tempo·Grafana | medium | 제한형 관측성 profile과 비교 기준선 |
 
@@ -101,7 +101,9 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 1. (완료) 두 EC2의 private IP 통신, security group, IMDSv2와 IAM role을 검증한다.
 2. (완료) large에 k3s server를 설치하고 `core-data` label을 적용한다. servicelb는 끄고 k3s 기본 Traefik은 켜진 상태다.
 3. (완료) medium을 agent로 join하고 `app-observe` label을 적용한다.
-4. `k8s/cluster`, `k8s/platform`을 수동으로 적용하고, local k3d에서 검증한 `k8s/apps/overlays/prod`를 적용한다. dev namespace는 만들지 않는다. 이 단계까지 외부 진입은 계속 Compose의 edge nginx다.
+4. `k8s/cluster`, `k8s/platform`을 수동으로 적용하고, local k3d에서 검증한 앱마다의 `apps/<앱>/k8s/overlays/prod`를 적용한다. dev namespace는 만들지 않는다. 이 단계까지 외부 진입은 계속 Compose의 edge nginx다. 적용 순서와 확인 명령은 [k8s manifest](k8s.md)를 따른다.
+   - `k8s/platform` 전에 large에 Elasticsearch용 `vm.max_map_count=1048576`을 sysctl로 고정한다(`/etc/sysctl.d/`). ES 9의 권장값이다([ECK virtual memory](https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/virtual-memory)).
+   - Sealed Secrets controller가 뜨면 바로 [키를 백업](#sealed-secrets-키-백업)한 뒤 SealedSecret을 만든다.
 5. 모듈 앱이 정한 node에 배치됐는지 확인한다.
 6. stateful workload가 large 외 node에 배치되지 않는 구조 test를 둔다.
 7. 진입점 전환: edge nginx를 먼저 멈춘다. 그다음 large의 `/etc/rancher/k3s/config.yaml`에서 `disable`의 `servicelb`를 빼고 `traefik`을 넣은 뒤 k3s를 재시작한다. large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙인다(붙인 node가 없으면 모든 node가 ServiceLB 후보가 된다). Envoy proxy Service는 `externalTrafficPolicy: Local`로 둔다. Envoy proxy가 80·443을 받는지, Traefik이 지워졌는지, cert-manager가 인증서를 발급했는지 확인한다. edge nginx가 떠 있는 동안 servicelb를 켜면 svclb가 80·443을 가로챈다(아래 "k3s 설치" 2단계 기록). 이 동안 외부 접속이 잠깐 끊기므로 미리 공지한다.
@@ -232,6 +234,25 @@ large는 `sudo /usr/local/bin/k3s-uninstall.sh`, medium은 `sudo /usr/local/bin/
 
 - medium만 다시 join할 때는 uninstall 전에 large에서 `sudo kubectl delete node <medium node 이름>`을 먼저 실행한다. 그러지 않으면 같은 hostname의 node password가 cluster에 남아 재join이 거절된다.
 - uninstall은 `/var/lib/rancher/k3s`의 local-path volume도 지운다. stateful workload(PostgreSQL·Kafka·Elasticsearch)를 올린 뒤에는 drain과 backup을 먼저 하지 않으면 데이터를 되살릴 수 없다.
+- uninstall은 Sealed Secrets controller의 개인 키(cluster의 Secret)도 지운다. 재설치 전에 [키 백업](#sealed-secrets-키-백업)이 있는지 확인한다.
+
+## Sealed Secrets 키 백업
+
+prod Secret은 `kubeseal`로 암호화한 SealedSecret으로 레포에 커밋하고, cluster의 controller가 자기 개인 키로 복호화한다(#373). 이 키를 잃으면 커밋된 SealedSecret을 하나도 풀 수 없어서 모든 비밀값을 다시 봉인해야 한다. k3s 재설치, `kube-system`의 Secret 삭제가 여기에 해당한다.
+
+- controller가 처음 뜬 직후와 키가 갱신될 때마다(기본 30일) 백업한다. 갱신된 뒤에도 이전 키는 지워지지 않고 함께 쓰인다.
+- 백업 파일은 cluster 전체 비밀값을 푸는 열쇠다. 레포·채팅·이슈·S3에 두지 않고 팀이 정한 비밀 보관소에만 둔다. 권한은 `600`으로 둔다.
+
+```bash
+# 백업 (large에서)
+(umask 077; sudo kubectl get secret -n kube-system -l sealedsecrets.bitnami.com/sealed-secrets-key -o yaml > sealed-secrets-key.yaml)
+
+# 복구: 재설치한 cluster에 키를 먼저 넣고 controller를 다시 시작한다
+sudo kubectl apply -f sealed-secrets-key.yaml
+sudo kubectl -n kube-system delete pod -l app.kubernetes.io/name=sealed-secrets
+```
+
+근거: [sealed-secrets README](https://github.com/bitnami/sealed-secrets#how-can-i-do-a-backup-of-my-sealedsecrets).
 
 ## 로컬 kubectl 접근
 

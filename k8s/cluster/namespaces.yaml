@@ -1,0 +1,16 @@
+# 모듈 앱·PostgreSQL은 hapbang-prod, Kafka·Redis·Elasticsearch·관측성은 hapbang-platform에 둔다.
+# EC2에는 prod만 두므로 dev namespace는 없다(docs/architecture/final-project-infrastructure.md 3장).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hapbang-prod
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hapbang-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elastic-system

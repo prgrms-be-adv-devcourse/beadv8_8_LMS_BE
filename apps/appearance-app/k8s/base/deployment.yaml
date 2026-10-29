@@ -1,0 +1,74 @@
+# 출연 앱. large(core-data)에 둔다. 메모리 예산은 docs/architecture/final-project-infrastructure.md 3장.
+# 설정은 appearance-app-config(ConfigMap), 비밀값은 appearance-app-secrets(Secret)로 받는다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appearance-app
+  labels:
+    app.kubernetes.io/name: appearance-app
+    hapbang.io/pool: core-data
+spec:
+  # BillingPort 구현이 billing 프로세스에만 있어 단독으로 기동하지 못한다(#280). 그때까지 0으로 둔다.
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: appearance-app
+  # large는 surge pod 1개를 받을 여유가 있다. 새 pod가 Ready가 된 뒤 기존 pod를 내린다.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: appearance-app
+    spec:
+      # node별 메모리 예산이 배치를 전제로 하므로 required로 건다(docs/deploy/aws-k3s.md).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: hapbang.io/pool
+                    operator: In
+                    values: [core-data]
+      containers:
+        - name: app
+          image: appearance-app
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: appearance-app-config
+            - secretRef:
+                name: appearance-app-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 448Mi
+            limits:
+              memory: 448Mi
+          # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+          # 이미지의 USER가 이름(app)이라 kubelet이 non-root인지 확인할 수 있게 uid(Dockerfile의 10001)를 적는다.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
