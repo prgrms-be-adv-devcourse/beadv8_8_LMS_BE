@@ -2,7 +2,8 @@
 # 이름으로 찾는 리소스(키 페어, S3, IAM)는 ID 대신 이름을 쓴다.
 
 locals {
-  import = var.import_ids == null ? {} : { existing = var.import_ids }
+  import       = var.import_ids == null ? {} : { existing = var.import_ids }
+  import_nodes = var.import_ids == null ? {} : var.import_ids.nodes
 }
 
 import {
@@ -60,26 +61,26 @@ import {
 }
 
 import {
-  for_each = local.import
-  to       = aws_instance.server
+  for_each = local.import_nodes
+  to       = aws_instance.node[each.key]
   id       = each.value.instance_id
 }
 
 import {
-  for_each = var.import_ids == null ? {} : merge(var.tags, { Name = "${var.name_prefix}-ec2" })
+  for_each = var.import_ids == null ? {} : local.network_interface_tags
   to       = aws_ec2_tag.network_interface[each.key]
-  id       = "${var.import_ids.network_interface_id},${each.key}"
+  id       = "${var.import_ids.nodes[each.value.node].network_interface_id},${each.value.key}"
 }
 
 import {
-  for_each = local.import
-  to       = aws_eip.server
+  for_each = local.import_nodes
+  to       = aws_eip.node[each.key]
   id       = each.value.eip_allocation_id
 }
 
 import {
-  for_each = local.import
-  to       = aws_eip_association.server
+  for_each = local.import_nodes
+  to       = aws_eip_association.node[each.key]
   id       = each.value.eip_association_id
 }
 

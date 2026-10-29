@@ -41,10 +41,16 @@ variable "public_subnet_cidr" {
   default     = "10.0.0.0/20"
 }
 
-variable "instance_type" {
-  description = "EC2 인스턴스 유형"
-  type        = string
-  default     = "t3.large"
+variable "instance_types" {
+  description = "k3s node별 EC2 인스턴스 유형 (docs/deploy/aws-k3s.md)"
+  type = object({
+    server = string
+    agent  = string
+  })
+  default = {
+    server = "t3.large"
+    agent  = "t3.medium"
+  }
 }
 
 variable "ami_id" {
@@ -109,10 +115,13 @@ variable "import_ids" {
     security_group_id               = string
     security_group_ingress_rule_ids = map(string)
     security_group_egress_rule_id   = string
-    instance_id                     = string
-    network_interface_id            = string
-    eip_allocation_id               = string
-    eip_association_id              = string
+    # 키는 ec2.tf의 local.nodes 키(server, agent)
+    nodes = map(object({
+      instance_id          = string
+      network_interface_id = string
+      eip_allocation_id    = string
+      eip_association_id   = string
+    }))
   })
   default = null
 }

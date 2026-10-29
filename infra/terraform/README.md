@@ -8,15 +8,15 @@
 | --- | --- |
 | `network.tf` | VPC, 퍼블릭 서브넷 1개, Internet Gateway, route table과 서브넷 연결 |
 | `security.tf` | 보안 그룹: 인바운드 22·80·443, 아웃바운드 전체 |
-| `ec2.tf` | EC2 1대(t3.large, gp3 50GB, IMDSv2 필수), 키 페어, Elastic IP, 네트워크 인터페이스 태그 |
+| `ec2.tf` | k3s node EC2 2대(server t3.large, agent t3.medium. 둘 다 gp3 50GB, IMDSv2 필수, CPU 크레딧 standard), 공용 키 페어, node별 Elastic IP와 네트워크 인터페이스 태그 |
 | `s3.tf` | 파일 버킷 1개: 퍼블릭 액세스 차단, ACL 비활성, SSE-S3, CORS |
 | `iam.tf` | EC2 인스턴스 역할, instance profile, S3 인라인 정책(`dev/*`·`prod/*`의 Put·Get, 같은 prefix의 List) |
-| `user_data.sh` | EC2를 처음 만들 때 실행: 시간대, Docker, `deploy` 계정, `/opt/hapbang`, `hapbang-edge` 네트워크 ([server-setup.md](../../docs/deploy/server-setup.md) 사전 준비·1단계) |
+| `user_data.sh` | server EC2를 처음 만들 때 실행: 시간대, Docker, `deploy` 계정, `/opt/hapbang`, `hapbang-edge` 네트워크 ([server-setup.md](../../docs/deploy/server-setup.md) 사전 준비·1단계) |
 | `imports.tf` | 이미 있는 리소스를 가져오는 import 블록(`import_ids`가 있을 때만) |
 
 ## 관리하지 않는 것
 
-- **EC2 안의 구성**: Docker Compose, nginx, certbot 인증서, PostgreSQL, env 파일, 배포 키 → [docs/deploy](../../docs/deploy/README.md)
+- **EC2 안의 구성**: Docker Compose, nginx, certbot 인증서, PostgreSQL, env 파일, 배포 키 → [docs/deploy](../../docs/deploy/README.md). k3s 설치 → [aws-k3s.md](../../docs/deploy/aws-k3s.md#k3s-설치)
 - **DNS**: DuckDNS(AWS 밖). Elastic IP가 바뀌면 직접 갱신한다.
 - **쓰지 않는 서비스**: ECR(이미지는 GHCR), ACM·ELB(TLS는 nginx), CloudWatch Logs, Route 53
 - **devcos 계정 공용 설정**: 09:00~18:00 EC2 자동 시작·중지(운영진 관리), VPC를 만들 때 함께 생긴 기본 route table·NACL·보안 그룹
@@ -55,7 +55,7 @@ terraform workspace new devcos           # 이미 있으면 select
 AWS_PROFILE=devcos terraform plan -var-file=devcos.tfvars
 ```
 
-결과가 `Plan: 24 to import, 0 to add, 0 to change, 0 to destroy.`이면 코드와 실제 구성이 같다. 콘솔에서 설정을 바꿨다면 이 plan에 차이로 나오니, 코드나 `devcos.tfvars.example`을 같이 고친다.
+결과가 `Plan: 29 to import, 0 to add, 0 to change, 0 to destroy.`이면 코드와 실제 구성이 같다. 콘솔에서 설정을 바꿨다면 이 plan에 차이로 나오니, 코드나 `devcos.tfvars.example`을 같이 고친다.
 
 ## 새 계정으로 옮기기
 
@@ -65,13 +65,13 @@ AWS_PROFILE=devcos terraform plan -var-file=devcos.tfvars
    ssh-keygen -t ed25519 -f ~/.ssh/hapbang-ec2     # 레포 밖. 공개 키를 tfvars의 public_key에 넣는다
    cp new-account.tfvars.example <이름>.tfvars      # <...>를 채운다
    terraform workspace new <이름>
-   AWS_PROFILE=<프로필> terraform plan -var-file=<이름>.tfvars    # 24 to add 확인
+   AWS_PROFILE=<프로필> terraform plan -var-file=<이름>.tfvars    # 29 to add 확인
    AWS_PROFILE=<프로필> terraform apply -var-file=<이름>.tfvars
-   terraform output                                  # public_ip, bucket_name
+   terraform output                                  # public_ips, bucket_name
    ```
 
-2. **DNS**: DuckDNS에서 prod·dev 도메인을 `public_ip`로 바꾼다.
-3. **서버 초기화 확인**: `ssh -i ~/.ssh/hapbang-ec2 ubuntu@<public_ip> cloud-init status --wait`가 `status: done`이면 사전 준비와 1단계가 끝난 것이다. 실패하면 `/var/log/cloud-init-output.log`를 본다.
+2. **DNS**: DuckDNS에서 prod·dev 도메인을 `public_ips`의 `server` 주소로 바꾼다.
+3. **서버 초기화 확인**: `ssh -i ~/.ssh/hapbang-ec2 ubuntu@<server public_ip> cloud-init status --wait`가 `status: done`이면 사전 준비와 1단계가 끝난 것이다. 실패하면 `/var/log/cloud-init-output.log`를 본다.
 4. **서버 설정**: [server-setup.md](../../docs/deploy/server-setup.md) 2단계부터 진행한다. env 파일의 `S3_BUCKET`은 `bucket_name` output이다. 배포 키와 `DEPLOY_HOST`·`DEPLOY_KNOWN_HOSTS` Secrets도 새 서버로 바꾼다.
 5. **데이터 이전**: DB는 [operations.md](../../docs/deploy/operations.md#db-백업복원)의 백업·복원 절차로 옮긴다. S3 객체는 기존 버킷에서 내려받아 새 버킷의 같은 key(`dev/…`, `prod/…`)로 올린다. DB에는 환경 prefix를 뺀 key가 저장되어 있으므로 key를 바꾸지 않는다.
 6. **비용**: devcos 계정의 09:00~18:00 자동 시작·중지는 새 계정에 없다. 서버는 계속 켜져 있다.
