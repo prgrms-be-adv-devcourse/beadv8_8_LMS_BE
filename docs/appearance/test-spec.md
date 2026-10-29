@@ -1127,7 +1127,7 @@ MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코
 | 구성 | 내용 |
 |---|---|
 | 도구 | WireMock 3.13.2 `wiremock-standalone`(테스트 의존성). 경로별 응답, 상태 시나리오(첫 요청 → 재전송), 지연·연결 끊김, 받은 요청 조회를 기본 기능으로 쓴다. 내부 라이브러리를 숨긴 standalone이라 Spring Boot 4·Jackson 3와 충돌하지 않는다 |
-| `support/MockBilling` | 서버(JVM에 하나, 처음 쓸 때 띄움)와 시나리오 메서드: `succeed`·`replayAfterFirst(경로, 요청 ID)`·`replayHoldAfterFirst(참조 유형, 참조 ID)`·`fail(상태, code, detail)`·`delay`·`connectionReset`·`refusedBaseUrl`, 받은 요청 `requests(경로)`. 재전송은 멱등 키(요청 ID, 보류는 참조 대상) 단위다. 서버를 띄울 때 4개 경로를 한 번씩 불러 응답 템플릿을 미리 컴파일한다(첫 응답이 느려 짧은 응답 대기 시간에 걸리지 않도록) |
+| `support/MockBilling` | 서버(JVM에 하나, 처음 쓸 때 띄움)와 시나리오 메서드: `succeed`·`replayAfterFirst(경로, 요청 ID)`·`replayHoldAfterFirst(참조 유형, 참조 ID)`·`fail(상태, code, detail)`·`delay`·`connectionReset`·`refusedBaseUrl`, 받은 요청 `requests(경로)`. 재전송은 멱등 키(요청 ID, 보류는 참조 대상) 단위이고 같은 내용의 재전송만 흉내 낸다(응답을 이번 요청 값으로 만들어서 같은 키·다른 내용도 `replayed = true`가 된다. 실제 지갑의 409 `IDEMPOTENCY_KEY_CONFLICT`는 `fail`로 확인한다). 서버를 띄울 때 4개 경로를 한 번씩 불러 응답 템플릿을 미리 컴파일한다(첫 응답이 느려 짧은 응답 대기 시간에 걸리지 않도록) |
 | `support/MockBillingIntegrationTest` | 부모 클래스. `@AppearanceIntegrationTest` + Mock 주소·응답 대기 시간(1초) 설정 + 테스트마다 `MockBilling.reset()`. 설정을 한 곳에 둬서 상속한 테스트끼리 Spring 테스트 컨텍스트를 같이 쓴다 |
 | 성공 응답 파일 | `src/test/resources/mock-billing/__files/{hold,release,payout,penalty}-success.json`. `*ResultDto`와 같은 필드이고 요청 값을 그대로 돌려준다(응답 템플릿). 계약이 바뀌면 함께 고친다 |
 | 실패 응답 | 지갑과 같은 `ProblemDetail` + `code` (`application/problem+json`) |

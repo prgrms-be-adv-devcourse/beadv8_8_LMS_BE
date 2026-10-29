@@ -166,7 +166,7 @@ class MockBillingTest extends MockBillingIntegrationTest {
         @Test
         @DisplayName("보류 재전송은 참조 대상 단위: 같은 참조 대상이면 replayed = true, 다른 참조 대상은 처음 처리")
         void holdReplayPerReference() {
-            MockBilling.replayHoldAfterFirst("APPEARANCE_REQUEST", 12L);
+            MockBilling.replayHoldAfterFirst(BillingReferenceType.APPEARANCE_REQUEST, 12L);
             HoldCommand otherReference = new HoldCommand(HOST, BillingReferenceType.APPEARANCE_REQUEST, 13L, 30_000L);
 
             assertThat(succeeded(billingApiClient.hold(hold())).replayed()).isFalse();

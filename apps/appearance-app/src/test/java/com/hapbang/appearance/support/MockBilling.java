@@ -25,6 +25,7 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.internal.InternalApiHeaders;
 
 import tools.jackson.core.type.TypeReference;
@@ -137,20 +138,19 @@ public final class MockBilling {
                 + "\"releaseRequestId\":\"WARM-UP\",\"payoutRequestId\":\"WARM-UP\",\"cancellationId\":\"WARM-UP\","
                 + "\"receiverUserId\":2,\"sourceType\":\"APPEARANCE_REQUEST\",\"sourceId\":1,\"amountHp\":1,"
                 + "\"releaseAmountHp\":1,\"payoutAmountHp\":1}";
-        HttpClient client = HttpClient.newHttpClient();
-        for (Endpoint endpoint : Endpoint.values()) {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(server.baseUrl() + endpoint.path))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(sample))
-                    .build();
-            try {
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            for (Endpoint endpoint : Endpoint.values()) {
+                HttpRequest request = HttpRequest.newBuilder(URI.create(server.baseUrl() + endpoint.path))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(sample))
+                        .build();
                 client.send(request, HttpResponse.BodyHandlers.discarding());
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException(e);
             }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
         }
         server.resetRequests();
     }
@@ -170,6 +170,10 @@ public final class MockBilling {
      * 같은 요청 ID 재전송 (반환·지급·위약금 정산): 이 요청 ID의 첫 요청은 처리({@code replayed = false}),
      * 같은 ID로 다시 보내면 처음 결과({@code replayed = true}). 다른 요청 ID는 영향을 받지 않는다(각자 처음 처리).
      * 지갑은 같은 멱등 키면 다시 처리하지 않고 처음 결과를 돌려준다.
+     * <p>
+     * 같은 내용의 재전송만 흉내 낸다. 응답은 이번 요청 값으로 만들어서, 같은 키로 다른 내용(금액 등)을 보내도
+     * {@code replayed = true}와 새 값이 돌아간다. 실제 지갑은 이때 409 {@code IDEMPOTENCY_KEY_CONFLICT}이므로,
+     * 그 경우는 {@link #fail}로 따로 확인한다.
      */
     public static void replayAfterFirst(Endpoint endpoint, String requestId) {
         if (endpoint.requestIdField == null) {
@@ -180,11 +184,14 @@ public final class MockBilling {
                         .withRequestBody(matchingJsonPath("$." + endpoint.requestIdField, equalTo(requestId))));
     }
 
-    /** 같은 참조 대상 보류 재전송: 첫 요청은 처리, 같은 참조 대상으로 다시 보내면 처음 결과({@code replayed = true}) */
-    public static void replayHoldAfterFirst(String referenceType, long referenceId) {
+    /**
+     * 같은 참조 대상 보류 재전송: 첫 요청은 처리, 같은 참조 대상으로 다시 보내면 처음 결과({@code replayed = true}).
+     * {@link #replayAfterFirst}처럼 같은 내용의 재전송만 흉내 낸다.
+     */
+    public static void replayHoldAfterFirst(BillingReferenceType referenceType, long referenceId) {
         stubReplay(Endpoint.HOLD, "HOLD-" + referenceType + "-" + referenceId,
                 () -> post(urlEqualTo(Endpoint.HOLD.path))
-                        .withRequestBody(matchingJsonPath("$.referenceType", equalTo(referenceType)))
+                        .withRequestBody(matchingJsonPath("$.referenceType", equalTo(referenceType.name())))
                         .withRequestBody(matchingJsonPath("$.referenceId", equalTo(String.valueOf(referenceId)))));
     }
 
