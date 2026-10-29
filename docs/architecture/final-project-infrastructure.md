@@ -33,7 +33,7 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | 기술 | 선택 | 보여 줄 역량 |
 | --- | --- | --- |
 | Kafka | 도입 | 모듈 간 비동기 이벤트, outbox, 멱등 소비, retry/DLT, replay |
-| Redis Streams | 채팅 모듈에 도입 | consumer group, ACK·pending·claim, 실시간 전달 실패 복구 |
+| 채팅 전달 작업 | PostgreSQL outbox로 보관·재처리 | DB 선점·lease 회수·backoff·실패 격리. Redis Streams는 구현하지 않음(2026-10-29 결정) |
 | Redis Pub/Sub·TTL | 채팅·알림 보조로 도입 | 다중 앱 replica fan-out, 접속 상태·짧은 수명 데이터 |
 | 앱 구조 | 앱 1개 = bounded context 1개 = database 1개. #363의 앱 6개에 `notification-app`·`search-app`을 더해 8개 | 서비스별 빌드·배포·장애 격리 |
 | 알림(notification) | 채팅에서 분리해 `notification-app`으로 (8장) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구 |
@@ -96,7 +96,7 @@ Client
             │                                            ├─ notification 모듈·감사 소비자
             │                                            └─ search 모듈 → Elasticsearch index
             │
-            └─ chat outbox → Redis Streams → chat delivery worker
+            └─ chat outbox → DB relay(선점·lease·재시도)
                                                │
                                                └─ Redis Pub/Sub → 각 app의 로컬 WebSocket session
 
@@ -192,53 +192,53 @@ Kafka template을 각 업무 module에서 직접 호출하면 topic·직렬화·
 - consumer를 중지했다 재시작하면 lag가 줄어들고 DLT를 선택적으로 재처리할 수 있다.
 - Grafana에서 produce/consume rate, consumer lag, retry, DLT를 볼 수 있다. Kafka도 consumer max lag와 fetch rate 감시를 권장한다([공식 모니터링 문서](https://kafka.apache.org/42/operations/monitoring/)).
 
-## 2. Redis Streams — 채팅 전달 pipeline
+## 2. PostgreSQL outbox·Redis Pub/Sub — 채팅 전달 pipeline
 
 ### 역할 분리
 
-Redis Streams를 채팅 이력 DB나 STOMP broker처럼 사용하지 않는다.
+**2026-10-29 결정:** 채팅 전달은 PostgreSQL outbox → Redis Pub/Sub으로 구성하고 Redis Streams는 구현하지 않는다. 기존 Streams 도입 결정을 이 절의 outbox relay 설계로 대체한다. 세부 설계와 FE 복구·참여 세대 계약은 [채팅 설계](../../apps/chat-app/docs/final-design.md) 4~6장을 따른다.
 
-- PostgreSQL: 채팅 메시지와 outbox의 source of truth
-- Redis Streams: 저장된 메시지의 비동기 전달 작업 queue
+- PostgreSQL: 채팅 메시지와 outbox의 source of truth. 작업 상태·선점·재시도·실패 격리를 보관한다
+- DB outbox relay: 작은 배치로 작업을 선점하고 트랜잭션 밖에서 Pub/Sub으로 발행한다
 - Redis Pub/Sub: 여러 app replica로 낮은 지연 fan-out
 - 각 app의 내장 STOMP broker: 그 replica에 연결된 WebSocket session으로 최종 전달
-- REST 이력 API: offline·disconnect·Pub/Sub 유실 시 최종 복구
+- REST 이력 API·FE: offline·disconnect·Pub/Sub 유실을 복구하고, 연결이 유지된 마지막 메시지 유실도 주기적 대조·전송 결과 확인으로 발견한다
 
-Redis Streams는 append-only log, consumer group, 명시적 ACK, pending/claim을 제공한다([공식 문서](https://redis.io/docs/latest/develop/data-types/streams/)). Pub/Sub은 fire-and-forget이지만 여기서는 PostgreSQL 이력으로 다시 읽을 수 있으므로 실시간 fan-out에 사용할 수 있다.
+작업 적체를 Redis 메모리에 중복 보관하지 않고 기존 DB outbox에서 처리해 전달 단계를 줄인다. Pub/Sub은 수신 실패한 메시지를 재전달하지 않으므로 발행 재시도와 수신 유실 복구를 구분한다([Redis 공식 문서](https://redis.io/docs/latest/develop/pubsub/#delivery-semantics)). Redis 메모리가 두 기능 사용만으로 두 배가 되거나 Streams 제외만으로 OOM이 해결된다고 가정하지 않는다. Redis·앱 송신 버퍼와 PostgreSQL I/O·WAL·디스크·적체 해소 시간을 함께 측정한다.
 
 ### Redis 선택
 
 **Redis를 쓴다**(팀 결정, 2026-10-28). Redis 8은 RSALv2·SSPLv1·AGPLv3 중 하나를 고르는 tri-license다([Redis licenses](https://redis.io/legal/licenses/)). 이 프로젝트는 Redis를 수정해 다른 사람에게 서비스로 제공하지 않으므로 license 제한에 걸리지 않는다.
 
-쓰는 기능은 Streams, consumer group, `XAUTOCLAIM`, Pub/Sub, TTL이다. vector 검색은 Elasticsearch가 맡으므로 Redis Query Engine은 쓰지 않는다. 앱은 `spring-boot-starter-data-redis`(Lettuce)로 접속한다. Valkey(Redis 7.2에서 갈라진 BSD fork)도 같은 명령과 RESP protocol을 지원하므로, 나중에 바꾸더라도 앱 코드는 그대로 두고 접속 주소만 바꾸면 된다([Valkey history](https://valkey.io/topics/history/)). 3장 자원 예산의 측정값은 Redis 8.2다.
+쓰는 기능은 Pub/Sub과 필요한 짧은 수명 정보의 TTL이다. 전달 작업 큐의 consumer group·ACK·pending·claim·failed stream은 구현하지 않는다. vector 검색은 Elasticsearch가 맡으므로 Redis Query Engine은 쓰지 않는다. 앱은 `spring-boot-starter-data-redis`(Lettuce)로 접속한다. Redis 제품 선택은 유지한다. 3장 자원 예산의 측정값은 Redis 8.2이며 Pub/Sub·소켓 부하를 포함한 운영 실측값으로 갱신한다.
 
 ### 메시지 흐름
 
 1. STOMP 요청을 검증한다.
 2. 한 PostgreSQL 트랜잭션에서 `chat_message`와 `chat_outbox`를 저장한다.
-3. publisher가 outbox를 Redis Stream에 `XADD`한다.
-4. `chat-delivery` consumer group이 `XREADGROUP`으로 받는다.
-5. 수신자별 channel에 Pub/Sub으로 발행한다.
-6. app replica들이 구독하고, 로컬에 해당 사용자의 session이 있을 때 STOMP로 보낸다.
-7. Pub/Sub 발행까지 성공하면 `XACK`; 실패하면 pending에 남긴다.
-8. idle pending은 `XAUTOCLAIM`으로 다른 worker가 회수하고, 최대 횟수 초과는 별도 failed stream으로 옮긴다.
-9. 재연결 client는 마지막 `roomSequence` 이후 이력을 PostgreSQL에서 조회한다.
+3. relay가 실행 시각이 된 작업을 짧은 DB 트랜잭션에서 선점해 `claimToken`·`leaseUntil`을 기록한다. 여러 relay의 경합은 `FOR UPDATE SKIP LOCKED` 등으로 제어한다([PostgreSQL 문서](https://www.postgresql.org/docs/18/sql-select.html#SQL-FOR-UPDATE-SHARE)).
+4. DB 트랜잭션 밖에서 `PUBLISH`하고, 성공하면 자신의 처리권이 유효한 경우에만 `PUBLISHED`를 기록한다. Redis 발행 중 DB 행 잠금을 유지하지 않는다.
+5. 실패는 backoff·jitter와 다음 시도 시각을 기록해 재시도한다. worker가 종료되면 lease 만료 작업을 다른 relay가 회수한다. 늦은 옛 worker의 결과는 claimToken 검사로 무시한다.
+6. 최대 시도 초과는 DB에서 `DEAD`로 격리해 조회·운영자 재처리를 제공한다. 재처리 시 전달 ID와 누적 시도·운영자 이력을 보존한다.
+7. 각 replica는 수신자별 현재 회원 자격·참여 세대·가시 범위를 확인하고 로컬 WebSocket으로 보낸다. 발행과 DB 결과 기록 사이 종료로 생기는 중복은 안정적인 전달 ID·메시지 ID로 흡수한다.
+8. `PUBLISH` 성공·구독자 수는 브라우저 수신 완료가 아니다. 구독자 0명도 Redis 명령 실패와 구분하고 무한 재발행하지 않는다. 이력 동기화·마지막 유실 대조와 회원 상태 재검사를 유지한다.
 
 ### 만들어야 할 깊은 module
 
-- `ChatDeliveryQueue` interface: `enqueue`, `consume`, `ack`, `fail`의 작은 interface로 Redis 명령을 숨긴다.
-- Redis Streams adapter와 in-memory adapter를 둔다.
-- `RealtimeChatFanout` interface 뒤에 Redis Pub/Sub adapter와 단일-node adapter를 둔다.
+- DB outbox 저장소: 작업 등록·선점·처리권 만료 회수·완료·재시도·실패 격리를 소유한다. 실행 대상과 만료 처리권 조회에 맞는 인덱스를 둔다.
+- outbox relay: DB 작업 실행과 결과 기록을 조정한다. polling·배치·동시성·lease·retry는 설정으로 관리한다.
+- `RealtimeChatFanout` interface 뒤에 Redis Pub/Sub adapter를 둔다. 테스트용 in-memory adapter는 테스트 소스에 둔다.
+- 메시지와 연결 제어의 outbox는 업무 변경과 각각 같은 chat DB 트랜잭션에 기록한다. 제어 발행 후 구독자가 놓친 종료 명령은 replica별 최신 회원 상태 재검사로 회복한다.
 
-업무 code는 stream key, consumer name, claim timeout, serialization을 알지 않는다.
+업무 code는 Redis 채널·직렬화·relay polling·처리권 만료 구현을 알지 않는다. 미발행·처리 중 작업을 보관 정책 때문에 지우지 않고 완료 기록의 아카이빙은 Soft Delete 원칙에 맞춘다.
 
 ### 완료 증거
 
 - 동일 `clientMessageId` 재전송 시 DB 메시지와 WebSocket 결과가 중복되지 않는다.
-- consumer를 메시지 처리 중 종료하면 pending message를 다른 consumer가 회수한다.
+- relay를 선점 직후 종료하면 lease 만료 작업을 다른 relay가 회수한다. 발행 직후 DB 기록 전 종료의 중복과 늦은 옛 claimToken 결과도 안전하게 처리한다.
 - Redis를 중지해도 메시지는 PostgreSQL/outbox에 남고 복구 후 전달된다.
-- Pub/Sub 전달을 일부 유실시켜도 재접속 history sync로 동일한 최종 상태가 된다.
-- 선택한 관측성 UI에서 stream length, pending count/age, claim, failed stream, 전달 latency를 볼 수 있다.
+- Pub/Sub의 마지막 메시지만 유실시키고 WebSocket을 유지해도 FE 대조로 복구된다. 회원 종료 제어의 유실도 상태 재검사로 회복한다.
+- 선택한 관측성 UI에서 미발행 outbox 수·최장 대기 시간·발행 지연·재시도·lease 회수·DEAD와 DB 부하·디스크·Redis 메모리를 볼 수 있다.
 
 ## 3. k3s on EC2 + Kustomize·Helm — 실제 서버의 Kubernetes 배포
 
@@ -562,18 +562,18 @@ graceful shutdown은 단순히 HTTP 요청을 기다리는 option이 아니다. 
 
 1. Kubernetes가 Pod를 `Terminating`으로 만들면 EndpointSlice의 `ready`가 `false`가 되어 일반 Service traffic에서 제외된다. 동시에 `preStop`이 drain을 시작한다. Kubernetes는 `preStop` 실행 전부터 전체 종료 유예 시간을 세고, hook과 process 종료가 모두 그 안에 끝나지 않으면 강제 종료한다([Kubernetes Pod 종료 흐름](https://kubernetes.io/docs/tutorials/services/pods-and-endpoint-termination-flow/), [container lifecycle hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/)).
 2. readiness를 `OUT_OF_SERVICE`로 바꾸고 application-level `acceptingWork=false` gate를 닫는다. web은 새 long-running command를 거절하고, 기존 짧은 HTTP 요청은 Spring Boot/Tomcat이 마칠 시간을 준다. WebSocket client에는 재연결 신호를 보낸 뒤 session을 닫으며, 재접속 후 PostgreSQL history sync로 gap을 복구한다.
-3. Kafka listener는 새 poll 처리를 멈추고 현재 record까지만 끝낸 뒤 offset을 commit한다. 처리 결과가 commit되지 않은 record는 다음 consumer가 다시 받고 inbox 멱등성으로 흡수한다. Redis Streams worker는 새 `XREADGROUP`을 멈추고 DB commit과 fan-out이 끝난 건만 `XACK`한다. 미완료 건은 pending에 남아 다른 worker가 `XAUTOCLAIM`한다.
+3. Kafka listener는 새 poll 처리를 멈추고 현재 record까지만 끝낸 뒤 offset을 commit한다. 처리 결과가 commit되지 않은 record는 다음 consumer가 다시 받고 inbox 멱등성으로 흡수한다. 채팅 outbox relay는 새 선점을 멈추고 진행 중인 Pub/Sub 발행 결과를 유효한 claimToken으로 기록한다. 마치지 못한 작업은 DB에 남고 lease 만료 뒤 다른 relay가 회수한다.
 4. in-flight HTTP, WebSocket close, consumer 처리가 끝난 다음 executor를 종료한다. DataSource/HikariCP는 이 과정의 마지막까지 유지하고 Spring context가 닫을 때 종료한다. 종료 callback에서 DB pool을 직접 먼저 닫지 않는다.
 
 Kubernetes 설정의 시작값은 `terminationGracePeriodSeconds: 120`, `preStop` drain·전파 예산 10초, application drain 예산 최대 90초, 강제 종료 전 여유 20초로 둔다. 이 숫자는 운영 SLO가 아니라 k6와 장애 test에서 측정해 조정할 초기값이다. `preStop`과 Spring의 phase timeout을 단순 합산했을 때 120초를 넘지 않게 CI에서 실제 종료 시간을 잰다.
 
-EC2 매일 중지(18:00)는 pod 하나가 아니라 node 전체의 종료다. graceful node shutdown이 켜져 있으면 kubelet은 `shutdownGracePeriod` 안에서 일반 pod를 먼저 종료한다. 이때 pod에 주어지는 시간은 자기 `terminationGracePeriodSeconds`가 아니라 node 종료 예산으로 제한될 수 있다. 일반 pod 몫(`shutdownGracePeriod - shutdownGracePeriodCriticalPods`)을 앱 pod의 drain 예산보다 길게 잡는다. instance 중지 때 OS가 그만큼 기다려 주는지는 실제 중지로 확인한다. 기다려 주지 않으면 그 결과를 기록하고, 끝내지 못한 처리가 Kafka 재전달과 Redis pending claim으로 복구되는지 확인한다.
+EC2 매일 중지(18:00)는 pod 하나가 아니라 node 전체의 종료다. graceful node shutdown이 켜져 있으면 kubelet은 `shutdownGracePeriod` 안에서 일반 pod를 먼저 종료한다. 이때 pod에 주어지는 시간은 자기 `terminationGracePeriodSeconds`가 아니라 node 종료 예산으로 제한될 수 있다. 일반 pod 몫(`shutdownGracePeriod - shutdownGracePeriodCriticalPods`)을 앱 pod의 drain 예산보다 길게 잡는다. instance 중지 때 OS가 그만큼 기다려 주는지는 실제 중지로 확인한다. 기다려 주지 않으면 그 결과를 기록하고, 끝내지 못한 처리가 Kafka 재전달과 DB outbox의 lease 만료 회수로 복구되는지 확인한다.
 
 ### 완료 증거
 
 - 앱 pod에 `SIGTERM`을 보내면 새 요청을 거절하고 in-flight 요청과 consumer 처리를 마친 뒤 grace period 안에 종료한다.
 - rolling update 동안 새 HTTP 요청은 새로 ready가 된 pod로 가고, 기존 요청은 deadline 안에 끝나며, WebSocket은 재연결 후 history gap이 없다.
-- Kafka current record와 Redis pending message를 처리 중 종료해도 재할당·claim 뒤 최종 결과가 한 번이고, 종료 과정에서 DataSource closed 오류가 없다.
+- Kafka current record와 채팅 outbox 작업을 처리 중 종료해도 재할당·lease 만료 회수 뒤 DB 결과와 FE 반영이 중복되지 않고, 종료 과정에서 DataSource closed 오류가 없다.
 - 선택한 관측성 UI에 drain 시작·완료·timeout, restart count, forced termination 지표와 동일 correlation ID의 log를 남긴다.
 
 ## 5. Grafana observability stack과 부하 테스트
@@ -586,7 +586,7 @@ EC2 매일 중지(18:00)는 pod 하나가 아니라 node 전체의 종료다. gr
 
 비교 실험은 다음을 한 세트로 구성한다.
 
-- Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, Redis pending, HP task 노출
+- Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, 채팅 outbox 적체·대기 시간·재시도·DEAD, Redis Pub/Sub 발행 실패, HP task 노출
 - Prometheus: `/actuator/prometheus`와 infrastructure exporter를 직접 scrape하고 local TSDB·PromQL·rule 평가 담당
 - Grafana Alloy: pod log 수집과 OTLP trace 수신·전달 담당. Mimir로 바꿀 때만 metrics scrape·remote write까지 확장
 - Loki: JSON log 저장; `traceId`, `correlationId`, `eventId`, 배포 version으로 연결
@@ -638,7 +638,7 @@ Promtail은 사용하지 않는다. 2026-03-02에 EOL이 되었고 이후 기능
 | 일반 API | 100 RPS, 10분, p95 500 ms 이하, 5xx 1% 미만 |
 | 채팅 | WebSocket 200개, 20 msg/s, 저장→전달 p95 1초 이하 |
 | Kafka | consumer 중지 후 재개, backlog 5분 내 회복 |
-| Redis Streams | consumer 강제 종료 후 pending 자동 claim |
+| 채팅 outbox·Pub/Sub | relay 종료 후 lease 만료 회수, Redis 복구 뒤 적체 해소, 마지막 프레임 유실 뒤 이력 대조 복구 |
 | 돈 흐름 | timeout·중복 요청에도 원장 불변식 위반 0건 |
 | rolling update | HTTP 오류 최소화, WebSocket 재연결 후 history gap 0건 |
 
@@ -704,7 +704,7 @@ repository·serialization·멱등 consumer test는 mock broker가 아니라 Test
 
 - Kafka publish 응답 유실 → Modulith publication 재발행 → consumer 결과 한 번
 - Kafka consumer 처리 중 connection cut → retry/DLT → inbox 중복 0건
-- Redis `XACK` 직전 worker 종료 → pending claim → 채팅 DB 중복 0건
+- 채팅 relay 선점 직후 종료 → lease 만료 회수, Pub/Sub 발행 직후 DB 기록 전 종료 → 중복 발행 흡수·옛 claimToken 결과 무시
 - PostgreSQL commit 응답 timeout → 같은 command 재시도 → HP 원장 불변식 유지
 
 ### Spring AI + Elasticsearch — 고객센터 근거 기반 답변
@@ -1075,7 +1075,7 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
 
 ### KEDA — 이벤트 양에 따른 consumer 자동 확장
 
-KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 이벤트의 양으로 pod 수를 조절한다. 기준은 Kafka consumer lag, Redis Stream pending 수 등이다. `ScaledObject`에 기준을 적으면 KEDA가 HPA의 외부 metric으로 넘기고, 일이 없으면 0개까지 줄일 수도 있다([공식 scaler 목록](https://keda.sh/docs/latest/scalers)).
+KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 이벤트의 양으로 pod 수를 조절한다. 기준은 Kafka consumer lag 등이다. `ScaledObject`에 기준을 적으면 KEDA가 HPA의 외부 metric으로 넘기고, 일이 없으면 0개까지 줄일 수도 있다([공식 scaler 목록](https://keda.sh/docs/latest/scalers)).
 
 지금 넣지 않는 이유:
 - 현재 2노드는 node별 역할과 메모리 상한이 고정돼 있어 lag에 따라 pod를 늘릴 여유가 작다(3장).
@@ -1121,9 +1121,9 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 ### Phase 4 — 채팅 Redis와 알림 모듈
 
-1. `chat_outbox`와 publisher
-2. Redis Streams consumer group, ACK/pending/claim/failed stream
-3. Redis Pub/Sub fan-out과 재접속 history sync
+1. 메시지·시스템 안내·회원 상태 변경과 전달·제어 outbox의 원자 저장
+2. PostgreSQL outbox relay: DB 선점·lease·claimToken·재시도·DEAD 격리·운영자 재처리
+3. Redis Pub/Sub fan-out, 수신 참여 세대 확인, 마지막 유실 이력 대조·회원 상태 재검사
 4. 장애·중복·순서 테스트
 5. `notification-app`과 database, 알림 API, integration event 소비와 `eventId` 멱등 처리
 6. 알림 실시간 전달과 재접속 복구, 채팅의 출연 알림 listener 제거
@@ -1182,7 +1182,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 포트폴리오라도 다음은 피한다.
 
-- Kafka와 Redis Streams에 같은 integration event를 중복 발행
+- 채팅에 Redis Streams·consumer group·ACK·pending·failed stream을 구현하거나 Kafka integration event와 채팅 outbox의 책임을 중복 배치
 - HP 원장이나 채팅 이력을 Kafka/Redis에만 저장
 - 모든 module이 KafkaTemplate·RedisTemplate을 직접 호출
 - 분산 락을 unique constraint·조건부 update·멱등키의 대체물로 사용
