@@ -2,7 +2,7 @@
 # 고가용성이 아니다. broker가 내려가 있는 동안의 이벤트는 앱의 Modulith publication(outbox)에 남는다.
 # Apache 공식 차트가 없어 직접 작성한다(docs/architecture/infrastructure/kafka.md, k3s.md).
 # 환경 변수 규칙(KAFKA_ + 속성 이름)과 단일 node 예시: https://github.com/apache/kafka/tree/4.4.0/docker/examples
-# 인증은 두지 않는다. cluster 밖에 열지 않고, 접근 제한은 NetworkPolicy(#372)가 맡는다.
+# 인증은 두지 않는다. cluster 밖에 열지 않는다. ingress NetworkPolicy는 두지 않는다(docs/deploy/gateway.md, #374).
 apiVersion: v1
 kind: Service
 metadata:
