@@ -18,7 +18,7 @@
 | 운영 시간 | 09:00~18:00 자동 시작·중지 | 매일 instance가 중지된다. 그 시간에 잡힌 `@Scheduled` 작업은 실행되지 않고, 종료 처리가 시연이 아니라 실제 요구다 |
 | 환경 | 현재 Compose는 prod·dev가 large에 함께 있다. 앱별 구조 전환(#363) 뒤 자동 배포는 멈춰 있다 | k3s에는 **prod(main)만** 둔다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
 | network | 프로젝트 전용 VPC 1개, public subnet 1개, Internet Gateway. private subnet·NAT 없음 | 두 node는 같은 subnet에서 private IP로 cluster 통신한다 |
-| security group | 22·80·443 inbound 전체 허용 | k3s API(6443), Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다 |
+| security group | 22·80·443 inbound 전체 허용. 6443은 kubectl 사용자 IP `/32`만 허용(2026-10-28) | Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다. k3s API(6443)는 사용자 IP `/32` 외에는 열지 않는다 |
 | 진입점 | edge nginx + Let's Encrypt(certbot). ELB·ACM 없음 | 외부 TLS 종료, 큰 본문 업로드, 내부 API 차단이 edge nginx에 있다. k3s에서는 이 책임을 Envoy Gateway와 cert-manager가 넘겨받고 nginx는 쓰지 않는다 |
 | 이미지 | GHCR private. ECR 없음 | cluster는 GHCR pull secret이 필요하다 |
 | S3 | 버킷 1개, 사진·영상 업로드 전용(`dev/*`·`prod/*` prefix). 인스턴스 역할로 접근 | metrics·logs·traces·vector 저장 같은 다른 용도로 쓰려면 IAM 정책과 팀 합의를 바꿔야 한다 |
@@ -406,7 +406,7 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 - **진입점**: nginx는 쓰지 않는다. Envoy Gateway가 유일한 진입점이다. Envoy proxy Service는 `LoadBalancer`이고, k3s 내장 ServiceLB가 node의 80·443을 Envoy로 연결한다. ServiceLB는 large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙여 large에서만 켠다. 이 label이 붙은 node가 하나도 없으면 모든 node가 후보가 된다([k3s networking 문서](https://docs.k3s.io/networking/networking-services)). Envoy proxy Service는 `externalTrafficPolicy: Local`로 두어 Envoy가 실제 client IP를 보게 한다. DNS와 80·443 security group이 large EIP만 가리키기 때문이다. medium의 앱에는 Envoy가 cluster 내부 Service로 보낸다.
   - 지금 설치한 cluster는 Compose의 edge nginx가 80·443을 쓰므로 servicelb를 끄고, k3s 기본 Traefik은 켜진 채로 두었다([k3s 설치](../deploy/aws-k3s.md#k3s-설치)). 첫 설치 때 svclb의 hostPort DNAT가 edge nginx보다 먼저 80·443을 가로챘다. 그래서 **edge nginx를 멈춘 뒤에** servicelb를 켜고 Traefik을 끈다. 이 전환 동안 외부 접속이 잠깐 끊긴다([전환 순서](../deploy/aws-k3s.md#전환-순서)).
 - **TLS**: cert-manager(공식 Helm 차트)가 Let's Encrypt에서 prod 도메인 인증서를 Gateway API HTTP-01 solver로 발급·갱신한다. 지금 edge nginx 옆의 certbot을 대신한다.
-- **cluster API**: 6443은 인터넷에 공개하지 않고 같은 node security group에서 medium → large만 허용한다. 사람은 SSH tunnel로 접근한다([로컬 kubectl 접근](../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
+- **cluster API**: 6443은 같은 node security group에서 medium → large를 허용하고, 사람은 kubectl을 쓰는 사람의 IP만 `/32`로 허용해 EIP로 직접 접근한다([로컬 kubectl 접근](../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
 - **namespace**: `hapbang-prod`(모듈 앱·React·PostgreSQL), `hapbang-platform`(Kafka·Redis·Elasticsearch·관측성)과 Envoy Gateway·cert-manager·ECK operator의 system namespace를 둔다. dev namespace는 두지 않는다.
 - **S3 권한**: 모듈 앱이 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
 - **이미지**: GHCR private image를 `imagePullSecret`으로 받는다. 태그는 지금처럼 `sha-<커밋>`을 고정해 쓴다.

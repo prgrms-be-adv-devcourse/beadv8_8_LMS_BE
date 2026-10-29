@@ -62,7 +62,7 @@ Client
   - UDP 8472: Flannel VXLAN, node 상호 간
   - TCP 10250: kubelet·metrics, node 상호 간
 - 80·443 inbound security group은 large에만 연결한다. 현재는 두 EC2가 security group 하나를 함께 써서 medium에도 80·443이 열려 있다. 분리는 별도 티켓으로 처리한다.
-- 6443은 인터넷에 열지 않는다. 로컬에서는 SSH tunnel로 접근한다([로컬 kubectl 접근](#로컬-kubectl-접근)).
+- 6443은 kubectl을 쓰는 사람의 IP만 `/32`로 허용한다. `0.0.0.0/0`이나 넓은 대역으로 열지 않는다. 규칙 설명에 사용자 이름을 적고, 쓰지 않는 IP의 규칙은 지운다([로컬 kubectl 접근](#로컬-kubectl-접근)). k3s는 익명 접근을 막으므로 client 인증서 없이는 API를 쓸 수 없다.
 - 22번 SSH의 전체 공개는 현재 위험으로 기록하고, 운영 경로를 확정하면 허용 source 제한 또는 SSM 전환을 별도 티켓으로 처리한다.
 
 ## S3와 IAM
@@ -80,6 +80,8 @@ Client
 - medium의 50 GB는 application image와 제한형 관측성 data에 사용한다.
 - 관측성은 Prometheus·Alloy·Loki·Tempo·Grafana 한 벌만 운영한다. Mimir와 Elastic Observability를 추가하지 않는다.
 - 두 T3 instance 모두 CPU credit을 부하 시험 결과와 함께 기록한다.
+- k3s 기본 StorageClass `local-path`는 `reclaimPolicy: Delete`다. PVC를 지우면 node의 데이터 디렉터리도 지워진다. PostgreSQL·Kafka·Elasticsearch 같은 stateful workload는 `reclaimPolicy: Retain`인 StorageClass를 따로 만들어 쓴다. `local-path`는 volume 확장도 지원하지 않으므로 처음 정한 크기가 상한이다.
+- 두 node 모두 allocatable이 capacity와 같다(2026-10-28 확인). `kube-reserved`·`system-reserved`를 설정하지 않아서 scheduler는 OS와 k3s가 쓰는 메모리를 모른다. stateful workload를 올리기 전에 예약을 설정할지 정한다.
 
 ## Terraform 범위
 
@@ -233,34 +235,43 @@ large는 `sudo /usr/local/bin/k3s-uninstall.sh`, medium은 `sudo /usr/local/bin/
 
 ## 로컬 kubectl 접근
 
-6443을 인터넷에 열지 않고 SSH local forward로 large의 API 서버에 접근한다. k3s API 서버 인증서에는 `127.0.0.1`이 SAN으로 들어 있어 tunnel로도 TLS 검증이 된다.
+security group에 내 IP의 6443을 허용하고, 로컬에서 large EIP로 API 서버에 직접 붙는다.
 
 - large의 `/etc/rancher/k3s/k3s.yaml`은 cluster-admin 자격 증명이다. 로컬에 받으면 권한을 `600`으로 두고 레포·채팅에 올리지 않는다.
 - kubeconfig의 cluster·context·user 이름이 모두 `default`라서, 다른 kubeconfig와 합치기 전에 이름을 바꾼다.
-- instance가 18:00에 중지되면 tunnel도 끊긴다. 서버가 켜진 뒤 다시 연다.
-- 로컬 파일은 server의 원본과 따로 논다. k3s client 인증서가 갱신되거나 만료되면(기본 1년) 1~3단계를 다시 한다.
+- API 서버 인증서의 SAN에는 node hostname·private IP·`127.0.0.1`·`kubernetes` 등만 있고 EIP는 없다. 그래서 EIP로 붙으면 x509 오류가 난다. 서버에 `tls-san`을 추가하고 k3s를 재시작하지 않고, kubeconfig에 `tls-server-name: kubernetes`를 두어 같은 CA로 `kubernetes` 이름을 검증한다.
+- instance를 중지했다 켜도 EIP는 그대로라 다시 설정할 것이 없다.
+- `kubectl`이 timeout으로 끝나면 내 공인 IP가 바뀌었는지 먼저 본다(`curl -s https://checkip.amazonaws.com`). 바뀌었으면 security group의 내 규칙을 새 IP로 고친다.
+- 로컬 파일은 server의 원본과 따로 논다. k3s client 인증서가 갱신되거나 만료되면(기본 1년) 2~5단계를 다시 한다.
 
 ```bash
-# 1) kubeconfig 받기 (SSH 접속 방법은 각자의 키·Host 설정을 쓴다)
+# 1) 콘솔: EC2 → 보안 그룹 → large의 보안 그룹 → 인바운드 규칙 편집
+#    규칙 추가: 사용자 지정 TCP, 포트 6443, 소스 "내 IP", 설명 "k3s API - <이름>"
+
+# 2) kubeconfig 받기 (SSH 접속 방법은 각자의 키·Host 설정을 쓴다)
 (umask 077; ssh ubuntu@<large EIP> 'sudo cat /etc/rancher/k3s/k3s.yaml' > ~/.kube/hapbang-k3s.yaml)
 
-# 2) 이름을 hapbang-k3s로, 주소를 tunnel 포트(16443)로 바꾼다 (macOS sed)
+# 3) 이름을 hapbang-k3s로 바꾼다 (macOS sed)
 sed -E -i '' \
   -e 's/^( *(- )?(name|cluster|user|current-context)): default$/\1: hapbang-k3s/' \
-  -e 's#https://127.0.0.1:6443#https://127.0.0.1:16443#' \
   ~/.kube/hapbang-k3s.yaml
 
-# 3) 기존 kubeconfig에 합친다 (kubectx는 KUBECONFIG에 여러 파일을 나열하는 방식을 지원하지 않는다)
+# 4) 기존 kubeconfig에 합친다 (kubectx는 KUBECONFIG에 여러 파일을 나열하는 방식을 지원하지 않는다)
 cp ~/.kube/config ~/.kube/config.bak
 (umask 077; KUBECONFIG=~/.kube/config:~/.kube/hapbang-k3s.yaml kubectl config view --flatten > ~/.kube/config.merged) \
   && kubectl --kubeconfig ~/.kube/config.merged config get-contexts hapbang-k3s \
   && mv ~/.kube/config.merged ~/.kube/config
 
-# 4) tunnel을 열고 context를 바꾼다
-ssh -fN -L 16443:127.0.0.1:6443 ubuntu@<large EIP>
+# 5) 주소를 EIP로, 인증서 검증 이름을 kubernetes로 바꾸고 context를 바꾼다
+kubectl config set-cluster hapbang-k3s --server=https://<large EIP>:6443 --tls-server-name=kubernetes
 kubectx hapbang-k3s
 kubectl get nodes -L hapbang.io/pool
+```
 
-# tunnel 닫기
-pkill -f '16443:127.0.0.1:6443'
+security group 규칙을 바로 고칠 수 없을 때는 SSH local forward로도 붙을 수 있다. `--server`만 덮어쓰면 된다. 인증서 SAN에 `127.0.0.1`과 `kubernetes`가 모두 있어서 검증이 통과한다.
+
+```bash
+ssh -fN -L 16443:127.0.0.1:6443 ubuntu@<large EIP>
+kubectl --context hapbang-k3s --server=https://127.0.0.1:16443 get nodes
+pkill -f '16443:127.0.0.1:6443'   # 닫기
 ```
