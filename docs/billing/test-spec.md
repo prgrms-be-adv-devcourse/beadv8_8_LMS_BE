@@ -198,7 +198,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-PORT-01 | `BillingPort` 결과 변환 | `hold`·`release`·`payout`·`settlePenalty`가 shared 결과 DTO로 바뀐다. 강의 항목별 보류 | BD-51, BD-52, BD-61 | I | `BillingPortIntegrationTest#portBean`, `#hold`, `#lectureOrderItems`, `#releaseAndPayout`, `#settlePenalty` | **깨짐** (원격 구현이 없다. 변환 로직은 앱 안에서 계속 유효) | R-003 통과 (깨짐: 분리 운영은 보장하지 않음) |
 | BT-PORT-02 | 호출자 트랜잭션 참여 | 호출자와 함께 커밋, Billing 실패 = 호출자 롤백, 호출자 실패 = Billing 롤백 | BD-53, BD-64 | I | `BillingPortIntegrationTest#callerTransaction_*`, `HoldCreateIntegrationTest#joinsCallerTransaction`, `HoldReleaseIntegrationTest#joinsCallerTransaction`, `#staleEntitiesInCallerTransaction_refreshed`, `HoldPayoutIntegrationTest#penalty_joinsCallerTransaction` | **깨짐** (통과해도 독립 JVM 운영을 보장하지 않는다) | R-003 통과 (깨짐: 분리 운영은 보장하지 않음) |
 | BT-PORT-03 | 금융 오류 전파 | 잔액 부족·금액 오류가 예외로 전파되고 값이 바뀌지 않는다 | BD-60 | I | `BillingPortIntegrationTest#insufficientBalanceIsException`, `#amountErrorsUnchanged` | **깨짐** (원격 오류 응답 매핑 계약 없음) | R-003 통과 (깨짐: 분리 운영은 보장하지 않음) |
-| BT-PORT-04 | 원격 보류·반환·지급·위약금 계약 | 내부 HTTP 경로·키 인증·요청/응답 DTO·오류 코드·타임아웃·결과 불명 처리·같은 요청 ID 재시도. 호출 쪽 Resilience4j timeout·circuit open일 때 성공으로 해석하지 않음. 보상 처리: 보류 실패 → 주문이 남지 않음, 주문 실패 → 보류 반환 | AGENTS 3장, D62·D63, BD-70, 인프라 문서 3·10장 | T | 없음 | 깨짐 | 없음 (#280) |
+| BT-PORT-04 | 원격 보류·반환·지급·위약금 계약 | 내부 HTTP 경로·키 인증·요청/응답 DTO·오류 코드·타임아웃·결과 불명 처리·같은 요청 ID 재시도. 호출 쪽 Resilience4j timeout·circuit open일 때 성공으로 해석하지 않음. 보상 처리: 보류 실패 → 주문이 남지 않음, 주문 실패 → 보류 반환 | AGENTS 3장, D62·D63, BD-70, 인프라 문서 3·10장, 강의 D64·D66 | T | Client 쪽만: shared `BillingApiClientTest`(실패 분류, RETRYABLE만 재시도, 회로 OPEN = `CIRCUIT_OPEN`·RETRYABLE, 시간 상한 = 결과 불명, 429·`HP_LOCK_TIMEOUT` 미집계, #411). 소비 앱 보상 처리는 없음 | 깨짐 | 없음 (#280) |
 | BT-PORT-05 | 소비 앱 기동 | lecture-app·appearance-app이 Billing 원격 Client로 기동한다 | `docs/architecture/app-modules.md` | T | 없음 (Billing 범위 밖) | 깨짐 | 없음 |
 | BT-EVT-01 | 다른 앱에서 온 회원 이벤트 | member-app의 가입·변경 이벤트가 Kafka로 billing-app에 전달되어 지갑·복제본이 생긴다. 같은 `eventId` 재전달은 inbox로 한 번만 반영, 순서가 바뀌어도 회원 버전 비교로 최신만 반영, 재시도 한도 초과는 DLT | BD-2, BD-6, BD-103, 인프라 문서 1장 | T | 없음 (`KafkaTestcontainersConfig` 사용 가능) | 깨짐 | 없음 (#339) |
 
@@ -323,7 +323,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 
 | BT | 경계 | 제공자 | 소비자 | 선행 조건 |
 | --- | --- | --- | --- | --- |
-| BT-PORT-04 | 보류·반환·지급·위약금 | billing-app (내부 API 없음) | lecture-app, appearance-app | #280 계약 확정, Resilience4j 설정 |
+| BT-PORT-04 | 보류·반환·지급·위약금 | billing-app (내부 API 없음) | lecture-app, appearance-app | #280 계약 확정 (Resilience4j 설정은 #411, `CONTEXT.md` 2장) |
 | BT-PORT-05 | 소비 앱 기동 | — | lecture-app, appearance-app | #280 |
 | BT-EVT-01 | 회원 이벤트 | member-app | billing-app | #339 Kafka 이벤트 계약. 테스트 인프라는 `KafkaTestcontainersConfig`로 이미 가능 |
 | BT-SEC-05 | 인증 | member-app(JWT 발급), Envoy(검증·헤더 전달) | 모든 앱(헤더 인증 필터) | #370~#372 |

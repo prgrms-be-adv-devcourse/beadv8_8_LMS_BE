@@ -55,7 +55,7 @@
 { "status": 409, "detail": "HP 잔액이 부족합니다.", "code": "INSUFFICIENT_BALANCE" }
 ```
 
-## 2. 결과와 실패 분류 (D64)
+## 2. 결과와 실패 분류 (D64, D66)
 
 Client의 네 메서드(`hold`·`release`·`payout`·`settlePenalty`)는 `BillingCallResult<T>`를 돌려주거나 `BillingCallException`을 던진다.
 
@@ -67,8 +67,11 @@ Client의 네 메서드(`hold`·`release`·`payout`·`settlePenalty`)는 `Billin
 | 5xx(코드가 있어도), 2xx인데 본문을 읽을 수 없거나 `data`가 없음, 그 밖의 상태 | `BillingCallException(UNKNOWN_RESULT)`. 받은 HTTP 상태와 오류 `code`를 담는다 |
 | 연결 거부·주소를 찾지 못함(`ConnectException`·`UnknownHostException`·`NoRouteToHostException`) | `BillingCallException(RETRYABLE)`, HTTP 상태 0 |
 | 그 밖의 I/O 오류(연결·응답 시간 초과, 응답 도중 끊김) | `BillingCallException(UNKNOWN_RESULT)`, HTTP 상태 0 |
+| 시도 한 번이 전체 상한(8초)을 넘음 | `BillingCallException(UNKNOWN_RESULT)`, HTTP 상태 0 (D66) |
+| 회로가 열려 요청을 보내지 않음 | `BillingCallException(RETRYABLE)`, HTTP 상태 0, `rawCode` `CIRCUIT_OPEN` (D66) |
 
 - `RETRYABLE`은 지갑이 요청을 처리하지 않은 것이 확실하다는 뜻이다. `UNKNOWN_RESULT`는 지갑이 처리했을 수도 있다는 뜻이다. 둘 다 같은 멱등 키로 다시 보내면 HP가 두 번 움직이지 않는다.
+- Client는 `RETRYABLE`이면 그 자리에서 첫 호출 포함 3회까지 다시 보낸다(200ms부터 두 배씩, 지터 0.2, 최대 약 0.7초). 다 실패하면 마지막 예외를 그대로 던지므로, 호출한 쪽이 받는 분류는 위 표와 같다. `UNKNOWN_RESULT`·`Failed`·`CIRCUIT_OPEN`은 다시 보내지 않는다 (D66).
 - 5xx를 결과 불명으로 두는 이유: 지갑이 커밋한 뒤 응답을 만들다 실패해도 5xx다. 지갑이 불변식 위반으로 응답하는 500 `HOLD_STATE_INCONSISTENT`·`CHARGE_PRINCIPAL_MISMATCH`도 결과 불명으로 오고, 호출한 쪽은 재시도 한도를 넘기면 운영 확인 대상(DEAD)으로 둔다.
 - `Failed`를 거절이라 부르지 않는다. 업무 거절(`INSUFFICIENT_BALANCE`)뿐 아니라 재시도 대상(`WALLET_NOT_FOUND`)도 온다. 재시도할지는 호출한 쪽이 작업 유형별로 정한다(강의 D57).
 - `detail`은 사용자에게 보여 줄 수 있는 지갑 메시지다. `rawCode`와 원인 예외는 사용자에게 보여 주지 않고 로그와 작업 시도 기록에만 남긴다.
@@ -82,6 +85,7 @@ Client의 네 메서드(`hold`·`release`·`payout`·`settlePenalty`)는 `Billin
 | 보류 | `HOLD_NOT_FOUND`, `HOLD_OWNER_MISMATCH`, `HOLD_ALREADY_CLOSED`, `HOLD_TYPE_NOT_SUPPORTED`, `HOLD_CHARGE_NOT_FOUND`, `HOLD_STATE_INCONSISTENT`(500), `CHARGE_PRINCIPAL_MISMATCH`(500) |
 | 반환·지급 | `RELEASE_AMOUNT_EXCEEDS_HELD`, `PAYOUT_AMOUNT_EXCEEDS_HELD`, `PAYOUT_TO_PAYER`, `PAYOUT_SOURCE_MISMATCH`, `PAYOUT_ALREADY_SETTLED` |
 | 위약금 (출연) | `PENALTY_BASE_EXCEEDS_HELD`, `PENALTY_AMOUNT_ZERO` |
+| 락 대기 | `HP_LOCK_TIMEOUT`(503). 결과 불명으로 오며, 같은 키로 다시 보내면 된다 (#273) |
 | 변환 불가 | `UNMAPPED` |
 
 ## 3. 사용법 (강의·출연)
@@ -100,4 +104,8 @@ try {
 
 - 로컬 트랜잭션 밖에서 부른다. 업무 상태와 작업을 먼저 커밋하고, 결과는 짧은 트랜잭션으로 기록한다 (D62).
 - 설정: `hapbang.clients.billing.base-url`(billing-app 주소, 로컬 `http://localhost:8082`), 연결 2초·응답 5초(`connect-timeout`·`read-timeout`), 내부 API 키 `hapbang.internal-api.key`. base-url이 없으면 Client 빈이 생기지 않는다.
+- 회복성(#411): Client 안에서 `Retry( CircuitBreaker( TimeLimiter( HTTP ) ) )`를 건다.
+  - Circuit Breaker는 `BillingCallException`만 실패로 세고 429와 `HP_LOCK_TIMEOUT`은 세지 않는다. `Failed`는 지갑이 응답한 결과라 세지 않는다.
+  - `isCircuitOpen()`이 `true`면 지금 부르면 `CIRCUIT_OPEN`으로 실패한다. HP 작업 배치는 이때 작업을 선점하지 않는다(강의 D67). 회로는 호출이 없어도 OPEN 시간이 지나면 시험 중(HALF_OPEN)으로 넘어간다.
+  - 설정은 `hapbang.clients.billing.resilience.*`이고, 기본값·지표·health는 [`docs/billing/CONTEXT.md`](../billing/CONTEXT.md) 2장에 있다.
 - correlation ID 헤더는 보내지 않는다. 요청 ID는 본문 필드로 전달하고, 추적 헤더는 추적(tracing)을 도입할 때 정한다.

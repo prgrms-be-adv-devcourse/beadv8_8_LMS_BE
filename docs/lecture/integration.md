@@ -100,7 +100,7 @@ Spring Modulith 2.1.1의 재발행 기능(`IncompleteEventPublications`, `Resubm
 
 ### 6.2 동기 HTTP 인터페이스
 
-#### 지갑: shared `BillingApiClient` (D62·D64, #272·#273)
+#### 지갑: shared `BillingApiClient` (D62·D64·D66, #272·#273·#411)
 
 `BillingApiClient`는 인터페이스 Port가 아니라 shared에 있는 공통 HTTP Client SDK다. 강의와 출연은 같은 구현을 주입받고 `hapbang.clients.billing.base-url`(billing-app 주소)만 설정한다. 경로·본문·실패 분류 계약은 [지갑 내부 API 계약](../api/internal-billing.md)이다.
 
@@ -111,6 +111,7 @@ public class BillingApiClient {
     BillingCallResult<ReleaseResultDto> release(ReleaseCommand command);
     BillingCallResult<PayoutResultDto> payout(PayoutCommand command);
     BillingCallResult<PenaltyResultDto> settlePenalty(PenaltyCommand command);
+    boolean isCircuitOpen();       // 회로가 열려 지금 부르면 CIRCUIT_OPEN으로 실패하는지 (D67)
 }
 
 public sealed interface BillingCallResult<T> {
@@ -122,7 +123,7 @@ public sealed interface BillingCallResult<T> {
 public class BillingCallException extends RuntimeException {
     BillingCallFailureKind kind;   // RETRYABLE 또는 UNKNOWN_RESULT
     int httpStatus;                // 응답을 받지 못했으면 0
-    String rawCode;                // 5xx 오류 응답의 code. 없으면 null
+    String rawCode;                // 오류 응답의 code, 회로가 열렸으면 "CIRCUIT_OPEN". 없으면 null
 }
 ```
 
@@ -130,7 +131,8 @@ public class BillingCallException extends RuntimeException {
 | --- | --- |
 | 요청·결과 DTO | 기존 `shared.billing.dto`의 `HoldCommand`·`ReleaseCommand`·`PayoutCommand`와 `*ResultDto`를 그대로 쓴다 |
 | `Failed` | billing이 4xx(408·425·429 제외)로 응답한 확정 실패다. 업무 거절(`INSUFFICIENT_BALANCE`)만이 아니라 재시도 대상(`WALLET_NOT_FOUND`)도 들어오므로 "거절"이라 부르지 않는다. 분류는 실행기가 작업 유형별로 한다 (D57) |
-| `BillingCallException` | 연결 거부·주소를 찾지 못함, 408·425·429처럼 처리하지 않은 것이 확실함 → `RETRYABLE`. 연결·응답 시간 초과, 응답 도중 끊김, 5xx(코드가 있어도), 읽을 수 없는 2xx처럼 처리 여부를 모름 → `UNKNOWN_RESULT` (D64). `Throwable`·원인 문자열은 결과에 넣지 않고 로그와 `lecture_hp_task_attempt`에만 남긴다 |
+| `BillingCallException` | 연결 거부·주소를 찾지 못함, 408·425·429처럼 처리하지 않은 것이 확실함 → `RETRYABLE`. 연결·응답 시간 초과, 응답 도중 끊김, 5xx(코드가 있어도), 읽을 수 없는 2xx처럼 처리 여부를 모름 → `UNKNOWN_RESULT` (D64). 회로가 열려 보내지 않음(`rawCode` `CIRCUIT_OPEN`) → `RETRYABLE`, 시도 한 번의 전체 상한(8초) 초과 → `UNKNOWN_RESULT` (D66). `Throwable`·원인 문자열은 결과에 넣지 않고 로그와 `lecture_hp_task_attempt`에만 남긴다 |
+| 회복성 | Client가 Resilience4j로 `Retry( CircuitBreaker( TimeLimiter( HTTP ) ) )`를 건다. `RETRYABLE`만 첫 호출 포함 3회(최대 약 0.7초) 다시 보내고 다 실패하면 마지막 예외를 그대로 던지므로, 실행기의 작업 재시도(D57)와 `classify`는 바뀌지 않는다. HP 작업 배치는 `isCircuitOpen()`이면 선점하지 않고 회차를 건너뛴다(D67). 주문 요청 안 즉시 보류는 전체 10초 예산을 넘으면 남은 항목을 배치로 넘기고 202다(D68). 값과 지표·health는 [`docs/billing/CONTEXT.md`](../billing/CONTEXT.md) 2장 (#411) |
 | 응답 검증 | 예상하지 못한 응답 형식, 결과 금액이 항목 가격과 다름 → 실행기가 `INVARIANT_VIOLATION`으로 본다 |
 | 트랜잭션 | 강의는 상태와 작업을 먼저 커밋한 뒤 Client를 호출한다. HTTP라 Java 트랜잭션이 전파되지 않으며, 통합 테스트에서 호출 시 강의 트랜잭션이 비활성인지 확인한다 (#275~#277) |
 | billing 진입점 | `POST /api/v1/internal/billing/holds`·`releases`·`payouts`·`penalty-settlements`. 요청 하나를 billing 로컬 트랜잭션 하나로 처리한다 (#273) |
