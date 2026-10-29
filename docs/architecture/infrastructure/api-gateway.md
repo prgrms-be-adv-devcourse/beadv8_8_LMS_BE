@@ -38,6 +38,7 @@ OAuth 진행 상태(authorization request)는 HttpSession 대신 짧은 수명�
 - 대상: 로그인, HP 충전 요청, 고객센터 RAG 질문처럼 남용되면 비용이 드는 경로
 - key: `X-User-Id`가 있으면 회원 ID, 없으면 client IP
 - client IP 신뢰 경계: Envoy 앞에는 신뢰할 proxy가 없으므로 `ClientTrafficPolicy`의 `X-Forwarded-For` 신뢰 hop 수는 0으로 둔다. Envoy는 실제 접속 주소를 `X-Forwarded-For` 맨 뒤에 붙인다. 앱(`server.forward-headers-strategy=native`, Tomcat `RemoteIpValve`)은 오른쪽부터 읽어 cluster 내부 주소가 아닌 첫 주소를 client IP로 쓴다. 그래서 클라이언트가 앞쪽에 넣은 값은 무시된다. Envoy가 실제 client IP를 보는지(ServiceLB와 `externalTrafficPolicy: Local`)는 설치 뒤 access log로 확인한다
+- client IP rate limit을 구현할 때 Envoy가 실제 공인 IP를 보는지 다시 확인한다. Envoy가 private 주소(로컬 k3d의 docker 대역, SNAT된 node 주소)를 보면 Tomcat이 그 주소도 proxy로 건너뛰어 클라이언트가 넣은 값을 읽는다. 그때는 Envoy에서 `X-Forwarded-For`를 실제 접속 주소로 덮어쓰는 방식을 검토한다. 앱 코드에 client IP rate limit이 아직 없어 #372에서는 넣지 않았다
 - 한도를 넘으면 429를 `ProblemDetail`로 응답한다
 - RateLimiter는 앱 프로세스 메모리에서 센다. 앱마다 replica가 1개라 앱 하나의 한도가 곧 전체 한도다. replica를 늘리면 한도도 replica 수만큼 늘어나므로, 그때 공유 저장소 방식을 다시 판단한다
 - 구현은 쓰는 앱에 먼저 두고, 두 앱 이상이 같은 코드를 쓰면 `common`으로 옮긴다
