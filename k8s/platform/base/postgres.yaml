@@ -1,0 +1,63 @@
+# 앱들이 함께 쓰는 PostgreSQL. instance 1개에 앱별 database를 둔다(docs/architecture/infrastructure/database.md).
+# CloudPirates postgres 차트는 공식 postgres 이미지를 쓴다. k3s helm-controller가 설치한다(Helm CLI를 쓰지 않는다).
+# 앱은 postgres.hapbang-platform.svc.cluster.local:5432/<database>로 접속한다.
+# 앱별 database·role은 데이터 디렉터리가 비어 있을 때(첫 기동)만 아래 initdb script로 만든다.
+# notification·search database는 각 앱을 만들 때 더한다. 이미 초기화된 instance에는 수동으로 만든다(docs/deploy/k8s.md).
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: postgres
+spec:
+  chart: oci://registry-1.docker.io/cloudpirates/postgres
+  version: 0.21.2
+  targetNamespace: hapbang-platform
+  valuesContent: |-
+    fullnameOverride: postgres
+    image:
+      imagePullPolicy: IfNotPresent
+    auth:
+      existingSecret: postgres-credentials
+      secretKeys:
+        adminPasswordKey: postgres
+    # postgres-credentials의 앱별 비밀번호(키 = 앱 database 이름)를 initdb script가 env로 읽는다.
+    # 각 앱 Secret(<앱>-secrets)의 DB_PASSWORD와 같은 값이어야 한다.
+    extraEnvVarsSecret: postgres-credentials
+    initdb:
+      scripts:
+        10-app-databases.sh: |
+          #!/bin/bash
+          # 앱마다 소유 role과 database를 만들고, 다른 role은 접속하지 못하게 한다.
+          set -euo pipefail
+          for db in member billing appearance lecture chat customersupport; do
+            psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
+              -v db="$db" -v pw="${!db}" <<'SQL'
+          CREATE ROLE :"db" LOGIN PASSWORD :'pw';
+          CREATE DATABASE :"db" OWNER :"db";
+          REVOKE CONNECT ON DATABASE :"db" FROM PUBLIC;
+          SQL
+          done
+    config:
+      postgresql:
+        timezone: Asia/Seoul
+        # 앱 6개 × HikariCP 기본 10 + rolling surge 1개 = 70.
+        max_connections: 100
+        shared_buffers: 128MB
+        # 기본값 4GB는 node 메모리보다 커서 limit에 맞춘다.
+        effective_cache_size: 384MB
+    resources:
+      requests:
+        cpu: 100m
+        memory: 768Mi
+      limits:
+        memory: 768Mi
+    persistence:
+      storageClass: local-path-retain
+      size: 10Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: hapbang.io/pool
+                  operator: In
+                  values: [core-data]
