@@ -66,7 +66,7 @@
 
 ### 2.2 정책 수치
 
-정책 수치는 코드에 직접 쓰지 않고 `AppearancePolicy`로만 사용한다. 값은 `boundedContext/appearance/src/main/resources/appearance.yml`에 있고, `config.AppearancePolicyProperties`가 읽어 `AppearancePolicy`로 바꾼다.
+정책 수치는 코드에 직접 쓰지 않고 `AppearancePolicy`로만 사용한다. 값은 `apps/appearance-app/src/main/resources/appearance.yml`에 있고, `config.AppearancePolicyProperties`가 읽어 `AppearancePolicy`로 바꾼다.
 
 | 항목 | 값 | 설정 키 | 계산 메서드 |
 |---|---|---|---|
@@ -187,9 +187,9 @@ com.hapbang.appearance
 
 | 파일 | 역할 |
 |---|---|
-| `boundedContext/appearance/src/main/resources/appearance.yml` | 정책 수치, Billing 모드 |
-| `apps/src/main/resources/application.yaml` | `spring.config.import: classpath:appearance.yml`로 위 파일을 읽음 |
-| `boundedContext/appearance/src/test/resources/application.yaml` | 테스트에서 위 파일을 읽음 (테스트 전용, 배포 미포함) |
+| `apps/appearance-app/src/main/resources/appearance.yml` | 정책 수치, 배치 설정 |
+| `apps/appearance-app/src/main/resources/application.yaml` | 출연 앱 실행 설정. `spring.config.import: classpath:appearance.yml`로 위 파일을 읽음 |
+| `apps/appearance-app/src/test/resources/hapbang-module-test.yaml` | 테스트에서 위 파일을 읽음 (테스트 전용, 배포 미포함) |
 
 ---
 
@@ -284,7 +284,7 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 
 ## 5. DB 스키마 (`appearances`)
 
-테이블은 Flyway 마이그레이션으로 만든다 ([docs/db-migration.md](../db-migration.md)). 위치: `boundedContext/appearance/src/main/resources/db/migration/`
+테이블은 Flyway 마이그레이션으로 만든다 ([docs/db-migration.md](../db-migration.md)). 위치: `apps/appearance-app/src/main/resources/db/migration/`
 
 ### 5.1 `appearances.users` — 출연 회원 (회원 복제)
 
