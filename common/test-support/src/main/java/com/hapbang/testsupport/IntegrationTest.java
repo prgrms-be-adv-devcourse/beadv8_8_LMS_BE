@@ -33,7 +33,11 @@ import org.springframework.test.context.TestExecutionListeners;
         "hapbang.storage.s3.region=ap-northeast-2",
         "hapbang.storage.s3.key-prefix=test",
         // global의 내부 API 보안(InternalApiSecurityConfig)이 키를 요구한다. 내부 API 테스트는 이 키로 호출한다
-        "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY
+        "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
+        // member-app의 JWT 발급(JwtConfig, #370)이 설정을 요구한다. 서명 키는 테스트마다 임시로 만든다
+        "hapbang.jwt.issuer=https://hapbang/member",
+        "hapbang.jwt.access-token-ttl=15m",
+        "hapbang.jwt.allow-ephemeral-key=true"
 })
 @Import(PostgresTestcontainersConfig.class)
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,
