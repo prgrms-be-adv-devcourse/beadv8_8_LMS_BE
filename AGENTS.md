@@ -25,7 +25,7 @@
 - 회복성: rate limit과 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 Resilience4j로 한다.
 - 결제: 충전 예치금 + HP 원장 + TossPayments 테스트 API
 - 이벤트: 모듈 간 비동기 연동은 이벤트로 하고, 브로커는 Kafka다 (#339).
-- Redis: 채팅 실시간 전달(Streams·Pub/Sub)에 쓴다 (#340).
+- Redis: 채팅 실시간 전달(Pub/Sub)에 쓴다 (#340).
 - Front-End: React (별도 레포)
 - 팀 합의 없이 새 인프라·미들웨어를 도입하지 않는다.
 
