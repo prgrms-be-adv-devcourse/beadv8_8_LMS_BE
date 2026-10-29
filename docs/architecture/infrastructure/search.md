@@ -26,7 +26,7 @@
 
 ## 한국어 분석
 
-nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https://www.elastic.co/docs/reference/elasticsearch/plugins/analysis-nori)). 이미지에 plugin을 넣은 custom image를 GHCR에 올리고, 실행 중에 설치하지 않는다.
+nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https://www.elastic.co/docs/reference/elasticsearch/plugins/analysis-nori)). plugin은 공식 이미지에 ECK init container로 설치한다(#374). custom image를 GHCR에 발행·관리하는 비용이 이 규모에 비해 커서 택했다. pod가 새로 뜰 때마다 Elastic 저장소에서 plugin을 내려받으므로 기동이 그만큼 느려지고, 그때 외부 접속이 필요하다.
 
 2026-10-22 측정에서 기본 사전은 "인플루언서 강의를 구매했습니다"의 "인플루언서"를 `인`·`플`·`언서`로 쪼갰다. 서비스 용어(인플루언서, 합방, 치지직, 출연 모집 등)는 **사용자 사전**에 넣고, 사전을 바꾸면 재색인한다. 사용자 사전과 동의어 목록은 레포에서 관리한다.
 

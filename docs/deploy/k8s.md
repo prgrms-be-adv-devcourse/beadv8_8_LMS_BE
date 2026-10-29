@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: manifest 작성(#373). EC2 k3s에는 아직 적용하지 않았고, 운영은 Docker Compose다([배포 개요](README.md)).
+상태: manifest 작성(#373). EC2 k3s에는 `cluster`·`platform`을 적용했다(2026-10-29, #374). 앱은 아직 적용하지 않았고, 운영은 Docker Compose다([배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 
@@ -11,7 +11,7 @@
 | `k8s/cluster` | kube-system 외 | namespace, `local-path-retain` StorageClass, HelmChart(ECK operator, Sealed Secrets) | 수동 |
 | `k8s/gateway/{install,base,overlays}` | envoy-gateway-system·cert-manager 외 | 공용 Envoy·TLS·Grafana·platform 정책. [Gateway 절차](gateway.md) | 수동 |
 | `k8s/components/core-data` | - | `hapbang.io/pool: core-data` label에 large required node affinity를 붙이는 Kustomize Component | platform이 사용 |
-| `k8s/platform/{base,overlays/local,overlays/prod}` | hapbang-platform | PostgreSQL(HelmChart), Kafka·Redis(StatefulSet), Elasticsearch(ECK CR과 nori Dockerfile), 관측성 HelmChart 5개 | 수동 |
+| `k8s/platform/{base,overlays/local,overlays/prod}` | hapbang-platform | PostgreSQL(HelmChart), Kafka·Redis(StatefulSet), Elasticsearch(ECK CR, nori는 init container로 설치), 관측성 HelmChart 5개 | 수동 |
 | `apps/<앱>/k8s/{base,overlays/local,overlays/prod}` | hapbang-prod | 앱 Deployment·Service·ConfigMap·HTTPRoute·SecurityPolicy·NetworkPolicy. overlay는 이미지와 Secret | prod는 앱마다 배포 workflow(#374) |
 | `k8s/local/k3d.yaml` | - | 로컬 k3d cluster 설정 | - |
 
@@ -30,7 +30,7 @@
 | Envoy Gateway | `oci://docker.io/envoyproxy/gateway-helm` | v1.9.3 |
 | cert-manager | `oci://quay.io/jetstack/charts/cert-manager` | v1.21.3 |
 | ECK operator | helm.elastic.co `eck-operator` | 3.5.0 |
-| Elasticsearch | `k8s/platform/base/elasticsearch/Dockerfile` (공식 이미지 + analysis-nori) | 9.5.5 |
+| Elasticsearch | 공식 이미지 + init container의 analysis-nori 설치 | 9.5.5 |
 | PostgreSQL | `oci://registry-1.docker.io/cloudpirates/postgres` | 0.21.2 (postgres 18.6) |
 | Sealed Secrets | bitnami.github.io/sealed-secrets `sealed-secrets` | 2.22.0 (controller 0.41.2) |
 | Prometheus | prometheus-community `prometheus` | 29.39.0 |
@@ -99,13 +99,12 @@ EC2에는 prod만 있으므로 manifest는 로컬 k3d에서 먼저 띄워 본다
 k3d cluster create --config k8s/local/k3d.yaml
 kubectl get nodes -L hapbang.io/pool       # server: core-data, agent: app-observe
 
-# 앱·Elasticsearch 이미지를 빌드해 cluster에 넣는다
+# 앱 이미지를 빌드해 cluster에 넣는다
 ./gradlew bootJar
 for app in apps/*-app; do
   docker build -t "hapbang/$(basename "$app"):local" -f "$app/Dockerfile" "$app/build/libs"
 done
-docker build -t hapbang/elasticsearch-nori:9.5.5 k8s/platform/base/elasticsearch
-k3d image import -c hapbang hapbang/elasticsearch-nori:9.5.5 \
+k3d image import -c hapbang \
   $(for app in apps/*-app; do echo "hapbang/$(basename "$app"):local"; done)
 ```
 

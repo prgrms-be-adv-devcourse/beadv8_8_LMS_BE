@@ -199,7 +199,7 @@ k8s/
   cluster/       namespace, Retain StorageClass, HelmChart(ECK operator·Sealed Secrets)
   gateway/       단계별 HelmChart(Envoy·cert-manager), Gateway·인증서·공용 정책, local/prod overlay
   components/    Kustomize Component: platform의 core-data required affinity
-  platform/      hapbang-platform: PostgreSQL(HelmChart), Kafka·Redis(직접 manifest), Elasticsearch(ECK CR·nori Dockerfile), 관측성(HelmChart)
+  platform/      hapbang-platform: PostgreSQL(HelmChart), Kafka·Redis(직접 manifest), Elasticsearch(ECK CR·nori init container), 관측성(HelmChart)
     base/
     overlays/    local(k3d), prod
 ```
