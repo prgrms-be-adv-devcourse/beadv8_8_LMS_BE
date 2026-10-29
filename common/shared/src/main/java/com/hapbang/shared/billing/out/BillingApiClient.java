@@ -5,6 +5,7 @@ import java.net.NoRouteToHostException;
 import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -42,6 +43,9 @@ public class BillingApiClient {
     static final String RELEASES_PATH = BASE_PATH + "/releases";
     static final String PAYOUTS_PATH = BASE_PATH + "/payouts";
     static final String PENALTY_SETTLEMENTS_PATH = BASE_PATH + "/penalty-settlements";
+
+    /** 408 Request Timeout, 425 Too Early, 429 Too Many Requests */
+    private static final Set<Integer> NOT_PROCESSED_STATUSES = Set.of(408, 425, 429);
 
     private static final ParameterizedTypeReference<Body<HoldResultDto>> HOLD = new ParameterizedTypeReference<>() {
     };
@@ -123,6 +127,12 @@ public class BillingApiClient {
                 .body(command)
                 .exchange((request, response) -> {
                     int status = response.getStatusCode().value();
+                    // 요청을 처리하지 않았다는 응답(시간 초과, 너무 이름, 요청 한도 초과)은 다시 보내면 된다 (D64)
+                    if (NOT_PROCESSED_STATUSES.contains(status)) {
+                        throw new BillingCallException(BillingCallFailureKind.RETRYABLE, status,
+                                Objects.toString(problem(response).get("code"), null),
+                                "지갑 내부 API가 요청을 처리하지 않았습니다(" + status + ").", null);
+                    }
                     if (response.getStatusCode().is4xxClientError()) {
                         Map<String, Object> problem = problem(response);
                         String rawCode = Objects.toString(problem.get("code"), null);

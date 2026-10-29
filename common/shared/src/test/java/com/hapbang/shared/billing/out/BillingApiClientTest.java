@@ -170,6 +170,28 @@ class BillingApiClientTest {
     }
 
     @Test
+    void 처리하지_않았다는_408_425_429는_재시도_가능이다() {
+        HoldCommand command = new HoldCommand(7L, BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 10_000L);
+        respond(429, "application/problem+json", """
+                {"status":429,"detail":"요청이 너무 많습니다.","code":"TOO_MANY_REQUESTS"}""");
+        assertRetryable(() -> client().hold(command), 429, "TOO_MANY_REQUESTS");
+
+        respond(408, null, null);
+        assertRetryable(() -> client().hold(command), 408, null);
+
+        respond(425, null, null);
+        assertRetryable(() -> client().hold(command), 425, null);
+    }
+
+    private static void assertRetryable(Runnable call, int status, String rawCode) {
+        assertThatThrownBy(call::run).isInstanceOfSatisfying(BillingCallException.class, e -> {
+            assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.RETRYABLE);
+            assertThat(e.getHttpStatus()).isEqualTo(status);
+            assertThat(e.getRawCode()).isEqualTo(rawCode);
+        });
+    }
+
+    @Test
     void 서버_오류는_code가_있어도_결과_불명이다() {
         HoldCommand command = new HoldCommand(7L, BillingReferenceType.LECTURE_ORDER_ITEM, 31L, 10_000L);
         respond(500, "application/problem+json", """

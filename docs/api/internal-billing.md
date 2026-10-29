@@ -62,12 +62,13 @@ Client의 네 메서드(`hold`·`release`·`payout`·`settlePenalty`)는 `Billin
 | 응답·예외 | 결과 |
 | --- | --- |
 | 2xx이고 `data`가 있음 | `Succeeded(dto)` |
-| 4xx | `Failed(code, detail, httpStatus, rawCode)`. `code`가 아래 목록에 없거나 본문이 없으면 `UNMAPPED`이고, 원래 문자열은 `rawCode`에 남는다 |
+| 408·425·429 | `BillingCallException(RETRYABLE)`. 지갑이 요청을 처리하지 않았다는 응답이다(요청 시간 초과, 너무 이름, 요청 한도 초과) |
+| 그 밖의 4xx | `Failed(code, detail, httpStatus, rawCode)`. `code`가 아래 목록에 없거나 본문이 없으면 `UNMAPPED`이고, 원래 문자열은 `rawCode`에 남는다 |
 | 5xx(코드가 있어도), 2xx인데 본문을 읽을 수 없거나 `data`가 없음, 그 밖의 상태 | `BillingCallException(UNKNOWN_RESULT)`. 받은 HTTP 상태와 오류 `code`를 담는다 |
 | 연결 거부·주소를 찾지 못함(`ConnectException`·`UnknownHostException`·`NoRouteToHostException`) | `BillingCallException(RETRYABLE)`, HTTP 상태 0 |
 | 그 밖의 I/O 오류(연결·응답 시간 초과, 응답 도중 끊김) | `BillingCallException(UNKNOWN_RESULT)`, HTTP 상태 0 |
 
-- `RETRYABLE`은 요청이 지갑에 닿지 않은 것이 확실하다는 뜻이다. `UNKNOWN_RESULT`는 지갑이 처리했을 수도 있다는 뜻이다. 둘 다 같은 멱등 키로 다시 보내면 HP가 두 번 움직이지 않는다.
+- `RETRYABLE`은 지갑이 요청을 처리하지 않은 것이 확실하다는 뜻이다. `UNKNOWN_RESULT`는 지갑이 처리했을 수도 있다는 뜻이다. 둘 다 같은 멱등 키로 다시 보내면 HP가 두 번 움직이지 않는다.
 - 5xx를 결과 불명으로 두는 이유: 지갑이 커밋한 뒤 응답을 만들다 실패해도 5xx다. 지갑이 불변식 위반으로 응답하는 500 `HOLD_STATE_INCONSISTENT`·`CHARGE_PRINCIPAL_MISMATCH`도 결과 불명으로 오고, 호출한 쪽은 재시도 한도를 넘기면 운영 확인 대상(DEAD)으로 둔다.
 - `Failed`를 거절이라 부르지 않는다. 업무 거절(`INSUFFICIENT_BALANCE`)뿐 아니라 재시도 대상(`WALLET_NOT_FOUND`)도 온다. 재시도할지는 호출한 쪽이 작업 유형별로 정한다(강의 D57).
 - `detail`은 사용자에게 보여 줄 수 있는 지갑 메시지다. `rawCode`와 원인 예외는 사용자에게 보여 주지 않고 로그와 작업 시도 기록에만 남긴다.
