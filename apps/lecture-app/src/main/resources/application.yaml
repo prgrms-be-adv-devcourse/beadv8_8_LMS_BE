@@ -53,6 +53,10 @@ hapbang:
       region: ap-northeast-2
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
+  # HP 작업이 보류·반환·지급을 보내는 지갑 내부 API 주소 (D62, D65)
+  clients:
+    billing:
+      base-url: "${BILLING_API_BASE_URL}"
 springdoc:
   swagger-ui:
     csrf:
