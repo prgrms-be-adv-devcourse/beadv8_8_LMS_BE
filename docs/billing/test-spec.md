@@ -4,7 +4,7 @@
 >
 > - 이 문서는 "무엇을 어떤 기준으로 검증하는가"와 검증 대상 ID(`BT-*`)를 실제 테스트에 연결한다. 실행 결과는 [regression-log.md](regression-log.md)에만 적는다.
 > - 기준: 2026-10-29 작업 트리, `apps/billing-app/src/test/java/com/hapbang/billing` 73개 클래스, `@Test`·`@ParameterizedTest` 어노테이션 756개(`@RepeatedTest` 0). 파라미터 케이스와 `@Nested`로 실제 실행 수는 더 많다.
-> - **JVM 분리 이후 이 문서의 어떤 항목도 아직 실행해 확인하지 않았다.** 모든 `BT-*`의 최근 결과는 "미실행"이다.
+> - JVM 분리 이후 **U·S·I·R 단계를 HEAD 7dc89e0에서 모두 실행해 통과했다(R-003).** Contract(T)는 테스트가 없어 실행하지 않았다. 통과는 billing-app **한 앱** 안의 동작이다. JVM 칸이 "경계"·"깨짐"인 항목은 통과해도 분리 운영을 보장하지 않는다(4.1). 항목별 상태는 4장 "상태" 칸, 실행 내용은 [regression-log.md](regression-log.md)에 있다.
 > - 2026-10-29 dev da834b1 반영: billing-app 테스트 코드 변경은 없다. `common/test-support`에 Kafka·Redis Testcontainers 설정이 추가됐다(3장). #369 최종 인프라 결정을 Contract 대상(6.2)과 BT-PORT-04·BT-EVT-01·BT-SEC-05에 반영했고, BT-SEC-06을 더했다.
 
 ## 1. 실행 방법
@@ -75,7 +75,7 @@
 | 단계 | 정의 | 이 모듈의 대상 | 성공 기준 |
 | --- | --- | --- | --- |
 | C. Compile | main·test 컴파일, 앱 간 의존 금지 | `:billing-app` 전체 | 컴파일 오류 0, `verifyModuleStructure` 통과 |
-| U. Unit | Spring 컨텍스트·DB 없음. `ApplicationContextRunner` 경량 컨텍스트와 로컬 `HttpServer`는 허용 | 32개 클래스, 메서드 206개 | 실패 0. 건너뜀이 있으면 사유를 기록 |
+| U. Unit | Spring 컨텍스트·DB 없음. `ApplicationContextRunner` 경량 컨텍스트와 로컬 `HttpServer`는 허용 | 32개 클래스, 메서드 206개 | 실패 0. 건너뜀이 있으면 사유를 기록. 실행 목록이 7장 표와 같다(2.2) |
 | S. Slice | `@WebMvcTest` (DB 없음) | 4개 클래스, 41개 | 실패 0 |
 | I. Integration | `@IntegrationTest`·`@RepositoryTest`·직접 `@SpringBootTest` + PostgreSQL Testcontainers. billing-app **한 앱** 컨텍스트 | Integration 33개(462개) + Repository 4개(47개) | 실패 0. 같은 JVM 경계를 쓰는 테스트는 결과를 "경계"로 따로 표시 |
 | T. Contract | 독립 프로세스 사이 계약(내부 HTTP, 이벤트, 인증)을 제공자·소비자 양쪽에서 같은 정의로 검증 | 없음 | 6.2의 대상이 생기면 정한다 (TBD) |
@@ -86,6 +86,16 @@
 - `ModuleTestConfiguration`은 `@ComponentScan("com.hapbang")`라 billing 테스트 클래스패스의 `shared` 빈도 함께 뜬다. 다른 앱의 빈은 클래스패스에 없다.
 - 로그인은 `TestLogin.as`(`oauth2Login()` 후처리기)로 흉내 낸다. 분리된 앱 사이의 실제 인증은 검증하지 않는다(BT-SEC-05).
 - 회원 이벤트는 `Scenario.publish`로 같은 JVM 안에서 발행한다. 다른 앱이 보낸 이벤트 전달은 검증하지 않는다(BT-EVT-01).
+
+### 2.2 Unit 실행 목록 대조
+
+Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거나 실행되지 않은 채 통과하는 것을 막기 위해, 실행 결과(`TEST-*.xml`)를 7장 표와 대조한다(2026-10-29 결정). 분리 이전 테스트 수는 기준선으로 쓰지 않는다는 결정([regression-log.md](regression-log.md) 5장)은 그대로다.
+
+1. 7장 표에서 종류가 U인 클래스마다 `TEST-com.hapbang.billing.<클래스>.xml`이 있다. 없으면 실행되지 않은 것이다.
+2. 소스의 `@Test`·`@ParameterizedTest` 메서드 수가 7장 표의 메서드 수와 같다. 다르면 표를 먼저 고친다(8.1).
+3. `@Test` 메서드는 XML testcase 이름으로 정확히 한 번 나온다. 이름은 `@DisplayName`이고, 없으면 `메서드명(파라미터 타입)`이다.
+4. 나머지 testcase는 `@ParameterizedTest` 실행으로 세고, 그 수가 파라미터 메서드 수 이상이다. 실행 이름은 `name` 속성에 따라 형식이 달라서 메서드별로 짝짓지는 않는다.
+5. 클래스 수, 메서드 수, 실행 수, 대조 문제 수를 regression-log 실행 기록에 적는다. 대조 문제가 1건이라도 있으면 통과가 아니다.
 
 ## 3. 테스트 인프라와 대역
 
@@ -136,58 +146,58 @@
 
 | ID | 대상 | 검증 기준 | 근거 | 단계 | 테스트 | JVM | 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BT-WAL-01 | 지갑 중복 생성 | 회원당 1개. UNIQUE 위반(23505 + 제약 이름)일 때만 기존 지갑을 돌려준다. 언어 설정과 무관 | BD-1, BD-4, BD-5 | U, I | `WalletCreateUseCaseTest`(9), `WalletDuplicateViolationTest`(5), `WalletCreationIntegrationTest#concurrentCreation`, `#uniqueConflict_*` | 없음 | 미실행 |
-| BT-WAL-02 | 가입 이벤트 → 지갑 | 일반·인플루언서 생성, ADMIN 제외, 재전달·중복 이벤트에도 1개 | BD-2, BD-3, BD-6 | I | `WalletCreationIntegrationTest#userJoined_*`, `#walletLookupThenUserJoined`, `#concurrentEventAndLookup` | 경계 | 미실행 |
-| BT-WAL-03 | 내 지갑 조회 | 없으면 생성, 본인 것만, ADMIN 403, 비로그인 401, Swagger 응답 일치 | BD-2, BD-3 | I | `ApiV1WalletControllerTest`(7), `WalletFacadeTest`(2) | 경계 (인증) | 미실행 |
-| BT-WAL-04 | 거래 내역 | 유형 분류, 지갑별 합계 = 잔액, 페이징, 본인 것만, 지갑 없으면 빈 페이지 | decisions 12장 | I | `WalletTransactionQueryIntegrationTest`(12), `ApiV1WalletTransactionControllerTest`(7) | 경계 (인증) | 미실행 |
-| BT-LED-01 | 원장·지갑 원자성 | 원장 실패 = 지갑 롤백, 지갑 실패 = 원장 롤백 | BD-7, INV-1 | I | `LedgerRecordIntegrationTest#ledgerFailure_rollsBackWallet`, `#walletFailure_rollsBackLedger` | 없음 | 미실행 |
-| BT-LED-02 | 잔액 변경 유일 경로 | `Wallet.applyLedger`는 `LedgerRecordUseCase`만 호출 | BD-7 | U | `WalletApplyLedgerAccessTest#onlyLedgerRecordUseCaseAppliesLedger` | 없음 | 미실행 |
-| BT-LED-03 | 잔액 규칙 | 버킷 분리, 음수 금지, 오버플로, 0 HP 금지, 같은 원장 재적용 금지 | BD-8, BD-12, INV-3 | U, I | `WalletTest`(9), `LedgerOperationTest`(6), `LedgerRecordIntegrationTest#insufficientBalance`, `#balanceOverflow`, `#loadedLedgerCannotBeReapplied` | 없음 | 미실행 |
-| BT-LED-04 | 지갑 락 | ID 오름차순, 반대 순서 동시 작업에 교착 없음, 오래된 엔티티에 lost update 없음, 트랜잭션 필수 | BD-10, BD-11 | U, I | `LedgerRecordUseCaseTest#locksWalletsInIdOrder`, `LedgerRecordIntegrationTest#opposingWalletOrder_noDeadlock`, `#staleWalletInCallerTransaction_noLostUpdate`, `#lockWallet_*` | 없음 | 미실행 |
-| BT-LED-05 | 원장 멱등 | 같은 키·같은 내용 = 재생, 다른 내용 = 충돌, 동시 중복 = 1회 반영, 다른 지갑 같은 키 = 충돌 | BD-14~BD-16 | I | `LedgerRecordIntegrationTest#retry_replays`, `#sameKeyDifferentContent_conflict`, `#concurrentDuplicates_appliedOnce`, `#concurrentSameKeyDifferentWallets` | 없음 | 미실행 |
-| BT-LED-06 | 역분개 | 누적 한도, 역분개의 역분개 금지, 음수 잔액 롤백, 동시 역분개 한도, 재생 | BD-18 | I | `LedgerReversalIntegrationTest`(8) | 없음 | 미실행 |
-| BT-LED-07 | 원장 append-only | SQL UPDATE·DELETE 거부(트리거) | INV-2 | R | `BillingConstraintsTest#원장은_SQL로도_수정하거나_삭제할_수_없다` | 없음 | 미실행 |
-| BT-LED-08 | 잔액 대사 | 일치·캐시 불일치·원장 불일치 탐지, 동시 작업 중 같은 스냅숏 | BD-20, INV-1 | I | `WalletReconciliationIntegrationTest`(6) | 없음 | 미실행 |
-| BT-LED-09 | 원장 기록의 트랜잭션 참여 | 같은 앱 안 호출자 트랜잭션에 참여 | BD-53 | I | `LedgerRecordIntegrationTest#joinsCallerTransaction`, `#multipleRecordsInSameTransaction_keepPendingChanges` | 없음 (Billing 내부 호출) | 미실행 |
+| BT-WAL-01 | 지갑 중복 생성 | 회원당 1개. UNIQUE 위반(23505 + 제약 이름)일 때만 기존 지갑을 돌려준다. 언어 설정과 무관 | BD-1, BD-4, BD-5 | U, I | `WalletCreateUseCaseTest`(9), `WalletDuplicateViolationTest`(5), `WalletCreationIntegrationTest#concurrentCreation`, `#uniqueConflict_*` | 없음 | R-003 통과 |
+| BT-WAL-02 | 가입 이벤트 → 지갑 | 일반·인플루언서 생성, ADMIN 제외, 재전달·중복 이벤트에도 1개 | BD-2, BD-3, BD-6 | I | `WalletCreationIntegrationTest#userJoined_*`, `#walletLookupThenUserJoined`, `#concurrentEventAndLookup` | 경계 | R-003 통과 (경계) |
+| BT-WAL-03 | 내 지갑 조회 | 없으면 생성, 본인 것만, ADMIN 403, 비로그인 401, Swagger 응답 일치 | BD-2, BD-3 | I | `ApiV1WalletControllerTest`(7), `WalletFacadeTest`(2) | 경계 (인증) | R-003 통과 (경계) |
+| BT-WAL-04 | 거래 내역 | 유형 분류, 지갑별 합계 = 잔액, 페이징, 본인 것만, 지갑 없으면 빈 페이지 | decisions 12장 | I | `WalletTransactionQueryIntegrationTest`(12), `ApiV1WalletTransactionControllerTest`(7) | 경계 (인증) | R-003 통과 (경계) |
+| BT-LED-01 | 원장·지갑 원자성 | 원장 실패 = 지갑 롤백, 지갑 실패 = 원장 롤백 | BD-7, INV-1 | I | `LedgerRecordIntegrationTest#ledgerFailure_rollsBackWallet`, `#walletFailure_rollsBackLedger` | 없음 | R-003 통과 |
+| BT-LED-02 | 잔액 변경 유일 경로 | `Wallet.applyLedger`는 `LedgerRecordUseCase`만 호출 | BD-7 | U | `WalletApplyLedgerAccessTest#onlyLedgerRecordUseCaseAppliesLedger` | 없음 | R-003 통과 |
+| BT-LED-03 | 잔액 규칙 | 버킷 분리, 음수 금지, 오버플로, 0 HP 금지, 같은 원장 재적용 금지 | BD-8, BD-12, INV-3 | U, I | `WalletTest`(9), `LedgerOperationTest`(6), `LedgerRecordIntegrationTest#insufficientBalance`, `#balanceOverflow`, `#loadedLedgerCannotBeReapplied` | 없음 | R-003 통과 |
+| BT-LED-04 | 지갑 락 | ID 오름차순, 반대 순서 동시 작업에 교착 없음, 오래된 엔티티에 lost update 없음, 트랜잭션 필수 | BD-10, BD-11 | U, I | `LedgerRecordUseCaseTest#locksWalletsInIdOrder`, `LedgerRecordIntegrationTest#opposingWalletOrder_noDeadlock`, `#staleWalletInCallerTransaction_noLostUpdate`, `#lockWallet_*` | 없음 | R-003 통과 |
+| BT-LED-05 | 원장 멱등 | 같은 키·같은 내용 = 재생, 다른 내용 = 충돌, 동시 중복 = 1회 반영, 다른 지갑 같은 키 = 충돌 | BD-14~BD-16 | I | `LedgerRecordIntegrationTest#retry_replays`, `#sameKeyDifferentContent_conflict`, `#concurrentDuplicates_appliedOnce`, `#concurrentSameKeyDifferentWallets` | 없음 | R-003 통과 |
+| BT-LED-06 | 역분개 | 누적 한도, 역분개의 역분개 금지, 음수 잔액 롤백, 동시 역분개 한도, 재생 | BD-18 | I | `LedgerReversalIntegrationTest`(8) | 없음 | R-003 통과 |
+| BT-LED-07 | 원장 append-only | SQL UPDATE·DELETE 거부(트리거) | INV-2 | R | `BillingConstraintsTest#원장은_SQL로도_수정하거나_삭제할_수_없다` | 없음 | R-003 통과 |
+| BT-LED-08 | 잔액 대사 | 일치·캐시 불일치·원장 불일치 탐지, 동시 작업 중 같은 스냅숏 | BD-20, INV-1 | I | `WalletReconciliationIntegrationTest`(6) | 없음 | R-003 통과 |
+| BT-LED-09 | 원장 기록의 트랜잭션 참여 | 같은 앱 안 호출자 트랜잭션에 참여 | BD-53 | I | `LedgerRecordIntegrationTest#joinsCallerTransaction`, `#multipleRecordsInSameTransaction_keepPendingChanges` | 없음 (Billing 내부 호출) | R-003 통과 |
 
 ### 4.3 보류·반환·지급·위약금·확정 차감 (HLD·REL·PAY·PEN·CAP)
 
 | ID | 대상 | 검증 기준 | 근거 | 단계 | 테스트 | JVM | 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BT-HLD-01 | 보류 배분 | 수익 HP 먼저, 충전 HP는 완료 시각·ID 순 FIFO, 배분 가능한 상태만 사용 | BD-24 | U, I | `HoldSplitTest`(6), `HoldCreateIntegrationTest#revenueFirstThenCharge`, `#fifoByCompletedAt`, `#fifoSameCompletedAt_byId`, `#allocatableStatusesOnly`, `#holdAndUsageRows` | 없음 | 미실행 |
-| BT-HLD-02 | 보류 멱등 | 참조당 1건, 재요청 = 처음 배분 그대로, 금액·지갑이 다르면 충돌, 동시 요청 1건 | BD-21, BD-23 | I | `HoldCreateIntegrationTest#retry_replays`, `#retryAfterBalanceChange_keepsOriginalSplit`, `#sameReference*_conflict`, `#concurrentSameRequest_oneHold`, `#concurrentSameReferenceDifferentWallets` | 없음 | 미실행 |
-| BT-HLD-03 | 보류 정합성 오류 | 원금 불일치 `CHARGE_PRINCIPAL_MISMATCH`, 원장만·보류만 있으면 `HOLD_STATE_INCONSISTENT` | BD-23, BD-25, INV-4 | I | `HoldCreateIntegrationTest#chargePrincipalMismatch`, `#ledgerWithoutHold_inconsistent`, `#holdWithoutLedger_inconsistent` | 없음 | 미실행 |
-| BT-HLD-04 | 조회 순서 경합 | 원장 → 보류 순서로 정상 경쟁은 충돌, 비정상은 불일치로 분류 | BD-27 | I | `HoldCreateIntegrationTest#lookupRace_*`, `#concurrentInsert_uncommittedHold_uniqueViolation` | 없음 | 미실행 |
-| BT-HLD-05 | 보류 원자성 | 어느 단계가 실패해도 전부 롤백, 동시 보류에 이중 배분 없음 | — | I | `HoldCreateIntegrationTest#*_rollsBackAll`, `#concurrentDistinctHolds_noDoubleAllocation` | 없음 | 미실행 |
-| BT-HLD-06 | 멱등키 형식 | 결정론적 키, 최장 키 255자 이내 | BD-14, BD-21, BD-30, BD-44, BD-48 | U | `BillingKeysTest`(7) | 없음 | 미실행 |
-| BT-REL-01 | 반환 순서 | 충전 HP 먼저, 원금 LIFO 복원, 복원 원금은 다시 FIFO 배분 | BD-29 | U, I | `ReleaseSplitTest`(6), `ChargeUsageHistoryTest#releaseLifo`, `HoldReleaseIntegrationTest#partial_chargeOnly_lifo`, `#partial_mixed_chargeFirst`, `#restoredPrincipal_reallocatedFifo` | 없음 | 미실행 |
-| BT-REL-02 | 반환 범위·상태 | 부분·전체, 초과 거절, 닫힌 보류 거절, 지급분은 반환 불가 | BD-32, BD-34 | U, I | `PointHoldReleaseTest`(12), `HoldReleaseIntegrationTest#partial_exceeds`, `#full_*`, `#closedHold_newRequestRejected`, `#paidAmount_notReleasable` | 없음 | 미실행 |
-| BT-REL-03 | 반환 멱등 | 같은 ID 재생(닫힌 뒤 포함), 다른 금액 충돌, 다른 보류 같은 ID는 별개, 동시 반환에 초과 없음 | BD-30~BD-32 | I | `HoldReleaseIntegrationTest#sameRequest_*`, `#sameRequestId_*`, `#retryAfterClosed_replays`, `#differentRequests_concurrent_noOverRelease` | 없음 | 미실행 |
-| BT-REL-04 | 이력 재생 대조 | 상세를 재생한 결과가 배분 누적값과 다르면 `HOLD_STATE_INCONSISTENT` | BD-33, INV-5 | U, I | `ChargeUsageHistoryTest#replay*`, `HoldReleaseIntegrationTest#usageNotMatchingHistory_inconsistent`, `#ledgerWithoutDetail_inconsistent` | 없음 | 미실행 |
-| BT-REL-05 | 반환 소유·원자성 | 없는 보류·남의 보류 거절, 단계별 실패 전체 롤백 | BD-32 | I | `HoldReleaseIntegrationTest#notFound`, `#otherMembersHold`, `#*_rollsBackAll` | 없음 | 미실행 |
-| BT-PAY-01 | 지급 배분 | 수익 HP 보류 먼저, 충전 원금 FIFO 소진, 받는 쪽 수익 HP 가용, 초과 거절 | BD-39 | U, I | `PayoutSplitTest`(2), `PointHoldPayoutTest`(5), `HoldPayoutIntegrationTest#payout_revenueOnly_full`, `#payout_chargeOnly_fifo`, `#payout_mixed_revenueFirst`, `#payout_exceeds` | 없음 | 미실행 |
-| BT-PAY-02 | 원천 1회 정산 | 같은 원천은 보류·유형과 무관하게 1회, NORMAL·PENALTY 배타, 동시 요청도 DB UNIQUE로 1건 | BD-42, BD-43, INV-6 | I, R | `HoldPayoutIntegrationTest#sameSource_normalAndPenaltyExclusive`, `#request_contractSettlesOnce`, `#sameContractAcrossHolds_rejected`, `#concurrent_sameContractAcrossHosts_*`, `BillingConstraintsTest#지급_원천은_보류와_지급_유형이_달라도_한_번만_정산한다` | 없음 | 미실행 |
-| BT-PAY-03 | 지급 멱등 | 같은 요청 ID 재생, 다른 보류의 같은 ID는 별개, 동시 같은 지급 1회 | BD-44 | I | `HoldPayoutIntegrationTest#payout_idempotency`, `#payout_sameRequestIdOtherHold`, `#concurrent_samePayout` | 없음 | 미실행 |
-| BT-PAY-04 | 중복 지급 오류 순서 | 끝난 보류 `HOLD_ALREADY_CLOSED`가 원천 중복 `PAYOUT_ALREADY_SETTLED`보다 먼저 | BD-69, BD-70 | I | 전용 테스트 이름 미확인 (`payout_invalidRequests`·`sameContractAcrossHolds_rejected`에 일부 포함 추정) | 없음 | 미확인 |
-| BT-PAY-05 | 혼합 이력·경합 | 반환·지급 혼합 재생, 반환과 지급 동시 실행 시 한쪽만 성공, 양방향 지급에 교착 없음 | BD-34, BD-73 | I | `HoldPayoutIntegrationTest#mixed_*`, `#concurrent_releaseAndPayout`, `#concurrent_bidirectional`, `#concurrent_sameGuestFromManyHosts` | 없음 | 미실행 |
-| BT-PAY-06 | 지급 요청 검증 | 자기 지급 `PAYOUT_TO_PAYER`, 원천 불일치 `PAYOUT_SOURCE_MISMATCH`, 실패 전체 롤백 | BD-41, BD-45 | I | `HoldPayoutIntegrationTest#payout_invalidRequests`(세부 미확인), `#payout_failures_rollBackAll` | 없음 | 미실행 |
-| BT-PAY-07 | 판매자 지갑 없음 | 지급 때 `WALLET_NOT_FOUND`로 롤백, 지갑 생성 후 같은 요청 ID로 재지급 | BD-68 | I | 없음(Billing 테스트에서 이름으로 확인하지 못함) | 없음 | 없음 |
-| BT-PEN-01 | 위약금 처리 | 받은 반환액 + 지급액을 원자적으로 처리, 비율 검증 없음, 기준액이 남은 보류를 넘으면 거절, 합계 overflow 거절 | BD-56 | U, I | `BillingCommandValidatorTest#penaltyAnyRatio`, `#penaltyOverflow`, `HoldPayoutIntegrationTest#penalty_10000`, `#penalty_10001_mixed`, `#penalty_otherRatio`, `#penalty_rejects` | 없음 | 미실행 |
-| BT-PEN-02 | 0 HP 규칙 | 게스트 지급 0 거절, 호스트 반환 0 허용(반환 상세·원장 없음) | BD-57, BD-58 | U, I | `BillingCommandValidatorTest#penaltyZeroPayout`, `HoldPayoutIntegrationTest#penalty_zeroRejected`, `#penalty_noRelease*` | 없음 | 미실행 |
-| BT-PEN-03 | 위약금 멱등·원자성 | 같은 취소 ID 재생, 동시 같은 취소 1회, 단계별 실패 전체 롤백 | BD-48, BD-59 | I | `HoldPayoutIntegrationTest#penalty_idempotency`, `#penalty_concurrentSameCancellation`, `#penalty_*Failure_rollsBack*` | 없음 | 미실행 |
-| BT-PEN-04 | 모집 위약금 | 게스트별 위약금·정상 지급 혼합 | BD-41, BD-43 | I | `HoldPayoutIntegrationTest#penalty_recruitOneGuest`, `#recruit_penaltyForOneGuest_normalForAnother`, `#payout_recruit_multipleGuests` | 없음 | 미실행 |
-| BT-CAP-01 | 종류별 보류 | 참조 유형별 MIXED·CHARGE_ONLY·REVENUE_ONLY, 종류 잔액 부족 거절, DB 제약 | BD-82, INV-8 | I | `HoldCaptureIntegrationTest#holdByType`, `#holdByType_insufficient`, `#internalHold_idempotencyAndScope`, `#dbConstraints` | 없음 | 미실행 |
-| BT-CAP-02 | 확정 차감 | 전체·부분, 이어서 반환, 멱등, 거절 조건, 동시 실행, 원장 실패 롤백 | BD-83, BD-86 | I | `HoldCaptureIntegrationTest#capture_*` | 없음 | 미실행 |
-| BT-CAP-03 | 충전 건 지정 | PG 결과대로 지정 충전 건만 확정 차감·반환, 금액 필수, 정확한 PG 금액 | BD-84, BD-85 | U, I | `ChargeUsageHistoryTest#targetedCharge*`, `HoldCaptureIntegrationTest#capture_byCharge_*` | 없음 | 미실행 |
-| BT-CAP-04 | MIXED 보호 | MIXED 보류는 확정 차감 불가, 지급과 확정 차감이 한 보류를 나눠 쓰지 않음, MIXED 회귀 | BD-83, BD-86 | I | `HoldCaptureIntegrationTest#mixedHold_regression`, `#captureAndPayout_neverShareHold` | 없음 | 미실행 |
+| BT-HLD-01 | 보류 배분 | 수익 HP 먼저, 충전 HP는 완료 시각·ID 순 FIFO, 배분 가능한 상태만 사용 | BD-24 | U, I | `HoldSplitTest`(6), `HoldCreateIntegrationTest#revenueFirstThenCharge`, `#fifoByCompletedAt`, `#fifoSameCompletedAt_byId`, `#allocatableStatusesOnly`, `#holdAndUsageRows` | 없음 | R-003 통과 |
+| BT-HLD-02 | 보류 멱등 | 참조당 1건, 재요청 = 처음 배분 그대로, 금액·지갑이 다르면 충돌, 동시 요청 1건 | BD-21, BD-23 | I | `HoldCreateIntegrationTest#retry_replays`, `#retryAfterBalanceChange_keepsOriginalSplit`, `#sameReference*_conflict`, `#concurrentSameRequest_oneHold`, `#concurrentSameReferenceDifferentWallets` | 없음 | R-003 통과 |
+| BT-HLD-03 | 보류 정합성 오류 | 원금 불일치 `CHARGE_PRINCIPAL_MISMATCH`, 원장만·보류만 있으면 `HOLD_STATE_INCONSISTENT` | BD-23, BD-25, INV-4 | I | `HoldCreateIntegrationTest#chargePrincipalMismatch`, `#ledgerWithoutHold_inconsistent`, `#holdWithoutLedger_inconsistent` | 없음 | R-003 통과 |
+| BT-HLD-04 | 조회 순서 경합 | 원장 → 보류 순서로 정상 경쟁은 충돌, 비정상은 불일치로 분류 | BD-27 | I | `HoldCreateIntegrationTest#lookupRace_*`, `#concurrentInsert_uncommittedHold_uniqueViolation` | 없음 | R-003 통과 |
+| BT-HLD-05 | 보류 원자성 | 어느 단계가 실패해도 전부 롤백, 동시 보류에 이중 배분 없음 | — | I | `HoldCreateIntegrationTest#*_rollsBackAll`, `#concurrentDistinctHolds_noDoubleAllocation` | 없음 | R-003 통과 |
+| BT-HLD-06 | 멱등키 형식 | 결정론적 키, 최장 키 255자 이내 | BD-14, BD-21, BD-30, BD-44, BD-48 | U | `BillingKeysTest`(7) | 없음 | R-003 통과 |
+| BT-REL-01 | 반환 순서 | 충전 HP 먼저, 원금 LIFO 복원, 복원 원금은 다시 FIFO 배분 | BD-29 | U, I | `ReleaseSplitTest`(6), `ChargeUsageHistoryTest#releaseLifo`, `HoldReleaseIntegrationTest#partial_chargeOnly_lifo`, `#partial_mixed_chargeFirst`, `#restoredPrincipal_reallocatedFifo` | 없음 | R-003 통과 |
+| BT-REL-02 | 반환 범위·상태 | 부분·전체, 초과 거절, 닫힌 보류 거절, 지급분은 반환 불가 | BD-32, BD-34 | U, I | `PointHoldReleaseTest`(12), `HoldReleaseIntegrationTest#partial_exceeds`, `#full_*`, `#closedHold_newRequestRejected`, `#paidAmount_notReleasable` | 없음 | R-003 통과 |
+| BT-REL-03 | 반환 멱등 | 같은 ID 재생(닫힌 뒤 포함), 다른 금액 충돌, 다른 보류 같은 ID는 별개, 동시 반환에 초과 없음 | BD-30~BD-32 | I | `HoldReleaseIntegrationTest#sameRequest_*`, `#sameRequestId_*`, `#retryAfterClosed_replays`, `#differentRequests_concurrent_noOverRelease` | 없음 | R-003 통과 |
+| BT-REL-04 | 이력 재생 대조 | 상세를 재생한 결과가 배분 누적값과 다르면 `HOLD_STATE_INCONSISTENT` | BD-33, INV-5 | U, I | `ChargeUsageHistoryTest#replay*`, `HoldReleaseIntegrationTest#usageNotMatchingHistory_inconsistent`, `#ledgerWithoutDetail_inconsistent` | 없음 | R-003 통과 |
+| BT-REL-05 | 반환 소유·원자성 | 없는 보류·남의 보류 거절, 단계별 실패 전체 롤백 | BD-32 | I | `HoldReleaseIntegrationTest#notFound`, `#otherMembersHold`, `#*_rollsBackAll` | 없음 | R-003 통과 |
+| BT-PAY-01 | 지급 배분 | 수익 HP 보류 먼저, 충전 원금 FIFO 소진, 받는 쪽 수익 HP 가용, 초과 거절 | BD-39 | U, I | `PayoutSplitTest`(2), `PointHoldPayoutTest`(5), `HoldPayoutIntegrationTest#payout_revenueOnly_full`, `#payout_chargeOnly_fifo`, `#payout_mixed_revenueFirst`, `#payout_exceeds` | 없음 | R-003 통과 |
+| BT-PAY-02 | 원천 1회 정산 | 같은 원천은 보류·유형과 무관하게 1회, NORMAL·PENALTY 배타, 동시 요청도 DB UNIQUE로 1건 | BD-42, BD-43, INV-6 | I, R | `HoldPayoutIntegrationTest#sameSource_normalAndPenaltyExclusive`, `#request_contractSettlesOnce`, `#sameContractAcrossHolds_rejected`, `#concurrent_sameContractAcrossHosts_*`, `BillingConstraintsTest#지급_원천은_보류와_지급_유형이_달라도_한_번만_정산한다` | 없음 | R-003 통과 |
+| BT-PAY-03 | 지급 멱등 | 같은 요청 ID 재생, 다른 보류의 같은 ID는 별개, 동시 같은 지급 1회 | BD-44 | I | `HoldPayoutIntegrationTest#payout_idempotency`, `#payout_sameRequestIdOtherHold`, `#concurrent_samePayout` | 없음 | R-003 통과 |
+| BT-PAY-04 | 중복 지급 오류 순서 | 끝난 보류 `HOLD_ALREADY_CLOSED`가 원천 중복 `PAYOUT_ALREADY_SETTLED`보다 먼저 | BD-69, BD-70 | I | 없음. `HoldPayoutIntegrationTest#payout_invalidRequests`의 `HOLD_ALREADY_CLOSED` 검사는 정산되지 않은 원천으로 해서, 두 조건이 함께 걸리는 경우의 순서를 시험하지 않는다(2026-10-29 코드 확인) | 없음 | 없음 |
+| BT-PAY-05 | 혼합 이력·경합 | 반환·지급 혼합 재생, 반환과 지급 동시 실행 시 한쪽만 성공, 양방향 지급에 교착 없음 | BD-34, BD-73 | I | `HoldPayoutIntegrationTest#mixed_*`, `#concurrent_releaseAndPayout`, `#concurrent_bidirectional`, `#concurrent_sameGuestFromManyHosts` | 없음 | R-003 통과 |
+| BT-PAY-06 | 지급 요청 검증 | 자기 지급 `PAYOUT_TO_PAYER`, 원천 불일치 `PAYOUT_SOURCE_MISMATCH`, 실패 전체 롤백 | BD-41, BD-45 | I | `HoldPayoutIntegrationTest#payout_invalidRequests`(세부 미확인), `#payout_failures_rollBackAll` | 없음 | R-003 통과 |
+| BT-PAY-07 | 판매자 지갑 없음 | 지급 때 `WALLET_NOT_FOUND`로 롤백, 지갑 생성 후 같은 요청 ID로 재지급 | BD-68 | I | 일부: `HoldPayoutIntegrationTest#payout_invalidRequests`(받는 회원 지갑 없음 → `WALLET_NOT_FOUND`, 상태 불변). 지갑을 만든 뒤 같은 요청 ID로 재지급하는 테스트는 없다(2026-10-29 코드 확인) | 없음 | R-003 통과 (일부만 검증, 6.1) |
+| BT-PEN-01 | 위약금 처리 | 받은 반환액 + 지급액을 원자적으로 처리, 비율 검증 없음, 기준액이 남은 보류를 넘으면 거절, 합계 overflow 거절 | BD-56 | U, I | `BillingCommandValidatorTest#penaltyAnyRatio`, `#penaltyOverflow`, `HoldPayoutIntegrationTest#penalty_10000`, `#penalty_10001_mixed`, `#penalty_otherRatio`, `#penalty_rejects` | 없음 | R-003 통과 |
+| BT-PEN-02 | 0 HP 규칙 | 게스트 지급 0 거절, 호스트 반환 0 허용(반환 상세·원장 없음) | BD-57, BD-58 | U, I | `BillingCommandValidatorTest#penaltyZeroPayout`, `HoldPayoutIntegrationTest#penalty_zeroRejected`, `#penalty_noRelease*` | 없음 | R-003 통과 |
+| BT-PEN-03 | 위약금 멱등·원자성 | 같은 취소 ID 재생, 동시 같은 취소 1회, 단계별 실패 전체 롤백 | BD-48, BD-59 | I | `HoldPayoutIntegrationTest#penalty_idempotency`, `#penalty_concurrentSameCancellation`, `#penalty_*Failure_rollsBack*` | 없음 | R-003 통과 |
+| BT-PEN-04 | 모집 위약금 | 게스트별 위약금·정상 지급 혼합 | BD-41, BD-43 | I | `HoldPayoutIntegrationTest#penalty_recruitOneGuest`, `#recruit_penaltyForOneGuest_normalForAnother`, `#payout_recruit_multipleGuests` | 없음 | R-003 통과 |
+| BT-CAP-01 | 종류별 보류 | 참조 유형별 MIXED·CHARGE_ONLY·REVENUE_ONLY, 종류 잔액 부족 거절, DB 제약 | BD-82, INV-8 | I | `HoldCaptureIntegrationTest#holdByType`, `#holdByType_insufficient`, `#internalHold_idempotencyAndScope`, `#dbConstraints` | 없음 | R-003 통과 |
+| BT-CAP-02 | 확정 차감 | 전체·부분, 이어서 반환, 멱등, 거절 조건, 동시 실행, 원장 실패 롤백 | BD-83, BD-86 | I | `HoldCaptureIntegrationTest#capture_*` | 없음 | R-003 통과 |
+| BT-CAP-03 | 충전 건 지정 | PG 결과대로 지정 충전 건만 확정 차감·반환, 금액 필수, 정확한 PG 금액 | BD-84, BD-85 | U, I | `ChargeUsageHistoryTest#targetedCharge*`, `HoldCaptureIntegrationTest#capture_byCharge_*` | 없음 | R-003 통과 |
+| BT-CAP-04 | MIXED 보호 | MIXED 보류는 확정 차감 불가, 지급과 확정 차감이 한 보류를 나눠 쓰지 않음, MIXED 회귀 | BD-83, BD-86 | I | `HoldCaptureIntegrationTest#mixedHold_regression`, `#captureAndPayout_neverShareHold` | 없음 | R-003 통과 |
 
 ### 4.4 BillingPort와 모듈 경계 (PORT·EVT)
 
 | ID | 대상 | 검증 기준 | 근거 | 단계 | 테스트 | JVM | 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BT-PORT-01 | `BillingPort` 결과 변환 | `hold`·`release`·`payout`·`settlePenalty`가 shared 결과 DTO로 바뀐다. 강의 항목별 보류 | BD-51, BD-52, BD-61 | I | `BillingPortIntegrationTest#portBean`, `#hold`, `#lectureOrderItems`, `#releaseAndPayout`, `#settlePenalty` | **깨짐** (원격 구현이 없다. 변환 로직은 앱 안에서 계속 유효) | 미실행 |
-| BT-PORT-02 | 호출자 트랜잭션 참여 | 호출자와 함께 커밋, Billing 실패 = 호출자 롤백, 호출자 실패 = Billing 롤백 | BD-53, BD-64 | I | `BillingPortIntegrationTest#callerTransaction_*`, `HoldCreateIntegrationTest#joinsCallerTransaction`, `HoldReleaseIntegrationTest#joinsCallerTransaction`, `#staleEntitiesInCallerTransaction_refreshed`, `HoldPayoutIntegrationTest#penalty_joinsCallerTransaction` | **깨짐** (통과해도 독립 JVM 운영을 보장하지 않는다) | 미실행 |
-| BT-PORT-03 | 금융 오류 전파 | 잔액 부족·금액 오류가 예외로 전파되고 값이 바뀌지 않는다 | BD-60 | I | `BillingPortIntegrationTest#insufficientBalanceIsException`, `#amountErrorsUnchanged` | **깨짐** (원격 오류 응답 매핑 계약 없음) | 미실행 |
+| BT-PORT-01 | `BillingPort` 결과 변환 | `hold`·`release`·`payout`·`settlePenalty`가 shared 결과 DTO로 바뀐다. 강의 항목별 보류 | BD-51, BD-52, BD-61 | I | `BillingPortIntegrationTest#portBean`, `#hold`, `#lectureOrderItems`, `#releaseAndPayout`, `#settlePenalty` | **깨짐** (원격 구현이 없다. 변환 로직은 앱 안에서 계속 유효) | R-003 통과 (깨짐: 분리 운영은 보장하지 않음) |
+| BT-PORT-02 | 호출자 트랜잭션 참여 | 호출자와 함께 커밋, Billing 실패 = 호출자 롤백, 호출자 실패 = Billing 롤백 | BD-53, BD-64 | I | `BillingPortIntegrationTest#callerTransaction_*`, `HoldCreateIntegrationTest#joinsCallerTransaction`, `HoldReleaseIntegrationTest#joinsCallerTransaction`, `#staleEntitiesInCallerTransaction_refreshed`, `HoldPayoutIntegrationTest#penalty_joinsCallerTransaction` | **깨짐** (통과해도 독립 JVM 운영을 보장하지 않는다) | R-003 통과 (깨짐: 분리 운영은 보장하지 않음) |
+| BT-PORT-03 | 금융 오류 전파 | 잔액 부족·금액 오류가 예외로 전파되고 값이 바뀌지 않는다 | BD-60 | I | `BillingPortIntegrationTest#insufficientBalanceIsException`, `#amountErrorsUnchanged` | **깨짐** (원격 오류 응답 매핑 계약 없음) | R-003 통과 (깨짐: 분리 운영은 보장하지 않음) |
 | BT-PORT-04 | 원격 보류·반환·지급·위약금 계약 | 내부 HTTP 경로·키 인증·요청/응답 DTO·오류 코드·타임아웃·결과 불명 처리·같은 요청 ID 재시도. 호출 쪽 Resilience4j timeout·circuit open일 때 성공으로 해석하지 않음. 보상 처리: 보류 실패 → 주문이 남지 않음, 주문 실패 → 보류 반환 | AGENTS 3장, D62·D63, BD-70, 인프라 문서 3·10장 | T | 없음 | 깨짐 | 없음 (#280) |
 | BT-PORT-05 | 소비 앱 기동 | lecture-app·appearance-app이 Billing 원격 Client로 기동한다 | `docs/architecture/app-modules.md` | T | 없음 (Billing 범위 밖) | 깨짐 | 없음 |
 | BT-EVT-01 | 다른 앱에서 온 회원 이벤트 | member-app의 가입·변경 이벤트가 Kafka로 billing-app에 전달되어 지갑·복제본이 생긴다. 같은 `eventId` 재전달은 inbox로 한 번만 반영, 순서가 바뀌어도 회원 버전 비교로 최신만 반영, 재시도 한도 초과는 DLT | BD-2, BD-6, BD-103, 인프라 문서 1장 | T | 없음 (`KafkaTestcontainersConfig` 사용 가능) | 깨짐 | 없음 (#339) |
@@ -196,75 +206,75 @@
 
 | ID | 대상 | 검증 기준 | 근거 | 단계 | 테스트 | JVM | 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BT-CHG-01 | 충전 주문 | 1,000 단위, 지갑 없으면 거절, 남의 주문·금액 불일치 거절 | BD-81 | I | `ChargeIntegrationTest#createOrder*`, `#walletNotFound`, `#confirm_otherMembersOrder`, `#confirm_amountMismatch` | 없음 | 미실행 |
-| BT-CHG-02 | 승인 완료 | COMPLETED + 충전 원장 1줄 + 가용 원금 = 충전액. FAILED는 완료되지 않음 | BD-76 | U, I | `PointChargeTest#chargeConfirmFlow`, `ChargeIntegrationTest#confirm_completes`, `#failedNeverCompleted` | 없음 | 미실행 |
-| BT-CHG-03 | 승인 멱등 | 같은 결제키 재생, 다른 결제키 충돌, 동시 승인 1회, 결제키 해시 UNIQUE 경합 | BD-79 | I | `ChargeIntegrationTest#confirm_replay`, `#confirm_paymentKeyConflict`, `#confirm_concurrent`, `#confirm_paymentKeyHashUniqueRace` | 없음 | 미실행 |
-| BT-CHG-04 | PG 결과 판정 | 거절 = FAILED, 401·409·429 등 = 불명확 유지, 5xx·타임아웃 = 조회, PARTIAL_CANCELED = 운영자 확인, 승인 결과 불일치 = `CHARGE_STATE_INCONSISTENT` | BD-77 | U, I | `TossPaymentsClientTest`(8), `ChargeIntegrationTest#confirm_rejected`, `#confirm_timeoutButApproved`, `#confirm_unknownThenRetried`, `#confirm_rateLimitOrAuthErrorKept`, `#confirm_approved*Mismatch`, `#recovery_partialCanceledKeptForOperator` | 없음 (외부 장애) | 미실행 |
-| BT-CHG-05 | 승인 후 복구 | 승인 후 DB 실패·불명확 건을 조회로 확정, 미확정 건 순환, 세션 만료 FAILED | BD-76, BD-78 | I | `ChargeIntegrationTest#confirm_dbFailureAfterApproval`, `#recovery_*` | 없음 | 미실행 |
-| BT-CHG-06 | 결제키 보호 | 무작위 IV 암호화, HMAC, 변조 감지, 응답·저장에 원문 없음, 설정 오류 시 기동 실패 | BD-80 | U, I | `PaymentKeyCipherTest`(6), `ChargeIntegrationTest#confirm_paymentKeyProtected`, `#recovery_unreadablePaymentKey` | 없음 | 미실행 |
-| BT-CHG-07 | 결제 설정 없음 | 앱은 뜨고 충전·환불·환전 API만 503 | BD-80 | I | `ApiV1WalletChargeUnavailableTest`(3) | 없음 | 미실행 |
-| BT-CHG-08 | 충전 HP 사용 | 충전한 HP가 보류·반환에 쓰인다 | BD-24 | I | `ChargeIntegrationTest#chargedHpUsedByHoldAndRelease` | 경계 (같은 JVM `BillingPort`로 보류) | 미실행 |
-| BT-CHG-09 | 충전 API | 상태 코드(201·200·202), 요청 검증, 권한 | A10.1 | I | `ApiV1WalletChargeControllerTest`(7) | 경계 (인증) | 미실행 |
-| BT-RFD-01 | 환불 접수 | 충전 HP만, FIFO로 여러 충전 건에 나눔, 금액 규칙 | BD-87 | I | `RefundIntegrationTest#refund_singleChargePartial`, `#refund_fullCharge`, `#refund_fifoAcrossCharges`, `#refund_chargeHpOnly`, `#refund_invalidAmount` | 없음 | 미실행 |
-| BT-RFD-02 | PG 취소 멱등키 | UUID를 한 번 만들어 저장, DB ID와 무관 | BD-88 | U, I | `BillingKeysTest#refundCancelKeyIsUnique`, `RefundIntegrationTest#refund_cancelKeyIsStoredUuid`, `#refund_cancelKeyIndependentOfDbIds` | 없음 | 미실행 |
-| BT-RFD-03 | PG 결과 분류 | 요청 오류 = 반환, 환급 불가 = 보류 유지·운영자 확인, 중복 취소 = 운영자 확인, 불명확 = 조회 후 확정 | BD-89 | I | `RefundIntegrationTest#refund_firstRejected`, `#refund_secondRejected`, `#refund_pgRefundNotPossibleKeepsClaim`, `#refund_duplicateCancelAtPg`, `#refund_unknown*`, `#refund_canceled*`, `#refund_alreadyCanceled*`, `#refund_lookupNotFound` | 없음 (외부 장애) | 미실행 |
-| BT-RFD-04 | UNKNOWN 한도 | 24시간 또는 12회 → 운영자 확인, 마지막 확인에서 성공하면 확정 차감 | BD-90 | U, I | `PointRefundTest#unknownLimit`, `RefundIntegrationTest#unknown_*` | 없음 | 미실행 |
-| BT-RFD-05 | 멱등키 안전 기간 | 최초 요청 + 14일 경계부터 재POST 금지, 이후 조회만 | BD-91 | U, I | `PointRefundTest#idempotencyWindow`, `RefundIntegrationTest#idempotencyWindow_*` | 없음 | 미실행 |
-| BT-RFD-06 | 취소·경합 | REQUESTED만 회원 취소, 처리와 취소 경합, 처리와 복구 경합, 동시 요청에 과환불 없음 | BD-92 | U, I | `PointRefundTest#cancel_onlyPending`, `RefundIntegrationTest#cancel_*`, `#processing_concurrentWithRecovery`, `#concurrentRequests_noOverRefund`, `#additionalRequestWhileUnknown` | 없음 | 미실행 |
-| BT-RFD-07 | 접수 멱등·복구 | 같은 키 재생, REQUESTED 재개, 실패 요청 순환 | BD-87, BD-92 | I | `RefundIntegrationTest#refund_idempotentReplay`, `#recovery_*` | 없음 | 미실행 |
-| BT-RFD-08 | 환불 API | 200·202, 요청 검증, 취소, 권한 | A10.2 | I | `ApiV1WalletRefundControllerTest`(6) | 경계 (인증) | 미실행 |
+| BT-CHG-01 | 충전 주문 | 1,000 단위, 지갑 없으면 거절, 남의 주문·금액 불일치 거절 | BD-81 | I | `ChargeIntegrationTest#createOrder*`, `#walletNotFound`, `#confirm_otherMembersOrder`, `#confirm_amountMismatch` | 없음 | R-003 통과 |
+| BT-CHG-02 | 승인 완료 | COMPLETED + 충전 원장 1줄 + 가용 원금 = 충전액. FAILED는 완료되지 않음 | BD-76 | U, I | `PointChargeTest#chargeConfirmFlow`, `ChargeIntegrationTest#confirm_completes`, `#failedNeverCompleted` | 없음 | R-003 통과 |
+| BT-CHG-03 | 승인 멱등 | 같은 결제키 재생, 다른 결제키 충돌, 동시 승인 1회, 결제키 해시 UNIQUE 경합 | BD-79 | I | `ChargeIntegrationTest#confirm_replay`, `#confirm_paymentKeyConflict`, `#confirm_concurrent`, `#confirm_paymentKeyHashUniqueRace` | 없음 | R-003 통과 |
+| BT-CHG-04 | PG 결과 판정 | 거절 = FAILED, 401·409·429 등 = 불명확 유지, 5xx·타임아웃 = 조회, PARTIAL_CANCELED = 운영자 확인, 승인 결과 불일치 = `CHARGE_STATE_INCONSISTENT` | BD-77 | U, I | `TossPaymentsClientTest`(8), `ChargeIntegrationTest#confirm_rejected`, `#confirm_timeoutButApproved`, `#confirm_unknownThenRetried`, `#confirm_rateLimitOrAuthErrorKept`, `#confirm_approved*Mismatch`, `#recovery_partialCanceledKeptForOperator` | 없음 (외부 장애) | R-003 통과 |
+| BT-CHG-05 | 승인 후 복구 | 승인 후 DB 실패·불명확 건을 조회로 확정, 미확정 건 순환, 세션 만료 FAILED | BD-76, BD-78 | I | `ChargeIntegrationTest#confirm_dbFailureAfterApproval`, `#recovery_*` | 없음 | R-003 통과 |
+| BT-CHG-06 | 결제키 보호 | 무작위 IV 암호화, HMAC, 변조 감지, 응답·저장에 원문 없음, 설정 오류 시 기동 실패 | BD-80 | U, I | `PaymentKeyCipherTest`(6), `ChargeIntegrationTest#confirm_paymentKeyProtected`, `#recovery_unreadablePaymentKey` | 없음 | R-003 통과 |
+| BT-CHG-07 | 결제 설정 없음 | 앱은 뜨고 충전·환불·환전 API만 503 | BD-80 | I | `ApiV1WalletChargeUnavailableTest`(3) | 없음 | R-003 통과 |
+| BT-CHG-08 | 충전 HP 사용 | 충전한 HP가 보류·반환에 쓰인다 | BD-24 | I | `ChargeIntegrationTest#chargedHpUsedByHoldAndRelease` | 경계 (같은 JVM `BillingPort`로 보류) | R-003 통과 (경계) |
+| BT-CHG-09 | 충전 API | 상태 코드(201·200·202), 요청 검증, 권한 | A10.1 | I | `ApiV1WalletChargeControllerTest`(7) | 경계 (인증) | R-003 통과 (경계) |
+| BT-RFD-01 | 환불 접수 | 충전 HP만, FIFO로 여러 충전 건에 나눔, 금액 규칙 | BD-87 | I | `RefundIntegrationTest#refund_singleChargePartial`, `#refund_fullCharge`, `#refund_fifoAcrossCharges`, `#refund_chargeHpOnly`, `#refund_invalidAmount` | 없음 | R-003 통과 |
+| BT-RFD-02 | PG 취소 멱등키 | UUID를 한 번 만들어 저장, DB ID와 무관 | BD-88 | U, I | `BillingKeysTest#refundCancelKeyIsUnique`, `RefundIntegrationTest#refund_cancelKeyIsStoredUuid`, `#refund_cancelKeyIndependentOfDbIds` | 없음 | R-003 통과 |
+| BT-RFD-03 | PG 결과 분류 | 요청 오류 = 반환, 환급 불가 = 보류 유지·운영자 확인, 중복 취소 = 운영자 확인, 불명확 = 조회 후 확정 | BD-89 | I | `RefundIntegrationTest#refund_firstRejected`, `#refund_secondRejected`, `#refund_pgRefundNotPossibleKeepsClaim`, `#refund_duplicateCancelAtPg`, `#refund_unknown*`, `#refund_canceled*`, `#refund_alreadyCanceled*`, `#refund_lookupNotFound` | 없음 (외부 장애) | R-003 통과 |
+| BT-RFD-04 | UNKNOWN 한도 | 24시간 또는 12회 → 운영자 확인, 마지막 확인에서 성공하면 확정 차감 | BD-90 | U, I | `PointRefundTest#unknownLimit`, `RefundIntegrationTest#unknown_*` | 없음 | R-003 통과 |
+| BT-RFD-05 | 멱등키 안전 기간 | 최초 요청 + 14일 경계부터 재POST 금지, 이후 조회만 | BD-91 | U, I | `PointRefundTest#idempotencyWindow`, `RefundIntegrationTest#idempotencyWindow_*` | 없음 | R-003 통과 |
+| BT-RFD-06 | 취소·경합 | REQUESTED만 회원 취소, 처리와 취소 경합, 처리와 복구 경합, 동시 요청에 과환불 없음 | BD-92 | U, I | `PointRefundTest#cancel_onlyPending`, `RefundIntegrationTest#cancel_*`, `#processing_concurrentWithRecovery`, `#concurrentRequests_noOverRefund`, `#additionalRequestWhileUnknown` | 없음 | R-003 통과 |
+| BT-RFD-07 | 접수 멱등·복구 | 같은 키 재생, REQUESTED 재개, 실패 요청 순환 | BD-87, BD-92 | I | `RefundIntegrationTest#refund_idempotentReplay`, `#recovery_*` | 없음 | R-003 통과 |
+| BT-RFD-08 | 환불 API | 200·202, 요청 검증, 취소, 권한 | A10.2 | I | `ApiV1WalletRefundControllerTest`(6) | 경계 (인증) | R-003 통과 (경계) |
 
 ### 4.6 환전·송금·Mock 은행 (EXC·EXP·MCK)
 
 | ID | 대상 | 검증 기준 | 근거 | 단계 | 테스트 | JVM | 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BT-EXC-01 | 환전 신청 | 수익 HP만, 금액 규칙, REVENUE_ONLY 보류, 계좌 암호화 스냅샷, 계좌 저장 실패 전체 롤백 | BD-94, BD-95 | U, I | `ExchangeTest`(12), `ExchangeAccountCipherTest`(3), `ExchangeIntegrationTest#request`, `#accountSaveFailureRollsBackAll`, `#accountSnapshotEncrypted`, `#chargeHpNotExchangeable`, `#insufficientRevenue` | 경계 (수익 HP를 만들 때 같은 JVM `BillingPort` 사용) | 미실행 |
-| BT-EXC-02 | 신청 멱등·동시성 | 같은 키 재생, 복호화 불가 재요청 거절, 동시 신청에 과보류 없음 | BD-95 | I | `ExchangeIntegrationTest#idempotentReplay`, `#concurrentSameKey`, `#concurrentRequestsDoNotOverHold`, `#replayWithUnreadableAccount` | 없음 | 미실행 |
-| BT-EXC-03 | 회원 취소 | REQUESTED만, 반환 1회, 상태 변경과 직렬화, 승인 뒤 거절 | BD-97, BD-98 | I | `ExchangeIntegrationTest#cancel`, `#concurrentCancel`, `#cancelWaitsForConcurrentStatusChange`, `#notCancelableAfterApproval` | 없음 | 미실행 |
-| BT-EXC-04 | 정산 회차 | 기준일·주말 보정·잠정 예정 시각·승인 시점 회차 | BD-96 | U | `ExchangeSettlementRoundTest`(7) | 없음 | 미실행 |
-| BT-EXC-05 | 관리자 승인·거절 | 상태 전이, 멱등(같은 관리자·같은 사유), 승인·거절·취소 경합에 하나만 성공, 보류 정합성 | BD-102 | I | `ExchangeReviewIntegrationTest`(20) | 없음 | 미실행 |
-| BT-EXC-06 | 신청자 복제본 | 복제본 없음·자격 없음이면 승인 409, 거절은 신청자 상태 무관 | BD-102, BD-103 | I | `ExchangeReviewIntegrationTest#approveWithoutReplica`, `#approveNotEligible`, `#rejectRegardlessOfApplicant` | 경계 (복제본이 이벤트·Backfill로 채워진다는 전제) | 미실행 |
-| BT-EXC-07 | 환전 API | 계좌번호 미노출·마스킹, 요청 검증, 권한 | A11 | I | `ApiV1SettlementExchangeControllerTest`(6), `ApiV1SettlementExchangeAdminControllerTest`(4) | 경계 (인증) | 미실행 |
-| BT-EXP-01 | 송금 성공 | 확정 차감 1회, 완료 재실행 멱등, 예정 전·미승인 거절 | BD-101 | U, I | `ExchangePayoutTest`(15), `ExchangePayoutIntegrationTest#success`, `#completedIsIdempotent`, `#notDue`, `#notApproved` | 없음 | 미실행 |
-| BT-EXP-02 | 송금 실패·재시도·최종 실패 | FAILED는 보류 유지, 재시도는 새 요청 ID, 최종 실패 = 반환, 불명확한 상태에서는 최종 실패 금지 | BD-101 | I | `ExchangePayoutIntegrationTest#failedThenRetry`, `#failFinally*`, `#recheckRejectedThenRetry` | 없음 | 미실행 |
-| BT-EXP-03 | 결과 불명확·복구 | 타임아웃·5xx·처리 중·전송 전 중단을 같은 ID로 확인, 24시간 뒤 운영자 확인, 은행 성공 뒤 반영 실패 복구 | BD-101 | I | `ExchangePayoutIntegrationTest#timeoutThenRecover`, `#serverErrorThenResend`, `#bankProcessing`, `#crashBeforeSend`, `#applyFailsAfterBankSuccess`, `#autoCheckExpires`, `#recheck*` | 없음 (외부 장애) | 미실행 |
-| BT-EXP-04 | 송금 경합 | 동시 실행·복구·재확인·최종 실패와 재시도 경합 | BD-98, BD-101 | I | `ExchangePayoutIntegrationTest#concurrent*`, `#finalizeVersusRetry`, `#recheckVersusRecovery`, `#concurrentSameFinalize` | 없음 | 미실행 |
-| BT-EXP-05 | 정산 배치 처리 | 예정 지난 APPROVED만, 커서·상한, 실패 격리·같은 실행에서 반복 없음, Client 없으면 건너뜀, 늦은 승인은 다음 회차 | decisions 12장 | I | `ExchangeSettlementUseCaseTest`(6), `ExchangeSettlementIntegrationTest`(10) | 없음 | 미실행 |
-| BT-EXP-06 | 배치 등록 조건 | 스케줄링·배치별 스위치 | — | U | `ExchangeSettlementBatchConditionTest`(3) | 없음 | 미실행 |
-| BT-EXP-07 | 송금 관리자 API | 목록·재확인·재시도·최종 실패, 권한 | A11 | I | `ExchangePayoutIntegrationTest#adminApi`, `#adminApiAuthorization` | 경계 (인증) | 미실행 |
-| BT-MCK-01 | Mock 은행 HTTP | 같은 요청 재생·다른 내용 409, 시나리오, 트랜잭션 안 호출 금지, 접근 키, 계좌 미로그, 재시작 후 복구 | BD-99 | U, I | `MockPayoutTransferTest`(2), `MockPayoutHttpIntegrationTest`(19) | 없음 (같은 앱 안의 HTTP) | 미실행 |
-| BT-MCK-02 | Mock 활성 조건 | 배포 프로필·기본 프로필에서는 빈·엔드포인트·HTTP 없음 | BD-100 | U, I | `MockPayoutActivationTest`(3), `MockPayoutDeployedProfileTest`(2×5), `MockPayoutDisabledTest`(3) | 없음 | 미실행 |
+| BT-EXC-01 | 환전 신청 | 수익 HP만, 금액 규칙, REVENUE_ONLY 보류, 계좌 암호화 스냅샷, 계좌 저장 실패 전체 롤백 | BD-94, BD-95 | U, I | `ExchangeTest`(12), `ExchangeAccountCipherTest`(3), `ExchangeIntegrationTest#request`, `#accountSaveFailureRollsBackAll`, `#accountSnapshotEncrypted`, `#chargeHpNotExchangeable`, `#insufficientRevenue` | 경계 (수익 HP를 만들 때 같은 JVM `BillingPort` 사용) | R-003 통과 (경계) |
+| BT-EXC-02 | 신청 멱등·동시성 | 같은 키 재생, 복호화 불가 재요청 거절, 동시 신청에 과보류 없음 | BD-95 | I | `ExchangeIntegrationTest#idempotentReplay`, `#concurrentSameKey`, `#concurrentRequestsDoNotOverHold`, `#replayWithUnreadableAccount` | 없음 | R-003 통과 |
+| BT-EXC-03 | 회원 취소 | REQUESTED만, 반환 1회, 상태 변경과 직렬화, 승인 뒤 거절 | BD-97, BD-98 | I | `ExchangeIntegrationTest#cancel`, `#concurrentCancel`, `#cancelWaitsForConcurrentStatusChange`, `#notCancelableAfterApproval` | 없음 | R-003 통과 |
+| BT-EXC-04 | 정산 회차 | 기준일·주말 보정·잠정 예정 시각·승인 시점 회차 | BD-96 | U | `ExchangeSettlementRoundTest`(7) | 없음 | R-003 통과 |
+| BT-EXC-05 | 관리자 승인·거절 | 상태 전이, 멱등(같은 관리자·같은 사유), 승인·거절·취소 경합에 하나만 성공, 보류 정합성 | BD-102 | I | `ExchangeReviewIntegrationTest`(20) | 없음 | R-003 통과 |
+| BT-EXC-06 | 신청자 복제본 | 복제본 없음·자격 없음이면 승인 409, 거절은 신청자 상태 무관 | BD-102, BD-103 | I | `ExchangeReviewIntegrationTest#approveWithoutReplica`, `#approveNotEligible`, `#rejectRegardlessOfApplicant` | 경계 (복제본이 이벤트·Backfill로 채워진다는 전제) | R-003 통과 (경계) |
+| BT-EXC-07 | 환전 API | 계좌번호 미노출·마스킹, 요청 검증, 권한 | A11 | I | `ApiV1SettlementExchangeControllerTest`(6), `ApiV1SettlementExchangeAdminControllerTest`(4) | 경계 (인증) | R-003 통과 (경계) |
+| BT-EXP-01 | 송금 성공 | 확정 차감 1회, 완료 재실행 멱등, 예정 전·미승인 거절 | BD-101 | U, I | `ExchangePayoutTest`(15), `ExchangePayoutIntegrationTest#success`, `#completedIsIdempotent`, `#notDue`, `#notApproved` | 없음 | R-003 통과 |
+| BT-EXP-02 | 송금 실패·재시도·최종 실패 | FAILED는 보류 유지, 재시도는 새 요청 ID, 최종 실패 = 반환, 불명확한 상태에서는 최종 실패 금지 | BD-101 | I | `ExchangePayoutIntegrationTest#failedThenRetry`, `#failFinally*`, `#recheckRejectedThenRetry` | 없음 | R-003 통과 |
+| BT-EXP-03 | 결과 불명확·복구 | 타임아웃·5xx·처리 중·전송 전 중단을 같은 ID로 확인, 24시간 뒤 운영자 확인, 은행 성공 뒤 반영 실패 복구 | BD-101 | I | `ExchangePayoutIntegrationTest#timeoutThenRecover`, `#serverErrorThenResend`, `#bankProcessing`, `#crashBeforeSend`, `#applyFailsAfterBankSuccess`, `#autoCheckExpires`, `#recheck*` | 없음 (외부 장애) | R-003 통과 |
+| BT-EXP-04 | 송금 경합 | 동시 실행·복구·재확인·최종 실패와 재시도 경합 | BD-98, BD-101 | I | `ExchangePayoutIntegrationTest#concurrent*`, `#finalizeVersusRetry`, `#recheckVersusRecovery`, `#concurrentSameFinalize` | 없음 | R-003 통과 |
+| BT-EXP-05 | 정산 배치 처리 | 예정 지난 APPROVED만, 커서·상한, 실패 격리·같은 실행에서 반복 없음, Client 없으면 건너뜀, 늦은 승인은 다음 회차 | decisions 12장 | I | `ExchangeSettlementUseCaseTest`(6), `ExchangeSettlementIntegrationTest`(10) | 없음 | R-003 통과 |
+| BT-EXP-06 | 배치 등록 조건 | 스케줄링·배치별 스위치 | — | U | `ExchangeSettlementBatchConditionTest`(3) | 없음 | R-003 통과 |
+| BT-EXP-07 | 송금 관리자 API | 목록·재확인·재시도·최종 실패, 권한 | A11 | I | `ExchangePayoutIntegrationTest#adminApi`, `#adminApiAuthorization` | 경계 (인증) | R-003 통과 (경계) |
+| BT-MCK-01 | Mock 은행 HTTP | 같은 요청 재생·다른 내용 409, 시나리오, 트랜잭션 안 호출 금지, 접근 키, 계좌 미로그, 재시작 후 복구 | BD-99 | U, I | `MockPayoutTransferTest`(2), `MockPayoutHttpIntegrationTest`(19) | 없음 (같은 앱 안의 HTTP) | R-003 통과 |
+| BT-MCK-02 | Mock 활성 조건 | 배포 프로필·기본 프로필에서는 빈·엔드포인트·HTTP 없음 | BD-100 | U, I | `MockPayoutActivationTest`(3), `MockPayoutDeployedProfileTest`(2×5), `MockPayoutDisabledTest`(3) | 없음 | R-003 통과 |
 
 ### 4.7 수익 조회·회원 복제본 (ERN·USR)
 
 | ID | 대상 | 검증 기준 | 근거 | 단계 | 테스트 | JVM | 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BT-ERN-01 | 수익 합산 | 상태별 합, 전역 정렬 병합, 페이지 = 전체 병합의 부분, 깊이 1,000 제한, 한쪽 실패 = 전체 실패 | internal-earnings.md | U | `EarningQueryUseCaseTest`(13) | 없음 | 미실행 |
-| BT-ERN-02 | 출처 Client 변환·장애 분류 | 응답 변환(출연 KST), 연결 실패·5xx·해석 실패 = 503 UNAVAILABLE, 4xx = 503 REJECTED, Client 없음 = 503 | internal-earnings.md 4·7장 | U | `EarningSourceAdapterTest`(9) | 경계 (실제 HTTP지만 응답은 Billing 쪽 가짜 서버) | 미실행 |
-| BT-ERN-03 | 수익 API | 역할, 본인 것만, 출처 장애, 깊이, 내부 키 헤더 송신 | internal-earnings.md | I | `ApiV1SettlementEarningControllerTest`(10) | 경계 (인증·가짜 서버) | 미실행 |
+| BT-ERN-01 | 수익 합산 | 상태별 합, 전역 정렬 병합, 페이지 = 전체 병합의 부분, 깊이 1,000 제한, 한쪽 실패 = 전체 실패 | internal-earnings.md | U | `EarningQueryUseCaseTest`(13) | 없음 | R-003 통과 |
+| BT-ERN-02 | 출처 Client 변환·장애 분류 | 응답 변환(출연 KST), 연결 실패·5xx·해석 실패 = 503 UNAVAILABLE, 4xx = 503 REJECTED, Client 없음 = 503 | internal-earnings.md 4·7장 | U | `EarningSourceAdapterTest`(9) | 경계 (실제 HTTP지만 응답은 Billing 쪽 가짜 서버) | R-003 통과 (경계) |
+| BT-ERN-03 | 수익 API | 역할, 본인 것만, 출처 장애, 깊이, 내부 키 헤더 송신 | internal-earnings.md | I | `ApiV1SettlementEarningControllerTest`(10) | 경계 (인증·가짜 서버) | R-003 통과 (경계) |
 | BT-ERN-04 | 제공자 계약 일치 | lecture-app·appearance-app 실제 응답이 Billing Client 기대와 같다 | internal-earnings.md | T | 없음 | 경계 | 없음 |
-| BT-USR-01 | 복제본 동기화 | 가입·변경 Upsert, 버전 비교, 버전 없는 정보 무시, 늦은 가입 이벤트가 덮어쓰지 않음, 동시 Upsert | BD-103 | I | `BillingUserSyncIntegrationTest`(8) | 경계 (Scenario.publish) | 미실행 |
-| BT-USR-02 | 리스너 격리 | 복제본 실패가 지갑 생성을 막지 않음, 재시도는 새 트랜잭션 | BD-103 | I | `BillingMemberEventIsolationTest`(2) | 경계 | 미실행 |
-| BT-USR-03 | Backfill | 페이지 순회·한도·재개 커서, 실패 분류, 계약 위반, 동시 실행 금지, 이벤트와 경합, 관리자 API | BD-104 (확인 필요) | U, I | `BillingUserBackfillUseCaseTest`(13), `BillingUserBackfillIntegrationTest`(14) | 경계 (MemberApiClient 실제 HTTP, 가짜 member 서버) | 미실행 |
+| BT-USR-01 | 복제본 동기화 | 가입·변경 Upsert, 버전 비교, 버전 없는 정보 무시, 늦은 가입 이벤트가 덮어쓰지 않음, 동시 Upsert | BD-103 | I | `BillingUserSyncIntegrationTest`(8) | 경계 (Scenario.publish) | R-003 통과 (경계) |
+| BT-USR-02 | 리스너 격리 | 복제본 실패가 지갑 생성을 막지 않음, 재시도는 새 트랜잭션 | BD-103 | I | `BillingMemberEventIsolationTest`(2) | 경계 | R-003 통과 (경계) |
+| BT-USR-03 | Backfill | 페이지 순회·한도·재개 커서, 실패 분류, 계약 위반, 동시 실행 금지, 이벤트와 경합, 관리자 API | BD-104 (확인 필요) | U, I | `BillingUserBackfillUseCaseTest`(13), `BillingUserBackfillIntegrationTest`(14) | 경계 (MemberApiClient 실제 HTTP, 가짜 member 서버) | R-003 통과 (경계) |
 | BT-USR-04 | member 제공자 계약 일치 | member-app 내부 회원 API 응답이 Billing Client 기대와 같다 | `docs/api/internal-members.md` | T | 없음 | 경계 | 없음 |
 
 ### 4.8 보안·오류·DB·설정 (SEC·ERR·DB·CFG)
 
 | ID | 대상 | 검증 기준 | 근거 | 단계 | 테스트 | JVM | 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BT-SEC-01 | URL 인가 | 관리자 경로 두 겹, `@PreAuthorize` 역할, 공개 경로(헬스체크 등), 비로그인 401 | A14, policy.md 역할표 | S | `SecurityConfigTest`(12) | 미확인 (`TestLogin`으로 인증을 흉내 냄) | 미실행 |
-| BT-SEC-02 | `@LoginUserId` | 로그인 사용자 ID 해석, 익명 처리 | — | U | `LoginUserIdArgumentResolverTest`(4) | 미확인 (principal 이름 = 회원 ID라는 전제) | 미실행 |
-| BT-SEC-03 | 내부 API 키 | 맞는 키만 통과, 경로 prefix 보호, 세션과 키 분리, 내부 경로만 CSRF 해제, 키 미노출, 키 없으면 기동 실패 | AGENTS 7장 | U, S | `InternalApiKeyFilterTest`(2), `InternalApiPropertiesTest`(4), `InternalApiSecurityConfigTest`(11) | 없음 (체인만 있고 Billing이 노출하는 내부 경로는 없음) | 미실행 |
-| BT-SEC-04 | 기능별 역할 | Facade `@PreAuthorize` 역할(관리자 지갑 403 등) | policy.md 역할표 | I | `WalletFacadeTest`(2), 각 `ApiV1*ControllerTest#authorization`·`#roles` | 경계 (인증) | 미실행 |
+| BT-SEC-01 | URL 인가 | 관리자 경로 두 겹, `@PreAuthorize` 역할, 공개 경로(헬스체크 등), 비로그인 401 | A14, policy.md 역할표 | S | `SecurityConfigTest`(12) | 미확인 (`TestLogin`으로 인증을 흉내 냄) | R-003 통과 (JVM 영향 미확인) |
+| BT-SEC-02 | `@LoginUserId` | 로그인 사용자 ID 해석, 익명 처리 | — | U | `LoginUserIdArgumentResolverTest`(4) | 미확인 (principal 이름 = 회원 ID라는 전제) | R-003 통과 (JVM 영향 미확인) |
+| BT-SEC-03 | 내부 API 키 | 맞는 키만 통과, 경로 prefix 보호, 세션과 키 분리, 내부 경로만 CSRF 해제, 키 미노출, 키 없으면 기동 실패 | AGENTS 7장 | U, S | `InternalApiKeyFilterTest`(2), `InternalApiPropertiesTest`(4), `InternalApiSecurityConfigTest`(11) | 없음 (체인만 있고 Billing이 노출하는 내부 경로는 없음) | R-003 통과 |
+| BT-SEC-04 | 기능별 역할 | Facade `@PreAuthorize` 역할(관리자 지갑 403 등) | policy.md 역할표 | I | `WalletFacadeTest`(2), 각 `ApiV1*ControllerTest#authorization`·`#roles` | 경계 (인증) | R-003 통과 (경계) |
 | BT-SEC-05 | 분리 환경 인증 | member-app이 발급한 JWT를 Envoy가 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더로 billing-app이 사용자·관리자를 인증하고 `@PreAuthorize`로 인가한다. 헤더 없는 요청은 비로그인(401), 외부에서 붙인 `X-User-*`는 앱에 닿지 않는다 | #370~#372, 인프라 문서 3장 | T | 없음 | 깨짐 (현재 방식 미확인) | 없음 |
 | BT-SEC-06 | HP 경로의 회원 상태 확인 | 토큰의 `role`만 믿지 않고 Billing 회원 복제본 상태를 함께 확인한다(정지·역할 변경이 토큰 수명만큼 늦게 반영되는 문제 방지). 대상 경로는 TBD(decisions 11장) | 인프라 문서 3장 인증 흐름 7, #371 | I | 없음 (현재 확인은 환전 승인뿐: BT-EXC-06) | 미확인 | 없음 |
-| BT-ERR-01 | 오류 응답 | `ProblemDetail` + `code`, 검증 오류 항목, 403·405·500(내부 메시지 미노출) | conventions.md, BD-105, BD-106 | U, S | `GlobalExceptionHandlerTest`(15), `BusinessExceptionTest`(6) | 없음 | 미실행 |
-| BT-ERR-02 | 페이지 응답 | 형식, 최대 100, 기본 20 | A14 | S | `PageConfigTest`(3) | 없음 | 미실행 |
-| BT-DB-01 | 스키마 | Flyway 14개 테이블 + Hibernate validate, TIMESTAMPTZ·BIGINT, FK는 Billing 내부만, 다른 도메인 테이블 없음 | module.md 8.2 | R | `BillingSchemaTest`(6) | 없음 (database 분리 시 다시 확인) | 미실행 |
-| BT-DB-02 | 제약 | CHECK·UNIQUE·FK·트리거·멱등키 | INV-2~INV-8 | R | `BillingConstraintsTest`(33) | 없음 | 미실행 |
-| BT-DB-03 | Enum 저장값 | CHECK 허용값 = Enum 상수 이름 | BD-37 | R | `BillingEnumStorageTest`(1) | 없음 | 미실행 |
-| BT-DB-04 | 엔티티 저장 | 전체 엔티티 저장·조회, Instant 보존, 감사 시각, ID 참조 FK | BD-36 | R | `BillingRepositoryTest`(7) | 없음 | 미실행 |
-| BT-CFG-01 | 배치 스위치 | `hapbang.scheduling.enabled` 조건 | — | U | `ConditionalOnSchedulingEnabledTest`(3) | 없음 | 미실행 |
+| BT-ERR-01 | 오류 응답 | `ProblemDetail` + `code`, 검증 오류 항목, 403·405·500(내부 메시지 미노출) | conventions.md, BD-105, BD-106 | U, S | `GlobalExceptionHandlerTest`(15), `BusinessExceptionTest`(6) | 없음 | R-003 통과 |
+| BT-ERR-02 | 페이지 응답 | 형식, 최대 100, 기본 20 | A14 | S | `PageConfigTest`(3) | 없음 | R-003 통과 |
+| BT-DB-01 | 스키마 | Flyway 14개 테이블 + Hibernate validate, TIMESTAMPTZ·BIGINT, FK는 Billing 내부만, 다른 도메인 테이블 없음 | module.md 8.2 | R | `BillingSchemaTest`(6) | 없음 (database 분리 시 다시 확인) | R-003 통과 |
+| BT-DB-02 | 제약 | CHECK·UNIQUE·FK·트리거·멱등키 | INV-2~INV-8 | R | `BillingConstraintsTest`(33) | 없음 | R-003 통과 |
+| BT-DB-03 | Enum 저장값 | CHECK 허용값 = Enum 상수 이름 | BD-37 | R | `BillingEnumStorageTest`(1) | 없음 | R-003 통과 |
+| BT-DB-04 | 엔티티 저장 | 전체 엔티티 저장·조회, Instant 보존, 감사 시각, ID 참조 FK | BD-36 | R | `BillingRepositoryTest`(7) | 없음 | R-003 통과 |
+| BT-CFG-01 | 배치 스위치 | `hapbang.scheduling.enabled` 조건 | — | U | `ConditionalOnSchedulingEnabledTest`(3) | 없음 | R-003 통과 |
 | BT-CFG-02 | 실제 설정 기동 | 앱 `application.yaml`·프로필(local·dev·prod)과 필수 환경 변수로 기동, 누락 시 기대한 실패 | module.md 9장 | T | 없음 (`@IntegrationTest`는 앱 yaml을 읽지 않는다) | 미확인 | 없음 |
 | BT-CFG-03 | 복구 배치 실행 | `ChargeRecoveryBatch`·`RefundRecoveryBatch`가 등록되고 UseCase에 위임 | BD-78, BD-92 | I | 없음 (UseCase만 검증) | 없음 | 없음 |
 
@@ -302,11 +312,11 @@
 
 | 항목 | 내용 | BT |
 | --- | --- | --- |
-| 판매자 지갑 없음 재지급 | Billing 쪽 전용 테스트를 이름으로 찾지 못했다 | BT-PAY-07 |
-| 중복 지급 오류 순서 | 순서 자체를 단정하는 테스트 이름 미확인 | BT-PAY-04 |
+| 판매자 지갑 없음 재지급 | 지갑 없음 거절·상태 불변은 `payout_invalidRequests`에 있다. 지갑 생성 뒤 같은 요청 ID 재지급은 없다 | BT-PAY-07 |
+| 중복 지급 오류 순서 | 끝난 보류와 원천 중복이 함께 걸리는 경우를 시험하는 테스트가 없다 | BT-PAY-04 |
 | 복구 배치 빈 | `ChargeRecoveryBatch`·`RefundRecoveryBatch` 등록·위임 테스트 없음(`@IntegrationTest`에서 스케줄링이 꺼짐, 추정) | BT-CFG-03 |
 | 실제 설정 기동 | 앱 yaml·프로필로 기동하는 테스트 없음 | BT-CFG-02 |
-| 레거시 SettlementStatus | SCHEDULED 등 레거시 행이 있을 때 `PAYOUT_ALREADY_SETTLED` (문서상 테스트 있음, 현재 테스트 이름 미확인) | BD-71 |
+| 레거시 SettlementStatus | SCHEDULED 등 레거시 행이 있을 때 `PAYOUT_ALREADY_SETTLED`. 테스트가 없다. SCHEDULED 지급 건 픽스처(`BillingFixture.settlement`)는 `BillingConstraintsTest`·`BillingRepositoryTest`에서만 쓴다(2026-10-29 코드 확인) | BD-71 |
 | 이름으로 참조되지 않는 클래스 | `HoldCaptureUseCase`·`HoldPayoutUseCase`·`HoldReleaseUseCase`·`HoldProcessing`·`PenaltySettlementUseCase`·Facade·`ExchangeLocks`·`CaptureSplit`·`InternalHoldRequests`는 Facade·컨트롤러를 거쳐 간접 검증된다. 직접 테스트가 필요한지는 TBD | — |
 
 ### 6.2 Contract 단계 대상 (현재 테스트 없음)

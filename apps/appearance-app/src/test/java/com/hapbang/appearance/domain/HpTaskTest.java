@@ -130,4 +130,75 @@ class HpTaskTest {
         assertThatThrownBy(() -> task.markDone(NOW)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> task.markFailed("x", NOW)).isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    @DisplayName("관리자 다시 시도(#397): DEAD → PENDING, 시도 0회, 바로 실행 가능, 완료 시각 비움, 멱등 키·마지막 오류 유지, 다시 시도 기록")
+    void reopenForManualRetry() {
+        HpTask task = release();
+        task.markDead("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.", NOW);
+        LocalDateTime later = NOW.plusHours(3);
+
+        task.reopenForManualRetry(9L, later);
+
+        assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+        assertThat(task.getAttemptCount()).isZero();
+        assertThat(task.isRunnable(later)).isTrue();
+        assertThat(task.getCompletedAt()).isNull();
+        assertThat(task.getIdempotencyKey()).isEqualTo(KEY);
+        assertThat(task.getLastError()).startsWith("HOLD_NOT_FOUND");
+        assertThat(task.getManualRetryCount()).isEqualTo(1);
+        assertThat(task.getLastManualRetryBy()).isEqualTo(9L);
+        assertThat(task.getLastManualRetryAt()).isEqualTo(later);
+    }
+
+    @Test
+    @DisplayName("다시 시도한 뒤 결과를 알 수 없는 실패는 재시도 규칙을 처음부터 적용한다 (바로 DEAD가 아니라 1분 뒤 재시도)")
+    void retryBudgetResetsAfterManualRetry() {
+        HpTaskRetryPolicy policy = new HpTaskRetryPolicy(Duration.ofMinutes(1), Duration.ofHours(1), 2, 0);
+        HpTask task = release();
+        task.recordFailure("timeout", policy, NOW, 0);
+        task.recordFailure("timeout", policy, NOW, 0);
+        assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DEAD);
+
+        task.reopenForManualRetry(9L, NOW);
+        task.recordFailure("timeout", policy, NOW, 0);
+
+        assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+        assertThat(task.getAttemptCount()).isEqualTo(1);
+        assertThat(task.getNextAttemptAt()).isEqualTo(NOW.plusMinutes(1));
+
+        task.recordFailure("timeout", policy, NOW, 0);
+        assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DEAD);
+    }
+
+    @Test
+    @DisplayName("다시 시도할 때마다 다시 시도 횟수가 늘고 마지막 관리자·시각으로 바뀐다")
+    void manualRetryCountAccumulates() {
+        HpTask task = release();
+        task.markDead("x", NOW);
+        task.reopenForManualRetry(9L, NOW);
+        task.markDead("x", NOW.plusMinutes(1));
+
+        task.reopenForManualRetry(10L, NOW.plusMinutes(2));
+
+        assertThat(task.getManualRetryCount()).isEqualTo(2);
+        assertThat(task.getLastManualRetryBy()).isEqualTo(10L);
+        assertThat(task.getLastManualRetryAt()).isEqualTo(NOW.plusMinutes(2));
+    }
+
+    @Test
+    @DisplayName("DEAD가 아닌 작업(대기·완료)은 다시 시도할 수 없다 → HP_TASK_NOT_DEAD")
+    void reopenOnlyDead() {
+        HpTask pending = release();
+        HpTask done = release();
+        done.markDone(NOW);
+
+        assertThatThrownBy(() -> pending.reopenForManualRetry(9L, NOW))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.HP_TASK_NOT_DEAD));
+        assertThatThrownBy(() -> done.reopenForManualRetry(9L, NOW))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.HP_TASK_NOT_DEAD));
+        assertThat(pending.getManualRetryCount()).isZero();
+    }
 }

@@ -44,6 +44,19 @@ public class AppearanceUserSupport {
     }
 
     /**
+     * 관리자 API를 부른 회원이 지금도 정상 상태의 관리자인지 확인한다 (#397, 관리자 API 서비스 단 검증).
+     * 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등된 경우는 여기서 막힌다.
+     *
+     * @throws AppearanceException 회원이 없거나({@code APPEARANCE_USER_NOT_FOUND}), 정상 상태가 아니거나
+     *                             ({@code APPEARANCE_USER_NOT_ACTIVE}), 관리자가 아닐 때({@code NOT_ADMIN})
+     */
+    public AppearanceUser getAdmin(Long adminId) {
+        AppearanceUser user = getById(adminId);
+        user.validateIsAdmin();
+        return user;
+    }
+
+    /**
      * 출연 요청을 받을 게스트를 찾고 자격을 확인한다. 오류 코드는 {@link #getParticipant}와 같고, 메시지만 게스트 기준으로 바꾼다.
      *
      * @throws AppearanceException 게스트가 없거나({@code APPEARANCE_USER_NOT_FOUND}), 자격이 없을 때

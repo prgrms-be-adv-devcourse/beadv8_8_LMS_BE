@@ -1,0 +1,8 @@
+# 지갑 모듈 전용 설정.
+# 앱 실행 설정(application.yaml)과 나눠 두고, application.yaml의 spring.config.import로 읽는다 (테스트는 hapbang-module-test.yaml).
+spring:
+  datasource:
+    hikari:
+      # 락 대기 상한 (#273, docs/billing/CONTEXT.md 1.4). 내부 API Client 응답 timeout(5초)보다 짧게 둔다.
+      # 넘으면 PostgreSQL 55P03으로 트랜잭션이 롤백되고, Facade가 HP_LOCK_TIMEOUT(503)으로 바꾼다.
+      connection-init-sql: "SET lock_timeout = '3s'"

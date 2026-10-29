@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.billing.app.WalletTransactionResult.PointChange;
 import com.hapbang.billing.domain.BalanceBucket;
@@ -32,6 +33,8 @@ import com.hapbang.testsupport.IntegrationTest;
 // 내 HP 거래 내역(#295)이 실제 업무 흐름이 남긴 원장을 PostgreSQL GROUP BY로 지갑 + 작업 키마다 묶고, 거래 유형·HP 종류별
 // 가용·보류·총액 증감·작업 단위 페이지를 맞게 내는지 검증한다. 원장은 실제 Facade·UseCase로만 기록한다.
 @IntegrationTest
+// HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273)
+@WithMockUser(roles = "INTERNAL")
 class WalletTransactionQueryIntegrationTest {
 
     private static final Instant T1 = Instant.parse("2026-10-01T00:00:00Z");

@@ -146,6 +146,18 @@ class AppearanceSwaggerDocsTest {
     }
 
     @Test
+    @DisplayName("관리자 HP 작업 목록·다시 시도는 RsData로 감싼 작업 (#397)")
+    void hpTaskAdminSchemaIsRsData() throws Exception {
+        String paths = "$.paths['/api/v1/appearances/admin/hp-tasks";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(paths + "'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataPageHpTaskAdminResDto"))
+                .andExpect(jsonPath(paths + "/{taskId}/retry'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataHpTaskAdminResDto"));
+    }
+
+    @Test
     @DisplayName("출연 확인·불참은 RsData로 감싼 출연 (#282)")
     void confirmSchemaIsRsData() throws Exception {
         String paths = "$.paths['/api/v1/appearances";

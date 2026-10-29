@@ -24,6 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
+import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.billing.app.PayoutResult.ChargeConsumption;
 import com.hapbang.billing.app.ReleaseResult.ChargeRestoration;
@@ -47,6 +49,8 @@ import com.hapbang.testsupport.IntegrationTest;
 // 보류 지급(수익 HP 우선·충전 원금 FIFO 소진)·반환과의 혼합 이력·위약금 정산(70% 반환 + 30% 지급)의 금융 정합성,
 // 멱등성, 롤백, 다중 지갑 동시성을 실제 PostgreSQL로 검증한다.
 @IntegrationTest
+// HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273). 동시 실행 스레드에는 DelegatingSecurityContextExecutorService로 넘긴다
+@WithMockUser(roles = "INTERNAL")
 class HoldPayoutIntegrationTest {
 
     private static final Instant T1 = Instant.parse("2026-10-01T00:00:00Z");
@@ -901,7 +905,7 @@ class HoldPayoutIntegrationTest {
         Map<String, Object> hostBBefore = balances(hostB);
         CountDownLatch paidButNotCommitted = new CountDownLatch(1);
         CountDownLatch commit = new CountDownLatch(1);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
+        ExecutorService executor = new DelegatingSecurityContextExecutorService(Executors.newFixedThreadPool(2));
         try {
             // A: 지급하고 커밋하지 않은 채 기다린다(지급 건 INSERT가 UNIQUE 키를 잡고 있다).
             Future<PayoutResult> first = executor.submit(() -> new TransactionTemplate(transactionManager).execute(
@@ -1372,7 +1376,7 @@ class HoldPayoutIntegrationTest {
 
     private <T> List<T> runTogether(List<Callable<T>> tasks) throws Exception {
         CountDownLatch start = new CountDownLatch(1);
-        ExecutorService executor = Executors.newFixedThreadPool(tasks.size());
+        ExecutorService executor = new DelegatingSecurityContextExecutorService(Executors.newFixedThreadPool(tasks.size()));
         try {
             List<Future<T>> futures = new ArrayList<>();
             for (Callable<T> task : tasks) {

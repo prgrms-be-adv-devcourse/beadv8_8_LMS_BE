@@ -1,0 +1,5 @@
+# 지갑 모듈 테스트 전용 설정. src/test 아래라 배포 jar에는 포함되지 않는다.
+spring:
+  config:
+    # 운영 application.yaml을 읽지 않는 모듈 테스트에도 지갑 설정(락 대기 상한)만 명시적으로 가져온다.
+    import: classpath:billing.yml

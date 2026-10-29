@@ -44,6 +44,7 @@
 | 출연 확인(확인·불참)·D+7 자동 확인, 지급 HP 작업. 이의 제기는 고객센터 관할 | ✅ | #282 |
 | Billing 실제 연동 (Fake Billing·`mode` 설정 삭제, 실제 Billing 통합 테스트) | ✅ | #289 |
 | 정리: 작업 뒤 상세 조회 읽기 전용 트랜잭션, 충돌 변환 통합 | ✅ | #293 |
+| 격리된 HP 작업 관리자 조회·다시 시도 | ✅ | #397 |
 
 ---
 
@@ -360,9 +361,11 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 | `status` | VARCHAR(255) | `PENDING` / `DONE` / `DEAD` |
 | `attempt_count`, `next_attempt_at`, `last_error` | INTEGER, TIMESTAMP(6), VARCHAR(1000) | 시도 횟수, 다음 시도 시각, 마지막 오류 |
 | `completed_at` | TIMESTAMP(6) | 완료 시각 |
+| `manual_retry_count`, `last_manual_retry_by`, `last_manual_retry_at` | INTEGER(기본 0), BIGINT, TIMESTAMP(6) | 관리자 다시 시도 횟수, 마지막으로 다시 시도한 관리자 회원 ID·시각 (#397). 셋 다 비었거나 셋 다 있다 |
 | `version`, `created_at`, `updated_at` | | 낙관적 락, 생성·수정 시각 |
 
 - 마이그레이션(5.3·5.4): `V202610141109__create_appearance_and_hp_task_tables.sql` (#137)
+- 다시 시도 컬럼: `V202610291142__add_hp_tasks_manual_retry_columns.sql` (#397)
 - 인덱스: 재시도 대상 `(status, next_attempt_at)`, 대상별 조회 `(ref_type, ref_id)`
 
 ### 5.5 `appearances.recruits` — 출연 모집글 (#175)
@@ -578,6 +581,8 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 |---|---|---|
 | 격리 로그 | `DEAD`가 되는 순간 ERROR 로그 `[HP_TASK_DEAD] taskId=…, type=…, ref=APPEARANCE_REQUEST-12, memberId=…, amount=…, attempts=…, error=…` | `docker logs <컨테이너> 2>&1 \| grep HP_TASK_DEAD` |
 | 지표 (Micrometer) | `appearance.hp_task.executions{result=done\|retry\|dead}`, `appearance.hp_task.pending`, `appearance.hp_task.dead` (재시도 배치 실행 시점 값) | 앱의 `MeterRegistry`에 등록됨. 보는 경로(`/actuator/metrics`, Prometheus)는 팀 합의 후 연다 |
+| 관리자 API | 격리 작업 목록 `GET /api/v1/appearances/admin/hp-tasks`, 다시 시도 `POST …/{taskId}/retry` (19장, #397) | 관리자 로그인 |
+| 다시 시도 로그 | 관리자가 다시 시도하는 순간 WARN 로그 `[HP_TASK_MANUAL_RETRY] taskId=…, adminId=…, manualRetryCount=…, previousAttempts=…, previousError=…` (다시 시도하면 시도 횟수가 0으로 돌아가므로 직전 값을 여기에 남긴다) | `grep HP_TASK_MANUAL_RETRY` |
 | DB | `select * from appearances.hp_tasks where status = 'DEAD'` | 언제든 |
 
 - Prometheus + Grafana 대시보드·알림은 `docker/compose*.yaml` 변경이 필요해 팀 결정 사항이다.
@@ -888,7 +893,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 출연이 부르는 Billing | `appearance.billing.mode` 기본값 `fake` → 출연 모듈 안의 메모리 구현 `FakeBillingClient`. 배포 서버에서도 출연 HP가 Billing 지갑에 기록되지 않음 | 항상 `BillingPortClient` → shared `BillingPort` → Billing 모듈 (실제 지갑·원장) |
 | Fake Billing | `FakeBillingClient`·`FakeBillingErrorCode`·`FakeBillingException`·`BillingUnavailableException` (main) | 삭제 |
 | 설정 | `appearance.billing.mode` (`fake`/`billing-port`) | 삭제 (구현이 하나뿐) |
-| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
+| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`·`@AppearanceE2ETest`(실제 포트, #390)가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
 | 실제 Billing 확인 | Billing 담당 `AppearanceBillingPortIntegrationTest`(보류·거절 반환 일부) | 출연 `AppearanceBillingFlowIntegrationTest`(apps)가 출연 API 전체 흐름을 실제 Billing으로 확인 (16장 test-spec) |
 
 - 출연은 현금을 다루지 않는다(HP만). 현금은 Billing 충전(Toss 테스트 결제)으로만 들어온다. 실제 Billing에 연결해도 실제 현금은 오가지 않는다 (APR-36).
@@ -919,7 +924,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 
 | 항목 | 내용 |
 |---|---|
-| 테스트 시계 | `@AppearanceIntegrationTest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
+| 테스트 시계 | `@AppearanceIntegrationTest`·`@AppearanceE2ETest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
 | 시각 만들기 | 테스트는 DB의 시각 값(`scheduled_at`·`recruit_deadline`·`created_at`·`next_attempt_at`)을 고치지 않는다. 실제 순서대로 시계를 돌린다: 모집 마감(기한 마감 배치) → 방송 → 확인 기간 끝, 실패한 작업의 다음 시도 시각, 배치 대기 시간(1분). 남은 SQL 변경은 낙관적 락 충돌을 만드는 버전 올리기뿐 |
 | 그대로 둔 것 | apps `AppearanceBillingFlowIntegrationTest`는 아직 방송 시각을 SQL로 옮긴다 (테스트 시계는 출연 모듈 테스트 코드라 apps에서 바로 쓸 수 없음) |
 | 시나리오 표 | 저장소 밖 `hapbang_be/SCENARIOS.md` (1~10장 179개 시나리오 + 정책·제한 21개, 오류 코드 45개의 HTTP 확인 위치) |
@@ -940,7 +945,7 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 | 외부 노출 | nginx가 `/api/v1/internal`을 밖에서 404로 막는다 (공통부). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영은 Swagger가 꺼져 있다 |
 | 출연 쪽 방어 | ① 보안 체인의 키 검증(공통부) ② `AppearanceEarningFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
 | 회원 ID | 쿼리 파라미터 `userId` (게스트). 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
-| 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). `null` 필드는 응답 JSON에서 빠진다(공통 Jackson 설정) |
+| 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). 값이 없을 수 있는 필드(`payoutScheduledAt`)는 계약대로 응답 JSON에서 빠진다(계약 DTO의 그 필드에만 `@JsonInclude(NON_NULL)`, #408. 출연 앱 전체 설정은 아니라 프론트용 API 응답은 그대로). 받는 쪽은 빠진 필드와 `null`을 같게 읽는다 |
 | 시각 | `LocalDateTime`(**offset 없는** ISO 8601), 모두 Asia/Seoul (Billing 합의 확정, 강의 계약 뒤에도 유지). 작업 완료·확인·취소·불참 시각은 출연 Clock(Asia/Seoul)으로 기록하고, 출연 수정 시각(`updated_at`)은 JPA Auditing이 JVM 기본 시간대로 기록하므로 앱 컨테이너의 `TZ: Asia/Seoul`(compose dev·prod, CI)에 기댄다 |
 
 **강의 계약과 다른 점** (#301 PR에 공유)
@@ -1020,4 +1025,45 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 
 - 실패는 `AppearanceApiCallException`이다(shared는 global에 의존하지 않아 `BusinessException`이 아니다). `REJECTED`: 4xx(요청 값 오류, 키 오류 401), `UNAVAILABLE`: 연결 실패·시간 초과·5xx·읽을 수 없는 성공 응답(깨진 JSON, 계약에 없는 enum 값, 필수 필드 없음, `data` 없음). `getStatus()`·`getCode()`는 강의와 같다. 조회라 `UNAVAILABLE`은 다시 불러도 안전하다.
 - `statuses`가 `null`이거나 비어 있으면 상태 조건 없이 보낸다(= 미지급만). `earningType`이 `null`이면 둘 다.
+
+---
+
+## 19. 격리된 HP 작업 관리자 조회·다시 시도 (#397)
+
+격리된(`DEAD`) HP 작업은 업무 상태(거절·확인·취소)를 되돌리지 않는다. 관리자가 원인을 확인한 뒤 같은 작업을 같은 멱등 키로 다시 실행하는 것이 복구 경로다. 사용자에게는 다시 시도 기능이 없다.
+
+### 19.1 API (관리자, `/api/v1/appearances/admin/**`)
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/v1/appearances/admin/hp-tasks?status=DEAD` | 상태별 작업 목록. `status` 생략 시 `DEAD`. 마지막으로 바뀐 작업부터, `page`·`size`(기본 20, 최대 100) |
+| POST | `/api/v1/appearances/admin/hp-tasks/{taskId}/retry` | 격리 작업 다시 시도. 실행 뒤 작업을 200으로 돌려준다 |
+
+- 응답 한 건(`HpTaskAdminResDto`): 작업 종류·대상(요청서·모집글, 출연 ID)·보류 회원·받는 회원·금액(위약금·지급액)·사유·멱등 키·상태·시도 횟수·다음 시도 시각·마지막 오류·완료(격리) 시각·생성 시각·다시 시도 기록 3개.
+- 권한 (관리자 API 3중 방어): ① 보안 설정이 `/api/v1/*/admin/**`를 관리자만 통과시키고(그 밖 403, 비로그인 401) ② `HpTaskAdminFacade`의 `@PreAuthorize("hasRole('ADMIN')")`가 세션 역할을 확인하고 ③ 복제한 회원 정보로 지금도 정상 상태의 관리자인지 확인한다(`AppearanceUserSupport.getAdmin`, 목록·다시 시도 모두). 세션 역할은 로그인 시점 값이라, 로그인 뒤 정지되면 403 `APPEARANCE_USER_NOT_ACTIVE`, 관리자 권한을 잃으면 403 `NOT_ADMIN`이다.
+
+### 19.2 다시 시도 흐름
+
+```
+[트랜잭션] 관리자 자격 확인(정지 403 APPEARANCE_USER_NOT_ACTIVE / 강등 403 NOT_ADMIN) → 작업 조회(없으면 404 HP_TASK_NOT_FOUND) → DEAD 확인(아니면 409 HP_TASK_NOT_DEAD)
+          → PENDING, 시도 횟수 0, 다음 시도 시각 = 지금, 완료 시각 비움, 다시 시도 기록(횟수+1·관리자·시각)
+          → 바로 반영해 버전 충돌이면 409 CONCURRENT_UPDATE → [HP_TASK_MANUAL_RETRY] 로그 (커밋)
+[트랜잭션 밖] HpTaskExecuteUseCase.execute — 업무 처리 직후 실행과 같은 1회 실행
+          → 성공 DONE / Billing 거절 DEAD / 결과 모름 PENDING(재시도 배치가 이어서)
+[읽기 전용 트랜잭션] 실행 뒤 작업을 읽어 응답 (다시 실패해도 200, 결과는 status로 본다)
+```
+
+- 재시도 배치는 처음 시도 전 작업을 "시작한 지" 대기 시간(1분)이 지나야 가져간다. 시작 시각은 다시 시도한 작업이면 `last_manual_retry_at`, 아니면 `created_at`이다. 다시 시도하면 시도 횟수가 0이 되고 만든 시각은 오래전이라, 만든 시각만 보면 관리자 요청 안에서 실행 중인 작업을 배치가 함께 실행하기 때문이다. 실행 결과를 기록하지 못하고 끊기면 1분 뒤 배치가 이어받는다.
+- 같은 작업이 두 곳에서 동시에 Billing에 가더라도 Billing이 지갑 잠금 뒤 같은 요청 ID를 확인해 처음 결과를 돌려주므로 HP는 한 번만 움직인다.
+
+### 19.3 결정
+
+| 결정 | 내용 | 이유 |
+|---|---|---|
+| 시도 횟수 | 다시 시도하면 0으로 되돌려 재시도 규칙(1분 → … → 최대 1시간, 10회)을 처음부터 적용 | 격리 작업은 이미 최대 횟수를 다 써서, 이어서 세면 한 번 실패하자마자 다시 격리된다. 일시 장애가 계속될 때 관리자가 여러 번 누르지 않아도 되게 한다 |
+| 다시 시도 기록 | `hp_tasks`에 컬럼 3개(횟수, 마지막 관리자·시각) + 로그 | 관리자 목록 API에서 바로 보이고 감사 기록으로 남는다. 직전 시도 횟수·오류는 로그에 남긴다 |
+| 배치 대기 기준 | 처음 시도 전 작업의 대기 시간을 `coalesce(last_manual_retry_at, created_at)`부터 센다 | 다시 시도한 작업을 관리자 요청 안의 실행과 배치가 함께 실행하지 않게 한다 (중복 이동은 멱등 키가 막지만 불필요한 중복 호출을 없앤다) |
+| 마지막 오류 | 다시 시도해도 지우지 않고 다음 결과가 나올 때 바뀐다 (성공하면 지움) | 다시 시도 중에도 원인을 볼 수 있게 |
+| 멱등 키 | 바꾸지 않는다 | 같은 요청 ID라 Billing이 처음 결과를 돌려주므로 HP가 두 번 움직이지 않는다 |
+| 알림 | 기존 `[HP_TASK_DEAD]` 오류 로그와 `appearance.hp_task.dead` 지표를 그대로 쓴다. 알림 규칙(대시보드·경보)은 관측성 작업(#343)에서 이 지표·로그로 만든다 | 출연 모듈은 신호를 남기고, 수집·경보 도구는 팀 공통 구성을 따른다 |
 

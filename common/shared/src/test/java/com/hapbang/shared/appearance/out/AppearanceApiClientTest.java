@@ -117,6 +117,22 @@ class AppearanceApiClientTest {
     }
 
     @Test
+    void 지급_예정_시각은_필드가_빠져도_null로_와도_null로_읽는다() {
+        String item = """
+                {"sourceType":"APPEARANCE","sourceId":31,"earningType":"APPEARANCE_FEE",
+                 "title":"합방 출연 요청","amountHp":20000,"status":"CONFIRMATION_PENDING",%s
+                 "statusUpdatedAt":"2026-11-04T01:00:00"}""";
+        String page = """
+                {"statusCode":200,"message":"","data":{"content":[%s, %s],
+                 "page":{"size":20,"number":0,"totalElements":2,"totalPages":1}}}""";
+        respond(200, "application/json", page.formatted(item.formatted(""), item.formatted("\"payoutScheduledAt\":null,")));
+
+        assertThat(client().getEarnings(7L, null, 0, 20).content())
+                .hasSize(2)
+                .allSatisfy(earning -> assertThat(earning.payoutScheduledAt()).isNull());
+    }
+
+    @Test
     void 상태를_null로_주면_상태_조건_없이_보낸다() {
         respond(200, "application/json", """
                 {"statusCode":200,"message":"","data":{"content":[],

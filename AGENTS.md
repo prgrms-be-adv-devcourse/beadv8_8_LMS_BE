@@ -25,7 +25,7 @@
 - 회복성: rate limit과 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 Resilience4j로 한다.
 - 결제: 충전 예치금 + HP 원장 + TossPayments 테스트 API
 - 이벤트: 모듈 간 비동기 연동은 이벤트로 하고, 브로커는 Kafka다 (#339).
-- Redis: 채팅 실시간 전달(Streams·Pub/Sub)에 쓴다 (#340).
+- Redis: 채팅 실시간 전달(Pub/Sub)에 쓴다 (#340).
 - Front-End: React (별도 레포)
 - 팀 합의 없이 새 인프라·미들웨어를 도입하지 않는다.
 
@@ -82,6 +82,8 @@
 - 두 EC2는 하나의 k3s cluster를 구성한다. `t3.large`는 server/`core-data`, `t3.medium`은 agent/`app-observe`다. 단일 `core-data` node에 stateful workload를 두므로 고가용성이라고 표현하지 않는다.
 - node 배치, network·security group, S3 IAM, storage, Terraform과 전환 규칙은 [`docs/deploy/aws-k3s.md`](docs/deploy/aws-k3s.md)를 따른다.
 - 현재 Docker Compose 운영은 [`docs/deploy/README.md`](docs/deploy/README.md)를 따른다. k3s 전환 전에는 현재/목표 상태를 섞어 이미 배포된 것처럼 쓰지 않는다.
+- k8s manifest는 앱마다 `apps/<앱>/k8s/`(base·overlays, Secret `<앱>-secrets`)에 두고 루트 `k8s/`를 참조하지 않는다. 레포를 나눠도 앱 디렉터리만으로 배포할 수 있어야 한다. 루트 `k8s/`에는 앱들이 함께 쓰는 인프라(cluster·platform)만 둔다 ([`docs/deploy/k8s.md`](docs/deploy/k8s.md)).
+- kubectl은 항상 `--context`를 명시한다. `hapbang-k3s`는 EC2 prod cluster다. manifest 검증은 로컬 k3d(`k3d-hapbang`, `k8s/local/k3d.yaml`)에서 한다. Docker Desktop 내장 Kubernetes에는 HelmChart·local-path가 없어 manifest가 돌지 않는다.
 
 ## 9. Git 워크플로우
 
@@ -123,6 +125,7 @@
 | 모듈 작업 | `docs/<모듈>/module.md`(강의 [`docs/lecture/module.md`](docs/lecture/module.md), 출연 [`docs/appearance/module.md`](docs/appearance/module.md)), `boundedContext/<모듈>/AGENTS.md` |
 | 이슈·브랜치·PR·병합·배포 확인 | [`docs/contributing/git-workflow.md`](docs/contributing/git-workflow.md) |
 | 서버·배포·AWS | [`docs/deploy/README.md`](docs/deploy/README.md), [`docs/deploy/security.md`](docs/deploy/security.md) |
+| k8s manifest·Helm 차트, 로컬 k3d 검증 | [`docs/deploy/k8s.md`](docs/deploy/k8s.md), [`docs/deploy/aws-k3s.md`](docs/deploy/aws-k3s.md) |
 
 ## Agent skills
 

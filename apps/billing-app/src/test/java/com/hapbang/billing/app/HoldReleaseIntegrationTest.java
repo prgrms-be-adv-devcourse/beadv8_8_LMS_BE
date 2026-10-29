@@ -24,6 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
+import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.billing.app.HoldResult.ChargeAllocation;
 import com.hapbang.billing.app.ReleaseResult.ChargeRestoration;
@@ -47,6 +49,8 @@ import com.hapbang.testsupport.IntegrationTest;
 // HP 보류 부분·전체 반환의 충전 HP 우선·충전 원금 역순 복원, 보류·상세·배분·충전 원금·원장·지갑 정합성,
 // 반환 요청별 멱등성, 롤백, 동시성을 실제 PostgreSQL로 검증한다.
 @IntegrationTest
+// HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273). 동시 실행 스레드에는 DelegatingSecurityContextExecutorService로 넘긴다
+@WithMockUser(roles = "INTERNAL")
 class HoldReleaseIntegrationTest {
 
     private static final Instant T1 = Instant.parse("2026-10-01T00:00:00Z");
@@ -1010,7 +1014,7 @@ class HoldReleaseIntegrationTest {
 
     // 다른 스레드(별도 트랜잭션)에서 작업을 실행하고 끝날 때까지 기다린다.
     private void runInOtherThread(Runnable action) {
-        ExecutorService executor = Executors.newSingleThreadExecutor();
+        ExecutorService executor = new DelegatingSecurityContextExecutorService(Executors.newSingleThreadExecutor());
         try {
             executor.submit(action).get(60, TimeUnit.SECONDS);
         } catch (Exception exception) {
@@ -1023,7 +1027,7 @@ class HoldReleaseIntegrationTest {
     // 모든 작업을 같은 시점에 시작시키고 결과를 모으며, 작업 예외는 그대로 드러낸다.
     private <T> List<T> runTogether(List<Callable<T>> tasks) throws Exception {
         CountDownLatch start = new CountDownLatch(1);
-        ExecutorService executor = Executors.newFixedThreadPool(tasks.size());
+        ExecutorService executor = new DelegatingSecurityContextExecutorService(Executors.newFixedThreadPool(tasks.size()));
         try {
             List<Future<T>> futures = new ArrayList<>();
             for (Callable<T> task : tasks) {

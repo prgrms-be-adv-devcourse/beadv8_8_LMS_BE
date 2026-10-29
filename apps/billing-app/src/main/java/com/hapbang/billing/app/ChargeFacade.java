@@ -28,14 +28,16 @@ public class ChargeFacade {
     // 결제 전 충전 주문을 만든다(PENDING, HP 변화 없음).
     public ChargeResult createOrder(Long userId, long amount) {
         requireAvailable();
-        return chargeOrderUseCase.create(userId, amount);
+        return LockTimeouts.translate(() -> chargeOrderUseCase.create(userId, amount));
     }
 
     // 결제를 승인하고 충전 결과를 돌려준다. COMPLETED(충전됨) 또는 PROCESSING(결과 확인 중)이며,
     // PG가 승인하지 않아 실패로 끝나면 CHARGE_PAYMENT_REJECTED(400)다.
     public ChargeResult confirm(Long userId, String paymentKey, String orderId, long amount) {
         requireAvailable();
-        ChargeResult result = chargeConfirmUseCase.confirm(userId, paymentKey, orderId, amount);
+        // 락 대기 초과로 끝나면 충전 주문은 PROCESSING으로 남고, 같은 요청 재시도나 충전 복구 배치가 이어서 처리한다.
+        ChargeResult result = LockTimeouts.translate(
+                () -> chargeConfirmUseCase.confirm(userId, paymentKey, orderId, amount));
         if (result.status() == PointChargeStatus.FAILED) {
             throw new ChargeRejectedException(result.failureReason());
         }

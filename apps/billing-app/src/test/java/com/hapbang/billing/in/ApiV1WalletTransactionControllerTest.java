@@ -20,6 +20,9 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.hapbang.billing.app.HoldFacade;
 import com.hapbang.billing.app.LedgerEntry;
@@ -65,7 +68,14 @@ class ApiV1WalletTransactionControllerTest {
     void response() throws Exception {
         Long wallet = walletRepository.save(Wallet.create(1L)).getId();
         chargeWithPrincipal(wallet, 5_000L);
-        holdFacade.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 11L, 2_000L));
+        // HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273). 요청에 섞이지 않게 이 호출에만 인증을 둔다
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken("internal", null,
+                List.of(new SimpleGrantedAuthority("ROLE_INTERNAL"))));
+        try {
+            holdFacade.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 11L, 2_000L));
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
 
         mockMvc.perform(get(URL).with(TestLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())

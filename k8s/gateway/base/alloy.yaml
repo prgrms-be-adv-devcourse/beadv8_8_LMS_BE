@@ -1,0 +1,18 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: alloy
+  namespace: hapbang-platform
+spec:
+  valuesContent: |
+    alloy:
+      extraPorts:
+      - name: otlp-grpc
+        port: 4317
+        targetPort: 4317
+        protocol: TCP
+      configMap:
+        content: "otelcol.receiver.otlp \"gateway\" {\n  grpc { endpoint = \"0.0.0.0:4317\"\
+          \ }\n  output { traces = [otelcol.exporter.otlp.tempo.input] }\n}\notelcol.exporter.otlp\
+          \ \"tempo\" {\n  client {\n    endpoint = \"tempo.hapbang-platform.svc.cluster.local:4317\"\
+          \n    tls { insecure = true }\n  }\n}\n"

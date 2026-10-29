@@ -35,7 +35,7 @@ public class ExchangeFacade {
         if (idempotencyKey == null || !CLIENT_KEY.matcher(idempotencyKey).matches()) {
             throw new BillingException(BillingErrorCode.EXCHANGE_IDEMPOTENCY_KEY_INVALID);
         }
-        Long exchangeId = exchangeRequestUseCase.create(userId, idempotencyKey, command);
+        Long exchangeId = LockTimeouts.translate(() -> exchangeRequestUseCase.create(userId, idempotencyKey, command));
         return exchangeProcessing.get(userId, exchangeId);
     }
 
@@ -49,6 +49,6 @@ public class ExchangeFacade {
 
     // 관리자 승인 전(REQUESTED)인 내 환전 신청을 취소하고 보류한 수익 HP를 모두 반환한다.
     public ExchangeResult cancel(Long userId, Long exchangeId) {
-        return exchangeProcessing.cancel(userId, exchangeId);
+        return LockTimeouts.translate(() -> exchangeProcessing.cancel(userId, exchangeId));
     }
 }

@@ -27,6 +27,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
@@ -47,6 +48,8 @@ import com.hapbang.testsupport.IntegrationTest;
 // TossPayments 테스트 결제 충전(#224)을 실제 PostgreSQL과 가짜 TossPayments HTTP 서버로 검증한다.
 // 실제 TossPayments 서버는 부르지 않는다. PG 응답(승인·거절·5xx·시간 초과·응답 유실)은 FakeTossPaymentsServer가 재현한다.
 @IntegrationTest
+// HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273)
+@WithMockUser(roles = "INTERNAL")
 class ChargeIntegrationTest {
 
     private static final FakeTossPaymentsServer TOSS = new FakeTossPaymentsServer();

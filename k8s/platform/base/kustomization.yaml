@@ -1,0 +1,15 @@
+# hapbang-platform: 앱들이 함께 쓰는 인프라. Kafka·Redis(직접 작성), PostgreSQL(HelmChart),
+# Elasticsearch(ECK CR), 관측성(HelmChart). 앱 manifest는 각 앱의 k8s/ 디렉터리에 있다.
+# 자주 바뀌지 않고 잘못 건드리면 데이터가 위험하므로 수동으로만 적용한다.
+# Elasticsearch CR은 ECK CRD가 있어야 적용된다. k8s/cluster를 먼저 적용한다(docs/deploy/k8s.md).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: hapbang-platform
+resources:
+  - postgres.yaml
+  - kafka.yaml
+  - redis.yaml
+  - elasticsearch/elasticsearch.yaml
+  - observability.yaml
+components:
+  - ../../components/core-data

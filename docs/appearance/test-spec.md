@@ -22,9 +22,17 @@
 
 ### Billing 대역 (#289)
 
-- 출연 모듈 통합·E2E 테스트는 `@AppearanceIntegrationTest`(= 팀 `@IntegrationTest` + `BillingClient` Mockito 대역)를 쓴다. 대역은 기본 성공이고 Billing 규칙(잔액·보류·멱등)을 흉내 내지 않는다.
+- 출연 모듈 통합 테스트는 `@AppearanceIntegrationTest`(= 팀 `@IntegrationTest` + `BillingClient` Mockito 대역), E2E 테스트는 `@AppearanceE2ETest`(실제 포트 + 같은 대역, #390)를 쓴다. 대역은 기본 성공이고 Billing 규칙(잔액·보류·멱등)을 흉내 내지 않는다.
 - 아래 표의 "보류·반환·지급·잔액" 기대 결과는 #289부터 **Billing에 보낸 요청 내용**(`BillingCalls`: 금액·요청 ID·원천·받는 회원)으로 확인한다. 실제 잔액·보류 변화는 16장 apps 통합 테스트가 확인한다.
 - 실패는 `BillingStubs`로 만든다: 무응답(업무 예외가 아닌 런타임 예외) / Billing 거절(`INSUFFICIENT_BALANCE`·`WALLET_NOT_FOUND`·`HOLD_NOT_FOUND`, 공통 업무 예외).
+- 지갑 HTTP 응답을 흉내 내야 하면 Mock Billing 서버(`support/MockBilling`, WireMock)를 쓴다. 구성과 쓰는 법은 23장.
+
+### E2E 테스트 방식 (#390)
+
+- E2E(HTTP 요청 → DB)는 `@AppearanceE2ETest`로 실제 서버(랜덤 포트)를 띄우고 RestAssured로 요청한다. 보안 필터(세션 로그인, CSRF)·직렬화·오류 응답이 운영과 같은 경로를 거친다.
+- 로그인은 `E2ELogin.as(회원 ID, 역할)` 한 곳에서 만든다(테스트 전용 로그인 경로로 실제 세션과 CSRF 토큰 쿠키를 받는다). CSRF 없는 요청은 `E2ELogin.withoutCsrf`.
+- ID처럼 `long`인 응답 값은 `E2EMatchers.number`로 비교한다(RestAssured는 JSON 정수를 크기에 따라 Integer·Long으로 읽는다).
+- 컨트롤러 웹 슬라이스(`@WebMvcTest`)·Swagger 명세 테스트는 MockMvc 그대로다.
 
 ## 2. 테스트 구성
 
@@ -235,7 +243,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 
 ### 5.1 API 흐름 — `AppearanceApiE2ETest`
 
-앱 전체(보안 필터, 세션 로그인, 서비스, DB)를 띄우고 MockMvc로 요청한다. 로그인은 팀 공통 `TestLogin`으로 만든다.
+실제 서버(보안 필터, 세션 로그인, 서비스, DB)를 띄우고 RestAssured로 요청한다. 로그인은 `E2ELogin`으로 만든다 (#390).
 테스트 전용 컨트롤러로 로그인·자격 확인 기반만 확인한다. 실제 출연 API는 5.2에서 확인한다.
 
 | 케이스 | 기대 결과 |
@@ -987,14 +995,14 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 상태 이름 | 강의와 같은 7개 (`CONFIRMATION_PENDING`·`SCHEDULED`·`ON_HOLD`·`PROCESSING`·`FAILED`·`COMPLETED`·`CANCELED`) |
 | 미지급 | 완료·취소를 뺀 5개 |
 
-### 19.4 내부 API — `AppearanceEarningInternalApiTest` (통합, 보안 체인부터 DB까지 MockMvc)
+### 19.4 내부 API — `AppearanceEarningInternalApiTest` (E2E, 실제 포트로 보안 체인부터 DB까지, #390)
 
 흐름: 확인 대기 20,000 1건 + 확인했지만 Billing 결과 모름(처리 중) 22,000 1건.
 
 | 케이스 | 기대 결과 |
 |---|---|
 | 요약 (키 있음) | 200 `RsData`, 메시지, 확인 대기 20,000·1 / 지급 예정 0 / 처리 중 22,000·1, `asOf` 없음. `earningType=APPEARANCE_PENALTY`면 0 |
-| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` 필드 없음, `statusUpdatedAt`은 offset 없는 시각 |
+| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` 필드 없음(#408), `statusUpdatedAt`은 offset 없는 시각 |
 | 기본·페이지 (`size=1`) | 미지급 2건 중 최근(확인한 출연) 먼저, `page {size 1, number 0, totalElements 2, totalPages 2}`. 값 없는 `status=`도 미지급 2건(Spring이 빈 목록으로 바꿈). `status=SCHEDULED`만이면 빈 결과 |
 | 출연이 없는 회원 | 0원 요약·빈 목록 |
 | 요청 값 오류 | `userId` 없음(`errors[0].field`=`userId`), `userId=0`, `status=PAID`(`status`), `earningType=LECTURE_SALE`(`earningType`) → 400 `INVALID_REQUEST` |
@@ -1008,7 +1016,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 케이스 | 기대 결과 |
 |---|---|
 | 요약 | `userId`·키 헤더(종류를 주면 `earningType`)를 붙여 보내고 `data`를 돌려줌 |
-| 목록 | `status` 여러 개·`earningType`·`page`·`size` 쿼리, 빠진 `payoutScheduledAt`은 null, offset 없는 시각을 `LocalDateTime`으로 읽음 |
+| 목록 | `status` 여러 개·`earningType`·`page`·`size` 쿼리, 빠진 `payoutScheduledAt`·명시적 `null` 모두 null(#408), offset 없는 시각을 `LocalDateTime`으로 읽음 |
 | 상태 null | 상태 조건 없이 보냄 |
 | 4xx (ProblemDetail / 401 본문 없음) | `REJECTED` + 상태 + `code`(401은 null) |
 | 연결 실패·시간 초과·503 | `UNAVAILABLE` (상태 0 / 0 / 503) |
@@ -1026,3 +1034,154 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 〃 | 키가 틀린 Client | `REJECTED` 401 |
 | 〃 | 명세 `/v3/api-docs` | 두 경로·`X-Internal-Api-Key` 헤더가 나오고 키 값은 없음 |
 
+## 20. E2E를 실제 포트로 전환 (#390)
+
+MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코드, `code`, 응답 필드, DB 상태)과 개수는 그대로다.
+
+| 테스트 | 테스트 수 | 응답 검증 수 | 방식 |
+|---|---|---|---|
+| `AppearanceApiE2ETest` | 5 | 12 | RestAssured |
+| `AppearanceApiCancelE2ETest` | 6 | 75 | RestAssured |
+| `AppearanceApplicationApiE2ETest` | 10 | 67 | RestAssured |
+| `AppearanceErrorCodeApiE2ETest` | 6 | 8 | RestAssured |
+| `AppearanceRecruitApiE2ETest` | 10 | 67 | RestAssured |
+| `AppearanceRequestApiE2ETest` | 11 | 55 | RestAssured |
+| `AppearanceRequestRespondApiE2ETest` | 8 | 43 | RestAssured |
+| `AppearanceEarningInternalApiTest` | 7 | 59 | RestAssured (내부 API 키 헤더) |
+| `AppearanceSwaggerDocsTest`, `PageConfigTest`, `SecurityConfigTest`, `GlobalExceptionHandlerTest`, `InternalApiSecurityConfigTest`, `AppearanceExceptionHandlerTest` | — | — | MockMvc 유지 (명세·웹 슬라이스) |
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 본문이 선택인 API에 본문 없이 요청 | `E2ELogin`이 JSON 형식으로 보내므로 200·201 (RestAssured 기본 `text/plain`이면 415) |
+
+## 21. 격리된 HP 작업 관리자 조회·다시 시도 (#397)
+
+격리된(`DEAD`) HP 작업을 관리자가 확인하고 같은 멱등 키로 다시 실행한다. 업무 상태(거절·확인·취소)는 되돌리지 않는다.
+다시 시도하면 시도 횟수를 0으로 되돌려 재시도 규칙을 처음부터 적용하고, 누가 언제 다시 시도했는지는 `hp_tasks`의 다시 시도 컬럼 3개에 남긴다.
+격리 작업은 실제 흐름처럼 만든다: 작업 기록 → 1회 실행 → Billing 대역이 거절 → `DEAD`.
+
+### 21.1 구성
+
+| 종류 | 테스트 | 확인 대상 |
+|---|---|---|
+| 단위 | `HpTaskTest` (추가 4개) | 다시 시도 전이, 재시도 횟수 초기화, 다시 시도 기록 누적, DEAD가 아니면 거절 |
+| 저장소 | `HpTaskRepositoryTest` (추가 2개) | 다시 시도한 작업의 배치 대기 시간 기준, 다시 시도 컬럼 제약 |
+| 통합 | `HpTaskAdminFacadeTest` (11개) | 목록(상태·정렬·담는 값), 다시 시도 결과 3가지(성공·다시 거절·결과 모름), 다시 시도 뒤 배치 대기, 409·404, 두 번 누름, 복제본으로 관리자 재확인(정지·강등), 관리자만 |
+| 통합 | `AppearanceConcurrentUpdateTest` (추가 1개) | 동시 다시 시도 → 409 `CONCURRENT_UPDATE` |
+| E2E | `AppearanceHpTaskAdminApiE2ETest` (4개, RestAssured 실제 포트 — 20장 방식) | HTTP 응답(`RsData`·Problem Detail), 보안 필터 403·401, 강등된 관리자 403 `NOT_ADMIN`, 없는 상태 값 400 |
+| 통합 | `AppearanceSwaggerDocsTest` (추가 1개) | 두 API의 성공 응답 스키마가 `RsData` |
+
+### 21.2 단위 — `HpTaskTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| `DEAD` 작업을 관리자가 다시 시도 | `PENDING`, 시도 0회, 바로 실행 가능, 완료 시각 없음, 멱등 키·마지막 오류 그대로, 다시 시도 1회·관리자 ID·시각 기록 |
+| 최대 2회 정책에서 2번 실패해 `DEAD` → 다시 시도 → 결과 모름 실패 | 바로 `DEAD`가 아니라 `PENDING`, 시도 1회, 1분 뒤 재시도. 한 번 더 실패하면 `DEAD` |
+| 다시 시도 → 다시 `DEAD` → 다른 관리자가 다시 시도 | 다시 시도 2회, 마지막 관리자·시각은 두 번째 값 |
+| 대기(`PENDING`)·완료(`DONE`) 작업 다시 시도 | `HP_TASK_NOT_DEAD`, 다시 시도 기록 없음 |
+
+### 21.3 통합 — `HpTaskAdminFacadeTest`
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 목록 | `DEAD` 2건 + `DONE` 1건에서 `DEAD` 조회 | 2건, 마지막으로 바뀐 것부터. 작업 종류·대상·회원·금액·사유·멱등 키·시도 1회·마지막 오류(`HOLD_NOT_FOUND: …`)·격리 시각, 다시 시도 0회 |
+| 목록 | `DONE` 조회 | 완료 작업만 |
+| 다시 시도 | Billing 성공 | `DONE`, 시도 1회, 마지막 오류 지움, 다시 시도 1회·관리자 ID·시각. Billing 반환 요청 1건, 처음과 같은 요청 ID |
+| 다시 시도 | Billing 응답 없음 | `PENDING`, 시도 1회, 다음 시도 시각이 지금 이후, 마지막 오류 기록. 시계를 다음 시도 시각으로 돌리면 재시도 배치가 같은 요청 ID로 실행해 `DONE` |
+| 다시 시도 | 대기로 되돌린 뒤 실행 전에 끊김 (만든 지 3시간 지난 작업) | 재시도 배치가 바로는 가져가지 않음(Billing 호출 없음). 다시 시도한 지 1분이 지나면 가져가 같은 요청 ID로 실행해 `DONE` |
+| 다시 시도 | Billing이 다시 거절 (`INSUFFICIENT_BALANCE`) | 바로 `DEAD`, 시도 1회, 새 오류 기록, 다시 시도 기록은 남음 |
+| 다시 시도 | `DONE` 작업 | 409 `HP_TASK_NOT_DEAD`, Billing 호출 없음, 다시 시도 기록 없음 |
+| 다시 시도 | 없는 작업 | 404 `HP_TASK_NOT_FOUND` |
+| 다시 시도 | 성공한 뒤 한 번 더 누름 | 409 `HP_TASK_NOT_DEAD`, 다시 시도 1회 그대로 |
+| 권한 | 세션은 관리자, 복제본이 정지 → 다시 시도·목록 / 복제본이 USER(강등) → 다시 시도 | 403 `APPEARANCE_USER_NOT_ACTIVE` ×2 / 403 `NOT_ADMIN`. 작업 `DEAD`·다시 시도 0회 그대로, Billing 호출 없음 |
+| 권한 | 인플루언서가 목록·다시 시도 | `AccessDeniedException`, 작업은 `DEAD` 그대로 |
+| 동시 (`AppearanceConcurrentUpdateTest`) | 격리 작업을 읽은 직후 다른 트랜잭션이 버전을 올려 커밋 | 409 `CONCURRENT_UPDATE`, 작업 `DEAD`·다시 시도 0회 그대로, Billing 호출 없음 |
+
+### 21.3-1 저장소 — `HpTaskRepositoryTest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 다시 시도한 작업(시도 0회, 만든 지 3시간): 다시 시도 시각 기준 대기 시간 안 / 지남 | 재시도 대상 아님 / 대상. 만든 시각이 아니라 다시 시도 시각으로 센다 |
+| 다시 시도 횟수만 있고 관리자·시각이 없는 행 저장 | `ck_hp_tasks_manual_retry` 위반 |
+
+### 21.4 E2E — `AppearanceHpTaskAdminApiE2ETest`
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 관리자: 목록(`status` 생략) → 다시 시도 → 한 번 더 → `status=DEAD` 목록 | 200 메시지·`DEAD` 1건(종류·마지막 오류·격리 시각, `page.totalElements` 1) → 200 `DONE`·다시 시도 1회·관리자 ID → 409 `HP_TASK_NOT_DEAD` → 0건 |
+| 없는 작업 다시 시도 / `status=UNKNOWN` | 404 `HP_TASK_NOT_FOUND` / 400 |
+| 세션 관리자, 복제본 USER(강등): 다시 시도·목록 | 403 `NOT_ADMIN` ×2 |
+| 인증된 인플루언서 목록·다시 시도 / 비로그인 목록 | 보안 필터에서 403 / 401. 작업은 `DEAD`, 다시 시도 0회 그대로 |
+
+### 21.5 참고
+
+- 두 관리자가 실제 스레드로 동시에 누르는 경우는 타이밍에 기대지 않도록, 위 동시 테스트처럼 "읽은 직후 다른 트랜잭션이 먼저 커밋"으로 만든다(17.2와 같은 방식). 늦게 누르면 이미 대기라 409 `HP_TASK_NOT_DEAD`다.
+- 같은 작업이 두 곳에서 동시에 Billing에 가도 HP는 한 번만 움직인다: Billing이 지갑을 잠근 뒤 같은 요청 ID 기록을 확인해 두 번째는 처음 결과를 돌려주고, 출연은 대기 중일 때만 결과를 기록한다(버전 충돌이면 먼저 기록한 쪽). 실제 Billing으로 확인하는 일은 Mock Billing·HTTP 전환 작업에서 한다.
+
+## 22. 출연 수익 내부 API 응답에서 null 필드 빼기 (#408)
+
+#390에서 실제 포트로 확인해 보니 `payoutScheduledAt`이 `"payoutScheduledAt": null`로 나가 계약 문서(`docs/api/internal-earnings.md`, null 필드는 빠진다)와 달랐다. 계약 DTO `AppearanceEarningItemDto`의 이 필드에만 `@JsonInclude(NON_NULL)`을 붙였다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceEarningInternalApiTest` (E2E) | 목록 | `data.content[0]`에 `payoutScheduledAt` 키가 없음 (`null` 값이 아니라 키 자체가 없음) |
+| `AppearanceApiClientTest` (shared 단위) | 필드 없음·명시적 `null` 두 항목 | 둘 다 `payoutScheduledAt` = `null`로 읽음 (받는 쪽 Client는 응답 모양이 바뀌어도 같게 동작) |
+
+## 23. Mock Billing 서버 (#391)
+
+지갑(billing-app) 대신 지갑 내부 API(`docs/api/internal-billing.md`) 4개 경로를 흉내 내는 HTTP 서버다. 모듈 간 E2E는 보류하고, 출연이 지갑 응답(성공·재전송·거절·지연·장애)에 맞게 움직이는지 이 서버로 확인한다.
+
+### 23.1 구성
+
+| 구성 | 내용 |
+|---|---|
+| 도구 | WireMock 3.13.2 `wiremock-standalone`(테스트 의존성). 경로별 응답, 상태 시나리오(첫 요청 → 재전송), 지연·연결 끊김, 받은 요청 조회를 기본 기능으로 쓴다. 내부 라이브러리를 숨긴 standalone이라 Spring Boot 4·Jackson 3와 충돌하지 않는다 |
+| `support/MockBilling` | 서버(JVM에 하나, 처음 쓸 때 띄움)와 시나리오 메서드: `succeed`·`replayAfterFirst(경로, 요청 ID)`·`replayHoldAfterFirst(참조 유형, 참조 ID)`·`fail(상태, code, detail)`·`delay`·`connectionReset`·`refusedBaseUrl`, 받은 요청 `requests(경로)`. 재전송은 멱등 키(요청 ID, 보류는 참조 대상) 단위이고 같은 내용의 재전송만 흉내 낸다(응답을 이번 요청 값으로 만들어서 같은 키·다른 내용도 `replayed = true`가 된다. 실제 지갑의 409 `IDEMPOTENCY_KEY_CONFLICT`는 `fail`로 확인한다). 서버를 띄울 때 4개 경로를 한 번씩 불러 응답 템플릿을 미리 컴파일한다(첫 응답이 느려 짧은 응답 대기 시간에 걸리지 않도록) |
+| `support/MockBillingIntegrationTest` | 부모 클래스. `@AppearanceIntegrationTest` + Mock 주소·응답 대기 시간(1초) 설정 + 테스트마다 `MockBilling.reset()`. 설정을 한 곳에 둬서 상속한 테스트끼리 Spring 테스트 컨텍스트를 같이 쓴다 |
+| 성공 응답 파일 | `src/test/resources/mock-billing/__files/{hold,release,payout,penalty}-success.json`. `*ResultDto`와 같은 필드이고 요청 값을 그대로 돌려준다(응답 템플릿). 계약이 바뀌면 함께 고친다 |
+| 실패 응답 | 지갑과 같은 `ProblemDetail` + `code` (`application/problem+json`) |
+
+쓰는 법:
+
+```java
+class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스트마다 reset
+
+    @Test
+    void example() {
+        MockBilling.fail(Endpoint.HOLD, 409, "INSUFFICIENT_BALANCE", "HP 잔액이 부족합니다.");
+        // ... 출연 흐름 실행 ...
+        assertThat(MockBilling.requests(Endpoint.HOLD)).hasSize(1);
+    }
+}
+```
+
+- 테스트 클래스마다 `@DynamicPropertySource`를 따로 두지 않는다. 설정이 같아도 클래스마다 Spring 테스트 컨텍스트가 새로 떠서 느려진다.
+
+`hapbang.clients.billing.base-url`이 생기면 shared `BillingApiClient` 빈이 만들어진다. 출연이 지갑을 HTTP로 부르게 되면(#274) 같은 설정으로 출연 흐름을 확인한다.
+
+### 23.2 Mockito 대역(`BillingStubs`·`BillingCalls`)과의 관계
+
+| 대역 | 지금 | 지갑 HTTP 전환(#274) 뒤 |
+|---|---|---|
+| `BillingStubs` (`BillingClient` Mockito 대역의 실패 만들기) | 출연 업무 테스트 전부 | 출연 업무 규칙(상태·작업 기록·재시도)만 보는 테스트는 남긴다. HTTP 응답 해석(코드·상태·재전송)이 관련된 테스트는 `MockBilling`으로 옮긴다 |
+| `BillingCalls` (Mockito에 남은 호출 인자) | Billing에 보낸 요청 내용 확인 | `BillingClient` 대역을 쓰는 테스트에서는 남긴다. HTTP로 보낸 본문은 `MockBilling.requests`로 확인한다 |
+| `MockBilling` | `BillingApiClient` 응답 분류와 받은 요청 확인 (`MockBillingTest`) | 출연 `BillingClient`의 HTTP 구현과 실패 분류(재시도·DEAD·`HOLD_PENDING`) 확인 |
+
+### 23.3 `MockBillingTest` (통합, 출연 테스트 컨텍스트 + 실제 `BillingApiClient`)
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 성공 | 보류·반환·지급·위약금 정산 | `Succeeded`, 응답 = 요청 값(참조 대상·요청 ID·받는 회원·원천·금액), 남은 보류 0, `replayed = false` |
+| 성공 | 받은 요청 | 경로, 내부 API 키 헤더, JSON 형식, 요청 ID(보류는 없음), 금액. 부르지 않은 경로는 0건 |
+| 성공 | 전액 반환(금액 null) | 요청에 금액 없음, 반환액 0으로 응답 |
+| 재전송 | 같은 반환 요청 2번 | 첫 `replayed = false`, 두 번째 `true`·같은 반환액, 받은 요청 2건(같은 요청 ID) |
+| 재전송 | 시나리오를 건 요청 ID와 다른 요청 ID를 섞어 보냄 | 다른 ID는 매번 `false`(각자 처음 처리), 건 ID를 다시 보낼 때만 `true` |
+| 재전송 | 보류: 같은 참조 대상 / 다른 참조 대상 | 같은 참조 대상 두 번째만 `true`, 다른 참조 대상은 `false` |
+| 거절 | 409 `INSUFFICIENT_BALANCE` | `Failed`: 코드, `detail` "HP 잔액이 부족합니다.", 409, `rawCode` |
+| 거절 | 409 `IDEMPOTENCY_KEY_CONFLICT` | `Failed` 같은 코드 |
+| 거절 | 404 처음 보는 코드 / 400 코드 없음 | `UNMAPPED`, `rawCode` `SOMETHING_NEW` / `UNMAPPED`, 400 |
+| 결과 없음 | 429 | `RETRYABLE`, 429 |
+| 결과 없음 | 500 `HOLD_STATE_INCONSISTENT` | `UNKNOWN_RESULT`, 500, `rawCode` |
+| 결과 없음 | 응답 2초 지연 (응답 대기 1초) | `UNKNOWN_RESULT`, 상태 0. 지갑은 요청을 받음(1건) |
+| 결과 없음 | 응답 도중 연결 끊김 | `UNKNOWN_RESULT`, 상태 0 |
+| 결과 없음 | 연결 거부 (듣지 않는 포트) | `RETRYABLE`, 상태 0 |

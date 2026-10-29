@@ -1,0 +1,16 @@
+# 모듈 앱은 hapbang-prod, 앱들이 함께 쓰는 인프라(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)는 hapbang-platform에 둔다.
+# EC2에는 prod만 두므로 dev namespace는 없다(docs/architecture/infrastructure/k3s.md).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hapbang-prod
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hapbang-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elastic-system

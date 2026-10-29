@@ -1,0 +1,16 @@
+{
+  "statusCode": 200,
+  "message": "출연 취소 위약금을 정산했습니다.",
+  "data": {
+    "referenceType": "{{jsonPath request.body '$.referenceType'}}",
+    "referenceId": {{jsonPath request.body '$.referenceId'}},
+    "cancellationId": "{{jsonPath request.body '$.cancellationId'}}",
+    "receiverUserId": {{jsonPath request.body '$.receiverUserId'}},
+    "sourceType": "{{jsonPath request.body '$.sourceType'}}",
+    "sourceId": {{jsonPath request.body '$.sourceId'}},
+    "releasedHp": {{jsonPath request.body '$.releaseAmountHp'}},
+    "paidHp": {{jsonPath request.body '$.payoutAmountHp'}},
+    "remainingHeldHp": 0,
+    "replayed": {{#if parameters.replayed}}true{{else}}false{{/if}}
+  }
+}

@@ -29,6 +29,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
@@ -53,6 +54,8 @@ import com.hapbang.testsupport.IntegrationTest;
 // 모든 시나리오 끝에 정합성(요청액 = 개별 환불 합 = 보류액, 완료액 = 성공 합 = 확정 차감 합 = 환불 원장 합, 반환 합 = 반환 상세 합,
 // 충전 건 환불 누계 = 그 결제의 PG 취소 합, 지갑 = 원장)을 함께 확인한다.
 @IntegrationTest
+// HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273)
+@WithMockUser(roles = "INTERNAL")
 class RefundIntegrationTest {
 
     private static final FakeTossPaymentsServer TOSS = new FakeTossPaymentsServer();

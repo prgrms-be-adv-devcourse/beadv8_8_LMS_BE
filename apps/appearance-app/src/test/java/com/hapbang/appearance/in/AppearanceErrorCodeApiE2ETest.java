@@ -1,10 +1,10 @@
 package com.hapbang.appearance.in;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.emptyString;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.notNullValue;
 
 import java.time.LocalDateTime;
 
@@ -13,13 +13,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.hapbang.appearance.app.AppearanceRecruitFacade;
 import com.hapbang.appearance.app.AppearanceRequestFacade;
@@ -28,29 +24,28 @@ import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
-import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceE2ETest;
 import com.hapbang.appearance.support.AppearanceTestClock;
+import com.hapbang.appearance.support.E2ELogin;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.TestLogin;
+
+import io.restassured.http.ContentType;
+import io.restassured.response.Response;
+import io.restassured.specification.RequestSpecification;
 
 /**
- * 서비스 테스트에서만 확인하던 출연 오류 코드를 HTTP로 확인한다 (#297): FE가 받는 상태 코드와 {@code code}가 맞는지.
- * 상태는 시계를 실제 순서대로 돌려 만든다 (수락 기한 → 방송 → 확인 기간 끝). 준비는 Facade로 하되, HTTP 요청 뒤에는
- * 세션 인증이 비워지므로 그 뒤의 준비도 HTTP로 한다.
+ * 서비스 테스트에서만 확인하던 출연 오류 코드를 실제 서버에 RestAssured로 요청해 확인한다 (#297): FE가 받는 상태 코드와 {@code code}가 맞는지.
+ * 상태는 시계를 실제 순서대로 돌려 만든다 (수락 기한 → 방송 → 확인 기간 끝). 처음 준비는 Facade로 하고, 흐름 중간의 준비(거절·마감 등)는 HTTP로 한다.
  * {@code CONCURRENT_UPDATE}는 HTTP로 경합을 재현하지 않고 {@code AppearanceConcurrentUpdateTest}(서비스)와
  * 공통 핸들러 테스트로 확인한다.
  */
-@AppearanceIntegrationTest
-@AutoConfigureMockMvc
+@AppearanceE2ETest
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceErrorCodeApiE2ETest {
 
     private static final String BASE = "/api/v1/appearances";
     private static final long HOST = 1L;
     private static final long GUEST = 2L;
-
-    @Autowired
-    MockMvc mockMvc;
 
     @Autowired
     AppearanceUserFacade appearanceUserFacade;
@@ -73,17 +68,24 @@ class AppearanceErrorCodeApiE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(GUEST));
     }
 
-    private MockHttpServletRequestBuilder postAs(long userId, String path, String body) {
-        MockHttpServletRequestBuilder builder = post(path).with(TestLogin.as(userId, Role.INFLUENCER)).with(csrf());
-        return body == null ? builder : builder.contentType(MediaType.APPLICATION_JSON).content(body);
+    private Response postAs(long userId, String path, String body) {
+        RequestSpecification request = E2ELogin.as(userId, Role.INFLUENCER);
+        if (body != null) {
+            request.contentType(ContentType.JSON).body(body);
+        }
+        return request.post(path);
     }
 
-    private void expectError(MockHttpServletRequestBuilder request, HttpStatus status, String code) throws Exception {
-        mockMvc.perform(request)
-                .andExpect(status().is(status.value()))
-                .andExpect(jsonPath("$.status").value(status.value()))
-                .andExpect(jsonPath("$.code").value(code))
-                .andExpect(jsonPath("$.detail").isNotEmpty());
+    private static Response patchAs(long userId, String path, String body) {
+        return E2ELogin.as(userId, Role.INFLUENCER).contentType(ContentType.JSON).body(body).patch(path);
+    }
+
+    private static void expectError(Response response, HttpStatus status, String code) {
+        response.then()
+                .statusCode(status.value())
+                .body("status", equalTo(status.value()))
+                .body("code", equalTo(code))
+                .body("detail", allOf(notNullValue(), not(emptyString())));
     }
 
     private AppearanceRequestResDto sendRequest() {
@@ -123,7 +125,7 @@ class AppearanceErrorCodeApiE2ETest {
 
         @Test
         @DisplayName("나에게 보내기 400 CANNOT_REQUEST_SELF, 수락 기한이 방송 예정 일시 이후 400 INVALID_REQUEST_SCHEDULE")
-        void create() throws Exception {
+        void create() {
             LocalDateTime now = clock.now();
             expectError(postAs(HOST, BASE + "/requests", requestBody(HOST, now.plusDays(7), now.plusDays(2))),
                     HttpStatus.BAD_REQUEST, "CANNOT_REQUEST_SELF");
@@ -133,21 +135,20 @@ class AppearanceErrorCodeApiE2ETest {
 
         @Test
         @DisplayName("호스트가 자기 요청 수락 403 NOT_REQUEST_GUEST, 응답이 끝난 요청서 수정 409 APPEARANCE_REQUEST_NOT_EDITABLE")
-        void respondAndEdit() throws Exception {
+        void respondAndEdit() {
             AppearanceRequestResDto sent = sendRequest();
             String path = BASE + "/requests/" + sent.id();
 
             expectError(postAs(HOST, path + "/accept", "{\"version\": %d}".formatted(sent.version())),
                     HttpStatus.FORBIDDEN, "NOT_REQUEST_GUEST");
-            mockMvc.perform(postAs(GUEST, path + "/reject", "{}")).andExpect(status().isOk());
-            expectError(patch(path).with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf())
-                            .contentType(MediaType.APPLICATION_JSON).content("{\"title\": \"바꾼 제목\"}"),
+            postAs(GUEST, path + "/reject", "{}").then().statusCode(200);
+            expectError(patchAs(HOST, path, "{\"title\": \"바꾼 제목\"}"),
                     HttpStatus.CONFLICT, "APPEARANCE_REQUEST_NOT_EDITABLE");
         }
 
         @Test
         @DisplayName("수락 기한이 지나면(만료 배치 전이어도) 수락 409 APPEARANCE_REQUEST_EXPIRED")
-        void expired() throws Exception {
+        void expired() {
             AppearanceRequestResDto sent = sendRequest();
             clock.advanceTo(sent.acceptDeadline());
 
@@ -163,15 +164,14 @@ class AppearanceErrorCodeApiE2ETest {
 
         @Test
         @DisplayName("모집 마감 일시가 방송 예정 일시 이후 400 INVALID_RECRUIT_SCHEDULE, 마감된 모집글 수정 409 APPEARANCE_RECRUIT_NOT_EDITABLE")
-        void createAndEdit() throws Exception {
+        void createAndEdit() {
             LocalDateTime now = clock.now();
             Long recruitId = appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now)).id();
             expectError(postAs(HOST, BASE + "/recruits", recruitBody(now.plusDays(2), now.plusDays(3))),
                     HttpStatus.BAD_REQUEST, "INVALID_RECRUIT_SCHEDULE");
 
-            mockMvc.perform(postAs(HOST, BASE + "/recruits/" + recruitId + "/close", null)).andExpect(status().isOk());
-            expectError(patch(BASE + "/recruits/" + recruitId).with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf())
-                            .contentType(MediaType.APPLICATION_JSON).content("{\"title\": \"바꾼 제목\"}"),
+            postAs(HOST, BASE + "/recruits/" + recruitId + "/close", null).then().statusCode(200);
+            expectError(patchAs(HOST, BASE + "/recruits/" + recruitId, "{\"title\": \"바꾼 제목\"}"),
                     HttpStatus.CONFLICT, "APPEARANCE_RECRUIT_NOT_EDITABLE");
         }
     }
@@ -184,15 +184,15 @@ class AppearanceErrorCodeApiE2ETest {
         @Test
         @DisplayName("호스트가 취소 요청 403 NOT_APPEARANCE_GUEST, 처리 중인 요청 없이 응답 409 CANCEL_REQUEST_NOT_PENDING, "
                 + "거절 두 번 뒤 세 번째 요청 409 CANCEL_REQUEST_LIMIT_EXCEEDED")
-        void cancelRequest() throws Exception {
+        void cancelRequest() {
             long appearanceId = establish();
             String path = BASE + "/" + appearanceId + "/cancel-requests";
 
             expectError(postAs(HOST, path, "{\"reason\": \"사유\"}"), HttpStatus.FORBIDDEN, "NOT_APPEARANCE_GUEST");
             expectError(postAs(HOST, path + "/accept", null), HttpStatus.CONFLICT, "CANCEL_REQUEST_NOT_PENDING");
             for (int round = 0; round < 2; round++) {
-                mockMvc.perform(postAs(GUEST, path, "{\"reason\": \"일정이 생겼습니다.\"}")).andExpect(status().isOk());
-                mockMvc.perform(postAs(HOST, path + "/reject", null)).andExpect(status().isOk());
+                postAs(GUEST, path, "{\"reason\": \"일정이 생겼습니다.\"}").then().statusCode(200);
+                postAs(HOST, path + "/reject", null).then().statusCode(200);
             }
             expectError(postAs(GUEST, path, "{\"reason\": \"세 번째\"}"), HttpStatus.CONFLICT,
                     "CANCEL_REQUEST_LIMIT_EXCEEDED");
@@ -201,7 +201,7 @@ class AppearanceErrorCodeApiE2ETest {
         @Test
         @DisplayName("방송 예정 일시가 지나면 취소 요청·일방 취소 409 APPEARANCE_SCHEDULE_PASSED, "
                 + "확인 기간(7일)이 끝나면 확인·불참 409 APPEARANCE_CONFIRM_PERIOD_ENDED")
-        void afterSchedule() throws Exception {
+        void afterSchedule() {
             long appearanceId = establish();
             String path = BASE + "/" + appearanceId;
 

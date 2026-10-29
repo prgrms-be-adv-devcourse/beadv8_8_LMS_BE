@@ -93,6 +93,34 @@ class HpTaskRepositoryTest {
     }
 
     @Test
+    @DisplayName("관리자가 다시 시도한 작업(시도 0회)은 만든 시각이 아니라 다시 시도한 시각부터 대기 시간을 센다 (#397)")
+    void runnableAfterManualRetryGrace() {
+        HpTask reopened = release(12L, "APPEARANCE_REQUEST-12-RELEASE-1");
+        reopened.markDead("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.", NOW);
+        LocalDateTime retriedAt = NOW.plusHours(3);
+        reopened.reopenForManualRetry(900L, retriedAt);
+        hpTaskRepository.saveAndFlush(reopened);
+        PageRequest first100 = PageRequest.of(0, 100);
+
+        // 만든 지는 오래됐지만 다시 시도한 지 대기 시간이 안 지남: 아님
+        assertThat(hpTaskRepository.findRunnableIds(retriedAt, retriedAt.minusMinutes(1), first100)).isEmpty();
+        // 다시 시도한 지 대기 시간이 지남: 대상
+        assertThat(hpTaskRepository.findRunnableIds(retriedAt.plusMinutes(1), retriedAt, first100))
+                .containsExactly(reopened.getId());
+    }
+
+    @Test
+    @DisplayName("다시 시도 컬럼은 셋 다 비었거나 셋 다 있다 (ck_hp_tasks_manual_retry)")
+    void manualRetryColumnsTogether() {
+        HpTask broken = release(13L, "APPEARANCE_REQUEST-13-RELEASE-1");
+        ReflectionTestUtils.setField(broken, "manualRetryCount", 1);
+
+        assertThatThrownBy(() -> hpTaskRepository.saveAndFlush(broken))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasStackTraceContaining("ck_hp_tasks_manual_retry");
+    }
+
+    @Test
     @DisplayName("위약금 정산 작업을 저장한다 (받는 회원·위약금·출연 ID). 반환 작업에 위약금 값이 있으면 ck_hp_tasks_receiver에 걸린다")
     void savePenalty() {
         HpTask saved = hpTaskRepository.saveAndFlush(HpTask.penalty(HpTaskRefType.APPEARANCE_REQUEST, 12L, 1L, 30_000,

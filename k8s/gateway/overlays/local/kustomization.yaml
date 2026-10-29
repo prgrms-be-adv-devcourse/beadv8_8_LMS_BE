@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base
+- issuer.yaml
+- grafana.yaml
+patches:
+- target:
+    kind: Gateway
+    name: hapbang
+  patch: |
+    - op: replace
+      path: /spec/listeners/0/hostname
+      value: hapbang.local
+    - op: replace
+      path: /spec/listeners/1/hostname
+      value: hapbang.local
+- target:
+    kind: Certificate
+    name: hapbang-tls
+  patch: |
+    - op: replace
+      path: /spec/dnsNames/0
+      value: hapbang.local
+- target:
+    kind: EnvoyProxy
+    name: hapbang
+  patch: |
+    - op: replace
+      path: /spec/telemetry/tracing/samplingRate
+      value: 100

@@ -1,0 +1,51 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: grafana
+  namespace: hapbang-platform
+spec:
+  valuesContent: |
+    grafana.ini:
+      server:
+        root_url: https://hapbang.local:8443/grafana/
+        serve_from_sub_path: true
+      auth.anonymous:
+        enabled: false
+      auth.proxy:
+        enabled: false
+      auth.basic:
+        enabled: true
+      users:
+        allow_sign_up: false
+      security:
+        cookie_secure: true
+        cookie_samesite: lax
+    deploymentStrategy:
+      type: Recreate
+    readinessProbe:
+      httpGet:
+        path: /grafana/api/health
+        port: 3000
+      timeoutSeconds: 5
+    livenessProbe:
+      httpGet:
+        path: /grafana/api/health
+        port: 3000
+      initialDelaySeconds: 60
+      timeoutSeconds: 5
+      failureThreshold: 10
+    startupProbe:
+      httpGet:
+        path: /grafana/api/health
+        port: 3000
+      periodSeconds: 5
+      failureThreshold: 60
+      timeoutSeconds: 5
+    resources:
+      requests:
+        cpu: 50m
+        memory: 384Mi
+      limits:
+        memory: 384Mi
+    env:
+      GOMAXPROCS: '2'

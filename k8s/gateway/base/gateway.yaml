@@ -1,0 +1,226 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: hapbang
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: hapbang
+    namespace: envoy-gateway-system
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: hapbang
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 1
+        pod:
+          nodeSelector:
+            hapbang.io/pool: core-data
+          labels:
+            hapbang.io/gateway-proxy: 'true'
+        container:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 256Mi
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              template:
+                spec:
+                  containers:
+                  - name: shutdown-manager
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 32Mi
+                      limits:
+                        memory: 32Mi
+      envoyService:
+        type: LoadBalancer
+        externalTrafficPolicy: Local
+  telemetry:
+    accessLog:
+      settings:
+      - format:
+          type: JSON
+          json:
+            timestamp: '%START_TIME%'
+            method: '%REQ(:METHOD)%'
+            path: '%REQ_WITHOUT_QUERY(:PATH)%'
+            status: '%RESPONSE_CODE%'
+            duration_ms: '%DURATION%'
+            client_ip: '%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%'
+            trace_id: '%REQ(TRACEPARENT)%'
+        sinks:
+        - type: File
+          file:
+            path: /dev/stdout
+    tracing:
+      samplingRate: 10
+      provider:
+        type: OpenTelemetry
+        backendRefs:
+        - name: alloy
+          namespace: hapbang-platform
+          port: 4317
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: hapbang
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: hapbang
+  listeners:
+  - name: http
+    hostname: gateway.invalid
+    port: 80
+    protocol: HTTP
+    allowedRoutes: &id001
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values:
+            - hapbang-prod
+            - hapbang-platform
+            - envoy-gateway-system
+  - name: https
+    hostname: gateway.invalid
+    port: 443
+    protocol: HTTPS
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: hapbang-tls
+    allowedRoutes: *id001
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hapbang-tls
+  namespace: envoy-gateway-system
+spec:
+  secretName: hapbang-tls
+  dnsNames:
+  - gateway.invalid
+  issuerRef:
+    name: gateway-issuer
+    kind: ClusterIssuer
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: hapbang
+  namespace: envoy-gateway-system
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: hapbang
+  headers:
+    earlyRequestHeaders:
+      remove:
+      - x-user-id
+      - x-user-role
+      - x-internal-api-key
+      - x-forwarded-host
+      - x-forwarded-proto
+      - forwarded
+  clientIPDetection:
+    xForwardedFor:
+      numTrustedHops: 0
+  timeout:
+    http:
+      requestReceivedTimeout: 0s
+      idleTimeout: 60s
+      streamIdleTimeout: 60s
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: https-redirect
+  namespace: envoy-gateway-system
+spec:
+  parentRefs:
+  - name: hapbang
+    sectionName: http
+  rules:
+  - filters:
+    - type: RequestRedirect
+      requestRedirect:
+        scheme: https
+        statusCode: 301
+        port: 443
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: api-not-found
+  namespace: envoy-gateway-system
+spec:
+  directResponse:
+    statusCode: 404
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-not-found
+  namespace: envoy-gateway-system
+spec:
+  parentRefs:
+  - name: hapbang
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api
+    - path:
+        type: PathPrefix
+        value: /actuator
+    - path:
+        type: PathPrefix
+        value: /swagger-ui
+    - path:
+        type: PathPrefix
+        value: /v3/api-docs
+    filters:
+    - type: ExtensionRef
+      extensionRef:
+        group: gateway.envoyproxy.io
+        kind: HTTPRouteFilter
+        name: api-not-found
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: web
+  namespace: hapbang-prod
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: web
+      port: 80

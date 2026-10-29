@@ -1,0 +1,92 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: chat-app
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api/v1/chats
+    backendRefs:
+    - name: chat-app
+      port: 8080
+    timeouts:
+      request: 30s
+      backendRequest: 30s
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: chat-app-websocket
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api/v1/chats/ws
+    backendRefs:
+    - name: chat-app
+      port: 8080
+    timeouts:
+      request: 0s
+      backendRequest: 0s
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: chat-app
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: chat-app
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: chat-app-websocket
+  jwt:
+    optional: true
+    providers:
+    - name: member
+      issuer: https://gateway.invalid
+      remoteJWKS:
+        uri: http://member-app.hapbang-prod.svc.cluster.local:8080/api/v1/members/.well-known/jwks.json
+      claimToHeaders:
+      - claim: sub
+        header: X-User-Id
+      - claim: role
+        header: X-User-Role
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: chat-app-websocket
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: chat-app-websocket
+  timeout:
+    http:
+      requestTimeout: 0s
+      streamIdleTimeout: 300s
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: chat-app-body-limit
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: chat-app
+  requestBuffer:
+    limit: 1Mi

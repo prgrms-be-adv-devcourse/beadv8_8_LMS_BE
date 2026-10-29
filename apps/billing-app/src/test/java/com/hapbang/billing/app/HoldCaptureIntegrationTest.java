@@ -20,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.billing.app.PayoutResult.ChargeConsumption;
 import com.hapbang.billing.app.ReleaseResult.ChargeRestoration;
@@ -42,6 +43,8 @@ import com.hapbang.testsupport.IntegrationTest;
 // 종류별 보류(MIXED·CHARGE_ONLY·REVENUE_ONLY)와 확정 차감(Capture, #241)을 실제 PostgreSQL로 검증한다.
 // 매 시나리오 뒤 지갑 캐시 = 원장 합계, 충전 원금 합계 = 충전 HP 가용 잔액, 보류·배분·상세 합계 일치 불변식을 확인한다.
 @IntegrationTest
+// HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273)
+@WithMockUser(roles = "INTERNAL")
 class HoldCaptureIntegrationTest {
 
     private static final Instant T1 = Instant.parse("2026-10-01T00:00:00Z");

@@ -1,6 +1,7 @@
 package com.hapbang.appearance.domain;
 
 import com.hapbang.shared.member.domain.ReplicaUser;
+import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.dto.UserDto;
 
 import jakarta.persistence.Entity;
@@ -40,6 +41,23 @@ public class AppearanceUser extends ReplicaUser {
         }
         if (!isInfluencerOrAbove()) {
             throw new AppearanceException(AppearanceErrorCode.NOT_INFLUENCER);
+        }
+    }
+
+    /**
+     * 관리자 API를 쓸 수 있는지 확인한다 (#397). 세션 역할은 로그인 시점 값이라, 로그인 뒤 정지되거나 관리자 권한을 잃은 경우를
+     * 복제한 회원 정보로 다시 막는다.
+     * <ol>
+     *     <li>정상(ACTIVE) 상태가 아니면 {@code APPEARANCE_USER_NOT_ACTIVE} (탈퇴·정지)</li>
+     *     <li>관리자가 아니면 {@code NOT_ADMIN}</li>
+     * </ol>
+     */
+    public void validateIsAdmin() {
+        if (!isActive()) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_USER_NOT_ACTIVE);
+        }
+        if (getRole() != Role.ADMIN) {
+            throw new AppearanceException(AppearanceErrorCode.NOT_ADMIN);
         }
     }
 }

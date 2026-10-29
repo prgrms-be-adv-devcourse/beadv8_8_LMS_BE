@@ -1,0 +1,79 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: lecture-app
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api/v1/lectures
+    backendRefs:
+    - name: lecture-app
+      port: 8080
+    timeouts:
+      request: 30s
+      backendRequest: 30s
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: lecture-app-upload
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: RegularExpression
+        value: ^/api/v1/lectures/files/[0-9]+/content$
+      method: PUT
+    backendRefs:
+    - name: lecture-app
+      port: 8080
+    timeouts:
+      request: 1800s
+      backendRequest: 1800s
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: lecture-app
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: lecture-app
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: lecture-app-upload
+  jwt:
+    optional: true
+    providers:
+    - name: member
+      issuer: https://gateway.invalid
+      remoteJWKS:
+        uri: http://member-app.hapbang-prod.svc.cluster.local:8080/api/v1/members/.well-known/jwks.json
+      claimToHeaders:
+      - claim: sub
+        header: X-User-Id
+      - claim: role
+        header: X-User-Role
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: lecture-app-body-limit
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: lecture-app
+  requestBuffer:
+    limit: 1Mi

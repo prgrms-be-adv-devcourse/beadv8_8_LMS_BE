@@ -29,6 +29,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.billing.domain.AccountVerificationStatus;
 import com.hapbang.billing.domain.BalanceBucket;
@@ -56,6 +57,8 @@ import com.hapbang.testsupport.IntegrationTest;
 // 모든 시나리오 끝에 정합성(지갑 = 원장, 신청 금액 = 보류 원금(수익 HP만), REQUESTED는 전액 보류 중·CANCELED는 전액 반환,
 // 환전 원장은 수익 HP만, 수수료 + 예상 수령액 = 신청 금액)을 확인한다.
 @IntegrationTest
+// HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273)
+@WithMockUser(roles = "INTERNAL")
 class ExchangeIntegrationTest {
 
     private static final long BUYER = 1L;

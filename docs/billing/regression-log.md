@@ -4,8 +4,8 @@
 >
 > - 이 문서는 **실제로 실행한** 테스트 결과만 쌓는다. 검증 대상과 기준은 [test-spec.md](test-spec.md)에 있다.
 > - 목표: JVM 분리(#356) 이후 기존 Billing 기능의 회귀 검증. 단계는 Compile → Unit → Integration → Contract 순서다.
-> - **현재 실행 기록: 없음 (2026-10-29, `dev` da834b1 기준).** 분리 이후 billing-app 테스트를 실행한 결과가 아직 없다. `apps/billing-app/build/test-results`도 없다.
-> - 5a4dc1a → da834b1 사이에 billing-app·`common/shared` 코드는 바뀌지 않았다. `common/test-support`에 Kafka·Redis Testcontainers 설정과 `testcontainers-kafka` 의존(api)이 추가됐다. billing 테스트는 이 설정을 `@Import`하지 않으므로 Kafka·Redis 컨테이너가 뜨지 않을 것으로 본다(추정, 첫 실행에서 확인). 첫 실행 기록에는 기준 커밋을 반드시 적는다.
+> - **실행 기록은 3장에 있다(R-001부터).** 분리 이후 기준선은 **R-003**(HEAD 7dc89e0, U·S·I·R 전체 1,041건 통과)이다. Contract 단계는 테스트가 없어 아직 실행하지 않았다.
+> - 5a4dc1a → da834b1 사이에 billing-app·`common/shared` 코드는 바뀌지 않았다. `common/test-support`에 Kafka·Redis Testcontainers 설정과 `testcontainers-kafka` 의존(api)이 추가됐다. billing 테스트는 이 설정을 `@Import`하지 않으며, R-003에서 Kafka·Redis 컨테이너가 뜨지 않은 것을 확인했다(`postgres:18`만 실행).
 
 ## 1. 작성 규칙
 
@@ -53,7 +53,109 @@
 
 ## 3. 실행 기록
 
-_아직 없다. 첫 실행은 `R-001`이다. 아래 양식을 복사해 이 줄 바로 아래에 붙인다._
+_새 기록은 아래 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
+
+### R-003 · 2026-10-29 · U / S / I · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-003 |
+| 실행 일시 | 2026-10-29 11:22~11:25 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | dev |
+| 커밋 | 7dc89e0 |
+| 작업 트리 변경 | `docs/billing/test-spec.md`, `docs/billing/regression-log.md` (문서만) |
+| 단계 | U, S, I (R 포함) |
+| 범위 | billing-app 전체 73개 클래스 |
+| 명령 | `./gradlew :billing-app:test --rerun-tasks` |
+| 환경 | Windows 10 Pro 10.0.19045, JDK 25.0.4.1 (Oracle), Gradle 9.7.1, Docker 29.8.0, 실제로 뜬 컨테이너 `postgres:18`만(Kafka·Redis 없음), 시간대 Korea Standard Time, 메모리 미기록 |
+| 소요 시간 | 3분 3초 |
+| 결과 | 통과 |
+
+**건수** (TEST-*.xml 77개 기준, 단계 구분은 7장 표)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| U (32개 클래스) | 318 | 0 | 0 | 0 |
+| S (4개 클래스) | 48 | 0 | 0 | 0 |
+| I (33개 클래스, `@Nested` 포함) | 553 | 0 | 0 | 0 |
+| R (4개 클래스) | 122 | 0 | 0 | 0 |
+| 합계 | 1,041 | 0 | 0 | 0 |
+
+**Unit 실행 목록 대조** (test-spec 2.2): 클래스 32/32, 소스 메서드 206 = 7장 표 206, 실행 318, 대조 문제 0.
+
+**실패 목록**: 없음.
+
+**메모**
+- 분리 이후 billing-app 기준선이다. 실행 수(단계별)는 R-001의 실행 수와 같다(R-001에서 실패한 675건이 이번에는 모두 통과).
+- 테스트 JVM 종료 때 `DefaultEventPublicationRegistry`가 "publications left unfinished"를 INFO로 9번 남겼다. 모두 `UserJoinedEvent` → `BillingMemberEventListener.on`이고, 각 캐시된 컨텍스트가 닫힐 때 1건씩이다. 실패한 이벤트가 남으면 찍힐 수 있는 로그로 알려져 있다(`docs/dev/testing.md` "이벤트 리스너"). 테스트 실패가 아니므로 분류하지 않았다. 어느 테스트가 남겼는지는 확인하지 않았다(후보: 복제본 실패를 일부러 일으키는 `BillingMemberEventIsolationTest`).
+- 통과는 billing-app 한 앱 컨텍스트 안의 결과다. JVM 칸이 "경계"(18개)·"깨짐"(BT-PORT-01~03)인 항목은 통과해도 분리 운영을 보장하지 않는다(4.1). 교착(40P01) 로그는 없었다.
+
+### R-002 · 2026-10-29 · U · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-002 |
+| 실행 일시 | 2026-10-29 11:19~11:20 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | dev |
+| 커밋 | 7dc89e0 |
+| 작업 트리 변경 | `docs/billing/test-spec.md`, `docs/billing/regression-log.md` (문서만, 이 기록을 쓰는 중) |
+| 단계 | U |
+| 범위 | test-spec 1.3의 Unit 32개 클래스 |
+| 명령 | test-spec 1.3 명령 그대로 (`./gradlew :billing-app:test --rerun-tasks --tests …` 24개 패턴) |
+| 환경 | Windows 10 Pro 10.0.19045, JDK 25.0.4.1 (Oracle), Gradle 9.7.1, Docker 29.8.0 실행 중(Unit이라 컨테이너는 뜨지 않음), 시간대 Korea Standard Time, 메모리 미기록 |
+| 소요 시간 | 33초 (Gradle 14개 태스크 모두 새로 실행) |
+| 결과 | 통과 |
+
+**건수** (TEST-*.xml 기준)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| U (32개 클래스, 메서드 206개) | 318 | 0 | 0 | 0 |
+
+**Unit 실행 목록 대조** (test-spec 2.2): XML 32개 = U 클래스 32개, 소스 메서드 206 = 7장 표 206, 실행 318, 대조 문제 0.
+
+**실패 목록**: 없음.
+
+**메모**: HEAD 기준 Unit 기준선이다. 실행 수 318은 R-001(5a4dc1a)과 같다. 대조는 테스트 소스와 XML을 비교하는 스크립트로 했고, 그 스크립트는 레포에 넣지 않았다(규칙은 test-spec 2.2).
+
+### R-001 · 2026-10-29 · U / S / I · 중단 (U·S 통과, I·R은 F-ENV)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-001 |
+| 실행 일시 | 2026-10-29 09:51~09:52 (KST, XML timestamp 기준) |
+| 실행자 | Claude Code |
+| 브랜치 | dev |
+| 커밋 | 5a4dc1a (**지금 HEAD가 아니다.** 5a4dc1a → 7dc89e0 사이 billing-app·`common/shared` 코드 변경은 없고, `common/test-support`에 Kafka·Redis Testcontainers 설정이 더해졌다) |
+| 작업 트리 변경 | `apps/billing-app/AGENTS.md`, `apps/billing-app/PROGRESS.md` (문서만) |
+| 단계 | U, S, I (전체 실행) |
+| 범위 | 전체 (`check`로 모든 앱·common을 함께 실행, 이 기록은 billing-app만 옮겼다) |
+| 명령 | `./gradlew check --continue --offline` |
+| 환경 | Windows 10 Pro 10.0.19045, JDK 25.0.4.1 (Oracle), Gradle 9.7.1, **Docker 미실행**(컨테이너 0), 메모리·`TZ` 미기록 |
+| 소요 시간 | 2분 51초 (전체 프로젝트 `check`) |
+| 결과 | 중단: U·S는 통과, I·R은 Docker가 없어 컨텍스트를 띄우지 못했다 |
+
+**건수** (TEST-*.xml 기준, 단계 구분은 7장 표)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| U (32개 클래스, 메서드 206개) | 318 | 0 | 0 | 0 |
+| S (4개 클래스, 메서드 41개) | 48 | 0 | 0 | 0 |
+| I (33개 클래스) | 0 | 553 | 0 | 0 |
+| R (4개 클래스) | 0 | 122 | 0 | 0 |
+| 합계 | 366 | 675 | 0 | 0 |
+
+**Unit 실행 목록 대조** (test-spec 2.2): 클래스 32/32, 소스 메서드 206 = 7장 표 206, 실행 318, 대조 문제 0.
+
+**실패 목록**
+
+| 테스트 (클래스#메서드) | BT | 오류 요약 (첫 줄) | 원인 분류 | 근거 | 조치·Issue |
+| --- | --- | --- | --- | --- | --- |
+| I·R 37개 클래스의 모든 메서드 (675건) | I·R 단계 전체 | `IllegalStateException: Failed to load ApplicationContext` | F-ENV | 25건은 원인이 `Could not find a valid Docker environment`, 나머지 650건은 같은 컨텍스트의 `ApplicationContext failure threshold` 초과 | Docker 실행 후 재실행 (4장 1번) |
+
+**메모**: 코드 결함으로 분류할 실패는 없다. HEAD 기준 Unit 기준선은 R-002다. I·R 단계는 아직 한 번도 끝까지 실행하지 못했다.
 
 <!--
 ### R-NNN · YYYY-MM-DD · <단계 코드> · <결과 표기>
@@ -94,7 +196,7 @@ _아직 없다. 첫 실행은 `R-001`이다. 아래 양식을 복사해 이 줄 
 
 | 번호 | 처음 발견 | 테스트 / BT | 내용 | 원인 분류 | 관련 Issue | 상태 | 해결 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| _(없음)_ | | | | | | | |
+| 1 | R-001 | I·R 단계 전체 (37개 클래스) | Docker가 없어 Integration·Repository를 한 번도 끝까지 실행하지 못했다 | F-ENV | — | 해결 | R-003 |
 
 ### 4.1 실행 전 알려진 위험 (분석 기반, 실행 결과 아님)
 
