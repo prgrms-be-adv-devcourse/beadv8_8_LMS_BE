@@ -12,7 +12,7 @@
 
 | 명령 | 대상 | Docker 필요 |
 |---|---|---|
-| `./gradlew :appearance:test` | 출연 모듈 전체 테스트 | ✅ (저장소·통합·E2E 포함) |
+| `./gradlew :appearance-app:test` | 출연 모듈 전체 테스트 | ✅ (저장소·통합·E2E 포함) |
 | `./gradlew :apps:test --tests "com.hapbang.ModularityTests"` | 모듈 경계 검증 | ❌ |
 | `./gradlew check` | CI와 같은 전체 검사 (모든 모듈) | ✅ |
 
