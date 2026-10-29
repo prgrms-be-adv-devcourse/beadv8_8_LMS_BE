@@ -44,6 +44,7 @@
 | 출연 확인(확인·불참)·D+7 자동 확인, 지급 HP 작업. 이의 제기는 고객센터 관할 | ✅ | #282 |
 | Billing 실제 연동 (Fake Billing·`mode` 설정 삭제, 실제 Billing 통합 테스트) | ✅ | #289 |
 | 정리: 작업 뒤 상세 조회 읽기 전용 트랜잭션, 충돌 변환 통합 | ✅ | #293 |
+| 격리된 HP 작업 관리자 조회·다시 시도 | ✅ | #397 |
 
 ---
 
@@ -360,9 +361,11 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 | `status` | VARCHAR(255) | `PENDING` / `DONE` / `DEAD` |
 | `attempt_count`, `next_attempt_at`, `last_error` | INTEGER, TIMESTAMP(6), VARCHAR(1000) | 시도 횟수, 다음 시도 시각, 마지막 오류 |
 | `completed_at` | TIMESTAMP(6) | 완료 시각 |
+| `manual_retry_count`, `last_manual_retry_by`, `last_manual_retry_at` | INTEGER(기본 0), BIGINT, TIMESTAMP(6) | 관리자 다시 시도 횟수, 마지막으로 다시 시도한 관리자 회원 ID·시각 (#397). 셋 다 비었거나 셋 다 있다 |
 | `version`, `created_at`, `updated_at` | | 낙관적 락, 생성·수정 시각 |
 
 - 마이그레이션(5.3·5.4): `V202610141109__create_appearance_and_hp_task_tables.sql` (#137)
+- 다시 시도 컬럼: `V202610291142__add_hp_tasks_manual_retry_columns.sql` (#397)
 - 인덱스: 재시도 대상 `(status, next_attempt_at)`, 대상별 조회 `(ref_type, ref_id)`
 
 ### 5.5 `appearances.recruits` — 출연 모집글 (#175)
@@ -578,6 +581,8 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 |---|---|---|
 | 격리 로그 | `DEAD`가 되는 순간 ERROR 로그 `[HP_TASK_DEAD] taskId=…, type=…, ref=APPEARANCE_REQUEST-12, memberId=…, amount=…, attempts=…, error=…` | `docker logs <컨테이너> 2>&1 \| grep HP_TASK_DEAD` |
 | 지표 (Micrometer) | `appearance.hp_task.executions{result=done\|retry\|dead}`, `appearance.hp_task.pending`, `appearance.hp_task.dead` (재시도 배치 실행 시점 값) | 앱의 `MeterRegistry`에 등록됨. 보는 경로(`/actuator/metrics`, Prometheus)는 팀 합의 후 연다 |
+| 관리자 API | 격리 작업 목록 `GET /api/v1/appearances/admin/hp-tasks`, 다시 시도 `POST …/{taskId}/retry` (19장, #397) | 관리자 로그인 |
+| 다시 시도 로그 | 관리자가 다시 시도하는 순간 WARN 로그 `[HP_TASK_MANUAL_RETRY] taskId=…, adminId=…, manualRetryCount=…, previousAttempts=…, previousError=…` (다시 시도하면 시도 횟수가 0으로 돌아가므로 직전 값을 여기에 남긴다) | `grep HP_TASK_MANUAL_RETRY` |
 | DB | `select * from appearances.hp_tasks where status = 'DEAD'` | 언제든 |
 
 - Prometheus + Grafana 대시보드·알림은 `docker/compose*.yaml` 변경이 필요해 팀 결정 사항이다.
@@ -1020,4 +1025,45 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 
 - 실패는 `AppearanceApiCallException`이다(shared는 global에 의존하지 않아 `BusinessException`이 아니다). `REJECTED`: 4xx(요청 값 오류, 키 오류 401), `UNAVAILABLE`: 연결 실패·시간 초과·5xx·읽을 수 없는 성공 응답(깨진 JSON, 계약에 없는 enum 값, 필수 필드 없음, `data` 없음). `getStatus()`·`getCode()`는 강의와 같다. 조회라 `UNAVAILABLE`은 다시 불러도 안전하다.
 - `statuses`가 `null`이거나 비어 있으면 상태 조건 없이 보낸다(= 미지급만). `earningType`이 `null`이면 둘 다.
+
+---
+
+## 19. 격리된 HP 작업 관리자 조회·다시 시도 (#397)
+
+격리된(`DEAD`) HP 작업은 업무 상태(거절·확인·취소)를 되돌리지 않는다. 관리자가 원인을 확인한 뒤 같은 작업을 같은 멱등 키로 다시 실행하는 것이 복구 경로다. 사용자에게는 다시 시도 기능이 없다.
+
+### 19.1 API (관리자, `/api/v1/appearances/admin/**`)
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/v1/appearances/admin/hp-tasks?status=DEAD` | 상태별 작업 목록. `status` 생략 시 `DEAD`. 마지막으로 바뀐 작업부터, `page`·`size`(기본 20, 최대 100) |
+| POST | `/api/v1/appearances/admin/hp-tasks/{taskId}/retry` | 격리 작업 다시 시도. 실행 뒤 작업을 200으로 돌려준다 |
+
+- 응답 한 건(`HpTaskAdminResDto`): 작업 종류·대상(요청서·모집글, 출연 ID)·보류 회원·받는 회원·금액(위약금·지급액)·사유·멱등 키·상태·시도 횟수·다음 시도 시각·마지막 오류·완료(격리) 시각·생성 시각·다시 시도 기록 3개.
+- 권한: 보안 설정이 `/api/v1/*/admin/**`를 관리자만 통과시키고(그 밖 403, 비로그인 401), `HpTaskAdminFacade`도 `@PreAuthorize("hasRole('ADMIN')")`로 확인한다.
+
+### 19.2 다시 시도 흐름
+
+```
+[트랜잭션] 작업 조회(없으면 404 HP_TASK_NOT_FOUND) → DEAD 확인(아니면 409 HP_TASK_NOT_DEAD)
+          → PENDING, 시도 횟수 0, 다음 시도 시각 = 지금, 완료 시각 비움, 다시 시도 기록(횟수+1·관리자·시각)
+          → 바로 반영해 버전 충돌이면 409 CONCURRENT_UPDATE → [HP_TASK_MANUAL_RETRY] 로그 (커밋)
+[트랜잭션 밖] HpTaskExecuteUseCase.execute — 업무 처리 직후 실행과 같은 1회 실행
+          → 성공 DONE / Billing 거절 DEAD / 결과 모름 PENDING(재시도 배치가 이어서)
+→ 실행 뒤 작업을 응답 (다시 실패해도 200, 결과는 status로 본다)
+```
+
+- 재시도 배치는 처음 시도 전 작업을 "시작한 지" 대기 시간(1분)이 지나야 가져간다. 시작 시각은 다시 시도한 작업이면 `last_manual_retry_at`, 아니면 `created_at`이다. 다시 시도하면 시도 횟수가 0이 되고 만든 시각은 오래전이라, 만든 시각만 보면 관리자 요청 안에서 실행 중인 작업을 배치가 함께 실행하기 때문이다. 실행 결과를 기록하지 못하고 끊기면 1분 뒤 배치가 이어받는다.
+- 같은 작업이 두 곳에서 동시에 Billing에 가더라도 Billing이 지갑 잠금 뒤 같은 요청 ID를 확인해 처음 결과를 돌려주므로 HP는 한 번만 움직인다.
+
+### 19.3 결정
+
+| 결정 | 내용 | 이유 |
+|---|---|---|
+| 시도 횟수 | 다시 시도하면 0으로 되돌려 재시도 규칙(1분 → … → 최대 1시간, 10회)을 처음부터 적용 | 격리 작업은 이미 최대 횟수를 다 써서, 이어서 세면 한 번 실패하자마자 다시 격리된다. 일시 장애가 계속될 때 관리자가 여러 번 누르지 않아도 되게 한다 |
+| 다시 시도 기록 | `hp_tasks`에 컬럼 3개(횟수, 마지막 관리자·시각) + 로그 | 관리자 목록 API에서 바로 보이고 감사 기록으로 남는다. 직전 시도 횟수·오류는 로그에 남긴다 |
+| 배치 대기 기준 | 처음 시도 전 작업의 대기 시간을 `coalesce(last_manual_retry_at, created_at)`부터 센다 | 다시 시도한 작업을 관리자 요청 안의 실행과 배치가 함께 실행하지 않게 한다 (중복 이동은 멱등 키가 막지만 불필요한 중복 호출을 없앤다) |
+| 마지막 오류 | 다시 시도해도 지우지 않고 다음 결과가 나올 때 바뀐다 (성공하면 지움) | 다시 시도 중에도 원인을 볼 수 있게 |
+| 멱등 키 | 바꾸지 않는다 | 같은 요청 ID라 Billing이 처음 결과를 돌려주므로 HP가 두 번 움직이지 않는다 |
+| 알림 | 기존 `[HP_TASK_DEAD]` 오류 로그와 `appearance.hp_task.dead` 지표를 그대로 쓴다. 알림 규칙(대시보드·경보)은 관측성 작업(#343)에서 이 지표·로그로 만든다 | 출연 모듈은 신호를 남기고, 수집·경보 도구는 팀 공통 구성을 따른다 |
 
