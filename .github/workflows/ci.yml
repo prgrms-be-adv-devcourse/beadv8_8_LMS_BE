@@ -79,14 +79,24 @@ jobs:
           tar xzf kubeconform.tar.gz kubeconform
           sudo install kubeconform /usr/local/bin/
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: 고정 버전 Gateway·인증서 CRD schema 준비
+        run: |
+          python -m pip install PyYAML==6.0.3
+          python k8s/gateway/tools/prepare-schemas.py /tmp/gateway-schemas
+
       # -strict는 schema에 없는 필드(오타)를 오류로 본다. Kubernetes 버전은 EC2 k3s(v1.36.5+k3s1)와 맞춘다.
       - name: 렌더링·schema 검사
         run: |
           # 공용 인프라(k8s/)와 앱마다의 manifest(apps/<앱>/k8s)를 모두 검사한다.
-          for dir in k8s/cluster k8s/platform/overlays/* apps/*-app/k8s/overlays/*; do
+          for dir in k8s/cluster k8s/platform/overlays/* k8s/gateway/install/* k8s/gateway/overlays/* apps/*-app/k8s/overlays/*; do
             echo "::group::$dir"
             kubectl kustomize "$dir" | kubeconform -strict -summary \
               -kubernetes-version 1.36.5 \
+              -schema-location "/tmp/gateway-schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
               -schema-location default \
               -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/${CRDS_CATALOG_REF}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
             echo "::endgroup::"

@@ -6,6 +6,8 @@ namespace: hapbang-prod
 resources:
   - deployment.yaml
   - service.yaml
+  - gateway.yaml
+  - networkpolicy.yaml
 # 이름에 내용 hash가 붙으므로 값을 바꾸면 앱이 다시 배포되고, rollout undo가 이전 ConfigMap까지 되돌린다.
 configMapGenerator:
   - name: member-app-config

@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- gateway.yaml
+- platform-networkpolicy.yaml
+- grafana-route.yaml
+- alloy.yaml
+- tempo.yaml
+- metadata-networkpolicy.yaml
