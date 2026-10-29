@@ -18,6 +18,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
     // E2E 테스트에서 실제 포트로 HTTP 요청 보내기. 버전은 gradle/libs.versions.toml에서 관리한다
     testImplementation(libs.rest.assured)
+    testImplementation(libs.wiremock.standalone)
 }
 
 springBoot {
