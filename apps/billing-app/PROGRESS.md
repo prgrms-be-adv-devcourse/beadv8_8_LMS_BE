@@ -36,6 +36,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #285 | 수익 HP 환전 신청·테스트 계좌 스냅샷(암호화·마스킹)·REVENUE_ONLY 보류·승인 전 취소·잠정 정산 예정일(주말 보정)(Flyway `V202610161300`) | `feature/tkt-285` | #287 | 완료 |
 | #288 | 가상 송금 Mock 은행 API·HTTP Client(실제 HTTP, 트랜잭션 밖 호출 강제, 멱등 기록 `mock_payout_transfer` Flyway `V202610161700`, local·test 프로필 전용) | `feature/tkt-288` | #290 | 완료 |
 | #294 | 관리자 환전 승인·거절(REQUESTED → APPROVED·REJECTED, 거절 반환), Billing 회원 복제본(가입·변경 Upsert + 회원 버전 비교), Flyway `V202610162000`·`V202610162010`. 기존 회원 Backfill 제외 | `feature/tkt-294` | - | 구현·테스트 완료 (커밋 전) |
+| #273 | HP 내부 HTTP API(`POST /api/v1/internal/billing/{holds,releases,payouts,penalty-settlements}`), `HoldFacade` `ROLE_INTERNAL` 인가, 요청 로그, 오류 코드 전체 대조, Billing 전체 `lock_timeout` 3초 → 503 `HP_LOCK_TIMEOUT`. `BillingPort` 유지 | `feature/tkt-273` | - | 구현·테스트 완료 (PR 전) |
 
 다음 후보: **강의 정산 실제 지급(SCHEDULED → COMPLETED)**, 강의 #146·출연 연동, Charge(TossPayments 충전), Refund, Exchange(환전). 자세한 내용은 7장.
 
@@ -570,6 +571,21 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 - **테스트**: `BillingUserSyncIntegrationTest` 8, `BillingMemberEventIsolationTest` 1, `ExchangeReviewIntegrationTest` 22, `ApiV1SettlementExchangeAdminControllerTest` 5, `ExchangeTest` +6, `BillingConstraintsTest` +8, `BillingEnumStorageTest`·`BillingSchemaTest`(14개 표) 갱신.
 - **후속**: 기존 회원 Backfill(Member 조회 계약 협의), 송금 UseCase(승인 건 → exchange_payout → Mock 송금 → Capture), 정산 Scheduler(공휴일·회차), 복제본 지연(이벤트 실패는 재시작 때만 재처리).
 
+
+### 3.21 HP 내부 HTTP API (#273, 2026-10-29, 기준 `origin/dev` 29d1ea5, `feature/tkt-273`)
+
+정책 원문은 `docs/billing/CONTEXT.md` 1장(2026-10-29 `/grill-with-docs`). 결정 배경만 둔다.
+
+- **경로**: `ApiV1BillingInternalController`(Swagger `ApiV1BillingInternalSpec`)가 네 경로를 받고 `HoldFacade`를 부른다. 요청 하나 = Billing 로컬 트랜잭션 하나. 결과 변환은 `BillingResultDtos`로 옮겨 `BillingPortAdapter`와 같이 쓴다. `BillingPort`는 #280까지 유지한다.
+- **요청 본문 = shared Command**: BD-54("shared DTO를 Controller 요청 DTO로 쓰지 않는다")는 같은 JVM 전제였다. HTTP에서는 shared Command가 계약 자체이고, 구조 오류는 Jackson을 거쳐 400 `INVALID_REQUEST`다. 이슈의 "billing 내부 Command 변환"은 `HoldFacade` 시그니처·Hold 통합 테스트가 함께 바뀌므로 #280에서 한다.
+- **인가**: `HoldFacade`에 `@PreAuthorize("hasRole('INTERNAL')")`(D63). #280 뒤 최종 위치를 지금 정했다. `HoldFacade`·`BillingPort`를 직접 부르는 테스트 10개 클래스는 `@WithMockUser(roles = "INTERNAL")`, 다른 스레드에서 부르는 동시성 테스트는 `DelegatingSecurityContextExecutorService`로 인증을 넘긴다(검증 조건 불변).
+- **동시 재요청**: 같은 회원·같은 키 동시 요청은 지갑 락으로 직렬화되어 replay된다(코드 변경 없음, HTTP 테스트로 고정). 409는 다른 회원이 같은 참조 대상을 보류할 때만이다. 처음 분석에서 "내용이 같아도 409"라고 잘못 판단했다가 `HoldCreateUseCase`의 지갑 락 위치를 보고 정정했다.
+- **락 대기 상한(BD-108 결정, 이슈 범위 확장)**: Client 응답 timeout 5초와 무제한 락 대기가 맞지 않아 Billing 전체에 `lock_timeout = 3s`(Hikari `connection-init-sql`, `billing.yml`을 운영 설정·테스트 설정이 함께 import)를 둔다. 55P03은 Facade 진입점에서 `LockTimeouts`가 `HP_LOCK_TIMEOUT`(503)으로 바꾼다(보류·반환·지급·위약금, 충전, 환불, 환전, 관리자 환전 처리, 내 지갑 조회). 공통 `GlobalExceptionHandler`는 6개 앱이 같은 사본이라 바꾸지 않았다. shared `BillingFailureCode`에도 추가.
+- **오류 코드 대조**: `BillingFailureCodeContractTest`가 `BillingErrorCode` 전체를 `default` 없는 `switch`로 `BillingFailureCode` 또는 `null`(내부 API에서 나오지 않음)로 분류한다. Billing 코드가 늘면 컴파일되지 않는다.
+- **로그**: 요청마다 `operation`·회원·참조·요청 ID·금액과 `result=OK replayed=…`/`FAILED code=…`/`ERROR exception=…` 한 줄. correlation ID는 계약(`internal-billing.md` 3장)대로 tracing 도입 때 정한다.
+- **테스트**: `ApiV1BillingInternalControllerTest` 13(성공·replay·409·업무 오류 detail·400 구조 오류·401 키 없음/틀림/세션만·기술 실패 500 + 전체 롤백·Facade 인가·요청 로그·동시 같은 요청·락 대기 초과 503), `BillingFailureCodeContractTest` 68, `LockTimeoutsTest` 3.
+- **후속**: `docs/api/internal-billing.md` 2장 표에 `HP_LOCK_TIMEOUT` 반영, `decisions.md`(BD-54 재검토 완료·BD-108 결정)·GLOSSARY("위약금 정산") 반영, #280(내부 Command 변환·`BillingPort` 삭제).
+
 ---
 
 ## 4. 다른 코드가 원장 기록을 호출할 때의 계약
@@ -610,6 +626,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 | `SETTLEMENT_AMOUNT_MISMATCH` | 409 | 강의 정산 금액 ≠ 주문 항목 보류의 최초·남은 보류액 (#142) |
 | `SETTLEMENT_INVALID_STATE` | 409 | 현재 상태에서 할 수 없는 전이(취소·완료·처리 중·실패 건의 중단·재개·취소), 취소된 주문 항목 재등록 (#142) |
 | `PAYOUT_ALREADY_SETTLED` | 409 | 같은 지급 원천(출연 계약·주문 항목)에 어느 보류에서든 지급이 이미 있음(유형 무관), 출연 요청(1:1) 보류에 지급이 이미 있음 |
+| `HP_LOCK_TIMEOUT` | 503 | 지갑·보류·충전 건 등의 락을 `lock_timeout`(3초) 안에 얻지 못함(PostgreSQL 55P03). 롤백되어 HP가 움직이지 않았으므로 같은 요청을 다시 보낸다 (#273) |
 | `CHARGE_PRINCIPAL_MISMATCH` | 500 | 배분 가능 충전 원금 합계 ≠ 지갑 충전 HP 가용 잔액, 가용 원금을 넘는 배분, 충전 금액을 넘는 복원·가용 원금 상태가 아닌 충전 건에 복원 |
 | `CHARGE_UNAVAILABLE` | 503 | TossPayments 시크릿 키·결제키 암호화 키가 설정되지 않음 (#224) |
 | `CHARGE_AMOUNT_INVALID` | 400 | 충전 금액이 1,000 미만이거나 1,000 단위가 아님 (#224) |
@@ -641,6 +658,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 ## 6. 테스트
 
 - 실행: `./gradlew :billing:test --no-daemon`, 전체 `./gradlew check --no-daemon` (`ModularityTests` 포함).
+- 2026-10-29 기준(#273, `feature/tkt-273`, origin/dev 29d1ea5): `./gradlew check --continue` 성공 — billing 1,125(+84), lecture 567, appearance 570, member 320, chat 247, customer-support 181, shared 82, test-support 4, 실패 0. 첫 `check`에서 테스트 인증 설정 문제(다른 스레드로 인증 미전달 17, 클래스 단위 인증이 비로그인 요청에 섞임 1)로 billing 18건이 실패해 고친 뒤 다시 실행했다.
 - 2026-10-15 기준(#260, `feature/tkt-260`, origin/dev 4eb55ea): 메모리 부족으로 `clean check`가 중간에 멈춰 모듈별로 나눠 실행했다 — billing 486, appearance 401, apps 56(ModularityTests·강의·출연 실제 Billing 포함), chat 142(이상 `clean check` 중 완료), shared 35, global 59, member 206, customersupport 112, lecture 421(이후 따로 실행), 전체 1,918개·실패 0. 정리 3건(주석·미사용 코드·배치 로그) 뒤에는 환불 테스트 39개만 다시 돌렸다. 실제 TossPayments 호출 없음.
 - 2026-10-15 기준(#241, `feature/tkt-241`, origin/dev 5d58307): `./gradlew clean :billing:test` Billing 437개, `./gradlew clean check --continue` 성공 — shared 35, lecture 421, appearance 372, member 206, chat 142, customersupport 112, apps 56(강의 지급·주문 실제 Billing 29·2, 출연 BillingPort 6, ModularityTests 2), global 59, 전체 1,840개·실패 0. 첫 `check`에서 lecture `OrderPayoutUseCaseTest`(#150, 시각 정밀도, Fake billing) 1건이 실패했고 재실행에서 통과(기존 불안정 테스트, #241과 무관).
 - 2026-10-15 기준(#224 2차 검토): `./gradlew clean :billing:test` Billing 410개(`ChargeIntegrationTest` 30, +7), `./gradlew check` 성공, 전체 1,686개·실패 0(`ModularityTests` 포함). 실제 TossPayments 호출 없음.

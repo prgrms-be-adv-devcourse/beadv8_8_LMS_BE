@@ -19,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
@@ -47,6 +48,8 @@ import com.hapbang.testsupport.IntegrationTest;
 // 강의·출연이 쓰는 shared BillingPort를 실제 Spring 빈으로 주입해, 외부 계약 결과 변환과 호출한 쪽 트랜잭션 참여(커밋·롤백)를
 // 실제 PostgreSQL로 검증한다. 호출한 쪽 업무 상태는 테스트 동안만 만드는 테이블(billing.test_caller_state)의 행으로 흉내 낸다.
 @IntegrationTest
+// HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273)
+@WithMockUser(roles = "INTERNAL")
 class BillingPortIntegrationTest {
 
     private static final Instant T1 = Instant.parse("2026-10-01T00:00:00Z");

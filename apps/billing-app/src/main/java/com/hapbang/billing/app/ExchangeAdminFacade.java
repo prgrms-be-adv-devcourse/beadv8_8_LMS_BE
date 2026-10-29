@@ -33,11 +33,11 @@ public class ExchangeAdminFacade {
     }
 
     public AdminExchangeResult approve(Long adminId, Long exchangeId) {
-        return exchangeReviewUseCase.approve(adminId, exchangeId);
+        return LockTimeouts.translate(() -> exchangeReviewUseCase.approve(adminId, exchangeId));
     }
 
     public AdminExchangeResult reject(Long adminId, Long exchangeId, String reason) {
-        return exchangeReviewUseCase.reject(adminId, exchangeId, reason);
+        return LockTimeouts.translate(() -> exchangeReviewUseCase.reject(adminId, exchangeId, reason));
     }
 
     // 상태별 송금 시도(운영자 확인 대상 MANUAL_REVIEW_REQUIRED 등), 오래된 순
@@ -52,19 +52,28 @@ public class ExchangeAdminFacade {
 
     // 결과가 확정되지 않은 마지막 시도를 같은 지급 요청 ID로 다시 확인하고, 처리 후 마지막 시도를 돌려준다
     public AdminExchangePayoutResult recheckPayout(Long adminId, Long exchangeId) {
-        exchangePayoutUseCase.recheck(adminId, exchangeId);
+        LockTimeouts.translate(() -> {
+            exchangePayoutUseCase.recheck(adminId, exchangeId);
+            return null;
+        });
         return latestAttempt(exchangeId);
     }
 
     // 확정 실패한 환전을 새 시도로 다시 보내고, 처리 후 마지막 시도를 돌려준다
     public AdminExchangePayoutResult retryPayout(Long adminId, Long exchangeId) {
-        exchangePayoutUseCase.retryFailed(adminId, exchangeId);
+        LockTimeouts.translate(() -> {
+            exchangePayoutUseCase.retryFailed(adminId, exchangeId);
+            return null;
+        });
         return latestAttempt(exchangeId);
     }
 
     // 확정 실패한 환전을 최종 실패로 종료하고(보류 전액 반환) 환전을 돌려준다
     public AdminExchangeResult failPayoutFinally(Long adminId, Long exchangeId, String reason) {
-        exchangePayoutUseCase.failFinally(adminId, exchangeId, reason);
+        LockTimeouts.translate(() -> {
+            exchangePayoutUseCase.failFinally(adminId, exchangeId, reason);
+            return null;
+        });
         return exchangeReviewUseCase.get(exchangeId);
     }
 

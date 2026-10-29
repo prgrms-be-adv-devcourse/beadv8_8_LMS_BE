@@ -37,6 +37,9 @@ public enum BillingFailureCode {
     PENALTY_BASE_EXCEEDS_HELD,
     PENALTY_AMOUNT_ZERO,
 
+    // 락 대기 초과(503). 지갑이 처리하지 않고 롤백했으므로 같은 요청을 다시 보내면 된다 (#273)
+    HP_LOCK_TIMEOUT,
+
     /** 위 목록에 없는 코드이거나 오류 본문에 코드가 없다(내부 API 키 오류 등). 원래 문자열은 {@code Failed.rawCode()}에 있다 */
     UNMAPPED;
 

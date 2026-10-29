@@ -38,8 +38,10 @@ public class RefundFacade {
         if (idempotencyKey == null || !CLIENT_KEY.matcher(idempotencyKey).matches()) {
             throw new BillingException(BillingErrorCode.REFUND_IDEMPOTENCY_KEY_INVALID);
         }
-        Long refundRequestId = refundRequestUseCase.create(userId, idempotencyKey, amount);
-        return refundProcessUseCase.process(refundRequestId);
+        return LockTimeouts.translate(() -> {
+            Long refundRequestId = refundRequestUseCase.create(userId, idempotencyKey, amount);
+            return refundProcessUseCase.process(refundRequestId);
+        });
     }
 
     // 내 환불 요청의 현재 상태
@@ -49,6 +51,6 @@ public class RefundFacade {
 
     // PG 취소 전(REQUESTED)인 내 환불 요청을 취소하고 보류 HP를 모두 반환한다. 이미 PG 취소를 시작했거나 끝났으면 REFUND_NOT_CANCELABLE.
     public RefundResult cancel(Long userId, Long refundRequestId) {
-        return refundProcessing.cancel(userId, refundRequestId);
+        return LockTimeouts.translate(() -> refundProcessing.cancel(userId, refundRequestId));
     }
 }
