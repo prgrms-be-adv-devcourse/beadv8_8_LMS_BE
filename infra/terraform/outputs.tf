@@ -1,11 +1,11 @@
-output "public_ip" {
-  description = "서버 Elastic IP. DuckDNS의 prod·dev 도메인이 이 주소를 가리켜야 한다"
-  value       = aws_eip.server.public_ip
+output "public_ips" {
+  description = "node별 Elastic IP. DuckDNS의 prod·dev 도메인은 server의 주소를 가리켜야 한다"
+  value       = { for node, eip in aws_eip.node : node => eip.public_ip }
 }
 
-output "instance_id" {
-  description = "EC2 인스턴스 ID"
-  value       = aws_instance.server.id
+output "instance_ids" {
+  description = "node별 EC2 인스턴스 ID"
+  value       = { for node, instance in aws_instance.node : node => instance.id }
 }
 
 output "bucket_name" {

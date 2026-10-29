@@ -22,8 +22,19 @@ import_ids = {
     https           = "sgr-<...>"
   }
   security_group_egress_rule_id = "sgr-<...>"
-  instance_id                   = "i-<...>"
-  network_interface_id          = "eni-<...>"
-  eip_allocation_id             = "eipalloc-<...>"
-  eip_association_id            = "eipassoc-<...>"
+  # 키는 ec2.tf의 local.nodes 키. server는 team08-hapbang-ec2, agent는 team08-hapbang-ec2-2다.
+  nodes = {
+    server = {
+      instance_id          = "i-<...>"
+      network_interface_id = "eni-<...>"
+      eip_allocation_id    = "eipalloc-<...>"
+      eip_association_id   = "eipassoc-<...>"
+    }
+    agent = {
+      instance_id          = "i-<...>"
+      network_interface_id = "eni-<...>"
+      eip_allocation_id    = "eipalloc-<...>"
+      eip_association_id   = "eipassoc-<...>"
+    }
+  }
 }
