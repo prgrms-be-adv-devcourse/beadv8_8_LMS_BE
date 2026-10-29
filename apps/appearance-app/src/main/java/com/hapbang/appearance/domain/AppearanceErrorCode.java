@@ -73,6 +73,10 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     APPEARANCE_CONFIRM_NOT_OPEN(HttpStatus.CONFLICT, "방송 예정 일시가 지난 뒤에 출연 확인을 할 수 있습니다."),
     APPEARANCE_CONFIRM_PERIOD_ENDED(HttpStatus.CONFLICT, "출연 확인 기간이 지났습니다. 출연은 자동으로 확인됩니다."),
 
+    // HP 작업 관리 (관리자, #397)
+    HP_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "HP 작업을 찾을 수 없습니다."),
+    HP_TASK_NOT_DEAD(HttpStatus.CONFLICT, "격리된(DEAD) HP 작업만 다시 시도할 수 있습니다."),
+
     // 공통
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요."),
 
