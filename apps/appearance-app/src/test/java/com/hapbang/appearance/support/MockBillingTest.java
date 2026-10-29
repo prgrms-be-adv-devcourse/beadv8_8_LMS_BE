@@ -3,13 +3,10 @@ package com.hapbang.appearance.support;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.appearance.support.MockBilling.Endpoint;
@@ -37,24 +34,13 @@ import com.hapbang.testsupport.IntegrationTest;
  * 그 Client로 시나리오별 응답이 계약(`docs/api/internal-billing.md` 2장)대로 분류되는지, 받은 요청을 꺼낼 수 있는지 확인한다.
  * 성공 응답 파일이 계약·{@code *ResultDto}와 어긋나면 여기서 실패한다.
  */
-@AppearanceIntegrationTest
-class MockBillingTest {
+class MockBillingTest extends MockBillingIntegrationTest {
 
     private static final long HOST = 1L;
     private static final long GUEST = 2L;
 
-    @DynamicPropertySource
-    static void mockBilling(DynamicPropertyRegistry registry) {
-        MockBilling.registerProperties(registry, "500ms");
-    }
-
     @Autowired
     BillingApiClient billingApiClient;
-
-    @BeforeEach
-    void setUp() {
-        MockBilling.reset();
-    }
 
     private static HoldCommand hold() {
         return new HoldCommand(HOST, BillingReferenceType.APPEARANCE_REQUEST, 12L, 30_000L);
@@ -147,7 +133,7 @@ class MockBillingTest {
         @Test
         @DisplayName("같은 요청 ID 재전송: 첫 요청 replayed = false, 다시 보내면 처음 결과 replayed = true. 받은 요청은 같은 ID로 2건")
         void replay() {
-            MockBilling.replayAfterFirst(Endpoint.RELEASE);
+            MockBilling.replayAfterFirst(Endpoint.RELEASE, "APPEARANCE_REQUEST-12-RELEASE-1");
 
             ReleaseResultDto first = succeeded(billingApiClient.release(release()));
             ReleaseResultDto again = succeeded(billingApiClient.release(release()));
@@ -157,6 +143,35 @@ class MockBillingTest {
             assertThat(again.releasedHp()).isEqualTo(first.releasedHp());
             assertThat(MockBilling.requests(Endpoint.RELEASE)).extracting(r -> r.requestId(Endpoint.RELEASE))
                     .containsExactly("APPEARANCE_REQUEST-12-RELEASE-1", "APPEARANCE_REQUEST-12-RELEASE-1");
+        }
+
+        @Test
+        @DisplayName("재전송은 요청 ID 단위: 다른 요청 ID는 각자 처음 처리(replayed = false), 같은 ID를 다시 보낼 때만 true")
+        void replayPerRequestId() {
+            MockBilling.replayAfterFirst(Endpoint.RELEASE, "APPEARANCE_REQUEST-12-RELEASE-1");
+            ReleaseCommand other = ReleaseCommand.partial(HOST, BillingReferenceType.APPEARANCE_RECRUIT, 5L,
+                    "APPEARANCE_RECRUIT-5-RELEASE-1", 10_000L);
+
+            ReleaseResultDto first = succeeded(billingApiClient.release(release()));
+            ReleaseResultDto otherFirst = succeeded(billingApiClient.release(other));
+            ReleaseResultDto otherAgain = succeeded(billingApiClient.release(other));
+            ReleaseResultDto again = succeeded(billingApiClient.release(release()));
+
+            assertThat(first.replayed()).isFalse();
+            assertThat(otherFirst.replayed()).isFalse();
+            assertThat(otherAgain.replayed()).isFalse(); // 재전송 시나리오를 걸지 않은 ID는 기본(처음 처리) 응답
+            assertThat(again.replayed()).isTrue();
+        }
+
+        @Test
+        @DisplayName("보류 재전송은 참조 대상 단위: 같은 참조 대상이면 replayed = true, 다른 참조 대상은 처음 처리")
+        void holdReplayPerReference() {
+            MockBilling.replayHoldAfterFirst("APPEARANCE_REQUEST", 12L);
+            HoldCommand otherReference = new HoldCommand(HOST, BillingReferenceType.APPEARANCE_REQUEST, 13L, 30_000L);
+
+            assertThat(succeeded(billingApiClient.hold(hold())).replayed()).isFalse();
+            assertThat(succeeded(billingApiClient.hold(otherReference)).replayed()).isFalse();
+            assertThat(succeeded(billingApiClient.hold(hold())).replayed()).isTrue();
         }
     }
 
@@ -231,9 +246,9 @@ class MockBillingTest {
         }
 
         @Test
-        @DisplayName("응답 지연이 Client 응답 대기 시간(테스트 500ms)을 넘으면 UNKNOWN_RESULT, 상태 0. 지갑은 요청을 받았다")
+        @DisplayName("응답 지연이 Client 응답 대기 시간(테스트 1초)을 넘으면 UNKNOWN_RESULT, 상태 0. 지갑은 요청을 받았다")
         void timeout() {
-            MockBilling.delay(Endpoint.PAYOUT, 1_500);
+            MockBilling.delay(Endpoint.PAYOUT, 2_000);
 
             assertThatThrownBy(() -> billingApiClient.payout(payout()))
                     .isInstanceOfSatisfying(BillingCallException.class, e -> {

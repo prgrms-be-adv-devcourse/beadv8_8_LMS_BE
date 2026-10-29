@@ -1127,26 +1127,26 @@ MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코
 | 구성 | 내용 |
 |---|---|
 | 도구 | WireMock 3.13.2 `wiremock-standalone`(테스트 의존성). 경로별 응답, 상태 시나리오(첫 요청 → 재전송), 지연·연결 끊김, 받은 요청 조회를 기본 기능으로 쓴다. 내부 라이브러리를 숨긴 standalone이라 Spring Boot 4·Jackson 3와 충돌하지 않는다 |
-| `support/MockBilling` | 서버(JVM에 하나, 처음 쓸 때 띄움)와 시나리오 메서드: `succeed`·`replayAfterFirst`·`fail(상태, code, detail)`·`delay`·`connectionReset`·`refusedBaseUrl`, 받은 요청 `requests(경로)` |
+| `support/MockBilling` | 서버(JVM에 하나, 처음 쓸 때 띄움)와 시나리오 메서드: `succeed`·`replayAfterFirst(경로, 요청 ID)`·`replayHoldAfterFirst(참조 유형, 참조 ID)`·`fail(상태, code, detail)`·`delay`·`connectionReset`·`refusedBaseUrl`, 받은 요청 `requests(경로)`. 재전송은 멱등 키(요청 ID, 보류는 참조 대상) 단위다. 서버를 띄울 때 4개 경로를 한 번씩 불러 응답 템플릿을 미리 컴파일한다(첫 응답이 느려 짧은 응답 대기 시간에 걸리지 않도록) |
+| `support/MockBillingIntegrationTest` | 부모 클래스. `@AppearanceIntegrationTest` + Mock 주소·응답 대기 시간(1초) 설정 + 테스트마다 `MockBilling.reset()`. 설정을 한 곳에 둬서 상속한 테스트끼리 Spring 테스트 컨텍스트를 같이 쓴다 |
 | 성공 응답 파일 | `src/test/resources/mock-billing/__files/{hold,release,payout,penalty}-success.json`. `*ResultDto`와 같은 필드이고 요청 값을 그대로 돌려준다(응답 템플릿). 계약이 바뀌면 함께 고친다 |
 | 실패 응답 | 지갑과 같은 `ProblemDetail` + `code` (`application/problem+json`) |
 
 쓰는 법:
 
 ```java
-@AppearanceIntegrationTest
-class SomeTest {
-    @DynamicPropertySource
-    static void mockBilling(DynamicPropertyRegistry registry) {
-        MockBilling.registerProperties(registry, "500ms"); // base-url = Mock, 응답 대기 시간
-    }
+class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스트마다 reset
 
-    @BeforeEach
-    void setUp() {
-        MockBilling.reset(); // 받은 요청·설정 지움, 4개 경로 성공
+    @Test
+    void example() {
+        MockBilling.fail(Endpoint.HOLD, 409, "INSUFFICIENT_BALANCE", "HP 잔액이 부족합니다.");
+        // ... 출연 흐름 실행 ...
+        assertThat(MockBilling.requests(Endpoint.HOLD)).hasSize(1);
     }
 }
 ```
+
+- 테스트 클래스마다 `@DynamicPropertySource`를 따로 두지 않는다. 설정이 같아도 클래스마다 Spring 테스트 컨텍스트가 새로 떠서 느려진다.
 
 `hapbang.clients.billing.base-url`이 생기면 shared `BillingApiClient` 빈이 만들어진다. 출연이 지갑을 HTTP로 부르게 되면(#274) 같은 설정으로 출연 흐름을 확인한다.
 
@@ -1166,12 +1166,14 @@ class SomeTest {
 | 성공 | 받은 요청 | 경로, 내부 API 키 헤더, JSON 형식, 요청 ID(보류는 없음), 금액. 부르지 않은 경로는 0건 |
 | 성공 | 전액 반환(금액 null) | 요청에 금액 없음, 반환액 0으로 응답 |
 | 재전송 | 같은 반환 요청 2번 | 첫 `replayed = false`, 두 번째 `true`·같은 반환액, 받은 요청 2건(같은 요청 ID) |
+| 재전송 | 시나리오를 건 요청 ID와 다른 요청 ID를 섞어 보냄 | 다른 ID는 매번 `false`(각자 처음 처리), 건 ID를 다시 보낼 때만 `true` |
+| 재전송 | 보류: 같은 참조 대상 / 다른 참조 대상 | 같은 참조 대상 두 번째만 `true`, 다른 참조 대상은 `false` |
 | 거절 | 409 `INSUFFICIENT_BALANCE` | `Failed`: 코드, `detail` "HP 잔액이 부족합니다.", 409, `rawCode` |
 | 거절 | 409 `IDEMPOTENCY_KEY_CONFLICT` | `Failed` 같은 코드 |
 | 거절 | 404 처음 보는 코드 / 400 코드 없음 | `UNMAPPED`, `rawCode` `SOMETHING_NEW` / `UNMAPPED`, 400 |
 | 결과 없음 | 429 | `RETRYABLE`, 429 |
 | 결과 없음 | 500 `HOLD_STATE_INCONSISTENT` | `UNKNOWN_RESULT`, 500, `rawCode` |
-| 결과 없음 | 응답 1.5초 지연 (응답 대기 500ms) | `UNKNOWN_RESULT`, 상태 0. 지갑은 요청을 받음(1건) |
+| 결과 없음 | 응답 2초 지연 (응답 대기 1초) | `UNKNOWN_RESULT`, 상태 0. 지갑은 요청을 받음(1건) |
 | 결과 없음 | 응답 도중 연결 끊김 | `UNKNOWN_RESULT`, 상태 0 |
 | 결과 없음 | 연결 거부 (듣지 않는 포트) | `RETRYABLE`, 상태 0 |
 
