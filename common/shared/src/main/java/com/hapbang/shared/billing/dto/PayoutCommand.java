@@ -2,6 +2,7 @@ package com.hapbang.shared.billing.dto;
 
 import java.util.Objects;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 
@@ -46,6 +47,8 @@ public record PayoutCommand(
     }
 
     // 금액 없이 남은 보류 전부를 지급하는 요청인지 확인한다.
+    // 요청 본문(JSON)에 넣지 않는다. 금액이 null인 것으로 충분하다 (#272)
+    @JsonIgnore
     public boolean isFull() {
         return amountHp == null;
     }

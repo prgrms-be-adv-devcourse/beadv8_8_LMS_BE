@@ -2,6 +2,7 @@ package com.hapbang.shared.billing.dto;
 
 import java.util.Objects;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 // 참조 대상 하나의 보류에서 HP 일부(부분 반환) 또는 남은 보류 전부(전체 반환)를 결제한 회원에게 되돌리는 요청이다 (BillingPort.release).
@@ -36,6 +37,8 @@ public record ReleaseCommand(
     }
 
     // 금액 없이 남은 보류 전부를 반환하는 요청인지 확인한다.
+    // 요청 본문(JSON)에 넣지 않는다. 금액이 null인 것으로 충분하다 (#272)
+    @JsonIgnore
     public boolean isFull() {
         return amountHp == null;
     }

@@ -64,7 +64,7 @@ apps
 
 | 흐름 | 현재 구현 | 목표 구조 | 변경 티켓 | 전환 완료 조건 |
 | --- | --- | --- | --- | --- |
-| 공통 billing HTTP 계약 | shared `BillingPort` | `BillingApiClient` + DTO·오류 계약 | #272 | self-HTTP와 분리 배포가 같은 Client 코드를 쓴다 |
+| 공통 billing HTTP 계약 | shared `BillingPort` | `BillingApiClient` + DTO·오류 계약 | #272 | 출연·강의가 같은 Client 코드를 쓴다 |
 | billing 진입점 | Java `BillingPortAdapter` | `/api/v1/internal/billing/*` Controller | #273 | 요청마다 billing 로컬 트랜잭션으로 처리한다 |
 | 출연 billing 연동 | 기본 `fake` 또는 shared Port | 실제 `BillingApiClient` + 기존 `HpTask` | #274 | fake 기본 모드가 없고 외부 호출이 출연 트랜잭션 밖이다 |
 | HP 작업 기반 | 강의 트랜잭션 안에서 billing 호출 | `LectureHpTask` 선점·재시도·관리자 복구 | #275 | 외부 호출과 결과 기록 트랜잭션이 분리된다 |
@@ -100,9 +100,9 @@ Spring Modulith 2.1.1의 재발행 기능(`IncompleteEventPublications`, `Resubm
 
 ### 6.2 동기 HTTP 인터페이스
 
-#### 지갑: shared `BillingApiClient` (D62, #272·#273)
+#### 지갑: shared `BillingApiClient` (D62·D64, #272·#273)
 
-`BillingApiClient`는 인터페이스 Port가 아니라 shared에 있는 공통 HTTP Client SDK다. 강의와 출연은 같은 구현을 주입받고 provider별 `hapbang.clients.billing.base-url`만 설정한다. 단일 앱은 자기 주소를, 서비스 분리 뒤에는 billing 서비스 주소를 사용한다.
+`BillingApiClient`는 인터페이스 Port가 아니라 shared에 있는 공통 HTTP Client SDK다. 강의와 출연은 같은 구현을 주입받고 `hapbang.clients.billing.base-url`(billing-app 주소)만 설정한다. 경로·본문·실패 분류 계약은 [지갑 내부 API 계약](../api/internal-billing.md)이다.
 
 ```java
 // shared.billing.out — URI, 직렬화, timeout, ProblemDetail 변환을 감춘다.
@@ -115,19 +115,22 @@ public class BillingApiClient {
 
 public sealed interface BillingCallResult<T> {
     record Succeeded<T>(T value) implements BillingCallResult<T> {}
-    record Failed<T>(BillingFailureCode code, String detail) implements BillingCallResult<T> {}
+    record Failed<T>(BillingFailureCode code, String detail, int httpStatus, String rawCode)
+            implements BillingCallResult<T> {}
 }
 
 public class BillingCallException extends RuntimeException {
     BillingCallFailureKind kind;   // RETRYABLE 또는 UNKNOWN_RESULT
+    int httpStatus;                // 응답을 받지 못했으면 0
+    String rawCode;                // 5xx 오류 응답의 code. 없으면 null
 }
 ```
 
 | 항목 | 내용 |
 | --- | --- |
 | 요청·결과 DTO | 기존 `shared.billing.dto`의 `HoldCommand`·`ReleaseCommand`·`PayoutCommand`와 `*ResultDto`를 그대로 쓴다 |
-| `Failed` | billing이 응답한 확정 실패다. 업무 거절(`INSUFFICIENT_BALANCE`)만이 아니라 재시도 대상(`WALLET_NOT_FOUND`)과 불변식 위반(`HOLD_STATE_INCONSISTENT`)도 들어오므로 "거절"이라 부르지 않는다. 분류는 실행기가 작업 유형별로 한다 (D57) |
-| `BillingCallException` | 연결 전 실패가 확실함 → `RETRYABLE`. read timeout·응답 유실처럼 처리 여부를 모름 → `UNKNOWN_RESULT`. `Throwable`·원인 문자열은 결과에 넣지 않고 로그와 `lecture_hp_task_attempt`에만 남긴다 |
+| `Failed` | billing이 4xx(408·425·429 제외)로 응답한 확정 실패다. 업무 거절(`INSUFFICIENT_BALANCE`)만이 아니라 재시도 대상(`WALLET_NOT_FOUND`)도 들어오므로 "거절"이라 부르지 않는다. 분류는 실행기가 작업 유형별로 한다 (D57) |
+| `BillingCallException` | 연결 거부·주소를 찾지 못함, 408·425·429처럼 처리하지 않은 것이 확실함 → `RETRYABLE`. 연결·응답 시간 초과, 응답 도중 끊김, 5xx(코드가 있어도), 읽을 수 없는 2xx처럼 처리 여부를 모름 → `UNKNOWN_RESULT` (D64). `Throwable`·원인 문자열은 결과에 넣지 않고 로그와 `lecture_hp_task_attempt`에만 남긴다 |
 | 응답 검증 | 예상하지 못한 응답 형식, 결과 금액이 항목 가격과 다름 → 실행기가 `INVARIANT_VIOLATION`으로 본다 |
 | 트랜잭션 | 강의는 상태와 작업을 먼저 커밋한 뒤 Client를 호출한다. HTTP라 Java 트랜잭션이 전파되지 않으며, 통합 테스트에서 호출 시 강의 트랜잭션이 비활성인지 확인한다 (#275~#277) |
 | billing 진입점 | `POST /api/v1/internal/billing/holds`·`releases`·`payouts`·`penalty-settlements`. 요청 하나를 billing 로컬 트랜잭션 하나로 처리한다 (#273) |
@@ -136,7 +139,7 @@ public class BillingCallException extends RuntimeException {
 | `replayed` | 결과 불명 뒤 같은 작업을 다시 실행하면 billing이 처음 결과를 `replayed = true`로 돌려준다. 같은 작업·같은 payload의 재현은 정상이다. 다른 payload 충돌(`IDEMPOTENCY_KEY_CONFLICT`)과 금액 불일치는 불변식 위반이다 (D43 수정) |
 | 혼합 HP | billing이 항목마다 수익 HP → 충전 HP 순서로 보류하고, 반환·지급은 그 항목에서 차감한 HP 종류 그대로다 (D42) |
 | 동시성 | 같은 구매자의 동시 결제는 billing이 지갑 잠금으로 직렬화한다. 보류가 항목마다 별개라 같은 주문의 다른 항목 반환·지급은 서로 영향이 없다 |
-| 테스트 | 강의 단위·통합 테스트는 `BillingApiClient`의 테스트 대역 또는 HTTP stub을 쓴다. 실제 self-HTTP, 오류 본문, timeout과 트랜잭션 경계는 전체 앱 통합 테스트로 확인한다 (12장) |
+| 테스트 | 강의 단위·통합 테스트는 `BillingApiClient`의 테스트 대역 또는 HTTP stub을 쓴다. 실제 HTTP, 오류 본문, timeout과 트랜잭션 경계는 전체 앱 통합 테스트로 확인한다 (12장) |
 
 `BillingFailureCode` (`shared.billing.domain`, D62). billing 내부 `BillingErrorCode` 전체가 아니라, 보류·반환·지급·위약금 호출에서 실제로 나올 수 있는 코드만 둔다. 목록은 billing 담당이 확인한다(#272·#273).
 
@@ -150,7 +153,8 @@ public class BillingCallException extends RuntimeException {
 | 변환 불가 | `UNMAPPED` |
 
 - billing 내부 API는 `BillingErrorCode`를 `ProblemDetail.code`로 응답하고, `BillingApiClient`가 이를 `BillingFailureCode`로 변환한다. billing 코드 전체 대조는 `default` 없는 `switch`와 테스트로 고정한다.
-- `UNMAPPED`는 Client가 처음 보는 HTTP 오류 문자열을 받았을 때만 쓴다. 실행기는 `INVARIANT_VIOLATION`으로 분류한다. 원래 코드 문자열은 사용자용 `detail`에 넣지 않고 Client 로그와 `lecture_hp_task_attempt.raw_error_code`에만 남긴다.
+- `UNMAPPED`는 4xx의 오류 문자열이 목록에 없거나 본문이 없을 때(401 등) 쓴다. 실행기는 `INVARIANT_VIOLATION`으로 분류한다. 원래 코드 문자열은 사용자용 `detail`에 넣지 않고 `Failed.rawCode`로 받아 `lecture_hp_task_attempt.raw_error_code`에만 남긴다.
+- `HOLD_STATE_INCONSISTENT`·`CHARGE_PRINCIPAL_MISMATCH`는 billing이 500으로 응답하므로 `Failed`가 아니라 `BillingCallException(UNKNOWN_RESULT)`의 `rawCode`로 온다. 실행기는 재시도 한도를 넘기면 `DEAD`로 둔다 (D64).
 
 #### 강의: 이의 제기 접수 내부 HTTP (고객센터가 호출, D60·D62, #278·#279)
 
