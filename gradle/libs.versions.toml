@@ -11,6 +11,8 @@ swagger-annotations = "2.2.55"
 awssdk = "2.55.5"
 # Spring Boot 4 BOM이 관리하지 않는다. 출연 E2E 테스트(실제 포트로 HTTP 요청)에서 쓴다
 rest-assured = "6.1.0"
+# Spring Boot 4 BOM이 관리하지 않는다. 지갑 내부 API Client의 Circuit Breaker·Retry·TimeLimiter(#411)
+resilience4j = "2.4.0"
 
 [libraries]
 spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }
@@ -18,6 +20,10 @@ springdoc-openapi-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starte
 swagger-annotations = { module = "io.swagger.core.v3:swagger-annotations-jakarta", version.ref = "swagger-annotations" }
 awssdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awssdk" }
 rest-assured = { module = "io.rest-assured:rest-assured", version.ref = "rest-assured" }
+resilience4j-circuitbreaker = { module = "io.github.resilience4j:resilience4j-circuitbreaker", version.ref = "resilience4j" }
+resilience4j-retry = { module = "io.github.resilience4j:resilience4j-retry", version.ref = "resilience4j" }
+resilience4j-timelimiter = { module = "io.github.resilience4j:resilience4j-timelimiter", version.ref = "resilience4j" }
+resilience4j-micrometer = { module = "io.github.resilience4j:resilience4j-micrometer", version.ref = "resilience4j" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
