@@ -6,6 +6,12 @@ import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -28,9 +34,21 @@ import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.core.IntervalFunction;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
+import io.github.resilience4j.retry.RetryRegistry;
+import io.github.resilience4j.timelimiter.TimeLimiter;
+import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+
 /**
  * 지갑 내부 HTTP API Client (D62, D64, #272). 강의·출연은 지갑 Java 타입 대신 이 Client로 HP를 보류·반환·지급한다.
  * URI·내부 API 키·응답 감싸기(RsData)·실패 분류를 감춘다.
+ * 호출은 {@code Retry( CircuitBreaker( TimeLimiter( HTTP ) ) )}로 감싼다 (#411, {@code docs/billing/CONTEXT.md} 2장).
  * {@code hapbang.clients.billing.base-url}이 있을 때만 빈이 생긴다.
  */
 @Component
@@ -46,6 +64,14 @@ public class BillingApiClient {
 
     /** 408 Request Timeout, 425 Too Early, 429 Too Many Requests */
     private static final Set<Integer> NOT_PROCESSED_STATUSES = Set.of(408, 425, 429);
+
+    /** Circuit Breaker·Retry 인스턴스 이름. 지갑 하나에 하나다 */
+    static final String INSTANCE_NAME = "billing";
+    /** 회로가 열려 요청을 보내지 않았을 때의 {@link BillingCallException#getRawCode()} */
+    public static final String CIRCUIT_OPEN = "CIRCUIT_OPEN";
+    /** 지갑 락 대기 초과(503). 한 지갑의 경합이라 Circuit Breaker 실패로 세지 않는다 */
+    private static final String HP_LOCK_TIMEOUT = "HP_LOCK_TIMEOUT";
+    private static final int TOO_MANY_REQUESTS = 429;
 
     private static final ParameterizedTypeReference<Body<HoldResultDto>> HOLD = new ParameterizedTypeReference<>() {
     };
@@ -63,6 +89,14 @@ public class BillingApiClient {
             };
 
     private final RestClient restClient;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
+    private final RetryRegistry retryRegistry;
+    private final CircuitBreaker circuitBreaker;
+    private final Retry retry;
+    private final TimeLimiter timeLimiter;
+    // 시간 상한을 걸려면 호출을 다른 스레드에서 돌려야 한다. 동시 호출 수는 배치 크기가 정하므로 풀을 두지 않는다
+    private final Executor executor = Executors.newThreadPerTaskExecutor(
+            Thread.ofVirtual().name("billing-client-", 0).factory());
 
     public BillingApiClient(RestClient.Builder restClientBuilder, BillingClientProperties properties,
                             @Value("${hapbang.internal-api.key}") String internalApiKey) {
@@ -73,6 +107,51 @@ public class BillingApiClient {
                 .baseUrl(properties.baseUrl())
                 .requestFactory(requestFactory)
                 .defaultHeader(InternalApiHeaders.API_KEY, internalApiKey)
+                .build();
+
+        BillingClientProperties.Resilience resilience = properties.resilience();
+        this.circuitBreakerRegistry = CircuitBreakerRegistry.of(circuitBreakerConfig(resilience.circuitBreaker()));
+        this.retryRegistry = RetryRegistry.of(retryConfig(resilience.retry()));
+        this.circuitBreaker = circuitBreakerRegistry.circuitBreaker(INSTANCE_NAME);
+        this.retry = retryRegistry.retry(INSTANCE_NAME);
+        this.timeLimiter = TimeLimiter.of(INSTANCE_NAME, TimeLimiterConfig.custom()
+                .timeoutDuration(resilience.timeLimit())
+                .cancelRunningFuture(true)
+                .build());
+    }
+
+    private static CircuitBreakerConfig circuitBreakerConfig(BillingClientProperties.CircuitBreaker config) {
+        return CircuitBreakerConfig.custom()
+                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .slidingWindowSize(config.slidingWindowSize())
+                .minimumNumberOfCalls(config.minimumNumberOfCalls())
+                .failureRateThreshold(config.failureRateThreshold())
+                .slowCallDurationThreshold(config.slowCallDuration())
+                .slowCallRateThreshold(config.slowCallRateThreshold())
+                .waitDurationInOpenState(config.openDuration())
+                .permittedNumberOfCallsInHalfOpenState(config.halfOpenCalls())
+                // 배치는 회로가 열려 있으면 호출하지 않으므로(D67) 호출 없이도 대기 뒤 HALF_OPEN으로 넘어가야 한다
+                .automaticTransitionFromOpenToHalfOpenEnabled(true)
+                // 지갑이 응답한 업무 실패(Failed)는 결과라 성공으로 센다. 결과를 받지 못한 실패만 센다
+                .recordException(e -> e instanceof BillingCallException)
+                .ignoreException(BillingApiClient::notWalletFailure)
+                .build();
+    }
+
+    /** 429(과부하 신호)와 락 대기 초과(한 지갑의 경합)는 지갑 장애가 아니다 */
+    private static boolean notWalletFailure(Throwable exception) {
+        return exception instanceof BillingCallException e
+                && (e.getHttpStatus() == TOO_MANY_REQUESTS || HP_LOCK_TIMEOUT.equals(e.getRawCode()));
+    }
+
+    private static RetryConfig retryConfig(BillingClientProperties.Retry config) {
+        return RetryConfig.custom()
+                .maxAttempts(config.maxAttempts())
+                .intervalFunction(IntervalFunction.ofExponentialRandomBackoff(config.initialWait(),
+                        config.multiplier(), config.jitter()))
+                // 지갑이 처리하지 않은 것이 확실한 실패만 바로 다시 보낸다. 결과 불명은 호출한 쪽 작업 재시도에 맡긴다
+                .retryOnException(e -> e instanceof BillingCallException b
+                        && b.getKind() == BillingCallFailureKind.RETRYABLE)
                 .build();
     }
 
@@ -97,6 +176,57 @@ public class BillingApiClient {
     }
 
     private <T> BillingCallResult<T> post(String path, Object command, ParameterizedTypeReference<Body<T>> type) {
+        Supplier<BillingCallResult<T>> call = () -> withinTimeLimit(() -> send(path, command, type));
+        call = CircuitBreaker.decorateSupplier(circuitBreaker, call);
+        call = Retry.decorateSupplier(retry, call);
+        try {
+            return call.get();
+        } catch (CallNotPermittedException e) {
+            // 요청을 보내지 않았으니 지갑이 처리하지 않은 것이 확실하다 (D66)
+            throw new BillingCallException(BillingCallFailureKind.RETRYABLE, 0, CIRCUIT_OPEN,
+                    "지갑 내부 API 회로가 열려 요청을 보내지 않았습니다.", e);
+        }
+    }
+
+    /**
+     * 회로가 열려 지금 호출하면 요청을 보내지 않고 {@link #CIRCUIT_OPEN}으로 실패하는지 (D67).
+     * HP 작업 배치는 이것이 {@code true}면 작업을 선점하지 않고 회차를 건너뛴다. 시험 중(HALF_OPEN)은 {@code false}다.
+     */
+    public boolean isCircuitOpen() {
+        CircuitBreaker.State state = circuitBreaker.getState();
+        return state == CircuitBreaker.State.OPEN || state == CircuitBreaker.State.FORCED_OPEN;
+    }
+
+    /** 시도 한 번의 전체 상한. 소켓 timeout이 먼저 끝나는 것이 정상이고, 이것은 그것이 동작하지 않을 때의 안전망이다 */
+    private <T> BillingCallResult<T> withinTimeLimit(Supplier<BillingCallResult<T>> send) {
+        try {
+            return timeLimiter.executeFutureSupplier(() -> CompletableFuture.supplyAsync(send, executor));
+        } catch (TimeoutException e) {
+            // 상한이 지나도 보낸 요청은 뒤에서 계속 돌아 지갑이 커밋할 수 있다
+            throw new BillingCallException(BillingCallFailureKind.UNKNOWN_RESULT, 0, null,
+                    "지갑 내부 API 응답이 제한 시간을 넘었습니다.", e);
+        } catch (ExecutionException e) {
+            throw unchecked(e.getCause() == null ? e : e.getCause());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BillingCallException(BillingCallFailureKind.UNKNOWN_RESULT, 0, null,
+                    "지갑 내부 API 응답을 기다리다 중단됐습니다.", e);
+        } catch (Exception e) {
+            throw unchecked(e);
+        }
+    }
+
+    private static RuntimeException unchecked(Throwable exception) {
+        if (exception instanceof RuntimeException runtime) {
+            return runtime;
+        }
+        if (exception instanceof Error error) {
+            throw error;
+        }
+        return new IllegalStateException(exception);
+    }
+
+    private <T> BillingCallResult<T> send(String path, Object command, ParameterizedTypeReference<Body<T>> type) {
         try {
             return exchange(path, command, type);
         } catch (BillingCallException e) {
@@ -157,6 +287,18 @@ public class BillingApiClient {
                     }
                     return new BillingCallResult.Succeeded<>(body.data());
                 });
+    }
+
+    CircuitBreakerRegistry circuitBreakerRegistry() {
+        return circuitBreakerRegistry;
+    }
+
+    RetryRegistry retryRegistry() {
+        return retryRegistry;
+    }
+
+    CircuitBreaker circuitBreaker() {
+        return circuitBreaker;
     }
 
     private static BillingCallException unknownResponse(int status, String message, Throwable cause) {
