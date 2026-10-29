@@ -1,5 +1,6 @@
 package com.hapbang.member.global.config;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -8,11 +9,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 import com.hapbang.member.global.auth.UserLoggedOutEventPublisher;
+import com.hapbang.member.in.OAuthLoginSuccessHandler;
+import com.hapbang.member.in.RedisOAuth2AuthorizationRequestRepository;
 
 @Configuration
 // 관리자 API 외의 역할 검사는 각 모듈 서비스 레이어(Facade)의 @PreAuthorize로 한다 (2026-10-12 회의)
@@ -20,7 +25,9 @@ import com.hapbang.member.global.auth.UserLoggedOutEventPublisher;
 public class SecurityConfig {
     // Swagger 설정을 위한 최초 생성
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, ApplicationEventPublisher eventPublisher)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, ApplicationEventPublisher eventPublisher,
+                                                   ObjectProvider<RedisOAuth2AuthorizationRequestRepository> authorizationRequestRepository,
+                                                   ObjectProvider<OAuthLoginSuccessHandler> oauthLoginSuccessHandler)
             throws Exception {
         http
                 // 세션 쿠키 인증이라 CSRF를 막는다. XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보내야 통과
@@ -50,8 +57,15 @@ public class SecurityConfig {
                 // 구글 로그인 시작: /api/v1/members/oauth2/authorization/google (회원 처리는 member의 OAuth2UserService 빈)
                 // 서버 nginx는 /api/만 Spring으로 보내므로 로그인·콜백 주소도 /api/ 아래에 둔다
                 .oauth2Login(oauth -> oauth
-                        .authorizationEndpoint(a -> a.baseUri("/api/v1/members/oauth2/authorization"))
-                        .redirectionEndpoint(r -> r.baseUri("/api/v1/members/login/oauth2/code/*")))
+                        .authorizationEndpoint(a -> {
+                            a.baseUri("/api/v1/members/oauth2/authorization");
+                            // 로그인 진행 상태(state·PKCE)는 세션 대신 Redis에 둔다 (#370).
+                            // 빈이 없는 웹 슬라이스 테스트(Redis 없음)에서는 기본 세션 저장소를 쓴다
+                            authorizationRequestRepository.ifAvailable(a::authorizationRequestRepository);
+                        })
+                        .redirectionEndpoint(r -> r.baseUri("/api/v1/members/login/oauth2/code/*"))
+                        // 성공하면 refresh token 쿠키를 주고 프론트로 보낸다. 세션 제거 전까지는 세션도 그대로 만들어진다
+                        .successHandler(loginSuccessHandler(oauthLoginSuccessHandler)))
                 .logout(logout -> logout
                         .logoutRequestMatcher(PathPatternRequestMatcher.withDefaults()
                                 .matcher(HttpMethod.POST, "/api/v1/members/logout"))
@@ -66,5 +80,12 @@ public class SecurityConfig {
                 // 비로그인 요청을 세션에 저장하지 않는다 (SPA라 원래 페이지 복귀는 프론트가 처리, 불필요한 DB 세션 방지)
                 .requestCache(cache -> cache.disable());
         return http.build();
+    }
+
+    /** 빈이 없는 웹 슬라이스 테스트에서는 Spring 기본 성공 처리(원래 페이지 또는 "/"로 이동)를 쓴다 */
+    private static AuthenticationSuccessHandler loginSuccessHandler(
+            ObjectProvider<OAuthLoginSuccessHandler> oauthLoginSuccessHandler) {
+        AuthenticationSuccessHandler handler = oauthLoginSuccessHandler.getIfAvailable();
+        return handler != null ? handler : new SavedRequestAwareAuthenticationSuccessHandler();
     }
 }
