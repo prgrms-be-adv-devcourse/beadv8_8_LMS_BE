@@ -4,18 +4,44 @@
 
 - 앱: `:member-app`, `:billing-app`, `:appearance-app`, `:lecture-app`, `:chat-app`, `:customer-support-app`.
 - 공통 라이브러리: `:shared`, `:test-support`, `:kafka`, `:redis`.
-- `./gradlew check`는 활성 테스트를 실행하며 PostgreSQL Testcontainers를 사용하는 테스트는 Docker가 필요하다.
+- `./gradlew check`는 활성 테스트를 실행하며 Testcontainers를 사용하는 테스트는 Docker가 필요하다.
 - `./gradlew verifyModuleStructure`는 앱 간 실행 의존과 common → 앱 의존을 막고 필수 실행 파일을 검사한다.
 - 앱별 검증: `./gradlew :member-app:check :member-app:bootJar`.
 - 실제 실행 여부는 `apps/<앱>/build/test-results/test/TEST-*.xml`로 확인한다. up-to-date로 생략된 테스트를 새 실행으로 보고하지 않는다.
 
 ## 테스트 경계
 
-기존 업무 모듈 테스트와 앱 내부 global 테스트는 각 앱의 `src/test`에 있다. `common/test-support`가 PostgreSQL·S3Mock·테스트 로그인 지원을 제공한다. 앱 테스트가 다른 앱을 Gradle 의존으로 가져와 모든 빈을 한 컨텍스트에 올리면 독립 배포 경계를 검증할 수 없으므로 금지한다.
+기존 업무 모듈 테스트와 앱 내부 global 테스트는 각 앱의 `src/test`에 있다. `common/test-support`가 PostgreSQL·S3Mock·Kafka·Redis·테스트 로그인 지원을 제공한다. 앱 테스트가 다른 앱을 Gradle 의존으로 가져와 모든 빈을 한 컨텍스트에 올리면 독립 배포 경계를 검증할 수 없으므로 금지한다.
 
 기존 단일 `apps`의 통합 테스트는 현재 `check`에 포함되지 않는다. 이전 시나리오는 Git 이력에서 확인하고 서비스 간 HTTP·이벤트·인증으로 전환하면서 재작성해야 한다. 현재 테스트 통과는 분산 거래 전체의 동작 보장이 아니다. 자세한 미완료 범위는 [앱 구조](../architecture/app-modules.md)를 따른다.
 
 다른 서비스의 포트를 대체하는 Fake는 테스트 소스에만 둔다. 앱 실행을 위해 Fake를 운영 소스에 넣지 않는다.
+
+## Kafka·Redis Testcontainers
+
+Kafka·Redis 통신이 필요한 테스트에서만 공통 설정을 `@Import`한다. 둘 중 하나만 가져와도 된다. 기존 `@IntegrationTest`는 PostgreSQL만 기본으로 실행한다.
+
+```java
+import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.KafkaTestcontainersConfig;
+import com.hapbang.testsupport.RedisTestcontainersConfig;
+import org.springframework.context.annotation.Import;
+
+@IntegrationTest
+@Import({KafkaTestcontainersConfig.class, RedisTestcontainersConfig.class})
+class DomainIntegrationTest {
+}
+```
+
+- Kafka는 `apache/kafka:4.2.1`의 단일 노드 KRaft, Redis는 로컬 Compose와 같은 `redis:8`을 사용한다. Kafka 이미지 버전은 현재 Spring Boot BOM의 Kafka 버전에 맞췄다.
+- Docker가 실행 중이어야 한다. 최초 실행에는 이미지 다운로드가 필요하다. Docker나 컨테이너 기동 실패는 테스트 실패이며 Mock 대체·자동 건너뛰기는 하지 않는다.
+- 준비 완료 후 동적 호스트·포트를 `spring.kafka.bootstrap-servers`, `spring.data.redis.host`, `spring.data.redis.port`에 주입한다. 외부 서버나 고정 호스트 포트는 필요 없다.
+- 토픽·소비자 그룹·직렬화와 Redis 키·채널은 사용하는 테스트가 지정한다. 공통 설정은 업무 정책을 정하지 않는다.
+- 설정을 가져온 테스트 JVM에서 종류별 컨테이너를 한 번 시작해 공유한다. Spring 컨텍스트가 닫혀도 컨테이너는 유지하며, 테스트 JVM 종료 후 Testcontainers가 정리한다. JVM이 다른 모듈끼리는 공유하지 않는다. 실행 간 재사용이나 영속 볼륨은 설정하지 않는다.
+- 테스트마다 UUID 등으로 고유한 토픽·소비자 그룹·Redis 키·채널·Stream을 사용한다. 자신이 만든 자원만 정리하고 소비자·구독·연결을 종료한다. `FLUSHALL`·`FLUSHDB` 등 전역 초기화를 하지 않는다. 기존 DB 정리 리스너는 Kafka·Redis 자원을 정리하지 않는다.
+- 비동기 수신에는 제한 시간을 둔다. `./gradlew :test-support:test`로 공통 설정의 Kafka 발행·수신, Redis 저장·조회·Streams 소비·ACK, 두 설정 동시 사용을 검증한다.
+
+이 설정은 자동 테스트 전용이다. 로컬 앱 실행·운영 배포 구성, 업무 이벤트의 Kafka 전환과 Redis 채팅 전달 로직은 별도다.
 
 ## 설정과 내부 API
 
