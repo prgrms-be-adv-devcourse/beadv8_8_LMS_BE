@@ -10,8 +10,8 @@ import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 
 /**
- * HP 작업 실행기 테스트용 결과 처리기 (#275). 운영 처리기(#276·#277)가 아직 없는 목적에 대해 받은 결과를 남긴다.
- * {@code ORDER_HOLD}·{@code CANCEL}만 있다. 처리기가 없는 목적({@code PAYOUT} 등)은 실행기가 {@code DEAD}로 둔다.
+ * HP 작업 실행기 테스트용 결과 처리기 (#275). 운영 처리기(#277)가 아직 없는 목적에 대해 받은 결과를 남긴다.
+ * {@code CANCEL}만 있다. 결제 목적({@code ORDER_HOLD}·{@code HOLD_COMPENSATION})은 운영 처리기(#276)를 쓴다. 처리기가 없는 목적({@code PAYOUT} 등)은 실행기가 {@code DEAD}로 둔다.
  * 테스트마다 {@link #reset()}한다.
  */
 public abstract class RecordingHpTaskResultHandler implements LectureHpTaskResultHandler {
@@ -55,15 +55,6 @@ public abstract class RecordingHpTaskResultHandler implements LectureHpTaskResul
             throw next;
         }
         events.add(event);
-    }
-
-    @Component
-    public static class OrderHold extends RecordingHpTaskResultHandler {
-
-        @Override
-        public LectureHpTaskPurpose purpose() {
-            return LectureHpTaskPurpose.ORDER_HOLD;
-        }
     }
 
     @Component

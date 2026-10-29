@@ -23,6 +23,8 @@ public enum LectureErrorCode implements BaseErrorCode {
     OWN_LECTURE_NOT_PURCHASABLE(HttpStatus.FORBIDDEN, "본인 강의는 담거나 구매할 수 없습니다."),
     ALREADY_IN_CART(HttpStatus.CONFLICT, "이미 장바구니에 담은 강의입니다."),
     ALREADY_OWNED_LECTURE(HttpStatus.CONFLICT, "이미 구매한 강의입니다."),
+    /** 주문 결제 실패(보류 확정 거절). 지갑과 같은 code 문자열이다 (D69 (1)) */
+    INSUFFICIENT_BALANCE(HttpStatus.CONFLICT, "HP 잔액이 부족합니다."),
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다."),
     ORDER_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "주문 항목을 찾을 수 없습니다."),
     ORDER_ITEM_NOT_PURCHASED(HttpStatus.CONFLICT, "이미 구매 확정·취소된 항목입니다."),

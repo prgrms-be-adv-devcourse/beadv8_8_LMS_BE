@@ -17,7 +17,7 @@ import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Rea
  * <ul>
  *     <li>주문 시점의 강의 제목·가격을 남긴다. 이후 강의 가격이 바뀌어도 반환·지급 금액은 이 가격이다.</li>
  *     <li>기한은 구매일(KST 날짜) 기준이다. 구매일 다음 날부터 7일이 지나면 자동 구매 확정 시각,
- *     30일이 지나면 지급 예정 시각이다 (설계 5장).</li>
+ *     30일이 지나면 지급 예정 시각이다 (설계 5장). 결제가 끝나기 전에는 구매 시각과 기한이 없다 (D58 (5)).</li>
  *     <li>기한 판정은 배치가 아니라 이 엔티티가 시각으로 한다.</li>
  * </ul>
  */
@@ -63,7 +63,6 @@ public class OrderItem {
     @Column(nullable = false)
     private OrderItemStatus status;
 
-    @Column(nullable = false)
     private LocalDateTime purchasedAt;
 
     private LocalDateTime confirmedAt;
@@ -71,10 +70,8 @@ public class OrderItem {
     @Enumerated(EnumType.STRING)
     private ConfirmationType confirmationType;
 
-    @Column(nullable = false)
     private LocalDateTime autoConfirmAt;
 
-    @Column(nullable = false)
     private LocalDateTime payoutScheduledAt;
 
     private LocalDateTime paidOutAt;
@@ -116,16 +113,15 @@ public class OrderItem {
     @Version
     private Long version;
 
-    OrderItem(LectureOrder order, Lecture lecture, LocalDateTime now) {
+    OrderItem(LectureOrder order, Lecture lecture) {
         this.order = order;
         this.lectureId = lecture.getId();
         this.sellerUserId = lecture.getSellerUserId();
         this.buyerUserId = order.getBuyerUserId();
         this.lectureTitleSnapshot = lecture.getTitle();
         this.priceHp = lecture.getPriceHp();
-        this.status = OrderItemStatus.PURCHASED;
+        this.status = OrderItemStatus.HOLD_PENDING;
         this.objectionStatus = ObjectionStatus.NONE;
-        stampPurchasedAt(now);
     }
 
     /** 아직 끝나지 않은 거래(구매, 구매 확정)인지 */
@@ -133,10 +129,17 @@ public class OrderItem {
         return status == OrderItemStatus.PURCHASED || status == OrderItemStatus.CONFIRMED;
     }
 
-    /** 구매자가 보유 중인지(구매, 구매 확정, 지급). 보유 중이면 시청할 수 있고 다시 살 수 없다 (D5) */
+    /**
+     * 구매자가 보유 중인지(결제 처리 중·결제 취소 처리 중, 구매, 구매 확정, 지급). 보유 중이면 다시 살 수 없다 (D5, D69 (4)).
+     * 시청 가능과 다르다
+     */
     public boolean isHeld() {
-        return status == OrderItemStatus.PURCHASED || status == OrderItemStatus.CONFIRMED
-                || status == OrderItemStatus.PAID_OUT;
+        return status.isHeld();
+    }
+
+    /** 영상·자료를 볼 수 있는지(구매, 구매 확정, 지급). 구매 전 확정에는 재생 동의가 필요하다 (D69 (4)) */
+    public boolean isViewable() {
+        return status.isViewable();
     }
 
     /** 영상·자료를 보기 전에 재생 동의가 필요한지 (D7·D8) */
@@ -262,7 +265,7 @@ public class OrderItem {
         if (!this.buyerUserId.equals(buyerUserId)) {
             throw new LectureObjectionRefusedException(Reason.NOT_BUYER);
         }
-        if (isWithdrawn()) {
+        if (isWithdrawn() || status.isHoldStage()) {
             throw new LectureObjectionRefusedException(Reason.NOT_OBJECTIONABLE);
         }
         if (status == OrderItemStatus.PAID_OUT) {
@@ -330,6 +333,11 @@ public class OrderItem {
         this.objectionFiledAt = null;
     }
 
+    /** 주문의 결제 단계를 복제한다 (D58 (1)) */
+    void changeHoldStage(OrderItemStatus stage) {
+        this.status = stage;
+    }
+
     private void requirePurchased() {
         if (status != OrderItemStatus.PURCHASED) {
             throw new LectureException(LectureErrorCode.ORDER_ITEM_NOT_PURCHASED);
@@ -354,8 +362,9 @@ public class OrderItem {
         this.confirmedAt = confirmedAt;
     }
 
-    /** 구매 시각과 그로부터 계산하는 기한을 정한다 (설계 5장) */
-    void stampPurchasedAt(LocalDateTime now) {
+    /** 결제 완료. 구매 상태가 되고 구매 시각과 그로부터 계산하는 기한을 정한다 (설계 5장, D35) */
+    void markPurchased(LocalDateTime now) {
+        this.status = OrderItemStatus.PURCHASED;
         LocalDate purchaseDate = now.toLocalDate();
         this.purchasedAt = now;
         this.autoConfirmAt = purchaseDate.plusDays(AUTO_CONFIRM_DAYS).atStartOfDay();

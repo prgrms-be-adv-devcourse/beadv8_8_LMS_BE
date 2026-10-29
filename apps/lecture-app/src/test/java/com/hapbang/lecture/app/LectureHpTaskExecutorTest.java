@@ -1,5 +1,6 @@
 package com.hapbang.lecture.app;
 
+import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.Clock;
@@ -31,10 +32,14 @@ import com.hapbang.lecture.domain.LectureHpTaskAttempt;
 import com.hapbang.lecture.domain.LectureHpTaskOutcome;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
+import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fake.RecordingHpTaskResultHandler;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
+import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
@@ -73,7 +78,7 @@ class LectureHpTaskExecutorTest {
     private RecordingHpTaskResultHandler.Cancel cancelHandler;
 
     @Autowired
-    private RecordingHpTaskResultHandler.OrderHold holdHandler;
+    private LectureOrderRepository lectureOrderRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -92,7 +97,6 @@ class LectureHpTaskExecutorTest {
     void setUp() {
         billing.reset();
         cancelHandler.reset();
-        holdHandler.reset();
     }
 
     @Test
@@ -146,7 +150,11 @@ class LectureHpTaskExecutorTest {
 
     @Test
     void HOLD_확정_거절은_COMPLETED_REJECTED다() {
-        Long id = register(task(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-31", AMOUNT));
+        LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.pending(7L,
+                List.of(withId(onSaleLecture(), 10L)), LocalDateTime.now(clock)));
+        Long itemId = order.getItems().getFirst().getId();
+        Long id = register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-" + itemId,
+                order.getId(), itemId, 7L, null, PRICE_HP, LocalDateTime.now(clock)));
         billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
                 "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
 
@@ -155,7 +163,9 @@ class LectureHpTaskExecutorTest {
         LectureHpTask task = find(id);
         assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
         assertThat(task.getOutcome()).isEqualTo(LectureHpTaskOutcome.REJECTED);
-        assertThat(holdHandler.events()).containsExactly("rejected:LECTURE-HOLD-31");
+        // 운영 처리기가 주문을 결제 실패로 끝낸다(반환할 보류 없음, D58 (3))
+        assertThat(lectureOrderRepository.findById(order.getId()).orElseThrow().getStatus())
+                .isEqualTo(LectureOrderStatus.HOLD_FAILED);
         assertThat(attempts(id)).singleElement()
                 .satisfies(attempt -> assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.TERMINAL_REJECTION));
     }
