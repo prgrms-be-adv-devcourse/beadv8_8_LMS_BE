@@ -1,0 +1,12 @@
+{
+  "statusCode": 200,
+  "message": "HP를 반환했습니다.",
+  "data": {
+    "referenceType": "{{jsonPath request.body '$.referenceType'}}",
+    "referenceId": {{jsonPath request.body '$.referenceId'}},
+    "releaseRequestId": "{{jsonPath request.body '$.releaseRequestId'}}",
+    "releasedHp": {{#if (jsonPath request.body '$.amountHp')}}{{jsonPath request.body '$.amountHp'}}{{else}}0{{/if}},
+    "remainingHeldHp": 0,
+    "replayed": {{#if parameters.replayed}}true{{else}}false{{/if}}
+  }
+}
