@@ -16,7 +16,8 @@
 | [server-setup.md](server-setup.md) | 서버 최초 설정·재구축, 배포 키, 인증서 발급 |
 | [security.md](security.md) | 자격 증명 관리, 공개 레포 원칙, 유출 시 대응 |
 | [s3.md](s3.md) | 파일 업로드(S3) 구조, 버킷·IAM 역할 설정, 확인 절차, 로컬 S3Mock |
-| [aws-k3s.md](aws-k3s.md) | 최종 프로젝트 AWS 2노드 k3s 역할, workload 배치, network·IAM·storage, 전환 순서, 설치·로컬 kubectl 접근 |
+| [aws-k3s.md](aws-k3s.md) | 최종 프로젝트 AWS 2노드 k3s 역할, workload 배치, network·IAM·storage, 전환 순서, 설치·로컬 kubectl 접근, Sealed Secrets 키 백업 |
+| [k8s.md](k8s.md) | `k8s/` manifest 구조, 차트 버전, Secret 목록, 적용 순서, 로컬 k3d 검증 |
 | [infra/terraform](../../infra/terraform/README.md) | AWS 리소스(EC2·네트워크·S3·IAM) 코드, 다른 계정으로 옮기기 |
 
 ## 구조

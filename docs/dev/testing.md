@@ -41,6 +41,8 @@ class DomainIntegrationTest {
 - 테스트마다 UUID 등으로 고유한 토픽·소비자 그룹·Redis 키·채널·Stream을 사용한다. 자신이 만든 자원만 정리하고 소비자·구독·연결을 종료한다. `FLUSHALL`·`FLUSHDB` 등 전역 초기화를 하지 않는다. 기존 DB 정리 리스너는 Kafka·Redis 자원을 정리하지 않는다.
 - 비동기 수신에는 제한 시간을 둔다. `./gradlew :test-support:test`로 공통 설정의 Kafka 발행·수신, Redis 저장·조회·Streams 소비·ACK, 두 설정 동시 사용을 검증한다.
 
+위 Streams 소비·ACK는 기존 공통 컨테이너의 Redis 기능 스모크 테스트 현황이며 채팅의 구현 요구사항이 아니다. 채팅은 PostgreSQL outbox → Redis Pub/Sub을 사용하고 Streams는 구현하지 않는다(2026-10-29 결정, #340). 채팅 통합 테스트에서는 DB 처리권·lease 회수·재시도·발행 직후 종료·중복·Pub/Sub 수신 유실과 이력 복구를 검증한다.
+
 이 설정은 자동 테스트 전용이다. 로컬 앱 실행·운영 배포 구성, 업무 이벤트의 Kafka 전환과 Redis 채팅 전달 로직은 별도다.
 
 ## 설정과 내부 API

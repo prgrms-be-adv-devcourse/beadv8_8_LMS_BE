@@ -1,0 +1,27 @@
+# Elasticsearch를 관리하는 ECK operator(Elastic 공식 차트). CRD도 이 차트가 설치한다.
+# medium(app-observe)에 두고, 기본 limit 1Gi를 예산 256Mi로 낮춘다(docs/architecture/infrastructure/k3s.md).
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: eck-operator
+  namespace: kube-system
+spec:
+  repo: https://helm.elastic.co
+  chart: eck-operator
+  version: 3.5.0
+  targetNamespace: elastic-system
+  valuesContent: |-
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        memory: 256Mi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: hapbang.io/pool
+                  operator: In
+                  values: [app-observe]

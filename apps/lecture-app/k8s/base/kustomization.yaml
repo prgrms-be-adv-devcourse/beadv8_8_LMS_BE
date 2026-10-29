@@ -1,0 +1,20 @@
+# lecture-app의 기본 manifest. 레포를 나눠도 앱 디렉터리만으로 빌드·배포할 수 있게 앱 안에 둔다.
+# 공용 인프라(PostgreSQL·Kafka·Redis)는 루트 k8s/platform에 있고 아래 주소로만 연결한다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: hapbang-prod
+resources:
+  - deployment.yaml
+  - service.yaml
+# 이름에 내용 hash가 붙으므로 값을 바꾸면 앱이 다시 배포되고, rollout undo가 이전 ConfigMap까지 되돌린다.
+configMapGenerator:
+  - name: lecture-app-config
+    literals:
+      - SPRING_PROFILES_ACTIVE=prod
+      - TZ=Asia/Seoul
+      # 75%는 chat-app이 384Mi에서 OOMKilled됐다(#373 로컬 k3d). heap을 줄여 non-heap(metaspace·thread) 몫을 남긴다.
+      - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60
+      - DB_URL=jdbc:postgresql://postgres.hapbang-platform.svc.cluster.local:5432/lecture
+      - DB_USERNAME=lecture
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
+      - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local

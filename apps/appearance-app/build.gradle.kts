@@ -16,6 +16,8 @@ dependencies {
     implementation("io.micrometer:micrometer-core")
     // 테스트에서 로그인 상태 만들기 (TestLogin)
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
+    // E2E 테스트에서 실제 포트로 HTTP 요청 보내기. 버전은 gradle/libs.versions.toml에서 관리한다
+    testImplementation(libs.rest.assured)
 }
 
 springBoot {

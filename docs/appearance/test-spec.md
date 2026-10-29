@@ -22,9 +22,16 @@
 
 ### Billing 대역 (#289)
 
-- 출연 모듈 통합·E2E 테스트는 `@AppearanceIntegrationTest`(= 팀 `@IntegrationTest` + `BillingClient` Mockito 대역)를 쓴다. 대역은 기본 성공이고 Billing 규칙(잔액·보류·멱등)을 흉내 내지 않는다.
+- 출연 모듈 통합 테스트는 `@AppearanceIntegrationTest`(= 팀 `@IntegrationTest` + `BillingClient` Mockito 대역), E2E 테스트는 `@AppearanceE2ETest`(실제 포트 + 같은 대역, #390)를 쓴다. 대역은 기본 성공이고 Billing 규칙(잔액·보류·멱등)을 흉내 내지 않는다.
 - 아래 표의 "보류·반환·지급·잔액" 기대 결과는 #289부터 **Billing에 보낸 요청 내용**(`BillingCalls`: 금액·요청 ID·원천·받는 회원)으로 확인한다. 실제 잔액·보류 변화는 16장 apps 통합 테스트가 확인한다.
 - 실패는 `BillingStubs`로 만든다: 무응답(업무 예외가 아닌 런타임 예외) / Billing 거절(`INSUFFICIENT_BALANCE`·`WALLET_NOT_FOUND`·`HOLD_NOT_FOUND`, 공통 업무 예외).
+
+### E2E 테스트 방식 (#390)
+
+- E2E(HTTP 요청 → DB)는 `@AppearanceE2ETest`로 실제 서버(랜덤 포트)를 띄우고 RestAssured로 요청한다. 보안 필터(세션 로그인, CSRF)·직렬화·오류 응답이 운영과 같은 경로를 거친다.
+- 로그인은 `E2ELogin.as(회원 ID, 역할)` 한 곳에서 만든다(테스트 전용 로그인 경로로 실제 세션과 CSRF 토큰 쿠키를 받는다). CSRF 없는 요청은 `E2ELogin.withoutCsrf`.
+- ID처럼 `long`인 응답 값은 `E2EMatchers.number`로 비교한다(RestAssured는 JSON 정수를 크기에 따라 Integer·Long으로 읽는다).
+- 컨트롤러 웹 슬라이스(`@WebMvcTest`)·Swagger 명세 테스트는 MockMvc 그대로다.
 
 ## 2. 테스트 구성
 
@@ -235,7 +242,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 
 ### 5.1 API 흐름 — `AppearanceApiE2ETest`
 
-앱 전체(보안 필터, 세션 로그인, 서비스, DB)를 띄우고 MockMvc로 요청한다. 로그인은 팀 공통 `TestLogin`으로 만든다.
+실제 서버(보안 필터, 세션 로그인, 서비스, DB)를 띄우고 RestAssured로 요청한다. 로그인은 `E2ELogin`으로 만든다 (#390).
 테스트 전용 컨트롤러로 로그인·자격 확인 기반만 확인한다. 실제 출연 API는 5.2에서 확인한다.
 
 | 케이스 | 기대 결과 |
@@ -987,14 +994,14 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 상태 이름 | 강의와 같은 7개 (`CONFIRMATION_PENDING`·`SCHEDULED`·`ON_HOLD`·`PROCESSING`·`FAILED`·`COMPLETED`·`CANCELED`) |
 | 미지급 | 완료·취소를 뺀 5개 |
 
-### 19.4 내부 API — `AppearanceEarningInternalApiTest` (통합, 보안 체인부터 DB까지 MockMvc)
+### 19.4 내부 API — `AppearanceEarningInternalApiTest` (E2E, 실제 포트로 보안 체인부터 DB까지, #390)
 
 흐름: 확인 대기 20,000 1건 + 확인했지만 Billing 결과 모름(처리 중) 22,000 1건.
 
 | 케이스 | 기대 결과 |
 |---|---|
 | 요약 (키 있음) | 200 `RsData`, 메시지, 확인 대기 20,000·1 / 지급 예정 0 / 처리 중 22,000·1, `asOf` 없음. `earningType=APPEARANCE_PENALTY`면 0 |
-| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` 필드 없음, `statusUpdatedAt`은 offset 없는 시각 |
+| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` null, `statusUpdatedAt`은 offset 없는 시각 |
 | 기본·페이지 (`size=1`) | 미지급 2건 중 최근(확인한 출연) 먼저, `page {size 1, number 0, totalElements 2, totalPages 2}`. 값 없는 `status=`도 미지급 2건(Spring이 빈 목록으로 바꿈). `status=SCHEDULED`만이면 빈 결과 |
 | 출연이 없는 회원 | 0원 요약·빈 목록 |
 | 요청 값 오류 | `userId` 없음(`errors[0].field`=`userId`), `userId=0`, `status=PAID`(`status`), `earningType=LECTURE_SALE`(`earningType`) → 400 `INVALID_REQUEST` |
@@ -1026,14 +1033,33 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 〃 | 키가 틀린 Client | `REJECTED` 401 |
 | 〃 | 명세 `/v3/api-docs` | 두 경로·`X-Internal-Api-Key` 헤더가 나오고 키 값은 없음 |
 
+## 20. E2E를 실제 포트로 전환 (#390)
 
-## 20. 격리된 HP 작업 관리자 조회·다시 시도 (#397)
+MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코드, `code`, 응답 필드, DB 상태)과 개수는 그대로다.
+
+| 테스트 | 테스트 수 | 응답 검증 수 | 방식 |
+|---|---|---|---|
+| `AppearanceApiE2ETest` | 5 | 12 | RestAssured |
+| `AppearanceApiCancelE2ETest` | 6 | 75 | RestAssured |
+| `AppearanceApplicationApiE2ETest` | 10 | 67 | RestAssured |
+| `AppearanceErrorCodeApiE2ETest` | 6 | 8 | RestAssured |
+| `AppearanceRecruitApiE2ETest` | 10 | 67 | RestAssured |
+| `AppearanceRequestApiE2ETest` | 11 | 55 | RestAssured |
+| `AppearanceRequestRespondApiE2ETest` | 8 | 43 | RestAssured |
+| `AppearanceEarningInternalApiTest` | 7 | 59 | RestAssured (내부 API 키 헤더) |
+| `AppearanceSwaggerDocsTest`, `PageConfigTest`, `SecurityConfigTest`, `GlobalExceptionHandlerTest`, `InternalApiSecurityConfigTest`, `AppearanceExceptionHandlerTest` | — | — | MockMvc 유지 (명세·웹 슬라이스) |
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 본문이 선택인 API에 본문 없이 요청 | `E2ELogin`이 JSON 형식으로 보내므로 200·201 (RestAssured 기본 `text/plain`이면 415) |
+
+## 21. 격리된 HP 작업 관리자 조회·다시 시도 (#397)
 
 격리된(`DEAD`) HP 작업을 관리자가 확인하고 같은 멱등 키로 다시 실행한다. 업무 상태(거절·확인·취소)는 되돌리지 않는다.
 다시 시도하면 시도 횟수를 0으로 되돌려 재시도 규칙을 처음부터 적용하고, 누가 언제 다시 시도했는지는 `hp_tasks`의 다시 시도 컬럼 3개에 남긴다.
 격리 작업은 실제 흐름처럼 만든다: 작업 기록 → 1회 실행 → Billing 대역이 거절 → `DEAD`.
 
-### 20.1 구성
+### 21.1 구성
 
 | 종류 | 테스트 | 확인 대상 |
 |---|---|---|
@@ -1041,10 +1067,10 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 저장소 | `HpTaskRepositoryTest` (추가 2개) | 다시 시도한 작업의 배치 대기 시간 기준, 다시 시도 컬럼 제약 |
 | 통합 | `HpTaskAdminFacadeTest` (11개) | 목록(상태·정렬·담는 값), 다시 시도 결과 3가지(성공·다시 거절·결과 모름), 다시 시도 뒤 배치 대기, 409·404, 두 번 누름, 복제본으로 관리자 재확인(정지·강등), 관리자만 |
 | 통합 | `AppearanceConcurrentUpdateTest` (추가 1개) | 동시 다시 시도 → 409 `CONCURRENT_UPDATE` |
-| E2E | `AppearanceHpTaskAdminApiE2ETest` (4개) | HTTP 응답(`RsData`·Problem Detail), 보안 필터 403·401, 강등된 관리자 403 `NOT_ADMIN`, 없는 상태 값 400 |
+| E2E | `AppearanceHpTaskAdminApiE2ETest` (4개, RestAssured 실제 포트 — 20장 방식) | HTTP 응답(`RsData`·Problem Detail), 보안 필터 403·401, 강등된 관리자 403 `NOT_ADMIN`, 없는 상태 값 400 |
 | 통합 | `AppearanceSwaggerDocsTest` (추가 1개) | 두 API의 성공 응답 스키마가 `RsData` |
 
-### 20.2 단위 — `HpTaskTest`
+### 21.2 단위 — `HpTaskTest`
 
 | 케이스 | 기대 결과 |
 |---|---|
@@ -1053,7 +1079,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 다시 시도 → 다시 `DEAD` → 다른 관리자가 다시 시도 | 다시 시도 2회, 마지막 관리자·시각은 두 번째 값 |
 | 대기(`PENDING`)·완료(`DONE`) 작업 다시 시도 | `HP_TASK_NOT_DEAD`, 다시 시도 기록 없음 |
 
-### 20.3 통합 — `HpTaskAdminFacadeTest`
+### 21.3 통합 — `HpTaskAdminFacadeTest`
 
 | 묶음 | 케이스 | 기대 결과 |
 |---|---|---|
@@ -1070,14 +1096,14 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 권한 | 인플루언서가 목록·다시 시도 | `AccessDeniedException`, 작업은 `DEAD` 그대로 |
 | 동시 (`AppearanceConcurrentUpdateTest`) | 격리 작업을 읽은 직후 다른 트랜잭션이 버전을 올려 커밋 | 409 `CONCURRENT_UPDATE`, 작업 `DEAD`·다시 시도 0회 그대로, Billing 호출 없음 |
 
-### 20.3-1 저장소 — `HpTaskRepositoryTest`
+### 21.3-1 저장소 — `HpTaskRepositoryTest`
 
 | 케이스 | 기대 결과 |
 |---|---|
 | 다시 시도한 작업(시도 0회, 만든 지 3시간): 다시 시도 시각 기준 대기 시간 안 / 지남 | 재시도 대상 아님 / 대상. 만든 시각이 아니라 다시 시도 시각으로 센다 |
 | 다시 시도 횟수만 있고 관리자·시각이 없는 행 저장 | `ck_hp_tasks_manual_retry` 위반 |
 
-### 20.4 E2E — `AppearanceHpTaskAdminApiE2ETest`
+### 21.4 E2E — `AppearanceHpTaskAdminApiE2ETest`
 
 | 케이스 | 기대 결과 |
 |---|---|
@@ -1086,8 +1112,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 세션 관리자, 복제본 USER(강등): 다시 시도·목록 | 403 `NOT_ADMIN` ×2 |
 | 인증된 인플루언서 목록·다시 시도 / 비로그인 목록 | 보안 필터에서 403 / 401. 작업은 `DEAD`, 다시 시도 0회 그대로 |
 
-### 20.5 확인하지 않은 것
+### 21.5 참고
 
 - 두 관리자가 실제 스레드로 동시에 누르는 경우는 타이밍에 기대지 않도록, 위 동시 테스트처럼 "읽은 직후 다른 트랜잭션이 먼저 커밋"으로 만든다(17.2와 같은 방식). 늦게 누르면 이미 대기라 409 `HP_TASK_NOT_DEAD`다.
 - 같은 작업이 두 곳에서 동시에 Billing에 가도 HP는 한 번만 움직인다: Billing이 지갑을 잠근 뒤 같은 요청 ID 기록을 확인해 두 번째는 처음 결과를 돌려주고, 출연은 대기 중일 때만 결과를 기록한다(버전 충돌이면 먼저 기록한 쪽). 실제 Billing으로 확인하는 일은 Mock Billing·HTTP 전환 작업에서 한다.
-- E2E는 이 이슈 시점의 방식(MockMvc)으로 썼다. 출연 E2E를 RestAssured로 바꾸는 작업(#390)이 먼저 병합되면 그 방식에 맞춘다.

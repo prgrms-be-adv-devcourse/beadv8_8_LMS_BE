@@ -1,17 +1,14 @@
 package com.hapbang.appearance.in;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.hapbang.appearance.support.E2EMatchers.number;
+import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.notNullValue;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.app.HpTaskExecuteUseCase;
@@ -22,28 +19,24 @@ import com.hapbang.appearance.domain.HpTaskType;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.HpTaskRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
-import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceE2ETest;
 import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
+import com.hapbang.appearance.support.E2ELogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.TestLogin;
 
 /**
- * 관리자 HP 작업 API (#397). 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB, Billing 대역)를 띄우고 HTTP로 부른다.
+ * 관리자 HP 작업 API (#397). 실제 서버(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB, Billing 대역)를 띄우고 RestAssured로 부른다.
  * 격리된 작업은 기록 → 실행 → Billing 거절로 만든다.
  */
-@AppearanceIntegrationTest
-@AutoConfigureMockMvc
+@AppearanceE2ETest
 class AppearanceHpTaskAdminApiE2ETest {
 
     private static final String BASE = "/api/v1/appearances/admin/hp-tasks";
     private static final long ADMIN = 900L;
     private static final long INFLUENCER = 1L;
-
-    @Autowired
-    MockMvc mockMvc;
 
     @Autowired
     HpTaskRepository hpTaskRepository;
@@ -75,76 +68,80 @@ class AppearanceHpTaskAdminApiE2ETest {
         return task.getId();
     }
 
+    private static String retryPath(long taskId) {
+        return BASE + "/" + taskId + "/retry";
+    }
+
     @Test
     @DisplayName("관리자: 목록(기본 DEAD) 200 → 다시 시도 200 DONE·다시 시도 기록 → 한 번 더 409 HP_TASK_NOT_DEAD → 목록 비어 있음")
-    void adminFlow() throws Exception {
+    void adminFlow() {
         long taskId = deadTask();
 
-        mockMvc.perform(get(BASE).with(TestLogin.as(ADMIN, Role.ADMIN)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("HP 작업 목록을 조회했습니다."))
-                .andExpect(jsonPath("$.data.content[0].id").value(taskId))
-                .andExpect(jsonPath("$.data.content[0].status").value("DEAD"))
-                .andExpect(jsonPath("$.data.content[0].taskType").value("RELEASE"))
-                .andExpect(jsonPath("$.data.content[0].lastError").value("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다."))
-                .andExpect(jsonPath("$.data.content[0].completedAt").isNotEmpty())
-                .andExpect(jsonPath("$.data.page.totalElements").value(1));
+        E2ELogin.as(ADMIN, Role.ADMIN).get(BASE)
+                .then().statusCode(200)
+                .body("message", equalTo("HP 작업 목록을 조회했습니다."))
+                .body("data.content[0].id", number(taskId))
+                .body("data.content[0].status", equalTo("DEAD"))
+                .body("data.content[0].taskType", equalTo("RELEASE"))
+                .body("data.content[0].lastError", equalTo("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다."))
+                .body("data.content[0].completedAt", notNullValue())
+                .body("data.page.totalElements", equalTo(1));
 
-        mockMvc.perform(post(BASE + "/" + taskId + "/retry").with(TestLogin.as(ADMIN, Role.ADMIN)).with(csrf()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("HP 작업을 다시 시도했습니다."))
-                .andExpect(jsonPath("$.data.status").value("DONE"))
-                .andExpect(jsonPath("$.data.manualRetryCount").value(1))
-                .andExpect(jsonPath("$.data.lastManualRetryBy").value(ADMIN));
+        E2ELogin.as(ADMIN, Role.ADMIN).post(retryPath(taskId))
+                .then().statusCode(200)
+                .body("message", equalTo("HP 작업을 다시 시도했습니다."))
+                .body("data.status", equalTo("DONE"))
+                .body("data.manualRetryCount", equalTo(1))
+                .body("data.lastManualRetryBy", number(ADMIN));
 
-        mockMvc.perform(post(BASE + "/" + taskId + "/retry").with(TestLogin.as(ADMIN, Role.ADMIN)).with(csrf()))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("HP_TASK_NOT_DEAD"));
+        E2ELogin.as(ADMIN, Role.ADMIN).post(retryPath(taskId))
+                .then().statusCode(409)
+                .body("code", equalTo("HP_TASK_NOT_DEAD"));
 
-        mockMvc.perform(get(BASE + "?status=DEAD").with(TestLogin.as(ADMIN, Role.ADMIN)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.page.totalElements").value(0));
+        E2ELogin.as(ADMIN, Role.ADMIN).queryParam("status", "DEAD").get(BASE)
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(0));
     }
 
     @Test
     @DisplayName("없는 작업 404 HP_TASK_NOT_FOUND, 없는 상태 값 400")
-    void notFoundAndBadStatus() throws Exception {
-        mockMvc.perform(post(BASE + "/999999/retry").with(TestLogin.as(ADMIN, Role.ADMIN)).with(csrf()))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("HP_TASK_NOT_FOUND"));
-        mockMvc.perform(get(BASE + "?status=UNKNOWN").with(TestLogin.as(ADMIN, Role.ADMIN)))
-                .andExpect(status().isBadRequest());
+    void notFoundAndBadStatus() {
+        E2ELogin.as(ADMIN, Role.ADMIN).post(retryPath(999_999L))
+                .then().statusCode(404)
+                .body("code", equalTo("HP_TASK_NOT_FOUND"));
+        E2ELogin.as(ADMIN, Role.ADMIN).queryParam("status", "UNKNOWN").get(BASE)
+                .then().statusCode(400);
     }
 
     @Test
     @DisplayName("세션은 관리자지만 관리자 권한을 잃었으면(복제본 USER) 목록·다시 시도 403 NOT_ADMIN")
-    void demotedAdmin() throws Exception {
+    void demotedAdmin() {
         long taskId = deadTask();
         appearanceUserFacade.syncModified(AppearanceUserFixture.user(ADMIN, Role.USER, UserStatus.ACTIVE));
 
-        mockMvc.perform(post(BASE + "/" + taskId + "/retry").with(TestLogin.as(ADMIN, Role.ADMIN)).with(csrf()))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("NOT_ADMIN"));
-        mockMvc.perform(get(BASE).with(TestLogin.as(ADMIN, Role.ADMIN)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("NOT_ADMIN"));
+        E2ELogin.as(ADMIN, Role.ADMIN).post(retryPath(taskId))
+                .then().statusCode(403)
+                .body("code", equalTo("NOT_ADMIN"));
+        E2ELogin.as(ADMIN, Role.ADMIN).get(BASE)
+                .then().statusCode(403)
+                .body("code", equalTo("NOT_ADMIN"));
     }
 
     @Test
     @DisplayName("관리자가 아니면 403, 비로그인 401. 작업은 그대로 DEAD")
-    void adminOnly() throws Exception {
+    void adminOnly() {
         long taskId = deadTask();
 
-        mockMvc.perform(get(BASE).with(TestLogin.as(INFLUENCER, Role.VERIFIED_INFLUENCER)))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(post(BASE + "/" + taskId + "/retry")
-                        .with(TestLogin.as(INFLUENCER, Role.INFLUENCER)).with(csrf()))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(get(BASE))
-                .andExpect(status().isUnauthorized());
+        E2ELogin.as(INFLUENCER, Role.VERIFIED_INFLUENCER).get(BASE)
+                .then().statusCode(403);
+        E2ELogin.as(INFLUENCER, Role.INFLUENCER).post(retryPath(taskId))
+                .then().statusCode(403);
+        given().get(BASE)
+                .then().statusCode(401);
 
-        mockMvc.perform(get(BASE).with(TestLogin.as(ADMIN, Role.ADMIN)))
-                .andExpect(jsonPath("$.data.content[0].status").value("DEAD"))
-                .andExpect(jsonPath("$.data.content[0].manualRetryCount").value(0));
+        E2ELogin.as(ADMIN, Role.ADMIN).get(BASE)
+                .then().statusCode(200)
+                .body("data.content[0].status", equalTo("DEAD"))
+                .body("data.content[0].manualRetryCount", equalTo(0));
     }
 }

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: lecture-app
+  labels:
+    app.kubernetes.io/name: lecture-app
+spec:
+  selector:
+    app.kubernetes.io/name: lecture-app
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

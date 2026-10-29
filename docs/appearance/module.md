@@ -893,7 +893,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 출연이 부르는 Billing | `appearance.billing.mode` 기본값 `fake` → 출연 모듈 안의 메모리 구현 `FakeBillingClient`. 배포 서버에서도 출연 HP가 Billing 지갑에 기록되지 않음 | 항상 `BillingPortClient` → shared `BillingPort` → Billing 모듈 (실제 지갑·원장) |
 | Fake Billing | `FakeBillingClient`·`FakeBillingErrorCode`·`FakeBillingException`·`BillingUnavailableException` (main) | 삭제 |
 | 설정 | `appearance.billing.mode` (`fake`/`billing-port`) | 삭제 (구현이 하나뿐) |
-| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
+| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`·`@AppearanceE2ETest`(실제 포트, #390)가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
 | 실제 Billing 확인 | Billing 담당 `AppearanceBillingPortIntegrationTest`(보류·거절 반환 일부) | 출연 `AppearanceBillingFlowIntegrationTest`(apps)가 출연 API 전체 흐름을 실제 Billing으로 확인 (16장 test-spec) |
 
 - 출연은 현금을 다루지 않는다(HP만). 현금은 Billing 충전(Toss 테스트 결제)으로만 들어온다. 실제 Billing에 연결해도 실제 현금은 오가지 않는다 (APR-36).
@@ -924,7 +924,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 
 | 항목 | 내용 |
 |---|---|
-| 테스트 시계 | `@AppearanceIntegrationTest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
+| 테스트 시계 | `@AppearanceIntegrationTest`·`@AppearanceE2ETest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
 | 시각 만들기 | 테스트는 DB의 시각 값(`scheduled_at`·`recruit_deadline`·`created_at`·`next_attempt_at`)을 고치지 않는다. 실제 순서대로 시계를 돌린다: 모집 마감(기한 마감 배치) → 방송 → 확인 기간 끝, 실패한 작업의 다음 시도 시각, 배치 대기 시간(1분). 남은 SQL 변경은 낙관적 락 충돌을 만드는 버전 올리기뿐 |
 | 그대로 둔 것 | apps `AppearanceBillingFlowIntegrationTest`는 아직 방송 시각을 SQL로 옮긴다 (테스트 시계는 출연 모듈 테스트 코드라 apps에서 바로 쓸 수 없음) |
 | 시나리오 표 | 저장소 밖 `hapbang_be/SCENARIOS.md` (1~10장 179개 시나리오 + 정책·제한 21개, 오류 코드 45개의 HTTP 확인 위치) |
@@ -945,7 +945,7 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 | 외부 노출 | nginx가 `/api/v1/internal`을 밖에서 404로 막는다 (공통부). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영은 Swagger가 꺼져 있다 |
 | 출연 쪽 방어 | ① 보안 체인의 키 검증(공통부) ② `AppearanceEarningFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
 | 회원 ID | 쿼리 파라미터 `userId` (게스트). 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
-| 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). `null` 필드는 응답 JSON에서 빠진다(공통 Jackson 설정) |
+| 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). `null` 필드는 빠지지 않고 `null`로 나간다(출연 앱에 null 생략 설정 없음, #390에서 확인). 받는 쪽은 빠진 필드와 `null`을 같게 읽는다 |
 | 시각 | `LocalDateTime`(**offset 없는** ISO 8601), 모두 Asia/Seoul (Billing 합의 확정, 강의 계약 뒤에도 유지). 작업 완료·확인·취소·불참 시각은 출연 Clock(Asia/Seoul)으로 기록하고, 출연 수정 시각(`updated_at`)은 JPA Auditing이 JVM 기본 시간대로 기록하므로 앱 컨테이너의 `TZ: Asia/Seoul`(compose dev·prod, CI)에 기댄다 |
 
 **강의 계약과 다른 점** (#301 PR에 공유)
@@ -997,7 +997,7 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 | `title` | 출처 요청서·모집글의 현재 제목 (내 출연 목록과 같음) |
 | `amountHp` | 출연료, 위약금이면 위약금 |
 | `status` | 18.2 지급 상태 |
-| `payoutScheduledAt` | 항상 `null`이라 응답에서 빠진다 (호스트가 방송 뒤 7일 안에 언제든 확인할 수 있어 지급 시각이 정해지지 않음) |
+| `payoutScheduledAt` | 항상 `null` (호스트가 방송 뒤 7일 안에 언제든 확인할 수 있어 지급 시각이 정해지지 않음) |
 | `statusUpdatedAt` | `coalesce(작업 완료 시각, 확인 시각, 취소 시각, 불참 시각, 출연 수정 시각)`: 완료·실패는 작업 완료 시각(`DONE`·`DEAD` 모두 기록), 처리 중은 확인·일방 취소 시각, 취소는 불참·합의 취소 시각, 확인 대기·보류는 출연 수정 시각 |
 
 ### 18.5 인덱스
