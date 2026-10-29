@@ -4,6 +4,15 @@ resources:
 - ../../base
 - issuer.yaml
 - grafana.yaml
+# 로컬 전용 Kafka UI 계정이다(admin / local-kafka-ui-password). prod는 SealedSecret이다.
+# SecurityPolicy가 이름으로 참조하므로 hash를 붙이지 않는다.
+generatorOptions:
+  disableNameSuffixHash: true
+secretGenerator:
+- name: kafka-ui-basic-auth
+  namespace: hapbang-platform
+  literals:
+  - .htpasswd=admin:{SHA}Od3hFaMcV/cyAiqiG9So95B8nhA=
 patches:
 - target:
     kind: Gateway

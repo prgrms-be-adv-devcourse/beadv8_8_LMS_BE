@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
 - gateway.yaml
 - grafana-route.yaml
+- kafka-ui-route.yaml
 - alloy.yaml
 - tempo.yaml
 - metadata-networkpolicy.yaml

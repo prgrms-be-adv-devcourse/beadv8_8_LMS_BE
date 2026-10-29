@@ -151,7 +151,7 @@ kubectl --context "$CTX" -n hapbang-platform scale deploy/redpanda-console --rep
 
 - admin 비밀번호는 차트가 처음 설치할 때 만든 Secret(`grafana`)에 있다. 레포·채팅에 옮기지 않는다.
 - Loki(3100)·Tempo(3200)는 Grafana datasource로 조회한다.
-- Redpanda Console은 로그인이 없고 메시지 발행·토픽 삭제도 할 수 있다. Gateway route를 만들지 않고 port-forward로만 접속하며, 다 보면 replicas 0으로 되돌린다.
+- Redpanda Console은 자체 로그인이 없고 메시지 발행·토픽 삭제도 할 수 있다. 진입점 전환 전에는 port-forward로만 접속하고, 전환 뒤에는 `https://<도메인>/kafka/`에서 Envoy Basic Auth를 거친다([Gateway 구성](gateway.md)). 다 보면 replicas 0으로 되돌린다.
 
 ## CI
 

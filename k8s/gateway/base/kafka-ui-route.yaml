@@ -1,0 +1,53 @@
+# Kafka UI(Redpanda Console)를 /kafka/에서 Basic Auth로 연다(#374).
+# Console 무료판에는 로그인이 없어 Envoy가 인증한다. 계정은 kafka-ui-basic-auth Secret의 .htpasswd(SHA)다.
+# Console은 평소 replicas 0이라 꺼져 있으면 503이다. 켜고 끄는 방법은 docs/deploy/k8s.md "관측성 접속".
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kafka-ui
+  namespace: hapbang-platform
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: Exact
+        value: /kafka
+    filters:
+    - type: RequestRedirect
+      requestRedirect:
+        path:
+          type: ReplaceFullPath
+          replaceFullPath: /kafka/
+        statusCode: 301
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /kafka/
+    filters:
+    # Console이 이 prefix를 기준 경로로 쓰고 요청에서 떼어 낸다(server.setBasePathFromXForwardedPrefix 기본값).
+    - type: RequestHeaderModifier
+      requestHeaderModifier:
+        set:
+        - name: X-Forwarded-Prefix
+          value: /kafka
+    backendRefs:
+    - name: redpanda-console
+      port: 8080
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: kafka-ui
+  namespace: hapbang-platform
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: kafka-ui
+  basicAuth:
+    users:
+      name: kafka-ui-basic-auth
