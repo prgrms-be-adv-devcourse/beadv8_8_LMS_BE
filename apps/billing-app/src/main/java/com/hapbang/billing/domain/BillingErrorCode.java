@@ -84,6 +84,9 @@ public enum BillingErrorCode implements BaseErrorCode {
     MOCK_PAYOUT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 가상 송금을 처리할 수 없습니다."),
     // SERVER_ERROR 시나리오(요청을 처리하지 않고 끝난 5xx)
     MOCK_PAYOUT_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "가상 송금 처리 중 오류가 발생했습니다."),
+    // 지갑·보류·충전 건 등의 락을 lock_timeout(3초) 안에 얻지 못했다(PostgreSQL 55P03). 트랜잭션은 롤백되어 HP가 움직이지 않았으므로
+    // 같은 요청을 다시 보내면 된다 (#273, docs/billing/CONTEXT.md 1.4)
+    HP_LOCK_TIMEOUT(HttpStatus.SERVICE_UNAVAILABLE, "지금은 HP를 처리할 수 없습니다. 잠시 후 다시 시도해 주세요."),
     // 아래 500 코드는 불변식이 깨진 상황이라 응답 detail에 내부 상태를 드러내지 않고, 원인은 code와 로그로 구분한다.
     CHARGE_PRINCIPAL_MISMATCH(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),
     HOLD_STATE_INCONSISTENT(HttpStatus.INTERNAL_SERVER_ERROR, "HP 처리 중 오류가 발생했습니다."),

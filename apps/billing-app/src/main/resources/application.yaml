@@ -3,6 +3,9 @@
 spring:
   application:
     name: billing-app
+  config:
+    import:
+    - classpath:billing.yml
   profiles:
     default: local
   mvc:

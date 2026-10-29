@@ -1,0 +1,110 @@
+# 지갑(Billing) 작업 맥락
+
+작업별로 합의한 정책을 적는다. 결정의 근거 문서는 각 항목에 적고, 내용은 복사하지 않는다.
+
+## 1. 내부 HTTP API 구현 (#273)
+
+2026-10-29 `/grill-with-docs`로 정했다. 계약은 [`docs/api/internal-billing.md`](../api/internal-billing.md)를 따른다.
+
+### 1.1 경로·입출력
+
+- `POST /api/v1/internal/billing/{holds, releases, payouts, penalty-settlements}`. 성공은 `RsData`, 실패는 `ProblemDetail` + `code`다. 요청 하나를 Billing 로컬 트랜잭션 하나로 처리한다.
+- 요청 본문은 shared Command(`HoldCommand`·`ReleaseCommand`·`PayoutCommand`·`PenaltyCommand`)를 그대로 받는다. BD-54의 "shared DTO를 Controller 요청 DTO로 쓰지 않는다"는 같은 JVM 호출 전제였고, HTTP 계약에는 적용하지 않는다(BD-54 재검토 결과). Command 생성자의 구조 검사(NPE·IAE)는 Jackson 역직렬화 오류가 되어 400 `INVALID_REQUEST`로 응답한다.
+- 응답 DTO는 `BillingPortAdapter`와 같은 방식으로 변환한다(BD-61). `amountHp`가 `null`이면 남은 보류 전액이다.
+- 확정 차감(capture)은 노출하지 않는다.
+- 이슈 #273의 "shared 요청 DTO → billing 내부 Command 변환"은 #280(`BillingPort` 삭제)에서 한다. 지금 `HoldFacade`는 shared Command를 받고, 시그니처를 바꾸면 `BillingPortAdapter`·Hold 통합 테스트까지 바뀌기 때문이다. 기존 `InternalHoldCommand`·`InternalReleaseCommand`는 환불·환전용(보류 종류 지정)이라 이 용도로 쓰지 않는다.
+
+### 1.2 인증·노출
+
+- 기존 `InternalApiSecurityConfig`를 쓴다. `X-Internal-Api-Key`가 없거나 틀리면 401(본문 없음)이고, 회원 세션은 읽지 않는다.
+- `HoldFacade`에 `@PreAuthorize("hasRole('INTERNAL')")`를 붙인다(D63). #280 뒤에는 `HoldFacade`가 내부 API 전용 진입점이므로 최종 위치를 지금 정한다. 운영에서 `BillingPort`를 부르는 곳은 없고, `HoldFacade`·`BillingPort`를 직접 부르는 테스트는 `@WithMockUser(roles = "INTERNAL")`로 호출한다(검증 조건은 그대로).
+- 호출한 쪽이 넘긴 `userId`를 믿는다([`internal-earnings.md`](../api/internal-earnings.md) 1장).
+- Swagger에 노출한다. 외부는 진입점이 막는다(Compose는 nginx 404, k3s는 route 없음).
+
+### 1.3 멱등성·동시성
+
+- 같은 키 + 같은 내용은 `replayed = true`, 같은 키 + 다른 내용은 409 `IDEMPOTENCY_KEY_CONFLICT`다. 키 형식(BD-55)과 지급 오류 순서(BD-69)는 바꾸지 않는다.
+- 같은 회원·같은 키의 동시 요청은 지갑 락·보류 락으로 직렬화되어 replay된다. 코드는 바꾸지 않고 HTTP 동시성 테스트로 고정한다.
+- 다른 회원이 같은 참조 대상을 보류하면 보류 멱등키 UNIQUE 충돌로 409다(의도된 동작).
+
+### 1.4 락 대기 상한 (BD-108 결정)
+
+- Billing 전체에 `lock_timeout = 3s`를 Hikari `connection-init-sql`(`SET lock_timeout = '3s'`)로 적용한다. Client 응답 timeout(5초)보다 짧게 둔다.
+- 락 대기 초과(PostgreSQL 55P03)는 새 코드 `HP_LOCK_TIMEOUT`(503)으로 응답한다. 트랜잭션은 롤백되므로 Client는 `UNKNOWN_RESULT`로 받아 같은 키로 다시 보내면 된다.
+- `HP_LOCK_TIMEOUT`을 shared `BillingFailureCode`에도 추가한다.
+- 배치는 건별로 예외를 격리하므로 해당 건만 다음 실행에서 다시 처리한다. 충전 승인 중 초과되면 PROCESSING으로 남고 충전 복구 배치가 처리한다.
+- #273과 같은 PR에 포함한다.
+
+### 1.5 공존
+
+- `BillingPort`는 유지한다. 같은 `HoldFacade`를 Java 호출과 HTTP가 함께 쓴다. 삭제는 #280이다.
+
+### 1.6 테스트
+
+- `@IntegrationTest` + MockMvc로 네 경로마다 성공·replay·409·400(구조 오류)·401(키 없음, 세션만 있음)을 검사한다. status·code·detail, 같은 요청의 동시 처리, 락 대기 초과 503, 처리 중 기술 실패의 500(내부 메시지 미노출)과 전체 롤백, Facade 인가, 요청 로그도 검사한다.
+- 오류 코드 대조 단위 테스트(이슈 #273대로 역방향): `BillingErrorCode` 전체를 `default` 없는 `switch`로 `BillingFailureCode`(내부 API에서 나오는 코드) 또는 `null`(나오지 않는 코드)로 바꾼다. 바뀐 코드는 이름이 같고, `UNMAPPED`를 뺀 `BillingFailureCode`가 모두 어떤 Billing 코드에서 나온다. Billing에 오류 코드가 늘면 컴파일되지 않아 분류를 빠뜨리지 않는다.
+
+### 1.6.1 로그
+
+- 요청마다 요청 ID·참조 ID·금액과 결과(`result=OK replayed=…`, `result=FAILED code=…`, `result=ERROR exception=…`)를 key=value 한 줄로 남긴다(`ApiV1BillingInternalController`). 내부 API 키는 남기지 않는다.
+- correlation ID는 받지 않는다. 계약(`internal-billing.md` 3장)이 "추적 헤더는 tracing 도입 때 정한다"이므로 이슈 #273의 correlation ID 항목은 그때로 미룬다.
+
+### 1.7 용어
+
+- 경로 `penalty-settlements`와 `settlePenalty`는 그대로 둔다. "위약금 정산"은 호스트 출연 취소 위약금의 반환과 지급을 한 번에 처리하는 것으로, GLOSSARY "정산"(지급·환전을 통틀어 부르는 말)의 예외다.
+
+### 1.8 범위
+
+- 이슈 #273 본문에 없는 락 대기 상한(1.4: `lock_timeout`, `HP_LOCK_TIMEOUT`, 충전·환불·환전 Facade 변환)을 #273에 포함한다. Client 응답 timeout(5초)과 무제한 락 대기가 맞지 않아 내부 API와 함께 정했다. PR 본문에 이 사유를 적는다.
+- 범위 밖: Resilience4j 적용(별도 이슈, 동시 진행), `BillingPort` 삭제와 내부 Command 변환(#280), correlation ID(tracing 도입 때).
+
+## 2. Billing Client 회복성 — Resilience4j (이슈 번호 미정)
+
+2026-10-29 `/grill-with-docs`로 정했다. 대상은 shared `BillingApiClient`이고, 실패 분류는 [`docs/api/internal-billing.md`](../api/internal-billing.md) 2장(강의 D64)을 따른다. **강의 합의 필요** 표시가 붙은 항목은 강의 실행기 동작이 바뀌거나 D64를 보강하므로, 강의 담당과 합의해 강의 결정 기록에 새 D번호로 남긴 뒤 구현한다. 계약 문서와 강의 문서는 합의 뒤에 고친다.
+
+### 2.1 구조
+
+- shared `BillingApiClient` 안에서 감싼다. 출연(#274)도 같은 보호를 받는다.
+- Resilience4j core 모듈(`circuitbreaker`·`retry`·`timelimiter`)을 코드로 조합한다. shared는 라이브러리라 starter의 어노테이션 AOP를 쓰지 않는다. Spring Boot 4.1용 starter 지원 여부는 확인하지 않았다.
+- 인스턴스는 지갑 하나에 하나(`billing`)다. 네 경로(보류·반환·지급·위약금 정산)가 같은 billing-app을 부르기 때문이다.
+- 감싸는 순서는 `Retry( CircuitBreaker( TimeLimiter( 호출 ) ) )`다. 재시도마다 CB에 기록되고, CB가 열리면 남은 재시도는 멈춘다.
+- 설정 키는 `hapbang.clients.billing.resilience.*`다. 기본값은 `BillingClientProperties`에 두고 앱 yaml에서 덮어쓴다.
+
+### 2.2 Circuit Breaker
+
+- 실패로 세는 것은 `BillingCallException`(RETRYABLE·UNKNOWN_RESULT)이다. `Failed`(4xx 업무 응답)는 지갑이 정상이라는 뜻이라 세지 않는다.
+- 다음은 `BillingCallException`이어도 세지 않는다.
+  - 429: 과부하 신호이지 장애가 아니다.
+  - 503 `HP_LOCK_TIMEOUT`(1.4): 특정 지갑의 락 경합이라, 세면 회원 한 명의 경합으로 모든 회원의 호출이 막힌다. 분류는 그대로 UNKNOWN_RESULT다.
+- 값: count 기반 창 20, 최소 호출 10, 실패율 50%, OPEN 30초, HALF_OPEN 허용 3회, 느린 호출 4초(응답 timeout 5초보다 짧고 `lock_timeout` 3초보다 길다).
+- OPEN이라 요청을 보내지 않으면 `BillingCallException(RETRYABLE, 0, rawCode = "CIRCUIT_OPEN")`을 던진다. 요청이 지갑에 닿지 않은 것이 확실하므로 RETRYABLE이다. **강의 합의 필요**(D64 보강, D58 보상 판단과 연결).
+- 강의 HP 작업 배치는 선점 전에 CB가 OPEN이면 그 회차를 건너뛴다. 그래야 지갑 장애가 길어져도 정상 작업이 시도 횟수를 다 써서 `DEAD`가 되지 않는다. Client는 CB 상태를 알려 주는 메서드를 제공한다. **강의 합의 필요**(D57 실행기 변경).
+- CB 상태는 Micrometer 지표와 health에 노출한다. readiness에는 넣지 않는다. 지갑 장애로 강의·출연 pod까지 트래픽에서 빠지면 안 되기 때문이다.
+
+### 2.3 TimeLimiter
+
+- 소켓 timeout(연결 2초, 응답 5초)은 그대로 두고, TimeLimiter는 전체 상한(예: 8초)으로 둔다.
+- 시간 초과는 반드시 UNKNOWN_RESULT다. 시간이 다 돼도 HTTP 요청은 뒤에서 계속 돌아 지갑이 커밋할 수 있기 때문이다.
+- 실행 스레드는 가상 스레드다.
+- 주문 요청 하나의 시간 예산은 10초다. 넘으면 남은 항목은 배치로 넘기고 202(처리 중)로 응답한다(D58 흐름). **강의 합의 필요**.
+
+### 2.4 짧은 Retry
+
+- RETRYABLE만 재시도한다(연결 거부, 408·425·429). UNKNOWN_RESULT, `Failed`, `CIRCUIT_OPEN`은 재시도하지 않고 HP 작업 백오프(D57)에 맡긴다.
+- 첫 호출을 포함해 3회, 200ms에서 시작해 두 배씩 늘리고 지터를 둔다. 기다리는 시간은 최대 약 0.6초다.
+- 429의 `Retry-After`는 따르지 않는다.
+- 다 실패하면 마지막 `BillingCallException`을 그대로 던진다. 실행기 분류는 바뀌지 않는다.
+- 주문 요청 안 즉시 실행과 HP 작업 배치에 같은 정책을 쓴다.
+- Client 안의 재시도는 Micrometer 지표(재시도 횟수, CB 상태)로만 남긴다. HP 작업 시도 행은 늘리지 않는다.
+
+### 2.5 범위·테스트
+
+- 이번에는 `BillingApiClient`만 바꾼다. `LectureApiClient`·`AppearanceApiClient`·`MemberApiClient`는 공통 부분이 보이면 그때 `common`으로 옮긴다.
+- `BillingApiClientTest`를 늘린다.
+  - CB 전이(CLOSED → OPEN → HALF_OPEN)
+  - OPEN → RETRYABLE(`CIRCUIT_OPEN`)
+  - RETRYABLE만 재시도
+  - 시간 초과 → UNKNOWN_RESULT
+  - 429·`HP_LOCK_TIMEOUT`은 CB 실패로 세지 않음
+- Toxiproxy 장애 주입은 최종 프로젝트 포트폴리오 항목으로 따로 둔다.
+- 합의 뒤 고칠 문서: `docs/api/internal-billing.md` 2·3장, 강의 결정 기록(새 D번호), `docs/lecture/integration.md` 6.2, `docs/billing/test-spec.md` PORT 항목.
