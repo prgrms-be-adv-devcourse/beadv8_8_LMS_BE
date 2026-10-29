@@ -1,5 +1,7 @@
 # 3. API Gateway — Envoy Gateway
 
+구현·로컬 검증·운영 전환: [Gateway 운영 문서](../../deploy/gateway.md)(#372). 내부 API는 k8s에서 8081 listener를 따로 열고 외부 8080과 경로를 분리한다. Grafana는 `/grafana/`에서 자체 로그인으로 공개한다.
+
 상위 문서: [최종 프로젝트 인프라 설계](../final-project-infrastructure.md). 결정 기록은 #369다.
 
 ## 맡는 책임
