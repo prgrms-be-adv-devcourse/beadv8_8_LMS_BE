@@ -124,6 +124,25 @@ k3d image import -c hapbang hapbang/elasticsearch-nori:9.5.5 \
 | 배포 전략 | `kubectl -n hapbang-prod rollout restart deploy/member-app deploy/chat-app` 중 `kubectl get pods -w` | member는 새 pod가 Ready가 된 뒤 기존 pod가 내려가고, chat은 기존 pod가 먼저 내려간다 |
 | 메모리 예산 | `kubectl describe node <node>`의 Allocated resources(memory limits), `kubectl top node` | limit 합계에 `replicas: 0`인 앱의 limit을 더해도 3장 예산 안이고, 10분 뒤 OOMKilled가 없다 |
 
+## 관측성 접속
+
+Grafana·Prometheus를 포함해 cluster의 Service는 모두 ClusterIP다. NodePort·LoadBalancer로 열지 않고 Envoy Gateway에도 route를 만들지 않는다. Grafana 3000 같은 관측성 포트는 인터넷에 공개하지 않는다([AWS 2노드 k3s 배치](aws-k3s.md#network와-외부-노출)). 접속은 `kubectl port-forward`로만 한다.
+
+```bash
+CTX=k3d-hapbang   # EC2는 hapbang-k3s(6443이 허용된 IP에서만)
+
+# Grafana: http://localhost:3000, 사용자 admin
+kubectl --context "$CTX" -n hapbang-platform get secret grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
+kubectl --context "$CTX" -n hapbang-platform port-forward svc/grafana 3000:80
+
+# Prometheus UI: http://localhost:9090
+kubectl --context "$CTX" -n hapbang-platform port-forward svc/prometheus-server 9090:80
+```
+
+- admin 비밀번호는 차트가 처음 설치할 때 만든 Secret(`grafana`)에 있다. 레포·채팅에 옮기지 않는다.
+- Loki(3100)·Tempo(3200)는 Grafana datasource로 조회한다. 직접 볼 때도 같은 방식으로 port-forward한다.
+- 외부 도메인으로 Grafana를 열려면 Envoy Gateway route와 인증이 필요하다. 진입점 작업(#372)에서 정한다.
+
 ## CI
 
 `ci.yml`의 `manifests` job이 PR마다 `k8s/`와 `apps/<앱>/k8s`의 overlay별로 `kubectl kustomize` → `kubeconform -strict`를 실행한다. Kubernetes schema는 k3s와 같은 1.36.5, CRD(HelmChart·Elasticsearch) schema는 [CRDs-catalog](https://github.com/datreeio/CRDs-catalog)의 고정 커밋을 쓴다.
