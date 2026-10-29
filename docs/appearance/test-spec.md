@@ -25,6 +25,7 @@
 - 출연 모듈 통합 테스트는 `@AppearanceIntegrationTest`(= 팀 `@IntegrationTest` + `BillingClient` Mockito 대역), E2E 테스트는 `@AppearanceE2ETest`(실제 포트 + 같은 대역, #390)를 쓴다. 대역은 기본 성공이고 Billing 규칙(잔액·보류·멱등)을 흉내 내지 않는다.
 - 아래 표의 "보류·반환·지급·잔액" 기대 결과는 #289부터 **Billing에 보낸 요청 내용**(`BillingCalls`: 금액·요청 ID·원천·받는 회원)으로 확인한다. 실제 잔액·보류 변화는 16장 apps 통합 테스트가 확인한다.
 - 실패는 `BillingStubs`로 만든다: 무응답(업무 예외가 아닌 런타임 예외) / Billing 거절(`INSUFFICIENT_BALANCE`·`WALLET_NOT_FOUND`·`HOLD_NOT_FOUND`, 공통 업무 예외).
+- 지갑 HTTP 응답을 흉내 내야 하면 Mock Billing 서버(`support/MockBilling`, WireMock)를 쓴다. 구성과 쓰는 법은 22장.
 
 ### E2E 테스트 방식 (#390)
 
@@ -1116,3 +1117,61 @@ MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코
 
 - 두 관리자가 실제 스레드로 동시에 누르는 경우는 타이밍에 기대지 않도록, 위 동시 테스트처럼 "읽은 직후 다른 트랜잭션이 먼저 커밋"으로 만든다(17.2와 같은 방식). 늦게 누르면 이미 대기라 409 `HP_TASK_NOT_DEAD`다.
 - 같은 작업이 두 곳에서 동시에 Billing에 가도 HP는 한 번만 움직인다: Billing이 지갑을 잠근 뒤 같은 요청 ID 기록을 확인해 두 번째는 처음 결과를 돌려주고, 출연은 대기 중일 때만 결과를 기록한다(버전 충돌이면 먼저 기록한 쪽). 실제 Billing으로 확인하는 일은 Mock Billing·HTTP 전환 작업에서 한다.
+
+## 22. Mock Billing 서버 (#391)
+
+지갑(billing-app) 대신 지갑 내부 API(`docs/api/internal-billing.md`) 4개 경로를 흉내 내는 HTTP 서버다. 모듈 간 E2E는 보류하고, 출연이 지갑 응답(성공·재전송·거절·지연·장애)에 맞게 움직이는지 이 서버로 확인한다.
+
+### 22.1 구성
+
+| 구성 | 내용 |
+|---|---|
+| 도구 | WireMock 3.13.2 `wiremock-standalone`(테스트 의존성). 경로별 응답, 상태 시나리오(첫 요청 → 재전송), 지연·연결 끊김, 받은 요청 조회를 기본 기능으로 쓴다. 내부 라이브러리를 숨긴 standalone이라 Spring Boot 4·Jackson 3와 충돌하지 않는다 |
+| `support/MockBilling` | 서버(JVM에 하나, 처음 쓸 때 띄움)와 시나리오 메서드: `succeed`·`replayAfterFirst`·`fail(상태, code, detail)`·`delay`·`connectionReset`·`refusedBaseUrl`, 받은 요청 `requests(경로)` |
+| 성공 응답 파일 | `src/test/resources/mock-billing/__files/{hold,release,payout,penalty}-success.json`. `*ResultDto`와 같은 필드이고 요청 값을 그대로 돌려준다(응답 템플릿). 계약이 바뀌면 함께 고친다 |
+| 실패 응답 | 지갑과 같은 `ProblemDetail` + `code` (`application/problem+json`) |
+
+쓰는 법:
+
+```java
+@AppearanceIntegrationTest
+class SomeTest {
+    @DynamicPropertySource
+    static void mockBilling(DynamicPropertyRegistry registry) {
+        MockBilling.registerProperties(registry, "500ms"); // base-url = Mock, 응답 대기 시간
+    }
+
+    @BeforeEach
+    void setUp() {
+        MockBilling.reset(); // 받은 요청·설정 지움, 4개 경로 성공
+    }
+}
+```
+
+`hapbang.clients.billing.base-url`이 생기면 shared `BillingApiClient` 빈이 만들어진다. 출연이 지갑을 HTTP로 부르게 되면(#274) 같은 설정으로 출연 흐름을 확인한다.
+
+### 22.2 Mockito 대역(`BillingStubs`·`BillingCalls`)과의 관계
+
+| 대역 | 지금 | 지갑 HTTP 전환(#274) 뒤 |
+|---|---|---|
+| `BillingStubs` (`BillingClient` Mockito 대역의 실패 만들기) | 출연 업무 테스트 전부 | 출연 업무 규칙(상태·작업 기록·재시도)만 보는 테스트는 남긴다. HTTP 응답 해석(코드·상태·재전송)이 관련된 테스트는 `MockBilling`으로 옮긴다 |
+| `BillingCalls` (Mockito에 남은 호출 인자) | Billing에 보낸 요청 내용 확인 | `BillingClient` 대역을 쓰는 테스트에서는 남긴다. HTTP로 보낸 본문은 `MockBilling.requests`로 확인한다 |
+| `MockBilling` | `BillingApiClient` 응답 분류와 받은 요청 확인 (`MockBillingTest`) | 출연 `BillingClient`의 HTTP 구현과 실패 분류(재시도·DEAD·`HOLD_PENDING`) 확인 |
+
+### 22.3 `MockBillingTest` (통합, 출연 테스트 컨텍스트 + 실제 `BillingApiClient`)
+
+| 묶음 | 케이스 | 기대 결과 |
+|---|---|---|
+| 성공 | 보류·반환·지급·위약금 정산 | `Succeeded`, 응답 = 요청 값(참조 대상·요청 ID·받는 회원·원천·금액), 남은 보류 0, `replayed = false` |
+| 성공 | 받은 요청 | 경로, 내부 API 키 헤더, JSON 형식, 요청 ID(보류는 없음), 금액. 부르지 않은 경로는 0건 |
+| 성공 | 전액 반환(금액 null) | 요청에 금액 없음, 반환액 0으로 응답 |
+| 재전송 | 같은 반환 요청 2번 | 첫 `replayed = false`, 두 번째 `true`·같은 반환액, 받은 요청 2건(같은 요청 ID) |
+| 거절 | 409 `INSUFFICIENT_BALANCE` | `Failed`: 코드, `detail` "HP 잔액이 부족합니다.", 409, `rawCode` |
+| 거절 | 409 `IDEMPOTENCY_KEY_CONFLICT` | `Failed` 같은 코드 |
+| 거절 | 404 처음 보는 코드 / 400 코드 없음 | `UNMAPPED`, `rawCode` `SOMETHING_NEW` / `UNMAPPED`, 400 |
+| 결과 없음 | 429 | `RETRYABLE`, 429 |
+| 결과 없음 | 500 `HOLD_STATE_INCONSISTENT` | `UNKNOWN_RESULT`, 500, `rawCode` |
+| 결과 없음 | 응답 1.5초 지연 (응답 대기 500ms) | `UNKNOWN_RESULT`, 상태 0. 지갑은 요청을 받음(1건) |
+| 결과 없음 | 응답 도중 연결 끊김 | `UNKNOWN_RESULT`, 상태 0 |
+| 결과 없음 | 연결 거부 (듣지 않는 포트) | `RETRYABLE`, 상태 0 |
+
