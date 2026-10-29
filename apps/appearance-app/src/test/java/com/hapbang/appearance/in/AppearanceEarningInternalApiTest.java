@@ -1,10 +1,10 @@
 package com.hapbang.appearance.in;
 
+import static com.hapbang.appearance.support.E2EMatchers.number;
+import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.matchesPattern;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.nullValue;
 
 import java.util.List;
 import java.util.function.Supplier;
@@ -13,12 +13,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.hapbang.appearance.app.AppearanceFacade;
 import com.hapbang.appearance.app.AppearanceRequestFacade;
@@ -28,25 +25,26 @@ import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.AppearanceRepository;
 import com.hapbang.appearance.out.billing.BillingClient;
-import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceE2ETest;
 import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.appearance.support.BillingStubs;
+import com.hapbang.appearance.support.E2ELogin;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
+
+import io.restassured.specification.RequestSpecification;
 
 /**
- * 출연 수익 내부 API (#301)를 내부 API 보안 체인(global)부터 DB까지 관통해 확인한다. 상태 분류는 {@code AppearanceEarningQueryTest}가 맡는다.
+ * 출연 수익 내부 API (#301)를 실제 서버에 RestAssured로 호출해 내부 API 보안 체인(global)부터 DB까지 관통해 확인한다. 상태 분류는 {@code AppearanceEarningQueryTest}가 맡는다.
  * <ul>
  *     <li>응답 모양은 강의 내부 API와 같다 (docs/api/internal-earnings.md): {@code RsData}, 페이지 {@code {content, page}},
  *     {@code sourceType} 문자열, null 필드 생략. 다른 점: 시각은 offset 없는 KST, 요약에 {@code asOf} 없음.</li>
- *     <li>흐름은 요청 전에 Facade로 만든다 (MockMvc 요청이 끝나면 테스트의 로그인 정보를 지운다). 로그인 정보는 흐름을 만들 때만 두고,
- *     요청은 내부 API 키만으로 보낸다.</li>
+ *     <li>흐름은 요청 전에 테스트 스레드에서 Facade로 만든다. Facade의 역할 검사를 통과하도록 로그인 정보는 흐름을 만들 때만 두고 지운다.
+ *     요청은 서버 스레드에서 처리되고 내부 API 키만 싣는다.</li>
  * </ul>
  */
-@AppearanceIntegrationTest
-@AutoConfigureMockMvc
+@AppearanceE2ETest
 class AppearanceEarningInternalApiTest {
 
     private static final String SUMMARY = "/api/v1/internal/appearances/earnings/summary";
@@ -55,9 +53,6 @@ class AppearanceEarningInternalApiTest {
     private static final Long GUEST = 2L;
     /** offset 없는 ISO 날짜·시각 (예: 2026-10-20T10:00:00.123456) */
     private static final String LOCAL_DATE_TIME = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?";
-
-    @Autowired
-    MockMvc mockMvc;
 
     @Autowired
     AppearanceUserFacade appearanceUserFacade;
@@ -114,131 +109,131 @@ class AppearanceEarningInternalApiTest {
         }
     }
 
-    private static MockHttpServletRequestBuilder internal(MockHttpServletRequestBuilder request) {
-        return request.header(InternalApiHeaders.API_KEY, IntegrationTest.INTERNAL_API_KEY);
+    private static RequestSpecification internal() {
+        return given().header(InternalApiHeaders.API_KEY, IntegrationTest.INTERNAL_API_KEY);
     }
+
 
     @Test
     @DisplayName("요약: 내부 키로 상태별 {amountHp, count}를 RsData로 준다. 지급 예정은 0, asOf는 없다")
-    void summary() throws Exception {
+    void summary() {
         pendingAndProcessing();
 
-        mockMvc.perform(internal(get(SUMMARY).param("userId", GUEST.toString())))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.statusCode").value(200))
-                .andExpect(jsonPath("$.message").value("출연 수익 요약을 조회했습니다."))
-                .andExpect(jsonPath("$.data.confirmationPending.amountHp").value(20_000))
-                .andExpect(jsonPath("$.data.confirmationPending.count").value(1))
-                .andExpect(jsonPath("$.data.scheduled.amountHp").value(0))
-                .andExpect(jsonPath("$.data.scheduled.count").value(0))
-                .andExpect(jsonPath("$.data.onHold.count").value(0))
-                .andExpect(jsonPath("$.data.processing.amountHp").value(22_000))
-                .andExpect(jsonPath("$.data.processing.count").value(1))
-                .andExpect(jsonPath("$.data.failed.count").value(0))
-                .andExpect(jsonPath("$.data.asOf").doesNotExist());
+        internal().queryParam("userId", GUEST).get(SUMMARY)
+                .then().statusCode(200)
+                .body("statusCode", equalTo(200))
+                .body("message", equalTo("출연 수익 요약을 조회했습니다."))
+                .body("data.confirmationPending.amountHp", equalTo(20_000))
+                .body("data.confirmationPending.count", equalTo(1))
+                .body("data.scheduled.amountHp", equalTo(0))
+                .body("data.scheduled.count", equalTo(0))
+                .body("data.onHold.count", equalTo(0))
+                .body("data.processing.amountHp", equalTo(22_000))
+                .body("data.processing.count", equalTo(1))
+                .body("data.failed.count", equalTo(0))
+                .body("data.asOf", nullValue());
         // 종류 필터: 위약금만 고르면 0
-        mockMvc.perform(internal(get(SUMMARY).param("userId", GUEST.toString())
-                        .param("earningType", "APPEARANCE_PENALTY")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.confirmationPending.count").value(0))
-                .andExpect(jsonPath("$.data.processing.count").value(0));
+        internal().queryParam("userId", GUEST).queryParam("earningType", "APPEARANCE_PENALTY").get(SUMMARY)
+                .then().statusCode(200)
+                .body("data.confirmationPending.count", equalTo(0))
+                .body("data.processing.count", equalTo(0));
     }
 
     @Test
     @DisplayName("목록: 강의와 같은 필드·페이지 모양. sourceType APPEARANCE, 시각은 offset 없는 KST, 지급 예정 시각(null)은 응답에서 빠진다")
-    void earnings() throws Exception {
+    void earnings() {
         Long processing = pendingAndProcessing();
 
-        mockMvc.perform(internal(get(EARNINGS).param("userId", GUEST.toString())
-                        .param("status", "PROCESSING").param("status", "COMPLETED").param("earningType", "APPEARANCE_FEE")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("출연 수익 목록을 조회했습니다."))
-                .andExpect(jsonPath("$.data.page.totalElements").value(1))
-                .andExpect(jsonPath("$.data.content[0].sourceType").value("APPEARANCE"))
-                .andExpect(jsonPath("$.data.content[0].sourceId").value(processing))
-                .andExpect(jsonPath("$.data.content[0].earningType").value("APPEARANCE_FEE"))
-                .andExpect(jsonPath("$.data.content[0].title").value(
-                        AppearanceRequestFixture.content(clock.now()).title()))
-                .andExpect(jsonPath("$.data.content[0].amountHp").value(22_000))
-                .andExpect(jsonPath("$.data.content[0].status").value("PROCESSING"))
-                .andExpect(jsonPath("$.data.content[0].payoutScheduledAt").doesNotExist())
-                .andExpect(jsonPath("$.data.content[0].statusUpdatedAt").value(matchesPattern(LOCAL_DATE_TIME)));
+        internal().queryParam("userId", GUEST).queryParam("status", "PROCESSING", "COMPLETED")
+                .queryParam("earningType", "APPEARANCE_FEE").get(EARNINGS)
+                .then().statusCode(200)
+                .body("message", equalTo("출연 수익 목록을 조회했습니다."))
+                .body("data.page.totalElements", equalTo(1))
+                .body("data.content[0].sourceType", equalTo("APPEARANCE"))
+                .body("data.content[0].sourceId", number(processing))
+                .body("data.content[0].earningType", equalTo("APPEARANCE_FEE"))
+                .body("data.content[0].title", equalTo(AppearanceRequestFixture.content(clock.now()).title()))
+                .body("data.content[0].amountHp", equalTo(22_000))
+                .body("data.content[0].status", equalTo("PROCESSING"))
+                .body("data.content[0].payoutScheduledAt", nullValue())
+                .body("data.content[0].statusUpdatedAt", matchesPattern(LOCAL_DATE_TIME));
     }
 
     @Test
     @DisplayName("상태를 주지 않거나 값 없이 주면 아직 받지 못한 수익만, page·size로 나눈다. 출연에 없는 상태(SCHEDULED)만 고르면 빈 결과")
-    void defaultAndPaging() throws Exception {
+    void defaultAndPaging() {
         Long processing = pendingAndProcessing();
 
-        mockMvc.perform(internal(get(EARNINGS).param("userId", GUEST.toString()).param("size", "1")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content.length()").value(1))
+        internal().queryParam("userId", GUEST).queryParam("size", 1).get(EARNINGS)
+                .then().statusCode(200)
+                .body("data.content.size()", equalTo(1))
                 // 확인한 출연이 상태 기준 시각(확인 시각)이 가장 최근이라 먼저다
-                .andExpect(jsonPath("$.data.content[0].sourceId").value(processing))
-                .andExpect(jsonPath("$.data.page.size").value(1))
-                .andExpect(jsonPath("$.data.page.number").value(0))
-                .andExpect(jsonPath("$.data.page.totalElements").value(2))
-                .andExpect(jsonPath("$.data.page.totalPages").value(2));
+                .body("data.content[0].sourceId", number(processing))
+                .body("data.page.size", equalTo(1))
+                .body("data.page.number", equalTo(0))
+                .body("data.page.totalElements", equalTo(2))
+                .body("data.page.totalPages", equalTo(2));
         // 값 없는 status(?status=)는 Spring이 빈 목록으로 바꿔 고르지 않은 것과 같다
-        mockMvc.perform(internal(get(EARNINGS).param("userId", GUEST.toString()).param("status", "")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.page.totalElements").value(2));
-        mockMvc.perform(internal(get(EARNINGS).param("userId", GUEST.toString()).param("status", "SCHEDULED")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content.length()").value(0))
-                .andExpect(jsonPath("$.data.page.totalElements").value(0));
+        internal().queryParam("userId", GUEST).queryParam("status", "").get(EARNINGS)
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(2));
+        internal().queryParam("userId", GUEST).queryParam("status", "SCHEDULED").get(EARNINGS)
+                .then().statusCode(200)
+                .body("data.content.size()", equalTo(0))
+                .body("data.page.totalElements", equalTo(0));
     }
 
     @Test
     @DisplayName("출연 기록이 없는 회원은 0원 요약·빈 목록")
-    void unknownMember() throws Exception {
-        mockMvc.perform(internal(get(SUMMARY).param("userId", "999")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.confirmationPending.count").value(0))
-                .andExpect(jsonPath("$.data.failed.amountHp").value(0));
-        mockMvc.perform(internal(get(EARNINGS).param("userId", "999")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content.length()").value(0));
+    void unknownMember() {
+        internal().queryParam("userId", 999).get(SUMMARY)
+                .then().statusCode(200)
+                .body("data.confirmationPending.count", equalTo(0))
+                .body("data.failed.amountHp", equalTo(0));
+        internal().queryParam("userId", 999).get(EARNINGS)
+                .then().statusCode(200)
+                .body("data.content.size()", equalTo(0));
     }
 
     @Test
     @DisplayName("userId가 없거나 1 미만, status·earningType이 계약에 없는 값이면 400 INVALID_REQUEST")
-    void invalidRequest() throws Exception {
-        mockMvc.perform(internal(get(SUMMARY)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.errors[0].field").value("userId"));
-        mockMvc.perform(internal(get(EARNINGS).param("userId", "0")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        mockMvc.perform(internal(get(EARNINGS).param("userId", GUEST.toString()).param("status", "PAID")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.errors[0].field").value("status"));
+    void invalidRequest() {
+        internal().get(SUMMARY)
+                .then().statusCode(400)
+                .body("code", equalTo("INVALID_REQUEST"))
+                .body("errors[0].field", equalTo("userId"));
+        internal().queryParam("userId", 0).get(EARNINGS)
+                .then().statusCode(400)
+                .body("code", equalTo("INVALID_REQUEST"));
+        internal().queryParam("userId", GUEST).queryParam("status", "PAID").get(EARNINGS)
+                .then().statusCode(400)
+                .body("code", equalTo("INVALID_REQUEST"))
+                .body("errors[0].field", equalTo("status"));
         // 다른 모듈의 종류(강의 LECTURE_SALE)도 출연 계약에 없는 값이다
-        mockMvc.perform(internal(get(EARNINGS).param("userId", GUEST.toString()).param("earningType", "LECTURE_SALE")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.errors[0].field").value("earningType"));
+        internal().queryParam("userId", GUEST).queryParam("earningType", "LECTURE_SALE").get(EARNINGS)
+                .then().statusCode(400)
+                .body("code", equalTo("INVALID_REQUEST"))
+                .body("errors[0].field", equalTo("earningType"));
     }
 
     @Test
     @DisplayName("내부 키가 없거나 틀리면 본문 없는 401, 회원 로그인만으로도 401")
-    void keyRequired() throws Exception {
-        mockMvc.perform(get(SUMMARY).param("userId", GUEST.toString()))
-                .andExpect(status().isUnauthorized())
-                .andExpect(content().string(""));
-        mockMvc.perform(get(EARNINGS).param("userId", GUEST.toString())
-                        .header(InternalApiHeaders.API_KEY, IntegrationTest.INTERNAL_API_KEY + "x"))
-                .andExpect(status().isUnauthorized());
-        mockMvc.perform(get(EARNINGS).param("userId", GUEST.toString()).with(TestLogin.as(GUEST, Role.INFLUENCER)))
-                .andExpect(status().isUnauthorized());
+    void keyRequired() {
+        given().queryParam("userId", GUEST).get(SUMMARY)
+                .then().statusCode(401)
+                .body(equalTo(""));
+        given().queryParam("userId", GUEST)
+                .header(InternalApiHeaders.API_KEY, IntegrationTest.INTERNAL_API_KEY + "x")
+                .get(EARNINGS)
+                .then().statusCode(401);
+        E2ELogin.as(GUEST, Role.INFLUENCER).queryParam("userId", GUEST).get(EARNINGS)
+                .then().statusCode(401);
     }
 
     @Test
     @DisplayName("내부 키로는 회원용 출연 API를 부를 수 없다")
-    void keyIsNotLogin() throws Exception {
-        mockMvc.perform(internal(get("/api/v1/appearances").param("role", "GUEST")))
-                .andExpect(status().isUnauthorized());
+    void keyIsNotLogin() {
+        internal().queryParam("role", "GUEST").get("/api/v1/appearances")
+                .then().statusCode(401);
     }
 }

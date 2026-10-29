@@ -888,7 +888,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 출연이 부르는 Billing | `appearance.billing.mode` 기본값 `fake` → 출연 모듈 안의 메모리 구현 `FakeBillingClient`. 배포 서버에서도 출연 HP가 Billing 지갑에 기록되지 않음 | 항상 `BillingPortClient` → shared `BillingPort` → Billing 모듈 (실제 지갑·원장) |
 | Fake Billing | `FakeBillingClient`·`FakeBillingErrorCode`·`FakeBillingException`·`BillingUnavailableException` (main) | 삭제 |
 | 설정 | `appearance.billing.mode` (`fake`/`billing-port`) | 삭제 (구현이 하나뿐) |
-| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
+| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`·`@AppearanceE2ETest`(실제 포트, #390)가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
 | 실제 Billing 확인 | Billing 담당 `AppearanceBillingPortIntegrationTest`(보류·거절 반환 일부) | 출연 `AppearanceBillingFlowIntegrationTest`(apps)가 출연 API 전체 흐름을 실제 Billing으로 확인 (16장 test-spec) |
 
 - 출연은 현금을 다루지 않는다(HP만). 현금은 Billing 충전(Toss 테스트 결제)으로만 들어온다. 실제 Billing에 연결해도 실제 현금은 오가지 않는다 (APR-36).
@@ -919,7 +919,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 
 | 항목 | 내용 |
 |---|---|
-| 테스트 시계 | `@AppearanceIntegrationTest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
+| 테스트 시계 | `@AppearanceIntegrationTest`·`@AppearanceE2ETest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
 | 시각 만들기 | 테스트는 DB의 시각 값(`scheduled_at`·`recruit_deadline`·`created_at`·`next_attempt_at`)을 고치지 않는다. 실제 순서대로 시계를 돌린다: 모집 마감(기한 마감 배치) → 방송 → 확인 기간 끝, 실패한 작업의 다음 시도 시각, 배치 대기 시간(1분). 남은 SQL 변경은 낙관적 락 충돌을 만드는 버전 올리기뿐 |
 | 그대로 둔 것 | apps `AppearanceBillingFlowIntegrationTest`는 아직 방송 시각을 SQL로 옮긴다 (테스트 시계는 출연 모듈 테스트 코드라 apps에서 바로 쓸 수 없음) |
 | 시나리오 표 | 저장소 밖 `hapbang_be/SCENARIOS.md` (1~10장 179개 시나리오 + 정책·제한 21개, 오류 코드 45개의 HTTP 확인 위치) |
