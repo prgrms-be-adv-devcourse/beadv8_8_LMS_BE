@@ -33,7 +33,7 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | 기술 | 선택 | 보여 줄 역량 |
 | --- | --- | --- |
 | Kafka | 도입 | 모듈 간 비동기 이벤트, outbox, 멱등 소비, retry/DLT, replay |
-| Redis Streams | 채팅 모듈에 도입 | consumer group, ACK·pending·claim, 실시간 전달 실패 복구 |
+| 채팅 전달 작업 | PostgreSQL outbox로 보관·재처리 | DB 선점·lease 회수·backoff·실패 격리. Redis Streams는 구현하지 않음(2026-10-29 결정) |
 | Redis Pub/Sub·TTL | 채팅·알림 보조로 도입 | 다중 앱 replica fan-out, 접속 상태·짧은 수명 데이터 |
 | 앱 구조 | 앱 1개 = bounded context 1개 = database 1개. #363의 앱 6개에 `notification-app`·`search-app`을 더해 8개 | 서비스별 빌드·배포·장애 격리 |
 | 알림(notification) | 채팅에서 분리해 `notification-app`으로 ([8장](infrastructure/notification.md)) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구 |
@@ -96,7 +96,7 @@ Client
             │                                            ├─ notification 모듈·감사 소비자
             │                                            └─ search 모듈 → Elasticsearch index
             │
-            └─ chat outbox → Redis Streams → chat delivery worker
+            └─ chat outbox → DB relay(선점·lease·재시도)
                                                │
                                                └─ Redis Pub/Sub → 각 app의 로컬 WebSocket session
 
@@ -133,7 +133,7 @@ PostgreSQL이 Kafka나 Redis로 대체되지 않는다. HP 원장과 채팅 이�
 | 장 | 문서 | 내용 |
 | --- | --- | --- |
 | 1 | [Kafka](infrastructure/kafka.md) | 모듈 간 integration event, broker 선택 |
-| 2 | [Redis Streams](infrastructure/redis-chat.md) | 채팅 전달 pipeline |
+| 2 | [채팅 전달](infrastructure/redis-chat.md) | PostgreSQL outbox·Redis Pub/Sub 채팅 전달 pipeline |
 | 3 | [k3s·Kustomize·Helm](infrastructure/k3s.md) | k3s와 k3d, EC2 2노드 자원 예산, EC2 운영, workload, manifest, CI |
 | 3 | [API Gateway](infrastructure/api-gateway.md) | Envoy Gateway, JWT 인증 흐름, rate limit |
 | 4 | [Graceful Shutdown](infrastructure/graceful-shutdown.md) | 전체 workload drain |
@@ -154,7 +154,7 @@ PostgreSQL이 Kafka나 Redis로 대체되지 않는다. HP 원장과 채팅 이�
 
 ### KEDA — 이벤트 양에 따른 consumer 자동 확장
 
-KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 이벤트의 양으로 pod 수를 조절한다. 기준은 Kafka consumer lag, Redis Stream pending 수 등이다. `ScaledObject`에 기준을 적으면 KEDA가 HPA의 외부 metric으로 넘기고, 일이 없으면 0개까지 줄일 수도 있다([공식 scaler 목록](https://keda.sh/docs/latest/scalers)).
+KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 이벤트의 양으로 pod 수를 조절한다. 기준은 Kafka consumer lag 등이다. `ScaledObject`에 기준을 적으면 KEDA가 HPA의 외부 metric으로 넘기고, 일이 없으면 0개까지 줄일 수도 있다([공식 scaler 목록](https://keda.sh/docs/latest/scalers)).
 
 지금 넣지 않는 이유:
 - 현재 2노드는 node별 역할과 메모리 상한이 고정돼 있어 lag에 따라 pod를 늘릴 여유가 작다([3장](infrastructure/k3s.md#ec2-2노드-자원-예산)).
@@ -200,9 +200,9 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 ### Phase 4 — 채팅 Redis와 알림 모듈
 
-1. `chat_outbox`와 publisher
-2. Redis Streams consumer group, ACK/pending/claim/failed stream
-3. Redis Pub/Sub fan-out과 재접속 history sync
+1. 메시지·시스템 안내·회원 상태 변경과 전달·제어 outbox의 원자 저장
+2. PostgreSQL outbox relay: DB 선점·lease·claimToken·재시도·DEAD 격리·운영자 재처리
+3. Redis Pub/Sub fan-out, 수신 참여 세대 확인, 마지막 유실 이력 대조·회원 상태 재검사
 4. 장애·중복·순서 테스트
 5. `notification-app`과 database, 알림 API, integration event 소비와 `eventId` 멱등 처리
 6. 알림 실시간 전달과 재접속 복구, 채팅의 출연 알림 listener 제거
@@ -261,7 +261,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 포트폴리오라도 다음은 피한다.
 
-- Kafka와 Redis Streams에 같은 integration event를 중복 발행
+- 채팅에 Redis Streams·consumer group·ACK·pending·failed stream을 구현하거나 Kafka integration event와 채팅 outbox의 책임을 중복 배치
 - HP 원장이나 채팅 이력을 Kafka/Redis에만 저장
 - 모든 module이 KafkaTemplate·RedisTemplate을 직접 호출
 - 분산 락을 unique constraint·조건부 update·멱등키의 대체물로 사용

@@ -55,7 +55,7 @@ repository·serialization·멱등 consumer test는 mock broker가 아니라 Test
 
 - Kafka publish 응답 유실 → Modulith publication 재발행 → consumer 결과 한 번
 - Kafka consumer 처리 중 connection cut → retry/DLT → inbox 중복 0건
-- Redis `XACK` 직전 worker 종료 → pending claim → 채팅 DB 중복 0건
+- 채팅 relay 선점 직후 종료 → lease 만료 회수, Pub/Sub 발행 직후 DB 기록 전 종료 → 중복 발행 흡수·옛 claimToken 결과 무시
 - PostgreSQL commit 응답 timeout → 같은 command 재시도 → HP 원장 불변식 유지
 
 ### Spring AI + Elasticsearch — 고객센터 근거 기반 답변
