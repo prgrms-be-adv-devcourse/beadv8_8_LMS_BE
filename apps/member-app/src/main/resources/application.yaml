@@ -71,6 +71,10 @@ hapbang:
     issuer: https://hapbang/member
     access-token-ttl: 15m
     private-key: "${JWT_PRIVATE_KEY:}"
+    # refresh token은 Redis에 해시로 저장한다. reuse-grace 안에 회전된 토큰이 다시 오면 재사용으로 보지 않는다 (여러 탭 동시 재발급)
+    refresh-token:
+      ttl: 14d
+      reuse-grace: 10s
   chzzk:
     client-id: "${CHZZK_CLIENT_ID}"
     client-secret: "${CHZZK_CLIENT_SECRET}"
