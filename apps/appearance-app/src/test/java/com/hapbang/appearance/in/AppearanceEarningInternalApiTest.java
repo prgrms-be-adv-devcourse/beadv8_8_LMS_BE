@@ -3,7 +3,9 @@ package com.hapbang.appearance.in;
 import static com.hapbang.appearance.support.E2EMatchers.number;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.matchesPattern;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 
 import java.util.List;
@@ -140,7 +142,7 @@ class AppearanceEarningInternalApiTest {
     }
 
     @Test
-    @DisplayName("목록: 강의와 같은 필드·페이지 모양. sourceType APPEARANCE, 시각은 offset 없는 KST, 지급 예정 시각은 null")
+    @DisplayName("목록: 강의와 같은 필드·페이지 모양. sourceType APPEARANCE, 시각은 offset 없는 KST, 지급 예정 시각(null)은 응답에서 빠진다")
     void earnings() {
         Long processing = pendingAndProcessing();
 
@@ -155,7 +157,7 @@ class AppearanceEarningInternalApiTest {
                 .body("data.content[0].title", equalTo(AppearanceRequestFixture.content(clock.now()).title()))
                 .body("data.content[0].amountHp", equalTo(22_000))
                 .body("data.content[0].status", equalTo("PROCESSING"))
-                .body("data.content[0].payoutScheduledAt", nullValue())
+                .body("data.content[0]", not(hasKey("payoutScheduledAt")))
                 .body("data.content[0].statusUpdatedAt", matchesPattern(LOCAL_DATE_TIME));
     }
 

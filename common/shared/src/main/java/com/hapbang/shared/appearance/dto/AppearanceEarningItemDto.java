@@ -3,6 +3,8 @@ package com.hapbang.shared.appearance.dto;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import com.hapbang.shared.appearance.domain.AppearanceEarningStatus;
 import com.hapbang.shared.appearance.domain.AppearanceEarningType;
 
@@ -15,7 +17,8 @@ import com.hapbang.shared.appearance.domain.AppearanceEarningType;
  * @param title             출처 요청서·모집글의 현재 제목
  * @param amountHp          받을 금액. 출연료, 일방 취소면 위약금 (HP)
  * @param status            지급 상태
- * @param payoutScheduledAt 지급 예정 시각. 출연은 정해지지 않아(호스트가 확인 기간 안에 언제든 확인) 항상 {@code null}
+ * @param payoutScheduledAt 지급 예정 시각. 출연은 정해지지 않아(호스트가 확인 기간 안에 언제든 확인) 항상 {@code null}이고,
+ *                          계약(docs/api/internal-earnings.md)대로 응답 JSON에서 빠진다 (#408)
  * @param statusUpdatedAt   지금 상태가 된 시각: 작업 완료 → 확인 → 취소 → 불참 → 출연 수정 시각 중 처음 있는 값
  */
 public record AppearanceEarningItemDto(
@@ -25,7 +28,7 @@ public record AppearanceEarningItemDto(
         String title,
         long amountHp,
         AppearanceEarningStatus status,
-        LocalDateTime payoutScheduledAt,
+        @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime payoutScheduledAt,
         LocalDateTime statusUpdatedAt
 ) {
 

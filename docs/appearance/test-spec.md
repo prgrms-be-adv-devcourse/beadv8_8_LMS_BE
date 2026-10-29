@@ -25,7 +25,7 @@
 - 출연 모듈 통합 테스트는 `@AppearanceIntegrationTest`(= 팀 `@IntegrationTest` + `BillingClient` Mockito 대역), E2E 테스트는 `@AppearanceE2ETest`(실제 포트 + 같은 대역, #390)를 쓴다. 대역은 기본 성공이고 Billing 규칙(잔액·보류·멱등)을 흉내 내지 않는다.
 - 아래 표의 "보류·반환·지급·잔액" 기대 결과는 #289부터 **Billing에 보낸 요청 내용**(`BillingCalls`: 금액·요청 ID·원천·받는 회원)으로 확인한다. 실제 잔액·보류 변화는 16장 apps 통합 테스트가 확인한다.
 - 실패는 `BillingStubs`로 만든다: 무응답(업무 예외가 아닌 런타임 예외) / Billing 거절(`INSUFFICIENT_BALANCE`·`WALLET_NOT_FOUND`·`HOLD_NOT_FOUND`, 공통 업무 예외).
-- 지갑 HTTP 응답을 흉내 내야 하면 Mock Billing 서버(`support/MockBilling`, WireMock)를 쓴다. 구성과 쓰는 법은 22장.
+- 지갑 HTTP 응답을 흉내 내야 하면 Mock Billing 서버(`support/MockBilling`, WireMock)를 쓴다. 구성과 쓰는 법은 23장.
 
 ### E2E 테스트 방식 (#390)
 
@@ -1002,7 +1002,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 케이스 | 기대 결과 |
 |---|---|
 | 요약 (키 있음) | 200 `RsData`, 메시지, 확인 대기 20,000·1 / 지급 예정 0 / 처리 중 22,000·1, `asOf` 없음. `earningType=APPEARANCE_PENALTY`면 0 |
-| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` null, `statusUpdatedAt`은 offset 없는 시각 |
+| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` 필드 없음(#408), `statusUpdatedAt`은 offset 없는 시각 |
 | 기본·페이지 (`size=1`) | 미지급 2건 중 최근(확인한 출연) 먼저, `page {size 1, number 0, totalElements 2, totalPages 2}`. 값 없는 `status=`도 미지급 2건(Spring이 빈 목록으로 바꿈). `status=SCHEDULED`만이면 빈 결과 |
 | 출연이 없는 회원 | 0원 요약·빈 목록 |
 | 요청 값 오류 | `userId` 없음(`errors[0].field`=`userId`), `userId=0`, `status=PAID`(`status`), `earningType=LECTURE_SALE`(`earningType`) → 400 `INVALID_REQUEST` |
@@ -1016,7 +1016,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 케이스 | 기대 결과 |
 |---|---|
 | 요약 | `userId`·키 헤더(종류를 주면 `earningType`)를 붙여 보내고 `data`를 돌려줌 |
-| 목록 | `status` 여러 개·`earningType`·`page`·`size` 쿼리, 빠진 `payoutScheduledAt`은 null, offset 없는 시각을 `LocalDateTime`으로 읽음 |
+| 목록 | `status` 여러 개·`earningType`·`page`·`size` 쿼리, 빠진 `payoutScheduledAt`·명시적 `null` 모두 null(#408), offset 없는 시각을 `LocalDateTime`으로 읽음 |
 | 상태 null | 상태 조건 없이 보냄 |
 | 4xx (ProblemDetail / 401 본문 없음) | `REJECTED` + 상태 + `code`(401은 null) |
 | 연결 실패·시간 초과·503 | `UNAVAILABLE` (상태 0 / 0 / 503) |
@@ -1118,11 +1118,20 @@ MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코
 - 두 관리자가 실제 스레드로 동시에 누르는 경우는 타이밍에 기대지 않도록, 위 동시 테스트처럼 "읽은 직후 다른 트랜잭션이 먼저 커밋"으로 만든다(17.2와 같은 방식). 늦게 누르면 이미 대기라 409 `HP_TASK_NOT_DEAD`다.
 - 같은 작업이 두 곳에서 동시에 Billing에 가도 HP는 한 번만 움직인다: Billing이 지갑을 잠근 뒤 같은 요청 ID 기록을 확인해 두 번째는 처음 결과를 돌려주고, 출연은 대기 중일 때만 결과를 기록한다(버전 충돌이면 먼저 기록한 쪽). 실제 Billing으로 확인하는 일은 Mock Billing·HTTP 전환 작업에서 한다.
 
-## 22. Mock Billing 서버 (#391)
+## 22. 출연 수익 내부 API 응답에서 null 필드 빼기 (#408)
+
+#390에서 실제 포트로 확인해 보니 `payoutScheduledAt`이 `"payoutScheduledAt": null`로 나가 계약 문서(`docs/api/internal-earnings.md`, null 필드는 빠진다)와 달랐다. 계약 DTO `AppearanceEarningItemDto`의 이 필드에만 `@JsonInclude(NON_NULL)`을 붙였다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceEarningInternalApiTest` (E2E) | 목록 | `data.content[0]`에 `payoutScheduledAt` 키가 없음 (`null` 값이 아니라 키 자체가 없음) |
+| `AppearanceApiClientTest` (shared 단위) | 필드 없음·명시적 `null` 두 항목 | 둘 다 `payoutScheduledAt` = `null`로 읽음 (받는 쪽 Client는 응답 모양이 바뀌어도 같게 동작) |
+
+## 23. Mock Billing 서버 (#391)
 
 지갑(billing-app) 대신 지갑 내부 API(`docs/api/internal-billing.md`) 4개 경로를 흉내 내는 HTTP 서버다. 모듈 간 E2E는 보류하고, 출연이 지갑 응답(성공·재전송·거절·지연·장애)에 맞게 움직이는지 이 서버로 확인한다.
 
-### 22.1 구성
+### 23.1 구성
 
 | 구성 | 내용 |
 |---|---|
@@ -1150,7 +1159,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 
 `hapbang.clients.billing.base-url`이 생기면 shared `BillingApiClient` 빈이 만들어진다. 출연이 지갑을 HTTP로 부르게 되면(#274) 같은 설정으로 출연 흐름을 확인한다.
 
-### 22.2 Mockito 대역(`BillingStubs`·`BillingCalls`)과의 관계
+### 23.2 Mockito 대역(`BillingStubs`·`BillingCalls`)과의 관계
 
 | 대역 | 지금 | 지갑 HTTP 전환(#274) 뒤 |
 |---|---|---|
@@ -1158,7 +1167,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | `BillingCalls` (Mockito에 남은 호출 인자) | Billing에 보낸 요청 내용 확인 | `BillingClient` 대역을 쓰는 테스트에서는 남긴다. HTTP로 보낸 본문은 `MockBilling.requests`로 확인한다 |
 | `MockBilling` | `BillingApiClient` 응답 분류와 받은 요청 확인 (`MockBillingTest`) | 출연 `BillingClient`의 HTTP 구현과 실패 분류(재시도·DEAD·`HOLD_PENDING`) 확인 |
 
-### 22.3 `MockBillingTest` (통합, 출연 테스트 컨텍스트 + 실제 `BillingApiClient`)
+### 23.3 `MockBillingTest` (통합, 출연 테스트 컨텍스트 + 실제 `BillingApiClient`)
 
 | 묶음 | 케이스 | 기대 결과 |
 |---|---|---|
@@ -1176,4 +1185,3 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 결과 없음 | 응답 2초 지연 (응답 대기 1초) | `UNKNOWN_RESULT`, 상태 0. 지갑은 요청을 받음(1건) |
 | 결과 없음 | 응답 도중 연결 끊김 | `UNKNOWN_RESULT`, 상태 0 |
 | 결과 없음 | 연결 거부 (듣지 않는 포트) | `RETRYABLE`, 상태 0 |
-
