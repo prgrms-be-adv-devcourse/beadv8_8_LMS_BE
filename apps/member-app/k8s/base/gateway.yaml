@@ -66,43 +66,6 @@ spec:
         header: X-User-Role
 ---
 apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: EnvoyExtensionPolicy
-metadata:
-  name: member-app-upload
-spec:
-  targetRefs:
-  - group: gateway.networking.k8s.io
-    kind: HTTPRoute
-    name: member-app-upload
-  lua:
-  - type: Inline
-    inline: |
-      function envoy_on_request(handle)
-        local h = handle:headers()
-        if h:get(":method") ~= "PUT" then
-          handle:respond({[":status"] = "403"}, "")
-          return
-        end
-        local content_type = string.lower(h:get("content-type") or "")
-        if string.find(content_type, "^%s*application/x%-www%-form%-urlencoded") or string.find(content_type, "^%s*multipart/") then
-          handle:respond({[":status"] = "415"}, "")
-          return
-        end
-        local length = h:get("content-length")
-        if not length then
-          handle:respond({[":status"] = "411"}, "")
-          return
-        end
-        if not string.match(length, "^%d+$") then
-          handle:respond({[":status"] = "400"}, "")
-          return
-        end
-        if #length > 10 or tonumber(length) > 2147483648 then
-          handle:respond({[":status"] = "413"}, "")
-        end
-      end
----
-apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:
   name: member-app-body-limit

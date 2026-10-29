@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local Gateway integration test. Requires PyYAML, cryptography, websockets. No EC2 access."""
+"""Local Gateway integration test for the #372 completion criteria. Requires PyYAML, cryptography, websockets. No EC2 access."""
 
 import base64
 import copy
@@ -11,7 +11,6 @@ import ssl
 import subprocess
 import tempfile
 import time
-import uuid
 
 import yaml
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -50,7 +49,7 @@ def b64(value):
 
 keys = {
     kid: rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    for kid in ["first", "second", "unpublished"]
+    for kid in ["first", "unpublished"]
 }
 
 
@@ -105,12 +104,6 @@ for name, pool, labels, serve in [
         "gateway-test-caller",
         "app-observe",
         {"app.kubernetes.io/name": "billing-app"},
-        False,
-    ),
-    (
-        "gateway-test-outsider",
-        "app-observe",
-        {"app.kubernetes.io/name": "gateway-test-outsider"},
         False,
     ),
 ]:
@@ -191,7 +184,6 @@ for app in ("member", "appearance", "lecture", "billing", "chat", "customer-supp
             "HTTPRoute",
             "SecurityPolicy",
             "BackendTrafficPolicy",
-            "EnvoyExtensionPolicy",
             "NetworkPolicy",
         ):
             continue
@@ -268,7 +260,7 @@ try:
             "--timeout=180s",
         )
     apply(docs)
-    for name in ("backend", "caller", "outsider"):
+    for name in ("backend", "caller"):
         kube(
             "-n",
             NS,
@@ -365,17 +357,24 @@ try:
             return result
 
         retry(ready)
-        check("TLS hostname and local certificate verification", True)
-        h = http.client.HTTPConnection("127.0.0.1", 8088, timeout=10)
-        h.request("GET", "/api/v1/members/probe", headers={"Host": "hapbang.local"})
-        r = h.getresponse()
-        check(
-            "HTTP redirects to HTTPS",
-            r.status == 301
-            and r.getheader("location").startswith("https://hapbang.local"),
-        )
-        r.read()
-        h.close()
+        # 1. A 2GB upload completes (slow, so only with --large-upload).
+        if "--large-upload" in __import__("sys").argv:
+            size = 2 * 1024**3
+            status, _, body = request(
+                "/api/v1/members/files/1/content",
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(size),
+                },
+                body=(b"x" * (1024 * 1024) for _ in range(2048)),
+                method="PUT",
+            )
+            check(
+                "2GiB streamed to backend",
+                status == 200 and json.loads(body)["received"] == size,
+            )
+        # 2. External /api/v1/internal/** and a spoofed X-User-Id never reach the app.
+        # 3. Expired or forged tokens get 401; requests without a token pass.
         status, _, body = request(
             headers={
                 "X-User-Id": "999",
@@ -402,6 +401,10 @@ try:
             and received.get("x-user-id") == "42"
             and received.get("x-user-role") == "USER",
         )
+        check(
+            "internal API has no external backend",
+            request("/api/v1/internal/members")[0] == 404,
+        )
         for label, t in [
             ("expired", token(expired=True)),
             ("issuer", token(issuer="https://wrong.local")),
@@ -410,68 +413,21 @@ try:
         ]:
             result = request(headers={"Authorization": "Bearer " + t})
             check("reject " + label + " status=" + str(result[0]), result[0] == 401)
-        for module in (
-            "members",
-            "appearances",
-            "lectures",
-            "wallets",
-            "settlements",
-            "chats",
-            "inquiries",
-        ):
-            check("route " + module, request("/api/v1/" + module + "/probe")[0] == 200)
-        check(
-            "internal API has no external backend",
-            request("/api/v1/internal/members")[0] == 404,
-        )
-        check("unknown API cannot reach SPA", request("/api/v1/unknown")[0] == 404)
-        for headers, expected in [
-            ({"Content-Type": "multipart/form-data", "Content-Length": "0"}, 415),
-            (
-                {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Content-Length": "0",
-                },
-                415,
-            ),
-            ({"Content-Length": "2147483649"}, 413),
-        ]:
-            result = request(
-                "/api/v1/members/files/1/content",
-                headers=headers,
-                body=b"",
-                method="PUT",
+
+        # 4. NetworkPolicy blocks non-Envoy pods from the app's public port.
+        def caller_public_port():
+            script = "import urllib.request,urllib.error,socket; socket.setdefaulttimeout(3);\ntry:\n r=urllib.request.urlopen('http://gateway-test-backend:8080/public',timeout=3); print(r.status)\nexcept urllib.error.HTTPError as e: print(e.code)\nexcept (OSError,urllib.error.URLError): print('blocked')"
+            return kube(
+                "-n", NS, "exec", "gateway-test-caller", "--", "python", "-c", script
+            ).strip()
+
+        retry(
+            lambda: check(
+                "caller cannot bypass Gateway on public port",
+                caller_public_port() == "blocked",
             )
-            check(
-                "upload header guard " + str(expected) + " got " + str(result[0]),
-                result[0] == expected,
-            )
-        check(
-            "chunked upload without length rejected",
-            request("/api/v1/members/files/1/content", body=iter([b"x"]), method="PUT")[
-                0
-            ]
-            == 411,
         )
-        check(
-            "upload method guard",
-            request(
-                "/api/v1/members/files/1/content",
-                headers={"Content-Length": "0"},
-                body=b"",
-                method="POST",
-            )[0]
-            == 403,
-        )
-        check(
-            "ordinary API body limit",
-            request(
-                headers={"Content-Length": str(1024 * 1024 + 1)},
-                body=b"x" * (1024 * 1024 + 1),
-                method="POST",
-            )[0]
-            == 413,
-        )
+        # 5. A spoofed X-Forwarded-For cannot change the rate limit key.
         before = json.loads(request()[2])["headers"]
         after = json.loads(request(headers={"X-Forwarded-For": "198.51.100.77"})[2])[
             "headers"
@@ -486,6 +442,7 @@ try:
         check(
             "client IP rightmost hop cannot be spoofed", getxff(before) == getxff(after)
         )
+        # 6. The chat WebSocket connects.
         with connect(
             "wss://hapbang.local:8443/api/v1/chats/ws",
             sock=socket.create_connection(("127.0.0.1", 8443)),
@@ -496,76 +453,7 @@ try:
             check(
                 "WebSocket upgrade and bidirectional frame", ws.recv() == "gateway-372"
             )
-
-        def from_pod(pod, port, path, key=""):
-            script = "import urllib.request,urllib.error,socket; socket.setdefaulttimeout(3); req=urllib.request.Request('http://gateway-test-backend:PORT/PATH',headers={'X-Internal-Api-Key':'KEY'});\ntry:\n r=urllib.request.urlopen(req,timeout=3); print(r.status)\nexcept urllib.error.HTTPError as e: print(e.code)\nexcept (OSError,urllib.error.URLError): print('blocked')"
-            script = (
-                script.replace("PORT", str(port))
-                .replace("PATH", path.lstrip("/"))
-                .replace("KEY", key)
-            )
-            return kube(
-                "-n", NS, "exec", "gateway-test-" + pod, "--", "python", "-c", script
-            ).strip()
-
-        retry(
-            lambda: check(
-                "allowed caller internal API",
-                from_pod("caller", 8081, "/api/v1/internal/probe", "fixture-key")
-                == "200",
-            )
-        )
-        check(
-            "internal key required",
-            from_pod("caller", 8081, "/api/v1/internal/probe") == "401",
-        )
-        check(
-            "internal listener rejects public path",
-            from_pod("caller", 8081, "/public", "fixture-key") == "404",
-        )
-        check(
-            "caller cannot bypass Gateway on public port",
-            from_pod("caller", 8080, "/public") == "blocked",
-        )
-        check(
-            "unrelated pod cannot access internal port",
-            from_pod("outsider", 8081, "/api/v1/internal/probe", "fixture-key")
-            == "blocked",
-        )
-        jwks_data = jwks(["first", "second"])
-        kube(
-            "-n",
-            NS,
-            "exec",
-            "-i",
-            "gateway-test-backend",
-            "--",
-            "python",
-            "-c",
-            "import sys; open('/tmp/jwks.json','w').write(sys.stdin.read())",
-            stdin=jwks_data,
-        )
-        retry(
-            lambda: check(
-                "JWKS key rotation",
-                request(headers={"Authorization": "Bearer " + token("second")})[0]
-                == 200,
-            )
-        )
-        kube(
-            "-n", NS, "exec", "gateway-test-backend", "--", "touch", "/tmp/disable-jwks"
-        )
-
-        def jwks_failed():
-            assert (
-                request(headers={"Authorization": "Bearer " + token("unpublished")})[0]
-                != 200
-            )
-
-        retry(jwks_failed)
-        check("JWKS failure cannot authenticate unknown key", True)
-        check("Grafana subpath redirect", request("/grafana")[0] == 301)
-        check("Grafana login page", request("/grafana/login")[0] == 200)
+        # 7. Grafana is reachable from outside only after login.
         check(
             "Grafana rejects anonymous data", request("/grafana/api/search")[0] == 401
         )
@@ -582,104 +470,18 @@ try:
             method="POST",
         )
         check("Grafana authenticated login", status == 200)
-        cookie = headers.get("Set-Cookie", "")
-        check(
-            "Grafana secure session cookie",
-            "Secure" in cookie and "grafana_session=" in cookie,
+        cookie = "; ".join(
+            line.split(";")[0] for line in headers.get("Set-Cookie", "").splitlines()
         )
-        cookie = "; ".join(line.split(";")[0] for line in cookie.splitlines())
         check(
             "Grafana authenticated data",
             request("/grafana/api/search", headers={"Cookie": cookie})[0] == 200,
         )
-        with connect(
-            "wss://hapbang.local:8443/grafana/api/live/ws",
-            sock=socket.create_connection(("127.0.0.1", 8443)),
-            ssl=context,
-            additional_headers={"Cookie": cookie},
-            proxy=None,
-        ) as ws:
-            ws.send(json.dumps({"id": 1, "connect": {}}))
-            check("Grafana Live WebSocket", bool(ws.recv(timeout=10)))
-        # Query Tempo through the authenticated Grafana datasource proxy, not an externally exposed Tempo port.
-        trace_id = uuid.uuid4().hex
-        request(headers={"traceparent": "00-" + trace_id + "-0123456789abcdef-01"})
-
-        def trace_received():
-            status, _, data = request(
-                "/grafana/api/datasources/proxy/uid/tempo/api/traces/" + trace_id,
-                headers={"Cookie": cookie},
-            )
-            assert status == 200, (status, data[:200])
-            assert json.loads(data), data[:200]
-
-        retry(trace_received, seconds=90)
-        check("Gateway OTLP trace reaches Tempo", True)
-        if "--renew-certificate" in __import__("sys").argv:
-            certificate = json.loads(
-                kube("-n", EG, "get", "certificate", "hapbang-tls", "-o", "json")
-            )
-            revision = certificate["status"]["revision"]
-            try:
-                kube(
-                    "-n",
-                    EG,
-                    "patch",
-                    "certificate",
-                    "hapbang-tls",
-                    "--type=merge",
-                    "-p",
-                    json.dumps({"spec": {"renewBefore": "2159h59m"}}),
-                )
-
-                def renewed():
-                    latest = json.loads(
-                        kube(
-                            "-n", EG, "get", "certificate", "hapbang-tls", "-o", "json"
-                        )
-                    )
-                    assert latest["status"]["revision"] > revision
-
-                retry(renewed, seconds=90)
-            finally:
-                kube(
-                    "-n",
-                    EG,
-                    "patch",
-                    "certificate",
-                    "hapbang-tls",
-                    "--type=merge",
-                    "-p",
-                    json.dumps({"spec": {"renewBefore": None}}),
-                )
-            secret = json.loads(
-                kube("-n", EG, "get", "secret", "hapbang-tls", "-o", "json")
-            )
-            cert.write_bytes(base64.b64decode(secret["data"]["tls.crt"]))
-            context = ssl.create_default_context(cafile=str(cert))
-            retry(ready)
-            check("certificate renewal and Envoy TLS reload", True)
-        if "--large-upload" in __import__("sys").argv:
-            size = 2 * 1024**3
-            status, _, body = request(
-                "/api/v1/members/files/1/content",
-                headers={
-                    "Content-Type": "application/octet-stream",
-                    "Content-Length": str(size),
-                },
-                body=(b"x" * (1024 * 1024) for _ in range(2048)),
-                method="PUT",
-            )
-            check(
-                "2GiB streamed to backend",
-                status == 200 and json.loads(body)["received"] == size,
-            )
         print("Gateway integration checks completed", flush=True)
 except Exception:
     for kind in (
         "httproute",
         "securitypolicy",
-        "envoyextensionpolicy",
         "backendtrafficpolicy",
     ):
         status = json.loads(
@@ -706,7 +508,7 @@ finally:
         "-n",
         NS,
         "delete",
-        "pod,service,configmap,httproute,securitypolicy,backendtrafficpolicy,envoyextensionpolicy,networkpolicy",
+        "pod,service,configmap,httproute,securitypolicy,backendtrafficpolicy,networkpolicy",
         "-l",
         LABEL + "=true",
         "--ignore-not-found=true",

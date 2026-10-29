@@ -9,6 +9,7 @@
 - 내부·외부 API를 실제 listener로 분리한다. 외부 8080은 Envoy만, 내부 8081은 필요한 앱만 접근한다. Service 포트 이름만 나누는 방식은 쓰지 않는다.
 - Grafana는 prod 도메인의 `/grafana/`에서 자체 계정 로그인으로 공개한다. 익명 접근·가입·auth proxy는 끈다. NodePort·3000 공개는 하지 않는다.
 - 이번 작업은 manifest·앱 포트 분리·로컬 검증·운영 전환 절차까지다. 실제 EC2 진입점 전환과 운영 검증 전에는 #372를 완료 처리하지 않는다.
+- 티켓 범위를 넘는 장치는 두지 않는다. 업로드 메서드·형식·크기 검사는 앱이 원본이고 Envoy는 timeout만 늘린다. platform NetworkPolicy는 인증이 없는 Kafka·Redis에만 둔다. `run.py`는 완료 조건만 검사한다.
 - 앱 manifest는 각 앱의 `k8s/`에 둔다. 공통 Gateway, platform 접근 정책, Grafana·Alloy 설정은 `k8s/gateway/`에 둔다. 앱이 루트 manifest를 참조하지 않는다.
 
 ## 구성과 적용 순서
@@ -58,7 +59,7 @@ prod issuer·JWKS 경로는 #370과 맞춘다. Gateway는 member Service 8080에
 ## 본문·연결·Grafana·trace
 
 - 일반 업무 route만 `requestBuffer`로 1MiB 상한을 적용한다. 일반 요청 timeout은 30초다.
-- 파일 content 경로는 regex로 분리한다. PUT만 허용(그 밖에는 403), form·multipart는 415, Content-Length 없음은 411, 2GiB 초과는 413이다. Lua는 헤더만 검사하고 본문을 읽지 않는다. 업로드에는 requestBuffer·retry를 적용하지 않는다. 전체 timeout은 30분, stream idle은 60초다.
+- 파일 content 경로는 regex로 분리해 timeout만 늘린다. 업로드에는 requestBuffer·retry를 적용하지 않는다. 전체 timeout은 30분, stream idle은 60초다. 메서드·Content-Type·Content-Length·크기 검사는 앱이 한다. Envoy에서 같은 검사를 다시 하지 않는다.
 - WebSocket은 별도 route에서 전체 timeout을 해제하고 stream idle 5분을 둔다. STOMP heartbeat·CONNECT JWT는 #371에서 처리한다.
 - 알 수 없는 `/api/**`, actuator·Swagger·api-docs는 앱/React backend로 보내지 않고 404다. 인증된 API도 실제 앱의 인가·권한 검사가 필요하다.
 - `/grafana`는 `/grafana/`로 redirect한다. prefix는 지우지 않는다. Grafana `root_url`, `serve_from_sub_path`, Secure cookie를 설정한다. admin 자격 증명은 기존 chart Secret을 사용하고 레포·로그에 남기지 않는다.
@@ -66,7 +67,7 @@ prod issuer·JWKS 경로는 #370과 맞춘다. Gateway는 member Service 8080에
 - Grafana는 SQLite PVC를 공유하는 새·옛 pod가 함께 뜨지 않도록 `Recreate`로 갱신한다. probe는 `/grafana/api/health`, startup은 최대 5분을 기다린다. 로그인 화면·정적 자원은 익명에게 제공되고 dashboard·데이터 API는 로그인이 필요하다.
 - Tempo는 trace 수신·조회 부하에서 기존 64Mi로 OOMKilled되어 128Mi·GOMEMLIMIT=112MiB·GOMAXPROCS=2를 적용한다. 이 조정과 Grafana 증가분, Envoy 종료 sidecar 32Mi를 [예산 표](../architecture/infrastructure/k3s.md)에 반영한다.
 - Envoy JSON access log는 query·본문·Authorization·쿠키를 기록하지 않는다. W3C trace를 Alloy OTLP 4317 → Tempo 4317로 전송한다. dashboard·앱 전체 계측·알림은 #343이다.
-- platform ingress는 DB·Kafka·Redis·ES 소비 앱, ECK 관리, Grafana datasource·Alloy 수집 경로만 허용한다. metadata egress는 S3를 쓰는 member·appearance·lecture에만 허용한다. node 자체나 hostNetwork pod는 일반 NetworkPolicy의 신뢰 경계 밖이다.
+- platform NetworkPolicy는 인증 없이 열리는 Kafka·Redis에만 두고 앱 6개만 허용한다. PostgreSQL·Elasticsearch·관측성 구성 요소는 자체 인증에 맡기고 NetworkPolicy를 두지 않는다. metadata egress는 S3를 쓰는 member·appearance·lecture에만 허용한다. node 자체나 hostNetwork pod는 일반 NetworkPolicy의 신뢰 경계 밖이다.
 
 ## 로컬 검증 재현
 
@@ -79,10 +80,10 @@ UV_CACHE_DIR=/tmp/gateway-uv uv pip install --python /tmp/gateway-test-venv/bin/
 
 docker build -t hapbang/gateway-test:372 k8s/gateway/tests
 k3d image import -c hapbang hapbang/gateway-test:372
-/tmp/gateway-test-venv/bin/python k8s/gateway/tests/run.py --large-upload --renew-certificate
+/tmp/gateway-test-venv/bin/python k8s/gateway/tests/run.py --large-upload
 ```
 
-테스트는 테스트 전용 pod·route·policy를 만들고 종료 때 자기 label의 자원만 지운다. 기존 앱 Deployment·Service를 테스트 대역으로 바꾸지 않는다. 생성한 RS256 개인 키는 테스트 프로세스 메모리에만 둔다. 2GiB 본문은 1MiB chunk로 생성하며 디스크에 만들지 않는다.
+`run.py`는 #372 완료 조건 7개만 검사한다. 2GiB 업로드는 `--large-upload`를 줄 때만 실행한다. 테스트는 테스트 전용 pod·route·policy를 만들고 종료 때 자기 label의 자원만 지운다. 기존 앱 Deployment·Service를 테스트 대역으로 바꾸지 않는다. 생성한 RS256 개인 키는 테스트 프로세스 메모리에만 둔다. 2GiB 본문은 1MiB chunk로 생성하며 디스크에 만들지 않는다.
 
 앱 검증은 `./gradlew verifyModuleStructure --no-daemon` 뒤 `./gradlew check bootJar --parallel --no-daemon`로 한다. 구조 검사는 다른 프로젝트 설정을 조회하므로 parallel과 함께 실행하지 않는다. CI의 manifests job은 고정 버전 upstream CRD로 schema를 만들고 모든 overlay를 `kubeconform -strict`로 검사한다. CEL admission 제약·정책 충돌은 schema만으로 검증되지 않으므로 실제 k3d 검증이 필요하다.
 
@@ -122,11 +123,8 @@ export MEMBER_JWKS_URI='http://member-app.hapbang-prod.svc.cluster.local:8080/<�
 
 - Envoy v1.9.3·cert-manager v1.21.3을 실제 HelmChart로 설치하고 Gateway `Programmed`·Certificate `Ready`를 확인했다.
 - 실제 Tomcat listener의 외부/내부 경로 분리·인코딩 경로·위조 forwarded 포트·잘못된 설정 거절, 기존 내부 키 인증 테스트를 통과했다.
-- 업무 경로 7개 라우팅, optional JWT·서명·issuer·만료·헤더 위조·JWKS 키 교체와 장애 검증을 통과했다.
-- 서로 다른 node의 caller/무관 pod로 8080 우회 차단, 8081 허용 목록과 키 인증을 확인했다.
-- 일반 본문 제한, 업로드 403·411·413·415와 2GiB 스트리밍을 확인했다. 검증 backend는 64Mi, Envoy 본체는 256Mi 한도에서 완료했다. 실제 S3 업로드와 도메인 파일 크기 정책 검증을 대신하지 않는다.
-- WebSocket 양방향 frame, Grafana 익명 데이터 차단·로그인·Secure session·인증 후 조회·Live WebSocket을 확인했다.
-- 지정한 W3C trace ID가 Envoy → Alloy → Tempo에 도착하는 것을 Grafana datasource proxy로 조회했다.
-- 로컬 인증서의 갱신 시점을 앞당겨 revision 증가와 Envoy의 TLS reload를 확인한 뒤 renewBefore 설정을 복원했다. Let's Encrypt의 실제 발급·갱신 검증은 아니다.
+- `run.py`의 완료 조건 검사를 통과했다. 토큰 없음 통과, 만료·issuer·서명·kid 위조 401, 사용자 헤더·내부 키 위조 제거, 외부 내부 경로 404를 확인했다. 다른 node의 caller pod에서 8080 우회 차단, XFF 위조, WebSocket 양방향 frame, Grafana 익명 데이터 차단·로그인·인증 후 조회도 확인했다.
+- 2GiB 스트리밍은 업로드 Lua를 지우기 전에 검증 backend 64Mi, Envoy 본체 256Mi 한도에서 통과했다. Lua를 지운 뒤에는 다시 실행하지 않았다. 실제 S3 업로드와 도메인 파일 크기 정책 검증을 대신하지 않는다.
+- 범위를 줄이기 전에 한 번 확인하고 `run.py`에서 뺀 항목이 있다. 업무 경로 7개 라우팅, JWKS 키 교체·장애, 8081 허용 목록·키 인증, 일반 본문 1MiB 제한, Grafana Secure cookie·Live WebSocket이다. trace ID의 Envoy → Alloy → Tempo 도착과 로컬 인증서 갱신·Envoy TLS reload도 이때 확인했다. Let's Encrypt의 실제 발급·갱신 검증은 아니다.
 - `verifyModuleStructure`, 전체 `check bootJar`, 고정 CRD schema 검사, Python lint를 통과했다. 최신 dev의 출연 RestAssured 변경(#402)을 병합하고 출연 check를 다시 통과했다. 강의 HP 작업 실행기(#275)가 추가한 Billing Client 주소도 8081로 맞추고 통합 check를 다시 통과했다.
 - EC2·DNS·security group·운영 nginx·운영 데이터는 변경하지 않았다. IMDS 정책의 실제 AWS 동작, 인터넷 client IP, 실제 STOMP JWT와 FE 통합은 운영 전환 전에 확인한다.
