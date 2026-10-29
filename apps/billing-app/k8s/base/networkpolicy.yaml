@@ -23,10 +23,7 @@ spec:
   - from:
     - podSelector:
         matchLabels:
-          app.kubernetes.io/name: appearance-app
-    - podSelector:
-        matchLabels:
-          app.kubernetes.io/name: lecture-app
+          hapbang.io/internal-api-client: 'true'
     ports:
     - protocol: TCP
       port: 8081

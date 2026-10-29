@@ -23,6 +23,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: appearance-app
+        hapbang.io/internal-api-client: 'true'
     spec:
       # node별 메모리 예산이 배치를 전제로 하므로 required로 건다(docs/deploy/aws-k3s.md).
       affinity:

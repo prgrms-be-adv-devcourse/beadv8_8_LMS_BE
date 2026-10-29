@@ -739,5 +739,5 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 - k8s에서 `HAPBANG_INTERNAL_API_PORT=8081`을 주면 내부 API listener를 별도로 연다. 외부 8080의 내부 경로와 내부 8081의 일반 경로는 404로 차단한다. 미설정 Compose는 기존 단일 포트 동작을 유지한다.
 - Billing의 회원 backfill·강의/출연 수익 조회 Client base URL은 k8s에서 제공 앱의 8081을 사용한다. 경로·키 인증·HP 정책·DB·원장 처리는 변경하지 않았다.
-- NetworkPolicy는 외부 8080을 Envoy만, 내부 8081을 appearance·lecture만 허용한다. Gateway와 실제 앱 인증 전환은 #370·#371, 운영 배포는 #374 이후다.
+- NetworkPolicy는 외부 8080을 Envoy만, 내부 8081을 공통 label(`hapbang.io/internal-api-client`)을 가진 앱 pod만 허용한다. Gateway와 실제 앱 인증 전환은 #370·#371, 운영 배포는 #374 이후다.
 - 실제 listener 경계·잘못된 포트 기동 거절 테스트를 추가했고 기존 내부 키·세션·CSRF 회귀 검증과 전체 check를 통과했다.

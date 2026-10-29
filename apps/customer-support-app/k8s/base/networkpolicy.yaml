@@ -20,6 +20,13 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
+  - from:
+    - podSelector:
+        matchLabels:
+          hapbang.io/internal-api-client: 'true'
+    ports:
+    - protocol: TCP
+      port: 8081
   egress:
   - to:
     - ipBlock:

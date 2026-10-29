@@ -6,7 +6,7 @@
 
 #372 계획에서 사용자에게 확인한 결정이다.
 
-- 내부·외부 API를 실제 listener로 분리한다. 외부 8080은 Envoy만, 내부 8081은 필요한 앱만 접근한다. Service 포트 이름만 나누는 방식은 쓰지 않는다.
+- 내부·외부 API를 실제 listener로 분리한다. 외부 8080은 Envoy만, 내부 8081은 앱 pod끼리만 접근한다. 호출 관계별 허용 목록은 두지 않는다. 같은 내부 API 키를 쓰는 앱 6개 사이에서 목록이 막는 경로가 작고, 호출을 더할 때마다 제공 앱 정책을 고쳐야 했기 때문이다. Service 포트 이름만 나누는 방식은 쓰지 않는다.
 - Grafana는 prod 도메인의 `/grafana/`에서 자체 계정 로그인으로 공개한다. 익명 접근·가입·auth proxy는 끈다. NodePort·3000 공개는 하지 않는다.
 - 이번 작업은 manifest·앱 포트 분리·로컬 검증·운영 전환 절차까지다. 실제 EC2 진입점 전환과 운영 검증 전에는 #372를 완료 처리하지 않는다.
 - 티켓 범위를 넘는 장치는 두지 않는다. 업로드 메서드·형식·크기 검사는 앱이 원본이고 Envoy는 timeout만 늘린다. platform NetworkPolicy는 인증이 없는 Kafka·Redis에만 둔다. `run.py`는 완료 조건만 검사한다.
@@ -40,13 +40,7 @@ Gateway와 TLS는 `envoy-gateway-system`, Grafana route는 `hapbang-platform`, �
 
 분리 모드에서 Tomcat이 정규화·decode한 경로와 실제 수신 포트를 비교한다. 외부 포트의 `/api/v1/internal`·하위 경로는 404, 내부 포트의 나머지도 404다. forwarded 헤더는 포트 판단에 사용하지 않는다. 내부 API는 계속 `X-Internal-Api-Key`와 기존 전용 SecurityFilterChain을 사용한다. 앱 간 동기 호출의 transaction·보상 정책은 바꾸지 않는다.
 
-| 제공 앱 8081 | 허용 소비 앱 |
-| --- | --- |
-| member | billing |
-| billing | appearance·lecture |
-| appearance | billing |
-| lecture | billing·customer-support |
-| chat·customer-support | 없음 |
+앱 6개의 pod에는 `hapbang.io/internal-api-client: 'true'` label을 붙인다. 모든 앱의 8081은 이 label을 가진 pod만 허용한다. 새 앱은 자기 Deployment에 label을 붙이면 다른 앱의 내부 API를 부를 수 있다. 현재 chat·customer-support의 8081을 부르는 앱은 없다.
 
 NetworkPolicy는 HTTP path를 구분하지 못한다. 그래서 두 실제 listener와 앱의 경로 검사를 함께 둔다. 같은 namespace라는 이유로 앱의 8080을 열지 않는다. Prometheus의 앱 직접 scrape가 필요하면 #343에서 별도 management port와 접근 정책을 설계한다.
 
