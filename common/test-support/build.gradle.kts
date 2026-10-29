@@ -6,6 +6,11 @@ dependencies {
     api("org.springframework.boot:spring-boot-starter-webmvc-test")
     api("org.springframework.modulith:spring-modulith-starter-test")
     api("org.testcontainers:testcontainers-postgresql")
+    api("org.testcontainers:testcontainers-kafka")
+
+    // 공통 컨테이너 설정의 실제 통신 검증에만 클라이언트를 사용한다.
+    testImplementation(project(":kafka"))
+    testImplementation(project(":redis"))
 
     // 테스트 로그인 헬퍼(TestLogin)
     implementation(project(":shared"))
