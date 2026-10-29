@@ -9,10 +9,10 @@
 | 경로 | namespace | 내용 | 적용 |
 | --- | --- | --- | --- |
 | `k8s/cluster` | kube-system 외 | namespace, `local-path-retain` StorageClass, HelmChart(ECK operator, Sealed Secrets) | 수동 |
-| `k8s/gateway/{install,base,overlays}` | envoy-gateway-system·cert-manager 외 | Envoy·TLS·Grafana·네트워크 정책. [Gateway 절차](gateway.md) | 수동 |
+| `k8s/gateway/{install,base,overlays}` | envoy-gateway-system·cert-manager 외 | 공용 Envoy·TLS·Grafana·platform 정책. [Gateway 절차](gateway.md) | 수동 |
 | `k8s/components/core-data` | - | `hapbang.io/pool: core-data` label에 large required node affinity를 붙이는 Kustomize Component | platform이 사용 |
 | `k8s/platform/{base,overlays/local,overlays/prod}` | hapbang-platform | PostgreSQL(HelmChart), Kafka·Redis(StatefulSet), Elasticsearch(ECK CR과 nori Dockerfile), 관측성 HelmChart 5개 | 수동 |
-| `apps/<앱>/k8s/{base,overlays/local,overlays/prod}` | hapbang-prod | 앱 Deployment·Service·ConfigMap. overlay는 이미지와 Secret | prod는 앱마다 배포 workflow(#374) |
+| `apps/<앱>/k8s/{base,overlays/local,overlays/prod}` | hapbang-prod | 앱 Deployment·Service·ConfigMap·HTTPRoute·SecurityPolicy·NetworkPolicy. overlay는 이미지와 Secret | prod는 앱마다 배포 workflow(#374) |
 | `k8s/local/k3d.yaml` | - | 로컬 k3d cluster 설정 | - |
 
 - **앱은 앱 디렉터리만으로 배포할 수 있게 둔다.** 모노레포지만 레포를 나눌 수 있어야 하므로(AGENTS.md 3장) 앱 manifest는 Dockerfile 옆에 두고 루트 `k8s/`를 참조하지 않는다. 앱이 공용 인프라를 아는 것은 `<앱>-config`의 접속 주소(`*.hapbang-platform.svc.cluster.local`)뿐이다.
@@ -20,7 +20,7 @@
 - Helm CLI는 쓰지 않는다. 차트는 k3s 내장 helm-controller의 `HelmChart`(`helm.cattle.io/v1`)로 설치하고 values는 `valuesContent`에 적는다([k3s Helm](https://docs.k3s.io/add-ons/helm)).
 - platform의 StatefulSet은 `hapbang.io/pool: core-data` label을 붙이면 component가 affinity를 넣는다. HelmChart와 Elasticsearch CR에는 component가 닿지 않으므로 values·`podTemplate`에 같은 affinity를 직접 적는다.
 - 앱은 지금 있는 6개만 둔다. notification·search는 각 앱 티켓에서 더한다. appearance·lecture·customer-support는 다른 앱 프로세스에만 있는 Port 구현 때문에 단독으로 기동하지 못해 `replicas: 0`이다(#280).
-- Envoy Gateway·cert-manager·HTTPRoute·SecurityPolicy·NetworkPolicy는 [Gateway 구성](gateway.md)(#372)에 있다. 앱 외부 8080·내부 8081을 분리한다. Kafka·Redis는 cluster 내부 NetworkPolicy로 접근을 제한한다.
+- 공용 Envoy Gateway·cert-manager와 platform 정책은 `k8s/gateway/`에 있다([Gateway 구성](gateway.md), #372). 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 각 앱의 `apps/<앱>/k8s/base/`에 있다. 앱 외부 8080·내부 8081을 분리한다. Kafka·Redis는 cluster 내부 NetworkPolicy로 접근을 제한한다.
 
 ## 버전
 

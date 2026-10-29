@@ -28,7 +28,3 @@ spec:
             memory: 64Mi
           limits:
             memory: 64Mi
-    config:
-      envoyGateway:
-        extensionApis:
-          enableLua: true

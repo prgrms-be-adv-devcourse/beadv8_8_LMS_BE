@@ -57,7 +57,8 @@ for url in urls:
         for version in spec["versions"]:
             schema = version["schema"]["openAPIV3Schema"]
             strict(schema)
-            name = f"{spec['group']}/{spec['names']['kind']}_{version['name']}.json"
+            # kubeconform은 ResourceKind를 소문자로 찾는다. macOS는 대소문자를 구분하지 않아 로컬에서 드러나지 않는다.
+            name = f"{spec['group']}/{spec['names']['kind'].lower()}_{version['name']}.json"
             path = output / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(schema))

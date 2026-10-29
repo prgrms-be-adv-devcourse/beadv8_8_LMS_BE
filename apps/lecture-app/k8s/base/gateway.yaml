@@ -33,6 +33,7 @@ spec:
     - path:
         type: RegularExpression
         value: ^/api/v1/lectures/files/[0-9]+/content$
+      method: PUT
     backendRefs:
     - name: lecture-app
       port: 8080

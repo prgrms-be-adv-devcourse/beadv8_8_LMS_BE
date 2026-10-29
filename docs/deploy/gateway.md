@@ -40,7 +40,7 @@ Gateway와 TLS는 `envoy-gateway-system`, Grafana route는 `hapbang-platform`, �
 
 분리 모드에서 Tomcat이 정규화·decode한 경로와 실제 수신 포트를 비교한다. 외부 포트의 `/api/v1/internal`·하위 경로는 404, 내부 포트의 나머지도 404다. forwarded 헤더는 포트 판단에 사용하지 않는다. 내부 API는 계속 `X-Internal-Api-Key`와 기존 전용 SecurityFilterChain을 사용한다. 앱 간 동기 호출의 transaction·보상 정책은 바꾸지 않는다.
 
-앱 6개의 pod에는 `hapbang.io/internal-api-client: 'true'` label을 붙인다. 모든 앱의 8081은 이 label을 가진 pod만 허용한다. 새 앱은 자기 Deployment에 label을 붙이면 다른 앱의 내부 API를 부를 수 있다. 현재 chat·customer-support의 8081을 부르는 앱은 없다.
+앱 6개의 pod에는 `hapbang.io/internal-api-client: 'true'` label을 붙인다. 모든 앱의 8081은 이 label을 가진 pod만 허용한다. 새 앱은 자기 Deployment에 label을 붙이면 다른 앱의 내부 API를 부를 수 있다. 현재 chat·customer-support의 8081을 부르는 앱은 없다. 앱 egress는 IMDS만 막으므로 8081 접근 통제는 제공 앱의 ingress NetworkPolicy가 맡는다.
 
 NetworkPolicy는 HTTP path를 구분하지 못한다. 그래서 두 실제 listener와 앱의 경로 검사를 함께 둔다. 같은 namespace라는 이유로 앱의 8080을 열지 않는다. Prometheus의 앱 직접 scrape가 필요하면 #343에서 별도 management port와 접근 정책을 설계한다.
 
@@ -53,7 +53,7 @@ prod issuer·JWKS 경로는 #370과 맞춘다. Gateway는 member Service 8080에
 ## 본문·연결·Grafana·trace
 
 - 일반 업무 route만 `requestBuffer`로 1MiB 상한을 적용한다. 일반 요청 timeout은 30초다.
-- 파일 content 경로는 regex로 분리해 timeout만 늘린다. 업로드에는 requestBuffer·retry를 적용하지 않는다. 전체 timeout은 30분, stream idle은 60초다. 메서드·Content-Type·Content-Length·크기 검사는 앱이 한다. Envoy에서 같은 검사를 다시 하지 않는다.
+- 파일 content 경로는 regex와 `PUT` 메서드로 분리해 timeout만 늘린다. 다른 메서드는 일반 route(1MiB·30초)로 간다. 업로드에는 requestBuffer·retry를 적용하지 않는다. 전체 timeout은 30분, stream idle은 60초다. Content-Type·Content-Length·크기 검사는 앱이 한다. Envoy에서 같은 검사를 다시 하지 않는다. `ClientTrafficPolicy`의 `requestReceivedTimeout`은 헤더뿐 아니라 본문까지 받는 시간이라 2GiB 업로드를 위해 0s(해제)로 둔다. 아무것도 보내지 않고 연결만 잡는 요청은 idle·stream idle 60초가 끊는다.
 - WebSocket은 별도 route에서 전체 timeout을 해제하고 stream idle 5분을 둔다. STOMP heartbeat·CONNECT JWT는 #371에서 처리한다.
 - 알 수 없는 `/api/**`, actuator·Swagger·api-docs는 앱/React backend로 보내지 않고 404다. 인증된 API도 실제 앱의 인가·권한 검사가 필요하다.
 - `/grafana`는 `/grafana/`로 redirect한다. prefix는 지우지 않는다. Grafana `root_url`, `serve_from_sub_path`, Secure cookie를 설정한다. admin 자격 증명은 기존 chart Secret을 사용하고 레포·로그에 남기지 않는다.
@@ -61,7 +61,7 @@ prod issuer·JWKS 경로는 #370과 맞춘다. Gateway는 member Service 8080에
 - Grafana는 SQLite PVC를 공유하는 새·옛 pod가 함께 뜨지 않도록 `Recreate`로 갱신한다. probe는 `/grafana/api/health`, startup은 최대 5분을 기다린다. 로그인 화면·정적 자원은 익명에게 제공되고 dashboard·데이터 API는 로그인이 필요하다.
 - Tempo는 trace 수신·조회 부하에서 기존 64Mi로 OOMKilled되어 128Mi·GOMEMLIMIT=112MiB·GOMAXPROCS=2를 적용한다. 이 조정과 Grafana 증가분, Envoy 종료 sidecar 32Mi를 [예산 표](../architecture/infrastructure/k3s.md)에 반영한다.
 - Envoy JSON access log는 query·본문·Authorization·쿠키를 기록하지 않는다. W3C trace를 Alloy OTLP 4317 → Tempo 4317로 전송한다. dashboard·앱 전체 계측·알림은 #343이다.
-- platform NetworkPolicy는 인증 없이 열리는 Kafka·Redis에만 두고 앱 6개만 허용한다. PostgreSQL·Elasticsearch·관측성 구성 요소는 자체 인증에 맡기고 NetworkPolicy를 두지 않는다. metadata egress는 S3를 쓰는 member·appearance·lecture에만 허용한다. node 자체나 hostNetwork pod는 일반 NetworkPolicy의 신뢰 경계 밖이다.
+- platform NetworkPolicy는 인증 없이 열리는 Kafka·Redis에만 두고 앱 6개만 허용한다. PostgreSQL·Elasticsearch·관측성 구성 요소는 자체 인증에 맡기고 ingress NetworkPolicy를 두지 않는다. `deny-metadata-egress`는 namespace의 모든 pod에 적용되므로 이 구성 요소들도 IMDS egress는 막힌다. metadata egress는 S3를 쓰는 member·appearance·lecture에만 허용한다. node 자체나 hostNetwork pod는 일반 NetworkPolicy의 신뢰 경계 밖이다.
 
 ## 로컬 검증 재현
 
