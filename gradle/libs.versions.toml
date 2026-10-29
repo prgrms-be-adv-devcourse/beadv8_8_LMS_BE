@@ -11,6 +11,8 @@ swagger-annotations = "2.2.55"
 awssdk = "2.55.5"
 # Spring Boot 4 BOM이 관리하지 않는다. 출연 E2E 테스트(실제 포트로 HTTP 요청)에서 쓴다
 rest-assured = "6.1.0"
+# 출연 테스트에서 지갑 내부 API를 흉내 내는 Mock 서버. 내부 라이브러리를 숨긴 standalone이라 Spring Boot 4·Jackson 3와 충돌하지 않는다
+wiremock = "3.13.2"
 # Spring Boot 4 BOM이 관리하지 않는다. 지갑 내부 API Client의 Circuit Breaker·Retry·TimeLimiter(#411)
 resilience4j = "2.4.0"
 
@@ -20,6 +22,7 @@ springdoc-openapi-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starte
 swagger-annotations = { module = "io.swagger.core.v3:swagger-annotations-jakarta", version.ref = "swagger-annotations" }
 awssdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awssdk" }
 rest-assured = { module = "io.rest-assured:rest-assured", version.ref = "rest-assured" }
+wiremock-standalone = { module = "org.wiremock:wiremock-standalone", version.ref = "wiremock" }
 resilience4j-circuitbreaker = { module = "io.github.resilience4j:resilience4j-circuitbreaker", version.ref = "resilience4j" }
 resilience4j-retry = { module = "io.github.resilience4j:resilience4j-retry", version.ref = "resilience4j" }
 resilience4j-timelimiter = { module = "io.github.resilience4j:resilience4j-timelimiter", version.ref = "resilience4j" }

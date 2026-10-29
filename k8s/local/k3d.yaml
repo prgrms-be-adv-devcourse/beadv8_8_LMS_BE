@@ -17,6 +17,9 @@ options:
         nodeFilters:
           - server:*
     nodeLabels:
+      - label: svccontroller.k3s.cattle.io/enablelb=true
+        nodeFilters:
+          - server:*
       - label: hapbang.io/pool=core-data
         nodeFilters:
           - server:*

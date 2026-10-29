@@ -1,5 +1,5 @@
 # cluster 공용 구성. 자주 바뀌지 않고 잘못 건드리면 데이터가 위험하므로 수동으로만 적용한다.
-# Envoy Gateway·cert-manager·GatewayClass·Gateway·ClusterIssuer는 #372에서 더한다.
+# Gateway·인증서 설치는 CRD 준비 순서를 지키도록 k8s/gateway에서 별도로 적용한다(#372).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
