@@ -1001,7 +1001,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 케이스 | 기대 결과 |
 |---|---|
 | 요약 (키 있음) | 200 `RsData`, 메시지, 확인 대기 20,000·1 / 지급 예정 0 / 처리 중 22,000·1, `asOf` 없음. `earningType=APPEARANCE_PENALTY`면 0 |
-| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` null, `statusUpdatedAt`은 offset 없는 시각 |
+| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` 필드 없음(#408), `statusUpdatedAt`은 offset 없는 시각 |
 | 기본·페이지 (`size=1`) | 미지급 2건 중 최근(확인한 출연) 먼저, `page {size 1, number 0, totalElements 2, totalPages 2}`. 값 없는 `status=`도 미지급 2건(Spring이 빈 목록으로 바꿈). `status=SCHEDULED`만이면 빈 결과 |
 | 출연이 없는 회원 | 0원 요약·빈 목록 |
 | 요청 값 오류 | `userId` 없음(`errors[0].field`=`userId`), `userId=0`, `status=PAID`(`status`), `earningType=LECTURE_SALE`(`earningType`) → 400 `INVALID_REQUEST` |
@@ -1015,7 +1015,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 케이스 | 기대 결과 |
 |---|---|
 | 요약 | `userId`·키 헤더(종류를 주면 `earningType`)를 붙여 보내고 `data`를 돌려줌 |
-| 목록 | `status` 여러 개·`earningType`·`page`·`size` 쿼리, 빠진 `payoutScheduledAt`은 null, offset 없는 시각을 `LocalDateTime`으로 읽음 |
+| 목록 | `status` 여러 개·`earningType`·`page`·`size` 쿼리, 빠진 `payoutScheduledAt`·명시적 `null` 모두 null(#408), offset 없는 시각을 `LocalDateTime`으로 읽음 |
 | 상태 null | 상태 조건 없이 보냄 |
 | 4xx (ProblemDetail / 401 본문 없음) | `REJECTED` + 상태 + `code`(401은 null) |
 | 연결 실패·시간 초과·503 | `UNAVAILABLE` (상태 0 / 0 / 503) |
@@ -1116,3 +1116,12 @@ MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코
 
 - 두 관리자가 실제 스레드로 동시에 누르는 경우는 타이밍에 기대지 않도록, 위 동시 테스트처럼 "읽은 직후 다른 트랜잭션이 먼저 커밋"으로 만든다(17.2와 같은 방식). 늦게 누르면 이미 대기라 409 `HP_TASK_NOT_DEAD`다.
 - 같은 작업이 두 곳에서 동시에 Billing에 가도 HP는 한 번만 움직인다: Billing이 지갑을 잠근 뒤 같은 요청 ID 기록을 확인해 두 번째는 처음 결과를 돌려주고, 출연은 대기 중일 때만 결과를 기록한다(버전 충돌이면 먼저 기록한 쪽). 실제 Billing으로 확인하는 일은 Mock Billing·HTTP 전환 작업에서 한다.
+
+## 22. 출연 수익 내부 API 응답에서 null 필드 빼기 (#408)
+
+#390에서 실제 포트로 확인해 보니 `payoutScheduledAt`이 `"payoutScheduledAt": null`로 나가 계약 문서(`docs/api/internal-earnings.md`, null 필드는 빠진다)와 달랐다. 계약 DTO `AppearanceEarningItemDto`의 이 필드에만 `@JsonInclude(NON_NULL)`을 붙였다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceEarningInternalApiTest` (E2E) | 목록 | `data.content[0]`에 `payoutScheduledAt` 키가 없음 (`null` 값이 아니라 키 자체가 없음) |
+| `AppearanceApiClientTest` (shared 단위) | 필드 없음·명시적 `null` 두 항목 | 둘 다 `payoutScheduledAt` = `null`로 읽음 (받는 쪽 Client는 응답 모양이 바뀌어도 같게 동작) |
