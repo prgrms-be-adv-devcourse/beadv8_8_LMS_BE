@@ -12,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -19,6 +20,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.RedisTestcontainersConfig;
 import com.jayway.jsonpath.JsonPath;
 
 import jakarta.servlet.http.Cookie;
@@ -26,6 +28,7 @@ import jakarta.servlet.http.Cookie;
 @IntegrationTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "hapbang.local-login.enabled=true")
+@Import(RedisTestcontainersConfig.class)
 class LocalLoginTest {
 
     @Autowired
@@ -54,6 +57,28 @@ class LocalLoginTest {
         mockMvc.perform(get("/api/v1/members/me").cookie(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.role").value("INFLUENCER"));
+    }
+
+    @Test
+    @DisplayName("로컬 로그인하면 구글 로그인과 같이 refresh token 쿠키를 주고, 그 쿠키로 access token을 재발급받는다 (#370)")
+    void login_issuesRefreshToken() throws Exception {
+        MvcResult result = login("role=VERIFIED_INFLUENCER")
+                .andExpect(status().isOk())
+                .andReturn();
+
+        Cookie refreshToken = result.getResponse().getCookie(RefreshTokenCookies.NAME);
+        assertThat(refreshToken).isNotNull();
+        assertThat(refreshToken.isHttpOnly()).isTrue();
+        assertThat(refreshToken.getPath()).isEqualTo("/api/v1/members/auth");
+        MvcResult refreshed = mockMvc.perform(post("/api/v1/members/auth/refresh").cookie(refreshToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        String accessToken = JsonPath.read(refreshed.getResponse().getContentAsString(), "$.data.accessToken");
+        assertThat(accessToken).isNotBlank();
+        // 만든 refresh token 키를 지운다 (Redis를 테스트끼리 같이 쓴다)
+        mockMvc.perform(post("/api/v1/members/auth/logout").cookie(refreshToken));
+        mockMvc.perform(post("/api/v1/members/auth/logout")
+                .cookie(refreshed.getResponse().getCookie(RefreshTokenCookies.NAME)));
     }
 
     @Test
