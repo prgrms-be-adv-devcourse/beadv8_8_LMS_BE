@@ -93,6 +93,15 @@ public class HpTask extends BaseEntity {
     /** 처리가 끝난 시각 ({@code DONE}·{@code DEAD}가 된 시각) */
     private LocalDateTime completedAt;
 
+    /** 관리자가 다시 시도한 횟수 (#397). 다시 시도하면 시도 횟수는 0으로 돌아가므로 이력은 여기에 남긴다 */
+    private int manualRetryCount;
+
+    /** 마지막으로 다시 시도한 관리자 회원 ID */
+    private Long lastManualRetryBy;
+
+    /** 마지막으로 다시 시도한 시각 */
+    private LocalDateTime lastManualRetryAt;
+
     /** 낙관적 락. 같은 작업의 결과를 두 곳에서 동시에 기록하면 나중 것을 막는다 */
     @Version
     private Long version;
@@ -238,6 +247,7 @@ public class HpTask extends BaseEntity {
     /**
      * 격리한다. Billing이 거절했거나(다시 보내도 결과가 같음) 재시도를 다 써도 실패한 경우다.
      * 더는 자동으로 실행하지 않으며, 화면에는 반환 지연(고객센터 확인)으로 보인다.
+     * 관리자가 원인을 확인한 뒤 다시 시도할 수 있다 ({@link #reopenForManualRetry}).
      */
     public void markDead(String error, LocalDateTime now) {
         requirePending();
@@ -245,6 +255,30 @@ public class HpTask extends BaseEntity {
         this.status = HpTaskStatus.DEAD;
         this.lastError = truncate(error);
         this.completedAt = now;
+    }
+
+    /**
+     * 관리자가 격리된 작업을 다시 시도할 수 있게 대기로 되돌린다 (#397).
+     * <ul>
+     *     <li>업무 상태(거절·확인·취소)는 되돌리지 않는다. 같은 멱등 키로 다시 보내므로 Billing에서 HP가 두 번 움직이지 않는다.</li>
+     *     <li>시도 횟수를 0으로 되돌려, 다시 실패하면 평소 재시도 규칙(간격 늘리기, 최대 횟수 뒤 격리)을 처음부터 적용한다.
+     *     마지막 오류는 다음 결과가 나올 때까지 남겨 둔다.</li>
+     *     <li>누가 언제 다시 시도했는지 기록하고, 다시 시도 횟수를 늘린다.</li>
+     * </ul>
+     *
+     * @throws AppearanceException 격리된 작업이 아님({@code HP_TASK_NOT_DEAD})
+     */
+    public void reopenForManualRetry(Long adminId, LocalDateTime now) {
+        if (status != HpTaskStatus.DEAD) {
+            throw new AppearanceException(AppearanceErrorCode.HP_TASK_NOT_DEAD);
+        }
+        this.status = HpTaskStatus.PENDING;
+        this.attemptCount = 0;
+        this.nextAttemptAt = now;
+        this.completedAt = null;
+        this.manualRetryCount++;
+        this.lastManualRetryBy = adminId;
+        this.lastManualRetryAt = now;
     }
 
     private void requirePending() {
