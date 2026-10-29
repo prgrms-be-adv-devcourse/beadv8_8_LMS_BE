@@ -41,8 +41,8 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         // 헬스체크 (Docker healthcheck용). 서버 nginx가 /actuator를 프록시하지 않아 컨테이너·서버 안에서만 접근한다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
-                        // JWT 공개 키 목록 (Envoy·chat-app이 cluster 안에서 받는다, #370)
-                        .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json").permitAll()
+                        // JWT 공개 키 목록 (Envoy·chat-app이 받는다, #370). 경로는 Envoy remoteJWKS 주소와 같다 (#372)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/members/.well-known/jwks.json").permitAll()
                         // 치지직 연동 콜백: 브라우저 이동이라 로그인 정보가 없다. 시작 때 맡긴 회원으로 처리한다 (#370)
                         .requestMatchers(HttpMethod.GET, "/api/v1/members/channels/chzzk/callback").permitAll()
                         // 재발급·로그아웃 (access token이 만료된 상태에서 refresh token 쿠키로 부른다, #370)

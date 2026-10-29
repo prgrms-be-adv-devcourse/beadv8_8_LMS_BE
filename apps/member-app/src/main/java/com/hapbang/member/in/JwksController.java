@@ -16,7 +16,8 @@ import lombok.RequiredArgsConstructor;
  * <ul>
  *     <li>표준 JWKS 형식(`{"keys": [...]}`)이어야 받는 쪽이 읽을 수 있어 RsData로 감싸지 않는다.</li>
  *     <li>`/api/v1/internal/**` 아래에 두지 않는다. 그 경로는 내부 API 키가 있어야 해서 Envoy가 키를 받지 못한다.</li>
- *     <li>공개 키라 인증 없이 열지만, 외부로는 노출하지 않는다(Envoy에 route를 만들지 않는다).</li>
+ *     <li>경로는 Envoy SecurityPolicy의 remoteJWKS 주소와 같아야 한다 (apps/member-app/k8s/base/gateway.yaml, #372).
+ *     회원 경로 아래라 Envoy를 거쳐 밖에서도 보이지만, 공개 키라 인증 없이 연다.</li>
  * </ul>
  */
 @Hidden
@@ -24,7 +25,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class JwksController {
 
-    static final String PATH = "/.well-known/jwks.json";
+    static final String PATH = "/api/v1/members/.well-known/jwks.json";
 
     private final JWKSet jwtPublicKeys;
 
