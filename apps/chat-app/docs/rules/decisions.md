@@ -5,8 +5,11 @@
 - **배포·검증 규모**: chat-app은 replica 1개다. 단일 앱의 여러 사용자 세션과 재시작·구독 복구를 검증하고, 복수 replica 동작을 완료 조건으로 요구하지 않는다.
 
 - **단체채팅**: 기존 1:1을 유지하면서 단체채팅을 이번 설계·구현·통합 검증에 포함한다. 세부 기능·정책은 설계 문서 3·8장을 따른다. 기존 1000명 안은 방 잠금·참여자 조회·메시지 전달 비용의 부하 검증 대상으로 삼고, 검증 전 달성을 보장하지 않는다.
-- **회원 이벤트(Kafka)**: `common/shared`의 `UserJoinedEvent`·`UserModifiedEvent` 레코드를 그대로 `member.events.v1` 토픽에 싣는다. key는 회원 ID다. 별도 envelope·`eventId`를 만들지 않고, 멱등은 `createIfAbsent`와 `memberVersion` 비교로 한다.
+- **회원 이벤트(Kafka)**: `common/shared`의 `UserJoinedEvent`·`UserModifiedEvent` 레코드를 그대로 `member.events.v1` 토픽에 싣는다. key는 회원 ID다. 별도 envelope·`eventId`를 만들지 않고, 멱등은 `createIfAbsent`와 `memberVersion` 비교로 한다. 토픽·key는 shared 레코드의 `@Externalized`로 지정한다(Q13, 사용자 결정 2026-10-29).
+- **진행 방식(2026-10-29 사용자 변경 결정)**: 회원 이벤트 Kafka 전환, Redis Streams·Pub/Sub 전환, 누적 수신 커서를 병렬로 구현한다. 같은 날의 순차 진행 결정을 대체한다. 단체방은 이들의 통합 검증 뒤 진행한다.
 - **실시간 전달(Redis, 2026-10-29 변경 결정)**: 사용자의 도입 요청으로 기존 Streams 미도입 결정을 대체한다. 메시지·시스템 안내·연결 제어를 업무 변경과 같은 트랜잭션의 PostgreSQL outbox에 기록하고, **outbox → Redis Streams → consumer group → Redis Pub/Sub → 로컬 STOMP**로 전달한다. DB relay는 적재 선점·lease 회수·재시도를, Stream consumer는 후속 발행·PEL 회수·ACK를 맡는다. 이는 목표 설계이며 구현 완료가 아니다.
+- **구독자 0명(2026-10-29 사용자 결정)**: replica 1개에서 `PUBLISH` 구독자 0명은 자기 구독 단절이다. 발행 완료로 기록하지 않고 `XACK`하지 않으며, 구독 복구 뒤 backoff·횟수 상한 안에서 재시도한다.
+- **다른 참여자 수신 상태 표시**: 이번 범위에서 제외한다. 조회 권한·노출 범위·주기(Q11)를 정한 뒤 별도로 한다.
 - **완료·복구 경계**: outbox `ENQUEUED`는 XADD 성공, DB의 그룹별 `PUBLISHED` 체크포인트는 Pub/Sub 발행 성공, XACK는 Stream 처리 완료다. 사용자 수신 완료와 구분한다. 체크포인트는 사용자별 수신 이력이 아니며 Redis 유실 시 DB 원본과 미완료 작업을 대조해 재적재하는 근거다. 상세 상태·재시도·격리·보존·메모리 상한은 설계 문서 4.5·Q12를 따른다.
 - **누적 수신 관리(2026-10-29 사용자 결정)**: 메시지별·수신자별 이력 대신 기존 PostgreSQL 참여 행에 `last_received_sequence`를 추가한다. 현재 참여 세대에서 인증된 클라이언트의 누적 ACK로만 전진시키고 읽음과 독립 관리한다. 초기·재입장·기존 데이터는 수신 미확인으로 시작한다. 각 기기는 자기 로컬 확인 위치로 이력을 복구하며 서버 회원 커서를 모든 기기의 수신으로 해석하지 않는다. ACK 병합·검증·실패·다중 기기·테스트 계약은 설계 문서 4.4를 따른다. 이번 구현 범위에 포함하는 목표이며 구현 완료는 아니다.
 - **그룹과 모듈 경계**: 메시지 전달·연결 제어는 별도 Stream·그룹으로 나누고 단일 JVM의 제한된 worker로 처리한다. notification-app의 입력은 Kafka를 유지한다. 다른 기능이 같은 이벤트를 독립 소비할 때는 별도 그룹·공개 계약·보존 예산을 설계하며, 다른 앱에서 chat DB 참조를 직접 읽지 않는다.

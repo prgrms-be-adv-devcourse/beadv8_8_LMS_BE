@@ -8,7 +8,7 @@
 - chat-app의 설계·구현·테스트·배포 기준은 replica 1개다. 복수 replica를 전제로 한 구현·검증을 요구하지 않는다.
 - [`docs/rules/invariants.md`](docs/rules/invariants.md)의 불변식을 바꾸지 않는다. 바꿔야 하면 먼저 질문한다.
 - [`docs/rules/decisions.md`](docs/rules/decisions.md)의 결정을 따른다. 미정 항목은 추측으로 정하지 않는다.
-- 고도화는 [`docs/workflow/process.md`](docs/workflow/process.md)의 1. 회원 이벤트 Kafka 전환, 2. Redis Streams·Pub/Sub 전환, 3. 서비스 인터페이스 분리, 4. 단체방 구현을 모두 포함한다. 3번은 1·2번 전환 중 함께 적용하고, 검증 뒤 4번을 진행한다.
+- 고도화는 [`docs/workflow/process.md`](docs/workflow/process.md)의 1. 회원 이벤트 Kafka 전환, 2. Redis Streams·Pub/Sub 전환, 3. 서비스 인터페이스 분리, 4. 단체방 구현을 모두 포함한다. 1·2번은 병렬로 진행하고 3번은 그 전환 중 함께 적용한다. 1~3번 통합 검증 뒤 4번을 진행한다.
 - Redis Streams 도입에 따라 outbox 적재·Pub/Sub 발행·Stream ACK·사용자 수신의 완료 경계를 구분하고, 그룹 소비·회수·유실 재구성·보존 기준은 [`docs/final-design.md`](docs/final-design.md) 4.2·4.5를 따른다.
 - 누적 수신 커서·클라이언트 ACK·기기별 복구를 이번 고도화에 포함하고, 저장 모델·세대 검증·ACK 병합·FE 계약은 [`docs/final-design.md`](docs/final-design.md) 4.4를 따른다.
 - 서비스 인터페이스·구현체의 이름과 배치는 [`docs/rules/decisions.md`](docs/rules/decisions.md)의 서비스 경계 규칙을 따른다. Facade는 `app`의 인터페이스에 의존한다.
