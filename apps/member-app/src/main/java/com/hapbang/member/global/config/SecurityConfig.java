@@ -43,6 +43,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         // JWT 공개 키 목록 (Envoy·chat-app이 cluster 안에서 받는다, #370)
                         .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json").permitAll()
+                        // 치지직 연동 콜백: 브라우저 이동이라 로그인 정보가 없다. 시작 때 맡긴 회원으로 처리한다 (#370)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/members/channels/chzzk/callback").permitAll()
                         // 재발급·로그아웃 (access token이 만료된 상태에서 refresh token 쿠키로 부른다, #370)
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/auth/refresh", "/api/v1/members/auth/logout")
                         .permitAll()

@@ -15,12 +15,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.LocalDateTime;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -50,7 +56,9 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.RedisTestcontainersConfig;
 import com.hapbang.testsupport.TestLogin;
+import com.jayway.jsonpath.JsonPath;
 
 import jakarta.servlet.http.Cookie;
 
@@ -58,9 +66,11 @@ import jakarta.servlet.http.Cookie;
 @IntegrationTest
 @AutoConfigureMockMvc
 @RecordApplicationEvents
+@Import(RedisTestcontainersConfig.class)
 class ApiV1MemberChannelControllerTest {
 
     private static final String CALLBACK = "/api/v1/members/channels/chzzk/callback";
+    private static final String AUTHORIZE = "/api/v1/members/channels/chzzk/authorize";
 
     @Autowired
     MockMvc mockMvc;
@@ -79,6 +89,114 @@ class ApiV1MemberChannelControllerTest {
 
     @MockitoBean
     ChzzkApiClient chzzkApiClient;
+
+    @Autowired
+    StringRedisTemplate redisTemplate;
+
+    /** 테스트끼리 Redis를 같이 쓰므로 자기가 만든 키만 지운다 (docs/dev/testing.md) */
+    private final List<String> createdRedisKeys = new ArrayList<>();
+
+    @AfterEach
+    void cleanUpRedis() {
+        redisTemplate.delete(createdRedisKeys);
+    }
+
+    @Test
+    @DisplayName("연동 시작(API, #370): 치지직 주소를 본문으로 주고, 연동하는 회원과 state를 Redis에 맡기고 브라우저 쿠키를 준다")
+    void authorize() throws Exception {
+        User user = saveUser(Role.USER);
+
+        ChzzkStart start = authorize(user);
+
+        assertThat(start.setCookie())
+                .startsWith(ApiV1MemberChannelController.CHZZK_AUTH_COOKIE + "=")
+                .contains("Path=/api/v1/members/channels/chzzk", "Max-Age=600", "HttpOnly", "Secure", "SameSite=Lax");
+        assertThat(redisTemplate.opsForValue().get("member:chzzk-state:" + start.browserId()))
+                .isEqualTo(user.getId() + ":" + start.state());
+    }
+
+    @Test
+    @DisplayName("연동 시작(API): 유저가 아니면 403")
+    void authorize_notUser() throws Exception {
+        User influencer = saveUser(Role.INFLUENCER);
+
+        mockMvc.perform(post(AUTHORIZE).with(TestLogin.as(influencer.getId(), influencer.getRole())).with(csrf()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("콜백(#370): 로그인 정보 없이도 시작한 브라우저 쿠키로 맡긴 회원을 찾아 연동하고, 쿠키를 지운다")
+    void callback_authorizedApproved() throws Exception {
+        User user = saveUser(Role.USER);
+        ChzzkStart start = authorize(user);
+        givenChzzkChannel("channel-1", 12, start.state());
+
+        String setCookie = mockMvc.perform(get(CALLBACK).param("code", "code-1").param("state", start.state())
+                        .cookie(new Cookie(ApiV1MemberChannelController.CHZZK_AUTH_COOKIE, start.browserId())))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", "/mypage?chzzk=approved"))
+                .andReturn().getResponse().getHeader(HttpHeaders.SET_COOKIE);
+
+        assertThat(setCookie).startsWith(ApiV1MemberChannelController.CHZZK_AUTH_COOKIE + "=;").contains("Max-Age=0");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getRole()).isEqualTo(Role.INFLUENCER);
+        assertThat(influencerChannelRepository.findAll()).singleElement()
+                .satisfies(channel -> assertThat(channel.getChannelIdentifier()).isEqualTo("channel-1"));
+    }
+
+    @Test
+    @DisplayName("콜백(#370): 연동을 시작한 쿠키가 없는 브라우저는 실패한다 (남의 동의 링크로 내 채널이 남의 계정에 붙는 것을 막는다)")
+    void callback_authorizedOtherBrowser() throws Exception {
+        User user = saveUser(Role.USER);
+        ChzzkStart start = authorize(user);
+
+        mockMvc.perform(get(CALLBACK).param("code", "code-1").param("state", start.state()))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", "/mypage?chzzk=failed&code=INVALID_CHZZK_STATE"));
+
+        assertThat(influencerChannelRepository.findAll()).isEmpty();
+        verify(chzzkApiClient, never()).issueToken(any(), any());
+    }
+
+    @Test
+    @DisplayName("콜백(#370): state가 다르면 실패하고, 맡긴 연동은 지워져 다시 쓸 수 없다")
+    void callback_authorizedStateMismatch() throws Exception {
+        User user = saveUser(Role.USER);
+        ChzzkStart start = authorize(user);
+        Cookie browser = new Cookie(ApiV1MemberChannelController.CHZZK_AUTH_COOKIE, start.browserId());
+
+        mockMvc.perform(get(CALLBACK).param("code", "code-1").param("state", "other-state").cookie(browser))
+                .andExpect(header().string("Location", "/mypage?chzzk=failed&code=INVALID_CHZZK_STATE"));
+        mockMvc.perform(get(CALLBACK).param("code", "code-1").param("state", start.state()).cookie(browser))
+                .andExpect(header().string("Location", "/mypage?chzzk=failed&code=INVALID_CHZZK_STATE"));
+
+        verify(chzzkApiClient, never()).issueToken(any(), any());
+    }
+
+    @Test
+    @DisplayName("콜백(#370): 시작한 뒤 유저가 아니게 됐으면 연동하지 않는다")
+    void callback_authorizedNotUserAnymore() throws Exception {
+        User user = saveUser(Role.USER);
+        ChzzkStart start = authorize(user);
+        user.changeRole(Role.INFLUENCER);
+        userRepository.save(user);
+
+        mockMvc.perform(get(CALLBACK).param("code", "code-1").param("state", start.state())
+                        .cookie(new Cookie(ApiV1MemberChannelController.CHZZK_AUTH_COOKIE, start.browserId())))
+                .andExpect(header().string("Location", "/mypage?chzzk=failed&code=CHANNEL_CONNECT_NOT_ALLOWED"));
+
+        verify(chzzkApiClient, never()).issueToken(any(), any());
+    }
+
+    @Test
+    @DisplayName("콜백(#370): 치지직 동의를 취소해 code 없이 돌아오면 실패")
+    void callback_authorizedRejected() throws Exception {
+        User user = saveUser(Role.USER);
+        ChzzkStart start = authorize(user);
+
+        mockMvc.perform(get(CALLBACK).param("state", start.state())
+                        .cookie(new Cookie(ApiV1MemberChannelController.CHZZK_AUTH_COOKIE, start.browserId())))
+                .andExpect(header().string("Location", "/mypage?chzzk=failed&code=CHZZK_REQUEST_REJECTED"));
+    }
 
     @Test
     @DisplayName("연동 시작: state를 세션에 보관하고 같은 state로 치지직 화면에 보낸다")
@@ -355,6 +473,29 @@ class ApiV1MemberChannelControllerTest {
                 .andExpect(jsonPath("$.data[0].followerCount").value(5))
                 .andExpect(jsonPath("$.data[0].followerCountAt").isNotEmpty())
                 .andExpect(jsonPath("$.data[1].status").value("APPROVED"));
+    }
+
+    /** POST /chzzk/authorize로 연동을 시작하고, 받은 쿠키(브라우저 ID)와 주소의 state를 돌려준다 */
+    private ChzzkStart authorize(User user) throws Exception {
+        given(chzzkApiClient.authorizeUrl(any())).willAnswer(call -> "https://chzzk.example/auth?state=" + call.getArgument(0));
+        MvcResult result = mockMvc.perform(post(AUTHORIZE).with(TestLogin.as(user.getId(), user.getRole())).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.authorizeUrl").isNotEmpty())
+                .andReturn();
+        String authorizeUrl = JsonPath.read(result.getResponse().getContentAsString(), "$.data.authorizeUrl");
+        String setCookie = result.getResponse().getHeader(HttpHeaders.SET_COOKIE);
+        String browserId = setCookie.substring(setCookie.indexOf('=') + 1, setCookie.indexOf(';'));
+        createdRedisKeys.add("member:chzzk-state:" + browserId);
+        return new ChzzkStart(browserId, authorizeUrl.substring(authorizeUrl.indexOf("state=") + "state=".length()), setCookie);
+    }
+
+    private record ChzzkStart(String browserId, String state, String setCookie) {
+    }
+
+    private void givenChzzkChannel(String channelId, int followerCount, String state) {
+        given(chzzkApiClient.issueToken("code-1", state)).willReturn("token-1");
+        given(chzzkApiClient.findMe("token-1")).willReturn(new ChzzkUser(channelId, "방송인"));
+        given(chzzkApiClient.findFollowerCount(channelId)).willReturn(followerCount);
     }
 
     private User saveUser(Role role) {

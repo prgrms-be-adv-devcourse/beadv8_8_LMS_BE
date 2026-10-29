@@ -52,6 +52,8 @@ public enum MemberErrorCode implements BaseErrorCode {
     UPGRADE_MEMBER_NOT_INFLUENCER(HttpStatus.CONFLICT, "인플루언서인 회원만 승급할 수 있습니다."),
     CHANNEL_NOT_FOUND(HttpStatus.NOT_FOUND, "채널을 찾을 수 없습니다."),
     CHANNEL_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록된 채널입니다."),
+    /** 치지직 연동 콜백 때 회원이 유저가 아님 (연동을 시작한 뒤 역할이 바뀐 경우, #370) */
+    CHANNEL_CONNECT_NOT_ALLOWED(HttpStatus.FORBIDDEN, "유저만 치지직 채널을 연동할 수 있습니다."),
     INVALID_CHZZK_STATE(HttpStatus.BAD_REQUEST, "치지직 연동 요청이 올바르지 않습니다. 처음부터 다시 시도해 주세요."),
     /** 치지직이 요청을 거절함(4xx, 키 오류 제외: code 만료 등) 또는 code 없이 돌아옴. 처음부터 다시 연동하면 된다 */
     CHZZK_REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "치지직 연동이 완료되지 않았습니다. 처음부터 다시 시도해 주세요."),
