@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -18,14 +19,16 @@ public interface HpTaskRepository extends JpaRepository<HpTask, Long> {
     Optional<HpTask> findByIdempotencyKey(String idempotencyKey);
 
     /**
-     * 재시도 배치가 실행할 작업 ID. 대기 중이고 다음 시도 시각이 지났으며, 이미 한 번 이상 시도했거나 만든 지 대기 시간이 지난 작업.
+     * 재시도 배치가 실행할 작업 ID. 대기 중이고 다음 시도 시각이 지났으며, 이미 한 번 이상 시도했거나 시작한 지 대기 시간이 지난 작업.
      * 방금 기록돼 요청 안에서 바로 실행 중인 작업과 겹치지 않도록, 처음 시도 전 작업은 대기 시간을 둔다. 다음 시도 시각 순.
+     * 시작 시각은 만든 시각이고, 관리자가 다시 시도한 작업은 다시 시도한 시각이다 (#397). 다시 시도하면 시도 횟수가 0으로 돌아가
+     * 만든 시각만 보면 바로 대상이 되어, 관리자 요청 안에서 실행 중인 작업을 배치가 함께 실행하게 되기 때문이다.
      */
     @Query("""
             select t.id from HpTask t
             where t.status = com.hapbang.appearance.domain.HpTaskStatus.PENDING
               and t.nextAttemptAt <= :now
-              and (t.attemptCount > 0 or t.createdAt <= :graceCutoff)
+              and (t.attemptCount > 0 or coalesce(t.lastManualRetryAt, t.createdAt) <= :graceCutoff)
             order by t.nextAttemptAt, t.id
             """)
     List<Long> findRunnableIds(@Param("now") LocalDateTime now, @Param("graceCutoff") LocalDateTime graceCutoff,
@@ -33,4 +36,7 @@ public interface HpTaskRepository extends JpaRepository<HpTask, Long> {
 
     /** 상태별 작업 수 (지표용) */
     long countByStatus(HpTaskStatus status);
+
+    /** 상태별 작업 목록 (관리자 조회, #397). 정렬은 넘겨받은 페이지 요청을 따른다 */
+    Page<HpTask> findByStatus(HpTaskStatus status, Pageable pageable);
 }

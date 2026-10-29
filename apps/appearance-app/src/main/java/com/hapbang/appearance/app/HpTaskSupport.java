@@ -4,10 +4,16 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.domain.Appearance;
+import com.hapbang.appearance.domain.AppearanceErrorCode;
+import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.HpTask;
 import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
@@ -23,10 +29,45 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class HpTaskSupport {
 
+    /** 관리자 목록 정렬: 마지막으로 바뀐 작업부터 (격리 작업이면 격리된 순서) */
+    private static final Sort RECENTLY_UPDATED_FIRST = Sort.by(Sort.Direction.DESC, "updatedAt", "id");
+
     private final HpTaskRepository hpTaskRepository;
 
     public HpTask save(HpTask task) {
         return hpTaskRepository.save(task);
+    }
+
+    /**
+     * 관리자가 고른 작업. 없으면 404.
+     *
+     * @throws AppearanceException 작업 없음({@code HP_TASK_NOT_FOUND})
+     */
+    public HpTask getForAdmin(Long taskId) {
+        Optional<HpTask> found = hpTaskRepository.findById(taskId);
+        if (found.isEmpty()) {
+            throw new AppearanceException(AppearanceErrorCode.HP_TASK_NOT_FOUND);
+        }
+        return found.get();
+    }
+
+    /** 상태별 작업 목록 (관리자). 정렬은 요청과 관계없이 마지막으로 바뀐 작업부터 */
+    public Page<HpTask> findByStatus(HpTaskStatus status, Pageable pageable) {
+        return hpTaskRepository.findByStatus(status,
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), RECENTLY_UPDATED_FIRST));
+    }
+
+    /**
+     * 작업 변경을 바로 DB에 반영한다. 다른 요청이 먼저 바꿨으면(버전 충돌) 409로 바꿔 던진다.
+     *
+     * @throws AppearanceException 동시 처리 충돌({@code CONCURRENT_UPDATE})
+     */
+    public void flushOrConflict() {
+        try {
+            hpTaskRepository.flush();
+        } catch (ObjectOptimisticLockingFailureException exception) {
+            throw new AppearanceException(AppearanceErrorCode.CONCURRENT_UPDATE);
+        }
     }
 
     public HpTask getById(Long taskId) {
