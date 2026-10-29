@@ -24,6 +24,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: customer-support-app
+        hapbang.io/internal-api-client: 'true'
     spec:
       # node별 메모리 예산이 배치를 전제로 하므로 required로 건다(docs/deploy/aws-k3s.md).
       affinity:
@@ -40,6 +41,8 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            - name: internal
+              containerPort: 8081
           envFrom:
             - configMapRef:
                 name: customer-support-app-config
