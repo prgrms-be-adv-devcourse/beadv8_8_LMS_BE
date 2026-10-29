@@ -22,9 +22,16 @@
 
 ### Billing 대역 (#289)
 
-- 출연 모듈 통합·E2E 테스트는 `@AppearanceIntegrationTest`(= 팀 `@IntegrationTest` + `BillingClient` Mockito 대역)를 쓴다. 대역은 기본 성공이고 Billing 규칙(잔액·보류·멱등)을 흉내 내지 않는다.
+- 출연 모듈 통합 테스트는 `@AppearanceIntegrationTest`(= 팀 `@IntegrationTest` + `BillingClient` Mockito 대역), E2E 테스트는 `@AppearanceE2ETest`(실제 포트 + 같은 대역, #390)를 쓴다. 대역은 기본 성공이고 Billing 규칙(잔액·보류·멱등)을 흉내 내지 않는다.
 - 아래 표의 "보류·반환·지급·잔액" 기대 결과는 #289부터 **Billing에 보낸 요청 내용**(`BillingCalls`: 금액·요청 ID·원천·받는 회원)으로 확인한다. 실제 잔액·보류 변화는 16장 apps 통합 테스트가 확인한다.
 - 실패는 `BillingStubs`로 만든다: 무응답(업무 예외가 아닌 런타임 예외) / Billing 거절(`INSUFFICIENT_BALANCE`·`WALLET_NOT_FOUND`·`HOLD_NOT_FOUND`, 공통 업무 예외).
+
+### E2E 테스트 방식 (#390)
+
+- E2E(HTTP 요청 → DB)는 `@AppearanceE2ETest`로 실제 서버(랜덤 포트)를 띄우고 RestAssured로 요청한다. 보안 필터(세션 로그인, CSRF)·직렬화·오류 응답이 운영과 같은 경로를 거친다.
+- 로그인은 `E2ELogin.as(회원 ID, 역할)` 한 곳에서 만든다(테스트 전용 로그인 경로로 실제 세션과 CSRF 토큰 쿠키를 받는다). CSRF 없는 요청은 `E2ELogin.withoutCsrf`.
+- ID처럼 `long`인 응답 값은 `E2EMatchers.number`로 비교한다(RestAssured는 JSON 정수를 크기에 따라 Integer·Long으로 읽는다).
+- 컨트롤러 웹 슬라이스(`@WebMvcTest`)·Swagger 명세 테스트는 MockMvc 그대로다.
 
 ## 2. 테스트 구성
 
@@ -235,7 +242,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 
 ### 5.1 API 흐름 — `AppearanceApiE2ETest`
 
-앱 전체(보안 필터, 세션 로그인, 서비스, DB)를 띄우고 MockMvc로 요청한다. 로그인은 팀 공통 `TestLogin`으로 만든다.
+실제 서버(보안 필터, 세션 로그인, 서비스, DB)를 띄우고 RestAssured로 요청한다. 로그인은 `E2ELogin`으로 만든다 (#390).
 테스트 전용 컨트롤러로 로그인·자격 확인 기반만 확인한다. 실제 출연 API는 5.2에서 확인한다.
 
 | 케이스 | 기대 결과 |
@@ -987,14 +994,14 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 상태 이름 | 강의와 같은 7개 (`CONFIRMATION_PENDING`·`SCHEDULED`·`ON_HOLD`·`PROCESSING`·`FAILED`·`COMPLETED`·`CANCELED`) |
 | 미지급 | 완료·취소를 뺀 5개 |
 
-### 19.4 내부 API — `AppearanceEarningInternalApiTest` (통합, 보안 체인부터 DB까지 MockMvc)
+### 19.4 내부 API — `AppearanceEarningInternalApiTest` (E2E, 실제 포트로 보안 체인부터 DB까지, #390)
 
 흐름: 확인 대기 20,000 1건 + 확인했지만 Billing 결과 모름(처리 중) 22,000 1건.
 
 | 케이스 | 기대 결과 |
 |---|---|
 | 요약 (키 있음) | 200 `RsData`, 메시지, 확인 대기 20,000·1 / 지급 예정 0 / 처리 중 22,000·1, `asOf` 없음. `earningType=APPEARANCE_PENALTY`면 0 |
-| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` 필드 없음, `statusUpdatedAt`은 offset 없는 시각 |
+| 목록 (`status` 2개 + `earningType`) | 1건: `sourceType` `APPEARANCE`, 출연 ID, `APPEARANCE_FEE`, 제목, 22,000, `PROCESSING`, `payoutScheduledAt` null, `statusUpdatedAt`은 offset 없는 시각 |
 | 기본·페이지 (`size=1`) | 미지급 2건 중 최근(확인한 출연) 먼저, `page {size 1, number 0, totalElements 2, totalPages 2}`. 값 없는 `status=`도 미지급 2건(Spring이 빈 목록으로 바꿈). `status=SCHEDULED`만이면 빈 결과 |
 | 출연이 없는 회원 | 0원 요약·빈 목록 |
 | 요청 값 오류 | `userId` 없음(`errors[0].field`=`userId`), `userId=0`, `status=PAID`(`status`), `earningType=LECTURE_SALE`(`earningType`) → 400 `INVALID_REQUEST` |
@@ -1026,3 +1033,22 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 〃 | 키가 틀린 Client | `REJECTED` 401 |
 | 〃 | 명세 `/v3/api-docs` | 두 경로·`X-Internal-Api-Key` 헤더가 나오고 키 값은 없음 |
 
+## 20. E2E를 실제 포트로 전환 (#390)
+
+MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코드, `code`, 응답 필드, DB 상태)과 개수는 그대로다.
+
+| 테스트 | 테스트 수 | 응답 검증 수 | 방식 |
+|---|---|---|---|
+| `AppearanceApiE2ETest` | 5 | 12 | RestAssured |
+| `AppearanceApiCancelE2ETest` | 6 | 75 | RestAssured |
+| `AppearanceApplicationApiE2ETest` | 10 | 67 | RestAssured |
+| `AppearanceErrorCodeApiE2ETest` | 6 | 8 | RestAssured |
+| `AppearanceRecruitApiE2ETest` | 10 | 67 | RestAssured |
+| `AppearanceRequestApiE2ETest` | 11 | 55 | RestAssured |
+| `AppearanceRequestRespondApiE2ETest` | 8 | 43 | RestAssured |
+| `AppearanceEarningInternalApiTest` | 7 | 59 | RestAssured (내부 API 키 헤더) |
+| `AppearanceSwaggerDocsTest`, `PageConfigTest`, `SecurityConfigTest`, `GlobalExceptionHandlerTest`, `InternalApiSecurityConfigTest`, `AppearanceExceptionHandlerTest` | — | — | MockMvc 유지 (명세·웹 슬라이스) |
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 본문이 선택인 API에 본문 없이 요청 | `E2ELogin`이 JSON 형식으로 보내므로 200·201 (RestAssured 기본 `text/plain`이면 415) |

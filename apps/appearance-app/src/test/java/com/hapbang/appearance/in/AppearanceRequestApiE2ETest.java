@@ -1,13 +1,11 @@
 package com.hapbang.appearance.in;
 
+import static com.hapbang.appearance.support.E2EMatchers.number;
+import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.startsWith;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -17,38 +15,33 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.app.AppearanceUserSupport;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.out.billing.BillingClient;
-import com.hapbang.appearance.support.AppearanceIntegrationTest;
+import com.hapbang.appearance.support.AppearanceE2ETest;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
+import com.hapbang.appearance.support.E2ELogin;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.TestLogin;
-import com.jayway.jsonpath.JsonPath;
+
+import io.restassured.http.ContentType;
+import io.restassured.specification.RequestSpecification;
 
 /**
- * 앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 출연 요청서 API를 호출한다.
- * 로그인은 팀 공통 {@link TestLogin}, 쓰기 요청은 CSRF 토큰을 함께 보낸다.
+ * 실제 서버(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 RestAssured로 출연 요청서 API를 호출한다.
+ * 로그인과 CSRF 토큰은 {@link E2ELogin}이 만든다.
  */
-@AppearanceIntegrationTest
-@AutoConfigureMockMvc
+@AppearanceE2ETest
 class AppearanceRequestApiE2ETest {
 
     private static final String BASE = "/api/v1/appearances/requests";
     private static final long HOST = 1L;
     private static final long GUEST = 2L;
     private static final long OTHER = 3L;
-
-    @Autowired
-    MockMvc mockMvc;
 
     @Autowired
     AppearanceUserFacade appearanceUserFacade;
@@ -87,173 +80,169 @@ class AppearanceRequestApiE2ETest {
                 """.formatted(guestId, now.plusDays(7).withNano(0), fee, now.plusDays(2).withNano(0));
     }
 
-    private MockHttpServletRequestBuilder createRequest(long hostId, String body) {
-        return post(BASE).with(TestLogin.as(hostId, Role.INFLUENCER)).with(csrf())
-                .contentType(MediaType.APPLICATION_JSON).content(body);
+    private RequestSpecification createRequest(long hostId, String body) {
+        return E2ELogin.as(hostId, Role.INFLUENCER).contentType(ContentType.JSON).body(body);
     }
 
-    private long sendRequest(long hostId, long guestId) throws Exception {
-        String response = mockMvc.perform(createRequest(hostId, createBody(guestId, 30_000)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(response, "$.data.id")).longValue();
+    private long sendRequest(long hostId, long guestId) {
+        return createRequest(hostId, createBody(guestId, 30_000)).post(BASE)
+                .then().statusCode(201)
+                .extract().jsonPath().getLong("data.id");
     }
 
     @Test
     @DisplayName("요청서 보내기 → 보낸·받은 목록 → 상세 → 수정 흐름 (성공 응답은 RsData: statusCode, message, data)")
-    void fullFlow() throws Exception {
+    void fullFlow() {
         // 보내기: HTTP 201, 본문 statusCode 201, data에 요청서
-        String created = mockMvc.perform(createRequest(HOST, createBody(GUEST, 30_000)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.statusCode").value(201))
-                .andExpect(jsonPath("$.message").value("출연 요청을 보냈습니다."))
-                .andExpect(jsonPath("$.data.status").value("REQUESTED"))
-                .andReturn().getResponse().getContentAsString();
-        long requestId = ((Number) JsonPath.read(created, "$.data.id")).longValue();
+        long requestId = createRequest(HOST, createBody(GUEST, 30_000)).post(BASE)
+                .then().statusCode(201)
+                .body("statusCode", equalTo(201))
+                .body("message", equalTo("출연 요청을 보냈습니다."))
+                .body("data.status", equalTo("REQUESTED"))
+                .extract().jsonPath().getLong("data.id");
 
         // 보낸 목록 (호스트): data에 PagedModel(content, page)
-        mockMvc.perform(get(BASE + "/sent").with(TestLogin.as(HOST, Role.INFLUENCER)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.statusCode").value(200))
-                .andExpect(jsonPath("$.message").value("보낸 출연 요청 목록을 조회했습니다."))
-                .andExpect(jsonPath("$.data.content[0].id").value(requestId))
-                .andExpect(jsonPath("$.data.content[0].status").value("REQUESTED"))
-                .andExpect(jsonPath("$.data.page.totalElements").value(1));
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/sent")
+                .then().statusCode(200)
+                .body("statusCode", equalTo(200))
+                .body("message", equalTo("보낸 출연 요청 목록을 조회했습니다."))
+                .body("data.content[0].id", number(requestId))
+                .body("data.content[0].status", equalTo("REQUESTED"))
+                .body("data.page.totalElements", equalTo(1));
 
         // 받은 목록 (게스트)
-        mockMvc.perform(get(BASE + "/received").with(TestLogin.as(GUEST, Role.VERIFIED_INFLUENCER)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("받은 출연 요청 목록을 조회했습니다."))
-                .andExpect(jsonPath("$.data.content[0].id").value(requestId))
-                .andExpect(jsonPath("$.data.content[0].hostId").value(HOST));
+        E2ELogin.as(GUEST, Role.VERIFIED_INFLUENCER).get(BASE + "/received")
+                .then().statusCode(200)
+                .body("message", equalTo("받은 출연 요청 목록을 조회했습니다."))
+                .body("data.content[0].id", number(requestId))
+                .body("data.content[0].hostId", number(HOST));
 
         // 상세 (게스트)
-        mockMvc.perform(get(BASE + "/" + requestId).with(TestLogin.as(GUEST, Role.INFLUENCER)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("출연 요청서를 조회했습니다."))
-                .andExpect(jsonPath("$.data.title").value("주말 게임 합방 출연 요청"))
-                .andExpect(jsonPath("$.data.fee").value(30_000))
-                .andExpect(jsonPath("$.data.expectedMinutes").value(60));
+        E2ELogin.as(GUEST, Role.INFLUENCER).get(BASE + "/" + requestId)
+                .then().statusCode(200)
+                .body("message", equalTo("출연 요청서를 조회했습니다."))
+                .body("data.title", equalTo("주말 게임 합방 출연 요청"))
+                .body("data.fee", equalTo(30_000))
+                .body("data.expectedMinutes", equalTo(60));
 
         // 수정 (호스트): 보낸 값만 바뀐다
-        mockMvc.perform(patch(BASE + "/" + requestId).with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"title": "제목 수정", "hostChannelUrl": "https://chzzk.naver.com/host"}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("출연 요청서를 수정했습니다."))
-                .andExpect(jsonPath("$.data.title").value("제목 수정"))
-                .andExpect(jsonPath("$.data.hostChannelUrl").value("https://chzzk.naver.com/host"))
-                .andExpect(jsonPath("$.data.content").value("같이 신작 게임을 플레이하는 콘텐츠입니다."));
+        E2ELogin.as(HOST, Role.INFLUENCER).contentType(ContentType.JSON)
+                .body("""
+                        {"title": "제목 수정", "hostChannelUrl": "https://chzzk.naver.com/host"}
+                        """)
+                .patch(BASE + "/" + requestId)
+                .then().statusCode(200)
+                .body("message", equalTo("출연 요청서를 수정했습니다."))
+                .body("data.title", equalTo("제목 수정"))
+                .body("data.hostChannelUrl", equalTo("https://chzzk.naver.com/host"))
+                .body("data.content", equalTo("같이 신작 게임을 플레이하는 콘텐츠입니다."));
     }
 
     @Test
     @DisplayName("로그인하지 않으면 401")
-    void notLoggedIn() throws Exception {
-        mockMvc.perform(get(BASE + "/sent"))
-                .andExpect(status().isUnauthorized());
+    void notLoggedIn() {
+        given().get(BASE + "/sent")
+                .then().statusCode(401);
     }
 
     @Test
     @DisplayName("일반 유저·관리자 세션이면 Facade @PreAuthorize에서 403 Problem Detail (공통 FORBIDDEN)")
-    void userRole() throws Exception {
-        mockMvc.perform(get(BASE + "/sent").with(TestLogin.as(HOST, Role.USER)))
-                .andExpect(status().isForbidden())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        mockMvc.perform(post(BASE).with(TestLogin.as(HOST, Role.ADMIN)).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content(createBody(GUEST, 30_000)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    void userRole() {
+        E2ELogin.as(HOST, Role.USER).get(BASE + "/sent")
+                .then().statusCode(403)
+                .contentType(startsWith(MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+                .body("code", equalTo("FORBIDDEN"));
+        E2ELogin.as(HOST, Role.ADMIN).contentType(ContentType.JSON).body(createBody(GUEST, 30_000)).post(BASE)
+                .then().statusCode(403)
+                .body("code", equalTo("FORBIDDEN"));
     }
 
     @Test
     @DisplayName("요청 값이 형식에 맞지 않으면 400 Problem Detail (INVALID_REQUEST)에 항목별 오류를 담는다")
-    void invalidBody() throws Exception {
-        mockMvc.perform(createRequest(HOST, """
-                        {"guestId": 2, "title": " ", "hostChannelUrl": "youtube.com"}
-                        """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.errors[*].field").value(hasItem("title")))
-                .andExpect(jsonPath("$.errors[*].field").value(hasItem("hostChannelUrl")))
-                .andExpect(jsonPath("$.errors[*].field").value(hasItem("fee")));
+    void invalidBody() {
+        createRequest(HOST, """
+                {"guestId": 2, "title": " ", "hostChannelUrl": "youtube.com"}
+                """).post(BASE)
+                .then().statusCode(400)
+                .body("code", equalTo("INVALID_REQUEST"))
+                .body("errors.field", hasItem("title"))
+                .body("errors.field", hasItem("hostChannelUrl"))
+                .body("errors.field", hasItem("fee"));
     }
 
     @Test
     @DisplayName("최저 출연료 미달이면 400 (FEE_BELOW_MINIMUM)")
-    void feeBelowMinimum() throws Exception {
-        mockMvc.perform(createRequest(HOST, createBody(GUEST, 19_999)))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.data").doesNotExist())
-                .andExpect(jsonPath("$.code").value("FEE_BELOW_MINIMUM"))
-                .andExpect(jsonPath("$.detail").value("출연료는 최저 출연료(20,000 HP) 이상이어야 합니다."));
+    void feeBelowMinimum() {
+        createRequest(HOST, createBody(GUEST, 19_999)).post(BASE)
+                .then().statusCode(400)
+                .contentType(startsWith(MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+                .body("data", nullValue())
+                .body("code", equalTo("FEE_BELOW_MINIMUM"))
+                .body("detail", equalTo("출연료는 최저 출연료(20,000 HP) 이상이어야 합니다."));
     }
 
     @Test
     @DisplayName("Billing이 잔액 부족으로 보류를 거절하면 그 오류 그대로 409 INSUFFICIENT_BALANCE")
-    void insufficientBalance() throws Exception {
+    void insufficientBalance() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
-        mockMvc.perform(createRequest(HOST, createBody(GUEST, 30_000)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"))
-                .andExpect(jsonPath("$.detail").value("HP 잔액이 부족합니다."));
+        createRequest(HOST, createBody(GUEST, 30_000)).post(BASE)
+                .then().statusCode(409)
+                .body("code", equalTo("INSUFFICIENT_BALANCE"))
+                .body("detail", equalTo("HP 잔액이 부족합니다."));
     }
 
     @Test
     @DisplayName("응답 대기 중인 요청이 있는 게스트에게 다시 보내면 409 (DUPLICATE_APPEARANCE_REQUEST)")
-    void duplicate() throws Exception {
+    void duplicate() {
         sendRequest(HOST, GUEST);
 
-        mockMvc.perform(createRequest(HOST, createBody(GUEST, 30_000)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("DUPLICATE_APPEARANCE_REQUEST"));
+        createRequest(HOST, createBody(GUEST, 30_000)).post(BASE)
+                .then().statusCode(409)
+                .body("code", equalTo("DUPLICATE_APPEARANCE_REQUEST"));
     }
 
     @Test
     @DisplayName("Billing이 응답하지 않으면 503 (BILLING_UNAVAILABLE)")
-    void billingUnavailable() throws Exception {
+    void billingUnavailable() {
         BillingStubs.unavailable(billingClient);
 
-        mockMvc.perform(createRequest(HOST, createBody(GUEST, 30_000)))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value("BILLING_UNAVAILABLE"));
+        createRequest(HOST, createBody(GUEST, 30_000)).post(BASE)
+                .then().statusCode(503)
+                .body("code", equalTo("BILLING_UNAVAILABLE"));
     }
 
     @Test
     @DisplayName("다른 회원이 상세를 조회하면 404, 게스트가 수정하면 403 (NOT_REQUEST_HOST)")
-    void permission() throws Exception {
+    void permission() {
         long requestId = sendRequest(HOST, GUEST);
 
-        mockMvc.perform(get(BASE + "/" + requestId).with(TestLogin.as(OTHER, Role.INFLUENCER)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("APPEARANCE_REQUEST_NOT_FOUND"));
+        E2ELogin.as(OTHER, Role.INFLUENCER).get(BASE + "/" + requestId)
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_REQUEST_NOT_FOUND"));
 
-        mockMvc.perform(patch(BASE + "/" + requestId).with(TestLogin.as(GUEST, Role.INFLUENCER)).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"title\": \"게스트가 바꾼 제목\"}"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("NOT_REQUEST_HOST"));
+        E2ELogin.as(GUEST, Role.INFLUENCER).contentType(ContentType.JSON).body("{\"title\": \"게스트가 바꾼 제목\"}")
+                .patch(BASE + "/" + requestId)
+                .then().statusCode(403)
+                .body("code", equalTo("NOT_REQUEST_HOST"));
     }
 
     @Test
     @DisplayName("수정할 값을 하나도 보내지 않으면 400 (INVALID_REQUEST)")
-    void updateNothing() throws Exception {
+    void updateNothing() {
         long requestId = sendRequest(HOST, GUEST);
 
-        mockMvc.perform(patch(BASE + "/" + requestId).with(TestLogin.as(HOST, Role.INFLUENCER)).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        E2ELogin.as(HOST, Role.INFLUENCER).contentType(ContentType.JSON).body("{}")
+                .patch(BASE + "/" + requestId)
+                .then().statusCode(400)
+                .body("code", equalTo("INVALID_REQUEST"));
     }
 
     @Test
     @DisplayName("CSRF 토큰 없이 보내면 403 (보안 필터)")
-    void withoutCsrf() throws Exception {
-        mockMvc.perform(post(BASE).with(TestLogin.as(HOST, Role.INFLUENCER))
-                        .contentType(MediaType.APPLICATION_JSON).content(createBody(GUEST, 30_000)))
-                .andExpect(status().isForbidden());
+    void withoutCsrf() {
+        E2ELogin.withoutCsrf(HOST, Role.INFLUENCER).contentType(ContentType.JSON).body(createBody(GUEST, 30_000))
+                .post(BASE)
+                .then().statusCode(403);
     }
 }
