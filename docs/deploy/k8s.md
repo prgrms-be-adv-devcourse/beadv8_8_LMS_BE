@@ -126,7 +126,9 @@ k3d image import -c hapbang hapbang/elasticsearch-nori:9.5.5 \
 
 ## 관측성 접속
 
-Grafana·Prometheus를 포함해 cluster의 Service는 모두 ClusterIP다. NodePort·LoadBalancer로 열지 않고 Envoy Gateway에도 route를 만들지 않는다. Grafana 3000 같은 관측성 포트는 인터넷에 공개하지 않는다([AWS 2노드 k3s 배치](aws-k3s.md#network와-외부-노출)). 접속은 `kubectl port-forward`로만 한다.
+**Grafana는 외부에서 접속할 수 있게 열어야 한다.** Envoy Gateway의 HTTPS(443) route와 인증을 붙여 연다(#372). security group에 Grafana 3000을 직접 열지는 않는다([AWS 2노드 k3s 배치](aws-k3s.md#network와-외부-노출)).
+
+그 전까지 Grafana·Prometheus는 ClusterIP Service뿐이라 `kubectl port-forward`로 접속한다.
 
 ```bash
 CTX=k3d-hapbang   # EC2는 hapbang-k3s(6443이 허용된 IP에서만)
@@ -140,8 +142,7 @@ kubectl --context "$CTX" -n hapbang-platform port-forward svc/prometheus-server 
 ```
 
 - admin 비밀번호는 차트가 처음 설치할 때 만든 Secret(`grafana`)에 있다. 레포·채팅에 옮기지 않는다.
-- Loki(3100)·Tempo(3200)는 Grafana datasource로 조회한다. 직접 볼 때도 같은 방식으로 port-forward한다.
-- 외부 도메인으로 Grafana를 열려면 Envoy Gateway route와 인증이 필요하다. 진입점 작업(#372)에서 정한다.
+- Loki(3100)·Tempo(3200)는 Grafana datasource로 조회한다.
 
 ## CI
 
