@@ -1,4 +1,4 @@
-# 검색·고객센터 RAG용 Elasticsearch(docs/architecture/final-project-infrastructure.md 9장). ECK operator가 관리한다.
+# 검색·고객센터 RAG용 Elasticsearch(docs/architecture/infrastructure/search.md). ECK operator가 관리한다.
 # node 1개라 고가용성이 아니다. index는 replica shard 0으로 만든다.
 # nori가 들어간 이미지(같은 폴더의 Dockerfile)는 overlay가 spec.image로 지정한다.
 apiVersion: elasticsearch.k8s.elastic.co/v1

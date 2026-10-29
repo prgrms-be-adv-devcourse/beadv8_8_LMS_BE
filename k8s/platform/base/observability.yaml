@@ -2,7 +2,7 @@
 # 이 파일은 설치와 자원·보존 한도만 정한다. scrape 규칙, Alloy pipeline, dashboard, alert는 #343에서 더한다.
 # 지금은 설치만 한다. 메모리 limit은 로컬 k3d idle 실측(#373)에 여유를 더한 값이고 합계는 1,032 MiB다.
 # 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다. 예산 조정은 #343에서 한다
-# (docs/architecture/final-project-infrastructure.md 3장).
+# (docs/architecture/infrastructure/k3s.md).
 # Loki·Tempo·Grafana 차트는 2026년에 grafana에서 grafana-community 저장소로 옮겨졌다(각 차트 README).
 apiVersion: helm.cattle.io/v1
 kind: HelmChart

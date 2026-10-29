@@ -1,5 +1,5 @@
 # 채팅 실시간 전달용 Redis(Streams·Pub/Sub, #340). 단일 instance라 고가용성이 아니다.
-# Redis Ltd의 OSS용 공식 차트가 없어 직접 작성한다(docs/architecture/final-project-infrastructure.md 3장).
+# Redis Ltd의 OSS용 공식 차트가 없어 직접 작성한다(docs/architecture/infrastructure/k3s.md).
 # 인증은 두지 않는다. cluster 밖에 열지 않고, 접근 제한은 NetworkPolicy(#372)가 맡는다.
 apiVersion: v1
 kind: Service

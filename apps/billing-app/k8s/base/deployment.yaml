@@ -1,4 +1,4 @@
-# 지갑·정산 앱. large(core-data)에 둔다. 메모리 예산은 docs/architecture/final-project-infrastructure.md 3장.
+# 지갑·정산 앱. large(core-data)에 둔다. 메모리 예산은 docs/architecture/infrastructure/k3s.md.
 # 설정은 billing-app-config(ConfigMap), 비밀값은 billing-app-secrets(Secret)로 받는다.
 apiVersion: apps/v1
 kind: Deployment

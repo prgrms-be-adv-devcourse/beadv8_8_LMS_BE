@@ -34,7 +34,7 @@
 | k3s server, ServiceLB, Envoy proxy | large | control plane과 외부 HTTPS 진입. 진입점 전환([전환 순서](#전환-순서) 7) 뒤에는 Traefik을 끄고 ServiceLB를 large에서만 켠다 |
 | PostgreSQL | large | `core-data` required node affinity |
 | Kafka, Redis, Elasticsearch | large | 도입 시 `core-data` required node affinity |
-| 모듈 앱 8개 | 양쪽 | 앱마다 replica 1개. large에 member·billing·appearance·search(448 MiB), medium에 lecture·chat·customer-support·notification(384 MiB)을 두고 시작한다([자원 예산](../architecture/final-project-infrastructure.md#ec2-2노드-자원-예산)) |
+| 모듈 앱 8개 | 양쪽 | 앱마다 replica 1개. large에 member·billing·appearance·search(448 MiB), medium에 lecture·chat·customer-support·notification(384 MiB)을 두고 시작한다([자원 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)) |
 | Envoy Gateway controller, cert-manager, ECK operator, Sealed Secrets controller | medium | stateless controller. Sealed Secrets의 개인 키는 Secret이라 controller와 함께 옮겨진다([키 백업](#sealed-secrets-키-백업)) |
 | React 정적 서버 | medium | stateless workload |
 | Prometheus·Loki·Tempo·Grafana | medium | 제한형 관측성 profile과 비교 기준선 |
@@ -51,7 +51,7 @@ Client
   → large/medium의 모듈 앱 pod
 ```
 
-위는 진입점 전환([전환 순서](#전환-순서) 7) 뒤의 목표 흐름이다. 그 전까지 외부 진입은 Compose의 edge nginx다. 목표 구조에서는 nginx를 쓰지 않는다. TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다. EC2에는 prod(main) 한 벌만 두고 dev 서버는 두지 않는다. 진입점과 인증 흐름은 [최종 인프라 설계 3장](../architecture/final-project-infrastructure.md#api-gateway--envoy-gateway)을 따른다.
+위는 진입점 전환([전환 순서](#전환-순서) 7) 뒤의 목표 흐름이다. 그 전까지 외부 진입은 Compose의 edge nginx다. 목표 구조에서는 nginx를 쓰지 않는다. TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다. EC2에는 prod(main) 한 벌만 두고 dev 서버는 두지 않는다. 진입점과 인증 흐름은 [최종 인프라 설계 3장 API Gateway](../architecture/infrastructure/api-gateway.md)을 따른다.
 
 - 서비스 DNS는 large EIP만 가리킨다.
 - medium EIP는 node 관리와 outbound 통신용이다. application 진입점으로 사용하지 않는다.

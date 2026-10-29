@@ -1,4 +1,4 @@
-# 앱들이 함께 쓰는 PostgreSQL. instance 1개에 앱별 database를 둔다(docs/architecture/final-project-infrastructure.md 10장).
+# 앱들이 함께 쓰는 PostgreSQL. instance 1개에 앱별 database를 둔다(docs/architecture/infrastructure/database.md).
 # CloudPirates postgres 차트는 공식 postgres 이미지를 쓴다. k3s helm-controller가 설치한다(Helm CLI를 쓰지 않는다).
 # 앱은 postgres.hapbang-platform.svc.cluster.local:5432/<database>로 접속한다.
 # 앱별 database·role은 데이터 디렉터리가 비어 있을 때(첫 기동)만 아래 initdb script로 만든다.

@@ -1,4 +1,4 @@
-# 고객센터 앱. medium(app-observe)에 둔다. 메모리 예산은 docs/architecture/final-project-infrastructure.md 3장.
+# 고객센터 앱. medium(app-observe)에 둔다. 메모리 예산은 docs/architecture/infrastructure/k3s.md.
 # 설정은 customer-support-app-config(ConfigMap), 비밀값은 customer-support-app-secrets(Secret)로 받는다.
 apiVersion: apps/v1
 kind: Deployment
