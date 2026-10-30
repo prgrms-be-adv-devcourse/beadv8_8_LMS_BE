@@ -28,6 +28,7 @@ final class BillingKeys {
     static final String EXCHANGE_REJECT_REQUEST_PREFIX = "EXCHANGE-REJECT-";
     static final String EXCHANGE_PAYOUT_CAPTURE_REQUEST_PREFIX = "EXCHANGE-PAYOUT-";
     static final String EXCHANGE_PAYOUT_FAIL_REQUEST_PREFIX = "EXCHANGE-PAYOUT-FAIL-";
+    static final String EXCHANGE_FEE_PREFIX = "EXCHANGE_FEE";
 
     private BillingKeys() {
     }
@@ -107,6 +108,12 @@ final class BillingKeys {
     // 한 환전의 보류는 취소·거절·최종 실패 반환과 송금 성공 확정 차감 중 하나로만 끝난다 (#304).
     static String exchangePayoutFailRequestId(Long exchangeId) {
         return EXCHANGE_PAYOUT_FAIL_REQUEST_PREFIX + exchangeId;
+    }
+
+    // 환전 수수료 수입의 원장 작업 키 EXCHANGE_FEE:{exchangeId}. 환전마다 고정이라 재확인·수동 재송금이 있어도 한 번만 기록된다.
+    // 원장 멱등키는 줄 번호를 붙인 EXCHANGE_FEE:{exchangeId}:1이다 (#336).
+    static String exchangeFee(Long exchangeId) {
+        return EXCHANGE_FEE_PREFIX + ":" + exchangeId;
     }
 
     // 개별 환불의 보류 확정 차감·반환 요청 ID REFUND-{refundId}. 확정 차감(CAPTURE:)과 반환(RELEASE:)은 접두사가 달라

@@ -38,6 +38,10 @@ public class WalletReconciliationUseCase {
         List<WalletReconciliation.BucketReconciliation> buckets = new ArrayList<>();
         for (PointType pointType : PointType.values()) {
             for (BalanceBucket balanceBucket : BalanceBucket.values()) {
+                // 수수료 수입(FEE)은 가용 칸만 있다 (#336). 회원 지갑도 FEE 가용 칸을 비교해 0인지 확인한다
+                if (pointType == PointType.FEE && balanceBucket == BalanceBucket.HELD) {
+                    continue;
+                }
                 long ledgerHp = ledgerSums.get(pointType).getOrDefault(balanceBucket, 0L);
                 buckets.add(WalletReconciliation.BucketReconciliation.of(
                         pointType, balanceBucket, wallet.balanceOf(pointType, balanceBucket), ledgerHp));

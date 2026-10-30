@@ -22,6 +22,7 @@ CTX = "k3d-hapbang"
 NS = "hapbang-prod"
 EG = "envoy-gateway-system"
 LABEL = "hapbang.io/gateway-test"
+TEST_PREFIX = "/api/v1/gateway-test"
 
 
 def kube(*args, stdin=None):
@@ -191,6 +192,12 @@ for app in ("member", "appearance", "lecture", "billing", "chat", "customer-supp
         d["metadata"]["name"] = "gateway-test-" + d["metadata"]["name"]
         if d["kind"] == "HTTPRoute":
             for rule in d["spec"]["rules"]:
+                # Avoid ties with older app routes already installed in the local cluster.
+                for match in rule.get("matches", []):
+                    if "path" in match:
+                        match["path"]["value"] = match["path"]["value"].replace(
+                            "/api/v1/", TEST_PREFIX + "/"
+                        )
                 for ref in rule.get("backendRefs", []):
                     ref["name"] = "gateway-test-backend"
         elif d["kind"] == "SecurityPolicy":
@@ -317,7 +324,7 @@ try:
         context = ssl.create_default_context(cafile=str(cert))
 
         def request(
-            path="/api/v1/members/probe", headers=None, body=None, method="GET"
+            path=TEST_PREFIX + "/members/probe", headers=None, body=None, method="GET"
         ):
             global forward
             if forward.poll() is not None:
@@ -361,7 +368,7 @@ try:
         if "--large-upload" in __import__("sys").argv:
             size = 2 * 1024**3
             status, _, body = request(
-                "/api/v1/members/files/1/content",
+                TEST_PREFIX + "/members/files/1/content",
                 headers={
                     "Content-Type": "application/octet-stream",
                     "Content-Length": str(size),
@@ -444,7 +451,7 @@ try:
         )
         # 6. The chat WebSocket connects.
         with connect(
-            "wss://hapbang.local:8443/api/v1/chats/ws",
+            "wss://hapbang.local:8443" + TEST_PREFIX + "/chats/ws",
             sock=socket.create_connection(("127.0.0.1", 8443)),
             ssl=context,
             proxy=None,

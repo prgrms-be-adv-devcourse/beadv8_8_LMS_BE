@@ -1,13 +1,12 @@
 # 배포 개요
 
-현재 합방은 EC2 1대에 **운영(prod)**과 **개발 서버(dev)**를 함께 올린다. FE·BE 레포가 각자 이미지를 만들고, 서버 구성(compose·nginx·배포 스크립트)은 BE 레포 `docker/`에 있다. 최종 프로젝트용 EC2 2노드 k3s cluster는 구성했지만(2026-10-28) 아직 workload를 올리지 않았다. 운영 트래픽은 진입점 전환 전까지 아래 Compose 구성이 받고, k3s 배치는 [aws-k3s.md](aws-k3s.md)의 목표 상태다.
-
-**2026-10-30부터 Compose 배포는 하지 않는다.** 떠 있는 Compose 서비스는 진입점 전환([전환 순서](aws-k3s.md#전환-순서)) 때까지 마지막으로 배포한 버전으로 둔다. 새 BE 버전은 k3s로만 배포한다([운영 앱 배포](k8s.md#운영-앱-배포), 처음은 [첫 릴리스](k8s.md#첫-릴리스)). Deploy prod(Compose)는 실행하지 않는다.
+현재 EC2 2노드 k3s에 공용 인프라와 Envoy Gateway를 적용했다(2026-10-30, #372). 외부 80·443은 large의 ServiceLB → Envoy가 받는다. Grafana(`/grafana/`)·Kafka UI(`/kafka/`)는 인증 후 접근할 수 있다. 업무 앱·FE는 아직 k3s에 배포하지 않아 `/`와 미등록 API는 404다. 기존 Compose edge nginx·certbot은 중지했고 app·web·DB 컨테이너와 데이터는 보존했다. dev 도메인의 Gateway route는 없다. 설치·검증 기록은 [Gateway](gateway.md)를 따른다.
 
 | 환경 | 주소 | 브랜치 | Swagger |
 | --- | --- | --- | --- |
-| prod | https://hapbang.duckdns.org | `main` (수동 배포) | 비활성 |
-| dev | https://dev.hapbang.duckdns.org | `dev` | https://dev.hapbang.duckdns.org/swagger-ui.html |
+| prod | https://hapbang.duckdns.org | `main` (업무 앱·FE 미배포) | 미배포 |
+| Grafana | https://hapbang.duckdns.org/grafana/ | 공용 인프라 | 해당 없음 |
+| Kafka UI | https://hapbang.duckdns.org/kafka/ | 공용 인프라 | 해당 없음 |
 
 ## 문서
 
@@ -23,7 +22,9 @@
 | [k8s.md](k8s.md) | `k8s/` manifest 구조, 차트 버전, Secret 목록, 적용 순서, 로컬 k3d 검증 |
 | [infra/terraform](../../infra/terraform/README.md) | AWS 리소스(EC2·네트워크·S3·IAM) 코드, 다른 계정으로 옮기기 |
 
-## 구조
+## 기존 Compose 구조·절차 (전환 전 기록)
+
+아래는 전환 전 운영 기록이다. 현재 진입점·새 앱 배포에 그대로 적용하지 않는다.
 
 ```
 [인터넷] :443 ─ edge nginx ─┬─ prod 도메인 ─┬─ /api, /swagger-ui, /v3/api-docs → prod app(Spring)
@@ -42,7 +43,7 @@
 
 > **BE 자동 배포 일시 중지(#356)**: 앱별 구조(`apps/<앱>-app`)로 바뀌면서 아래 BE Deploy 흐름(단일 jar·이미지)은 멈췄다. dev에 병합해도 BE는 배포되지 않고, dev 서버는 마지막으로 배포한 이미지를 유지한다. PR의 CI는 앱별 테스트·jar·이미지 빌드 확인으로 동작한다. FE 배포와 dev 롤백(이전 Deploy run의 deploy job 재실행)은 그대로다.
 >
-> **k3s 배포(#374)**: `Deploy` workflow는 k3s 앱 배포로 다시 작성했다(main push 때 바뀐 앱 이미지 발행, 수동 dispatch로 바뀐 앱만 배포, [운영 앱 배포](k8s.md#운영-앱-배포)). 아래 Compose 흐름(Deploy prod)은 2026-10-30부터 쓰지 않고 기록으로만 둔다. 전환·rollback 검증 뒤 Compose 경로를 지운다([전환 순서](aws-k3s.md#전환-순서)).
+> **k3s 배포(#374)**: `Deploy` workflow는 k3s 앱 배포로 다시 작성했다(main push 때 바뀐 앱 이미지 발행, 수동 dispatch로 바뀐 앱만 배포, [운영 앱 배포](k8s.md#운영-앱-배포)). k3s 전환 전까지 운영은 아래 Compose 흐름(Deploy prod)이고, 전환·rollback 검증 뒤 Compose 경로를 지운다([전환 순서](aws-k3s.md#전환-순서)).
 
 ```
 PR → GitHub Actions(CI)
@@ -75,8 +76,8 @@ deploy  EC2에 SSH → (BE) deploy.sh "<env> check" → 서버 compose.<env>.yam
 | 하고 싶은 것 | 방법 |
 | --- | --- |
 | dev에 반영 | 기능 브랜치 → `dev` PR 병합 |
-| 운영 반영 | [k8s.md#운영-앱-배포](k8s.md#운영-앱-배포)를 따른다. `dev` → `main` PR 병합 → Publish images 확인 → Actions → Deploy 실행. 처음은 [첫 릴리스](k8s.md#첫-릴리스) |
-| 롤백 | BE 운영: Deploy를 `apps`에 앱, `sha`에 되돌릴 main 커밋을 넣어 실행([k8s.md](k8s.md#운영-앱-배포)). FE: 되돌릴 버전의 Deploy run → `deploy` job 재실행 |
+| 운영 반영 | [operations.md#운영-배포](operations.md#운영-배포)를 순서대로 따른다. `dev` → `main` PR 병합 → (BE) 서버 설정 확인 → Actions → Deploy prod에 main 커밋 sha를 넣고 실행 |
+| 롤백 | BE 운영: 되돌릴 커밋 sha로 Deploy prod 실행. dev·FE: 되돌릴 버전의 Deploy run → `deploy` job 재실행 |
 | 환경변수 추가 | [env-vars.md](env-vars.md) |
 | DB 스키마 변경 | Flyway 마이그레이션 SQL 추가, 앱 시작 시 자동 적용 → [db-migration.md](../db-migration.md) |
 | 배포 실패 확인 | [operations.md#배포-실패-대응](operations.md#배포-실패-대응) |
@@ -88,4 +89,4 @@ deploy  EC2에 SSH → (BE) deploy.sh "<env> check" → 서버 compose.<env>.yam
 | --- | --- |
 | DB 백업 | 자동 백업 없음. 수동 절차만 있음([operations.md](operations.md#db-백업복원)) |
 | dev 접근 제한 | dev(Swagger 포함)가 인터넷에 공개되어 있음 |
-| prod 배포 승인 | BE는 Deploy(k3s) 수동 실행(실행하는 사람이 곧 승인). GitHub Environment 승인 규칙은 쓰지 않는다([security.md](security.md#알려진-위험)). FE는 `main` 병합 즉시 배포 |
+| prod 배포 승인 | BE는 Deploy prod 수동 실행(실행하는 사람이 곧 승인). GitHub Environment 승인 규칙은 쓰지 않는다([security.md](security.md#알려진-위험)). FE는 `main` 병합 즉시 배포 |

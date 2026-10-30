@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: manifest 작성(#373). EC2 k3s에는 `cluster`·`platform`을 적용했다(2026-10-29, #374). 앱은 아직 적용하지 않았고, 운영은 Docker Compose다([배포 개요](README.md)).
+상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy이며 업무 앱·FE는 아직 미배포다. 기존 Compose 데이터는 보존하고 edge nginx·certbot은 중지했다([배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 
@@ -19,7 +19,7 @@
 - 앱은 자기 node 배치(affinity), limit, 배포 전략을 직접 적는다. 앱 전체의 node별 합계는 [자원 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)과 아래 메모리 예산 확인으로 맞춘다.
 - Helm CLI는 쓰지 않는다. 차트는 k3s 내장 helm-controller의 `HelmChart`(`helm.cattle.io/v1`)로 설치하고 values는 `valuesContent`에 적는다([k3s Helm](https://docs.k3s.io/add-ons/helm)).
 - platform의 StatefulSet은 `hapbang.io/pool: core-data` label을 붙이면 component가 affinity를 넣는다. HelmChart와 Elasticsearch CR에는 component가 닿지 않으므로 values·`podTemplate`에 같은 affinity를 직접 적는다.
-- 앱은 지금 있는 6개만 둔다. notification·search는 각 앱 티켓에서 더한다. appearance는 아직 `replicas: 0`이다(#280). lecture·customer-support는 #433부터 혼자 기동해 1이다.
+- 앱은 지금 있는 6개만 둔다. notification·search는 각 앱 티켓에서 더한다. lecture·customer-support는 #433, appearance는 #442부터 혼자 기동해 1이다.
 - 공용 Envoy Gateway·cert-manager와 IMDS 차단 정책은 `k8s/gateway/`에 있다([Gateway 구성](gateway.md), #372). 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 각 앱의 `apps/<앱>/k8s/base/`에 있다. 앱 외부 8080·내부 8081을 분리한다. platform(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)에는 ingress NetworkPolicy를 두지 않는다.
 
 ## 버전
@@ -123,7 +123,7 @@ Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main
 
 main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없고, 앱 이미지 패키지도 아직 없다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·5단계만 한다.
 
-1. **dev → main 병합**: [operations.md 1단계](operations.md#1-dev--main-병합)처럼 `dev`나 `release/review-N`에서 main PR을 만들어 병합한다. FE를 같이 내보낼 때의 순서도 같은 곳에 있다.
+1. **dev → main 병합**: base `main` ← `dev`(또는 `release/review-N`) PR을 만들어 병합한다. 다른 브랜치에서 열면 `PR source / source-branch` 체크가 실패한다(#180).
 2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
 3. **패키지 공개(앱마다 처음 한 번)**: org Settings → Packages → Package Creation에서 Public이 허용됐는지 org owner가 먼저 확인한다. 그다음 `https://github.com/orgs/prgrms-be-adv-devcourse/packages/container/package/beadv8_8_lms_be%2F<앱>`(예: `member-app`) → Package settings → Danger Zone → Change visibility → Public으로 바꾼다. 확인 칸에는 `beadv8_8_lms_be/<앱>`을 넣는다. 되돌릴 수 없다. 이미지는 `apps/<앱>/build/libs`의 테스트한 jar만 담고, 비밀값은 실행할 때 Secret으로 주입하므로 이미지에 들어가지 않는다. 주소가 404면 그 앱은 아직 발행되지 않았다.
 4. **공개 확인**: 로그인 없이 태그 목록을 읽을 수 있으면(200) 공개된 것이다. 401·403·404는 비공개이거나 발행 전이다.
@@ -135,7 +135,7 @@ main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없고, 
    done
    ```
 
-5. **배포**: Actions → Deploy → Run workflow(main)를 입력 없이 실행한다. 앱 SealedSecret은 `hapbang-prod`에 이미 있다([Secret](#secret)). appearance·lecture·customer-support는 아직 혼자 기동하지 못해 `replicas: 0`이다(#280).
+5. **배포**: Actions → Deploy → Run workflow(main)를 입력 없이 실행한다. 앱 SealedSecret은 `hapbang-prod`에 이미 있다([Secret](#secret)).
 
 ## 로컬 k3d 검증
 

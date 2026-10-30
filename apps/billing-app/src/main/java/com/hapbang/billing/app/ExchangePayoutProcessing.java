@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
 import com.hapbang.billing.domain.Exchange;
@@ -21,6 +22,8 @@ import com.hapbang.billing.domain.ExchangeAccount;
 import com.hapbang.billing.domain.ExchangePayout;
 import com.hapbang.billing.domain.ExchangePayoutStatus;
 import com.hapbang.billing.domain.ExchangeStatus;
+import com.hapbang.billing.domain.LedgerTransactionType;
+import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.out.ExchangeAccountRepository;
 import com.hapbang.billing.out.ExchangePayoutRepository;
 import com.hapbang.billing.out.ExchangeRepository;
@@ -35,7 +38,7 @@ import lombok.extern.slf4j.Slf4j;
 // 잠금 순서는 지갑 → 환전 → (보류 | 송금 시도)로 관리자 승인·거절·회원 취소와 같다(ExchangeLocks). 같은 환전의 송금 실행·자동 결과 확인·
 // 관리자 처리(재확인·재송금·최종 실패)가 동시에 와도 지갑 락에서 차례가 정해지고, 뒤쪽은 바뀐 상태를 보고 새로 보내거나 겹쳐 처리하지 않는다.
 // - start: 보낼지(새 시도 저장·커밋), 자동 결과 확인을 할지(확인 시각·횟수 기록·커밋), 기한이 지나 운영자 확인으로 넘길지 정한다
-// - apply: Mock 은행 응답을 반영한다. 성공이면 같은 트랜잭션에서 보류 전액 확정 차감
+// - apply: Mock 은행 응답을 반영한다. 성공이면 같은 트랜잭션에서 보류 전액 확정 차감 + 플랫폼 지갑 수수료 수입 기록(#336)
 // - failFinally: 관리자 최종 실패 확정. 같은 트랜잭션에서 보류 전액 반환
 // 확정 차감(성공)은 결과 대기·운영자 확인 시도에서만, 반환(최종 실패)은 FAILED 환전에서만 하므로 환전 락 아래에서 둘 중 하나만 된다.
 @Slf4j
@@ -52,6 +55,7 @@ public class ExchangePayoutProcessing {
     private final ExchangeAccountRepository exchangeAccountRepository;
     private final ExchangePayoutRepository exchangePayoutRepository;
     private final InternalHoldFacade internalHoldFacade;
+    private final LedgerRecordUseCase ledgerRecordUseCase;
     private final ExchangeAccountCipher exchangeAccountCipher;
     private final ExchangePayoutClock clock;
     private final ExchangePayoutRequestIds requestIds;
@@ -61,7 +65,8 @@ public class ExchangePayoutProcessing {
 
     public ExchangePayoutProcessing(ExchangeLocks exchangeLocks, ExchangeRepository exchangeRepository,
             ExchangeAccountRepository exchangeAccountRepository, ExchangePayoutRepository exchangePayoutRepository,
-            InternalHoldFacade internalHoldFacade, ExchangeAccountCipher exchangeAccountCipher,
+            InternalHoldFacade internalHoldFacade, LedgerRecordUseCase ledgerRecordUseCase,
+            ExchangeAccountCipher exchangeAccountCipher,
             ExchangePayoutClock clock, ExchangePayoutRequestIds requestIds, EntityManager entityManager,
             @Value("${hapbang.billing.exchange.payout.recovery-after:PT1M}") Duration minimumAge,
             @Value("${hapbang.billing.exchange.payout.auto-check-limit:PT24H}") Duration autoCheckLimit) {
@@ -70,6 +75,7 @@ public class ExchangePayoutProcessing {
         this.exchangeAccountRepository = exchangeAccountRepository;
         this.exchangePayoutRepository = exchangePayoutRepository;
         this.internalHoldFacade = internalHoldFacade;
+        this.ledgerRecordUseCase = ledgerRecordUseCase;
         this.exchangeAccountCipher = exchangeAccountCipher;
         this.clock = clock;
         this.requestIds = requestIds;
@@ -151,7 +157,8 @@ public class ExchangePayoutProcessing {
         }
         Instant now = clock.now();
         switch (result) {
-            case PayoutTransferResult.Succeeded succeeded -> succeed(exchange, payout, succeeded, now);
+            case PayoutTransferResult.Succeeded succeeded ->
+                    succeed(exchange, payout, locked.platformWalletId(), succeeded, now);
             case PayoutTransferResult.Failed failed -> fail(exchange, payout, failed.failureCode(), now);
             case PayoutTransferResult.Processing ignored -> {
                 payout.processing();
@@ -184,7 +191,8 @@ public class ExchangePayoutProcessing {
         boolean manual = payout.getStatus() == ExchangePayoutStatus.MANUAL_REVIEW_REQUIRED;
         Instant now = clock.now();
         switch (result) {
-            case PayoutTransferResult.Succeeded succeeded -> succeed(exchange, payout, succeeded, now);
+            case PayoutTransferResult.Succeeded succeeded ->
+                    succeed(exchange, payout, locked.platformWalletId(), succeeded, now);
             case PayoutTransferResult.Failed failed -> fail(exchange, payout, failed.failureCode(), now);
             case PayoutTransferResult.Processing ignored -> {
                 if (!manual) {
@@ -328,8 +336,10 @@ public class ExchangePayoutProcessing {
         return new Step.Check(latest.getPayoutRequestId(), resend);
     }
 
+    // 송금 결과 반영: 신청자 지갑·플랫폼 지갑(수수료 수입 기록용, #336) → 환전 → 송금 시도 순서로 잠근다
     private Locked lockPayout(Long exchangeId, String payoutRequestId) {
-        Exchange exchange = exchangeLocks.lock(exchangeId);
+        ExchangeLocks.LockedForPayout lockedForPayout = exchangeLocks.lockForPayout(exchangeId);
+        Exchange exchange = lockedForPayout.exchange();
         ExchangePayout payout = exchangePayoutRepository.findByPayoutRequestIdForUpdate(payoutRequestId)
                 .orElseThrow(() -> inconsistent(exchange, "송금 시도 없음 payoutRequestId=" + payoutRequestId));
         entityManager.refresh(payout);
@@ -339,11 +349,11 @@ public class ExchangePayoutProcessing {
         if (payout.isUnresolved() && !exchange.isPayoutInFlight()) {
             throw inconsistent(exchange, "결과 미확정 시도가 있는데 환전이 결과 대기가 아니다 payoutRequestId=" + payoutRequestId);
         }
-        return new Locked(exchange, payout);
+        return new Locked(exchange, payout, lockedForPayout.platformWalletId());
     }
 
-    private void succeed(Exchange exchange, ExchangePayout payout, PayoutTransferResult.Succeeded succeeded,
-            Instant now) {
+    private void succeed(Exchange exchange, ExchangePayout payout, Long platformWalletId,
+            PayoutTransferResult.Succeeded succeeded, Instant now) {
         if (succeeded.amountKrw() != payout.getAmountKrw()) {
             manualReview(exchange, payout, "AMOUNT_MISMATCH:" + succeeded.amountKrw(), now);
             return;
@@ -361,12 +371,33 @@ public class ExchangePayoutProcessing {
             throw inconsistent(exchange, "확정 차감 결과 불일치 capturedRevenue=" + captured.capturedRevenueHp()
                     + ", replayed=" + captured.replayed());
         }
+        recordFeeIncome(exchange, payout, platformWalletId, captured, now);
         Instant completedAt = succeeded.completedAt() == null ? now
                 : succeeded.completedAt().truncatedTo(ChronoUnit.MICROS);
         payout.succeed(succeeded.transactionId(), completedAt);
         exchange.completePayout(now);
-        log.info("환전 송금 성공·확정 차감: exchangeId={}, attemptNo={}, payoutRequestId={}, capturedHp={}",
-                exchange.getId(), payout.getAttemptNo(), payout.getPayoutRequestId(), captured.capturedRevenueHp());
+        log.info("환전 송금 성공·확정 차감·수수료 수입 기록: exchangeId={}, attemptNo={}, payoutRequestId={}, capturedHp={}, "
+                + "feeHp={}", exchange.getId(), payout.getAttemptNo(), payout.getPayoutRequestId(),
+                captured.capturedRevenueHp(), exchange.getFeeAmountHp());
+    }
+
+    // 확정 차감과 같은 트랜잭션에서 신청 때 정한 수수료를 플랫폼 지갑의 수수료 수입으로 기록한다 (#336).
+    // 회원 보류 차감액 = 송금액(KRW) + 수수료 수입이어야 한다. 작업 키가 환전마다 고정이라 한 번만 기록되고,
+    // 확정 차감이 처음 결과일 때만 여기 오므로 이미 기록돼 있으면(replayed) 불변식 위반이다.
+    private void recordFeeIncome(Exchange exchange, ExchangePayout payout, Long platformWalletId,
+            CaptureResult captured, Instant now) {
+        long feeHp = exchange.getFeeAmountHp();
+        if (Math.addExact(feeHp, payout.getAmountKrw()) != captured.capturedRevenueHp()) {
+            throw inconsistent(exchange, "확정 차감액 ≠ 송금액 + 수수료 capturedRevenue=" + captured.capturedRevenueHp()
+                    + ", amountKrw=" + payout.getAmountKrw() + ", feeHp=" + feeHp);
+        }
+        LedgerOperationResult recorded = ledgerRecordUseCase.record(new LedgerOperation(
+                BillingKeys.exchangeFee(exchange.getId()), LedgerTransactionType.EXCHANGE_FEE,
+                BillingReferenceType.EXCHANGE, exchange.getId(), "환전 수수료 수입", now,
+                List.of(LedgerEntry.of(platformWalletId, PointType.FEE, BalanceBucket.AVAILABLE, feeHp))));
+        if (recorded.replayed()) {
+            throw inconsistent(exchange, "수수료 수입이 이미 기록돼 있다");
+        }
     }
 
     // 시도 확정 실패. 보류는 반환하지 않는다(관리자가 재송금 또는 최종 실패를 정한다)
@@ -430,7 +461,7 @@ public class ExchangePayoutProcessing {
         return new BillingException(BillingErrorCode.EXCHANGE_STATE_INCONSISTENT);
     }
 
-    private record Locked(Exchange exchange, ExchangePayout payout) {
+    private record Locked(Exchange exchange, ExchangePayout payout, Long platformWalletId) {
     }
 
     // 송금 실행의 다음 단계

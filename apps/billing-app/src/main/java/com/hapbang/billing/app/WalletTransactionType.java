@@ -52,6 +52,8 @@ public enum WalletTransactionType {
             case PAYOUT -> payout(sum);
             case REFUND -> REFUND;
             case EXCHANGE -> EXCHANGE;
+            // 플랫폼 지갑에만 있고, 플랫폼 지갑은 회원 거래 내역에서 조회되지 않는다 (#336)
+            case EXCHANGE_FEE -> throw new IllegalStateException("회원 지갑에는 환전 수수료 원장이 없습니다.");
             case REVERSAL -> REVERSAL;
         };
     }
