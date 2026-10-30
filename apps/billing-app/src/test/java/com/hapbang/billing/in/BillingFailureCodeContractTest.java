@@ -57,6 +57,7 @@ class BillingFailureCodeContractTest {
             case HOLD_NOT_FOUND -> BillingFailureCode.HOLD_NOT_FOUND;
             case HOLD_OWNER_MISMATCH -> BillingFailureCode.HOLD_OWNER_MISMATCH;
             case HOLD_ALREADY_CLOSED -> BillingFailureCode.HOLD_ALREADY_CLOSED;
+            case HOLD_VOIDED -> BillingFailureCode.HOLD_VOIDED;
             case HOLD_TYPE_NOT_SUPPORTED -> BillingFailureCode.HOLD_TYPE_NOT_SUPPORTED;
             case HOLD_CHARGE_NOT_FOUND -> BillingFailureCode.HOLD_CHARGE_NOT_FOUND;
             case HOLD_STATE_INCONSISTENT -> BillingFailureCode.HOLD_STATE_INCONSISTENT;

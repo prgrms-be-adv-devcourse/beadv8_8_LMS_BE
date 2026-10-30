@@ -13,6 +13,8 @@ import com.hapbang.billing.global.exception.BusinessException;
 import com.hapbang.billing.global.response.RsData;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -84,6 +86,16 @@ public class ApiV1BillingInternalController implements ApiV1BillingInternalSpec 
         PenaltyResultDto result = logged(request,
                 () -> BillingResultDtos.penalty(command, holdFacade.settlePenalty(command)), PenaltyResultDto::replayed);
         return RsData.ok("위약금을 정산했습니다.", result);
+    }
+
+    @Override
+    @PostMapping("/hold-voids")
+    public RsData<HoldVoidResultDto> voidHold(@RequestBody HoldVoidCommand command) {
+        String request = "operation=HOLD_VOID userId=%d referenceType=%s referenceId=%d".formatted(
+                command.userId(), command.referenceType(), command.referenceId());
+        HoldVoidResultDto result = logged(request, () -> BillingResultDtos.holdVoid(holdFacade.voidHold(command)),
+                HoldVoidResultDto::replayed);
+        return RsData.ok("HP 보류를 무효화했습니다.", result);
     }
 
     // 처리 결과를 요청 값과 함께 한 줄로 남긴다. 업무 오류는 code만 남기고 그대로 던진다(응답·상세 로그는 GlobalExceptionHandler).

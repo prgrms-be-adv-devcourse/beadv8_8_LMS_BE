@@ -26,6 +26,8 @@ import org.springframework.web.client.RestClientException;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -61,6 +63,7 @@ public class BillingApiClient {
     static final String RELEASES_PATH = BASE_PATH + "/releases";
     static final String PAYOUTS_PATH = BASE_PATH + "/payouts";
     static final String PENALTY_SETTLEMENTS_PATH = BASE_PATH + "/penalty-settlements";
+    static final String HOLD_VOIDS_PATH = BASE_PATH + "/hold-voids";
 
     /** 408 Request Timeout, 425 Too Early, 429 Too Many Requests */
     private static final Set<Integer> NOT_PROCESSED_STATUSES = Set.of(408, 425, 429);
@@ -82,6 +85,9 @@ public class BillingApiClient {
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Body<PenaltyResultDto>> PENALTY =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<HoldVoidResultDto>> HOLD_VOID =
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Map<String, Object>> PROBLEM =
@@ -173,6 +179,14 @@ public class BillingApiClient {
     /** 출연 취소 위약금 정산(보류 일부 반환 + 일부 지급). 취소 ID가 멱등 키다 */
     public BillingCallResult<PenaltyResultDto> settlePenalty(PenaltyCommand command) {
         return post(PENALTY_SETTLEMENTS_PATH, command, PENALTY);
+    }
+
+    /**
+     * 보류 무효화(#479). 참조 대상의 보류를 더는 쓰지 않을 때 부른다: 남은 보류는 반환하고, 아직 보류가 없으면 앞으로 그 참조 대상에
+     * 보류가 생기지 않게 한다(뒤늦은 보류는 {@code HOLD_VOIDED}). 참조 대상이 멱등 키다
+     */
+    public BillingCallResult<HoldVoidResultDto> voidHold(HoldVoidCommand command) {
+        return post(HOLD_VOIDS_PATH, command, HOLD_VOID);
     }
 
     private <T> BillingCallResult<T> post(String path, Object command, ParameterizedTypeReference<Body<T>> type) {

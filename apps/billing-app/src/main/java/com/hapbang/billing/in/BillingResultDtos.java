@@ -1,10 +1,12 @@
 package com.hapbang.billing.in;
 
 import com.hapbang.billing.app.HoldResult;
+import com.hapbang.billing.app.HoldVoidResult;
 import com.hapbang.billing.app.PayoutResult;
 import com.hapbang.billing.app.PenaltyResult;
 import com.hapbang.billing.app.ReleaseResult;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -33,6 +35,11 @@ final class BillingResultDtos {
         return new PayoutResultDto(result.referenceType(), result.referenceId(), command.payoutRequestId(),
                 command.receiverUserId(), result.sourceType(), result.sourceId(), result.paidHp(),
                 result.remainingHeldHp(), result.replayed());
+    }
+
+    static HoldVoidResultDto holdVoid(HoldVoidResult result) {
+        return new HoldVoidResultDto(result.referenceType(), result.referenceId(), result.outcome(), result.releasedHp(),
+                result.replayed());
     }
 
     // 남은 보류액은 반환·지급을 모두 적용한 뒤인 지급 결과의 값이다.

@@ -4,6 +4,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
@@ -24,6 +25,7 @@ public class HoldFacade {
     private final HoldReleaseUseCase holdReleaseUseCase;
     private final HoldPayoutUseCase holdPayoutUseCase;
     private final PenaltySettlementUseCase penaltySettlementUseCase;
+    private final HoldVoidUseCase holdVoidUseCase;
 
     // 참조 대상 하나에 결제 회원의 HP를 보류하며, 같은 요청을 다시 보내면 기존 보류 결과를 돌려준다.
     public HoldResult hold(HoldCommand command) {
@@ -46,5 +48,11 @@ public class HoldFacade {
     // 위약금 비율은 출연이 정하며 Billing은 계산하지 않는다. 같은 취소 ID·같은 금액으로 다시 보내면 처음 정산 결과를 돌려준다.
     public PenaltyResult settlePenalty(PenaltyCommand command) {
         return LockTimeouts.translate(() -> penaltySettlementUseCase.settle(command));
+    }
+
+    // 참조 대상의 보류를 더는 쓰지 않는다고 받아 남은 보류를 반환하고, 보류가 없으면 앞으로 그 참조 대상에 보류가 생기지 않게 한다 (#479).
+    // 참조 대상당 한 번이며 같은 요청을 다시 보내면 처음 결과를 돌려준다.
+    public HoldVoidResult voidHold(HoldVoidCommand command) {
+        return LockTimeouts.translate(() -> holdVoidUseCase.voidHold(command));
     }
 }

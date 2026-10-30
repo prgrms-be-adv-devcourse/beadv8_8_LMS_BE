@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-10-30 (#471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-10-30 (#479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -40,7 +40,8 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #453 | 환불·환전 1 HP 단위, 송금액 버림(송금 = floor(신청 × 90%)), 송금액 0원 환전은 은행 없이 완료, 오류 코드 `*_AMOUNT_TOO_SMALL`(Flyway `V202610301200`) | `feature/tkt-453` | (PR 전) | 구현 완료 |
 | #428 | Kafka 소비 규칙(#339)에 맞춰 회원 이벤트 멱등 문서 정리: `eventId` inbox → 자연 키, 소비 그룹 `billing-app.member-replica`·`billing-app.wallet-creation`, 그룹별 DLT, 별도 멱등 기록 없음(BD-123) | `feature/tkt-428` | (PR 전) | 문서 완료 |
 | #430 | 회원 이벤트 Kafka 소비: `member.events.v1`을 그룹 `billing-app.member-replica`(복제본)·`billing-app.wallet-creation`(지갑, ADMIN 제외)로 받음, 블로킹 재시도 3회 뒤 그룹별 DLT(`BillingKafkaConfig`), Scenario 테스트를 Kafka Testcontainers·직접 호출로 교체 | `feature/tkt-430` | (PR 전) | 구현 완료 |
-| #471 | Spring Event 제거: Modulith 이벤트 기록 설정 삭제, Flyway `V202610301400`으로 `event_publication`·`event_publication_archive` 삭제, 이벤트 기록 자동 설정 2개 제외(앱·테스트), `ModulithEventsDisabledTest` | `feature/tkt-471` | (PR 전) | 구현 완료 |
+| #471 | Spring Event 제거: Modulith 이벤트 기록 설정 삭제, Flyway `V202610301400`으로 `event_publication`·`event_publication_archive` 삭제, 이벤트 기록 자동 설정 2개 제외(앱·테스트), `ModulithEventsDisabledTest` | `feature/tkt-471` | #473 | 완료 |
+| #479 | 보류 무효화 내부 API `POST /api/v1/internal/billing/hold-voids`: 남은 보류 전부 반환(`RELEASED`)·끝난 보류(`ALREADY_CLOSED`)·보류 없음(`VOIDED`), 무효화 기록 `hold_void`(Flyway `V202610301600`), 무효화 뒤 보류는 `HOLD_VOIDED` 409, shared 계약·Client `voidHold`, `HoldVoidIntegrationTest` | `feature/tkt-479` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 

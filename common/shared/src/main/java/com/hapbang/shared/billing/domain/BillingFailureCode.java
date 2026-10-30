@@ -1,7 +1,7 @@
 package com.hapbang.shared.billing.domain;
 
 /**
- * 지갑 내부 API가 보류·반환·지급·위약금 정산에서 응답할 수 있는 실패 코드 (D62, D64).
+ * 지갑 내부 API가 보류·반환·지급·위약금 정산·보류 무효화에서 응답할 수 있는 실패 코드 (D62, D64, #479).
  * 지갑 {@code BillingErrorCode} 전체가 아니라 이 네 호출에서 나올 수 있는 코드만 같은 이름으로 둔다.
  * 지갑 코드와의 대조는 지갑 쪽(#273)이 {@code default} 없는 {@code switch}와 테스트로 고정한다.
  * 실패를 재시도할지·거절로 볼지는 호출한 쪽이 작업 유형별로 정한다(강의 D57).
@@ -25,6 +25,8 @@ public enum BillingFailureCode {
     HOLD_CHARGE_NOT_FOUND,
     HOLD_STATE_INCONSISTENT,
     CHARGE_PRINCIPAL_MISMATCH,
+    // 보류 무효화된 참조 대상에 보류를 요청했다(409, 보류를 만들지 않음, #479)
+    HOLD_VOIDED,
 
     // 반환·지급
     RELEASE_AMOUNT_EXCEEDS_HELD,

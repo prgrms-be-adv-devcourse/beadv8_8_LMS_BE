@@ -142,6 +142,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 원장 줄 | `{operationKey}:{줄번호}` | `uk_point_ledger_idempotency_key` |
 | 보류 | `HOLD:{referenceType}:{referenceId}` (참조 대상당 1건) | `uk_point_hold_idempotency_key` |
 | 반환 | `RELEASE:{holdId}:{releaseRequestId}` | 보류 상세 UNIQUE |
+| 보류 무효화 | 참조 대상(`referenceType` + `referenceId`)당 1건. 남은 보류 반환은 `RELEASE:{holdId}:VOID` (#479) | `uk_hold_void_reference` |
 | 지급 | `PAYOUT:{holdId}:{payoutRequestId}` | 보류 상세 UNIQUE + 원천 UNIQUE |
 | 위약금 | `PENALTY:{holdId}:{cancellationId}` (`…:RELEASE`, `…:PAYOUT`) | 위와 같음 |
 | 확정 차감 | `CAPTURE:{holdId}:{captureRequestId}` | 보류 상세 UNIQUE |
@@ -162,6 +163,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | --- | --- | --- |
 | 보류 | 지갑 락 → 원장 조회 → 보류 조회(재요청 판정) → 수익 HP 우선·충전 HP FIFO 배분 → 원장·보류·배분 저장 | AGENTS 8장, `BD-21`~`BD-28` |
 | 반환 | 충전 HP 먼저, 원금 LIFO 복원 | AGENTS 8장, `BD-29`~`BD-35` |
+| 보류 무효화 (#479) | 지갑 락 → 무효화 기록 조회(재요청) → 보류 조회 → 남은 보류 전부 반환(요청 ID `VOID`) / 끝난 보류는 그대로 / 보류 없음 → 무효화 기록 저장. 기록이 있는 참조 대상의 보류는 `HOLD_VOIDED` | [`CONTEXT.md`](CONTEXT.md) 6장, `BD-125`~`BD-126` |
 | 지급 | 수익 HP 보류 먼저, 충전 원금 FIFO 소진, 받는 쪽 수익 HP 가용, `settlement` COMPLETED INSERT | AGENTS 8·8.1장, `BD-39`~`BD-45` |
 | 위약금 | 출연이 정한 반환액 + 지급액을 한 트랜잭션 처리 | AGENTS 8장, `BD-56`~`BD-59` |
 | 충전 | 주문 생성 → 결제창 → 승인(claim → PG → complete) → 복구 배치 | AGENTS 10.1장 |
@@ -241,13 +243,14 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | `POST /api/v1/settlements/admin/billing-users/backfill` | ADMIN | |
 | `GET /api/v1/settlements/admin/platform-wallet`, `GET …/platform-wallet/fee-incomes` | ADMIN | 수수료 수입 잔액·내역 (#336) |
 | `POST·GET /api/v1/wallets/mock-payouts/**` | `X-Mock-Payout-Key` | Swagger 숨김, local·test 전용 |
+| `POST /api/v1/internal/billing/holds`·`releases`·`payouts`·`penalty-settlements`·`hold-voids` | `X-Internal-Api-Key` (ROLE_INTERNAL) | [`internal-billing.md`](../api/internal-billing.md). `hold-voids`는 #479 |
 
-U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 + Facade `@PreAuthorize` 두 겹이다. 내부 API(`/api/v1/internal/billing/**`)는 없다.
+U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 + Facade `@PreAuthorize` 두 겹이다. 내부 API(`/api/v1/internal/billing/**`)는 내부 API 키로 인증하고 Envoy route가 없다.
 
 ### 8.2 DB (As-Is)
 
 - PostgreSQL **database 1개**, 앱마다 **schema** 분리. Billing은 `billing` 스키마(`spring.flyway.default-schema`, `spring.modulith.events.jdbc.schema`).
-- 테이블 14개. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 14개)가 원본이다.
+- 테이블 15개. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 15개)가 원본이다.
 
 | 테이블 | 추가한 마이그레이션 |
 | --- | --- |
@@ -256,6 +259,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | `billing_user` | `V202610162010` |
 | (`wallet.wallet_type`·`fee_balance_hp`, 플랫폼 지갑 행, 원장 `FEE`·`EXCHANGE_FEE`) | `V202610301000` (#336) |
 | (`ck_exchange_1`을 1 HP 이상으로) | `V202610301200` (#453) |
+| `hold_void` (보류 무효화 기록) | `V202610301600` (#479) |
 | ~~`event_publication`, `event_publication_archive`~~ (Modulith 이벤트 기록) | 지갑은 Spring Event를 쓰지 않아 `V202610301400`(#471)이 지웠다. Modulith 이벤트 기록 자동 설정도 뺐다(`JdbcEventPublicationAutoConfiguration`·`EventPublicationAutoConfiguration`) |
 
 - `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록에는 `billing_user`·`mock_payout_transfer`가 없다.
@@ -321,3 +325,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-10-30 | 2ba9624 | #428 Kafka 소비 규칙(#339) 반영: 회원 이벤트 수신(7.2)을 `eventId` inbox에서 자연 키 멱등·소비 그룹 둘·그룹별 DLT로 고침 |
 | 2026-10-30 | f8021a3 | #430 회원 이벤트 Kafka 소비 구현 반영(7.1 회원 → Billing, 7.2 남은 것) |
 | 2026-10-30 | c58fb0f | #471 Spring Event 제거: Modulith 이벤트 기록 설정·`event_publication` 테이블 삭제(8.2·8.3, 7.2) |
+| 2026-10-30 | 33367bd | #479 보류 무효화 내부 API(6장, 5.3, 8.1, 8.2). 8.1에 내부 API 행을 더함. 상세는 [`CONTEXT.md`](CONTEXT.md) 6장 |
