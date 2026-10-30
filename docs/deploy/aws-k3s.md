@@ -1,7 +1,7 @@
 # AWS 2노드 k3s 배치
 
-상태: k3s cluster(server 1 + agent 1) 구성 완료. application workload는 아직 Docker Compose로 운영한다.
-현재 AWS 현황 기준일: 2026-10-28
+상태: k3s cluster(server 1 + agent 1), 공용 인프라와 Envoy Gateway 구성 완료. 업무 앱·FE의 k3s 배포는 아직이다. 기존 Compose 데이터는 보존하며 edge nginx·certbot은 중지했다.
+현재 AWS 현황 기준일: 2026-10-30
 
 현재 Docker Compose 운영 절차는 [배포 개요](README.md)를 따른다. 이 문서는 Compose를 k3s로 전환할 때 적용할 AWS 범위, node 역할과 workload 배치 규칙을 정의하고, 설치한 k3s cluster의 구성과 재설치 절차를 기록한다. workload를 옮기기 전에는 아래 workload 배치를 이미 배포된 상태로 표현하지 않는다.
 
@@ -96,7 +96,7 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 
 ## 전환 순서
 
-1~3은 2026-10-28에 끝냈다. 4는 `cluster`·`platform`까지 2026-10-29에 적용했다(#374). 절차는 아래 [k3s 설치](#k3s-설치)에 있다.
+1~3은 2026-10-28, 4의 `cluster`·`platform`은 2026-10-29에 적용했다(#374). 2026-10-30 사용자 지시로 기존 서비스 호환을 제외하고 7의 Gateway 진입점 전환을 앱 배포보다 먼저 수행했다(#372). 아래 목록은 전환 단계 전체이며 2의 초기 Traefik·ServiceLB 설정은 현재와 다르다. 현재는 Traefik을 끄고 ServiceLB를 large에서만 켰다. 앱 배포·데이터 이전을 완료했다는 뜻은 아니다. 절차는 아래 [k3s 설치](#k3s-설치)에 있다.
 
 1. (완료) 두 EC2의 private IP 통신, security group, IMDSv2와 IAM role을 검증한다.
 2. (완료) large에 k3s server를 설치하고 `core-data` label을 적용한다. servicelb는 끄고 k3s 기본 Traefik은 켜진 상태다.

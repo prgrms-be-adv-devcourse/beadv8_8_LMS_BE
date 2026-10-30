@@ -88,6 +88,9 @@ jobs:
           python -m pip install PyYAML==6.0.3
           python k8s/gateway/tools/prepare-schemas.py /tmp/gateway-schemas
 
+      - name: 운영 Gateway 렌더러 검사
+        run: python -m unittest discover -s k8s/gateway/tests -p 'test_render_prod.py'
+
       # -strict는 schema에 없는 필드(오타)를 오류로 본다. Kubernetes 버전은 EC2 k3s(v1.36.5+k3s1)와 맞춘다.
       - name: 렌더링·schema 검사
         run: |
