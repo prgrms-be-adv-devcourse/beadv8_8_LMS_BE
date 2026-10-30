@@ -113,3 +113,82 @@
 - 설정 기본값·바인딩(`BillingClientPropertiesTest`), health 상태(`BillingClientHealthIndicatorTest`), base-url이 있을 때만 Client·지표·health 빈이 생기는지(`BillingClientWiringTest`)도 확인한다.
 - Toxiproxy 장애 주입은 최종 프로젝트 포트폴리오 항목으로 따로 둔다.
 - 함께 고친 문서: `docs/api/internal-billing.md` 2·3장, 강의 결정 기록 D66~D68(D57·D58·D64 상태), `docs/lecture/integration.md` 6.2, `docs/billing/test-spec.md` BT-PORT-04.
+
+## 3. 환전 수수료 수입 기록 — 플랫폼 지갑 (#336)
+
+2026-10-29 `/grill-with-docs`로 정했다. 용어는 [`docs/GLOSSARY.md`](../GLOSSARY.md)의 "수수료 수입"·"플랫폼 지갑", 규칙은 [`docs/policy.md`](../policy.md) 3장 "수수료 수입 기록"이다. 지금은 환전 송금이 성공하면 회원 보류 수익 HP 전액만 확정 차감되고, 수수료가 어디로 갔는지 원장에 남지 않는다. 수수료 수입을 원장에 남겨 "잔액은 원장의 합"이 플랫폼 몫까지 성립하게 한다.
+
+### 3.1 플랫폼 지갑
+
+- `wallet`에 `wallet_type`(`MEMBER`·`PLATFORM`)을 더한다. 플랫폼 지갑은 `user_id`가 NULL이다.
+  - CHECK: `MEMBER`면 `user_id`가 있고, `PLATFORM`이면 없다.
+  - `PLATFORM`은 부분 유일 인덱스로 하나만 둔다. 회원 지갑의 `UNIQUE (user_id)`는 그대로 둔다.
+- Flyway 마이그레이션(`V202610301000__add_billing_platform_wallet.sql`)에서 플랫폼 지갑 한 행을 INSERT한다. 환경마다 같은 방식으로 생긴다. 송금 결과 반영에서 플랫폼 지갑이 없으면 `EXCHANGE_STATE_INCONSISTENT`(500, 처리 중단), 관리자 조회에서 없으면 500이다.
+- 기존 데이터는 소급하지 않는다. dev·prod는 송금을 건너뛰어 송금 성공 건이 없고, local·test만 해당한다.
+
+### 3.2 HP 종류와 잔액 캐시
+
+- `point_type`에 `FEE`를 더한다. 수수료 수입은 충전 HP도 수익 HP도 아니다. 수익 HP 칸을 쓰면 환전·반환 규칙과 섞인다.
+- FEE는 `AVAILABLE` 칸만 쓴다(`HELD` 없음).
+- 잔액 캐시 `wallet.fee_balance_hp`를 더한다.
+  - CHECK: 회원 지갑은 `fee_balance_hp = 0`, 플랫폼 지갑은 충전·수익·보류 칸이 모두 0.
+  - 캐시는 원장 합과 대사한다(3.5).
+- 다른 수수료성 수입이 생겨도 같은 플랫폼 지갑에 모으고, 원장 거래 유형으로 구분한다. 지금은 환전 수수료뿐이다(출연 위약금은 게스트에게 지급하므로 해당 없음).
+
+### 3.3 원장 기록
+
+- 거래 유형 `EXCHANGE_FEE`를 더한다. 원장 한 줄은 다음과 같다.
+
+| 칸 | 값 |
+| --- | --- |
+| 지갑 | 플랫폼 지갑 |
+| `point_type`·`balance_bucket` | `FEE`·`AVAILABLE` |
+| `amount_hp` | +`exchange.fee_amount_hp` |
+| `transaction_type` | `EXCHANGE_FEE` |
+| `reference_type`·`reference_id` | `EXCHANGE`·환전 ID |
+| 작업 키 / 멱등키 | `EXCHANGE_FEE:{환전 ID}` / `EXCHANGE_FEE:{환전 ID}:1`(원장 멱등키는 작업 키에 줄 번호를 붙인다) |
+
+- 환전 송금 성공(`ExchangePayoutProcessing.succeed`)에서 확정 차감과 같은 트랜잭션으로, 확정 차감 바로 뒤에 별도 작업으로 기록한다.
+  - 공통 확정 차감(capture)은 환불도 쓰므로 바꾸지 않는다.
+  - 작업 키가 환전 한 건에 하나라 재확인·수동 재송금이 있어도 한 번만 남는다.
+- 금액은 신청 때 저장한 `fee_amount_hp`다. 회원에게 보여 준 금액과 같고, 수수료율이 바뀌어도 달라지지 않는다.
+  - 확정 차감액 = `fee_amount_hp` + 송금 KRW인지 검사하고, 다르면 불변식 위반이다(DB 제약 `ck_exchange_4`와 같은 식).
+- 수수료는 항상 100 HP 이상이다(환전 최소 1,000원·1,000원 단위, 10% 버림). 0원 원장은 생기지 않는다.
+- 송금 최종 실패·취소·거절은 보류 전액 반환이므로 기록하지 않는다.
+- 락은 지금 규칙(지갑 ID 오름차순)대로 회원 지갑과 플랫폼 지갑을 함께 잡는다. 송금 결과 반영(`ExchangePayoutProcessing.apply`·`applyManualCheck`)은 `ExchangeLocks.lockForPayout`으로 두 지갑 → 환전 → 송금 시도 → 보류 순서로 잠근다. 환전 송금은 배치가 차례로 처리해 플랫폼 지갑 행 경합은 거의 없다.
+
+### 3.4 접근 범위
+
+- 조회는 관리자 API만 한다(3.6). 바꾸는 곳은 환전 송금 성공 처리 하나뿐이다. 정산일 배치, 관리자 결과 재확인, 수동 재송금이 모두 이 처리를 거친다.
+- 회원 기능에는 나오지 않는다.
+  - 회원 API는 `findByUserId`로 지갑을 찾는데, 플랫폼 지갑은 `user_id`가 없어 찾을 수 없다.
+  - Wallet 도메인이 플랫폼 지갑의 충전·수익·보류 칸 변경과 회원 지갑의 수수료 칸 변경을 불변식 위반으로 거절한다. DB CHECK(3.2)도 같은 것을 막는다.
+- 테스트로 회원 API(지갑 조회·충전·환불·환전)가 플랫폼 지갑에 닿지 않음을 확인한다.
+
+### 3.5 정합성 점검
+
+- `WalletReconciliationUseCase.reconcile`이 FEE 칸도 비교한다(`fee_balance_hp` = FEE 원장 합).
+- "FEE 원장 합 = 송금 완료 환전의 `fee_amount_hp` 합"은 테스트로 확인한다.
+- `reconcile`을 주기적으로 부르는 점검 배치는 지금 없고, 이번 범위 밖이다.
+
+### 3.6 관리자 조회 API
+
+- `GET /api/v1/settlements/admin/platform-wallet`: 수수료 수입 잔액.
+- `GET /api/v1/settlements/admin/platform-wallet/fee-incomes`: 수수료 수입 내역.
+  - 항목: 원장 ID, 환전 ID, 수수료 HP, 신청 HP, 송금 KRW, 기록 시각. 환전 테이블은 Billing 안이라 조인한다.
+  - 기록 시각 최신순. 기존 관리자 환전 목록처럼 `Pageable` + `Page` 응답이다.
+- 기존 관리자 API처럼 `/admin` 경로(global SecurityConfig)와 Facade `@PreAuthorize`(ADMIN)로 함께 막는다.
+- 이슈는 "필요 여부는 회의에서 정한다"였지만, 잔액과 내역 조회를 모두 이번에 만들기로 했다(2026-10-29).
+
+### 3.7 테스트
+
+- 운영에서는 Flyway가 플랫폼 지갑을 넣지만, 테스트 DB 정리(`SchemaManager.truncate`)가 그 행도 지운다. billing 테스트 설정(`src/test/resources/hapbang-module-test.yaml`)의 Hibernate load script(`billing-test-platform-wallet.sql`)로 비울 때마다 다시 넣는다(2026-10-29 결정). test-support는 바꾸지 않는다.
+- 회원 지갑이 없음을 확인하던 테스트는 `wallet_type = 'MEMBER'`만 센다.
+- `ExchangePayoutIntegrationTest`: 성공·재실행 시 수수료 한 줄과 플랫폼 지갑 대사, 수동 재송금 뒤 한 번만 기록·최종 실패는 기록 없음, 관리자 API 응답·권한, 플랫폼 지갑이 회원 ID로 조회되지 않음. 환전별 원장 합은 송금 성공이면 −송금액이다.
+- `WalletTest`: 플랫폼 지갑의 수수료 수입 반영과 지갑 유형·FEE 보류 칸 가드.
+
+### 3.8 범위·완료 조건
+
+- 기존 API는 바뀌지 않는다. shared 계약(`BillingApiClient`·`BillingFailureCode`)도 바뀌지 않는다.
+- 범위 밖: 정합성 점검 배치, 송금 결과 이벤트 발행(우선순위 12번 Billing 이벤트 발행. 발행 지점은 이 송금 성공 트랜잭션 근처가 된다).
+- 완료 조건(이슈): 회원 보류 차감액 = 송금 KRW + 수수료 수입이 원장으로 확인된다. 재확인·재송금에도 한 번만 기록된다. 최종 실패·취소·거절에는 기록되지 않는다. 플랫폼 지갑이 회원 API로 노출되지 않는다. `./gradlew check`가 통과한다.

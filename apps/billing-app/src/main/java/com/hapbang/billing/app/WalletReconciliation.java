@@ -5,7 +5,7 @@ import java.util.List;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.PointType;
 
-// 지갑 캐시 잔액과 원장 합계를 네 가지 HP 종류·잔액 버킷별로 비교한 대사 결과다.
+// 지갑 캐시 잔액과 원장 합계를 HP 종류·잔액 버킷별(충전·수익 × 가용·보류, 수수료 수입 가용 #336)로 비교한 대사 결과다.
 public record WalletReconciliation(Long walletId, List<BucketReconciliation> buckets, boolean matched) {
 
     // 버킷 결과를 변경할 수 없는 복사본으로 보관한다.

@@ -33,6 +33,7 @@ import com.hapbang.billing.domain.PointRefundStatus;
 import com.hapbang.billing.domain.RefundManualReviewReason;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.SettlementStatus;
+import com.hapbang.billing.domain.WalletType;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.member.domain.Role;
@@ -79,6 +80,7 @@ class BillingEnumStorageTest {
         columns.put("ck_mock_payout_transfer_status", MockPayoutTransferStatus.class);
         columns.put("ck_billing_user_role", Role.class);
         columns.put("ck_billing_user_status", UserStatus.class);
+        columns.put("ck_wallet_type", WalletType.class);
 
         List<String> enumChecks = entityManager.createNativeQuery("""
                 SELECT constraint_row.conname FROM pg_constraint constraint_row
@@ -108,7 +110,9 @@ class BillingEnumStorageTest {
             // ck_exchange_10·11·ck_exchange_payout_3·4는 송금 완료·실패 상태와 시각·거래 번호가 함께 있어야 한다는 규칙(#304)
             "ck_exchange_10", "ck_exchange_11", "ck_exchange_payout_3", "ck_exchange_payout_4",
             // ck_exchange_12는 최종 실패 상태와 종료 기록, ck_exchange_payout_6은 운영자 확인 상태와 그 시각이 함께 있어야 한다는 규칙(#304)
-            "ck_exchange_12", "ck_exchange_payout_6");
+            "ck_exchange_12", "ck_exchange_payout_6",
+            // ck_wallet_owner는 지갑 유형별 회원·잔액 칸 규칙, ck_point_ledger_fee_bucket은 수수료 수입은 가용 칸만이라는 규칙(#336)
+            "ck_wallet_owner", "ck_point_ledger_fee_bucket");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""

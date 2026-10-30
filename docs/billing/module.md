@@ -61,7 +61,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 
 | 애그리거트 | 테이블 | 안에서만 쓰는 연관관계 |
 | --- | --- | --- |
-| 지갑 | `wallet` | — |
+| 지갑 | `wallet` (회원 지갑 `MEMBER`, 플랫폼 지갑 `PLATFORM` 1개 — #336) | — |
 | 원장 | `point_ledger` (append-only) | — |
 | 보류 | `point_hold` → `point_hold_detail`, `point_charge_usage` | `@ManyToOne` |
 | 충전 | `point_charge` | — |
@@ -97,7 +97,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 
 | ID | 불변식 | 지키는 곳 |
 | --- | --- | --- |
-| INV-1 | 지갑 잔액 4개(충전·수익 × 가용·보류)는 원장 합계와 같다 | `LedgerRecordUseCase`가 유일한 변경 경로, `WalletReconciliationUseCase`로 대조 |
+| INV-1 | 지갑 잔액 4개(충전·수익 × 가용·보류)와 플랫폼 지갑의 수수료 수입(FEE 가용)은 원장 합계와 같다 | `LedgerRecordUseCase`가 유일한 변경 경로, `WalletReconciliationUseCase`로 대조 |
 | INV-2 | 원장은 수정·삭제되지 않는다 | DB 트리거 `trg_point_ledger_append_only`(UPDATE·DELETE → 23514), `@PreRemove` |
 | INV-3 | 잔액은 음수가 되지 않는다, 원장 금액은 0이 아니다 | `INSUFFICIENT_BALANCE`, `INVALID_POINT_AMOUNT`, `Math.addExact`(`BALANCE_OVERFLOW`) |
 | INV-4 | 완료 충전 건의 가용 원금 합 = `wallet.charge_balance_hp` | 보류 전 대조(`CHARGE_PRINCIPAL_MISMATCH`) |
@@ -149,6 +149,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 환불 | 회원 + `Idempotency-Key` 헤더, PG `hapbang-refund-cancel-{UUID}`(저장값) | UNIQUE |
 | 환전 신청 | 회원 + `Idempotency-Key` 헤더 | UNIQUE |
 | 환전 반환·확정 차감 요청 ID | `EXCHANGE-CANCEL-{id}`, `EXCHANGE-REJECT-{id}`, `EXCHANGE-PAYOUT-{id}`, `EXCHANGE-PAYOUT-FAIL-{id}` | 보류 상세 UNIQUE |
+| 환전 수수료 수입 | 원장 작업 키 `EXCHANGE_FEE:{exchangeId}` (환전당 1건, #336) | `uk_point_ledger_idempotency_key` |
 | 환전 송금 시도 | 시도마다 새 UUID(`payout_request_id`), 결과 불명확 시 같은 ID로만 조회·재전송 | `uk_exchange_payout_active`(FAILED 아닌 시도 1건) |
 
 같은 키에 다른 내용 = `IDEMPOTENCY_KEY_CONFLICT`. 같은 키·같은 내용 = 처음 결과(`replayed=true`).
@@ -238,6 +239,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | `GET /api/v1/settlements/earnings`, `GET …/earnings/summary` | U·I·VI | |
 | `/api/v1/settlements/admin/exchanges/**` (목록·상세·승인·거절·송금 목록·재확인·재시도·최종 실패) | ADMIN | |
 | `POST /api/v1/settlements/admin/billing-users/backfill` | ADMIN | |
+| `GET /api/v1/settlements/admin/platform-wallet`, `GET …/platform-wallet/fee-incomes` | ADMIN | 수수료 수입 잔액·내역 (#336) |
 | `POST·GET /api/v1/wallets/mock-payouts/**` | `X-Mock-Payout-Key` | Swagger 숨김, local·test 전용 |
 
 U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 + Facade `@PreAuthorize` 두 겹이다. 내부 API(`/api/v1/internal/billing/**`)는 없다.
@@ -245,13 +247,14 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 ### 8.2 DB (As-Is)
 
 - PostgreSQL **database 1개**, 앱마다 **schema** 분리. Billing은 `billing` 스키마(`spring.flyway.default-schema`, `spring.modulith.events.jdbc.schema`).
-- 테이블 14개. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 11개)가 원본이다.
+- 테이블 14개. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 12개)가 원본이다.
 
 | 테이블 | 추가한 마이그레이션 |
 | --- | --- |
 | `wallet`, `point_ledger`, `point_hold`, `point_hold_detail`, `point_charge`, `point_charge_usage`, `point_refund_request`, `point_refund`, `settlement`, `exchange`, `exchange_account`, `exchange_payout` | `V202610121245` (이후 마이그레이션이 컬럼·제약 추가) |
 | `mock_payout_transfer` | `V202610161700` |
 | `billing_user` | `V202610162010` |
+| (`wallet.wallet_type`·`fee_balance_hp`, 플랫폼 지갑 행, 원장 `FEE`·`EXCHANGE_FEE`) | `V202610301000` (#336) |
 | `event_publication`, `event_publication_archive` (추정: Modulith 기본 이름) | Modulith `schema-initialization` |
 
 - `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록에는 `billing_user`·`mock_payout_transfer`가 없다.
@@ -312,3 +315,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | --- | --- | --- |
 | 2026-10-29 | 5a4dc1a | 최초 작성 (#356 독립 앱 구조 기준) |
 | 2026-10-29 | da834b1 | dev pull 반영. billing-app·`common/shared` 코드 변경 없음. #369 최종 인프라 결정(JWT·Envoy·Resilience4j·Kafka outbox/inbox·database 분리 순서·replica 1개 배치)을 7.2·8.3·6.1·10장에 반영. Billing 이벤트 발행 없음을 7.1에 추가 |
+| 2026-10-30 | d8d6c25 | #336 플랫폼 지갑·환전 수수료 수입 반영(3.1, INV-1, 5.3, 8.1, 8.2). 상세 정책은 [`CONTEXT.md`](CONTEXT.md) 3장 |
