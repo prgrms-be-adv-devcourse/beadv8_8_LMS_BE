@@ -11,6 +11,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -399,6 +401,56 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
             assertThat(retried.getStatus()).isEqualTo(HpTaskStatus.DONE);
             assertThat(MockBilling.requests(Endpoint.PAYOUT)).hasSize(2)
                     .extracting(payout -> payout.requestId(Endpoint.PAYOUT)).containsOnly(task.getIdempotencyKey());
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @ValueSource(ints = {403, 404})
+        @DisplayName("목록 밖 403(권한 없음)·404(경로 없음)도 연동 장애라 DEAD로 두지 않고 재시도 → 고친 뒤 같은 요청 ID로 DONE")
+        void otherIntegrationFaultsRetried(int status) {
+            MockBilling.fail(Endpoint.PAYOUT, status, null, null);
+            HpTask task = confirm();
+
+            assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(task.getAttemptCount()).isEqualTo(1);
+            assertThat(task.getLastError()).isEqualTo("UNMAPPED(null, " + status + ")");
+
+            MockBilling.succeed(Endpoint.PAYOUT);
+            assertThat(runAgain(task).getStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(MockBilling.requests(Endpoint.PAYOUT)).hasSize(2)
+                    .extracting(payout -> payout.requestId(Endpoint.PAYOUT)).containsOnly(task.getIdempotencyKey());
+        }
+
+        @Test
+        @DisplayName("위약금 정산 5xx(결과 불명): 일방 취소는 성공, 작업 PENDING(UNKNOWN_RESULT) → 다음 시도에 같은 취소 ID로 DONE")
+        void penaltyUnknownThenDone() {
+            MockBilling.fail(Endpoint.PENALTY, 500, null, null);
+            Long appearanceId = establish();
+
+            appearanceFacade.hostCancel(HOST, appearanceId, false, null);
+
+            HpTask task = onlyTask(HpTaskType.PENALTY);
+            assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(task.getAttemptCount()).isEqualTo(1);
+            assertThat(task.getLastError()).startsWith("UNKNOWN_RESULT 500");
+
+            MockBilling.succeed(Endpoint.PENALTY);
+            assertThat(runAgain(task).getStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(MockBilling.requests(Endpoint.PENALTY)).hasSize(2)
+                    .extracting(penalty -> penalty.requestId(Endpoint.PENALTY)).containsOnly(task.getIdempotencyKey());
+        }
+
+        @Test
+        @DisplayName("위약금 정산 거절(404 HOLD_NOT_FOUND): 재시도 없이 DEAD, 일방 취소는 그대로")
+        void penaltyRejectedDead() {
+            MockBilling.fail(Endpoint.PENALTY, 404, "HOLD_NOT_FOUND", "HP 보류를 찾을 수 없습니다.");
+            Long appearanceId = establish();
+
+            appearanceFacade.hostCancel(HOST, appearanceId, false, null);
+
+            HpTask task = onlyTask(HpTaskType.PENALTY);
+            assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DEAD);
+            assertThat(task.getLastError()).isEqualTo("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.");
+            assertThat(appearanceFacade.getDetail(HOST, appearanceId).status()).isEqualTo(AppearanceStatus.CANCELED_BY_HOST);
         }
 
         @Test

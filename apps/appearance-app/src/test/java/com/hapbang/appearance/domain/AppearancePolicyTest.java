@@ -37,14 +37,6 @@ class AppearancePolicyTest {
     }
 
     @Test
-    @DisplayName("출연 취소 요청은 최대 2회까지 할 수 있다")
-    void canRequestCancel() {
-        assertThat(policy.canRequestCancel(0)).isTrue();
-        assertThat(policy.canRequestCancel(1)).isTrue();
-        assertThat(policy.canRequestCancel(2)).isFalse();
-    }
-
-    @Test
     @DisplayName("모집 인원은 1명 이상 최대 모집 인원(10명) 이하만 허용한다")
     void recruitCount() {
         assertThat(policy.isRecruitCountAllowed(0)).isFalse();

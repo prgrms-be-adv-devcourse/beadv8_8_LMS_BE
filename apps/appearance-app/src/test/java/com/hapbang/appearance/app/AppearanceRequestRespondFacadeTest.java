@@ -2,6 +2,8 @@ package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -252,6 +254,22 @@ class AppearanceRequestRespondFacadeTest {
     }
 
     @Test
+    @DisplayName("지갑 호출 중 예상하지 못한 예외가 나도 거절은 성공하고, 작업은 PENDING으로 남아 시도 1회·예외 이름을 기록한다 (재시도 정책)")
+    void rejectWhenUnexpectedFailure() {
+        AppearanceRequestResDto sent = send();
+        doThrow(new IllegalStateException("요청을 만들지 못함")).when(billingClient).release(any());
+
+        AppearanceRequestResDto rejected = appearanceRequestFacade.reject(GUEST, sent.id(), null);
+
+        assertThat(rejected.status()).isEqualTo(AppearanceRequestStatus.REJECTED);
+        assertThat(rejected.hpReleaseStatus()).isEqualTo(HpTaskStatus.PENDING);
+        HpTask task = onlyTask();
+        assertThat(task.getAttemptCount()).isEqualTo(1);
+        assertThat(task.getLastError()).isEqualTo("IllegalStateException: 요청을 만들지 못함");
+        assertThat(task.getNextAttemptAt()).isNotNull();
+    }
+
+    @Test
     @DisplayName("Billing이 반환을 거절하면(보류 없음) 거절은 성공하고, 작업은 재시도 없이 바로 DEAD로 Billing 오류 코드를 기록한다")
     void rejectWhenBillingRejectsRelease() {
         AppearanceRequestResDto sent = send();
@@ -277,6 +295,28 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(canceled.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
         assertThat(onlyTask().getReason().name()).isEqualTo("REQUEST_CANCELED");
         assertReleaseSent(sent.id());
+    }
+
+    @Test
+    @DisplayName("호스트가 거절하면 NOT_REQUEST_GUEST, 다른 회원이면 APPEARANCE_REQUEST_NOT_FOUND. 요청서·반환 작업은 그대로")
+    void rejectByNonGuest() {
+        AppearanceRequestResDto sent = send();
+
+        assertErrorCode(() -> appearanceRequestFacade.reject(HOST, sent.id(), null), AppearanceErrorCode.NOT_REQUEST_GUEST);
+        assertErrorCode(() -> appearanceRequestFacade.reject(OTHER, sent.id(), null),
+                AppearanceErrorCode.APPEARANCE_REQUEST_NOT_FOUND);
+        assertThat(appearanceRequestFacade.getDetail(GUEST, sent.id()).status()).isEqualTo(AppearanceRequestStatus.REQUESTED);
+        assertThat(hpTaskRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("다른 회원이 취소하면 APPEARANCE_REQUEST_NOT_FOUND, 반환 작업은 생기지 않는다")
+    void cancelByOther() {
+        AppearanceRequestResDto sent = send();
+
+        assertErrorCode(() -> appearanceRequestFacade.cancel(OTHER, sent.id()),
+                AppearanceErrorCode.APPEARANCE_REQUEST_NOT_FOUND);
+        assertThat(hpTaskRepository.count()).isZero();
     }
 
     @Test

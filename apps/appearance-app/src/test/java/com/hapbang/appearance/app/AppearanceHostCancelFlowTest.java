@@ -256,6 +256,24 @@ class AppearanceHostCancelFlowTest {
         }
 
         @Test
+        @DisplayName("방송 뒤 확인(CONFIRMED)·불참(ABSENT)한 출연은 일방 취소할 수 없다 (APPEARANCE_NOT_CANCELABLE), 위약금 작업 없음")
+        void confirmedOrAbsent() {
+            Long confirmed = establishFromRequest().appearanceId();
+            Long absent = establishFromRecruit(postRecruit(1), GUEST2);
+            clock.advanceTo(jdbcTemplate.queryForObject("select max(scheduled_at) from appearances.appearances",
+                    LocalDateTime.class));
+            appearanceFacade.confirm(HOST, confirmed);
+            appearanceFacade.markAbsent(HOST, absent, null);
+
+            assertErrorCode(() -> appearanceFacade.hostCancel(HOST, confirmed, false, null),
+                    AppearanceErrorCode.APPEARANCE_NOT_CANCELABLE);
+            assertErrorCode(() -> appearanceFacade.hostCancel(HOST, absent, false, null),
+                    AppearanceErrorCode.APPEARANCE_NOT_CANCELABLE);
+            assertThat(tasksOf(HpTaskType.PENALTY)).isEmpty();
+            assertThat(BillingCalls.penalties(billingClient)).isEmpty();
+        }
+
+        @Test
         @DisplayName("모집 출처: 그 자리 보류(30,000)가 위약금·반환으로 정산되고, 성립 인원은 그대로라 자리가 다시 열리지 않는다")
         void fromRecruitSeatNotReopened() {
             Long recruitId = postRecruit(1);

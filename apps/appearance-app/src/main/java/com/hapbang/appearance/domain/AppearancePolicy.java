@@ -71,11 +71,4 @@ public record AppearancePolicy(
     public boolean isRecruitCountAllowed(int recruitCount) {
         return recruitCount >= MIN_RECRUIT_COUNT && recruitCount <= maxRecruitCount;
     }
-
-    /**
-     * 지금까지 보낸 출연 취소 요청 수를 받아, 한 번 더 요청할 수 있는지 판단한다.
-     */
-    public boolean canRequestCancel(int requestedCount) {
-        return requestedCount < maxCancelRequestCount;
-    }
 }

@@ -90,7 +90,6 @@
 | 출연료 19,999 / 20,000 | 최저 출연료 미달 / 충족 |
 | 위약금: 출연료 20,000 / 25,555 / 0 | 6,000 / 7,666 (7,666.5에서 끝전 버림) / 0 |
 | 출연 확인 마감: 방송 10/20 21:30 | 10/27 21:30 (7×24시간 뒤) |
-| 출연 취소 요청을 0 / 1 / 2회 보낸 상태 | 추가 요청 가능 / 가능 / 불가 |
 | 모집 인원 0 / 1 / 10 / 11명 (#175) | 불가 / 허용 / 허용 / 불가 |
 | 위약금 비율 1% / 100%, 출연료 20,000 (#463) | 위약금 200 / 20,000 (0%는 위약금 정산 작업을 만들 수 없어 생성 실패) |
 | 최저 출연료 0, 위약금 0%·-1%·101%, 확인 기간 0, 최대 횟수 0, 최대 모집 인원 0 | 정책 객체 생성 실패 (앱이 시작되지 않음) |
@@ -1369,7 +1368,18 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceRequestRespondApiE2ETest` | 거절 1건·대기 1건에서 상태 필터 | `REJECTED,CANCELED` → 거절 건만, `REQUESTED` → 대기 건만 |
 | `AppearanceApplicationApiE2ETest` | 정원이 찬 뒤 새 지원 | 201, 지원자 수 3 |
 | `AppearanceExternalEventsTest` | 회원 이벤트 | `@Externalized`가 붙어 있음을 먼저 확인한 뒤, 패키지 조건으로 내보내지 않음 |
+| `AppearanceApplicationFacadeTest` | 이미 수락·거절한 지원을 거절 / 마감된 모집글의 지원을 거절 | `APPLICATION_NOT_PENDING`(출연·성립 인원 그대로) / `APPEARANCE_RECRUIT_NOT_OPEN` |
+| `AppearanceRequestRespondFacadeTest` | 호스트·다른 회원이 요청서 거절 / 다른 회원이 응답 전 취소 | `NOT_REQUEST_GUEST`·`APPEARANCE_REQUEST_NOT_FOUND`, 요청서 `REQUESTED`·반환 작업 없음 / `APPEARANCE_REQUEST_NOT_FOUND`, 반환 작업 없음 |
+| `AppearanceRequestRespondFacadeTest` | 반환 요청 중 예상하지 못한 예외(`IllegalStateException`) | 거절은 성공, 작업 `PENDING`·시도 1, 마지막 오류 `IllegalStateException: …` (재시도 정책을 쓰며 다시 실행) |
+| `AppearanceConfirmFlowTest` | 불참: 방송 전 / 게스트 / 확인 기간 끝 | `APPEARANCE_CONFIRM_NOT_OPEN` / `NOT_APPEARANCE_HOST` / `APPEARANCE_CONFIRM_PERIOD_ENDED`, 반환 작업·요청 없음 |
+| `AppearanceHostCancelFlowTest` | 확인(`CONFIRMED`)·불참(`ABSENT`)한 출연을 일방 취소 | `APPEARANCE_NOT_CANCELABLE`, 위약금 작업·요청 없음 |
+| `AppearanceDetailReadTransactionTest` | 요청서 취소·모집 전체 취소·취소 요청 수락·일방 취소·불참 | 작업 뒤 상세를 읽기 전용 트랜잭션에서 읽음 (기존 거절·조기 마감·확인과 합쳐 작업 뒤 상세를 읽는 Facade 8곳 모두) |
+| `AppearanceBillingHttpTest` | 지급 목록 밖 403·404 (코드 없음) | 연동 장애라 `PENDING`·시도 1, `UNMAPPED(null, 403/404)` → 고친 뒤 같은 요청 ID로 `DONE` |
+| `AppearanceBillingHttpTest` | 위약금 정산 500 / 404 `HOLD_NOT_FOUND` | 일방 취소 성공 + 작업 `PENDING`(`UNKNOWN_RESULT 500`) → 같은 취소 ID로 `DONE` / 재시도 없이 `DEAD`, 출연은 `CANCELED_BY_HOST` 그대로 |
 
 - 준비 단계에서 보류를 결과 불명으로 만드는 곳은 예외 종류가 아니라 `BILLING_UNAVAILABLE`까지 확인한다(다른 예외로 `HOLD_PENDING`이 생겨도 진행되지 않게).
 - 위약금 정산은 반환+위약금 합계가 아니라 위약금 9,000·반환 21,000을 각각 확인한다.
 - Swagger(`ApiV1AppearanceSpec`) 취소 요청·취소 수락·일방 취소·확인 설명에 "호스트·게스트가 아니면 404 `APPEARANCE_NOT_FOUND`"를 적었다(테스트와 같게).
+- `AppearancePolicy.canRequestCancel`은 #26에서 정책 판단 자리로 만들었지만 #231부터 쓰이지 않아(`Appearance.requestCancel`이 판단) 메서드와 테스트를 지웠다. 횟수 제한은 `AppearanceCancelRequestTest`가 확인한다.
+- 비로그인 401·내부 API 키 없음 401·정지된 관리자 403은 #395 이후 `SecurityConfigTest`·`InternalApiSecurityConfigTest`·`AppearanceEarningInternalApiTest`·`HpTaskAdminFacadeTest`가 확인하고 있어 추가하지 않았다.
+- 실제 시간을 기다리는 확인(회원 이벤트 DLT 지연, 회로 통합 테스트의 1초·5초 대기)은 이번 범위에서 바꾸지 않았다.

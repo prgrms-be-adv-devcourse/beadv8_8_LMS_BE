@@ -399,6 +399,34 @@ class AppearanceApplicationFacadeTest {
             assertErrorCode(() -> appearanceApplicationFacade.reject(GUEST2, applied.id()),
                     AppearanceErrorCode.NOT_RECRUIT_HOST);
         }
+
+        @Test
+        @DisplayName("이미 응답한 지원(수락·거절)을 거절하면 APPLICATION_NOT_PENDING, 상태는 그대로")
+        void alreadyResponded() {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto selected = apply(GUEST, recruitId);
+            appearanceApplicationFacade.accept(HOST, selected.id());
+            AppearanceApplicationResDto rejected = apply(GUEST2, recruitId);
+            appearanceApplicationFacade.reject(HOST, rejected.id());
+
+            assertErrorCode(() -> appearanceApplicationFacade.reject(HOST, selected.id()),
+                    AppearanceErrorCode.APPLICATION_NOT_PENDING);
+            assertErrorCode(() -> appearanceApplicationFacade.reject(HOST, rejected.id()),
+                    AppearanceErrorCode.APPLICATION_NOT_PENDING);
+            assertThat(appearanceRepository.count()).isEqualTo(1);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).selectedCount()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("마감된 모집글의 지원은 거절할 수 없다 (APPEARANCE_RECRUIT_NOT_OPEN)")
+        void afterClose() {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto applied = apply(GUEST, recruitId);
+            appearanceRecruitFacade.closeEarly(HOST, recruitId);
+
+            assertErrorCode(() -> appearanceApplicationFacade.reject(HOST, applied.id()),
+                    AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
