@@ -9,10 +9,11 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
-// 수익 HP 환전 신청 (#285). 단위·최소 금액(1,000 HP 이상, 1,000 HP 단위)은 서버가 EXCHANGE_AMOUNT_INVALID로 검사한다.
+// 수익 HP 환전 신청 (#285). 금액은 1 HP 이상·1 HP 단위다(#453). 0 이하는 @Positive가 400 INVALID_REQUEST로 막고,
+// 서버도 EXCHANGE_AMOUNT_TOO_SMALL로 한 번 더 검사한다.
 // 계좌는 신청마다 입력하는 테스트 계좌다. 형식만 검사하고 실제 계좌 존재·예금주 일치는 확인하지 않는다.
 public record ExchangeRequest(
-        @Schema(description = "환전 신청 금액(수익 HP). 1,000 이상, 1,000 단위", example = "10000")
+        @Schema(description = "환전 신청 금액(수익 HP). 1 이상, 1 단위", example = "12345")
         @NotNull @Positive Long amount,
         @Schema(description = "은행 코드(숫자 3자리)", example = "004")
         @NotNull @Pattern(regexp = "\\d{3}") String bankCode,

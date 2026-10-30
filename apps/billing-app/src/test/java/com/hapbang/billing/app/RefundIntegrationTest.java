@@ -146,6 +146,22 @@ class RefundIntegrationTest {
         assertThat(ledgerAmounts(result.refundRequestId(), "REFUND")).containsExactly(-3_000L);
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = {1L, 999L, 1_234L})
+    @DisplayName("1 HP 단위의 어떤 금액이든 환불하고 그 금액만큼 PG 부분 취소한다 (#453)")
+    void refund_anyAmountFromOne(long amount) {
+        Long walletId = wallet(1L);
+        String order = charge(1L);
+
+        RefundResult result = refund(1L, "key-1", amount);
+
+        assertThat(result.status()).isEqualTo(PointRefundRequestStatus.COMPLETED);
+        assertThat(result.completedAmount()).isEqualTo(amount);
+        assertThat(TOSS.cancelsOf(order)).extracting(Cancel::amount).containsExactly(amount);
+        assertWallet(walletId, CHARGE - amount, 0L);
+        assertConsistent(result.refundRequestId());
+    }
+
     @Test
     @DisplayName("충전 건 금액 전부를 환불하면 충전 건은 REFUNDED이고 PG 결제는 CANCELED다")
     void refund_fullCharge() {
@@ -271,13 +287,13 @@ class RefundIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {0L, -1_000L, 999L, 1_500L, 10_500L})
-    @DisplayName("환불 금액이 1,000 미만이거나 1,000 단위가 아니면 REFUND_AMOUNT_INVALID이고 아무것도 남기지 않는다")
+    @ValueSource(longs = {0L, -1L, -1_000L})
+    @DisplayName("환불 금액이 1 HP보다 작으면 REFUND_AMOUNT_TOO_SMALL이고 아무것도 남기지 않는다 (#453)")
     void refund_invalidAmount(long amount) {
         Long walletId = wallet(1L);
         charge(1L);
 
-        assertBillingError(() -> refund(1L, "key-1", amount), BillingErrorCode.REFUND_AMOUNT_INVALID);
+        assertBillingError(() -> refund(1L, "key-1", amount), BillingErrorCode.REFUND_AMOUNT_TOO_SMALL);
         assertThat(refundRequestCount()).isZero();
         assertWallet(walletId, CHARGE, 0L);
     }
