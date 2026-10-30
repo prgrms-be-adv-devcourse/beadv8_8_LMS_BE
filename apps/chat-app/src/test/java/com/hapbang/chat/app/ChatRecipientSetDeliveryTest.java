@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.*;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -103,9 +104,8 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
                 .isNotEqualTo(referencedSetId);
 
         // 참조 원본 보존: outbox가 가리키는 집합은 지울 수 없다
-        assertThatThrownBy(() -> jdbcClient.sql("delete from chats.chat_recipient_set where id = :id")
-                .param("id", referencedSetId)
-                .update())
+        assertThatThrownBy(() -> sql.update("delete from chats.chat_recipient_set where id = :id",
+                Map.of("id", referencedSetId)))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // 그래도 운영 실수·복구 누락으로 집합이 사라졌다(제약 검사를 끄고 지운다)
@@ -131,9 +131,8 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     @Test
     void 집합_항목이_사라져도_전달은_버전만_쓰므로_발행한다() {
         UUID deliveryId = send("항목이 사라질 메시지");
-        jdbcClient.sql("delete from chats.chat_recipient_set_member where recipient_set_id = :id")
-                .param("id", outbox(deliveryId).getRecipientSetId())
-                .update();
+        sql.update("delete from chats.chat_recipient_set_member where recipient_set_id = :id",
+                Map.of("id", outbox(deliveryId).getRecipientSetId()));
         relayAll(ChatJobStream.DELIVERY);
 
         pollAll(ChatJobStream.DELIVERY, WORKER);
@@ -230,16 +229,17 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     /** 집합 버전은 1부터 빈틈없이 늘고, 현재 포인터는 마지막 버전이며, 집계·항목 수가 활성 참여 행 수와 같다 */
     private void assertRoomAggregatesMatchParticipation() {
         ChatRoom room = chatRoomRepository.findById(chatRoomId).orElseThrow();
-        List<long[]> sets = jdbcClient.sql("""
+        List<long[]> sets = sql.rows("""
                         select s.id, s.set_version, s.member_count,
                                (select count(*) from chats.chat_recipient_set_member m where m.recipient_set_id = s.id)
+                                   as item_count
                         from chats.chat_recipient_set s
                         where s.chat_room_id = :roomId
                         order by s.set_version
-                        """)
-                .param("roomId", chatRoomId)
-                .query((rs, rowNum) -> new long[] {rs.getLong(1), rs.getLong(2), rs.getLong(3), rs.getLong(4)})
-                .list();
+                        """, Map.of("roomId", chatRoomId)).stream()
+                .map(row -> new long[] {longOf(row, "id"), longOf(row, "set_version"), longOf(row, "member_count"),
+                        longOf(row, "item_count")})
+                .toList();
         for (int i = 0; i < sets.size(); i++) {
             assertThat(sets.get(i)[1]).isEqualTo(i + 1);
             assertThat(sets.get(i)[2]).isEqualTo(sets.get(i)[3]);
@@ -249,6 +249,10 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
         assertThat(room.getCurrentRecipientSetId()).isEqualTo(current[0]);
         assertThat((long) room.getActiveMemberCount()).isEqualTo(activeMembers);
         assertThat(current[2]).isEqualTo(activeMembers);
+    }
+
+    private static long longOf(Map<String, Object> row, String column) {
+        return ((Number) row.get(column)).longValue();
     }
 
     private MessageFanout payloadOf(UUID deliveryId) {
@@ -261,13 +265,10 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
     /** 외래 키 검사를 끄고(session_replication_role) 집합 헤더와 항목을 지운다. 테스트 DB 사용자는 superuser다 */
     private void deleteRecipientSetIgnoringConstraints(Long recipientSetId) {
         transactionTemplate.executeWithoutResult(status -> {
-            jdbcClient.sql("set local session_replication_role = replica").update();
-            jdbcClient.sql("delete from chats.chat_recipient_set_member where recipient_set_id = :id")
-                    .param("id", recipientSetId)
-                    .update();
-            jdbcClient.sql("delete from chats.chat_recipient_set where id = :id")
-                    .param("id", recipientSetId)
-                    .update();
+            sql.update("set local session_replication_role = replica");
+            sql.update("delete from chats.chat_recipient_set_member where recipient_set_id = :id",
+                    Map.of("id", recipientSetId));
+            sql.update("delete from chats.chat_recipient_set where id = :id", Map.of("id", recipientSetId));
         });
     }
 

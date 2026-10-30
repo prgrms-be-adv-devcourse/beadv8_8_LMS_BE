@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -29,9 +30,9 @@ import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.out.ChatDeliveryReprocessAuditRepository;
-import com.hapbang.chat.out.JdbcChatOutboxStore;
+import com.hapbang.chat.out.JpaChatOutboxStore;
 import com.hapbang.chat.app.ChatOutboxStore.RequeueCandidate;
-import com.hapbang.chat.out.JdbcChatPublishCheckpointStore;
+import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 /**
  * 재적재 상한 격리·운영 재처리의 경합과 트랜잭션 경계 (계약 tables-and-migrations "운영 재처리 감사와 누적 횟수",
@@ -47,10 +48,10 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
     }
 
     @MockitoSpyBean
-    private JdbcChatOutboxStore spiedOutboxStore;
+    private JpaChatOutboxStore spiedOutboxStore;
 
     @MockitoSpyBean
-    private JdbcChatPublishCheckpointStore spiedCheckpointStore;
+    private JpaChatPublishCheckpointStore spiedCheckpointStore;
 
     @MockitoSpyBean
     private ChatDeliveryQueue spiedQueue;
@@ -64,9 +65,8 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
         relayAll(ChatJobStream.DELIVERY);
         String group = ChatJobStream.DELIVERY.consumerGroup();
         // 재적재 상한에 닿은 채 Stream이 사라졌다
-        jdbcClient.sql("update chats.chat_outbox set requeue_count = 2, last_requeued_at = null where delivery_id = :id")
-                .param("id", deliveryId)
-                .update();
+        sql.update("update chats.chat_outbox set requeue_count = 2, last_requeued_at = null where delivery_id = :id",
+                Map.of("id", deliveryId));
         redis.delete(keys.deliveryStream());
         // 대조가 후보(세대 0)를 읽은 뒤 격리하기 전에, 다른 경로가 격리했고 운영자가 재처리해 세대 1로 다시 적재했다
         AtomicReference<List<RequeueCandidate>> stale = new AtomicReference<>();
@@ -186,13 +186,13 @@ class ChatDeliveryReprocessRaceTest extends ChatDeliveryTestSupport {
         doAnswer(invocation -> {
             inTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
             // 트랜잭션 밖의 새 연결로 읽으므로 커밋된 값만 보인다
-            committedAudits.set(jdbcClient.sql("""
+            committedAudits.set(sql.single("""
                             select count(*) from chats.chat_delivery_reprocess_audit where job_id = :id
-                            """).param("id", deliveryId).query(Long.class).single());
-            committedGeneration.set(jdbcClient.sql("""
+                            """, Long.class, Map.of("id", deliveryId)));
+            committedGeneration.set(sql.single("""
                             select generation from chats.chat_publish_checkpoint
                             where consumer_group = :group and job_id = :id and status = 'PENDING'
-                            """).param("group", group).param("id", deliveryId).query(Integer.class).single());
+                            """, Integer.class, Map.of("group", group, "id", deliveryId)));
             return invocation.callRealMethod();
         }).when(spiedQueue).enqueue(eq(ChatJobStream.DELIVERY), anyMap());
 

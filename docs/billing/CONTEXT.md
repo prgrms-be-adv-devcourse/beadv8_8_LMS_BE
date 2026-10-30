@@ -235,3 +235,24 @@
 
 - 바뀌는 곳: `RefundRequestUseCase`, `ExchangeRequestUseCase`, `Exchange.requested`·`feeOf`·`@Check`, Flyway `ck_exchange_1`, `BillingErrorCode`, 요청 DTO·Swagger 설명, `ExchangePayoutProcessing.start`(0원 분기).
 - 완료 조건(이슈): 1 HP 이상의 어떤 금액이든 환불·환전을 신청할 수 있다. 송금액 = floor(신청 × 90%), 수수료 = 신청 − 송금 ≥ 1. 신청 1원 환전은 은행 호출 없이 완료되고 회원 보류 차감 1 = 송금 0원 + 수수료 수입 1이 원장으로 확인된다. 이미 저장된 환전은 바뀌지 않는다. 충전 규칙은 그대로다. `./gradlew check` 통과.
+
+## 5. Spring Event 제거 (#471)
+
+2026-10-30 `/grill-with-docs`로 정했다. #430으로 회원 이벤트 리스너가 Kafka 소비로 바뀌어, 지갑은 Spring Event를 발행하지도 받지도 않는다.
+
+### 5.1 범위
+
+- Billing만 한다. member-app은 회원 이벤트를 Modulith publication registry(outbox)로 Kafka에 내보내므로(#416) 이벤트 기록이 계속 필요하다. 모놀리스 시절 다른 모듈 리스너를 대상으로 한 `member.event_publication`의 미완료 기록 정리는 회원 담당이 판단하도록 이슈 본문에 확인 SQL과 함께 넘겼다.
+- appearance-app·chat-app에 남은 `@ApplicationModuleListener`는 각 앱의 Kafka 전환 이슈(#394, #417 등) 범위다.
+
+### 5.2 결정
+
+- billing `application.yaml`의 `spring.modulith.events.*`(schema-initialization·schema·republish·completion-mode)를 지운다.
+- Flyway `V202610301400`으로 `billing.event_publication`·`event_publication_archive`를 지운다(`DROP TABLE IF EXISTS`). 설정만 끄고 테이블을 남기는 안도 있었지만 지우기로 했고, 남은 기록은 확인하지 않고 함께 지운다(되돌릴 수 없다).
+- 테이블만 지우면 종료 때 이벤트 기록 레지스트리(`eventPublicationRegistry`)가 테이블을 조회하다 `BadSqlGrammarException`을 낸다(확인함). `JdbcEventPublicationAutoConfiguration`만 빼면 레지스트리를 쓰는 `StalenessMonitorConfiguration`이 기동에 실패한다. 그래서 `JdbcEventPublicationAutoConfiguration`·`EventPublicationAutoConfiguration`을 앱 설정과 테스트 설정(`hapbang-module-test.yaml`)에서 함께 뺀다. 루트 Gradle(`spring-modulith-starter-jdbc`)은 바꾸지 않는다.
+- 지갑이 이벤트를 발행하게 되면(우선순위 6번) 설정과 테이블을 다시 만든다.
+
+### 5.3 테스트
+
+- `ModulithEventsDisabledTest`: 이벤트 기록 빈이 없고 billing 스키마에 두 테이블이 없다.
+- 회원 이벤트 Kafka 소비(`BillingMemberEventKafkaTest`)는 그대로 통과한다.

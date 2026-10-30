@@ -25,7 +25,7 @@ public interface ChatConnectionControl {
 ```
 
 - `ChatControlReason`: `MEMBER_MODIFIED`(Kafka 회원 변경 이벤트), `MEMBER_BACKFILL`(5.4 백필).
-- 구현 `out/JdbcChatConnectionControl`은 `@Transactional(propagation = MANDATORY)`다. 트랜잭션 없이 부르면 예외다.
+- 구현 `out/JpaChatConnectionControl`은 `@Transactional(propagation = MANDATORY)`다. 트랜잭션 없이 부르면 예외다. 제어 outbox는 repository의 native `INSERT ... ON CONFLICT DO NOTHING`으로, 발행 체크포인트는 JPA 엔티티 저장으로 넣는다.
 - 기록은 `chat_control_outbox` 한 행(`PENDING`, 새 `controlId`)과 `chat_publish_checkpoint` 한 행(그룹 `chat-control-v1`, `PENDING`)을 같은 트랜잭션에 넣는다. 중복은 `ON CONFLICT DO NOTHING`으로 흡수해 호출한 트랜잭션을 rollback-only로 만들지 않는다.
 
 ## 호출 규칙 (#417)

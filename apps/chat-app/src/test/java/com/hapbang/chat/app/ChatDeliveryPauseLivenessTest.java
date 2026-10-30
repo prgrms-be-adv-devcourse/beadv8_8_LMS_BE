@@ -48,22 +48,16 @@ class ChatDeliveryPauseLivenessTest extends ChatDeliveryTestSupport {
         // 멈춘 동안 그 작업의 수신자 집합(헤더)이 사라져 시험 발행 차례에 원본 누락으로 격리된다. 외래 키 검사를 끄고 지웠다가
         // 되돌린다(테스트 DB 사용자는 superuser다)
         long setId = outbox(paused).getRecipientSetId();
-        Map<String, Object> header = jdbcClient.sql("select * from chats.chat_recipient_set where id = :id")
-                .param("id", setId)
-                .query()
-                .singleRow();
-        List<Map<String, Object>> members = jdbcClient.sql("""
+        Map<String, Object> header = sql.row("select * from chats.chat_recipient_set where id = :id",
+                Map.of("id", setId));
+        List<Map<String, Object>> members = sql.rows("""
                         select recipient_set_id, user_id, participation_version
                         from chats.chat_recipient_set_member where recipient_set_id = :id
-                        """)
-                .param("id", setId)
-                .query()
-                .listOfRows();
+                        """, Map.of("id", setId));
         withoutConstraints(() -> {
-            jdbcClient.sql("delete from chats.chat_recipient_set_member where recipient_set_id = :id")
-                    .param("id", setId)
-                    .update();
-            jdbcClient.sql("delete from chats.chat_recipient_set where id = :id").param("id", setId).update();
+            sql.update("delete from chats.chat_recipient_set_member where recipient_set_id = :id",
+                    Map.of("id", setId));
+            sql.update("delete from chats.chat_recipient_set where id = :id", Map.of("id", setId));
         });
         await().atMost(WAIT).pollInterval(Duration.ofMillis(50)).until(() -> {
             processor.reclaim(ChatJobStream.DELIVERY, RECLAIMER, 10);
@@ -72,24 +66,17 @@ class ChatDeliveryPauseLivenessTest extends ChatDeliveryTestSupport {
         assertThat(checkpoint(paused).getDeadReason()).isEqualTo(ChatDeadReason.SOURCE_MISSING);
         assertThat(pendingCount(ChatJobStream.DELIVERY)).isZero();
         withoutConstraints(() -> {
-            jdbcClient.sql("""
+            sql.update("""
                             insert into chats.chat_recipient_set (id, chat_room_id, set_version, member_count, created_at)
                             values (:id, :roomId, :version, :count, :createdAt)
-                            """)
-                    .param("id", header.get("id"))
-                    .param("roomId", header.get("chat_room_id"))
-                    .param("version", header.get("set_version"))
-                    .param("count", header.get("member_count"))
-                    .param("createdAt", header.get("created_at"))
-                    .update();
-            members.forEach(member -> jdbcClient.sql("""
+                            """, Map.of("id", header.get("id"), "roomId", header.get("chat_room_id"),
+                    "version", header.get("set_version"), "count", header.get("member_count"),
+                    "createdAt", header.get("created_at")));
+            members.forEach(member -> sql.update("""
                             insert into chats.chat_recipient_set_member (recipient_set_id, user_id, participation_version)
                             values (:setId, :userId, :version)
-                            """)
-                    .param("setId", member.get("recipient_set_id"))
-                    .param("userId", member.get("user_id"))
-                    .param("version", member.get("participation_version"))
-                    .update());
+                            """, Map.of("setId", member.get("recipient_set_id"), "userId", member.get("user_id"),
+                    "version", member.get("participation_version"))));
         });
 
         // 구독이 돌아왔다. 재확인 간격 상한(200ms)·회수 min-idle(100ms)보다 충분히 오래 실행기처럼 돌린다
@@ -109,7 +96,7 @@ class ChatDeliveryPauseLivenessTest extends ChatDeliveryTestSupport {
 
     private void withoutConstraints(Runnable statements) {
         transactionTemplate.executeWithoutResult(status -> {
-            jdbcClient.sql("set local session_replication_role = replica").update();
+            sql.update("set local session_replication_role = replica");
             statements.run();
         });
     }

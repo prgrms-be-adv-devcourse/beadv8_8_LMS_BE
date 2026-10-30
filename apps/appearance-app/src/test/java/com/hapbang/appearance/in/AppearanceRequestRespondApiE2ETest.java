@@ -178,7 +178,7 @@ class AppearanceRequestRespondApiE2ETest {
     }
 
     @Test
-    @DisplayName("일반 유저 세션으로 수락하면 403 FORBIDDEN (Facade @PreAuthorize)")
+    @DisplayName("일반 유저로 로그인해 수락하면 403 FORBIDDEN (Facade @PreAuthorize)")
     void userRole() {
         long[] sent = send();
 

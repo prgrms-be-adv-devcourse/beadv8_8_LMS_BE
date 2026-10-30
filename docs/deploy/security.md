@@ -4,7 +4,7 @@
 
 - **이 레포는 공개(public)다.** 비밀값, 서버 IP, AWS 계정 정보, 키 파일 이름·내용, **서버 DB 이름·계정**을 레포·PR·이슈·커밋 메시지에 쓰지 않는다. 문서에는 `<EC2 주소>`, `<키 파일>`처럼 자리표시자만 쓴다.
 - **비밀값은 한 곳에만 둔다.** 운영 값은 SealedSecret(레포에는 암호문만, 원문은 봉인한 사람의 `~/.hapbang`과 팀 비밀 보관소) 또는 GitHub Secrets. 채팅·노션·스크린샷으로 옮기지 않는다.
-- **장기 토큰을 서버에 두지 않는다.** k3s 앱 이미지는 public이라 pull 자격 증명이 없고, S3는 EC2 인스턴스 역할로, k3s 배포는 GitHub OIDC로 받은 임시 자격 증명으로 접근한다(AWS 액세스 키를 만들지 않는다).
+- **장기 토큰을 서버에 두지 않는다.** S3는 EC2 인스턴스 역할로, k3s 배포는 GitHub OIDC로 받은 임시 자격 증명으로 접근한다(AWS 액세스 키를 만들지 않는다). 예외는 GHCR pull 토큰 하나다. 조직 정책으로 GHCR 패키지가 private이라 node가 이미지를 받을 인증이 계속 있어야 한다. `read:packages`만 가진 90일 PAT로 두고 만료 전에 교체한다([GHCR pull 인증](k8s.md#ghcr-pull-인증)).
 - AWS 지침: 액세스 키 등 유출 메일 2회 시 팀 AWS 지원 회수(2OUT), 계정 외부 공유·목적 외 사용은 즉시 회수(1OUT).
 
 ## AWS 계정
@@ -24,7 +24,8 @@
 | 앱 비밀값(OAuth·결제 등) | 앱 SealedSecret. 원문은 `~/.hapbang/prod-secrets.env` | 앱 pod | Spring | [env-vars.md](env-vars.md#값-변경-비밀값-교체-포함) |
 | S3 접근 | EC2 인스턴스 역할(키 없음). 버킷 이름은 앱 Secret `S3_BUCKET` | IMDS egress가 허용된 member·appearance·lecture pod | Presigned URL 발급, 업로드 확인 | 자동(임시 자격 증명) → [s3.md](s3.md) |
 | k3s 배포 | IAM role(키 없음, GitHub OIDC 임시 자격 증명). role ARN·large 인스턴스 ID는 GitHub Environment `prod` Secrets | Environment `prod` job(`main`만) | SSM Run Command로 large에서 `k3s kubectl` 실행([k8s.md](k8s.md#운영-앱-배포)) | 자동(1시간 세션) |
-| 개인 PAT | 만들지 않고 둔다. 수동 pull 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
+| GHCR pull 토큰 | SealedSecret `ghcr-pull`(`k8s/registry`). kaameo의 classic PAT(`read:packages`만, 90일). 원문은 봉인할 때만 입력하고 저장하지 않는다 | cluster(kubelet), cluster 관리자 | BE 앱·FE 이미지 pull | 만료 14일 전 kaameo가 새 PAT로 다시 봉인 → 두 node pull 확인 → 이전 PAT 삭제([GHCR pull 인증](k8s.md#ghcr-pull-인증)) |
+| 개인 PAT(그 밖) | 만들지 않고 둔다. 로컬에서 수동 pull할 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |
 | TLS 개인 키 | cert-manager가 만든 Secret `hapbang-tls`(`envoy-gateway-system`) | cluster | HTTPS | cert-manager가 자동 갱신 |
 | 내부 API 키 | 앱 Secret `HAPBANG_INTERNAL_API_KEY`. 원문은 `~/.hapbang/internal-api-key` | 앱 pod | 모듈 간 내부 HTTP API(`/api/v1/internal/**`) 인증 (#300) | 앱 6개를 함께 다시 봉인하고 배포([env-vars.md](env-vars.md#값-변경-비밀값-교체-포함)) |
@@ -41,6 +42,7 @@
 | BE 이미지 빌드 컨텍스트는 jar 폴더뿐 | 이미지에는 `app.jar`만 들어간다. 소스·`.env`가 들어갈 수 없음 |
 | CI(PR) 읽기 전용 권한 | PR 코드가 실행되는 job은 GHCR에 쓸 수 없음. push는 Publish images의 `build` job만 |
 | 운영 배포 수동 실행·검사 | Deploy는 Environment `prod`(`main`만)에서 실행되고, GHCR에 이미지가 있는(테스트 통과) 커밋만 배포된다 |
+| 릴리스 전 발행 제한 | `prerelease/<앱>` 브랜치 발행은 dev에 포함된(리뷰를 거친) 커밋만 테스트 뒤 올린다. 이 이미지의 배포는 Deploy workflow가 아니라 prod kubeconfig를 가진 사람이 로컬에서 한다([k8s.md](k8s.md#릴리스-전-배포)) |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
 | k3s 배포 role의 trust를 Environment `prod`로 제한 | 다른 브랜치·PR의 workflow는 role을 받지 못한다. `prod`는 `main` 브랜치만 허용 |
 | `hapbang-prod` Pod Security `baseline`(EC2 적용 2026-10-30) | 리뷰를 거쳐 배포되는 manifest가 privileged·hostNetwork·hostPath pod를 만들지 못한다. 그런 pod는 node root·IMDS(인스턴스 역할)에 닿는다. 배포 role 자체의 root 권한은 막지 못한다(아래 알려진 위험) |

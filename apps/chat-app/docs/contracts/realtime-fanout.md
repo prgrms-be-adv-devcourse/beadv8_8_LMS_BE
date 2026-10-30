@@ -39,7 +39,7 @@ public interface RealtimeChatFanout {
   "type": "MESSAGE",
   "roomId": 12,
   "recipientSetVersion": 7,
-  "message": { "messageId": 501, "chatRoomId": 12, "roomSequence": 88, "senderUserId": 3, "messageType": "TEXT", "content": "…", "sentAt": "2026-10-29T10:00:00", "clientMessageId": null, "notificationKind": null, "referenceId": null, "parentReferenceId": null },
+  "message": { "messageId": 501, "chatRoomId": 12, "roomSequence": 88, "senderUserId": 3, "messageType": "TEXT", "content": "…", "sentAt": "2026-10-29T10:00:00", "clientMessageId": null, "notificationKind": null, "referenceId": null, "parentReferenceId": null, "appearanceRequestSent": null, "appearanceApplicationSubmitted": null },
   "notifyRule": "RECIPIENTS_EXCEPT_SENDER",
   "senderClientMessageId": "c-123"
 }

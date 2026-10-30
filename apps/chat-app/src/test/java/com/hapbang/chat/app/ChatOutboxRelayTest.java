@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,7 @@ import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
 import com.hapbang.chat.out.ChatControlOutboxRepository;
-import com.hapbang.chat.out.JdbcChatOutboxStore;
+import com.hapbang.chat.out.JpaChatOutboxStore;
 
 /**
  * DB outbox → Stream 적재 (테스트 기준 "Outbox 적재").
@@ -45,7 +46,7 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
     private ChatDeliveryQueue spiedQueue;
 
     @Autowired
-    private JdbcChatOutboxStore outboxStore;
+    private JpaChatOutboxStore outboxStore;
 
     @Autowired
     private ChatConnectionControl chatConnectionControl;
@@ -213,16 +214,12 @@ class ChatOutboxRelayTest extends ChatDeliveryTestSupport {
     }
 
     private void expireLease(UUID deliveryId) {
-        jdbcClient.sql("update chats.chat_outbox set lease_until = :past where delivery_id = :id")
-                .param("past", ChatDeliveryClock.now().minusSeconds(1))
-                .param("id", deliveryId)
-                .update();
+        sql.update("update chats.chat_outbox set lease_until = :past where delivery_id = :id",
+                Map.of("past", ChatDeliveryClock.now().minusSeconds(1), "id", deliveryId));
     }
 
     private void waitUntilDue(UUID deliveryId) {
-        jdbcClient.sql("update chats.chat_outbox set next_attempt_at = :past where delivery_id = :id")
-                .param("past", ChatDeliveryClock.now().minusSeconds(1))
-                .param("id", deliveryId)
-                .update();
+        sql.update("update chats.chat_outbox set next_attempt_at = :past where delivery_id = :id",
+                Map.of("past", ChatDeliveryClock.now().minusSeconds(1), "id", deliveryId));
     }
 }

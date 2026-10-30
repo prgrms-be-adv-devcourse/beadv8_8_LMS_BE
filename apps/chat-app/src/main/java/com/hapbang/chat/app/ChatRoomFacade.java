@@ -25,6 +25,7 @@ public class ChatRoomFacade {
 
     private final ChatRoomUseCase chatRoomUseCase;
     private final ChatRoomSupporter chatRoomSupporter;
+    private final ChatReadService chatReadService;
 
     /**
      * 같은 두 회원의 방을 동시에 만들면 한쪽은 활성 방 유일 제약(direct_key)에 걸려 롤백된다.
@@ -52,9 +53,12 @@ public class ChatRoomFacade {
         return chatRoomUseCase.leave(chatRoomId, userId, participationVersion);
     }
 
+    /**
+     * @param participationVersion 읽은 참여 세대. null이면 처리 시점의 현재 세대로 본다
+     */
     @PreAuthorize(ChatRoles.CHAT)
-    public void markRead(Long chatRoomId, Long userId, long lastReadSequence) {
-        chatRoomUseCase.markRead(chatRoomId, userId, lastReadSequence);
+    public void markRead(Long chatRoomId, Long userId, long lastReadSequence, Integer participationVersion) {
+        chatReadService.markRead(chatRoomId, userId, lastReadSequence, participationVersion);
     }
 
     @PreAuthorize(ChatRoles.ADMIN)

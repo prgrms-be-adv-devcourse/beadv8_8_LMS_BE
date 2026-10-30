@@ -20,7 +20,7 @@
 ### 1.2 출연 모듈이 하지 않는 일
 
 - HP 잔액·원장 관리 → 지갑+정산(billing) 모듈
-- 로그인·회원 가입 → 회원 모듈 (출연 모듈은 세션의 회원 ID와 회원 이벤트만 사용)
+- 로그인·회원 가입 → 회원 모듈 (출연 모듈은 Gateway가 넘긴 사용자 헤더의 회원 ID와 회원 이벤트만 사용, 20장)
 - 이의 제기 판정·패널티 → 고객센터 모듈
 
 ### 1.3 구현 현황
@@ -107,12 +107,12 @@ com.hapbang.appearance
 
 | 이름 | 역할 | 트랜잭션 |
 |---|---|---|
-| `…Facade` | in 계층(컨트롤러·리스너)이 부르는 유일한 진입점. 세션 역할 검사 `@PreAuthorize` | **기능 하나 = 트랜잭션 하나를 여기서 연다** |
+| `…Facade` | in 계층(컨트롤러·리스너)이 부르는 유일한 진입점. 로그인 역할 검사 `@PreAuthorize` | **기능 하나 = 트랜잭션 하나를 여기서 연다** |
 | `…UseCase` | 기능 하나의 로직 (예: `AppearanceRequestCreateUseCase` = 요청서 저장) | 열지 않음 (Facade 트랜잭션에 참여). 예외는 아래 |
 | `…Support` | 저장소(Repository) 접근과 공통 조회 (예: `getById`, 자격 확인 조회) | 열지 않음 |
 
 - 예외: 외부 호출(Billing)을 사이에 두고 단계별로 따로 커밋해야 하는 기능(요청서 보내기)은 Facade가 트랜잭션을 열지 않고, 각 UseCase 메서드가 직접 연다.
-- 세션 역할 검사(`@PreAuthorize`)는 Facade에서, 출연 회원 자격(정지·강등)과 업무 규칙은 UseCase·도메인에서 확인한다.
+- 로그인 역할 검사(`@PreAuthorize`)는 Facade에서, 출연 회원 자격(정지·강등)과 업무 규칙은 UseCase·도메인에서 확인한다.
 - 이벤트 리스너는 로그인 정보가 없으므로 `@PreAuthorize`가 없는 별도 Facade를 쓴다 (예: `AppearanceUserFacade`).
 - 배치(`in.AppearanceBatch`)는 시스템이 실행하므로 Facade를 거치지 않고 UseCase를 직접 부른다 (팀 강의 배치와 같은 방식, 8장).
 - `global`, `shared` 패키지는 팀 공통 방식이 정해지지 않아 출연 모듈 안에 임시로 둔 것이다. 옮길 조건은 각 `package-info.java`에 적었다.
@@ -183,7 +183,7 @@ com.hapbang.appearance
 | 도메인 | 엔티티 자신의 값과 넘겨받은 값만으로 판단할 수 있는 규칙: 값 검증, 상태 전이, 행위자·기한 확인, 금액 계산. Repository·Billing·Spring 빈을 모른다 (현재 시각도 값으로 받는다) |
 | UseCase | DB·다른 데이터·외부 시스템이 필요한 일과 단계 순서: 출연 회원 자격 확인, 중복 확인, Billing 호출, 낙관적 락 충돌 → 409, 저장 |
 | Facade | 역할 검사(`@PreAuthorize`), 트랜잭션 경계, UseCase 조립 |
-| Controller | 세션에서 회원 ID 추출(`@LoginUserId`), 요청 값 형식 검증(Spec의 `@Valid`), `RsData` 응답 |
+| Controller | 로그인 정보에서 회원 ID 추출(`@LoginUserId`), 요청 값 형식 검증(Spec의 `@Valid`), `RsData` 응답 |
 
 ### 3.3 설정 파일
 
@@ -200,7 +200,7 @@ com.hapbang.appearance
 | 상대 | 방식 | 주고받는 것 | 상태 |
 |---|---|---|---|
 | 회원 | 이벤트 수신 | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ |
-| 회원 (global) | 로그인 | `@LoginUserId`로 세션의 회원 ID | ✅ |
+| 회원 (global) | 로그인 | Gateway가 JWT를 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더 → `@LoginUserId`·`@PreAuthorize` (20장) | ✅ 앱 쪽 (#395). 회원 JWT 발급(#370) 전까지 운영에는 헤더가 오지 않는다 |
 | 지갑+정산 (billing) | 지갑 내부 HTTP API (`/api/v1/internal/billing/*`, 공용 `BillingApiClient`) | 보류, 반환, 지급, 위약금 | ✅ HTTP 연동 (#274). 이전에는 shared `BillingPort`(같은 서버 안 Java 호출, #289) |
 | 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
 
@@ -424,8 +424,8 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 
 - 생성은 `@ResponseStatus(HttpStatus.CREATED)` + `RsData.created(...)`로 HTTP 상태와 본문 `statusCode`를 같게 맞춘다. 앞으로 추가하는 출연 API도 처음부터 `RsData`로 만들고, 본문이 없으면 `ResponseEntity<Void>`(204)를 쓴다.
 
-- 권한: 로그인(401은 보안 필터) → Facade `@PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")`(거절 시 공통 403 `FORBIDDEN`) → UseCase에서 출연 회원 자격 재확인(`NOT_INFLUENCER`·`APPEARANCE_USER_NOT_ACTIVE`). 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등은 서비스 확인이 막는다 (조회 포함).
-- 쓰기 요청(POST·PATCH)은 CSRF 토큰(`X-XSRF-TOKEN` 헤더)이 필요하다 (global SecurityConfig).
+- 권한: 로그인(401은 보안 필터) → Facade `@PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")`(거절 시 공통 403 `FORBIDDEN`) → UseCase에서 출연 회원 자격 재확인(`NOT_INFLUENCER`·`APPEARANCE_USER_NOT_ACTIVE`). 헤더 역할은 토큰 발급 시점 값(최대 15분 늦음)이라, 그 뒤 정지·강등은 서비스 확인이 막는다 (조회 포함).
+- CSRF 토큰은 필요 없다. 쿠키가 아니라 Gateway 사용자 헤더로 인증한다 (#395, 20장).
 - 목록은 `Pageable`(page, size; 기본 20, 최대 100). **정렬은 최신순(`createdAt` desc, `id` desc) 고정**이며 `sort` 값은 무시한다. 응답은 `RsData`의 `data`에 팀 공통 PagedModel 형식(`content`, `page`).
 - 검색·필터(상태, 기간, 키워드 등)는 아직 정하지 않았다. 정해지면 조건 객체를 받아 조회 조건을 조합하고, 보이는 상태 제한과 최신순 정렬은 유지한다.
 - 응답에는 회원 ID(`hostId`, `guestId`)만 담고 닉네임은 담지 않는다. 목록마다 회원 정보를 함께 조회하는 부담을 피하기 위해서이며, 화면에 필요한 닉네임은 회원 프로필 API로 조회한다.
@@ -983,10 +983,10 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 
 | 항목 | 내용 |
 |---|---|
-| 호출 | Billing이 shared `AppearanceApiClient`(18.6)로 부른다. 같은 서버 안 주소(`http://localhost:8080`)로 부르고 nginx를 거치지 않는다 |
+| 호출 | Billing이 shared `AppearanceApiClient`(18.6)로 부른다. 클러스터 안 Service 주소의 내부 포트(`http://appearance-app:8081`, billing 설정 `APPEARANCE_API_BASE_URL`)로 부르고 Gateway를 거치지 않는다 |
 | 경로 | `GET /api/v1/internal/appearances/earnings/summary`, `GET /api/v1/internal/appearances/earnings` (공통 규칙 `/api/v1/internal/<제공 모듈>/...`) |
-| 인증 | 헤더 `X-Internal-Api-Key`(`shared.internal.InternalApiHeaders`), 설정 `hapbang.internal-api.key`(환경변수 `HAPBANG_INTERNAL_API_KEY`). 맞으면 `ROLE_INTERNAL`, 틀리거나 없으면 본문 없는 401. 회원 세션으로는 부를 수 없고, 반대로 내부 키로 회원 API를 부를 수 없다. 필터·전용 보안 체인은 global(#300·#307) |
-| 외부 노출 | nginx가 `/api/v1/internal`을 밖에서 404로 막는다 (공통부). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영은 Swagger가 꺼져 있다 |
+| 인증 | 헤더 `X-Internal-Api-Key`(`shared.internal.InternalApiHeaders`), 설정 `hapbang.internal-api.key`(환경변수 `HAPBANG_INTERNAL_API_KEY`). 맞으면 `ROLE_INTERNAL`, 틀리거나 없으면 본문 없는 401. 회원 로그인(사용자 헤더)으로는 부를 수 없고, 반대로 내부 키로 회원 API를 부를 수 없다. 필터·전용 보안 체인은 global(#300·#307) |
+| 외부 노출 | Gateway에 `/api/v1/internal` route가 없고, 외부 포트(8080)로 오면 `InternalApiPortValve`가 404로 막는다(내부 포트 8081만, #372). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영은 Swagger가 꺼져 있다 |
 | 출연 쪽 방어 | ① 보안 체인의 키 검증(공통부) ② `AppearanceEarningFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
 | 회원 ID | 쿼리 파라미터 `userId` (게스트). 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
 | 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). 값이 없을 수 있는 필드(`payoutScheduledAt`)는 계약대로 응답 JSON에서 빠진다(계약 DTO의 그 필드에만 `@JsonInclude(NON_NULL)`, #408. 출연 앱 전체 설정은 아니라 프론트용 API 응답은 그대로). 받는 쪽은 빠진 필드와 `null`을 같게 읽는다 |
@@ -1084,7 +1084,7 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 | POST | `/api/v1/appearances/admin/hp-tasks/{taskId}/retry` | 격리 작업 다시 시도. 실행 뒤 작업을 200으로 돌려준다 |
 
 - 응답 한 건(`HpTaskAdminResDto`): 작업 종류·대상(요청서·모집글, 출연 ID)·보류 회원·받는 회원·금액(위약금·지급액)·사유·멱등 키·상태·시도 횟수·다음 시도 시각·마지막 오류·완료(격리) 시각·생성 시각·다시 시도 기록 3개.
-- 권한 (관리자 API 3중 방어): ① 보안 설정이 `/api/v1/*/admin/**`를 관리자만 통과시키고(그 밖 403, 비로그인 401) ② `HpTaskAdminFacade`의 `@PreAuthorize("hasRole('ADMIN')")`가 세션 역할을 확인하고 ③ 복제한 회원 정보로 지금도 정상 상태의 관리자인지 확인한다(`AppearanceUserSupport.getAdmin`, 목록·다시 시도 모두). 세션 역할은 로그인 시점 값이라, 로그인 뒤 정지되면 403 `APPEARANCE_USER_NOT_ACTIVE`, 관리자 권한을 잃으면 403 `NOT_ADMIN`이다.
+- 권한 (관리자 API 3중 방어): ① 보안 설정이 `/api/v1/*/admin/**`를 관리자만 통과시키고(그 밖 403, 비로그인 401) ② `HpTaskAdminFacade`의 `@PreAuthorize("hasRole('ADMIN')")`가 로그인 역할을 확인하고 ③ 복제한 회원 정보로 지금도 정상 상태의 관리자인지 확인한다(`AppearanceUserSupport.getAdmin`, 목록·다시 시도 모두). 헤더 역할은 토큰 발급 시점 값이라, 그 뒤 정지되면 403 `APPEARANCE_USER_NOT_ACTIVE`, 관리자 권한을 잃으면 403 `NOT_ADMIN`이다.
 
 ### 19.2 다시 시도 흐름
 
@@ -1110,4 +1110,24 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 | 마지막 오류 | 다시 시도해도 지우지 않고 다음 결과가 나올 때 바뀐다 (성공하면 지움) | 다시 시도 중에도 원인을 볼 수 있게 |
 | 멱등 키 | 바꾸지 않는다 | 같은 요청 ID라 Billing이 처음 결과를 돌려주므로 HP가 두 번 움직이지 않는다 |
 | 알림 | 기존 `[HP_TASK_DEAD]` 오류 로그와 `appearance.hp_task.dead` 지표를 그대로 쓴다. 알림 규칙(대시보드·경보)은 관측성 작업(#343)에서 이 지표·로그로 만든다 | 출연 모듈은 신호를 남기고, 수집·경보 도구는 팀 공통 구성을 따른다 |
+
+## 20. Gateway 사용자 헤더 인증 (#395)
+
+회원 앱이 JWT를 발급하고(#370) Gateway(Envoy)가 서명·만료를 검증한 뒤 claim을 헤더로 넘긴다(`docs/architecture/infrastructure/api-gateway.md`). 출연 앱은 그 헤더로 로그인 상태를 만든다. 공용 필터(#371)가 생기기 전이라 출연 앱 안에 둔다.
+
+| 항목 | 내용 |
+|---|---|
+| 헤더 | `X-User-Id`(회원 ID, 양의 정수), `X-User-Role`(역할 하나, `Role` 이름 그대로: `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`·`ADMIN`). **정확히 이 값만 받는다**(`ROLE_` 접두사·소문자는 형식 오류) |
+| 인증 객체 | `global.auth.GatewayUserHeaderFilter`가 `getName()` = 회원 ID, 권한 = `ROLE_{역할}` 하나로 만든다. `@LoginUserId`·`@PreAuthorize`·`/api/v1/*/admin/**` 규칙은 그대로 |
+| 헤더 없음 | 익명. 로그인이 필요한 API는 401 (본문 없음) |
+| 한쪽만 있거나 형식 오류 | 인증하지 않음(익명 → 401) + 경고 로그 `사용자 헤더 형식 오류로 인증하지 않음`. Gateway는 검증한 claim만 넘기므로 설정 오류 신호다 |
+| 세션·CSRF | 세션을 만들거나 읽지 않는다(`STATELESS`, 요청 속성 저장소). 프론트가 `Authorization: Bearer`로 보내고 쿠키로 인증하지 않으므로 CSRF를 끈다 |
+| 위조 방지 | 앱은 서명을 다시 검증하지 않는다. Gateway가 외부 요청의 `X-User-*`를 먼저 지우고, NetworkPolicy가 외부 API 포트(8080)에 Gateway만 들어오게 한다(`k8s/base/networkpolicy.yaml`) |
+| 역할 재확인 | 토큰의 역할은 발급 시점 값(최대 15분). 정지·강등은 복제한 회원 정보로 다시 막는다(`validateCanAppear`·`validateIsAdmin`, 그대로) |
+| 내부 API | `/api/v1/internal/**`은 따로 있는 체인이 `X-Internal-Api-Key`로만 인증한다. 사용자 헤더는 읽지 않는다 |
+
+- 테스트: MockMvc는 `support.GatewayLogin.as(회원 ID, 역할)`, E2E는 `E2ELogin.as(…)`가 같은 헤더를 싣는다. 팀 공통 `TestLogin`(OAuth2 로그인 흉내)은 출연 테스트에서 쓰지 않는다.
+- ⚠️ 형식 계약: JWT `role` claim 값이 `Role` 이름 그대로라는 것은 아직 회원(#370)과 확정하지 않았다(인프라 문서는 "문자열 하나"까지만 정함). 다르면 운영 출연 API가 모두 401이 되므로 #370 발급 형식과 맞춘다.
+- 배포 순서: 이 변경이 운영(main)에 나가면 세션 로그인이 없어지므로, 회원 JWT 발급(#370)이 운영에 나간 뒤 함께 또는 그 뒤에 반영한다.
+- 남은 일: 회원 JWT 발급(#370)이 끝나야 운영에서 헤더가 온다. 공용 필터(#371)가 생기면 이 필터를 그것으로 바꾼다. 프론트는 `X-XSRF-TOKEN` 대신 `Authorization: Bearer`를 보낸다(#370과 함께).
 

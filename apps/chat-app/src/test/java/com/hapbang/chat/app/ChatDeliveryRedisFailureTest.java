@@ -19,11 +19,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
 import com.hapbang.chat.app.dto.MessageFanout;
@@ -32,12 +32,15 @@ import com.hapbang.chat.app.dto.QueuedJob;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.fixture.FixedPortRedis;
 import com.hapbang.chat.out.ChatOutboxRepository;
 import com.hapbang.chat.out.ChatPublishCheckpointRepository;
 import com.hapbang.chat.out.redis.ChatRedisKeys;
 import com.hapbang.testsupport.IntegrationTest;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 실제 Redis 장애 시험 (테스트 기준 "Stream 유실·보존"의 영속화·noeviction·OOM, 설계 9장 "Stream 보존·재구성").
@@ -142,10 +145,14 @@ class ChatDeliveryRedisFailureTest {
     @Autowired
     private StringRedisTemplate redis;
 
-    @Autowired
-    private JdbcClient jdbcClient;
+    private ChatNativeSql sql;
 
     private Long chatRoomId;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -342,10 +349,8 @@ class ChatDeliveryRedisFailureTest {
     }
 
     private void waitUntilDue(UUID deliveryId) {
-        jdbcClient.sql("update chats.chat_outbox set next_attempt_at = :past where delivery_id = :id")
-                .param("past", ChatDeliveryClock.now().minusSeconds(1))
-                .param("id", deliveryId)
-                .update();
+        sql.update("update chats.chat_outbox set next_attempt_at = :past where delivery_id = :id",
+                Map.of("past", ChatDeliveryClock.now().minusSeconds(1), "id", deliveryId));
     }
 
     private void setConfig(String name, String value) {

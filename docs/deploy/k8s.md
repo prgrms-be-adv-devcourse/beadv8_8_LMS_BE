@@ -56,6 +56,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 | `lecture-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `S3_BUCKET` | `apps/lecture-app/k8s/overlays/prod` |
 | `appearance-app-secrets`, `chat-app-secrets`, `customer-support-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY` | 각 앱의 `k8s/overlays/prod` |
 | `postgres-credentials` | hapbang-platform | `postgres`(superuser), `member`, `billing`, `appearance`, `lecture`, `chat`, `customersupport` | `k8s/platform/overlays/prod` |
+| `ghcr-pull` | hapbang-prod | `.dockerconfigjson`(type `kubernetes.io/dockerconfigjson`). BE 앱 6개와 FE가 함께 쓴다 | `k8s/registry` ([GHCR pull 인증](#ghcr-pull-인증)) |
 
 - `postgres-credentials`의 앱별 값은 각 앱 Secret의 `DB_PASSWORD`와 같아야 한다. PostgreSQL이 첫 기동 때 이 값으로 앱 role을 만든다.
 - `HAPBANG_INTERNAL_API_KEY`는 모든 앱이 같은 값을 쓴다.
@@ -67,9 +68,48 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 - 필수 값이 없으면 키 이름만 알리고 멈춘다. 만든 파일은 각 앱의 `overlays/prod/<앱>-app-secrets.yaml`이고 kustomization `resources`에 더한다.
 - `~/.hapbang`의 파일은 팀 비밀 보관소에도 둔다. 내부 API 키를 다시 만들면 앱 6개를 모두 다시 봉인한다.
 
-앱 이미지(`ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>`)는 공개 패키지로 두어 pull secret을 쓰지 않는다. 레포가 공개라 이미지 공개로 더 드러나는 정보가 없다. GHCR 패키지는 처음 발행될 때 비공개이고 레포 공개 여부를 이어받지 않으므로, 앱마다 첫 발행 뒤 패키지 페이지 → Package settings → Change visibility → Public으로 바꾼다. 한 번 공개하면 되돌릴 수 없다. org의 Settings → Packages → Package Creation에서 Public이 막혀 있으면 org owner가 먼저 허용한다.
-
 Sealed Secrets controller 키를 잃으면 위 SealedSecret을 모두 다시 만들어야 한다. 백업과 복구는 [AWS 2노드 k3s 배치](aws-k3s.md#sealed-secrets-키-백업)를 따른다.
+
+### GHCR pull 인증
+
+GHCR 패키지는 조직 정책으로 private이고 public으로 바꿀 수 없다. BE 앱 이미지(`ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>`)와 FE 이미지(`ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_fe`)를 `hapbang-prod`의 공유 Secret `ghcr-pull` 하나로 받는다(#460).
+
+| 항목 | 값 |
+| --- | --- |
+| 인증 | kaameo의 classic PAT, 권한은 `read:packages` 하나. GHCR은 fine-grained PAT를 받지 않는다 |
+| 만료 | 90일. 지금 토큰은 2026-12-29 만료다. **2026-12-15까지 교체한다**(만료 14일 전). 봉인 스크립트는 만료가 있는지만 검사하고 원래 수명은 알 수 없으므로, 90일은 PAT를 만드는 사람이 고른다 |
+| 담당 | kaameo. 생성·봉인·적용·교체·폐기를 한다. 토큰 원문은 레포·이슈·채팅에 쓰지 않는다 |
+| 참조 | BE 앱 6개 prod overlay의 `imagePullSecrets` patch, FE 레포 `k8s/overlays/prod` |
+| 적용 | `k8s/registry`를 손으로 적용한다. 앱·FE 배포는 확인만 하고 만들거나 지우지 않는다 |
+
+- 인증은 셋으로 나뉜다. 발행은 Publish images job의 `GITHUB_TOKEN`(`packages: write`), Deploy job의 이미지 존재 확인은 러너의 `GITHUB_TOKEN`(`packages: read`), node의 pull은 `ghcr-pull`이다. job 토큰은 job이 끝나면 만료되므로 node pull에 쓰지 않고, 토큰을 SSM 명령으로 서버에 보내지 않는다.
+- PAT의 `read:packages`는 그 계정이 읽을 수 있는 모든 package에 적용되고, cluster 관리자는 Secret을 읽을 수 있다. 짧은 만료와 교체로 노출 기간을 줄인다.
+- k8s 1.35부터 kubelet은 node에 있는 이미지도 pull 인증을 확인한다(`KubeletEnsureSecretPulledImages` 기본 켜짐, 정책 `NeverVerifyPreloadedImages`, [Kubernetes images](https://kubernetes.io/docs/concepts/containers/images/#ensureimagepullcredentialverification)). 같은 Secret으로 받은 적이 있는 이미지는 registry에 묻지 않고 통과하지만, Secret이 없거나 내용이 바뀌면 registry에서 다시 받는다. 그래서 Secret을 배포 동안만 두지 않고 계속 둔다.
+  - 토큰이 만료돼도 Secret을 그대로 두면 이미 받은 이미지로는 pod가 다시 뜬다. 새 이미지 배포, node에 없는 이전 버전 롤백, image GC 뒤 재기동은 실패한다.
+  - 교체 뒤에는 새로 뜨는 pod마다 registry에서 한 번 다시 받는다. 이미 실행 중인 컨테이너는 Secret 교체로 재시작되지 않는다.
+
+**처음 설치**(Sealed Secrets controller가 뜬 뒤, 첫 앱·FE 배포 전)
+
+1. `k8s/tools/seal-ghcr-pull.sh`를 실행한다. 아이디와 토큰(화면에 보이지 않음)을 입력받는다. 토큰 권한이 `read:packages` 하나가 아니거나 만료가 없으면, 또는 BE·FE 패키지 중 읽을 수 없는 것이 있으면 멈춘다. 발행 전 패키지는 알리고 넘어간다. 결과 `k8s/registry/ghcr-pull.yaml`과 위 표의 만료일을 커밋한다.
+2. `kubectl --context hapbang-k3s apply -k k8s/registry` 뒤 `kubectl --context hapbang-k3s -n hapbang-prod get secret ghcr-pull -o jsonpath='{.type}'`이 `kubernetes.io/dockerconfigjson`인지 본다.
+3. 두 node에서 실제로 받아지는지 본다. `k8s/tools/ghcr-pull-check.sh`는 지정한 pool에 `imagePullPolicy: Always` 검증 pod를 띄워 버전 명령만 실행하고 지운다. 층까지 새로 받았는지 보려면 먼저 그 node에서 `sudo k3s crictl rmi <이미지>`로 지운다(node 재시작은 캐시를 지우지 않는다).
+
+   ```bash
+   k8s/tools/ghcr-pull-check.sh ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_fe:sha-<FE 커밋> core-data
+   k8s/tools/ghcr-pull-check.sh ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_fe:sha-<FE 커밋> app-observe
+   # Secret 없이는 실패해야 한다(패키지가 private인지 확인)
+   SECRET= k8s/tools/ghcr-pull-check.sh ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_fe:sha-<FE 커밋> app-observe
+   ```
+
+**교체**(만료 14일 전, 또는 계정 권한 회수·토큰 유출 때 바로)
+
+1. 새 PAT를 만든다(`read:packages`, 90일). 이전 PAT는 아직 지우지 않는다.
+2. `k8s/tools/seal-ghcr-pull.sh`로 다시 봉인해 PR로 커밋하고, `kubectl --context hapbang-k3s apply -k k8s/registry`로 적용한다. 이름이 같으므로 앱·FE manifest는 바꾸지 않는다.
+3. 두 node에서 `ghcr-pull-check.sh`가 성공하는지 본다.
+4. GitHub에서 이전 PAT를 삭제하고, 3을 다시 실행해 새 토큰만으로 받아지는지 본다.
+5. 위 표의 만료일을 고친다. 실행 중인 pod를 다시 띄울 필요는 없다.
+
+**만료·회수 뒤 복구**: 새 pod가 `ImagePullBackOff`이고 배포 로그에 "GHCR 인증에 실패했습니다(401·403)"가 나오면 토큰이 만료됐거나 권한이 없다. 교체 1~3단계로 같은 이름의 Secret에 새 토큰을 넣는다. backoff 중인 pod는 kubelet이 다시 시도하고, 기다리기 싫으면 그 pod를 지운다. 토큰을 다시 넣기 전에는 롤백도 같은 이유로 실패한다.
 
 ## PostgreSQL database
 
@@ -90,13 +130,16 @@ kubectl wait --for=condition=Established crd/elasticsearches.elasticsearch.k8s.e
 
 kubectl apply -k k8s/platform/overlays/local     # prod: overlays/prod
 
+# prod만: 앱·FE보다 먼저 GHCR pull Secret을 둔다. 로컬은 k3d에 넣은 이미지를 쓴다.
+kubectl apply -k k8s/registry
+
 # 앱은 하나씩 적용한다. prod는 배포 workflow(#374)가 앱마다 overlays/prod를 적용한다.
 for app in apps/*-app; do kubectl apply -k "$app/k8s/overlays/local"; done
 ```
 
 ## 운영 앱 배포
 
-prod 앱은 GitHub Actions가 배포한다(#374). 앱 이미지는 공개 패키지라 cluster에 pull secret이 없다. 앱마다 첫 발행 뒤 패키지를 Public으로 바꾸기 전에는 배포가 이미지 pull에서 실패하고 되돌려진다([Secret](#secret) 아래 이미지 공개 설명).
+prod 앱은 GitHub Actions가 배포한다(#374). 앱 이미지는 private GHCR 패키지라 node가 공유 Secret `ghcr-pull`로 받는다([GHCR pull 인증](#ghcr-pull-인증)). 배포 스크립트는 적용 전에 그 Secret이 있고 형식이 맞는지 확인하고, rollout이 실패하면 원인을 이미지 없음·GHCR 인증 실패·앱 기동 실패로 나눠 알린다(#461).
 
 ```
 main push → Publish images(publish.yml)
@@ -106,8 +149,8 @@ Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main
   지금 도는 이미지와 비교해 바뀐 앱을 고른다 → 이미지가 모두 GHCR에 있는지 확인
   → 앱마다 순서대로(member → billing → appearance → lecture → chat → customer-support)
      SSM Run Command로 large에서 .github/scripts/k3s-deploy.sh apply
-       해당 커밋의 apps/<앱>/k8s/overlays/prod를 받아 이미지 태그를 넣고 apply → rollout status
-       실패하면 그 앱만 rollout undo, 남은 앱은 배포하지 않음
+       ghcr-pull Secret 확인 → 해당 커밋의 apps/<앱>/k8s/overlays/prod를 받아 이미지 태그를 넣고 apply → rollout status
+       실패하면 원인을 알리고 그 앱만 rollout undo, 남은 앱은 배포하지 않음
 ```
 
 - **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`가 바뀌면 전체다. 앱 목록과 배포 순서는 `.github/scripts/apps.sh` 한 곳에 있고, `apps/*-app`과 다르면 CI(`verify`)가 실패한다. 새 앱은 여기에 추가한다.
@@ -118,26 +161,44 @@ Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main
   - 이 레포는 GitHub OIDC의 immutable subject를 쓴다. trust의 `sub`는 `repo:<org>@<org id>/<repo>@<repo id>:environment:prod` 형식이라 레포를 옮기거나 다시 만들면 바꿔야 한다.
   - large의 인스턴스 역할에 `AmazonSSMManagedInstanceCore`가 있어야 SSM agent가 등록된다.
 - 공개 레포라 Actions 로그도 공개다. 배포 스크립트는 node 이름·IP가 나오는 출력(`-o wide`, `describe`)을 하지 않는다.
-- `k8s/cluster`·`k8s/platform`·`k8s/gateway`는 자동 배포하지 않는다.
-- 서버 스크립트는 로컬 k3d에서 시험할 수 있다: `KUBECTL="kubectl --context k3d-hapbang" ROLLOUT_TIMEOUT=60s .github/scripts/k3s-deploy.sh apply <앱> <GitHub에 있는 커밋> <태그 커밋>`. 시험 뒤 `apps/<앱>/k8s/overlays/local`을 다시 적용한다.
+- `k8s/cluster`·`k8s/platform`·`k8s/gateway`·`k8s/registry`는 자동 배포하지 않는다.
+- 서버 스크립트는 로컬 k3d에서 시험할 수 있다: `KUBECTL="kubectl --context k3d-hapbang" ROLLOUT_TIMEOUT=60s .github/scripts/k3s-deploy.sh apply <앱> <GitHub에 있는 커밋> <태그 커밋>`. k3d에는 `ghcr-pull`이 없어 Secret 확인에서 멈추므로, 가짜 값으로 `kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io ...`를 만들어 둔다(pull은 401·403으로 실패해 원인 구분을 시험할 수 있다). 시험 뒤 `apps/<앱>/k8s/overlays/local`을 다시 적용하고, 함께 생긴 prod SealedSecret(`kubectl delete sealedsecret <앱>-secrets`)과 가짜 `ghcr-pull`을 지운다.
+
+### 릴리스 전 배포
+
+dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461). GHCR 패키지는 조직 정책으로 멤버가 직접 만들 수 없어(개인 PAT push는 `denied`), 이미지는 이 repo의 Actions가 발행한다.
+
+1. **발행**: dev의 커밋을 `prerelease/<앱>[+<앱>...]` 브랜치로 push한다. Publish images가 적은 앱만 테스트한 뒤 `:sha-<그 앱을 마지막으로 바꾼 커밋>`으로 올린다. dev에 포함되지 않은 커밋이나 목록에 없는 앱이면 실패한다.
+
+   ```bash
+   git fetch origin
+   git push origin origin/dev:refs/heads/prerelease/member-app+lecture-app
+   ```
+
+2. **브랜치 삭제**: run이 끝나면 `git push origin --delete prerelease/member-app+lecture-app`. 태그는 run 요약과 `.github/scripts/apps.sh source <앱> <dev 커밋>`으로 알 수 있다.
+3. **pull 확인**: `k8s/tools/ghcr-pull-check.sh <이미지> <pool>`([GHCR pull 인증](#ghcr-pull-인증)).
+4. **배포**: Deploy workflow는 main 커밋만 받으므로 로컬에서 같은 스크립트를 쓴다. prod kubeconfig(context `hapbang-k3s`)가 필요하다. 앱은 배포 순서(member → billing → appearance → lecture → chat → customer-support)를 지킨다.
+
+   ```bash
+   KUBECTL="kubectl --context hapbang-k3s" .github/scripts/k3s-deploy.sh apply <앱> <dev 커밋 40자> <태그 커밋 40자>
+   ```
+
+- 릴리스 뒤 main의 Publish images가 같은 태그로 다시 발행할 수 있다. 같은 커밋의 jar라 내용은 같다. dev 커밋은 main 병합(merge commit) 뒤 main 이력에 들어가므로 Deploy workflow가 이어서 바뀐 앱을 판단한다.
+- 리뷰를 거친 dev 커밋만 발행하지만 main 릴리스 리뷰는 거치지 않는다. 어떤 앱을 언제 먼저 올렸는지 해당 티켓에 남긴다.
 
 ### 첫 릴리스
 
-main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없고, 앱 이미지 패키지도 아직 없다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·5단계만 한다.
+main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없고, 앱 이미지 패키지도 아직 없다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
 
 1. **dev → main 병합**: base `main` ← `dev`(또는 `release/review-N`) PR을 만들어 병합한다. 다른 브랜치에서 열면 `PR source / source-branch` 체크가 실패한다(#180).
 2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
-3. **패키지 공개(앱마다 처음 한 번)**: org Settings → Packages → Package Creation에서 Public이 허용됐는지 org owner가 먼저 확인한다. 그다음 `https://github.com/orgs/prgrms-be-adv-devcourse/packages/container/package/beadv8_8_lms_be%2F<앱>`(예: `member-app`) → Package settings → Danger Zone → Change visibility → Public으로 바꾼다. 확인 칸에는 `beadv8_8_lms_be/<앱>`을 넣는다. 되돌릴 수 없다. 이미지는 `apps/<앱>/build/libs`의 테스트한 jar만 담고, 비밀값은 실행할 때 Secret으로 주입하므로 이미지에 들어가지 않는다. 주소가 404면 그 앱은 아직 발행되지 않았다.
-4. **공개 확인**: 로그인 없이 태그 목록을 읽을 수 있으면(200) 공개된 것이다. 401·403·404는 비공개이거나 발행 전이다.
+3. **pull 확인(앱마다 처음 한 번)**: 패키지는 private 그대로 둔다. 발행된 앱 이미지를 그 앱이 뜨는 pool에서 `ghcr-pull`로 받아 본다([GHCR pull 인증](#ghcr-pull-인증)). 태그는 Publish images run 요약에 있다. pool은 member·billing·appearance가 `core-data`, lecture·chat·customer-support가 `app-observe`다. 발행한 패키지를 kaameo 계정이 읽지 못하면 실패하므로, 패키지 설정의 Manage Actions access·권한을 확인한다.
 
    ```bash
-   for app in member-app billing-app appearance-app lecture-app chat-app customer-support-app; do
-     t=$(curl -s "https://ghcr.io/token?scope=repository:prgrms-be-adv-devcourse/beadv8_8_lms_be/$app:pull" | jq -r '.token // empty')
-     echo "$app $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $t" "https://ghcr.io/v2/prgrms-be-adv-devcourse/beadv8_8_lms_be/$app/tags/list")"
-   done
+   k8s/tools/ghcr-pull-check.sh ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<태그 커밋> <pool>
    ```
 
-5. **배포**: Actions → Deploy → Run workflow(main)를 입력 없이 실행한다. 앱 SealedSecret은 `hapbang-prod`에 이미 있다([Secret](#secret)).
+4. **배포**: Actions → Deploy → Run workflow(main)를 입력 없이 실행한다. 앱 SealedSecret과 `ghcr-pull`은 `hapbang-prod`에 이미 있다([Secret](#secret)).
 
 ## 로컬 k3d 검증
 

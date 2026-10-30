@@ -23,7 +23,7 @@
 | `java/.../domain/ChatControlType.java` | 제어 작업 종류 `RECHECK_USER` |
 | `java/.../domain/ChatControlReason.java` | 제어 사유 `MEMBER_MODIFIED`, `MEMBER_BACKFILL` |
 | `java/.../app/ChatConnectionControl.java` | [제어 작업 기록](control-recording.md) 인터페이스 |
-| `java/.../out/JdbcChatConnectionControl.java` | 위 인터페이스의 DB 구현 |
+| `java/.../out/JpaChatConnectionControl.java` | 위 인터페이스의 DB 구현. 데이터 접근을 Spring Data JPA로 바꾼 사용자 결정(2026-10-30)으로 `JdbcChatConnectionControl`에서 이름을 바꿨다. #418 브랜치에서 먼저 바꿨고, #417·#419 worktree에도 같은 내용으로 반영해야 한다 |
 | `java/.../app/RealtimeChatFanout.java` | [실시간 전파](realtime-fanout.md) 인터페이스 |
 | `java/.../app/dto/MessageFanout.java`, `ControlFanout.java`, `java/.../domain/ChatNotifyRule.java` | 실시간 전파 payload. 방 topic 결정(2026-10-30)으로 `MessageFanout`은 v2(수신자 목록 대신 수신자 집합 버전·알림 규칙)이고 `FanoutRecipient`는 없앴다([실시간 전파 계약](realtime-fanout.md)) |
 | `java/.../out/redis/ChatRedisKeys.java` | Redis namespace·Stream·그룹·채널 이름 |
@@ -56,5 +56,5 @@
 
 - #418 브랜치는 outbox 기록과 relay·consumer를 구현하지만 운영 `RealtimeChatFanout` 구현은 #419에 있다. relay·Stream worker·회수·재구성 빈은 `hapbang.chat.delivery.pipeline.enabled`가 `true`일 때만 등록한다(#418 코드 기본 `false`, 테스트 설정도 `false`). #419 통합에서 운영 `RealtimeChatFanout`과 함께 코드 기본값을 `true`로 바꾼다. #418 테스트는 테스트 소스의 `InMemoryRealtimeChatFanout`과 속성을 켜고 검증한다.
 - #419 브랜치는 `RealtimeChatFanout`의 Redis 구현과 구독·로컬 전달을 구현하고 `RealtimeChatFanout`을 직접 호출해 검증한다. outbox가 없는 #419 단독 브랜치에서는 직접 전달을 제거하면 메시지가 전달되지 않으므로, **직접 전달 제거와 `pipeline.enabled=true` 전환은 #418·#419를 합친 통합 단계에서 한다**(#419 범위). 통합 검증은 #417·#418·#419·#420을 모두 합친 상태에서 받는다.
-- #417 브랜치의 제어 작업은 공통 골격의 `JdbcChatConnectionControl`로 DB에 기록까지 한다. 연결 종료 확인은 통합 검증에서 완료한다([작업 절차](../workflow/process.md) 1단계 기준).
+- #417 브랜치의 제어 작업은 공통 골격의 `JpaChatConnectionControl`(옛 이름 `JdbcChatConnectionControl`)로 DB에 기록까지 한다. 연결 종료 확인은 통합 검증에서 완료한다([작업 절차](../workflow/process.md) 1단계 기준).
 - 설정 수치(polling·lease·claim idle·재시도·보존·버퍼 등)는 `hapbang.chat.*` 속성으로 빼고, 코드 기본값의 주석에 "미확정 초기값(Q12)"을 단다.

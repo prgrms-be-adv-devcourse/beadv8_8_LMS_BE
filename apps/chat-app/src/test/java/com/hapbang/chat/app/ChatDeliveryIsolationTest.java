@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -31,7 +32,7 @@ import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.out.ChatDeliveryReprocessAuditRepository;
-import com.hapbang.chat.out.JdbcChatPublishCheckpointStore;
+import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 /**
  * 시도·재적재 상한의 격리와 운영 재처리 감사 기록 (설계 4.5 7번, 테스트 기준 "Stream 유실·보존").
@@ -52,7 +53,7 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
     private ChatDeliveryReprocessAuditRepository auditRepository;
 
     @Autowired
-    private JdbcChatPublishCheckpointStore checkpointStore;
+    private JpaChatPublishCheckpointStore checkpointStore;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -131,12 +132,10 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
         relayAll(ChatJobStream.DELIVERY);
         QueuedJob job = queue.readNew(ChatJobStream.DELIVERY, WORKER, 10, Duration.ofMillis(50)).getFirst();
         // 상한 실패를 기록한 뒤 격리 전에 종료됐던 옛 상태(또는 상한을 낮춘 설정 변경)
-        jdbcClient.sql("""
+        sql.update("""
                         update chats.chat_publish_checkpoint set attempt_count = 3, next_attempt_at = null
                         where job_id = :id
-                        """)
-                .param("id", deliveryId)
-                .update();
+                        """, Map.of("id", deliveryId));
 
         assertThat(processor.handle(ChatJobStream.DELIVERY, job)).isEqualTo(Outcome.ISOLATED);
 
@@ -291,12 +290,10 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
     }
 
     private long lockWaiters() {
-        return jdbcClient.sql("""
+        return sql.single("""
                         select count(*) from pg_stat_activity
                         where datname = current_database() and wait_event_type = 'Lock'
-                        """)
-                .query(Long.class)
-                .single();
+                        """, Long.class);
     }
 
     private static void await(CountDownLatch latch) {
@@ -320,15 +317,12 @@ class ChatDeliveryIsolationTest extends ChatDeliveryTestSupport {
 
     private void loseStreamAndPassCooldown(UUID deliveryId) {
         redis.delete(keys.deliveryStream());
-        jdbcClient.sql("update chats.chat_outbox set last_requeued_at = null where delivery_id = :id")
-                .param("id", deliveryId)
-                .update();
+        sql.update("update chats.chat_outbox set last_requeued_at = null where delivery_id = :id",
+                Map.of("id", deliveryId));
     }
 
     private void dueNow(UUID deliveryId) {
-        jdbcClient.sql("update chats.chat_outbox set next_attempt_at = :past where delivery_id = :id")
-                .param("past", ChatDeliveryClock.now().minusSeconds(1))
-                .param("id", deliveryId)
-                .update();
+        sql.update("update chats.chat_outbox set next_attempt_at = :past where delivery_id = :id",
+                Map.of("past", ChatDeliveryClock.now().minusSeconds(1), "id", deliveryId));
     }
 }

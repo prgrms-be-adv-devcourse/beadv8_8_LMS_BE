@@ -10,7 +10,7 @@ import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
-/** 세션의 로그인 정보에서 회원 ID를 꺼내 @LoginUserId 파라미터에 넣는다 */
+/** 로그인 정보에서 회원 ID를 꺼내 @LoginUserId 파라미터에 넣는다 */
 public class LoginUserIdArgumentResolver implements HandlerMethodArgumentResolver {
 
     @Override
@@ -19,7 +19,7 @@ public class LoginUserIdArgumentResolver implements HandlerMethodArgumentResolve
                 && parameter.getParameterType().equals(Long.class);
     }
 
-    /** getName()은 회원 ID (member의 MemberOAuth2User) */
+    /** getName()은 회원 ID (Gateway 사용자 헤더 {@code X-User-Id}, {@link GatewayUserHeaderFilter}) */
     @Override
     public Long resolveArgument(MethodParameter parameter, ModelAndViewContainer mavContainer,
                                 NativeWebRequest webRequest, WebDataBinderFactory binderFactory) {

@@ -101,7 +101,7 @@ export MEMBER_JWKS_URI='http://member-app.hapbang-prod.svc.cluster.local:8080/<�
 /tmp/gateway-test-venv/bin/python k8s/gateway/tools/render-prod.py > /tmp/gateway-prod.yaml
 ```
 
-업무 앱 배포는 #374의 앱별 이미지·SealedSecret 준비와 GHCR 패키지 공개 이후다. 출력 파일을 그대로 자동 apply하지 않는다. Gateway·platform은 수동, 앱 manifest는 앱별 workflow가 관리하도록 확정된 issuer·JWKS를 각 배포 입력에 반영한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
+업무 앱 배포는 #374의 앱별 이미지·SealedSecret 준비와 GHCR pull Secret(`ghcr-pull`, #460) 적용 이후다. 출력 파일을 그대로 자동 apply하지 않는다. Gateway·platform은 수동, 앱 manifest는 앱별 workflow가 관리하도록 확정된 issuer·JWKS를 각 배포 입력에 반영한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
 
 Gateway만 먼저 렌더링할 때는 앱 JWT 설정을 생략할 수 있다. 기본값은 연락 이메일 필수이며, 이번처럼 연락처 없이 등록할 때만 명시적인 생략 플래그를 쓴다.
 

@@ -179,7 +179,7 @@ flowchart TD
 | `ChatMessageStompController` | 신규 메시지의 직접 상대 전달을 제거한다. 같은 `clientMessageId` 재전송은 기존 메시지를 보낸 사람에게만 다시 응답하며 상대 알림·새 업무 메시지를 만들지 않는다 |
 | `ApiV1ChatController` | 방 생성의 재입장 안내와 나가기의 퇴장 안내도 동일한 outbox 경로를 사용한다. 단일 앱의 REST 요청으로 생성한 안내가 해당 로컬 소켓으로 전달되어야 한다 |
 | `AppearanceNotificationEventListener` | `appearance.events.v1` Kafka 소비로 바꿨다(5.5). 이관 전에는 출연 알림·재입장 안내를 저장하는 트랜잭션에 outbox도 기록한다. 이관 완료 뒤에만 제거한다 |
-| `ChatMessageSender`·어댑터 | `app`의 역할 중심 계약 `ChatDeliveryQueue`는 작업 적재·소비·회수·ACK를, `RealtimeChatFanout`은 Pub/Sub 발행을 분리한다. 기술 구현은 `out/redis`, 소비 진입은 `in`, 처리·복구 조정은 `app`에 둔다. outbox 저장소는 적재 상태와 발행 체크포인트·실패 격리를 보존한다. 로컬 STOMP sender는 수신 자격 검사 뒤 최종 전달만 한다. in-memory 어댑터는 테스트 소스에 둔다 |
+| `ChatMessageSender`·어댑터 | `app`의 역할 중심 계약 `ChatDeliveryQueue`는 작업 적재·소비·회수·ACK를, `RealtimeChatFanout`은 Pub/Sub 발행을 분리한다. 기술 구현은 `out/redis`, 소비 진입은 `in`, 처리·복구 조정은 `app`에 둔다. outbox 저장소는 적재 상태와 발행 체크포인트·실패 격리를 보존한다. 저장소는 Spring Data JPA repository로 접근하고, PostgreSQL 전용 문장(선점의 `FOR UPDATE SKIP LOCKED`, 중복 흡수의 `ON CONFLICT DO NOTHING`, `RETURNING`)은 `@Query(nativeQuery = true)`로 둔다(사용자 결정 2026-10-30). 로컬 STOMP sender는 수신 자격 검사 뒤 최종 전달만 한다. in-memory 어댑터는 테스트 소스에 둔다 |
 | `ChatWebSocketSessionRegistry` | 인증 성공 뒤 `userId → STOMP sessionId → 실제 소켓`을 매핑한다. JWT·로그인 식별자·만료 정보와 제거 규칙은 6장을 따른다 |
 | 회원 이벤트의 연결 닫기 | 회원 상태·처리 기록(inbox를 둔다면)과 같은 트랜잭션에 제어 outbox를 남긴다. 발행과 로컬 회원 상태 재검사는 5.3을 따른다 |
 | 설정 | `../../../common/redis`의 `RedisConfig`는 비어 있다. `RedisMessageListenerContainer`와 채널 구독은 chat-app 안(`out/redis` 패키지)에 둔다. 키·채널 규칙은 채팅이 소유한다(공통 모듈 README 규칙) |
@@ -407,6 +407,7 @@ Kafka 전환 이전의 회원과 전환 중 놓친 변경을 member-app 내부 A
 1. 출연 이벤트 2종(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent`)을 `appearance.events.v1`에서 Kafka로 받아 채팅 알림을 유지한다(2026-10-30 사용자 결정, Q7). 클래스 레벨 `@KafkaListener(topics = "appearance.events.v1", groupId = "chat-app.appearance-notification")`에 두 `@KafkaHandler`를 두고, 출연 취소 이벤트 등 모르는 종류는 건너뛰고 커밋한다. 신뢰 패키지는 `com.hapbang.shared.appearance.event`만이다. 중복 알림은 기존 `(notificationKind, referenceId)` 유일 인덱스(`uk_chat_message_notification`)로 흡수하고, offset은 알림 저장 커밋 뒤 커밋한다. 재시도·DLT(`appearance.events.v1.chat-app.appearance-notification.DLT`)는 5.3과 같은 규칙이다. 알림 메시지와 전달 outbox를 함께 기록하는 것은 전달 outbox 구현과 합친 뒤다.
 2. 알림 모듈이 같은 사실을 소비하기 시작하더라도 FE 전환 전에는 채팅 알림을 제거하지 않는다. FE가 알림 API·destination으로 바뀐 뒤 채팅 쪽 신규 소비·기록을 중단한다. cutover 시점·재처리 범위와 중복 화면 노출 방지는 이관 계약에 남긴다.
 3. 기존 `NOTIFICATION` 채팅 메시지는 대화 이력으로 보존한다. 채팅 자체의 새 메시지 알림은 채팅에 남긴다.
+4. 서버는 출연 알림 문구를 만들지 않는다(사용자 결정 2026-10-30). 알림 종류와 사실(닉네임·제목·출연료·KST 일시, 형식 버전 `v`)만 `chat_message.notification_data`(jsonb) 한 컬럼에 저장하고, 응답에는 알림 종류마다 값 필드 하나(`appearanceRequestSent`·`appearanceApplicationSubmitted`, 종류별 record, 공통 상위 타입 없음)로 보낸다. 종류에 맞는 필드만 채우고 FE가 종류별 템플릿으로 문구를 만든다(사용자 결정 2026-10-30). 새 알림의 `content`는 빈 문자열이고, FE는 템플릿 → 비어 있지 않은 `content`(기존 알림) → 일반 문구 순으로 보여 준다. 닉네임은 이벤트에 없어 처리 시점의 `chat_user` 복제본 값을 쓴다. 계약은 [알림 값 계약](contracts/notification-data.md)이다.
 
 Q7은 2026-10-30에 "Kafka 소비로 유지하고, 알림 모듈 이관 때 옮긴다"로 정했다. 끊긴 상태를 정상 완료로 배포하지 않는다.
 
