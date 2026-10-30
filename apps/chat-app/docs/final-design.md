@@ -178,7 +178,7 @@ flowchart TD
 | 메시지·시스템 안내를 저장하는 UseCase | 같은 트랜잭션에 메시지·불변 수신자 집합 참조·전달 규칙을 포함한 `chat_outbox`를 저장한다(4.6). DB 저장 뒤 Controller가 직접 발행하는 공백을 제거한다 |
 | `ChatMessageStompController` | 신규 메시지의 직접 상대 전달을 제거한다. 같은 `clientMessageId` 재전송은 기존 메시지를 보낸 사람에게만 다시 응답하며 상대 알림·새 업무 메시지를 만들지 않는다 |
 | `ApiV1ChatController` | 방 생성의 재입장 안내와 나가기의 퇴장 안내도 동일한 outbox 경로를 사용한다. 단일 앱의 REST 요청으로 생성한 안내가 해당 로컬 소켓으로 전달되어야 한다 |
-| `AppearanceNotificationEventListener` | 이관 전에는 출연 알림·재입장 안내를 저장하는 트랜잭션에 outbox도 기록한다. 이관 완료 뒤에만 제거한다(5.5) |
+| `AppearanceNotificationEventListener` | `appearance.events.v1` Kafka 소비로 바꿨다(5.5). 이관 전에는 출연 알림·재입장 안내를 저장하는 트랜잭션에 outbox도 기록한다. 이관 완료 뒤에만 제거한다 |
 | `ChatMessageSender`·어댑터 | `app`의 역할 중심 계약 `ChatDeliveryQueue`는 작업 적재·소비·회수·ACK를, `RealtimeChatFanout`은 Pub/Sub 발행을 분리한다. 기술 구현은 `out/redis`, 소비 진입은 `in`, 처리·복구 조정은 `app`에 둔다. outbox 저장소는 적재 상태와 발행 체크포인트·실패 격리를 보존한다. 로컬 STOMP sender는 수신 자격 검사 뒤 최종 전달만 한다. in-memory 어댑터는 테스트 소스에 둔다 |
 | `ChatWebSocketSessionRegistry` | 인증 성공 뒤 `userId → STOMP sessionId → 실제 소켓`을 매핑한다. JWT·로그인 식별자·만료 정보와 제거 규칙은 6장을 따른다 |
 | 회원 이벤트의 연결 닫기 | 회원 상태·처리 기록(inbox를 둔다면)과 같은 트랜잭션에 제어 outbox를 남긴다. 발행과 로컬 회원 상태 재검사는 5.3을 따른다 |
@@ -351,7 +351,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 | 토픽 | `member.events.v1` |
 | key | 회원 ID. 같은 회원을 같은 파티션으로 보내되 relay·재처리 순서는 원본 버전으로 방어한다. 파티션 증설 시 재배치·이행 순서는 별도 운영 절차로 검증한다 |
 | payload | `common/shared`의 `UserJoinedEvent(UserDto)`·`UserModifiedEvent(UserDto)` 레코드를 그대로 JSON으로 싣는다(팀 결정, 2026-10-29). 예: `{"user":{"id":1,"nickname":"…","role":"INFLUENCER","status":"ACTIVE","version":3}}`. 별도 envelope 레코드를 만들지 않는다 |
-| 타입 구분 | Spring Kafka `JsonSerializer`가 붙이는 `__TypeId__` 헤더(레코드 클래스 이름). 소비자는 `JsonDeserializer`에 실제 이벤트 패키지 `com.hapbang.shared.member.event`를 신뢰 패키지로 지정해 같은 레코드로 되돌린다. 상위 패키지 이름이 하위 패키지까지 자동 허용한다고 가정하거나 전체 `*`를 신뢰하지 않는다. 두 앱이 같은 shared 클래스를 쓰므로 별도 타입 매핑은 두지 않는다 |
+| 타입 구분 | Modulith 기본 `ByteArrayJacksonJsonMessageConverter`(Jackson 3)가 붙이는 `__TypeId__` 헤더(레코드 클래스 이름). 소비자는 `JacksonJsonDeserializer`(Jackson 3)에 실제 이벤트 패키지 `com.hapbang.shared.member.event`를 신뢰 패키지로 지정하고 `removeTypeHeaders=false`로 두며 `ErrorHandlingDeserializer`로 감싸 같은 레코드로 되돌린다(chat #417). 상위 패키지 이름이 하위 패키지까지 자동 허용한다고 가정하거나 전체 `*`를 신뢰하지 않는다. 두 앱이 같은 shared 클래스를 쓰므로 별도 타입 매핑은 두지 않는다 |
 | 멱등 키 | `user.id` + `user.version`. `version`은 회원 원본 `@Version`이라 변경마다 1씩 오른다. 별도 `eventId`는 두지 않는다 |
 | 헤더 | `eventType`(레코드 이름)과 `eventVersion`만 싣는다(#339). `occurredAt`·`correlationId`는 넣지 않는다. Modulith 헤더 함수는 이벤트만 받아 재발행 때 같은 값을 만들 수 없다. 추적은 관측성(#343)의 trace 헤더가 맡는다 |
 | 스키마 | 계약은 shared 레코드 자체다. 레코드 변경은 shared 변경이라 모든 앱이 함께 컴파일된다. JSON Schema 파일과 CI 호환성 검사(인프라 문서 7장)는 레코드에서 생성한다 |
@@ -363,7 +363,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 - Spring Modulith event externalization(`spring-modulith-events-kafka`, Modulith BOM 2.1.1에 있음)을 쓴다. 지금 member-app의 publication registry가 그대로 outbox가 되어, 업무 트랜잭션과 같은 DB에 발행 기록이 남고 broker가 내려가 있어도 재기동 뒤 다시 발행된다(`republish-outstanding-events-on-restart: true`는 이미 켜져 있다).
 - shared의 `UserJoinedEvent`·`UserModifiedEvent` 레코드에 `@Externalized("member.events.v1::#{#this.user().id()}")`를 붙인다. 루트 `build.gradle.kts`가 모든 서브프로젝트에 `spring-modulith-events-api`를 넣으므로 shared에 새 의존이 생기지 않는다. 발행하는 앱은 member-app뿐이라 다른 앱에는 외부화 구성이 없어도 된다.
 - shared 레코드에 애노테이션을 두지 않으려면 member-app에 `EventExternalizationConfiguration` 빈을 두고 `selectByType(...)`·`route(...)`·`routeKey(...)`로 같은 토픽·key를 지정한다. 2026-10-29 사용자 결정으로 shared 레코드의 `@Externalized`를 쓴다(Q13).
-- 직렬화는 member-app의 `spring.kafka.producer.value-serializer=JsonSerializer`가 맡는다. 발행 코드(`MemberSupport`, `MemberOAuthLoginUseCase` 등)는 바뀌지 않는다.
+- 직렬화는 Modulith 기본 `ByteArrayJacksonJsonMessageConverter`(Jackson 3)가 레코드를 JSON 바이트로 바꾸고 `__TypeId__` 헤더를 붙이며, Modulith 기본 `ByteArraySerializer`가 그대로 보낸다(Modulith 기본값). 발행 코드(`MemberSupport`, `MemberOAuthLoginUseCase` 등)는 바뀌지 않는다.
 - 같은 프로세스의 member 내부 리스너(`MemberChannelSupport` 등)는 지금처럼 Spring Event로 받는다. Kafka는 다른 앱에만 보내는 통로다.
 - 회원 변경과 외부 발행 기록이 같은 member DB 트랜잭션에 남는지 확인한다. 업무 커밋 직후 프로세스 종료 시험을 두고, 비동기 콜백에서 처음 발행 기록을 만들어 커밋 사이 공백이 생기지 않도록 한다.
 - 재시작 재발행 설정만으로 broker 복구 후 실행 중인 앱의 자동 재발행까지 보장된다고 보지 않는다. 실행 중 미완료 발행의 재시도·stale 회수는 회원 담당이 #421에서 정한다(채팅 고도화에서는 구현하지 않음, 사용자 결정 2026-10-29). 그 전까지 broker 장시간 중단 뒤에는 앱 재시작으로 재발행하며, broker만 재시작하는 시험과 앱을 재시작하는 시험을 각각 둔다.
@@ -372,12 +372,14 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 
 | 항목 | 설계 |
 | --- | --- |
-| 리스너 | 클래스 레벨 `@KafkaListener(topics = "member.events.v1", groupId = "chat-app.member-replica")`에 가입·변경 `@KafkaHandler`를 두고, 모르는 타입은 기본 핸들러에서 무시한다(#339). shared 레코드를 받아 아래 원자적 처리 서비스에 위임한다. 기존 회원 Facade·UseCase를 재사용하되 단순 호출 후 외부 발행만 붙이지 않는다. 역직렬화(`JsonDeserializer`, 5.1의 신뢰 패키지)·그룹·오류 처리 정책은 chat-app이 정한다 |
+| 리스너 | 클래스 레벨 `@KafkaListener(topics = "member.events.v1", groupId = "chat-app.member-replica")`에 가입·변경 `@KafkaHandler`를 두고, 모르는 타입은 기본 핸들러에서 무시한다(#339). shared 레코드를 받아 아래 원자적 처리 서비스에 위임한다. 기존 회원 Facade·UseCase를 재사용하되 단순 호출 후 외부 발행만 붙이지 않는다. 역직렬화(`ErrorHandlingDeserializer`로 감싼 `JacksonJsonDeserializer`, 5.1의 신뢰 패키지)·그룹·오류 처리 정책은 chat-app이 정한다 |
 | 멱등 | 가입은 생성 전용, 변경은 `memberVersion` 비교를 유지한다. 별도 처리 서비스의 로컬 트랜잭션에서 회원 반영과 필요한 제어 outbox 기록을 함께 수행한다. inbox를 두면 `(user_id, member_version)` 키를 같은 트랜잭션에 기록하고 실패 시 함께 롤백한다. Kafka offset은 이 DB 커밋 뒤 처리한다 |
 | 순서 | 회원 ID key로 같은 파티션에 보낸다. 발행 relay의 순서·초기 적재·DLT 재전송까지 key만으로 해결되지는 않는다. 변경 이벤트에 복제본이 없으면 생성하지 않고 실패로 남긴다. 초기 적재 중의 실패는 5.4에서 재처리한다 |
+| 모르는 종류 | 모르는 종류는 건너뛴다. 역직렬화 실패·신뢰 밖 타입·검증 실패는 DLT(2026-10-30 사용자 결정). 처리기가 없는 종류와 값이 없는 레코드는 로그만 남기고 offset을 넘긴다. 신뢰 패키지 바로 안이지만 chat-app 클래스패스에 없는 클래스(회원 앱이 새 이벤트를 먼저 배포한 경우)도 건너뛴다(2026-10-30 사용자 결정). 하위 패키지·신뢰 밖·타입 헤더 없음·깨진 본문은 그대로 DLT이고, 신뢰 패키지 안의 잘못 적은 클래스 이름도 건너뛰는 한계가 있다. 역직렬화기 기본 신뢰 타입(`java.lang`·`java.util`)은 신뢰 밖으로 DLT이고, 건너뛴 종류 로그 계수는 64종 상한(넘으면 "기타 종류"). tombstone은 값 바이트가 없는 레코드뿐이고 읽은 결과만 null이면 DLT, DLT 발행 실패 로그에는 값을 남기지 않는다 |
 | 재시도·DLT | 블로킹 재시도(1초에서 최대 10초 지수 증가, 3회) 뒤 `member.events.v1.chat-app.member-replica.DLT`로 보낸다. DLT는 chat-app이 선언한다(partition 3, 보존 7일). 재처리는 인프라 문서 1장의 runbook을 따른다(#339). DLT 발행 실패를 처리 성공으로 간주하지 않는다 |
 | 연결 닫기 | 최신 버전 반영 결과가 채팅 불가이면 동일 트랜잭션에 `chat_control_outbox`를 기록한다. 기존의 `lostChat` boolean만으로 후속 제어 작업 성공 여부를 판단하지 않는다 |
 | 기존 리스너 | 진입점을 Kafka 수신으로 옮긴다. 회원 생성·갱신 로직을 재사용하되 적용 여부·현재 버전·채팅 자격을 처리 결과로 구분하고 제어 작업을 원자적으로 기록하도록 보완한다 |
+| 설정 위치 | `hapbang.chat.member-events.*`·`hapbang.chat.appearance-events.*`·`hapbang.chat.backfill.*`의 기본값은 각 `@ConfigurationProperties`의 코드 기본값이다(`application.yaml`에 두지 않는다, 2026-10-30 사용자 결정). 그룹·재시도·DLT 값은 위 규칙을 따르고 DLT 이름은 설정이 아니라 `<토픽>.<그룹>.DLT`로 정한다. 같은 키의 yaml·환경 변수가 덮는다. 소비는 기본으로 켜져 있고 모듈 테스트 설정(`src/test/resources/hapbang-module-test.yaml`)만 끈다. 부품은 공통 코드 없이 chat-app의 `in/event/kafka`에 둔다(Q9) |
 
 **연결 제어의 내구성과 로컬 회원 상태 재검사**
 
@@ -392,6 +394,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 Kafka 전환 이전의 회원과 전환 중 놓친 변경을 member-app 내부 API([internal-members.md](../../../docs/api/internal-members.md))의 키셋 페이지로 대조한다. `createIfAbsent`는 기존 행을 바로 무시하므로 오래된 복제본 갱신에는 사용할 수 없다. 실제 Billing 백필도 생성·버전 기반 갱신·실패 집계를 수행한다.
 
 - 백필은 회원 원본 스냅샷을 사용하는 전용 초기 적재 경로다. 없는 회원은 생성하고 기존 회원은 `ReplicaUser.syncFrom`의 버전 규칙으로 갱신한다. 가입 이벤트의 생성 전용·변경 이벤트의 갱신 전용 규칙을 일반 upsert로 바꾸지 않는다. 백필을 Kafka 가입 이벤트 소비 완료로 기록하지도 않는다.
+- 회원 내부 API는 shared `MemberApiClient`가 아니라 chat-app 전용 `@HttpExchange` 인터페이스(`out/member/ChatMemberInternalApi`)로 부른다(결정 사항 "HTTP 호출"). 경로·내부 API 키·제한 시간·설정 키와 거절/호출 불가 구분은 공통 Client와 같다.
 - 내부 HTTP 조회 중 chat DB 트랜잭션을 열지 않는다. 회원마다 짧은 트랜잭션에서 생성·버전 비교·필요한 제어 작업을 처리한다. Kafka와 동시 생성·갱신 충돌은 유일 제약·낙관적 락으로 감지하고 재조회·제한된 재시도로 수렴시킨다.
 - 권한 있는 운영자가 페이지 단위로 실행하고 생성·갱신·옛 버전 무시·실패 건수, 실패 회원 ID·재개 커서를 기록한다. 실패가 남으면 완료로 표시하지 않는다. 재실행은 최신 값을 과거로 되돌리지 않아야 한다.
 - 전환 순서는 회원 Kafka 발행 시작·기준 offset 기록 → chat 소비 시작 → 기존 회원 백필 → 실패 회원·가입 전 변경 이벤트/DLT 재처리 → 원본 버전 대조·미처리 작업 확인 → 사용자 요청 전환이다. 페이지 조회는 전체 회원의 단일 시점 스냅샷이 아니므로 이 경계를 이벤트 수신과 함께 검증한다.
@@ -401,11 +404,11 @@ Kafka 전환 이전의 회원과 전환 중 놓친 변경을 member-app 내부 A
 
 목표 책임은 `notification-app`으로 옮기되 상위 인프라 문서 8장의 이관 순서를 유지한다. 앱 분리로 현재 전달되지 않는 것은 복구 대상이며, 공지만으로 기능 중단을 승인한 것으로 보지 않는다.
 
-1. 분리 앱을 먼저 운영해야 하면 기존 출연 이벤트 2종을 Kafka로 받아 채팅 알림을 유지하는 전환 어댑터를 #339·출연 담당자와 맞춘다. 중복 알림은 기존 `(notificationKind, referenceId)` 제약으로 흡수하고 알림 메시지와 전달 outbox를 함께 기록한다.
+1. 출연 이벤트 2종(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent`)을 `appearance.events.v1`에서 Kafka로 받아 채팅 알림을 유지한다(2026-10-30 사용자 결정, Q7). 클래스 레벨 `@KafkaListener(topics = "appearance.events.v1", groupId = "chat-app.appearance-notification")`에 두 `@KafkaHandler`를 두고, 출연 취소 이벤트 등 모르는 종류는 건너뛰고 커밋한다. 신뢰 패키지는 `com.hapbang.shared.appearance.event`만이다. 중복 알림은 기존 `(notificationKind, referenceId)` 유일 인덱스(`uk_chat_message_notification`)로 흡수하고, offset은 알림 저장 커밋 뒤 커밋한다. 재시도·DLT(`appearance.events.v1.chat-app.appearance-notification.DLT`)는 5.3과 같은 규칙이다. 알림 메시지와 전달 outbox를 함께 기록하는 것은 전달 outbox 구현과 합친 뒤다.
 2. 알림 모듈이 같은 사실을 소비하기 시작하더라도 FE 전환 전에는 채팅 알림을 제거하지 않는다. FE가 알림 API·destination으로 바뀐 뒤 채팅 쪽 신규 소비·기록을 중단한다. cutover 시점·재처리 범위와 중복 화면 노출 방지는 이관 계약에 남긴다.
 3. 기존 `NOTIFICATION` 채팅 메시지는 대화 이력으로 보존한다. 채팅 자체의 새 메시지 알림은 채팅에 남긴다.
 
-전환 어댑터 없이 알림 모듈과 한 번에 전환할지, 중간 기능 공백을 허용할지는 Q7의 팀 결정이다. 결정 전 기본은 기존 기능 유지이며, 끊긴 상태를 정상 완료로 배포하지 않는다.
+Q7은 2026-10-30에 "Kafka 소비로 유지하고, 알림 모듈 이관 때 옮긴다"로 정했다. 끊긴 상태를 정상 완료로 배포하지 않는다.
 
 ## 6. 인증 전환과의 접점(#371)
 
@@ -447,7 +450,7 @@ Kafka 전환 이전의 회원과 전환 중 놓친 변경을 member-app 내부 A
 | Q4 | 그룹에서 나간 회원이 다시 들어오는 방법 |  자유 재입장은 가능 |
 | Q5 | 그룹 방에도 `NOTIFICATION` 메시지를 남기는가 | 남기지 않는다. 알림 모듈 이관 전까지 1:1만 |
 | Q6 | 채팅 전달에 Redis Streams를 도입할지 | **도입한다(2026-10-29 사용자 변경 결정).** 같은 날의 미도입 결정을 대체한다. outbox → Streams → consumer group → Pub/Sub → 로컬 STOMP를 사용한다. replica 1개·FE 이력 복구·회원 상태 재검사·모듈 간 Kafka 연동은 유지한다 |
-| Q7 | 알림 모듈 이관 전 출연 알림을 유지하는 방법 | 기존 기능 유지가 기본이다. 임시 Kafka 어댑터 또는 알림 모듈·FE 동시 전환을 정한다. 기능 공백은 별도 팀 승인 없이는 허용하지 않는다 |
+| Q7 | 알림 모듈 이관 전 출연 알림을 유지하는 방법 | **Kafka 소비로 유지, 알림 모듈 이관 때 옮긴다(2026-10-30 사용자 결정).** `appearance.events.v1`을 그룹 `chat-app.appearance-notification`으로 받는다(5.5) |
 | Q8 | JWT에서 기기별 로그아웃·폐기 상태 확인·기존 연결 종료를 어떻게 표현할지 | #370과 로그인 식별자·종료 이벤트·재접속 거절·상태 재대조 계약을 확정한다. 만료까지 기다리는 방식은 승인 전 제안으로만 남긴다 |
 | Q9 | `member.events.v1`의 소비자 공통 코드(역직렬화 설정, 재시도·DLT)를 어느 모듈이 소유할지 | **공통 코드를 두지 않는다(#339, 2026-10-30).** 재시도·DLT·역직렬화 정책은 인프라 문서 1장에 문서로만 두고 각 소비 앱이 따라 구현한다 |
 | Q10 | 그룹 방장 퇴장·강퇴·자격 상실 때 권한을 어떻게 유지할지 | 위임·퇴장 제한·폐쇄 중 정책을 결정한다. 방장 없는 활성 그룹 허용 여부와 자기 강퇴도 함께 정하고 용어·정책에 반영한다 |

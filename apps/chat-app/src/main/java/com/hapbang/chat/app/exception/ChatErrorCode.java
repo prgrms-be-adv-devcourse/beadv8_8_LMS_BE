@@ -20,7 +20,10 @@ public enum ChatErrorCode implements BaseErrorCode {
     EMPTY_MESSAGE(HttpStatus.BAD_REQUEST, "메시지 내용이 비어 있습니다."),
     CHAT_PARTNER_LEFT(HttpStatus.CONFLICT, "상대가 나간 채팅방에는 메시지를 보낼 수 없습니다. 채팅을 다시 시작해 주세요."),
     CHAT_ROOM_BUSY(HttpStatus.CONFLICT, "같은 채팅방을 동시에 처리하고 있습니다. 잠시 후 다시 시도해 주세요."),
-    ADMIN_ONLY(HttpStatus.FORBIDDEN, "관리자만 조회할 수 있습니다.");
+    ADMIN_ONLY(HttpStatus.FORBIDDEN, "관리자만 조회할 수 있습니다."),
+    MEMBER_SOURCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보를 조회할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    MEMBER_SOURCE_REJECTED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보를 조회할 수 없습니다."),
+    CHAT_USER_BACKFILL_ALREADY_RUNNING(HttpStatus.CONFLICT, "채팅 회원 백필이 이미 실행 중입니다.");
 
     private final HttpStatus status;
     private final String message;

@@ -50,6 +50,10 @@ hapbang:
     enabled: true
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
+  clients:
+    # 기존 회원 백필의 회원 내부 API (설계 문서 5.4). 기본값은 로컬 member-app 포트. 시간 제한은 Client 기본값(연결 2초·응답 5초)
+    member:
+      base-url: "${MEMBER_API_BASE_URL:http://localhost:8081}"
 springdoc:
   swagger-ui:
     csrf:

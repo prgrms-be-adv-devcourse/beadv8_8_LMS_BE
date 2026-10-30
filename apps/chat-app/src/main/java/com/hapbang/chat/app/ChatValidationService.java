@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
-public class ChatValidationService {
+public class ChatValidationService implements ChatUserEligibility {
 
     private final ChatUserRepository chatUserRepository;
 
@@ -33,6 +33,7 @@ public class ChatValidationService {
     }
 
     /** 채팅할 수 있는 회원인지. 복제본이 없으면 false */
+    @Override
     public boolean canChat(Long userId) {
         return chatUserRepository.findById(userId).map(ChatUser::canChat).orElse(false);
     }

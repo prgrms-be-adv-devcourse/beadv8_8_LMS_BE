@@ -1,0 +1,9 @@
+# 채팅 모듈 테스트 전용 설정(spring.config.name=hapbang-module-test). src/test 아래라 배포 jar에는 포함되지 않는다.
+hapbang:
+  chat:
+    # 운영 기본값은 켜짐(코드 기본값)이다. 대부분의 테스트에는 Kafka가 없으므로 소비자 빈(리스너·DLT 토픽 선언)을 만들지 않게 끄고,
+    # Kafka 시험 클래스만 true로 켠다
+    member-events:
+      enabled: false
+    appearance-events:
+      enabled: false

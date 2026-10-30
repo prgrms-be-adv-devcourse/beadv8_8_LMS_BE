@@ -49,6 +49,7 @@ class DomainIntegrationTest {
 
 - 내부 API 키가 필수인 컨텍스트는 `hapbang.internal-api.key`를 테스트 값으로 설정한다. `@IntegrationTest`는 테스트 키를 제공한다. 직접 `@SpringBootTest`를 쓰는 테스트도 필요한 값을 명시해야 한다.
 - 앱의 YAML이 테스트에 영향을 주지 않도록 테스트 설정의 우선순위와 활성 프로필을 확인한다. 실제 기동 검증과 서비스 일부만 로드하는 테스트를 구분한다.
+- 모듈 테스트(`spring.config.name=hapbang-module-test`)는 `application.yaml`을 읽지 않고 `@ConfigurationProperties`의 코드 기본값을 쓴다. 운영 기본값과 다르게 둬야 하는 값은 앱의 `src/test/resources/hapbang-module-test.yaml`에 둔다(예: chat-app은 회원·출연 이벤트 Kafka 소비 `hapbang.chat.member-events.enabled`·`hapbang.chat.appearance-events.enabled`를 끄고, Kafka 시험 클래스만 켠다).
 - Jackson으로 읽은 `OffsetDateTime`의 offset이 UTC로 정규화될 수 있으므로 같은 시각인지 확인할 때는 instant를 비교한다.
 - S3를 호출하는 테스트는 [S3 문서](../deploy/s3.md)의 테스트 설정을 사용한다.
 
