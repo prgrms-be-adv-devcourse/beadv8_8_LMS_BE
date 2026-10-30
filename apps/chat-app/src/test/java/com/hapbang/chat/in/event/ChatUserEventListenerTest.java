@@ -39,7 +39,6 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.support.KafkaHeaders;
@@ -47,22 +46,26 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatConnectionControl;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatUser;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
 import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.in.event.kafka.ChatKafkaTopicConfig;
 import com.hapbang.chat.out.ChatUserRepository;
-import com.hapbang.chat.out.JdbcChatConnectionControl;
+import com.hapbang.chat.out.JpaChatConnectionControl;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 회원 이벤트를 실제 Kafka(Testcontainers)로 받아 채팅 회원으로 복제하는지 검증한다(설계 문서 5.3).
@@ -108,8 +111,7 @@ class ChatUserEventListenerTest {
     @Autowired
     private ChatUserRepository chatUserRepository;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     @Autowired
     private KafkaAdmin kafkaAdmin;
@@ -121,6 +123,11 @@ class ChatUserEventListenerTest {
     private FailableConnectionControl connectionControl;
 
     private KafkaProducer<String, byte[]> producer;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -172,7 +179,7 @@ class ChatUserEventListenerTest {
         joined(id, "게스트", Role.INFLUENCER, UserStatus.ACTIVE, 0L);
         awaitProcessed();
 
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_user where id = ?", Long.class, id))
+        assertThat(sql.single("select count(*) from chats.chat_user where id = :id", Long.class, Map.of("id", id)))
                 .isEqualTo(1L);
     }
 
@@ -293,7 +300,7 @@ class ChatUserEventListenerTest {
             assertThat(chatUser.getMemberVersion()).isEqualTo(1L);
         });
         assertThat(controlRows(id)).isEmpty();
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_publish_checkpoint", Long.class))
+        assertThat(sql.single("select count(*) from chats.chat_publish_checkpoint", Long.class))
                 .isZero();
     }
 
@@ -385,19 +392,19 @@ class ChatUserEventListenerTest {
     }
 
     private List<Map<String, Object>> controlRows(long userId) {
-        return jdbcTemplate.queryForList("""
+        return sql.rows("""
                 select control_id, control_type, member_version, reason, status
-                from chats.chat_control_outbox where user_id = ?""", userId);
+                from chats.chat_control_outbox where user_id = :userId""", Map.of("userId", userId));
     }
 
     private List<Map<String, Object>> checkpointRows(Object controlId) {
-        return jdbcTemplate.queryForList(
-                "select consumer_group, status from chats.chat_publish_checkpoint where job_id = ?", controlId);
+        return sql.rows("select consumer_group, status from chats.chat_publish_checkpoint where job_id = :jobId",
+                Map.of("jobId", controlId));
     }
 
     private void clearControlTables() {
-        jdbcTemplate.update("delete from chats.chat_publish_checkpoint");
-        jdbcTemplate.update("delete from chats.chat_control_outbox");
+        sql.update("delete from chats.chat_publish_checkpoint");
+        sql.update("delete from chats.chat_control_outbox");
     }
 
     private static long nextId() {
@@ -415,18 +422,18 @@ class ChatUserEventListenerTest {
     }
 
     /**
-     * 실제 제어 작업 기록({@link JdbcChatConnectionControl})을 감싸 호출 수를 세고, 지정한 회원은 기록한 뒤 실패시킨다.
+     * 실제 제어 작업 기록({@link JpaChatConnectionControl})을 감싸 호출 수를 세고, 지정한 회원은 기록한 뒤 실패시킨다.
      * AOP 프록시 빈을 Mockito로 감싸지 않으려고 테스트 전용 기본 빈으로 둔다.
      */
     @Primary
     @TestComponent
     static class FailableConnectionControl implements ChatConnectionControl {
 
-        private final JdbcChatConnectionControl delegate;
+        private final JpaChatConnectionControl delegate;
         private final Map<Long, AtomicInteger> calls = new ConcurrentHashMap<>();
         private final Set<Long> failing = ConcurrentHashMap.newKeySet();
 
-        FailableConnectionControl(JdbcChatConnectionControl delegate) {
+        FailableConnectionControl(JpaChatConnectionControl delegate) {
             this.delegate = delegate;
         }
 

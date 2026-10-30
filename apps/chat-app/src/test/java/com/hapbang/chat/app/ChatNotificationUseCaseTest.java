@@ -4,11 +4,12 @@ import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
@@ -21,11 +22,14 @@ import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.NotificationKind;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.testsupport.IntegrationTest;
+
+import jakarta.persistence.EntityManager;
 
 @IntegrationTest
 class ChatNotificationUseCaseTest {
@@ -55,8 +59,12 @@ class ChatNotificationUseCaseTest {
     @Autowired
     private ChatMessageRepository chatMessageRepository;
 
+    private ChatNativeSql sql;
+
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -95,13 +103,13 @@ class ChatNotificationUseCaseTest {
         ChatMessage stored = chatMessageRepository.findById(messageId).orElseThrow();
         assertThat(stored.getContent()).isEmpty();
         assertThat(stored.readAppearanceRequestSent()).isEqualTo(REQUEST_SENT_DATA);
-        assertThat(jdbcTemplate.queryForMap("""
-                select pg_typeof(notification_data)::text as column_type,
+        assertThat(sql.row("""
+                select cast(pg_typeof(notification_data) as text) as column_type,
                        jsonb_typeof(notification_data -> 'v') as v_type,
                        jsonb_typeof(notification_data -> 'fee') as fee_type,
                        notification_data ->> 'fee' as fee,
                        notification_data ->> 'scheduledAt' as scheduled_at
-                from chats.chat_message where id = ?""", messageId))
+                from chats.chat_message where id = :id""", Map.of("id", messageId)))
                 .containsEntry("column_type", "jsonb")
                 .containsEntry("v_type", "number")
                 .containsEntry("fee_type", "number")
@@ -122,8 +130,9 @@ class ChatNotificationUseCaseTest {
     void 저장한_알림_값을_읽을_수_없어도_이력_조회는_되고_값은_null이다() {
         ChatMessageResponse sent = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))
                 .orElseThrow().sent().message();
-        jdbcTemplate.update("update chats.chat_message set notification_data = '{\"fee\":\"x\"}'::jsonb where id = ?",
-                sent.messageId());
+        sql.update("""
+                update chats.chat_message set notification_data = cast('{"fee":"x"}' as jsonb) where id = :id""",
+                Map.of("id", sent.messageId()));
 
         assertThat(chatMessageSupporter.getMessages(sent.chatRoomId(), GUEST_ID, null, 30).messages()).singleElement()
                 .satisfies(message -> {
