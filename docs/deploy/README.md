@@ -35,7 +35,7 @@ Actions → Deploy(deploy.yml) → Run workflow(main)
   바뀐 앱만 SSM Run Command로 large에서 overlay apply → rollout status, 실패하면 그 앱만 rollout undo
 ```
 
-- 앱 배포 절차와 롤백은 [운영 앱 배포](k8s.md#운영-앱-배포)를 따른다. dev 병합은 CI만 돈다.
+- 앱 배포 절차와 롤백은 [운영 앱 배포](k8s.md#운영-앱-배포)를 따른다. CI는 PR에서만 돌고 dev 병합 때는 workflow가 없다.
 - `k8s/cluster`·`k8s/platform`·`k8s/gateway`는 자동 배포하지 않는다. [적용 순서](k8s.md#적용-순서)대로 수동 적용한다.
 - FE의 k3s 배포는 #374에서 연결한다. FE 레포의 기존 배포 workflow는 서버의 Compose web을 교체하던 방식이라 더 쓰지 않는다.
 - **운영 시간**: EC2는 09:00~18:00에 자동으로 켜져 있다. 켜지면 k3s와 pod가 다시 뜬다. 그 외 시간에는 SSM 배포가 실패하므로 서버가 켜진 뒤 실행한다. 18:00 이후 작업이 필요하면 AWS 콘솔에서 인스턴스를 직접 시작하고, 끝나면 중지한다.
