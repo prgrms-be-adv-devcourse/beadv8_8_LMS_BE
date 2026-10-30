@@ -14,4 +14,10 @@ public final class BillingCallExceptions {
     public static BillingCallException unknownResult(String message) {
         return new BillingCallException(BillingCallFailureKind.UNKNOWN_RESULT, 0, null, message, null);
     }
+
+    /** 회로가 열려 요청을 보내지 않음 (공용 Client와 같은 종류·코드) */
+    public static BillingCallException circuitOpen() {
+        return new BillingCallException(BillingCallFailureKind.RETRYABLE, 0, BillingApiClient.CIRCUIT_OPEN,
+                "지갑 내부 API 회로가 열려 요청을 보내지 않았습니다.", null);
+    }
 }

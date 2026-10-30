@@ -230,6 +230,15 @@ public class HpTask extends BaseEntity {
     }
 
     /**
+     * 지갑에 보내지 못해(회로 열림) 다음 시도 시각만 미룬다 (#439). 요청이 나가지 않았으므로 시도 횟수는 올리지 않는다.
+     */
+    public void postpone(String error, LocalDateTime retryAt) {
+        requirePending();
+        this.lastError = truncate(error);
+        this.nextAttemptAt = retryAt;
+    }
+
+    /**
      * 결과를 알 수 없는 실패를 기록한다. 이번 시도까지 최대 횟수에 닿으면 {@code DEAD}로 격리하고,
      * 아니면 재시도 정책에 따라 다음 시도 시각을 정한다.
      *
