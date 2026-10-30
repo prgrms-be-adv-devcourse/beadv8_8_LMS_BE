@@ -42,6 +42,7 @@
 | BE 이미지 빌드 컨텍스트는 jar 폴더뿐 | 이미지에는 `app.jar`만 들어간다. 소스·`.env`가 들어갈 수 없음 |
 | CI(PR) 읽기 전용 권한 | PR 코드가 실행되는 job은 GHCR에 쓸 수 없음. push는 Publish images의 `build` job만 |
 | 운영 배포 수동 실행·검사 | Deploy는 Environment `prod`(`main`만)에서 실행되고, GHCR에 이미지가 있는(테스트 통과) 커밋만 배포된다 |
+| 릴리스 전 발행 제한 | `prerelease/<앱>` 브랜치 발행은 dev에 포함된(리뷰를 거친) 커밋만 테스트 뒤 올린다. 이 이미지의 배포는 Deploy workflow가 아니라 prod kubeconfig를 가진 사람이 로컬에서 한다([k8s.md](k8s.md#릴리스-전-배포)) |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
 | k3s 배포 role의 trust를 Environment `prod`로 제한 | 다른 브랜치·PR의 workflow는 role을 받지 못한다. `prod`는 `main` 브랜치만 허용 |
 | `hapbang-prod` Pod Security `baseline`(EC2 적용 2026-10-30) | 리뷰를 거쳐 배포되는 manifest가 privileged·hostNetwork·hostPath pod를 만들지 못한다. 그런 pod는 node root·IMDS(인스턴스 역할)에 닿는다. 배포 role 자체의 root 권한은 막지 못한다(아래 알려진 위험) |

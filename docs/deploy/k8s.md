@@ -164,6 +164,28 @@ Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main
 - `k8s/cluster`·`k8s/platform`·`k8s/gateway`·`k8s/registry`는 자동 배포하지 않는다.
 - 서버 스크립트는 로컬 k3d에서 시험할 수 있다: `KUBECTL="kubectl --context k3d-hapbang" ROLLOUT_TIMEOUT=60s .github/scripts/k3s-deploy.sh apply <앱> <GitHub에 있는 커밋> <태그 커밋>`. k3d에는 `ghcr-pull`이 없어 Secret 확인에서 멈추므로, 가짜 값으로 `kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io ...`를 만들어 둔다(pull은 401·403으로 실패해 원인 구분을 시험할 수 있다). 시험 뒤 `apps/<앱>/k8s/overlays/local`을 다시 적용하고, 함께 생긴 prod SealedSecret(`kubectl delete sealedsecret <앱>-secrets`)과 가짜 `ghcr-pull`을 지운다.
 
+### 릴리스 전 배포
+
+dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461). GHCR 패키지는 조직 정책으로 멤버가 직접 만들 수 없어(개인 PAT push는 `denied`), 이미지는 이 repo의 Actions가 발행한다.
+
+1. **발행**: dev의 커밋을 `prerelease/<앱>[+<앱>...]` 브랜치로 push한다. Publish images가 적은 앱만 테스트한 뒤 `:sha-<그 앱을 마지막으로 바꾼 커밋>`으로 올린다. dev에 포함되지 않은 커밋이나 목록에 없는 앱이면 실패한다.
+
+   ```bash
+   git fetch origin
+   git push origin origin/dev:refs/heads/prerelease/member-app+lecture-app
+   ```
+
+2. **브랜치 삭제**: run이 끝나면 `git push origin --delete prerelease/member-app+lecture-app`. 태그는 run 요약과 `.github/scripts/apps.sh source <앱> <dev 커밋>`으로 알 수 있다.
+3. **pull 확인**: `k8s/tools/ghcr-pull-check.sh <이미지> <pool>`([GHCR pull 인증](#ghcr-pull-인증)).
+4. **배포**: Deploy workflow는 main 커밋만 받으므로 로컬에서 같은 스크립트를 쓴다. prod kubeconfig(context `hapbang-k3s`)가 필요하다. 앱은 배포 순서(member → billing → appearance → lecture → chat → customer-support)를 지킨다.
+
+   ```bash
+   KUBECTL="kubectl --context hapbang-k3s" .github/scripts/k3s-deploy.sh apply <앱> <dev 커밋 40자> <태그 커밋 40자>
+   ```
+
+- 릴리스 뒤 main의 Publish images가 같은 태그로 다시 발행할 수 있다. 같은 커밋의 jar라 내용은 같다. dev 커밋은 main 병합(merge commit) 뒤 main 이력에 들어가므로 Deploy workflow가 이어서 바뀐 앱을 판단한다.
+- 리뷰를 거친 dev 커밋만 발행하지만 main 릴리스 리뷰는 거치지 않는다. 어떤 앱을 언제 먼저 올렸는지 해당 티켓에 남긴다.
+
 ### 첫 릴리스
 
 main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없고, 앱 이미지 패키지도 아직 없다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.

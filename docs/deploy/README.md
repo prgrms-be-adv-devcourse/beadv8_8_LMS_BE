@@ -28,7 +28,7 @@
 PR → GitHub Actions(CI)
   verify  앱 목록 검사 → verifyModuleStructure → 앱별 check bootJar → 앱별 이미지 빌드 확인(push 안 함)
 
-main push → Publish images(publish.yml)
+main push → Publish images(publish.yml)   # 릴리스 전에는 prerelease/<앱> 브랜치 push로 일부 앱만(k8s.md "릴리스 전 배포")
   바뀐 앱만 GHCR(private, 조직 정책)에 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<커밋> 발행
 
 Actions → Deploy(deploy.yml) → Run workflow(main)
