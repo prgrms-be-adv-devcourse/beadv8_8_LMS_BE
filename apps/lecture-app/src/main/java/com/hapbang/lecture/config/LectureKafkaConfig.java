@@ -73,6 +73,8 @@ public class LectureKafkaConfig {
                 new StringSerializer(),
                 new DelegatingByTypeSerializer(valueSerializers, true)));
 
+        // 원본과 같은 partition 번호로 보낸다. 원본 토픽의 partition이 DLT(3개)보다 많아 번호가 없으면
+        // DeadLetterPublishingRecoverer가 전송 전에 확인해 partition을 비우고(-1) key로 고르게 한다(verifyPartition 기본값).
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(deadLetterTemplate,
                 (record, exception) -> new TopicPartition(
                         deadLetterTopic(record.topic(), Objects.requireNonNull(KafkaUtils.getConsumerGroupId(),
