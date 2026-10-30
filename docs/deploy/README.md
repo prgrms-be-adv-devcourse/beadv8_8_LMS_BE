@@ -1,11 +1,12 @@
 # 배포 개요
 
-현재 합방은 EC2 1대에 **운영(prod)**과 **개발 서버(dev)**를 함께 올린다. FE·BE 레포가 각자 이미지를 만들고, 서버 구성(compose·nginx·배포 스크립트)은 BE 레포 `docker/`에 있다. 최종 프로젝트용 EC2 2노드 k3s cluster는 구성했지만(2026-10-28) 아직 workload를 올리지 않았다. 운영은 계속 아래 Compose 구성이며, k3s 배치는 [aws-k3s.md](aws-k3s.md)의 목표 상태다.
+현재 EC2 2노드 k3s에 공용 인프라와 Envoy Gateway를 적용했다(2026-10-30, #372). 외부 80·443은 large의 ServiceLB → Envoy가 받는다. Grafana(`/grafana/`)·Kafka UI(`/kafka/`)는 인증 후 접근할 수 있다. 업무 앱·FE는 아직 k3s에 배포하지 않아 `/`와 미등록 API는 404다. 기존 Compose edge nginx·certbot은 중지했고 app·web·DB 컨테이너와 데이터는 보존했다. dev 도메인의 Gateway route는 없다. 설치·검증 기록은 [Gateway](gateway.md)를 따른다.
 
 | 환경 | 주소 | 브랜치 | Swagger |
 | --- | --- | --- | --- |
-| prod | https://hapbang.duckdns.org | `main` (수동 배포) | 비활성 |
-| dev | https://dev.hapbang.duckdns.org | `dev` | https://dev.hapbang.duckdns.org/swagger-ui.html |
+| prod | https://hapbang.duckdns.org | `main` (업무 앱·FE 미배포) | 미배포 |
+| Grafana | https://hapbang.duckdns.org/grafana/ | 공용 인프라 | 해당 없음 |
+| Kafka UI | https://hapbang.duckdns.org/kafka/ | 공용 인프라 | 해당 없음 |
 
 ## 문서
 
@@ -21,7 +22,9 @@
 | [k8s.md](k8s.md) | `k8s/` manifest 구조, 차트 버전, Secret 목록, 적용 순서, 로컬 k3d 검증 |
 | [infra/terraform](../../infra/terraform/README.md) | AWS 리소스(EC2·네트워크·S3·IAM) 코드, 다른 계정으로 옮기기 |
 
-## 구조
+## 기존 Compose 구조·절차 (전환 전 기록)
+
+아래는 전환 전 운영 기록이다. 현재 진입점·새 앱 배포에 그대로 적용하지 않는다.
 
 ```
 [인터넷] :443 ─ edge nginx ─┬─ prod 도메인 ─┬─ /api, /swagger-ui, /v3/api-docs → prod app(Spring)

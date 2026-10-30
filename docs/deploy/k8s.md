@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: manifest 작성(#373). EC2 k3s에는 `cluster`·`platform`을 적용했다(2026-10-29, #374). 앱은 아직 적용하지 않았고, 운영은 Docker Compose다([배포 개요](README.md)).
+상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy이며 업무 앱·FE는 아직 미배포다. 기존 Compose 데이터는 보존하고 edge nginx·certbot은 중지했다([배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 

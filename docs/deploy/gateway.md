@@ -1,6 +1,6 @@
 # Envoy Gateway (#372)
 
-상태: 로컬 검증용 구성. EC2 진입점은 아직 Compose edge nginx다. 운영 전환은 #370·#371 인증, #374 이미지·배포, #338 데이터 이전 준비 뒤 수행한다. 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
+상태: EC2에 Envoy Gateway·cert-manager를 설치하고 외부 진입점을 전환했다(2026-10-30, #372). ServiceLB → Envoy가 80·443을 받고 Let's Encrypt production 인증서를 사용한다. 업무 앱·FE는 미배포이며 #370·#371 인증과 #374 배포 준비 뒤 각각 연결한다. 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
 
 ## 결정 기록 (2026-10-29)
 
@@ -12,12 +12,18 @@
 - 티켓 범위를 넘는 장치는 두지 않는다. 업로드 메서드·형식·크기 검사는 앱이 원본이고 Envoy는 timeout만 늘린다. platform에는 ingress NetworkPolicy를 두지 않는다. `run.py`는 완료 조건만 검사한다.
 - 앱 manifest는 각 앱의 `k8s/`에 둔다. 공통 Gateway, platform 접근 정책, Grafana·Alloy 설정은 `k8s/gateway/`에 둔다. 앱이 루트 manifest를 참조하지 않는다.
 
+## 변경 결정 (2026-10-30)
+
+- 사용자는 기존 배포 서버와의 호환을 제외하고 Gateway 설치·전환을 먼저 진행하도록 지시했다. 공용 Gateway·TLS·관측성 경로를 먼저 적용하고 업무 앱·FE 연결은 후속 작업으로 남긴다. 기존 DB·PVC는 삭제하지 않는다.
+- `--gateway-only`는 앱 overlay와 FE의 `web` HTTPRoute를 제외한다. JWT 발급 앱이나 FE Service가 없어도 공용 진입점을 준비할 수 있다. `/`는 FE 배포 때 연결하며 그 전에는 404다.
+- 기본 렌더링은 인증서 연락 이메일을 요구한다. 기존 Compose는 이메일 없이 등록한 구성이며 설치된 ACME CRD에서 이메일은 선택 항목이다. 이번에는 연락처 답변을 기다린 뒤 `--without-acme-email`로 명시적으로 생략했다. 연락처가 정해지면 issuer의 `spec.acme.email`에 추가할 수 있다. 이메일을 지정한 상태에서 생략 플래그를 함께 쓰면 실패한다.
+
 ## 구성과 적용 순서
 
 | 경로 | 책임 |
 | --- | --- |
 | `k8s/gateway/install/envoy-gateway` | 공식 HelmChart v1.9.3, controller medium 128Mi, Gateway API·Envoy CRD |
-| `k8s/gateway/install/cert-manager` | 공식 HelmChart v1.21.3, controller·webhook·cainjector medium 각 50Mi |
+| `k8s/gateway/install/cert-manager` | 공식 HelmChart v1.21.3, medium의 controller·cainjector 각 128Mi, webhook 50Mi |
 | `k8s/gateway/overlays/local` | `hapbang.local`, 로컬 self-signed TLS, trace sampling 100% |
 | `k8s/gateway/overlays/prod` | 명시적 입력이 필요한 운영 template, Let's Encrypt staging·production issuer, sampling 10% |
 | `apps/<앱>/k8s/base/gateway.yaml` | 모듈 HTTPRoute·optional JWT·본문 제한·업로드·WebSocket |
@@ -94,9 +100,20 @@ export MEMBER_JWKS_URI='http://member-app.hapbang-prod.svc.cluster.local:8080/<�
 /tmp/gateway-test-venv/bin/python k8s/gateway/tools/render-prod.py > /tmp/gateway-prod.yaml
 ```
 
-운영 배포는 #374의 앱별 이미지·SealedSecret 준비와 GHCR 패키지 공개 이후다. 출력 파일을 그대로 자동 apply하지 않는다. Gateway·platform은 수동, 앱 manifest는 앱별 workflow가 관리하도록 확정된 issuer·JWKS를 각 배포 입력에 반영한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
+업무 앱 배포는 #374의 앱별 이미지·SealedSecret 준비와 GHCR 패키지 공개 이후다. 출력 파일을 그대로 자동 apply하지 않는다. Gateway·platform은 수동, 앱 manifest는 앱별 workflow가 관리하도록 확정된 issuer·JWKS를 각 배포 입력에 반영한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
 
-### EC2 전환 조건과 순서 (이번 작업에서는 실행하지 않음)
+Gateway만 먼저 렌더링할 때는 앱 JWT 설정을 생략할 수 있다. 기본값은 연락 이메일 필수이며, 이번처럼 연락처 없이 등록할 때만 명시적인 생략 플래그를 쓴다.
+
+```bash
+# EC2용 렌더링만 수행하며 자동 apply하지 않는다.
+GATEWAY_HOST='<prod 도메인>' ACME_EMAIL= \
+  /tmp/gateway-test-venv/bin/python k8s/gateway/tools/render-prod.py \
+  --gateway-only --without-acme-email > /tmp/gateway-only.yaml
+```
+
+### 전체 서비스 전환 조건과 순서
+
+아래는 업무 앱·FE를 포함한 전체 서비스 전환 절차다. Gateway 설치·진입점 전환은 위의 2026-10-30 결정에 따라 먼저 완료했다. 인증·업무 앱·데이터 이전의 완료 조건은 그대로 남는다.
 
 1. #370·#371 JWT/인가, #280 독립 기동, #338 데이터 이전·복구, #374 앱·FE 이미지와 Secret 준비를 확인한다. medium의 목표 구성 예산 초과는 #343에서 조정하고 sidecar·설치 Job·rolling 여유도 포함해 재측정한다.
 2. nginx·기존 인증서·Compose와 k3s config를 백업하고 중단 시간을 팀에 공지한다. 기존 서비스·DB는 지우지 않는다.
@@ -123,3 +140,17 @@ export MEMBER_JWKS_URI='http://member-app.hapbang-prod.svc.cluster.local:8080/<�
 - 범위를 줄이기 전에 한 번 확인하고 `run.py`에서 뺀 항목이 있다. 업무 경로 7개 라우팅, JWKS 키 교체·장애, 8081 허용 목록·키 인증, 일반 본문 1MiB 제한, Grafana Secure cookie·Live WebSocket이다. trace ID의 Envoy → Alloy → Tempo 도착과 로컬 인증서 갱신·Envoy TLS reload도 이때 확인했다. Let's Encrypt의 실제 발급·갱신 검증은 아니다.
 - `verifyModuleStructure`, 전체 `check bootJar`, 고정 CRD schema 검사, Python lint를 통과했다. 최신 dev의 출연 RestAssured 변경(#402)을 병합하고 출연 check를 다시 통과했다. 강의 HP 작업 실행기(#275)가 추가한 Billing Client 주소도 8081로 맞추고 통합 check를 다시 통과했다.
 - EC2·DNS·security group·운영 nginx·운영 데이터는 변경하지 않았다. IMDS 정책의 실제 AWS 동작, 인터넷 client IP, 실제 STOMP JWT와 FE 통합은 운영 전환 전에 확인한다.
+
+## EC2 적용·검증 기록 (2026-10-30)
+
+- Envoy Gateway v1.9.3과 cert-manager v1.21.3을 설치했다. controller는 medium, Envoy proxy는 large에서 Ready다.
+- 로컬 cert-manager의 controller 반복 종료·cainjector OOMKilled를 확인해 두 컨테이너를 각각 50Mi에서 128Mi로 조정했다. 변경 후 로컬·EC2에서 재시작 없이 Ready를 확인했다. webhook은 50Mi를 유지한다. 목표 8개 앱의 medium 예산 초과는 별도 조정이 필요하다(#343).
+- k3s 설정·edge Compose/nginx 구성·기존 인증서를 서버의 root 전용 `/var/backups/hapbang/gateway-<UTC>/`에 백업했다. edge nginx·certbot을 중지하고, k3s의 `disable: servicelb`를 `disable: traefik`으로 바꾼 뒤 재시작했다. ServiceLB label은 large에만 붙였으며 두 ServiceLB 포트 컨테이너가 large에서 Ready다. 기존 app·web·DB와 PVC는 보존했다.
+- Let's Encrypt staging 발급 성공 뒤 `gateway-issuer` production 인증서로 전환했다. Certificate Ready와 일반 TLS 검증을 통과했다. 만료는 2027-01-28, cert-manager의 갱신 예정은 2026-12-29다. 실제 만료 갱신을 실행했다는 뜻은 아니다.
+- 외부 도메인 검증 12개 통과: HTTP→HTTPS 301, 신뢰된 TLS와 Grafana 로그인 화면 200, Grafana 익명 데이터 401·실제 로그인/인증 데이터 200, Kafka UI 익명 401·인증 화면/토픽 API 200, 내부 API 404, 미등록 앱 API·FE root 404, 위조 사용자 헤더로 Grafana 데이터 접근 불가.
+- Alloy의 OTLP 수신 13 spans·Tempo 전송 13 spans·수신 거절 0을 확인했고 Tempo에서 Envoy ingress trace를 조회했다. 운영 샘플링은 10%여서 특정 단건 요청이 항상 저장되는 것은 아니다.
+- Gateway 전용 렌더링에서 업무 앱·FE route를 제외했다. 초기 `web` route는 FE Service가 없어 500을 반환했으며 이번에 생성한 그 route만 제거한 뒤 404를 확인했다. FE 배포 때 root route를 연결해야 한다.
+- 로컬 k3d 통합 검증 14개 통과: 2GiB 스트리밍, optional JWT·서명/만료/issuer/kid 거절, 사용자 헤더·내부 키 위조 제거, 내부 경로·8080 우회 차단, XFF 우측 hop, WebSocket, Grafana 익명 차단·로그인·데이터 조회. 테스트 경로는 `/api/v1/gateway-test/`로 분리해 이미 설치된 실제 앱 route와 충돌하지 않는다.
+- 운영 렌더러의 Basic Auth `SecurityPolicy` 처리 시 `KeyError: jwt`를 수정했다. 실제 Kustomize overlay를 쓰는 회귀 검사 3개를 CI에 추가했다. `verifyModuleStructure`, 전체 `check`(3,153개, 실패·오류·건너뜀 0개), Gateway manifest schema 검사를 통과했다.
+- 최신 dev의 출연 HTTP 전환을 통합한 뒤 `check`를 다시 통과했다. 변경된 출연·shared 테스트를 실행하고 나머지 이전 결과를 재사용했으며 결과 XML 총 3,169개, 실패·오류·건너뜀 0개다.
+- 업무 앱·FE 이미지·Secret 배포, 실제 member JWKS와 앱 헤더 인가(#370·#371), S3 업로드·STOMP JWT·FE 통합은 미완료다. 이 작업만으로 #372 전체 완료 또는 서비스 전환 완료를 선언하지 않는다.
