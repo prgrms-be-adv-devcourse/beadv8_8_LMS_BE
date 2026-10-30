@@ -182,7 +182,8 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
 
 3. **push**: classic PAT(`write:packages`, 만료 1일)를 만들고 별도 터미널에서 `docker login ghcr.io -u <GitHub 아이디>`(Password 칸에 붙여 넣는다) → `docker push <이미지>` → `docker logout ghcr.io` → PAT 삭제. 토큰은 채팅·이슈에 붙이지 않는다.
    - 패키지가 없으면 첫 push가 패키지를 만든다. 2026-10-30 member-app·lecture-app은 첫 push가 패키지만 만들고 `denied`로 끝났고, 다시 로그인해 push하자 올라갔다.
-   - **사람이 만든 패키지는 main의 Publish images(`GITHUB_TOKEN`)가 push하지 못한다.** 패키지 페이지 → Package settings → Manage Actions access에 `beadv8_8_LMS_BE`를 Write로 더한다. member-app·lecture-app이 이 경우다.
+   - main의 Publish images(`GITHUB_TOKEN`)가 이 패키지에 push하려면 레포 Actions에 쓰기 권한이 있어야 한다. 위 라벨로 올리면 패키지가 레포에 연결된다. 패키지 페이지 → Package settings → Inherited access에서 "Inherit access from source repository"를 켜고, Manage Actions access에 `beadv8_8_LMS_BE`가 보이는지 확인한다. 연결되지 않았으면 패키지 페이지의 Connect Repository로 연결한 뒤 켠다. 조직이 상속을 막아 항목이 없으면 Manage Actions access → Add Repository → `beadv8_8_LMS_BE`(Write)로 더한다([GitHub 문서](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)).
+   - member-app·lecture-app은 2026-10-30 상속을 켰다.
 4. **pull 확인**: `k8s/tools/ghcr-pull-check.sh <이미지> <pool>`([GHCR pull 인증](#ghcr-pull-인증)).
 5. **배포**: Deploy workflow는 main 커밋만 받으므로 로컬에서 한다. prod kubeconfig(context `hapbang-k3s`)가 필요하다. 앱은 배포 순서(member → billing → appearance → lecture → chat → customer-support)를 지킨다.
 
@@ -216,7 +217,7 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
 
 ### 첫 릴리스
 
-main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app만 있다(2026-10-30 [릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 이 두 패키지는 Manage Actions access에 `beadv8_8_LMS_BE` Write가 있어야 첫 Publish가 push된다. 나머지 4개는 첫 Publish가 만든다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
+main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app만 있다(2026-10-30 [릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 두 패키지는 레포 상속을 켜 두었다. 첫 Publish run에서 이 두 앱의 push가 권한 오류로 실패하면 Manage Actions access를 확인한다. 나머지 4개는 첫 Publish가 만든다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
 
 1. **dev → main 병합**: base `main` ← `dev`(또는 `release/review-N`) PR을 만들어 병합한다. 다른 브랜치에서 열면 `PR source / source-branch` 체크가 실패한다(#180).
 2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
