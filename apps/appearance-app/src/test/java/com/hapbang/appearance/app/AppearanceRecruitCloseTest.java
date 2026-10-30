@@ -154,7 +154,7 @@ class AppearanceRecruitCloseTest {
 
     /** 이 모집글 보류에서 Billing에 돌려 달라고 해 받아들여진 HP 합계 */
     private long releasedOf(Long recruitId) {
-        return BillingCalls.releasedAmount(billingClient, BillingReferenceType.APPEARANCE_RECRUIT, recruitId);
+        return BillingCalls.releasedAmount(BillingReferenceType.APPEARANCE_RECRUIT, recruitId);
     }
 
     private static void assertErrorCode(Runnable action, AppearanceErrorCode errorCode) {

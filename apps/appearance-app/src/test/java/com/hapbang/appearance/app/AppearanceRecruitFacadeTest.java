@@ -21,6 +21,7 @@ import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
+import com.hapbang.appearance.domain.AppearanceHoldRejectedException;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
@@ -32,7 +33,6 @@ import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
-import com.hapbang.appearance.global.exception.BusinessException;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.member.domain.Role;
@@ -122,13 +122,13 @@ class AppearanceRecruitFacadeTest {
     }
 
     @Test
-    @DisplayName("Billing이 보류를 거절하면(잔액 부족) 그 오류 그대로, 모집글은 HOLD_FAILED로 남고 목록에 보이지 않는다")
+    @DisplayName("지갑이 보류를 거절하면(잔액 부족) 409 INSUFFICIENT_BALANCE(출연 문구), 모집글은 HOLD_FAILED로 남고 목록에 보이지 않는다")
     void insufficientBalance() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
         assertThatThrownBy(() -> post(HOST))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode").isEqualTo(Rejection.INSUFFICIENT_BALANCE);
+                .isInstanceOf(AppearanceHoldRejectedException.class)
+                .extracting("errorCode").isEqualTo(AppearanceErrorCode.INSUFFICIENT_BALANCE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
         assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getTotalElements()).isZero();
