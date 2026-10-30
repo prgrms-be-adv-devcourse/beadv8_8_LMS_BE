@@ -1,8 +1,9 @@
 package com.hapbang.chat.app.dto;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 
+import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
+import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.NotificationKind;
@@ -10,7 +11,8 @@ import com.hapbang.chat.domain.NotificationKind;
 /**
  * 관리자 기록 조회의 메시지.
  *
- * @param notificationData 알림 메시지의 종류별 값. {@link ChatMessageResponse#notificationData()}와 같다
+ * @param appearanceRequestSent          출연 요청 도착 알림의 값. {@link ChatMessageResponse}와 같다
+ * @param appearanceApplicationSubmitted 출연 모집 지원 도착 알림의 값. {@link ChatMessageResponse}와 같다
  */
 public record ChatMessageHistoryResponse(
         Long messageId,
@@ -23,13 +25,14 @@ public record ChatMessageHistoryResponse(
         NotificationKind notificationKind,
         Long referenceId,
         Long parentReferenceId,
-        Map<String, Object> notificationData
+        AppearanceRequestSentData appearanceRequestSent,
+        AppearanceApplicationSubmittedData appearanceApplicationSubmitted
 ) {
 
     public static ChatMessageHistoryResponse from(ChatMessage message) {
         return new ChatMessageHistoryResponse(message.getId(), message.getRoomSequence(), message.getSenderUserId(),
                 message.getMessageType(), message.getContent(), message.getSentAt(), message.getDeletedAt(),
                 message.getNotificationKind(), message.getReferenceId(), message.getParentReferenceId(),
-                message.getNotificationData());
+                message.readAppearanceRequestSent(), message.readAppearanceApplicationSubmitted());
     }
 }

@@ -3,8 +3,6 @@ package com.hapbang.chat.domain;
 import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
-import java.util.Map;
-
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -59,38 +57,53 @@ class ChatMessageTest {
 
     @Test
     void 알림_메시지는_종류와_출연_건_ID와_값을_가지고_문구는_만들지_않는다() {
-        Map<String, Object> data = Map.of("v", 1, "guestNickname", "게스트", "recruitTitle", "주말 게임 합방 모집");
+        AppearanceApplicationSubmittedData data = new AppearanceApplicationSubmittedData(1, "게스트", "주말 게임 합방 모집");
 
-        ChatMessage notification = ChatMessage.notification(directRoom(), HOST_ID,
-                NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, 20L, 7L, data, NOW);
+        ChatMessage notification = ChatMessage.appearanceApplicationSubmitted(directRoom(), GUEST_ID, 20L, 7L, data,
+                NOW);
 
         assertThat(notification.getMessageType()).isEqualTo(ChatMessageType.NOTIFICATION);
         assertThat(notification.getNotificationKind()).isEqualTo(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED);
         assertThat(notification.getReferenceId()).isEqualTo(20L);
         assertThat(notification.getParentReferenceId()).isEqualTo(7L);
-        assertThat(notification.getSenderUserId()).isEqualTo(HOST_ID);
-        assertThat(notification.getNotificationData()).isEqualTo(data);
+        assertThat(notification.getSenderUserId()).isEqualTo(GUEST_ID);
+        assertThat(notification.readAppearanceApplicationSubmitted()).isEqualTo(data);
+        assertThat(notification.readAppearanceRequestSent()).isNull();
         assertThat(notification.getContent()).isEqualTo(ChatMessage.NOTIFICATION_CONTENT).isEmpty();
     }
 
     @Test
-    void 일반_메시지에는_알림_값이_없다() {
-        assertThat(ChatMessage.text(directRoom(), HOST_ID, "안녕하세요", null, NOW).getNotificationData()).isNull();
-        assertThat(ChatMessage.leftNotice(directRoom(), GUEST_ID, "게스트", NOW).getNotificationData()).isNull();
+    void 출연_요청_알림은_요청_record로만_다시_읽는다() {
+        AppearanceRequestSentData data = new AppearanceRequestSentData(1, "호스트", "금요일 밤 합방", 50_000L,
+                "2026-11-20T21:00:00", "2026-11-13T23:59:00");
+
+        ChatMessage notification = ChatMessage.appearanceRequestSent(directRoom(), HOST_ID, 10L, data, NOW);
+
+        assertThat(notification.getNotificationKind()).isEqualTo(NotificationKind.APPEARANCE_REQUEST_SENT);
+        assertThat(notification.getParentReferenceId()).isNull();
+        assertThat(notification.readAppearanceRequestSent()).isEqualTo(data);
+        assertThat(notification.readAppearanceApplicationSubmitted()).isNull();
     }
 
     @Test
-    void 알림_종류나_출연_건_ID나_값이_없으면_만들_수_없다() {
-        Map<String, Object> data = Map.of("v", 1);
+    void 일반_메시지에는_알림_값이_없다() {
+        ChatMessage text = ChatMessage.text(directRoom(), HOST_ID, "안녕하세요", null, NOW);
+        assertThat(text.readAppearanceRequestSent()).isNull();
+        assertThat(text.readAppearanceApplicationSubmitted()).isNull();
+        assertThat(ChatMessage.leftNotice(directRoom(), GUEST_ID, "게스트", NOW).getNotificationDataJson()).isNull();
+    }
 
-        assertThatIllegalStateException().isThrownBy(() -> ChatMessage.notification(directRoom(), HOST_ID, null, 10L,
+    @Test
+    void 출연_건_ID나_값이_없으면_만들_수_없다() {
+        AppearanceRequestSentData data = new AppearanceRequestSentData(1, "호스트", "금요일 밤 합방", 50_000L,
+                "2026-11-20T21:00:00", "2026-11-13T23:59:00");
+
+        assertThatIllegalStateException().isThrownBy(() -> ChatMessage.appearanceRequestSent(directRoom(), HOST_ID,
                 null, data, NOW));
-        assertThatIllegalStateException().isThrownBy(() -> ChatMessage.notification(directRoom(), HOST_ID,
-                NotificationKind.APPEARANCE_REQUEST_SENT, null, null, data, NOW));
-        assertThatIllegalStateException().isThrownBy(() -> ChatMessage.notification(directRoom(), HOST_ID,
-                NotificationKind.APPEARANCE_REQUEST_SENT, 10L, null, null, NOW));
-        assertThatIllegalStateException().isThrownBy(() -> ChatMessage.notification(directRoom(), HOST_ID,
-                NotificationKind.APPEARANCE_REQUEST_SENT, 10L, null, Map.of(), NOW));
+        assertThatIllegalStateException().isThrownBy(() -> ChatMessage.appearanceRequestSent(directRoom(), HOST_ID,
+                10L, null, NOW));
+        assertThatIllegalStateException().isThrownBy(() -> ChatMessage.appearanceApplicationSubmitted(directRoom(),
+                GUEST_ID, 20L, 7L, null, NOW));
     }
 
     @Test

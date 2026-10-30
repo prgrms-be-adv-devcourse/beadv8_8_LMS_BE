@@ -20,7 +20,7 @@ class ChatMessageSenderTest {
     private final ChatMessageSender chatMessageSender = new ChatMessageSender(messagingTemplate);
 
     private final ChatMessageResponse message = new ChatMessageResponse(10L, 1L, 1L, HOST_ID, ChatMessageType.TEXT,
-            "안녕하세요", NOW, "client-1", null, null, null, null);
+            "안녕하세요", NOW, "client-1", null, null, null, null, null);
 
     @Test
     void 한_회원에게_전달이_실패해도_예외를_던지지_않고_나머지_회원에게_보낸다() {
