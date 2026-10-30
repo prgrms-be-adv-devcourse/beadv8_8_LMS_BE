@@ -1,5 +1,5 @@
 # Kafka 토픽·메시지·consumer group을 보는 UI(Redpanda Console, Apache Kafka와 호환).
-# 평소에는 replicas 0으로 꺼 두고, 볼 때만 켜서 port-forward로 접속한다(docs/deploy/k8s.md "관측성 접속").
+# Gateway의 /kafka/에서 Basic Auth만으로 바로 쓸 수 있게 항상 1개 띄운다(docs/deploy/k8s.md "관측성 접속").
 # 자체 로그인과 권한 제어가 없고 메시지 발행·토픽 삭제도 할 수 있다. 외부에서는 Gateway의 /kafka/ route가 Basic Auth로 막는다(k8s/gateway/base/kafka-ui-route.yaml).
 # Kafdrop(JVM)은 로컬 실측 269~307Mi, Redpanda Console(Go)은 35~42Mi라 이쪽을 골랐다(#374). 라이선스는 BSL이며 내부 사용은 허용된다.
 apiVersion: v1
@@ -23,7 +23,7 @@ metadata:
   labels:
     app.kubernetes.io/name: redpanda-console
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: redpanda-console

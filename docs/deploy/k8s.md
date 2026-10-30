@@ -11,7 +11,7 @@
 | `k8s/cluster` | kube-system 외 | namespace, `local-path-retain` StorageClass, HelmChart(ECK operator, Sealed Secrets) | 수동 |
 | `k8s/gateway/{install,base,overlays}` | envoy-gateway-system·cert-manager 외 | 공용 Envoy·TLS·Grafana·IMDS 차단 정책. [Gateway 절차](gateway.md) | 수동 |
 | `k8s/components/core-data` | - | `hapbang.io/pool: core-data` label에 large required node affinity를 붙이는 Kustomize Component | platform이 사용 |
-| `k8s/platform/{base,overlays/local,overlays/prod}` | hapbang-platform | PostgreSQL(HelmChart), Kafka·Redis(StatefulSet), Elasticsearch(ECK CR, nori는 init container로 설치), 관측성 HelmChart 5개, Kafka UI(Redpanda Console, 평소 꺼 둠) | 수동 |
+| `k8s/platform/{base,overlays/local,overlays/prod}` | hapbang-platform | PostgreSQL(HelmChart), Kafka·Redis(StatefulSet), Elasticsearch(ECK CR, nori는 init container로 설치), 관측성 HelmChart 5개, Kafka UI(Redpanda Console) | 수동 |
 | `apps/<앱>/k8s/{base,overlays/local,overlays/prod}` | hapbang-prod | 앱 Deployment·Service·ConfigMap·HTTPRoute·SecurityPolicy·NetworkPolicy. overlay는 이미지와 Secret | prod는 앱마다 배포 workflow(#374) |
 | `k8s/local/k3d.yaml` | - | 로컬 k3d cluster 설정 | - |
 
@@ -142,16 +142,13 @@ kubectl --context "$CTX" -n hapbang-platform port-forward svc/grafana 3000:80
 # Prometheus UI: http://localhost:9090
 kubectl --context "$CTX" -n hapbang-platform port-forward svc/prometheus-server 9090:80
 
-# Kafka UI(Redpanda Console): http://localhost:8080. 평소 replicas 0이라 켜고, 다 보면 끈다.
-kubectl --context "$CTX" -n hapbang-platform scale deploy/redpanda-console --replicas=1
-kubectl --context "$CTX" -n hapbang-platform rollout status deploy/redpanda-console
+# Kafka UI(Redpanda Console): http://localhost:8080
 kubectl --context "$CTX" -n hapbang-platform port-forward svc/redpanda-console 8080:8080
-kubectl --context "$CTX" -n hapbang-platform scale deploy/redpanda-console --replicas=0
 ```
 
 - admin 비밀번호는 차트가 처음 설치할 때 만든 Secret(`grafana`)에 있다. 레포·채팅에 옮기지 않는다.
 - Loki(3100)·Tempo(3200)는 Grafana datasource로 조회한다.
-- Redpanda Console은 자체 로그인이 없고 메시지 발행·토픽 삭제도 할 수 있다. 진입점 전환 전에는 port-forward로만 접속하고, 전환 뒤에는 `https://<도메인>/kafka/`에서 Envoy Basic Auth를 거친다([Gateway 구성](gateway.md)). 다 보면 replicas 0으로 되돌린다.
+- Redpanda Console은 자체 로그인이 없고 메시지 발행·토픽 삭제도 할 수 있다. Gateway를 설치하면 `https://<도메인>/kafka/`에서 Envoy Basic Auth만 거쳐 접속한다([Gateway 구성](gateway.md)). 그 전에는 port-forward로 접속한다.
 
 ## CI
 

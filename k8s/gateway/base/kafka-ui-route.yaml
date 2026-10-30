@@ -1,6 +1,5 @@
 # Kafka UI(Redpanda Console)를 /kafka/에서 Basic Auth로 연다(#374).
 # Console 무료판에는 로그인이 없어 Envoy가 인증한다. 계정은 kafka-ui-basic-auth Secret의 .htpasswd(SHA)다.
-# Console은 평소 replicas 0이라 꺼져 있으면 503이다. 켜고 끄는 방법은 docs/deploy/k8s.md "관측성 접속".
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
