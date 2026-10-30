@@ -58,11 +58,15 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatUserFacade;
 import com.hapbang.chat.fixture.ChatNativeSql;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -102,12 +106,17 @@ class ChatUserEventRecoveryTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("hapbang.chat.member-events.enabled", () -> "true");
-        registry.add("hapbang.chat.member-events.topic", () -> TOPIC);
-        registry.add("hapbang.chat.member-events.group-id", () -> GROUP);
-        registry.add("hapbang.chat.member-events.max-retries", () -> "1");
-        registry.add("hapbang.chat.member-events.retry-initial-interval", () -> "100ms");
-        registry.add("hapbang.chat.member-events.dead-letter-send-timeout", () -> "2s");
+        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+    }
+
+    /** 이 클래스 전용 토픽·그룹·DLT. 재시도는 1회·첫 간격 100ms, DLT 발행 대기는 2초로 줄인다(운영은 3회·1초·10초) */
+    @TestBean(name = ChatKafkaConfig.MEMBER_EVENT_SETTINGS)
+    private ChatKafkaConsumerSettings memberEventSettings;
+
+    static ChatKafkaConsumerSettings memberEventSettings() {
+        return new ChatKafkaConsumerSettings(TOPIC, GROUP, DLT, 1, Duration.ofMillis(100),
+                ChatKafkaConstants.RETRY_MAX_INTERVAL, Duration.ofSeconds(2), ChatKafkaConstants.DEAD_LETTER_PARTITIONS,
+                ChatKafkaConstants.DEAD_LETTER_REPLICAS);
     }
 
     @Value("${spring.kafka.bootstrap-servers}")

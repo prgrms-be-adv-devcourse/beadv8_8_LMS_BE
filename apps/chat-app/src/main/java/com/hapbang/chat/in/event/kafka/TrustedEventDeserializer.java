@@ -14,12 +14,14 @@ import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 
 /**
- * chat-app 이벤트 소비의 value 역직렬화기. {@link #errorHandling}으로 {@link ErrorHandlingDeserializer}에 감싸 쓴다.
+ * chat-app 이벤트 소비의 value 역직렬화기. {@link ChatKafkaConfig}가 신뢰 패키지를 둔 {@link JacksonJsonDeserializer}(Jackson 3)를
+ * 이것으로 감싸고, 다시 {@link ErrorHandlingDeserializer}로 감싼다.
  * <ul>
- *     <li>{@link JacksonJsonDeserializer}(Jackson 3)가 {@code __TypeId__} 헤더의 클래스 이름으로 타입을 정한다. 신뢰 패키지는 넘긴
- *     실제 이벤트 패키지 하나다(와일드카드 불가). spring-kafka의 기본 신뢰 패키지({@code java.util}, {@code java.lang})는 지울 수
- *     없으므로 리스너가 신뢰 패키지 밖 타입을 거부한다.</li>
- *     <li>{@code __TypeId__} 헤더를 지우지 않는다. 본문을 읽지 못해 DLT로 보낸 원본에 타입이 남아야 고쳐 다시 넣을 수 있다.</li>
+ *     <li>{@link JacksonJsonDeserializer}가 {@code __TypeId__} 헤더의 클래스 이름으로 타입을 정한다. 신뢰 패키지는 실제 이벤트 패키지
+ *     하나다(와일드카드 불가). spring-kafka의 기본 신뢰 패키지({@code java.util}, {@code java.lang})는 지울 수 없으므로 리스너가 신뢰
+ *     패키지 밖 타입을 거부한다.</li>
+ *     <li>넘겨받는 {@link JacksonJsonDeserializer}는 {@code __TypeId__} 헤더를 지우지 않게 설정돼 있어야 한다. 본문을 읽지 못해 DLT로
+ *     보낸 원본에 타입이 남아야 고쳐 다시 넣을 수 있다.</li>
  *     <li>{@code __TypeId__}가 신뢰 패키지 <b>바로 안</b>(하위 패키지 아님)의 클래스 이름인데 클래스패스에 없으면 본문을 읽지 않고
  *     {@link MissingTypeEvent}를 돌려준다(발행 앱이 새 이벤트를 먼저 배포한 경우, 리스너가 건너뛴다). 신뢰 검사는 넓히지 않는다.
  *     한계: 신뢰 패키지 안의 잘못 적은 클래스 이름도 같은 값이 된다.</li>
@@ -33,18 +35,16 @@ public final class TrustedEventDeserializer implements Deserializer<Object> {
     private final JacksonJsonDeserializer<Object> delegate;
     private final String trustedPackage;
 
-    private TrustedEventDeserializer(String trustedPackage) {
+    /**
+     * @param delegate       신뢰 패키지를 {@code trustedPackage} 하나로 둔 JSON 역직렬화기
+     * @param trustedPackage 클래스패스에 없는 새 종류를 가려낼 신뢰 패키지
+     */
+    public TrustedEventDeserializer(JacksonJsonDeserializer<Object> delegate, String trustedPackage) {
+        Assert.notNull(delegate, "JSON 역직렬화기가 필요합니다.");
         Assert.hasText(trustedPackage, "신뢰 패키지가 필요합니다.");
         Assert.isTrue(!trustedPackage.contains("*"), () -> "신뢰 패키지에 와일드카드를 쓸 수 없습니다: " + trustedPackage);
+        this.delegate = delegate;
         this.trustedPackage = trustedPackage;
-        this.delegate = new JacksonJsonDeserializer<>();
-        this.delegate.addTrustedPackages(trustedPackage);
-        this.delegate.setRemoveTypeHeaders(false);
-    }
-
-    /** ConsumerFactory에 넣을 value 역직렬화기 */
-    public static ErrorHandlingDeserializer<Object> errorHandling(String trustedPackage) {
-        return new ErrorHandlingDeserializer<>(new TrustedEventDeserializer(trustedPackage));
     }
 
     @Override

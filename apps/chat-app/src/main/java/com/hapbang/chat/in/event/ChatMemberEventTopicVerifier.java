@@ -1,13 +1,17 @@
 package com.hapbang.chat.in.event;
 
 import org.apache.kafka.clients.admin.TopicDescription;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.stereotype.Component;
 
-import lombok.RequiredArgsConstructor;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
+
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -20,8 +24,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnBooleanProperty(name = ChatMemberEventProperties.ENABLED_PROPERTY, matchIfMissing = true)
-@RequiredArgsConstructor
+@ConditionalOnBooleanProperty(name = ChatKafkaConstants.MEMBER_EVENTS_ENABLED, matchIfMissing = true)
 public class ChatMemberEventTopicVerifier {
 
     public enum Result {
@@ -36,7 +39,13 @@ public class ChatMemberEventTopicVerifier {
     }
 
     private final KafkaAdmin kafkaAdmin;
-    private final ChatMemberEventProperties properties;
+    private final ChatKafkaConsumerSettings settings;
+
+    public ChatMemberEventTopicVerifier(KafkaAdmin kafkaAdmin,
+            @Qualifier(ChatKafkaConfig.MEMBER_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {
+        this.kafkaAdmin = kafkaAdmin;
+        this.settings = settings;
+    }
 
     @EventListener(ApplicationReadyEvent.class)
     void verifyInBackground() {
@@ -44,28 +53,28 @@ public class ChatMemberEventTopicVerifier {
     }
 
     public Result verify() {
-        Integer deadLetter = partitions(properties.deadLetterTopic());
+        Integer deadLetter = partitions(settings.deadLetterTopic());
         if (deadLetter == null) {
             log.error("회원 이벤트 DLT {}를 확인하지 못했습니다. 만들지 못했거나 브로커에 연결하지 못했습니다. "
                             + "DLT가 없으면 실패한 회원 이벤트를 DLT로 보내지 못해 offset을 커밋하지 않고 같은 레코드를 다시 처리하므로 "
                             + "(브로커 자동 생성이 꺼져 있으면) 그 파티션의 소비가 멈춥니다. 토픽을 만들고(파티션 수 = 원본 {}) 확인하세요.",
-                    properties.deadLetterTopic(), properties.topic());
+                    settings.deadLetterTopic(), settings.topic());
             return Result.DEAD_LETTER_UNAVAILABLE;
         }
-        Integer source = partitions(properties.topic());
+        Integer source = partitions(settings.topic());
         if (source == null) {
             log.warn("회원 이벤트 토픽 {}를 확인하지 못해 DLT {}와 파티션 수를 비교하지 못했습니다(DLT 파티션 {}). "
-                            + "원본이 만들어진 뒤 hapbang.chat.member-events.dead-letter-partitions가 원본과 같은지 확인하세요.",
-                    properties.topic(), properties.deadLetterTopic(), deadLetter);
+                            + "원본이 만들어진 뒤 DLT 파티션 수(ChatKafkaConstants.DEAD_LETTER_PARTITIONS)가 원본과 같은지 확인하세요.",
+                    settings.topic(), settings.deadLetterTopic(), deadLetter);
             return Result.SOURCE_UNAVAILABLE;
         }
         if (!source.equals(deadLetter)) {
             log.warn("회원 이벤트 DLT {}의 파티션 수({})가 원본 {}({})와 다릅니다. DLT는 회원 ID key로 파티션을 정하므로 발행은 되지만, "
-                            + "원본과 같게 맞추세요(hapbang.chat.member-events.dead-letter-partitions).",
-                    properties.deadLetterTopic(), deadLetter, properties.topic(), source);
+                            + "원본과 같게 맞추세요(ChatKafkaConstants.DEAD_LETTER_PARTITIONS).",
+                    settings.deadLetterTopic(), deadLetter, settings.topic(), source);
             return Result.PARTITION_MISMATCH;
         }
-        log.info("회원 이벤트 토픽 {}와 DLT {}를 확인했습니다(파티션 {}).", properties.topic(), properties.deadLetterTopic(),
+        log.info("회원 이벤트 토픽 {}와 DLT {}를 확인했습니다(파티션 {}).", settings.topic(), settings.deadLetterTopic(),
                 source);
         return Result.OK;
     }

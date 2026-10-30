@@ -42,10 +42,14 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.testcontainers.kafka.KafkaContainer;
 
 import com.hapbang.chat.app.ChatUserFacade;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserJoinedEvent;
@@ -56,8 +60,8 @@ import com.hapbang.testsupport.IntegrationTest;
  * 커밋되지 않고 끝없이 다시 처리되어 같은 파티션의 다음 레코드가 막힌다. DLT를 만들면 그때 풀린다.
  * <p>
  * 공용 Kafka 컨테이너는 자동 생성이 켜져 있어(브로커 기본값) 이 상황을 만들 수 없으므로, 자동 생성을 끈 이 클래스 전용 브로커를 띄운다.
- * DLT 생성은 복제 수 3(브로커 1대)으로 실패시킨다. DLT 발행 한 번은 앱 설정({@code dead-letter-send-timeout})이 제한하므로
- * (없는 토픽의 메타데이터 대기 포함) 실패 주기도 그 안에 든다. 새 컨텍스트이므로 끝나면 닫는다.
+ * DLT 생성은 복제 수 3(브로커 1대)으로 실패시킨다. DLT 발행 한 번은 소비자 값의 DLT 발행 대기({@code deadLetterSendTimeout})가
+ * 제한하므로(없는 토픽의 메타데이터 대기 포함) 실패 주기도 그 안에 든다. 새 컨텍스트이므로 끝나면 닫는다.
  */
 @IntegrationTest
 @DirtiesContext
@@ -89,12 +93,17 @@ class ChatMemberEventDeadLetterMissingTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
-        registry.add("hapbang.chat.member-events.enabled", () -> "true");
-        registry.add("hapbang.chat.member-events.topic", () -> TOPIC);
-        registry.add("hapbang.chat.member-events.group-id", () -> GROUP);
-        // 브로커 1대에 복제 3: KafkaAdmin의 DLT 생성이 실패한다(앱은 뜬다)
-        registry.add("hapbang.chat.member-events.dead-letter-replicas", () -> "3");
-        registry.add("hapbang.chat.member-events.dead-letter-send-timeout", () -> SEND_TIMEOUT.toSeconds() + "s");
+        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+    }
+
+    /** 이 클래스 전용 토픽·그룹·DLT. 브로커 1대에 DLT 복제 3이라 KafkaAdmin의 DLT 생성이 실패한다(앱은 뜬다). DLT 발행 대기는 2초로 줄인다 */
+    @TestBean(name = ChatKafkaConfig.MEMBER_EVENT_SETTINGS)
+    private ChatKafkaConsumerSettings memberEventSettings;
+
+    static ChatKafkaConsumerSettings memberEventSettings() {
+        return new ChatKafkaConsumerSettings(TOPIC, GROUP, DLT, ChatKafkaConstants.MAX_RETRIES,
+                ChatKafkaConstants.RETRY_INITIAL_INTERVAL, ChatKafkaConstants.RETRY_MAX_INTERVAL, SEND_TIMEOUT,
+                ChatKafkaConstants.DEAD_LETTER_PARTITIONS, (short) 3);
     }
 
     @MockitoSpyBean
@@ -142,7 +151,7 @@ class ChatMemberEventDeadLetterMissingTest {
             assertThat(Duration.ofNanos(observed.get(i) - observed.get(i - 1))).as("재처리 주기 %d", i)
                     .isLessThanOrEqualTo(SEND_TIMEOUT.plus(CYCLE_SLACK));
         }
-        // DLT 발행 한 번(없는 토픽의 메타데이터 대기 포함)은 dead-letter-send-timeout 안에 실패로 끝난다
+        // DLT 발행 한 번(없는 토픽의 메타데이터 대기 포함)은 deadLetterSendTimeout 안에 실패로 끝난다
         long start = System.nanoTime();
         Throwable failure = catchThrowable(() -> deadLetterTemplate
                 .send(DLT, "probe", "probe".getBytes(StandardCharsets.UTF_8)).get(TIMEOUT.toSeconds(), TimeUnit.SECONDS));

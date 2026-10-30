@@ -38,6 +38,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
@@ -45,6 +46,9 @@ import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
@@ -74,11 +78,17 @@ class AppearanceNotificationEventListenerTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("hapbang.chat.appearance-events.enabled", () -> "true");
-        registry.add("hapbang.chat.appearance-events.topic", () -> TOPIC);
-        registry.add("hapbang.chat.appearance-events.group-id", () -> GROUP);
-        registry.add("hapbang.chat.appearance-events.max-retries", () -> "1");
-        registry.add("hapbang.chat.appearance-events.retry-initial-interval", () -> "100ms");
+        registry.add(ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, () -> "true");
+    }
+
+    /** 이 클래스 전용 토픽·그룹·DLT. 재시도는 1회·첫 간격 100ms로 줄인다(운영은 3회·1초) */
+    @TestBean(name = ChatKafkaConfig.APPEARANCE_EVENT_SETTINGS)
+    private ChatKafkaConsumerSettings appearanceEventSettings;
+
+    static ChatKafkaConsumerSettings appearanceEventSettings() {
+        return new ChatKafkaConsumerSettings(TOPIC, GROUP, DLT, 1, Duration.ofMillis(100),
+                ChatKafkaConstants.RETRY_MAX_INTERVAL, ChatKafkaConstants.DEAD_LETTER_SEND_TIMEOUT,
+                ChatKafkaConstants.DEAD_LETTER_PARTITIONS, ChatKafkaConstants.DEAD_LETTER_REPLICAS);
     }
 
     @Value("${spring.kafka.bootstrap-servers}")

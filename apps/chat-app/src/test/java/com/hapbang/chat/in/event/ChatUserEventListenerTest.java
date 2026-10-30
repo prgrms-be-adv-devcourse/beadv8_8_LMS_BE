@@ -45,12 +45,17 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatConnectionControl;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.fixture.ChatNativeSql;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
+import com.hapbang.chat.in.event.kafka.ChatKafkaTopicConfig;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.chat.out.JpaChatConnectionControl;
 import com.hapbang.shared.member.domain.Role;
@@ -87,13 +92,17 @@ class ChatUserEventListenerTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("hapbang.chat.member-events.enabled", () -> "true");
-        registry.add("hapbang.chat.member-events.topic", () -> TOPIC);
-        registry.add("hapbang.chat.member-events.group-id", () -> GROUP);
-        registry.add("hapbang.chat.member-events.max-retries", () -> "2");
-        // 시험용 원본 토픽은 partition 1개라 DLT도 1개로 맞춘다(운영 기본값은 원본과 같은 3)
-        registry.add("hapbang.chat.member-events.dead-letter-partitions", () -> "1");
-        registry.add("hapbang.chat.member-events.retry-initial-interval", () -> "100ms");
+        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+    }
+
+    /** 이 클래스 전용 토픽·그룹·DLT. 재시도는 2회·첫 간격 100ms로 줄이고, 시험용 원본 토픽이 partition 1개라 DLT도 1개로 맞춘다(운영은 원본과 같은 3) */
+    @TestBean(name = ChatKafkaConfig.MEMBER_EVENT_SETTINGS)
+    private ChatKafkaConsumerSettings memberEventSettings;
+
+    static ChatKafkaConsumerSettings memberEventSettings() {
+        return new ChatKafkaConsumerSettings(TOPIC, GROUP, DLT, 2, Duration.ofMillis(100),
+                ChatKafkaConstants.RETRY_MAX_INTERVAL, ChatKafkaConstants.DEAD_LETTER_SEND_TIMEOUT, 1,
+                ChatKafkaConstants.DEAD_LETTER_REPLICAS);
     }
 
     @Value("${spring.kafka.bootstrap-servers}")
@@ -402,7 +411,7 @@ class ChatUserEventListenerTest {
         return NEXT_ID.incrementAndGet();
     }
 
-    /** 이 클래스 전용 원본 토픽. DLT는 chat-app 설정({@link ChatMemberEventKafkaConfig})이 만든다 */
+    /** 이 클래스 전용 원본 토픽. DLT는 chat-app 설정({@link ChatKafkaTopicConfig})이 만든다 */
     @TestConfiguration(proxyBeanMethods = false)
     static class Topics {
 

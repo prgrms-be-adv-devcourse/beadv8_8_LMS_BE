@@ -20,7 +20,7 @@ class TrustedEventDeserializerTest {
     private static final String TRUSTED = "com.hapbang.chat.in.event.kafka.fixture.event";
     private static final String TYPE_ID = "__TypeId__";
 
-    private final ErrorHandlingDeserializer<Object> deserializer = TrustedEventDeserializer.errorHandling(TRUSTED);
+    private final ErrorHandlingDeserializer<Object> deserializer = ChatKafkaConfig.eventDeserializer(TRUSTED);
 
     @Test
     void 신뢰_패키지의_타입_헤더로_레코드를_되돌리고_타입_헤더를_남긴다() {
@@ -105,9 +105,9 @@ class TrustedEventDeserializerTest {
 
     @Test
     void 와일드카드나_빈_신뢰_패키지는_받지_않는다() {
-        assertThatIllegalArgumentException().isThrownBy(() -> TrustedEventDeserializer.errorHandling("*"));
-        assertThatIllegalArgumentException().isThrownBy(() -> TrustedEventDeserializer.errorHandling("com.hapbang.*"));
-        assertThatIllegalArgumentException().isThrownBy(() -> TrustedEventDeserializer.errorHandling(" "));
+        assertThatIllegalArgumentException().isThrownBy(() -> ChatKafkaConfig.eventDeserializer("*"));
+        assertThatIllegalArgumentException().isThrownBy(() -> ChatKafkaConfig.eventDeserializer("com.hapbang.*"));
+        assertThatIllegalArgumentException().isThrownBy(() -> ChatKafkaConfig.eventDeserializer(" "));
     }
 
     private static void assertFailed(ErrorHandlingDeserializer<Object> deserializer, Headers headers, String body) {
