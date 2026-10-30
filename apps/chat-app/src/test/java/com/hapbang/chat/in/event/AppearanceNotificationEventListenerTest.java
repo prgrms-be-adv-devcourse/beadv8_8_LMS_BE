@@ -40,6 +40,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
+import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.fixture.ChatUserSeeder;
@@ -112,7 +114,10 @@ class AppearanceNotificationEventListenerTest {
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(notification(NotificationKind.APPEARANCE_REQUEST_SENT,
                 requestId)).hasValueSatisfying(message -> {
                     assertThat(message.getSenderUserId()).isEqualTo(HOST_ID);
-                    assertThat(message.getContent()).contains("금요일 밤 합방");
+                    // 서버는 문구를 만들지 않고, 이벤트 값과 채팅 회원 복제본의 닉네임만 KST 일시로 남긴다
+                    assertThat(message.getContent()).isEmpty();
+                    assertThat(message.readAppearanceRequestSent()).isEqualTo(new AppearanceRequestSentData(1, "호스트",
+                            "금요일 밤 합방", 50_000L, "2026-11-20T21:00:00", "2026-11-13T21:00:00"));
                 }));
     }
 
@@ -129,6 +134,9 @@ class AppearanceNotificationEventListenerTest {
                 NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, applicationId)).hasValueSatisfying(message -> {
                     assertThat(message.getSenderUserId()).isEqualTo(GUEST_ID);
                     assertThat(message.getParentReferenceId()).isEqualTo(7L);
+                    assertThat(message.getContent()).isEmpty();
+                    assertThat(message.readAppearanceApplicationSubmitted())
+                            .isEqualTo(new AppearanceApplicationSubmittedData(1, "게스트", "주말 게임 합방 모집"));
                 }));
     }
 

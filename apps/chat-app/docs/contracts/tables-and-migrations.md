@@ -11,6 +11,7 @@
 | `V202610291210`~`V2026102912xx` | #418 | `chat_outbox`, 불변 수신자 집합, `chat_room` 컬럼 추가와 기존 방의 초기 집합 |
 | `V202610291300__add_chat_room_member_last_received_sequence.sql` | #420 | `chat_room_member.last_received_sequence` |
 | `V2026102914xx` | #419 | 필요할 때만 |
+| `V202610301511__add_chat_message_notification_data.sql` | #468 | `chat_message.notification_data`(jsonb, null 가능). 출연 알림 값([알림 값 계약](notification-data.md)) |
 
 `out-of-order: true`라 병합 순서와 무관하게 적용된다. 이미 배포한 마이그레이션은 고치지 않는다.
 

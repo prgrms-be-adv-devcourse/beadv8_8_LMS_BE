@@ -34,7 +34,12 @@ import jakarta.validation.constraints.Min;
         `clientMessageId`는 보낸 사람 본인 메시지에만 담긴다(실시간 전달·메시지 이력·방 목록의 마지막 메시지).
         출연 요청 도착·모집 지원 도착은 호스트-게스트 1:1 방에 알림 메시지(`messageType: NOTIFICATION`)로 온다.
         `notificationKind`와 `referenceId`·`parentReferenceId`로 출연 건을 찾는다:
-        APPEARANCE_REQUEST_SENT는 `referenceId` = 요청서 ID, APPEARANCE_APPLICATION_SUBMITTED는 `referenceId` = 지원 ID·`parentReferenceId` = 모집글 ID.""")
+        APPEARANCE_REQUEST_SENT는 `referenceId` = 요청서 ID, APPEARANCE_APPLICATION_SUBMITTED는 `referenceId` = 지원 ID·`parentReferenceId` = 모집글 ID.
+        서버는 알림 문구를 만들지 않는다. 알림 종류마다 값 필드가 하나씩 있고 `notificationKind`에 맞는 필드만 채운다(나머지는 null).
+        APPEARANCE_REQUEST_SENT → `appearanceRequestSent` `{v, hostNickname, title, fee(숫자, HP), scheduledAt, acceptDeadline}`,
+        APPEARANCE_APPLICATION_SUBMITTED → `appearanceApplicationSubmitted` `{v, guestNickname, recruitTitle}`.
+        일시는 KST의 `yyyy-MM-dd'T'HH:mm:ss`(오프셋 없음)다. 값이 있는 알림의 `content`는 빈 문자열이다.
+        프론트는 템플릿을 만들 수 있으면 템플릿, 아니면 비어 있지 않은 `content`(문구로 남긴 기존 알림), 그것도 비면 일반 문구 순으로 보여 준다.""")
 public interface ApiV1ChatSpec {
 
     int MAX_PAGE_SIZE = 100;
@@ -76,7 +81,9 @@ public interface ApiV1ChatSpec {
             분쟁 확인용. 종료된 방과 참여자별로 숨겨진 메시지까지 포함한다. 관리자만 쓸 수 있다.
             메시지와 입퇴장 기록을 하나의 시간순 흐름(시각, 같은 시각이면 기록 → 메시지)으로 보고 오래된 것부터 나눠 준다.
             `logs`·`messages`는 이 페이지 구간의 항목이고, 다음 페이지는 응답의 `nextCursor`를 `cursor`로 보낸다.
-            `nextCursor`가 null이면 마지막 페이지다. 형식이 틀린 커서는 400(INVALID_REQUEST).""")
+            `nextCursor`가 null이면 마지막 페이지다. 형식이 틀린 커서는 400(INVALID_REQUEST).
+            알림 메시지는 회원 응답과 같이 종류별 값 필드(`appearanceRequestSent`·`appearanceApplicationSubmitted`)를 담고,
+            값이 있으면 `content`는 빈 문자열이다.""")
     RsData<ChatRoomHistoryResponse> getHistory(Long userId, Long chatRoomId,
             @Parameter(description = "이전 응답의 nextCursor. 없으면 처음부터") String cursor,
             @Parameter(description = "페이지 크기 (기본 30, 기록과 메시지를 합친 개수)")

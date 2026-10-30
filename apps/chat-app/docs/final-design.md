@@ -407,6 +407,7 @@ Kafka 전환 이전의 회원과 전환 중 놓친 변경을 member-app 내부 A
 1. 출연 이벤트 2종(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent`)을 `appearance.events.v1`에서 Kafka로 받아 채팅 알림을 유지한다(2026-10-30 사용자 결정, Q7). 클래스 레벨 `@KafkaListener(topics = "appearance.events.v1", groupId = "chat-app.appearance-notification")`에 두 `@KafkaHandler`를 두고, 출연 취소 이벤트 등 모르는 종류는 건너뛰고 커밋한다. 신뢰 패키지는 `com.hapbang.shared.appearance.event`만이다. 중복 알림은 기존 `(notificationKind, referenceId)` 유일 인덱스(`uk_chat_message_notification`)로 흡수하고, offset은 알림 저장 커밋 뒤 커밋한다. 재시도·DLT(`appearance.events.v1.chat-app.appearance-notification.DLT`)는 5.3과 같은 규칙이다. 알림 메시지와 전달 outbox를 함께 기록하는 것은 전달 outbox 구현과 합친 뒤다.
 2. 알림 모듈이 같은 사실을 소비하기 시작하더라도 FE 전환 전에는 채팅 알림을 제거하지 않는다. FE가 알림 API·destination으로 바뀐 뒤 채팅 쪽 신규 소비·기록을 중단한다. cutover 시점·재처리 범위와 중복 화면 노출 방지는 이관 계약에 남긴다.
 3. 기존 `NOTIFICATION` 채팅 메시지는 대화 이력으로 보존한다. 채팅 자체의 새 메시지 알림은 채팅에 남긴다.
+4. 서버는 출연 알림 문구를 만들지 않는다(사용자 결정 2026-10-30). 알림 종류와 사실(닉네임·제목·출연료·KST 일시, 형식 버전 `v`)만 `chat_message.notification_data`(jsonb) 한 컬럼에 저장하고, 응답에는 알림 종류마다 값 필드 하나(`appearanceRequestSent`·`appearanceApplicationSubmitted`, 종류별 record, 공통 상위 타입 없음)로 보낸다. 종류에 맞는 필드만 채우고 FE가 종류별 템플릿으로 문구를 만든다(사용자 결정 2026-10-30). 새 알림의 `content`는 빈 문자열이고, FE는 템플릿 → 비어 있지 않은 `content`(기존 알림) → 일반 문구 순으로 보여 준다. 닉네임은 이벤트에 없어 처리 시점의 `chat_user` 복제본 값을 쓴다. 계약은 [알림 값 계약](contracts/notification-data.md)이다.
 
 Q7은 2026-10-30에 "Kafka 소비로 유지하고, 알림 모듈 이관 때 옮긴다"로 정했다. 끊긴 상태를 정상 완료로 배포하지 않는다.
 
