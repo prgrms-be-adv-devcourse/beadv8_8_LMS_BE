@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-10-30 (#428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-10-30 (#430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -39,6 +39,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #273 | HP 내부 HTTP API(`POST /api/v1/internal/billing/{holds,releases,payouts,penalty-settlements}`), `HoldFacade` `ROLE_INTERNAL` 인가, 요청 로그, 오류 코드 전체 대조, Billing 전체 `lock_timeout` 3초 → 503 `HP_LOCK_TIMEOUT`. `BillingPort` 유지 | `feature/tkt-273` | - | 구현·테스트 완료 (PR 전) |
 | #453 | 환불·환전 1 HP 단위, 송금액 버림(송금 = floor(신청 × 90%)), 송금액 0원 환전은 은행 없이 완료, 오류 코드 `*_AMOUNT_TOO_SMALL`(Flyway `V202610301200`) | `feature/tkt-453` | (PR 전) | 구현 완료 |
 | #428 | Kafka 소비 규칙(#339)에 맞춰 회원 이벤트 멱등 문서 정리: `eventId` inbox → 자연 키, 소비 그룹 `billing-app.member-replica`·`billing-app.wallet-creation`, 그룹별 DLT, 별도 멱등 기록 없음(BD-123) | `feature/tkt-428` | (PR 전) | 문서 완료 |
+| #430 | 회원 이벤트 Kafka 소비: `member.events.v1`을 그룹 `billing-app.member-replica`(복제본)·`billing-app.wallet-creation`(지갑, ADMIN 제외)로 받음, 블로킹 재시도 3회 뒤 그룹별 DLT(`BillingKafkaConfig`), Scenario 테스트를 Kafka Testcontainers·직접 호출로 교체 | `feature/tkt-430` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
@@ -743,7 +744,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 - 반환 테스트: `HoldReleaseIntegrationTest`(부분·전체·멱등성·동시성·비정상 상태·정합성·롤백), `ReleaseCommandTest`, `ReleaseSplitTest`, `ChargeUsageHistoryTest`, `PointHoldReleaseTest`. 지급 기능이 없어 지급된 보류는 JDBC(상세·보류) + `record()`(원장)로 만든다. 역순→FIFO, 원금 대조·재생 대조·지갑 락·보류/배분/충전 건 refresh를 각각 제거하면 실패함을 확인했다. 저장 실패 롤백은 테스트 안에서 행 트리거(`RAISE EXCEPTION`)를 잠시 걸어 만든다. 충전 API가 없어 충전 건은 JDBC INSERT + 충전 원장 `record()`로 만든다.
 - **Docker가 켜져 있어야 한다.** `test-support`의 `PostgresTestcontainersConfig`가 `postgres:18` 컨테이너를 띄운다. 로컬에 PostgreSQL 설치는 필요 없다.
 - `@RepositoryTest`(JPA만, 롤백) / `@IntegrationTest`(전체 컨텍스트, 테스트마다 TRUNCATE) / `TestLogin.as(userId, role)`(MockMvc 로그인).
-- `@ApplicationModuleListener` 빈은 `@Async` 프록시라 직접 호출하면 바로 반환된다. 동기 검증은 `new UserJoinedEventListener(...)`, 실제 비동기 경로는 `Scenario`로 한다.
+- 회원 이벤트 리스너는 #430부터 Kafka 소비다. 리스너 로직은 직접 호출(`new UserJoinedEventListener(...)`)로, Kafka 경로는 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증한다. 테스트 설정은 Kafka 리스너·토픽 생성을 끄고(`spring.kafka.listener.auto-startup=false`), Kafka 소비 테스트만 다시 켠다.
 - 동시성 테스트는 실제 DB로 한다. 충돌 경로를 결정적으로 만들 때는 상대 트랜잭션이 INSERT 후 대기하게 하고 `pg_locks`의 `NOT granted`로 대기 상태를 확인한다.
 - PostgreSQL 드라이버는 Billing에서 `compileOnly`라 테스트 컴파일 경로에 없다. 드라이버 예외가 필요한 단위 테스트는 리플렉션으로 만든다(`WalletCreateUseCaseTest`). 서버 언어와 무관한 판별은 `RAISE ... USING ERRCODE, CONSTRAINT`로 검증한다(`WalletDuplicateViolationTest`).
 - 처음부터 통과한 핵심 테스트는 코드를 일부러 망가뜨려 실패하는지 확인했다(락 제거·락 순서·refresh·flush·재반영 방어·누적 한도·대사 격리 수준).

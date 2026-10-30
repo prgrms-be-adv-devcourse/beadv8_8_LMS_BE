@@ -16,8 +16,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.modulith.test.EnableScenarios;
-import org.springframework.modulith.test.Scenario;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
@@ -28,15 +26,12 @@ import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
-import com.hapbang.shared.member.event.UserJoinedEvent;
-import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 // Billing 회원 복제본(#294)을 실제 PostgreSQL로 검증한다: 가입·변경 이벤트 모두 같은 Upsert 규칙, #292 회원 버전 비교(같거나 낮으면 무시,
-// 높으면 반영), 역순·동시 반영, 버전 없는 정보 무시, 지갑 생성 리스너와의 분리.
+// 높으면 반영), 역순·동시 반영, 버전 없는 정보 무시. Kafka로 받는 경로(지갑 생성 그룹과의 분리 포함)는 BillingMemberEventKafkaTest (#430).
 // 이 클래스만 쓰는 컨텍스트라 연결 풀을 작게 두고 끝나면 닫는다(다른 테스트 컨텍스트와 함께 DB 최대 연결 수를 넘지 않게).
 @IntegrationTest
-@EnableScenarios
 @TestPropertySource(properties = {"spring.datasource.hikari.maximum-pool-size=4",
         "spring.datasource.hikari.minimum-idle=1"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -158,40 +153,6 @@ class BillingUserSyncIntegrationTest {
         assertThat(replica().getMemberVersion()).isEqualTo(9L);
         assertThat(replica().getNickname()).isEqualTo("v9");
         assertThat(replica().getRole()).isEqualTo(Role.VERIFIED_INFLUENCER);
-    }
-
-    @Test
-    @DisplayName("이벤트 경로: 가입 이벤트로 지갑과 복제본이 따로 생기고, 변경 이벤트로 복제본만 갱신된다")
-    void eventListeners(Scenario scenario) {
-        scenario.publish(new UserJoinedEvent(dto("민수", Role.INFLUENCER, UserStatus.ACTIVE, 0L)))
-                .andWaitForStateChange(() -> billingUserRepository.findById(USER_ID).isPresent()
-                        && walletRepository.findByUserId(USER_ID).isPresent() ? Boolean.TRUE : null);
-
-        scenario.publish(new UserModifiedEvent(dto("민수", Role.INFLUENCER, UserStatus.SUSPENDED, 1L)))
-                .andWaitForStateChange(() -> billingUserRepository.findById(USER_ID).map(BillingUser::getStatus),
-                        status -> status.filter(UserStatus.SUSPENDED::equals).isPresent());
-
-        assertThat(replica().getMemberVersion()).isEqualTo(1L);
-        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet WHERE user_id = ?", Integer.class,
-                USER_ID)).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("관리자 가입 이벤트는 지갑을 만들지 않지만 복제본은 만든다. 같은 가입 이벤트가 다시 와도 지갑·복제본은 한 건이다")
-    void adminAndDuplicateJoin(Scenario scenario) {
-        UserJoinedEvent admin = new UserJoinedEvent(new UserDto(200L, "관리자", Role.ADMIN, UserStatus.ACTIVE, 0L));
-        scenario.publish(admin).andWaitForStateChange(() -> billingUserRepository.findById(200L), Optional::isPresent);
-        assertThat(walletRepository.findByUserId(200L)).isEmpty();
-
-        UserJoinedEvent joined = new UserJoinedEvent(dto("민수", Role.USER, UserStatus.ACTIVE, 0L));
-        scenario.publish(joined).andWaitForStateChange(() -> walletRepository.findByUserId(USER_ID)
-                .flatMap(wallet -> billingUserRepository.findById(USER_ID)), Optional::isPresent);
-        scenario.publish(joined).andWaitForStateChange(() -> Boolean.TRUE);
-
-        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet WHERE user_id = ?", Integer.class,
-                USER_ID)).isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.billing_user WHERE id = ?", Integer.class,
-                USER_ID)).isEqualTo(1);
     }
 
     private BillingUser replica() {

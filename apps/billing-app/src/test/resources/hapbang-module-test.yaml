@@ -8,3 +8,10 @@ spring:
       # 플랫폼 지갑(#336)은 운영에서 Flyway가 한 행을 넣는다. 테스트 DB 정리(SchemaManager.truncate)가 그 행도 지우므로,
       # 비운 뒤 이 스크립트로 다시 넣는다(Hibernate가 비운 다음 import 스크립트를 실행한다). 처음 기동 때는 Flyway 행을 그대로 쓴다.
       jakarta.persistence.sql-load-script-source: billing-test-platform-wallet.sql
+  kafka:
+    # 대부분의 테스트에는 Kafka가 없다. 리스너가 연결을 계속 시도하거나 토픽 생성이 시간 초과를 기다리지 않게 끈다.
+    # Kafka 소비 테스트(BillingMemberEventKafkaTest)만 KafkaTestcontainersConfig와 함께 다시 켠다 (#430).
+    listener:
+      auto-startup: false
+    admin:
+      auto-create: false
