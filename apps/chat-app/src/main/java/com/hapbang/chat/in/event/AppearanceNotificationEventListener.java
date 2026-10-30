@@ -1,5 +1,6 @@
 package com.hapbang.chat.in.event;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -11,6 +12,9 @@ import org.springframework.stereotype.Component;
 import com.hapbang.chat.app.ChatNotificationFacade;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatNotificationResult;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.in.event.kafka.RejectedEventException;
 import com.hapbang.chat.in.event.kafka.SkippablePayloads;
 import com.hapbang.chat.in.event.kafka.SkippedEventLog;
@@ -20,7 +24,6 @@ import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -37,16 +40,23 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@ConditionalOnBooleanProperty(name = ChatAppearanceEventProperties.ENABLED_PROPERTY, matchIfMissing = true)
-@RequiredArgsConstructor
+@ConditionalOnBooleanProperty(name = ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, matchIfMissing = true)
 @KafkaListener(id = "chat-appearance-events", idIsGroup = false, topics = "#{__listener.topic}",
-        groupId = "#{__listener.groupId}", containerFactory = ChatAppearanceEventKafkaConfig.CONTAINER_FACTORY)
+        groupId = "#{__listener.groupId}", containerFactory = ChatKafkaConfig.APPEARANCE_EVENT_CONTAINER_FACTORY)
 public class AppearanceNotificationEventListener {
 
     private final ChatNotificationFacade chatNotificationFacade;
     private final ChatMessageSender chatMessageSender;
-    private final ChatAppearanceEventProperties properties;
+    private final ChatKafkaConsumerSettings settings;
     private final SkippedEventLog skippedLog = new SkippedEventLog(log);
+
+    public AppearanceNotificationEventListener(ChatNotificationFacade chatNotificationFacade,
+            ChatMessageSender chatMessageSender,
+            @Qualifier(ChatKafkaConfig.APPEARANCE_EVENT_SETTINGS) ChatKafkaConsumerSettings settings) {
+        this.chatNotificationFacade = chatNotificationFacade;
+        this.chatMessageSender = chatMessageSender;
+        this.settings = settings;
+    }
 
     @KafkaHandler
     public void on(AppearanceRequestSentEvent event) {
@@ -74,18 +84,18 @@ public class AppearanceNotificationEventListener {
             @Header(name = KafkaHeaders.RECEIVED_KEY, required = false) String key,
             @Header(name = KafkaHeaders.RECEIVED_PARTITION, required = false) Integer partition,
             @Header(name = KafkaHeaders.OFFSET, required = false) Long offset) {
-        skippedLog.skipped(SkippablePayloads.typeToSkip(payload, ChatAppearanceEventKafkaConfig.TRUSTED_PACKAGE), key,
-                partition, offset);
+        skippedLog.skipped(SkippablePayloads.typeToSkip(payload, ChatKafkaConstants.APPEARANCE_EVENTS_TRUSTED_PACKAGE),
+                key, partition, offset);
     }
 
     /** {@code @KafkaListener}의 토픽(SpEL {@code __listener.topic}) */
     public String getTopic() {
-        return properties.topic();
+        return settings.topic();
     }
 
     /** {@code @KafkaListener}의 소비자 그룹(SpEL {@code __listener.groupId}) */
     public String getGroupId() {
-        return properties.groupId();
+        return settings.groupId();
     }
 
     private void deliver(ChatNotificationResult result) {

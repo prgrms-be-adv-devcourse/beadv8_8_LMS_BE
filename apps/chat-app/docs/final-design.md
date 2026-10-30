@@ -379,7 +379,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 | 재시도·DLT | 블로킹 재시도(1초에서 최대 10초 지수 증가, 3회) 뒤 `member.events.v1.chat-app.member-replica.DLT`로 보낸다. DLT는 chat-app이 선언한다(partition 3, 보존 7일). 재처리는 인프라 문서 1장의 runbook을 따른다(#339). DLT 발행 실패를 처리 성공으로 간주하지 않는다 |
 | 연결 닫기 | 최신 버전 반영 결과가 채팅 불가이면 동일 트랜잭션에 `chat_control_outbox`를 기록한다. 기존의 `lostChat` boolean만으로 후속 제어 작업 성공 여부를 판단하지 않는다 |
 | 기존 리스너 | 진입점을 Kafka 수신으로 옮긴다. 회원 생성·갱신 로직을 재사용하되 적용 여부·현재 버전·채팅 자격을 처리 결과로 구분하고 제어 작업을 원자적으로 기록하도록 보완한다 |
-| 설정 위치 | `hapbang.chat.member-events.*`·`hapbang.chat.appearance-events.*`·`hapbang.chat.backfill.*`의 기본값은 각 `@ConfigurationProperties`의 코드 기본값이다(`application.yaml`에 두지 않는다, 2026-10-30 사용자 결정). 그룹·재시도·DLT 값은 위 규칙을 따르고 DLT 이름은 설정이 아니라 `<토픽>.<그룹>.DLT`로 정한다. 같은 키의 yaml·환경 변수가 덮는다. 소비는 기본으로 켜져 있고 모듈 테스트 설정(`src/test/resources/hapbang-module-test.yaml`)만 끈다. 부품은 공통 코드 없이 chat-app의 `in/event/kafka`에 둔다(Q9) |
+| 설정 위치 | Kafka 소비 설정은 설정 클래스와 상수 클래스로 둔다(`@ConfigurationProperties`·yaml 키로 두지 않는다, 2026-10-30 사용자 결정). 공통 코드 없이 chat-app의 `in/event/kafka`에 두고(Q9) 역할별로 나눈다: `ChatKafkaConfig`(소비자 값·ConsumerFactory·DLT 발행 ProducerFactory·KafkaTemplate·ContainerFactory), `ChatKafkaErrorHandlerConfig`(블로킹 재시도·DLT 복구기), `ChatKafkaTopicConfig`(DLT `NewTopic`), `ChatKafkaConstants`(토픽·그룹·`<토픽>.<그룹>.DLT` 이름, partition·replica 수, 보존, 재시도 값). props는 코드에 적고 연결 주소만 `spring.kafka.bootstrap-servers`에서 받는다. 남는 키는 `hapbang.chat.member-events.enabled`·`hapbang.chat.appearance-events.enabled`뿐이고, 기본으로 켜져 있으며 모듈 테스트 설정(`src/test/resources/hapbang-module-test.yaml`)만 끈다. Kafka 시험은 소비자 값 빈을 테스트 빈으로 바꿔 자기 토픽·그룹을 쓰고 재시도를 줄인다. 백필 설정(`hapbang.chat.backfill.*`)은 `@ConfigurationProperties` 코드 기본값이다 |
 
 **연결 제어의 내구성과 로컬 회원 상태 재검사**
 

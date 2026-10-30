@@ -23,8 +23,8 @@ import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.kafka.KafkaException;
 import org.slf4j.LoggerFactory;
+import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
@@ -33,23 +33,24 @@ import org.springframework.kafka.mock.MockProducerFactory;
 import org.springframework.kafka.support.LoggingProducerListener;
 import org.springframework.kafka.support.SendResult;
 
-import com.hapbang.chat.in.event.ChatMemberEventProperties;
 import com.hapbang.chat.in.event.kafka.fixture.event.SampleEvent;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
-class ChatDeadLettersTest {
+/**
+ * DLT 부품: 발행 시간 상한(DLT 발행용 ProducerFactory), 값 직렬화, 복구기(같은 partition 번호·발행 실패 시 예외), 토픽 선언,
+ * 발행 실패 로그. 각 부품은 {@link ChatKafkaConfig}·{@link ChatKafkaErrorHandlerConfig}·{@link ChatKafkaTopicConfig}가 만든다.
+ */
+class ChatKafkaDeadLetterTest {
 
     private static final String DLT = "events.v1.app.DLT";
-    private static final ChatMemberEventProperties SETTINGS = settings(Duration.ofSeconds(2));
+    private static final ChatKafkaConsumerSettings SETTINGS = settings(Duration.ofSeconds(2));
 
     @Test
-    void 발행_대기_시간을_메타데이터_대기와_전송_완료_대기로_나누고_원래_설정은_바꾸지_않는다() {
-        Map<String, Object> base = Map.of(ProducerConfig.ACKS_CONFIG, "all", ProducerConfig.LINGER_MS_CONFIG, 5);
-
-        Map<String, Object> properties = ChatDeadLetters.producerProperties(base, Duration.ofSeconds(10));
+    void 발행_대기_시간을_메타데이터_대기와_전송_완료_대기로_나눈다() {
+        Map<String, Object> properties = deadLetterProducerConfig(settings(Duration.ofSeconds(10)));
 
         assertThat(properties)
                 .containsEntry(ProducerConfig.ACKS_CONFIG, "all")
@@ -57,22 +58,20 @@ class ChatDeadLettersTest {
                 .containsEntry(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 5_000)
                 .containsEntry(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 5_000)
                 .containsEntry(ProducerConfig.LINGER_MS_CONFIG, 0);
-        assertThat(base).containsEntry(ProducerConfig.LINGER_MS_CONFIG, 5).hasSize(2);
         // 홀수 밀리초도 두 몫의 합이 전체와 같다
-        Duration odd = Duration.ofMillis(1_001);
-        assertThat(ChatDeadLetters.maxBlockMillis(odd) + ChatDeadLetters.deliveryMillis(odd)).isEqualTo(1_001);
+        ChatKafkaConsumerSettings odd = settings(Duration.ofMillis(1_001));
+        assertThat(odd.deadLetterMaxBlockMillis() + odd.deadLetterDeliveryMillis()).isEqualTo(1_001);
     }
 
     @Test
     void 발행_대기_시간이_1초보다_짧으면_받지_않는다() {
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> ChatDeadLetters.producerProperties(Map.of(), Duration.ofMillis(999)));
-        assertThatIllegalArgumentException().isThrownBy(() -> ChatDeadLetters.maxBlockMillis(null));
+        assertThatIllegalArgumentException().isThrownBy(() -> settings(Duration.ofMillis(999)));
+        assertThatIllegalArgumentException().isThrownBy(() -> settings(null));
     }
 
     @Test
     void 읽지_못한_원본은_바이트_그대로_읽은_레코드는_JSON과_타입_헤더_하나로_직렬화한다() {
-        Serializer<Object> serializer = ChatDeadLetters.valueSerializer();
+        Serializer<Object> serializer = ChatKafkaConfig.deadLetterValueSerializer();
         byte[] raw = "{not-json".getBytes(StandardCharsets.UTF_8);
         Headers rawHeaders = new RecordHeaders();
 
@@ -95,7 +94,7 @@ class ChatDeadLettersTest {
         KafkaOperations<Object, Object> template = mock(KafkaOperations.class);
         when(template.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
-        DeadLetterPublishingRecoverer recoverer = ChatDeadLetters.recoverer(template, SETTINGS);
+        DeadLetterPublishingRecoverer recoverer = ChatKafkaErrorHandlerConfig.deadLetterRecoverer(template, SETTINGS);
 
         assertThatThrownBy(() -> recoverer.accept(record(), new IllegalStateException("처리 실패")))
                 .isInstanceOf(KafkaException.class);
@@ -110,45 +109,35 @@ class ChatDeadLettersTest {
     @Test
     @SuppressWarnings("unchecked")
     void 복구기의_결과_대기는_전송_완료_대기_몫을_넘지_않는다() {
-        Duration sendTimeout = Duration.ofSeconds(1);
+        ChatKafkaConsumerSettings settings = settings(Duration.ofSeconds(1));
         KafkaOperations<Object, Object> template = mock(KafkaOperations.class);
         ProducerFactory<Object, Object> producerFactory = mock(ProducerFactory.class);
-        when(producerFactory.getConfigurationProperties())
-                .thenReturn(ChatDeadLetters.producerProperties(Map.of(), sendTimeout));
+        when(producerFactory.getConfigurationProperties()).thenReturn(deadLetterProducerConfig(settings));
         when(template.getProducerFactory()).thenReturn(producerFactory);
         when(template.send(any(ProducerRecord.class))).thenReturn(new CompletableFuture<SendResult<Object, Object>>());
-        DeadLetterPublishingRecoverer recoverer = ChatDeadLetters.recoverer(template, settings(sendTimeout));
+        DeadLetterPublishingRecoverer recoverer = ChatKafkaErrorHandlerConfig.deadLetterRecoverer(template, settings);
 
         long start = System.nanoTime();
         assertThatThrownBy(() -> recoverer.accept(record(), new IllegalStateException("처리 실패")))
                 .isInstanceOf(KafkaException.class);
 
         // spring-kafka 기본 여유(5초)를 더하지 않아 전송 완료 대기 몫(0.5초) 근처에서 끝난다
-        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(sendTimeout);
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(settings.deadLetterSendTimeout());
     }
 
     @Test
-    void DLT_토픽은_그룹별_이름에_원본과_같은_파티션_3개와_7일_보존이다() {
-        assertThat(ChatDeadLetters.topicName("member.events.v1", "chat-app.member-replica"))
-                .isEqualTo("member.events.v1.chat-app.member-replica.DLT");
-        assertThat(ChatDeadLetters.newTopic(settings(Duration.ofSeconds(10)))).satisfies(topic -> {
+    void DLT_토픽은_소비자_값의_이름과_파티션_수에_7일_보존이다() {
+        assertThat(ChatKafkaTopicConfig.deadLetterTopic(settings(Duration.ofSeconds(10)))).satisfies(topic -> {
             assertThat(topic.name()).isEqualTo(DLT);
             assertThat(topic.numPartitions()).isEqualTo(3);
+            assertThat(topic.replicationFactor()).isEqualTo((short) 1);
             assertThat(topic.configs()).containsEntry("retention.ms", "604800000");
         });
     }
 
-    private static ChatMemberEventProperties settings(Duration sendTimeout) {
-        return new ChatMemberEventProperties(true, "events.v1", "app", null, null, null, null, sendTimeout, null, null);
-    }
-
-    private static ConsumerRecord<String, byte[]> record() {
-        return new ConsumerRecord<>("events.v1", 0, 3L, "7", "{}".getBytes(StandardCharsets.UTF_8));
-    }
-
     @Test
     void DLT_템플릿은_비동기_발행_실패_로그에_key와_값을_남기지_않는다() {
-        List<ILoggingEvent> logs = sendAndFailAsync(ChatDeadLetters::template);
+        List<ILoggingEvent> logs = sendAndFailAsync(ChatKafkaConfig::deadLetterTemplate);
 
         assertThat(logs).isNotEmpty();
         assertThat(logs).allSatisfy(event -> assertThat(event.getFormattedMessage())
@@ -160,6 +149,22 @@ class ChatDeadLettersTest {
         List<ILoggingEvent> logs = sendAndFailAsync(KafkaTemplate::new);
 
         assertThat(logs).anySatisfy(event -> assertThat(event.getFormattedMessage()).contains("secret-value"));
+    }
+
+    private static ChatKafkaConsumerSettings settings(Duration sendTimeout) {
+        return new ChatKafkaConsumerSettings("events.v1", "app", DLT, ChatKafkaConstants.MAX_RETRIES,
+                ChatKafkaConstants.RETRY_INITIAL_INTERVAL, ChatKafkaConstants.RETRY_MAX_INTERVAL, sendTimeout,
+                ChatKafkaConstants.DEAD_LETTER_PARTITIONS, ChatKafkaConstants.DEAD_LETTER_REPLICAS);
+    }
+
+    /** 운영과 같은 방법으로 만든 DLT 발행용 ProducerFactory의 설정(브로커에 연결하지 않는다) */
+    private static Map<String, Object> deadLetterProducerConfig(ChatKafkaConsumerSettings settings) {
+        return new ChatKafkaConfig("localhost:9092").chatMemberEventDeadLetterProducerFactory(settings)
+                .getConfigurationProperties();
+    }
+
+    private static ConsumerRecord<String, byte[]> record() {
+        return new ConsumerRecord<>("events.v1", 0, 3L, "7", "{}".getBytes(StandardCharsets.UTF_8));
     }
 
     private static List<ILoggingEvent> sendAndFailAsync(

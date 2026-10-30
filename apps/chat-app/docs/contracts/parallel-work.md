@@ -49,7 +49,7 @@
 | `ChatErrorCode` | 각자 상수를 추가만 한다. 기존 상수는 고치지 않는다 |
 | `AppearanceNotificationEventListener` | #417이 Kafka 소비(`appearance.events.v1`)로 바꾼다. #419는 그 안의 직접 전달 호출만 제거한다 |
 | `ApiV1ChatController`·`ApiV1ChatSpec` | #419는 직접 전달 호출만 제거하고, #420은 수신 ACK 메서드만 추가한다 |
-| `application.yaml` | `hapbang.chat.*` 키 이름은 각자 자기 것만 쓴다(#417 `member-events`·`appearance-events`·`backfill`, #418 `delivery`, #419 `realtime`, #420 `receipt`). 기본값은 각자의 `@ConfigurationProperties` 코드 기본값으로 두고 `application.yaml`에는 넣지 않는다(2026-10-30 사용자 결정). yaml에는 환경 변수 자리표시자 같은 환경 값만 둔다 |
+| `application.yaml` | `hapbang.chat.*` 키 이름은 각자 자기 것만 쓴다(#417 `member-events.enabled`·`appearance-events.enabled`·`backfill`, #418 `delivery`, #419 `realtime`, #420 `receipt`). 기본값은 각자의 `@ConfigurationProperties` 코드 기본값으로 두고 `application.yaml`에는 넣지 않는다(2026-10-30 사용자 결정). Kafka 소비 값(토픽·그룹·재시도·DLT)은 키로 두지 않고 `in/event/kafka`의 설정 클래스와 `ChatKafkaConstants`에 둔다(2026-10-30 사용자 결정, #478). 키는 소비를 켜고 끄는 `enabled`만 남는다. yaml에는 환경 변수 자리표시자 같은 환경 값만 둔다 |
 | chat-app `build.gradle.kts` | 필요한 의존 줄만 추가한다 |
 
 ## 브랜치별 동작 범위와 통합
