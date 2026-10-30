@@ -30,6 +30,20 @@ public enum LectureErrorCode implements BaseErrorCode {
     ORDER_ITEM_NOT_PURCHASED(HttpStatus.CONFLICT, "이미 구매 확정·취소된 항목입니다."),
     CANCEL_PERIOD_EXPIRED(HttpStatus.CONFLICT, "구매 취소 기간이 지났습니다. 구매일 다음 날부터 7일 이내에만 취소할 수 있습니다."),
     OBJECTION_FILED(HttpStatus.CONFLICT, "이의 제기가 접수된 항목은 구매 취소할 수 없습니다."),
+    /** 이의 제기 접수·철회: 구매자 본인 항목이 아니다 (없는 항목 포함) */
+    OBJECTION_NOT_BUYER(HttpStatus.NOT_FOUND, "구매자 본인의 주문 항목이 아닙니다."),
+    /** 이의 제기 접수: 구매 취소되었거나 반환된 항목이다 (처리 중 포함) */
+    OBJECTION_NOT_OBJECTIONABLE(HttpStatus.CONFLICT, "구매 취소되었거나 반환된 항목은 이의 제기할 수 없습니다."),
+    /** 이의 제기 접수: 이미 판매자에게 지급된 항목이다 */
+    OBJECTION_ALREADY_PAID_OUT(HttpStatus.CONFLICT, "이미 판매자에게 지급된 항목은 이의 제기할 수 없습니다."),
+    /** 이의 제기 접수: 이의 제기가 이미 접수되었거나 판단된 항목이다 */
+    OBJECTION_ALREADY_FILED(HttpStatus.CONFLICT, "이미 이의 제기한 항목입니다."),
+    /** 이의 제기 접수: 지급 예정 시각(구매일 다음 날부터 30일 경과)이 지났다 */
+    OBJECTION_PERIOD_EXPIRED(HttpStatus.CONFLICT, "이의 제기 기간이 지났습니다. 구매일 다음 날부터 30일 이내에만 이의 제기할 수 있습니다."),
+    /** 이의 제기 판단·철회: 접수되어 판단을 기다리는 항목이 아니다 (판단은 없는 항목 포함) */
+    OBJECTION_NOT_FILED(HttpStatus.CONFLICT, "판단을 기다리는 이의 제기가 없습니다."),
+    /** 이의 제기 판단·철회: 접수할 때의 문의와 다른 문의다 */
+    OBJECTION_INQUIRY_MISMATCH(HttpStatus.CONFLICT, "이의 제기를 접수한 문의가 아닙니다."),
     HP_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "HP 작업을 찾을 수 없습니다."),
     HP_TASK_NOT_DEAD(HttpStatus.CONFLICT, "자동 처리가 멈춘(DEAD) HP 작업만 재시도할 수 있습니다."),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다."),

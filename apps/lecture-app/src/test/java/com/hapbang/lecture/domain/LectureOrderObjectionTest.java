@@ -11,8 +11,6 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
 
 /**
  * 내용 다름 이의 제기 접수·판단의 상태 규칙과 기한 경계 (설계 4.6 불변식, 6.2).
@@ -68,7 +66,7 @@ class LectureOrderObjectionTest {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L);
 
         assertRefused(() -> order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, PAYOUT_AT),
-                Reason.PERIOD_EXPIRED);
+                LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
         assertThat(order.getItems().getFirst().getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
     }
 
@@ -76,7 +74,7 @@ class LectureOrderObjectionTest {
     void 구매자가_아니면_이의_제기할_수_없다() {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L);
 
-        assertRefused(() -> order.fileObjection(1L, 4L, INQUIRY_ID, REASON, OCT_5), Reason.NOT_BUYER);
+        assertRefused(() -> order.fileObjection(1L, 4L, INQUIRY_ID, REASON, OCT_5), LectureErrorCode.OBJECTION_NOT_BUYER);
     }
 
     @Test
@@ -86,8 +84,8 @@ class LectureOrderObjectionTest {
         order.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
         order.resolveObjection(2L, INQUIRY_ID, true, ADMIN_ID, OCT_6);
 
-        assertRefused(() -> order.fileObjection(1L, BUYER_ID, 501L, REASON, OCT_6), Reason.NOT_OBJECTIONABLE);
-        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 502L, REASON, OCT_6), Reason.NOT_OBJECTIONABLE);
+        assertRefused(() -> order.fileObjection(1L, BUYER_ID, 501L, REASON, OCT_6), LectureErrorCode.OBJECTION_NOT_OBJECTIONABLE);
+        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 502L, REASON, OCT_6), LectureErrorCode.OBJECTION_NOT_OBJECTIONABLE);
     }
 
     @Test
@@ -96,7 +94,7 @@ class LectureOrderObjectionTest {
         // 지급(#150) 전이라 상태만 바꾼다
         ReflectionTestUtils.setField(order.getItems().getFirst(), "status", OrderItemStatus.PAID_OUT);
 
-        assertRefused(() -> order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), Reason.ALREADY_PAID_OUT);
+        assertRefused(() -> order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), LectureErrorCode.OBJECTION_ALREADY_PAID_OUT);
     }
 
     @Test
@@ -106,8 +104,8 @@ class LectureOrderObjectionTest {
         order.fileObjection(2L, BUYER_ID, 501L, REASON, OCT_5);
         order.resolveObjection(2L, 501L, false, ADMIN_ID, OCT_6);
 
-        assertRefused(() -> order.fileObjection(1L, BUYER_ID, 502L, REASON, OCT_6), Reason.ALREADY_FILED);
-        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 503L, REASON, OCT_6), Reason.ALREADY_FILED);
+        assertRefused(() -> order.fileObjection(1L, BUYER_ID, 502L, REASON, OCT_6), LectureErrorCode.OBJECTION_ALREADY_FILED);
+        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 503L, REASON, OCT_6), LectureErrorCode.OBJECTION_ALREADY_FILED);
     }
 
     @Test
@@ -117,9 +115,9 @@ class LectureOrderObjectionTest {
         order.resolveObjection(1L, INQUIRY_ID, false, ADMIN_ID, OCT_6);
         ReflectionTestUtils.setField(order.getItems().get(1), "status", OrderItemStatus.PAID_OUT);
 
-        assertRefused(() -> order.fileObjection(1L, BUYER_ID, 501L, REASON, PAYOUT_AT), Reason.ALREADY_FILED);
-        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 502L, REASON, PAYOUT_AT), Reason.ALREADY_PAID_OUT);
-        assertRefused(() -> order.fileObjection(2L, 4L, 503L, REASON, PAYOUT_AT), Reason.NOT_BUYER);
+        assertRefused(() -> order.fileObjection(1L, BUYER_ID, 501L, REASON, PAYOUT_AT), LectureErrorCode.OBJECTION_ALREADY_FILED);
+        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 502L, REASON, PAYOUT_AT), LectureErrorCode.OBJECTION_ALREADY_PAID_OUT);
+        assertRefused(() -> order.fileObjection(2L, 4L, 503L, REASON, PAYOUT_AT), LectureErrorCode.OBJECTION_NOT_BUYER);
     }
 
     @Test
@@ -190,8 +188,8 @@ class LectureOrderObjectionTest {
         order.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
         order.resolveObjection(2L, INQUIRY_ID, false, ADMIN_ID, OCT_6);
 
-        assertRefused(() -> order.resolveObjection(1L, INQUIRY_ID, true, ADMIN_ID, OCT_6), Reason.NOT_FILED);
-        assertRefused(() -> order.resolveObjection(2L, INQUIRY_ID, true, ADMIN_ID, OCT_6), Reason.NOT_FILED);
+        assertRefused(() -> order.resolveObjection(1L, INQUIRY_ID, true, ADMIN_ID, OCT_6), LectureErrorCode.OBJECTION_NOT_FILED);
+        assertRefused(() -> order.resolveObjection(2L, INQUIRY_ID, true, ADMIN_ID, OCT_6), LectureErrorCode.OBJECTION_NOT_FILED);
         assertThat(order.getItems().get(1).getStatus()).isEqualTo(OrderItemStatus.PURCHASED);
     }
 
@@ -200,7 +198,7 @@ class LectureOrderObjectionTest {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L);
         order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
 
-        assertRefused(() -> order.resolveObjection(1L, 501L, true, ADMIN_ID, OCT_6), Reason.INQUIRY_MISMATCH);
+        assertRefused(() -> order.resolveObjection(1L, 501L, true, ADMIN_ID, OCT_6), LectureErrorCode.OBJECTION_INQUIRY_MISMATCH);
         assertThat(order.getItems().getFirst().getObjectionStatus()).isEqualTo(ObjectionStatus.FILED);
     }
 
@@ -234,7 +232,7 @@ class LectureOrderObjectionTest {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L);
         order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
 
-        assertRefused(() -> order.withdrawObjection(1L, 4L, INQUIRY_ID), Reason.NOT_BUYER);
+        assertRefused(() -> order.withdrawObjection(1L, 4L, INQUIRY_ID), LectureErrorCode.OBJECTION_NOT_BUYER);
         assertThat(order.getItems().getFirst().getObjectionStatus()).isEqualTo(ObjectionStatus.FILED);
     }
 
@@ -246,9 +244,9 @@ class LectureOrderObjectionTest {
         order.fileObjection(3L, BUYER_ID, 502L, REASON, OCT_5);
         order.resolveObjection(3L, 502L, true, ADMIN_ID, OCT_6);
 
-        assertRefused(() -> order.withdrawObjection(1L, BUYER_ID, INQUIRY_ID), Reason.NOT_FILED);
-        assertRefused(() -> order.withdrawObjection(2L, BUYER_ID, 501L), Reason.NOT_FILED);
-        assertRefused(() -> order.withdrawObjection(3L, BUYER_ID, 502L), Reason.NOT_FILED);
+        assertRefused(() -> order.withdrawObjection(1L, BUYER_ID, INQUIRY_ID), LectureErrorCode.OBJECTION_NOT_FILED);
+        assertRefused(() -> order.withdrawObjection(2L, BUYER_ID, 501L), LectureErrorCode.OBJECTION_NOT_FILED);
+        assertRefused(() -> order.withdrawObjection(3L, BUYER_ID, 502L), LectureErrorCode.OBJECTION_NOT_FILED);
         assertThat(order.getItems()).extracting(OrderItem::getObjectionStatus)
                 .containsExactly(ObjectionStatus.NONE, ObjectionStatus.REJECTED, ObjectionStatus.ACCEPTED);
     }
@@ -258,7 +256,7 @@ class LectureOrderObjectionTest {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L);
         order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
 
-        assertRefused(() -> order.withdrawObjection(1L, BUYER_ID, 501L), Reason.INQUIRY_MISMATCH);
+        assertRefused(() -> order.withdrawObjection(1L, BUYER_ID, 501L), LectureErrorCode.OBJECTION_INQUIRY_MISMATCH);
         assertThat(order.getItems().getFirst())
                 .extracting(OrderItem::getObjectionStatus, OrderItem::getObjectionInquiryId)
                 .containsExactly(ObjectionStatus.FILED, INQUIRY_ID);
@@ -269,8 +267,8 @@ class LectureOrderObjectionTest {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L);
         order.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
 
-        assertRefused(() -> order.withdrawObjection(1L, 4L, 501L), Reason.NOT_BUYER);
-        assertRefused(() -> order.withdrawObjection(2L, 4L, 501L), Reason.NOT_BUYER);
+        assertRefused(() -> order.withdrawObjection(1L, 4L, 501L), LectureErrorCode.OBJECTION_NOT_BUYER);
+        assertRefused(() -> order.withdrawObjection(2L, 4L, 501L), LectureErrorCode.OBJECTION_NOT_BUYER);
     }
 
     @Test
@@ -301,7 +299,7 @@ class LectureOrderObjectionTest {
 
         assertThat(refiled).extracting(OrderItem::getObjectionStatus, OrderItem::getObjectionInquiryId)
                 .containsExactly(ObjectionStatus.FILED, 502L);
-        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 503L, REASON, PAYOUT_AT), Reason.PERIOD_EXPIRED);
+        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 503L, REASON, PAYOUT_AT), LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
     }
 
     @Test
@@ -326,8 +324,8 @@ class LectureOrderObjectionTest {
         ReflectionTestUtils.setField(failed.getItems().getFirst(), "id", 2L);
         failed.markHoldFailed();
 
-        assertRefused(() -> pending.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), Reason.NOT_OBJECTIONABLE);
-        assertRefused(() -> failed.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), Reason.NOT_OBJECTIONABLE);
+        assertRefused(() -> pending.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), LectureErrorCode.OBJECTION_NOT_OBJECTIONABLE);
+        assertRefused(() -> failed.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), LectureErrorCode.OBJECTION_NOT_OBJECTIONABLE);
     }
 
     @Test
@@ -344,10 +342,10 @@ class LectureOrderObjectionTest {
         order.startPayoutItem(4L, PAYOUT_AT);
 
         // 취소·반환 처리 중은 NOT_OBJECTIONABLE, 지급 처리 중은 PERIOD_EXPIRED(이미 판단된 건은 ALREADY_FILED) (D59 (6))
-        assertRefused(() -> order.fileObjection(1L, BUYER_ID, 503L, REASON, OCT_6), Reason.NOT_OBJECTIONABLE);
-        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 504L, REASON, OCT_6), Reason.NOT_OBJECTIONABLE);
-        assertRefused(() -> order.fileObjection(3L, BUYER_ID, 505L, REASON, OCT_6), Reason.PERIOD_EXPIRED);
-        assertRefused(() -> order.fileObjection(4L, BUYER_ID, 506L, REASON, OCT_6), Reason.ALREADY_FILED);
+        assertRefused(() -> order.fileObjection(1L, BUYER_ID, 503L, REASON, OCT_6), LectureErrorCode.OBJECTION_NOT_OBJECTIONABLE);
+        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 504L, REASON, OCT_6), LectureErrorCode.OBJECTION_NOT_OBJECTIONABLE);
+        assertRefused(() -> order.fileObjection(3L, BUYER_ID, 505L, REASON, OCT_6), LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
+        assertRefused(() -> order.fileObjection(4L, BUYER_ID, 506L, REASON, OCT_6), LectureErrorCode.OBJECTION_ALREADY_FILED);
     }
 
     /** 구매 취소를 요청하고 반환까지 끝낸다 */
@@ -368,9 +366,9 @@ class LectureOrderObjectionTest {
         return order;
     }
 
-    private static void assertRefused(Runnable action, Reason reason) {
+    private static void assertRefused(Runnable action, LectureErrorCode errorCode) {
         assertThatThrownBy(action::run)
-                .isInstanceOf(LectureObjectionRefusedException.class)
-                .extracting("reason").isEqualTo(reason);
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(errorCode);
     }
 }

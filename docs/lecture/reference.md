@@ -342,7 +342,7 @@ com.hapbang.shared.billing                         dto(HP 명령·결과), domai
 com.hapbang.apps                                   bootstrap, scheduling, security·HTTP 공통 설정만 담당 (D62)
 ```
 
-- 지금은 `in/LectureObjectionPortAdapter`(shared `LectureObjectionPort` 구현, #156)가 있다. #280에서 지운다 (6.1 전환 상태).
+- shared `LectureObjectionPort`와 `in/LectureObjectionPortAdapter`는 #433에서 지웠다. 이의 제기 거절은 `LectureErrorCode.OBJECTION_*`이고, 고객센터와 잇는 내부 HTTP·이벤트는 #278에서 만든다. 그 전까지 고객센터 앱은 컴파일되지 않는다.
 - `app`은 회원 모듈(`MemberFacade`)과 같은 Facade/UseCase/Support 구조다. 컨트롤러·이벤트 리스너는 Facade만 호출하고, `@Transactional`은 Facade 메서드에 건다 (D16). 예외: 파일 본문 업로드(D25)와 billing을 부르는 흐름(주문 생성·구매 취소·HP 작업 실행, D57)은 트랜잭션 없는 Facade가 짧은 트랜잭션들을 나눠 부르고, billing 호출은 그 사이 트랜잭션 밖에서 한다.
 - 예외 응답은 global `GlobalExceptionHandler`가 `ProblemDetail` + `code`로 만든다(#71). 강의 모듈은 예외 처리기를 두지 않고 `new LectureException(LectureErrorCode.X)`로 던진다.
 - S3는 global `S3FileStorage`를 `app`에서 쓴다. 강의 모듈에 S3 클라이언트를 두지 않는다 (D40).
