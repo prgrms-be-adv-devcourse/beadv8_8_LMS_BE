@@ -52,6 +52,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - 클래스 레벨 `@KafkaListener`에 받을 타입마다 `@KafkaHandler`를 둔다. 모르는 타입은 `@KafkaHandler(isDefault = true)`에서 무시하고 커밋한다.
 - 역직렬화는 `ErrorHandlingDeserializer`로 감싼 JSON 역직렬화다. 신뢰 패키지는 실제 이벤트 패키지(예: `com.hapbang.shared.member.event`)만 지정하고 `*`를 쓰지 않는다. 깨진 메시지는 재시도 없이 DLT로 간다.
 - 새 그룹의 시작점은 `auto-offset-reset=earliest`다.
+- 토픽이 아직 없어도 소비 앱은 뜬다(`spring.kafka.listener.missing-topics-fatal` 기본값 `false`). 소비자는 `UNKNOWN_TOPIC_OR_PARTITION` 경고를 남기며 기다리다가, 발행 앱이 토픽을 만들면 바로 붙어 처음부터 읽는다. 로컬 k3d에서 소비자를 먼저 띄우고 15초 뒤 토픽을 만들어 1초 안에 메시지를 받는 것을 확인했다(#429). 그래서 발행 앱과 소비 앱의 기동 순서를 맞추지 않는다.
 - 멱등은 업무 자연 키로 한다. 상태 복제 이벤트는 `(대상 ID, 원본 버전)`(회원은 `user.id`, `user.version`), 한 번만 일어나는 사실은 `(eventType, 대상 ID)`다. 업무 반영과 멱등 기록은 같은 로컬 트랜잭션에서 하고, offset은 그 커밋 뒤에 커밋한다.
 - Modulith 전송은 같은 key라도 순서가 뒤바뀔 수 있다. 순서가 중요한 소비자는 원본 버전으로 늦은 이벤트를 거른다.
 
@@ -104,26 +105,39 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 
 DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 토픽의 다른 그룹도 그 메시지를 한 번 더 받지만 소비 멱등이 흡수한다. 실행할 때마다 대상 메시지(DLT 이름·partition·offset), 원인, 결과를 해당 이슈 코멘트로 남긴다. 아래 명령은 로컬 k3d(`apache/kafka` 이미지)에서 확인했다.
 
-1. DLT를 조회한다. Redpanda Console(#374, port-forward)로 보거나 broker pod에서 다음을 실행한다. DLT 헤더에는 Spring Kafka가 붙인 원본 위치·예외 정보가 함께 나온다.
+**broker pod(`kafka-0`)에 `exec`로 들어가 콘솔 도구를 실행하지 않는다.** 콘솔 도구도 JVM이라 broker 컨테이너의 메모리 limit(700Mi)을 함께 쓴다. broker가 평소 550Mi 안팎을 쓰므로 도구를 띄우면 broker가 OOMKilled된다(로컬 k3d에서 소비자·프로듀서를 함께 띄워 재현, #429). 같은 이미지로 임시 client pod를 띄워 쓰고 끝나면 지운다. 이미지가 node에 있어 새로 내려받지 않는다.
+
+0. client pod를 띄운다.
 
    ```bash
-   kubectl --context hapbang-k3s -n hapbang-platform exec -it kafka-0 -- \
-     /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+   kubectl --context hapbang-k3s -n hapbang-platform run kafka-client --image=apache/kafka:4.4.0 \
+     --image-pull-policy=IfNotPresent --restart=Never \
+     --overrides='{"spec":{"containers":[{"name":"kafka-client","image":"apache/kafka:4.4.0","command":["sleep","1800"],"resources":{"limits":{"memory":"512Mi"}}}]}}'
+   kubectl --context hapbang-k3s -n hapbang-platform wait --for=condition=Ready pod/kafka-client --timeout=60s
+   ```
+
+1. DLT를 조회한다. Redpanda Console(#374, port-forward)로 보거나 client pod에서 다음을 실행한다. DLT 헤더에는 Spring Kafka가 붙인 원본 위치·예외 정보가 함께 나온다.
+
+   ```bash
+   kubectl --context hapbang-k3s -n hapbang-platform exec -it kafka-client -- \
+     /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 \
        --topic <DLT 이름> --from-beginning --timeout-ms 10000 \
        --formatter-property print.partition=true --formatter-property print.offset=true \
        --formatter-property print.key=true --formatter-property print.headers=true
    ```
 
-2. 다시 넣을 메시지를 골라 key와 `__TypeId__`·`eventType`·`eventVersion` 헤더만 남겨 원본 토픽에 보낸다. 형식은 `헤더<탭>key<탭>값`이다. Spring Kafka의 DLT 예외 헤더(`kafka_dlt-*`)는 옮기지 않는다.
+2. 다시 넣을 메시지를 골라 key와 `__TypeId__`·`eventType`·`eventVersion` 헤더만 남겨 원본 토픽에 보낸다. 형식은 `헤더<탭>key<탭>값`이다. Spring Kafka의 DLT 예외 헤더(`kafka_dlt-*`)는 옮기지 않는다. 역직렬화에 실패해 DLT로 간 메시지는 값이 원본 바이트 그대로이므로, 고친 값을 넣는다.
 
    ```bash
    printf '__TypeId__:<레코드 클래스 이름>,eventType:<레코드 이름>,eventVersion:<버전>\t<key>\t<JSON 값>\n' | \
-     kubectl --context hapbang-k3s -n hapbang-platform exec -i kafka-0 -- \
-       /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic <원본 토픽> \
+     kubectl --context hapbang-k3s -n hapbang-platform exec -i kafka-client -- \
+       /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:9092 --topic <원본 토픽> \
          --reader-property parse.key=true --reader-property parse.headers=true
    ```
 
 3. 소비 앱 로그나 lag에서 처리됐는지 확인하고 이슈 코멘트에 결과를 남긴다. DLT의 메시지는 지우지 않고 보존 기간(7일)이 지나면 사라지게 둔다.
+
+4. client pod를 지운다: `kubectl --context hapbang-k3s -n hapbang-platform delete pod kafka-client`
 
 ## 완료 증거
 

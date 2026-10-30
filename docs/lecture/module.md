@@ -329,7 +329,8 @@ stateDiagram-v2
 ### 4.8 LectureUser (회원 복제)
 
 - `shared`의 `ReplicaUser`를 상속한다. ID는 원본 회원 ID.
-- `UserJoinedEvent`로만 생성한다(이미 있으면 무시). 회원 정보 변경 이벤트(`UserModifiedEvent`, #56)는 있는 복제본만 `syncFrom`으로 갱신하고, 없으면 `LECTURE_USER_NOT_FOUND`로 실패시켜 미완료 이벤트로 남긴다(재시작 시 재처리) (D17).
+- `UserJoinedEvent`로만 생성한다(이미 있으면 무시). 회원 정보 변경 이벤트(`UserModifiedEvent`, #56)는 있는 복제본만 `syncFrom`으로 갱신하고, 없으면 `LECTURE_USER_NOT_FOUND`로 실패시킨다. 늦거나 중복된 정보는 회원 원본 버전으로 무시한다 (D17).
+- 회원 앱이 Kafka `member.events.v1`로 보낸 이벤트를 소비 그룹 `lecture-app.member-replica`가 받는다(`LectureMemberEventListener`, #429). 회원 로그아웃처럼 강의가 쓰지 않는 타입은 무시한다. 실패는 재시도 3회 뒤 `member.events.v1.lecture-app.member-replica.DLT`로 가고, 재처리는 `docs/architecture/infrastructure/kafka.md`의 runbook을 따른다.
 - 용도: 강의 목록·상세의 판매자 닉네임, 리뷰 작성자 닉네임. 탈퇴 회원은 "탈퇴한 회원"으로 표시한다(정책 7).
 - 권한 판단(인증된 인플루언서 여부 등)은 복제본이 아니라 **요청 시점의 Spring Security 인증 정보**로 한다. 복제본은 이벤트 지연으로 늦을 수 있다.
 

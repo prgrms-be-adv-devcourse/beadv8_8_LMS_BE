@@ -14,6 +14,8 @@ dependencies {
     implementation("org.springframework.security:spring-security-core")
     // HP 작업 처리 지표(Micrometer). 앱에서는 Actuator의 MeterRegistry에 등록된다
     implementation("io.micrometer:micrometer-core")
+    // 알림 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화). 버전은 Modulith BOM을 따른다
+    implementation("org.springframework.modulith:spring-modulith-events-kafka")
     // 테스트에서 로그인 상태 만들기 (TestLogin)
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
     // E2E 테스트에서 실제 포트로 HTTP 요청 보내기. 버전은 gradle/libs.versions.toml에서 관리한다
