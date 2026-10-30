@@ -6,6 +6,7 @@
 > - 원천은 작업 트리의 `apps/billing-app/PROGRESS.md` 3·4·5·7장과 `apps/billing-app/AGENTS.md`다(2026-10-29). 결정을 새로 만들거나 폐기하지 않았다. 원문에 적힌 상태를 옮겼고, 원문에 이유가 없으면 "기록 없음"으로 적었다.
 > - 결정을 바꾸려면 팀과 먼저 합의하고, 기존 행의 상태를 바꾼 뒤 새 번호를 더한다.
 > - 2026-10-29 dev da834b1 반영: Billing 결정은 바뀌지 않았다. #369 최종 인프라 결정이 재검토 대상(11장)에 주는 방향만 더했다.
+> - 2026-10-30 PROGRESS 3.21(#273) 반영: BD-108을 결정했고 BD-111~BD-113을 더했다(9장). BD-28·BD-54는 일부 대체됐다. 이제 결정 원본은 이 문서이고, `PROGRESS.md` 3장은 결정 배경만 두고 각 절에서 `BD-*`를 가리킨다. 출처 칸의 `P`는 `PROGRESS.md`, `A`는 `apps/billing-app/AGENTS.md`, `C`는 [`CONTEXT.md`](CONTEXT.md)의 장 번호다.
 
 ## 0. 읽는 법
 
@@ -89,7 +90,7 @@
 | BD-25 | 배분 전 가용 원금 합 = `charge_balance_hp` 대조. 다르면 `CHARGE_PRINCIPAL_MISMATCH` | 기록 없음 | 유효 | P3.6 | — |
 | BD-26 | 락 순서는 지갑 → 충전 건 | 교착이 없다 | 유효 | P3.6 | — |
 | BD-27 | 조회 순서는 원장 → 보류 | READ COMMITTED에서 먼저 읽은 원장이 보이면 나중에 읽는 보류도 보인다. 반대 순서는 정상 경쟁을 500으로 잘못 분류했다 | 유효 (#78의 보류 → 원장 순서를 대체) | P3.6, A7, #141 | — |
-| BD-28 | 잔액 부족은 예외로 알린다. `HoldFacade`에는 `@PreAuthorize`가 없고 공개 HTTP API도 없다 | 강의·출연이 결제자를 확인한 뒤 부르는 내부 기능 | 유효 | P3.6 | **재검토** (내부 Java 호출 전제, 원격 호출 시 인증 방식 TBD) |
+| BD-28 | 잔액 부족은 예외로 알린다. `HoldFacade`에는 `@PreAuthorize`가 없고 공개 HTTP API도 없다 | 강의·출연이 결제자를 확인한 뒤 부르는 내부 기능 | **일부 대체됨 → BD-112** (`@PreAuthorize`·공개 HTTP API 없음 부분. 잔액 부족 예외는 유효) | P3.6 | 해소 (BD-112) |
 | BD-29 | 반환은 충전 HP 먼저, 부족분만 수익 HP. 충전 원금은 최초 배분의 역순(LIFO)으로 복원한다 | 역순 규칙을 바꾸면 기존 상세를 재구성할 수 없다 | 유효 | P3.7, A8 | — |
 | BD-30 | 반환 키 `RELEASE:{holdId}:{releaseRequestId}`. 요청 ID는 `[A-Za-z0-9_-]{1,200}`이고, 재전송 때 같은 값을 쓴다(UUID 금지) | `:`는 구분자, 원장 멱등키 255자 제한 | 유효 | P3.7 | — |
 | BD-31 | 반환 요청 ID는 보류 안에서만 고유하다 | 키에 holdId가 있고, 전역 고유성을 요구하는 업무가 없다 | 유효 (1차 구현 대체) | P3.7 | — |
@@ -125,7 +126,7 @@
 | BD-51 | 연동 계약은 `com.hapbang.shared.billing`에 둔다(`BillingPort` 4개 메서드, DTO 8개, Enum 2개). 강의·출연은 `:shared`만 의존한다 | Gradle 순환 없음 | 유효 | P3.10, A9 | **재검토** ("같은 애플리케이션 안의 동기 Java 호출") |
 | BD-52 | package-private `BillingPortAdapter`가 `HoldFacade`에 위임한다. 트랜잭션을 열지 않고 예외를 잡지 않는다 | `HoldFacade`가 직접 구현하면 내부 결과 검증을 잃는다 | 유효 | P3.10 | **재검토** |
 | BD-53 | Billing UseCase는 호출한 쪽 트랜잭션에 참여한다(`REQUIRED`, `REQUIRES_NEW` 금지). 커밋은 호출한 쪽과 함께 한다 | 기록 없음 | 유효 | A9, P4 | **재검토** (원격 호출에서는 성립 불가) |
-| BD-54 | shared는 구조만 검사한다(NPE·IAE → 500 `INTERNAL_ERROR`). 금융 검증은 `BillingCommandValidator`가 `BillingException`으로 한다. shared DTO를 Controller 요청 DTO로 쓰지 않는다 | 구조 오류는 내부 계약을 잘못 쓴 프로그래밍 오류 | 유효 | P3.10, A9 | **재검토** (원격 호출 시 NPE·IAE를 무엇으로 응답할지) / 문구(`global`) |
+| BD-54 | shared는 구조만 검사한다(NPE·IAE → 500 `INTERNAL_ERROR`). 금융 검증은 `BillingCommandValidator`가 `BillingException`으로 한다. shared DTO를 Controller 요청 DTO로 쓰지 않는다 | 구조 오류는 내부 계약을 잘못 쓴 프로그래밍 오류 | **일부 대체됨 → BD-111** (내부 HTTP API에서는 shared Command가 요청 본문이고 구조 오류는 400. 같은 JVM 호출의 500은 #280까지 유효) | P3.10, A9 | 해소 (BD-111) / 문구(`global`) |
 | BD-55 | 멱등키 생성을 `BillingKeys`로 옮기고 형식은 그대로 둔다. 호출한 쪽은 요청 ID만 넘긴다 | 기존 데이터를 그대로 찾는다 | 유효 | P3.10, A9 | — |
 | BD-56 | 위약금 비율·금액 계산은 출연이 한다. Billing은 받은 `releaseAmountHp`(≥0)와 `payoutAmountHp`(>0)를 원자적으로 처리한다. 합이 남은 보류보다 크면 `PENALTY_BASE_EXCEEDS_HELD` | 기록 없음 | 유효 (BD-46 대체) | P3.10, A8 | — |
 | BD-57 | 게스트 지급액 0이면 `PENALTY_AMOUNT_ZERO`(400), 음수면 `INVALID_POINT_AMOUNT` | 기록 없음 | 유효 (BD-47 대체) | P3.10, A8 | — |
@@ -190,13 +191,17 @@
 | BD-103 | `billing_user` 복제본: 가입·변경 이벤트 모두 Upsert, 비관적 락 + 회원 버전 비교, PK 충돌 3회 재시도. TIMESTAMP(TIMESTAMPTZ 예외) | 낙관적 락 + 3회로는 동시 10건 테스트가 실패했다 | 유효 | P3.20, A11 | **재검토** (이벤트가 JVM을 넘지 않는다) |
 | BD-104 | 기존 회원 Backfill은 하지 않는다. 회원을 임의로 ACTIVE로 채우지 않는다 | Member 조회 Port·재발행이 없다 | **확인 필요** — 코드에 Backfill(#324, `MemberApiClient` #322)이 구현돼 있다. 결정 기록이 없다(10장) | P3.20, A11 | — |
 
-## 9. 오류·호출 계약 (5장·4장)
+## 9. 오류·호출 계약 (5장·4장, #273)
 
 | ID | 결정 | 이유 | 상태 | 출처 | JVM |
 | --- | --- | --- | --- | --- | --- |
 | BD-105 | `CHARGE_PRINCIPAL_MISMATCH`·`HOLD_STATE_INCONSISTENT`는 `INTERNAL_ERROR`로 바꾸지 않는다. `detail`은 일반 문구 | 테스트·로그에서 원인을 코드로 구분 | 유효 | P5 | — |
 | BD-106 | 모듈 예외 핸들러를 없애고 공통 `GlobalExceptionHandler`가 `ProblemDetail` + `code`로 응답한다. 성공은 `RsData` | 기록 없음 | 유효 | P5, A14 | 문구 (공유 `global` 모듈 → `com.hapbang.billing.global`) |
 | BD-107 | 호출한 쪽은 READ COMMITTED를 쓰고, UNIQUE 충돌로 `IDEMPOTENCY_KEY_CONFLICT`가 난 바깥 트랜잭션은 계속 쓰지 않는다 | RR 이상이면 직렬화 오류 | 유효 | P4 | **재검토** (호출한 쪽 트랜잭션 공유 전제) |
+| BD-108 | Billing 전체에 `lock_timeout = 3s`(Hikari `connection-init-sql`)를 둔다. 55P03은 Facade 진입점에서 `HP_LOCK_TIMEOUT`(503)으로 바꾸고, shared `BillingFailureCode`에도 둔다 | Client 응답 timeout(5초)과 무제한 락 대기가 맞지 않는다 | 유효 (10장 미결에서 결정됨) | P3.21, C1.4 | — |
+| BD-111 | 내부 HTTP API(`/api/v1/internal/billing/{holds,releases,payouts,penalty-settlements}`)는 shared Command를 요청 본문으로 그대로 받는다. 구조 오류(NPE·IAE)는 400 `INVALID_REQUEST`다. 회원이 부르는 사용자 API는 각 모듈 요청 DTO를 쓴다 | shared Command가 곧 모듈 간 HTTP 계약이다. BD-54는 같은 JVM 호출 전제였다 | 유효 (BD-54 일부 대체) | P3.21, C1.1, A9 | — |
+| BD-112 | `HoldFacade`에 `@PreAuthorize("hasRole('INTERNAL')")`를 붙인다. 내부 API는 `X-Internal-Api-Key`로 인증하고, 호출한 쪽이 넘긴 `userId`를 믿는다 | #280 뒤 `HoldFacade`가 내부 API 전용 진입점이 된다(D63) | 유효 (BD-28 일부 대체) | P3.21, C1.2 | — |
+| BD-113 | `BillingFailureCodeContractTest`가 `BillingErrorCode` 전체를 `default` 없는 `switch`로 `BillingFailureCode` 또는 `null`(내부 API에서 나오지 않음)로 분류한다 | Billing 오류 코드가 늘면 컴파일되지 않아 분류를 빠뜨리지 않는다 | 유효 | P3.21, C1.6 | — |
 
 ## 10. 미결 항목
 
@@ -206,7 +211,6 @@
 | --- | --- | --- | --- |
 | BD-71 | dev DB에 #142·#182 레거시 SCHEDULED 지급 건이 남았는가, 남았다면 보정 방식 | 미확인. 별도 보정 Issue 권장, 엔진 재사용 분기는 권장하지 않음 | P3.13, A8.1 |
 | BD-74 | 강의 지급 배치의 재시도 불가 오류 격리·알림, 판매자 탈퇴 후 최종 수익 정산 | 탈퇴 후 정책 미정 | P3.14 |
-| BD-108 | `lock_timeout` 상한 | 설정 없음(무제한 대기) | P7 |
 | BD-109 | 반환·지급 사유를 원장 `description`에 남길지 | 계약에 사유 필드 없음 | P7 |
 | BD-110 | 루트 AGENTS "모듈 간 통신은 이벤트 기본"의 예외로 동기 BillingPort를 적을지 | 루트 AGENTS 3장에 HP 이동 동기 호출 예외가 이미 있다. PROGRESS 7장 항목은 갱신 필요 여부 확인 | P7 |
 | (P7) | QueryDSL 도입·버전 | BD-38 | P3.8 |
@@ -222,7 +226,7 @@
 | BD-51, BD-52, BD-53, BD-60, BD-107 | 강의·출연이 같은 JVM에서 `BillingPort`를 호출하고 Billing이 그 트랜잭션에 참여한다 | 내부 API로 전환(#271~#281). 앱 간 HTTP의 timeout·circuit breaker는 Resilience4j(인프라 문서 3장). database 분리 전에 보상 처리를 끝낸다(10장) | 원격 호출에서 원자성을 대신할 방식(호출 쪽 상태 + 멱등 재시도), 오류·타임아웃·결과 불명·circuit open 처리, shared 계약을 HTTP DTO로 바꾸는 범위 | `docs/adr/` (여러 모듈) |
 | BD-64 | 강의 구매 = 주문 저장과 보류가 한 트랜잭션 | 보류 실패 → 주문 취소, 주문 실패 → 보류 반환(인프라 문서 10장 완료 증거) | 강의도 출연(BD-65)처럼 분리 트랜잭션 + 상태 복구로 갈지, 보상 반환의 요청 ID 규칙 | `docs/adr/` + 강의 결정 기록 |
 | BD-72, BD-73 | 여러 모듈 테이블 락이 한 DB 트랜잭션 안에 있다 | 모듈별 database 분리 확정(#338, 인프라 문서 10장) → 한 트랜잭션 안의 모듈 간 락은 불가능해진다 | 모듈 간 락 순서를 폐기할지, Billing 안 락 순서만 남길지 | 이 문서 (Billing 쪽 결론) |
-| BD-28, BD-54 | 내부 Java 호출이라 인증·예외 형식이 필요 없다 | 내부 API는 `X-Internal-Api-Key` 인증 유지, k3s에서는 Envoy route 없음 + NetworkPolicy(인프라 문서 3장) | NPE·IAE 대신 400 응답 | `docs/api/internal-billing.md` (계약 확정 시) |
+| BD-28, BD-54 | 내부 Java 호출이라 인증·예외 형식이 필요 없다 | 내부 API는 `X-Internal-Api-Key` 인증 유지, k3s에서는 Envoy route 없음 + NetworkPolicy(인프라 문서 3장) | 해소(#273): 400 응답은 BD-111, 인증·인가는 BD-112 | 9장 |
 | BD-2, BD-6, BD-103 | 회원 이벤트가 같은 프로세스에서 전달된다 | Kafka(#339). Modulith publication registry를 outbox로 externalization, consumer는 `eventId` inbox로 멱등, 재시도 제한 + DLT(인프라 문서 1장) | Billing inbox와 기존 Upsert·버전 비교(BD-103)의 관계, 기존 `event_publication` 기록 전환 | `docs/adr/` (#339) |
 | BD-3, BD-102, BD-103 | 역할·회원 상태를 로그인 세션에서 바로 확인한다 | JWT 전환(#370~#372). HP가 움직이는 경로는 토큰 `role`만 믿지 않고 복제한 회원 상태를 함께 확인한다(인프라 문서 3장 인증 흐름 7) | 지금은 환전 승인만 `billing_user`를 확인한다. 보류·지급·환전 신청·충전·환불 중 어디에 확인을 더할지. 복제본이 없을 때 거절할지 | 이 문서 + `docs/policy.md` 변경 여부는 팀(#370) |
 | BD-66 | 출연 Fake 모드 | — | 코드에서 삭제됐는지 확인 후 상태 정리 | 이 문서 |
