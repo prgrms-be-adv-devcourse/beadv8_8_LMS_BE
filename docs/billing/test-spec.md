@@ -18,7 +18,7 @@
 
 - Java 25(Gradle Toolchain). Integration·Repository 테스트는 Docker가 필요하다(Testcontainers `postgres:18`, JVM당 컨테이너 1개, reuse 없음).
 - 결과는 `apps/billing-app/build/test-results/test/TEST-*.xml`로 확인한다. `UP-TO-DATE`·`FROM-CACHE`로 건너뛴 태스크는 새 실행으로 기록하지 않는다(`docs/dev/testing.md`). 새로 실행하려면 `--rerun-tasks` 또는 `cleanTest`를 쓴다.
-- CI는 `./gradlew verifyModuleStructure --no-daemon`을 먼저 돌리고, 이어서 `./gradlew check bootJar --no-daemon --parallel`을 돌린다(`.github/workflows/ci.yml`, `TZ=Asia/Seoul`).
+- CI는 billing-app이 테스트 대상인 PR에서 billing-app 전용 러너로 `./gradlew :billing-app:check :billing-app:bootJar --no-daemon --parallel`을 돌린다(`.github/workflows/ci.yml`, `TZ=Asia/Seoul`). 대상 판정은 `docs/dev/testing.md`의 CI에 있다.
 
 ### 1.2 단계별 명령
 

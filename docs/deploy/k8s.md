@@ -143,7 +143,7 @@ prod 앱은 GitHub Actions가 배포한다(#374). 앱 이미지는 private GHCR 
 
 ```
 main push → Publish images(publish.yml)
-  바뀐 앱만 테스트(ci.yml) → ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<그 앱을 마지막으로 바꾼 main 커밋>
+  여섯 앱 테스트(ci.yml) → 바뀐 앱만 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<그 앱을 마지막으로 바꾼 main 커밋>
 
 Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main 최신)·apps(비우면 자동)
   지금 도는 이미지와 비교해 바뀐 앱을 고른다 → 이미지가 모두 GHCR에 있는지 확인

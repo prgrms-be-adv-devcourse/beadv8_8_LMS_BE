@@ -71,4 +71,8 @@ chat-app 테스트 설정(`apps/chat-app/src/test/resources/hapbang-module-test.
 
 ## CI
 
-PR의 `verify`(`.github/workflows/ci.yml`)는 `./gradlew verifyModuleStructure`로 모듈 구조를 검사하고, `./gradlew check bootJar --parallel`로 여섯 앱과 common 라이브러리를 테스트해 앱별 jar를 만든 뒤, 앱마다 자기 `Dockerfile`로 이미지가 빌드되는지 확인한다(push하지 않음). `verifyModuleStructure`는 `--parallel`과 함께 실행하면 Gradle이 막으므로 따로 실행한다.
+PR CI(`.github/workflows/ci.yml`)는 PR에서 바뀐 앱만 테스트한다(#488). `changes` job이 `.github/scripts/apps.sh tested`로 앱을 고르고, 앱마다 러너 하나(`test (<앱>)`)에서 `./gradlew :<앱>:check :<앱>:bootJar --parallel`로 테스트해 jar를 만든 뒤 자기 `Dockerfile`로 이미지가 빌드되는지 확인한다(push하지 않음). `structure` job은 `./gradlew verifyModuleStructure`로 모듈 구조를 검사하고 common 라이브러리를 테스트한다. `verifyModuleStructure`는 `--parallel`과 함께 실행하면 Gradle이 막으므로 따로 실행한다. 필수 체크 `verify`는 이 job들의 결과를 모은다.
+
+- **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`·`gradlew`·`ci.yml`·`apps.sh`가 바뀌면 전체다. `apps/<앱>/k8s/`(`manifests` job이 검사)와 `*.md`는 판정에서 빼므로, 이것만 바꾼 PR은 Gradle을 돌리지 않는다.
+- 판정 규칙을 바꾸면 `.github/scripts/apps-test.sh`에 사례를 더한다. `changes` job이 매번 실행한다.
+- main 발행(`publish.yml`)이 호출할 때는 여섯 앱을 모두 테스트한다.
