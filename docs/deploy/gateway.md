@@ -9,7 +9,7 @@
 - 내부·외부 API를 실제 listener로 분리한다. 외부 8080은 Envoy만, 내부 8081은 앱 pod끼리만 접근한다. 호출 관계별 허용 목록은 두지 않는다. 같은 내부 API 키를 쓰는 앱 6개 사이에서 목록이 막는 경로가 작고, 호출을 더할 때마다 제공 앱 정책을 고쳐야 했기 때문이다. 내부 API 키도 앱 6개가 같은 값을 쓴다. 제공 앱별 키로 호출 관계를 Secret에서 제한하는 방식은 실서비스가 아닌 이 규모에서 과하다고 보고 두지 않는다. Service 포트 이름만 나누는 방식은 쓰지 않는다.
 - Grafana는 prod 도메인의 `/grafana/`에서 자체 계정 로그인으로 공개한다. 익명 접근·가입·auth proxy는 끈다. NodePort·3000 공개는 하지 않는다.
 - 이번 작업은 manifest·앱 포트 분리·로컬 검증·운영 전환 절차까지다. 실제 EC2 진입점 전환과 운영 검증 전에는 #372를 완료 처리하지 않는다.
-- 티켓 범위를 넘는 장치는 두지 않는다. 업로드 메서드·형식·크기 검사는 앱이 원본이고 Envoy는 timeout만 늘린다. platform NetworkPolicy는 인증이 없는 Kafka·Redis에만 둔다. `run.py`는 완료 조건만 검사한다.
+- 티켓 범위를 넘는 장치는 두지 않는다. 업로드 메서드·형식·크기 검사는 앱이 원본이고 Envoy는 timeout만 늘린다. platform에는 ingress NetworkPolicy를 두지 않는다. `run.py`는 완료 조건만 검사한다.
 - 앱 manifest는 각 앱의 `k8s/`에 둔다. 공통 Gateway, platform 접근 정책, Grafana·Alloy 설정은 `k8s/gateway/`에 둔다. 앱이 루트 manifest를 참조하지 않는다.
 
 ## 구성과 적용 순서
@@ -59,9 +59,10 @@ prod issuer·JWKS 경로는 #370과 맞춘다. Gateway는 member Service 8080에
 - `/grafana`는 `/grafana/`로 redirect한다. prefix는 지우지 않는다. Grafana `root_url`, `serve_from_sub_path`, Secure cookie를 설정한다. admin 자격 증명은 기존 chart Secret을 사용하고 레포·로그에 남기지 않는다.
 - Grafana는 320Mi 한도에서 subpath 변경 후 기동 시 높은 CPU·probe timeout이 관찰되어 384Mi와 `GOMAXPROCS=2`를 적용했다. 이 64Mi 증가는 #343의 medium 목표 예산 조정에 포함한다.
 - Grafana는 SQLite PVC를 공유하는 새·옛 pod가 함께 뜨지 않도록 `Recreate`로 갱신한다. probe는 `/grafana/api/health`, startup은 최대 5분을 기다린다. 로그인 화면·정적 자원은 익명에게 제공되고 dashboard·데이터 API는 로그인이 필요하다.
+- Kafka UI(Redpanda Console)는 `/kafka/`에서 Envoy Basic Auth(`SecurityPolicy` basicAuth, SHA htpasswd)로 연다. Console 무료판에는 로그인이 없기 때문이다. 인증이 없으면 401과 `WWW-Authenticate: Basic`을 돌려줘 브라우저 로그인 창이 뜬다. route가 `X-Forwarded-Prefix: /kafka`를 넣어 Console이 하위 경로로 동작한다. 계정은 `admin` 하나이고 prod 비밀번호는 만든 사람의 `~/.hapbang/kafka-ui-password`에만 있어 팀 비밀 보관소로 공유한다. 바꿀 때는 새 비밀번호의 SHA htpasswd를 kubeseal로 다시 봉인해 `overlays/prod/kafka-ui-basic-auth.yaml`을 바꾼다. Basic Auth에는 로그아웃·시도 횟수 제한·사용자 구분이 없다.
 - Tempo는 trace 수신·조회 부하에서 기존 64Mi로 OOMKilled되어 128Mi·GOMEMLIMIT=112MiB·GOMAXPROCS=2를 적용한다. 이 조정과 Grafana 증가분, Envoy 종료 sidecar 32Mi를 [예산 표](../architecture/infrastructure/k3s.md)에 반영한다.
 - Envoy JSON access log는 query·본문·Authorization·쿠키를 기록하지 않는다. W3C trace를 Alloy OTLP 4317 → Tempo 4317로 전송한다. dashboard·앱 전체 계측·알림은 #343이다.
-- platform NetworkPolicy는 인증 없이 열리는 Kafka·Redis에만 두고 앱 6개만 허용한다. PostgreSQL·Elasticsearch·관측성 구성 요소는 자체 인증에 맡기고 ingress NetworkPolicy를 두지 않는다. `deny-metadata-egress`는 namespace의 모든 pod에 적용되므로 이 구성 요소들도 IMDS egress는 막힌다. metadata egress는 S3를 쓰는 member·appearance·lecture에만 허용한다. node 자체나 hostNetwork pod는 일반 NetworkPolicy의 신뢰 경계 밖이다.
+- platform(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)에는 ingress NetworkPolicy를 두지 않는다. 외부에서는 닿지 않고, 막아 주는 경우는 cluster 안 pod가 먼저 뚫린 상황뿐이라 실서비스가 아닌 이 규모에서는 감수한다. 인증이 없는 Kafka·Redis도 같다. 앱 이름 허용 목록은 앱을 더할 때마다 고쳐야 하고 빠뜨려도 CI가 잡지 못한다(#374). `deny-metadata-egress`는 namespace의 모든 pod에 적용되므로 이 구성 요소들도 IMDS egress는 막힌다. k3s(kube-router)는 새 pod에 규칙을 거는 데 몇 초가 걸려 그동안은 IMDS가 막히지 않는다(EC2 실측, #374). metadata egress는 S3를 쓰는 member·appearance·lecture에만 허용한다. node 자체나 hostNetwork pod는 일반 NetworkPolicy의 신뢰 경계 밖이다.
 
 ## 로컬 검증 재현
 

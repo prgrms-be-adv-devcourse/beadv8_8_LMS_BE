@@ -19,7 +19,7 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 구매자가 시청할 수 있는 강의 목록 (D39). 응답 DTO 변환은 호출한 Facade의 트랜잭션 안에서 끝난다.
- * 보유 항목(구매·구매 확정·지급)마다 한 줄이고, 판매자가 삭제한 강의도 포함한다(D5). 제목·썸네일은 현재 강의 기준이다.
+ * 시청 가능한 항목(구매·구매 확정·지급)마다 한 줄이고, 판매자가 삭제한 강의도 포함한다(D5). 제목·썸네일은 현재 강의 기준이다.
  */
 @Service
 @RequiredArgsConstructor
@@ -31,7 +31,7 @@ public class PurchasedLectureSupport {
 
     /** 최근 구매순. 정렬은 고정이고 요청의 정렬은 무시한다. 페이지의 강의와 썸네일은 한 번에 읽는다 */
     public Page<PurchasedLectureResponse> getPurchasedLectures(Long buyerUserId, Pageable pageable) {
-        Page<OrderItem> items = lectureOrderRepository.findHeldItems(buyerUserId,
+        Page<OrderItem> items = lectureOrderRepository.findViewableItems(buyerUserId,
                 PageRequest.of(pageable.getPageNumber(), pageable.getPageSize()));
         Map<Long, Lecture> lectures = lectureRepository.findAllById(items.map(OrderItem::getLectureId).toSet())
                 .stream()

@@ -17,7 +17,7 @@ import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Rea
  * <ul>
  *     <li>주문 시점의 강의 제목·가격을 남긴다. 이후 강의 가격이 바뀌어도 반환·지급 금액은 이 가격이다.</li>
  *     <li>기한은 구매일(KST 날짜) 기준이다. 구매일 다음 날부터 7일이 지나면 자동 구매 확정 시각,
- *     30일이 지나면 지급 예정 시각이다 (설계 5장).</li>
+ *     30일이 지나면 지급 예정 시각이다 (설계 5장). 결제가 끝나기 전에는 구매 시각과 기한이 없다 (D58 (5)).</li>
  *     <li>기한 판정은 배치가 아니라 이 엔티티가 시각으로 한다.</li>
  * </ul>
  */
@@ -63,7 +63,6 @@ public class OrderItem {
     @Column(nullable = false)
     private OrderItemStatus status;
 
-    @Column(nullable = false)
     private LocalDateTime purchasedAt;
 
     private LocalDateTime confirmedAt;
@@ -71,10 +70,8 @@ public class OrderItem {
     @Enumerated(EnumType.STRING)
     private ConfirmationType confirmationType;
 
-    @Column(nullable = false)
     private LocalDateTime autoConfirmAt;
 
-    @Column(nullable = false)
     private LocalDateTime payoutScheduledAt;
 
     private LocalDateTime paidOutAt;
@@ -100,43 +97,37 @@ public class OrderItem {
     /** 이의 제기를 판단한 관리자 */
     private Long objectionResolvedByUserId;
 
-    /** 지급 실패 횟수. 지급에 성공하거나 격리를 해제해도 이력으로 남긴다 (D54) */
-    @Column(nullable = false)
-    private int payoutFailureCount;
-
-    /** 마지막 지급 실패 코드 (billing 오류 코드, {@code PAYOUT_AMOUNT_MISMATCH} 또는 예외 클래스 이름) */
-    @Column(length = 100)
-    private String lastPayoutFailureCode;
-
-    private LocalDateTime lastPayoutFailedAt;
-
-    /** 지급 격리 시각. 재시도로 풀리지 않는 실패로 지급 배치에서 뺀 시각이고, {@code null}이면 격리되지 않았다 (D54) */
-    private LocalDateTime payoutQuarantinedAt;
-
     @Version
     private Long version;
 
-    OrderItem(LectureOrder order, Lecture lecture, LocalDateTime now) {
+    OrderItem(LectureOrder order, Lecture lecture) {
         this.order = order;
         this.lectureId = lecture.getId();
         this.sellerUserId = lecture.getSellerUserId();
         this.buyerUserId = order.getBuyerUserId();
         this.lectureTitleSnapshot = lecture.getTitle();
         this.priceHp = lecture.getPriceHp();
-        this.status = OrderItemStatus.PURCHASED;
+        this.status = OrderItemStatus.HOLD_PENDING;
         this.objectionStatus = ObjectionStatus.NONE;
-        stampPurchasedAt(now);
     }
 
-    /** 아직 끝나지 않은 거래(구매, 구매 확정)인지 */
+    /** 아직 끝나지 않은 거래(구매, 구매 확정, 반환·지급 처리 중)인지 */
     public boolean isInProgress() {
-        return status == OrderItemStatus.PURCHASED || status == OrderItemStatus.CONFIRMED;
+        return status == OrderItemStatus.PURCHASED || status == OrderItemStatus.CONFIRMED
+                || status.isSettlementPending();
     }
 
-    /** 구매자가 보유 중인지(구매, 구매 확정, 지급). 보유 중이면 시청할 수 있고 다시 살 수 없다 (D5) */
+    /**
+     * 구매자가 보유 중인지(결제 처리 중·결제 취소 처리 중, 구매, 구매 확정, 지급). 보유 중이면 다시 살 수 없다 (D5, D69 (4)).
+     * 시청 가능과 다르다
+     */
     public boolean isHeld() {
-        return status == OrderItemStatus.PURCHASED || status == OrderItemStatus.CONFIRMED
-                || status == OrderItemStatus.PAID_OUT;
+        return status.isHeld();
+    }
+
+    /** 영상·자료를 볼 수 있는지(구매, 구매 확정, 지급). 구매 전 확정에는 재생 동의가 필요하다 (D69 (4)) */
+    public boolean isViewable() {
+        return status.isViewable();
     }
 
     /** 영상·자료를 보기 전에 재생 동의가 필요한지 (D7·D8) */
@@ -144,9 +135,9 @@ public class OrderItem {
         return status == OrderItemStatus.PURCHASED;
     }
 
-    /** 리뷰를 쓸 수 있는지. 구매 확정 후(구매 확정, 지급)에만 쓴다 (D5) */
+    /** 리뷰를 쓸 수 있는지. 구매 확정 후(구매 확정, 지급 처리 중, 지급)에만 쓴다 (D5, D59 (5)) */
     public boolean isReviewable() {
-        return status == OrderItemStatus.CONFIRMED || status == OrderItemStatus.PAID_OUT;
+        return status.isReviewable();
     }
 
     /** 구매 취소·반환되어 HP가 구매자에게 돌아갔는지 */
@@ -168,7 +159,7 @@ public class OrderItem {
      * 이미 구매 확정·지급된 항목은 그대로 둔다(멱등).
      */
     void consentToPlay(LocalDateTime now) {
-        if (status == OrderItemStatus.CONFIRMED || status == OrderItemStatus.PAID_OUT) {
+        if (status.isReviewable()) {
             return;
         }
         requirePurchased();
@@ -193,53 +184,29 @@ public class OrderItem {
     public boolean isPayable(LocalDateTime now) {
         return status == OrderItemStatus.CONFIRMED
                 && !now.isBefore(payoutScheduledAt)
-                && (objectionStatus == ObjectionStatus.NONE || objectionStatus == ObjectionStatus.REJECTED)
-                && !isPayoutQuarantined();
+                && (objectionStatus == ObjectionStatus.NONE || objectionStatus == ObjectionStatus.REJECTED);
     }
 
-    /** 지급이 격리되었는지. 격리된 항목은 관리자가 해제할 때까지 지급 배치가 처리하지 않는다 (D54) */
-    public boolean isPayoutQuarantined() {
-        return payoutQuarantinedAt != null;
-    }
-
-    /** 지급(배치, #150). 판매자에게 보류 HP를 옮기는 billing 호출은 호출한 쪽이 같은 트랜잭션에서 한다 (D50) */
-    void payOut(LocalDateTime now) {
+    /** 지급 시작(01:00 배치, D59 (5)). 지급 처리 중이 되고, 지급은 PAYOUT 작업이 한다 */
+    void startPayout(LocalDateTime now) {
         if (!isPayable(now)) {
             throw new IllegalStateException("지급 대상이 아닌 주문 항목입니다: " + id);
         }
+        this.status = OrderItemStatus.PAYOUT_PENDING;
+    }
+
+    /** 지급 완료. PAYOUT 작업 성공을 기록하는 트랜잭션에서 부른다 (D70 (2)) */
+    void completePayout(LocalDateTime now) {
+        requireStatus(OrderItemStatus.PAYOUT_PENDING);
         this.status = OrderItemStatus.PAID_OUT;
         this.paidOutAt = now;
     }
 
     /**
-     * 지급 실패 기록(배치, D54). 지급 트랜잭션이 롤백된 뒤 새 트랜잭션에서 남긴다. 아직 지급 대상인 항목에만 남기고,
-     * 그 사이 대상이 아니게 되었으면(다른 실행이 먼저 지급, 이의 제기 접수, 이미 격리) 바꾸지 않고 {@code false}를 돌려준다.
-     * 그래서 실패 원인이 된 다른 트랜잭션이 아직 커밋 전이어도 그 행 락을 기다리지 않는다.
-     * {@code quarantine}이면 격리 시각을 남긴다.
+     * 구매 취소 요청. 자동 구매 확정 시각 전까지, 이의 제기가 없는(접수 후 철회 포함) 항목만 된다 (D44, D52).
+     * 구매 취소 처리 중이 되어 바로 볼 수 없고, 반환은 RELEASE 작업이 한다 (D59 (1))
      */
-    boolean recordPayoutFailure(String code, boolean quarantine, LocalDateTime now) {
-        if (!isPayable(now)) {
-            return false;
-        }
-        this.payoutFailureCount++;
-        this.lastPayoutFailureCode = code;
-        this.lastPayoutFailedAt = now;
-        if (quarantine) {
-            this.payoutQuarantinedAt = now;
-        }
-        return true;
-    }
-
-    /** 지급 격리 해제(관리자, D54). 다음 지급 배치가 다시 시도한다. 실패 기록은 이력으로 남긴다 */
-    void releasePayoutQuarantine() {
-        if (!isPayoutQuarantined()) {
-            throw new LectureException(LectureErrorCode.PAYOUT_NOT_QUARANTINED);
-        }
-        this.payoutQuarantinedAt = null;
-    }
-
-    /** 구매 취소. 자동 구매 확정 시각 전까지, 이의 제기가 없는(접수 후 철회 포함) 항목만 된다 (D44, D52) */
-    void cancel(LocalDateTime now) {
+    void requestCancel(LocalDateTime now) {
         requirePurchased();
         if (!now.isBefore(autoConfirmAt)) {
             throw new LectureException(LectureErrorCode.CANCEL_PERIOD_EXPIRED);
@@ -247,13 +214,27 @@ public class OrderItem {
         if (objectionStatus != ObjectionStatus.NONE) {
             throw new LectureException(LectureErrorCode.OBJECTION_FILED);
         }
+        this.status = OrderItemStatus.CANCEL_PENDING;
+    }
+
+    /** 구매 취소 완료. 반환 성공을 기록하는 트랜잭션에서 부른다 (D70 (2)) */
+    void completeCancel(LocalDateTime now) {
+        requireStatus(OrderItemStatus.CANCEL_PENDING);
         this.status = OrderItemStatus.CANCELED;
         this.canceledAt = now;
     }
 
+    /** 반환 완료(이의 제기 인정). 반환 성공을 기록하는 트랜잭션에서 부른다 (D70 (2)) */
+    void completeReturn(LocalDateTime now) {
+        requireStatus(OrderItemStatus.RETURN_PENDING);
+        this.status = OrderItemStatus.RETURNED;
+        this.returnedAt = now;
+    }
+
     /**
      * 내용 다름 이의 제기 접수(고객센터 호출, 설계 6.2). 접수되면 지급과 구매 취소가 멈춘다.
-     * 검사 순서는 상태 → 기한이다(D49): 구매자 → 취소·반환 → 지급 → 이의 제기 이력 → 지급 예정 시각.
+     * 검사 순서는 상태 → 기한이다(D49): 구매자 → 취소·반환(처리 중 포함) → 지급 → 이의 제기 이력 → 지급 처리 중
+     * → 지급 예정 시각. 지급 처리 중은 지급 예정 시각이 지난 뒤라 기한이 지난 것이다 (D59 (6)).
      */
     void fileObjection(Long buyerUserId, Long inquiryId, String reason, LocalDateTime now) {
         if (reason == null || reason.isBlank()) {
@@ -262,7 +243,8 @@ public class OrderItem {
         if (!this.buyerUserId.equals(buyerUserId)) {
             throw new LectureObjectionRefusedException(Reason.NOT_BUYER);
         }
-        if (isWithdrawn()) {
+        if (isWithdrawn() || status.isHoldStage() || status == OrderItemStatus.CANCEL_PENDING
+                || status == OrderItemStatus.RETURN_PENDING) {
             throw new LectureObjectionRefusedException(Reason.NOT_OBJECTIONABLE);
         }
         if (status == OrderItemStatus.PAID_OUT) {
@@ -271,7 +253,7 @@ public class OrderItem {
         if (objectionStatus != ObjectionStatus.NONE) {
             throw new LectureObjectionRefusedException(Reason.ALREADY_FILED);
         }
-        if (!now.isBefore(payoutScheduledAt)) {
+        if (status == OrderItemStatus.PAYOUT_PENDING || !now.isBefore(payoutScheduledAt)) {
             throw new LectureObjectionRefusedException(Reason.PERIOD_EXPIRED);
         }
         this.objectionStatus = ObjectionStatus.FILED;
@@ -282,7 +264,7 @@ public class OrderItem {
 
     /**
      * 이의 제기 판단(고객센터 호출, 설계 6.2). 접수된 항목이고 접수한 문의일 때만 처리한다.
-     * 인정하면 항목을 반환하고, 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다 (D3).
+     * 인정하면 반환 처리 중이 되고, 보류 HP 반환은 RELEASE 작업이 한다 (D59 (1), D70 (1)).
      * 기각하면 항목 상태는 그대로이고 지급 예정 시각이 되면 지급 배치가 지급한다.
      */
     void resolveObjection(Long inquiryId, boolean accepted, Long adminUserId, LocalDateTime now) {
@@ -294,14 +276,13 @@ public class OrderItem {
             throw new LectureObjectionRefusedException(Reason.INQUIRY_MISMATCH);
         }
         if (accepted) {
-            // 접수 중에는 구매 취소·지급이 멈추므로 끝난 거래일 수 없다
-            if (!isInProgress()) {
+            // 접수 중에는 구매 취소·지급이 멈추므로 구매 또는 구매 확정 상태다
+            if (status != OrderItemStatus.PURCHASED && status != OrderItemStatus.CONFIRMED) {
                 throw new IllegalStateException("이의 제기가 접수된 항목이 진행 중이 아닙니다. orderItemId=" + id
                         + ", status=" + status);
             }
             this.objectionStatus = ObjectionStatus.ACCEPTED;
-            this.status = OrderItemStatus.RETURNED;
-            this.returnedAt = now;
+            this.status = OrderItemStatus.RETURN_PENDING;
         } else {
             this.objectionStatus = ObjectionStatus.REJECTED;
         }
@@ -330,6 +311,18 @@ public class OrderItem {
         this.objectionFiledAt = null;
     }
 
+    /** 주문의 결제 단계를 복제한다 (D58 (1)) */
+    void changeHoldStage(OrderItemStatus stage) {
+        this.status = stage;
+    }
+
+    private void requireStatus(OrderItemStatus expected) {
+        if (status != expected) {
+            throw new IllegalStateException("주문 항목 상태가 " + expected + "가 아닙니다. orderItemId=" + id
+                    + ", status=" + status);
+        }
+    }
+
     private void requirePurchased() {
         if (status != OrderItemStatus.PURCHASED) {
             throw new LectureException(LectureErrorCode.ORDER_ITEM_NOT_PURCHASED);
@@ -354,8 +347,9 @@ public class OrderItem {
         this.confirmedAt = confirmedAt;
     }
 
-    /** 구매 시각과 그로부터 계산하는 기한을 정한다 (설계 5장) */
-    void stampPurchasedAt(LocalDateTime now) {
+    /** 결제 완료. 구매 상태가 되고 구매 시각과 그로부터 계산하는 기한을 정한다 (설계 5장, D35) */
+    void markPurchased(LocalDateTime now) {
+        this.status = OrderItemStatus.PURCHASED;
         LocalDate purchaseDate = now.toLocalDate();
         this.purchasedAt = now;
         this.autoConfirmAt = purchaseDate.plusDays(AUTO_CONFIRM_DAYS).atStartOfDay();

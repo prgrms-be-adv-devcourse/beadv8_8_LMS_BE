@@ -222,7 +222,7 @@ sequenceDiagram
         LEC->>WAL: BillingApiClient.release(full, "LECTURE-HOLD-COMPENSATE-{itemId}") 한 번씩
         alt 보상까지 끝남
             LEC->>LEC: 주문·항목 HOLD_FAILED
-            LEC-->>B: 409 INSUFFICIENT_BALANCE (billing 코드 그대로)
+            LEC-->>B: 409 INSUFFICIENT_BALANCE (billing과 같은 code, D69)
         else 보상 진행 중
             LEC-->>B: 202 {order: HOLD_COMPENSATING}
         end
@@ -232,6 +232,8 @@ sequenceDiagram
 ```
 
 - 요청 안에서는 보류와 보상 반환을 **각각 한 번만** 바로 시도한다. 보상이 끝날 때까지 요청을 붙잡지 않는다. 나머지는 HP 작업 재시도 배치가 이어서 한다(D57).
+- 요청 전체에 10초 예산을 둔다(D68). 시도하기 전에 남은 예산을 보고, 넘었으면 남은 보류·보상은 시도하지 않고 배치에 넘긴 뒤 202다. 이미 시작한 호출은 끊지 않는다.
+- 거절 뒤 실행 전 HOLD 작업은 조건부 UPDATE로 `SKIPPED` 처리한다. 그 사이 선점된 작업은 끝까지 확인하고, 성공이면 보상한다 (D69).
 - 주문 행을 먼저 저장하는 이유와 항목 순서는 그대로다: 보류의 참조 ID(주문 항목 ID)가 필요하고, `(buyer_user_id, lecture_id)` 부분 유일 인덱스 위반(중복 주문)을 보류 전에 걸러 409 `ALREADY_OWNED_LECTURE`로 응답한다(D45). 항목은 강의 ID 오름차순으로 만들어 교착을 막는다(D55).
 - 구매 시각(`purchased_at`)은 **모든 항목의 보류가 성공했음을 기록하는 트랜잭션에서** `Clock`으로 한 번 캡처한 시각이다(D35 재확인). 그 전에는 `purchased_at`·`auto_confirm_at`·`payout_scheduled_at`이 없다(null).
 - 보상 판단: 확정 거절이 나온 순간 주문·항목을 `HOLD_COMPENSATING`으로 바꾼다. 다만 성공한 보류도, 결과를 모르는 HOLD 작업도 없으면(예: 첫 항목에서 잔액 부족) 같은 트랜잭션에서 바로 `HOLD_FAILED`다. 한 번도 실행하지 않은 HOLD 작업은 `SKIPPED`로 닫는다. 이미 시도했지만 결과를 모르는 HOLD 작업은 끝까지 실행해 결과를 확인하고, 성공이면 그 항목에 보상 RELEASE 작업을 만든다. 모든 HOLD 작업이 끝나고 모든 보상 RELEASE 작업이 `COMPLETED`일 때만 `HOLD_FAILED`가 된다. **`HOLD_FAILED`는 남은 보류 HP가 없다는 것이 확인된 상태다.**
@@ -344,6 +346,7 @@ sequenceDiagram
     CS->>CS: hpReturnStatus 갱신 (PENDING < ACTION_REQUIRED < COMPLETED)
 ```
 
+- 인정 반환은 요청 안에서 시도하지 않고 HP 작업 재시도 배치가 실행한다(D70 (1)). 지금(#277)은 고객센터가 in-process Port로 판단을 넘기고, 반환 완료·DEAD 이벤트는 Kafka 외부화(#339) 뒤에 발행한다(D70 (6)).
 - 판단 전 철회: 구매자가 이의 제기 문의를 삭제하면 고객센터가 `FILED → WITHDRAWAL_PENDING`과 `LectureObjectionWithdrawalRequestedV1` 발행을 한 트랜잭션에 기록하고 202로 응답한다. 강의는 항목을 `NONE`으로 되돌리고(D52) 결과 이벤트를 발행한다. 고객센터는 성공 결과를 받은 뒤에 `WITHDRAWN` + `deleted_at`을 기록한다.
 - 판단과 철회는 `FILED`에서 하나만 선점한다 (D60).
 - 접수가 지급보다 먼저 확정된다는 불변식(D9)은 유지된다: 접수는 여전히 동기 호출이고 강의 항목이 `FILED`가 된 뒤에야 성공으로 응답한다. 이벤트로 바뀐 판단·철회는 `FILED` 항목에만 적용되고, `FILED` 항목은 지급 대상이 아니라 지연돼도 지급이 먼저 나가지 않는다.

@@ -1,6 +1,7 @@
 package com.hapbang.lecture.out;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -20,6 +21,31 @@ public interface LectureHpTaskRepository extends JpaRepository<LectureHpTask, Lo
 
     /** 요청 ID(지갑 멱등 키)로 작업을 찾는다. 요청 ID는 유일하다 */
     Optional<LectureHpTask> findByRequestId(String requestId);
+
+    /** 주문들의 작업. 주문의 결제 단계 판정과 처리 상태에 쓴다 (D58, D69 (2)) */
+    List<LectureHpTask> findByOrderIdIn(Collection<Long> orderIds);
+
+    /**
+     * 보류가 확정 거절된 주문에서 한 번도 실행하지 않은 보류 작업을 {@code SKIPPED}로 닫는다 (D58 (3), D69 (5)).
+     * 조건부 UPDATE라 그 사이 선점된 작업은 그대로 두고(끝까지 확인한다), 실행 중인 작업과 버전 충돌을 일으키지 않는다.
+     * 영속성 컨텍스트를 비우지 않으므로, 닫을 작업을 미리 읽어 두지 않는다.
+     *
+     * @return 닫은 작업 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update LectureHpTask t
+            set t.status = com.hapbang.lecture.domain.LectureHpTaskStatus.COMPLETED,
+                t.outcome = com.hapbang.lecture.domain.LectureHpTaskOutcome.SKIPPED,
+                t.completedAt = :now,
+                t.updatedAt = :now,
+                t.version = t.version + 1
+            where t.orderId = :orderId
+              and t.purpose = com.hapbang.lecture.domain.LectureHpTaskPurpose.ORDER_HOLD
+              and t.status = com.hapbang.lecture.domain.LectureHpTaskStatus.PENDING
+              and t.totalAttemptCount = 0
+            """)
+    int skipUnstartedHolds(@Param("orderId") Long orderId, @Param("now") LocalDateTime now);
 
     /**
      * 선점: 대기 중이고 다음 시도 시각이 지났거나, 실행 중이지만 선점이 만료된 작업만 {@code PROCESSING}으로 바꾼다 (D57 (2)·(3)).

@@ -24,26 +24,42 @@ import jakarta.persistence.LockModeType;
 
 public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long> {
 
-    /** 보유 중인 항목 상태 (D5). 부분 유일 인덱스 {@code uk_order_item_buyer_lecture_owned}의 조건과 같다 */
-    Set<OrderItemStatus> HELD_STATUSES = Set.of(OrderItemStatus.PURCHASED, OrderItemStatus.CONFIRMED,
-            OrderItemStatus.PAID_OUT);
+    /**
+     * 보유 중인 항목 상태 (D5, D69 (4)). 같은 강의를 다시 살 수 없다. 부분 유일 인덱스 {@code uk_order_item_buyer_lecture_owned}의
+     * 조건과 같다
+     */
+    Set<OrderItemStatus> HELD_STATUSES = Arrays.stream(OrderItemStatus.values())
+            .filter(OrderItemStatus::isHeld)
+            .collect(Collectors.toUnmodifiableSet());
+
+    /** 시청 가능한 항목 상태 (D69 (4)). 보유와 달리 결제가 끝나지 않은 항목은 빠진다 */
+    Set<OrderItemStatus> VIEWABLE_STATUSES = Arrays.stream(OrderItemStatus.values())
+            .filter(OrderItemStatus::isViewable)
+            .collect(Collectors.toUnmodifiableSet());
+
+    /** 팔린 항목(결제가 끝난 항목). 판매 내역·판매 수익은 결제가 끝나지 않은 항목을 뺀다 (D58 (8), D69 (3)) */
+    String SOLD = "i.status not in (com.hapbang.lecture.domain.OrderItemStatus.HOLD_PENDING, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.HOLD_COMPENSATING, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.HOLD_FAILED)";
 
     // 판매 수익 분류 조건 (#300). 상태와 상태 변경 시각이 같은 조건을 같은 순서로 쓴다
     String EARNING_ON_HOLD = "i.objectionStatus = com.hapbang.lecture.domain.ObjectionStatus.FILED";
     String EARNING_PURCHASED = "i.status = com.hapbang.lecture.domain.OrderItemStatus.PURCHASED";
-    String EARNING_FAILED = "i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED "
-            + "and i.payoutQuarantinedAt is not null";
-    String EARNING_DUE = "i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED "
-            + "and i.payoutScheduledAt <= :now";
+    String EARNING_FAILED = "i.status = com.hapbang.lecture.domain.OrderItemStatus.PAYOUT_PENDING "
+            + "and exists (select 1 from LectureHpTask t where t.orderItemId = i.id "
+            + "and t.purpose = com.hapbang.lecture.domain.LectureHpTaskPurpose.PAYOUT "
+            + "and t.status = com.hapbang.lecture.domain.LectureHpTaskStatus.DEAD)";
+    String EARNING_DUE = "(i.status = com.hapbang.lecture.domain.OrderItemStatus.PAYOUT_PENDING "
+            + "or i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED and i.payoutScheduledAt <= :now)";
     String EARNING_CONFIRMED = "i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED";
     String EARNING_PAID_OUT = "i.status = com.hapbang.lecture.domain.OrderItemStatus.PAID_OUT";
 
     /**
      * 판매 수익 상태 (#300). 요약·목록·필터가 모두 이 식 하나로 분류한다. 위에서부터 먼저 맞는 조건을 쓴다.
-     * 이의 제기 접수 중이면 구매 확정 전후와 관계없이 지급 중단(구매 취소도 막힌다, D44), 지급이 격리되었으면 실패다.
-     * 처리 중은 지급 대상이라 {@link #findPayoutDueItemIds}·{@code OrderItem.isPayable}과 같은 조건이다. 일시 실패와
-     * 격리 해제 뒤의 항목은 다음 지급 배치가 다시 시도하므로 처리 중이다 (D54).
-     * 구매 취소·반환은 모두 {@code CANCELED}다. Hibernate가 매핑하지 않은 enum은 식의 결과로 쓸 수 없어
+     * 이의 제기 접수 중이면 구매 확정 전후와 관계없이 지급 중단(구매 취소도 막힌다, D44), 지급 작업이 {@code DEAD}면 실패다.
+     * 처리 중은 지급 처리 중이거나, 01:00 배치가 아직 선점하지 않은 지급 대상({@link #findPayoutDueItemIds})이다.
+     * 재시도 중인 작업은 자동으로 다시 시도하므로 처리 중이다 (D70 (3)).
+     * 구매 취소·반환은 처리 중을 포함해 모두 {@code CANCELED}다(반환은 거절될 수 없다). Hibernate가 매핑하지 않은 enum은 식의 결과로 쓸 수 없어
      * {@link LectureEarningStatus} 상수 이름 문자열을 낸다
      */
     String EARNING_STATUS = "case "
@@ -58,17 +74,21 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
 
     /**
      * 판매 수익 상태가 바뀐 시각 (#300). {@link #EARNING_STATUS}와 같은 순서다. 이의 제기가 기각되면 그 시각부터 원래 상태다.
-     * 이의 제기 철회·격리 해제는 시각이 남지 않아 이전 시각 그대로다
+     * 이의 제기 철회와 지급 작업의 관리자 재시도는 시각이 남지 않아 이전 시각 그대로다. 실패는 지급 작업의 마지막 실패 시각,
+     * 반환 처리 중은 그 반환 작업의 등록 시각이다 (D70 (3))
      */
     String EARNING_STATUS_UPDATED_AT = "case "
             + "when " + EARNING_ON_HOLD + " then i.objectionFiledAt "
             + "when " + EARNING_PURCHASED + " then greatest(i.purchasedAt, coalesce(i.objectionResolvedAt, i.purchasedAt)) "
-            + "when " + EARNING_FAILED + " then i.payoutQuarantinedAt "
+            + "when " + EARNING_FAILED + " then (select max(t.lastFailedAt) from LectureHpTask t "
+            + "where t.orderItemId = i.id and t.purpose = com.hapbang.lecture.domain.LectureHpTaskPurpose.PAYOUT) "
             + "when " + EARNING_DUE
             + " then greatest(i.payoutScheduledAt, coalesce(i.objectionResolvedAt, i.payoutScheduledAt)) "
             + "when " + EARNING_CONFIRMED + " then greatest(i.confirmedAt, coalesce(i.objectionResolvedAt, i.confirmedAt)) "
             + "when " + EARNING_PAID_OUT + " then i.paidOutAt "
-            + "else coalesce(i.canceledAt, i.returnedAt) end";
+            + "else coalesce(i.canceledAt, i.returnedAt, (select max(t.createdAt) from LectureHpTask t "
+            + "where t.orderItemId = i.id and t.purpose in (com.hapbang.lecture.domain.LectureHpTaskPurpose.CANCEL, "
+            + "com.hapbang.lecture.domain.LectureHpTaskPurpose.RETURN))) end";
 
     /** 아직 지급하지 않은 판매 수익 상태. 요약은 이 상태만 합한다 */
     Set<LectureEarningStatus> UNPAID_EARNING_STATUSES = Arrays.stream(LectureEarningStatus.values())
@@ -100,14 +120,14 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     @Query("select i.order.id from OrderItem i where i.id = :itemId")
     Optional<Long> findOrderIdByItemId(@Param("itemId") Long itemId);
 
-    /** 구매자가 이 강의를 보유한 항목. 부분 유일 인덱스로 많아야 하나다 */
-    default Optional<OrderItem> findHeldItem(Long buyerUserId, Long lectureId) {
-        return findItem(buyerUserId, lectureId, HELD_STATUSES);
+    /** 구매자가 이 강의를 시청할 수 있는 항목. 부분 유일 인덱스로 많아야 하나다 */
+    default Optional<OrderItem> findViewableItem(Long buyerUserId, Long lectureId) {
+        return findItem(buyerUserId, lectureId, VIEWABLE_STATUSES);
     }
 
-    /** 구매자가 보유한(시청할 수 있는) 항목. 최근 구매순으로 고정한다 */
-    default Page<OrderItem> findHeldItems(Long buyerUserId, Pageable pageable) {
-        return findItems(buyerUserId, HELD_STATUSES, pageable);
+    /** 구매자가 시청할 수 있는 항목. 최근 구매순으로 고정한다 */
+    default Page<OrderItem> findViewableItems(Long buyerUserId, Pageable pageable) {
+        return findItems(buyerUserId, VIEWABLE_STATUSES, pageable);
     }
 
     /** 주어진 강의 중 구매자가 보유한 강의 ID (주문 생성 검사용) */
@@ -131,28 +151,19 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     List<Long> findAutoConfirmDueItemIds(@Param("now") LocalDateTime now);
 
     /**
-     * 지급 대상(구매 확정 상태이고 지급 예정 시각이 지났으며 이의 제기가 없거나 기각되었고 지급이 격리되지 않은) 항목 ID.
-     * 지급 예정 시각이 빠른 순, 같으면 ID 순이다 (D50, D54). 조건은 {@code OrderItem.isPayable}과 같다
+     * 지급 대상(구매 확정 상태이고 지급 예정 시각이 지났으며 이의 제기가 없거나 기각된) 항목 ID.
+     * 지급 예정 시각이 빠른 순, 같으면 ID 순이다 (D50). 조건은 {@code OrderItem.isPayable}과 같다
      */
     @Query("select i.id from OrderItem i "
             + "where i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED and i.payoutScheduledAt <= :now "
             + "and i.objectionStatus in (com.hapbang.lecture.domain.ObjectionStatus.NONE, "
             + "com.hapbang.lecture.domain.ObjectionStatus.REJECTED) "
-            + "and i.payoutQuarantinedAt is null "
             + "order by i.payoutScheduledAt, i.id")
     List<Long> findPayoutDueItemIds(@Param("now") LocalDateTime now);
 
-    /** 지급 실패 기록이 있는 미지급(구매 확정) 항목. 최근 실패순으로 고정한다 (관리자, D54) */
-    @Query(value = "select i from OrderItem i "
-            + "where i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED and i.payoutFailureCount > 0 "
-            + "order by i.lastPayoutFailedAt desc, i.id desc",
-            countQuery = "select count(i) from OrderItem i "
-                    + "where i.status = com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED "
-                    + "and i.payoutFailureCount > 0")
-    Page<OrderItem> findPayoutFailures(Pageable pageable);
-
-    /** 판매자의 판매 내역(모든 상태의 주문 항목). 최근 구매순으로 고정한다 (D51) */
-    @Query("select i from OrderItem i where i.sellerUserId = :sellerUserId order by i.purchasedAt desc, i.id desc")
+    /** 판매자의 판매 내역(결제가 끝난 모든 상태의 주문 항목). 최근 구매순으로 고정한다 (D51, D58 (8)) */
+    @Query("select i from OrderItem i where i.sellerUserId = :sellerUserId and " + SOLD
+            + " order by i.purchasedAt desc, i.id desc")
     Page<OrderItem> findSales(@Param("sellerUserId") Long sellerUserId, Pageable pageable);
 
     /** 판매자의 아직 지급하지 않은 판매 수익을 상태별로 합한다. 수익이 없는 상태는 빠진다 (#300) */
@@ -163,7 +174,7 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     // 분류 식을 group by에 다시 쓰면 :now가 다른 바인드 변수가 되어 PostgreSQL이 같은 식으로 보지 않는다. 파생 테이블로 한 번만 쓴다
     @Query("select new com.hapbang.lecture.out.EarningStatusTotal(e.status, count(*), sum(e.priceHp)) "
             + "from (select " + EARNING_STATUS + " as status, i.priceHp as priceHp from OrderItem i "
-            + "where i.sellerUserId = :sellerUserId) e "
+            + "where i.sellerUserId = :sellerUserId and " + SOLD + ") e "
             + "where e.status in :statuses group by e.status")
     List<EarningStatusTotal> summarizeEarningsByName(@Param("sellerUserId") Long sellerUserId,
                                                      @Param("statuses") Collection<String> statuses,
@@ -177,10 +188,10 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
 
     @Query(value = "select new com.hapbang.lecture.out.EarningRow(i, " + EARNING_STATUS + ", "
             + EARNING_STATUS_UPDATED_AT + ") from OrderItem i "
-            + "where i.sellerUserId = :sellerUserId and " + EARNING_STATUS + " in :statuses "
+            + "where i.sellerUserId = :sellerUserId and " + SOLD + " and " + EARNING_STATUS + " in :statuses "
             + "order by " + EARNING_STATUS_UPDATED_AT + " desc, i.id desc",
             countQuery = "select count(i) from OrderItem i "
-                    + "where i.sellerUserId = :sellerUserId and " + EARNING_STATUS + " in :statuses")
+                    + "where i.sellerUserId = :sellerUserId and " + SOLD + " and " + EARNING_STATUS + " in :statuses")
     Page<EarningRow> findEarningsByName(@Param("sellerUserId") Long sellerUserId,
                                         @Param("statuses") Collection<String> statuses,
                                         @Param("now") LocalDateTime now, Pageable pageable);

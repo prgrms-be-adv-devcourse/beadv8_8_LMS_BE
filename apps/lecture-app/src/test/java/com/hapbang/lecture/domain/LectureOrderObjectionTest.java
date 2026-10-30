@@ -82,7 +82,7 @@ class LectureOrderObjectionTest {
     @Test
     void 구매_취소되거나_반환된_항목은_이의_제기할_수_없다() {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L);
-        order.cancelItem(1L, SEPT_30);
+        cancel(order, 1L, SEPT_30);
         order.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
         order.resolveObjection(2L, INQUIRY_ID, true, ADMIN_ID, OCT_6);
 
@@ -140,8 +140,12 @@ class LectureOrderObjectionTest {
 
         OrderItem item = order.resolveObjection(1L, INQUIRY_ID, true, ADMIN_ID, OCT_6);
 
+        // 반환이 끝나기 전에는 반환 처리 중이다 (D59 (1), D70 (2))
+        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.RETURN_PENDING);
+        assertThat(item.getReturnedAt()).isNull();
+        order.completeReturnItem(1L, OCT_6.plusMinutes(1));
         assertThat(item.getStatus()).isEqualTo(OrderItemStatus.RETURNED);
-        assertThat(item.getReturnedAt()).isEqualTo(OCT_6);
+        assertThat(item.getReturnedAt()).isEqualTo(OCT_6.plusMinutes(1));
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.ACCEPTED);
         assertThat(item.getObjectionResolvedAt()).isEqualTo(OCT_6);
         assertThat(item.getObjectionResolvedByUserId()).isEqualTo(ADMIN_ID);
@@ -152,13 +156,16 @@ class LectureOrderObjectionTest {
     @Test
     void 마지막_남은_항목의_이의_제기를_인정하면_주문도_취소된다() {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L);
-        order.cancelItem(1L, SEPT_30);
+        cancel(order, 1L, SEPT_30);
         order.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
 
         order.resolveObjection(2L, INQUIRY_ID, true, ADMIN_ID, OCT_6);
+        assertThat(order.getStatus()).isEqualTo(LectureOrderStatus.PAID);
+
+        order.completeReturnItem(2L, OCT_6.plusMinutes(1));
 
         assertThat(order.getStatus()).isEqualTo(LectureOrderStatus.CANCELED);
-        assertThat(order.getCanceledAt()).isEqualTo(OCT_6);
+        assertThat(order.getCanceledAt()).isEqualTo(OCT_6.plusMinutes(1));
     }
 
     @Test
@@ -202,7 +209,7 @@ class LectureOrderObjectionTest {
         LectureOrder order = placeWithItemIds(SEPT_30, 1L);
         order.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5);
 
-        assertThatThrownBy(() -> order.cancelItem(1L, OCT_5))
+        assertThatThrownBy(() -> cancel(order, 1L, OCT_5))
                 .isInstanceOf(LectureException.class)
                 .extracting("errorCode").isEqualTo(LectureErrorCode.OBJECTION_FILED);
     }
@@ -274,10 +281,10 @@ class LectureOrderObjectionTest {
         order.withdrawObjection(1L, BUYER_ID, INQUIRY_ID);
         order.withdrawObjection(2L, BUYER_ID, 501L);
 
-        OrderItem canceled = order.cancelItem(1L, OCT_6);
+        OrderItem canceled = cancel(order, 1L, OCT_6);
 
         assertThat(canceled.getStatus()).isEqualTo(OrderItemStatus.CANCELED);
-        assertThatThrownBy(() -> order.cancelItem(2L, AUTO_CONFIRM_AT))
+        assertThatThrownBy(() -> cancel(order, 2L, AUTO_CONFIRM_AT))
                 .isInstanceOf(LectureException.class)
                 .extracting("errorCode").isEqualTo(LectureErrorCode.CANCEL_PERIOD_EXPIRED);
     }
@@ -311,6 +318,44 @@ class LectureOrderObjectionTest {
         assertThat(item.isPayable(PAYOUT_AT)).isTrue();
     }
 
+    @Test
+    void 결제가_끝나지_않은_항목은_이의_제기할_수_없다() {
+        LectureOrder pending = LectureOrder.place(BUYER_ID, List.of(withId(onSaleLecture(), 10L)), Set.of(), SEPT_30);
+        ReflectionTestUtils.setField(pending.getItems().getFirst(), "id", 1L);
+        LectureOrder failed = LectureOrder.place(BUYER_ID, List.of(withId(onSaleLecture(), 20L)), Set.of(), SEPT_30);
+        ReflectionTestUtils.setField(failed.getItems().getFirst(), "id", 2L);
+        failed.markHoldFailed();
+
+        assertRefused(() -> pending.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), Reason.NOT_OBJECTIONABLE);
+        assertRefused(() -> failed.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), Reason.NOT_OBJECTIONABLE);
+    }
+
+    @Test
+    void 처리_중인_항목의_이의_제기는_상태에_따라_거부된다() {
+        LectureOrder order = placeWithItemIds(SEPT_30, 1L, 2L, 3L, 4L);
+        order.requestCancelItem(1L, SEPT_30);
+        order.fileObjection(2L, BUYER_ID, 501L, REASON, OCT_5);
+        order.resolveObjection(2L, 501L, true, ADMIN_ID, OCT_6);
+        order.confirmItem(3L, SEPT_30);
+        order.startPayoutItem(3L, PAYOUT_AT);
+        order.confirmItem(4L, SEPT_30);
+        order.fileObjection(4L, BUYER_ID, 502L, REASON, OCT_5);
+        order.resolveObjection(4L, 502L, false, ADMIN_ID, OCT_6);
+        order.startPayoutItem(4L, PAYOUT_AT);
+
+        // 취소·반환 처리 중은 NOT_OBJECTIONABLE, 지급 처리 중은 PERIOD_EXPIRED(이미 판단된 건은 ALREADY_FILED) (D59 (6))
+        assertRefused(() -> order.fileObjection(1L, BUYER_ID, 503L, REASON, OCT_6), Reason.NOT_OBJECTIONABLE);
+        assertRefused(() -> order.fileObjection(2L, BUYER_ID, 504L, REASON, OCT_6), Reason.NOT_OBJECTIONABLE);
+        assertRefused(() -> order.fileObjection(3L, BUYER_ID, 505L, REASON, OCT_6), Reason.PERIOD_EXPIRED);
+        assertRefused(() -> order.fileObjection(4L, BUYER_ID, 506L, REASON, OCT_6), Reason.ALREADY_FILED);
+    }
+
+    /** 구매 취소를 요청하고 반환까지 끝낸다 */
+    private static OrderItem cancel(LectureOrder order, Long orderItemId, LocalDateTime now) {
+        order.requestCancelItem(orderItemId, now);
+        return order.completeCancelItem(orderItemId, now);
+    }
+
     private static LectureOrder placeWithItemIds(LocalDateTime now, Long... itemIds) {
         List<Lecture> lectures = LongStream.rangeClosed(1, itemIds.length)
                 .mapToObj(i -> withId(onSaleLecture(), i * 10))
@@ -319,6 +364,7 @@ class LectureOrderObjectionTest {
         for (int i = 0; i < itemIds.length; i++) {
             ReflectionTestUtils.setField(order.getItems().get(i), "id", itemIds[i]);
         }
+        order.markPaid(now);
         return order;
     }
 

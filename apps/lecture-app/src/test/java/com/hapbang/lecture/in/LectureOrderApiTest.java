@@ -23,7 +23,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
-import com.hapbang.lecture.fake.FakeBillingPort;
+import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.shared.billing.domain.BillingFailureCode;
+import com.hapbang.shared.billing.out.BillingCallExceptions;
+import com.hapbang.shared.billing.out.BillingCallFailureKind;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -53,11 +57,12 @@ class LectureOrderApiTest {
     private TransactionTemplate transactionTemplate;
 
     @Autowired
-    private FakeBillingPort billingPort;
+    private FakeBillingApiClient billing;
 
     @BeforeEach
     void setUp() {
-        billingPort.reset();
+        billing.reset();
+        billing.setSettledHp(PRICE_HP);
     }
 
     @Test
@@ -73,13 +78,34 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.totalAmountHp").value(PRICE_HP))
                 .andExpect(jsonPath("$.data.items.length()").value(1))
                 .andExpect(jsonPath("$.data.items[0].lectureId").value(lecture.getId()))
-                .andExpect(jsonPath("$.data.items[0].status").value("PURCHASED"));
+                .andExpect(jsonPath("$.data.items[0].status").value("PURCHASED"))
+                .andExpect(jsonPath("$.data.paidAt").isString())
+                .andExpect(jsonPath("$.data.processingStatus").doesNotExist());
+    }
+
+    @Test
+    void 보류_결과를_모르면_202와_결제_처리_중_주문을_응답한다() throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+        billing.respond(command -> {
+            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
+        });
+
+        mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.statusCode").value(202))
+                .andExpect(jsonPath("$.message").value("주문 결제를 처리 중입니다."))
+                .andExpect(jsonPath("$.data.orderId").isNumber())
+                .andExpect(jsonPath("$.data.status").value("HOLD_PENDING"))
+                .andExpect(jsonPath("$.data.processingStatus").value("DELAYED"))
+                .andExpect(jsonPath("$.data.items[0].status").value("HOLD_PENDING"))
+                .andExpect(jsonPath("$.data.items[0].processingStatus").value("DELAYED"));
     }
 
     @Test
     void 잔액이_부족하면_409_INSUFFICIENT_BALANCE다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
-        billingPort.setBalance(BUYER_ID, PRICE_HP - 1_000L);
+        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
+                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
 
         mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
@@ -101,6 +127,33 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.orderItemId").value(orderItemId))
                 .andExpect(jsonPath("$.data.status").value("CANCELED"))
                 .andExpect(jsonPath("$.data.canceledAt").isString());
+    }
+
+    @Test
+    void 반환이_끝나지_않으면_202와_구매_취소_처리_중_항목을_응답한다() throws Exception {
+        String body = mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long orderId = JsonPath.parse(body).read("$.data.orderId", Long.class);
+        Long orderItemId = JsonPath.parse(body).read("$.data.items[0].orderItemId", Long.class);
+        billing.respond(command -> {
+            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
+        });
+
+        mockMvc.perform(cancelItem(orderId, orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.statusCode").value(202))
+                .andExpect(jsonPath("$.message").value("구매 취소를 처리 중입니다."))
+                .andExpect(jsonPath("$.data.status").value("CANCEL_PENDING"))
+                .andExpect(jsonPath("$.data.processingStatus").value("DELAYED"))
+                .andExpect(jsonPath("$.data.canceledAt").doesNotExist());
+        // 처리 중 항목은 주문 상세에도 처리 상태가 보이고, 시청 가능한 강의에서는 빠진다 (D59 (2))
+        mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", orderId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(jsonPath("$.data.processingStatus").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].status").value("CANCEL_PENDING"))
+                .andExpect(jsonPath("$.data.items[0].processingStatus").value("DELAYED"));
+        mockMvc.perform(get("/api/v1/lectures/purchased").with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(jsonPath("$.data.content.length()").value(0));
     }
 
     @Test
@@ -126,6 +179,35 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.content[0].representativeTitle").value(TITLE))
                 .andExpect(jsonPath("$.data.content[0].itemCount").value(1))
                 .andExpect(jsonPath("$.data.content[0].progress").value("IN_PROGRESS"));
+    }
+
+    @Test
+    void 결제_처리_중인_주문도_목록과_상세에_보이고_처리_상태가_있다() throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+        billing.respond(command -> {
+            throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
+        });
+        String body = mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isAccepted())
+                .andReturn().getResponse().getContentAsString();
+        Long orderId = JsonPath.parse(body).read("$.data.orderId", Long.class);
+
+        mockMvc.perform(get("/api/v1/lectures/orders").with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].orderId").value(orderId))
+                .andExpect(jsonPath("$.data.content[0].status").value("HOLD_PENDING"))
+                .andExpect(jsonPath("$.data.content[0].processingStatus").value("DELAYED"))
+                .andExpect(jsonPath("$.data.content[0].progress").doesNotExist());
+        mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", orderId).with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("HOLD_PENDING"))
+                .andExpect(jsonPath("$.data.paidAt").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].purchasedAt").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].processingStatus").value("DELAYED"));
+        // 결제가 끝나지 않은 강의는 시청 가능한 강의에 없다
+        mockMvc.perform(get("/api/v1/lectures/purchased").with(TestLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(0));
     }
 
     @Test
@@ -208,7 +290,7 @@ class LectureOrderApiTest {
         Long paidOutItemId = paidOut.getItems().getFirst().getId();
         inTransaction(paidOut, order -> {
             order.confirmItem(paidOutItemId, now.minusDays(32));
-            order.payOutItem(paidOutItemId, now);
+            LectureOrderFixture.payOut(order, paidOutItemId, now);
         });
         LectureOrder canceled = save(OTHER_BUYER_ID, now.minusDays(1));
         cancel(canceled, now.minusDays(1));
@@ -356,10 +438,10 @@ class LectureOrderApiTest {
                 change.accept(lectureOrderRepository.findById(order.getId()).orElseThrow()));
     }
 
-    /** HP 보류 없이 저장한 주문이라 구매 취소 API 대신 도메인 메서드로 취소한다. 항목 변경은 영속 상태에서만 저장된다 */
+    /** HP 작업 없이 구매 취소까지 끝낸 상태를 만든다. 항목 변경은 영속 상태에서만 저장된다 */
     private void cancel(LectureOrder order, LocalDateTime now) {
-        transactionTemplate.executeWithoutResult(status -> lectureOrderRepository.findById(order.getId())
-                .orElseThrow()
-                .cancelItem(order.getItems().getFirst().getId(), now));
+        transactionTemplate.executeWithoutResult(status -> LectureOrderFixture.cancel(
+                lectureOrderRepository.findById(order.getId()).orElseThrow(), order.getItems().getFirst().getId(),
+                now));
     }
 }

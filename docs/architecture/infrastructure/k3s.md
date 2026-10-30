@@ -44,9 +44,10 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | Sealed Secrets controller (#373) | 64 MiB |
 | React 정적 서버 | 64 MiB |
 | Prometheus·Loki·Tempo·Grafana·Alloy (#372 override 포함) | 1,160 MiB |
-| **합계** | **4,108 MiB** |
+| Kafka UI(Redpanda Console, 로컬 실측 35~42 MiB, #374) | 128 MiB |
+| **합계** | **4,236 MiB** |
 
-사용 가능 메모리를 약 3.7 GiB로 보면 **약 0.4 GiB가 넘친다.** 관측성은 처음 600 MiB로 잡았지만 로컬 k3d idle 실측(#373)에서 Grafana 13(258 MiB)과 차트 기본 scrape의 Prometheus(292 MiB)가 그 limit에서 OOMKilled되어 실측에 여유를 더한 값으로 올렸다. #372 로컬 검증에서 Grafana는 384Mi·GOMAXPROCS=2, trace 수신·조회 중 OOMKilled된 Tempo는 128Mi·GOMEMLIMIT=112MiB로 조정했다. Envoy 종료 sidecar 32Mi도 large 예산에 포함한다. 현재 앱 3개는 replicas 0이고 notification-app은 없어 로컬 기동 결과를 목표 8개 앱 전체 예산 충족으로 해석하지 않는다. EC2 전환과 나머지 앱 활성화 전에 Prometheus scrape 범위와 보존 한도 등을 줄여 다시 맞춘다(#343). surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성에는 별도 backend를 추가하지 않는다.
+사용 가능 메모리를 약 3.7 GiB로 보면 **약 0.5 GiB가 넘친다.** 관측성은 처음 600 MiB로 잡았지만 로컬 k3d idle 실측(#373)에서 Grafana 13(258 MiB)과 차트 기본 scrape의 Prometheus(292 MiB)가 그 limit에서 OOMKilled되어 실측에 여유를 더한 값으로 올렸다. #372 로컬 검증에서 Grafana는 384Mi·GOMAXPROCS=2, trace 수신·조회 중 OOMKilled된 Tempo는 128Mi·GOMEMLIMIT=112MiB로 조정했다. Envoy 종료 sidecar 32Mi도 large 예산에 포함한다. 현재 앱 3개는 replicas 0이고 notification-app은 없어 로컬 기동 결과를 목표 8개 앱 전체 예산 충족으로 해석하지 않는다. EC2 전환과 나머지 앱 활성화 전에 Prometheus scrape 범위와 보존 한도 등을 줄여 다시 맞춘다(#343). surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성에는 별도 backend를 추가하지 않는다.
 
 앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
 
@@ -199,12 +200,12 @@ k8s/
   cluster/       namespace, Retain StorageClass, HelmChart(ECK operator·Sealed Secrets)
   gateway/       단계별 HelmChart(Envoy·cert-manager), Gateway·인증서·공용 정책, local/prod overlay
   components/    Kustomize Component: platform의 core-data required affinity
-  platform/      hapbang-platform: PostgreSQL(HelmChart), Kafka·Redis(직접 manifest), Elasticsearch(ECK CR·nori Dockerfile), 관측성(HelmChart)
+  platform/      hapbang-platform: PostgreSQL(HelmChart), Kafka·Redis(직접 manifest), Elasticsearch(ECK CR·nori init container), 관측성(HelmChart)
     base/
     overlays/    local(k3d), prod
 ```
 
-공용 Gateway·TLS·platform 정책은 `k8s/gateway/`, 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 `apps/<앱>/k8s/base/`에 둔다(#372). React 정적 서버는 `web:80` Service로 #374에서 배포한다.
+공용 Gateway·TLS·IMDS 차단 정책은 `k8s/gateway/`, 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 `apps/<앱>/k8s/base/`에 둔다(#372). React 정적 서버는 `web:80` Service로 #374에서 배포한다.
 
 CI 자동 배포는 앱마다 `apps/<앱>/k8s/overlays/prod`만 적용한다. `cluster/`와 `platform/`은 자주 바뀌지 않고 잘못 건드리면 데이터가 위험하므로 수동으로만 적용한다. 그래서 앱 배포·롤백이 PostgreSQL 같은 stateful workload를 건드리지 않는다.
 

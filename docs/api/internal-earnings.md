@@ -115,15 +115,17 @@ billing #295(내 HP 거래 내역·지급 예정 요약)이 강의·출연의 **
 
 위에서부터 먼저 맞는 조건을 쓴다. 요약·목록·필터가 같은 분류식(`LectureOrderRepository.EARNING_STATUS`) 하나를 쓴다.
 
+결제가 끝나지 않은 항목(`HOLD_PENDING`·`HOLD_COMPENSATING`·`HOLD_FAILED`)은 아직 팔린 것이 아니라 어느 상태에도 넣지 않고 요약·목록 모두에서 뺀다 (강의 D69, 판매 내역과 같음).
+
 | 상태 | 강의 주문 항목 조건 | `statusUpdatedAt` |
 | --- | --- | --- |
 | `ON_HOLD` | 이의 제기 접수 중(`FILED`). 구매 확정 전후 모두. 티켓 4장 표에는 구매 확정 뒤만 있지만, 접수되면 구매 취소가 막히고(D44) 지급도 멈추므로 구매 확정 전도 지급 중단으로 본다 | 접수 시각 |
 | `CONFIRMATION_PENDING` | `PURCHASED` | 구매 시각(이의 제기가 기각됐으면 기각 시각) |
-| `FAILED` | `CONFIRMED` + 지급 격리됨(다시 시도해도 풀리지 않는 실패, D54) | 격리 시각 |
-| `PROCESSING` | `CONFIRMED` + 지급 예정 시각 지남 + 격리 안 됨. 매일 01:00 지급 배치 대상(`findPayoutDueItemIds`)과 같다. 일시 실패(지갑 없음 등)와 격리 해제 뒤의 항목도 다음 배치가 다시 시도하므로 여기다 | 지급 예정 시각(그 뒤에 기각됐으면 기각 시각) |
+| `FAILED` | `PAYOUT_PENDING` + PAYOUT 작업이 `DEAD`(자동 처리가 멈춤, 관리자 확인 필요) | 작업의 마지막 실패 시각 |
+| `PROCESSING` | `PAYOUT_PENDING`(작업이 `DEAD`가 아님), 또는 `CONFIRMED` + 지급 예정 시각 지남(매일 01:00 지급 배치가 아직 선점하지 않음, `findPayoutDueItemIds`). 일시 실패한 작업은 자동으로 다시 시도하므로 여기다 | 지급 예정 시각(그 뒤에 기각됐으면 기각 시각) |
 | `SCHEDULED` | `CONFIRMED` + 지급 예정 시각 전 | 구매 확정 시각(이의 제기가 기각됐으면 기각 시각) |
 | `COMPLETED` | `PAID_OUT` | 지급 시각 |
-| `CANCELED` | `CANCELED`(구매 취소) · `RETURNED`(이의 제기 인정 반환) | 취소 시각 · 반환 시각 |
+| `CANCELED` | `CANCELED`(구매 취소) · `RETURNED`(이의 제기 인정 반환) · `CANCEL_PENDING`·`RETURN_PENDING`(반환 처리 중, 반환은 거절될 수 없어 지급하지 않음이 확실하다) | 취소 시각 · 반환 시각 · 처리 중이면 그 반환 작업의 등록 시각 (강의 D70 (3)) |
 
 ## 4. Client (`shared.lecture.out.LectureApiClient`)
 
@@ -157,11 +159,10 @@ LectureEarningPageDto getEarnings(long sellerUserId, Collection<LectureEarningSt
 | 한계 | 이유 |
 | --- | --- |
 | 구매 취소와 반환이 같은 `CANCELED`다 | 공통 상태에 반환이 따로 없다. 나눠 보여야 하면 공통 계약에 필드를 더하고 출연과 다시 맞춘다 |
-| 이의 제기 철회·격리 해제는 `statusUpdatedAt`이 바뀌지 않는다(격리 해제된 항목은 지급 예정 시각으로 보인다) | 강의 항목에 그 시각이 남지 않는다(D52·D54) |
-| 일시 실패한 항목은 실패가 아니라 처리 중으로 보인다 | 다음 배치가 자동으로 다시 시도한다. 실패 횟수·코드는 관리자 API(`/admin/payout-failures`)에서 본다 |
+| 이의 제기 철회와 지급 작업의 관리자 재시도는 `statusUpdatedAt`이 바뀌지 않는다(재시도한 항목은 지급 예정 시각으로 보인다) | 강의 항목에 그 시각이 남지 않는다(D52, D57) |
+| 일시 실패한 항목은 실패가 아니라 처리 중으로 보인다 | 작업이 자동으로 다시 시도한다. 실패 횟수·코드는 HP 작업 관리자 API(`/admin/hp-tasks?taskType=PAYOUT`)에서 본다 |
 | offset 페이지라 조회하는 동안 상태가 바뀌면 항목이 페이지 사이에서 중복되거나 빠질 수 있다 | 정렬 키(`statusUpdatedAt`)가 상태 변경으로 바뀐다. 커서 페이지는 이번 범위 밖이다 |
 | 요약과 목록은 같은 시점의 값이 아니다 | 호출이 두 번이라 그 사이 지급 배치 등이 돌 수 있다. 요약의 `asOf`로 기준 시각을 알 수 있다 |
-| 분류가 deprecated 컬럼(D54의 지급 실패 기록)에 기댄다 | HP 작업 전환(#277·#268)을 재개하면 `PAYOUT_PENDING`→`PROCESSING`, 작업 `DEAD`→`FAILED`로 다시 대응시킨다. 상태 이름은 그대로다 |
 
 ## 6. 출연 API
 

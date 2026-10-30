@@ -19,7 +19,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.domain.LectureHpTask;
+import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.OrderItem;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.shared.lecture.domain.LectureEarningStatus;
 import com.hapbang.testsupport.RepositoryTest;
 
@@ -47,6 +51,9 @@ class LectureEarningRepositoryTest {
 
     @Autowired
     private LectureOrderRepository lectureOrderRepository;
+
+    @Autowired
+    private LectureHpTaskRepository lectureHpTaskRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -77,18 +84,19 @@ class LectureEarningRepositoryTest {
         LectureOrder rejected = confirmed(DUE_PURCHASE, 1_000L);
         fileObjection(rejected, DUE_PURCHASE.plusDays(1));
         rejected.resolveObjection(itemId(rejected), INQUIRY_ID, false, ADMIN_ID, NOW_AT.minusDays(1));
-        LectureOrder failedOnce = confirmed(DUE_PURCHASE, 1_000L);
-        failedOnce.recordPayoutFailure(itemId(failedOnce), "WALLET_NOT_FOUND", false, NOW_AT.minusDays(1));
+        LectureOrder failedOnce = payoutPending(DUE_PURCHASE, 1_000L);
+        retrying(payoutTask(failedOnce), NOW_AT.minusDays(1));
         confirmed(NOT_DUE_PURCHASE, 1_000L);
-        LectureOrder quarantined = confirmed(DUE_PURCHASE, 1_000L);
-        quarantined.recordPayoutFailure(itemId(quarantined), "PAYOUT_ALREADY_SETTLED", true, NOW_AT.minusDays(1));
+        LectureOrder dead = payoutPending(DUE_PURCHASE, 1_000L);
+        dead(payoutTask(dead), NOW_AT.minusDays(1));
         flushAndClear();
 
-        // 처리 중은 지급 배치 대상과 같다. 일시 실패한 항목도 다음 배치가 다시 시도하므로 처리 중이고, 격리된 항목만 빠진다
+        // 처리 중은 지급 배치가 선점할 항목과 지급 처리 중 항목이다. 재시도 중인 작업도 처리 중이고, 작업이 DEAD면 실패다 (D70 (3))
+        assertThat(lectureOrderRepository.findPayoutDueItemIds(NOW_AT))
+                .containsExactlyInAnyOrder(due, sameDueLater, itemId(rejected));
         assertThat(itemIds(PROCESSING))
-                .containsExactlyInAnyOrder(due, sameDueLater, itemId(rejected), itemId(failedOnce))
-                .containsExactlyInAnyOrderElementsOf(lectureOrderRepository.findPayoutDueItemIds(NOW_AT));
-        assertThat(itemIds(FAILED)).containsExactly(itemId(quarantined));
+                .containsExactlyInAnyOrder(due, sameDueLater, itemId(rejected), itemId(failedOnce));
+        assertThat(itemIds(FAILED)).containsExactly(itemId(dead));
     }
 
     @Test
@@ -117,15 +125,16 @@ class LectureEarningRepositoryTest {
     }
 
     @Test
-    void 격리된_항목만_실패이고_일시_실패와_격리_해제는_처리_중이다() {
-        LectureOrder failedOnce = confirmed(DUE_PURCHASE, 1_000L);
-        failedOnce.recordPayoutFailure(itemId(failedOnce), "WALLET_NOT_FOUND", false, NOW_AT.minusDays(2));
-        LectureOrder quarantined = confirmed(DUE_PURCHASE, 2_000L);
-        quarantined.recordPayoutFailure(itemId(quarantined), "PAYOUT_ALREADY_SETTLED", true, NOW_AT.minusDays(2));
-        // 격리를 풀면 다음 지급 배치가 다시 시도한다 (D54)
-        LectureOrder released = confirmed(DUE_PURCHASE, 4_000L);
-        released.recordPayoutFailure(itemId(released), "PAYOUT_ALREADY_SETTLED", true, NOW_AT.minusDays(2));
-        released.releasePayoutQuarantine(itemId(released));
+    void 지급_작업이_DEAD인_항목만_실패이고_재시도_중이거나_관리자가_다시_시도하면_처리_중이다() {
+        LectureOrder failedOnce = payoutPending(DUE_PURCHASE, 1_000L);
+        retrying(payoutTask(failedOnce), NOW_AT.minusDays(2));
+        LectureOrder dead = payoutPending(DUE_PURCHASE, 2_000L);
+        dead(payoutTask(dead), NOW_AT.minusDays(2));
+        // 관리자가 다시 시도하면 작업이 PENDING이 되어 다시 처리 중이다 (D57 (9))
+        LectureOrder retried = payoutPending(DUE_PURCHASE, 4_000L);
+        LectureHpTask retriedTask = dead(payoutTask(retried), NOW_AT.minusDays(2));
+        retriedTask.retryManually(ADMIN_ID, NOW_AT.minusDays(1));
+        lectureHpTaskRepository.save(retriedTask);
         flushAndClear();
 
         assertThat(summary()).containsOnly(entry(FAILED, total(1, 2_000L)), entry(PROCESSING, total(2, 5_000L)));
@@ -134,12 +143,13 @@ class LectureEarningRepositoryTest {
     @Test
     void 지급_완료_구매_취소_반환은_요약에서_빠진다() {
         LectureOrder paidOut = confirmed(DUE_PURCHASE, 1_000L);
-        paidOut.payOutItem(itemId(paidOut), NOW_AT.minusDays(1));
+        LectureOrderFixture.payOut(paidOut, itemId(paidOut), NOW_AT.minusDays(1));
         LectureOrder canceled = purchased(RECENT_PURCHASE, 2_000L);
-        canceled.cancelItem(itemId(canceled), RECENT_PURCHASE.plusHours(1));
+        LectureOrderFixture.cancel(canceled, itemId(canceled), RECENT_PURCHASE.plusHours(1));
         LectureOrder returned = confirmed(NOT_DUE_PURCHASE, 4_000L);
         fileObjection(returned, NOT_DUE_PURCHASE.plusDays(1));
-        returned.resolveObjection(itemId(returned), INQUIRY_ID, true, ADMIN_ID, NOT_DUE_PURCHASE.plusDays(2));
+        LectureOrderFixture.acceptAndReturn(returned, itemId(returned), INQUIRY_ID, ADMIN_ID,
+                NOT_DUE_PURCHASE.plusDays(2));
         purchased(RECENT_PURCHASE, 8_000L);
         flushAndClear();
 
@@ -152,8 +162,8 @@ class LectureEarningRepositoryTest {
     void 한_주문의_여러_항목은_항목마다_한_번씩_집계된다() {
         Lecture otherSellers = lecture(3_000L);
         ReflectionTestUtils.setField(otherSellers, "sellerUserId", OTHER_SELLER_ID);
-        lectureOrderRepository.save(LectureOrder.place(BUYER_ID, List.of(lecture(1_000L), lecture(2_000L),
-                otherSellers), Set.of(), RECENT_PURCHASE));
+        lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture(1_000L), lecture(2_000L),
+                otherSellers), RECENT_PURCHASE));
         flushAndClear();
 
         assertThat(summary()).containsOnly(entry(CONFIRMATION_PENDING, total(2, 3_000L)));
@@ -162,10 +172,22 @@ class LectureEarningRepositoryTest {
     }
 
     @Test
+    void 결제가_끝나지_않은_항목은_요약과_목록에_없다() {
+        lectureOrderRepository.save(LectureOrderFixture.pending(BUYER_ID, List.of(lecture(1_000L)), RECENT_PURCHASE));
+        LectureOrder failed = lectureOrderRepository.save(
+                LectureOrderFixture.pending(BUYER_ID, List.of(lecture(2_000L)), RECENT_PURCHASE));
+        failed.markHoldFailed();
+        flushAndClear();
+
+        assertThat(summary()).isEmpty();
+        assertThat(lectureOrderRepository.findEarnings(SELLER_ID, ALL, NOW_AT, PageRequest.of(0, 10))).isEmpty();
+    }
+
+    @Test
     void 다른_판매자의_항목은_요약과_목록에_없다() {
         Lecture otherSellers = lecture(3_000L);
         ReflectionTestUtils.setField(otherSellers, "sellerUserId", OTHER_SELLER_ID);
-        lectureOrderRepository.save(LectureOrder.place(BUYER_ID, List.of(otherSellers), Set.of(), RECENT_PURCHASE));
+        lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(otherSellers), RECENT_PURCHASE));
         flushAndClear();
 
         assertThat(summary()).isEmpty();
@@ -195,11 +217,11 @@ class LectureEarningRepositoryTest {
     @Test
     void 지정한_상태의_항목만_나온다() {
         Long scheduled = itemId(confirmed(NOT_DUE_PURCHASE, 1_000L));
-        LectureOrder failed = confirmed(DUE_PURCHASE, 1_000L);
-        failed.recordPayoutFailure(itemId(failed), "PAYOUT_ALREADY_SETTLED", true, NOW_AT.minusDays(1));
+        LectureOrder failed = payoutPending(DUE_PURCHASE, 1_000L);
+        dead(payoutTask(failed), NOW_AT.minusDays(1));
         purchased(RECENT_PURCHASE, 1_000L);
         LectureOrder paidOut = confirmed(DUE_PURCHASE, 1_000L);
-        paidOut.payOutItem(itemId(paidOut), NOW_AT.minusDays(1));
+        LectureOrderFixture.payOut(paidOut, itemId(paidOut), NOW_AT.minusDays(1));
         flushAndClear();
 
         assertThat(itemIds(Set.of(SCHEDULED, FAILED))).containsExactly(itemId(failed), scheduled);
@@ -232,18 +254,29 @@ class LectureEarningRepositoryTest {
         LectureOrder onHold = confirmed(NOT_DUE_PURCHASE, 1_000L);
         fileObjection(onHold, filedAt);
         LocalDateTime failedAt = NOW_AT.minusDays(1);
-        LectureOrder failed = confirmed(DUE_PURCHASE, 1_000L);
-        failed.recordPayoutFailure(itemId(failed), "PAYOUT_ALREADY_SETTLED", true, failedAt);
+        LectureOrder failed = payoutPending(DUE_PURCHASE, 1_000L);
+        dead(payoutTask(failed), failedAt);
+        LectureOrder payingOut = payoutPending(DUE_PURCHASE, 1_000L);
+        payoutTask(payingOut);
+        LocalDateTime cancelRequestedAt = RECENT_PURCHASE.plusHours(2);
+        LectureOrder cancelPending = purchased(RECENT_PURCHASE, 1_000L);
+        cancelPending.requestCancelItem(itemId(cancelPending), cancelRequestedAt);
+        releaseTask(cancelPending, LectureHpTaskPurpose.CANCEL, cancelRequestedAt);
+        LocalDateTime acceptedAt = NOT_DUE_PURCHASE.plusDays(3);
+        LectureOrder returnPending = confirmed(NOT_DUE_PURCHASE, 1_000L);
+        fileObjection(returnPending, NOT_DUE_PURCHASE.plusDays(1));
+        returnPending.resolveObjection(itemId(returnPending), INQUIRY_ID, true, ADMIN_ID, acceptedAt);
+        releaseTask(returnPending, LectureHpTaskPurpose.RETURN, acceptedAt);
         LocalDateTime paidOutAt = NOW_AT.minusDays(2);
         LectureOrder completed = confirmed(DUE_PURCHASE, 1_000L);
-        completed.payOutItem(itemId(completed), paidOutAt);
+        LectureOrderFixture.payOut(completed, itemId(completed), paidOutAt);
         LocalDateTime canceledAt = RECENT_PURCHASE.plusHours(1);
         LectureOrder canceled = purchased(RECENT_PURCHASE, 1_000L);
-        canceled.cancelItem(itemId(canceled), canceledAt);
+        LectureOrderFixture.cancel(canceled, itemId(canceled), canceledAt);
         LocalDateTime returnedAt = NOT_DUE_PURCHASE.plusDays(2);
         LectureOrder returned = confirmed(NOT_DUE_PURCHASE, 1_000L);
         fileObjection(returned, NOT_DUE_PURCHASE.plusDays(1));
-        returned.resolveObjection(itemId(returned), INQUIRY_ID, true, ADMIN_ID, returnedAt);
+        LectureOrderFixture.acceptAndReturn(returned, itemId(returned), INQUIRY_ID, ADMIN_ID, returnedAt);
         flushAndClear();
 
         Map<Long, EarningRow> rows = lectureOrderRepository.findEarnings(SELLER_ID, ALL, NOW_AT,
@@ -258,6 +291,10 @@ class LectureEarningRepositoryTest {
         assertRow(rows, processingAfterRejection, PROCESSING, processingRejectedAt);
         assertRow(rows, onHold, ON_HOLD, filedAt);
         assertRow(rows, failed, FAILED, failedAt);
+        assertRow(rows, payingOut, PROCESSING, LocalDateTime.of(2026, 11, 1, 0, 0));
+        // 반환 처리 중은 지급하지 않을 것이 확실해 취소이고, 상태 변경 시각은 반환 작업의 등록 시각이다 (D70 (3))
+        assertRow(rows, cancelPending, CANCELED, cancelRequestedAt);
+        assertRow(rows, returnPending, CANCELED, acceptedAt);
         assertRow(rows, completed, COMPLETED, paidOutAt);
         assertRow(rows, canceled, CANCELED, canceledAt);
         assertRow(rows, returned, CANCELED, returnedAt);
@@ -294,8 +331,41 @@ class LectureEarningRepositoryTest {
     }
 
     private LectureOrder purchased(LocalDateTime purchasedAt, long priceHp) {
-        return lectureOrderRepository.save(LectureOrder.place(BUYER_ID, List.of(lecture(priceHp)), Set.of(),
-                purchasedAt));
+        return lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture(priceHp)), purchasedAt));
+    }
+
+    /** 구매 확정하고 지급 예정 시각에 지급을 시작한 주문 */
+    private LectureOrder payoutPending(LocalDateTime purchasedAt, long priceHp) {
+        LectureOrder order = confirmed(purchasedAt, priceHp);
+        order.startPayoutItem(itemId(order), itemOf(order).getPayoutScheduledAt());
+        return order;
+    }
+
+    private LectureHpTask payoutTask(LectureOrder order) {
+        OrderItem item = itemOf(order);
+        return lectureHpTaskRepository.save(LectureHpTask.create(LectureHpTaskPurpose.PAYOUT,
+                "LECTURE-PAYOUT-" + item.getId(), order.getId(), item.getId(), item.getBuyerUserId(),
+                item.getSellerUserId(), item.getPriceHp(), item.getPayoutScheduledAt()));
+    }
+
+    private void releaseTask(LectureOrder order, LectureHpTaskPurpose purpose, LocalDateTime createdAt) {
+        OrderItem item = itemOf(order);
+        lectureHpTaskRepository.save(LectureHpTask.create(purpose, "LECTURE-" + purpose + "-" + item.getId(),
+                order.getId(), item.getId(), item.getBuyerUserId(), null, item.getPriceHp(), createdAt));
+    }
+
+    private LectureHpTask retrying(LectureHpTask task, LocalDateTime failedAt) {
+        task.scheduleRetry("WALLET_NOT_FOUND", failedAt.plusMinutes(1), failedAt);
+        return lectureHpTaskRepository.save(task);
+    }
+
+    private LectureHpTask dead(LectureHpTask task, LocalDateTime failedAt) {
+        task.markDead("PAYOUT_ALREADY_SETTLED", failedAt);
+        return lectureHpTaskRepository.save(task);
+    }
+
+    private static OrderItem itemOf(LectureOrder order) {
+        return order.getItems().getFirst();
     }
 
     /** 구매 시각에 바로 구매 확정한 주문 */

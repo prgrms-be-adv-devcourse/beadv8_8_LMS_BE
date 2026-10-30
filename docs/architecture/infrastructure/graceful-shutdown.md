@@ -12,16 +12,16 @@ graceful shutdown은 단순히 HTTP 요청을 기다리는 option이 아니다. 
 
 1. Kubernetes가 Pod를 `Terminating`으로 만들면 EndpointSlice의 `ready`가 `false`가 되어 일반 Service traffic에서 제외된다. 동시에 `preStop`이 drain을 시작한다. Kubernetes는 `preStop` 실행 전부터 전체 종료 유예 시간을 세고, hook과 process 종료가 모두 그 안에 끝나지 않으면 강제 종료한다([Kubernetes Pod 종료 흐름](https://kubernetes.io/docs/tutorials/services/pods-and-endpoint-termination-flow/), [container lifecycle hook](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/)).
 2. readiness를 `OUT_OF_SERVICE`로 바꾸고 application-level `acceptingWork=false` gate를 닫는다. web은 새 long-running command를 거절하고, 기존 짧은 HTTP 요청은 Spring Boot/Tomcat이 마칠 시간을 준다. WebSocket client에는 재연결 신호를 보낸 뒤 session을 닫으며, 재접속 후 PostgreSQL history sync로 gap을 복구한다.
-3. Kafka listener는 새 poll 처리를 멈추고 현재 record까지만 끝낸 뒤 offset을 commit한다. 처리 결과가 commit되지 않은 record는 다음 consumer가 다시 받고 inbox 멱등성으로 흡수한다. 채팅 outbox relay는 새 선점을 멈추고 진행 중인 Pub/Sub 발행 결과를 유효한 claimToken으로 기록한다. 마치지 못한 작업은 DB에 남고 lease 만료 뒤 다른 relay가 회수한다.
+3. Kafka listener는 새 poll 처리를 멈추고 현재 record까지만 끝낸 뒤 offset을 commit한다. 처리 결과가 commit되지 않은 record는 다음 consumer가 다시 받고 소비 멱등성(자연 키, [1장](kafka.md#소비))으로 흡수한다. 채팅 outbox relay는 새 선점을 멈추고 진행 중인 XADD 적재 결과를 유효한 claimToken으로 기록한다. Stream consumer는 새 읽기·회수를 멈추고 진행 중인 Pub/Sub 발행 성공 → DB 체크포인트 → XACK를 종료 예산 안에서 마친다. 처리되지 않은 entry를 종료를 위해 ACK하지 않는다. 마치지 못한 적재는 DB lease 회수, 소비는 PEL 회수로 복구하고 Redis 데이터까지 유실되면 DB 미완료 체크포인트로 재구성한다. 이 순서가 끝날 때까지 Redis 클라이언트와 DataSource를 유지한다.
 4. in-flight HTTP, WebSocket close, consumer 처리가 끝난 다음 executor를 종료한다. DataSource/HikariCP는 이 과정의 마지막까지 유지하고 Spring context가 닫을 때 종료한다. 종료 callback에서 DB pool을 직접 먼저 닫지 않는다.
 
 Kubernetes 설정의 시작값은 `terminationGracePeriodSeconds: 120`, `preStop` drain·전파 예산 10초, application drain 예산 최대 90초, 강제 종료 전 여유 20초로 둔다. 이 숫자는 운영 SLO가 아니라 k6와 장애 test에서 측정해 조정할 초기값이다. `preStop`과 Spring의 phase timeout을 단순 합산했을 때 120초를 넘지 않게 CI에서 실제 종료 시간을 잰다.
 
-EC2 매일 중지(18:00)는 pod 하나가 아니라 node 전체의 종료다. graceful node shutdown이 켜져 있으면 kubelet은 `shutdownGracePeriod` 안에서 일반 pod를 먼저 종료한다. 이때 pod에 주어지는 시간은 자기 `terminationGracePeriodSeconds`가 아니라 node 종료 예산으로 제한될 수 있다. 일반 pod 몫(`shutdownGracePeriod - shutdownGracePeriodCriticalPods`)을 앱 pod의 drain 예산보다 길게 잡는다. instance 중지 때 OS가 그만큼 기다려 주는지는 실제 중지로 확인한다. 기다려 주지 않으면 그 결과를 기록하고, 끝내지 못한 처리가 Kafka 재전달과 DB outbox의 lease 만료 회수로 복구되는지 확인한다.
+EC2 매일 중지(18:00)는 pod 하나가 아니라 node 전체의 종료다. graceful node shutdown이 켜져 있으면 kubelet은 `shutdownGracePeriod` 안에서 일반 pod를 먼저 종료한다. 이때 pod에 주어지는 시간은 자기 `terminationGracePeriodSeconds`가 아니라 node 종료 예산으로 제한될 수 있다. 일반 pod 몫(`shutdownGracePeriod - shutdownGracePeriodCriticalPods`)을 앱 pod의 drain 예산보다 길게 잡는다. instance 중지 때 OS가 그만큼 기다려 주는지는 실제 중지로 확인한다. 기다려 주지 않으면 그 결과를 기록하고, 끝내지 못한 처리가 Kafka 재전달, DB outbox lease 만료·Stream PEL 회수·필요시 DB 재구성으로 복구되는지 확인한다.
 
 ## 완료 증거
 
 - 앱 pod에 `SIGTERM`을 보내면 새 요청을 거절하고 in-flight 요청과 consumer 처리를 마친 뒤 grace period 안에 종료한다.
 - rolling update 동안 새 HTTP 요청은 새로 ready가 된 pod로 가고, 기존 요청은 deadline 안에 끝나며, WebSocket은 재연결 후 history gap이 없다.
-- Kafka current record와 채팅 outbox 작업을 처리 중 종료해도 재할당·lease 만료 회수 뒤 DB 결과와 FE 반영이 중복되지 않고, 종료 과정에서 DataSource closed 오류가 없다.
+- Kafka current record와 채팅 outbox·Stream 작업을 처리 중 종료해도 재할당·lease/PEL 회수 뒤 DB 결과와 FE 반영이 중복되지 않고, 종료 과정에서 DataSource closed 오류가 없다.
 - 선택한 관측성 UI에 drain 시작·완료·timeout, restart count, forced termination 지표와 동일 correlation ID의 log를 남긴다.

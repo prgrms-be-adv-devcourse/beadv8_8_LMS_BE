@@ -82,6 +82,10 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요."),
 
     // 외부 연동
+    // 지갑이 HP 보류를 거절함. 사용자에게 알릴 거절만 코드를 따로 둔다 (지갑 코드와 같은 이름, 출연이 정한 문구) (#274)
+    INSUFFICIENT_BALANCE(HttpStatus.CONFLICT, "HP 잔액이 부족합니다. 충전한 뒤 다시 시도해 주세요."),
+    // 그 밖의 거절(내부 설정 오류·멱등 충돌·목록 밖 코드 등). 지갑 코드·설명은 로그에만 남기고 사용자에게는 이 문구만 보인다
+    HP_HOLD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "HP 보류를 처리하지 못했습니다. 문제가 계속되면 고객센터로 문의해 주세요."),
     BILLING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
             "HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요.");
 

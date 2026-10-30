@@ -4,12 +4,15 @@ import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.lecture.app.LectureHpTaskBatchUseCase;
+import com.hapbang.lecture.app.LectureHpTaskExecutor;
 import com.hapbang.lecture.app.LectureOrderFacade;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
@@ -27,19 +32,24 @@ import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
+import com.hapbang.lecture.domain.LectureHpTask;
+import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingPort;
+import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
+import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
+import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
 import com.hapbang.shared.lecture.port.LectureObjectionPort;
 import com.hapbang.testsupport.IntegrationTest;
 
@@ -68,7 +78,16 @@ class LectureObjectionPortTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingPort billingPort;
+    private FakeBillingApiClient billing;
+
+    @Autowired
+    private LectureHpTaskBatchUseCase lectureHpTaskBatchUseCase;
+
+    @Autowired
+    private LectureHpTaskExecutor lectureHpTaskExecutor;
+
+    @Autowired
+    private LectureHpTaskRepository lectureHpTaskRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -79,7 +98,8 @@ class LectureObjectionPortTest {
 
     @BeforeEach
     void setUp() {
-        billingPort.reset();
+        billing.reset();
+        billing.setSettledHp(PRICE_HP);
     }
 
     @Test
@@ -97,7 +117,7 @@ class LectureObjectionPortTest {
         assertThatThrownBy(() -> lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId))
                 .isInstanceOf(LectureException.class)
                 .extracting("errorCode").isEqualTo(LectureErrorCode.OBJECTION_FILED);
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(releases()).isEmpty();
     }
 
     @Test
@@ -118,26 +138,38 @@ class LectureObjectionPortTest {
     }
 
     @Test
-    void 인정하면_항목이_반환되고_그_항목의_보류_HP를_전부_반환한다() {
+    void 인정하면_반환_처리_중이_되고_HP_작업_배치가_반환하면_반환이_된다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         Long orderItemId = order.items().getFirst().orderItemId();
         lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
         lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
 
-        OrderItem item = item(orderItemId);
-        assertThat(item.getStatus()).isEqualTo(OrderItemStatus.RETURNED);
-        assertThat(item.getReturnedAt()).isNotNull();
-        assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.ACCEPTED);
-        assertThat(item.getObjectionResolvedAt()).isNotNull();
-        assertThat(item.getObjectionResolvedByUserId()).isEqualTo(ADMIN_ID);
-        assertThat(billingPort.releases()).singleElement().satisfies(release -> {
-            assertThat(release.userId()).isEqualTo(BUYER_ID);
-            assertThat(release.referenceType()).isEqualTo(BillingReferenceType.LECTURE_ORDER_ITEM);
-            assertThat(release.referenceId()).isEqualTo(orderItemId);
-            assertThat(release.releaseRequestId()).isEqualTo("LECTURE-RETURN-" + orderItemId);
-            assertThat(release.isFull()).isTrue();
+        // 판단 요청 안에서는 지갑을 부르지 않는다 (D70 (1))
+        OrderItem accepted = item(orderItemId);
+        assertThat(accepted.getStatus()).isEqualTo(OrderItemStatus.RETURN_PENDING);
+        assertThat(accepted.getReturnedAt()).isNull();
+        assertThat(accepted.getObjectionStatus()).isEqualTo(ObjectionStatus.ACCEPTED);
+        assertThat(accepted.getObjectionResolvedAt()).isNotNull();
+        assertThat(accepted.getObjectionResolvedByUserId()).isEqualTo(ADMIN_ID);
+        assertThat(releases()).isEmpty();
+
+        lectureHpTaskBatchUseCase.runDue();
+
+        assertThat(item(orderItemId)).satisfies(item -> {
+            assertThat(item.getStatus()).isEqualTo(OrderItemStatus.RETURNED);
+            assertThat(item.getReturnedAt()).isNotNull();
         });
+        assertThat(billing.calls()).filteredOn(call -> call.command() instanceof ReleaseCommand).singleElement()
+                .satisfies(call -> {
+                    assertThat(call.transactionActive()).isFalse();
+                    ReleaseCommand release = (ReleaseCommand) call.command();
+                    assertThat(release.userId()).isEqualTo(BUYER_ID);
+                    assertThat(release.referenceType()).isEqualTo(BillingReferenceType.LECTURE_ORDER_ITEM);
+                    assertThat(release.referenceId()).isEqualTo(orderItemId);
+                    assertThat(release.releaseRequestId()).isEqualTo("LECTURE-RETURN-" + orderItemId);
+                    assertThat(release.isFull()).isTrue();
+                });
         assertThat(lectureOrderFacade.getOrder(BUYER_ID, order.orderId()).status())
                 .isEqualTo(LectureOrderStatus.PAID);
     }
@@ -154,39 +186,38 @@ class LectureObjectionPortTest {
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.REJECTED);
         assertThat(item.getStatus()).isEqualTo(OrderItemStatus.PURCHASED);
         assertThat(item.getObjectionResolvedByUserId()).isEqualTo(ADMIN_ID);
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(releases()).isEmpty();
     }
 
     @Test
-    void 인정_반환액이_항목_가격과_다르면_판단을_롤백한다() {
+    void 인정_반환액이_항목_가격과_다르면_반환_처리_중에_멈추고_관리자_확인이_필요하다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
         lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
-        billingPort.overrideReleasedHp(PRICE_HP - 1_000L);
+        lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        billing.setSettledHp(PRICE_HP - 1_000L);
 
-        assertThatThrownBy(() -> lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID))
-                .isInstanceOf(IllegalStateException.class);
+        lectureHpTaskBatchUseCase.runDue();
 
-        assertFiledAndPurchased(orderItemId);
-        assertThat(billingPort.releases()).isEmpty();
+        // 결과 금액이 작업 금액과 다르면 불변식 위반이라 DEAD다. 완료 상태로 바꾸지 않는다 (D43, D57)
+        assertThat(item(orderItemId).getStatus()).isEqualTo(OrderItemStatus.RETURN_PENDING);
+        assertThat(lectureHpTaskRepository.findByRequestId("LECTURE-RETURN-" + orderItemId))
+                .map(LectureHpTask::getStatus).hasValue(LectureHpTaskStatus.DEAD);
     }
 
-    // #156의 "반환 뒤 billing 단계(지급 예정 취소) 실패 → 판단 롤백"은 #188에서 지급 예정 취소가 없어졌다. billing 업무 예외로
-    // 반환이 거절되면 판단이 롤백되는지는 실제 billing으로 apps LectureOrderPayoutIntegrationTest가 확인한다.
-
     @Test
-    void billing이_반환을_거부하면_판단을_롤백한다() {
-        // 보류 없이 저장한 주문이라 Fake billing이 반환을 거부한다
-        LectureOrder saved = lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID,
-                List.of(saveOnSale("OBS 방송 세팅")), LocalDateTime.now(clock)));
-        Long orderItemId = saved.getItems().getFirst().getId();
+    void 지갑이_반환을_거부하면_반환_처리_중에_멈춘다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        Long orderItemId = order.items().getFirst().orderItemId();
         lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.HOLD_NOT_FOUND,
+                "HP 보류를 찾을 수 없습니다.", 404, "HOLD_NOT_FOUND"));
 
-        assertThatThrownBy(() -> lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID))
-                .isInstanceOf(IllegalStateException.class);
+        lectureHpTaskBatchUseCase.runDue();
 
-        assertFiledAndPurchased(orderItemId);
-        assertThat(lectureOrderFacade.getOrder(BUYER_ID, saved.getId()).status())
+        assertThat(item(orderItemId).getStatus()).isEqualTo(OrderItemStatus.RETURN_PENDING);
+        assertThat(lectureOrderFacade.getOrder(BUYER_ID, order.orderId()).status())
                 .isEqualTo(LectureOrderStatus.PAID);
     }
 
@@ -199,7 +230,9 @@ class LectureObjectionPortTest {
 
         assertRefused(() -> lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID),
                 Reason.NOT_FILED);
-        assertThat(billingPort.releases()).hasSize(1);
+        lectureHpTaskBatchUseCase.runDue();
+
+        assertThat(releases()).hasSize(1);
     }
 
     @Test
@@ -251,19 +284,22 @@ class LectureObjectionPortTest {
     }
 
     @Test
-    void 같은_주문의_마지막_두_항목을_동시에_인정해도_주문이_취소된다() throws Exception {
+    void 같은_주문의_마지막_두_항목의_반환이_동시에_끝나도_주문이_취소된다() throws Exception {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         List<Long> itemIds = order.items().stream().map(OrderItemResponse::orderItemId).toList();
         for (Long itemId : itemIds) {
             lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID + itemId, REASON);
+            lectureObjectionPort.resolveObjection(itemId, INQUIRY_ID + itemId, true, ADMIN_ID);
         }
-        // 두 판단이 모두 반환 단계에 들어갈 때까지 기다리게 해, 주문을 잠그지 않으면 서로의 반환을 보지 못하게 한다
-        billingPort.holdReleasesUntil(2, Duration.ofSeconds(1));
+        // 두 반환이 모두 지갑 호출에 들어갈 때까지 기다리게 해, 결과 기록이 주문을 잠그지 않으면 서로의 반환을 보지 못하게 한다
+        CyclicBarrier bothReleasing = new CyclicBarrier(2);
+        billing.setDuringCall(() -> await(bothReleasing));
 
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
             List<Future<?>> futures = itemIds.stream()
-                    .<Future<?>>map(itemId -> executor.submit(() ->
-                            lectureObjectionPort.resolveObjection(itemId, INQUIRY_ID + itemId, true, ADMIN_ID)))
+                    .map(itemId -> lectureHpTaskRepository.findByRequestId("LECTURE-RETURN-" + itemId)
+                            .orElseThrow().getId())
+                    .<Future<?>>map(taskId -> executor.submit(() -> lectureHpTaskExecutor.execute(taskId)))
                     .toList();
             for (Future<?> future : futures) {
                 future.get();
@@ -273,7 +309,7 @@ class LectureObjectionPortTest {
         OrderResponse saved = lectureOrderFacade.getOrder(BUYER_ID, order.orderId());
         assertThat(saved.items()).extracting(OrderItemResponse::status).containsOnly(OrderItemStatus.RETURNED);
         assertThat(saved.status()).isEqualTo(LectureOrderStatus.CANCELED);
-        assertThat(billingPort.releases()).hasSize(2);
+        assertThat(releases()).hasSize(2);
     }
 
     @Test
@@ -289,12 +325,12 @@ class LectureObjectionPortTest {
         assertThat(item.getObjectionInquiryId()).isNull();
         assertThat(item.getObjectionReason()).isNull();
         assertThat(item.getObjectionFiledAt()).isNull();
-        assertThat(billingPort.releases()).isEmpty();
+        assertThat(releases()).isEmpty();
 
         lectureOrderFacade.cancel(BUYER_ID, order.orderId(), orderItemId);
 
         assertThat(item(orderItemId).getStatus()).isEqualTo(OrderItemStatus.CANCELED);
-        assertThat(billingPort.releases()).singleElement()
+        assertThat(releases()).singleElement()
                 .extracting(ReleaseCommand::referenceId).isEqualTo(orderItemId);
     }
 
@@ -338,6 +374,24 @@ class LectureObjectionPortTest {
         Lecture lecture = Lecture.register(SELLER_ID, title, DESCRIPTION, PRICE_HP, null, contentSpecs(), NOW);
         lecture.approve(ADMIN_ID, NOW);
         return lectureRepository.save(lecture);
+    }
+
+    private List<ReleaseCommand> releases() {
+        return billing.calls().stream()
+                .map(FakeBillingApiClient.Call::command)
+                .filter(ReleaseCommand.class::isInstance)
+                .map(ReleaseCommand.class::cast)
+                .toList();
+    }
+
+    private static void await(CyclicBarrier barrier) {
+        try {
+            barrier.await(1, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (BrokenBarrierException | TimeoutException e) {
+            // 한쪽만 들어오면(직렬로 실행된 경우) 기다리지 않고 진행한다
+        }
     }
 
     private static void assertRefused(Runnable action, Reason reason) {

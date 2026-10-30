@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.config.LectureConfig;
@@ -19,7 +20,7 @@ import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
-import com.hapbang.lecture.fake.RecordingHpTaskResultHandler;
+import com.hapbang.lecture.fake.RecordingCancelResultHandler;
 import com.hapbang.lecture.global.scheduling.ConditionalOnSchedulingEnabled;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.testsupport.IntegrationTest;
@@ -40,8 +41,9 @@ class LectureHpTaskBatchUseCaseTest {
     @Autowired
     private FakeBillingApiClient billing;
 
-    @Autowired
-    private RecordingHpTaskResultHandler.Cancel cancelHandler;
+    // 실행기만 확인하도록 운영 CANCEL 처리기 자리에 결과만 남기는 처리기를 넣는다
+    @TestBean(methodName = RecordingCancelResultHandler.FACTORY)
+    private CancelResultHandler cancelResultHandler;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -56,7 +58,7 @@ class LectureHpTaskBatchUseCaseTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        cancelHandler.reset();
+        cancelHandler().reset();
     }
 
     @Test
@@ -94,5 +96,9 @@ class LectureHpTaskBatchUseCaseTest {
 
     private LectureHpTaskStatus status(Long id) {
         return lectureHpTaskRepository.findById(id).orElseThrow().getStatus();
+    }
+
+    private RecordingCancelResultHandler cancelHandler() {
+        return (RecordingCancelResultHandler) cancelResultHandler;
     }
 }

@@ -53,6 +53,10 @@ hapbang:
     enabled: true
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
+  # HP 보류·반환·지급·위약금 정산을 보내는 지갑 내부 API 주소 (#274). 응답 대기·회로 차단 등은 공용 Client 기본값
+  clients:
+    billing:
+      base-url: "${BILLING_API_BASE_URL}"
 springdoc:
   swagger-ui:
     csrf:

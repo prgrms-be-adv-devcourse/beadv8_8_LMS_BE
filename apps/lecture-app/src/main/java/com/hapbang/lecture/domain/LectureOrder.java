@@ -15,10 +15,11 @@ import java.util.Set;
 /**
  * 강의 주문(결제 단위). 장바구니 주문과 바로 구매(강의 1개)를 같은 모델로 처리한다 (설계 4.6).
  * <ul>
- *     <li>주문은 HP 보류가 성공한 경우에만 남는다. 그래서 결제 대기·실패 상태가 없다.</li>
- *     <li>HP 보류는 주문 항목마다 한다 (D36).</li>
- *     <li>주문 상태는 저장값(PAID, CANCELED)이고, PAID인 주문의 진행 상황은 항목에서 파생한다.</li>
- *     <li>상태로 관리하고 삭제하지 않는다.</li>
+ *     <li>주문은 HP 보류보다 먼저 결제 처리 중({@code HOLD_PENDING})으로 저장되고, 모든 항목의 보류가 성공해야
+ *     {@code PAID}가 된다. 거절되면 결제 취소 처리 중을 거쳐 결제 실패({@code HOLD_FAILED})다 (D58).</li>
+ *     <li>HP 보류는 주문 항목마다 한다 (D36). 항목 상태는 결제 단계를 그대로 복제한다.</li>
+ *     <li>주문 상태는 저장값이고, PAID인 주문의 진행 상황은 항목에서 파생한다.</li>
+ *     <li>상태로 관리하고 삭제하지 않는다. 결제 실패한 주문도 남긴다.</li>
  * </ul>
  */
 @Entity
@@ -41,8 +42,12 @@ public class LectureOrder {
     @Column(nullable = false)
     private LectureOrderStatus status;
 
+    /** 주문을 시도한 시각 (D58 (5)) */
     @Column(nullable = false)
     private LocalDateTime orderedAt;
+
+    /** 모든 보류가 성공해 {@code PAID}가 된 시각. 그 전에는 {@code null}이다 */
+    private LocalDateTime paidAt;
 
     private LocalDateTime canceledAt;
 
@@ -55,7 +60,7 @@ public class LectureOrder {
 
     private LectureOrder(Long buyerUserId, LocalDateTime now) {
         this.buyerUserId = buyerUserId;
-        this.status = LectureOrderStatus.PAID;
+        this.status = LectureOrderStatus.HOLD_PENDING;
         this.orderedAt = now;
     }
 
@@ -63,14 +68,14 @@ public class LectureOrder {
      * 주문을 만든다. 강의 하나라도 주문할 수 없으면 주문 전체를 거부한다 (D31).
      * 검사 순서는 장바구니 담기와 같이 본인 강의 → 판매 중 → 보유 중이다.
      *
-     * @param ownedLectureIds 구매자가 이미 보유한(PURCHASED·CONFIRMED·PAID_OUT 항목이 있는) 강의 ID
+     * @param ownedLectureIds 구매자가 이미 보유한(결제 처리 중부터 지급까지 항목이 있는) 강의 ID
      */
     public static LectureOrder place(Long buyerUserId, List<Lecture> lectures, Set<Long> ownedLectureIds,
                                      LocalDateTime now) {
         validateLectures(buyerUserId, lectures, ownedLectureIds);
         LectureOrder order = new LectureOrder(buyerUserId, now);
         for (Lecture lecture : lectures) {
-            order.items.add(new OrderItem(order, lecture, now));
+            order.items.add(new OrderItem(order, lecture));
             order.totalAmountHp += lecture.getPriceHp();
         }
         return order;
@@ -81,12 +86,31 @@ public class LectureOrder {
     }
 
     /**
-     * 모든 항목의 HP 보류가 성공한 뒤의 시각으로 주문 시각과 항목의 구매 시각·기한을 다시 정한다 (D35).
-     * 보류에 주문 항목 ID가 필요해 주문을 먼저 저장하므로, 저장할 때 넣은 시각을 이 시각으로 바꾼다.
+     * 모든 항목의 HP 보류가 성공했다. 이 시각으로 결제 시각과 항목의 구매 시각·기한을 정한다 (D35, D69 (7)).
+     * 주문 시각은 주문을 시도한 시각 그대로다
      */
-    public void stampPaidAt(LocalDateTime now) {
-        this.orderedAt = now;
-        items.forEach(item -> item.stampPurchasedAt(now));
+    public void markPaid(LocalDateTime now) {
+        requireStatus(LectureOrderStatus.HOLD_PENDING);
+        this.status = LectureOrderStatus.PAID;
+        this.paidAt = now;
+        items.forEach(item -> item.markPurchased(now));
+    }
+
+    /** 보류 하나 이상이 확정 거절되어, 이미 성공한 보류를 반환한다 (D58 (3)) */
+    public void startHoldCompensation() {
+        requireStatus(LectureOrderStatus.HOLD_PENDING);
+        this.status = LectureOrderStatus.HOLD_COMPENSATING;
+        items.forEach(item -> item.changeHoldStage(OrderItemStatus.HOLD_COMPENSATING));
+    }
+
+    /** 결제 실패. 묶여 남은 보류 HP가 없음을 호출한 쪽이 확인했다 (D58 (3)) */
+    public void markHoldFailed() {
+        if (!status.isHoldInProgress()) {
+            throw new IllegalStateException("결제 단계가 아닌 주문은 결제 실패로 바꿀 수 없습니다. orderId=" + id
+                    + ", status=" + status);
+        }
+        this.status = LectureOrderStatus.HOLD_FAILED;
+        items.forEach(item -> item.changeHoldStage(OrderItemStatus.HOLD_FAILED));
     }
 
     /** 구매자의 직접 구매 확정. 자동 구매 확정 시각이 지났으면 자동 확정으로 기록한다 (D34) */
@@ -111,39 +135,50 @@ public class LectureOrder {
     }
 
     /**
-     * 지급(배치). 지급 대상이면 {@code PAID_OUT}으로 바꾼 항목을, 아니면(배치가 조회한 뒤 이의 제기가 먼저 접수된 경우 등)
-     * 그대로 두고 빈 값을 돌려준다 (D50). 지급은 주문을 닫지 않는다. 보류 HP 지급은 호출한 쪽이 같은 트랜잭션에서 한다
+     * 지급 시작(01:00 배치, D59 (5)). 지급 대상이면 지급 처리 중으로 바꾼 항목을, 아니면(배치가 조회한 뒤 이의 제기가 먼저
+     * 접수된 경우 등) 그대로 두고 빈 값을 돌려준다 (D50). 지급은 PAYOUT 작업이 하고 주문을 닫지 않는다
      */
-    public Optional<OrderItem> payOutItem(Long orderItemId, LocalDateTime now) {
+    public Optional<OrderItem> startPayoutItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
         if (!item.isPayable(now)) {
             return Optional.empty();
         }
-        item.payOut(now);
+        item.startPayout(now);
         return Optional.of(item);
     }
 
-    /**
-     * 지급 실패 기록(배치, D54). 기록하면 그 항목을, 지급 대상이 아니게 되어 기록하지 않으면 빈 값을 돌려준다.
-     * 주문을 닫지 않는다
-     */
-    public Optional<OrderItem> recordPayoutFailure(Long orderItemId, String code, boolean quarantine,
-                                                   LocalDateTime now) {
+    /** 지급 완료. PAYOUT 작업 성공을 기록하는 트랜잭션에서 부른다. 주문을 닫지 않는다 */
+    public OrderItem completePayoutItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
-        return item.recordPayoutFailure(code, quarantine, now) ? Optional.of(item) : Optional.empty();
-    }
-
-    /** 지급 격리 해제(관리자, D54). 주문을 닫지 않는다 */
-    public OrderItem releasePayoutQuarantine(Long orderItemId) {
-        OrderItem item = findItem(orderItemId);
-        item.releasePayoutQuarantine();
+        item.completePayout(now);
         return item;
     }
 
-    /** 구매 취소. 끝나지 않은 항목이 남지 않으면 주문도 취소한다. 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다 */
-    public OrderItem cancelItem(Long orderItemId, LocalDateTime now) {
+    /** 구매 취소 요청. 구매 취소 처리 중이 되고, 반환은 RELEASE 작업이 한다 (D59 (1)). 주문은 아직 닫지 않는다 */
+    public OrderItem requestCancelItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
-        item.cancel(now);
+        item.requestCancel(now);
+        return item;
+    }
+
+    /**
+     * 구매 취소 완료. 반환 성공을 기록하는 트랜잭션에서 주문을 잠그고 부른다 (D46, D59 (4)).
+     * 끝나지 않은 항목이 남지 않으면 주문도 취소한다
+     */
+    public OrderItem completeCancelItem(Long orderItemId, LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        item.completeCancel(now);
+        closeIfAllItemsEnded(now);
+        return item;
+    }
+
+    /**
+     * 반환 완료(이의 제기 인정). 반환 성공을 기록하는 트랜잭션에서 주문을 잠그고 부른다 (D46, D59 (4)).
+     * 끝나지 않은 항목이 남지 않으면 주문도 취소한다
+     */
+    public OrderItem completeReturnItem(Long orderItemId, LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        item.completeReturn(now);
         closeIfAllItemsEnded(now);
         return item;
     }
@@ -157,16 +192,12 @@ public class LectureOrder {
     }
 
     /**
-     * 이의 제기 판단. 인정해서 끝나지 않은 항목이 남지 않으면 주문도 취소한다.
-     * 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다
+     * 이의 제기 판단. 인정하면 반환 처리 중이 되고, 반환은 RELEASE 작업이 한다 (D59 (1)). 주문은 반환이 끝날 때 닫는다
      */
     public OrderItem resolveObjection(Long orderItemId, Long inquiryId, boolean accepted, Long adminUserId,
                                       LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
         item.resolveObjection(inquiryId, accepted, adminUserId, now);
-        if (accepted) {
-            closeIfAllItemsEnded(now);
-        }
         return item;
     }
 
@@ -177,12 +208,18 @@ public class LectureOrder {
         return item;
     }
 
-    /** PAID인 주문의 진행 상황. 취소된 주문은 {@code null} */
+    /** PAID인 주문의 진행 상황. 결제 단계·취소된 주문은 {@code null} */
     public OrderProgress progress() {
-        if (status == LectureOrderStatus.CANCELED) {
+        if (status != LectureOrderStatus.PAID) {
             return null;
         }
         return items.stream().anyMatch(OrderItem::isInProgress) ? OrderProgress.IN_PROGRESS : OrderProgress.COMPLETED;
+    }
+
+    private void requireStatus(LectureOrderStatus expected) {
+        if (status != expected) {
+            throw new IllegalStateException("주문 상태가 " + expected + "가 아닙니다. orderId=" + id + ", status=" + status);
+        }
     }
 
     private OrderItem findItem(Long orderItemId) {
@@ -192,7 +229,7 @@ public class LectureOrder {
                 .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_ITEM_NOT_FOUND));
     }
 
-    // 구매 취소·이의 제기 인정이 모두 이 메서드로 주문을 닫는다 (설계 4.6)
+    // 구매 취소·이의 제기 인정의 반환 완료가 모두 이 메서드로 주문을 닫는다 (설계 4.6, D59 (4))
     private void closeIfAllItemsEnded(LocalDateTime now) {
         if (items.stream().allMatch(OrderItem::isWithdrawn)) {
             this.status = LectureOrderStatus.CANCELED;

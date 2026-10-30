@@ -11,5 +11,6 @@ resources:
   - redis.yaml
   - elasticsearch/elasticsearch.yaml
   - observability.yaml
+  - redpanda-console.yaml
 components:
   - ../../components/core-data

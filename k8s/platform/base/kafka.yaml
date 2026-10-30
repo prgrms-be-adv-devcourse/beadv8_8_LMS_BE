@@ -2,7 +2,7 @@
 # 고가용성이 아니다. broker가 내려가 있는 동안의 이벤트는 앱의 Modulith publication(outbox)에 남는다.
 # Apache 공식 차트가 없어 직접 작성한다(docs/architecture/infrastructure/kafka.md, k3s.md).
 # 환경 변수 규칙(KAFKA_ + 속성 이름)과 단일 node 예시: https://github.com/apache/kafka/tree/4.4.0/docker/examples
-# 인증은 두지 않는다. cluster 밖에 열지 않고, 접근 제한은 NetworkPolicy(#372)가 맡는다.
+# 인증은 두지 않는다. cluster 밖에 열지 않는다. ingress NetworkPolicy는 두지 않는다(docs/deploy/gateway.md, #374).
 apiVersion: v1
 kind: Service
 metadata:
@@ -78,6 +78,9 @@ spec:
               value: "1"
             - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
               value: "0"
+            # 토픽은 발행 앱(업무 토픽)과 소비 앱(DLT)이 NewTopic으로 선언한다. 오타 토픽과 partition 1개 토픽이 생기지 않게 자동 생성을 끈다(#339).
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "false"
             - name: KAFKA_LOG_DIRS
               value: /var/lib/kafka/data
             # 디스크 상한(PVC 5Gi는 local-path가 강제하지 않는다). retention.bytes는 partition마다 적용된다.
