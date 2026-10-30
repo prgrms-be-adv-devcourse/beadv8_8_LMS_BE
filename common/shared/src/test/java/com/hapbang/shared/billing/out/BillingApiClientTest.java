@@ -24,9 +24,12 @@ import org.springframework.web.client.RestClient;
 
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -120,6 +123,22 @@ class BillingApiClientTest {
                         + "\"releaseRequestId\":\"LECTURE-CANCEL-31\",\"amountHp\":null}"));
         assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new ReleaseResultDto(
                 BillingReferenceType.LECTURE_ORDER_ITEM, 31L, "LECTURE-CANCEL-31", 10_000L, 0L, true)));
+    }
+
+    @Test
+    void 보류_무효화는_hold_voids_경로로_보내고_결과를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"HP 보류를 무효화했습니다.","data":{
+                  "referenceType":"LECTURE_ORDER_ITEM","referenceId":31,"outcome":"VOIDED",
+                  "releasedHp":0,"replayed":false}}""");
+
+        BillingCallResult<HoldVoidResultDto> result = client().voidHold(
+                new HoldVoidCommand(7L, BillingReferenceType.LECTURE_ORDER_ITEM, 31L));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/hold-voids", API_KEY,
+                "application/json", "{\"userId\":7,\"referenceType\":\"LECTURE_ORDER_ITEM\",\"referenceId\":31}"));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldVoidResultDto(
+                BillingReferenceType.LECTURE_ORDER_ITEM, 31L, HoldVoidOutcome.VOIDED, 0L, false)));
     }
 
     @Test

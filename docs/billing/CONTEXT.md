@@ -256,3 +256,34 @@
 
 - `ModulithEventsDisabledTest`: 이벤트 기록 빈이 없고 billing 스키마에 두 테이블이 없다.
 - 회원 이벤트 Kafka 소비(`BillingMemberEventKafkaTest`)는 그대로 통과한다.
+
+## 6. 보류 무효화 (#479)
+
+2026-10-30 `/grill-with-docs`로 정했다. 계약은 [`docs/api/internal-billing.md`](../api/internal-billing.md) 1장 "보류 무효화"를 따른다.
+
+### 6.1 배경 (보상 흐름 확인)
+
+- 강의는 성공으로 기록한 보류만 보상 반환한다. 반환이 `HOLD_NOT_FOUND`를 받으면 불변식 위반으로 보고 작업을 DEAD로 둔다.
+- 출연은 결과 불명(`HOLD_PENDING`) 재확인에 횟수 제한이 없고, 재확인이 보류를 다시 보내 뒤늦은 보류를 만들 수 있다. 결과 불명 뒤 재확인이 `Failed`를 받으면 이미 생긴 보류가 남는다.
+- 지갑은 보류가 없는 반환을 404로 거절하고 아무것도 남기지 않는다. 그래서 반환 뒤에 도착한 보류가 그대로 생긴다.
+- 반환만으로는 "보류가 없다"와 "보류가 아직 도착하지 않았다"를 구분할 수 없어, 무효화 API를 새로 둔다.
+
+### 6.2 결정
+
+- `POST /api/v1/internal/billing/hold-voids`, 요청 `{userId, referenceType, referenceId}`. 참조 대상당 한 번이며 다시 보내면 처음 결과를 `replayed = true`로 돌려준다(BD-125).
+- 결과: 남은 보류가 있으면 전부 반환 → `RELEASED`, 이미 끝난 보류 → `ALREADY_CLOSED`(0), 보류 없음 → `VOIDED`(0). 반환은 기존 반환 경로를 반환 요청 ID `VOID`로 재사용한다.
+- 세 경우 모두 무효화 기록(`billing.hold_void`, 참조 대상 UNIQUE)을 남긴다. 보류 테이블·불변식은 바꾸지 않는다.
+- 기록이 있는 참조 대상의 보류는 409 `HOLD_VOIDED`로 거절한다. 무효화 전에 만든 보류의 재요청도 거절한다(BD-126).
+- 보류와 같은 지갑 락으로 직렬화한다. 다른 회원의 보류·무효화 기록이면 `HOLD_OWNER_MISMATCH`다.
+- 보류 상태 조회 API는 이번에 만들지 않는다(BD-127 후보).
+- 용어: "보류 무효화"(피할 말: 보류 취소). [`GLOSSARY.md`](../GLOSSARY.md)에 더했다.
+
+### 6.3 범위
+
+- 지갑 API, `shared.billing` 계약(`HoldVoidCommand`·`HoldVoidResultDto`·`HoldVoidOutcome`·`HOLD_VOIDED`), Client `voidHold`까지다.
+- 강의·출연이 언제 무효화를 부를지는 각 모듈 담당이 정한다. 사용 제안은 #479 본문에 남겼다.
+
+### 6.4 테스트
+
+- `HoldVoidIntegrationTest`: 세 결과, 재요청, 무효화 뒤 보류 거절, 소유 확인, 지갑 없음, 같은 참조 대상의 보류·무효화 동시 실행.
+- `ApiV1BillingInternalControllerTest.voidHold`, `BillingApiClientTest`(경로·본문·결과), `BillingFailureCodeContractTest`, `BillingEnumStorageTest`(CHECK 3개).
