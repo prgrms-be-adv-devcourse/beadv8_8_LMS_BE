@@ -33,6 +33,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - 이름은 `<발행 컨텍스트>.events.v<N>`이다. 토픽 하나에 그 컨텍스트의 이벤트 타입을 섞는다([ADR 0001](../../adr/0001-context-topics-with-mixed-event-types.md)). 이름에 소비자 관점의 말(예: `notification`)을 넣지 않는다.
 - key는 이벤트가 다루는 대상의 ID다. 같은 토픽에서 ID 종류가 여럿이면 번호가 겹치지 않게 종류 접두어를 붙인다(`appearance-request:12`). 회원 이벤트는 회원 ID만 쓴다. key가 같은 메시지끼리만 순서가 지켜진다.
 - 토픽은 발행 앱이 `NewTopic` 빈으로 선언한다. broker의 자동 생성은 끈다(`auto.create.topics.enable=false`).
+  - 예외: prod의 `member.events.v1`은 member-app의 선언(#416) 전이라 2026-10-30에 Redpanda Console로 손으로 만들었다(partition 3, replication factor 1, `cleanup.policy=delete`, 보존은 broker 기본값). #416은 같은 설정으로 선언한다. Spring Kafka(`KafkaAdmin`)는 실제 partition이 선언보다 적을 때만 늘리고, 많으면 줄이지 않는다. 손으로 만든 토픽의 partition이 3보다 많으면 선언과 어긋난 채 남는다.
 - partition은 3개다. 한 그룹에서 동시에 일하는 consumer는 partition 수를 넘지 못한다.
 - 보존은 compaction 없이 시간 기준이다(72시간, partition당 256MiB, broker 기본값). 보존 기간보다 오래된 데이터가 필요한 새 소비자는 자기 초기 적재로 채운다.
 - 환경 prefix는 붙이지 않는다. EC2에는 prod만 있다(#369).
@@ -52,7 +53,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - 클래스 레벨 `@KafkaListener`에 받을 타입마다 `@KafkaHandler`를 둔다. 모르는 타입은 `@KafkaHandler(isDefault = true)`에서 무시하고 커밋한다.
 - 역직렬화는 `ErrorHandlingDeserializer`로 감싼 JSON 역직렬화다. 신뢰 패키지는 실제 이벤트 패키지(예: `com.hapbang.shared.member.event`)만 지정하고 `*`를 쓰지 않는다. 깨진 메시지는 재시도 없이 DLT로 간다.
 - 새 그룹의 시작점은 `auto-offset-reset=earliest`다.
-- 토픽이 아직 없어도 소비 앱은 뜬다(`spring.kafka.listener.missing-topics-fatal` 기본값 `false`). 소비자는 `UNKNOWN_TOPIC_OR_PARTITION` 경고를 남기며 기다리다가, 발행 앱이 토픽을 만들면 바로 붙어 처음부터 읽는다. 로컬 k3d에서 소비자를 먼저 띄우고 15초 뒤 토픽을 만들어 1초 안에 메시지를 받는 것을 확인했다(#429). 그래서 발행 앱과 소비 앱의 기동 순서를 맞추지 않는다.
+- 토픽이 아직 없어도 소비 앱은 뜬다(`spring.kafka.listener.missing-topics-fatal` 기본값 `false`). 소비자는 `UNKNOWN_TOPIC_OR_PARTITION` 경고를 남기며 기다리다가, 발행 앱이 토픽을 만들면 바로 붙어 처음부터 읽는다. 로컬 k3d에서 소비자를 먼저 띄우고 15초 뒤 토픽을 만들어 1초 안에 메시지를 받는 것을 확인했다(#429). 그래서 발행 앱과 소비 앱의 기동 순서를 맞추지 않는다. 기다리는 동안 경고는 약 1초마다 남는다(prod lecture-app 12분에 721건, 2026-10-30). 토픽이 오래 없으면 로그 양을 보고 토픽을 먼저 만든다.
 - 멱등은 업무 자연 키로 한다. 상태 복제 이벤트는 `(대상 ID, 원본 버전)`(회원은 `user.id`, `user.version`), 한 번만 일어나는 사실은 `(eventType, 대상 ID)`다. 업무 반영과 멱등 기록은 같은 로컬 트랜잭션에서 하고, offset은 그 커밋 뒤에 커밋한다.
 - Modulith 전송은 같은 key라도 순서가 뒤바뀔 수 있다. 순서가 중요한 소비자는 원본 버전으로 늦은 이벤트를 거른다.
 

@@ -1,12 +1,12 @@
 # 배포 개요
 
-합방은 EC2 2노드 k3s(large server + medium agent)에서만 운영한다. 외부 80·443은 large의 ServiceLB → Envoy Gateway가 받고, TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다(2026-10-30, #372). 공용 인프라(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)는 `hapbang-platform` namespace에 있다. 업무 앱·FE는 아직 k3s에 배포하지 않아 `/`와 업무 API는 404다.
+합방은 EC2 2노드 k3s(large server + medium agent)에서만 운영한다. 외부 80·443은 large의 ServiceLB → Envoy Gateway가 받고, TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다(2026-10-30, #372). 공용 인프라(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)는 `hapbang-platform` namespace에 있다. FE `web`은 `/` route에 연결됐다. 업무 앱은 route가 없어 업무 API는 404다(member-app·lecture-app은 2026-10-30 릴리스 전 배포로 떠 있지만 외부에 열리지 않는다).
 
 기존 Docker Compose(prod·dev app·web·PostgreSQL과 edge nginx·certbot)는 2026-10-30에 컨테이너와 볼륨까지 모두 지웠다(#440). 기존 운영 DB는 백업하지 않았다. 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다. dev 서버는 없다. 개발 확인은 로컬과 k3d에서 한다([로컬 개발](../dev/local.md)).
 
 | 대상 | 주소 | 상태 |
 | --- | --- | --- |
-| prod | https://hapbang.duckdns.org | 업무 앱·FE 미배포. `main`의 앱 이미지를 수동 배포한다 |
+| prod | https://hapbang.duckdns.org | FE `web`만 route에 연결됐다. member-app·lecture-app은 릴리스 전 배포로 떠 있지만 route가 없다(2026-10-30, [k8s.md](k8s.md#릴리스-전-배포)). 나머지 앱은 미배포. `main`의 앱 이미지를 수동 배포한다 |
 | Grafana | https://hapbang.duckdns.org/grafana/ | Grafana 자체 로그인 |
 | Kafka UI | https://hapbang.duckdns.org/kafka/ | Envoy Basic Auth |
 
@@ -28,7 +28,7 @@
 PR → GitHub Actions(CI)
   verify  앱 목록 검사 → verifyModuleStructure → 앱별 check bootJar → 앱별 이미지 빌드 확인(push 안 함)
 
-main push → Publish images(publish.yml)   # 릴리스 전에는 prerelease/<앱> 브랜치 push로 일부 앱만(k8s.md "릴리스 전 배포")
+main push → Publish images(publish.yml)   # 릴리스 전에는 사람이 write:packages PAT로 직접 push(k8s.md "릴리스 전 배포")
   바뀐 앱만 GHCR(private, 조직 정책)에 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<커밋> 발행
 
 Actions → Deploy(deploy.yml) → Run workflow(main)

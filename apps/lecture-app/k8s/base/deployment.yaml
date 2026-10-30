@@ -47,12 +47,13 @@ spec:
                 name: lecture-app-config
             - secretRef:
                 name: lecture-app-secrets
+          # EC2에서 384Mi·448Mi는 기동 중 OOMKilled됐고, 640Mi에서 떠 536Mi에서 멈췄다(#461).
           resources:
             requests:
               cpu: 100m
-              memory: 384Mi
+              memory: 640Mi
             limits:
-              memory: 384Mi
+              memory: 640Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:

@@ -2,18 +2,12 @@
 # changes: 이번 push 범위(before..sha)에서 바뀐 앱을 고른다(.github/scripts/apps.sh). 바뀐 앱이 없으면 아래 job을 건너뛴다.
 # ci: 테스트하고 앱별 jar를 만든다(ci.yml 재사용, 읽기 권한).
 # build: 바뀐 앱마다 ci가 테스트한 jar를 이미지에 담아 :sha-<그 앱을 마지막으로 바꾼 커밋>으로 올린다(packages: write는 이 job에만).
-# 태그는 :sha-<커밋> 하나다. :latest 같은 움직이는 태그는 만들지 않는다. dev 병합은 이미지를 만들지 않는다(dev 서버 없음).
-#
-# 릴리스 전 발행(#461): dev → main 병합 전에 일부 앱을 먼저 배포해야 할 때 쓴다.
-#   dev의 커밋을 prerelease/<앱>[+<앱>...] 브랜치로 push하면 적은 앱만 같은 방식(테스트 → :sha-<커밋>)으로 발행한다.
-#   예: git push origin origin/dev:refs/heads/prerelease/member-app+lecture-app
-#   dev에 포함된(리뷰를 거친) 커밋만 발행한다. 발행 뒤 브랜치는 지운다. 배포는 로컬에서 k3s-deploy.sh로 한다(docs/deploy/k8s.md).
-#   GHCR 패키지는 조직 정책으로 멤버가 직접 만들 수 없어, 이 repo의 Actions(GITHUB_TOKEN)가 만든다.
+# 태그는 :sha-<커밋> 하나다. :latest 같은 움직이는 태그는 만들지 않는다. dev는 이미지를 만들지 않는다(dev 서버 없음).
 name: Publish images
 
 on:
   push:
-    branches: [main, 'prerelease/**']
+    branches: [main]
 
 # concurrency group을 두지 않는다. group은 대기 run을 1개만 남기고 나머지를 취소하므로, push가 연달아 들어오면
 # 가운데 push에서 바뀐 앱이 발행되지 않는다. 태그가 커밋마다 달라 push마다 따로 돌아도 서로 덮어쓰지 않는다.
@@ -28,7 +22,7 @@ jobs:
   changes:
     runs-on: ubuntu-24.04
     outputs:
-      apps: ${{ steps.detect.outputs.apps || steps.prerelease.outputs.apps }}
+      apps: ${{ steps.detect.outputs.apps }}
     steps:
       # before 커밋과 비교하려면 전체 이력이 필요하다.
       - uses: actions/checkout@v7
@@ -36,7 +30,6 @@ jobs:
           fetch-depth: 0
 
       - name: 바뀐 앱 찾기
-        if: github.ref == 'refs/heads/main'
         id: detect
         env:
           BEFORE: ${{ github.event.before }}
@@ -47,32 +40,6 @@ jobs:
             echo "### 발행 대상"
             echo "- 범위: \`${BEFORE:0:7}..${GITHUB_SHA:0:7}\`"
             echo "- 앱: $(jq -r 'if length == 0 then "없음" else join(", ") end' <<< "$apps")"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # 브랜치 이름의 앱만 발행한다. 브랜치 이름은 스크립트에 직접 넣지 않고 환경 변수로만 받는다(명령 주입 방지).
-      - name: 릴리스 전 발행 대상 확인
-        if: startsWith(github.ref, 'refs/heads/prerelease/')
-        id: prerelease
-        env:
-          BRANCH: ${{ github.ref_name }}
-        run: |
-          git fetch -q origin dev
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/dev; then
-            echo "::error::dev에 포함된 커밋만 발행합니다. dev의 커밋을 push하세요(예: git push origin origin/dev:refs/heads/$BRANCH)."
-            exit 1
-          fi
-          all=$(.github/scripts/apps.sh list)
-          requested=${BRANCH#prerelease/}
-          for app in ${requested//+/ }; do
-            grep -qx "$app" <<< "$all" || { echo "::error::목록에 없는 앱입니다: $app (prerelease/<앱>[+<앱>...])"; exit 1; }
-          done
-          apps=$(tr '+' '\n' <<< "$requested" | jq -Rnc '[inputs | select(length > 0)] | unique')
-          echo "apps=$apps" >> "$GITHUB_OUTPUT"
-          {
-            echo "### 릴리스 전 발행"
-            echo "- dev 커밋: \`${GITHUB_SHA:0:7}\`"
-            echo "- 앱: $(jq -r 'join(", ")' <<< "$apps")"
-            echo "- 발행 뒤 브랜치를 지운다: \`git push origin --delete $BRANCH\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # 테스트를 통과한 커밋만 발행한다(ci.yml 재사용). 테스트한 jar를 앱별 artifact(app-jar-<앱>)로 넘겨받는다.
