@@ -4,7 +4,8 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: hapbang-prod
-  # 배포 권한으로 privileged·hostNetwork·hostPath pod를 띄워 node(IMDS 자격 증명 포함)를 장악하지 못하게 막는다(#374).
+  # 배포되는 manifest가 privileged·hostNetwork·hostPath pod로 node(IMDS 자격 증명 포함)에 닿지 못하게 막는다(#374).
+  # 배포 role 자체는 SSM으로 large에서 root 명령을 실행할 수 있어 이 label로 막지 못한다(docs/deploy/security.md).
   # 앱 Deployment는 baseline을 지킨다(k3d server dry-run으로 확인). restricted는 앱의 securityContext가 없어 걸린다.
   labels:
     pod-security.kubernetes.io/enforce: baseline

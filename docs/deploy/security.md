@@ -50,7 +50,7 @@
 | 운영 배포 수동 실행·검사 | BE 운영은 Deploy prod를 `main`에서 실행해야 하고, `main`에 포함되고 이미지가 있는(테스트 통과) 커밋만 배포된다 |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
 | k3s 배포 role의 trust를 Environment `prod`로 제한 | 다른 브랜치·PR의 workflow는 role을 받지 못한다. `prod`는 `main` 브랜치만 허용 |
-| `hapbang-prod` Pod Security `baseline` | 배포 권한으로 privileged·hostNetwork·hostPath pod를 띄워 node와 인스턴스 역할을 장악할 수 없다 |
+| `hapbang-prod` Pod Security `baseline`(EC2 적용 2026-10-30) | 리뷰를 거쳐 배포되는 manifest가 privileged·hostNetwork·hostPath pod를 만들지 못한다. 그런 pod는 node root·IMDS(인스턴스 역할)에 닿는다. 배포 role 자체의 root 권한은 막지 못한다(아래 알려진 위험) |
 | k3s API(6443)는 사용자 IP `/32`만 | 배포는 SSM으로 하므로 6443을 열지 않는다. 자격 증명이 새도 네트워크에서 막힌다 |
 
 ## 알려진 위험
