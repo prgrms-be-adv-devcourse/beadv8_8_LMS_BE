@@ -6,7 +6,7 @@
 
 | 대상 | 주소 | 상태 |
 | --- | --- | --- |
-| prod | https://hapbang.duckdns.org | 업무 앱·FE 미배포. `main`의 앱 이미지를 수동 배포한다 |
+| prod | https://hapbang.duckdns.org | FE `web`만 route에 연결됐다. member-app·lecture-app은 릴리스 전 배포로 떠 있지만 route가 없다(2026-10-30, [k8s.md](k8s.md#릴리스-전-배포)). 나머지 앱은 미배포. `main`의 앱 이미지를 수동 배포한다 |
 | Grafana | https://hapbang.duckdns.org/grafana/ | Grafana 자체 로그인 |
 | Kafka UI | https://hapbang.duckdns.org/kafka/ | Envoy Basic Auth |
 

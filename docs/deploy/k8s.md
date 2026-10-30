@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy이며 업무 앱·FE는 아직 미배포다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
+상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐고, member-app·lecture-app은 ConfigMap·Deployment만 올라가 외부 route가 없다(2026-10-30, [릴리스 전 배포](#릴리스-전-배포)). 나머지 업무 앱은 미배포다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 
@@ -210,7 +210,7 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
 
 ### 첫 릴리스
 
-main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없고, 앱 이미지 패키지도 아직 없다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
+main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app만 있다(2026-10-30 [릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 이 두 패키지는 Manage Actions access에 `beadv8_8_LMS_BE` Write가 있어야 첫 Publish가 push된다. 나머지 4개는 첫 Publish가 만든다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
 
 1. **dev → main 병합**: base `main` ← `dev`(또는 `release/review-N`) PR을 만들어 병합한다. 다른 브랜치에서 열면 `PR source / source-branch` 체크가 실패한다(#180).
 2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
@@ -285,6 +285,7 @@ kubectl --context "$CTX" -n hapbang-platform port-forward svc/redpanda-console 8
 - admin 비밀번호는 차트가 처음 설치할 때 만든 Secret(`grafana`)에 있다. 레포·채팅에 옮기지 않는다.
 - Loki(3100)·Tempo(3200)는 Grafana datasource로 조회한다.
 - Redpanda Console은 자체 로그인이 없고 메시지 발행·토픽 삭제도 할 수 있다. Gateway를 설치하면 `https://<도메인>/kafka/`에서 Envoy Basic Auth만 거쳐 접속한다([Gateway 구성](gateway.md)). 그 전에는 port-forward로 접속한다.
+- prod `/kafka/`에서 토픽 생성은 HTTP 405로 실패한다(#484, 조회는 된다). 쓰기는 port-forward로 한다: `kubectl --context hapbang-k3s -n hapbang-platform port-forward svc/redpanda-console 18080:8080` 뒤 `http://localhost:18080`.
 
 ## CI
 
