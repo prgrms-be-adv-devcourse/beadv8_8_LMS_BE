@@ -21,6 +21,7 @@
 - 건너뛰는 것은 tombstone·클래스패스에 없는 신뢰 패키지 종류·패키지가 정확히 신뢰 패키지인 레코드뿐이다. 역직렬화기의 기본 신뢰 타입(`java.lang`·`java.util`)은 신뢰 밖으로 보고 재시도 없이 DLT로 보내며 값을 로그에 남기지 않는다. 건너뛴 종류의 로그 계수는 64종까지 따로 세고, 넘는 새 종류는 "기타 종류" 하나로 함께 센다.
 - tombstone은 값 바이트가 없는 레코드뿐이다. 바이트가 있는데 읽은 결과가 null(`java.lang.Void`, JSON `null`)이면 역직렬화 실패로 DLT에 보낸다. DLT 발행 실패 로그에는 key·값을 남기지 않는다.
 - **출연 알림(사용자 결정, 2026-10-30)**: 알림 모듈 이관 전 출연 알림은 `appearance.events.v1`의 Kafka 소비(`chat-app.appearance-notification`)로 유지하고, 알림 모듈 이관 때 옮긴다(Q7). 출연 요청 도착·출연 모집 지원 도착만 처리하고, 멱등은 기존 `(알림 종류, 출연 알림 대상 ID)` 유일 인덱스(`uk_chat_message_notification`)로 한다. 신뢰 패키지는 `com.hapbang.shared.appearance.event`만이다.
+- **출연 알림 문구(사용자 결정, 2026-10-30)**: 서버는 출연 알림의 문구를 만들지 않고 사실만 저장·전달하며 FE가 템플릿으로 문구를 만든다. 값은 `chat_message.notification_data`(jsonb, 형식 버전 `v`, KST 일시 문자열, 금액 숫자)와 `ChatMessageResponse.notificationData`이고, 새 알림의 `content`는 빈 문자열이다. `notificationData`가 없으면 FE는 `content`를 그대로 보여 준다. 계약은 [알림 값 계약](../contracts/notification-data.md)이다.
 - **HTTP 호출(사용자 결정, 2026-10-30)**: chat-app의 HTTP 호출은 `@HttpExchange`로 만든다. 회원 내부 API도 shared `MemberApiClient` 대신 chat-app 전용 인터페이스(`out/member/ChatMemberInternalApi`)로 부른다(D62의 예외, 사용자 결정 2026-10-30). 다른 모듈은 바꾸지 않는다. 경로·내부 API 키 헤더·RsData 해제·제한 시간·설정 키(`hapbang.clients.member.*`)·거절(4xx)/호출 불가(5xx·연결 실패·시간 초과·읽을 수 없는 응답) 구분은 공통 Client와 같게 지키고, chat-app은 shared의 공통 HTTP Client를 스캔하지 않는다.
 
 - **오픈 직후 급증 대응**: 초기 사용자 수와 관계없이 단일 인기 방의 전송 폭주·동시 입장·재접속 폭주·Redis 적체를 출시 전 검증한다. 수용량을 넘는 요청은 DB 진입 전 제한하고, 큐·대기 시간·재시도·송신 버퍼에 상한을 둔다. 미측정 수용량을 지원한다고 선언하지 않는다(설계 문서 4.6·4.7).

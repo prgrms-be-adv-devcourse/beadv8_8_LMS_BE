@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -112,7 +113,13 @@ class AppearanceNotificationEventListenerTest {
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(notification(NotificationKind.APPEARANCE_REQUEST_SENT,
                 requestId)).hasValueSatisfying(message -> {
                     assertThat(message.getSenderUserId()).isEqualTo(HOST_ID);
-                    assertThat(message.getContent()).contains("금요일 밤 합방");
+                    // 서버는 문구를 만들지 않고, 이벤트 값과 채팅 회원 복제본의 닉네임만 KST 일시로 남긴다
+                    assertThat(message.getContent()).isEmpty();
+                    assertThat(message.getNotificationData()).containsAllEntriesOf(Map.of("v", 1,
+                            "hostNickname", "호스트", "title", "금요일 밤 합방", "scheduledAt", "2026-11-20T21:00:00",
+                            "acceptDeadline", "2026-11-13T21:00:00"));
+                    assertThat(((Number) message.getNotificationData().get("fee")).longValue()).isEqualTo(50_000L);
+                    assertThat(message.getNotificationData()).hasSize(6);
                 }));
     }
 
@@ -129,6 +136,9 @@ class AppearanceNotificationEventListenerTest {
                 NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, applicationId)).hasValueSatisfying(message -> {
                     assertThat(message.getSenderUserId()).isEqualTo(GUEST_ID);
                     assertThat(message.getParentReferenceId()).isEqualTo(7L);
+                    assertThat(message.getContent()).isEmpty();
+                    assertThat(message.getNotificationData()).isEqualTo(Map.of("v", 1, "guestNickname", "게스트",
+                            "recruitTitle", "주말 게임 합방 모집"));
                 }));
     }
 

@@ -1,7 +1,10 @@
 package com.hapbang.chat.domain;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.springframework.util.Assert;
 
 import jakarta.persistence.Column;
@@ -33,6 +36,9 @@ public class ChatMessage {
 
     /** 회원이 보내는 메시지 본문의 최대 길이 (#311). 요청 검증(SendChatMessageRequest)과 같은 값을 쓴다 */
     public static final int MAX_CONTENT_LENGTH = 2000;
+
+    /** 알림 메시지의 본문. 문구는 프론트가 {@code notificationData}로 만들므로 서버는 비워 둔다 */
+    public static final String NOTIFICATION_CONTENT = "";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -70,6 +76,14 @@ public class ChatMessage {
 
     /** 알림 대상의 상위 출연 건 ID (예: 지원 알림의 모집글 ID). 없으면 null */
     private Long parentReferenceId;
+
+    /**
+     * 알림 메시지가 담는 값({@link NotificationData}). 문구는 프론트가 종류별 템플릿으로 만든다.
+     * 일반·시스템 메시지와 문구(content)로 남긴 기존 알림은 null
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> notificationData;
 
     private LocalDateTime deletedAt;
 
@@ -126,15 +140,18 @@ public class ChatMessage {
 
     /**
      * 다른 모듈의 이벤트로 남기는 알림 메시지. 서버만 만든다. 보낸 사람은 행위자(예: 출연을 요청한 호스트)로 기록한다.
+     * 문구는 만들지 않고 종류별 값({@link NotificationData})만 남기며, 본문은 {@link #NOTIFICATION_CONTENT}(빈 문자열)이다.
      */
     public static ChatMessage notification(ChatRoom chatRoom, Long senderUserId, NotificationKind kind,
-            Long referenceId, Long parentReferenceId, String content, LocalDateTime now) {
+            Long referenceId, Long parentReferenceId, Map<String, Object> notificationData, LocalDateTime now) {
         Assert.state(kind != null && referenceId != null, "알림 종류와 대상 ID가 필요합니다.");
-        Assert.state(hasContent(content), "알림 내용이 비어 있습니다.");
-        ChatMessage message = new ChatMessage(chatRoom, senderUserId, ChatMessageType.NOTIFICATION, content, now);
+        Assert.state(notificationData != null && !notificationData.isEmpty(), "알림 값이 비어 있습니다.");
+        ChatMessage message = new ChatMessage(chatRoom, senderUserId, ChatMessageType.NOTIFICATION,
+                NOTIFICATION_CONTENT, now);
         message.notificationKind = kind;
         message.referenceId = referenceId;
         message.parentReferenceId = parentReferenceId;
+        message.notificationData = notificationData;
         return message;
     }
 
