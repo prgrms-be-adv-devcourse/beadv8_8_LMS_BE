@@ -49,4 +49,9 @@ public class BillingHttpClient implements BillingClient {
     public BillingCallResult<PenaltyResultDto> settlePenalty(PenaltyCommand command) {
         return billingApiClient.settlePenalty(command);
     }
+
+    @Override
+    public boolean isCircuitOpen() {
+        return billingApiClient.isCircuitOpen();
+    }
 }

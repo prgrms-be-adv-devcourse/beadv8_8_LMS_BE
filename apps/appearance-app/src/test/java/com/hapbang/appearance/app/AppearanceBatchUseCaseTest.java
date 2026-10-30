@@ -2,6 +2,10 @@ package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -216,6 +220,22 @@ class AppearanceBatchUseCaseTest {
         }
 
         @Test
+        @DisplayName("지갑 회로가 열려 있으면 그 회차를 건너뛰고(보류 요청 없음, HOLD_PENDING 그대로), 닫히면 다음 회차에 정리한다 (#439)")
+        void skipWhileCircuitOpen() {
+            Long requestId = sendHoldPending();
+            pendingGracePassed();
+            doReturn(true).when(billingClient).isCircuitOpen();
+
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero();
+            assertThat(statusOf(requestId)).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
+            verify(billingClient, never()).hold(any());
+
+            doReturn(false).when(billingClient).isCircuitOpen();
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
+            assertThat(statusOf(requestId)).isEqualTo(AppearanceRequestStatus.REQUESTED);
+        }
+
+        @Test
         @DisplayName("보류 처리 중인 모집글도 다시 보류해 RECRUITING으로 정리한다")
         void recheckRecruit() {
             BillingStubs.unavailable(billingClient);
@@ -399,6 +419,29 @@ class AppearanceBatchUseCaseTest {
             assertThat(dead.getStatus()).isEqualTo(HpTaskStatus.DEAD);
             assertThat(dead.getAttemptCount()).isEqualTo(2);
             assertThat(dead.getLastError()).isEqualTo("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.");
+        }
+
+        @Test
+        @DisplayName("지갑 회로가 열려 있으면 그 회차를 건너뛴다: 작업을 실행하지 않아 시도 횟수 그대로, 대기 수 지표는 갱신. 닫히면 같은 요청 ID로 DONE (#439)")
+        void skipWhileCircuitOpen() {
+            HpTask task = failedRelease();
+            BillingStubs.available(billingClient);
+            retryTimeReached(task.getId());
+            doReturn(true).when(billingClient).isCircuitOpen();
+            hpTaskMetrics.updateBacklog(0, 0);
+
+            assertThat(hpTaskRetryUseCase.retryDue()).isZero();
+            HpTask skipped = onlyTask();
+            assertThat(skipped.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(skipped.getAttemptCount()).isEqualTo(1);
+            verify(billingClient, never()).release(any());
+            assertThat(hpTaskMetrics.pendingCount()).isEqualTo(1);
+
+            doReturn(false).when(billingClient).isCircuitOpen();
+            assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
+            assertThat(onlyTask().getStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::releaseRequestId)
+                    .containsExactly(task.getIdempotencyKey());
         }
 
         @Test

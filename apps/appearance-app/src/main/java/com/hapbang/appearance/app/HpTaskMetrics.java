@@ -61,6 +61,11 @@ public class HpTaskMetrics {
         return meterRegistry.counter(EXECUTIONS, RESULT, result).count();
     }
 
+    /** 마지막으로 갱신한 대기 작업 수 (테스트·확인용) */
+    public long pendingCount() {
+        return pendingCount.get();
+    }
+
     /** 마지막으로 갱신한 격리 작업 수 (테스트·확인용) */
     public long deadCount() {
         return deadCount.get();

@@ -259,7 +259,7 @@ com.hapbang.appearance
 - `RETRYABLE`은 공용 Client가 먼저 짧게(기본 3회) 다시 보내고, 그래도 실패하면 출연에 넘어온다 (#413). 출연은 HTTP 재시도를 따로 하지 않는다.
 - 지갑 호출 전후의 예상하지 못한 예외(요청 만들기 오류 등)는 HP 작업이면 같은 요청 ID로 다시 보내면 되므로 재시도로 다룬다. 보류면 500으로 응답하고 `HOLD_PENDING`이 남아 재확인 배치가 다시 보낸다.
 - 출연은 지갑을 **DB 트랜잭션 밖에서** 부른다. 지갑을 기다리는 동안 DB 연결을 잡지 않고, 업무 상태를 먼저 커밋해 호출 뒤 장애에도 재확인·재시도할 근거를 남긴다.
-- 설정: `hapbang.clients.billing.base-url`(환경 변수 `BILLING_API_BASE_URL`, local은 `http://localhost:8082`)과 내부 API 키(`HAPBANG_INTERNAL_API_KEY`). 응답 대기(연결 2초·응답 5초)·Circuit Breaker·짧은 재시도는 공용 Client 기본값이다. 지갑 주소가 없으면 출연 앱이 뜨지 않는다.
+- 설정: `hapbang.clients.billing.base-url`(환경 변수 `BILLING_API_BASE_URL`, local은 `http://localhost:8082`)과 내부 API 키(`HAPBANG_INTERNAL_API_KEY`). 응답 대기(연결 2초·응답 5초)·Circuit Breaker·짧은 재시도는 공용 Client 기본값이다. 회로가 열려 있으면 배치는 회차를 건너뛴다(8.1, #439). 지갑 주소가 없으면 출연 앱이 뜨지 않는다.
 - **반환·지급처럼 업무 상태 변경 뒤에 하는 Billing 호출은 HP 작업(`appearances.hp_tasks`)으로 기록하고 실행한다** (아래 4.3, #137).
 - 출연 업무 코드는 `BillingClient`만 안다. 구현은 `BillingHttpClient` 하나다 (#274에서 shared `BillingPort`를 부르던 `BillingPortClient`를 없앴다).
 - 출연 테스트: 업무 규칙은 Mockito 대역(기본 성공, `BillingStubs`), HTTP 응답 해석은 Mock Billing 서버(`MockBillingIntegrationTest`, test-spec 23·24장).
@@ -555,6 +555,12 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 - 배치는 로그인 회원이 아니라 시스템이 실행하므로 역할 검사(`@PreAuthorize`)가 있는 Facade를 거치지 않고 UseCase를 직접 부른다 (팀 강의 배치와 같은 방식, ISSUE.md APR-26).
 - 한 번에 최대 100건(`batch-size`), 건마다 짧은 트랜잭션, 건마다 예외를 잡아 다음 건을 계속 처리한다. 같은 배치는 이전 실행이 끝나야 다음 실행이 시작된다.
 - 설정: `appearance.yml`의 `appearance.batch.*` (주기, 건수, 대기 시간, 재시도 정책). `config.AppearanceBatchProperties`가 읽는다.
+- **지갑 회로가 열려 있으면 지갑을 부르는 배치(보류 재확인·HP 작업 재시도)는 그 회차를 건너뛴다** (#439, 강의 D67과 같음).
+  `BillingClient.isCircuitOpen()`(공용 Client 회로가 OPEN·FORCED_OPEN)이 `true`면 대상을 가져오지 않고 INFO 로그 한 줄만 남긴다.
+  열린 회로에 보내면 요청은 나가지 않고 HP 작업 시도 횟수만 올라, 지갑이 오래 내려가 있으면 정상 작업이 `DEAD`가 되기 때문이다.
+  회로는 호출이 없어도 열린 시간(기본 30초)이 지나면 시험 중(HALF_OPEN)으로 넘어가고, 시험 중에는 평소처럼 실행한다.
+  사용자 요청 안의 실행(보류, 거절·취소 직후 HP 작업 1회)과 관리자 다시 시도는 회로를 보지 않고 그대로 부른다(회로가 열려 있으면 `RETRYABLE` → 보류 `HOLD_PENDING` + 503, HP 작업은 대기로 남아 배치가 이어받음).
+  반환·지급을 부르는 다른 배치(모집 마감·수락 기한 만료·자동 거절·자동 확인)는 업무 상태를 먼저 확정하고 HP 작업을 1회 실행하므로 건너뛰지 않는다. 실패한 작업은 HP 작업 재시도가 이어받는다.
 
 ### 8.2 HP 보류 재확인
 
@@ -587,6 +593,7 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 - 재시도 대상: `PENDING`이고 다음 시도 시각이 지났으며, 한 번 이상 시도했거나 만든 지 1분이 지난 작업. 거절·취소 직후 요청 안에서 바로 실행 중인 작업과 겹치지 않게 하기 위해서다.
 - 같은 작업을 동시에 실행해도 같은 반환 요청 ID라 Billing은 한 번만 처리하고, 결과 기록은 대기 중일 때만 한다(버전 충돌이면 먼저 기록한 쪽을 따름).
 - 재시도 정책: `domain.HpTaskRetryPolicy` (`appearance.batch.retry-*`).
+- 지갑 회로가 열려 있으면 그 회차를 건너뛴다(8.1, #439). 시도 횟수는 그대로이고, 대기·격리 작업 수 지표는 갱신한다.
 
 ### 8.5 모니터링
 

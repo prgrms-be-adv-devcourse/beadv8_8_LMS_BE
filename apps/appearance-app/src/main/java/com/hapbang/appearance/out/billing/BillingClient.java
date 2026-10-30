@@ -40,4 +40,11 @@ public interface BillingClient {
 
     /** 호스트 일방 취소: 출연이 계산한 반환액은 호스트에게, 위약금은 게스트에게 한 번에 처리한다 */
     BillingCallResult<PenaltyResultDto> settlePenalty(PenaltyCommand command);
+
+    /**
+     * 지갑 회로가 열려 지금 부르면 요청을 보내지 않고 실패하는지 (#439). 시험 중(HALF_OPEN)은 {@code false}다.
+     * 배치(HP 작업 재시도·보류 재확인)는 이것이 {@code true}면 그 회차를 건너뛴다. 열린 회로에 보내면 HP 작업이
+     * 시도 횟수만 쓰고 {@code DEAD}가 될 수 있어서다. 사용자 요청 안의 실행·관리자 다시 시도는 이것을 보지 않는다.
+     */
+    boolean isCircuitOpen();
 }

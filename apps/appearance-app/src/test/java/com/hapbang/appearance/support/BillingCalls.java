@@ -52,9 +52,10 @@ public final class BillingCalls {
         return total;
     }
 
-    /** 보낸 요청이 하나도 없는지 (보류·반환·지급·위약금 모두) */
+    /** 보낸 요청이 하나도 없는지 (보류·반환·지급·위약금 모두). 회로 상태 확인({@code isCircuitOpen})은 요청이 아니라 세지 않는다 */
     public static boolean none(BillingClient billingClient) {
-        return Mockito.mockingDetails(billingClient).getInvocations().isEmpty();
+        return Mockito.mockingDetails(billingClient).getInvocations().stream()
+                .allMatch(invocation -> invocation.getMethod().getName().equals("isCircuitOpen"));
     }
 
     private static <T> List<T> argumentsOf(BillingClient billingClient, String method, Class<T> type) {
