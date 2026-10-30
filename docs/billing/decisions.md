@@ -7,6 +7,7 @@
 > - 결정을 바꾸려면 팀과 먼저 합의하고, 기존 행의 상태를 바꾼 뒤 새 번호를 더한다.
 > - 2026-10-29 dev da834b1 반영: Billing 결정은 바뀌지 않았다. #369 최종 인프라 결정이 재검토 대상(11장)에 주는 방향만 더했다.
 > - 2026-10-30 PROGRESS 3.21(#273) 반영: BD-108을 결정했고 BD-111~BD-113을 더했다(9장). BD-28·BD-54는 일부 대체됐다. 이제 결정 원본은 이 문서이고, `PROGRESS.md` 3장은 결정 배경만 두고 각 절에서 `BD-*`를 가리킨다. 출처 칸의 `P`는 `PROGRESS.md`, `A`는 `apps/billing-app/AGENTS.md`, `C`는 [`CONTEXT.md`](CONTEXT.md)의 장 번호다.
+> - 2026-10-30 #428 반영: Kafka 소비 규칙(#339)에 맞춰 회원 이벤트 멱등을 `eventId` inbox에서 자연 키로 고쳤다(BD-123, 11장 BD-2·BD-6·BD-103 행 해소).
 > - 2026-10-30 #336·#453 반영: 플랫폼 지갑·환전 수수료 수입(BD-114~BD-118, 8장), 환불·환전 1 HP 단위와 송금액 버림(BD-119~BD-122, 7·8장). BD-87은 금액 규칙, BD-95는 수수료 계산이 대체됐다. 정책 원문은 `CONTEXT.md` 3·4장(출처 C3.x·C4.x)이다.
 
 ## 0. 읽는 법
@@ -60,6 +61,7 @@
 | BD-4 | 지갑 생성은 `REQUIRES_NEW`로 하고, 롤백이 끝난 뒤 바깥에서 다시 조회한다 | INSERT 실패로 오류 상태가 된 PostgreSQL 트랜잭션에서 재조회하지 않기 위해 | 유효 | P3.1 | — |
 | BD-5 | 중복 판별은 SQLState `23505`와 제약 이름 `uk_wallet_user_id`가 둘 다 맞을 때만 한다 | 메시지 파싱은 서버 언어(`lc_messages`)가 바뀌면 깨진다 | 유효 | P3.1 | — |
 | BD-6 | 리스너는 `@ApplicationModuleListener(propagation = NOT_SUPPORTED)`다. 실패하면 발행 기록이 미완료로 남아 재시작 때 다시 처리된다 | 리스너 트랜잭션까지 있으면 이벤트 하나가 커넥션 2개를 잡는다 | 유효 | P3.1 | **재검토** (Modulith 발행 기록·재시작 재처리) |
+| BD-123 | 회원 이벤트(`member.events.v1`)는 목적별 소비 그룹 둘로 받는다. `billing-app.member-replica`: 가입·변경 → `billing_user` Upsert, 멱등은 `(user.id, user.version)` 버전 비교(BD-103). `billing-app.wallet-creation`: 가입 → `getOrCreate`(ADMIN은 건너뜀, BD-3), 멱등은 회원 ID UNIQUE(BD-1·BD-5). 두 그룹 모두 별도 inbox·처리 기록 테이블을 두지 않는다. DLT는 `member.events.v1.<그룹>.DLT` | `eventId`가 없다(ADR 0002). 업무 행 자체가 자연 키 멱등 기록이라 반영과 같은 커밋에 남는다(kafka.md "멱등은 업무 자연 키"). 같은 그룹에 리스너 둘을 두면 partition을 나눠 가져 각자 일부만 받는다 | 유효 (구현 #430) | #428, kafka.md | — |
 
 ## 2. 원장·멱등성·역분개·대사 (#57)
 
@@ -237,7 +239,7 @@
 | BD-64 | 강의 구매 = 주문 저장과 보류가 한 트랜잭션 | 보류 실패 → 주문 취소, 주문 실패 → 보류 반환(인프라 문서 10장 완료 증거) | 강의도 출연(BD-65)처럼 분리 트랜잭션 + 상태 복구로 갈지, 보상 반환의 요청 ID 규칙 | `docs/adr/` + 강의 결정 기록 |
 | BD-72, BD-73 | 여러 모듈 테이블 락이 한 DB 트랜잭션 안에 있다 | 모듈별 database 분리 확정(#338, 인프라 문서 10장) → 한 트랜잭션 안의 모듈 간 락은 불가능해진다 | 모듈 간 락 순서를 폐기할지, Billing 안 락 순서만 남길지 | 이 문서 (Billing 쪽 결론) |
 | BD-28, BD-54 | 내부 Java 호출이라 인증·예외 형식이 필요 없다 | 내부 API는 `X-Internal-Api-Key` 인증 유지, k3s에서는 Envoy route 없음 + NetworkPolicy(인프라 문서 3장) | 해소(#273): 400 응답은 BD-111, 인증·인가는 BD-112 | 9장 |
-| BD-2, BD-6, BD-103 | 회원 이벤트가 같은 프로세스에서 전달된다 | Kafka(#339). Modulith publication registry를 outbox로 externalization, consumer는 `eventId` inbox로 멱등, 재시도 제한 + DLT(인프라 문서 1장) | Billing inbox와 기존 Upsert·버전 비교(BD-103)의 관계, 기존 `event_publication` 기록 전환 | `docs/adr/` (#339) |
+| BD-2, BD-6, BD-103 | 회원 이벤트가 같은 프로세스에서 전달된다 | Kafka(#339). member-app이 Modulith publication registry를 outbox로 `member.events.v1`(key 회원 ID)에 발행하고 `eventId`는 없다. 소비는 업무 자연 키로 멱등하고, 블로킹 재시도 3회 뒤 그룹별 DLT([`kafka.md`](../architecture/infrastructure/kafka.md) 소비·재시도와 DLT) | 해소(#428): 소비 그룹 둘(`billing-app.member-replica`·`billing-app.wallet-creation`), 자연 키 멱등, inbox 테이블 없음 → BD-123. 기존 `event_publication` 기록 정리는 Spring Event 제거 때 | [ADR 0001](../adr/0001-context-topics-with-mixed-event-types.md), [ADR 0002](../adr/0002-modulith-externalization-without-event-id.md), BD-123 |
 | BD-3, BD-102, BD-103 | 역할·회원 상태를 로그인 세션에서 바로 확인한다 | JWT 전환(#370~#372). HP가 움직이는 경로는 토큰 `role`만 믿지 않고 복제한 회원 상태를 함께 확인한다(인프라 문서 3장 인증 흐름 7) | 지금은 환전 승인만 `billing_user`를 확인한다. 보류·지급·환전 신청·충전·환불 중 어디에 확인을 더할지. 복제본이 없을 때 거절할지 | 이 문서 + `docs/policy.md` 변경 여부는 팀(#370) |
 | BD-66 | 출연 Fake 모드 | — | 코드에서 삭제됐는지 확인 후 상태 정리 | 이 문서 |
 
