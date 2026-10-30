@@ -3,3 +3,8 @@ spring:
   config:
     # 운영 application.yaml을 읽지 않는 모듈 테스트에도 지갑 설정(락 대기 상한)만 명시적으로 가져온다.
     import: classpath:billing.yml
+  jpa:
+    properties:
+      # 플랫폼 지갑(#336)은 운영에서 Flyway가 한 행을 넣는다. 테스트 DB 정리(SchemaManager.truncate)가 그 행도 지우므로,
+      # 비운 뒤 이 스크립트로 다시 넣는다(Hibernate가 비운 다음 import 스크립트를 실행한다). 처음 기동 때는 Flyway 행을 그대로 쓴다.
+      jakarta.persistence.sql-load-script-source: billing-test-platform-wallet.sql

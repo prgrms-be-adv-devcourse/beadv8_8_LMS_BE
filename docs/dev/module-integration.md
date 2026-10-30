@@ -12,7 +12,7 @@
 
 ## 기존 프로세스 내부 포트
 
-`BillingPort`의 구현은 billing 앱에 있다(`LectureObjectionPort`는 #433에서 지웠다). 출연 앱에 그 구현을 Gradle 의존으로 다시 끌어오거나 운영용 Fake를 등록하지 않는다. 필요한 원격 어댑터가 없는 앱은 실행에 제약이 있다.
+모듈 간 Java Port를 부르는 곳은 없다. 강의·출연은 billing 내부 HTTP(#274~#277)로 바꿨고, `LectureObjectionPort`는 #433에서 지웠다. 쓰는 곳 없는 shared `BillingPort`와 billing-app `BillingPortAdapter`는 #280에서 지운다. 다른 앱의 구현을 Gradle 의존으로 끌어오거나 운영용 Fake를 등록하지 않는다.
 
 현재 일부 호출은 호출자 트랜잭션과 함께 커밋·롤백되는 의미를 가진다. HTTP 호출로 옮길 때는 소비 모듈 로컬 트랜잭션 밖에서 실행하고, 타임아웃·중복 요청·상태 복구를 설계해야 한다. 같은 JVM의 `@Transactional` 의미를 그대로 유지한다고 가정하지 않는다.
 
