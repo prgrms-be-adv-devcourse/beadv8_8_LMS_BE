@@ -2,16 +2,16 @@ package com.hapbang.appearance.support;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.doThrow;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.mockito.Mockito;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
@@ -37,6 +37,9 @@ import lombok.RequiredArgsConstructor;
  *     <li>지갑 거절: {@code Failed(코드, 설명, HTTP 상태)} → 출연은 보류 실패 응답이나 HP 작업 {@code DEAD}.
  *     실제 지갑 코드 중 테스트에 쓰는 것만 같은 값으로 둔다</li>
  * </ul>
+ * 대역은 요청을 받을 때마다 DB 트랜잭션 안에서 불렸는지 기록하고, 테스트가 끝날 때 한 번이라도 있었으면 실패시킨다
+ * ({@link SucceedByDefault}). 지갑은 DB 트랜잭션 밖에서 불러야 한다(트랜잭션 안이면 지갑은 돈을 옮기고 출연 상태는 롤백될 수 있다).
+ * <p>
  * HTTP 응답 해석(상태 코드·재전송·연결 오류)까지 보려면 Mock Billing 서버({@link MockBillingIntegrationTest})를 쓴다.
  */
 public final class BillingStubs {
@@ -44,16 +47,31 @@ public final class BillingStubs {
     /** 대역이 성공으로 받아들인 반환 요청 (테스트마다 비운다). {@link BillingCalls#releasedAmount}가 읽는다 */
     private static final List<ReleaseCommand> ACCEPTED_RELEASES = new CopyOnWriteArrayList<>();
 
+    /** DB 트랜잭션 안에서 받은 요청 (테스트마다 비운다) */
+    private static final List<String> CALLS_IN_TRANSACTION = new CopyOnWriteArrayList<>();
+
     private BillingStubs() {
     }
 
     /** 모든 Billing 요청이 결과를 받지 못하고 실패한다 (지갑이 처리했는지 알 수 없음) */
     public static void unavailable(BillingClient billingClient) {
         RuntimeException unknown = BillingCallExceptions.unknownResult("Billing 응답 없음 (테스트)");
-        doThrow(unknown).when(billingClient).hold(any());
-        doThrow(unknown).when(billingClient).release(any());
-        doThrow(unknown).when(billingClient).payout(any());
-        doThrow(unknown).when(billingClient).settlePenalty(any());
+        doAnswer(invocation -> {
+            recordTransaction(invocation.getMethod().getName());
+            throw unknown;
+        }).when(billingClient).hold(any());
+        doAnswer(invocation -> {
+            recordTransaction(invocation.getMethod().getName());
+            throw unknown;
+        }).when(billingClient).release(any());
+        doAnswer(invocation -> {
+            recordTransaction(invocation.getMethod().getName());
+            throw unknown;
+        }).when(billingClient).payout(any());
+        doAnswer(invocation -> {
+            recordTransaction(invocation.getMethod().getName());
+            throw unknown;
+        }).when(billingClient).settlePenalty(any());
     }
 
     /** 실패 설정을 지우고 다시 모든 요청이 성공한다 (보낸 요청 기록도 지운다) */
@@ -65,10 +83,21 @@ public final class BillingStubs {
     /** 모든 Billing 요청을 이 오류 코드로 거절한다 */
     public static void reject(BillingClient billingClient, Rejection rejection) {
         BillingCallResult.Failed<?> rejected = rejection.failed();
-        doReturn(rejected).when(billingClient).hold(any());
-        doReturn(rejected).when(billingClient).release(any());
-        doReturn(rejected).when(billingClient).payout(any());
-        doReturn(rejected).when(billingClient).settlePenalty(any());
+        doAnswer(invocation -> rejected(invocation.getMethod().getName(), rejected)).when(billingClient).hold(any());
+        doAnswer(invocation -> rejected(invocation.getMethod().getName(), rejected)).when(billingClient).release(any());
+        doAnswer(invocation -> rejected(invocation.getMethod().getName(), rejected)).when(billingClient).payout(any());
+        doAnswer(invocation -> rejected(invocation.getMethod().getName(), rejected))
+                .when(billingClient).settlePenalty(any());
+    }
+
+    /** 지금까지 DB 트랜잭션 안에서 받은 요청 (메서드 이름) */
+    public static List<String> callsInTransaction() {
+        return List.copyOf(CALLS_IN_TRANSACTION);
+    }
+
+    /** 기록을 비운다 (감시 자체를 확인하는 테스트용) */
+    static void clearCallsInTransaction() {
+        CALLS_IN_TRANSACTION.clear();
     }
 
     static List<ReleaseCommand> acceptedReleases() {
@@ -82,24 +111,39 @@ public final class BillingStubs {
         doAnswer(invocation -> settled(invocation.getArgument(0))).when(billingClient).settlePenalty(any());
     }
 
+    private static void recordTransaction(String method) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            CALLS_IN_TRANSACTION.add(method);
+        }
+    }
+
+    private static BillingCallResult.Failed<?> rejected(String method, BillingCallResult.Failed<?> rejected) {
+        recordTransaction(method);
+        return rejected;
+    }
+
     private static BillingCallResult<HoldResultDto> held(HoldCommand command) {
+        recordTransaction("hold");
         return new BillingCallResult.Succeeded<>(new HoldResultDto(command.referenceType(), command.referenceId(),
                 command.amountHp(), false));
     }
 
     private static BillingCallResult<ReleaseResultDto> released(ReleaseCommand command) {
+        recordTransaction("release");
         ACCEPTED_RELEASES.add(command);
         return new BillingCallResult.Succeeded<>(new ReleaseResultDto(command.referenceType(), command.referenceId(),
                 command.releaseRequestId(), amountOf(command.amountHp()), 0, false));
     }
 
     private static BillingCallResult<PayoutResultDto> paid(PayoutCommand command) {
+        recordTransaction("payout");
         return new BillingCallResult.Succeeded<>(new PayoutResultDto(command.referenceType(), command.referenceId(),
                 command.payoutRequestId(), command.receiverUserId(), command.sourceType(), command.sourceId(),
                 amountOf(command.amountHp()), 0, false));
     }
 
     private static BillingCallResult<PenaltyResultDto> settled(PenaltyCommand command) {
+        recordTransaction("settlePenalty");
         return new BillingCallResult.Succeeded<>(new PenaltyResultDto(command.referenceType(), command.referenceId(),
                 command.cancellationId(), command.receiverUserId(), command.sourceType(), command.sourceId(),
                 command.releaseAmountHp(), command.payoutAmountHp(), 0, false));
@@ -129,15 +173,24 @@ public final class BillingStubs {
     /**
      * 테스트마다 Billing 대역을 "모든 요청 성공"으로 둔다. 대역은 테스트가 끝날 때 설정이 지워지므로({@code MockReset.AFTER})
      * 테스트 시작 때마다 다시 건다. 대역이 아닌 실제 구현(Mock Billing 서버를 쓰는 테스트)이면 아무것도 하지 않는다.
+     * 테스트가 끝나면 DB 트랜잭션 안에서 받은 요청이 없었는지 확인한다.
      */
-    public static class SucceedByDefault implements BeforeEachCallback {
+    public static class SucceedByDefault implements BeforeEachCallback, AfterEachCallback {
 
         @Override
         public void beforeEach(ExtensionContext context) {
             ACCEPTED_RELEASES.clear();
+            CALLS_IN_TRANSACTION.clear();
             BillingClient billingClient = SpringExtension.getApplicationContext(context).getBean(BillingClient.class);
             if (Mockito.mockingDetails(billingClient).isMock()) {
                 succeed(billingClient);
+            }
+        }
+
+        @Override
+        public void afterEach(ExtensionContext context) {
+            if (!CALLS_IN_TRANSACTION.isEmpty()) {
+                throw new AssertionError("지갑을 DB 트랜잭션 안에서 불렀다: " + CALLS_IN_TRANSACTION);
             }
         }
     }

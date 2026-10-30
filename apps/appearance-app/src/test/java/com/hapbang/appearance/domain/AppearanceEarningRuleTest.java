@@ -72,13 +72,12 @@ class AppearanceEarningRuleTest {
     }
 
     @Test
-    @DisplayName("모든 출연 상태가 분류된다 (상태가 추가되면 switch 식이 컴파일을 막고, 이 테스트가 빠진 조합을 찾는다)")
+    @DisplayName("위 두 테스트가 모든 출연 상태를 다룬다 (상태가 추가되면 switch 식이 컴파일을 막고, 이 테스트가 분류 기대값을 추가하게 한다)")
     void everyStatusClassified() {
-        for (AppearanceStatus status : AppearanceStatus.values()) {
-            for (HpTaskStatus task : TASK_CASES) {
-                assertThat(AppearanceEarningRule.classify(status, task)).as("%s + %s", status, task).isNotNull();
-            }
-        }
+        assertThat(AppearanceStatus.values()).containsExactlyInAnyOrder(
+                AppearanceStatus.ESTABLISHED, AppearanceStatus.CANCEL_REQUESTED, AppearanceStatus.ABSENT,
+                AppearanceStatus.CANCELED_BY_AGREEMENT, // withoutTask
+                AppearanceStatus.CONFIRMED, AppearanceStatus.CANCELED_BY_HOST); // byTask·missingTask
     }
 
     @Test

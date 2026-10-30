@@ -39,6 +39,7 @@ class AppearanceApplicationApiE2ETest {
     private static final long GUEST = 2L;
     private static final long GUEST2 = 3L;
     private static final long VIEWER = 4L;
+    private static final long GUEST3 = 5L;
 
     @Autowired
     AppearanceUserFacade appearanceUserFacade;
@@ -53,6 +54,7 @@ class AppearanceApplicationApiE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(GUEST));
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(GUEST2));
         appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(VIEWER));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(GUEST3));
     }
 
 
@@ -145,11 +147,12 @@ class AppearanceApplicationApiE2ETest {
         postAs(HOST, APPLICATIONS + "/" + second + "/accept", "")
                 .then().statusCode(409)
                 .body("code", equalTo("RECRUIT_FULL"));
+        apply(GUEST3, recruitId); // 정원이 차도 모집 중이면 지원은 201
         E2ELogin.as(VIEWER, Role.USER).get(RECRUITS + "/" + recruitId)
-                .then()
+                .then().statusCode(200)
                 .body("data.status", equalTo("RECRUITING"))
                 .body("data.selectedCount", equalTo(1))
-                .body("data.applicantCount", equalTo(2));
+                .body("data.applicantCount", equalTo(3));
     }
 
     @Test

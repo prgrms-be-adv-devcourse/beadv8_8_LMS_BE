@@ -497,7 +497,7 @@ DB와 Billing 대역을 쓴다. 시각 조건은 DB의 만든 시각·다음 시
 | 수락 기한 전 | 그대로 `REQUESTED`, 작업 없음 |
 | 만료 때 반환 실패 / 다시 실행 | `EXPIRED` 확정, 작업 `PENDING` 시도 1 / 만료 0건 |
 | 반환 실패 작업: 다음 시도 시각 전 / 후 | 실행 안 함 / `DONE`, 시도 2, 같은 반환 요청 ID로 다시 보냄, 지표 done +1 |
-| 계속 실패 | 2~9회는 `PENDING`(마지막 간격 약 1시간), 10회째 `DEAD`, 지표 격리 수 1 |
+| 계속 실패 | 2~9회는 `PENDING`. 간격은 2·4·8·16·32분 → 1시간으로 늘 늘어나고, 상한 뒤로는 48~72분(지터 ±20%). 10회째 `DEAD`, 지표 격리 수 1 |
 | 재시도 때 Billing 거절 (대역이 `HOLD_NOT_FOUND`로 거절) | 바로 `DEAD`, `HOLD_NOT_FOUND: …` |
 | 처음 시도 전 작업: 만든 직후 / 1분 뒤 | 가져가지 않음(반환 요청 없음) / 실행 → `DONE`, 반환 요청 1번. (#289 전에는 Fake에 보류가 없어 `DEAD`였다. 대역은 기본 성공이라 `DONE`) |
 | (변경) `AppearanceRequestRespondFacadeTest` 거절 때 Billing 반환 거절 | 작업 `PENDING` → **`DEAD`** |
@@ -642,7 +642,7 @@ DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFL
 | 조기 마감 | Billing 무응답 → 재시도 배치 | 마감 성공 + `PENDING`, 반환 요청 없음 → 다음 시도 시각이 되어 재시도 후 `DONE`, 90,000 반환 요청 |
 | 조기 마감 | 다른 회원 / 다시 마감 / 마감 일시 지남 / 보류 처리 중 | `NOT_RECRUIT_HOST` / `APPEARANCE_RECRUIT_NOT_OPEN` / `APPEARANCE_RECRUIT_NOT_OPEN`(반환 작업 없음) / `APPEARANCE_RECRUIT_NOT_FOUND` |
 | 마감 뒤 | 새 지원 / 대기 지원 수락 / 미선정 지원 취소 | `APPEARANCE_RECRUIT_NOT_OPEN` / `APPEARANCE_RECRUIT_NOT_OPEN` / `APPLICATION_NOT_PENDING` |
-| 동시성 | 조기 마감과 마지막 대기 지원 수락 동시 | 결과는 모두 응답 또는 업무 예외(교착 상태·500 원인 없음). 실패는 많아야 1건(`CONCURRENT_UPDATE` 또는 `APPEARANCE_RECRUIT_NOT_OPEN`). 출연 수 = 성립 인원, 마감됐으면 보류 = 성립 × 30,000, 아니면 보류 90,000, 호스트 잔액 = 기본 − 보류 |
+| 동시성 | 조기 마감과 마지막 대기 지원 수락 동시 | 마감은 항상 성공(`CLOSED`, 둘 다 모집글을 먼저 잠그고 마감은 잠근 뒤에 지원을 읽음). 수락은 마감보다 먼저면 성공, 늦으면 `APPEARANCE_RECRUIT_NOT_OPEN`만 허용(#463). 출연 수 = 성립 인원(1 또는 0), 반환 = 90,000 − 성립 × 30,000 |
 | 기한 마감 | 마감 일시 지남, 수락 1·대기 1 | 1건, `CLOSED`(`DEADLINE`), 마감 시각 = 모집 마감 일시, 대기 → `NOT_SELECTED`, 반환 `DONE`, 보류 30,000 |
 | 기한 마감 | 마감 일시 전 1건 + 지남 1건, 두 번 실행 | 1건 → 0건, 전인 모집글은 `RECRUITING`, 반환 작업 1건 |
 | 기한 마감 | 정원이 찬 모집글 | 마감 1건, 반환 작업 없음 |
@@ -965,7 +965,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 성립·취소 요청 중·불참·합의 취소 + 작업 {없음, PENDING, DONE, DEAD} | 작업과 상관없이 `CONFIRMATION_PENDING`·`ON_HOLD`·`CANCELED`·`CANCELED` (출연료) |
 | 확인 / 일방 취소 + PENDING·DEAD·DONE | `PROCESSING`·`FAILED`·`COMPLETED` (출연료 / 위약금) |
 | 확인 / 일방 취소 + 작업 없음 | `FAILED` + 작업 없음 표시 (N2) |
-| 모든 출연 상태 × 작업 4가지 | 모두 분류됨 |
+| 출연 상태 목록 | 위 분류 테스트가 다루는 6개와 같음(상태가 추가되면 실패해 분류 기대값을 추가하게 함) |
 | 조회 조건 | 지급 상태 128개 부분집합 × 종류 3개: 조건이 고르는 조합 = 분류가 그 상태·종류인 조합 |
 | 빈 조건 | 상태 없음, 지급 예정(`SCHEDULED`)만, 위약금 + 확인 대기 → 조회하지 않음 |
 | 작업 종류 | 지급·위약금만 (반환 제외) |
@@ -1186,7 +1186,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 거절 | 409 `INSUFFICIENT_BALANCE` | `Failed`: 코드, `detail` "HP 잔액이 부족합니다.", 409, `rawCode` |
 | 거절 | 409 `IDEMPOTENCY_KEY_CONFLICT` | `Failed` 같은 코드 |
 | 거절 | 404 처음 보는 코드 / 400 코드 없음 | `UNMAPPED`, `rawCode` `SOMETHING_NEW` / `UNMAPPED`, 400 |
-| 결과 없음 | 429 | `RETRYABLE`, 429 |
+| 결과 없음 | 429 | `RETRYABLE`, 429, 지갑 요청 정확히 3번(공용 Client 기본 재시도) |
 | 결과 없음 | 500 `HOLD_STATE_INCONSISTENT` | `UNKNOWN_RESULT`, 500, `rawCode` |
 | 결과 없음 | 응답 2초 지연 (응답 대기 1초) | `UNKNOWN_RESULT`, 상태 0. 지갑은 요청을 받음(1건) |
 | 결과 없음 | 응답 도중 연결 끊김 | `UNKNOWN_RESULT`, 상태 0 |
@@ -1204,16 +1204,17 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 |---|---|---|
 | 보류 | 성공 | `REQUESTED`. 지갑이 받은 요청: 내부 API 키, JSON, 호스트·`APPEARANCE_REQUEST`·요청서 ID·출연료 |
 | 보류 | 잔액 부족 409 (지갑 설명 있음) | `AppearanceHoldRejectedException` 409 `INSUFFICIENT_BALANCE`, 메시지는 출연 문구(지갑 설명 아님), `HOLD_FAILED` |
-| 보류 | 목록 밖 코드 401 `INVALID_INTERNAL_API_KEY` | 500 `HP_HOLD_FAILED`, 메시지는 출연 문구(지갑 코드·설명이 나가지 않음), `HOLD_FAILED` |
+| 보류 | 목록 밖 코드(처음 보는 404 `SOMETHING_NEW`) | 500 `HP_HOLD_FAILED`, 메시지는 출연 문구(지갑 코드·설명이 나가지 않음), `HOLD_FAILED` |
+| 보류 | 내부 API 키 오류(본문 없는 401, 지갑 계약) (#463) | 500 `HP_HOLD_FAILED`, `HOLD_FAILED`(결과 불명으로 보지 않음), 지갑 요청 1번 |
 | 보류 | 409 `IDEMPOTENCY_KEY_CONFLICT` | 500 `HP_HOLD_FAILED`, `HOLD_FAILED` |
 | 보류 | 5xx → 지갑 복구 → 재확인 배치 | 503 `BILLING_UNAVAILABLE`·`HOLD_PENDING` → 재확인 1건 → `REQUESTED`. 지갑은 같은 요청서로 보류 요청 2번을 받음 |
 | 보류 | 응답 2초 지연(응답 대기 1초)인데 지갑은 받음 → 재확인 | `BILLING_UNAVAILABLE`·`HOLD_PENDING`, 지갑은 1건 받음 → 재확인으로 `REQUESTED` |
-| 보류 | 모집글 429 (처리하지 않음) | 공용 Client가 짧게 다시 보낸 뒤에도 실패 → `BILLING_UNAVAILABLE`, 모집글 `HOLD_PENDING` |
+| 보류 | 모집글 429 (처리하지 않음) | 공용 Client가 첫 호출 포함 3번 보낸 뒤에도 실패 → `BILLING_UNAVAILABLE`, 모집글 `HOLD_PENDING`, 지갑 요청 정확히 3번 |
 | HP 작업 | 반환 성공 (게스트 거절) | 반환 작업 `DONE`. 지갑이 받은 반환 요청 ID = 작업 멱등 키, 호스트, 출연료 |
 | HP 작업 | 위약금 정산 성공 (호스트 일방 취소) | 위약금 작업 `DONE`. 지갑이 받은 취소 ID = 작업 멱등 키, 게스트, 반환액 + 위약금 = 출연료 |
 | HP 작업 | 지급은 됐는데 완료 기록이 빠짐(SQL로 `PENDING`) → 다시 실행 | `DONE`. 지갑은 같은 지급 요청 ID로 2번 받음(지갑이 처음 결과를 돌려줘 한 번만 지급) |
 | HP 작업 | 응답 시간 초과인데 지갑은 처리함 → 다음 시도 | `PENDING`·시도 1·`UNKNOWN_RESULT: …` → 다음 시도에 `DONE`, 같은 지급 요청 ID 2번 |
-| HP 작업 | 반환 429 | `PENDING`, 마지막 오류 `RETRYABLE 429: …` |
+| HP 작업 | 반환 429 | `PENDING`·시도 1(공용 Client 재시도 3번은 시도 1회), 마지막 오류 `RETRYABLE 429: …`, 지갑 요청 정확히 3번 |
 | HP 작업 | 지급 409 `IDEMPOTENCY_KEY_CONFLICT` | 재시도 없이 `DEAD`(시도 1), 마지막 오류 `IDEMPOTENCY_KEY_CONFLICT: {지갑 설명}`. 출연은 `CONFIRMED`, 지급 상태 `DEAD` |
 | HP 작업 | 지급 목록 밖 코드 422 `NEW_WALLET_RULE` | `DEAD`, 마지막 오류 `UNMAPPED(NEW_WALLET_RULE, 422): 새 지갑 규칙` |
 | HP 작업 | 지급 401(내부 API 키 오류, 본문 없음) → 키 복구 → 다음 시도 | 연동 장애라 `DEAD`가 아니라 `PENDING`·시도 1, 마지막 오류 `UNMAPPED(null, 401)`(계약상 401은 본문이 없다) → 다음 시도에 `DONE`, 같은 지급 요청 ID 2번 |
@@ -1241,10 +1242,10 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 케이스 | 기대 결과 |
 |---|---|
 | 앱 기동 | 토픽 `appearance.events.v1`이 partition 3개로 있음 |
-| 요청서 보내기 성공(커밋) | 메시지 1건. key `appearance-request:<요청서 ID>`, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, `eventId` 헤더 없음, `__TypeId__` = 레코드 전체 클래스 이름(JSON 직렬화기, #394에서 Modulith JSON 기본 세트를 끈 뒤에도 그대로). 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
-| 지원(커밋) | 메시지 1건. key `appearance-application:<지원 ID>`, `eventType` = `AppearanceApplicationSubmittedEvent`, 본문의 지원 ID·모집글 ID·모집글 제목·호스트·게스트·지원 시각 |
-| 발행한 트랜잭션 롤백 | 롤백한 이벤트는 나가지 않음 (뒤에 커밋한 이벤트가 도착한 뒤 확인) |
-| 첫 보내기의 응답 유실(브로커에는 도착, 앱은 실패로 받음) → 시계를 2분 앞당겨 재발행 배치(`AppearanceEventRepublishUseCase.republishDue()`) 1회 | 배치가 1건을 다시 보냄. 같은 key로 2건 이상, `eventType`·본문이 같음(받는 쪽이 `(eventType, 요청서 ID)`로 거름) |
+| 요청서 보내기 성공(커밋) | 메시지 정확히 1건(도착 뒤 0.5초 더 읽어도 그대로, #463). key `appearance-request:<요청서 ID>`, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, `eventId` 헤더 없음, `__TypeId__` = 레코드 전체 클래스 이름(JSON 직렬화기, #394에서 Modulith JSON 기본 세트를 끈 뒤에도 그대로). 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
+| 지원(커밋) | 메시지 정확히 1건(〃). key `appearance-application:<지원 ID>`, `eventType` = `AppearanceApplicationSubmittedEvent`, 본문의 지원 ID·모집글 ID·모집글 제목·호스트·게스트·지원 시각 |
+| 발행한 트랜잭션 롤백 | 롤백한 이벤트는 나가지 않음 (뒤에 커밋한 이벤트가 도착한 뒤, 다른 partition일 수 있어 0.5초 더 읽으며 확인) |
+| 첫 보내기의 응답 유실(브로커에는 도착, 앱은 실패로 받음) → 시계를 2분 앞당겨 재발행 배치(`AppearanceEventRepublishUseCase.republishDue()`) 1회 | 배치가 1건을 다시 보냄. 같은 key로 정확히 2건, `eventType`·본문이 같음(받는 쪽이 `(eventType, 요청서 ID)`로 거름). 시계를 다시 2분 앞당겨 배치를 또 돌리면 0건, 메시지 2건 그대로(재발행 성공이 완료로 남음, #463) |
 
 - 응답 유실은 `KafkaTemplate`을 `@MockitoSpyBean`으로 감싸 첫 `send`만 실제로 보낸 뒤 실패를 돌려주게 만든다.
 - 발행 시점·횟수·내용(같은 JVM)은 기존 `AppearanceEventPublishTest`가 그대로 확인한다.
@@ -1301,7 +1302,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 |---|---|
 | `X-User-Id: 7`, `X-User-Role: INFLUENCER` | 200, `getName()` = `7`, 권한 `ROLE_INFLUENCER` 하나 |
 | 헤더 없음 | 401 |
-| 한쪽만(`7`/없음, 없음/`INFLUENCER`), ID `abc`·`0`·`-1`·빈 값·` 7`, 역할 `ROLE_INFLUENCER`·`influencer`·`SUPER`·빈 값 (11개) | 401, 경고 로그 `사용자 헤더 형식 오류로 인증하지 않음` |
+| 한쪽만(`7`/없음, 없음/`INFLUENCER`), ID `abc`·`0`·`-1`·빈 값·` 7`·`long` 범위를 넘는 값, 역할 `ROLE_INFLUENCER`·`influencer`·`SUPER`·빈 값 (12개) | 401, 경고 로그 `사용자 헤더 형식 오류로 인증하지 않음` |
 | 헤더 로그인으로 CSRF 토큰 없이 POST | 200, `Set-Cookie` 없음, 세션 없음 |
 
 ### 27.2 기존 테스트에서 바뀐 것
@@ -1333,7 +1334,8 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | 두 번째 페이지 5xx | 503 `MEMBER_SOURCE_UNAVAILABLE`, `scanned` 500·`resumeAfterId` 500, 첫 페이지는 반영됨 |
 | 401 / 깨진 응답 | `MEMBER_SOURCE_REJECTED` / `MEMBER_SOURCE_UNAVAILABLE`(`resumeAfterId` = 요청한 afterId), 반영 없음 |
 | Client 없음(주소 미설정) | `MEMBER_SOURCE_UNAVAILABLE` |
-| 키셋 계약 위반(역순, afterId 이하 ID, nextAfterId가 마지막 ID와 다름, 빈 페이지에 nextAfterId) | 그 페이지를 반영하지 않고 `MEMBER_SOURCE_UNAVAILABLE` |
+| 키셋 계약 위반(afterId 10에서: 역순 `[12, 11]`, afterId 이하 ID `[5, 6]`, ID 없음 `[11, null]`, 요청 크기 100보다 많은 101명, nextAfterId가 마지막 ID와 다름, 빈 페이지에 nextAfterId) | 그 페이지를 반영하지 않고 `MEMBER_SOURCE_UNAVAILABLE`. 역순·ID 없음은 afterId보다 큰 ID로 만들어 다른 검사에 먼저 걸리지 않게 한다(#463) |
+| 두 번째 페이지 503으로 멈춘 뒤 같은 인스턴스로 `resumeAfterId`부터 다시 실행 (#463) | 실행 중 표시가 풀려 있어 이어서 300명 반영, `completed` |
 | 실행 중 다시 실행 / 끝난 뒤 / limit 0·1,001, afterId -1 | 409 `BACKFILL_ALREADY_RUNNING` / 다시 실행 가능 / 거부 |
 
 ### 28.2 `AppearanceUserBackfillAdminApiE2ETest` (E2E)
@@ -1342,7 +1344,32 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 |---|---|
 | 관리자 실행: 관리자·없는 회원(정지 상태) 생성, 이벤트로 v3인 회원에 스냅샷 v2, v1인 회원에 스냅샷 v2 | 200, created 2·updated 1·ignored 1·failed 0, 응답에 닉네임 없음. 없는 회원은 스냅샷대로 생성, v3 그대로, v1 → v2. 관리자 자신의 출연 회원이 없어도 실행됨 |
 | 같은 요청을 다시 | created 0·ignored 4 (멱등) |
-| Backfill로 만든 회원에 회원 변경 이벤트 | 반영됨(가입 이벤트가 없던 기존 회원의 변경이 DLT로 가지 않음) |
+| Backfill로 만든 회원에 회원 변경 | 반영됨(가입 이벤트가 없던 기존 회원도 변경을 처리할 대상이 생김. Kafka·DLT 경로는 28장 앞의 회원 이벤트 리스너 테스트가 확인) |
 | limit 2로 3명 → afterId=nextAfterId로 이어서 | 2명·`nextAfterId`·`completed = false` → 1명·`completed`, 3명 모두 생성 |
 | 회원 내부 API 5xx | 503 `MEMBER_SOURCE_UNAVAILABLE`, Problem Detail에 `scanned`·`resumeAfterId` |
 | 인플루언서 / 비로그인(사용자 헤더 없음) / limit 1,001 / afterId -1 | 403 / 401 / 400 `INVALID_REQUEST` / 400, 회원 내부 API를 부르지 않음 |
+
+## 29. 테스트 검증 보강 (#463)
+
+테스트 점검에서 회귀가 생겨도 통과하던 확인을 고쳤다. 위 장의 해당 행도 함께 고쳤고, 새로 생긴 확인은 아래와 같다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| (모든 통합·E2E) `BillingStubs.SucceedByDefault` | 지갑 대역이 요청을 받을 때마다 DB 트랜잭션 안인지 기록 | 테스트가 끝날 때 한 건이라도 있으면 실패 ("지갑은 DB 트랜잭션 밖에서 부른다"를 모든 지갑 호출 경로에서 확인) |
+| `BillingStubsTransactionTest` | 트랜잭션 밖 / 안에서 보류 호출 | 기록 없음 / `hold` 기록 (감시 자체 확인) |
+| `AppearancePolicyTest` | 위약금 비율 0%·-1% / 1%·100% | 생성 실패 / 위약금 200·20,000 (0%면 위약금 정산 작업을 만들 수 없음) |
+| `AppearanceApplicationTest` | 다른 모집글(ID 999)에 수락된 지원(모집글 ID 10)으로 출연 성립 | `IllegalStateException` (모집글·지원 ID를 넣어 null끼리 같다고 보지 않게 함) |
+| `AppearanceBasicInfoTest`, `AppearanceRequestValidationTest` | 호스트 채널 URL 255자 / 256자 (도메인, 요청서·모집글 보내기·수정 DTO) | 허용 / `INVALID_REQUEST`·`hostChannelUrl` 실패 (DB VARCHAR(255)) |
+| `AppearanceConfigTest` | appearance.yml 배치 값 | `batch-size` 100, `pending-grace` 1분, 재시도 정책 1분·1시간·10회·지터 0.2 |
+| `AppearanceUserBackfillFacadeTest` | 인플루언서가 Facade 직접 호출 | `AccessDeniedException` (URL 규칙과 따로 `@PreAuthorize` 확인) |
+| `AppearanceBatchUseCaseTest` | 보류 재확인 회차 도중 회로가 열림(요청서 2건 중 1건 뒤 / 요청서를 다 정리한 뒤 모집글 차례) | 보류 요청 1번에서 멈추고 남은 건은 `HOLD_PENDING` (건마다 회로 확인) |
+| `AppearanceBillingCircuitTest` | 회로가 열린 동안 보류 재확인 | 출연이 `BillingClient.hold`를 부르지 않음(Spy로 셈. 공용 Client도 막으므로 지갑 요청 수만으로는 구분되지 않음) |
+| `HpTaskAdminFacadeTest` | 먼저 만든 격리 작업의 수정 시각을 뒤로 | 목록 맨 앞으로 (ID 순이 아니라 마지막으로 바뀐 순) |
+| `HpTaskRepositoryTest` | 만든 시각 + 3시간에 관리자가 다시 시도 | 만든 시각 기준으로는 대기 시간이 지났어도, 다시 시도한 시각 기준 대기 시간 전이면 대상 아님 |
+| `AppearanceRequestRespondApiE2ETest` | 거절 1건·대기 1건에서 상태 필터 | `REJECTED,CANCELED` → 거절 건만, `REQUESTED` → 대기 건만 |
+| `AppearanceApplicationApiE2ETest` | 정원이 찬 뒤 새 지원 | 201, 지원자 수 3 |
+| `AppearanceExternalEventsTest` | 회원 이벤트 | `@Externalized`가 붙어 있음을 먼저 확인한 뒤, 패키지 조건으로 내보내지 않음 |
+
+- 준비 단계에서 보류를 결과 불명으로 만드는 곳은 예외 종류가 아니라 `BILLING_UNAVAILABLE`까지 확인한다(다른 예외로 `HOLD_PENDING`이 생겨도 진행되지 않게).
+- 위약금 정산은 반환+위약금 합계가 아니라 위약금 9,000·반환 21,000을 각각 확인한다.
+- Swagger(`ApiV1AppearanceSpec`) 취소 요청·취소 수락·일방 취소·확인 설명에 "호스트·게스트가 아니면 404 `APPEARANCE_NOT_FOUND`"를 적었다(테스트와 같게).

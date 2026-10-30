@@ -237,15 +237,18 @@ class AppearanceRequestRespondFacadeTest {
     void rejectWhenReleaseFails() {
         AppearanceRequestResDto sent = send();
         BillingStubs.unavailable(billingClient);
+        LocalDateTime before = LocalDateTime.now(clock);
 
         AppearanceRequestResDto rejected = appearanceRequestFacade.reject(GUEST, sent.id(), null);
 
+        LocalDateTime after = LocalDateTime.now(clock);
         assertThat(rejected.status()).isEqualTo(AppearanceRequestStatus.REJECTED);
         assertThat(rejected.hpReleaseStatus()).isEqualTo(HpTaskStatus.PENDING);
         HpTask task = onlyTask();
         assertThat(task.getAttemptCount()).isEqualTo(1);
         assertThat(task.getLastError()).isEqualTo("UNKNOWN_RESULT: Billing 응답 없음 (테스트)");
-        assertThat(task.getNextAttemptAt()).isAfter(task.getCreatedAt());
+        // 첫 재시도 간격 1분, 지터 ±20% (출연 시계 기준)
+        assertThat(task.getNextAttemptAt()).isBetween(before.plusSeconds(48), after.plusSeconds(72));
     }
 
     @Test

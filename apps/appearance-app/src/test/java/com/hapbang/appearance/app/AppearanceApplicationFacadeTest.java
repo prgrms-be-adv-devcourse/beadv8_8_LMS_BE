@@ -179,7 +179,9 @@ class AppearanceApplicationFacadeTest {
         @DisplayName("보류 처리 중인 모집글에는 지원할 수 없다 (목록에 없는 모집글이라 APPEARANCE_RECRUIT_NOT_FOUND)")
         void holdPendingRecruit() {
             BillingStubs.unavailable(billingClient);
-            assertThatThrownBy(() -> postRecruit(3)).isInstanceOf(AppearanceException.class);
+            assertThatThrownBy(() -> postRecruit(3))
+                    .isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
             BillingStubs.available(billingClient);
             Long pendingId = appearanceRecruitRepository.findAll().getFirst().getId();
 

@@ -221,6 +221,11 @@ public final class MockBilling {
                 .withBody(problem(status, code, detail))));
     }
 
+    /** 본문 없이 이 상태 코드로 응답한다 (지갑 계약상 내부 API 키 오류 401은 본문이 없다) */
+    public static void failWithoutBody(Endpoint endpoint, int status) {
+        server().stubFor(post(urlEqualTo(endpoint.path)).willReturn(aResponse().withStatus(status)));
+    }
+
     /** 응답을 이만큼 늦게 보낸다. Client 응답 대기 시간보다 길면 결과 불명(시간 초과)이다 */
     public static void delay(Endpoint endpoint, int millis) {
         server().stubFor(post(urlEqualTo(endpoint.path)).willReturn(success(endpoint, false).withFixedDelay(millis)));

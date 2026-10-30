@@ -193,15 +193,25 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
         }
 
         @Test
-        @DisplayName("목록 밖 코드(401 내부 API 키 오류): 500 HP_HOLD_FAILED, 지갑 코드·설명은 응답에 나가지 않음, HOLD_FAILED")
+        @DisplayName("목록 밖 코드(처음 보는 404 코드): 500 HP_HOLD_FAILED, 지갑 코드·설명은 응답에 나가지 않음, HOLD_FAILED")
         void unmappedHidden() {
-            MockBilling.fail(Endpoint.HOLD, 401, "INVALID_INTERNAL_API_KEY", "내부 API 키가 올바르지 않습니다.");
+            MockBilling.fail(Endpoint.HOLD, 404, "SOMETHING_NEW", "지갑 내부 설명");
 
             assertThatThrownBy(AppearanceBillingHttpTest.this::send)
                     .isInstanceOf(AppearanceHoldRejectedException.class)
                     .hasMessage(AppearanceErrorCode.HP_HOLD_FAILED.getMessage())
                     .extracting("errorCode").isEqualTo(AppearanceErrorCode.HP_HOLD_FAILED);
             assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+        }
+
+        @Test
+        @DisplayName("내부 API 키 오류(본문 없는 401, 지갑 계약): 500 HP_HOLD_FAILED, HOLD_FAILED (결과 불명으로 보지 않음)")
+        void unauthorizedWithoutBody() {
+            MockBilling.failWithoutBody(Endpoint.HOLD, 401);
+
+            assertErrorCode(AppearanceBillingHttpTest.this::send, AppearanceErrorCode.HP_HOLD_FAILED);
+            assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+            assertThat(MockBilling.requests(Endpoint.HOLD)).hasSize(1);
         }
 
         @Test
@@ -255,7 +265,8 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
 
             assertThat(appearanceRecruitRepository.findAll().getFirst().getStatus())
                     .isEqualTo(AppearanceRecruitStatus.HOLD_PENDING);
-            assertThat(MockBilling.requests(Endpoint.HOLD)).isNotEmpty();
+            // 공용 Client 기본 재시도: 첫 호출 포함 3회
+            assertThat(MockBilling.requests(Endpoint.HOLD)).hasSize(3);
         }
     }
 
@@ -290,9 +301,11 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
             HpTask task = onlyTask(HpTaskType.PENALTY);
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DONE);
             ReceivedRequest penalty = MockBilling.requests(Endpoint.PENALTY).getFirst();
+            assertThat(MockBilling.requests(Endpoint.PENALTY)).hasSize(1);
             assertThat(penalty.requestId(Endpoint.PENALTY)).isEqualTo(task.getIdempotencyKey());
             assertThat(penalty.number("receiverUserId")).isEqualTo(GUEST);
-            assertThat(penalty.number("releaseAmountHp") + penalty.number("payoutAmountHp")).isEqualTo(FEE);
+            assertThat(penalty.number("payoutAmountHp")).isEqualTo(FEE * 30 / 100);
+            assertThat(penalty.number("releaseAmountHp")).isEqualTo(FEE - FEE * 30 / 100);
         }
 
         @Test
@@ -329,7 +342,7 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
         }
 
         @Test
-        @DisplayName("요청 한도 초과(429): 작업 PENDING, 마지막 오류에 RETRYABLE·상태를 남긴다")
+        @DisplayName("요청 한도 초과(429): 공용 Client가 짧게 3회 보낸 뒤에도 실패하면 작업 PENDING(시도 1회), 마지막 오류에 RETRYABLE·상태를 남긴다")
         void retryable() {
             MockBilling.fail(Endpoint.RELEASE, 429, null, null);
             AppearanceRequestResDto sent = send();
@@ -338,7 +351,9 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
 
             HpTask task = onlyTask(HpTaskType.RELEASE);
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(task.getAttemptCount()).isEqualTo(1);
             assertThat(task.getLastError()).startsWith("RETRYABLE 429: ");
+            assertThat(MockBilling.requests(Endpoint.RELEASE)).hasSize(3);
         }
 
         @Test

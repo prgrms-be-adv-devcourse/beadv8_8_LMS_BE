@@ -105,6 +105,7 @@ class AppearanceRecruitFacadeTest {
         assertThat(response.status()).isEqualTo(AppearanceRecruitStatus.RECRUITING);
         assertThat(response.selectedCount()).isZero();
         assertThat(response.version()).isEqualTo(findOnly().getVersion());
+        assertThat(BillingCalls.holds(billingClient)).hasSize(1);
         HoldCommand hold = BillingCalls.holds(billingClient).getFirst();
         assertThat(hold.userId()).isEqualTo(HOST);
         assertThat(hold.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_RECRUIT);
@@ -225,7 +226,9 @@ class AppearanceRecruitFacadeTest {
         assertThat(detail.recruitDeadline()).isEqualTo(posted.recruitDeadline());
 
         BillingStubs.unavailable(billingClient);
-        assertThatThrownBy(() -> post(HOST)).isInstanceOf(AppearanceException.class);
+        assertThatThrownBy(() -> post(HOST))
+                .isInstanceOfSatisfying(AppearanceException.class, e ->
+                        assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
         Long pendingId = appearanceRecruitRepository.findAll().stream()
                 .filter(recruit -> recruit.getStatus() == AppearanceRecruitStatus.HOLD_PENDING)
                 .findFirst().orElseThrow().getId();

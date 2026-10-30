@@ -87,7 +87,7 @@ class HpTaskRepositoryTest {
         assertThat(hpTaskRepository.findRunnableIds(NOW.plusMinutes(1), createdAt, first100))
                 .containsExactly(fresh.getId(), failed.getId());
         assertThat(hpTaskRepository.findRunnableIds(NOW.plusMinutes(1), createdAt, PageRequest.of(0, 1)))
-                .hasSize(1);
+                .containsExactly(fresh.getId());
         assertThat(hpTaskRepository.countByStatus(HpTaskStatus.PENDING)).isEqualTo(2);
         assertThat(hpTaskRepository.countByStatus(HpTaskStatus.DONE)).isEqualTo(1);
     }
@@ -97,7 +97,9 @@ class HpTaskRepositoryTest {
     void runnableAfterManualRetryGrace() {
         HpTask reopened = release(12L, "APPEARANCE_REQUEST-12-RELEASE-1");
         reopened.markDead("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.", NOW);
-        LocalDateTime retriedAt = NOW.plusHours(3);
+        hpTaskRepository.saveAndFlush(reopened);
+        // 만든 시각(저장 시각)보다 3시간 뒤에 다시 시도해, 만든 시각 기준이면 대기 시간이 지난 상태로 만든다
+        LocalDateTime retriedAt = reopened.getCreatedAt().plusHours(3);
         reopened.reopenForManualRetry(900L, retriedAt);
         hpTaskRepository.saveAndFlush(reopened);
         PageRequest first100 = PageRequest.of(0, 100);

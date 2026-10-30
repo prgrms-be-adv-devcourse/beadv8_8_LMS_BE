@@ -33,7 +33,10 @@ class AppearanceUserFacadeTest {
     void createIfAbsentCreates() {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(1L));
 
-        assertThat(appearanceUserRepository.findById(1L)).isPresent();
+        assertThat(appearanceUserRepository.findById(1L)).hasValueSatisfying(user -> {
+            assertThat(user.getRole()).isEqualTo(Role.INFLUENCER);
+            assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        });
     }
 
     @Test

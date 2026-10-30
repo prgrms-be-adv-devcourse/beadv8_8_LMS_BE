@@ -267,7 +267,8 @@ class AppearanceHostCancelFlowTest {
             assertThat(BillingCalls.penalties(billingClient)).singleElement().satisfies(penalty -> {
                 assertThat(penalty.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_RECRUIT);
                 assertThat(penalty.sourceType()).isEqualTo(SettlementSourceType.RECRUIT_APPEARANCE);
-                assertThat(penalty.releaseAmountHp() + penalty.payoutAmountHp()).isEqualTo(FEE);
+                assertThat(penalty.payoutAmountHp()).isEqualTo(FEE * 30 / 100);
+                assertThat(penalty.releaseAmountHp()).isEqualTo(FEE - FEE * 30 / 100);
             });
             assertThat(onlyTask(HpTaskType.PENALTY).getIdempotencyKey())
                     .isEqualTo("APPEARANCE_RECRUIT-%d-PENALTY-APPEARANCE-%d".formatted(recruitId, appearanceId));
@@ -503,7 +504,9 @@ class AppearanceHostCancelFlowTest {
                     AppearanceErrorCode.APPEARANCE_SCHEDULE_PASSED);
 
             BillingStubs.unavailable(billingClient);
-            assertThatThrownBy(() -> postRecruit(1)).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> postRecruit(1))
+                    .isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
             BillingStubs.available(billingClient);
             Long pendingId = jdbcTemplate.queryForObject(
                     "select id from appearances.recruits where status = 'HOLD_PENDING'", Long.class);
