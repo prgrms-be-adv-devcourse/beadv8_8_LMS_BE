@@ -42,9 +42,9 @@ Spring Session을 쓰지 않으므로([3장 "인증 흐름"](api-gateway.md#인�
 instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다. 실제 작업량의 대부분은 여기에 있다.
 
 1. **모듈을 넘는 transaction이 사라진다.**
-   - 지금 강의 주문 생성은 주문 저장과 billing의 HP 보류를 한 transaction으로 처리한다(`OrderCreateUseCase` → `BillingPort.hold`).
-   - database가 다르면 이 둘을 원자적으로 묶을 수 없다. 분리 전에 내부 API 전환(#271~#281)과 보상 처리(보류 실패 시 주문 취소, 주문 실패 시 보류 반환)를 끝내야 한다.
-   - 출연 모듈도 `BillingPort`를 같은 방식(호출한 쪽 transaction 안)으로 부르므로 같은 작업이 필요하다.
+   - 강의 주문 생성은 예전에 주문 저장과 billing의 HP 보류를 한 transaction으로 처리했다(`OrderCreateUseCase` → `BillingPort.hold`). database가 다르면 이 둘을 원자적으로 묶을 수 없다.
+   - 그래서 강의(#275~#277)와 출연(#274)은 HP 이동을 자기 transaction 밖의 billing 내부 HTTP 호출로 바꾸고, 결과는 HP 작업·보상 처리로 기록한다. 지금 다른 모듈의 transaction에 참여하는 HP 호출은 없다.
+   - 남은 shared `BillingPort`·`BillingPortAdapter`는 쓰는 곳이 없고 #280에서 지운다.
 2. **Modulith 이벤트 저장소는 앱마다 자기 database에 둔다.**
    - Spring Modulith의 JDBC publication registry는 `DataSource` 하나에 묶인다(`JdbcEventPublicationAutoConfiguration`, 2.1.1 소스 확인).
    - 앱마다 database가 하나이므로 업무 data와 publication이 같은 database에 있다. "업무 transaction 안에서 이벤트를 기록한다"는 outbox 보장이 앱 안에서 그대로 지켜진다.
@@ -66,6 +66,6 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
 ## 완료 증거
 
 - 모듈 계정으로 다른 모듈 database에 접속하면 거부된다.
-- 강의 주문 중 HP 보류가 실패하면 주문이 남지 않고, 주문 저장이 실패하면 보류가 반환된다.
+- 강의 주문 중 HP 보류가 실패하면 주문은 `HOLD_FAILED`로 남고, 이미 성공한 항목 보류는 보상 RELEASE 작업으로 모두 반환된다(D58·D69).
 - 업무 commit 직후 앱을 종료해도 모듈 outbox의 이벤트가 재기동 후 Kafka로 나간다.
 - rolling update 중 최대 connection 수가 `max_connections` 안에 있다.
