@@ -9,14 +9,14 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.modulith.events.EventExternalizationConfiguration;
 import org.springframework.modulith.events.RoutingTarget;
 
+import com.hapbang.appearance.app.AppearanceExternalEvents;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 
 /**
  * 출연 알림 이벤트를 Kafka로 내보낸다 (Modulith 이벤트 외부화, #393).
  * <ul>
- *     <li>대상은 요청 도착({@link AppearanceRequestSentEvent})·지원 도착({@link AppearanceApplicationSubmittedEvent}) 두 가지다.
- *     출연 취소 요청 이벤트 3종은 받는 곳이 없어 같은 JVM 안에만 둔다.</li>
+ *     <li>대상은 {@link AppearanceExternalEvents}가 정한다(요청 도착·지원 도착).</li>
  *     <li>발행 코드는 그대로다. 업무 트랜잭션 안에서 발행한 이벤트가 Modulith 발행 기록({@code event_publication})에 남고,
  *     커밋 뒤에 Kafka로 보낸다. 롤백되면 보내지 않고, 보내기에 실패하면 기록이 남아 재발행 배치
  *     ({@code AppearanceNotificationRepublishUseCase})와 서버 재시작 때 다시 보낸다.</li>
@@ -45,7 +45,7 @@ public class AppearanceNotificationExternalizationConfig {
     @Bean
     EventExternalizationConfiguration appearanceNotificationExternalization() {
         return EventExternalizationConfiguration.externalizing()
-                .select(AppearanceNotificationExternalizationConfig::isExternalized)
+                .select(AppearanceExternalEvents::isExternalized)
                 .route(AppearanceRequestSentEvent.class,
                         event -> RoutingTarget.forTarget(TOPIC).andKey(String.valueOf(event.request().guestId())))
                 .route(AppearanceApplicationSubmittedEvent.class,
@@ -55,11 +55,6 @@ public class AppearanceNotificationExternalizationConfig {
                 .headers(AppearanceApplicationSubmittedEvent.class,
                         event -> headers(APPLICATION_SUBMITTED, event.application().applicationId()))
                 .build();
-    }
-
-    /** Kafka로 내보내는 이벤트인지 (요청 도착·지원 도착) */
-    public static boolean isExternalized(Object event) {
-        return event instanceof AppearanceRequestSentEvent || event instanceof AppearanceApplicationSubmittedEvent;
     }
 
     /** 이벤트 종류({@link #REQUEST_SENT}·{@link #APPLICATION_SUBMITTED})와 요청서·지원 ID로 정해지는 이벤트 ID.

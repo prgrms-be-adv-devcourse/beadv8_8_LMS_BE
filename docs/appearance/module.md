@@ -162,7 +162,7 @@ com.hapbang.appearance
 | `app.HpTaskExecuteUseCase` | HP 작업 1회 실행: Billing 호출(트랜잭션 밖) → 성공 `DONE` / Billing 거절 `DEAD` / 그 밖 실패는 재시도 정책대로 (`TransactionTemplate`) |
 | `in.AppearanceBatch` | 배치 주기 정의(`@ConditionalOnSchedulingEnabled`). UseCase를 직접 호출 (#187) |
 | `app.AppearanceHoldRecheckUseCase`, `AppearanceRequestExpireUseCase`, `HpTaskRetryUseCase` | 보류 재확인 / 수락 기한 만료 / HP 작업 재시도 (#187) |
-| `app.AppearanceNotificationRepublishUseCase` | Kafka로 못 보낸 알림 이벤트 재발행 배치 (#393, 11.3) |
+| `app.AppearanceNotificationRepublishUseCase`, `AppearanceExternalEvents` | Kafka로 못 보낸 알림 이벤트 재발행 배치 / Kafka로 내보내는 이벤트 판단(외부화 설정과 재발행 배치가 같이 씀) (#393, 11.3) |
 | `app.HpTaskMetrics` | HP 작업 지표(Micrometer) 등록·갱신 (#187) |
 | `domain.HpTaskRetryPolicy`, `config.AppearanceBatchProperties` | 재시도 정책(지수 백오프+지터) / 배치 설정 바인딩 (#187) |
 | `app.AppearanceSupport`, `HpTaskSupport` | 출연·HP 작업 저장소 접근 |
@@ -756,7 +756,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 키 | 알림 받는 회원 ID (요청 도착 = `guestId`, 지원 도착 = `hostId`). 같은 회원에게 가는 알림은 같은 파티션으로 가지만, 커밋 뒤 비동기로 보내므로 커밋 순서대로 간다고 보장하지 않는다 |
 | 본문 | shared 이벤트 레코드를 그대로 JSON으로 싣는다(회원 이벤트와 같은 방식). 예: `{"request":{"requestId":1,"hostId":1,"guestId":2,"title":"…","fee":30000,"scheduledAt":"2026-11-05T17:54:44","acceptDeadline":"2026-10-31T17:54:44"}}`. 시각은 KST `LocalDateTime` |
 | 헤더 | `eventId`(이벤트 종류 + 요청서·지원 ID로 만든 UUID, 다시 보내도 같음), `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`), `__TypeId__`(레코드 전체 클래스 이름, Spring Kafka JSON 변환기가 붙임) |
-| 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceNotificationRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 알림 기록을 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃은 경우 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `eventId` 또는 기존 알림 유일 인덱스로 중복을 거른다 |
+| 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceNotificationRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 알림 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃은 경우 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `eventId` 또는 기존 알림 유일 인덱스로 중복을 거른다 |
 | 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose에 Kafka가 없어 외부화를 끈다(`SPRING_MODULITH_EVENTS_EXTERNALIZATION_ENABLED=true`로 켬). 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceNotificationKafkaTest`만 Testcontainers Kafka로 켠다 |
 
 - 필드는 추가만 한다. 받는 쪽이 못 읽게 바뀌면 `eventVersion`을 올린다.
