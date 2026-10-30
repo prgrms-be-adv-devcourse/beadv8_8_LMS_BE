@@ -23,6 +23,11 @@ spec:
       labels:
         app.kubernetes.io/name: member-app
         hapbang.io/internal-api-client: 'true'
+      # Prometheus 차트 기본 kubernetes-pods job이 이 annotation을 보고 수집한다(#480).
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8080'
+        prometheus.io/path: /actuator/prometheus
     spec:
       # node별 메모리 예산이 배치를 전제로 하므로 required로 건다(docs/deploy/aws-k3s.md).
       affinity:
@@ -46,12 +51,14 @@ spec:
                 name: member-app-config
             - secretRef:
                 name: member-app-secrets
+          # 448Mi에서는 RSS가 한도에 붙어 Prometheus registry를 더한 뒤 k3d에서 OOMKilled가 났다. heap 93·non-heap 173·
+          # JVM 밖 native 약 175 = RSS 441Mi였다(#480).
           resources:
             requests:
               cpu: 100m
-              memory: 448Mi
+              memory: 512Mi
             limits:
-              memory: 448Mi
+              memory: 512Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:

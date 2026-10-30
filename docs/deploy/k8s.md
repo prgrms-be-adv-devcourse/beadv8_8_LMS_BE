@@ -137,6 +137,14 @@ kubectl apply -k k8s/registry
 for app in apps/*-app; do kubectl apply -k "$app/k8s/overlays/local"; done
 ```
 
+#480 이전에 만든 cluster는 Alloy 설정이 `k8s/gateway`의 HelmChartConfig `alloy`에 남아 있다. 이 값이 platform HelmChart의 `alloy.configMap.content`를 덮어써 pod log pipeline이 돌지 않는다. `kubectl apply -k`는 파일에서 빠진 리소스를 지우지 않으므로, alloy HelmChart를 먼저 적용한 뒤 직접 지운다. 먼저 지우면 새 HelmChart를 적용하기 전까지 OTLP 수신이 없어 trace가 빈다.
+
+```bash
+# 새 HelmChart가 적용됐는지 본다. 1이어야 한다
+kubectl -n hapbang-platform get helmchart alloy -o jsonpath='{.spec.valuesContent}' | grep -c loki.source.kubernetes
+kubectl -n hapbang-platform delete helmchartconfig alloy --ignore-not-found
+```
+
 ## 운영 앱 배포
 
 prod 앱은 GitHub Actions가 배포한다(#374). 앱 이미지는 private GHCR 패키지라 node가 공유 Secret `ghcr-pull`로 받는다([GHCR pull 인증](#ghcr-pull-인증)). 배포 스크립트는 적용 전에 그 Secret이 있고 형식이 맞는지 확인하고, rollout이 실패하면 원인을 이미지 없음·GHCR 인증 실패·앱 기동 실패로 나눠 알린다(#461).

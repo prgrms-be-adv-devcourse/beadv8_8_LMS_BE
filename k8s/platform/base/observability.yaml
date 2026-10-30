@@ -1,8 +1,9 @@
 # 관측성 stack(Prometheus·Loki·Tempo·Grafana·Alloy). 모두 medium(app-observe)에 둔다.
-# 이 파일은 설치와 자원·보존 한도만 정한다. scrape 규칙, Alloy pipeline, dashboard, alert는 #343에서 더한다.
-# 지금은 설치만 한다. 메모리 limit은 로컬 k3d idle 실측(#373)에 여유를 더한 값이고 합계는 1,032 MiB다.
-# 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다. 예산 조정은 #343에서 한다
-# (docs/architecture/infrastructure/k3s.md).
+# 이 파일은 설치, 자원·보존 한도와 Alloy pipeline(Gateway trace·pod log)을 정한다. 앱 지표는 Prometheus 차트 기본
+# kubernetes-pods job이 pod annotation으로 수집한다(#480). dashboard, alert는 #343에서 더한다.
+# 메모리 limit은 로컬 k3d 실측(#373·#443·#480)에 여유를 더한 값이다. 이 파일의 합계는 1,248 MiB이고, k8s/gateway의
+# Tempo·Grafana override를 더하면 1,376 MiB다. 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다.
+# 예산 조정은 #343에서 한다(docs/architecture/infrastructure/k3s.md).
 # Loki·Tempo·Grafana 차트는 2026년에 grafana에서 grafana-community 저장소로 옮겨졌다(각 차트 README).
 apiVersion: helm.cattle.io/v1
 kind: HelmChart
@@ -100,12 +101,14 @@ spec:
       persistence:
         storageClass: local-path-retain
         size: 5Gi
+      # 128Mi(차트가 GOMEMLIMIT을 limit의 85%로 둔다)에서는 pod log 수집을 시작하자 GC가 CPU를 15 core까지 쓰며
+      # ring이 unhealthy가 돼 조회가 멈췄다(k3d, #480).
       resources:
         requests:
           cpu: 50m
-          memory: 128Mi
+          memory: 256Mi
         limits:
-          memory: 128Mi
+          memory: 256Mi
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -244,13 +247,70 @@ spec:
       resources:
         requests:
           cpu: 50m
-          memory: 104Mi
+          memory: 160Mi
         limits:
-          memory: 104Mi
+          memory: 160Mi
+      # Gateway(Envoy)가 보내는 OTLP trace를 받는다(#372).
+      extraPorts:
+        - name: otlp-grpc
+          port: 4317
+          targetPort: 4317
+          protocol: TCP
+      # trace: Gateway OTLP → Tempo(#372).
+      # log: hapbang-prod·envoy-gateway-system의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(#480). 형식은 그대로 두고
+      # multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
+      configMap:
+        content: |
+          otelcol.receiver.otlp "gateway" {
+            grpc { endpoint = "0.0.0.0:4317" }
+            output { traces = [otelcol.exporter.otlp.tempo.input] }
+          }
+          otelcol.exporter.otlp "tempo" {
+            client {
+              endpoint = "tempo.hapbang-platform.svc.cluster.local:4317"
+              tls { insecure = true }
+            }
+          }
+
+          discovery.kubernetes "pods" {
+            role = "pod"
+            namespaces {
+              names = ["hapbang-prod", "envoy-gateway-system"]
+            }
+          }
+          discovery.relabel "pod_logs" {
+            targets = discovery.kubernetes.pods.targets
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+              target_label  = "app"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+            }
+          }
+          loki.source.kubernetes "pod_logs" {
+            targets    = discovery.relabel.pod_logs.output
+            forward_to = [loki.write.loki.receiver]
+          }
+          loki.write "loki" {
+            endpoint {
+              url = "http://loki.hapbang-platform.svc.cluster.local:3100/loki/api/v1/push"
+            }
+          }
+    # 16Mi에서는 k3d에서 OOMKilled가 반복돼 설정 변경을 다시 읽지 못했다(#480). Prometheus configmap-reload와 같은 값이다.
     configReloader:
       resources:
         requests:
           cpu: 5m
-          memory: 16Mi
+          memory: 32Mi
         limits:
-          memory: 16Mi
+          memory: 32Mi
