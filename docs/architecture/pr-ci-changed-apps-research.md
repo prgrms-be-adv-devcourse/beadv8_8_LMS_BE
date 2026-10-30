@@ -15,7 +15,7 @@ PR CI는 **바뀐 앱만, 앱마다 러너 하나에서** 테스트한다. 바�
 - 앱 하나만 바꾼 PR(17개)은 그 앱만 러너를 혼자 쓰며 테스트한다.
 - common·Gradle·CI 파일을 바꾼 PR(10개)은 여섯 앱을 모두 테스트하되 앱마다 러너를 따로 써서, 가장 느린 앱 하나의 시간에 가깝게 끝난다.
 
-바꾼 뒤 시간은 이 PR(#488)의 CI로 재서 아래 "측정"에 적는다.
+바꾼 뒤 시간은 이 PR(#488)의 CI로 재서 아래 "측정"에 적는다. 앱이 8개가 된 뒤 시간을 보고 판단하기로 했던 matrix 전환(#374, [k3s 문서](infrastructure/k3s.md#ci-검증))을 6개에서 앞당긴 결정이다.
 
 ## 바꾸기 전 CI
 
@@ -71,7 +71,7 @@ PR CI는 **바뀐 앱만, 앱마다 러너 하나에서** 테스트한다. 바�
 | `apps/<앱>/**` | 그 앱 | 앱끼리 의존하지 않는다(`verifyModuleStructure`) |
 | `common/**`, `gradle/**`, 루트 `build.gradle.kts`·`settings.gradle.kts`, `gradlew` | 전체 | 모든 앱이 의존한다 |
 | `.github/workflows/ci.yml`, `.github/scripts/apps.sh` | 전체 | CI 자체를 바꾼 PR은 전체 경로로 확인한다 |
-| `apps/<앱>/k8s/**`, `*.md` | 판정에서 뺀다 | manifest는 `manifests` job이 검사하고, 테스트가 문서를 읽지 않는다 |
+| `apps/<앱>/k8s/**`, 어디에 있든 `*.md`(common·`src/` 아래 포함) | 판정에서 뺀다 | manifest는 `manifests` job이 검사한다. `src/` 아래 `.md`는 `appearance-app` 테스트 리소스의 README 하나이고 테스트가 읽지 않는다 |
 | 그 밖(`docs/`, 루트 `k8s/`, 다른 workflow 등) | 없음 | |
 | base를 알 수 없음(빈 값, `0000…`, 저장소에 없음) | 전체 | 판정하지 않는다 |
 

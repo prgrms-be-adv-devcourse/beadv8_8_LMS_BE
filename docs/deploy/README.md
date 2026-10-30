@@ -26,7 +26,10 @@
 
 ```
 PR → GitHub Actions(CI)
-  verify  앱 목록 검사 → verifyModuleStructure → 앱별 check bootJar → 앱별 이미지 빌드 확인(push 안 함)
+  changes    앱 목록 검사 → 바뀐 앱 판정(apps.sh tested)
+  structure  verifyModuleStructure → common 라이브러리 check
+  test       바뀐 앱마다 러너 하나: check bootJar → 이미지 빌드 확인(push 안 함)
+  verify     위 결과 집계(필수 체크). Java 변경이 없으면 Gradle job은 건너뛰고 통과
 
 main push → Publish images(publish.yml)   # 릴리스 전에는 사람이 write:packages PAT로 직접 push(k8s.md "릴리스 전 배포")
   바뀐 앱만 GHCR(private, 조직 정책)에 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<커밋> 발행
