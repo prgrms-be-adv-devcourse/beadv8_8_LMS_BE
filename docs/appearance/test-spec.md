@@ -1251,3 +1251,12 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 요청 도착·지원 도착 | 내보냄 (`@Externalized`) |
 | 출연 취소 요청 이벤트 3종 | 내보내지 않음 |
 | 회원 이벤트(`UserJoinedEvent`·`UserModifiedEvent`) | 내보내지 않음 (다른 컨텍스트 이벤트) |
+
+### 25.3 `AppearanceEventRepublishUseCaseTest` (단위, `IncompleteEventPublications` 대역)
+
+미완료 기록 목록을 Modulith처럼 발행 시각 순으로 재발행 조건에 넘긴다. `batch-size` 3, 대기 시간 1분.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 내보내는 이벤트 5건(10·8·7·6·5분 전) + 취소 요청 이벤트 1건(9분 전) + 방금(30초 전) 1건 | 10·8·7분 전 3건만 고름(오래된 순), 반환 3, 로그 `count=3, waiting=2, batchSize=3` |
+| 취소 요청 이벤트와 방금 발행한 기록뿐 | 고르지 않음, 반환 0, 재발행 로그 없음 |

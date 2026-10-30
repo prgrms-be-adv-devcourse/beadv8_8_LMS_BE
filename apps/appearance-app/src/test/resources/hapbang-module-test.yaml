@@ -4,6 +4,12 @@ spring:
   config:
     # 운영 application.yaml을 읽지 않는 모듈 테스트에도 출연 설정만 명시적으로 가져온다.
     import: classpath:appearance.yml
+  datasource:
+    hikari:
+      # 테스트 컨텍스트는 캐시되어 여러 개가 함께 살아 있고, 컨텍스트마다 연결 풀을 가진다.
+      # 쉬는 연결을 1개만 두고 10초(idle-timeout, 밀리초) 뒤 닫아, 컨텍스트가 늘어도 테스트 DB 연결 상한(100)을 넘지 않게 한다 (동시성 테스트는 필요한 만큼 새로 연다)
+      minimum-idle: 1
+      idle-timeout: 10000
   modulith:
     events:
       # 알림 이벤트의 Kafka 외부화(#393)는 끈다. Kafka 브로커가 없는 테스트에서 보내기를 시도하지 않게 한다.

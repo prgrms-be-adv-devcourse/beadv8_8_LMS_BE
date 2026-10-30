@@ -46,7 +46,8 @@ public class AppearanceEventRepublishUseCase {
                         && selected.incrementAndGet() <= batchProperties.batchSize());
         int republished = Math.min(selected.get(), batchProperties.batchSize());
         if (republished > 0) {
-            log.warn("Kafka로 못 보낸 알림 이벤트 재발행 count={}, waiting={}", republished, selected.get() - republished);
+            log.warn("Kafka로 못 보낸 이벤트 재발행 count={}, waiting={}, batchSize={}", republished,
+                    selected.get() - republished, batchProperties.batchSize());
         }
         return republished;
     }

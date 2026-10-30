@@ -70,18 +70,14 @@ import tools.jackson.databind.json.JsonMapper;
  *     <li>다른 출연 테스트는 Kafka 외부화를 끄고(hapbang-module-test.yaml), 이 테스트만 켠다.</li>
  *     <li>토픽은 운영과 같은 {@value AppearanceEventTopic#NAME} 하나를 테스트끼리 같이 쓰고, 앱이 뜰 때 선언한다(NewTopic).
  *     테스트마다 새 소비자 그룹을 토픽 끝으로 옮긴 뒤 읽어 앞 테스트의 메시지를 보지 않고, 그중 이 테스트가 만든 key의 메시지만 본다.</li>
- *     <li>외부화를 켠 설정이라 컨텍스트를 따로 띄운다. 연결 풀을 작게 잡고, 끝나면 닫아({@link DirtiesContext}) 캐시된 다른 컨텍스트와 합쳐
+ *     <li>외부화를 켠 설정이라 컨텍스트를 따로 띄운다. 끝나면 닫아({@link DirtiesContext}) 캐시된 다른 컨텍스트와 합쳐
  *     테스트 DB 연결 상한을 넘지 않게 한다.</li>
  *     <li>보내기는 커밋 뒤 비동기로 일어나므로 제한 시간 안에 기다린다. 소비자는 스레드 안전하지 않아 테스트 스레드에서만 읽는다.</li>
  * </ul>
  */
 @AppearanceIntegrationTest
 @Import(KafkaTestcontainersConfig.class)
-@TestPropertySource(properties = {
-        "spring.modulith.events.externalization.enabled=true",
-        // 다른 테스트의 캐시된 컨텍스트가 이미 테스트 DB 연결을 많이 쓰고 있어, 이 컨텍스트는 연결을 적게 잡는다
-        "spring.datasource.hikari.maximum-pool-size=3"
-})
+@TestPropertySource(properties = "spring.modulith.events.externalization.enabled=true")
 @WithMockUser(roles = "INFLUENCER")
 @DirtiesContext
 class AppearanceEventKafkaTest {
