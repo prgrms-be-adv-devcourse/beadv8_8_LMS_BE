@@ -31,8 +31,9 @@ public record AppearancePolicy(
         if (minimumFee <= 0) {
             throw new IllegalArgumentException("최저 출연료는 0보다 커야 합니다.");
         }
-        if (penaltyRatePercent < 0 || penaltyRatePercent > PERCENT) {
-            throw new IllegalArgumentException("위약금 비율은 0~100 사이여야 합니다.");
+        // 0%면 위약금이 0원이 되어 위약금 정산 작업을 만들 수 없다 (HpTask.penalty는 1 이상만 받는다)
+        if (penaltyRatePercent < 1 || penaltyRatePercent > PERCENT) {
+            throw new IllegalArgumentException("위약금 비율은 1~100 사이여야 합니다.");
         }
         if (confirmPeriod == null || confirmPeriod.isNegative() || confirmPeriod.isZero()) {
             throw new IllegalArgumentException("출연 확인 기간은 0보다 길어야 합니다.");
@@ -69,12 +70,5 @@ public record AppearancePolicy(
     /** 모집 인원이 1명 이상, 최대 모집 인원 이하인지 */
     public boolean isRecruitCountAllowed(int recruitCount) {
         return recruitCount >= MIN_RECRUIT_COUNT && recruitCount <= maxRecruitCount;
-    }
-
-    /**
-     * 지금까지 보낸 출연 취소 요청 수를 받아, 한 번 더 요청할 수 있는지 판단한다.
-     */
-    public boolean canRequestCancel(int requestedCount) {
-        return requestedCount < maxCancelRequestCount;
     }
 }

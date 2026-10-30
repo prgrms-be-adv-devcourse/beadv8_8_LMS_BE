@@ -54,10 +54,18 @@ class AppearanceTestClockWiringTest {
                 continue;
             }
             Object bean = AopTestUtils.getUltimateTargetObject(applicationContext.getBean(name));
-            Field field = ReflectionUtils.findField(bean.getClass(), "clock", Clock.class);
-            if (field != null) {
+            if (bean instanceof Clock) {
+                continue; // 테스트 시계 자신(안에 실제 시계를 둔다)
+            }
+            // 필드 이름과 관계없이 Clock 타입 필드를 모두 본다 (이름을 바꿔도 검사에서 빠지지 않도록)
+            List<Field> clockFields = new ArrayList<>();
+            ReflectionUtils.doWithFields(bean.getClass(), clockFields::add,
+                    field -> Clock.class.isAssignableFrom(field.getType()));
+            for (Field field : clockFields) {
                 ReflectionUtils.makeAccessible(field);
-                assertThat(ReflectionUtils.getField(field, bean)).as(name).isSameAs(testClock);
+                assertThat(ReflectionUtils.getField(field, bean)).as("%s.%s", name, field.getName()).isSameAs(testClock);
+            }
+            if (!clockFields.isEmpty()) {
                 beansWithClock.add(name);
             }
         }

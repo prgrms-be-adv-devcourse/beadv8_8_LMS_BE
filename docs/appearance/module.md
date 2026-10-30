@@ -74,11 +74,11 @@
 | 최저 출연료 (1인당) | 20,000 HP | `appearance.policy.minimum-fee` | `isBelowMinimumFee(fee)` |
 | 호스트 일방 취소 위약금 | 출연료의 30%, 원 단위 미만 버림 | `appearance.policy.penalty-rate-percent` | `calculatePenalty(fee)` |
 | 출연 확인 기간 | 방송 예정 일시 + 7×24시간. 지나면 자동 확인(지급) | `appearance.policy.confirm-period` | `confirmDeadline(scheduledAt)` |
-| 출연 취소 요청 최대 횟수 | 출연 1건당 2회 (거절 후 1회 재요청) | `appearance.policy.max-cancel-request-count` | `canRequestCancel(count)` |
+| 출연 취소 요청 최대 횟수 | 출연 1건당 2회 (거절 후 1회 재요청) | `appearance.policy.max-cancel-request-count` | `maxCancelRequestCount()` → 판단은 `Appearance.requestCancel` |
 | 모집 인원 | 1명 ~ 10명 (최소 1명은 고정, 최대는 설정) | `appearance.policy.max-recruit-count` | `isRecruitCountAllowed(count)` |
 
 - 정책 값은 `appearance.yml`에서만 바꾼다 (PR 리뷰를 거치도록). 환경 변수 등 외부 설정으로 덮어쓰지 않는다.
-- 잘못된 값(최저 출연료 0 이하, 위약금 비율 0~100 밖 등)이면 앱이 시작되지 않는다.
+- 잘못된 값(최저 출연료 0 이하, 위약금 비율 1~100 밖 등. 0%면 위약금 정산 작업을 만들 수 없어 막는다)이면 앱이 시작되지 않는다.
 
 ### 2.3 시간
 
