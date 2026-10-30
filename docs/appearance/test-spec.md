@@ -1211,7 +1211,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | HP 작업 | 반환 429 | `PENDING`, 마지막 오류 `RETRYABLE 429: …` |
 | HP 작업 | 지급 409 `IDEMPOTENCY_KEY_CONFLICT` | 재시도 없이 `DEAD`(시도 1), 마지막 오류 `IDEMPOTENCY_KEY_CONFLICT: {지갑 설명}`. 출연은 `CONFIRMED`, 지급 상태 `DEAD` |
 | HP 작업 | 지급 목록 밖 코드 422 `NEW_WALLET_RULE` | `DEAD`, 마지막 오류 `UNMAPPED(NEW_WALLET_RULE, 422): 새 지갑 규칙` |
-| HP 작업 | 지급 목록 밖 401 `INVALID_INTERNAL_API_KEY` → 키 복구 → 다음 시도 | 연동 장애라 `DEAD`가 아니라 `PENDING`·시도 1, 마지막 오류 `UNMAPPED(null, 401)`(공용 Client가 401 본문을 읽지 못해 지갑 코드·설명이 없다) → 다음 시도에 `DONE`, 같은 지급 요청 ID 2번 |
+| HP 작업 | 지급 401(내부 API 키 오류, 본문 없음) → 키 복구 → 다음 시도 | 연동 장애라 `DEAD`가 아니라 `PENDING`·시도 1, 마지막 오류 `UNMAPPED(null, 401)`(계약상 401은 본문이 없다) → 다음 시도에 `DONE`, 같은 지급 요청 ID 2번 |
 | HP 작업 | 지급 5xx 계속 → 관리자 다시 시도 | 10회째 `DEAD`, 마지막 오류 `UNKNOWN_RESULT 500 HOLD_STATE_INCONSISTENT: …` → 지갑 복구 뒤 관리자 다시 시도(#397) → `DONE`. 지갑은 같은 지급 요청 ID로 11번 받음 |
 
 ### 24.2 기존 테스트에서 바뀐 것

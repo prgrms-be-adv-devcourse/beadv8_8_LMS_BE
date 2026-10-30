@@ -370,12 +370,12 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
         @Test
         @DisplayName("목록 밖 401(내부 API 키 오류)은 연동 장애라 DEAD로 두지 않고 재시도 → 키를 고친 뒤 같은 요청 ID로 DONE")
         void integrationFaultRetried() {
-            MockBilling.fail(Endpoint.PAYOUT, 401, "INVALID_INTERNAL_API_KEY", "내부 API 키가 올바르지 않습니다.");
+            MockBilling.fail(Endpoint.PAYOUT, 401, null, null);
             HpTask task = confirm();
 
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
             assertThat(task.getAttemptCount()).isEqualTo(1);
-            // 공용 Client(HttpURLConnection)는 401 응답 본문을 읽지 못해 지갑 코드·설명 없이 상태만 남는다
+            // 계약상 401은 본문이 없어 지갑 코드·설명 없이 상태만 남는다
             assertThat(task.getLastError()).isEqualTo("UNMAPPED(null, 401)");
 
             MockBilling.succeed(Endpoint.PAYOUT);
