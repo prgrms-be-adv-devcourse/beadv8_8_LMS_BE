@@ -14,7 +14,7 @@
 |---|---|---|
 | `./gradlew :appearance-app:test` | 출연 모듈 전체 테스트 | ✅ (저장소·통합·E2E 포함) |
 | `./gradlew :apps:test --tests "com.hapbang.ModularityTests"` | 모듈 경계 검증 | ❌ |
-| `./gradlew check` | CI와 같은 전체 검사 (모든 모듈) | ✅ |
+| `./gradlew check` | 전체 검사 (모든 모듈, main 발행 CI와 같음. PR CI는 바뀐 앱만) | ✅ |
 
 - 저장소·통합·E2E 테스트는 Testcontainers로 임시 PostgreSQL을 띄우고, 끝나면 버린다. 팀 DB나 서버 DB는 건드리지 않는다.
 - 테이블은 운영과 같이 Flyway 마이그레이션으로 만들고, Hibernate는 엔티티와 테이블이 맞는지만 검사한다(`validate`). 어긋나면 테스트가 시작 단계에서 실패한다.

@@ -42,7 +42,7 @@ jobs:
             echo "- 앱: $(jq -r 'if length == 0 then "없음" else join(", ") end' <<< "$apps")"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # 테스트를 통과한 커밋만 발행한다(ci.yml 재사용). 테스트한 jar를 artifact(app-jars)로 넘겨받는다.
+  # 테스트를 통과한 커밋만 발행한다(ci.yml 재사용). 테스트한 jar를 앱별 artifact(app-jar-<앱>)로 넘겨받는다.
   ci:
     needs: changes
     if: needs.changes.outputs.apps != '[]'
@@ -75,11 +75,12 @@ jobs:
           APP: ${{ matrix.app }}
         run: echo "sha=$(.github/scripts/apps.sh source "$APP" "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
 
+      # artifact에는 app.jar 하나만 있다(ci.yml test job). 아래 빌드 컨텍스트 자리에 받는다.
       - name: 테스트한 jar 받기
         uses: actions/download-artifact@v8
         with:
-          name: app-jars
-          path: apps
+          name: app-jar-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/build/libs
 
       - uses: docker/setup-buildx-action@v4
 
