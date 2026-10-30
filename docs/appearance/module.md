@@ -168,7 +168,7 @@ com.hapbang.appearance
 | `app.AppearanceSupport`, `HpTaskSupport` | 출연·HP 작업 저장소 접근 |
 | `app.AppearanceRequestSupport` | 요청서 저장소 접근: `getById`, `existsInProgress`, `saveNow`, `findSent`, `findReceived` (최신순 고정) |
 | `in.ApiV1AppearanceRequestController`, `ApiV1AppearanceRequestSpec` | 출연 요청서 REST API(Facade만 호출)와 Swagger 명세 (요청 값 검증은 Spec에) |
-| `in.AppearanceUserEventListener` | 회원 가입·변경 이벤트 수신 → `AppearanceUserFacade` |
+| `in.AppearanceUserEventListener`, `config.AppearanceKafkaConfig` | 회원 가입·변경 이벤트 Kafka 수신 → `AppearanceUserFacade` / 소비 그룹·DLT·재시도 (#394) |
 | `out.AppearanceUserRepository` | 출연 회원 저장·조회 |
 | `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
 | `out.AppearanceRepository`, `HpTaskRepository` | 출연, HP 작업 저장·조회 |
@@ -199,32 +199,43 @@ com.hapbang.appearance
 
 | 상대 | 방식 | 주고받는 것 | 상태 |
 |---|---|---|---|
-| 회원 | 이벤트 수신 | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ |
+| 회원 | Kafka 이벤트 수신 (`member.events.v1`) | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ Kafka 수신 (#394). 이전에는 같은 서버 안 `@ApplicationModuleListener` |
 | 회원 (global) | 로그인 | Gateway가 JWT를 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더 → `@LoginUserId`·`@PreAuthorize` (20장) | ✅ 앱 쪽 (#395). 회원 JWT 발급(#370) 전까지 운영에는 헤더가 오지 않는다 |
 | 지갑+정산 (billing) | 지갑 내부 HTTP API (`/api/v1/internal/billing/*`, 공용 `BillingApiClient`) | 보류, 반환, 지급, 위약금 | ✅ HTTP 연동 (#274). 이전에는 shared `BillingPort`(같은 서버 안 Java 호출, #289) |
 | 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
 
-### 4.1 회원 정보 복제
+### 4.1 회원 정보 복제 (Kafka 수신, #394)
+
+회원 앱이 다른 프로세스가 되어, 회원 이벤트를 Kafka 토픽 `member.events.v1`에서 받는다. 규칙은 팀 공통 [`kafka.md`](../architecture/infrastructure/kafka.md)(#339)의 "소비"·"재시도와 DLT"이고, 강의 앱(#429)과 같은 방식이다.
 
 ```
-회원 모듈 ──UserJoinedEvent───▶ AppearanceUserEventListener ─▶ AppearanceUserFacade.syncJoined()   ─▶ createIfAbsent() ─▶ appearances.users
-          └─UserModifiedEvent─▶                             └▶ AppearanceUserFacade.syncModified() ─▶ update()
+회원 앱 ─(Kafka member.events.v1, key 회원 ID)─▶ AppearanceUserEventListener (그룹 appearance-app.member-replica)
+   ├ UserJoinedEvent   ─▶ AppearanceUserFacade.syncJoined()   ─▶ createIfAbsent() ─▶ appearances.users
+   ├ UserModifiedEvent ─▶ AppearanceUserFacade.syncModified() ─▶ update()
+   └ 그 밖의 회원 이벤트(로그아웃 등) ─▶ 무시하고 커밋
 ```
 
-| 이벤트 | 발행 시점 (회원 모듈) | 출연 모듈 처리 |
+| 이벤트 | 발행 시점 (회원 앱) | 출연 처리 |
 |---|---|---|
 | `UserJoinedEvent` | 회원 가입 | 출연 회원 생성. **이미 있으면 무시** |
-| `UserModifiedEvent` | 회원 정보(닉네임·역할·상태) 변경 | 있는 출연 회원 갱신. **없으면 `APPEARANCE_USER_NOT_FOUND`로 실패** → 이벤트 저장소에 남았다가 재시작 때 재처리 |
+| `UserModifiedEvent` | 회원 정보(닉네임·역할·상태) 변경 | 있는 출연 회원 갱신. **없으면 `APPEARANCE_USER_NOT_FOUND`로 실패** → 재시도 뒤 DLT |
 
-- **모든 회원 이벤트는 회원 모듈의 트랜잭션이 커밋된 뒤에만 반영한다** (`@ApplicationModuleListener`, 새 트랜잭션에서 처리). 회원 쪽 처리가 롤백되면 출연 회원도 바뀌지 않는다.
-- **출연 회원은 가입 이벤트로만 만든다.** 늦게 처리된 가입 이벤트가 이미 반영된 변경 정보를 덮어쓰지 않게 하기 위해서다 (채팅·강의 모듈과 같은 방식).
+| 항목 | 내용 |
+|---|---|
+| 리스너 | 클래스 레벨 `@KafkaListener`에 가입·변경 `@KafkaHandler`, 모르는 타입은 `@KafkaHandler(isDefault = true)`에서 무시 (토픽에 회원 이벤트 타입이 섞임, ADR 0001) |
+| 역직렬화 | `ErrorHandlingDeserializer` + JSON(`__TypeId__` 헤더), 신뢰 패키지는 `com.hapbang.shared.member.event`만. 시작점 `earliest` |
+| 재시도 | `DefaultErrorHandler` 블로킹 재시도 1초 → 2초 → 4초(최대 10초) 3회. 그동안 그 partition의 뒤 메시지는 기다림 |
+| DLT | `member.events.v1.appearance-app.member-replica.DLT`. 출연 앱이 `NewTopic`으로 선언(partition 3, 보존 7일). 원본과 같은 partition 번호. 역직렬화 실패는 재시도 없이 원본 바이트 그대로 DLT. 재처리는 kafka.md runbook |
+| 직렬화 설정 | Boot 기본 리스너 팩토리를 쓴다(강의와 같음). 이를 위해 `appearance.yml`에서 Modulith Kafka 모듈의 JSON 기본 세트를 끈다(`spring.modulith.events.kafka.enable-json=false`). 켜 두면 그 모듈의 바이트 JSON 변환기 빈이 기본 리스너 팩토리에도 들어가, 역직렬화기가 이미 만든 회원 이벤트 객체를 다시 바이트로 보고 변환하려다 모든 메시지가 실패한다(`Only String, Bytes, or byte[] supported`). 발행 직렬화는 `JacksonJsonSerializer`가 맡는다(11.3) |
+| 로컬·테스트 | Kafka가 없어 리스너 자동 시작과 토픽 생성을 끈다(`spring.kafka.listener.auto-startup`·`spring.kafka.admin.auto-create` = false). Kafka 테스트만 켠다 |
+
+- **출연 회원은 가입 이벤트로만 만든다.** 늦게 처리된 가입 이벤트가 이미 반영된 변경 정보를 덮어쓰지 않게 하기 위해서다 (채팅·강의와 같은 방식). 가입보다 먼저 온 변경은 DLT에 쌓이고 runbook대로 다시 넣는다(사용자 결정 10/30, 강의 #429와 같게).
     - 복제 회원은 ID를 직접 넣기 때문에 JPA `save()`가 merge로 동작한다. 가입·변경이 각자 "없으면 생성"하면 PK 충돌 없이 나중 것이 덮어쓴다.
-- 변경 이벤트는 회원 버전(`UserDto.version`)으로 걸러 반영한다. 공통 `ReplicaUser.syncFrom`이 이미 반영한 버전보다 크지 않은 정보(늦게 온·중복된 이벤트)를 무시한다 (회원 #292, 출연 마이그레이션 `V202610161501`은 회원 담당 추가).
-- 처리에 실패하면 Modulith 이벤트 저장소(`event_publication`)에 남고, 서버가 재시작될 때 다시 처리된다 (`republish-outstanding-events-on-restart`). 주기적으로 재시도하지는 않는다.
+- 멱등·순서: 공통 `ReplicaUser.syncFrom`이 회원 버전(`UserDto.version`)으로 이미 반영한 버전보다 크지 않은 정보(늦게 온·중복된 이벤트)를 무시한다 (회원 #292). Modulith 발행은 같은 key라도 순서가 바뀔 수 있어 이 비교가 필요하다.
+- 반영이 커밋된 뒤 리스너가 끝나야 offset이 커밋된다. 커밋 전에 죽으면 같은 이벤트를 다시 받고 버전 비교가 흡수한다.
+- 출연 DB는 새로 띄우므로 복제본은 회원 가입 이벤트로 채워진다(기존 회원 데이터 이전 없음).
 - 회원이 정지·탈퇴 상태로 바뀌면 이후 출연 거래 자격 확인에서 `APPEARANCE_USER_NOT_ACTIVE`가 된다.
-- 한계 (팀에서 수용)
-    - 가입보다 변경 이벤트가 먼저 처리되면, 그 변경은 서버 재시작 때까지 반영되지 않는다.
-    - ~~변경 이벤트 순서가 바뀌면 옛 정보가 반영될 수 있다 (#56)~~ → 회원 #292의 버전 비교로 해결.
+- 한계: 가입보다 변경 이벤트가 먼저 오면, DLT를 다시 넣기 전까지 그 회원은 출연에서 "회원 없음"이다.
 
 ### 4.2 Billing 연동 (#168)
 
@@ -765,7 +776,8 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 토픽 | `appearance.events.v1`(shared `AppearanceEventTopic.NAME`). 출연 이벤트 타입을 한 토픽에 섞는다. 출연 앱이 `NewTopic`으로 선언한다(partition 3개, 복제 1). 브로커 자동 생성은 꺼져 있다 |
 | key | 이벤트가 다루는 대상 ID에 종류 접두어: 요청 도착 `appearance-request:<요청서 ID>`, 지원 도착 `appearance-application:<지원 ID>`. shared 레코드의 `@Externalized("appearance.events.v1::#{…}")`로 정한다. 같은 key는 같은 partition으로 가지만, 커밋 뒤 비동기로 보내므로 순서는 보장하지 않는다 |
 | 본문 | shared 이벤트 레코드를 그대로 JSON으로 싣는다(봉투 없음). 예: `{"request":{"requestId":1,"hostId":1,"guestId":2,"title":"…","fee":30000,"scheduledAt":"2026-11-05T17:54:44","acceptDeadline":"2026-10-31T17:54:44"}}`. 시각은 KST `LocalDateTime` |
-| 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). Spring Kafka JSON 변환기가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
+| 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). 값 직렬화기 `JacksonJsonSerializer`가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
+| 직렬화 | `appearance.yml`의 `spring.kafka.producer.value-serializer=JacksonJsonSerializer`. Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] + 바이트 JSON 변환기)는 끈다(`spring.modulith.events.kafka.enable-json=false`, #394). 회원 앱 발행 설계와 같은 방식이고, 켜 두면 회원 이벤트 수신(4.1)이 실패한다 |
 | 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
 | 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose에 Kafka가 없어 외부화를 끈다(`SPRING_MODULITH_EVENTS_EXTERNALIZATION_ENABLED=true`로 켬). 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
 | 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification` (kafka.md 토픽 목록) |

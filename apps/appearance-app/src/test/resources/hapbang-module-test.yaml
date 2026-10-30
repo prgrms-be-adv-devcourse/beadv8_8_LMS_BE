@@ -17,3 +17,10 @@ spring:
       # Kafka 발행은 AppearanceEventKafkaTest가 Testcontainers Kafka와 함께 켜서 확인한다
       externalization:
         enabled: false
+  kafka:
+    # 대부분의 테스트에는 Kafka가 없다. 회원 이벤트 리스너(#394)가 연결을 계속 시도하거나 토픽 생성이 시간 초과를 기다리지 않게 끈다.
+    # Kafka 테스트(AppearanceUserEventListenerTest, AppearanceEventKafkaTest)만 KafkaTestcontainersConfig와 함께 다시 켠다.
+    listener:
+      auto-startup: false
+    admin:
+      auto-create: false
