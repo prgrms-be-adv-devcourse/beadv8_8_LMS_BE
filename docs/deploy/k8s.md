@@ -19,7 +19,7 @@
 - 앱은 자기 node 배치(affinity), limit, 배포 전략을 직접 적는다. 앱 전체의 node별 합계는 [자원 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)과 아래 메모리 예산 확인으로 맞춘다.
 - Helm CLI는 쓰지 않는다. 차트는 k3s 내장 helm-controller의 `HelmChart`(`helm.cattle.io/v1`)로 설치하고 values는 `valuesContent`에 적는다([k3s Helm](https://docs.k3s.io/add-ons/helm)).
 - platform의 StatefulSet은 `hapbang.io/pool: core-data` label을 붙이면 component가 affinity를 넣는다. HelmChart와 Elasticsearch CR에는 component가 닿지 않으므로 values·`podTemplate`에 같은 affinity를 직접 적는다.
-- 앱은 지금 있는 6개만 둔다. notification·search는 각 앱 티켓에서 더한다. appearance·lecture·customer-support는 다른 앱 프로세스에만 있는 Port 구현 때문에 단독으로 기동하지 못해 `replicas: 0`이다(#280).
+- 앱은 지금 있는 6개만 둔다. notification·search는 각 앱 티켓에서 더한다. appearance는 billing 프로세스에만 있는 `BillingPort` 구현 때문에 단독으로 기동하지 못해 `replicas: 0`이다(#274, #280). lecture·customer-support는 #433부터 혼자 기동해 1이다.
 - 공용 Envoy Gateway·cert-manager와 IMDS 차단 정책은 `k8s/gateway/`에 있다([Gateway 구성](gateway.md), #372). 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 각 앱의 `apps/<앱>/k8s/base/`에 있다. 앱 외부 8080·내부 8081을 분리한다. platform(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)에는 ingress NetworkPolicy를 두지 않는다.
 
 ## 버전

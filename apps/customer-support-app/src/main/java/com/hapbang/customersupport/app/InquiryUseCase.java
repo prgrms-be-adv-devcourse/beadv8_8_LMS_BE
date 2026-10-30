@@ -10,14 +10,15 @@ import com.hapbang.customersupport.app.exception.CustomerSupportException;
 import com.hapbang.customersupport.domain.Inquiry;
 import com.hapbang.customersupport.domain.InquiryCategory;
 import com.hapbang.customersupport.out.InquiryRepository;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
-import com.hapbang.shared.lecture.port.LectureObjectionPort;
 
 import lombok.RequiredArgsConstructor;
 
 /**
  * 문의 쓰기 기능. 엔티티를 그대로 돌려주고, 응답 DTO는 커밋 뒤 {@link InquiryFacade}가 만든다.
  * 그래서 새 행의 ID·작성 시각(커밋 때 INSERT)이 응답에 담긴다.
+ * <p>
+ * 강의 내용 다름 이의 제기의 접수·판단·철회는 강의 연동이 없어 {@code OBJECTION_UNAVAILABLE}로 거절한다(#433).
+ * 강의에 알리지 않고 문의만 바꾸면 이의 제기한 항목도 판매자에게 지급되기 때문이다. 연동은 #278·#279에서 다시 잇는다.
  */
 @Service
 @Transactional
@@ -25,11 +26,9 @@ import lombok.RequiredArgsConstructor;
 public class InquiryUseCase {
 
     private final InquiryRepository inquiryRepository;
-    private final LectureObjectionPort lectureObjectionPort;
 
     /**
-     * 문의를 접수한다. 강의 내용 다름 이의 제기면 같은 트랜잭션에서 강의 모듈에 이의 제기를 접수해 지급을 멈춘다.
-     * 강의 모듈이 접수를 거절하면 문의도 저장되지 않는다.
+     * 문의를 접수한다. 강의 내용 다름 이의 제기는 강의 연동 전까지 접수하지 않는다(저장하지 않음).
      *
      * @param orderItemId 이의 제기할 강의 주문 항목. 이의 제기에만 필수이고 다른 유형에는 보낼 수 없다
      */
@@ -43,19 +42,11 @@ public class InquiryUseCase {
         if (orderItemId == null) {
             throw new CustomerSupportException(CustomerSupportErrorCode.INQUIRY_TARGET_REQUIRED);
         }
-        // 강의 모듈이 접수한 문의 ID를 기억하므로 먼저 저장해 ID를 받는다
-        Inquiry inquiry = inquiryRepository.save(Inquiry.createLectureDispute(userId, title, content, orderItemId));
-        try {
-            lectureObjectionPort.fileObjection(orderItemId, userId, inquiry.getId(), inquiry.getContent());
-        } catch (LectureObjectionRefusedException exception) {
-            throw refused(exception);
-        }
-        return inquiry;
+        throw new CustomerSupportException(CustomerSupportErrorCode.OBJECTION_UNAVAILABLE);
     }
 
     /**
-     * 관리자가 이의 제기를 인정·기각하고 판단 안내 답변을 단다(답변 완료). 같은 트랜잭션에서 강의 모듈에 반영한다.
-     * 인정하면 강의 모듈이 보류 HP를 구매자에게 반환하며, 강의·지갑 쪽이 실패하면 판단도 저장되지 않는다.
+     * 관리자가 이의 제기를 인정·기각하고 판단 안내 답변을 단다. 강의 연동 전까지는 판단을 저장하지 않고 거절한다.
      */
     public Inquiry resolveObjection(Long inquiryId, Long adminUserId, boolean accepted, String replyContent) {
         Inquiry inquiry = findWithReplies(inquiryId);
@@ -65,19 +56,12 @@ public class InquiryUseCase {
         if (inquiry.isObjectionResolved()) {
             throw new CustomerSupportException(CustomerSupportErrorCode.OBJECTION_ALREADY_RESOLVED);
         }
-        inquiry.resolveObjection(adminUserId, accepted, replyContent, LocalDateTime.now());
-        try {
-            lectureObjectionPort.resolveObjection(inquiry.getTargetId(), inquiryId, accepted, adminUserId);
-        } catch (LectureObjectionRefusedException exception) {
-            throw refused(exception);
-        }
-        return inquiry;
+        throw new CustomerSupportException(CustomerSupportErrorCode.OBJECTION_UNAVAILABLE);
     }
 
     /**
      * 내 문의를 삭제한다(Soft Delete). 답변 대기일 때만 할 수 있다. 다른 회원의 문의나 이미 삭제된 문의는 404.
-     * 이의 제기 문의면 같은 트랜잭션에서 강의 모듈의 이의 제기를 철회해 지급 중단을 푼다. 판단하면 답변 완료가 되므로
-     * 판단 전에만 철회된다. 강의 모듈이 철회를 거절하면 문의도 삭제되지 않는다.
+     * 이의 제기 문의는 강의 연동 전까지 철회(삭제)하지 않는다.
      */
     public void delete(Long inquiryId, Long userId) {
         Inquiry inquiry = inquiryRepository.findByIdAndDeletedAtIsNull(inquiryId)
@@ -86,14 +70,10 @@ public class InquiryUseCase {
         if (!inquiry.isWaiting()) {
             throw new CustomerSupportException(CustomerSupportErrorCode.INQUIRY_NOT_DELETABLE);
         }
-        inquiry.delete(LocalDateTime.now());
         if (inquiry.isLectureDispute()) {
-            try {
-                lectureObjectionPort.withdrawObjection(inquiry.getTargetId(), userId, inquiryId);
-            } catch (LectureObjectionRefusedException exception) {
-                throw refused(exception);
-            }
+            throw new CustomerSupportException(CustomerSupportErrorCode.OBJECTION_UNAVAILABLE);
         }
+        inquiry.delete(LocalDateTime.now());
     }
 
     /** 관리자 답변. 답변을 달면 문의가 답변 완료가 된다. 회원이 삭제한 문의는 404 */
@@ -124,11 +104,6 @@ public class InquiryUseCase {
     private Inquiry findWithReplies(Long inquiryId) {
         return inquiryRepository.findWithRepliesByIdAndDeletedAtIsNull(inquiryId)
                 .orElseThrow(() -> new CustomerSupportException(CustomerSupportErrorCode.INQUIRY_NOT_FOUND));
-    }
-
-    /** 강의 모듈의 거절을 사유별 고객센터 예외로 바꾼다. 트랜잭션은 이미 롤백 전용이라 문의 변경도 함께 롤백된다 */
-    private static CustomerSupportException refused(LectureObjectionRefusedException exception) {
-        return new CustomerSupportException(CustomerSupportErrorCode.of(exception.getReason()), exception.getMessage());
     }
 
     private static void requireReply(Inquiry inquiry, Long replyId) {
