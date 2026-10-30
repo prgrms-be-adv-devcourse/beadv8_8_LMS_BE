@@ -1,14 +1,21 @@
 # main·dev로 가는 PR마다 테스트를 실행하고, 테스트한 jar로 앱별 이미지가 빌드되는지까지 확인한다(push하지 않음).
 # 앱은 apps/<앱>-app 여섯 개이고, 앱마다 jar(apps/<앱>-app/build/libs/app.jar)와 Dockerfile을 가진다(#356).
-# 앱별 배포 전환 전까지 deploy.yml은 멈춰 있고 이 워크플로를 호출하지 않는다.
+# main push 때는 publish.yml이 이 워크플로를 호출해 테스트한 jar를 artifact(app-jars)로 넘겨받는다(#374).
 # 테스트는 Testcontainers로 PostgreSQL을 띄우므로 Docker가 있는 ubuntu 러너가 필요하다.
 name: CI
 
 on:
   pull_request:
     branches: [main, dev]
+  workflow_call:
+    inputs:
+      upload-jar:
+        description: 테스트한 앱별 jar를 artifact(app-jars)로 올린다
+        type: boolean
+        default: false
 
 # 같은 PR에 새 커밋이 올라오면 이전 실행을 취소한다.
+# 호출될 때는 호출한 run의 run_id가 들어가 run마다 그룹이 달라진다. 호출자(publish.yml)의 그룹과 이름이 겹치지 않으므로 서로 기다리지 않는다.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
@@ -34,6 +41,10 @@ jobs:
       # v6부터 캐시 기능이 Gradle 상용 약관(Terms of Use)을 따르므로 MIT인 v5를 쓴다.
       - uses: gradle/actions/setup-gradle@v5
 
+      # 발행·배포 앱 목록(.github/scripts/apps.sh)에 빠진 앱이 없는지 검사한다(#374).
+      - name: 앱 목록 검사
+        run: .github/scripts/apps.sh check
+
       # 앱 사이 의존, 앱별 진입점·설정·Dockerfile 누락을 검사한다(루트 build.gradle.kts).
       # 다른 프로젝트의 runtimeClasspath를 실행 중에 resolve하므로 --parallel에서는 Gradle이 막는다. 따로 돌린다.
       - name: 모듈 구조 검사
@@ -50,6 +61,16 @@ jobs:
         with:
           name: test-reports
           path: '**/build/reports/tests/'
+
+      # publish.yml이 바뀐 앱의 이미지를 만들 때 쓴다. 경로는 apps/를 뺀 <앱>/build/libs/app.jar로 담긴다.
+      - name: jar 업로드
+        if: inputs.upload-jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-jars
+          path: apps/*-app/build/libs/app.jar
+          if-no-files-found: error
+          retention-days: 1
 
       # 앱마다 자기 Dockerfile로, 테스트한 jar 디렉터리를 컨텍스트로 빌드한다.
       - name: 이미지 빌드 확인

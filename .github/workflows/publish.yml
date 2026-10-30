@@ -1,0 +1,100 @@
+# main push 때 바뀐 앱만 테스트한 jar로 이미지를 만들어 GHCR에 올린다(#374). 배포는 하지 않는다(배포는 수동 dispatch).
+# changes: 이번 push 범위(before..sha)에서 바뀐 앱을 고른다(.github/scripts/apps.sh). 바뀐 앱이 없으면 아래 job을 건너뛴다.
+# ci: 테스트하고 앱별 jar를 만든다(ci.yml 재사용, 읽기 권한).
+# build: 바뀐 앱마다 ci가 테스트한 jar를 이미지에 담아 :sha-<그 앱을 마지막으로 바꾼 커밋>으로 올린다(packages: write는 이 job에만).
+# 태그는 :sha-<커밋> 하나다. :latest 같은 움직이는 태그는 만들지 않는다. dev는 이미지를 만들지 않는다(dev 서버 없음).
+name: Publish images
+
+on:
+  push:
+    branches: [main]
+
+# main push는 순서대로 처리한다. 앞 push의 발행을 취소하면 그 커밋의 이미지가 비게 된다.
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_PREFIX: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      apps: ${{ steps.detect.outputs.apps }}
+    steps:
+      # before 커밋과 비교하려면 전체 이력이 필요하다.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 바뀐 앱 찾기
+        id: detect
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          apps=$(.github/scripts/apps.sh changed "$BEFORE" "$GITHUB_SHA" | jq -Rnc '[inputs | select(length > 0)]')
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          {
+            echo "### 발행 대상"
+            echo "- 범위: \`${BEFORE:0:7}..${GITHUB_SHA:0:7}\`"
+            echo "- 앱: $(jq -r 'if length == 0 then "없음" else join(", ") end' <<< "$apps")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # 테스트를 통과한 커밋만 발행한다(ci.yml 재사용). 테스트한 jar를 artifact(app-jars)로 넘겨받는다.
+  ci:
+    needs: changes
+    if: needs.changes.outputs.apps != '[]'
+    uses: ./.github/workflows/ci.yml
+    with:
+      upload-jar: true
+
+  build:
+    needs: [changes, ci]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      # 한 앱의 push가 실패해도 다른 앱은 올린다. 실패한 앱은 이 run을 다시 실행한다.
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.changes.outputs.apps) }}
+    steps:
+      # 앱의 Dockerfile과 태그를 정할 이력을 받는다. 소스는 빌드하지 않는다.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # 태그는 push head가 아니라 이 앱을 마지막으로 바꾼 main 커밋이다. 그 뒤로 앱 경로가 그대로이므로 head에서 만든 이미지와 내용이 같다.
+      # 배포 workflow도 같은 명령(apps.sh source)으로 이미지를 찾는다.
+      - name: 이미지 태그 결정
+        id: tag
+        env:
+          APP: ${{ matrix.app }}
+        run: echo "sha=$(.github/scripts/apps.sh source "$APP" "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+
+      - name: 테스트한 jar 받기
+        uses: actions/download-artifact@v8
+        with:
+          name: app-jars
+          path: apps
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # :sha-<커밋>은 배포·롤백 때 고르는 태그다.
+      - uses: docker/build-push-action@v7
+        with:
+          context: apps/${{ matrix.app }}/build/libs
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.app }}:sha-${{ steps.tag.outputs.sha }}
