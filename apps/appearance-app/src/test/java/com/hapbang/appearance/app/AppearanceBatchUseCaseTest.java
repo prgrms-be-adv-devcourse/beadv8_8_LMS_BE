@@ -381,7 +381,7 @@ class AppearanceBatchUseCaseTest {
             HpTask dead = onlyTask();
             assertThat(dead.getStatus()).isEqualTo(HpTaskStatus.DEAD);
             assertThat(dead.getAttemptCount()).isEqualTo(10);
-            assertThat(dead.getLastError()).isEqualTo("IllegalStateException: Billing 응답 없음 (테스트)");
+            assertThat(dead.getLastError()).isEqualTo("UNKNOWN_RESULT: Billing 응답 없음 (테스트)");
             assertThat(hpTaskMetrics.deadCount()).isEqualTo(1);
         }
 

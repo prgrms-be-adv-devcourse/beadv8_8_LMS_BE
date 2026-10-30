@@ -28,6 +28,7 @@ import com.hapbang.appearance.app.dto.AppearanceRequestSummaryResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearanceHoldRejectedException;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
 import com.hapbang.appearance.fixture.AppearanceRequestFixture;
@@ -38,7 +39,6 @@ import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
-import com.hapbang.appearance.global.exception.BusinessException;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -106,10 +106,10 @@ class AppearanceRequestFacadeTest {
                 .extracting("errorCode").isEqualTo(errorCode);
     }
 
-    /** Billing 거절은 출연 오류로 바꾸지 않고 Billing 오류(코드·메시지) 그대로 나온다 */
-    private static void assertBillingRejected(Runnable action, Rejection errorCode) {
+    /** 지갑 거절은 출연 코드로 바꿔 응답한다 (사용자에게 알릴 거절만 같은 이름의 코드, 그 밖은 HP_HOLD_FAILED) */
+    private static void assertHoldRejected(Runnable action, AppearanceErrorCode errorCode) {
         assertThatThrownBy(action::run)
-                .isInstanceOf(BusinessException.class)
+                .isInstanceOf(AppearanceHoldRejectedException.class)
                 .hasMessage(errorCode.getMessage())
                 .extracting("errorCode").isEqualTo(errorCode);
     }
@@ -134,11 +134,11 @@ class AppearanceRequestFacadeTest {
     }
 
     @Test
-    @DisplayName("Billing이 보류를 거절하면(잔액 부족) 그 오류 그대로, 요청서는 HOLD_FAILED로 남고 목록에 보이지 않는다")
+    @DisplayName("지갑이 보류를 거절하면(잔액 부족) 409 INSUFFICIENT_BALANCE(출연 문구), 요청서는 HOLD_FAILED로 남고 목록에 보이지 않는다")
     void insufficientBalance() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
-        assertBillingRejected(() -> send(HOST, GUEST), Rejection.INSUFFICIENT_BALANCE);
+        assertHoldRejected(() -> send(HOST, GUEST), AppearanceErrorCode.INSUFFICIENT_BALANCE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
         assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
@@ -148,7 +148,7 @@ class AppearanceRequestFacadeTest {
     @DisplayName("보류 거절로 실패한 뒤에는 같은 게스트에게 다시 보낼 수 있다")
     void retryAfterHoldFailed() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
-        assertBillingRejected(() -> send(HOST, GUEST), Rejection.INSUFFICIENT_BALANCE);
+        assertHoldRejected(() -> send(HOST, GUEST), AppearanceErrorCode.INSUFFICIENT_BALANCE);
         BillingStubs.available(billingClient);
 
         AppearanceRequestResDto response = send(HOST, GUEST);
@@ -157,11 +157,11 @@ class AppearanceRequestFacadeTest {
     }
 
     @Test
-    @DisplayName("잔액 부족 외의 Billing 거절(지갑 없음)도 그대로 응답하고 요청서는 HOLD_FAILED")
+    @DisplayName("잔액 부족 외의 지갑 거절(지갑 없음)은 지갑 코드·설명을 숨기고 500 HP_HOLD_FAILED, 요청서는 HOLD_FAILED")
     void walletNotFound() {
         BillingStubs.reject(billingClient, Rejection.WALLET_NOT_FOUND);
 
-        assertBillingRejected(() -> send(HOST, GUEST), Rejection.WALLET_NOT_FOUND);
+        assertHoldRejected(() -> send(HOST, GUEST), AppearanceErrorCode.HP_HOLD_FAILED);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
     }

@@ -50,6 +50,7 @@ import com.hapbang.testsupport.PostgresTestcontainersConfig;
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
 @MockitoBean(types = BillingClient.class, reset = MockReset.AFTER)
-@ExtendWith({AppearanceTestClock.ResetExtension.class, RestAssuredPortExtension.class})
+@ExtendWith({AppearanceTestClock.ResetExtension.class, BillingStubs.SucceedByDefault.class,
+        RestAssuredPortExtension.class})
 public @interface AppearanceE2ETest {
 }
