@@ -51,7 +51,7 @@
 | 위험 | 현재 | 개선안 |
 | --- | --- | --- |
 | SSH 22 전체 개방 | 기존 Compose 배포(Actions SSH) 때문에 열었다. 배포는 SSM으로 바뀌었지만 아직 열려 있다. 키 인증만 허용 | 허용 source 제한 또는 SSM Session Manager 전환([aws-k3s.md](aws-k3s.md#network와-외부-노출)) |
-| 기존 Compose 배포 자격 증명이 남아 있음 | Compose는 2026-10-30에 지웠지만(#440) 서버의 `deploy` 계정·배포 키(`authorized_keys`)·`deploy.sh`, 옛 비밀값이 든 `/opt/hapbang/env`, FE·BE 레포의 `DEPLOY_SSH_KEY`·`DEPLOY_HOST`·`DEPLOY_KNOWN_HOSTS` Secrets는 남아 있을 수 있다 | 서버와 GitHub에서 삭제(#374 기존 경로 정리) |
+| FE 레포에 Compose 배포 자격 증명이 남아 있음 | 서버의 `deploy` 계정과 BE 레포의 `DEPLOY_*` Secrets는 지웠다(#374). FE 레포의 `DEPLOY_SSH_KEY`·`DEPLOY_HOST`·`DEPLOY_KNOWN_HOSTS` Secrets와 Compose 배포 workflow는 남아 있다. 서버에 받을 계정이 없어 접속은 실패한다 | FE 레포에서 삭제(FE 티켓) |
 | main으로 가는 PR 출발 브랜치 검사가 이름만 봄 | ruleset `protect-main-dev`가 PR·`verify`·`source-branch`(dev, `release/review-N`만 허용, #180)를 요구한다. 승인 수는 0이라 이름을 맞춘 브랜치는 통과한다 | main 전용 ruleset으로 승인 1개 이상 요구 |
 | k3s 배포 role이 large에서 임의 명령을 root로 실행할 수 있음 | trust를 Environment `prod`(`main`만)로 제한. `main`에 병합된 workflow만 쓴다 | 토큰 발급만 하는 전용 SSM 문서로 권한 축소 |
 | GitHub Actions 메이저 버전 태그(`@v7` 등) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |

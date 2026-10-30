@@ -113,7 +113,7 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 8. rolling update, pod 종료, medium node 중지와 large node 중지의 서로 다른 결과를 기록한다.
 9. prod 전환과 rollback 검증이 끝난 뒤에만 Compose 배포 경로, edge nginx와 dev 서버를 제거한다.
    - (서버 실행, 2026-10-30, #440) 계획과 달리 prod 앱 전환과 rollback 검증 전에 Compose의 prod·dev(app·web·PostgreSQL)와 edge(nginx·certbot)를 `down -v`로 볼륨까지 지웠다. 기존 운영 DB에는 필요 없는 데이터만 있어 백업하지 않았고, k3s PostgreSQL에서 새로 시작한다(#338의 Compose 데이터 이전은 하지 않는다). Compose로 되돌리는 경로는 없다.
-   - 남은 Compose 배포 경로(`deploy-prod.yml`·`deploy-server.yml`, `docker/`의 compose·nginx·`deploy.sh`, 서버의 `deploy` 계정·`/opt/hapbang`, `DEPLOY_*` Secrets)는 #374의 기존 경로 정리에서 지운다.
+   - (#374) 남은 Compose 배포 경로를 지웠다. 레포의 `deploy-prod.yml`·`deploy-server.yml`과 `docker/`의 `Dockerfile`·compose·nginx·`deploy.sh`, BE 레포의 `DEPLOY_*` Secrets, 서버의 `deploy` 계정·`/opt/hapbang`·`hapbang-deploy`다. FE 레포의 Compose 배포 workflow·Secrets는 FE 티켓에서 정리한다.
 
 ## k3s 설치
 

@@ -9,7 +9,6 @@
 #   role의 trust는 environment prod job만 허용하고, prod environment는 main 브랜치만 허용한다.
 #   prod environment Secrets: AWS_DEPLOY_ROLE_ARN(role ARN), DEPLOY_INSTANCE_ID(large 인스턴스 ID)
 # 공개 레포라 로그도 공개다. node 이름·IP가 나오는 출력을 하지 않는다(.github/scripts/k3s-deploy.sh).
-# Compose 운영 배포(deploy-prod.yml·deploy-server.yml)는 k3s 전환 검증 뒤 지운다(docs/deploy/aws-k3s.md).
 name: Deploy
 
 on:
