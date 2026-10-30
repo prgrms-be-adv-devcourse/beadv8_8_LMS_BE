@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: kafka-ui-basic-auth
+  namespace: hapbang-platform
+spec:
+  encryptedData:
+    .htpasswd: AgByGJUYo6w2bxda6U8VLpFAdp5hoMTyfSBhLHhVVq1kHKeDLUMcRBwITajS54MEgV5m9+PFpUqGzheLTnsUpgJgRSNPkUkbqhXY2IK+dK7A15aGZuvORp19dURM6NbEvQspWVVPMBvjG4m2Fo5vAPs5xnzgMMN7mOUgM391li+I7I+91q7Y0ySxzxgxBMHjlWHk0uzv8vDsS6tbpAeT5w/CP24pNNaIjejVIBbE3watTwLQV4Ea+dKjqqs2xPZFHSihMjt+YpQDfYwXA4hYG26cIQZc/BJfJw4eja2LTt0vxhjPUXpL3PEv6StxcXwr5lU/pU65/eK5d5lxDhKnP24EvoGu/66K25QZT/eFE2nPIONCAcfaOl/SIosFTQX7lKv8k+Yo3d02w1NVNPXb5hHW8New9iI20u7c95loToq06FkqtvnDSddAW8zOwKsc9A+xyzBofDmKx4l4SRVfMquJ2jzvUlyeQXUr5uU2UDx1wvCPmMNC/wOUEEaRpfCEOIvKGfm7JP6e4XDgTi6nvw1qufBYwp0LUmimhy0Y8VtiJuo3vuhY/FtsMr9U3HUgPNznSbGjf8SW+IHFCoaARGq2tgTGaIzdKimleA3SllY2qX7DABn3gRT6IFGM5eWjIs4gJ6ZlHsbX5zGRu0ATmCGRFimiEM/iwqf/C0TSig7WebKLIVhDVzZ0Zayy5jETjiPzfm3tWk93I0civ0mfZYd95p4IQtTYGRFTpSzXA5wVmWOh6E9ySqw=
+  template:
+    metadata:
+      name: kafka-ui-basic-auth
+      namespace: hapbang-platform
