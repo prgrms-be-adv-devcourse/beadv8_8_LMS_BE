@@ -56,10 +56,18 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 | `lecture-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `S3_BUCKET` | `apps/lecture-app/k8s/overlays/prod` |
 | `appearance-app-secrets`, `chat-app-secrets`, `customer-support-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY` | 각 앱의 `k8s/overlays/prod` |
 | `postgres-credentials` | hapbang-platform | `postgres`(superuser), `member`, `billing`, `appearance`, `lecture`, `chat`, `customersupport` | `k8s/platform/overlays/prod` |
-| `ghcr-pull` | hapbang-prod | `.dockerconfigjson` | 앱마다 두지 않고 namespace에 하나(#374) |
 
 - `postgres-credentials`의 앱별 값은 각 앱 Secret의 `DB_PASSWORD`와 같아야 한다. PostgreSQL이 첫 기동 때 이 값으로 앱 role을 만든다.
 - `HAPBANG_INTERNAL_API_KEY`는 모든 앱이 같은 값을 쓴다.
+
+앱 SealedSecret은 `k8s/tools/seal-app-secrets.sh`로 만든다. 값은 화면에 출력하지 않는다.
+
+- `DB_PASSWORD`는 EC2 cluster의 `postgres-credentials`에서 읽고, `HAPBANG_INTERNAL_API_KEY`는 `~/.hapbang/internal-api-key`를 쓴다. 파일이 없으면 멈추고, 처음 설치할 때만 앱 이름 없이 `HAPBANG_NEW_INTERNAL_API_KEY=1`로 실행해 새 키로 앱 6개를 함께 봉인한다. 빈 `DB_PASSWORD`, billing 결제 키 한쪽만 있는 경우도 멈춘다.
+- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 서버 `prod.env`의 줄을 그대로 옮기면 되고, 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`.
+- 필수 값이 없으면 키 이름만 알리고 멈춘다. 만든 파일은 각 앱의 `overlays/prod/<앱>-app-secrets.yaml`이고 kustomization `resources`에 더한다.
+- `~/.hapbang`의 파일은 팀 비밀 보관소에도 둔다. 내부 API 키를 다시 만들면 앱 6개를 모두 다시 봉인한다.
+
+앱 이미지(`ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>`)는 공개 패키지로 두어 pull secret을 쓰지 않는다. 레포가 공개라 이미지 공개로 더 드러나는 정보가 없다. GHCR 패키지는 처음 발행될 때 비공개이고 레포 공개 여부를 이어받지 않으므로, 앱마다 첫 발행 뒤 패키지 페이지 → Package settings → Change visibility → Public으로 바꾼다. 한 번 공개하면 되돌릴 수 없다. org의 Settings → Packages → Package Creation에서 Public이 막혀 있으면 org owner가 먼저 허용한다.
 
 Sealed Secrets controller 키를 잃으면 위 SealedSecret을 모두 다시 만들어야 한다. 백업과 복구는 [AWS 2노드 k3s 배치](aws-k3s.md#sealed-secrets-키-백업)를 따른다.
 
