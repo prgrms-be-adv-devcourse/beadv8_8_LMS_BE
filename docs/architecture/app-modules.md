@@ -53,7 +53,7 @@ docker build -f apps/member-app/Dockerfile apps/member-app/build/libs
 
 CI(`ci.yml`)는 앱별 구조로 바꿨다. `./gradlew verifyModuleStructure`로 구조를 검사하고 `./gradlew check bootJar --parallel`로 테스트해 여섯 앱의 jar를 만든 뒤, 앱마다 자기 `Dockerfile`로 이미지 빌드를 확인한다. 이미지는 발행하지 않는다.
 
-dev 자동 배포(`deploy.yml`)는 멈췄다. 기존 배포는 단일 앱 이미지를 전제로 하고, 아래 제약 때문에 새 앱으로 서버를 바꿀 수 없어서다. push 트리거를 빼서 이 구조가 병합된 뒤에도 dev 서버는 마지막으로 배포한 단일 앱 이미지를 유지한다. 앱별 이미지 발행과 배포는 서비스 간 통신 전환 뒤 인프라 담당자가 다시 작성한다. 현재 워크플로가 앱별 이미지를 발행하거나 앱별 배포를 수행한다고 가정하지 않는다.
+기존 dev 자동 배포는 멈췄다. 단일 앱 이미지를 전제로 하고, 아래 제약 때문에 새 앱으로 서버를 바꿀 수 없어서다. dev 서버는 마지막으로 배포한 단일 앱 이미지를 유지한다. 앱별 이미지 발행(`publish.yml`)과 k3s 앱별 배포(`deploy.yml`)는 #374에서 다시 작성했다([운영 앱 배포](../deploy/k8s.md#운영-앱-배포)). k3s 전환 전까지 운영은 Compose다.
 
 Kubernetes 배포, Gateway와 실제 서비스 전환은 별도 작업이다. `docker/`와 기존 배포 문서는 기존 환경의 기록으로 남겨 두며, 새 앱 이미지에 기존 단일 app 배포 절차를 적용하면 안 된다.
 

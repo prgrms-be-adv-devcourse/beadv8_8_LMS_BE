@@ -8,11 +8,11 @@
 
 | 경로 | namespace | 내용 | 적용 |
 | --- | --- | --- | --- |
-| `k8s/cluster` | kube-system 외 | namespace, `local-path-retain` StorageClass, HelmChart(ECK operator, Sealed Secrets) | 수동 |
+| `k8s/cluster` | kube-system 외 | namespace(`hapbang-prod`는 Pod Security `baseline` 강제), `local-path-retain` StorageClass, HelmChart(ECK operator, Sealed Secrets) | 수동 |
 | `k8s/gateway/{install,base,overlays}` | envoy-gateway-system·cert-manager 외 | 공용 Envoy·TLS·Grafana·IMDS 차단 정책. [Gateway 절차](gateway.md) | 수동 |
 | `k8s/components/core-data` | - | `hapbang.io/pool: core-data` label에 large required node affinity를 붙이는 Kustomize Component | platform이 사용 |
 | `k8s/platform/{base,overlays/local,overlays/prod}` | hapbang-platform | PostgreSQL(HelmChart), Kafka·Redis(StatefulSet), Elasticsearch(ECK CR, nori는 init container로 설치), 관측성 HelmChart 5개, Kafka UI(Redpanda Console) | 수동 |
-| `apps/<앱>/k8s/{base,overlays/local,overlays/prod}` | hapbang-prod | 앱 Deployment·Service·ConfigMap·HTTPRoute·SecurityPolicy·NetworkPolicy. overlay는 이미지와 Secret | prod는 앱마다 배포 workflow(#374) |
+| `apps/<앱>/k8s/{base,overlays/local,overlays/prod}` | hapbang-prod | 앱 Deployment·Service·ConfigMap·HTTPRoute·SecurityPolicy·NetworkPolicy. overlay는 이미지와 Secret | prod는 [운영 앱 배포](#운영-앱-배포) |
 | `k8s/local/k3d.yaml` | - | 로컬 k3d cluster 설정 | - |
 
 - **앱은 앱 디렉터리만으로 배포할 수 있게 둔다.** 모노레포지만 레포를 나눌 수 있어야 하므로(AGENTS.md 3장) 앱 manifest는 Dockerfile 옆에 두고 루트 `k8s/`를 참조하지 않는다. 앱이 공용 인프라를 아는 것은 `<앱>-config`의 접속 주소(`*.hapbang-platform.svc.cluster.local`)뿐이다.
@@ -93,6 +93,31 @@ kubectl apply -k k8s/platform/overlays/local     # prod: overlays/prod
 # 앱은 하나씩 적용한다. prod는 배포 workflow(#374)가 앱마다 overlays/prod를 적용한다.
 for app in apps/*-app; do kubectl apply -k "$app/k8s/overlays/local"; done
 ```
+
+## 운영 앱 배포
+
+prod 앱은 GitHub Actions가 배포한다(#374). 앱 이미지는 공개 패키지라 cluster에 pull secret이 없다. 앱마다 첫 발행 뒤 패키지를 Public으로 바꾸기 전에는 배포가 이미지 pull에서 실패하고 되돌려진다([Secret](#secret) 아래 이미지 공개 설명).
+
+```
+main push → Publish images(publish.yml)
+  바뀐 앱만 테스트(ci.yml) → ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<그 앱을 마지막으로 바꾼 main 커밋>
+
+Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main 최신)·apps(비우면 자동)
+  지금 도는 이미지와 비교해 바뀐 앱을 고른다 → 이미지가 모두 GHCR에 있는지 확인
+  → 앱마다 순서대로(member → billing → appearance → lecture → chat → customer-support)
+     SSM Run Command로 large에서 .github/scripts/k3s-deploy.sh apply
+       해당 커밋의 apps/<앱>/k8s/overlays/prod를 받아 이미지 태그를 넣고 apply → rollout status
+       실패하면 그 앱만 rollout undo, 남은 앱은 배포하지 않음
+```
+
+- **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`가 바뀌면 전체다. 앱 목록과 배포 순서는 `.github/scripts/apps.sh` 한 곳에 있고, `apps/*-app`과 다르면 CI(`verify`)가 실패한다. 새 앱은 여기에 추가한다.
+- **롤백**: Deploy를 `apps`에 앱, `sha`에 되돌릴 main 커밋을 넣어 실행한다. `rollout undo`는 Deployment만 되돌리고 ConfigMap 외의 리소스(HTTPRoute·Secret 등)는 되돌리지 않는다.
+- **cluster 접근**: GitHub OIDC로 IAM role을 받아 SSM Run Command로 large에서 root로 `k3s kubectl`을 실행한다. 6443과 SSH를 쓰지 않는다. role trust는 GitHub Environment `prod`의 job만 허용하고, `prod`는 `main` 브랜치만 허용한다. `prod` Environment Secrets는 `AWS_DEPLOY_ROLE_ARN`, `DEPLOY_INSTANCE_ID`다.
+  - 이 레포는 GitHub OIDC의 immutable subject를 쓴다. trust의 `sub`는 `repo:<org>@<org id>/<repo>@<repo id>:environment:prod` 형식이라 레포를 옮기거나 다시 만들면 바꿔야 한다.
+  - large의 인스턴스 역할에 `AmazonSSMManagedInstanceCore`가 있어야 SSM agent가 등록된다.
+- 공개 레포라 Actions 로그도 공개다. 배포 스크립트는 node 이름·IP가 나오는 출력(`-o wide`, `describe`)을 하지 않는다.
+- `k8s/cluster`·`k8s/platform`·`k8s/gateway`는 자동 배포하지 않는다.
+- 서버 스크립트는 로컬 k3d에서 시험할 수 있다: `KUBECTL="kubectl --context k3d-hapbang" ROLLOUT_TIMEOUT=60s .github/scripts/k3s-deploy.sh apply <앱> <GitHub에 있는 커밋> <태그 커밋>`. 시험 뒤 `apps/<앱>/k8s/overlays/local`을 다시 적용한다.
 
 ## 로컬 k3d 검증
 

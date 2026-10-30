@@ -38,7 +38,9 @@
 
 ## 배포 흐름
 
-> **BE 자동 배포 일시 중지(#356)**: 앱별 구조(`apps/<앱>-app`)로 바뀌면서 아래 BE Deploy 흐름(단일 jar·이미지)은 멈췄다. dev에 병합해도 BE는 배포되지 않고, dev 서버는 마지막으로 배포한 이미지를 유지한다. PR의 CI는 앱별 테스트·jar·이미지 빌드 확인으로 동작한다. 앱별 배포는 서비스 간 통신 전환 뒤 다시 작성한다([app-modules.md](../architecture/app-modules.md#ci와-배포-경계)). FE 배포와 dev 롤백(이전 Deploy run의 deploy job 재실행)은 그대로다.
+> **BE 자동 배포 일시 중지(#356)**: 앱별 구조(`apps/<앱>-app`)로 바뀌면서 아래 BE Deploy 흐름(단일 jar·이미지)은 멈췄다. dev에 병합해도 BE는 배포되지 않고, dev 서버는 마지막으로 배포한 이미지를 유지한다. PR의 CI는 앱별 테스트·jar·이미지 빌드 확인으로 동작한다. FE 배포와 dev 롤백(이전 Deploy run의 deploy job 재실행)은 그대로다.
+>
+> **k3s 배포(#374)**: `Deploy` workflow는 k3s 앱 배포로 다시 작성했다(main push 때 바뀐 앱 이미지 발행, 수동 dispatch로 바뀐 앱만 배포, [운영 앱 배포](k8s.md#운영-앱-배포)). k3s 전환 전까지 운영은 아래 Compose 흐름(Deploy prod)이고, 전환·rollback 검증 뒤 Compose 경로를 지운다([전환 순서](aws-k3s.md#전환-순서)).
 
 ```
 PR → GitHub Actions(CI)

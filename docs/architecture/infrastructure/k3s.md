@@ -242,11 +242,11 @@ Kustomize로 관리하는 앱에는 release 단위 롤백이 없다. 그래서 C
 
 ## CI 검증
 
-- 지금(#363 이후): 필수 체크 `verify` job 하나가 `verifyModuleStructure` → 앱별 `check bootJar` → 앱별 이미지 빌드(push 안 함)를 실행한다. matrix 전환은 앱별 이미지 발행(#374)과 함께 판단한다.
-- 배포: #363부터 `deploy.yml`의 자동 trigger가 꺼져 있다. 앱별 이미지 발행과 prod 배포는 #374에서 다시 작성한다.
+- 지금(#363 이후): 필수 체크 `verify` job 하나가 앱 목록 검사 → `verifyModuleStructure` → 앱별 `check bootJar` → 앱별 이미지 빌드(push 안 함)를 실행한다. 변경 감지 없이 전체를 돌린다. matrix 전환은 앱이 8개가 된 뒤 시간을 보고 다시 판단한다(#374).
+- 배포(#374): main push 때 바뀐 앱만 이미지를 발행하고(`publish.yml`), prod 배포는 수동 dispatch(`deploy.yml`)가 바뀐 앱만 배포한다. 절차는 [운영 앱 배포](../../deploy/k8s.md#운영-앱-배포).
 - manifest(#373): `manifests` job이 `kubectl kustomize`로 overlay별 rendering → kubeconform `-strict`로 Kubernetes·CRD schema 검사. 필수 체크는 아니다
 - PR(앱이 모두 단독 기동한 뒤): k3d cluster 생성 → 앱마다 `kubectl apply -k apps/<앱>/k8s/overlays/local` → migration → smoke/E2E → cluster 삭제
 - PR: 앱 사이 JWT 헤더 인증·WebSocket·Kafka·Redis 흐름 검증
-- prod k3s: 수동 dispatch로 승인된 main image를 `kubectl apply -k` → `rollout status` → 실패 시 `rollout undo`
+- prod k3s: 수동 dispatch로 바뀐 앱의 main image를 앱마다 `kubectl apply -k` → `rollout status` → 실패 시 `rollout undo`
 - EC2: rolling update 중 HTTP 요청과 WebSocket 재연결 결과 기록
 - EC2: 자원 사용량(`kubectl top`)이 예산 안인지 배포 후 기록
