@@ -66,6 +66,6 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
 ## 완료 증거
 
 - 모듈 계정으로 다른 모듈 database에 접속하면 거부된다.
-- 강의 주문 중 HP 보류가 실패하면 주문이 남지 않고, 주문 저장이 실패하면 보류가 반환된다.
+- 강의 주문 중 HP 보류가 실패하면 주문은 `HOLD_FAILED`로 남고, 이미 성공한 항목 보류는 보상 RELEASE 작업으로 모두 반환된다(D58·D69).
 - 업무 commit 직후 앱을 종료해도 모듈 outbox의 이벤트가 재기동 후 Kafka로 나간다.
 - rolling update 중 최대 connection 수가 `max_connections` 안에 있다.
