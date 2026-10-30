@@ -9,6 +9,8 @@
 #   role의 trust는 environment prod job만 허용하고, prod environment는 main 브랜치만 허용한다.
 #   prod environment Secrets: AWS_DEPLOY_ROLE_ARN(role ARN), DEPLOY_INSTANCE_ID(large 인스턴스 ID)
 # 공개 레포라 로그도 공개다. node 이름·IP가 나오는 출력을 하지 않는다(.github/scripts/k3s-deploy.sh).
+# GHCR은 조직 정책으로 private이다. 이 job의 GHCR 로그인(GITHUB_TOKEN)은 러너에서 이미지가 있는지 보는 데만 쓴다.
+#   node는 hapbang-prod의 공유 Secret ghcr-pull(k8s/registry, 90일 PAT)로 이미지를 받는다. 토큰을 서버로 보내지 않는다(#461).
 name: Deploy
 
 on:
@@ -41,7 +43,7 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
-      # 이미지가 GHCR에 있는지 확인한다.
+      # 러너에서 이미지가 GHCR에 있는지 확인한다(node의 pull 인증과 별개).
       packages: read
       # GitHub OIDC 토큰으로 AWS role을 받는다.
       id-token: write
@@ -174,7 +176,7 @@ jobs:
             echo "::group::$app → sha-${tag:0:7}"
             if ! .github/scripts/ssm-run.sh .github/scripts/k3s-deploy.sh apply "$app" "$SHA" "$tag" < /dev/null; then
               echo "::endgroup::"
-              echo "::error::$app 배포에 실패해 되돌렸습니다. 뒤 순서의 앱은 배포하지 않았습니다."
+              echo "::error::$app 배포에 실패했습니다(원인은 위 로그). 적용 뒤 실패면 그 앱을 되돌렸습니다. 뒤 순서의 앱은 배포하지 않았습니다."
               exit 1
             fi
             echo "::endgroup::"

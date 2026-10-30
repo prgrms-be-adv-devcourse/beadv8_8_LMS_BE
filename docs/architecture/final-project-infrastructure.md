@@ -20,7 +20,7 @@
 | network | 프로젝트 전용 VPC 1개, public subnet 1개, Internet Gateway. private subnet·NAT 없음 | 두 node는 같은 subnet에서 private IP로 cluster 통신한다 |
 | security group | 22·80·443 inbound 전체 허용. 6443은 kubectl 사용자 IP `/32`만 허용(2026-10-28) | Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다. k3s API(6443)는 사용자 IP `/32` 외에는 열지 않는다 |
 | 진입점 | large ServiceLB → Envoy Gateway, cert-manager의 Let's Encrypt 인증서(2026-10-30, #372). edge nginx는 지웠다. ELB·ACM 없음 | 외부 TLS 종료, 큰 본문 업로드, 내부 API 차단은 Envoy Gateway와 cert-manager가 맡는다. nginx는 쓰지 않는다 |
-| 이미지 | 앱 이미지는 GHCR public 패키지(#374). ECR 없음 | 레포가 공개라 cluster에 GHCR pull secret을 두지 않는다 |
+| 이미지 | 앱·FE 이미지는 GHCR private 패키지(#374). ECR 없음 | 조직 정책으로 public 전환이 막혀 있다. `hapbang-prod`의 공유 pull Secret `ghcr-pull`(90일 PAT, #460)로 받는다 |
 | S3 | 버킷 1개, 사진·영상 업로드 전용(`dev/*`·`prod/*` prefix). 인스턴스 역할로 접근 | metrics·logs·traces·vector 저장 같은 다른 용도로 쓰려면 IAM 정책과 팀 합의를 바꿔야 한다 |
 | instance metadata | IMDSv2 required, hop limit 2 | container·pod 안에서도 인스턴스 역할 자격 증명을 받을 수 있다 |
 

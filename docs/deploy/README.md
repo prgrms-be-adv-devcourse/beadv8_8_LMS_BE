@@ -29,10 +29,11 @@ PR → GitHub Actions(CI)
   verify  앱 목록 검사 → verifyModuleStructure → 앱별 check bootJar → 앱별 이미지 빌드 확인(push 안 함)
 
 main push → Publish images(publish.yml)
-  바뀐 앱만 GHCR(public)에 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<커밋> 발행
+  바뀐 앱만 GHCR(private, 조직 정책)에 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<커밋> 발행
 
 Actions → Deploy(deploy.yml) → Run workflow(main)
   바뀐 앱만 SSM Run Command로 large에서 overlay apply → rollout status, 실패하면 그 앱만 rollout undo
+  node는 공유 Secret ghcr-pull(k8s/registry)로 이미지를 받는다(k8s.md "GHCR pull 인증")
 ```
 
 - 앱 배포 절차와 롤백은 [운영 앱 배포](k8s.md#운영-앱-배포)를 따른다. CI는 PR에서만 돌고 dev 병합 때는 workflow가 없다.
