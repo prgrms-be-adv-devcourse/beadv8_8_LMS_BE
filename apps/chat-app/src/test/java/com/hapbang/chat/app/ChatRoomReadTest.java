@@ -25,6 +25,9 @@ class ChatRoomReadTest {
     private ChatRoomUseCase chatRoomUseCase;
 
     @Autowired
+    private ChatReadService chatReadService;
+
+    @Autowired
     private ChatRoomSupporter chatRoomSupporter;
 
     @Autowired
@@ -67,7 +70,7 @@ class ChatRoomReadTest {
         chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
         chatMessageUseCase.send(chatRoomId, HOST_ID, "세 번째", null);
 
-        chatRoomUseCase.markRead(chatRoomId, GUEST_ID, 2);
+        chatReadService.markRead(chatRoomId, GUEST_ID, 2, null);
 
         assertThat(myRoom(GUEST_ID).unreadCount()).isEqualTo(1);
     }
@@ -76,9 +79,9 @@ class ChatRoomReadTest {
     void 읽음_처리는_줄어들지_않는다() {
         chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
         chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
-        chatRoomUseCase.markRead(chatRoomId, GUEST_ID, 2);
+        chatReadService.markRead(chatRoomId, GUEST_ID, 2, null);
 
-        chatRoomUseCase.markRead(chatRoomId, GUEST_ID, 1);
+        chatReadService.markRead(chatRoomId, GUEST_ID, 1, null);
 
         assertThat(myRoom(GUEST_ID).unreadCount()).isZero();
     }
@@ -86,7 +89,7 @@ class ChatRoomReadTest {
     @Test
     void 아직_없는_순번까지_읽음_처리하면_마지막_순번까지만_반영된다() {
         chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
-        chatRoomUseCase.markRead(chatRoomId, GUEST_ID, 100);
+        chatReadService.markRead(chatRoomId, GUEST_ID, 100, null);
 
         chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
 
@@ -117,7 +120,7 @@ class ChatRoomReadTest {
 
     @Test
     void 참여자가_아니면_읽음_처리할_수_없다() {
-        assertThatThrownBy(() -> chatRoomUseCase.markRead(chatRoomId, OTHER_INFLUENCER_ID, 1))
+        assertThatThrownBy(() -> chatReadService.markRead(chatRoomId, OTHER_INFLUENCER_ID, 1, null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
     }
@@ -126,9 +129,63 @@ class ChatRoomReadTest {
     void 나간_방은_읽음_처리할_수_없다() {
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        assertThatThrownBy(() -> chatRoomUseCase.markRead(chatRoomId, GUEST_ID, 1))
+        assertThatThrownBy(() -> chatReadService.markRead(chatRoomId, GUEST_ID, 1, null))
                 .isInstanceOf(ChatException.class)
                 .extracting("errorCode").isEqualTo(ChatErrorCode.NOT_CHAT_ROOM_MEMBER);
+    }
+
+    @Test
+    void 현재_참여_세대를_보내면_반영한다() {
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
+
+        chatReadService.markRead(chatRoomId, GUEST_ID, 2, 1);
+
+        assertThat(myRoom(GUEST_ID).unreadCount()).isZero();
+    }
+
+    @Test
+    void 현재_참여_세대가_아닌_세대를_보내면_STALE_PARTICIPATION이고_바꾸지_않는다() {
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
+
+        assertThatThrownBy(() -> chatReadService.markRead(chatRoomId, GUEST_ID, 2, 2))
+                .isInstanceOf(ChatException.class)
+                .extracting("errorCode").isEqualTo(ChatErrorCode.STALE_PARTICIPATION);
+
+        assertThat(myRoom(GUEST_ID).unreadCount()).isEqualTo(2);
+    }
+
+    @Test
+    void 재입장_뒤_늦게_도착한_옛_세대의_읽음은_세대를_보내면_거절한다() {
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "나가기 전", null);
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+        chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔네요", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "반가워요", null);
+        long latest = myRoom(GUEST_ID).lastMessage().roomSequence();
+
+        assertThatThrownBy(() -> chatReadService.markRead(chatRoomId, GUEST_ID, latest, 1))
+                .isInstanceOf(ChatException.class)
+                .extracting("errorCode").isEqualTo(ChatErrorCode.STALE_PARTICIPATION);
+        assertThat(myRoom(GUEST_ID).unreadCount()).isEqualTo(2);
+
+        chatReadService.markRead(chatRoomId, GUEST_ID, latest, 2);
+        assertThat(myRoom(GUEST_ID).unreadCount()).isZero();
+    }
+
+    @Test
+    void 참여_세대를_보내도_읽음_처리는_줄어들지_않는다() {
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
+        chatReadService.markRead(chatRoomId, GUEST_ID, 2, 1);
+
+        chatReadService.markRead(chatRoomId, GUEST_ID, 1, 1);
+        chatReadService.markRead(chatRoomId, GUEST_ID, 2, 1);
+
+        assertThat(myRoom(GUEST_ID).unreadCount()).isZero();
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "세 번째", null);
+        assertThat(myRoom(GUEST_ID).unreadCount()).isEqualTo(1);
     }
 
     private ChatRoomResponse myRoom(Long userId) {

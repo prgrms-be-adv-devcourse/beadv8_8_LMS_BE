@@ -141,26 +141,6 @@ public class ChatRoomUseCase {
     }
 
     /**
-     * 메시지를 읽음 처리한다. 마지막으로 읽은 순번은 줄어들지 않고, 방의 마지막 순번을 넘지 않는다.
-     * 메시지 전송과 겹쳐도 되도록 방을 잠그지 않는다. 그 사이 발급된 순번은 다음 읽음 처리에 반영된다.
-     *
-     * @param lastReadSequence 화면에 보여 준 가장 최근 메시지의 방 순번
-     */
-    public void markRead(Long chatRoomId, Long userId, long lastReadSequence) {
-        ChatRoom chatRoom = chatRoomRepository.findById(chatRoomId)
-                .filter(room -> !room.isEnded() && room.getDeletedAt() == null)
-                .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
-        ChatRoomMember member = chatRoomMemberRepository
-                .findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, userId)
-                .filter(ChatRoomMember::isActive)
-                .orElseThrow(() -> new ChatException(ChatErrorCode.NOT_CHAT_ROOM_MEMBER));
-        chatValidationService.validateCanChat(userId);
-
-        chatRoomMemberRepository.advanceLastReadSequence(member.getId(),
-                chatRoom.readableSequence(lastReadSequence));
-    }
-
-    /**
      * 퇴장했던 회원을 재입장시킨다. 재입장 안내를 먼저 저장한 뒤 재입장시켜서, 안내는 남아 있던 회원에게만 보이고
      * 재입장한 회원의 조회 범위(안내 다음 순번부터)에는 들어가지 않는다.
      *
