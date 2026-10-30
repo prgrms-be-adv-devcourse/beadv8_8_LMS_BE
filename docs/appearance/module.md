@@ -227,7 +227,7 @@ com.hapbang.appearance
 | 재시도 | `DefaultErrorHandler` 블로킹 재시도 1초 → 2초 → 4초(최대 10초) 3회. 그동안 그 partition의 뒤 메시지는 기다림 |
 | DLT | `member.events.v1.appearance-app.member-replica.DLT`. 출연 앱이 `NewTopic`으로 선언(partition 3, 보존 7일). 원본과 같은 partition 번호. 역직렬화 실패는 재시도 없이 원본 바이트 그대로 DLT. 재처리는 kafka.md runbook |
 | 직렬화 설정 | Boot 기본 리스너 팩토리를 쓴다(강의와 같음). 이를 위해 `appearance.yml`에서 Modulith Kafka 모듈의 JSON 기본 세트를 끈다(`spring.modulith.events.kafka.enable-json=false`). 켜 두면 그 모듈의 바이트 JSON 변환기 빈이 기본 리스너 팩토리에도 들어가, 역직렬화기가 이미 만든 회원 이벤트 객체를 다시 바이트로 보고 변환하려다 모든 메시지가 실패한다(`Only String, Bytes, or byte[] supported`). 발행 직렬화는 `JacksonJsonSerializer`가 맡는다(11.3) |
-| 로컬·테스트 | Kafka가 없어 리스너 자동 시작과 토픽 생성을 끈다(`spring.kafka.listener.auto-startup`·`spring.kafka.admin.auto-create` = false). Kafka 테스트만 켠다 |
+| 로컬·테스트 | 로컬은 compose의 Kafka(`localhost:9092`)로 운영과 같이 받는다(회원 앱을 한 번 띄워 토픽을 만든다). 테스트에는 Kafka가 없어 리스너 자동 시작과 토픽 생성을 끈다(`spring.kafka.listener.auto-startup`·`spring.kafka.admin.auto-create` = false). Kafka 테스트만 Testcontainers로 켠다 |
 
 - **출연 회원은 가입 이벤트로만 만든다.** 늦게 처리된 가입 이벤트가 이미 반영된 변경 정보를 덮어쓰지 않게 하기 위해서다 (채팅·강의와 같은 방식). 가입보다 먼저 온 변경은 DLT에 쌓이고 runbook대로 다시 넣는다(사용자 결정 10/30, 강의 #429와 같게).
     - 복제 회원은 ID를 직접 넣기 때문에 JPA `save()`가 merge로 동작한다. 가입·변경이 각자 "없으면 생성"하면 PK 충돌 없이 나중 것이 덮어쓴다.
@@ -779,7 +779,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). 값 직렬화기 `JacksonJsonSerializer`가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
 | 직렬화 | `appearance.yml`의 `spring.kafka.producer.value-serializer=JacksonJsonSerializer`. Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] + 바이트 JSON 변환기)는 끈다(`spring.modulith.events.kafka.enable-json=false`, #394). 회원 앱 발행 설계와 같은 방식이고, 켜 두면 회원 이벤트 수신(4.1)이 실패한다 |
 | 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
-| 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose에 Kafka가 없어 외부화를 끈다(`SPRING_MODULITH_EVENTS_EXTERNALIZATION_ENABLED=true`로 켬). 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
+| 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose의 Kafka(`localhost:9092`)로 보낸다. 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
 | 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification` (kafka.md 토픽 목록) |
 
 - 같은 버전 안에서는 선택 필드 추가만 한다. 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(kafka.md 이벤트 버전).

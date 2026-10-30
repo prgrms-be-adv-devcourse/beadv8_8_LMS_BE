@@ -24,7 +24,7 @@ import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
  *     ({@code AppearanceEventRepublishUseCase})와 서버 재시작 때 다시 보낸다.</li>
  *     <li>본문은 shared 이벤트 레코드를 그대로 JSON으로 싣는다. 헤더는 {@value #EVENT_TYPE}·{@value #EVENT_VERSION} 두 개다.
  *     이벤트 ID는 두지 않고, 받는 쪽은 {@code (eventType, 대상 ID)}로 중복을 거른다.</li>
- *     <li>토픽은 출연 앱이 선언한다(브로커 자동 생성은 꺼져 있음). 외부화를 끈 로컬·테스트에서는 선언하지 않아 Kafka에 연결하지 않는다.</li>
+ *     <li>토픽은 출연 앱이 선언한다(브로커 자동 생성은 꺼져 있음). 외부화를 끈 테스트에서는 선언하지 않아 Kafka에 연결하지 않는다.</li>
  * </ul>
  * 내보낼 이벤트를 더하면 shared 레코드에 {@code @Externalized}를 붙이고, 여기에 {@value #EVENT_TYPE} 헤더를 더한다.
  */

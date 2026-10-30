@@ -139,14 +139,16 @@ class AppearanceUserEventListenerTest {
         send(userId, joined);
         send(userId, new UserModifiedEvent(user(userId, "옛닉네임", Role.INFLUENCER, 1L)));
         send(userId, new UserModifiedEvent(user(userId, "같은버전", Role.INFLUENCER, 2L)));
+        // 같은 key(같은 partition)로 다른 회원의 가입을 표지로 보낸다. 표지가 반영되면 앞의 세 이벤트도 처리가 끝난 것이다
+        long markerId = 1031L;
+        send(userId, new UserJoinedEvent(user(markerId, "표지", Role.USER, 0L)));
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(appearanceUserRepository.findById(markerId)).isPresent());
 
-        await().during(Duration.ofSeconds(1)).atMost(TIMEOUT)
-                .untilAsserted(() -> assertThat(appearanceUserRepository.findById(userId))
-                        .hasValueSatisfying(replica -> {
-                            assertThat(replica.getNickname()).isEqualTo("최신닉네임");
-                            assertThat(replica.getRole()).isEqualTo(Role.VERIFIED_INFLUENCER);
-                            assertThat(replica.getMemberVersion()).isEqualTo(2L);
-                        }));
+        assertThat(appearanceUserRepository.findById(userId)).hasValueSatisfying(replica -> {
+            assertThat(replica.getNickname()).isEqualTo("최신닉네임");
+            assertThat(replica.getRole()).isEqualTo(Role.VERIFIED_INFLUENCER);
+            assertThat(replica.getMemberVersion()).isEqualTo(2L);
+        });
         assertThat(deadLettersOf(userId, Duration.ofSeconds(1))).isEmpty();
     }
 
@@ -169,7 +171,9 @@ class AppearanceUserEventListenerTest {
 
         send(userId, new UserModifiedEvent(user(userId, "가입전변경", Role.INFLUENCER, 1L)));
 
-        ConsumerRecord<String, byte[]> deadLetter = awaitDeadLettersOf(userId).getFirst();
+        List<ConsumerRecord<String, byte[]>> deadLetters = awaitDeadLettersOf(userId);
+        assertThat(deadLetters).hasSize(1);
+        ConsumerRecord<String, byte[]> deadLetter = deadLetters.getFirst();
         assertThat(new String(deadLetter.value(), StandardCharsets.UTF_8)).contains("가입전변경");
         assertThat(header(deadLetter, KafkaHeaders.DLT_ORIGINAL_TOPIC)).isEqualTo(AppearanceKafkaConfig.MEMBER_EVENTS_TOPIC);
         assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_CAUSE_FQCN)).isEqualTo(AppearanceException.class.getName());
@@ -215,7 +219,7 @@ class AppearanceUserEventListenerTest {
         return new UserDto(id, nickname, role, UserStatus.ACTIVE, version);
     }
 
-    /** 회원 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다 */
+    /** 회원 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. key는 userId다 */
     private void send(long userId, Object event) {
         try (Producer<String, Object> producer = new KafkaProducer<>(producerProperties(),
                 new StringSerializer(), new JacksonJsonSerializer<>())) {

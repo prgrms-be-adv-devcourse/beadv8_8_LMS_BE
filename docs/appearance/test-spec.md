@@ -194,9 +194,9 @@
 |---|---|
 | `UserJoinedEvent`(버전 0) | 출연 회원 생성: 닉네임·역할·ACTIVE·회원 버전 0 (최대 10초 대기) |
 | 가입 → `UserModifiedEvent`(닉네임, VERIFIED_INFLUENCER, SUSPENDED, 버전 1) | 닉네임·역할·상태 갱신, 회원 버전 1 |
-| 가입 → 변경(버전 2) 반영 뒤 같은 가입·버전 1 변경(늦게 옴)·버전 2 변경(중복) | 버전 2 정보 유지(1초 동안 확인), DLT 없음 |
+| 가입 → 변경(버전 2) 반영 뒤 같은 가입·버전 1 변경(늦게 옴)·버전 2 변경(중복) | 버전 2 정보 유지, DLT 없음. 같은 key로 보낸 표지(다른 회원 가입)가 반영된 뒤 확인해 앞 이벤트 처리가 끝났음을 보장 |
 | `UserLoggedOutEvent`(출연이 쓰지 않는 타입) → 가입 | 로그아웃은 무시하고 가입 반영, DLT 없음 |
-| 가입 없이 `UserModifiedEvent` | 출연 회원 생성 안 됨. 재시도(1·2·4초, 7초 이상 걸림) 뒤 출연 DLT로: 원본 토픽·`AppearanceException` 헤더·본문 포함 |
+| 가입 없이 `UserModifiedEvent` | 출연 회원 생성 안 됨. 재시도(1·2·4초, 7초 이상 걸림) 뒤 출연 DLT 1건: 원본 토픽·`AppearanceException` 헤더·본문 포함 |
 | 깨진 JSON → 가입 | 깨진 메시지는 재시도 없이(1초 안) 원본 바이트 그대로 DLT 1건, 다음 가입은 반영 |
 | DLT 토픽 | 이름 `member.events.v1.appearance-app.member-replica.DLT`, partition 3, 보존 7일 |
 
