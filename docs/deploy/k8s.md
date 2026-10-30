@@ -199,8 +199,12 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
    resources: [../apps/<앱>/k8s/overlays/prod]
    images: [{name: <앱>, newName: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>, newTag: sha-<태그 커밋>}]
    YAML
-   kubectl kustomize "$d" | yq 'select(.kind == "ConfigMap" or .kind == "NetworkPolicy" or .kind == "Deployment")' > "$d/min.yaml"
-   kubectl --context hapbang-k3s apply -f "$d/min.yaml"
+   kubectl kustomize "$d" > "$d/all.yaml"
+   # NetworkPolicy를 먼저 적용한다. kustomize 출력은 Deployment가 앞이라 한 번에 적용하면 pod가 정책 없이 먼저 뜬다.
+   yq 'select(.kind == "NetworkPolicy")' "$d/all.yaml" > "$d/np.yaml"
+   yq 'select(.kind == "ConfigMap" or .kind == "Deployment")' "$d/all.yaml" > "$d/app.yaml"
+   kubectl --context hapbang-k3s apply -f "$d/np.yaml"
+   kubectl --context hapbang-k3s apply -f "$d/app.yaml"
    rm -rf "$d"
    ```
 
