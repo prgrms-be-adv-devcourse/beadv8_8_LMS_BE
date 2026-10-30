@@ -155,7 +155,7 @@ class LedgerRecordIntegrationTest {
         assertBillingError(() -> ledgerRecordUseCase.record(charge(999_999L, "CHARGE:1", 100L)),
                 BillingErrorCode.WALLET_NOT_FOUND);
 
-        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet WHERE wallet_type = 'MEMBER'", Integer.class)).isZero();
         assertThat(ledgerCount("CHARGE:1")).isZero();
     }
 

@@ -66,6 +66,7 @@ import com.hapbang.billing.domain.ExchangeStatus;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.domain.WalletType;
 import com.hapbang.billing.fixture.ChargeFixture;
 import com.hapbang.billing.out.MockPayoutHttpClient;
 import com.hapbang.billing.out.MockPayoutScenario;
@@ -124,6 +125,7 @@ class ExchangePayoutIntegrationTest {
     private static final long ADMIN = 900L;
     private static final long OTHER_ADMIN = 901L;
     private static final String PATH = "/api/v1/settlements/admin/exchanges";
+    private static final String PLATFORM_WALLET_PATH = "/api/v1/settlements/admin/platform-wallet";
     private static final String ACCOUNT = "12345678901234";
     private static final Instant T1 = Instant.parse("2026-10-01T00:00:00Z");
     // 잠정 정산 예정일(다음 10일, 주말이면 다음 월요일)이 확실히 지난 시각
@@ -199,8 +201,8 @@ class ExchangePayoutIntegrationTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("성공: 승인 건을 정산 예정 시각 뒤에 송금하면 시도 COMPLETED·환전 COMPLETED, 보류 전액 확정 차감(EXCHANGE 원장 1줄), "
-            + "Mock 기록 1건이고 계좌번호는 로그에 없다")
+    @DisplayName("성공: 승인 건을 정산 예정 시각 뒤에 송금하면 시도 COMPLETED·환전 COMPLETED, 보류 전액 확정 차감(EXCHANGE 원장 1줄)과 "
+            + "플랫폼 지갑 수수료 수입(EXCHANGE_FEE 원장 1줄, #336)이 같이 남고, Mock 기록 1건이고 계좌번호는 로그에 없다")
     void success(CapturedOutput output) {
         Long walletId = influencer(20_000L);
         Long exchangeId = approvedExchange(15_000L);
@@ -228,8 +230,14 @@ class ExchangePayoutIntegrationTest {
         assertThat(captureKeys(exchangeId)).containsExactly(
                 "CAPTURE:" + holdOf(exchangeId).get("id") + ":EXCHANGE-PAYOUT-" + exchangeId);
         assertThat(ledgerOf(exchangeId)).containsExactly(
-                "REVENUE AVAILABLE -15000 HOLD", "REVENUE HELD 15000 HOLD", "REVENUE HELD -15000 EXCHANGE");
+                "REVENUE AVAILABLE -15000 HOLD", "REVENUE HELD 15000 HOLD", "REVENUE HELD -15000 EXCHANGE",
+                "FEE AVAILABLE 1500 EXCHANGE_FEE");
+        // 회원 보류 차감액(15,000) = 송금액(13,500원) + 플랫폼 수수료 수입(1,500)
+        assertThat(feeLedgerOf(exchangeId)).containsEntry("wallet_id", platformWalletId())
+                .containsEntry("idempotency_key", "EXCHANGE_FEE:" + exchangeId + ":1")
+                .containsEntry("operation_key", "EXCHANGE_FEE:" + exchangeId);
         assertWallet(walletId, 5_000L, 0L);
+        assertPlatformFee(1_500L);
         assertThat(output.getAll()).doesNotContain(ACCOUNT);
     }
 
@@ -258,7 +266,9 @@ class ExchangePayoutIntegrationTest {
         assertThat(count("billing.mock_payout_transfer")).isEqualTo(1);
         assertThat(count("billing.point_ledger")).isEqualTo(ledgerBefore);
         assertThat(captureKeys(exchangeId)).hasSize(1);
+        assertThat(feeLedgerCount(exchangeId)).isEqualTo(1);
         assertWallet(walletId, 5_000L, 0L);
+        assertPlatformFee(1_500L);
     }
 
     @Test
@@ -1053,6 +1063,83 @@ class ExchangePayoutIntegrationTest {
     }
 
     // ---------------------------------------------------------------------------------------------
+    // 플랫폼 지갑 수수료 수입 (#336)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("수수료 수입: 확정 실패 뒤 수동 재송금이 성공해도 수수료는 환전마다 한 번만 기록되고, 최종 실패 환전에는 기록되지 않는다")
+    void feeIncomeOncePerExchange() {
+        Long walletId = influencer(50_000L);
+        Long retried = approvedExchange(15_000L);
+        Long finalFailed = approvedExchange(20_000L);
+        plan(MockPayoutScenario.FAILED, MockPayoutScenario.FAILED, MockPayoutScenario.SUCCESS);
+        timeShift = AFTER_SCHEDULE;
+        payoutUseCase.execute(retried);
+        payoutUseCase.execute(finalFailed);
+        assertPlatformFee(0L);
+
+        payoutUseCase.retryFailed(ADMIN, retried);
+        payoutUseCase.failFinally(ADMIN, finalFailed, "계좌 오류");
+        payoutUseCase.execute(retried);
+
+        assertThat(exchangeRow(retried)).containsEntry("status", "COMPLETED");
+        assertThat(exchangeRow(finalFailed)).containsEntry("status", "FINAL_FAILED");
+        assertThat(payoutRows(retried)).hasSize(2);
+        assertThat(feeLedgerCount(retried)).isEqualTo(1);
+        assertThat(feeLedgerCount(finalFailed)).isZero();
+        assertPlatformFee(1_500L);
+        assertConsistent(walletId);
+    }
+
+    @Test
+    @DisplayName("관리자 플랫폼 지갑 API: 수수료 수입 잔액과 내역(환전별 한 줄, 최신순, 신청 = 송금 + 수수료)을 RsData로 준다")
+    void platformWalletAdminApi() throws Exception {
+        influencer(50_000L);
+        Long first = approvedExchange(15_000L);
+        Long second = approvedExchange(23_000L);
+        plan(MockPayoutScenario.SUCCESS, MockPayoutScenario.SUCCESS);
+        timeShift = AFTER_SCHEDULE;
+        payoutUseCase.execute(first);
+        payoutUseCase.execute(second);
+
+        mockMvc.perform(get(PLATFORM_WALLET_PATH).with(admin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("플랫폼 지갑을 조회했습니다."))
+                .andExpect(jsonPath("$.data.walletId").value(platformWalletId()))
+                .andExpect(jsonPath("$.data.feeIncomeBalance").value(3_800));
+        mockMvc.perform(get(PLATFORM_WALLET_PATH + "/fee-incomes").param("size", "1").with(admin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].exchangeId").value(second))
+                .andExpect(jsonPath("$.data.content[0].feeAmount").value(2_300))
+                .andExpect(jsonPath("$.data.content[0].requestedAmount").value(23_000))
+                .andExpect(jsonPath("$.data.content[0].payoutAmount").value(20_700))
+                .andExpect(jsonPath("$.data.content[0].ledgerId").value(feeLedgerOf(second).get("id")))
+                .andExpect(jsonPath("$.data.content[0].recordedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.page.totalElements").value(2));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Role.class, names = "ADMIN", mode = EnumSource.Mode.EXCLUDE)
+    @DisplayName("관리자 플랫폼 지갑 API: 관리자가 아니면 403, 비로그인은 401")
+    void platformWalletAdminApiAuthorization(Role role) throws Exception {
+        for (String path : List.of(PLATFORM_WALLET_PATH, PLATFORM_WALLET_PATH + "/fee-incomes")) {
+            mockMvc.perform(get(path).with(TestLogin.as(INFLUENCER, role))).andExpect(status().isForbidden());
+            mockMvc.perform(get(path)).andExpect(status().isUnauthorized());
+        }
+    }
+
+    @Test
+    @DisplayName("플랫폼 지갑은 회원 ID가 없어 회원 기능(user_id로 지갑 조회)으로는 찾을 수 없다")
+    void platformWalletNotReachableByMember() {
+        influencer(20_000L);
+
+        assertThat(jdbcTemplate.queryForList("SELECT wallet_type FROM billing.wallet WHERE user_id IS NULL",
+                String.class)).containsExactly("PLATFORM");
+        assertThat(walletRepository.findByUserId(INFLUENCER).orElseThrow().isPlatform()).isFalse();
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // 동시 실행·여러 건
     // ---------------------------------------------------------------------------------------------
 
@@ -1200,8 +1287,9 @@ class ExchangePayoutIntegrationTest {
         assertThat(walletReconciliationUseCase.reconcile(walletId).matched()).isTrue();
     }
 
-    // 환전별: COMPLETED면 보류 확정 차감(원장 합 = -신청 금액), FINAL_FAILED면 보류 전액 반환(원장 합 0, 반환 1회),
-    // 그 밖(시도 실패·결과 대기)은 보류 전액 유지(원장 합 0). 확정 차감과 반환은 함께 일어나지 않는다
+    // 환전별: COMPLETED면 보류 확정 차감 + 수수료 수입 1줄(원장 합 = -송금액, 회원 차감 = 송금액 + 수수료), FINAL_FAILED면 보류 전액
+    // 반환(원장 합 0, 반환 1회, 수수료 없음), 그 밖(시도 실패·결과 대기)은 보류 전액 유지(원장 합 0, 수수료 없음).
+    // 확정 차감과 반환은 함께 일어나지 않는다. 플랫폼 지갑 수수료 수입 = COMPLETED 환전의 수수료 합 (#336)
     private void assertConsistent(Long walletId) {
         for (Map<String, Object> exchange : jdbcTemplate.queryForList("SELECT * FROM billing.exchange")) {
             Long id = (Long) exchange.get("id");
@@ -1211,19 +1299,52 @@ class ExchangePayoutIntegrationTest {
                     WHERE reference_type = 'EXCHANGE' AND reference_id = ?""", Long.class, id);
             if ("COMPLETED".equals(exchange.get("status"))) {
                 assertThat(holdOf(id)).containsEntry("status", "CAPTURED").containsEntry("held_revenue_hp", 0L);
-                assertThat(ledgerSum).isEqualTo(-requested);
+                assertThat(ledgerSum).isEqualTo(-(Long) exchange.get("payout_amount_krw"));
+                assertThat(feeLedgerOf(id)).containsEntry("amount_hp", exchange.get("fee_amount_hp"));
                 assertThat(releaseKeys(id)).isEmpty();
             } else if ("FINAL_FAILED".equals(exchange.get("status"))) {
                 assertThat(holdOf(id)).containsEntry("status", "RELEASED").containsEntry("held_revenue_hp", 0L);
                 assertThat(ledgerSum).isZero();
                 assertThat(releaseKeys(id)).hasSize(1);
                 assertThat(captureKeys(id)).isEmpty();
+                assertThat(feeLedgerCount(id)).isZero();
             } else {
                 assertThat(holdOf(id)).containsEntry("status", "HELD").containsEntry("held_revenue_hp", requested);
                 assertThat(ledgerSum).isZero();
+                assertThat(feeLedgerCount(id)).isZero();
             }
         }
         assertThat(walletReconciliationUseCase.reconcile(walletId).matched()).isTrue();
+        assertPlatformFee(jdbcTemplate.queryForObject(
+                "SELECT coalesce(sum(fee_amount_hp), 0) FROM billing.exchange WHERE status = 'COMPLETED'", Long.class));
+    }
+
+    // 플랫폼 지갑의 수수료 수입 캐시가 기대값이고 원장 합과 같다(대사 일치). 플랫폼 지갑에는 회원이 없다
+    private void assertPlatformFee(long feeHp) {
+        Wallet platform = walletRepository.findByWalletType(WalletType.PLATFORM).orElseThrow();
+        assertThat(platform.getFeeBalanceHp()).isEqualTo(feeHp);
+        assertThat(platform.getUserId()).isNull();
+        WalletReconciliation reconciliation = walletReconciliationUseCase.reconcile(platform.getId());
+        assertThat(reconciliation.matched()).isTrue();
+        assertThat(reconciliation.bucket(PointType.FEE, BalanceBucket.AVAILABLE).ledgerHp()).isEqualTo(feeHp);
+    }
+
+    private Long platformWalletId() {
+        return walletRepository.findByWalletType(WalletType.PLATFORM).orElseThrow().getId();
+    }
+
+    private Map<String, Object> feeLedgerOf(Long exchangeId) {
+        return jdbcTemplate.queryForMap("""
+                SELECT * FROM billing.point_ledger
+                WHERE transaction_type = 'EXCHANGE_FEE' AND reference_type = 'EXCHANGE' AND reference_id = ?""",
+                exchangeId);
+    }
+
+    private long feeLedgerCount(Long exchangeId) {
+        return jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM billing.point_ledger
+                WHERE transaction_type = 'EXCHANGE_FEE' AND reference_type = 'EXCHANGE' AND reference_id = ?""",
+                Long.class, exchangeId);
     }
 
     private Map<String, Object> exchangeRow(Long exchangeId) {

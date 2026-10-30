@@ -55,6 +55,23 @@ public interface PointLedgerRepository extends Repository<PointLedger, Long> {
             countQuery = "select count(distinct l.operationKey) from PointLedger l where l.walletId = :walletId")
     Page<LedgerOperationSum> findOperationSumsByWalletId(@Param("walletId") Long walletId, Pageable pageable);
 
+    // 플랫폼 지갑의 환전 수수료 수입(EXCHANGE_FEE) 원장을 환전과 조인해 기록 시각 최신순으로 페이지를 나눈다 (#336).
+    // 환전 한 건에 수수료 원장은 한 줄이다. 정렬은 고정이라 요청의 정렬을 넘기지 않는다.
+    @Query(value = """
+            select new com.hapbang.billing.out.FeeIncomeRow(
+                l.id, e.id, l.amountHp, e.requestedAmountHp, e.payoutAmountKrw, l.occurredAt)
+            from PointLedger l, Exchange e
+            where l.walletId = :walletId
+              and l.transactionType = com.hapbang.billing.domain.LedgerTransactionType.EXCHANGE_FEE
+              and l.referenceType = com.hapbang.shared.billing.domain.BillingReferenceType.EXCHANGE
+              and e.id = l.referenceId
+            order by l.occurredAt desc, l.id desc""",
+            countQuery = """
+            select count(l) from PointLedger l
+            where l.walletId = :walletId
+              and l.transactionType = com.hapbang.billing.domain.LedgerTransactionType.EXCHANGE_FEE""")
+    Page<FeeIncomeRow> findExchangeFeeIncomes(@Param("walletId") Long walletId, Pageable pageable);
+
     // 원본 원장 항목을 참조하는 역분개 원장 금액의 누적 합계를 구하며, 역분개가 없으면 0이다.
     @Query("select coalesce(sum(l.amountHp), 0) from PointLedger l where l.originalLedgerId = :originalLedgerId")
     long sumAmountByOriginalLedgerId(@Param("originalLedgerId") Long originalLedgerId);

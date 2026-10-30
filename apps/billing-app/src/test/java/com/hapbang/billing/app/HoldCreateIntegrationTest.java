@@ -311,7 +311,7 @@ class HoldCreateIntegrationTest {
         assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 1_000L),
                 BillingErrorCode.WALLET_NOT_FOUND);
 
-        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet WHERE wallet_type = 'MEMBER'", Integer.class)).isZero();
         assertThat(holdCount()).isZero();
     }
 
