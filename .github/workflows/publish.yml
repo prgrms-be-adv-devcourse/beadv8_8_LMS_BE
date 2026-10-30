@@ -9,10 +9,8 @@ on:
   push:
     branches: [main]
 
-# main push는 순서대로 처리한다. 앞 push의 발행을 취소하면 그 커밋의 이미지가 비게 된다.
-concurrency:
-  group: publish-main
-  cancel-in-progress: false
+# concurrency group을 두지 않는다. group은 대기 run을 1개만 남기고 나머지를 취소하므로, push가 연달아 들어오면
+# 가운데 push에서 바뀐 앱이 발행되지 않는다. 태그가 커밋마다 달라 push마다 따로 돌아도 서로 덮어쓰지 않는다.
 
 permissions:
   contents: read
