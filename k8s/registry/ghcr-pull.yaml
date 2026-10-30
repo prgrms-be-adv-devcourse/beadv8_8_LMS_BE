@@ -1,0 +1,14 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: ghcr-pull
+  namespace: hapbang-prod
+spec:
+  encryptedData:
+    .dockerconfigjson: AgChmztcvKI5USd0Zd7yAO/A/izwahvShdaiNbERi/ID8OWha0ZVQj+TPmgT1yBKi2f3+PDL/JBncYszAcGdBHQmX1JmIVkxMPJKUuaPhlyASjHcWLYtU/HDl5O8Y2CzFszBE03RathbrSHZroim7RiFqiVSJbtr25ZhHcdX4ornCIz9ccYePBcOPVvg+qSJvZdsYTsWJGqOnpDL5qlXotQdzWUlr5P6ts4VYJysFIxSzcG/KeYoaSXEZbv0rOnrmM4uAa/CMjWXSQpUX/esZbTLzysr8VGB3XsuKd2O1loJbOk5VvOdTEflUItfrMQzqKgpJMRxK2Wx+pbjdbe7L9XsII3g5cawLHkVV4rVyNQONCanPLEuRbgYllJDULRfGKP63W71+z4T4pJTfWN0gEEpJnxxmDzwqnlv5HxzbUIEG86fYypSLlrenUQZP/0P8CMb5gP1QiF8EX99FWTX8bvAVVlEZNvWz58ZO9ThNUofRfOwU2VGqlOrLln9IKsYi+rjO/7ALarssqTXrBD3TQdRVlzQkbnsdWbiAUoQ9wYZKZabDwgwazax3KTpex/ms/4zX3Ej5pIjMnOgCc8bNEpfpzEkF4OwC5HvFL4T7Y5sbkY3PlTIzQwE+DqaHeP4XWmytLFaPJdTuFuagyz1VJQmnl92NDgLINpf4Kln/mSQ1LKu8Xh2j8vEjUXc18qLWPbASwHr9C6BgUsCRXer3CTu2Y4vtMnGkswwWQisYUbHPbt/aIRP8stDrWlOGS4VBb4EDoOYTU0Z8Qpz5xFPKtc4N4hr95m0afVgtz7sPEkXrgy0PdZtOMco7cakgcrSuj2N
+  template:
+    metadata:
+      name: ghcr-pull
+      namespace: hapbang-prod
+    type: kubernetes.io/dockerconfigjson

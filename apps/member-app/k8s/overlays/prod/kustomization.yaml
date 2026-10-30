@@ -1,9 +1,17 @@
 # EC2 k3s prod. 배포 workflow(#374)가 앱마다 이 overlay를 적용한다.
 # - 이미지: #374가 `kustomize edit set image`로 GHCR의 sha-<커밋> 태그를 넣는다.
 # - Secret: member-app-secrets(DB_PASSWORD, HAPBANG_INTERNAL_API_KEY, S3_BUCKET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, CHZZK_CLIENT_ID, CHZZK_CLIENT_SECRET, CHZZK_REDIRECT_URI)는 이 디렉터리의 SealedSecret(`member-app-secrets.yaml`)이다. k8s/tools/seal-app-secrets.sh로 만든다(#374).
-# - 이미지는 공개 GHCR 패키지라 pull secret을 두지 않는다(#374).
+# - GHCR 패키지는 조직 정책으로 private이다. hapbang-prod의 공유 Secret ghcr-pull(k8s/registry)로 받는다. 앱 배포는 이 Secret을 만들거나 지우지 않는다(#461).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
   - member-app-secrets.yaml
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/imagePullSecrets
+        value:
+          - name: ghcr-pull
