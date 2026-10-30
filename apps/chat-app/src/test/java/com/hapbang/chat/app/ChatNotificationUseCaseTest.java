@@ -57,7 +57,7 @@ class ChatNotificationUseCaseTest {
         ChatNotificationResult result = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))
                 .orElseThrow();
 
-        ChatMessageResponse message = result.sent().message();
+        ChatMessageResponse message = result.message();
         assertThat(message.messageType()).isEqualTo(ChatMessageType.NOTIFICATION);
         assertThat(message.notificationKind()).isEqualTo(NotificationKind.APPEARANCE_REQUEST_SENT);
         assertThat(message.referenceId()).isEqualTo(10L);
@@ -69,8 +69,7 @@ class ChatNotificationUseCaseTest {
                 출연료: 50,000 HP
                 방송 예정: 2026-11-20 21:00
                 수락 기한: 2026-11-13 23:59""");
-        assertThat(result.sent().deliverToUserIds()).containsExactlyInAnyOrder(HOST_ID, GUEST_ID);
-        assertThat(result.sent().notifyUserIds()).containsExactly(GUEST_ID);
+        // 전달 대상·알림 대상은 저장 트랜잭션의 outbox·수신자 집합이 맡는다(ChatRecipientSetDeliveryTest)
 
         ChatRoomResponse guestRoom = chatRoomSupporter.getMyRooms(GUEST_ID).getFirst();
         assertThat(guestRoom.chatRoomId()).isEqualTo(message.chatRoomId());
@@ -84,7 +83,7 @@ class ChatNotificationUseCaseTest {
                 new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID, GUEST_ID, SCHEDULED_AT))
                 .orElseThrow();
 
-        ChatMessageResponse message = result.sent().message();
+        ChatMessageResponse message = result.message();
         assertThat(message.notificationKind()).isEqualTo(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED);
         assertThat(message.referenceId()).isEqualTo(20L);
         assertThat(message.parentReferenceId()).isEqualTo(7L);
@@ -92,14 +91,15 @@ class ChatNotificationUseCaseTest {
         assertThat(message.content()).isEqualTo("""
                 게스트님이 출연 모집에 지원했습니다.
                 모집글: 주말 게임 합방 모집""");
-        assertThat(result.sent().notifyUserIds()).containsExactly(HOST_ID);
+        assertThat(chatRoomSupporter.getMyRooms(HOST_ID).getFirst().unreadCount()).isEqualTo(1);
+        assertThat(chatRoomSupporter.getMyRooms(GUEST_ID).getFirst().unreadCount()).isZero();
     }
 
     @Test
     void 관리자_기록_조회에도_알림_종류와_출연_건_ID가_담긴다() {
         Long chatRoomId = chatNotificationUseCase.notifyAppearanceApplicationSubmitted(
                 new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID, GUEST_ID, SCHEDULED_AT))
-                .orElseThrow().sent().message().chatRoomId();
+                .orElseThrow().message().chatRoomId();
 
         assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 100).messages()).singleElement()
                 .extracting(ChatMessageHistoryResponse::notificationKind, ChatMessageHistoryResponse::referenceId,
@@ -109,12 +109,12 @@ class ChatNotificationUseCaseTest {
 
     @Test
     void 이미_대화하던_방이_있으면_그_방에_남긴다() {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
 
         ChatNotificationResult result = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))
                 .orElseThrow();
 
-        assertThat(result.sent().message().chatRoomId()).isEqualTo(chatRoomId);
+        assertThat(result.message().chatRoomId()).isEqualTo(chatRoomId);
         assertThat(result.rejoinNotices()).isEmpty();
     }
 
@@ -128,16 +128,17 @@ class ChatNotificationUseCaseTest {
 
     @Test
     void 받는_사람이_방을_나갔으면_재입장시키고_남아_있던_사람에게_재입장_안내를_보낸다() {
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
         ChatNotificationResult result = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))
                 .orElseThrow();
 
-        assertThat(result.sent().deliverToUserIds()).containsExactlyInAnyOrder(HOST_ID, GUEST_ID);
         assertThat(result.rejoinNotices()).extracting(ChatMessageResponse::content)
                 .containsExactly("게스트님이 다시 들어왔습니다.");
-        assertThat(result.remainingUserIds()).containsExactly(HOST_ID);
+        // 재입장 안내는 남아 있던 호스트에게만 보인다
+        assertThat(chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 30).messages())
+                .extracting(ChatMessageResponse::content).contains("게스트님이 다시 들어왔습니다.");
         assertThat(chatMessageSupporter.getMessages(chatRoomId, GUEST_ID, null, 30).messages())
                 .extracting(ChatMessageResponse::messageType).containsExactly(ChatMessageType.NOTIFICATION);
     }

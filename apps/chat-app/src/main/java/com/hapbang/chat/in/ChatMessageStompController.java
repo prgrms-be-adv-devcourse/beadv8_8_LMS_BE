@@ -1,7 +1,6 @@
 package com.hapbang.chat.in;
 
 import java.security.Principal;
-import java.util.List;
 
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
@@ -28,8 +27,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 클라이언트가 /pub/chats/{chatRoomId}/messages로 보내면 DB에 저장한 뒤
- * 현재 참여자에게 /user/queue/chats/messages로 전달하고, 받는 사람에게 새 메시지 알림을 보낸다.
+ * 클라이언트가 /pub/chats/{chatRoomId}/messages로 보내면 DB에 메시지와 전달 outbox를 함께 저장한다.
+ * 현재 참여자 전달(/user/queue/chats/messages)과 새 메시지 알림은 outbox → Redis Streams → Pub/Sub → 로컬 STOMP 경로가 맡는다.
  * <p>
  * 보낼 때 붙인 {@code clientMessageId}는 보낸 사람에게 전달되는 메시지와 오류에 그대로 돌려준다. STOMP 전송에는 응답 확인이
  * 없어서, 프론트는 이 값으로 어느 메시지가 성공·실패했는지 구분한다. 같은 ID로 다시 보내면 새로 저장하지 않고 기존 메시지를
@@ -56,13 +55,12 @@ public class ChatMessageStompController {
             throw new SendFailedException(exception, request.clientMessageId());
         }
 
-        // 전송 ID는 보낸 사람에게만 담는다. 재전송이면 보낸 사람에게만 다시 가고 알림은 없다
-        List<Long> others = sent.deliverToUserIds().stream().filter(userId -> !userId.equals(senderId)).toList();
-        if (sent.deliverToUserIds().contains(senderId)) {
-            chatMessageSender.deliver(sent.message().withClientMessageId(clientMessageId), List.of(senderId));
+        // 새 메시지는 저장 트랜잭션에 남긴 outbox → Stream → Pub/Sub 경로로 보낸 사람(전송 ID 포함)과 상대에게 간다.
+        // 같은 전송 ID의 재전송은 전달 작업을 만들지 않으므로, 보낸 사람에게만 바로 다시 보낸다. 알림·안 읽은 수는 올리지 않는다
+        if (sent.resent()) {
+            chatMessageSender.sendMessage(senderId, sent.message().withClientMessageId(clientMessageId),
+                    sent.senderParticipationVersion());
         }
-        chatMessageSender.deliver(sent.message(), others);
-        chatMessageSender.notifyNewMessage(sent.message(), sent.notifyUserIds());
     }
 
     /**

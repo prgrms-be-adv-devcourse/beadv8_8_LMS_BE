@@ -18,6 +18,15 @@ spring:
         schema: chat
       republish-outstanding-events-on-restart: true
       completion-mode: archive
+  datasource:
+    hikari:
+      # 미확정 초기값(Q12). 전달 파이프라인이 동시에 쓰는 연결은 최대 11개(주기 작업 8 + 새 작업 worker 3)이고 나머지 9개를 REST·STOMP가 쓴다.
+      # worker·주기 작업 수를 늘리면 함께 늘린다. PostgreSQL max_connections는 다른 앱과 나눠 쓴다
+      maximum-pool-size: 20
+  data:
+    redis:
+      # 미확정 초기값(Q12). 전달 consumer의 BLOCK(2s)보다 길고 relay lease·회수 min-idle(30s)보다 짧게 둔다(Lettuce 기본 60s 대기를 줄인다)
+      timeout: 10s
   jpa:
     open-in-view: false
     hibernate:

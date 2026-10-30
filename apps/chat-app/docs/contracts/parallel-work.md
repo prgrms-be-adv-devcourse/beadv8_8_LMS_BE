@@ -25,7 +25,7 @@
 | `java/.../app/ChatConnectionControl.java` | [제어 작업 기록](control-recording.md) 인터페이스 |
 | `java/.../out/JdbcChatConnectionControl.java` | 위 인터페이스의 DB 구현 |
 | `java/.../app/RealtimeChatFanout.java` | [실시간 전파](realtime-fanout.md) 인터페이스 |
-| `java/.../app/dto/MessageFanout.java`, `FanoutRecipient.java`, `ControlFanout.java` | 실시간 전파 payload |
+| `java/.../app/dto/MessageFanout.java`, `ControlFanout.java`, `java/.../domain/ChatNotifyRule.java` | 실시간 전파 payload. 방 topic 결정(2026-10-30)으로 `MessageFanout`은 v2(수신자 목록 대신 수신자 집합 버전·알림 규칙)이고 `FanoutRecipient`는 없앴다([실시간 전파 계약](realtime-fanout.md)) |
 | `java/.../out/redis/ChatRedisKeys.java` | Redis namespace·Stream·그룹·채널 이름 |
 | `resources/db/migration/V202610291200__create_chat_control_outbox.sql` | 제어 outbox·발행 체크포인트 테이블 |
 
@@ -49,12 +49,12 @@
 | `ChatErrorCode` | 각자 상수를 추가만 한다. 기존 상수는 고치지 않는다 |
 | `AppearanceNotificationEventListener` | #417이 Kafka 소비(`appearance.events.v1`)로 바꾼다. #419는 그 안의 직접 전달 호출만 제거한다 |
 | `ApiV1ChatController`·`ApiV1ChatSpec` | #419는 직접 전달 호출만 제거하고, #420은 수신 ACK 메서드만 추가한다 |
-| `application.yaml` | `hapbang.chat.*` 키 이름은 각자 자기 것만 쓴다(#417 `member-events`·`appearance-events`·`backfill`, #418 `delivery`, #419 `realtime`, #420 `receipt`). 기본값은 각자의 `@ConfigurationProperties` 코드 기본값으로 두고 `application.yaml`에는 넣지 않는다(2026-10-30 사용자 결정). yaml에는 환경 변수 자리표시자 같은 환경 값만 둔다 |
+| `application.yaml` | `hapbang.chat.*` 키 이름은 각자 자기 것만 쓴다(#417 `member-events`·`appearance-events`·`backfill`, #418 `delivery`, #419 `realtime`, #420 `receipt`). 기본값은 각자의 `@ConfigurationProperties` 코드 기본값으로 두고 `application.yaml`에는 넣지 않는다(2026-10-30 사용자 결정, #418은 [테이블 계약](tables-and-migrations.md#설정-위치-418-사용자-결정)). yaml에는 환경 변수 자리표시자 같은 환경 값만 둔다 |
 | chat-app `build.gradle.kts` | 필요한 의존 줄만 추가한다 |
 
 ## 브랜치별 동작 범위와 통합
 
-- #418 브랜치는 outbox 기록과 relay·consumer를 구현하지만 운영 `RealtimeChatFanout` 구현은 #419에 있다. 그래서 relay·Stream worker·회수·재구성 빈은 `hapbang.chat.delivery.pipeline.enabled`(기본 `false`)가 `true`일 때만 등록한다. #418 테스트는 테스트 소스의 `InMemoryRealtimeChatFanout`과 속성을 켜고 검증한다.
+- #418 브랜치는 outbox 기록과 relay·consumer를 구현하지만 운영 `RealtimeChatFanout` 구현은 #419에 있다. relay·Stream worker·회수·재구성 빈은 `hapbang.chat.delivery.pipeline.enabled`가 `false`가 아니면 등록한다. #418 단독 브랜치의 코드 기본은 `false`였고, #419 통합에서 운영 `RealtimeChatFanout`과 함께 코드 기본값을 `true`로 바꿨다(속성이 없으면 켠 것으로 본다). 테스트 설정은 `false`다. #418 테스트는 테스트 소스의 `InMemoryRealtimeChatFanout`과 속성을 켜고 검증한다.
 - #419 브랜치는 `RealtimeChatFanout`의 Redis 구현과 구독·로컬 전달을 구현하고 `RealtimeChatFanout`을 직접 호출해 검증한다. outbox가 없는 #419 단독 브랜치에서는 직접 전달을 제거하면 메시지가 전달되지 않으므로, **직접 전달 제거와 `pipeline.enabled=true` 전환은 #418·#419를 합친 통합 단계에서 한다**(#419 범위). 통합 검증은 #417·#418·#419·#420을 모두 합친 상태에서 받는다.
 - #417 브랜치의 제어 작업은 공통 골격의 `JdbcChatConnectionControl`로 DB에 기록까지 한다. 연결 종료 확인은 통합 검증에서 완료한다([작업 절차](../workflow/process.md) 1단계 기준).
 - 설정 수치(polling·lease·claim idle·재시도·보존·버퍼 등)는 `hapbang.chat.*` 속성으로 빼고, 코드 기본값의 주석에 "미확정 초기값(Q12)"을 단다.

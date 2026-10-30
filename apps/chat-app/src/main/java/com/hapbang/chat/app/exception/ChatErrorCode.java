@@ -23,7 +23,12 @@ public enum ChatErrorCode implements BaseErrorCode {
     ADMIN_ONLY(HttpStatus.FORBIDDEN, "관리자만 조회할 수 있습니다."),
     MEMBER_SOURCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보를 조회할 수 없습니다. 잠시 후 다시 시도해 주세요."),
     MEMBER_SOURCE_REJECTED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보를 조회할 수 없습니다."),
-    CHAT_USER_BACKFILL_ALREADY_RUNNING(HttpStatus.CONFLICT, "채팅 회원 백필이 이미 실행 중입니다.");
+    CHAT_USER_BACKFILL_ALREADY_RUNNING(HttpStatus.CONFLICT, "채팅 회원 백필이 이미 실행 중입니다."),
+    CHAT_ROOM_NOT_READY(HttpStatus.CONFLICT, "채팅방의 전달 대상이 준비되지 않았습니다. 채팅을 다시 시작해 주세요."),
+    DELIVERY_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "재처리할 전달 작업의 원본을 찾을 수 없습니다."),
+    DELIVERY_JOB_NOT_ISOLATED(HttpStatus.CONFLICT, "격리된 전달 작업만 재처리할 수 있습니다."),
+    STALE_PARTICIPATION(HttpStatus.CONFLICT, "현재 참여 세대의 요청이 아닙니다. 채팅방 목록과 이력을 다시 불러와 주세요."),
+    RECEIVED_SEQUENCE_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "수신 확인 순번이 볼 수 있는 메시지 범위를 벗어났습니다.");
 
     private final HttpStatus status;
     private final String message;

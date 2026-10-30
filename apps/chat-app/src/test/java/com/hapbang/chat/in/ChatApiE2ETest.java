@@ -17,15 +17,20 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
+import com.hapbang.chat.app.ChatMessageUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.app.dto.ChatMessagePageResponse;
+import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.ReadChatRoomRequest;
+import com.hapbang.chat.in.dto.ReceivedChatRoomRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
 import com.hapbang.chat.global.response.RsData;
+import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.shared.member.domain.Role;
 
 /**
@@ -40,6 +45,12 @@ class ChatApiE2ETest {
 
     @Autowired
     private ChatUserUseCase chatUserUseCase;
+
+    @Autowired
+    private ChatMessageUseCase chatMessageUseCase;
+
+    @Autowired
+    private ChatRoomMemberRepository chatRoomMemberRepository;
 
     private RestTestClient client;
 
@@ -143,19 +154,57 @@ class ChatApiE2ETest {
 
         client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
                 .headers(guest::applyTo)
-                .body(new ReadChatRoomRequest(0L))
+                .body(new ReadChatRoomRequest(0L, null))
                 .exchange()
                 .expectStatus().isNoContent();
 
         ProblemDetail problem = client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
                 .headers(guest::applyTo)
-                .body(new ReadChatRoomRequest(null))
+                .body(new ReadChatRoomRequest(null, null))
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody(ProblemDetail.class)
                 .returnResult().getResponseBody();
         assertThat(problem).isNotNull();
         assertThat(problem.getProperties()).containsEntry("code", "INVALID_REQUEST");
+        assertThat(myRooms(guest)).singleElement().extracting(ChatRoomResponse::unreadCount).isEqualTo(0L);
+    }
+
+    @Test
+    void 읽음_처리에_현재_세대를_보내면_204_옛_세대는_409_ProblemDetail_1_미만은_400() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
+        E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
+
+        ProblemDetail stale = client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
+                .headers(guest::applyTo)
+                .body(new ReadChatRoomRequest(2L, 2))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.CONFLICT)
+                .expectBody(ProblemDetail.class)
+                .returnResult().getResponseBody();
+        assertThat(stale).isNotNull();
+        assertThat(stale.getStatus()).isEqualTo(409);
+        assertThat(stale.getProperties()).containsEntry("code", "STALE_PARTICIPATION");
+        assertThat(stale.getDetail()).isEqualTo("현재 참여 세대의 요청이 아닙니다. 채팅방 목록과 이력을 다시 불러와 주세요.");
+        assertThat(myRooms(guest)).singleElement().extracting(ChatRoomResponse::unreadCount).isEqualTo(2L);
+
+        ProblemDetail invalid = client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
+                .headers(guest::applyTo)
+                .body(new ReadChatRoomRequest(2L, 0))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody(ProblemDetail.class)
+                .returnResult().getResponseBody();
+        assertThat(invalid).isNotNull();
+        assertThat(invalid.getProperties()).containsEntry("code", "INVALID_REQUEST");
+
+        client.put().uri("/api/v1/chats/{id}/read", chatRoomId)
+                .headers(guest::applyTo)
+                .body(new ReadChatRoomRequest(2L, 1))
+                .exchange()
+                .expectStatus().isNoContent();
         assertThat(myRooms(guest)).singleElement().extracting(ChatRoomResponse::unreadCount).isEqualTo(0L);
     }
 
@@ -260,6 +309,157 @@ class ChatApiE2ETest {
                 .headers(login(HOST_ID, Role.USER)::applyTo)
                 .exchange()
                 .expectStatus().isNoContent();
+    }
+
+    @Test
+    void 수신_확인하면_200_RsData로_반영한_위치를_돌려주고_같은_값이나_낮은_값도_200이다() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "두 번째", null);
+        E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
+
+        ChatMessagePageResponse page = messages(guest, chatRoomId);
+        assertThat(page.participationVersion()).isEqualTo(1);
+        assertThat(page.visibleFromSequence()).isEqualTo(1);
+
+        RsData<ChatReceiptResponse> received = markReceived(guest, chatRoomId,
+                new ReceivedChatRoomRequest(page.participationVersion(), 2L));
+        assertThat(received.statusCode()).isEqualTo(200);
+        assertThat(received.message()).isEqualTo("수신 위치를 반영했습니다.");
+        assertThat(received.data()).isEqualTo(new ChatReceiptResponse(chatRoomId, 1, 2));
+
+        assertThat(markReceived(guest, chatRoomId, new ReceivedChatRoomRequest(1, 1L)).data().lastReceivedSequence())
+                .isEqualTo(2);
+        assertThat(lastReceivedSequence(chatRoomId, GUEST_ID)).isEqualTo(2L);
+        assertThat(lastReceivedSequence(chatRoomId, HOST_ID)).isNull();
+    }
+
+    @Test
+    void 수신_확인은_본문의_회원_ID가_아니라_로그인한_회원의_위치만_바꾼다() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+
+        client.put().uri("/api/v1/chats/{id}/received", chatRoomId)
+                .headers(login(GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
+                .body(Map.of("userId", HOST_ID, "participationVersion", 1, "receivedSequence", 1))
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(lastReceivedSequence(chatRoomId, GUEST_ID)).isEqualTo(1L);
+        assertThat(lastReceivedSequence(chatRoomId, HOST_ID)).isNull();
+    }
+
+    @Test
+    void 수신_확인_오류는_ProblemDetail의_code로_응답한다() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
+        E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
+
+        assertReceiveFails(guest, chatRoomId, new ReceivedChatRoomRequest(2, 1L), HttpStatus.CONFLICT,
+                "STALE_PARTICIPATION");
+        assertReceiveFails(guest, chatRoomId, new ReceivedChatRoomRequest(1, 2L), HttpStatus.BAD_REQUEST,
+                "RECEIVED_SEQUENCE_OUT_OF_RANGE");
+        assertReceiveFails(guest, chatRoomId, new ReceivedChatRoomRequest(1, null), HttpStatus.BAD_REQUEST,
+                "INVALID_REQUEST");
+        assertReceiveFails(guest, chatRoomId, new ReceivedChatRoomRequest(-1, 1L), HttpStatus.BAD_REQUEST,
+                "INVALID_REQUEST");
+        assertReceiveFails(guest, chatRoomId, new ReceivedChatRoomRequest(0, 1L), HttpStatus.BAD_REQUEST,
+                "INVALID_REQUEST");
+        assertReceiveFails(guest, chatRoomId + 1000, new ReceivedChatRoomRequest(1, 1L), HttpStatus.NOT_FOUND,
+                "CHAT_ROOM_NOT_FOUND");
+        assertReceiveFails(login(OTHER_INFLUENCER_ID, Role.INFLUENCER), chatRoomId,
+                new ReceivedChatRoomRequest(1, 1L), HttpStatus.FORBIDDEN, "NOT_CHAT_ROOM_MEMBER");
+        assertReceiveFails(login(USER_ID, Role.USER), chatRoomId, new ReceivedChatRoomRequest(1, 1L),
+                HttpStatus.FORBIDDEN, "FORBIDDEN");
+        assertThat(lastReceivedSequence(chatRoomId, GUEST_ID)).isNull();
+
+        client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
+                .headers(guest::applyTo)
+                .exchange()
+                .expectStatus().isNoContent();
+        assertReceiveFails(guest, chatRoomId, new ReceivedChatRoomRequest(1, 1L), HttpStatus.FORBIDDEN,
+                "NOT_CHAT_ROOM_MEMBER");
+    }
+
+    @Test
+    void 메시지_이력의_모든_페이지에_참여_세대와_조회_시작점이_있다_커서_페이지와_빈_페이지도() {
+        Long chatRoomId = createRoom(login(HOST_ID, Role.INFLUENCER), GUEST_ID, HttpStatus.CREATED).chatRoomId();
+        for (int i = 0; i < 3; i++) {
+            chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지 " + i, null);
+        }
+        E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
+
+        Map<String, Object> first = rawMessagesPage(guest, "/api/v1/chats/{id}/messages?size=2", chatRoomId);
+        assertThat(first.get("nextCursor")).isEqualTo(2);
+        Map<String, Object> cursorPage = rawMessagesPage(guest, "/api/v1/chats/{id}/messages?size=2&cursor=2",
+                chatRoomId);
+        assertThat(cursorPage.get("messages")).asInstanceOf(LIST).hasSize(1);
+        assertThat(cursorPage.get("nextCursor")).isNull();
+        Map<String, Object> emptyPage = rawMessagesPage(guest, "/api/v1/chats/{id}/messages?size=2&cursor=1",
+                chatRoomId);
+        assertThat(emptyPage.get("messages")).asInstanceOf(LIST).isEmpty();
+        assertThat(emptyPage.get("nextCursor")).isNull();
+
+        // 기본 타입 필드는 빠져도 역직렬화하면 0이 되므로 JSON에 키가 있는지 직접 본다
+        for (Map<String, Object> page : List.of(first, cursorPage, emptyPage)) {
+            assertThat(page).containsEntry("participationVersion", 1).containsEntry("visibleFromSequence", 1);
+        }
+    }
+
+    private Map<String, Object> rawMessagesPage(E2ESession session, String uri, Long chatRoomId) {
+        RsData<Map<String, Object>> page = client.get().uri(uri, chatRoomId)
+                .header(HttpHeaders.COOKIE, session.cookieHeader())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(new ParameterizedTypeReference<RsData<Map<String, Object>>>() {
+                })
+                .returnResult().getResponseBody();
+        assertThat(page).isNotNull();
+        return page.data();
+    }
+
+    private RsData<ChatReceiptResponse> markReceived(E2ESession session, Long chatRoomId,
+            ReceivedChatRoomRequest request) {
+        RsData<ChatReceiptResponse> response = client.put().uri("/api/v1/chats/{id}/received", chatRoomId)
+                .headers(session::applyTo)
+                .body(request)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(new ParameterizedTypeReference<RsData<ChatReceiptResponse>>() {
+                })
+                .returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response;
+    }
+
+    private void assertReceiveFails(E2ESession session, Long chatRoomId, ReceivedChatRoomRequest request,
+            HttpStatus status, String code) {
+        ProblemDetail problem = client.put().uri("/api/v1/chats/{id}/received", chatRoomId)
+                .headers(session::applyTo)
+                .body(request)
+                .exchange()
+                .expectStatus().isEqualTo(status)
+                .expectBody(ProblemDetail.class)
+                .returnResult().getResponseBody();
+        assertThat(problem).isNotNull();
+        assertThat(problem.getProperties()).containsEntry("code", code);
+    }
+
+    private ChatMessagePageResponse messages(E2ESession session, Long chatRoomId) {
+        RsData<ChatMessagePageResponse> page = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
+                .header(HttpHeaders.COOKIE, session.cookieHeader())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(new ParameterizedTypeReference<RsData<ChatMessagePageResponse>>() {
+                })
+                .returnResult().getResponseBody();
+        assertThat(page).isNotNull();
+        return page.data();
+    }
+
+    private Long lastReceivedSequence(Long chatRoomId, Long userId) {
+        return chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, userId)
+                .orElseThrow().getLastReceivedSequence();
     }
 
     private E2ESession login(Long userId, Role role) {

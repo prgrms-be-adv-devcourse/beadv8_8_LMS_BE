@@ -2,7 +2,6 @@ package com.hapbang.chat.app;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -12,15 +11,13 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.chat.app.ChatRoomUseCase.OpenedRoom;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatNotificationResult;
-import com.hapbang.chat.app.dto.SentChatMessage;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatMessage;
-import com.hapbang.chat.domain.ChatRoomMember;
+import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
@@ -33,6 +30,8 @@ import lombok.extern.slf4j.Slf4j;
  * <ul>
  *     <li>알림은 행위자(보낸 사람)와 받는 사람의 1:1 방에 남긴다. 방이 없으면 만들고, 나갔으면 재입장시킨다
  *     ({@link ChatRoomUseCase#openDirectRoom}, 채팅 시작과 같은 규칙).</li>
+ *     <li>알림 메시지는 저장 시점 방의 현재 불변 수신자 집합으로 전달하고, 받는 사람(보낸 사람 제외)에게 알린다.
+ *     전달 outbox·발행 체크포인트를 같은 트랜잭션에 남긴다.</li>
  *     <li>같은 출연 건의 같은 알림은 한 번만 남긴다. 이벤트가 다시 처리되면 아무것도 하지 않는다.</li>
  *     <li>두 사람 중 채팅할 수 없는 회원(정지·탈퇴, 일반 유저)이 있으면 알림을 남기지 않는다. 채팅 회원 복제본이 아직 없으면
  *     실패로 남겨 이벤트 재처리 때 다시 시도한다.</li>
@@ -49,8 +48,8 @@ public class ChatNotificationUseCase {
     private final ChatRoomUseCase chatRoomUseCase;
     private final ChatRoomSupporter chatRoomSupporter;
     private final ChatMessageRepository chatMessageRepository;
-    private final ChatRoomMemberRepository chatRoomMemberRepository;
     private final ChatUserRepository chatUserRepository;
+    private final ChatDeliveryRecorder chatDeliveryRecorder;
 
     /** 출연 요청 도착: 호스트가 게스트에게 */
     public Optional<ChatNotificationResult> notifyAppearanceRequestSent(AppearanceRequestDto request) {
@@ -91,15 +90,11 @@ public class ChatNotificationUseCase {
         OpenedRoom opened = chatRoomUseCase.openDirectRoom(senderId, receiverId, now);
         ChatMessage message = chatMessageRepository.save(ChatMessage.notification(opened.chatRoom(), senderId, kind,
                 referenceId, parentReferenceId, contentOf.apply(chatRoomSupporter.displayNicknameOf(senderId)), now));
-        List<Long> deliverToUserIds = chatRoomMemberRepository
-                .findByChatRoom_IdAndDeletedAtIsNull(opened.chatRoom().getId()).stream()
-                .filter(ChatRoomMember::isActive)
-                .map(ChatRoomMember::getUserId)
-                .toList();
+        chatDeliveryRecorder.recordMessage(message, opened.chatRoom().getCurrentRecipientSetId(),
+                ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, now);
         log.info("채팅 알림 kind={}, referenceId={}, chatRoomId={}", kind, referenceId, opened.chatRoom().getId());
-        SentChatMessage sent = new SentChatMessage(ChatMessageResponse.from(message), deliverToUserIds,
-                List.of(receiverId));
-        return Optional.of(new ChatNotificationResult(sent, opened.rejoinNotices(), opened.remainingUserIds()));
+        // 전달 대상 목록을 만들지 않는다. 알림 메시지·재입장 안내의 전달은 같은 트랜잭션의 outbox가 맡는다(설계 4.6)
+        return Optional.of(new ChatNotificationResult(ChatMessageResponse.from(message), opened.rejoinNotices()));
     }
 
     /** 채팅할 수 있는 회원인지. 복제본이 아직 없으면 실패로 남겨 재처리 때 다시 시도한다 */
