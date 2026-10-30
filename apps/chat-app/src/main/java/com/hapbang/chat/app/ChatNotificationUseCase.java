@@ -16,6 +16,7 @@ import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
 import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
+import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.domain.ChatUser;
@@ -35,6 +36,8 @@ import lombok.extern.slf4j.Slf4j;
  * <ul>
  *     <li>알림은 행위자(보낸 사람)와 받는 사람의 1:1 방에 남긴다. 방이 없으면 만들고, 나갔으면 재입장시킨다
  *     ({@link ChatRoomUseCase#openDirectRoom}, 채팅 시작과 같은 규칙).</li>
+ *     <li>알림 메시지는 저장 시점 방의 현재 불변 수신자 집합으로 전달하고, 받는 사람(보낸 사람 제외)에게 알린다.
+ *     전달 outbox·발행 체크포인트를 같은 트랜잭션에 남긴다.</li>
  *     <li>같은 출연 건의 같은 알림은 한 번만 남긴다. 이벤트가 다시 처리되면 아무것도 하지 않는다.</li>
  *     <li>문구는 만들지 않는다. 이벤트의 값과 행위자 닉네임(알림을 남길 때의 채팅 회원 복제본 값)을 알림 종류별 record
  *     ({@link NotificationData})로 남기고, 프론트가 종류별 템플릿으로 문구를 만든다(사용자 결정 2026-10-30).</li>
@@ -52,6 +55,7 @@ public class ChatNotificationUseCase {
     private final ChatMessageRepository chatMessageRepository;
     private final ChatRoomMemberRepository chatRoomMemberRepository;
     private final ChatUserRepository chatUserRepository;
+    private final ChatDeliveryRecorder chatDeliveryRecorder;
 
     /** 출연 요청 도착: 호스트가 게스트에게 */
     public Optional<ChatNotificationResult> notifyAppearanceRequestSent(AppearanceRequestDto request) {
@@ -91,6 +95,8 @@ public class ChatNotificationUseCase {
         OpenedRoom opened = chatRoomUseCase.openDirectRoom(senderId, receiverId, now);
         ChatMessage message = chatMessageRepository.save(
                 messageOf.create(opened.chatRoom(), sender.getNickname(), now));
+        chatDeliveryRecorder.recordMessage(message, opened.chatRoom().getCurrentRecipientSetId(),
+                ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, now);
         List<Long> deliverToUserIds = chatRoomMemberRepository
                 .findByChatRoom_IdAndDeletedAtIsNull(opened.chatRoom().getId()).stream()
                 .filter(ChatRoomMember::isActive)

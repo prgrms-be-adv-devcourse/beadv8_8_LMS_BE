@@ -10,17 +10,20 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.ChatUserSyncResult;
 import com.hapbang.chat.app.dto.ChatUserSyncResult.Outcome;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 회원 반영과 연결 재검사 작업 기록의 규칙을 Kafka 없이 서비스로 검증한다(계약 control-recording.md).
@@ -35,14 +38,18 @@ class ChatUserSyncServiceTest {
     @Autowired
     private ChatUserRepository chatUserRepository;
 
+    private ChatNativeSql sql;
+
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     @AfterEach
     void clearControlTables() {
-        jdbcTemplate.update("delete from chats.chat_publish_checkpoint");
-        jdbcTemplate.update("delete from chats.chat_control_outbox");
+        sql.update("delete from chats.chat_publish_checkpoint");
+        sql.update("delete from chats.chat_control_outbox");
     }
 
     @Test
@@ -67,11 +74,11 @@ class ChatUserSyncServiceTest {
             assertThat(row.get("member_version")).isEqualTo(2L);
             assertThat(row.get("reason")).isEqualTo("MEMBER_MODIFIED");
         });
-        assertThat(jdbcTemplate.queryForObject("""
+        assertThat(sql.single("""
                 select count(*) from chats.chat_publish_checkpoint p
                 join chats.chat_control_outbox o on o.control_id = p.job_id
-                where o.user_id = ? and p.consumer_group = 'chat-control-v1' and p.status = 'PENDING'""",
-                Long.class, HOST_ID)).isEqualTo(1L);
+                where o.user_id = :userId and p.consumer_group = 'chat-control-v1' and p.status = 'PENDING'""",
+                Long.class, Map.of("userId", HOST_ID))).isEqualTo(1L);
     }
 
     @Test
@@ -119,7 +126,7 @@ class ChatUserSyncServiceTest {
     }
 
     private List<Map<String, Object>> controlRows(Long userId) {
-        return jdbcTemplate.queryForList(
-                "select member_version, reason from chats.chat_control_outbox where user_id = ?", userId);
+        return sql.rows("select member_version, reason from chats.chat_control_outbox where user_id = :userId",
+                Map.of("userId", userId));
     }
 }

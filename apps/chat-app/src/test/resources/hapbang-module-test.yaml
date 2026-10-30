@@ -1,4 +1,14 @@
 # 채팅 모듈 테스트 전용 설정(spring.config.name=hapbang-module-test). src/test 아래라 배포 jar에는 포함되지 않는다.
+spring:
+  datasource:
+    hikari:
+      # 테스트는 컨텍스트를 여러 개 캐시하고 각 컨텍스트가 연결 풀을 가진다. 기본 10개면 PostgreSQL 컨테이너의
+      # max_connections(100)를 넘으므로 줄인다. 동시성 테스트(8스레드)는 행 잠금으로 줄을 서므로 연결을 기다렸다가 진행한다.
+      maximum-pool-size: 5
+  data:
+    redis:
+      # 모듈 테스트는 application.yaml을 읽지 않으므로 운영과 같은 명령 시간 제한을 여기에도 둔다
+      timeout: 10s
 hapbang:
   chat:
     # 운영 기본값은 켜짐(코드 기본값)이다. 대부분의 테스트에는 Kafka가 없으므로 소비자 빈(리스너·DLT 토픽 선언)을 만들지 않게 끄고,
@@ -7,3 +17,8 @@ hapbang:
       enabled: false
     appearance-events:
       enabled: false
+    delivery:
+      pipeline:
+        # 테스트는 메모리 실시간 전파·Redis 컨테이너가 필요하므로 명시적으로 끄고(코드 기본값과 무관하게),
+        # 파이프라인을 검증하는 테스트만 @TestPropertySource로 켠다
+        enabled: false

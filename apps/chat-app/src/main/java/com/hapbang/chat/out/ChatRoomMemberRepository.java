@@ -69,4 +69,13 @@ public interface ChatRoomMemberRepository extends JpaRepository<ChatRoomMember, 
             """)
     int advanceLastReadSequenceInParticipation(@Param("chatRoomId") Long chatRoomId, @Param("userId") Long userId,
             @Param("participationVersion") int participationVersion, @Param("sequence") long sequence);
+
+    /**
+     * 방의 활성 참여자 수. 수신자 집합을 만들 때 같은 트랜잭션의 참여 행 변경을 반영해 센다.
+     */
+    @Query("""
+            select count(m) from ChatRoomMember m
+            where m.chatRoom.id = :chatRoomId and m.leftAt is null and m.deletedAt is null
+            """)
+    long countActiveMembers(@Param("chatRoomId") Long chatRoomId);
 }

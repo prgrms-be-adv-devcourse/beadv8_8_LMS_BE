@@ -15,6 +15,8 @@ import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatMessage;
+import com.hapbang.chat.domain.ChatNotifyRule;
+import com.hapbang.chat.domain.ChatRecipientSet;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
@@ -39,6 +41,8 @@ public class ChatRoomUseCase {
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final ChatValidationService chatValidationService;
     private final ChatRoomSupporter chatRoomSupporter;
+    private final ChatRecipientSetRecorder chatRecipientSetRecorder;
+    private final ChatDeliveryRecorder chatDeliveryRecorder;
 
     /**
      * 1:1 채팅을 시작한다.
@@ -61,6 +65,9 @@ public class ChatRoomUseCase {
      * 두 회원의 1:1 방을 연다. 종료되지 않은 방이 있으면 잠그고 재사용하며 나갔던 사람을 재입장시키고, 없으면 새로 만든다.
      * 채팅 시작({@link #createOrGet})과 출연 알림({@link ChatNotificationUseCase})이 같은 규칙을 쓴다.
      * 새 방을 동시에 만들면 유일 제약(direct_key)에 걸리므로 호출한 Facade가 다시 시도한다.
+     * <p>
+     * 참여가 바뀌면(생성·재입장) 같은 트랜잭션에서 불변 수신자 집합의 새 버전을 만든다. 수신자 집합이 없는 기존 방
+     * (전환 전 데이터 이상)은 지금의 활성 참여로 집합을 만든 뒤 연다.
      */
     public OpenedRoom openDirectRoom(Long requesterId, Long targetUserId, LocalDateTime now) {
         if (requesterId == null || targetUserId == null) {
@@ -76,6 +83,10 @@ public class ChatRoomUseCase {
                 ChatRoom.directKeyOf(requesterId, targetUserId));
         if (existing.isPresent()) {
             ChatRoom chatRoom = existing.get();
+            if (!chatRoom.hasRecipientSet()) {
+                log.warn("수신자 집합이 없는 방이라 지금의 활성 참여로 만든다 chatRoomId={}", chatRoom.getId());
+                chatRecipientSetRecorder.snapshot(chatRoom, now);
+            }
             List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId());
             List<Long> remainingUserIds = members.stream()
                     .filter(ChatRoomMember::isActive)
@@ -91,6 +102,7 @@ public class ChatRoomUseCase {
             chatRoomMemberRepository.save(ChatRoomMember.join(chatRoom, userId, now));
             chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.MEMBER_JOINED, now));
         }
+        chatRecipientSetRecorder.snapshot(chatRoom, now);
         log.info("채팅방 생성 chatRoomId={}, requesterId={}, targetUserId={}", chatRoom.getId(), requesterId,
                 targetUserId);
         return new OpenedRoom(chatRoom, true, List.of(), List.of());
@@ -102,6 +114,8 @@ public class ChatRoomUseCase {
      *     <li>메시지는 지우지 않는다. 나간 사람은 활성 참여가 아니므로 조회·수신할 수 없다.</li>
      *     <li>남은 사람이 볼 퇴장 안내 메시지를 같은 트랜잭션에서 남긴다.</li>
      *     <li>마지막 참여자가 나가면 방을 종료한다.</li>
+     *     <li>퇴장을 반영한 불변 수신자 집합을 만들고, 퇴장 안내는 그 집합(남은 참여자)에게 알림 없이 전달하도록 기록한다.
+     *     남은 참여자가 없으면 전달 작업을 남기지 않는다.</li>
      *     <li>이미 나갔거나 옛 참여 세대의 요청이면 아무것도 바꾸지 않는다(멱등).</li>
      * </ul>
      *
@@ -123,8 +137,12 @@ public class ChatRoomUseCase {
         LocalDateTime now = LocalDateTime.now();
         member.leave(now);
         chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.MEMBER_LEFT, now));
+        ChatRecipientSet remaining = chatRecipientSetRecorder.snapshot(chatRoom, now);
         ChatMessage leftNotice = chatMessageRepository.save(
                 ChatMessage.leftNotice(chatRoom, userId, chatRoomSupporter.displayNicknameOf(userId), now));
+        if (remaining.getMemberCount() > 0) {
+            chatDeliveryRecorder.recordMessage(leftNotice, remaining.getId(), ChatNotifyRule.NONE, now);
+        }
 
         List<Long> remainingUserIds = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoomId)
                 .stream()
@@ -141,12 +159,6 @@ public class ChatRoomUseCase {
     }
 
     /**
-     * 퇴장했던 회원을 재입장시킨다. 재입장 안내를 먼저 저장한 뒤 재입장시켜서, 안내는 남아 있던 회원에게만 보이고
-     * 재입장한 회원의 조회 범위(안내 다음 순번부터)에는 들어가지 않는다.
-     *
-     * @return 남아 있던 회원에게 보낼 재입장 안내. 재입장한 회원이 없으면 빈 목록
-     */
-    /**
      * 연 방. 기존 방이면 잠긴 상태다.
      *
      * @param rejoinNotices    나갔던 회원을 재입장시켰으면 남아 있던 회원에게 보낼 재입장 안내
@@ -156,6 +168,13 @@ public class ChatRoomUseCase {
             List<Long> remainingUserIds) {
     }
 
+    /**
+     * 퇴장했던 회원을 재입장시킨다. 재입장 안내를 먼저 저장한 뒤 재입장시켜서, 안내는 남아 있던 회원에게만 보이고
+     * 재입장한 회원의 조회 범위(안내 다음 순번부터)에는 들어가지 않는다.
+     * 안내의 전달 작업은 재입장 전 집합(남아 있던 회원)을 알림 없이 참조하고, 재입장 뒤에는 새 집합을 만든다.
+     *
+     * @return 남아 있던 회원에게 보낼 재입장 안내. 재입장한 회원이 없으면 빈 목록
+     */
     private List<ChatMessageResponse> rejoinLeftMembers(ChatRoom chatRoom, List<ChatRoomMember> members,
             LocalDateTime now) {
         List<ChatMessageResponse> rejoinNotices = new ArrayList<>();
@@ -165,7 +184,12 @@ public class ChatRoomUseCase {
                 chatMessageRepository.clearClientMessageIds(chatRoom.getId(), member.getUserId());
                 ChatMessage rejoinNotice = chatMessageRepository.save(ChatMessage.rejoinNotice(chatRoom,
                         member.getUserId(), chatRoomSupporter.displayNicknameOf(member.getUserId()), now));
+                if (chatRoom.getActiveMemberCount() > 0) {
+                    chatDeliveryRecorder.recordMessage(rejoinNotice, chatRoom.getCurrentRecipientSetId(),
+                            ChatNotifyRule.NONE, now);
+                }
                 member.rejoin(now);
+                chatRecipientSetRecorder.snapshot(chatRoom, now);
                 chatRoomLogRepository.save(
                         ChatRoomLog.record(chatRoom, member.getUserId(), ChatRoomEventType.MEMBER_REJOINED, now));
                 rejoinNotices.add(ChatMessageResponse.from(rejoinNotice));
