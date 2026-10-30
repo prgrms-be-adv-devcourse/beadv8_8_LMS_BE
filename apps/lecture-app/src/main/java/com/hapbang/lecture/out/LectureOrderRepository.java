@@ -24,9 +24,23 @@ import jakarta.persistence.LockModeType;
 
 public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long> {
 
-    /** 보유 중인 항목 상태 (D5). 부분 유일 인덱스 {@code uk_order_item_buyer_lecture_owned}의 조건과 같다 */
-    Set<OrderItemStatus> HELD_STATUSES = Set.of(OrderItemStatus.PURCHASED, OrderItemStatus.CONFIRMED,
-            OrderItemStatus.PAID_OUT);
+    /**
+     * 보유 중인 항목 상태 (D5, D69 (4)). 같은 강의를 다시 살 수 없다. 부분 유일 인덱스 {@code uk_order_item_buyer_lecture_owned}의
+     * 조건과 같다
+     */
+    Set<OrderItemStatus> HELD_STATUSES = Arrays.stream(OrderItemStatus.values())
+            .filter(OrderItemStatus::isHeld)
+            .collect(Collectors.toUnmodifiableSet());
+
+    /** 시청 가능한 항목 상태 (D69 (4)). 보유와 달리 결제가 끝나지 않은 항목은 빠진다 */
+    Set<OrderItemStatus> VIEWABLE_STATUSES = Arrays.stream(OrderItemStatus.values())
+            .filter(OrderItemStatus::isViewable)
+            .collect(Collectors.toUnmodifiableSet());
+
+    /** 팔린 항목(결제가 끝난 항목). 판매 내역·판매 수익은 결제가 끝나지 않은 항목을 뺀다 (D58 (8), D69 (3)) */
+    String SOLD = "i.status not in (com.hapbang.lecture.domain.OrderItemStatus.HOLD_PENDING, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.HOLD_COMPENSATING, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.HOLD_FAILED)";
 
     // 판매 수익 분류 조건 (#300). 상태와 상태 변경 시각이 같은 조건을 같은 순서로 쓴다
     String EARNING_ON_HOLD = "i.objectionStatus = com.hapbang.lecture.domain.ObjectionStatus.FILED";
@@ -100,14 +114,14 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     @Query("select i.order.id from OrderItem i where i.id = :itemId")
     Optional<Long> findOrderIdByItemId(@Param("itemId") Long itemId);
 
-    /** 구매자가 이 강의를 보유한 항목. 부분 유일 인덱스로 많아야 하나다 */
-    default Optional<OrderItem> findHeldItem(Long buyerUserId, Long lectureId) {
-        return findItem(buyerUserId, lectureId, HELD_STATUSES);
+    /** 구매자가 이 강의를 시청할 수 있는 항목. 부분 유일 인덱스로 많아야 하나다 */
+    default Optional<OrderItem> findViewableItem(Long buyerUserId, Long lectureId) {
+        return findItem(buyerUserId, lectureId, VIEWABLE_STATUSES);
     }
 
-    /** 구매자가 보유한(시청할 수 있는) 항목. 최근 구매순으로 고정한다 */
-    default Page<OrderItem> findHeldItems(Long buyerUserId, Pageable pageable) {
-        return findItems(buyerUserId, HELD_STATUSES, pageable);
+    /** 구매자가 시청할 수 있는 항목. 최근 구매순으로 고정한다 */
+    default Page<OrderItem> findViewableItems(Long buyerUserId, Pageable pageable) {
+        return findItems(buyerUserId, VIEWABLE_STATUSES, pageable);
     }
 
     /** 주어진 강의 중 구매자가 보유한 강의 ID (주문 생성 검사용) */
@@ -151,8 +165,9 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
                     + "and i.payoutFailureCount > 0")
     Page<OrderItem> findPayoutFailures(Pageable pageable);
 
-    /** 판매자의 판매 내역(모든 상태의 주문 항목). 최근 구매순으로 고정한다 (D51) */
-    @Query("select i from OrderItem i where i.sellerUserId = :sellerUserId order by i.purchasedAt desc, i.id desc")
+    /** 판매자의 판매 내역(결제가 끝난 모든 상태의 주문 항목). 최근 구매순으로 고정한다 (D51, D58 (8)) */
+    @Query("select i from OrderItem i where i.sellerUserId = :sellerUserId and " + SOLD
+            + " order by i.purchasedAt desc, i.id desc")
     Page<OrderItem> findSales(@Param("sellerUserId") Long sellerUserId, Pageable pageable);
 
     /** 판매자의 아직 지급하지 않은 판매 수익을 상태별로 합한다. 수익이 없는 상태는 빠진다 (#300) */
@@ -163,7 +178,7 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     // 분류 식을 group by에 다시 쓰면 :now가 다른 바인드 변수가 되어 PostgreSQL이 같은 식으로 보지 않는다. 파생 테이블로 한 번만 쓴다
     @Query("select new com.hapbang.lecture.out.EarningStatusTotal(e.status, count(*), sum(e.priceHp)) "
             + "from (select " + EARNING_STATUS + " as status, i.priceHp as priceHp from OrderItem i "
-            + "where i.sellerUserId = :sellerUserId) e "
+            + "where i.sellerUserId = :sellerUserId and " + SOLD + ") e "
             + "where e.status in :statuses group by e.status")
     List<EarningStatusTotal> summarizeEarningsByName(@Param("sellerUserId") Long sellerUserId,
                                                      @Param("statuses") Collection<String> statuses,
@@ -177,10 +192,10 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
 
     @Query(value = "select new com.hapbang.lecture.out.EarningRow(i, " + EARNING_STATUS + ", "
             + EARNING_STATUS_UPDATED_AT + ") from OrderItem i "
-            + "where i.sellerUserId = :sellerUserId and " + EARNING_STATUS + " in :statuses "
+            + "where i.sellerUserId = :sellerUserId and " + SOLD + " and " + EARNING_STATUS + " in :statuses "
             + "order by " + EARNING_STATUS_UPDATED_AT + " desc, i.id desc",
             countQuery = "select count(i) from OrderItem i "
-                    + "where i.sellerUserId = :sellerUserId and " + EARNING_STATUS + " in :statuses")
+                    + "where i.sellerUserId = :sellerUserId and " + SOLD + " and " + EARNING_STATUS + " in :statuses")
     Page<EarningRow> findEarningsByName(@Param("sellerUserId") Long sellerUserId,
                                         @Param("statuses") Collection<String> statuses,
                                         @Param("now") LocalDateTime now, Pageable pageable);

@@ -278,7 +278,7 @@ stateDiagram-v2
 | `PAYOUT_PENDING` | 구매 확정 | O | O | O | O | O |
 | `PAID_OUT` | 구매 확정 | O | O | O | O | - |
 
-- 처리 상태(`processingStatus`)는 처리 중 항목에만 내려 준다. 내부 작업 상태(`PENDING`·`PROCESSING`·`DEAD`)를 그대로 보여 주지 않고 업무 의미로 바꾼다. 한 항목에는 생애 동안 HOLD·RELEASE·PAYOUT 작업이 여러 개 생기므로, 지금 상태에 해당하는 작업으로 판정한다.
+- 처리 상태(`processingStatus`)는 처리 중 항목에만 내려 준다. 내부 작업 상태(`PENDING`·`PROCESSING`·`DEAD`)를 그대로 보여 주지 않고 업무 의미로 바꾼다. 한 항목에는 생애 동안 HOLD·RELEASE·PAYOUT 작업이 여러 개 생기므로, 지금 상태에 해당하는 작업으로 판정한다. 결제 단계(`HOLD_PENDING`·`HOLD_COMPENSATING`)는 주문 단위 값 하나다: 주문의 끝나지 않은 HOLD·보상 RELEASE 작업 중 가장 나쁜 상태(`ACTION_REQUIRED` > `DELAYED` > `PROCESSING`)를 주문과 그 항목 모두에 싣는다 (D69).
   - `PROCESSING`: 정상 처리 중
   - `DELAYED`: 실패 후 재시도 중
   - `ACTION_REQUIRED`: 자동 처리가 멈춤(작업 `DEAD`), 고객센터 확인 필요
@@ -313,6 +313,8 @@ stateDiagram-v2
 - "재생 동의 필요" 오류는 403 `PLAY_CONSENT_REQUIRED`이고, 프론트가 바로 재생 동의 API를 호출할 수 있게 `orderId`·`orderItemId`를 담는다 (D38).
 - 동의 기록은 `confirmation_type = FIRST_PLAY`와 `confirmed_at`으로 남긴다.
 - 한 구매자는 같은 강의에 대해 **보유 상태**(`HOLD_PENDING`, `HOLD_COMPENSATING`, `PURCHASED`, `CONFIRMED`, `CANCEL_PENDING`, `RETURN_PENDING`, `PAYOUT_PENDING`, `PAID_OUT`)의 항목을 하나만 가진다. HP가 남아 있을 수 있는 처리 중 상태도 보유로 본다. 보류 실패(`HOLD_FAILED`, 남은 보류 없음 확인)·취소·반환 후에는 다시 살 수 있다. `PAID_OUT`도 보유로 본다(D5): 구매한 강의는 계속 볼 수 있으므로 다시 살 수 없다.
+- **보유와 시청 가능은 다르다(용어집, D69).** 결제 처리 중(`HOLD_PENDING`·`HOLD_COMPENSATING`)은 보유지만 시청 가능이 아니다. 시청 가능 판정(콘텐츠, `/purchased`, 판매 중이 아닌 강의 조회)은 위 표의 "`/purchased`·시청" 열을 따른다.
+- 판매 상태는 주문할 때만 검사한다. 결제 처리 중에 강의가 판매 중지·삭제되어도 보류가 성공하면 구매 완료다(D69, D5).
 - 주문 시점의 강의 제목과 가격을 항목에 스냅샷으로 저장한다. 이후 강의 가격이 바뀌어도 반환·지급 금액은 스냅샷 가격이다.
 
 ### 4.7 LectureReview

@@ -249,15 +249,16 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 결과 | 응답 |
 | --- | --- |
 | 모든 보류 성공 | 201 + `PAID` 주문 |
-| billing 확정 거절 + 성공했던 보류의 반환까지 완료 (`HOLD_FAILED`) | 409 + 원래 billing 오류 코드(예: `INSUFFICIENT_BALANCE`). 강의 오류 코드가 같은 `code` 문자열을 써서 프론트 분기가 바뀌지 않는다 |
-| 보류 결과 불명, 재시도 대상, 또는 보상 반환 진행 중 | 202 + `HOLD_PENDING`·`HOLD_COMPENSATING` 주문. `RsData.data`에 `orderId`·`status`를 담는다 |
+| billing 확정 거절 + 성공했던 보류의 반환까지 완료 (`HOLD_FAILED`) | 409 `INSUFFICIENT_BALANCE`. 보류의 확정 거절은 잔액 부족뿐이고, 강의 오류 코드가 billing과 같은 `code` 문자열을 써서 프론트 분기가 바뀌지 않는다 (D69) |
+| 보류 결과 불명, 재시도 대상, 보상 반환 진행 중, 또는 요청 시간 예산(10초, D68)을 넘김 | 202 + `HOLD_PENDING`·`HOLD_COMPENSATING` 주문. `RsData.data`에 `orderId`·`status`를 담는다 |
 
 ```json
 { "statusCode": 202, "message": "주문 결제를 처리 중입니다.", "data": { "orderId": 123, "status": "HOLD_PENDING", "items": [ ... ] } }
 ```
 
 - 202를 받은 프론트는 POST를 다시 보내지 않고 주문 상세를 조회한다. 같은 강의의 재주문은 부분 유일 인덱스가 409 `ALREADY_OWNED_LECTURE`로 막는다.
-- 주문 목록·상세는 처리 중·실패 주문도 보여 준다. 처리 중 주문·항목에는 `processingStatus`(`PROCESSING`·`DELAYED`·`ACTION_REQUIRED`)를 담는다 (4.6).
+- 주문 목록·상세는 처리 중·실패 주문도 보여 준다. 처리 중 주문·항목에는 `processingStatus`(`PROCESSING`·`DELAYED`·`ACTION_REQUIRED`)를 담는다. 결제 단계는 주문 단위 값 하나를 항목에도 같이 싣는다 (4.6, D69).
+- 주문 상세의 `orderedAt`은 주문을 시도한 시각, `paidAt`은 구매 완료를 기록한 시각이다. 결제 처리 중에는 `paidAt`·항목의 `purchasedAt`·`autoConfirmAt`·`payoutScheduledAt`이 `null`이다 (D58 (5)).
 
 ### 8.6 리뷰
 
@@ -324,7 +325,7 @@ billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. �
 - 판매 수익 내부 조회는 회원이 아니라 내부 API 키로 인증한 모듈(billing)만 부른다. `/api/v1/internal/**` 전용 보안 체인과 `LectureEarningInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")`가 막는다 (D63).
 - 역할 검사는 Facade(`LectureFacade`, `LectureInspectionFacade`, `LectureOrderFacade`, `LecturePayoutAdminFacade`)의 `@PreAuthorize`로 한다. 관리자 API(`/admin` 경로)는 `SecurityConfig`도 함께 막는다 (D16).
 - 관리자의 강의 상세는 `/admin/{lectureId}`(`LectureInspectionFacade`)로 따로 두고, 일반 상세 API에는 역할 분기를 두지 않는다 (D30).
-- 콘텐츠 시청은 "판매자 본인 또는 관리자 또는 구매자"라는 OR 조건이라 `@PreAuthorize`를 두지 않고 `LectureContentAccessSupport`가 판정한다. 관리자 여부는 회원 복제본(`LectureUser`)으로, 구매자 여부는 보유 항목으로 본다 (D26, D38).
+- 콘텐츠 시청은 "판매자 본인 또는 관리자 또는 구매자"라는 OR 조건이라 `@PreAuthorize`를 두지 않고 `LectureContentAccessSupport`가 판정한다. 관리자 여부는 회원 복제본(`LectureUser`)으로, 구매자 여부는 시청 가능 항목으로 본다 (D26, D38, D69).
 
 ---
 

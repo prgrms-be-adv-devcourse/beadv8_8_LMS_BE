@@ -49,7 +49,7 @@ class LectureOrderTest {
 
         LectureOrder order = LectureOrder.place(BUYER_ID, List.of(first, second), Set.of(), SEPT_30);
 
-        assertThat(order.getStatus()).isEqualTo(LectureOrderStatus.PAID);
+        assertThat(order.getStatus()).isEqualTo(LectureOrderStatus.HOLD_PENDING);
         assertThat(order.getOrderedAt()).isEqualTo(SEPT_30);
         assertThat(order.getTotalAmountHp()).isEqualTo(PRICE_HP + 5_000L);
         assertThat(order.getItems())
@@ -57,8 +57,9 @@ class LectureOrderTest {
                         OrderItem::getLectureTitleSnapshot, OrderItem::getPriceHp, OrderItem::getStatus,
                         OrderItem::getObjectionStatus)
                 .containsExactly(
-                        tuple(10L, SELLER_ID, BUYER_ID, TITLE, PRICE_HP, OrderItemStatus.PURCHASED, ObjectionStatus.NONE),
-                        tuple(20L, SELLER_ID, BUYER_ID, "마이크 고르기", 5_000L, OrderItemStatus.PURCHASED,
+                        tuple(10L, SELLER_ID, BUYER_ID, TITLE, PRICE_HP, OrderItemStatus.HOLD_PENDING,
+                                ObjectionStatus.NONE),
+                        tuple(20L, SELLER_ID, BUYER_ID, "마이크 고르기", 5_000L, OrderItemStatus.HOLD_PENDING,
                                 ObjectionStatus.NONE));
     }
 
@@ -521,16 +522,93 @@ class LectureOrderTest {
     }
 
     @Test
-    void 보류_후_시각으로_구매_시각과_기한을_다시_정한다() {
-        LectureOrder order = placeWithItemIds(LocalDateTime.of(2026, 10, 7, 23, 59, 59), 1L, 2L);
-        LocalDateTime paidAt = LocalDateTime.of(2026, 10, 8, 0, 0, 1);
+    void 주문하면_결제가_끝나기_전에는_구매_시각과_기한이_없다() {
+        LectureOrder order = placePendingWithItemIds(SEPT_30, 1L, 2L);
 
-        order.stampPaidAt(paidAt);
-
-        assertThat(order.getOrderedAt()).isEqualTo(paidAt);
+        assertThat(order.getPaidAt()).isNull();
+        assertThat(order.progress()).isNull();
         assertThat(order.getItems())
                 .extracting(OrderItem::getPurchasedAt, OrderItem::getAutoConfirmAt, OrderItem::getPayoutScheduledAt)
-                .containsOnly(tuple(paidAt, LocalDateTime.of(2026, 10, 16, 0, 0), LocalDateTime.of(2026, 11, 8, 0, 0)));
+                .containsOnly(tuple(null, null, null));
+    }
+
+    @Test
+    void 모든_보류가_성공하면_구매_완료로_바꾸고_그_시각으로_구매_시각과_기한을_정한다() {
+        LectureOrder order = placePendingWithItemIds(LocalDateTime.of(2026, 10, 7, 23, 59, 59), 1L, 2L);
+        LocalDateTime paidAt = LocalDateTime.of(2026, 10, 8, 0, 0, 1);
+
+        order.markPaid(paidAt);
+
+        assertThat(order.getStatus()).isEqualTo(LectureOrderStatus.PAID);
+        assertThat(order.getPaidAt()).isEqualTo(paidAt);
+        assertThat(order.getOrderedAt()).isEqualTo(LocalDateTime.of(2026, 10, 7, 23, 59, 59));
+        assertThat(order.getItems())
+                .extracting(OrderItem::getStatus, OrderItem::getPurchasedAt, OrderItem::getAutoConfirmAt,
+                        OrderItem::getPayoutScheduledAt)
+                .containsOnly(tuple(OrderItemStatus.PURCHASED, paidAt, LocalDateTime.of(2026, 10, 16, 0, 0),
+                        LocalDateTime.of(2026, 11, 8, 0, 0)));
+    }
+
+    @Test
+    void 보류가_거절되면_결제_취소_처리_중이_되고_반환이_끝나면_결제_실패다() {
+        LectureOrder order = placePendingWithItemIds(SEPT_30, 1L, 2L);
+
+        order.startHoldCompensation();
+        assertThat(order.getStatus()).isEqualTo(LectureOrderStatus.HOLD_COMPENSATING);
+        assertThat(order.getItems()).extracting(OrderItem::getStatus)
+                .containsOnly(OrderItemStatus.HOLD_COMPENSATING);
+
+        order.markHoldFailed();
+        assertThat(order.getStatus()).isEqualTo(LectureOrderStatus.HOLD_FAILED);
+        assertThat(order.getItems()).extracting(OrderItem::getStatus).containsOnly(OrderItemStatus.HOLD_FAILED);
+        assertThat(order.progress()).isNull();
+    }
+
+    @Test
+    void 반환할_보류가_없으면_결제_처리_중에서_바로_결제_실패다() {
+        LectureOrder order = placePendingWithItemIds(SEPT_30, 1L);
+
+        order.markHoldFailed();
+
+        assertThat(order.getStatus()).isEqualTo(LectureOrderStatus.HOLD_FAILED);
+        assertThat(order.getItems()).extracting(OrderItem::getStatus).containsOnly(OrderItemStatus.HOLD_FAILED);
+    }
+
+    @Test
+    void 결제_단계가_아닌_주문은_결제_상태를_바꿀_수_없다() {
+        LectureOrder paid = placeWithItemIds(SEPT_30, 1L);
+        LectureOrder compensating = placePendingWithItemIds(SEPT_30, 2L);
+        compensating.startHoldCompensation();
+
+        assertThatIllegalStateException().isThrownBy(() -> paid.markPaid(SEPT_30));
+        assertThatIllegalStateException().isThrownBy(paid::startHoldCompensation);
+        assertThatIllegalStateException().isThrownBy(paid::markHoldFailed);
+        assertThatIllegalStateException().isThrownBy(() -> compensating.markPaid(SEPT_30));
+    }
+
+    @Test
+    void 결제_처리_중인_항목은_구매_확정_재생_동의_구매_취소할_수_없다() {
+        LectureOrder order = placePendingWithItemIds(SEPT_30, 1L);
+
+        assertErrorCode(() -> order.confirmItem(1L, SEPT_30), LectureErrorCode.ORDER_ITEM_NOT_PURCHASED);
+        assertErrorCode(() -> order.consentToPlay(1L, SEPT_30), LectureErrorCode.ORDER_ITEM_NOT_PURCHASED);
+        assertErrorCode(() -> order.cancelItem(1L, SEPT_30), LectureErrorCode.ORDER_ITEM_NOT_PURCHASED);
+    }
+
+    @Test
+    void 결제_처리_중인_항목은_보유지만_시청_가능하지_않다() {
+        OrderItem pending = placePendingWithItemIds(SEPT_30, 1L).getItems().getFirst();
+        LectureOrder failedOrder = placePendingWithItemIds(SEPT_30, 2L);
+        failedOrder.markHoldFailed();
+        OrderItem failed = failedOrder.getItems().getFirst();
+        OrderItem purchased = placeOne(SEPT_30);
+
+        assertThat(pending.isHeld()).isTrue();
+        assertThat(pending.isViewable()).isFalse();
+        assertThat(failed.isHeld()).isFalse();
+        assertThat(failed.isViewable()).isFalse();
+        assertThat(purchased.isHeld()).isTrue();
+        assertThat(purchased.isViewable()).isTrue();
     }
 
     @Test
@@ -545,7 +623,15 @@ class LectureOrderTest {
         assertThat(order.getItems()).extracting(OrderItem::getStatus).containsOnly(OrderItemStatus.PURCHASED);
     }
 
+    /** 모든 보류가 성공해 {@code now}에 구매 완료된 주문 */
     private static LectureOrder placeWithItemIds(LocalDateTime now, Long... itemIds) {
+        LectureOrder order = placePendingWithItemIds(now, itemIds);
+        order.markPaid(now);
+        return order;
+    }
+
+    /** 결제 처리 중인 주문 */
+    private static LectureOrder placePendingWithItemIds(LocalDateTime now, Long... itemIds) {
         List<Lecture> lectures = LongStream.rangeClosed(1, itemIds.length)
                 .mapToObj(i -> withId(onSaleLecture(), i * 10))
                 .toList();
@@ -564,6 +650,7 @@ class LectureOrderTest {
 
     private static OrderItem placeOne(LocalDateTime now) {
         LectureOrder order = LectureOrder.place(BUYER_ID, List.of(withId(onSaleLecture(), 10L)), Set.of(), now);
+        order.markPaid(now);
         return order.getItems().getFirst();
     }
 }

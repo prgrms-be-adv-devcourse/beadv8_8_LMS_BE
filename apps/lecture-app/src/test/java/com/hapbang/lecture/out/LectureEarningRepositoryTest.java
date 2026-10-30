@@ -20,6 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.shared.lecture.domain.LectureEarningStatus;
 import com.hapbang.testsupport.RepositoryTest;
 
@@ -152,8 +153,8 @@ class LectureEarningRepositoryTest {
     void 한_주문의_여러_항목은_항목마다_한_번씩_집계된다() {
         Lecture otherSellers = lecture(3_000L);
         ReflectionTestUtils.setField(otherSellers, "sellerUserId", OTHER_SELLER_ID);
-        lectureOrderRepository.save(LectureOrder.place(BUYER_ID, List.of(lecture(1_000L), lecture(2_000L),
-                otherSellers), Set.of(), RECENT_PURCHASE));
+        lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture(1_000L), lecture(2_000L),
+                otherSellers), RECENT_PURCHASE));
         flushAndClear();
 
         assertThat(summary()).containsOnly(entry(CONFIRMATION_PENDING, total(2, 3_000L)));
@@ -162,10 +163,22 @@ class LectureEarningRepositoryTest {
     }
 
     @Test
+    void 결제가_끝나지_않은_항목은_요약과_목록에_없다() {
+        lectureOrderRepository.save(LectureOrderFixture.pending(BUYER_ID, List.of(lecture(1_000L)), RECENT_PURCHASE));
+        LectureOrder failed = lectureOrderRepository.save(
+                LectureOrderFixture.pending(BUYER_ID, List.of(lecture(2_000L)), RECENT_PURCHASE));
+        failed.markHoldFailed();
+        flushAndClear();
+
+        assertThat(summary()).isEmpty();
+        assertThat(lectureOrderRepository.findEarnings(SELLER_ID, ALL, NOW_AT, PageRequest.of(0, 10))).isEmpty();
+    }
+
+    @Test
     void 다른_판매자의_항목은_요약과_목록에_없다() {
         Lecture otherSellers = lecture(3_000L);
         ReflectionTestUtils.setField(otherSellers, "sellerUserId", OTHER_SELLER_ID);
-        lectureOrderRepository.save(LectureOrder.place(BUYER_ID, List.of(otherSellers), Set.of(), RECENT_PURCHASE));
+        lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(otherSellers), RECENT_PURCHASE));
         flushAndClear();
 
         assertThat(summary()).isEmpty();
@@ -294,8 +307,7 @@ class LectureEarningRepositoryTest {
     }
 
     private LectureOrder purchased(LocalDateTime purchasedAt, long priceHp) {
-        return lectureOrderRepository.save(LectureOrder.place(BUYER_ID, List.of(lecture(priceHp)), Set.of(),
-                purchasedAt));
+        return lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture(priceHp)), purchasedAt));
     }
 
     /** 구매 시각에 바로 구매 확정한 주문 */

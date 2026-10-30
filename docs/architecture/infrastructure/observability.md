@@ -10,7 +10,7 @@
 
 비교 실험은 다음을 한 세트로 구성한다.
 
-- Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, 채팅 outbox 적체·대기 시간·재시도·DEAD, Redis Pub/Sub 발행 실패, HP task 노출
+- Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, 채팅 outbox 적재 대기·재시도·DEAD, Stream 그룹 lag·PEL/idle·ACK 지연·회수·메모리, DB 발행 체크포인트·재구성, Redis Pub/Sub 발행 실패, HP task 노출
 - Prometheus: `/actuator/prometheus`와 infrastructure exporter를 직접 scrape하고 local TSDB·PromQL·rule 평가 담당
 - Grafana Alloy: pod log 수집과 OTLP trace 수신·전달 담당. Mimir로 바꿀 때만 metrics scrape·remote write까지 확장
 - Loki: JSON log 저장; `traceId`, `correlationId`, `eventId`, 배포 version으로 연결
@@ -62,7 +62,7 @@ Promtail은 사용하지 않는다. 2026-03-02에 EOL이 되었고 이후 기능
 | 일반 API | 100 RPS, 10분, p95 500 ms 이하, 5xx 1% 미만 |
 | 채팅 | WebSocket 200개, 20 msg/s, 저장→전달 p95 1초 이하 |
 | Kafka | consumer 중지 후 재개, backlog 5분 내 회복 |
-| 채팅 outbox·Pub/Sub | relay 종료 후 lease 만료 회수, Redis 복구 뒤 적체 해소, 마지막 프레임 유실 뒤 이력 대조 복구 |
+| 채팅 outbox·Streams·Pub/Sub | relay lease·PEL 회수, XADD/PUBLISH/DB 기록/XACK 경계의 중복, Redis 데이터 유실 재구성·보존·메모리 상한, 마지막 프레임 유실의 이력 대조 복구 |
 | 돈 흐름 | timeout·중복 요청에도 원장 불변식 위반 0건 |
 | rolling update | HTTP 오류 최소화, WebSocket 재연결 후 history gap 0건 |
 
