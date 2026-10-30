@@ -1263,7 +1263,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 
 ## 26. 지갑 회로가 열려 있으면 배치 건너뛰기 (#439)
 
-보류 재확인·HP 작업 재시도 배치는 `BillingClient.isCircuitOpen()`이 `true`면 대상을 가져오지 않는다. 시도 횟수가 열린 회로 거절로 닳지 않게 하기 위해서다.
+보류 재확인·HP 작업 재시도 배치는 `BillingClient.isCircuitOpen()`이 `true`면 대상을 가져오지 않고, 건마다 보내기 전에도 다시 봐서 회차 도중에 열리면 멈춘다. 시도 횟수가 열린 회로 거절로 닳지 않게 하기 위해서다.
 
 ### 26.1 `AppearanceBatchUseCaseTest` (통합, Billing Mockito 대역)
 
@@ -1271,6 +1271,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 |---|---|---|
 | 보류 재확인 | 대역이 회로 열림 → 재확인 → 닫힘 → 재확인 | 열린 동안 0건, 보류 요청 없음, `HOLD_PENDING` 그대로 → 닫히면 1건 `REQUESTED` |
 | HP 작업 재시도 | 반환 실패 작업, 다음 시도 시각 지남, 대역이 회로 열림 → 재시도 → 닫힘 → 재시도 | 열린 동안 0건, 반환 요청 없음, `PENDING`·시도 1 그대로, 대기 수 지표 1로 갱신 → 닫히면 같은 반환 요청 ID로 `DONE` |
+| HP 작업 재시도 | 반환 작업 3건, 대역은 반환 요청을 한 번 받으면 회로 열림 | 1건만 실행, 반환 요청 1번, 나머지 2건 `PENDING`·시도 0 그대로 |
 
 Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 바뀌지 않는다. `BillingCalls.none`은 회로 상태 확인을 요청으로 세지 않는다(배치가 매번 부르므로).
 
@@ -1282,3 +1283,5 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 |---|---|
 | 보류 성공 + 지급 5xx로 회로 열림 → 다음 시도 시각에 재시도 배치 → 시험 중으로 넘어감 → 재시도 배치 | 열린 동안 0건, 지갑이 받은 지급 1번·시도 1 그대로 → 같은 지급 요청 ID로 `DONE`(시도 2, 지급 2번), 회로 닫힘 |
 | 요청서·모집글 보류 5xx로 회로 열림(둘 다 `HOLD_PENDING`) → 재확인 배치 → 시험 중으로 넘어감 → 재확인 배치 | 열린 동안 0건, 지갑이 받은 보류 2번 그대로 → 2건 정리(`REQUESTED`·`RECRUITING`), 회로 닫힘 |
+| 반환 작업 3건, 지갑 5xx → 재시도 배치 → 시험 중(지갑 여전히 5xx) → 재시도 배치 → 지갑 복구·시험 중 → 재시도 배치 | 닫힌 회로에서 2건 실패로 열려 3번째는 보내지 않음(시도 1·1·0) → 시험 중 1건만 보내고 실패해 다시 열림(시도 합 3, 반환 요청 3번) → 1건 성공으로 닫혀 3건 모두 `DONE` |
+

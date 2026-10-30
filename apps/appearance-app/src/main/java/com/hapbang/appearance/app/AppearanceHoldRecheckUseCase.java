@@ -31,8 +31,8 @@ import lombok.extern.slf4j.Slf4j;
  *     겹쳐도 Billing이 같은 결과를 주고 상태 반영이 멱등이라 안전하다.</li>
  *     <li>수락 기한이 이미 지난 요청서도 보류 결과대로 정리한다. 만료는 만료 배치가 이어서 처리한다 (ISSUE.md APR-26 S5).</li>
  *     <li>보류 요청과 결과 반영은 보내기·올리기의 HoldUseCase를 그대로 쓴다.</li>
- *     <li>지갑 회로가 열려 있으면 그 회차를 건너뛴다 (#439). 재확인은 시도 횟수 제한이 없어 격리될 일은 없지만,
- *     열린 회로에는 요청이 나가지 않아 결과가 바뀌지 않는다.</li>
+ *     <li>지갑 회로가 열려 있으면 그 회차를 건너뛰고, 회차 도중에 열리면 남은 건을 다음 회차로 넘긴다 (#439, {@link BillingCircuitGate}).
+ *     재확인은 시도 횟수 제한이 없어 격리될 일은 없지만, 열린 회로에는 요청이 나가지 않아 결과가 바뀌지 않는다.</li>
  * </ul>
  */
 @Slf4j
@@ -48,30 +48,39 @@ public class AppearanceHoldRecheckUseCase {
     private final BillingClient billingClient;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
+    private final BillingCircuitGate circuitGate = new BillingCircuitGate("HP 보류 재확인");
 
     /**
      * @return 결과를 정리한 요청서·모집글 수 (성공·거절)
      */
     public int recheckDue() {
-        if (billingClient.isCircuitOpen()) {
-            log.info("지갑 회로가 열려 HP 보류 재확인 회차를 건너뛴다");
-            return 0;
+        int resolved = circuitGate.allows(billingClient) ? recheckStale() : 0;
+        if (resolved > 0) {
+            log.info("HP 보류 재확인 resolved={}", resolved);
         }
+        return resolved;
+    }
+
+    private int recheckStale() {
         LocalDateTime cutoff = LocalDateTime.now(clock).minus(batchProperties.pendingGrace());
         int resolved = 0;
         for (Long requestId : appearanceRequestSupport.findStaleHoldPendingIds(cutoff, batchProperties.batchSize())) {
+            // 시험 중에 보낸 보류가 실패하면 회로가 다시 열린다. 남은 건은 다음 회차로 넘긴다
+            if (!circuitGate.allows(billingClient)) {
+                return resolved;
+            }
             if (recheck("요청서", requestId, () -> recheckRequest(requestId))) {
                 resolved++;
             }
         }
         List<Long> recruitIds = appearanceRecruitSupport.findStaleHoldPendingIds(cutoff, batchProperties.batchSize());
         for (Long recruitId : recruitIds) {
+            if (!circuitGate.allows(billingClient)) {
+                return resolved;
+            }
             if (recheck("모집글", recruitId, () -> recheckRecruit(recruitId))) {
                 resolved++;
             }
-        }
-        if (resolved > 0) {
-            log.info("HP 보류 재확인 resolved={}", resolved);
         }
         return resolved;
     }

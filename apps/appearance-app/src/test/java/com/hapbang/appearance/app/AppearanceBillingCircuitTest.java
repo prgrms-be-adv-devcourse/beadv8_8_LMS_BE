@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +26,8 @@ import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
 import com.hapbang.appearance.domain.HpTask;
+import com.hapbang.appearance.domain.HpTaskReason;
+import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
 import com.hapbang.appearance.domain.HpTaskType;
 import com.hapbang.appearance.fixture.AppearanceRecruitFixture;
@@ -168,6 +171,44 @@ class AppearanceBillingCircuitTest {
         assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.REQUESTED);
         assertThat(recruitStatus()).isEqualTo(AppearanceRecruitStatus.RECRUITING);
         assertThat(billingClient.isCircuitOpen()).isFalse();
+    }
+
+    @Test
+    @DisplayName("회차 도중에 회로가 열리면 남은 작업은 보내지 않는다: 닫힌 회로에서 2건 실패로 열리면 3번째는 그대로, 시험 중 보낸 1건이 또 실패해도 나머지는 시도 횟수 그대로")
+    void stopWhenCircuitOpensMidRun() {
+        List<HpTask> tasks = new ArrayList<>();
+        for (long refId = 101; refId <= 103; refId++) {
+            tasks.add(hpTaskRepository.saveAndFlush(HpTask.release(HpTaskRefType.APPEARANCE_REQUEST, refId, HOST, 30_000,
+                    HpTaskReason.REQUEST_REJECTED, "APPEARANCE_REQUEST-" + refId + "-RELEASE-1", clock.now())));
+        }
+        clock.advance(Duration.ofMinutes(2));
+        MockBilling.fail(Endpoint.RELEASE, 500, null, null);
+
+        // 닫힌 회로: 2건이 실패해 최근 2번 모두 실패 → 열림. 3번째는 보내지 않는다
+        assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(2);
+        assertThat(billingClient.isCircuitOpen()).isTrue();
+        assertThat(MockBilling.requests(Endpoint.RELEASE)).hasSize(2);
+        assertThat(attempts(tasks)).containsExactly(1, 1, 0);
+
+        // 시험 중: 1건만 보내고 실패해 다시 열림 → 나머지는 시도 횟수 그대로
+        waitUntilCircuitNotOpen();
+        clock.advance(Duration.ofMinutes(5));
+        assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
+        assertThat(billingClient.isCircuitOpen()).isTrue();
+        assertThat(MockBilling.requests(Endpoint.RELEASE)).hasSize(3);
+        assertThat(attempts(tasks).stream().mapToInt(Integer::intValue).sum()).isEqualTo(3);
+
+        // 지갑 복구 뒤 시험 중: 1건 성공으로 회로가 닫혀 나머지도 실행
+        MockBilling.succeed(Endpoint.RELEASE);
+        waitUntilCircuitNotOpen();
+        clock.advance(Duration.ofMinutes(5));
+        assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(3);
+        assertThat(tasks).allSatisfy(task -> assertThat(reload(task).getStatus()).isEqualTo(HpTaskStatus.DONE));
+        assertThat(billingClient.isCircuitOpen()).isFalse();
+    }
+
+    private List<Integer> attempts(List<HpTask> tasks) {
+        return tasks.stream().map(task -> reload(task).getAttemptCount()).toList();
     }
 
     /** 회로는 열린 시간이 지나면 호출이 없어도 시험 중(HALF_OPEN)으로 넘어간다 (실제 시간) */

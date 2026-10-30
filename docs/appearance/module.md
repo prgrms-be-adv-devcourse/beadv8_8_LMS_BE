@@ -556,7 +556,9 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 - 한 번에 최대 100건(`batch-size`), 건마다 짧은 트랜잭션, 건마다 예외를 잡아 다음 건을 계속 처리한다. 같은 배치는 이전 실행이 끝나야 다음 실행이 시작된다.
 - 설정: `appearance.yml`의 `appearance.batch.*` (주기, 건수, 대기 시간, 재시도 정책). `config.AppearanceBatchProperties`가 읽는다.
 - **지갑 회로가 열려 있으면 지갑을 부르는 배치(보류 재확인·HP 작업 재시도)는 그 회차를 건너뛴다** (#439, 강의 D67과 같음).
-  `BillingClient.isCircuitOpen()`(공용 Client 회로가 OPEN·FORCED_OPEN)이 `true`면 대상을 가져오지 않고 INFO 로그 한 줄만 남긴다.
+  `BillingClient.isCircuitOpen()`(공용 Client 회로가 OPEN·FORCED_OPEN)이 `true`면 대상을 가져오지 않는다. 회차 시작 때만이 아니라 **건마다 보내기 전에** 본다(`app.BillingCircuitGate`):
+  시험 중(HALF_OPEN)에는 회로가 정한 수만큼만 실제로 보내고, 시험이 실패하면 회차 도중에 다시 열리므로 남은 건은 다음 회차로 넘긴다.
+  로그는 상태가 바뀔 때만 남긴다(멈춤 WARN, 재개 INFO).
   열린 회로에 보내면 요청은 나가지 않고 HP 작업 시도 횟수만 올라, 지갑이 오래 내려가 있으면 정상 작업이 `DEAD`가 되기 때문이다.
   회로는 호출이 없어도 열린 시간(기본 30초)이 지나면 시험 중(HALF_OPEN)으로 넘어가고, 시험 중에는 평소처럼 실행한다.
   사용자 요청 안의 실행(보류, 거절·취소 직후 HP 작업 1회)과 관리자 다시 시도는 회로를 보지 않고 그대로 부른다(회로가 열려 있으면 `RETRYABLE` → 보류 `HOLD_PENDING` + 503, HP 작업은 대기로 남아 배치가 이어받음).
@@ -593,7 +595,7 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 - 재시도 대상: `PENDING`이고 다음 시도 시각이 지났으며, 한 번 이상 시도했거나 만든 지 1분이 지난 작업. 거절·취소 직후 요청 안에서 바로 실행 중인 작업과 겹치지 않게 하기 위해서다.
 - 같은 작업을 동시에 실행해도 같은 반환 요청 ID라 Billing은 한 번만 처리하고, 결과 기록은 대기 중일 때만 한다(버전 충돌이면 먼저 기록한 쪽을 따름).
 - 재시도 정책: `domain.HpTaskRetryPolicy` (`appearance.batch.retry-*`).
-- 지갑 회로가 열려 있으면 그 회차를 건너뛴다(8.1, #439). 시도 횟수는 그대로이고, 대기·격리 작업 수 지표는 갱신한다.
+- 지갑 회로가 열려 있으면 그 회차를 건너뛰고, 회차 도중에 열리면 남은 작업을 실행하지 않는다(8.1, #439). 실행하지 않은 작업의 시도 횟수는 그대로이고, 대기·격리 작업 수 지표는 갱신한다.
 
 ### 8.5 모니터링
 

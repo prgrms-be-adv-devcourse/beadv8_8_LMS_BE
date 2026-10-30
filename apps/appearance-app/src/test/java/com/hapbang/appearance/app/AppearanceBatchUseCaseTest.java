@@ -3,6 +3,7 @@ package com.hapbang.appearance.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -442,6 +443,25 @@ class AppearanceBatchUseCaseTest {
             assertThat(onlyTask().getStatus()).isEqualTo(HpTaskStatus.DONE);
             assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::releaseRequestId)
                     .containsExactly(task.getIdempotencyKey());
+        }
+
+        @Test
+        @DisplayName("회차 도중에 회로가 열리면(시험 중 보낸 작업 실패 등) 남은 작업은 실행하지 않는다: 시도 횟수 그대로, 다음 회차로 (#439)")
+        void stopWhenCircuitOpensMidRun() {
+            for (long refId = 101; refId <= 103; refId++) {
+                hpTaskRepository.saveAndFlush(HpTask.release(HpTaskRefType.APPEARANCE_REQUEST, refId, HOST, FEE,
+                        HpTaskReason.REQUEST_REJECTED, "APPEARANCE_REQUEST-" + refId + "-RELEASE-1", now()));
+            }
+            pendingGracePassed();
+            // 반환 요청을 한 번 보내면 회로가 열린다
+            doAnswer(invocation -> !BillingCalls.releases(billingClient).isEmpty())
+                    .when(billingClient).isCircuitOpen();
+
+            assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
+
+            assertThat(BillingCalls.releases(billingClient)).hasSize(1);
+            assertThat(hpTaskRepository.findAll()).filteredOn(task -> task.getStatus() == HpTaskStatus.PENDING)
+                    .hasSize(2).allSatisfy(task -> assertThat(task.getAttemptCount()).isZero());
         }
 
         @Test
