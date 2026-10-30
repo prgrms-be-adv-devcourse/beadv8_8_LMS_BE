@@ -8,6 +8,7 @@
 > - 2026-10-29 dev da834b1 반영: billing-app 테스트 코드 변경은 없다. `common/test-support`에 Kafka·Redis Testcontainers 설정이 추가됐다(3장). #369 최종 인프라 결정을 Contract 대상(6.2)과 BT-PORT-04·BT-EVT-01·BT-SEC-05에 반영했고, BT-SEC-06을 더했다.
 > - 2026-10-30 #428 반영: BT-EVT-01을 Kafka 소비 규칙(#339)에 맞춰 `eventId` inbox에서 자연 키 멱등·소비 그룹 둘·그룹별 DLT로 고쳤다.
 > - 2026-10-30 #430 반영: 회원 이벤트 리스너 두 개가 Kafka 소비로 바뀌었다. BT-EVT-01은 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증하고 JVM 칸을 "없음"으로, BT-WAL-02·BT-USR-02는 Kafka 경로 테스트로 옮겨 "없음"으로 바꿨다. 같은 JVM `Scenario.publish` 테스트는 없앴다(리스너 직접 호출 또는 Kafka 테스트로 대체).
+> - 2026-10-30 #471 반영: Modulith 이벤트 기록 자동 설정을 뺀 것을 BT-CFG-04(`ModulithEventsDisabledTest`)로 확인한다.
 > - 2026-10-30 #336·#453 반영: 플랫폼 지갑·수수료 수입(BT-EXP-08·09), 송금액 0원 환전(BT-EXP-10), 1 HP 단위 환불·환전(BT-RFD-01·BT-EXC-01)을 더했다. 7장 목록은 지금 코드 기준 77개 클래스·786개다. #273·#372에서 빠졌던 4개 클래스(`LockTimeoutsTest`·`BillingFailureCodeContractTest`·`InternalApiPortConfigTest`·`ApiV1BillingInternalControllerTest`)도 넣었다. 새 항목의 회귀 실행 기록은 아직 없다.
 
 ## 1. 실행 방법
@@ -286,6 +287,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-CFG-01 | 배치 스위치 | `hapbang.scheduling.enabled` 조건 | — | U | `ConditionalOnSchedulingEnabledTest`(3) | 없음 | R-003 통과 |
 | BT-CFG-02 | 실제 설정 기동 | 앱 `application.yaml`·프로필(local·dev·prod)과 필수 환경 변수로 기동, 누락 시 기대한 실패 | module.md 9장 | T | 없음 (`@IntegrationTest`는 앱 yaml을 읽지 않는다) | 미확인 | 없음 |
 | BT-CFG-03 | 복구 배치 실행 | `ChargeRecoveryBatch`·`RefundRecoveryBatch`가 등록되고 UseCase에 위임 | BD-78, BD-92 | I | 없음 (UseCase만 검증) | 없음 | 없음 |
+| BT-CFG-04 | Modulith 이벤트 기록 끔 (#471) | 이벤트 기록 빈(레지스트리·저장소)이 없고 `billing.event_publication`·`event_publication_archive` 테이블이 없다. 앱 설정과 테스트 설정이 같은 자동 설정을 뺀다 | BD-124 | I | `ModulithEventsDisabledTest`(1) | 없음 | 기록 없음 (#471에서 추가) |
 
 ## 5. JVM 분리 영향 정리
 
@@ -295,7 +297,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | --- | --- | --- | --- | --- |
 | BillingPort 호출 | 강의·출연이 `BillingPort` 빈을 주입받아 Java로 호출 | billing-app에만 구현이 있다. 소비 앱은 기동 실패. 원격 Client·내부 API 없음 | BT-PORT-01, 04, 05 | BD-51, BD-52 |
 | 모듈 간 트랜잭션 경계 | 주문 저장 + 보류가 한 DB 트랜잭션, 실패하면 함께 롤백, 모듈 간 락 순서 | 원격 호출은 같은 트랜잭션에 참여할 수 없다. 부분 성공(보류만 되거나 주문만 됨)을 복구할 설계가 없다 | BT-PORT-02, 03 | BD-53, BD-60, BD-64, BD-72, BD-107 |
-| 회원 이벤트 수신 | #430부터 Kafka `member.events.v1`을 소비 그룹 둘로 받는다. 멱등은 자연 키(BD-123) | 발행 쪽 #416이 병합돼야 실제로 이벤트가 온다. 앱 시작 전 가입자의 지갑은 조회 시 보완, 복제본은 Backfill로 채운다. 기존 `event_publication`의 billing 리스너 미완료 기록 정리는 후속(Spring Event 제거) | BT-WAL-02, BT-USR-01·02, BT-EVT-01 | BD-2, BD-6, BD-103, BD-123 |
+| 회원 이벤트 수신 | #430부터 Kafka `member.events.v1`을 소비 그룹 둘로 받는다. 멱등은 자연 키(BD-123) | 발행 쪽 #416이 병합돼야 실제로 이벤트가 온다. 앱 시작 전 가입자의 지갑은 조회 시 보완, 복제본은 Backfill로 채운다. billing의 Modulith 이벤트 기록 테이블·설정은 #471에서 지웠다 | BT-WAL-02, BT-USR-01·02, BT-EVT-01 | BD-2, BD-6, BD-103, BD-123 |
 | 인증·인가 | member의 OAuth2 로그인 세션 principal을 같은 앱이 해석 | billing-app에 oauth2Login·spring-session 의존이 없다. 다른 앱의 로그인 세션을 해석할 방법이 코드에 없다(미확인). 목표는 JWT + `X-User-*` 헤더 인증이며, 그때 CSRF 설정·`@LoginUserId`가 바뀐다 | BT-SEC-01·02·04·05·06 | BD-3, BD-103 (#370~#372) |
 | 내부 HTTP API | 수익 조회·Backfill은 이미 HTTP | Client는 분리 구조에 맞다. 대신 base-url 환경 변수가 필수다(기본값 없음). 제공자와의 계약 일치는 검증하지 않는다. Billing이 제공하는 내부 API는 없다 | BT-ERN-02·04, BT-USR-03·04, BT-SEC-03 | — |
 | 멱등성·재시도 | 실패하면 호출자 트랜잭션과 함께 롤백 → 같은 요청 ID로 재요청 | Billing 내부 멱등(요청 ID 재생)은 그대로다. 하지만 원격 호출의 타임아웃·결과 불명 시 호출자가 같은 ID로 재시도하고 오류를 성공으로 해석하지 않는 규칙(BD-70)을 검증하는 테스트가 없다 | BT-PAY-03·04, BT-PORT-04 | BD-69, BD-70 |
@@ -307,13 +309,13 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 
 | JVM | 개수 | ID |
 | --- | --- | --- |
-| 없음 | 77 | 아래 셋을 뺀 나머지 |
+| 없음 | 78 | 아래 셋을 뺀 나머지 |
 | 경계 | 17 | BT-WAL-03·04, BT-CHG-08·09, BT-RFD-08, BT-EXC-01·06·07, BT-EXP-07·09, BT-ERN-02·03·04, BT-USR-01·03·04, BT-SEC-04 |
 | 깨짐 | 6 | BT-PORT-01~05, BT-SEC-05 |
 | 미확인 | 4 | BT-SEC-01, BT-SEC-02, BT-SEC-06, BT-CFG-02 |
-| 합계 | 104 | |
+| 합계 | 105 | |
 
-개수는 4장 표를 기준으로 셌다(2026-10-29, #336·#453·#430 반영 2026-10-30). 표를 고치면 함께 고친다.
+개수는 4장 표를 기준으로 셌다(2026-10-29, #336·#453·#430·#471 반영 2026-10-30). 표를 고치면 함께 고친다.
 
 ## 6. 빈 곳
 
@@ -401,6 +403,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | domain.WalletApplyLedgerAccessTest | U (ArchUnit) | 1 | — | LED-02 |
 | domain.WalletTest | U | 11 | — | LED-03, EXP-08·09 |
 | global.auth.LoginUserIdArgumentResolverTest | U | 4 | — | SEC-02 |
+| global.config.ModulithEventsDisabledTest | I | 1 | 필요 | CFG-04 |
 | global.config.PageConfigTest | S | 3 | — | ERR-02 |
 | global.config.SecurityConfigTest | S | 12 | — | SEC-01 |
 | global.exception.BusinessExceptionTest | U | 6 | — | ERR-01 |
@@ -438,8 +441,8 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | U (ACR·로컬 HTTP·ArchUnit 포함) | 35 | 217 |
 | S (`@WebMvcTest`) | 4 | 41 |
 | R (`@RepositoryTest`) | 4 | 47 |
-| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 35 | 486 |
-| 합계 | 78 | 791 |
+| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 36 | 487 |
+| 합계 | 79 | 792 |
 
 ## 8. 운영 규칙
 
