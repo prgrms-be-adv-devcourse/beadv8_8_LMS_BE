@@ -36,7 +36,7 @@
 
 ## 6. 배포 확인
 
-- dev 배포: `gh run list --branch dev --event push --limit 1`(Deploy 워크플로). `--event` 없이 조회하면 다른 PR의 CI가 나올 수 있다. 끝까지 기다리려면 `gh run watch <id> --exit-status`.
+- dev 병합은 CI만 돈다. dev 서버는 없다.
+- 운영 배포: main 병합 뒤 Publish images, 그다음 수동 Deploy다([운영 앱 배포](../deploy/k8s.md#운영-앱-배포)). 최근 실행은 `gh run list --workflow deploy.yml --limit 1`, 끝까지 기다리려면 `gh run watch <id> --exit-status`.
 - 실패 로그는 `gh run view <id> --log-failed`로 본다.
-- `docker/compose.<env>.yaml`을 바꾼 PR은 병합 후 Deploy가 "서버 설정이 레포와 다름"으로 실패하는 게 정상이다. 새 env 키는 병합 전에 서버 env 파일에 넣고, compose를 반영한 뒤 `gh run rerun <id> --failed`로 다시 실행한다. 서버 파일은 한 벌이라 `compose.prod.yaml`은 main 병합 때 반영한다 ([운영](../deploy/operations.md)).
-- 배포 뒤 dev 서버 확인은 [로컬·dev 확인](../dev/local.md).
+- 새 환경변수는 [env-vars.md](../deploy/env-vars.md) 절차로 ConfigMap·SealedSecret에 넣는다.

@@ -16,11 +16,11 @@
 | EC2 | t3.large 1대 + t3.medium 1대, 각각 Ubuntu 24.04·gp3 50 GB·EIP 1개 | large는 `core-data`, medium은 `app-observe`로 사용한다. 상세 배치는 전용 문서를 따른다 |
 | CPU credit | **standard** 모드 | 기준선 이상 부하가 이어져 credit을 다 쓰면 CPU가 기준선으로 제한된다. 부하 test 결과에 credit 잔량을 함께 기록한다 |
 | 운영 시간 | 09:00~18:00 자동 시작·중지 | 매일 instance가 중지된다. 그 시간에 잡힌 `@Scheduled` 작업은 실행되지 않고, 종료 처리가 시연이 아니라 실제 요구다 |
-| 환경 | 현재 Compose는 prod·dev가 large에 함께 있다. 앱별 구조 전환(#363) 뒤 자동 배포는 멈춰 있다 | k3s에는 **prod(main)만** 둔다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
+| 환경 | EC2에는 k3s prod 한 벌만 있다. 기존 Compose(prod·dev)는 2026-10-30에 볼륨까지 지웠고 dev 서버는 없다(#440). 업무 앱은 아직 k3s에 배포하지 않았다 | k3s에는 **prod(main)만** 둔다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
 | network | 프로젝트 전용 VPC 1개, public subnet 1개, Internet Gateway. private subnet·NAT 없음 | 두 node는 같은 subnet에서 private IP로 cluster 통신한다 |
 | security group | 22·80·443 inbound 전체 허용. 6443은 kubectl 사용자 IP `/32`만 허용(2026-10-28) | Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다. k3s API(6443)는 사용자 IP `/32` 외에는 열지 않는다 |
-| 진입점 | edge nginx + Let's Encrypt(certbot). ELB·ACM 없음 | 외부 TLS 종료, 큰 본문 업로드, 내부 API 차단이 edge nginx에 있다. k3s에서는 이 책임을 Envoy Gateway와 cert-manager가 넘겨받고 nginx는 쓰지 않는다 |
-| 이미지 | GHCR private. ECR 없음 | cluster는 GHCR pull secret이 필요하다 |
+| 진입점 | large ServiceLB → Envoy Gateway, cert-manager의 Let's Encrypt 인증서(2026-10-30, #372). edge nginx는 지웠다. ELB·ACM 없음 | 외부 TLS 종료, 큰 본문 업로드, 내부 API 차단이 edge nginx에 있다. k3s에서는 이 책임을 Envoy Gateway와 cert-manager가 넘겨받고 nginx는 쓰지 않는다 |
+| 이미지 | 앱 이미지는 GHCR public 패키지(#374). ECR 없음 | 레포가 공개라 cluster에 GHCR pull secret을 두지 않는다 |
 | S3 | 버킷 1개, 사진·영상 업로드 전용(`dev/*`·`prod/*` prefix). 인스턴스 역할로 접근 | metrics·logs·traces·vector 저장 같은 다른 용도로 쓰려면 IAM 정책과 팀 합의를 바꿔야 한다 |
 | instance metadata | IMDSv2 required, hop limit 2 | container·pod 안에서도 인스턴스 역할 자격 증명을 받을 수 있다 |
 
@@ -239,9 +239,9 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 2. `k8s/` 구조(cluster·components·platform·apps)와 Helm 차트, 로컬 k3d bootstrap, CI 렌더링·schema 검사(#373). PR CI smoke/E2E는 앱이 모두 단독 기동한 뒤
 3. 모듈 앱 8개 Deployment(앱마다 replica 1개)와 probe·resource limit·migration·drain 설정
 4. Envoy Gateway·cert-manager·ServiceLB, `HTTPRoute`·`SecurityPolicy`, 헤더 위조 차단, 내부 API 차단, 큰 본문 업로드 검증(#372)
-5. 앱별 이미지 발행과 prod 배포 workflow(#374). EC2에 k3s를 설치하고 prod만 전환한다. 전환 검증 전까지 Compose 이미지로 되돌릴 수 있게 둔다
+5. 앱별 이미지 발행과 prod 배포 workflow(#374). EC2에 k3s를 설치하고 prod만 전환한다. 전환 검증 전까지 Compose 이미지로 되돌릴 수 있게 둘 계획이었으나, Compose를 먼저 지워 되돌릴 경로는 없다(#440)
 6. rolling update, pod 강제 종료, EC2 자동 중지·재시작과 자원 사용량 기록
-7. prod 전환 후 Compose, edge nginx, dev 서버와 기존 배포 script 제거
+7. prod 전환 후 Compose, edge nginx, dev 서버와 기존 배포 script 제거. 서버의 Compose·edge nginx·dev 서버는 2026-10-30에 먼저 지웠다(#440). 레포의 기존 배포 workflow·script 제거는 #374
 8. 실제 EC2·EIP·network·security group·S3·IAM을 Terraform으로 import하고 zero-change plan 검증
 
 ### Phase 9 — 포트폴리오 증거

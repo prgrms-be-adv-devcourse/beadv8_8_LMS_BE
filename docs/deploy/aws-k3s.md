@@ -1,9 +1,9 @@
 # AWS 2노드 k3s 배치
 
-상태: k3s cluster(server 1 + agent 1), 공용 인프라와 Envoy Gateway 구성 완료. 업무 앱·FE의 k3s 배포는 아직이다. 기존 Compose 데이터는 보존하며 edge nginx·certbot은 중지했다.
+상태: k3s cluster(server 1 + agent 1), 공용 인프라와 Envoy Gateway 구성 완료. 업무 앱·FE의 k3s 배포는 아직이다. 기존 Docker Compose(prod·dev·edge nginx)는 2026-10-30에 볼륨까지 지웠다(#440).
 현재 AWS 현황 기준일: 2026-10-30
 
-현재 Docker Compose 운영 절차는 [배포 개요](README.md)를 따른다. 이 문서는 Compose를 k3s로 전환할 때 적용할 AWS 범위, node 역할과 workload 배치 규칙을 정의하고, 설치한 k3s cluster의 구성과 재설치 절차를 기록한다. workload를 옮기기 전에는 아래 workload 배치를 이미 배포된 상태로 표현하지 않는다.
+배포 흐름 전체는 [배포 개요](README.md)를 따른다. 이 문서는 k3s에 적용하는 AWS 범위, node 역할과 workload 배치 규칙을 정의하고, 설치한 k3s cluster의 구성과 재설치 절차를 기록한다. workload를 옮기기 전에는 아래 workload 배치를 이미 배포된 상태로 표현하지 않는다.
 
 ## 허용된 AWS 범위
 
@@ -51,7 +51,7 @@ Client
   → large/medium의 모듈 앱 pod
 ```
 
-위는 진입점 전환([전환 순서](#전환-순서) 7) 뒤의 목표 흐름이다. 그 전까지 외부 진입은 Compose의 edge nginx다. 목표 구조에서는 nginx를 쓰지 않는다. TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다. EC2에는 prod(main) 한 벌만 두고 dev 서버는 두지 않는다. 진입점과 인증 흐름은 [최종 인프라 설계 3장 API Gateway](../architecture/infrastructure/api-gateway.md)을 따른다.
+외부 진입은 2026-10-30에 이 흐름으로 바꿨다([전환 순서](#전환-순서) 7). 업무 앱 pod는 아직 없다. nginx는 쓰지 않는다. TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다. EC2에는 prod(main) 한 벌만 두고 dev 서버는 두지 않는다. 진입점과 인증 흐름은 [최종 인프라 설계 3장 API Gateway](../architecture/infrastructure/api-gateway.md)을 따른다.
 
 - 서비스 DNS는 large EIP만 가리킨다.
 - medium EIP는 node 관리와 outbound 통신용이다. application 진입점으로 사용하지 않는다.
@@ -63,7 +63,7 @@ Client
   - TCP 10250: kubelet·metrics, node 상호 간
 - 80·443 inbound security group은 large에만 연결한다. 현재는 두 EC2가 security group 하나를 함께 써서 medium에도 80·443이 열려 있다. 분리는 별도 티켓으로 처리한다.
 - 6443은 kubectl을 쓰는 사람의 IP만 `/32`로 허용한다. `0.0.0.0/0`이나 넓은 대역으로 열지 않는다. 규칙 설명에 사용자 이름을 적고, 쓰지 않는 IP의 규칙은 지운다([로컬 kubectl 접근](#로컬-kubectl-접근)). k3s는 익명 접근을 막으므로 client 인증서 없이는 API를 쓸 수 없다.
-- 22번 SSH의 전체 공개는 현재 위험으로 기록하고, 운영 경로를 확정하면 허용 source 제한 또는 SSM 전환을 별도 티켓으로 처리한다.
+- 22번 SSH의 전체 공개는 현재 위험으로 기록한다. 배포는 SSM으로 바뀌었고 Compose 배포(Actions SSH)는 없어졌으므로 허용 source 제한 또는 SSM 전환을 별도 티켓으로 처리한다.
 
 ## S3와 IAM
 
@@ -97,21 +97,23 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 
 ## 전환 순서
 
-1~3은 2026-10-28, 4의 `cluster`·`platform`은 2026-10-29에 적용했다(#374). 2026-10-30 사용자 지시로 기존 서비스 호환을 제외하고 7의 Gateway 진입점 전환을 앱 배포보다 먼저 수행했다(#372). 아래 목록은 전환 단계 전체이며 2의 초기 Traefik·ServiceLB 설정은 현재와 다르다. 현재는 Traefik을 끄고 ServiceLB를 large에서만 켰다. 앱 배포·데이터 이전을 완료했다는 뜻은 아니다. 절차는 아래 [k3s 설치](#k3s-설치)에 있다.
+1~3은 2026-10-28, 4의 `cluster`·`platform`은 2026-10-29에 적용했다(#374). 2026-10-30 사용자 지시로 기존 서비스 호환을 제외하고 7의 Gateway 진입점 전환을 앱 배포보다 먼저 수행했다(#372). 아래 목록은 전환 단계 전체이며 2의 초기 Traefik·ServiceLB 설정은 현재와 다르다. 현재는 Traefik을 끄고 ServiceLB를 large에서만 켰다. 같은 날 9의 Compose 제거도 앱 배포보다 먼저 했다(#440). 앱 배포를 완료했다는 뜻은 아니다. 절차는 아래 [k3s 설치](#k3s-설치)에 있다.
 
 1. (완료) 두 EC2의 private IP 통신, security group, IMDSv2와 IAM role을 검증한다.
 2. (완료) large에 k3s server를 설치하고 `core-data` label을 적용한다. servicelb는 끄고 k3s 기본 Traefik은 켜진 상태다.
 3. (완료) medium을 agent로 join하고 `app-observe` label을 적용한다.
-4. `k8s/cluster`, `k8s/platform`을 수동으로 적용하고, local k3d에서 검증한 앱마다의 `apps/<앱>/k8s/overlays/prod`를 적용한다. dev namespace는 만들지 않는다. 이 단계까지 외부 진입은 계속 Compose의 edge nginx다. 적용 순서와 확인 명령은 [k8s manifest](k8s.md)를 따른다.
+4. `k8s/cluster`, `k8s/platform`을 수동으로 적용하고, local k3d에서 검증한 앱마다의 `apps/<앱>/k8s/overlays/prod`를 적용한다. dev namespace는 만들지 않는다. 적용 순서와 확인 명령은 [k8s manifest](k8s.md)를 따른다.
    - (완료) `cluster`·`platform` 적용. PostgreSQL 앱 role 로그인, Redis PING, Kafka broker 응답, Elasticsearch green과 nori 분석, 관측성 5종 Running을 확인했다. 적용 직후 메모리는 large 4.4 GiB(Compose 포함), medium 1.3 GiB였다. 앱 prod overlay는 앱 이미지와 SealedSecret 준비 뒤 적용한다.
    - (완료) IMDS 차단(`k8s/gateway/base/metadata-networkpolicy.yaml`)은 Gateway와 무관해 먼저 적용했다. 그때 있던 `hapbang-prod`·`hapbang-platform`·`elastic-system`에만 걸었고, `envoy-gateway-system`·`cert-manager`는 Gateway 설치 때 함께 건다. 적용 뒤 platform pod가 모두 Running이고 Elasticsearch가 green인 것을 확인했다. `hapbang-platform`에 띄워 Ready 뒤 15초 기다린 pod에서 IMDSv2 토큰 요청이 연결 거부(curl exit 7)로 막히는 것을 확인했다. 뜨자마자 보낸 요청은 200이었다. kube-router가 새 pod에 규칙을 거는 몇 초 동안은 막히지 않으므로, 이 정책을 기동 직후까지 지키는 경계로 보지 않는다.
    - (완료) `k8s/platform` 전에 large에 Elasticsearch용 `vm.max_map_count=1048576`을 sysctl로 고정한다(`/etc/sysctl.d/`). ES 9의 권장값이다([ECK virtual memory](https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/virtual-memory)).
    - (완료, 사용자 보관) Sealed Secrets controller가 뜨면 바로 [키를 백업](#sealed-secrets-키-백업)한 뒤 SealedSecret을 만든다.
 5. 모듈 앱이 정한 node에 배치됐는지 확인한다.
 6. stateful workload가 large 외 node에 배치되지 않는 구조 test를 둔다.
-7. 진입점 전환: edge nginx를 먼저 멈춘다. 그다음 large의 `/etc/rancher/k3s/config.yaml`에서 `disable`의 `servicelb`를 빼고 `traefik`을 넣은 뒤 k3s를 재시작한다. large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙인다(붙인 node가 없으면 모든 node가 ServiceLB 후보가 된다). Envoy proxy Service는 `externalTrafficPolicy: Local`로 둔다. Envoy proxy가 80·443을 받는지, Traefik이 지워졌는지, cert-manager가 인증서를 발급했는지 확인한다. edge nginx가 떠 있는 동안 servicelb를 켜면 svclb가 80·443을 가로챈다(아래 "k3s 설치" 2단계 기록). 이 동안 외부 접속이 잠깐 끊기므로 미리 공지한다.
+7. (완료, 2026-10-30, #372) 진입점 전환: edge nginx를 먼저 멈춘다. 그다음 large의 `/etc/rancher/k3s/config.yaml`에서 `disable`의 `servicelb`를 빼고 `traefik`을 넣은 뒤 k3s를 재시작한다. large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙인다(붙인 node가 없으면 모든 node가 ServiceLB 후보가 된다). Envoy proxy Service는 `externalTrafficPolicy: Local`로 둔다. Envoy proxy가 80·443을 받는지, Traefik이 지워졌는지, cert-manager가 인증서를 발급했는지 확인한다. edge nginx가 떠 있는 동안 servicelb를 켜면 svclb가 80·443을 가로챈다(아래 "k3s 설치" 2단계 기록). 이 동안 외부 접속이 잠깐 끊기므로 미리 공지한다.
 8. rolling update, pod 종료, medium node 중지와 large node 중지의 서로 다른 결과를 기록한다.
 9. prod 전환과 rollback 검증이 끝난 뒤에만 Compose 배포 경로, edge nginx와 dev 서버를 제거한다.
+   - (서버 실행, 2026-10-30, #440) 계획과 달리 prod 앱 전환과 rollback 검증 전에 Compose의 prod·dev(app·web·PostgreSQL)와 edge(nginx·certbot)를 `down -v`로 볼륨까지 지웠다. 기존 운영 DB에는 필요 없는 데이터만 있어 백업하지 않았고, k3s PostgreSQL에서 새로 시작한다(#338의 Compose 데이터 이전은 하지 않는다). Compose로 되돌리는 경로는 없다.
+   - 남은 Compose 배포 경로(`deploy-prod.yml`·`deploy-server.yml`, `docker/`의 compose·nginx·`deploy.sh`, 서버의 `deploy` 계정·`/opt/hapbang`, `DEPLOY_*` Secrets)는 #374의 기존 경로 정리에서 지운다.
 
 ## k3s 설치
 
@@ -120,7 +122,7 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 | 항목 | 값 |
 | --- | --- |
 | 버전 | `v1.36.5+k3s1`. 두 node와 로컬 k3d가 같은 버전을 쓴다 |
-| servicelb | 끈다. 80·443은 Compose의 edge nginx가 받는다. Envoy로 진입점을 옮길 때 켠다([전환 순서](#전환-순서) 7) |
+| servicelb·Traefik | servicelb는 켜고 large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙인다. k3s 기본 Traefik은 끈다. 2026-10-28 첫 설치 때는 Compose edge nginx가 80·443을 써서 servicelb를 끄고 Traefik을 켰고, 2026-10-30 진입점 전환 때 바꿨다([전환 순서](#전환-순서) 7) |
 | graceful node shutdown | `shutdownGracePeriod` 60s, `shutdownGracePeriodCriticalPods` 20s |
 | logind `InhibitDelayMaxSec` | 90s |
 | 시간대 | 두 node 모두 `Asia/Seoul` |
@@ -162,22 +164,25 @@ advertise-address: <large private IP>
 node-label:
   - hapbang.io/pool=core-data
 disable:
-  - servicelb
+  - traefik
 write-kubeconfig-mode: "0600"
 CONF
 
-sudo grep -q servicelb /etc/rancher/k3s/config.yaml && sudo grep -q core-data /etc/rancher/k3s/config.yaml \
+sudo grep -q traefik /etc/rancher/k3s/config.yaml && sudo grep -q core-data /etc/rancher/k3s/config.yaml \
   && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='v1.36.5+k3s1' sh -s - server
+
+# ServiceLB가 large에서만 80·443을 받게 한다. 붙인 node가 없으면 모든 node가 후보가 된다.
+sudo kubectl label node <large node 이름> svccontroller.k3s.cattle.io/enablelb=true
 ```
 
-설치 명령은 config 확인 조건 뒤에만 실행한다. 2026-10-28 첫 설치는 config가 적용되지 않아 servicelb가 켜진 상태였다. 그때 large에서는 `docker-proxy`가 80·443을 계속 listen하고 있었는데, 밖에서는 Traefik 404와 `TRAEFIK DEFAULT CERT`가 돌아왔다. k3s를 uninstall하자 edge nginx 응답이 돌아왔다. 당시 svclb pod 상태는 기록하지 못했다. hostPort는 socket을 bind하지 않고 CNI portmap의 iptables DNAT 규칙으로 구현되므로, Docker가 같은 port를 쓰고 있어도 scheduler는 충돌을 모르고 svclb pod를 배치한다. 그래서 DNAT 규칙이 docker-proxy보다 먼저 요청을 받은 것으로 본다.
+설치 명령은 config 확인 조건 뒤에만 실행한다. 아래는 Compose edge nginx가 80·443을 쓰던 때의 기록이다. 2026-10-28 첫 설치(당시 config는 `disable: servicelb`)는 config가 적용되지 않아 servicelb가 켜진 상태였다. 그때 large에서는 `docker-proxy`가 80·443을 계속 listen하고 있었는데, 밖에서는 Traefik 404와 `TRAEFIK DEFAULT CERT`가 돌아왔다. k3s를 uninstall하자 edge nginx 응답이 돌아왔다. 당시 svclb pod 상태는 기록하지 못했다. hostPort는 socket을 bind하지 않고 CNI portmap의 iptables DNAT 규칙으로 구현되므로, Docker가 같은 port를 쓰고 있어도 scheduler는 충돌을 모르고 svclb pod를 배치한다. 그래서 DNAT 규칙이 docker-proxy보다 먼저 요청을 받은 것으로 본다.
 
-설치 뒤 확인한다. 밖에서 prod·dev 응답(http 301, `/actuator/health` 200, Let's Encrypt 인증서)도 함께 본다.
+설치 뒤 확인한다. svclb pod는 LoadBalancer Service(Envoy proxy)가 생긴 뒤에 large에만 뜬다([Gateway](gateway.md)).
 
 ```bash
-sudo kubectl get nodes -L hapbang.io/pool          # POOL: core-data
-sudo kubectl -n kube-system get pods | grep svclb  # 출력 없음
-sudo kubectl -n kube-system get svc traefik        # EXTERNAL-IP: <pending>
+sudo kubectl get nodes -L hapbang.io/pool,svccontroller.k3s.cattle.io/enablelb   # large: core-data, true
+sudo kubectl -n kube-system get svc traefik        # NotFound
+sudo kubectl -n kube-system get pods -o wide | grep svclb   # Gateway 설치 뒤: large에만
 ```
 
 ### 3. medium: agent

@@ -178,7 +178,7 @@ Terraform으로 미래 reference architecture를 새로 설계하지 않는다. 
 - S3 bucket 1개
 - EC2 instance role·instance profile과 S3 inline policy
 
-모두 `Team=devcos-team08` tag가 붙어 있다. EC2 안의 k3s와 Kubernetes resource, Docker Compose, PostgreSQL volume, edge nginx, 인증서는 Terraform 대상이 아니다.
+모두 `Team=devcos-team08` tag가 붙어 있다. EC2 안의 k3s와 Kubernetes resource(PostgreSQL volume, 인증서 포함)는 Terraform 대상이 아니다.
 
 코드화 범위는 다음 원칙으로 확정한다.
 

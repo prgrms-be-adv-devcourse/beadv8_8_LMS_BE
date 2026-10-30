@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy이며 업무 앱·FE는 아직 미배포다. 기존 Compose 데이터는 보존하고 edge nginx·certbot은 중지했다([배포 개요](README.md)).
+상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy이며 업무 앱·FE는 아직 미배포다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 
@@ -63,7 +63,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 앱 SealedSecret은 `k8s/tools/seal-app-secrets.sh`로 만든다. 값은 화면에 출력하지 않는다.
 
 - `DB_PASSWORD`는 EC2 cluster의 `postgres-credentials`에서 읽고, `HAPBANG_INTERNAL_API_KEY`는 `~/.hapbang/internal-api-key`를 쓴다. 파일이 없으면 멈추고, 처음 설치할 때만 앱 이름 없이 `HAPBANG_NEW_INTERNAL_API_KEY=1`로 실행해 새 키로 앱 6개를 함께 봉인한다. 빈 `DB_PASSWORD`, billing 결제 키 한쪽만 있는 경우도 멈춘다.
-- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 서버 `prod.env`의 줄을 그대로 옮기면 되고, 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`.
+- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 처음 값은 기존 Compose 서버의 `prod.env`에서 옮겼다. 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`.
 - 필수 값이 없으면 키 이름만 알리고 멈춘다. 만든 파일은 각 앱의 `overlays/prod/<앱>-app-secrets.yaml`이고 kustomization `resources`에 더한다.
 - `~/.hapbang`의 파일은 팀 비밀 보관소에도 둔다. 내부 API 키를 다시 만들면 앱 6개를 모두 다시 봉인한다.
 
@@ -77,7 +77,7 @@ PostgreSQL은 앱들이 함께 쓰는 인프라라 `hapbang-platform`에 둔다.
 
 - database·role은 차트의 initdb script(`k8s/platform/base/postgres.yaml`)가 **데이터 디렉터리가 비어 있을 때만** 만든다.
 - 이미 초기화된 instance에 database를 더할 때(notification·search 앱 추가 등)는 script를 고치고, 실행 중인 instance에도 같은 SQL을 superuser로 실행한다.
-- 기존 Compose 운영 DB의 데이터 이전은 #338이다.
+- 기존 Compose 운영 DB는 이전하지 않고 2026-10-30에 지웠다(#440). 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다.
 
 ## 적용 순서
 

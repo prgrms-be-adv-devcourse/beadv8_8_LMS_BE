@@ -94,7 +94,7 @@ k3s 자체는 측정하지 않고 공식 resource profiling 값을 쓴다. singl
 | OS (Ubuntu, systemd, sshd, SSM agent 등) | 350 MiB | 추정. 서버에서 확인 |
 | k3s + containerd | 1,500 MiB | 공식 profiling 1,428~1,596 MiB |
 | kube-system pod (CoreDNS, metrics-server, local-path, Traefik) | 100 MiB | Traefik 측정 16 MiB + 추정 |
-| edge nginx (+ Docker daemon) | 100 MiB | edge nginx를 Docker로 계속 띄우면 dockerd가 남는다 |
+| edge nginx (+ Docker daemon) | 100 MiB | edge nginx는 2026-10-30에 지웠다(#440). Docker daemon은 서버에 남아 있으며, 지우면 이 행을 뺀다 |
 | Kafka (heap 512 MiB) | 700 MiB | heap + non-heap. 측정 315 MiB는 부하 없는 값 |
 | Redis | 50 MiB | 측정 11 MiB |
 | Alloy / Prometheus / Loki / Tempo / Grafana | 200 / 300 / 150 / 150 / 150 MiB | Prometheus는 수만 series를 가정해 측정값의 약 7배 |
@@ -157,18 +157,18 @@ Elasticsearch는 검색과 RAG만 담당한다. logs·metrics·traces를 Elastic
 
 **EC2 k3s에는 prod(main) 한 벌만 둔다. dev 서버는 없애고, 개발 확인은 로컬과 PR k3d에서 한다.** 앱 8개는 위 예산 표대로 두 node에 나눈다.
 
-dev 서버가 없어지면 프론트가 dev 서버로 API를 확인하던 경로(#332)도 사라진다. 전환 일정과 로컬 확인 방법을 프론트와 먼저 합의한다. 로컬에서는 BE 앱을 compose나 k3d로 띄우고, 역할별 테스트 계정 로그인은 local profile에서만 켠다. 서버에 올리기 전에 `free -m`, `kubectl top`과 선택한 관측성 UI의 node memory로 이 표를 실측값으로 바꾼다.
+dev 서버는 2026-10-30에 지웠다(#440). 프론트가 dev 서버로 API를 확인하던 경로(#332)도 없어졌으므로 로컬 확인 방법을 프론트와 합의한다. 로컬에서는 BE 앱을 compose나 k3d로 띄우고, 역할별 테스트 계정 로그인은 local profile에서만 켠다. 서버에 올리기 전에 `free -m`, `kubectl top`과 선택한 관측성 UI의 node memory로 이 표를 실측값으로 바꾼다.
 
 CPU는 2 vCPU의 standard credit이다. JVM pod 여러 개가 동시에 시작하면 credit을 소모하고 시작이 느려진다. node 재시작 때는 앱 4개가 한꺼번에 뜨므로 startupProbe 여유를 넉넉히 둔다.
 
-large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검색/RAG index가 들어간다. medium의 50 GB에는 application image와 Prometheus·Loki·Tempo data가 들어간다. 각 저장소에 크기·기간 retention을 두고 Compose에서 k3s로 넘어가는 기간에는 Docker와 containerd가 image를 따로 저장하므로 node별 디스크 여유를 먼저 확인한다.
+large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검색/RAG index가 들어간다. medium의 50 GB에는 application image와 Prometheus·Loki·Tempo data가 들어간다. 각 저장소에 크기·기간 retention을 둔다. Compose는 지웠지만 Docker에 남은 image가 containerd와 별도로 디스크를 쓰므로 node별 디스크 여유를 먼저 확인한다.
 
 ## EC2 운영 방식
 
 - **진입점**: nginx는 쓰지 않는다. Envoy Gateway가 유일한 진입점이다. Envoy proxy Service는 `LoadBalancer`이고, k3s 내장 ServiceLB가 node의 80·443을 Envoy로 연결한다. ServiceLB는 large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙여 large에서만 켠다. 이 label이 붙은 node가 하나도 없으면 모든 node가 후보가 된다([k3s networking 문서](https://docs.k3s.io/networking/networking-services)). Envoy proxy Service는 `externalTrafficPolicy: Local`로 두어 Envoy가 실제 client IP를 보게 한다. DNS와 80·443 security group이 large EIP만 가리키기 때문이다. medium의 앱에는 Envoy가 cluster 내부 Service로 보낸다.
-  - 지금 설치한 cluster는 Compose의 edge nginx가 80·443을 쓰므로 servicelb를 끄고, k3s 기본 Traefik은 켜진 채로 두었다([k3s 설치](../../deploy/aws-k3s.md#k3s-설치)). 첫 설치 때 svclb의 hostPort DNAT가 edge nginx보다 먼저 80·443을 가로챘다. 그래서 **edge nginx를 멈춘 뒤에** servicelb를 켜고 Traefik을 끈다. 이 전환 동안 외부 접속이 잠깐 끊긴다([전환 순서](../../deploy/aws-k3s.md#전환-순서)).
-- **TLS**: cert-manager(공식 Helm 차트)가 Let's Encrypt에서 prod 도메인 인증서를 Gateway API HTTP-01 solver로 발급·갱신한다. 지금 edge nginx 옆의 certbot을 대신한다.
-- **cluster API**: 6443은 같은 node security group에서 medium → large를 허용하고, 사람은 kubectl을 쓰는 사람의 IP만 `/32`로 허용해 EIP로 직접 접근한다([로컬 kubectl 접근](../../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
+  - 첫 설치(2026-10-28) 때는 Compose의 edge nginx가 80·443을 써서 servicelb를 끄고 k3s 기본 Traefik을 켜 두었다. svclb의 hostPort DNAT가 edge nginx보다 먼저 80·443을 가로챘기 때문이다([k3s 설치](../../deploy/aws-k3s.md#k3s-설치)). 2026-10-30 edge nginx를 멈춘 뒤 servicelb를 켜고 Traefik을 껐고(#372), 같은 날 edge nginx를 지웠다(#440, [전환 순서](../../deploy/aws-k3s.md#전환-순서)).
+- **TLS**: cert-manager(공식 Helm 차트)가 Let's Encrypt에서 prod 도메인 인증서를 Gateway API HTTP-01 solver로 발급·갱신한다. 기존 edge nginx 옆의 certbot을 대신했다(2026-10-30).
+- **cluster API**: 6443은 같은 node security group에서 medium → large를 허용하고, 사람은 kubectl을 쓰는 사람의 IP만 `/32`로 허용해 EIP로 직접 접근한다([로컬 kubectl 접근](../../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → OIDC로 받은 IAM role → SSM Run Command → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다([운영 앱 배포](../../deploy/k8s.md#운영-앱-배포)).
 - **namespace**: `hapbang-prod`(모듈 앱·React), `hapbang-platform`(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)과 Envoy Gateway·cert-manager·ECK operator의 system namespace를 둔다. dev namespace는 두지 않는다.
 - **S3 권한**: 모듈 앱이 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
 - **이미지**: GHCR private image를 `imagePullSecret`으로 받는다. 태그는 지금처럼 `sha-<커밋>`을 고정해 쓴다.
