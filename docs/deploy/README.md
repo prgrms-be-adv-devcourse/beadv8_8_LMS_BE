@@ -1,6 +1,6 @@
 # 배포 개요
 
-현재 합방은 EC2 1대에 **운영(prod)**과 **개발 서버(dev)**를 함께 올린다. FE·BE 레포가 각자 이미지를 만들고, 서버 구성(compose·nginx·배포 스크립트)은 BE 레포 `docker/`에 있다. 최종 프로젝트용 EC2 2노드 k3s cluster는 구성했지만(2026-10-28) 아직 workload를 올리지 않았다. 운영은 계속 아래 Compose 구성이며, k3s 배치는 [aws-k3s.md](aws-k3s.md)의 목표 상태다.
+현재 합방은 EC2 1대에 **운영(prod)**과 **개발 서버(dev)**를 함께 올린다. FE·BE 레포가 각자 이미지를 만들고, 서버 구성(compose·nginx·배포 스크립트)은 BE 레포 `docker/`에 있다. 최종 프로젝트용 EC2 2노드 k3s cluster는 구성했지만(2026-10-28) 아직 workload를 올리지 않았다. 운영 트래픽은 진입점 전환 전까지 아래 Compose 구성이 받고, k3s 배치는 [aws-k3s.md](aws-k3s.md)의 목표 상태다.
 
 **2026-10-30부터 Compose 배포는 하지 않는다.** 떠 있는 Compose 서비스는 진입점 전환([전환 순서](aws-k3s.md#전환-순서)) 때까지 마지막으로 배포한 버전으로 둔다. 새 BE 버전은 k3s로만 배포한다([운영 앱 배포](k8s.md#운영-앱-배포), 처음은 [첫 릴리스](k8s.md#첫-릴리스)). Deploy prod(Compose)는 실행하지 않는다.
 

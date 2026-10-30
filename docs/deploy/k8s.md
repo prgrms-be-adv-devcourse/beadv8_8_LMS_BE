@@ -125,7 +125,7 @@ main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없고, 
 
 1. **dev → main 병합**: [operations.md 1단계](operations.md#1-dev--main-병합)처럼 `dev`나 `release/review-N`에서 main PR을 만들어 병합한다. FE를 같이 내보낼 때의 순서도 같은 곳에 있다.
 2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
-3. **패키지 공개(앱마다 처음 한 번)**: org Settings → Packages → Package Creation에서 Public이 허용됐는지 org owner가 먼저 확인한다. 그다음 `https://github.com/orgs/prgrms-be-adv-devcourse/packages/container/package/beadv8_8_lms_be%2F<앱>`(예: `member-app`) → Package settings → Danger Zone → Change visibility → Public으로 바꾼다. 확인 칸에는 `beadv8_8_lms_be/<앱>`을 넣는다. 되돌릴 수 없다. 주소가 404면 그 앱은 아직 발행되지 않았다.
+3. **패키지 공개(앱마다 처음 한 번)**: org Settings → Packages → Package Creation에서 Public이 허용됐는지 org owner가 먼저 확인한다. 그다음 `https://github.com/orgs/prgrms-be-adv-devcourse/packages/container/package/beadv8_8_lms_be%2F<앱>`(예: `member-app`) → Package settings → Danger Zone → Change visibility → Public으로 바꾼다. 확인 칸에는 `beadv8_8_lms_be/<앱>`을 넣는다. 되돌릴 수 없다. 이미지는 `apps/<앱>/build/libs`의 테스트한 jar만 담고, 비밀값은 실행할 때 Secret으로 주입하므로 이미지에 들어가지 않는다. 주소가 404면 그 앱은 아직 발행되지 않았다.
 4. **공개 확인**: 로그인 없이 태그 목록을 읽을 수 있으면(200) 공개된 것이다. 401·403·404는 비공개이거나 발행 전이다.
 
    ```bash
