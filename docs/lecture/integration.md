@@ -186,8 +186,8 @@ public class BillingCallException extends RuntimeException {
 
 | 이벤트 | 발행 | 구독 | 필드 | 받는 쪽 처리 |
 | --- | --- | --- | --- | --- |
-| `UserJoinedEvent` (기존) | 회원 | 강의 | `UserDto` | `LectureUser` 생성 (있으면 무시, D17) |
-| `UserModifiedEvent` (#56) | 회원 | 강의 | `UserDto` | `LectureUser.syncFrom` (없으면 실패, D17) |
+| `UserJoinedEvent` (기존, Kafka `member.events.v1`) | 회원 | 강의 | `UserDto` | `LectureUser` 생성 (있으면 무시, D17) |
+| `UserModifiedEvent` (#56, Kafka `member.events.v1`) | 회원 | 강의 | `UserDto` | `LectureUser.syncFrom` (없으면 실패 → 재시도 뒤 DLT, 옛 버전은 무시, D17·#429) |
 | `LectureObjectionResolutionRequestedV1` (#279) | 고객센터 | 강의 | 공통 필드 + `accepted`, `adminUserId` | 명령 이력 확인 → 인정이면 `ACCEPTED` + `RETURN_PENDING` + RELEASE 작업, 기각이면 `REJECTED` → 결과 이벤트 |
 | `LectureObjectionWithdrawalRequestedV1` (#279) | 고객센터 | 강의 | 공통 필드 + `buyerUserId` | 명령 이력 확인 → `NONE`으로 되돌림(D52) → 결과 이벤트 |
 | `LectureObjectionCommandCompletedV1` (#279) | 강의 | 고객센터 | `eventId`, `causationId`(명령 이벤트 ID), `commandId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `success`, `failureCode`, `hpReturnStatus`(인정 성공이면 `PENDING`, 그 밖에는 `null`) | 판단·철회 결과 기록 (D60) |
