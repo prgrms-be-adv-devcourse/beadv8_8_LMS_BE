@@ -1,5 +1,5 @@
-# 채팅·알림 실시간 fan-out용 Redis(Pub/Sub·TTL, #340). 단일 instance라 고가용성이 아니다.
-# 채팅 전달 작업은 PostgreSQL outbox가 맡고 Redis Streams는 쓰지 않는다(2026-10-29 채팅 설계, docs/architecture/infrastructure/redis-chat.md).
+# 채팅·알림 실시간 전달용 Redis(Streams·Pub/Sub·TTL, #340·#404). 단일 instance라 고가용성이 아니다.
+# 채팅 전달은 PostgreSQL outbox → Redis Streams → Pub/Sub이다(2026-10-29 변경 결정, docs/architecture/infrastructure/redis-chat.md).
 # Redis Ltd의 OSS용 공식 차트가 없어 직접 작성한다(docs/architecture/infrastructure/k3s.md).
 # 인증은 두지 않는다. cluster 밖에 열지 않는다. ingress NetworkPolicy는 두지 않는다(docs/deploy/gateway.md, #374).
 apiVersion: v1
