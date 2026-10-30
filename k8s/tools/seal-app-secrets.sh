@@ -3,7 +3,8 @@
 # 값은 화면에 출력하지 않는다. 평문은 권한 600 임시 파일에만 두고 끝나면 지운다.
 # - DB_PASSWORD: EC2 cluster의 postgres-credentials(hapbang-platform)에서 앱 role 값을 읽는다.
 # - HAPBANG_INTERNAL_API_KEY: ~/.hapbang/internal-api-key. 없으면 만든다. 앱 6개가 같은 값을 쓴다.
-# - 그 밖의 값: ~/.hapbang/prod-secrets.env의 KEY=VALUE 줄(따옴표 없이). 이 파일은 실행하지 않고 읽기만 한다.
+# - 그 밖의 값: ~/.hapbang/prod-secrets.env의 KEY=VALUE 줄. 서버 prod.env 줄을 그대로 옮기면 된다.
+#   이 파일은 실행하지 않고 읽기만 한다. Compose처럼 값 전체를 감싼 따옴표 한 쌍은 뗀다.
 # 사용법: k8s/tools/seal-app-secrets.sh [앱 이름...]   예: member billing (기본: 앱 6개)
 set -euo pipefail
 
@@ -28,7 +29,13 @@ spec() {
 
 value() {
   [ -f "$env_file" ] || return 0
-  grep -m1 "^$1=" "$env_file" | cut -d= -f2- || true
+  local v
+  v=$(grep -m1 "^$1=" "$env_file" | cut -d= -f2- || true)
+  case "$v" in
+    \"*\") v=${v#\"}; v=${v%\"} ;;
+    \'*\') v=${v#\'}; v=${v%\'} ;;
+  esac
+  printf '%s' "$v"
 }
 
 apps=("$@")
