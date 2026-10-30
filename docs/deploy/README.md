@@ -45,7 +45,7 @@ Actions → Deploy(deploy.yml) → Run workflow(main)
 | 하고 싶은 것 | 방법 |
 | --- | --- |
 | 운영 반영 | `dev` → `main` PR 병합 → Publish images 성공 확인 → Actions → Deploy 실행([운영 앱 배포](k8s.md#운영-앱-배포)) |
-| 롤백 | Deploy를 `apps`에 앱, `sha`에 되돌릴 main 커밋을 넣어 실행 |
+| 롤백 | Deploy를 `apps`에 앱, `sha`에 되돌릴 main 커밋을 넣어 실행. 그 커밋의 SealedSecret도 함께 돌아가므로 비밀값 교체·DB 마이그레이션 이전 커밋으로는 되돌리지 않는다([운영 앱 배포](k8s.md#운영-앱-배포)) |
 | 환경변수 추가 | [env-vars.md](env-vars.md) |
 | DB 스키마 변경 | Flyway 마이그레이션 SQL 추가, 앱 시작 시 자동 적용 → [db-migration.md](../db-migration.md) |
 | 공용 인프라 변경 | `k8s/` manifest 수정 → PR 병합 → 수동 적용([적용 순서](k8s.md#적용-순서)) |

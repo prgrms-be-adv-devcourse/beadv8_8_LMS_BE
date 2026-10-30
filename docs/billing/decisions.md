@@ -6,6 +6,9 @@
 > - 원천은 작업 트리의 `apps/billing-app/PROGRESS.md` 3·4·5·7장과 `apps/billing-app/AGENTS.md`다(2026-10-29). 결정을 새로 만들거나 폐기하지 않았다. 원문에 적힌 상태를 옮겼고, 원문에 이유가 없으면 "기록 없음"으로 적었다.
 > - 결정을 바꾸려면 팀과 먼저 합의하고, 기존 행의 상태를 바꾼 뒤 새 번호를 더한다.
 > - 2026-10-29 dev da834b1 반영: Billing 결정은 바뀌지 않았다. #369 최종 인프라 결정이 재검토 대상(11장)에 주는 방향만 더했다.
+> - 2026-10-30 PROGRESS 3.21(#273) 반영: BD-108을 결정했고 BD-111~BD-113을 더했다(9장). BD-28·BD-54는 일부 대체됐다. 이제 결정 원본은 이 문서이고, `PROGRESS.md` 3장은 결정 배경만 두고 각 절에서 `BD-*`를 가리킨다. 출처 칸의 `P`는 `PROGRESS.md`, `A`는 `apps/billing-app/AGENTS.md`, `C`는 [`CONTEXT.md`](CONTEXT.md)의 장 번호다.
+> - 2026-10-30 #428 반영: Kafka 소비 규칙(#339)에 맞춰 회원 이벤트 멱등을 `eventId` inbox에서 자연 키로 고쳤다(BD-123, 11장 BD-2·BD-6·BD-103 행 해소).
+> - 2026-10-30 #336·#453 반영: 플랫폼 지갑·환전 수수료 수입(BD-114~BD-118, 8장), 환불·환전 1 HP 단위와 송금액 버림(BD-119~BD-122, 7·8장). BD-87은 금액 규칙, BD-95는 수수료 계산이 대체됐다. 정책 원문은 `CONTEXT.md` 3·4장(출처 C3.x·C4.x)이다.
 
 ## 0. 읽는 법
 
@@ -58,6 +61,7 @@
 | BD-4 | 지갑 생성은 `REQUIRES_NEW`로 하고, 롤백이 끝난 뒤 바깥에서 다시 조회한다 | INSERT 실패로 오류 상태가 된 PostgreSQL 트랜잭션에서 재조회하지 않기 위해 | 유효 | P3.1 | — |
 | BD-5 | 중복 판별은 SQLState `23505`와 제약 이름 `uk_wallet_user_id`가 둘 다 맞을 때만 한다 | 메시지 파싱은 서버 언어(`lc_messages`)가 바뀌면 깨진다 | 유효 | P3.1 | — |
 | BD-6 | 리스너는 `@ApplicationModuleListener(propagation = NOT_SUPPORTED)`다. 실패하면 발행 기록이 미완료로 남아 재시작 때 다시 처리된다 | 리스너 트랜잭션까지 있으면 이벤트 하나가 커넥션 2개를 잡는다 | 유효 | P3.1 | **재검토** (Modulith 발행 기록·재시작 재처리) |
+| BD-123 | 회원 이벤트(`member.events.v1`)는 목적별 소비 그룹 둘로 받는다. `billing-app.member-replica`: 가입·변경 → `billing_user` Upsert, 멱등은 `(user.id, user.version)` 버전 비교(BD-103). `billing-app.wallet-creation`: 가입 → `getOrCreate`(ADMIN은 건너뜀, BD-3), 멱등은 회원 ID UNIQUE(BD-1·BD-5). 두 그룹 모두 별도 inbox·처리 기록 테이블을 두지 않는다. DLT는 `member.events.v1.<그룹>.DLT` | `eventId`가 없다(ADR 0002). 업무 행 자체가 자연 키 멱등 기록이라 반영과 같은 커밋에 남는다(kafka.md "멱등은 업무 자연 키"). 같은 그룹에 리스너 둘을 두면 partition을 나눠 가져 각자 일부만 받는다 | 유효 (구현 #430) | #428, kafka.md | — |
 
 ## 2. 원장·멱등성·역분개·대사 (#57)
 
@@ -89,7 +93,7 @@
 | BD-25 | 배분 전 가용 원금 합 = `charge_balance_hp` 대조. 다르면 `CHARGE_PRINCIPAL_MISMATCH` | 기록 없음 | 유효 | P3.6 | — |
 | BD-26 | 락 순서는 지갑 → 충전 건 | 교착이 없다 | 유효 | P3.6 | — |
 | BD-27 | 조회 순서는 원장 → 보류 | READ COMMITTED에서 먼저 읽은 원장이 보이면 나중에 읽는 보류도 보인다. 반대 순서는 정상 경쟁을 500으로 잘못 분류했다 | 유효 (#78의 보류 → 원장 순서를 대체) | P3.6, A7, #141 | — |
-| BD-28 | 잔액 부족은 예외로 알린다. `HoldFacade`에는 `@PreAuthorize`가 없고 공개 HTTP API도 없다 | 강의·출연이 결제자를 확인한 뒤 부르는 내부 기능 | 유효 | P3.6 | **재검토** (내부 Java 호출 전제, 원격 호출 시 인증 방식 TBD) |
+| BD-28 | 잔액 부족은 예외로 알린다. `HoldFacade`에는 `@PreAuthorize`가 없고 공개 HTTP API도 없다 | 강의·출연이 결제자를 확인한 뒤 부르는 내부 기능 | **일부 대체됨 → BD-112** (`@PreAuthorize`·공개 HTTP API 없음 부분. 잔액 부족 예외는 유효) | P3.6 | 해소 (BD-112) |
 | BD-29 | 반환은 충전 HP 먼저, 부족분만 수익 HP. 충전 원금은 최초 배분의 역순(LIFO)으로 복원한다 | 역순 규칙을 바꾸면 기존 상세를 재구성할 수 없다 | 유효 | P3.7, A8 | — |
 | BD-30 | 반환 키 `RELEASE:{holdId}:{releaseRequestId}`. 요청 ID는 `[A-Za-z0-9_-]{1,200}`이고, 재전송 때 같은 값을 쓴다(UUID 금지) | `:`는 구분자, 원장 멱등키 255자 제한 | 유효 | P3.7 | — |
 | BD-31 | 반환 요청 ID는 보류 안에서만 고유하다 | 키에 holdId가 있고, 전역 고유성을 요구하는 업무가 없다 | 유효 (1차 구현 대체) | P3.7 | — |
@@ -125,7 +129,7 @@
 | BD-51 | 연동 계약은 `com.hapbang.shared.billing`에 둔다(`BillingPort` 4개 메서드, DTO 8개, Enum 2개). 강의·출연은 `:shared`만 의존한다 | Gradle 순환 없음 | 유효 | P3.10, A9 | **재검토** ("같은 애플리케이션 안의 동기 Java 호출") |
 | BD-52 | package-private `BillingPortAdapter`가 `HoldFacade`에 위임한다. 트랜잭션을 열지 않고 예외를 잡지 않는다 | `HoldFacade`가 직접 구현하면 내부 결과 검증을 잃는다 | 유효 | P3.10 | **재검토** |
 | BD-53 | Billing UseCase는 호출한 쪽 트랜잭션에 참여한다(`REQUIRED`, `REQUIRES_NEW` 금지). 커밋은 호출한 쪽과 함께 한다 | 기록 없음 | 유효 | A9, P4 | **재검토** (원격 호출에서는 성립 불가) |
-| BD-54 | shared는 구조만 검사한다(NPE·IAE → 500 `INTERNAL_ERROR`). 금융 검증은 `BillingCommandValidator`가 `BillingException`으로 한다. shared DTO를 Controller 요청 DTO로 쓰지 않는다 | 구조 오류는 내부 계약을 잘못 쓴 프로그래밍 오류 | 유효 | P3.10, A9 | **재검토** (원격 호출 시 NPE·IAE를 무엇으로 응답할지) / 문구(`global`) |
+| BD-54 | shared는 구조만 검사한다(NPE·IAE → 500 `INTERNAL_ERROR`). 금융 검증은 `BillingCommandValidator`가 `BillingException`으로 한다. shared DTO를 Controller 요청 DTO로 쓰지 않는다 | 구조 오류는 내부 계약을 잘못 쓴 프로그래밍 오류 | **일부 대체됨 → BD-111** (내부 HTTP API에서는 shared Command가 요청 본문이고 구조 오류는 400. 같은 JVM 호출의 500은 #280까지 유효) | P3.10, A9 | 해소 (BD-111) / 문구(`global`) |
 | BD-55 | 멱등키 생성을 `BillingKeys`로 옮기고 형식은 그대로 둔다. 호출한 쪽은 요청 ID만 넘긴다 | 기존 데이터를 그대로 찾는다 | 유효 | P3.10, A9 | — |
 | BD-56 | 위약금 비율·금액 계산은 출연이 한다. Billing은 받은 `releaseAmountHp`(≥0)와 `payoutAmountHp`(>0)를 원자적으로 처리한다. 합이 남은 보류보다 크면 `PENALTY_BASE_EXCEEDS_HELD` | 기록 없음 | 유효 (BD-46 대체) | P3.10, A8 | — |
 | BD-57 | 게스트 지급액 0이면 `PENALTY_AMOUNT_ZERO`(400), 음수면 `INVALID_POINT_AMOUNT` | 기록 없음 | 유효 (BD-47 대체) | P3.10, A8 | — |
@@ -150,7 +154,7 @@
 | BD-72 | 모듈 간 잠금 순서 `lecture_order → inquiry → order_item → wallet → point_hold → point_charge`. 호출한 쪽은 업무 행을 먼저 바꾸고 flush한 뒤 Billing을 부른다 | 순환 없음 | 유효 | P3.14, A8.1 | **재검토** (여러 모듈 락이 한 DB 트랜잭션 안에 있다는 전제) |
 | BD-73 | 금융 경합은 지갑 → 보류 락으로 한쪽만 성공시키고, 업무 상태 경합은 강의 `order_item.version` 낙관적 락으로 막는다 | 금융 차단과 업무 정합성은 따로 검증한다 | 유효 | P3.14, A8.1 | 부분 (Billing 쪽 금융 차단은 그대로, 같은 트랜잭션 flush 전제는 재검토) |
 
-## 7. 충전·보류 종류·환불 (#224, #241, #260)
+## 7. 충전·보류 종류·환불 (#224, #241, #260, #453)
 
 | ID | 결정 | 이유 | 상태 | 출처 | JVM |
 | --- | --- | --- | --- | --- | --- |
@@ -166,20 +170,21 @@
 | BD-84 | 충전 건 지정(`target_charge_id`)으로 PG 결제 건별 결과를 반영한다. 비어 있는 상세는 기존 규칙으로 재생한다 | FIFO로 차감하면 실제 PG 잔액과 어긋난다 | 유효 | P3.16, A8.0 | — |
 | BD-85 | 충전 건 지정 확정 차감·반환은 금액 필수 | 부분 취소인데 전액 차감하는 실수 방지 | 유효 (1차 대체) | P3.16, A8.0 | — |
 | BD-86 | 종류별 보류·확정 차감은 Billing 내부 경로(`InternalHoldFacade`)만 쓴다. shared `BillingPort`는 바꾸지 않는다. 새 오류 코드 3개 | 같은 보류를 지급과 확정 차감이 나눠 쓰지 않게 | 유효 | A8.0 | — |
-| BD-87 | 환불 접수: `Idempotency-Key` 필수, 충전 HP만, 1,000 단위, 한 트랜잭션에서 요청 → CHARGE_ONLY 보류 → 개별 환불 PENDING. 회원 탈퇴 환불은 열지 않는다 | 탈퇴 미구현, 최소 금액 우회 방지 | 유효 | P3.17, A10.2 | — |
+| BD-87 | 환불 접수: `Idempotency-Key` 필수, 충전 HP만, 1,000 단위, 한 트랜잭션에서 요청 → CHARGE_ONLY 보류 → 개별 환불 PENDING. 회원 탈퇴 환불은 열지 않는다 | 탈퇴 미구현, 최소 금액 우회 방지 | 유효 (금액 규칙·회원 탈퇴 환불 제한은 BD-119로 대체) | P3.17, A10.2 | — |
 | BD-88 | PG 취소 멱등키 `hapbang-refund-cancel-{UUID}`를 한 번 만들어 저장한다 | DB ID 기반 키는 다른 환경에서 재사용될 수 있다 | 유효 (ID 기반 키 대체) | P3.17, A10.2 | — |
 | BD-89 | 순차 FIFO PG 취소(트랜잭션 밖), 요청 자체 오류만 FAILED, 환급 불가 4xx는 보류 유지 + 운영자 확인, 같은 표식 취소 여러 건은 운영자 확인 | 환급 불가여도 환불 청구는 남는다 | 유효 | P3.17, A10.2 | — |
 | BD-90 | UNKNOWN 한도: 24시간 또는 결과 재확인 12회 → 운영자 확인. 자동 반환 없음 | 기록 없음 (확정 정책 ②) | 유효 | P3.17, A10.2 | — |
 | BD-91 | 최초 PG 요청 + 14일부터 같은 키로 POST하지 않는다 | Toss 멱등키 15일 유효, 날짜 계산 여유 | 유효 | A10.2 | — |
 | BD-92 | 환불 복구 배치 5분·1분·100건, 락 지갑 → 환불 요청 → 보류 → 충전 건, 회원 취소는 REQUESTED만, PG 요청한 건은 CANCELED 불가 | 기록 없음 (확정 정책 ①③) | 유효 | A10.2 | — |
 | BD-93 | `restorePrincipal` 한도 = 충전액 − 가용 원금 − 환불 누계 | 환불한 원금이 돌아오지 않게 | 유효 | P3.17 | — |
+| BD-119 | 환불 금액은 1 HP 이상·1 HP 단위다. 0 이하는 요청 DTO `@Positive`가 400 `INVALID_REQUEST`로 먼저 막는다. 회원 탈퇴 환불을 따로 막던 이유(최소 금액 우회)는 없어졌다 | 충전은 1,000 단위지만 사용 금액은 아니라 1,000 미만 끝자리 충전 HP를 현금화할 수 없었다. 정책(policy.md 2장)이 먼저 "0원 초과·잔액만큼"으로 바뀌었다 | 유효 | C4.1, P3.22, #453 | — |
 
-## 8. 환전·회원 복제본 (#285, #288, #294)
+## 8. 환전·회원 복제본·수수료 수입 (#285, #288, #294, #336, #453)
 
 | ID | 결정 | 이유 | 상태 | 출처 | JVM |
 | --- | --- | --- | --- | --- | --- |
 | BD-94 | 계좌는 신청마다 입력받아 스냅샷으로 저장한다(사전 등록 없음). 암호화·마스킹, 검증 상태는 PENDING만 쓴다 | 사용자 결정 | 유효 | P3.18, A11 | — |
-| BD-95 | 환전 신청: 인플루언서만, `Idempotency-Key` 필수, 한 트랜잭션에서 신청 → REVENUE_ONLY 보류 → 계좌. 수수료 10%(버림)는 신청 때 확정. 재요청은 복호화한 계좌로 비교한다 | 무작위 IV라 암호문끼리 비교할 수 없다 | 유효 | P3.18, A11 | — |
+| BD-95 | 환전 신청: 인플루언서만, `Idempotency-Key` 필수, 한 트랜잭션에서 신청 → REVENUE_ONLY 보류 → 계좌. 수수료 10%(버림)는 신청 때 확정. 재요청은 복호화한 계좌로 비교한다 | 무작위 IV라 암호문끼리 비교할 수 없다 | 유효 (수수료 계산은 BD-120으로 대체) | P3.18, A11 | — |
 | BD-96 | 잠정 정산 예정일: 1~9일 신청은 당월 10일, 10일 이후는 다음 달 10일, 주말이면 다음 월요일. 공휴일 미반영 | 실제 송금일을 보장하지 않는 잠정값 | 유효 (1차 대체) | P3.18, A11 | — |
 | BD-97 | 환전 취소는 REQUESTED만, 반환 ID `EXCHANGE-CANCEL-{id}` | 기록 없음 | 유효 | A11 | — |
 | BD-98 | 환전 잠금 계약: 지갑 → 환전 → 보류, 락 뒤 최신 상태로 판단, 반환·확정 차감 ID는 환전마다 고정 | 기록 없음 | 유효 | A11 | — |
@@ -189,14 +194,26 @@
 | BD-102 | 관리자 승인 REQUESTED → APPROVED(복제본 없음 409, 자격 없음 409), 거절 REJECTED + 사유 + 같은 트랜잭션 반환. 같은 관리자 재요청만 멱등 | 사용자 결정 | 유효 | P3.20, A11 | 문구 (`global` admin 경로 → 앱 내부 `SecurityConfig`) |
 | BD-103 | `billing_user` 복제본: 가입·변경 이벤트 모두 Upsert, 비관적 락 + 회원 버전 비교, PK 충돌 3회 재시도. TIMESTAMP(TIMESTAMPTZ 예외) | 낙관적 락 + 3회로는 동시 10건 테스트가 실패했다 | 유효 | P3.20, A11 | **재검토** (이벤트가 JVM을 넘지 않는다) |
 | BD-104 | 기존 회원 Backfill은 하지 않는다. 회원을 임의로 ACTIVE로 채우지 않는다 | Member 조회 Port·재발행이 없다 | **확인 필요** — 코드에 Backfill(#324, `MemberApiClient` #322)이 구현돼 있다. 결정 기록이 없다(10장) | P3.20, A11 | — |
+| BD-114 | 플랫폼 지갑: `wallet.wallet_type`(MEMBER/PLATFORM), 플랫폼 지갑은 `user_id` NULL, 부분 유일 인덱스로 1개, Flyway(`V202610301000`)가 한 행을 넣는다. CHECK로 회원 지갑은 회원 있음·수수료 0, 플랫폼 지갑은 회원 없음·다른 칸 0 | 예약 회원 ID·설정값 방식은 회원 ID 공간과 섞이거나 환경마다 달라진다. user_id가 없으면 회원 API(`findByUserId`)로 닿지 않는다 | 유효 | C3.1, #336 | — |
+| BD-115 | 수수료 수입은 HP 종류 `FEE`(가용 칸만), 캐시 `fee_balance_hp`. 다른 수수료성 수입도 같은 지갑에 모으고 거래 유형으로 구분한다. `reconcile`이 FEE 칸도 비교한다(회원 지갑은 0 확인). 점검 배치는 없다 | 수수료는 충전 HP도 수익 HP도 아니다(GLOSSARY). 수익 HP 칸을 쓰면 환전·반환 규칙과 섞인다 | 유효 | C3.2, C3.5, #336 | — |
+| BD-116 | 송금 성공 처리에서 확정 차감과 같은 트랜잭션에 별도 작업 `EXCHANGE_FEE:{환전 ID}`(거래 유형 `EXCHANGE_FEE`, 참조 EXCHANGE)로 기록한다. 금액은 신청 때 저장한 `fee_amount_hp`, 확정 차감액 = 송금액 + 수수료를 검사한다. 송금 결과 반영·정산 시작은 회원·플랫폼 지갑을 ID 오름차순으로 잠근 뒤 환전 → 송금 시도 → 보류 순서. 최종 실패·취소·거절은 기록하지 않는다. 소급하지 않는다 | 환불도 쓰는 공통 capture를 바꾸지 않는다. 작업 키가 환전마다 고정이라 재확인·수동 재송금에도 한 번이다. dev·prod는 송금 성공 건이 없다 | 유효 | C3.3, #336 | — |
+| BD-117 | 플랫폼 지갑 조회는 관리자 API만(`GET /api/v1/settlements/admin/platform-wallet`, `…/fee-incomes` 최신순 페이지), 기록은 송금 성공 처리만 한다. Wallet 도메인이 플랫폼 지갑의 충전·수익 원장, 회원 지갑의 FEE 원장, FEE 보류 칸을 거절한다 | 이슈는 "조회 API는 회의에서"였으나 잔액·내역 조회를 모두 만들기로 사용자가 정했다(2026-10-29) | 유효 | C3.4, C3.6, #336 | — |
+| BD-118 | 테스트 DB 정리(`SchemaManager.truncate`)가 플랫폼 지갑도 지우므로 billing 테스트 설정의 Hibernate load script(`billing-test-platform-wallet.sql`)로 다시 넣는다. 회원 지갑 수 검사는 MEMBER만 센다 | test-support를 바꾸지 않고 운영처럼 "항상 있음"을 유지한다 | 유효 | C3.7, #336 | — |
+| BD-120 | 환전 금액은 1 HP 이상·1 HP 단위다. 송금액 = floor(신청 × 90%), 수수료 = 신청 − 송금액(항상 1 HP 이상). 신청 때 확정·저장하고 `fee_rate`는 0.1000 그대로다. 이미 저장된 환전은 바뀌지 않는다(`ck_exchange_1` → `>= 1`, `V202610301200`) | 잔액 전부를 현금화하도록 최소 1 HP로 정했다(최소 1,000 유지·최소 2원 안도 있었다). 버림 대상을 송금액으로 바꿨다(사용자 결정) | 유효 (BD-95 수수료 계산 대체) | C4.1, C4.2, #453 | — |
+| BD-121 | 송금액 0원 환전(신청 1 HP)은 허용한다. 정산 배치가 정산 예정 시각에 은행을 부르지 않고 같은 트랜잭션에서 확정 차감 + 수수료 수입 + COMPLETED로 끝낸다. 송금 시도(`exchange_payout`)는 남기지 않는다. dev·prod(Mock 꺼짐)는 다른 환전처럼 건너뛴다 | 송금할 금액이 없다. 회차·승인 흐름과 환경별 규칙은 그대로 둔다 | 유효 | C4.3, #453 | — |
+| BD-122 | 오류 코드 `REFUND_AMOUNT_INVALID` → `REFUND_AMOUNT_TOO_SMALL`, `EXCHANGE_AMOUNT_INVALID` → `EXCHANGE_AMOUNT_TOO_SMALL`(1 HP 미만). 회원 API 코드라 shared `BillingFailureCode`와 관계없다 | 단위 검사가 없어져 뜻을 맞췄다(사용자 결정). 프론트와 맞춘다 | 유효 | C4.4, #453 | — |
 
-## 9. 오류·호출 계약 (5장·4장)
+## 9. 오류·호출 계약 (5장·4장, #273)
 
 | ID | 결정 | 이유 | 상태 | 출처 | JVM |
 | --- | --- | --- | --- | --- | --- |
 | BD-105 | `CHARGE_PRINCIPAL_MISMATCH`·`HOLD_STATE_INCONSISTENT`는 `INTERNAL_ERROR`로 바꾸지 않는다. `detail`은 일반 문구 | 테스트·로그에서 원인을 코드로 구분 | 유효 | P5 | — |
 | BD-106 | 모듈 예외 핸들러를 없애고 공통 `GlobalExceptionHandler`가 `ProblemDetail` + `code`로 응답한다. 성공은 `RsData` | 기록 없음 | 유효 | P5, A14 | 문구 (공유 `global` 모듈 → `com.hapbang.billing.global`) |
 | BD-107 | 호출한 쪽은 READ COMMITTED를 쓰고, UNIQUE 충돌로 `IDEMPOTENCY_KEY_CONFLICT`가 난 바깥 트랜잭션은 계속 쓰지 않는다 | RR 이상이면 직렬화 오류 | 유효 | P4 | **재검토** (호출한 쪽 트랜잭션 공유 전제) |
+| BD-108 | Billing 전체에 `lock_timeout = 3s`(Hikari `connection-init-sql`)를 둔다. 55P03은 Facade 진입점에서 `HP_LOCK_TIMEOUT`(503)으로 바꾸고, shared `BillingFailureCode`에도 둔다 | Client 응답 timeout(5초)과 무제한 락 대기가 맞지 않는다 | 유효 (10장 미결에서 결정됨) | P3.21, C1.4 | — |
+| BD-111 | 내부 HTTP API(`/api/v1/internal/billing/{holds,releases,payouts,penalty-settlements}`)는 shared Command를 요청 본문으로 그대로 받는다. 구조 오류(NPE·IAE)는 400 `INVALID_REQUEST`다. 회원이 부르는 사용자 API는 각 모듈 요청 DTO를 쓴다 | shared Command가 곧 모듈 간 HTTP 계약이다. BD-54는 같은 JVM 호출 전제였다 | 유효 (BD-54 일부 대체) | P3.21, C1.1, A9 | — |
+| BD-112 | `HoldFacade`에 `@PreAuthorize("hasRole('INTERNAL')")`를 붙인다. 내부 API는 `X-Internal-Api-Key`로 인증하고, 호출한 쪽이 넘긴 `userId`를 믿는다 | #280 뒤 `HoldFacade`가 내부 API 전용 진입점이 된다(D63) | 유효 (BD-28 일부 대체) | P3.21, C1.2 | — |
+| BD-113 | `BillingFailureCodeContractTest`가 `BillingErrorCode` 전체를 `default` 없는 `switch`로 `BillingFailureCode` 또는 `null`(내부 API에서 나오지 않음)로 분류한다 | Billing 오류 코드가 늘면 컴파일되지 않아 분류를 빠뜨리지 않는다 | 유효 | P3.21, C1.6 | — |
 
 ## 10. 미결 항목
 
@@ -206,7 +223,6 @@
 | --- | --- | --- | --- |
 | BD-71 | dev DB에 #142·#182 레거시 SCHEDULED 지급 건이 남았는가, 남았다면 보정 방식 | 미확인. 별도 보정 Issue 권장, 엔진 재사용 분기는 권장하지 않음 | P3.13, A8.1 |
 | BD-74 | 강의 지급 배치의 재시도 불가 오류 격리·알림, 판매자 탈퇴 후 최종 수익 정산 | 탈퇴 후 정책 미정 | P3.14 |
-| BD-108 | `lock_timeout` 상한 | 설정 없음(무제한 대기) | P7 |
 | BD-109 | 반환·지급 사유를 원장 `description`에 남길지 | 계약에 사유 필드 없음 | P7 |
 | BD-110 | 루트 AGENTS "모듈 간 통신은 이벤트 기본"의 예외로 동기 BillingPort를 적을지 | 루트 AGENTS 3장에 HP 이동 동기 호출 예외가 이미 있다. PROGRESS 7장 항목은 갱신 필요 여부 확인 | P7 |
 | (P7) | QueryDSL 도입·버전 | BD-38 | P3.8 |
@@ -222,8 +238,8 @@
 | BD-51, BD-52, BD-53, BD-60, BD-107 | 강의·출연이 같은 JVM에서 `BillingPort`를 호출하고 Billing이 그 트랜잭션에 참여한다 | 내부 API로 전환(#271~#281). 앱 간 HTTP의 timeout·circuit breaker는 Resilience4j(인프라 문서 3장). database 분리 전에 보상 처리를 끝낸다(10장) | 원격 호출에서 원자성을 대신할 방식(호출 쪽 상태 + 멱등 재시도), 오류·타임아웃·결과 불명·circuit open 처리, shared 계약을 HTTP DTO로 바꾸는 범위 | `docs/adr/` (여러 모듈) |
 | BD-64 | 강의 구매 = 주문 저장과 보류가 한 트랜잭션 | 보류 실패 → 주문 취소, 주문 실패 → 보류 반환(인프라 문서 10장 완료 증거) | 강의도 출연(BD-65)처럼 분리 트랜잭션 + 상태 복구로 갈지, 보상 반환의 요청 ID 규칙 | `docs/adr/` + 강의 결정 기록 |
 | BD-72, BD-73 | 여러 모듈 테이블 락이 한 DB 트랜잭션 안에 있다 | 모듈별 database 분리 확정(#338, 인프라 문서 10장) → 한 트랜잭션 안의 모듈 간 락은 불가능해진다 | 모듈 간 락 순서를 폐기할지, Billing 안 락 순서만 남길지 | 이 문서 (Billing 쪽 결론) |
-| BD-28, BD-54 | 내부 Java 호출이라 인증·예외 형식이 필요 없다 | 내부 API는 `X-Internal-Api-Key` 인증 유지, k3s에서는 Envoy route 없음 + NetworkPolicy(인프라 문서 3장) | NPE·IAE 대신 400 응답 | `docs/api/internal-billing.md` (계약 확정 시) |
-| BD-2, BD-6, BD-103 | 회원 이벤트가 같은 프로세스에서 전달된다 | Kafka(#339). Modulith publication registry를 outbox로 externalization, consumer는 `eventId` inbox로 멱등, 재시도 제한 + DLT(인프라 문서 1장) | Billing inbox와 기존 Upsert·버전 비교(BD-103)의 관계, 기존 `event_publication` 기록 전환 | `docs/adr/` (#339) |
+| BD-28, BD-54 | 내부 Java 호출이라 인증·예외 형식이 필요 없다 | 내부 API는 `X-Internal-Api-Key` 인증 유지, k3s에서는 Envoy route 없음 + NetworkPolicy(인프라 문서 3장) | 해소(#273): 400 응답은 BD-111, 인증·인가는 BD-112 | 9장 |
+| BD-2, BD-6, BD-103 | 회원 이벤트가 같은 프로세스에서 전달된다 | Kafka(#339). member-app이 Modulith publication registry를 outbox로 `member.events.v1`(key 회원 ID)에 발행하고 `eventId`는 없다. 소비는 업무 자연 키로 멱등하고, 블로킹 재시도 3회 뒤 그룹별 DLT([`kafka.md`](../architecture/infrastructure/kafka.md) 소비·재시도와 DLT) | 해소(#428): 소비 그룹 둘(`billing-app.member-replica`·`billing-app.wallet-creation`), 자연 키 멱등, inbox 테이블 없음 → BD-123. 기존 `event_publication` 기록 정리는 Spring Event 제거 때 | [ADR 0001](../adr/0001-context-topics-with-mixed-event-types.md), [ADR 0002](../adr/0002-modulith-externalization-without-event-id.md), BD-123 |
 | BD-3, BD-102, BD-103 | 역할·회원 상태를 로그인 세션에서 바로 확인한다 | JWT 전환(#370~#372). HP가 움직이는 경로는 토큰 `role`만 믿지 않고 복제한 회원 상태를 함께 확인한다(인프라 문서 3장 인증 흐름 7) | 지금은 환전 승인만 `billing_user`를 확인한다. 보류·지급·환전 신청·충전·환불 중 어디에 확인을 더할지. 복제본이 없을 때 거절할지 | 이 문서 + `docs/policy.md` 변경 여부는 팀(#370) |
 | BD-66 | 출연 Fake 모드 | — | 코드에서 삭제됐는지 확인 후 상태 정리 | 이 문서 |
 

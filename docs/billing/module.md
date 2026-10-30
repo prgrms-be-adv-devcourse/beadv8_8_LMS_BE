@@ -167,7 +167,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 충전 | 주문 생성 → 결제창 → 승인(claim → PG → complete) → 복구 배치 | AGENTS 10.1장 |
 | 환불 | 접수(CHARGE_ONLY 보류) → 개별 환불 FIFO 순차 PG 취소 → 성공 확정 차감 / 실패 반환 / 불명확 보류 유지 → 복구 배치 | AGENTS 10.2장 |
 | 환전 신청·심사 | 신청(REVENUE_ONLY 보류 + 계좌 스냅샷) → 취소(REQUESTED) 또는 관리자 승인·거절(거절 = 반환) | AGENTS 11장 |
-| 환전 정산·송금 (#304·#305) | 정산 배치가 APPROVED + 예정 시각 지난 건을 100건씩(실행당 최대 1,000) `execute` → 시도 기록 커밋 → Mock 송금 → 성공 확정 차감 / 실패 FAILED(보류 유지) / 불명확 UNKNOWN. 복구 배치가 PROCESSING·UNKNOWN을 같은 ID로 조회, 24시간(`auto-check-limit`) 지나면 MANUAL_REVIEW_REQUIRED. 관리자 재확인·재시도(새 UUID)·최종 실패(FINAL_FAILED + 반환) | AGENTS 11장(송금 계약), 이 표 |
+| 환전 정산·송금 (#304·#305) | 정산 배치가 APPROVED + 예정 시각 지난 건을 100건씩(실행당 최대 1,000) `execute` → 시도 기록 커밋 → Mock 송금 → 성공 확정 차감 + 수수료 수입. 송금액 0원(신청 1 HP)은 시도·Mock 송금 없이 바로 확정 차감 + 수수료 수입 + COMPLETED(#453) / 실패 FAILED(보류 유지) / 불명확 UNKNOWN. 복구 배치가 PROCESSING·UNKNOWN을 같은 ID로 조회, 24시간(`auto-check-limit`) 지나면 MANUAL_REVIEW_REQUIRED. 관리자 재확인·재시도(새 UUID)·최종 실패(FINAL_FAILED + 반환) | AGENTS 11장(송금 계약), 이 표 |
 | 내 거래 내역 (#295) | 원장을 작업 키 단위로 합쳐 14개 유형(`WalletTransactionType`)으로 보여 준다. 지갑이 없으면 빈 페이지 | — |
 | 수익 조회 (#295) | 강의·출연 내부 API를 매 요청 호출해 메모리에서 합친다. 저장하지 않는다. 한쪽 실패 = 전체 503, 깊이 1,000 초과 = 400 | [`internal-earnings.md`](../api/internal-earnings.md) |
 | 회원 Backfill (#324) | 관리자 호출 → `MemberApiClient` 키셋 페이지 → 회원마다 복제본 Upsert. 한 번 최대 5,000명, 동시 실행 금지(인스턴스 내 `AtomicBoolean`) | — |
@@ -217,7 +217,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | --- | --- | --- |
 | 보류·반환·지급 | Billing이 `/api/v1/internal/billing/...` 내부 HTTP API 제공, 소비 앱은 shared Client 사용 (AGENTS 3장 경계 규칙, D62·D63). 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 **Resilience4j**로 통일 (인프라 문서 3장, #280). database 분리 전에 보상 처리를 끝낸다: 보류 실패 → 주문 취소, 주문 실패 → 보류 반환 (인프라 문서 10장) | 호출자 트랜잭션 참여(`BD-53`)·한 트랜잭션 원자성(`BD-64`)을 대신할 방식(호출자 상태 + 멱등 재시도, 결과 불명확 처리), 오류 응답 → 호출자 상태 매핑, circuit open일 때 호출자 처리, 모듈 간 락 순서(`BD-72`) 폐기 여부 |
 | 내부 API 노출 | k3s에서는 `/api/v1/internal/**`에 Envoy `HTTPRoute`를 만들지 않고, NetworkPolicy로 내부 API는 앱끼리만 닿게 한다. 인증은 `X-Internal-Api-Key` 유지 (인프라 문서 3장) | 없음 (현재 키 필터 그대로) |
-| 회원 이벤트 수신 | Kafka(#339). 발행 쪽은 Modulith publication registry를 outbox로 쓰는 externalization, 소비 쪽은 `eventId` 기반 inbox/processed-event 테이블로 멱등 처리, 재시도 제한 + DLT (인프라 문서 1장) | Billing inbox 테이블(Flyway), 기존 리스너 Upsert 규칙(`BD-103`)과 inbox 멱등의 관계, 기존 `event_publication` 기록 전환 |
+| 회원 이벤트 수신 | Kafka(#339, [`kafka.md`](../architecture/infrastructure/kafka.md)). member-app이 Modulith publication registry를 outbox로 쓰는 externalization으로 `member.events.v1`(key 회원 ID)에 발행한다. `eventId`는 없다([ADR 0001](../adr/0001-context-topics-with-mixed-event-types.md)·[0002](../adr/0002-modulith-externalization-without-event-id.md)). Billing은 목적별 소비 그룹 둘로 받는다: `billing-app.member-replica`(가입·변경 → 회원 복제본 Upsert), `billing-app.wallet-creation`(가입 → 지갑 생성). 멱등은 업무 자연 키다: 복제본은 `(user.id, user.version)` 버전 비교(`BD-103`), 지갑은 회원 ID UNIQUE(`uk_wallet_user_id`, `BD-1`)로 이미 있으면 그대로 둔다. 별도 inbox·처리 기록 테이블은 두지 않는다(`BD-123`). 블로킹 재시도 3회(1초 → 최대 10초) 뒤 그룹별 DLT `member.events.v1.billing-app.member-replica.DLT`·`member.events.v1.billing-app.wallet-creation.DLT`(billing-app이 `NewTopic`으로 선언, partition 3, 보존 7일) | 구현은 #430. 기존 `@ApplicationModuleListener` 제거와 미완료 `event_publication` 기록 정리는 #416·#430 병합 뒤 후속 |
 | Billing 이벤트 발행 | 인프라 문서 1장의 시연 흐름: 지갑 이벤트 → notification-app 알림·감사 projection. HP 원장을 Kafka consumer가 확정하지 않는다 | 어떤 사실을 발행할지(충전 완료, 지급, 환전 결과 등)는 미정. 현재 발행 코드 없음 |
 | 인증 | member-app이 JWT(RS256·JWKS) 발급 → Envoy가 서명 검증 후 `X-User-Id`·`X-User-Role` 헤더로 전달(외부에서 붙인 `X-User-*`는 제거) → 앱 공용 헤더 인증 필터가 인증 객체 생성 → `@PreAuthorize` 인가 (#370~#372). Bearer 헤더라 API의 `X-XSRF-TOKEN` CSRF 보호는 뺀다. NetworkPolicy로 앱 외부 API 포트는 Envoy만 접근 | `@LoginUserId`·`SecurityConfig`(CSRF SPA 설정) 전환. **HP가 움직이는 경로(보류·반환·지급·환전)는 토큰의 `role`만 믿지 않고 복제한 회원 상태를 함께 확인한다**(인프라 문서 3장, #371) → 현재 Billing은 환전 승인에서만 `billing_user`를 본다. 어느 경로에 확인을 더할지 TBD |
 | rate limit | 각 앱의 Resilience4j RateLimiter, key는 `X-User-Id` 또는 client IP (인프라 문서 3장) | Billing 경로별 한도 (TBD) |
@@ -247,7 +247,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 ### 8.2 DB (As-Is)
 
 - PostgreSQL **database 1개**, 앱마다 **schema** 분리. Billing은 `billing` 스키마(`spring.flyway.default-schema`, `spring.modulith.events.jdbc.schema`).
-- 테이블 14개. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 12개)가 원본이다.
+- 테이블 14개. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 13개)가 원본이다.
 
 | 테이블 | 추가한 마이그레이션 |
 | --- | --- |
@@ -255,6 +255,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | `mock_payout_transfer` | `V202610161700` |
 | `billing_user` | `V202610162010` |
 | (`wallet.wallet_type`·`fee_balance_hp`, 플랫폼 지갑 행, 원장 `FEE`·`EXCHANGE_FEE`) | `V202610301000` (#336) |
+| (`ck_exchange_1`을 1 HP 이상으로) | `V202610301200` (#453) |
 | `event_publication`, `event_publication_archive` (추정: Modulith 기본 이름) | Modulith `schema-initialization` |
 
 - `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록에는 `billing_user`·`mock_payout_transfer`가 없다.
@@ -316,3 +317,5 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-10-29 | 5a4dc1a | 최초 작성 (#356 독립 앱 구조 기준) |
 | 2026-10-29 | da834b1 | dev pull 반영. billing-app·`common/shared` 코드 변경 없음. #369 최종 인프라 결정(JWT·Envoy·Resilience4j·Kafka outbox/inbox·database 분리 순서·replica 1개 배치)을 7.2·8.3·6.1·10장에 반영. Billing 이벤트 발행 없음을 7.1에 추가 |
 | 2026-10-30 | d8d6c25 | #336 플랫폼 지갑·환전 수수료 수입 반영(3.1, INV-1, 5.3, 8.1, 8.2). 상세 정책은 [`CONTEXT.md`](CONTEXT.md) 3장 |
+| 2026-10-30 | 3d6b61c | #453 환불·환전 1원 단위, 송금액 버림(송금 = floor(신청 × 90%)), 송금액 0원 환전은 은행 없이 완료(6장 환전 정산 행, 8.2). 상세는 [`CONTEXT.md`](CONTEXT.md) 4장 |
+| 2026-10-30 | 2ba9624 | #428 Kafka 소비 규칙(#339) 반영: 회원 이벤트 수신(7.2)을 `eventId` inbox에서 자연 키 멱등·소비 그룹 둘·그룹별 DLT로 고침 |

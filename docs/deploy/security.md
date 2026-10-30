@@ -43,7 +43,7 @@
 | 운영 배포 수동 실행·검사 | Deploy는 Environment `prod`(`main`만)에서 실행되고, GHCR에 이미지가 있는(테스트 통과) 커밋만 배포된다 |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
 | k3s 배포 role의 trust를 Environment `prod`로 제한 | 다른 브랜치·PR의 workflow는 role을 받지 못한다. `prod`는 `main` 브랜치만 허용 |
-| `hapbang-prod` Pod Security `baseline` | 배포 권한으로 privileged·hostNetwork·hostPath pod를 띄워 node와 인스턴스 역할을 장악할 수 없다 |
+| `hapbang-prod` Pod Security `baseline`(EC2 적용 2026-10-30) | 리뷰를 거쳐 배포되는 manifest가 privileged·hostNetwork·hostPath pod를 만들지 못한다. 그런 pod는 node root·IMDS(인스턴스 역할)에 닿는다. 배포 role 자체의 root 권한은 막지 못한다(아래 알려진 위험) |
 | k3s API(6443)는 사용자 IP `/32`만 | 배포는 SSM으로 하므로 6443을 열지 않는다. 자격 증명이 새도 네트워크에서 막힌다 |
 
 ## 알려진 위험
@@ -61,9 +61,9 @@
 
 PostgreSQL은 데이터 디렉터리가 비어 있을 때만 `postgres-credentials` 값으로 앱 role을 만든다. 그래서 Secret만 바꾸면 DB 안의 비밀번호는 그대로다. 세 곳을 함께 바꾼다.
 
-1. `postgres-credentials`의 그 앱 키를 새 값으로 다시 봉인해 `k8s/platform/overlays/prod`에 적용한다.
+1. `postgres-credentials`의 그 앱 키를 새 값으로 다시 봉인해 `k8s/platform/overlays/prod`에 적용한다. 다음 단계 전에 Secret이 새 값으로 풀렸는지 확인한다. `kubectl --context hapbang-k3s -n hapbang-platform get sealedsecret postgres-credentials -o jsonpath='{.metadata.generation} {.status.observedGeneration} {.status.conditions[0].status}'`가 같은 숫자 두 개와 `True`를 출력하면 Secret이 새 값으로 풀린 것이다(값은 출력하지 않는다). 풀리기 전에 3을 하면 이전 비밀번호가 앱 Secret에 들어간다.
 2. 실행 중인 PostgreSQL에서 superuser로 `ALTER ROLE <앱 role> PASSWORD ...`를 실행한다.
-3. `k8s/tools/seal-app-secrets.sh <앱>`으로 앱 Secret을 다시 봉인한다(`DB_PASSWORD`를 cluster의 `postgres-credentials`에서 읽는다). PR을 병합하고 Deploy로 그 앱을 배포한다.
+3. `k8s/tools/seal-app-secrets.sh <앱>`으로 앱 Secret을 다시 봉인한다(`DB_PASSWORD`를 cluster의 `postgres-credentials`에서 읽는다). PR을 병합하고 Deploy로 그 앱을 배포한 뒤 [env-vars.md](env-vars.md#값-변경-비밀값-교체-포함) 3번처럼 앱 Secret 반영을 확인한다.
 
 2와 3 사이에는 그 앱의 새 DB 연결이 실패하므로 배포 시간을 짧게 잡는다. 비밀번호 값은 명령 기록·로그에 남지 않게 한다.
 

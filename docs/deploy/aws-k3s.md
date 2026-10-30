@@ -104,6 +104,7 @@ Terraform은 새 토폴로지를 만드는 도구가 아니라 **현재 배포�
 3. (완료) medium을 agent로 join하고 `app-observe` label을 적용한다.
 4. `k8s/cluster`, `k8s/platform`을 수동으로 적용하고, local k3d에서 검증한 앱마다의 `apps/<앱>/k8s/overlays/prod`를 적용한다. dev namespace는 만들지 않는다. 적용 순서와 확인 명령은 [k8s manifest](k8s.md)를 따른다.
    - (완료) `cluster`·`platform` 적용. PostgreSQL 앱 role 로그인, Redis PING, Kafka broker 응답, Elasticsearch green과 nori 분석, 관측성 5종 Running을 확인했다. 적용 직후 메모리는 large 4.4 GiB(Compose 포함), medium 1.3 GiB였다. 앱 prod overlay는 앱 이미지와 SealedSecret 준비 뒤 적용한다.
+   - (완료) `hapbang-prod`에 Pod Security `baseline` label을 적용했다(2026-10-30, #374). privileged·hostNetwork pod는 server dry-run에서 `Forbidden`, 일반 pod는 통과했다.
    - (완료) IMDS 차단(`k8s/gateway/base/metadata-networkpolicy.yaml`)은 Gateway와 무관해 먼저 적용했다. 그때 있던 `hapbang-prod`·`hapbang-platform`·`elastic-system`에만 걸었고, `envoy-gateway-system`·`cert-manager`는 Gateway 설치 때 함께 건다. 적용 뒤 platform pod가 모두 Running이고 Elasticsearch가 green인 것을 확인했다. `hapbang-platform`에 띄워 Ready 뒤 15초 기다린 pod에서 IMDSv2 토큰 요청이 연결 거부(curl exit 7)로 막히는 것을 확인했다. 뜨자마자 보낸 요청은 200이었다. kube-router가 새 pod에 규칙을 거는 몇 초 동안은 막히지 않으므로, 이 정책을 기동 직후까지 지키는 경계로 보지 않는다.
    - (완료) `k8s/platform` 전에 large에 Elasticsearch용 `vm.max_map_count=1048576`을 sysctl로 고정한다(`/etc/sysctl.d/`). ES 9의 권장값이다([ECK virtual memory](https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/virtual-memory)).
    - (완료, 사용자 보관) Sealed Secrets controller가 뜨면 바로 [키를 백업](#sealed-secrets-키-백업)한 뒤 SealedSecret을 만든다.
@@ -172,17 +173,17 @@ sudo grep -q traefik /etc/rancher/k3s/config.yaml && sudo grep -q core-data /etc
   && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='v1.36.5+k3s1' sh -s - server
 
 # ServiceLB가 large에서만 80·443을 받게 한다. 붙인 node가 없으면 모든 node가 후보가 된다.
-sudo kubectl label node <large node 이름> svccontroller.k3s.cattle.io/enablelb=true
+sudo kubectl --context default label node <large node 이름> svccontroller.k3s.cattle.io/enablelb=true
 ```
 
 설치 명령은 config 확인 조건 뒤에만 실행한다. 아래는 Compose edge nginx가 80·443을 쓰던 때의 기록이다. 2026-10-28 첫 설치(당시 config는 `disable: servicelb`)는 config가 적용되지 않아 servicelb가 켜진 상태였다. 그때 large에서는 `docker-proxy`가 80·443을 계속 listen하고 있었는데, 밖에서는 Traefik 404와 `TRAEFIK DEFAULT CERT`가 돌아왔다. k3s를 uninstall하자 edge nginx 응답이 돌아왔다. 당시 svclb pod 상태는 기록하지 못했다. hostPort는 socket을 bind하지 않고 CNI portmap의 iptables DNAT 규칙으로 구현되므로, Docker가 같은 port를 쓰고 있어도 scheduler는 충돌을 모르고 svclb pod를 배치한다. 그래서 DNAT 규칙이 docker-proxy보다 먼저 요청을 받은 것으로 본다.
 
-설치 뒤 확인한다. svclb pod는 LoadBalancer Service(Envoy proxy)가 생긴 뒤에 large에만 뜬다([Gateway](gateway.md)).
+설치 뒤 확인한다. 서버 kubeconfig(`/etc/rancher/k3s/k3s.yaml`)의 context 이름은 `default`다. svclb pod는 LoadBalancer Service(Envoy proxy)가 생긴 뒤에 large에만 뜬다([Gateway](gateway.md)).
 
 ```bash
-sudo kubectl get nodes -L hapbang.io/pool,svccontroller.k3s.cattle.io/enablelb   # large: core-data, true
-sudo kubectl -n kube-system get svc traefik        # NotFound
-sudo kubectl -n kube-system get pods -o wide | grep svclb   # Gateway 설치 뒤: large에만
+sudo kubectl --context default get nodes -L hapbang.io/pool,svccontroller.k3s.cattle.io/enablelb   # large: core-data, true
+sudo kubectl --context default -n kube-system get svc traefik        # NotFound
+sudo kubectl --context default -n kube-system get pods -o wide | grep svclb   # Gateway 설치 뒤: large에만
 ```
 
 ### 3. medium: agent

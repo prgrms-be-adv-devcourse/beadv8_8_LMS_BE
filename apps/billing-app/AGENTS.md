@@ -4,7 +4,7 @@
 
 루트 `AGENTS.md`의 공통 아키텍처 및 코딩 규칙을 준수하며, Billing의 금융 정합성 관련 세부 규칙을 추가한다.
 
-작업 전에 `apps/billing-app/PROGRESS.md`(진행 현황·결정 기록·호출 계약)를 읽고, Issue를 마치면 갱신한다.
+작업 전에 `apps/billing-app/PROGRESS.md`(진행 현황·결정 배경·호출 계약)와 `docs/billing/decisions.md`(결정 기록 `BD-*`)를 읽고, Issue를 마치면 둘 다 갱신한다.
 
 ## 1. 모듈 책임
 
@@ -203,7 +203,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 ### 10.2 충전 HP 환불 (#260, TossPayments 결제 부분 취소)
 
 - **API**: `POST /api/v1/wallets/refunds {amount}` + `Idempotency-Key` 헤더(필수, `[A-Za-z0-9_-]{1,64}`, 같은 회원의 같은 키 = 같은 요청, 금액이 다르면 `IDEMPOTENCY_KEY_CONFLICT`) → 끝났으면 200(COMPLETED·PARTIALLY_COMPLETED·FAILED), 결과 확인 중·운영자 확인이면 202. 조회 `GET /api/v1/wallets/refunds/{id}`, 회원 취소 `POST /api/v1/wallets/refunds/{id}/cancel`(REQUESTED일 때만, 아니면 409 `REFUND_NOT_CANCELABLE`). 남의 요청은 404 `REFUND_NOT_FOUND`. 유저·인플루언서·인증된 인플루언서만(`RefundFacade` `@PreAuthorize`, 관리자 403). 결제 설정이 없으면 접수 전 503 `REFUND_UNAVAILABLE`.
-- **금액**: 충전 HP만, 1,000 이상·1,000 단위(`REFUND_AMOUNT_INVALID`). 수익 HP는 환불 가능 금액에 들어가지 않는다(부족하면 `INSUFFICIENT_BALANCE`). **회원 탈퇴 환불(1 HP 단위)은 열지 않는다** — 회원 탈퇴가 구현되지 않았고, 회원이 고를 수 있는 값으로 두면 최소 금액·단위를 우회할 수 있다.
+- **금액**: 충전 HP만, 1 이상·1 단위(`REFUND_AMOUNT_TOO_SMALL`, #453). 남은 충전 HP를 끝자리까지 환불할 수 있다. 0 이하는 요청 DTO `@Positive`가 400 `INVALID_REQUEST`로 먼저 막는다. 수익 HP는 환불 가능 금액에 들어가지 않는다(부족하면 `INSUFFICIENT_BALANCE`).
 - **접수(한 트랜잭션)**: `point_refund_request`(REQUESTED) → `InternalHoldFacade.hold(POINT_REFUND_REQUEST)`(CHARGE_ONLY, 가용 원금 FIFO = 충전 완료 시각·ID 순, 사용·보류된 원금 제외, 건너뛰지 않음) → 배분마다 `point_refund`(PENDING, PG 취소 멱등키 `hapbang-refund-cancel-{UUID}`를 이때 한 번 만들어 `idempotency_key`(UNIQUE)에 저장. 최초 취소·결과 조회·같은 키 재요청·취소 사유 표식 모두 이 저장값을 쓴다. DB ID로 만들지 않는다 — DB 초기화·같은 상점을 쓰는 다른 환경에서 키가 겹치지 않게). 배분한 원금은 보류가 끝날 때까지 다른 보류·환불에 쓰이지 않는다. 진행 중인 요청이 있어도 남은 가용 충전 HP 안에서 추가 요청 가능.
 - **PG 취소(순차 FIFO, 트랜잭션 밖)**: 개별 환불 ID 순(= FIFO)으로 하나씩. 요청 전에 요청·개별 환불을 PROCESSING으로 커밋한다. `POST /v1/payments/{paymentKey}/cancel {cancelReason: "HP 환불 [멱등키]", cancelAmount}` + `Idempotency-Key: 멱등키`. 앞 건이 SUCCEEDED여야 다음 건을 요청한다.
     - 성공(취소 이력에 우리 표식 `[멱등키]` 취소가 **정확히 1건**, cancelStatus DONE, transactionKey 있음, 금액 일치) → `capture(ofCharge(..., "REFUND-{개별 환불ID}", 충전 건, PG 취소액))` + `point_charge.refunded_amount_hp` 증가(전액이면 REFUNDED, 아니면 PARTIALLY_REFUNDED) + 요청 완료액 증가. 가용 원금은 바꾸지 않는다(보류 때 이미 예약).
@@ -228,8 +228,9 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 
 - 충전 HP는 환전할 수 없다.
 - 수익 HP만 환전할 수 있다.
-- 최소 환전 금액은 1,000 HP이며 1,000 HP 단위로 신청한다.
-- 환전 수수료는 10%다.
+- 최소 환전 금액은 1 HP이며 1 HP 단위로 신청한다(#453, `EXCHANGE_AMOUNT_TOO_SMALL`).
+- 환전 수수료는 10%다. 송금액 = floor(신청 × 90%), 수수료 = 신청 − 송금액이라 수수료는 항상 1 HP 이상이다(#453). 신청 때 확정·저장한다.
+- 송금액이 0원인 환전(신청 1 HP)은 정산 배치가 은행을 부르지 않고 보류 확정 차감 + 수수료 수입 기록 + COMPLETED로 끝낸다. 송금 시도(`exchange_payout`)는 남기지 않는다(#453).
 - 환전 신청 시 수익 HP를 즉시 보류한다.
 - 매월 10일 정산하며 주말·공휴일이면 다음 영업일에 처리한다.
 - 현재 MVP에서는 Spring Boot의 Mock Controller로 가상 송금 결과를 반환한다.

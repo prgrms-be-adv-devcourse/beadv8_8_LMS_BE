@@ -23,11 +23,25 @@ spec:
       enabled: false
     prometheus-pushgateway:
       enabled: false
+    # 16Mi에서는 k3d에서 기동 직후 OOMKilled가 반복돼 설정 변경을 다시 읽지 못했다(EC2 평소 7Mi, #443).
     configmapReload:
       prometheus:
         resources:
           limits:
-            memory: 16Mi
+            memory: 32Mi
+    # k3s는 apiserver·kubelet이 한 프로세스라 두 endpoint가 같은 제어부 지표 묶음을 내보낸다.
+    # EC2에서 둘이 head series 18.5만 중 9.6만을 차지해 메모리가 limit에 붙고 GC로 CPU 1.5코어를 썼다(#443).
+    # apiserver는 수집하지 않고, kubelet은 pod·컨테이너 수와 k3s 프로세스 자원 지표만 남긴다.
+    # kubelet_volume_stats는 local-path volume이 내보내지 않아 지금은 비어 있다. 디스크 알림은 #343에서 다른 지표로 정한다.
+    # 컨테이너 CPU·메모리는 kubernetes-nodes-cadvisor가 따로 수집한다.
+    scrapeConfigs:
+      kubernetes-api-servers:
+        enabled: false
+      kubernetes-nodes:
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: kubelet_volume_stats_.+|kubelet_running_(pods|containers)|process_(resident_memory_bytes|cpu_seconds_total)
     server:
       retention: 7d
       retentionSize: 4GB

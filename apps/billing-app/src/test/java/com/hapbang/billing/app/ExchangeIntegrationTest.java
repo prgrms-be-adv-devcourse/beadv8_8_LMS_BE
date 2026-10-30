@@ -200,12 +200,12 @@ class ExchangeIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {0L, -1_000L, 999L, 1_009L, 1_500L, 1_999L, 10_001L})
-    @DisplayName("1,000 미만이거나 1,000 단위가 아니면 EXCHANGE_AMOUNT_INVALID이고 아무것도 남기지 않는다")
+    @ValueSource(longs = {0L, -1L, -1_000L})
+    @DisplayName("1 HP보다 작으면 EXCHANGE_AMOUNT_TOO_SMALL이고 아무것도 남기지 않는다 (#453)")
     void invalidAmount(long amountHp) {
         Long walletId = influencerWithRevenue(20_000L);
 
-        assertBillingError(() -> request(INFLUENCER, "key-1", amountHp), BillingErrorCode.EXCHANGE_AMOUNT_INVALID);
+        assertBillingError(() -> request(INFLUENCER, "key-1", amountHp), BillingErrorCode.EXCHANGE_AMOUNT_TOO_SMALL);
 
         assertNothingCreated();
         assertWallet(walletId, 0L, 0L, 20_000L, 0L);

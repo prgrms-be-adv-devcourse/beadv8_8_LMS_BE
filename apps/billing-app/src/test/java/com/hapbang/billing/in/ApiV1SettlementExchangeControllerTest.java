@@ -166,11 +166,11 @@ class ApiV1SettlementExchangeControllerTest {
     }
 
     @Test
-    @DisplayName("단위 오류 400 EXCHANGE_AMOUNT_INVALID, 멱등키 형식·누락 400, 예금주 50자 초과 400, 수익 HP 부족 409")
+    @DisplayName("금액 0 이하 400 INVALID_REQUEST, 멱등키 형식·누락 400, 예금주 50자 초과 400, 수익 HP 부족 409")
     void businessErrors() throws Exception {
-        for (long amount : new long[] {1_009, 1_500, 1_999}) {
+        for (long amount : new long[] {0, -1}) {
             request(1L, Role.INFLUENCER, "key-1", body(amount, "004", ACCOUNT, "홍길동"))
-                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("EXCHANGE_AMOUNT_INVALID"));
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         }
         request(1L, Role.INFLUENCER, "bad:key", body(1_000, "004", ACCOUNT, "홍길동"))
                 .andExpect(status().isBadRequest())

@@ -1,13 +1,13 @@
 # Billing 모듈 진행 기록
 
 Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)가 작업 전에 읽는 문서다.
-규칙은 루트 `AGENTS.md`와 `boundedContext/billing/AGENTS.md`가 우선이고, 이 문서는 지금까지 **무엇을 만들었고 왜 그렇게 정했는지**를 기록한다.
+규칙은 루트 `AGENTS.md`와 `boundedContext/billing/AGENTS.md`가 우선이고, 이 문서는 지금까지 **무엇을 만들었고 그때 무엇을 검토했는지**를 기록한다. 결정과 그 상태(유효·대체됨·폐기·미결)의 원본은 [decisions.md](../../docs/billing/decisions.md)(`BD-*`)다.
 
 - 작업을 시작하기 전에 이 문서를 읽는다.
-- Issue 하나를 끝내면 "1. 진행 현황", "3. 결정 기록", "7. 남은 일"을 갱신한다.
+- Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-10-16 (Issue #294 관리자 환전 승인·거절·회원 복제본, 3.20)
+마지막 갱신: 2026-10-30 (#428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -37,8 +37,10 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #288 | 가상 송금 Mock 은행 API·HTTP Client(실제 HTTP, 트랜잭션 밖 호출 강제, 멱등 기록 `mock_payout_transfer` Flyway `V202610161700`, local·test 프로필 전용) | `feature/tkt-288` | #290 | 완료 |
 | #294 | 관리자 환전 승인·거절(REQUESTED → APPROVED·REJECTED, 거절 반환), Billing 회원 복제본(가입·변경 Upsert + 회원 버전 비교), Flyway `V202610162000`·`V202610162010`. 기존 회원 Backfill 제외 | `feature/tkt-294` | - | 구현·테스트 완료 (커밋 전) |
 | #273 | HP 내부 HTTP API(`POST /api/v1/internal/billing/{holds,releases,payouts,penalty-settlements}`), `HoldFacade` `ROLE_INTERNAL` 인가, 요청 로그, 오류 코드 전체 대조, Billing 전체 `lock_timeout` 3초 → 503 `HP_LOCK_TIMEOUT`. `BillingPort` 유지 | `feature/tkt-273` | - | 구현·테스트 완료 (PR 전) |
+| #453 | 환불·환전 1 HP 단위, 송금액 버림(송금 = floor(신청 × 90%)), 송금액 0원 환전은 은행 없이 완료, 오류 코드 `*_AMOUNT_TOO_SMALL`(Flyway `V202610301200`) | `feature/tkt-453` | (PR 전) | 구현 완료 |
+| #428 | Kafka 소비 규칙(#339)에 맞춰 회원 이벤트 멱등 문서 정리: `eventId` inbox → 자연 키, 소비 그룹 `billing-app.member-replica`·`billing-app.wallet-creation`, 그룹별 DLT, 별도 멱등 기록 없음(BD-123) | `feature/tkt-428` | (PR 전) | 문서 완료 |
 
-다음 후보: **강의 정산 실제 지급(SCHEDULED → COMPLETED)**, 강의 #146·출연 연동, Charge(TossPayments 충전), Refund, Exchange(환전). 자세한 내용은 7장.
+다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
 ---
 
@@ -95,11 +97,13 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 
 ---
 
-## 3. 결정 기록
+## 3. 결정 배경
 
-각 항목은 "결정 — 이유" 형식이다. 바꾸려면 팀과 먼저 합의한다.
+결정 목록·이유·현재 상태의 원본은 [decisions.md](../../docs/billing/decisions.md)다. 이 장은 Issue 당시의 분석·검토 경위·검증 기록이고, 각 절 첫 줄의 `BD-*`가 그 절에서 나온 결정이다. 이 장의 문장과 `decisions.md`가 다르면 `decisions.md`를 따른다(대체·폐기된 결정도 이 장에는 당시 문장 그대로 남아 있다). 결정을 바꾸려면 팀과 먼저 합의한다.
 
 ### 3.1 지갑 생성 (#42)
+
+> 결정: BD-1~BD-6 (1장) — [decisions.md](../../docs/billing/decisions.md)
 
 - **회원당 지갑 1개.** `uk_wallet_user_id` UNIQUE로 최종 보장한다.
 - **가입 이벤트로 생성하고, `GET /wallets/me`에서 없으면 생성한다.** — 이벤트는 커밋 후 비동기라 늦을 수 있고, Billing 이전 가입 회원에게는 이벤트가 없다. 두 경로 모두 `WalletCreateUseCase.getOrCreate`를 써서 결과가 같다.
@@ -109,6 +113,8 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 - **리스너는 `@ApplicationModuleListener(propagation = NOT_SUPPORTED)`.** — 생성이 자체 트랜잭션을 열기 때문에, 리스너 트랜잭션까지 있으면 이벤트 하나가 커넥션 2개를 잡는다. 실패하면 이벤트 발행 기록이 미완료로 남아 재시작 시 재처리된다.
 
 ### 3.2 원장과 잔액 (#57)
+
+> 결정: BD-7~BD-13 (2장) — [decisions.md](../../docs/billing/decisions.md)
 
 - **잔액 변경은 `LedgerRecordUseCase.record()`만 한다.** — 원장 INSERT와 지갑 변경을 한 트랜잭션에서 처리한다. ArchUnit 테스트(`WalletApplyLedgerAccessTest`)가 다른 실행 코드의 `Wallet.applyLedger` 호출을 막는다.
 - **재반영 방지는 원장 ID가 아니라 `pendingApplication`으로 한다.** — IDENTITY 전략은 INSERT 시점에 ID가 생기므로 ID로는 판단할 수 없다. 빌더로 만든 항목만 true이고, 반영하면 false, DB에서 읽은 항목은 기본 생성자라 false다.
@@ -120,12 +126,16 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 
 ### 3.3 멱등성 (#57)
 
+> 결정: BD-14~BD-17 (2장) — [decisions.md](../../docs/billing/decisions.md)
+
 - **작업 키(`operationKey`) = 비즈니스 작업 하나, 원장 멱등키 = `{operationKey}:{줄번호}`.** 줄 번호는 요청의 원장 줄 순서(1부터)다.
 - **지갑 락을 잡은 뒤 작업 키로 기존 원장을 조회한다.** 줄마다 멱등키·지갑·HP 종류·버킷·금액·거래 유형·참조 대상·역분개 원본이 같으면 잔액을 바꾸지 않고 기존 원장 ID를 돌려준다(`replayed=true`). 다르면 `IDEMPOTENCY_KEY_CONFLICT`. 발생 시각·설명은 비교하지 않는다.
 - **같은 키가 겹치지 않는 지갑에 동시에 오면** 락으로 직렬화되지 않으므로 `uk_point_ledger_idempotency_key` UNIQUE(23505 + 제약 이름)로 막고 `IDEMPOTENCY_KEY_CONFLICT`로 바꾼다.
 - **새 작업 상태 테이블은 만들지 않았다.** — 업무 요청 전체의 멱등성은 각 업무 테이블(`POINT_HOLD`, `POINT_CHARGE`, `SETTLEMENT`, `EXCHANGE`)의 멱등키와 호출하는 쪽의 결정론적 작업 키로 맡는다.
 
 ### 3.4 역분개 (#57, 원장 단위 검증까지만)
+
+> 결정: BD-18·BD-19 (2장) — [decisions.md](../../docs/billing/decisions.md)
 
 - 거래 유형 `REVERSAL` ⇔ `originalLedgerId` 함께 지정. RELEASE·REFUND 등 정상 거래는 원본을 가질 수 없다.
 - 원본과 같은 지갑·HP 종류·버킷, 원본과 반대 부호.
@@ -138,11 +148,15 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 
 ### 3.5 잔액 대사 (#57)
 
+> 결정: BD-20 (2장) — [decisions.md](../../docs/billing/decisions.md)
+
 - `reconcile(walletId)`는 `@Transactional(readOnly = true, isolation = REPEATABLE_READ)` — 지갑과 원장 합계를 같은 스냅숏에서 읽어 동시 거래 중 오탐을 막는다(READ COMMITTED로 바꾸면 테스트가 실패함을 확인).
 - 결과: 버킷 4개마다 `walletHp`, `ledgerHp`, `differenceHp`(캐시 − 원장)와 전체 `matched`. 원장이 없는 버킷은 0.
 - 불일치가 있어도 원장·지갑을 고치지 않는다. 관리자 API·Scheduler는 아직 없다.
 
 ### 3.6 HP 보류 생성 (#78)
+
+> 결정: BD-21~BD-28 (3장). BD-28의 "`@PreAuthorize` 없음"은 BD-112로 대체됐다 — [decisions.md](../../docs/billing/decisions.md)
 
 - **참조 대상당 보류 1건, 키는 Billing이 만든다 (B안, 2026-10-13 확정).** 보류 멱등키 = 원장 작업 키 = `HOLD:{referenceType}:{referenceId}`. 호출한 쪽은 보류 멱등키를 넘기지 않는다. 참조 유형은 Enum 이름으로만 표기해 같은 대상이 다른 문자열로 중복 보류되지 않는다. 기존 `uk_point_hold_idempotency_key`가 참조당 1건을 DB에서 보장한다(스키마 변경 없음).
 - **보류 단위**: 강의는 주문 항목(`LECTURE_ORDER_ITEM`, #100에서 주문 `LECTURE_ORDER`에서 바꿈), 출연 요청은 요청(`APPEARANCE_REQUEST`), 출연 모집은 모집글(`APPEARANCE_RECRUIT`). 다른 참조 유형은 `HoldCommand`에서 거절한다.
@@ -162,6 +176,8 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 - **역할 검사 없음**: `HoldFacade`는 강의·출연 서비스가 결제자 확인 후 호출하는 내부 기능이라 `@PreAuthorize`를 두지 않는다. 공개 HTTP API도 만들지 않았다.
 
 ### 3.7 HP 보류 반환 (#100)
+
+> 결정: BD-22, BD-29~BD-35 (3장) — [decisions.md](../../docs/billing/decisions.md)
 
 강의·출연 담당과 합의한 정책(2026-10-13 확정, Issue #100 본문)을 구현 기준으로 적용했다. 반환 여부·금액은 강의·출연이 업무 상태로 정하고, Billing은 금액 한도·보류 소유·멱등성·금융 정합성만 검증한다.
 
@@ -187,6 +203,8 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 
 ### 3.8 JPA 연관관계·Enum·QueryDSL (#116, 멘토 리뷰)
 
+> 결정: BD-36~BD-38 (4장) — [decisions.md](../../docs/billing/decisions.md)
+
 - **Aggregate 간 참조는 ID 필드**: 엔티티 필드만 `@ManyToOne` → `@Column Long xxxId`로 바꿨다. 컬럼 이름·타입·NOT NULL, DB FK 18개·UNIQUE·CHECK·인덱스는 그대로다(Flyway 변경 없음, `BillingSchemaTest`가 FK 18개 확인).
     - 바꾼 13개: `PointLedger.walletId`·`originalLedgerId`, `PointHold.walletId`, `PointCharge.walletId`, `PointChargeUsage.chargeId`, `PointRefundRequest.walletId`·`pointHoldId`, `PointRefund.walletId`·`chargeId`, `Settlement.receiverWalletId`·`pointHoldId`, `Exchange.walletId`·`pointHoldId`.
     - 유지한 5개(Aggregate 안): `PointHoldDetail.pointHold`, `PointChargeUsage.pointHold`(보류 Aggregate), `PointRefund.refundRequest`(환불 요청 Aggregate), `ExchangeAccount.exchange`, `ExchangePayout.exchange`(환전 Aggregate).
@@ -210,6 +228,8 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
         4. 도입 전 확인: Hibernate 7.x·Jakarta Persistence 3.2 지원 버전, Gradle 9 annotationProcessor·멀티모듈 컴파일, IntelliJ·CI의 Q 타입 생성, 기존 비관적 락 쿼리(`@Lock`) 대체 여부
 
 ### 3.9 HP 지급·위약금 정산 (#134)
+
+> 결정: BD-34, BD-39~BD-50 (5장). BD-46·BD-47(30% 계산, 위약금 0 거절)은 BD-56·BD-57로 대체됐다 — [decisions.md](../../docs/billing/decisions.md)
 
 Issue #134에서 확정한 정책을 구현 기준으로 적용했다. 지급 가능 여부·금액·정산 기준액은 출연(이후 강의)이 업무 상태로 정하고, Billing은 지갑·보류·지급 원천·금액·멱등성·금융 정합성만 검증한다. 공개 HTTP API는 만들지 않았고 `HoldFacade.payout`·`settlePenalty`가 내부 계약이다.
 
@@ -249,6 +269,8 @@ Issue #134에서 확정한 정책을 구현 기준으로 적용했다. 지급 �
 
 
 ### 3.10 연동 계약 shared 이동·위약금 계산 책임 변경 (#145, 2026-10-14)
+
+> 결정: BD-51~BD-61 (5장). BD-54의 "shared DTO를 Controller 요청 DTO로 쓰지 않는다"는 내부 HTTP API에서 BD-111로 대체됐다 — [decisions.md](../../docs/billing/decisions.md)
 
 Issue #145에서 확정한 정책을 적용했다. Lecture·Appearance는 `:shared`에만 의존하고 Billing은 shared 포트를 구현한다. **DB 스키마·Flyway 변경 없음.**
 
@@ -295,6 +317,8 @@ Issue #145에서 확정한 정책을 적용했다. Lecture·Appearance는 `:shar
 
 ### 3.11 강의 판매 수익 지급 예정 건 관리 (#142, 2026-10-14) — #188에서 제거됨(3.13), 아래는 당시 기록
 
+> 결정: BD-62 (6장, 폐기) — [decisions.md](../../docs/billing/decisions.md)
+
 Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄러·강의/고객센터/회원 연동은 제외했다. 진입점은 Billing 내부 `LectureSettlementFacade`이고 shared 포트에는 추가하지 않았다(강의 연동 때 결정).
 
 - **기존 구조 분석**: `SETTLEMENT`에는 원천(`source_type`·`source_id`)·받는 회원·받는 지갑·보류 ID·지급 유형·총액(`gross_amount_hp`)·지급액(`paid_amount_hp`)·상태·멱등키·`scheduled_at`·`settled_at`·`failed_at`·`failure_reason`이 있다. UNIQUE는 멱등키, (보류, 원천, 지급 유형), 원천(#134). 상태 CHECK에 `CANCELLED`가 없었고 취소 시각 컬럼도 없다. 지급 건을 만드는 경로는 즉시 지급의 `Settlement.completed`(바로 `COMPLETED` INSERT)뿐이었다. 반환 경로는 지급 건을 보지 않고, 지급 경로는 `rejectSettledSource`로 같은 원천의 지급 건이 있으면 거절한다.
@@ -325,6 +349,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 
 ### 3.12 강의·출연 동기 연동과 실패 복구 (#182, 2026-10-14) — 강의 지급 예정 연동은 #188에서 제거됨(3.13), 출연 부분은 유효
+
+> 결정: BD-63(폐기)~BD-66 (6장). BD-66은 확인 필요 — [decisions.md](../../docs/billing/decisions.md)
 
 최신 `origin/dev`(`45e2d14`)를 먼저 조사해 실제로 있는 업무 기능만 연결했다. PR 병합 여부가 아니라 코드로 판단했다.
 
@@ -378,6 +404,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 ### 3.13 강의 지급 정책 변경 — 강의 직접 Payout (#188, 2026-10-14)
 
+> 결정: BD-67~BD-69 (6장), 미결 BD-71 (10장) — [decisions.md](../../docs/billing/decisions.md)
+
 팀 요청으로 강의 판매 수익 지급의 책임 경계를 바꿨다. 강의(#150)가 지급 시점·이의 제기·판매자 상태를 판단하고 shared `BillingPort.payout`을 직접 부른다. Billing은 보류·반환·지급·원장·멱등성만 맡는다(출연과 같은 구조). #142의 강의 전용 지급 예정 관리는 정리했다.
 
 - **참조 조사**: 제거 대상(`LectureSettlementFacade`·`UseCase`·`Schedule`·`Result`, `LectureSettlementPortAdapter`, shared `LectureSettlementPort`·`Command`·`ResultDto`, `FakeLectureSettlementPort`, `Settlement.scheduledLecture`·상태 전이·`isPayableAt`, `findBySourceTypeAndSourceId`, `BillingKeys.lectureSettlement`, 오류 코드 `SETTLEMENT_NOT_FOUND`·`SETTLEMENT_AMOUNT_MISMATCH`·`SETTLEMENT_INVALID_STATE`)는 모두 #142·#182 강의 경로에서만 쓰였다. 출연·위약금·즉시 지급 경로와 작업 중인 `origin/feature/tkt-150`(강의 지급 배치, `BillingPort.payout`만 사용)은 이 클래스들을 쓰지 않는다.
@@ -403,6 +431,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 - **검증(1차)**: `apps` `LectureOrderPayoutIntegrationTest` 13개(실제 Billing): 포트 DI, 구매 → 보류만·지급 건 없음, 판매자 지갑 없어도 구매되고 지갑 미생성, 구매 취소 → 반환·지급 건 없음, 반환 실패 → 구매 취소 롤백, 전액 지급(수익 3,000 + 충전 7,000 → 지급 상세 수익 우선, 원장 3줄, 지급 건 COMPLETED, 보류 PAID, 판매자 수익 HP 증가), 같은 요청 replay(변경 없음), 다른 요청 ID 중복(전액 후 `HOLD_ALREADY_CLOSED`, 부분 후 `PAYOUT_ALREADY_SETTLED`), 잘못된 수령자·원천·보류·지갑·금액 거절, 반환된 항목 지급 거절, 지급 건 저장 실패 → 전체 롤백 후 같은 요청 재지급, 이전 방식 `SCHEDULED` 행이 있으면 지급 차단. 기존 Billing 지급·위약금(`HoldPayoutIntegrationTest` 39)·보류(30)·반환(34)·`BillingPortIntegrationTest`(11)·출연 `AppearanceBillingPortIntegrationTest`(6) 통과.
 
 ### 3.14 강의 자동 지급·이의 제기 연동 검증 (2026-10-15, 기준 `origin/dev` 70ecb2c)
+
+> 결정: BD-70, BD-72·BD-73 (6장), 미결 BD-74 (10장) — [decisions.md](../../docs/billing/decisions.md)
 
 #150(강의 지급 배치·판매 내역, 03e17a2 등)·#156(이의 제기 접수·판단, 18b0269 등)·#203/#209(이의 제기 철회)·#188이 모두 dev에 있다. 목표는 강의 지급을 Billing에 다시 만드는 것이 아니라, 강의가 직접 지급·반환할 때 금융 정합성과 재시도 안전성을 확인하는 것이다. **Billing·Lecture 운영 코드는 바꾸지 않았다**(결함 없음).
 
@@ -442,6 +472,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 ### 3.15 TossPayments 테스트 결제 HP 충전 (#224, 2026-10-15, 기준 `origin/dev` 4d91633)
 
+> 결정: BD-75~BD-81 (7장) — [decisions.md](../../docs/billing/decisions.md)
+
 충전 HP가 시스템에 들어오는 첫 경로다. 기존 보류·반환·지급 엔진과 shared `BillingPort`는 바꾸지 않았고, 충전 확정은 기존 `LedgerRecordUseCase.record()`로만 지갑을 바꾼다.
 
 - **기존 상태 분석**: `PointCharge`는 builder·원금 배분/복원만 있었고 UseCase·API·PG 연동이 없었다. `PointChargeStatus`(PENDING·COMPLETED·PARTIALLY_REFUNDED·REFUNDED·FAILED)로는 "승인 요청을 보냈지만 결과를 모름"을 표현할 수 없었다 → PENDING으로 두면 같은 주문의 동시 승인 요청을 막을 수 없고, FAILED로 두면 실제 승인된 결제를 잃는다. `pg_payment_key` UNIQUE는 무작위 IV 암호문에는 의미가 없다.
@@ -468,6 +500,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 ### 3.16 종류별 보류와 확정 차감 (#241, 2026-10-15, 기준 `origin/dev` 5d58307)
 
+> 결정: BD-82~BD-86 (7장) — [decisions.md](../../docs/billing/decisions.md)
+
 - **기존 구조**: `point_hold`(HP 종류별 최초·남은 보류, 상태) + 별도 테이블 `point_hold_detail`(반환·지급 한 건씩, 충전 건 정보 없음) + `point_charge_usage`(충전 건별 배분: 남은 보류·소진·반환). 상세가 어느 충전 건에서 처리됐는지는 규칙(반환 역순·지급 순서)으로 재생해 배분 누적값과 대조한다(`ChargeUsageHistory`).
 - **재사용**: 새 테이블 없음. 보류 종류는 `point_hold.hold_type`(기본 MIXED), 확정 차감은 `point_hold_detail.action_type = CAPTURE`, 충전 건 지정은 nullable `target_charge_id`(FK → point_charge). 소진은 `point_charge_usage.consumed_hp`(지급과 공유)라 배분 불변식·재생 대조가 그대로 동작한다. 보류 상태에 `CAPTURED` 추가.
 - **왜 충전 건 지정인가**: 환불은 PG 결제(충전 건)마다 취소 결과가 다르다. 규칙(FIFO)으로 확정 차감하면 실제로 취소된 결제와 다른 충전 건의 원금을 차감해, 남은 원금이 실제 PG 잔액과 어긋난다(이후 환불이 이미 취소된 결제를 다시 취소하려 함). 그래서 CHARGE_ONLY 보류는 충전 건을 지정해 확정 차감·반환할 수 있게 했다.
@@ -478,6 +512,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 - **남은 일(후속 환불·환전 Issue)**: 환불 확정 차감 후 `point_charge` 상태(PARTIALLY_REFUNDED·REFUNDED)·`point_refund` 기록, 환전 `exchange`·`exchange_payout` 연결은 각 Issue에서. 확정 차감은 HP 이동만 한다. → 환불은 #260(3.17)에서 했다.
 
 ### 3.17 TossPayments FIFO 부분 환불과 PG 취소 결과 복구 (#260, 2026-10-15, 기준 `origin/dev` 4eb55ea, `feature/tkt-260`)
+
+> 결정: BD-87~BD-93 (7장) — [decisions.md](../../docs/billing/decisions.md)
 
 규칙 전체는 billing AGENTS.md 10.2. 여기에는 결정 배경과 검증 기록만 둔다.
 
@@ -525,6 +561,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 ### 3.18 환전 신청·테스트 계좌 스냅샷·수익 HP 보류 (#285, 2026-10-16, 기준 `origin/dev` ef0d200, `feature/tkt-285`)
 
+> 결정: BD-94~BD-98 (8장) — [decisions.md](../../docs/billing/decisions.md)
+
 규칙 전체는 billing AGENTS.md 11장. 여기에는 결정 배경만 둔다.
 
 - **기존 상태**: `exchange`·`exchange_account`·`exchange_payout` 테이블·엔티티만 있고 동작이 없었다(행 없음). 상태 CHECK에 취소가 없고, 계좌는 "구조만 준비"였다.
@@ -546,6 +584,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 ### 3.19 가상 송금 Mock 은행 API·HTTP Client (#288, 2026-10-16, 기준 `origin/dev` 04e9c23, `feature/tkt-288`)
 
+> 결정: BD-99~BD-101 (8장) — [decisions.md](../../docs/billing/decisions.md)
+
 규칙은 billing AGENTS.md 11장 "가상 송금". 결정 배경만 둔다.
 
 - **기존 상태**: `exchange_payout`(환전 1건당 1행, `exchange_id` UNIQUE·FK, `payout_request_id` UNIQUE, 공급자 MOCK)은 우리 쪽 송금 이력용 구조이고 코드가 없었다. HTTP 테스트 도구는 WireMock 없이 JDK `HttpServer` 가짜 서버(Toss)와 채팅 RANDOM_PORT E2E만 있었다.
@@ -561,6 +601,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 ### 3.20 관리자 환전 승인·거절과 Billing 회원 복제본 (#294, 2026-10-16, 기준 `origin/dev` 586ec8a, `feature/tkt-294`)
 
+> 결정: BD-102~BD-104 (8장). BD-104는 확인 필요 — [decisions.md](../../docs/billing/decisions.md)
+
 규칙은 billing AGENTS.md 11장. 결정 배경만 둔다.
 
 - **사전 분석**: #292가 `UserDto.version`(회원 @Version, 가입 0, 수정마다 +1)과 `ReplicaUser.memberVersion`·`syncFrom`(이하 버전 무시)을 넣었다. 다른 모듈(강의·출연·채팅)은 가입 이벤트로만 만들고 변경 이벤트는 기존 복제본만 고친다(없으면 실패 후 재시작 대기). 회원 복제본을 Backfill한 모듈은 없다(10-12 이벤트 도입 직후 리스너를 붙여 필요가 없었다).
@@ -574,6 +616,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 ### 3.21 HP 내부 HTTP API (#273, 2026-10-29, 기준 `origin/dev` 29d1ea5, `feature/tkt-273`)
 
+> 결정: BD-108, BD-111~BD-113 (9장) — [decisions.md](../../docs/billing/decisions.md)
+
 정책 원문은 `docs/billing/CONTEXT.md` 1장(2026-10-29 `/grill-with-docs`). 결정 배경만 둔다.
 
 - **경로**: `ApiV1BillingInternalController`(Swagger `ApiV1BillingInternalSpec`)가 네 경로를 받고 `HoldFacade`를 부른다. 요청 하나 = Billing 로컬 트랜잭션 하나. 결과 변환은 `BillingResultDtos`로 옮겨 `BillingPortAdapter`와 같이 쓴다. `BillingPort`는 #280까지 유지한다.
@@ -584,7 +628,20 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 - **오류 코드 대조**: `BillingFailureCodeContractTest`가 `BillingErrorCode` 전체를 `default` 없는 `switch`로 `BillingFailureCode` 또는 `null`(내부 API에서 나오지 않음)로 분류한다. Billing 코드가 늘면 컴파일되지 않는다.
 - **로그**: 요청마다 `operation`·회원·참조·요청 ID·금액과 `result=OK replayed=…`/`FAILED code=…`/`ERROR exception=…` 한 줄. correlation ID는 계약(`internal-billing.md` 3장)대로 tracing 도입 때 정한다.
 - **테스트**: `ApiV1BillingInternalControllerTest` 13(성공·replay·409·업무 오류 detail·400 구조 오류·401 키 없음/틀림/세션만·기술 실패 500 + 전체 롤백·Facade 인가·요청 로그·동시 같은 요청·락 대기 초과 503), `BillingFailureCodeContractTest` 68, `LockTimeoutsTest` 3.
-- **후속**: `docs/api/internal-billing.md` 2장 표에 `HP_LOCK_TIMEOUT` 반영, `decisions.md`(BD-54 재검토 완료·BD-108 결정)·GLOSSARY("위약금 정산") 반영, #280(내부 Command 변환·`BillingPort` 삭제).
+- **후속**: `docs/api/internal-billing.md` 2장 표에 `HP_LOCK_TIMEOUT` 반영, GLOSSARY("위약금 정산") 반영, #280(내부 Command 변환·`BillingPort` 삭제). `decisions.md` 반영(BD-28·BD-54 일부 대체, BD-108 결정, BD-111~BD-113)은 2026-10-30에 했다.
+
+### 3.22 환불·환전 1원 단위 (#453, 2026-10-30, 기준 `origin/dev` 3d6b61c, `feature/tkt-453`)
+
+정책 원문은 `docs/billing/CONTEXT.md` 4장(2026-10-30 `/grill-with-docs`)과 `docs/policy.md` 2·3장. 결정 배경만 둔다.
+
+- **배경**: 충전은 1,000 단위지만 사용 금액은 1,000 단위가 아니라, 1,000 미만 끝자리 충전 HP·수익 HP를 현금화할 수 없었다. `policy.md` 2장 환불 규칙은 구현 전에 먼저 "0원 초과·잔액만큼 부분 환불"로 바뀌어 있었다.
+- **금액**: 환불·환전 모두 1 HP 이상·1 HP 단위. 충전은 그대로 1,000 단위. 환전 최소 1,000 유지(단위만 1원)·최소 2원 안도 있었지만 잔액 전부를 현금화하도록 1 HP로 정했다.
+- **계산**: 송금액을 버린다(송금 = floor(신청 × 90%), 수수료 = 나머지). 이전에는 수수료를 버렸다. 수수료가 항상 1 HP 이상이라 #336의 "수수료 0원 원장 없음" 전제가 유지된다.
+- **송금액 0원(신청 1 HP)**: 허용. `ExchangePayoutProcessing.start`가 APPROVED 건이 송금액 0이면 은행을 부르지 않고 같은 트랜잭션에서 확정 차감 + 수수료 수입 + COMPLETED. 송금 시도 기록 없음. dev·prod(Mock 꺼짐)는 다른 환전처럼 건너뛴다. 그래서 `start`도 회원·플랫폼 지갑을 함께 잠근다(`lockForPayout`).
+- **오류 코드**: `REFUND_AMOUNT_INVALID` → `REFUND_AMOUNT_TOO_SMALL`, `EXCHANGE_AMOUNT_INVALID` → `EXCHANGE_AMOUNT_TOO_SMALL`. HTTP에서는 0 이하를 `@Positive`가 먼저 400 `INVALID_REQUEST`로 막으므로 새 코드는 내부 호출 보호용이다. 프론트와 맞춘다.
+- **DB**: Flyway `V202610301200`이 `ck_exchange_1`을 `requested_amount_hp >= 1`로 바꾼다. 기존 환전의 수수료·송금액은 바뀌지 않는다.
+- **PG**: TossPayments 문서에 부분 취소 최소 금액 제한이 없다. 부분 취소가 안 되는 결제는 기존대로 거절 → 보류 유지 → 운영자 확인.
+- **테스트**: `ExchangeTest`(송금액·수수료 계산표, 1 HP 단위 신청, 0원 완료 조건), `ExchangeIntegrationTest`·`RefundIntegrationTest`(1 HP 미만 거절, 1·999·1,234 환불), `ExchangePayoutIntegrationTest`(0원 환전: NOT_DUE, 은행 호출·시도 없음, 원장 4줄, 플랫폼 대사), 컨트롤러·오류 코드 대조. billing-app 1,141개 통과.
 
 ---
 
@@ -640,7 +697,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 | `HOLD_TYPE_NOT_SUPPORTED` | 400 | MIXED 보류 확정 차감, CHARGE_ONLY가 아닌 보류에 충전 건 지정 (#241) |
 | `HOLD_CHARGE_NOT_FOUND` | 400 | 지정한 충전 건이 보류에 배분되지 않음 (#241) |
 | `REFUND_UNAVAILABLE` | 503 | TossPayments 시크릿 키·결제키 암호화 키가 없어 환불 접수 불가 (#260) |
-| `REFUND_AMOUNT_INVALID` | 400 | 환불 금액이 1,000 미만이거나 1,000 단위가 아님 (#260) |
+| `REFUND_AMOUNT_TOO_SMALL` | 400 | 환불 금액이 1 HP보다 작음 (#453, 이전 `REFUND_AMOUNT_INVALID`: 1,000 미만·1,000 단위 아님, #260) |
 | `REFUND_IDEMPOTENCY_KEY_INVALID` | 400 | `Idempotency-Key` 헤더 형식 오류(영문·숫자·-·_ 1~64자) (#260) |
 | `REFUND_NOT_FOUND` | 404 | 환불 요청이 없거나 다른 회원의 요청 (#260) |
 | `REFUND_NOT_CANCELABLE` | 409 | PG 취소를 시작했거나 끝난 요청을 회원이 취소 (#260) |
@@ -696,6 +753,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 ## 7. 남은 일과 열린 결정
 
 ### 다음 Issue 후보
+
+> 2026-10-16까지 적은 후보다. 충전·환불·환전은 그 뒤 구현됐고(1장), #142의 강의 지급 예정 건 설계는 #188로 폐기됐다(BD-62·BD-63, 당시 기록은 3.11). 열린 결정은 아래 "팀과 정할 것"이 가리키는 `decisions.md` 10장을 본다.
 - **#224 후속**: 실제 TossPayments 테스트 키로 dev 서버에서 결제창 → 승인 수동 확인, 프론트 결제 계약 확정(결제창 방식·successUrl·failUrl), PENDING 주문 만료 정책, 최대 충전 금액, 가상계좌·웹훅(필요 시), PROCESSING 장기 미확정 건 운영자 조회·알림(관리자 Issue), ERD에 `pg_payment_key_hash`·`failure_reason` 반영.
 - **강의 지급 연동 검증 후속 (3.14, 각 담당)**:
     - 강의 #150: 지급 배치 실패를 오류 코드로 구분(정상 재시도 `WALLET_NOT_FOUND`·일시 장애 / 확인 필요 `HOLD_ALREADY_CLOSED`·`PAYOUT_ALREADY_SETTLED`·`HOLD_STATE_INCONSISTENT`·`IDEMPOTENCY_KEY_CONFLICT`), 확인 필요 항목 격리·알림·관리자 조회. 어느 오류도 PAID_OUT으로 바꾸지 않는다.
@@ -717,30 +776,17 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
     - 강의 정산 #142: 아래 "강의 정산"의 예정 지급 건 방식. 지급은 shared 계약이 아니라 Billing 스케줄러 내부 경로가 될 수 있어 공개 범위는 그때 정한다.
     - 반환·지급 사유를 원장 `description`에 남길지(지금 계약에 사유 필드 없음).
     - 루트 AGENTS.md 3장은 "모듈 간 통신은 Spring Event 기본"이고 Billing 연동은 팀 확정에 따라 동기 `BillingPort` 호출이다. 루트 문서에 예외로 적을지는 팀이 정한다(이번 Issue에서 루트 문서는 바꾸지 않았다).
-- **강의 정산 실제 지급 (#142 다음)**: 예정 건 등록·상태 관리는 #142에서 만들었다(3.11). 남은 일은 3.11 "후속 지급 연계 설계"의 지급 경로·스케줄러·실패 재처리·판매자 탈퇴 차단이다. 아래는 #142 전 분석 기록이다.
-- **(이전 분석) 강의 정산**: `LECTURE_ORDER_ITEM` 보류를 구매일 다음 날부터 30일이 지나고 활성 이의 제기가 없으면 판매자에게 지급한다(이의 제기 중이면 지급 중지).
-    - **선행 조건 — 주문 항목당 지급 건(`SETTLEMENT`) 1행을 만들고 그 행의 상태만 바꾼다 (2026-10-13 확정)**:
-        1. 지급 건 생성: `LECTURE_ORDER_ITEM`별로 `SCHEDULED` 지급 건 1건을 만든다.
-        2. 이의 제기 발생: **같은 지급 건**을 `SUSPENDED`로 바꾼다(해제되면 다시 `SCHEDULED`).
-        3. 지급 가능 시점 도래: **그 지급 건을 잠그고** 같은 트랜잭션에서 지급(Payout)을 적용한 뒤 `COMPLETED`로 바꾼다.
-        4. 지급 실패: **새 지급 건 행을 만들지 않는다.** 같은 행을 `FAILED`(`failure_reason`)로 바꾸고, 재처리도 그 행을 다시 잠가 지급한 뒤 `COMPLETED`로 바꾼다.
-        - 근거: `uk_settlement_source_type_source_id`(원천당 1행, #134)가 같은 주문 항목의 두 번째 행을 막는다. 새 행으로 재지급하는 설계는 이 제약과 충돌하고 중복 정산 방지도 무너진다.
-    - **재사용 (2차 검토 분석)**: 주문 항목별 보류(`LECTURE_ORDER_ITEM`)는 지금 지급 엔진을 그대로 쓴다. 원천 `LECTURE_ORDER_ITEM`·같은 항목 ID(`verifySource`), `NORMAL`, 판매자 회원 ID가 받는 회원이다. 받는 쪽은 수익 HP(가용)로 들어가 강의 판매 수익과 같다. 지급 원천 중복 확인으로 한 항목에 지급 1건이 보장된다. 이의 제기 인정 반환은 기존 반환 기능이다.
-    - **상태 활용**: `SETTLEMENT`의 `SCHEDULED`(예정, `scheduled_at` = 구매일 다음 날 + 30일 계산값) → `PROCESSING` → `COMPLETED`, 이의 제기 중 `SUSPENDED`, 실패 `FAILED`(재처리)를 쓸 수 있다(Enum·CHECK에 있음, 스키마 변경 불필요).
-    - **필요한 변경**: 지금 지급은 `Settlement.completed`로 **완료 건을 새로 INSERT**한다. 예정 건을 먼저 만들면 같은 보류·원천의 지급 건이 이미 있어 `rejectSettledSource`·DB UNIQUE에 막힌다. 그래서 강의 정산은 (1) 예정 건 생성 UseCase(멱등: 항목당 1건, UNIQUE가 보장), (2) 예정 건을 잠그고 `SCHEDULED`/`PROCESSING`이면 같은 트랜잭션에서 지급 적용 + 그 건을 `COMPLETED`로 바꾸는 경로가 필요하다. 지급 상세·원장 키는 예정 건의 멱등키를 쓰면 재시도에도 중복이 없다. 이때 "이미 있는 지급 건" 확인은 `COMPLETED`·`PROCESSING` 등 상태를 보고 예정 건 자신은 허용하도록 나눠야 한다.
-    - **추가 책임**: 구매일 다음 날부터 30일 계산(KST, `Asia/Seoul`), 스케줄러(예정 시각이 지난 `SCHEDULED` 건 처리, 동시 실행 시 건별 락), 이의 제기 시작·종료에 따른 `SUSPENDED`·해제(강의·고객센터가 알림), 판매자 지갑 없음 등 실패의 `FAILED`·`failure_reason`·같은 행 재처리(새 행 금지, 위 선행 조건), 구매 취소·이의 제기 인정 반환과 예정 건의 관계(반환되면 예정 건 취소 표시가 필요한데 `SETTLEMENT` 상태에 취소가 없다 → 정책 확인 필요).
 - **출연 연동**: 계약은 #145의 shared `BillingPort`로 정했다(3.10의 비교표). 출연 쪽 어댑터 교체는 출연 담당이 한다. 모집 전체 취소(선택된 게스트별 위약금 + 빈자리 반환)를 한 번에 처리하는 일괄 진입점이 필요하면 `HoldProcessing`으로 만든다(지금은 게스트별 위약금 정산 + 반환을 각각 호출).
 - **Charge·Refund**: TossPayments 테스트 API, PG 승인과 DB 커밋 사이 상태 관리(`POINT_CHARGE` 상태·멱등키), 타임아웃을 성공·실패로 단정하지 않기.
     - 반환은 충전 원금을 역순으로 복원하므로, 환불(FIFO)이 어느 충전 건(PG 결제)을 취소할지가 반환 이력에 따라 달라진다. 환불 가능 총액은 같다.
     - 보류에 배분된 원금이 남은 충전 건은 `REFUNDED`로 바꾸면 안 된다(반환 때 원금을 되돌릴 곳이 없어 `CHARGE_PRINCIPAL_MISMATCH`). 일부 환불이면 `PARTIALLY_REFUNDED`로 둔다.
-- **Exchange**: 수익 HP 1,000 단위, 수수료 10%, 정산일(매월 10일, 주말·공휴일이면 다음 영업일), Mock 송금.
+- **Exchange**: 수익 HP 1 HP 단위(#453, 이전 1,000 단위), 송금액 = floor(신청 × 90%)·수수료 = 신청 − 송금액, 정산일(매월 10일, 주말이면 다음 월요일), Mock 송금. 송금액 0원은 은행 없이 완료.
 - **다른 모듈 연동**: #145에서 공개 계약을 shared `com.hapbang.shared.billing`(`BillingPort`·DTO·Enum)으로 정했다(3.10). 남은 일: 강의 #146이 `hold`·`release`를, 출연이 `BillingClient` 대신 `BillingPort`를 쓰도록 각 담당이 바꾼다. 반환·지급 사유(`reason`)를 원장 `description`에 남길지는 연동 때 정한다(지금 계약에는 없다).
 
 ### 팀과 정할 것
-- QueryDSL 도입 여부와 버전(`io.github.openfeign.querydsl` 등), Q 타입 생성 규칙 (3.8).
-- Billing 관리자 API는 `/api/v1/{module}/admin/**` 규칙(`SecurityConfig`)에 따라 둔다(대사 API 등).
-- 락 대기 시간 상한(`lock_timeout`). 지금은 PostgreSQL 기본값(무제한 대기).
-- `UserModifiedEvent`(역할 변경)로 회원이 ADMIN이 될 때 지갑 처리.
+- 미결 항목은 [decisions.md](../../docs/billing/decisions.md) 10장에 모았다(QueryDSL 도입·버전, `UserModifiedEvent`로 ADMIN이 될 때 지갑 처리, 반환·지급 사유 기록 등). 새 미결 항목도 그곳에 적는다.
+- 락 대기 시간 상한(`lock_timeout`)은 #273에서 3초로 정했다(BD-108).
+- Billing 관리자 API 경로는 `AGENTS.md` 14장 규칙(`/api/v1/{module}/admin/**`)을 따른다.
 
 ---
 
