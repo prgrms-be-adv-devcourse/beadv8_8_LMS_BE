@@ -171,8 +171,8 @@ com.hapbang.appearance
 | `out.AppearanceUserRepository` | 출연 회원 저장·조회 |
 | `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
 | `out.AppearanceRepository`, `HpTaskRepository` | 출연, HP 작업 저장·조회 |
-| `out.billing.BillingClient` | Billing 연동 창구. 메서드·요청·응답은 shared `BillingPort`와 같다 |
-| `out.billing.BillingPortClient` | 실제 Billing 연동 구현(유일한 구현). shared `BillingPort`로 그대로 넘긴다 (Billing #182, #289부터 항상 사용) |
+| `out.billing.BillingClient` | 지갑 연동 창구. 요청은 shared DTO, 응답은 `BillingCallResult`(성공·거절), 결과를 받지 못하면 `BillingCallException` |
+| `out.billing.BillingHttpClient` | 지갑 내부 HTTP API를 공용 `BillingApiClient`로 부르는 구현(유일한 구현, #274). 결과를 그대로 넘긴다 |
 | (삭제, #71) | 출연 예외는 global의 공통 핸들러(`com.hapbang.global.exception.GlobalExceptionHandler`)가 Problem Detail로 응답한다 |
 
 **계층별 책임 (2026-10-14 정리, ISSUE.md APR-25)**
@@ -200,7 +200,7 @@ com.hapbang.appearance
 |---|---|---|---|
 | 회원 | 이벤트 수신 | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ |
 | 회원 (global) | 로그인 | `@LoginUserId`로 세션의 회원 ID | ✅ |
-| 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`, 같은 서버 안 Java 호출) | 보류, 반환, 지급, 위약금 | ✅ 실제 연동 (#289). MSA 분리 때 API로 전환 예정 (APR-34) |
+| 지갑+정산 (billing) | 지갑 내부 HTTP API (`/api/v1/internal/billing/*`, 공용 `BillingApiClient`) | 보류, 반환, 지급, 위약금 | ✅ HTTP 연동 (#274). 이전에는 shared `BillingPort`(같은 서버 안 Java 호출, #289) |
 | 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
 
 ### 4.1 회원 정보 복제
@@ -228,8 +228,9 @@ com.hapbang.appearance
 ### 4.2 Billing 연동 (#168)
 
 출연 모듈은 "언제, 어떤 금액으로 Billing을 호출하는지"만 책임진다. 출연 쪽 창구는 `out/billing/BillingClient.java`이고,
-메서드·요청·응답은 Billing이 shared에 둔 연동 계약(`shared.billing.port.BillingPort`, `shared.billing.dto.*`)과 같다
+요청·응답은 지갑 내부 API 계약(`docs/api/internal-billing.md`, `shared.billing.dto.*`)과 같다
 (Billing 담당과 정리한 기준: 위약금 처리·70:30 계산만 출연 방식, 나머지는 Billing 기준).
+#274부터 지갑을 HTTP로 부른다: 구현 `BillingHttpClient`가 공용 `BillingApiClient`(#272)를 부르고, 응답은 `BillingCallResult`로 받는다.
 
 | 동작 | 요청 (shared DTO) | 응답 |
 |---|---|---|
@@ -245,13 +246,22 @@ com.hapbang.appearance
 - 반환·지급 요청에는 **사유가 없다.** 사유(`HpTaskReason`)는 출연 HP 작업에만 기록한다.
 - 지급 원천(`SettlementSourceType`)은 **출연 계약 ID**다: 1:1은 `APPEARANCE_REQUEST` + 출연 ID(요청서 ID 아님), 1:N은 `RECRUIT_APPEARANCE` + 게스트별 출연 ID. 한 원천은 정상 지급·위약금을 합쳐 한 번만 정산된다.
 - 위약금은 출연이 계산한다 (`AppearancePolicy.calculatePenalty`, 출연료의 30%, 끝전 버림). Billing은 받은 반환액·위약금을 한 트랜잭션으로 옮긴다.
-- **Billing이 거절하면 Billing 업무 예외**(`BusinessException` 하위)가 난다. 출연은 코드·메시지를 바꾸지 않고 그대로 응답한다
-  (예: 잔액 부족 409 `INSUFFICIENT_BALANCE`, 지갑 없음 404 `WALLET_NOT_FOUND`).
-- 그 밖의 예외(업무 예외가 아닌 런타임 예외)는 처리됐는지 알 수 없는 실패다. 대상을 그대로 두고 같은 요청으로 다시 확인한다.
-- 출연은 Billing을 **DB 트랜잭션 밖에서** 부른다. Billing은 호출한 쪽 트랜잭션에 참여하므로, 트랜잭션 안에서 부르고 예외를 잡으면 롤백 전용 트랜잭션을 이어 쓰게 된다.
+- **지갑 응답은 결과 종류로 분기한다** (#274). 예외 클래스로 구분하지 않는다(지갑 업무 예외는 HTTP로 넘어오지 않는다).
+
+  | 결과 | 보류 (요청서·모집글) | HP 작업 (반환·지급·위약금) |
+  |---|---|---|
+  | `Succeeded` (같은 요청을 다시 보냈으면 처음 결과) | `REQUESTED` / `RECRUITING` | `DONE` |
+  | `Failed` 잔액 부족 | `HOLD_FAILED`, 409 `INSUFFICIENT_BALANCE`(출연 문구) | 바로 `DEAD` |
+  | `Failed` 그 밖 (지갑 없음, 목록 밖 코드, 멱등 충돌 등) | `HOLD_FAILED`, 500 `HP_HOLD_FAILED`. 지갑 코드·상태·설명은 오류 로그에만 | 바로 `DEAD`, `last_error`에 코드·설명(목록 밖이면 원래 코드·HTTP 상태) |
+  | `BillingCallException` (`UNKNOWN_RESULT`: 5xx·응답 시간 초과·응답 도중 끊김 / `RETRYABLE`: 연결 실패·408·425·429·회로 열림) | `HOLD_PENDING` + 503 `BILLING_UNAVAILABLE` → 재확인 배치가 같은 참조 대상으로 다시 보낸다 | 재시도 정책대로 같은 요청 ID로 다시 보내고 10회째 `DEAD` |
+
+- `RETRYABLE`은 공용 Client가 먼저 짧게(기본 3회) 다시 보내고, 그래도 실패하면 출연에 넘어온다 (#413). 출연은 HTTP 재시도를 따로 하지 않는다.
+- 지갑 호출 전후의 예상하지 못한 예외(요청 만들기 오류 등)는 HP 작업이면 같은 요청 ID로 다시 보내면 되므로 재시도로 다룬다. 보류면 500으로 응답하고 `HOLD_PENDING`이 남아 재확인 배치가 다시 보낸다.
+- 출연은 지갑을 **DB 트랜잭션 밖에서** 부른다. 지갑을 기다리는 동안 DB 연결을 잡지 않고, 업무 상태를 먼저 커밋해 호출 뒤 장애에도 재확인·재시도할 근거를 남긴다.
+- 설정: `hapbang.clients.billing.base-url`(환경 변수 `BILLING_API_BASE_URL`, local은 `http://localhost:8082`)과 내부 API 키(`HAPBANG_INTERNAL_API_KEY`). 응답 대기(연결 2초·응답 5초)·Circuit Breaker·짧은 재시도는 공용 Client 기본값이다. 지갑 주소가 없으면 출연 앱이 뜨지 않는다.
 - **반환·지급처럼 업무 상태 변경 뒤에 하는 Billing 호출은 HP 작업(`appearances.hp_tasks`)으로 기록하고 실행한다** (아래 4.3, #137).
-- `BillingClient`는 `BillingPort`를 상속하지 않는다. 출연 코드는 자기 인터페이스만 알아, MSA 분리 때 구현만 바꾼다 (APR-34).
-- 구현은 실제 Billing을 shared `BillingPort`로 부르는 `BillingPortClient`(Billing 담당 #182) 하나다. #289에서 메모리 구현(Fake)과 `appearance.billing.mode` 설정을 없앴다 (15장).
+- 출연 업무 코드는 `BillingClient`만 안다. 구현은 `BillingHttpClient` 하나다 (#274에서 shared `BillingPort`를 부르던 `BillingPortClient`를 없앴다).
+- 출연 테스트: 업무 규칙은 Mockito 대역(기본 성공, `BillingStubs`), HTTP 응답 해석은 Mock Billing 서버(`MockBillingIntegrationTest`, test-spec 23·24장).
 
 ### 4.3 HP 작업 (실패한 Billing 호출의 기록·재처리, #137)
 

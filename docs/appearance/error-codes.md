@@ -85,20 +85,18 @@ Content-Type: application/problem+json
 | `HP_TASK_NOT_FOUND` | 404 | HP 작업을 찾을 수 없습니다. | 관리자가 없는 HP 작업을 다시 시도 | #397 |
 | `HP_TASK_NOT_DEAD` | 409 | 격리된(DEAD) HP 작업만 다시 시도할 수 있습니다. | 관리자가 대기·완료 작업을 다시 시도 (다시 시도로 이미 `DONE`이 된 작업을 한 번 더 누른 경우 포함) | #397 |
 | `CONCURRENT_UPDATE` | 409 | 다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요. | 같은 요청서·모집글·지원을 동시에 바꿔 버전(낙관적 락)이 맞지 않음 (예: 조기 마감과 수락, 두 관리자가 같은 HP 작업을 동시에 다시 시도). UseCase가 반영 시점에 확인해 던진다 | #98, #195, #222, #397 |
-| `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | 보류 결과를 알 수 없음(무응답 등). 요청서는 `HOLD_PENDING`으로 남음 | #98 |
+| `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | 보류 결과를 받지 못함(5xx·응답 시간 초과·연결 실패·요청 한도 초과). 요청서·모집글은 `HOLD_PENDING`으로 남고 재확인 배치가 다시 보낸다 (모집글은 문구의 목록 이름이 다르다) | #98, #274 |
+| `INSUFFICIENT_BALANCE` | 409 | HP 잔액이 부족합니다. 충전한 뒤 다시 시도해 주세요. | 지갑이 보류를 잔액 부족으로 거절. 요청서·모집글은 `HOLD_FAILED` | #274 |
+| `HP_HOLD_FAILED` | 500 | HP 보류를 처리하지 못했습니다. 문제가 계속되면 고객센터로 문의해 주세요. | 지갑이 그 밖의 이유로 보류를 거절(지갑 없음, 내부 API 키 오류 등 목록 밖 코드, 멱등 충돌, 보류 불변식 위반). 요청서·모집글은 `HOLD_FAILED`. 지갑 코드·HTTP 상태·설명은 오류 로그에만 남는다 | #274 |
 
-### Billing 오류 (그대로 전달, #168)
+### 지갑 오류 (출연 코드로 바꿔 응답, #274)
 
-출연 요청서 보내기에서 Billing이 HP 보류를 거절하면 출연 오류로 바꾸지 않고 **Billing 오류 코드·메시지를 그대로** 응답한다.
-요청서는 `HOLD_FAILED`로 기록만 남는다. (이전의 `INSUFFICIENT_HP`는 없앴다.)
+지갑을 HTTP로 부르게 되면서(#274) 지갑 오류를 그대로 전달하지 않는다. 출연이 지갑 응답(`BillingCallResult.Failed`의 코드)을 보고
+사용자에게 알릴 거절(잔액 부족)만 같은 이름의 출연 코드로, 나머지는 `HP_HOLD_FAILED`로 응답한다. 문구는 출연이 정한다(지갑 `detail`을 그대로 보이지 않는다).
+FE가 쓰는 `INSUFFICIENT_BALANCE` 코드는 그대로다. 이전(#168~#289)에는 같은 JVM의 Billing 업무 예외를 그대로 전달했고, 지갑 없음은 404 `WALLET_NOT_FOUND`였다.
 
-| code | HTTP | detail | 상황 |
-|---|---|---|---|
-| `INSUFFICIENT_BALANCE` | 409 | HP 잔액이 부족합니다. | 출연료만큼 보류할 잔액이 없음 |
-| `WALLET_NOT_FOUND` | 404 | 지갑을 찾을 수 없습니다. | 호스트 지갑이 없음 |
-
-- 반환·지급은 업무 상태를 커밋한 뒤 처리하므로 사용자 응답에 Billing 오류가 나가지 않는다. Billing 오류는 HP 작업 `last_error`에 `{code}: {메시지}`로 기록된다.
-- 출연은 실제 Billing(`BillingPort`)의 오류를 그대로 쓴다 (#289에서 Fake Billing과 그 오류 코드 복사본을 없앴다).
+- 반환·지급·위약금은 업무 상태를 커밋한 뒤 처리하므로 사용자 응답에 지갑 오류가 나가지 않는다. 지갑 거절은 HP 작업 `last_error`에 `{code}: {지갑 설명}`으로 기록된다.
+  목록 밖 코드는 `UNMAPPED({원래 코드}, {HTTP 상태}): {설명}`, 결과를 받지 못한 실패는 `{UNKNOWN_RESULT|RETRYABLE} [{HTTP 상태}] [{지갑 코드}]: {메시지}`다.
 
 - 정의 위치: `apps/appearance-app/src/main/java/com/hapbang/appearance/domain/AppearanceErrorCode.java`
 - 출연 예외는 `throw new AppearanceException(AppearanceErrorCode.XXX)`로 던진다. 상황별 메시지가 필요하면 두 번째 인자로 넘긴다.
