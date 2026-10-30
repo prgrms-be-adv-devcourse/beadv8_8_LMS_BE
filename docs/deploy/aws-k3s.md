@@ -172,17 +172,17 @@ sudo grep -q traefik /etc/rancher/k3s/config.yaml && sudo grep -q core-data /etc
   && curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='v1.36.5+k3s1' sh -s - server
 
 # ServiceLB가 large에서만 80·443을 받게 한다. 붙인 node가 없으면 모든 node가 후보가 된다.
-sudo kubectl label node <large node 이름> svccontroller.k3s.cattle.io/enablelb=true
+sudo kubectl --context default label node <large node 이름> svccontroller.k3s.cattle.io/enablelb=true
 ```
 
 설치 명령은 config 확인 조건 뒤에만 실행한다. 아래는 Compose edge nginx가 80·443을 쓰던 때의 기록이다. 2026-10-28 첫 설치(당시 config는 `disable: servicelb`)는 config가 적용되지 않아 servicelb가 켜진 상태였다. 그때 large에서는 `docker-proxy`가 80·443을 계속 listen하고 있었는데, 밖에서는 Traefik 404와 `TRAEFIK DEFAULT CERT`가 돌아왔다. k3s를 uninstall하자 edge nginx 응답이 돌아왔다. 당시 svclb pod 상태는 기록하지 못했다. hostPort는 socket을 bind하지 않고 CNI portmap의 iptables DNAT 규칙으로 구현되므로, Docker가 같은 port를 쓰고 있어도 scheduler는 충돌을 모르고 svclb pod를 배치한다. 그래서 DNAT 규칙이 docker-proxy보다 먼저 요청을 받은 것으로 본다.
 
-설치 뒤 확인한다. svclb pod는 LoadBalancer Service(Envoy proxy)가 생긴 뒤에 large에만 뜬다([Gateway](gateway.md)).
+설치 뒤 확인한다. 서버 kubeconfig(`/etc/rancher/k3s/k3s.yaml`)의 context 이름은 `default`다. svclb pod는 LoadBalancer Service(Envoy proxy)가 생긴 뒤에 large에만 뜬다([Gateway](gateway.md)).
 
 ```bash
-sudo kubectl get nodes -L hapbang.io/pool,svccontroller.k3s.cattle.io/enablelb   # large: core-data, true
-sudo kubectl -n kube-system get svc traefik        # NotFound
-sudo kubectl -n kube-system get pods -o wide | grep svclb   # Gateway 설치 뒤: large에만
+sudo kubectl --context default get nodes -L hapbang.io/pool,svccontroller.k3s.cattle.io/enablelb   # large: core-data, true
+sudo kubectl --context default -n kube-system get svc traefik        # NotFound
+sudo kubectl --context default -n kube-system get pods -o wide | grep svclb   # Gateway 설치 뒤: large에만
 ```
 
 ### 3. medium: agent

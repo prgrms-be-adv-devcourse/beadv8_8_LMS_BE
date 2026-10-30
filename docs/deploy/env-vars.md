@@ -86,10 +86,10 @@ kubectl --context hapbang-k3s -n hapbang-prod exec deploy/member-app -- sh -c 'p
 
 ## 값 변경 (비밀값 교체 포함)
 
-1. `~/.hapbang/prod-secrets.env`의 값을 바꾸고 그 앱을 다시 봉인해 PR로 병합한다.
+1. `~/.hapbang/prod-secrets.env`의 값을 바꾸고 그 앱을 다시 봉인해 PR로 병합한다. 내부 API 키와 `DB_PASSWORD`는 이 파일에서 읽지 않으므로 아래 절차를 따른다.
 2. Deploy를 `apps`에 그 앱을 넣어 실행한다. envFrom은 pod가 시작할 때만 읽으므로, 배포로 pod가 다시 만들어져야 새 값이 들어간다.
 
-- `HAPBANG_INTERNAL_API_KEY`는 앱 6개가 같은 값을 쓴다. 바꾸면 앱 6개를 모두 다시 봉인하고 함께 배포한다.
+- `HAPBANG_INTERNAL_API_KEY`는 `seal-app-secrets.sh`가 `prod-secrets.env`가 아니라 `~/.hapbang/internal-api-key`에서 읽는다. env 파일만 고치면 다시 봉인해도 기존 키가 그대로 들어간다. 바꿀 때는 이 파일을 새 값으로 바꾸고(예: `(umask 077; openssl rand -hex 32 | tr -d '\n' > ~/.hapbang/internal-api-key)`), 앱 이름 없이 `k8s/tools/seal-app-secrets.sh`를 실행해 앱 6개를 함께 다시 봉인한다. PR 병합 뒤 Deploy의 `apps`에 앱 6개를 모두 넣어 배포한다. 앱 6개가 같은 값을 써야 하므로 배포가 끝날 때까지 앱 사이 내부 호출이 잠깐 401로 실패할 수 있다. 팀 비밀 보관소의 파일도 새 값으로 바꾼다.
 - `DB_PASSWORD`는 `postgres-credentials`와 같아야 하고, PostgreSQL은 첫 기동 때만 이 값으로 role을 만든다. 바꿀 때는 [security.md](security.md#db-비밀번호-교체)를 따른다.
 
 ## 삭제
