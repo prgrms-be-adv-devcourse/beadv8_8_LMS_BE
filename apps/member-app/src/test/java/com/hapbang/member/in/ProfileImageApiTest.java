@@ -17,18 +17,18 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.global.storage.S3FileStorage;
 import com.hapbang.member.domain.ProfileImage;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.S3MockTestcontainersConfig;
 import com.hapbang.testsupport.TestLogin;
 
 /** 업로드(서버가 S3Mock에 저장) → 지정 → 조회 URL을 HTTP부터 S3까지 확인한다. 형식·크기 경계값은 ProfileImageTest가 맡는다 */
-@IntegrationTest
+@MemberIntegrationTest
 @AutoConfigureMockMvc
 @Import(S3MockTestcontainersConfig.class)
 class ProfileImageApiTest {

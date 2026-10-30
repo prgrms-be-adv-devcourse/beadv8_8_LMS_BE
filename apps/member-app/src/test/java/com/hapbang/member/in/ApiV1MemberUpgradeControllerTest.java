@@ -16,17 +16,17 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.InfluencerUpgradeRequestRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 
 /** 승급 신청 API: 응답 모양·상태 코드·권한 (처리 규칙 자세한 경우는 MemberUpgradeRequestIntegrationTest) */
-@IntegrationTest
+@MemberIntegrationTest
 @AutoConfigureMockMvc
 class ApiV1MemberUpgradeControllerTest {
 

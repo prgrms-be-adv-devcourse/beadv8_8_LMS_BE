@@ -8,14 +8,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.OAuthAccountRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.event.UserJoinedEvent;
-import com.hapbang.testsupport.IntegrationTest;
 
-@IntegrationTest
+@MemberIntegrationTest
 @RecordApplicationEvents
 class MemberOAuthLoginIntegrationTest {
 

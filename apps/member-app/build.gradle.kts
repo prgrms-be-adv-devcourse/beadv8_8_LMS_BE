@@ -17,6 +17,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-session-jdbc")
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
     implementation(libs.swagger.annotations)
+    implementation("org.springframework.modulith:spring-modulith-events-kafka")
     // 테스트에서 로그인 상태 만들기 (oauth2Login())
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }

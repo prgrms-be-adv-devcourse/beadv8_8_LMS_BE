@@ -20,6 +20,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.UserRepository;
@@ -34,7 +35,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.Option;
 
 /** 회원 내부 API (#303): 내부 키로만 부르고, 모든 회원을 ID 오름차순 키셋 페이지로 준다 */
-@IntegrationTest
+@MemberIntegrationTest
 @AutoConfigureMockMvc
 class MemberInternalApiTest {
 
