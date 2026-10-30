@@ -124,6 +124,39 @@ class ApiV1BillingInternalControllerTest {
     }
 
     @Test
+    @DisplayName("보류 무효화: 남은 보류를 반환해 RELEASED를 돌려주고, 같은 요청은 replayed=true이며 이후 보류는 409 HOLD_VOIDED다")
+    void voidHold() throws Exception {
+        Long host = wallet(HOST);
+        revenue(host, 10_000L);
+        call("/holds", hold(HOST, 7L, 10_000L)).andExpect(status().isOk());
+        String body = """
+                {"userId": 1, "referenceType": "APPEARANCE_REQUEST", "referenceId": 7}""";
+
+        call("/hold-voids", body)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("HP 보류를 무효화했습니다."))
+                .andExpect(jsonPath("$.data.referenceType").value("APPEARANCE_REQUEST"))
+                .andExpect(jsonPath("$.data.referenceId").value(7))
+                .andExpect(jsonPath("$.data.outcome").value("RELEASED"))
+                .andExpect(jsonPath("$.data.releasedHp").value(10_000))
+                .andExpect(jsonPath("$.data.replayed").value(false));
+        call("/hold-voids", body)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("RELEASED"))
+                .andExpect(jsonPath("$.data.replayed").value(true));
+        call("/hold-voids", """
+                {"userId": 1, "referenceType": "APPEARANCE_REQUEST", "referenceId": 8}""")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("VOIDED"))
+                .andExpect(jsonPath("$.data.releasedHp").value(0));
+        assertProblem(call("/holds", hold(HOST, 8L, 1_000L)), 409, "HOLD_VOIDED")
+                .andExpect(jsonPath("$.detail").value("보류가 무효화된 대상이라 HP를 보류할 수 없습니다."));
+
+        assertThat(holdCount()).isEqualTo(1);
+        assertReconciled(host);
+    }
+
+    @Test
     @DisplayName("반환: amountHp를 빼면 남은 보류 전부를 반환하고, 같은 반환 요청 ID 재요청은 replayed=true다")
     void release() throws Exception {
         Long host = wallet(HOST);

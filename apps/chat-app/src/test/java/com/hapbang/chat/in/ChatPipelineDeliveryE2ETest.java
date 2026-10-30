@@ -21,9 +21,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatNotificationFacade;
 import com.hapbang.chat.app.ChatUserUseCase;
@@ -32,6 +32,7 @@ import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
@@ -44,6 +45,8 @@ import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
 import com.hapbang.chat.in.support.RealtimeStompClient.RoomSubscription;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.member.domain.Role;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 직접 전달을 걷어낸 뒤 실제 경로(저장 트랜잭션의 outbox → relay → Redis Streams → consumer → Pub/Sub → 로컬 방 topic)만으로
@@ -71,8 +74,7 @@ class ChatPipelineDeliveryE2ETest {
     @Autowired
     private LocalChatConnections localChatConnections;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     @Autowired
     private ChatNotificationFacade chatNotificationFacade;
@@ -80,6 +82,11 @@ class ChatPipelineDeliveryE2ETest {
 
     private RestTestClient client;
     private RealtimeStompClient stomp;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -331,7 +338,7 @@ class ChatPipelineDeliveryE2ETest {
     private Map<String, Long> rowCounts() {
         Map<String, Long> counts = new HashMap<>();
         for (String table : List.of("chat_message", "chat_outbox", "chat_publish_checkpoint", "chat_recipient_set")) {
-            counts.put(table, jdbcTemplate.queryForObject("select count(*) from chats." + table, Long.class));
+            counts.put(table, sql.single("select count(*) from chats." + table, Long.class));
         }
         return counts;
     }
@@ -360,7 +367,7 @@ class ChatPipelineDeliveryE2ETest {
     }
 
     private void awaitDeliveriesPublished() {
-        await().atMost(Duration.ofSeconds(PIPELINE_SECONDS)).until(() -> jdbcTemplate.queryForObject(
+        await().atMost(Duration.ofSeconds(PIPELINE_SECONDS)).until(() -> sql.single(
                 "select count(*) from chats.chat_publish_checkpoint where status <> 'PUBLISHED'", Long.class) == 0);
     }
 

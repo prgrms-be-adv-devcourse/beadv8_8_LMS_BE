@@ -40,7 +40,7 @@ class ChatMessageSenderTest {
     private final ChatMessageSender chatMessageSender = new ChatMessageSender(messagingTemplate, clientOutboundChannel);
 
     private final ChatMessageResponse message = new ChatMessageResponse(10L, 1L, 1L, HOST_ID, ChatMessageType.TEXT,
-            "안녕하세요", NOW, null, null, null, null);
+            "안녕하세요", NOW, null, null, null, null, null, null);
 
     @BeforeEach
     void setUp() {

@@ -312,6 +312,7 @@ SUBSCRIBE는 연결별 수신 순서(설계 4.6, `ChatInboundReceiveBudget`) 안
 
   - 연결: 회원 연결 ZSET에 연결을 넣고, `online`에 `ZADD GT`로 만료 시각을 넣는다(다른 앱이 더 늦은 만료를 넣었으면 줄이지 않는다).
   - 끊김: 회원 연결 ZSET에서 연결을 빼고, 살아 있는 연결이 없으면 `online`에서 뺀다. 확인과 삭제를 Lua 스크립트 하나로 한다(다른 연결 추가와 엇갈리지 않게).
+  - Lua 스크립트(연결·끊김)는 `src/main/resources/redis/scripts/`의 파일로 두고 `RedisLuaSupport`가 시작 때 읽는다(없으면 시작 실패). 값은 스크립트에 끼워 넣지 않고 KEYS·ARGV로 넘긴다(스크립트 SHA가 같아 `EVALSHA` 캐시를 쓴다, 사용자 결정 2026-10-30).
   - 하트비트·정리: 앱이 로컬 연결마다 주기(초기값 30초, Q12)로 만료 시각을 늘린다(파이프라인). 만료(초기값 90초, Q12)가 지난 원소는 접속 중이 아니다. 주기 작업이 `online`의 지난 원소를, 연결·하트비트가 그 회원 연결 ZSET의 지난 원소를 `ZREMRANGEBYSCORE`로 지운다(살아 있는 연결이 키 만료를 늘리므로 키 만료만으로는 지워지지 않는다, 구현 리뷰 반영). 비정상 종료한 연결은 만료로 정리된다.
   - 서버 재시작: 재시작한 앱의 옛 연결은 하트비트가 끊겨 만료로 사라진다. 시작할 때 따로 지우지 않는다. 그 사이 접속 정보가 남아 있어도 이 앱에 그 세션이 없으므로 보낼 프레임이 없다(대상 계산은 로컬 세션으로 끝난다).
   - 방 참여자: 방 활성 참여자(`userId`, `participationVersion`)를 방마다 캐시한다. 버전 확인 규칙과 같이, 묶음 마지막 메시지의 수신자 집합 버전이 캐시 버전보다 크면 방 현재 버전을 먼저 읽고 참여 행을 다시 읽는다. 그래서 묶음 마지막 메시지 저장 전에 나간 회원은 대상에 들지 않는다(퇴장 뒤 전달 금지 보장과 같은 규칙). 본문 전달과 같은 방 참여 캐시를 쓰며, 캐시는 방 수에 상한을 두고 오래 쓰지 않은 방부터 버린다.
@@ -550,7 +551,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 | 재시도·DLT | 블로킹 재시도(1초에서 최대 10초 지수 증가, 3회) 뒤 `member.events.v1.chat-app.member-replica.DLT`로 보낸다. DLT는 chat-app이 선언한다(partition 3, 보존 7일). 재처리는 인프라 문서 1장의 runbook을 따른다(#339). DLT 발행 실패를 처리 성공으로 간주하지 않는다 |
 | 연결 닫기 | 최신 버전 반영 결과가 채팅 불가이면 동일 트랜잭션에 `chat_control_outbox`를 기록한다. 기존의 `lostChat` boolean만으로 후속 제어 작업 성공 여부를 판단하지 않는다 |
 | 기존 리스너 | 진입점을 Kafka 수신으로 옮긴다. 회원 생성·갱신 로직을 재사용하되 적용 여부·현재 버전·채팅 자격을 처리 결과로 구분하고 제어 작업을 원자적으로 기록하도록 보완한다 |
-| 설정 위치 | `hapbang.chat.member-events.*`·`hapbang.chat.appearance-events.*`·`hapbang.chat.backfill.*`의 기본값은 각 `@ConfigurationProperties`의 코드 기본값이다(`application.yaml`에 두지 않는다, 2026-10-30 사용자 결정). 그룹·재시도·DLT 값은 위 규칙을 따르고 DLT 이름은 설정이 아니라 `<토픽>.<그룹>.DLT`로 정한다. 같은 키의 yaml·환경 변수가 덮는다. 소비는 기본으로 켜져 있고 모듈 테스트 설정(`src/test/resources/hapbang-module-test.yaml`)만 끈다. 부품은 공통 코드 없이 chat-app의 `in/event/kafka`에 둔다(Q9) |
+| 설정 위치 | Kafka 소비 설정은 설정 클래스와 상수 클래스로 둔다(`@ConfigurationProperties`·yaml 키로 두지 않는다, 2026-10-30 사용자 결정). 공통 코드 없이 chat-app의 `in/event/kafka`에 두고(Q9) 역할별로 나눈다: `ChatKafkaConfig`(소비자 값·ConsumerFactory·DLT 발행 ProducerFactory·KafkaTemplate·ContainerFactory), `ChatKafkaErrorHandlerConfig`(블로킹 재시도·DLT 복구기), `ChatKafkaTopicConfig`(DLT `NewTopic`), `ChatKafkaConstants`(토픽·그룹·`<토픽>.<그룹>.DLT` 이름, partition·replica 수, 보존, 재시도 값). props는 코드에 적고 연결 주소만 `spring.kafka.bootstrap-servers`에서 받는다. 남는 키는 `hapbang.chat.member-events.enabled`·`hapbang.chat.appearance-events.enabled`뿐이고, 기본으로 켜져 있으며 모듈 테스트 설정(`src/test/resources/hapbang-module-test.yaml`)만 끈다. Kafka 시험은 소비자 값 빈을 테스트 빈으로 바꿔 자기 토픽·그룹을 쓰고 재시도를 줄인다. 백필 설정(`hapbang.chat.backfill.*`)은 `@ConfigurationProperties` 코드 기본값이다 |
 
 **연결 제어의 내구성과 로컬 회원 상태 재검사**
 
@@ -578,6 +579,7 @@ Kafka 전환 이전의 회원과 전환 중 놓친 변경을 member-app 내부 A
 1. 출연 이벤트 2종(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent`)을 `appearance.events.v1`에서 Kafka로 받아 채팅 알림을 유지한다(2026-10-30 사용자 결정, Q7). 클래스 레벨 `@KafkaListener(topics = "appearance.events.v1", groupId = "chat-app.appearance-notification")`에 두 `@KafkaHandler`를 두고, 출연 취소 이벤트 등 모르는 종류는 건너뛰고 커밋한다. 신뢰 패키지는 `com.hapbang.shared.appearance.event`만이다. 중복 알림은 기존 `(notificationKind, referenceId)` 유일 인덱스(`uk_chat_message_notification`)로 흡수하고, offset은 알림 저장 커밋 뒤 커밋한다. 재시도·DLT(`appearance.events.v1.chat-app.appearance-notification.DLT`)는 5.3과 같은 규칙이다. 알림 메시지와 전달 outbox를 함께 기록하는 것은 전달 outbox 구현과 합친 뒤다.
 2. 알림 모듈이 같은 사실을 소비하기 시작하더라도 FE 전환 전에는 채팅 알림을 제거하지 않는다. FE가 알림 API·destination으로 바뀐 뒤 채팅 쪽 신규 소비·기록을 중단한다. cutover 시점·재처리 범위와 중복 화면 노출 방지는 이관 계약에 남긴다.
 3. 기존 `NOTIFICATION` 채팅 메시지는 대화 이력으로 보존한다. 채팅 자체의 새 메시지 알림은 채팅에 남긴다.
+4. 서버는 출연 알림 문구를 만들지 않는다(사용자 결정 2026-10-30). 알림 종류와 사실(닉네임·제목·출연료·KST 일시, 형식 버전 `v`)만 `chat_message.notification_data`(jsonb) 한 컬럼에 저장하고, 응답에는 알림 종류마다 값 필드 하나(`appearanceRequestSent`·`appearanceApplicationSubmitted`, 종류별 record, 공통 상위 타입 없음)로 보낸다. 종류에 맞는 필드만 채우고 FE가 종류별 템플릿으로 문구를 만든다(사용자 결정 2026-10-30). 새 알림의 `content`는 빈 문자열이고, FE는 템플릿 → 비어 있지 않은 `content`(기존 알림) → 일반 문구 순으로 보여 준다. 닉네임은 이벤트에 없어 처리 시점의 `chat_user` 복제본 값을 쓴다. 계약은 [알림 값 계약](contracts/notification-data.md)이다.
 
 Q7은 2026-10-30에 "Kafka 소비로 유지하고, 알림 모듈 이관 때 옮긴다"로 정했다. 끊긴 상태를 정상 완료로 배포하지 않는다.
 

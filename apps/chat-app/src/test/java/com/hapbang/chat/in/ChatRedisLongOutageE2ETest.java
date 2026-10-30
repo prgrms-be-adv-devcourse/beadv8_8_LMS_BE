@@ -9,6 +9,7 @@ import static org.mockito.Mockito.*;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -23,7 +24,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -31,6 +31,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
 import com.hapbang.chat.app.ChatDeliveryQueue;
@@ -38,6 +39,7 @@ import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.fixture.FixedPortRedis;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
@@ -49,6 +51,8 @@ import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.ModuleTestConfiguration;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 통합 검증(2026-10-30 사용자 결정: Redis 인프라 장애는 작업의 시도가 아니다)을 실제 STOMP와 스케줄러가 돌리는 전달 파이프라인으로
@@ -132,8 +136,7 @@ class ChatRedisLongOutageE2ETest {
     @Autowired
     private LocalChatConnections localChatConnections;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     @Autowired
     private StringRedisTemplate redis;
@@ -143,6 +146,11 @@ class ChatRedisLongOutageE2ETest {
     private ChatDeliveryQueue chatDeliveryQueue;
 
     private RealtimeStompClient stomp;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -221,7 +229,7 @@ class ChatRedisLongOutageE2ETest {
         awaitAllPublished();
         assertThat(deadCount()).isZero();
         // 복구 뒤 성공한 적재 한 번씩만 시도로 남는다
-        assertThat(jdbcTemplate.queryForList("""
+        assertThat(sql.list("""
                 select o.attempt_count from chats.chat_outbox o join chats.chat_message m on m.id = o.message_id
                 where m.client_message_id like 'during-%'""", Integer.class)).containsOnly(1);
 
@@ -268,7 +276,7 @@ class ChatRedisLongOutageE2ETest {
         assertThat(toGuest).extracting(ChatMessageResponse::content).containsExactlyInAnyOrder("상한 중 1", "상한 중 2");
         awaitAllPublished();
         assertThat(deadCount()).isZero();
-        assertThat(jdbcTemplate.queryForList("""
+        assertThat(sql.list("""
                 select o.attempt_count from chats.chat_outbox o join chats.chat_message m on m.id = o.message_id
                 where m.client_message_id like 'oom-%'""", Integer.class)).containsOnly(1);
     }
@@ -296,37 +304,37 @@ class ChatRedisLongOutageE2ETest {
     }
 
     private long savedCount(Long chatRoomId) {
-        return jdbcTemplate.queryForObject("select count(*) from chats.chat_message where chat_room_id = ?",
-                Long.class, chatRoomId);
+        return sql.single("select count(*) from chats.chat_message where chat_room_id = :roomId", Long.class,
+                Map.of("roomId", chatRoomId));
     }
 
     private long pendingDuringOutage() {
-        return jdbcTemplate.queryForObject("""
+        return sql.single("""
                 select count(*) from chats.chat_outbox o join chats.chat_message m on m.id = o.message_id
                 where m.client_message_id like 'during-%' and o.status = 'PENDING' and o.attempt_count = 0
                   and o.total_attempt_count = 0""", Long.class);
     }
 
     private long pendingOom() {
-        return jdbcTemplate.queryForObject("""
+        return sql.single("""
                 select count(*) from chats.chat_outbox o join chats.chat_message m on m.id = o.message_id
                 where m.client_message_id like 'oom-%' and o.status = 'PENDING' and o.attempt_count = 0
                   and o.total_attempt_count = 0""", Long.class);
     }
 
     private void awaitAllPublished() {
-        await().atMost(WAIT).until(() -> jdbcTemplate.queryForObject(
+        await().atMost(WAIT).until(() -> sql.single(
                 "select count(*) from chats.chat_publish_checkpoint where status <> 'PUBLISHED'", Long.class) == 0);
     }
 
     private long deadCount() {
-        return jdbcTemplate.queryForObject("""
+        return sql.single("""
                 select (select count(*) from chats.chat_publish_checkpoint where status = 'DEAD')
                      + (select count(*) from chats.chat_outbox where status = 'DEAD')""", Long.class);
     }
 
     private long attemptSum() {
-        return jdbcTemplate.queryForObject("""
+        return sql.single("""
                 select (select coalesce(sum(attempt_count + total_attempt_count), 0)
                         from chats.chat_publish_checkpoint)
                      + (select coalesce(sum(attempt_count + total_attempt_count + requeue_count), 0)

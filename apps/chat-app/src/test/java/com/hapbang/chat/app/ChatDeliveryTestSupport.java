@@ -3,25 +3,29 @@ package com.hapbang.chat.app;
 import static com.hapbang.chat.fixture.ChatFixture.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.QueueGroupState;
 import com.hapbang.chat.app.dto.QueuedJob;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.out.ChatOutboxRepository;
 import com.hapbang.chat.out.ChatPublishCheckpointRepository;
 import com.hapbang.chat.out.redis.ChatRedisKeys;
 import com.hapbang.testsupport.IntegrationTest;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 전달 파이프라인 통합 테스트 공통. 파이프라인을 켜고(배치 실행은 끈 채) 처리 빈을 직접 부른다.
@@ -97,10 +101,15 @@ abstract class ChatDeliveryTestSupport {
     @Autowired
     StringRedisTemplate redis;
 
-    @Autowired
-    JdbcClient jdbcClient;
+    /** 엔티티로 만들 수 없는 상태(지난 시각 등)를 만들 때 쓰는 native SQL */
+    ChatNativeSql sql;
 
     Long chatRoomId;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     /** 테스트 클래스마다 고유한 Redis namespace. 각 클래스의 {@code @DynamicPropertySource}에서 부른다 */
     static void uniqueNamespace(DynamicPropertyRegistry registry) {
@@ -172,8 +181,7 @@ abstract class ChatDeliveryTestSupport {
 
     /** 체크포인트의 다음 시도 시각을 지금으로 당긴다(backoff 대기를 건너뛴다) */
     void clearBackoff(UUID jobId) {
-        jdbcClient.sql("update chats.chat_publish_checkpoint set next_attempt_at = null where job_id = :jobId")
-                .param("jobId", jobId)
-                .update();
+        sql.update("update chats.chat_publish_checkpoint set next_attempt_at = null where job_id = :jobId",
+                Map.of("jobId", jobId));
     }
 }

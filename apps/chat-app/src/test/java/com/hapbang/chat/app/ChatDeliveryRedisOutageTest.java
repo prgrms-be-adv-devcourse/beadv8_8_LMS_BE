@@ -6,6 +6,7 @@ import static org.awaitility.Awaitility.*;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterAll;
@@ -15,23 +16,26 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.domain.ChatOutbox;
 import com.hapbang.chat.domain.ChatOutboxStatus;
 import com.hapbang.chat.domain.ChatPublishStatus;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.fixture.FixedPortRedis;
 import com.hapbang.chat.out.ChatOutboxRepository;
 import com.hapbang.chat.out.ChatPublishCheckpointRepository;
 import com.hapbang.chat.out.redis.ChatRedisKeys;
 import com.hapbang.testsupport.IntegrationTest;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * Redis가 오래 멈춰도 연결 불가를 작업의 시도로 세지 않아 격리(DEAD)하지 않고, 돌아오면 모두 한 번씩 발행한다
@@ -136,8 +140,12 @@ class ChatDeliveryRedisOutageTest {
     @Autowired
     private StringRedisTemplate redis;
 
+    private ChatNativeSql sql;
+
     @Autowired
-    private JdbcClient jdbcClient;
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @Test
     void Redis가_시도_상한보다_오래_멈춰도_격리하지_않고_시도를_늘리지_않으며_돌아오면_모두_한_번씩_발행한다() {
@@ -211,29 +219,24 @@ class ChatDeliveryRedisOutageTest {
     }
 
     private void dueNow() {
-        jdbcClient.sql("update chats.chat_outbox set next_attempt_at = :past where status = 'PENDING'")
-                .param("past", ChatDeliveryClock.now().minusSeconds(1))
-                .update();
+        sql.update("update chats.chat_outbox set next_attempt_at = :past where status = 'PENDING'",
+                Map.of("past", ChatDeliveryClock.now().minusSeconds(1)));
     }
 
     private long deadCount() {
-        return jdbcClient.sql("""
+        return sql.single("""
                         select (select count(*) from chats.chat_publish_checkpoint where status = 'DEAD')
                              + (select count(*) from chats.chat_outbox where status = 'DEAD')
-                        """)
-                .query(Long.class)
-                .single();
+                        """, Long.class);
     }
 
     private long attemptSum() {
-        return jdbcClient.sql("""
+        return sql.single("""
                         select (select coalesce(sum(attempt_count + total_attempt_count), 0)
                                 from chats.chat_publish_checkpoint)
                              + (select coalesce(sum(attempt_count + total_attempt_count + requeue_count), 0)
                                 from chats.chat_outbox)
-                        """)
-                .query(Long.class)
-                .single();
+                        """, Long.class);
     }
 
     private static void killRedis() {

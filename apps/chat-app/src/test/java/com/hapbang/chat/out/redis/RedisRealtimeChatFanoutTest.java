@@ -107,7 +107,7 @@ class RedisRealtimeChatFanoutTest {
 
     private static MessageFanout message() {
         ChatMessageResponse response = new ChatMessageResponse(1L, 12L, 3L, 7L, ChatMessageType.TEXT, "안녕", null,
-                null, null, null, null);
+                null, null, null, null, null, null);
         return new MessageFanout(UUID.randomUUID(), MessageFanout.Type.MESSAGE, 12L, 2, response,
                 ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, null);
     }

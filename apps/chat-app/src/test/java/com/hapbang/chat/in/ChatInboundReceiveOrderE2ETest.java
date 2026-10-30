@@ -25,7 +25,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
@@ -34,16 +33,20 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.websocket.ChatInboundReceiveBudget;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 통합 재검증(2026-10-30): 연결별 줄 실행기가 한 연결의 SEND를 보낸 순서대로 처리하는지(방 순번)와, 평소 부하에서 전송부터 상대 수신까지의
@@ -70,8 +73,7 @@ class ChatInboundReceiveOrderE2ETest {
     @Autowired
     private LocalChatConnections localChatConnections;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     @Autowired
     private ChatInboundReceiveBudget chatInboundReceiveBudget;
@@ -82,6 +84,11 @@ class ChatInboundReceiveOrderE2ETest {
 
     private RealtimeStompClient stomp;
     private Executor originalExecutor;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -265,14 +272,16 @@ class ChatInboundReceiveOrderE2ETest {
     }
 
     private List<String> clientMessageIds(Long chatRoomId) {
-        return jdbcTemplate.queryForList(
-                "select client_message_id from chats.chat_message where chat_room_id = ? and client_message_id is not null"
-                        + " order by room_sequence", String.class, chatRoomId);
+        return sql.list(
+                "select client_message_id from chats.chat_message where chat_room_id = :roomId"
+                        + " and client_message_id is not null order by room_sequence", String.class,
+                Map.of("roomId", chatRoomId));
     }
 
     private List<String> clientMessageIds(Long chatRoomId, String prefix) {
-        return jdbcTemplate.queryForList(
-                "select client_message_id from chats.chat_message where chat_room_id = ? and client_message_id like ?"
-                        + " order by room_sequence", String.class, chatRoomId, prefix + "%");
+        return sql.list(
+                "select client_message_id from chats.chat_message where chat_room_id = :roomId"
+                        + " and client_message_id like :prefix order by room_sequence", String.class,
+                Map.of("roomId", chatRoomId, "prefix", prefix + "%"));
     }
 }

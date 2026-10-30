@@ -110,7 +110,7 @@ class ChatRealtimeRedisListenerOverflowTest {
 
     private static MessageFanout fanout() {
         ChatMessageResponse message = new ChatMessageResponse(1L, 12L, 1L, 3L, ChatMessageType.TEXT, "안녕",
-                null, null, null, null, null);
+                null, null, null, null, null, null, null);
         return new MessageFanout(UUID.randomUUID(), MessageFanout.Type.MESSAGE, 12L, 1, message,
                 ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, null);
     }

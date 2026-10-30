@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -34,12 +35,13 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
@@ -47,10 +49,14 @@ import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
 import com.hapbang.chat.in.support.RealtimeStompClient;
@@ -60,6 +66,8 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 회원 변경이 실제 경로로 로컬 연결 종료까지 이어지는지 검증한다(회원 이벤트 Kafka 소비·전달 파이프라인·실시간 전파 통합, test-criteria "회원 이벤트").
@@ -76,14 +84,23 @@ class ChatMemberControlE2ETest {
 
     private static final String SUFFIX = UUID.randomUUID().toString();
     private static final String TOPIC = "member.events.v1.control-e2e-" + SUFFIX;
+    private static final String GROUP = "chat-app-control-e2e-" + SUFFIX;
     private static final Duration PIPELINE_TIMEOUT = Duration.ofSeconds(30);
 
     @DynamicPropertySource
     static void memberEvents(DynamicPropertyRegistry registry) {
-        registry.add("hapbang.chat.member-events.enabled", () -> "true");
-        registry.add("hapbang.chat.member-events.topic", () -> TOPIC);
-        registry.add("hapbang.chat.member-events.group-id", () -> "chat-app-control-e2e-" + SUFFIX);
-        registry.add("hapbang.chat.member-events.dead-letter-topic", () -> TOPIC + ".chat-app.dlt");
+        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+    }
+
+    /** 이 클래스만 쓰는 토픽·그룹·DLT로 회원 이벤트 소비 설정을 바꾼다. 나머지 값은 운영 상수 그대로다 */
+    @TestBean(name = ChatKafkaConfig.MEMBER_EVENT_SETTINGS)
+    private ChatKafkaConsumerSettings memberEventSettings;
+
+    static ChatKafkaConsumerSettings memberEventSettings() {
+        return new ChatKafkaConsumerSettings(TOPIC, GROUP, TOPIC + "." + GROUP + ".DLT", ChatKafkaConstants.MAX_RETRIES,
+                ChatKafkaConstants.RETRY_INITIAL_INTERVAL, ChatKafkaConstants.RETRY_MAX_INTERVAL,
+                ChatKafkaConstants.DEAD_LETTER_SEND_TIMEOUT, ChatKafkaConstants.DEAD_LETTER_PARTITIONS,
+                ChatKafkaConstants.DEAD_LETTER_REPLICAS);
     }
 
     @LocalServerPort
@@ -104,11 +121,15 @@ class ChatMemberControlE2ETest {
     @Autowired
     private ConfigurableApplicationContext applicationContext;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     private RealtimeStompClient stomp;
     private KafkaProducer<String, byte[]> producer;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -233,8 +254,8 @@ class ChatMemberControlE2ETest {
     }
 
     private int controlRows(long userId) {
-        Integer rows = jdbcTemplate.queryForObject("select count(*) from chats.chat_control_outbox where user_id = ?",
-                Integer.class, userId);
+        Integer rows = sql.single("select count(*) from chats.chat_control_outbox where user_id = :userId",
+                Integer.class, Map.of("userId", userId));
         return rows == null ? 0 : rows;
     }
 

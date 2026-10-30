@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.support.KafkaNull;
 
 import com.hapbang.chat.app.ChatUserFacade;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.in.event.kafka.MissingTypeEvent;
 import com.hapbang.chat.in.event.kafka.RejectedEventException;
 import com.hapbang.chat.in.event.kafka.SkippedEventLog;
@@ -30,8 +32,11 @@ import ch.qos.logback.core.read.ListAppender;
 class ChatUserEventListenerSkipTest {
 
     private final ChatUserFacade facade = mock(ChatUserFacade.class);
-    private final ChatUserEventListener listener = new ChatUserEventListener(facade,
-            new ChatMemberEventProperties(null, null, null, null, null, null, null, null, null, null));
+    private final ChatUserEventListener listener = new ChatUserEventListener(facade, new ChatKafkaConsumerSettings(
+            ChatKafkaConstants.MEMBER_EVENTS_TOPIC, ChatKafkaConstants.MEMBER_REPLICA_GROUP,
+            ChatKafkaConstants.MEMBER_EVENTS_DLT, ChatKafkaConstants.MAX_RETRIES, ChatKafkaConstants.RETRY_INITIAL_INTERVAL,
+            ChatKafkaConstants.RETRY_MAX_INTERVAL, ChatKafkaConstants.DEAD_LETTER_SEND_TIMEOUT,
+            ChatKafkaConstants.DEAD_LETTER_PARTITIONS, ChatKafkaConstants.DEAD_LETTER_REPLICAS));
     private final Logger logger = (Logger) LoggerFactory.getLogger(ChatUserEventListener.class);
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
     private Level previousLevel;

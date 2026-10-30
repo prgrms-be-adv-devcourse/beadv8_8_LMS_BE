@@ -16,7 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 연결 제어 outbox. 기록은 {@code JdbcChatConnectionControl}이 회원 반영과 같은 트랜잭션에서 하고,
+ * 연결 제어 outbox. 기록은 {@code JpaChatConnectionControl}이 회원 반영과 같은 트랜잭션에서 하고,
  * 적재 상태는 relay가 조건부 UPDATE로 바꾼다. 이 엔티티는 조회·검증용 매핑이며 직접 만들지 않는다.
  */
 @Entity

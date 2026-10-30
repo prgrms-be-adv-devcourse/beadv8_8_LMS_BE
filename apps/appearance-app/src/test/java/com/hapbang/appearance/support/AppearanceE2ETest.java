@@ -21,7 +21,7 @@ import com.hapbang.testsupport.PostgresTestcontainersConfig;
 
 /**
  * 출연 E2E 테스트 (#390). 실제 서버(랜덤 포트)를 띄우고 RestAssured로 HTTP 요청을 보낸다.
- * 보안 필터(세션 로그인, CSRF)·직렬화·오류 응답이 운영과 같은 경로를 거친다.
+ * 보안 필터(Gateway 사용자 헤더 인증)·직렬화·오류 응답이 운영과 같은 경로를 거친다.
  * <ul>
  *     <li>나머지는 {@link AppearanceIntegrationTest}와 같다: PostgreSQL 컨테이너, 테스트마다 DB 비우기, Billing 대역, {@link AppearanceTestClock}.</li>
  *     <li>{@code @SpringBootTest}는 하나만 둘 수 있어 팀 공통 {@link IntegrationTest}를 쓰지 못한다. 그래서 그 설정 값을 같게 옮겨 둔다
@@ -45,8 +45,7 @@ import com.hapbang.testsupport.PostgresTestcontainersConfig;
                 "hapbang.storage.s3.key-prefix=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY
         })
-@Import({PostgresTestcontainersConfig.class, AppearanceTestClockConfig.class,
-        E2ELoginConfig.class, E2ELoginConfig.TestSessionLoginController.class})
+@Import({PostgresTestcontainersConfig.class, AppearanceTestClockConfig.class})
 @TestExecutionListeners(listeners = DatabaseCleanUpListener.class,
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
 @MockitoBean(types = BillingClient.class, reset = MockReset.AFTER)

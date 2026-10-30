@@ -35,7 +35,7 @@ import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatDeadReason;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
-import com.hapbang.chat.out.JdbcChatPublishCheckpointStore;
+import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 
 /**
  * Stream 그룹 소비·Pub/Sub 발행·체크포인트·ACK·PEL 회수 (테스트 기준 "Stream 소비", "Pub/Sub·체크포인트").
@@ -54,7 +54,7 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
     private ChatDeliveryQueue spiedQueue;
 
     @MockitoSpyBean
-    private JdbcChatPublishCheckpointStore spiedCheckpointStore;
+    private JpaChatPublishCheckpointStore spiedCheckpointStore;
 
     @Autowired
     private ChatConnectionControl chatConnectionControl;
@@ -213,10 +213,8 @@ class ChatStreamConsumerTest extends ChatDeliveryTestSupport {
         UUID deliveryId = send("안녕하세요");
         relayAll(ChatJobStream.DELIVERY);
         QueuedJob job = queue.readNew(ChatJobStream.DELIVERY, WORKER, 10, Duration.ofMillis(50)).getFirst();
-        jdbcClient.sql("update chats.chat_publish_checkpoint set next_attempt_at = :future where job_id = :id")
-                .param("future", LocalDateTime.now().plusMinutes(10))
-                .param("id", deliveryId)
-                .update();
+        sql.update("update chats.chat_publish_checkpoint set next_attempt_at = :future where job_id = :id",
+                Map.of("future", LocalDateTime.now().plusMinutes(10), "id", deliveryId));
 
         assertThat(processor.handle(ChatJobStream.DELIVERY, job)).isEqualTo(Outcome.DEFERRED);
 

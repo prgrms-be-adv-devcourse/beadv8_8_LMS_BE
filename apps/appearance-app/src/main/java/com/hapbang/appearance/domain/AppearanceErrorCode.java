@@ -87,7 +87,11 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     // 그 밖의 거절(내부 설정 오류·멱등 충돌·목록 밖 코드 등). 지갑 코드·설명은 로그에만 남기고 사용자에게는 이 문구만 보인다
     HP_HOLD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "HP 보류를 처리하지 못했습니다. 문제가 계속되면 고객센터로 문의해 주세요."),
     BILLING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
-            "HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요.");
+            "HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요."),
+    // 관리자 기존 회원 Backfill (#394). 회원 내부 API 장애·잘못된 응답 / 회원이 거절(내부 API 키 등) / 이미 실행 중 (지갑과 같은 코드)
+    MEMBER_SOURCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보를 조회할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    MEMBER_SOURCE_REJECTED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보를 조회할 수 없습니다."),
+    BACKFILL_ALREADY_RUNNING(HttpStatus.CONFLICT, "회원 정보 Backfill이 이미 실행 중입니다.");
 
     private final HttpStatus status;
     private final String message;

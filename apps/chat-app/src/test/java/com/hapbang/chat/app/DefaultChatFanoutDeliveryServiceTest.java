@@ -48,7 +48,7 @@ class DefaultChatFanoutDeliveryServiceTest {
             subscriptions, cache, sender);
 
     private final ChatMessageResponse message = new ChatMessageResponse(100L, ROOM_ID, 5L, HOST_ID,
-            ChatMessageType.TEXT, "안녕하세요", NOW, null, null, null, null);
+            ChatMessageType.TEXT, "안녕하세요", NOW, null, null, null, null, null, null);
 
     @BeforeEach
     void setUp() {
@@ -95,7 +95,7 @@ class DefaultChatFanoutDeliveryServiceTest {
         when(connections.sessionIdsOf(HOST_ID)).thenReturn(Set.of("s-host"));
         for (ChatMessageType type : List.of(ChatMessageType.SYSTEM, ChatMessageType.NOTIFICATION)) {
             ChatMessageResponse notice = new ChatMessageResponse(101L, ROOM_ID, 6L, HOST_ID, type, "안내", NOW, null,
-                    null, null, null);
+                    null, null, null, null, null);
             service.confirmToSender(new RoomActivityFanout(UUID.randomUUID(), ROOM_ID, 1, 6L,
                     ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, HOST_ID, notice, null));
         }

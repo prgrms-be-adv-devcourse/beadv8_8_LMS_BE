@@ -22,7 +22,7 @@ class BillingSchemaTest {
     private EntityManager entityManager;
 
     @Test
-    void Flyway로_14개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
+    void Flyway로_15개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
         assertThat(entityManager.createNativeQuery("""
                 SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'billing' AND table_type = 'BASE TABLE'
@@ -34,8 +34,10 @@ class BillingSchemaTest {
                         // 가상 송금 Mock 은행 기록 (#288)
                         "mock_payout_transfer",
                         // 회원 복제본 (#294)
-                        "billing_user");
-        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(14);
+                        "billing_user",
+                        // 보류 무효화 기록 (#479)
+                        "hold_void");
+        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(15);
         assertThat(entityManager.getEntityManagerFactory().getProperties().get("hibernate.hbm2ddl.auto"))
                 .isEqualTo("validate");
     }

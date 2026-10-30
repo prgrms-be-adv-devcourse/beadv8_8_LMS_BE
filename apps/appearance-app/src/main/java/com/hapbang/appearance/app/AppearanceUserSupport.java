@@ -33,7 +33,7 @@ public class AppearanceUserSupport {
 
     /**
      * 출연 거래에 참여할 회원을 찾고 자격(정상 상태, 인플루언서 이상)을 확인한다.
-     * 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등된 경우는 여기서 막힌다.
+     * 헤더 역할은 토큰 발급 시점 값이라(최대 15분 늦음), 그 뒤 정지·강등된 경우는 여기서 막힌다.
      *
      * @throws AppearanceException 회원이 없거나({@code APPEARANCE_USER_NOT_FOUND}), 자격이 없을 때
      */
@@ -45,7 +45,7 @@ public class AppearanceUserSupport {
 
     /**
      * 관리자 API를 부른 회원이 지금도 정상 상태의 관리자인지 확인한다 (#397, 관리자 API 서비스 단 검증).
-     * 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등된 경우는 여기서 막힌다.
+     * 헤더 역할은 토큰 발급 시점 값이라(최대 15분 늦음), 그 뒤 정지·강등된 경우는 여기서 막힌다.
      *
      * @throws AppearanceException 회원이 없거나({@code APPEARANCE_USER_NOT_FOUND}), 정상 상태가 아니거나
      *                             ({@code APPEARANCE_USER_NOT_ACTIVE}), 관리자가 아닐 때({@code NOT_ADMIN})

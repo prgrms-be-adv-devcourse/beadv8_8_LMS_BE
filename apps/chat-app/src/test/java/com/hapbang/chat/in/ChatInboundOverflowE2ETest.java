@@ -22,7 +22,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.simp.broker.SimpleBrokerMessageHandler;
@@ -31,6 +30,7 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
@@ -39,6 +39,7 @@ import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
@@ -47,6 +48,8 @@ import com.hapbang.chat.in.websocket.ChatInboundReceiveBudget;
 import com.hapbang.chat.in.websocket.ChatOutboundSendBudget;
 
 import io.micrometer.core.instrument.MeterRegistry;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 수신 예산(clientInboundChannel)을 실제 STOMP로 확인한다. 연결마다 받은 순서대로 하나씩 처리하고, 한 연결이 처리를 시작하지 않은 채
@@ -80,8 +83,7 @@ class ChatInboundOverflowE2ETest {
     @Autowired
     private ConfigurableApplicationContext applicationContext;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -96,6 +98,11 @@ class ChatInboundOverflowE2ETest {
     private MeterRegistry meterRegistry;
 
     private RealtimeStompClient stomp;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -255,8 +262,8 @@ class ChatInboundOverflowE2ETest {
         CountDownLatch release = new CountDownLatch(1);
         CompletableFuture<Void> holder = CompletableFuture.runAsync(() -> transactionTemplate
                 .executeWithoutResult(status -> {
-                    jdbcTemplate.queryForObject("select id from chats.chat_room where id = ? for update", Long.class,
-                            chatRoomId);
+                    sql.single("select id from chats.chat_room where id = :id for update", Long.class,
+                            Map.of("id", chatRoomId));
                     locked.countDown();
                     try {
                         release.await(30, TimeUnit.SECONDS);
@@ -292,8 +299,9 @@ class ChatInboundOverflowE2ETest {
     }
 
     private List<String> clientMessageIds(Long chatRoomId) {
-        return jdbcTemplate.queryForList(
-                "select client_message_id from chats.chat_message where chat_room_id = ? and client_message_id is not null"
-                        + " order by room_sequence", String.class, chatRoomId);
+        return sql.list(
+                "select client_message_id from chats.chat_message where chat_room_id = :roomId"
+                        + " and client_message_id is not null order by room_sequence", String.class,
+                Map.of("roomId", chatRoomId));
     }
 }

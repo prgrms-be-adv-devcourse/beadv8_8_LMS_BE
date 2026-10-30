@@ -547,7 +547,7 @@ class ChatRealtimeDeliveryE2ETest {
             String senderClientMessageId) {
         long messageId = 9_000 + roomSequence;
         ChatMessageResponse message = new ChatMessageResponse(messageId, chatRoomId, roomSequence, HOST_ID,
-                ChatMessageType.TEXT, "실시간 " + roomSequence, NOW, null, null, null, null);
+                ChatMessageType.TEXT, "실시간 " + roomSequence, NOW, null, null, null, null, null, null);
         return new MessageFanout(UUID.randomUUID(), MessageFanout.Type.MESSAGE, chatRoomId, setVersion, message,
                 ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, senderClientMessageId);
     }

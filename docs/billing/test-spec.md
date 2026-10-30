@@ -8,6 +8,8 @@
 > - 2026-10-29 dev da834b1 반영: billing-app 테스트 코드 변경은 없다. `common/test-support`에 Kafka·Redis Testcontainers 설정이 추가됐다(3장). #369 최종 인프라 결정을 Contract 대상(6.2)과 BT-PORT-04·BT-EVT-01·BT-SEC-05에 반영했고, BT-SEC-06을 더했다.
 > - 2026-10-30 #428 반영: BT-EVT-01을 Kafka 소비 규칙(#339)에 맞춰 `eventId` inbox에서 자연 키 멱등·소비 그룹 둘·그룹별 DLT로 고쳤다.
 > - 2026-10-30 #430 반영: 회원 이벤트 리스너 두 개가 Kafka 소비로 바뀌었다. BT-EVT-01은 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증하고 JVM 칸을 "없음"으로, BT-WAL-02·BT-USR-02는 Kafka 경로 테스트로 옮겨 "없음"으로 바꿨다. 같은 JVM `Scenario.publish` 테스트는 없앴다(리스너 직접 호출 또는 Kafka 테스트로 대체).
+> - 2026-10-30 #479 반영: 보류 무효화(BT-REL-06)를 더했다. 7장 목록은 80개 클래스·801개다. 회귀 실행 기록은 아직 없다.
+> - 2026-10-30 #471 반영: Modulith 이벤트 기록 자동 설정을 뺀 것을 BT-CFG-04(`ModulithEventsDisabledTest`)로 확인한다.
 > - 2026-10-30 #336·#453 반영: 플랫폼 지갑·수수료 수입(BT-EXP-08·09), 송금액 0원 환전(BT-EXP-10), 1 HP 단위 환불·환전(BT-RFD-01·BT-EXC-01)을 더했다. 7장 목록은 지금 코드 기준 77개 클래스·786개다. #273·#372에서 빠졌던 4개 클래스(`LockTimeoutsTest`·`BillingFailureCodeContractTest`·`InternalApiPortConfigTest`·`ApiV1BillingInternalControllerTest`)도 넣었다. 새 항목의 회귀 실행 기록은 아직 없다.
 
 ## 1. 실행 방법
@@ -181,6 +183,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-REL-03 | 반환 멱등 | 같은 ID 재생(닫힌 뒤 포함), 다른 금액 충돌, 다른 보류 같은 ID는 별개, 동시 반환에 초과 없음 | BD-30~BD-32 | I | `HoldReleaseIntegrationTest#sameRequest_*`, `#sameRequestId_*`, `#retryAfterClosed_replays`, `#differentRequests_concurrent_noOverRelease` | 없음 | R-003 통과 |
 | BT-REL-04 | 이력 재생 대조 | 상세를 재생한 결과가 배분 누적값과 다르면 `HOLD_STATE_INCONSISTENT` | BD-33, INV-5 | U, I | `ChargeUsageHistoryTest#replay*`, `HoldReleaseIntegrationTest#usageNotMatchingHistory_inconsistent`, `#ledgerWithoutDetail_inconsistent` | 없음 | R-003 통과 |
 | BT-REL-05 | 반환 소유·원자성 | 없는 보류·남의 보류 거절, 단계별 실패 전체 롤백 | BD-32 | I | `HoldReleaseIntegrationTest#notFound`, `#otherMembersHold`, `#*_rollsBackAll` | 없음 | R-003 통과 |
+| BT-REL-06 | 보류 무효화 (#479) | 남은 보류 전부 반환(`RELEASED`, `RELEASE:{holdId}:VOID`), 끝난 보류는 그대로(`ALREADY_CLOSED`), 보류 없음은 표시만(`VOIDED`). 무효화 뒤 보류·보류 재요청은 `HOLD_VOIDED`, 같은 무효화는 처음 결과 재생, 남의 보류·기록은 `HOLD_OWNER_MISMATCH`, 같은 참조 대상의 보류·무효화 동시 실행에 남은 보류 없음 | BD-125, BD-126 | S, I | `HoldVoidIntegrationTest`(8), `ApiV1BillingInternalControllerTest#voidHold`, shared `BillingApiClientTest#보류_무효화는_hold_voids_경로로_보내고_결과를_돌려준다` | 없음 | 기록 없음 (R-003 이후 추가) |
 | BT-PAY-01 | 지급 배분 | 수익 HP 보류 먼저, 충전 원금 FIFO 소진, 받는 쪽 수익 HP 가용, 초과 거절 | BD-39 | U, I | `PayoutSplitTest`(2), `PointHoldPayoutTest`(5), `HoldPayoutIntegrationTest#payout_revenueOnly_full`, `#payout_chargeOnly_fifo`, `#payout_mixed_revenueFirst`, `#payout_exceeds` | 없음 | R-003 통과 |
 | BT-PAY-02 | 원천 1회 정산 | 같은 원천은 보류·유형과 무관하게 1회, NORMAL·PENALTY 배타, 동시 요청도 DB UNIQUE로 1건 | BD-42, BD-43, INV-6 | I, R | `HoldPayoutIntegrationTest#sameSource_normalAndPenaltyExclusive`, `#request_contractSettlesOnce`, `#sameContractAcrossHolds_rejected`, `#concurrent_sameContractAcrossHosts_*`, `BillingConstraintsTest#지급_원천은_보류와_지급_유형이_달라도_한_번만_정산한다` | 없음 | R-003 통과 |
 | BT-PAY-03 | 지급 멱등 | 같은 요청 ID 재생, 다른 보류의 같은 ID는 별개, 동시 같은 지급 1회 | BD-44 | I | `HoldPayoutIntegrationTest#payout_idempotency`, `#payout_sameRequestIdOtherHold`, `#concurrent_samePayout` | 없음 | R-003 통과 |
@@ -279,13 +282,14 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-SEC-06 | HP 경로의 회원 상태 확인 | 토큰의 `role`만 믿지 않고 Billing 회원 복제본 상태를 함께 확인한다(정지·역할 변경이 토큰 수명만큼 늦게 반영되는 문제 방지). 대상 경로는 TBD(decisions 11장) | 인프라 문서 3장 인증 흐름 7, #371 | I | 없음 (현재 확인은 환전 승인뿐: BT-EXC-06) | 미확인 | 없음 |
 | BT-ERR-01 | 오류 응답 | `ProblemDetail` + `code`, 검증 오류 항목, 403·405·500(내부 메시지 미노출) | conventions.md, BD-105, BD-106 | U, S | `GlobalExceptionHandlerTest`(15), `BusinessExceptionTest`(6) | 없음 | R-003 통과 |
 | BT-ERR-02 | 페이지 응답 | 형식, 최대 100, 기본 20 | A14 | S | `PageConfigTest`(3) | 없음 | R-003 통과 |
-| BT-DB-01 | 스키마 | Flyway 14개 테이블 + Hibernate validate, TIMESTAMPTZ·BIGINT, FK는 Billing 내부만, 다른 도메인 테이블 없음 | module.md 8.2 | R | `BillingSchemaTest`(6) | 없음 (database 분리 시 다시 확인) | R-003 통과 |
+| BT-DB-01 | 스키마 | Flyway 15개 테이블(#479 `hold_void` 포함) + Hibernate validate, TIMESTAMPTZ·BIGINT, FK는 Billing 내부만, 다른 도메인 테이블 없음 | module.md 8.2 | R | `BillingSchemaTest`(6) | 없음 (database 분리 시 다시 확인) | R-003 통과 |
 | BT-DB-02 | 제약 | CHECK·UNIQUE·FK·트리거·멱등키 | INV-2~INV-8 | R | `BillingConstraintsTest`(33) | 없음 | R-003 통과 |
 | BT-DB-03 | Enum 저장값 | CHECK 허용값 = Enum 상수 이름 | BD-37 | R | `BillingEnumStorageTest`(1) | 없음 | R-003 통과 |
 | BT-DB-04 | 엔티티 저장 | 전체 엔티티 저장·조회, Instant 보존, 감사 시각, ID 참조 FK | BD-36 | R | `BillingRepositoryTest`(7) | 없음 | R-003 통과 |
 | BT-CFG-01 | 배치 스위치 | `hapbang.scheduling.enabled` 조건 | — | U | `ConditionalOnSchedulingEnabledTest`(3) | 없음 | R-003 통과 |
 | BT-CFG-02 | 실제 설정 기동 | 앱 `application.yaml`·프로필(local·dev·prod)과 필수 환경 변수로 기동, 누락 시 기대한 실패 | module.md 9장 | T | 없음 (`@IntegrationTest`는 앱 yaml을 읽지 않는다) | 미확인 | 없음 |
 | BT-CFG-03 | 복구 배치 실행 | `ChargeRecoveryBatch`·`RefundRecoveryBatch`가 등록되고 UseCase에 위임 | BD-78, BD-92 | I | 없음 (UseCase만 검증) | 없음 | 없음 |
+| BT-CFG-04 | Modulith 이벤트 기록 끔 (#471) | 이벤트 기록 빈(레지스트리·저장소)이 없고 `billing.event_publication`·`event_publication_archive` 테이블이 없다. 앱 설정과 테스트 설정이 같은 자동 설정을 뺀다 | BD-124 | I | `ModulithEventsDisabledTest`(1) | 없음 | 기록 없음 (#471에서 추가) |
 
 ## 5. JVM 분리 영향 정리
 
@@ -295,7 +299,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | --- | --- | --- | --- | --- |
 | BillingPort 호출 | 강의·출연이 `BillingPort` 빈을 주입받아 Java로 호출 | billing-app에만 구현이 있다. 소비 앱은 기동 실패. 원격 Client·내부 API 없음 | BT-PORT-01, 04, 05 | BD-51, BD-52 |
 | 모듈 간 트랜잭션 경계 | 주문 저장 + 보류가 한 DB 트랜잭션, 실패하면 함께 롤백, 모듈 간 락 순서 | 원격 호출은 같은 트랜잭션에 참여할 수 없다. 부분 성공(보류만 되거나 주문만 됨)을 복구할 설계가 없다 | BT-PORT-02, 03 | BD-53, BD-60, BD-64, BD-72, BD-107 |
-| 회원 이벤트 수신 | #430부터 Kafka `member.events.v1`을 소비 그룹 둘로 받는다. 멱등은 자연 키(BD-123) | 발행 쪽 #416이 병합돼야 실제로 이벤트가 온다. 앱 시작 전 가입자의 지갑은 조회 시 보완, 복제본은 Backfill로 채운다. 기존 `event_publication`의 billing 리스너 미완료 기록 정리는 후속(Spring Event 제거) | BT-WAL-02, BT-USR-01·02, BT-EVT-01 | BD-2, BD-6, BD-103, BD-123 |
+| 회원 이벤트 수신 | #430부터 Kafka `member.events.v1`을 소비 그룹 둘로 받는다. 멱등은 자연 키(BD-123) | 발행 쪽 #416이 병합돼야 실제로 이벤트가 온다. 앱 시작 전 가입자의 지갑은 조회 시 보완, 복제본은 Backfill로 채운다. billing의 Modulith 이벤트 기록 테이블·설정은 #471에서 지웠다 | BT-WAL-02, BT-USR-01·02, BT-EVT-01 | BD-2, BD-6, BD-103, BD-123 |
 | 인증·인가 | member의 OAuth2 로그인 세션 principal을 같은 앱이 해석 | billing-app에 oauth2Login·spring-session 의존이 없다. 다른 앱의 로그인 세션을 해석할 방법이 코드에 없다(미확인). 목표는 JWT + `X-User-*` 헤더 인증이며, 그때 CSRF 설정·`@LoginUserId`가 바뀐다 | BT-SEC-01·02·04·05·06 | BD-3, BD-103 (#370~#372) |
 | 내부 HTTP API | 수익 조회·Backfill은 이미 HTTP | Client는 분리 구조에 맞다. 대신 base-url 환경 변수가 필수다(기본값 없음). 제공자와의 계약 일치는 검증하지 않는다. Billing이 제공하는 내부 API는 없다 | BT-ERN-02·04, BT-USR-03·04, BT-SEC-03 | — |
 | 멱등성·재시도 | 실패하면 호출자 트랜잭션과 함께 롤백 → 같은 요청 ID로 재요청 | Billing 내부 멱등(요청 ID 재생)은 그대로다. 하지만 원격 호출의 타임아웃·결과 불명 시 호출자가 같은 ID로 재시도하고 오류를 성공으로 해석하지 않는 규칙(BD-70)을 검증하는 테스트가 없다 | BT-PAY-03·04, BT-PORT-04 | BD-69, BD-70 |
@@ -307,13 +311,13 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 
 | JVM | 개수 | ID |
 | --- | --- | --- |
-| 없음 | 77 | 아래 셋을 뺀 나머지 |
+| 없음 | 79 | 아래 셋을 뺀 나머지 |
 | 경계 | 17 | BT-WAL-03·04, BT-CHG-08·09, BT-RFD-08, BT-EXC-01·06·07, BT-EXP-07·09, BT-ERN-02·03·04, BT-USR-01·03·04, BT-SEC-04 |
 | 깨짐 | 6 | BT-PORT-01~05, BT-SEC-05 |
 | 미확인 | 4 | BT-SEC-01, BT-SEC-02, BT-SEC-06, BT-CFG-02 |
-| 합계 | 104 | |
+| 합계 | 106 | |
 
-개수는 4장 표를 기준으로 셌다(2026-10-29, #336·#453·#430 반영 2026-10-30). 표를 고치면 함께 고친다.
+개수는 4장 표를 기준으로 셌다(2026-10-29, #336·#453·#430·#471 반영 2026-10-30). 표를 고치면 함께 고친다.
 
 ## 6. 빈 곳
 
@@ -375,6 +379,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.HoldCreateIntegrationTest | I | 30 | 필요 | HLD-01~05, PORT-02 |
 | app.HoldPayoutIntegrationTest | I | 39 | 필요 | PAY-01~06, PEN-01~04, PORT-02 |
 | app.HoldReleaseIntegrationTest | I | 34 | 필요 | REL-01~05, PORT-02 |
+| app.HoldVoidIntegrationTest | I | 8 | 필요 | REL-06 |
 | app.HoldSplitTest | U | 6 | — | HLD-01 |
 | app.LedgerOperationTest | U | 6 | — | LED-03 |
 | app.LedgerRecordIntegrationTest | I | 27 | 필요 | LED-01·03·04·05·09 |
@@ -401,6 +406,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | domain.WalletApplyLedgerAccessTest | U (ArchUnit) | 1 | — | LED-02 |
 | domain.WalletTest | U | 11 | — | LED-03, EXP-08·09 |
 | global.auth.LoginUserIdArgumentResolverTest | U | 4 | — | SEC-02 |
+| global.config.ModulithEventsDisabledTest | I | 1 | 필요 | CFG-04 |
 | global.config.PageConfigTest | S | 3 | — | ERR-02 |
 | global.config.SecurityConfigTest | S | 12 | — | SEC-01 |
 | global.exception.BusinessExceptionTest | U | 6 | — | ERR-01 |
@@ -410,7 +416,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | global.internal.InternalApiPropertiesTest | U (ACR) | 4 | — | SEC-03 |
 | global.internal.InternalApiSecurityConfigTest | S | 11 | — | SEC-03 |
 | global.scheduling.ConditionalOnSchedulingEnabledTest | U (ACR) | 3 | — | CFG-01 |
-| in.ApiV1BillingInternalControllerTest | I | 13 | 필요 | — (#273 내부 HTTP API, BT 미연결) |
+| in.ApiV1BillingInternalControllerTest | I | 14 | 필요 | REL-06 (`voidHold`), 나머지는 #273 내부 HTTP API(BT 미연결) |
 | in.ApiV1SettlementEarningControllerTest | I | 10 | 필요 | ERN-03 |
 | in.ApiV1SettlementExchangeAdminControllerTest | I | 4 | 필요 | EXC-07 |
 | in.ApiV1SettlementExchangeControllerTest | I | 6 | 필요 | EXC-07 |
@@ -438,8 +444,8 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | U (ACR·로컬 HTTP·ArchUnit 포함) | 35 | 217 |
 | S (`@WebMvcTest`) | 4 | 41 |
 | R (`@RepositoryTest`) | 4 | 47 |
-| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 35 | 486 |
-| 합계 | 78 | 791 |
+| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 37 | 496 |
+| 합계 | 80 | 801 |
 
 ## 8. 운영 규칙
 

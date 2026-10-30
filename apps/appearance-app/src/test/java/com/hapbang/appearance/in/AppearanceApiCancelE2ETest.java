@@ -30,7 +30,7 @@ import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 
 /**
- * 실제 서버(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB, Billing 대역)를 띄우고 RestAssured로 출연 조회·취소 요청 API를 호출한다.
+ * 실제 서버(보안 필터, Gateway 사용자 헤더 로그인, 메서드 보안, DB, Billing 대역)를 띄우고 RestAssured로 출연 조회·취소 요청 API를 호출한다.
  * 출연 성립까지는 Facade로 준비한다 (테스트 스레드 역할은 {@code @WithMockUser}, API 호출은 {@link E2ELogin}).
  */
 @AppearanceE2ETest
@@ -145,14 +145,15 @@ class AppearanceApiCancelE2ETest {
     }
 
     @Test
-    @DisplayName("CSRF 토큰이 없으면 403, 숫자가 아닌 출연 ID는 출연 API로 매핑되지 않는다")
-    void csrfAndPath() {
+    @DisplayName("관계없는 회원은 출연이 없는 것과 같이 404, 숫자가 아닌 출연 ID는 출연 API로 매핑되지 않는다")
+    void otherMemberAndPath() {
         long appearanceId = establish();
 
-        E2ELogin.withoutCsrf(GUEST, Role.INFLUENCER)
+        E2ELogin.as(OTHER, Role.INFLUENCER)
                 .contentType(ContentType.JSON).body("{\"reason\": \"사유\"}")
                 .post(BASE + "/" + appearanceId + "/cancel-requests")
-                .then().statusCode(403);
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_NOT_FOUND"));
         E2ELogin.as(GUEST, Role.INFLUENCER).get(BASE + "/abc")
                 .then().statusCode(404);
     }

@@ -4,10 +4,12 @@ import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
@@ -15,19 +17,29 @@ import com.hapbang.chat.app.dto.ChatNotificationResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
+import com.hapbang.chat.domain.AppearanceRequestSentData;
+import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.NotificationKind;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.testsupport.IntegrationTest;
 
+import jakarta.persistence.EntityManager;
+
 @IntegrationTest
 class ChatNotificationUseCaseTest {
 
     private static final LocalDateTime SCHEDULED_AT = LocalDateTime.of(2026, 11, 20, 21, 0);
     private static final LocalDateTime ACCEPT_DEADLINE = LocalDateTime.of(2026, 11, 13, 23, 59);
+
+    /** 출연 요청 도착 알림의 값. 호스트 닉네임은 채팅 회원 복제본, 나머지는 이벤트 값이고 일시는 KST 문자열이다 */
+    private static final AppearanceRequestSentData REQUEST_SENT_DATA = new AppearanceRequestSentData(1, "호스트",
+            "금요일 밤 합방", 50_000L, "2026-11-20T21:00:00", "2026-11-13T23:59:00");
 
     @Autowired
     private ChatNotificationUseCase chatNotificationUseCase;
@@ -47,6 +59,13 @@ class ChatNotificationUseCaseTest {
     @Autowired
     private ChatMessageRepository chatMessageRepository;
 
+    private ChatNativeSql sql;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
+
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
@@ -63,18 +82,63 @@ class ChatNotificationUseCaseTest {
         assertThat(message.referenceId()).isEqualTo(10L);
         assertThat(message.parentReferenceId()).isNull();
         assertThat(message.senderUserId()).isEqualTo(HOST_ID);
-        assertThat(message.content()).isEqualTo("""
-                호스트님이 출연을 요청했습니다.
-                제목: 금요일 밤 합방
-                출연료: 50,000 HP
-                방송 예정: 2026-11-20 21:00
-                수락 기한: 2026-11-13 23:59""");
+        assertThat(message.appearanceRequestSent()).isEqualTo(REQUEST_SENT_DATA);
+        assertThat(message.appearanceApplicationSubmitted()).isNull();
+        assertThat(message.content()).isEmpty();
         // 전달 대상·알림 대상은 저장 트랜잭션의 outbox·수신자 집합이 맡는다(ChatRecipientSetDeliveryTest)
 
         ChatRoomResponse guestRoom = chatRoomSupporter.getMyRooms(GUEST_ID).getFirst();
         assertThat(guestRoom.chatRoomId()).isEqualTo(message.chatRoomId());
         assertThat(guestRoom.unreadCount()).isEqualTo(1);
         assertThat(guestRoom.lastMessage().notificationKind()).isEqualTo(NotificationKind.APPEARANCE_REQUEST_SENT);
+        assertThat(guestRoom.lastMessage().appearanceRequestSent()).isEqualTo(REQUEST_SENT_DATA);
+    }
+
+    @Test
+    void 알림_값은_jsonb로_저장되고_다시_읽어도_같다() {
+        Long messageId = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID)).orElseThrow()
+                .message().messageId();
+
+        ChatMessage stored = chatMessageRepository.findById(messageId).orElseThrow();
+        assertThat(stored.getContent()).isEmpty();
+        assertThat(stored.readAppearanceRequestSent()).isEqualTo(REQUEST_SENT_DATA);
+        assertThat(sql.row("""
+                select cast(pg_typeof(notification_data) as text) as column_type,
+                       jsonb_typeof(notification_data -> 'v') as v_type,
+                       jsonb_typeof(notification_data -> 'fee') as fee_type,
+                       notification_data ->> 'fee' as fee,
+                       notification_data ->> 'scheduledAt' as scheduled_at
+                from chats.chat_message where id = :id""", Map.of("id", messageId)))
+                .containsEntry("column_type", "jsonb")
+                .containsEntry("v_type", "number")
+                .containsEntry("fee_type", "number")
+                .containsEntry("fee", "50000")
+                .containsEntry("scheduled_at", "2026-11-20T21:00:00");
+    }
+
+    @Test
+    void 일반_메시지의_알림_값은_null로_저장된다() {
+        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+
+        assertThat(chatMessageRepository.findAll()).singleElement()
+                .extracting(ChatMessage::getNotificationDataJson).isNull();
+    }
+
+    @Test
+    void 저장한_알림_값을_읽을_수_없어도_이력_조회는_되고_값은_null이다() {
+        ChatMessageResponse sent = chatNotificationUseCase.notifyAppearanceRequestSent(request(10L, GUEST_ID))
+                .orElseThrow().message();
+        sql.update("""
+                update chats.chat_message set notification_data = cast('{"fee":"x"}' as jsonb) where id = :id""",
+                Map.of("id", sent.messageId()));
+
+        assertThat(chatMessageSupporter.getMessages(sent.chatRoomId(), GUEST_ID, null, 30).messages()).singleElement()
+                .satisfies(message -> {
+                    assertThat(message.messageId()).isEqualTo(sent.messageId());
+                    assertThat(message.appearanceRequestSent()).isNull();
+                    assertThat(message.appearanceApplicationSubmitted()).isNull();
+                });
     }
 
     @Test
@@ -88,23 +152,27 @@ class ChatNotificationUseCaseTest {
         assertThat(message.referenceId()).isEqualTo(20L);
         assertThat(message.parentReferenceId()).isEqualTo(7L);
         assertThat(message.senderUserId()).isEqualTo(GUEST_ID);
-        assertThat(message.content()).isEqualTo("""
-                게스트님이 출연 모집에 지원했습니다.
-                모집글: 주말 게임 합방 모집""");
+        assertThat(message.appearanceApplicationSubmitted())
+                .isEqualTo(new AppearanceApplicationSubmittedData(1, "게스트", "주말 게임 합방 모집"));
+        assertThat(message.appearanceRequestSent()).isNull();
+        assertThat(message.content()).isEmpty();
         assertThat(chatRoomSupporter.getMyRooms(HOST_ID).getFirst().unreadCount()).isEqualTo(1);
         assertThat(chatRoomSupporter.getMyRooms(GUEST_ID).getFirst().unreadCount()).isZero();
     }
 
     @Test
-    void 관리자_기록_조회에도_알림_종류와_출연_건_ID가_담긴다() {
+    void 관리자_기록_조회에도_알림_종류와_출연_건_ID와_값이_담긴다() {
         Long chatRoomId = chatNotificationUseCase.notifyAppearanceApplicationSubmitted(
                 new AppearanceApplicationDto(20L, 7L, "주말 게임 합방 모집", HOST_ID, GUEST_ID, SCHEDULED_AT))
                 .orElseThrow().message().chatRoomId();
 
         assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 100).messages()).singleElement()
                 .extracting(ChatMessageHistoryResponse::notificationKind, ChatMessageHistoryResponse::referenceId,
-                        ChatMessageHistoryResponse::parentReferenceId)
-                .containsExactly(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, 20L, 7L);
+                        ChatMessageHistoryResponse::parentReferenceId, ChatMessageHistoryResponse::content)
+                .containsExactly(NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, 20L, 7L, "");
+        assertThat(chatRoomSupporter.getHistory(chatRoomId, ADMIN_ID, null, 100).messages().getFirst()
+                .appearanceApplicationSubmitted())
+                .isEqualTo(new AppearanceApplicationSubmittedData(1, "게스트", "주말 게임 합방 모집"));
     }
 
     @Test

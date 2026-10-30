@@ -25,10 +25,10 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.http.HttpHeaders;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -42,6 +42,7 @@ import com.hapbang.chat.app.ChatRoomUseCase;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
@@ -49,6 +50,8 @@ import com.hapbang.chat.in.support.E2ESession;
 import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.websocket.ChatInboundReceiveBudget;
 import com.hapbang.shared.member.domain.Role;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 통합 재검증(2026-10-30): 운영 기본값(처리 스레드 8·공용 대기열 1000·연결별 몫 64프레임)에서 연결별 처리 줄이 연결 종료 뒤 남지 않는지
@@ -73,8 +76,7 @@ class ChatInboundSessionQueueE2ETest {
     @Autowired
     private ConfigurableApplicationContext applicationContext;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -85,6 +87,11 @@ class ChatInboundSessionQueueE2ETest {
     private RealtimeStompClient stomp;
     private RestTestClient restTestClient;
     private final List<ApplicationListener<SessionDisconnectEvent>> listeners = new CopyOnWriteArrayList<>();
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -329,8 +336,8 @@ class ChatInboundSessionQueueE2ETest {
         CountDownLatch release = new CountDownLatch(1);
         CompletableFuture<Void> holder = CompletableFuture.runAsync(() -> transactionTemplate
                 .executeWithoutResult(status -> {
-                    jdbcTemplate.queryForObject("select id from chats.chat_room where id = ? for update", Long.class,
-                            chatRoomId);
+                    sql.single("select id from chats.chat_room where id = :id for update", Long.class,
+                            Map.of("id", chatRoomId));
                     locked.countDown();
                     try {
                         release.await(30, TimeUnit.SECONDS);
@@ -358,8 +365,9 @@ class ChatInboundSessionQueueE2ETest {
     }
 
     private List<String> clientMessageIds(Long chatRoomId) {
-        return jdbcTemplate.queryForList(
-                "select client_message_id from chats.chat_message where chat_room_id = ? and client_message_id is not null"
-                        + " order by room_sequence", String.class, chatRoomId);
+        return sql.list(
+                "select client_message_id from chats.chat_message where chat_room_id = :roomId"
+                        + " and client_message_id is not null order by room_sequence", String.class,
+                Map.of("roomId", chatRoomId));
     }
 }

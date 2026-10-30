@@ -52,7 +52,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 
 /**
  * 출연 요청 응답(수락·거절·응답 전 취소) 흐름을 DB와 Billing 대역으로 확인한다.
- * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
+ * 로그인 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
@@ -200,7 +200,7 @@ class AppearanceRequestRespondFacadeTest {
 
     @Test
     @WithMockUser(roles = "USER")
-    @DisplayName("세션 역할이 일반 유저면 Facade의 @PreAuthorize에서 거절한다")
+    @DisplayName("로그인 역할이 일반 유저면 Facade의 @PreAuthorize에서 거절한다")
     void userRoleDenied() {
         assertThatThrownBy(() -> appearanceRequestFacade.accept(GUEST, 1L, 0L))
                 .isInstanceOf(AccessDeniedException.class);

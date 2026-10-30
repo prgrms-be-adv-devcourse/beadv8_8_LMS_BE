@@ -49,18 +49,23 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.ChatUserBackfillResult;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatUser;
+import com.hapbang.chat.fixture.ChatNativeSql;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.out.ChatUserRepository;
-import com.hapbang.chat.out.JdbcChatConnectionControl;
+import com.hapbang.chat.out.JpaChatConnectionControl;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
@@ -69,6 +74,8 @@ import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 import com.sun.net.httpserver.HttpServer;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 기존 회원 백필(설계 문서 5.4)과 실제 Kafka 회원 이벤트 소비가 함께 돌 때의 경계를 검증한다.
@@ -103,16 +110,22 @@ class ChatUserBackfillKafkaRaceTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("hapbang.chat.member-events.enabled", () -> "true");
-        registry.add("hapbang.chat.member-events.topic", () -> TOPIC);
-        registry.add("hapbang.chat.member-events.group-id", () -> GROUP);
-        registry.add("hapbang.chat.member-events.max-retries", () -> "1");
-        registry.add("hapbang.chat.member-events.retry-initial-interval", () -> "100ms");
+        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
         registry.add("hapbang.clients.member.base-url", () -> "http://127.0.0.1:" + SERVER.getAddress().getPort());
         // 페이지 응답 직전에 Kafka 반영을 기다리므로 응답 제한 시간을 넉넉히 둔다
         registry.add("hapbang.clients.member.read-timeout", () -> "40s");
         registry.add("hapbang.chat.backfill.page-size", () -> "2");
         registry.add("hapbang.chat.backfill.max-limit", () -> String.valueOf(MAX_LIMIT));
+    }
+
+    /** 이 클래스 전용 토픽·그룹·DLT. 재시도는 1회·첫 간격 100ms로 줄인다(운영은 3회·1초) */
+    @TestBean(name = ChatKafkaConfig.MEMBER_EVENT_SETTINGS)
+    private ChatKafkaConsumerSettings memberEventSettings;
+
+    static ChatKafkaConsumerSettings memberEventSettings() {
+        return new ChatKafkaConsumerSettings(TOPIC, GROUP, DLT, 1, Duration.ofMillis(100),
+                ChatKafkaConstants.RETRY_MAX_INTERVAL, ChatKafkaConstants.DEAD_LETTER_SEND_TIMEOUT,
+                ChatKafkaConstants.DEAD_LETTER_PARTITIONS, ChatKafkaConstants.DEAD_LETTER_REPLICAS);
     }
 
     @AfterAll
@@ -132,13 +145,17 @@ class ChatUserBackfillKafkaRaceTest {
     @MockitoSpyBean
     private ChatUserRepository chatUserRepository;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     @Autowired
     private FailableConnectionControl connectionControl;
 
     private KafkaProducer<String, byte[]> producer;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -225,7 +242,7 @@ class ChatUserBackfillKafkaRaceTest {
             assertThat(chatUser.getStatus()).isEqualTo(UserStatus.SUSPENDED);
             assertThat(chatUser.getMemberVersion()).isEqualTo(3L);
         });
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_user where id = ?", Long.class, id))
+        assertThat(sql.single("select count(*) from chats.chat_user where id = :id", Long.class, Map.of("id", id)))
                 .isEqualTo(1L);
         // 백필 생성과 옛 이벤트 건너뜀은 제어 작업을 남기지 않는다
         assertThat(controlRows()).isEmpty();
@@ -273,7 +290,7 @@ class ChatUserBackfillKafkaRaceTest {
             assertThat(chatUser.getMemberVersion()).isEqualTo(1L);
         });
         assertThat(controlRows()).isEmpty();
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_publish_checkpoint", Long.class))
+        assertThat(sql.single("select count(*) from chats.chat_publish_checkpoint", Long.class))
                 .isZero();
 
         connectionControl.reset();
@@ -283,7 +300,7 @@ class ChatUserBackfillKafkaRaceTest {
                 .containsExactly(1L, true);
         assertThat(controlRows()).extracting(row -> row.get("user_id"), row -> row.get("member_version"))
                 .containsExactly(tuple(id, 2L));
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_publish_checkpoint", Long.class))
+        assertThat(sql.single("select count(*) from chats.chat_publish_checkpoint", Long.class))
                 .isEqualTo(1L);
     }
 
@@ -303,7 +320,7 @@ class ChatUserBackfillKafkaRaceTest {
         assertThat(injected).isTrue();
         // 첫 처리는 충돌로 롤백되고, 리스너가 같은 레코드를 다시 처리하며 다시 읽었다
         assertThat(listenerReads).hasValueGreaterThanOrEqualTo(2L);
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_user where id = ?", Long.class, id))
+        assertThat(sql.single("select count(*) from chats.chat_user where id = :id", Long.class, Map.of("id", id)))
                 .isEqualTo(1L);
         assertThat(chatUserRepository.findById(id)).hasValueSatisfying(chatUser -> {
             assertThat(chatUser.getStatus()).isEqualTo(UserStatus.SUSPENDED);
@@ -397,8 +414,8 @@ class ChatUserBackfillKafkaRaceTest {
     }
 
     private long memberVersion(long id) {
-        Long version = jdbcTemplate.queryForObject("select member_version from chats.chat_user where id = ?",
-                Long.class, id);
+        Long version = sql.single("select member_version from chats.chat_user where id = :id", Long.class,
+                Map.of("id", id));
         return version == null ? -1 : version;
     }
 
@@ -422,13 +439,13 @@ class ChatUserBackfillKafkaRaceTest {
     }
 
     private List<Map<String, Object>> controlRows() {
-        return jdbcTemplate.queryForList(
-                "select user_id, member_version, reason from chats.chat_control_outbox order by user_id");
+        return sql.rows("select user_id, member_version, reason from chats.chat_control_outbox order by user_id",
+                Map.of());
     }
 
     private void clearControlTables() {
-        jdbcTemplate.update("delete from chats.chat_publish_checkpoint");
-        jdbcTemplate.update("delete from chats.chat_control_outbox");
+        sql.update("delete from chats.chat_publish_checkpoint");
+        sql.update("delete from chats.chat_control_outbox");
     }
 
     private static String json(UserDto user) {
@@ -495,11 +512,11 @@ class ChatUserBackfillKafkaRaceTest {
     @TestComponent
     static class FailableConnectionControl implements ChatConnectionControl {
 
-        private final JdbcChatConnectionControl delegate;
+        private final JpaChatConnectionControl delegate;
         private final Map<Long, AtomicLong> calls = new ConcurrentHashMap<>();
         private final Set<Long> failing = ConcurrentHashMap.newKeySet();
 
-        FailableConnectionControl(JdbcChatConnectionControl delegate) {
+        FailableConnectionControl(JpaChatConnectionControl delegate) {
             this.delegate = delegate;
         }
 

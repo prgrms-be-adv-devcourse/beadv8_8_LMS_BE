@@ -235,3 +235,55 @@
 
 - 바뀌는 곳: `RefundRequestUseCase`, `ExchangeRequestUseCase`, `Exchange.requested`·`feeOf`·`@Check`, Flyway `ck_exchange_1`, `BillingErrorCode`, 요청 DTO·Swagger 설명, `ExchangePayoutProcessing.start`(0원 분기).
 - 완료 조건(이슈): 1 HP 이상의 어떤 금액이든 환불·환전을 신청할 수 있다. 송금액 = floor(신청 × 90%), 수수료 = 신청 − 송금 ≥ 1. 신청 1원 환전은 은행 호출 없이 완료되고 회원 보류 차감 1 = 송금 0원 + 수수료 수입 1이 원장으로 확인된다. 이미 저장된 환전은 바뀌지 않는다. 충전 규칙은 그대로다. `./gradlew check` 통과.
+
+## 5. Spring Event 제거 (#471)
+
+2026-10-30 `/grill-with-docs`로 정했다. #430으로 회원 이벤트 리스너가 Kafka 소비로 바뀌어, 지갑은 Spring Event를 발행하지도 받지도 않는다.
+
+### 5.1 범위
+
+- Billing만 한다. member-app은 회원 이벤트를 Modulith publication registry(outbox)로 Kafka에 내보내므로(#416) 이벤트 기록이 계속 필요하다. 모놀리스 시절 다른 모듈 리스너를 대상으로 한 `member.event_publication`의 미완료 기록 정리는 회원 담당이 판단하도록 이슈 본문에 확인 SQL과 함께 넘겼다.
+- appearance-app·chat-app에 남은 `@ApplicationModuleListener`는 각 앱의 Kafka 전환 이슈(#394, #417 등) 범위다.
+
+### 5.2 결정
+
+- billing `application.yaml`의 `spring.modulith.events.*`(schema-initialization·schema·republish·completion-mode)를 지운다.
+- Flyway `V202610301400`으로 `billing.event_publication`·`event_publication_archive`를 지운다(`DROP TABLE IF EXISTS`). 설정만 끄고 테이블을 남기는 안도 있었지만 지우기로 했고, 남은 기록은 확인하지 않고 함께 지운다(되돌릴 수 없다).
+- 테이블만 지우면 종료 때 이벤트 기록 레지스트리(`eventPublicationRegistry`)가 테이블을 조회하다 `BadSqlGrammarException`을 낸다(확인함). `JdbcEventPublicationAutoConfiguration`만 빼면 레지스트리를 쓰는 `StalenessMonitorConfiguration`이 기동에 실패한다. 그래서 `JdbcEventPublicationAutoConfiguration`·`EventPublicationAutoConfiguration`을 앱 설정과 테스트 설정(`hapbang-module-test.yaml`)에서 함께 뺀다. 루트 Gradle(`spring-modulith-starter-jdbc`)은 바꾸지 않는다.
+- 지갑이 이벤트를 발행하게 되면(우선순위 6번) 설정과 테이블을 다시 만든다.
+
+### 5.3 테스트
+
+- `ModulithEventsDisabledTest`: 이벤트 기록 빈이 없고 billing 스키마에 두 테이블이 없다.
+- 회원 이벤트 Kafka 소비(`BillingMemberEventKafkaTest`)는 그대로 통과한다.
+
+## 6. 보류 무효화 (#479)
+
+2026-10-30 `/grill-with-docs`로 정했다. 계약은 [`docs/api/internal-billing.md`](../api/internal-billing.md) 1장 "보류 무효화"를 따른다.
+
+### 6.1 배경 (보상 흐름 확인)
+
+- 강의는 성공으로 기록한 보류만 보상 반환한다. 반환이 `HOLD_NOT_FOUND`를 받으면 불변식 위반으로 보고 작업을 DEAD로 둔다.
+- 출연은 결과 불명(`HOLD_PENDING`) 재확인에 횟수 제한이 없고, 재확인이 보류를 다시 보내 뒤늦은 보류를 만들 수 있다. 결과 불명 뒤 재확인이 `Failed`를 받으면 이미 생긴 보류가 남는다.
+- 지갑은 보류가 없는 반환을 404로 거절하고 아무것도 남기지 않는다. 그래서 반환 뒤에 도착한 보류가 그대로 생긴다.
+- 반환만으로는 "보류가 없다"와 "보류가 아직 도착하지 않았다"를 구분할 수 없어, 무효화 API를 새로 둔다.
+
+### 6.2 결정
+
+- `POST /api/v1/internal/billing/hold-voids`, 요청 `{userId, referenceType, referenceId}`. 참조 대상당 한 번이며 다시 보내면 처음 결과를 `replayed = true`로 돌려준다(BD-125).
+- 결과: 남은 보류가 있으면 전부 반환 → `RELEASED`, 이미 끝난 보류 → `ALREADY_CLOSED`(0), 보류 없음 → `VOIDED`(0). 반환은 기존 반환 경로를 반환 요청 ID `VOID`로 재사용한다.
+- 세 경우 모두 무효화 기록(`billing.hold_void`, 참조 대상 UNIQUE)을 남긴다. 보류 테이블·불변식은 바꾸지 않는다.
+- 기록이 있는 참조 대상의 보류는 409 `HOLD_VOIDED`로 거절한다. 무효화 전에 만든 보류의 재요청도 거절한다(BD-126).
+- 보류와 같은 지갑 락으로 직렬화한다. 다른 회원의 보류·무효화 기록이면 `HOLD_OWNER_MISMATCH`다.
+- 보류 상태 조회 API는 이번에 만들지 않는다(BD-127 후보).
+- 용어: "보류 무효화"(피할 말: 보류 취소). [`GLOSSARY.md`](../GLOSSARY.md)에 더했다.
+
+### 6.3 범위
+
+- 지갑 API, `shared.billing` 계약(`HoldVoidCommand`·`HoldVoidResultDto`·`HoldVoidOutcome`·`HOLD_VOIDED`), Client `voidHold`까지다.
+- 강의·출연이 언제 무효화를 부를지는 각 모듈 담당이 정한다. 사용 제안은 #479 본문에 남겼다.
+
+### 6.4 테스트
+
+- `HoldVoidIntegrationTest`: 세 결과, 재요청, 무효화 뒤 보류 거절, 소유 확인, 지갑 없음, 같은 참조 대상의 보류·무효화 동시 실행.
+- `ApiV1BillingInternalControllerTest.voidHold`, `BillingApiClientTest`(경로·본문·결과), `BillingFailureCodeContractTest`, `BillingEnumStorageTest`(CHECK 3개).

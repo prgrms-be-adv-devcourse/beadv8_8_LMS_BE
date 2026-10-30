@@ -14,7 +14,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.RedisZSetCommands.ZAddArgs;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
@@ -31,7 +30,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>{@link ChatRedisKeys#presenceUser(long)}: 원소 {@code 앱ID:세션ID}, 점수 만료 시각(ms). 키에도 만료를 건다.
  *     살아 있는 연결이 있으면 키가 만료되지 않으므로, 연결과 하트비트 때 점수가 지난 원소를 지운다.</li>
  *     <li>연결: 회원 연결에 넣고 접속 목록에 {@code ZADD GT}로 만료를 넣는다(다른 앱이 더 늦은 만료를 넣었으면 줄이지 않는다).</li>
- *     <li>끊김: 회원 연결에서 빼고, 살아 있는 연결이 없으면 접속 목록에서도 뺀다. 확인과 삭제를 Lua 스크립트 하나로 한다.</li>
+ *     <li>끊김: 회원 연결에서 빼고, 살아 있는 연결이 없으면 접속 목록에서도 뺀다. 확인과 삭제를 Lua 스크립트 하나로 한다.
+ *     스크립트는 {@code resources/redis/scripts/}에 두고 {@link RedisLuaSupport}로 읽어 값을 KEYS·ARGV로 넘긴다.</li>
  *     <li>앱 ID는 시작할 때마다 새로 만든다. 재시작 전 연결은 하트비트가 끊겨 만료로 사라진다.</li>
  * </ul>
  */
@@ -40,21 +40,10 @@ import lombok.extern.slf4j.Slf4j;
 @ConditionalOnChatRealtime
 public class RedisChatPresence implements ChatPresence {
 
-    private static final RedisScript<Long> CONNECT = new DefaultRedisScript<>("""
-            redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[5])
-            redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
-            redis.call('PEXPIRE', KEYS[1], ARGV[4])
-            redis.call('ZADD', KEYS[2], 'GT', ARGV[2], ARGV[3])
-            return 1
-            """, Long.class);
-    private static final RedisScript<Long> DISCONNECT = new DefaultRedisScript<>("""
-            redis.call('ZREM', KEYS[1], ARGV[1])
-            local live = redis.call('ZCOUNT', KEYS[1], '(' .. ARGV[2], '+inf')
-            if live == 0 then
-                redis.call('ZREM', KEYS[2], ARGV[3])
-            end
-            return live
-            """, Long.class);
+    private static final RedisScript<Long> CONNECT = RedisLuaSupport.longLuaScript(
+            "redis/scripts/presence-connect.lua");
+    private static final RedisScript<Long> DISCONNECT = RedisLuaSupport.longLuaScript(
+            "redis/scripts/presence-disconnect.lua");
 
     private final StringRedisTemplate stringRedisTemplate;
     private final ChatRedisKeys chatRedisKeys;
@@ -74,16 +63,16 @@ public class RedisChatPresence implements ChatPresence {
     public void connected(Long userId, String sessionId) {
         long now = System.currentTimeMillis();
         long expiresAt = now + ttl.toMillis();
-        stringRedisTemplate.execute(CONNECT, List.of(chatRedisKeys.presenceUser(userId), chatRedisKeys.presenceOnline()),
-                member(sessionId), String.valueOf(expiresAt), String.valueOf(userId), String.valueOf(ttl.toMillis()),
-                String.valueOf(now));
+        RedisLuaSupport.runForLong(stringRedisTemplate, CONNECT,
+                List.of(chatRedisKeys.presenceUser(userId), chatRedisKeys.presenceOnline()),
+                member(sessionId), expiresAt, userId, ttl.toMillis(), now);
     }
 
     @Override
     public void disconnected(Long userId, String sessionId) {
-        stringRedisTemplate.execute(DISCONNECT,
+        RedisLuaSupport.runForLong(stringRedisTemplate, DISCONNECT,
                 List.of(chatRedisKeys.presenceUser(userId), chatRedisKeys.presenceOnline()),
-                member(sessionId), String.valueOf(System.currentTimeMillis()), String.valueOf(userId));
+                member(sessionId), System.currentTimeMillis(), userId);
     }
 
     @Override

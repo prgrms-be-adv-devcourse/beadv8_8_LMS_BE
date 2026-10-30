@@ -23,3 +23,5 @@ configMapGenerator:
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
       # 보류·반환·지급·위약금을 보내는 지갑 내부 API 주소 (#274, 내부 포트 #372)
       - BILLING_API_BASE_URL=http://billing-app:8081
+      # 기존 회원 Backfill이 회원 목록을 읽는 회원 내부 API 주소 (#394, 지갑과 같은 값)
+      - MEMBER_API_BASE_URL=http://member-app:8081

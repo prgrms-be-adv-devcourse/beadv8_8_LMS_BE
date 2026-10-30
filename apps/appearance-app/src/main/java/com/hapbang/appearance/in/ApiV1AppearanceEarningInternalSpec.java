@@ -18,8 +18,8 @@ import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "출연 수익 (내부)", description = "모듈 간 내부 API. billing이 게스트의 받을 출연료·위약금을 보여 줄 때 호출한다 "
-        + "(docs/appearance/module.md 18장, 공통 규칙 docs/api/internal-earnings.md). 회원 세션으로는 호출할 수 없고, "
-        + "서버 밖에서는 nginx가 404로 막는다.")
+        + "(docs/appearance/module.md 18장, 공통 규칙 docs/api/internal-earnings.md). 회원 로그인으로는 호출할 수 없고, "
+        + "내부 포트(8081)로만 받고, Gateway·외부 포트로 오면 404다.")
 public interface ApiV1AppearanceEarningInternalSpec {
 
     String API_KEY_DESCRIPTION = "내부 API 키 (hapbang.internal-api.key). 없거나 틀리면 401(본문 없음)";

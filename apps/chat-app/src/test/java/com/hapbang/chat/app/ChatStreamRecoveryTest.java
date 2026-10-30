@@ -6,6 +6,7 @@ import static org.awaitility.Awaitility.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -78,9 +79,8 @@ class ChatStreamRecoveryTest extends ChatDeliveryTestSupport {
         relayAll(ChatJobStream.DELIVERY);
         for (int i = 0; i < 3; i++) {
             redis.delete(keys.deliveryStream());
-            jdbcClient.sql("update chats.chat_outbox set last_requeued_at = null where delivery_id = :id")
-                    .param("id", deliveryId)
-                    .update();
+            sql.update("update chats.chat_outbox set last_requeued_at = null where delivery_id = :id",
+                    Map.of("id", deliveryId));
             reconstructor.reconstruct(ChatJobStream.DELIVERY, Duration.ZERO);
         }
 

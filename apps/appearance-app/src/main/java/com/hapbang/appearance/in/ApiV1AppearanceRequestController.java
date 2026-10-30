@@ -35,9 +35,9 @@ import lombok.RequiredArgsConstructor;
  * 권한 확인 순서
  * <ol>
  *     <li>로그인: global SecurityConfig가 로그인하지 않은 요청을 401로 막는다.</li>
- *     <li>세션 역할: Facade의 {@code @PreAuthorize}가 인플루언서 이상인지 확인한다 (관리자 제외, AGENTS.md 6장).</li>
- *     <li>출연 회원 자격: UseCase가 복제된 역할·상태로 다시 확인한다. 세션 역할은 로그인 시점 값이라,
- *     로그인 이후 정지·강등된 경우는 여기서 막힌다.</li>
+ *     <li>로그인 역할: Facade의 {@code @PreAuthorize}가 인플루언서 이상인지 확인한다 (관리자 제외, AGENTS.md 6장).</li>
+ *     <li>출연 회원 자격: UseCase가 복제된 역할·상태로 다시 확인한다. 헤더 역할은 토큰 발급 시점 값이라,
+ *     그 뒤 정지·강등된 경우는 여기서 막힌다.</li>
  * </ol>
  */
 @RestController

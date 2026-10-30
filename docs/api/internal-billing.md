@@ -1,6 +1,6 @@
 # 지갑 내부 API 계약
 
-강의·출연이 HP를 보류·반환·지급하고 출연 취소 위약금을 정산할 때 쓰는 내부 HTTP API다. 지갑이 내부 API(#273)를, `shared.billing`이 계약(`dto`·`domain`)과 Client(`out.BillingApiClient`, #272)를 제공하고, 소비 모듈은 Client만 쓴다 (D62, D64).
+강의·출연이 HP를 보류·반환·지급하고 출연 취소 위약금을 정산하고, 더는 쓰지 않는 보류를 무효화할 때 쓰는 내부 HTTP API다. 지갑이 내부 API(#273)를, `shared.billing`이 계약(`dto`·`domain`)과 Client(`out.BillingApiClient`, #272)를 제공하고, 소비 모듈은 Client만 쓴다 (D62, D64).
 
 - 공통 규칙(경로, 내부 API 키 인증, 회원 세션 불가, 진입점 차단, RsData·ProblemDetail, Swagger 노출)은 [수익 내부 API 계약 1장](internal-earnings.md#1-공통-규칙)과 같다.
 - 소비 모듈: 출연(#274), 강의(#275~#277). 기존 shared `BillingPort`는 전환이 끝나면 지운다(#280).
@@ -16,9 +16,22 @@
 | `/api/v1/internal/billing/releases` | `ReleaseCommand` | `ReleaseResultDto` | 보류 하나 안의 `releaseRequestId` |
 | `/api/v1/internal/billing/payouts` | `PayoutCommand` | `PayoutResultDto` | 보류 하나 안의 `payoutRequestId` |
 | `/api/v1/internal/billing/penalty-settlements` | `PenaltyCommand` | `PenaltyResultDto` | 보류 하나 안의 `cancellationId` |
+| `/api/v1/internal/billing/hold-voids` | `HoldVoidCommand` | `HoldVoidResultDto` | 참조 대상(`referenceType` + `referenceId`). 참조 대상당 무효화 1건 (#479) |
 
 - 같은 멱등 키 + 같은 내용이면 처음 결과를 `replayed = true`로 돌려준다. 같은 키 + 다른 내용이면 409 `IDEMPOTENCY_KEY_CONFLICT`다.
 - 반환·지급의 `amountHp`가 `null`이면 남은 보류 전액이다. `isFull()`은 본문에 넣지 않는다.
+
+보류 무효화 (#479): 호출한 모듈이 참조 대상의 보류를 더는 쓰지 않는다고 알린다. 보류 결과를 모르는 채로 업무를 취소·보상할 때(보류가 결과 불명이었거나, 보류가 뒤늦게 도착할 수 있을 때) 반환 대신 부른다.
+
+- 요청은 `{userId, referenceType, referenceId}`이다. `userId`는 보류한 회원이다.
+- 결과 `outcome`:
+  - `RELEASED`: 남은 보류를 전부 반환했다(`releasedHp` > 0). 반환 요청 ID `VOID`로 기존 반환과 같이 처리한다(원장 `RELEASE`).
+  - `ALREADY_CLOSED`: 보류가 이미 끝났다(전부 반환·지급). 아무것도 바꾸지 않는다(`releasedHp` 0).
+  - `VOIDED`: 보류가 없다. 무효 표시만 남긴다(`releasedHp` 0).
+- 세 경우 모두 무효화 기록을 남긴다. 기록이 있는 참조 대상의 보류 요청은 409 `HOLD_VOIDED`로 거절한다. 무효화 전에 만든 보류의 재요청도 거절한다.
+- 같은 참조 대상에 다시 보내면 처음 결과를 `replayed = true`로 돌려준다. 다른 회원의 보류나 무효화 기록이면 409 `HOLD_OWNER_MISMATCH`다.
+- 보류와 같은 지갑 락으로 처리해, 같은 참조 대상의 보류와 무효화가 동시에 와도 "보류가 남은 채 무효화됨"은 생기지 않는다.
+- 무효화는 되돌릴 수 없다. 다시 결제하려면 새 참조 대상(주문 항목·출연 요청)으로 보류한다.
 
 요청 예 (구매 취소 전체 반환):
 
@@ -57,7 +70,7 @@
 
 ## 2. 결과와 실패 분류 (D64, D66)
 
-Client의 네 메서드(`hold`·`release`·`payout`·`settlePenalty`)는 `BillingCallResult<T>`를 돌려주거나 `BillingCallException`을 던진다.
+Client의 다섯 메서드(`hold`·`release`·`payout`·`settlePenalty`·`voidHold`)는 `BillingCallResult<T>`를 돌려주거나 `BillingCallException`을 던진다.
 
 | 응답·예외 | 결과 |
 | --- | --- |
@@ -76,13 +89,13 @@ Client의 네 메서드(`hold`·`release`·`payout`·`settlePenalty`)는 `Billin
 - `Failed`를 거절이라 부르지 않는다. 업무 거절(`INSUFFICIENT_BALANCE`)뿐 아니라 재시도 대상(`WALLET_NOT_FOUND`)도 온다. 재시도할지는 호출한 쪽이 작업 유형별로 정한다(강의 D57).
 - `detail`은 사용자에게 보여 줄 수 있는 지갑 메시지다. `rawCode`와 원인 예외는 사용자에게 보여 주지 않고 로그와 작업 시도 기록에만 남긴다.
 
-`BillingFailureCode` (`shared.billing.domain`): 지갑 `BillingErrorCode` 가운데 이 네 호출에서 나올 수 있는 코드만 같은 이름으로 둔다. 지갑 코드와의 대조는 #273이 테스트로 고정한다.
+`BillingFailureCode` (`shared.billing.domain`): 지갑 `BillingErrorCode` 가운데 이 다섯 호출에서 나올 수 있는 코드만 같은 이름으로 둔다. 지갑 코드와의 대조는 #273이 테스트로 고정한다.
 
 | 묶음 | 코드 |
 | --- | --- |
 | 지갑·잔액 | `WALLET_NOT_FOUND`, `INSUFFICIENT_BALANCE`, `BALANCE_OVERFLOW`, `INVALID_POINT_AMOUNT` |
 | 멱등 | `IDEMPOTENCY_KEY_CONFLICT` |
-| 보류 | `HOLD_NOT_FOUND`, `HOLD_OWNER_MISMATCH`, `HOLD_ALREADY_CLOSED`, `HOLD_TYPE_NOT_SUPPORTED`, `HOLD_CHARGE_NOT_FOUND`, `HOLD_STATE_INCONSISTENT`(500), `CHARGE_PRINCIPAL_MISMATCH`(500) |
+| 보류 | `HOLD_NOT_FOUND`, `HOLD_OWNER_MISMATCH`, `HOLD_ALREADY_CLOSED`, `HOLD_VOIDED`(#479), `HOLD_TYPE_NOT_SUPPORTED`, `HOLD_CHARGE_NOT_FOUND`, `HOLD_STATE_INCONSISTENT`(500), `CHARGE_PRINCIPAL_MISMATCH`(500) |
 | 반환·지급 | `RELEASE_AMOUNT_EXCEEDS_HELD`, `PAYOUT_AMOUNT_EXCEEDS_HELD`, `PAYOUT_TO_PAYER`, `PAYOUT_SOURCE_MISMATCH`, `PAYOUT_ALREADY_SETTLED` |
 | 위약금 (출연) | `PENALTY_BASE_EXCEEDS_HELD`, `PENALTY_AMOUNT_ZERO` |
 | 락 대기 | `HP_LOCK_TIMEOUT`(503). 결과 불명으로 오며, 같은 키로 다시 보내면 된다 (#273) |

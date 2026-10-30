@@ -38,11 +38,17 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 
 import com.hapbang.chat.app.ChatUserUseCase;
+import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
+import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.fixture.ChatUserSeeder;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
@@ -72,11 +78,17 @@ class AppearanceNotificationEventListenerTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("hapbang.chat.appearance-events.enabled", () -> "true");
-        registry.add("hapbang.chat.appearance-events.topic", () -> TOPIC);
-        registry.add("hapbang.chat.appearance-events.group-id", () -> GROUP);
-        registry.add("hapbang.chat.appearance-events.max-retries", () -> "1");
-        registry.add("hapbang.chat.appearance-events.retry-initial-interval", () -> "100ms");
+        registry.add(ChatKafkaConstants.APPEARANCE_EVENTS_ENABLED, () -> "true");
+    }
+
+    /** 이 클래스 전용 토픽·그룹·DLT. 재시도는 1회·첫 간격 100ms로 줄인다(운영은 3회·1초) */
+    @TestBean(name = ChatKafkaConfig.APPEARANCE_EVENT_SETTINGS)
+    private ChatKafkaConsumerSettings appearanceEventSettings;
+
+    static ChatKafkaConsumerSettings appearanceEventSettings() {
+        return new ChatKafkaConsumerSettings(TOPIC, GROUP, DLT, 1, Duration.ofMillis(100),
+                ChatKafkaConstants.RETRY_MAX_INTERVAL, ChatKafkaConstants.DEAD_LETTER_SEND_TIMEOUT,
+                ChatKafkaConstants.DEAD_LETTER_PARTITIONS, ChatKafkaConstants.DEAD_LETTER_REPLICAS);
     }
 
     @Value("${spring.kafka.bootstrap-servers}")
@@ -112,7 +124,10 @@ class AppearanceNotificationEventListenerTest {
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(notification(NotificationKind.APPEARANCE_REQUEST_SENT,
                 requestId)).hasValueSatisfying(message -> {
                     assertThat(message.getSenderUserId()).isEqualTo(HOST_ID);
-                    assertThat(message.getContent()).contains("금요일 밤 합방");
+                    // 서버는 문구를 만들지 않고, 이벤트 값과 채팅 회원 복제본의 닉네임만 KST 일시로 남긴다
+                    assertThat(message.getContent()).isEmpty();
+                    assertThat(message.readAppearanceRequestSent()).isEqualTo(new AppearanceRequestSentData(1, "호스트",
+                            "금요일 밤 합방", 50_000L, "2026-11-20T21:00:00", "2026-11-13T21:00:00"));
                 }));
     }
 
@@ -129,6 +144,9 @@ class AppearanceNotificationEventListenerTest {
                 NotificationKind.APPEARANCE_APPLICATION_SUBMITTED, applicationId)).hasValueSatisfying(message -> {
                     assertThat(message.getSenderUserId()).isEqualTo(GUEST_ID);
                     assertThat(message.getParentReferenceId()).isEqualTo(7L);
+                    assertThat(message.getContent()).isEmpty();
+                    assertThat(message.readAppearanceApplicationSubmitted())
+                            .isEqualTo(new AppearanceApplicationSubmittedData(1, "게스트", "주말 게임 합방 모집"));
                 }));
     }
 

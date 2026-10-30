@@ -1,6 +1,18 @@
 # 출연 모듈 전용 설정.
 # 앱 실행 설정(application.yaml)과 나눠 두고, application.yaml의 spring.config.import로 읽는다 (테스트는 hapbang-module-test.yaml).
 # 정책 값(appearance.policy)은 이 파일에서만 바꾼다. 환경 변수 등 외부 설정으로 덮어쓰지 않는다.
+spring:
+  # Kafka 값 직렬화 방식 (#393 발행, #394 수신). 운영과 테스트가 같은 값을 쓰도록 이 파일에 둔다.
+  # Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] 직렬화·역직렬화 + 바이트 JSON 변환기 빈)를 끈다.
+  # 켜 두면 그 변환기가 기본 리스너 팩토리에도 들어가, 역직렬화기로 객체를 받는 회원 이벤트 리스너가 모두 실패한다.
+  # 발행은 아래 JSON 직렬화기가, 수신은 리스너마다 지정한 역직렬화기가 맡는다 (회원 앱 발행 설계와 같은 방식).
+  modulith:
+    events:
+      kafka:
+        enable-json: false
+  kafka:
+    producer:
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
 appearance:
   policy:
     # 최저 출연료 (1인당, HP)

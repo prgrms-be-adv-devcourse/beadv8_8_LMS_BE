@@ -189,7 +189,7 @@ class DefaultChatRoomActivityNotifierTest {
 
     private static ChatMessageResponse message(long sequence, Long senderId) {
         return new ChatMessageResponse(100 + sequence, ROOM_ID, sequence, senderId, ChatMessageType.TEXT, "m",
-                NOW, null, null, null, null);
+                NOW, null, null, null, null, null, null);
     }
 
     private static ChatRecipientState member(Long userId, int participationVersion, long visibleFrom) {

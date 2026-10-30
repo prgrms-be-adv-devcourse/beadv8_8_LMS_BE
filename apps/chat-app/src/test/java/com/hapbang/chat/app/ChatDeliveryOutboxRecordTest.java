@@ -6,14 +6,15 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.SentChatMessage;
 import com.hapbang.chat.app.exception.ChatErrorCode;
@@ -27,6 +28,7 @@ import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.domain.ChatRecipientSet;
 import com.hapbang.chat.domain.ChatRoom;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
 import com.hapbang.chat.out.ChatMessageRepository;
@@ -38,6 +40,8 @@ import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatRoomRepository;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.testsupport.IntegrationTest;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 메시지·시스템 안내·알림 저장과 같은 트랜잭션에 전달 outbox·발행 체크포인트·불변 수신자 집합을 남기는지 검증한다.
@@ -70,8 +74,7 @@ class ChatDeliveryOutboxRecordTest {
     @Autowired
     private ChatPublishCheckpointRepository checkpointRepository;
 
-    @Autowired
-    private JdbcClient jdbcClient;
+    private ChatNativeSql sql;
 
     @MockitoSpyBean
     private ChatOutboxRepository chatOutboxRepository;
@@ -86,6 +89,11 @@ class ChatDeliveryOutboxRecordTest {
     private ApplicationContext context;
 
     private Long chatRoomId;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -253,9 +261,8 @@ class ChatDeliveryOutboxRecordTest {
 
     @Test
     void 수신자_집합이_없는_방에는_보낼_수_없고_채팅을_다시_시작하면_집합을_만든다() {
-        jdbcClient.sql("update chats.chat_room set current_recipient_set_id = null where id = :id")
-                .param("id", chatRoomId)
-                .update();
+        sql.update("update chats.chat_room set current_recipient_set_id = null where id = :id",
+                Map.of("id", chatRoomId));
 
         assertThatThrownBy(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "안녕하세요", null))
                 .isInstanceOf(ChatException.class)
@@ -274,12 +281,9 @@ class ChatDeliveryOutboxRecordTest {
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
         chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
 
-        List<Integer> versions = jdbcClient.sql("""
+        List<Integer> versions = sql.list("""
                         select set_version from chats.chat_recipient_set where chat_room_id = :id order by set_version
-                        """)
-                .param("id", chatRoomId)
-                .query(Integer.class)
-                .list();
+                        """, Integer.class, Map.of("id", chatRoomId));
         assertThat(versions).containsExactly(1, 2, 3);
     }
 

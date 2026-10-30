@@ -125,7 +125,7 @@ class ChatRealtimeDrainE2ETest {
     private static MessageFanout fanout(Long chatRoomId) {
         // 보낸 사람(호스트)의 전송 결과 확인은 회원 단위(convertAndSendToUser)로 간다
         ChatMessageResponse message = new ChatMessageResponse(LEAKED_MESSAGE_ID, chatRoomId, 1L, HOST_ID,
-                ChatMessageType.TEXT, "앞 메서드의 메시지", NOW, null, null, null, null);
+                ChatMessageType.TEXT, "앞 메서드의 메시지", NOW, null, null, null, null, null, null);
         return new MessageFanout(UUID.randomUUID(), MessageFanout.Type.MESSAGE, chatRoomId, 1, message,
                 ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, "c-leak");
     }

@@ -29,8 +29,8 @@
 
 ### E2E 테스트 방식 (#390)
 
-- E2E(HTTP 요청 → DB)는 `@AppearanceE2ETest`로 실제 서버(랜덤 포트)를 띄우고 RestAssured로 요청한다. 보안 필터(세션 로그인, CSRF)·직렬화·오류 응답이 운영과 같은 경로를 거친다.
-- 로그인은 `E2ELogin.as(회원 ID, 역할)` 한 곳에서 만든다(테스트 전용 로그인 경로로 실제 세션과 CSRF 토큰 쿠키를 받는다). CSRF 없는 요청은 `E2ELogin.withoutCsrf`.
+- E2E(HTTP 요청 → DB)는 `@AppearanceE2ETest`로 실제 서버(랜덤 포트)를 띄우고 RestAssured로 요청한다. 보안 필터(Gateway 사용자 헤더 로그인)·직렬화·오류 응답이 운영과 같은 경로를 거친다.
+- 로그인은 `E2ELogin.as(회원 ID, 역할)` 한 곳에서 만든다. Gateway가 넘기는 `X-User-Id`·`X-User-Role` 헤더를 싣는다(#395, 27장). 세션·CSRF 토큰은 없다.
 - ID처럼 `long`인 응답 값은 `E2EMatchers.number`로 비교한다(RestAssured는 JSON 정수를 크기에 따라 Integer·Long으로 읽는다).
 - 컨트롤러 웹 슬라이스(`@WebMvcTest`)·Swagger 명세 테스트는 MockMvc 그대로다.
 
@@ -48,11 +48,13 @@
 | 저장소 | `AppearanceRequestRepositoryTest` | `appearances.requests` 저장, 진행 중 요청 부분 유니크 인덱스, 목록 조회 | #98 |
 | 통합 | `AppearanceModuleIntegrationTest` | 모듈 전체 기동 | #26 |
 | 통합 | `AppearanceUserFacadeTest` | 출연 회원 생성·갱신(Facade), 자격 확인(Support) | #31, #50, #98 |
-| 통합 | `AppearanceUserEventListenerTest` | 회원 가입·정보 변경 이벤트 수신 | #31, #50 |
-| E2E | `AppearanceApiE2ETest` | 세션 로그인 → 자격 확인 → 오류 응답, 회원 정지 반영 (앱 전체) | #31, #50 |
+| 통합 | `AppearanceUserEventListenerTest` | 회원 가입·정보 변경 이벤트 Kafka 수신 (Testcontainers Kafka) | #31, #50, #394 |
+| 단위 | `AppearanceUserBackfillUseCaseTest` | 기존 회원 Backfill 순회·집계·중단 (회원 내부 API 대역 서버) | #394 |
+| E2E | `AppearanceUserBackfillAdminApiE2ETest` | 관리자 기존 회원 Backfill API (실제 서버·DB, 회원 내부 API 대역 서버) | #394 |
+| E2E | `AppearanceApiE2ETest` | 헤더 로그인 → 자격 확인 → 오류 응답, 회원 정지 반영 (앱 전체) | #31, #50 |
 | 통합 | `AppearanceSwaggerDocsTest` | Swagger 명세의 성공 응답 스키마가 `RsData`인지 | #144 |
-| 통합 | `AppearanceRequestFacadeTest` | 요청서 보내기(HP 보류·잔액 부족·무응답·중복·동시 요청), 세션 역할(`@PreAuthorize`), 출연 회원 자격, 조회, 수정(멱등) | #98 |
-| E2E | `AppearanceRequestApiE2ETest` | 출연 요청서 API 5개: 세션 로그인·CSRF·역할 → 응답(`RsData`)·오류 형식 (앱 전체) | #98, #144 |
+| 통합 | `AppearanceRequestFacadeTest` | 요청서 보내기(HP 보류·잔액 부족·무응답·중복·동시 요청), 로그인 역할(`@PreAuthorize`), 출연 회원 자격, 조회, 수정(멱등) | #98 |
+| E2E | `AppearanceRequestApiE2ETest` | 출연 요청서 API 5개: 헤더 로그인·역할 → 응답(`RsData`)·오류 형식 (앱 전체) | #98, #144 |
 | 단위 | `AppearanceRequestResponseTest` | 수락·거절·응답 전 취소 규칙 (행위자·상태·기한·버전·사유) | #137 |
 | 단위 | `AppearanceTest` | 출연 성립과 스냅샷 | #137 |
 | 단위 | `HpTaskTest` | HP 작업 생성·성공·실패 기록 | #137 |
@@ -186,21 +188,22 @@
 | 일반 유저로 `getParticipant` | `NOT_INFLUENCER` |
 | 인플루언서를 정지 상태로 `syncModified`한 뒤 `getParticipant` | `APPEARANCE_USER_NOT_ACTIVE` |
 
-### 4.4 회원 이벤트 수신 — `AppearanceUserEventListenerTest`
+### 4.4 회원 이벤트 Kafka 수신 — `AppearanceUserEventListenerTest` (Testcontainers Kafka, #394)
 
-회원 모듈이 가입·변경 이벤트를 발행한 것처럼 만들고 확인한다. 리스너는 발행한 트랜잭션이 커밋된 뒤에만 실행된다.
+회원 앱처럼 shared 레코드를 JSON(`__TypeId__` 헤더)으로, key는 회원 ID로 `member.events.v1`에 보낸다. 업무 토픽은 테스트가 대신 만들고(partition 3), 리스너·토픽 생성을 켠 컨텍스트를 따로 띄워 끝나면 닫는다(`@DirtiesContext`). 테스트마다 다른 회원 ID를 쓴다. 강의 #429 테스트와 같은 경우를 확인한다.
 
 | 케이스 | 기대 결과 |
 |---|---|
-| 트랜잭션 안에서 `UserJoinedEvent` 발행 후 커밋 | 출연 회원 생성 (최대 5초 대기) |
-| `UserJoinedEvent`를 발행한 트랜잭션이 롤백 | 출연 회원 생성 안 됨 |
-| 인플루언서가 있는 상태에서 `UserModifiedEvent`(닉네임 변경, VERIFIED_INFLUENCER, SUSPENDED) 발행 후 커밋 | 닉네임·역할·상태 갱신, 출연 회원은 1명 그대로 (최대 5초 대기) |
-| 출연 회원이 없는 상태에서 `UserModifiedEvent` 발행 후 커밋 | 출연 회원 생성 안 됨 (0.5초 동안 확인). 처리 실패로 남아 재시작 때 재처리 |
-| 가입 → 변경(닉네임·VERIFIED_INFLUENCER) 반영 뒤 같은 `UserJoinedEvent`를 다시 발행 | 변경된 닉네임·역할 유지, 출연 회원 1명 (늦은 가입 이벤트 무시) |
-| 버전 2 변경 반영 뒤 버전 1(늦게 도착)·버전 2(중복) 변경 이벤트 발행 | 버전 2의 닉네임·역할·상태 유지 (0.5초 동안 확인, #293) |
-| `UserModifiedEvent`(WITHDRAWN)를 발행한 트랜잭션이 롤백 | 상태 ACTIVE 그대로 |
+| `UserJoinedEvent`(버전 0) | 출연 회원 생성: 닉네임·역할·ACTIVE·회원 버전 0 (최대 10초 대기) |
+| 가입 → `UserModifiedEvent`(닉네임, VERIFIED_INFLUENCER, SUSPENDED, 버전 1) | 닉네임·역할·상태 갱신, 회원 버전 1 |
+| 가입 → 변경(버전 2) 반영 뒤 같은 가입·버전 1 변경(늦게 옴)·버전 2 변경(중복) | 버전 2 정보 유지, DLT 없음. 같은 key로 보낸 표지(다른 회원 가입)가 반영된 뒤 확인해 앞 이벤트 처리가 끝났음을 보장 |
+| `UserLoggedOutEvent`(출연이 쓰지 않는 타입) → 가입 | 로그아웃은 무시하고 가입 반영, DLT 없음 |
+| 가입 없이 `UserModifiedEvent` | 출연 회원 생성 안 됨. 재시도(1·2·4초, 7초 이상 걸림) 뒤 출연 DLT 1건: 원본 토픽·`AppearanceException` 헤더·본문 포함 |
+| 깨진 JSON → 가입 | 깨진 메시지는 재시도 없이(1초 안) 원본 바이트 그대로 DLT 1건, 다음 가입은 반영 |
+| DLT 토픽 | 이름 `member.events.v1.appearance-app.member-replica.DLT`, partition 3, 보존 7일 |
 
-- 변경 이벤트 순서 뒤바뀜·중복은 공통 `ReplicaUser`가 회원 버전으로 걸러낸다 (회원 #292, [module.md](module.md) 4.1 참고). 출연 쪽은 그 동작이 출연 회원에도 적용되는지만 확인한다.
+- 회원 버전 비교 자체는 공통 `ReplicaUser`(회원 #292, `ReplicaUserTest`)가 확인한다. 출연 쪽은 Kafka로 받았을 때 그 동작이 출연 회원에 적용되는지 본다.
+- 이전 테스트(같은 서버 안 이벤트 발행, 발행 트랜잭션 롤백 경우)는 회원이 다른 앱이 되어 없앴다. 롤백된 회원 변경은 회원 앱이 Kafka로 보내지 않는다(#393과 같은 Modulith 외부화).
 
 ### 4.5 출연 요청서 저장소 — `AppearanceRequestRepositoryTest`
 
@@ -214,7 +217,7 @@
 
 ### 4.6 출연 요청서 흐름 — `AppearanceRequestFacadeTest`
 
-DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCER")`로 넣는다(Facade의 `@PreAuthorize`). Billing 대역은 테스트마다 초기화된다.
+DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFLUENCER")`로 넣는다(Facade의 `@PreAuthorize`). Billing 대역은 테스트마다 초기화된다.
 
 | 케이스 | 기대 결과 |
 |---|---|
@@ -226,8 +229,8 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 | 응답 대기 중인 게스트에게 다시 보내기 / 다른 게스트에게 보내기 | `DUPLICATE_APPEARANCE_REQUEST` / `REQUESTED` (보류 2건) |
 | 같은 게스트에게 5개 스레드가 동시에 저장 | 1건 저장, 4건 `DUPLICATE_APPEARANCE_REQUEST`, DB에 1건 |
 | 게스트가 일반 유저 / 없는 회원 | `NOT_INFLUENCER` ("인플루언서 이상에게만 출연을 요청할 수 있습니다.") / `APPEARANCE_USER_NOT_FOUND` ("게스트 회원 정보를 찾을 수 없습니다."), 저장 안 됨 |
-| 세션은 인플루언서, 출연 회원은 정지 | `APPEARANCE_USER_NOT_ACTIVE`, 저장 안 됨 |
-| 세션 역할 USER (보내기·목록) / ADMIN (보내기) | `AccessDeniedException` (Facade `@PreAuthorize`), 저장 안 됨 |
+| 로그인 역할은 인플루언서, 출연 회원은 정지 | `APPEARANCE_USER_NOT_ACTIVE`, 저장 안 됨 |
+| 로그인 역할 USER (보내기·목록) / ADMIN (보내기) | `AccessDeniedException` (Facade `@PreAuthorize`), 저장 안 됨 |
 | 출연 회원이 일반 유저로 강등된 뒤 보낸 목록 조회 | `NOT_INFLUENCER` (조회도 막음) |
 | 호스트가 3건을 보내고 1건을 받음 | 보낸 목록 최신순 2건(+1), 받은 목록 1건 |
 | 3건을 size 2로 조회 | 총 3건, 2페이지, 첫 페이지 첫 항목이 가장 최근 요청서 |
@@ -243,29 +246,30 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 
 ### 5.1 API 흐름 — `AppearanceApiE2ETest`
 
-실제 서버(보안 필터, 세션 로그인, 서비스, DB)를 띄우고 RestAssured로 요청한다. 로그인은 `E2ELogin`으로 만든다 (#390).
+실제 서버(보안 필터, 헤더 로그인, 서비스, DB)를 띄우고 RestAssured로 요청한다. 로그인은 `E2ELogin`으로 만든다 (#390).
 테스트 전용 컨트롤러로 로그인·자격 확인 기반만 확인한다. 실제 출연 API는 5.2에서 확인한다.
 
 | 케이스 | 기대 결과 |
 |---|---|
 | 로그인하지 않고 요청 | 401 (보안 필터) |
-| 인플루언서로 로그인 | 200, 세션의 회원 ID가 `@LoginUserId`로 들어와 자격 확인 통과 |
+| 인플루언서로 로그인 | 200, 헤더의 회원 ID가 `@LoginUserId`로 들어와 자격 확인 통과, `Set-Cookie` 없음 |
+| 헤더 역할 인플루언서, 복제본은 일반 유저(토큰 발급 뒤 강등) | 403 `NOT_INFLUENCER` (#395) |
 | 로그인했지만 출연 회원 정보 없음 | 404 Problem Detail, `code: APPEARANCE_USER_NOT_FOUND` |
 | 일반 유저로 로그인 | 403 Problem Detail, `code: NOT_INFLUENCER`, 한글 `detail` 정상 (UTF-8) |
-| 인플루언서로 요청 성공 → 회원 정지 이벤트(`UserModifiedEvent`) 반영 → 같은 로그인으로 다시 요청 | 200 → 403 Problem Detail, `code: APPEARANCE_USER_NOT_ACTIVE` |
+| 인플루언서로 요청 성공 → 회원 정지 반영(리스너 진입점 `AppearanceUserFacade.syncModified`, Kafka 수신은 4.4) → 같은 로그인으로 다시 요청 | 200 → 403 Problem Detail, `code: APPEARANCE_USER_NOT_ACTIVE` |
 
 ---
 
 ### 5.2 출연 요청서 API — `AppearanceRequestApiE2ETest`
 
-앱 전체(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 실제 API를 호출한다. 쓰기 요청은 `csrf()`를 함께 보낸다.
+앱 전체(보안 필터, 헤더 로그인, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 실제 API를 호출한다.
 성공 응답은 `RsData`라서 값은 `$.data.…`에서 확인하고, `statusCode`·`message`도 함께 확인한다 (#144).
 
 | 케이스 | 기대 결과 |
 |---|---|
 | 보내기 → 보낸 목록 → 받은 목록 → 상세 → 수정 | HTTP·`statusCode` 201, `data.status` `REQUESTED` → `data.content[0]`·`data.page.totalElements` 1 → 게스트 목록에 호스트 ID → 상세 필드 일치 → 보낸 값만 바뀜. 단계마다 `message` 문구 확인 |
 | 로그인하지 않고 목록 조회 | 401 (보안 필터) |
-| 일반 유저 세션으로 목록 조회, 관리자 세션으로 보내기 | 403 Problem Detail, `code: FORBIDDEN` (Facade `@PreAuthorize`, 공통 핸들러) |
+| 일반 유저로 목록 조회, 관리자로 보내기 | 403 Problem Detail, `code: FORBIDDEN` (Facade `@PreAuthorize`, 공통 핸들러) |
 | 제목 공백·URL 형식 오류·출연료 누락 | 400, `code: INVALID_REQUEST`, `errors`에 `title`·`hostChannelUrl`·`fee` |
 | 출연료 19,999 | 400 Problem Detail(`data` 없음), `code: FEE_BELOW_MINIMUM`, `detail`에 최저 출연료 |
 | 잔액 10,000에서 30,000 요청 | 409, `code: INSUFFICIENT_BALANCE`, `detail: HP 잔액이 부족합니다. 충전한 뒤 다시 시도해 주세요.` (출연 문구, #274) |
@@ -273,7 +277,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 | Billing 무응답 | 503, `code: BILLING_UNAVAILABLE` |
 | 다른 회원 상세 조회 / 게스트 수정 | 404 `APPEARANCE_REQUEST_NOT_FOUND` / 403 `NOT_REQUEST_HOST` |
 | 빈 본문(`{}`)으로 수정 | 400, `code: INVALID_REQUEST` |
-| CSRF 토큰 없이 보내기 | 403 (보안 필터) |
+| 사용자 헤더 없이 보내기 / `X-User-Id`만 보내기 | 401 / 401 (보안 필터, #395) |
 
 ### 5.3 Swagger 명세 — `AppearanceSwaggerDocsTest`
 
@@ -296,7 +300,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 | 게스트가 취소 / 호스트가 응답 전 취소 | 403 `NOT_REQUEST_HOST` / 200 `CANCELED`, `DONE` |
 | 거절한 요청서를 수락 | 409 `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE` |
 | `status=REJECTED&status=CANCELED` / `status=REQUESTED` / `status=HOLD_FAILED` / `status=UNKNOWN` | 거절한 1건 / 0건 / 400 / 400 |
-| 일반 유저 세션으로 수락 | 403 `FORBIDDEN` |
+| 일반 유저로 수락 | 403 `FORBIDDEN` |
 
 ---
 
@@ -351,7 +355,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 
 ### 7.5 흐름 — `AppearanceRequestRespondFacadeTest`
 
-DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCER")`.
+DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFLUENCER")`.
 
 | 케이스 | 기대 결과 |
 |---|---|
@@ -360,7 +364,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 | 호스트가 수락 / 다른 회원이 수락 | `NOT_REQUEST_GUEST` / `APPEARANCE_REQUEST_NOT_FOUND` |
 | 요청 뒤 호스트 정지 | `APPEARANCE_USER_NOT_ACTIVE` ("호스트가 현재 출연 거래를 할 수 없는 회원입니다."), 출연 없음 |
 | 기한이 지났지만 아직 `REQUESTED` | 수락·거절·취소 모두 `APPEARANCE_REQUEST_EXPIRED`, 상태 그대로 |
-| 세션 역할 USER | 수락·거절·취소 모두 `AccessDeniedException` |
+| 로그인 역할 USER | 수락·거절·취소 모두 `AccessDeniedException` |
 | 사유와 함께 거절 | `REJECTED`, 반환 작업 1건(금액 30,000, 호스트, 멱등 키), `DONE`, Billing에 호스트 반환 요청 |
 | Billing 무응답에서 거절 | `REJECTED` 성공, 작업 `PENDING`, 시도 1, 오류에 대역의 무응답 예외, 다음 시도 시각, 보류 그대로 |
 | Billing이 반환을 거절(보류 없음)할 때 거절 (#168) | `REJECTED` 성공, 작업 `PENDING`, 오류 `HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.` |
@@ -402,7 +406,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 
 ### 8.3 흐름 — `AppearanceRecruitFacadeTest`
 
-DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCER")`.
+DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFLUENCER")`.
 
 | 케이스 | 기대 결과 |
 |---|---|
@@ -412,7 +416,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 | Billing 무응답 | `BILLING_UNAVAILABLE` ("…내 모집글 목록에서 결과를 확인해 주세요."), `HOLD_PENDING` |
 | 모집 인원 11명 | `RECRUIT_COUNT_OUT_OF_RANGE`, 저장·보류 없음 |
 | 정지된 호스트 | `APPEARANCE_USER_NOT_ACTIVE` |
-| 세션 역할 USER | 올리기·수정·내 목록은 `AccessDeniedException`, 공개 목록·상세는 조회 가능 |
+| 로그인 역할 USER | 올리기·수정·내 목록은 `AccessDeniedException`, 공개 목록·상세는 조회 가능 |
 | 공개 목록 | 모든 호스트의 모집 중 모집글, 최신순 |
 | 내 목록 / `CLOSED` 필터 / `HOLD_FAILED` 필터 | 내 글만 / 0건 / `INVALID_REQUEST` |
 | 상세 / 보류 처리 중 / 없는 ID | 다른 회원도 조회 / `APPEARANCE_RECRUIT_NOT_FOUND` / `APPEARANCE_RECRUIT_NOT_FOUND` |
@@ -548,7 +552,7 @@ DB와 Billing 대역을 쓴다. 시각 조건은 DB의 만든 시각·다음 시
 
 ### 10.4 흐름 — `AppearanceApplicationFacadeTest`
 
-DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUENCER")`, 동시 처리 테스트는 스레드마다 인플루언서 인증을 넣는다.
+DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFLUENCER")`, 동시 처리 테스트는 스레드마다 인플루언서 인증을 넣는다.
 
 | 묶음 | 케이스 | 기대 결과 |
 |---|---|---|
@@ -575,7 +579,7 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 조회 | 지원·수락 응답, 지원자 목록 (#243) | 모집글 제목이 담긴다 |
 | 조회 | 모집글 상세의 내 지원 (#243) | 지원한 게스트: `APPLIED`·메시지·출연 ID 없음 → 수락 뒤 `SELECTED`·출연 ID. 취소한 게스트 `WITHDRAWN`. 지원 안 한 회원·호스트 `null` |
 | 조회 | 모집글 지원자 수 (수락·거절·취소 각 1) | 상세 2, 공개 목록·내 모집글 목록도 2, 지원 없는 모집글 0 |
-| 역할 | 세션 역할 USER / ADMIN | 지원·취소·수락·거절·지원자 목록·내 지원 목록 모두 `AccessDeniedException` |
+| 역할 | 로그인 역할 USER / ADMIN | 지원·취소·수락·거절·지원자 목록·내 지원 목록 모두 `AccessDeniedException` |
 
 ### 10.5 E2E — `AppearanceApplicationApiE2ETest`
 
@@ -644,7 +648,7 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 기한 마감 | 마감 일시가 지난 `HOLD_PENDING` (C5) | 마감 배치만으로는 0건·작업 없음 → 보류 재확인 후 마감 배치 1건, `CLOSED`, 90,000 반환 요청 |
 | 동시성 | 조기 마감과 새 지원 2건 동시 (3회 반복, C9) | 마감은 성공, 지원은 성공 또는 `APPEARANCE_RECRUIT_NOT_OPEN`. 마감된 모집글에 `APPLIED` 지원 0건 |
 | 기한 마감 | 대상 2건 중 1건 처리 중 충돌(`CONCURRENT_UPDATE`) (C8) | 1건만 마감, 충돌 건은 `RECRUITING`·반환 작업 없음(롤백) → 다음 실행에서 마감·반환 작업 1건 |
-| 역할 | 세션 USER / ADMIN | `AccessDeniedException` |
+| 역할 | 로그인 역할 USER / ADMIN | `AccessDeniedException` |
 
 ### 11.5 E2E — `AppearanceRecruitApiE2ETest`
 
@@ -683,7 +687,7 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 단위 | `AppearanceCancelRequestTest` | 요청(사유·게스트·처리 중·방송 예정 일시·횟수·성립 상태), 수락·거절·자동 거절, 응답 가능 확인, 볼 수 있는 사람, 모집글 성립 인원 감소, 출연별 반환 요청 ID |
 | 저장소 | `AppearanceCancelRequestRepositoryTest` | 저장·처리 중 요청·횟수·이력, 처리 중 요청 부분 유니크, 순번 유니크, 자동 거절 대상(조인), 출연 목록·출처 조회·잠금 조회 |
 | 통합 | `AppearanceCancelRequestFlowTest` | 요청서 출처(요청·수락 반환·거절·횟수·거부·방송 예정 일시·반환 실패), 모집 출처(마감 전·마감 반환에 포함·마감 후 반환·동시 수락), 자동 거절 배치, 수락·거절 동시, 조회, 역할, 이벤트 |
-| E2E | `AppearanceApiCancelE2ETest` | 조회(role 필수)·상세·다른 회원 404·일반 유저 403, 요청→거절→재요청→수락 흐름과 오류 코드, CSRF, 숫자 아닌 경로 |
+| E2E | `AppearanceApiCancelE2ETest` | 조회(role 필수)·상세·다른 회원 404·일반 유저 403, 요청→거절→재요청→수락 흐름과 오류 코드, 관계없는 회원 취소 요청 404, 숫자 아닌 경로 |
 | 통합 | `AppearanceSwaggerDocsTest`, `AppearanceBatchConditionTest` (변경) | 출연 API 응답 스키마, 배치에 자동 거절 추가 |
 
 ### 13.2 단위 — `AppearanceCancelRequestTest`
@@ -722,7 +726,7 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 자동 거절 | 방송 예정 일시 전 | 0건, `CANCEL_REQUESTED` 그대로 |
 | 동시성 | 같은 요청에 수락·거절 동시 | 1건만 성공, 나머지 `CANCEL_REQUEST_NOT_PENDING` 또는 `CONCURRENT_UPDATE`, 결과에 맞게 반환 요청 1건 또는 없음 |
 | 조회 | 내 출연 목록·상세 | 호스트 목록 최신순(모집·요청), 제목은 출처 제목, 게스트 `CANCEL_REQUESTED` 필터, 다른 쪽 역할 0건, 다른 회원 상세 `APPEARANCE_NOT_FOUND` |
-| 역할 | 세션 USER / ADMIN | 5개 기능 모두 `AccessDeniedException` |
+| 역할 | 로그인 역할 USER / ADMIN | 5개 기능 모두 `AccessDeniedException` |
 
 ### 13.4 E2E — `AppearanceApiCancelE2ETest`
 
@@ -733,7 +737,7 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 사유 없이 요청 / 요청 / 다시 요청 | 400 `INVALID_REQUEST` / 200 "출연 취소를 요청했습니다.", `CANCEL_REQUESTED` / 409 `CANCEL_REQUEST_ALREADY_PENDING` |
 | 게스트 수락 / 호스트 거절(본문 없음) | 403 `NOT_APPEARANCE_HOST` / 200 "출연 취소 요청을 거절했습니다.", `ESTABLISHED`, `REJECTED` |
 | 재요청 → 수락 / 3번째 요청 | 200 "출연 취소 요청을 수락했습니다.", `CANCELED_BY_AGREEMENT`, 이력 2번째 `ACCEPTED` / 409 `APPEARANCE_NOT_CANCELABLE` |
-| CSRF 없음 / `/api/v1/appearances/abc` | 403 / 404 |
+| 관계없는 회원이 취소 요청 / `/api/v1/appearances/abc` | 404 `APPEARANCE_NOT_FOUND` / 404 (#395 전에는 CSRF 없음 403) |
 
 ---
 
@@ -771,7 +775,7 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 전체 취소 | 거부 | 다른 회원 `NOT_RECRUIT_HOST`, 다시 취소 `APPEARANCE_RECRUIT_NOT_CANCELABLE`, 방송 예정 일시 지남 `APPEARANCE_SCHEDULE_PASSED`, 보류 처리 중 `APPEARANCE_RECRUIT_NOT_FOUND` |
 | 동시성 | 전체 취소 + 대기 지원 수락 | 결과는 응답·업무 예외뿐(교착 상태 없음), 전체 취소 성공, 진행 중 출연 0건, Billing 요청 합계 = 보류 60,000. 수락이 먼저면 위약금 2건·빈자리 반환 없음, 막혔으면(`APPEARANCE_RECRUIT_NOT_OPEN`) 위약금 1건·빈자리 30,000 |
 | 전체 취소 | 앞 작업(위약금)의 결과 기록 실패 (DB 오류 흉내) | 예외 없이 취소 성공 응답, 뒤 작업(빈자리 반환)도 `DONE`, 위약금 작업은 `PENDING` → 재시도로 `DONE`, 위약금은 한 번만 지급 |
-| 역할 | 세션 USER / ADMIN | 일방 취소·전체 취소 `AccessDeniedException` |
+| 역할 | 로그인 역할 USER / ADMIN | 일방 취소·전체 취소 `AccessDeniedException` |
 
 ### 14.3 E2E·기타
 
@@ -829,7 +833,7 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | 자동 확인 | 기간 끝난 출연·하루 늦게 성립해 기간 안인 출연·불참 출연 | 1건만 `CONFIRMED`·`AUTO`·지급 `DONE`, 나머지 그대로 |
 | 자동 확인 | 취소 요청 처리 중 | 건너뜀 → 자동 거절 뒤 다음 실행에서 확인 → 또 실행해도 0건, 지급 1건 |
 | 자동 확인 | Billing 무응답 | 확인은 하고 지급 작업만 `PENDING` |
-| 역할 | 세션 USER / ADMIN | 확인·불참 `AccessDeniedException` |
+| 역할 | 로그인 역할 USER / ADMIN | 확인·불참 `AccessDeniedException` |
 
 ### 15.4 E2E·기타
 
@@ -986,7 +990,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | 페이지 | 같은 상태 기준 시각 4건 | 출연 ID 내림차순, 페이지 경계에서 중복·누락 없음 |
 | 페이지 | 요청에 정렬(`sort=statusUpdatedAt`, `sort=fee`)이 옴 | 무시하고 고정 순서 그대로, 예외 없음 |
 | 페이지 | 시각이 다름 | 나중에 확인한 출연이 먼저 |
-| 권한 | 인플루언서 세션만 | 요약·목록 `AccessDeniedException` (내부 호출 `ROLE_INTERNAL`만) |
+| 권한 | 인플루언서 로그인만 | 요약·목록 `AccessDeniedException` (내부 호출 `ROLE_INTERNAL`만) |
 
 ### 19.3 상태 계약 — `AppearanceEarningStatusTest` (shared 단위)
 
@@ -1093,7 +1097,7 @@ MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코
 | 다시 시도 | `DONE` 작업 | 409 `HP_TASK_NOT_DEAD`, Billing 호출 없음, 다시 시도 기록 없음 |
 | 다시 시도 | 없는 작업 | 404 `HP_TASK_NOT_FOUND` |
 | 다시 시도 | 성공한 뒤 한 번 더 누름 | 409 `HP_TASK_NOT_DEAD`, 다시 시도 1회 그대로 |
-| 권한 | 세션은 관리자, 복제본이 정지 → 다시 시도·목록 / 복제본이 USER(강등) → 다시 시도 | 403 `APPEARANCE_USER_NOT_ACTIVE` ×2 / 403 `NOT_ADMIN`. 작업 `DEAD`·다시 시도 0회 그대로, Billing 호출 없음 |
+| 권한 | 로그인 역할은 관리자, 복제본이 정지 → 다시 시도·목록 / 복제본이 USER(강등) → 다시 시도 | 403 `APPEARANCE_USER_NOT_ACTIVE` ×2 / 403 `NOT_ADMIN`. 작업 `DEAD`·다시 시도 0회 그대로, Billing 호출 없음 |
 | 권한 | 인플루언서가 목록·다시 시도 | `AccessDeniedException`, 작업은 `DEAD` 그대로 |
 | 동시 (`AppearanceConcurrentUpdateTest`) | 격리 작업을 읽은 직후 다른 트랜잭션이 버전을 올려 커밋 | 409 `CONCURRENT_UPDATE`, 작업 `DEAD`·다시 시도 0회 그대로, Billing 호출 없음 |
 
@@ -1110,7 +1114,7 @@ MockMvc E2E를 RestAssured(실제 포트)로 옮겼다. 검증 내용(상태 코
 |---|---|
 | 관리자: 목록(`status` 생략) → 다시 시도 → 한 번 더 → `status=DEAD` 목록 | 200 메시지·`DEAD` 1건(종류·마지막 오류·격리 시각, `page.totalElements` 1) → 200 `DONE`·다시 시도 1회·관리자 ID → 409 `HP_TASK_NOT_DEAD` → 0건 |
 | 없는 작업 다시 시도 / `status=UNKNOWN` | 404 `HP_TASK_NOT_FOUND` / 400 |
-| 세션 관리자, 복제본 USER(강등): 다시 시도·목록 | 403 `NOT_ADMIN` ×2 |
+| 로그인 역할 관리자, 복제본 USER(강등): 다시 시도·목록 | 403 `NOT_ADMIN` ×2 |
 | 인증된 인플루언서 목록·다시 시도 / 비로그인 목록 | 보안 필터에서 403 / 401. 작업은 `DEAD`, 다시 시도 0회 그대로 |
 
 ### 21.5 참고
@@ -1236,7 +1240,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 케이스 | 기대 결과 |
 |---|---|
 | 앱 기동 | 토픽 `appearance.events.v1`이 partition 3개로 있음 |
-| 요청서 보내기 성공(커밋) | 메시지 1건. key `appearance-request:<요청서 ID>`, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, `eventId` 헤더 없음. 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
+| 요청서 보내기 성공(커밋) | 메시지 1건. key `appearance-request:<요청서 ID>`, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, `eventId` 헤더 없음, `__TypeId__` = 레코드 전체 클래스 이름(JSON 직렬화기, #394에서 Modulith JSON 기본 세트를 끈 뒤에도 그대로). 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
 | 지원(커밋) | 메시지 1건. key `appearance-application:<지원 ID>`, `eventType` = `AppearanceApplicationSubmittedEvent`, 본문의 지원 ID·모집글 ID·모집글 제목·호스트·게스트·지원 시각 |
 | 발행한 트랜잭션 롤백 | 롤백한 이벤트는 나가지 않음 (뒤에 커밋한 이벤트가 도착한 뒤 확인) |
 | 첫 보내기의 응답 유실(브로커에는 도착, 앱은 실패로 받음) → 시계를 2분 앞당겨 재발행 배치(`AppearanceEventRepublishUseCase.republishDue()`) 1회 | 배치가 1건을 다시 보냄. 같은 key로 2건 이상, `eventType`·본문이 같음(받는 쪽이 `(eventType, 요청서 ID)`로 거름) |
@@ -1286,3 +1290,58 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | 요청서·모집글 보류 5xx로 회로 열림(둘 다 `HOLD_PENDING`) → 재확인 배치 → 시험 중으로 넘어감 → 재확인 배치 | 열린 동안 0건, 지갑이 받은 보류 2번 그대로 → 2건 정리(`REQUESTED`·`RECRUITING`), 회로 닫힘 |
 | 반환 작업 3건, 지갑 5xx → 재시도 배치 → 시험 중(지갑 여전히 5xx) → 재시도 배치 → 지갑 복구·시험 중 → 재시도 배치 | 닫힌 회로에서 2건 실패로 열려 3번째는 보내지 않음(시도 1·1·0) → 시험 중 1건만 보내고 실패해 다시 열림(시도 합 3, 반환 요청 3번) → 1건 성공으로 닫혀 3건 모두 `DONE` |
 
+## 27. Gateway 사용자 헤더 인증 (#395)
+
+출연 앱이 Gateway가 넘긴 `X-User-Id`·`X-User-Role`로 로그인 상태를 만든다(`module.md` 20장). 세션·CSRF는 없앴다. 테스트 로그인도 같은 헤더로 바꿨다: MockMvc `GatewayLogin.as`, E2E `E2ELogin.as`. 테스트 전용 세션 로그인 경로(`E2ELoginConfig`)는 지웠다.
+
+### 27.1 `GatewayUserHeaderFilterTest` (웹 슬라이스, 실제 `SecurityConfig`)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| `X-User-Id: 7`, `X-User-Role: INFLUENCER` | 200, `getName()` = `7`, 권한 `ROLE_INFLUENCER` 하나 |
+| 헤더 없음 | 401 |
+| 한쪽만(`7`/없음, 없음/`INFLUENCER`), ID `abc`·`0`·`-1`·빈 값·` 7`, 역할 `ROLE_INFLUENCER`·`influencer`·`SUPER`·빈 값 (11개) | 401, 경고 로그 `사용자 헤더 형식 오류로 인증하지 않음` |
+| 헤더 로그인으로 CSRF 토큰 없이 POST | 200, `Set-Cookie` 없음, 세션 없음 |
+
+### 27.2 기존 테스트에서 바뀐 것
+
+| 테스트 | 바뀐 것 |
+|---|---|
+| `SecurityConfigTest`·`PageConfigTest`·`GlobalExceptionHandlerTest` | 로그인을 `TestLogin`(OAuth2 흉내) → `GatewayLogin`(헤더, 실제 필터를 거침). `csrf()`와 구글 등록 정보 설정 제거 |
+| `InternalApiSecurityConfigTest` | 회원 로그인을 세션 → 사용자 헤더. 사용자 헤더만으로는 내부 API 401(올바른 키와 함께 오면 `ROLE_INTERNAL`만). CSRF 케이스는 "회원 API도 토큰 없이 POST 200"으로 |
+| `AppearanceApiE2ETest` | 세션 쿠키가 내려가지 않음, 헤더 역할은 인플루언서지만 복제본이 일반 유저면 403 `NOT_INFLUENCER` 추가 |
+| `AppearanceRequestApiE2ETest` | "CSRF 없음 403" → "사용자 헤더 없음 401, `X-User-Id`만 401" |
+| `AppearanceApiCancelE2ETest` | "CSRF 없음 403" → "관계없는 회원의 취소 요청 404 `APPEARANCE_NOT_FOUND`" |
+
+권한 테스트(비로그인 401, 역할 부족 403, 다른 사람 자원 404, 정지 회원 거절)는 기존 E2E·Facade 테스트가 헤더 로그인으로 그대로 확인한다.
+
+## 28. 기존 회원 Backfill (#394)
+
+회원 앱이 Kafka로 보내기 전에 가입한 회원을 회원 내부 API로 채운다(module.md 4.1.1). 회원 내부 API는 `FakeMemberServer`(JDK HTTP 서버)로 흉내 내 운영 `MemberApiClient`가 실제 HTTP로 부르게 한다(오류 변환까지 운영과 같다).
+
+### 28.1 `AppearanceUserBackfillUseCaseTest` (단위)
+
+회원 하나의 반영(`applySnapshot`)과 트랜잭션은 대역이다.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 회원 900명, limit 1,000 | 500·400명 두 번 읽어(afterId 0·500) ID 순서로 모두 반영, `completed`, `nextAfterId` 없음 |
+| 150명을 limit 100으로 → nextAfterId로 이어서 / 회원 없음 | 100명·`completed = false`·`nextAfterId = 100` → 50명·`completed` / 0건·`completed` |
+| 반영 결과 생성·갱신·실패·그대로 1건씩 | 종류별 집계, scanned = 합계, 실패 회원은 `failedIds`, 다음 회원 계속 |
+| 150명 모두 실패 | `failed` 150, `failedIds`는 앞 100개 |
+| 두 번째 페이지 5xx | 503 `MEMBER_SOURCE_UNAVAILABLE`, `scanned` 500·`resumeAfterId` 500, 첫 페이지는 반영됨 |
+| 401 / 깨진 응답 | `MEMBER_SOURCE_REJECTED` / `MEMBER_SOURCE_UNAVAILABLE`(`resumeAfterId` = 요청한 afterId), 반영 없음 |
+| Client 없음(주소 미설정) | `MEMBER_SOURCE_UNAVAILABLE` |
+| 키셋 계약 위반(역순, afterId 이하 ID, nextAfterId가 마지막 ID와 다름, 빈 페이지에 nextAfterId) | 그 페이지를 반영하지 않고 `MEMBER_SOURCE_UNAVAILABLE` |
+| 실행 중 다시 실행 / 끝난 뒤 / limit 0·1,001, afterId -1 | 409 `BACKFILL_ALREADY_RUNNING` / 다시 실행 가능 / 거부 |
+
+### 28.2 `AppearanceUserBackfillAdminApiE2ETest` (E2E)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 관리자 실행: 관리자·없는 회원(정지 상태) 생성, 이벤트로 v3인 회원에 스냅샷 v2, v1인 회원에 스냅샷 v2 | 200, created 2·updated 1·ignored 1·failed 0, 응답에 닉네임 없음. 없는 회원은 스냅샷대로 생성, v3 그대로, v1 → v2. 관리자 자신의 출연 회원이 없어도 실행됨 |
+| 같은 요청을 다시 | created 0·ignored 4 (멱등) |
+| Backfill로 만든 회원에 회원 변경 이벤트 | 반영됨(가입 이벤트가 없던 기존 회원의 변경이 DLT로 가지 않음) |
+| limit 2로 3명 → afterId=nextAfterId로 이어서 | 2명·`nextAfterId`·`completed = false` → 1명·`completed`, 3명 모두 생성 |
+| 회원 내부 API 5xx | 503 `MEMBER_SOURCE_UNAVAILABLE`, Problem Detail에 `scanned`·`resumeAfterId` |
+| 인플루언서 / 비로그인(사용자 헤더 없음) / limit 1,001 / afterId -1 | 403 / 401 / 400 `INVALID_REQUEST` / 400, 회원 내부 API를 부르지 않음 |

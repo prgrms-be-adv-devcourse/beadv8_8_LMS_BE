@@ -7,6 +7,8 @@
 > - 결정을 바꾸려면 팀과 먼저 합의하고, 기존 행의 상태를 바꾼 뒤 새 번호를 더한다.
 > - 2026-10-29 dev da834b1 반영: Billing 결정은 바뀌지 않았다. #369 최종 인프라 결정이 재검토 대상(11장)에 주는 방향만 더했다.
 > - 2026-10-30 PROGRESS 3.21(#273) 반영: BD-108을 결정했고 BD-111~BD-113을 더했다(9장). BD-28·BD-54는 일부 대체됐다. 이제 결정 원본은 이 문서이고, `PROGRESS.md` 3장은 결정 배경만 두고 각 절에서 `BD-*`를 가리킨다. 출처 칸의 `P`는 `PROGRESS.md`, `A`는 `apps/billing-app/AGENTS.md`, `C`는 [`CONTEXT.md`](CONTEXT.md)의 장 번호다.
+> - 2026-10-30 #479 반영: 보류 무효화 API를 더했다(BD-125·BD-126, 미결 BD-127).
+> - 2026-10-30 #471 반영: Modulith 이벤트 기록 설정·테이블을 지웠다(BD-124).
 > - 2026-10-30 #430 반영: 회원 이벤트를 Kafka로 받도록 구현했다. BD-6은 BD-123으로 대체됐고, BD-2·BD-103의 JVM 재검토를 해소했다.
 > - 2026-10-30 #428 반영: Kafka 소비 규칙(#339)에 맞춰 회원 이벤트 멱등을 `eventId` inbox에서 자연 키로 고쳤다(BD-123, 11장 BD-2·BD-6·BD-103 행 해소).
 > - 2026-10-30 #336·#453 반영: 플랫폼 지갑·환전 수수료 수입(BD-114~BD-118, 8장), 환불·환전 1 HP 단위와 송금액 버림(BD-119~BD-122, 7·8장). BD-87은 금액 규칙, BD-95는 수수료 계산이 대체됐다. 정책 원문은 `CONTEXT.md` 3·4장(출처 C3.x·C4.x)이다.
@@ -63,6 +65,7 @@
 | BD-5 | 중복 판별은 SQLState `23505`와 제약 이름 `uk_wallet_user_id`가 둘 다 맞을 때만 한다 | 메시지 파싱은 서버 언어(`lc_messages`)가 바뀌면 깨진다 | 유효 | P3.1 | — |
 | BD-6 | 리스너는 `@ApplicationModuleListener(propagation = NOT_SUPPORTED)`다. 실패하면 발행 기록이 미완료로 남아 재시작 때 다시 처리된다 | 리스너 트랜잭션까지 있으면 이벤트 하나가 커넥션 2개를 잡는다 | 대체됨 → BD-123 (#430: Kafka `@KafkaListener`, 실패는 블로킹 재시도 뒤 그룹별 DLT) | P3.1 | — |
 | BD-123 | 회원 이벤트(`member.events.v1`)는 목적별 소비 그룹 둘로 받는다. `billing-app.member-replica`: 가입·변경 → `billing_user` Upsert, 멱등은 `(user.id, user.version)` 버전 비교(BD-103). `billing-app.wallet-creation`: 가입 → `getOrCreate`(ADMIN은 건너뜀, BD-3), 멱등은 회원 ID UNIQUE(BD-1·BD-5). 두 그룹 모두 별도 inbox·처리 기록 테이블을 두지 않는다. DLT는 `member.events.v1.<그룹>.DLT` | `eventId`가 없다(ADR 0002). 업무 행 자체가 자연 키 멱등 기록이라 반영과 같은 커밋에 남는다(kafka.md "멱등은 업무 자연 키"). 같은 그룹에 리스너 둘을 두면 partition을 나눠 가져 각자 일부만 받는다 | 유효 (#430에서 구현) | #428, kafka.md | — |
+| BD-124 | 지갑은 Modulith 이벤트 기록을 두지 않는다. `spring.modulith.events.*` 설정을 지우고, Flyway `V202610301400`으로 `billing.event_publication`·`event_publication_archive`를 지운다(남은 기록은 확인하지 않고 함께 삭제). 앱·테스트 설정에서 `JdbcEventPublicationAutoConfiguration`·`EventPublicationAutoConfiguration`를 뺀다 | 지갑은 Spring Event를 발행하지도 받지도 않는다(#430). 테이블만 지우면 종료 때 이벤트 기록 레지스트리가 테이블을 조회하다 실패하고(확인함), JDBC 자동 설정만 빼면 레지스트리를 쓰는 설정이 기동에 실패해 둘 다 뺐다. 루트 Gradle은 바꾸지 않는다. 이벤트를 발행하게 되면(우선순위 6) 다시 만든다 | 유효 | C5, #471 | — |
 
 ## 2. 원장·멱등성·역분개·대사 (#57)
 
@@ -102,6 +105,8 @@
 | BD-33 | 스키마는 바꾸지 않고, 처리마다 상세를 ID 순서로 재생(`ChargeUsageHistory`)해 배분 누적값과 대조한다 | 상세와 배분 사이에 연결이 없다 | 유효 | P3.7 | — |
 | BD-34 | 보류 상태: HELD → PARTIALLY_PROCESSED → RELEASED / PAID / MIXED(+CAPTURED, BD-83). 닫힌 보류는 `HOLD_ALREADY_CLOSED` | 기록 없음 | 유효 | P3.7, P3.9 | — |
 | BD-35 | 반환 락 순서: 지갑 → 보류 → 충전 건(ID 오름차순) | 보류 생성 순서와 충돌하지 않는다 | 유효 | P3.7 | — |
+| BD-125 | 보류 무효화 내부 API `POST /hold-voids`(`userId`·`referenceType`·`referenceId`). 남은 보류는 전부 반환(반환 요청 ID `VOID`) → `RELEASED`, 끝난 보류 → `ALREADY_CLOSED`, 보류 없음 → `VOIDED`. 세 경우 모두 `billing.hold_void`(참조 대상 UNIQUE)에 남기고, 다시 보내면 처음 결과를 `replayed`로 돌려준다. 지갑 락 아래에서 처리한다 | 반환만으로는 보류가 없는 것과 아직 도착하지 않은 것을 구분할 수 없어, 결과 불명 보류의 보상 뒤에 늦은 보류가 남는다. 보류 테이블·불변식을 바꾸지 않으려고 별도 테이블로 둔다 | 유효 | C6, #479 | — |
+| BD-126 | 무효화 기록이 있는 참조 대상의 보류는 409 `HOLD_VOIDED`로 거절한다. 지갑 락 뒤, 기존 보류 재요청 확인보다 먼저 본다 | 무효화 전에 만든 보류의 재요청에 성공을 돌려주면 호출한 쪽이 반환된 보류를 살아 있다고 오해한다. 같은 지갑 락이라 보류와 무효화가 동시에 와도 "보류가 남은 채 무효화됨"이 없다 | 유효 | C6, #479 | — |
 
 ## 4. JPA·Enum (#116)
 
@@ -225,6 +230,7 @@
 | BD-71 | dev DB에 #142·#182 레거시 SCHEDULED 지급 건이 남았는가, 남았다면 보정 방식 | 미확인. 별도 보정 Issue 권장, 엔진 재사용 분기는 권장하지 않음 | P3.13, A8.1 |
 | BD-74 | 강의 지급 배치의 재시도 불가 오류 격리·알림, 판매자 탈퇴 후 최종 수익 정산 | 탈퇴 후 정책 미정 | P3.14 |
 | BD-109 | 반환·지급 사유를 원장 `description`에 남길지 | 계약에 사유 필드 없음 | P7 |
+| BD-127 | 참조 대상의 보류 상태 조회 API를 둘지 | 만들지 않는다(#479). 보상 판단은 무효화로 충분하다. 운영 확인·재확인에 필요해지면 다시 정한다 | C6 |
 | BD-110 | 루트 AGENTS "모듈 간 통신은 이벤트 기본"의 예외로 동기 BillingPort를 적을지 | 루트 AGENTS 3장에 HP 이동 동기 호출 예외가 이미 있다. PROGRESS 7장 항목은 갱신 필요 여부 확인 | P7 |
 | (P7) | QueryDSL 도입·버전 | BD-38 | P3.8 |
 | (P7) | `UserModifiedEvent`로 회원이 ADMIN이 될 때 지갑 처리 | 미정 | P7 |

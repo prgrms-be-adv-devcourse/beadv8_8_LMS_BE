@@ -25,7 +25,7 @@ public class AppearanceUserFacade {
         appearanceUserSyncUseCase.createIfAbsent(user);
     }
 
-    /** 변경 정보로 있는 출연 회원을 갱신한다. 없으면 {@code APPEARANCE_USER_NOT_FOUND}로 실패한다. */
+    /** 변경 정보로 있는 출연 회원을 갱신한다. 없으면 {@code APPEARANCE_USER_NOT_FOUND}로 실패한다(Kafka 리스너는 재시도 뒤 DLT로 보낸다). */
     @Transactional
     public void syncModified(UserDto user) {
         appearanceUserSyncUseCase.update(user);

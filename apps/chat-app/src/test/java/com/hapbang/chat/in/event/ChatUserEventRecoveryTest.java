@@ -50,7 +50,6 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.TransientDataAccessResourceException;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -59,9 +58,15 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatUserFacade;
+import com.hapbang.chat.fixture.ChatNativeSql;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -70,6 +75,8 @@ import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 회원 이벤트 소비의 장애 경계를 실제 Kafka로 검증한다(설계 문서 5.3 "재시도·DLT", 계약 control-recording.md
@@ -99,12 +106,17 @@ class ChatUserEventRecoveryTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("hapbang.chat.member-events.enabled", () -> "true");
-        registry.add("hapbang.chat.member-events.topic", () -> TOPIC);
-        registry.add("hapbang.chat.member-events.group-id", () -> GROUP);
-        registry.add("hapbang.chat.member-events.max-retries", () -> "1");
-        registry.add("hapbang.chat.member-events.retry-initial-interval", () -> "100ms");
-        registry.add("hapbang.chat.member-events.dead-letter-send-timeout", () -> "2s");
+        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+    }
+
+    /** 이 클래스 전용 토픽·그룹·DLT. 재시도는 1회·첫 간격 100ms, DLT 발행 대기는 2초로 줄인다(운영은 3회·1초·10초) */
+    @TestBean(name = ChatKafkaConfig.MEMBER_EVENT_SETTINGS)
+    private ChatKafkaConsumerSettings memberEventSettings;
+
+    static ChatKafkaConsumerSettings memberEventSettings() {
+        return new ChatKafkaConsumerSettings(TOPIC, GROUP, DLT, 1, Duration.ofMillis(100),
+                ChatKafkaConstants.RETRY_MAX_INTERVAL, Duration.ofSeconds(2), ChatKafkaConstants.DEAD_LETTER_PARTITIONS,
+                ChatKafkaConstants.DEAD_LETTER_REPLICAS);
     }
 
     @Value("${spring.kafka.bootstrap-servers}")
@@ -122,13 +134,17 @@ class ChatUserEventRecoveryTest {
     @Autowired
     private ChatUserRepository chatUserRepository;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     private KafkaProducer<String, byte[]> producer;
     // DLT 발행을 실패시킬지와 회원 ID(key)별 DLT 발행 시도 수
     private final AtomicBoolean deadLetterDown = new AtomicBoolean();
     private final Map<String, AtomicInteger> deadLetterAttempts = new ConcurrentHashMap<>();
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -208,14 +224,13 @@ class ChatUserEventRecoveryTest {
         // 세 레코드를 실제로 다시 받았다(가입 2번 + 변경 1번이 한 번 더)
         verify(chatUserFacade, times(4)).syncJoined(argThat(user -> user.id() == id));
         verify(chatUserFacade, times(2)).syncModified(argThat(user -> user.id() == id));
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_user where id = ?", Long.class, id))
+        assertThat(sql.single("select count(*) from chats.chat_user where id = :id", Long.class, Map.of("id", id)))
                 .isEqualTo(1L);
         // 다시 받은 레코드는 아무것도 고치지 않는다(낙관적 락 버전도 그대로)
         assertThat(chatUserRow(id)).isEqualTo(before);
         assertThat(controlRows(id)).isEqualTo(controlBefore);
-        assertThat(jdbcTemplate.queryForObject(
-                "select count(*) from chats.chat_publish_checkpoint where job_id = ?", Long.class,
-                controlBefore.getFirst().get("control_id"))).isEqualTo(1L);
+        assertThat(sql.single("select count(*) from chats.chat_publish_checkpoint where job_id = :jobId", Long.class,
+                Map.of("jobId", controlBefore.getFirst().get("control_id")))).isEqualTo(1L);
         assertThat(deadLetterKeys()).doesNotContain(String.valueOf(id));
     }
 
@@ -247,7 +262,7 @@ class ChatUserEventRecoveryTest {
             assertThat(row.get("member_version")).isEqualTo(2L);
             assertThat(row.get("reason")).isEqualTo("MEMBER_MODIFIED");
         });
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_publish_checkpoint", Long.class))
+        assertThat(sql.single("select count(*) from chats.chat_publish_checkpoint", Long.class))
                 .isEqualTo(1L);
         assertThat(deadLetterKeys()).doesNotContain(String.valueOf(id));
     }
@@ -641,19 +656,19 @@ class ChatUserEventRecoveryTest {
     }
 
     private Map<String, Object> chatUserRow(long id) {
-        return jdbcTemplate.queryForMap(
-                "select nickname, role, status, member_version, version from chats.chat_user where id = ?", id);
+        return sql.row("select nickname, role, status, member_version, version from chats.chat_user where id = :id",
+                Map.of("id", id));
     }
 
     private List<Map<String, Object>> controlRows(long userId) {
-        return new ArrayList<>(jdbcTemplate.queryForList("""
+        return new ArrayList<>(sql.rows("""
                 select control_id, control_type, member_version, reason, status
-                from chats.chat_control_outbox where user_id = ? order by id""", userId));
+                from chats.chat_control_outbox where user_id = :userId order by id""", Map.of("userId", userId)));
     }
 
     private void clearControlTables() {
-        jdbcTemplate.update("delete from chats.chat_publish_checkpoint");
-        jdbcTemplate.update("delete from chats.chat_control_outbox");
+        sql.update("delete from chats.chat_publish_checkpoint");
+        sql.update("delete from chats.chat_control_outbox");
     }
 
     private static long nextId() {

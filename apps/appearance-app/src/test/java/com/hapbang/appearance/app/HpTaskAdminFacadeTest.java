@@ -259,7 +259,7 @@ class HpTaskAdminFacadeTest {
     }
 
     @Test
-    @DisplayName("세션은 관리자지만 로그인 뒤 정지됐으면 403 APPEARANCE_USER_NOT_ACTIVE, 관리자 권한을 잃었으면 403 NOT_ADMIN (작업 그대로, Billing 호출 없음)")
+    @DisplayName("로그인 역할은 관리자지만 로그인 뒤 정지됐으면 403 APPEARANCE_USER_NOT_ACTIVE, 관리자 권한을 잃었으면 403 NOT_ADMIN (작업 그대로, Billing 호출 없음)")
     void adminRecheckedFromReplica() {
         Long taskId = deadTask(11L);
 

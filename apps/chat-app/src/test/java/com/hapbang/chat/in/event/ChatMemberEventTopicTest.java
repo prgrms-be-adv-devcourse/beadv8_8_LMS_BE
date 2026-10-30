@@ -30,8 +30,12 @@ import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 
 import com.hapbang.chat.in.event.ChatMemberEventTopicVerifier.Result;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConfig;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConstants;
+import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.testsupport.IntegrationTest;
@@ -59,11 +63,17 @@ class ChatMemberEventTopicTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("hapbang.chat.member-events.enabled", () -> "true");
-        registry.add("hapbang.chat.member-events.topic", () -> TOPIC);
-        registry.add("hapbang.chat.member-events.group-id", () -> GROUP);
-        // 브로커 1대에 복제 3: DLT 생성이 실패한다
-        registry.add("hapbang.chat.member-events.dead-letter-replicas", () -> "3");
+        registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+    }
+
+    /** 이 클래스 전용 토픽·그룹·DLT. 브로커 1대에 DLT 복제 3이라 DLT 생성이 실패한다 */
+    @TestBean(name = ChatKafkaConfig.MEMBER_EVENT_SETTINGS)
+    private ChatKafkaConsumerSettings memberEventSettings;
+
+    static ChatKafkaConsumerSettings memberEventSettings() {
+        return new ChatKafkaConsumerSettings(TOPIC, GROUP, DLT, ChatKafkaConstants.MAX_RETRIES,
+                ChatKafkaConstants.RETRY_INITIAL_INTERVAL, ChatKafkaConstants.RETRY_MAX_INTERVAL,
+                ChatKafkaConstants.DEAD_LETTER_SEND_TIMEOUT, ChatKafkaConstants.DEAD_LETTER_PARTITIONS, (short) 3);
     }
 
     @Value("${spring.kafka.bootstrap-servers}")
@@ -113,8 +123,10 @@ class ChatMemberEventTopicTest {
 
     /** DLT 이름은 규칙대로 {@code <토픽>.<그룹>.DLT}다 */
     private ChatMemberEventTopicVerifier verifier(String topic, String groupId) {
-        return new ChatMemberEventTopicVerifier(kafkaAdmin, new ChatMemberEventProperties(true, topic, groupId,
-                null, null, null, null, null, null, null));
+        return new ChatMemberEventTopicVerifier(kafkaAdmin, new ChatKafkaConsumerSettings(topic, groupId,
+                topic + "." + groupId + ".DLT", ChatKafkaConstants.MAX_RETRIES, ChatKafkaConstants.RETRY_INITIAL_INTERVAL,
+                ChatKafkaConstants.RETRY_MAX_INTERVAL, ChatKafkaConstants.DEAD_LETTER_SEND_TIMEOUT,
+                ChatKafkaConstants.DEAD_LETTER_PARTITIONS, ChatKafkaConstants.DEAD_LETTER_REPLICAS));
     }
 
     private void send(long key, String json) {

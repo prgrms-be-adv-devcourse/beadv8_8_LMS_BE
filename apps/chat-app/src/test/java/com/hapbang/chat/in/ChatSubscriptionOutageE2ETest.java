@@ -8,6 +8,7 @@ import static org.awaitility.Awaitility.*;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -18,11 +19,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.ChatJobStream;
 import com.hapbang.chat.app.ChatRoomUseCase;
@@ -30,12 +31,15 @@ import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatResyncReason;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.in.dto.ChatSyncSignal;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 이 앱의 Redis 구독이 끊긴 동안 보낸 메시지가 격리되지 않고 기다렸다가, 구독이 돌아오면 한 번씩 전달되는지 실제 경로로 검증한다
@@ -75,10 +79,14 @@ class ChatSubscriptionOutageE2ETest {
     @Qualifier("chatRealtimeListenerContainer")
     private RedisMessageListenerContainer listenerContainer;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     private RealtimeStompClient stomp;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -143,27 +151,27 @@ class ChatSubscriptionOutageE2ETest {
     }
 
     private long zeroSubscriberAttempts() {
-        return count("select count(*) from chats.chat_publish_checkpoint where consumer_group = ?"
+        return count("select count(*) from chats.chat_publish_checkpoint where consumer_group = :group"
                 + " and last_subscriber_count = 0");
     }
 
     private long published() {
-        return count("select count(*) from chats.chat_publish_checkpoint where consumer_group = ?"
+        return count("select count(*) from chats.chat_publish_checkpoint where consumer_group = :group"
                 + " and status = 'PUBLISHED'");
     }
 
     private long deadCount() {
-        return count("select count(*) from chats.chat_publish_checkpoint where consumer_group = ?"
+        return count("select count(*) from chats.chat_publish_checkpoint where consumer_group = :group"
                 + " and status = 'DEAD'");
     }
 
     private long attemptSum() {
         return count("select coalesce(sum(attempt_count), 0) from chats.chat_publish_checkpoint"
-                + " where consumer_group = ?");
+                + " where consumer_group = :group");
     }
 
-    private long count(String sql) {
-        Long value = jdbcTemplate.queryForObject(sql, Long.class, ChatJobStream.DELIVERY.consumerGroup());
+    private long count(String query) {
+        Long value = sql.single(query, Long.class, Map.of("group", ChatJobStream.DELIVERY.consumerGroup()));
         return value == null ? 0 : value;
     }
 }

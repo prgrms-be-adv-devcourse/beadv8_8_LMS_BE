@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -36,7 +37,7 @@ import com.hapbang.chat.domain.ChatPublishStatus;
 import com.hapbang.chat.out.ChatControlOutboxRepository;
 import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.chat.out.ChatPublishCheckpointRepository;
-import com.hapbang.chat.out.JdbcChatOutboxStore;
+import com.hapbang.chat.out.JpaChatOutboxStore;
 
 /**
  * Outbox 적재의 남은 경계 (테스트 기준 "Outbox 적재", 설계 9장 "메시지 outbox relay").
@@ -60,7 +61,7 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
     private ChatPublishCheckpointRepository spiedCheckpointRepository;
 
     @Autowired
-    private JdbcChatOutboxStore outboxStore;
+    private JpaChatOutboxStore outboxStore;
 
     @Autowired
     private ChatMessageRepository chatMessageRepository;
@@ -224,16 +225,12 @@ class ChatOutboxRelayEdgeTest extends ChatDeliveryTestSupport {
     }
 
     private void expireLease(UUID deliveryId) {
-        jdbcClient.sql("update chats.chat_outbox set lease_until = :past where delivery_id = :id")
-                .param("past", ChatDeliveryClock.now().minusSeconds(1))
-                .param("id", deliveryId)
-                .update();
+        sql.update("update chats.chat_outbox set lease_until = :past where delivery_id = :id",
+                Map.of("past", ChatDeliveryClock.now().minusSeconds(1), "id", deliveryId));
     }
 
     private void waitUntilDue(UUID deliveryId) {
-        jdbcClient.sql("update chats.chat_outbox set next_attempt_at = :past where delivery_id = :id")
-                .param("past", ChatDeliveryClock.now().minusSeconds(1))
-                .param("id", deliveryId)
-                .update();
+        sql.update("update chats.chat_outbox set next_attempt_at = :past where delivery_id = :id",
+                Map.of("past", ChatDeliveryClock.now().minusSeconds(1), "id", deliveryId));
     }
 }

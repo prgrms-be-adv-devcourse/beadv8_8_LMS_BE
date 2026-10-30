@@ -61,6 +61,34 @@ class ChatApiE2ETest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void Swagger_명세에_알림_값이_종류별_필드와_record로_나온다() {
+        Map<String, Object> apiDocs = client.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {
+                })
+                .returnResult().getResponseBody();
+
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) apiDocs.get("components"))
+                .get("schemas");
+        for (String response : List.of("ChatMessageResponse", "ChatMessageHistoryResponse")) {
+            Map<String, Object> properties = (Map<String, Object>) ((Map<String, Object>) schemas.get(response))
+                    .get("properties");
+            assertThat(properties).doesNotContainKey("notificationData");
+            assertThat(properties.get("appearanceRequestSent")).asString()
+                    .contains("#/components/schemas/AppearanceRequestSentData");
+            assertThat(properties.get("appearanceApplicationSubmitted")).asString()
+                    .contains("#/components/schemas/AppearanceApplicationSubmittedData");
+        }
+        assertThat((Map<String, Object>) ((Map<String, Object>) schemas.get("AppearanceRequestSentData"))
+                .get("properties")).containsOnlyKeys("v", "hostNickname", "title", "fee", "scheduledAt",
+                "acceptDeadline");
+        assertThat((Map<String, Object>) ((Map<String, Object>) schemas.get("AppearanceApplicationSubmittedData"))
+                .get("properties")).containsOnlyKeys("v", "guestNickname", "recruitTitle");
+    }
+
+    @Test
     void 로그인하지_않으면_401() {
         client.get().uri("/api/v1/chats")
                 .exchange()

@@ -19,13 +19,11 @@ import org.springframework.kafka.listener.ListenerExecutionFailedException;
 import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.support.SendResult;
 
-import com.hapbang.chat.in.event.ChatMemberEventProperties;
-
 /**
  * 오류 처리기: 재시도 제외 예외는 원인 체인에 있어도 바로 DLT로, 그 밖은 정한 횟수만큼 재시도한 뒤 DLT로 보낸다.
- * 재시도 간격은 시험이 짧게 줄인다(운영 기본값은 1초부터 최대 10초).
+ * 재시도 간격은 시험이 짧게 줄인다(운영 값은 1초부터 최대 10초).
  */
-class ChatKafkaListenerFactoriesTest {
+class ChatKafkaErrorHandlerConfigTest {
 
     private final ConsumerRecord<String, String> record = new ConsumerRecord<>("events.v1", 1, 0L, "1", "{}");
     private final Consumer<?, ?> consumer = mock(Consumer.class);
@@ -62,15 +60,15 @@ class ChatKafkaListenerFactoriesTest {
     }
 
     @SuppressWarnings("unchecked")
-    private DefaultErrorHandler handler(long maxRetries) {
+    private DefaultErrorHandler handler(int maxRetries) {
         when(template.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
         // 복구기는 보내기 전에 소비자로 DLT에 같은 번호의 partition이 있는지 확인한다(DLT는 partition 3개)
         when(consumer.partitionsFor(eq("events.v1.app.DLT"), any(Duration.class)))
                 .thenReturn(List.of(partition(0), partition(1), partition(2)));
-        ChatMemberEventProperties settings = new ChatMemberEventProperties(true, "events.v1", "app", null, maxRetries,
-                Duration.ofMillis(1), Duration.ofMillis(2), Duration.ofSeconds(2), null, null);
-        return ChatKafkaListenerFactories.errorHandler(template, settings, RejectedEventException.class);
+        ChatKafkaConsumerSettings settings = new ChatKafkaConsumerSettings("events.v1", "app", "events.v1.app.DLT",
+                maxRetries, Duration.ofMillis(1), Duration.ofMillis(2), Duration.ofSeconds(2), 3, (short) 1);
+        return ChatKafkaErrorHandlerConfig.errorHandler(template, settings);
     }
 
     private static PartitionInfo partition(int number) {

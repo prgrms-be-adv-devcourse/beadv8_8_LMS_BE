@@ -30,18 +30,19 @@ import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import com.hapbang.chat.app.dto.ChatUserBackfillResult;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.app.exception.ChatUserBackfillException;
 import com.hapbang.chat.domain.ChatUser;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -49,6 +50,8 @@ import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
 import com.sun.net.httpserver.HttpServer;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 기존 회원 백필(설계 문서 5.4)을 실제 PostgreSQL과 실제 회원 내부 API HTTP Interface(chat-app 전용)로 검증한다. 회원 내부 API는 가짜 HTTP 서버다
@@ -94,11 +97,15 @@ class ChatUserBackfillIntegrationTest {
     @MockitoSpyBean
     private ChatUserRepository chatUserRepository;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void reset() {
@@ -112,8 +119,8 @@ class ChatUserBackfillIntegrationTest {
 
     @AfterEach
     void clearControlTables() {
-        jdbcTemplate.update("delete from chats.chat_publish_checkpoint");
-        jdbcTemplate.update("delete from chats.chat_control_outbox");
+        sql.update("delete from chats.chat_publish_checkpoint");
+        sql.update("delete from chats.chat_control_outbox");
     }
 
     @Test
@@ -187,7 +194,7 @@ class ChatUserBackfillIntegrationTest {
         assertThat(result).extracting(ChatUserBackfillResult::created, ChatUserBackfillResult::updated,
                 ChatUserBackfillResult::failed, ChatUserBackfillResult::completed)
                 .containsExactly(0L, 1L, 0L, true);
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_user where id = 7", Long.class))
+        assertThat(sql.single("select count(*) from chats.chat_user where id = 7", Long.class))
                 .isEqualTo(1L);
         assertThat(chatUserRepository.findById(7L)).hasValueSatisfying(chatUser -> {
             assertThat(chatUser.getMemberVersion()).isEqualTo(2L);
@@ -366,8 +373,8 @@ class ChatUserBackfillIntegrationTest {
     }
 
     private List<Map<String, Object>> controlRows() {
-        return jdbcTemplate.queryForList(
-                "select user_id, member_version, reason from chats.chat_control_outbox order by user_id");
+        return sql.rows("select user_id, member_version, reason from chats.chat_control_outbox order by user_id",
+                Map.of());
     }
 
     private static String json(UserDto user) {

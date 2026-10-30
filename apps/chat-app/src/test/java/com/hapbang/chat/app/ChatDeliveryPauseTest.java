@@ -75,11 +75,9 @@ class ChatDeliveryPauseTest extends ChatDeliveryTestSupport {
     }
 
     private long deadCount() {
-        return jdbcClient.sql("""
+        return sql.single("""
                         select (select count(*) from chats.chat_publish_checkpoint where status = 'DEAD')
                              + (select count(*) from chats.chat_outbox where status = 'DEAD')
-                        """)
-                .query(Long.class)
-                .single();
+                        """, Long.class);
     }
 }

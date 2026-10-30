@@ -23,13 +23,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 
 import com.hapbang.chat.app.ChatUserUseCase;
@@ -37,6 +37,7 @@ import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
+import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.chat.fixture.FixedPortRedis;
 import com.hapbang.chat.global.response.RsData;
@@ -54,6 +55,8 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.ModuleTestConfiguration;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
+
+import jakarta.persistence.EntityManager;
 
 /**
  * 설계 9장 "broker·Redis 장애"의 Redis 부분을 실제 STOMP까지 확인한다: Redis가 멈춘 동안 보낸 메시지는 DB에 저장되고 outbox에
@@ -120,14 +123,18 @@ class ChatRedisOutageE2ETest {
     @Autowired
     private LocalChatConnections localChatConnections;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private ChatNativeSql sql;
 
     @Autowired
     private StringRedisTemplate redis;
 
     private RestTestClient client;
     private RealtimeStompClient stomp;
+
+    @Autowired
+    void setUpSql(EntityManager entityManager, PlatformTransactionManager transactionManager) {
+        sql = ChatNativeSql.of(entityManager, transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
@@ -210,25 +217,27 @@ class ChatRedisOutageE2ETest {
         assertThat(hostMessages).isEmpty();
         assertThat(hostErrors).isEmpty();
         assertThat(List.of(host, guest, guestElsewhere)).allMatch(StompSession::isConnected);
-        assertThat(jdbcTemplate.queryForObject("select count(*) from chats.chat_message", Long.class)).isEqualTo(3);
+        assertThat(sql.single("select count(*) from chats.chat_message", Long.class)).isEqualTo(3);
     }
 
     private Map<String, Object> outboxOf(String content) {
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
+        List<Map<String, Object>> rows = sql.rows("""
                 select o.status, o.attempt_count, o.last_error from chats.chat_outbox o
-                join chats.chat_message m on m.id = o.message_id where m.content = ?""", content);
+                join chats.chat_message m on m.id = o.message_id where m.content = :content""",
+                Map.of("content", content));
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
     private String checkpointStatusOf(String content) {
-        return jdbcTemplate.queryForObject("""
+        return sql.single("""
                 select c.status from chats.chat_publish_checkpoint c
                 join chats.chat_outbox o on o.delivery_id = c.job_id
-                join chats.chat_message m on m.id = o.message_id where m.content = ?""", String.class, content);
+                join chats.chat_message m on m.id = o.message_id where m.content = :content""", String.class,
+                Map.of("content", content));
     }
 
     private void awaitAllPublished() {
-        await().atMost(WAIT).until(() -> jdbcTemplate.queryForObject(
+        await().atMost(WAIT).until(() -> sql.single(
                 "select count(*) from chats.chat_publish_checkpoint where status <> 'PUBLISHED'", Long.class) == 0);
     }
 

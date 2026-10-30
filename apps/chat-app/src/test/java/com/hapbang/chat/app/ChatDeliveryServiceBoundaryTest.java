@@ -9,8 +9,8 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-import com.hapbang.chat.out.JdbcChatOutboxStore;
-import com.hapbang.chat.out.JdbcChatPublishCheckpointStore;
+import com.hapbang.chat.out.JpaChatOutboxStore;
+import com.hapbang.chat.out.JpaChatPublishCheckpointStore;
 import com.hapbang.chat.out.JpaChatDeliverySourceReader;
 import com.hapbang.chat.out.redis.RedisChatDeliveryQueue;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -67,8 +67,8 @@ class ChatDeliveryServiceBoundaryTest {
 
     @Test
     void out의_구현은_app_계약을_구현한다() {
-        assertThat(ChatOutboxStore.class).isAssignableFrom(JdbcChatOutboxStore.class);
-        assertThat(ChatPublishCheckpointStore.class).isAssignableFrom(JdbcChatPublishCheckpointStore.class);
+        assertThat(ChatOutboxStore.class).isAssignableFrom(JpaChatOutboxStore.class);
+        assertThat(ChatPublishCheckpointStore.class).isAssignableFrom(JpaChatPublishCheckpointStore.class);
         assertThat(ChatDeliverySourceReader.class).isAssignableFrom(JpaChatDeliverySourceReader.class);
         assertThat(ChatDeliveryQueue.class).isAssignableFrom(RedisChatDeliveryQueue.class);
         assertThat(ChatDeliveryAdminService.class).isAssignableFrom(DefaultChatDeliveryAdminService.class);
