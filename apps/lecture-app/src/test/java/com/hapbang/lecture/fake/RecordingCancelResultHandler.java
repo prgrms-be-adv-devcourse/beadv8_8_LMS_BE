@@ -3,21 +3,32 @@ package com.hapbang.lecture.fake;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.springframework.stereotype.Component;
-
-import com.hapbang.lecture.app.LectureHpTaskResultHandler;
+import com.hapbang.lecture.app.CancelResultHandler;
 import com.hapbang.lecture.domain.LectureHpTask;
-import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 
 /**
- * HP 작업 실행기 테스트용 결과 처리기 (#275). 운영 처리기(#277)가 아직 없는 목적에 대해 받은 결과를 남긴다.
- * {@code CANCEL}만 있다. 결제 목적({@code ORDER_HOLD}·{@code HOLD_COMPENSATION})은 운영 처리기(#276)를 쓴다. 처리기가 없는 목적({@code PAYOUT} 등)은 실행기가 {@code DEAD}로 둔다.
- * 테스트마다 {@link #reset()}한다.
+ * HP 작업 실행기·배치 테스트용 {@code CANCEL} 결과 처리기 (#275, #277). 주문 상태를 바꾸지 않고 받은 결과만 남긴다.
+ * 실행기 자체를 확인하는 테스트가 {@code @TestBean}으로 운영 처리기({@link CancelResultHandler}) 자리에 넣는다.
+ * 그래서 작업의 주문·항목이 실제로 없어도 된다. 테스트마다 {@link #reset()}한다.
  */
-public abstract class RecordingHpTaskResultHandler implements LectureHpTaskResultHandler {
+public class RecordingCancelResultHandler extends CancelResultHandler {
+
+    /**
+     * {@code @TestBean(methodName = FACTORY)}로 쓴다. 테스트 클래스들이 같은 팩토리를 쓰면 Spring 테스트 컨텍스트를 함께 써서
+     * DB 연결이 늘지 않는다
+     */
+    public static final String FACTORY = "com.hapbang.lecture.fake.RecordingCancelResultHandler#create";
 
     private final List<String> events = new CopyOnWriteArrayList<>();
     private volatile RuntimeException failure;
+
+    public RecordingCancelResultHandler() {
+        super(null);
+    }
+
+    static CancelResultHandler create() {
+        return new RecordingCancelResultHandler();
+    }
 
     public void reset() {
         events.clear();
@@ -55,14 +66,5 @@ public abstract class RecordingHpTaskResultHandler implements LectureHpTaskResul
             throw next;
         }
         events.add(event);
-    }
-
-    @Component
-    public static class Cancel extends RecordingHpTaskResultHandler {
-
-        @Override
-        public LectureHpTaskPurpose purpose() {
-            return LectureHpTaskPurpose.CANCEL;
-        }
     }
 }

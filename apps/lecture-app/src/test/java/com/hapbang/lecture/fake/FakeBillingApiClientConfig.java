@@ -11,14 +11,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 public class FakeBillingApiClientConfig {
 
-    /**
-     * 성공한 보류를 {@link FakeBillingPort}에도 남겨 같은 지갑처럼 동작하게 한다. 보류는 HP 작업(#276)이, 구매 취소·반환·지급은
-     * 아직 {@code BillingPort}가 하므로, 주문으로 만든 보류를 반환·지급할 수 있어야 한다. #277에서 반환·지급을 옮기면 없앤다
-     */
     @Bean
-    FakeBillingApiClient fakeBillingApiClient(FakeBillingPort fakeBillingPort) {
-        FakeBillingApiClient client = new FakeBillingApiClient();
-        client.onHeld(hold -> fakeBillingPort.assumeHeld(hold.userId(), hold.referenceId(), hold.amountHp()));
-        return client;
+    FakeBillingApiClient fakeBillingApiClient() {
+        return new FakeBillingApiClient();
     }
 }

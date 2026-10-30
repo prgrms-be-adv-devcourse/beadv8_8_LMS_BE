@@ -30,8 +30,9 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingPort;
+import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
+import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.shared.billing.dto.PayoutCommand;
@@ -69,7 +70,13 @@ class OrderPayoutObjectionTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingPort fakeBillingPort;
+    private FakeBillingApiClient billing;
+
+    @Autowired
+    private LectureHpTaskBatchUseCase lectureHpTaskBatchUseCase;
+
+    @Autowired
+    private LectureHpTaskRepository lectureHpTaskRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -89,7 +96,8 @@ class OrderPayoutObjectionTest {
 
     @BeforeEach
     void setUp() {
-        fakeBillingPort.reset();
+        billing.reset();
+        billing.setSettledHp(PRICE_HP);
     }
 
     @AfterEach
@@ -110,8 +118,9 @@ class OrderPayoutObjectionTest {
                 now().minusDays(1), rejected, accepted);
 
         orderPayoutUseCase.payOutDueItems();
+        lectureHpTaskBatchUseCase.runDue();
 
-        assertThat(fakeBillingPort.payouts()).extracting(PayoutCommand::referenceId).containsExactly(rejected);
+        assertThat(payouts()).extracting(PayoutCommand::referenceId).containsExactly(rejected);
         assertThat(item(rejected)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.PAID_OUT, ObjectionStatus.REJECTED);
         assertThat(item(accepted)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
@@ -128,7 +137,7 @@ class OrderPayoutObjectionTest {
 
         orderPayoutUseCase.payOutDueItems();
 
-        assertThat(fakeBillingPort.payouts()).isEmpty();
+        assertThat(lectureHpTaskRepository.count()).isZero();
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.CONFIRMED, ObjectionStatus.FILED);
     }
@@ -141,21 +150,26 @@ class OrderPayoutObjectionTest {
         jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = ? where id = ?",
                 now().minusDays(1), itemId);
         orderPayoutUseCase.payOutDueItems();
-        assertThat(fakeBillingPort.payouts()).isEmpty();
+        assertThat(lectureHpTaskRepository.count()).isZero();
 
         lectureObjectionPort.withdrawObjection(itemId, BUYER_ID, INQUIRY_ID);
         orderPayoutUseCase.payOutDueItems();
+        lectureHpTaskBatchUseCase.runDue();
 
-        assertThat(fakeBillingPort.payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
+        assertThat(payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.PAID_OUT, ObjectionStatus.NONE);
     }
 
     @Test
-    void 지급이_먼저_커밋되면_접수는_ALREADY_PAID_OUT으로_거부된다() {
+    void 지급을_시작하면_접수는_PERIOD_EXPIRED이고_지급이_끝나면_ALREADY_PAID_OUT이다() {
         Long itemId = itemId(saveConfirmed(now().minusDays(32)));
         orderPayoutUseCase.payOutDueItems();
 
+        // 지급 처리 중은 지급 예정 시각이 지난 뒤라 기한이 지났다. 지급 작업이 멈춰도 기한은 다시 열리지 않는다 (D59 (6))
+        assertRefused(() -> lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
+                Reason.PERIOD_EXPIRED);
+        lectureHpTaskBatchUseCase.runDue();
         assertRefused(() -> lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
                 Reason.ALREADY_PAID_OUT);
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
@@ -180,14 +194,14 @@ class OrderPayoutObjectionTest {
         filed.countDown();
         batch.get(10, TimeUnit.SECONDS);
 
-        // 배치의 항목 변경은 version이 달라 flush에서 실패하고, billing 지급까지 함께 롤백된다
-        assertThat(fakeBillingPort.payouts()).isEmpty();
+        // 배치의 항목 변경은 version이 달라 flush에서 실패하고, PAYOUT 작업 등록까지 함께 롤백된다
+        assertThat(lectureHpTaskRepository.count()).isZero();
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.CONFIRMED, ObjectionStatus.FILED);
     }
 
     @Test
-    void 접수가_읽은_뒤_지급이_커밋되면_접수가_낙관적_락_충돌로_실패하고_다시_접수하면_ALREADY_PAID_OUT이다() throws Exception {
+    void 접수가_읽은_뒤_지급_시작이_커밋되면_접수가_낙관적_락_충돌로_실패하고_다시_접수하면_PERIOD_EXPIRED다() throws Exception {
         Long itemId = itemId(saveConfirmed(now().minusDays(32)));
         CountDownLatch loaded = new CountDownLatch(1);
         CountDownLatch paid = new CountDownLatch(1);
@@ -208,8 +222,9 @@ class OrderPayoutObjectionTest {
         assertThatThrownBy(() -> filing.get(10, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(ObjectOptimisticLockingFailureException.class);
         assertRefused(() -> lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
-                Reason.ALREADY_PAID_OUT);
-        assertThat(fakeBillingPort.payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
+                Reason.PERIOD_EXPIRED);
+        lectureHpTaskBatchUseCase.runDue();
+        assertThat(payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.PAID_OUT, ObjectionStatus.NONE);
     }
@@ -246,13 +261,20 @@ class OrderPayoutObjectionTest {
         return LocalDateTime.now(clock);
     }
 
-    /** {@code purchasedAt}에 사서 바로 구매 확정한 주문. Fixture 주문이라 보류가 있다고 정한다 */
+    private List<PayoutCommand> payouts() {
+        return billing.calls().stream()
+                .map(FakeBillingApiClient.Call::command)
+                .filter(PayoutCommand.class::isInstance)
+                .map(PayoutCommand.class::cast)
+                .toList();
+    }
+
+    /** {@code purchasedAt}에 사서 바로 구매 확정한 주문 */
     private LectureOrder saveConfirmed(LocalDateTime purchasedAt) {
         Lecture lecture = lectureRepository.save(onSaleLecture());
         LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture),
                 purchasedAt));
         Long itemId = itemId(order);
-        fakeBillingPort.assumeHeld(BUYER_ID, itemId, PRICE_HP);
         transactionTemplate.executeWithoutResult(status ->
                 lectureOrderRepository.findById(order.getId()).orElseThrow().confirmItem(itemId, purchasedAt));
         return order;
