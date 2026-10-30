@@ -85,7 +85,8 @@ public class ExchangePayoutProcessing {
     }
 
     // 송금 실행·자동 결과 확인의 다음 단계 (자동 경로: 정산 실행·결과 확인. 확정 실패한 환전을 다시 보내지 않는다).
-    // - APPROVED: 정산 예정 시각이 지났고 보류가 그대로면 새 시도(PROCESSING)를 저장하고 Send
+    // - APPROVED: 정산 예정 시각이 지났고 보류가 그대로면 새 시도(PROCESSING)를 저장하고 Send. 송금액이 0원(신청 1 HP)이면
+    //   은행을 부르지 않고 같은 트랜잭션에서 보류 확정 차감 + 수수료 수입 기록 + COMPLETED로 끝내고 Stop(송금 시도 없음, #453)
     // - PROCESSING·UNKNOWN: 마지막 시도가 결과 대기면 checkedBefore 이전에 마지막으로 보냈거나 확인한 경우만 처리한다.
     //   최초 송금 요청 후 자동 확인 기한(기본 24시간)이 지났으면 은행을 부르지 않고 운영자 확인으로 넘긴다(보류 유지, 실패로 보지 않음).
     //   아니면 확인 시각·횟수를 기록하고 Check. 운영자 확인 대기면 Stop
@@ -93,13 +94,19 @@ public class ExchangePayoutProcessing {
     // - REQUESTED·REJECTED·CANCELED: EXCHANGE_NOT_PAYABLE
     @Transactional
     public Step start(Long exchangeId, Instant checkedBefore) {
-        Exchange exchange = exchangeLocks.lock(exchangeId);
+        // 송금액 0원 환전은 여기서 수수료 수입까지 기록하므로 플랫폼 지갑도 함께 잠근다(결과 반영과 같은 순서)
+        ExchangeLocks.LockedForPayout locked = exchangeLocks.lockForPayout(exchangeId);
+        Exchange exchange = locked.exchange();
         ExchangePayout latest = latestOf(exchangeId);
         Instant now = clock.now();
         return switch (exchange.getStatus()) {
             case APPROVED -> {
                 if (latest != null) {
                     throw inconsistent(exchange, "승인 상태인데 송금 시도가 있다 attemptNo=" + latest.getAttemptNo());
+                }
+                if (exchange.hasNoTransfer()) {
+                    completeWithoutTransfer(exchange, locked.platformWalletId(), now);
+                    yield new Step.Stop();
                 }
                 yield send(exchange, 1, now, null);
             }
@@ -362,16 +369,7 @@ public class ExchangePayoutProcessing {
             manualReview(exchange, payout, "SUCCEEDED_WITHOUT_TRANSACTION", now);
             return;
         }
-        exchangeLocks.requireFullyHeld(exchange);
-        CaptureResult captured = internalHoldFacade.capture(CaptureCommand.full(exchange.getUserId(),
-                BillingReferenceType.EXCHANGE, exchange.getId(),
-                BillingKeys.exchangePayoutCaptureRequestId(exchange.getId())));
-        if (captured.replayed() || captured.capturedRevenueHp() != exchange.getRequestedAmountHp()
-                || captured.capturedChargeHp() != 0 || captured.remainingHeldHp() != 0) {
-            throw inconsistent(exchange, "확정 차감 결과 불일치 capturedRevenue=" + captured.capturedRevenueHp()
-                    + ", replayed=" + captured.replayed());
-        }
-        recordFeeIncome(exchange, payout, platformWalletId, captured, now);
+        CaptureResult captured = captureWithFeeIncome(exchange, payout.getAmountKrw(), platformWalletId, now);
         Instant completedAt = succeeded.completedAt() == null ? now
                 : succeeded.completedAt().truncatedTo(ChronoUnit.MICROS);
         payout.succeed(succeeded.transactionId(), completedAt);
@@ -381,15 +379,42 @@ public class ExchangePayoutProcessing {
                 captured.capturedRevenueHp(), exchange.getFeeAmountHp());
     }
 
+    // 송금할 금액이 없는 환전(송금액 0원, 신청 1 HP)을 은행 없이 완료한다 (#453). 정산 예정 시각·보류 확인은 송금과 같다.
+    // 보류 전액 확정 차감 + 수수료 수입 기록 + COMPLETED. 송금 시도는 만들지 않는다.
+    private void completeWithoutTransfer(Exchange exchange, Long platformWalletId, Instant now) {
+        if (!exchange.isPayoutDue(now)) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_PAYOUT_NOT_DUE);
+        }
+        CaptureResult captured = captureWithFeeIncome(exchange, 0L, platformWalletId, now);
+        exchange.completeWithoutTransfer(now);
+        log.info("송금액 0원 환전 완료(은행 송금 없음)·확정 차감·수수료 수입 기록: exchangeId={}, capturedHp={}, feeHp={}",
+                exchange.getId(), captured.capturedRevenueHp(), exchange.getFeeAmountHp());
+    }
+
+    // 보류가 그대로인지 확인하고 보류 전액을 확정 차감한 뒤, 같은 트랜잭션에서 수수료 수입을 기록한다(송금 성공·송금액 0원 완료).
+    private CaptureResult captureWithFeeIncome(Exchange exchange, long amountKrw, Long platformWalletId, Instant now) {
+        exchangeLocks.requireFullyHeld(exchange);
+        CaptureResult captured = internalHoldFacade.capture(CaptureCommand.full(exchange.getUserId(),
+                BillingReferenceType.EXCHANGE, exchange.getId(),
+                BillingKeys.exchangePayoutCaptureRequestId(exchange.getId())));
+        if (captured.replayed() || captured.capturedRevenueHp() != exchange.getRequestedAmountHp()
+                || captured.capturedChargeHp() != 0 || captured.remainingHeldHp() != 0) {
+            throw inconsistent(exchange, "확정 차감 결과 불일치 capturedRevenue=" + captured.capturedRevenueHp()
+                    + ", replayed=" + captured.replayed());
+        }
+        recordFeeIncome(exchange, amountKrw, platformWalletId, captured, now);
+        return captured;
+    }
+
     // 확정 차감과 같은 트랜잭션에서 신청 때 정한 수수료를 플랫폼 지갑의 수수료 수입으로 기록한다 (#336).
     // 회원 보류 차감액 = 송금액(KRW) + 수수료 수입이어야 한다. 작업 키가 환전마다 고정이라 한 번만 기록되고,
     // 확정 차감이 처음 결과일 때만 여기 오므로 이미 기록돼 있으면(replayed) 불변식 위반이다.
-    private void recordFeeIncome(Exchange exchange, ExchangePayout payout, Long platformWalletId,
+    private void recordFeeIncome(Exchange exchange, long amountKrw, Long platformWalletId,
             CaptureResult captured, Instant now) {
         long feeHp = exchange.getFeeAmountHp();
-        if (Math.addExact(feeHp, payout.getAmountKrw()) != captured.capturedRevenueHp()) {
+        if (Math.addExact(feeHp, amountKrw) != captured.capturedRevenueHp()) {
             throw inconsistent(exchange, "확정 차감액 ≠ 송금액 + 수수료 capturedRevenue=" + captured.capturedRevenueHp()
-                    + ", amountKrw=" + payout.getAmountKrw() + ", feeHp=" + feeHp);
+                    + ", amountKrw=" + amountKrw + ", feeHp=" + feeHp);
         }
         LedgerOperationResult recorded = ledgerRecordUseCase.record(new LedgerOperation(
                 BillingKeys.exchangeFee(exchange.getId()), LedgerTransactionType.EXCHANGE_FEE,

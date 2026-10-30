@@ -167,7 +167,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 충전 | 주문 생성 → 결제창 → 승인(claim → PG → complete) → 복구 배치 | AGENTS 10.1장 |
 | 환불 | 접수(CHARGE_ONLY 보류) → 개별 환불 FIFO 순차 PG 취소 → 성공 확정 차감 / 실패 반환 / 불명확 보류 유지 → 복구 배치 | AGENTS 10.2장 |
 | 환전 신청·심사 | 신청(REVENUE_ONLY 보류 + 계좌 스냅샷) → 취소(REQUESTED) 또는 관리자 승인·거절(거절 = 반환) | AGENTS 11장 |
-| 환전 정산·송금 (#304·#305) | 정산 배치가 APPROVED + 예정 시각 지난 건을 100건씩(실행당 최대 1,000) `execute` → 시도 기록 커밋 → Mock 송금 → 성공 확정 차감 / 실패 FAILED(보류 유지) / 불명확 UNKNOWN. 복구 배치가 PROCESSING·UNKNOWN을 같은 ID로 조회, 24시간(`auto-check-limit`) 지나면 MANUAL_REVIEW_REQUIRED. 관리자 재확인·재시도(새 UUID)·최종 실패(FINAL_FAILED + 반환) | AGENTS 11장(송금 계약), 이 표 |
+| 환전 정산·송금 (#304·#305) | 정산 배치가 APPROVED + 예정 시각 지난 건을 100건씩(실행당 최대 1,000) `execute` → 시도 기록 커밋 → Mock 송금 → 성공 확정 차감 + 수수료 수입. 송금액 0원(신청 1 HP)은 시도·Mock 송금 없이 바로 확정 차감 + 수수료 수입 + COMPLETED(#453) / 실패 FAILED(보류 유지) / 불명확 UNKNOWN. 복구 배치가 PROCESSING·UNKNOWN을 같은 ID로 조회, 24시간(`auto-check-limit`) 지나면 MANUAL_REVIEW_REQUIRED. 관리자 재확인·재시도(새 UUID)·최종 실패(FINAL_FAILED + 반환) | AGENTS 11장(송금 계약), 이 표 |
 | 내 거래 내역 (#295) | 원장을 작업 키 단위로 합쳐 14개 유형(`WalletTransactionType`)으로 보여 준다. 지갑이 없으면 빈 페이지 | — |
 | 수익 조회 (#295) | 강의·출연 내부 API를 매 요청 호출해 메모리에서 합친다. 저장하지 않는다. 한쪽 실패 = 전체 503, 깊이 1,000 초과 = 400 | [`internal-earnings.md`](../api/internal-earnings.md) |
 | 회원 Backfill (#324) | 관리자 호출 → `MemberApiClient` 키셋 페이지 → 회원마다 복제본 Upsert. 한 번 최대 5,000명, 동시 실행 금지(인스턴스 내 `AtomicBoolean`) | — |
@@ -247,7 +247,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 ### 8.2 DB (As-Is)
 
 - PostgreSQL **database 1개**, 앱마다 **schema** 분리. Billing은 `billing` 스키마(`spring.flyway.default-schema`, `spring.modulith.events.jdbc.schema`).
-- 테이블 14개. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 12개)가 원본이다.
+- 테이블 14개. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 13개)가 원본이다.
 
 | 테이블 | 추가한 마이그레이션 |
 | --- | --- |
@@ -255,6 +255,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | `mock_payout_transfer` | `V202610161700` |
 | `billing_user` | `V202610162010` |
 | (`wallet.wallet_type`·`fee_balance_hp`, 플랫폼 지갑 행, 원장 `FEE`·`EXCHANGE_FEE`) | `V202610301000` (#336) |
+| (`ck_exchange_1`을 1 HP 이상으로) | `V202610301200` (#453) |
 | `event_publication`, `event_publication_archive` (추정: Modulith 기본 이름) | Modulith `schema-initialization` |
 
 - `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록에는 `billing_user`·`mock_payout_transfer`가 없다.
@@ -316,3 +317,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-10-29 | 5a4dc1a | 최초 작성 (#356 독립 앱 구조 기준) |
 | 2026-10-29 | da834b1 | dev pull 반영. billing-app·`common/shared` 코드 변경 없음. #369 최종 인프라 결정(JWT·Envoy·Resilience4j·Kafka outbox/inbox·database 분리 순서·replica 1개 배치)을 7.2·8.3·6.1·10장에 반영. Billing 이벤트 발행 없음을 7.1에 추가 |
 | 2026-10-30 | d8d6c25 | #336 플랫폼 지갑·환전 수수료 수입 반영(3.1, INV-1, 5.3, 8.1, 8.2). 상세 정책은 [`CONTEXT.md`](CONTEXT.md) 3장 |
+| 2026-10-30 | 3d6b61c | #453 환불·환전 1원 단위, 송금액 버림(송금 = floor(신청 × 90%)), 송금액 0원 환전은 은행 없이 완료(6장 환전 정산 행, 8.2). 상세는 [`CONTEXT.md`](CONTEXT.md) 4장 |

@@ -1092,6 +1092,35 @@ class ExchangePayoutIntegrationTest {
     }
 
     @Test
+    @DisplayName("송금액 0원 환전(신청 1 HP): 정산 예정 시각 전에는 NOT_DUE, 지나면 은행을 부르지 않고 보류 1 확정 차감 + 수수료 수입 1로 "
+            + "COMPLETED가 되고 송금 시도·Mock 기록은 없다 (#453)")
+    void zeroPayoutCompletesWithoutTransfer() {
+        Long walletId = influencer(20_000L);
+        Long exchangeId = approvedExchange(1L);
+        assertThat(exchangeRow(exchangeId)).containsEntry("payout_amount_krw", 0L).containsEntry("fee_amount_hp", 1L);
+        Instant scheduledAt = ((java.sql.Timestamp) exchangeRow(exchangeId).get("payout_scheduled_at")).toInstant();
+        timeShift = Duration.between(Instant.now(), scheduledAt).minusSeconds(1);
+        assertBillingError(() -> payoutUseCase.execute(exchangeId), BillingErrorCode.EXCHANGE_PAYOUT_NOT_DUE);
+        timeShift = AFTER_SCHEDULE;
+
+        ExchangePayoutResult result = payoutUseCase.execute(exchangeId);
+        ExchangePayoutResult again = payoutUseCase.execute(exchangeId);
+
+        assertThat(result.exchangeStatus()).isEqualTo(ExchangeStatus.COMPLETED);
+        assertThat(result.action()).isEqualTo(ExchangePayoutAction.NONE);
+        assertThat(result.attemptNo()).isNull();
+        assertThat(again.action()).isEqualTo(ExchangePayoutAction.NONE);
+        assertThat(exchangeRow(exchangeId).get("completed_at")).isNotNull();
+        verify(client, never()).send(any());
+        assertThat(payoutRows(exchangeId)).isEmpty();
+        assertThat(count("billing.mock_payout_transfer")).isZero();
+        assertThat(ledgerOf(exchangeId)).containsExactly("REVENUE AVAILABLE -1 HOLD", "REVENUE HELD 1 HOLD",
+                "REVENUE HELD -1 EXCHANGE", "FEE AVAILABLE 1 EXCHANGE_FEE");
+        assertWallet(walletId, 19_999L, 0L);
+        assertConsistent(walletId);
+    }
+
+    @Test
     @DisplayName("관리자 플랫폼 지갑 API: 수수료 수입 잔액과 내역(환전별 한 줄, 최신순, 신청 = 송금 + 수수료)을 RsData로 준다")
     void platformWalletAdminApi() throws Exception {
         influencer(50_000L);

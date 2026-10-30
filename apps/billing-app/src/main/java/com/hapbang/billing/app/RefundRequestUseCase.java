@@ -21,8 +21,7 @@ import lombok.RequiredArgsConstructor;
 
 // 충전 HP 환불 요청을 접수한다 (#260). PG를 부르기 전에 한 트랜잭션에서 요청(REQUESTED)·충전 HP 보류(CHARGE_ONLY)·충전 건별
 // 취소(PENDING)를 저장하고 커밋한다. 이후 어느 단계가 실패해도 저장된 요청·취소 건으로 추적·복구할 수 있다.
-// - 금액: 1,000 HP 이상, 1,000 HP 단위(일반 환불). 회원 탈퇴 환불(1 HP 단위)은 회원 탈퇴가 구현되지 않아 열지 않는다
-//   (회원이 고를 수 있는 값으로 두지 않는다).
+// - 금액: 1 HP 이상, 1 HP 단위(#453). 남은 충전 HP를 끝자리까지 환불할 수 있다.
 // - 충전 건 배분: 보류와 같은 FIFO(충전 완료 시각, 충전 건 ID)로 가용 원금(사용·보류되지 않은 금액)에서만 배분한다. 건너뛰지 않으며,
 //   배분한 원금은 보류가 끝날 때까지 다른 보류·환불에 쓰이지 않는다(같은 충전 건 원금 중복 환불 예약 없음).
 // - 멱등성: 같은 회원의 같은 Idempotency-Key는 처음 요청이다(금액이 다르면 IDEMPOTENCY_KEY_CONFLICT).
@@ -30,7 +29,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class RefundRequestUseCase {
 
-    static final long UNIT_HP = 1_000L;
+    static final long MIN_AMOUNT_HP = 1L;
 
     private final WalletRepository walletRepository;
     private final PointRefundRequestRepository pointRefundRequestRepository;
@@ -41,8 +40,8 @@ public class RefundRequestUseCase {
     // 환불 요청 ID를 돌려준다. 충전 HP 가용 잔액이 모자라면 INSUFFICIENT_BALANCE(409)로 거절하고 아무것도 남기지 않는다.
     @Transactional
     public Long create(Long userId, String clientKey, long amountHp) {
-        if (amountHp < UNIT_HP || amountHp % UNIT_HP != 0) {
-            throw new BillingException(BillingErrorCode.REFUND_AMOUNT_INVALID);
+        if (amountHp < MIN_AMOUNT_HP) {
+            throw new BillingException(BillingErrorCode.REFUND_AMOUNT_TOO_SMALL);
         }
         Long walletId = walletRepository.findByUserId(userId)
                 .map(Wallet::getId)

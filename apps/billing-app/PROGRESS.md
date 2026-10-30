@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-10-30 (3장·7장을 `decisions.md` 기준으로 정리. 마지막 Issue 기록은 #273, 3.21)
+마지막 갱신: 2026-10-30 (#453 환불·환전 1원 단위, 3.22)
 
 ---
 
@@ -37,6 +37,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #288 | 가상 송금 Mock 은행 API·HTTP Client(실제 HTTP, 트랜잭션 밖 호출 강제, 멱등 기록 `mock_payout_transfer` Flyway `V202610161700`, local·test 프로필 전용) | `feature/tkt-288` | #290 | 완료 |
 | #294 | 관리자 환전 승인·거절(REQUESTED → APPROVED·REJECTED, 거절 반환), Billing 회원 복제본(가입·변경 Upsert + 회원 버전 비교), Flyway `V202610162000`·`V202610162010`. 기존 회원 Backfill 제외 | `feature/tkt-294` | - | 구현·테스트 완료 (커밋 전) |
 | #273 | HP 내부 HTTP API(`POST /api/v1/internal/billing/{holds,releases,payouts,penalty-settlements}`), `HoldFacade` `ROLE_INTERNAL` 인가, 요청 로그, 오류 코드 전체 대조, Billing 전체 `lock_timeout` 3초 → 503 `HP_LOCK_TIMEOUT`. `BillingPort` 유지 | `feature/tkt-273` | - | 구현·테스트 완료 (PR 전) |
+| #453 | 환불·환전 1 HP 단위, 송금액 버림(송금 = floor(신청 × 90%)), 송금액 0원 환전은 은행 없이 완료, 오류 코드 `*_AMOUNT_TOO_SMALL`(Flyway `V202610301200`) | `feature/tkt-453` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
@@ -628,6 +629,19 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 - **테스트**: `ApiV1BillingInternalControllerTest` 13(성공·replay·409·업무 오류 detail·400 구조 오류·401 키 없음/틀림/세션만·기술 실패 500 + 전체 롤백·Facade 인가·요청 로그·동시 같은 요청·락 대기 초과 503), `BillingFailureCodeContractTest` 68, `LockTimeoutsTest` 3.
 - **후속**: `docs/api/internal-billing.md` 2장 표에 `HP_LOCK_TIMEOUT` 반영, GLOSSARY("위약금 정산") 반영, #280(내부 Command 변환·`BillingPort` 삭제). `decisions.md` 반영(BD-28·BD-54 일부 대체, BD-108 결정, BD-111~BD-113)은 2026-10-30에 했다.
 
+### 3.22 환불·환전 1원 단위 (#453, 2026-10-30, 기준 `origin/dev` 3d6b61c, `feature/tkt-453`)
+
+정책 원문은 `docs/billing/CONTEXT.md` 4장(2026-10-30 `/grill-with-docs`)과 `docs/policy.md` 2·3장. 결정 배경만 둔다.
+
+- **배경**: 충전은 1,000 단위지만 사용 금액은 1,000 단위가 아니라, 1,000 미만 끝자리 충전 HP·수익 HP를 현금화할 수 없었다. `policy.md` 2장 환불 규칙은 구현 전에 먼저 "0원 초과·잔액만큼 부분 환불"로 바뀌어 있었다.
+- **금액**: 환불·환전 모두 1 HP 이상·1 HP 단위. 충전은 그대로 1,000 단위. 환전 최소 1,000 유지(단위만 1원)·최소 2원 안도 있었지만 잔액 전부를 현금화하도록 1 HP로 정했다.
+- **계산**: 송금액을 버린다(송금 = floor(신청 × 90%), 수수료 = 나머지). 이전에는 수수료를 버렸다. 수수료가 항상 1 HP 이상이라 #336의 "수수료 0원 원장 없음" 전제가 유지된다.
+- **송금액 0원(신청 1 HP)**: 허용. `ExchangePayoutProcessing.start`가 APPROVED 건이 송금액 0이면 은행을 부르지 않고 같은 트랜잭션에서 확정 차감 + 수수료 수입 + COMPLETED. 송금 시도 기록 없음. dev·prod(Mock 꺼짐)는 다른 환전처럼 건너뛴다. 그래서 `start`도 회원·플랫폼 지갑을 함께 잠근다(`lockForPayout`).
+- **오류 코드**: `REFUND_AMOUNT_INVALID` → `REFUND_AMOUNT_TOO_SMALL`, `EXCHANGE_AMOUNT_INVALID` → `EXCHANGE_AMOUNT_TOO_SMALL`. HTTP에서는 0 이하를 `@Positive`가 먼저 400 `INVALID_REQUEST`로 막으므로 새 코드는 내부 호출 보호용이다. 프론트와 맞춘다.
+- **DB**: Flyway `V202610301200`이 `ck_exchange_1`을 `requested_amount_hp >= 1`로 바꾼다. 기존 환전의 수수료·송금액은 바뀌지 않는다.
+- **PG**: TossPayments 문서에 부분 취소 최소 금액 제한이 없다. 부분 취소가 안 되는 결제는 기존대로 거절 → 보류 유지 → 운영자 확인.
+- **테스트**: `ExchangeTest`(송금액·수수료 계산표, 1 HP 단위 신청, 0원 완료 조건), `ExchangeIntegrationTest`·`RefundIntegrationTest`(1 HP 미만 거절, 1·999·1,234 환불), `ExchangePayoutIntegrationTest`(0원 환전: NOT_DUE, 은행 호출·시도 없음, 원장 4줄, 플랫폼 대사), 컨트롤러·오류 코드 대조. billing-app 1,141개 통과.
+
 ---
 
 ## 4. 다른 코드가 원장 기록을 호출할 때의 계약
@@ -682,7 +696,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 | `HOLD_TYPE_NOT_SUPPORTED` | 400 | MIXED 보류 확정 차감, CHARGE_ONLY가 아닌 보류에 충전 건 지정 (#241) |
 | `HOLD_CHARGE_NOT_FOUND` | 400 | 지정한 충전 건이 보류에 배분되지 않음 (#241) |
 | `REFUND_UNAVAILABLE` | 503 | TossPayments 시크릿 키·결제키 암호화 키가 없어 환불 접수 불가 (#260) |
-| `REFUND_AMOUNT_INVALID` | 400 | 환불 금액이 1,000 미만이거나 1,000 단위가 아님 (#260) |
+| `REFUND_AMOUNT_TOO_SMALL` | 400 | 환불 금액이 1 HP보다 작음 (#453, 이전 `REFUND_AMOUNT_INVALID`: 1,000 미만·1,000 단위 아님, #260) |
 | `REFUND_IDEMPOTENCY_KEY_INVALID` | 400 | `Idempotency-Key` 헤더 형식 오류(영문·숫자·-·_ 1~64자) (#260) |
 | `REFUND_NOT_FOUND` | 404 | 환불 요청이 없거나 다른 회원의 요청 (#260) |
 | `REFUND_NOT_CANCELABLE` | 409 | PG 취소를 시작했거나 끝난 요청을 회원이 취소 (#260) |
@@ -765,7 +779,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 - **Charge·Refund**: TossPayments 테스트 API, PG 승인과 DB 커밋 사이 상태 관리(`POINT_CHARGE` 상태·멱등키), 타임아웃을 성공·실패로 단정하지 않기.
     - 반환은 충전 원금을 역순으로 복원하므로, 환불(FIFO)이 어느 충전 건(PG 결제)을 취소할지가 반환 이력에 따라 달라진다. 환불 가능 총액은 같다.
     - 보류에 배분된 원금이 남은 충전 건은 `REFUNDED`로 바꾸면 안 된다(반환 때 원금을 되돌릴 곳이 없어 `CHARGE_PRINCIPAL_MISMATCH`). 일부 환불이면 `PARTIALLY_REFUNDED`로 둔다.
-- **Exchange**: 수익 HP 1,000 단위, 수수료 10%, 정산일(매월 10일, 주말·공휴일이면 다음 영업일), Mock 송금.
+- **Exchange**: 수익 HP 1 HP 단위(#453, 이전 1,000 단위), 송금액 = floor(신청 × 90%)·수수료 = 신청 − 송금액, 정산일(매월 10일, 주말이면 다음 월요일), Mock 송금. 송금액 0원은 은행 없이 완료.
 - **다른 모듈 연동**: #145에서 공개 계약을 shared `com.hapbang.shared.billing`(`BillingPort`·DTO·Enum)으로 정했다(3.10). 남은 일: 강의 #146이 `hold`·`release`를, 출연이 `BillingClient` 대신 `BillingPort`를 쓰도록 각 담당이 바꾼다. 반환·지급 사유(`reason`)를 원장 `description`에 남길지는 연동 때 정한다(지금 계약에는 없다).
 
 ### 팀과 정할 것
