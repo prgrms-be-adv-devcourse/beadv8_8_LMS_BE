@@ -6,7 +6,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -19,8 +18,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.modulith.test.EnableScenarios;
-import org.springframework.modulith.test.Scenario;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -34,8 +31,8 @@ import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 가입 이벤트·지갑 조회·동시 요청에서 회원당 지갑이 하나만 생기는지 실제 DB로 검증한다.
+// 리스너 로직은 직접 호출로 검증하고, Kafka로 받아 처리하는 경로는 BillingMemberEventKafkaTest가 검증한다 (#430).
 @IntegrationTest
-@EnableScenarios
 class WalletCreationIntegrationTest {
 
     private static final int THREADS = 8;
@@ -52,22 +49,20 @@ class WalletCreationIntegrationTest {
     @Autowired
     PlatformTransactionManager transactionManager;
 
-    // 빈은 @Async 프록시라 호출해도 바로 반환된다. 리스너 로직을 동기로 검증할 때는 프록시 없는 인스턴스를 쓴다.
+    // 리스너 로직만 동기로 검증한다(Kafka 소비 컨테이너는 이 테스트에서 꺼져 있다).
     UserJoinedEventListener userJoinedEventListener;
 
-    // 프록시 없는 리스너 인스턴스를 만든다.
     @BeforeEach
     void setUp() {
         userJoinedEventListener = new UserJoinedEventListener(walletFacade);
     }
 
     @Test
-    @DisplayName("가입 이벤트가 커밋 후 전달되면 네 가지 잔액이 0인 지갑을 만든다")
-    void userJoined_createsWallet(Scenario scenario) {
-        scenario.publish(joined(1L, Role.USER))
-                .andWaitForStateChange(() -> walletRepository.findByUserId(1L), Optional::isPresent)
-                .andVerify(wallet -> assertThat(wallet).hasValueSatisfying(this::assertEmptyBalances));
+    @DisplayName("가입 이벤트를 처리하면 네 가지 잔액이 0인 지갑을 만든다")
+    void userJoined_createsWallet() {
+        userJoinedEventListener.on(joined(1L, Role.USER));
 
+        assertThat(walletRepository.findByUserId(1L)).hasValueSatisfying(this::assertEmptyBalances);
         assertThat(walletCount(1L)).isEqualTo(1);
     }
 
@@ -83,23 +78,10 @@ class WalletCreationIntegrationTest {
 
     @Test
     @DisplayName("관리자 가입 이벤트는 처리를 마쳐도 지갑을 만들지 않는다")
-    void userJoined_admin(Scenario scenario) {
-        publishAndWaitForCompletion(scenario, joined(1L, Role.ADMIN));
+    void userJoined_admin() {
+        userJoinedEventListener.on(joined(1L, Role.ADMIN));
 
         assertThat(walletRepository.findByUserId(1L)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("같은 가입 이벤트가 다시 전달되어 처리되어도 지갑은 하나이고 같은 지갑을 유지한다")
-    void userJoined_redelivered(Scenario scenario) {
-        UserJoinedEvent event = joined(1L, Role.USER);
-        publishAndWaitForCompletion(scenario, event);
-        Long walletId = walletRepository.findByUserId(1L).orElseThrow().getId();
-
-        publishAndWaitForCompletion(scenario, event);
-
-        assertThat(walletCount(1L)).isEqualTo(1);
-        assertThat(walletRepository.findByUserId(1L).orElseThrow().getId()).isEqualTo(walletId);
     }
 
     @Test
@@ -246,18 +228,6 @@ class WalletCreationIntegrationTest {
         assertThat(first.getUserId()).isEqualTo(1L);
         assertThat(second.getUserId()).isEqualTo(2L);
         assertThat(walletFacade.getOrCreateWallet(1L).getId()).isEqualTo(first.getId());
-    }
-
-    // 이벤트를 커밋 후 발행하고 리스너 처리가 끝나 발행 기록이 지워질 때까지 기다린다 (테스트는 completion-mode=delete).
-    private void publishAndWaitForCompletion(Scenario scenario, UserJoinedEvent event) {
-        scenario.publish(event)
-                .andWaitForStateChange(this::outstandingPublications, count -> count == 0)
-                .andVerify(count -> assertThat(count).isZero());
-    }
-
-    // 아직 처리되지 않은 이벤트 발행 기록 수를 센다.
-    private int outstandingPublications() {
-        return jdbcTemplate.queryForObject("SELECT count(*) FROM event_publication", Integer.class);
     }
 
     // 회원 ID·역할로 가입 이벤트를 만든다.
