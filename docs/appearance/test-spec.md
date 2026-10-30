@@ -942,8 +942,8 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | `AppearanceBatchUseCaseTest` › 보류 재확인 | 보류 처리 중 모집글 재확인 중 Billing 거절(잔액 부족) | `HOLD_FAILED`, 같은 모집글로 보류 요청 2번, 내 목록·상세에 안 보임, 다시 가져가지 않음 |
 | `AppearanceHostCancelFlowTest` › 일방 취소 | 일방 취소(확인함)와 합의 취소 수락 동시 | 한쪽만 성공: `CANCELED_BY_HOST`(요청 `CLOSED_BY_HOST_CANCEL`, 위약금만) 또는 `CANCELED_BY_AGREEMENT`(요청 `ACCEPTED`, 반환만) |
 | `AppearanceHostCancelFlowTest` › 모집 전체 취소 | 모집 전체 취소(확인 없음)와 게스트 취소 요청 동시 | 취소가 먼저: 출연 `CANCELED_BY_HOST`·위약금 1건·요청 없음 / 요청이 먼저: 취소는 `CANCEL_REQUEST_CONFIRM_REQUIRED`(또는 충돌), 모집 `RECRUITING`·출연 `CANCEL_REQUESTED`·HP 작업 없음 |
-| `AppearanceBatchScheduleTest` | appearance.yml cron 6개 | 모두 올바르고 매분 한 번, 서로 다른 초(0·10·20·30·40·50) |
-| `AppearanceBatchScheduleTest` | 스위치를 켜고 띄움 | `@Scheduled` 메서드 수 = 검사 표 6개, 6개가 yml cron 그대로 스케줄러에 등록 |
+| `AppearanceBatchScheduleTest` | appearance.yml cron 7개 | 모두 올바르고 매분 한 번, 서로 다른 초(0·5·10·20·30·40·50, 05초 알림 재발행은 #393) |
+| `AppearanceBatchScheduleTest` | 스위치를 켜고 띄움 | `@Scheduled` 메서드 수 = 검사 표 7개, 7개가 yml cron 그대로 스케줄러에 등록 |
 | `AppearanceBatchScheduleTest` | `@Scheduled` 기본값 | yml과 같고 시간대 `Asia/Seoul` |
 | `AppearanceBatchScheduleTest` | 배치 메서드 호출 | 맞는 UseCase를 한 번씩 |
 
@@ -1224,3 +1224,39 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | `AppearanceRequestFacadeTest`·`AppearanceRecruitFacadeTest` 보류 거절 | 잔액 부족 → `AppearanceHoldRejectedException` 409 `INSUFFICIENT_BALANCE`(출연 문구), 지갑 없음 → 500 `HP_HOLD_FAILED` | 지갑 오류를 그대로 전달하지 않고 출연 코드로 바꾼다 |
 | `AppearanceRequestApiE2ETest` 잔액 부족 | `detail`이 출연 문구 | 같음 |
 | `AppearanceBatchUseCaseTest`·`AppearanceRequestRespondFacadeTest` 무응답 마지막 오류 | `IllegalStateException: …` → `UNKNOWN_RESULT: …` | 결과를 받지 못한 실패는 종류·상태·지갑 코드로 기록한다 |
+
+## 25. 알림 이벤트 Kafka 발행 (#393)
+
+요청 도착·지원 도착 이벤트를 Modulith 외부화로 토픽 `appearance.events.v1`에 내보낸다(구성은 `module.md` 11.3, 팀 규칙은 `kafka.md` #339). 다른 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), 이 테스트만 `KafkaTestcontainersConfig`(`apache/kafka:4.2.1`)를 가져와 켠다.
+
+### 25.1 `AppearanceEventKafkaTest` (통합, Testcontainers Kafka)
+
+토픽은 운영과 같은 이름 하나를 같이 쓰고, 앱이 뜰 때 선언한다. 테스트마다 새 소비자 그룹을 토픽 끝으로 옮긴 뒤 읽어 앞 테스트의 메시지를 보지 않고, 그중 그 테스트가 만든 key의 메시지만 본다. 보내기는 커밋 뒤 비동기라 15초 안에 기다린다. 외부화를 켠 컨텍스트를 따로 띄우므로 끝나면 닫는다(`@DirtiesContext`, 테스트 DB 연결 상한).
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 앱 기동 | 토픽 `appearance.events.v1`이 partition 3개로 있음 |
+| 요청서 보내기 성공(커밋) | 메시지 1건. key `appearance-request:<요청서 ID>`, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, `eventId` 헤더 없음. 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
+| 지원(커밋) | 메시지 1건. key `appearance-application:<지원 ID>`, `eventType` = `AppearanceApplicationSubmittedEvent`, 본문의 지원 ID·모집글 ID·모집글 제목·호스트·게스트·지원 시각 |
+| 발행한 트랜잭션 롤백 | 롤백한 이벤트는 나가지 않음 (뒤에 커밋한 이벤트가 도착한 뒤 확인) |
+| 첫 보내기의 응답 유실(브로커에는 도착, 앱은 실패로 받음) → 시계를 2분 앞당겨 재발행 배치(`AppearanceEventRepublishUseCase.republishDue()`) 1회 | 배치가 1건을 다시 보냄. 같은 key로 2건 이상, `eventType`·본문이 같음(받는 쪽이 `(eventType, 요청서 ID)`로 거름) |
+
+- 응답 유실은 `KafkaTemplate`을 `@MockitoSpyBean`으로 감싸 첫 `send`만 실제로 보낸 뒤 실패를 돌려주게 만든다.
+- 발행 시점·횟수·내용(같은 JVM)은 기존 `AppearanceEventPublishTest`가 그대로 확인한다.
+
+### 25.2 `AppearanceExternalEventsTest` (단위)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 요청 도착·지원 도착 | 내보냄 (`@Externalized`) |
+| 출연 취소 요청 이벤트 3종 | 내보내지 않음 |
+| 회원 이벤트(`UserJoinedEvent`·`UserModifiedEvent`) | 내보내지 않음 (다른 컨텍스트 이벤트) |
+
+### 25.3 `AppearanceEventRepublishUseCaseTest` (단위, `IncompleteEventPublications` 대역)
+
+미완료 기록 목록을 Modulith처럼 발행 시각 순으로 재발행 조건에 넘긴다. `batch-size` 3, 대기 시간 1분.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 내보내는 이벤트 5건(10·8·7·6·5분 전) + 취소 요청 이벤트 1건(9분 전) + 방금(30초 전) 1건 | 10·8·7분 전 3건만 고름(오래된 순), 반환 3, 로그 `count=3, waiting=2, batchSize=3` |
+| 취소 요청 이벤트와 방금 발행한 기록뿐 | 고르지 않음, 반환 0, 재발행 로그 없음 |
