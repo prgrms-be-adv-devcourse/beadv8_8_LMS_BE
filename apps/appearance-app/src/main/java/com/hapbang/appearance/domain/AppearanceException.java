@@ -13,6 +13,10 @@ public class AppearanceException extends BusinessException {
         super(errorCode, detail);
     }
 
+    public AppearanceException(AppearanceErrorCode errorCode, Throwable cause) {
+        super(errorCode, cause);
+    }
+
     /** 출연 예외는 항상 출연 오류 코드로 만들므로 그 타입으로 돌려준다 (오류 코드별 분기용) */
     @Override
     public AppearanceErrorCode getErrorCode() {

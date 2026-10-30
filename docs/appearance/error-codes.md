@@ -88,6 +88,9 @@ Content-Type: application/problem+json
 | `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | 보류 결과를 받지 못함(5xx·응답 시간 초과·연결 실패·요청 한도 초과). 요청서·모집글은 `HOLD_PENDING`으로 남고 재확인 배치가 다시 보낸다 (모집글은 문구의 목록 이름이 다르다) | #98, #274 |
 | `INSUFFICIENT_BALANCE` | 409 | HP 잔액이 부족합니다. 충전한 뒤 다시 시도해 주세요. | 지갑이 보류를 잔액 부족으로 거절. 요청서·모집글은 `HOLD_FAILED` | #274 |
 | `HP_HOLD_FAILED` | 500 | HP 보류를 처리하지 못했습니다. 문제가 계속되면 고객센터로 문의해 주세요. | 지갑이 그 밖의 이유로 보류를 거절(지갑 없음, 내부 API 키 오류 등 목록 밖 코드, 멱등 충돌, 보류 불변식 위반). 요청서·모집글은 `HOLD_FAILED`. 지갑 코드·HTTP 상태·설명은 오류 로그에만 남는다 | #274 |
+| `MEMBER_SOURCE_UNAVAILABLE` | 503 | 지금은 회원 정보를 조회할 수 없습니다. 잠시 후 다시 시도해 주세요. | 관리자 기존 회원 Backfill 중 회원 내부 API 장애(5xx·연결 실패·시간 초과·읽을 수 없는 응답)·키셋 계약 위반, 회원 내부 API 주소 미설정. 이미 반영한 회원은 유지하고 ProblemDetail에 집계와 `resumeAfterId`를 담는다 | #394 |
+| `MEMBER_SOURCE_REJECTED` | 503 | 지금은 회원 정보를 조회할 수 없습니다. | 관리자 기존 회원 Backfill 중 회원 내부 API가 거절(4xx: 내부 API 키 오류 등). 집계·`resumeAfterId`는 위와 같다 | #394 |
+| `BACKFILL_ALREADY_RUNNING` | 409 | 회원 정보 Backfill이 이미 실행 중입니다. | 관리자 기존 회원 Backfill이 실행 중인데 다시 실행 | #394 |
 
 ### 지갑 오류 (출연 코드로 바꿔 응답, #274)
 

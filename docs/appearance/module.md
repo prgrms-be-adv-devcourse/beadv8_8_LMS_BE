@@ -169,6 +169,7 @@ com.hapbang.appearance
 | `app.AppearanceRequestSupport` | 요청서 저장소 접근: `getById`, `existsInProgress`, `saveNow`, `findSent`, `findReceived` (최신순 고정) |
 | `in.ApiV1AppearanceRequestController`, `ApiV1AppearanceRequestSpec` | 출연 요청서 REST API(Facade만 호출)와 Swagger 명세 (요청 값 검증은 Spec에) |
 | `in.AppearanceUserEventListener`, `config.AppearanceKafkaConfig` | 회원 가입·변경 이벤트 Kafka 수신 → `AppearanceUserFacade` / 소비 그룹·DLT·재시도 (#394) |
+| `in.ApiV1AppearanceUserBackfillAdminController`, `app.AppearanceUserBackfillFacade`, `AppearanceUserBackfillUseCase` | 관리자 기존 회원 Backfill: 회원 내부 API 키셋 순회 → 회원마다 `AppearanceUserSyncUseCase.applySnapshot` (#394, 4.1.1) |
 | `out.AppearanceUserRepository` | 출연 회원 저장·조회 |
 | `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
 | `out.AppearanceRepository`, `HpTaskRepository` | 출연, HP 작업 저장·조회 |
@@ -200,6 +201,7 @@ com.hapbang.appearance
 | 상대 | 방식 | 주고받는 것 | 상태 |
 |---|---|---|---|
 | 회원 | Kafka 이벤트 수신 (`member.events.v1`) | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ Kafka 수신 (#394). 이전에는 같은 서버 안 `@ApplicationModuleListener` |
+| 회원 | 회원 내부 HTTP API (`GET /api/v1/internal/members`, shared `MemberApiClient`) | 기존 회원 목록(키셋) → 관리자 Backfill로 출연 회원 생성·갱신 | ✅ #394 (4.1.1) |
 | 회원 (global) | 로그인 | Gateway가 JWT를 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더 → `@LoginUserId`·`@PreAuthorize` (20장) | ✅ 앱 쪽 (#395). 회원 JWT 발급(#370) 전까지 운영에는 헤더가 오지 않는다 |
 | 지갑+정산 (billing) | 지갑 내부 HTTP API (`/api/v1/internal/billing/*`, 공용 `BillingApiClient`) | 보류, 반환, 지급, 위약금 | ✅ HTTP 연동 (#274). 이전에는 shared `BillingPort`(같은 서버 안 Java 호출, #289) |
 | 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
@@ -230,12 +232,32 @@ com.hapbang.appearance
 | 로컬·테스트 | 로컬은 compose의 Kafka(`localhost:9092`)로 운영과 같이 받는다(회원 앱을 한 번 띄워 토픽을 만든다). 테스트에는 Kafka가 없어 리스너 자동 시작과 토픽 생성을 끈다(`spring.kafka.listener.auto-startup`·`spring.kafka.admin.auto-create` = false). Kafka 테스트만 Testcontainers로 켠다 |
 
 - **출연 회원은 가입 이벤트로만 만든다.** 늦게 처리된 가입 이벤트가 이미 반영된 변경 정보를 덮어쓰지 않게 하기 위해서다 (채팅·강의와 같은 방식). 가입보다 먼저 온 변경은 DLT에 쌓이고 runbook대로 다시 넣는다(사용자 결정 10/30, 강의 #429와 같게).
-    - 복제 회원은 ID를 직접 넣기 때문에 JPA `save()`가 merge로 동작한다. 가입·변경이 각자 "없으면 생성"하면 PK 충돌 없이 나중 것이 덮어쓴다.
+    - 가입·변경이 각자 "없으면 생성"하면 늦게 처리된 쪽이 앞의 정보를 덮어쓸 수 있다. 복제 회원은 `@Version`이 있어 새 행 `save()`는 insert라, 같은 회원을 동시에 만들면 한쪽이 PK 충돌로 실패하고 재처리 때 정리된다.
 - 멱등·순서: 공통 `ReplicaUser.syncFrom`이 회원 버전(`UserDto.version`)으로 이미 반영한 버전보다 크지 않은 정보(늦게 온·중복된 이벤트)를 무시한다 (회원 #292). Modulith 발행은 같은 key라도 순서가 바뀔 수 있어 이 비교가 필요하다.
 - 반영이 커밋된 뒤 리스너가 끝나야 offset이 커밋된다. 커밋 전에 죽으면 같은 이벤트를 다시 받고 버전 비교가 흡수한다.
-- 출연 DB는 새로 띄우므로 복제본은 회원 가입 이벤트로 채워진다(기존 회원 데이터 이전 없음).
+- 회원 앱이 Kafka로 보내기 전(#416)에 가입한 회원은 가입 이벤트가 없다. 이 회원들은 관리자 Backfill(4.1.1)로 채운다. 채우기 전에는 출연 API에서 `APPEARANCE_USER_NOT_FOUND`, 정보 변경 이벤트는 DLT로 간다(Backfill 뒤 DLT를 다시 넣으면 반영된다).
 - 회원이 정지·탈퇴 상태로 바뀌면 이후 출연 거래 자격 확인에서 `APPEARANCE_USER_NOT_ACTIVE`가 된다.
 - 한계: 가입보다 변경 이벤트가 먼저 오면, DLT를 다시 넣기 전까지 그 회원은 출연에서 "회원 없음"이다.
+
+#### 4.1.1 기존 회원 Backfill (관리자 수동 실행, #394)
+
+`POST /api/v1/appearances/admin/users/backfill?afterId=0&limit=100`. 지갑 Backfill(#324)과 같은 구조다.
+
+```
+관리자 ─▶ AppearanceUserBackfillFacade(@PreAuthorize ADMIN, 트랜잭션 없음)
+        ─▶ AppearanceUserBackfillUseCase
+             loop: MemberApiClient.getMembers(afterId, 500) ─▶ 키셋 계약 확인
+                   회원마다 [트랜잭션] AppearanceUserSyncUseCase.applySnapshot(): 없으면 생성 / 회원 버전이 더 높으면 갱신 / 아니면 그대로
+```
+
+| 항목 | 내용 |
+|---|---|
+| 반영 규칙 | 회원 원본의 현재 정보(스냅샷, 회원 버전 포함)로 없으면 만들고, 있으면 `ReplicaUser.syncFrom` 버전 비교. 이벤트로 반영한 최신 정보를 덮지 않고, 다시 실행해도 결과가 같다. 이벤트의 "가입으로만 생성" 규칙과 달리 스냅샷은 버전이 있는 현재 정보라 생성해도 안전하다 |
+| 범위 | 한 번에 최대 1,000명(기본 100), 회원 내부 API는 500명씩. 끝나지 않으면 `nextAfterId`로 이어서 실행. Gateway 응답 제한(30초) 안에 끝나도록 지갑(5,000)보다 낮게 두었다. 넘기면 504지만 서버는 끝까지 처리하고 결과는 로그에 남는다(그동안 다시 요청하면 409) |
+| 실패 | 회원 하나의 반영 실패는 `failed`·`failedIds`(최대 100개)로 세고 계속. 회원 내부 API 장애·키셋 계약 위반은 멈추고 503 `MEMBER_SOURCE_UNAVAILABLE` / 거절은 `MEMBER_SOURCE_REJECTED`, Problem Detail에 집계와 `resumeAfterId`. 실행 중 다시 요청하면 409 `BACKFILL_ALREADY_RUNNING`(출연 앱 1대 전제) |
+| 권한 | 보안 설정(`/api/v1/appearances/admin/**`)과 `@PreAuthorize`(Gateway 사용자 헤더의 역할). HP 작업 관리와 달리 복제 회원으로 관리자 자격을 다시 확인하지 않는다(Backfill 전에는 관리자 자신의 출연 회원이 없을 수 있다) |
+| 설정 | `hapbang.clients.member.base-url`: 운영 `${MEMBER_API_BASE_URL}`(k8s `http://member-app:8081`), 로컬 `http://localhost:8081`. 주소가 없으면 Client 빈이 없고 실행하면 503 |
+| 운영 절차 | 출연 앱 배포 뒤 관리자가 `completed = true`가 될 때까지 `nextAfterId`로 이어서 실행한다. 그 전에 쌓인 회원 변경 DLT는 Backfill 뒤 runbook대로 다시 넣는다 |
 
 ### 4.2 Billing 연동 (#168)
 

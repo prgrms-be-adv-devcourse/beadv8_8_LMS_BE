@@ -49,6 +49,8 @@
 | 통합 | `AppearanceModuleIntegrationTest` | 모듈 전체 기동 | #26 |
 | 통합 | `AppearanceUserFacadeTest` | 출연 회원 생성·갱신(Facade), 자격 확인(Support) | #31, #50, #98 |
 | 통합 | `AppearanceUserEventListenerTest` | 회원 가입·정보 변경 이벤트 Kafka 수신 (Testcontainers Kafka) | #31, #50, #394 |
+| 단위 | `AppearanceUserBackfillUseCaseTest` | 기존 회원 Backfill 순회·집계·중단 (회원 내부 API 대역 서버) | #394 |
+| E2E | `AppearanceUserBackfillAdminApiE2ETest` | 관리자 기존 회원 Backfill API (실제 서버·DB, 회원 내부 API 대역 서버) | #394 |
 | E2E | `AppearanceApiE2ETest` | 헤더 로그인 → 자격 확인 → 오류 응답, 회원 정지 반영 (앱 전체) | #31, #50 |
 | 통합 | `AppearanceSwaggerDocsTest` | Swagger 명세의 성공 응답 스키마가 `RsData`인지 | #144 |
 | 통합 | `AppearanceRequestFacadeTest` | 요청서 보내기(HP 보류·잔액 부족·무응답·중복·동시 요청), 로그인 역할(`@PreAuthorize`), 출연 회원 자격, 조회, 수정(멱등) | #98 |
@@ -1313,3 +1315,33 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 권한 테스트(비로그인 401, 역할 부족 403, 다른 사람 자원 404, 정지 회원 거절)는 기존 E2E·Facade 테스트가 헤더 로그인으로 그대로 확인한다.
 
+## 28. 기존 회원 Backfill (#394)
+
+회원 앱이 Kafka로 보내기 전에 가입한 회원을 회원 내부 API로 채운다(module.md 4.1.1). 회원 내부 API는 `FakeMemberServer`(JDK HTTP 서버)로 흉내 내 운영 `MemberApiClient`가 실제 HTTP로 부르게 한다(오류 변환까지 운영과 같다).
+
+### 28.1 `AppearanceUserBackfillUseCaseTest` (단위)
+
+회원 하나의 반영(`applySnapshot`)과 트랜잭션은 대역이다.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 회원 900명, limit 1,000 | 500·400명 두 번 읽어(afterId 0·500) ID 순서로 모두 반영, `completed`, `nextAfterId` 없음 |
+| 150명을 limit 100으로 → nextAfterId로 이어서 / 회원 없음 | 100명·`completed = false`·`nextAfterId = 100` → 50명·`completed` / 0건·`completed` |
+| 반영 결과 생성·갱신·실패·그대로 1건씩 | 종류별 집계, scanned = 합계, 실패 회원은 `failedIds`, 다음 회원 계속 |
+| 150명 모두 실패 | `failed` 150, `failedIds`는 앞 100개 |
+| 두 번째 페이지 5xx | 503 `MEMBER_SOURCE_UNAVAILABLE`, `scanned` 500·`resumeAfterId` 500, 첫 페이지는 반영됨 |
+| 401 / 깨진 응답 | `MEMBER_SOURCE_REJECTED` / `MEMBER_SOURCE_UNAVAILABLE`(`resumeAfterId` = 요청한 afterId), 반영 없음 |
+| Client 없음(주소 미설정) | `MEMBER_SOURCE_UNAVAILABLE` |
+| 키셋 계약 위반(역순, afterId 이하 ID, nextAfterId가 마지막 ID와 다름, 빈 페이지에 nextAfterId) | 그 페이지를 반영하지 않고 `MEMBER_SOURCE_UNAVAILABLE` |
+| 실행 중 다시 실행 / 끝난 뒤 / limit 0·1,001, afterId -1 | 409 `BACKFILL_ALREADY_RUNNING` / 다시 실행 가능 / 거부 |
+
+### 28.2 `AppearanceUserBackfillAdminApiE2ETest` (E2E)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 관리자 실행: 관리자·없는 회원(정지 상태) 생성, 이벤트로 v3인 회원에 스냅샷 v2, v1인 회원에 스냅샷 v2 | 200, created 2·updated 1·ignored 1·failed 0, 응답에 닉네임 없음. 없는 회원은 스냅샷대로 생성, v3 그대로, v1 → v2. 관리자 자신의 출연 회원이 없어도 실행됨 |
+| 같은 요청을 다시 | created 0·ignored 4 (멱등) |
+| Backfill로 만든 회원에 회원 변경 이벤트 | 반영됨(가입 이벤트가 없던 기존 회원의 변경이 DLT로 가지 않음) |
+| limit 2로 3명 → afterId=nextAfterId로 이어서 | 2명·`nextAfterId`·`completed = false` → 1명·`completed`, 3명 모두 생성 |
+| 회원 내부 API 5xx | 503 `MEMBER_SOURCE_UNAVAILABLE`, Problem Detail에 `scanned`·`resumeAfterId` |
+| 인플루언서 / 비로그인(사용자 헤더 없음) / limit 1,001 / afterId -1 | 403 / 401 / 400 `INVALID_REQUEST` / 400, 회원 내부 API를 부르지 않음 |
