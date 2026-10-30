@@ -33,7 +33,7 @@ import lombok.RequiredArgsConstructor;
  * 권한 확인 순서
  * <ol>
  *     <li>로그인: global SecurityConfig가 로그인하지 않은 요청을 401로 막는다 (비회원 공개 목록은 팀 합의 후).</li>
- *     <li>세션 역할: 올리기·수정·내 목록은 Facade의 {@code @PreAuthorize}가 인플루언서 이상인지 확인한다.</li>
+ *     <li>로그인 역할: 올리기·수정·내 목록은 Facade의 {@code @PreAuthorize}가 인플루언서 이상인지 확인한다.</li>
  *     <li>출연 회원 자격: 올리기·수정·내 목록은 UseCase가 복제된 역할·상태로 다시 확인한다.</li>
  * </ol>
  */

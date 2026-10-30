@@ -585,7 +585,7 @@ class AppearanceHostCancelFlowTest {
     // ---------------------------------------------------------------------------------------------
     @Test
     @WithMockUser(roles = "USER")
-    @DisplayName("세션 역할이 USER면 일방 취소·모집 전체 취소가 막힌다")
+    @DisplayName("로그인 역할이 USER면 일방 취소·모집 전체 취소가 막힌다")
     void userRole() {
         assertThatThrownBy(() -> appearanceFacade.hostCancel(HOST, 1L, false, null))
                 .isInstanceOf(AccessDeniedException.class);
@@ -595,7 +595,7 @@ class AppearanceHostCancelFlowTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("세션 역할이 ADMIN이어도 막힌다 (인플루언서만)")
+    @DisplayName("로그인 역할이 ADMIN이어도 막힌다 (인플루언서만)")
     void adminRole() {
         assertThatThrownBy(() -> appearanceFacade.hostCancel(HOST, 1L, false, null))
                 .isInstanceOf(AccessDeniedException.class);
@@ -623,7 +623,7 @@ class AppearanceHostCancelFlowTest {
         }
     }
 
-    /** 다른 스레드에서도 인플루언서 세션으로 실행하고, 예외는 결과로 돌려준다 */
+    /** 다른 스레드에서도 인플루언서로 로그인해 실행하고, 예외는 결과로 돌려준다 */
     private Callable<Object> asInfluencer(CountDownLatch start, Callable<Object> task) {
         return () -> {
             SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken("test", null,

@@ -4,6 +4,7 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 
 import java.time.Duration;
@@ -34,9 +35,9 @@ import io.restassured.specification.RequestSpecification;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 실제 서버(보안 필터, 세션 로그인, 출연 서비스, DB)를 띄우고 RestAssured로 API 요청 흐름을 확인한다.
+ * 실제 서버(보안 필터, Gateway 사용자 헤더 로그인, 출연 서비스, DB)를 띄우고 RestAssured로 API 요청 흐름을 확인한다.
  * <ul>
- *     <li>세션 로그인 → {@code @LoginUserId}로 회원 ID 주입</li>
+ *     <li>사용자 헤더({@code X-User-Id}·{@code X-User-Role}) 로그인 → {@code @LoginUserId}로 회원 ID 주입 (#395)</li>
  *     <li>출연 회원 자격 확인 → 실패하면 Problem Detail 응답</li>
  * </ul>
  * 로그인·자격 확인 기반만 테스트 전용 컨트롤러로 확인한다. 실제 출연 API는 {@code AppearanceRequestApiE2ETest}에서 확인한다.
@@ -70,13 +71,24 @@ class AppearanceApiE2ETest {
     }
 
     @Test
-    @DisplayName("로그인한 인플루언서는 세션의 회원 ID로 출연 회원 자격이 확인된다")
+    @DisplayName("로그인한 인플루언서는 헤더의 회원 ID로 출연 회원 자격이 확인되고, 세션 쿠키는 내려가지 않는다")
     void influencer() {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(1L));
 
         E2ELogin.as(1L, Role.INFLUENCER).get(PROBE_PATH)
                 .then().statusCode(200)
+                .header("Set-Cookie", nullValue())
                 .body(equalTo("1"));
+    }
+
+    @Test
+    @DisplayName("헤더 역할은 인플루언서여도 복제한 회원이 일반 유저면 403 (NOT_INFLUENCER, 토큰에 아직 반영되지 않은 강등)")
+    void demotedAfterTokenIssued() {
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(5L));
+
+        E2ELogin.as(5L, Role.INFLUENCER).get(PROBE_PATH)
+                .then().statusCode(403)
+                .body("code", equalTo("NOT_INFLUENCER"));
     }
 
     @Test
@@ -100,11 +112,11 @@ class AppearanceApiE2ETest {
     }
 
     @Test
-    @DisplayName("회원 모듈에서 정지되면 같은 세션의 다음 요청은 403 (APPEARANCE_USER_NOT_ACTIVE)")
+    @DisplayName("회원 모듈에서 정지되면 같은 토큰(헤더)의 다음 요청은 403 (APPEARANCE_USER_NOT_ACTIVE)")
     void suspendedByUserModifiedEvent() {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(4L));
-        RequestSpecification session = E2ELogin.as(4L, Role.INFLUENCER);
-        given().spec(session).get(PROBE_PATH)
+        RequestSpecification login = E2ELogin.as(4L, Role.INFLUENCER);
+        given().spec(login).get(PROBE_PATH)
                 .then().statusCode(200);
 
         transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(
@@ -112,7 +124,7 @@ class AppearanceApiE2ETest {
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
                 appearanceUserRepository.findById(4L).orElseThrow().getStatus()).isEqualTo(UserStatus.SUSPENDED));
 
-        given().spec(session).get(PROBE_PATH)
+        given().spec(login).get(PROBE_PATH)
                 .then().statusCode(403)
                 .body("code", equalTo("APPEARANCE_USER_NOT_ACTIVE"));
     }

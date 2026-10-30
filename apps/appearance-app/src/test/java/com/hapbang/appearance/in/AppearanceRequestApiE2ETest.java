@@ -32,8 +32,8 @@ import io.restassured.http.ContentType;
 import io.restassured.specification.RequestSpecification;
 
 /**
- * 실제 서버(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 RestAssured로 출연 요청서 API를 호출한다.
- * 로그인과 CSRF 토큰은 {@link E2ELogin}이 만든다.
+ * 실제 서버(보안 필터, Gateway 사용자 헤더 로그인, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 RestAssured로 출연 요청서 API를 호출한다.
+ * 로그인(Gateway 사용자 헤더)은 {@link E2ELogin}이 만든다.
  */
 @AppearanceE2ETest
 class AppearanceRequestApiE2ETest {
@@ -146,7 +146,7 @@ class AppearanceRequestApiE2ETest {
     }
 
     @Test
-    @DisplayName("일반 유저·관리자 세션이면 Facade @PreAuthorize에서 403 Problem Detail (공통 FORBIDDEN)")
+    @DisplayName("일반 유저·관리자 로그인이면 Facade @PreAuthorize에서 403 Problem Detail (공통 FORBIDDEN)")
     void userRole() {
         E2ELogin.as(HOST, Role.USER).get(BASE + "/sent")
                 .then().statusCode(403)
@@ -239,10 +239,13 @@ class AppearanceRequestApiE2ETest {
     }
 
     @Test
-    @DisplayName("CSRF 토큰 없이 보내면 403 (보안 필터)")
-    void withoutCsrf() {
-        E2ELogin.withoutCsrf(HOST, Role.INFLUENCER).contentType(ContentType.JSON).body(createBody(GUEST, 30_000))
+    @DisplayName("사용자 헤더 없이 보내면 401, 형식이 맞지 않으면(역할 없음) 401 (보안 필터)")
+    void withoutUserHeaders() {
+        given().contentType(ContentType.JSON).body(createBody(GUEST, 30_000))
                 .post(BASE)
-                .then().statusCode(403);
+                .then().statusCode(401);
+        given().contentType(ContentType.JSON).header("X-User-Id", String.valueOf(HOST)).body(createBody(GUEST, 30_000))
+                .post(BASE)
+                .then().statusCode(401);
     }
 }

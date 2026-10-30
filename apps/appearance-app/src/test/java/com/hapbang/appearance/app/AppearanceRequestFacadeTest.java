@@ -45,7 +45,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 
 /**
  * 출연 요청서 보내기·조회·수정 흐름을 DB와 Billing 대역으로 확인한다.
- * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
+ * 로그인 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
@@ -242,7 +242,7 @@ class AppearanceRequestFacadeTest {
     }
 
     @Test
-    @DisplayName("세션은 인플루언서여도 출연 회원이 정지 상태면 APPEARANCE_USER_NOT_ACTIVE (로그인 후 정지 대응)")
+    @DisplayName("로그인 역할은 인플루언서여도 출연 회원이 정지 상태면 APPEARANCE_USER_NOT_ACTIVE (로그인 후 정지 대응)")
     void suspendedHost() {
         appearanceUserFacade.syncModified(AppearanceUserFixture.user(HOST, Role.INFLUENCER, UserStatus.SUSPENDED));
 
@@ -252,7 +252,7 @@ class AppearanceRequestFacadeTest {
 
     @Test
     @WithMockUser(roles = "USER")
-    @DisplayName("세션 역할이 일반 유저면 Facade의 @PreAuthorize에서 거절한다")
+    @DisplayName("로그인 역할이 일반 유저면 Facade의 @PreAuthorize에서 거절한다")
     void userRoleDenied() {
         assertThatThrownBy(() -> send(HOST, GUEST)).isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)))

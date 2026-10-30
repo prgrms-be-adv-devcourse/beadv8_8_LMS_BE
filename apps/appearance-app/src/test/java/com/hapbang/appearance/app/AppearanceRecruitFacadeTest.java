@@ -40,7 +40,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 
 /**
  * 출연 모집글 올리기·조회·수정 흐름을 DB와 Billing 대역으로 확인한다.
- * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
+ * 로그인 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
@@ -168,7 +168,7 @@ class AppearanceRecruitFacadeTest {
 
     @Test
     @WithMockUser(roles = "USER")
-    @DisplayName("세션 역할이 USER면 올리기·수정·내 목록은 막히고, 공개 목록·상세는 볼 수 있다")
+    @DisplayName("로그인 역할이 USER면 올리기·수정·내 목록은 막히고, 공개 목록·상세는 볼 수 있다")
     void userRole() {
         assertThatThrownBy(() -> post(HOST)).isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE))

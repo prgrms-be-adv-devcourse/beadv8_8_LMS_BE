@@ -47,7 +47,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 
 /**
  * 출연 모집 지원·취소·수락·거절·조회 흐름을 DB와 Billing 대역으로 확인한다.
- * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
+ * 로그인 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
@@ -521,14 +521,14 @@ class AppearanceApplicationFacadeTest {
 
     @Test
     @WithMockUser(roles = "USER")
-    @DisplayName("세션 역할이 USER면 지원·취소·수락·거절·목록 모두 막힌다 (@PreAuthorize)")
+    @DisplayName("로그인 역할이 USER면 지원·취소·수락·거절·목록 모두 막힌다 (@PreAuthorize)")
     void userRole() {
         assertAllDenied();
     }
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("세션 역할이 ADMIN이어도 지원·취소·수락·거절·목록 모두 막힌다 (인플루언서만)")
+    @DisplayName("로그인 역할이 ADMIN이어도 지원·취소·수락·거절·목록 모두 막힌다 (인플루언서만)")
     void adminRole() {
         assertAllDenied();
     }
@@ -570,7 +570,7 @@ class AppearanceApplicationFacadeTest {
         }
     }
 
-    /** 다른 스레드에서도 인플루언서 세션으로 실행하고, 예외는 결과로 돌려준다 */
+    /** 다른 스레드에서도 인플루언서로 로그인해 실행하고, 예외는 결과로 돌려준다 */
     private Callable<Object> asInfluencer(CountDownLatch start, Callable<Object> task) {
         return () -> {
             SecurityContextHolder.getContext().setAuthentication(
