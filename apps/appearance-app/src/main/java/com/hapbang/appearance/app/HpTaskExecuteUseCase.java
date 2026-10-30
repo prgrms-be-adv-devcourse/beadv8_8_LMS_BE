@@ -23,6 +23,7 @@ import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
+import com.hapbang.shared.billing.out.BillingApiClient;
 import com.hapbang.shared.billing.out.BillingCallException;
 import com.hapbang.shared.billing.out.BillingCallResult;
 
@@ -42,7 +43,9 @@ import lombok.extern.slf4j.Slf4j;
  *         단 목록 밖 코드 중 401·403·404는 내부 API 키 교체·경로 오류 같은 연동 장애라 고치면 같은 요청이 성공하므로,
  *         바로 격리하지 않고 아래 재시도와 같게 다룬다 (장애 동안 작업이 모두 격리돼 관리자가 한 건씩 다시 시도하는 일을 막는다)</li>
  *         <li>결과를 받지 못함({@code BillingCallException}: 결과 불명·보내지 못함) → 재시도 정책에 따라 다음 시도 시각을 정하고,
- *         최대 횟수에 닿으면 {@code DEAD}. 지갑 호출 전후의 예상하지 못한 예외도 같은 요청 ID로 다시 보내면 되므로 같게 다룬다</li>
+ *         최대 횟수에 닿으면 {@code DEAD}. 지갑 호출 전후의 예상하지 못한 예외도 같은 요청 ID로 다시 보내면 되므로 같게 다룬다.
+ *         단 회로가 열려 보내지 못했으면({@code CIRCUIT_OPEN}) 요청이 나가지 않았으므로 시도 횟수를 올리지 않고 다음 시도 시각만 미룬다 (#439).
+ *         배치는 회로가 열려 있으면 실행하지 않지만, 시험 중(HALF_OPEN)에는 사용자 요청과 배치가 시험 호출 몫을 나눠 써서 이렇게 될 수 있다</li>
  *     </ul></li>
  *     <li>격리되면 {@code [HP_TASK_DEAD]} 오류 로그를 남긴다 (로그에서 이 문자열로 찾는다).</li>
  *     <li>실패해도 예외를 밖으로 던지지 않는다. 업무 상태(거절·취소·만료)는 이미 커밋됐다.
@@ -86,6 +89,11 @@ public class HpTaskExecuteUseCase {
         try {
             result = request(task);
         } catch (BillingCallException unknown) {
+            if (BillingApiClient.CIRCUIT_OPEN.equals(unknown.getRawCode())) {
+                log.info("지갑 회로가 열려 HP 작업을 보내지 못함, 시도 횟수는 그대로 두고 다음 시각에 실행한다 taskId={}", taskId);
+                postpone(taskId, describe(unknown));
+                return;
+            }
             log.warn("HP 작업 결과를 받지 못함, 재시도 정책에 따라 다시 실행한다 taskId={}, key={}, kind={}, httpStatus={}",
                     taskId, task.getIdempotencyKey(), unknown.getKind(), unknown.getHttpStatus(), unknown);
             retryLater(taskId, describe(unknown));
@@ -111,6 +119,12 @@ public class HpTaskExecuteUseCase {
             case BillingCallResult.Failed<?> failed ->
                     record(taskId, pending -> pending.markDead(describe(failed), LocalDateTime.now(clock)));
         }
+    }
+
+    private void postpone(Long taskId, String error) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime retryAt = hpTaskRetryPolicy.nextAttemptAt(1, now, ThreadLocalRandom.current().nextDouble());
+        record(taskId, pending -> pending.postpone(error, retryAt));
     }
 
     private void retryLater(Long taskId, String error) {

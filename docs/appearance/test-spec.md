@@ -1272,6 +1272,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 보류 재확인 | 대역이 회로 열림 → 재확인 → 닫힘 → 재확인 | 열린 동안 0건, 보류 요청 없음, `HOLD_PENDING` 그대로 → 닫히면 1건 `REQUESTED` |
 | HP 작업 재시도 | 반환 실패 작업, 다음 시도 시각 지남, 대역이 회로 열림 → 재시도 → 닫힘 → 재시도 | 열린 동안 0건, 반환 요청 없음, `PENDING`·시도 1 그대로, 대기 수 지표 1로 갱신 → 닫히면 같은 반환 요청 ID로 `DONE` |
 | HP 작업 재시도 | 반환 작업 3건, 대역은 반환 요청을 한 번 받으면 회로 열림 | 1건만 실행, 반환 요청 1번, 나머지 2건 `PENDING`·시도 0 그대로 |
+| HP 작업 재시도 | 회로는 닫혀 보이지만 반환이 `CIRCUIT_OPEN`(시험 호출 몫 참)으로 실패 → 대역 복구 → 재시도 | `PENDING`·시도 1 그대로, 마지막 오류 `RETRYABLE CIRCUIT_OPEN: …`, 다음 시도 시각만 늦춰짐 → 복구 뒤 `DONE`(시도 2) |
 
 Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 바뀌지 않는다. `BillingCalls.none`은 회로 상태 확인을 요청으로 세지 않는다(배치가 매번 부르므로).
 

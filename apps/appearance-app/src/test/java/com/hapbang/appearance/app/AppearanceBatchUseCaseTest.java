@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -45,6 +46,7 @@ import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.out.BillingCallExceptions;
 
 /**
  * 출연 배치(보류 재확인, 수락 기한 만료, HP 작업 재시도)를 DB와 Billing 대역으로 확인한다.
@@ -462,6 +464,30 @@ class AppearanceBatchUseCaseTest {
             assertThat(BillingCalls.releases(billingClient)).hasSize(1);
             assertThat(hpTaskRepository.findAll()).filteredOn(task -> task.getStatus() == HpTaskStatus.PENDING)
                     .hasSize(2).allSatisfy(task -> assertThat(task.getAttemptCount()).isZero());
+        }
+
+        @Test
+        @DisplayName("시험 중 호출 몫이 차서 회로 열림(CIRCUIT_OPEN)으로 보내지 못하면 시도 횟수는 그대로 두고 다음 시각만 미룬다 (#439)")
+        void postponeWhenCircuitRejects() {
+            HpTask task = failedRelease();
+            BillingStubs.available(billingClient);
+            doThrow(BillingCallExceptions.circuitOpen()).when(billingClient).release(any());
+            retryTimeReached(task.getId());
+            LocalDateTime dueAt = onlyTask().getNextAttemptAt();
+
+            assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
+
+            HpTask postponed = onlyTask();
+            assertThat(postponed.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(postponed.getAttemptCount()).isEqualTo(1);
+            assertThat(postponed.getLastError()).startsWith("RETRYABLE CIRCUIT_OPEN: ");
+            assertThat(postponed.getNextAttemptAt()).isAfter(dueAt);
+
+            BillingStubs.available(billingClient);
+            retryTimeReached(task.getId());
+            assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
+            assertThat(onlyTask().getStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(onlyTask().getAttemptCount()).isEqualTo(2);
         }
 
         @Test
