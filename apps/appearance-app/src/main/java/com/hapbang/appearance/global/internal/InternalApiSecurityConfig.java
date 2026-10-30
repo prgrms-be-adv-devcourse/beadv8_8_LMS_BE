@@ -17,7 +17,7 @@ import org.springframework.security.web.context.RequestAttributeSecurityContextR
  * <ul>
  *     <li>{@code X-Internal-Api-Key}가 맞는 요청만 통과한다. 없거나 틀리면 401(본문 없음)이다.</li>
  *     <li>회원 로그인 정보(Gateway 사용자 헤더)를 읽지 않는다. 로그인한 회원도 키가 없으면 401이다.</li>
- *     <li>서버 nginx는 이 경로를 밖에서 404로 끊고, 내부 호출은 nginx를 거치지 않는다 (docs/deploy).</li>
+ *     <li>Gateway에는 이 경로의 route가 없고, 내부 포트(8081)로만 받는다. 외부 포트(8080)로 오면 {@code InternalApiPortValve}가 404로 끊는다.</li>
  * </ul>
  */
 @Configuration
