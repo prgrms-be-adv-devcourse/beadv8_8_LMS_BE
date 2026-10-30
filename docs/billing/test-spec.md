@@ -6,6 +6,7 @@
 > - 기준: 2026-10-29 작업 트리, `apps/billing-app/src/test/java/com/hapbang/billing` 73개 클래스, `@Test`·`@ParameterizedTest` 어노테이션 756개(`@RepeatedTest` 0). 파라미터 케이스와 `@Nested`로 실제 실행 수는 더 많다.
 > - JVM 분리 이후 **U·S·I·R 단계를 HEAD 7dc89e0에서 모두 실행해 통과했다(R-003).** Contract(T)는 테스트가 없어 실행하지 않았다. 통과는 billing-app **한 앱** 안의 동작이다. JVM 칸이 "경계"·"깨짐"인 항목은 통과해도 분리 운영을 보장하지 않는다(4.1). 항목별 상태는 4장 "상태" 칸, 실행 내용은 [regression-log.md](regression-log.md)에 있다.
 > - 2026-10-29 dev da834b1 반영: billing-app 테스트 코드 변경은 없다. `common/test-support`에 Kafka·Redis Testcontainers 설정이 추가됐다(3장). #369 최종 인프라 결정을 Contract 대상(6.2)과 BT-PORT-04·BT-EVT-01·BT-SEC-05에 반영했고, BT-SEC-06을 더했다.
+> - 2026-10-30 #428 반영: BT-EVT-01을 Kafka 소비 규칙(#339)에 맞춰 `eventId` inbox에서 자연 키 멱등·소비 그룹 둘·그룹별 DLT로 고쳤다.
 > - 2026-10-30 #336·#453 반영: 플랫폼 지갑·수수료 수입(BT-EXP-08·09), 송금액 0원 환전(BT-EXP-10), 1 HP 단위 환불·환전(BT-RFD-01·BT-EXC-01)을 더했다. 7장 목록은 지금 코드 기준 77개 클래스·786개다. #273·#372에서 빠졌던 4개 클래스(`LockTimeoutsTest`·`BillingFailureCodeContractTest`·`InternalApiPortConfigTest`·`ApiV1BillingInternalControllerTest`)도 넣었다. 새 항목의 회귀 실행 기록은 아직 없다.
 
 ## 1. 실행 방법
@@ -204,7 +205,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-PORT-03 | 금융 오류 전파 | 잔액 부족·금액 오류가 예외로 전파되고 값이 바뀌지 않는다 | BD-60 | I | `BillingPortIntegrationTest#insufficientBalanceIsException`, `#amountErrorsUnchanged` | **깨짐** (원격 오류 응답 매핑 계약 없음) | R-003 통과 (깨짐: 분리 운영은 보장하지 않음) |
 | BT-PORT-04 | 원격 보류·반환·지급·위약금 계약 | 내부 HTTP 경로·키 인증·요청/응답 DTO·오류 코드·타임아웃·결과 불명 처리·같은 요청 ID 재시도. 호출 쪽 Resilience4j timeout·circuit open일 때 성공으로 해석하지 않음. 보상 처리: 보류 실패 → 주문이 남지 않음, 주문 실패 → 보류 반환 | AGENTS 3장, D62·D63, BD-70, 인프라 문서 3·10장, 강의 D64·D66 | T | Client 쪽만: shared `BillingApiClientTest`(실패 분류, RETRYABLE만 재시도, 회로 OPEN = `CIRCUIT_OPEN`·RETRYABLE, 시간 상한 = 결과 불명, 429·`HP_LOCK_TIMEOUT` 미집계, #411). 소비 앱 보상 처리는 없음 | 깨짐 | 없음 (#280) |
 | BT-PORT-05 | 소비 앱 기동 | lecture-app·appearance-app이 Billing 원격 Client로 기동한다 | `docs/architecture/app-modules.md` | T | 없음 (Billing 범위 밖) | 깨짐 | 없음 |
-| BT-EVT-01 | 다른 앱에서 온 회원 이벤트 | member-app의 가입·변경 이벤트가 Kafka로 billing-app에 전달되어 지갑·복제본이 생긴다. 같은 `eventId` 재전달은 inbox로 한 번만 반영, 순서가 바뀌어도 회원 버전 비교로 최신만 반영, 재시도 한도 초과는 DLT | BD-2, BD-6, BD-103, 인프라 문서 1장 | T | 없음 (`KafkaTestcontainersConfig` 사용 가능) | 깨짐 | 없음 (#339) |
+| BT-EVT-01 | 다른 앱에서 온 회원 이벤트 | member-app의 가입·변경 이벤트가 Kafka `member.events.v1`로 billing-app에 전달되어 지갑·복제본이 생긴다. 소비 그룹 `billing-app.member-replica`(복제본)·`billing-app.wallet-creation`(지갑)이 따로 받는다. 같은 회원·같은 버전 재전달은 한 번만 반영(지갑 하나, 복제본 한 번), 순서가 바뀌어도 회원 버전 비교로 최신만 반영, 모르는 타입은 무시, 재시도 3회 초과·역직렬화 실패는 그룹별 DLT(`member.events.v1.billing-app.member-replica.DLT`·`member.events.v1.billing-app.wallet-creation.DLT`), 한 그룹의 실패가 다른 그룹을 막지 않는다 | BD-2, BD-6, BD-103, BD-123, kafka.md | T | 없음 (`KafkaTestcontainersConfig` 사용 가능, #430) | 깨짐 | 없음 (#430) |
 
 ### 4.5 충전·환불 (CHG·RFD)
 
@@ -332,7 +333,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | --- | --- | --- | --- | --- |
 | BT-PORT-04 | 보류·반환·지급·위약금 | billing-app (내부 API 없음) | lecture-app, appearance-app | #280 계약 확정 (Resilience4j 설정은 #411, `CONTEXT.md` 2장) |
 | BT-PORT-05 | 소비 앱 기동 | — | lecture-app, appearance-app | #280 |
-| BT-EVT-01 | 회원 이벤트 | member-app | billing-app | #339 Kafka 이벤트 계약. 테스트 인프라는 `KafkaTestcontainersConfig`로 이미 가능 |
+| BT-EVT-01 | 회원 이벤트 (`member.events.v1`) | member-app (#416) | billing-app (#430, 그룹 2개) | 발행 형식 #416(key 회원 ID, `__TypeId__` 헤더, `eventId` 없음). 테스트 인프라는 `KafkaTestcontainersConfig`로 이미 가능 |
 | BT-SEC-05 | 인증 | member-app(JWT 발급), Envoy(검증·헤더 전달) | 모든 앱(헤더 인증 필터) | #370~#372 |
 | BT-ERN-04 | 수익 조회 | lecture-app, appearance-app | billing-app | 지금 가능 (`docs/api/internal-earnings.md`) |
 | BT-USR-04 | 회원 목록 | member-app | billing-app | 지금 가능 (`docs/api/internal-members.md`) |

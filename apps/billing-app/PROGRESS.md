@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-10-30 (#453 환불·환전 1원 단위, 3.22)
+마지막 갱신: 2026-10-30 (#428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -38,6 +38,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #294 | 관리자 환전 승인·거절(REQUESTED → APPROVED·REJECTED, 거절 반환), Billing 회원 복제본(가입·변경 Upsert + 회원 버전 비교), Flyway `V202610162000`·`V202610162010`. 기존 회원 Backfill 제외 | `feature/tkt-294` | - | 구현·테스트 완료 (커밋 전) |
 | #273 | HP 내부 HTTP API(`POST /api/v1/internal/billing/{holds,releases,payouts,penalty-settlements}`), `HoldFacade` `ROLE_INTERNAL` 인가, 요청 로그, 오류 코드 전체 대조, Billing 전체 `lock_timeout` 3초 → 503 `HP_LOCK_TIMEOUT`. `BillingPort` 유지 | `feature/tkt-273` | - | 구현·테스트 완료 (PR 전) |
 | #453 | 환불·환전 1 HP 단위, 송금액 버림(송금 = floor(신청 × 90%)), 송금액 0원 환전은 은행 없이 완료, 오류 코드 `*_AMOUNT_TOO_SMALL`(Flyway `V202610301200`) | `feature/tkt-453` | (PR 전) | 구현 완료 |
+| #428 | Kafka 소비 규칙(#339)에 맞춰 회원 이벤트 멱등 문서 정리: `eventId` inbox → 자연 키, 소비 그룹 `billing-app.member-replica`·`billing-app.wallet-creation`, 그룹별 DLT, 별도 멱등 기록 없음(BD-123) | `feature/tkt-428` | (PR 전) | 문서 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
