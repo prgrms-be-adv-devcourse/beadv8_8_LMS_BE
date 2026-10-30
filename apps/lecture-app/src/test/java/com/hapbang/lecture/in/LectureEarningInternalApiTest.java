@@ -24,8 +24,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.domain.LectureHpTask;
+import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
+import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.shared.internal.InternalApiHeaders;
@@ -53,6 +56,9 @@ class LectureEarningInternalApiTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private LectureHpTaskRepository lectureHpTaskRepository;
 
     private final LocalDateTime now = LocalDateTime.now(LectureConfig.ZONE);
 
@@ -96,7 +102,7 @@ class LectureEarningInternalApiTest {
     void 수익_목록은_상태로_거르고_페이지를_나눈다() throws Exception {
         LectureOrder scheduled = confirmed(now);
         LectureOrder paidOut = confirmed(now.minusDays(32));
-        inTransaction(paidOut, order -> order.payOutItem(itemId(order), now));
+        inTransaction(paidOut, order -> LectureOrderFixture.payOut(order, itemId(order), now));
         save(now);
 
         // 상태를 주지 않으면 아직 지급하지 않은 수익만 나온다
@@ -132,9 +138,14 @@ class LectureEarningInternalApiTest {
         LectureOrder onHold = save(now);
         inTransaction(onHold, order -> order.fileObjection(itemId(order), BUYER_ID, 500L, "내용이 다릅니다.", now));
         LectureOrder failed = confirmed(now.minusDays(32));
-        inTransaction(failed, order -> order.recordPayoutFailure(itemId(order), "PAYOUT_ALREADY_SETTLED", true, now));
+        inTransaction(failed, order -> order.startPayoutItem(itemId(order), now));
+        // 지급 작업이 자동 처리를 멈추면 실패다 (D70 (3))
+        LectureHpTask deadPayout = LectureHpTask.create(LectureHpTaskPurpose.PAYOUT, "LECTURE-PAYOUT-" + itemId(failed),
+                failed.getId(), itemId(failed), BUYER_ID, SELLER_ID, PRICE_HP, now);
+        deadPayout.markDead("PAYOUT_ALREADY_SETTLED", now);
+        lectureHpTaskRepository.save(deadPayout);
         LectureOrder canceled = save(now);
-        inTransaction(canceled, order -> order.cancelItem(itemId(order), now));
+        inTransaction(canceled, order -> LectureOrderFixture.cancel(order, itemId(order), now));
 
         mockMvc.perform(internal(get(EARNINGS).param("userId", SELLER_ID.toString())
                         .param("status", "ON_HOLD").param("status", "FAILED").param("status", "CANCELED")))

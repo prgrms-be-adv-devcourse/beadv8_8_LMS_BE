@@ -21,6 +21,7 @@ import com.hapbang.lecture.app.dto.OrderSummaryResponse;
 import com.hapbang.lecture.app.dto.PurchasedLectureResponse;
 import com.hapbang.lecture.app.dto.SaleResponse;
 import com.hapbang.lecture.domain.LectureOrderStatus;
+import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.in.dto.OrderCreateRequest;
 
 import jakarta.validation.Valid;
@@ -77,9 +78,14 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
 
     @Override
     @PostMapping("/orders/{orderId}/items/{orderItemId}/cancel")
-    public RsData<OrderItemResponse> cancel(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
-            @PathVariable("orderItemId") Long orderItemId) {
-        return RsData.ok("구매를 취소했습니다.", lectureOrderFacade.cancel(userId, orderId, orderItemId));
+    public ResponseEntity<RsData<OrderItemResponse>> cancel(@LoginUserId Long userId,
+            @PathVariable("orderId") Long orderId, @PathVariable("orderItemId") Long orderItemId) {
+        OrderItemResponse item = lectureOrderFacade.cancel(userId, orderId, orderItemId);
+        // 반환이 끝나지 않았으면 구매 취소 처리 중 항목을 202로 돌려준다 (D59 (1))
+        RsData<OrderItemResponse> body = item.status() == OrderItemStatus.CANCELED
+                ? RsData.ok("구매를 취소했습니다.", item)
+                : RsData.of(HttpStatus.ACCEPTED, "구매 취소를 처리 중입니다.", item);
+        return ResponseEntity.status(body.statusCode()).body(body);
     }
 
     @Override

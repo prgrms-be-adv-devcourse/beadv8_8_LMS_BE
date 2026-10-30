@@ -18,7 +18,8 @@ public record OrderItemResponse(
         @Schema(description = "주문 시점 가격")
         long priceHp,
         OrderItemStatus status,
-        @Schema(nullable = true, description = "결제 단계일 때만 있다. 주문의 처리 상태와 같다 (D69)")
+        @Schema(nullable = true, description = "처리 중 항목에만 있다. 결제 단계는 주문의 처리 상태와 같고, "
+                + "구매 취소·반환·지급 처리 중은 그 항목의 작업으로 정한다 (D69, D70)")
         ProcessingStatus processingStatus,
         @Schema(nullable = true, description = "결제가 끝난 시각. 결제 단계에는 없다")
         LocalDateTime purchasedAt,

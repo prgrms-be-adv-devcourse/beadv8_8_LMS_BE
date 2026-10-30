@@ -60,10 +60,14 @@ public class LectureOrderFacade {
         return orderConfirmUseCase.confirm(userId, orderId, orderItemId);
     }
 
-    /** 구매 취소. 그 항목의 보류 HP를 반환한다 */
-    @Transactional
+    /**
+     * 구매 취소 (D59 (1)). 트랜잭션을 나눠 구매 취소 처리 중과 반환 작업을 저장한 뒤 트랜잭션 밖에서 반환을 한 번 시도한다.
+     * 반환이 끝나면 {@code CANCELED}, 아니면 {@code CANCEL_PENDING} 항목을 돌려준다
+     */
     public OrderItemResponse cancel(Long userId, Long orderId, Long orderItemId) {
-        return orderCancelUseCase.cancel(userId, orderId, orderItemId);
+        Long releaseTaskId = orderCancelUseCase.request(userId, orderId, orderItemId);
+        orderCancelUseCase.tryRelease(releaseTaskId);
+        return orderCancelUseCase.result(userId, orderItemId);
     }
 
     /** 재생 동의 (첫 재생 구매 확정) */
