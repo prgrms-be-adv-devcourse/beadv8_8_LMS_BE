@@ -23,8 +23,9 @@ ROLLOUT_TIMEOUT=${ROLLOUT_TIMEOUT:-10m}
 # shellcheck disable=SC2086
 kc() { $KUBECTL "$@"; }
 
-# Secret이 있고 ghcr.io 인증이 든 dockerconfigjson인지만 본다. 값은 출력하지 않는다.
+# Secret이 있고 auths["ghcr.io"]에 인증 값이 든 dockerconfigjson인지만 본다. 값은 출력하지 않는다.
 # 토큰이 유효한지는 실제 pull로만 알 수 있다(rollout, k8s/tools/ghcr-pull-check.sh).
+# JSON은 python3로 읽는다(Ubuntu 24.04 기본 포함. jq는 서버에 없다).
 check_pull_secret() {
   local type
   type=$(kc -n "$NS" get secret ghcr-pull -o jsonpath='{.type}' --ignore-not-found)
@@ -33,20 +34,24 @@ check_pull_secret() {
     exit 1
   fi
   if [ "$type" != kubernetes.io/dockerconfigjson ] \
-    || ! kc -n "$NS" get secret ghcr-pull -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d | grep -q '"ghcr.io"'; then
+    || ! kc -n "$NS" get secret ghcr-pull -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d \
+      | python3 -c 'import json, sys; a = json.load(sys.stdin).get("auths", {}).get("ghcr.io", {}); sys.exit(0 if a.get("auth") or (a.get("username") and a.get("password")) else 1)' 2> /dev/null; then
     echo "::error::pull Secret ghcr-pull의 형식이 다릅니다(type $type). ghcr.io 인증이 든 kubernetes.io/dockerconfigjson이어야 합니다."
     exit 1
   fi
 }
 
 # rollout이 실패한 원인을 나눈다. 이미지 pull 실패는 앱 코드와 무관하므로 먼저 가린다.
+# 이벤트는 지금 pull에 실패한 pod 것만 본다. 이전 배포의 pod 이벤트(보존 1시간)가 섞이면 원인을 잘못 고른다.
 explain_failure() {
-  local app=$1 reasons messages
-  reasons=$(kc -n "$NS" get pods -l "app.kubernetes.io/name=$app" \
-    -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.state.waiting.reason}{"\n"}{end}{end}')
+  local app=$1 failing messages
+  failing=$(kc -n "$NS" get pods -l "app.kubernetes.io/name=$app" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .status.containerStatuses[*]}{.state.waiting.reason}{end}{"\n"}{end}' \
+    | awk '$2 == "ErrImagePull" || $2 == "ImagePullBackOff" { print $1 }')
   messages=$(kc -n "$NS" get events --field-selector type=Warning,reason=Failed \
-    -o jsonpath='{range .items[*]}{.involvedObject.name}{" "}{.message}{"\n"}{end}' | grep "^$app-" || true)
-  if ! grep -qE 'ErrImagePull|ImagePullBackOff' <<< "$reasons"; then
+    -o jsonpath='{range .items[*]}{.involvedObject.name}{" "}{.message}{"\n"}{end}' \
+    | awk -v pods="$failing" 'BEGIN { n = split(pods, p, "\n"); for (i = 1; i <= n; i++) want[p[i]] = 1 } $1 in want')
+  if [ -z "$failing" ]; then
     echo "::error::$app: 이미지는 받았고 앱이 Ready가 되지 않았습니다(기동 실패·probe 실패). 위 pod 상태와 이벤트, 앱 로그를 확인하세요."
   elif grep -qiE ': not found|manifest unknown' <<< "$messages"; then
     echo "::error::$app: 이미지가 GHCR에 없습니다. 그 커밋의 Publish images run을 확인하세요."

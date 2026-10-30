@@ -5,6 +5,7 @@
 # - 토큰 권한이 read:packages 하나가 아니면 멈춘다(cluster 관리자는 Secret을 읽을 수 있다).
 # - 봉인 전에 패키지마다 GHCR에서 읽을 수 있는지 확인한다. 권한이 없으면 멈추고, 아직 발행되지 않은 패키지는 알리고 넘어간다.
 # - 만료일을 출력한다. 교체는 만료 14일 전에 한다(docs/deploy/k8s.md "GHCR pull 인증").
+#   만료가 없는 토큰만 거부한다. 원래 수명(90일)은 API로 알 수 없으므로 PAT를 만드는 사람이 90일을 고른다.
 # 사용법: k8s/tools/seal-ghcr-pull.sh   GitHub 아이디와 토큰을 입력받는다(토큰은 화면에 보이지 않는다).
 set -euo pipefail
 
