@@ -36,6 +36,7 @@ class DomainIntegrationTest {
 - Kafka는 `apache/kafka:4.2.1`의 단일 노드 KRaft, Redis는 로컬 Compose와 같은 `redis:8`을 사용한다. Kafka 이미지 버전은 현재 Spring Boot BOM의 Kafka 버전에 맞췄다.
 - Docker가 실행 중이어야 한다. 최초 실행에는 이미지 다운로드가 필요하다. Docker나 컨테이너 기동 실패는 테스트 실패이며 Mock 대체·자동 건너뛰기는 하지 않는다.
 - 준비 완료 후 동적 호스트·포트를 `spring.kafka.bootstrap-servers`, `spring.data.redis.host`, `spring.data.redis.port`에 주입한다. 외부 서버나 고정 호스트 포트는 필요 없다.
+- member-app은 회원 이벤트를 Kafka로 외부화하므로 통합 테스트가 모두 `@MemberIntegrationTest`(`@IntegrationTest` + `KafkaTestcontainersConfig`)를 쓴다. 다른 테스트의 메시지가 같은 토픽에 섞이므로 Kafka 메시지를 확인하는 테스트는 자신이 만든 회원 ID(key)로 거른다. 공통 Kafka 설정 없이 `@IntegrationTest`만 쓰면 `localhost:9092`로 보내려 한다.
 - 토픽·소비자 그룹·직렬화와 Redis 키·채널은 사용하는 테스트가 지정한다. 공통 설정은 업무 정책을 정하지 않는다.
 - 설정을 가져온 테스트 JVM에서 종류별 컨테이너를 한 번 시작해 공유한다. Spring 컨텍스트가 닫혀도 컨테이너는 유지하며, 테스트 JVM 종료 후 Testcontainers가 정리한다. JVM이 다른 모듈끼리는 공유하지 않는다. 실행 간 재사용이나 영속 볼륨은 설정하지 않는다.
 - 테스트마다 UUID 등으로 고유한 토픽·소비자 그룹·Redis 키·채널·Stream을 사용한다. 자신이 만든 자원만 정리하고 소비자·구독·연결을 종료한다. `FLUSHALL`·`FLUSHDB` 등 전역 초기화를 하지 않는다. 기존 DB 정리 리스너는 Kafka·Redis 자원을 정리하지 않는다.

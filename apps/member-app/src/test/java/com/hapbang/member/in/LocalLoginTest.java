@@ -17,13 +17,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.app.MemberFacade;
-import com.hapbang.testsupport.IntegrationTest;
 import com.jayway.jsonpath.JsonPath;
 
 import jakarta.servlet.http.Cookie;
 
-@IntegrationTest
+@MemberIntegrationTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "hapbang.local-login.enabled=true")
 class LocalLoginTest {
