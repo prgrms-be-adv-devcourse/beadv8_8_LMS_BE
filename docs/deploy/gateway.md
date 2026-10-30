@@ -94,7 +94,7 @@ export MEMBER_JWKS_URI='http://member-app.hapbang-prod.svc.cluster.local:8080/<�
 /tmp/gateway-test-venv/bin/python k8s/gateway/tools/render-prod.py > /tmp/gateway-prod.yaml
 ```
 
-운영 배포는 #374의 앱별 이미지·SealedSecret·ghcr-pull 준비 이후다. 출력 파일을 그대로 자동 apply하지 않는다. Gateway·platform은 수동, 앱 manifest는 앱별 workflow가 관리하도록 확정된 issuer·JWKS를 각 배포 입력에 반영한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
+운영 배포는 #374의 앱별 이미지·SealedSecret 준비와 GHCR 패키지 공개 이후다. 출력 파일을 그대로 자동 apply하지 않는다. Gateway·platform은 수동, 앱 manifest는 앱별 workflow가 관리하도록 확정된 issuer·JWKS를 각 배포 입력에 반영한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
 
 ### EC2 전환 조건과 순서 (이번 작업에서는 실행하지 않음)
 
