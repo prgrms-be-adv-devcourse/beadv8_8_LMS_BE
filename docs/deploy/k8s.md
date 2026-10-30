@@ -119,6 +119,24 @@ Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main
 - `k8s/cluster`·`k8s/platform`·`k8s/gateway`는 자동 배포하지 않는다.
 - 서버 스크립트는 로컬 k3d에서 시험할 수 있다: `KUBECTL="kubectl --context k3d-hapbang" ROLLOUT_TIMEOUT=60s .github/scripts/k3s-deploy.sh apply <앱> <GitHub에 있는 커밋> <태그 커밋>`. 시험 뒤 `apps/<앱>/k8s/overlays/local`을 다시 적용한다.
 
+### 첫 릴리스
+
+main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없고, 앱 이미지 패키지도 아직 없다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·5단계만 한다.
+
+1. **dev → main 병합**: [operations.md 1단계](operations.md#1-dev--main-병합)처럼 `dev`나 `release/review-N`에서 main PR을 만들어 병합한다. FE를 같이 내보낼 때의 순서도 같은 곳에 있다.
+2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
+3. **패키지 공개(앱마다 처음 한 번)**: org Settings → Packages → Package Creation에서 Public이 허용됐는지 org owner가 먼저 확인한다. 그다음 `https://github.com/orgs/prgrms-be-adv-devcourse/packages/container/package/beadv8_8_lms_be%2F<앱>`(예: `member-app`) → Package settings → Danger Zone → Change visibility → Public으로 바꾼다. 확인 칸에는 `beadv8_8_lms_be/<앱>`을 넣는다. 되돌릴 수 없다. 주소가 404면 그 앱은 아직 발행되지 않았다.
+4. **공개 확인**: 로그인 없이 태그 목록을 읽을 수 있으면(200) 공개된 것이다. 401·403·404는 비공개이거나 발행 전이다.
+
+   ```bash
+   for app in member-app billing-app appearance-app lecture-app chat-app customer-support-app; do
+     t=$(curl -s "https://ghcr.io/token?scope=repository:prgrms-be-adv-devcourse/beadv8_8_lms_be/$app:pull" | jq -r '.token // empty')
+     echo "$app $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $t" "https://ghcr.io/v2/prgrms-be-adv-devcourse/beadv8_8_lms_be/$app/tags/list")"
+   done
+   ```
+
+5. **배포**: Actions → Deploy → Run workflow(main)를 입력 없이 실행한다. 앱 SealedSecret은 `hapbang-prod`에 이미 있다([Secret](#secret)). appearance·lecture·customer-support는 아직 혼자 기동하지 못해 `replicas: 0`이다(#280).
+
 ## 로컬 k3d 검증
 
 EC2에는 prod만 있으므로 manifest는 로컬 k3d에서 먼저 띄워 본다. 실제 로그인·결제·S3 업로드는 하지 않고, pod 기동과 node별 메모리만 확인한다.
