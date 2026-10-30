@@ -83,7 +83,7 @@ apps
 
 #### 실행 중 실패한 이벤트의 재처리 (D61)
 
-Spring Modulith 2.1.1의 재발행 기능(`IncompleteEventPublications`, `ResubmissionOptions`, `completionAttempts`)으로 실행 중에도 실패·미완료 이벤트를 다시 보낸다. global 공통 설정이라 이벤트 재발행 [Global] 티켓(#266)에서 만들고, 상세 설정과 운영 절차는 그 티켓의 문서에 둔다. 요약:
+Spring Modulith 2.1.1의 재발행 기능(`IncompleteEventPublications`, `ResubmissionOptions`, `completionAttempts`)으로 실행 중에도 실패·미완료 이벤트를 다시 보낸다. global 공통 설정이라 이벤트 재발행 [Global] 티켓(#266)에서 만들고, 상세 설정과 운영 절차는 그 티켓의 문서에 둔다. 단, `kafka.md` "발행"은 Kafka로 발행하는 앱마다 실행 중 재전송을 직접 두게 정했다. 두 기준 중 어느 쪽을 따를지(#266을 대체할지)는 #278에서 정하고, 정한 뒤 이 절과 의존 관계를 함께 고친다. 요약:
 
 | 항목 | 결정 |
 | --- | --- |
@@ -164,7 +164,7 @@ public class BillingCallException extends RuntimeException {
 
 | 항목 | 내용 |
 | --- | --- |
-| 요청 (`shared.lecture.dto`) | `commandId = FILE:{inquiryId}`, `correlationId`, `inquiryId`, `orderItemId`, `buyerUserId`, `reason`. 전송 재시도에도 `commandId`는 같다. `correlationId`는 ADR 0002(추적 ID는 trace로 대신)와 맞춰 뺄지 #278에서 정한다 |
+| 요청 (`shared.lecture.dto`) | `commandId = FILE:{inquiryId}`, `correlationId`, `inquiryId`, `orderItemId`, `buyerUserId`, `reason`. 전송 재시도에도 `commandId`는 같다. `correlationId`는 ADR 0002(추적 ID는 trace로 대신)와 맞춰 뺄지 #278에서 정한다. 이 결정은 요청뿐 아니라 `LectureObjectionCommandCompletedV1`·반환 이벤트의 `correlationId`까지 함께 정한다 |
 | 결과 | 성공 또는 `LectureObjectionFailureCode`. 예상된 거절은 예외가 아니라 결과다. 결과를 받지 못하면 연동 예외(결과 불명)다 |
 | 강의 처리 | 한 강의 트랜잭션에서 명령 이력 확인 → 항목 `objection FILED` → 명령 결과 기록. 같은 `commandId` + 같은 payload면 처음 결과를 재현한다 (D60, #278) |
 | 접수 가능 조건 | 구매자 본인 항목, `PURCHASED` 또는 `CONFIRMED`, `objection_status = NONE`, `now < payout_scheduled_at` |
