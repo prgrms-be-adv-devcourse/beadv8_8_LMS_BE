@@ -78,6 +78,9 @@ spec:
               value: "1"
             - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
               value: "0"
+            # 토픽은 발행 앱(업무 토픽)과 소비 앱(DLT)이 NewTopic으로 선언한다. 오타 토픽과 partition 1개 토픽이 생기지 않게 자동 생성을 끈다(#339).
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "false"
             - name: KAFKA_LOG_DIRS
               value: /var/lib/kafka/data
             # 디스크 상한(PVC 5Gi는 local-path가 강제하지 않는다). retention.bytes는 partition마다 적용된다.

@@ -167,7 +167,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 - topic partition 수가 목표 최대 replica 수 이상이다. 한 consumer group에서 동시에 일하는 consumer는 partition 수를 넘을 수 없다.
 - scale-in 때 처리 중인 record가 [4장](infrastructure/graceful-shutdown.md#종료-계약과-순서)의 종료 순서(현재 record까지 처리 후 offset commit)를 따른다.
 
-확인할 것: `consumer lag 증가 → replica 증가 → lag 회복 → scale-in`이 dashboard에 보이는지, scale-in과 rebalance 중에 중복 처리가 inbox 멱등성으로 흡수되는지.
+확인할 것: `consumer lag 증가 → replica 증가 → lag 회복 → scale-in`이 dashboard에 보이는지, scale-in과 rebalance 중에 중복 처리가 소비 멱등성(자연 키)으로 흡수되는지.
 
 ## 구현 순서
 
@@ -193,10 +193,10 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 ### Phase 3 — Kafka
 
-1. integration event envelope과 topic contract
+1. 토픽·key·헤더 계약([1장](infrastructure/kafka.md), ADR 0001·0002)
 2. 레포 JSON Schema·AsyncAPI와 호환성 CI(`asyncapi diff`, version별 샘플 contract test)
 3. 모듈별 outbox → Kafka relay adapter
-4. inbox 멱등 consumer, retry/DLT, 재처리 명령
+4. 자연 키 멱등 consumer, 블로킹 retry/그룹별 DLT, 재처리 runbook
 5. 회원 복제 이벤트 하나로 end-to-end 완성 후 출연·강의로 확장
 
 ### Phase 4 — 채팅 Redis와 알림 모듈
@@ -205,7 +205,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 2. PostgreSQL outbox relay의 XADD 적재: DB 선점·lease·claimToken·재시도·실패 격리
 3. Streams 그룹 소비·PEL 회수 → Pub/Sub → DB 발행 체크포인트 → XACK, 안전한 정리·Redis 유실 재구성
 4. 단일 앱의 수신 참여 세대·이력 대조·회원 상태 재검사와 적재/소비/ACK 장애·중복·순서·메모리 시험
-5. `notification-app`과 database, 알림 API, integration event 소비와 `eventId` 멱등 처리
+5. `notification-app`과 database, 알림 API, integration event 소비와 자연 키 멱등 처리
 6. 알림 실시간 전달과 재접속 복구, 채팅의 출연 알림 listener 제거
 
 ### Phase 5 — 검색(ES)과 고객센터 RAG

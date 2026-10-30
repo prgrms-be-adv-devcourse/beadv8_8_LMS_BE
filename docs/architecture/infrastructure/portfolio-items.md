@@ -133,7 +133,7 @@ Chroma, Weaviate, Milvus도 Spring AI가 지원한다. 그러나 Qdrant와 같�
 schema registry 서버(Apicurio, Confluent 등)는 **두지 않는다.** 앱이 따로 배포되므로(#363) version이 다른 producer와 consumer가 꽤 오래 함께 돌 수 있다. 예를 들어 billing-app만 먼저 배포된 경우다. 이 문제는 runtime registry 대신 아래 두 가지로 막는다.
 
 - 레포 schema 파일과 CI 호환성 검사가 breaking 변경을 PR 단계에서 막는다.
-- **배포 순서 규칙**: `eventVersion`을 올리는 변경은 consumer 앱(upcaster 포함)을 먼저 배포하고, 그 뒤에 producer 앱을 배포한다.
+- **배포 순서 규칙**: 깨지는 변경은 같은 토픽에 새 레코드 타입(`eventVersion`을 올린 것)으로 더한다. 두 타입을 받는 consumer 앱을 먼저 배포하고, 그 뒤에 producer 앱이 새 타입으로 바꾼다. 옛 consumer는 모르는 타입을 무시한다([1장](kafka.md#이벤트-버전)).
 
 registry 서버는 메모리 예산([3장](k3s.md#ec2-2노드-자원-예산))에 들어가지 않고, 위 두 가지가 막지 못하는 문제가 아직 없다.
 
@@ -141,7 +141,7 @@ registry 서버는 메모리 예산([3장](k3s.md#ec2-2노드-자원-예산))에
 
 - 이벤트 payload는 JSON Schema 파일로 `shared`에 둔다. 예: `shared/src/main/resources/events/lecture/LectureOrderConfirmed.v1.json`. 이벤트 record와 schema가 어긋나지 않게, record에서 schema를 생성해 커밋된 파일과 비교하는 test를 둔다.
 - 메시지는 schema ID 없이 일반 JSON으로 직렬화한다. header에 `eventType`과 `eventVersion`을 싣는다.
-- **호환 규칙**: 같은 `eventVersion` 안에서는 필드 추가(선택 필드)만 허용한다. 삭제, 이름 변경, 타입 변경, 필수 필드 추가는 금지한다. 그런 변경은 `eventVersion`을 올리고, consumer는 upcaster로 이전 version을 새 version으로 바꿔 읽는다.
+- **호환 규칙**: 같은 `eventVersion` 안에서는 필드 추가(선택 필드)만 허용한다. 삭제, 이름 변경, 타입 변경, 필수 필드 추가는 금지한다. 그런 변경은 `eventVersion`을 올린 새 레코드 타입을 같은 토픽에 더한다([1장](kafka.md#이벤트-버전)).
 - **CI 검사**: AsyncAPI 문서가 topic과 message payload schema를 함께 담는다. CI에서 `asyncapi validate`와 `asyncapi diff`로 `dev` 기준 문서와 비교하고, breaking 변경이면 실패시킨다([AsyncAPI CLI 공식 문서](https://www.asyncapi.com/docs/tools/cli/usage)).
 - **transitive 보장**: diff는 직전 version과만 비교한다. 그래서 version별 **샘플 payload**를 레포에 남기고, 현재 consumer가 모든 이전 version 샘플을 읽을 수 있는지 contract test로 확인한다. registry의 `FULL_TRANSITIVE` 검사를 이 test가 대신한다.
 

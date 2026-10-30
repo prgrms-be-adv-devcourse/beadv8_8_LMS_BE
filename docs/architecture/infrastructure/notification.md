@@ -20,7 +20,7 @@
 | 앱·database | `notification-app`, database `notification`. 다른 앱은 `common/shared`의 이벤트 계약만 공유한다 |
 | API | `/api/v1/notifications`: 목록(cursor), 읽지 않은 수, 읽음 처리, 전체 읽음 |
 | 입력 | 각 모듈의 integration event ([1장 Kafka](kafka.md)). 알림 모듈이 모든 이벤트를 구독하고, 발행하는 모듈은 알림의 존재를 모른다 |
-| 저장 | 받는 사람별 알림 행(종류, 참조 ID, 본문에 필요한 값, 읽은 시각, 만든 시각). 원본 이벤트의 `eventId`와 받는 사람으로 유일 인덱스를 두어 중복 소비를 흡수한다 |
+| 저장 | 받는 사람별 알림 행(종류, 참조 ID, 본문에 필요한 값, 읽은 시각, 만든 시각). 원본 이벤트의 종류(`eventType`)·대상 ID와 받는 사람으로 유일 인덱스를 두어 중복 소비를 흡수한다([1장](kafka.md#소비)) |
 | 실시간 전달 | 저장이 commit된 뒤 Redis Pub/Sub으로 발행하고, 사용자의 WebSocket session을 가진 앱이 받아 보낸다. [2장](redis-chat.md) 채팅과 같은 `RealtimeFanout` seam을 쓰되 destination은 알림 전용(`/user/queue/notifications`)이다. 어느 앱이 알림용 WebSocket을 받을지는 아래 "결정 필요" |
 | 복구 | 실시간 전달은 유실될 수 있다. 재접속 때 마지막으로 받은 알림 ID 이후를 REST로 다시 읽는다. PostgreSQL 알림 행이 진실의 원천이다 |
 | 회원 정보 | 받는 사람의 상태(정지·탈퇴)와 닉네임은 회원 이벤트로 만든 복제본에서 읽는다. 다른 모듈처럼 가입 이벤트로만 만들고 변경 이벤트로 갱신한다 |
