@@ -50,11 +50,10 @@ public record ChatDeliveryProperties(
     }
 
     /**
-     * @param enabled relay·worker·회수·재구성·정리를 실행한다. 운영 {@link RealtimeChatFanout} 구현이 빈으로 있어야 켤 수
-     *                있으므로 그 구현이 합쳐지기 전까지는 기본 false다(합칠 때 기본을 켠다). 속성이 없으면 끈 것으로 본다
-     *                ({@code ConditionalOnChatDeliveryPipeline}과 같다)
+     * @param enabled relay·worker·회수·재구성·정리를 실행한다. 운영 {@link RealtimeChatFanout} 구현과 합친 통합에서 기본을
+     *                켰다. 속성이 없으면 켠 것으로 본다({@code ConditionalOnChatDeliveryPipeline}과 같다)
      */
-    public record Pipeline(@DefaultValue("false") boolean enabled) {
+    public record Pipeline(@DefaultValue("true") boolean enabled) {
     }
 
     /**

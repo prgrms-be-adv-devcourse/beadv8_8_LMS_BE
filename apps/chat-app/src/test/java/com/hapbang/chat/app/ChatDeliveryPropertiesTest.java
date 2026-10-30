@@ -19,8 +19,8 @@ class ChatDeliveryPropertiesTest {
     void 아무것도_설정하지_않으면_코드_기본값을_쓴다() {
         ChatDeliveryProperties properties = bind(Map.of());
 
-        // 운영 실시간 전파 구현이 아직 없어 기본으로 끈다(그 구현을 합칠 때 켠다)
-        assertThat(properties.pipeline().enabled()).isFalse();
+        // 운영 실시간 전파 구현과 합친 통합에서 기본으로 켠다
+        assertThat(properties.pipeline().enabled()).isTrue();
         assertThat(properties.instanceId()).isNull();
         assertThat(properties.relay()).isEqualTo(new ChatDeliveryProperties.Relay(Duration.ofMillis(200), 50,
                 Duration.ofSeconds(30), 10, new ChatDeliveryProperties.Backoff(Duration.ofSeconds(1),
@@ -43,12 +43,12 @@ class ChatDeliveryPropertiesTest {
     void 설정한_키만_덮고_나머지는_기본값을_쓴다() {
         ChatDeliveryProperties properties = bind(Map.of(
                 "hapbang.chat.delivery.relay.batch-size", "7",
-                "hapbang.chat.delivery.pipeline.enabled", "true",
+                "hapbang.chat.delivery.pipeline.enabled", "false",
                 "hapbang.chat.delivery.consumer.backoff.max", "5s"));
 
         assertThat(properties.relay().batchSize()).isEqualTo(7);
         assertThat(properties.relay().pollInterval()).isEqualTo(Duration.ofMillis(200));
-        assertThat(properties.pipeline().enabled()).isTrue();
+        assertThat(properties.pipeline().enabled()).isFalse();
         assertThat(properties.consumer().backoff().max()).isEqualTo(Duration.ofSeconds(5));
         assertThat(properties.consumer().backoff().initial()).isEqualTo(Duration.ofSeconds(1));
     }

@@ -50,7 +50,7 @@ class ChatReceiptRaceTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         for (int i = 0; i < 3; i++) {
             chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지 " + i, null);
         }

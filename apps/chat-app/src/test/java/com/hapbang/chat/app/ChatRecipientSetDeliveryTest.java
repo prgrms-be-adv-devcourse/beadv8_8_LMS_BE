@@ -156,7 +156,7 @@ class ChatRecipientSetDeliveryTest extends ChatDeliveryTestSupport {
         List<ChatOutbox> outboxes = chatOutboxRepository.findByChatRoomIdOrderByIdAsc(chatRoomId);
         ChatOutbox rejoinNotice = outboxes.get(outboxes.size() - 2);
         ChatOutbox notification = outboxes.getLast();
-        assertThat(notification.getMessageId()).isEqualTo(result.sent().message().messageId());
+        assertThat(notification.getMessageId()).isEqualTo(result.message().messageId());
         assertThat(rejoinNotice.getNotifyRule()).isEqualTo(ChatNotifyRule.NONE);
         assertThat(notification.getNotifyRule()).isEqualTo(ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER);
 

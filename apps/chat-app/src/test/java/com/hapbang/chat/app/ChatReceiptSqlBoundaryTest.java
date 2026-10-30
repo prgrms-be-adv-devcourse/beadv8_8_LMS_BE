@@ -58,7 +58,7 @@ class ChatReceiptSqlBoundaryTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         chatMessageUseCase.send(chatRoomId, HOST_ID, "메시지", null);
     }
 
@@ -68,12 +68,15 @@ class ChatReceiptSqlBoundaryTest {
     }
 
     @Test
-    void 기록기는_메시지_전송의_방_잠금과_방_참여자_전체_조회를_잡아낸다() {
+    void 기록기는_방_잠금과_방_참여자_전체_조회를_잡아낸다() {
         List<String> sql = SqlRecorder.record(() -> chatMessageUseCase.send(chatRoomId, HOST_ID, "대조군", null));
 
         assertThat(sql).anyMatch(statement -> ROW_LOCK.matcher(statement).find() && statement.contains("chat_room "));
-        assertThat(sql).anyMatch(ChatReceiptSqlBoundaryTest::isRoomWideMemberRead);
         assertThat(sql).anyMatch(statement -> statement.startsWith("insert"));
+        // 메시지 전송은 잠금 구간 축소(설계 4.6)로 방 참여자 전체를 읽지 않는다. 방 단위 조회의 대조군은
+        // 참여 변경(퇴장)이 수신자 집합을 만들 때의 활성 참여자 집계다
+        List<String> leave = SqlRecorder.record(() -> chatRoomUseCase.leave(chatRoomId, GUEST_ID, null));
+        assertThat(leave).anyMatch(ChatReceiptSqlBoundaryTest::isRoomWideMemberRead);
     }
 
     @Test

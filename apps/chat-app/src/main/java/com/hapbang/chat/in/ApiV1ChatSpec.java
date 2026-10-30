@@ -28,12 +28,14 @@ import jakarta.validation.constraints.Min;
 @Tag(name = "채팅", description = """
         1:1 채팅방과 메시지 이력. 인플루언서 이상 또는 관리자만 쓸 수 있다.
         실시간 송수신은 STOMP라 여기에 없다: 연결 `/api/v1/chats/ws`, 보내기 `/pub/chats/{chatRoomId}/messages`,
-        받기 `/user/queue/chats/messages`(메시지)·`/user/queue/chats/notifications`(새 메시지 알림)·`/user/queue/chats/errors`(오류).
+        받기: 열어 둔 방은 `/topic/chats/rooms/{chatRoomId}`(SUBSCRIBE 헤더 `participation-version` 필수, 방 메시지·구독 거절·회수),
+        `/user/queue/chats/messages`(자기가 보낸 메시지의 전송 결과 확인)·`/user/queue/chats/notifications`(방을 열지 않은 연결의 방별 새 메시지 알림)·
+        `/user/queue/chats/sync`(재동기화)·`/user/queue/chats/errors`(오류). 형식은 resync-frame 계약을 따른다.
         보내는 본문(`content`)은 공백만으로 이뤄질 수 없고 2,000자 이하다. 넘으면 오류 큐로 INVALID_REQUEST가 `clientMessageId`와 함께 온다.
         보낼 때 `clientMessageId`(선택, 64자 이하)를 붙이면 보낸 사람에게 전달되는 메시지와 오류에 그대로 돌려준다.
         같은 참여 안에서 같은 `clientMessageId`로 다시 보내면 새로 저장하지 않고 기존 메시지를 보낸 사람에게만 다시 보낸다(알림 없음, 본문이 달라도 기존 메시지).
         나갔다가 재입장한 뒤에는 이전에 쓴 `clientMessageId`로 보내도 새 메시지로 저장한다.
-        `clientMessageId`는 보낸 사람 본인 메시지에만 담긴다(실시간 전달·메시지 이력·방 목록의 마지막 메시지).
+        `clientMessageId`는 보낸 사람 본인 메시지에만 담긴다(보낸 사람 연결의 방 topic 프레임·전송 결과 확인·메시지 이력·방 목록의 마지막 메시지).
         출연 요청 도착·모집 지원 도착은 호스트-게스트 1:1 방에 알림 메시지(`messageType: NOTIFICATION`)로 온다.
         `notificationKind`와 `referenceId`·`parentReferenceId`로 출연 건을 찾는다:
         APPEARANCE_REQUEST_SENT는 `referenceId` = 요청서 ID, APPEARANCE_APPLICATION_SUBMITTED는 `referenceId` = 지원 ID·`parentReferenceId` = 모집글 ID.

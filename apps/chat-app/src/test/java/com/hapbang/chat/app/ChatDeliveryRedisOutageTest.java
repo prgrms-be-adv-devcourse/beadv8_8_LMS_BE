@@ -150,7 +150,7 @@ class ChatDeliveryRedisOutageTest {
     @Test
     void Redis가_시도_상한보다_오래_멈춰도_격리하지_않고_시도를_늘리지_않으며_돌아오면_모두_한_번씩_발행한다() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        Long chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         queue.ensureGroup(ChatJobStream.DELIVERY);
         UUID pending = send(chatRoomId, "읽고 멈춤");
         UUID undelivered = send(chatRoomId, "미배분");

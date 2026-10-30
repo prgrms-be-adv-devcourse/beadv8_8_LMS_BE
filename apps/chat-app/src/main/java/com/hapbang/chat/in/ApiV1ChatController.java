@@ -18,16 +18,13 @@ import com.hapbang.chat.app.ChatMessageFacade;
 import com.hapbang.chat.app.ChatReceiptFacade;
 import com.hapbang.chat.app.ChatRoomFacade;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
-import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
-import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.ReadChatRoomRequest;
 import com.hapbang.chat.in.dto.ReceivedChatRoomRequest;
-import com.hapbang.chat.in.websocket.ChatMessageSender;
 import com.hapbang.chat.global.auth.LoginUserId;
 import com.hapbang.chat.global.response.RsData;
 
@@ -51,21 +48,17 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
 
     private final ChatRoomFacade chatRoomFacade;
     private final ChatMessageFacade chatMessageFacade;
-    private final ChatMessageSender chatMessageSender;
     private final ChatReceiptFacade chatReceiptFacade;
 
     /**
      * 1:1 채팅을 시작한다. 새로 만들면 201, 종료되지 않은 기존 방을 재사용하면 200.
-     * 퇴장했던 회원이 재입장하면 남아 있던 회원에게 재입장 안내가 실시간으로 간다.
+     * 퇴장했던 회원이 재입장하면 남아 있던 회원에게 재입장 안내가 실시간으로 간다(저장 트랜잭션에 남긴 outbox 경로).
      */
     @Override
     @PostMapping
     public ResponseEntity<RsData<ChatRoomResponse>> createChatRoom(@LoginUserId Long userId,
                                                                    @RequestBody CreateChatRoomRequest request) {
         ChatRoomCreateResult result = chatRoomFacade.createOrGet(userId, request.targetUserId());
-        for (ChatMessageResponse rejoinNotice : result.rejoinNotices()) {
-            chatMessageSender.deliver(rejoinNotice, result.remainingUserIds());
-        }
         HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
         String message = result.created() ? "채팅방을 만들었습니다." : "기존 채팅방을 불러왔습니다.";
         return ResponseEntity.status(status).body(RsData.of(status, message, result.room()));
@@ -125,10 +118,8 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
                                               @PathVariable("chatRoomId") Long chatRoomId,
                                               @RequestParam(name = "participationVersion", required = false)
                                               Integer participationVersion) {
-        ChatRoomLeaveResult result = chatRoomFacade.leave(chatRoomId, userId, participationVersion);
-        if (result.left()) {
-            chatMessageSender.deliver(result.leftNotice(), result.remainingUserIds());
-        }
+        // 퇴장 안내는 저장 트랜잭션에 남긴 outbox 경로로 남은 참여자에게 간다
+        chatRoomFacade.leave(chatRoomId, userId, participationVersion);
         return ResponseEntity.noContent().build();
     }
 

@@ -123,7 +123,7 @@ abstract class ChatDeliveryTestSupport {
         fanout.reset();
         availability.reset();
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         queue.ensureGroup(ChatJobStream.DELIVERY);
         queue.ensureGroup(ChatJobStream.CONTROL);
     }

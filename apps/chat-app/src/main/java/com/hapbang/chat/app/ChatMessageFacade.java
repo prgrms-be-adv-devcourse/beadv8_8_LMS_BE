@@ -24,6 +24,8 @@ public class ChatMessageFacade {
      * 역할은 UseCase가 채팅 회원의 복제된 역할로 검사한다.
      */
     public SentChatMessage send(Long chatRoomId, Long senderId, String content, String clientMessageId) {
+        // DB 연결을 잡기 전에 본문부터 거절한다(설계 4.6). Facade는 트랜잭션을 열지 않는다
+        ChatMessageUseCase.validateContent(content);
         return chatMessageUseCase.send(chatRoomId, senderId, content, clientMessageId);
     }
 

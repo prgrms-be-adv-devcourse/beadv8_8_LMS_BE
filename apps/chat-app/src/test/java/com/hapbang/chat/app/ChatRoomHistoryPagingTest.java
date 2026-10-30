@@ -51,7 +51,7 @@ class ChatRoomHistoryPagingTest {
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
         // 생성·입장 기록 3개 → 메시지 3개 → 퇴장(기록과 안내 메시지가 같은 시각) → 재입장(안내 메시지와 기록이 같은 시각)
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
         chatMessageUseCase.send(chatRoomId, HOST_ID, "첫 번째", null);
         chatMessageUseCase.send(chatRoomId, GUEST_ID, "두 번째", null);
         chatMessageUseCase.send(chatRoomId, HOST_ID, "세 번째", null);

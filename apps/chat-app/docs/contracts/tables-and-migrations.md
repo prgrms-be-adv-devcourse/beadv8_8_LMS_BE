@@ -87,7 +87,7 @@ chat-app의 `spring.datasource.hikari.maximum-pool-size` 기본값은 20이다. 
 
 ## 설정 위치 (#418, 사용자 결정)
 
-- `hapbang.chat.delivery.*`의 기본값은 `ChatDeliveryProperties`의 `@DefaultValue`가 원본이다. application.yaml에 두지 않는다. `pipeline.enabled`의 코드 기본값은 #418에서 `false`다(속성이 없으면 끈 것으로 본다). 운영 `RealtimeChatFanout` 구현이 #419에 있으므로 #419 통합에서 코드 기본값을 `true`로 바꾼다. 테스트 설정은 `false`를 명시하고, 파이프라인을 검증하는 테스트만 `@TestPropertySource`로 켠다.
+- `hapbang.chat.delivery.*`의 기본값은 `ChatDeliveryProperties`의 `@DefaultValue`가 원본이다. application.yaml에 두지 않는다. `pipeline.enabled`의 코드 기본값은 `true`다(속성이 없으면 켠 것으로 본다). #418 단독 브랜치에서는 운영 `RealtimeChatFanout` 구현이 없어 `false`였고, 그 구현이 있는 #419 통합에서 `true`로 바꿨다. 테스트 설정은 `false`를 명시하고, 파이프라인을 검증하는 테스트만 `@TestPropertySource`로 켠다.
 - chat-app의 Spring·라이브러리 설정(`spring.datasource.hikari.maximum-pool-size=20`, `spring.data.redis.timeout=10s`)은 chat-app `application.yaml`에 둔다(2026-10-30 사용자 결정: Spring·라이브러리 설정은 yaml, `hapbang.chat.*`는 코드 기본값). 근거는 yaml 주석에 있다. 모듈 테스트 설정(`hapbang-module-test.yaml`)은 pool 5와 같은 timeout을 따로 둔다. Redis 명령 시간 제한의 근거(consumer BLOCK 2s보다 길고 lease·min-idle 30s보다 짧게)가 채팅 전달 설정에 묶여 있어 `common/redis`가 아니라 chat-app에 둔다.
 - 모든 코드 기본값은 yaml·프로필·환경 변수(예: `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE`, `HAPBANG_CHAT_DELIVERY_RELAY_BATCH_SIZE`)로 덮을 수 있다. Redis 주소·인증·TLS와 `hapbang.chat.redis.namespace`처럼 환경마다 다른 값은 환경 변수·k8s 설정으로 준다.
 
@@ -111,7 +111,7 @@ chat-app의 `spring.datasource.hikari.maximum-pool-size` 기본값은 20이다. 
 - 집합이 없는 기존 방은 `openDirectRoom`이 현재 활성 참여로 집합을 만들어 복구하고(경고 로그), 그 전의 전송은 `CHAT_ROOM_NOT_READY`(409)로 거절한다.
 - 참여 변경(생성·퇴장·재입장)은 방 잠금 아래 참여 행·집계·새 집합·현재 포인터를 원자적으로 갱신한다. 기존 버전의 항목을 덮어쓰지 않는다.
 - 마이그레이션에서 종료되지 않은 기존 방의 활성 참여로 초기 집합과 집계를 만든다. 집합이 없는 방은 전송 대상으로 열지 않는다.
-- 방 topic 결정(2026-10-30) 뒤에는 실시간 전달이 집합의 **버전**(`set_version`)만 쓴다. 메시지가 가리킨 버전이 구독자가 확인한 버전보다 크면 참여 상태를 다시 읽는 기준이다. 항목 행(`chat_recipient_set_member`)은 본문 전달에도 새 메시지 알림 대상에도 쓰지 않는다(알림 대상은 Redis 접속 정보, 설계 문서 Q21). 행은 감사·운영 재처리 근거로 지금처럼 만들고 스키마를 바꾸지 않는다. consumer는 집합 헤더가 없을 때만 원본 누락(`SOURCE_MISSING`)으로 격리한다.
+- 방 topic 결정(2026-10-30) 뒤에는 실시간 전달이 집합의 **버전**(`set_version`)만 쓴다. 메시지가 가리킨 버전이 받는 앱의 방 참여 캐시 버전보다 크면 참여 상태를 다시 읽는 기준이다. 항목 행(`chat_recipient_set_member`)은 본문 전달에도 새 메시지 알림 대상에도 쓰지 않는다(알림 대상은 Redis 접속 정보, 설계 문서 Q21). 행은 감사·운영 재처리 근거로 지금처럼 만들고 스키마를 바꾸지 않는다.
 
 ## `chat_room_member.last_received_sequence` (#420)
 

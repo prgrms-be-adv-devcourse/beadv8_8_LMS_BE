@@ -98,7 +98,7 @@ class ChatDeliveryOutboxRecordTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     @Test
@@ -209,7 +209,7 @@ class ChatDeliveryOutboxRecordTest {
         var result = chatNotificationUseCase.notifyAppearanceRequestSent(new AppearanceRequestDto(100L, HOST_ID,
                 GUEST_ID, "출연 요청", 1000L, NOW.plusDays(7), NOW.plusDays(3))).orElseThrow();
 
-        ChatOutbox outbox = chatOutboxRepository.findByMessageId(result.sent().message().messageId()).orElseThrow();
+        ChatOutbox outbox = chatOutboxRepository.findByMessageId(result.message().messageId()).orElseThrow();
         assertThat(outbox.getNotifyRule()).isEqualTo(ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER);
         assertThat(outbox.getRecipientSetId())
                 .isEqualTo(chatRoomRepository.findById(chatRoomId).orElseThrow().getCurrentRecipientSetId());

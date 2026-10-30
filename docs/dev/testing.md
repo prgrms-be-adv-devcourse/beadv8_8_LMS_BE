@@ -44,7 +44,7 @@ class DomainIntegrationTest {
 
 위 Streams 소비·ACK는 공통 컨테이너의 기능 스모크 테스트이며 채팅 전달 전체의 검증을 대체하지 않는다. 채팅은 2026-10-29 사용자 변경 결정으로 PostgreSQL outbox → Redis Streams → consumer group → Pub/Sub을 도입한다(#340). 앱 통합 테스트는 XADD·PUBLISH·DB 발행 체크포인트·XACK 사이의 종료/중복, DB lease·PEL 회수, Stream/그룹 유실 재구성, 미처리 보존 정리와 Pub/Sub 수신 유실·FE 이력 복구를 검증한다. 상세 기준은 [채팅 테스트 기준](../../apps/chat-app/docs/workflow/test-criteria.md)을 따른다. AOF·noeviction·OOM 등 운영 설정 시험은 별도 컨테이너로 격리해 공유 컨테이너의 전역 설정을 바꾸거나 다른 테스트의 키를 지우지 않는다.
 
-chat-app 테스트 설정(`apps/chat-app/src/test/resources/hapbang-module-test.yaml`)은 연결 풀을 5로 줄이고 전달 파이프라인(`hapbang.chat.delivery.pipeline.enabled`)을 명시적으로 끈다. 파이프라인을 검증하는 테스트만 `@TestPropertySource`로 켜고 메모리 실시간 전파(`InMemoryRealtimeChatFanout`)와 Redis 컨테이너를 쓴다.
+chat-app 테스트 설정(`apps/chat-app/src/test/resources/hapbang-module-test.yaml`)은 연결 풀을 5로 줄이고 전달 파이프라인(`hapbang.chat.delivery.pipeline.enabled`)과 실시간 전달(`hapbang.chat.realtime.enabled`)을 명시적으로 끈다(둘 다 운영 코드 기본값은 켜짐). 파이프라인을 검증하는 테스트만 `@TestPropertySource`로 켜고 메모리 실시간 전파(`InMemoryRealtimeChatFanout`)와 Redis 컨테이너를 쓴다. 실시간 경로 E2E(`@ChatE2ETest` 등)는 둘 다 켠다.
 
 이 설정은 자동 테스트 전용이다. 로컬 앱 실행·운영 배포 구성, 업무 이벤트의 Kafka 전환과 Redis 채팅 전달 로직은 별도다.
 

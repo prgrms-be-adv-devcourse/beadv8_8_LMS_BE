@@ -87,8 +87,7 @@ class ChatReceiptStompE2ETest {
         E2ESession guestLogin = login(GUEST_ID);
         StompSession host = connect(login(HOST_ID));
         StompSession guest = connect(guestLogin);
-        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
-                ChatMessageResponse.class);
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribeRoom(guest, ChatMessageResponse.class);
         BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
         waitForSubscriptions();
@@ -119,19 +118,19 @@ class ChatReceiptStompE2ETest {
         List<BlockingQueue<Object>> queues = List.of(
                 subscribe(host, "/user/queue/chats/messages", Object.class),
                 subscribe(host, "/user/queue/chats/notifications", Object.class),
-                subscribe(guestPhone, "/user/queue/chats/messages", Object.class),
+                subscribeRoom(guestPhone, Object.class),
                 subscribe(guestPhone, "/user/queue/chats/notifications", Object.class),
                 subscribe(guestLaptop, "/user/queue/chats/messages", Object.class),
                 subscribe(guestLaptop, "/user/queue/chats/notifications", Object.class));
         waitForSubscriptions();
 
         host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("메시지", "c-1"));
-        // 메시지 전달·알림이 모두 도착한 뒤 큐를 비운다. 기록기가 프레임을 실제로 받는다는 대조군이기도 하다
+        // 보낸 사람의 결과 확인, 방을 연 게스트 기기의 방 topic 메시지, 방을 열지 않은 게스트 기기의 새 메시지 알림이 모두
+        // 도착한 뒤 큐를 비운다. 기록기가 프레임을 실제로 받는다는 대조군이기도 하다
         await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS))
-                .until(() -> queues.get(0).size() == 1 && queues.get(2).size() == 1 && queues.get(3).size() == 1
-                        && queues.get(4).size() == 1 && queues.get(5).size() == 1);
-        await().during(Duration.ofMillis(300)).atMost(Duration.ofSeconds(2))
-                .until(() -> queues.stream().mapToInt(BlockingQueue::size).sum() == 5);
+                .until(() -> queues.get(0).size() == 1 && queues.get(2).size() == 1 && queues.get(5).size() == 1);
+        await().during(Duration.ofMillis(1500)).atMost(Duration.ofSeconds(3))
+                .until(() -> queues.stream().mapToInt(BlockingQueue::size).sum() == 3);
         queues.forEach(BlockingQueue::clear);
 
         markReceived(guestLogin, new ReceivedChatRoomRequest(1, 1L));
@@ -183,6 +182,29 @@ class ChatReceiptStompE2ETest {
                         new StompHeaders(), new StompSessionHandlerAdapter() {
                         })
                 .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /** 방 topic을 구독하고 메시지 프레임만 모은다 */
+    @SuppressWarnings("unchecked")
+    private <T> BlockingQueue<T> subscribeRoom(StompSession session, Class<T> type) {
+        BlockingQueue<T> queue = new LinkedBlockingQueue<>();
+        StompHeaders headers = new StompHeaders();
+        headers.setDestination("/topic/chats/rooms/" + chatRoomId);
+        headers.add("participation-version", "1");
+        session.subscribe(headers, new StompFrameHandler() {
+            @Override
+            public Type getPayloadType(StompHeaders frameHeaders) {
+                return type == Object.class ? byte[].class : type;
+            }
+
+            @Override
+            public void handleFrame(StompHeaders frameHeaders, Object payload) {
+                if (frameHeaders.getFirst("chat-frame-type") == null) {
+                    queue.add((T) payload);
+                }
+            }
+        });
+        return queue;
     }
 
     @SuppressWarnings("unchecked")

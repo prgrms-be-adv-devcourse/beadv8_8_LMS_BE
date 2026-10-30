@@ -41,7 +41,7 @@ class ChatRoomReadTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     @Test
@@ -110,7 +110,8 @@ class ChatRoomReadTest {
         chatMessageUseCase.send(chatRoomId, HOST_ID, "나가기 전", null);
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        ChatRoomResponse rejoined = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID).room();
+        ChatRoomResponse rejoined = chatRoomSupporter.toResponse(
+                chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID).chatRoomId(), GUEST_ID);
 
         assertThat(rejoined.lastMessage()).isNull();
         assertThat(rejoined.unreadCount()).isZero();

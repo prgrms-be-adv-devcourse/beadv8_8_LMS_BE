@@ -1,7 +1,6 @@
 package com.hapbang.chat.app;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -10,7 +9,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.chat.app.ChatRoomUseCase.OpenedRoom;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatNotificationResult;
-import com.hapbang.chat.app.dto.SentChatMessage;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
@@ -18,12 +16,10 @@ import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatRoom;
-import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.domain.NotificationData;
 import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.out.ChatMessageRepository;
-import com.hapbang.chat.out.ChatRoomMemberRepository;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
@@ -53,7 +49,6 @@ public class ChatNotificationUseCase {
 
     private final ChatRoomUseCase chatRoomUseCase;
     private final ChatMessageRepository chatMessageRepository;
-    private final ChatRoomMemberRepository chatRoomMemberRepository;
     private final ChatUserRepository chatUserRepository;
     private final ChatDeliveryRecorder chatDeliveryRecorder;
 
@@ -97,15 +92,9 @@ public class ChatNotificationUseCase {
                 messageOf.create(opened.chatRoom(), sender.getNickname(), now));
         chatDeliveryRecorder.recordMessage(message, opened.chatRoom().getCurrentRecipientSetId(),
                 ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, now);
-        List<Long> deliverToUserIds = chatRoomMemberRepository
-                .findByChatRoom_IdAndDeletedAtIsNull(opened.chatRoom().getId()).stream()
-                .filter(ChatRoomMember::isActive)
-                .map(ChatRoomMember::getUserId)
-                .toList();
         log.info("채팅 알림 kind={}, referenceId={}, chatRoomId={}", kind, referenceId, opened.chatRoom().getId());
-        SentChatMessage sent = new SentChatMessage(ChatMessageResponse.from(message), deliverToUserIds,
-                List.of(receiverId));
-        return Optional.of(new ChatNotificationResult(sent, opened.rejoinNotices(), opened.remainingUserIds()));
+        // 전달 대상 목록을 만들지 않는다. 알림 메시지·재입장 안내의 전달은 같은 트랜잭션의 outbox가 맡는다(설계 4.6)
+        return Optional.of(new ChatNotificationResult(ChatMessageResponse.from(message), opened.rejoinNotices()));
     }
 
     /**

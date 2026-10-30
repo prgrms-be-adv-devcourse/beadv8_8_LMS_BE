@@ -1,5 +1,7 @@
 package com.hapbang.chat.app;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.*;
@@ -52,8 +54,44 @@ class ChatDeliveryPipelineRunnerTest extends ChatDeliveryTestSupport {
     @MockitoSpyBean
     private ChatDeliveryQueue spiedQueue;
 
+    @MockitoSpyBean
+    private ChatOutboxRelay spiedRelay;
+
+    @Autowired
+    private ChatDeliveryPipelineRunner runner;
+
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    /**
+     * 멈추면 실행 중인 주기 작업을 끊지 않고 끝날 때까지 기다린 뒤 돌아온다. 그래야 stop() 뒤에 relay 배치가 마저 XADD·DB 기록을
+     * 하지 않는다(E2E 메서드 사이 Stream 정리, 앱 종료). 작업이 interrupt되면 대기 중 예외가 나 완료 표시가 남지 않는다.
+     */
+    @Test
+    void 멈추면_실행_중인_relay_배치가_끝난_뒤에_돌아온다() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicBoolean armed = new AtomicBoolean(true);
+        AtomicBoolean finished = new AtomicBoolean();
+        doAnswer(invocation -> {
+            if (!armed.compareAndSet(true, false)) {
+                return invocation.callRealMethod();
+            }
+            started.countDown();
+            Thread.sleep(500);
+            Object result = invocation.callRealMethod();
+            finished.set(true);
+            return result;
+        }).when(spiedRelay).relayBatch(any());
+        try {
+            assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+
+            runner.stop();
+
+            assertThat(finished).as("stop()이 돌아오기 전에 실행 중이던 relay 배치가 끝났다").isTrue();
+        } finally {
+            runner.start();
+        }
+    }
 
     @Test
     void 실행기가_적재부터_발행_ACK까지_처리한다() {
