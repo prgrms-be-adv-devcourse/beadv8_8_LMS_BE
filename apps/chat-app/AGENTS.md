@@ -20,3 +20,4 @@
 - 결정이 바뀌면 `docs/rules/decisions.md`와 `docs/final-design.md`를 같은 변경에서 고친다.
 - 이 파일에는 명령만 둔다. 설명·예시·명령어 사용법은 `docs/`에 둔다.
 - `apps/chat-app` 안에 README.md를 만들지 않는다.
+- HTTP 호출은 `@HttpExchange`로 만든다. 세부는 [`docs/rules/decisions.md`](docs/rules/decisions.md).

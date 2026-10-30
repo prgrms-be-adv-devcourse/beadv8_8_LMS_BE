@@ -30,7 +30,6 @@ import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.test.web.servlet.client.RestTestClient;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHttpHeaders;
@@ -53,13 +52,10 @@ import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
-import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserLoggedOutEvent;
-import com.hapbang.shared.member.event.UserModifiedEvent;
 
 /**
  * 실제 서버를 띄워 STOMP(WebSocketStompClient)로 채팅 흐름을 검증한다.
@@ -78,12 +74,6 @@ class ChatStompE2ETest {
 
     @Autowired
     private ConfigurableApplicationContext applicationContext;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-
-    @Autowired
-    private ChatUserRepository chatUserRepository;
 
     private RestTestClient client;
     private WebSocketStompClient stompClient;
@@ -371,31 +361,8 @@ class ChatStompE2ETest {
         assertThat(otherDevice.isConnected()).isTrue();
     }
 
-    @Test
-    void 채팅할_수_없게_강등되면_그_회원의_모든_연결이_닫힌다() throws Exception {
-        StompSession first = connect(HOST_ID);
-        StompSession second = connect(HOST_ID);
-
-        CloseStatus closeStatus = closeStatusOf(HOST_ID,
-                () -> publishModified(activeUser(HOST_ID, "호스트", Role.USER)));
-
-        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
-        assertThat(closeStatus.getReason()).isEqualTo("CHAT_NOT_ALLOWED");
-        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS))
-                .until(() -> !first.isConnected() && !second.isConnected());
-    }
-
-    // 회원 변경 이벤트는 프로필 수정에도 온다. 채팅할 수 있는 회원의 프로필 수정으로 소켓을 닫지 않는다
-    @Test
-    void 프로필_수정처럼_채팅_가능_여부가_그대로인_변경은_연결을_유지한다() throws Exception {
-        StompSession host = connect(HOST_ID);
-
-        publishModified(activeUser(HOST_ID, "새닉네임", Role.INFLUENCER));
-
-        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS)).until(() -> chatUserRepository.findById(HOST_ID)
-                .map(user -> user.getNickname().equals("새닉네임")).orElse(false));
-        assertThat(host.isConnected()).isTrue();
-    }
+    // 강등·정지된 회원의 연결 종료는 회원 변경 Kafka 소비가 남긴 연결 재검사 작업이 제어 Stream·제어 채널을 거쳐 처리한다.
+    // 회원 이벤트 리스너가 연결을 직접 닫지 않으므로, 실제 연결 종료는 회원 변경 소비·제어 Stream 적재·제어 채널 구독을 모두 합친 통합 검증에서 확인한다.
 
     @Test
     void 정지된_회원은_세션_역할이_인플루언서여도_연결할_수_없다() throws Exception {
@@ -527,10 +494,6 @@ class ChatStompE2ETest {
         } finally {
             applicationContext.removeApplicationListener(listener);
         }
-    }
-
-    private void publishModified(UserDto user) {
-        transactionTemplate.executeWithoutResult(status -> applicationContext.publishEvent(new UserModifiedEvent(user)));
     }
 
     @FunctionalInterface
