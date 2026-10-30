@@ -2,21 +2,16 @@ package com.hapbang.appearance;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
-
-import java.time.Duration;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestComponent;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,7 +24,6 @@ import com.hapbang.appearance.support.AppearanceE2ETest;
 import com.hapbang.appearance.support.E2ELogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.shared.member.event.UserModifiedEvent;
 
 import io.restassured.specification.RequestSpecification;
 import lombok.RequiredArgsConstructor;
@@ -56,12 +50,6 @@ class AppearanceApiE2ETest {
 
     @Autowired
     AppearanceUserRepository appearanceUserRepository;
-
-    @Autowired
-    ApplicationEventPublisher eventPublisher;
-
-    @Autowired
-    TransactionTemplate transactionTemplate;
 
     @Test
     @DisplayName("로그인하지 않으면 401")
@@ -119,10 +107,9 @@ class AppearanceApiE2ETest {
         given().spec(login).get(PROBE_PATH)
                 .then().statusCode(200);
 
-        transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(new UserModifiedEvent(
-                AppearanceUserFixture.user(4L, Role.INFLUENCER, UserStatus.SUSPENDED))));
-        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
-                appearanceUserRepository.findById(4L).orElseThrow().getStatus()).isEqualTo(UserStatus.SUSPENDED));
+        // 회원 변경 이벤트를 받은 것처럼 리스너의 진입점을 부른다 (Kafka 수신은 AppearanceUserEventListenerTest)
+        appearanceUserFacade.syncModified(AppearanceUserFixture.user(4L, Role.INFLUENCER, UserStatus.SUSPENDED));
+        assertThat(appearanceUserRepository.findById(4L).orElseThrow().getStatus()).isEqualTo(UserStatus.SUSPENDED);
 
         given().spec(login).get(PROBE_PATH)
                 .then().statusCode(403)

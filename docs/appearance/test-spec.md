@@ -48,7 +48,9 @@
 | 저장소 | `AppearanceRequestRepositoryTest` | `appearances.requests` 저장, 진행 중 요청 부분 유니크 인덱스, 목록 조회 | #98 |
 | 통합 | `AppearanceModuleIntegrationTest` | 모듈 전체 기동 | #26 |
 | 통합 | `AppearanceUserFacadeTest` | 출연 회원 생성·갱신(Facade), 자격 확인(Support) | #31, #50, #98 |
-| 통합 | `AppearanceUserEventListenerTest` | 회원 가입·정보 변경 이벤트 수신 | #31, #50 |
+| 통합 | `AppearanceUserEventListenerTest` | 회원 가입·정보 변경 이벤트 Kafka 수신 (Testcontainers Kafka) | #31, #50, #394 |
+| 단위 | `AppearanceUserBackfillUseCaseTest` | 기존 회원 Backfill 순회·집계·중단 (회원 내부 API 대역 서버) | #394 |
+| E2E | `AppearanceUserBackfillAdminApiE2ETest` | 관리자 기존 회원 Backfill API (실제 서버·DB, 회원 내부 API 대역 서버) | #394 |
 | E2E | `AppearanceApiE2ETest` | 헤더 로그인 → 자격 확인 → 오류 응답, 회원 정지 반영 (앱 전체) | #31, #50 |
 | 통합 | `AppearanceSwaggerDocsTest` | Swagger 명세의 성공 응답 스키마가 `RsData`인지 | #144 |
 | 통합 | `AppearanceRequestFacadeTest` | 요청서 보내기(HP 보류·잔액 부족·무응답·중복·동시 요청), 로그인 역할(`@PreAuthorize`), 출연 회원 자격, 조회, 수정(멱등) | #98 |
@@ -186,21 +188,22 @@
 | 일반 유저로 `getParticipant` | `NOT_INFLUENCER` |
 | 인플루언서를 정지 상태로 `syncModified`한 뒤 `getParticipant` | `APPEARANCE_USER_NOT_ACTIVE` |
 
-### 4.4 회원 이벤트 수신 — `AppearanceUserEventListenerTest`
+### 4.4 회원 이벤트 Kafka 수신 — `AppearanceUserEventListenerTest` (Testcontainers Kafka, #394)
 
-회원 모듈이 가입·변경 이벤트를 발행한 것처럼 만들고 확인한다. 리스너는 발행한 트랜잭션이 커밋된 뒤에만 실행된다.
+회원 앱처럼 shared 레코드를 JSON(`__TypeId__` 헤더)으로, key는 회원 ID로 `member.events.v1`에 보낸다. 업무 토픽은 테스트가 대신 만들고(partition 3), 리스너·토픽 생성을 켠 컨텍스트를 따로 띄워 끝나면 닫는다(`@DirtiesContext`). 테스트마다 다른 회원 ID를 쓴다. 강의 #429 테스트와 같은 경우를 확인한다.
 
 | 케이스 | 기대 결과 |
 |---|---|
-| 트랜잭션 안에서 `UserJoinedEvent` 발행 후 커밋 | 출연 회원 생성 (최대 5초 대기) |
-| `UserJoinedEvent`를 발행한 트랜잭션이 롤백 | 출연 회원 생성 안 됨 |
-| 인플루언서가 있는 상태에서 `UserModifiedEvent`(닉네임 변경, VERIFIED_INFLUENCER, SUSPENDED) 발행 후 커밋 | 닉네임·역할·상태 갱신, 출연 회원은 1명 그대로 (최대 5초 대기) |
-| 출연 회원이 없는 상태에서 `UserModifiedEvent` 발행 후 커밋 | 출연 회원 생성 안 됨 (0.5초 동안 확인). 처리 실패로 남아 재시작 때 재처리 |
-| 가입 → 변경(닉네임·VERIFIED_INFLUENCER) 반영 뒤 같은 `UserJoinedEvent`를 다시 발행 | 변경된 닉네임·역할 유지, 출연 회원 1명 (늦은 가입 이벤트 무시) |
-| 버전 2 변경 반영 뒤 버전 1(늦게 도착)·버전 2(중복) 변경 이벤트 발행 | 버전 2의 닉네임·역할·상태 유지 (0.5초 동안 확인, #293) |
-| `UserModifiedEvent`(WITHDRAWN)를 발행한 트랜잭션이 롤백 | 상태 ACTIVE 그대로 |
+| `UserJoinedEvent`(버전 0) | 출연 회원 생성: 닉네임·역할·ACTIVE·회원 버전 0 (최대 10초 대기) |
+| 가입 → `UserModifiedEvent`(닉네임, VERIFIED_INFLUENCER, SUSPENDED, 버전 1) | 닉네임·역할·상태 갱신, 회원 버전 1 |
+| 가입 → 변경(버전 2) 반영 뒤 같은 가입·버전 1 변경(늦게 옴)·버전 2 변경(중복) | 버전 2 정보 유지, DLT 없음. 같은 key로 보낸 표지(다른 회원 가입)가 반영된 뒤 확인해 앞 이벤트 처리가 끝났음을 보장 |
+| `UserLoggedOutEvent`(출연이 쓰지 않는 타입) → 가입 | 로그아웃은 무시하고 가입 반영, DLT 없음 |
+| 가입 없이 `UserModifiedEvent` | 출연 회원 생성 안 됨. 재시도(1·2·4초, 7초 이상 걸림) 뒤 출연 DLT 1건: 원본 토픽·`AppearanceException` 헤더·본문 포함 |
+| 깨진 JSON → 가입 | 깨진 메시지는 재시도 없이(1초 안) 원본 바이트 그대로 DLT 1건, 다음 가입은 반영 |
+| DLT 토픽 | 이름 `member.events.v1.appearance-app.member-replica.DLT`, partition 3, 보존 7일 |
 
-- 변경 이벤트 순서 뒤바뀜·중복은 공통 `ReplicaUser`가 회원 버전으로 걸러낸다 (회원 #292, [module.md](module.md) 4.1 참고). 출연 쪽은 그 동작이 출연 회원에도 적용되는지만 확인한다.
+- 회원 버전 비교 자체는 공통 `ReplicaUser`(회원 #292, `ReplicaUserTest`)가 확인한다. 출연 쪽은 Kafka로 받았을 때 그 동작이 출연 회원에 적용되는지 본다.
+- 이전 테스트(같은 서버 안 이벤트 발행, 발행 트랜잭션 롤백 경우)는 회원이 다른 앱이 되어 없앴다. 롤백된 회원 변경은 회원 앱이 Kafka로 보내지 않는다(#393과 같은 Modulith 외부화).
 
 ### 4.5 출연 요청서 저장소 — `AppearanceRequestRepositoryTest`
 
@@ -253,7 +256,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 헤더 역할 인플루언서, 복제본은 일반 유저(토큰 발급 뒤 강등) | 403 `NOT_INFLUENCER` (#395) |
 | 로그인했지만 출연 회원 정보 없음 | 404 Problem Detail, `code: APPEARANCE_USER_NOT_FOUND` |
 | 일반 유저로 로그인 | 403 Problem Detail, `code: NOT_INFLUENCER`, 한글 `detail` 정상 (UTF-8) |
-| 인플루언서로 요청 성공 → 회원 정지 이벤트(`UserModifiedEvent`) 반영 → 같은 로그인으로 다시 요청 | 200 → 403 Problem Detail, `code: APPEARANCE_USER_NOT_ACTIVE` |
+| 인플루언서로 요청 성공 → 회원 정지 반영(리스너 진입점 `AppearanceUserFacade.syncModified`, Kafka 수신은 4.4) → 같은 로그인으로 다시 요청 | 200 → 403 Problem Detail, `code: APPEARANCE_USER_NOT_ACTIVE` |
 
 ---
 
@@ -1237,7 +1240,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 케이스 | 기대 결과 |
 |---|---|
 | 앱 기동 | 토픽 `appearance.events.v1`이 partition 3개로 있음 |
-| 요청서 보내기 성공(커밋) | 메시지 1건. key `appearance-request:<요청서 ID>`, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, `eventId` 헤더 없음. 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
+| 요청서 보내기 성공(커밋) | 메시지 1건. key `appearance-request:<요청서 ID>`, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, `eventId` 헤더 없음, `__TypeId__` = 레코드 전체 클래스 이름(JSON 직렬화기, #394에서 Modulith JSON 기본 세트를 끈 뒤에도 그대로). 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
 | 지원(커밋) | 메시지 1건. key `appearance-application:<지원 ID>`, `eventType` = `AppearanceApplicationSubmittedEvent`, 본문의 지원 ID·모집글 ID·모집글 제목·호스트·게스트·지원 시각 |
 | 발행한 트랜잭션 롤백 | 롤백한 이벤트는 나가지 않음 (뒤에 커밋한 이벤트가 도착한 뒤 확인) |
 | 첫 보내기의 응답 유실(브로커에는 도착, 앱은 실패로 받음) → 시계를 2분 앞당겨 재발행 배치(`AppearanceEventRepublishUseCase.republishDue()`) 1회 | 배치가 1건을 다시 보냄. 같은 key로 2건 이상, `eventType`·본문이 같음(받는 쪽이 `(eventType, 요청서 ID)`로 거름) |
@@ -1312,3 +1315,33 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 권한 테스트(비로그인 401, 역할 부족 403, 다른 사람 자원 404, 정지 회원 거절)는 기존 E2E·Facade 테스트가 헤더 로그인으로 그대로 확인한다.
 
+## 28. 기존 회원 Backfill (#394)
+
+회원 앱이 Kafka로 보내기 전에 가입한 회원을 회원 내부 API로 채운다(module.md 4.1.1). 회원 내부 API는 `FakeMemberServer`(JDK HTTP 서버)로 흉내 내 운영 `MemberApiClient`가 실제 HTTP로 부르게 한다(오류 변환까지 운영과 같다).
+
+### 28.1 `AppearanceUserBackfillUseCaseTest` (단위)
+
+회원 하나의 반영(`applySnapshot`)과 트랜잭션은 대역이다.
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 회원 900명, limit 1,000 | 500·400명 두 번 읽어(afterId 0·500) ID 순서로 모두 반영, `completed`, `nextAfterId` 없음 |
+| 150명을 limit 100으로 → nextAfterId로 이어서 / 회원 없음 | 100명·`completed = false`·`nextAfterId = 100` → 50명·`completed` / 0건·`completed` |
+| 반영 결과 생성·갱신·실패·그대로 1건씩 | 종류별 집계, scanned = 합계, 실패 회원은 `failedIds`, 다음 회원 계속 |
+| 150명 모두 실패 | `failed` 150, `failedIds`는 앞 100개 |
+| 두 번째 페이지 5xx | 503 `MEMBER_SOURCE_UNAVAILABLE`, `scanned` 500·`resumeAfterId` 500, 첫 페이지는 반영됨 |
+| 401 / 깨진 응답 | `MEMBER_SOURCE_REJECTED` / `MEMBER_SOURCE_UNAVAILABLE`(`resumeAfterId` = 요청한 afterId), 반영 없음 |
+| Client 없음(주소 미설정) | `MEMBER_SOURCE_UNAVAILABLE` |
+| 키셋 계약 위반(역순, afterId 이하 ID, nextAfterId가 마지막 ID와 다름, 빈 페이지에 nextAfterId) | 그 페이지를 반영하지 않고 `MEMBER_SOURCE_UNAVAILABLE` |
+| 실행 중 다시 실행 / 끝난 뒤 / limit 0·1,001, afterId -1 | 409 `BACKFILL_ALREADY_RUNNING` / 다시 실행 가능 / 거부 |
+
+### 28.2 `AppearanceUserBackfillAdminApiE2ETest` (E2E)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 관리자 실행: 관리자·없는 회원(정지 상태) 생성, 이벤트로 v3인 회원에 스냅샷 v2, v1인 회원에 스냅샷 v2 | 200, created 2·updated 1·ignored 1·failed 0, 응답에 닉네임 없음. 없는 회원은 스냅샷대로 생성, v3 그대로, v1 → v2. 관리자 자신의 출연 회원이 없어도 실행됨 |
+| 같은 요청을 다시 | created 0·ignored 4 (멱등) |
+| Backfill로 만든 회원에 회원 변경 이벤트 | 반영됨(가입 이벤트가 없던 기존 회원의 변경이 DLT로 가지 않음) |
+| limit 2로 3명 → afterId=nextAfterId로 이어서 | 2명·`nextAfterId`·`completed = false` → 1명·`completed`, 3명 모두 생성 |
+| 회원 내부 API 5xx | 503 `MEMBER_SOURCE_UNAVAILABLE`, Problem Detail에 `scanned`·`resumeAfterId` |
+| 인플루언서 / 비로그인(사용자 헤더 없음) / limit 1,001 / afterId -1 | 403 / 401 / 400 `INVALID_REQUEST` / 400, 회원 내부 API를 부르지 않음 |

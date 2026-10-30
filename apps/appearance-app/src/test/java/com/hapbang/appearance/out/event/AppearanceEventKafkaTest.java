@@ -77,7 +77,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @AppearanceIntegrationTest
 @Import(KafkaTestcontainersConfig.class)
-@TestPropertySource(properties = "spring.modulith.events.externalization.enabled=true")
+@TestPropertySource(properties = {"spring.modulith.events.externalization.enabled=true", "spring.kafka.admin.auto-create=true"})
 @WithMockUser(roles = "INFLUENCER")
 @DirtiesContext
 class AppearanceEventKafkaTest {
@@ -172,6 +172,8 @@ class AppearanceEventKafkaTest {
         assertThat(header(record, EVENT_TYPE)).isEqualTo(REQUEST_SENT);
         assertThat(header(record, EVENT_VERSION)).isEqualTo("1");
         assertThat(header(record, "eventId")).isNull();
+        // 받는 쪽 JSON 역직렬화기가 타입을 고르는 헤더. JSON 직렬화기가 붙인다
+        assertThat(header(record, "__TypeId__")).isEqualTo(AppearanceRequestSentEvent.class.getName());
         AppearanceRequestDto request = jsonMapper.readValue(record.value(), AppearanceRequestSentEvent.class).request();
         assertThat(request).isEqualTo(new AppearanceRequestDto(sent.id(), HOST, GUEST, sent.title(),
                 AppearanceRequestFixture.FEE, sent.scheduledAt(), sent.acceptDeadline()));
