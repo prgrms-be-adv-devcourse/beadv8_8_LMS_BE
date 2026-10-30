@@ -33,7 +33,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - 이름은 `<발행 컨텍스트>.events.v<N>`이다. 토픽 하나에 그 컨텍스트의 이벤트 타입을 섞는다([ADR 0001](../../adr/0001-context-topics-with-mixed-event-types.md)). 이름에 소비자 관점의 말(예: `notification`)을 넣지 않는다.
 - key는 이벤트가 다루는 대상의 ID다. 같은 토픽에서 ID 종류가 여럿이면 번호가 겹치지 않게 종류 접두어를 붙인다(`appearance-request:12`). 회원 이벤트는 회원 ID만 쓴다. key가 같은 메시지끼리만 순서가 지켜진다.
 - 토픽은 발행 앱이 `NewTopic` 빈으로 선언한다. broker의 자동 생성은 끈다(`auto.create.topics.enable=false`).
-  - 예외: prod의 `member.events.v1`은 member-app의 선언(#416) 전이라 2026-10-30에 Redpanda Console로 손으로 만들었다(partition 3, replication factor 1, `cleanup.policy=delete`, 보존은 broker 기본값). #416은 같은 설정으로 선언한다. partition 수가 다르면 앱 기동 때 partition을 늘리려 한다.
+  - 예외: prod의 `member.events.v1`은 member-app의 선언(#416) 전이라 2026-10-30에 Redpanda Console로 손으로 만들었다(partition 3, replication factor 1, `cleanup.policy=delete`, 보존은 broker 기본값). #416은 같은 설정으로 선언한다. Spring Kafka(`KafkaAdmin`)는 실제 partition이 선언보다 적을 때만 늘리고, 많으면 줄이지 않는다. 손으로 만든 토픽의 partition이 3보다 많으면 선언과 어긋난 채 남는다.
 - partition은 3개다. 한 그룹에서 동시에 일하는 consumer는 partition 수를 넘지 못한다.
 - 보존은 compaction 없이 시간 기준이다(72시간, partition당 256MiB, broker 기본값). 보존 기간보다 오래된 데이터가 필요한 새 소비자는 자기 초기 적재로 채운다.
 - 환경 prefix는 붙이지 않는다. EC2에는 prod만 있다(#369).

@@ -168,10 +168,11 @@ Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main
 
 dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461). 이미지는 사람이 `write:packages` PAT로 직접 빌드해 올린다. Publish images(Actions)는 main push에서만 돈다.
 
-1. **테스트와 jar**: dev를 받은 작업 폴더에서 `./gradlew :<앱>:check :<앱>:bootJar`.
+1. **테스트와 jar**: origin/dev를 받은 깨끗한 작업 폴더(커밋하지 않은 변경 없음)에서 `./gradlew :<앱>:check :<앱>:bootJar`. 변경이 남아 있으면 jar와 태그 커밋이 달라진다.
 2. **이미지 빌드**: EC2는 amd64다. 태그는 jar를 만든 dev 커밋으로 붙인다. 라벨은 패키지를 이 레포에 연결한다.
 
    ```bash
+   test -z "$(git status --porcelain)" || { echo '커밋하지 않은 변경이 있다'; exit 1; }
    T=$(git rev-parse HEAD)
    docker buildx build --platform linux/amd64 --load \
      --label org.opencontainers.image.source=https://github.com/prgrms-be-adv-devcourse/beadv8_8_LMS_BE \
@@ -189,7 +190,7 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
    KUBECTL="kubectl --context hapbang-k3s" .github/scripts/k3s-deploy.sh apply <앱> <dev 커밋 40자> <태그 커밋 40자>
    ```
 
-   이 스크립트는 overlay 전체(HTTPRoute·SecurityPolicy·NetworkPolicy 포함)를 적용해 Envoy로 외부에 연다. 뜨는지만 볼 때는 ConfigMap·Deployment만 적용한다.
+   이 스크립트는 overlay 전체(Service·HTTPRoute·SecurityPolicy·NetworkPolicy 포함)를 적용해 Envoy로 외부에 연다. 처음 올리는 앱이 뜨는지만 볼 때는 ConfigMap·NetworkPolicy·Deployment만 적용한다. NetworkPolicy는 빼지 않는다. 빼면 다른 pod가 앱 포트에 바로 닿고, `hapbang-prod`의 `deny-metadata-egress`가 IMDS를 막아 S3를 쓰는 앱(member·appearance·lecture)이 자격 증명을 받지 못한다. 이미 Service·HTTPRoute가 있는 앱에 이 방식으로 올리면 새 이미지가 바로 요청을 받으므로 쓰지 않는다.
 
    ```bash
    # kustomize는 절대 경로 resource를 받지 않아 레포 안에 임시 폴더를 둔다.
@@ -198,15 +199,16 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
    resources: [../apps/<앱>/k8s/overlays/prod]
    images: [{name: <앱>, newName: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>, newTag: sha-<태그 커밋>}]
    YAML
-   kubectl kustomize "$d" | yq 'select(.kind == "ConfigMap" or .kind == "Deployment")' > "$d/min.yaml"
+   kubectl kustomize "$d" | yq 'select(.kind == "ConfigMap" or .kind == "NetworkPolicy" or .kind == "Deployment")' > "$d/min.yaml"
    kubectl --context hapbang-k3s apply -f "$d/min.yaml"
    rm -rf "$d"
    ```
 
 - 로컬 배포와 Deploy workflow를 동시에 돌리지 않는다. Deploy의 동시 실행 제한(`concurrency`)은 workflow끼리만 막는다. 겹치면 한쪽의 apply·`rollout undo`가 다른 쪽 배포를 덮어쓰거나 되돌린다.
-- 먼저 올린 앱의 커밋이 main에 들어가기 전에는 Deploy를 입력 없이 실행하지 않는다. 자동 판단이 그 앱을 main의 더 오래된 이미지로 되돌릴 수 있다. 릴리스 뒤에는 main의 Publish images가 CI를 거친 이미지로 다시 발행하므로, 그 이미지로 다시 배포한다.
+- 먼저 올린 앱의 커밋이 main에 들어가기 전에는 Deploy를 입력 없이 실행하지 않는다. 자동 판단이 그 앱을 main의 더 오래된 이미지로 되돌릴 수 있다.
+- 릴리스 뒤에는 먼저 올린 앱을 Deploy의 `apps`에 적어 다시 배포한다. 입력 없이 돌리면 앱 내용이 그대로인 앱은 건너뛰어, 사람이 올린 이미지와 최소 배포에서 뺀 리소스(Service·HTTPRoute 등)가 그대로 남는다.
 - main 릴리스 리뷰와 CI를 거치지 않은 이미지다. 어떤 앱을 어느 커밋으로 언제 올렸는지 해당 티켓에 남긴다.
-- 2026-10-30 기록: member-app·lecture-app을 이 방식으로 올리고 ConfigMap·Deployment만 적용했다(#461). lecture-app은 384Mi·448Mi limit에서 기동 중 OOMKilled돼 운영 Deployment만 640Mi로 올렸다. 레포 값과 [k3s 예산](../architecture/infrastructure/k3s.md)은 #343에서 실측으로 고친다.
+- 2026-10-30 기록: member-app·lecture-app을 이 방식으로 올렸다(#461). 처음에는 ConfigMap·Deployment만 적용해 NetworkPolicy가 빠졌다. lecture-app은 384Mi·448Mi limit에서 기동 중 OOMKilled돼 640Mi로 올렸고, manifest와 [k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)도 640Mi로 고쳤다.
 
 ### 첫 릴리스
 
