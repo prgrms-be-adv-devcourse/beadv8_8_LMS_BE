@@ -54,11 +54,23 @@ class AppearancePolicyTest {
     }
 
     @Test
+    @DisplayName("위약금 비율은 1~100%만 허용한다 (0%면 위약금 정산 작업을 만들 수 없다)")
+    void penaltyRateBounds() {
+        assertThat(new AppearancePolicy(20_000, 1, Duration.ofDays(7), 2, 10).calculatePenalty(20_000)).isEqualTo(200);
+        assertThat(new AppearancePolicy(20_000, 100, Duration.ofDays(7), 2, 10).calculatePenalty(20_000))
+                .isEqualTo(20_000);
+    }
+
+    @Test
     @DisplayName("잘못된 정책 값으로는 만들 수 없다")
     void invalidPolicy() {
         assertThatThrownBy(() -> new AppearancePolicy(0, 30, Duration.ofDays(7), 2, 10))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new AppearancePolicy(20_000, 101, Duration.ofDays(7), 2, 10))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AppearancePolicy(20_000, 0, Duration.ofDays(7), 2, 10))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AppearancePolicy(20_000, -1, Duration.ofDays(7), 2, 10))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new AppearancePolicy(20_000, 30, Duration.ZERO, 2, 10))
                 .isInstanceOf(IllegalArgumentException.class);

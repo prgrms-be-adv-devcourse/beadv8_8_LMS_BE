@@ -17,7 +17,7 @@ appearance:
   policy:
     # 최저 출연료 (1인당, HP)
     minimum-fee: 20000
-    # 호스트 일방 취소 위약금 비율. 원 단위 미만은 버린다.
+    # 호스트 일방 취소 위약금 비율 (1~100). 원 단위 미만은 버린다.
     penalty-rate-percent: 30
     # 출연 확인 기간: 방송 예정 일시 + 7×24시간
     confirm-period: 7d
