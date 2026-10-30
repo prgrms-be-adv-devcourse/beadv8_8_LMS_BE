@@ -34,7 +34,7 @@
 | k3s server, ServiceLB, Envoy proxy | large | control plane과 외부 HTTPS 진입. 진입점 전환([전환 순서](#전환-순서) 7) 뒤에는 Traefik을 끄고 ServiceLB를 large에서만 켠다 |
 | PostgreSQL | large | `core-data` required node affinity |
 | Kafka, Redis, Elasticsearch | large | 도입 시 `core-data` required node affinity |
-| 모듈 앱 8개 | 양쪽 | 앱마다 replica 1개. large에 member·billing·appearance·search(448 MiB), medium에 lecture·chat·customer-support·notification(384 MiB)을 두고 시작한다([자원 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)) |
+| 모듈 앱 8개 | 양쪽 | 앱마다 replica 1개. large에 member·billing·appearance·search(448 MiB), medium에 lecture(640 MiB, #461 실측)·chat·customer-support·notification(384 MiB)을 두고 시작한다([자원 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)) |
 | Envoy Gateway controller, cert-manager, ECK operator, Sealed Secrets controller | medium | stateless controller. Sealed Secrets의 개인 키는 Secret이라 controller와 함께 옮겨진다([키 백업](#sealed-secrets-키-백업)) |
 | React 정적 서버 | medium | stateless workload |
 | Prometheus·Loki·Tempo·Grafana | medium | 제한형 관측성 profile과 비교 기준선 |

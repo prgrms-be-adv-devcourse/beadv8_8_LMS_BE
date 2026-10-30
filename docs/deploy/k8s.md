@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy이며 업무 앱·FE는 아직 미배포다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
+상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐고, member-app·lecture-app은 ConfigMap·Deployment만 올라가 외부 route가 없다(2026-10-30, [릴리스 전 배포](#릴리스-전-배포)). 나머지 업무 앱은 미배포다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 
@@ -166,29 +166,57 @@ Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main
 
 ### 릴리스 전 배포
 
-dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461). GHCR 패키지는 조직 정책으로 멤버가 직접 만들 수 없어(개인 PAT push는 `denied`), 이미지는 이 repo의 Actions가 발행한다.
+dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461). 이미지는 사람이 `write:packages` PAT로 직접 빌드해 올린다. Publish images(Actions)는 main push에서만 돈다.
 
-1. **발행**: dev의 커밋을 `prerelease/<앱>[+<앱>...]` 브랜치로 push한다. Publish images가 적은 앱만 테스트한 뒤 `:sha-<그 앱을 마지막으로 바꾼 커밋>`으로 올린다. dev에 포함되지 않은 커밋이나 목록에 없는 앱이면 실패한다.
+1. **테스트와 jar**: origin/dev를 받은 깨끗한 작업 폴더(커밋하지 않은 변경 없음)에서 `./gradlew :<앱>:check :<앱>:bootJar`. 변경이 남아 있으면 jar와 태그 커밋이 달라진다.
+2. **이미지 빌드**: EC2는 amd64다. 태그는 jar를 만든 dev 커밋으로 붙인다. 라벨은 패키지를 이 레포에 연결한다.
 
    ```bash
-   git fetch origin
-   git push origin origin/dev:refs/heads/prerelease/member-app+lecture-app
+   test -z "$(git status --porcelain)" || { echo '커밋하지 않은 변경이 있다'; exit 1; }
+   T=$(git rev-parse HEAD)
+   docker buildx build --platform linux/amd64 --load \
+     --label org.opencontainers.image.source=https://github.com/prgrms-be-adv-devcourse/beadv8_8_LMS_BE \
+     -t "ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-${T}" \
+     -f apps/<앱>/Dockerfile apps/<앱>/build/libs
    ```
 
-2. **브랜치 삭제**: run이 끝나면 `git push origin --delete prerelease/member-app+lecture-app`. 태그는 run 요약과 `.github/scripts/apps.sh source <앱> <dev 커밋>`으로 알 수 있다.
-3. **pull 확인**: `k8s/tools/ghcr-pull-check.sh <이미지> <pool>`([GHCR pull 인증](#ghcr-pull-인증)).
-4. **배포**: Deploy workflow는 main 커밋만 받으므로 로컬에서 같은 스크립트를 쓴다. prod kubeconfig(context `hapbang-k3s`)가 필요하다. 앱은 배포 순서(member → billing → appearance → lecture → chat → customer-support)를 지킨다.
+3. **push**: classic PAT(`write:packages`, 만료 1일)를 만들고 별도 터미널에서 `docker login ghcr.io -u <GitHub 아이디>`(Password 칸에 붙여 넣는다) → `docker push <이미지>` → `docker logout ghcr.io` → PAT 삭제. 토큰은 채팅·이슈에 붙이지 않는다.
+   - 패키지가 없으면 첫 push가 패키지를 만든다. 2026-10-30 member-app·lecture-app은 첫 push가 패키지만 만들고 `denied`로 끝났고, 다시 로그인해 push하자 올라갔다.
+   - **사람이 만든 패키지는 main의 Publish images(`GITHUB_TOKEN`)가 push하지 못한다.** 패키지 페이지 → Package settings → Manage Actions access에 `beadv8_8_LMS_BE`를 Write로 더한다. member-app·lecture-app이 이 경우다.
+4. **pull 확인**: `k8s/tools/ghcr-pull-check.sh <이미지> <pool>`([GHCR pull 인증](#ghcr-pull-인증)).
+5. **배포**: Deploy workflow는 main 커밋만 받으므로 로컬에서 한다. prod kubeconfig(context `hapbang-k3s`)가 필요하다. 앱은 배포 순서(member → billing → appearance → lecture → chat → customer-support)를 지킨다.
 
    ```bash
    KUBECTL="kubectl --context hapbang-k3s" .github/scripts/k3s-deploy.sh apply <앱> <dev 커밋 40자> <태그 커밋 40자>
    ```
 
-- 릴리스 뒤 main의 Publish images가 같은 태그로 다시 발행할 수 있다. 같은 커밋의 jar라 내용은 같다. dev 커밋은 main 병합(merge commit) 뒤 main 이력에 들어가므로 Deploy workflow가 이어서 바뀐 앱을 판단한다.
-- 리뷰를 거친 dev 커밋만 발행하지만 main 릴리스 리뷰는 거치지 않는다. 어떤 앱을 언제 먼저 올렸는지 해당 티켓에 남긴다.
+   이 스크립트는 overlay 전체(Service·HTTPRoute·SecurityPolicy·NetworkPolicy 포함)를 적용해 Envoy로 외부에 연다. 처음 올리는 앱이 뜨는지만 볼 때는 ConfigMap·NetworkPolicy·Deployment만 적용한다. NetworkPolicy는 빼지 않는다. 빼면 다른 pod가 앱 포트에 바로 닿고, `hapbang-prod`의 `deny-metadata-egress`가 IMDS를 막아 S3를 쓰는 앱(member·appearance·lecture)이 자격 증명을 받지 못한다. 이미 Service·HTTPRoute가 있는 앱에 이 방식으로 올리면 새 이미지가 바로 요청을 받으므로 쓰지 않는다.
+
+   ```bash
+   # kustomize는 절대 경로 resource를 받지 않아 레포 안에 임시 폴더를 둔다.
+   d=$(mktemp -d "$PWD/.k3s-min.XXXXXX")
+   cat > "$d/kustomization.yaml" <<'YAML'
+   resources: [../apps/<앱>/k8s/overlays/prod]
+   images: [{name: <앱>, newName: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>, newTag: sha-<태그 커밋>}]
+   YAML
+   kubectl kustomize "$d" > "$d/all.yaml"
+   # NetworkPolicy를 먼저 적용한다. kustomize 출력은 Deployment가 앞이라 한 번에 적용하면 pod가 정책 없이 먼저 뜬다.
+   yq 'select(.kind == "NetworkPolicy")' "$d/all.yaml" > "$d/np.yaml"
+   yq 'select(.kind == "ConfigMap" or .kind == "Deployment")' "$d/all.yaml" > "$d/app.yaml"
+   kubectl --context hapbang-k3s apply -f "$d/np.yaml"
+   kubectl --context hapbang-k3s apply -f "$d/app.yaml"
+   rm -rf "$d"
+   ```
+
+- 로컬 배포와 Deploy workflow를 동시에 돌리지 않는다. Deploy의 동시 실행 제한(`concurrency`)은 workflow끼리만 막는다. 겹치면 한쪽의 apply·`rollout undo`가 다른 쪽 배포를 덮어쓰거나 되돌린다.
+- 먼저 올린 앱의 커밋이 main에 들어가기 전에는 Deploy를 입력 없이 실행하지 않는다. 자동 판단이 그 앱을 main의 더 오래된 이미지로 되돌릴 수 있다.
+- 릴리스 뒤에는 먼저 올린 앱을 Deploy의 `apps`에 적어 다시 배포한다. 입력 없이 돌리면 앱 내용이 그대로인 앱은 건너뛰어, 사람이 올린 이미지와 최소 배포에서 뺀 리소스(Service·HTTPRoute 등)가 그대로 남는다.
+- main 릴리스 리뷰와 CI를 거치지 않은 이미지다. 어떤 앱을 어느 커밋으로 언제 올렸는지 해당 티켓에 남긴다.
+- 2026-10-30 기록: member-app·lecture-app을 이 방식으로 올렸다(#461). 처음에는 ConfigMap·Deployment만 적용해 NetworkPolicy가 빠졌다. lecture-app은 384Mi·448Mi limit에서 기동 중 OOMKilled돼 640Mi로 올렸고, manifest와 [k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)도 640Mi로 고쳤다.
 
 ### 첫 릴리스
 
-main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없고, 앱 이미지 패키지도 아직 없다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
+main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app만 있다(2026-10-30 [릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 이 두 패키지는 Manage Actions access에 `beadv8_8_LMS_BE` Write가 있어야 첫 Publish가 push된다. 나머지 4개는 첫 Publish가 만든다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
 
 1. **dev → main 병합**: base `main` ← `dev`(또는 `release/review-N`) PR을 만들어 병합한다. 다른 브랜치에서 열면 `PR source / source-branch` 체크가 실패한다(#180).
 2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
@@ -263,6 +291,7 @@ kubectl --context "$CTX" -n hapbang-platform port-forward svc/redpanda-console 8
 - admin 비밀번호는 차트가 처음 설치할 때 만든 Secret(`grafana`)에 있다. 레포·채팅에 옮기지 않는다.
 - Loki(3100)·Tempo(3200)는 Grafana datasource로 조회한다.
 - Redpanda Console은 자체 로그인이 없고 메시지 발행·토픽 삭제도 할 수 있다. Gateway를 설치하면 `https://<도메인>/kafka/`에서 Envoy Basic Auth만 거쳐 접속한다([Gateway 구성](gateway.md)). 그 전에는 port-forward로 접속한다.
+- prod `/kafka/`에서 토픽 생성은 HTTP 405로 실패한다(#484, 조회는 된다). 쓰기는 port-forward로 한다: `kubectl --context hapbang-k3s -n hapbang-platform port-forward svc/redpanda-console 18080:8080` 뒤 `http://localhost:18080`.
 
 ## CI
 
