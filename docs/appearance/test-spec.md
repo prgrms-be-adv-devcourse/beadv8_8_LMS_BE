@@ -1227,18 +1227,27 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 
 ## 25. 알림 이벤트 Kafka 발행 (#393)
 
-요청 도착·지원 도착 이벤트를 Modulith 외부화로 토픽 `appearance.notification.v1`에 내보낸다(구성은 `module.md` 11.3). 다른 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), 이 테스트만 `KafkaTestcontainersConfig`(`apache/kafka:4.2.1`)를 가져와 켠다.
+요청 도착·지원 도착 이벤트를 Modulith 외부화로 토픽 `appearance.events.v1`에 내보낸다(구성은 `module.md` 11.3, 팀 규칙은 `kafka.md` #339). 다른 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), 이 테스트만 `KafkaTestcontainersConfig`(`apache/kafka:4.2.1`)를 가져와 켠다.
 
 ### 25.1 `AppearanceNotificationKafkaTest` (통합, Testcontainers Kafka)
 
-토픽은 운영과 같은 이름 하나를 같이 쓴다. 테스트마다 새 소비자 그룹을 토픽 끝으로 옮긴 뒤 읽어 앞 테스트의 메시지를 보지 않고, 그중 그 테스트가 만든 `eventId`의 메시지만 본다. 보내기는 커밋 뒤 비동기라 15초 안에 기다린다. 외부화를 켠 컨텍스트를 따로 띄우므로 끝나면 닫는다(`@DirtiesContext`, 테스트 DB 연결 상한).
+토픽은 운영과 같은 이름 하나를 같이 쓰고, 앱이 뜰 때 선언한다. 테스트마다 새 소비자 그룹을 토픽 끝으로 옮긴 뒤 읽어 앞 테스트의 메시지를 보지 않고, 그중 그 테스트가 만든 key의 메시지만 본다. 보내기는 커밋 뒤 비동기라 15초 안에 기다린다. 외부화를 켠 컨텍스트를 따로 띄우므로 끝나면 닫는다(`@DirtiesContext`, 테스트 DB 연결 상한).
 
 | 케이스 | 기대 결과 |
 |---|---|
-| 요청서 보내기 성공(커밋) | 메시지 1건. 키 = 게스트 ID, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
-| 지원(커밋) | 메시지 1건. 키 = 호스트 ID, `eventType` = `AppearanceApplicationSubmittedEvent`, 본문의 지원 ID·모집글 ID·모집글 제목·호스트·게스트·지원 시각 |
+| 앱 기동 | 토픽 `appearance.events.v1`이 partition 3개로 있음 |
+| 요청서 보내기 성공(커밋) | 메시지 1건. key `appearance-request:<요청서 ID>`, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, `eventId` 헤더 없음. 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
+| 지원(커밋) | 메시지 1건. key `appearance-application:<지원 ID>`, `eventType` = `AppearanceApplicationSubmittedEvent`, 본문의 지원 ID·모집글 ID·모집글 제목·호스트·게스트·지원 시각 |
 | 발행한 트랜잭션 롤백 | 롤백한 이벤트는 나가지 않음 (뒤에 커밋한 이벤트가 도착한 뒤 확인) |
-| 첫 보내기의 응답 유실(브로커에는 도착, 앱은 실패로 받음) → 시계를 2분 앞당겨 재발행 배치(`AppearanceNotificationRepublishUseCase.republishDue()`) 1회 | 같은 `eventId`·같은 키로 2건 이상 |
+| 첫 보내기의 응답 유실(브로커에는 도착, 앱은 실패로 받음) → 시계를 2분 앞당겨 재발행 배치(`AppearanceNotificationRepublishUseCase.republishDue()`) 1회 | 배치가 1건을 다시 보냄. 같은 key로 2건 이상, `eventType`·본문이 같음(받는 쪽이 `(eventType, 요청서 ID)`로 거름) |
 
 - 응답 유실은 `KafkaTemplate`을 `@MockitoSpyBean`으로 감싸 첫 `send`만 실제로 보낸 뒤 실패를 돌려주게 만든다.
 - 발행 시점·횟수·내용(같은 JVM)은 기존 `AppearanceEventPublishTest`가 그대로 확인한다.
+
+### 25.2 `AppearanceExternalEventsTest` (단위)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 요청 도착·지원 도착 | 내보냄 (`@Externalized`) |
+| 출연 취소 요청 이벤트 3종 | 내보내지 않음 |
+| 회원 이벤트(`UserJoinedEvent`·`UserModifiedEvent`) | 내보내지 않음 (다른 컨텍스트 이벤트) |

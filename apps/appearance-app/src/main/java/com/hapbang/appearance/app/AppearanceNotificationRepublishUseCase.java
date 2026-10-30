@@ -19,7 +19,7 @@ import lombok.extern.slf4j.Slf4j;
  * <ul>
  *     <li>서버 재시작 때만 다시 보내면 브로커 장애 동안의 알림이 다음 배포까지 밀리므로 주기적으로 다시 보낸다.</li>
  *     <li>발행한 지 대기 시간({@code pendingGrace})이 지난 기록만 가져간다. 커밋 직후 보내는 중인 기록과 겹치지 않도록 하기 위해서다.
- *     겹쳐서 두 번 가더라도 같은 {@code eventId}라 받는 쪽이 거른다.</li>
+ *     겹치거나 서버 여러 대가 같이 다시 보내 두 번 가더라도 받는 쪽이 {@code (eventType, 대상 ID)}로 거른다(분산 락 없음, kafka.md).</li>
  *     <li>Kafka로 내보내는 알림 이벤트({@link AppearanceExternalEvents})만 다시 보낸다. 같은 JVM 리스너(회원 이벤트 등)의 미완료 기록은 건드리지 않는다.</li>
  *     <li>한 번에 최대 {@code batchSize}건, 오래된 기록부터 보낸다. 브로커가 오래 멈춘 뒤 쌓인 기록을 한꺼번에 보내지 않고 나머지는 다음 주기에 보낸다.</li>
  * </ul>
