@@ -1,4 +1,4 @@
-package com.hapbang.lecture.in;
+package com.hapbang.lecture.app;
 
 import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
@@ -23,9 +23,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.hapbang.lecture.app.LectureHpTaskBatchUseCase;
-import com.hapbang.lecture.app.LectureHpTaskExecutor;
-import com.hapbang.lecture.app.LectureOrderFacade;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.config.LectureConfig;
@@ -48,25 +45,22 @@ import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.out.BillingCallResult;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
-import com.hapbang.shared.lecture.port.LectureObjectionPort;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 고객센터가 부르는 이의 제기 포트를 직접 호출해 DB·HP 반환과 지급 예정 취소(Fake billing)·트랜잭션 참여까지 확인한다.
+ * 이의 제기 Facade(LectureObjectionFacade)를 직접 호출해 DB·HP 반환과 지급 예정 취소(Fake billing)·트랜잭션 참여까지 확인한다.
  * 상태 규칙과 기한 경계는 LectureOrderObjectionTest가 맡는다.
  */
 @IntegrationTest
 @WithMockUser(roles = "USER")
-class LectureObjectionPortTest {
+class LectureObjectionFacadeTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
     private static final Long INQUIRY_ID = 500L;
     private static final String REASON = "강의 소개와 영상 내용이 다릅니다.";
 
     @Autowired
-    private LectureObjectionPort lectureObjectionPort;
+    private LectureObjectionFacade lectureObjectionFacade;
 
     @Autowired
     private LectureOrderFacade lectureOrderFacade;
@@ -107,7 +101,7 @@ class LectureObjectionPortTest {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
 
-        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
         OrderItem item = item(orderItemId);
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.FILED);
@@ -122,8 +116,8 @@ class LectureObjectionPortTest {
 
     @Test
     void 없는_항목에는_이의_제기할_수_없다() {
-        assertRefused(() -> lectureObjectionPort.fileObjection(999_999L, BUYER_ID, INQUIRY_ID, REASON),
-                Reason.NOT_BUYER);
+        assertRefused(() -> lectureObjectionFacade.fileObjection(999_999L, BUYER_ID, INQUIRY_ID, REASON),
+                LectureErrorCode.OBJECTION_NOT_BUYER);
     }
 
     @Test
@@ -132,8 +126,8 @@ class LectureObjectionPortTest {
                 List.of(saveOnSale("OBS 방송 세팅")), LocalDateTime.now(clock).minusDays(31)));
         Long orderItemId = expired.getItems().getFirst().getId();
 
-        assertRefused(() -> lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON),
-                Reason.PERIOD_EXPIRED);
+        assertRefused(() -> lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON),
+                LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
         assertThat(item(orderItemId).getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
     }
 
@@ -141,9 +135,9 @@ class LectureObjectionPortTest {
     void 인정하면_반환_처리_중이_되고_HP_작업_배치가_반환하면_반환이_된다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
-        lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
 
         // 판단 요청 안에서는 지갑을 부르지 않는다 (D70 (1))
         OrderItem accepted = item(orderItemId);
@@ -178,9 +172,9 @@ class LectureObjectionPortTest {
     void 기각하면_REJECTED로_저장되고_HP는_움직이지_않는다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
-        lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, false, ADMIN_ID);
+        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, false, ADMIN_ID);
 
         OrderItem item = item(orderItemId);
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.REJECTED);
@@ -193,8 +187,8 @@ class LectureObjectionPortTest {
     void 인정_반환액이_항목_가격과_다르면_반환_처리_중에_멈추고_관리자_확인이_필요하다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
-        lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
         billing.setSettledHp(PRICE_HP - 1_000L);
 
         lectureHpTaskBatchUseCase.runDue();
@@ -209,8 +203,8 @@ class LectureObjectionPortTest {
     void 지갑이_반환을_거부하면_반환_처리_중에_멈춘다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
-        lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
         billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.HOLD_NOT_FOUND,
                 "HP 보류를 찾을 수 없습니다.", 404, "HOLD_NOT_FOUND"));
 
@@ -225,11 +219,11 @@ class LectureObjectionPortTest {
     void 같은_판단을_두_번_호출하면_두_번째는_거부되고_HP는_한_번만_반환된다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
-        lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
 
-        assertRefused(() -> lectureObjectionPort.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID),
-                Reason.NOT_FILED);
+        assertRefused(() -> lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID),
+                LectureErrorCode.OBJECTION_NOT_FILED);
         lectureHpTaskBatchUseCase.runDue();
 
         assertThat(releases()).hasSize(1);
@@ -239,16 +233,16 @@ class LectureObjectionPortTest {
     void 없는_항목과_다른_문의로는_판단할_수_없다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
-        assertRefused(() -> lectureObjectionPort.resolveObjection(999_999L, INQUIRY_ID, true, ADMIN_ID),
-                Reason.NOT_FILED);
-        assertRefused(() -> lectureObjectionPort.resolveObjection(999_999L, INQUIRY_ID, false, ADMIN_ID),
-                Reason.NOT_FILED);
-        assertRefused(() -> lectureObjectionPort.resolveObjection(orderItemId, 501L, false, ADMIN_ID),
-                Reason.INQUIRY_MISMATCH);
-        assertRefused(() -> lectureObjectionPort.resolveObjection(orderItemId, 501L, true, ADMIN_ID),
-                Reason.INQUIRY_MISMATCH);
+        assertRefused(() -> lectureObjectionFacade.resolveObjection(999_999L, INQUIRY_ID, true, ADMIN_ID),
+                LectureErrorCode.OBJECTION_NOT_FILED);
+        assertRefused(() -> lectureObjectionFacade.resolveObjection(999_999L, INQUIRY_ID, false, ADMIN_ID),
+                LectureErrorCode.OBJECTION_NOT_FILED);
+        assertRefused(() -> lectureObjectionFacade.resolveObjection(orderItemId, 501L, false, ADMIN_ID),
+                LectureErrorCode.OBJECTION_INQUIRY_MISMATCH);
+        assertRefused(() -> lectureObjectionFacade.resolveObjection(orderItemId, 501L, true, ADMIN_ID),
+                LectureErrorCode.OBJECTION_INQUIRY_MISMATCH);
         assertFiledAndPurchased(orderItemId);
     }
 
@@ -258,7 +252,7 @@ class LectureObjectionPortTest {
         Long orderItemId = order.items().getFirst().orderItemId();
 
         assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+            lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
             throw new IllegalStateException("고객센터 문의 저장 실패");
         })).isInstanceOf(IllegalStateException.class);
 
@@ -272,10 +266,10 @@ class LectureObjectionPortTest {
         Long secondItemId = order.items().getLast().orderItemId();
 
         assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            lectureObjectionPort.fileObjection(firstItemId, BUYER_ID, INQUIRY_ID, REASON);
+            lectureObjectionFacade.fileObjection(firstItemId, BUYER_ID, INQUIRY_ID, REASON);
             try {
-                lectureObjectionPort.fileObjection(secondItemId, 4L, 501L, REASON);
-            } catch (LectureObjectionRefusedException ignored) {
+                lectureObjectionFacade.fileObjection(secondItemId, 4L, 501L, REASON);
+            } catch (LectureException ignored) {
                 // 계약 위반: 다시 던지지 않는다
             }
         })).isInstanceOf(UnexpectedRollbackException.class);
@@ -288,8 +282,8 @@ class LectureObjectionPortTest {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         List<Long> itemIds = order.items().stream().map(OrderItemResponse::orderItemId).toList();
         for (Long itemId : itemIds) {
-            lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID + itemId, REASON);
-            lectureObjectionPort.resolveObjection(itemId, INQUIRY_ID + itemId, true, ADMIN_ID);
+            lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID + itemId, REASON);
+            lectureObjectionFacade.resolveObjection(itemId, INQUIRY_ID + itemId, true, ADMIN_ID);
         }
         // 두 반환이 모두 지갑 호출에 들어갈 때까지 기다리게 해, 결과 기록이 주문을 잠그지 않으면 서로의 반환을 보지 못하게 한다
         CyclicBarrier bothReleasing = new CyclicBarrier(2);
@@ -316,9 +310,9 @@ class LectureObjectionPortTest {
     void 철회하면_NONE으로_저장되고_구매_취소하면_보류_HP를_반환한다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
-        lectureObjectionPort.withdrawObjection(orderItemId, BUYER_ID, INQUIRY_ID);
+        lectureObjectionFacade.withdrawObjection(orderItemId, BUYER_ID, INQUIRY_ID);
 
         OrderItem item = item(orderItemId);
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
@@ -336,18 +330,18 @@ class LectureObjectionPortTest {
 
     @Test
     void 없는_항목은_철회할_수_없다() {
-        assertRefused(() -> lectureObjectionPort.withdrawObjection(999_999L, BUYER_ID, INQUIRY_ID),
-                Reason.NOT_BUYER);
+        assertRefused(() -> lectureObjectionFacade.withdrawObjection(999_999L, BUYER_ID, INQUIRY_ID),
+                LectureErrorCode.OBJECTION_NOT_BUYER);
     }
 
     @Test
     void 호출한_쪽_트랜잭션이_롤백되면_철회도_롤백된다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionPort.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
         assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            lectureObjectionPort.withdrawObjection(orderItemId, BUYER_ID, INQUIRY_ID);
+            lectureObjectionFacade.withdrawObjection(orderItemId, BUYER_ID, INQUIRY_ID);
             throw new IllegalStateException("고객센터 문의 삭제 실패");
         })).isInstanceOf(IllegalStateException.class);
 
@@ -394,9 +388,9 @@ class LectureObjectionPortTest {
         }
     }
 
-    private static void assertRefused(Runnable action, Reason reason) {
+    private static void assertRefused(Runnable action, LectureErrorCode errorCode) {
         assertThatThrownBy(action::run)
-                .isInstanceOf(LectureObjectionRefusedException.class)
-                .extracting("reason").isEqualTo(reason);
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(errorCode);
     }
 }

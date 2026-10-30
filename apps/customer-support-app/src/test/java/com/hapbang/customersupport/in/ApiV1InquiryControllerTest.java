@@ -1,7 +1,5 @@
 package com.hapbang.customersupport.in;
 
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -10,7 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -20,9 +17,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.customersupport.app.InquiryUseCase;
+import com.hapbang.customersupport.domain.Inquiry;
 import com.hapbang.customersupport.domain.InquiryCategory;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
-import com.hapbang.shared.lecture.port.LectureObjectionPort;
+import com.hapbang.customersupport.out.InquiryRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
@@ -44,12 +41,7 @@ class ApiV1InquiryControllerTest {
     InquiryUseCase inquiryUseCase;
 
     @Autowired
-    LectureObjectionPort lectureObjectionPort;
-
-    @BeforeEach
-    void resetLectureObjectionPort() {
-        reset(lectureObjectionPort);
-    }
+    InquiryRepository inquiryRepository;
 
     @ParameterizedTest
     @EnumSource(value = Role.class, names = {"USER", "INFLUENCER", "VERIFIED_INFLUENCER"})
@@ -388,16 +380,14 @@ class ApiV1InquiryControllerTest {
     }
 
     @Test
-    void 이의_제기를_접수하면_201_대상이_응답에_담긴다() throws Exception {
+    void 이의_제기는_강의_연동_전까지_503() throws Exception {
         mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"category": "LECTURE_CONTENT_DISPUTE", "title": "내용이 달라요", "content": "커리큘럼과 달라요.",
                                  "orderItemId": 100}"""))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.targetType").value("LECTURE_ORDER_ITEM"))
-                .andExpect(jsonPath("$.data.targetId").value(100))
-                .andExpect(jsonPath("$.data.objectionResult").doesNotExist());
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("OBJECTION_UNAVAILABLE"));
     }
 
     @Test
@@ -411,43 +401,21 @@ class ApiV1InquiryControllerTest {
     }
 
     @Test
-    void 강의_모듈이_이의_제기를_거절하면_사유_코드로_응답한다() throws Exception {
-        doThrow(new LectureObjectionRefusedException(LectureObjectionRefusedException.Reason.PERIOD_EXPIRED))
-                .when(lectureObjectionPort).fileObjection(any(), any(), any(), any());
-
-        mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"category": "LECTURE_CONTENT_DISPUTE", "title": "내용이 달라요", "content": "달라요.",
-                                 "orderItemId": 100}"""))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("OBJECTION_PERIOD_EXPIRED"))
-                .andExpect(jsonPath("$.detail").value(
-                        LectureObjectionRefusedException.Reason.PERIOD_EXPIRED.getMessage()));
-    }
-
-    @Test
-    void 관리자가_이의_제기를_판단하면_200_판단과_답변이_담긴다() throws Exception {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.LECTURE_CONTENT_DISPUTE, "내용이 달라요",
-                "달라요.", 100L).getId();
+    void 이의_제기_판단은_강의_연동_전까지_503() throws Exception {
+        Long inquiryId = saveDispute();
 
         mockMvc.perform(post("/api/v1/inquiries/admin/{id}/objection-resolution", inquiryId)
                         .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"accepted": true, "content": "확인 결과 반환합니다."}"""))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("이의 제기를 판단했습니다."))
-                .andExpect(jsonPath("$.data.objectionResult").value("ACCEPTED"))
-                .andExpect(jsonPath("$.data.objectionResolvedAt").isNotEmpty())
-                .andExpect(jsonPath("$.data.status").value("ANSWERED"))
-                .andExpect(jsonPath("$.data.replies[0].content").value("확인 결과 반환합니다."));
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("OBJECTION_UNAVAILABLE"));
     }
 
     @Test
     void 이의_제기_판단에_인정_여부가_없으면_400() throws Exception {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.LECTURE_CONTENT_DISPUTE, "내용이 달라요",
-                "달라요.", 100L).getId();
+        Long inquiryId = saveDispute();
 
         mockMvc.perform(post("/api/v1/inquiries/admin/{id}/objection-resolution", inquiryId)
                         .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
@@ -461,8 +429,7 @@ class ApiV1InquiryControllerTest {
     @ParameterizedTest
     @EnumSource(value = Role.class, names = {"USER", "INFLUENCER", "VERIFIED_INFLUENCER"})
     void 관리자가_아니면_이의_제기를_판단할_수_없다_403(Role role) throws Exception {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.LECTURE_CONTENT_DISPUTE, "내용이 달라요",
-                "달라요.", 100L).getId();
+        Long inquiryId = saveDispute();
 
         mockMvc.perform(post("/api/v1/inquiries/admin/{id}/objection-resolution", inquiryId)
                         .with(TestLogin.as(USER_ID, role)).with(csrf())
@@ -473,24 +440,16 @@ class ApiV1InquiryControllerTest {
     }
 
     @Test
-    void 이의_제기_문의를_삭제하면_204_이의_제기를_철회한다() throws Exception {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.LECTURE_CONTENT_DISPUTE, "내용이 달라요",
-                "달라요.", 100L).getId();
+    void 이의_제기_문의_삭제는_강의_연동_전까지_503() throws Exception {
+        Long inquiryId = saveDispute();
 
         mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
-                .andExpect(status().isNoContent());
-        verify(lectureObjectionPort).withdrawObjection(100L, USER_ID, inquiryId);
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("OBJECTION_UNAVAILABLE"));
     }
 
-    @Test
-    void 강의_모듈이_철회를_거절하면_사유_코드로_응답한다() throws Exception {
-        Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.LECTURE_CONTENT_DISPUTE, "내용이 달라요",
-                "달라요.", 100L).getId();
-        doThrow(new LectureObjectionRefusedException(LectureObjectionRefusedException.Reason.INQUIRY_MISMATCH))
-                .when(lectureObjectionPort).withdrawObjection(any(), any(), any());
-
-        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("OBJECTION_INQUIRY_MISMATCH"));
+    /** 강의 연동 전 접수된 이의 제기 문의. API로는 더 만들 수 없어 저장소에 직접 넣는다 */
+    private Long saveDispute() {
+        return inquiryRepository.save(Inquiry.createLectureDispute(USER_ID, "내용이 달라요", "달라요.", 100L)).getId();
     }
 }

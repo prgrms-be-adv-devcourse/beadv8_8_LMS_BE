@@ -26,6 +26,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.domain.LectureErrorCode;
+import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
@@ -36,13 +38,10 @@ import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.shared.billing.dto.PayoutCommand;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
-import com.hapbang.shared.lecture.port.LectureObjectionPort;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 이의 제기(#156)와 지급 배치. 실제 이의 제기 포트로 접수·판단한 항목이 지급 대상에서 빠지거나 다시 들어오는지 확인한다.
+ * 이의 제기(#156)와 지급 배치. 실제 이의 제기 Facade로 접수·판단한 항목이 지급 대상에서 빠지거나 다시 들어오는지 확인한다.
  * <p>
  * 접수와 지급 배치의 경쟁 (설계 6.2 "지급 배치와 경쟁", 10장). 둘 다 항목 행을 바꾸므로 {@code order_item.version}
  * 낙관적 락으로 직렬화된다. 접수가 먼저면 지급 대상에서 빠지고, 지급이 먼저면 접수가 {@code ALREADY_PAID_OUT}으로 거부된다.
@@ -61,7 +60,7 @@ class OrderPayoutObjectionTest {
     private OrderPayoutUseCase orderPayoutUseCase;
 
     @Autowired
-    private LectureObjectionPort lectureObjectionPort;
+    private LectureObjectionFacade lectureObjectionFacade;
 
     @Autowired
     private LectureOrderRepository lectureOrderRepository;
@@ -109,10 +108,10 @@ class OrderPayoutObjectionTest {
     void 기각된_항목은_지급_시각이_지나면_지급하고_인정된_항목은_지급하지_않는다() {
         Long rejected = itemId(saveConfirmed(now().minusDays(20)));
         Long accepted = itemId(saveConfirmed(now().minusDays(20)));
-        lectureObjectionPort.fileObjection(rejected, BUYER_ID, INQUIRY_ID, REASON);
-        lectureObjectionPort.fileObjection(accepted, BUYER_ID, INQUIRY_ID + 1, REASON);
-        lectureObjectionPort.resolveObjection(rejected, INQUIRY_ID, false, ADMIN_ID);
-        lectureObjectionPort.resolveObjection(accepted, INQUIRY_ID + 1, true, ADMIN_ID);
+        lectureObjectionFacade.fileObjection(rejected, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.fileObjection(accepted, BUYER_ID, INQUIRY_ID + 1, REASON);
+        lectureObjectionFacade.resolveObjection(rejected, INQUIRY_ID, false, ADMIN_ID);
+        lectureObjectionFacade.resolveObjection(accepted, INQUIRY_ID + 1, true, ADMIN_ID);
         // 판단 뒤 지급 예정 시각이 지났다
         jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = ? where id in (?, ?)",
                 now().minusDays(1), rejected, accepted);
@@ -130,7 +129,7 @@ class OrderPayoutObjectionTest {
     @Test
     void 접수가_먼저_커밋되면_지급_시각이_지나도_지급하지_않는다() {
         Long itemId = itemId(saveConfirmed(now().minusDays(20)));
-        lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON);
         // 접수 뒤 지급 예정 시각이 지났다
         jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = ? where id = ?",
                 now().minusDays(1), itemId);
@@ -145,14 +144,14 @@ class OrderPayoutObjectionTest {
     @Test
     void 철회한_항목은_지급_예정_시각이_지났으면_다음_지급_배치에서_지급한다() {
         Long itemId = itemId(saveConfirmed(now().minusDays(20)));
-        lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON);
+        lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON);
         // 접수 중에 지급 예정 시각이 지나 지급 배치가 건너뛴다
         jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = ? where id = ?",
                 now().minusDays(1), itemId);
         orderPayoutUseCase.payOutDueItems();
         assertThat(lectureHpTaskRepository.count()).isZero();
 
-        lectureObjectionPort.withdrawObjection(itemId, BUYER_ID, INQUIRY_ID);
+        lectureObjectionFacade.withdrawObjection(itemId, BUYER_ID, INQUIRY_ID);
         orderPayoutUseCase.payOutDueItems();
         lectureHpTaskBatchUseCase.runDue();
 
@@ -167,11 +166,11 @@ class OrderPayoutObjectionTest {
         orderPayoutUseCase.payOutDueItems();
 
         // 지급 처리 중은 지급 예정 시각이 지난 뒤라 기한이 지났다. 지급 작업이 멈춰도 기한은 다시 열리지 않는다 (D59 (6))
-        assertRefused(() -> lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
-                Reason.PERIOD_EXPIRED);
+        assertRefused(() -> lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
+                LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
         lectureHpTaskBatchUseCase.runDue();
-        assertRefused(() -> lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
-                Reason.ALREADY_PAID_OUT);
+        assertRefused(() -> lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
+                LectureErrorCode.OBJECTION_ALREADY_PAID_OUT);
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.PAID_OUT, ObjectionStatus.NONE);
     }
@@ -221,8 +220,8 @@ class OrderPayoutObjectionTest {
 
         assertThatThrownBy(() -> filing.get(10, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(ObjectOptimisticLockingFailureException.class);
-        assertRefused(() -> lectureObjectionPort.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
-                Reason.PERIOD_EXPIRED);
+        assertRefused(() -> lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
+                LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
         lectureHpTaskBatchUseCase.runDue();
         assertThat(payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
@@ -251,10 +250,10 @@ class OrderPayoutObjectionTest {
         }
     }
 
-    private static void assertRefused(Runnable action, Reason reason) {
+    private static void assertRefused(Runnable action, LectureErrorCode errorCode) {
         assertThatThrownBy(action::run)
-                .isInstanceOfSatisfying(LectureObjectionRefusedException.class,
-                        exception -> assertThat(exception.getReason()).isEqualTo(reason));
+                .isInstanceOfSatisfying(LectureException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(errorCode));
     }
 
     private LocalDateTime now() {
