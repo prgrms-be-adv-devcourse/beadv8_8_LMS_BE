@@ -27,7 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class AppearanceNotificationRepublishUseCase {
+public class AppearanceEventRepublishUseCase {
 
     private final IncompleteEventPublications incompleteEventPublications;
     private final AppearanceBatchProperties batchProperties;

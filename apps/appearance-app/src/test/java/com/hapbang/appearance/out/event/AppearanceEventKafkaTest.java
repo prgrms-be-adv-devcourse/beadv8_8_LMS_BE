@@ -1,9 +1,9 @@
 package com.hapbang.appearance.out.event;
 
-import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.APPLICATION_SUBMITTED;
-import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.EVENT_TYPE;
-import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.EVENT_VERSION;
-import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.REQUEST_SENT;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.APPLICATION_SUBMITTED;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_TYPE;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_VERSION;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.REQUEST_SENT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,7 +43,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.appearance.app.AppearanceApplicationFacade;
-import com.hapbang.appearance.app.AppearanceNotificationRepublishUseCase;
+import com.hapbang.appearance.app.AppearanceEventRepublishUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitFacade;
 import com.hapbang.appearance.app.AppearanceRequestFacade;
 import com.hapbang.appearance.app.AppearanceUserFacade;
@@ -84,7 +84,7 @@ import tools.jackson.databind.json.JsonMapper;
 })
 @WithMockUser(roles = "INFLUENCER")
 @DirtiesContext
-class AppearanceNotificationKafkaTest {
+class AppearanceEventKafkaTest {
 
     private static final Long HOST = 1L;
     private static final Long GUEST = 2L;
@@ -115,7 +115,7 @@ class AppearanceNotificationKafkaTest {
     TransactionTemplate transactionTemplate;
 
     @Autowired
-    AppearanceNotificationRepublishUseCase appearanceNotificationRepublishUseCase;
+    AppearanceEventRepublishUseCase appearanceEventRepublishUseCase;
 
     @Autowired
     JsonMapper jsonMapper;
@@ -162,7 +162,7 @@ class AppearanceNotificationKafkaTest {
     @DisplayName("토픽은 앱이 뜰 때 partition 3개로 선언한다")
     void topicDeclared() {
         assertThat(kafkaAdmin.describeTopics(AppearanceEventTopic.NAME).get(AppearanceEventTopic.NAME).partitions())
-                .hasSize(AppearanceNotificationExternalizationConfig.PARTITIONS);
+                .hasSize(AppearanceEventExternalizationConfig.PARTITIONS);
     }
 
     @Test
@@ -233,7 +233,7 @@ class AppearanceNotificationKafkaTest {
 
         // 대기 시간(1분)이 지난 미완료 기록을 재발행 배치가 다시 보낸다
         clock.advance(Duration.ofMinutes(2));
-        assertThat(appearanceNotificationRepublishUseCase.republishDue()).isEqualTo(1);
+        assertThat(appearanceEventRepublishUseCase.republishDue()).isEqualTo(1);
         List<ConsumerRecord<String, String>> records = awaitRecords(key, 2);
 
         // 받는 쪽은 (eventType, 요청서 ID)로 두 번째를 거른다

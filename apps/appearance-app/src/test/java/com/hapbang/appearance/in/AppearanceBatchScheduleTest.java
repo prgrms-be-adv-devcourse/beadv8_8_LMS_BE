@@ -33,7 +33,7 @@ import org.springframework.scheduling.support.CronExpression;
 import com.hapbang.appearance.app.AppearanceAutoConfirmUseCase;
 import com.hapbang.appearance.app.AppearanceCancelAutoRejectUseCase;
 import com.hapbang.appearance.app.AppearanceHoldRecheckUseCase;
-import com.hapbang.appearance.app.AppearanceNotificationRepublishUseCase;
+import com.hapbang.appearance.app.AppearanceEventRepublishUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitDeadlineCloseUseCase;
 import com.hapbang.appearance.app.AppearanceRequestExpireUseCase;
 import com.hapbang.appearance.app.HpTaskRetryUseCase;
@@ -51,7 +51,7 @@ class AppearanceBatchScheduleTest {
 
     static {
         SCHEDULES.put("recheckHolds", new Schedule("hold-recheck-cron", 0));
-        SCHEDULES.put("republishNotifications", new Schedule("notification-republish-cron", 5));
+        SCHEDULES.put("republishEvents", new Schedule("event-republish-cron", 5));
         SCHEDULES.put("closeRecruits", new Schedule("recruit-close-cron", 10));
         SCHEDULES.put("expireRequests", new Schedule("expire-cron", 20));
         SCHEDULES.put("autoRejectCancelRequests", new Schedule("cancel-auto-reject-cron", 30));
@@ -65,7 +65,7 @@ class AppearanceBatchScheduleTest {
     private final AppearanceCancelAutoRejectUseCase cancelAutoReject = mock(AppearanceCancelAutoRejectUseCase.class);
     private final HpTaskRetryUseCase hpTaskRetry = mock(HpTaskRetryUseCase.class);
     private final AppearanceAutoConfirmUseCase autoConfirm = mock(AppearanceAutoConfirmUseCase.class);
-    private final AppearanceNotificationRepublishUseCase notificationRepublish = mock(AppearanceNotificationRepublishUseCase.class);
+    private final AppearanceEventRepublishUseCase eventRepublish = mock(AppearanceEventRepublishUseCase.class);
 
     /** 앱처럼 appearance.yml을 읽고 스위치를 켠 컨텍스트 (UseCase는 대역) */
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -81,7 +81,7 @@ class AppearanceBatchScheduleTest {
             .withBean(AppearanceCancelAutoRejectUseCase.class, () -> cancelAutoReject)
             .withBean(HpTaskRetryUseCase.class, () -> hpTaskRetry)
             .withBean(AppearanceAutoConfirmUseCase.class, () -> autoConfirm)
-            .withBean(AppearanceNotificationRepublishUseCase.class, () -> notificationRepublish)
+            .withBean(AppearanceEventRepublishUseCase.class, () -> eventRepublish)
             .withUserConfiguration(AppearanceBatch.class);
 
     private static Iterable<PropertySource<?>> loadAppearanceYaml() {
@@ -157,7 +157,7 @@ class AppearanceBatchScheduleTest {
             AppearanceBatch batch = context.getBean(AppearanceBatch.class);
 
             batch.recheckHolds();
-            batch.republishNotifications();
+            batch.republishEvents();
             batch.closeRecruits();
             batch.expireRequests();
             batch.autoRejectCancelRequests();
@@ -165,7 +165,7 @@ class AppearanceBatchScheduleTest {
             batch.autoConfirmAppearances();
 
             verify(holdRecheck).recheckDue();
-            verify(notificationRepublish).republishDue();
+            verify(eventRepublish).republishDue();
             verify(recruitClose).closeDue();
             verify(expire).expireDue();
             verify(cancelAutoReject).rejectDue();

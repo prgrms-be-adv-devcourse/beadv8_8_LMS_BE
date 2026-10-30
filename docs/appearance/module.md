@@ -162,7 +162,7 @@ com.hapbang.appearance
 | `app.HpTaskExecuteUseCase` | HP 작업 1회 실행: Billing 호출(트랜잭션 밖) → 성공 `DONE` / Billing 거절 `DEAD` / 그 밖 실패는 재시도 정책대로 (`TransactionTemplate`) |
 | `in.AppearanceBatch` | 배치 주기 정의(`@ConditionalOnSchedulingEnabled`). UseCase를 직접 호출 (#187) |
 | `app.AppearanceHoldRecheckUseCase`, `AppearanceRequestExpireUseCase`, `HpTaskRetryUseCase` | 보류 재확인 / 수락 기한 만료 / HP 작업 재시도 (#187) |
-| `app.AppearanceNotificationRepublishUseCase`, `AppearanceExternalEvents` | Kafka로 못 보낸 알림 이벤트 재발행 배치 / Kafka로 내보내는 이벤트 판단(외부화 설정과 재발행 배치가 같이 씀) (#393, 11.3) |
+| `app.AppearanceEventRepublishUseCase`, `AppearanceExternalEvents` | Kafka로 못 보낸 알림 이벤트 재발행 배치 / Kafka로 내보내는 이벤트 판단(외부화 설정과 재발행 배치가 같이 씀) (#393, 11.3) |
 | `app.HpTaskMetrics` | HP 작업 지표(Micrometer) 등록·갱신 (#187) |
 | `domain.HpTaskRetryPolicy`, `config.AppearanceBatchProperties` | 재시도 정책(지수 백오프+지터) / 배치 설정 바인딩 (#187) |
 | `app.AppearanceSupport`, `HpTaskSupport` | 출연·HP 작업 저장소 접근 |
@@ -543,7 +543,7 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 ```
 in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
   ├ 00초 AppearanceHoldRecheckUseCase.recheckDue()   보류 처리 중 요청서·모집글 재확인
-  ├ 05초 AppearanceNotificationRepublishUseCase.republishDue()  Kafka로 못 보낸 알림 이벤트 재발행 (#393, 11.3)
+  ├ 05초 AppearanceEventRepublishUseCase.republishDue()  Kafka로 못 보낸 알림 이벤트 재발행 (#393, 11.3)
   ├ 10초 AppearanceRecruitDeadlineCloseUseCase.closeDue()  모집 기한 마감 + 미달분 반환 (#222, 10장)
   ├ 20초 AppearanceRequestExpireUseCase.expireDue()  수락 기한 만료 + 반환
   ├ 30초 AppearanceCancelAutoRejectUseCase.rejectDue()  출연 취소 요청 자동 거절 (#231, 12장)
@@ -756,12 +756,12 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | key | 이벤트가 다루는 대상 ID에 종류 접두어: 요청 도착 `appearance-request:<요청서 ID>`, 지원 도착 `appearance-application:<지원 ID>`. shared 레코드의 `@Externalized("appearance.events.v1::#{…}")`로 정한다. 같은 key는 같은 partition으로 가지만, 커밋 뒤 비동기로 보내므로 순서는 보장하지 않는다 |
 | 본문 | shared 이벤트 레코드를 그대로 JSON으로 싣는다(봉투 없음). 예: `{"request":{"requestId":1,"hostId":1,"guestId":2,"title":"…","fee":30000,"scheduledAt":"2026-11-05T17:54:44","acceptDeadline":"2026-10-31T17:54:44"}}`. 시각은 KST `LocalDateTime` |
 | 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). Spring Kafka JSON 변환기가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
-| 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceNotificationRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
-| 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose에 Kafka가 없어 외부화를 끈다(`SPRING_MODULITH_EVENTS_EXTERNALIZATION_ENABLED=true`로 켬). 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceNotificationKafkaTest`만 Testcontainers Kafka로 켠다 |
+| 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
+| 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose에 Kafka가 없어 외부화를 끈다(`SPRING_MODULITH_EVENTS_EXTERNALIZATION_ENABLED=true`로 켬). 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
 | 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification` (kafka.md 토픽 목록) |
 
 - 같은 버전 안에서는 선택 필드 추가만 한다. 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(kafka.md 이벤트 버전).
-- 내보낼 이벤트를 더하려면 shared 레코드에 `@Externalized`를 붙이고 `out/event/AppearanceNotificationExternalizationConfig`에 `eventType` 헤더를 더한다. 받는 앱을 먼저 배포한다(ADR 0001).
+- 내보낼 이벤트를 더하려면 shared 레코드에 `@Externalized`를 붙이고 `out/event/AppearanceEventExternalizationConfig`에 `eventType` 헤더를 더한다. 받는 앱을 먼저 배포한다(ADR 0001).
 - 같은 JVM 안의 리스너(11.2)는 그대로 받는다. Kafka는 다른 앱으로 보내는 통로다.
 
 ---

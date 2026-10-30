@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 import com.hapbang.appearance.app.AppearanceAutoConfirmUseCase;
 import com.hapbang.appearance.app.AppearanceCancelAutoRejectUseCase;
 import com.hapbang.appearance.app.AppearanceHoldRecheckUseCase;
-import com.hapbang.appearance.app.AppearanceNotificationRepublishUseCase;
+import com.hapbang.appearance.app.AppearanceEventRepublishUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitDeadlineCloseUseCase;
 import com.hapbang.appearance.app.AppearanceRequestExpireUseCase;
 import com.hapbang.appearance.app.HpTaskRetryUseCase;
@@ -36,16 +36,16 @@ class AppearanceBatch {
     private final AppearanceCancelAutoRejectUseCase appearanceCancelAutoRejectUseCase;
     private final HpTaskRetryUseCase hpTaskRetryUseCase;
     private final AppearanceAutoConfirmUseCase appearanceAutoConfirmUseCase;
-    private final AppearanceNotificationRepublishUseCase appearanceNotificationRepublishUseCase;
+    private final AppearanceEventRepublishUseCase appearanceEventRepublishUseCase;
 
     @Scheduled(cron = "${appearance.batch.hold-recheck-cron:0 * * * * *}", zone = "Asia/Seoul")
     void recheckHolds() {
         appearanceHoldRecheckUseCase.recheckDue();
     }
 
-    @Scheduled(cron = "${appearance.batch.notification-republish-cron:5 * * * * *}", zone = "Asia/Seoul")
-    void republishNotifications() {
-        appearanceNotificationRepublishUseCase.republishDue();
+    @Scheduled(cron = "${appearance.batch.event-republish-cron:5 * * * * *}", zone = "Asia/Seoul")
+    void republishEvents() {
+        appearanceEventRepublishUseCase.republishDue();
     }
 
     @Scheduled(cron = "${appearance.batch.recruit-close-cron:10 * * * * *}", zone = "Asia/Seoul")

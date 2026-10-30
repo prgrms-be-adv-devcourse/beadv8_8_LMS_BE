@@ -21,7 +21,7 @@ import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
  *     토픽({@value AppearanceEventTopic#NAME})과 key는 레코드의 {@code @Externalized}가 정하고, 이 설정은 헤더만 더한다.</li>
  *     <li>발행 코드는 그대로다. 업무 트랜잭션 안에서 발행한 이벤트가 Modulith 발행 기록({@code event_publication})에 남고,
  *     커밋 뒤에 Kafka로 보낸다. 롤백되면 보내지 않고, 보내기에 실패하면 기록이 남아 재발행 배치
- *     ({@code AppearanceNotificationRepublishUseCase})와 서버 재시작 때 다시 보낸다.</li>
+ *     ({@code AppearanceEventRepublishUseCase})와 서버 재시작 때 다시 보낸다.</li>
  *     <li>본문은 shared 이벤트 레코드를 그대로 JSON으로 싣는다. 헤더는 {@value #EVENT_TYPE}·{@value #EVENT_VERSION} 두 개다.
  *     이벤트 ID는 두지 않고, 받는 쪽은 {@code (eventType, 대상 ID)}로 중복을 거른다.</li>
  *     <li>토픽은 출연 앱이 선언한다(브로커 자동 생성은 꺼져 있음). 외부화를 끈 로컬·테스트에서는 선언하지 않아 Kafka에 연결하지 않는다.</li>
@@ -29,7 +29,7 @@ import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
  * 내보낼 이벤트를 더하면 shared 레코드에 {@code @Externalized}를 붙이고, 여기에 {@value #EVENT_TYPE} 헤더를 더한다.
  */
 @Configuration(proxyBeanMethods = false)
-public class AppearanceNotificationExternalizationConfig {
+public class AppearanceEventExternalizationConfig {
 
     public static final String EVENT_TYPE = "eventType";
     public static final String EVENT_VERSION = "eventVersion";

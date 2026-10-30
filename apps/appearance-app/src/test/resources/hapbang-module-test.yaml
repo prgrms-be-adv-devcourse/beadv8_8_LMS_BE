@@ -7,6 +7,6 @@ spring:
   modulith:
     events:
       # 알림 이벤트의 Kafka 외부화(#393)는 끈다. Kafka 브로커가 없는 테스트에서 보내기를 시도하지 않게 한다.
-      # Kafka 발행은 AppearanceNotificationKafkaTest가 Testcontainers Kafka와 함께 켜서 확인한다
+      # Kafka 발행은 AppearanceEventKafkaTest가 Testcontainers Kafka와 함께 켜서 확인한다
       externalization:
         enabled: false
