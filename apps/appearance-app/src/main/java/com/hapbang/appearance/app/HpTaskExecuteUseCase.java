@@ -2,6 +2,7 @@ package com.hapbang.appearance.app;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 
@@ -37,7 +38,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <ul>
  *         <li>{@code Succeeded} (같은 요청을 다시 보냈으면 처음 결과) → {@code DONE}</li>
  *         <li>{@code Failed} (지갑이 처리하지 않고 실패로 응답함) → 바로 {@code DEAD}. 다시 보내도 결과가 같으므로 지갑 코드·설명을
- *         마지막 오류로 기록한다 (목록 밖 코드·멱등 충돌도 같다. 원래 코드와 HTTP 상태를 함께 남긴다)</li>
+         *         마지막 오류로 기록한다 (목록 밖 코드·멱등 충돌도 같다. 원래 코드와 HTTP 상태를 함께 남긴다).
+ *         단 목록 밖 코드 중 401·403·404는 내부 API 키 교체·경로 오류 같은 연동 장애라 고치면 같은 요청이 성공하므로,
+ *         바로 격리하지 않고 아래 재시도와 같게 다룬다 (장애 동안 작업이 모두 격리돼 관리자가 한 건씩 다시 시도하는 일을 막는다)</li>
  *         <li>결과를 받지 못함({@code BillingCallException}: 결과 불명·보내지 못함) → 재시도 정책에 따라 다음 시도 시각을 정하고,
  *         최대 횟수에 닿으면 {@code DEAD}. 지갑 호출 전후의 예상하지 못한 예외도 같은 요청 ID로 다시 보내면 되므로 같게 다룬다</li>
  *     </ul></li>
@@ -54,6 +57,9 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @RequiredArgsConstructor
 public class HpTaskExecuteUseCase {
+
+    /** 목록 밖 코드 중 연동 장애로 보고 재시도하는 HTTP 상태 (인증 실패·권한 없음·경로 없음) */
+    private static final Set<Integer> INTEGRATION_FAULT_STATUSES = Set.of(401, 403, 404);
 
     private final HpTaskSupport hpTaskSupport;
     private final BillingClient billingClient;
@@ -96,6 +102,11 @@ public class HpTaskExecuteUseCase {
                 log.debug("HP 작업 지갑 처리 taskId={}, result={}", taskId, succeeded.value());
                 record(taskId, pending -> pending.markDone(LocalDateTime.now(clock)));
             }
+            case BillingCallResult.Failed<?> failed when isIntegrationFault(failed) -> {
+                log.error("HP 작업 지갑 연동 장애(목록 밖 코드), 재시도 정책에 따라 다시 실행한다 taskId={}, key={}, error={}",
+                        taskId, task.getIdempotencyKey(), describe(failed));
+                retryLater(taskId, describe(failed));
+            }
             // 지갑이 처리하지 않고 실패로 응답함: 다시 보내도 결과가 같으므로 바로 격리한다 ([HP_TASK_DEAD] 오류 로그)
             case BillingCallResult.Failed<?> failed ->
                     record(taskId, pending -> pending.markDead(describe(failed), LocalDateTime.now(clock)));
@@ -117,6 +128,10 @@ public class HpTaskExecuteUseCase {
             case PENALTY -> billingClient.settlePenalty(toPenaltyCommand(task));
             case PAYOUT -> billingClient.payout(toPayoutCommand(task));
         };
+    }
+
+    private static boolean isIntegrationFault(BillingCallResult.Failed<?> failed) {
+        return failed.code() == BillingFailureCode.UNMAPPED && INTEGRATION_FAULT_STATUSES.contains(failed.httpStatus());
     }
 
     /**

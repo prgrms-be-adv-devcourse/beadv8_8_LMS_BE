@@ -289,7 +289,7 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 
 - 왜 이 방식인가: Modulith 이벤트 재실행은 시도 횟수·격리를 업무 기준으로 관리하기 어렵고, 요청서에 상태 컬럼을 두면 Billing 호출이 생기는 테이블마다 같은 컬럼·재시도 로직이 반복된다. HP 작업 테이블 하나로 반환·지급·정산을 같은 방식으로 처리한다.
 - 멱등 키(= Billing 반환 요청 ID)가 같아 여러 번 실행해도 HP가 두 번 움직이지 않는다 (같은 키로 작업을 두 번 기록하는 것도 DB가 막음).
-- 실패 기록(`last_error`): Billing이 거절하면 `{Billing 오류 코드}: {메시지}`(바로 `DEAD`), 결과를 알 수 없으면 `{예외 종류}: {메시지}`(재시도). 8.4 참고.
+- 실패 기록(`last_error`): 지갑이 거절하면 `{지갑 오류 코드}: {설명}`(바로 `DEAD`), 결과를 받지 못하면 `{UNKNOWN_RESULT|RETRYABLE} [{HTTP 상태}] [{지갑 코드}]: {메시지}`(재시도). 8.4 참고.
 
 ---
 
@@ -440,8 +440,8 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
        → 진행 중 요청 확인 → HOLD_PENDING 저장 (부분 유니크 인덱스 위반이면 DUPLICATE)
   ② HoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold (보류 키는 Billing이 요청서로 만듦)
        ├─ 보류 성공                    → ③ HoldUseCase.markRequested [트랜잭션 2] → REQUESTED, 201
-       ├─ Billing 거절 (업무 예외)      → HOLD_FAILED 기록 [트랜잭션 2] → Billing 오류 그대로 (예: 409 INSUFFICIENT_BALANCE)
-       └─ 결과를 알 수 없음 (그 밖 예외) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE
+       ├─ 지갑 거절 (Failed)            → HOLD_FAILED 기록 [트랜잭션 2] → 잔액 부족 409 INSUFFICIENT_BALANCE, 그 밖 500 HP_HOLD_FAILED
+       └─ 결과를 받지 못함 (BillingCallException) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE
 ```
 
 - 저장을 먼저 커밋하는 이유: Billing을 기다리는 동안 DB 트랜잭션을 잡지 않고, 보류 결과와 관계없이 요청서 기록이 남게 하기 위해서다.
@@ -513,8 +513,8 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
        호스트 자격 → 값 검증(형식, 최저 출연료, 모집 인원 1~10, 현재 < 모집 마감 < 방송 예정 일시) → HOLD_PENDING 저장
   ② RecruitHoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold(APPEARANCE_RECRUIT, 모집글 ID, 1인당 출연료 × 모집 인원)
        ├─ 보류 성공                    → ③ markRecruiting [트랜잭션 2] → RECRUITING, 201
-       ├─ Billing 거절 (업무 예외)      → HOLD_FAILED 기록 → Billing 오류 그대로 (예: 409 INSUFFICIENT_BALANCE)
-       └─ 결과를 알 수 없음 (그 밖 예외) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE ("내 모집글 목록에서 확인")
+       ├─ 지갑 거절 (Failed)            → HOLD_FAILED 기록 → 잔액 부족 409 INSUFFICIENT_BALANCE, 그 밖 500 HP_HOLD_FAILED
+       └─ 결과를 받지 못함 (BillingCallException) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE ("내 모집글 목록에서 확인")
 ```
 
 ### 7.3 규칙
@@ -578,8 +578,9 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 | 결과 | 처리 |
 |---|---|
 | 성공 | `DONE` |
-| Billing 거절 (업무 예외) | **바로 `DEAD`**. 다시 보내도 결과가 같으므로 재시도하지 않고 Billing 오류 코드·메시지를 기록 (APR-26 S3) |
-| 결과를 알 수 없는 실패 | 지수 백오프 + 지터로 다음 시도 시각 결정: 1분 → 2분 → 4분 → … → 최대 1시간 (+0~20%). **10회 실패 시 `DEAD`** |
+| 지갑 거절 (`Failed`) | **바로 `DEAD`**. 다시 보내도 결과가 같으므로 재시도하지 않고 지갑 오류 코드·설명을 기록 (APR-26 S3) |
+| 목록 밖 코드 중 401·403·404 (`Failed` `UNMAPPED`) | 내부 API 키 교체·경로 오류 같은 연동 장애라 고치면 같은 요청이 성공한다. 아래 재시도와 같게 다룬다 (#274) |
+| 결과를 받지 못한 실패 (`BillingCallException`) | 지수 백오프 + 지터로 다음 시도 시각 결정: 1분 → 2분 → 4분 → … → 최대 1시간 (+0~20%). **10회 실패 시 `DEAD`** |
 
 - 재시도 대상: `PENDING`이고 다음 시도 시각이 지났으며, 한 번 이상 시도했거나 만든 지 1분이 지난 작업. 거절·취소 직후 요청 안에서 바로 실행 중인 작업과 겹치지 않게 하기 위해서다.
 - 같은 작업을 동시에 실행해도 같은 반환 요청 ID라 Billing은 한 번만 처리하고, 결과 기록은 대기 중일 때만 한다(버전 충돌이면 먼저 기록한 쪽을 따름).

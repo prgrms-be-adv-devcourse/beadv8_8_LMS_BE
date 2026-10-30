@@ -23,7 +23,8 @@ import lombok.extern.slf4j.Slf4j;
  * 출연 모집글의 HP 보류 (올리기의 두 번째·세 번째 단계). 출연 요청서 보류({@link AppearanceRequestHoldUseCase})와 같은 흐름이다.
  * <ul>
  *     <li>{@link #requestHold}: 1인당 출연료 × 모집 인원만큼 Billing에 보류를 요청한다. DB 트랜잭션 밖에서 부른다.
- *     Billing이 거절하면 모집글을 {@code HOLD_FAILED}로 남기고 Billing 응답을 그대로 던진다.</li>
+ *     지갑이 거절하면 모집글을 {@code HOLD_FAILED}로 남기고 출연 코드로 응답한다({@link BillingHoldRejection}).
+ *     예상하지 못한 예외는 요청서 보류({@link AppearanceRequestHoldUseCase})처럼 잡지 않고 500으로 둔다.</li>
  *     <li>{@link #markRecruiting}: 보류 성공을 모집글에 반영한다. 트랜잭션을 연다.</li>
  * </ul>
  * 보류 멱등 키는 Billing이 참조 대상(모집글)으로 만든다. 거절 기록은 같은 클래스 안 메서드 호출이라

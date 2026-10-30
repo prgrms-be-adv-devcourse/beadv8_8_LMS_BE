@@ -231,7 +231,7 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
         }
 
         @Test
-        @DisplayName("응답 시간 초과인데 지갑은 처리함: BILLING_UNAVAILABLE·HOLD_PENDING → 재확인에서 처음 결과(replayed)로 REQUESTED")
+        @DisplayName("응답 시간 초과인데 지갑은 처리함: BILLING_UNAVAILABLE·HOLD_PENDING → 재확인에서 같은 참조 대상으로 다시 보내 REQUESTED")
         void timeoutButProcessed() {
             MockBilling.delay(Endpoint.HOLD, 2_000);
 
@@ -296,7 +296,7 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
         }
 
         @Test
-        @DisplayName("지급은 됐는데 완료 기록이 빠져 다시 실행: 같은 지급 요청 ID로 다시 보내 처음 결과(replayed)를 받고 DONE")
+        @DisplayName("지급은 됐는데 완료 기록이 빠져 다시 실행: 같은 지급 요청 ID로 다시 보내 성공 응답을 받고 DONE")
         void payoutReplayed() {
             HpTask task = confirm();
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DONE);
@@ -365,6 +365,25 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
 
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DEAD);
             assertThat(task.getLastError()).isEqualTo("UNMAPPED(NEW_WALLET_RULE, 422): 새 지갑 규칙");
+        }
+
+        @Test
+        @DisplayName("목록 밖 401(내부 API 키 오류)은 연동 장애라 DEAD로 두지 않고 재시도 → 키를 고친 뒤 같은 요청 ID로 DONE")
+        void integrationFaultRetried() {
+            MockBilling.fail(Endpoint.PAYOUT, 401, "INVALID_INTERNAL_API_KEY", "내부 API 키가 올바르지 않습니다.");
+            HpTask task = confirm();
+
+            assertThat(task.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(task.getAttemptCount()).isEqualTo(1);
+            // 공용 Client(HttpURLConnection)는 401 응답 본문을 읽지 못해 지갑 코드·설명 없이 상태만 남는다
+            assertThat(task.getLastError()).isEqualTo("UNMAPPED(null, 401)");
+
+            MockBilling.succeed(Endpoint.PAYOUT);
+            HpTask retried = runAgain(task);
+
+            assertThat(retried.getStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(MockBilling.requests(Endpoint.PAYOUT)).hasSize(2)
+                    .extracting(payout -> payout.requestId(Endpoint.PAYOUT)).containsOnly(task.getIdempotencyKey());
         }
 
         @Test

@@ -26,6 +26,8 @@ import lombok.extern.slf4j.Slf4j;
  * <ul>
  *     <li>{@link #requestHold}: Billing에 보류를 요청한다. DB 트랜잭션 밖에서 부른다 (Billing을 기다리는 동안 DB 연결을 잡지 않도록).
  *     지갑이 거절하면 요청서를 {@code HOLD_FAILED}로 남기고 출연 코드로 응답한다({@link BillingHoldRejection}).</li>
+ *     <li>지갑 호출 전후의 예상하지 못한 예외(요청 만들기 오류 등)는 잡지 않는다. 지갑 결과가 아니라 출연 쪽 결함이라
+ *     500으로 드러나게 두고, {@code HOLD_PENDING}이 남아 재확인 배치가 다시 보낸다 (503으로 바꾸면 결함이 일시 장애처럼 보인다).</li>
  *     <li>{@link #markRequested}: 보류 성공을 요청서에 반영한다. 트랜잭션을 연다. 이번에 {@code REQUESTED}로 바뀐 경우에만
  *     요청 도착 이벤트({@link AppearanceRequestSentEvent})를 발행한다 (ISSUE.md APR-29 N4).</li>
  * </ul>

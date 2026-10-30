@@ -219,8 +219,8 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 | 케이스 | 기대 결과 |
 |---|---|
 | 보내기 | `REQUESTED`, 보류 30,000, 호스트 잔액 −30,000 |
-| 잔액 29,999에서 보내기 | Billing 오류 `INSUFFICIENT_BALANCE` 그대로(메시지 포함), 요청서 `HOLD_FAILED`, 잔액 그대로, 보낸 목록 0건 |
-| 호스트 지갑 없음 (#168) | Billing 오류 `WALLET_NOT_FOUND` 그대로, 요청서 `HOLD_FAILED` |
+| 잔액 29,999에서 보내기 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), 요청서 `HOLD_FAILED`, 잔액 그대로, 보낸 목록 0건 |
+| 호스트 지갑 없음 (#168) | 500 `HP_HOLD_FAILED`(지갑 코드는 응답하지 않음, #274), 요청서 `HOLD_FAILED` |
 | 잔액 부족 실패 뒤 잔액을 채우고 같은 게스트에게 다시 보내기 | `REQUESTED` |
 | Billing 무응답 | `BILLING_UNAVAILABLE`, 요청서 `HOLD_PENDING`, 보낸 목록 0건. 응답이 돌아와도 바로 다시 보내면 `DUPLICATE_APPEARANCE_REQUEST` |
 | 응답 대기 중인 게스트에게 다시 보내기 / 다른 게스트에게 보내기 | `DUPLICATE_APPEARANCE_REQUEST` / `REQUESTED` (보류 2건) |
@@ -268,7 +268,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 | 일반 유저 세션으로 목록 조회, 관리자 세션으로 보내기 | 403 Problem Detail, `code: FORBIDDEN` (Facade `@PreAuthorize`, 공통 핸들러) |
 | 제목 공백·URL 형식 오류·출연료 누락 | 400, `code: INVALID_REQUEST`, `errors`에 `title`·`hostChannelUrl`·`fee` |
 | 출연료 19,999 | 400 Problem Detail(`data` 없음), `code: FEE_BELOW_MINIMUM`, `detail`에 최저 출연료 |
-| 잔액 10,000에서 30,000 요청 | 409, `code: INSUFFICIENT_BALANCE`, `detail: HP 잔액이 부족합니다.` (Billing 오류 그대로) |
+| 잔액 10,000에서 30,000 요청 | 409, `code: INSUFFICIENT_BALANCE`, `detail: HP 잔액이 부족합니다. 충전한 뒤 다시 시도해 주세요.` (출연 문구, #274) |
 | 응답 대기 중인 게스트에게 다시 보내기 | 409, `code: DUPLICATE_APPEARANCE_REQUEST` |
 | Billing 무응답 | 503, `code: BILLING_UNAVAILABLE` |
 | 다른 회원 상세 조회 / 게스트 수정 | 404 `APPEARANCE_REQUEST_NOT_FOUND` / 403 `NOT_REQUEST_HOST` |
@@ -408,7 +408,7 @@ DB와 Billing 대역을 함께 쓴다. 세션 역할은 `@WithMockUser(roles = "
 |---|---|
 | 올리기 | `RECRUITING`, 성립 인원 0, 응답 버전 = DB, Billing에 보류 요청(`APPEARANCE_RECRUIT`, 모집글 ID, 호스트, 90,000) |
 | 같은 호스트가 두 번 올리기 | 2건 저장 (중복 제한 없음) |
-| 잔액 89,999 | Billing 오류 `INSUFFICIENT_BALANCE` 그대로, `HOLD_FAILED`, 내 목록·공개 목록 0건 |
+| 잔액 89,999 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), `HOLD_FAILED`, 내 목록·공개 목록 0건 |
 | Billing 무응답 | `BILLING_UNAVAILABLE` ("…내 모집글 목록에서 결과를 확인해 주세요."), `HOLD_PENDING` |
 | 모집 인원 11명 | `RECRUIT_COUNT_OUT_OF_RANGE`, 저장·보류 없음 |
 | 정지된 호스트 | `APPEARANCE_USER_NOT_ACTIVE` |
@@ -1211,6 +1211,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | HP 작업 | 반환 429 | `PENDING`, 마지막 오류 `RETRYABLE 429: …` |
 | HP 작업 | 지급 409 `IDEMPOTENCY_KEY_CONFLICT` | 재시도 없이 `DEAD`(시도 1), 마지막 오류 `IDEMPOTENCY_KEY_CONFLICT: {지갑 설명}`. 출연은 `CONFIRMED`, 지급 상태 `DEAD` |
 | HP 작업 | 지급 목록 밖 코드 422 `NEW_WALLET_RULE` | `DEAD`, 마지막 오류 `UNMAPPED(NEW_WALLET_RULE, 422): 새 지갑 규칙` |
+| HP 작업 | 지급 목록 밖 401 `INVALID_INTERNAL_API_KEY` → 키 복구 → 다음 시도 | 연동 장애라 `DEAD`가 아니라 `PENDING`·시도 1, 마지막 오류 `UNMAPPED(null, 401)`(공용 Client가 401 본문을 읽지 못해 지갑 코드·설명이 없다) → 다음 시도에 `DONE`, 같은 지급 요청 ID 2번 |
 | HP 작업 | 지급 5xx 계속 → 관리자 다시 시도 | 10회째 `DEAD`, 마지막 오류 `UNKNOWN_RESULT 500 HOLD_STATE_INCONSISTENT: …` → 지갑 복구 뒤 관리자 다시 시도(#397) → `DONE`. 지갑은 같은 지급 요청 ID로 11번 받음 |
 
 ### 24.2 기존 테스트에서 바뀐 것

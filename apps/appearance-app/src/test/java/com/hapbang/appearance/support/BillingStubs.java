@@ -5,8 +5,8 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -42,7 +42,7 @@ import lombok.RequiredArgsConstructor;
 public final class BillingStubs {
 
     /** 대역이 성공으로 받아들인 반환 요청 (테스트마다 비운다). {@link BillingCalls#releasedAmount}가 읽는다 */
-    private static final List<ReleaseCommand> ACCEPTED_RELEASES = new ArrayList<>();
+    private static final List<ReleaseCommand> ACCEPTED_RELEASES = new CopyOnWriteArrayList<>();
 
     private BillingStubs() {
     }
