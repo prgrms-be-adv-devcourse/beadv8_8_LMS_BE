@@ -52,12 +52,14 @@ public interface ApiV1LectureOrderSpec {
     RsData<OrderItemResponse> consentToPlay(Long userId, Long orderId, Long orderItemId);
 
     @Operation(summary = "구매 취소",
-            description = "본인 항목, PURCHASED이고 autoConfirmAt 전, 이의 제기 없음. 그 항목의 보류 HP를 결제할 때 쓴 HP 종류 그대로 "
-                    + "반환한 뒤 응답한다. 모든 항목이 끝나면 주문도 CANCELED가 된다. "
+            description = "본인 항목, PURCHASED이고 autoConfirmAt 전, 이의 제기 없음. 요청한 순간 구매 취소 처리 중(CANCEL_PENDING)이 되어 "
+                    + "더 볼 수 없고, 그 항목의 보류 HP를 결제할 때 쓴 HP 종류 그대로 반환한다(D59). "
+                    + "반환이 끝나면 200 + CANCELED, 아직이면 202 + CANCEL_PENDING(processingStatus)이다. 202를 받으면 다시 요청하지 말고 "
+                    + "주문 상세로 결과를 확인한다. 모든 항목이 끝나면 주문도 CANCELED가 된다. "
                     + "오류: 남의 주문·없는 주문 404 ORDER_NOT_FOUND, 주문에 없는 항목 404 ORDER_ITEM_NOT_FOUND, "
                     + "이미 확정·취소·반환된 항목 409 ORDER_ITEM_NOT_PURCHASED, autoConfirmAt이 지남 409 CANCEL_PERIOD_EXPIRED, "
                     + "이의 제기가 접수된 항목 409 OBJECTION_FILED.")
-    RsData<OrderItemResponse> cancel(Long userId, Long orderId, Long orderItemId);
+    ResponseEntity<RsData<OrderItemResponse>> cancel(Long userId, Long orderId, Long orderItemId);
 
     @Operation(summary = "시청 가능한 강의",
             description = "유저·인플루언서·인증된 인플루언서. 항목이 PURCHASED·CONFIRMED·PAID_OUT인 강의를 최근 구매순으로 보여 준다. "

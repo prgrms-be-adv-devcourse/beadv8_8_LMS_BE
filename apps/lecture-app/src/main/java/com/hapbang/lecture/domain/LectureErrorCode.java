@@ -30,7 +30,6 @@ public enum LectureErrorCode implements BaseErrorCode {
     ORDER_ITEM_NOT_PURCHASED(HttpStatus.CONFLICT, "이미 구매 확정·취소된 항목입니다."),
     CANCEL_PERIOD_EXPIRED(HttpStatus.CONFLICT, "구매 취소 기간이 지났습니다. 구매일 다음 날부터 7일 이내에만 취소할 수 있습니다."),
     OBJECTION_FILED(HttpStatus.CONFLICT, "이의 제기가 접수된 항목은 구매 취소할 수 없습니다."),
-    PAYOUT_NOT_QUARANTINED(HttpStatus.CONFLICT, "지급이 격리된 항목이 아닙니다."),
     HP_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "HP 작업을 찾을 수 없습니다."),
     HP_TASK_NOT_DEAD(HttpStatus.CONFLICT, "자동 처리가 멈춘(DEAD) HP 작업만 재시도할 수 있습니다."),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다."),

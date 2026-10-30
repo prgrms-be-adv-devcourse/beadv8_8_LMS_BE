@@ -4,7 +4,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -41,8 +40,6 @@ public class FakeBillingApiClient extends BillingApiClient {
     private volatile long settledHp = 10_000L;
     private volatile Runnable duringCall = () -> {
     };
-    private volatile Consumer<HoldCommand> heldListener = hold -> {
-    };
 
     public FakeBillingApiClient() {
         super(RestClient.builder(), new BillingClientProperties("http://127.0.0.1:9", null, null), "test");
@@ -71,23 +68,14 @@ public class FakeBillingApiClient extends BillingApiClient {
         this.duringCall = duringCall;
     }
 
-    /** 보류가 성공할 때마다 알린다. 설정({@link FakeBillingApiClientConfig})이 한 번 정하고 {@link #reset()}해도 남는다 */
-    void onHeld(Consumer<HoldCommand> heldListener) {
-        this.heldListener = heldListener;
-    }
-
     public List<Call> calls() {
         return List.copyOf(calls);
     }
 
     @Override
     public BillingCallResult<HoldResultDto> hold(HoldCommand command) {
-        BillingCallResult<HoldResultDto> result = answer(command, () -> new HoldResultDto(command.referenceType(),
-                command.referenceId(), command.amountHp(), false));
-        if (result instanceof BillingCallResult.Succeeded<HoldResultDto>) {
-            heldListener.accept(command);
-        }
-        return result;
+        return answer(command, () -> new HoldResultDto(command.referenceType(), command.referenceId(),
+                command.amountHp(), false));
     }
 
     @Override

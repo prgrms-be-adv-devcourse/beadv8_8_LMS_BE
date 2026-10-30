@@ -13,7 +13,7 @@
 - Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, 채팅 outbox 적재 대기·재시도·DEAD, Stream 그룹 lag·PEL/idle·ACK 지연·회수·메모리, DB 발행 체크포인트·재구성, Redis Pub/Sub 발행 실패, HP task 노출
 - Prometheus: `/actuator/prometheus`와 infrastructure exporter를 직접 scrape하고 local TSDB·PromQL·rule 평가 담당
 - Grafana Alloy: pod log 수집과 OTLP trace 수신·전달 담당. Mimir로 바꿀 때만 metrics scrape·remote write까지 확장
-- Loki: JSON log 저장; `traceId`, `correlationId`, `eventId`, 배포 version으로 연결
+- Loki: JSON log 저장; `traceId`, `correlationId`, 배포 version으로 연결
 - Tempo: HTTP → 업무 transaction → Kafka publish/consume → chat delivery trace 저장
 - Grafana: Prometheus·Loki·Tempo datasource와 API, Kafka, chat, HP, Kubernetes dashboard·alert
 - k6: 일반 API, WebSocket, 돈 흐름 재시도 시나리오

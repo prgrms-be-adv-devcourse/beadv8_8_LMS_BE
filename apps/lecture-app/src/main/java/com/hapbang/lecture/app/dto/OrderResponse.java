@@ -5,6 +5,7 @@ import java.util.List;
 
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
+import com.hapbang.lecture.domain.OrderProcessingStatuses;
 import com.hapbang.lecture.domain.OrderProgress;
 import com.hapbang.lecture.domain.ProcessingStatus;
 
@@ -28,11 +29,12 @@ public record OrderResponse(
 ) {
 
     /**
-     * @param processingStatus 결제 단계의 처리 상태(주문 단위, D69 (2)). 결제 단계가 아니면 {@code null}
+     * @param processing 주문·항목의 처리 상태 (D69 (2), D70 (7))
      */
-    public static OrderResponse of(LectureOrder order, ProcessingStatus processingStatus) {
+    public static OrderResponse of(LectureOrder order, OrderProcessingStatuses processing) {
         return new OrderResponse(order.getId(), order.getTotalAmountHp(), order.getStatus(), order.progress(),
-                processingStatus, order.getOrderedAt(), order.getPaidAt(), order.getCanceledAt(),
-                order.getItems().stream().map(item -> OrderItemResponse.of(item, processingStatus)).toList());
+                processing.order(), order.getOrderedAt(), order.getPaidAt(), order.getCanceledAt(),
+                order.getItems().stream().map(item -> OrderItemResponse.of(item, processing.item(item.getId())))
+                        .toList());
     }
 }

@@ -202,14 +202,9 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 - 원인은 billing 데이터에서 먼저 확인한다. 예: `PAYOUT_ALREADY_SETTLED`는 지급 예정 건(`billing.settlement`)이 남은 경우, `HOLD_ALREADY_CLOSED`는 보류가 이미 닫힌 경우라 강의 항목 상태와 billing 보류를 대조해 어느 쪽이 맞는지 판단한다 (D54의 운영 절차를 그대로 옮김).
 
-### 8.2.2 지급 실패 (관리자, D54 → D59 호환)
+### 8.2.2 지급 실패 (관리자, 삭제됨)
 
-| 메서드 | 경로 | 설명 |
-| --- | --- | --- |
-| GET | `/api/v1/lectures/admin/payout-failures` | #277부터 HP 작업 조회(`taskType = PAYOUT`)에 위임한다. 응답 형태는 프론트 전환 기간 동안 유지한다 |
-| POST | `/api/v1/lectures/admin/payout-failures/{orderItemId}/retry` | #277부터 그 항목 PAYOUT 작업의 관리자 재시도에 위임한다 |
-
-- 프론트가 8.2.1로 옮긴 뒤 지급 실패 레거시 정리 티켓(#268)에서 이 경로를 없앤다. 기존 데이터의 이관 건수 검증과 일정 기간의 대조가 먼저다 (D59).
+`/api/v1/lectures/admin/payout-failures` 조회·재시도는 #277에서 지웠다 (D70 (5), D59 (7) ③ 변경). 지급 실패는 8.2.1의 HP 작업 관리자 API에서 `taskType=PAYOUT`으로 보고, 재시도도 그 작업으로 한다. 기존 지급 실패 데이터는 #277 마이그레이션이 PAYOUT 작업으로 옮겼다 (D70 (4)).
 
 ### 8.3 파일
 

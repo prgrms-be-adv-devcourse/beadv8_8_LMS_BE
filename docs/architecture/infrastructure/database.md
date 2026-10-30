@@ -48,7 +48,7 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
 2. **Modulith 이벤트 저장소는 앱마다 자기 database에 둔다.**
    - Spring Modulith의 JDBC publication registry는 `DataSource` 하나에 묶인다(`JdbcEventPublicationAutoConfiguration`, 2.1.1 소스 확인).
    - 앱마다 database가 하나이므로 업무 data와 publication이 같은 database에 있다. "업무 transaction 안에서 이벤트를 기록한다"는 outbox 보장이 앱 안에서 그대로 지켜진다.
-   - 각 앱이 자기 registry의 publication을 Kafka로 externalization한다. [1장](kafka.md#만들어야-할-깊은-module)의 `IntegrationEventPublisher` seam 뒤에서 구현한다.
+   - 각 앱이 자기 registry의 publication을 Kafka로 externalization한다. 토픽·헤더·재전송 규칙은 [1장](kafka.md#발행)을 따른다.
 3. **앱마다 `DataSource`와 Flyway가 하나씩이다.** 앱 하나가 database 하나에만 붙으므로 모놀리스처럼 모듈별 transaction manager를 나눌 필요가 없다. 버전 충돌 검사(`uniq -d`)는 앱 안에서만 의미가 있다.
 4. **기존 데이터와 migration 이력을 옮긴다.** 지금 운영 DB는 database 하나에 모든 모듈 table과 Flyway 이력이 있다. 앱별 database로 옮길 때 데이터와 이력을 보존하는 절차가 필요하다(#338, `docs/architecture/app-modules.md`).
 5. **connection 수를 다시 계산한다.**
@@ -59,7 +59,7 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
 ## 진행 순서
 
 1. 모듈을 넘는 동기 호출을 내부 API와 보상 처리로 바꾼다(#271~#281).
-2. 앱별 publication externalization을 `IntegrationEventPublisher` 뒤에 만든다(Kafka 도입과 함께, #339).
+2. 앱별 publication externalization을 만든다(Kafka 도입과 함께, #339).
 3. #363의 앱별 스키마를 하나씩 앱별 database로 옮긴다. 데이터 이전은 `pg_dump`/restore로 하고 Flyway 이력을 보존한다(#338).
 4. connection 수와 PostgreSQL 메모리를 재측정한다(실행 전 허락).
 

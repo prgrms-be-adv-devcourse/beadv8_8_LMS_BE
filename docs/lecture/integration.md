@@ -346,6 +346,7 @@ sequenceDiagram
     CS->>CS: hpReturnStatus 갱신 (PENDING < ACTION_REQUIRED < COMPLETED)
 ```
 
+- 인정 반환은 요청 안에서 시도하지 않고 HP 작업 재시도 배치가 실행한다(D70 (1)). 지금(#277)은 고객센터가 in-process Port로 판단을 넘기고, 반환 완료·DEAD 이벤트는 Kafka 외부화(#339) 뒤에 발행한다(D70 (6)).
 - 판단 전 철회: 구매자가 이의 제기 문의를 삭제하면 고객센터가 `FILED → WITHDRAWAL_PENDING`과 `LectureObjectionWithdrawalRequestedV1` 발행을 한 트랜잭션에 기록하고 202로 응답한다. 강의는 항목을 `NONE`으로 되돌리고(D52) 결과 이벤트를 발행한다. 고객센터는 성공 결과를 받은 뒤에 `WITHDRAWN` + `deleted_at`을 기록한다.
 - 판단과 철회는 `FILED`에서 하나만 선점한다 (D60).
 - 접수가 지급보다 먼저 확정된다는 불변식(D9)은 유지된다: 접수는 여전히 동기 호출이고 강의 항목이 `FILED`가 된 뒤에야 성공으로 응답한다. 이벤트로 바뀐 판단·철회는 `FILED` 항목에만 적용되고, `FILED` 항목은 지급 대상이 아니라 지연돼도 지급이 먼저 나가지 않는다.

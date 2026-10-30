@@ -135,39 +135,50 @@ public class LectureOrder {
     }
 
     /**
-     * 지급(배치). 지급 대상이면 {@code PAID_OUT}으로 바꾼 항목을, 아니면(배치가 조회한 뒤 이의 제기가 먼저 접수된 경우 등)
-     * 그대로 두고 빈 값을 돌려준다 (D50). 지급은 주문을 닫지 않는다. 보류 HP 지급은 호출한 쪽이 같은 트랜잭션에서 한다
+     * 지급 시작(01:00 배치, D59 (5)). 지급 대상이면 지급 처리 중으로 바꾼 항목을, 아니면(배치가 조회한 뒤 이의 제기가 먼저
+     * 접수된 경우 등) 그대로 두고 빈 값을 돌려준다 (D50). 지급은 PAYOUT 작업이 하고 주문을 닫지 않는다
      */
-    public Optional<OrderItem> payOutItem(Long orderItemId, LocalDateTime now) {
+    public Optional<OrderItem> startPayoutItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
         if (!item.isPayable(now)) {
             return Optional.empty();
         }
-        item.payOut(now);
+        item.startPayout(now);
         return Optional.of(item);
     }
 
-    /**
-     * 지급 실패 기록(배치, D54). 기록하면 그 항목을, 지급 대상이 아니게 되어 기록하지 않으면 빈 값을 돌려준다.
-     * 주문을 닫지 않는다
-     */
-    public Optional<OrderItem> recordPayoutFailure(Long orderItemId, String code, boolean quarantine,
-                                                   LocalDateTime now) {
+    /** 지급 완료. PAYOUT 작업 성공을 기록하는 트랜잭션에서 부른다. 주문을 닫지 않는다 */
+    public OrderItem completePayoutItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
-        return item.recordPayoutFailure(code, quarantine, now) ? Optional.of(item) : Optional.empty();
-    }
-
-    /** 지급 격리 해제(관리자, D54). 주문을 닫지 않는다 */
-    public OrderItem releasePayoutQuarantine(Long orderItemId) {
-        OrderItem item = findItem(orderItemId);
-        item.releasePayoutQuarantine();
+        item.completePayout(now);
         return item;
     }
 
-    /** 구매 취소. 끝나지 않은 항목이 남지 않으면 주문도 취소한다. 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다 */
-    public OrderItem cancelItem(Long orderItemId, LocalDateTime now) {
+    /** 구매 취소 요청. 구매 취소 처리 중이 되고, 반환은 RELEASE 작업이 한다 (D59 (1)). 주문은 아직 닫지 않는다 */
+    public OrderItem requestCancelItem(Long orderItemId, LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
-        item.cancel(now);
+        item.requestCancel(now);
+        return item;
+    }
+
+    /**
+     * 구매 취소 완료. 반환 성공을 기록하는 트랜잭션에서 주문을 잠그고 부른다 (D46, D59 (4)).
+     * 끝나지 않은 항목이 남지 않으면 주문도 취소한다
+     */
+    public OrderItem completeCancelItem(Long orderItemId, LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        item.completeCancel(now);
+        closeIfAllItemsEnded(now);
+        return item;
+    }
+
+    /**
+     * 반환 완료(이의 제기 인정). 반환 성공을 기록하는 트랜잭션에서 주문을 잠그고 부른다 (D46, D59 (4)).
+     * 끝나지 않은 항목이 남지 않으면 주문도 취소한다
+     */
+    public OrderItem completeReturnItem(Long orderItemId, LocalDateTime now) {
+        OrderItem item = findItem(orderItemId);
+        item.completeReturn(now);
         closeIfAllItemsEnded(now);
         return item;
     }
@@ -181,16 +192,12 @@ public class LectureOrder {
     }
 
     /**
-     * 이의 제기 판단. 인정해서 끝나지 않은 항목이 남지 않으면 주문도 취소한다.
-     * 보류 HP 반환은 호출한 쪽이 같은 트랜잭션에서 한다
+     * 이의 제기 판단. 인정하면 반환 처리 중이 되고, 반환은 RELEASE 작업이 한다 (D59 (1)). 주문은 반환이 끝날 때 닫는다
      */
     public OrderItem resolveObjection(Long orderItemId, Long inquiryId, boolean accepted, Long adminUserId,
                                       LocalDateTime now) {
         OrderItem item = findItem(orderItemId);
         item.resolveObjection(inquiryId, accepted, adminUserId, now);
-        if (accepted) {
-            closeIfAllItemsEnded(now);
-        }
         return item;
     }
 
@@ -222,7 +229,7 @@ public class LectureOrder {
                 .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_ITEM_NOT_FOUND));
     }
 
-    // 구매 취소·이의 제기 인정이 모두 이 메서드로 주문을 닫는다 (설계 4.6)
+    // 구매 취소·이의 제기 인정의 반환 완료가 모두 이 메서드로 주문을 닫는다 (설계 4.6, D59 (4))
     private void closeIfAllItemsEnded(LocalDateTime now) {
         if (items.stream().allMatch(OrderItem::isWithdrawn)) {
             this.status = LectureOrderStatus.CANCELED;

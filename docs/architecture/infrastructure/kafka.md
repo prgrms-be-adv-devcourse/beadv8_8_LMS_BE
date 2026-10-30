@@ -1,6 +1,11 @@
 # 1. Kafka — 모듈 간 integration event
 
-상위 문서: [최종 프로젝트 인프라 설계](../final-project-infrastructure.md). 결정 기록은 #369다.
+상위 문서: [최종 프로젝트 인프라 설계](../final-project-infrastructure.md). 도입 결정은 #369, 토픽·발행·소비 구조는 #339에서 정했다. 되돌리기 어려운 결정은 ADR에 있다.
+
+- [ADR 0001](../../adr/0001-context-topics-with-mixed-event-types.md): 발행 컨텍스트마다 토픽 하나에 이벤트 타입을 섞는다.
+- [ADR 0002](../../adr/0002-modulith-externalization-without-event-id.md): Modulith externalization으로 발행하고 `eventId` 없이 자연 키로 멱등 처리한다.
+
+이 문서의 운영 정책(재시도·DLT·역직렬화)은 공통 코드 없이 각 앱이 따라 구현한다. `common/kafka`는 연결 설정만 둔다.
 
 ## 적용 범위
 
@@ -14,16 +19,60 @@ Kafka에는 모든 Spring Event를 보내지 않고, 컨텍스트 밖에서 의�
 
 HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원장 변경은 PostgreSQL 트랜잭션과 멱등키가 책임지고, Kafka는 완료된 사실을 다른 컨텍스트에 전달한다.
 
-## 구현 원칙
+## 토픽 목록
 
-- Spring Modulith event externalization을 사용해 기존 publication registry를 outbox seam으로 활용한다.
-- event envelope에 `eventId`, `eventType`, `eventVersion`, `occurredAt`, `aggregateId`, `correlationId`를 둔다.
-- topic은 기술 이름이 아니라 도메인 사실 기준으로 나눈다. 예: `member.events.v1`, `appearance.events.v1`, `lecture.events.v1`.
-- key는 같은 aggregate의 순서를 보장할 ID를 사용한다.
-- consumer는 `eventId` 기반 inbox/processed-event 테이블로 멱등 처리한다.
-- retry 횟수와 backoff를 제한하고 최종 실패는 DLT로 보낸다. DLT 재처리 명령과 runbook을 함께 만든다.
-- payload 변경은 version을 올리고 최소 한 버전의 하위 호환 consumer contract test를 둔다.
-- **Kafka instance는 1개만 띄운다.** EC2(와 로컬 k3d)에서 broker와 controller를 한 process로 합친 single-node KRaft로 실행한다. prod와 dev가 함께 쓰게 되면 topic 이름에 환경 prefix를 붙여 나눈다. broker가 하나뿐이므로 topic replication factor는 1이다. 내부 topic 설정(`offsets.topic.replication.factor`, `transaction.state.log.replication.factor`)도 1로 맞춘다. 이 둘은 기본값이 3이라 그대로 두면 broker 1개에서 내부 topic을 만들지 못한다. 그러면 consumer group과 transaction이 동작하지 않는다. `min.insync.replicas`는 1로 둔다.
+| 토픽 | 발행 앱 | 이벤트 타입 | key | 소비 그룹 |
+| --- | --- | --- | --- | --- |
+| `member.events.v1` | member-app | `UserJoinedEvent`, `UserModifiedEvent` | 회원 ID | `appearance-app.member-replica`, `billing-app.member-replica`, `billing-app.wallet-creation`, `lecture-app.member-replica`, `chat-app.member-replica` |
+| `appearance.events.v1` | appearance-app | `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent` | `appearance-request:<요청 ID>`, `appearance-application:<지원 ID>` | `chat-app.appearance-notification` |
+
+1차 범위는 지금 다른 앱에 소비자가 있는 이벤트만이다. `UserLoggedOutEvent`는 HTTP 세션 ID를 담아 JWT 전환과 함께 다시 정하므로 올리지 않는다. 출연 취소 이벤트(요청·수락·거절)는 소비자가 생길 때 `appearance.events.v1`에 key `appearance:<출연 ID>`로 더한다. 소비 그룹 이름은 구현할 때 이 표를 고친다.
+
+## 토픽 규칙
+
+- 이름은 `<발행 컨텍스트>.events.v<N>`이다. 토픽 하나에 그 컨텍스트의 이벤트 타입을 섞는다([ADR 0001](../../adr/0001-context-topics-with-mixed-event-types.md)). 이름에 소비자 관점의 말(예: `notification`)을 넣지 않는다.
+- key는 이벤트가 다루는 대상의 ID다. 같은 토픽에서 ID 종류가 여럿이면 번호가 겹치지 않게 종류 접두어를 붙인다(`appearance-request:12`). 회원 이벤트는 회원 ID만 쓴다. key가 같은 메시지끼리만 순서가 지켜진다.
+- 토픽은 발행 앱이 `NewTopic` 빈으로 선언한다. broker의 자동 생성은 끈다(`auto.create.topics.enable=false`).
+- partition은 3개다. 한 그룹에서 동시에 일하는 consumer는 partition 수를 넘지 못한다.
+- 보존은 compaction 없이 시간 기준이다(72시간, partition당 256MiB, broker 기본값). 보존 기간보다 오래된 데이터가 필요한 새 소비자는 자기 초기 적재로 채운다.
+- 환경 prefix는 붙이지 않는다. EC2에는 prod만 있다(#369).
+
+## 발행
+
+- Spring Modulith event externalization을 쓴다([ADR 0002](../../adr/0002-modulith-externalization-without-event-id.md)). 앱의 publication registry가 outbox다. 업무 코드는 지금처럼 `publishEvent`만 부른다.
+- 토픽과 key는 shared 레코드의 `@Externalized("<토픽>::#{<key 식>}")`로 지정한다.
+- payload는 `common/shared`의 이벤트 레코드를 그대로 JSON으로 싣는다. 별도 envelope 레코드를 만들지 않는다.
+- 헤더는 `eventType`(레코드 이름, 예: `UserModifiedEvent`)과 `eventVersion`(이벤트 타입의 payload 버전, 예: `1`) 두 개를 UTF-8 문자열로 싣는다. `EventExternalizationConfiguration.headers(...)`로 넣는다. Spring Kafka JSON 직렬화가 붙이는 `__TypeId__`(레코드 클래스 이름)는 역직렬화에 쓴다.
+- `eventId`·`occurredAt`은 두지 않는다. 헤더 함수가 이벤트만 받아 재발행 때 같은 값을 만들 수 없다. 추적은 관측성(#343)의 trace 헤더가 맡는다.
+- Modulith는 기동할 때만 미완료 publication을 다시 보낸다(`republish-outstanding-events-on-restart`). 실행 중 재전송(`IncompleteEventPublications.resubmitIncompletePublicationsOlderThan`)은 **발행하는 앱마다 반드시 둔다.** 주기와 기준 시간은 앱이 정한다. replica 여럿이 같은 publication을 다시 보내도 소비 멱등이 흡수하므로 분산 락은 두지 않는다.
+
+## 소비
+
+- 그룹 이름은 `<앱>.<목적>`이다(예: `billing-app.wallet-creation`). 한 앱의 리스너 여러 개가 같은 그룹을 쓰면 partition을 나눠 가져 각자 메시지 일부만 받는다. 목적이 다르면 그룹을 나눈다.
+- 클래스 레벨 `@KafkaListener`에 받을 타입마다 `@KafkaHandler`를 둔다. 모르는 타입은 `@KafkaHandler(isDefault = true)`에서 무시하고 커밋한다.
+- 역직렬화는 `ErrorHandlingDeserializer`로 감싼 JSON 역직렬화다. 신뢰 패키지는 실제 이벤트 패키지(예: `com.hapbang.shared.member.event`)만 지정하고 `*`를 쓰지 않는다. 깨진 메시지는 재시도 없이 DLT로 간다.
+- 새 그룹의 시작점은 `auto-offset-reset=earliest`다.
+- 멱등은 업무 자연 키로 한다. 상태 복제 이벤트는 `(대상 ID, 원본 버전)`(회원은 `user.id`, `user.version`), 한 번만 일어나는 사실은 `(eventType, 대상 ID)`다. 업무 반영과 멱등 기록은 같은 로컬 트랜잭션에서 하고, offset은 그 커밋 뒤에 커밋한다.
+- Modulith 전송은 같은 key라도 순서가 뒤바뀔 수 있다. 순서가 중요한 소비자는 원본 버전으로 늦은 이벤트를 거른다.
+
+## 재시도와 DLT
+
+- 재시도는 블로킹 방식(`DefaultErrorHandler`)이다. 1초에서 시작해 최대 10초까지 지수로 늘리며 3회 재시도한 뒤 DLT로 보낸다. 재시도하는 동안 그 partition의 뒤 메시지는 기다리므로 같은 key의 순서가 지켜진다. non-blocking 재시도(`@RetryableTopic`)는 순서를 깨므로 쓰지 않는다.
+- 역직렬화 실패·검증 실패처럼 재시도해도 결과가 같은 예외는 재시도 없이 바로 DLT로 보낸다.
+- DLT 이름은 `<토픽>.<그룹>.DLT`다(예: `member.events.v1.billing-app.wallet-creation.DLT`). 그룹마다 실패를 따로 모아 어느 소비자가 실패했는지 구분한다. Spring Kafka 기본값(`<토픽>.DLT`)은 쓰지 않는다.
+- DLT 토픽은 실패 처리를 소유한 소비 앱이 `NewTopic`으로 선언한다. partition은 원본과 같은 3개이고 원본과 같은 partition 번호로 보낸다. 보존은 7일(`retention.ms=604800000`)이다.
+- DLT 발행이 실패하면 처리 성공으로 간주하지 않는다. offset을 커밋하지 않고 다시 시도한다.
+
+## 이벤트 버전
+
+- `eventVersion`은 이벤트 타입별 payload 버전이다. 같은 버전 안에서는 선택 필드 추가만 허용한다.
+- 필드 삭제·이름 변경·타입 변경·필수 필드 추가는 같은 토픽에 새 레코드 타입을 더해서 한다(예: `UserModifiedEventV2`, `eventVersion=2`). 소비 앱을 먼저 배포해 두 타입을 받게 하고, 그다음 발행 앱이 새 타입으로 바꾼다. 옛 소비자는 모르는 타입을 무시한다.
+- 토픽의 `.v<N>`은 key·partition 계약이 바뀔 때만 올린다. 이때는 새 토픽을 만들고 한동안 두 토픽에 함께 발행하며 옮긴다.
+- 1차 계약 검증은 shared 레코드 컴파일과 소비 테스트(Testcontainers)다. AsyncAPI와 CI 호환성 검사는 [7장](portfolio-items.md#kafka-schema와-apievent-contract)의 2차 작업이다.
+
+## broker
+
+- **Kafka instance는 1개만 띄운다.** EC2(와 로컬 k3d)에서 broker와 controller를 한 process로 합친 single-node KRaft로 실행한다. broker가 하나뿐이므로 topic replication factor는 1이다. 내부 topic 설정(`offsets.topic.replication.factor`, `transaction.state.log.replication.factor`)도 1로 맞춘다. 이 둘은 기본값이 3이라 그대로 두면 broker 1개에서 내부 topic을 만들지 못한다. 그러면 consumer group과 transaction이 동작하지 않는다. `min.insync.replicas`는 1로 둔다.
 - 이것이 고가용성 구성이 아님을 README에 명시한다. broker가 내려가 있는 동안 발행할 이벤트는 Modulith publication(outbox)에 남아 있다가 재기동 후 다시 발행되므로 유실되지 않는다. 다만 consumer 쪽 처리는 그만큼 늦어진다. Kafka 공식 문서도 combined broker/controller mode를 개발·소규모 용도로 보고 중요 환경에서는 역할 분리를 권고한다([KRaft 문서](https://kafka.apache.org/42/operations/kraft/#deploying-considerations)).
 
 ## broker 선택 — Apache Kafka와 Redpanda
@@ -51,13 +100,30 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 
 어느 쪽이든 앱 code는 Kafka client만 알고, broker는 설정(`bootstrap-servers`)으로만 바뀐다.
 
-## 만들어야 할 깊은 module
+## DLT 재처리 runbook
 
-- `IntegrationEventPublisher` interface: 업무 module이 알아야 할 것은 integration event 발행뿐이다.
-- Kafka adapter: serialization, topic, header, retry 같은 구현을 숨긴다.
-- in-memory/test adapter: 동일 interface로 contract와 업무 테스트를 수행한다.
+DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 토픽의 다른 그룹도 그 메시지를 한 번 더 받지만 소비 멱등이 흡수한다. 실행할 때마다 대상 메시지(DLT 이름·partition·offset), 원인, 결과를 해당 이슈 코멘트로 남긴다. 아래 명령은 로컬 k3d(`apache/kafka` 이미지)에서 확인했다.
 
-Kafka template을 각 업무 module에서 직접 호출하면 topic·직렬화·오류 처리가 퍼져 얕은 module이 된다. 이 복잡성은 한 adapter에 모은다.
+1. DLT를 조회한다. Redpanda Console(#374, port-forward)로 보거나 broker pod에서 다음을 실행한다. DLT 헤더에는 Spring Kafka가 붙인 원본 위치·예외 정보가 함께 나온다.
+
+   ```bash
+   kubectl --context hapbang-k3s -n hapbang-platform exec -it kafka-0 -- \
+     /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+       --topic <DLT 이름> --from-beginning --timeout-ms 10000 \
+       --formatter-property print.partition=true --formatter-property print.offset=true \
+       --formatter-property print.key=true --formatter-property print.headers=true
+   ```
+
+2. 다시 넣을 메시지를 골라 key와 `__TypeId__`·`eventType`·`eventVersion` 헤더만 남겨 원본 토픽에 보낸다. 형식은 `헤더<탭>key<탭>값`이다. Spring Kafka의 DLT 예외 헤더(`kafka_dlt-*`)는 옮기지 않는다.
+
+   ```bash
+   printf '__TypeId__:<레코드 클래스 이름>,eventType:<레코드 이름>,eventVersion:<버전>\t<key>\t<JSON 값>\n' | \
+     kubectl --context hapbang-k3s -n hapbang-platform exec -i kafka-0 -- \
+       /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic <원본 토픽> \
+         --reader-property parse.key=true --reader-property parse.headers=true
+   ```
+
+3. 소비 앱 로그나 lag에서 처리됐는지 확인하고 이슈 코멘트에 결과를 남긴다. DLT의 메시지는 지우지 않고 보존 기간(7일)이 지나면 사라지게 둔다.
 
 ## 완료 증거
 

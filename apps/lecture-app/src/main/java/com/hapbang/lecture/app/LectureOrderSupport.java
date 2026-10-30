@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
@@ -12,17 +13,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.app.dto.OrderSummaryResponse;
-import com.hapbang.lecture.app.dto.PayoutFailureResponse;
 import com.hapbang.lecture.app.dto.SaleResponse;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureOrder;
-import com.hapbang.lecture.domain.OrderHoldTasks;
 import com.hapbang.lecture.domain.OrderItem;
-import com.hapbang.lecture.domain.ProcessingStatus;
+import com.hapbang.lecture.domain.OrderProcessingStatuses;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 
@@ -80,32 +80,44 @@ public class LectureOrderSupport {
     public Page<OrderSummaryResponse> getOrders(Long buyerUserId, Pageable pageable) {
         PageRequest sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST);
         Page<LectureOrder> orders = lectureOrderRepository.findByBuyerUserId(buyerUserId, sorted);
-        Map<Long, ProcessingStatus> statuses = processingStatuses(orders.getContent());
-        return orders.map(order -> OrderSummaryResponse.of(order, statuses.get(order.getId())));
+        Map<Long, OrderProcessingStatuses> statuses = processingStatuses(orders.getContent());
+        return orders.map(order -> OrderSummaryResponse.of(order,
+                statuses.getOrDefault(order.getId(), OrderProcessingStatuses.none()).order()));
     }
 
     public OrderResponse getOrder(Long buyerUserId, Long orderId) {
         return toResponse(findOrder(buyerUserId, orderId));
     }
 
-    /** 주문 응답. 결제 단계면 처리 상태를 싣는다 (D69 (2)) */
+    /** 주문 응답. 처리 중인 주문·항목에는 처리 상태를 싣는다 (D69 (2), D70 (7)) */
     public OrderResponse toResponse(LectureOrder order) {
-        return OrderResponse.of(order, processingStatuses(List.of(order)).get(order.getId()));
+        return OrderResponse.of(order, processingStatusesOf(order));
     }
 
-    /** 결제 단계인 주문의 처리 상태. 주문들의 작업을 한 번에 읽는다 */
-    private Map<Long, ProcessingStatus> processingStatuses(List<LectureOrder> orders) {
-        List<Long> holdingOrderIds = orders.stream()
-                .filter(order -> order.getStatus().isHoldInProgress())
-                .map(LectureOrder::getId)
-                .toList();
-        if (holdingOrderIds.isEmpty()) {
+    /** 주문 항목 응답. 처리 중 항목에는 그 작업의 처리 상태를 싣는다 */
+    public OrderItemResponse toItemResponse(OrderItem item) {
+        return OrderItemResponse.of(item, processingStatusesOf(item.getOrder()).item(item.getId()));
+    }
+
+    private OrderProcessingStatuses processingStatusesOf(LectureOrder order) {
+        return processingStatuses(List.of(order)).getOrDefault(order.getId(), OrderProcessingStatuses.none());
+    }
+
+    /** 처리 중인(결제 단계이거나 반환·지급 처리 중 항목이 있는) 주문의 처리 상태. 주문들의 작업을 한 번에 읽는다 */
+    private Map<Long, OrderProcessingStatuses> processingStatuses(List<LectureOrder> orders) {
+        Map<Long, LectureOrder> processingOrders = orders.stream()
+                .filter(order -> order.getStatus().isHoldInProgress() || order.getItems().stream()
+                        .anyMatch(item -> item.getStatus().isSettlementPending()))
+                .collect(Collectors.toMap(LectureOrder::getId, Function.identity()));
+        if (processingOrders.isEmpty()) {
             return Map.of();
         }
-        Map<Long, ProcessingStatus> statuses = new HashMap<>();
-        lectureHpTaskRepository.findByOrderIdIn(holdingOrderIds).stream()
-                .collect(Collectors.groupingBy(LectureHpTask::getOrderId))
-                .forEach((orderId, tasks) -> statuses.put(orderId, OrderHoldTasks.of(tasks).processingStatus()));
+        Map<Long, List<LectureHpTask>> tasks = lectureHpTaskRepository.findByOrderIdIn(processingOrders.keySet())
+                .stream()
+                .collect(Collectors.groupingBy(LectureHpTask::getOrderId));
+        Map<Long, OrderProcessingStatuses> statuses = new HashMap<>();
+        processingOrders.forEach((orderId, order) -> statuses.put(orderId,
+                OrderProcessingStatuses.of(order, tasks.getOrDefault(orderId, List.of()))));
         return statuses;
     }
 
@@ -113,11 +125,5 @@ public class LectureOrderSupport {
     public Page<SaleResponse> getSales(Long sellerUserId, Pageable pageable) {
         PageRequest unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
         return lectureOrderRepository.findSales(sellerUserId, unsorted).map(SaleResponse::of);
-    }
-
-    /** 지급 실패 기록이 있는 미지급 항목. 최근 실패순이고 정렬은 쿼리에 고정되어 요청의 정렬은 무시한다 (D54) */
-    public Page<PayoutFailureResponse> getPayoutFailures(Pageable pageable) {
-        PageRequest unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
-        return lectureOrderRepository.findPayoutFailures(unsorted).map(PayoutFailureResponse::of);
     }
 }
