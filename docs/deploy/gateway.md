@@ -15,6 +15,7 @@
 ## 변경 결정 (2026-10-30)
 
 - 사용자는 기존 배포 서버와의 호환을 제외하고 Gateway 설치·전환을 먼저 진행하도록 지시했다. 공용 Gateway·TLS·관측성 경로를 먼저 적용하고 업무 앱·FE 연결은 후속 작업으로 남긴다. 기존 DB·PVC는 삭제하지 않는다.
+- 같은 날 진입점 전환 뒤 Compose(prod·dev app·web·PostgreSQL, edge nginx·certbot)를 볼륨까지 지웠다(#440). 기존 운영 DB에는 필요 없는 데이터만 있어 백업하지 않았다. 그래서 아래 [진입점 복구](#진입점-복구)의 nginx 복구 경로는 없어졌다.
 - `--gateway-only`는 앱 overlay와 FE의 `web` HTTPRoute를 제외한다. JWT 발급 앱이나 FE Service가 없어도 공용 진입점을 준비할 수 있다. `/`는 FE 배포 때 연결하며 그 전에는 404다.
 - 기본 렌더링은 인증서 연락 이메일을 요구한다. 기존 Compose는 이메일 없이 등록한 구성이며 설치된 ACME CRD에서 이메일은 선택 항목이다. 이번에는 연락처 답변을 기다린 뒤 `--without-acme-email`로 명시적으로 생략했다. 연락처가 정해지면 issuer의 `spec.acme.email`에 추가할 수 있다. 이메일을 지정한 상태에서 생략 플래그를 함께 쓰면 실패한다.
 
@@ -113,7 +114,7 @@ GATEWAY_HOST='<prod 도메인>' ACME_EMAIL= \
 
 ### 전체 서비스 전환 조건과 순서
 
-아래는 업무 앱·FE를 포함한 전체 서비스 전환 절차다. Gateway 설치·진입점 전환은 위의 2026-10-30 결정에 따라 먼저 완료했다. 인증·업무 앱·데이터 이전의 완료 조건은 그대로 남는다.
+아래는 업무 앱·FE를 포함한 전체 서비스 전환 절차다. Gateway 설치·진입점 전환은 위의 2026-10-30 결정에 따라 먼저 완료했다. Compose도 지웠으므로(#440) 2~4의 nginx·Compose 단계와 7은 더 해당하지 않는다. 인증·업무 앱의 완료 조건은 그대로 남는다.
 
 1. #370·#371 JWT/인가, #280 독립 기동, #338 데이터 이전·복구, #374 앱·FE 이미지와 Secret 준비를 확인한다. medium의 목표 구성 예산 초과는 #343에서 조정하고 sidecar·설치 Job·rolling 여유도 포함해 재측정한다.
 2. nginx·기존 인증서·Compose와 k3s config를 백업하고 중단 시간을 팀에 공지한다. 기존 서비스·DB는 지우지 않는다.
@@ -125,10 +126,9 @@ GATEWAY_HOST='<prod 도메인>' ACME_EMAIL= \
 
 ### 진입점 복구
 
-- nginx를 다시 띄우기 **전에** k3s의 `servicelb`를 다시 disable하고 k3s를 재시작한다. svclb pod와 hostPort DNAT의 80·443 점유가 사라졌는지 확인한다.
-- 백업한 기존 Compose edge 구성·인증서를 사용해 nginx를 재시작한다. 외부 TLS와 기존 health를 확인한다. DNS는 기존 large EIP를 유지한다.
+Compose edge nginx와 그 인증서 볼륨, 뒤의 app·web·DB를 2026-10-30에 지웠다(#440). nginx로 진입점을 되돌리는 복구는 없다. 서버의 `/var/backups/hapbang/gateway-<UTC>/`에 전환 전 nginx 설정·인증서 백업이 남아 있어도 보낼 Compose 서비스가 없다. Gateway에 문제가 생기면 k3s 안에서 고친다.
+
 - stateful PVC·DB·인증서 Secret을 삭제하지 않는다. Gateway 작업을 되돌리려고 `k3s-uninstall.sh`를 실행하지 않는다.
-- 데이터 이전 이후의 복구는 #338 절차가 필요하다. 진입점만 되돌렸다고 데이터도 이전 시점으로 복구됐다고 판단하지 않는다.
 
 
 ## 검증 기록 (2026-10-29, 로컬 k3d)
@@ -145,7 +145,7 @@ GATEWAY_HOST='<prod 도메인>' ACME_EMAIL= \
 
 - Envoy Gateway v1.9.3과 cert-manager v1.21.3을 설치했다. controller는 medium, Envoy proxy는 large에서 Ready다.
 - 로컬 cert-manager의 controller 반복 종료·cainjector OOMKilled를 확인해 두 컨테이너를 각각 50Mi에서 128Mi로 조정했다. 변경 후 로컬·EC2에서 재시작 없이 Ready를 확인했다. webhook은 50Mi를 유지한다. 목표 8개 앱의 medium 예산 초과는 별도 조정이 필요하다(#343).
-- k3s 설정·edge Compose/nginx 구성·기존 인증서를 서버의 root 전용 `/var/backups/hapbang/gateway-<UTC>/`에 백업했다. edge nginx·certbot을 중지하고, k3s의 `disable: servicelb`를 `disable: traefik`으로 바꾼 뒤 재시작했다. ServiceLB label은 large에만 붙였으며 두 ServiceLB 포트 컨테이너가 large에서 Ready다. 기존 app·web·DB와 PVC는 보존했다.
+- k3s 설정·edge Compose/nginx 구성·기존 인증서를 서버의 root 전용 `/var/backups/hapbang/gateway-<UTC>/`에 백업했다. edge nginx·certbot을 중지하고, k3s의 `disable: servicelb`를 `disable: traefik`으로 바꾼 뒤 재시작했다. ServiceLB label은 large에만 붙였으며 두 ServiceLB 포트 컨테이너가 large에서 Ready다. 이때 기존 app·web·DB와 PVC는 보존했고, 같은 날 뒤이어 Compose를 볼륨까지 지웠다(#440).
 - Let's Encrypt staging 발급 성공 뒤 `gateway-issuer` production 인증서로 전환했다. Certificate Ready와 일반 TLS 검증을 통과했다. 만료는 2027-01-28, cert-manager의 갱신 예정은 2026-12-29다. 실제 만료 갱신을 실행했다는 뜻은 아니다.
 - 외부 도메인 검증 12개 통과: HTTP→HTTPS 301, 신뢰된 TLS와 Grafana 로그인 화면 200, Grafana 익명 데이터 401·실제 로그인/인증 데이터 200, Kafka UI 익명 401·인증 화면/토픽 API 200, 내부 API 404, 미등록 앱 API·FE root 404, 위조 사용자 헤더로 Grafana 데이터 접근 불가.
 - Alloy의 OTLP 수신 13 spans·Tempo 전송 13 spans·수신 거절 0을 확인했고 Tempo에서 Envoy ingress trace를 조회했다. 운영 샘플링은 10%여서 특정 단건 요청이 항상 저장되는 것은 아니다.

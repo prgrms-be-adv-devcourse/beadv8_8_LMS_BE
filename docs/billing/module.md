@@ -205,7 +205,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | Billing → TossPayments | HTTP (`TossPaymentsClient`) | 영향 없음 | — |
 | Billing → Mock 은행 | 같은 billing-app에 실제 HTTP (`localhost:{port}`) | 영향 없음(같은 앱). local·test 프로필에서만 켜짐 | #288 |
 | 인증 | billing `SecurityConfig`: CSRF SPA 쿠키, `/api/v1/*/admin/**` = ADMIN, 나머지 인증 필요. oauth2Login·spring-session 의존 없음. `@LoginUserId` = `Long.valueOf(authentication.getName())` | **미확인:** 다른 앱(member-app)이 만든 로그인 세션을 billing-app이 인식할 방법이 코드에 없다(추정: 지금은 사용자 API 인증 불가). 목표는 JWT + `X-User-*` 헤더다(7.2) | #370~#372 (JWT 전환) |
-| 외부 노출 차단 | 현재 Compose: edge nginx가 `/api/v1/internal/**`을 404로 막는다 | billing은 내부 API를 노출하지 않으므로 지금은 해당 경로가 없다 | 루트 AGENTS 7장 |
+| 외부 노출 차단 | Envoy Gateway에 `/api/v1/internal/**` route가 없어 404다 | billing은 내부 API를 노출하지 않으므로 지금은 해당 경로가 없다 | 루트 AGENTS 7장 |
 
 `SecurityConfig`에 `GET /api/v1/lectures`가 공개 경로로 남아 있다(billing이 제공하지 않는 경로, 모놀리스 시절 흔적으로 추정).
 

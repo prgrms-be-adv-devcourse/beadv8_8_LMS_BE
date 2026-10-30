@@ -21,7 +21,7 @@
 - Java 25 (Gradle Toolchain), Spring Boot 4.1.1, Gradle 멀티모듈
 - DB: PostgreSQL 인스턴스 1개, 모듈마다 database를 따로 둔다 (#338).
 - 인증: OAuth 소셜 로그인 + JWT. member-app이 발급(RS256, JWKS)하고 Envoy Gateway가 서명을 검증해 사용자 헤더로 넘긴다. 앱은 `@PreAuthorize`로 인가한다 (#369, #370). 전환 전 코드는 세션을 쓴다.
-- 진입점(k3s 목표 구조): Envoy Gateway(Kubernetes Gateway API). nginx는 쓰지 않는다. 현재 Compose 운영은 edge nginx다.
+- 진입점: Envoy Gateway(Kubernetes Gateway API). EC2 k3s prod 한 벌이 유일한 서버 환경이다(dev 서버 없음).
 - 회복성: rate limit과 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 Resilience4j로 한다.
 - 결제: 충전 예치금 + HP 원장 + TossPayments 테스트 API
 - 이벤트: 모듈 간 비동기 연동은 이벤트로 하고, 브로커는 Kafka다 (#339).
@@ -72,8 +72,8 @@
 - 모든 API는 `/api/v1/...` 아래에 둔다 (3장의 진입 경로 참고).
 - API 명세는 Swagger로 관리한다. 프론트와 API 설계를 먼저 맞추고, 명세(Controller)를 먼저 만들어 동시에 작업할 수 있게 한다.
 - 성공 응답은 `global`의 `RsData`(`statusCode`, `message`, `data`)로 감싼다. 오류는 `global`의 `GlobalExceptionHandler` 하나가 `ProblemDetail`(+ `code`)로 응답한다. **모듈은 `@RestControllerAdvice`를 만들지 않고**, `{Module}ErrorCode implements BaseErrorCode`와 `{Module}Exception extends BusinessException`만 둔다.
-- 모듈 간 내부 HTTP API는 `/api/v1/internal/<모듈>/...`에 둔다. 회원 인증이 아니라 `X-Internal-Api-Key`로 인증하고, 서버 밖에서는 진입점이 막는다. 현재 Compose는 edge nginx가 404로, k3s 목표 구조는 Envoy에 route를 만들지 않는다 (D63, `docs/api/internal-earnings.md`).
-- 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. 진입점은 이 경로에만 큰 본문을 허용한다. 현재 Compose는 edge nginx, k3s 목표 구조는 Envoy timeout 설정이다 (`docs/deploy/s3.md`, #106).
+- 모듈 간 내부 HTTP API는 `/api/v1/internal/<모듈>/...`에 둔다. 회원 인증이 아니라 `X-Internal-Api-Key`로 인증하고, 서버 밖에서는 Envoy에 route를 만들지 않아 닿지 않는다 (D63, `docs/api/internal-earnings.md`).
+- 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. Envoy는 이 경로에만 큰 본문과 긴 timeout을 허용한다 (`docs/deploy/s3.md`, #106).
 - RsData 반환 방법, 오류 코드·예외 작성법, 공통 핸들러가 처리하는 상황은 [`docs/api/conventions.md`](docs/api/conventions.md)에 있다.
 
 ## 8. 인프라와 배포
@@ -81,7 +81,7 @@
 - AWS 범위는 **EC2 2대(t3.large 1대, t3.medium 1대), VPC 1개, public subnet 1개, S3 버킷 1개**다. EKS, RDS, ElastiCache, MSK, ELB 등 범위 밖 managed service나 EC2를 임의로 추가하지 않는다.
 - 두 EC2는 하나의 k3s cluster를 구성한다. `t3.large`는 server/`core-data`, `t3.medium`은 agent/`app-observe`다. 단일 `core-data` node에 stateful workload를 두므로 고가용성이라고 표현하지 않는다.
 - node 배치, network·security group, S3 IAM, storage, Terraform과 전환 규칙은 [`docs/deploy/aws-k3s.md`](docs/deploy/aws-k3s.md)를 따른다.
-- 현재 Docker Compose 운영은 [`docs/deploy/README.md`](docs/deploy/README.md)를 따른다. k3s 전환 전에는 현재/목표 상태를 섞어 이미 배포된 것처럼 쓰지 않는다.
+- 배포·운영은 [`docs/deploy/README.md`](docs/deploy/README.md)를 따른다. 업무 앱은 아직 k3s에 배포 전이므로 배포된 것처럼 쓰지 않는다.
 - k8s manifest는 앱마다 `apps/<앱>/k8s/`(base·overlays, Secret `<앱>-secrets`)에 두고 루트 `k8s/`를 참조하지 않는다. 레포를 나눠도 앱 디렉터리만으로 배포할 수 있어야 한다. 루트 `k8s/`에는 앱들이 함께 쓰는 인프라(cluster·platform)만 둔다 ([`docs/deploy/k8s.md`](docs/deploy/k8s.md)).
 - kubectl은 항상 `--context`를 명시한다. `hapbang-k3s`는 EC2 prod cluster다. manifest 검증은 로컬 k3d(`k3d-hapbang`, `k8s/local/k3d.yaml`)에서 한다. Docker Desktop 내장 Kubernetes에는 HelmChart·local-path가 없어 manifest가 돌지 않는다.
 
@@ -121,7 +121,7 @@
 | 엔티티·Repository·HQL | [`docs/dev/persistence.md`](docs/dev/persistence.md), [`docs/db-migration.md`](docs/db-migration.md) |
 | 테스트 작성·실행 | [`docs/dev/testing.md`](docs/dev/testing.md) |
 | 파일 업로드(S3) | [`docs/deploy/s3.md`](docs/deploy/s3.md) |
-| 로컬·dev 서버 확인, 라이브러리 추가 | [`docs/dev/local.md`](docs/dev/local.md) |
+| 로컬 확인, 라이브러리 추가 | [`docs/dev/local.md`](docs/dev/local.md) |
 | 모듈 작업 | `docs/<모듈>/module.md`(강의 [`docs/lecture/module.md`](docs/lecture/module.md), 출연 [`docs/appearance/module.md`](docs/appearance/module.md)), `boundedContext/<모듈>/AGENTS.md` |
 | 이슈·브랜치·PR·병합·배포 확인 | [`docs/contributing/git-workflow.md`](docs/contributing/git-workflow.md) |
 | 서버·배포·AWS | [`docs/deploy/README.md`](docs/deploy/README.md), [`docs/deploy/security.md`](docs/deploy/security.md) |

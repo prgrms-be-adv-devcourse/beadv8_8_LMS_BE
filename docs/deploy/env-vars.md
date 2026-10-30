@@ -1,13 +1,13 @@
 # 환경변수 가이드
 
-환경변수를 추가·변경·삭제할 때의 절차다. **값(특히 비밀값)은 레포, PR, 이슈, 채팅, 노션 어디에도 쓰지 않는다.** 레포에는 키 이름과 예시 값만 둔다.
+환경변수를 추가·변경·삭제할 때의 절차다. **값(특히 비밀값)은 레포, PR, 이슈, 채팅, 노션 어디에도 쓰지 않는다.** 레포에는 키 이름과 예시 값만 둔다. 운영은 k3s 한 벌(prod)이다([배포 개요](README.md)).
 
 ## 먼저 분류한다
 
 | 질문 | 예 | 아니오 |
 | --- | --- | --- |
-| 유출되면 문제인가? (비밀번호, API 키, OAuth client secret, 결제 키) | 비밀값 → 서버 env 파일에만 | 설정값 → yaml에 직접 써도 된다 |
-| prod·dev 값이 다른가? | 서버 env 파일로 환경별 주입 | `application.yaml`(공통)에 둔다 |
+| 유출되면 문제인가? (비밀번호, API 키, OAuth client secret, 결제 키) | 비밀값 → 앱 SealedSecret | 설정값 → 앱 ConfigMap 또는 yaml |
+| 로컬과 prod 값이 다른가? | `application-prod.yaml`에 `${KEY}`로 두고 ConfigMap·Secret으로 주입 | `application.yaml`(공통)에 둔다 |
 | FE에서 쓰는가? | 아래 [FE 환경변수](#fe-환경변수) 참고 | — |
 
 비밀값이 아니고 환경별로 같다면 환경변수로 만들 필요 없이 `application.yaml`에 쓰면 된다.
@@ -15,26 +15,29 @@
 ## 값이 흐르는 경로 (BE)
 
 ```
-서버 /opt/hapbang/env/<env>.env      KAKAO_CLIENT_SECRET=...      ← 실제 값 (서버에만)
-        │ --env-file (compose 치환용)
+~/.hapbang/prod-secrets.env (레포 밖)   KAKAO_CLIENT_SECRET=...   ← 실제 값
+        │ k8s/tools/seal-app-secrets.sh (kubeseal)
         ▼
-docker/compose.<env>.yaml  app.environment:
-        KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:?...}           ← 컨테이너로 넘길 키를 명시
+apps/<앱>/k8s/overlays/prod/<앱>-secrets.yaml   SealedSecret      ← 암호문만 커밋
+        │ Sealed Secrets controller가 Secret <앱>-secrets로 푼다
+        ▼
+apps/<앱>/k8s/base/deployment.yaml   envFrom: <앱>-config(ConfigMap), <앱>-secrets(Secret)
         │
         ▼
-apps/src/main/resources/application-<env>.yaml
-        ...client-secret: ${KAKAO_CLIENT_SECRET}                   ← Spring이 읽는다
+apps/<앱>/src/main/resources/application-prod.yaml
+        ...client-secret: ${KAKAO_CLIENT_SECRET}                  ← Spring이 읽는다
 ```
 
-> ⚠️ **env 파일에 추가하는 것만으로는 컨테이너에 전달되지 않는다.** env 파일은 compose 파일의 `${...}`를 치환하는 데만 쓰인다. 컨테이너로 넘기려면 `compose.<env>.yaml`의 `app.environment`에 키를 적어야 한다.
+- 비밀이 아닌 값은 `apps/<앱>/k8s/base/kustomization.yaml`의 `configMapGenerator`(`<앱>-config`)에 적는다. 이름에 내용 hash가 붙어 값을 바꾸면 앱이 다시 배포된다.
+- Secret은 앱마다 하나이고 그 앱만 읽는다. 키 목록과 봉인 방법은 [k8s.md#secret](k8s.md#secret)이 원본이다.
 
 ## BE 환경변수 추가 절차
 
-예: 카카오 OAuth client secret `KAKAO_CLIENT_SECRET`을 추가한다.
+예: 회원 앱에 카카오 OAuth client secret `KAKAO_CLIENT_SECRET`을 추가한다.
 
 ### 1. 코드 (PR에 포함)
 
-**`apps/src/main/resources/application-prod.yaml`, `application-dev.yaml`**
+**`apps/member-app/src/main/resources/application-prod.yaml`**
 
 ```yaml
 spring:
@@ -48,129 +51,65 @@ spring:
 
 **`application-local.yaml`** (로컬 개발): 비밀값이면 기본값을 두지 말고 IDE 실행 설정이나 셸의 환경변수로 넣는다. 비밀이 아닌 로컬용 값이면 yaml에 직접 써도 된다.
 
-**`docker/compose.prod.yaml`, `docker/compose.dev.yaml`** — `app.environment`에 추가
+**비밀값이면**
 
-```yaml
-  app:
-    environment:
-      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:?KAKAO_CLIENT_SECRET가 필요하다}
-```
+- `k8s/tools/seal-app-secrets.sh`의 `spec()`에서 그 앱의 필수 또는 선택 키 목록에 더한다.
+- [k8s.md#secret](k8s.md#secret)의 Secret 표에 키를 더한다.
+- local overlay(`apps/<앱>/k8s/overlays/local/kustomization.yaml`)의 `secretGenerator`에 가짜 값을 더한다.
 
-`:?`는 서버 env 파일에 값이 없으면 compose가 바로 실패하게 한다. 빈 값으로 조용히 뜨는 것보다 낫다.
-
-**`docker/.env.example`** — 키와 설명, **예시 값**만
-
-```
-# 카카오 OAuth client secret (카카오 개발자 콘솔 > 앱 > 보안)
-KAKAO_CLIENT_SECRET=example
-```
+**비밀이 아니면**: `apps/<앱>/k8s/base/kustomization.yaml`의 `configMapGenerator` `literals`에 `KEY=값`을 더한다.
 
 **테스트가 이 값을 필요로 하면**: 테스트용 프로필/설정에 가짜 값을 둔다. 실제 비밀값이 필요한 테스트는 만들지 않는다(필요하면 GitHub Secrets → ci.yml `env`, 로그에 출력 금지).
 
-### 2. 서버 env 파일에 값 추가 (병합 전에)
+### 2. SealedSecret 다시 만들기 (비밀값일 때, PR에 포함)
 
-`dev.env`·`prod.env`에 `KAKAO_CLIENT_SECRET=<값>` 줄을 추가한다. 편집 방법은 아래 [서버 env 파일 편집](#서버-env-파일-편집).
-
-### 3. compose 파일을 서버에 반영 (병합 전에)
-
-[operations.md#설정-반영](operations.md#설정-반영) 절차로 `compose.prod.yaml`, `compose.dev.yaml`을 올리고 검증한다. 검증(`config --quiet`)은 env 파일에 값이 없으면 실패하므로 2번이 먼저다.
-
-### 4. PR 병합 → 배포
-
-dev 병합 시 dev에 새 app이 뜬다. prod는 main 병합 뒤 Actions → Deploy prod를 실행해야 뜬다(BE 운영 배포는 수동). 순서가 바뀌면:
-
-| 상황 | 결과 |
-| --- | --- |
-| 서버 env에 값 없이 병합(prod는 배포 실행) | compose가 시작 전에 실패 → 배포 실패, **기존 컨테이너는 그대로** 동작 |
-| compose 반영 없이 병합(prod는 배포 실행) | 서버 compose가 레포와 달라 **배포 전에 실패**, 기존 컨테이너는 그대로 동작 |
-
-### 5. 확인
+`~/.hapbang/prod-secrets.env`에 `KEY=VALUE` 줄을 더하고 그 앱만 다시 봉인한다. 값은 화면에 출력되지 않는다.
 
 ```bash
-cd /opt/hapbang
-# 키가 컨테이너에 들어갔는지 (값 길이만 출력)
-sudo -u deploy docker compose -f compose.dev.yaml --env-file env/dev.env exec app sh -c 'printf %s "$KAKAO_CLIENT_SECRET" | wc -c'
+k8s/tools/seal-app-secrets.sh member
+git diff --stat apps/member-app/k8s/overlays/prod   # <앱>-secrets.yaml만 바뀌었는지
+```
+
+- `~/.hapbang`의 파일은 팀 비밀 보관소에도 둔다([k8s.md#secret](k8s.md#secret)).
+- 봉인은 EC2 cluster의 controller 공개 키로 한다. 로컬 kubeconfig에 `hapbang-k3s` context가 있어야 한다([로컬 kubectl 접근](aws-k3s.md#로컬-kubectl-접근)).
+
+### 3. PR 병합 → 배포
+
+`main`에 병합하면 바뀐 앱 이미지가 발행되고, Deploy를 실행하면 그 앱의 overlay(SealedSecret 포함)가 적용된다([운영 앱 배포](k8s.md#운영-앱-배포)). 이미지가 바뀌지 않고 Secret만 바뀐 경우에도 `apps/<앱>/`가 바뀌었으므로 배포 대상이 된다.
+
+### 4. 확인
+
+```bash
+# 키가 pod에 들어갔는지 (값 길이만 출력)
+kubectl --context hapbang-k3s -n hapbang-prod exec deploy/member-app -- sh -c 'printf %s "$KAKAO_CLIENT_SECRET" | wc -c'
 ```
 
 ## 값 변경 (비밀값 교체 포함)
 
-1. 서버 env 파일의 해당 줄을 수정한다([서버 env 파일 편집](#서버-env-파일-편집)).
-2. Actions에서 dev는 **최근 BE Deploy run → `deploy` job 재실행**, prod는 **지금 운영 중인 커밋 sha로 Deploy prod 실행**([operations.md#상태-확인](operations.md#상태-확인)의 실행 중인 버전). 환경변수가 바뀌었으므로 app이 새로 만들어진다.
+1. `~/.hapbang/prod-secrets.env`의 값을 바꾸고 그 앱을 다시 봉인해 PR로 병합한다. 내부 API 키와 `DB_PASSWORD`는 이 파일에서 읽지 않으므로 아래 절차를 따른다.
+2. Deploy를 `apps`에 그 앱을 넣어 실행한다. envFrom은 pod가 시작할 때만 읽으므로, 배포로 pod가 다시 만들어져야 새 값이 들어간다.
+3. Deploy는 SealedSecret과 Deployment를 함께 적용하므로, controller가 Secret을 풀기 전에 새 pod가 뜨면 이전 값을 읽는다. 배포 뒤 `kubectl --context hapbang-k3s -n <namespace> get sealedsecret <이름> -o jsonpath='{.metadata.generation} {.status.observedGeneration} {.status.conditions[0].status}'`가 같은 숫자 두 개와 `True`를 출력하면 Secret이 새 값으로 풀린 것이다(값은 출력하지 않는다). pod가 그보다 먼저 시작했으면 `kubectl --context hapbang-k3s -n hapbang-prod rollout restart deploy/<앱>-app`으로 다시 띄운다.
 
-> ❌ 서버에서 `docker compose up`을 직접 실행하지 않는다. 이미지 태그가 지정되지 않아 예전 이미지로 바뀔 수 있다([operations.md#하지-말-것](operations.md#하지-말-것)).
-
-**DB 비밀번호(`POSTGRES_PASSWORD`)는 예외다.** PostgreSQL은 처음 초기화할 때만 이 값을 쓰므로 env 파일만 바꾸면 app이 접속하지 못한다. [security.md#db-비밀번호-교체](security.md#db-비밀번호-교체)를 따른다.
-
-## 서버 env 파일 편집
-
-서버에 `ubuntu` 계정으로 접속해 **파일 주인(`deploy`)으로** vim을 연다.
-
-```bash
-sudo -u deploy vim -n -i NONE /opt/hapbang/env/dev.env    # prod는 prod.env
-```
-
-| 방법 | 결과 |
-| --- | --- |
-| `vim /opt/hapbang/env/dev.env` | ❌ 권한 거부(파일이 `deploy` 소유, 600) |
-| `sudo vim ...` | ⚠️ root로 저장되어 소유자·권한이 바뀔 수 있다 |
-| **`sudo -u deploy vim -n -i NONE ...`** | ✅ 소유자·권한 유지 |
-
-- `-n`: 스왑 파일(`.dev.env.swp`)을 만들지 않는다. 접속이 끊기면 비밀값이 담긴 스왑 파일이 남는다.
-- `-i NONE`: viminfo에 검색·복사 기록을 남기지 않는다.
-
-**형식**: `KEY=값`. `=` 양옆에 공백을 두지 않고 `export`를 붙이지 않는다. **비밀값은 작은따옴표로 감싼다.**
-
-```
-KAKAO_CLIENT_SECRET='abc$12 3#x'     # ✅ 작은따옴표: 값 그대로 전달
-```
-
-compose는 env 파일의 `$`를 변수로 치환한다. 따옴표 없이 쓰거나 큰따옴표로 감싸면 값이 조용히 잘린다.
-
-| env 파일 | 컨테이너에 전달되는 값 |
-| --- | --- |
-| `K='a b#c$d'` | `a b#c$d` ✅ |
-| `K="a b#c$d"` | `a b#c` ❌ (`$d`가 빈 변수로 치환) |
-| `K=abc$def` | `abc` ❌ |
-| `K=abc #메모` | `abc` (공백 뒤 `#`부터 주석) |
-
-값에 작은따옴표(`'`)가 들어 있으면 그 값은 쓰지 말고 다시 발급받는다.
-
-**편집 후 확인** (값은 출력하지 않는다)
-
-```bash
-sudo ls -l /opt/hapbang/env                                     # -rw------- deploy deploy 유지
-sudo -u deploy grep -c '^KAKAO_CLIENT_SECRET=' /opt/hapbang/env/dev.env   # 1 (중복 없음)
-```
-
-**편집만으로는 반영되지 않는다.**
-
-- 새 키: `compose.<env>.yaml`의 `app.environment`에도 있어야 컨테이너로 전달된다(위 1·3번).
-- 값 변경: dev는 최근 BE Deploy run → `deploy` job 재실행, prod는 운영 중인 sha로 Deploy prod를 실행해야 app이 새 값으로 다시 만들어진다. 서버에서 `docker compose up`을 직접 실행하지 않는다.
-- `POSTGRES_PASSWORD`는 이 방법으로 바꾸지 않는다 → [security.md#db-비밀번호-교체](security.md#db-비밀번호-교체)
+- `HAPBANG_INTERNAL_API_KEY`는 `seal-app-secrets.sh`가 `prod-secrets.env`가 아니라 `~/.hapbang/internal-api-key`에서 읽는다. env 파일만 고치면 다시 봉인해도 기존 키가 그대로 들어간다. 바꿀 때는 이 파일을 새 값으로 바꾸고(예: `(umask 077; openssl rand -hex 32 | tr -d '\n' > ~/.hapbang/internal-api-key)`), 앱 이름 없이 `k8s/tools/seal-app-secrets.sh`를 실행해 앱 6개를 함께 다시 봉인한다. PR 병합 뒤 Deploy의 `apps`에 앱 6개를 모두 넣어 배포한다. 앱 6개가 같은 값을 써야 하므로 배포가 끝날 때까지 앱 사이 내부 호출이 잠깐 401로 실패할 수 있다. 위 3번처럼 앱 6개의 SealedSecret 반영을 모두 확인하고, 먼저 뜬 pod는 다시 띄운다. 팀 비밀 보관소의 파일도 새 값으로 바꾼다.
+- `DB_PASSWORD`는 `postgres-credentials`와 같아야 하고, PostgreSQL은 첫 기동 때만 이 값으로 role을 만든다. 바꿀 때는 [security.md](security.md#db-비밀번호-교체)를 따른다.
 
 ## 삭제
 
-코드에서 사용을 먼저 없애고 배포한 뒤 → `compose.*.yaml`의 키 삭제(설정 반영) → 서버 env 파일에서 줄 삭제 순서로 한다. 반대로 하면 `:?` 때문에 배포가 실패한다.
+코드에서 사용을 먼저 없애고 배포한 뒤 → ConfigMap 또는 `seal-app-secrets.sh`·Secret 표에서 키를 지우고 다시 봉인한다. 반대로 하면 기본값 없는 `${KEY}` 때문에 앱이 기동하지 못한다.
 
 ## FE 환경변수
 
 Vite의 `VITE_*` 변수는 **빌드할 때 JS 번들에 그대로 박힌다.** 브라우저에서 누구나 볼 수 있다.
 
 - **비밀값을 절대 넣지 않는다.** API 키 등은 BE를 통해 사용한다.
-- **prod·dev에 같은 이미지를 쓴다.** `main`·`dev`가 각자 빌드하지만, 환경별로 다른 값을 넣는 구조가 아니다. API 주소는 환경변수 대신 상대 경로(`/api/v1/...`)를 쓴다.
-- 환경별로 꼭 달라야 하는 공개 값이 생기면 FE 레포의 `deploy.yml` 빌드 단계에 build-arg를 추가해야 한다. 팀과 먼저 상의한다.
-
-## edge(도메인) 변수
-
-`/opt/hapbang/env/edge.env`의 `PROD_HOST`, `DEV_HOST`. 바꾸면 인증서를 다시 발급해야 한다([server-setup.md#4-https-인증서](server-setup.md#4-https-인증서)).
+- API 주소는 환경변수 대신 상대 경로(`/api/v1/...`)를 쓴다. FE와 API는 같은 도메인에서 Envoy가 경로로 나눈다.
+- 환경별로 꼭 달라야 하는 공개 값이 생기면 FE 레포의 빌드 단계에 build-arg를 추가해야 한다. 팀과 먼저 상의한다.
 
 ## 체크리스트
 
 - [ ] 비밀값인지, 환경별로 다른지 분류했다
-- [ ] `application-<env>.yaml`에 `${KEY}` (기본값 없음)
-- [ ] `compose.prod.yaml`·`compose.dev.yaml` `app.environment`에 `KEY: ${KEY:?...}`
-- [ ] `docker/.env.example`에 키·설명·예시 값
-- [ ] 서버 `prod.env`·`dev.env`에 실제 값 (병합 전)
-- [ ] compose 파일 서버 반영·검증 (병합 전)
-- [ ] 병합 후 배포 성공, 컨테이너에 값 전달 확인
+- [ ] `application-prod.yaml`에 `${KEY}` (기본값 없음)
+- [ ] 비밀값: `seal-app-secrets.sh` 키 목록, k8s.md Secret 표, local overlay `secretGenerator` 가짜 값, 다시 봉인한 SealedSecret
+- [ ] 설정값: 앱 `configMapGenerator`
+- [ ] 병합 후 Deploy 성공, pod에 값 전달 확인
 - [ ] 값이 PR·커밋·로그·채팅에 남지 않았다
