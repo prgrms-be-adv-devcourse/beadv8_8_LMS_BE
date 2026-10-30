@@ -9,8 +9,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
 
 /**
  * 주문 항목(강의 하나). 구매 확정·구매 취소·지급·이의 제기는 항목 단위로 일어난다 (설계 4.6).
@@ -241,20 +239,20 @@ public class OrderItem {
             throw new IllegalArgumentException("이의 제기 사유는 필수입니다.");
         }
         if (!this.buyerUserId.equals(buyerUserId)) {
-            throw new LectureObjectionRefusedException(Reason.NOT_BUYER);
+            throw new LectureException(LectureErrorCode.OBJECTION_NOT_BUYER);
         }
         if (isWithdrawn() || status.isHoldStage() || status == OrderItemStatus.CANCEL_PENDING
                 || status == OrderItemStatus.RETURN_PENDING) {
-            throw new LectureObjectionRefusedException(Reason.NOT_OBJECTIONABLE);
+            throw new LectureException(LectureErrorCode.OBJECTION_NOT_OBJECTIONABLE);
         }
         if (status == OrderItemStatus.PAID_OUT) {
-            throw new LectureObjectionRefusedException(Reason.ALREADY_PAID_OUT);
+            throw new LectureException(LectureErrorCode.OBJECTION_ALREADY_PAID_OUT);
         }
         if (objectionStatus != ObjectionStatus.NONE) {
-            throw new LectureObjectionRefusedException(Reason.ALREADY_FILED);
+            throw new LectureException(LectureErrorCode.OBJECTION_ALREADY_FILED);
         }
         if (status == OrderItemStatus.PAYOUT_PENDING || !now.isBefore(payoutScheduledAt)) {
-            throw new LectureObjectionRefusedException(Reason.PERIOD_EXPIRED);
+            throw new LectureException(LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
         }
         this.objectionStatus = ObjectionStatus.FILED;
         this.objectionInquiryId = Objects.requireNonNull(inquiryId, "문의 ID는 필수입니다.");
@@ -270,10 +268,10 @@ public class OrderItem {
     void resolveObjection(Long inquiryId, boolean accepted, Long adminUserId, LocalDateTime now) {
         Objects.requireNonNull(adminUserId, "판단한 관리자 ID는 필수입니다.");
         if (objectionStatus != ObjectionStatus.FILED) {
-            throw new LectureObjectionRefusedException(Reason.NOT_FILED);
+            throw new LectureException(LectureErrorCode.OBJECTION_NOT_FILED);
         }
         if (!objectionInquiryId.equals(inquiryId)) {
-            throw new LectureObjectionRefusedException(Reason.INQUIRY_MISMATCH);
+            throw new LectureException(LectureErrorCode.OBJECTION_INQUIRY_MISMATCH);
         }
         if (accepted) {
             // 접수 중에는 구매 취소·지급이 멈추므로 구매 또는 구매 확정 상태다
@@ -297,13 +295,13 @@ public class OrderItem {
      */
     void withdrawObjection(Long buyerUserId, Long inquiryId) {
         if (!this.buyerUserId.equals(buyerUserId)) {
-            throw new LectureObjectionRefusedException(Reason.NOT_BUYER);
+            throw new LectureException(LectureErrorCode.OBJECTION_NOT_BUYER);
         }
         if (objectionStatus != ObjectionStatus.FILED) {
-            throw new LectureObjectionRefusedException(Reason.NOT_FILED);
+            throw new LectureException(LectureErrorCode.OBJECTION_NOT_FILED);
         }
         if (!objectionInquiryId.equals(inquiryId)) {
-            throw new LectureObjectionRefusedException(Reason.INQUIRY_MISMATCH);
+            throw new LectureException(LectureErrorCode.OBJECTION_INQUIRY_MISMATCH);
         }
         this.objectionStatus = ObjectionStatus.NONE;
         this.objectionInquiryId = null;

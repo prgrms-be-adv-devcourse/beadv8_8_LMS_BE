@@ -8,13 +8,13 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.lecture.config.LectureConfig;
+import com.hapbang.lecture.domain.LectureErrorCode;
+import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.LectureOrderRepository;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
 
 /**
  * 이의 제기 판단 (설계 6.4, D59 (1)). 호출한 쪽(고객센터) 트랜잭션에서 판단을 기록한다.
@@ -50,7 +50,7 @@ public class OrderObjectionResolveUseCase {
                 ? lectureOrderSupport.findOrderForUpdateByItemId(orderItemId)
                 : lectureOrderRepository.findByItemId(orderItemId);
         // 없는 항목은 판단할 이의 제기가 없는 것이다
-        LectureOrder order = found.orElseThrow(() -> new LectureObjectionRefusedException(Reason.NOT_FILED));
+        LectureOrder order = found.orElseThrow(() -> new LectureException(LectureErrorCode.OBJECTION_NOT_FILED));
         OrderItem item = order.resolveObjection(orderItemId, inquiryId, accepted, adminUserId, now);
         // 같은 항목을 동시에 바꾼 변경(낙관적 락 충돌)을 작업 등록 전에 확인한다 (설계 6.2)
         lectureOrderRepository.flush();

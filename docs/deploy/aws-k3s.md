@@ -72,6 +72,7 @@ Client
 - static access key를 pod에 주입하지 않는다.
 - 두 EC2 모두 IMDSv2를 강제한다.
 - container에서 instance metadata에 접근할 수 있도록 metadata response hop limit을 2로 둔다.
+- 인스턴스 역할에 `AmazonSSMManagedInstanceCore`를 붙였다(2026-10-30, #374). 배포 workflow가 SSM Run Command로 large에 명령을 보낸다([운영 앱 배포](k8s.md#운영-앱-배포)). pod는 IMDS 차단으로 이 권한을 쓰지 못한다.
 - S3 bucket은 사진·영상 업로드 전용이다. telemetry, vector index, PostgreSQL·Elasticsearch backup 용도로 임의 확장하지 않는다.
 
 ## Storage와 자원 원칙
