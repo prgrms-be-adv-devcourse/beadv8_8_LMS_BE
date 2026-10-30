@@ -1,8 +1,10 @@
 package com.hapbang.appearance.out.event;
 
+import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.APPLICATION_SUBMITTED;
 import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.EVENT_ID;
 import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.EVENT_TYPE;
 import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.EVENT_VERSION;
+import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.REQUEST_SENT;
 import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.TOPIC;
 import static com.hapbang.appearance.out.event.AppearanceNotificationExternalizationConfig.eventId;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,7 +38,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.Message;
-import org.springframework.modulith.events.IncompleteEventPublications;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
@@ -44,6 +45,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.appearance.app.AppearanceApplicationFacade;
+import com.hapbang.appearance.app.AppearanceNotificationRepublishUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitFacade;
 import com.hapbang.appearance.app.AppearanceRequestFacade;
 import com.hapbang.appearance.app.AppearanceUserFacade;
@@ -68,7 +70,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <ul>
  *     <li>다른 출연 테스트는 Kafka 외부화를 끄고(hapbang-module-test.yaml), 이 테스트만 켠다.</li>
  *     <li>토픽은 운영과 같은 {@value AppearanceNotificationExternalizationConfig#TOPIC} 하나를 테스트끼리 같이 쓴다.
- *     테스트마다 새 소비자 그룹으로 처음부터 읽고, 이 테스트가 만든 이벤트 ID의 메시지만 본다(ID는 테스트 사이에 초기화되지 않는다).</li>
+ *     테스트마다 새 소비자 그룹을 토픽 끝으로 옮긴 뒤 읽어 앞 테스트의 메시지를 보지 않고, 그중 이 테스트가 만든 이벤트 ID의 메시지만 본다.</li>
  *     <li>외부화를 켠 설정이라 컨텍스트를 따로 띄운다. 끝나면 닫아({@link DirtiesContext}) 캐시된 다른 컨텍스트와 합쳐
  *     테스트 DB 연결 상한을 넘지 않게 한다.</li>
  *     <li>보내기는 커밋 뒤 비동기로 일어나므로 제한 시간 안에 기다린다. 소비자는 스레드 안전하지 않아 테스트 스레드에서만 읽는다.</li>
@@ -110,7 +112,7 @@ class AppearanceNotificationKafkaTest {
     TransactionTemplate transactionTemplate;
 
     @Autowired
-    IncompleteEventPublications incompleteEventPublications;
+    AppearanceNotificationRepublishUseCase appearanceNotificationRepublishUseCase;
 
     @Autowired
     JsonMapper jsonMapper;
@@ -132,9 +134,16 @@ class AppearanceNotificationKafkaTest {
         consumer = new KafkaConsumer<>(Map.of(
                 ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
                 ConsumerConfig.GROUP_ID_CONFIG, "appearance-test-" + UUID.randomUUID(),
-                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest"),
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest"),
                 new StringDeserializer(), new StringDeserializer());
         consumer.subscribe(List.of(TOPIC));
+        // 파티션을 받을 때까지 읽은 뒤 끝으로 옮긴다. 이후 이 테스트가 보낸 메시지만 받는다
+        await().atMost(TIMEOUT).pollInSameThread().until(() -> {
+            consumer.poll(Duration.ofMillis(100));
+            return !consumer.assignment().isEmpty();
+        });
+        consumer.seekToEnd(consumer.assignment());
+        consumer.assignment().forEach(consumer::position);
     }
 
     @AfterEach
@@ -148,12 +157,12 @@ class AppearanceNotificationKafkaTest {
     void requestSent() {
         AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
                 AppearanceRequestFixture.content(clock.now()));
-        String eventId = eventId(AppearanceRequestSentEvent.class, sent.id());
+        String eventId = eventId(REQUEST_SENT, sent.id());
 
         ConsumerRecord<String, String> record = awaitRecords(eventId, 1).getFirst();
 
         assertThat(record.key()).isEqualTo(String.valueOf(GUEST));
-        assertThat(header(record, EVENT_TYPE)).isEqualTo("AppearanceRequestSentEvent");
+        assertThat(header(record, EVENT_TYPE)).isEqualTo(REQUEST_SENT);
         assertThat(header(record, EVENT_VERSION)).isEqualTo("1");
         AppearanceRequestDto request = jsonMapper.readValue(record.value(), AppearanceRequestSentEvent.class).request();
         assertThat(request).isEqualTo(new AppearanceRequestDto(sent.id(), HOST, GUEST, sent.title(),
@@ -165,12 +174,12 @@ class AppearanceNotificationKafkaTest {
     void applicationSubmitted() {
         AppearanceRecruitResDto recruit = appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(clock.now()));
         AppearanceApplicationResDto applied = appearanceApplicationFacade.apply(GUEST, recruit.id(), "지원합니다.");
-        String eventId = eventId(AppearanceApplicationSubmittedEvent.class, applied.id());
+        String eventId = eventId(APPLICATION_SUBMITTED, applied.id());
 
         ConsumerRecord<String, String> record = awaitRecords(eventId, 1).getFirst();
 
         assertThat(record.key()).isEqualTo(String.valueOf(HOST));
-        assertThat(header(record, EVENT_TYPE)).isEqualTo("AppearanceApplicationSubmittedEvent");
+        assertThat(header(record, EVENT_TYPE)).isEqualTo(APPLICATION_SUBMITTED);
         AppearanceApplicationDto application = jsonMapper.readValue(record.value(),
                 AppearanceApplicationSubmittedEvent.class).application();
         assertThat(application.applicationId()).isEqualTo(applied.id());
@@ -194,12 +203,12 @@ class AppearanceNotificationKafkaTest {
         transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(committed));
 
         // 뒤에 커밋한 이벤트가 도착할 때까지 기다린 뒤, 롤백한 이벤트는 없는지 본다
-        awaitRecords(eventId(AppearanceRequestSentEvent.class, committed.request().requestId()), 1);
-        assertThat(records(eventId(AppearanceRequestSentEvent.class, rolledBack.request().requestId()))).isEmpty();
+        awaitRecords(eventId(REQUEST_SENT, committed.request().requestId()), 1);
+        assertThat(records(eventId(REQUEST_SENT, rolledBack.request().requestId()))).isEmpty();
     }
 
     @Test
-    @DisplayName("Kafka 응답을 받지 못해 발행 기록이 미완료로 남으면, 다시 보낼 때(서버 재시작과 같은 재발행) 같은 이벤트 ID로 한 번 더 나간다")
+    @DisplayName("Kafka 응답을 받지 못해 발행 기록이 미완료로 남으면, 대기 시간이 지난 뒤 재발행 배치가 같은 이벤트 ID로 한 번 더 보낸다")
     void republishWithSameEventId() {
         // 첫 보내기는 브로커에 도착하지만 출연 앱은 실패로 받는다(응답 유실). 다음부터는 그대로 보낸다
         doAnswer(invocation -> {
@@ -209,15 +218,13 @@ class AppearanceNotificationKafkaTest {
 
         AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
                 AppearanceRequestFixture.content(clock.now()));
-        String eventId = eventId(AppearanceRequestSentEvent.class, sent.id());
+        String eventId = eventId(REQUEST_SENT, sent.id());
         awaitRecords(eventId, 1);
 
-        // 실패 처리가 끝나 미완료로 남은 기록을 다시 보낸다 (republish-outstanding-events-on-restart와 같은 경로)
-        await().atMost(TIMEOUT).pollInSameThread().untilAsserted(() -> {
-            incompleteEventPublications.resubmitIncompletePublications(
-                    publication -> publication.getEvent() instanceof AppearanceRequestSentEvent);
-            assertThat(records(eventId)).hasSizeGreaterThanOrEqualTo(2);
-        });
+        // 대기 시간(1분)이 지난 미완료 기록을 재발행 배치가 다시 보낸다
+        clock.advance(Duration.ofMinutes(2));
+        appearanceNotificationRepublishUseCase.republishDue();
+        awaitRecords(eventId, 2);
 
         assertThat(records(eventId)).allSatisfy(record -> {
             assertThat(header(record, EVENT_ID)).isEqualTo(eventId);

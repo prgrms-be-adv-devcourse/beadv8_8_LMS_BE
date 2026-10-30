@@ -942,8 +942,8 @@ DB와 Billing 대역을 쓴다. 세션 역할은 `@WithMockUser(roles = "INFLUEN
 | `AppearanceBatchUseCaseTest` › 보류 재확인 | 보류 처리 중 모집글 재확인 중 Billing 거절(잔액 부족) | `HOLD_FAILED`, 같은 모집글로 보류 요청 2번, 내 목록·상세에 안 보임, 다시 가져가지 않음 |
 | `AppearanceHostCancelFlowTest` › 일방 취소 | 일방 취소(확인함)와 합의 취소 수락 동시 | 한쪽만 성공: `CANCELED_BY_HOST`(요청 `CLOSED_BY_HOST_CANCEL`, 위약금만) 또는 `CANCELED_BY_AGREEMENT`(요청 `ACCEPTED`, 반환만) |
 | `AppearanceHostCancelFlowTest` › 모집 전체 취소 | 모집 전체 취소(확인 없음)와 게스트 취소 요청 동시 | 취소가 먼저: 출연 `CANCELED_BY_HOST`·위약금 1건·요청 없음 / 요청이 먼저: 취소는 `CANCEL_REQUEST_CONFIRM_REQUIRED`(또는 충돌), 모집 `RECRUITING`·출연 `CANCEL_REQUESTED`·HP 작업 없음 |
-| `AppearanceBatchScheduleTest` | appearance.yml cron 6개 | 모두 올바르고 매분 한 번, 서로 다른 초(0·10·20·30·40·50) |
-| `AppearanceBatchScheduleTest` | 스위치를 켜고 띄움 | `@Scheduled` 메서드 수 = 검사 표 6개, 6개가 yml cron 그대로 스케줄러에 등록 |
+| `AppearanceBatchScheduleTest` | appearance.yml cron 7개 | 모두 올바르고 매분 한 번, 서로 다른 초(0·5·10·20·30·40·50, 05초 알림 재발행은 #393) |
+| `AppearanceBatchScheduleTest` | 스위치를 켜고 띄움 | `@Scheduled` 메서드 수 = 검사 표 7개, 7개가 yml cron 그대로 스케줄러에 등록 |
 | `AppearanceBatchScheduleTest` | `@Scheduled` 기본값 | yml과 같고 시간대 `Asia/Seoul` |
 | `AppearanceBatchScheduleTest` | 배치 메서드 호출 | 맞는 UseCase를 한 번씩 |
 
@@ -1192,14 +1192,14 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 
 ### 24.1 `AppearanceNotificationKafkaTest` (통합, Testcontainers Kafka)
 
-토픽은 운영과 같은 이름 하나를 같이 쓴다. 테스트마다 새 소비자 그룹으로 처음부터 읽고, 그 테스트가 만든 `eventId`의 메시지만 본다. 보내기는 커밋 뒤 비동기라 15초 안에 기다린다.
+토픽은 운영과 같은 이름 하나를 같이 쓴다. 테스트마다 새 소비자 그룹을 토픽 끝으로 옮긴 뒤 읽어 앞 테스트의 메시지를 보지 않고, 그중 그 테스트가 만든 `eventId`의 메시지만 본다. 보내기는 커밋 뒤 비동기라 15초 안에 기다린다. 외부화를 켠 컨텍스트를 따로 띄우므로 끝나면 닫는다(`@DirtiesContext`, 테스트 DB 연결 상한).
 
 | 케이스 | 기대 결과 |
 |---|---|
 | 요청서 보내기 성공(커밋) | 메시지 1건. 키 = 게스트 ID, 헤더 `eventType` = `AppearanceRequestSentEvent`·`eventVersion` = `1`, 본문을 shared `AppearanceRequestSentEvent`로 읽으면 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한이 같음 |
 | 지원(커밋) | 메시지 1건. 키 = 호스트 ID, `eventType` = `AppearanceApplicationSubmittedEvent`, 본문의 지원 ID·모집글 ID·모집글 제목·호스트·게스트·지원 시각 |
 | 발행한 트랜잭션 롤백 | 롤백한 이벤트는 나가지 않음 (뒤에 커밋한 이벤트가 도착한 뒤 확인) |
-| 첫 보내기의 응답 유실(브로커에는 도착, 앱은 실패로 받음) → 미완료 기록 다시 보내기 | 같은 `eventId`·같은 키로 2건 이상 (재시작 재발행과 같은 경로 `IncompleteEventPublications`) |
+| 첫 보내기의 응답 유실(브로커에는 도착, 앱은 실패로 받음) → 시계를 2분 앞당겨 재발행 배치(`AppearanceNotificationRepublishUseCase.republishDue()`) 1회 | 같은 `eventId`·같은 키로 2건 이상 |
 
 - 응답 유실은 `KafkaTemplate`을 `@MockitoSpyBean`으로 감싸 첫 `send`만 실제로 보낸 뒤 실패를 돌려주게 만든다.
 - 발행 시점·횟수·내용(같은 JVM)은 기존 `AppearanceEventPublishTest`가 그대로 확인한다.
