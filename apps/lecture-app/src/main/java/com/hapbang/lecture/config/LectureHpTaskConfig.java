@@ -6,9 +6,9 @@ import org.springframework.context.annotation.Configuration;
 
 import com.hapbang.lecture.domain.LectureHpTaskRetryPolicy;
 
-/** 강의 HP 작업 설정과 재시도 정책 빈 (D57 (7)) */
+/** 강의 HP 작업·주문 결제 설정과 재시도 정책 빈 (D57 (7), D68) */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(LectureHpTaskProperties.class)
+@EnableConfigurationProperties({LectureHpTaskProperties.class, LectureOrderProperties.class})
 public class LectureHpTaskConfig {
 
     @Bean

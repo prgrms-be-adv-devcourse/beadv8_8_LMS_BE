@@ -32,10 +32,14 @@ public class LectureOrderFacade {
     private final OrderPlayConsentUseCase orderPlayConsentUseCase;
     private final PurchasedLectureSupport purchasedLectureSupport;
 
-    /** 주문 (장바구니 주문·바로 구매). 항목마다 HP를 보류한다 */
-    @Transactional
+    /**
+     * 주문 (장바구니 주문·바로 구매, D58). 트랜잭션을 나눠 주문을 저장한 뒤 트랜잭션 밖에서 항목마다 HP를 보류한다.
+     * 결제가 끝나면 {@code PAID}, 아직 결제 단계면 처리 중 주문을 돌려주고, 결제 실패면 {@code INSUFFICIENT_BALANCE}다.
+     */
     public OrderResponse createOrder(Long userId, List<Long> lectureIds) {
-        return orderCreateUseCase.create(userId, lectureIds);
+        OrderCreateUseCase.Placement placement = orderCreateUseCase.place(userId, lectureIds);
+        orderCreateUseCase.tryHolds(placement);
+        return orderCreateUseCase.result(userId, placement.orderId());
     }
 
     /** 내 주문 목록 */

@@ -45,7 +45,8 @@ public interface ApiV1LectureSpec {
                     + "판매자 본인은 검수 대기·반려·삭제된 강의도 조회하고, 수정에 다시 쓸 썸네일·콘텐츠의 파일 ID"
                     + "(thumbnailFileId, contents[].fileId)를 받는다. 그 밖의 회원에게 파일 ID는 null이다. "
                     + "관리자는 GET /api/v1/lectures/admin/{lectureId}로 조회한다. "
-                    + "이 강의를 보유한(항목이 PURCHASED·CONFIRMED·PAID_OUT) 구매자는 판매자가 삭제한 강의도 조회한다.")
+                    + "이 강의를 시청할 수 있는(항목이 PURCHASED·CONFIRMED·PAID_OUT) 구매자는 판매자가 삭제한 강의도 조회한다. "
+                    + "결제 처리 중인 구매자는 아니다.")
     RsData<LectureDetailResponse> getLecture(Long userId, Long lectureId);
 
     @Operation(summary = "강의 등록",
@@ -78,9 +79,9 @@ public interface ApiV1LectureSpec {
             description = "현재 콘텐츠의 S3 Presigned GET URL을 1시간 만료로 발급한다. 영상은 브라우저에서 재생되고, "
                     + "자료(PDF)는 원본 파일명으로 내려받는다(Content-Disposition: attachment). 만료 뒤에는 다시 발급받는다. "
                     + "판매자 본인·관리자(검수용)는 상태와 관계없이(삭제된 강의 포함) 받는다. "
-                    + "이 강의를 보유한 구매자는 항목이 CONFIRMED·PAID_OUT이면 판매자가 삭제한 강의도 받는다. "
+                    + "이 강의를 산 구매자는 항목이 CONFIRMED·PAID_OUT이면 판매자가 삭제한 강의도 받는다. "
                     + "항목이 PURCHASED면 영상·자료 모두 403 PLAY_CONSENT_REQUIRED이고, 응답의 orderId·orderItemId로 "
-                    + "재생 동의 API를 호출한 뒤 다시 요청한다. 구매 취소·반환한 회원은 구매하지 않은 회원과 같다. "
+                    + "재생 동의 API를 호출한 뒤 다시 요청한다. 결제 처리 중·결제 실패·구매 취소·반환한 회원은 구매하지 않은 회원과 같다. "
                     + "오류(이 순서로 검사): 없는 강의 404 LECTURE_NOT_FOUND → 재생 동의 전 구매자 403 PLAY_CONSENT_REQUIRED → "
                     + "그 밖의 회원에게 판매 중이 아닌 강의는 404 LECTURE_NOT_FOUND, 판매 중인 강의는 403 CONTENT_ACCESS_DENIED → "
                     + "이 강의에 없거나 교체된 콘텐츠 404 LECTURE_CONTENT_NOT_FOUND.")

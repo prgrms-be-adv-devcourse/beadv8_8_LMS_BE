@@ -1,6 +1,10 @@
 package com.hapbang.lecture.app;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -14,8 +18,12 @@ import com.hapbang.lecture.app.dto.PayoutFailureResponse;
 import com.hapbang.lecture.app.dto.SaleResponse;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
+import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.OrderHoldTasks;
 import com.hapbang.lecture.domain.OrderItem;
+import com.hapbang.lecture.domain.ProcessingStatus;
+import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -28,6 +36,7 @@ public class LectureOrderSupport {
     private static final Sort LATEST = Sort.by(Sort.Order.desc("orderedAt"), Sort.Order.desc("id"));
 
     private final LectureOrderRepository lectureOrderRepository;
+    private final LectureHpTaskRepository lectureHpTaskRepository;
 
     /** 구매자 본인의 주문. 남의 주문과 없는 주문은 모두 {@code ORDER_NOT_FOUND} (D32) */
     public LectureOrder findOrder(Long buyerUserId, Long orderId) {
@@ -62,19 +71,42 @@ public class LectureOrderSupport {
                 .orElseThrow(() -> new LectureException(LectureErrorCode.ORDER_ITEM_NOT_FOUND));
     }
 
-    /** 구매자가 이 강의를 보유한(구매·구매 확정·지급) 항목 */
-    public Optional<OrderItem> findHeldItem(Long buyerUserId, Long lectureId) {
-        return lectureOrderRepository.findHeldItem(buyerUserId, lectureId);
+    /** 구매자가 이 강의를 시청할 수 있는(구매·구매 확정·지급) 항목 (D69 (4)) */
+    public Optional<OrderItem> findViewableItem(Long buyerUserId, Long lectureId) {
+        return lectureOrderRepository.findViewableItem(buyerUserId, lectureId);
     }
 
     /** 최근 주문부터. 정렬은 고정이고 요청의 정렬은 무시한다. */
     public Page<OrderSummaryResponse> getOrders(Long buyerUserId, Pageable pageable) {
         PageRequest sorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST);
-        return lectureOrderRepository.findByBuyerUserId(buyerUserId, sorted).map(OrderSummaryResponse::of);
+        Page<LectureOrder> orders = lectureOrderRepository.findByBuyerUserId(buyerUserId, sorted);
+        Map<Long, ProcessingStatus> statuses = processingStatuses(orders.getContent());
+        return orders.map(order -> OrderSummaryResponse.of(order, statuses.get(order.getId())));
     }
 
     public OrderResponse getOrder(Long buyerUserId, Long orderId) {
-        return OrderResponse.of(findOrder(buyerUserId, orderId));
+        return toResponse(findOrder(buyerUserId, orderId));
+    }
+
+    /** 주문 응답. 결제 단계면 처리 상태를 싣는다 (D69 (2)) */
+    public OrderResponse toResponse(LectureOrder order) {
+        return OrderResponse.of(order, processingStatuses(List.of(order)).get(order.getId()));
+    }
+
+    /** 결제 단계인 주문의 처리 상태. 주문들의 작업을 한 번에 읽는다 */
+    private Map<Long, ProcessingStatus> processingStatuses(List<LectureOrder> orders) {
+        List<Long> holdingOrderIds = orders.stream()
+                .filter(order -> order.getStatus().isHoldInProgress())
+                .map(LectureOrder::getId)
+                .toList();
+        if (holdingOrderIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, ProcessingStatus> statuses = new HashMap<>();
+        lectureHpTaskRepository.findByOrderIdIn(holdingOrderIds).stream()
+                .collect(Collectors.groupingBy(LectureHpTask::getOrderId))
+                .forEach((orderId, tasks) -> statuses.put(orderId, OrderHoldTasks.of(tasks).processingStatus()));
+        return statuses;
     }
 
     /** 판매자의 판매 내역. 최근 구매순이고 정렬은 쿼리에 고정되어 요청의 정렬은 무시한다 (D51) */

@@ -311,6 +311,18 @@ class LectureOrderObjectionTest {
         assertThat(item.isPayable(PAYOUT_AT)).isTrue();
     }
 
+    @Test
+    void 결제가_끝나지_않은_항목은_이의_제기할_수_없다() {
+        LectureOrder pending = LectureOrder.place(BUYER_ID, List.of(withId(onSaleLecture(), 10L)), Set.of(), SEPT_30);
+        ReflectionTestUtils.setField(pending.getItems().getFirst(), "id", 1L);
+        LectureOrder failed = LectureOrder.place(BUYER_ID, List.of(withId(onSaleLecture(), 20L)), Set.of(), SEPT_30);
+        ReflectionTestUtils.setField(failed.getItems().getFirst(), "id", 2L);
+        failed.markHoldFailed();
+
+        assertRefused(() -> pending.fileObjection(1L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), Reason.NOT_OBJECTIONABLE);
+        assertRefused(() -> failed.fileObjection(2L, BUYER_ID, INQUIRY_ID, REASON, OCT_5), Reason.NOT_OBJECTIONABLE);
+    }
+
     private static LectureOrder placeWithItemIds(LocalDateTime now, Long... itemIds) {
         List<Lecture> lectures = LongStream.rangeClosed(1, itemIds.length)
                 .mapToObj(i -> withId(onSaleLecture(), i * 10))
@@ -319,6 +331,7 @@ class LectureOrderObjectionTest {
         for (int i = 0; i < itemIds.length; i++) {
             ReflectionTestUtils.setField(order.getItems().get(i), "id", itemIds[i]);
         }
+        order.markPaid(now);
         return order;
     }
 
