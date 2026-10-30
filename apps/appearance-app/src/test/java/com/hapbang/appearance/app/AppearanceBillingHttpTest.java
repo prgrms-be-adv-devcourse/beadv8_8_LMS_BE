@@ -407,7 +407,7 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
                     .extracting(payout -> payout.requestId(Endpoint.PAYOUT)).containsOnly(task.getIdempotencyKey());
         }
 
-        /** 관리자 세션으로 다시 시도한다 (테스트의 나머지는 인플루언서 세션) */
+        /** 관리자로 로그인해 다시 시도한다 (테스트의 나머지는 인플루언서 로그인) */
         private HpTaskAdminResDto retryAsAdmin(Long taskId) {
             SecurityContext previous = SecurityContextHolder.getContext();
             SecurityContextHolder.setContext(new SecurityContextImpl(

@@ -28,7 +28,7 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 
 /**
- * 관리자 HP 작업 API (#397). 실제 서버(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB, Billing 대역)를 띄우고 RestAssured로 부른다.
+ * 관리자 HP 작업 API (#397). 실제 서버(보안 필터, Gateway 사용자 헤더 로그인, 메서드 보안, DB, Billing 대역)를 띄우고 RestAssured로 부른다.
  * 격리된 작업은 기록 → 실행 → Billing 거절로 만든다.
  */
 @AppearanceE2ETest
@@ -114,7 +114,7 @@ class AppearanceHpTaskAdminApiE2ETest {
     }
 
     @Test
-    @DisplayName("세션은 관리자지만 관리자 권한을 잃었으면(복제본 USER) 목록·다시 시도 403 NOT_ADMIN")
+    @DisplayName("로그인 역할은 관리자지만 관리자 권한을 잃었으면(복제본 USER) 목록·다시 시도 403 NOT_ADMIN")
     void demotedAdmin() {
         long taskId = deadTask();
         appearanceUserFacade.syncModified(AppearanceUserFixture.user(ADMIN, Role.USER, UserStatus.ACTIVE));
