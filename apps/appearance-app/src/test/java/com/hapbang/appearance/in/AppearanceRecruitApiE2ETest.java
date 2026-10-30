@@ -112,7 +112,7 @@ class AppearanceRecruitApiE2ETest {
     }
 
     @Test
-    @DisplayName("Billing이 잔액 부족으로 보류를 거절하면 그 오류 그대로 409 INSUFFICIENT_BALANCE")
+    @DisplayName("지갑이 잔액 부족으로 보류를 거절하면 409 INSUFFICIENT_BALANCE (문구는 출연이 정함)")
     void insufficientBalance() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 

@@ -244,7 +244,7 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(rejected.hpReleaseStatus()).isEqualTo(HpTaskStatus.PENDING);
         HpTask task = onlyTask();
         assertThat(task.getAttemptCount()).isEqualTo(1);
-        assertThat(task.getLastError()).isEqualTo("IllegalStateException: Billing 응답 없음 (테스트)");
+        assertThat(task.getLastError()).isEqualTo("UNKNOWN_RESULT: Billing 응답 없음 (테스트)");
         assertThat(task.getNextAttemptAt()).isAfter(task.getCreatedAt());
     }
 

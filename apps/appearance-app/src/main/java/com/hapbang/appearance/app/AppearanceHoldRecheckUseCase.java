@@ -15,7 +15,7 @@ import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
-import com.hapbang.appearance.global.exception.BusinessException;
+import com.hapbang.appearance.domain.AppearanceHoldRejectedException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +24,7 @@ import lombok.extern.slf4j.Slf4j;
  * HP 보류 재확인 (배치). 보류 결과를 확인하지 못해 {@code HOLD_PENDING}으로 남은 요청서·모집글에 같은 보류를 다시 요청한다.
  * <ul>
  *     <li>Billing은 같은 참조 대상의 보류를 다시 받으면 처음 결과를 돌려준다. 그래서 처음 요청이 처리됐어도 두 번 보류되지 않는다.</li>
- *     <li>결과: 성공 → {@code REQUESTED}/{@code RECRUITING}, Billing 거절 → {@code HOLD_FAILED},
+ *     <li>결과: 성공 → {@code REQUESTED}/{@code RECRUITING}, 지갑 거절 → {@code HOLD_FAILED},
  *     여전히 알 수 없음 → 그대로 두고 다음 주기에 다시 확인</li>
  *     <li>만든 지 대기 시간({@code pendingGrace})이 지난 것만 가져간다. 진행 중인 보내기·올리기 요청과 겹치지 않도록 하기 위해서다.
  *     겹쳐도 Billing이 같은 결과를 주고 상태 반영이 멱등이라 안전하다.</li>
@@ -90,11 +90,14 @@ public class AppearanceHoldRecheckUseCase {
     /**
      * 한 건을 재확인한다. 예외는 여기서 잡아 다음 건을 계속 처리한다.
      *
-     * @return 결과를 정리했으면(성공 또는 Billing 거절) true, 여전히 알 수 없거나 예외면 false
+     * @return 결과를 정리했으면(성공 또는 지갑 거절) true, 여전히 알 수 없거나 예외면 false
      */
     private boolean recheck(String target, Long id, Runnable action) {
         try {
             action.run();
+            return true;
+        } catch (AppearanceHoldRejectedException rejected) {
+            // 지갑 거절: HoldUseCase가 HOLD_FAILED로 기록했다
             return true;
         } catch (AppearanceException exception) {
             if (exception.getErrorCode() == AppearanceErrorCode.BILLING_UNAVAILABLE) {
@@ -103,9 +106,6 @@ public class AppearanceHoldRecheckUseCase {
             }
             log.warn("HP 보류 재확인 중 예외 {} id={}", target, id, exception);
             return false;
-        } catch (BusinessException rejected) {
-            // Billing 거절: HoldUseCase가 HOLD_FAILED로 기록했다
-            return true;
         } catch (RuntimeException exception) {
             log.warn("HP 보류 재확인 중 예외 {} id={}", target, id, exception);
             return false;

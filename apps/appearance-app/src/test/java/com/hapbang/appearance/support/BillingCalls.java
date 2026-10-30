@@ -14,7 +14,7 @@ import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 
 /**
- * Billing 대역에 보낸 요청을 순서대로 꺼낸다 (#289). 실패로 끝난 요청(대역이 예외를 던진 호출)도 포함한다.
+ * Billing 대역에 보낸 요청을 순서대로 꺼낸다 (#289). 실패로 끝난 요청(거절·결과를 받지 못한 호출)도 포함한다.
  * 잔액·보류 남은 금액은 Billing이 정하므로 여기서 계산하지 않는다 (apps 통합 테스트가 확인).
  */
 public final class BillingCalls {
@@ -39,20 +39,12 @@ public final class BillingCalls {
     }
 
     /**
-     * 이 보류 대상에 Billing이 받아들인 반환 HP 합계 (대역이 실패로 설정돼 예외를 던진 요청은 빼고 센다).
+     * 이 보류 대상에 Billing이 받아들인 반환 HP 합계 (대역이 성공으로 응답한 요청만 센다. 거절·결과를 받지 못한 요청은 뺀다).
      * 남은 보류 금액은 Billing이 정하므로, 출연 테스트는 "얼마를 돌려 달라고 했는지"만 본다.
-     * <p>
-     * 전제: 대역의 설정(stub)은 실패({@link BillingStubs}의 {@code doThrow})에만 쓴다. 그래서 설정이 걸린 호출({@code stubInfo() != null})을
-     * 실패로 본다. 성공 응답을 돌려주는 설정({@code doReturn} 등)을 추가하면 이 판단을 함께 바꿔야 한다.
      */
-    public static long releasedAmount(BillingClient billingClient, BillingReferenceType referenceType,
-                                      Long referenceId) {
+    public static long releasedAmount(BillingReferenceType referenceType, Long referenceId) {
         long total = 0;
-        for (Invocation invocation : Mockito.mockingDetails(billingClient).getInvocations()) {
-            if (!invocation.getMethod().getName().equals("release") || invocation.stubInfo() != null) {
-                continue;
-            }
-            ReleaseCommand release = invocation.getArgument(0);
+        for (ReleaseCommand release : BillingStubs.acceptedReleases()) {
             if (release.referenceType() == referenceType && release.referenceId().equals(referenceId)) {
                 total += release.amountHp();
             }

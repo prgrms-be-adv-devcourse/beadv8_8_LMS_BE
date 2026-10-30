@@ -182,14 +182,14 @@ class AppearanceRequestApiE2ETest {
     }
 
     @Test
-    @DisplayName("Billing이 잔액 부족으로 보류를 거절하면 그 오류 그대로 409 INSUFFICIENT_BALANCE")
+    @DisplayName("지갑이 잔액 부족으로 보류를 거절하면 409 INSUFFICIENT_BALANCE (문구는 출연이 정함)")
     void insufficientBalance() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
         createRequest(HOST, createBody(GUEST, 30_000)).post(BASE)
                 .then().statusCode(409)
                 .body("code", equalTo("INSUFFICIENT_BALANCE"))
-                .body("detail", equalTo("HP 잔액이 부족합니다."));
+                .body("detail", equalTo("HP 잔액이 부족합니다. 충전한 뒤 다시 시도해 주세요."));
     }
 
     @Test
