@@ -344,7 +344,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 
 ### 5.1 계약
 
-토픽·회원 ID key와 원본 버전 비교는 인프라 문서 1장을 따른다. shared 레코드를 그대로 직렬화하고 별도 envelope를 만들지 않는 아래 결정은 상위 문서의 envelope·eventId 설명과 정합화해야 한다. 이 수정에서는 아래 shared 계약 결정을 유지한다.
+토픽·key·헤더·재시도·DLT 규칙은 인프라 문서 1장(`docs/architecture/infrastructure/kafka.md`)과 ADR 0001·0002(#339)를 따른다. 아래 shared 계약 결정은 그 문서와 같다.
 
 | 항목 | 값 |
 | --- | --- |
@@ -353,7 +353,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 | payload | `common/shared`의 `UserJoinedEvent(UserDto)`·`UserModifiedEvent(UserDto)` 레코드를 그대로 JSON으로 싣는다(팀 결정, 2026-10-29). 예: `{"user":{"id":1,"nickname":"…","role":"INFLUENCER","status":"ACTIVE","version":3}}`. 별도 envelope 레코드를 만들지 않는다 |
 | 타입 구분 | Spring Kafka `JsonSerializer`가 붙이는 `__TypeId__` 헤더(레코드 클래스 이름). 소비자는 `JsonDeserializer`에 실제 이벤트 패키지 `com.hapbang.shared.member.event`를 신뢰 패키지로 지정해 같은 레코드로 되돌린다. 상위 패키지 이름이 하위 패키지까지 자동 허용한다고 가정하거나 전체 `*`를 신뢰하지 않는다. 두 앱이 같은 shared 클래스를 쓰므로 별도 타입 매핑은 두지 않는다 |
 | 멱등 키 | `user.id` + `user.version`. `version`은 회원 원본 `@Version`이라 변경마다 1씩 오른다. 별도 `eventId`는 두지 않는다 |
-| 추적 헤더(선택) | `occurredAt`, `correlationId`는 Modulith `EventExternalizationConfiguration.headers(...)`로 Kafka 헤더에 넣을 수 있다. payload를 바꾸지 않으므로 관측성(#343) 단계에서 더한다 |
+| 헤더 | `eventType`(레코드 이름)과 `eventVersion`만 싣는다(#339). `occurredAt`·`correlationId`는 넣지 않는다. Modulith 헤더 함수는 이벤트만 받아 재발행 때 같은 값을 만들 수 없다. 추적은 관측성(#343)의 trace 헤더가 맡는다 |
 | 스키마 | 계약은 shared 레코드 자체다. 레코드 변경은 shared 변경이라 모든 앱이 함께 컴파일된다. JSON Schema 파일과 CI 호환성 검사(인프라 문서 7장)는 레코드에서 생성한다 |
 
 기존 `UserLoggedOutEvent`는 HTTP 세션 ID를 담으므로 그대로 JWT 계약에 재사용하지 않는다. 전환기 세션 로그아웃 전달과 JWT 로그인 식별자·종료 이벤트 계약은 6장 및 Q8에서 다룬다.
@@ -372,10 +372,10 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 
 | 항목 | 설계 |
 | --- | --- |
-| 리스너 | `@KafkaListener(topics = "member.events.v1", groupId = "chat-app")`로 shared 레코드를 받아 아래 원자적 처리 서비스에 위임한다. 기존 회원 Facade·UseCase를 재사용하되 단순 호출 후 외부 발행만 붙이지 않는다. 역직렬화(`JsonDeserializer`, 5.1의 신뢰 패키지)·그룹·오류 처리 정책은 chat-app이 정한다 |
+| 리스너 | 클래스 레벨 `@KafkaListener(topics = "member.events.v1", groupId = "chat-app.member-replica")`에 가입·변경 `@KafkaHandler`를 두고, 모르는 타입은 기본 핸들러에서 무시한다(#339). shared 레코드를 받아 아래 원자적 처리 서비스에 위임한다. 기존 회원 Facade·UseCase를 재사용하되 단순 호출 후 외부 발행만 붙이지 않는다. 역직렬화(`JsonDeserializer`, 5.1의 신뢰 패키지)·그룹·오류 처리 정책은 chat-app이 정한다 |
 | 멱등 | 가입은 생성 전용, 변경은 `memberVersion` 비교를 유지한다. 별도 처리 서비스의 로컬 트랜잭션에서 회원 반영과 필요한 제어 outbox 기록을 함께 수행한다. inbox를 두면 `(user_id, member_version)` 키를 같은 트랜잭션에 기록하고 실패 시 함께 롤백한다. Kafka offset은 이 DB 커밋 뒤 처리한다 |
 | 순서 | 회원 ID key로 같은 파티션에 보낸다. 발행 relay의 순서·초기 적재·DLT 재전송까지 key만으로 해결되지는 않는다. 변경 이벤트에 복제본이 없으면 생성하지 않고 실패로 남긴다. 초기 적재 중의 실패는 5.4에서 재처리한다 |
-| 재시도·DLT | 제한된 블로킹 재시도 뒤 chat 소비자용 DLT로 보낸다. 다른 소비자와 실패 처리를 섞지 않도록 이름·원본 메타데이터·횟수·backoff를 #339와 확정한다. DLT 발행 실패를 처리 성공으로 간주하지 않는다 |
+| 재시도·DLT | 블로킹 재시도(1초에서 최대 10초 지수 증가, 3회) 뒤 `member.events.v1.chat-app.member-replica.DLT`로 보낸다. DLT는 chat-app이 선언한다(partition 3, 보존 7일). 재처리는 인프라 문서 1장의 runbook을 따른다(#339). DLT 발행 실패를 처리 성공으로 간주하지 않는다 |
 | 연결 닫기 | 최신 버전 반영 결과가 채팅 불가이면 동일 트랜잭션에 `chat_control_outbox`를 기록한다. 기존의 `lostChat` boolean만으로 후속 제어 작업 성공 여부를 판단하지 않는다 |
 | 기존 리스너 | 진입점을 Kafka 수신으로 옮긴다. 회원 생성·갱신 로직을 재사용하되 적용 여부·현재 버전·채팅 자격을 처리 결과로 구분하고 제어 작업을 원자적으로 기록하도록 보완한다 |
 
@@ -449,7 +449,7 @@ Kafka 전환 이전의 회원과 전환 중 놓친 변경을 member-app 내부 A
 | Q6 | 채팅 전달에 Redis Streams를 도입할지 | **도입한다(2026-10-29 사용자 변경 결정).** 같은 날의 미도입 결정을 대체한다. outbox → Streams → consumer group → Pub/Sub → 로컬 STOMP를 사용한다. replica 1개·FE 이력 복구·회원 상태 재검사·모듈 간 Kafka 연동은 유지한다 |
 | Q7 | 알림 모듈 이관 전 출연 알림을 유지하는 방법 | 기존 기능 유지가 기본이다. 임시 Kafka 어댑터 또는 알림 모듈·FE 동시 전환을 정한다. 기능 공백은 별도 팀 승인 없이는 허용하지 않는다 |
 | Q8 | JWT에서 기기별 로그아웃·폐기 상태 확인·기존 연결 종료를 어떻게 표현할지 | #370과 로그인 식별자·종료 이벤트·재접속 거절·상태 재대조 계약을 확정한다. 만료까지 기다리는 방식은 승인 전 제안으로만 남긴다 |
-| Q9 | `member.events.v1`의 소비자 공통 코드(역직렬화 설정, 재시도·DLT)를 어느 모듈이 소유할지 | 첫 소비자인 chat-app이 만들고, 두 번째 소비자가 생길 때 `common/kafka`로 올린다 |
+| Q9 | `member.events.v1`의 소비자 공통 코드(역직렬화 설정, 재시도·DLT)를 어느 모듈이 소유할지 | **공통 코드를 두지 않는다(#339, 2026-10-30).** 재시도·DLT·역직렬화 정책은 인프라 문서 1장에 문서로만 두고 각 소비 앱이 따라 구현한다 |
 | Q10 | 그룹 방장 퇴장·강퇴·자격 상실 때 권한을 어떻게 유지할지 | 위임·퇴장 제한·폐쇄 중 정책을 결정한다. 방장 없는 활성 그룹 허용 여부와 자기 강퇴도 함께 정하고 용어·정책에 반영한다 |
 | Q11 | 참여 세대·재동기화·전송 결과 미확인·수신 ACK를 FE에 어떻게 전달할지 | 누적 수신 커서 도입은 확정이다(4.4). 기존 회원별 큐와 이력 API를 유지하면서 ACK 경로·커밋 확인 응답·오류·가시 범위/조회 완료 구간·기기 로컬 복구·수신 상태 조회 권한과 표시 범위·주기를 FE와 확정한다(4.2·4.4). 미정 계약이 도입 여부의 재승인을 뜻하지 않는다 |
 | Q12 | 출시 전 수용량·지연·거절률·복구 목표와 입력·동시성·큐·DB 대기·송신 버퍼·백필·polling·lease·재시도·Stream 보존·claim idle·DB 재구성 주기·Redis 영속화/메모리 상한·수신 ACK 최대 대기/건수/대기 방 수·표시 지연은 얼마인지 | 4.6·4.7의 인기 방·지속 과부하·장애·재접속 시험으로 결정하고 설정·runbook에 기록한다. 수치 미확정·시험 미실시 상태로 출시 준비 완료를 선언하지 않는다. 무한 재시도·미처리 작업 삭제로 대체하지 않는다 |
