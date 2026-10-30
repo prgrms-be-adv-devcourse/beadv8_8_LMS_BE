@@ -8,8 +8,7 @@ metadata:
     app.kubernetes.io/name: appearance-app
     hapbang.io/pool: core-data
 spec:
-  # BillingPort 구현이 billing 프로세스에만 있어 단독으로 기동하지 못한다(#280). 그때까지 0으로 둔다.
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: appearance-app
