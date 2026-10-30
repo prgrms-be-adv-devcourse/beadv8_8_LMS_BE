@@ -441,10 +441,11 @@ class AppearanceBatchUseCaseTest {
                 assertThat(retried.getAttemptCount()).isEqualTo(attempt);
                 gaps.add(Duration.between(now(), retried.getNextAttemptAt()));
             }
-            // 2·4·8·16·32분 → 상한 1시간(지터 ±20%). 상한 전까지는 늘 늘어나고, 상한 뒤로는 1시간 안팎
+            // 2·4·8·16·32분 → 상한 1시간, 지터는 간격의 +0~20%(HpTaskRetryPolicy). 상한 전까지는 늘 늘어나고, 상한 뒤로는 60~72분.
+            // 간격은 다음 시도 시각을 정한 뒤 읽은 시계 기준이라 몇 밀리초 짧을 수 있어 하한에 1초 여유를 둔다
             assertThat(gaps.subList(0, 6)).isSortedAccordingTo(Comparator.naturalOrder()).doesNotHaveDuplicates();
             assertThat(gaps.subList(5, 8)).allSatisfy(gap ->
-                    assertThat(gap).isBetween(Duration.ofMinutes(48), Duration.ofMinutes(72)));
+                    assertThat(gap).isBetween(Duration.ofMinutes(60).minusSeconds(1), Duration.ofMinutes(72)));
 
             retryTimeReached(task.getId());
             hpTaskRetryUseCase.retryDue();

@@ -39,6 +39,7 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  * 대역은 요청을 받을 때마다 DB 트랜잭션 안에서 불렸는지 기록하고, 테스트가 끝날 때 한 번이라도 있었으면 실패시킨다
  * ({@link SucceedByDefault}). 지갑은 DB 트랜잭션 밖에서 불러야 한다(트랜잭션 안이면 지갑은 돈을 옮기고 출연 상태는 롤백될 수 있다).
+ * 이 클래스가 정한 응답만 기록한다. 테스트가 직접 {@code doThrow} 등으로 덮은 호출과 Mock Billing 서버(실제 HTTP Client)를 쓰는 테스트는 감시 밖이다.
  * <p>
  * HTTP 응답 해석(상태 코드·재전송·연결 오류)까지 보려면 Mock Billing 서버({@link MockBillingIntegrationTest})를 쓴다.
  */

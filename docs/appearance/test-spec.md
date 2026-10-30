@@ -496,7 +496,7 @@ DB와 Billing 대역을 쓴다. 시각 조건은 DB의 만든 시각·다음 시
 | 수락 기한 전 | 그대로 `REQUESTED`, 작업 없음 |
 | 만료 때 반환 실패 / 다시 실행 | `EXPIRED` 확정, 작업 `PENDING` 시도 1 / 만료 0건 |
 | 반환 실패 작업: 다음 시도 시각 전 / 후 | 실행 안 함 / `DONE`, 시도 2, 같은 반환 요청 ID로 다시 보냄, 지표 done +1 |
-| 계속 실패 | 2~9회는 `PENDING`. 간격은 2·4·8·16·32분 → 1시간으로 늘 늘어나고, 상한 뒤로는 48~72분(지터 ±20%). 10회째 `DEAD`, 지표 격리 수 1 |
+| 계속 실패 | 2~9회는 `PENDING`. 간격은 2·4·8·16·32분 → 1시간으로 늘 늘어나고, 상한 뒤로는 60~72분(지터 +0~20%). 10회째 `DEAD`, 지표 격리 수 1 |
 | 재시도 때 Billing 거절 (대역이 `HOLD_NOT_FOUND`로 거절) | 바로 `DEAD`, `HOLD_NOT_FOUND: …` |
 | 처음 시도 전 작업: 만든 직후 / 1분 뒤 | 가져가지 않음(반환 요청 없음) / 실행 → `DONE`, 반환 요청 1번. (#289 전에는 Fake에 보류가 없어 `DEAD`였다. 대역은 기본 성공이라 `DONE`) |
 | (변경) `AppearanceRequestRespondFacadeTest` 거절 때 Billing 반환 거절 | 작업 `PENDING` → **`DEAD`** |
@@ -1354,7 +1354,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
-| (모든 통합·E2E) `BillingStubs.SucceedByDefault` | 지갑 대역이 요청을 받을 때마다 DB 트랜잭션 안인지 기록 | 테스트가 끝날 때 한 건이라도 있으면 실패 ("지갑은 DB 트랜잭션 밖에서 부른다"를 모든 지갑 호출 경로에서 확인) |
+| (Billing 대역을 쓰는 통합·E2E) `BillingStubs.SucceedByDefault` | 지갑 대역이 `BillingStubs`가 정한 응답으로 요청을 받을 때마다 DB 트랜잭션 안인지 기록 | 테스트가 끝날 때 한 건이라도 있으면 실패 ("지갑은 DB 트랜잭션 밖에서 부른다"를 대역을 거치는 지갑 호출 경로에서 확인). 테스트가 직접 `doThrow` 등으로 덮은 호출과 Mock Billing 서버(실제 HTTP Client) 테스트는 감시 밖 |
 | `BillingStubsTransactionTest` | 트랜잭션 밖 / 안에서 보류 호출 | 기록 없음 / `hold` 기록 (감시 자체 확인) |
 | `AppearancePolicyTest` | 위약금 비율 0%·-1% / 1%·100% | 생성 실패 / 위약금 200·20,000 (0%면 위약금 정산 작업을 만들 수 없음) |
 | `AppearanceApplicationTest` | 다른 모집글(ID 999)에 수락된 지원(모집글 ID 10)으로 출연 성립 | `IllegalStateException` (모집글·지원 ID를 넣어 null끼리 같다고 보지 않게 함) |

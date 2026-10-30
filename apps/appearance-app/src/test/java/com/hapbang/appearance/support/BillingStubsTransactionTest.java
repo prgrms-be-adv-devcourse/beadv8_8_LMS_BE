@@ -13,7 +13,7 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 
 /**
- * Billing 대역이 DB 트랜잭션 안에서 받은 요청을 잡아내는지 (#463). 이 감시가 모든 통합·E2E 테스트에서
+ * Billing 대역이 DB 트랜잭션 안에서 받은 요청을 잡아내는지 (#463). 이 감시가 Billing 대역을 쓰는 통합·E2E 테스트에서
  * "지갑은 DB 트랜잭션 밖에서 부른다"를 확인하므로, 감시 자체가 동작하는지 먼저 본다.
  */
 @AppearanceIntegrationTest

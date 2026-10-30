@@ -249,8 +249,8 @@ class AppearanceRequestRespondFacadeTest {
         HpTask task = onlyTask();
         assertThat(task.getAttemptCount()).isEqualTo(1);
         assertThat(task.getLastError()).isEqualTo("UNKNOWN_RESULT: Billing 응답 없음 (테스트)");
-        // 첫 재시도 간격 1분, 지터 ±20% (출연 시계 기준)
-        assertThat(task.getNextAttemptAt()).isBetween(before.plusSeconds(48), after.plusSeconds(72));
+        // 첫 재시도 간격 1분 + 지터 0~20% (출연 시계 기준)
+        assertThat(task.getNextAttemptAt()).isBetween(before.plusSeconds(60), after.plusSeconds(72));
     }
 
     @Test
