@@ -27,7 +27,7 @@ jobs:
     steps:
       # 서버 설정(docker/)이 레포와 같은지 비교하는 데 쓴다.
       # 배포할 커밋이 아니라 브랜치 최신과 비교한다. 이전 버전으로 되돌리는 롤백은 그 사이 바뀐 설정에 막히지 않는다.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.config-ref }}
 
