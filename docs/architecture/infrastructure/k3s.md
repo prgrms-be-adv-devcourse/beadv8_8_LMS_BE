@@ -43,7 +43,7 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | cert-manager (controller 128·webhook 50·cainjector 128, #372) | 306 MiB |
 | Sealed Secrets controller (#373) | 64 MiB |
 | React 정적 서버 | 64 MiB |
-| Prometheus 416·Loki 256·Tempo 128·Grafana 384·Alloy 192 (#372 override·#480 포함) | 1,376 MiB |
+| Prometheus 416(server 384·reload 32)·Loki 256·Tempo 128·Grafana 384·Alloy 192(alloy 160·reloader 32) (#372 override·#480 포함) | 1,376 MiB |
 | Kafka UI(Redpanda Console, 로컬 실측 35~42 MiB, #374) | 128 MiB |
 | **합계** | **4,864 MiB** |
 
@@ -58,7 +58,7 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | Loki | 128 → 256 MiB | pod log 수집을 시작하자 GOMEMLIMIT(limit의 85%)에 걸려 GC가 CPU 15 core를 쓰고 ring이 unhealthy가 됐다. 올린 뒤 183 MiB |
 | Alloy / config-reloader | 104 / 16 → 160 / 32 MiB | reloader가 16 MiB에서 OOMKilled 반복. log pipeline을 더한 뒤 96 / 30 MiB |
 
-Prometheus는 두 앱을 수집한 뒤 291 → 332 MiB(limit 384 MiB)다. 앱 series는 member 179·lecture 380개다. k3d의 JVM은 CPU를 18개로 보지만 `-XX:ActiveProcessorCount=2`로 EC2와 맞춰도 lecture-app은 448 MiB에서 기동하지 못했다.
+Prometheus server 컨테이너는 두 앱을 수집한 뒤 291 → 332 MiB(limit 384 MiB, reload sidecar 제외)다. 앱 series는 member 179·lecture 380개다. k3d의 JVM은 CPU를 18개로 보지만 `-XX:ActiveProcessorCount=2`로 EC2와 맞춰도 lecture-app은 448 MiB에서 기동하지 못했다.
 
 앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다.
 
