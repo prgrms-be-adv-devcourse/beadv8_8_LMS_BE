@@ -729,6 +729,25 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 
 - 출연 처리가 롤백되면 이벤트는 받는 쪽에 가지 않는다. 받는 쪽이 실패해도 출연 처리는 되돌려지지 않는다 (최종 일관성).
 - 같은 이벤트가 재처리로 두 번 올 수 있으니, 받는 쪽은 `requestId`·`applicationId`로 중복을 거를 수 있다.
+- 위 예시는 같은 JVM 안에서 받을 때다. 앱이 나뉜 뒤 다른 앱은 11.3의 Kafka 토픽으로 받는다.
+
+### 11.3 Kafka로 내보내기 (#393)
+
+앱이 나뉘어 채팅이 다른 프로세스가 되었으므로, 요청 도착·지원 도착 두 이벤트를 Kafka로도 내보낸다. 발행 시점과 내용은 그대로이고 전송만 더했다.
+
+| 항목 | 내용 |
+|---|---|
+| 방식 | Spring Modulith 이벤트 외부화(`spring-modulith-events-kafka`). 업무 트랜잭션 안에서 발행한 이벤트가 발행 기록(`event_publication`)에 남고, 커밋 뒤 비동기로 보낸다. 설정은 `out/event/AppearanceNotificationExternalizationConfig` 한 곳 |
+| 대상 | `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent`. 출연 취소 요청 이벤트 3종은 받는 곳이 없어 내보내지 않는다(받는 쪽이 생기면 같은 설정에 더한다) |
+| 토픽 | `appearance.notification.v1` |
+| 키 | 알림 받는 회원 ID (요청 도착 = `guestId`, 지원 도착 = `hostId`). 같은 회원에게 가는 알림은 순서대로 간다 |
+| 본문 | shared 이벤트 레코드를 그대로 JSON으로 싣는다(회원 이벤트와 같은 방식). 예: `{"request":{"requestId":1,"hostId":1,"guestId":2,"title":"…","fee":30000,"scheduledAt":"2026-11-05T17:54:44","acceptDeadline":"2026-10-31T17:54:44"}}`. 시각은 KST `LocalDateTime` |
+| 헤더 | `eventId`(이벤트 종류 + 요청서·지원 ID로 만든 UUID, 다시 보내도 같음), `eventType`(레코드 이름), `eventVersion`(`1`), `__TypeId__`(레코드 전체 클래스 이름, Spring Kafka JSON 변환기가 붙임) |
+| 실패 | 보내기에 실패하면 발행 기록이 미완료로 남고, 서버가 재시작될 때 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃은 경우 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `eventId` 또는 기존 알림 유일 인덱스로 중복을 거른다 |
+| 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceNotificationKafkaTest`만 Testcontainers Kafka로 켠다 |
+
+- 필드는 추가만 한다. 받는 쪽이 못 읽게 바뀌면 `eventVersion`을 올린다.
+- 같은 JVM 안의 리스너(11.2)는 그대로 받는다. Kafka는 다른 앱으로 보내는 통로다.
 
 ---
 

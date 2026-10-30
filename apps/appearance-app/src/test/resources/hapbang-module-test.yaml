@@ -4,3 +4,9 @@ spring:
   config:
     # 운영 application.yaml을 읽지 않는 모듈 테스트에도 출연 설정만 명시적으로 가져온다.
     import: classpath:appearance.yml
+  modulith:
+    events:
+      # 알림 이벤트의 Kafka 외부화(#393)는 끈다. Kafka 브로커가 없는 테스트에서 보내기를 시도하지 않게 한다.
+      # Kafka 발행은 AppearanceNotificationKafkaTest가 Testcontainers Kafka와 함께 켜서 확인한다
+      externalization:
+        enabled: false
