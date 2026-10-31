@@ -128,17 +128,17 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 
 ### 8.0 종류별 보류와 확정 차감 (#241)
 
-- **보류 종류(`point_hold.hold_type`)**: MIXED(수익 HP 우선 + 충전 HP, 강의·출연 = `BillingPort.hold` 전부), CHARGE_ONLY(충전 HP만, 환불 `POINT_REFUND_REQUEST`), REVENUE_ONLY(수익 HP만, 환전 `EXCHANGE`). 종류는 참조 유형으로 정해지고(`InternalHoldRequests.holdTypeOf`), 쓸 수 있는 종류의 잔액이 모자라면 `INSUFFICIENT_BALANCE`. 기존 MIXED 규칙은 바꾸지 않는다. DB `ck_point_hold_5`가 종류와 구성(CHARGE_ONLY는 수익 0, REVENUE_ONLY는 충전 0)을 막는다.
+- **보류 종류(`point_hold.hold_type`)**: MIXED(수익 HP 우선 + 충전 HP, 강의·출연 = 내부 API 보류 전부), CHARGE_ONLY(충전 HP만, 환불 `POINT_REFUND_REQUEST`), REVENUE_ONLY(수익 HP만, 환전 `EXCHANGE`). 종류는 참조 유형으로 정해지고(`InternalHoldRequests.holdTypeOf`), 쓸 수 있는 종류의 잔액이 모자라면 `INSUFFICIENT_BALANCE`. 기존 MIXED 규칙은 바꾸지 않는다. DB `ck_point_hold_5`가 종류와 구성(CHARGE_ONLY는 수익 0, REVENUE_ONLY는 충전 0)을 막는다.
 - **확정 차감(CAPTURE)**: 보류 HP를 다른 회원에게 옮기지 않고 최종 차감한다(받는 지갑 없음). 원장은 보류 감소 줄만(환불 `REFUND`, 환전 `EXCHANGE`). 충전 HP는 지급과 같이 배분 순서(FIFO)로 소진하고 원금은 충전 건에 돌아가지 않는다. 전체·부분 허용, 남은 금액은 추가 확정 차감·반환 가능. 확정 차감만으로 끝나면 `CAPTURED`, 반환·지급과 섞이면 `MIXED`. **MIXED 보류(강의·출연)는 확정 차감하지 않는다**(`HOLD_TYPE_NOT_SUPPORTED`), 강의·출연 지급을 확정 차감으로 대체하지 않는다.
 - **충전 건 지정 금액은 필수 (#241 2차)**: `CaptureCommand.ofCharge`·`InternalReleaseCommand.ofCharge`는 금액을 반드시 받는다(생략 시 요청 단계 `IllegalArgumentException`). PG가 실제 취소한 금액·실패 확정 금액을 그대로 넘기고, 그 배분의 남은 보류를 넘으면 다른 충전 건으로 나누지 않고 거절한다. 금액 없는 "남은 보류 전부"는 충전 건을 지정하지 않는 `full`에서만 쓴다.
 - **충전 건 지정(`point_hold_detail.target_charge_id`)**: CHARGE_ONLY 보류에서 PG 결제 건(충전 건)별 결과를 반영한다. 성공 건만 그 충전 건 배분에서 확정 차감, 실패 확정 건만 그 충전 건에 반환, 결과 불명확 건은 보류 유지. 비어 있는 상세는 기존 규칙(반환 = 배분 역순, 지급·확정 차감 = 배분 순서)으로 재생한다 → 기존 이력 재구성 불변.
-- **내부 경로만**: `InternalHoldFacade.hold(InternalHoldCommand)`·`capture(CaptureCommand)`·`release(InternalReleaseCommand)`. shared `BillingPort`(4개 메서드)·shared DTO·`HOLDABLE_REFERENCE_TYPES`는 바꾸지 않는다. 지급(`payout`)은 내부 참조 유형을 받지 않는다(shared 계약), 확정 차감은 강의·출연 참조 유형을 받지 않는다 → 같은 보류를 지급과 확정 차감이 나눠 쓰지 않는다.
+- **내부 경로만**: `InternalHoldFacade.hold(InternalHoldCommand)`·`capture(CaptureCommand)`·`release(InternalReleaseCommand)`. shared DTO·`HOLDABLE_REFERENCE_TYPES`는 바꾸지 않는다. 지급(`payout`)은 내부 참조 유형을 받지 않는다(shared 계약), 확정 차감은 강의·출연 참조 유형을 받지 않는다 → 같은 보류를 지급과 확정 차감이 나눠 쓰지 않는다.
 - **멱등키**: 확정 차감 `CAPTURE:{holdId}:{captureRequestId}`(상세 UNIQUE + 원장 작업 키), 내부 반환 `RELEASE:{holdId}:{releaseRequestId}`(기존과 같은 형식). 같은 ID에 다른 금액·지정 충전 건이면 `IDEMPOTENCY_KEY_CONFLICT`.
 - **오류 코드 추가(기존 코드 이름·의미 불변)**: `CAPTURE_AMOUNT_EXCEEDS_HELD` 409, `HOLD_TYPE_NOT_SUPPORTED` 400, `HOLD_CHARGE_NOT_FOUND` 400. 강의 지급 실패 분류(`WALLET_NOT_FOUND`만 일시)는 그대로이며 새 코드는 강의 지급 경로에서 나지 않는다.
 
 ### 8.1 강의 판매 수익 지급 (#188에서 변경)
 
-- **강의 직접 지급 방식 (#188 확정, #150·#156 dev 반영)**: 강의가 지급 시점(구매일 + 31일 00:00 KST, `payout_scheduled_at`)·구매 확정·이의 제기(#156)·판매자 상태(탈퇴, #150에 아직 확인 코드 없음)를 판단하고, 지급할 때 `BillingPort.payout(PayoutCommand.full(구매자, LECTURE_ORDER_ITEM, 항목 ID, "LECTURE-PAYOUT-{항목 ID}", 판매자, LECTURE_ORDER_ITEM, 항목 ID))`을 직접 부른다(강의 #150). 출연과 같이 **지급 원천 모듈이 업무 정책을 소유**하고, Billing은 보류·반환·지급·원장·멱등성만 맡는다.
+- **강의 직접 지급 방식 (#188 확정, #150·#156 dev 반영)**: 강의가 지급 시점(구매일 + 31일 00:00 KST, `payout_scheduled_at`)·구매 확정·이의 제기(#156)·판매자 상태(탈퇴, #150에 아직 확인 코드 없음)를 판단하고, 지급할 때 내부 API 지급(`PayoutCommand.full(구매자, LECTURE_ORDER_ITEM, 항목 ID, "LECTURE-PAYOUT-{항목 ID}", 판매자, LECTURE_ORDER_ITEM, 항목 ID)`)을 직접 부른다(강의 #150). 출연과 같이 **지급 원천 모듈이 업무 정책을 소유**하고, Billing은 보류·반환·지급·원장·멱등성만 맡는다.
 - **Billing은 강의 지급 예정 건(SCHEDULED)을 만들지 않는다**: #142의 강의 전용 지급 예정 관리(`LectureSettlementFacade`·`UseCase`·`Schedule`, 상태 전이, shared `LectureSettlementPort`)는 #188에서 없앴다. 강의 지급 건은 실제 지급이 성공할 때 기존 지급 경로가 `COMPLETED`로 한 번 INSERT한다(`UNIQUE(source_type, source_id)` 그대로).
 - **지급 검증은 기존 지급 엔진 그대로**: 원천은 그 주문 항목(`verifySource`), 보낸 쪽 ≠ 받는 쪽, 받는 쪽 지갑 필수(`WALLET_NOT_FOUND`, 자동 생성 없음), 수익 HP 우선·충전 HP FIFO 소진, 같은 지급 요청 ID는 재요청(replay), 끝난 보류는 `HOLD_ALREADY_CLOSED`, 보류가 남아도 같은 원천의 다른 요청 ID는 `PAYOUT_ALREADY_SETTLED`.
 - **Billing에 넣지 않는 것**: 판매자 탈퇴 조회, 이의 제기 판단, 지급 예정일 계산, 지급 예정 금액 집계(강의 주문 항목 기준으로 #150이 제공). 판매자 탈퇴 후 최종 수익 정산은 별도 정책 결정 대상이다.
@@ -155,29 +155,18 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 
 ## 9. 도메인 간 통신
 
-- Lecture와 Appearance의 HP 보류·반환·지급 요청 및 결과 처리는 동기 API 방식을 사용한다.
-- **연동 계약은 `shared`의 `com.hapbang.shared.billing`에 둔다(#145).** 포트 `port.BillingPort`(`hold`·`release`·`payout`·`settlePenalty`), 요청·결과 `dto`(`HoldCommand`·`ReleaseCommand`·`PayoutCommand`·`PenaltyCommand`, `HoldResultDto`·`ReleaseResultDto`·`PayoutResultDto`·`PenaltyResultDto`), Enum `domain`(`BillingReferenceType`·`SettlementSourceType`). Lecture·Appearance는 `:shared`만 의존하고 `:billing`의 클래스(Facade·UseCase·엔티티·내부 결과)를 참조하지 않는다. 구현은 내부 HTTP API `billing.in.ApiV1BillingInternalController`(`POST /api/v1/internal/billing/{holds,releases,payouts,penalty-settlements}`, #273)와 `billing.in.BillingPortAdapter`(같은 JVM 호출, #280에서 삭제)이고 둘 다 `HoldFacade`를 부른다. `HoldFacade`는 `@PreAuthorize("hasRole('INTERNAL')")`다(D63). 내부 API 정책은 `docs/billing/CONTEXT.md` 1장.
+- Lecture와 Appearance의 HP 보류·반환·지급·위약금 정산 요청은 지갑 내부 HTTP API(`POST /api/v1/internal/billing/{holds,releases,payouts,penalty-settlements,hold-voids}`, #273·#479)로 한다. 소비 앱은 shared `BillingApiClient`(Resilience4j, #411)만 쓰고, 로컬 트랜잭션 밖에서 부른다(D62). 계약은 `docs/api/internal-billing.md`, 지갑 쪽 정책은 `docs/billing/CONTEXT.md` 1·2·6장.
+- **연동 계약은 `shared`의 `com.hapbang.shared.billing`에 둔다(#145).** 요청·결과 `dto`(`HoldCommand`·`ReleaseCommand`·`PayoutCommand`·`PenaltyCommand`·`HoldVoidCommand`와 각 결과 DTO), Enum·오류 코드 `domain`(`BillingReferenceType`·`SettlementSourceType`·`BillingFailureCode`·`HoldVoidOutcome`), 공통 HTTP Client `out`. **Java Port는 두지 않는다**: 같은 JVM 호출용 `BillingPort`·`BillingPortAdapter`는 #486에서 지웠고 `SharedBillingDependencyTest`가 port 패키지 없음·sealed가 아닌 인터페이스 없음을 고정한다(BD-128). Lecture·Appearance는 `:shared`만 의존하고 `:billing`의 클래스를 참조하지 않는다.
+- 진입점은 `billing.in.ApiV1BillingInternalController` → `HoldFacade`(`@PreAuthorize("hasRole('INTERNAL')")`, D63)다. 요청 하나가 지갑 트랜잭션 하나이고, 실패하면 그 요청의 변경이 전부 롤백된다. 호출한 쪽 트랜잭션에는 참여하지 않는다.
 - `shared`는 `billing`에 의존하지 않는다. shared 요청 DTO는 구조(필수 값·참조 유형·요청 ID 형식)만 검사하고, 금액·잔액·소유·초과·지급 원천·자기 지급·멱등성 같은 금융 검증은 Billing이 `BillingException`으로 한다. shared에서 `BillingException`·`BillingErrorCode`를 쓰지 않는다.
 - **두 종류의 예외를 구분한다 (#145 2차 확정).**
-    - shared 구조 검증은 `NullPointerException`(필수 값 없음)·`IllegalArgumentException`(보류할 수 없는 참조 유형, 요청 ID 형식)을 쓴다. 업무 예외가 아니며 `BusinessException`이나 shared 전용 예외로 바꾸지 않는다. **내부 HTTP API(#273)에서는** Command 생성자가 요청 본문 역직렬화 중에 실패하므로 global `GlobalExceptionHandler`가 400 `INVALID_REQUEST`로 응답한다(핸들러는 바꾸지 않는다). 같은 JVM 호출(`BillingPort`, #280에서 삭제)에서만 내부 Java 계약을 잘못 쓴 프로그래밍 오류로 500 `INTERNAL_ERROR`다.
-    - Billing 금융 검증은 `BillingException`(`BusinessException` 하위)과 기존 `BillingErrorCode`를 그대로 쓴다: `INVALID_POINT_AMOUNT` 400, `PENALTY_AMOUNT_ZERO` 400, `INSUFFICIENT_BALANCE` 409, `IDEMPOTENCY_KEY_CONFLICT` 409, `PAYOUT_ALREADY_SETTLED` 409 등.
-    - **내부 HTTP API(#273)는 shared Command(`HoldCommand`·`ReleaseCommand`·`PayoutCommand`·`PenaltyCommand`)를 요청 본문으로 그대로 받는다**(BD-54 재검토, `docs/billing/CONTEXT.md` 1.1). shared Command가 곧 모듈 간 HTTP 계약(`docs/api/internal-billing.md`)이기 때문이다. 회원이 부르는 사용자 API는 지금처럼 각 모듈의 요청 DTO(`@Valid`, 400 `INVALID_REQUEST`)로 받고 shared DTO를 쓰지 않는다.
-- 멱등키는 Billing이 만든다(`app.BillingKeys`). 호출한 쪽은 보류 멱등키를 만들거나 넘기지 않고, 반환·지급·취소마다 안정적인 요청 ID만 넘긴다.
-- **강의 호출 계약 (#188 기준, shared `BillingPort`만 사용)**: #182의 `LectureSettlementPort`는 #188에서 없앴다.
-    - **구매 (한 트랜잭션)**: 주문·주문 항목 저장(ID 확보) → `BillingPort.hold`(항목마다) → 구매 시각 확정 → 커밋. 보류가 실패하면 주문까지 롤백된다.
-    - **구매 취소 (한 트랜잭션)**: 주문 잠금·항목 취소 → `BillingPort.release(full, "LECTURE-CANCEL-{itemId}")` → 커밋. 반환이 실패하면 구매 취소도 롤백된다.
-    - **지급 (#150, 항목마다 한 트랜잭션)**: 강의가 지급 대상을 판단 → 항목 상태 변경 → `BillingPort.payout(full, "LECTURE-PAYOUT-{itemId}")` → 커밋. Billing이 실패하면 항목 상태도 롤백되어 다음 실행에서 다시 처리한다.
-- **모듈별 트랜잭션·실패 복구 방식 (#182 2차 확정)**:
-    - **강의 = 동기 단일 트랜잭션**: 강의 트랜잭션에 주문·항목 변경과 보류(또는 반환·지급)가 함께 참여한다(#188 이후 지급 예정 등록·취소는 없다). 지급 배치는 항목마다 새 트랜잭션이다. 어느 단계든 실패하면 전부 롤백되고, 같은 업무 ID로 다시 요청한다. 구매 시점에는 판매자 지갑을 보지 않는다(#188: 지급 예정 등록이 없어져 #182 2차의 "판매자 지갑 없으면 주문 실패"는 더 이상 적용되지 않는다). 판매자 지갑이 없으면 **지급할 때** `WALLET_NOT_FOUND`(404)로 실패하고 지급 변경은 모두 롤백된다(금융 거래 중 지갑 자동 생성 금지).
-    - **출연 = 분리 트랜잭션 + HpTask (기존 설계 유지, 팀 확정)**: 요청서를 `HOLD_PENDING`으로 저장·커밋 → 트랜잭션 밖에서 `hold` → 성공하면 `REQUESTED`, Billing 거절(`BusinessException`)이면 `HOLD_FAILED` 기록 후 오류 그대로 응답, 결과 불명이면 `HOLD_PENDING` + `BILLING_UNAVAILABLE`(503). 반환은 상태 변경과 같은 트랜잭션에 HpTask를 저장하고 커밋 후 실행(실패하면 PENDING + 다음 시도 시각). Billing 실패가 이미 커밋된 출연 상태를 되돌리지 않으며 상태와 멱등 재시도로 복구한다. Billing 내부 처리(지갑·보류·원장)는 각 호출이 단일 트랜잭션으로 원자적이다.
-    - 출연의 멱등 기준: 보류 = 참조 대상(`HOLD:APPEARANCE_REQUEST:{요청서 ID}`, Billing이 생성), 반환 = HpTask의 고유 `idempotency_key`(`APPEARANCE_REQUEST-{id}-RELEASE-1`)를 반환 요청 ID로 사용.
-- **출연 연동 모드**: 기본값 `appearance.billing.mode=fake`(FakeBillingClient) 유지. `billing-port`(대소문자 무시)일 때만 `BillingPortClient`가 실제 Billing을 부른다. 오타·빈 값이면 어떤 `BillingClient`도 등록되지 않아 앱이 뜨지 않는다(조용히 실제 금융으로 바뀌지 않는다). **운영 전환은 출연 담당이 결정한다.**
-- **출연 지급·위약금 향후 원칙**: 정상 지급은 `BillingPort.payout`(1:1 = 확정 출연 계약 ID `APPEARANCE_REQUEST`, 1:N = 게스트별 계약 ID `RECRUIT_APPEARANCE`), 위약금 비율·금액·반환액은 출연 계산, 실제 반환·지급은 `settlePenalty`(반환 0 허용, 지급 0 거절), 같은 출연 계약 NORMAL·PENALTY 중복 금지. 출연은 분리 트랜잭션이므로 지급·위약금도 HpTask 같은 상태 기반 복구가 필요하다(후속).
-- 같은 애플리케이션 안의 동기 Java 호출이며, Billing은 호출한 쪽 트랜잭션에 참여한다(UseCase `@Transactional` 기본 전파 REQUIRED, `REQUIRES_NEW` 금지). HP 보류 결과는 보류·원장을 호출한 쪽 트랜잭션에 기록한 뒤 돌려주고, 커밋은 호출한 쪽 트랜잭션과 함께 된다.
-- 금융 실패(잔액 부족 `INSUFFICIENT_BALANCE` 409 등)는 결과값이 아니라 런타임 예외로 알린다. 예외가 나면 호출한 쪽의 같은 트랜잭션 변경도 롤백된다. 호출한 쪽은 Billing 예외를 잡아 정상 결과로 바꾸지 않는다(롤백 전용 트랜잭션을 이어 쓰게 되어 원자성이 깨진다).
+    - shared 구조 검증은 `NullPointerException`(필수 값 없음)·`IllegalArgumentException`(보류할 수 없는 참조 유형, 요청 ID 형식)을 쓴다. 업무 예외가 아니며 `BusinessException`이나 shared 전용 예외로 바꾸지 않는다. 내부 HTTP API에서는 Command 생성자가 요청 본문 역직렬화 중에 실패하므로 global `GlobalExceptionHandler`가 400 `INVALID_REQUEST`로 응답한다.
+    - Billing 금융 검증은 `BillingException`(`BusinessException` 하위)과 기존 `BillingErrorCode`를 그대로 쓴다: `INVALID_POINT_AMOUNT` 400, `PENALTY_AMOUNT_ZERO` 400, `INSUFFICIENT_BALANCE` 409, `IDEMPOTENCY_KEY_CONFLICT` 409, `PAYOUT_ALREADY_SETTLED` 409, `HOLD_VOIDED` 409 등. 응답은 `ProblemDetail`(+ `code`)이고, 소비 앱 Client가 `BillingFailureCode`로 바꾼다.
+    - **내부 HTTP API는 shared Command를 요청 본문으로 그대로 받는다**(BD-54 재검토, `docs/billing/CONTEXT.md` 1.1). shared Command가 곧 모듈 간 HTTP 계약이기 때문이다. 회원이 부르는 사용자 API는 각 모듈의 요청 DTO(`@Valid`, 400 `INVALID_REQUEST`)로 받고 shared DTO를 쓰지 않는다.
+- 멱등키는 Billing이 만든다(`app.BillingKeys`). 호출한 쪽은 보류 멱등키를 만들거나 넘기지 않고, 반환·지급·취소마다 안정적인 요청 ID만 넘긴다. 같은 요청 ID로 다시 보내도 HP는 두 번 움직이지 않는다.
+- 호출 쪽의 실패 복구(HP 작업·재시도·보상)는 각 모듈이 소유한다: 강의 `docs/lecture/integration.md`, 출연 `docs/appearance/module.md`. Billing 오류·결과 불명을 성공으로 해석하지 않는다(BD-70).
 - 거래 상태의 확정·취소 판단은 각 업무 도메인이 담당한다.
 - Billing은 HP 이동 및 원장 정합성만 책임진다.
-- HTTP 방식으로 트랜잭션이 분리되면 실패 복구와 멱등성 처리를 구현한다.
 - 다른 도메인의 테이블을 직접 조회해 거래 상태를 변경하지 않는다.
 
 ## 10. 충전·환불

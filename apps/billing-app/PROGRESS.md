@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-10-30 (#479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-10-31 (#486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -41,7 +41,8 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #428 | Kafka 소비 규칙(#339)에 맞춰 회원 이벤트 멱등 문서 정리: `eventId` inbox → 자연 키, 소비 그룹 `billing-app.member-replica`·`billing-app.wallet-creation`, 그룹별 DLT, 별도 멱등 기록 없음(BD-123) | `feature/tkt-428` | (PR 전) | 문서 완료 |
 | #430 | 회원 이벤트 Kafka 소비: `member.events.v1`을 그룹 `billing-app.member-replica`(복제본)·`billing-app.wallet-creation`(지갑, ADMIN 제외)로 받음, 블로킹 재시도 3회 뒤 그룹별 DLT(`BillingKafkaConfig`), Scenario 테스트를 Kafka Testcontainers·직접 호출로 교체 | `feature/tkt-430` | (PR 전) | 구현 완료 |
 | #471 | Spring Event 제거: Modulith 이벤트 기록 설정 삭제, Flyway `V202610301400`으로 `event_publication`·`event_publication_archive` 삭제, 이벤트 기록 자동 설정 2개 제외(앱·테스트), `ModulithEventsDisabledTest` | `feature/tkt-471` | #473 | 완료 |
-| #479 | 보류 무효화 내부 API `POST /api/v1/internal/billing/hold-voids`: 남은 보류 전부 반환(`RELEASED`)·끝난 보류(`ALREADY_CLOSED`)·보류 없음(`VOIDED`), 무효화 기록 `hold_void`(Flyway `V202610301600`), 무효화 뒤 보류는 `HOLD_VOIDED` 409, shared 계약·Client `voidHold`, `HoldVoidIntegrationTest` | `feature/tkt-479` | (PR 전) | 구현 완료 |
+| #479 | 보류 무효화 내부 API `POST /api/v1/internal/billing/hold-voids`: 남은 보류 전부 반환(`RELEASED`)·끝난 보류(`ALREADY_CLOSED`)·보류 없음(`VOIDED`), 무효화 기록 `hold_void`(Flyway `V202610301600`), 무효화 뒤 보류는 `HOLD_VOIDED` 409, shared 계약·Client `voidHold`, `HoldVoidIntegrationTest` | `feature/tkt-479` | #483 | 완료 |
+| #486 | BillingPort 테스트 전환·삭제(#280의 billing 범위): `BillingPortIntegrationTest` 삭제, 결과 변환·금액 오류·강의 항목별 반환을 `ApiV1BillingInternalControllerTest`로 이동, 다른 모듈 트랜잭션 참여 검증은 요청 단위 롤백으로 대체, 충전·환전·환불 테스트 준비를 `HoldFacade`로, shared `BillingPort`·`BillingPortAdapter` 삭제, `SharedBillingDependencyTest#noJavaPorts`(BD-128) | `feature/tkt-486` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
@@ -631,7 +632,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 - **오류 코드 대조**: `BillingFailureCodeContractTest`가 `BillingErrorCode` 전체를 `default` 없는 `switch`로 `BillingFailureCode` 또는 `null`(내부 API에서 나오지 않음)로 분류한다. Billing 코드가 늘면 컴파일되지 않는다.
 - **로그**: 요청마다 `operation`·회원·참조·요청 ID·금액과 `result=OK replayed=…`/`FAILED code=…`/`ERROR exception=…` 한 줄. correlation ID는 계약(`internal-billing.md` 3장)대로 tracing 도입 때 정한다.
 - **테스트**: `ApiV1BillingInternalControllerTest` 13(성공·replay·409·업무 오류 detail·400 구조 오류·401 키 없음/틀림/세션만·기술 실패 500 + 전체 롤백·Facade 인가·요청 로그·동시 같은 요청·락 대기 초과 503), `BillingFailureCodeContractTest` 68, `LockTimeoutsTest` 3.
-- **후속**: `docs/api/internal-billing.md` 2장 표에 `HP_LOCK_TIMEOUT` 반영, GLOSSARY("위약금 정산") 반영, #280(내부 Command 변환·`BillingPort` 삭제). `decisions.md` 반영(BD-28·BD-54 일부 대체, BD-108 결정, BD-111~BD-113)은 2026-10-30에 했다.
+- **후속**: `docs/api/internal-billing.md` 2장 표에 `HP_LOCK_TIMEOUT` 반영, GLOSSARY("위약금 정산") 반영, #280(내부 Command 변환·`BillingPort` 삭제. `BillingPort` 삭제는 #486에서 했고 내부 Command 변환은 #486 병합 뒤 별도 이슈로 한다). `decisions.md` 반영(BD-28·BD-54 일부 대체, BD-108 결정, BD-111~BD-113)은 2026-10-30에 했다.
 
 ### 3.22 환불·환전 1원 단위 (#453, 2026-10-30, 기준 `origin/dev` 3d6b61c, `feature/tkt-453`)
 

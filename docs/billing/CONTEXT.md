@@ -10,9 +10,9 @@
 
 - `POST /api/v1/internal/billing/{holds, releases, payouts, penalty-settlements}`. 성공은 `RsData`, 실패는 `ProblemDetail` + `code`다. 요청 하나를 Billing 로컬 트랜잭션 하나로 처리한다.
 - 요청 본문은 shared Command(`HoldCommand`·`ReleaseCommand`·`PayoutCommand`·`PenaltyCommand`)를 그대로 받는다. BD-54의 "shared DTO를 Controller 요청 DTO로 쓰지 않는다"는 같은 JVM 호출 전제였고, HTTP 계약에는 적용하지 않는다(BD-54 재검토 결과). Command 생성자의 구조 검사(NPE·IAE)는 Jackson 역직렬화 오류가 되어 400 `INVALID_REQUEST`로 응답한다.
-- 응답 DTO는 `BillingPortAdapter`와 같은 방식으로 변환한다(BD-61). `amountHp`가 `null`이면 남은 보류 전액이다.
+- 응답 DTO는 `BillingResultDtos`로 변환한다(BD-61, 당시 `BillingPortAdapter`와 공유, #486에서 Adapter 삭제). `amountHp`가 `null`이면 남은 보류 전액이다.
 - 확정 차감(capture)은 노출하지 않는다.
-- 이슈 #273의 "shared 요청 DTO → billing 내부 Command 변환"은 #280(`BillingPort` 삭제)에서 한다. 지금 `HoldFacade`는 shared Command를 받고, 시그니처를 바꾸면 `BillingPortAdapter`·Hold 통합 테스트까지 바뀌기 때문이다. 기존 `InternalHoldCommand`·`InternalReleaseCommand`는 환불·환전용(보류 종류 지정)이라 이 용도로 쓰지 않는다.
+- 이슈 #273의 "shared 요청 DTO → billing 내부 Command 변환"은 #280(`BillingPort` 삭제)에서 한다(#486에서 `BillingPort`는 지웠고, 변환은 #486 병합 뒤 후속 이슈에서 한다, 7.2). 지금 `HoldFacade`는 shared Command를 받고, 시그니처를 바꾸면 `BillingPortAdapter`·Hold 통합 테스트까지 바뀌기 때문이다. 기존 `InternalHoldCommand`·`InternalReleaseCommand`는 환불·환전용(보류 종류 지정)이라 이 용도로 쓰지 않는다.
 
 ### 1.2 인증·노출
 
@@ -287,3 +287,21 @@
 
 - `HoldVoidIntegrationTest`: 세 결과, 재요청, 무효화 뒤 보류 거절, 소유 확인, 지갑 없음, 같은 참조 대상의 보류·무효화 동시 실행.
 - `ApiV1BillingInternalControllerTest.voidHold`, `BillingApiClientTest`(경로·본문·결과), `BillingFailureCodeContractTest`, `BillingEnumStorageTest`(CHECK 3개).
+
+## 7. BillingPort 테스트 전환과 삭제 (#486)
+
+2026-10-31 `/grill-with-docs`로 정했다. #280(shared Port와 In-process 연동 제거)의 billing 범위다. 강의(#275~#277)·출연(#274)이 내부 HTTP API로 전환해 운영에서 `BillingPort`를 쓰는 곳이 없었다.
+
+### 7.1 결정
+
+- shared `BillingPort`, billing-app `BillingPortAdapter`, `BillingPortIntegrationTest`를 지운다(BD-128). 삭제는 #280 담당과 확인했다.
+- 호출한 쪽 트랜잭션 참여 테스트 4개는 HTTP에서는 없는 동작이라 지운다. "요청 하나 = 지갑 트랜잭션 하나, 실패하면 전부 롤백"은 `ApiV1BillingInternalControllerTest#technicalFailureRollsBack`이 이미 위약금(반환 뒤 지급 실패)으로 검증하므로 새 케이스는 더하지 않았다.
+- Port 테스트에만 있던 케이스는 내부 API 테스트로 옮긴다: `#lectureOrderItems`(강의 항목별 반환), `#amountErrors`(0 HP 보류·반환, 음수 지급 `INVALID_POINT_AMOUNT`, 위약금 0 `PENALTY_AMOUNT_ZERO`, 400).
+- `ChargeIntegrationTest`·`ExchangeIntegrationTest`·`RefundIntegrationTest`의 보류·반환·지급 준비는 `HoldFacade` 직접 호출(`ROLE_INTERNAL`)로 바꾼다.
+- `SharedBillingDependencyTest#noJavaPorts`: `shared.billing.port` 패키지가 없고, 인터페이스는 sealed(결과 타입)뿐이다.
+- "HTTP Contract Test"는 지금 방식(MockMvc + 실제 보안 체인 + PostgreSQL)을 늘리는 것이다. 계약 도구(Spring Cloud Contract·Pact)는 들이지 않는다.
+
+### 7.2 범위
+
+- billing 쪽만이다. 강의·출연·고객센터의 다른 bounded context import 금지 구조 테스트, 다른 shared 패키지 규칙, 앱별 기동 확인, 배포 문서의 `hapbang.clients.*`는 #280 본 이슈에 남긴다.
+- 1장의 "shared 요청 DTO → billing 내부 Command 변환"(#273에서 #280으로 미룸)은 이번에 하지 않는다. 이번 범위는 Port 삭제·테스트 전환이고, 변환은 시그니처 변경이 테스트 약 80곳에 퍼져 리뷰를 나누려고 #486 병합 뒤 별도 이슈로 바로 시작한다(2026-10-31 결정). 그때까지 `HoldFacade`는 shared Command를 받는다.
