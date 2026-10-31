@@ -20,7 +20,7 @@
 ### 1.2 출연 모듈이 하지 않는 일
 
 - HP 잔액·원장 관리 → 지갑+정산(billing) 모듈
-- 로그인·회원 가입 → 회원 모듈 (출연 모듈은 세션의 회원 ID와 회원 이벤트만 사용)
+- 로그인·회원 가입 → 회원 모듈 (출연 모듈은 Gateway가 넘긴 사용자 헤더의 회원 ID와 회원 이벤트만 사용, 20장)
 - 이의 제기 판정·패널티 → 고객센터 모듈
 
 ### 1.3 구현 현황
@@ -44,6 +44,7 @@
 | 출연 확인(확인·불참)·D+7 자동 확인, 지급 HP 작업. 이의 제기는 고객센터 관할 | ✅ | #282 |
 | Billing 실제 연동 (Fake Billing·`mode` 설정 삭제, 실제 Billing 통합 테스트) | ✅ | #289 |
 | 정리: 작업 뒤 상세 조회 읽기 전용 트랜잭션, 충돌 변환 통합 | ✅ | #293 |
+| 격리된 HP 작업 관리자 조회·다시 시도 | ✅ | #397 |
 
 ---
 
@@ -66,7 +67,7 @@
 
 ### 2.2 정책 수치
 
-정책 수치는 코드에 직접 쓰지 않고 `AppearancePolicy`로만 사용한다. 값은 `boundedContext/appearance/src/main/resources/appearance.yml`에 있고, `config.AppearancePolicyProperties`가 읽어 `AppearancePolicy`로 바꾼다.
+정책 수치는 코드에 직접 쓰지 않고 `AppearancePolicy`로만 사용한다. 값은 `apps/appearance-app/src/main/resources/appearance.yml`에 있고, `config.AppearancePolicyProperties`가 읽어 `AppearancePolicy`로 바꾼다.
 
 | 항목 | 값 | 설정 키 | 계산 메서드 |
 |---|---|---|---|
@@ -106,12 +107,12 @@ com.hapbang.appearance
 
 | 이름 | 역할 | 트랜잭션 |
 |---|---|---|
-| `…Facade` | in 계층(컨트롤러·리스너)이 부르는 유일한 진입점. 세션 역할 검사 `@PreAuthorize` | **기능 하나 = 트랜잭션 하나를 여기서 연다** |
+| `…Facade` | in 계층(컨트롤러·리스너)이 부르는 유일한 진입점. 로그인 역할 검사 `@PreAuthorize` | **기능 하나 = 트랜잭션 하나를 여기서 연다** |
 | `…UseCase` | 기능 하나의 로직 (예: `AppearanceRequestCreateUseCase` = 요청서 저장) | 열지 않음 (Facade 트랜잭션에 참여). 예외는 아래 |
 | `…Support` | 저장소(Repository) 접근과 공통 조회 (예: `getById`, 자격 확인 조회) | 열지 않음 |
 
 - 예외: 외부 호출(Billing)을 사이에 두고 단계별로 따로 커밋해야 하는 기능(요청서 보내기)은 Facade가 트랜잭션을 열지 않고, 각 UseCase 메서드가 직접 연다.
-- 세션 역할 검사(`@PreAuthorize`)는 Facade에서, 출연 회원 자격(정지·강등)과 업무 규칙은 UseCase·도메인에서 확인한다.
+- 로그인 역할 검사(`@PreAuthorize`)는 Facade에서, 출연 회원 자격(정지·강등)과 업무 규칙은 UseCase·도메인에서 확인한다.
 - 이벤트 리스너는 로그인 정보가 없으므로 `@PreAuthorize`가 없는 별도 Facade를 쓴다 (예: `AppearanceUserFacade`).
 - 배치(`in.AppearanceBatch`)는 시스템이 실행하므로 Facade를 거치지 않고 UseCase를 직접 부른다 (팀 강의 배치와 같은 방식, 8장).
 - `global`, `shared` 패키지는 팀 공통 방식이 정해지지 않아 출연 모듈 안에 임시로 둔 것이다. 옮길 조건은 각 `package-info.java`에 적었다.
@@ -161,17 +162,19 @@ com.hapbang.appearance
 | `app.HpTaskExecuteUseCase` | HP 작업 1회 실행: Billing 호출(트랜잭션 밖) → 성공 `DONE` / Billing 거절 `DEAD` / 그 밖 실패는 재시도 정책대로 (`TransactionTemplate`) |
 | `in.AppearanceBatch` | 배치 주기 정의(`@ConditionalOnSchedulingEnabled`). UseCase를 직접 호출 (#187) |
 | `app.AppearanceHoldRecheckUseCase`, `AppearanceRequestExpireUseCase`, `HpTaskRetryUseCase` | 보류 재확인 / 수락 기한 만료 / HP 작업 재시도 (#187) |
+| `app.AppearanceEventRepublishUseCase`, `AppearanceExternalEvents` | Kafka로 못 보낸 알림 이벤트 재발행 배치 / Kafka로 내보내는 이벤트 판단(외부화 설정과 재발행 배치가 같이 씀) (#393, 11.3) |
 | `app.HpTaskMetrics` | HP 작업 지표(Micrometer) 등록·갱신 (#187) |
 | `domain.HpTaskRetryPolicy`, `config.AppearanceBatchProperties` | 재시도 정책(지수 백오프+지터) / 배치 설정 바인딩 (#187) |
 | `app.AppearanceSupport`, `HpTaskSupport` | 출연·HP 작업 저장소 접근 |
 | `app.AppearanceRequestSupport` | 요청서 저장소 접근: `getById`, `existsInProgress`, `saveNow`, `findSent`, `findReceived` (최신순 고정) |
 | `in.ApiV1AppearanceRequestController`, `ApiV1AppearanceRequestSpec` | 출연 요청서 REST API(Facade만 호출)와 Swagger 명세 (요청 값 검증은 Spec에) |
-| `in.AppearanceUserEventListener` | 회원 가입·변경 이벤트 수신 → `AppearanceUserFacade` |
+| `in.AppearanceUserEventListener`, `config.AppearanceKafkaConfig` | 회원 가입·변경 이벤트 Kafka 수신 → `AppearanceUserFacade` / 소비 그룹·DLT·재시도 (#394) |
+| `in.ApiV1AppearanceUserBackfillAdminController`, `app.AppearanceUserBackfillFacade`, `AppearanceUserBackfillUseCase` | 관리자 기존 회원 Backfill: 회원 내부 API 키셋 순회 → 회원마다 `AppearanceUserSyncUseCase.applySnapshot` (#394, 4.1.1) |
 | `out.AppearanceUserRepository` | 출연 회원 저장·조회 |
 | `out.AppearanceRequestRepository` | 출연 요청서 저장·목록 조회 |
 | `out.AppearanceRepository`, `HpTaskRepository` | 출연, HP 작업 저장·조회 |
-| `out.billing.BillingClient` | Billing 연동 창구. 메서드·요청·응답은 shared `BillingPort`와 같다 |
-| `out.billing.BillingPortClient` | 실제 Billing 연동 구현(유일한 구현). shared `BillingPort`로 그대로 넘긴다 (Billing #182, #289부터 항상 사용) |
+| `out.billing.BillingClient` | 지갑 연동 창구. 요청은 shared DTO, 응답은 `BillingCallResult`(성공·거절), 결과를 받지 못하면 `BillingCallException` |
+| `out.billing.BillingHttpClient` | 지갑 내부 HTTP API를 공용 `BillingApiClient`로 부르는 구현(유일한 구현, #274). 결과를 그대로 넘긴다 |
 | (삭제, #71) | 출연 예외는 global의 공통 핸들러(`com.hapbang.global.exception.GlobalExceptionHandler`)가 Problem Detail로 응답한다 |
 
 **계층별 책임 (2026-10-14 정리, ISSUE.md APR-25)**
@@ -181,15 +184,15 @@ com.hapbang.appearance
 | 도메인 | 엔티티 자신의 값과 넘겨받은 값만으로 판단할 수 있는 규칙: 값 검증, 상태 전이, 행위자·기한 확인, 금액 계산. Repository·Billing·Spring 빈을 모른다 (현재 시각도 값으로 받는다) |
 | UseCase | DB·다른 데이터·외부 시스템이 필요한 일과 단계 순서: 출연 회원 자격 확인, 중복 확인, Billing 호출, 낙관적 락 충돌 → 409, 저장 |
 | Facade | 역할 검사(`@PreAuthorize`), 트랜잭션 경계, UseCase 조립 |
-| Controller | 세션에서 회원 ID 추출(`@LoginUserId`), 요청 값 형식 검증(Spec의 `@Valid`), `RsData` 응답 |
+| Controller | 로그인 정보에서 회원 ID 추출(`@LoginUserId`), 요청 값 형식 검증(Spec의 `@Valid`), `RsData` 응답 |
 
 ### 3.3 설정 파일
 
 | 파일 | 역할 |
 |---|---|
-| `boundedContext/appearance/src/main/resources/appearance.yml` | 정책 수치, Billing 모드 |
-| `apps/src/main/resources/application.yaml` | `spring.config.import: classpath:appearance.yml`로 위 파일을 읽음 |
-| `boundedContext/appearance/src/test/resources/application.yaml` | 테스트에서 위 파일을 읽음 (테스트 전용, 배포 미포함) |
+| `apps/appearance-app/src/main/resources/appearance.yml` | 정책 수치, 배치 설정 |
+| `apps/appearance-app/src/main/resources/application.yaml` | 출연 앱 실행 설정. `spring.config.import: classpath:appearance.yml`로 위 파일을 읽음 |
+| `apps/appearance-app/src/test/resources/hapbang-module-test.yaml` | 테스트에서 위 파일을 읽음 (테스트 전용, 배포 미포함) |
 
 ---
 
@@ -197,38 +200,71 @@ com.hapbang.appearance
 
 | 상대 | 방식 | 주고받는 것 | 상태 |
 |---|---|---|---|
-| 회원 | 이벤트 수신 | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ |
-| 회원 (global) | 로그인 | `@LoginUserId`로 세션의 회원 ID | ✅ |
-| 지갑+정산 (billing) | shared 연동 계약 (`BillingPort`, 같은 서버 안 Java 호출) | 보류, 반환, 지급, 위약금 | ✅ 실제 연동 (#289). MSA 분리 때 API로 전환 예정 (APR-34) |
+| 회원 | Kafka 이벤트 수신 (`member.events.v1`) | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ Kafka 수신 (#394). 이전에는 같은 서버 안 `@ApplicationModuleListener` |
+| 회원 | 회원 내부 HTTP API (`GET /api/v1/internal/members`, shared `MemberApiClient`) | 기존 회원 목록(키셋) → 관리자 Backfill로 출연 회원 생성·갱신 | ✅ #394 (4.1.1) |
+| 회원 (global) | 로그인 | Gateway가 JWT를 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더 → `@LoginUserId`·`@PreAuthorize` (20장) | ✅ 앱 쪽 (#395). 회원 JWT 발급(#370) 전까지 운영에는 헤더가 오지 않는다 |
+| 지갑+정산 (billing) | 지갑 내부 HTTP API (`/api/v1/internal/billing/*`, 공용 `BillingApiClient`) | 보류, 반환, 지급, 위약금 | ✅ HTTP 연동 (#274). 이전에는 shared `BillingPort`(같은 서버 안 Java 호출, #289) |
 | 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
 
-### 4.1 회원 정보 복제
+### 4.1 회원 정보 복제 (Kafka 수신, #394)
+
+회원 앱이 다른 프로세스가 되어, 회원 이벤트를 Kafka 토픽 `member.events.v1`에서 받는다. 규칙은 팀 공통 [`kafka.md`](../architecture/infrastructure/kafka.md)(#339)의 "소비"·"재시도와 DLT"이고, 강의 앱(#429)과 같은 방식이다.
 
 ```
-회원 모듈 ──UserJoinedEvent───▶ AppearanceUserEventListener ─▶ AppearanceUserFacade.syncJoined()   ─▶ createIfAbsent() ─▶ appearances.users
-          └─UserModifiedEvent─▶                             └▶ AppearanceUserFacade.syncModified() ─▶ update()
+회원 앱 ─(Kafka member.events.v1, key 회원 ID)─▶ AppearanceUserEventListener (그룹 appearance-app.member-replica)
+   ├ UserJoinedEvent   ─▶ AppearanceUserFacade.syncJoined()   ─▶ createIfAbsent() ─▶ appearances.users
+   ├ UserModifiedEvent ─▶ AppearanceUserFacade.syncModified() ─▶ update()
+   └ 그 밖의 회원 이벤트(로그아웃 등) ─▶ 무시하고 커밋
 ```
 
-| 이벤트 | 발행 시점 (회원 모듈) | 출연 모듈 처리 |
+| 이벤트 | 발행 시점 (회원 앱) | 출연 처리 |
 |---|---|---|
 | `UserJoinedEvent` | 회원 가입 | 출연 회원 생성. **이미 있으면 무시** |
-| `UserModifiedEvent` | 회원 정보(닉네임·역할·상태) 변경 | 있는 출연 회원 갱신. **없으면 `APPEARANCE_USER_NOT_FOUND`로 실패** → 이벤트 저장소에 남았다가 재시작 때 재처리 |
+| `UserModifiedEvent` | 회원 정보(닉네임·역할·상태) 변경 | 있는 출연 회원 갱신. **없으면 `APPEARANCE_USER_NOT_FOUND`로 실패** → 재시도 뒤 DLT |
 
-- **모든 회원 이벤트는 회원 모듈의 트랜잭션이 커밋된 뒤에만 반영한다** (`@ApplicationModuleListener`, 새 트랜잭션에서 처리). 회원 쪽 처리가 롤백되면 출연 회원도 바뀌지 않는다.
-- **출연 회원은 가입 이벤트로만 만든다.** 늦게 처리된 가입 이벤트가 이미 반영된 변경 정보를 덮어쓰지 않게 하기 위해서다 (채팅·강의 모듈과 같은 방식).
-    - 복제 회원은 ID를 직접 넣기 때문에 JPA `save()`가 merge로 동작한다. 가입·변경이 각자 "없으면 생성"하면 PK 충돌 없이 나중 것이 덮어쓴다.
-- 변경 이벤트는 회원 버전(`UserDto.version`)으로 걸러 반영한다. 공통 `ReplicaUser.syncFrom`이 이미 반영한 버전보다 크지 않은 정보(늦게 온·중복된 이벤트)를 무시한다 (회원 #292, 출연 마이그레이션 `V202610161501`은 회원 담당 추가).
-- 처리에 실패하면 Modulith 이벤트 저장소(`event_publication`)에 남고, 서버가 재시작될 때 다시 처리된다 (`republish-outstanding-events-on-restart`). 주기적으로 재시도하지는 않는다.
+| 항목 | 내용 |
+|---|---|
+| 리스너 | 클래스 레벨 `@KafkaListener`에 가입·변경 `@KafkaHandler`, 모르는 타입은 `@KafkaHandler(isDefault = true)`에서 무시 (토픽에 회원 이벤트 타입이 섞임, ADR 0001) |
+| 역직렬화 | `ErrorHandlingDeserializer` + JSON(`__TypeId__` 헤더), 신뢰 패키지는 `com.hapbang.shared.member.event`만. 시작점 `earliest` |
+| 재시도 | `DefaultErrorHandler` 블로킹 재시도 1초 → 2초 → 4초(최대 10초) 3회. 그동안 그 partition의 뒤 메시지는 기다림 |
+| DLT | `member.events.v1.appearance-app.member-replica.DLT`. 출연 앱이 `NewTopic`으로 선언(partition 3, 보존 7일). 원본과 같은 partition 번호. 역직렬화 실패는 재시도 없이 원본 바이트 그대로 DLT. 재처리는 kafka.md runbook |
+| 직렬화 설정 | Boot 기본 리스너 팩토리를 쓴다(강의와 같음). 이를 위해 `appearance.yml`에서 Modulith Kafka 모듈의 JSON 기본 세트를 끈다(`spring.modulith.events.kafka.enable-json=false`). 켜 두면 그 모듈의 바이트 JSON 변환기 빈이 기본 리스너 팩토리에도 들어가, 역직렬화기가 이미 만든 회원 이벤트 객체를 다시 바이트로 보고 변환하려다 모든 메시지가 실패한다(`Only String, Bytes, or byte[] supported`). 발행 직렬화는 `JacksonJsonSerializer`가 맡는다(11.3) |
+| 로컬·테스트 | 로컬은 compose의 Kafka(`localhost:9092`)로 운영과 같이 받는다(회원 앱을 한 번 띄워 토픽을 만든다). 테스트에는 Kafka가 없어 리스너 자동 시작과 토픽 생성을 끈다(`spring.kafka.listener.auto-startup`·`spring.kafka.admin.auto-create` = false). Kafka 테스트만 Testcontainers로 켠다 |
+
+- **출연 회원은 가입 이벤트로만 만든다.** 늦게 처리된 가입 이벤트가 이미 반영된 변경 정보를 덮어쓰지 않게 하기 위해서다 (채팅·강의와 같은 방식). 가입보다 먼저 온 변경은 DLT에 쌓이고 runbook대로 다시 넣는다(사용자 결정 10/30, 강의 #429와 같게).
+    - 가입·변경이 각자 "없으면 생성"하면 늦게 처리된 쪽이 앞의 정보를 덮어쓸 수 있다. 복제 회원은 `@Version`이 있어 새 행 `save()`는 insert라, 같은 회원을 동시에 만들면 한쪽이 PK 충돌로 실패하고 재처리 때 정리된다.
+- 멱등·순서: 공통 `ReplicaUser.syncFrom`이 회원 버전(`UserDto.version`)으로 이미 반영한 버전보다 크지 않은 정보(늦게 온·중복된 이벤트)를 무시한다 (회원 #292). Modulith 발행은 같은 key라도 순서가 바뀔 수 있어 이 비교가 필요하다.
+- 반영이 커밋된 뒤 리스너가 끝나야 offset이 커밋된다. 커밋 전에 죽으면 같은 이벤트를 다시 받고 버전 비교가 흡수한다.
+- 회원 앱이 Kafka로 보내기 전(#416)에 가입한 회원은 가입 이벤트가 없다. 이 회원들은 관리자 Backfill(4.1.1)로 채운다. 채우기 전에는 출연 API에서 `APPEARANCE_USER_NOT_FOUND`, 정보 변경 이벤트는 DLT로 간다(Backfill 뒤 DLT를 다시 넣으면 반영된다).
 - 회원이 정지·탈퇴 상태로 바뀌면 이후 출연 거래 자격 확인에서 `APPEARANCE_USER_NOT_ACTIVE`가 된다.
-- 한계 (팀에서 수용)
-    - 가입보다 변경 이벤트가 먼저 처리되면, 그 변경은 서버 재시작 때까지 반영되지 않는다.
-    - ~~변경 이벤트 순서가 바뀌면 옛 정보가 반영될 수 있다 (#56)~~ → 회원 #292의 버전 비교로 해결.
+- 한계: 가입보다 변경 이벤트가 먼저 오면, DLT를 다시 넣기 전까지 그 회원은 출연에서 "회원 없음"이다.
+
+#### 4.1.1 기존 회원 Backfill (관리자 수동 실행, #394)
+
+`POST /api/v1/appearances/admin/users/backfill?afterId=0&limit=100`. 지갑 Backfill(#324)과 같은 구조다.
+
+```
+관리자 ─▶ AppearanceUserBackfillFacade(@PreAuthorize ADMIN, 트랜잭션 없음)
+        ─▶ AppearanceUserBackfillUseCase
+             loop: MemberApiClient.getMembers(afterId, 500) ─▶ 키셋 계약 확인
+                   회원마다 [트랜잭션] AppearanceUserSyncUseCase.applySnapshot(): 없으면 생성 / 회원 버전이 더 높으면 갱신 / 아니면 그대로
+```
+
+| 항목 | 내용 |
+|---|---|
+| 반영 규칙 | 회원 원본의 현재 정보(스냅샷, 회원 버전 포함)로 없으면 만들고, 있으면 `ReplicaUser.syncFrom` 버전 비교. 이벤트로 반영한 최신 정보를 덮지 않고, 다시 실행해도 결과가 같다. 이벤트의 "가입으로만 생성" 규칙과 달리 스냅샷은 버전이 있는 현재 정보라 생성해도 안전하다 |
+| 범위 | 한 번에 최대 1,000명(기본 100), 회원 내부 API는 500명씩. 끝나지 않으면 `nextAfterId`로 이어서 실행. Gateway 응답 제한(30초) 안에 끝나도록 지갑(5,000)보다 낮게 두었다. 넘기면 504지만 서버는 끝까지 처리하고 결과는 로그에 남는다(그동안 다시 요청하면 409) |
+| 실패 | 회원 하나의 반영 실패는 `failed`·`failedIds`(최대 100개)로 세고 계속. 회원 내부 API 장애·키셋 계약 위반은 멈추고 503 `MEMBER_SOURCE_UNAVAILABLE` / 거절은 `MEMBER_SOURCE_REJECTED`, Problem Detail에 집계와 `resumeAfterId`. 실행 중 다시 요청하면 409 `BACKFILL_ALREADY_RUNNING`(출연 앱 1대 전제) |
+| 권한 | 보안 설정(`/api/v1/appearances/admin/**`)과 `@PreAuthorize`(Gateway 사용자 헤더의 역할). HP 작업 관리와 달리 복제 회원으로 관리자 자격을 다시 확인하지 않는다(Backfill 전에는 관리자 자신의 출연 회원이 없을 수 있다) |
+| 설정 | `hapbang.clients.member.base-url`: 운영 `${MEMBER_API_BASE_URL}`(k8s `http://member-app:8081`), 로컬 `http://localhost:8081`. 주소가 없으면 Client 빈이 없고 실행하면 503 |
+| 운영 절차 | 출연 앱 배포 뒤 관리자가 `completed = true`가 될 때까지 `nextAfterId`로 이어서 실행한다. 그 전에 쌓인 회원 변경 DLT는 Backfill 뒤 runbook대로 다시 넣는다 |
 
 ### 4.2 Billing 연동 (#168)
 
 출연 모듈은 "언제, 어떤 금액으로 Billing을 호출하는지"만 책임진다. 출연 쪽 창구는 `out/billing/BillingClient.java`이고,
-메서드·요청·응답은 Billing이 shared에 둔 연동 계약(`shared.billing.port.BillingPort`, `shared.billing.dto.*`)과 같다
+요청·응답은 지갑 내부 API 계약(`docs/api/internal-billing.md`, `shared.billing.dto.*`)과 같다
 (Billing 담당과 정리한 기준: 위약금 처리·70:30 계산만 출연 방식, 나머지는 Billing 기준).
+#274부터 지갑을 HTTP로 부른다: 구현 `BillingHttpClient`가 공용 `BillingApiClient`(#272)를 부르고, 응답은 `BillingCallResult`로 받는다.
 
 | 동작 | 요청 (shared DTO) | 응답 |
 |---|---|---|
@@ -244,13 +280,22 @@ com.hapbang.appearance
 - 반환·지급 요청에는 **사유가 없다.** 사유(`HpTaskReason`)는 출연 HP 작업에만 기록한다.
 - 지급 원천(`SettlementSourceType`)은 **출연 계약 ID**다: 1:1은 `APPEARANCE_REQUEST` + 출연 ID(요청서 ID 아님), 1:N은 `RECRUIT_APPEARANCE` + 게스트별 출연 ID. 한 원천은 정상 지급·위약금을 합쳐 한 번만 정산된다.
 - 위약금은 출연이 계산한다 (`AppearancePolicy.calculatePenalty`, 출연료의 30%, 끝전 버림). Billing은 받은 반환액·위약금을 한 트랜잭션으로 옮긴다.
-- **Billing이 거절하면 Billing 업무 예외**(`BusinessException` 하위)가 난다. 출연은 코드·메시지를 바꾸지 않고 그대로 응답한다
-  (예: 잔액 부족 409 `INSUFFICIENT_BALANCE`, 지갑 없음 404 `WALLET_NOT_FOUND`).
-- 그 밖의 예외(업무 예외가 아닌 런타임 예외)는 처리됐는지 알 수 없는 실패다. 대상을 그대로 두고 같은 요청으로 다시 확인한다.
-- 출연은 Billing을 **DB 트랜잭션 밖에서** 부른다. Billing은 호출한 쪽 트랜잭션에 참여하므로, 트랜잭션 안에서 부르고 예외를 잡으면 롤백 전용 트랜잭션을 이어 쓰게 된다.
+- **지갑 응답은 결과 종류로 분기한다** (#274). 예외 클래스로 구분하지 않는다(지갑 업무 예외는 HTTP로 넘어오지 않는다).
+
+  | 결과 | 보류 (요청서·모집글) | HP 작업 (반환·지급·위약금) |
+  |---|---|---|
+  | `Succeeded` (같은 요청을 다시 보냈으면 처음 결과) | `REQUESTED` / `RECRUITING` | `DONE` |
+  | `Failed` 잔액 부족 | `HOLD_FAILED`, 409 `INSUFFICIENT_BALANCE`(출연 문구) | 바로 `DEAD` |
+  | `Failed` 그 밖 (지갑 없음, 목록 밖 코드, 멱등 충돌 등) | `HOLD_FAILED`, 500 `HP_HOLD_FAILED`. 지갑 코드·상태·설명은 오류 로그에만 | 바로 `DEAD`, `last_error`에 코드·설명(목록 밖이면 원래 코드·HTTP 상태) |
+  | `BillingCallException` (`UNKNOWN_RESULT`: 5xx·응답 시간 초과·응답 도중 끊김 / `RETRYABLE`: 연결 실패·408·425·429·회로 열림) | `HOLD_PENDING` + 503 `BILLING_UNAVAILABLE` → 재확인 배치가 같은 참조 대상으로 다시 보낸다 | 재시도 정책대로 같은 요청 ID로 다시 보내고 10회째 `DEAD` |
+
+- `RETRYABLE`은 공용 Client가 먼저 짧게(기본 3회) 다시 보내고, 그래도 실패하면 출연에 넘어온다 (#413). 출연은 HTTP 재시도를 따로 하지 않는다.
+- 지갑 호출 전후의 예상하지 못한 예외(요청 만들기 오류 등)는 HP 작업이면 같은 요청 ID로 다시 보내면 되므로 재시도로 다룬다. 보류면 500으로 응답하고 `HOLD_PENDING`이 남아 재확인 배치가 다시 보낸다.
+- 출연은 지갑을 **DB 트랜잭션 밖에서** 부른다. 지갑을 기다리는 동안 DB 연결을 잡지 않고, 업무 상태를 먼저 커밋해 호출 뒤 장애에도 재확인·재시도할 근거를 남긴다.
+- 설정: `hapbang.clients.billing.base-url`(환경 변수 `BILLING_API_BASE_URL`, local은 `http://localhost:8082`)과 내부 API 키(`HAPBANG_INTERNAL_API_KEY`). 응답 대기(연결 2초·응답 5초)·Circuit Breaker·짧은 재시도는 공용 Client 기본값이다. 회로가 열려 있으면 배치는 회차를 건너뛴다(8.1, #439). 지갑 주소가 없으면 출연 앱이 뜨지 않는다.
 - **반환·지급처럼 업무 상태 변경 뒤에 하는 Billing 호출은 HP 작업(`appearances.hp_tasks`)으로 기록하고 실행한다** (아래 4.3, #137).
-- `BillingClient`는 `BillingPort`를 상속하지 않는다. 출연 코드는 자기 인터페이스만 알아, MSA 분리 때 구현만 바꾼다 (APR-34).
-- 구현은 실제 Billing을 shared `BillingPort`로 부르는 `BillingPortClient`(Billing 담당 #182) 하나다. #289에서 메모리 구현(Fake)과 `appearance.billing.mode` 설정을 없앴다 (15장).
+- 출연 업무 코드는 `BillingClient`만 안다. 구현은 `BillingHttpClient` 하나다 (#274에서 shared `BillingPort`를 부르던 `BillingPortClient`를 없앴다).
+- 출연 테스트: 업무 규칙은 Mockito 대역(기본 성공, `BillingStubs`), HTTP 응답 해석은 Mock Billing 서버(`MockBillingIntegrationTest`, test-spec 23·24장).
 
 ### 4.3 HP 작업 (실패한 Billing 호출의 기록·재처리, #137)
 
@@ -278,13 +323,13 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 
 - 왜 이 방식인가: Modulith 이벤트 재실행은 시도 횟수·격리를 업무 기준으로 관리하기 어렵고, 요청서에 상태 컬럼을 두면 Billing 호출이 생기는 테이블마다 같은 컬럼·재시도 로직이 반복된다. HP 작업 테이블 하나로 반환·지급·정산을 같은 방식으로 처리한다.
 - 멱등 키(= Billing 반환 요청 ID)가 같아 여러 번 실행해도 HP가 두 번 움직이지 않는다 (같은 키로 작업을 두 번 기록하는 것도 DB가 막음).
-- 실패 기록(`last_error`): Billing이 거절하면 `{Billing 오류 코드}: {메시지}`(바로 `DEAD`), 결과를 알 수 없으면 `{예외 종류}: {메시지}`(재시도). 8.4 참고.
+- 실패 기록(`last_error`): 지갑이 거절하면 `{지갑 오류 코드}: {설명}`(바로 `DEAD`), 결과를 받지 못하면 `{UNKNOWN_RESULT|RETRYABLE} [{HTTP 상태}] [{지갑 코드}]: {메시지}`(재시도). 8.4 참고.
 
 ---
 
 ## 5. DB 스키마 (`appearances`)
 
-테이블은 Flyway 마이그레이션으로 만든다 ([docs/db-migration.md](../db-migration.md)). 위치: `boundedContext/appearance/src/main/resources/db/migration/`
+테이블은 Flyway 마이그레이션으로 만든다 ([docs/db-migration.md](../db-migration.md)). 위치: `apps/appearance-app/src/main/resources/db/migration/`
 
 ### 5.1 `appearances.users` — 출연 회원 (회원 복제)
 
@@ -360,9 +405,11 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 | `status` | VARCHAR(255) | `PENDING` / `DONE` / `DEAD` |
 | `attempt_count`, `next_attempt_at`, `last_error` | INTEGER, TIMESTAMP(6), VARCHAR(1000) | 시도 횟수, 다음 시도 시각, 마지막 오류 |
 | `completed_at` | TIMESTAMP(6) | 완료 시각 |
+| `manual_retry_count`, `last_manual_retry_by`, `last_manual_retry_at` | INTEGER(기본 0), BIGINT, TIMESTAMP(6) | 관리자 다시 시도 횟수, 마지막으로 다시 시도한 관리자 회원 ID·시각 (#397). 셋 다 비었거나 셋 다 있다 |
 | `version`, `created_at`, `updated_at` | | 낙관적 락, 생성·수정 시각 |
 
 - 마이그레이션(5.3·5.4): `V202610141109__create_appearance_and_hp_task_tables.sql` (#137)
+- 다시 시도 컬럼: `V202610291142__add_hp_tasks_manual_retry_columns.sql` (#397)
 - 인덱스: 재시도 대상 `(status, next_attempt_at)`, 대상별 조회 `(ref_type, ref_id)`
 
 ### 5.5 `appearances.recruits` — 출연 모집글 (#175)
@@ -410,8 +457,8 @@ Billing 호출이 실패하는 경우(순간 장애, 긴 장애, 결과를 모�
 
 - 생성은 `@ResponseStatus(HttpStatus.CREATED)` + `RsData.created(...)`로 HTTP 상태와 본문 `statusCode`를 같게 맞춘다. 앞으로 추가하는 출연 API도 처음부터 `RsData`로 만들고, 본문이 없으면 `ResponseEntity<Void>`(204)를 쓴다.
 
-- 권한: 로그인(401은 보안 필터) → Facade `@PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")`(거절 시 공통 403 `FORBIDDEN`) → UseCase에서 출연 회원 자격 재확인(`NOT_INFLUENCER`·`APPEARANCE_USER_NOT_ACTIVE`). 세션 역할은 로그인 시점 값이라, 로그인 이후 정지·강등은 서비스 확인이 막는다 (조회 포함).
-- 쓰기 요청(POST·PATCH)은 CSRF 토큰(`X-XSRF-TOKEN` 헤더)이 필요하다 (global SecurityConfig).
+- 권한: 로그인(401은 보안 필터) → Facade `@PreAuthorize("hasAnyRole('INFLUENCER', 'VERIFIED_INFLUENCER')")`(거절 시 공통 403 `FORBIDDEN`) → UseCase에서 출연 회원 자격 재확인(`NOT_INFLUENCER`·`APPEARANCE_USER_NOT_ACTIVE`). 헤더 역할은 토큰 발급 시점 값(최대 15분 늦음)이라, 그 뒤 정지·강등은 서비스 확인이 막는다 (조회 포함).
+- CSRF 토큰은 필요 없다. 쿠키가 아니라 Gateway 사용자 헤더로 인증한다 (#395, 20장).
 - 목록은 `Pageable`(page, size; 기본 20, 최대 100). **정렬은 최신순(`createdAt` desc, `id` desc) 고정**이며 `sort` 값은 무시한다. 응답은 `RsData`의 `data`에 팀 공통 PagedModel 형식(`content`, `page`).
 - 검색·필터(상태, 기간, 키워드 등)는 아직 정하지 않았다. 정해지면 조건 객체를 받아 조회 조건을 조합하고, 보이는 상태 제한과 최신순 정렬은 유지한다.
 - 응답에는 회원 ID(`hostId`, `guestId`)만 담고 닉네임은 담지 않는다. 목록마다 회원 정보를 함께 조회하는 부담을 피하기 위해서이며, 화면에 필요한 닉네임은 회원 프로필 API로 조회한다.
@@ -427,8 +474,8 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
        → 진행 중 요청 확인 → HOLD_PENDING 저장 (부분 유니크 인덱스 위반이면 DUPLICATE)
   ② HoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold (보류 키는 Billing이 요청서로 만듦)
        ├─ 보류 성공                    → ③ HoldUseCase.markRequested [트랜잭션 2] → REQUESTED, 201
-       ├─ Billing 거절 (업무 예외)      → HOLD_FAILED 기록 [트랜잭션 2] → Billing 오류 그대로 (예: 409 INSUFFICIENT_BALANCE)
-       └─ 결과를 알 수 없음 (그 밖 예외) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE
+       ├─ 지갑 거절 (Failed)            → HOLD_FAILED 기록 [트랜잭션 2] → 잔액 부족 409 INSUFFICIENT_BALANCE, 그 밖 500 HP_HOLD_FAILED
+       └─ 결과를 받지 못함 (BillingCallException) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE
 ```
 
 - 저장을 먼저 커밋하는 이유: Billing을 기다리는 동안 DB 트랜잭션을 잡지 않고, 보류 결과와 관계없이 요청서 기록이 남게 하기 위해서다.
@@ -500,8 +547,8 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
        호스트 자격 → 값 검증(형식, 최저 출연료, 모집 인원 1~10, 현재 < 모집 마감 < 방송 예정 일시) → HOLD_PENDING 저장
   ② RecruitHoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold(APPEARANCE_RECRUIT, 모집글 ID, 1인당 출연료 × 모집 인원)
        ├─ 보류 성공                    → ③ markRecruiting [트랜잭션 2] → RECRUITING, 201
-       ├─ Billing 거절 (업무 예외)      → HOLD_FAILED 기록 → Billing 오류 그대로 (예: 409 INSUFFICIENT_BALANCE)
-       └─ 결과를 알 수 없음 (그 밖 예외) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE ("내 모집글 목록에서 확인")
+       ├─ 지갑 거절 (Failed)            → HOLD_FAILED 기록 → 잔액 부족 409 INSUFFICIENT_BALANCE, 그 밖 500 HP_HOLD_FAILED
+       └─ 결과를 받지 못함 (BillingCallException) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE ("내 모집글 목록에서 확인")
 ```
 
 ### 7.3 규칙
@@ -529,6 +576,7 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 ```
 in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
   ├ 00초 AppearanceHoldRecheckUseCase.recheckDue()   보류 처리 중 요청서·모집글 재확인
+  ├ 05초 AppearanceEventRepublishUseCase.republishDue()  Kafka로 못 보낸 알림 이벤트 재발행 (#393, 11.3)
   ├ 10초 AppearanceRecruitDeadlineCloseUseCase.closeDue()  모집 기한 마감 + 미달분 반환 (#222, 10장)
   ├ 20초 AppearanceRequestExpireUseCase.expireDue()  수락 기한 만료 + 반환
   ├ 30초 AppearanceCancelAutoRejectUseCase.rejectDue()  출연 취소 요청 자동 거절 (#231, 12장)
@@ -540,6 +588,14 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 - 배치는 로그인 회원이 아니라 시스템이 실행하므로 역할 검사(`@PreAuthorize`)가 있는 Facade를 거치지 않고 UseCase를 직접 부른다 (팀 강의 배치와 같은 방식, ISSUE.md APR-26).
 - 한 번에 최대 100건(`batch-size`), 건마다 짧은 트랜잭션, 건마다 예외를 잡아 다음 건을 계속 처리한다. 같은 배치는 이전 실행이 끝나야 다음 실행이 시작된다.
 - 설정: `appearance.yml`의 `appearance.batch.*` (주기, 건수, 대기 시간, 재시도 정책). `config.AppearanceBatchProperties`가 읽는다.
+- **지갑 회로가 열려 있으면 지갑을 부르는 배치(보류 재확인·HP 작업 재시도)는 그 회차를 건너뛴다** (#439, 강의 D67과 같음).
+  `BillingClient.isCircuitOpen()`(공용 Client 회로가 OPEN·FORCED_OPEN)이 `true`면 대상을 가져오지 않는다. 회차 시작 때만이 아니라 **건마다 보내기 전에** 본다(`app.BillingCircuitGate`):
+  시험 중(HALF_OPEN)에는 회로가 정한 수만큼만 실제로 보내고, 시험이 실패하면 회차 도중에 다시 열리므로 남은 건은 다음 회차로 넘긴다.
+  로그는 상태가 바뀔 때만 남긴다(멈춤 WARN, 재개 INFO).
+  열린 회로에 보내면 요청은 나가지 않고 HP 작업 시도 횟수만 올라, 지갑이 오래 내려가 있으면 정상 작업이 `DEAD`가 되기 때문이다.
+  회로는 호출이 없어도 열린 시간(기본 30초)이 지나면 시험 중(HALF_OPEN)으로 넘어가고, 시험 중에는 평소처럼 실행한다.
+  사용자 요청 안의 실행(보류, 거절·취소 직후 HP 작업 1회)과 관리자 다시 시도는 회로를 보지 않고 그대로 부른다(회로가 열려 있으면 `RETRYABLE` → 보류 `HOLD_PENDING` + 503, HP 작업은 대기로 남아 배치가 이어받음).
+  반환·지급을 부르는 다른 배치(모집 마감·수락 기한 만료·자동 거절·자동 확인)는 업무 상태를 먼저 확정하고 HP 작업을 1회 실행하므로 건너뛰지 않는다. 실패한 작업은 HP 작업 재시도가 이어받는다.
 
 ### 8.2 HP 보류 재확인
 
@@ -565,12 +621,15 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 | 결과 | 처리 |
 |---|---|
 | 성공 | `DONE` |
-| Billing 거절 (업무 예외) | **바로 `DEAD`**. 다시 보내도 결과가 같으므로 재시도하지 않고 Billing 오류 코드·메시지를 기록 (APR-26 S3) |
-| 결과를 알 수 없는 실패 | 지수 백오프 + 지터로 다음 시도 시각 결정: 1분 → 2분 → 4분 → … → 최대 1시간 (+0~20%). **10회 실패 시 `DEAD`** |
+| 지갑 거절 (`Failed`) | **바로 `DEAD`**. 다시 보내도 결과가 같으므로 재시도하지 않고 지갑 오류 코드·설명을 기록 (APR-26 S3) |
+| 목록 밖 코드 중 401·403·404 (`Failed` `UNMAPPED`) | 내부 API 키 교체·경로 오류 같은 연동 장애라 고치면 같은 요청이 성공한다. 아래 재시도와 같게 다룬다 (#274) |
+| 결과를 받지 못한 실패 (`BillingCallException`) | 지수 백오프 + 지터로 다음 시도 시각 결정: 1분 → 2분 → 4분 → … → 최대 1시간 (+0~20%). **10회 실패 시 `DEAD`** |
+| 회로가 열려 보내지 못함 (`BillingCallException` rawCode `CIRCUIT_OPEN`) | 요청이 나가지 않았으므로 **시도 횟수를 올리지 않고** 다음 시도 시각만 1분(+지터) 뒤로 미룬다 (#439). 배치는 회로가 열려 있으면 실행하지 않지만, 시험 중에 사용자 요청과 배치가 시험 호출 몫을 나눠 쓰면 생길 수 있다 |
 
 - 재시도 대상: `PENDING`이고 다음 시도 시각이 지났으며, 한 번 이상 시도했거나 만든 지 1분이 지난 작업. 거절·취소 직후 요청 안에서 바로 실행 중인 작업과 겹치지 않게 하기 위해서다.
 - 같은 작업을 동시에 실행해도 같은 반환 요청 ID라 Billing은 한 번만 처리하고, 결과 기록은 대기 중일 때만 한다(버전 충돌이면 먼저 기록한 쪽을 따름).
 - 재시도 정책: `domain.HpTaskRetryPolicy` (`appearance.batch.retry-*`).
+- 지갑 회로가 열려 있으면 그 회차를 건너뛰고, 회차 도중에 열리면 남은 작업을 실행하지 않는다(8.1, #439). 실행하지 않은 작업의 시도 횟수는 그대로이고, 대기·격리 작업 수 지표는 갱신한다.
 
 ### 8.5 모니터링
 
@@ -578,6 +637,8 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 |---|---|---|
 | 격리 로그 | `DEAD`가 되는 순간 ERROR 로그 `[HP_TASK_DEAD] taskId=…, type=…, ref=APPEARANCE_REQUEST-12, memberId=…, amount=…, attempts=…, error=…` | `docker logs <컨테이너> 2>&1 \| grep HP_TASK_DEAD` |
 | 지표 (Micrometer) | `appearance.hp_task.executions{result=done\|retry\|dead}`, `appearance.hp_task.pending`, `appearance.hp_task.dead` (재시도 배치 실행 시점 값) | 앱의 `MeterRegistry`에 등록됨. 보는 경로(`/actuator/metrics`, Prometheus)는 팀 합의 후 연다 |
+| 관리자 API | 격리 작업 목록 `GET /api/v1/appearances/admin/hp-tasks`, 다시 시도 `POST …/{taskId}/retry` (19장, #397) | 관리자 로그인 |
+| 다시 시도 로그 | 관리자가 다시 시도하는 순간 WARN 로그 `[HP_TASK_MANUAL_RETRY] taskId=…, adminId=…, manualRetryCount=…, previousAttempts=…, previousError=…` (다시 시도하면 시도 횟수가 0으로 돌아가므로 직전 값을 여기에 남긴다) | `grep HP_TASK_MANUAL_RETRY` |
 | DB | `select * from appearances.hp_tasks where status = 'DEAD'` | 언제든 |
 
 - Prometheus + Grafana 대시보드·알림은 `docker/compose*.yaml` 변경이 필요해 팀 결정 사항이다.
@@ -724,6 +785,28 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 
 - 출연 처리가 롤백되면 이벤트는 받는 쪽에 가지 않는다. 받는 쪽이 실패해도 출연 처리는 되돌려지지 않는다 (최종 일관성).
 - 같은 이벤트가 재처리로 두 번 올 수 있으니, 받는 쪽은 `requestId`·`applicationId`로 중복을 거를 수 있다.
+- 위 예시는 같은 JVM 안에서 받을 때다. 앱이 나뉜 뒤 다른 앱은 11.3의 Kafka 토픽으로 받는다.
+
+### 11.3 Kafka로 내보내기 (#393)
+
+앱이 나뉘어 채팅이 다른 프로세스가 되었으므로, 요청 도착·지원 도착 두 이벤트를 Kafka로도 내보낸다. 발행 시점과 내용은 그대로이고 전송만 더했다. 토픽·key·헤더 규칙은 팀 공통 [`kafka.md`](../architecture/infrastructure/kafka.md)(#339, ADR 0001·0002)를 따른다.
+
+| 항목 | 내용 |
+|---|---|
+| 방식 | Spring Modulith 이벤트 외부화(`spring-modulith-events-kafka`). 업무 트랜잭션 안에서 발행한 이벤트가 발행 기록(`event_publication`)에 남고, 커밋 뒤 비동기로 보낸다 |
+| 대상 | shared 출연 이벤트 중 `@Externalized`가 붙은 것: `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent`. 출연 취소 요청 이벤트 3종은 받는 곳이 없어 붙이지 않았다(받는 쪽이 생기면 key `appearance:<출연 ID>`로 더한다). 판단은 `app.AppearanceExternalEvents` |
+| 토픽 | `appearance.events.v1`(shared `AppearanceEventTopic.NAME`). 출연 이벤트 타입을 한 토픽에 섞는다. 출연 앱이 `NewTopic`으로 선언한다(partition 3개, 복제 1). 브로커 자동 생성은 꺼져 있다 |
+| key | 이벤트가 다루는 대상 ID에 종류 접두어: 요청 도착 `appearance-request:<요청서 ID>`, 지원 도착 `appearance-application:<지원 ID>`. shared 레코드의 `@Externalized("appearance.events.v1::#{…}")`로 정한다. 같은 key는 같은 partition으로 가지만, 커밋 뒤 비동기로 보내므로 순서는 보장하지 않는다 |
+| 본문 | shared 이벤트 레코드를 그대로 JSON으로 싣는다(봉투 없음). 예: `{"request":{"requestId":1,"hostId":1,"guestId":2,"title":"…","fee":30000,"scheduledAt":"2026-11-05T17:54:44","acceptDeadline":"2026-10-31T17:54:44"}}`. 시각은 KST `LocalDateTime` |
+| 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). 값 직렬화기 `JacksonJsonSerializer`가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
+| 직렬화 | `appearance.yml`의 `spring.kafka.producer.value-serializer=JacksonJsonSerializer`. Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] + 바이트 JSON 변환기)는 끈다(`spring.modulith.events.kafka.enable-json=false`, #394). 회원 앱 발행 설계와 같은 방식이고, 켜 두면 회원 이벤트 수신(4.1)이 실패한다 |
+| 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
+| 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose의 Kafka(`localhost:9092`)로 보낸다. 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
+| 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification` (kafka.md 토픽 목록) |
+
+- 같은 버전 안에서는 선택 필드 추가만 한다. 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(kafka.md 이벤트 버전).
+- 내보낼 이벤트를 더하려면 shared 레코드에 `@Externalized`를 붙이고 `out/event/AppearanceEventExternalizationConfig`에 `eventType` 헤더를 더한다. 받는 앱을 먼저 배포한다(ADR 0001).
+- 같은 JVM 안의 리스너(11.2)는 그대로 받는다. Kafka는 다른 앱으로 보내는 통로다.
 
 ---
 
@@ -888,7 +971,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 출연이 부르는 Billing | `appearance.billing.mode` 기본값 `fake` → 출연 모듈 안의 메모리 구현 `FakeBillingClient`. 배포 서버에서도 출연 HP가 Billing 지갑에 기록되지 않음 | 항상 `BillingPortClient` → shared `BillingPort` → Billing 모듈 (실제 지갑·원장) |
 | Fake Billing | `FakeBillingClient`·`FakeBillingErrorCode`·`FakeBillingException`·`BillingUnavailableException` (main) | 삭제 |
 | 설정 | `appearance.billing.mode` (`fake`/`billing-port`) | 삭제 (구현이 하나뿐) |
-| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
+| 출연 모듈 테스트 | Fake로 잔액·보류까지 확인 | `@AppearanceIntegrationTest`·`@AppearanceE2ETest`(실제 포트, #390)가 `BillingClient`를 Mockito 대역으로 바꿈. 업무 규칙과 **Billing에 보낸 요청 내용**(금액·요청 ID·원천)만 확인 (`support.BillingCalls`, 실패는 `support.BillingStubs`) |
 | 실제 Billing 확인 | Billing 담당 `AppearanceBillingPortIntegrationTest`(보류·거절 반환 일부) | 출연 `AppearanceBillingFlowIntegrationTest`(apps)가 출연 API 전체 흐름을 실제 Billing으로 확인 (16장 test-spec) |
 
 - 출연은 현금을 다루지 않는다(HP만). 현금은 Billing 충전(Toss 테스트 결제)으로만 들어온다. 실제 Billing에 연결해도 실제 현금은 오가지 않는다 (APR-36).
@@ -919,7 +1002,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 
 | 항목 | 내용 |
 |---|---|
-| 테스트 시계 | `@AppearanceIntegrationTest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
+| 테스트 시계 | `@AppearanceIntegrationTest`·`@AppearanceE2ETest`가 `AppearanceTestClock`을 끼운다: 운영 Clock 빈은 그대로 두고 같은 한정자(`appearanceClock`) + `@Primary`로 우선 주입. 실제 시각으로 흐르고, 앞으로만 돌릴 수 있고(`advance`·`advanceTo`), 테스트마다 처음으로 돌아간다(JUnit 확장). 빈 덮어쓰기 설정은 쓰지 않는다 |
 | 시각 만들기 | 테스트는 DB의 시각 값(`scheduled_at`·`recruit_deadline`·`created_at`·`next_attempt_at`)을 고치지 않는다. 실제 순서대로 시계를 돌린다: 모집 마감(기한 마감 배치) → 방송 → 확인 기간 끝, 실패한 작업의 다음 시도 시각, 배치 대기 시간(1분). 남은 SQL 변경은 낙관적 락 충돌을 만드는 버전 올리기뿐 |
 | 그대로 둔 것 | apps `AppearanceBillingFlowIntegrationTest`는 아직 방송 시각을 SQL로 옮긴다 (테스트 시계는 출연 모듈 테스트 코드라 apps에서 바로 쓸 수 없음) |
 | 시나리오 표 | 저장소 밖 `hapbang_be/SCENARIOS.md` (1~10장 179개 시나리오 + 정책·제한 21개, 오류 코드 45개의 HTTP 확인 위치) |
@@ -934,13 +1017,13 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 
 | 항목 | 내용 |
 |---|---|
-| 호출 | Billing이 shared `AppearanceApiClient`(18.6)로 부른다. 같은 서버 안 주소(`http://localhost:8080`)로 부르고 nginx를 거치지 않는다 |
+| 호출 | Billing이 shared `AppearanceApiClient`(18.6)로 부른다. 클러스터 안 Service 주소의 내부 포트(`http://appearance-app:8081`, billing 설정 `APPEARANCE_API_BASE_URL`)로 부르고 Gateway를 거치지 않는다 |
 | 경로 | `GET /api/v1/internal/appearances/earnings/summary`, `GET /api/v1/internal/appearances/earnings` (공통 규칙 `/api/v1/internal/<제공 모듈>/...`) |
-| 인증 | 헤더 `X-Internal-Api-Key`(`shared.internal.InternalApiHeaders`), 설정 `hapbang.internal-api.key`(환경변수 `HAPBANG_INTERNAL_API_KEY`). 맞으면 `ROLE_INTERNAL`, 틀리거나 없으면 본문 없는 401. 회원 세션으로는 부를 수 없고, 반대로 내부 키로 회원 API를 부를 수 없다. 필터·전용 보안 체인은 global(#300·#307) |
-| 외부 노출 | nginx가 `/api/v1/internal`을 밖에서 404로 막는다 (공통부). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영은 Swagger가 꺼져 있다 |
+| 인증 | 헤더 `X-Internal-Api-Key`(`shared.internal.InternalApiHeaders`), 설정 `hapbang.internal-api.key`(환경변수 `HAPBANG_INTERNAL_API_KEY`). 맞으면 `ROLE_INTERNAL`, 틀리거나 없으면 본문 없는 401. 회원 로그인(사용자 헤더)으로는 부를 수 없고, 반대로 내부 키로 회원 API를 부를 수 없다. 필터·전용 보안 체인은 global(#300·#307) |
+| 외부 노출 | Gateway에 `/api/v1/internal` route가 없고, 외부 포트(8080)로 오면 `InternalApiPortValve`가 404로 막는다(내부 포트 8081만, #372). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영은 Swagger가 꺼져 있다 |
 | 출연 쪽 방어 | ① 보안 체인의 키 검증(공통부) ② `AppearanceEarningFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
 | 회원 ID | 쿼리 파라미터 `userId` (게스트). 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
-| 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). `null` 필드는 응답 JSON에서 빠진다(공통 Jackson 설정) |
+| 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). 값이 없을 수 있는 필드(`payoutScheduledAt`)는 계약대로 응답 JSON에서 빠진다(계약 DTO의 그 필드에만 `@JsonInclude(NON_NULL)`, #408. 출연 앱 전체 설정은 아니라 프론트용 API 응답은 그대로). 받는 쪽은 빠진 필드와 `null`을 같게 읽는다 |
 | 시각 | `LocalDateTime`(**offset 없는** ISO 8601), 모두 Asia/Seoul (Billing 합의 확정, 강의 계약 뒤에도 유지). 작업 완료·확인·취소·불참 시각은 출연 Clock(Asia/Seoul)으로 기록하고, 출연 수정 시각(`updated_at`)은 JPA Auditing이 JVM 기본 시간대로 기록하므로 앱 컨테이너의 `TZ: Asia/Seoul`(compose dev·prod, CI)에 기댄다 |
 
 **강의 계약과 다른 점** (#301 PR에 공유)
@@ -1020,4 +1103,65 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 
 - 실패는 `AppearanceApiCallException`이다(shared는 global에 의존하지 않아 `BusinessException`이 아니다). `REJECTED`: 4xx(요청 값 오류, 키 오류 401), `UNAVAILABLE`: 연결 실패·시간 초과·5xx·읽을 수 없는 성공 응답(깨진 JSON, 계약에 없는 enum 값, 필수 필드 없음, `data` 없음). `getStatus()`·`getCode()`는 강의와 같다. 조회라 `UNAVAILABLE`은 다시 불러도 안전하다.
 - `statuses`가 `null`이거나 비어 있으면 상태 조건 없이 보낸다(= 미지급만). `earningType`이 `null`이면 둘 다.
+
+---
+
+## 19. 격리된 HP 작업 관리자 조회·다시 시도 (#397)
+
+격리된(`DEAD`) HP 작업은 업무 상태(거절·확인·취소)를 되돌리지 않는다. 관리자가 원인을 확인한 뒤 같은 작업을 같은 멱등 키로 다시 실행하는 것이 복구 경로다. 사용자에게는 다시 시도 기능이 없다.
+
+### 19.1 API (관리자, `/api/v1/appearances/admin/**`)
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/v1/appearances/admin/hp-tasks?status=DEAD` | 상태별 작업 목록. `status` 생략 시 `DEAD`. 마지막으로 바뀐 작업부터, `page`·`size`(기본 20, 최대 100) |
+| POST | `/api/v1/appearances/admin/hp-tasks/{taskId}/retry` | 격리 작업 다시 시도. 실행 뒤 작업을 200으로 돌려준다 |
+
+- 응답 한 건(`HpTaskAdminResDto`): 작업 종류·대상(요청서·모집글, 출연 ID)·보류 회원·받는 회원·금액(위약금·지급액)·사유·멱등 키·상태·시도 횟수·다음 시도 시각·마지막 오류·완료(격리) 시각·생성 시각·다시 시도 기록 3개.
+- 권한 (관리자 API 3중 방어): ① 보안 설정이 `/api/v1/*/admin/**`를 관리자만 통과시키고(그 밖 403, 비로그인 401) ② `HpTaskAdminFacade`의 `@PreAuthorize("hasRole('ADMIN')")`가 로그인 역할을 확인하고 ③ 복제한 회원 정보로 지금도 정상 상태의 관리자인지 확인한다(`AppearanceUserSupport.getAdmin`, 목록·다시 시도 모두). 헤더 역할은 토큰 발급 시점 값이라, 그 뒤 정지되면 403 `APPEARANCE_USER_NOT_ACTIVE`, 관리자 권한을 잃으면 403 `NOT_ADMIN`이다.
+
+### 19.2 다시 시도 흐름
+
+```
+[트랜잭션] 관리자 자격 확인(정지 403 APPEARANCE_USER_NOT_ACTIVE / 강등 403 NOT_ADMIN) → 작업 조회(없으면 404 HP_TASK_NOT_FOUND) → DEAD 확인(아니면 409 HP_TASK_NOT_DEAD)
+          → PENDING, 시도 횟수 0, 다음 시도 시각 = 지금, 완료 시각 비움, 다시 시도 기록(횟수+1·관리자·시각)
+          → 바로 반영해 버전 충돌이면 409 CONCURRENT_UPDATE → [HP_TASK_MANUAL_RETRY] 로그 (커밋)
+[트랜잭션 밖] HpTaskExecuteUseCase.execute — 업무 처리 직후 실행과 같은 1회 실행
+          → 성공 DONE / Billing 거절 DEAD / 결과 모름 PENDING(재시도 배치가 이어서)
+[읽기 전용 트랜잭션] 실행 뒤 작업을 읽어 응답 (다시 실패해도 200, 결과는 status로 본다)
+```
+
+- 재시도 배치는 처음 시도 전 작업을 "시작한 지" 대기 시간(1분)이 지나야 가져간다. 시작 시각은 다시 시도한 작업이면 `last_manual_retry_at`, 아니면 `created_at`이다. 다시 시도하면 시도 횟수가 0이 되고 만든 시각은 오래전이라, 만든 시각만 보면 관리자 요청 안에서 실행 중인 작업을 배치가 함께 실행하기 때문이다. 실행 결과를 기록하지 못하고 끊기면 1분 뒤 배치가 이어받는다.
+- 같은 작업이 두 곳에서 동시에 Billing에 가더라도 Billing이 지갑 잠금 뒤 같은 요청 ID를 확인해 처음 결과를 돌려주므로 HP는 한 번만 움직인다.
+
+### 19.3 결정
+
+| 결정 | 내용 | 이유 |
+|---|---|---|
+| 시도 횟수 | 다시 시도하면 0으로 되돌려 재시도 규칙(1분 → … → 최대 1시간, 10회)을 처음부터 적용 | 격리 작업은 이미 최대 횟수를 다 써서, 이어서 세면 한 번 실패하자마자 다시 격리된다. 일시 장애가 계속될 때 관리자가 여러 번 누르지 않아도 되게 한다 |
+| 다시 시도 기록 | `hp_tasks`에 컬럼 3개(횟수, 마지막 관리자·시각) + 로그 | 관리자 목록 API에서 바로 보이고 감사 기록으로 남는다. 직전 시도 횟수·오류는 로그에 남긴다 |
+| 배치 대기 기준 | 처음 시도 전 작업의 대기 시간을 `coalesce(last_manual_retry_at, created_at)`부터 센다 | 다시 시도한 작업을 관리자 요청 안의 실행과 배치가 함께 실행하지 않게 한다 (중복 이동은 멱등 키가 막지만 불필요한 중복 호출을 없앤다) |
+| 마지막 오류 | 다시 시도해도 지우지 않고 다음 결과가 나올 때 바뀐다 (성공하면 지움) | 다시 시도 중에도 원인을 볼 수 있게 |
+| 멱등 키 | 바꾸지 않는다 | 같은 요청 ID라 Billing이 처음 결과를 돌려주므로 HP가 두 번 움직이지 않는다 |
+| 알림 | 기존 `[HP_TASK_DEAD]` 오류 로그와 `appearance.hp_task.dead` 지표를 그대로 쓴다. 알림 규칙(대시보드·경보)은 관측성 작업(#343)에서 이 지표·로그로 만든다 | 출연 모듈은 신호를 남기고, 수집·경보 도구는 팀 공통 구성을 따른다 |
+
+## 20. Gateway 사용자 헤더 인증 (#395)
+
+회원 앱이 JWT를 발급하고(#370) Gateway(Envoy)가 서명·만료를 검증한 뒤 claim을 헤더로 넘긴다(`docs/architecture/infrastructure/api-gateway.md`). 출연 앱은 그 헤더로 로그인 상태를 만든다. 공용 필터(#371)가 생기기 전이라 출연 앱 안에 둔다.
+
+| 항목 | 내용 |
+|---|---|
+| 헤더 | `X-User-Id`(회원 ID, 양의 정수), `X-User-Role`(역할 하나, `Role` 이름 그대로: `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`·`ADMIN`). **정확히 이 값만 받는다**(`ROLE_` 접두사·소문자는 형식 오류) |
+| 인증 객체 | `global.auth.GatewayUserHeaderFilter`가 `getName()` = 회원 ID, 권한 = `ROLE_{역할}` 하나로 만든다. `@LoginUserId`·`@PreAuthorize`·`/api/v1/*/admin/**` 규칙은 그대로 |
+| 헤더 없음 | 익명. 로그인이 필요한 API는 401 (본문 없음) |
+| 한쪽만 있거나 형식 오류 | 인증하지 않음(익명 → 401) + 경고 로그 `사용자 헤더 형식 오류로 인증하지 않음`. Gateway는 검증한 claim만 넘기므로 설정 오류 신호다 |
+| 세션·CSRF | 세션을 만들거나 읽지 않는다(`STATELESS`, 요청 속성 저장소). 프론트가 `Authorization: Bearer`로 보내고 쿠키로 인증하지 않으므로 CSRF를 끈다 |
+| 위조 방지 | 앱은 서명을 다시 검증하지 않는다. Gateway가 외부 요청의 `X-User-*`를 먼저 지우고, NetworkPolicy가 외부 API 포트(8080)에 Gateway만 들어오게 한다(`k8s/base/networkpolicy.yaml`) |
+| 역할 재확인 | 토큰의 역할은 발급 시점 값(최대 15분). 정지·강등은 복제한 회원 정보로 다시 막는다(`validateCanAppear`·`validateIsAdmin`, 그대로) |
+| 내부 API | `/api/v1/internal/**`은 따로 있는 체인이 `X-Internal-Api-Key`로만 인증한다. 사용자 헤더는 읽지 않는다 |
+
+- 테스트: MockMvc는 `support.GatewayLogin.as(회원 ID, 역할)`, E2E는 `E2ELogin.as(…)`가 같은 헤더를 싣는다. 팀 공통 `TestLogin`(OAuth2 로그인 흉내)은 출연 테스트에서 쓰지 않는다.
+- ⚠️ 형식 계약: JWT `role` claim 값이 `Role` 이름 그대로라는 것은 아직 회원(#370)과 확정하지 않았다(인프라 문서는 "문자열 하나"까지만 정함). 다르면 운영 출연 API가 모두 401이 되므로 #370 발급 형식과 맞춘다.
+- 배포 순서: 이 변경이 운영(main)에 나가면 세션 로그인이 없어지므로, 회원 JWT 발급(#370)이 운영에 나간 뒤 함께 또는 그 뒤에 반영한다.
+- 남은 일: 회원 JWT 발급(#370)이 끝나야 운영에서 헤더가 온다. 공용 필터(#371)가 생기면 이 필터를 그것으로 바꾼다. 프론트는 `X-XSRF-TOKEN` 대신 `Authorization: Bearer`를 보낸다(#370과 함께).
 

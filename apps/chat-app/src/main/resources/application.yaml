@@ -1,0 +1,69 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+# Flyway 이력·Modulith 발행 기록은 앱 스키마에 둔다. 기존 모놀리스 DB의 이력 전환은 별도 작업이다.
+spring:
+  application:
+    name: chat-app
+  profiles:
+    default: local
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
+  modulith:
+    detection-strategy: explicitly-annotated
+    events:
+      jdbc:
+        schema-initialization:
+          enabled: true
+        schema: chat
+      republish-outstanding-events-on-restart: true
+      completion-mode: archive
+  datasource:
+    hikari:
+      # 미확정 초기값(Q12). 전달 파이프라인이 동시에 쓰는 연결은 최대 11개(주기 작업 8 + 새 작업 worker 3)이고 나머지 9개를 REST·STOMP가 쓴다.
+      # worker·주기 작업 수를 늘리면 함께 늘린다. PostgreSQL max_connections는 다른 앱과 나눠 쓴다
+      maximum-pool-size: 20
+  data:
+    redis:
+      # 미확정 초기값(Q12). 전달 consumer의 BLOCK(2s)보다 길고 relay lease·회수 min-idle(30s)보다 짧게 둔다(Lettuce 기본 60s 대기를 줄인다)
+      timeout: 10s
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+    out-of-order: true
+    default-schema: chat
+    schemas:
+    - chat
+  http:
+    clients:
+      connect-timeout: 3s
+      read-timeout: 5s
+  task:
+    scheduling:
+      pool:
+        size: 4
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+hapbang:
+  scheduling:
+    enabled: true
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:}"
+  clients:
+    # 기존 회원 백필의 회원 내부 API (설계 문서 5.4). 기본값은 로컬 member-app 포트. 시간 제한은 Client 기본값(연결 2초·응답 5초)
+    member:
+      base-url: "${MEMBER_API_BASE_URL:http://localhost:8081}"
+springdoc:
+  swagger-ui:
+    csrf:
+      enabled: true

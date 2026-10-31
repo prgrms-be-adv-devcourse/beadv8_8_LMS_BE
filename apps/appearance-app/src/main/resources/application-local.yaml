@@ -1,0 +1,23 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  docker:
+    compose:
+      file: docker/compose.yaml
+      lifecycle-management: start-only
+  # Kafka는 로컬 compose(docker/compose.yaml)의 kafka 서비스(localhost:9092)를 쓴다. 출연 이벤트 발행(#393)과
+  # 회원 이벤트 수신(#394)이 운영과 같이 돈다. 토픽은 발행 앱이 선언하므로 회원 앱을 한 번 띄워야 회원 이벤트 토픽이 생긴다.
+springdoc:
+  swagger-ui:
+    path: "/swagger-ui.html"
+hapbang:
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
+  clients:
+    billing:
+      base-url: http://localhost:8082
+    member:
+      base-url: http://localhost:8081
+server:
+  port: "${SERVER_PORT:8083}"

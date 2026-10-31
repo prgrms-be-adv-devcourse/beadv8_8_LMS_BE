@@ -1,86 +1,183 @@
-# main·dev 병합 시 테스트를 통과한 커밋의 이미지를 만든다. ci.yml이 통과해야 이미지를 만든다.
-# dev는 개발 서버(dev)에 바로 배포한다. main은 이미지까지만 만들고, 운영(prod) 배포는 deploy-prod.yml을 수동으로 실행한다.
-# ci: 테스트하고 jar를 만든다(ci.yml 재사용, 읽기 권한).
-# build: ci가 테스트한 jar를 이미지에 담아 GHCR에 올린다(packages: write는 이 job에만).
-# deploy: (dev만) deploy-server.yml로 EC2에 배포한다.
+# 운영(prod) k3s 앱 배포·롤백(#374). Actions → Deploy → Run workflow(브랜치 main)에서 수동으로 실행한다.
+# 이미지는 main push 때 publish.yml이 바뀐 앱만 :sha-<그 앱을 마지막으로 바꾼 main 커밋>으로 올린다. 이 workflow는 이미지를 만들지 않는다.
+# - sha: 배포할 main 커밋. 비우면 main 최신이다. 앱마다 이 커밋 시점의 그 앱 이미지를 쓴다(.github/scripts/apps.sh source).
+# - apps: 비우면 클러스터에서 지금 도는 이미지와 비교해 바뀐 앱만 배포한다. 적으면 그 앱만 배포한다.
+#   롤백은 apps에 앱을, sha에 되돌릴 main 커밋을 넣는다.
+# 앱은 apps.sh 순서대로 하나씩 apply → rollout status 한다. 실패하면 그 앱만 rollout undo하고, 남은 앱은 배포하지 않는다.
+#
+# 클러스터 접근: GitHub OIDC로 IAM role을 받아 SSM Run Command로 large에서 kubectl을 실행한다(6443·SSH를 쓰지 않는다).
+#   role의 trust는 environment prod job만 허용하고, prod environment는 main 브랜치만 허용한다.
+#   prod environment Secrets: AWS_DEPLOY_ROLE_ARN(role ARN), DEPLOY_INSTANCE_ID(large 인스턴스 ID)
+# 공개 레포라 로그도 공개다. node 이름·IP가 나오는 출력을 하지 않는다(.github/scripts/k3s-deploy.sh).
+# GHCR은 조직 정책으로 private이다. 이 job의 GHCR 로그인(GITHUB_TOKEN)은 러너에서 이미지가 있는지 보는 데만 쓴다.
+#   node는 hapbang-prod의 공유 Secret ghcr-pull(k8s/registry, 90일 PAT)로 이미지를 받는다. 토큰을 서버로 보내지 않는다(#461).
 name: Deploy
 
 on:
-  push:
-    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 배포할 main 커밋 sha(7~40자). 비우면 main 최신
+        type: string
+        required: false
+      apps:
+        description: 배포할 앱(공백 구분, 예 member-app chat-app). 비우면 바뀐 앱만 자동으로
+        type: string
+        required: false
 
-# 같은 브랜치의 배포는 순서대로 실행한다.
+# 운영 배포는 한 번에 하나씩 순서대로 실행한다.
 concurrency:
-  group: deploy-${{ github.ref_name }}
+  group: deploy-k3s-prod
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be
+  IMAGE_PREFIX: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be
 
 jobs:
-  # 테스트를 통과한 커밋만 배포한다(ci.yml 재사용). 테스트한 jar를 artifact(app-jar)로 넘겨받는다.
-  ci:
-    uses: ./.github/workflows/ci.yml
-    with:
-      upload-jar: true
-
-  build:
-    needs: ci
+  deploy:
     runs-on: ubuntu-24.04
+    environment: prod
+    timeout-minutes: 90
     permissions:
       contents: read
-      packages: write
+      # 러너에서 이미지가 GHCR에 있는지 확인한다(node의 pull 인증과 별개).
+      packages: read
+      # GitHub OIDC 토큰으로 AWS role을 받는다.
+      id-token: write
     steps:
-      # docker/Dockerfile을 쓰기 위해 받는다. 소스는 빌드하지 않는다.
-      - uses: actions/checkout@v7
-
-      - name: 이미지 태그 결정
-        id: target
+      # 입력값은 스크립트에 직접 넣지 않고 환경 변수로만 받는다(명령 주입 방지).
+      - name: 입력 확인
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_APPS: ${{ inputs.apps }}
         run: |
-          if [ "$GITHUB_REF_NAME" = main ]; then
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::main 브랜치에서 실행하세요(Run workflow → Use workflow from: main). 현재: $GITHUB_REF"
+            exit 1
+          fi
+          if [ -n "$INPUT_SHA" ] && ! [[ "$INPUT_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::error::sha는 소문자 16진수 7~40자여야 합니다."
+            exit 1
+          fi
+          if ! [[ "$INPUT_APPS" =~ ^[a-z\ -]*$ ]]; then
+            echo "::error::apps는 앱 이름을 공백으로 구분해 적습니다(예: member-app chat-app)."
+            exit 1
           fi
 
-      - name: 테스트한 jar 받기
-        uses: actions/download-artifact@v8
+      # 바뀐 앱 비교와 태그 결정에 main 전체 이력이 필요하다.
+      - uses: actions/checkout@v7
         with:
-          name: app-jar
-          path: apps/build/libs
+          ref: main
+          fetch-depth: 0
 
-      - uses: docker/setup-buildx-action@v4
+      - name: 커밋 확인
+        id: commit
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          sha=$(git rev-parse --verify --quiet "${INPUT_SHA:-HEAD}^{commit}") || {
+            echo "::error::커밋을 찾을 수 없거나 짧은 sha가 여러 커밋에 해당합니다: $INPUT_SHA"
+            exit 1
+          }
+          if ! git merge-base --is-ancestor "$sha" HEAD; then
+            echo "::error::main에 포함되지 않은 커밋입니다: $sha"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: 지금 배포된 이미지 확인
+        env:
+          INSTANCE_ID: ${{ secrets.DEPLOY_INSTANCE_ID }}
+        # 기본 셸은 pipefail이 없어 파이프로 넘기면 실패가 가려진다. 파일로 받은 뒤 출력한다.
+        run: |
+          .github/scripts/ssm-run.sh .github/scripts/k3s-deploy.sh images > "$RUNNER_TEMP/current.txt"
+          cat "$RUNNER_TEMP/current.txt"
+
+      # plan.txt: 배포할 앱마다 "<앱> <태그 커밋> <지금 도는 태그 커밋|->"
+      - name: 배포 대상 결정
+        id: plan
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+          INPUT_APPS: ${{ inputs.apps }}
+        run: |
+          apps=$(.github/scripts/apps.sh list)
+          for app in $INPUT_APPS; do
+            grep -qx "$app" <<< "$apps" || { echo "::error::목록에 없는 앱입니다: $app"; exit 1; }
+          done
+
+          : > "$RUNNER_TEMP/plan.txt"
+          for app in $apps; do
+            image=$(awk -v a="$app" '$1 == a { print $2 }' "$RUNNER_TEMP/current.txt")
+            running=${image##*:sha-}
+            [[ "$running" =~ ^[0-9a-f]{40}$ ]] || running=
+
+            if [ -n "$INPUT_APPS" ]; then
+              tr ' ' '\n' <<< "$INPUT_APPS" | grep -qx "$app" || continue
+            elif [ -n "$running" ] && ! .github/scripts/apps.sh changed "$running" "$SHA" | grep -qx "$app"; then
+              continue
+            fi
+            echo "$app $(.github/scripts/apps.sh source "$app" "$SHA") ${running:--}" >> "$RUNNER_TEMP/plan.txt"
+          done
+
+          {
+            echo "### 운영 배포"
+            echo "- 커밋: \`$SHA\` $(git log -1 --format=%s "$SHA")"
+            if [ -s "$RUNNER_TEMP/plan.txt" ]; then
+              echo
+              echo "| 앱 | 지금 | 배포 |"
+              echo "| --- | --- | --- |"
+              while read -r app tag running; do
+                echo "| $app | \`${running:0:7}\` | \`${tag:0:7}\` |"
+              done < "$RUNNER_TEMP/plan.txt"
+            else
+              echo "- 배포할 앱이 없습니다."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -s "$RUNNER_TEMP/plan.txt" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$RUNNER_TEMP/plan.txt"
 
       - uses: docker/login-action@v4
+        if: steps.plan.outputs.deploy
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # :latest|:dev는 각 브랜치의 최신 빌드, :sha-<커밋>은 배포·롤백용(deploy.sh가 BE_TAG로 고정)
-      - uses: docker/build-push-action@v7
-        with:
-          context: apps/build/libs
-          file: docker/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.target.outputs.tag }}
-            ${{ env.IMAGE }}:sha-${{ github.sha }}
+      # 하나라도 이미지가 없으면 아무 앱도 배포하지 않는다.
+      - name: 이미지 확인
+        if: steps.plan.outputs.deploy
+        run: |
+          missing=0
+          while read -r app tag _; do
+            if ! docker buildx imagetools inspect "$IMAGE_PREFIX/$app:sha-$tag" > /dev/null; then
+              echo "::error::이미지 $IMAGE_PREFIX/$app:sha-$tag 가 없습니다. 그 커밋의 Publish images run이 실패했거나 아직 진행 중입니다."
+              missing=1
+            fi
+          done < "$RUNNER_TEMP/plan.txt"
+          [ "$missing" = 0 ]
 
-  # 서버로 넘어가는 토큰이 쓰기 권한을 갖지 않도록 build와 job을 분리한다.
-  # main은 여기서 배포하지 않는다(운영 배포는 deploy-prod.yml). dev는 이전 run의 deploy job을 다시 실행하면 그 버전으로 롤백된다.
-  deploy:
-    needs: build
-    if: github.ref_name == 'dev'
-    permissions:
-      contents: read
-      packages: read
-    uses: ./.github/workflows/deploy-server.yml
-    with:
-      env: dev
-      sha: ${{ github.sha }}
-      config-ref: dev
-    secrets: inherit
+      - name: 배포
+        if: steps.plan.outputs.deploy
+        env:
+          INSTANCE_ID: ${{ secrets.DEPLOY_INSTANCE_ID }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          while read -r app tag _; do
+            echo "::group::$app → sha-${tag:0:7}"
+            if ! .github/scripts/ssm-run.sh .github/scripts/k3s-deploy.sh apply "$app" "$SHA" "$tag" < /dev/null; then
+              echo "::endgroup::"
+              echo "::error::$app 배포에 실패했습니다(원인은 위 로그). 적용 뒤 실패면 그 앱을 되돌렸습니다. 뒤 순서의 앱은 배포하지 않았습니다."
+              exit 1
+            fi
+            echo "::endgroup::"
+          done < "$RUNNER_TEMP/plan.txt"

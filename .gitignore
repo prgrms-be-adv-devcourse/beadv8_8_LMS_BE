@@ -38,3 +38,6 @@ out/
 .env
 .env.*
 !.env.example
+
+### ETC ###
+.DS_Store

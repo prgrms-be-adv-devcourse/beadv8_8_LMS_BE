@@ -1,0 +1,78 @@
+# 강의 앱. medium(app-observe)에 둔다. 메모리 예산은 docs/architecture/infrastructure/k3s.md.
+# 설정은 lecture-app-config(ConfigMap), 비밀값은 lecture-app-secrets(Secret)로 받는다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lecture-app
+  labels:
+    app.kubernetes.io/name: lecture-app
+    hapbang.io/pool: app-observe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lecture-app
+  # medium은 surge pod를 받을 여유가 없다. 기존 pod를 먼저 내리고 새 pod를 띄운다(배포 중 잠깐 멈춤).
+  # maxSurge를 생략하면 기본값 25%가 1로 올림되므로 0을 적는다.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lecture-app
+        hapbang.io/internal-api-client: 'true'
+    spec:
+      # node별 메모리 예산이 배치를 전제로 하므로 required로 건다(docs/deploy/aws-k3s.md).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: hapbang.io/pool
+                    operator: In
+                    values: [app-observe]
+      containers:
+        - name: app
+          image: lecture-app
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: internal
+              containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: lecture-app-config
+            - secretRef:
+                name: lecture-app-secrets
+          # EC2에서 384Mi·448Mi는 기동 중 OOMKilled됐고, 640Mi에서 떠 536Mi에서 멈췄다(#461).
+          resources:
+            requests:
+              cpu: 100m
+              memory: 640Mi
+            limits:
+              memory: 640Mi
+          # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+          # 이미지의 USER가 이름(app)이라 kubelet이 non-root인지 확인할 수 있게 uid(Dockerfile의 10001)를 적는다.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false

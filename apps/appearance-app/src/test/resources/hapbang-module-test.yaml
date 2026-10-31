@@ -1,0 +1,26 @@
+# 출연 모듈 테스트 전용 설정. src/test 아래라 배포 jar에는 포함되지 않는다.
+# 테이블은 운영과 같이 Flyway 마이그레이션(src/main/resources/db/migration)으로 만든다 (test-support 설정).
+spring:
+  config:
+    # 운영 application.yaml을 읽지 않는 모듈 테스트에도 출연 설정만 명시적으로 가져온다.
+    import: classpath:appearance.yml
+  datasource:
+    hikari:
+      # 테스트 컨텍스트는 캐시되어 여러 개가 함께 살아 있고, 컨텍스트마다 연결 풀을 가진다.
+      # 쉬는 연결은 1개만 남긴다. 10초(idle-timeout, 밀리초) 넘게 쉰 연결은 Hikari의 다음 정리(약 30초마다) 때 닫힌다.
+      # 컨텍스트가 늘어도 테스트 DB 연결 상한(100)을 넘지 않게 하려는 것이다 (동시성 테스트는 필요한 만큼 새로 연다)
+      minimum-idle: 1
+      idle-timeout: 10000
+  modulith:
+    events:
+      # 출연 이벤트의 Kafka 외부화(#393)는 끈다. Kafka 브로커가 없는 테스트에서 보내기를 시도하지 않게 한다.
+      # Kafka 발행은 AppearanceEventKafkaTest가 Testcontainers Kafka와 함께 켜서 확인한다
+      externalization:
+        enabled: false
+  kafka:
+    # 대부분의 테스트에는 Kafka가 없다. 회원 이벤트 리스너(#394)가 연결을 계속 시도하거나 토픽 생성이 시간 초과를 기다리지 않게 끈다.
+    # Kafka 테스트(AppearanceUserEventListenerTest, AppearanceEventKafkaTest)만 KafkaTestcontainersConfig와 함께 다시 켠다.
+    listener:
+      auto-startup: false
+    admin:
+      auto-create: false

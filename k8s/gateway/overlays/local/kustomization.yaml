@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base
+- issuer.yaml
+- grafana.yaml
+# 로컬 전용 Kafka UI 계정이다(admin / local-kafka-ui-password). prod는 SealedSecret이다.
+# SecurityPolicy가 이름으로 참조하므로 hash를 붙이지 않는다.
+generatorOptions:
+  disableNameSuffixHash: true
+secretGenerator:
+- name: kafka-ui-basic-auth
+  namespace: hapbang-platform
+  literals:
+  - .htpasswd=admin:{SHA}Od3hFaMcV/cyAiqiG9So95B8nhA=
+patches:
+- target:
+    kind: Gateway
+    name: hapbang
+  patch: |
+    - op: replace
+      path: /spec/listeners/0/hostname
+      value: hapbang.local
+    - op: replace
+      path: /spec/listeners/1/hostname
+      value: hapbang.local
+- target:
+    kind: Certificate
+    name: hapbang-tls
+  patch: |
+    - op: replace
+      path: /spec/dnsNames/0
+      value: hapbang.local
+- target:
+    kind: EnvoyProxy
+    name: hapbang
+  patch: |
+    - op: replace
+      path: /spec/telemetry/tracing/samplingRate
+      value: 100

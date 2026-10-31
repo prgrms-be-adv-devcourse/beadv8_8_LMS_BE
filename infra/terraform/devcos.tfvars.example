@@ -1,0 +1,40 @@
+# devcos 계정의 현재 구성. 복사해서 devcos.tfvars로 쓴다(gitignore). <...>는 콘솔이나 읽기 전용 조회로 채운다.
+account_id  = "<계정 ID>"
+name_prefix = "team08-hapbang"
+tags        = { Team = "devcos-team08" }
+
+root_volume_encrypted = false
+public_key            = "<ssh-keygen -y -f team08-hapbang-key.pem 출력>"
+cors_allowed_origins  = ["https://<prod 도메인>", "https://<dev 도메인>", "http://localhost:5173"]
+cors_allowed_methods  = ["PUT", "GET", "HEAD"]
+iam_role_description  = "[Devcos 8th] Hapbang Server S3 Access Role - Used by the backend server to securely upload, read, and manage application assets/files in S3 buckets."
+
+import_ids = {
+  vpc_id              = "vpc-<...>"
+  subnet_id           = "subnet-<...>"
+  internet_gateway_id = "igw-<...>"
+  route_table_id      = "rtb-<...>"
+  security_group_id   = "sg-<...>"
+  # 키는 security.tf의 local.ingress_rules 키
+  security_group_ingress_rule_ids = {
+    "ssh-0.0.0.0/0" = "sgr-<...>"
+    http            = "sgr-<...>"
+    https           = "sgr-<...>"
+  }
+  security_group_egress_rule_id = "sgr-<...>"
+  # 키는 ec2.tf의 local.nodes 키. server는 team08-hapbang-ec2, agent는 team08-hapbang-ec2-2다.
+  nodes = {
+    server = {
+      instance_id          = "i-<...>"
+      network_interface_id = "eni-<...>"
+      eip_allocation_id    = "eipalloc-<...>"
+      eip_association_id   = "eipassoc-<...>"
+    }
+    agent = {
+      instance_id          = "i-<...>"
+      network_interface_id = "eni-<...>"
+      eip_allocation_id    = "eipalloc-<...>"
+      eip_association_id   = "eipassoc-<...>"
+    }
+  }
+}

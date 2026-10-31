@@ -1,0 +1,6 @@
+# 회원 앱 모듈 테스트 전용 설정. src/test 아래라 배포 jar에는 포함되지 않는다.
+spring:
+  datasource:
+    hikari:
+      # 캐시된 테스트 컨텍스트마다 연결 풀이 있어 PostgreSQL 연결 수(100)를 넘지 않게 줄인다
+      maximum-pool-size: 5

@@ -1,0 +1,66 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+# Flyway 이력·Modulith 발행 기록은 앱 스키마에 둔다. 기존 모놀리스 DB의 이력 전환은 별도 작업이다.
+spring:
+  application:
+    name: appearance-app
+  config:
+    import:
+    - classpath:appearance.yml
+  profiles:
+    default: local
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
+  modulith:
+    detection-strategy: explicitly-annotated
+    events:
+      jdbc:
+        schema-initialization:
+          enabled: true
+        schema: appearance
+      republish-outstanding-events-on-restart: true
+      completion-mode: archive
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+    out-of-order: true
+    default-schema: appearance
+    schemas:
+    - appearance
+  http:
+    clients:
+      connect-timeout: 3s
+      read-timeout: 5s
+  task:
+    scheduling:
+      pool:
+        size: 4
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+hapbang:
+  scheduling:
+    enabled: true
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:}"
+  # HP 보류·반환·지급·위약금 정산을 보내는 지갑 내부 API 주소 (#274). 응답 대기·회로 차단 등은 공용 Client 기본값
+  clients:
+    billing:
+      base-url: "${BILLING_API_BASE_URL}"
+    # 기존 회원 Backfill(관리자 수동 실행)이 회원 목록을 읽는 회원 내부 API 주소 (#394, 지갑과 같은 키)
+    member:
+      base-url: "${MEMBER_API_BASE_URL}"
+springdoc:
+  swagger-ui:
+    csrf:
+      enabled: true

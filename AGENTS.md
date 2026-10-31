@@ -1,6 +1,6 @@
 “합방” 백엔드 레포에서 작업하는 모든 AI 에이전트와 팀원이 공통으로 지키는 규칙이다.
 
-- 용어 정리: 기획서 안의 “용어 정리” 데이터베이스
+- 용어와 정책의 원본(SoT)은 레포의 [`docs/GLOSSARY.md`](docs/GLOSSARY.md)와 [`docs/policy.md`](docs/policy.md)다. 기획서와 다르면 레포 문서를 따른다.
 
 ## 1. 프로젝트 개요
 
@@ -19,223 +19,124 @@
 ## 2. 기술 스택
 
 - Java 25 (Gradle Toolchain), Spring Boot 4.1.1, Gradle 멀티모듈
-- DB: PostgreSQL 1개
-- 인증: OAuth 소셜 로그인 + Session
+- DB: PostgreSQL 인스턴스 1개, 모듈마다 database를 따로 둔다 (#338).
+- 인증: OAuth 소셜 로그인 + JWT. member-app이 발급(RS256, JWKS)하고 Envoy Gateway가 서명을 검증해 사용자 헤더로 넘긴다. 앱은 `@PreAuthorize`로 인가한다 (#369, #370). 전환 전 코드는 세션을 쓴다.
+- 진입점: Envoy Gateway(Kubernetes Gateway API). EC2 k3s prod 한 벌이 유일한 서버 환경이다(dev 서버 없음).
+- 회복성: rate limit과 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 Resilience4j로 한다.
 - 결제: 충전 예치금 + HP 원장 + TossPayments 테스트 API
-- 이벤트: Spring Event (1차). Kafka 도입 여부는 최종 프로젝트에서 판단한다.
+- 이벤트: 모듈 간 비동기 연동은 이벤트로 하고, 브로커는 Kafka다 (#339).
+- Redis: 채팅 실시간 전달(Pub/Sub)에 쓴다 (#340).
 - Front-End: React (별도 레포)
-- 팀 합의 없이 새 인프라·미들웨어(Kafka, Redis 등)를 도입하지 않는다.
+- 팀 합의 없이 새 인프라·미들웨어를 도입하지 않는다.
 
 ## 3. 모듈 구조와 경계
 
 세미 프로젝트는 **멀티모듈 모놀리스**다. 모듈은 바운디드 컨텍스트 단위이며, 각 모듈을 그대로 서비스로 떼어낼 수 있어야 한다.
 
-| 모듈 | 책임 | API 진입 경로 |
+| 모듈 (Gradle·database) | 책임 | API 진입 경로 |
 | --- | --- | --- |
-| 회원 | OAuth 로그인, 역할, 채널 인증, 승급 | `/api/v1/members` |
-| 출연 | 출연 요청·모집, 수락·거절·취소, 출연 취소 요청, 확인, 이의 제기, 파일(S3) | `/api/v1/appearances` |
-| 강의 | 강의, 장바구니, 주문, 리뷰, 파일(S3) | `/api/v1/lectures` |
-| 지갑 + 정산 | HP 충전·환불, 원장, 보류, 지급, 환전 | `/api/v1/wallets`, `/api/v1/settlements` |
-| 채팅 | 1:1 대화, 알림, 차단 | `/api/v1/chatRooms` |
-| 고객센터 | 공지, FAQ, 문의, 이의 제기 접수 | `/api/v1/inquiries` |
+| 회원 (`member`) | OAuth 로그인, 역할, 채널 인증, 승급 | `/api/v1/members` |
+| 출연 (`appearance`) | 출연 요청·모집, 수락·거절·취소, 출연 취소 요청, 확인, 파일(S3) | `/api/v1/appearances` |
+| 강의 (`lecture`) | 강의, 장바구니, 주문, 리뷰, 파일(S3) | `/api/v1/lectures` |
+| 지갑 (`billing`) | HP 충전·환불, 원장, 보류, 지급, 환전 (지급·환전을 통틀어 "정산") | `/api/v1/wallets`, `/api/v1/settlements` |
+| 채팅 (`chat`) | 1:1 대화, 알림, 차단 | `/api/v1/chats` |
+| 고객센터 (`customersupport`) | 공지, FAQ, 문의, 이의 제기 접수 | `/api/v1/inquiries` |
+
+최종 프로젝트에서는 #363으로 모듈마다 독립 앱(`apps/*-app`)이 되었고, 알림(`notification`)·검색(`search`)을 별도 앱으로 더하는 계획이 [`docs/architecture/final-project-infrastructure.md`](docs/architecture/final-project-infrastructure.md) 8·9장에 있다. 위 표는 팀 합의 뒤 바꾼다.
 
 ### 경계 규칙 (반드시 지킨다)
 
 - 회원 도메인은 반드시 별도 모듈로 분리한다.
 - 다른 모듈은 **회원 ID(Long)로만 참조**한다. 다른 모듈의 엔티티를 `@ManyToOne` 등 JPA 연관관계로 걸지 않는다.
-- 모듈 간 **테이블 JOIN 금지, 스키마 간 FK 금지**. 모듈은 ID와 Event로만 연결한다.
+- 모듈 간 **테이블 JOIN 금지, database 간 FK 금지**. 모듈은 ID와 이벤트로만 연결한다.
 - 다른 모듈의 Repository·엔티티를 직접 사용하지 않는다.
 - 컨텍스트 간에 필요한 유저 정보는 테이블을 복제하여 연결한다 (기획서 참고 사항).
-- 모듈 간 통신은 Spring Event를 기본으로 한다.
-- DB는 하나이며, 컨텍스트별로 스키마를 분리한다. 스키마 이름은 모듈명과 동일하게 한다.
+- 모듈 간 통신은 이벤트를 기본으로 한다. 단, 즉시 결과가 필요한 HP 이동(보류·반환·지급)과 이의 제기 접수는 제공 모듈의 내부 HTTP API를 호출할 수 있다. 동기 HTTP 호출은 소비 모듈의 로컬 트랜잭션 밖에서 실행하고, `shared`의 DTO·공통 HTTP Client 계약만 사용한다 (`docs/lecture/decisions.md` D62).
+- 모듈마다 database를 분리하고, database 이름은 위 표의 모듈 이름을 따른다. 모듈은 자기 database에만 연결하고, 다른 모듈의 database·테이블·트랜잭션을 쓰지 않는다.
 - 이 규칙을 지키기 어려운 요구가 나오면 임의로 우회하지 말고 질문한다.
 
 ## 4. 용어 (유비쿼터스 언어)
 
-모든 문서·코드·API에서 아래 용어만 쓴다. 비슷한 뜻의 다른 말로 바꾸지 않는다.
-
-| 용어 | 정의 / 구분 |
-| --- | --- |
-| HP | 플랫폼 재화. 1 HP = 1원. 충전 HP와 수익 HP로 나뉜다. |
-| 충전 HP | 현금으로 충전한 HP (예치금). **환불 가능, 환전 불가.** |
-| 수익 HP | 강의 판매·출연료로 지급받아 생긴 HP. **환전 가능, 환불 불가.** |
-| HP 충전 | 현금 → PG → 충전 HP |
-| HP 결제 | 강의 주문·출연 요청·출연 모집에 HP를 쓰는 것 |
-| HP 보류 | 거래 중인 HP를 묶어 두는 것 |
-| 지급 | 보류 HP를 받는 쪽(판매자·게스트)의 수익 HP로 옮기는 것. 수수료 없음 |
-| 반환 | 보류 HP를 결제한 회원에게, 차감했던 HP 종류 그대로 되돌리는 것 |
-| 구매 확정 | 강의 거래 종료 시점. 직접 확정·첫 재생·구매일 D+7 중 먼저 오는 것. **지급 시점과 다르다** (강의 지급은 구매일 D+30) |
-| 구매 취소 | 구매 확정 전 주문 취소 → 보류 HP 반환. **환불과 다르다.** |
-| 환불 | 충전 HP를 PG로 현금화하는 것. **구매 취소와 다르다.** |
-| 환전 | 수익 HP를 수수료 공제 후 KRW로 현금화하는 것. 신청 시 보류하고, 정산일에 신청분을 모아 자동 송금 |
-| 정산 | 지급과 환전을 다루는 **영역(모듈) 이름**. 개별 행위에는 “지급”, “환전”을 쓴다. |
-| 정산일 | 환전 신청 건을 모아 KRW로 송금하는 날 (매월 10일) |
-| 출연 요청 / 출연 모집 | 호스트가 게스트 1명에게 보내는 요청 / 다수 게스트를 공개 모집 |
-| 출연 성립 | 요청은 게스트 수락, 모집은 호스트 선택으로 거래가 맺어진 시점 |
-| 출연 확인 | 방송 후 호스트 확인 또는 방송 예정 일시 D+7. 지급 시점 |
-| 이의 제기 | 게스트 노쇼 시 호스트가 자동 확정을 멈추고 관리자 판정을 요청하는 것. 출연 취소 요청이 거절된 뒤 불참한 경우도 노쇼로 본다 |
-| 출연 취소 요청 | 출연 성립 후 방송 예정 일시 전에 **게스트**가 호스트에게 출연 취소를 요청하는 것. 호스트가 승인하거나 거절한다 |
-| 합의 취소 | 호스트가 출연 취소 요청을 승인해 출연이 취소된 것. **위약금 없음.** 호스트 일방 취소와 다르다 |
-| 호스트 / 게스트 | 방송을 진행하며 출연자를 찾는 쪽 / 방송에 출연하는 쪽 |
-| 유저 | 일반 회원. 강의 구매만 가능 |
-| 인플루언서 | 채널 인증을 마친 회원. 출연료 수령 가능, 강의 등록 불가 |
-| 인증된 인플루언서 | 승급 심사를 통과한 인플루언서. 강의 등록·판매 가능 |
-| 장바구니 / 주문 | 구매 전 강의를 담아 두는 곳 / 구매 단위 (바로 구매 = 강의 1개 주문) |
-- 엔티티·테이블 이름은 기획서 ERD의 이름을 따른다.
+모든 문서·코드·API에서 [`docs/GLOSSARY.md`](docs/GLOSSARY.md)의 용어만 쓴다. 비슷한 뜻의 다른 말로 바꾸지 않는다. 엔티티·테이블 이름은 기획서 ERD의 이름을 따른다.
 
 ## 5. 돈과 포인트 규칙 (가장 중요)
 
-이 영역은 정합성이 최우선이다. 수정할 때는 아래 규칙을 먼저 확인한다.
-
-### 원장과 삭제
-
-- 잔액은 **원장(append-only)의 합**으로 계산한다. 지갑 잔액 컬럼은 캐시로만 쓴다.
-- 원장 한 줄 = (지갑, HP 종류[충전/수익], 증감, 거래 유형, 참조 거래 ID, 시각).
-- 환전 가능 여부는 원장의 HP 종류로 판별한다.
-- 돈이 오가는 데이터는 **절대 Hard Delete 하지 않는다.** 원장은 삭제·수정하지 않고, 정정은 역분개로 한다.
-- User는 삭제 후 30일 보관 뒤 Hard Delete 한다. 이외의 모든 데이터는 Soft Delete 한다.
-- 결제키, 계좌 정보 등 민감 정보는 암호화해서 저장한다.
-
-### HP 종류와 사용
-
-- HP 간 전환은 불가하다 (충전 HP ↔︎ 수익 HP).
-- HP 결제는 수익 HP를 전액 사용한 후 충전 HP를 사용한다. 사용자가 순서를 바꿀 수 없다.
-- 거래 중 HP는 보류하고, 확정 시 지급, 거절·취소 시 반환한다.
-- 반환 시에는 차감했던 HP 종류(수익 HP / 충전 HP)와 금액 그대로 되돌린다.
-- 출연 지급은 방송 예정일 이후에만 발생한다.
-- 강의 결제 HP는 구매일로부터 30일간 보류한다. 구매 확정 후에도 내용이 다른 경우 고객센터를 통해 반환할 수 있게 하기 위함이며, 30일이 지나면 판매자의 수익 HP로 지급한다.
-
-### 환불과 환전
-
-| 구분 | 규칙 |
-| --- | --- |
-| 환불 | 충전 HP 잔액이 0원을 초과하는 사용자. 충전 HP만 대상. PG(토스) 취소로 처리 |
-| 환전 | 수익 HP 잔액이 1,000원 이상인 사용자. 환전 단위 1,000원 |
-| 환전 수수료 | 10%, 소수점 첫째자리 버림. **수익 HP를 KRW로 환전할 때만** 발생 |
-| 송금 | 환전 신청 시 해당 수익 HP를 보류한다. 정산일(매월 10일)에 신청분을 모아 수수료 공제 후 KRW로 자동 송금한다. 송금 실패 시 보류 HP를 수익 HP로 반환한다 |
-| 금액 단위 | 충전·환전 금액은 천원 단위. 최소 충전 금액은 1,000원 |
-
-### 출연 거래 정책 수치
-
-- 최저 출연료: 1인당 20,000원
-- 호스트 출연 취소 위약금: 계약한 출연료의 30% (출연 성립 후 방송 예정일 전 호스트가 일방 취소할 때)
-- 그 외 기한·보류 해제 정책은 기획서 “결제·HP·정산 정책” 표를 따른다.
-- 정책 수치를 코드에 임의로 정하지 않는다. 기획서에 없는 값이 필요하면 질문한다.
-
-### 출연 모집 취소 (호스트)
-
-- 모집 마감 전 호스트가 모집을 취소할 때, 선택된 게스트가 없으면 보류 HP 전액을 호스트에게 반환한다.
-- 선택된 게스트가 있으면 선택된 게스트에게 호스트 출연 취소 위약금(30%)을 지급하고, 선택되지 않은 자리의 HP는 호스트에게 반환한다.
-
-### 출연 취소 요청 (게스트)
-
-출연 요청·출연 모집 모두에 적용한다.
-
-- 출연 성립 후 방송 예정 일시 전까지만 요청할 수 있다. 요청에는 사유를 적는다.
-- 호스트는 방송 예정 일시 전까지 승인 또는 거절한다. 그때까지 응답이 없으면 자동 거절한다.
-- 거절된 뒤 1회만 다시 요청할 수 있다 (출연 1건당 최대 2회).
-- 승인(합의 취소) 시 위약금은 없다.
-    - 출연 요청: 해당 출연료를 호스트에게 반환한다.
-    - 출연 모집: 모집 마감 전이면 보류를 유지하고, 호스트가 다른 지원자를 다시 선택할 수 있다. 마감 후이거나, 다시 선택하지 않은 채 마감되면 해당 출연료를 호스트에게 반환한다.
-- 거절 시 출연은 유지된다. 게스트가 출연하지 않으면 노쇼로 보고 이의 제기 절차를 따른다.
-- 처리 중인 출연 취소 요청이 있는 상태에서 호스트가 일방 취소(출연 요청 취소·모집 취소)하려 하면, 시스템이 호스트에게 한 번 더 확인받는다. 서버에서도 확인 여부를 검증한다.
-    - 호스트가 확인하면 취소를 진행하고, 처리 중이던 출연 취소 요청은 종료한다.
-    - 이 경우에도 호스트 일방 취소로 보고, 해당 게스트에게 위약금(30%)을 지급한다.
-
-### 출연 모집 지원
-
-- 한 모집글에는 게스트 1명당 한 번만 지원할 수 있다. 지원을 취소한 뒤에도 다시 지원할 수 없다.
-- 지원 조건은 텍스트로만 두고 시스템이 검사하지 않는다. 시스템에서 구분이 필요한 값(방송 플랫폼, 출연 방식, 카테고리, 상태 등)은 타입(enum)으로 관리한다.
+돈·HP 규칙은 [`docs/policy.md`](docs/policy.md)의 1~5장과 "팀 규칙 > 원장과 민감 정보"에 있다. 이 영역은 정합성이 최우선이다. 돈·HP를 다루는 코드를 고치기 전에 반드시 먼저 읽는다.
 
 ## 6. 역할과 권한
 
-역할은 Spring Security Role로 표현한다.
-
-| 기능 | 비회원 | 유저 | 인플루언서 | 인증된 인플루언서 | 관리자 |
-| --- | --- | --- | --- | --- | --- |
-| 강의·모집글 조회 | O (List만) | O | O | O | O |
-| 인플루언서 목록·프로필 조회 | X | O | O | O | O |
-| HP 충전·환불 | X | O | O | O | X |
-| 장바구니·강의 구매·구매 취소 | X | O | O | O | X |
-| 강의 등록·판매 | X | X | X | O | X |
-| 채널 인증 | X | O | X | X | X |
-| 출연 요청·모집 (호스트) | X | X | O | O | X |
-| 출연 수락·지원 (게스트) | X | X | O | O | X |
-| 출연 취소 요청 (게스트) | X | X | O | O | X |
-| 출연 취소 요청 승인·거절 (호스트) | X | X | O | O | X |
-| 환전 | X | X | O | O | X |
-| 채팅 | X | X | O | O | O |
-| 채널 인증 심사, 문의 답변 | X | X | X | X | O |
+역할은 Spring Security Role로 표현한다. 역할별 권한 표는 [`docs/policy.md`](docs/policy.md)의 "팀 규칙 > 역할과 권한"에 있다.
 
 ## 7. API 규칙
 
 - 모든 API는 `/api/v1/...` 아래에 둔다 (3장의 진입 경로 참고).
-- 모듈 간 내부 HTTP API는 `/api/v1/internal/<모듈>/...`에 둔다. 회원 세션이 아니라 `X-Internal-Api-Key`로 인증하고, 서버 밖에서는 nginx가 404로 막는다 (D63, `docs/api/internal-earnings.md`).
 - API 명세는 Swagger로 관리한다. 프론트와 API 설계를 먼저 맞추고, 명세(Controller)를 먼저 만들어 동시에 작업할 수 있게 한다.
-- 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. nginx는 이 경로에만 큰 본문을 허용한다 (`docs/deploy/s3.md`, #106).
-
-### 성공 응답 (RsData)
-
-- 성공 응답은 `global`의 `RsData`(`com.hapbang.global.response`)로 감싼다: `statusCode`(HTTP 상태 코드 숫자), `message`, `data` (2026-10-13 팀 규칙). 오류는 아래 "오류 응답"대로 `ProblemDetail`이다.
-- 컨트롤러는 `RsData.ok(message, data)`·`RsData.created(message, data)`·`RsData.of(status, message, data)`를 그대로 반환한다. 200이 아니면 메서드에 `@ResponseStatus`로 같은 상태를 정한다 (예: 생성은 `@ResponseStatus(HttpStatus.CREATED)` + `RsData.created(...)`). 상태가 상황마다 달라지거나 헤더가 필요하면 `ResponseEntity<RsData<T>>`로 같은 상태를 본문과 HTTP 응답에 함께 쓴다.
-- 본문이 없는 응답(204)은 `ResponseEntity<Void>`를 쓴다.
-
-### 오류 응답 (global 공통 예외 처리, #71)
-
-- 모든 HTTP 오류는 `global`의 `GlobalExceptionHandler` 하나가 `ProblemDetail`(RFC 9457)로 응답한다 (2026-10-12 회의). **모듈은 `@RestControllerAdvice`를 만들지 않는다.**
-- 응답 본문: `status`, `detail`(메시지), `code`(프론트가 분기하는 식별자). 요청 값 오류는 `errors: [{field, message}]`를 더한다.
-- 공통 클래스 (`com.hapbang.global.exception`)
-    - `BaseErrorCode`: 오류 코드 계약. `getStatus()`, `getMessage()`, `getCode()`(기본값 enum 이름)
-    - `BusinessException`: 예상된 업무 실패. 모듈 예외의 부모다
-    - `GlobalErrorCode`: 공통 핸들러 전용 코드 (`INVALID_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `INTERNAL_ERROR`)
-- 모듈에서 할 일
-    - 오류 코드는 모듈의 `{Module}ErrorCode` enum에 정의하고 `BaseErrorCode`를 구현한다. 응답의 `code`는 enum 이름이다.
-    - 예외는 `{Module}Exception extends BusinessException`으로 만들고 `new {Module}Exception({Module}ErrorCode.X)`로 던진다.
-    - 메시지만 상황에 맞게 바꾸려면 상세 메시지 생성자(`new {Module}Exception(code, "상세")`)를 쓴다. `code`는 같다.
-    - 응답에 추가 정보가 필요하면 하위 예외에서 `addProperty(name, value)`를 쓴다. `code`·`errors`·표준 필드는 쓸 수 없다.
-    - 예상하지 못한 실패(버그, 외부 장애)는 `BusinessException`으로 감싸지 않는다. 공통 핸들러가 500 `INTERNAL_ERROR`로 응답하고, 내부 메시지는 응답에 넣지 않고 로그에만 남긴다.
-- 공통 핸들러가 처리하는 것
-
-| 상황 | 응답 |
-| --- | --- |
-| `BusinessException` | 오류 코드의 상태, `code`, `detail` (+ 추가 속성) |
-| `@Valid`·`@RequestParam` 검증 실패, 타입 불일치, 필수 파라미터 누락, JSON 형식 오류 | 400 `INVALID_REQUEST` + `errors` |
-| 컨트롤러·Facade의 `@PreAuthorize` 거절 | 로그인했으면 403 `FORBIDDEN`, 아니면 401 `UNAUTHORIZED` |
-| 그 밖의 Spring MVC 예외 (405, 415, 없는 경로 등) | 해당 상태 + `code`(공통 코드 또는 HTTP 상태 이름, 예: `METHOD_NOT_ALLOWED`) |
-| 처리하지 못한 예외 | 500 `INTERNAL_ERROR` |
-
-- 공통 핸들러가 처리하지 않는 것
-    - Security 필터에서 막힌 요청(로그인 안 함, `/api/v1/*/admin/**` URL 권한)은 컨트롤러에 오기 전이라 `SecurityConfig`가 응답한다 (본문 없음).
-    - STOMP(WebSocket) 오류는 HTTP가 아니라서 각 모듈의 `@MessageExceptionHandler`가 처리한다.
+- 성공 응답은 `global`의 `RsData`(`statusCode`, `message`, `data`)로 감싼다. 오류는 `global`의 `GlobalExceptionHandler` 하나가 `ProblemDetail`(+ `code`)로 응답한다. **모듈은 `@RestControllerAdvice`를 만들지 않고**, `{Module}ErrorCode implements BaseErrorCode`와 `{Module}Exception extends BusinessException`만 둔다.
+- 모듈 간 내부 HTTP API는 `/api/v1/internal/<모듈>/...`에 둔다. 회원 인증이 아니라 `X-Internal-Api-Key`로 인증하고, 서버 밖에서는 Envoy에 route를 만들지 않아 닿지 않는다 (D63, `docs/api/internal-earnings.md`).
+- 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. Envoy는 이 경로에만 큰 본문과 긴 timeout을 허용한다 (`docs/deploy/s3.md`, #106).
+- RsData 반환 방법, 오류 코드·예외 작성법, 공통 핸들러가 처리하는 상황은 [`docs/api/conventions.md`](docs/api/conventions.md)에 있다.
 
 ## 8. 인프라와 배포
 
-- AWS EC2 1대(t3.large까지), VPC 1개, S3 버킷 1개 범위에서만 운영한다. 범위 밖 서비스(RDS 등)는 추가하지 않는다.
-- S3 용도는 사진 및 영상 업로드다.
-- Nginx(React + HTTPS + `/api` 프록시), Spring, PostgreSQL을 모두 EC2에 Docker 컨테이너로 배포한다.
-- CI/CD는 GitHub Actions를 쓴다. PR마다 테스트를 실행하고, dev 병합 시 EC2(dev)로 자동 배포한다. main 병합은 이미지까지만 만들고, 운영 배포는 Deploy prod 워크플로를 수동으로 실행한다(`docs/deploy/README.md`).
+- AWS 범위는 **EC2 2대(t3.large 1대, t3.medium 1대), VPC 1개, public subnet 1개, S3 버킷 1개**다. EKS, RDS, ElastiCache, MSK, ELB 등 범위 밖 managed service나 EC2를 임의로 추가하지 않는다.
+- 두 EC2는 하나의 k3s cluster를 구성한다. `t3.large`는 server/`core-data`, `t3.medium`은 agent/`app-observe`다. 단일 `core-data` node에 stateful workload를 두므로 고가용성이라고 표현하지 않는다.
+- node 배치, network·security group, S3 IAM, storage, Terraform과 전환 규칙은 [`docs/deploy/aws-k3s.md`](docs/deploy/aws-k3s.md)를 따른다.
+- 배포·운영은 [`docs/deploy/README.md`](docs/deploy/README.md)를 따른다. 업무 앱은 아직 k3s에 배포 전이므로 배포된 것처럼 쓰지 않는다.
+- k8s manifest는 앱마다 `apps/<앱>/k8s/`(base·overlays, Secret `<앱>-secrets`)에 두고 루트 `k8s/`를 참조하지 않는다. 레포를 나눠도 앱 디렉터리만으로 배포할 수 있어야 한다. 루트 `k8s/`에는 앱들이 함께 쓰는 인프라(cluster·platform)만 둔다 ([`docs/deploy/k8s.md`](docs/deploy/k8s.md)).
+- kubectl은 항상 `--context`를 명시한다. `hapbang-k3s`는 EC2 prod cluster다. manifest 검증은 로컬 k3d(`k3d-hapbang`, `k8s/local/k3d.yaml`)에서 한다. Docker Desktop 내장 Kubernetes에는 HelmChart·local-path가 없어 manifest가 돌지 않는다.
 
 ## 9. Git 워크플로우
 
-- 기본 브랜치 흐름: `dev` 기준으로 `feature/기능명` 브랜치를 만들어 작업하고, PR로 `dev`에 병합한다.
+- 새 작업은 GitHub Project 83에 이슈부터 만들고, `origin/dev`에서 `feature/tkt-<이슈번호>` 브랜치를 만들어 작업한 뒤 PR로 `dev`에 병합한다.
 - PR을 올리기 전에 테스트를 통과시킨다 (PR마다 CI 테스트가 돈다).
 - 다른 팀원의 변경을 반영할 때는 `dev`를 최신화한 뒤 작업 브랜치에 병합한다.
-- 커밋 메시지 규칙은 커밋 컨벤션을 따른다
+- PR 형식, 리뷰, 병합 뒤 이슈 닫기, 배포 확인은 [`docs/contributing/git-workflow.md`](docs/contributing/git-workflow.md), 커밋 메시지는 [`docs/contributing/commit.md`](docs/contributing/commit.md)를 따른다.
 
 ## 10. AI 에이전트 작업 원칙
 
-- 작업 전에 기획서와 용어 정리를 먼저 확인한다.
-- 기획서·용어 정리·요구사항이 서로 충돌하거나, 근거가 부족해 결정을 내리기 어려우면 **추측으로 구현하지 말고 먼저 질문한다.**
+- 작업 전에 용어([`docs/GLOSSARY.md`](docs/GLOSSARY.md))와 정책([`docs/policy.md`](docs/policy.md))을 먼저 확인한다.
+- 용어·정책·요구사항이 서로 충돌하거나, 근거가 부족해 결정을 내리기 어려우면 **추측으로 구현하지 말고 먼저 질문한다.**
 - 질문한 사실과 그 결과(결정 내용)는 기록으로 남긴다.
 - 요청받은 범위만 최소한으로 변경한다. 요청과 무관한 코드·포맷은 건드리지 않는다.
 - 위 3장의 모듈 경계, 5장의 돈 규칙을 어기는 변경은 하지 않는다. 불가피하면 이유와 함께 먼저 확인한다.
-- 이 파일에 없는 사항은 기획서를 근거로 하고, 기획서에도 없으면 질문한다.
+- 이 파일과 `docs/`에 없는 사항은 기획서를 근거로 하고, 기획서에도 없으면 질문한다.
 
 ## 11. 미정 항목 (임의로 정하지 않는다)
 
 아래는 팀 합의 전이다. 에이전트가 임의로 정해서 코드에 넣지 않고 질문한다.
 
-- 코드 컨벤션 (네이밍, 패키지 구조 등. 오류 응답 형식은 7장 "오류 응답"에서 정했다)
+- 코드 컨벤션 (네이밍, 패키지 구조 등. 오류 응답 형식은 [`docs/api/conventions.md`](docs/api/conventions.md)에서 정했다)
 - 테스트 방식 (단위·통합 테스트 기준, 테스트용 DB)
-- 지갑 잔액 변경의 동시성 제어 방식
-- 지갑과 정산의 모듈·스키마 분리 방식
+
+## 12. 작업별로 읽을 문서
+
+아래 문서는 자동으로 읽히지 않는다. 해당 작업을 시작하기 전에 읽는다.
+
+| 작업 | 문서 |
+| --- | --- |
+| 돈·HP를 다루는 코드, 권한 검사 | [`docs/policy.md`](docs/policy.md) |
+| 이름·문서·이슈에 도메인 용어를 쓸 때 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) |
+| 컨트롤러·요청 DTO·오류 코드 | [`docs/api/conventions.md`](docs/api/conventions.md) |
+| 모듈 간 연동(shared 계약, 내부 API, 이벤트), 빈·배치 추가 | [`docs/dev/module-integration.md`](docs/dev/module-integration.md) |
+| 엔티티·Repository·HQL | [`docs/dev/persistence.md`](docs/dev/persistence.md), [`docs/db-migration.md`](docs/db-migration.md) |
+| 테스트 작성·실행 | [`docs/dev/testing.md`](docs/dev/testing.md) |
+| 파일 업로드(S3) | [`docs/deploy/s3.md`](docs/deploy/s3.md) |
+| 로컬 확인, 라이브러리 추가 | [`docs/dev/local.md`](docs/dev/local.md) |
+| 모듈 작업 | `docs/<모듈>/module.md`(강의 [`docs/lecture/module.md`](docs/lecture/module.md), 출연 [`docs/appearance/module.md`](docs/appearance/module.md)), `boundedContext/<모듈>/AGENTS.md` |
+| 이슈·브랜치·PR·병합·배포 확인 | [`docs/contributing/git-workflow.md`](docs/contributing/git-workflow.md) |
+| 서버·배포·AWS | [`docs/deploy/README.md`](docs/deploy/README.md), [`docs/deploy/security.md`](docs/deploy/security.md) |
+| k8s manifest·Helm 차트, 로컬 k3d 검증 | [`docs/deploy/k8s.md`](docs/deploy/k8s.md), [`docs/deploy/aws-k3s.md`](docs/deploy/aws-k3s.md) |
+
+## Agent skills
+
+### Issue tracker
+
+GitHub 이슈 + Project 83(`LastMenStanding`) 보드에서 관리한다. 제목은 `[모듈] 요약`이다. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+기본 라벨 다섯 개(`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`)를 그대로 쓴다. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+single-context: 용어는 `docs/GLOSSARY.md`, 정책은 `docs/policy.md`와 모듈 문서의 "정책 요약", 결정은 모듈 문서의 D번호(+ 생기면 `docs/adr/`). 용어집은 루트가 아니라 `docs/GLOSSARY.md`에 둔다. See `docs/agents/domain.md`.

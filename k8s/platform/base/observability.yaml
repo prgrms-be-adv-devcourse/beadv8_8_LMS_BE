@@ -1,0 +1,256 @@
+# 관측성 stack(Prometheus·Loki·Tempo·Grafana·Alloy). 모두 medium(app-observe)에 둔다.
+# 이 파일은 설치와 자원·보존 한도만 정한다. scrape 규칙, Alloy pipeline, dashboard, alert는 #343에서 더한다.
+# 지금은 설치만 한다. 메모리 limit은 로컬 k3d idle 실측(#373)에 여유를 더한 값이고 합계는 1,032 MiB다.
+# 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다. 예산 조정은 #343에서 한다
+# (docs/architecture/infrastructure/k3s.md).
+# Loki·Tempo·Grafana 차트는 2026년에 grafana에서 grafana-community 저장소로 옮겨졌다(각 차트 README).
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: prometheus
+spec:
+  repo: https://prometheus-community.github.io/helm-charts
+  chart: prometheus
+  version: 29.39.0
+  targetNamespace: hapbang-platform
+  valuesContent: |-
+    # metrics 저장소는 Prometheus 하나다. 부속 component는 예산에 없어 끈다.
+    alertmanager:
+      enabled: false
+    kube-state-metrics:
+      enabled: false
+    prometheus-node-exporter:
+      enabled: false
+    prometheus-pushgateway:
+      enabled: false
+    # 16Mi에서는 k3d에서 기동 직후 OOMKilled가 반복돼 설정 변경을 다시 읽지 못했다(EC2 평소 7Mi, #443).
+    configmapReload:
+      prometheus:
+        resources:
+          limits:
+            memory: 32Mi
+    # k3s는 apiserver·kubelet이 한 프로세스라 두 endpoint가 같은 제어부 지표 묶음을 내보낸다.
+    # EC2에서 둘이 head series 18.5만 중 9.6만을 차지해 메모리가 limit에 붙고 GC로 CPU 1.5코어를 썼다(#443).
+    # apiserver는 수집하지 않고, kubelet은 pod·컨테이너 수와 k3s 프로세스 자원 지표만 남긴다.
+    # kubelet_volume_stats는 local-path volume이 내보내지 않아 지금은 비어 있다. 디스크 알림은 #343에서 다른 지표로 정한다.
+    # 컨테이너 CPU·메모리는 kubernetes-nodes-cadvisor가 따로 수집한다.
+    scrapeConfigs:
+      kubernetes-api-servers:
+        enabled: false
+      kubernetes-nodes:
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            action: keep
+            regex: kubelet_volume_stats_.+|kubelet_running_(pods|containers)|process_(resident_memory_bytes|cpu_seconds_total)
+    server:
+      retention: 7d
+      retentionSize: 4GB
+      persistentVolume:
+        size: 5Gi
+        storageClass: local-path-retain
+      # 차트 기본 scrape(cadvisor·pod 등)로 idle 292Mi를 썼다.
+      resources:
+        requests:
+          cpu: 50m
+          memory: 384Mi
+        limits:
+          memory: 384Mi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: hapbang.io/pool
+                    operator: In
+                    values: [app-observe]
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: loki
+spec:
+  repo: https://grafana-community.github.io/helm-charts
+  chart: loki
+  version: 20.0.2
+  targetNamespace: hapbang-platform
+  valuesContent: |-
+    deploymentMode: Monolithic
+    loki:
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      storage:
+        type: filesystem
+      schemaConfig:
+        configs:
+          - from: "2026-01-01"
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
+      limits_config:
+        retention_period: 168h
+      compactor:
+        retention_enabled: true
+        delete_request_store: filesystem
+    singleBinary:
+      replicas: 1
+      persistence:
+        storageClass: local-path-retain
+        size: 5Gi
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 128Mi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: hapbang.io/pool
+                    operator: In
+                    values: [app-observe]
+    # Monolithic에서도 아래 replica를 0으로 적어야 차트 검증을 통과한다.
+    backend:
+      replicas: 0
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
+    # alert rule을 ConfigMap에서 읽는 sidecar. alert는 #343에서 정하므로 지금은 띄우지 않는다.
+    sidecar:
+      rules:
+        enabled: false
+    lokiCanary:
+      enabled: false
+    gateway:
+      enabled: false
+    test:
+      enabled: false
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: tempo
+spec:
+  repo: https://grafana-community.github.io/helm-charts
+  chart: tempo
+  version: 3.2.1
+  targetNamespace: hapbang-platform
+  valuesContent: |-
+    tempo:
+      retention: 72h
+      storage:
+        trace:
+          backend: local
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 64Mi
+    persistence:
+      enabled: true
+      size: 2Gi
+      storageClassName: local-path-retain
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: hapbang.io/pool
+                  operator: In
+                  values: [app-observe]
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: grafana
+spec:
+  repo: https://grafana-community.github.io/helm-charts
+  chart: grafana
+  version: 14.2.0
+  targetNamespace: hapbang-platform
+  valuesContent: |-
+    # admin 비밀번호는 차트가 만든 Secret(grafana)에 있다. 외부에 열지 않고 port-forward로만 접속한다.
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            uid: prometheus
+            url: http://prometheus-server.hapbang-platform.svc.cluster.local
+            isDefault: true
+          - name: Loki
+            type: loki
+            uid: loki
+            url: http://loki.hapbang-platform.svc.cluster.local:3100
+          - name: Tempo
+            type: tempo
+            uid: tempo
+            url: http://tempo.hapbang-platform.svc.cluster.local:3200
+    persistence:
+      enabled: true
+      size: 1Gi
+      storageClassName: local-path-retain
+    # Grafana 13은 내장 plugin을 모두 올려 idle 258Mi를 썼다.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 320Mi
+      limits:
+        memory: 320Mi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: hapbang.io/pool
+                  operator: In
+                  values: [app-observe]
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: alloy
+spec:
+  repo: https://grafana.github.io/helm-charts
+  chart: alloy
+  version: 1.14.4
+  targetNamespace: hapbang-platform
+  valuesContent: |-
+    # 기본 DaemonSet이면 large에도 떠서 예산을 넘는다. pod log는 Kubernetes API로 읽으므로 Deployment 1개로 둔다.
+    controller:
+      type: deployment
+      replicas: 1
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: hapbang.io/pool
+                    operator: In
+                    values: [app-observe]
+    alloy:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 104Mi
+        limits:
+          memory: 104Mi
+    configReloader:
+      resources:
+        requests:
+          cpu: 5m
+          memory: 16Mi
+        limits:
+          memory: 16Mi

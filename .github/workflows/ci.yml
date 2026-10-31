@@ -1,6 +1,6 @@
-# main·dev로 가는 PR마다 테스트를 실행하고, 테스트한 jar로 이미지가 빌드되는지까지 확인한다(push하지 않음).
-# deploy.yml도 배포 전에 이 워크플로를 호출해, 병합된 커밋이 테스트를 통과해야만 배포된다.
-# 이때 테스트한 jar를 artifact로 넘기고, deploy.yml은 그 jar를 그대로 이미지에 담는다(jar는 한 번만 빌드).
+# main·dev로 가는 PR마다 테스트를 실행하고, 테스트한 jar로 앱별 이미지가 빌드되는지까지 확인한다(push하지 않음).
+# 앱은 apps/<앱>-app 여섯 개이고, 앱마다 jar(apps/<앱>-app/build/libs/app.jar)와 Dockerfile을 가진다(#356).
+# main push 때는 publish.yml이 이 워크플로를 호출해 테스트한 jar를 artifact(app-jars)로 넘겨받는다(#374).
 # 테스트는 Testcontainers로 PostgreSQL을 띄우므로 Docker가 있는 ubuntu 러너가 필요하다.
 name: CI
 
@@ -10,16 +10,17 @@ on:
   workflow_call:
     inputs:
       upload-jar:
-        description: 배포용으로 jar를 artifact(app-jar)로 올린다
+        description: 테스트한 앱별 jar를 artifact(app-jars)로 올린다
         type: boolean
         default: false
 
-# 같은 PR에 새 커밋이 올라오면 이전 실행을 취소한다. 배포에서 호출된 실행은 run_id로 묶여 취소되지 않는다.
+# 같은 PR에 새 커밋이 올라오면 이전 실행을 취소한다.
+# 호출될 때는 호출한 run의 run_id가 들어가 run마다 그룹이 달라진다. 호출자(publish.yml)의 그룹과 이름이 겹치지 않으므로 서로 기다리지 않는다.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
-# PR의 코드(테스트·빌드 스크립트)가 실행되므로 읽기 권한만 준다. 이미지 push는 deploy.yml의 build job이 한다.
+# PR의 코드(테스트·빌드 스크립트)가 실행되므로 읽기 권한만 준다.
 permissions:
   contents: read
 
@@ -40,9 +41,19 @@ jobs:
       # v6부터 캐시 기능이 Gradle 상용 약관(Terms of Use)을 따르므로 MIT인 v5를 쓴다.
       - uses: gradle/actions/setup-gradle@v5
 
-      # jar는 apps/build/libs/app.jar로 나온다(apps/build.gradle.kts).
+      # 발행·배포 앱 목록(.github/scripts/apps.sh)에 빠진 앱이 없는지 검사한다(#374).
+      - name: 앱 목록 검사
+        run: .github/scripts/apps.sh check
+
+      # 앱 사이 의존, 앱별 진입점·설정·Dockerfile 누락을 검사한다(루트 build.gradle.kts).
+      # 다른 프로젝트의 runtimeClasspath를 실행 중에 resolve하므로 --parallel에서는 Gradle이 막는다. 따로 돌린다.
+      - name: 모듈 구조 검사
+        run: ./gradlew verifyModuleStructure --no-daemon
+
+      # bootJar는 Boot 플러그인을 적용한 앱에만 있어 여섯 앱의 jar를 모두 만든다.
+      # --parallel로 모듈 테스트를 동시에 돌린다. 테스트 JVM마다 Postgres 컨테이너를 따로 띄우므로 모듈끼리 DB를 공유하지 않는다.
       - name: 테스트·jar 빌드
-        run: ./gradlew check :apps:bootJar --no-daemon
+        run: ./gradlew check bootJar --no-daemon --parallel
 
       - name: 테스트 리포트 업로드
         if: failure()
@@ -51,20 +62,66 @@ jobs:
           name: test-reports
           path: '**/build/reports/tests/'
 
-      - uses: docker/setup-buildx-action@v4
-
-      - name: 이미지 빌드 확인
-        uses: docker/build-push-action@v7
-        with:
-          context: apps/build/libs
-          file: docker/Dockerfile
-          push: false
-
-      - name: jar 업로드(배포용)
+      # publish.yml이 바뀐 앱의 이미지를 만들 때 쓴다. 경로는 apps/를 뺀 <앱>/build/libs/app.jar로 담긴다.
+      - name: jar 업로드
         if: inputs.upload-jar
         uses: actions/upload-artifact@v7
         with:
-          name: app-jar
-          path: apps/build/libs/app.jar
+          name: app-jars
+          path: apps/*-app/build/libs/app.jar
           if-no-files-found: error
           retention-days: 1
+
+      # 앱마다 자기 Dockerfile로, 테스트한 jar 디렉터리를 컨텍스트로 빌드한다.
+      - name: 이미지 빌드 확인
+        run: |
+          for app in apps/*-app; do
+            echo "::group::$app"
+            docker build -f "$app/Dockerfile" "$app/build/libs"
+            echo "::endgroup::"
+          done
+
+  # k8s/·apps/<앱>/k8s manifest를 overlay별로 렌더링하고 Kubernetes·CRD schema로 검사한다(#373). cluster에 적용하지는 않는다.
+  # HelmChart의 valuesContent는 문자열이라 차트 values는 검사되지 않는다. 실제 기동은 로컬 k3d로 확인한다(docs/deploy/k8s.md).
+  manifests:
+    runs-on: ubuntu-24.04
+    env:
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      # HelmChart·Elasticsearch 같은 CRD schema. 결과가 바뀌지 않게 커밋을 고정한다.
+      CRDS_CATALOG_REF: 3eb90d47aba8d61919d4419dd38301536e32a94b
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: kubeconform 설치
+        run: |
+          curl -sSfLo kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
+          tar xzf kubeconform.tar.gz kubeconform
+          sudo install kubeconform /usr/local/bin/
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: 고정 버전 Gateway·인증서 CRD schema 준비
+        run: |
+          python -m pip install PyYAML==6.0.3
+          python k8s/gateway/tools/prepare-schemas.py /tmp/gateway-schemas
+
+      - name: 운영 Gateway 렌더러 검사
+        run: python -m unittest discover -s k8s/gateway/tests -p 'test_render_prod.py'
+
+      # -strict는 schema에 없는 필드(오타)를 오류로 본다. Kubernetes 버전은 EC2 k3s(v1.36.5+k3s1)와 맞춘다.
+      - name: 렌더링·schema 검사
+        run: |
+          # 공용 인프라(k8s/)와 앱마다의 manifest(apps/<앱>/k8s)를 모두 검사한다.
+          for dir in k8s/cluster k8s/registry k8s/platform/overlays/* k8s/gateway/install/* k8s/gateway/overlays/* apps/*-app/k8s/overlays/*; do
+            echo "::group::$dir"
+            kubectl --context k3d-hapbang kustomize "$dir" | kubeconform -strict -summary \
+              -kubernetes-version 1.36.5 \
+              -schema-location "/tmp/gateway-schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+              -schema-location default \
+              -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/${CRDS_CATALOG_REF}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+            echo "::endgroup::"
+          done

@@ -1,0 +1,19 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: tempo
+  namespace: hapbang-platform
+spec:
+  valuesContent: |
+    tempo:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 128Mi
+      extraEnv:
+      - name: GOMEMLIMIT
+        value: 112MiB
+      - name: GOMAXPROCS
+        value: '2'

@@ -1,0 +1,10 @@
+# stateful workload(PostgreSQL·Kafka·Redis·Elasticsearch·관측성 저장소)용 StorageClass.
+# k3s 기본 local-path는 reclaimPolicy: Delete라 PVC를 지우면 node의 데이터 디렉터리도 지워진다(docs/deploy/aws-k3s.md).
+# local-path는 요청 크기를 강제하지 않고 volume 확장도 지원하지 않는다. 실제 상한은 각 workload의 retention으로 건다.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path-retain
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
