@@ -49,11 +49,10 @@ import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
-import com.hapbang.shared.billing.port.BillingPort;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 수익 HP 환전 신청·보류·취소(#285)를 실제 PostgreSQL로 검증한다. 실제 은행 API·송금은 없다.
-// 수익 HP는 강의 결제 보류 → 판매자 지급(BillingPort)으로 만들어 실제 흐름과 같게 한다.
+// 수익 HP는 강의 결제 보류 → 판매자 지급(HoldFacade)으로 만들어 실제 흐름과 같게 한다.
 // 모든 시나리오 끝에 정합성(지갑 = 원장, 신청 금액 = 보류 원금(수익 HP만), REQUESTED는 전액 보류 중·CANCELED는 전액 반환,
 // 환전 원장은 수익 HP만, 수수료 + 예상 수령액 = 신청 금액)을 확인한다.
 @IntegrationTest
@@ -82,7 +81,7 @@ class ExchangeIntegrationTest {
     ExchangeProcessing exchangeProcessing;
 
     @Autowired
-    BillingPort billingPort;
+    HoldFacade holdFacade;
 
     @Autowired
     LedgerRecordUseCase ledgerRecordUseCase;
@@ -518,9 +517,9 @@ class ExchangeIntegrationTest {
         Long exchangeId = request(INFLUENCER, "key-1", 8_000L).exchangeId();
 
         // 인플루언서가 강의를 사면 남은 수익 HP 2,000을 먼저 쓰고 충전 HP 3,000을 쓴다(환전 보류분은 쓰지 않는다)
-        billingPort.hold(new HoldCommand(INFLUENCER, BillingReferenceType.LECTURE_ORDER_ITEM, 9_001L, 5_000L));
+        holdFacade.hold(new HoldCommand(INFLUENCER, BillingReferenceType.LECTURE_ORDER_ITEM, 9_001L, 5_000L));
         assertWallet(walletId, 2_000L, 3_000L, 0L, 10_000L);
-        billingPort.release(ReleaseCommand.full(INFLUENCER, BillingReferenceType.LECTURE_ORDER_ITEM, 9_001L,
+        holdFacade.release(ReleaseCommand.full(INFLUENCER, BillingReferenceType.LECTURE_ORDER_ITEM, 9_001L,
                 "CANCEL-9001"));
         assertWallet(walletId, 5_000L, 0L, 2_000L, 8_000L);
 
@@ -549,8 +548,8 @@ class ExchangeIntegrationTest {
         Long walletId = walletRepository.findByUserId(userId).map(Wallet::getId).orElseGet(() -> wallet(userId));
         charge(buyerWallet, amountHp);
         long itemId = 1_000L + sequence.incrementAndGet();
-        billingPort.hold(new HoldCommand(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, itemId, amountHp));
-        billingPort.payout(PayoutCommand.full(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, itemId,
+        holdFacade.hold(new HoldCommand(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, itemId, amountHp));
+        holdFacade.payout(PayoutCommand.full(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, itemId,
                 "PAYOUT-" + itemId, userId, SettlementSourceType.LECTURE_ORDER_ITEM, itemId));
         return walletId;
     }

@@ -1,8 +1,8 @@
 package com.hapbang.billing.domain;
 
 // 수익 HP 지급의 예정·중단·처리 중·완료·실패·취소 상태를 구분한다.
-// 지금 지급 건을 만드는 경로는 즉시 지급(BillingPort.payout·settlePenalty)뿐이며 처리하면서 바로 COMPLETED 건을 만든다.
-// 강의 지급도 강의가 지급 시점을 판단해 BillingPort.payout을 직접 부른다(#188). SCHEDULED·SUSPENDED·CANCELLED를 만드는 코드는 없다.
+// 지금 지급 건을 만드는 경로는 즉시 지급(내부 HTTP API 지급·위약금 정산)뿐이며 처리하면서 바로 COMPLETED 건을 만든다.
+// 강의 지급도 강의가 지급 시점을 판단해 지급을 직접 요청한다(#188). SCHEDULED·SUSPENDED·CANCELLED를 만드는 코드는 없다.
 public enum SettlementStatus {
     /** 지급 예정. 예정 시각(scheduled_at)이 되면 처리한다 */
     SCHEDULED,

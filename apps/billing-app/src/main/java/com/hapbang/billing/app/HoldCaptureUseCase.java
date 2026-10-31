@@ -25,7 +25,7 @@ import lombok.RequiredArgsConstructor;
 // 보류 HP를 다른 회원에게 옮기지 않고 최종 차감한다(확정 차감, #241). 환불(CHARGE_ONLY)은 PG 취소 성공액만, 환전(REVENUE_ONLY)은
 // 송금 성공 확인 후 차감한다. 전체·부분 확정 차감을 허용하고 남은 금액은 보류로 남아 추가 확정 차감·반환할 수 있다.
 // 충전 HP는 배분 순서(FIFO)로, 충전 건을 지정하면 그 배분에서만 소진하며 소진한 원금은 충전 건에 돌아가지 않는다.
-// 강의·출연 보류(MIXED)는 확정 차감하지 않는다(지급은 BillingPort.payout). 보류·상세·배분·원장·지갑을 한 트랜잭션에서 바꾼다.
+// 강의·출연 보류(MIXED)는 확정 차감하지 않는다(지급은 내부 API 지급). 보류·상세·배분·원장·지갑을 한 트랜잭션에서 바꾼다.
 @Service
 @RequiredArgsConstructor
 public class HoldCaptureUseCase {

@@ -15,7 +15,7 @@ import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 
 // Billing 내부 결과를 shared 계약 결과로 바꾼다(BD-61: 호출한 쪽이 쓰는 값만).
-// 내부 HTTP API(ApiV1BillingInternalController)와 BillingPortAdapter가 같은 변환을 쓴다 (#273).
+// 내부 HTTP API(ApiV1BillingInternalController)가 쓴다 (#273).
 final class BillingResultDtos {
 
     private BillingResultDtos() {

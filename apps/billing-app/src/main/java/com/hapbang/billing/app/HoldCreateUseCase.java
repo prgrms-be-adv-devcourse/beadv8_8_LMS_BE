@@ -69,7 +69,7 @@ public class HoldCreateUseCase {
     }
 
     // Billing 내부 보류(#241): 환불은 충전 HP만(CHARGE_ONLY), 환전은 수익 HP만(REVENUE_ONLY) 보류한다. 나머지 규칙(충전 원금 FIFO 배분,
-    // 원장, 멱등성, 지갑 → 충전 건 락 순서)은 BillingPort.hold와 같다.
+    // 원장, 멱등성, 지갑 → 충전 건 락 순서)은 강의·출연 보류(HoldFacade.hold)와 같다.
     @Transactional
     public HoldResult hold(InternalHoldCommand command) {
         BillingCommandValidator.requirePositive(command.amountHp());

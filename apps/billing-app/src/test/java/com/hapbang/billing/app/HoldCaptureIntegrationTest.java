@@ -141,7 +141,7 @@ class HoldCaptureIntegrationTest {
         assertThat(again.holdId()).isEqualTo(first.holdId());
         assertBillingError(() -> internalHoldFacade.hold(new InternalHoldCommand(USER, REFUND, 21L, 2_000L)),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
-        // 내부 경로는 환불·환전 참조 유형만, BillingPort(shared) 계약은 강의·출연 참조 유형만 받는다
+        // 내부 경로는 환불·환전 참조 유형만, shared 계약(내부 HTTP API)은 강의·출연 참조 유형만 받는다
         assertThatThrownBy(() -> new InternalHoldCommand(USER, LECTURE, 11L, 1_000L))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new HoldCommand(USER, REFUND, 21L, 1_000L)).isInstanceOf(IllegalArgumentException.class);
@@ -413,7 +413,7 @@ class HoldCaptureIntegrationTest {
     }
 
     @Test
-    @DisplayName("확정 차감과 지급은 같은 보류를 함께 쓰지 못한다: 지급(BillingPort)은 강의·출연 보류만, 확정 차감은 환불·환전 보류만 받는다")
+    @DisplayName("확정 차감과 지급은 같은 보류를 함께 쓰지 못한다: 지급(HoldFacade)은 강의·출연 보류만, 확정 차감은 환불·환전 보류만 받는다")
     void captureAndPayout_neverShareHold() {
         Long buyer = wallet(USER);
         Long seller = wallet(SELLER);

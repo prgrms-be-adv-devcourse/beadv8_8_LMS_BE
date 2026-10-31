@@ -47,7 +47,6 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
-import com.hapbang.shared.billing.port.BillingPort;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 충전 HP 환불(#260)을 실제 PostgreSQL과 가짜 TossPayments HTTP 서버로 검증한다. 실제 TossPayments는 부르지 않는다.
@@ -96,7 +95,7 @@ class RefundIntegrationTest {
     WalletReconciliationUseCase walletReconciliationUseCase;
 
     @Autowired
-    BillingPort billingPort;
+    HoldFacade holdFacade;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -186,7 +185,7 @@ class RefundIntegrationTest {
         String second = charge(1L);
         String third = charge(1L);
         // 강의 주문 보류가 첫 충전 건 원금 4,000을 쓰고 있다
-        billingPort.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, 4_000L));
+        holdFacade.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, 4_000L));
 
         RefundResult result = refund(1L, "key-1", 12_000L);
 
@@ -205,7 +204,7 @@ class RefundIntegrationTest {
         assertConsistent(result.refundRequestId());
 
         // 환불 후에도 강의 보류 반환·지급이 그대로 동작한다(부분 환불 충전 건에 원금 복원)
-        billingPort.release(ReleaseCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, "CANCEL-501"));
+        holdFacade.release(ReleaseCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, "CANCEL-501"));
         assertThat(chargeRow(first)).containsEntry("status", "PARTIALLY_REFUNDED")
                 .containsEntry("remaining_principal_hp", 4_000L).containsEntry("refunded_amount_hp", 6_000L);
         assertWallet(walletId, 18_000L, 0L);
@@ -220,8 +219,8 @@ class RefundIntegrationTest {
         charge(1L);
         charge(2L);
         // 회원 2가 회원 1에게 3,000을 지급받아 수익 HP 3,000 + 충전 HP 10,000
-        billingPort.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 601L, 3_000L));
-        billingPort.payout(PayoutCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 601L, "PAYOUT-601", 2L,
+        holdFacade.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 601L, 3_000L));
+        holdFacade.payout(PayoutCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 601L, "PAYOUT-601", 2L,
                 com.hapbang.shared.billing.domain.SettlementSourceType.LECTURE_ORDER_ITEM, 601L));
 
         assertBillingError(() -> refund(2L, "key-1", 11_000L), BillingErrorCode.INSUFFICIENT_BALANCE);

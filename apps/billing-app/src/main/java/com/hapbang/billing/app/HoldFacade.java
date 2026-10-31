@@ -14,8 +14,8 @@ import lombok.RequiredArgsConstructor;
 // HP 보류·반환·지급·위약금 정산의 Billing 모듈 진입점이며, 트랜잭션은 UseCase가 연다.
 // 강의·출연 서비스가 결제자 본인 확인을 마친 뒤 호출하는 내부 금융 기능이라 회원 역할이 아니라 내부 호출(ROLE_INTERNAL)만 허용한다
 // (D63, #273). 내부 API 보안 체인이 X-Internal-Api-Key를 확인하고 ROLE_INTERNAL을 준다.
-// 다른 모듈은 이 클래스가 아니라 내부 HTTP API(in.ApiV1BillingInternalController, #273)나 shared의 BillingPort(구현: in.BillingPortAdapter)로
-// 호출한다. 이 클래스는 Billing 내부 결과(충전 건별 배분 등)를 돌려준다. 락 대기 초과는 HP_LOCK_TIMEOUT(503)으로 바꾼다(LockTimeouts).
+// 다른 모듈은 이 클래스가 아니라 내부 HTTP API(in.ApiV1BillingInternalController, #273)로 호출한다(같은 JVM의 shared BillingPort는 #486에서
+// 지웠다). 이 클래스는 Billing 내부 결과(충전 건별 배분 등)를 돌려준다. 락 대기 초과는 HP_LOCK_TIMEOUT(503)으로 바꾼다(LockTimeouts).
 @Service
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('INTERNAL')")

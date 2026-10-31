@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | 지갑 | 회원 지갑 생성·조회, 내 HP 거래 내역 | `WalletFacade`, `UserJoinedEventListener` |
 | 원장 | HP 원장 기록, 잔액 버킷 이동, 역분개 검증, 잔액 대사(라이브러리만) | `LedgerRecordUseCase`, `WalletReconciliationUseCase` |
-| 보류 | 보류·반환·지급·위약금(강의·출연용), 종류별 보류·확정 차감(Billing 내부용) | `HoldFacade`(← `BillingPortAdapter`), `InternalHoldFacade` |
+| 보류 | 보류·반환·지급·위약금(강의·출연용), 종류별 보류·확정 차감(Billing 내부용) | `HoldFacade`(← 내부 API `ApiV1BillingInternalController`), `InternalHoldFacade` |
 | 충전 | TossPayments 테스트 결제 승인, 결과 불명확 복구 | `ChargeFacade`, `ChargeRecoveryBatch` |
 | 환불 | 충전 HP 환불(PG 부분 취소, FIFO), 결과 불명확 복구 | `RefundFacade`, `RefundRecoveryBatch` |
 | 환전 | 신청·취소, 관리자 승인·거절, 가상 송금(Mock 은행), 정산 배치, 송금 복구·재시도·최종 실패 | `ExchangeFacade`, `ExchangeAdminFacade`, `ExchangeSettlementBatch`, `ExchangePayoutRecoveryBatch` |
@@ -39,7 +39,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 ├── domain/   엔티티·Enum·BillingErrorCode·BillingException
 ├── out/      Repository(삭제 메서드 없음), 외부 Client(TossPayments, Mock 송금), 결제키 암호화
 ├── app/      UseCase·Facade·배치·요청/결과 record
-├── in/       Controller·Spec·응답 DTO·이벤트 리스너·BillingPortAdapter·Mock 은행
+├── in/       Controller·Spec·응답 DTO·이벤트 리스너·Mock 은행
 └── global/   앱 내부 공통(예외 핸들러, 보안, 내부 API 키 필터, RsData, 페이지·스케줄링 설정)
 ```
 
@@ -197,9 +197,9 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 
 | 방향 | 방식 | 상태 | 관련 |
 | --- | --- | --- | --- |
-| 강의 → Billing (보류·반환·지급) | shared `BillingPort`를 같은 JVM에서 Java 호출. 구현 `BillingPortAdapter`는 billing-app에만 있다 | **깨짐.** lecture-app의 `OrderCreateUseCase`·`OrderCancelUseCase`·`OrderObjectionResolveUseCase`·`OrderPayoutUseCase`가 `BillingPort`를 주입받지만 빈이 없어 기동 실패 | #280, 설계 #271 |
-| 출연 → Billing (보류·반환·지급·위약금) | appearance-app `BillingPortClient`가 `BillingPort` 주입 | **깨짐.** 빈 없음으로 기동 실패. `FakeBillingClient`·`appearance.billing.mode`는 #289에서 삭제됨(AGENTS 9장 설명과 다름) | #280 |
-| Billing이 내부 API 제공 | `InternalApiSecurityConfig`(`/api/v1/internal/**`, `X-Internal-Api-Key`)는 있다 | **매핑된 내부 컨트롤러 없음.** 보류·반환·지급 HTTP API가 아직 없다 | #280 |
+| 강의 → Billing (보류·반환·지급) | shared `BillingApiClient`로 지갑 내부 HTTP API 호출(#275~#277). HP 작업 실행기가 로컬 트랜잭션 밖에서 부른다 | 분리 구조에 맞다. 같은 JVM의 shared `BillingPort`·`BillingPortAdapter`는 #486에서 지웠다 | #271, #486 |
+| 출연 → Billing (보류·반환·지급·위약금) | shared `BillingApiClient`로 지갑 내부 HTTP API 호출(#274) | 분리 구조에 맞다 | #274, #486 |
+| Billing이 내부 API 제공 | `ApiV1BillingInternalController`(`/api/v1/internal/billing/{holds,releases,payouts,penalty-settlements,hold-voids}`), `X-Internal-Api-Key` → `ROLE_INTERNAL` | 제공 중. 계약은 [`internal-billing.md`](../api/internal-billing.md) | #273, #479 |
 | 회원 → Billing (지갑 생성, 복제본) | Kafka `member.events.v1`을 소비 그룹 둘로 받는다(#430): `billing-app.member-replica`(`BillingMemberEventListener`, 가입·변경 → 복제본 Upsert), `billing-app.wallet-creation`(`UserJoinedEventListener`, 가입 → 지갑, ADMIN 제외). 실패는 블로킹 재시도 3회 뒤 그룹별 DLT(`BillingKafkaConfig`) | 발행 쪽(#416)이 병합돼야 실제 이벤트가 온다. 로컬·테스트 설정은 리스너·토픽 생성을 끈다(Kafka 소비 테스트만 켬). 앱 시작 전 가입자는 지갑 조회 보완·Backfill로 채운다 | #430, BD-123 |
 | Billing → 다른 앱 (이벤트 발행) | 없음. billing-app main 코드에 `ApplicationEventPublisher`·`publishEvent` 호출이 없다 | 해당 없음 | To-Be 7.2 |
 | Billing → 강의·출연 (수익 조회) | shared `LectureApiClient`·`AppearanceApiClient` 내부 HTTP | 분리 구조에 맞다. base-url 환경 변수 필요 | #295, internal-earnings.md |
@@ -207,7 +207,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | Billing → TossPayments | HTTP (`TossPaymentsClient`) | 영향 없음 | — |
 | Billing → Mock 은행 | 같은 billing-app에 실제 HTTP (`localhost:{port}`) | 영향 없음(같은 앱). local·test 프로필에서만 켜짐 | #288 |
 | 인증 | billing `SecurityConfig`: CSRF SPA 쿠키, `/api/v1/*/admin/**` = ADMIN, 나머지 인증 필요. oauth2Login·spring-session 의존 없음. `@LoginUserId` = `Long.valueOf(authentication.getName())` | **미확인:** 다른 앱(member-app)이 만든 로그인 세션을 billing-app이 인식할 방법이 코드에 없다(추정: 지금은 사용자 API 인증 불가). 목표는 JWT + `X-User-*` 헤더다(7.2) | #370~#372 (JWT 전환) |
-| 외부 노출 차단 | Envoy Gateway에 `/api/v1/internal/**` route가 없어 404다 | billing은 내부 API를 노출하지 않으므로 지금은 해당 경로가 없다 | 루트 AGENTS 7장 |
+| 외부 노출 차단 | Envoy Gateway에 `/api/v1/internal/**` route가 없어 404다 | 지갑 내부 API도 서버 밖에서 닿지 않는다 | 루트 AGENTS 7장 |
 
 `SecurityConfig`에 `GET /api/v1/lectures`가 공개 경로로 남아 있다(billing이 제공하지 않는 경로, 모놀리스 시절 흔적으로 추정).
 
@@ -277,7 +277,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | --- | --- | --- |
 | 접속 정보 | dev·prod `DB_URL`·`DB_USERNAME`·`DB_PASSWORD` (앱별 값 가능) | database `billing`, Billing 전용 계정은 자기 database에만 접속 |
 | 다른 모듈 테이블과의 관계 | FK·JOIN 없음(코드 기준, `BillingSchemaTest`) | 그대로 |
-| 모듈 간 트랜잭션 | 강의·출연이 `BillingPort`를 같은 트랜잭션에서 호출(`BD-53`, `BD-64`) | 원자적으로 묶을 수 없다. 분리 전에 내부 API + 보상 처리가 끝나야 한다 |
+| 모듈 간 트랜잭션 | 없음. 강의·출연은 내부 HTTP API로 부르고 요청 하나가 지갑 트랜잭션 하나다(#486에서 `BillingPort` 삭제, `BD-53`·`BD-64` 재검토 11장) | 그대로 |
 | 모듈 간 락 순서 `BD-72` | 같은 DB 트랜잭션 전제 | 성립하지 않는다 → 폐기·대체 결정 필요 |
 | Flyway 이력 | `billing` 스키마의 `flyway_schema_history`, baseline 0 | `pg_dump`/restore로 데이터·이력 보존 |
 | Modulith 이벤트 기록 | 없음 (#471에서 테이블·설정 삭제) | 지갑이 이벤트를 발행하게 되면(우선순위 6) 자기 database에 다시 만들어 outbox로 쓴다(registry는 `DataSource` 하나에 묶인다) |
@@ -303,7 +303,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 
 | # | 제약 | 영향 | 관련 |
 | --- | --- | --- | --- |
-| L1 | `BillingPort` 원격 구현 없음 | 강의·출연 앱 기동 실패, 구매·취소·지급·위약금 거래 전체 불가 | #280 |
+| ~~L1~~ | ~~`BillingPort` 원격 구현 없음~~ | 해소: 강의·출연이 내부 HTTP API로 전환했고 `BillingPort`·`BillingPortAdapter`를 지웠다 | #273~#277, #486 |
 | L2 | 회원 이벤트가 JVM을 넘지 않음 | 신규 가입자 지갑·복제본 미생성(지갑은 조회 시 생성, 복제본은 Backfill로 보완) → 환전 승인 409 가능 | #339 |
 | L3 | 앱 간 로그인 공유 미확인 | 사용자·관리자 API 인증 경로 미검증. 목표는 JWT + `X-User-*` 헤더(7.2) | #370~#372 |
 | L4 | 배치 분산 락 없음 | 인스턴스 2개 이상이면 중복 실행 가능. 목표 배포는 replica 1개지만 rolling update(`maxSurge: 1`) 중 잠깐 겹칠 수 있다(추정, 6.1) | TBD |
@@ -326,3 +326,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-10-30 | f8021a3 | #430 회원 이벤트 Kafka 소비 구현 반영(7.1 회원 → Billing, 7.2 남은 것) |
 | 2026-10-30 | c58fb0f | #471 Spring Event 제거: Modulith 이벤트 기록 설정·`event_publication` 테이블 삭제(8.2·8.3, 7.2) |
 | 2026-10-30 | 33367bd | #479 보류 무효화 내부 API(6장, 5.3, 8.1, 8.2). 8.1에 내부 API 행을 더함. 상세는 [`CONTEXT.md`](CONTEXT.md) 6장 |
+| 2026-10-31 | 454bfd2 | #486 shared `BillingPort`·`BillingPortAdapter` 삭제(1.1, 2, 7.1, 8.3, L1) |

@@ -3,7 +3,7 @@
 강의·출연이 HP를 보류·반환·지급하고 출연 취소 위약금을 정산하고, 더는 쓰지 않는 보류를 무효화할 때 쓰는 내부 HTTP API다. 지갑이 내부 API(#273)를, `shared.billing`이 계약(`dto`·`domain`)과 Client(`out.BillingApiClient`, #272)를 제공하고, 소비 모듈은 Client만 쓴다 (D62, D64).
 
 - 공통 규칙(경로, 내부 API 키 인증, 회원 세션 불가, 진입점 차단, RsData·ProblemDetail, Swagger 노출)은 [수익 내부 API 계약 1장](internal-earnings.md#1-공통-규칙)과 같다.
-- 소비 모듈: 출연(#274), 강의(#275~#277). 기존 shared `BillingPort`는 전환이 끝나면 지운다(#280).
+- 소비 모듈: 출연(#274), 강의(#275~#277). 같은 JVM 호출용 shared `BillingPort`는 #486에서 지웠다(#280).
 - 지갑 쪽 구현(#273)은 이 문서를 따르고, 바뀌면 이 문서를 함께 고친다.
 
 ## 1. 경로
