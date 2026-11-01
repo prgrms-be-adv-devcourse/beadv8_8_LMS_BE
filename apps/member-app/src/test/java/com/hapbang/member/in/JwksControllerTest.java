@@ -15,7 +15,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.app.AccessTokenIssuer;
+import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.testsupport.IntegrationTest;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 
@@ -58,6 +60,29 @@ class JwksControllerTest {
                 .andExpect(jsonPath("$.keys[0].dp").doesNotExist())
                 .andExpect(jsonPath("$.keys[0].dq").doesNotExist())
                 .andExpect(jsonPath("$.keys[0].qi").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("내부 경로는 내부 API 키를 붙이면 같은 공개 키 목록을 준다 (chat-app의 STOMP 검증용)")
+    void internalPublicKey() throws Exception {
+        String external = mockMvc.perform(get(JwksController.PATH))
+                .andReturn().getResponse().getContentAsString();
+
+        String internal = mockMvc.perform(get(JwksController.INTERNAL_PATH)
+                        .header(InternalApiHeaders.API_KEY, IntegrationTest.INTERNAL_API_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.keys[0].kid").value(jwtSigningKey.getKeyID()))
+                .andExpect(jsonPath("$.keys[0].d").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(internal).isEqualTo(external);
+    }
+
+    @Test
+    @DisplayName("내부 경로는 내부 API 키가 없으면 401 (다른 내부 API와 같은 키 인증)")
+    void internalPublicKey_withoutKey() throws Exception {
+        mockMvc.perform(get(JwksController.INTERNAL_PATH))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
