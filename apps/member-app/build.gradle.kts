@@ -12,9 +12,6 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security-oauth2-client")
     // 치지직 Open API 호출 (채널 인증)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
-    // 회원 ID로 그 회원의 세션을 찾아 역할 갱신 (인터페이스만, 실제 JDBC 저장소는 이 앱)
-    implementation("org.springframework.session:spring-session-core")
-    implementation("org.springframework.boot:spring-boot-starter-session-jdbc")
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
     implementation(libs.swagger.annotations)
     implementation("org.springframework.modulith:spring-modulith-events-kafka")

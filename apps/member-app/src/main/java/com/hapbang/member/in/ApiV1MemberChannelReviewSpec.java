@@ -22,7 +22,7 @@ public interface ApiV1MemberChannelReviewSpec {
     RsData<Page<ChannelReviewResponse>> channels(ChannelVerificationStatus status, Pageable pageable);
 
     @Operation(summary = "채널 승인",
-            description = "관리자만 (그 외 403). 심사 대기 → 승인(204). 회원이 유저면 인플루언서가 되고 그 회원의 로그인 세션 권한도 바로 바뀐다. "
+            description = "관리자만 (그 외 403). 심사 대기 → 승인(204). 회원이 유저면 인플루언서가 된다. 새 역할은 그 회원이 access token을 재발급받으면 반영된다(최대 15분). "
                     + "없는 채널 404 CHANNEL_NOT_FOUND, 심사 대기가 아니면(이미 처리됨 포함) 409 CHANNEL_REVIEW_NOT_ALLOWED, "
                     + "탈퇴 등 정상 회원이 아니면 409 CHANNEL_OWNER_INACTIVE.")
     @ApiResponse(responseCode = "204", description = "승인됨 (본문 없음)")

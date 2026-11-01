@@ -20,10 +20,6 @@ public class MemberChzzkUseCase {
     private final ChzzkApiClient chzzkApiClient;
     private final ChzzkStateStore chzzkStateStore;
 
-    public String authorizeUrl(String state) {
-        return chzzkApiClient.authorizeUrl(state);
-    }
-
     /** 연동 시작 (#370): 랜덤 state를 연동하는 회원과 함께 맡기고, 치지직 화면 주소와 브라우저 ID를 준다 */
     public ChzzkAuthorization start(Long userId) {
         String state = UUID.randomUUID().toString();

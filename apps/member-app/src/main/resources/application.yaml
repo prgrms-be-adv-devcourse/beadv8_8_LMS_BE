@@ -33,9 +33,6 @@ spring:
     clients:
       connect-timeout: 3s
       read-timeout: 5s
-  session:
-    jdbc:
-      initialize-schema: always
   task:
     scheduling:
       pool:

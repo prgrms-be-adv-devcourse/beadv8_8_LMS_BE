@@ -1,21 +1,22 @@
 package com.hapbang.member.global.config;
 
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
-import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.authentication.preauth.AbstractPreAuthenticatedProcessingFilter;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 
-import com.hapbang.member.global.auth.UserLoggedOutEventPublisher;
+import com.hapbang.member.global.auth.GatewayUserHeaderFilter;
+import com.hapbang.member.in.NoOpOAuth2AuthorizedClientRepository;
 import com.hapbang.member.in.OAuthLoginSuccessHandler;
 import com.hapbang.member.in.RedisOAuth2AuthorizationRequestRepository;
 
@@ -25,25 +26,29 @@ import com.hapbang.member.in.RedisOAuth2AuthorizationRequestRepository;
 public class SecurityConfig {
     // Swagger 설정을 위한 최초 생성
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, ApplicationEventPublisher eventPublisher,
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    ObjectProvider<RedisOAuth2AuthorizationRequestRepository> authorizationRequestRepository,
                                                    ObjectProvider<OAuthLoginSuccessHandler> oauthLoginSuccessHandler)
             throws Exception {
         http
-                // 세션 쿠키 인증이라 CSRF를 막는다. XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보내야 통과
-                .csrf(csrf -> csrf.spa()
-                        // 재발급·로그아웃은 SameSite=Strict refresh token 쿠키로만 동작해 다른 사이트 요청에 쿠키가 붙지 않는다 (#370).
-                        // 세션 제거와 함께 CSRF 자체를 뺄 때까지 이 경로만 제외한다
-                        .ignoringRequestMatchers("/api/v1/members/auth/**"))
+                // Gateway가 넘긴 사용자 헤더로 인증한다 (#370, 출연 #395와 같은 방식). 프론트는 access token을
+                // Authorization: Bearer로 보내고, 브라우저가 자동으로 싣는 쿠키로 인증하지 않으므로 CSRF 대상이 아니다.
+                // refresh token 쿠키는 SameSite=Strict라 다른 사이트에서 시작한 요청에 붙지 않는다
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // 세션에서 인증 정보를 읽거나 저장하지 않는다. 요청마다 헤더로 새로 만든다
+                .securityContext(context -> context
+                        .securityContextRepository(new RequestAttributeSecurityContextRepository()))
+                .addFilterBefore(new GatewayUserHeaderFilter(), AbstractPreAuthenticatedProcessingFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         // 예외가 나면 Spring이 /error로 보내는데, 막혀 있으면 원래 오류 대신 401이 나간다
                         .requestMatchers("/error").permitAll()
-                        // 헬스체크 (Docker healthcheck용). 서버 nginx가 /actuator를 프록시하지 않아 컨테이너·서버 안에서만 접근한다
+                        // 헬스체크 (k8s probe용). Gateway에 /actuator route가 없어 클러스터 안에서만 접근한다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         // Prometheus scrape. Gateway가 /actuator를 라우팅하지 않고 NetworkPolicy가 Prometheus pod만 허용한다 (#480)
                         .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
-                        // JWT 공개 키 목록 (Envoy·chat-app이 받는다, #370). 경로는 Envoy remoteJWKS 주소와 같다 (#372)
+                        // JWT 공개 키 목록 (Envoy가 받는다, #370). 경로는 Envoy remoteJWKS 주소와 같다 (#372)
                         .requestMatchers(HttpMethod.GET, "/api/v1/members/.well-known/jwks.json").permitAll()
                         // 치지직 연동 콜백: 브라우저 이동이라 로그인 정보가 없다. 시작 때 맡긴 회원으로 처리한다 (#370)
                         .requestMatchers(HttpMethod.GET, "/api/v1/members/channels/chzzk/callback").permitAll()
@@ -59,29 +64,24 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 // 구글 로그인 시작: /api/v1/members/oauth2/authorization/google (회원 처리는 member의 OAuth2UserService 빈)
-                // 서버 nginx는 /api/만 Spring으로 보내므로 로그인·콜백 주소도 /api/ 아래에 둔다
+                // Gateway는 /api/만 앱으로 보내므로 로그인·콜백 주소도 /api/ 아래에 둔다
                 .oauth2Login(oauth -> oauth
                         .authorizationEndpoint(a -> {
                             a.baseUri("/api/v1/members/oauth2/authorization");
                             // 로그인 진행 상태(state·PKCE)는 세션 대신 Redis에 둔다 (#370).
-                            // 빈이 없는 웹 슬라이스 테스트(Redis 없음)에서는 기본 세션 저장소를 쓴다
+                            // 빈이 없는 웹 슬라이스 테스트(Redis 없음)에서는 기본 저장소를 쓴다
                             authorizationRequestRepository.ifAvailable(a::authorizationRequestRepository);
                         })
                         .redirectionEndpoint(r -> r.baseUri("/api/v1/members/login/oauth2/code/*"))
-                        // 성공하면 refresh token 쿠키를 주고 프론트로 보낸다. 세션 제거 전까지는 세션도 그대로 만들어진다
+                        // 로그인 뒤 구글 API를 부르지 않으므로 구글 토큰을 보관하지 않는다
+                        .authorizedClientRepository(new NoOpOAuth2AuthorizedClientRepository())
+                        // 성공하면 refresh token 쿠키를 주고 프론트로 보낸다 (access token은 프론트가 재발급 API로 받는다)
                         .successHandler(loginSuccessHandler(oauthLoginSuccessHandler)))
-                .logout(logout -> logout
-                        .logoutRequestMatcher(PathPatternRequestMatcher.withDefaults()
-                                .matcher(HttpMethod.POST, "/api/v1/members/logout"))
-                        // 세션을 없애기 전에 로그아웃 이벤트를 발행한다 (채팅이 그 세션의 웹소켓 연결을 닫는다, #242)
-                        .addLogoutHandler(new UserLoggedOutEventPublisher(eventPublisher))
-                        // 리다이렉트 없이 200만 응답 (프론트가 화면 이동 처리)
-                        .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler())
-                        .deleteCookies("SESSION"))
-                // 비로그인 요청은 구글 로그인 화면으로 리다이렉트하지 않고 401
+                // 로그아웃은 토큰 API(POST /api/v1/members/auth/logout)가 맡는다. 비로그인 요청은 구글 로그인 화면으로
+                // 리다이렉트하지 않고 401
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
-                // 비로그인 요청을 세션에 저장하지 않는다 (SPA라 원래 페이지 복귀는 프론트가 처리, 불필요한 DB 세션 방지)
+                // 비로그인 요청을 저장하지 않는다 (SPA라 원래 페이지 복귀는 프론트가 처리)
                 .requestCache(cache -> cache.disable());
         return http.build();
     }

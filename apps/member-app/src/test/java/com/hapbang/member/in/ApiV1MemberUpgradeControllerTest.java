@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
 import com.hapbang.member.domain.User;
@@ -23,7 +24,6 @@ import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.InfluencerUpgradeRequestRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.TestLogin;
 
 /** 승급 신청 API: 응답 모양·상태 코드·권한 (처리 규칙 자세한 경우는 MemberUpgradeRequestIntegrationTest) */
 @MemberIntegrationTest
@@ -105,7 +105,7 @@ class ApiV1MemberUpgradeControllerTest {
         influencerUpgradeRequestRepository.save(rejected);
         mockMvc.perform(apply(influencer, "{\"reason\":\"다시 신청\"}")).andExpect(status().isCreated());
 
-        mockMvc.perform(get(BASE + "/me").with(TestLogin.as(influencer.getId(), influencer.getRole())))
+        mockMvc.perform(get(BASE + "/me").with(GatewayLogin.as(influencer.getId(), influencer.getRole())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].status").value("PENDING"))
                 .andExpect(jsonPath("$.data[1].status").value("REJECTED"))
@@ -114,7 +114,7 @@ class ApiV1MemberUpgradeControllerTest {
     }
 
     private MockHttpServletRequestBuilder apply(User loginUser, String body) {
-        return post(BASE).with(TestLogin.as(loginUser.getId(), loginUser.getRole())).with(csrf())
+        return post(BASE).with(GatewayLogin.as(loginUser.getId(), loginUser.getRole())).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(body);
     }
 }

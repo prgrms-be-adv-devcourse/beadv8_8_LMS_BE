@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.ChannelVerificationStatus;
@@ -30,7 +31,6 @@ import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.TestLogin;
 
 /** 관리자 채널 심사 API: 응답 모양·상태 코드·권한 (처리 규칙 자세한 경우는 MemberChannelReviewIntegrationTest) */
 @MemberIntegrationTest
@@ -146,9 +146,9 @@ class ApiV1MemberChannelReviewControllerTest {
         User user = userRepository.save(MemberFixture.user());
         InfluencerChannel channel = pendingChannel(user);
 
-        mockMvc.perform(get(BASE).with(TestLogin.as(user.getId(), Role.USER)))
+        mockMvc.perform(get(BASE).with(GatewayLogin.as(user.getId(), Role.USER)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(post(approvePath(channel)).with(TestLogin.as(user.getId(), Role.INFLUENCER)).with(csrf()))
+        mockMvc.perform(post(approvePath(channel)).with(GatewayLogin.as(user.getId(), Role.INFLUENCER)).with(csrf()))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get(BASE))
                 .andExpect(status().isUnauthorized());
@@ -157,7 +157,7 @@ class ApiV1MemberChannelReviewControllerTest {
     }
 
     private RequestPostProcessor asAdmin() {
-        return TestLogin.as(ADMIN_ID, Role.ADMIN);
+        return GatewayLogin.as(ADMIN_ID, Role.ADMIN);
     }
 
     private MockHttpServletRequestBuilder reject(InfluencerChannel channel, String body) {

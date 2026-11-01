@@ -14,7 +14,7 @@ import com.hapbang.shared.member.domain.Role;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-/** 로그인 회원 정보 (세션에 저장). getName()은 회원 ID */
+/** 구글 로그인 처리 중의 회원 정보 (로그인 성공 처리에서 토큰을 발급할 때 쓴다). getName()은 회원 ID */
 @Getter
 @RequiredArgsConstructor
 public class MemberOAuth2User implements OAuth2User, Serializable {

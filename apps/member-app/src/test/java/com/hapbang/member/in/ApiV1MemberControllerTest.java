@@ -6,7 +6,6 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -20,6 +19,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.InfluencerChannel;
@@ -28,7 +28,6 @@ import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.TestLogin;
 
 @MemberIntegrationTest
 @AutoConfigureMockMvc
@@ -48,7 +47,7 @@ class ApiV1MemberControllerTest {
     void me_loggedIn() throws Exception {
         User user = userRepository.save(User.join("tester1@example.com", "tester1"));
 
-        mockMvc.perform(get("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole())))
+        mockMvc.perform(get("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("내 정보를 조회했습니다."))
@@ -67,25 +66,6 @@ class ApiV1MemberControllerTest {
     }
 
     @Test
-    @DisplayName("로그아웃하면 200을 반환하고 세션 쿠키를 지운다")
-    void logout() throws Exception {
-        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
-
-        mockMvc.perform(post("/api/v1/members/logout").with(TestLogin.as(user.getId(), user.getRole())).with(csrf()))
-                .andExpect(status().isOk())
-                .andExpect(cookie().maxAge("SESSION", 0));
-    }
-
-    @Test
-    @DisplayName("CSRF 토큰 없이 로그아웃하면 403을 반환한다")
-    void logout_withoutCsrfToken() throws Exception {
-        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
-
-        mockMvc.perform(post("/api/v1/members/logout").with(TestLogin.as(user.getId(), user.getRole())))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
     @DisplayName("로컬 로그인 설정이 꺼져 있으면(서버) 로컬 로그인 주소가 없다")
     void localLogin_disabled() throws Exception {
         mockMvc.perform(post("/api/v1/members/local-login?role=ADMIN").with(csrf()))
@@ -97,7 +77,7 @@ class ApiV1MemberControllerTest {
     void updateMe() throws Exception {
         User user = userRepository.save(User.join("tester1@example.com", "tester1"));
 
-        mockMvc.perform(patch("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole())).with(csrf())
+        mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"새 닉네임\"}"))
                 .andExpect(status().isOk())
@@ -111,7 +91,7 @@ class ApiV1MemberControllerTest {
     void updateMe_withoutNickname() throws Exception {
         User user = userRepository.save(User.join("tester1@example.com", "tester1"));
 
-        mockMvc.perform(patch("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole())).with(csrf())
+        mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isOk())
@@ -123,7 +103,7 @@ class ApiV1MemberControllerTest {
     void updateMe_invalidNickname() throws Exception {
         User user = userRepository.save(User.join("tester1@example.com", "tester1"));
 
-        mockMvc.perform(patch("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole())).with(csrf())
+        mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"민\"}"))
                 .andExpect(status().isBadRequest())
@@ -141,20 +121,20 @@ class ApiV1MemberControllerTest {
     }
 
     @Test
-    @DisplayName("CSRF 토큰 없이 수정하면 403을 반환한다")
+    @DisplayName("CSRF 토큰 없이도 수정할 수 있다 (쿠키가 아니라 Gateway 사용자 헤더로 인증, #370)")
     void updateMe_withoutCsrfToken() throws Exception {
         User user = userRepository.save(User.join("tester1@example.com", "tester1"));
 
-        mockMvc.perform(patch("/api/v1/members/me").with(TestLogin.as(user.getId(), user.getRole()))
+        mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nickname\":\"새 닉네임\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("없는 회원으로 내 정보를 조회하면 404와 MEMBER_NOT_FOUND를 반환한다")
     void me_memberNotFound() throws Exception {
-        mockMvc.perform(get("/api/v1/members/me").with(TestLogin.as(999L, Role.USER)))
+        mockMvc.perform(get("/api/v1/members/me").with(GatewayLogin.as(999L, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
     }
@@ -167,7 +147,7 @@ class ApiV1MemberControllerTest {
         User newer = saveMember("newer1", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE);
         saveMember("admin1", Role.ADMIN, UserStatus.ACTIVE);
 
-        mockMvc.perform(get("/api/v1/members/influencers").with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/influencers").with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(2))
                 .andExpect(jsonPath("$.data.content[0].id").value(newer.getId()))
@@ -184,7 +164,7 @@ class ApiV1MemberControllerTest {
     void influencers_maxSize() throws Exception {
         User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
 
-        mockMvc.perform(get("/api/v1/members/influencers?size=200").with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/influencers?size=200").with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.page.size").value(100));
     }
@@ -197,7 +177,7 @@ class ApiV1MemberControllerTest {
         User newer = saveMember("zzz1", Role.INFLUENCER, UserStatus.ACTIVE);
 
         mockMvc.perform(get("/api/v1/members/influencers?sort=nickname,asc")
-                        .with(TestLogin.as(viewer.getId(), viewer.getRole())))
+                        .with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].id").value(newer.getId()))
                 .andExpect(jsonPath("$.data.content[1].id").value(older.getId()));
@@ -216,7 +196,7 @@ class ApiV1MemberControllerTest {
         User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
         User target = saveMember("target1", Role.INFLUENCER, UserStatus.ACTIVE);
 
-        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(target.getId()))
                 .andExpect(jsonPath("$.data.nickname").value("target1"))
@@ -237,7 +217,7 @@ class ApiV1MemberControllerTest {
         influencerChannelRepository.save(InfluencerChannel.register(target, ChannelPlatform.CHZZK, "channel-2",
                 "서브채널", 3, LocalDateTime.now()));
 
-        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.channels.length()").value(2))
                 .andExpect(jsonPath("$.data.channels[0].channelName").value("본채널"))
@@ -254,7 +234,7 @@ class ApiV1MemberControllerTest {
         User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
         User withdrawn = saveMember("withdrawn1", Role.INFLUENCER, UserStatus.WITHDRAWN);
 
-        mockMvc.perform(get("/api/v1/members/{memberId}", withdrawn.getId()).with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/{memberId}", withdrawn.getId()).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
     }
@@ -264,7 +244,7 @@ class ApiV1MemberControllerTest {
     void profile_notFound() throws Exception {
         User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
 
-        mockMvc.perform(get("/api/v1/members/{memberId}", 9999L).with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/{memberId}", 9999L).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
     }

@@ -10,7 +10,7 @@ import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
-/** 세션의 로그인 정보에서 회원 ID를 꺼내 @LoginUserId 파라미터에 넣는다 */
+/** 로그인 정보(Gateway 사용자 헤더로 만든 인증)에서 회원 ID를 꺼내 @LoginUserId 파라미터에 넣는다 */
 public class LoginUserIdArgumentResolver implements HandlerMethodArgumentResolver {
 
     @Override

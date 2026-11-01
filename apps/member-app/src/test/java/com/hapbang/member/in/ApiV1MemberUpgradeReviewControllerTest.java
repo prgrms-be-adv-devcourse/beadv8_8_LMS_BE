@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.InfluencerChannel;
@@ -30,7 +31,6 @@ import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.InfluencerUpgradeRequestRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.TestLogin;
 
 /** 관리자 승급 심사 API: 응답 모양·상태 코드·권한 (처리 규칙 자세한 경우는 MemberUpgradeReviewIntegrationTest) */
 @MemberIntegrationTest
@@ -124,10 +124,10 @@ class ApiV1MemberUpgradeReviewControllerTest {
         User influencer = userRepository.save(MemberFixture.member(Role.INFLUENCER));
         InfluencerUpgradeRequest request = pendingRequest(influencer);
 
-        mockMvc.perform(get(BASE).with(TestLogin.as(influencer.getId(), Role.INFLUENCER)))
+        mockMvc.perform(get(BASE).with(GatewayLogin.as(influencer.getId(), Role.INFLUENCER)))
                 .andExpect(status().isForbidden());
         mockMvc.perform(post(BASE + "/" + request.getId() + "/approve")
-                        .with(TestLogin.as(influencer.getId(), Role.INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(influencer.getId(), Role.INFLUENCER)).with(csrf()))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get(BASE))
                 .andExpect(status().isUnauthorized());
@@ -135,7 +135,7 @@ class ApiV1MemberUpgradeReviewControllerTest {
     }
 
     private RequestPostProcessor asAdmin() {
-        return TestLogin.as(ADMIN_ID, Role.ADMIN);
+        return GatewayLogin.as(ADMIN_ID, Role.ADMIN);
     }
 
     private MockHttpServletRequestBuilder reject(InfluencerUpgradeRequest request, String body) {

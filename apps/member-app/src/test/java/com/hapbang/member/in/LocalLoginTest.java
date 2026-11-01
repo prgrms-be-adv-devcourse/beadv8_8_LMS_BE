@@ -2,7 +2,6 @@ package com.hapbang.member.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -44,19 +43,19 @@ class LocalLoginTest {
     }
 
     @Test
-    @DisplayName("역할로 로컬 로그인하면 그 세션으로 내 정보를 조회할 수 있다")
+    @DisplayName("역할로 로컬 로그인하면 세션 없이 내 정보와 refresh token 쿠키를 준다 (#370)")
     void login() throws Exception {
         MvcResult result = login("role=INFLUENCER")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.role").value("INFLUENCER"))
                 .andExpect(jsonPath("$.data.email").value("test-influencer@hapbang.local"))
                 .andReturn();
-        Cookie session = result.getResponse().getCookie("SESSION");
-        assertThat(session).isNotNull();
 
-        mockMvc.perform(get("/api/v1/members/me").cookie(session))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.role").value("INFLUENCER"));
+        assertThat(result.getResponse().getCookie("SESSION")).isNull();
+        Cookie refreshToken = result.getResponse().getCookie(RefreshTokenCookies.NAME);
+        assertThat(refreshToken).isNotNull();
+        // 만든 refresh token 키를 지운다 (Redis를 테스트끼리 같이 쓴다)
+        mockMvc.perform(post("/api/v1/members/auth/logout").cookie(refreshToken));
     }
 
     @Test

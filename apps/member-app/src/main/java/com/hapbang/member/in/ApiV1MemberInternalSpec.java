@@ -13,7 +13,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.PositiveOrZero;
 
 @Tag(name = "회원 (내부)", description = "모듈 간 내부 API. billing이 기존 회원 복제본을 채울(백필) 때 호출한다 "
-        + "(docs/api/internal-members.md). 회원 세션으로는 호출할 수 없고, 서버 밖에서는 nginx가 404로 막는다.")
+        + "(docs/api/internal-members.md). 회원 로그인(Gateway 사용자 헤더)으로는 호출할 수 없고, 외부에서는 Gateway에 route가 없어 닿지 않는다.")
 // 검증 조건은 구현 클래스가 아니라 여기(인터페이스)에 둔다. 구현에서 다시 선언하면 Bean Validation이 거부한다
 public interface ApiV1MemberInternalSpec {
 

@@ -96,12 +96,6 @@ public class MemberFacade {
         return memberSupport.findActiveUser(memberId);
     }
 
-    /** 치지직 연동 화면 주소 */
-    @PreAuthorize(USER_ONLY)
-    public String chzzkAuthorizeUrl(String state) {
-        return memberChzzkUseCase.authorizeUrl(state);
-    }
-
     /** 치지직 연동 시작 (#370): 연동하는 회원과 state를 맡기고 치지직 화면 주소를 준다 */
     @PreAuthorize(USER_ONLY)
     public ChzzkAuthorization startChzzkConnect(Long userId) {
@@ -110,7 +104,8 @@ public class MemberFacade {
 
     /**
      * 치지직 연동 콜백 (#370). 브라우저 이동이라 로그인 정보가 없으므로, 시작할 때 맡긴 회원으로 연동한다.
-     * 시작 뒤 역할이 바뀌었을 수 있어 유저인지 DB로 다시 확인한다 (시작 때는 @PreAuthorize로 확인)
+     * 시작 뒤 역할이 바뀌었을 수 있어 유저인지 DB로 다시 확인한다 (시작 때는 @PreAuthorize로 확인).
+     * 트랜잭션을 두지 않는다: 치지직을 기다리는 동안 DB 커넥션을 잡지 않도록 저장(UseCase)만 트랜잭션으로 한다
      */
     public ChzzkConnection completeChzzkConnect(String browserId, String code, String state) {
         Long userId = memberChzzkUseCase.takeUserId(browserId, state);
@@ -124,18 +119,6 @@ public class MemberFacade {
         ChzzkChannel chzzkChannel = memberChzzkUseCase.fetchChannel(code, state);
         return new ChzzkConnection(userId,
                 memberChannelRegisterUseCase.register(userId, ChannelPlatform.CHZZK, chzzkChannel));
-    }
-
-    /**
-     * 치지직 채널 연동: 치지직에서 본인 채널 확인 → 채널 등록 (팔로워 10명 이상이면 자동 승인).
-     * 트랜잭션을 두지 않는다: 치지직을 기다리는 동안 DB 커넥션을 잡지 않도록 저장(UseCase)만 트랜잭션으로 한다
-     */
-    @PreAuthorize(USER_ONLY)
-    public ChannelVerificationResult connectChzzkChannel(Long userId, String code, String state) {
-        // 우리 DB로 판단할 수 있는 건 치지직 호출 전에 막는다 (저장 때 한 번 더 확인)
-        memberSupport.findActiveUser(userId);
-        ChzzkChannel chzzkChannel = memberChzzkUseCase.fetchChannel(code, state);
-        return memberChannelRegisterUseCase.register(userId, ChannelPlatform.CHZZK, chzzkChannel);
     }
 
     /**

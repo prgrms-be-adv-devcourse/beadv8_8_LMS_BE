@@ -18,8 +18,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hapbang.member.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.TestLogin;
 
 // 컨트롤러가 Page를 반환하면 PagedModel 형태로 응답하는지 검증한다 (2026-10-12 회의: Pageable 표준).
 @ContextConfiguration(classes = com.hapbang.testsupport.WebSliceTestConfiguration.class)
@@ -38,7 +38,7 @@ class PageConfigTest {
     @Test
     void Page를_반환하면_content와_page_정보로_응답한다() throws Exception {
         mockMvc.perform(get("/api/v1/samples").param("page", "1").param("size", "2")
-                        .with(TestLogin.as(1L, Role.USER)))
+                        .with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0]").value("c"))
@@ -52,14 +52,14 @@ class PageConfigTest {
     @Test
     void 페이지_크기는_최대_100으로_줄인다() throws Exception {
         mockMvc.perform(get("/api/v1/samples").param("size", "101")
-                        .with(TestLogin.as(1L, Role.USER)))
+                        .with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.size").value(100));
     }
 
     @Test
     void 페이지_크기를_보내지_않으면_20개씩_나눈다() throws Exception {
-        mockMvc.perform(get("/api/v1/samples").with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get("/api/v1/samples").with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.page.size").value(20));
     }

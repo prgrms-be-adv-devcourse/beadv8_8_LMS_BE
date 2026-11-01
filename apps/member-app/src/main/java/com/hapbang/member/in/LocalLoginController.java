@@ -1,14 +1,7 @@
 package com.hapbang.member.in;
 
-import java.util.Map;
-
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,7 +14,6 @@ import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
 import com.hapbang.shared.member.domain.Role;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
@@ -36,27 +28,15 @@ public class LocalLoginController {
 
     private final MemberFacade memberFacade;
     private final RefreshTokenCookies refreshTokenCookies;
-    private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
     /** 예: POST /api/v1/members/local-login?role=INFLUENCER&number=2 (number는 같은 역할의 몇 번째 계정, 생략하면 1) */
     @PostMapping("/api/v1/members/local-login")
     public RsData<MemberMeResponse> login(@RequestParam(name = "role") Role role,
                                   @RequestParam(name = "number", defaultValue = "1") int number,
-                                  HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+                                  HttpServletResponse httpResponse) {
         // 테스트 계정은 앱 시작 시 MemberDataInit이 만든다
         User user = memberFacade.findTestAccount(role, number)
                 .orElseThrow(() -> new MemberException(MemberErrorCode.TEST_ACCOUNT_NOT_FOUND));
-
-        // 구글 로그인처럼 기존 세션 ID를 바꾼다 (세션 고정 공격 방지)
-        if (httpRequest.getSession(false) != null) {
-            httpRequest.changeSessionId();
-        }
-
-        // 구글 로그인과 같은 형태(MemberOAuth2User)로 세션에 저장한다
-        MemberOAuth2User principal = new MemberOAuth2User(user.getId(), user.getRole(), Map.of());
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(new OAuth2AuthenticationToken(principal, principal.getAuthorities(), "local"));
-        securityContextRepository.saveContext(context, httpRequest, httpResponse);
 
         // 구글 로그인과 같이 refresh token을 쿠키로 준다 (#370). access token은 프론트가 재발급 API로 받는다
         TokenPair tokens = memberFacade.issueTokens(user.getId(), user.getRole());
