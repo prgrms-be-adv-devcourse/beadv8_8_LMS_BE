@@ -1,7 +1,13 @@
-# main·dev로 가는 PR마다 테스트를 실행하고, 테스트한 jar로 앱별 이미지가 빌드되는지까지 확인한다(push하지 않음).
+# main·dev로 가는 PR마다 바뀐 앱만 테스트하고, 테스트한 jar로 그 앱의 이미지가 빌드되는지까지 확인한다(push하지 않음, #488).
 # 앱은 apps/<앱>-app 여섯 개이고, 앱마다 jar(apps/<앱>-app/build/libs/app.jar)와 Dockerfile을 가진다(#356).
-# main push 때는 publish.yml이 이 워크플로를 호출해 테스트한 jar를 artifact(app-jars)로 넘겨받는다(#374).
+# main push 때는 publish.yml이 이 워크플로를 호출해 여섯 앱을 모두 테스트하고, 앱별 jar를 artifact(app-jar-<앱>)로 넘겨받는다(#374).
 # 테스트는 Testcontainers로 PostgreSQL을 띄우므로 Docker가 있는 ubuntu 러너가 필요하다.
+#
+# changes: 바뀐 앱을 고른다(.github/scripts/apps.sh tested). 없으면 Gradle job을 건너뛴다.
+# structure: 모듈 구조를 검사하고 common 라이브러리를 테스트한다.
+# test: 바뀐 앱마다 러너 하나(matrix)에서 테스트·jar·이미지 빌드. 앱끼리 CPU를 나눠 쓰지 않는다.
+# verify: 위 job의 결과를 모은다. 브랜치 보호(protect-main-dev)의 필수 체크 이름이므로 바꾸지 않는다.
+# 조사와 측정: docs/architecture/pr-ci-changed-apps-research.md
 name: CI
 
 on:
@@ -10,7 +16,7 @@ on:
   workflow_call:
     inputs:
       upload-jar:
-        description: 테스트한 앱별 jar를 artifact(app-jars)로 올린다
+        description: 테스트한 jar를 앱별 artifact(app-jar-<앱>)로 올린다
         type: boolean
         default: false
 
@@ -25,9 +31,49 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  changes:
     runs-on: ubuntu-24.04
-    # 운영 컨테이너와 같은 시간대(KST)에서 테스트한다. JVM 기본 시간대가 JDBC 세션 시간대로도 쓰인다.
+    outputs:
+      apps: ${{ steps.detect.outputs.apps }}
+    steps:
+      # base 커밋과 비교하려면 이력이 필요하다.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # 발행·배포 앱 목록(.github/scripts/apps.sh)에 빠진 앱이 없는지 검사한다(#374).
+      - name: 앱 목록 검사
+        run: .github/scripts/apps.sh check
+
+      # 판정이 틀리면 바뀐 앱의 테스트가 조용히 빠지므로 PR마다 확인한다. main 발행은 판정하지 않으므로 돌리지 않는다.
+      - name: 바뀐 앱 판정 검사
+        if: github.event_name == 'pull_request'
+        run: .github/scripts/apps-test.sh
+
+      # PR은 base와 merge 커밋(GITHUB_SHA)을 비교한다. base가 그 뒤로 움직였으면 다른 PR의 변경까지 더 테스트할 뿐 빠뜨리지는 않는다.
+      # main 발행(workflow_call)은 여섯 앱을 모두 테스트한다.
+      - name: 바뀐 앱 찾기
+        id: detect
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            apps=$(.github/scripts/apps.sh tested "$BASE" "$GITHUB_SHA")
+          else
+            apps=$(.github/scripts/apps.sh list)
+          fi
+          apps=$(jq -Rnc '[inputs | select(length > 0)]' <<< "$apps")
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          {
+            echo "### 테스트 대상"
+            echo "- 앱: $(jq -r 'if length == 0 then "없음(Gradle을 돌리지 않는다)" else join(", ") end' <<< "$apps")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  structure:
+    needs: changes
+    if: needs.changes.outputs.apps != '[]'
+    runs-on: ubuntu-24.04
+    # 앱 테스트와 같은 시간대(KST)에서 common을 테스트한다.
     env:
       TZ: Asia/Seoul
     steps:
@@ -41,45 +87,93 @@ jobs:
       # v6부터 캐시 기능이 Gradle 상용 약관(Terms of Use)을 따르므로 MIT인 v5를 쓴다.
       - uses: gradle/actions/setup-gradle@v5
 
-      # 발행·배포 앱 목록(.github/scripts/apps.sh)에 빠진 앱이 없는지 검사한다(#374).
-      - name: 앱 목록 검사
-        run: .github/scripts/apps.sh check
-
       # 앱 사이 의존, 앱별 진입점·설정·Dockerfile 누락을 검사한다(루트 build.gradle.kts).
       # 다른 프로젝트의 runtimeClasspath를 실행 중에 resolve하므로 --parallel에서는 Gradle이 막는다. 따로 돌린다.
       - name: 모듈 구조 검사
         run: ./gradlew verifyModuleStructure --no-daemon
 
-      # bootJar는 Boot 플러그인을 적용한 앱에만 있어 여섯 앱의 jar를 모두 만든다.
-      # --parallel로 모듈 테스트를 동시에 돌린다. 테스트 JVM마다 Postgres 컨테이너를 따로 띄우므로 모듈끼리 DB를 공유하지 않는다.
-      - name: 테스트·jar 빌드
-        run: ./gradlew check bootJar --no-daemon --parallel
+      # common/<이름>은 Gradle 프로젝트 :<이름>이다(settings.gradle.kts). 앱 job은 앱의 check만 돌리므로 여기서 테스트한다.
+      - name: common 라이브러리 테스트
+        run: |
+          tasks=()
+          for dir in common/*/; do
+            tasks+=(":$(basename "$dir"):check")
+          done
+          ./gradlew "${tasks[@]}" --no-daemon --parallel
 
       - name: 테스트 리포트 업로드
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: test-reports
-          path: '**/build/reports/tests/'
+          name: test-reports-common
+          path: common/*/build/reports/tests/
 
-      # publish.yml이 바뀐 앱의 이미지를 만들 때 쓴다. 경로는 apps/를 뺀 <앱>/build/libs/app.jar로 담긴다.
+  test:
+    needs: changes
+    if: needs.changes.outputs.apps != '[]'
+    runs-on: ubuntu-24.04
+    strategy:
+      # 한 앱이 실패해도 다른 앱의 결과를 끝까지 본다.
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.changes.outputs.apps) }}
+    # 운영 컨테이너와 같은 시간대(KST)에서 테스트한다. JVM 기본 시간대가 JDBC 세션 시간대로도 쓰인다.
+    env:
+      TZ: Asia/Seoul
+      APP: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+
+      # v6부터 캐시 기능이 Gradle 상용 약관(Terms of Use)을 따르므로 MIT인 v5를 쓴다.
+      - uses: gradle/actions/setup-gradle@v5
+
+      # 앱끼리는 의존하지 않으므로(verifyModuleStructure) 이 앱과 common만 컴파일된다. --parallel은 common 컴파일을 동시에 한다.
+      # 테스트 JVM은 Postgres 컨테이너를 따로 띄운다.
+      - name: 테스트·jar 빌드
+        run: ./gradlew ":$APP:check" ":$APP:bootJar" --no-daemon --parallel
+
+      - name: 테스트 리포트 업로드
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/build/reports/tests/
+
+      # publish.yml이 이 앱의 이미지를 만들 때 쓴다. 파일 하나라 artifact에는 app.jar만 담긴다.
       - name: jar 업로드
         if: inputs.upload-jar
         uses: actions/upload-artifact@v7
         with:
-          name: app-jars
-          path: apps/*-app/build/libs/app.jar
+          name: app-jar-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/build/libs/app.jar
           if-no-files-found: error
           retention-days: 1
 
-      # 앱마다 자기 Dockerfile로, 테스트한 jar 디렉터리를 컨텍스트로 빌드한다.
+      # 앱의 Dockerfile로, 테스트한 jar 디렉터리를 컨텍스트로 빌드한다.
       - name: 이미지 빌드 확인
+        run: docker build -f "apps/$APP/Dockerfile" "apps/$APP/build/libs"
+
+  # 테스트한 앱이 PR마다 달라 matrix job 이름(test (<앱>))을 필수 체크로 걸 수 없으므로 결과를 여기서 모은다.
+  # 건너뛴 job(바뀐 앱 없음)은 통과, 실패·취소는 실패다. always()라 앞 job이 실패·취소돼도 실행되어 실패를 남긴다.
+  verify:
+    needs: [changes, structure, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 결과 확인
+        env:
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          for app in apps/*-app; do
-            echo "::group::$app"
-            docker build -f "$app/Dockerfile" "$app/build/libs"
-            echo "::endgroup::"
-          done
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$RESULTS"
+          if ! jq -e 'all(.[]; .result == "success" or .result == "skipped")' <<< "$RESULTS" > /dev/null; then
+            echo "::error::실패하거나 취소된 job이 있습니다."
+            exit 1
+          fi
 
   # k8s/·apps/<앱>/k8s manifest를 overlay별로 렌더링하고 Kubernetes·CRD schema로 검사한다(#373). cluster에 적용하지는 않는다.
   # HelmChart의 valuesContent는 문자열이라 차트 values는 검사되지 않는다. 실제 기동은 로컬 k3d로 확인한다(docs/deploy/k8s.md).

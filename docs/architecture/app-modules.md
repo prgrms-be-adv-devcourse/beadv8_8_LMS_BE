@@ -51,7 +51,7 @@ docker build -f apps/member-app/Dockerfile apps/member-app/build/libs
 
 ## CI와 배포 경계
 
-CI(`ci.yml`)는 앱별 구조로 바꿨다. `./gradlew verifyModuleStructure`로 구조를 검사하고 `./gradlew check bootJar --parallel`로 테스트해 여섯 앱의 jar를 만든 뒤, 앱마다 자기 `Dockerfile`로 이미지 빌드를 확인한다. 이미지는 발행하지 않는다.
+CI(`ci.yml`)는 PR에서 바뀐 앱만 앱마다 러너 하나에서 `./gradlew :<앱>:check :<앱>:bootJar`로 테스트해 jar를 만들고, 자기 `Dockerfile`로 이미지 빌드를 확인한다(#488). 구조 검사(`verifyModuleStructure`)와 common 라이브러리 테스트는 따로 돈다. 이미지는 발행하지 않는다. 바뀐 앱을 고르는 규칙은 [테스트 문서](../dev/testing.md#ci)에 있다.
 
 기존 단일 앱 Compose 배포는 멈췄고, 서버의 Compose(prod·dev)도 2026-10-30에 지웠다(#440). 앱별 이미지 발행(`publish.yml`)과 k3s 앱별 배포(`deploy.yml`)는 #374에서 다시 작성했다([운영 앱 배포](../deploy/k8s.md#운영-앱-배포)).
 

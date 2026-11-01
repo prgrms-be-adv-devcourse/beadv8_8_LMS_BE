@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
-# 배포할 앱 목록과 배포 순서의 단일 출처(#374). 이미지 발행(publish.yml)과 배포 workflow가 함께 쓴다.
+# 배포할 앱 목록과 배포 순서의 단일 출처(#374). 이미지 발행(publish.yml)과 배포 workflow, PR CI(ci.yml)가 함께 쓴다.
 # 순서는 다른 앱이 부르는 제공 쪽(member·billing)을 먼저 둔다. 새 앱(apps/<앱>-app)은 여기에 추가해야 발행·배포된다.
 #
 # 사용법:
 #   apps.sh list                 모든 앱을 배포 순서대로 출력
-#   apps.sh check                apps/*-app 디렉터리와 목록이 다르면 실패(ci.yml verify)
+#   apps.sh check                apps/*-app 디렉터리와 목록이 다르면 실패(ci.yml changes)
 #   apps.sh changed <base> <head>
 #                                base..head 사이에 바뀐 앱을 배포 순서대로 출력(한 줄에 하나)
 #                                - apps/<앱>/**                           → 그 앱
 #                                - common/**, 루트 build.gradle.kts·settings.gradle.kts, gradle/** → 전체 앱
 #                                - 그 밖(docs/, k8s/, .github/ 등)      → 없음
 #                                base가 비었거나 0000…(브랜치 첫 push)이거나 커밋을 찾을 수 없으면 전체 앱
+#   apps.sh tested <base> <head>
+#                                PR CI가 테스트할 앱(#488). changed와 같고 아래만 다르다. 발행·배포는 changed를 쓴다
+#                                - apps/<앱>/k8s/**, *.md                 → 판정에서 뺀다(manifests job이 검사, 문서)
+#                                - .github/workflows/ci.yml, .github/scripts/apps.sh, gradlew → 전체 앱
+#                                규칙을 바꾸면 apps-test.sh에 사례를 더한다(changes job이 실행)
 #   apps.sh source <앱> <rev>   rev 시점의 그 앱 내용을 마지막으로 바꾼 커밋(40자). 이미지 태그 sha-<커밋>에 쓴다
 #                                발행은 head가 아니라 이 커밋으로 태그를 붙이고, 배포도 같은 커밋으로 이미지를 찾는다.
 #                                rebase 병합처럼 push 한 번에 커밋이 여러 개여도 발행·배포가 같은 태그를 가리킨다.
-# 레포 루트에서 실행한다. changed는 base·head 커밋이 있어야 하므로 checkout에 fetch-depth: 0이 필요하다.
+# 레포 루트에서 실행한다. changed·tested는 base·head 커밋이 있어야 하므로 checkout에 fetch-depth: 0이 필요하다.
 set -euo pipefail
 
 APPS=(
@@ -45,9 +50,21 @@ check() {
 # 이 경로가 바뀌면 전체 앱이 바뀐 것으로 본다. 앱 자기 경로는 apps/<앱>/이다.
 SHARED_PATHS=(common/ gradle/ build.gradle.kts settings.gradle.kts)
 
+# tested에서만 전체 앱으로 보는 경로. CI 자체와 Gradle 실행 스크립트가 바뀌면 전체를 테스트한다.
+TESTED_ALL_PATHS=(.github/workflows/ci.yml .github/scripts/apps.sh gradlew)
+
+# tested가 모든 비교에서 빼는 pathspec. 앱 manifest는 ci.yml manifests job이 검사하고, 문서는 빌드·테스트에 쓰이지 않는다.
+TESTED_EXCLUDES=(':(exclude,glob)apps/*/k8s/**' ':(exclude,glob)**/*.md')
+
+# base가 비었거나 0000…(브랜치 첫 push)이거나 커밋을 찾을 수 없으면 거짓. 그때는 판정하지 않고 전체 앱으로 본다.
+known_base() {
+  local base=$1
+  [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null
+}
+
 changed() {
   local base=${1:-} head=${2:?head 커밋이 필요합니다}
-  if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+  if ! known_base "$base"; then
     list
     return
   fi
@@ -60,6 +77,26 @@ changed() {
   local app
   for app in "${APPS[@]}"; do
     if ! git diff --quiet "$base" "$head" -- "apps/$app/"; then
+      echo "$app"
+    fi
+  done
+}
+
+tested() {
+  local base=${1:-} head=${2:?head 커밋이 필요합니다}
+  if ! known_base "$base"; then
+    list
+    return
+  fi
+
+  if ! git diff --quiet "$base" "$head" -- "${SHARED_PATHS[@]}" "${TESTED_ALL_PATHS[@]}" "${TESTED_EXCLUDES[@]}"; then
+    list
+    return
+  fi
+
+  local app
+  for app in "${APPS[@]}"; do
+    if ! git diff --quiet "$base" "$head" -- "apps/$app/" "${TESTED_EXCLUDES[@]}"; then
       echo "$app"
     fi
   done
@@ -78,6 +115,7 @@ case "${1:-}" in
   list) list ;;
   check) check ;;
   changed) shift; changed "$@" ;;
+  tested) shift; tested "$@" ;;
   source) shift; source_commit "$@" ;;
-  *) echo "사용법: $0 list | check | changed <base> <head> | source <앱> <rev>" >&2; exit 2 ;;
+  *) echo "사용법: $0 list | check | changed <base> <head> | tested <base> <head> | source <앱> <rev>" >&2; exit 2 ;;
 esac
