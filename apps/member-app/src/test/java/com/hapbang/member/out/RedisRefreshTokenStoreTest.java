@@ -64,17 +64,88 @@ class RedisRefreshTokenStoreTest {
     }
 
     @Test
-    @DisplayName("회전된 토큰이 유예 시간 안에 다시 오면 재사용으로 보지 않고 회전한다 (여러 탭 동시 재발급)")
+    @DisplayName("회전된 토큰이 유예 시간 안에 다시 오면 재사용으로 보지 않고 Grace이고, 새 토큰은 저장하지 않는다 (여러 탭 동시 재발급)")
     void rotate_reuseWithinGrace() {
         Long userId = newUserId();
         String old = newHash();
+        String next = newHash();
+        String notSaved = newHash();
         store.save(userId, old);
         Instant now = Instant.now();
-        store.rotate(old, newHash(), now);
+        store.rotate(old, next, now);
 
-        RotationResult again = store.rotate(old, newHash(), now.plus(GRACE).minusMillis(1));
+        RotationResult again = store.rotate(old, notSaved, now.plus(GRACE).minusMillis(1));
 
-        assertThat(again).isEqualTo(new RotationResult.Rotated(userId));
+        assertThat(again).isEqualTo(new RotationResult.Grace(userId));
+        assertThat(redisTemplate.hasKey(RedisRefreshTokenStore.TOKEN_KEY_PREFIX + notSaved)).isFalse();
+        assertThat(redisTemplate.opsForSet().members(RedisRefreshTokenStore.USER_KEY_PREFIX + userId))
+                .containsExactly(next);
+    }
+
+    @Test
+    @DisplayName("유예 시간 안에 같은 옛 토큰이 여러 번 와도 새 토큰이 갈라지지 않는다 (첫 회전의 새 토큰 하나만 유효)")
+    void rotate_reuseWithinGrace_repeated() {
+        Long userId = newUserId();
+        String old = newHash();
+        String next = newHash();
+        store.save(userId, old);
+        Instant now = Instant.now();
+        store.rotate(old, next, now);
+
+        List<String> attempts = List.of(newHash(), newHash(), newHash());
+        for (String attempt : attempts) {
+            assertThat(store.rotate(old, attempt, now.plusSeconds(1))).isEqualTo(new RotationResult.Grace(userId));
+        }
+
+        assertThat(attempts).allSatisfy(attempt ->
+                assertThat(store.rotate(attempt, newHash(), now.plusSeconds(2))).isEqualTo(new RotationResult.NotFound()));
+        assertThat(redisTemplate.opsForSet().members(RedisRefreshTokenStore.USER_KEY_PREFIX + userId))
+                .containsExactly(next);
+    }
+
+    @Test
+    @DisplayName("회전으로 받은 새 토큰을 로그아웃으로 폐기하면, 유예 시간 안이라도 옛 토큰은 거절된다")
+    void rotate_withinGrace_afterNextRevoked() {
+        Long userId = newUserId();
+        String old = newHash();
+        String next = newHash();
+        store.save(userId, old);
+        Instant now = Instant.now();
+        store.rotate(old, next, now);
+
+        store.revoke(next);
+
+        assertThat(store.rotate(old, newHash(), now.plusSeconds(1))).isEqualTo(new RotationResult.NotFound());
+    }
+
+    @Test
+    @DisplayName("회원의 토큰을 모두 폐기한 직후에는 유예 시간 안의 옛 토큰도 거절된다 (재사용 감지·정지 뒤 새 토큰 발급 막기)")
+    void rotate_withinGrace_afterRevokeAll() {
+        Long userId = newUserId();
+        String old = newHash();
+        String next = newHash();
+        store.save(userId, old);
+        Instant now = Instant.now();
+        store.rotate(old, next, now);
+
+        store.revokeAll(userId);
+
+        assertThat(store.rotate(old, newHash(), now.plusSeconds(1))).isEqualTo(new RotationResult.NotFound());
+        assertThat(store.rotate(next, newHash(), now.plusSeconds(1))).isEqualTo(new RotationResult.NotFound());
+    }
+
+    @Test
+    @DisplayName("회전으로 받은 새 토큰이 이미 다시 회전됐으면, 유예 시간 안이라도 옛 토큰은 거절된다")
+    void rotate_withinGrace_afterNextRotated() {
+        Long userId = newUserId();
+        String old = newHash();
+        String next = newHash();
+        store.save(userId, old);
+        Instant now = Instant.now();
+        store.rotate(old, next, now);
+        store.rotate(next, newHash(), now.plusSeconds(1));
+
+        assertThat(store.rotate(old, newHash(), now.plusSeconds(2))).isEqualTo(new RotationResult.NotFound());
     }
 
     @Test

@@ -89,6 +89,31 @@ class MemberTokenUseCaseTest {
     }
 
     @Test
+    @DisplayName("유예 시간 안의 재발급(Grace)이면 access token만 주고 refresh token은 새로 주지 않는다")
+    void refresh_grace() {
+        given(refreshTokenStore.rotate(anyString(), anyString(), any())).willReturn(new RotationResult.Grace(42L));
+        given(userRepository.findById(42L)).willReturn(Optional.of(member(42L, Role.USER, UserStatus.ACTIVE)));
+        given(accessTokenIssuer.issue(42L, Role.USER)).willReturn("access");
+
+        TokenPair tokens = useCase.refresh("old");
+
+        assertThat(tokens.accessToken()).isEqualTo("access");
+        assertThat(tokens.refreshToken()).isNull();
+        verify(refreshTokenStore, never()).revokeAll(any());
+    }
+
+    @Test
+    @DisplayName("유예 시간 안의 재발급이라도 탈퇴·정지 회원이면 refresh token을 모두 폐기하고 INVALID_REFRESH_TOKEN")
+    void refresh_grace_inactiveMember() {
+        given(refreshTokenStore.rotate(anyString(), anyString(), any())).willReturn(new RotationResult.Grace(42L));
+        given(userRepository.findById(42L)).willReturn(Optional.of(member(42L, Role.USER, UserStatus.WITHDRAWN)));
+
+        assertInvalidRefreshToken(() -> useCase.refresh("old"));
+        verify(refreshTokenStore).revokeAll(42L);
+        verifyNoInteractions(accessTokenIssuer);
+    }
+
+    @Test
     @DisplayName("없거나 만료·폐기된 refresh token이면 INVALID_REFRESH_TOKEN")
     void refresh_notFound() {
         given(refreshTokenStore.rotate(anyString(), anyString(), any())).willReturn(new RotationResult.NotFound());

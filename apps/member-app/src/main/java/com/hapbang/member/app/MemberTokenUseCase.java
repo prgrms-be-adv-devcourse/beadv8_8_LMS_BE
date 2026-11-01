@@ -56,6 +56,8 @@ public class MemberTokenUseCase {
         RotationResult result = refreshTokenStore.rotate(hash(refreshToken), hash(newRefreshToken), Instant.now());
         return switch (result) {
             case RotationResult.Rotated(Long userId) -> issueForActiveMember(userId, newRefreshToken);
+            // 유예 안 재회전: 새 refresh token을 만들지 않았으므로 access token만 준다 (쿠키는 먼저 끝난 요청의 것을 쓴다)
+            case RotationResult.Grace(Long userId) -> issueForActiveMember(userId, null);
             case RotationResult.Reused(Long userId) -> {
                 log.warn("refresh token 재사용 감지: 회원의 refresh token을 모두 폐기한다 userId={}", userId);
                 refreshTokenStore.revokeAll(userId);

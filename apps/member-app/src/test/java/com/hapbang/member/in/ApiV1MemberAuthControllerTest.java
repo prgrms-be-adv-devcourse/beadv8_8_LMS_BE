@@ -97,6 +97,35 @@ class ApiV1MemberAuthControllerTest {
     }
 
     @Test
+    @DisplayName("다른 탭이 방금 회전한 옛 refresh token으로 재발급하면 access token만 주고 쿠키는 바꾸지 않는다 (먼저 받은 새 토큰이 유효)")
+    void refresh_withinGrace() throws Exception {
+        String old = login(saveMember(Role.USER));
+        String rotated = refreshAndGetNewToken(old);
+
+        MockHttpServletResponse response = mockMvc.perform(post(REFRESH).cookie(refreshCookie(old)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").isNotEmpty())
+                .andReturn().getResponse();
+
+        assertThat(response.getHeader(HttpHeaders.SET_COOKIE)).isNull();
+        mockMvc.perform(post(REFRESH).cookie(refreshCookie(rotated)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("회전 뒤 로그아웃하면 유예 시간 안이라도 옛 refresh token으로 재발급할 수 없다")
+    void refresh_withinGrace_afterLogout() throws Exception {
+        String old = login(saveMember(Role.USER));
+        String rotated = refreshAndGetNewToken(old);
+        mockMvc.perform(post(LOGOUT).cookie(refreshCookie(rotated)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post(REFRESH).cookie(refreshCookie(old)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+    }
+
+    @Test
     @DisplayName("재발급한 access token에는 로그인 뒤 바뀐 지금 역할이 담긴다")
     void refresh_reflectsCurrentRole() throws Exception {
         User user = saveMember(Role.USER);

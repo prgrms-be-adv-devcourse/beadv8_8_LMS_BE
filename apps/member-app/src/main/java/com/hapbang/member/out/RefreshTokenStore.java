@@ -13,7 +13,9 @@ public interface RefreshTokenStore {
 
     /**
      * 옛 토큰을 쓰고 새 토큰을 저장하는 일을 한 번에 한다.
-     * 이미 회전된 토큰이 유예 시간 안에 다시 오면 정상 회전으로, 지난 뒤에 오면 {@link RotationResult.Reused}로 답한다
+     * 이미 회전된 토큰이 유예 시간 안에 다시 오면 새 토큰을 저장하지 않고 {@link RotationResult.Grace}로 답한다
+     * (회전으로 받은 새 토큰이 폐기됐거나 이미 회전됐으면 {@link RotationResult.NotFound}).
+     * 유예 시간이 지난 뒤에 오면 {@link RotationResult.Reused}로 답한다
      */
     RotationResult rotate(String oldTokenHash, String newTokenHash, Instant now);
 

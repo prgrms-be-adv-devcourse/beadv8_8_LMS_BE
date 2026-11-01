@@ -30,8 +30,12 @@ public class ApiV1MemberAuthController implements ApiV1MemberAuthSpec {
     public ResponseEntity<RsData<AccessTokenResponse>> refresh(
             @CookieValue(name = RefreshTokenCookies.NAME, required = false) String refreshToken) {
         TokenPair tokens = memberFacade.refreshTokens(refreshToken);
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString())
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok();
+        // 유예 시간 안의 재발급은 새 refresh token이 없다. 쿠키를 건드리지 않아 먼저 끝난 요청이 준 쿠키가 남는다
+        if (tokens.refreshToken() != null) {
+            response.header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString());
+        }
+        return response
                 .body(RsData.ok("토큰을 다시 발급했습니다.",
                         AccessTokenResponse.of(tokens.accessToken(), jwtProperties.accessTokenTtl())));
     }

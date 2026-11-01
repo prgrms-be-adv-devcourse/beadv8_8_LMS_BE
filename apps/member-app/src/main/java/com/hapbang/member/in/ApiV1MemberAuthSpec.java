@@ -17,6 +17,7 @@ public interface ApiV1MemberAuthSpec {
             description = "refresh token 쿠키(REFRESH_TOKEN, 브라우저가 자동으로 붙인다)로 새 access token을 받는다. "
                     + "access token은 본문(data.accessToken, data.expiresIn초)으로 주고 메모리에 두어 Authorization: Bearer로 보낸다. "
                     + "refresh token은 새 값으로 바뀌어 쿠키로 다시 내려간다. 페이지를 새로 열면 먼저 이 API를 부른다. "
+                    + "여러 탭이 같은 쿠키로 거의 동시에 부르면(10초 안) 뒤 요청은 access token만 받고 쿠키는 바뀌지 않는다. "
                     + "쿠키가 없거나 만료·폐기된 토큰, 이용할 수 없는 회원이면 401 INVALID_REFRESH_TOKEN (다시 로그인).")
     ResponseEntity<RsData<AccessTokenResponse>> refresh(
             @Parameter(in = ParameterIn.COOKIE, name = RefreshTokenCookies.NAME, hidden = true) String refreshToken);
