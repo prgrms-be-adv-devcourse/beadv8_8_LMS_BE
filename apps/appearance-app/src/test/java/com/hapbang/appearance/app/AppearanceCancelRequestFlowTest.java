@@ -58,7 +58,7 @@ import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 
 /**
  * 출연 취소 요청(요청·수락·거절·자동 거절)과 출연 조회를 DB와 Billing 대역으로 확인한다 (ISSUE.md APR-31).
- * 출연료는 30,000 HP. 방송 예정 일시는 DB 값을 과거로 옮겨 지난 것으로 만든다.
+ * 출연료는 30,000 HP. 방송 예정 일시는 테스트 시계를 그 시각까지 앞당겨 지난 것으로 만든다.
  */
 @AppearanceIntegrationTest
 @RecordApplicationEvents
@@ -353,7 +353,7 @@ class AppearanceCancelRequestFlowTest {
                     .formatted(established.recruitId(), established.appearanceId()));
             assertThat(task.getStatus()).isEqualTo(HpTaskStatus.DONE);
             assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::releaseRequestId)
-                    .contains(task.getIdempotencyKey());
+                    .containsOnlyOnce(task.getIdempotencyKey());
             assertThat(appearanceRecruitFacade.getDetail(HOST, established.recruitId()).selectedCount()).isZero();
         }
 

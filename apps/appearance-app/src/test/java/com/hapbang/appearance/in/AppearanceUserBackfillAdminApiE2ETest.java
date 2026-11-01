@@ -29,7 +29,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 
 /**
- * 관리자 기존 회원 Backfill API (#394). 실제 서버(보안 필터, 세션 로그인, CSRF, 메서드 보안, DB)를 띄우고,
+ * 관리자 기존 회원 Backfill API (#394). 실제 서버(보안 필터, Gateway 사용자 헤더 인증, 메서드 보안, DB)를 띄우고,
  * 회원 내부 API는 {@link FakeMemberServer}로 운영 Client가 실제 HTTP로 부르게 한다.
  */
 @AppearanceE2ETest
@@ -112,7 +112,7 @@ class AppearanceUserBackfillAdminApiE2ETest {
     }
 
     @Test
-    @DisplayName("Backfill로 만든 출연 회원에는 그 뒤의 회원 변경 이벤트가 반영된다 (가입 이벤트가 없던 기존 회원의 변경이 DLT로 가지 않음)")
+    @DisplayName("Backfill로 만든 출연 회원에는 그 뒤의 회원 변경이 반영된다 (가입 이벤트가 없던 기존 회원도 변경을 처리할 대상이 생김. Kafka·DLT는 회원 이벤트 리스너 테스트가 확인)")
     void modifiedAfterBackfill() {
         MEMBER_SERVER.members(List.of(user(8011L, "기존회원", Role.INFLUENCER, UserStatus.ACTIVE, 5L)));
         E2ELogin.as(ADMIN, Role.ADMIN).post(BACKFILL).then().statusCode(200);

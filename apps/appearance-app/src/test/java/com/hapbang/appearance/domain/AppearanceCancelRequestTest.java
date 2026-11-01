@@ -17,7 +17,7 @@ import com.hapbang.shared.appearance.dto.AppearanceCancelRequestDto;
 
 /**
  * 출연 취소 요청 규칙: 요청(게스트·성립 상태·방송 예정 일시 전·횟수·사유), 응답(호스트·처리 중·방송 예정 일시 전),
- * 수락(합의 취소)·거절·자동 거절에 따른 출연 상태. 모집글 성립 인원 감소.
+ * 수락(합의 취소)·거절·자동 거절에 따른 출연 상태. 합의 취소에 쓰는 모집글 성립 인원 감소와 출연별 반환 요청 ID.
  */
 class AppearanceCancelRequestTest {
 

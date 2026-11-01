@@ -55,7 +55,7 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 /**
  * 출연 모집 마감(조기 마감 Facade, 기한 마감 배치 UseCase)을 DB와 Billing 대역으로 확인한다.
- * 모집글은 1인당 30,000 HP × 3명(보류 90,000)이다. 마감 일시는 DB 값을 과거로 옮겨 지난 것으로 만든다.
+ * 모집글은 1인당 30,000 HP × 3명(보류 90,000)이다. 마감 일시는 테스트 시계를 그 시각까지 앞당겨 지난 것으로 만든다.
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
@@ -271,7 +271,9 @@ class AppearanceRecruitCloseTest {
                     AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
 
             BillingStubs.unavailable(billingClient);
-            assertThatThrownBy(() -> postRecruit(3)).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> postRecruit(3))
+                    .isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
             BillingStubs.available(billingClient);
             Long pendingId = appearanceRecruitRepository.findAll().stream()
                     .filter(recruit -> recruit.getStatus() == AppearanceRecruitStatus.HOLD_PENDING)
@@ -296,7 +298,7 @@ class AppearanceRecruitCloseTest {
         }
 
         @Test
-        @DisplayName("조기 마감과 수락이 동시에 와도 많아야 한쪽만 막히고, 보류·반환·성립 인원이 서로 맞는다")
+        @DisplayName("조기 마감과 수락이 동시에 와도 마감은 항상 성공하고, 수락은 마감보다 늦으면 APPEARANCE_RECRUIT_NOT_OPEN. 보류·반환·성립 인원이 서로 맞는다")
         void concurrentCloseAndAccept() throws Exception {
             Long recruitId = postRecruit(3);
             Long applicationId = apply(GUEST, recruitId);
@@ -305,24 +307,21 @@ class AppearanceRecruitCloseTest {
                     () -> appearanceRecruitFacade.closeEarly(HOST, recruitId),
                     () -> appearanceApplicationFacade.accept(HOST, applicationId)));
 
-            assertThat(results).allSatisfy(result -> assertThat(result)
-                    .isInstanceOfAny(AppearanceRecruitResDto.class, AppearanceApplicationResDto.class,
-                            AppearanceException.class));
-            // 둘 다 모집글을 배타 잠금으로 읽어 차례로 처리된다 (APR-28 C9).
-            // 수락이 먼저면 마감은 잠금을 기다린 뒤 최신 성립 인원으로 마감하고, 마감이 먼저면 수락은 APPEARANCE_RECRUIT_NOT_OPEN.
-            // 잠금 전에 읽은 값이 어긋나면 버전 확인이 CONCURRENT_UPDATE로 막는다 (안전장치).
-            assertThat(results).filteredOn(AppearanceException.class::isInstance)
-                    .allSatisfy(error -> assertThat(((AppearanceException) error).getErrorCode()).isIn(
-                            AppearanceErrorCode.CONCURRENT_UPDATE, AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN))
-                    .hasSizeLessThanOrEqualTo(1);
-            AppearanceRecruitResDto detail = appearanceRecruitFacade.getDetail(HOST, recruitId);
-            assertThat(appearanceRepository.count()).isEqualTo(detail.selectedCount());
-            if (detail.status() == AppearanceRecruitStatus.CLOSED) {
-                assertThat(releasedOf(recruitId)).isEqualTo(TOTAL - detail.selectedCount() * FEE);
+            // 둘 다 모집글을 배타 잠금으로 읽어 차례로 처리된다 (APR-28 C9). 마감은 잠근 뒤에 지원을 읽으므로 막히지 않는다.
+            // 수락이 먼저면 마감은 잠금을 기다린 뒤 최신 성립 인원으로 마감하고, 마감이 먼저면 수락은 APPEARANCE_RECRUIT_NOT_OPEN
+            assertThat(results.getFirst()).isInstanceOf(AppearanceRecruitResDto.class);
+            Object accepted = results.get(1);
+            if (accepted instanceof AppearanceException error) {
+                assertThat(error.getErrorCode()).isEqualTo(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
             } else {
-                assertThat(detail.selectedCount()).isEqualTo(1);
-                assertThat(releasedOf(recruitId)).isZero();
+                assertThat(accepted).isInstanceOf(AppearanceApplicationResDto.class);
             }
+            AppearanceRecruitResDto detail = appearanceRecruitFacade.getDetail(HOST, recruitId);
+            assertThat(detail.status()).isEqualTo(AppearanceRecruitStatus.CLOSED);
+            int expectedSelected = accepted instanceof AppearanceApplicationResDto ? 1 : 0;
+            assertThat(detail.selectedCount()).isEqualTo(expectedSelected);
+            assertThat(appearanceRepository.count()).isEqualTo(expectedSelected);
+            assertThat(releasedOf(recruitId)).isEqualTo(TOTAL - expectedSelected * FEE);
         }
 
         @Test
@@ -433,7 +432,9 @@ class AppearanceRecruitCloseTest {
         @DisplayName("마감 일시가 지난 보류 처리 중 모집글: 마감 배치만으로는 건드리지 않고, 보류 재확인 뒤 마감 배치가 CLOSED + 전액 반환 (C5)")
         void holdPendingThenClose() {
             BillingStubs.unavailable(billingClient);
-            assertThatThrownBy(() -> postRecruit(3)).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> postRecruit(3))
+                    .isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
             BillingStubs.available(billingClient);
             Long recruitId = appearanceRecruitRepository.findAll().getFirst().getId();
             passDeadline(recruitId); // 이틀이 지나 보류 재확인 대기 시간(1분)도 지났다

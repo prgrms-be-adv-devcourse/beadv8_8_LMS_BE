@@ -155,6 +155,22 @@ class AppearanceUserBackfillUseCaseTest {
     }
 
     @Test
+    @DisplayName("503으로 멈춘 뒤에도 실행 중 표시가 풀려, 같은 인스턴스로 resumeAfterId부터 다시 실행하면 이어서 끝낸다")
+    void resumesAfterAbort() {
+        memberServer.members(users(1, 800))
+                .respond(query -> "500".equals(query.get("afterId")) ? new Response(503, null) : memberServer.keyset(query));
+        AppearanceUserBackfillUseCase useCase = useCase();
+        assertThatThrownBy(() -> useCase.run(0, 1_000)).isInstanceOf(AppearanceUserBackfillException.class);
+
+        memberServer.respond(null);
+        AppearanceUserBackfillResDto resumed = useCase.run(500, 1_000);
+
+        assertThat(resumed.completed()).isTrue();
+        assertThat(resumed.scanned()).isEqualTo(300);
+        assertThat(applied).containsExactlyElementsOf(ids(1, 800));
+    }
+
+    @Test
     @DisplayName("4xx(내부 API 키 거절)는 503 MEMBER_SOURCE_REJECTED, 읽을 수 없는 응답은 MEMBER_SOURCE_UNAVAILABLE이다")
     void rejectedAndUnreadable() {
         memberServer.respond(query -> new Response(401, null));
@@ -174,11 +190,15 @@ class AppearanceUserBackfillUseCaseTest {
     }
 
     @Test
-    @DisplayName("키셋 계약 위반(역순·afterId 이하 ID·nextAfterId 불일치·빈 페이지의 nextAfterId)은 그 페이지를 반영하지 않고 멈춘다")
+    @DisplayName("키셋 계약 위반(역순·afterId 이하 ID·ID 없음·요청보다 많은 회원·nextAfterId 불일치·빈 페이지의 nextAfterId)은 그 페이지를 반영하지 않고 멈춘다")
     void keysetViolation() {
+        // run(10, 100)이므로 afterId 10, 요청 크기 100. 역순·ID 없음은 afterId보다 큰 ID로 만들어 다른 검사에 먼저 걸리지 않게 한다
         List<FakeMemberServer.Response> violations = List.of(
-                FakeMemberServer.ok(List.of(users(2, 2).getFirst(), users(1, 1).getFirst()), null),
+                FakeMemberServer.ok(List.of(users(12, 12).getFirst(), users(11, 11).getFirst()), null),
                 FakeMemberServer.ok(users(5, 6), null),
+                FakeMemberServer.ok(List.of(users(11, 11).getFirst(),
+                        new UserDto(null, "ID 없음", Role.INFLUENCER, UserStatus.ACTIVE, 1L)), null),
+                FakeMemberServer.ok(users(11, 111), null),
                 FakeMemberServer.ok(users(11, 12), 99L),
                 FakeMemberServer.ok(List.of(), 20L));
 

@@ -86,6 +86,9 @@ class AppearanceEventKafkaTest {
     private static final Long GUEST = 2L;
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
 
+    /** 더 오는 메시지가 없는지 확인할 때 계속 읽는 시간 */
+    private static final Duration HOLD = Duration.ofMillis(500);
+
     /** 롤백 테스트에서 실제 요청서와 겹치지 않는 ID */
     private static final AtomicLong UNSAVED_ID = new AtomicLong(900_000_000L);
 
@@ -167,7 +170,7 @@ class AppearanceEventKafkaTest {
         AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
                 AppearanceRequestFixture.content(clock.now()));
 
-        ConsumerRecord<String, String> record = awaitRecords(requestKey(sent.id()), 1).getFirst();
+        ConsumerRecord<String, String> record = awaitExactly(requestKey(sent.id()), 1).getFirst();
 
         assertThat(header(record, EVENT_TYPE)).isEqualTo(REQUEST_SENT);
         assertThat(header(record, EVENT_VERSION)).isEqualTo("1");
@@ -185,7 +188,7 @@ class AppearanceEventKafkaTest {
         AppearanceRecruitResDto recruit = appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(clock.now()));
         AppearanceApplicationResDto applied = appearanceApplicationFacade.apply(GUEST, recruit.id(), "지원합니다.");
 
-        ConsumerRecord<String, String> record = awaitRecords("appearance-application:" + applied.id(), 1).getFirst();
+        ConsumerRecord<String, String> record = awaitExactly("appearance-application:" + applied.id(), 1).getFirst();
 
         assertThat(header(record, EVENT_TYPE)).isEqualTo(APPLICATION_SUBMITTED);
         AppearanceApplicationDto application = jsonMapper.readValue(record.value(),
@@ -210,9 +213,11 @@ class AppearanceEventKafkaTest {
         });
         transactionTemplate.executeWithoutResult(status -> eventPublisher.publishEvent(committed));
 
-        // 뒤에 커밋한 이벤트가 도착할 때까지 기다린 뒤, 롤백한 이벤트는 없는지 본다
+        // 뒤에 커밋한 이벤트가 도착할 때까지 기다린 뒤, 롤백한 이벤트는 없는지 본다.
+        // 두 이벤트는 key가 달라 다른 partition일 수 있으므로 잠시 더 읽으면서 확인한다
         awaitRecords(requestKey(committed.request().requestId()), 1);
-        assertThat(records(requestKey(rolledBack.request().requestId()))).isEmpty();
+        await().during(HOLD).atMost(TIMEOUT).pollInSameThread()
+                .untilAsserted(() -> assertThat(records(requestKey(rolledBack.request().requestId()))).isEmpty());
     }
 
     @Test
@@ -232,7 +237,12 @@ class AppearanceEventKafkaTest {
         // 대기 시간(1분)이 지난 미완료 기록을 재발행 배치가 다시 보낸다
         clock.advance(Duration.ofMinutes(2));
         assertThat(appearanceEventRepublishUseCase.republishDue()).isEqualTo(1);
-        List<ConsumerRecord<String, String>> records = awaitRecords(key, 2);
+        List<ConsumerRecord<String, String>> records = awaitExactly(key, 2);
+
+        // 재발행이 성공하면 완료로 남아, 대기 시간이 다시 지나도 또 보내지 않는다
+        clock.advance(Duration.ofMinutes(2));
+        assertThat(appearanceEventRepublishUseCase.republishDue()).isZero();
+        awaitExactly(key, 2);
 
         // 받는 쪽은 (eventType, 요청서 ID)로 두 번째를 거른다
         assertThat(records).extracting(record -> header(record, EVENT_TYPE)).containsOnly(REQUEST_SENT);
@@ -253,6 +263,13 @@ class AppearanceEventKafkaTest {
 
     private List<ConsumerRecord<String, String>> awaitRecords(String key, int count) {
         await().atMost(TIMEOUT).pollInSameThread().untilAsserted(() -> assertThat(records(key)).hasSizeGreaterThanOrEqualTo(count));
+        return records(key);
+    }
+
+    /** 이 key의 메시지가 count건 온 뒤, 잠시 더 읽어도 그대로 count건인지 (중복 발행이 없는지) */
+    private List<ConsumerRecord<String, String>> awaitExactly(String key, int count) {
+        awaitRecords(key, count);
+        await().during(HOLD).atMost(TIMEOUT).pollInSameThread().untilAsserted(() -> assertThat(records(key)).hasSize(count));
         return records(key);
     }
 

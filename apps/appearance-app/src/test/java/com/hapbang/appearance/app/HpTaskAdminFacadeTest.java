@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.test.context.support.WithMockUser;
 
@@ -51,6 +52,9 @@ class HpTaskAdminFacadeTest {
 
     @Autowired
     HpTaskAdminFacade hpTaskAdminFacade;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     @Autowired
     AppearanceUserFacade appearanceUserFacade;
@@ -125,6 +129,12 @@ class HpTaskAdminFacadeTest {
 
             assertThat(page.getTotalElements()).isEqualTo(2);
             assertThat(page.getContent()).extracting(HpTaskAdminResDto::id).containsExactly(second, first);
+
+            // 먼저 만든 작업이 나중에 바뀌면 앞으로 온다 (ID 순이 아니라 마지막으로 바뀐 순)
+            jdbcTemplate.update("update appearances.hp_tasks set updated_at = updated_at + interval '1 hour' where id = ?",
+                    first);
+            assertThat(hpTaskAdminFacade.getTasks(ADMIN, HpTaskStatus.DEAD, PageRequest.of(0, 20)).getContent())
+                    .extracting(HpTaskAdminResDto::id).containsExactly(first, second);
             HpTaskAdminResDto dead = page.getContent().getFirst();
             assertThat(dead.taskType()).isEqualTo(HpTaskType.RELEASE);
             assertThat(dead.refType()).isEqualTo(HpTaskRefType.APPEARANCE_REQUEST);

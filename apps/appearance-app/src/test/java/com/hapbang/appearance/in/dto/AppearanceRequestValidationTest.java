@@ -80,6 +80,37 @@ class AppearanceRequestValidationTest {
     }
 
     @Test
+    @DisplayName("보내기·수정: 호스트 채널 URL은 255자까지 통과하고 256자는 실패한다 (DB VARCHAR(255))")
+    void hostChannelUrlLength() {
+        assertThat(invalidFields(create("제목", url(255), 60))).isEmpty();
+        assertThat(invalidFields(create("제목", url(256), 60))).containsExactly("hostChannelUrl");
+        assertThat(invalidFields(new UpdateAppearanceRequestReqDto(null, null, url(255)))).isEmpty();
+        assertThat(invalidFields(new UpdateAppearanceRequestReqDto(null, null, url(256))))
+                .containsExactly("hostChannelUrl");
+    }
+
+    @Test
+    @DisplayName("모집글 올리기·수정도 호스트 채널 URL은 255자까지 통과하고 256자는 실패한다")
+    void recruitHostChannelUrlLength() {
+        assertThat(invalidFields(createRecruit(url(255)))).isEmpty();
+        assertThat(invalidFields(createRecruit(url(256)))).containsExactly("hostChannelUrl");
+        assertThat(invalidFields(new UpdateAppearanceRecruitReqDto(null, null, url(255)))).isEmpty();
+        assertThat(invalidFields(new UpdateAppearanceRecruitReqDto(null, null, url(256))))
+                .containsExactly("hostChannelUrl");
+    }
+
+    private static CreateAppearanceRecruitReqDto createRecruit(String url) {
+        return new CreateAppearanceRecruitReqDto("제목", url, NOW.plusDays(7), 60, "콘텐츠 설명", 30_000L, 2,
+                NOW.plusDays(2));
+    }
+
+    /** https://로 시작하는 length자 URL */
+    private static String url(int length) {
+        String prefix = "https://";
+        return prefix + "a".repeat(length - prefix.length());
+    }
+
+    @Test
     @DisplayName("수정: 하나만 보내도 통과하고, 아무것도 보내지 않으면 실패한다")
     void updatePresence() {
         assertThat(invalidFields(new UpdateAppearanceRequestReqDto("새 제목", null, null))).isEmpty();

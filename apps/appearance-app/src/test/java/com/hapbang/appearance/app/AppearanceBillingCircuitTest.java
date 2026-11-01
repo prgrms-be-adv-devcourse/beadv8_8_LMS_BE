@@ -2,6 +2,9 @@ package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -19,6 +22,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -93,7 +97,8 @@ class AppearanceBillingCircuitTest {
     @Autowired
     HpTaskRetryUseCase hpTaskRetryUseCase;
 
-    @Autowired
+    /** 실제 Client를 그대로 쓰되, 회로가 열린 동안 출연이 지갑 호출 자체를 하지 않는지 세려고 감싼다 */
+    @MockitoSpyBean
     BillingClient billingClient;
 
     @Autowired
@@ -160,6 +165,8 @@ class AppearanceBillingCircuitTest {
         clock.advance(Duration.ofMinutes(2));
         assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero();
 
+        // 회로가 열려 있으면 공용 Client도 보내지 않으므로, 출연이 Client를 부르지 않았는지(처음 보낸 2번 그대로) 직접 센다
+        verify(billingClient, times(2)).hold(any());
         assertThat(MockBilling.requests(Endpoint.HOLD)).hasSize(2);
         assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
         assertThat(recruitStatus()).isEqualTo(AppearanceRecruitStatus.HOLD_PENDING);

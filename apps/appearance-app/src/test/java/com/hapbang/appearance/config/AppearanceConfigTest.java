@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.ConfigDataApplicationContextInitial
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import com.hapbang.appearance.domain.AppearancePolicy;
+import com.hapbang.appearance.domain.HpTaskRetryPolicy;
 import com.hapbang.appearance.shared.time.AppearanceTime;
 
 /**
@@ -34,6 +35,19 @@ class AppearanceConfigTest {
             assertThat(policy.confirmPeriod()).isEqualTo(Duration.ofDays(7));
             assertThat(policy.maxCancelRequestCount()).isEqualTo(2);
             assertThat(policy.maxRecruitCount()).isEqualTo(10);
+        });
+    }
+
+    @Test
+    @DisplayName("appearance.yml의 배치 값과 HP 작업 재시도 정책(1분부터 최대 1시간, 10회, 지터 0.2)이 들어온다")
+    void bindsBatchFromYaml() {
+        contextRunner.run(context -> {
+            AppearanceBatchProperties batch = context.getBean(AppearanceBatchProperties.class);
+            HpTaskRetryPolicy retryPolicy = context.getBean(HpTaskRetryPolicy.class);
+
+            assertThat(batch.batchSize()).isEqualTo(100);
+            assertThat(batch.pendingGrace()).isEqualTo(Duration.ofMinutes(1));
+            assertThat(retryPolicy).isEqualTo(new HpTaskRetryPolicy(Duration.ofMinutes(1), Duration.ofHours(1), 10, 0.2));
         });
     }
 

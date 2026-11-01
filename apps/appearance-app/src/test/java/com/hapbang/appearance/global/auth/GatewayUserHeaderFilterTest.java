@@ -65,6 +65,7 @@ class GatewayUserHeaderFilterTest {
     @CsvSource(value = {
             "7, NULL", "NULL, INFLUENCER",
             "abc, INFLUENCER", "0, INFLUENCER", "-1, INFLUENCER", "'', INFLUENCER", "' 7', INFLUENCER",
+            "9223372036854775808, INFLUENCER",
             "7, ROLE_INFLUENCER", "7, influencer", "7, SUPER", "7, ''"
     }, nullValues = "NULL")
     @DisplayName("한쪽만 있거나 형식이 맞지 않으면 인증하지 않아 401, 경고 로그를 남긴다")

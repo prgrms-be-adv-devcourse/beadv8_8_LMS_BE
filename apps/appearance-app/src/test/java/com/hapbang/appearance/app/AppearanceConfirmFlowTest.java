@@ -413,6 +413,26 @@ class AppearanceConfirmFlowTest {
         }
 
         @Test
+        @DisplayName("방송 예정 일시 전 APPEARANCE_CONFIRM_NOT_OPEN, 게스트 NOT_APPEARANCE_HOST, 확인 기간 끝 APPEARANCE_CONFIRM_PERIOD_ENDED. "
+                + "어느 경우도 반환 작업이 생기지 않고 Billing에 반환을 요청하지 않는다")
+        void rejected() {
+            Long appearanceId = establishFromRequest().appearanceId();
+
+            assertErrorCode(() -> appearanceFacade.markAbsent(HOST, appearanceId, null),
+                    AppearanceErrorCode.APPEARANCE_CONFIRM_NOT_OPEN);
+            broadcastEnded(appearanceId);
+            assertErrorCode(() -> appearanceFacade.markAbsent(GUEST, appearanceId, null),
+                    AppearanceErrorCode.NOT_APPEARANCE_HOST);
+            confirmPeriodEnded(appearanceId);
+            assertErrorCode(() -> appearanceFacade.markAbsent(HOST, appearanceId, null),
+                    AppearanceErrorCode.APPEARANCE_CONFIRM_PERIOD_ENDED);
+
+            assertThat(appearanceFacade.getDetail(HOST, appearanceId).status()).isEqualTo(AppearanceStatus.ESTABLISHED);
+            assertThat(tasksOf(HpTaskType.RELEASE)).isEmpty();
+            assertThat(BillingCalls.releases(billingClient)).isEmpty();
+        }
+
+        @Test
         @DisplayName("확인과 불참이 동시에 오면 한쪽만 반영된다: HP 작업 1건, 다른 쪽은 APPEARANCE_NOT_CONFIRMABLE 또는 CONCURRENT_UPDATE")
         void concurrentConfirmAndAbsent() throws Exception {
             Long appearanceId = establishFromRequest().appearanceId();
