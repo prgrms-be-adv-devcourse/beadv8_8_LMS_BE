@@ -46,6 +46,7 @@ import com.hapbang.billing.app.HoldFacade;
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
 import com.hapbang.billing.app.LedgerRecordUseCase;
+import com.hapbang.billing.app.PaymentHoldCommand;
 import com.hapbang.billing.app.WalletReconciliationUseCase;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.LedgerTransactionType;
@@ -53,7 +54,6 @@ import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
@@ -396,7 +396,7 @@ class ApiV1BillingInternalControllerTest {
     @DisplayName("HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다: 인증이 없으면 거절, 회원 역할이면 403 대상")
     void facadeRequiresInternalRole() {
         revenue(wallet(HOST), 10_000L);
-        HoldCommand command = new HoldCommand(HOST, BillingReferenceType.APPEARANCE_REQUEST, 7L, 10_000L);
+        PaymentHoldCommand command = new PaymentHoldCommand(HOST, BillingReferenceType.APPEARANCE_REQUEST, 7L, 10_000L);
 
         assertThatThrownBy(() -> holdFacade.hold(command)).isInstanceOf(AuthenticationCredentialsNotFoundException.class);
         asRole("USER", () -> assertThatThrownBy(() -> holdFacade.hold(command))

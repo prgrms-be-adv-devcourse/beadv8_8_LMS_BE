@@ -12,7 +12,7 @@
 - 요청 본문은 shared Command(`HoldCommand`·`ReleaseCommand`·`PayoutCommand`·`PenaltyCommand`)를 그대로 받는다. BD-54의 "shared DTO를 Controller 요청 DTO로 쓰지 않는다"는 같은 JVM 호출 전제였고, HTTP 계약에는 적용하지 않는다(BD-54 재검토 결과). Command 생성자의 구조 검사(NPE·IAE)는 Jackson 역직렬화 오류가 되어 400 `INVALID_REQUEST`로 응답한다.
 - 응답 DTO는 `BillingResultDtos`로 변환한다(BD-61, 당시 `BillingPortAdapter`와 공유, #486에서 Adapter 삭제). `amountHp`가 `null`이면 남은 보류 전액이다.
 - 확정 차감(capture)은 노출하지 않는다.
-- 이슈 #273의 "shared 요청 DTO → billing 내부 Command 변환"은 #280(`BillingPort` 삭제)에서 한다(#486에서 `BillingPort`는 지웠고, 변환은 #486 병합 뒤 후속 이슈에서 한다, 7.2). 지금 `HoldFacade`는 shared Command를 받고, 시그니처를 바꾸면 `BillingPortAdapter`·Hold 통합 테스트까지 바뀌기 때문이다. 기존 `InternalHoldCommand`·`InternalReleaseCommand`는 환불·환전용(보류 종류 지정)이라 이 용도로 쓰지 않는다.
+- 이슈 #273의 "shared 요청 DTO → billing 내부 Command 변환"은 #280(`BillingPort` 삭제)에서 한다(#486에서 `BillingPort`는 지웠고, 변환은 #494에서 했다, 8장). 지금 `HoldFacade`는 shared Command를 받고, 시그니처를 바꾸면 `BillingPortAdapter`·Hold 통합 테스트까지 바뀌기 때문이다. 기존 `InternalHoldCommand`·`InternalReleaseCommand`는 환불·환전용(보류 종류 지정)이라 이 용도로 쓰지 않는다.
 
 ### 1.2 인증·노출
 
@@ -304,4 +304,23 @@
 ### 7.2 범위
 
 - billing 쪽만이다. 강의·출연·고객센터의 다른 bounded context import 금지 구조 테스트, 다른 shared 패키지 규칙, 앱별 기동 확인, 배포 문서의 `hapbang.clients.*`는 #280 본 이슈에 남긴다.
-- 1장의 "shared 요청 DTO → billing 내부 Command 변환"(#273에서 #280으로 미룸)은 이번에 하지 않는다. 이번 범위는 Port 삭제·테스트 전환이고, 변환은 시그니처 변경이 테스트 약 80곳에 퍼져 리뷰를 나누려고 #486 병합 뒤 별도 이슈로 바로 시작한다(2026-10-31 결정). 그때까지 `HoldFacade`는 shared Command를 받는다.
+- 1장의 "shared 요청 DTO → billing 내부 Command 변환"(#273에서 #280으로 미룸)은 이번에 하지 않는다. 이번 범위는 Port 삭제·테스트 전환이고, 변환은 시그니처 변경이 테스트 약 80곳에 퍼져 리뷰를 나누려고 #486 병합 뒤 별도 이슈로 바로 시작한다(2026-10-31 결정). #494에서 했다(8장).
+
+## 8. shared Command → billing 내부 Command 변환 (#494)
+
+2026-11-01 `/grill-with-docs`로 정했다. #273에서 #280으로 미뤘던 항목이다(1장). HTTP 계약과 동작은 바뀌지 않는다.
+
+### 8.1 결정
+
+- 강의·출연 HP 결제 보류용 내부 Command 5개를 `billing.app`에 새로 둔다: `PaymentHoldCommand`·`PaymentReleaseCommand`·`PaymentPayoutCommand`·`PaymentPenaltyCommand`·`PaymentHoldVoidCommand`(BD-129). 이름의 `Payment`는 용어집의 "HP 결제"다.
+- 환불·환전용 `InternalHoldCommand`·`InternalReleaseCommand`와 합치지 않는다. 참조 유형으로 두 경로를 나누는 장치(BD-86)를 타입으로 유지한다.
+- 내부 Command 생성자도 구조(필수 값, 강의·출연 참조 유형, 요청 ID 형식)를 검사한다(NPE·IAE). 금액은 지금처럼 `BillingCommandValidator`가 `BillingException`으로 검사한다.
+- 참조 유형 목록과 요청 ID 형식은 billing app의 `PaymentHoldRequests`에 복사해 둔다(`InternalHoldRequests` 선례). shared는 바꾸지 않고, `PaymentHoldRequestsTest`가 shared 계약과 같은 값을 받고 거절하는지 고정한다.
+- 변환은 `in` 패키지의 package-private `BillingCommands`가 한다(결과 쪽 `BillingResultDtos`와 짝). Controller는 변환 → `HoldFacade` → 결과 변환만 한다.
+- `HoldFacade`, 보류·반환·지급·위약금·무효화 UseCase, `BillingCommandValidator`, `BillingKeys`는 내부 Command를 받는다.
+- `BillingSharedDtoAccessTest`(ArchUnit): billing `app`·`domain`·`out`은 `shared.billing.dto`를 참조하지 않는다. `in`만 허용한다. `shared.billing.domain`의 Enum·오류 코드는 계속 쓴다.
+
+### 8.2 테스트
+
+- 테스트의 `holdFacade.*`·`BillingKeys`·`BillingCommandValidator` 호출(13개 클래스)을 내부 Command로 바꿨다.
+- `PaymentHoldRequestsTest`(shared 계약과 규칙 일치, 구조 오류), `BillingSharedDtoAccessTest`(일부러 위반을 넣어 실패하는 것을 확인했다).

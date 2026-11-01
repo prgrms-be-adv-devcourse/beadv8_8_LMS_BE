@@ -20,7 +20,6 @@ import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.Settlement;
 import com.hapbang.billing.domain.Wallet;
-import com.hapbang.shared.billing.dto.PenaltyCommand;
 
 import lombok.RequiredArgsConstructor;
 
@@ -43,7 +42,7 @@ public class PenaltySettlementUseCase {
     // 금액 확인 → 두 지갑 ID 오름차순 락 → 보류 락·소유·지급 원천 확인 → 처리 이력 재생·대조 → (재요청이면 처음 결과)
     // → 정산 기준액 ≤ 남은 보류 확인 → 원금 대조 → 반환 적용(반환액 > 0일 때) → 위약금 지급 적용 → 위약금 지급 건 저장 → 반환·지급 원장 기록 순으로 처리한다.
     @Transactional
-    public PenaltyResult settle(PenaltyCommand command) {
+    public PenaltyResult settle(PaymentPenaltyCommand command) {
         long settlementAmountHp = BillingCommandValidator.verify(command);
         Long payerWalletId = holdProcessing.walletIdOf(command.payerUserId());
         Long receiverWalletId = holdProcessing.walletIdOf(command.receiverUserId());
@@ -115,7 +114,7 @@ public class PenaltySettlementUseCase {
     // 호스트 반환액·게스트 지급액·받는 지갑·지급 원천이 처음과 다르면 IDEMPOTENCY_KEY_CONFLICT로 거절한다.
     // 지급 상세·지급 건 중 하나만 있거나, 반환 상세 없이 반환 원장만 있거나, 원장 줄이 맞지 않으면
     // (한 트랜잭션이라 생길 수 없는) 비정상 상태이므로 HOLD_STATE_INCONSISTENT로 거절한다. 반환액 0으로 처리한 건에는 반환 상세가 없다.
-    private PenaltyResult replay(PenaltyCommand command, long settlementAmountHp, HoldState state,
+    private PenaltyResult replay(PaymentPenaltyCommand command, long settlementAmountHp, HoldState state,
             Optional<PointHoldDetail> releaseDetail, Optional<PointHoldDetail> payoutDetail,
             Optional<Settlement> settlement, Long receiverWalletId, String releaseKey) {
         if (payoutDetail.isEmpty() || settlement.isEmpty()

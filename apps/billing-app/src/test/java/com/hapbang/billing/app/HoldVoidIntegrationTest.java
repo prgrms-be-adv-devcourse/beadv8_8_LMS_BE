@@ -33,9 +33,6 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.HoldVoidCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 보류 무효화(#479)의 세 결과(RELEASED·ALREADY_CLOSED·VOIDED), 재요청, 무효화 뒤 보류 거절, 소유 확인,
@@ -72,7 +69,7 @@ class HoldVoidIntegrationTest {
         revenue(walletId, 1_000L);
         charge(walletId, 3_000L);
         HoldResult hold = hold(1L, 1001L, 3_000L);
-        holdFacade.release(ReleaseCommand.partial(1L, ORDER, 1001L, "R1", 500L));
+        holdFacade.release(PaymentReleaseCommand.partial(1L, ORDER, 1001L, "R1", 500L));
 
         HoldVoidResult result = voidHold(1L, 1001L);
 
@@ -96,7 +93,7 @@ class HoldVoidIntegrationTest {
         Long walletId = wallet(1L);
         charge(walletId, 2_000L);
         hold(1L, 1001L, 2_000L);
-        holdFacade.release(ReleaseCommand.full(1L, ORDER, 1001L, "R1"));
+        holdFacade.release(PaymentReleaseCommand.full(1L, ORDER, 1001L, "R1"));
         List<String> ledgers = ledgerKeys();
 
         HoldVoidResult result = voidHold(1L, 1001L);
@@ -212,11 +209,11 @@ class HoldVoidIntegrationTest {
     // ---------------------------------------------------------------------------------------------
 
     private HoldResult hold(Long userId, Long referenceId, long amountHp) {
-        return holdFacade.hold(new HoldCommand(userId, ORDER, referenceId, amountHp));
+        return holdFacade.hold(new PaymentHoldCommand(userId, ORDER, referenceId, amountHp));
     }
 
     private HoldVoidResult voidHold(Long userId, Long referenceId) {
-        return holdFacade.voidHold(new HoldVoidCommand(userId, ORDER, referenceId));
+        return holdFacade.voidHold(new PaymentHoldVoidCommand(userId, ORDER, referenceId));
     }
 
     // 회원 ID로 잔액이 0인 지갑을 저장하고 지갑 ID를 반환한다.

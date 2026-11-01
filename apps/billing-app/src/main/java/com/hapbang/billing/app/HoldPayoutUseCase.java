@@ -20,7 +20,6 @@ import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.Settlement;
 import com.hapbang.billing.domain.Wallet;
-import com.hapbang.shared.billing.dto.PayoutCommand;
 
 import lombok.RequiredArgsConstructor;
 
@@ -40,7 +39,7 @@ public class HoldPayoutUseCase {
     // → 원금 대조 → 배분 소진·보류 감소 → 지급 상세·지급 건 저장 → 원장 기록 순으로 처리한다.
     // 호출한 쪽 트랜잭션이 있으면 그 안에서 실행되며, 어느 단계든 실패하면 모든 변경이 롤백된다.
     @Transactional
-    public PayoutResult payout(PayoutCommand command) {
+    public PayoutResult payout(PaymentPayoutCommand command) {
         BillingCommandValidator.verify(command);
         Long payerWalletId = holdProcessing.walletIdOf(command.payerUserId());
         Long receiverWalletId = holdProcessing.walletIdOf(command.receiverUserId());
@@ -87,7 +86,7 @@ public class HoldPayoutUseCase {
     // 이미 처리한 같은 요청이면 현재 보류 상태와 관계없이 다시 바꾸지 않고 그때의 지급 결과를 돌려준다.
     // 받는 지갑·지급 원천·(부분 지급이면) 금액이 처음과 다르면 IDEMPOTENCY_KEY_CONFLICT, 지급 건이나 원장 줄이 맞지 않으면
     // HOLD_STATE_INCONSISTENT로 거절한다. 전체 지급 재요청은 금액을 비교하지 않고 처음 지급한 금액을 그대로 돌려준다.
-    private PayoutResult replay(PayoutCommand command, HoldState state, PointHoldDetail detail,
+    private PayoutResult replay(PaymentPayoutCommand command, HoldState state, PointHoldDetail detail,
             Long receiverWalletId) {
         Settlement settlement = holdProcessing.settlement(detail.getIdempotencyKey())
                 .orElseThrow(() -> new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT));

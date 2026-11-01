@@ -40,8 +40,6 @@ import com.hapbang.billing.out.PaymentKeyCipher;
 import com.hapbang.billing.out.TossPayment;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // TossPayments 테스트 결제 충전(#224)을 실제 PostgreSQL과 가짜 TossPayments HTTP 서버로 검증한다.
@@ -471,14 +469,14 @@ class ChargeIntegrationTest {
         Long walletId = wallet(1L);
         confirm(1L, order(1L));
 
-        holdFacade.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, 3_000L));
+        holdFacade.hold(new PaymentHoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, 3_000L));
 
         assertThat(walletRepository.findById(walletId).orElseThrow())
                 .extracting(Wallet::getChargeBalanceHp, Wallet::getHeldChargeHp).containsExactly(7_000L, 3_000L);
         assertThat(jdbcTemplate.queryForObject("SELECT remaining_principal_hp FROM billing.point_charge WHERE wallet_id = ?",
                 Long.class, walletId)).isEqualTo(7_000L);
 
-        holdFacade.release(ReleaseCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, "CANCEL-501"));
+        holdFacade.release(PaymentReleaseCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, "CANCEL-501"));
 
         assertWallet(walletId, AMOUNT);
         assertThat(jdbcTemplate.queryForObject("SELECT remaining_principal_hp FROM billing.point_charge WHERE wallet_id = ?",

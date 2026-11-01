@@ -32,7 +32,6 @@ import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
 
 import lombok.RequiredArgsConstructor;
 
@@ -62,7 +61,7 @@ public class HoldCreateUseCase {
     // 지갑 락 → 기존 원장·보류 확인 → 배분 계산 → 충전 건 락·원금 대조 → 보류 저장·FIFO 배분 → 원장 기록 순으로 처리한다.
     // 호출한 쪽 트랜잭션이 있으면 그 안에서 실행되며, 어느 단계든 실패하면 보류·배분·충전 원금·원장·지갑 변경이 모두 롤백된다.
     @Transactional
-    public HoldResult hold(HoldCommand command) {
+    public HoldResult hold(PaymentHoldCommand command) {
         BillingCommandValidator.verify(command);
         return hold(command.userId(), command.referenceType(), command.referenceId(), command.amountHp(),
                 PointHoldType.MIXED);

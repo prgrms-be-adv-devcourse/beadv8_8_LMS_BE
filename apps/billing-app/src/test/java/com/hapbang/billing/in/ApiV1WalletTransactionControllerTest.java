@@ -28,13 +28,13 @@ import com.hapbang.billing.app.HoldFacade;
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
 import com.hapbang.billing.app.LedgerRecordUseCase;
+import com.hapbang.billing.app.PaymentHoldCommand;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
@@ -72,7 +72,7 @@ class ApiV1WalletTransactionControllerTest {
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken("internal", null,
                 List.of(new SimpleGrantedAuthority("ROLE_INTERNAL"))));
         try {
-            holdFacade.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 11L, 2_000L));
+            holdFacade.hold(new PaymentHoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 11L, 2_000L));
         } finally {
             SecurityContextHolder.clearContext();
         }
