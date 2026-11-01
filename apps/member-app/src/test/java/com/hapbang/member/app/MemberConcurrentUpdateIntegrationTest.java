@@ -13,6 +13,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
@@ -20,10 +21,9 @@ import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.event.UserModifiedEvent;
-import com.hapbang.testsupport.IntegrationTest;
 
 /** 같은 회원을 동시에 수정: 먼저 커밋한 쪽만 반영되고, 늦게 저장한 쪽은 409로 실패한다 (@Version) */
-@IntegrationTest
+@MemberIntegrationTest
 @RecordApplicationEvents
 class MemberConcurrentUpdateIntegrationTest {
 

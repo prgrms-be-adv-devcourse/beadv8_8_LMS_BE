@@ -3,13 +3,13 @@ package com.hapbang.lecture.in;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.lecture.global.auth.LoginUserId;
@@ -20,6 +20,8 @@ import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.app.dto.OrderSummaryResponse;
 import com.hapbang.lecture.app.dto.PurchasedLectureResponse;
 import com.hapbang.lecture.app.dto.SaleResponse;
+import com.hapbang.lecture.domain.LectureOrderStatus;
+import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.in.dto.OrderCreateRequest;
 
 import jakarta.validation.Valid;
@@ -37,9 +39,14 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
 
     @Override
     @PostMapping("/orders")
-    @ResponseStatus(HttpStatus.CREATED)
-    public RsData<OrderResponse> createOrder(@LoginUserId Long userId, @Valid @RequestBody OrderCreateRequest request) {
-        return RsData.created("주문했습니다.", lectureOrderFacade.createOrder(userId, request.lectureIds()));
+    public ResponseEntity<RsData<OrderResponse>> createOrder(@LoginUserId Long userId,
+                                                             @Valid @RequestBody OrderCreateRequest request) {
+        OrderResponse order = lectureOrderFacade.createOrder(userId, request.lectureIds());
+        // 결제가 끝나지 않았으면 처리 중 주문을 202로 돌려준다. 프론트는 다시 주문하지 않고 주문 상세를 조회한다 (D58 (4))
+        RsData<OrderResponse> body = order.status() == LectureOrderStatus.PAID
+                ? RsData.created("주문했습니다.", order)
+                : RsData.of(HttpStatus.ACCEPTED, "주문 결제를 처리 중입니다.", order);
+        return ResponseEntity.status(body.statusCode()).body(body);
     }
 
     @Override
@@ -71,9 +78,14 @@ public class ApiV1LectureOrderController implements ApiV1LectureOrderSpec {
 
     @Override
     @PostMapping("/orders/{orderId}/items/{orderItemId}/cancel")
-    public RsData<OrderItemResponse> cancel(@LoginUserId Long userId, @PathVariable("orderId") Long orderId,
-            @PathVariable("orderItemId") Long orderItemId) {
-        return RsData.ok("구매를 취소했습니다.", lectureOrderFacade.cancel(userId, orderId, orderItemId));
+    public ResponseEntity<RsData<OrderItemResponse>> cancel(@LoginUserId Long userId,
+            @PathVariable("orderId") Long orderId, @PathVariable("orderItemId") Long orderItemId) {
+        OrderItemResponse item = lectureOrderFacade.cancel(userId, orderId, orderItemId);
+        // 반환이 끝나지 않았으면 구매 취소 처리 중 항목을 202로 돌려준다 (D59 (1))
+        RsData<OrderItemResponse> body = item.status() == OrderItemStatus.CANCELED
+                ? RsData.ok("구매를 취소했습니다.", item)
+                : RsData.of(HttpStatus.ACCEPTED, "구매 취소를 처리 중입니다.", item);
+        return ResponseEntity.status(body.statusCode()).body(body);
     }
 
     @Override

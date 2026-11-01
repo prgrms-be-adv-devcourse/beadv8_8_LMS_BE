@@ -42,6 +42,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.client.HttpServerErrorException;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.ChannelVerificationStatus;
 import com.hapbang.member.domain.InfluencerChannel;
@@ -55,7 +56,6 @@ import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserModifiedEvent;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
@@ -63,7 +63,7 @@ import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 
 /** 치지직은 부르지 않는다 (ChzzkApiClient를 가짜로 바꾼다) */
-@IntegrationTest
+@MemberIntegrationTest
 @AutoConfigureMockMvc
 @RecordApplicationEvents
 @Import(RedisTestcontainersConfig.class)

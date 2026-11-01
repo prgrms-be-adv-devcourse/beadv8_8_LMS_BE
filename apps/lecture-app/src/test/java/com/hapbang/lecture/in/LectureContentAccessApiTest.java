@@ -274,9 +274,9 @@ class LectureContentAccessApiTest {
         approve(lectureId);
         Long contentId = contentId(lectureId, 0);
         LectureOrder order = purchase(lectureId);
-        transactionTemplate.executeWithoutResult(status -> lectureOrderRepository.findById(order.getId())
-                .orElseThrow()
-                .cancelItem(order.getItems().getFirst().getId(), LocalDateTime.now(LectureConfig.ZONE)));
+        transactionTemplate.executeWithoutResult(status -> LectureOrderFixture.cancel(
+                lectureOrderRepository.findById(order.getId()).orElseThrow(), order.getItems().getFirst().getId(),
+                LocalDateTime.now(LectureConfig.ZONE)));
 
         access(BUYER_ID, Role.USER, lectureId, contentId)
                 .andExpect(status().isForbidden())

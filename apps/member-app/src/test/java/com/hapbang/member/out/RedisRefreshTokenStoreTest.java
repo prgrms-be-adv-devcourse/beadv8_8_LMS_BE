@@ -17,11 +17,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
-import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 
 /** refresh token Redis 저장소 (#370): 회전·재사용 감지·유예 시간·폐기를 실제 Redis로 확인한다 */
-@IntegrationTest
+@MemberIntegrationTest
 @Import(RedisTestcontainersConfig.class)
 class RedisRefreshTokenStoreTest {
 

@@ -125,6 +125,49 @@ class WalletTest {
     }
 
     // 저장된 지갑처럼 ID(회원 ID + 1000)가 있는 지갑을 만든다. 원장은 지갑을 ID로 가리킨다.
+    @Test
+    @DisplayName("플랫폼 지갑은 회원이 없고 수수료 수입(FEE 가용 칸)만 바뀐다 (#336)")
+    void platform_feeIncome() {
+        Wallet platform = savedPlatform();
+
+        platform.applyLedger(ledger(platform, PointType.FEE, BalanceBucket.AVAILABLE, 1_500L));
+        platform.applyLedger(ledger(platform, PointType.FEE, BalanceBucket.AVAILABLE, 2_300L));
+
+        assertThat(platform.isPlatform()).isTrue();
+        assertThat(platform.getUserId()).isNull();
+        assertThat(platform.getFeeBalanceHp()).isEqualTo(3_800L);
+        assertThat(platform.balanceOf(PointType.FEE, BalanceBucket.AVAILABLE)).isEqualTo(3_800L);
+        assertThat(platform.balanceOf(PointType.FEE, BalanceBucket.HELD)).isZero();
+        assertThat(platform.getRevenueBalanceHp()).isZero();
+    }
+
+    @Test
+    @DisplayName("플랫폼 지갑에 충전·수익 HP 원장, 회원 지갑에 수수료 수입 원장, 수수료 수입 보류 칸 원장은 반영하지 않는다 (#336)")
+    void walletTypeGuards() {
+        Wallet platform = savedPlatform();
+        Wallet member = saved(1L);
+
+        for (PointType pointType : new PointType[] {PointType.CHARGE, PointType.REVENUE}) {
+            for (BalanceBucket balanceBucket : BalanceBucket.values()) {
+                assertThatThrownBy(() -> platform.applyLedger(ledger(platform, pointType, balanceBucket, 100L)))
+                        .isInstanceOf(IllegalStateException.class);
+            }
+        }
+        assertThatThrownBy(() -> member.applyLedger(ledger(member, PointType.FEE, BalanceBucket.AVAILABLE, 100L)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> platform.applyLedger(ledger(platform, PointType.FEE, BalanceBucket.HELD, 100L)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(platform.getFeeBalanceHp()).isZero();
+        assertThat(member.getFeeBalanceHp()).isZero();
+        assertThat(member.isPlatform()).isFalse();
+    }
+
+    private static Wallet savedPlatform() {
+        Wallet wallet = Wallet.createPlatform();
+        ReflectionTestUtils.setField(wallet, "id", 1L);
+        return wallet;
+    }
+
     private static Wallet saved(long userId) {
         Wallet wallet = Wallet.create(userId);
         ReflectionTestUtils.setField(wallet, "id", userId + 1_000L);

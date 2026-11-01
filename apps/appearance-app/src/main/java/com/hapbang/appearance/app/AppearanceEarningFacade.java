@@ -20,7 +20,7 @@ import lombok.RequiredArgsConstructor;
  * (shared {@code AppearanceApiClient}).
  * <ul>
  *     <li>역할 검사: 내부 인증(키)을 통과한 호출만 ({@code ROLE_INTERNAL}). 키 검사는 global 내부 API 보안 체인이 하고,
- *     회원 세션이 이 진입점에 오지 못하게 한 번 더 막는다.</li>
+ *     회원 로그인이 이 진입점에 오지 못하게 한 번 더 막는다.</li>
  *     <li>회원 ID를 호출한 쪽이 지정한다. 키가 곧 권한이므로, 로그인 회원 본인인지는 Billing이 확인한다.</li>
  *     <li>트랜잭션: 읽기 전용 하나 (목록과 제목을 한 시점 값으로).</li>
  * </ul>

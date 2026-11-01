@@ -3,6 +3,8 @@ package com.hapbang.billing.in;
 import com.hapbang.billing.global.response.RsData;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -62,4 +64,14 @@ public interface ApiV1BillingInternalSpec {
     @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
             description = API_KEY_DESCRIPTION)
     RsData<PenaltyResultDto> settlePenalty(PenaltyCommand command);
+
+    @Operation(summary = "HP 보류 무효화",
+            description = "참조 대상의 보류를 더는 쓰지 않을 때 부른다(#479). 보류가 있고 남은 HP가 있으면 결제 회원에게 전부 반환한다(RELEASED). "
+                    + "보류가 이미 끝났으면 바꾸지 않는다(ALREADY_CLOSED). 보류가 없으면 무효 표시만 남긴다(VOIDED). 어느 경우든 이후 이 "
+                    + "참조 대상의 보류 요청은 409 HOLD_VOIDED로 거절한다. 멱등 키는 참조 대상(referenceType + referenceId)이며 참조 대상당 "
+                    + "한 번이다. 같은 요청 재요청은 처음 결과를 replayed=true로 준다. "
+                    + "오류: 지갑 없음 404 WALLET_NOT_FOUND, 다른 회원의 보류·무효화 409 HOLD_OWNER_MISMATCH." + COMMON_ERRORS)
+    @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
+            description = API_KEY_DESCRIPTION)
+    RsData<HoldVoidResultDto> voidHold(HoldVoidCommand command);
 }

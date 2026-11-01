@@ -4,6 +4,7 @@ import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class ChatRoomMemberTest {
 
@@ -78,6 +79,45 @@ class ChatRoomMemberTest {
 
         assertThat(member.getVisibleFromSequence()).isEqualTo(1);
         assertThat(member.getParticipationVersion()).isEqualTo(1);
+    }
+
+    @Test
+    void 처음_입장하면_수신_확인_순번은_미확인이다() {
+        ChatRoom room = directRoom();
+        room.issueSequence();
+
+        ChatRoomMember member = ChatRoomMember.join(room, HOST_ID, NOW);
+
+        assertThat(member.getLastReceivedSequence()).isNull();
+    }
+
+    @Test
+    void 재입장하면_수신_확인_순번을_참여_세대_변경과_함께_비운다() {
+        ChatRoom room = directRoom();
+        ChatRoomMember member = ChatRoomMember.join(room, GUEST_ID, NOW);
+        room.issueSequence();
+        room.issueSequence();
+        // 수신 확인 순번은 Repository의 조건부 갱신으로만 올라가므로 테스트에서는 필드를 직접 채운다
+        ReflectionTestUtils.setField(member, "lastReceivedSequence", 2L);
+        member.leave(NOW.plusHours(1));
+
+        member.rejoin(NOW.plusHours(2));
+
+        assertThat(member.getParticipationVersion()).isEqualTo(2);
+        assertThat(member.getLastReceivedSequence()).isNull();
+        assertThat(member.getLastReadSequence()).isEqualTo(2);
+    }
+
+    @Test
+    void 참여_중인_회원의_재입장은_수신_확인_순번을_바꾸지_않는다() {
+        ChatRoom room = directRoom();
+        ChatRoomMember member = ChatRoomMember.join(room, HOST_ID, NOW);
+        room.issueSequence();
+        ReflectionTestUtils.setField(member, "lastReceivedSequence", 1L);
+
+        member.rejoin(NOW.plusHours(1));
+
+        assertThat(member.getLastReceivedSequence()).isEqualTo(1L);
     }
 
     @Test

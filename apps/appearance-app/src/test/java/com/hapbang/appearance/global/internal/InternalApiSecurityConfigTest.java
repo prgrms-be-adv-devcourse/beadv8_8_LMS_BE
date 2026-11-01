@@ -1,7 +1,6 @@
 package com.hapbang.appearance.global.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -27,20 +26,17 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.context.SecurityContextImpl;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hapbang.appearance.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.appearance.global.config.PageConfig;
 import com.hapbang.appearance.global.config.SecurityConfig;
 import com.hapbang.appearance.global.response.RsData;
@@ -62,8 +58,6 @@ import tools.jackson.databind.json.JsonMapper;
 @WebMvcTest(controllers = {InternalApiSecurityConfigTest.InternalProbeController.class,
         InternalApiSecurityConfigTest.PublicProbeController.class}, properties = {
         "spring.config.name=hapbang-module-test",
-        "spring.security.oauth2.client.registration.google.client-id=test",
-        "spring.security.oauth2.client.registration.google.client-secret=test",
         "hapbang.internal-api.key=" + InternalApiSecurityConfigTest.KEY
 })
 @Import({SecurityConfig.class, PageConfig.class, InternalApiSecurityConfig.class,
@@ -137,23 +131,23 @@ class InternalApiSecurityConfigTest {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // 세션·CSRF·키 노출
+    // 회원 로그인·CSRF·키 노출
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("회원·관리자 로그인 세션만으로는 Internal API에 접근할 수 없다(같은 세션은 회원 API에서는 인증된다)")
-    void sessionIsNotInternalAuthentication() throws Exception {
+    @DisplayName("회원·관리자 로그인(Gateway 사용자 헤더)만으로는 Internal API에 접근할 수 없다(같은 헤더는 회원 API에서는 인증된다)")
+    void userHeadersAreNotInternalAuthentication() throws Exception {
         for (String role : List.of("ROLE_ADMIN", "ROLE_USER", "ROLE_INFLUENCER")) {
-            MockHttpSession session = loggedInSession(role);
+            RequestPostProcessor user = loggedIn(role);
 
-            mockMvc.perform(get("/api/v1/samples/me").session(session))
+            mockMvc.perform(get("/api/v1/samples/me").with(user))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.authorities[0]").value(role));
-            mockMvc.perform(get(PROBE).session(session)).andExpect(status().isUnauthorized());
-            mockMvc.perform(get(PROBE).session(session).header(InternalApiHeaders.API_KEY, "wrong-key"))
+            mockMvc.perform(get(PROBE).with(user)).andExpect(status().isUnauthorized());
+            mockMvc.perform(get(PROBE).with(user).header(InternalApiHeaders.API_KEY, "wrong-key"))
                     .andExpect(status().isUnauthorized());
-            // 세션과 함께 와도 올바른 키면 Internal 인증만 쓴다(세션의 역할이 섞이지 않는다)
-            mockMvc.perform(get(PROBE).session(session).header(InternalApiHeaders.API_KEY, KEY))
+            // 사용자 헤더와 함께 와도 올바른 키면 Internal 인증만 쓴다(헤더의 역할이 섞이지 않는다)
+            mockMvc.perform(get(PROBE).with(user).header(InternalApiHeaders.API_KEY, KEY))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.authorities.length()").value(1))
                     .andExpect(jsonPath("$.authorities[0]").value("ROLE_INTERNAL"));
@@ -168,14 +162,12 @@ class InternalApiSecurityConfigTest {
     }
 
     @Test
-    @DisplayName("CSRF: Internal API는 CSRF 토큰 없이 POST할 수 있고, 회원 API는 기존대로 토큰이 없으면 403이다")
-    void csrfOnlyDisabledForInternal() throws Exception {
+    @DisplayName("CSRF: Internal API와 회원 API 모두 CSRF 토큰 없이 POST할 수 있다(쿠키 인증이 아니다, #395)")
+    void csrfDisabled() throws Exception {
         mockMvc.perform(post(PROBE).header(InternalApiHeaders.API_KEY, KEY)).andExpect(status().isOk());
         mockMvc.perform(post(PROBE)).andExpect(status().isUnauthorized());
 
-        MockHttpSession session = loggedInSession("ROLE_USER");
-        mockMvc.perform(post("/api/v1/samples/me").session(session)).andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/v1/samples/me").session(session).with(csrf())).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/samples/me").with(loggedIn("ROLE_USER"))).andExpect(status().isOk());
     }
 
     @Test
@@ -244,13 +236,13 @@ class InternalApiSecurityConfigTest {
         assertThat(page.content().get(1).payoutScheduledAt()).isNull();
     }
 
-    // 회원 로그인 세션: HttpSessionSecurityContextRepository가 회원 API에서 읽는 형태 그대로 둔다
-    private static MockHttpSession loggedInSession(String authority) {
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
-                new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated("7", null,
-                        List.of(new SimpleGrantedAuthority(authority)))));
-        return session;
+    // 회원 로그인: Gateway가 회원 API에 넘기는 사용자 헤더 그대로 둔다 (회원 ID 7)
+    private static RequestPostProcessor loggedIn(String authority) {
+        return request -> {
+            request.addHeader(GatewayUserHeaderFilter.USER_ID, "7");
+            request.addHeader(GatewayUserHeaderFilter.USER_ROLE, authority.substring("ROLE_".length()));
+            return request;
+        };
     }
 
     record AuthView(Object principal, List<String> authorities) {

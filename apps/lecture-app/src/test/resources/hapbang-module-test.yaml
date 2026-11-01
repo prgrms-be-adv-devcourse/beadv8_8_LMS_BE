@@ -1,0 +1,9 @@
+# 강의 모듈 테스트 전용 설정. src/test 아래라 배포 jar에는 포함되지 않는다.
+spring:
+  kafka:
+    # 대부분의 테스트에는 Kafka가 없다. 리스너가 연결을 계속 시도하거나 토픽 생성이 시간 초과를 기다리지 않게 끈다.
+    # Kafka 소비 테스트(LectureMemberEventListenerTest)만 KafkaTestcontainersConfig와 함께 다시 켠다.
+    listener:
+      auto-startup: false
+    admin:
+      auto-create: false

@@ -5,3 +5,5 @@ resources:
 - gateway-staging.yaml
 - gateway-issuer.yaml
 - grafana.yaml
+# Kafka UI Basic Auth 계정(admin). 비밀번호는 만든 사람의 ~/.hapbang/kafka-ui-password에만 있다(docs/deploy/gateway.md).
+- kafka-ui-basic-auth.yaml

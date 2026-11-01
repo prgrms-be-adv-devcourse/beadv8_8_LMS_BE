@@ -12,6 +12,7 @@ kubectl --context "$ctx" apply -k k8s/gateway/install/cert-manager
 kubectl --context "$ctx" wait --for=create crd/certificates.cert-manager.io --timeout=180s
 kubectl --context "$ctx" -n cert-manager wait --for=create deployment/cert-manager --timeout=300s
 kubectl --context "$ctx" -n cert-manager rollout status deployment/cert-manager --timeout=300s
+kubectl --context "$ctx" -n cert-manager rollout status deployment/cert-manager-cainjector --timeout=300s
 kubectl --context "$ctx" -n cert-manager rollout status deployment/cert-manager-webhook --timeout=300s
 kubectl --context "$ctx" label node k3d-hapbang-server-0 svccontroller.k3s.cattle.io/enablelb=true --overwrite
 kubectl --context "$ctx" apply -k k8s/gateway/overlays/local

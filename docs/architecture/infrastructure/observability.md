@@ -10,15 +10,30 @@
 
 비교 실험은 다음을 한 세트로 구성한다.
 
-- Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, 채팅 outbox 적체·대기 시간·재시도·DEAD, Redis Pub/Sub 발행 실패, HP task 노출
+- Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, 채팅 outbox 적재 대기·재시도·DEAD, Stream 그룹 lag·PEL/idle·ACK 지연·회수·메모리, DB 발행 체크포인트·재구성, Redis Pub/Sub 발행 실패, HP task 노출
 - Prometheus: `/actuator/prometheus`와 infrastructure exporter를 직접 scrape하고 local TSDB·PromQL·rule 평가 담당
 - Grafana Alloy: pod log 수집과 OTLP trace 수신·전달 담당. Mimir로 바꿀 때만 metrics scrape·remote write까지 확장
-- Loki: JSON log 저장; `traceId`, `correlationId`, `eventId`, 배포 version으로 연결
+- Loki: JSON log 저장; `traceId`, `correlationId`, 배포 version으로 연결
 - Tempo: HTTP → 업무 transaction → Kafka publish/consume → chat delivery trace 저장
 - Grafana: Prometheus·Loki·Tempo datasource와 API, Kafka, chat, HP, Kubernetes dashboard·alert
 - k6: 일반 API, WebSocket, 돈 흐름 재시도 시나리오
 
 기준선에서는 **Prometheus가 metrics를 직접 scrape**하고, Alloy는 logs·traces를 Loki·Tempo로 전달한다. Grafana는 세 backend를 조회한다. Prometheus remote-write receiver는 공식 문서가 일반 scrape의 대체 수단으로 적합하지 않다고 명시하므로, collector를 하나처럼 보이게 만들기 위해 `Alloy scrape → Prometheus remote write receiver`를 기본 구성으로 쓰지 않는다([Prometheus Remote Write Receiver](https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver)). Prometheus와 Mimir를 동시에 장기 저장소로 두지 않는다.
+
+## 현재 수집 상태 (#480)
+
+- **지표**: member-app·lecture-app만 `/actuator/prometheus`를 연다. Prometheus 차트 기본 `kubernetes-pods` job이 pod annotation을 보고 1분마다 수집한다. label은 pod label을 옮긴 `app_kubernetes_io_name`과 `namespace`·`pod`다.
+- **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 형식은 앱 기본 평문 그대로이고 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
+- 구조화 로그·`traceId`, dashboard·alert는 아직 없다(#343).
+
+다른 앱이 지표를 열 때는 다음 네 가지를 더한다. `micrometer-registry-prometheus`는 루트 `build.gradle.kts`가 모든 앱에 넣는다. member-app·lecture-app이 예시다.
+
+1. `application.yaml`: `management.endpoints.web.exposure.include: health,prometheus`
+2. `SecurityConfig`: `GET /actuator/prometheus`만 permitAll로 연다. 다른 actuator 경로는 계속 막는다.
+3. `k8s/base/deployment.yaml`의 pod template annotation: `prometheus.io/scrape: 'true'`, `prometheus.io/port: '8080'`, `prometheus.io/path: /actuator/prometheus`
+4. `k8s/base/networkpolicy.yaml`: 8080을 `hapbang-platform`의 Prometheus server pod(`app.kubernetes.io/name: prometheus`, `app.kubernetes.io/component: server`)에 연다.
+
+8081은 쓰지 않는다. `InternalApiPortValve`가 `/api/v1/internal` 밖 경로를 404로 막는다. `/actuator`는 HTTPRoute가 라우팅하지 않아 Gateway로 노출되지 않는다. registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한다(member-app은 448 MiB에서 OOMKilled, [k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)).
 
 ## metrics 수집과 저장 — Prometheus vs Mimir
 
@@ -62,7 +77,7 @@ Promtail은 사용하지 않는다. 2026-03-02에 EOL이 되었고 이후 기능
 | 일반 API | 100 RPS, 10분, p95 500 ms 이하, 5xx 1% 미만 |
 | 채팅 | WebSocket 200개, 20 msg/s, 저장→전달 p95 1초 이하 |
 | Kafka | consumer 중지 후 재개, backlog 5분 내 회복 |
-| 채팅 outbox·Pub/Sub | relay 종료 후 lease 만료 회수, Redis 복구 뒤 적체 해소, 마지막 프레임 유실 뒤 이력 대조 복구 |
+| 채팅 outbox·Streams·Pub/Sub | relay lease·PEL 회수, XADD/PUBLISH/DB 기록/XACK 경계의 중복, Redis 데이터 유실 재구성·보존·메모리 상한, 마지막 프레임 유실의 이력 대조 복구 |
 | 돈 흐름 | timeout·중복 요청에도 원장 불변식 위반 0건 |
 | rolling update | HTTP 오류 최소화, WebSocket 재연결 후 history gap 0건 |
 

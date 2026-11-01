@@ -25,13 +25,13 @@ import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.out.HoldVoidRepository;
 import com.hapbang.billing.out.PointChargeRepository;
 import com.hapbang.billing.out.PointChargeUsageRepository;
 import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
 
 import lombok.RequiredArgsConstructor;
 
@@ -55,19 +55,20 @@ public class HoldCreateUseCase {
     private final PointChargeRepository pointChargeRepository;
     private final PointChargeUsageRepository pointChargeUsageRepository;
     private final PointLedgerRepository pointLedgerRepository;
+    private final HoldVoidRepository holdVoidRepository;
     private final LedgerRecordUseCase ledgerRecordUseCase;
 
     // 지갑 락 → 기존 원장·보류 확인 → 배분 계산 → 충전 건 락·원금 대조 → 보류 저장·FIFO 배분 → 원장 기록 순으로 처리한다.
     // 호출한 쪽 트랜잭션이 있으면 그 안에서 실행되며, 어느 단계든 실패하면 보류·배분·충전 원금·원장·지갑 변경이 모두 롤백된다.
     @Transactional
-    public HoldResult hold(HoldCommand command) {
+    public HoldResult hold(PaymentHoldCommand command) {
         BillingCommandValidator.verify(command);
         return hold(command.userId(), command.referenceType(), command.referenceId(), command.amountHp(),
                 PointHoldType.MIXED);
     }
 
     // Billing 내부 보류(#241): 환불은 충전 HP만(CHARGE_ONLY), 환전은 수익 HP만(REVENUE_ONLY) 보류한다. 나머지 규칙(충전 원금 FIFO 배분,
-    // 원장, 멱등성, 지갑 → 충전 건 락 순서)은 BillingPort.hold와 같다.
+    // 원장, 멱등성, 지갑 → 충전 건 락 순서)은 강의·출연 보류(HoldFacade.hold)와 같다.
     @Transactional
     public HoldResult hold(InternalHoldCommand command) {
         BillingCommandValidator.requirePositive(command.amountHp());
@@ -84,6 +85,12 @@ public class HoldCreateUseCase {
         // 같은 지갑의 보류·원장 기록은 이 락으로 직렬화되므로, 락 이후의 조회는 먼저 커밋된 보류와 원장을 본다.
         // 다른 지갑의 같은 참조 대상 보류는 이 락으로 막히지 않고, 보류 멱등키 UNIQUE가 최종으로 막는다.
         Wallet wallet = ledgerRecordUseCase.lockWallet(walletId);
+
+        // 보류 무효화된 참조 대상에는 보류를 만들지 않는다(뒤늦게 도착한 보류 방지, #479). 무효화와 같은 지갑 락 아래에서 확인한다.
+        // 무효화 전에 만든 보류의 재요청도 거절한다: 호출한 쪽은 이미 이 보류를 포기했다.
+        if (holdVoidRepository.existsByReferenceTypeAndReferenceId(referenceType, referenceId)) {
+            throw new BillingException(BillingErrorCode.HOLD_VOIDED);
+        }
 
         // READ COMMITTED에서는 SELECT마다 그 시점에 커밋된 데이터를 보므로 원장을 먼저, 보류를 나중에 읽는다.
         // 보류와 원장은 한 트랜잭션에서 함께 커밋되므로, 먼저 읽은 원장이 보이면 나중에 읽는 보류도 반드시 보인다.

@@ -6,7 +6,7 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 
 // 호스트가 성립한 출연을 일방 취소했을 때, 보류에서 호스트 반환액을 호스트에게 되돌리고 게스트 지급액을 게스트 수익 HP에 위약금으로 지급하는 요청이다
-// (BillingPort.settlePenalty). 두 처리는 Billing이 한 트랜잭션에서 함께 한다.
+// (내부 API penalty-settlements). 두 처리는 Billing이 한 트랜잭션에서 함께 한다.
 // 출연이 정하는 것(2026-10-14 확정): 취소 가능 여부, 취소 대상 게스트·출연 계약, 계약 출연료, 위약금 비율·금액 계산(반올림 포함), 호스트 반환액.
 // Billing은 비율을 계산하거나 검증하지 않는다. 두 금액의 합(releaseAmountHp + payoutAmountHp)이 이 취소 건의 정산 기준액이다.
 // 취소 ID는 보류 하나 안에서 고유하며, 같은 취소 사건을 다시 보낼 때는 같은 값·같은 금액을 쓴다.

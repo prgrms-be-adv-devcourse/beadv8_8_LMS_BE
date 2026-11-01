@@ -3,11 +3,9 @@ package com.hapbang.billing.in;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
@@ -15,8 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactory;
-import org.springframework.modulith.test.EnableScenarios;
-import org.springframework.modulith.test.Scenario;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -32,17 +28,15 @@ import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
-import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 import jakarta.persistence.EntityManager;
 
 // 회원 복제본 반영(#294)의 실패 격리를 확인한다.
-// - 복제본 반영이 실패해도 같은 가입 이벤트의 지갑 생성은 영향을 받지 않는다(리스너가 따로라 Modulith가 따로 기록한다).
+// - 복제본 반영이 실패해도 같은 가입 이벤트의 지갑 생성이 영향을 받지 않는지는 Kafka 소비 그룹 단위로 BillingMemberEventKafkaTest가 본다 (#430).
 // - 동시 생성 PK 충돌 뒤 재시도는 실패한 트랜잭션이 아니라 새 트랜잭션에서 하고, 호출한 쪽 트랜잭션을 rollback-only로 만들지 않는다.
 // 실패를 일부러 내는 빈 교체가 있어 이 클래스만 쓰는 컨텍스트다. 연결 풀을 작게 두고 끝나면 닫는다.
 @IntegrationTest
-@EnableScenarios
 @TestPropertySource(properties = {"spring.datasource.hikari.maximum-pool-size=3",
         "spring.datasource.hikari.minimum-idle=1"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -62,17 +56,6 @@ class BillingMemberEventIsolationTest {
 
     @Autowired
     EntityManager entityManager;
-
-    @Test
-    @DisplayName("복제본 반영이 실패해도 지갑은 만들어진다")
-    void replicaFailureDoesNotBlockWallet(Scenario scenario) {
-        doThrow(new IllegalStateException("복제본 반영 실패(테스트)")).when(billingUserSyncUseCase).apply(any());
-
-        scenario.publish(new UserJoinedEvent(new UserDto(300L, "민수", Role.INFLUENCER, UserStatus.ACTIVE, 0L)))
-                .andWaitForStateChange(() -> walletRepository.findByUserId(300L), Optional::isPresent);
-
-        assertThat(billingUserRepository.findById(300L)).isEmpty();
-    }
 
     @Test
     @DisplayName("PK 충돌 뒤 재시도는 새 트랜잭션에서 하고, 호출한 쪽 트랜잭션에 합류하지 않아 그 트랜잭션은 정상 커밋된다")

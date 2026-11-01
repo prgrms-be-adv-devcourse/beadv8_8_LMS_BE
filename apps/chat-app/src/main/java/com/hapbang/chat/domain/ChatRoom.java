@@ -23,6 +23,8 @@ import lombok.NoArgsConstructor;
  *     <li>{@code directKey}는 종료되지 않은 방에만 값이 있다. 유일 제약으로 같은 두 회원의 활성 방을 하나로 제한하고,
  *     방이 종료되면 비워서 다음 대화가 새 방에서 시작되게 한다.</li>
  *     <li>{@code lastSequence}는 방 단위 메시지 순번이다. 방을 잠근 상태에서만 발급한다.</li>
+ *     <li>{@code currentRecipientSetId}·{@code activeMemberCount}는 참여 변경 때 방 잠금 아래 참여 행과 함께 바꾼다.
+ *     메시지 전달 작업은 저장 시점의 현재 집합 버전을 참조한다.</li>
  * </ul>
  */
 @Entity
@@ -59,6 +61,14 @@ public class ChatRoom {
     private LocalDateTime endedAt;
 
     private LocalDateTime deletedAt;
+
+    /** 현재 불변 수신자 집합 버전. 없으면 메시지 전송 대상으로 열지 않는다 */
+    @Column(name = "current_recipient_set_id")
+    private Long currentRecipientSetId;
+
+    /** 활성 참여자 수. 참여 행·현재 수신자 집합과 같은 트랜잭션에서 함께 바꾼다 */
+    @Column(nullable = false)
+    private int activeMemberCount;
 
     private ChatRoom(ChatRoomType roomType, String directKey, LocalDateTime now) {
         this.roomType = roomType;
@@ -103,6 +113,23 @@ public class ChatRoom {
      */
     public long readableSequence(long requestedSequence) {
         return Math.min(requestedSequence, lastSequence);
+    }
+
+    public boolean hasRecipientSet() {
+        return currentRecipientSetId != null;
+    }
+
+    /**
+     * 참여 변경 뒤 만든 불변 수신자 집합을 현재 버전으로 삼는다. 방을 잠근 트랜잭션 안에서 참여 행 변경과 함께 부른다.
+     *
+     * @param memberCount 그 집합의 항목 수(= 활성 참여자 수)
+     */
+    public void applyRecipientSet(Long recipientSetId, int memberCount, LocalDateTime now) {
+        Assert.notNull(recipientSetId, "수신자 집합 ID가 필요합니다.");
+        Assert.isTrue(memberCount >= 0, "활성 참여자 수는 0 이상이어야 합니다.");
+        this.currentRecipientSetId = recipientSetId;
+        this.activeMemberCount = memberCount;
+        this.updatedAt = now;
     }
 
     public void end(LocalDateTime now) {

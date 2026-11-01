@@ -65,7 +65,7 @@ class OrderAutoConfirmUseCaseTest {
         LectureOrder confirmed = save(List.of(saveOnSale()), overdue);
         inTransaction(confirmed, order -> order.confirmItem(itemId(confirmed, 0), overdue.plusDays(1)));
         LectureOrder canceled = save(List.of(saveOnSale()), overdue);
-        inTransaction(canceled, order -> order.cancelItem(itemId(canceled, 0), overdue.plusDays(1)));
+        inTransaction(canceled, order -> LectureOrderFixture.cancel(order, itemId(canceled, 0), overdue.plusDays(1)));
 
         orderAutoConfirmUseCase.confirmDueItems();
 

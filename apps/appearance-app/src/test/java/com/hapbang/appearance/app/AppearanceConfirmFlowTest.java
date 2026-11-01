@@ -413,6 +413,26 @@ class AppearanceConfirmFlowTest {
         }
 
         @Test
+        @DisplayName("방송 예정 일시 전 APPEARANCE_CONFIRM_NOT_OPEN, 게스트 NOT_APPEARANCE_HOST, 확인 기간 끝 APPEARANCE_CONFIRM_PERIOD_ENDED. "
+                + "어느 경우도 반환 작업이 생기지 않고 Billing에 반환을 요청하지 않는다")
+        void rejected() {
+            Long appearanceId = establishFromRequest().appearanceId();
+
+            assertErrorCode(() -> appearanceFacade.markAbsent(HOST, appearanceId, null),
+                    AppearanceErrorCode.APPEARANCE_CONFIRM_NOT_OPEN);
+            broadcastEnded(appearanceId);
+            assertErrorCode(() -> appearanceFacade.markAbsent(GUEST, appearanceId, null),
+                    AppearanceErrorCode.NOT_APPEARANCE_HOST);
+            confirmPeriodEnded(appearanceId);
+            assertErrorCode(() -> appearanceFacade.markAbsent(HOST, appearanceId, null),
+                    AppearanceErrorCode.APPEARANCE_CONFIRM_PERIOD_ENDED);
+
+            assertThat(appearanceFacade.getDetail(HOST, appearanceId).status()).isEqualTo(AppearanceStatus.ESTABLISHED);
+            assertThat(tasksOf(HpTaskType.RELEASE)).isEmpty();
+            assertThat(BillingCalls.releases(billingClient)).isEmpty();
+        }
+
+        @Test
         @DisplayName("확인과 불참이 동시에 오면 한쪽만 반영된다: HP 작업 1건, 다른 쪽은 APPEARANCE_NOT_CONFIRMABLE 또는 CONCURRENT_UPDATE")
         void concurrentConfirmAndAbsent() throws Exception {
             Long appearanceId = establishFromRequest().appearanceId();
@@ -508,7 +528,7 @@ class AppearanceConfirmFlowTest {
 
     @Test
     @WithMockUser(roles = "USER")
-    @DisplayName("세션 역할이 USER면 출연 확인·불참이 막힌다 (@PreAuthorize)")
+    @DisplayName("로그인 역할이 USER면 출연 확인·불참이 막힌다 (@PreAuthorize)")
     void userRole() {
         assertThatThrownBy(() -> appearanceFacade.confirm(HOST, 1L)).isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> appearanceFacade.markAbsent(HOST, 1L, null))
@@ -517,7 +537,7 @@ class AppearanceConfirmFlowTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("세션 역할이 ADMIN이어도 출연 확인·불참이 막힌다 (인플루언서만)")
+    @DisplayName("로그인 역할이 ADMIN이어도 출연 확인·불참이 막힌다 (인플루언서만)")
     void adminRole() {
         assertThatThrownBy(() -> appearanceFacade.confirm(HOST, 1L)).isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> appearanceFacade.markAbsent(HOST, 1L, null))
@@ -544,7 +564,7 @@ class AppearanceConfirmFlowTest {
         }
     }
 
-    /** 다른 스레드에서도 인플루언서 세션으로 실행하고, 예외는 결과로 돌려준다 */
+    /** 다른 스레드에서도 인플루언서로 로그인해 실행하고, 예외는 결과로 돌려준다 */
     private Callable<Object> asInfluencer(CountDownLatch start, Callable<Object> task) {
         return () -> {
             SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken("test", null,

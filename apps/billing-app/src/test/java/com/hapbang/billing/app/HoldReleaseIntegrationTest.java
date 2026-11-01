@@ -42,8 +42,6 @@ import com.hapbang.billing.out.PointChargeUsageRepository;
 import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // HP 보류 부분·전체 반환의 충전 HP 우선·충전 원금 역순 복원, 보류·상세·배분·충전 원금·원장·지갑 정합성,
@@ -788,15 +786,15 @@ class HoldReleaseIntegrationTest {
     // ---------------------------------------------------------------------------------------------
 
     private HoldResult hold(Long userId, Long referenceId, long amountHp) {
-        return holdFacade.hold(new HoldCommand(userId, ORDER, referenceId, amountHp));
+        return holdFacade.hold(new PaymentHoldCommand(userId, ORDER, referenceId, amountHp));
     }
 
     private ReleaseResult release(Long userId, Long referenceId, String requestId, long amountHp) {
-        return holdFacade.release(ReleaseCommand.partial(userId, ORDER, referenceId, requestId, amountHp));
+        return holdFacade.release(PaymentReleaseCommand.partial(userId, ORDER, referenceId, requestId, amountHp));
     }
 
     private ReleaseResult releaseFull(Long userId, Long referenceId, String requestId) {
-        return holdFacade.release(ReleaseCommand.full(userId, ORDER, referenceId, requestId));
+        return holdFacade.release(PaymentReleaseCommand.full(userId, ORDER, referenceId, requestId));
     }
 
     private static String releaseKey(HoldResult hold, String requestId) {

@@ -221,7 +221,7 @@ class MockBillingTest extends MockBillingIntegrationTest {
     class NoAnswer {
 
         @Test
-        @DisplayName("429는 RETRYABLE (지갑이 처리하지 않음)")
+        @DisplayName("429는 RETRYABLE (지갑이 처리하지 않음). 공용 Client가 첫 호출 포함 3회 보낸 뒤 실패한다")
         void tooManyRequests() {
             MockBilling.fail(Endpoint.HOLD, 429, null, null);
 
@@ -230,6 +230,7 @@ class MockBillingTest extends MockBillingIntegrationTest {
                         assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.RETRYABLE);
                         assertThat(e.getHttpStatus()).isEqualTo(429);
                     });
+            assertThat(MockBilling.requests(Endpoint.HOLD)).hasSize(3);
         }
 
         @Test

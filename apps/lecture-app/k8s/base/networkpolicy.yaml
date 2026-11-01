@@ -21,6 +21,17 @@ spec:
     - protocol: TCP
       port: 8080
   - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: hapbang-platform
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: prometheus
+          app.kubernetes.io/component: server
+    ports:
+    - protocol: TCP
+      port: 8080
+  - from:
     - podSelector:
         matchLabels:
           hapbang.io/internal-api-client: 'true'

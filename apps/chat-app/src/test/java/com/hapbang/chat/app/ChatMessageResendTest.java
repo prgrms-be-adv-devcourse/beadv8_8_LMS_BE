@@ -53,7 +53,7 @@ class ChatMessageResendTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     @Test
@@ -64,8 +64,9 @@ class ChatMessageResendTest {
 
         assertThat(resent.message().messageId()).isEqualTo(first.message().messageId());
         assertThat(resent.message().roomSequence()).isEqualTo(first.message().roomSequence());
-        assertThat(resent.deliverToUserIds()).containsExactly(HOST_ID);
-        assertThat(resent.notifyUserIds()).isEmpty();
+        // 재전송은 전달 작업을 만들지 않고, 호출한 쪽이 보낸 사람에게만 다시 보낸다
+        assertThat(resent.resent()).isTrue();
+        assertThat(first.resent()).isFalse();
         assertThat(chatMessageRepository.count()).isEqualTo(1);
         assertThat(myRoom(GUEST_ID).unreadCount()).isEqualTo(1);
     }
@@ -92,8 +93,8 @@ class ChatMessageResendTest {
 
         assertThat(afterRejoin.message().messageId()).isNotEqualTo(beforeLeave.message().messageId());
         assertThat(afterRejoin.message().content()).isEqualTo("다시 왔어요");
-        assertThat(afterRejoin.notifyUserIds()).containsExactly(GUEST_ID);
-        assertThat(afterRejoin.deliverToUserIds()).containsExactlyInAnyOrder(HOST_ID, GUEST_ID);
+        assertThat(afterRejoin.resent()).isFalse();
+        assertThat(afterRejoin.senderParticipationVersion()).isEqualTo(2);
         assertThat(chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 30).messages())
                 .extracting(ChatMessageResponse::content, ChatMessageResponse::clientMessageId)
                 .containsExactly(tuple("다시 왔어요", "client-1"));
@@ -111,7 +112,7 @@ class ChatMessageResendTest {
         SentChatMessage resent = chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 왔어요", "client-1");
 
         assertThat(resent.message().messageId()).isEqualTo(first.message().messageId());
-        assertThat(resent.notifyUserIds()).isEmpty();
+        assertThat(resent.resent()).isTrue();
     }
 
     @Test
@@ -196,7 +197,7 @@ class ChatMessageResendTest {
 
     private boolean notified(Future<SentChatMessage> result) {
         try {
-            return !result.get().notifyUserIds().isEmpty();
+            return !result.get().resent();
         } catch (Exception exception) {
             throw new IllegalStateException(exception);
         }

@@ -18,9 +18,9 @@ spec:
     resources:
       requests:
         cpu: 50m
-        memory: 50Mi
+        memory: 128Mi
       limits:
-        memory: 50Mi
+        memory: 128Mi
     webhook:
       nodeSelector: *id001
       resources:
@@ -34,9 +34,9 @@ spec:
       resources:
         requests:
           cpu: 50m
-          memory: 50Mi
+          memory: 128Mi
         limits:
-          memory: 50Mi
+          memory: 128Mi
     startupapicheck:
       nodeSelector: *id001
       resources:

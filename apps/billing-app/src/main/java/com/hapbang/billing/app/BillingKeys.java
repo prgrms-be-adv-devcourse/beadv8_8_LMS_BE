@@ -3,10 +3,6 @@ package com.hapbang.billing.app;
 import java.util.UUID;
 
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.PayoutCommand;
-import com.hapbang.shared.billing.dto.PenaltyCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 
 // 보류·반환·지급·위약금 정산의 멱등키(원장 작업 키)를 요청으로 결정론적으로 만든다.
 // 키 형식은 Billing 내부 규칙이라 shared 요청 DTO에 두지 않는다(호출한 쪽은 키를 만들거나 넘기지 않는다, #145).
@@ -28,6 +24,7 @@ final class BillingKeys {
     static final String EXCHANGE_REJECT_REQUEST_PREFIX = "EXCHANGE-REJECT-";
     static final String EXCHANGE_PAYOUT_CAPTURE_REQUEST_PREFIX = "EXCHANGE-PAYOUT-";
     static final String EXCHANGE_PAYOUT_FAIL_REQUEST_PREFIX = "EXCHANGE-PAYOUT-FAIL-";
+    static final String EXCHANGE_FEE_PREFIX = "EXCHANGE_FEE";
 
     private BillingKeys() {
     }
@@ -38,19 +35,19 @@ final class BillingKeys {
         return HOLD_PREFIX + ":" + referenceType.name() + ":" + referenceId;
     }
 
-    static String hold(HoldCommand command) {
+    static String hold(PaymentHoldCommand command) {
         return hold(command.referenceType(), command.referenceId());
     }
 
-    static String hold(ReleaseCommand command) {
+    static String hold(PaymentReleaseCommand command) {
         return hold(command.referenceType(), command.referenceId());
     }
 
-    static String hold(PayoutCommand command) {
+    static String hold(PaymentPayoutCommand command) {
         return hold(command.referenceType(), command.referenceId());
     }
 
-    static String hold(PenaltyCommand command) {
+    static String hold(PaymentPenaltyCommand command) {
         return hold(command.referenceType(), command.referenceId());
     }
 
@@ -109,6 +106,12 @@ final class BillingKeys {
         return EXCHANGE_PAYOUT_FAIL_REQUEST_PREFIX + exchangeId;
     }
 
+    // 환전 수수료 수입의 원장 작업 키 EXCHANGE_FEE:{exchangeId}. 환전마다 고정이라 재확인·수동 재송금이 있어도 한 번만 기록된다.
+    // 원장 멱등키는 줄 번호를 붙인 EXCHANGE_FEE:{exchangeId}:1이다 (#336).
+    static String exchangeFee(Long exchangeId) {
+        return EXCHANGE_FEE_PREFIX + ":" + exchangeId;
+    }
+
     // 개별 환불의 보류 확정 차감·반환 요청 ID REFUND-{refundId}. 확정 차감(CAPTURE:)과 반환(RELEASE:)은 접두사가 달라
     // 개별 환불 하나는 둘 중 하나로만 한 번 처리된다 (#260).
     static String refundHoldRequestId(Long refundId) {
@@ -116,27 +119,27 @@ final class BillingKeys {
     }
 
     // 반환 멱등키 RELEASE:{holdId}:{releaseRequestId}. 반환 상세 멱등키이자 원장 작업 키다.
-    static String release(Long holdId, ReleaseCommand command) {
+    static String release(Long holdId, PaymentReleaseCommand command) {
         return RELEASE_PREFIX + ":" + holdId + ":" + command.releaseRequestId();
     }
 
     // 지급 키 PAYOUT:{holdId}:{payoutRequestId}. 지급 상세·지급 건(Settlement)의 멱등키이자 원장 작업 키다.
-    static String payout(Long holdId, PayoutCommand command) {
+    static String payout(Long holdId, PaymentPayoutCommand command) {
         return PAYOUT_PREFIX + ":" + holdId + ":" + command.payoutRequestId();
     }
 
     // 취소 사건 하나의 정산 키 PENALTY:{holdId}:{cancellationId}. 위약금 지급 건(Settlement)의 멱등키다.
-    static String penalty(Long holdId, PenaltyCommand command) {
+    static String penalty(Long holdId, PaymentPenaltyCommand command) {
         return PENALTY_PREFIX + ":" + holdId + ":" + command.cancellationId();
     }
 
     // 이 취소 사건의 호스트 반환 상세 멱등키이자 반환 원장 작업 키
-    static String penaltyRelease(Long holdId, PenaltyCommand command) {
+    static String penaltyRelease(Long holdId, PaymentPenaltyCommand command) {
         return penalty(holdId, command) + ":RELEASE";
     }
 
     // 이 취소 사건의 게스트 위약금 지급 상세 멱등키이자 지급 원장 작업 키
-    static String penaltyPayout(Long holdId, PenaltyCommand command) {
+    static String penaltyPayout(Long holdId, PaymentPenaltyCommand command) {
         return penalty(holdId, command) + ":PAYOUT";
     }
 }

@@ -46,14 +46,13 @@ class LectureSwaggerDocsTest {
     }
 
     @Test
-    void 지급_실패_관리_API는_목록과_격리_해제를_명세에_둔다() throws Exception {
+    void 지급_실패_관리_API는_명세에_없고_HP_작업_관리_API로_본다() throws Exception {
+        // D70 (5): /admin/payout-failures를 지우고 /admin/hp-tasks?taskType=PAYOUT으로 본다
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/payout-failures'].get.responses['200']"
-                        + ".content['*/*'].schema['$ref']")
-                        .value("#/components/schemas/RsDataPagePayoutFailureResponse"))
-                .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/payout-failures/{orderItemId}/retry'].post")
-                        .exists())
-                .andExpect(jsonPath(SCHEMAS + "PayoutFailureResponse.properties.payoutQuarantinedAt").exists());
+                .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/payout-failures']").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/payout-failures/{orderItemId}/retry']")
+                        .doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/hp-tasks'].get").exists());
     }
 }

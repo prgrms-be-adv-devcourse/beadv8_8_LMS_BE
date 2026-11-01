@@ -130,7 +130,8 @@ class AppearanceEventPublishTest {
             BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
             assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, GUEST, AppearanceRequestFixture.content(now())))
-                    .isInstanceOf(BusinessException.class);
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(AppearanceErrorCode.INSUFFICIENT_BALANCE);
 
             assertThat(requestSentEvents()).isEmpty();
         }

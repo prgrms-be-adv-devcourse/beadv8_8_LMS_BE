@@ -6,7 +6,7 @@ import java.util.Set;
 
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
-// 결제하는 회원의 HP를 참조 대상(강의 주문 항목·출연 요청·출연 모집) 하나에 보류하는 요청이다 (BillingPort.hold).
+// 결제하는 회원의 HP를 참조 대상(강의 주문 항목·출연 요청·출연 모집) 하나에 보류하는 요청이다 (내부 API holds).
 // 보류 멱등키는 호출한 쪽이 정하거나 넘기지 않는다. Billing이 참조 대상으로 HOLD:{referenceType}:{referenceId}를 만든다(참조 대상당 보류 1건).
 // 이 record는 필수 값·참조 유형 같은 요청 구조만 검사한다. 금액(0 이하 거절)·잔액·멱등성 같은 금융 검증은 Billing이 BillingException으로 한다.
 public record HoldCommand(

@@ -78,13 +78,14 @@ public class LectureSupport {
     }
 
     /**
-     * 회원이 볼 수 있는 강의. 판매 중이 아니거나 삭제된 강의는 판매자 본인과 이 강의를 보유한 구매자만 조회한다(D5, D38).
-     * 다른 회원에게는 없는 강의로 보인다. 보유 항목은 판매 중이 아닐 때만 읽는다.
+     * 회원이 볼 수 있는 강의. 판매 중이 아니거나 삭제된 강의는 판매자 본인과 이 강의를 시청할 수 있는 구매자만 조회한다(D5, D38, D69).
+     * 결제가 끝나지 않은 구매자는 보지 못한다.
+     * 다른 회원에게는 없는 강의로 보인다. 시청 가능한 항목은 판매 중이 아닐 때만 읽는다.
      */
     public Lecture findViewableLecture(Long userId, Long lectureId) {
         Lecture lecture = findLecture(lectureId);
         if (!lecture.getSellerUserId().equals(userId) && !lecture.isOnSale()
-                && lectureOrderSupport.findHeldItem(userId, lectureId).isEmpty()) {
+                && lectureOrderSupport.findViewableItem(userId, lectureId).isEmpty()) {
             throw new LectureException(LectureErrorCode.LECTURE_NOT_FOUND);
         }
         return lecture;

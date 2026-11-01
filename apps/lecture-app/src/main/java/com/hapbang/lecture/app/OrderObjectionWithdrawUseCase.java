@@ -2,10 +2,10 @@ package com.hapbang.lecture.app;
 
 import org.springframework.stereotype.Service;
 
+import com.hapbang.lecture.domain.LectureErrorCode;
+import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.out.LectureOrderRepository;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException;
-import com.hapbang.shared.lecture.exception.LectureObjectionRefusedException.Reason;
 
 import lombok.RequiredArgsConstructor;
 
@@ -23,7 +23,7 @@ public class OrderObjectionWithdrawUseCase {
     public void withdrawObjection(Long orderItemId, Long buyerUserId, Long inquiryId) {
         // 없는 항목은 남의 항목과 같게 본다 (D32)
         LectureOrder order = lectureOrderRepository.findByItemId(orderItemId)
-                .orElseThrow(() -> new LectureObjectionRefusedException(Reason.NOT_BUYER));
+                .orElseThrow(() -> new LectureException(LectureErrorCode.OBJECTION_NOT_BUYER));
         order.withdrawObjection(orderItemId, buyerUserId, inquiryId);
         // 같은 항목을 동시에 바꾼 변경(판단 등)과의 충돌을 이 호출 안에서 드러낸다
         lectureOrderRepository.flush();

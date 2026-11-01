@@ -44,10 +44,6 @@ import com.hapbang.billing.out.TossPaymentsClient;
 import com.hapbang.billing.out.TossResult;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.PayoutCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
-import com.hapbang.shared.billing.port.BillingPort;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 충전 HP 환불(#260)을 실제 PostgreSQL과 가짜 TossPayments HTTP 서버로 검증한다. 실제 TossPayments는 부르지 않는다.
@@ -96,7 +92,7 @@ class RefundIntegrationTest {
     WalletReconciliationUseCase walletReconciliationUseCase;
 
     @Autowired
-    BillingPort billingPort;
+    HoldFacade holdFacade;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -146,6 +142,22 @@ class RefundIntegrationTest {
         assertThat(ledgerAmounts(result.refundRequestId(), "REFUND")).containsExactly(-3_000L);
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = {1L, 999L, 1_234L})
+    @DisplayName("1 HP 단위의 어떤 금액이든 환불하고 그 금액만큼 PG 부분 취소한다 (#453)")
+    void refund_anyAmountFromOne(long amount) {
+        Long walletId = wallet(1L);
+        String order = charge(1L);
+
+        RefundResult result = refund(1L, "key-1", amount);
+
+        assertThat(result.status()).isEqualTo(PointRefundRequestStatus.COMPLETED);
+        assertThat(result.completedAmount()).isEqualTo(amount);
+        assertThat(TOSS.cancelsOf(order)).extracting(Cancel::amount).containsExactly(amount);
+        assertWallet(walletId, CHARGE - amount, 0L);
+        assertConsistent(result.refundRequestId());
+    }
+
     @Test
     @DisplayName("충전 건 금액 전부를 환불하면 충전 건은 REFUNDED이고 PG 결제는 CANCELED다")
     void refund_fullCharge() {
@@ -170,7 +182,7 @@ class RefundIntegrationTest {
         String second = charge(1L);
         String third = charge(1L);
         // 강의 주문 보류가 첫 충전 건 원금 4,000을 쓰고 있다
-        billingPort.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, 4_000L));
+        holdFacade.hold(new PaymentHoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, 4_000L));
 
         RefundResult result = refund(1L, "key-1", 12_000L);
 
@@ -189,7 +201,7 @@ class RefundIntegrationTest {
         assertConsistent(result.refundRequestId());
 
         // 환불 후에도 강의 보류 반환·지급이 그대로 동작한다(부분 환불 충전 건에 원금 복원)
-        billingPort.release(ReleaseCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, "CANCEL-501"));
+        holdFacade.release(PaymentReleaseCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 501L, "CANCEL-501"));
         assertThat(chargeRow(first)).containsEntry("status", "PARTIALLY_REFUNDED")
                 .containsEntry("remaining_principal_hp", 4_000L).containsEntry("refunded_amount_hp", 6_000L);
         assertWallet(walletId, 18_000L, 0L);
@@ -204,8 +216,8 @@ class RefundIntegrationTest {
         charge(1L);
         charge(2L);
         // 회원 2가 회원 1에게 3,000을 지급받아 수익 HP 3,000 + 충전 HP 10,000
-        billingPort.hold(new HoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 601L, 3_000L));
-        billingPort.payout(PayoutCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 601L, "PAYOUT-601", 2L,
+        holdFacade.hold(new PaymentHoldCommand(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 601L, 3_000L));
+        holdFacade.payout(PaymentPayoutCommand.full(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 601L, "PAYOUT-601", 2L,
                 com.hapbang.shared.billing.domain.SettlementSourceType.LECTURE_ORDER_ITEM, 601L));
 
         assertBillingError(() -> refund(2L, "key-1", 11_000L), BillingErrorCode.INSUFFICIENT_BALANCE);
@@ -271,13 +283,13 @@ class RefundIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {0L, -1_000L, 999L, 1_500L, 10_500L})
-    @DisplayName("환불 금액이 1,000 미만이거나 1,000 단위가 아니면 REFUND_AMOUNT_INVALID이고 아무것도 남기지 않는다")
+    @ValueSource(longs = {0L, -1L, -1_000L})
+    @DisplayName("환불 금액이 1 HP보다 작으면 REFUND_AMOUNT_TOO_SMALL이고 아무것도 남기지 않는다 (#453)")
     void refund_invalidAmount(long amount) {
         Long walletId = wallet(1L);
         charge(1L);
 
-        assertBillingError(() -> refund(1L, "key-1", amount), BillingErrorCode.REFUND_AMOUNT_INVALID);
+        assertBillingError(() -> refund(1L, "key-1", amount), BillingErrorCode.REFUND_AMOUNT_TOO_SMALL);
         assertThat(refundRequestCount()).isZero();
         assertWallet(walletId, CHARGE, 0L);
     }

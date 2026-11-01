@@ -31,6 +31,7 @@ import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
@@ -45,10 +46,9 @@ import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserModifiedEvent;
-import com.hapbang.testsupport.IntegrationTest;
 
 /** 관리자 승급 심사: 실제 DB로 권한·역할 변경·이벤트·세션 갱신 호출·목록(승인된 채널)·비관적 락을 확인한다 */
-@IntegrationTest
+@MemberIntegrationTest
 @RecordApplicationEvents
 @WithMockUser(roles = "ADMIN")
 class MemberUpgradeReviewIntegrationTest {

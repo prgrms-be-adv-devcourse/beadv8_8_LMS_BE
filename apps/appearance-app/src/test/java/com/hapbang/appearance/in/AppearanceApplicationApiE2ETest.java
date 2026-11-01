@@ -27,7 +27,7 @@ import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
 
 /**
- * 실제 서버(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 RestAssured로 출연 모집 지원 API를 호출한다.
+ * 실제 서버(보안 필터, Gateway 사용자 헤더 로그인, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 RestAssured로 출연 모집 지원 API를 호출한다.
  * 성공 응답은 RsData다.
  */
 @AppearanceE2ETest
@@ -39,6 +39,7 @@ class AppearanceApplicationApiE2ETest {
     private static final long GUEST = 2L;
     private static final long GUEST2 = 3L;
     private static final long VIEWER = 4L;
+    private static final long GUEST3 = 5L;
 
     @Autowired
     AppearanceUserFacade appearanceUserFacade;
@@ -53,6 +54,7 @@ class AppearanceApplicationApiE2ETest {
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(GUEST));
         appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(GUEST2));
         appearanceUserFacade.syncJoined(AppearanceUserFixture.normalUser(VIEWER));
+        appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(GUEST3));
     }
 
 
@@ -145,11 +147,12 @@ class AppearanceApplicationApiE2ETest {
         postAs(HOST, APPLICATIONS + "/" + second + "/accept", "")
                 .then().statusCode(409)
                 .body("code", equalTo("RECRUIT_FULL"));
+        apply(GUEST3, recruitId); // 정원이 차도 모집 중이면 지원은 201
         E2ELogin.as(VIEWER, Role.USER).get(RECRUITS + "/" + recruitId)
-                .then()
+                .then().statusCode(200)
                 .body("data.status", equalTo("RECRUITING"))
                 .body("data.selectedCount", equalTo(1))
-                .body("data.applicantCount", equalTo(2));
+                .body("data.applicantCount", equalTo(3));
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.hapbang.lecture.app;
 
+import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.Clock;
@@ -21,6 +22,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -31,10 +33,14 @@ import com.hapbang.lecture.domain.LectureHpTaskAttempt;
 import com.hapbang.lecture.domain.LectureHpTaskOutcome;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
+import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
-import com.hapbang.lecture.fake.RecordingHpTaskResultHandler;
+import com.hapbang.lecture.fake.RecordingCancelResultHandler;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
+import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
@@ -69,11 +75,12 @@ class LectureHpTaskExecutorTest {
     @Autowired
     private FakeBillingApiClient billing;
 
-    @Autowired
-    private RecordingHpTaskResultHandler.Cancel cancelHandler;
+    // 실행기만 확인하도록 운영 CANCEL 처리기 자리에 결과만 남기는 처리기를 넣는다
+    @TestBean(methodName = RecordingCancelResultHandler.FACTORY)
+    private CancelResultHandler cancelResultHandler;
 
     @Autowired
-    private RecordingHpTaskResultHandler.OrderHold holdHandler;
+    private LectureOrderRepository lectureOrderRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -91,8 +98,7 @@ class LectureHpTaskExecutorTest {
     @BeforeEach
     void setUp() {
         billing.reset();
-        cancelHandler.reset();
-        holdHandler.reset();
+        cancelHandler().reset();
     }
 
     @Test
@@ -134,7 +140,7 @@ class LectureHpTaskExecutorTest {
         assertThat(task.getOutcome()).isEqualTo(LectureHpTaskOutcome.SUCCEEDED);
         assertThat(task.getClaimToken()).isNull();
         assertThat(task.getCompletedAt()).isNotNull();
-        assertThat(cancelHandler.events()).containsExactly("succeeded:" + CANCEL_ID);
+        assertThat(cancelHandler().events()).containsExactly("succeeded:" + CANCEL_ID);
         assertThat(attempts(id)).singleElement().satisfies(attempt -> {
             assertThat(attempt.getAttemptNo()).isEqualTo(1);
             assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.SUCCEEDED);
@@ -146,7 +152,11 @@ class LectureHpTaskExecutorTest {
 
     @Test
     void HOLD_확정_거절은_COMPLETED_REJECTED다() {
-        Long id = register(task(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-31", AMOUNT));
+        LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.pending(7L,
+                List.of(withId(onSaleLecture(), 10L)), LocalDateTime.now(clock)));
+        Long itemId = order.getItems().getFirst().getId();
+        Long id = register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-" + itemId,
+                order.getId(), itemId, 7L, null, PRICE_HP, LocalDateTime.now(clock)));
         billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
                 "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
 
@@ -155,7 +165,9 @@ class LectureHpTaskExecutorTest {
         LectureHpTask task = find(id);
         assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
         assertThat(task.getOutcome()).isEqualTo(LectureHpTaskOutcome.REJECTED);
-        assertThat(holdHandler.events()).containsExactly("rejected:LECTURE-HOLD-31");
+        // 운영 처리기가 주문을 결제 실패로 끝낸다(반환할 보류 없음, D58 (3))
+        assertThat(lectureOrderRepository.findById(order.getId()).orElseThrow().getStatus())
+                .isEqualTo(LectureOrderStatus.HOLD_FAILED);
         assertThat(attempts(id)).singleElement()
                 .satisfies(attempt -> assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.TERMINAL_REJECTION));
     }
@@ -181,7 +193,7 @@ class LectureHpTaskExecutorTest {
 
         assertThat(find(mismatch).getStatus()).isEqualTo(LectureHpTaskStatus.DEAD);
         assertThat(find(mismatch).getLastErrorCode()).isEqualTo(LectureHpTaskExecutor.AMOUNT_MISMATCH);
-        assertThat(cancelHandler.events()).containsExactly("dead:" + CANCEL_ID, "dead:LECTURE-CANCEL-32");
+        assertThat(cancelHandler().events()).containsExactly("dead:" + CANCEL_ID, "dead:LECTURE-CANCEL-32");
     }
 
     @Test
@@ -205,7 +217,7 @@ class LectureHpTaskExecutorTest {
             assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.UNKNOWN_RESULT);
             assertThat(attempt.getRawErrorCode()).isEqualTo("HOLD_STATE_INCONSISTENT");
         });
-        assertThat(cancelHandler.events()).isEmpty();
+        assertThat(cancelHandler().events()).isEmpty();
     }
 
     @Test
@@ -228,7 +240,7 @@ class LectureHpTaskExecutorTest {
                 .allSatisfy(attempt -> assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.RETRYABLE));
         assertThat(output).contains(LectureHpTaskExecutor.DEAD_LOG);
         assertThat(deadCount()).isEqualTo(deadBefore + 1);
-        assertThat(cancelHandler.events()).containsExactly("dead:" + CANCEL_ID);
+        assertThat(cancelHandler().events()).containsExactly("dead:" + CANCEL_ID);
 
         executor.execute(id);
         assertThat(billing.calls()).hasSize(10);
@@ -263,7 +275,7 @@ class LectureHpTaskExecutorTest {
         assertThat(attempts(id)).singleElement()
                 .satisfies(attempt -> assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.LEASE_EXPIRED));
         assertThat(billing.calls()).isEmpty();
-        assertThat(cancelHandler.events()).containsExactly("dead:" + CANCEL_ID);
+        assertThat(cancelHandler().events()).containsExactly("dead:" + CANCEL_ID);
     }
 
     @Test
@@ -282,7 +294,7 @@ class LectureHpTaskExecutorTest {
 
         assertThat(billing.calls()).hasSize(2).extracting(call -> ((ReleaseCommand) call.command()).releaseRequestId())
                 .containsOnly(CANCEL_ID);
-        assertThat(cancelHandler.events()).containsExactly("succeeded:" + CANCEL_ID);
+        assertThat(cancelHandler().events()).containsExactly("succeeded:" + CANCEL_ID);
         assertThat(attempts(id)).extracting(LectureHpTaskAttempt::getResult)
                 .containsExactly(LectureHpAttemptResult.LEASE_EXPIRED, LectureHpAttemptResult.SUCCEEDED);
         assertThat(output).contains("late result ignored");
@@ -291,7 +303,7 @@ class LectureHpTaskExecutorTest {
     @Test
     void 결과_기록이_실패하면_lease_뒤에_같은_요청_ID로_다시_실행한다() {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
-        cancelHandler.failNext(new IllegalStateException("결과 기록 실패"));
+        cancelHandler().failNext(new IllegalStateException("결과 기록 실패"));
 
         executor.execute(id);
 
@@ -302,19 +314,7 @@ class LectureHpTaskExecutorTest {
         assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
         assertThat(billing.calls()).hasSize(2).extracting(call -> ((ReleaseCommand) call.command()).releaseRequestId())
                 .containsOnly(CANCEL_ID);
-        assertThat(cancelHandler.events()).containsExactly("succeeded:" + CANCEL_ID);
-    }
-
-    @Test
-    void 처리기가_없는_목적은_지갑을_부르지_않고_DEAD다() {
-        Long id = register(LectureHpTask.create(LectureHpTaskPurpose.PAYOUT, "LECTURE-PAYOUT-31", 3L, 31L, 7L, 9L,
-                AMOUNT, LocalDateTime.now(clock)));
-
-        executor.execute(id);
-
-        assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.DEAD);
-        assertThat(find(id).getLastErrorCode()).isEqualTo(LectureHpTaskExecutor.RESULT_HANDLER_MISSING);
-        assertThat(billing.calls()).isEmpty();
+        assertThat(cancelHandler().events()).containsExactly("succeeded:" + CANCEL_ID);
     }
 
     @Test
@@ -389,5 +389,9 @@ class LectureHpTaskExecutorTest {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private RecordingCancelResultHandler cancelHandler() {
+        return (RecordingCancelResultHandler) cancelResultHandler;
     }
 }

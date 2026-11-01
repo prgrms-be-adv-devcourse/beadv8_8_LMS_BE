@@ -133,4 +133,71 @@ class AppearanceDetailReadTransactionTest {
 
         assertLastReadInReadOnlyTransaction();
     }
+
+    @Test
+    @DisplayName("요청서 응답 전 취소(트랜잭션 없는 Facade): 반환 실행 뒤 상세를 읽기 전용 트랜잭션에서 읽는다")
+    void requestCancel() {
+        AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
+                AppearanceRequestFixture.content(LocalDateTime.now(clock)));
+        recordTransactionOnGetById();
+
+        appearanceRequestFacade.cancel(HOST, sent.id());
+
+        assertLastReadInReadOnlyTransaction();
+    }
+
+    @Test
+    @DisplayName("모집 전체 취소(트랜잭션 없는 Facade): 반환 실행 뒤 상세를 읽기 전용 트랜잭션에서 읽는다")
+    void recruitCancel() {
+        Long recruitId = appearanceRecruitFacade.create(HOST,
+                AppearanceRecruitFixture.content(LocalDateTime.now(clock))).id();
+        recordTransactionOnGetById();
+
+        appearanceRecruitFacade.cancel(HOST, recruitId, false, null);
+
+        assertLastReadInReadOnlyTransaction();
+    }
+
+    @Test
+    @DisplayName("출연 취소 요청 수락(트랜잭션 없는 Facade): 반환 실행 뒤 상세를 읽기 전용 트랜잭션에서 읽는다")
+    void acceptCancel() {
+        Long appearanceId = establish();
+        appearanceFacade.requestCancel(GUEST, appearanceId, "사정이 생겼습니다.");
+        recordTransactionOnGetById();
+
+        appearanceFacade.acceptCancel(HOST, appearanceId);
+
+        assertLastReadInReadOnlyTransaction();
+    }
+
+    @Test
+    @DisplayName("호스트 일방 취소(트랜잭션 없는 Facade): 위약금 정산 뒤 상세를 읽기 전용 트랜잭션에서 읽는다")
+    void hostCancel() {
+        Long appearanceId = establish();
+        recordTransactionOnGetById();
+
+        appearanceFacade.hostCancel(HOST, appearanceId, false, null);
+
+        assertLastReadInReadOnlyTransaction();
+    }
+
+    @Test
+    @DisplayName("불참(트랜잭션 없는 Facade, 회원 자격 확인 없는 상세): 반환 실행 뒤 상세를 읽기 전용 트랜잭션에서 읽는다")
+    void markAbsent() {
+        Long appearanceId = establish();
+        clock.advanceTo(jdbcTemplate.queryForObject("select scheduled_at from appearances.appearances where id = ?",
+                LocalDateTime.class, appearanceId).plusHours(1)); // 방송이 끝났다
+        recordTransactionOnGetById();
+
+        appearanceFacade.markAbsent(HOST, appearanceId, null);
+
+        assertLastReadInReadOnlyTransaction();
+    }
+
+    /** 요청서로 출연을 성립시킨다 */
+    private Long establish() {
+        AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
+                AppearanceRequestFixture.content(LocalDateTime.now(clock)));
+        return appearanceRequestFacade.accept(GUEST, sent.id(), sent.version()).appearanceId();
+    }
 }

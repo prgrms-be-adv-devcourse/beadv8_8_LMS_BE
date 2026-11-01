@@ -2,8 +2,17 @@ package com.hapbang.appearance.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +27,7 @@ import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.config.AppearanceBatchProperties;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceRequestStatus;
@@ -40,6 +50,7 @@ import com.hapbang.appearance.support.BillingStubs.Rejection;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.out.BillingCallExceptions;
 
 /**
  * 출연 배치(보류 재확인, 수락 기한 만료, HP 작업 재시도)를 DB와 Billing 대역으로 확인한다.
@@ -107,7 +118,8 @@ class AppearanceBatchUseCaseTest {
     private Long sendHoldPending() {
         BillingStubs.unavailable(billingClient);
         assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, GUEST, AppearanceRequestFixture.content(now())))
-                .isInstanceOf(RuntimeException.class);
+                .isInstanceOfSatisfying(AppearanceException.class, e ->
+                        assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
         BillingStubs.available(billingClient);
         return onlyRequest().getId();
     }
@@ -177,7 +189,8 @@ class AppearanceBatchUseCaseTest {
         void alreadyHeldOnce() {
             BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, GUEST, AppearanceRequestFixture.content(now())))
-                    .isInstanceOf(RuntimeException.class);
+                    .isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
             HoldCommand first = BillingCalls.holds(billingClient).getFirst();
             BillingStubs.available(billingClient);
             Long requestId = onlyRequest().getId();
@@ -216,11 +229,65 @@ class AppearanceBatchUseCaseTest {
         }
 
         @Test
+        @DisplayName("지갑 회로가 열려 있으면 그 회차를 건너뛰고(보류 요청 없음, HOLD_PENDING 그대로), 닫히면 다음 회차에 정리한다 (#439)")
+        void skipWhileCircuitOpen() {
+            Long requestId = sendHoldPending();
+            pendingGracePassed();
+            doReturn(true).when(billingClient).isCircuitOpen();
+
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero();
+            assertThat(statusOf(requestId)).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
+            verify(billingClient, never()).hold(any());
+
+            doReturn(false).when(billingClient).isCircuitOpen();
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
+            assertThat(statusOf(requestId)).isEqualTo(AppearanceRequestStatus.REQUESTED);
+        }
+
+        @Test
+        @DisplayName("회차 도중에 회로가 열리면(시험 중 보낸 보류 실패 등) 요청서·모집글 모두 남은 건은 보내지 않고 다음 회차로 넘긴다 (#439)")
+        void stopWhenCircuitOpensMidRun() {
+            Long otherGuest = 3L;
+            appearanceUserFacade.syncJoined(AppearanceUserFixture.influencer(otherGuest));
+            BillingStubs.unavailable(billingClient);
+            // 같은 호스트·게스트의 요청서는 하나만 진행할 수 있어 게스트를 나눈다
+            for (Long guest : List.of(GUEST, otherGuest)) {
+                assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, guest,
+                        AppearanceRequestFixture.content(now())))
+                        .isInstanceOfSatisfying(AppearanceException.class, e ->
+                                assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
+            }
+            assertThatThrownBy(() -> appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now())))
+                    .isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
+            BillingStubs.available(billingClient);
+            pendingGracePassed();
+            // 보류 요청을 한 번 보내면 회로가 열린다
+            doAnswer(invocation -> !BillingCalls.holds(billingClient).isEmpty()).when(billingClient).isCircuitOpen();
+
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
+            assertThat(BillingCalls.holds(billingClient)).hasSize(1);
+            assertThat(appearanceRequestRepository.findAll()).extracting(AppearanceRequest::getStatus)
+                    .containsExactlyInAnyOrder(AppearanceRequestStatus.REQUESTED, AppearanceRequestStatus.HOLD_PENDING);
+            assertThat(appearanceRecruitRepository.findAll()).singleElement()
+                    .extracting(AppearanceRecruit::getStatus).isEqualTo(AppearanceRecruitStatus.HOLD_PENDING);
+
+            // 요청서를 모두 정리한 뒤 모집글 차례에서 다시 열려도 멈춘다
+            int holdsBefore = BillingCalls.holds(billingClient).size();
+            doAnswer(invocation -> BillingCalls.holds(billingClient).size() > holdsBefore)
+                    .when(billingClient).isCircuitOpen();
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
+            assertThat(appearanceRecruitRepository.findAll()).singleElement()
+                    .extracting(AppearanceRecruit::getStatus).isEqualTo(AppearanceRecruitStatus.HOLD_PENDING);
+        }
+
+        @Test
         @DisplayName("보류 처리 중인 모집글도 다시 보류해 RECRUITING으로 정리한다")
         void recheckRecruit() {
             BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now())))
-                    .isInstanceOf(RuntimeException.class);
+                    .isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
             BillingStubs.available(billingClient);
             Long recruitId = appearanceRecruitRepository.findAll().getFirst().getId();
             pendingGracePassed();
@@ -240,7 +307,8 @@ class AppearanceBatchUseCaseTest {
         void recheckRecruitToHoldFailed() {
             BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now())))
-                    .isInstanceOf(RuntimeException.class);
+                    .isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
             Long recruitId = appearanceRecruitRepository.findAll().getFirst().getId();
             BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
             pendingGracePassed();
@@ -363,7 +431,7 @@ class AppearanceBatchUseCaseTest {
         @DisplayName("계속 실패하면 간격을 늘려 재시도하고, 10번째 실패에서 DEAD + 지표의 격리 수 1")
         void deadAfterMaxAttempts() {
             HpTask task = failedRelease();
-            LocalDateTime previousNext = task.getNextAttemptAt();
+            List<Duration> gaps = new ArrayList<>();
 
             for (int attempt = 2; attempt <= 9; attempt++) {
                 retryTimeReached(task.getId());
@@ -371,9 +439,13 @@ class AppearanceBatchUseCaseTest {
                 HpTask retried = onlyTask();
                 assertThat(retried.getStatus()).isEqualTo(HpTaskStatus.PENDING);
                 assertThat(retried.getAttemptCount()).isEqualTo(attempt);
-                previousNext = retried.getNextAttemptAt();
+                gaps.add(Duration.between(now(), retried.getNextAttemptAt()));
             }
-            assertThat(previousNext).isAfter(now().plusMinutes(59));
+            // 2·4·8·16·32분 → 상한 1시간, 지터는 간격의 +0~20%(HpTaskRetryPolicy). 상한 전까지는 늘 늘어나고, 상한 뒤로는 60~72분.
+            // 간격은 다음 시도 시각을 정한 뒤 읽은 시계 기준이라 몇 밀리초 짧을 수 있어 하한에 1초 여유를 둔다
+            assertThat(gaps.subList(0, 6)).isSortedAccordingTo(Comparator.naturalOrder()).doesNotHaveDuplicates();
+            assertThat(gaps.subList(5, 8)).allSatisfy(gap ->
+                    assertThat(gap).isBetween(Duration.ofMinutes(60).minusSeconds(1), Duration.ofMinutes(72)));
 
             retryTimeReached(task.getId());
             hpTaskRetryUseCase.retryDue();
@@ -381,7 +453,7 @@ class AppearanceBatchUseCaseTest {
             HpTask dead = onlyTask();
             assertThat(dead.getStatus()).isEqualTo(HpTaskStatus.DEAD);
             assertThat(dead.getAttemptCount()).isEqualTo(10);
-            assertThat(dead.getLastError()).isEqualTo("IllegalStateException: Billing 응답 없음 (테스트)");
+            assertThat(dead.getLastError()).isEqualTo("UNKNOWN_RESULT: Billing 응답 없음 (테스트)");
             assertThat(hpTaskMetrics.deadCount()).isEqualTo(1);
         }
 
@@ -399,6 +471,72 @@ class AppearanceBatchUseCaseTest {
             assertThat(dead.getStatus()).isEqualTo(HpTaskStatus.DEAD);
             assertThat(dead.getAttemptCount()).isEqualTo(2);
             assertThat(dead.getLastError()).isEqualTo("HOLD_NOT_FOUND: HP 보류를 찾을 수 없습니다.");
+        }
+
+        @Test
+        @DisplayName("지갑 회로가 열려 있으면 그 회차를 건너뛴다: 작업을 실행하지 않아 시도 횟수 그대로, 대기 수 지표는 갱신. 닫히면 같은 요청 ID로 DONE (#439)")
+        void skipWhileCircuitOpen() {
+            HpTask task = failedRelease();
+            BillingStubs.available(billingClient);
+            retryTimeReached(task.getId());
+            doReturn(true).when(billingClient).isCircuitOpen();
+            hpTaskMetrics.updateBacklog(0, 0);
+
+            assertThat(hpTaskRetryUseCase.retryDue()).isZero();
+            HpTask skipped = onlyTask();
+            assertThat(skipped.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(skipped.getAttemptCount()).isEqualTo(1);
+            verify(billingClient, never()).release(any());
+            assertThat(hpTaskMetrics.pendingCount()).isEqualTo(1);
+
+            doReturn(false).when(billingClient).isCircuitOpen();
+            assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
+            assertThat(onlyTask().getStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::releaseRequestId)
+                    .containsExactly(task.getIdempotencyKey());
+        }
+
+        @Test
+        @DisplayName("회차 도중에 회로가 열리면(시험 중 보낸 작업 실패 등) 남은 작업은 실행하지 않는다: 시도 횟수 그대로, 다음 회차로 (#439)")
+        void stopWhenCircuitOpensMidRun() {
+            for (long refId = 101; refId <= 103; refId++) {
+                hpTaskRepository.saveAndFlush(HpTask.release(HpTaskRefType.APPEARANCE_REQUEST, refId, HOST, FEE,
+                        HpTaskReason.REQUEST_REJECTED, "APPEARANCE_REQUEST-" + refId + "-RELEASE-1", now()));
+            }
+            pendingGracePassed();
+            // 반환 요청을 한 번 보내면 회로가 열린다
+            doAnswer(invocation -> !BillingCalls.releases(billingClient).isEmpty())
+                    .when(billingClient).isCircuitOpen();
+
+            assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
+
+            assertThat(BillingCalls.releases(billingClient)).hasSize(1);
+            assertThat(hpTaskRepository.findAll()).filteredOn(task -> task.getStatus() == HpTaskStatus.PENDING)
+                    .hasSize(2).allSatisfy(task -> assertThat(task.getAttemptCount()).isZero());
+        }
+
+        @Test
+        @DisplayName("시험 중 호출 몫이 차서 회로 열림(CIRCUIT_OPEN)으로 보내지 못하면 시도 횟수는 그대로 두고 다음 시각만 미룬다 (#439)")
+        void postponeWhenCircuitRejects() {
+            HpTask task = failedRelease();
+            BillingStubs.available(billingClient);
+            doThrow(BillingCallExceptions.circuitOpen()).when(billingClient).release(any());
+            retryTimeReached(task.getId());
+            LocalDateTime dueAt = onlyTask().getNextAttemptAt();
+
+            assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
+
+            HpTask postponed = onlyTask();
+            assertThat(postponed.getStatus()).isEqualTo(HpTaskStatus.PENDING);
+            assertThat(postponed.getAttemptCount()).isEqualTo(1);
+            assertThat(postponed.getLastError()).startsWith("RETRYABLE CIRCUIT_OPEN: ");
+            assertThat(postponed.getNextAttemptAt()).isAfter(dueAt);
+
+            BillingStubs.available(billingClient);
+            retryTimeReached(task.getId());
+            assertThat(hpTaskRetryUseCase.retryDue()).isEqualTo(1);
+            assertThat(onlyTask().getStatus()).isEqualTo(HpTaskStatus.DONE);
+            assertThat(onlyTask().getAttemptCount()).isEqualTo(2);
         }
 
         @Test

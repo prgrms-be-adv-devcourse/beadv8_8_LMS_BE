@@ -21,6 +21,7 @@ import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
+import com.hapbang.appearance.domain.AppearanceHoldRejectedException;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
@@ -32,7 +33,6 @@ import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.BillingCalls;
 import com.hapbang.appearance.support.BillingStubs;
 import com.hapbang.appearance.support.BillingStubs.Rejection;
-import com.hapbang.appearance.global.exception.BusinessException;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.member.domain.Role;
@@ -40,7 +40,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 
 /**
  * 출연 모집글 올리기·조회·수정 흐름을 DB와 Billing 대역으로 확인한다.
- * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
+ * 로그인 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
@@ -105,6 +105,7 @@ class AppearanceRecruitFacadeTest {
         assertThat(response.status()).isEqualTo(AppearanceRecruitStatus.RECRUITING);
         assertThat(response.selectedCount()).isZero();
         assertThat(response.version()).isEqualTo(findOnly().getVersion());
+        assertThat(BillingCalls.holds(billingClient)).hasSize(1);
         HoldCommand hold = BillingCalls.holds(billingClient).getFirst();
         assertThat(hold.userId()).isEqualTo(HOST);
         assertThat(hold.referenceType()).isEqualTo(BillingReferenceType.APPEARANCE_RECRUIT);
@@ -122,13 +123,13 @@ class AppearanceRecruitFacadeTest {
     }
 
     @Test
-    @DisplayName("Billing이 보류를 거절하면(잔액 부족) 그 오류 그대로, 모집글은 HOLD_FAILED로 남고 목록에 보이지 않는다")
+    @DisplayName("지갑이 보류를 거절하면(잔액 부족) 409 INSUFFICIENT_BALANCE(출연 문구), 모집글은 HOLD_FAILED로 남고 목록에 보이지 않는다")
     void insufficientBalance() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
         assertThatThrownBy(() -> post(HOST))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode").isEqualTo(Rejection.INSUFFICIENT_BALANCE);
+                .isInstanceOf(AppearanceHoldRejectedException.class)
+                .extracting("errorCode").isEqualTo(AppearanceErrorCode.INSUFFICIENT_BALANCE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
         assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getTotalElements()).isZero();
@@ -168,7 +169,7 @@ class AppearanceRecruitFacadeTest {
 
     @Test
     @WithMockUser(roles = "USER")
-    @DisplayName("세션 역할이 USER면 올리기·수정·내 목록은 막히고, 공개 목록·상세는 볼 수 있다")
+    @DisplayName("로그인 역할이 USER면 올리기·수정·내 목록은 막히고, 공개 목록·상세는 볼 수 있다")
     void userRole() {
         assertThatThrownBy(() -> post(HOST)).isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE))
@@ -225,7 +226,9 @@ class AppearanceRecruitFacadeTest {
         assertThat(detail.recruitDeadline()).isEqualTo(posted.recruitDeadline());
 
         BillingStubs.unavailable(billingClient);
-        assertThatThrownBy(() -> post(HOST)).isInstanceOf(AppearanceException.class);
+        assertThatThrownBy(() -> post(HOST))
+                .isInstanceOfSatisfying(AppearanceException.class, e ->
+                        assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
         Long pendingId = appearanceRecruitRepository.findAll().stream()
                 .filter(recruit -> recruit.getStatus() == AppearanceRecruitStatus.HOLD_PENDING)
                 .findFirst().orElseThrow().getId();

@@ -212,6 +212,7 @@ class AppearanceApplicationTest {
         @DisplayName("수락된 지원으로 출연을 만든다: 출처 RECRUIT, 출연료는 1인당 출연료, 방송 예정 일시 스냅샷")
         void establish() {
             AppearanceRecruit recruit = recruiting(3);
+            ReflectionTestUtils.setField(recruit, "id", 10L);
             AppearanceApplication application = AppearanceApplication.apply(recruit, GUEST, null, NOW);
             application.select(NOW);
 
@@ -233,6 +234,20 @@ class AppearanceApplicationTest {
             AppearanceApplication application = AppearanceApplication.apply(recruit, GUEST, null, NOW);
 
             assertThatThrownBy(() -> Appearance.establishFrom(recruit, application, NOW))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        @Test
+        @DisplayName("다른 모집글에 수락된 지원으로는 만들 수 없다 (코드 오류)")
+        void otherRecruit() {
+            AppearanceRecruit recruit = recruiting(3);
+            ReflectionTestUtils.setField(recruit, "id", 10L);
+            AppearanceApplication application = AppearanceApplication.apply(recruit, GUEST, null, NOW);
+            application.select(NOW);
+            AppearanceRecruit other = recruiting(3);
+            ReflectionTestUtils.setField(other, "id", 999L);
+
+            assertThatThrownBy(() -> Appearance.establishFrom(other, application, NOW))
                     .isInstanceOf(IllegalStateException.class);
         }
     }

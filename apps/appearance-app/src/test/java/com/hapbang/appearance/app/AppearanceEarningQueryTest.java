@@ -49,7 +49,7 @@ import com.hapbang.shared.appearance.dto.AppearanceEarningSummaryDto;
 
 /**
  * 출연 수익 조회 (#301, ISSUE.md APR-39). 실제 흐름(보내기·수락·취소 요청·일방 취소·확인·불참·모집)으로 상태를 만들고
- * 요약·목록을 확인한다. 세션 역할은 흐름을 만들 인플루언서 + 조회할 내부 호출(INTERNAL) 둘 다로 둔다.
+ * 요약·목록을 확인한다. 로그인 역할은 흐름을 만들 인플루언서 + 조회할 내부 호출(INTERNAL) 둘 다로 둔다.
  * 시각은 테스트 시계를 실제 순서대로 돌린다 (방송 전 처리 → 방송 → 확인·불참).
  */
 @AppearanceIntegrationTest
@@ -471,7 +471,7 @@ class AppearanceEarningQueryTest {
 
     @Test
     @WithMockUser(roles = "INFLUENCER")
-    @DisplayName("내부 호출(ROLE_INTERNAL)이 아니면 막힌다: 회원 세션(인플루언서)으로는 요약·목록을 부를 수 없다")
+    @DisplayName("내부 호출(ROLE_INTERNAL)이 아니면 막힌다: 회원 로그인(인플루언서)으로는 요약·목록을 부를 수 없다")
     void internalOnly() {
         assertThatThrownBy(() -> appearanceEarningFacade.summarize(GUEST, null)).isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> appearanceEarningFacade.find(GUEST, null, null, ALL))

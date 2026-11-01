@@ -16,11 +16,11 @@
 | EC2 | t3.large 1대 + t3.medium 1대, 각각 Ubuntu 24.04·gp3 50 GB·EIP 1개 | large는 `core-data`, medium은 `app-observe`로 사용한다. 상세 배치는 전용 문서를 따른다 |
 | CPU credit | **standard** 모드 | 기준선 이상 부하가 이어져 credit을 다 쓰면 CPU가 기준선으로 제한된다. 부하 test 결과에 credit 잔량을 함께 기록한다 |
 | 운영 시간 | 09:00~18:00 자동 시작·중지 | 매일 instance가 중지된다. 그 시간에 잡힌 `@Scheduled` 작업은 실행되지 않고, 종료 처리가 시연이 아니라 실제 요구다 |
-| 환경 | 현재 Compose는 prod·dev가 large에 함께 있다. 앱별 구조 전환(#363) 뒤 자동 배포는 멈춰 있다 | k3s에는 **prod(main)만** 둔다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
+| 환경 | EC2에는 k3s prod 한 벌만 있다. 기존 Compose(prod·dev)는 2026-10-30에 볼륨까지 지웠고 dev 서버는 없다(#440). 업무 앱은 아직 k3s에 배포하지 않았다 | k3s에는 **prod(main)만** 둔다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
 | network | 프로젝트 전용 VPC 1개, public subnet 1개, Internet Gateway. private subnet·NAT 없음 | 두 node는 같은 subnet에서 private IP로 cluster 통신한다 |
 | security group | 22·80·443 inbound 전체 허용. 6443은 kubectl 사용자 IP `/32`만 허용(2026-10-28) | Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다. k3s API(6443)는 사용자 IP `/32` 외에는 열지 않는다 |
-| 진입점 | edge nginx + Let's Encrypt(certbot). ELB·ACM 없음 | 외부 TLS 종료, 큰 본문 업로드, 내부 API 차단이 edge nginx에 있다. k3s에서는 이 책임을 Envoy Gateway와 cert-manager가 넘겨받고 nginx는 쓰지 않는다 |
-| 이미지 | GHCR private. ECR 없음 | cluster는 GHCR pull secret이 필요하다 |
+| 진입점 | large ServiceLB → Envoy Gateway, cert-manager의 Let's Encrypt 인증서(2026-10-30, #372). edge nginx는 지웠다. ELB·ACM 없음 | 외부 TLS 종료, 큰 본문 업로드, 내부 API 차단은 Envoy Gateway와 cert-manager가 맡는다. nginx는 쓰지 않는다 |
+| 이미지 | 앱·FE 이미지는 GHCR private 패키지(#374). ECR 없음 | 조직 정책으로 public 전환이 막혀 있다. `hapbang-prod`의 공유 pull Secret `ghcr-pull`(90일 PAT, #460)로 받는다 |
 | S3 | 버킷 1개, 사진·영상 업로드 전용(`dev/*`·`prod/*` prefix). 인스턴스 역할로 접근 | metrics·logs·traces·vector 저장 같은 다른 용도로 쓰려면 IAM 정책과 팀 합의를 바꿔야 한다 |
 | instance metadata | IMDSv2 required, hop limit 2 | container·pod 안에서도 인스턴스 역할 자격 증명을 받을 수 있다 |
 
@@ -33,8 +33,8 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | 기술 | 선택 | 보여 줄 역량 |
 | --- | --- | --- |
 | Kafka | 도입 | 모듈 간 비동기 이벤트, outbox, 멱등 소비, retry/DLT, replay |
-| 채팅 전달 작업 | PostgreSQL outbox로 보관·재처리 | DB 선점·lease 회수·backoff·실패 격리. Redis Streams는 구현하지 않음(2026-10-29 결정) |
-| Redis Pub/Sub·TTL | 채팅·알림 보조로 도입 | 다중 앱 replica fan-out, 접속 상태·짧은 수명 데이터 |
+| 채팅 전달 작업 | PostgreSQL outbox → Redis Streams 도입 | DB 적재 재시도, consumer group·PEL·ACK, Pub/Sub 발행 체크포인트·Redis 유실 재구성(2026-10-29 사용자 변경 결정) |
+| Redis Pub/Sub·TTL | 채팅·알림 보조로 도입 | 단일 chat-app 로컬 전달, 향후 서버 간 fan-out, 접속 상태·짧은 수명 데이터 |
 | 앱 구조 | 앱 1개 = bounded context 1개 = database 1개. #363의 앱 6개에 `notification-app`·`search-app`을 더해 8개 | 서비스별 빌드·배포·장애 격리 |
 | 알림(notification) | 채팅에서 분리해 `notification-app`으로 ([8장](infrastructure/notification.md)) | 이벤트 기반 독립 context, 멱등 소비, 실시간 전달과 복구 |
 | Elasticsearch + `search-app` | **도입 확정** ([9장](infrastructure/search.md), #234) | 이벤트 기반 색인, nori 한국어 검색, alias 재색인, 고객센터 hybrid RAG |
@@ -97,8 +97,9 @@ Client
             │                                            └─ search 모듈 → Elasticsearch index
             │
             └─ chat outbox → DB relay(선점·lease·재시도)
-                                               │
-                                               └─ Redis Pub/Sub → 각 app의 로컬 WebSocket session
+                              └─ Redis Streams → 전달 consumer group
+                                                    ├─ DB 발행 체크포인트 → XACK
+                                                    └─ Redis Pub/Sub → 단일 chat-app의 로컬 WebSocket session
 
 PostgreSQL instance 1개 (prod만, 10장)
   ├─ member DB ─────── 회원, refresh token
@@ -133,7 +134,7 @@ PostgreSQL이 Kafka나 Redis로 대체되지 않는다. HP 원장과 채팅 이�
 | 장 | 문서 | 내용 |
 | --- | --- | --- |
 | 1 | [Kafka](infrastructure/kafka.md) | 모듈 간 integration event, broker 선택 |
-| 2 | [채팅 전달](infrastructure/redis-chat.md) | PostgreSQL outbox·Redis Pub/Sub 채팅 전달 pipeline |
+| 2 | [채팅 전달](infrastructure/redis-chat.md) | PostgreSQL outbox·Redis Streams·Pub/Sub 채팅 전달 pipeline |
 | 3 | [k3s·Kustomize·Helm](infrastructure/k3s.md) | k3s와 k3d, EC2 2노드 자원 예산, EC2 운영, workload, manifest, CI |
 | 3 | [API Gateway](infrastructure/api-gateway.md) | Envoy Gateway, JWT 인증 흐름, rate limit |
 | 4 | [Graceful Shutdown](infrastructure/graceful-shutdown.md) | 전체 workload drain |
@@ -166,7 +167,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 - topic partition 수가 목표 최대 replica 수 이상이다. 한 consumer group에서 동시에 일하는 consumer는 partition 수를 넘을 수 없다.
 - scale-in 때 처리 중인 record가 [4장](infrastructure/graceful-shutdown.md#종료-계약과-순서)의 종료 순서(현재 record까지 처리 후 offset commit)를 따른다.
 
-확인할 것: `consumer lag 증가 → replica 증가 → lag 회복 → scale-in`이 dashboard에 보이는지, scale-in과 rebalance 중에 중복 처리가 inbox 멱등성으로 흡수되는지.
+확인할 것: `consumer lag 증가 → replica 증가 → lag 회복 → scale-in`이 dashboard에 보이는지, scale-in과 rebalance 중에 중복 처리가 소비 멱등성(자연 키)으로 흡수되는지.
 
 ## 구현 순서
 
@@ -192,19 +193,19 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 ### Phase 3 — Kafka
 
-1. integration event envelope과 topic contract
+1. 토픽·key·헤더 계약([1장](infrastructure/kafka.md), ADR 0001·0002)
 2. 레포 JSON Schema·AsyncAPI와 호환성 CI(`asyncapi diff`, version별 샘플 contract test)
 3. 모듈별 outbox → Kafka relay adapter
-4. inbox 멱등 consumer, retry/DLT, 재처리 명령
+4. 자연 키 멱등 consumer, 블로킹 retry/그룹별 DLT, 재처리 runbook
 5. 회원 복제 이벤트 하나로 end-to-end 완성 후 출연·강의로 확장
 
 ### Phase 4 — 채팅 Redis와 알림 모듈
 
 1. 메시지·시스템 안내·회원 상태 변경과 전달·제어 outbox의 원자 저장
-2. PostgreSQL outbox relay: DB 선점·lease·claimToken·재시도·DEAD 격리·운영자 재처리
-3. Redis Pub/Sub fan-out, 수신 참여 세대 확인, 마지막 유실 이력 대조·회원 상태 재검사
-4. 장애·중복·순서 테스트
-5. `notification-app`과 database, 알림 API, integration event 소비와 `eventId` 멱등 처리
+2. PostgreSQL outbox relay의 XADD 적재: DB 선점·lease·claimToken·재시도·실패 격리
+3. Streams 그룹 소비·PEL 회수 → Pub/Sub → DB 발행 체크포인트 → XACK, 안전한 정리·Redis 유실 재구성
+4. 단일 앱의 수신 참여 세대·이력 대조·회원 상태 재검사와 적재/소비/ACK 장애·중복·순서·메모리 시험
+5. `notification-app`과 database, 알림 API, integration event 소비와 자연 키 멱등 처리
 6. 알림 실시간 전달과 재접속 복구, 채팅의 출연 알림 listener 제거
 
 ### Phase 5 — 검색(ES)과 고객센터 RAG
@@ -238,9 +239,9 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 2. `k8s/` 구조(cluster·components·platform·apps)와 Helm 차트, 로컬 k3d bootstrap, CI 렌더링·schema 검사(#373). PR CI smoke/E2E는 앱이 모두 단독 기동한 뒤
 3. 모듈 앱 8개 Deployment(앱마다 replica 1개)와 probe·resource limit·migration·drain 설정
 4. Envoy Gateway·cert-manager·ServiceLB, `HTTPRoute`·`SecurityPolicy`, 헤더 위조 차단, 내부 API 차단, 큰 본문 업로드 검증(#372)
-5. 앱별 이미지 발행과 prod 배포 workflow(#374). EC2에 k3s를 설치하고 prod만 전환한다. 전환 검증 전까지 Compose 이미지로 되돌릴 수 있게 둔다
+5. 앱별 이미지 발행과 prod 배포 workflow(#374). EC2에 k3s를 설치하고 prod만 전환한다. 전환 검증 전까지 Compose 이미지로 되돌릴 수 있게 둘 계획이었으나, Compose를 먼저 지워 되돌릴 경로는 없다(#440)
 6. rolling update, pod 강제 종료, EC2 자동 중지·재시작과 자원 사용량 기록
-7. prod 전환 후 Compose, edge nginx, dev 서버와 기존 배포 script 제거
+7. prod 전환 후 Compose, edge nginx, dev 서버와 기존 배포 script 제거. 서버의 Compose·edge nginx·dev 서버는 2026-10-30에 먼저 지웠다(#440). 레포의 기존 배포 workflow·script 제거는 #374
 8. 실제 EC2·EIP·network·security group·S3·IAM을 Terraform으로 import하고 zero-change plan 검증
 
 ### Phase 9 — 포트폴리오 증거
@@ -261,7 +262,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 
 포트폴리오라도 다음은 피한다.
 
-- 채팅에 Redis Streams·consumer group·ACK·pending·failed stream을 구현하거나 Kafka integration event와 채팅 outbox의 책임을 중복 배치
+- Streams를 채팅 메시지 원본이나 사용자 수신 ACK 저장소로 취급하거나, 채팅 내부 전달과 Kafka integration event의 책임을 혼합. Streams·group·ACK·PEL은 이번 도입 범위이며 실패 격리는 DB에 둔다
 - HP 원장이나 채팅 이력을 Kafka/Redis에만 저장
 - 모든 module이 KafkaTemplate·RedisTemplate을 직접 호출
 - 분산 락을 unique constraint·조건부 update·멱등키의 대체물로 사용

@@ -45,7 +45,6 @@ import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // HP 보류 생성의 수익 HP 우선·충전 HP FIFO 배분, 보류·배분·원장·지갑 정합성, 멱등성, 롤백, 동시성을 실제 PostgreSQL로 검증한다.
@@ -311,7 +310,7 @@ class HoldCreateIntegrationTest {
         assertBillingError(() -> hold(1L, BillingReferenceType.LECTURE_ORDER_ITEM, 1001L, 1_000L),
                 BillingErrorCode.WALLET_NOT_FOUND);
 
-        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet WHERE wallet_type = 'MEMBER'", Integer.class)).isZero();
         assertThat(holdCount()).isZero();
     }
 
@@ -737,7 +736,7 @@ class HoldCreateIntegrationTest {
     // ---------------------------------------------------------------------------------------------
 
     private HoldResult hold(Long userId, BillingReferenceType referenceType, Long referenceId, long amountHp) {
-        return holdFacade.hold(new HoldCommand(userId, referenceType, referenceId, amountHp));
+        return holdFacade.hold(new PaymentHoldCommand(userId, referenceType, referenceId, amountHp));
     }
 
     // 회원 ID로 잔액이 0인 지갑을 저장하고 지갑 ID를 반환한다.

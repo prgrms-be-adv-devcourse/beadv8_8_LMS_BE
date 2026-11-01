@@ -36,13 +36,15 @@ import org.hibernate.annotations.Check;
         })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Check(constraints = "(requested_amount_hp >= 1000 AND requested_amount_hp % 1000 = 0) AND (fee_amount_hp >= 0) AND (payout_amount_krw >= 0) AND (fee_amount_hp::numeric + payout_amount_krw = requested_amount_hp::numeric)")
+@Check(constraints = "(requested_amount_hp >= 1) AND (fee_amount_hp >= 0) AND (payout_amount_krw >= 0) AND (fee_amount_hp::numeric + payout_amount_krw = requested_amount_hp::numeric)")
 public class Exchange extends BillingUpdatedEntity {
 
     /** 환전 수수료율 10% (루트 AGENTS.md 5장) */
     public static final BigDecimal FEE_RATE = new BigDecimal("0.1000");
-    /** 최소 환전 금액이자 환전 단위 */
-    public static final long UNIT_HP = 1_000L;
+    /** 송금액 비율 90%. 송금액 = 신청 금액 × 90%(원 미만 버림), 수수료 = 신청 금액 − 송금액 (#453) */
+    static final BigDecimal PAYOUT_RATE = BigDecimal.ONE.subtract(FEE_RATE);
+    /** 최소 환전 금액(1 HP 단위, #453) */
+    public static final long MIN_AMOUNT_HP = 1L;
     /** 거절 사유 최대 길이(앞뒤 공백 제외, #294) */
     public static final int REJECTION_REASON_MAX = 500;
 
@@ -153,12 +155,13 @@ public class Exchange extends BillingUpdatedEntity {
         this.failureReason = failureReason;
     }
 
-    // 환전 신청(REQUESTED). 금액은 1,000 HP 이상·1,000 HP 단위이고, 수수료(10%, 원 미만 버림)와 예상 수령액(KRW)을 지금 확정한다.
+    // 환전 신청(REQUESTED). 금액은 1 HP 이상(1 HP 단위)이고, 예상 수령액(KRW, 신청 × 90% 원 미만 버림)과 수수료(신청 − 수령액)를
+    // 지금 확정한다 (#453).
     // 보류는 저장 후(환전 ID가 생긴 뒤) attachHold로 연결한다.
     public static Exchange requested(Long userId, Long walletId, long amountHp, String idempotencyKey,
             Instant provisionalPayoutAt, Instant requestedAt) {
-        if (amountHp < UNIT_HP || amountHp % UNIT_HP != 0) {
-            throw new BillingException(BillingErrorCode.EXCHANGE_AMOUNT_INVALID);
+        if (amountHp < MIN_AMOUNT_HP) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_AMOUNT_TOO_SMALL);
         }
         long feeHp = feeOf(amountHp);
         return Exchange.builder()
@@ -175,9 +178,14 @@ public class Exchange extends BillingUpdatedEntity {
                 .build();
     }
 
-    // 환전 수수료: 신청 금액 × 10%, 원 미만 버림
+    // 환전 수수료: 신청 금액 − 송금액(신청 금액 × 90%, 원 미만 버림). 1 HP 이상이면 수수료도 항상 1 HP 이상이다 (#453)
     public static long feeOf(long amountHp) {
-        return BigDecimal.valueOf(amountHp).multiply(FEE_RATE).setScale(0, RoundingMode.FLOOR).longValueExact();
+        return amountHp - payoutOf(amountHp);
+    }
+
+    // 환전 송금액(KRW): 신청 금액 × 90%, 원 미만 버림 (#453). 신청 1 HP면 0원이다
+    public static long payoutOf(long amountHp) {
+        return BigDecimal.valueOf(amountHp).multiply(PAYOUT_RATE).setScale(0, RoundingMode.FLOOR).longValueExact();
     }
 
     // 이 신청으로 만든 수익 HP 보류를 연결한다.
@@ -282,6 +290,21 @@ public class Exchange extends BillingUpdatedEntity {
     public void payoutUnknown() {
         requirePayoutInFlight();
         this.status = ExchangeStatus.UNKNOWN;
+    }
+
+    // 송금할 금액이 없는 환전(송금액 0원, 신청 1 HP)을 은행 송금 없이 완료한다 (#453). 승인(APPROVED)된 건만 된다.
+    // 보류 확정 차감·수수료 수입 기록은 호출한 쪽이 같은 트랜잭션에서 한다
+    public void completeWithoutTransfer(Instant completedAt) {
+        if (status != ExchangeStatus.APPROVED || payoutAmountKrw != 0L) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_NOT_PAYABLE);
+        }
+        this.status = ExchangeStatus.COMPLETED;
+        this.completedAt = completedAt;
+    }
+
+    // 송금액이 0원이라 은행에 보낼 것이 없는 환전인지 (#453)
+    public boolean hasNoTransfer() {
+        return payoutAmountKrw == 0L;
     }
 
     // 송금 성공 (#304). 보류 확정 차감은 호출한 쪽이 같은 트랜잭션에서 한다

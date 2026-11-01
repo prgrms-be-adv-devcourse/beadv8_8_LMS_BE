@@ -19,13 +19,13 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 
-import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 
 import jakarta.servlet.http.Cookie;
 
 /** 구글 로그인 진행 상태 Redis 저장소 (#370): 브라우저 쿠키로 묶고, 한 번만 꺼낼 수 있다 */
-@IntegrationTest
+@MemberIntegrationTest
 @Import(RedisTestcontainersConfig.class)
 class RedisOAuth2AuthorizationRequestRepositoryTest {
 

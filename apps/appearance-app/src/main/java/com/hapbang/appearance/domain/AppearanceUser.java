@@ -45,7 +45,7 @@ public class AppearanceUser extends ReplicaUser {
     }
 
     /**
-     * 관리자 API를 쓸 수 있는지 확인한다 (#397). 세션 역할은 로그인 시점 값이라, 로그인 뒤 정지되거나 관리자 권한을 잃은 경우를
+     * 관리자 API를 쓸 수 있는지 확인한다 (#397). 헤더 역할은 토큰 발급 시점 값이라, 그 뒤 정지되거나 관리자 권한을 잃은 경우를
      * 복제한 회원 정보로 다시 막는다.
      * <ol>
      *     <li>정상(ACTIVE) 상태가 아니면 {@code APPEARANCE_USER_NOT_ACTIVE} (탈퇴·정지)</li>

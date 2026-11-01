@@ -32,6 +32,41 @@ services:
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
+  # 로컬용 Kafka (common/kafka). 운영 platform(k8s/platform/base/kafka.yaml)과 같은 이미지의 단일 노드 KRaft다.
+  # 4.2.1로 만든 볼륨도 그대로 뜬다. metadata.version은 처음 만든 버전(4.2)으로 남고 기능 확인에는 문제가 없다.
+  # spring-boot-docker-compose는 Kafka 연결 정보를 넣지 않는다. 앱은 Spring Boot 기본 주소 localhost:9092로 붙는다.
+  # KAFKA_PORT를 바꾸면 앱에도 spring.kafka.bootstrap-servers=localhost:<포트>를 준다.
+  kafka:
+    image: apache/kafka:4.4.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # 호스트에서 실행한 앱이 접속하는 주소다
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:${KAFKA_PORT:-9092}
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # KRaft 저장소 식별자. 처음 format할 때만 쓰이므로 바꾸지 않는다
+      CLUSTER_ID: kPETokImQqe8usYUIfbj1A
+      # broker가 1개라 내부 토픽도 replication factor 1이다. 기본값 3이면 consumer group이 동작하지 않는다
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # 운영과 같이 토픽은 발행 앱이 선언해 만든다. 선언 없이 보내면 실패한다
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
 volumes:
   postgres-data:
   s3mock-data:
+  kafka-data:

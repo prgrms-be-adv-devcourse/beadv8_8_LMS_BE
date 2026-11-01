@@ -1,7 +1,7 @@
 package com.hapbang.shared.billing.domain;
 
 // 원장·보류·보류 상세가 참조하는 강의·출연·Billing 거래 대상의 종류를 구분한다.
-// 강의·출연이 BillingPort로 보류·반환·지급을 요청할 때 쓰는 공통 계약이며, Billing 엔티티에는 상수 이름 그대로(EnumType.STRING) 저장한다.
+// 강의·출연이 지갑 내부 API로 보류·반환·지급을 요청할 때 쓰는 공통 계약이며, Billing 엔티티에는 상수 이름 그대로(EnumType.STRING) 저장한다.
 // 상수 이름은 DB CHECK 허용값이므로 바꾸지 않는다.
 public enum BillingReferenceType {
     /** 강의 주문 전체. 보류 단위가 아니다(강의는 주문 항목마다 보류한다). 원장 등에서 주문을 가리킬 때 쓸 수 있게 남겨 둔 값 */

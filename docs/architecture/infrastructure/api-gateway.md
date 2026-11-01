@@ -6,7 +6,7 @@
 
 ## 맡는 책임
 
-| 책임 | 내용 | 지금(Compose) 담당 |
+| 책임 | 내용 | 기존 Compose 담당(2026-10-30 제거) |
 | --- | --- | --- |
 | TLS 종료 | cert-manager가 발급한 인증서로 443을 종료하고 80은 HTTPS로 redirect한다 | edge nginx + certbot |
 | 모듈 단위 routing | AGENTS.md 3장의 모듈 진입 경로마다 `HTTPRoute`를 두고 그 앱의 Service로 보낸다. `/`는 React 정적 서버로 보낸다 | edge nginx의 `/api` 한 줄 |

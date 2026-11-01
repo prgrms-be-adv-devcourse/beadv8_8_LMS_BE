@@ -21,8 +21,9 @@ import lombok.RequiredArgsConstructor;
 
 // 수익 HP 환전 신청을 접수한다 (#285). 한 트랜잭션에서 신청(REQUESTED)·수익 HP 보류(REVENUE_ONLY)·테스트 계좌 스냅샷을 저장한다.
 // 보류가 실패하면(수익 HP 부족 등) 신청도 남지 않는다. 실제 송금·은행 확인은 하지 않는다.
-// - 금액: 1,000 HP 이상, 1,000 HP 단위. 가용 수익 HP에서만 보류한다(충전 HP는 환전할 수 없다).
-// - 수수료: 신청 금액의 10%(원 미만 버림)를 신청 시 확정·저장한다. 예상 수령액(KRW) = 신청 금액 − 수수료.
+// - 금액: 1 HP 이상, 1 HP 단위(#453). 가용 수익 HP에서만 보류한다(충전 HP는 환전할 수 없다).
+// - 수수료: 예상 수령액(KRW) = 신청 금액 × 90%(원 미만 버림), 수수료 = 신청 금액 − 예상 수령액을 신청 시 확정·저장한다(#453).
+//   신청 1 HP는 예상 수령액 0원이며 정산 때 은행 송금 없이 완료한다.
 // - 잠정 정산 예정일: 신청일(KST) 1~9일이면 당월 10일, 10일 이후면 다음 달 10일, 토·일이면 다음 월요일(공휴일 미반영,
 //   실제 송금일 아님. ExchangeSettlementRound).
 // - 멱등성: 같은 회원의 같은 Idempotency-Key는 처음 신청이다. 금액·계좌가 다르면 IDEMPOTENCY_KEY_CONFLICT.
@@ -41,8 +42,8 @@ public class ExchangeRequestUseCase {
     // 환전 신청 ID를 돌려준다. 수익 HP 가용 잔액이 모자라면 INSUFFICIENT_BALANCE(409)로 거절하고 아무것도 남기지 않는다.
     @Transactional
     public Long create(Long userId, String clientKey, ExchangeCommand command) {
-        if (command.amountHp() < Exchange.UNIT_HP || command.amountHp() % Exchange.UNIT_HP != 0) {
-            throw new BillingException(BillingErrorCode.EXCHANGE_AMOUNT_INVALID);
+        if (command.amountHp() < Exchange.MIN_AMOUNT_HP) {
+            throw new BillingException(BillingErrorCode.EXCHANGE_AMOUNT_TOO_SMALL);
         }
         Long walletId = walletRepository.findByUserId(userId)
                 .map(Wallet::getId)

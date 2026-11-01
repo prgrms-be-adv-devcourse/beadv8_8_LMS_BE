@@ -7,6 +7,7 @@ import static org.awaitility.Awaitility.*;
 import java.lang.reflect.Type;
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
@@ -30,7 +31,6 @@ import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.test.web.servlet.client.RestTestClient;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHttpHeaders;
@@ -53,13 +53,10 @@ import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.support.E2ESession;
-import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserLoggedOutEvent;
-import com.hapbang.shared.member.event.UserModifiedEvent;
 
 /**
  * 실제 서버를 띄워 STOMP(WebSocketStompClient)로 채팅 흐름을 검증한다.
@@ -78,12 +75,6 @@ class ChatStompE2ETest {
 
     @Autowired
     private ConfigurableApplicationContext applicationContext;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-
-    @Autowired
-    private ChatUserRepository chatUserRepository;
 
     private RestTestClient client;
     private WebSocketStompClient stompClient;
@@ -110,15 +101,16 @@ class ChatStompE2ETest {
     }
 
     @Test
-    void STOMP로_보낸_메시지가_두_사람에게_전달되고_상대만_알림을_받으며_DB에_저장된다() throws Exception {
+    void STOMP로_보낸_메시지가_방을_연_상대에게_방_topic으로_보낸_사람에게_결과_확인으로_가고_방을_열지_않은_상대_연결만_알림을_받으며_DB에_저장된다()
+            throws Exception {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
         StompSession host = connect(HOST_ID);
         StompSession guest = connect(GUEST_ID);
+        StompSession guestElsewhere = connect(GUEST_ID);
         BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
-        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
-                ChatMessageResponse.class);
-        BlockingQueue<ChatNotification> guestNotifications = subscribe(guest,
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribeRoom(guest, chatRoomId, 1);
+        BlockingQueue<ChatNotification> guestNotifications = subscribe(guestElsewhere,
                 "/user/queue/chats/notifications", ChatNotification.class);
         BlockingQueue<ChatNotification> hostNotifications = subscribe(host,
                 "/user/queue/chats/notifications", ChatNotification.class);
@@ -139,8 +131,9 @@ class ChatStompE2ETest {
 
         ChatNotification notification = guestNotifications.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(notification).isNotNull();
-        assertThat(notification.type()).isEqualTo(ChatNotification.NotificationType.NEW_MESSAGE);
-        assertThat(notification.messageId()).isEqualTo(received.messageId());
+        assertThat(notification.type()).isEqualTo(ChatNotification.NotificationType.ROOM_ACTIVITY);
+        assertThat(notification.lastMessage().messageId()).isEqualTo(received.messageId());
+        assertThat(notification.messageCount()).isEqualTo(1);
         assertThat(hostNotifications.poll(500, TimeUnit.MILLISECONDS)).isNull();
 
         assertThat(messageContents(chatRoomId, GUEST_ID)).containsExactly("금요일 밤 9시 괜찮으세요?");
@@ -151,11 +144,11 @@ class ChatStompE2ETest {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
         StompSession host = connect(HOST_ID);
         StompSession guest = connect(GUEST_ID);
+        StompSession guestElsewhere = connect(GUEST_ID);
         BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
-        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
-                ChatMessageResponse.class);
-        BlockingQueue<ChatNotification> guestNotifications = subscribe(guest,
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribeRoom(guest, chatRoomId, 1);
+        BlockingQueue<ChatNotification> guestNotifications = subscribe(guestElsewhere,
                 "/user/queue/chats/notifications", ChatNotification.class);
         waitForSubscriptions();
 
@@ -171,7 +164,7 @@ class ChatStompE2ETest {
         assertThat(guestMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
         assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
         assertThat(guestNotifications.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
-        assertThat(guestNotifications.poll(500, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(guestNotifications.poll(1500, TimeUnit.MILLISECONDS)).isNull();
         assertThat(messageContents(chatRoomId, GUEST_ID)).containsExactly("안녕하세요");
     }
 
@@ -180,10 +173,8 @@ class ChatStompE2ETest {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
         StompSession host = connect(HOST_ID);
         StompSession guest = connect(GUEST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
-                ChatMessageResponse.class);
-        BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
-                ChatMessageResponse.class);
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribeRoom(host, chatRoomId, 1);
+        BlockingQueue<ChatMessageResponse> guestMessages = subscribeRoom(guest, chatRoomId, 1);
         BlockingQueue<ChatErrorMessage> hostErrors = subscribe(host, "/user/queue/chats/errors",
                 ChatErrorMessage.class);
         waitForSubscriptions();
@@ -215,10 +206,11 @@ class ChatStompE2ETest {
                 .headers(E2ESession.login(client, GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
                 .exchange()
                 .expectStatus().isNoContent();
+        // 퇴장 안내는 outbox 경로로 비동기 전달된다. 발행(PUBLISHED)은 로컬 전달 완료가 아니므로(decisions.md), 연결 뒤에
+        // 늦은 퇴장 안내가 먼저 도착할 수 있다. 받은 순서에 기대지 않고 내용으로 재입장 안내를 찾는다
         StompSession host = connect(HOST_ID);
         StompSession guest = connect(GUEST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
-                ChatMessageResponse.class);
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribeRoom(host, chatRoomId, 1);
         BlockingQueue<ChatMessageResponse> guestMessages = subscribe(guest, "/user/queue/chats/messages",
                 ChatMessageResponse.class);
         waitForSubscriptions();
@@ -229,10 +221,26 @@ class ChatStompE2ETest {
                 .exchange()
                 .expectStatus().isOk();
 
-        ChatMessageResponse rejoinNotice = hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        List<ChatMessageResponse> beforeRejoinNotice = new ArrayList<>();
+        ChatMessageResponse rejoinNotice = null;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+        while (rejoinNotice == null && System.nanoTime() < deadline) {
+            ChatMessageResponse received = hostMessages.poll(100, TimeUnit.MILLISECONDS);
+            if (received == null) {
+                continue;
+            }
+            if ("게스트님이 다시 들어왔습니다.".equals(received.content())) {
+                rejoinNotice = received;
+            } else {
+                beforeRejoinNotice.add(received);
+            }
+        }
         assertThat(rejoinNotice).isNotNull();
         assertThat(rejoinNotice.messageType()).isEqualTo(ChatMessageType.SYSTEM);
-        assertThat(rejoinNotice.content()).isEqualTo("게스트님이 다시 들어왔습니다.");
+        // 재입장 안내 말고 받을 수 있는 것은 늦게 도착한 퇴장 안내뿐이다
+        assertThat(beforeRejoinNotice).extracting(ChatMessageResponse::content)
+                .allMatch("게스트님이 나갔습니다."::equals);
+        // 재입장한 게스트는 퇴장 안내도, 재입장 안내도 받지 않는다
         assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
         assertThat(messageContents(chatRoomId, HOST_ID)).first().isEqualTo("게스트님이 다시 들어왔습니다.");
     }
@@ -244,8 +252,7 @@ class ChatStompE2ETest {
         StompSession guest = connect(GUEST_ID);
         guest.disconnect();
         StompSession host = connect(HOST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
-                ChatMessageResponse.class);
+        BlockingQueue<ChatMessageResponse> hostMessages = subscribeRoom(host, chatRoomId, 1);
         waitForSubscriptions();
 
         host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("다시 오면 보세요", null));
@@ -371,31 +378,8 @@ class ChatStompE2ETest {
         assertThat(otherDevice.isConnected()).isTrue();
     }
 
-    @Test
-    void 채팅할_수_없게_강등되면_그_회원의_모든_연결이_닫힌다() throws Exception {
-        StompSession first = connect(HOST_ID);
-        StompSession second = connect(HOST_ID);
-
-        CloseStatus closeStatus = closeStatusOf(HOST_ID,
-                () -> publishModified(activeUser(HOST_ID, "호스트", Role.USER)));
-
-        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
-        assertThat(closeStatus.getReason()).isEqualTo("CHAT_NOT_ALLOWED");
-        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS))
-                .until(() -> !first.isConnected() && !second.isConnected());
-    }
-
-    // 회원 변경 이벤트는 프로필 수정에도 온다. 채팅할 수 있는 회원의 프로필 수정으로 소켓을 닫지 않는다
-    @Test
-    void 프로필_수정처럼_채팅_가능_여부가_그대로인_변경은_연결을_유지한다() throws Exception {
-        StompSession host = connect(HOST_ID);
-
-        publishModified(activeUser(HOST_ID, "새닉네임", Role.INFLUENCER));
-
-        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS)).until(() -> chatUserRepository.findById(HOST_ID)
-                .map(user -> user.getNickname().equals("새닉네임")).orElse(false));
-        assertThat(host.isConnected()).isTrue();
-    }
+    // 강등·정지된 회원의 연결 종료와 프로필 수정 시 연결 유지는 회원 변경 Kafka 소비가 남긴 연결 재검사 작업이
+    // 제어 Stream·제어 채널을 거쳐 처리한다. Kafka가 필요한 그 두 테스트는 ChatMemberControlE2ETest에 있다.
 
     @Test
     void 정지된_회원은_세션_역할이_인플루언서여도_연결할_수_없다() throws Exception {
@@ -529,10 +513,6 @@ class ChatStompE2ETest {
         }
     }
 
-    private void publishModified(UserDto user) {
-        transactionTemplate.executeWithoutResult(status -> applicationContext.publishEvent(new UserModifiedEvent(user)));
-    }
-
     @FunctionalInterface
     private interface ThrowingRunnable {
         void run() throws Exception;
@@ -567,6 +547,29 @@ class ChatStompE2ETest {
 
     private String wsUrl() {
         return "ws://localhost:" + port + "/api/v1/chats/ws";
+    }
+
+    /** 방 topic을 구독하고 메시지 프레임만 모은다(거절·회수 프레임은 {@code chat-frame-type} 헤더로 거른다) */
+    private BlockingQueue<ChatMessageResponse> subscribeRoom(StompSession session, Long chatRoomId,
+            int participationVersion) {
+        BlockingQueue<ChatMessageResponse> queue = new LinkedBlockingQueue<>();
+        StompHeaders headers = new StompHeaders();
+        headers.setDestination("/topic/chats/rooms/" + chatRoomId);
+        headers.add("participation-version", String.valueOf(participationVersion));
+        session.subscribe(headers, new StompFrameHandler() {
+            @Override
+            public Type getPayloadType(StompHeaders frameHeaders) {
+                return ChatMessageResponse.class;
+            }
+
+            @Override
+            public void handleFrame(StompHeaders frameHeaders, Object payload) {
+                if (frameHeaders.getFirst("chat-frame-type") == null) {
+                    queue.add((ChatMessageResponse) payload);
+                }
+            }
+        });
+        return queue;
     }
 
     private <T> BlockingQueue<T> subscribe(StompSession session, String destination, Class<T> type) {

@@ -3,6 +3,7 @@ package com.hapbang.lecture.out;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 
 import com.hapbang.lecture.domain.LectureHpTask;
+import com.hapbang.lecture.domain.LectureHpTaskOutcome;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.testsupport.RepositoryTest;
@@ -103,8 +105,42 @@ class LectureHpTaskRepositoryTest {
                 .containsExactly(due);
     }
 
+    @Test
+    void 실행하지_않은_주문의_보류_작업만_SKIPPED로_닫는다() {
+        LectureHpTask claimed = lectureHpTaskRepository.save(holdTask(3L, 31L));
+        LectureHpTask retrying = lectureHpTaskRepository.save(holdTask(3L, 32L));
+        LectureHpTask unstarted = lectureHpTaskRepository.save(holdTask(3L, 33L));
+        LectureHpTask otherOrder = lectureHpTaskRepository.save(holdTask(4L, 41L));
+        LectureHpTask cancel = lectureHpTaskRepository.saveAndFlush(task("LECTURE-CANCEL-34", 34L));
+        lectureHpTaskRepository.claim(claimed.getId(), UUID.randomUUID(), NOW, NOW.plusMinutes(5), MAX_ATTEMPTS);
+        lectureHpTaskRepository.claim(retrying.getId(), UUID.randomUUID(), NOW, NOW.plusMinutes(5), MAX_ATTEMPTS);
+        LectureHpTask failedOnce = lectureHpTaskRepository.findById(retrying.getId()).orElseThrow();
+        failedOnce.scheduleRetry("UNKNOWN_RESULT", NOW, NOW);
+        lectureHpTaskRepository.flush();
+
+        int skipped = lectureHpTaskRepository.skipUnstartedHolds(3L, NOW.plusSeconds(1));
+        entityManager.clear();
+
+        assertThat(skipped).isEqualTo(1);
+        assertThat(lectureHpTaskRepository.findByOrderIdIn(List.of(3L, 4L)))
+                .extracting(LectureHpTask::getId, LectureHpTask::getStatus, LectureHpTask::getOutcome)
+                .containsExactlyInAnyOrder(
+                        tuple(claimed.getId(), LectureHpTaskStatus.PROCESSING, null),
+                        tuple(retrying.getId(), LectureHpTaskStatus.PENDING, null),
+                        tuple(unstarted.getId(), LectureHpTaskStatus.COMPLETED, LectureHpTaskOutcome.SKIPPED),
+                        tuple(otherOrder.getId(), LectureHpTaskStatus.PENDING, null),
+                        tuple(cancel.getId(), LectureHpTaskStatus.PENDING, null));
+        assertThat(lectureHpTaskRepository.findById(unstarted.getId()).orElseThrow().getCompletedAt())
+                .isEqualTo(NOW.plusSeconds(1));
+    }
+
     private static LectureHpTask cancelTask() {
         return task("LECTURE-CANCEL-31", 31L);
+    }
+
+    private static LectureHpTask holdTask(Long orderId, Long orderItemId) {
+        return LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-" + orderItemId, orderId,
+                orderItemId, 7L, null, 10_000L, NOW);
     }
 
     private static LectureHpTask task(String requestId, Long orderItemId) {

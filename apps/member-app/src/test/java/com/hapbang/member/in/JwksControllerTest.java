@@ -13,14 +13,14 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.app.AccessTokenIssuer;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 
 /** JWT 공개 키 목록 (#370): 로그인 없이 받고, 그 키로 발급한 access token을 검증할 수 있다 */
-@IntegrationTest
+@MemberIntegrationTest
 @AutoConfigureMockMvc
 class JwksControllerTest {
 

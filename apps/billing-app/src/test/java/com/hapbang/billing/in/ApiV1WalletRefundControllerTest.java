@@ -149,8 +149,8 @@ class ApiV1WalletRefundControllerTest {
                 .andExpect(jsonPath("$.code").value("REFUND_IDEMPOTENCY_KEY_INVALID"));
         request(1L, "key-1", 0).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        request(1L, "key-1", 1_500).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("REFUND_AMOUNT_INVALID"));
+        request(1L, "key-1", -1).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         request(1L, "key-1", 11_000).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"));
         assertThat(TOSS.cancelCount()).isZero();

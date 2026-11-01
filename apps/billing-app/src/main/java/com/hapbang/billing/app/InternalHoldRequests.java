@@ -17,7 +17,7 @@ final class InternalHoldRequests {
     private InternalHoldRequests() {
     }
 
-    // 내부 보류 참조 유형의 보류 종류. 강의·출연 참조 유형은 BillingPort(MIXED)로만 보류한다.
+    // 내부 보류 참조 유형의 보류 종류. 강의·출연 참조 유형은 내부 HTTP API(MIXED)로만 보류한다.
     static PointHoldType holdTypeOf(BillingReferenceType referenceType) {
         Objects.requireNonNull(referenceType, "참조 유형은 필수입니다.");
         return switch (referenceType) {

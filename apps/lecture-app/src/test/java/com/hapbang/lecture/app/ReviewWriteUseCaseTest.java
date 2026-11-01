@@ -11,7 +11,6 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +22,7 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.out.LectureReviewRepository;
@@ -68,8 +68,7 @@ class ReviewWriteUseCaseTest {
     }
 
     private static OrderItem confirmedItem(Lecture lecture) {
-        LectureOrder order = LectureOrder.place(BUYER_ID, List.of(lecture), Set.of(),
-                LocalDateTime.of(2026, 9, 30, 10, 0));
+        LectureOrder order = LectureOrderFixture.order(BUYER_ID, List.of(lecture), LocalDateTime.of(2026, 9, 30, 10, 0));
         OrderItem item = order.getItems().getFirst();
         ReflectionTestUtils.setField(item, "id", ORDER_ITEM_ID);
         ReflectionTestUtils.setField(item, "status", OrderItemStatus.CONFIRMED);

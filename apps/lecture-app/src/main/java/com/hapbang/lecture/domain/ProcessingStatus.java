@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
         - `PROCESSING`: 정상 처리 중
         - `DELAYED`: 실패 후 재시도 중
         - `ACTION_REQUIRED`: 자동 처리가 멈췄다. 고객센터 확인이 필요하다""")
+// 선언 순서가 심각도 순이다. 여러 작업의 처리 상태는 가장 나쁜(뒤의) 값으로 모은다 (D69 (2))
 public enum ProcessingStatus {
     PROCESSING,
     DELAYED,

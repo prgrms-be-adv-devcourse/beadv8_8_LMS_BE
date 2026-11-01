@@ -6,12 +6,15 @@ import static org.assertj.core.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.chat.app.dto.ChatUserSyncResult;
+import com.hapbang.chat.app.dto.ChatUserSyncResult.Outcome;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
@@ -92,28 +95,50 @@ class ChatUserUseCaseTest {
     }
 
     @Test
-    void 프로필만_수정하면_채팅할_수_없게_된_것이_아니다() {
+    void 프로필만_수정하면_갱신했고_계속_채팅할_수_있다() {
         chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
 
-        assertThat(chatUserUseCase.update(activeUser(HOST_ID, "새닉네임", Role.INFLUENCER))).isFalse();
+        ChatUserSyncResult result = chatUserUseCase.update(activeUser(HOST_ID, "새닉네임", Role.INFLUENCER));
+
+        assertThat(result.outcome()).isEqualTo(Outcome.UPDATED);
+        assertThat(result.canChat()).isTrue();
     }
 
     @Test
-    void 채팅할_수_있던_회원이_정지_탈퇴_강등되면_채팅할_수_없게_된_것이다() {
+    void 정지_탈퇴_강등을_반영하면_갱신_뒤_채팅할_수_없다() {
         chatUserUseCase.createIfAbsent(activeUser(HOST_ID, "호스트", Role.INFLUENCER));
         chatUserUseCase.createIfAbsent(activeUser(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER));
         chatUserUseCase.createIfAbsent(activeUser(ADMIN_ID, "관리자", Role.ADMIN));
 
-        assertThat(chatUserUseCase.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, UserStatus.SUSPENDED))).isTrue();
+        assertThat(chatUserUseCase.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, UserStatus.SUSPENDED)))
+                .extracting(ChatUserSyncResult::outcome, ChatUserSyncResult::canChat)
+                .containsExactly(Outcome.UPDATED, false);
         assertThat(chatUserUseCase.update(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN)))
-                .isTrue();
-        assertThat(chatUserUseCase.update(activeUser(ADMIN_ID, "관리자", Role.USER))).isTrue();
+                .extracting(ChatUserSyncResult::outcome, ChatUserSyncResult::canChat)
+                .containsExactly(Outcome.UPDATED, false);
+        assertThat(chatUserUseCase.update(activeUser(ADMIN_ID, "관리자", Role.USER)))
+                .extracting(ChatUserSyncResult::outcome, ChatUserSyncResult::canChat)
+                .containsExactly(Outcome.UPDATED, false);
     }
 
     @Test
-    void 원래_채팅할_수_없던_회원의_변경은_채팅할_수_없게_된_것이_아니다() {
+    void 이미_반영한_버전보다_새롭지_않은_변경은_건너뛰고_현재_버전을_돌려준다() {
+        chatUserUseCase.createIfAbsent(new UserDto(HOST_ID, "호스트", Role.INFLUENCER, UserStatus.ACTIVE, 3L));
+
+        ChatUserSyncResult result = chatUserUseCase.update(
+                new UserDto(HOST_ID, "옛닉네임", Role.USER, UserStatus.ACTIVE, 2L));
+
+        assertThat(result.outcome()).isEqualTo(Outcome.SKIPPED_STALE);
+        assertThat(result.memberVersion()).isEqualTo(3L);
+        assertThat(result.canChat()).isTrue();
+        assertThat(chatUserRepository.findById(HOST_ID)).get().extracting(ChatUser::getNickname).isEqualTo("호스트");
+    }
+
+    @Test
+    void 이미_있는_회원의_가입_정보는_건너뛴다고_돌려준다() {
         chatUserUseCase.createIfAbsent(activeUser(USER_ID, "유저", Role.USER));
 
-        assertThat(chatUserUseCase.update(activeUser(USER_ID, "새닉네임", Role.USER))).isFalse();
+        assertThat(chatUserUseCase.createIfAbsent(activeUser(USER_ID, "유저", Role.USER)).outcome())
+                .isEqualTo(Outcome.SKIPPED_EXISTING);
     }
 }

@@ -97,11 +97,14 @@ class LectureReviewRepositoryTest {
         LectureReview newer = review(lecture, 4L, OrderItemStatus.PAID_OUT, 4, NOW.plusMinutes(1));
         review(lecture, 5L, OrderItemStatus.RETURNED, 1, NOW.plusMinutes(2));
         review(lecture, 6L, OrderItemStatus.CONFIRMED, 1, NOW.plusMinutes(3)).delete(6L, NOW.plusMinutes(4));
+        // 반환 처리 중부터 빼고, 지급 처리 중은 그대로 보인다 (D59 (3)·(5))
+        review(lecture, 7L, OrderItemStatus.RETURN_PENDING, 1, NOW.plusMinutes(5));
+        LectureReview payingOut = review(lecture, 8L, OrderItemStatus.PAYOUT_PENDING, 3, NOW.plusMinutes(6));
         flushAndClear();
 
         assertThat(lectureReviewRepository.findVisible(lecture.getId(), PageRequest.of(0, 10)))
                 .extracting(LectureReview::getId)
-                .containsExactly(newer.getId(), older.getId());
+                .containsExactly(payingOut.getId(), newer.getId(), older.getId());
     }
 
     @Test
@@ -114,6 +117,7 @@ class LectureReviewRepositoryTest {
         review(lecture, 5L, OrderItemStatus.CONFIRMED, 4, NOW);
         review(lecture, 6L, OrderItemStatus.RETURNED, 1, NOW);
         review(lecture, 7L, OrderItemStatus.CONFIRMED, 1, NOW).delete(7L, NOW);
+        review(lecture, 8L, OrderItemStatus.RETURN_PENDING, 1, NOW);
         review(other, BUYER_ID, OrderItemStatus.CONFIRMED, 3, NOW);
         flushAndClear();
 

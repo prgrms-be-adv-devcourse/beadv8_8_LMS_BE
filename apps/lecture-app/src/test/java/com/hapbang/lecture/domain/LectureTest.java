@@ -306,9 +306,21 @@ class LectureTest {
         assertThatNoException().isThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false, confirmed));
     }
 
+    @Test
+    void 결제_처리_중인_구매자는_콘텐츠를_볼_수_없다() {
+        Lecture lecture = onSaleLecture();
+        OrderItem pending = LectureOrder.place(OTHER_USER_ID, List.of(withId(lecture, 10L)), Set.of(), NOW).getItems()
+                .getFirst();
+
+        assertThatThrownBy(() -> lecture.validateContentViewer(OTHER_USER_ID, false, pending))
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(LectureErrorCode.CONTENT_ACCESS_DENIED);
+    }
+
     /** {@code OTHER_USER_ID}가 산 항목(주문 ID 100, 항목 ID 1000) */
     private static OrderItem heldItem(Lecture lecture) {
         LectureOrder order = LectureOrder.place(OTHER_USER_ID, List.of(lecture), Set.of(), NOW);
+        order.markPaid(NOW);
         ReflectionTestUtils.setField(order, "id", 100L);
         OrderItem item = order.getItems().getFirst();
         ReflectionTestUtils.setField(item, "id", 1000L);

@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import java.util.List;
 
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -17,17 +18,21 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
+import com.hapbang.chat.app.ChatRoomTopicFacade;
 import com.hapbang.chat.app.ChatUserFacade;
 
 class ChatStompInterceptorTest {
 
     private final ChatUserFacade chatUserFacade = mock(ChatUserFacade.class);
-    private final ChatStompInterceptor interceptor = new ChatStompInterceptor(chatUserFacade);
+    private final ChatRoomTopicFacade chatRoomTopicFacade = mock(ChatRoomTopicFacade.class);
+    private final ChatStompInterceptor interceptor = new ChatStompInterceptor(chatUserFacade, chatRoomTopicFacade);
     private final MessageChannel channel = mock(MessageChannel.class);
 
     @ParameterizedTest
-    @ValueSource(strings = {"/queue/chats/messages", "/topic/chats/1", "/user", "/users/queue/chats/messages"})
-    void 회원_큐가_아닌_경로는_구독을_거절한다(String destination) {
+    @ValueSource(strings = {"/queue/chats/messages", "/topic/chats/1", "/user", "/users/queue/chats/messages",
+            "/user/2/queue/chats/messages", "/user/queue/other", "/topic/chats/rooms/", "/topic/chats/rooms/0",
+            "/topic/chats/rooms/abc", "/topic/chats/rooms/1/x", "/pub/chats/1/messages"})
+    void 자기_회원_큐와_방_topic이_아닌_경로는_구독을_거절한다(String destination) {
         Message<byte[]> subscribe = subscribe(destination);
 
         assertThatThrownBy(() -> interceptor.preSend(subscribe, channel))
@@ -42,6 +47,51 @@ class ChatStompInterceptorTest {
         Message<byte[]> subscribe = subscribe(destination);
 
         assertThat(interceptor.preSend(subscribe, channel)).isSameAs(subscribe);
+        verifyNoInteractions(chatRoomTopicFacade);
+    }
+
+    @Test
+    void 방_topic_구독은_세대_헤더와_함께_허가를_맡기고_연결을_닫지_않는다() {
+        Message<byte[]> subscribe = roomSubscribe("/topic/chats/rooms/12", "3");
+
+        assertThat(interceptor.preSend(subscribe, channel)).isSameAs(subscribe);
+
+        verify(chatRoomTopicFacade).subscribe(12L, 1L, "session-1", "sub-0", 3);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "0", "-1", "abc"})
+    void 방_topic_구독에_1_이상의_세대_헤더가_없으면_거절한다(String version) {
+        Message<byte[]> subscribe = roomSubscribe("/topic/chats/rooms/12", version.isEmpty() ? null : version);
+
+        assertThatThrownBy(() -> interceptor.preSend(subscribe, channel))
+                .isExactlyInstanceOf(MessageDeliveryException.class);
+        verifyNoInteractions(chatRoomTopicFacade);
+    }
+
+    @Test
+    void UNSUBSCRIBE는_방_구독_해제에_맡긴다() {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.UNSUBSCRIBE);
+        accessor.setSessionId("session-1");
+        accessor.setSubscriptionId("unknown");
+        accessor.setLeaveMutable(true);
+        Message<byte[]> unsubscribe = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        assertThat(interceptor.preSend(unsubscribe, channel)).isSameAs(unsubscribe);
+
+        verify(chatRoomTopicFacade).unsubscribe("session-1", "unknown");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/topic/chats/rooms/12", "/queue/chats/messages-user1", "/user/2/queue/chats/messages"})
+    void 브로커와_회원_큐로_직접_보내면_거절한다(String destination) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
+        accessor.setDestination(destination);
+        accessor.setLeaveMutable(true);
+        Message<byte[]> send = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        assertThatThrownBy(() -> interceptor.preSend(send, channel))
+                .isExactlyInstanceOf(MessageDeliveryException.class);
     }
 
     @ParameterizedTest
@@ -78,6 +128,20 @@ class ChatStompInterceptorTest {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
         accessor.setUser(new UsernamePasswordAuthenticationToken(String.valueOf(userId), null,
                 List.of(new SimpleGrantedAuthority(authority))));
+        accessor.setLeaveMutable(true);
+        return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    private Message<byte[]> roomSubscribe(String destination, String participationVersion) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        accessor.setDestination(destination);
+        accessor.setSubscriptionId("sub-0");
+        accessor.setSessionId("session-1");
+        accessor.setUser(new UsernamePasswordAuthenticationToken("1", null,
+                List.of(new SimpleGrantedAuthority("ROLE_INFLUENCER"))));
+        if (participationVersion != null) {
+            accessor.setNativeHeader("participation-version", participationVersion);
+        }
         accessor.setLeaveMutable(true);
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
     }

@@ -32,7 +32,7 @@ import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 
 /**
- * 실제 서버(보안 필터, 세션 로그인, CSRF, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 RestAssured로 출연 모집글 API를 호출한다.
+ * 실제 서버(보안 필터, Gateway 사용자 헤더 로그인, 메서드 보안, 서비스, DB, Billing 대역)를 띄우고 RestAssured로 출연 모집글 API를 호출한다.
  * 성공 응답은 RsData다.
  */
 @AppearanceE2ETest
@@ -112,7 +112,7 @@ class AppearanceRecruitApiE2ETest {
     }
 
     @Test
-    @DisplayName("Billing이 잔액 부족으로 보류를 거절하면 그 오류 그대로 409 INSUFFICIENT_BALANCE")
+    @DisplayName("지갑이 잔액 부족으로 보류를 거절하면 409 INSUFFICIENT_BALANCE (문구는 출연이 정함)")
     void insufficientBalance() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 

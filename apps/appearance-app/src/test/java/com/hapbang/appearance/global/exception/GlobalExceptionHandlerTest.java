@@ -2,7 +2,6 @@ package com.hapbang.appearance.global.exception;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -29,8 +28,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.hapbang.appearance.global.config.SecurityConfig;
+import com.hapbang.appearance.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.TestLogin;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -41,12 +40,7 @@ import lombok.RequiredArgsConstructor;
 
 // 공통 핸들러가 모든 오류를 ProblemDetail + code로 응답하는지 검증한다. 컨트롤러는 테스트 전용이다.
 @ContextConfiguration(classes = com.hapbang.testsupport.WebSliceTestConfiguration.class)
-@WebMvcTest(controllers = GlobalExceptionHandlerTest.SampleController.class, properties = {
-        "spring.config.name=hapbang-module-test",
-        // oauth2Login()이 구글 등록 정보를 요구한다
-        "spring.security.oauth2.client.registration.google.client-id=test",
-        "spring.security.oauth2.client.registration.google.client-secret=test"
-})
+@WebMvcTest(controllers = GlobalExceptionHandlerTest.SampleController.class, properties = "spring.config.name=hapbang-module-test")
 @Import({SecurityConfig.class, GlobalExceptionHandler.class, GlobalExceptionHandlerTest.SampleController.class})
 class GlobalExceptionHandlerTest {
 
@@ -85,7 +79,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 요청_본문_검증에_실패하면_400과_항목별_오류를_담는다() throws Exception {
-        mockMvc.perform(asUser(post("/api/v1/samples")).with(csrf())
+        mockMvc.perform(asUser(post("/api/v1/samples"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": " ", "count": 0, "type": "BASIC"}
@@ -132,7 +126,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 요청_본문의_enum_값이_없는_값이면_필드와_사용_가능한_값을_알려_준다() throws Exception {
-        mockMvc.perform(asUser(post("/api/v1/samples")).with(csrf())
+        mockMvc.perform(asUser(post("/api/v1/samples"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "샘플", "count": 1, "type": "UNKNOWN"}
@@ -144,7 +138,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 요청_본문의_값_타입이_다르면_필드를_알려_준다() throws Exception {
-        mockMvc.perform(asUser(post("/api/v1/samples")).with(csrf())
+        mockMvc.perform(asUser(post("/api/v1/samples"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "샘플", "count": "많이", "type": "BASIC"}
@@ -155,7 +149,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 요청_본문이_JSON_문법에_맞지_않으면_400() throws Exception {
-        mockMvc.perform(asUser(post("/api/v1/samples")).with(csrf())
+        mockMvc.perform(asUser(post("/api/v1/samples"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\": "))
                 .andExpect(status().isBadRequest())
@@ -181,7 +175,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 지원하지_않는_메서드는_405와_코드로_응답한다() throws Exception {
-        mockMvc.perform(asUser(delete("/api/v1/samples/required")).with(csrf()))
+        mockMvc.perform(asUser(delete("/api/v1/samples/required")))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
     }
@@ -196,7 +190,7 @@ class GlobalExceptionHandlerTest {
     }
 
     private MockHttpServletRequestBuilder asUser(MockHttpServletRequestBuilder request) {
-        return request.with(TestLogin.as(1L, Role.USER));
+        return request.with(GatewayLogin.as(1L, Role.USER));
     }
 
     /** 모듈 오류 코드 예시 (각 모듈의 {Module}ErrorCode) */

@@ -31,6 +31,7 @@ public class ChatMessageSupporter {
     /**
      * 참여자 본인의 조회 범위 안에서 최신순으로 조회한다. cursor는 방 메시지 순번이며, 없으면 가장 최근부터 조회한다.
      * 오래된 cursor를 보내도 조회 시작점 이전 메시지는 나오지 않는다.
+     * 응답에 현재 참여 세대와 조회 시작점을 담아, 클라이언트가 세대 변경과 조회 완료 구간을 판단하게 한다.
      */
     public ChatMessagePageResponse getMessages(Long chatRoomId, Long userId, Long cursor, int size) {
         chatRoomRepository.findById(chatRoomId)
@@ -49,9 +50,11 @@ public class ChatMessageSupporter {
                 .map(message -> ChatMessageResponse.of(message, userId))
                 .toList();
         if (messages.size() <= size) {
-            return new ChatMessagePageResponse(messages, null);
+            return new ChatMessagePageResponse(messages, null, member.getParticipationVersion(),
+                    member.getVisibleFromSequence());
         }
         List<ChatMessageResponse> page = messages.subList(0, size);
-        return new ChatMessagePageResponse(page, page.getLast().roomSequence());
+        return new ChatMessagePageResponse(page, page.getLast().roomSequence(), member.getParticipationVersion(),
+                member.getVisibleFromSequence());
     }
 }

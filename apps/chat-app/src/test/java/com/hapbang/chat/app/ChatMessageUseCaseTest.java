@@ -38,7 +38,7 @@ class ChatMessageUseCaseTest {
     @BeforeEach
     void setUp() {
         ChatUserSeeder.seedDefaultUsers(chatUserUseCase);
-        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        chatRoomId = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     @Test
@@ -48,8 +48,9 @@ class ChatMessageUseCaseTest {
         assertThat(sent.message().messageId()).isNotNull();
         assertThat(sent.message().roomSequence()).isEqualTo(1);
         assertThat(sent.message().messageType()).isEqualTo(ChatMessageType.TEXT);
-        assertThat(sent.deliverToUserIds()).containsExactlyInAnyOrder(HOST_ID, GUEST_ID);
-        assertThat(sent.notifyUserIds()).containsExactly(GUEST_ID);
+        // 전달 대상·알림은 저장 트랜잭션에 남긴 outbox가 맡는다(수신자 집합 기록은 ChatDeliveryOutboxRecordTest)
+        assertThat(sent.resent()).isFalse();
+        assertThat(sent.senderParticipationVersion()).isEqualTo(1);
     }
 
     @Test
@@ -68,7 +69,8 @@ class ChatMessageUseCaseTest {
 
         SentChatMessage sent = chatMessageUseCase.send(chatRoomId, HOST_ID, "다시 이야기해요", null);
 
-        assertThat(sent.notifyUserIds()).containsExactly(GUEST_ID);
+        assertThat(sent.resent()).isFalse();
+        assertThat(sent.message().content()).isEqualTo("다시 이야기해요");
     }
 
     @Test

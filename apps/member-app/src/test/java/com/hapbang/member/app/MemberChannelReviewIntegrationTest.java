@@ -30,6 +30,7 @@ import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.ChannelVerificationStatus;
 import com.hapbang.member.domain.InfluencerChannel;
@@ -42,10 +43,9 @@ import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserModifiedEvent;
-import com.hapbang.testsupport.IntegrationTest;
 
 /** 관리자 채널 심사: 실제 DB로 권한·역할 변경·이벤트·목록 쿼리·비관적 락을 확인한다 */
-@IntegrationTest
+@MemberIntegrationTest
 @RecordApplicationEvents
 @WithMockUser(roles = "ADMIN")
 class MemberChannelReviewIntegrationTest {

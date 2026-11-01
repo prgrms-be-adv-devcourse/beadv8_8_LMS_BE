@@ -41,6 +41,8 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         // 헬스체크 (Docker healthcheck용). 서버 nginx가 /actuator를 프록시하지 않아 컨테이너·서버 안에서만 접근한다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                        // Prometheus scrape. Gateway가 /actuator를 라우팅하지 않고 NetworkPolicy가 Prometheus pod만 허용한다 (#480)
+                        .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
                         // JWT 공개 키 목록 (Envoy·chat-app이 받는다, #370). 경로는 Envoy remoteJWKS 주소와 같다 (#372)
                         .requestMatchers(HttpMethod.GET, "/api/v1/members/.well-known/jwks.json").permitAll()
                         // 치지직 연동 콜백: 브라우저 이동이라 로그인 정보가 없다. 시작 때 맡긴 회원으로 처리한다 (#370)

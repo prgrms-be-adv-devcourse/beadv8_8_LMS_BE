@@ -46,6 +46,7 @@ import com.hapbang.billing.app.HoldFacade;
 import com.hapbang.billing.app.LedgerEntry;
 import com.hapbang.billing.app.LedgerOperation;
 import com.hapbang.billing.app.LedgerRecordUseCase;
+import com.hapbang.billing.app.PaymentHoldCommand;
 import com.hapbang.billing.app.WalletReconciliationUseCase;
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.LedgerTransactionType;
@@ -53,7 +54,6 @@ import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
@@ -61,8 +61,10 @@ import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 // 지갑 내부 API(#273)를 실제 보안 체인·MVC 변환기·PostgreSQL로 검증한다 (docs/api/internal-billing.md, docs/billing/CONTEXT.md 1장).
-// 금융 규칙 자체는 Hold*IntegrationTest·BillingPortIntegrationTest가 검증하고, 여기서는 HTTP 계약(본문·상태·code·멱등 재요청·인증)과
+// 금융 규칙 자체는 Hold*IntegrationTest가 검증하고, 여기서는 HTTP 계약(본문·상태·code·멱등 재요청·인증)과
 // 같은 요청의 동시 처리, 락 대기 초과(lock_timeout 3초 → 503 HP_LOCK_TIMEOUT)를 확인한다.
+// 요청 하나는 지갑 트랜잭션 하나다. 같은 JVM의 BillingPort로 호출한 쪽 트랜잭션에 참여하던 시절의 검증(#486에서 삭제)은
+// 요청 단위 롤백(technicalFailureRollsBack)으로 대신한다.
 @IntegrationTest
 @AutoConfigureMockMvc
 @ExtendWith(OutputCaptureExtension.class)
@@ -118,6 +120,39 @@ class ApiV1BillingInternalControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.heldHp").value(10_000))
                 .andExpect(jsonPath("$.data.replayed").value(true));
+
+        assertThat(holdCount()).isEqualTo(1);
+        assertReconciled(host);
+    }
+
+    @Test
+    @DisplayName("보류 무효화: 남은 보류를 반환해 RELEASED를 돌려주고, 같은 요청은 replayed=true이며 이후 보류는 409 HOLD_VOIDED다")
+    void voidHold() throws Exception {
+        Long host = wallet(HOST);
+        revenue(host, 10_000L);
+        call("/holds", hold(HOST, 7L, 10_000L)).andExpect(status().isOk());
+        String body = """
+                {"userId": 1, "referenceType": "APPEARANCE_REQUEST", "referenceId": 7}""";
+
+        call("/hold-voids", body)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("HP 보류를 무효화했습니다."))
+                .andExpect(jsonPath("$.data.referenceType").value("APPEARANCE_REQUEST"))
+                .andExpect(jsonPath("$.data.referenceId").value(7))
+                .andExpect(jsonPath("$.data.outcome").value("RELEASED"))
+                .andExpect(jsonPath("$.data.releasedHp").value(10_000))
+                .andExpect(jsonPath("$.data.replayed").value(false));
+        call("/hold-voids", body)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("RELEASED"))
+                .andExpect(jsonPath("$.data.replayed").value(true));
+        call("/hold-voids", """
+                {"userId": 1, "referenceType": "APPEARANCE_REQUEST", "referenceId": 8}""")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("VOIDED"))
+                .andExpect(jsonPath("$.data.releasedHp").value(0));
+        assertProblem(call("/holds", hold(HOST, 8L, 1_000L)), 409, "HOLD_VOIDED")
+                .andExpect(jsonPath("$.detail").value("보류가 무효화된 대상이라 HP를 보류할 수 없습니다."));
 
         assertThat(holdCount()).isEqualTo(1);
         assertReconciled(host);
@@ -223,6 +258,55 @@ class ApiV1BillingInternalControllerTest {
     }
 
     @Test
+    @DisplayName("강의는 주문 항목마다 보류하고, 한 항목을 반환해도 같은 주문의 다른 항목 보류는 그대로다")
+    void lectureOrderItems() throws Exception {
+        Long buyer = wallet(HOST);
+        revenue(buyer, 30_000L);
+        call("/holds", lectureHold(5001L, 10_000L)).andExpect(status().isOk());
+        call("/holds", lectureHold(5002L, 20_000L)).andExpect(status().isOk());
+
+        call("/releases", """
+                {"userId": 1, "referenceType": "LECTURE_ORDER_ITEM", "referenceId": 5001,
+                 "releaseRequestId": "ORDER-ITEM-5001-CANCEL"}""")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.referenceType").value("LECTURE_ORDER_ITEM"))
+                .andExpect(jsonPath("$.data.referenceId").value(5001))
+                .andExpect(jsonPath("$.data.releasedHp").value(10_000))
+                .andExpect(jsonPath("$.data.remainingHeldHp").value(0));
+
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT idempotency_key || ' ' || (held_charge_hp + held_revenue_hp) FROM billing.point_hold ORDER BY id",
+                String.class)).containsExactly("HOLD:LECTURE_ORDER_ITEM:5001 0", "HOLD:LECTURE_ORDER_ITEM:5002 20000");
+        assertReconciled(buyer);
+    }
+
+    @Test
+    @DisplayName("금액 오류는 400이다: 0 HP 보류·반환과 음수 지급은 INVALID_POINT_AMOUNT, 위약금 지급액 0은 PENALTY_AMOUNT_ZERO")
+    void amountErrors() throws Exception {
+        Long host = wallet(HOST);
+        wallet(GUEST);
+        revenue(host, 5_000L);
+        call("/holds", hold(HOST, 7L, 5_000L)).andExpect(status().isOk());
+        Map<String, Object> before = snapshot();
+
+        assertProblem(call("/holds", hold(HOST, 8L, 0L)), 400, "INVALID_POINT_AMOUNT");
+        assertProblem(call("/releases", """
+                {"userId": 1, "referenceType": "APPEARANCE_REQUEST", "referenceId": 7, "releaseRequestId": "R1",
+                 "amountHp": 0}"""), 400, "INVALID_POINT_AMOUNT");
+        assertProblem(call("/payouts", """
+                {"payerUserId": 1, "referenceType": "APPEARANCE_REQUEST", "referenceId": 7, "payoutRequestId": "P1",
+                 "receiverUserId": 2, "sourceType": "APPEARANCE_REQUEST", "sourceId": 7001, "amountHp": -1}"""),
+                400, "INVALID_POINT_AMOUNT");
+        assertProblem(call("/penalty-settlements", """
+                {"payerUserId": 1, "referenceType": "APPEARANCE_REQUEST", "referenceId": 7, "cancellationId": "C1",
+                 "receiverUserId": 2, "sourceType": "APPEARANCE_REQUEST", "sourceId": 7001,
+                 "releaseAmountHp": 5000, "payoutAmountHp": 0}"""), 400, "PENALTY_AMOUNT_ZERO");
+
+        assertThat(snapshot()).isEqualTo(before);
+        assertReconciled(host);
+    }
+
+    @Test
     @DisplayName("처리 중 기술 실패는 내부 메시지 없는 500 INTERNAL_ERROR이고, 같은 요청의 반환·지급·원장 변경이 모두 롤백된다")
     void technicalFailureRollsBack() throws Exception {
         Long host = wallet(HOST);
@@ -312,7 +396,7 @@ class ApiV1BillingInternalControllerTest {
     @DisplayName("HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다: 인증이 없으면 거절, 회원 역할이면 403 대상")
     void facadeRequiresInternalRole() {
         revenue(wallet(HOST), 10_000L);
-        HoldCommand command = new HoldCommand(HOST, BillingReferenceType.APPEARANCE_REQUEST, 7L, 10_000L);
+        PaymentHoldCommand command = new PaymentHoldCommand(HOST, BillingReferenceType.APPEARANCE_REQUEST, 7L, 10_000L);
 
         assertThatThrownBy(() -> holdFacade.hold(command)).isInstanceOf(AuthenticationCredentialsNotFoundException.class);
         asRole("USER", () -> assertThatThrownBy(() -> holdFacade.hold(command))
@@ -422,6 +506,12 @@ class ApiV1BillingInternalControllerTest {
         return """
                 {"userId": %d, "referenceType": "%s", "referenceId": %d, "amountHp": %d}"""
                 .formatted(userId, BillingReferenceType.APPEARANCE_REQUEST, referenceId, amountHp);
+    }
+
+    private static String lectureHold(long referenceId, long amountHp) {
+        return """
+                {"userId": %d, "referenceType": "%s", "referenceId": %d, "amountHp": %d}"""
+                .formatted(HOST, BillingReferenceType.LECTURE_ORDER_ITEM, referenceId, amountHp);
     }
 
     private ResultActions assertProblem(ResultActions result, int status, String code) throws Exception {

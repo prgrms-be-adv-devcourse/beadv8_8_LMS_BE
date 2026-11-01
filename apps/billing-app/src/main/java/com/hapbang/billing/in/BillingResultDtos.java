@@ -1,10 +1,12 @@
 package com.hapbang.billing.in;
 
 import com.hapbang.billing.app.HoldResult;
+import com.hapbang.billing.app.HoldVoidResult;
 import com.hapbang.billing.app.PayoutResult;
 import com.hapbang.billing.app.PenaltyResult;
 import com.hapbang.billing.app.ReleaseResult;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -13,7 +15,7 @@ import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
 
 // Billing 내부 결과를 shared 계약 결과로 바꾼다(BD-61: 호출한 쪽이 쓰는 값만).
-// 내부 HTTP API(ApiV1BillingInternalController)와 BillingPortAdapter가 같은 변환을 쓴다 (#273).
+// 내부 HTTP API(ApiV1BillingInternalController)가 쓴다 (#273).
 final class BillingResultDtos {
 
     private BillingResultDtos() {
@@ -33,6 +35,11 @@ final class BillingResultDtos {
         return new PayoutResultDto(result.referenceType(), result.referenceId(), command.payoutRequestId(),
                 command.receiverUserId(), result.sourceType(), result.sourceId(), result.paidHp(),
                 result.remainingHeldHp(), result.replayed());
+    }
+
+    static HoldVoidResultDto holdVoid(HoldVoidResult result) {
+        return new HoldVoidResultDto(result.referenceType(), result.referenceId(), result.outcome(), result.releasedHp(),
+                result.replayed());
     }
 
     // 남은 보류액은 반환·지급을 모두 적용한 뒤인 지급 결과의 값이다.

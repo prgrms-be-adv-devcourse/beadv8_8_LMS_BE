@@ -1,7 +1,7 @@
 # Elasticsearch 통합 범위 조사
 
 조사일: 2026-10-26
-결정 반영: 2026-10-28
+결정 반영: 2026-10-28 (채팅 Streams 변경 결정: 2026-10-29)
 
 ## 질문과 전제
 
@@ -12,7 +12,7 @@ Elasticsearch 도입이 확정됐을 때 서비스 검색 외에 RAG vector stor
 - 결과물은 실제 운영보다 포트폴리오의 설계·비교·장애 시연이 목적이므로, 운영 비용을 이유로 통합 가능성을 미리 제외하지 않는다.
 - 현재 EC2는 t3.large(8 GiB) `core-data`와 t3.medium(4 GiB) `app-observe` 2노드이며 각각 gp3 50 GB를 사용한다.
 - PostgreSQL은 업무 데이터와 HP 원장의 진실의 원천이다.
-- Kafka는 모듈 간 integration event를, PostgreSQL outbox relay·Redis Pub/Sub은 채팅 전달 pipeline을 맡는다(2026-10-29 결정 반영).
+- Kafka는 모듈 간 integration event를, PostgreSQL outbox relay·Redis Streams·Pub/Sub은 채팅 전달 pipeline을 맡는다(2026-10-29 결정 반영).
 - 조사 전 설계안은 검색용 Elasticsearch, RAG용 pgvector, 관측성용 Prometheus·Loki·Tempo·Grafana를 각각 사용하는 구성이었다.
 
 이 문서는 선택 근거와 대안 비교 기록이다. 구현 기준은 [최종 프로젝트 포트폴리오 인프라 설계](./final-project-infrastructure.md)이며, 아래 결론은 해당 문서에 반영됐다.
@@ -34,7 +34,7 @@ Kibana, Elastic Agent, Elastic APM과 Logstash는 도입하지 않는다. Elasti
 | 메트릭 | 통합하지 않음 | Prometheus가 scrape·저장·PromQL·rule을 담당한다 |
 | 분산 trace | 통합하지 않음 | OpenTelemetry trace를 Alloy가 받아 Tempo에 저장한다 |
 | Kafka event stream | 통합하지 않음 | Kafka가 전달·재생을 담당하고 ES는 소비 결과인 read model만 가진다 |
-| PostgreSQL outbox·Redis Pub/Sub | 통합하지 않음 | 전달 작업의 보관·선점·재시도는 DB가, 실시간 fan-out은 Redis가 맡는다. ES를 전달 큐로 쓰지 않는다 |
+| PostgreSQL outbox·Redis Streams·Pub/Sub | 통합하지 않음 | DB가 원자 저장·적재 복구, Streams가 작업 소비·회수, Pub/Sub이 실시간 전달을 맡는다. ES를 전달 큐로 쓰지 않는다 |
 | 업무 DB·HP 원장·채팅 이력 | 통합하지 않음 | PostgreSQL이 source of truth이고 ES는 삭제 후 재구축 가능한 projection이다 |
 | 검색·색인 운영 지표 | Grafana stack에 통합 | Elasticsearch exporter/API metrics를 Prometheus가 수집하고 Grafana에서 본다 |
 
@@ -161,8 +161,8 @@ Elastic의 Kafka integration은 broker logs와 metrics, consumer lag를 수집�
 
 ### Redis
 
-- 채팅 전달 작업은 PostgreSQL outbox에 보관하고 DB relay가 선점·lease 만료 회수·재시도·실패 격리를 수행한다. Redis Streams는 구현하지 않는다(2026-10-29 결정).
-- Redis Pub/Sub은 app replica 사이의 실시간 fan-out이다.
+- 채팅 전달 작업은 PostgreSQL outbox에서 Redis Streams로 적재한다. consumer group의 PEL·ACK·회수와 DB 발행 체크포인트·유실 재구성을 사용한다(2026-10-29 변경 결정). 상세 기준은 [채팅 전달 설계](infrastructure/redis-chat.md)를 따른다.
+- Redis Pub/Sub은 단일 chat-app의 로컬 STOMP 전달을 맡는다. 서버 간 fan-out은 향후 확장 경로다.
 - Elasticsearch는 채팅 전달 경로에 넣지 않는다.
 - 채팅 본문 검색을 새 요구사항으로 정한 경우에만 PostgreSQL의 공개 가능한 projection을 별도 private search index로 만든다. 현재 MVP에는 추가하지 않는다.
 

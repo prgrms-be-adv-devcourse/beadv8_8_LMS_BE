@@ -13,17 +13,19 @@ import org.springframework.data.repository.query.Param;
 import com.hapbang.lecture.domain.LectureReview;
 
 /**
- * 반환된 항목의 리뷰는 남기되 목록·평균 평점·리뷰 수에서 뺀다 (D5). 반환 여부는 컬럼으로 복사하지 않고 조회할 때
+ * 반환 처리 중·반환된 항목의 리뷰는 남기되 목록·평균 평점·리뷰 수에서 뺀다 (D5, D59 (3)). 반환 여부는 컬럼으로 복사하지 않고 조회할 때
  * 주문 항목과 JOIN해 판정한다. 같은 강의 스키마 안이라 모듈 경계 위반이 아니다.
  */
 public interface LectureReviewRepository extends JpaRepository<LectureReview, Long> {
 
     /**
-     * 목록·평균 평점·리뷰 수에 들어가는 리뷰(별칭 {@code r}). 삭제된 리뷰와 반환된 항목의 리뷰는 빠진다.
+     * 목록·평균 평점·리뷰 수에 들어가는 리뷰(별칭 {@code r}). 삭제된 리뷰와 반환 처리 중·반환된 항목의 리뷰는 빠진다.
      * 강의 평점순 정렬({@link LectureRepository#findOnSaleOrderByRating})도 이 조건을 쓴다. 뒤에 {@code and …}로 조건을 붙인다.
      */
     String VISIBLE_REVIEWS = "from LectureReview r join OrderItem i on i.id = r.orderItemId "
-            + "where r.deletedAt is null and i.status <> com.hapbang.lecture.domain.OrderItemStatus.RETURNED";
+            + "where r.deletedAt is null "
+            + "and i.status not in (com.hapbang.lecture.domain.OrderItemStatus.RETURN_PENDING, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.RETURNED)";
 
     Optional<LectureReview> findByIdAndDeletedAtIsNull(Long id);
 

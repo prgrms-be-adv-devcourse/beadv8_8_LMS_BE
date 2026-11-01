@@ -5,7 +5,7 @@ import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 
 // Billing 내부 종류별 보류·확정 차감·반환 진입점 (#241). 후속 충전 HP 환불·수익 HP 환전 UseCase만 쓴다.
-// 다른 모듈에 공개하지 않는다(강의·출연은 shared BillingPort의 hold·release·payout·settlePenalty를 그대로 쓴다).
+// 다른 모듈에 공개하지 않는다(강의·출연은 내부 HTTP API의 보류·반환·지급·위약금 정산을 쓴다).
 // 트랜잭션은 UseCase가 연다(호출한 쪽 트랜잭션이 있으면 참여). 결과는 Billing 내부 결과(충전 건별 배분·소진·복원 포함)다.
 //
 // 사용 예 (환불, #260 RefundProcessing): hold(POINT_REFUND_REQUEST, 환불 요청 ID, 금액) → PG 결제 건(충전 건)별 취소

@@ -4,16 +4,12 @@ kind: Kustomization
 resources:
   - ../../base
 patches:
-  # nori 이미지는 로컬에서 빌드해 k3d image import로 넣는다(k8s/platform/base/elasticsearch/Dockerfile).
   # Docker Desktop VM의 vm.max_map_count(262144)가 ES 9 권장값(1048576)보다 작아 로컬에서만 mmap을 끈다.
   # prod는 host sysctl을 올리고 mmap을 쓴다(docs/deploy/aws-k3s.md).
   - target:
       kind: Elasticsearch
       name: hapbang
     patch: |-
-      - op: add
-        path: /spec/image
-        value: hapbang/elasticsearch-nori:9.5.5
       - op: add
         path: /spec/nodeSets/0/config
         value:

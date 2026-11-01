@@ -161,6 +161,7 @@ class AppearanceRequestRespondApiE2ETest {
     void statusFilter() {
         long[] rejected = send();
         postAs(GUEST, "/" + rejected[0] + "/reject", "{}").then().statusCode(200);
+        long[] requested = send();
 
         E2ELogin.as(GUEST, Role.INFLUENCER).queryParam("status", "REJECTED", "CANCELED").get(BASE + "/received")
                 .then().statusCode(200)
@@ -168,7 +169,8 @@ class AppearanceRequestRespondApiE2ETest {
                 .body("data.page.totalElements", equalTo(1));
         E2ELogin.as(GUEST, Role.INFLUENCER).queryParam("status", "REQUESTED").get(BASE + "/received")
                 .then().statusCode(200)
-                .body("data.page.totalElements", equalTo(0));
+                .body("data.content[0].id", number(requested[0]))
+                .body("data.page.totalElements", equalTo(1));
         E2ELogin.as(GUEST, Role.INFLUENCER).queryParam("status", "HOLD_FAILED").get(BASE + "/received")
                 .then().statusCode(400)
                 .body("code", equalTo("INVALID_REQUEST"));
@@ -178,7 +180,7 @@ class AppearanceRequestRespondApiE2ETest {
     }
 
     @Test
-    @DisplayName("일반 유저 세션으로 수락하면 403 FORBIDDEN (Facade @PreAuthorize)")
+    @DisplayName("일반 유저로 로그인해 수락하면 403 FORBIDDEN (Facade @PreAuthorize)")
     void userRole() {
         long[] sent = send();
 

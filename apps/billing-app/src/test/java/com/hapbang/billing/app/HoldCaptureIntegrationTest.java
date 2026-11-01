@@ -35,9 +35,6 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.PayoutCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 종류별 보류(MIXED·CHARGE_ONLY·REVENUE_ONLY)와 확정 차감(Capture, #241)을 실제 PostgreSQL로 검증한다.
@@ -88,7 +85,7 @@ class HoldCaptureIntegrationTest {
         Long first = charge(walletId, 2_000L, T1);
         Long second = charge(walletId, 3_000L, T2);
 
-        HoldResult mixed = holdFacade.hold(new HoldCommand(USER, LECTURE, 11L, 4_000L));
+        HoldResult mixed = holdFacade.hold(new PaymentHoldCommand(USER, LECTURE, 11L, 4_000L));
         HoldResult refund = internalHoldFacade.hold(new InternalHoldCommand(USER, REFUND, 21L, 3_000L));
         // 수익 HP는 MIXED 보류가 이미 다 썼으므로 남은 수익 HP가 없다 → 환전 보류 전에 수익 HP를 더 만든다
         revenue(walletId, 1_500L);
@@ -141,10 +138,11 @@ class HoldCaptureIntegrationTest {
         assertThat(again.holdId()).isEqualTo(first.holdId());
         assertBillingError(() -> internalHoldFacade.hold(new InternalHoldCommand(USER, REFUND, 21L, 2_000L)),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
-        // 내부 경로는 환불·환전 참조 유형만, BillingPort(shared) 계약은 강의·출연 참조 유형만 받는다
+        // 내부 경로는 환불·환전 참조 유형만, shared 계약(내부 HTTP API)은 강의·출연 참조 유형만 받는다
         assertThatThrownBy(() -> new InternalHoldCommand(USER, LECTURE, 11L, 1_000L))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new HoldCommand(USER, REFUND, 21L, 1_000L)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new PaymentHoldCommand(USER, REFUND, 21L, 1_000L))
+                .isInstanceOf(IllegalArgumentException.class);
         assertBalances(walletId, 2_000L, 0L, 3_000L, 0L);
         assertInvariants(walletId);
     }
@@ -413,16 +411,16 @@ class HoldCaptureIntegrationTest {
     }
 
     @Test
-    @DisplayName("확정 차감과 지급은 같은 보류를 함께 쓰지 못한다: 지급(BillingPort)은 강의·출연 보류만, 확정 차감은 환불·환전 보류만 받는다")
+    @DisplayName("확정 차감과 지급은 같은 보류를 함께 쓰지 못한다: 지급(HoldFacade)은 강의·출연 보류만, 확정 차감은 환불·환전 보류만 받는다")
     void captureAndPayout_neverShareHold() {
         Long buyer = wallet(USER);
         Long seller = wallet(SELLER);
         charge(buyer, 5_000L, T1);
-        holdFacade.hold(new HoldCommand(USER, LECTURE, 11L, 2_000L));
+        holdFacade.hold(new PaymentHoldCommand(USER, LECTURE, 11L, 2_000L));
         internalHoldFacade.hold(new InternalHoldCommand(USER, REFUND, 21L, 3_000L));
 
         // 계약 단계: 지급 요청은 환불 보류를, 확정 차감 요청은 강의 보류를 가리킬 수 없다
-        assertThatThrownBy(() -> PayoutCommand.full(USER, REFUND, 21L, "P1", SELLER,
+        assertThatThrownBy(() -> PaymentPayoutCommand.full(USER, REFUND, 21L, "P1", SELLER,
                 SettlementSourceType.LECTURE_ORDER_ITEM, 21L)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> CaptureCommand.full(USER, LECTURE, 11L, "C1"))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -435,7 +433,7 @@ class HoldCaptureIntegrationTest {
                 + "idempotency_key = 'HOLD:LECTURE_ORDER_ITEM:11' WHERE idempotency_key = 'HOLD:POINT_REFUND_REQUEST:99'");
 
         // 각자 자기 보류만 끝낸다. 지급(강의)과 확정 차감(환불)이 서로의 보류액을 쓰지 않는다
-        holdFacade.payout(PayoutCommand.full(USER, LECTURE, 11L, "LECTURE-PAYOUT-11", SELLER,
+        holdFacade.payout(PaymentPayoutCommand.full(USER, LECTURE, 11L, "LECTURE-PAYOUT-11", SELLER,
                 SettlementSourceType.LECTURE_ORDER_ITEM, 11L));
         internalHoldFacade.capture(CaptureCommand.full(USER, REFUND, 21L, "PG"));
 
@@ -453,10 +451,10 @@ class HoldCaptureIntegrationTest {
         Long seller = wallet(SELLER);
         revenue(buyer, 1_000L);
         charge(buyer, 4_000L, T1);
-        holdFacade.hold(new HoldCommand(USER, LECTURE, 11L, 5_000L));
+        holdFacade.hold(new PaymentHoldCommand(USER, LECTURE, 11L, 5_000L));
 
-        holdFacade.release(ReleaseCommand.partial(USER, LECTURE, 11L, "R1", 1_000L));
-        PayoutResult paid = holdFacade.payout(PayoutCommand.full(USER, LECTURE, 11L, "P1", SELLER,
+        holdFacade.release(PaymentReleaseCommand.partial(USER, LECTURE, 11L, "R1", 1_000L));
+        PayoutResult paid = holdFacade.payout(PaymentPayoutCommand.full(USER, LECTURE, 11L, "P1", SELLER,
                 SettlementSourceType.LECTURE_ORDER_ITEM, 11L));
 
         assertThat(paid.holdStatus()).isEqualTo(PointHoldStatus.MIXED);

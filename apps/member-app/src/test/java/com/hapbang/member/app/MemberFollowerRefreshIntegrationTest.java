@@ -28,6 +28,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.ChannelVerificationStatus;
 import com.hapbang.member.domain.InfluencerChannel;
@@ -38,10 +39,9 @@ import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.IntegrationTest;
 
 /** 팔로워 수 일일 갱신: 실제 DB, 치지직은 가짜로 대신한다 (#302) */
-@IntegrationTest
+@MemberIntegrationTest
 class MemberFollowerRefreshIntegrationTest {
 
     private static final LocalDateTime REGISTERED_AT = LocalDateTime.of(2026, 10, 1, 10, 0);

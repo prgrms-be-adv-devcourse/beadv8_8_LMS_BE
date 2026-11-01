@@ -10,13 +10,12 @@
 ## 2. 브랜치
 
 - `origin/dev`에서 `feature/tkt-<이슈번호>` 브랜치를 만든다.
-- 작업 시작 전에 dev 배포가 실패 중인지 본다: `gh run list --branch dev --event push --limit 2`.
 - 다른 팀원의 변경을 반영할 때는 `dev`를 최신화한 뒤 작업 브랜치에 병합한다.
 - 커밋하지 않을 로컬 파일이 있으면 `git add -A` 대신 경로를 지정해 스테이징한다.
 
 ## 3. PR
 
-- PR 직전에 `origin/dev`를 다시 병합하고 `./gradlew check`한다. 각각 통과한 PR도 dev에서 합쳐지면 깨질 수 있다(#184 테스트 + #182 생성자). dev 배포가 실패 중인지도 다시 본다.
+- PR 직전에 `origin/dev`를 다시 병합하고 `./gradlew check`한다. 각각 통과한 PR도 dev에서 합쳐지면 깨질 수 있다(#184 테스트 + #182 생성자).
 - **공개 레포다.** PR·이슈·커밋 전에 diff와 본문에 버킷 이름·계정 ID·인스턴스 ID가 없는지 grep한다 ([보안 가이드](../deploy/security.md)).
 - 만들기: `gh pr create --base dev --title "[모듈] 요약 (#N)" --body-file <파일>`.
 - 본문은 `## 📌 작업 내용`(+ `- close #N`) / `## 🔧 변경 사항` / `## ✅ 테스트` 순서다. 결정·프론트 참고·확인 필요가 있으면 섹션을 더한다.
@@ -36,7 +35,7 @@
 
 ## 6. 배포 확인
 
-- dev 배포: `gh run list --branch dev --event push --limit 1`(Deploy 워크플로). `--event` 없이 조회하면 다른 PR의 CI가 나올 수 있다. 끝까지 기다리려면 `gh run watch <id> --exit-status`.
+- dev 병합 때는 workflow가 돌지 않는다. CI(`verify`)는 PR에서만 돈다. dev 서버는 없다.
+- 운영 배포: main 병합 뒤 Publish images, 그다음 수동 Deploy다([운영 앱 배포](../deploy/k8s.md#운영-앱-배포)). 최근 실행은 `gh run list --workflow deploy.yml --limit 1`, 끝까지 기다리려면 `gh run watch <id> --exit-status`.
 - 실패 로그는 `gh run view <id> --log-failed`로 본다.
-- `docker/compose.<env>.yaml`을 바꾼 PR은 병합 후 Deploy가 "서버 설정이 레포와 다름"으로 실패하는 게 정상이다. 새 env 키는 병합 전에 서버 env 파일에 넣고, compose를 반영한 뒤 `gh run rerun <id> --failed`로 다시 실행한다. 서버 파일은 한 벌이라 `compose.prod.yaml`은 main 병합 때 반영한다 ([운영](../deploy/operations.md)).
-- 배포 뒤 dev 서버 확인은 [로컬·dev 확인](../dev/local.md).
+- 새 환경변수는 [env-vars.md](../deploy/env-vars.md) 절차로 ConfigMap·SealedSecret에 넣는다.

@@ -13,6 +13,8 @@ import com.hapbang.billing.global.exception.BusinessException;
 import com.hapbang.billing.global.response.RsData;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -45,8 +47,8 @@ public class ApiV1BillingInternalController implements ApiV1BillingInternalSpec 
     public RsData<HoldResultDto> hold(@RequestBody HoldCommand command) {
         String request = "operation=HOLD userId=%d referenceType=%s referenceId=%d amountHp=%d".formatted(
                 command.userId(), command.referenceType(), command.referenceId(), command.amountHp());
-        HoldResultDto result = logged(request, () -> BillingResultDtos.hold(holdFacade.hold(command)),
-                HoldResultDto::replayed);
+        HoldResultDto result = logged(request,
+                () -> BillingResultDtos.hold(holdFacade.hold(BillingCommands.hold(command))), HoldResultDto::replayed);
         return RsData.ok("HP를 보류했습니다.", result);
     }
 
@@ -57,7 +59,8 @@ public class ApiV1BillingInternalController implements ApiV1BillingInternalSpec 
                 .formatted(command.userId(), command.referenceType(), command.referenceId(),
                         command.releaseRequestId(), command.amountHp());
         ReleaseResultDto result = logged(request,
-                () -> BillingResultDtos.release(command, holdFacade.release(command)), ReleaseResultDto::replayed);
+                () -> BillingResultDtos.release(command, holdFacade.release(BillingCommands.release(command))),
+                ReleaseResultDto::replayed);
         return RsData.ok("HP를 반환했습니다.", result);
     }
 
@@ -69,7 +72,8 @@ public class ApiV1BillingInternalController implements ApiV1BillingInternalSpec 
                 command.referenceType(), command.referenceId(), command.payoutRequestId(), command.receiverUserId(),
                 command.sourceType(), command.sourceId(), command.amountHp());
         PayoutResultDto result = logged(request,
-                () -> BillingResultDtos.payout(command, holdFacade.payout(command)), PayoutResultDto::replayed);
+                () -> BillingResultDtos.payout(command, holdFacade.payout(BillingCommands.payout(command))),
+                PayoutResultDto::replayed);
         return RsData.ok("HP를 지급했습니다.", result);
     }
 
@@ -82,8 +86,20 @@ public class ApiV1BillingInternalController implements ApiV1BillingInternalSpec 
                 command.receiverUserId(), command.sourceType(), command.sourceId(), command.releaseAmountHp(),
                 command.payoutAmountHp());
         PenaltyResultDto result = logged(request,
-                () -> BillingResultDtos.penalty(command, holdFacade.settlePenalty(command)), PenaltyResultDto::replayed);
+                () -> BillingResultDtos.penalty(command, holdFacade.settlePenalty(BillingCommands.penalty(command))),
+                PenaltyResultDto::replayed);
         return RsData.ok("위약금을 정산했습니다.", result);
+    }
+
+    @Override
+    @PostMapping("/hold-voids")
+    public RsData<HoldVoidResultDto> voidHold(@RequestBody HoldVoidCommand command) {
+        String request = "operation=HOLD_VOID userId=%d referenceType=%s referenceId=%d".formatted(
+                command.userId(), command.referenceType(), command.referenceId());
+        HoldVoidResultDto result = logged(request,
+                () -> BillingResultDtos.holdVoid(holdFacade.voidHold(BillingCommands.holdVoid(command))),
+                HoldVoidResultDto::replayed);
+        return RsData.ok("HP 보류를 무효화했습니다.", result);
     }
 
     // 처리 결과를 요청 값과 함께 한 줄로 남긴다. 업무 오류는 code만 남기고 그대로 던진다(응답·상세 로그는 GlobalExceptionHandler).

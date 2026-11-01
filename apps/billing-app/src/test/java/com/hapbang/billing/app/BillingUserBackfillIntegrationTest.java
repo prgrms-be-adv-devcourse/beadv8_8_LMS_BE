@@ -153,7 +153,8 @@ class BillingUserBackfillIntegrationTest {
         assertThat(result.completed()).isTrue();
         assertThat(replicas()).containsExactly("1 member1 USER ACTIVE 0", "2 member2 INFLUENCER SUSPENDED 3",
                 "3 member3 ADMIN ACTIVE 1", "4 member4 VERIFIED_INFLUENCER WITHDRAWN 7");
-        assertThat(count("billing.wallet")).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet WHERE wallet_type = 'MEMBER'",
+                Long.class)).isZero();
         assertThat(count("billing.point_ledger")).isZero();
     }
 

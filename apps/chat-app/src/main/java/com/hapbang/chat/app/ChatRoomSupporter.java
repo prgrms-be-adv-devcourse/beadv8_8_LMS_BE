@@ -57,6 +57,14 @@ public class ChatRoomSupporter {
     private final ChatUserRepository chatUserRepository;
     private final ChatValidationService chatValidationService;
 
+    /**
+     * 내 채팅방 목록. 방·참여자·닉네임·마지막 메시지·안 읽은 수를 여러 번 나눠 읽으므로, 그 사이 다른 트랜잭션의 퇴장·재입장·전송이
+     * 커밋돼도 한 시점의 스냅샷으로 읽도록 REPEATABLE READ로 연다(참여 세대와 마지막 메시지가 섞이지 않게).
+     * <p>
+     * 이 격리 수준은 새 트랜잭션을 열 때만 적용된다. 이미 열린 트랜잭션 안에서 부르면 그 트랜잭션에 참여하고 격리 수준은 무시된다.
+     * 그래서 트랜잭션 밖(트랜잭션이 없는 Facade·Controller)에서 부른다.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public List<ChatRoomResponse> getMyRooms(Long userId) {
         chatValidationService.validateCanChat(userId);
         List<ChatRoom> rooms = chatRoomMemberRepository.findActiveByUserId(userId).stream()
@@ -129,7 +137,22 @@ public class ChatRoomSupporter {
                 .collect(Collectors.toSet());
     }
 
-    /** 채팅방 응답 (참여자·닉네임, 조회한 회원 기준 마지막 메시지·안 읽은 수 포함). 채팅 시작 응답에도 쓴다 */
+    /**
+     * 채팅 시작 응답. 저장 트랜잭션이 커밋된 뒤 {@link ChatRoomFacade}가 부르는 별도 읽기 트랜잭션이다(설계 4.6).
+     * 저장 잠금이 풀린 뒤라 참여자·마지막 메시지·안 읽은 수를 읽는 사이 다른 트랜잭션이 커밋할 수 있다. 한 시점의 스냅샷으로
+     * 읽도록 REPEATABLE READ로 연다. 응답의 참여 세대와 마지막 메시지가 서로 다른 세대에서 오지 않는다.
+     * <p>
+     * 이 격리 수준은 새 트랜잭션을 열 때만 적용된다. 이미 열린 트랜잭션(예: 저장 트랜잭션) 안에서 부르면 그 트랜잭션에 참여하고
+     * 격리 수준은 무시된다. 그래서 저장 트랜잭션이 끝난 뒤 트랜잭션이 없는 {@link ChatRoomFacade}에서 부른다.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ChatRoomResponse toResponse(Long chatRoomId, Long userId) {
+        ChatRoom chatRoom = chatRoomRepository.findById(chatRoomId)
+                .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
+        return toResponse(chatRoom, userId);
+    }
+
+    /** 채팅방 응답 (참여자·닉네임, 조회한 회원 기준 마지막 메시지·안 읽은 수 포함) */
     public ChatRoomResponse toResponse(ChatRoom chatRoom, Long userId) {
         List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId());
         List<Long> roomIds = List.of(chatRoom.getId());

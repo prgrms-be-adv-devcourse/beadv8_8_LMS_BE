@@ -47,7 +47,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 
 /**
  * 출연 모집 지원·취소·수락·거절·조회 흐름을 DB와 Billing 대역으로 확인한다.
- * 세션 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
+ * 로그인 역할은 {@code @WithMockUser}로 넣는다 (Facade의 {@code @PreAuthorize} 검사용).
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
@@ -179,7 +179,9 @@ class AppearanceApplicationFacadeTest {
         @DisplayName("보류 처리 중인 모집글에는 지원할 수 없다 (목록에 없는 모집글이라 APPEARANCE_RECRUIT_NOT_FOUND)")
         void holdPendingRecruit() {
             BillingStubs.unavailable(billingClient);
-            assertThatThrownBy(() -> postRecruit(3)).isInstanceOf(AppearanceException.class);
+            assertThatThrownBy(() -> postRecruit(3))
+                    .isInstanceOfSatisfying(AppearanceException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.BILLING_UNAVAILABLE));
             BillingStubs.available(billingClient);
             Long pendingId = appearanceRecruitRepository.findAll().getFirst().getId();
 
@@ -397,6 +399,34 @@ class AppearanceApplicationFacadeTest {
             assertErrorCode(() -> appearanceApplicationFacade.reject(GUEST2, applied.id()),
                     AppearanceErrorCode.NOT_RECRUIT_HOST);
         }
+
+        @Test
+        @DisplayName("이미 응답한 지원(수락·거절)을 거절하면 APPLICATION_NOT_PENDING, 상태는 그대로")
+        void alreadyResponded() {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto selected = apply(GUEST, recruitId);
+            appearanceApplicationFacade.accept(HOST, selected.id());
+            AppearanceApplicationResDto rejected = apply(GUEST2, recruitId);
+            appearanceApplicationFacade.reject(HOST, rejected.id());
+
+            assertErrorCode(() -> appearanceApplicationFacade.reject(HOST, selected.id()),
+                    AppearanceErrorCode.APPLICATION_NOT_PENDING);
+            assertErrorCode(() -> appearanceApplicationFacade.reject(HOST, rejected.id()),
+                    AppearanceErrorCode.APPLICATION_NOT_PENDING);
+            assertThat(appearanceRepository.count()).isEqualTo(1);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).selectedCount()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("마감된 모집글의 지원은 거절할 수 없다 (APPEARANCE_RECRUIT_NOT_OPEN)")
+        void afterClose() {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto applied = apply(GUEST, recruitId);
+            appearanceRecruitFacade.closeEarly(HOST, recruitId);
+
+            assertErrorCode(() -> appearanceApplicationFacade.reject(HOST, applied.id()),
+                    AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_OPEN);
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -521,14 +551,14 @@ class AppearanceApplicationFacadeTest {
 
     @Test
     @WithMockUser(roles = "USER")
-    @DisplayName("세션 역할이 USER면 지원·취소·수락·거절·목록 모두 막힌다 (@PreAuthorize)")
+    @DisplayName("로그인 역할이 USER면 지원·취소·수락·거절·목록 모두 막힌다 (@PreAuthorize)")
     void userRole() {
         assertAllDenied();
     }
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("세션 역할이 ADMIN이어도 지원·취소·수락·거절·목록 모두 막힌다 (인플루언서만)")
+    @DisplayName("로그인 역할이 ADMIN이어도 지원·취소·수락·거절·목록 모두 막힌다 (인플루언서만)")
     void adminRole() {
         assertAllDenied();
     }
@@ -570,7 +600,7 @@ class AppearanceApplicationFacadeTest {
         }
     }
 
-    /** 다른 스레드에서도 인플루언서 세션으로 실행하고, 예외는 결과로 돌려준다 */
+    /** 다른 스레드에서도 인플루언서로 로그인해 실행하고, 예외는 결과로 돌려준다 */
     private Callable<Object> asInfluencer(CountDownLatch start, Callable<Object> task) {
         return () -> {
             SecurityContextHolder.getContext().setAuthentication(

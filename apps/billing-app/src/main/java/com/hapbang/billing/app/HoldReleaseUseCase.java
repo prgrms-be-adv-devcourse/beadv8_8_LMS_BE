@@ -18,7 +18,6 @@ import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 
 import lombok.RequiredArgsConstructor;
 
@@ -37,7 +36,7 @@ public class HoldReleaseUseCase {
     // → 원금 대조 → 충전 건 락·복원 → 보류·배분 변경 → 반환 상세 저장 → 원장 기록 순으로 처리한다.
     // 호출한 쪽 트랜잭션이 있으면 그 안에서 실행되며, 어느 단계든 실패하면 모든 변경이 롤백된다.
     @Transactional
-    public ReleaseResult release(ReleaseCommand command) {
+    public ReleaseResult release(PaymentReleaseCommand command) {
         BillingCommandValidator.verify(command);
         return release(command.userId(), command.referenceType(), command.referenceId(), command.releaseRequestId(),
                 command.isFull() ? null : command.amountHp(), null);

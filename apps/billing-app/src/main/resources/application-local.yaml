@@ -6,6 +6,12 @@ spring:
     compose:
       file: docker/compose.yaml
       lifecycle-management: start-only
+  # 로컬 실행에는 Kafka가 없다. 회원 이벤트 리스너와 DLT 토픽 생성을 끈다 (#430).
+  kafka:
+    listener:
+      auto-startup: false
+    admin:
+      auto-create: false
 springdoc:
   swagger-ui:
     path: "/swagger-ui.html"

@@ -21,6 +21,8 @@ public enum BillingErrorCode implements BaseErrorCode {
     HOLD_NOT_FOUND(HttpStatus.NOT_FOUND, "HP 보류를 찾을 수 없습니다."),
     HOLD_OWNER_MISMATCH(HttpStatus.CONFLICT, "요청한 회원의 HP 보류가 아닙니다."),
     HOLD_ALREADY_CLOSED(HttpStatus.CONFLICT, "남은 보류 HP가 없어 더 처리할 수 없습니다."),
+    // 보류 무효화된 참조 대상에는 보류를 만들지 않는다 (#479)
+    HOLD_VOIDED(HttpStatus.CONFLICT, "보류가 무효화된 대상이라 HP를 보류할 수 없습니다."),
     RELEASE_AMOUNT_EXCEEDS_HELD(HttpStatus.CONFLICT, "반환 금액이 남은 보류 HP보다 많습니다."),
     PAYOUT_AMOUNT_EXCEEDS_HELD(HttpStatus.CONFLICT, "지급 금액이 남은 보류 HP보다 많습니다."),
     PENALTY_BASE_EXCEEDS_HELD(HttpStatus.CONFLICT, "위약금 정산 기준액이 남은 보류 HP보다 많습니다."),
@@ -42,13 +44,13 @@ public enum BillingErrorCode implements BaseErrorCode {
     CHARGE_PAYMENT_REJECTED(HttpStatus.BAD_REQUEST, "결제가 승인되지 않았습니다."),
     // 충전 HP 환불 (#260)
     REFUND_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 HP 환불을 사용할 수 없습니다."),
-    REFUND_AMOUNT_INVALID(HttpStatus.BAD_REQUEST, "환불 금액은 1,000 HP 이상, 1,000 HP 단위여야 합니다."),
+    REFUND_AMOUNT_TOO_SMALL(HttpStatus.BAD_REQUEST, "환불 금액은 1 HP 이상이어야 합니다."),
     REFUND_IDEMPOTENCY_KEY_INVALID(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더는 영문·숫자·-·_ 1~64자여야 합니다."),
     REFUND_NOT_FOUND(HttpStatus.NOT_FOUND, "환불 요청을 찾을 수 없습니다."),
     REFUND_NOT_CANCELABLE(HttpStatus.CONFLICT, "환불이 이미 진행되었거나 끝나 취소할 수 없습니다."),
     // 수익 HP 환전 신청 (#285)
     EXCHANGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 환전 신청을 사용할 수 없습니다."),
-    EXCHANGE_AMOUNT_INVALID(HttpStatus.BAD_REQUEST, "환전 금액은 1,000 HP 이상, 1,000 HP 단위여야 합니다."),
+    EXCHANGE_AMOUNT_TOO_SMALL(HttpStatus.BAD_REQUEST, "환전 금액은 1 HP 이상이어야 합니다."),
     EXCHANGE_IDEMPOTENCY_KEY_INVALID(HttpStatus.BAD_REQUEST, "Idempotency-Key 헤더는 영문·숫자·-·_ 1~64자여야 합니다."),
     EXCHANGE_NOT_FOUND(HttpStatus.NOT_FOUND, "환전 신청을 찾을 수 없습니다."),
     EXCHANGE_NOT_CANCELABLE(HttpStatus.CONFLICT, "관리자 승인 전인 환전 신청만 취소할 수 있습니다."),

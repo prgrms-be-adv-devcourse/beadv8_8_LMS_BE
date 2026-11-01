@@ -14,8 +14,8 @@ import jakarta.validation.Valid;
 public interface ApiV1WalletRefundSpec {
 
     @Operation(summary = "충전 HP 환불 요청",
-            description = "유저·인플루언서·인증된 인플루언서. 충전 HP만 환불한다(수익 HP 불가). 금액은 1,000 이상·1,000 단위"
-                    + "(400 REFUND_AMOUNT_INVALID). 사용·보류되지 않은 충전 HP를 오래된 충전 건부터(FIFO) 배분해 보류하고, "
+            description = "유저·인플루언서·인증된 인플루언서. 충전 HP만 환불한다(수익 HP 불가). 금액은 1 이상·1 단위"
+                    + "(0 이하 400 INVALID_REQUEST). 사용·보류되지 않은 충전 HP를 오래된 충전 건부터(FIFO) 배분해 보류하고, "
                     + "충전 건(결제 건)마다 TossPayments 부분 취소를 순서대로 요청한다. 앞선 결제 건 취소가 실패하면 뒤 결제 건은 "
                     + "요청하지 않고 반환한다. 200: COMPLETED(전부 환불)·PARTIALLY_COMPLETED(일부 환불, 나머지 반환)·FAILED(환불 없음, 전부 반환). "
                     + "202: PROCESSING(결과 확인 중 — 보류 유지, GET으로 확인)·MANUAL_REVIEW_REQUIRED(운영자 확인). "

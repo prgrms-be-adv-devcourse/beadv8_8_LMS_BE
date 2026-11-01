@@ -10,6 +10,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import com.hapbang.appearance.app.AppearanceAutoConfirmUseCase;
 import com.hapbang.appearance.app.AppearanceCancelAutoRejectUseCase;
 import com.hapbang.appearance.app.AppearanceHoldRecheckUseCase;
+import com.hapbang.appearance.app.AppearanceEventRepublishUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitDeadlineCloseUseCase;
 import com.hapbang.appearance.app.AppearanceRequestExpireUseCase;
 import com.hapbang.appearance.app.HpTaskRetryUseCase;
@@ -27,6 +28,7 @@ class AppearanceBatchConditionTest {
             .withBean(AppearanceCancelAutoRejectUseCase.class, () -> mock(AppearanceCancelAutoRejectUseCase.class))
             .withBean(HpTaskRetryUseCase.class, () -> mock(HpTaskRetryUseCase.class))
             .withBean(AppearanceAutoConfirmUseCase.class, () -> mock(AppearanceAutoConfirmUseCase.class))
+            .withBean(AppearanceEventRepublishUseCase.class, () -> mock(AppearanceEventRepublishUseCase.class))
             .withUserConfiguration(AppearanceBatch.class);
 
     @Test

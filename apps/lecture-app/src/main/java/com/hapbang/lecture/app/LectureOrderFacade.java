@@ -32,10 +32,14 @@ public class LectureOrderFacade {
     private final OrderPlayConsentUseCase orderPlayConsentUseCase;
     private final PurchasedLectureSupport purchasedLectureSupport;
 
-    /** 주문 (장바구니 주문·바로 구매). 항목마다 HP를 보류한다 */
-    @Transactional
+    /**
+     * 주문 (장바구니 주문·바로 구매, D58). 트랜잭션을 나눠 주문을 저장한 뒤 트랜잭션 밖에서 항목마다 HP를 보류한다.
+     * 결제가 끝나면 {@code PAID}, 아직 결제 단계면 처리 중 주문을 돌려주고, 결제 실패면 {@code INSUFFICIENT_BALANCE}다.
+     */
     public OrderResponse createOrder(Long userId, List<Long> lectureIds) {
-        return orderCreateUseCase.create(userId, lectureIds);
+        OrderCreateUseCase.Placement placement = orderCreateUseCase.place(userId, lectureIds);
+        orderCreateUseCase.tryHolds(placement);
+        return orderCreateUseCase.result(userId, placement.orderId());
     }
 
     /** 내 주문 목록 */
@@ -56,10 +60,14 @@ public class LectureOrderFacade {
         return orderConfirmUseCase.confirm(userId, orderId, orderItemId);
     }
 
-    /** 구매 취소. 그 항목의 보류 HP를 반환한다 */
-    @Transactional
+    /**
+     * 구매 취소 (D59 (1)). 트랜잭션을 나눠 구매 취소 처리 중과 반환 작업을 저장한 뒤 트랜잭션 밖에서 반환을 한 번 시도한다.
+     * 반환이 끝나면 {@code CANCELED}, 아니면 {@code CANCEL_PENDING} 항목을 돌려준다
+     */
     public OrderItemResponse cancel(Long userId, Long orderId, Long orderItemId) {
-        return orderCancelUseCase.cancel(userId, orderId, orderItemId);
+        Long releaseTaskId = orderCancelUseCase.request(userId, orderId, orderItemId);
+        orderCancelUseCase.tryRelease(releaseTaskId);
+        return orderCancelUseCase.result(userId, orderItemId);
     }
 
     /** 재생 동의 (첫 재생 구매 확정) */

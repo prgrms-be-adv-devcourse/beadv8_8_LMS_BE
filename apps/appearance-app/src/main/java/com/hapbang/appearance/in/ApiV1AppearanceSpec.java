@@ -50,7 +50,8 @@ public interface ApiV1AppearanceSpec {
             성립한 출연(`ESTABLISHED`)을 방송 예정 일시 전까지 사유와 함께 취소 요청한다. 출연은 `CANCEL_REQUESTED`가 된다.
             - 사유 필수 500자 이하 (없으면 400 `INVALID_REQUEST`). 보낸 요청은 철회할 수 없다
             - 출연 1건당 2번까지, 다시 요청은 거절된 뒤에만 (넘으면 409 `CANCEL_REQUEST_LIMIT_EXCEEDED`, 처리 중이면 409 `CANCEL_REQUEST_ALREADY_PENDING`)
-            - 게스트가 아니면 403 `NOT_APPEARANCE_GUEST`, 방송 예정 일시가 지났으면 409 `APPEARANCE_SCHEDULE_PASSED`,
+            - 호스트·게스트가 아니면 404 `APPEARANCE_NOT_FOUND`(있다는 사실도 알리지 않음), 호스트면 403 `NOT_APPEARANCE_GUEST`,
+              방송 예정 일시가 지났으면 409 `APPEARANCE_SCHEDULE_PASSED`,
               성립 상태가 아니면(합의 취소됨 등) 409 `APPEARANCE_NOT_CANCELABLE`
             - 호스트가 방송 예정 일시까지 응답하지 않으면 자동 거절된다""")
     RsData<AppearanceResDto> requestCancel(Long userId, Long appearanceId,
@@ -60,7 +61,8 @@ public interface ApiV1AppearanceSpec {
             처리 중인 취소 요청을 수락해 합의 취소한다 (위약금 없음). 출연은 `CANCELED_BY_AGREEMENT`.
             - HP: 출연 요청이면 출연료 전액 반환. 모집이면 모집글이 마감 전일 때 성립 인원만 1 줄고 보류는 유지(빈자리에 다른 지원자 수락 가능),
               마감 뒤면 그 자리 출연료를 반환. 반환이 늦어져도 수락은 성공으로 응답한다
-            - 호스트가 아니면 403 `NOT_APPEARANCE_HOST`, 처리 중인 요청이 없으면 409 `CANCEL_REQUEST_NOT_PENDING`,
+            - 호스트·게스트가 아니면 404 `APPEARANCE_NOT_FOUND`(있다는 사실도 알리지 않음), 게스트면 403 `NOT_APPEARANCE_HOST`,
+              처리 중인 요청이 없으면 409 `CANCEL_REQUEST_NOT_PENDING`,
               방송 예정 일시가 지났으면 409 `APPEARANCE_SCHEDULE_PASSED`""")
     RsData<AppearanceResDto> acceptCancel(Long userId, Long appearanceId);
 
@@ -76,7 +78,8 @@ public interface ApiV1AppearanceSpec {
             - 게스트의 출연 취소 요청이 처리 중이면 `confirmPendingCancelRequest: true` 없이는 409 `CANCEL_REQUEST_CONFIRM_REQUIRED`.
               확인하고 취소하면 그 요청은 `CLOSED_BY_HOST_CANCEL`로 끝나고, 게스트에게 위약금이 지급된다
             - 사유는 선택(500자 이하), 요청 본문 없이 보내도 된다
-            - 호스트가 아니면 403 `NOT_APPEARANCE_HOST`, 성립·취소 요청 중이 아니면 409 `APPEARANCE_NOT_CANCELABLE`,
+            - 호스트·게스트가 아니면 404 `APPEARANCE_NOT_FOUND`(있다는 사실도 알리지 않음), 게스트면 403 `NOT_APPEARANCE_HOST`,
+              성립·취소 요청 중이 아니면 409 `APPEARANCE_NOT_CANCELABLE`,
               방송 예정 일시가 지났으면 409 `APPEARANCE_SCHEDULE_PASSED`
             - 모집에서 성립한 출연이면 그 자리는 다시 열리지 않는다 (보류가 위약금·반환으로 정산됨)""")
     RsData<AppearanceResDto> hostCancel(Long userId, Long appearanceId, @Valid HostCancelAppearanceReqDto request);
@@ -86,7 +89,8 @@ public interface ApiV1AppearanceSpec {
             - 방송 예정 일시부터 확인 기간(방송 예정 일시 + 7일) 전까지 한 번만 응답할 수 있다 (확인·불참 중 하나, 번복 불가).
               응답하지 않으면 기간이 끝난 뒤 자동 확인(`confirmType: AUTO`)되어 지급된다
             - 지급이 늦어져도 확인은 성공으로 응답하고, 진행 상태는 `hpPayoutStatus`로 확인한다
-            - 호스트가 아니면 403 `NOT_APPEARANCE_HOST`, 성립 상태가 아니면(이미 응답함, 취소 요청 처리 중, 취소됨) 409 `APPEARANCE_NOT_CONFIRMABLE`,
+            - 호스트·게스트가 아니면 404 `APPEARANCE_NOT_FOUND`(있다는 사실도 알리지 않음), 게스트면 403 `NOT_APPEARANCE_HOST`,
+              성립 상태가 아니면(이미 응답함, 취소 요청 처리 중, 취소됨) 409 `APPEARANCE_NOT_CONFIRMABLE`,
               방송 예정 일시 전이면 409 `APPEARANCE_CONFIRM_NOT_OPEN`, 확인 기간이 끝났으면 409 `APPEARANCE_CONFIRM_PERIOD_ENDED`
             - 정지된 회원이어도 응답할 수 있다 (거래 마무리)""")
     RsData<AppearanceResDto> confirm(Long userId, Long appearanceId);

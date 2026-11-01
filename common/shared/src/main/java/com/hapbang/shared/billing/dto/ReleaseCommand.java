@@ -5,7 +5,7 @@ import java.util.Objects;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
-// 참조 대상 하나의 보류에서 HP 일부(부분 반환) 또는 남은 보류 전부(전체 반환)를 결제한 회원에게 되돌리는 요청이다 (BillingPort.release).
+// 참조 대상 하나의 보류에서 HP 일부(부분 반환) 또는 남은 보류 전부(전체 반환)를 결제한 회원에게 되돌리는 요청이다 (내부 API releases).
 // 반환 요청 ID는 강의·출연이 업무 요청마다 안정적으로 만들어 재전송 때 같은 값을 쓴다. 호출할 때마다 새 UUID를 만들지 않는다.
 // 반환 요청 ID는 보류 하나 안에서 고유하다. 다른 보류에서 같은 ID를 쓰면 별개 요청이다.
 // 이 record는 요청 구조만 검사한다. 금액(0 이하 거절)·보류 소유·남은 보류 초과·멱등성은 Billing이 BillingException으로 검증한다.

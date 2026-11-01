@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
-import com.hapbang.chat.app.dto.ChatRoomCreateResult;
+import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
 import com.hapbang.chat.app.dto.ChatRoomLogResponse;
@@ -67,7 +67,7 @@ class ChatRoomUseCaseTest {
 
     @Test
     void 인플루언서끼리_채팅방을_만들고_생성과_입장을_기록한다() {
-        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
+        Opened result = open(HOST_ID, GUEST_ID);
 
         assertThat(result.created()).isTrue();
         assertThat(result.room().status()).isEqualTo(ChatRoomStatus.ACTIVE);
@@ -84,7 +84,7 @@ class ChatRoomUseCaseTest {
     void 두_사람의_종료되지_않은_방이_있으면_재사용한다() {
         Long chatRoomId = createRoom();
 
-        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        Opened result = open(GUEST_ID, HOST_ID);
 
         assertThat(result.created()).isFalse();
         assertThat(result.room().chatRoomId()).isEqualTo(chatRoomId);
@@ -95,7 +95,7 @@ class ChatRoomUseCaseTest {
     void 다른_사람과는_새_방을_만든다() {
         Long first = createRoom();
 
-        Long second = chatRoomUseCase.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).room().chatRoomId();
+        Long second = chatRoomUseCase.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).chatRoomId();
 
         assertThat(second).isNotEqualTo(first);
     }
@@ -111,7 +111,8 @@ class ChatRoomUseCaseTest {
 
         assertThat(result.left()).isTrue();
         assertThat(result.roomEnded()).isFalse();
-        assertThat(result.remainingUserIds()).containsExactly(HOST_ID);
+        // 끝난 참여 세대를 돌려준다. 퇴장 뒤 구독 회수는 이 세대 이하만 한다
+        assertThat(result.leftParticipationVersion()).isEqualTo(1);
         assertThat(result.leftNotice().messageType()).isEqualTo(ChatMessageType.SYSTEM);
         assertThat(result.leftNotice().content()).isEqualTo("게스트님이 나갔습니다.");
         assertThat(contentsSeenBy(chatRoomId, HOST_ID))
@@ -131,7 +132,7 @@ class ChatRoomUseCaseTest {
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
         List<String> hostBefore = contentsSeenBy(chatRoomId, HOST_ID);
 
-        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
+        Opened result = open(HOST_ID, GUEST_ID);
 
         assertThat(result.created()).isFalse();
         assertThat(result.room().chatRoomId()).isEqualTo(chatRoomId);
@@ -154,14 +155,13 @@ class ChatRoomUseCaseTest {
         Long chatRoomId = createRoom();
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        Opened result = open(GUEST_ID, HOST_ID);
 
         assertThat(result.rejoinNotices()).singleElement().satisfies(notice -> {
             assertThat(notice.messageType()).isEqualTo(ChatMessageType.SYSTEM);
             assertThat(notice.senderUserId()).isEqualTo(GUEST_ID);
             assertThat(notice.content()).isEqualTo("게스트님이 다시 들어왔습니다.");
         });
-        assertThat(result.remainingUserIds()).containsExactly(HOST_ID);
         assertThat(contentsSeenBy(chatRoomId, HOST_ID)).first().isEqualTo("게스트님이 다시 들어왔습니다.");
         assertThat(contentsSeenBy(chatRoomId, GUEST_ID)).isEmpty();
         assertThat(result.room().lastMessage()).isNull();
@@ -174,10 +174,9 @@ class ChatRoomUseCaseTest {
     void 둘_다_참여_중인_방을_다시_시작하면_재입장_안내를_남기지_않는다() {
         Long chatRoomId = createRoom();
 
-        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID);
+        Opened result = open(HOST_ID, GUEST_ID);
 
         assertThat(result.rejoinNotices()).isEmpty();
-        assertThat(result.remainingUserIds()).isEmpty();
         assertThat(contentsSeenBy(chatRoomId, HOST_ID)).isEmpty();
     }
 
@@ -186,7 +185,7 @@ class ChatRoomUseCaseTest {
         Long chatRoomId = createRoom();
         chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
 
-        ChatRoomCreateResult result = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        Opened result = open(GUEST_ID, HOST_ID);
 
         assertThat(result.room().chatRoomId()).isEqualTo(chatRoomId);
         assertThat(isActiveMember(chatRoomId, GUEST_ID)).isTrue();
@@ -202,7 +201,6 @@ class ChatRoomUseCaseTest {
         ChatRoomLeaveResult lastLeave = chatRoomUseCase.leave(chatRoomId, HOST_ID, null);
 
         assertThat(lastLeave.roomEnded()).isTrue();
-        assertThat(lastLeave.remainingUserIds()).isEmpty();
         ChatRoom endedRoom = chatRoomRepository.findById(chatRoomId).orElseThrow();
         assertThat(endedRoom.getStatus()).isEqualTo(ChatRoomStatus.ENDED);
         assertThat(endedRoom.getDirectKey()).isNull();
@@ -213,7 +211,7 @@ class ChatRoomUseCaseTest {
                     .extracting("errorCode").isEqualTo(ChatErrorCode.CHAT_ROOM_NOT_FOUND);
         }
 
-        ChatRoomCreateResult next = chatRoomUseCase.createOrGet(GUEST_ID, HOST_ID);
+        Opened next = open(GUEST_ID, HOST_ID);
 
         assertThat(next.created()).isTrue();
         assertThat(next.room().chatRoomId()).isNotEqualTo(chatRoomId);
@@ -244,6 +242,7 @@ class ChatRoomUseCaseTest {
         ChatRoomLeaveResult stale = chatRoomUseCase.leave(chatRoomId, GUEST_ID, 1);
 
         assertThat(stale.left()).isFalse();
+        assertThat(stale.leftParticipationVersion()).as("끝난 세대가 없으므로 아무 구독도 회수하지 않는다").isZero();
         assertThat(isActiveMember(chatRoomId, GUEST_ID)).isTrue();
     }
 
@@ -268,8 +267,8 @@ class ChatRoomUseCaseTest {
     @Test
     void 내_목록에는_참여_중인_종료되지_않은_방만_나온다() {
         Long left = createRoom();
-        Long active = chatRoomUseCase.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).room().chatRoomId();
-        Long ended = chatRoomUseCase.createOrGet(HOST_ID, ADMIN_ID).room().chatRoomId();
+        Long active = chatRoomUseCase.createOrGet(HOST_ID, OTHER_INFLUENCER_ID).chatRoomId();
+        Long ended = chatRoomUseCase.createOrGet(HOST_ID, ADMIN_ID).chatRoomId();
         chatRoomUseCase.leave(left, HOST_ID, null);
         chatRoomUseCase.leave(ended, HOST_ID, null);
         chatRoomUseCase.leave(ended, ADMIN_ID, null);
@@ -370,7 +369,7 @@ class ChatRoomUseCaseTest {
     }
 
     private Long createRoom() {
-        return chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).room().chatRoomId();
+        return chatRoomUseCase.createOrGet(HOST_ID, GUEST_ID).chatRoomId();
     }
 
     private boolean isActiveMember(Long chatRoomId, Long userId) {
@@ -389,5 +388,18 @@ class ChatRoomUseCaseTest {
         return chatMessageSupporter.getMessages(chatRoomId, userId, null, 100).messages().stream()
                 .map(ChatMessageResponse::content)
                 .toList();
+    }
+
+    /**
+     * 채팅 시작을 Facade와 같은 순서로 부른다: 저장 트랜잭션(UseCase) → 커밋 뒤 방 응답 조립(Supporter).
+     * Facade는 역할 검사({@code @PreAuthorize})가 있어 로그인 없는 이 테스트에서는 직접 부르지 않는다.
+     */
+    private Opened open(Long requesterId, Long targetUserId) {
+        ChatRoomOpenResult opened = chatRoomUseCase.createOrGet(requesterId, targetUserId);
+        return new Opened(chatRoomSupporter.toResponse(opened.chatRoomId(), requesterId), opened.created(),
+                opened.rejoinNotices());
+    }
+
+    private record Opened(ChatRoomResponse room, boolean created, List<ChatMessageResponse> rejoinNotices) {
     }
 }

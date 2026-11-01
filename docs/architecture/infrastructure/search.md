@@ -26,7 +26,7 @@
 
 ## 한국어 분석
 
-nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https://www.elastic.co/docs/reference/elasticsearch/plugins/analysis-nori)). 이미지에 plugin을 넣은 custom image를 GHCR에 올리고, 실행 중에 설치하지 않는다.
+nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https://www.elastic.co/docs/reference/elasticsearch/plugins/analysis-nori)). plugin은 공식 이미지에 ECK init container로 설치한다(#374). custom image를 GHCR에 발행·관리하는 비용이 이 규모에 비해 커서 택했다. pod가 새로 뜰 때마다 Elastic 저장소에서 plugin을 내려받으므로 기동이 그만큼 느려지고, 그때 외부 접속이 필요하다.
 
 2026-10-22 측정에서 기본 사전은 "인플루언서 강의를 구매했습니다"의 "인플루언서"를 `인`·`플`·`언서`로 쪼갰다. 서비스 용어(인플루언서, 합방, 치지직, 출연 모집 등)는 **사용자 사전**에 넣고, 사전을 바꾸면 재색인한다. 사용자 사전과 동의어 목록은 레포에서 관리한다.
 
@@ -48,7 +48,7 @@ nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https:/
 - **관측**: Prometheus/Grafana에서 index별 문서 수, 색인 지연, consumer lag, 검색 p95, heap·GC를 본다.
 - **조회·관리 GUI — Elasticvue**: index, mapping, 문서, analyzer 결과를 확인할 때 Elasticvue를 쓴다. 오픈소스(MIT)이고 ES 모든 version을 지원한다([Elasticvue](https://github.com/cars10/elasticvue)).
   - **cluster에 띄우지 않는다.** 개발자 PC의 **데스크톱 앱이나 브라우저 확장**을 쓰고, SSH 터널이나 `kubectl port-forward`로 ES 9200에 붙는다. 이 두 형태는 ES의 CORS 설정이 필요 없다. Docker·web 형태는 `http.cors.*` 설정이 필요하고 pod 하나가 늘어나므로 쓰지 않는다.
-  - 9200은 계속 외부에 열지 않는다. 터널은 DataGrip으로 PostgreSQL에 붙는 지금 방식(`docs/deploy/operations.md`)과 같다.
+  - 9200은 계속 외부에 열지 않는다. 접속은 `kubectl port-forward`로 한다([k8s.md#관측성-접속](../../deploy/k8s.md#관측성-접속)과 같은 방식).
   - 계정을 나눈다. 평소 조회는 **읽기 전용 role**(index 조회·`_analyze`)로 하고, index 삭제·alias 교체 같은 관리 작업은 별도 관리자 계정으로 한다. prod에서 GUI로 index를 지우는 사고를 막기 위해서다.
   - 사용자 사전을 바꾼 뒤 nori 분석 결과(`_analyze`)를 확인하는 데 특히 쓴다.
   - Elasticvue는 index·mapping·analyzer를 직접 점검하는 개발 도구다. Grafana는 운영 지표·로그·trace를 보는 도구라 역할이 겹치지 않는다.

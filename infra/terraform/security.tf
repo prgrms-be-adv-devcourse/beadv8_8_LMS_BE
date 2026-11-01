@@ -1,5 +1,5 @@
-# 80·443은 edge nginx(HTTP→HTTPS 리다이렉트, certbot 인증, HTTPS)가 받는다.
-# 22는 사람(ubuntu, 키 페어)과 GitHub Actions 배포(deploy, command= 제한 키)가 쓴다. 비밀번호 로그인은 꺼져 있다.
+# 80·443은 large의 ServiceLB → Envoy Gateway(HTTP→HTTPS 리다이렉트, cert-manager HTTP-01, HTTPS)가 받는다.
+# 22는 사람(ubuntu, 키 페어)이 쓴다. 기존 Compose 배포(deploy, command= 제한 키)용으로 열었다. 비밀번호 로그인은 꺼져 있다.
 
 locals {
   ingress_rules = merge(

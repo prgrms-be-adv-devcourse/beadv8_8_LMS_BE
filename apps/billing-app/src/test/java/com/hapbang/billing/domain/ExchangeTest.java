@@ -20,10 +20,14 @@ class ExchangeTest {
     private static final Instant T0 = Instant.parse("2026-10-16T00:00:00Z");
 
     @ParameterizedTest
-    @CsvSource({"1000, 100", "15000, 1500", "1009, 100", "1999, 199", "9223372036854775000, 922337203685477500"})
-    @DisplayName("수수료는 금액 × 10%이고 원 미만은 버린다")
-    void feeOf(long amountHp, long expectedFee) {
+    @CsvSource({"1, 0, 1", "2, 1, 1", "9, 8, 1", "10, 9, 1", "11, 9, 2", "1234, 1110, 124", "1000, 900, 100",
+            "15000, 13500, 1500", "1009, 908, 101", "1999, 1799, 200",
+            "9223372036854775000, 8301034833169297500, 922337203685477500"})
+    @DisplayName("송금액은 금액 × 90%에서 원 미만을 버리고, 수수료는 금액 − 송금액이라 항상 1 HP 이상이다 (#453)")
+    void payoutAndFee(long amountHp, long expectedPayout, long expectedFee) {
+        assertThat(Exchange.payoutOf(amountHp)).isEqualTo(expectedPayout);
         assertThat(Exchange.feeOf(amountHp)).isEqualTo(expectedFee);
+        assertThat(Exchange.payoutOf(amountHp) + Exchange.feeOf(amountHp)).isEqualTo(amountHp);
     }
 
     @Test
@@ -41,12 +45,44 @@ class ExchangeTest {
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {0L, -1_000L, 999L, 1_009L, 1_500L, 1_999L, 10_001L})
-    @DisplayName("1,000 미만이거나 1,000 단위가 아니면 EXCHANGE_AMOUNT_INVALID")
-    void invalidAmount(long amountHp) {
+    @ValueSource(longs = {0L, -1L, -1_000L})
+    @DisplayName("1 HP보다 작으면 EXCHANGE_AMOUNT_TOO_SMALL (#453)")
+    void tooSmallAmount(long amountHp) {
         assertThatThrownBy(() -> Exchange.requested(2L, 3L, amountHp, "k", T0, T0))
                 .isInstanceOf(BillingException.class)
-                .extracting("errorCode").isEqualTo(BillingErrorCode.EXCHANGE_AMOUNT_INVALID);
+                .extracting("errorCode").isEqualTo(BillingErrorCode.EXCHANGE_AMOUNT_TOO_SMALL);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1L, 2L, 999L, 1_009L, 10_001L})
+    @DisplayName("1 HP 단위의 어떤 금액이든 신청할 수 있다 (#453)")
+    void anyAmountFromOne(long amountHp) {
+        Exchange exchange = Exchange.requested(2L, 3L, amountHp, "k", T0, T0);
+
+        assertThat(exchange.getRequestedAmountHp()).isEqualTo(amountHp);
+        assertThat(exchange.getPayoutAmountKrw()).isEqualTo(Exchange.payoutOf(amountHp));
+        assertThat(exchange.getFeeAmountHp()).isPositive();
+    }
+
+    @Test
+    @DisplayName("송금액 0원(신청 1 HP) 환전만 승인 상태에서 은행 송금 없이 완료할 수 있다 (#453)")
+    void completeWithoutTransfer() {
+        Exchange zero = Exchange.requested(2L, 3L, 1L, "k", T0, T0);
+        assertThat(zero.hasNoTransfer()).isTrue();
+        assertThatThrownBy(() -> zero.completeWithoutTransfer(T0)).isInstanceOf(BillingException.class)
+                .extracting("errorCode").isEqualTo(BillingErrorCode.EXCHANGE_NOT_PAYABLE);
+        ReflectionTestUtils.setField(zero, "status", ExchangeStatus.APPROVED);
+
+        zero.completeWithoutTransfer(T0.plusSeconds(1));
+
+        assertThat(zero.getStatus()).isEqualTo(ExchangeStatus.COMPLETED);
+        assertThat(zero.getCompletedAt()).isEqualTo(T0.plusSeconds(1));
+
+        Exchange two = Exchange.requested(2L, 3L, 2L, "k", T0, T0);
+        ReflectionTestUtils.setField(two, "status", ExchangeStatus.APPROVED);
+        assertThat(two.hasNoTransfer()).isFalse();
+        assertThatThrownBy(() -> two.completeWithoutTransfer(T0)).isInstanceOf(BillingException.class)
+                .extracting("errorCode").isEqualTo(BillingErrorCode.EXCHANGE_NOT_PAYABLE);
     }
 
     @Test

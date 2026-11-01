@@ -21,6 +21,7 @@ import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
@@ -31,10 +32,9 @@ import com.hapbang.member.out.InfluencerUpgradeRequestRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.testsupport.IntegrationTest;
 
 /** 승급 신청: 실제 DB로 권한·대기 중 1건(앱 확인 + 부분 유니크 인덱스)·내 신청 내역을 확인한다 */
-@IntegrationTest
+@MemberIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
 class MemberUpgradeRequestIntegrationTest {
 

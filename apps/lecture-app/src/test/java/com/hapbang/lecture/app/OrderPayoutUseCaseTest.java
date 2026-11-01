@@ -11,43 +11,40 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.domain.LectureHpTask;
+import com.hapbang.lecture.domain.LectureHpTaskPurpose;
+import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
-import com.hapbang.lecture.fake.FakeBillingPort;
-import com.hapbang.lecture.fake.FakeBillingPort.FakeBillingErrorCode;
+import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
+import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.PayoutCommand;
+import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 지급 배치의 처리 메서드를 직접 호출해 DB와 billing 호출까지 확인한다(배치 빈은 모듈 테스트에서 꺼져 있다).
- * 실제 강의 Clock을 쓰므로 지급 시각이 지난 주문은 32일 전 구매로 만든다. 기한 경계는 {@code LectureOrderTest}에서 확인한다.
- * Fixture 주문에는 보류가 없으므로 {@link FakeBillingPort#assumeHeld}로 항목 가격만큼 보류가 있다고 정한다.
+ * 지급 (D59 (5)). 01:00 지급 배치는 지급 처리 중과 PAYOUT 작업만 만들고, 지갑 호출과 재시도는 HP 작업 배치가 한다.
  */
 @IntegrationTest
-@ExtendWith(OutputCaptureExtension.class)
 class OrderPayoutUseCaseTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
@@ -56,16 +53,19 @@ class OrderPayoutUseCaseTest {
     private OrderPayoutUseCase orderPayoutUseCase;
 
     @Autowired
+    private LectureHpTaskBatchUseCase lectureHpTaskBatchUseCase;
+
+    @Autowired
     private LectureOrderRepository lectureOrderRepository;
+
+    @Autowired
+    private LectureHpTaskRepository lectureHpTaskRepository;
 
     @Autowired
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeBillingPort fakeBillingPort;
-
-    @Autowired
-    private LecturePayoutAdminFacade lecturePayoutAdminFacade;
+    private FakeBillingApiClient billing;
 
     // 한 항목의 처리 실패를 만들기 위해 항목별 주문 조회에서 예외를 던진다
     @MockitoSpyBean
@@ -75,149 +75,124 @@ class OrderPayoutUseCaseTest {
     private TransactionTemplate transactionTemplate;
 
     @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
     @Qualifier(LectureConfig.CLOCK)
     private Clock clock;
 
     @BeforeEach
     void setUp() {
-        fakeBillingPort.reset();
+        billing.reset();
+        billing.setSettledHp(PRICE_HP);
     }
 
     @Test
-    void 지급_시각이_지난_구매_확정_항목만_판매자에게_지급한다() {
+    void 지급_배치는_지갑을_부르지_않고_지급_처리_중과_PAYOUT_작업만_만든다() {
         LocalDateTime overdue = now().minusDays(32);
         LectureOrder due = saveConfirmed(overdue);
         LectureOrder notDue = saveConfirmed(now().minusDays(20));
-        LectureOrder purchased = saveHeld(overdue);
-        LocalDateTime before = nowInDbPrecision();
+        LectureOrder purchased = savePurchased(overdue);
 
         orderPayoutUseCase.payOutDueItems();
 
         Long dueItemId = itemId(due);
-        assertThat(fakeBillingPort.payouts()).containsExactly(PayoutCommand.full(BUYER_ID,
-                BillingReferenceType.LECTURE_ORDER_ITEM, dueItemId, "LECTURE-PAYOUT-" + dueItemId, SELLER_ID,
-                SettlementSourceType.LECTURE_ORDER_ITEM, dueItemId));
-        assertThat(items(due)).singleElement().satisfies(item -> {
-            assertThat(item.getStatus()).isEqualTo(OrderItemStatus.PAID_OUT);
-            assertThat(item.getPaidOutAt()).isAfterOrEqualTo(before);
+        assertThat(billing.calls()).isEmpty();
+        assertThat(items(due)).extracting(OrderItem::getStatus, OrderItem::getPaidOutAt)
+                .containsExactly(tuple(OrderItemStatus.PAYOUT_PENDING, null));
+        assertThat(lectureHpTaskRepository.findByRequestId("LECTURE-PAYOUT-" + dueItemId)).hasValueSatisfying(task -> {
+            assertThat(task.getPurpose()).isEqualTo(LectureHpTaskPurpose.PAYOUT);
+            assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.PENDING);
+            assertThat(task.getReceiverUserId()).isEqualTo(SELLER_ID);
+            assertThat(task.getAmountHp()).isEqualTo(PRICE_HP);
         });
         assertThat(items(notDue)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.CONFIRMED);
         assertThat(items(purchased)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PURCHASED);
     }
 
     @Test
-    void 이의_제기_접수_중인_항목은_지급하지_않는다() {
-        LectureOrder filed = saveConfirmed(now().minusDays(32));
-        // 이의 제기 접수(#156)가 아직 없어 상태만 넣는다
-        inTransaction(filed, order -> ReflectionTestUtils.setField(order.getItems().getFirst(), "objectionStatus",
-                ObjectionStatus.FILED));
-
+    void HP_작업_배치가_지급하면_지급_완료이고_지급_시각을_남긴다() {
+        LectureOrder due = saveConfirmed(now().minusDays(32));
         orderPayoutUseCase.payOutDueItems();
-
-        assertThat(fakeBillingPort.payouts()).isEmpty();
-        assertThat(items(filed)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.CONFIRMED);
-    }
-
-    @Test
-    void billing_지급이_실패하면_항목은_구매_확정으로_남는다() {
-        LectureOrder failing = saveConfirmed(now().minusDays(32));
-        fakeBillingPort.failPayoutFor(itemId(failing));
-
-        orderPayoutUseCase.payOutDueItems();
-
-        assertThat(fakeBillingPort.payouts()).isEmpty();
-        assertThat(items(failing)).extracting(OrderItem::getStatus, OrderItem::getPaidOutAt)
-                .containsExactly(tuple(OrderItemStatus.CONFIRMED, null));
-    }
-
-    @Test
-    void 지급액이_가격과_다르면_항목_상태를_롤백하고_격리한다() {
-        LectureOrder order = saveConfirmed(now().minusDays(32));
-        fakeBillingPort.overridePaidHp(PRICE_HP - 1);
-
-        orderPayoutUseCase.payOutDueItems();
-
-        assertThat(fakeBillingPort.payouts()).isEmpty();
-        assertThat(items(order)).singleElement().satisfies(item -> {
-            assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
-            assertThat(item.getLastPayoutFailureCode()).isEqualTo("PAYOUT_AMOUNT_MISMATCH");
-            assertThat(item.isPayoutQuarantined()).isTrue();
-        });
-    }
-
-    @Test
-    void 영구_오류는_첫_실패에_격리되고_다음_실행에서_대상에서_빠진다() {
-        LectureOrder order = saveConfirmed(now().minusDays(32));
-        fakeBillingPort.failPayoutFor(itemId(order), FakeBillingErrorCode.PAYOUT_ALREADY_SETTLED);
         LocalDateTime before = nowInDbPrecision();
 
-        orderPayoutUseCase.payOutDueItems();
-        orderPayoutUseCase.payOutDueItems();
+        lectureHpTaskBatchUseCase.runDue();
 
-        // 두 번째 실행은 billing을 부르지 않아 횟수가 늘지 않는다. 지급 완료로 보지 않으므로 CONFIRMED로 남는다
-        assertThat(fakeBillingPort.payouts()).isEmpty();
-        assertThat(items(order)).singleElement().satisfies(item -> {
-            assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
-            assertThat(item.getPayoutFailureCount()).isEqualTo(1);
-            assertThat(item.getLastPayoutFailureCode()).isEqualTo("PAYOUT_ALREADY_SETTLED");
-            assertThat(item.getLastPayoutFailedAt()).isAfterOrEqualTo(before);
-            assertThat(item.getPayoutQuarantinedAt()).isEqualTo(item.getLastPayoutFailedAt());
+        Long dueItemId = itemId(due);
+        assertThat(billing.calls()).singleElement().satisfies(call -> {
+            assertThat(call.transactionActive()).isFalse();
+            assertThat(call.command()).isEqualTo(PayoutCommand.full(BUYER_ID, BillingReferenceType.LECTURE_ORDER_ITEM,
+                    dueItemId, "LECTURE-PAYOUT-" + dueItemId, SELLER_ID, SettlementSourceType.LECTURE_ORDER_ITEM,
+                    dueItemId));
         });
-    }
-
-    @Test
-    void 일시_오류는_실패_횟수가_늘고_다음_실행에서_다시_시도된다() {
-        LectureOrder order = saveConfirmed(now().minusDays(32));
-        fakeBillingPort.failPayoutFor(itemId(order));
-
-        orderPayoutUseCase.payOutDueItems();
-        orderPayoutUseCase.payOutDueItems();
-
-        assertThat(items(order)).singleElement().satisfies(item -> {
-            assertThat(item.getStatus()).isEqualTo(OrderItemStatus.CONFIRMED);
-            assertThat(item.getPayoutFailureCount()).isEqualTo(2);
-            assertThat(item.getLastPayoutFailureCode()).isEqualTo("WALLET_NOT_FOUND");
-            assertThat(item.isPayoutQuarantined()).isFalse();
-        });
-    }
-
-    @Test
-    void 일시_오류는_세_번째_실패부터_ERROR로_남는다(CapturedOutput output) {
-        LectureOrder order = saveConfirmed(now().minusDays(32));
-        fakeBillingPort.failPayoutFor(itemId(order));
-        String repeated = "지급 실패가 반복된다, 다음 실행에서 다시 처리한다 orderItemId=" + itemId(order) + ",";
-
-        orderPayoutUseCase.payOutDueItems();
-        orderPayoutUseCase.payOutDueItems();
-        assertThat(output.getAll()).doesNotContain(repeated);
-
-        orderPayoutUseCase.payOutDueItems();
-        assertThat(output.getAll())
-                .containsPattern("ERROR .*" + Pattern.quote(repeated + " code=WALLET_NOT_FOUND, failures=3"));
-    }
-
-    @Test
-    @WithMockUser(roles = "ADMIN")
-    void 격리를_해제하면_다음_실행에서_지급되고_실패_기록은_남는다() {
-        LectureOrder order = saveConfirmed(now().minusDays(32));
-        fakeBillingPort.failPayoutFor(itemId(order), FakeBillingErrorCode.HOLD_ALREADY_CLOSED);
-        orderPayoutUseCase.payOutDueItems();
-        fakeBillingPort.failPayoutFor(null);
-
-        lecturePayoutAdminFacade.releasePayoutQuarantine(ADMIN_ID, itemId(order));
-        orderPayoutUseCase.payOutDueItems();
-
-        assertThat(fakeBillingPort.payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId(order));
-        assertThat(items(order)).singleElement().satisfies(item -> {
+        assertThat(items(due)).singleElement().satisfies(item -> {
             assertThat(item.getStatus()).isEqualTo(OrderItemStatus.PAID_OUT);
-            assertThat(item.getPayoutFailureCount()).isEqualTo(1);
-            assertThat(item.getLastPayoutFailureCode()).isEqualTo("HOLD_ALREADY_CLOSED");
-            assertThat(item.isPayoutQuarantined()).isFalse();
+            assertThat(item.getPaidOutAt()).isAfterOrEqualTo(before);
         });
     }
 
     @Test
-    void 한_항목_처리가_실패해도_다음_항목을_처리한다() {
+    void 지급_처리_중인_항목은_다음_지급_배치가_다시_고르지_않는다() {
+        saveConfirmed(now().minusDays(32));
+
+        orderPayoutUseCase.payOutDueItems();
+        orderPayoutUseCase.payOutDueItems();
+
+        assertThat(lectureHpTaskRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void 이의_제기_접수_중인_항목은_지급을_시작하지_않는다() {
+        LectureOrder filed = saveConfirmed(now().minusDays(32));
+        // 지급 예정 시각 전에 접수된 이의 제기가 아직 판단되지 않은 상태를 만든다
+        jdbcTemplate.update("update lectures.order_item set objection_status = ? where id = ?",
+                ObjectionStatus.FILED.name(), itemId(filed));
+
+        orderPayoutUseCase.payOutDueItems();
+
+        assertThat(items(filed)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.CONFIRMED);
+        assertThat(lectureHpTaskRepository.count()).isZero();
+    }
+
+    @Test
+    void 지급이_확정_거절되면_DEAD이고_항목은_지급_처리_중에_남는다() {
+        LectureOrder order = saveConfirmed(now().minusDays(32));
+        orderPayoutUseCase.payOutDueItems();
+        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.PAYOUT_ALREADY_SETTLED,
+                "이미 지급 예정 건이 있습니다.", 409, "PAYOUT_ALREADY_SETTLED"));
+
+        lectureHpTaskBatchUseCase.runDue();
+
+        // 완료 상태는 HP가 실제로 움직인 뒤에만 기록한다. 관리자가 원인을 확인하고 HP 작업을 다시 시도한다 (D57, D70 (5))
+        assertThat(items(order)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PAYOUT_PENDING);
+        assertThat(lectureHpTaskRepository.findByRequestId("LECTURE-PAYOUT-" + itemId(order)))
+                .map(LectureHpTask::getStatus).hasValue(LectureHpTaskStatus.DEAD);
+    }
+
+    @Test
+    void 지급_결과를_기록하지_못해도_같은_요청_ID로_다시_지급해_한_번만_지급_완료가_된다() {
+        LectureOrder order = saveConfirmed(now().minusDays(32));
+        orderPayoutUseCase.payOutDueItems();
+        // 지급하는 동안 다른 실행이 선점을 가져가, 첫 결과는 늦은 결과로 버려진다
+        billing.setDuringCall(() -> jdbcTemplate.update("""
+                update lectures.lecture_hp_task set claim_token = gen_random_uuid()
+                where purpose = 'PAYOUT' and status = 'PROCESSING'"""));
+        lectureHpTaskBatchUseCase.runDue();
+        billing.setDuringCall(() -> {
+        });
+        assertThat(items(order)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PAYOUT_PENDING);
+
+        expireLeases();
+        lectureHpTaskBatchUseCase.runDue();
+
+        assertThat(items(order)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PAID_OUT);
+        assertThat(billing.calls()).hasSize(2)
+                .extracting(call -> ((PayoutCommand) call.command()).payoutRequestId())
+                .containsOnly("LECTURE-PAYOUT-" + itemId(order));
+    }
+
+    @Test
+    void 한_항목_처리가_실패해도_다음_항목의_지급을_시작하고_실패한_항목은_다음_실행에서_고른다() {
         LectureOrder failing = saveConfirmed(now().minusDays(33));
         LectureOrder next = saveConfirmed(now().minusDays(32));
         doThrow(new IllegalStateException("처리 실패")).when(lectureOrderSupport)
@@ -226,38 +201,12 @@ class OrderPayoutUseCaseTest {
         assertThatCode(() -> orderPayoutUseCase.payOutDueItems()).doesNotThrowAnyException();
 
         assertThat(items(failing)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.CONFIRMED);
-        assertThat(items(next)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PAID_OUT);
-    }
-
-    @Test
-    void 실패한_항목은_다음_실행에서_지급된다() {
-        LectureOrder failing = saveConfirmed(now().minusDays(32));
-        fakeBillingPort.failPayoutFor(itemId(failing));
-        orderPayoutUseCase.payOutDueItems();
-        fakeBillingPort.failPayoutFor(null);
-
-        orderPayoutUseCase.payOutDueItems();
-
-        // 지급에 성공해도 실패 기록은 이력으로 남는다 (D54)
-        assertThat(items(failing)).extracting(OrderItem::getStatus, OrderItem::getPayoutFailureCount)
-                .containsExactly(tuple(OrderItemStatus.PAID_OUT, 1));
-        assertThat(fakeBillingPort.payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId(failing));
-    }
-
-    @Test
-    void 조회_실패도_다음_실행에서_다시_지급한다() {
-        LectureOrder failing = saveConfirmed(now().minusDays(32));
-        doThrow(new IllegalStateException("처리 실패")).when(lectureOrderSupport)
-                .findOrderByItemId(eq(itemId(failing)));
-        orderPayoutUseCase.payOutDueItems();
-        // 실패 기록은 지급 조회와 다른 경로로 읽어, 조회가 실패한 항목에도 남는다
-        assertThat(items(failing)).extracting(OrderItem::getPayoutFailureCount, OrderItem::getLastPayoutFailureCode)
-                .containsExactly(tuple(1, "IllegalStateException"));
+        assertThat(items(next)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PAYOUT_PENDING);
         reset(lectureOrderSupport);
 
         orderPayoutUseCase.payOutDueItems();
 
-        assertThat(items(failing)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PAID_OUT);
+        assertThat(items(failing)).extracting(OrderItem::getStatus).containsExactly(OrderItemStatus.PAYOUT_PENDING);
     }
 
     private LocalDateTime now() {
@@ -265,25 +214,28 @@ class OrderPayoutUseCaseTest {
     }
 
     /**
-     * 저장한 시각(TIMESTAMP(6))과 비교할 기준. 저장하면 마이크로초 아래가 잘리므로, 지급 배치가 이 직후 같은 마이크로초 안에서
+     * 저장한 시각(TIMESTAMP(6))과 비교할 기준. 저장하면 마이크로초 아래가 잘리므로, 결과 기록이 이 직후 같은 마이크로초 안에서
      * 읽은 시각도 기준 이후로 보도록 기준도 마이크로초로 맞춘다(마이크로초보다 정밀한 시계를 쓰는 Windows·Linux에서 간헐 실패, #312)
      */
     private LocalDateTime nowInDbPrecision() {
         return now().truncatedTo(ChronoUnit.MICROS);
     }
 
-    /** {@code purchasedAt}에 사서 보류가 있는 주문 (구매 상태) */
-    private LectureOrder saveHeld(LocalDateTime purchasedAt) {
+    /** 선점이 만료된 작업을 배치가 다시 실행하게 한다 */
+    private void expireLeases() {
+        jdbcTemplate.update("update lectures.lecture_hp_task set lease_until = now() - interval '10 minutes', "
+                + "next_attempt_at = now() - interval '10 minutes' where status in ('PENDING', 'PROCESSING')");
+    }
+
+    /** {@code purchasedAt}에 산 주문 (구매 상태) */
+    private LectureOrder savePurchased(LocalDateTime purchasedAt) {
         Lecture lecture = lectureRepository.save(onSaleLecture());
-        LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture),
-                purchasedAt));
-        fakeBillingPort.assumeHeld(BUYER_ID, itemId(order), PRICE_HP);
-        return order;
+        return lectureOrderRepository.save(LectureOrderFixture.order(BUYER_ID, List.of(lecture), purchasedAt));
     }
 
     /** {@code purchasedAt}에 사서 바로 구매 확정한 주문 */
     private LectureOrder saveConfirmed(LocalDateTime purchasedAt) {
-        LectureOrder order = saveHeld(purchasedAt);
+        LectureOrder order = savePurchased(purchasedAt);
         inTransaction(order, saved -> saved.confirmItem(itemId(order), purchasedAt));
         return order;
     }

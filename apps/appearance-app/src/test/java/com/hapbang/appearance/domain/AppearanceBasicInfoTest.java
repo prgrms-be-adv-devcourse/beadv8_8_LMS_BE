@@ -41,6 +41,15 @@ class AppearanceBasicInfoTest {
     }
 
     @Test
+    @DisplayName("호스트 채널 URL은 255자까지 만들고 256자는 INVALID_REQUEST (DB VARCHAR(255))")
+    void hostChannelUrlLength() {
+        String url255 = "https://" + "a".repeat(255 - "https://".length());
+
+        assertThat(AppearanceBasicInfo.of(TITLE, url255, CONTENT).getHostChannelUrl()).hasSize(255);
+        assertInvalid(() -> AppearanceBasicInfo.of(TITLE, url255 + "a", CONTENT));
+    }
+
+    @Test
     @DisplayName("보낸 값만 바꾼 새 객체를 돌려주고, 원래 객체는 바뀌지 않는다")
     void withChanges() {
         AppearanceBasicInfo info = AppearanceBasicInfo.of(TITLE, URL, CONTENT);

@@ -8,8 +8,7 @@ metadata:
     app.kubernetes.io/name: lecture-app
     hapbang.io/pool: app-observe
 spec:
-  # BillingPort 구현이 billing 프로세스에만 있어 단독으로 기동하지 못한다(#280). 그때까지 0으로 둔다.
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: lecture-app
@@ -25,6 +24,11 @@ spec:
       labels:
         app.kubernetes.io/name: lecture-app
         hapbang.io/internal-api-client: 'true'
+      # Prometheus 차트 기본 kubernetes-pods job이 이 annotation을 보고 수집한다(#480).
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8080'
+        prometheus.io/path: /actuator/prometheus
     spec:
       # node별 메모리 예산이 배치를 전제로 하므로 required로 건다(docs/deploy/aws-k3s.md).
       affinity:
@@ -48,12 +52,15 @@ spec:
                 name: lecture-app-config
             - secretRef:
                 name: lecture-app-secrets
+          # EC2에서 384Mi·448Mi는 기동 중 OOMKilled됐고, 640Mi에서 떠 536Mi에서 멈췄다(#461).
+          # k3d도 같았다(Prometheus export를 꺼도 같음). heap 상한 268Mi에서 heap 231·non-heap 177·JVM 밖 native 약 185
+          # = RSS 593Mi였다(#480).
           resources:
             requests:
               cpu: 100m
-              memory: 384Mi
+              memory: 640Mi
             limits:
-              memory: 384Mi
+              memory: 640Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:

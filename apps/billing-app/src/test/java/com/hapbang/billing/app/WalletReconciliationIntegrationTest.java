@@ -48,7 +48,7 @@ class WalletReconciliationIntegrationTest {
     JdbcTemplate jdbcTemplate;
 
     @Test
-    @DisplayName("원장이 없는 신규 지갑은 네 버킷 모두 캐시 0·원장 합계 0으로 일치한다")
+    @DisplayName("원장이 없는 신규 지갑은 다섯 버킷(충전·수익 × 가용·보류, 수수료 수입 가용) 모두 캐시 0·원장 합계 0으로 일치한다")
     void newWallet() {
         Long walletId = wallet(1L);
 
@@ -56,7 +56,7 @@ class WalletReconciliationIntegrationTest {
 
         assertThat(result.walletId()).isEqualTo(walletId);
         assertThat(result.matched()).isTrue();
-        assertThat(result.buckets()).hasSize(4).allSatisfy(bucket -> {
+        assertThat(result.buckets()).hasSize(5).allSatisfy(bucket -> {
             assertThat(bucket.walletHp()).isZero();
             assertThat(bucket.ledgerHp()).isZero();
             assertThat(bucket.differenceHp()).isZero();

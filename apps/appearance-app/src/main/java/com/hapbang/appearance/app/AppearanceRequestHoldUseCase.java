@@ -8,12 +8,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearanceHoldRejectedException;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.out.billing.BillingClient;
-import com.hapbang.appearance.global.exception.BusinessException;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.out.BillingCallException;
+import com.hapbang.shared.billing.out.BillingCallResult;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +25,9 @@ import lombok.extern.slf4j.Slf4j;
  * 출연 요청서의 HP 보류 (보내기의 두 번째·세 번째 단계).
  * <ul>
  *     <li>{@link #requestHold}: Billing에 보류를 요청한다. DB 트랜잭션 밖에서 부른다 (Billing을 기다리는 동안 DB 연결을 잡지 않도록).
- *     Billing이 거절하면 요청서를 {@code HOLD_FAILED}로 남기고 Billing 응답을 그대로 던진다.</li>
+ *     지갑이 거절하면 요청서를 {@code HOLD_FAILED}로 남기고 출연 코드로 응답한다({@link BillingHoldRejection}).</li>
+ *     <li>지갑 호출 전후의 예상하지 못한 예외(요청 만들기 오류 등)는 잡지 않는다. 지갑 결과가 아니라 출연 쪽 결함이라
+ *     500으로 드러나게 두고, {@code HOLD_PENDING}이 남아 재확인 배치가 다시 보낸다 (503으로 바꾸면 결함이 일시 장애처럼 보인다).</li>
  *     <li>{@link #markRequested}: 보류 성공을 요청서에 반영한다. 트랜잭션을 연다. 이번에 {@code REQUESTED}로 바뀐 경우에만
  *     요청 도착 이벤트({@link AppearanceRequestSentEvent})를 발행한다 (ISSUE.md APR-29 N4).</li>
  * </ul>
@@ -42,23 +47,32 @@ public class AppearanceRequestHoldUseCase {
     /**
      * 출연료만큼 호스트의 HP 보류를 요청한다.
      *
-     * @throws BusinessException   Billing이 거절했을 때 (예: 409 {@code INSUFFICIENT_BALANCE}). 요청서는 {@code HOLD_FAILED}
-     * @throws AppearanceException 처리 결과를 알 수 없을 때 ({@code BILLING_UNAVAILABLE}). 요청서는 {@code HOLD_PENDING}으로 남는다
+     * @throws AppearanceHoldRejectedException 지갑이 거절했을 때 (409 {@code INSUFFICIENT_BALANCE} 또는 500 {@code HP_HOLD_FAILED}).
+     *                                          요청서는 {@code HOLD_FAILED}
+     * @throws AppearanceException              처리 결과를 받지 못했을 때 ({@code BILLING_UNAVAILABLE}). 요청서는 {@code HOLD_PENDING}으로 남는다
      */
     public void requestHold(AppearanceRequest request) {
         HoldCommand command = new HoldCommand(request.getHostId(), BillingReferenceType.APPEARANCE_REQUEST,
                 request.getId(), request.getFee());
+        BillingCallResult<HoldResultDto> result;
         try {
-            billingClient.hold(command);
-        } catch (BusinessException rejected) {
-            // Billing이 보류를 거절함 (잔액 부족, 지갑 없음 등). 다시 보내도 결과가 같으므로 기록하고 Billing 응답을 그대로 돌려준다.
-            log.info("HP 보류 거절, 요청서를 HOLD_FAILED로 둔다 requestId={}, code={}", request.getId(),
-                    rejected.getErrorCode().getCode());
-            markHoldFailed(request.getId());
-            throw rejected;
-        } catch (RuntimeException unknown) {
-            log.warn("HP 보류 결과 확인 불가, 요청서를 HOLD_PENDING으로 둔다 requestId={}", request.getId(), unknown);
+            result = billingClient.hold(command);
+        } catch (BillingCallException unknown) {
+            // 처리됐는지 모르거나 보내지 못함: 보류 재확인 배치가 같은 참조 대상으로 다시 보내 결과를 확인한다
+            log.warn("HP 보류 결과 확인 불가, 요청서를 HOLD_PENDING으로 둔다 requestId={}, kind={}, httpStatus={}",
+                    request.getId(), unknown.getKind(), unknown.getHttpStatus(), unknown);
             throw new AppearanceException(AppearanceErrorCode.BILLING_UNAVAILABLE);
+        }
+        switch (result) {
+            case BillingCallResult.Succeeded<HoldResultDto> held ->
+                    log.debug("HP 보류 성공 requestId={}, replayed={}", request.getId(), held.value().replayed());
+            case BillingCallResult.Failed<HoldResultDto> rejected -> {
+                // 다시 보내도 결과가 같으므로 기록하고 끝낸다
+                AppearanceHoldRejectedException exception =
+                        BillingHoldRejection.toException(rejected, "요청서", request.getId());
+                markHoldFailed(request.getId());
+                throw exception;
+            }
         }
     }
 

@@ -8,8 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 고객센터가 부르는 내용 다름 이의 제기 진입점 (설계 6.2 {@code LectureObjectionPort}).
- * 호출한 쪽 트랜잭션에 참여하고(REQUIRED), 권한은 호출한 쪽(고객센터 API)이 확인한다.
+ * 내용 다름 이의 제기 접수·판단·철회 진입점 (설계 6.2). 거절은 {@link com.hapbang.lecture.domain.LectureException}(OBJECTION_*)이다.
+ * 고객센터 연동(내부 HTTP·이벤트)은 아직 없다 (#278). 호출한 쪽 트랜잭션에 참여하고(REQUIRED), 권한은 호출한 쪽이 확인한다.
  */
 @Service
 @RequiredArgsConstructor

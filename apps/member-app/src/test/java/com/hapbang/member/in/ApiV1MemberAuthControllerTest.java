@@ -24,12 +24,12 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 import com.jayway.jsonpath.JsonPath;
 import com.nimbusds.jose.jwk.RSAKey;
@@ -37,7 +37,7 @@ import com.nimbusds.jose.jwk.RSAKey;
 import jakarta.servlet.http.Cookie;
 
 /** 인증 API (#370): refresh token 쿠키로 재발급·로그아웃. 실제 Redis와 보안 설정으로 확인한다 */
-@IntegrationTest
+@MemberIntegrationTest
 @AutoConfigureMockMvc
 @Import(RedisTestcontainersConfig.class)
 class ApiV1MemberAuthControllerTest {

@@ -1,6 +1,6 @@
 package com.hapbang.billing.domain;
 
-// 원장 항목의 발생 사유를 충전·보류·반환·지급·환불·환전·역분개로 구분한다.
+// 원장 항목의 발생 사유를 충전·보류·반환·지급·환불·환전·환전 수수료·역분개로 구분한다.
 public enum LedgerTransactionType {
     /** 충전. 충전 HP 가용 잔액이 는다 */
     CHARGE,
@@ -14,6 +14,8 @@ public enum LedgerTransactionType {
     REFUND,
     /** 환전. 보류한 수익 HP를 수수료 공제 후 KRW로 송금해 보류 잔액이 준다 */
     EXCHANGE,
+    /** 환전 수수료. 환전 송금이 성공하면 공제한 수수료를 플랫폼 지갑의 수수료 수입으로 기록한다. 환전 한 건에 한 번이다 (#336) */
+    EXCHANGE_FEE,
     /** 역분개. 잘못 기록한 원장 항목을 반대 부호의 새 항목으로 정정한다. 원본 원장을 반드시 가리키며 원본은 수정·삭제하지 않는다 */
     REVERSAL
 }

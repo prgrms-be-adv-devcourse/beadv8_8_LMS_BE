@@ -20,7 +20,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 출연 요청서 API 진입점. 컨트롤러는 이 Facade만 부른다.
  * <ul>
- *     <li>역할 검사: 여기서 {@code @PreAuthorize}로 로그인 세션의 역할(인플루언서 이상, 관리자 제외)을 확인한다.
+ *     <li>역할 검사: 여기서 {@code @PreAuthorize}로 로그인 역할(Gateway 사용자 헤더, 인플루언서 이상, 관리자 제외)을 확인한다.
  *     출연 회원 자격(정지·강등)과 업무 규칙은 UseCase·도메인이 확인한다.</li>
  *     <li>트랜잭션: 기능 하나를 한 트랜잭션으로 여기서 연다. 단, Billing 호출이 끼는 기능(보내기, 거절, 응답 전 취소)은
  *     업무 상태를 먼저 커밋하고 Billing을 불러야 해서 여기서 열지 않고, 각 UseCase 단계가 연다.</li>

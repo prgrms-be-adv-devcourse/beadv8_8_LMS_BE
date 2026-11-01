@@ -20,17 +20,17 @@ import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
-import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.TestLogin;
 
-@IntegrationTest
+@MemberIntegrationTest
 @AutoConfigureMockMvc
 class ApiV1MemberControllerTest {
 

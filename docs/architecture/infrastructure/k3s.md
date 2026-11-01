@@ -27,28 +27,42 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | Kafka | 700 MiB |
 | Redis | 64 MiB |
 | Elasticsearch | 1,536 MiB |
-| 모듈 앱 4개(member·billing·appearance·search) × 448 MiB | 1,792 MiB |
+| 모듈 앱 4개: member 512 MiB(#480) + billing·appearance·search 3개 × 448 MiB | 1,856 MiB |
 | Envoy proxy + shutdown-manager (#372) | 288 MiB |
-| **합계** | **7,148 MiB** |
+| **합계** | **7,212 MiB** |
 
-사용 가능 메모리를 약 7.6 GiB로 보면 약 0.62 GiB가 남는다. 이 여유는 rolling surge pod 1개(448 MiB), filesystem cache와 오차에 쓴다. large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
+사용 가능 메모리를 약 7.6 GiB로 보면 약 0.56 GiB가 남는다. 이 여유는 rolling surge pod 1개(최대 512 MiB), filesystem cache와 오차에 쓴다. large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
 
 | t3.medium `app-observe` | 예산 |
 | --- | ---: |
 | OS | 350 MiB |
 | k3s agent + containerd | 400 MiB |
-| 모듈 앱 4개(lecture·chat·customer-support·notification) × 384 MiB | 1,536 MiB |
+| 모듈 앱 4개: lecture 640 MiB(#461·#480 실측), chat·customer-support·notification × 384 MiB | 1,792 MiB |
 | Envoy Gateway controller | 128 MiB |
 | ECK operator | 256 MiB |
-| cert-manager (controller·webhook·cainjector) | 150 MiB |
+| cert-manager (controller 128·webhook 50·cainjector 128, #372) | 306 MiB |
 | Sealed Secrets controller (#373) | 64 MiB |
 | React 정적 서버 | 64 MiB |
-| Prometheus·Loki·Tempo·Grafana·Alloy (#372 override 포함) | 1,160 MiB |
-| **합계** | **4,108 MiB** |
+| Prometheus 416(server 384·reload 32)·Loki 256·Tempo 128·Grafana 384·Alloy 192(alloy 160·reloader 32) (#372 override·#480 포함) | 1,376 MiB |
+| Kafka UI(Redpanda Console, 로컬 실측 35~42 MiB, #374) | 128 MiB |
+| **합계** | **4,864 MiB** |
 
-사용 가능 메모리를 약 3.7 GiB로 보면 **약 0.4 GiB가 넘친다.** 관측성은 처음 600 MiB로 잡았지만 로컬 k3d idle 실측(#373)에서 Grafana 13(258 MiB)과 차트 기본 scrape의 Prometheus(292 MiB)가 그 limit에서 OOMKilled되어 실측에 여유를 더한 값으로 올렸다. #372 로컬 검증에서 Grafana는 384Mi·GOMAXPROCS=2, trace 수신·조회 중 OOMKilled된 Tempo는 128Mi·GOMEMLIMIT=112MiB로 조정했다. Envoy 종료 sidecar 32Mi도 large 예산에 포함한다. 현재 앱 3개는 replicas 0이고 notification-app은 없어 로컬 기동 결과를 목표 8개 앱 전체 예산 충족으로 해석하지 않는다. EC2 전환과 나머지 앱 활성화 전에 Prometheus scrape 범위와 보존 한도 등을 줄여 다시 맞춘다(#343). surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성에는 별도 backend를 추가하지 않는다.
+사용 가능 메모리를 약 3.7 GiB로 보면 **약 1 GiB가 넘친다**(lecture-app 640 MiB 반영 전 약 0.6 GiB, #480 관측성 limit 상향 전 약 0.85 GiB). 관측성은 처음 600 MiB로 잡았지만 로컬 k3d idle 실측(#373)에서 Grafana 13(258 MiB)과 차트 기본 scrape의 Prometheus(292 MiB)가 그 limit에서 OOMKilled되어 실측에 여유를 더한 값으로 올렸다. #372 로컬 검증에서 Grafana는 384Mi·GOMAXPROCS=2, trace 수신·조회 중 OOMKilled된 Tempo는 128Mi·GOMEMLIMIT=112MiB로 조정했다. 2026-10-30 로컬 cert-manager의 controller 반복 종료와 cainjector OOMKilled를 확인해 각각 50Mi에서 128Mi로 올렸다. Envoy 종료 sidecar 32Mi도 large 예산에 포함한다. 현재 앱 3개는 replicas 0이고 notification-app은 없어 로컬 기동 결과를 목표 8개 앱 전체 예산 충족으로 해석하지 않는다. EC2 전환과 나머지 앱 활성화 전에 Prometheus scrape 범위와 보존 한도 등을 줄여 다시 맞춘다(#343). surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성에는 별도 backend를 추가하지 않는다.
 
-앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
+#480에서 member·lecture 지표와 pod log 수집을 붙이며 로컬 k3d에서 다음 limit을 정했다. 부하 없이 잰 값이다.
+
+| 구성 요소 | 이전 → 지금 | 근거 |
+| --- | --- | --- |
+| lecture-app | 640 MiB(#461과 같음) | k3d에서도 384·448 MiB에서 기동 중 OOMKilled(Prometheus export를 꺼도 같음). heap 상한 268 MiB에서 heap 231·non-heap 177·JVM 밖 native 약 185 = RSS 593 MiB |
+| member-app | 448 → 512 MiB | k3d에서 Prometheus registry를 더한 뒤 OOMKilled. RSS 441 MiB(heap 93·non-heap 173·native 약 175)로 448 MiB에 붙어 있었다. EC2(#461)에서는 registry 없이 448 MiB에서 328 MiB였다 |
+| Loki | 128 → 256 MiB | pod log 수집을 시작하자 GOMEMLIMIT(limit의 85%)에 걸려 GC가 CPU 15 core를 쓰고 ring이 unhealthy가 됐다. 올린 뒤 183 MiB |
+| Alloy / config-reloader | 104 / 16 → 160 / 32 MiB | reloader가 16 MiB에서 OOMKilled 반복. log pipeline을 더한 뒤 96 / 30 MiB |
+
+Prometheus server 컨테이너는 두 앱을 수집한 뒤 291 → 332 MiB(limit 384 MiB, reload sidecar 제외)다. 앱 series는 member 179·lecture 380개다. k3d의 JVM은 CPU를 18개로 보지만 `-XX:ActiveProcessorCount=2`로 EC2와 맞춰도 lecture-app은 448 MiB에서 기동하지 못했다.
+
+앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다.
+
+2026-10-30 EC2 실측(#461): lecture-app은 384 MiB(Flyway 시작 시점)와 448 MiB(JPA 초기화 시점)에서 기동 중 OOMKilled됐고, 640 MiB에서 떠 약 12분 뒤 536 MiB에서 멈췄다. member-app은 448 MiB에서 328 MiB로 안정됐다. lecture-app manifest와 위 예산 표를 640 MiB로 올렸다. 기동 최대치를 재서 낮출 수 있는지는 #343에서 본다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
 
 ### 과거 단일-node 측정 기록
 
@@ -93,7 +107,7 @@ k3s 자체는 측정하지 않고 공식 resource profiling 값을 쓴다. singl
 | OS (Ubuntu, systemd, sshd, SSM agent 등) | 350 MiB | 추정. 서버에서 확인 |
 | k3s + containerd | 1,500 MiB | 공식 profiling 1,428~1,596 MiB |
 | kube-system pod (CoreDNS, metrics-server, local-path, Traefik) | 100 MiB | Traefik 측정 16 MiB + 추정 |
-| edge nginx (+ Docker daemon) | 100 MiB | edge nginx를 Docker로 계속 띄우면 dockerd가 남는다 |
+| edge nginx (+ Docker daemon) | 100 MiB | edge nginx는 2026-10-30에 지웠다(#440). Docker daemon은 서버에 남아 있으며, 지우면 이 행을 뺀다 |
 | Kafka (heap 512 MiB) | 700 MiB | heap + non-heap. 측정 315 MiB는 부하 없는 값 |
 | Redis | 50 MiB | 측정 11 MiB |
 | Alloy / Prometheus / Loki / Tempo / Grafana | 200 / 300 / 150 / 150 / 150 MiB | Prometheus는 수만 series를 가정해 측정값의 약 7배 |
@@ -156,18 +170,18 @@ Elasticsearch는 검색과 RAG만 담당한다. logs·metrics·traces를 Elastic
 
 **EC2 k3s에는 prod(main) 한 벌만 둔다. dev 서버는 없애고, 개발 확인은 로컬과 PR k3d에서 한다.** 앱 8개는 위 예산 표대로 두 node에 나눈다.
 
-dev 서버가 없어지면 프론트가 dev 서버로 API를 확인하던 경로(#332)도 사라진다. 전환 일정과 로컬 확인 방법을 프론트와 먼저 합의한다. 로컬에서는 BE 앱을 compose나 k3d로 띄우고, 역할별 테스트 계정 로그인은 local profile에서만 켠다. 서버에 올리기 전에 `free -m`, `kubectl top`과 선택한 관측성 UI의 node memory로 이 표를 실측값으로 바꾼다.
+dev 서버는 2026-10-30에 지웠다(#440). 프론트가 dev 서버로 API를 확인하던 경로(#332)도 없어졌으므로 로컬 확인 방법을 프론트와 합의한다. 로컬에서는 BE 앱을 compose나 k3d로 띄우고, 역할별 테스트 계정 로그인은 local profile에서만 켠다. 서버에 올리기 전에 `free -m`, `kubectl top`과 선택한 관측성 UI의 node memory로 이 표를 실측값으로 바꾼다.
 
 CPU는 2 vCPU의 standard credit이다. JVM pod 여러 개가 동시에 시작하면 credit을 소모하고 시작이 느려진다. node 재시작 때는 앱 4개가 한꺼번에 뜨므로 startupProbe 여유를 넉넉히 둔다.
 
-large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검색/RAG index가 들어간다. medium의 50 GB에는 application image와 Prometheus·Loki·Tempo data가 들어간다. 각 저장소에 크기·기간 retention을 두고 Compose에서 k3s로 넘어가는 기간에는 Docker와 containerd가 image를 따로 저장하므로 node별 디스크 여유를 먼저 확인한다.
+large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검색/RAG index가 들어간다. medium의 50 GB에는 application image와 Prometheus·Loki·Tempo data가 들어간다. 각 저장소에 크기·기간 retention을 둔다. Compose는 지웠지만 Docker에 남은 image가 containerd와 별도로 디스크를 쓰므로 node별 디스크 여유를 먼저 확인한다.
 
 ## EC2 운영 방식
 
 - **진입점**: nginx는 쓰지 않는다. Envoy Gateway가 유일한 진입점이다. Envoy proxy Service는 `LoadBalancer`이고, k3s 내장 ServiceLB가 node의 80·443을 Envoy로 연결한다. ServiceLB는 large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙여 large에서만 켠다. 이 label이 붙은 node가 하나도 없으면 모든 node가 후보가 된다([k3s networking 문서](https://docs.k3s.io/networking/networking-services)). Envoy proxy Service는 `externalTrafficPolicy: Local`로 두어 Envoy가 실제 client IP를 보게 한다. DNS와 80·443 security group이 large EIP만 가리키기 때문이다. medium의 앱에는 Envoy가 cluster 내부 Service로 보낸다.
-  - 지금 설치한 cluster는 Compose의 edge nginx가 80·443을 쓰므로 servicelb를 끄고, k3s 기본 Traefik은 켜진 채로 두었다([k3s 설치](../../deploy/aws-k3s.md#k3s-설치)). 첫 설치 때 svclb의 hostPort DNAT가 edge nginx보다 먼저 80·443을 가로챘다. 그래서 **edge nginx를 멈춘 뒤에** servicelb를 켜고 Traefik을 끈다. 이 전환 동안 외부 접속이 잠깐 끊긴다([전환 순서](../../deploy/aws-k3s.md#전환-순서)).
-- **TLS**: cert-manager(공식 Helm 차트)가 Let's Encrypt에서 prod 도메인 인증서를 Gateway API HTTP-01 solver로 발급·갱신한다. 지금 edge nginx 옆의 certbot을 대신한다.
-- **cluster API**: 6443은 같은 node security group에서 medium → large를 허용하고, 사람은 kubectl을 쓰는 사람의 IP만 `/32`로 허용해 EIP로 직접 접근한다([로컬 kubectl 접근](../../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → SSH → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다(아래 "manifest 관리").
+  - 첫 설치(2026-10-28) 때는 Compose의 edge nginx가 80·443을 써서 servicelb를 끄고 k3s 기본 Traefik을 켜 두었다. svclb의 hostPort DNAT가 edge nginx보다 먼저 80·443을 가로챘기 때문이다([k3s 설치](../../deploy/aws-k3s.md#k3s-설치)). 2026-10-30 edge nginx를 멈춘 뒤 servicelb를 켜고 Traefik을 껐고(#372), 같은 날 edge nginx를 지웠다(#440, [전환 순서](../../deploy/aws-k3s.md#전환-순서)).
+- **TLS**: cert-manager(공식 Helm 차트)가 Let's Encrypt에서 prod 도메인 인증서를 Gateway API HTTP-01 solver로 발급·갱신한다. 기존 edge nginx 옆의 certbot을 대신했다(2026-10-30).
+- **cluster API**: 6443은 같은 node security group에서 medium → large를 허용하고, 사람은 kubectl을 쓰는 사람의 IP만 `/32`로 허용해 EIP로 직접 접근한다([로컬 kubectl 접근](../../deploy/aws-k3s.md#로컬-kubectl-접근)). 배포는 GitHub Actions → OIDC로 받은 IAM role → SSM Run Command → large에서 `kubectl apply -k`와 `rollout status`, 실패 시 `rollout undo`로 한다([운영 앱 배포](../../deploy/k8s.md#운영-앱-배포)).
 - **namespace**: `hapbang-prod`(모듈 앱·React), `hapbang-platform`(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)과 Envoy Gateway·cert-manager·ECK operator의 system namespace를 둔다. dev namespace는 두지 않는다.
 - **S3 권한**: 모듈 앱이 어느 node에 배치돼도 S3를 호출할 수 있도록 두 EC2에 같은 instance role과 IMDSv2 hop limit 2를 적용한다. pod별 IAM 권한 분리(EKS IRSA·Pod Identity)는 EKS 기능이라 쓸 수 없으므로 **node의 pod가 같은 S3 권한을 공유한다**는 한계를 문서에 남기고, NetworkPolicy로 앱 pod 외에는 metadata endpoint(169.254.169.254)로 나가지 못하게 막는다.
 - **이미지**: GHCR private image를 `imagePullSecret`으로 받는다. 태그는 지금처럼 `sha-<커밋>`을 고정해 쓴다.
@@ -199,12 +213,12 @@ k8s/
   cluster/       namespace, Retain StorageClass, HelmChart(ECK operator·Sealed Secrets)
   gateway/       단계별 HelmChart(Envoy·cert-manager), Gateway·인증서·공용 정책, local/prod overlay
   components/    Kustomize Component: platform의 core-data required affinity
-  platform/      hapbang-platform: PostgreSQL(HelmChart), Kafka·Redis(직접 manifest), Elasticsearch(ECK CR·nori Dockerfile), 관측성(HelmChart)
+  platform/      hapbang-platform: PostgreSQL(HelmChart), Kafka·Redis(직접 manifest), Elasticsearch(ECK CR·nori init container), 관측성(HelmChart)
     base/
     overlays/    local(k3d), prod
 ```
 
-공용 Gateway·TLS·platform 정책은 `k8s/gateway/`, 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 `apps/<앱>/k8s/base/`에 둔다(#372). React 정적 서버는 `web:80` Service로 #374에서 배포한다.
+공용 Gateway·TLS·IMDS 차단 정책은 `k8s/gateway/`, 앱별 HTTPRoute·SecurityPolicy·NetworkPolicy는 `apps/<앱>/k8s/base/`에 둔다(#372). React 정적 서버는 `web:80` Service로 #374에서 배포한다.
 
 CI 자동 배포는 앱마다 `apps/<앱>/k8s/overlays/prod`만 적용한다. `cluster/`와 `platform/`은 자주 바뀌지 않고 잘못 건드리면 데이터가 위험하므로 수동으로만 적용한다. 그래서 앱 배포·롤백이 PostgreSQL 같은 stateful workload를 건드리지 않는다.
 
@@ -241,11 +255,11 @@ Kustomize로 관리하는 앱에는 release 단위 롤백이 없다. 그래서 C
 
 ## CI 검증
 
-- 지금(#363 이후): 필수 체크 `verify` job 하나가 `verifyModuleStructure` → 앱별 `check bootJar` → 앱별 이미지 빌드(push 안 함)를 실행한다. matrix 전환은 앱별 이미지 발행(#374)과 함께 판단한다.
-- 배포: #363부터 `deploy.yml`의 자동 trigger가 꺼져 있다. 앱별 이미지 발행과 prod 배포는 #374에서 다시 작성한다.
+- 지금(#488 이후): PR에서 바뀐 앱만 앱마다 러너 하나(matrix)에서 `check bootJar`와 이미지 빌드(push 안 함)를 실행하고, 구조 검사·common 테스트는 따로 돈다. 필수 체크 `verify`는 이 결과를 모은다. 앱이 8개가 된 뒤 판단하기로 했던 matrix 전환(#374)을, 문서만 바꾼 PR도 9분 넘게 걸려 6개에서 앞당겼다([조사](../pr-ci-changed-apps-research.md)).
+- 배포(#374): main push 때 바뀐 앱만 이미지를 발행하고(`publish.yml`), prod 배포는 수동 dispatch(`deploy.yml`)가 바뀐 앱만 배포한다. 절차는 [운영 앱 배포](../../deploy/k8s.md#운영-앱-배포).
 - manifest(#373): `manifests` job이 `kubectl kustomize`로 overlay별 rendering → kubeconform `-strict`로 Kubernetes·CRD schema 검사. 필수 체크는 아니다
 - PR(앱이 모두 단독 기동한 뒤): k3d cluster 생성 → 앱마다 `kubectl apply -k apps/<앱>/k8s/overlays/local` → migration → smoke/E2E → cluster 삭제
 - PR: 앱 사이 JWT 헤더 인증·WebSocket·Kafka·Redis 흐름 검증
-- prod k3s: 수동 dispatch로 승인된 main image를 `kubectl apply -k` → `rollout status` → 실패 시 `rollout undo`
+- prod k3s: 수동 dispatch로 바뀐 앱의 main image를 앱마다 `kubectl apply -k` → `rollout status` → 실패 시 `rollout undo`
 - EC2: rolling update 중 HTTP 요청과 WebSocket 재연결 결과 기록
 - EC2: 자원 사용량(`kubectl top`)이 예산 안인지 배포 후 기록
