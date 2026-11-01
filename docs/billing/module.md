@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | 지갑 | 회원 지갑 생성·조회, 내 HP 거래 내역 | `WalletFacade`, `UserJoinedEventListener` |
 | 원장 | HP 원장 기록, 잔액 버킷 이동, 역분개 검증, 잔액 대사(라이브러리만) | `LedgerRecordUseCase`, `WalletReconciliationUseCase` |
-| 보류 | 보류·반환·지급·위약금(강의·출연용), 종류별 보류·확정 차감(Billing 내부용) | `HoldFacade`(← 내부 API `ApiV1BillingInternalController`), `InternalHoldFacade` |
+| 보류 | 보류·반환·지급·위약금(강의·출연용), 종류별 보류·확정 차감(Billing 내부용) | `HoldFacade`(← 내부 API `ApiV1BillingInternalController`, `in.BillingCommands`가 shared Command를 `Payment*Command`로 변환, #494), `InternalHoldFacade` |
 | 충전 | TossPayments 테스트 결제 승인, 결과 불명확 복구 | `ChargeFacade`, `ChargeRecoveryBatch` |
 | 환불 | 충전 HP 환불(PG 부분 취소, FIFO), 결과 불명확 복구 | `RefundFacade`, `RefundRecoveryBatch` |
 | 환전 | 신청·취소, 관리자 승인·거절, 가상 송금(Mock 은행), 정산 배치, 송금 복구·재시도·최종 실패 | `ExchangeFacade`, `ExchangeAdminFacade`, `ExchangeSettlementBatch`, `ExchangePayoutRecoveryBatch` |
@@ -114,7 +114,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 
 | 흐름 | 경계 (As-Is) |
 | --- | --- |
-| 보류·반환·지급·위약금 (`HoldFacade`) | UseCase `@Transactional(REQUIRED)`. 같은 JVM 호출자의 트랜잭션에 참여하도록 설계됐다(`BD-52`·`BD-53`). **독립 JVM에서는 이 참여가 성립하지 않는다**(7장) |
+| 보류·반환·지급·위약금 (`HoldFacade`) | UseCase `@Transactional(REQUIRED)`. 내부 HTTP API 요청 하나가 지갑 트랜잭션 하나다(#486). 지갑 안 호출(환불·환전 UseCase → 보류)만 바깥 트랜잭션에 참여한다(`BD-53`) |
 | 원장 기록 | `LedgerRecordUseCase.record` `REQUIRED`, 락 헬퍼는 `MANDATORY` |
 | 지갑 생성 | `REQUIRES_NEW`(UNIQUE 위반 후 바깥에서 재조회, `BD-4`) |
 | 충전 | claim 커밋 → PG 승인(트랜잭션 밖) → complete/fail 커밋 (`BD-76`) |
@@ -327,3 +327,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-10-30 | c58fb0f | #471 Spring Event 제거: Modulith 이벤트 기록 설정·`event_publication` 테이블 삭제(8.2·8.3, 7.2) |
 | 2026-10-30 | 33367bd | #479 보류 무효화 내부 API(6장, 5.3, 8.1, 8.2). 8.1에 내부 API 행을 더함. 상세는 [`CONTEXT.md`](CONTEXT.md) 6장 |
 | 2026-10-31 | 454bfd2 | #486 shared `BillingPort`·`BillingPortAdapter` 삭제(1.1, 2, 7.1, 8.3, L1) |
+| 2026-11-01 | aeb1bdb | #494 shared Command → billing 내부 Command(`Payment*Command`) 변환(1.1, 5.1). 상세는 [`CONTEXT.md`](CONTEXT.md) 8장 |

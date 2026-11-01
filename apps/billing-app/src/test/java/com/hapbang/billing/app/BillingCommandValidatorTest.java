@@ -15,10 +15,6 @@ import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.PayoutCommand;
-import com.hapbang.shared.billing.dto.PenaltyCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 
 // shared 요청 DTO가 검사하지 않는 금액을 Billing이 DTO 이동 전과 같은 오류 코드(INVALID_POINT_AMOUNT·PENALTY_AMOUNT_ZERO, 400)로
 // 거절하는지 DB 없이 검증한다. 위약금 비율은 검사하지 않는다.
@@ -32,23 +28,24 @@ class BillingCommandValidatorTest {
     @ValueSource(longs = {0L, -1L, Long.MIN_VALUE})
     @DisplayName("보류·부분 반환·부분 지급 금액이 0 이하이면 INVALID_POINT_AMOUNT로 거절한다")
     void nonPositiveAmounts(long amountHp) {
-        assertBillingError(() -> BillingCommandValidator.verify(new HoldCommand(1L, ITEM, 1L, amountHp)),
+        assertBillingError(() -> BillingCommandValidator.verify(new PaymentHoldCommand(1L, ITEM, 1L, amountHp)),
                 BillingErrorCode.INVALID_POINT_AMOUNT);
-        assertBillingError(() -> BillingCommandValidator.verify(ReleaseCommand.partial(1L, ITEM, 1L, "R1", amountHp)),
-                BillingErrorCode.INVALID_POINT_AMOUNT);
+        assertBillingError(() -> BillingCommandValidator.verify(PaymentReleaseCommand.partial(1L, ITEM, 1L, "R1",
+                amountHp)), BillingErrorCode.INVALID_POINT_AMOUNT);
         assertBillingError(() -> BillingCommandValidator.verify(
-                PayoutCommand.partial(1L, REQUEST, 7L, "P1", 2L, SOURCE, 7L, amountHp)),
+                PaymentPayoutCommand.partial(1L, REQUEST, 7L, "P1", 2L, SOURCE, 7L, amountHp)),
                 BillingErrorCode.INVALID_POINT_AMOUNT);
     }
 
     @Test
     @DisplayName("양수 금액과 전체 반환·전체 지급(금액 없음)은 통과한다")
     void validAmounts() {
-        assertThatCode(() -> BillingCommandValidator.verify(new HoldCommand(1L, ITEM, 1L, 1L)))
+        assertThatCode(() -> BillingCommandValidator.verify(new PaymentHoldCommand(1L, ITEM, 1L, 1L)))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> BillingCommandValidator.verify(ReleaseCommand.full(1L, ITEM, 1L, "R1")))
+        assertThatCode(() -> BillingCommandValidator.verify(PaymentReleaseCommand.full(1L, ITEM, 1L, "R1")))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> BillingCommandValidator.verify(PayoutCommand.full(1L, REQUEST, 7L, "P1", 2L, SOURCE, 7L)))
+        assertThatCode(() -> BillingCommandValidator.verify(PaymentPayoutCommand.full(1L, REQUEST, 7L, "P1", 2L,
+                SOURCE, 7L)))
                 .doesNotThrowAnyException();
     }
 
@@ -89,8 +86,8 @@ class BillingCommandValidatorTest {
                 BillingErrorCode.INVALID_POINT_AMOUNT);
     }
 
-    private static PenaltyCommand penalty(long releaseHp, long payoutHp) {
-        return new PenaltyCommand(1L, REQUEST, 7L, "C1", 2L, SOURCE, 7L, releaseHp, payoutHp);
+    private static PaymentPenaltyCommand penalty(long releaseHp, long payoutHp) {
+        return new PaymentPenaltyCommand(1L, REQUEST, 7L, "C1", 2L, SOURCE, 7L, releaseHp, payoutHp);
     }
 
     private static void assertBillingError(Executable action, BillingErrorCode errorCode) {

@@ -40,10 +40,6 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.PayoutCommand;
-import com.hapbang.shared.billing.dto.PenaltyCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 보류 지급(수익 HP 우선·충전 원금 FIFO 소진)·반환과의 혼합 이력·위약금 정산(70% 반환 + 30% 지급)의 금융 정합성,
@@ -96,7 +92,8 @@ class HoldPayoutIntegrationTest {
         revenue(host, 5_000L);
         HoldResult hold = hold(HOST, REQUEST, 7L, 4_000L);
 
-        PayoutResult result = holdFacade.payout(PayoutCommand.full(HOST, REQUEST, 7L, "P1", GUEST, REQUEST_SOURCE, 7L));
+        PayoutResult result = holdFacade.payout(PaymentPayoutCommand.full(HOST, REQUEST, 7L, "P1", GUEST,
+                REQUEST_SOURCE, 7L));
 
         assertThat(result.paidHp()).isEqualTo(4_000L);
         assertThat(result.paidRevenueHp()).isEqualTo(4_000L);
@@ -184,7 +181,7 @@ class HoldPayoutIntegrationTest {
 
         PayoutResult a = payout(HOST, RECRUIT, 9L, "A-101", 11L, RECRUIT_SOURCE, 101L, 20_000L);
         PayoutResult b = payout(HOST, RECRUIT, 9L, "B-102", 12L, RECRUIT_SOURCE, 102L, 25_000L);
-        ReleaseResult rest = holdFacade.release(ReleaseCommand.full(HOST, RECRUIT, 9L, "UNDERFILLED"));
+        ReleaseResult rest = holdFacade.release(PaymentReleaseCommand.full(HOST, RECRUIT, 9L, "UNDERFILLED"));
 
         assertThat(a.remainingHeldHp()).isEqualTo(40_000L);
         assertThat(b.remainingHeldHp()).isEqualTo(15_000L);
@@ -242,7 +239,7 @@ class HoldPayoutIntegrationTest {
                 BillingErrorCode.PAYOUT_ALREADY_SETTLED);
         assertThat(snapshot()).isEqualTo(before);
 
-        holdFacade.release(ReleaseCommand.full(HOST, REQUEST, 7L, "R1"));
+        holdFacade.release(PaymentReleaseCommand.full(HOST, REQUEST, 7L, "R1"));
         assertBillingError(() -> payout(HOST, REQUEST, 7L, "P1", GUEST, REQUEST_SOURCE, 7L, 1L),
                 BillingErrorCode.HOLD_ALREADY_CLOSED);
     }
@@ -261,7 +258,7 @@ class HoldPayoutIntegrationTest {
 
         PayoutResult retried = payout(HOST, RECRUIT, 9L, "A-101", GUEST, RECRUIT_SOURCE, 101L, 4_000L);
         PayoutResult retriedFull = holdFacade.payout(
-                PayoutCommand.full(HOST, RECRUIT, 9L, "A-101", GUEST, RECRUIT_SOURCE, 101L));
+                PaymentPayoutCommand.full(HOST, RECRUIT, 9L, "A-101", GUEST, RECRUIT_SOURCE, 101L));
 
         assertThat(retried.replayed()).isTrue();
         assertThat(retried).usingRecursiveComparison().ignoringFields("replayed").isEqualTo(first);
@@ -312,7 +309,7 @@ class HoldPayoutIntegrationTest {
         ReleaseResult r1 = release(HOST, RECRUIT, 9L, "R1", 4_000L);        // 충전 c 3,000 + b 1,000
         PayoutResult p1 = payout(HOST, RECRUIT, 9L, "A", 11L, RECRUIT_SOURCE, 101L, 3_000L); // 수익 2,000 + 충전 a 1,000
         PayoutResult p2 = payout(HOST, RECRUIT, 9L, "B", 12L, RECRUIT_SOURCE, 102L, 1_500L); // 충전 a 1,000 + b 500
-        ReleaseResult r2 = holdFacade.release(ReleaseCommand.full(HOST, RECRUIT, 9L, "R2")); // 충전 b 1,500
+        ReleaseResult r2 = holdFacade.release(PaymentReleaseCommand.full(HOST, RECRUIT, 9L, "R2")); // 충전 b 1,500
 
         assertThat(r1.chargeRestorations()).containsExactly(new ChargeRestoration(c, 3_000L),
                 new ChargeRestoration(b, 1_000L));
@@ -379,7 +376,7 @@ class HoldPayoutIntegrationTest {
                 WHERE point_hold_id = ?""", firstUsageId(hold), firstUsageId(hold), hold.holdId());
         Map<String, Object> before = snapshot();
 
-        assertBillingError(() -> holdFacade.release(ReleaseCommand.full(HOST, REQUEST, 7L, "R1")),
+        assertBillingError(() -> holdFacade.release(PaymentReleaseCommand.full(HOST, REQUEST, 7L, "R1")),
                 BillingErrorCode.HOLD_STATE_INCONSISTENT);
         assertBillingError(() -> payout(HOST, REQUEST, 7L, "P1", GUEST, REQUEST_SOURCE, 7L, 500L),
                 BillingErrorCode.HOLD_STATE_INCONSISTENT);
@@ -457,7 +454,7 @@ class HoldPayoutIntegrationTest {
         hold(HOST, RECRUIT, 9L, 60_000L);
 
         PenaltyResult result = holdFacade.settlePenalty(
-                new PenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 14_000L, 6_000L));
+                new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 14_000L, 6_000L));
 
         assertThat(result.payout().paidHp()).isEqualTo(6_000L);
         assertThat(result.releasedHp()).isEqualTo(14_000L);
@@ -479,9 +476,9 @@ class HoldPayoutIntegrationTest {
         HoldResult hold = hold(HOST, RECRUIT, 9L, 60_000L);   // 수익 5,000 + 충전 55,000, 게스트 3명 × 계약 20,000
 
         PenaltyResult penaltyA = holdFacade.settlePenalty(
-                new PenaltyCommand(HOST, RECRUIT, 9L, "CANCEL-A", 11L, RECRUIT_SOURCE, 101L, 14_000L, 6_000L));
+                new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "CANCEL-A", 11L, RECRUIT_SOURCE, 101L, 14_000L, 6_000L));
         PayoutResult normalB = payout(HOST, RECRUIT, 9L, "CONFIRM-B", 12L, RECRUIT_SOURCE, 102L, 20_000L);
-        ReleaseResult rest = holdFacade.release(ReleaseCommand.full(HOST, RECRUIT, 9L, "UNFILLED"));
+        ReleaseResult rest = holdFacade.release(PaymentReleaseCommand.full(HOST, RECRUIT, 9L, "UNFILLED"));
 
         assertThat(penaltyA.paidHp()).isEqualTo(6_000L);
         assertThat(penaltyA.releasedHp()).isEqualTo(14_000L);
@@ -506,19 +503,19 @@ class HoldPayoutIntegrationTest {
         charge(host, 60_000L, T1);
         hold(HOST, RECRUIT, 9L, 60_000L);
         payout(HOST, RECRUIT, 9L, "CONFIRM-101", GUEST, RECRUIT_SOURCE, 101L, 20_000L);
-        holdFacade.settlePenalty(new PenaltyCommand(HOST, RECRUIT, 9L, "CANCEL-102", GUEST, RECRUIT_SOURCE, 102L,
+        holdFacade.settlePenalty(new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "CANCEL-102", GUEST, RECRUIT_SOURCE, 102L,
                 14_000L, 6_000L));
         Map<String, Object> before = snapshot();
 
-        assertBillingError(() -> holdFacade.settlePenalty(new PenaltyCommand(HOST, RECRUIT, 9L, "CANCEL-101", GUEST,
-                RECRUIT_SOURCE, 101L, 14_000L, 6_000L)), BillingErrorCode.PAYOUT_ALREADY_SETTLED);
+        assertBillingError(() -> holdFacade.settlePenalty(new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "CANCEL-101",
+                GUEST, RECRUIT_SOURCE, 101L, 14_000L, 6_000L)), BillingErrorCode.PAYOUT_ALREADY_SETTLED);
         assertBillingError(() -> payout(HOST, RECRUIT, 9L, "CONFIRM-102", GUEST, RECRUIT_SOURCE, 102L, 20_000L),
                 BillingErrorCode.PAYOUT_ALREADY_SETTLED);
         // 지급 요청 ID·취소 ID만 바꿔 같은 출연에 다시 보내도 막는다.
         assertBillingError(() -> payout(HOST, RECRUIT, 9L, "CONFIRM-101-2", GUEST, RECRUIT_SOURCE, 101L, 20_000L),
                 BillingErrorCode.PAYOUT_ALREADY_SETTLED);
-        assertBillingError(() -> holdFacade.settlePenalty(new PenaltyCommand(HOST, RECRUIT, 9L, "CANCEL-102-2", GUEST,
-                RECRUIT_SOURCE, 102L, 14_000L, 6_000L)), BillingErrorCode.PAYOUT_ALREADY_SETTLED);
+        assertBillingError(() -> holdFacade.settlePenalty(new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "CANCEL-102-2",
+                GUEST, RECRUIT_SOURCE, 102L, 14_000L, 6_000L)), BillingErrorCode.PAYOUT_ALREADY_SETTLED);
 
         assertThat(snapshot()).isEqualTo(before);
         assertInvariants(host, guest);
@@ -548,7 +545,7 @@ class HoldPayoutIntegrationTest {
         charge(host, 13_000L, T1);
         hold(HOST, REQUEST, 7L, 15_000L);   // 수익 2,000 + 충전 13,000
 
-        PenaltyResult result = holdFacade.settlePenalty(new PenaltyCommand(HOST, REQUEST, 7L, "C1", GUEST,
+        PenaltyResult result = holdFacade.settlePenalty(new PaymentPenaltyCommand(HOST, REQUEST, 7L, "C1", GUEST,
                 REQUEST_SOURCE, 7001L, 10_500L, 4_500L));
 
         assertThat(result.paidHp()).isEqualTo(4_500L);
@@ -638,7 +635,7 @@ class HoldPayoutIntegrationTest {
         assertBalances(guest, 0L, 5_000L, 0L, 0L);
 
         // 반환(R1) → 지급(C1) 이력을 재생·대조한 뒤 남은 충전 보류(#first 2,000, #second 3,000)를 역순으로 복원한다.
-        ReleaseResult rest = holdFacade.release(ReleaseCommand.full(HOST, REQUEST, 7L, "REST"));
+        ReleaseResult rest = holdFacade.release(PaymentReleaseCommand.full(HOST, REQUEST, 7L, "REST"));
 
         assertThat(rest.chargeRestorations()).containsExactly(new ChargeRestoration(second, 3_000L),
                 new ChargeRestoration(first, 2_000L));
@@ -681,7 +678,7 @@ class HoldPayoutIntegrationTest {
         assertThat(paid.sourceId()).isEqualTo(7001L);
         assertBillingError(() -> payout(HOST, REQUEST, 7L, "CONFIRM-2", GUEST, REQUEST_SOURCE, 7002L, 5_000L),
                 BillingErrorCode.PAYOUT_ALREADY_SETTLED);
-        assertBillingError(() -> holdFacade.settlePenalty(new PenaltyCommand(HOST, REQUEST, 7L, "CANCEL", GUEST,
+        assertBillingError(() -> holdFacade.settlePenalty(new PaymentPenaltyCommand(HOST, REQUEST, 7L, "CANCEL", GUEST,
                 REQUEST_SOURCE, 7003L, 3_500L, 1_500L)), BillingErrorCode.PAYOUT_ALREADY_SETTLED);
         assertThat(snapshot()).isEqualTo(before);
         assertThat(settlementRows(hold.holdId())).hasSize(1);
@@ -698,14 +695,14 @@ class HoldPayoutIntegrationTest {
         charge(otherHost, 20_000L, T1);
         hold(HOST, RECRUIT, 9L, 20_000L);
         hold(HOST, RECRUIT, 10L, 20_000L);
-        holdFacade.hold(new HoldCommand(3L, RECRUIT, 11L, 20_000L));
+        holdFacade.hold(new PaymentHoldCommand(3L, RECRUIT, 11L, 20_000L));
         payout(HOST, RECRUIT, 9L, "CONFIRM-101", GUEST, RECRUIT_SOURCE, 101L, 15_000L);
         Map<String, Object> before = snapshot();
 
         assertBillingError(() -> payout(HOST, RECRUIT, 10L, "CONFIRM-101", GUEST, RECRUIT_SOURCE, 101L, 15_000L),
                 BillingErrorCode.PAYOUT_ALREADY_SETTLED);
-        assertBillingError(() -> holdFacade.settlePenalty(new PenaltyCommand(HOST, RECRUIT, 10L, "CANCEL-101", GUEST,
-                RECRUIT_SOURCE, 101L, 10_500L, 4_500L)), BillingErrorCode.PAYOUT_ALREADY_SETTLED);
+        assertBillingError(() -> holdFacade.settlePenalty(new PaymentPenaltyCommand(HOST, RECRUIT, 10L, "CANCEL-101",
+                GUEST, RECRUIT_SOURCE, 101L, 10_500L, 4_500L)), BillingErrorCode.PAYOUT_ALREADY_SETTLED);
         assertBillingError(() -> payout(3L, RECRUIT, 11L, "CONFIRM-101", GUEST, RECRUIT_SOURCE, 101L, 15_000L),
                 BillingErrorCode.PAYOUT_ALREADY_SETTLED);
 
@@ -723,34 +720,39 @@ class HoldPayoutIntegrationTest {
         charge(host, 8_000L, T1);
         hold(HOST, RECRUIT, 9L, 10_000L);
         PenaltyResult first = holdFacade.settlePenalty(
-                new PenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 3_500L, 1_500L));
+                new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 3_500L, 1_500L));
         Map<String, Object> before = snapshot();
 
         PenaltyResult retried = holdFacade.settlePenalty(
-                new PenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 3_500L, 1_500L));
+                new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 3_500L, 1_500L));
 
         assertThat(retried.replayed()).isTrue();
         assertThat(retried).usingRecursiveComparison()
                 .ignoringFields("replayed", "release.replayed", "payout.replayed").isEqualTo(first);
         // 합계(정산 기준액)가 같아도 반환·지급 배분이 다르면 다른 요청이다.
         assertBillingError(() -> holdFacade.settlePenalty(
-                        new PenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 3_000L, 2_000L)),
+                        new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 3_000L,
+                                2_000L)),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         assertBillingError(() -> holdFacade.settlePenalty(
-                        new PenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 3_500L, 2_500L)),
+                        new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 3_500L,
+                                2_500L)),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         assertBillingError(() -> holdFacade.settlePenalty(
-                        new PenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 4_500L, 1_500L)),
+                        new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 101L, 4_500L,
+                                1_500L)),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         assertBillingError(() -> holdFacade.settlePenalty(
-                        new PenaltyCommand(HOST, RECRUIT, 9L, "C1", 3L, RECRUIT_SOURCE, 101L, 3_500L, 1_500L)),
+                        new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "C1", 3L, RECRUIT_SOURCE, 101L, 3_500L, 1_500L)),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         assertBillingError(() -> holdFacade.settlePenalty(
-                        new PenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 102L, 3_500L, 1_500L)),
+                        new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "C1", GUEST, RECRUIT_SOURCE, 102L, 3_500L,
+                                1_500L)),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         // 다른 취소 ID로 같은 게스트 출연에 위약금을 두 번 정산하지 않는다.
         assertBillingError(() -> holdFacade.settlePenalty(
-                        new PenaltyCommand(HOST, RECRUIT, 9L, "C2", GUEST, RECRUIT_SOURCE, 101L, 3_500L, 1_500L)),
+                        new PaymentPenaltyCommand(HOST, RECRUIT, 9L, "C2", GUEST, RECRUIT_SOURCE, 101L, 3_500L,
+                                1_500L)),
                 BillingErrorCode.PAYOUT_ALREADY_SETTLED);
         assertThat(snapshot()).isEqualTo(before);
         assertInvariants(host, guest);
@@ -836,12 +838,12 @@ class HoldPayoutIntegrationTest {
             revenue(host, 1_000L);
             charge(host, 2_000L, T1);
             long ref = sequence.incrementAndGet();
-            holdFacade.hold(new HoldCommand(hostUser, REQUEST, ref, 3_000L));
+            holdFacade.hold(new PaymentHoldCommand(hostUser, REQUEST, ref, 3_000L));
             Map<String, Object> before = snapshot();
             String event = table.equals("point_charge_usage") || table.equals("point_hold") ? "UPDATE" : "INSERT";
 
             failOn(table, event, null, () -> assertThatThrownBy(() -> holdFacade.payout(
-                    PayoutCommand.full(hostUser, REQUEST, ref, "P1", guestUser, REQUEST_SOURCE, ref)))
+                    PaymentPayoutCommand.full(hostUser, REQUEST, ref, "P1", guestUser, REQUEST_SOURCE, ref)))
                     .hasStackTraceContaining("test failure"));
 
             assertThat(snapshot()).as(table).isEqualTo(before);
@@ -901,7 +903,7 @@ class HoldPayoutIntegrationTest {
         charge(hostA, 20_000L, T1);
         charge(hostB, 20_000L, T1);
         hold(HOST, RECRUIT, 9L, 20_000L);
-        holdFacade.hold(new HoldCommand(3L, RECRUIT, 10L, 20_000L));
+        holdFacade.hold(new PaymentHoldCommand(3L, RECRUIT, 10L, 20_000L));
         Map<String, Object> hostBBefore = balances(hostB);
         CountDownLatch paidButNotCommitted = new CountDownLatch(1);
         CountDownLatch commit = new CountDownLatch(1);
@@ -966,15 +968,15 @@ class HoldPayoutIntegrationTest {
             hosts.add(wallet(guestUser));
             charge(host, 20_000L, T1);
             long ref = 300L + i;
-            holdFacade.hold(new HoldCommand(hostUser, RECRUIT, ref, 20_000L));
+            holdFacade.hold(new PaymentHoldCommand(hostUser, RECRUIT, ref, 20_000L));
             boolean normal = i % 2 == 0;
             tasks.add(() -> {
                 try {
                     if (normal) {
                         payout(hostUser, RECRUIT, ref, "CONFIRM-888", guestUser, RECRUIT_SOURCE, 888L, 15_000L);
                     } else {
-                        holdFacade.settlePenalty(new PenaltyCommand(hostUser, RECRUIT, ref, "CANCEL-888", guestUser,
-                                RECRUIT_SOURCE, 888L, 10_500L, 4_500L));
+                        holdFacade.settlePenalty(new PaymentPenaltyCommand(hostUser, RECRUIT, ref, "CANCEL-888",
+                                guestUser, RECRUIT_SOURCE, 888L, 10_500L, 4_500L));
                     }
                     return true;
                 } catch (BillingException exception) {
@@ -1072,7 +1074,8 @@ class HoldPayoutIntegrationTest {
 
         assertThat(processed.stream().mapToLong(Long::longValue).sum()).isEqualTo(9_000L);
         // 남은 보류 전부를 마지막 반환으로 처리하면 재생 대조를 통과한다.
-        assertThat(holdFacade.release(ReleaseCommand.full(HOST, RECRUIT, 9L, "FINAL")).releasedHp()).isEqualTo(1_000L);
+        assertThat(holdFacade.release(PaymentReleaseCommand.full(HOST, RECRUIT, 9L,
+                "FINAL")).releasedHp()).isEqualTo(1_000L);
         List<Long> all = new ArrayList<>(guests);
         all.add(host);
         assertInvariants(all.toArray(Long[]::new));
@@ -1090,9 +1093,9 @@ class HoldPayoutIntegrationTest {
             hosts.add(host);
             charge(host, 5_000L, T1);
             long ref = 500L + i;
-            holdFacade.hold(new HoldCommand(hostUser, REQUEST, ref, 5_000L));
+            holdFacade.hold(new PaymentHoldCommand(hostUser, REQUEST, ref, 5_000L));
             tasks.add(() -> holdFacade.payout(
-                    PayoutCommand.full(hostUser, REQUEST, ref, "P1", GUEST, REQUEST_SOURCE, ref)));
+                    PaymentPayoutCommand.full(hostUser, REQUEST, ref, "P1", GUEST, REQUEST_SOURCE, ref)));
         }
 
         runTogether(tasks);
@@ -1115,8 +1118,10 @@ class HoldPayoutIntegrationTest {
             long refB = 200L + i;
             hold(HOST, REQUEST, refA, 1_000L);
             hold(GUEST, REQUEST, refB, 1_000L);
-            tasks.add(() -> holdFacade.payout(PayoutCommand.full(HOST, REQUEST, refA, "P", GUEST, REQUEST_SOURCE, refA)));
-            tasks.add(() -> holdFacade.payout(PayoutCommand.full(GUEST, REQUEST, refB, "P", HOST, REQUEST_SOURCE, refB)));
+            tasks.add(() -> holdFacade.payout(PaymentPayoutCommand.full(HOST, REQUEST, refA, "P", GUEST,
+                    REQUEST_SOURCE, refA)));
+            tasks.add(() -> holdFacade.payout(PaymentPayoutCommand.full(GUEST, REQUEST, refB, "P", HOST,
+                    REQUEST_SOURCE, refB)));
         }
 
         List<PayoutResult> results = runTogether(tasks);
@@ -1132,24 +1137,24 @@ class HoldPayoutIntegrationTest {
     // ---------------------------------------------------------------------------------------------
 
     private HoldResult hold(Long userId, BillingReferenceType type, Long referenceId, long amountHp) {
-        return holdFacade.hold(new HoldCommand(userId, type, referenceId, amountHp));
+        return holdFacade.hold(new PaymentHoldCommand(userId, type, referenceId, amountHp));
     }
 
     private ReleaseResult release(Long userId, BillingReferenceType type, Long referenceId, String requestId,
             long amountHp) {
-        return holdFacade.release(ReleaseCommand.partial(userId, type, referenceId, requestId, amountHp));
+        return holdFacade.release(PaymentReleaseCommand.partial(userId, type, referenceId, requestId, amountHp));
     }
 
     private PayoutResult payout(Long payer, BillingReferenceType type, Long referenceId, String requestId,
             Long receiver, SettlementSourceType sourceType, Long sourceId, long amountHp) {
-        return holdFacade.payout(PayoutCommand.partial(payer, type, referenceId, requestId, receiver, sourceType,
+        return holdFacade.payout(PaymentPayoutCommand.partial(payer, type, referenceId, requestId, receiver, sourceType,
                 sourceId, amountHp));
     }
 
     // 출연 요청 7(호스트 → 게스트)의 위약금을 출연이 계산한 호스트 반환액·게스트 지급액으로 정산한다.
     private PenaltyResult penalty(String cancellationId, long releaseAmountHp, long payoutAmountHp) {
-        return holdFacade.settlePenalty(new PenaltyCommand(HOST, REQUEST, 7L, cancellationId, GUEST, REQUEST_SOURCE,
-                7L, releaseAmountHp, payoutAmountHp));
+        return holdFacade.settlePenalty(new PaymentPenaltyCommand(HOST, REQUEST, 7L, cancellationId, GUEST,
+                REQUEST_SOURCE, 7L, releaseAmountHp, payoutAmountHp));
     }
 
     // 출연 요청 7 보류(수익 1,000 + 충전 2,000·3,000)에 행 실패 트리거를 걸고 위약금 정산이 실패하면 아무것도 바뀌지 않는지 확인한다.

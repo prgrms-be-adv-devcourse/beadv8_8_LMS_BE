@@ -46,9 +46,6 @@ import com.hapbang.billing.out.PaymentKeyProperties;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.PayoutCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 수익 HP 환전 신청·보류·취소(#285)를 실제 PostgreSQL로 검증한다. 실제 은행 API·송금은 없다.
@@ -517,9 +514,9 @@ class ExchangeIntegrationTest {
         Long exchangeId = request(INFLUENCER, "key-1", 8_000L).exchangeId();
 
         // 인플루언서가 강의를 사면 남은 수익 HP 2,000을 먼저 쓰고 충전 HP 3,000을 쓴다(환전 보류분은 쓰지 않는다)
-        holdFacade.hold(new HoldCommand(INFLUENCER, BillingReferenceType.LECTURE_ORDER_ITEM, 9_001L, 5_000L));
+        holdFacade.hold(new PaymentHoldCommand(INFLUENCER, BillingReferenceType.LECTURE_ORDER_ITEM, 9_001L, 5_000L));
         assertWallet(walletId, 2_000L, 3_000L, 0L, 10_000L);
-        holdFacade.release(ReleaseCommand.full(INFLUENCER, BillingReferenceType.LECTURE_ORDER_ITEM, 9_001L,
+        holdFacade.release(PaymentReleaseCommand.full(INFLUENCER, BillingReferenceType.LECTURE_ORDER_ITEM, 9_001L,
                 "CANCEL-9001"));
         assertWallet(walletId, 5_000L, 0L, 2_000L, 8_000L);
 
@@ -548,8 +545,8 @@ class ExchangeIntegrationTest {
         Long walletId = walletRepository.findByUserId(userId).map(Wallet::getId).orElseGet(() -> wallet(userId));
         charge(buyerWallet, amountHp);
         long itemId = 1_000L + sequence.incrementAndGet();
-        holdFacade.hold(new HoldCommand(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, itemId, amountHp));
-        holdFacade.payout(PayoutCommand.full(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, itemId,
+        holdFacade.hold(new PaymentHoldCommand(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, itemId, amountHp));
+        holdFacade.payout(PaymentPayoutCommand.full(BUYER, BillingReferenceType.LECTURE_ORDER_ITEM, itemId,
                 "PAYOUT-" + itemId, userId, SettlementSourceType.LECTURE_ORDER_ITEM, itemId));
         return walletId;
     }

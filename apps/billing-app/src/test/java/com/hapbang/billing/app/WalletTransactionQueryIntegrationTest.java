@@ -24,10 +24,6 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
-import com.hapbang.shared.billing.dto.HoldCommand;
-import com.hapbang.shared.billing.dto.PayoutCommand;
-import com.hapbang.shared.billing.dto.PenaltyCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 내 HP 거래 내역(#295)이 실제 업무 흐름이 남긴 원장을 PostgreSQL GROUP BY로 지갑 + 작업 키마다 묶고, 거래 유형·HP 종류별
@@ -92,7 +88,7 @@ class WalletTransactionQueryIntegrationTest {
         revenue(wallet, 3_000L);
         charge(wallet, 5_000L, T1);
 
-        HoldResult hold = holdFacade.hold(new HoldCommand(BUYER, LECTURE, 11L, 6_000L));
+        HoldResult hold = holdFacade.hold(new PaymentHoldCommand(BUYER, LECTURE, 11L, 6_000L));
 
         assertThat(ledgerLines("HOLD:LECTURE_ORDER_ITEM:11")).isEqualTo(4);
         WalletTransactionResult tx = latest(BUYER);
@@ -114,9 +110,9 @@ class WalletTransactionQueryIntegrationTest {
     void release() {
         Long wallet = wallet(BUYER);
         charge(wallet, 10_000L, T1);
-        holdFacade.hold(new HoldCommand(BUYER, LECTURE, 11L, 10_000L));
+        holdFacade.hold(new PaymentHoldCommand(BUYER, LECTURE, 11L, 10_000L));
 
-        holdFacade.release(ReleaseCommand.partial(BUYER, LECTURE, 11L, "R1", 4_000L));
+        holdFacade.release(PaymentReleaseCommand.partial(BUYER, LECTURE, 11L, "R1", 4_000L));
 
         List<WalletTransactionResult> txs = all(BUYER);
         assertThat(txs).extracting(WalletTransactionResult::type).containsExactly(
@@ -135,10 +131,10 @@ class WalletTransactionQueryIntegrationTest {
         Long seller = wallet(SELLER);
         revenue(buyer, 2_000L);
         charge(buyer, 8_000L, T1);
-        HoldResult hold = holdFacade.hold(new HoldCommand(BUYER, LECTURE, 11L, 10_000L));
+        HoldResult hold = holdFacade.hold(new PaymentHoldCommand(BUYER, LECTURE, 11L, 10_000L));
 
-        holdFacade.payout(PayoutCommand.full(BUYER, LECTURE, 11L, "P1", SELLER, SettlementSourceType.LECTURE_ORDER_ITEM,
-                11L));
+        holdFacade.payout(PaymentPayoutCommand.full(BUYER, LECTURE, 11L, "P1", SELLER,
+                SettlementSourceType.LECTURE_ORDER_ITEM, 11L));
 
         String key = "PAYOUT:" + hold.holdId() + ":P1";
         assertThat(walletsOf(key)).containsExactlyInAnyOrder(buyer, seller);
@@ -169,9 +165,9 @@ class WalletTransactionQueryIntegrationTest {
         Long host = wallet(HOST);
         wallet(GUEST);
         charge(host, 10_000L, T1);
-        holdFacade.hold(new HoldCommand(HOST, REQUEST, 7L, 10_000L));
+        holdFacade.hold(new PaymentHoldCommand(HOST, REQUEST, 7L, 10_000L));
 
-        holdFacade.settlePenalty(new PenaltyCommand(HOST, REQUEST, 7L, "C1", GUEST,
+        holdFacade.settlePenalty(new PaymentPenaltyCommand(HOST, REQUEST, 7L, "C1", GUEST,
                 SettlementSourceType.APPEARANCE_REQUEST, 7L, 7_000L, 3_000L));
 
         // 분류 근거: 위약금 지급 건(Settlement)이 PENALTY이고, 그 멱등키가 원장 작업 키의 접두사다
@@ -262,9 +258,9 @@ class WalletTransactionQueryIntegrationTest {
         wallet(SELLER);
         revenue(buyer, 2_500L);
         charge(buyer, 9_000L, T1);
-        holdFacade.hold(new HoldCommand(BUYER, LECTURE, 11L, 6_000L));
-        holdFacade.release(ReleaseCommand.partial(BUYER, LECTURE, 11L, "R1", 1_000L));
-        holdFacade.payout(PayoutCommand.partial(BUYER, LECTURE, 11L, "P1", SELLER,
+        holdFacade.hold(new PaymentHoldCommand(BUYER, LECTURE, 11L, 6_000L));
+        holdFacade.release(PaymentReleaseCommand.partial(BUYER, LECTURE, 11L, "R1", 1_000L));
+        holdFacade.payout(PaymentPayoutCommand.partial(BUYER, LECTURE, 11L, "P1", SELLER,
                 SettlementSourceType.LECTURE_ORDER_ITEM, 11L, 2_000L));
         internalHoldFacade.hold(new InternalHoldCommand(BUYER, BillingReferenceType.POINT_REFUND_REQUEST, 21L, 2_000L));
 
@@ -296,9 +292,9 @@ class WalletTransactionQueryIntegrationTest {
         revenue(wallet, 1_000L);
         charge(wallet, 9_000L, T1);
         // 수익 1,000 + 충전 1,000 → 4줄 작업 3건
-        holdFacade.hold(new HoldCommand(BUYER, LECTURE, 11L, 2_000L));
-        holdFacade.hold(new HoldCommand(BUYER, LECTURE, 12L, 2_000L));
-        holdFacade.hold(new HoldCommand(BUYER, LECTURE, 13L, 2_000L));
+        holdFacade.hold(new PaymentHoldCommand(BUYER, LECTURE, 11L, 2_000L));
+        holdFacade.hold(new PaymentHoldCommand(BUYER, LECTURE, 12L, 2_000L));
+        holdFacade.hold(new PaymentHoldCommand(BUYER, LECTURE, 13L, 2_000L));
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_ledger WHERE wallet_id = ?",
                 Long.class, wallet)).isEqualTo(2L + 4L + 2L + 2L);
 
@@ -330,9 +326,9 @@ class WalletTransactionQueryIntegrationTest {
         revenue(buyer, 2_000L);
         charge(buyer, 8_000L, T1);
         charge(seller, 1_000L, T1);
-        HoldResult hold = holdFacade.hold(new HoldCommand(BUYER, LECTURE, 11L, 10_000L));
-        holdFacade.payout(PayoutCommand.full(BUYER, LECTURE, 11L, "P1", SELLER, SettlementSourceType.LECTURE_ORDER_ITEM,
-                11L));
+        HoldResult hold = holdFacade.hold(new PaymentHoldCommand(BUYER, LECTURE, 11L, 10_000L));
+        holdFacade.payout(PaymentPayoutCommand.full(BUYER, LECTURE, 11L, "P1", SELLER,
+                SettlementSourceType.LECTURE_ORDER_ITEM, 11L));
 
         // 지급 작업 키 하나가 구매자 2줄(수익·충전 보류 차감) + 판매자 1줄로 두 지갑에 걸친다
         String payoutKey = "PAYOUT:" + hold.holdId() + ":P1";

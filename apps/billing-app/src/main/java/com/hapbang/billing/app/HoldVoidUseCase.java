@@ -15,8 +15,6 @@ import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.out.HoldVoidRepository;
 import com.hapbang.billing.out.PointHoldRepository;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
-import com.hapbang.shared.billing.dto.HoldVoidCommand;
-import com.hapbang.shared.billing.dto.ReleaseCommand;
 
 import lombok.RequiredArgsConstructor;
 
@@ -43,7 +41,7 @@ public class HoldVoidUseCase {
     private final HoldReleaseUseCase holdReleaseUseCase;
 
     @Transactional
-    public HoldVoidResult voidHold(HoldVoidCommand command) {
+    public HoldVoidResult voidHold(PaymentHoldVoidCommand command) {
         Long walletId = holdProcessing.walletIdOf(command.userId());
         // 보류(HoldCreateUseCase)와 같은 지갑 락으로 직렬화한다. 락 뒤의 조회는 먼저 커밋된 보류·무효화 기록을 본다.
         ledgerRecordUseCase.lockWallet(walletId);
@@ -67,8 +65,8 @@ public class HoldVoidUseCase {
             // 소유 확인과 보류 락(지갑 → 보류 순서). 다른 회원의 보류면 HOLD_OWNER_MISMATCH다.
             PointHold locked = holdProcessing.lockHold(hold.get().getIdempotencyKey(), walletId);
             if (locked.isOpen() && locked.heldTotalHp() > 0) {
-                releasedHp = holdReleaseUseCase.release(ReleaseCommand.full(command.userId(), command.referenceType(),
-                        command.referenceId(), VOID_RELEASE_REQUEST_ID)).releasedHp();
+                releasedHp = holdReleaseUseCase.release(PaymentReleaseCommand.full(command.userId(),
+                        command.referenceType(), command.referenceId(), VOID_RELEASE_REQUEST_ID)).releasedHp();
                 outcome = HoldVoidOutcome.RELEASED;
             } else {
                 outcome = HoldVoidOutcome.ALREADY_CLOSED;
