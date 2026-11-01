@@ -24,6 +24,11 @@ spec:
       labels:
         app.kubernetes.io/name: lecture-app
         hapbang.io/internal-api-client: 'true'
+      # Prometheus 차트 기본 kubernetes-pods job이 이 annotation을 보고 수집한다(#480).
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8080'
+        prometheus.io/path: /actuator/prometheus
     spec:
       # node별 메모리 예산이 배치를 전제로 하므로 required로 건다(docs/deploy/aws-k3s.md).
       affinity:
@@ -48,6 +53,8 @@ spec:
             - secretRef:
                 name: lecture-app-secrets
           # EC2에서 384Mi·448Mi는 기동 중 OOMKilled됐고, 640Mi에서 떠 536Mi에서 멈췄다(#461).
+          # k3d도 같았다(Prometheus export를 꺼도 같음). heap 상한 268Mi에서 heap 231·non-heap 177·JVM 밖 native 약 185
+          # = RSS 593Mi였다(#480).
           resources:
             requests:
               cpu: 100m

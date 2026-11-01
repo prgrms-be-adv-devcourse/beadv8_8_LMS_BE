@@ -10,7 +10,7 @@
 - Grafana는 prod 도메인의 `/grafana/`에서 자체 계정 로그인으로 공개한다. 익명 접근·가입·auth proxy는 끈다. NodePort·3000 공개는 하지 않는다.
 - 이번 작업은 manifest·앱 포트 분리·로컬 검증·운영 전환 절차까지다. 실제 EC2 진입점 전환과 운영 검증 전에는 #372를 완료 처리하지 않는다.
 - 티켓 범위를 넘는 장치는 두지 않는다. 업로드 메서드·형식·크기 검사는 앱이 원본이고 Envoy는 timeout만 늘린다. platform에는 ingress NetworkPolicy를 두지 않는다. `run.py`는 완료 조건만 검사한다.
-- 앱 manifest는 각 앱의 `k8s/`에 둔다. 공통 Gateway, platform 접근 정책, Grafana·Alloy 설정은 `k8s/gateway/`에 둔다. 앱이 루트 manifest를 참조하지 않는다.
+- 앱 manifest는 각 앱의 `k8s/`에 둔다. 공통 Gateway, platform 접근 정책, Grafana 설정은 `k8s/gateway/`에 둔다. Alloy 설정(Gateway OTLP trace 수신 포함)은 pod log pipeline과 함께 `k8s/platform/base/observability.yaml`로 옮겼다(#480). 앱이 루트 manifest를 참조하지 않는다.
 
 ## 변경 결정 (2026-10-30)
 

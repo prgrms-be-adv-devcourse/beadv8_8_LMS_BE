@@ -13,7 +13,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
  *     <li>{@code lecture.hp_task.executions{result=succeeded|rejected|retry|dead}}: 결과를 기록한 실행 횟수</li>
  *     <li>{@code lecture.hp_task.dead}: {@code DEAD}가 된 횟수. 0보다 크게 늘면 확인이 필요하다</li>
  * </ul>
- * 레지스트리가 없는 테스트에서는 메모리 레지스트리를 쓴다. 지표를 밖에서 보는 경로는 팀 합의 후 연다.
+ * 레지스트리가 없는 테스트에서는 메모리 레지스트리를 쓴다. 클러스터 안의 Prometheus가 {@code /actuator/prometheus}로 수집한다(#480).
  */
 @Component
 public class LectureHpTaskMetrics {

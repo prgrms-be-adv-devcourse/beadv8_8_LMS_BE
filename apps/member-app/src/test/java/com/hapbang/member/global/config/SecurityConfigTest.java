@@ -120,6 +120,12 @@ class SecurityConfigTest {
     }
 
     @Test
+    void Prometheus_지표는_비회원도_조회한다() throws Exception {
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void 헬스체크_외_actuator_경로는_비회원이면_401() throws Exception {
         mockMvc.perform(get("/actuator/env"))
                 .andExpect(status().isUnauthorized());
@@ -158,6 +164,11 @@ class SecurityConfigTest {
         // 실제 actuator 엔드포인트 대신 같은 경로를 두고 보안 규칙만 확인한다
         @GetMapping({"/actuator/health", "/actuator/health/liveness"})
         String health() {
+            return "ok";
+        }
+
+        @GetMapping("/actuator/prometheus")
+        String prometheus() {
             return "ok";
         }
 

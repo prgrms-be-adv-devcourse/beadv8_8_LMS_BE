@@ -60,6 +60,7 @@ subprojects {
 // 실행 앱의 기술 의존성만 공통으로 관리한다. 앱끼리의 프로젝트 의존성은 허용하지 않는다.
 // Kafka 클라이언트(common/kafka)도 모든 앱이 공통으로 의존하고 자동 설정으로 바로 쓴다.
 // Redis 클라이언트(common/redis)도 모든 앱이 공통으로 의존하고 자동 설정으로 바로 쓴다.
+// Prometheus registry도 공통이다. /actuator/prometheus 노출은 앱마다 설정으로 연다(#480).
 configure(subprojects.filter { it.name.endsWith("-app") }) {
     dependencies {
         add("implementation", project(":kafka"))
@@ -72,6 +73,7 @@ configure(subprojects.filter { it.name.endsWith("-app") }) {
         add("implementation", rootProject.libs.springdoc.openapi.webmvc.ui)
         add("runtimeOnly", "org.flywaydb:flyway-database-postgresql")
         add("runtimeOnly", "org.postgresql:postgresql")
+        add("runtimeOnly", "io.micrometer:micrometer-registry-prometheus")
         add("testImplementation", "org.springframework.boot:spring-boot-starter-security-test")
         add("testImplementation", "org.springframework.boot:spring-boot-starter-security-oauth2-client-test")
     }
