@@ -189,7 +189,7 @@ dev push → Publish and deploy(publish.yml)
   - Deploy는 그 커밋의 overlay 전체를 적용하므로 SealedSecret도 그 커밋 것으로 돌아간다. 비밀번호·내부 API 키를 교체한 커밋보다 이전으로 롤백하면 새로 뜨는 pod가 무효한 자격 증명을 쓴다. 그런 경우 이전 커밋의 SealedSecret을 지금 값으로 다시 봉인한 커밋을 만들어 배포한다.
   - Flyway 마이그레이션은 되돌리지 않는다. 이전 이미지가 지금 스키마에서 동작하는지 먼저 확인한다.
 - **첫 배포 실패**: 새 앱의 첫 배포가 rollout에서 실패하면 이전 revision이 없어 `rollout undo`가 실패하고, 실패한 이미지 태그가 Deployment에 남는다. 그 뒤의 자동 배포와 입력 없이 실행한 Deploy는 지금 도는 이미지(실패한 태그)와 dev 최신 사이에 앱 내용이 그대로면 그 앱을 건너뛴다. 원인(이미지 pull 권한, Secret 등)을 고친 뒤 `apps`에 그 앱을 넣어 Deploy를 실행한다. `apps`를 적으면 비교 없이 배포한다.
-- **cluster 접근**: GitHub OIDC로 IAM role을 받아 SSM Run Command로 large에서 root로 `k3s kubectl`을 실행한다. 6443과 SSH를 쓰지 않는다. role trust는 GitHub Environment `prod`의 job만 허용하고, `prod`는 `dev` 브랜치만 허용한다(#559 전에는 `main`). `prod` Environment Secrets는 `AWS_DEPLOY_ROLE_ARN`, `DEPLOY_INSTANCE_ID`다.
+- **cluster 접근**: GitHub OIDC로 IAM role을 받아 SSM Run Command로 large에서 root로 `k3s kubectl`을 실행한다. 6443과 SSH를 쓰지 않는다. role trust는 GitHub Environment `prod`의 job만 허용하고, `prod`는 `dev` 브랜치만 허용한다(#559 전에는 `main`). `prod` Environment Secrets는 `AWS_DEPLOY_ROLE_ARN`, `DEPLOY_INSTANCE_ID`다. 자동 배포는 `publish.yml`이 이 두 secret을 이름으로 `deploy.yml`에 넘긴다. reusable workflow는 호출된 job에 `environment`가 있어도 넘겨받은 secret만 보고, 넘기지 않으면 빈 값이다(#570).
   - 이 레포는 GitHub OIDC의 immutable subject를 쓴다. trust의 `sub`는 `repo:<org>@<org id>/<repo>@<repo id>:environment:prod` 형식이라 레포를 옮기거나 다시 만들면 바꿔야 한다. 브랜치는 `sub`에 들어가지 않으므로 배포 브랜치를 바꿀 때 role은 그대로다.
   - large의 인스턴스 역할에 `AmazonSSMManagedInstanceCore`가 있어야 SSM agent가 등록된다.
 - 공개 레포라 Actions 로그도 공개다. 배포 스크립트는 node 이름·IP가 나오는 출력(`-o wide`, `describe`)을 하지 않는다.
