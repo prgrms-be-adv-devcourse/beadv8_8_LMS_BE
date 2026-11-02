@@ -18,11 +18,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -35,6 +38,8 @@ import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.AppearanceTestClock;
+import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
+import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 
@@ -42,8 +47,10 @@ import com.hapbang.shared.member.domain.UserStatus;
  * 출연 리뷰 작성과 블라인드 공개를 DB로 확인한다 (#512, ISSUE.md APR-45).
  * 출연은 실제 순서대로 만든다: 요청서 수락(성립) → 시계를 방송 뒤로 → 호스트 확인 또는 자동 확인.
  * 작성 기한이 있는 경우는 운영 설정(무기한)을 바꾸지 않고, 기한 14일 정책으로 만든 UseCase를 같은 저장소·시계로 직접 부른다.
+ * 공개 이벤트(#513)는 발행만 기록해서 본다({@link RecordApplicationEvents}). Kafka로 나가는 것은 {@code AppearanceEventKafkaTest}가 본다.
  */
 @AppearanceIntegrationTest
+@RecordApplicationEvents
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceReviewFlowTest {
 
@@ -89,6 +96,12 @@ class AppearanceReviewFlowTest {
 
     @Autowired
     PlatformTransactionManager transactionManager;
+
+    @Autowired
+    ApplicationEventPublisher eventPublisher;
+
+    @Autowired
+    ApplicationEvents applicationEvents;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -153,6 +166,16 @@ class AppearanceReviewFlowTest {
 
     private Long write(Long reviewerId, Long appearanceId) {
         return appearanceReviewFacade.write(reviewerId, appearanceId, 5, "좋았습니다.").id();
+    }
+
+    private List<AppearanceReviewPublishedEvent> publishedEvents() {
+        return applicationEvents.stream(AppearanceReviewPublishedEvent.class).toList();
+    }
+
+    private Long reviewIdOf(Long appearanceId, Long reviewerId) {
+        return jdbcTemplate.queryForObject(
+                "select id from appearances.reviews where appearance_id = ? and reviewer_id = ?",
+                Long.class, appearanceId, reviewerId);
     }
 
     private static void assertErrorCode(Runnable action, AppearanceErrorCode errorCode) {
@@ -289,6 +312,63 @@ class AppearanceReviewFlowTest {
 
     // ---------------------------------------------------------------------------------------------
     @Nested
+    @DisplayName("공개 이벤트 (#513)")
+    class PublishedEvent {
+
+        @Test
+        @DisplayName("한쪽만 쓰면 발행하지 않는다")
+        void notOnFirst() {
+            Long appearanceId = confirmed();
+
+            write(HOST, appearanceId);
+
+            assertThat(publishedEvents()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("상대가 써서 공개되면 리뷰마다 1개씩 2개 발행: 리뷰·출연·쓴 사람·받은 사람·역할·별점·공개 시각(DB와 같음), 본문 없음")
+        void twoOnPublish() {
+            Long appearanceId = confirmed();
+            appearanceReviewFacade.write(HOST, appearanceId, 4, "준비가 꼼꼼했습니다.");
+            appearanceReviewFacade.write(GUEST, appearanceId, 2, null);
+
+            LocalDateTime publishedAt = publishedAtOf(appearanceId, HOST);
+            assertThat(publishedEvents()).containsExactlyInAnyOrder(
+                    new AppearanceReviewPublishedEvent(reviewIdOf(appearanceId, HOST), appearanceId, HOST, GUEST,
+                            AppearanceParticipantRole.GUEST, 4, publishedAt),
+                    new AppearanceReviewPublishedEvent(reviewIdOf(appearanceId, GUEST), appearanceId, GUEST, HOST,
+                            AppearanceParticipantRole.HOST, 2, publishedAt));
+        }
+
+        @Test
+        @DisplayName("작성이 실패하면(이미 씀·상대 정지) 발행하지 않는다")
+        void notOnFailure() {
+            Long appearanceId = confirmed();
+            write(HOST, appearanceId);
+            assertErrorCode(() -> write(HOST, appearanceId), AppearanceErrorCode.ALREADY_REVIEWED);
+            changeUser(HOST, Role.INFLUENCER, UserStatus.SUSPENDED);
+            assertErrorCode(() -> write(GUEST, appearanceId), AppearanceErrorCode.REVIEWEE_NOT_ACTIVE);
+
+            assertThat(publishedEvents()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("한 출연이 공개되면 그 출연의 리뷰만 발행한다 (다른 출연의 비공개 리뷰는 그대로)")
+        void onlyThatAppearance() {
+            Long first = confirmed();
+            Long second = confirmed();
+            write(HOST, first);
+            write(HOST, second);
+
+            write(GUEST, second);
+
+            assertThat(publishedEvents()).extracting(AppearanceReviewPublishedEvent::appearanceId)
+                    .containsOnly(second).hasSize(2);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    @Nested
     @DisplayName("확인 순서 (앞 단계 오류가 먼저 난다)")
     class CheckOrder {
 
@@ -404,7 +484,7 @@ class AppearanceReviewFlowTest {
             AppearanceReviewEligibility eligibility = new AppearanceReviewEligibility(appearanceReviewSupport,
                     appearanceUserSupport, new AppearanceReviewPolicy(WRITE_PERIOD));
             AppearanceReviewWriteUseCase useCase = new AppearanceReviewWriteUseCase(appearanceSupport,
-                    appearanceReviewSupport, eligibility, clock);
+                    appearanceReviewSupport, eligibility, eventPublisher, clock);
             return new TransactionTemplate(transactionManager)
                     .execute(status -> useCase.write(reviewerId, appearanceId, 5, null));
         }
@@ -439,6 +519,7 @@ class AppearanceReviewFlowTest {
             writeWithPeriod(GUEST, appearanceId);
 
             assertThat(publishedAtOf(appearanceId, HOST)).isNotNull().isEqualTo(publishedAtOf(appearanceId, GUEST));
+            assertThat(publishedEvents()).hasSize(2);
         }
     }
 
