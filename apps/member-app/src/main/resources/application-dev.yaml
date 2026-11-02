@@ -5,8 +5,6 @@ spring:
     username: "${DB_USERNAME}"
     password: "${DB_PASSWORD}"
 hapbang:
-  local-login:
-    enabled: true
   storage:
     s3:
       bucket: "${S3_BUCKET}"
