@@ -34,7 +34,7 @@
 4. `k8s/base/deployment.yaml`: `management` containerPort 8082, probe 포트를 `management`로, pod template annotation `prometheus.io/scrape: 'true'`, `prometheus.io/port: '8082'`, `prometheus.io/path: /actuator/prometheus`
 5. `k8s/base/networkpolicy.yaml`: 8082를 `hapbang-platform`의 Prometheus server pod(`app.kubernetes.io/name: prometheus`, `app.kubernetes.io/component: server`)에 연다. 8080에는 열지 않는다.
 
-외부 API 포트(8080)는 쓰지 않는다. 앱은 Gateway 사용자 헤더(`X-User-*`)를 믿으므로 8080에는 Envoy만 들어와야 한다. Prometheus pod가 장악되면 헤더를 붙여 아무 회원으로 행세할 수 있기 때문이다([API Gateway](api-gateway.md#헤더-신뢰-구조를-유지하는-이유-2026-11-02), #521). customer-support-app은 아직 세션 인증이지만 헤더 인증 전환을 앞두고 같은 구성으로 열었다(#528). 내부 포트(8081)도 쓰지 않는다. `InternalApiPortValve`가 `/api/v1/internal` 밖 경로를 404로 막는다. `/actuator`는 HTTPRoute가 라우팅하지 않아 Gateway로 노출되지 않는다.
+외부 API 포트(8080)는 쓰지 않는다. 앱은 Gateway 사용자 헤더(`X-User-*`)를 믿으므로 8080에는 Envoy만 들어와야 한다. Prometheus pod가 장악되면 헤더를 붙여 아무 회원으로 행세할 수 있기 때문이다([API Gateway](api-gateway.md#헤더-신뢰-구조를-유지하는-이유-2026-11-02), #521). 내부 포트(8081)도 쓰지 않는다. `InternalApiPortValve`가 `/api/v1/internal` 밖 경로를 404로 막는다. `/actuator`는 HTTPRoute가 라우팅하지 않아 Gateway로 노출되지 않는다.
 
 registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한다(member-app은 448 MiB에서 OOMKilled, [k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)). 관리 포트는 Tomcat을 하나 더 띄운다. lecture-app은 로컬에서 RSS 약 +10MB, 스레드 +16이었다(1회 측정, #521).
 

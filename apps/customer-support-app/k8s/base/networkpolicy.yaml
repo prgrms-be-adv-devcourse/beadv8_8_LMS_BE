@@ -10,7 +10,7 @@ spec:
   - Ingress
   - Egress
   ingress:
-  # 외부 API 포트(8080)는 Gateway 전용이다. Gateway 사용자 헤더(X-User-*) 인증으로 바꿀 때를 대비해 지금부터 다른 pod를 들이지 않는다(#528, D72)
+  # 외부 API 포트(8080)는 Gateway 전용이다. Gateway 사용자 헤더(X-User-*)를 믿는 앱이므로 다른 pod를 들이지 않는다(#528, D72)
   - from:
     - namespaceSelector:
         matchLabels:
