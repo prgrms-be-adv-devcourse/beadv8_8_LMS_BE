@@ -14,6 +14,6 @@ public interface ApiV1MemberAdminAccountSpec {
                     + "만든 계정은 비밀번호 로그인(POST /api/v1/members/login)으로 들어온다. "
                     + "이메일·비밀번호·닉네임 규칙과 오류는 가입(POST /api/v1/members/signup)과 같다 "
                     + "(이미 가입된 이메일 409 DUPLICATE_EMAIL, 비밀번호 규칙 400). "
-                    + "운영 첫 관리자는 로컬 로그인의 관리자 테스트 계정으로 이 API를 불러 만든다.")
+                    + "첫 관리자는 앱이 시작할 때 만드는 초기 관리자 계정(admin@hapbang.local)이다.")
     RsData<MemberMeResponse> create(Long adminId, SignUpRequest request);
 }

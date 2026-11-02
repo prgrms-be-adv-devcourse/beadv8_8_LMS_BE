@@ -21,7 +21,7 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 이메일·비밀번호 가입·로그인·비밀번호 변경 API (#499).
- * 로그인은 구글·로컬 로그인과 같이 refresh token 쿠키만 주고, 프론트는 재발급 API로 access token을 받는다
+ * 로그인은 구글 로그인과 같이 refresh token 쿠키만 주고, 프론트는 재발급 API로 access token을 받는다
  */
 @RestController
 @RequestMapping("/api/v1/members")
