@@ -67,6 +67,11 @@ public class MemberTokenUseCase {
         };
     }
 
+    /** 회원의 refresh token을 모두 폐기한다 (비밀번호 변경 등, 모든 기기 로그아웃) */
+    public void revokeAll(Long userId) {
+        refreshTokenStore.revokeAll(userId);
+    }
+
     /** 로그아웃: 이 기기의 refresh token만 폐기한다. 토큰이 없거나 이미 폐기됐어도 실패하지 않는다 */
     public void logout(String refreshToken) {
         if (refreshToken != null && !refreshToken.isBlank()) {

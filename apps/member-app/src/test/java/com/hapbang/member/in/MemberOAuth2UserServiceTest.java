@@ -1,6 +1,7 @@
 package com.hapbang.member.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
@@ -15,11 +16,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.member.app.MemberFacade;
+import com.hapbang.member.domain.MemberErrorCode;
+import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
 
@@ -53,5 +57,23 @@ class MemberOAuth2UserServiceTest {
         assertThat(result.getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
                 .containsExactly("ROLE_USER");
+    }
+
+    @Test
+    @DisplayName("업무 실패(이미 비밀번호로 가입된 이메일)는 그 오류 코드를 담은 로그인 실패로 바꾼다 (#499)")
+    void loadUser_businessFailure() {
+        given(googleUserService.loadUser(any())).willReturn(new DefaultOAuth2User(
+                List.of(),
+                Map.of("sub", "google-sub-1", "email", "tester1@example.com", "name", "tester1"),
+                "sub"));
+        given(memberFacade.oauthLogin(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "tester1"))
+                .willThrow(new MemberException(MemberErrorCode.EMAIL_REGISTERED_WITH_PASSWORD));
+
+        MemberOAuth2UserService service = new MemberOAuth2UserService(memberFacade, googleUserService);
+
+        assertThatThrownBy(() -> service.loadUser(null))
+                .isInstanceOf(OAuth2AuthenticationException.class)
+                .extracting(e -> ((OAuth2AuthenticationException) e).getError().getErrorCode())
+                .isEqualTo("EMAIL_REGISTERED_WITH_PASSWORD");
     }
 }

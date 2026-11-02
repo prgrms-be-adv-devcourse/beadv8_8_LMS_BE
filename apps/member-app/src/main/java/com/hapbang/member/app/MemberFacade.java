@@ -41,6 +41,9 @@ public class MemberFacade {
     private final MemberUpgradeRequestUseCase memberUpgradeRequestUseCase;
     private final MemberFollowerRefreshUseCase memberFollowerRefreshUseCase;
     private final MemberTokenUseCase memberTokenUseCase;
+    private final MemberSignUpUseCase memberSignUpUseCase;
+    private final MemberPasswordLoginUseCase memberPasswordLoginUseCase;
+    private final MemberPasswordChangeUseCase memberPasswordChangeUseCase;
 
     // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
     private static final String USER_ONLY = "hasRole('USER')";
@@ -195,5 +198,28 @@ public class MemberFacade {
     /** 로그아웃: 이 기기의 refresh token 폐기 */
     public void logout(String refreshToken) {
         memberTokenUseCase.logout(refreshToken);
+    }
+
+    /** 이메일·비밀번호 가입 (#499). 로그인은 따로 한다 */
+    @Transactional
+    public User signUp(String email, String password, String nickname) {
+        return memberSignUpUseCase.signUp(email, password, nickname);
+    }
+
+    /** 이메일·비밀번호 로그인 (#499). 토큰은 issueTokens로 발급한다 */
+    @Transactional(readOnly = true)
+    public User passwordLogin(String email, String password) {
+        return memberPasswordLoginUseCase.login(email, password);
+    }
+
+    /**
+     * 비밀번호 변경 (#499): 모든 기기의 refresh token을 폐기하고, 이 기기에는 새 토큰을 준다.
+     * 폐기는 커밋 전에 하므로 변경이 실패해도 로그아웃만 되고 예전 비밀번호는 그대로다 (안전한 쪽)
+     */
+    @Transactional
+    public TokenPair changePassword(Long userId, String currentPassword, String newPassword) {
+        User user = memberPasswordChangeUseCase.change(userId, currentPassword, newPassword);
+        memberTokenUseCase.revokeAll(userId);
+        return memberTokenUseCase.issue(user.getId(), user.getRole());
     }
 }
