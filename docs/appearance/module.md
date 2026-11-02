@@ -45,9 +45,10 @@
 | Billing 실제 연동 (Fake Billing·`mode` 설정 삭제, 실제 Billing 통합 테스트) | ✅ | #289 |
 | 정리: 작업 뒤 상세 조회 읽기 전용 트랜잭션, 충돌 변환 통합 | ✅ | #293 |
 | 격리된 HP 작업 관리자 조회·다시 시도 | ✅ | #397 |
-| 출연 리뷰 작성(블라인드 공개). 기한 만료 공개는 #515 | ✅ | #512 |
+| 출연 리뷰 작성(블라인드 공개) | ✅ | #512 |
 | 리뷰 공개 이벤트 Kafka 발행 (`AppearanceReviewPublishedEvent`) | ✅ | #513 |
 | 출연 상세 리뷰 정보, 회원이 받은 리뷰 내부 조회 API | ✅ | #514 |
+| 작성 기한 만료 리뷰 공개 배치 (기본 꺼 둠, 작성 기한을 켜면 동작) | ✅ | #515 |
 
 ---
 
@@ -581,6 +582,7 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
   ├ 00초 AppearanceHoldRecheckUseCase.recheckDue()   보류 처리 중 요청서·모집글 재확인
   ├ 05초 AppearanceEventRepublishUseCase.republishDue()  Kafka로 못 보낸 알림 이벤트 재발행 (#393, 11.3)
   ├ 10초 AppearanceRecruitDeadlineCloseUseCase.closeDue()  모집 기한 마감 + 미달분 반환 (#222, 10장)
+  ├ 15초 AppearanceReviewExpirePublishUseCase.publishDue()  리뷰 작성 기한 만료 공개 (#515, 21.7. 작성 기한이 없으면 아무것도 안 함)
   ├ 20초 AppearanceRequestExpireUseCase.expireDue()  수락 기한 만료 + 반환
   ├ 30초 AppearanceCancelAutoRejectUseCase.rejectDue()  출연 취소 요청 자동 거절 (#231, 12장)
   ├ 40초 HpTaskRetryUseCase.retryDue()               HP 작업 재시도·격리 + 지표 갱신
@@ -1257,10 +1259,26 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 
 - 배포 메모: 같은 토픽을 받는 채팅 앱은 새 타입의 클래스(shared)가 있으면 기본 처리기에서 무시하고, 없으면 역직렬화에 실패해 DLT로 보낸다(ADR 0001). main 병합 뒤 배포에서는 shared 변경으로 모든 앱이 다시 배포되지만, 앱이 출연 → 강의 → 채팅 순서로 올라가므로 그사이 공개된 리뷰 이벤트는 옛 채팅 앱에서 DLT로 갈 수 있다(알림·데이터 영향 없음, 채팅이 올라가면 멈춤). 중간 앱 배포가 실패해 채팅이 옛 버전으로 남아도 같다.
 
-### 21.7 남은 일
+### 21.7 작성 기한 만료 공개 배치 (#515)
+
+작성 기한을 켜면 기한이 지난 뒤에는 상대가 더 쓸 수 없다. 그래서 한쪽만 쓴 리뷰가 영영 비공개로 남지 않도록 배치가 공개한다.
+
+| 항목 | 내용 |
+|---|---|
+| 켜고 끄기 | 작성 기한 설정 `appearance.review.write-period` 하나로 정한다. 비어 있으면(지금, 무기한) 배치는 대상을 찾지도 않고 끝난다. 값을 넣으면 작성 제한과 이 배치가 함께 켜진다 |
+| 주기 | 매분 15초 (`appearance.batch.review-expire-publish-cron`, 다른 배치와 겹치지 않는 초) |
+| 대상 | 공개 전 리뷰가 있고 출연 확인 시각 + 작성 기한 ≤ 지금인 출연. 출연 확인이 오래된 순으로 한 번에 최대 `batch-size`(100)개 출연, 나머지는 다음 주기 |
+| 처리 | 출연마다 [트랜잭션] 출연 배타 잠금 → 기한이 지났는지 다시 확인 → 공개 전 리뷰를 지금 시각으로 공개하고 리뷰마다 공개 이벤트(21.6) 1개 발행. 출연마다 예외를 잡아 다음 출연을 계속 처리 |
+| 동시 작성 | 작성 API와 같이 출연 행을 먼저 잠근다. 작성과 겹쳐도 차례로 처리돼 리뷰마다 한 번만 공개된다. 배치가 먼저 공개한 리뷰는 상대가 나중에 써도(기한 직전 요청이 잠금을 기다린 경우) 공개 시각을 바꾸지 않고 이벤트를 다시 보내지 않는다(작성 쪽은 이번에 공개된 리뷰만 발행) |
+| 인덱스 | 따로 두지 않았다. 기한을 켤 때만 돌고, 대상은 공개 전 리뷰라 많지 않다 |
+
+- 기한을 실제로 켤 때는 프론트에 작성 기한 안내가 필요하다.
+- 구조: `app.AppearanceReviewExpirePublishUseCase`, `Appearance.isReviewWritePeriodEnded`, `AppearanceReviewRepository.findAppearanceIdsWithUnpublishedConfirmedUpTo`, 배치 메서드 `AppearanceBatch.publishExpiredReviews`
+
+### 21.8 남은 일
 
 - 출연 상세의 리뷰·회원용 받은 리뷰 목록 조회는 22장(#514)
-- 작성 기한을 켰을 때 기한이 지난 한쪽 리뷰 공개 배치(#515, 기본 꺼 둠. 공개하면 같은 이벤트를 1개 발행), 문서·회원 연동 요청(#516)
+- 문서·회원 연동 요청(#516)
 
 ---
 
