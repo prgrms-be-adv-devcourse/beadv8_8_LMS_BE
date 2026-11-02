@@ -3,7 +3,6 @@ package com.hapbang.member.app;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -30,7 +29,7 @@ import lombok.RequiredArgsConstructor;
 public class MemberFacade {
 
     private final MemberOAuthLoginUseCase memberOAuthLoginUseCase;
-    private final MemberTestAccountUseCase memberTestAccountUseCase;
+    private final MemberSeedAccountUseCase memberSeedAccountUseCase;
     private final MemberUpdateProfileUseCase memberUpdateProfileUseCase;
     private final MemberSupport memberSupport;
     private final MemberChzzkUseCase memberChzzkUseCase;
@@ -62,16 +61,10 @@ public class MemberFacade {
         return memberFollowerRefreshUseCase.refreshAll();
     }
 
-    /** 역할별 테스트 계정 만들기 (이미 있으면 건너뜀) */
+    /** 역할별 초기 계정 만들기 (#520, 이미 있으면 건너뜀) */
     @Transactional
-    public void createTestAccounts() {
-        memberTestAccountUseCase.createAll();
-    }
-
-    /** 역할·번호로 테스트 계정 조회 */
-    @Transactional(readOnly = true)
-    public Optional<User> findTestAccount(Role role, int number) {
-        return memberTestAccountUseCase.find(role, number);
+    public void createSeedAccounts() {
+        memberSeedAccountUseCase.createAll();
     }
 
     /** 내 정보 수정 */

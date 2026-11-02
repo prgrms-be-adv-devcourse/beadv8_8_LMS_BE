@@ -53,7 +53,7 @@ public class User extends SourceUser {
         this.profileImageKey = profileImageKey;
     }
 
-    /** 역할 변경 (승급·테스트 계정) */
+    /** 역할 변경 (승급·초기 계정·관리자 계정 생성) */
     public void changeRole(Role role) {
         changeProfile(getNickname(), role, getStatus());
     }

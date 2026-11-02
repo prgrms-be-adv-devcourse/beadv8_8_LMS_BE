@@ -66,9 +66,11 @@ class ApiV1MemberControllerTest {
     }
 
     @Test
-    @DisplayName("로컬 로그인 설정이 꺼져 있으면(서버) 로컬 로그인 주소가 없다")
-    void localLogin_disabled() throws Exception {
-        mockMvc.perform(post("/api/v1/members/local-login?role=ADMIN").with(csrf()))
+    @DisplayName("쿼리 로그인(local-login)은 없어졌다: 로그인 없이는 401, 로그인해도 404 (#520)")
+    void localLogin_removed() throws Exception {
+        mockMvc.perform(post("/api/v1/members/local-login?role=ADMIN"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/members/local-login?role=ADMIN").with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isNotFound());
     }
 

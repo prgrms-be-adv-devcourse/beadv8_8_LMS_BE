@@ -5,10 +5,6 @@ spring:
     username: "${DB_USERNAME}"
     password: "${DB_PASSWORD}"
 hapbang:
-  # 운영 첫 관리자를 만들려고 켠다 (#517, 인프라 요청). 켜져 있으면 공개 주소에서 누구나 테스트 계정 역할(관리자 포함)로
-  # 로그인할 수 있다. 첫 관리자를 만든 뒤 인프라가 HAPBANG_LOCAL_LOGIN_ENABLED=false로 끈다
-  local-login:
-    enabled: "${HAPBANG_LOCAL_LOGIN_ENABLED:true}"
   storage:
     s3:
       bucket: "${S3_BUCKET}"
