@@ -120,7 +120,10 @@ class AppearanceReviewExpirePublishTest {
         return batch(batchProperties.batchSize());
     }
 
-    /** 기한 없는 정책으로 만든 작성 UseCase (기한이 지난 뒤에도 상대가 쓰는 경우를 만들기 위해) */
+    /**
+     * 기한 없는 정책으로 만든 작성 UseCase. 테스트 시계는 하나라 "기한 직전에 시작한 작성이 잠금을 기다리는 사이 배치가 먼저 공개"하는
+     * 경쟁을 시각으로 만들 수 없다. 그래서 작성 쪽만 기한 확인을 통과시키고, 기한이 지난 시각에 배치와 겹치게 실행해 같은 상황을 만든다.
+     */
     private Long writeWithoutPeriod(Long reviewerId, Long appearanceId) {
         AppearanceReviewEligibility eligibility = new AppearanceReviewEligibility(appearanceReviewSupport,
                 appearanceUserSupport, AppearanceReviewPolicy.unlimited());

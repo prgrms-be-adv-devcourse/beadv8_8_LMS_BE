@@ -1272,7 +1272,10 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 | 동시 작성 | 작성 API와 같이 출연 행을 먼저 잠근다. 작성과 겹쳐도 차례로 처리돼 리뷰마다 한 번만 공개된다. 배치가 먼저 공개한 리뷰는 상대가 나중에 써도(기한 직전 요청이 잠금을 기다린 경우) 공개 시각을 바꾸지 않고 이벤트를 다시 보내지 않는다(작성 쪽은 이번에 공개된 리뷰만 발행) |
 | 인덱스 | 따로 두지 않았다. 기한을 켤 때만 돌고, 대상은 공개 전 리뷰라 많지 않다 |
 
-- 기한을 실제로 켤 때는 프론트에 작성 기한 안내가 필요하다.
+- 기한을 실제로 켤 때 확인할 것
+    - 프론트에 작성 기한 안내가 필요하다.
+    - 대상 조회(`published_at is null` + 출연 `confirmed_at` 조인·정렬)가 매분 돈다. 켜기 전에 운영 데이터로 실행 계획을 보고, 느리면 공개 전 리뷰만 담는 부분 인덱스(`where published_at is null`)를 더한다.
+    - 같은 출연이 매번 실패하면 오래된 순이라 계속 맨 앞에 남는다. 그런 출연이 `batch-size`개 쌓이면 뒤 출연은 처리되지 않는다. 지금은 매번 실패할 경로가 없지만, 켜면 경고 로그 `작성 기한 만료 리뷰 공개 중 예외`가 반복되는지 지켜본다.
 - 구조: `app.AppearanceReviewExpirePublishUseCase`, `Appearance.isReviewWritePeriodEnded`, `AppearanceReviewRepository.findAppearanceIdsWithUnpublishedConfirmedUpTo`, 배치 메서드 `AppearanceBatch.publishExpiredReviews`
 
 ### 21.8 남은 일
