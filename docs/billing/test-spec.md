@@ -8,6 +8,7 @@
 > - 2026-10-29 dev da834b1 반영: billing-app 테스트 코드 변경은 없다. `common/test-support`에 Kafka·Redis Testcontainers 설정이 추가됐다(3장). #369 최종 인프라 결정을 Contract 대상(6.2)과 BT-PORT-04·BT-EVT-01·BT-SEC-05에 반영했고, BT-SEC-06을 더했다.
 > - 2026-10-30 #428 반영: BT-EVT-01을 Kafka 소비 규칙(#339)에 맞춰 `eventId` inbox에서 자연 키 멱등·소비 그룹 둘·그룹별 DLT로 고쳤다.
 > - 2026-10-30 #430 반영: 회원 이벤트 리스너 두 개가 Kafka 소비로 바뀌었다. BT-EVT-01은 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증하고 JVM 칸을 "없음"으로, BT-WAL-02·BT-USR-02는 Kafka 경로 테스트로 옮겨 "없음"으로 바꿨다. 같은 JVM `Scenario.publish` 테스트는 없앴다(리스너 직접 호출 또는 Kafka 테스트로 대체).
+> - 2026-11-02 #497 반영: 지갑 이벤트 발행(BT-EVT-02, `BillingEventKafkaTest`·`BillingExternalEventsTest`, 각 흐름 통합 테스트의 발행 기록 검증)을 더했고, BT-CFG-04(`ModulithEventsDisabledTest`)는 폐기했다. 7장은 82개 클래스·801개다.
 > - 2026-11-01 #494 반영: 내부 Command 경계(BT-PORT-06, `BillingSharedDtoAccessTest`·`PaymentHoldRequestsTest`)를 더했다. 기존 테스트는 shared Command 대신 `Payment*Command`를 쓴다. 7장은 81개 클래스·796개다.
 > - 2026-10-31 #486 반영: `BillingPortIntegrationTest`를 지우고 BT-PORT-01~03을 내부 API 테스트로 옮겼다(JVM 깨짐 → 없음). 다른 모듈 트랜잭션 참여 검증은 HTTP에 없는 동작이라 요청 단위 롤백으로 대신했다. 충전·환전·환불 테스트의 준비는 `HoldFacade`로 바꿨다(BT-CHG-08·BT-EXC-01 경계 → 없음). 7장은 79개 클래스·792개다.
 > - 2026-10-30 #479 반영: 보류 무효화(BT-REL-06)를 더했다. 7장 목록은 80개 클래스·801개다. 회귀 실행 기록은 아직 없다.
@@ -214,6 +215,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-PORT-05 | 소비 앱 기동 | lecture-app·appearance-app이 Billing 원격 Client로 기동한다 | `docs/architecture/app-modules.md` | T | 없음 (Billing 범위 밖) | 깨짐 | 없음 |
 | BT-PORT-06 | 내부 Command 경계 (#494) | `app`·`domain`·`out`은 `shared.billing.dto`를 참조하지 않는다. 내부 Command의 참조 유형 목록·요청 ID 형식은 shared 계약과 같은 값을 받고 거절한다. 구조 오류는 NPE·IAE | BD-129 | U | `BillingSharedDtoAccessTest#onlyInPackageUsesSharedDto`, `PaymentHoldRequestsTest`(3) | 없음 | 기록 없음 (R-003 이후 추가) |
 | BT-EVT-01 | 다른 앱에서 온 회원 이벤트 | member-app의 가입·변경 이벤트가 Kafka `member.events.v1`로 billing-app에 전달되어 지갑·복제본이 생긴다. 소비 그룹 `billing-app.member-replica`(복제본)·`billing-app.wallet-creation`(지갑)이 따로 받는다. 같은 회원·같은 버전 재전달은 한 번만 반영(지갑 하나, 복제본 한 번), 순서가 바뀌어도 회원 버전 비교로 최신만 반영, 가입보다 변경이 먼저 와도 복제본 생성, 모르는 타입은 무시, 재시도 3회 초과는 그 그룹 DLT, 역직렬화 실패는 재시도 없이 두 그룹 DLT(`member.events.v1.billing-app.member-replica.DLT`·`member.events.v1.billing-app.wallet-creation.DLT`, partition 3·보존 7일), 한 그룹의 실패가 다른 그룹을 막지 않는다 | BD-2, BD-6, BD-103, BD-123, kafka.md | I | `BillingMemberEventKafkaTest`(9) | 없음 | 기록 없음 (#430에서 추가) |
+| BT-EVT-02 | 지갑 이벤트 발행 (#497) | 충전·지급(정상·위약금)·환불(전부·일부)·환전(완료·거절·시도별 송금 실패·최종 실패) 끝 상태 커밋과 함께 `billing.events.v1`에 정해진 key·헤더로 한 번 나간다. 실패·재요청에서는 나가지 않고, 롤백하면 안 나가며, 못 보낸 기록은 재발행한다 | BD-130 | U, I | `BillingEventKafkaTest`(4), `BillingExternalEventsTest`(2), `ChargeIntegrationTest#confirm_completes`·`#confirm_replay`·`#confirm_rejected`·`#recovery_batch`, `HoldPayoutIntegrationTest#payout_revenueOnly_full`·`#payout_idempotency`·`#penalty_10000`, `RefundIntegrationTest#refund_fullCharge`·`#refund_firstRejected`·`#refund_secondRejected`, `ExchangeReviewIntegrationTest#reject`, `ExchangePayoutIntegrationTest#success`·`#failedThenRetry`·`#failFinally`·`#zeroPayoutCompletesWithoutTransfer` | 없음 | 기록 없음 (R-003 이후 추가) |
 
 ### 4.5 충전·환불 (CHG·RFD)
 
@@ -293,7 +295,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-CFG-01 | 배치 스위치 | `hapbang.scheduling.enabled` 조건 | — | U | `ConditionalOnSchedulingEnabledTest`(3) | 없음 | R-003 통과 |
 | BT-CFG-02 | 실제 설정 기동 | 앱 `application.yaml`·프로필(local·dev·prod)과 필수 환경 변수로 기동, 누락 시 기대한 실패 | module.md 9장 | T | 없음 (`@IntegrationTest`는 앱 yaml을 읽지 않는다) | 미확인 | 없음 |
 | BT-CFG-03 | 복구 배치 실행 | `ChargeRecoveryBatch`·`RefundRecoveryBatch`가 등록되고 UseCase에 위임 | BD-78, BD-92 | I | 없음 (UseCase만 검증) | 없음 | 없음 |
-| BT-CFG-04 | Modulith 이벤트 기록 끔 (#471) | 이벤트 기록 빈(레지스트리·저장소)이 없고 `billing.event_publication`·`event_publication_archive` 테이블이 없다. 앱 설정과 테스트 설정이 같은 자동 설정을 뺀다 | BD-124 | I | `ModulithEventsDisabledTest`(1) | 없음 | 기록 없음 (#471에서 추가) |
+| BT-CFG-04 | Modulith 이벤트 기록 끔 (#471) | 폐기: #497에서 발행 기록을 다시 켰다(BT-EVT-02로 대체) | BD-124 | — | 없음 (`ModulithEventsDisabledTest` 삭제) | 없음 | 폐기 (#497) |
 
 ## 5. JVM 분리 영향 정리
 
@@ -315,13 +317,13 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 
 | JVM | 개수 | ID |
 | --- | --- | --- |
-| 없음 | 85 | 아래 셋을 뺀 나머지 |
+| 없음 | 86 | 아래 셋을 뺀 나머지 |
 | 경계 | 15 | BT-WAL-03·04, BT-CHG-09, BT-RFD-08, BT-EXC-06·07, BT-EXP-07·09, BT-ERN-02·03·04, BT-USR-01·03·04, BT-SEC-04 |
 | 깨짐 | 3 | BT-PORT-04·05, BT-SEC-05 |
 | 미확인 | 4 | BT-SEC-01, BT-SEC-02, BT-SEC-06, BT-CFG-02 |
-| 합계 | 107 | |
+| 합계 | 108 | |
 
-개수는 4장 표를 기준으로 셌다(2026-10-29, #336·#453·#430·#471 반영 2026-10-30, #486 반영 2026-10-31, #494 반영 2026-11-01). 표를 고치면 함께 고친다.
+개수는 4장 표를 기준으로 셌다(2026-10-29, #336·#453·#430·#471 반영 2026-10-30, #486 반영 2026-10-31, #494 반영 2026-11-01, #497 반영 2026-11-02). 표를 고치면 함께 고친다.
 
 ## 6. 빈 곳
 
@@ -363,6 +365,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | 클래스 (`com.hapbang.billing.` 아래) | 종류 | 메서드 | Docker | BT |
 | --- | --- | --- | --- | --- |
 | app.BillingCommandValidatorTest | U | 6 | — | PEN-01·02 |
+| app.BillingExternalEventsTest | U | 2 | — | EVT-02 |
 | app.BillingKeysTest | U | 7 | — | HLD-06, RFD-02 |
 | app.BillingSharedDtoAccessTest | U (ArchUnit) | 1 | — | PORT-06 |
 | app.BillingUserBackfillIntegrationTest | I | 14 | 필요 | USR-03 |
@@ -412,7 +415,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | domain.WalletApplyLedgerAccessTest | U (ArchUnit) | 1 | — | LED-02 |
 | domain.WalletTest | U | 11 | — | LED-03, EXP-08·09 |
 | global.auth.LoginUserIdArgumentResolverTest | U | 4 | — | SEC-02 |
-| global.config.ModulithEventsDisabledTest | I | 1 | 필요 | CFG-04 |
+| global.config.BillingEventKafkaTest | I (Kafka) | 4 | 필요 | EVT-02 |
 | global.config.PageConfigTest | S | 3 | — | ERR-02 |
 | global.config.SecurityConfigTest | S | 12 | — | SEC-01 |
 | global.exception.BusinessExceptionTest | U | 6 | — | ERR-01 |
@@ -446,11 +449,11 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 
 | 종류 | 클래스 | 메서드 |
 | --- | --- | --- |
-| U (ACR·로컬 HTTP·ArchUnit 포함) | 37 | 221 |
+| U (ACR·로컬 HTTP·ArchUnit 포함) | 38 | 223 |
 | S (`@WebMvcTest`) | 4 | 41 |
 | R (`@RepositoryTest`) | 4 | 47 |
-| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 36 | 487 |
-| 합계 | 81 | 796 |
+| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 36 | 490 |
+| 합계 | 82 | 801 |
 
 ## 8. 운영 규칙
 

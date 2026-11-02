@@ -15,7 +15,7 @@ import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
 import com.hapbang.billing.domain.HoldDetailActionType;
 import com.hapbang.billing.domain.LedgerTransactionType;
-import com.hapbang.billing.domain.PayoutType;
+import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.Settlement;
@@ -34,6 +34,7 @@ public class HoldPayoutUseCase {
 
     private final HoldProcessing holdProcessing;
     private final LedgerRecordUseCase ledgerRecordUseCase;
+    private final BillingEventPublisher billingEventPublisher;
 
     // 두 지갑 ID 오름차순 락 → 보류 락·소유·지급 원천 확인 → 처리 이력 재생·대조 → (재요청이면 처음 결과) → 지급 배분 계산
     // → 원금 대조 → 배분 소진·보류 감소 → 지급 상세·지급 건 저장 → 원장 기록 순으로 처리한다.
@@ -76,6 +77,7 @@ public class HoldPayoutUseCase {
         Settlement settlement = holdProcessing.saveSettlement(Settlement.completed(command.receiverUserId(),
                 receiverWalletId, hold.getId(), command.sourceType(), command.sourceId(), PayoutType.NORMAL,
                 split.totalHp(), key, now));
+        billingEventPublisher.payoutCompleted(settlement);
         // 두 지갑의 잔액은 record()가 원장으로만 바꾼다(이미 잡은 락을 그대로 쓴다).
         ledgerRecordUseCase.record(new LedgerOperation(key, LedgerTransactionType.PAYOUT, hold.getReferenceType(),
                 hold.getReferenceId(), DESCRIPTION, now,

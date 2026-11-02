@@ -15,7 +15,7 @@ import com.hapbang.billing.app.HoldProcessing.ReleaseApplied;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
 import com.hapbang.billing.domain.LedgerTransactionType;
-import com.hapbang.billing.domain.PayoutType;
+import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.Settlement;
@@ -38,6 +38,7 @@ public class PenaltySettlementUseCase {
 
     private final HoldProcessing holdProcessing;
     private final LedgerRecordUseCase ledgerRecordUseCase;
+    private final BillingEventPublisher billingEventPublisher;
 
     // 금액 확인 → 두 지갑 ID 오름차순 락 → 보류 락·소유·지급 원천 확인 → 처리 이력 재생·대조 → (재요청이면 처음 결과)
     // → 정산 기준액 ≤ 남은 보류 확인 → 원금 대조 → 반환 적용(반환액 > 0일 때) → 위약금 지급 적용 → 위약금 지급 건 저장 → 반환·지급 원장 기록 순으로 처리한다.
@@ -93,6 +94,7 @@ public class PenaltySettlementUseCase {
         Settlement penalty = holdProcessing.saveSettlement(Settlement.completed(command.receiverUserId(),
                 receiverWalletId, hold.getId(), command.sourceType(), command.sourceId(), PayoutType.PENALTY,
                 command.payoutAmountHp(), settlementKey, now));
+        billingEventPublisher.payoutCompleted(penalty);
         // 반환·지급 원장을 각자의 작업 키로 같은 트랜잭션에 기록한다. 두 작업 키는 정산 키(취소 ID)를 접두사로 공유한다.
         if (releaseSplit != null) {
             ledgerRecordUseCase.record(new LedgerOperation(releaseKey, LedgerTransactionType.RELEASE,

@@ -29,6 +29,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.security.test.context.support.WithMockUser;
 
 import com.hapbang.billing.domain.BillingErrorCode;
@@ -44,6 +46,7 @@ import com.hapbang.billing.out.TossPaymentsClient;
 import com.hapbang.billing.out.TossResult;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.event.RefundCompletedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 충전 HP 환불(#260)을 실제 PostgreSQL과 가짜 TossPayments HTTP 서버로 검증한다. 실제 TossPayments는 부르지 않는다.
@@ -52,7 +55,12 @@ import com.hapbang.testsupport.IntegrationTest;
 @IntegrationTest
 // HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273)
 @WithMockUser(roles = "INTERNAL")
+// 환불 완료 이벤트(#497)가 환불한 금액이 있는 결과에서만 발행되는지 발행 기록으로 본다(Kafka 전송은 BillingEventKafkaTest)
+@RecordApplicationEvents
 class RefundIntegrationTest {
+
+    @Autowired
+    ApplicationEvents applicationEvents;
 
     private static final FakeTossPaymentsServer TOSS = new FakeTossPaymentsServer();
     private static final long CHARGE = 10_000L;
@@ -172,6 +180,9 @@ class RefundIntegrationTest {
         assertThat(TOSS.statusOf(order)).isEqualTo("CANCELED");
         assertWallet(walletId, 0L, 0L);
         assertConsistent(result.refundRequestId());
+        // 전부 환불: 요청 금액 = 환불 금액 (#497)
+        assertThat(applicationEvents.stream(RefundCompletedEvent.class)).containsExactly(new RefundCompletedEvent(
+                result.refundRequestId(), 1L, CHARGE, CHARGE, result.completedAt()));
     }
 
     @Test
@@ -339,6 +350,8 @@ class RefundIntegrationTest {
         assertThat(chargeRow(first)).containsEntry("status", "COMPLETED").containsEntry("remaining_principal_hp", CHARGE);
         assertWallet(walletId, 20_000L, 0L);
         assertConsistent(result.refundRequestId());
+        // 환불한 금액이 없으면(FAILED) 환불 완료 이벤트를 발행하지 않는다 (#497)
+        assertThat(applicationEvents.stream(RefundCompletedEvent.class)).isEmpty();
     }
 
     @ParameterizedTest
@@ -461,6 +474,12 @@ class RefundIntegrationTest {
         assertThat(cancelPaths()).containsExactly(cancelPath(first), cancelPath(second));
         assertWallet(walletId, 20_000L, 0L);
         assertConsistent(result.refundRequestId());
+        // 일부 환불도 환불 완료 이벤트로 나가고, 환불 금액은 실제로 환불한 금액이다 (#497)
+        assertThat(applicationEvents.stream(RefundCompletedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event).isEqualTo(new RefundCompletedEvent(result.refundRequestId(), 1L, 25_000L, CHARGE,
+                    result.completedAt()));
+            assertThat(event.fullyRefunded()).isFalse();
+        });
     }
 
     @Test

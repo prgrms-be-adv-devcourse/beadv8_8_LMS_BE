@@ -54,6 +54,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -74,6 +76,9 @@ import com.hapbang.billing.out.PayoutTransferRequest;
 import com.hapbang.billing.out.PayoutTransferResult;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.event.ExchangeCompletedEvent;
+import com.hapbang.shared.billing.event.ExchangeFinalFailedEvent;
+import com.hapbang.shared.billing.event.ExchangePayoutFailedEvent;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
@@ -92,8 +97,6 @@ import com.hapbang.testsupport.TestLogin;
 @SpringBootTest(classes = ModuleTestConfiguration.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "spring.config.name=hapbang-module-test",
-                "spring.modulith.events.jdbc.schema-initialization.enabled=true",
-                "spring.modulith.events.completion-mode=delete",
                 "spring.security.oauth2.client.registration.google.client-id=test",
                 "spring.security.oauth2.client.registration.google.client-secret=test",
                 "hapbang.storage.s3.endpoint=http://localhost:9",
@@ -119,7 +122,12 @@ import com.hapbang.testsupport.TestLogin;
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
 @ExtendWith(OutputCaptureExtension.class)
 @AutoConfigureMockMvc
+// 환전 결과 이벤트(#497)를 발행 기록으로 본다. 송금 처리는 테스트 스레드에서 일어나 기록된다(Kafka 전송은 BillingEventKafkaTest)
+@RecordApplicationEvents
 class ExchangePayoutIntegrationTest {
+
+    @Autowired
+    ApplicationEvents applicationEvents;
 
     private static final long INFLUENCER = 2L;
     private static final long ADMIN = 900L;
@@ -239,6 +247,13 @@ class ExchangePayoutIntegrationTest {
         assertWallet(walletId, 5_000L, 0L);
         assertPlatformFee(1_500L);
         assertThat(output.getAll()).doesNotContain(ACCOUNT);
+        // 송금 완료 이벤트: 신청 HP·수수료·송금액·완료 시각 (#497)
+        assertThat(applicationEvents.stream(ExchangeCompletedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event).extracting(ExchangeCompletedEvent::exchangeId, ExchangeCompletedEvent::userId,
+                    ExchangeCompletedEvent::requestedAmountHp, ExchangeCompletedEvent::feeAmountHp,
+                    ExchangeCompletedEvent::payoutAmountKrw).containsExactly(exchangeId, INFLUENCER, 15_000L, 1_500L, 13_500L);
+            assertThat(event.completedAt()).isNotNull();
+        });
     }
 
     @Test
@@ -400,6 +415,15 @@ class ExchangePayoutIntegrationTest {
         assertThat(captureKeys(exchangeId)).hasSize(1);
         assertThat(releaseKeys(exchangeId)).isEmpty();
         assertWallet(walletId, 5_000L, 0L);
+        // 1번째 시도 실패 이벤트(시도 ID·시도 번호)와 재송금 성공 뒤 완료 이벤트가 하나씩 나간다 (#497)
+        assertThat(applicationEvents.stream(ExchangePayoutFailedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event).extracting(ExchangePayoutFailedEvent::exchangeId, ExchangePayoutFailedEvent::attemptNo,
+                    ExchangePayoutFailedEvent::userId, ExchangePayoutFailedEvent::payoutAmountKrw)
+                    .containsExactly(exchangeId, 1, INFLUENCER, 13_500L);
+            assertThat(event.payoutAttemptId()).isEqualTo(payoutRows(exchangeId).getFirst().get("id"));
+            assertThat(event.failedAt()).isNotNull();
+        });
+        assertThat(applicationEvents.stream(ExchangeCompletedEvent.class)).hasSize(1);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -648,6 +672,13 @@ class ExchangePayoutIntegrationTest {
         assertThat(count("billing.point_ledger")).isEqualTo(ledgerAfter);
         assertThat(count("billing.mock_payout_transfer")).isEqualTo(1);
         assertConsistent(walletId);
+        // 최종 실패 이벤트는 처음 확정 때 한 번이다(재요청은 처음 결과만 돌려준다). 사유는 싣지 않는다 (#497)
+        assertThat(applicationEvents.stream(ExchangeFinalFailedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event).extracting(ExchangeFinalFailedEvent::exchangeId, ExchangeFinalFailedEvent::userId,
+                    ExchangeFinalFailedEvent::requestedAmountHp).containsExactly(exchangeId, INFLUENCER, 15_000L);
+            assertThat(event.finalFailedAt()).isNotNull();
+        });
+        assertThat(applicationEvents.stream(ExchangeCompletedEvent.class)).isEmpty();
     }
 
     @ParameterizedTest
@@ -1118,6 +1149,10 @@ class ExchangePayoutIntegrationTest {
                 "REVENUE HELD -1 EXCHANGE", "FEE AVAILABLE 1 EXCHANGE_FEE");
         assertWallet(walletId, 19_999L, 0L);
         assertConsistent(walletId);
+        // 송금액 0원 완료도 송금 완료 이벤트로 한 번 나간다(송금액 0, 수수료 1) (#497)
+        assertThat(applicationEvents.stream(ExchangeCompletedEvent.class)).singleElement().satisfies(event ->
+                assertThat(event).extracting(ExchangeCompletedEvent::requestedAmountHp, ExchangeCompletedEvent::feeAmountHp,
+                        ExchangeCompletedEvent::payoutAmountKrw).containsExactly(1L, 1L, 0L));
     }
 
     @Test
