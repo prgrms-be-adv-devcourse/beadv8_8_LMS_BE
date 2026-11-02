@@ -15,6 +15,8 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.out.BillingCallException;
 import com.hapbang.shared.billing.out.BillingCallResult;
 
@@ -93,7 +95,39 @@ public class AppearanceRequestHoldUseCase {
         return AppearanceRequestResDto.from(request);
     }
 
-    /** 보류 거절 → {@code HOLD_FAILED} (기록으로만 남긴다) */
+    /**
+     * 보류 결과를 끝내 알 수 없는 요청서를 포기한다 (#536, 보류 재확인 배치가 포기 기준이 지난 건에 부른다).
+     * 지갑에 보류 무효화를 보내고, 결과가 무엇이든(반환함·보류 없음·이미 끝남) {@code HOLD_FAILED}로 끝낸다.
+     * 지갑에 보류가 있었으면 지갑이 호스트에게 반환한다. 이후 같은 요청서의 보류는 지갑이 {@code HOLD_VOIDED}로 거절한다.
+     *
+     * @return 끝냈으면 true, 지갑이 무효화를 거절해 {@code HOLD_PENDING}으로 둔 경우 false (운영 확인 대상)
+     * @throws AppearanceException 무효화 결과를 받지 못했을 때 ({@code BILLING_UNAVAILABLE}). 다음 회차에 다시 무효화한다(참조 대상 기준 멱등)
+     */
+    public boolean voidHold(AppearanceRequest request) {
+        HoldVoidCommand command = new HoldVoidCommand(request.getHostId(), BillingReferenceType.APPEARANCE_REQUEST,
+                request.getId());
+        BillingCallResult<HoldVoidResultDto> result;
+        try {
+            result = billingClient.voidHold(command);
+        } catch (BillingCallException unknown) {
+            log.warn("HP 보류 무효화 결과 확인 불가, 요청서를 HOLD_PENDING으로 둔다 requestId={}, kind={}, httpStatus={}",
+                    request.getId(), unknown.getKind(), unknown.getHttpStatus(), unknown);
+            throw new AppearanceException(AppearanceErrorCode.BILLING_UNAVAILABLE);
+        }
+        return switch (result) {
+            case BillingCallResult.Succeeded<HoldVoidResultDto> voided -> {
+                BillingHoldVoid.logVoided("요청서", request.getId(), voided.value());
+                markHoldFailed(request.getId());
+                yield true;
+            }
+            case BillingCallResult.Failed<HoldVoidResultDto> rejected -> {
+                BillingHoldVoid.logRejected("요청서", request.getId(), rejected);
+                yield false;
+            }
+        };
+    }
+
+    /** 보류 거절·무효화 → {@code HOLD_FAILED} (기록으로만 남긴다) */
     private void markHoldFailed(Long requestId) {
         transactionTemplate.executeWithoutResult(status -> {
             AppearanceRequest request = appearanceRequestSupport.getById(requestId);

@@ -34,6 +34,7 @@
 | 출연 요청 API 성공 응답 `RsData` | ✅ | #144 |
 | 출연 요청 응답(수락·거절·응답 전 취소), 출연 성립, HP 작업(반환) 기록·즉시 실행 | ✅ | #137 |
 | HP 작업 재시도·격리, 수락 기한 만료, 보류 재확인 (배치) | ✅ | #187 |
+| 보류 결과를 끝내 모르는 요청서·모집글을 보류 무효화로 종결 (재확인 배치 포기 단계) | ✅ | #536 |
 | 출연 모집글 올리기(HP 보류)·조회·기본 정보 수정 | ✅ | #175 |
 | 모집 지원·지원 취소·수락(출연 성립)·거절, 모집글 지원자 수 | ✅ | #195 |
 | 모집 마감 (기한 마감 배치·조기 마감, 대기 지원 정리, 미달 인원분 반환) | ✅ | #222 |
@@ -292,7 +293,7 @@ com.hapbang.appearance
   | `Succeeded` (같은 요청을 다시 보냈으면 처음 결과) | `REQUESTED` / `RECRUITING` | `DONE` |
   | `Failed` 잔액 부족 | `HOLD_FAILED`, 409 `INSUFFICIENT_BALANCE`(출연 문구) | 바로 `DEAD` |
   | `Failed` 그 밖 (지갑 없음, 목록 밖 코드, 멱등 충돌 등) | `HOLD_FAILED`, 500 `HP_HOLD_FAILED`. 지갑 코드·상태·설명은 오류 로그에만 | 바로 `DEAD`, `last_error`에 코드·설명(목록 밖이면 원래 코드·HTTP 상태) |
-  | `BillingCallException` (`UNKNOWN_RESULT`: 5xx·응답 시간 초과·응답 도중 끊김 / `RETRYABLE`: 연결 실패·408·425·429·회로 열림) | `HOLD_PENDING` + 503 `BILLING_UNAVAILABLE` → 재확인 배치가 같은 참조 대상으로 다시 보낸다 | 재시도 정책대로 같은 요청 ID로 다시 보내고 10회째 `DEAD` |
+  | `BillingCallException` (`UNKNOWN_RESULT`: 5xx·응답 시간 초과·응답 도중 끊김 / `RETRYABLE`: 연결 실패·408·425·429·회로 열림) | `HOLD_PENDING` + 503 `BILLING_UNAVAILABLE` → 재확인 배치가 같은 참조 대상으로 다시 보내고, 만든 지 1시간이 지나면 보류 무효화로 `HOLD_FAILED` (8.2, #536) | 재시도 정책대로 같은 요청 ID로 다시 보내고 10회째 `DEAD` |
 
 - `RETRYABLE`은 공용 Client가 먼저 짧게(기본 3회) 다시 보내고, 그래도 실패하면 출연에 넘어온다 (#413). 출연은 HTTP 재시도를 따로 하지 않는다.
 - 지갑 호출 전후의 예상하지 못한 예외(요청 만들기 오류 등)는 HP 작업이면 같은 요청 ID로 다시 보내면 되므로 재시도로 다룬다. 보류면 500으로 응답하고 `HOLD_PENDING`이 남아 재확인 배치가 다시 보낸다.
@@ -607,11 +608,30 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 
 | 대상 | 처리 | 결과 |
 |---|---|---|
-| 만든 지 1분(`pending-grace`) 넘게 `HOLD_PENDING`인 요청서·모집글 | 같은 보류를 다시 요청 (보내기·올리기의 HoldUseCase 그대로) | 성공 → `REQUESTED`/`RECRUITING`, Billing 거절 → `HOLD_FAILED`, 여전히 알 수 없음 → 그대로 두고 다음 주기 |
+| 만든 지 1분(`pending-grace`) 넘고 1시간(`hold-void-after`) 전인 `HOLD_PENDING` 요청서·모집글 | 같은 보류를 다시 요청 (보내기·올리기의 HoldUseCase 그대로) | 성공 → `REQUESTED`/`RECRUITING`, Billing 거절 → `HOLD_FAILED`, 여전히 알 수 없음 → 그대로 두고 다음 주기 |
+| 만든 지 1시간(`hold-void-after`)이 지난 `HOLD_PENDING` 요청서·모집글 (**포기**, #536) | 보류 대신 **보류 무효화**를 보낸다 (`POST /api/v1/internal/billing/hold-voids`, `{userId: 호스트, referenceType: APPEARANCE_REQUEST·APPEARANCE_RECRUIT, referenceId}`) | `RELEASED`(묶였던 보류를 호스트에게 반환)·`VOIDED`(보류 없었음)·`ALREADY_CLOSED` → `HOLD_FAILED`. 결과를 모름 → 그대로 두고 다음 주기에 다시 무효화. 지갑 거절(예: `HOLD_OWNER_MISMATCH`) → 경고 로그, 그대로 (운영 확인) |
 
 - Billing은 같은 참조 대상의 보류를 다시 받으면 처음 결과를 돌려준다(`replayed`). 처음 요청이 Billing에서 처리됐어도 두 번 보류되지 않는다.
 - 1분 대기는 진행 중인 보내기·올리기 요청과 겹치지 않게 하는 장치다. 겹쳐도 Billing이 같은 결과를 주고, 보류 결과 반영(`markRequested`·`markRecruiting`·`markHoldFailed`)이 멱등이라 안전하다.
-- 수락 기한이 이미 지난 요청서도 보류 결과대로 `REQUESTED`로 정리하고, 같은 분의 만료 배치가 `EXPIRED` + 반환한다 (APR-26 S5). 이 경우의 불편은 고객센터에서 처리한다.
+- 수락 기한이 이미 지난 요청서도 보류 결과대로 `REQUESTED`로 정리하고, 같은 분의 만료 배치가 `EXPIRED` + 반환한다 (APR-26 S5). 이 경우의 불편은 고객센터에서 처리한다. 포기 기준(1시간)이 지난 뒤면 수락 기한과 관계없이 같은 기준으로 무효화한다.
+
+**포기 단계 (보류 무효화, #536)**
+
+지갑이 계속 결과 불명을 주면(예: 500 `HOLD_STATE_INCONSISTENT`) 재확인만으로는 영원히 `HOLD_PENDING`이다. 그러면 호스트는 그 요청서·모집글을 정리할 수 없고(같은 게스트에게 새 요청서도 보낼 수 없다: 진행 중 1건 제한), 지갑에 보류가 실제로 생겼다면 HP가 묶여 있다. 그래서 포기 기준이 지나면 지갑의 보류 무효화로 끝낸다.
+
+| 항목 | 내용 |
+|---|---|
+| 포기 기준 | 만든 시각(`created_at`)부터 `appearance.batch.hold-void-after`(기본 1시간). `pending-grace`보다 길어야 앱이 뜬다. 1시간 전에는 지금처럼 보류를 다시 보낸다(정상적으로 늦어진 건을 실패로 만들지 않는다) |
+| 자동 | 관리자 수동 단계는 두지 않는다. 보류는 HP 작업이 아니라 관리자 HP 작업 API(#397)로 다룰 수 없다 |
+| 무효화 결과 | 어떤 결과든 그 참조 대상에는 앞으로 보류가 만들어지지 않는다(지갑이 `HOLD_VOIDED`로 거절). 참조 대상당 한 번이고, 다시 보내면 처음 결과(`replayed`)를 받는다 |
+| 겹칠 때 | 지갑이 보류와 무효화를 같은 락으로 처리한다. 무효화가 먼저면 늦게 도착한 보류는 `HOLD_VOIDED`로 거절돼 `HOLD_FAILED`(500 `HP_HOLD_FAILED`, 예상한 거절이라 info 로그), 보류가 먼저면 무효화가 반환(`RELEASED`)하고 `HOLD_FAILED`. 두 경우 상태가 같다 |
+| 되돌릴 수 없음 | 무효화한 요청서·모집글로는 다시 보류할 수 없다. 호스트는 새로 보낸다(`HOLD_FAILED`는 진행 중이 아니라 같은 게스트에게 다시 보낼 수 있다) |
+| 로그 | 포기 단계로 넘어갈 때 info(`HP 보류 포기`), `RELEASED`는 반환액과 함께 경고(지갑에 실제로 묶였던 HP), `ALREADY_CLOSED`는 경고(출연은 `HOLD_PENDING` 동안 반환·지급을 보내지 않아 예상 밖 상태, 강의 #535와 같음), `VOIDED`는 info, 무효화 거절은 경고 |
+| 알림 | 호스트에게 따로 알리지 않는다 (알림 앱 #193 전) |
+| 회로 | 지갑 회로가 열려 있으면 그 회차를 건너뛴다(무효화도 보내지 않음, #439) |
+
+- 운영 확인 대상: 지갑이 무효화를 거절한 건(예: `HOLD_OWNER_MISMATCH`)은 `HOLD_PENDING`으로 남아 **매분 무효화를 다시 보내고 경고 로그 `HP 보류 무효화 거절`이 반복**된다. 한 번에 처리하는 `batch-size` 자리도 차지한다. 계약과 다른 상태라 운영자가 지갑과 함께 확인한다. 쌓이면 재전송 간격이나 별도 표시를 나중에 둔다.
+- 배치 단일 실행 전제: 출연 앱은 `replicas: 1`이라 배치가 한 곳에서만 돈다. 다만 배포(RollingUpdate, `maxSurge: 1`) 중 잠깐 두 pod가 함께 떠 있으면, 같은 건이 1시간 경계에서 한쪽은 보류를 다시 보내 성공(`REQUESTED`)하고 다른 쪽은 무효화(`RELEASED`)해 **HP 보류 없는 `REQUESTED`**가 생길 수 있다(겹치는 몇 초 안에 정확히 1시간 경계여야 해 아주 드묾). 이때 무효화 쪽의 `HOLD_FAILED` 반영은 상태가 이미 `REQUESTED`라 실패하고 경고 로그 `HP 보류 재확인 중 예외`가 남으므로, 그 로그가 보이면 해당 요청서·모집글을 확인한다. replica를 늘리거나 배치를 여러 곳에서 돌리게 되면 분산 락 등 단일 실행 장치를 먼저 둔다.
 
 ### 8.3 수락 기한 만료
 
@@ -744,7 +764,7 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 | 성립한 지원·출연 | 그대로 (`SELECTED`, 출연 유지). 보류에는 성립 인원 × 1인당 출연료가 남음 | |
 | 반환 작업 | 사유 `RECRUIT_CLOSED`, 멱등 키 `APPEARANCE_RECRUIT-{id}-RELEASE-1`. 실행·재시도·격리는 요청서 반환과 같음 (4.3, 8.4) | |
 | 반환 진행 상태 | 모집글 상세 `hpReleaseStatus`, 호스트에게만 | C4 |
-| 보류 처리 중 모집글 | 마감 배치 대상 아님. 보류 재확인(00초)이 `RECRUITING`으로 정리하면 다음 마감 배치(10초)가 마감. `HOLD_FAILED`는 그대로. 보류 결과를 모르는 동안은 반환하지 않음 | C5 |
+| 보류 처리 중 모집글 | 마감 배치 대상 아님. 보류 재확인(00초)이 `RECRUITING`으로 정리하면 다음 마감 배치(10초)가 마감. `HOLD_FAILED`는 그대로. 보류 결과를 모르는 동안은 반환하지 않음. 올린 지 1시간이 지나도 모르면 보류 무효화로 `HOLD_FAILED`(8.2, #536) | C5 |
 | 동시 처리 | 모집글 행 잠금으로 순서를 정한다: 지원은 공유 잠금(`FOR SHARE`, 지원끼리는 막지 않음), 마감·수락은 배타 잠금(`FOR UPDATE`). 마감은 진행 중인 지원·수락이 커밋된 뒤의 최신 값으로 처리하고, 그 뒤의 지원·수락은 409 `APPEARANCE_RECRUIT_NOT_OPEN`. 마감과 수락은 둘 다 모집글 → 지원 순서로 잠가 교착 상태가 없다. 지원 취소와 겹치면 지원 버전으로 409 `CONCURRENT_UPDATE` | C9 |
 | 배치 실패 | 한 모집글 처리 중 예외(버전 충돌 등)가 나면 그 건만 롤백·건너뛰고 다음 주기에 다시 | C8 |
 | 마감 뒤 | 지원·수락·거절·조기 마감 409 `APPEARANCE_RECRUIT_NOT_OPEN`, 미선정된 지원 취소 409 `APPLICATION_NOT_PENDING`. 공개 목록에서 빠지고 상세·내 목록에는 `CLOSED`로 보임 | |

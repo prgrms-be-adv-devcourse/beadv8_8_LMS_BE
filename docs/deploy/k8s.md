@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐다. 업무 앱 6개(member·billing·appearance·lecture·chat·customer-support)는 모두 [릴리스 전 배포](#릴리스-전-배포)로 올라가 route·JWT 검증까지 연결됐다(2026-11-02, member #500, chat #545, 나머지 넷 #541). 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
+상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐다. 업무 앱 6개(member·billing·appearance·lecture·chat·customer-support)는 [릴리스 전 배포](#릴리스-전-배포)로 처음 올라가 route·JWT 검증까지 연결됐고(2026-11-02, member #500, chat #545, 나머지 넷 #541), 같은 날 [dev 자동 배포](#dev-자동-배포-전환)의 첫 run이 6개 앱을 Actions가 발행한 이미지로 다시 배포했다(#561, #571). 이후 dev에 병합하면 바뀐 앱이 자동으로 배포된다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 
@@ -183,13 +183,14 @@ dev push → Publish and deploy(publish.yml)
 - **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`가 바뀌면 전체다. 앱 목록과 배포 순서는 `.github/scripts/apps.sh` 한 곳에 있고, `apps/*-app`과 다르면 CI(`verify`)가 실패한다. 새 앱은 여기에 추가한다.
 - **발행할 앱**: 이번 push에서 바뀐 앱은 태그가 새 커밋이라 항상 발행한다. 앞 run이 실패했거나 아직 발행 중이라 이미지가 없는 앱도 다시 발행하므로, run이 성공하면 그 커밋의 모든 앱 이미지가 GHCR에 있다. 연달아 병합하면 두 run이 같은 태그를 함께 올릴 수 있지만, 같은 앱 내용을 테스트한 jar라 어느 쪽이 남아도 같다.
 - **dev 최신만 배포**: 배포 job은 자동·수동 모두 한 번에 하나씩 돈다(concurrency `deploy-k3s-prod`, `queue: max`). 기다리는 run은 취소되지 않고 들어온 순서대로 돈다. 기본값(`single`)이면 늦게 끝난 앞 커밋의 run이 기다리던 dev 최신 run이나 수동 롤백을 밀어내 취소한다. 자동 배포는 차례가 왔을 때 dev 최신 커밋이 아니면 건너뛴다. 늦게 끝난 앞 run이 뒤 커밋의 배포를 되돌리지 않게 하기 위해서다. 그래서 dev 최신 커밋의 테스트·발행이 실패하면 그 앞 커밋도 배포되지 않는다. 고친 커밋을 병합하거나, 앞 커밋을 `sha`에 넣어 Deploy를 수동으로 실행한다.
+- **흔들린 테스트로 실패했을 때**: dev 최신 커밋의 run이 코드와 무관한 이유(Maven Central 403, 가끔 실패하는 테스트)로 실패하면, 그 run에서 실패한 job만 다시 돌린다(`gh run rerun <run id> --failed`). 테스트가 통과하면 발행·배포까지 이어진다. 다시 돌리기 전에 그 run이 dev 최신 커밋의 run인지 본다. 앞 커밋의 run을 다시 돌리면 배포 단계에서 "dev 최신이 아니다"로 건너뛴다.
 - **서버가 꺼진 시간**: EC2는 09:00~18:00에만 켜져 있다([배포 개요](README.md)). 그 밖에 병합하면 배포 job이 SSM에서 실패한다. 다음 병합의 run이 밀린 앱까지 배포한다. 기다리지 않으려면 서버가 켜진 뒤 Deploy를 입력 없이 실행한다.
 - **수동 실행**: Actions → Deploy → Run workflow(브랜치 dev), 또는 `gh workflow run deploy.yml --ref dev`(입력은 `-f sha=<dev 커밋> -f apps="<앱> <앱>"`). 기본 브랜치가 `dev`라(2026-11-02) 버튼은 dev의 `deploy.yml`을 따른다. 최근 run은 `gh run list --workflow publish.yml --limit 3`으로 본다.
 - **롤백**: Deploy를 `apps`에 앱, `sha`에 되돌릴 dev 커밋을 넣어 실행한다. `rollout undo`는 Deployment만 되돌리고 ConfigMap 외의 리소스(HTTPRoute·Secret 등)는 되돌리지 않는다. 롤백 뒤 다음 dev 병합의 자동 배포는 지금 도는 이미지와 dev 최신을 비교해 그 앱을 다시 올린다. 문제를 고친 커밋을 병합할 때까지 dev 병합을 멈추거나, 되돌리는 커밋(revert)을 병합한다.
   - Deploy는 그 커밋의 overlay 전체를 적용하므로 SealedSecret도 그 커밋 것으로 돌아간다. 비밀번호·내부 API 키를 교체한 커밋보다 이전으로 롤백하면 새로 뜨는 pod가 무효한 자격 증명을 쓴다. 그런 경우 이전 커밋의 SealedSecret을 지금 값으로 다시 봉인한 커밋을 만들어 배포한다.
   - Flyway 마이그레이션은 되돌리지 않는다. 이전 이미지가 지금 스키마에서 동작하는지 먼저 확인한다.
 - **첫 배포 실패**: 새 앱의 첫 배포가 rollout에서 실패하면 이전 revision이 없어 `rollout undo`가 실패하고, 실패한 이미지 태그가 Deployment에 남는다. 그 뒤의 자동 배포와 입력 없이 실행한 Deploy는 지금 도는 이미지(실패한 태그)와 dev 최신 사이에 앱 내용이 그대로면 그 앱을 건너뛴다. 원인(이미지 pull 권한, Secret 등)을 고친 뒤 `apps`에 그 앱을 넣어 Deploy를 실행한다. `apps`를 적으면 비교 없이 배포한다.
-- **cluster 접근**: GitHub OIDC로 IAM role을 받아 SSM Run Command로 large에서 root로 `k3s kubectl`을 실행한다. 6443과 SSH를 쓰지 않는다. role trust는 GitHub Environment `prod`의 job만 허용하고, `prod`는 `dev` 브랜치만 허용한다(#559 전에는 `main`). `prod` Environment Secrets는 `AWS_DEPLOY_ROLE_ARN`, `DEPLOY_INSTANCE_ID`다.
+- **cluster 접근**: GitHub OIDC로 IAM role을 받아 SSM Run Command로 large에서 root로 `k3s kubectl`을 실행한다. 6443과 SSH를 쓰지 않는다. role trust는 GitHub Environment `prod`의 job만 허용하고, `prod`는 `dev` 브랜치만 허용한다(#559 전에는 `main`). `prod` Environment Secrets는 `AWS_DEPLOY_ROLE_ARN`, `DEPLOY_INSTANCE_ID`다. 자동 배포는 `publish.yml`이 이 두 secret을 이름으로 `deploy.yml`에 넘긴다. reusable workflow는 호출된 job에 `environment`가 있어도 넘겨받은 secret만 보고, 넘기지 않으면 빈 값이다(#570).
   - 이 레포는 GitHub OIDC의 immutable subject를 쓴다. trust의 `sub`는 `repo:<org>@<org id>/<repo>@<repo id>:environment:prod` 형식이라 레포를 옮기거나 다시 만들면 바꿔야 한다. 브랜치는 `sub`에 들어가지 않으므로 배포 브랜치를 바꿀 때 role은 그대로다.
   - large의 인스턴스 역할에 `AmazonSSMManagedInstanceCore`가 있어야 SSM agent가 등록된다.
 - 공개 레포라 Actions 로그도 공개다. 배포 스크립트는 node 이름·IP가 나오는 출력(`-o wide`, `describe`)을 하지 않는다.
@@ -274,18 +275,20 @@ DLT 메시지를 원래 리스너에 다시 넣는 도구는 두지 않는다(BD
 
 ### dev 자동 배포 전환
 
-#559를 dev에 병합하면 첫 Publish and deploy run이 돈다. 2026-11-02에 업무 앱 6개가 [릴리스 전 배포](#릴리스-전-배포)로 모두 떠 있고 route도 열려 있으므로, 이 run이 새로 여는 route는 없다(첫 릴리스로 삼기로 한 결정은 그대로다). GHCR 패키지 6개가 모두 있고 레포 상속도 켜 두었다.
+2026-11-02 #561(#559)로 배포 브랜치를 main에서 dev로 바꿨다. 같은 날 Environment `prod`의 허용 브랜치와 레포 기본 브랜치도 `dev`로 바꿨다. 전환 때 업무 앱 6개는 [릴리스 전 배포](#릴리스-전-배포)로 모두 떠 있었고 route도 열려 있어, 첫 run이 새로 연 route는 없다.
 
-- **발행**: 사람이 올린 이미지는 태그가 빌드한 dev 커밋이라, 앱을 마지막으로 바꾼 커밋(`apps.sh source`)과 다를 수 있다. 그 앱은 이미지가 없는 것으로 보고 새로 발행한다. dev `35e7aae1` 기준으로 billing·appearance·lecture·chat이 해당한다(member·customer-support는 `bb79d097`로 같다).
-- **배포**: 지금 도는 이미지의 커밋과 dev 최신 사이에 앱 내용이 바뀐 앱만 배포한다. 같은 시점 기준으로 billing(#560)·appearance(#554)·chat(#556)이다. lecture는 내용이 같아 발행만 하고 배포하지 않는다.
+첫 run은 세 번째에 배포까지 끝났다.
 
-1. **병합 전**(2026-11-02 완료): Settings → Environments → `prod` → Deployment branches and tags에서 `main`을 지우고 `dev`를 더한다. 바꾸지 않으면 deploy job이 environment 보호 규칙으로 거부된다. `gh api repos/prgrms-be-adv-devcourse/beadv8_8_LMS_BE/environments/prod/deployment-branch-policies --jq '.branch_policies[].name'`이 `dev`만 출력하는지 본다. 같은 날 레포 기본 브랜치도 `dev`로 바꿨다.
-2. **병합 전**: 로컬에서 진행 중인 수동 배포가 없는지 팀에 확인한다.
-3. **병합 뒤**: `gh run list --workflow publish.yml --limit 1`의 run을 본다. 요약의 "발행 대상"과 "운영 배포" 표에 앱과 커밋이 나온다.
-   - `images` job 로그에서 앱마다 "있음"·"없음"이 기대대로 나오는지 본다. 모든 앱이 "없음"이면 러너의 `GITHUB_TOKEN`(`packages: read`)이 패키지를 읽지 못하는 것이다.
-   - push가 권한 오류로 실패하면 그 패키지 설정의 Manage Actions access를 확인한다([릴리스 전 배포](#릴리스-전-배포)).
-   - billing-app은 448Mi limit에서 working set 391~393Mi(88%)였다. 재배포 뒤 기동 직후 메모리와 재시작 수를 본다.
-4. 배포한 앱·커밋과 열린 route를 [배포 개요](README.md) 상태 표와 이 문서 맨 위 상태에 적는다.
+| run | 커밋 | 결과 |
+| --- | --- | --- |
+| 41409954330 | `e6e43b0`(#561) | chat-app 테스트 job이 Maven Central 403으로 의존성을 받지 못해 실패했다. dev가 기본 브랜치가 된 뒤 처음 도는 run이라 Gradle 캐시가 없어, Gradle job 7개가 의존성을 동시에 받았다. 실패한 job을 다시 돌려 테스트·발행은 성공했지만, 그사이 #565가 병합돼 배포는 "dev 최신이 아니다"로 건너뛰었다 |
+| 41410678543 | `9639d7aa`(#565) | `ChatRedisLongOutageE2ETest`가 가끔 실패하는 문제로 chat-app 테스트가 실패했다(죽인 Redis가 0.5초 만에 같은 포트로 다시 응답). 다시 돌려 발행까지 성공했지만, deploy job이 `configure-aws-credentials`에서 실패했다. 호출된 workflow에 Environment secret을 넘기지 않아 `role-to-assume`이 빈 값이었다(#570) |
+| 41414306223 | `1d891a95`(#571) | 이미지가 모두 있어 테스트·발행을 건너뛰고, 6개 앱을 member → billing → appearance → lecture → chat → customer-support 순서로 배포했다. 08:38~08:43 UTC에 모두 `successfully rolled out`, 재시작 0 |
+
+- 6개 앱 모두 배포된 이유: #561에 함께 넣은 테스트 수정이 `common/shared` 아래라 모든 앱의 태그 커밋이 바뀌었다. 이미지는 billing-app이 `sha-9639d7a`(#565가 `apps/billing-app/` 문서를 바꿈), 나머지가 `sha-e6e43b0`이다.
+- 배포 5~10분 뒤(08:48 UTC) working set은 member 368Mi(limit 512Mi), billing 388Mi(448Mi), appearance 459Mi(576Mi), lecture 524Mi(640Mi), chat 425Mi(512Mi), customer-support 354Mi(448Mi)였다. node 메모리는 61%·68%였다. billing이 limit의 87%로 가장 높아 계속 지켜본다.
+- 외부에서 6개 모듈의 `/api/v1/<모듈>/v3/api-docs`가 모두 200이었다.
+- 이제 운영 이미지는 모두 Actions가 테스트한 jar로 만든 것이다. 사람이 올린 이미지는 남아 있지 않다.
 
 ## 로컬 k3d 검증
 

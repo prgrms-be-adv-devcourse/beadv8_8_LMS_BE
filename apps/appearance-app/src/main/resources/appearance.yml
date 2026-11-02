@@ -45,6 +45,8 @@ appearance:
     batch-size: 100
     # 방금 시작된 처리(보내기·거절 직후 즉시 실행, 커밋 직후 Kafka 보내기)와 겹치지 않도록 이 시간이 지난 것만 배치가 가져간다
     pending-grace: 1m
+    # 보류 결과를 모르는 요청서·모집글을 포기하는 기준 (#536): 만든 지 이 시간이 지나면 보류 재확인 배치가 보류 대신 보류 무효화를 보내 HOLD_FAILED로 끝낸다
+    hold-void-after: 1h
     # HP 작업 재시도: 지수 백오프 + 지터 (1분 → 2분 → 4분 → … → 최대 1시간, 10회 실패 시 격리)
     retry-base-delay: 1m
     retry-max-delay: 1h

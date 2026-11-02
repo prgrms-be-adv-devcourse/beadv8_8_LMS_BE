@@ -1,14 +1,13 @@
 package com.hapbang.lecture.app;
 
-import java.io.InputStream;
-import java.time.LocalDateTime;
-
+import com.hapbang.lecture.domain.FileResource;
+import com.hapbang.lecture.global.storage.S3FileStorage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.hapbang.lecture.global.storage.S3FileStorage;
-import com.hapbang.lecture.domain.FileResource;
+import java.io.InputStream;
+import java.time.LocalDateTime;
 
 /**
  * 파일 본문 업로드 (D24). 업로더 본인이 PENDING 파일에 등록한 크기·형식 그대로 올리면 S3에 저장하고 UPLOADED로 바꾼다.
@@ -25,8 +24,11 @@ public class FileContentUploadUseCase {
     private final TransactionTemplate transaction;
     private final TransactionTemplate readOnlyTransaction;
 
-    public FileContentUploadUseCase(LectureFileSupport lectureFileSupport, S3FileStorage s3FileStorage,
-                                    PlatformTransactionManager transactionManager) {
+    public FileContentUploadUseCase(
+            LectureFileSupport lectureFileSupport,
+            S3FileStorage s3FileStorage,
+            PlatformTransactionManager transactionManager
+    ) {
         this.lectureFileSupport = lectureFileSupport;
         this.s3FileStorage = s3FileStorage;
         this.transaction = new TransactionTemplate(transactionManager);

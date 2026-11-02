@@ -138,3 +138,8 @@ jobs:
       id-token: write
     with:
       sha: ${{ github.sha }}
+    # 호출된 job에 environment: prod가 있어도 secret은 호출하는 쪽이 넘겨야 한다(넘기지 않으면 빈 값, #570).
+    # 두 값은 Environment prod에만 있다. 이름으로 넘기면 호출된 job의 environment에서 값을 읽는다.
+    secrets:
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      DEPLOY_INSTANCE_ID: ${{ secrets.DEPLOY_INSTANCE_ID }}

@@ -40,6 +40,12 @@ on:
         type: string
         required: false
         default: ''
+    # 호출될 때는 호출한 쪽(publish.yml)이 넘긴 secret만 보인다. 수동 실행은 Environment prod에서 바로 읽는다(#570).
+    secrets:
+      AWS_DEPLOY_ROLE_ARN:
+        required: true
+      DEPLOY_INSTANCE_ID:
+        required: true
 
 permissions:
   contents: read

@@ -1,12 +1,12 @@
 # 배포 개요
 
-합방은 EC2 2노드 k3s(large server + medium agent)에서만 운영한다. 외부 80·443은 large의 ServiceLB → Envoy Gateway가 받고, TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다(2026-10-30, #372). 공용 인프라(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)는 `hapbang-platform` namespace에 있다. FE `web`은 `/` route에 연결됐다. `/` route는 FE 레포 `k8s/`가 소유한다(#454). 업무 앱 6개(member·billing·appearance·lecture·chat·customer-support)가 모두 route와 JWT 검증까지 연결됐다(2026-11-02 릴리스 전 배포, member #500, chat #545, 나머지 넷 #541). Swagger는 앱마다 `/api/v1/<모듈>/swagger-ui.html`에서 열린다.
+합방은 EC2 2노드 k3s(large server + medium agent)에서만 운영한다. 외부 80·443은 large의 ServiceLB → Envoy Gateway가 받고, TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다(2026-10-30, #372). 공용 인프라(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)는 `hapbang-platform` namespace에 있다. FE `web`은 `/` route에 연결됐다. `/` route는 FE 레포 `k8s/`가 소유한다(#454). 업무 앱 6개(member·billing·appearance·lecture·chat·customer-support)가 모두 route와 JWT 검증까지 연결됐다(2026-11-02 릴리스 전 배포, member #500, chat #545, 나머지 넷 #541). 같은 날부터 dev에 병합하면 바뀐 앱이 운영에 자동으로 배포되고, 첫 자동 배포가 6개 앱을 다시 배포했다(#561, #571). Swagger는 앱마다 `/api/v1/<모듈>/swagger-ui.html`에서 열린다.
 
 기존 Docker Compose(prod·dev app·web·PostgreSQL과 edge nginx·certbot)는 2026-10-30에 컨테이너와 볼륨까지 모두 지웠다(#440). 기존 운영 DB는 백업하지 않았다. 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다. dev 서버는 없다. 개발 확인은 로컬과 k3d에서 한다([로컬 개발](../dev/local.md)).
 
 | 대상 | 주소 | 상태 |
 | --- | --- | --- |
-| prod | https://hapbang.duckdns.org | FE `web`과 업무 앱 6개가 route에 연결됐다(2026-11-02, [릴리스 전 배포](k8s.md#릴리스-전-배포)). 지금 앱 이미지는 #559 전에 사람이 올린 dev 커밋이다. dev에 병합하면 바뀐 앱을 자동으로 배포한다(#559). main에는 서버가 없다 |
+| prod | https://hapbang.duckdns.org | FE `web`과 업무 앱 6개가 route에 연결됐다. 업무 앱은 dev에 병합하면 바뀐 앱이 자동으로 배포된다(#559, 첫 자동 배포 2026-11-02 [기록](k8s.md#dev-자동-배포-전환)). main에는 서버가 없다 |
 | Grafana | https://hapbang.duckdns.org/grafana/ | Grafana 자체 로그인 |
 | Kafka UI | https://hapbang.duckdns.org/kafka/ | Envoy Basic Auth |
 
@@ -53,6 +53,7 @@ gh workflow run deploy.yml --ref dev → 수동 Deploy(따라잡기·롤백)
 | 하고 싶은 것 | 방법 |
 | --- | --- |
 | 운영 반영 | `dev`에 PR 병합 → Publish and deploy run 성공 확인(`gh run list --workflow publish.yml --limit 1`, [운영 앱 배포](k8s.md#운영-앱-배포)) |
+| 자동 배포 실패 | 코드와 무관한 실패(Maven Central 403, 가끔 실패하는 테스트)면 dev 최신 커밋의 run에서 `gh run rerun <run id> --failed`. 서버가 꺼진 시간의 실패는 서버가 켜진 뒤 `gh workflow run deploy.yml --ref dev`([운영 앱 배포](k8s.md#운영-앱-배포)) |
 | 롤백 | `gh workflow run deploy.yml --ref dev -f apps=<앱> -f sha=<되돌릴 dev 커밋>`. 다음 dev 병합이 다시 올리므로 revert 커밋 병합을 함께 한다. 그 커밋의 SealedSecret도 함께 돌아가므로 비밀값 교체·DB 마이그레이션 이전 커밋으로는 되돌리지 않는다([운영 앱 배포](k8s.md#운영-앱-배포)) |
 | 환경변수 추가 | [env-vars.md](env-vars.md) |
 | DB 스키마 변경 | Flyway 마이그레이션 SQL 추가, 앱 시작 시 자동 적용 → [db-migration.md](../db-migration.md) |
