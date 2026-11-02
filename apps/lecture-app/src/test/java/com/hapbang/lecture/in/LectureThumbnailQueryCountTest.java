@@ -4,7 +4,6 @@ import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.notNullValue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -33,11 +32,11 @@ import com.hapbang.lecture.out.FileResourceRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 import jakarta.persistence.EntityManagerFactory;
 
@@ -120,7 +119,7 @@ class LectureThumbnailQueryCountTest {
     void 리뷰가_늘어도_리뷰_목록_SQL_수는_같다() throws Exception {
         Long lectureId = saveOnSaleLectures(1, newSeller()).getFirst();
         RequestBuilder reviews = get("/api/v1/lectures/{lectureId}/reviews", lectureId)
-                .with(TestLogin.as(BUYER_ID, Role.USER));
+                .with(GatewayLogin.as(BUYER_ID, Role.USER));
         saveReview(lectureId, newSeller());
         long one = statementsOf(reviews);
 
@@ -136,7 +135,7 @@ class LectureThumbnailQueryCountTest {
     @Test
     void 내_강의가_늘어도_SQL_수는_같다() throws Exception {
         Long sellerId = newSeller();
-        RequestBuilder myLectures = get("/api/v1/lectures/me").with(TestLogin.as(sellerId, Role.VERIFIED_INFLUENCER));
+        RequestBuilder myLectures = get("/api/v1/lectures/me").with(GatewayLogin.as(sellerId, Role.VERIFIED_INFLUENCER));
         saveOnSaleLectures(1, sellerId);
         long one = statementsOf(myLectures);
 
@@ -150,7 +149,7 @@ class LectureThumbnailQueryCountTest {
 
     @Test
     void 장바구니_항목이_늘어도_SQL_수는_같다() throws Exception {
-        RequestBuilder cart = get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER));
+        RequestBuilder cart = get("/api/v1/lectures/cart").with(GatewayLogin.as(BUYER_ID, Role.USER));
         addItems(saveOnSaleLectures(1, newSeller()));
         long one = statementsOf(cart);
 
@@ -208,7 +207,7 @@ class LectureThumbnailQueryCountTest {
     private void addItems(List<Long> lectureIds) throws Exception {
         for (Long lectureId : lectureIds) {
             mockMvc.perform(post("/api/v1/lectures/cart/items")
-                            .with(TestLogin.as(BUYER_ID, Role.USER)).with(csrf())
+                            .with(GatewayLogin.as(BUYER_ID, Role.USER))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"lectureId\": %d}".formatted(lectureId)))
                     .andExpect(status().isNoContent());

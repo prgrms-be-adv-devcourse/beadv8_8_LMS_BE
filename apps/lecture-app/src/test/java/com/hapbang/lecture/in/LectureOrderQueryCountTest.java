@@ -22,10 +22,10 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 import jakarta.persistence.EntityManagerFactory;
 
@@ -62,7 +62,7 @@ class LectureOrderQueryCountTest {
 
     @Test
     void 주문이_늘어도_주문_목록_조회_SQL_수는_같다() throws Exception {
-        RequestBuilder orders = get("/api/v1/lectures/orders").with(TestLogin.as(BUYER_ID, Role.USER));
+        RequestBuilder orders = get("/api/v1/lectures/orders").with(GatewayLogin.as(BUYER_ID, Role.USER));
         saveOrder();
         long one = statementsOf(orders);
 
@@ -75,7 +75,7 @@ class LectureOrderQueryCountTest {
 
     @Test
     void 항목이_늘어도_시청_가능한_강의_목록_조회_SQL_수는_같다() throws Exception {
-        RequestBuilder purchased = get("/api/v1/lectures/purchased").with(TestLogin.as(BUYER_ID, Role.USER));
+        RequestBuilder purchased = get("/api/v1/lectures/purchased").with(GatewayLogin.as(BUYER_ID, Role.USER));
         saveOrder();
         long one = statementsOf(purchased);
 
@@ -88,7 +88,7 @@ class LectureOrderQueryCountTest {
 
     @Test
     void 항목이_늘어도_판매_내역_조회_SQL_수는_같다() throws Exception {
-        RequestBuilder sales = get("/api/v1/lectures/sales").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER));
+        RequestBuilder sales = get("/api/v1/lectures/sales").with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER));
         saveOrder();
         long one = statementsOf(sales);
 

@@ -3,7 +3,6 @@ package com.hapbang.lecture.in;
 import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -31,11 +30,11 @@ import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 import com.jayway.jsonpath.JsonPath;
 
@@ -83,7 +82,7 @@ class LectureReviewApiTest {
                 .andReturn().getResponse().getContentAsString().transform(LectureReviewApiTest::id);
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}/reviews", lecture.getId())
-                        .with(TestLogin.as(OTHER_BUYER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content.length()").value(1))
@@ -157,7 +156,7 @@ class LectureReviewApiTest {
         Long reviewId = writtenReview(BUYER_ID, lecture, orderItemId, 1);
 
         mockMvc.perform(delete("/api/v1/lectures/reviews/{reviewId}", reviewId)
-                        .with(TestLogin.as(BUYER_ID, Role.USER)).with(csrf()))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isNoContent());
         reviews(lecture).andExpect(jsonPath("$.data.content.length()").value(0));
 
@@ -170,7 +169,7 @@ class LectureReviewApiTest {
         Long reviewId = writtenReview(BUYER_ID, lecture, confirmedItem(BUYER_ID, lecture), 2);
 
         mockMvc.perform(patch("/api/v1/lectures/reviews/{reviewId}", reviewId)
-                        .with(TestLogin.as(BUYER_ID, Role.USER)).with(csrf())
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"rating": 4, "content": "두 번 보니 좋네요"}
@@ -216,17 +215,17 @@ class LectureReviewApiTest {
         Long reviewId = writtenReview(BUYER_ID, lecture, confirmedItem(BUYER_ID, lecture), 2);
 
         mockMvc.perform(patch("/api/v1/lectures/reviews/{reviewId}", reviewId)
-                        .with(TestLogin.as(OTHER_BUYER_ID, Role.USER)).with(csrf())
+                        .with(GatewayLogin.as(OTHER_BUYER_ID, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"rating\": 5}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("NOT_REVIEW_WRITER"));
         mockMvc.perform(delete("/api/v1/lectures/reviews/{reviewId}", reviewId)
-                        .with(TestLogin.as(OTHER_BUYER_ID, Role.USER)).with(csrf()))
+                        .with(GatewayLogin.as(OTHER_BUYER_ID, Role.USER)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("NOT_REVIEW_WRITER"));
         mockMvc.perform(delete("/api/v1/lectures/reviews/{reviewId}", Long.MAX_VALUE)
-                        .with(TestLogin.as(BUYER_ID, Role.USER)).with(csrf()))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("REVIEW_NOT_FOUND"));
     }
@@ -235,11 +234,11 @@ class LectureReviewApiTest {
     void 삭제한_리뷰는_고치거나_다시_삭제할_수_없다() throws Exception {
         Long reviewId = writtenReview(BUYER_ID, lecture, confirmedItem(BUYER_ID, lecture), 2);
         mockMvc.perform(delete("/api/v1/lectures/reviews/{reviewId}", reviewId)
-                        .with(TestLogin.as(BUYER_ID, Role.USER)).with(csrf()))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(delete("/api/v1/lectures/reviews/{reviewId}", reviewId)
-                        .with(TestLogin.as(BUYER_ID, Role.USER)).with(csrf()))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("REVIEW_NOT_FOUND"));
     }
@@ -266,19 +265,19 @@ class LectureReviewApiTest {
         Long reviewId = writtenReview(BUYER_ID, lecture, confirmedItem(BUYER_ID, lecture), 5);
 
         mockMvc.perform(post("/api/v1/lectures/{lectureId}/reviews", lecture.getId())
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"orderItemId\": 1, \"rating\": 5}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         mockMvc.perform(patch("/api/v1/lectures/reviews/{reviewId}", reviewId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"rating\": 1}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         mockMvc.perform(delete("/api/v1/lectures/reviews/{reviewId}", reviewId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
@@ -288,7 +287,7 @@ class LectureReviewApiTest {
         writtenReview(BUYER_ID, lecture, confirmedItem(BUYER_ID, lecture), 5);
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}/reviews", lecture.getId())
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(1));
     }
@@ -325,13 +324,13 @@ class LectureReviewApiTest {
                 lectureRepository.findById(lecture.getId()).orElseThrow().delete(SELLER_ID, NOW));
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}/reviews", lecture.getId())
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/lectures/{lectureId}/reviews", lecture.getId())
-                        .with(TestLogin.as(BUYER_ID, Role.USER)))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/lectures/{lectureId}/reviews", lecture.getId())
-                        .with(TestLogin.as(OTHER_BUYER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_BUYER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
     }
@@ -351,7 +350,7 @@ class LectureReviewApiTest {
                 ? "{\"orderItemId\": %d, \"rating\": %d}".formatted(orderItemId, rating)
                 : "{\"orderItemId\": %d, \"rating\": %d, \"content\": \"%s\"}".formatted(orderItemId, rating, content);
         return mockMvc.perform(post("/api/v1/lectures/{lectureId}/reviews", lectureId)
-                .with(TestLogin.as(userId, Role.USER)).with(csrf())
+                .with(GatewayLogin.as(userId, Role.USER))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
     }
@@ -364,7 +363,7 @@ class LectureReviewApiTest {
 
     private ResultActions reviews(Lecture lecture) throws Exception {
         return mockMvc.perform(get("/api/v1/lectures/{lectureId}/reviews", lecture.getId())
-                        .with(TestLogin.as(OTHER_BUYER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_BUYER_ID, Role.USER)))
                 .andExpect(status().isOk());
     }
 

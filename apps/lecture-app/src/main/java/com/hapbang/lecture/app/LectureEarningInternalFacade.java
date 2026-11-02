@@ -20,7 +20,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
-// 내부 API 보안 체인(global InternalApiSecurityConfig)이 키를 검사하고, 회원 세션이 이 진입점에 오지 못하게 한 번 더 막는다
+// 내부 API 보안 체인(global InternalApiSecurityConfig)이 키를 검사하고, 회원 로그인이 이 진입점에 오지 못하게 한 번 더 막는다
 @PreAuthorize("hasRole('INTERNAL')")
 public class LectureEarningInternalFacade {
 
