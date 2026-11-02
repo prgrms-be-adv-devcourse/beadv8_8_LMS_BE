@@ -29,7 +29,7 @@ import jakarta.validation.Valid;
         출연 요청 수락·모집 선정으로 성립한 출연. 내 출연 조회와 게스트의 출연 취소 요청, 호스트의 수락(합의 취소)·거절,
         호스트 일방 취소, 방송 뒤 출연 확인·불참.
         정상 상태의 인플루언서 이상만 쓸 수 있다 (관리자 제외). 단, 출연 확인·불참은 거래를 마무리하는 동작이라 정지된 회원도 할 수 있다.
-        출연 확인·불참 밖에서는 로그인한 회원의 출연 회원 정보가 없으면 404 `APPEARANCE_USER_NOT_FOUND`, 정지·탈퇴면 403 `APPEARANCE_USER_NOT_ACTIVE`, 일반 유저·관리자면 403 `NOT_INFLUENCER`이다.
+        로그인 역할이 일반 유저·관리자면 403 `FORBIDDEN`이다. 출연 확인·불참 밖에서는 로그인한 회원의 출연 회원 정보가 없으면 404 `APPEARANCE_USER_NOT_FOUND`, 로그인 뒤 정지·탈퇴했으면 403 `APPEARANCE_USER_NOT_ACTIVE`, 로그인 뒤 일반 유저로 강등됐으면 403 `NOT_INFLUENCER`이다.
         출연은 호스트·게스트만 볼 수 있다.""")
 public interface ApiV1AppearanceSpec {
 
