@@ -1,6 +1,6 @@
 # Envoy Gateway (#372)
 
-상태: EC2에 Envoy Gateway·cert-manager를 설치하고 외부 진입점을 전환했다(2026-10-30, #372). ServiceLB → Envoy가 80·443을 받고 Let's Encrypt production 인증서를 사용한다. FE `web`은 `/` route에 연결됐다. 업무 앱은 route가 없다(member-app·lecture-app은 2026-10-30 Deployment만 떠 있다, [릴리스 전 배포](k8s.md#릴리스-전-배포)). 업무 앱 route는 #370·#371 인증 뒤 연결한다. 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
+상태: EC2에 Envoy Gateway·cert-manager를 설치하고 외부 진입점을 전환했다(2026-10-30, #372). ServiceLB → Envoy가 80·443을 받고 Let's Encrypt production 인증서를 사용한다. FE `web`은 `/` route에 연결됐다. member-app은 JWT 발급(#370)과 함께 route·JWT 검증을 연결했다(2026-11-02 #500, [릴리스 전 배포](k8s.md#릴리스-전-배포)). lecture-app은 2026-10-30 Deployment만 떠 있고 route가 없다. 나머지 업무 앱 route는 각 앱이 사용자 헤더 인증(#371)을 갖춘 뒤 연결한다. 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
 
 ## 결정 기록 (2026-10-29)
 
@@ -16,8 +16,18 @@
 
 - 사용자는 기존 배포 서버와의 호환을 제외하고 Gateway 설치·전환을 먼저 진행하도록 지시했다. 공용 Gateway·TLS·관측성 경로를 먼저 적용하고 업무 앱·FE 연결은 후속 작업으로 남긴다. 기존 DB·PVC는 삭제하지 않는다.
 - 같은 날 진입점 전환 뒤 Compose(prod·dev app·web·PostgreSQL, edge nginx·certbot)를 볼륨까지 지웠다(#440). 기존 운영 DB에는 필요 없는 데이터만 있어 백업하지 않았다. 그래서 아래 [진입점 복구](#진입점-복구)의 nginx 복구 경로는 없어졌다.
-- `--gateway-only`는 앱 overlay와 FE의 `web` HTTPRoute를 제외한다. JWT 발급 앱이나 FE Service가 없어도 공용 진입점을 준비할 수 있다. `/`는 FE 배포 때 연결하며 그 전에는 404다.
+- `--gateway-only`는 앱 overlay와 FE의 `web` HTTPRoute를 제외한다. JWT 발급 앱이나 FE Service가 없어도 공용 진입점을 준비할 수 있다. `/`는 FE 배포 때 연결하며 그 전에는 404다. (#500에서 렌더러가 Gateway 전용이 되어 이 플래그는 없어지고 항상 이렇게 렌더링한다.)
 - 기본 렌더링은 인증서 연락 이메일을 요구한다. 기존 Compose는 이메일 없이 등록한 구성이며 설치된 ACME CRD에서 이메일은 선택 항목이다. 이번에는 연락처 답변을 기다린 뒤 `--without-acme-email`로 명시적으로 생략했다. 연락처가 정해지면 issuer의 `spec.acme.email`에 추가할 수 있다. 이메일을 지정한 상태에서 생략 플래그를 함께 쓰면 실패한다.
+
+## JWT issuer 결정 (2026-11-02, #500)
+
+#370(PR #496) 병합 뒤 member-app 첫 배포를 준비하며 사용자에게 확인한 결정이다.
+
+- 운영 issuer는 `https://hapbang.duckdns.org`(Gateway 호스트)다. 원본은 각 앱의 prod overlay다. 앱 6개 prod overlay가 SecurityPolicy issuer를 patch하고, member prod overlay가 같은 값을 `HAPBANG_JWT_ISSUER`(발급하는 토큰의 `iss`)로 넣는다. chat-app이 STOMP에서 직접 검증할 때(#371)도 같은 이름·값을 쓴다.
+- 앱 배포(`.github/scripts/k3s-deploy.sh`)는 overlay를 그대로 적용하고 렌더러를 거치지 않는다. 그래서 issuer를 배포 입력으로 주입하지 않고 overlay에 둔다. `render-prod.py`는 공용 Gateway만 렌더링한다.
+- 발급과 검증의 issuer가 다르면 그 앱의 토큰 요청이 모두 401이다. CI `manifests` job의 `k8s/gateway/tools/check-app-jwt.py`가 prod overlay 7곳(SecurityPolicy 6, member ConfigMap 1)이 같은 값인지, Envoy가 JWKS를 member 8080에서 읽는지 검사한다. 새 앱을 더하면 prod overlay에 같은 patch를 넣는다.
+- base와 local overlay는 `https://gateway.invalid`(member 기본값과 같음)를 그대로 둔다. 로컬·k3d는 서명 키가 달라 운영 토큰을 받아들이지 않는다.
+- 서명은 #369대로 RS256 + JWKS다. member-app 하나만 개인 키를 갖고, Envoy는 JWKS로 공개 키만 받는다. 공유 비밀값(HS256)은 쓰지 않는다. Envoy v1.9.3의 `localJWKS`는 inline·ConfigMap만 받아 Secret이 아닌 곳에 비밀값을 두게 되고, 검증하는 곳(Envoy·chat)마다 모든 회원·ADMIN 토큰을 위조할 수 있는 키가 퍼지기 때문이다.
 
 ## 구성과 적용 순서
 
@@ -55,7 +65,7 @@ JWT는 업무 API route에만 적용한다. Grafana는 Grafana의 자체 로그�
 
 `ClientTrafficPolicy.earlyRequestHeaders`는 인증 전에 외부 `X-User-Id`, `X-User-Role`, `X-Internal-Api-Key`와 전달 프로토콜·호스트 위조 헤더를 제거한다. 검증한 claim만 사용자 헤더로 생성한다. XFF의 신뢰 hop은 0이며 Envoy가 실제 접속 주소를 오른쪽에 추가한다. 앱은 native RemoteIpValve로 읽는다. 실제 인터넷 client IP 보존은 EC2 ServiceLB 전환 후 다시 검증한다.
 
-prod issuer·JWKS 경로는 #370과 맞춘다. Gateway는 member Service 8080에서 공개 JWKS를 직접 읽는다. chat의 직접 JWT 검증(#371)은 Gateway의 공개 HTTPS JWKS URL을 사용해 member 8080 직접 접근 예외를 만들지 않는다. 토큰 URL query 전달은 하지 않는다.
+prod issuer는 [JWT issuer 결정](#jwt-issuer-결정-2026-11-02-500)을 따른다. Gateway는 member Service 8080의 `/api/v1/members/.well-known/jwks.json`에서 공개 JWKS를 직접 읽는다. chat의 직접 JWT 검증(#371)은 member 내부 포트 8081의 `/api/v1/internal/members/jwks.json`을 내부 API 키로 받는다(#370 댓글). member 8080을 chat에 열지 않는다. 8080은 Envoy가 넣은 `X-User-Id`를 믿는 포트라 열면 chat pod가 아무 회원으로나 위장할 수 있다. 토큰 URL query 전달은 하지 않는다.
 
 ## 본문·연결·Grafana·trace
 
@@ -91,25 +101,23 @@ k3d image import -c hapbang hapbang/gateway-test:372
 
 ## 운영 template 준비 (실행 전 점검용)
 
-`render-prod.py`는 stdout으로만 출력한다. 비밀값이나 Secret은 읽지 않고 cluster도 변경하지 않는다. 아래 값은 #370·운영 담당자와 맞춘 실제 값으로 입력한다. `.invalid` placeholder나 값 누락은 실패한다.
+`render-prod.py`는 공용 Gateway(`k8s/gateway/overlays/prod`)만 stdout으로 출력한다. 앱 overlay와 FE의 `web` HTTPRoute는 내지 않는다. 비밀값이나 Secret은 읽지 않고 cluster도 변경하지 않는다. 아래 값은 운영 담당자와 맞춘 실제 값으로 입력한다. `.invalid` placeholder나 값 누락은 실패한다.
 
 ```bash
 export GATEWAY_HOST='<prod 도메인>'
 export ACME_EMAIL='<인증서 연락처>'
-export JWT_ISSUER='https://<prod issuer>'
-export MEMBER_JWKS_URI='http://member-app.hapbang-prod.svc.cluster.local:8080/<확정된 JWKS 경로>'
 /tmp/gateway-test-venv/bin/python k8s/gateway/tools/render-prod.py > /tmp/gateway-prod.yaml
 ```
 
-업무 앱 배포는 #374의 앱별 이미지·SealedSecret 준비와 GHCR pull Secret(`ghcr-pull`, #460) 적용 이후다. 출력 파일을 그대로 자동 apply하지 않는다. Gateway·platform은 수동, 앱 manifest는 앱별 workflow가 관리하도록 확정된 issuer·JWKS를 각 배포 입력에 반영한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
+출력 파일을 그대로 자동 apply하지 않는다. Gateway·platform은 수동으로 적용한다. 업무 앱 manifest(route·JWT issuer 포함)는 앱 prod overlay가 원본이고 앱 배포(`k3s-deploy.sh`)가 적용한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
 
-Gateway만 먼저 렌더링할 때는 앱 JWT 설정을 생략할 수 있다. 기본값은 연락 이메일 필수이며, 이번처럼 연락처 없이 등록할 때만 명시적인 생략 플래그를 쓴다.
+기본값은 연락 이메일 필수이며, 이번처럼 연락처 없이 등록할 때만 명시적인 생략 플래그를 쓴다.
 
 ```bash
 # EC2용 렌더링만 수행하며 자동 apply하지 않는다.
 GATEWAY_HOST='<prod 도메인>' ACME_EMAIL= \
   /tmp/gateway-test-venv/bin/python k8s/gateway/tools/render-prod.py \
-  --gateway-only --without-acme-email > /tmp/gateway-only.yaml
+  --without-acme-email > /tmp/gateway-only.yaml
 ```
 
 ### 전체 서비스 전환 조건과 순서

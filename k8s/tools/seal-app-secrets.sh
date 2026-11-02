@@ -7,6 +7,8 @@
 #   앱 하나만 새 키로 봉인하면 앱끼리 키가 달라져 내부 HTTP 인증이 깨진다.
 # - 그 밖의 값: ~/.hapbang/prod-secrets.env의 KEY=VALUE 줄. 서버 prod.env 줄을 그대로 옮기면 된다.
 #   이 파일은 실행하지 않고 읽기만 한다. Compose처럼 값 전체를 감싼 따옴표 한 쌍은 뗀다.
+#   member의 JWT_PRIVATE_KEY(PKCS#8 PEM)는 줄바꿈을 지운 한 줄로 둔다. env 파일 형식이 여러 줄 값을 받지 못하고,
+#   member-app은 PEM의 공백·줄바꿈을 지우고 읽는다(#500).
 # 사용법: k8s/tools/seal-app-secrets.sh [앱 이름...]   예: member billing (기본: 앱 6개)
 set -euo pipefail
 
@@ -19,7 +21,7 @@ root=$(git rev-parse --show-toplevel)
 # 앱마다 DB role, 필수 키, 선택 키(없으면 넣지 않는다)를 정한다. 키 목록은 docs/deploy/k8s.md "Secret"과 같다.
 spec() {
   case "$1" in
-    member) echo "member|S3_BUCKET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET CHZZK_CLIENT_ID CHZZK_CLIENT_SECRET CHZZK_REDIRECT_URI|" ;;
+    member) echo "member|S3_BUCKET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET CHZZK_CLIENT_ID CHZZK_CLIENT_SECRET CHZZK_REDIRECT_URI JWT_PRIVATE_KEY|" ;;
     billing) echo "billing||TOSS_PAYMENTS_SECRET_KEY BILLING_PAYMENT_KEY_ENCRYPTION_KEY BILLING_PAYMENT_KEY_HMAC_KEY" ;;
     lecture) echo "lecture|S3_BUCKET|" ;;
     appearance) echo "appearance||" ;;
