@@ -47,12 +47,13 @@ spec:
                 name: chat-app-config
             - secretRef:
                 name: chat-app-secrets
+          # 384Mi에서 운영 기동 직후(Kafka consumer partition 할당 뒤) OOMKilled돼 512Mi로 올렸다. 기동 25분 뒤 430Mi(84%) (#545, docs/architecture/infrastructure/k3s.md)
           resources:
             requests:
               cpu: 100m
-              memory: 384Mi
+              memory: 512Mi
             limits:
-              memory: 384Mi
+              memory: 512Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:
