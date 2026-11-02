@@ -8,6 +8,7 @@ import static org.mockito.Mockito.doThrow;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -207,7 +208,7 @@ class BillingMemberEventKafkaTest {
     void unknownTypeIsIgnored() {
         long userId = 306L;
 
-        send(userId, new UserLoggedOutEvent(userId, "session-1"));
+        send(userId, new UserLoggedOutEvent(userId, Instant.now()));
         send(userId, new UserJoinedEvent(user(userId, "다음이벤트", Role.USER, 0L)));
 
         await().atMost(TIMEOUT).untilAsserted(() -> {
