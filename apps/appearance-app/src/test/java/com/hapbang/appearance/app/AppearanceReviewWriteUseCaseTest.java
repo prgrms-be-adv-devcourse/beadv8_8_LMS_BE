@@ -44,7 +44,8 @@ class AppearanceReviewWriteUseCaseTest {
     private final Clock clock = Clock.fixed(SENT_AT.plusDays(10).atZone(ZoneId.of("Asia/Seoul")).toInstant(),
             ZoneId.of("Asia/Seoul"));
     private final AppearanceReviewWriteUseCase useCase = new AppearanceReviewWriteUseCase(appearanceSupport,
-            appearanceReviewSupport, appearanceUserSupport, AppearanceReviewPolicy.unlimited(), clock);
+            appearanceReviewSupport, new AppearanceReviewEligibility(appearanceReviewSupport, appearanceUserSupport,
+                    AppearanceReviewPolicy.unlimited()), clock);
 
     @BeforeEach
     void setUp() {

@@ -401,8 +401,10 @@ class AppearanceReviewFlowTest {
 
         /** 기한 14일 정책으로 만든 UseCase를 한 트랜잭션에서 부른다 (Facade와 같은 경계) */
         private Long writeWithPeriod(Long reviewerId, Long appearanceId) {
+            AppearanceReviewEligibility eligibility = new AppearanceReviewEligibility(appearanceReviewSupport,
+                    appearanceUserSupport, new AppearanceReviewPolicy(WRITE_PERIOD));
             AppearanceReviewWriteUseCase useCase = new AppearanceReviewWriteUseCase(appearanceSupport,
-                    appearanceReviewSupport, appearanceUserSupport, new AppearanceReviewPolicy(WRITE_PERIOD), clock);
+                    appearanceReviewSupport, eligibility, clock);
             return new TransactionTemplate(transactionManager)
                     .execute(status -> useCase.write(reviewerId, appearanceId, 5, null));
         }

@@ -179,4 +179,21 @@ class AppearanceSwaggerDocsTest {
                         .value("#/components/schemas/RsDataAppearanceReviewIdResDto"))
                 .andExpect(jsonPath(SCHEMAS + "WriteAppearanceReviewReqDto.required[0]").value("rating"));
     }
+
+    @Test
+    @DisplayName("출연 상세에 리뷰 정보가 있고, 받은 리뷰 내부 목록은 RsData의 PagedModel이다 (#514)")
+    void reviewQuerySchema() throws Exception {
+        String received = "$.paths['/api/v1/internal/appearances/users/{userId}/reviews'].get";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(SCHEMAS + "AppearanceResDto.properties.reviewable").exists())
+                .andExpect(jsonPath(SCHEMAS + "AppearanceResDto.properties.myReview['$ref']")
+                        .value("#/components/schemas/AppearanceReviewResDto"))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceResDto.properties.receivedReview['$ref']")
+                        .value("#/components/schemas/AppearanceReviewResDto"))
+                .andExpect(jsonPath(received + ".responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataPageAppearanceReceivedReviewDto"))
+                .andExpect(jsonPath(SCHEMAS + "RsDataPageAppearanceReceivedReviewDto.properties.data['$ref']")
+                        .value("#/components/schemas/PagedModelAppearanceReceivedReviewDto"));
+    }
 }
