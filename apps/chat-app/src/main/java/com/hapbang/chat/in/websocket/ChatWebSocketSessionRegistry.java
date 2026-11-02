@@ -466,6 +466,19 @@ public class ChatWebSocketSessionRegistry implements WebSocketHandlerDecoratorFa
         return closeByUserId(userId, LOGGED_OUT);
     }
 
+    @Override
+    public int closeLoggedOutBefore(Long userId, Instant loggedOutAt) {
+        Assert.notNull(loggedOutAt, "loggedOutAt이 필요합니다.");
+        int closed = 0;
+        for (String sessionId : sessionIdsOf(userId)) {
+            SessionUser user = users.get(sessionId);
+            if (user != null && user.authenticatedAt().isBefore(loggedOutAt) && closeSession(sessionId, LOGGED_OUT)) {
+                closed++;
+            }
+        }
+        return closed;
+    }
+
     /**
      * 연결을 넣고, 핸드셰이크에서 쓴 연결 티켓이 있으면 회원을 결합한다. 그 사이 이미 닫힌 연결은 넣지 않는다(닫힘 처리가 먼저
      * 끝났으면 다시 지울 기회가 없다).

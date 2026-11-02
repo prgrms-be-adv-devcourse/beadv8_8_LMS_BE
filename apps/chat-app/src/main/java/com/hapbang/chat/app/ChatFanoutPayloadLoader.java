@@ -43,7 +43,7 @@ public class ChatFanoutPayloadLoader {
         return chatOutboxStore.findJob(ChatJobStream.CONTROL, controlId)
                 .map(ControlJob.class::cast)
                 .map(job -> new ControlFanout(job.jobId(), job.type(), job.userId(), job.memberVersion(),
-                        job.reason()));
+                        job.reason(), job.loggedOutAt()));
     }
 
     private Optional<MessageFanout> toMessageFanout(DeliveryJob job) {

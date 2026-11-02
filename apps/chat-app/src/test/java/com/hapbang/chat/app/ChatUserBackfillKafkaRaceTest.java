@@ -530,8 +530,8 @@ class ChatUserBackfillKafkaRaceTest {
         }
 
         @Override
-        public void requestLogout(Long userId) {
-            delegate.requestLogout(userId);
+        public void requestLogout(Long userId, java.time.Instant loggedOutAt) {
+            delegate.requestLogout(userId, loggedOutAt);
         }
 
         void failAfterRecording(Long userId) {

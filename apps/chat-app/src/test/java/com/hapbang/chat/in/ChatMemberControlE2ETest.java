@@ -8,6 +8,7 @@ import static org.awaitility.Awaitility.*;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -245,7 +246,8 @@ class ChatMemberControlE2ETest {
         StompSession second = stomp.connect(HOST_ID);
         StompSession other = stomp.connect(GUEST_ID);
 
-        List<CloseStatus> closeStatuses = closeStatusesOf(HOST_ID, 2, () -> loggedOut(HOST_ID));
+        Instant loggedOutAt = Instant.now();
+        List<CloseStatus> closeStatuses = closeStatusesOf(HOST_ID, 2, () -> loggedOut(HOST_ID, loggedOutAt));
 
         assertThat(closeStatuses).allSatisfy(closeStatus -> {
             assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
@@ -258,12 +260,35 @@ class ChatMemberControlE2ETest {
         assertThat(controlRows(HOST_ID)).isEqualTo(1);
         assertThat(controlRows(GUEST_ID)).isZero();
         Instant marker = chatLogoutMarkers.loggedOutAt(Set.of(HOST_ID, GUEST_ID)).get(HOST_ID);
-        assertThat(marker).isNotNull();
+        assertThat(marker).isEqualTo(loggedOutAt.truncatedTo(ChronoUnit.MILLIS));
         assertThat(chatLogoutMarkers.loggedOutAt(Set.of(GUEST_ID))).isEmpty();
 
         StompSession reconnected = stomp.connect(HOST_ID);
         assertThat(localChatConnections.closeLoggedOutBefore(Map.of(HOST_ID, marker))).isZero();
         await().during(Duration.ofSeconds(1)).atMost(Duration.ofSeconds(3)).until(reconnected::isConnected);
+    }
+
+    /**
+     * 아웃박스 재전송으로 같은 로그아웃 이벤트가 늦게 다시 와도, 그 뒤에 다시 연결한 연결은 제어 경로(즉시 종료)로도 닫히지 않고
+     * 표식도 앞당겨지지 않는다. 작업 행은 이벤트마다 남는다.
+     */
+    @Test
+    void 늦게_다시_온_옛_로그아웃_이벤트는_그_뒤에_다시_연결한_연결을_닫지_않는다() throws Exception {
+        StompSession first = stomp.connect(HOST_ID);
+        Instant loggedOutAt = Instant.now();
+        closeStatusesOf(HOST_ID, 1, () -> loggedOut(HOST_ID, loggedOutAt));
+        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS)).until(() -> !first.isConnected());
+        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS))
+                .until(() -> localChatConnections.connectedUserIds().isEmpty());
+        StompSession reconnected = stomp.connect(HOST_ID);
+
+        assertThat(closeStatusesOf(HOST_ID, 0, () -> loggedOut(HOST_ID, loggedOutAt))).isEmpty();
+        // 다시 온 작업까지 제어 채널로 발행된 뒤에도 연결이 남아 있다
+        await().atMost(PIPELINE_TIMEOUT).until(() -> publishedLogoutJobs(HOST_ID) == 2);
+        await().during(Duration.ofSeconds(1)).atMost(Duration.ofSeconds(3)).until(reconnected::isConnected);
+        assertThat(localChatConnections.connectedUserIds()).containsExactly(HOST_ID);
+        assertThat(chatLogoutMarkers.loggedOutAt(Set.of(HOST_ID)))
+                .containsEntry(HOST_ID, loggedOutAt.truncatedTo(ChronoUnit.MILLIS));
     }
 
     private Long createRoom(RestTestClient client, Long userId, Long targetUserId) {
@@ -292,16 +317,25 @@ class ChatMemberControlE2ETest {
         }
     }
 
-    /** shared 레코드({@code UserLoggedOutEvent(userId, loggedOutAt)}) 모양 (#539). chat-app은 userId만 쓴다 */
-    private void loggedOut(long id) {
+    /** shared 레코드({@code UserLoggedOutEvent(userId, loggedOutAt)}) 모양 */
+    private void loggedOut(long id, Instant loggedOutAt) {
         ProducerRecord<String, byte[]> record = new ProducerRecord<>(TOPIC, String.valueOf(id),
-                ("{\"userId\":" + id + ",\"loggedOutAt\":\"2026-11-02T00:00:00Z\"}").getBytes(StandardCharsets.UTF_8));
+                ("{\"userId\":" + id + ",\"loggedOutAt\":\"" + loggedOutAt + "\"}").getBytes(StandardCharsets.UTF_8));
         record.headers().add("__TypeId__", UserLoggedOutEvent.class.getName().getBytes(StandardCharsets.UTF_8));
         try {
             producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception exception) {
             throw new IllegalStateException("로그아웃 이벤트를 보내지 못했습니다.", exception);
         }
+    }
+
+    private long publishedLogoutJobs(long userId) {
+        Long published = sql.single("""
+                select count(*) from chats.chat_control_outbox o
+                         join chats.chat_publish_checkpoint c on c.job_id = o.control_id
+                where o.user_id = :userId and o.control_type = 'LOGOUT_USER' and c.status = 'PUBLISHED'""",
+                Long.class, Map.of("userId", userId));
+        return published == null ? 0 : published;
     }
 
     private int controlRows(long userId) {

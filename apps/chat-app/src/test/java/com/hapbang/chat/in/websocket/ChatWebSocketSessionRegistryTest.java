@@ -176,6 +176,32 @@ class ChatWebSocketSessionRegistryTest {
     }
 
     @Test
+    void 회원_로그아웃_닫기는_그_회원의_연결_중_로그아웃_시각보다_먼저_인증한_연결만_닫고_뒤에_인증한_연결과_다른_회원은_둔다()
+            throws Exception {
+        Instant loggedOutAt = NOW.plusSeconds(60);
+        WebSocketSession before = session("s-1");
+        WebSocketSession same = session("s-2");
+        WebSocketSession after = session("s-3");
+        WebSocketSession other = session("s-4");
+        for (WebSocketSession session : List.of(before, same, after, other)) {
+            handler.afterConnectionEstablished(session);
+        }
+        registry.bind("s-1", HOST_ID, NOW, LATER);
+        registry.bind("s-2", HOST_ID, loggedOutAt, LATER);
+        registry.bind("s-3", HOST_ID, loggedOutAt.plusMillis(1), LATER);
+        registry.bind("s-4", GUEST_ID, NOW, LATER);
+
+        assertThat(registry.closeLoggedOutBefore(HOST_ID, loggedOutAt)).isEqualTo(1);
+        assertThat(registry.closeLoggedOutBefore(UNKNOWN_ID, loggedOutAt)).isZero();
+
+        verify(before).close(ChatWebSocketSessionRegistry.LOGGED_OUT);
+        // 로그아웃 시각과 같은 시각에 인증한 연결은 로그아웃 뒤로 본다(표식 비교와 같은 규칙)
+        verify(same, never()).close(any());
+        verify(after, never()).close(any());
+        verify(other, never()).close(any());
+    }
+
+    @Test
     void 로컬_연결이_없는_회원을_닫아도_예외_없이_0을_돌려준다() {
         assertThat(registry.closeNotAllowed(UNKNOWN_ID)).isZero();
         assertThat(registry.closeLoggedOut(UNKNOWN_ID)).isZero();

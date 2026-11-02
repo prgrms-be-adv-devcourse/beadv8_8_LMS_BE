@@ -1,5 +1,6 @@
 package com.hapbang.chat.app;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -36,8 +37,9 @@ public interface ChatOutboxStore {
             long recipientSetId, ChatNotifyRule notifyRule, int schemaVersion) implements OutboxJob {
     }
 
+    /** @param loggedOutAt 로그아웃 작업의 기준 시각. 재검사 작업과 이 값이 생기기 전의 로그아웃 작업은 null */
     record ControlJob(long id, UUID jobId, ChatControlType type, long userId, Long memberVersion,
-            ChatControlReason reason, int schemaVersion) implements OutboxJob {
+            ChatControlReason reason, Instant loggedOutAt, int schemaVersion) implements OutboxJob {
     }
 
     /**

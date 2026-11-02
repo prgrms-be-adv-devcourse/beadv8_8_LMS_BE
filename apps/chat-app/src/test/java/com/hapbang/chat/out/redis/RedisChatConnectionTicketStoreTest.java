@@ -152,6 +152,20 @@ class RedisChatConnectionTicketStoreTest {
     }
 
     @Test
+    void 로그아웃_표식은_더_이른_값으로_앞당기지_않고_깨진_값은_덮는다() {
+        Instant later = ISSUED.plusSeconds(10);
+        markers.markLoggedOut(7L, later);
+        // 아웃박스 재전송으로 늦게 다시 온 옛 로그아웃
+        markers.markLoggedOut(7L, ISSUED);
+        markers.markLoggedOut(7L, later);
+        redis.opsForValue().set(keys.logoutMarker(9L), "not-a-number");
+        markers.markLoggedOut(9L, ISSUED);
+
+        assertThat(markers.loggedOutAt(Set.of(7L, 9L))).containsExactlyInAnyOrderEntriesOf(Map.of(7L, later, 9L, ISSUED));
+        assertThat(redis.getExpire(keys.logoutMarker(9L))).isBetween(1L, 20L * 60);
+    }
+
+    @Test
     void 로그아웃_표식은_더_늦은_값으로_덮고_한_번에_읽으며_없거나_깨진_값은_빠진다() {
         Instant first = ISSUED;
         Instant later = ISSUED.plusSeconds(10);
