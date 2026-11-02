@@ -9,6 +9,8 @@ import java.util.Optional;
 import org.springframework.util.Assert;
 
 import com.hapbang.shared.jpa.BaseEntity;
+import com.hapbang.shared.lecture.domain.LectureObjectionCommandType;
+import com.hapbang.shared.lecture.domain.LectureObjectionFailureCode;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -36,6 +38,9 @@ import lombok.NoArgsConstructor;
  *     <li>강의 내용 다름 이의 제기 문의는 대상 강의 주문 항목을 가진다({@link #createLectureDispute}).
  *     관리자 판단({@link #resolveObjection})은 한 번만 하며, 판단 안내 답변을 함께 달아 답변 완료가 된다.
  *     판단한 문의는 답변을 모두 지워도 답변 완료로 남는다.</li>
+ *     <li>이의 제기는 강의와 연동한다(#279, D60·D71). 접수는 강의 내부 HTTP로, 판단·철회는 고객센터 이벤트로 보내고,
+ *     강의의 결과 이벤트로 끝난다. 그 사이 상태가 {@link ObjectionLinkStatus}이고, 지금 보낸 명령의 ID·내용 지문을 함께 둔다.
+ *     판단은 강의가 반영한 뒤에만 기록한다({@link #applyResolved}).</li>
  * </ul>
  * 작성자는 회원 ID로만 참조한다. 생성일·수정일은 {@link BaseEntity}가 기록한다.
  */
@@ -82,6 +87,36 @@ public class Inquiry extends BaseEntity {
 
     private LocalDateTime deletedAt;
 
+    /** 강의 연동 상태. 이의 제기 문의에만 있다 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private ObjectionLinkStatus objectionLinkStatus;
+
+    /** 지금(또는 마지막으로) 강의에 보낸 명령 ID. 예: {@code RESOLVE:12} */
+    @Column(length = 100)
+    private String objectionCommandId;
+
+    /** 판단·철회 명령 내용의 지문. 같은 요청이 다시 오면 처리 중(202)·완료로, 다른 내용이면 충돌(409)로 본다 */
+    @Column(length = 64)
+    private String objectionCommandHash;
+
+    /** 강의가 접수·판단·철회를 거절한 사유 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 50)
+    private LectureObjectionFailureCode objectionFailureCode;
+
+    /** 판단을 요청한 관리자. 강의가 반영하면 판단한 관리자({@link #objectionResolvedBy})가 된다 */
+    private Long objectionRequestedBy;
+
+    /** 강의가 반영하면 달 판단 안내 답변 */
+    @Column(columnDefinition = "TEXT")
+    private String objectionPendingReply;
+
+    /** 인정한 이의 제기의 HP 반환 상태. 앞으로만 바뀐다 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private HpReturnStatus hpReturnStatus;
+
     @OneToMany(mappedBy = "inquiry", cascade = CascadeType.PERSIST)
     @OrderBy("id asc")
     private List<InquiryReply> replies = new ArrayList<>();
@@ -113,6 +148,7 @@ public class Inquiry extends BaseEntity {
         Inquiry inquiry = new Inquiry(userId, InquiryCategory.LECTURE_CONTENT_DISPUTE, title.strip(), content.strip());
         inquiry.targetType = InquiryTargetType.LECTURE_ORDER_ITEM;
         inquiry.targetId = orderItemId;
+        inquiry.objectionLinkStatus = ObjectionLinkStatus.FILING;
         return inquiry;
     }
 
@@ -144,6 +180,113 @@ public class Inquiry extends BaseEntity {
         this.objectionResolvedBy = adminUserId;
         this.objectionResolvedAt = now;
         return reply(adminUserId, replyContent);
+    }
+
+    /** 저장해 ID가 생긴 뒤 접수 명령 ID({@code FILE:<문의 ID>})를 정한다 */
+    public void assignFileCommand() {
+        requireLinkStatus(ObjectionLinkStatus.FILING);
+        Assert.state(id != null, "저장한 문의만 접수 명령을 만들 수 있습니다.");
+        this.objectionCommandId = LectureObjectionCommandType.FILE.commandIdOf(id);
+    }
+
+    /** 강의가 접수했다. 접수 처리 중일 때만 바뀌고, 이미 끝났으면 그대로 둔다 */
+    public boolean markFiled() {
+        if (objectionLinkStatus != ObjectionLinkStatus.FILING) {
+            return false;
+        }
+        this.objectionLinkStatus = ObjectionLinkStatus.FILED;
+        return true;
+    }
+
+    /**
+     * 강의가 접수를 거절했다. 요청 안에서 바로 거절되면 사용자는 문의가 생기지 않은 것으로 보므로 삭제하고({@code delete = true}),
+     * 처리 중(202)을 본 뒤의 거절이면 문의를 남겨 "접수 불가 · 사유"로 보여 준다 (D60 (1)).
+     */
+    public boolean rejectFiling(LectureObjectionFailureCode failureCode, boolean delete, LocalDateTime now) {
+        if (objectionLinkStatus != ObjectionLinkStatus.FILING) {
+            return false;
+        }
+        this.objectionLinkStatus = ObjectionLinkStatus.FILE_REJECTED;
+        this.objectionFailureCode = failureCode;
+        if (delete) {
+            this.deletedAt = now;
+        }
+        return true;
+    }
+
+    /** 판단 요청을 선점한다(접수됨 → 판단 처리 중). 판단은 강의가 반영한 뒤 {@link #applyResolved}로 기록한다 */
+    public void requestResolution(Long adminUserId, String replyContent, String commandHash) {
+        requireLinkStatus(ObjectionLinkStatus.FILED);
+        Assert.state(adminUserId != null, "판단한 관리자가 없습니다.");
+        Assert.state(hasText(replyContent), "판단 안내 답변이 비어 있습니다.");
+        this.objectionLinkStatus = ObjectionLinkStatus.RESOLUTION_PENDING;
+        this.objectionCommandId = LectureObjectionCommandType.RESOLVE.commandIdOf(id);
+        this.objectionCommandHash = commandHash;
+        this.objectionRequestedBy = adminUserId;
+        this.objectionPendingReply = replyContent.strip();
+    }
+
+    /** 철회 요청을 선점한다(접수됨 → 철회 처리 중). 문의는 강의가 반영한 뒤 {@link #applyWithdrawn}에서 삭제된다 */
+    public void requestWithdrawal(String commandHash) {
+        requireLinkStatus(ObjectionLinkStatus.FILED);
+        Assert.state(isWaiting(), "답변이 달린 문의는 철회할 수 없습니다.");
+        this.objectionLinkStatus = ObjectionLinkStatus.WITHDRAWAL_PENDING;
+        this.objectionCommandId = LectureObjectionCommandType.WITHDRAW.commandIdOf(id);
+        this.objectionCommandHash = commandHash;
+    }
+
+    /**
+     * 강의가 판단을 반영했다. 지금 처리 중인 판단 명령일 때만 판단·답변을 기록하고 답변 완료가 된다.
+     * 인정이면 HP 반환 상태를 반환 처리 중 이상으로 둔다(반환 이벤트가 먼저 왔으면 그 상태를 유지).
+     *
+     * @return 반영했는지. 다른 명령의 결과거나 이미 반영했으면 {@code false}
+     */
+    public boolean applyResolved(String commandId, boolean accepted, LocalDateTime now) {
+        if (objectionLinkStatus != ObjectionLinkStatus.RESOLUTION_PENDING || !commandId.equals(objectionCommandId)) {
+            return false;
+        }
+        resolveObjection(objectionRequestedBy, accepted, objectionPendingReply, now);
+        this.objectionLinkStatus = ObjectionLinkStatus.RESOLVED;
+        this.objectionPendingReply = null;
+        if (accepted) {
+            this.hpReturnStatus = HpReturnStatus.advance(hpReturnStatus, HpReturnStatus.PENDING);
+        }
+        return true;
+    }
+
+    /** 강의가 철회를 반영했다. 지금 처리 중인 철회 명령일 때만 문의를 삭제한다 */
+    public boolean applyWithdrawn(String commandId, LocalDateTime now) {
+        if (objectionLinkStatus != ObjectionLinkStatus.WITHDRAWAL_PENDING || !commandId.equals(objectionCommandId)) {
+            return false;
+        }
+        this.objectionLinkStatus = ObjectionLinkStatus.WITHDRAWN;
+        delete(now);
+        return true;
+    }
+
+    /** 강의가 판단·철회를 거절했다. 지금 처리 중인 그 명령일 때만 실패로 바꾼다 */
+    public boolean applyRefused(String commandId, LectureObjectionCommandType commandType,
+                                LectureObjectionFailureCode failureCode) {
+        ObjectionLinkStatus pending = commandType == LectureObjectionCommandType.RESOLVE
+                ? ObjectionLinkStatus.RESOLUTION_PENDING : ObjectionLinkStatus.WITHDRAWAL_PENDING;
+        if (objectionLinkStatus != pending || !commandId.equals(objectionCommandId)) {
+            return false;
+        }
+        this.objectionLinkStatus = commandType == LectureObjectionCommandType.RESOLVE
+                ? ObjectionLinkStatus.RESOLUTION_FAILED : ObjectionLinkStatus.WITHDRAWAL_FAILED;
+        this.objectionFailureCode = failureCode;
+        return true;
+    }
+
+    /** HP 반환 상태를 앞으로만 바꾼다. 판단 결과보다 반환 이벤트가 먼저 올 수 있다 */
+    public void advanceHpReturn(HpReturnStatus next) {
+        Assert.state(isLectureDispute(), "이의 제기 문의가 아닙니다.");
+        this.hpReturnStatus = HpReturnStatus.advance(hpReturnStatus, next);
+    }
+
+    /** 지금 명령과 같은 내용인지 */
+    public boolean hasCommandHash(String commandHash) {
+        return commandHash.equals(objectionCommandHash);
     }
 
     /** 관리자 답변을 달고 답변 완료로 바꾼다. 답변은 여러 개 달 수 있다 */
@@ -192,6 +335,11 @@ public class Inquiry extends BaseEntity {
     private InquiryReply replyOf(Long replyId) {
         Assert.state(deletedAt == null, "삭제된 문의의 답변은 바꿀 수 없습니다.");
         return findReply(replyId).orElseThrow(() -> new IllegalStateException("답변이 없습니다: " + replyId));
+    }
+
+    private void requireLinkStatus(ObjectionLinkStatus expected) {
+        Assert.state(objectionLinkStatus == expected,
+                "이의 제기 연동 상태가 " + expected + "가 아닙니다. inquiryId=" + id + ", status=" + objectionLinkStatus);
     }
 
     private static boolean hasText(String value) {

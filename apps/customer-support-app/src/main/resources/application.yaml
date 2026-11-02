@@ -5,6 +5,7 @@ spring:
     name: customer-support-app
   config:
     import:
+    - classpath:customer-support.yml
     - classpath:swagger.yml
   profiles:
     default: local
@@ -53,3 +54,7 @@ hapbang:
     enabled: true
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
+  # 이의 제기 접수를 보내는 강의 내부 API 주소 (D62, #279). 없으면 강의 Client가 없어 접수가 처리 중(202)에 머문다
+  clients:
+    lecture:
+      base-url: "${LECTURE_API_BASE_URL}"

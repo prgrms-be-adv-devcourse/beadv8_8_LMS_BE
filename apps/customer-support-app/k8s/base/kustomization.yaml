@@ -21,3 +21,5 @@ configMapGenerator:
       - DB_USERNAME=customersupport
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
+      # 이의 제기 접수를 보내는 강의 내부 API 주소 (#279, 내부 포트 #372)
+      - LECTURE_API_BASE_URL=http://lecture-app:8081
