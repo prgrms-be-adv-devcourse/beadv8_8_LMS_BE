@@ -8,7 +8,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 이메일·비밀번호 로그인 API Swagger 명세 (#499). 매핑은 {@link ApiV1MemberPasswordController} */
-@Tag(name = "비밀번호 로그인", description = "이메일·비밀번호 가입, 로그인")
+@Tag(name = "비밀번호 로그인", description = "이메일·비밀번호 가입, 로그인, 비밀번호 변경")
 public interface ApiV1MemberPasswordSpec {
 
     @Operation(summary = "가입",
@@ -25,4 +25,11 @@ public interface ApiV1MemberPasswordSpec {
                     + "없는 이메일과 틀린 비밀번호는 모두 401 INVALID_CREDENTIALS. "
                     + "같은 이메일로 5번 연속 틀리면 15분 동안 429 LOGIN_LOCKED. 정지·탈퇴 회원은 403 LOGIN_NOT_ALLOWED.")
     ResponseEntity<RsData<MemberMeResponse>> login(PasswordLoginRequest request);
+
+    @Operation(summary = "비밀번호 변경",
+            description = "로그인한 회원 본인. 현재 비밀번호가 틀리면 400 INVALID_CURRENT_PASSWORD, "
+                    + "비밀번호로 가입하지 않은 회원(구글 회원)은 409 PASSWORD_NOT_SET. 새 비밀번호 규칙은 가입과 같다. "
+                    + "바꾸면 모든 기기의 refresh token을 폐기하고, 이 기기에는 새 refresh token 쿠키를 준다 "
+                    + "(다른 기기는 access token 만료 뒤 다시 로그인).")
+    ResponseEntity<RsData<Void>> changePassword(Long userId, PasswordChangeRequest request);
 }

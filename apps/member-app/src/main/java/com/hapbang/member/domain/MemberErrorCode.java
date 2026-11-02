@@ -39,6 +39,8 @@ public enum MemberErrorCode implements BaseErrorCode {
     LOGIN_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "로그인에 여러 번 실패했어요. 15분 뒤에 다시 시도해 주세요."),
     LOGIN_NOT_ALLOWED(HttpStatus.FORBIDDEN, "탈퇴했거나 이용할 수 없는 회원입니다."),
     EMAIL_REGISTERED_WITH_PASSWORD(HttpStatus.CONFLICT, "이미 비밀번호로 가입된 이메일입니다. 이메일과 비밀번호로 로그인해 주세요."),
+    PASSWORD_NOT_SET(HttpStatus.CONFLICT, "비밀번호로 가입한 회원만 비밀번호를 바꿀 수 있습니다."),
+    INVALID_CURRENT_PASSWORD(HttpStatus.BAD_REQUEST, "현재 비밀번호가 올바르지 않습니다."),
     CHANNEL_APPROVAL_NOT_ALLOWED(HttpStatus.CONFLICT, "등록만 됐거나 반려된 채널만 승인 요청할 수 있습니다."),
     /** 심사 대기가 아닌 채널 (이미 처리됨 포함) */
     CHANNEL_REVIEW_NOT_ALLOWED(HttpStatus.CONFLICT, "심사 대기 중인 채널만 승인·반려할 수 있습니다."),

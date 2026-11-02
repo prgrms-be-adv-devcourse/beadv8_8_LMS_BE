@@ -3,6 +3,7 @@ package com.hapbang.member.in;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,13 +13,14 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.app.TokenPair;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.global.auth.LoginUserId;
 import com.hapbang.member.global.response.RsData;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 이메일·비밀번호 가입·로그인 API (#499).
+ * 이메일·비밀번호 가입·로그인·비밀번호 변경 API (#499).
  * 로그인은 구글·로컬 로그인과 같이 refresh token 쿠키만 주고, 프론트는 재발급 API로 access token을 받는다
  */
 @RestController
@@ -47,6 +49,17 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString())
                 .body(RsData.ok("로그인했습니다.", meResponse(user)));
+    }
+
+    /** 비밀번호 변경: 다른 기기는 로그아웃되고, 이 기기는 새 refresh token 쿠키를 받는다 */
+    @Override
+    @PatchMapping("/me/password")
+    public ResponseEntity<RsData<Void>> changePassword(@LoginUserId Long userId,
+                                                       @Valid @RequestBody PasswordChangeRequest request) {
+        TokenPair tokens = memberFacade.changePassword(userId, request.currentPassword(), request.newPassword());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString())
+                .body(RsData.ok("비밀번호를 바꿨습니다.", null));
     }
 
     private MemberMeResponse meResponse(User user) {

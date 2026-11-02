@@ -1,6 +1,7 @@
 package com.hapbang.member.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -24,16 +25,18 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.PasswordCredentialRepository;
 import com.hapbang.member.out.UserRepository;
+import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 import com.jayway.jsonpath.JsonPath;
 
 import jakarta.servlet.http.Cookie;
 
-/** 이메일·비밀번호 가입·로그인 API (#499). 실제 DB·Redis와 보안 설정으로 확인한다 */
+/** 이메일·비밀번호 가입·로그인·비밀번호 변경 API (#499). 실제 DB·Redis와 보안 설정으로 확인한다 */
 @MemberIntegrationTest
 @AutoConfigureMockMvc
 @Import(RedisTestcontainersConfig.class)
@@ -41,6 +44,7 @@ class ApiV1MemberPasswordControllerTest {
 
     private static final String SIGNUP = "/api/v1/members/signup";
     private static final String LOGIN = "/api/v1/members/login";
+    private static final String CHANGE = "/api/v1/members/me/password";
     private static final String REFRESH = "/api/v1/members/auth/refresh";
 
     @Autowired
@@ -144,6 +148,48 @@ class ApiV1MemberPasswordControllerTest {
         login(email, "abcd1234")
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"));
+    }
+
+    @Test
+    @DisplayName("비밀번호를 바꾸면 예전 refresh token은 폐기되고, 이 기기는 새 쿠키를 받고, 새 비밀번호로 로그인된다")
+    void changePassword() throws Exception {
+        String email = signedUp("abcd1234");
+        String oldRefresh = cookieValue(login(email, "abcd1234").andReturn().getResponse().getHeader(HttpHeaders.SET_COOKIE));
+        Long userId = userRepository.findByEmail(email).orElseThrow().getId();
+
+        String newCookie = mockMvc.perform(patch(CHANGE).with(GatewayLogin.as(userId, Role.USER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"abcd1234\",\"newPassword\":\"newpass5678\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getHeader(HttpHeaders.SET_COOKIE);
+
+        mockMvc.perform(post(REFRESH).cookie(refreshCookie(oldRefresh)))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post(REFRESH).cookie(refreshCookie(cookieValue(newCookie))))
+                .andExpect(status().isOk());
+        login(email, "abcd1234").andExpect(status().isUnauthorized());
+        login(email, "newpass5678").andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("현재 비밀번호가 틀리면 400 INVALID_CURRENT_PASSWORD, 구글 회원은 409 PASSWORD_NOT_SET, 로그인 안 하면 401")
+    void changePassword_rejected() throws Exception {
+        String email = signedUp("abcd1234");
+        Long userId = userRepository.findByEmail(email).orElseThrow().getId();
+        User googleMember = userRepository.save(User.join(newEmail(), "google"));
+        trackUser(googleMember.getId());
+        String body = "{\"currentPassword\":\"wrong1234\",\"newPassword\":\"newpass5678\"}";
+
+        mockMvc.perform(patch(CHANGE).with(GatewayLogin.as(userId, Role.USER))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_CURRENT_PASSWORD"));
+        mockMvc.perform(patch(CHANGE).with(GatewayLogin.as(googleMember.getId(), Role.USER))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PASSWORD_NOT_SET"));
+        mockMvc.perform(patch(CHANGE).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
     }
 
     private ResultActions signUp(String email, String password, String nickname) throws Exception {
