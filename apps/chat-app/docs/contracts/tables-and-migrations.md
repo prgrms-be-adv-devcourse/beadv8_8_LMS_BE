@@ -15,6 +15,7 @@
 | `V2026102914xx` | #419 | 필요할 때만 |
 | `V202610301511__add_chat_message_notification_data.sql` | #468 | `chat_message.notification_data`(jsonb, null 가능). 출연 알림 값([알림 값 계약](notification-data.md)) |
 | `V202611021013__allow_repeated_chat_logout_control.sql` | #501 | `chat_control_outbox`의 중복 식별 유일 제약을 재검사(`RECHECK_USER`) 행에만 거는 부분 유일 인덱스로 바꾼다. 로그아웃(`LOGOUT_USER`)은 이벤트마다 한 행이다 |
+| `V202611021600__add_chat_control_outbox_logged_out_at.sql` | #548 | `chat_control_outbox.logged_out_at`(timestamptz, null 가능). 로그아웃 작업이 닫을 연결의 기준 시각. 재검사 행과 이전 로그아웃 행은 null |
 
 `out-of-order: true`라 병합 순서와 무관하게 적용된다. 이미 배포한 마이그레이션은 고치지 않는다.
 
@@ -31,7 +32,7 @@
 
 ## `chat_control_outbox` (공통 골격, #418 소유)
 
-공통 컬럼에 더해 `id`(identity), `control_id uuid unique`, `control_type`(`RECHECK_USER`·`LOGOUT_USER`), `user_id`, `member_version`(null 가능), `reason`, `created_at`, `updated_at`. 중복 식별은 재검사 행에만 둔다: 부분 유일 인덱스 `uk_chat_control_outbox_user_version_type (user_id, member_version, control_type) nulls not distinct where control_type = 'RECHECK_USER'`(#501에서 제약을 바꿨다. 재검사 기록의 `ON CONFLICT`는 같은 조건을 적는다). 로그아웃 행(`LOGOUT_USER`, `member_version` null)은 원본 버전이 없고 같은 회원이 여러 번 로그아웃하므로 이벤트마다 넣는다. 실행 대상(`PENDING`의 `next_attempt_at`), 만료 처리권(`PROCESSING`의 `lease_until`), 재구성 대상(`ENQUEUED`의 `id`) 부분 인덱스를 둔다.
+공통 컬럼에 더해 `id`(identity), `control_id uuid unique`, `control_type`(`RECHECK_USER`·`LOGOUT_USER`), `user_id`, `member_version`(null 가능), `reason`, `logged_out_at`(timestamptz, null 가능, 로그아웃 작업의 기준 시각, #548), `created_at`, `updated_at`. 중복 식별은 재검사 행에만 둔다: 부분 유일 인덱스 `uk_chat_control_outbox_user_version_type (user_id, member_version, control_type) nulls not distinct where control_type = 'RECHECK_USER'`(#501에서 제약을 바꿨다. 재검사 기록의 `ON CONFLICT`는 같은 조건을 적는다). 로그아웃 행(`LOGOUT_USER`, `member_version` null)은 원본 버전이 없고 같은 회원이 여러 번 로그아웃하므로 이벤트마다 넣는다. 실행 대상(`PENDING`의 `next_attempt_at`), 만료 처리권(`PROCESSING`의 `lease_until`), 재구성 대상(`ENQUEUED`의 `id`) 부분 인덱스를 둔다.
 
 ## `chat_publish_checkpoint` (공통 골격, #418 소유)
 

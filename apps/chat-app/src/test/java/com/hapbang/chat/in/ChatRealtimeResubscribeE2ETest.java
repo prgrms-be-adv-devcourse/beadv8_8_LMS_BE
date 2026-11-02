@@ -125,7 +125,7 @@ class ChatRealtimeResubscribeE2ETest {
         // 다시 구독했으므로 발행이 이 앱에 도달한다
         await().atMost(Duration.ofSeconds(10)).until(() -> realtimeChatFanout.publishControl(
                 new ControlFanout(UUID.randomUUID(), ChatControlType.RECHECK_USER, UNKNOWN_ID, null,
-                        ChatControlReason.MEMBER_MODIFIED)) == 1);
+                        ChatControlReason.MEMBER_MODIFIED, null)) == 1);
     }
 
     @Test

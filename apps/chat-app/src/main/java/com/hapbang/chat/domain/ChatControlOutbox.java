@@ -1,5 +1,6 @@
 package com.hapbang.chat.domain;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -44,6 +45,9 @@ public class ChatControlOutbox {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     private ChatControlReason reason;
+
+    /** 로그아웃 작업이 닫을 연결의 기준 시각. 재검사 작업과 이 값이 생기기 전의 로그아웃 작업은 null */
+    private Instant loggedOutAt;
 
     @Column(nullable = false)
     private int schemaVersion;

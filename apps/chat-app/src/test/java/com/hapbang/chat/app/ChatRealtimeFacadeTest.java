@@ -3,6 +3,7 @@ package com.hapbang.chat.app;
 import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.mockito.Mockito.*;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -51,28 +52,41 @@ class ChatRealtimeFacadeTest {
     @Test
     void RECHECK_USER는_명령의_사유와_버전이_아니라_그_회원의_재검사로_처리한다() {
         facade.applyControl(new ControlFanout(UUID.randomUUID(), ChatControlType.RECHECK_USER, HOST_ID, 3L,
-                ChatControlReason.MEMBER_BACKFILL));
+                ChatControlReason.MEMBER_BACKFILL, null));
 
         verify(recheckService).recheckUser(HOST_ID);
         verifyNoInteractions(deliveryService, localChatConnections);
     }
 
     @Test
-    void LOGOUT_USER는_자격을_다시_보지_않고_그_회원의_로컬_연결을_모두_로그아웃으로_닫는다() {
+    void LOGOUT_USER는_자격을_다시_보지_않고_그_회원의_로컬_연결_중_로그아웃_시각보다_먼저_인증한_연결만_닫는다() {
+        Instant loggedOutAt = Instant.parse("2026-11-02T03:00:00Z");
         ControlFanout logout = new ControlFanout(UUID.randomUUID(), ChatControlType.LOGOUT_USER, HOST_ID, null,
-                ChatControlReason.MEMBER_LOGGED_OUT);
+                ChatControlReason.MEMBER_LOGGED_OUT, loggedOutAt);
 
         facade.applyControl(logout);
         // 같은 작업을 다시 받아도(재발행·재처리) 닫기만 반복한다
         facade.applyControl(logout);
 
-        verify(localChatConnections, times(2)).closeLoggedOut(HOST_ID);
+        verify(localChatConnections, times(2)).closeLoggedOutBefore(HOST_ID, loggedOutAt);
+        verify(localChatConnections, never()).closeLoggedOut(any());
+        verifyNoInteractions(recheckService, deliveryService);
+    }
+
+    @Test
+    void 로그아웃_시각이_없는_옛_LOGOUT_USER는_그_회원의_로컬_연결을_모두_닫는다() {
+        facade.applyControl(new ControlFanout(UUID.randomUUID(), ChatControlType.LOGOUT_USER, HOST_ID, null,
+                ChatControlReason.MEMBER_LOGGED_OUT, null));
+
+        verify(localChatConnections).closeLoggedOut(HOST_ID);
+        verify(localChatConnections, never()).closeLoggedOutBefore(any(), any());
         verifyNoInteractions(recheckService, deliveryService);
     }
 
     @Test
     void 종류를_모르는_제어_작업은_버린다() {
-        facade.applyControl(new ControlFanout(UUID.randomUUID(), null, HOST_ID, 3L, ChatControlReason.MEMBER_MODIFIED));
+        facade.applyControl(new ControlFanout(UUID.randomUUID(), null, HOST_ID, 3L, ChatControlReason.MEMBER_MODIFIED,
+                null));
 
         verifyNoInteractions(recheckService, deliveryService, localChatConnections);
     }

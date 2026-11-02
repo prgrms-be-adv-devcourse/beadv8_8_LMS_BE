@@ -55,6 +55,14 @@ public interface LocalChatConnections {
     int closeLoggedOut(Long userId);
 
     /**
+     * 그 회원의 로컬 연결 중 {@code loggedOutAt}보다 먼저 인증한(처음 연결한 티켓을 발급받은) 연결을 로그아웃({@code 1008 LOGGED_OUT})으로
+     * 닫는다. 회원 자격과 관계없이 닫고, 로그아웃 뒤에 인증한 연결은 둔다(설계 문서 Q8). 이미 닫혔으면 아무것도 하지 않는다.
+     *
+     * @return 닫기를 요청한 연결 수
+     */
+    int closeLoggedOutBefore(Long userId, Instant loggedOutAt);
+
+    /**
      * 연결 만료(access token {@code exp})가 지난 로컬 연결을 {@code 4401 TOKEN_EXPIRED}로 닫는다. 만료 예약의 두 번째 확인이다.
      * 닫기를 기다리지 않는다.
      *
