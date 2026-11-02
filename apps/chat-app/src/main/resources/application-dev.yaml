@@ -10,6 +10,3 @@ hapbang:
       allowed-origins: https://dev.hapbang.duckdns.org
 server:
   forward-headers-strategy: native
-springdoc:
-  swagger-ui:
-    path: "/swagger-ui.html"

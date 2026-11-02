@@ -19,7 +19,7 @@ import com.hapbang.appearance.support.AppearanceIntegrationTest;
 @AutoConfigureMockMvc
 class AppearanceSwaggerDocsTest {
 
-    private static final String API_DOCS = "/v3/api-docs";
+    private static final String API_DOCS = "/api/v1/appearances/v3/api-docs";
     private static final String BASE = "$.paths['/api/v1/appearances/requests";
     private static final String SCHEMAS = "$.components.schemas.";
 

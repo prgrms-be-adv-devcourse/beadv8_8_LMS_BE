@@ -3,6 +3,9 @@
 spring:
   application:
     name: member-app
+  config:
+    import:
+    - classpath:swagger.yml
   profiles:
     default: local
   mvc:
@@ -82,7 +85,3 @@ hapbang:
     client-id: "${CHZZK_CLIENT_ID}"
     client-secret: "${CHZZK_CLIENT_SECRET}"
     redirect-uri: "${CHZZK_REDIRECT_URI}"
-springdoc:
-  swagger-ui:
-    csrf:
-      enabled: true

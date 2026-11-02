@@ -20,7 +20,7 @@ billing #295(내 HP 거래 내역·지급 예정 요약)이 강의·출연의 **
 | 성공 응답 | 다른 API와 같이 `RsData`(`statusCode`, `message`, `data`) |
 | 오류 응답 | 다른 API와 같이 `ProblemDetail` + `code`. 요청 값 오류는 400 `INVALID_REQUEST` + `errors[{field, message}]` |
 | 페이지 | `page`(0부터)·`size`(기본 20, 최대 100). 응답 `data`는 `{content, page: {size, number, totalElements, totalPages}}` |
-| Swagger | 노출한다(운영은 Swagger가 꺼져 있다). 각 API에 `X-Internal-Api-Key` 헤더 파라미터가 있다 |
+| Swagger | 노출한다. 운영 Swagger에도 나오지만 외부에서 호출하면 404다(#498). 각 API에 `X-Internal-Api-Key` 헤더 파라미터가 있다 |
 
 ## 2. 상태
 
