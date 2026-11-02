@@ -18,7 +18,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 로컬 로그인 (구글 없이 역할로 로그인). hapbang.local-login.enabled=true일 때만 생긴다 (local·dev, 운영은 꺼짐).
+ * 로컬 로그인 (구글 없이 역할로 로그인). hapbang.local-login.enabled=true일 때만 생긴다 (local·dev. 운영은 첫 관리자를 만들려고
+ * 켜고 인프라가 HAPBANG_LOCAL_LOGIN_ENABLED=false로 끈다, #517).
  * 구글 로그인과 같이 refresh token 쿠키를 주고, 프론트는 재발급 API로 access token을 받는다 (#370)
  */
 @RestController
