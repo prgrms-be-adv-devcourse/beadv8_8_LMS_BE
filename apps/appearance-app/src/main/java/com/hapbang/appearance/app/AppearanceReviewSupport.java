@@ -1,5 +1,6 @@
 package com.hapbang.appearance.app;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,6 +54,16 @@ public class AppearanceReviewSupport {
      */
     public AppearanceReview saveNow(AppearanceReview review) {
         return appearanceReviewRepository.saveAndFlush(review);
+    }
+
+    /**
+     * 작성 기한 만료 공개 대상 출연 ID (#515). 공개 전 리뷰가 있고 출연 확인 시각이 기준 시각 이전·같은 출연, 오래된 순 최대 {@code limit}개
+     *
+     * @param confirmedCutoff 지금 − 작성 기한
+     */
+    public List<Long> findAppearanceIdsWithUnpublishedConfirmedUpTo(LocalDateTime confirmedCutoff, int limit) {
+        return appearanceReviewRepository.findAppearanceIdsWithUnpublishedConfirmedUpTo(confirmedCutoff,
+                PageRequest.of(0, limit));
     }
 
     /** 공개 시각 변경을 바로 DB에 반영한다 */

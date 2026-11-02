@@ -137,6 +137,28 @@ class AppearanceReviewTest {
         }
 
         @Test
+        @DisplayName("작성 기한 끝남(#515): 기한 없음이면 1년 뒤에도 false, 14일이면 확인 + 14일 1초 전 false·그 시각 true")
+        void writePeriodEnded() {
+            Appearance appearance = confirmed();
+            LocalDateTime deadline = CONFIRMED_AT.plusDays(14);
+
+            assertThat(appearance.isReviewWritePeriodEnded(UNLIMITED, CONFIRMED_AT.plusYears(1))).isFalse();
+            assertThat(appearance.isReviewWritePeriodEnded(FOURTEEN_DAYS, deadline.minusSeconds(1))).isFalse();
+            assertThat(appearance.isReviewWritePeriodEnded(FOURTEEN_DAYS, deadline)).isTrue();
+        }
+
+        @Test
+        @DisplayName("작성 기한 끝남(#515): 확인되지 않은 출연(성립·불참)은 기한이 있어도 false")
+        void writePeriodEndedOnlyConfirmed() {
+            Appearance establishedOnly = established();
+            Appearance absent = established();
+            absent.markAbsent(HOST, null, POLICY, CONFIRMED_AT);
+
+            assertThat(establishedOnly.isReviewWritePeriodEnded(FOURTEEN_DAYS, CONFIRMED_AT.plusDays(30))).isFalse();
+            assertThat(absent.isReviewWritePeriodEnded(FOURTEEN_DAYS, CONFIRMED_AT.plusDays(30))).isFalse();
+        }
+
+        @Test
         @DisplayName("상대: 호스트의 상대는 게스트, 게스트의 상대는 호스트, 당사자가 아니면 IllegalArgumentException")
         void counterpart() {
             Appearance appearance = confirmed();
