@@ -1,6 +1,7 @@
 package com.hapbang.member.out;
 
 import java.time.Instant;
+import java.util.Optional;
 
 /**
  * refresh token 저장소 (#370). 토큰 원문이 아니라 해시만 받는다.
@@ -19,8 +20,8 @@ public interface RefreshTokenStore {
      */
     RotationResult rotate(String oldTokenHash, String newTokenHash, Instant now);
 
-    /** 토큰 하나를 폐기한다 (로그아웃) */
-    void revoke(String tokenHash);
+    /** 토큰 하나를 폐기한다 (로그아웃). 폐기한 토큰의 회원 ID를 돌려준다. 없거나 이미 폐기된 토큰이면 빈 값 */
+    Optional<Long> revoke(String tokenHash);
 
     /** 회원의 토큰을 모두 폐기한다 (재사용 감지, 정지·탈퇴) */
     void revokeAll(Long userId);

@@ -52,12 +52,12 @@ import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 // 지갑 내부 API(#273)를 실제 보안 체인·MVC 변환기·PostgreSQL로 검증한다 (docs/api/internal-billing.md, docs/billing/CONTEXT.md 1장).
@@ -372,7 +372,7 @@ class ApiV1BillingInternalControllerTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("내부 API 키가 없거나 틀리면, 로그인 세션이 있어도 본문 없는 401이고 HP가 움직이지 않는다")
+    @DisplayName("내부 API 키가 없거나 틀리면, 로그인한 회원 헤더가 있어도 본문 없는 401이고 HP가 움직이지 않는다")
     void unauthorized() throws Exception {
         revenue(wallet(HOST), 10_000L);
         String body = hold(HOST, 7L, 10_000L);
@@ -384,7 +384,7 @@ class ApiV1BillingInternalControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(""));
-        mockMvc.perform(post(BASE + "/holds").with(TestLogin.as(HOST, Role.USER))
+        mockMvc.perform(post(BASE + "/holds").with(GatewayLogin.as(HOST, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(""));

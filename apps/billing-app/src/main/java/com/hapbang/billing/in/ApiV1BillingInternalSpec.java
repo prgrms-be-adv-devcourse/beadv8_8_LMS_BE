@@ -20,7 +20,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 // 지갑 내부 API(보류·반환·지급·위약금 정산)의 Swagger 명세이며, 매핑은 ApiV1BillingInternalController가 맡는다 (#273).
 @Tag(name = "HP 보류·반환·지급 (내부)", description = "모듈 간 내부 API. 강의·출연이 HP를 보류·반환·지급하고 출연 취소 위약금을 정산할 때 "
-        + "호출한다(docs/api/internal-billing.md). 회원 세션으로는 호출할 수 없고, 서버 밖에서는 진입점이 막는다.")
+        + "호출한다(docs/api/internal-billing.md). 회원 로그인으로는 호출할 수 없고, 내부 포트로만 받는다(외부 포트로 오면 404).")
 public interface ApiV1BillingInternalSpec {
 
     String API_KEY_DESCRIPTION = "내부 API 키 (hapbang.internal-api.key). 없거나 틀리면 401(본문 없음)";

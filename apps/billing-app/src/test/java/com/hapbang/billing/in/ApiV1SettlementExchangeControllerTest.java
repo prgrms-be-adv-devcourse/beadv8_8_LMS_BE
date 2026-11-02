@@ -1,7 +1,6 @@
 package com.hapbang.billing.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -37,11 +36,14 @@ import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.fixture.ChargeFixture;
+import com.hapbang.billing.fixture.GatewayLogin;
+import com.hapbang.billing.fixture.WalletMemberFixture;
+import com.hapbang.billing.out.BillingUserRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 // 환전 신청 API(#285)의 RsData 응답·상태 코드·검증 오류·계좌번호 마스킹·인증·인가를 MockMvc로 검증한다.
@@ -65,6 +67,9 @@ class ApiV1SettlementExchangeControllerTest {
     WalletRepository walletRepository;
 
     @Autowired
+    BillingUserRepository billingUserRepository;
+
+    @Autowired
     LedgerRecordUseCase ledgerRecordUseCase;
 
     @Autowired
@@ -76,6 +81,8 @@ class ApiV1SettlementExchangeControllerTest {
     void setUp() {
         revenue(walletRepository.save(Wallet.create(1L)).getId(), 10_000L);
         revenue(walletRepository.save(Wallet.create(2L)).getId(), 10_000L);
+        billingUserRepository.saveAndFlush(WalletMemberFixture.active(1L, Role.INFLUENCER));
+        billingUserRepository.saveAndFlush(WalletMemberFixture.active(2L, Role.INFLUENCER));
     }
 
     @ParameterizedTest
@@ -106,15 +113,15 @@ class ApiV1SettlementExchangeControllerTest {
         request(1L, role, "key-1", body(4_000, "004", ACCOUNT, "홍길동")).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_CONFLICT"));
 
-        mockMvc.perform(get(PATH + "/{id}", exchangeId).with(TestLogin.as(1L, role)))
+        mockMvc.perform(get(PATH + "/{id}", exchangeId).with(GatewayLogin.as(1L, role)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.account.accountNumberMasked").value("**********1234"));
-        mockMvc.perform(get(PATH).with(TestLogin.as(1L, role)))
+        mockMvc.perform(get(PATH).with(GatewayLogin.as(1L, role)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("환전 신청 목록을 조회했습니다."))
                 .andExpect(jsonPath("$.data.content[0].exchangeId").value(exchangeId))
                 .andExpect(jsonPath("$.data.page.totalElements").value(1));
-        mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, role)))
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(1L, role)))
                 .andExpect(jsonPath("$.data.revenueBalanceHp").value(7_000))
                 .andExpect(jsonPath("$.data.heldRevenueHp").value(3_000));
     }
@@ -126,14 +133,14 @@ class ApiV1SettlementExchangeControllerTest {
                 body(3_000, "004", ACCOUNT, "홍길동")).andReturn().getResponse().getContentAsString(), "$.data.exchangeId");
 
         cancel(2L, exchangeId).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("EXCHANGE_NOT_FOUND"));
-        mockMvc.perform(get(PATH + "/{id}", exchangeId).with(TestLogin.as(2L, Role.INFLUENCER)))
+        mockMvc.perform(get(PATH + "/{id}", exchangeId).with(GatewayLogin.as(2L, Role.INFLUENCER)))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("EXCHANGE_NOT_FOUND"));
         cancel(1L, exchangeId).andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("환전 신청을 취소했습니다."))
                 .andExpect(jsonPath("$.data.status").value("CANCELED"))
                 .andExpect(jsonPath("$.data.canceledAt").isString());
         cancel(1L, exchangeId).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("CANCELED"));
-        mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, Role.INFLUENCER)))
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(1L, Role.INFLUENCER)))
                 .andExpect(jsonPath("$.data.revenueBalanceHp").value(10_000))
                 .andExpect(jsonPath("$.data.heldRevenueHp").value(0));
 
@@ -175,7 +182,7 @@ class ApiV1SettlementExchangeControllerTest {
         request(1L, Role.INFLUENCER, "bad:key", body(1_000, "004", ACCOUNT, "홍길동"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("EXCHANGE_IDEMPOTENCY_KEY_INVALID"));
-        mockMvc.perform(post(PATH).with(csrf()).with(TestLogin.as(1L, Role.INFLUENCER))
+        mockMvc.perform(post(PATH).with(GatewayLogin.as(1L, Role.INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON).content(body(1_000, "004", ACCOUNT, "홍길동")))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         request(1L, Role.INFLUENCER, "key-1", body(1_000, "004", ACCOUNT, "가".repeat(51)))
@@ -196,7 +203,7 @@ class ApiV1SettlementExchangeControllerTest {
                         .andExpect(status().isConflict()).andReturn().getResponse().getContentAsString()
                 + request(1L, Role.INFLUENCER, "key-2", body(3_000, "004", invalidAccount, "홍길동"))
                         .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString()
-                + mockMvc.perform(get(PATH).with(TestLogin.as(1L, Role.INFLUENCER)))
+                + mockMvc.perform(get(PATH).with(GatewayLogin.as(1L, Role.INFLUENCER)))
                         .andReturn().getResponse().getContentAsString();
         jdbcTemplate.update("UPDATE billing.exchange_account SET account_number_encrypted = 'v1:broken'");
         responses += request(1L, Role.INFLUENCER, "key-1", body(3_000, "004", ACCOUNT, "홍길동"))
@@ -213,30 +220,66 @@ class ApiV1SettlementExchangeControllerTest {
     @Test
     @DisplayName("비로그인은 401, 유저·관리자는 403(FORBIDDEN)이고 신청·조회·취소를 할 수 없다")
     void authorization() throws Exception {
-        mockMvc.perform(post(PATH).with(csrf()).header("Idempotency-Key", "key-1")
+        mockMvc.perform(post(PATH).header("Idempotency-Key", "key-1")
                         .contentType(MediaType.APPLICATION_JSON).content(body(1_000, "004", ACCOUNT, "홍길동")))
                 .andExpect(status().isUnauthorized());
         for (Role role : List.of(Role.USER, Role.ADMIN)) {
             request(1L, role, "key-1", body(1_000, "004", ACCOUNT, "홍길동"))
                     .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
-            mockMvc.perform(get(PATH).with(TestLogin.as(1L, role)))
+            mockMvc.perform(get(PATH).with(GatewayLogin.as(1L, role)))
                     .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
-            mockMvc.perform(get(PATH + "/1").with(TestLogin.as(1L, role)))
+            mockMvc.perform(get(PATH + "/1").with(GatewayLogin.as(1L, role)))
                     .andExpect(status().isForbidden());
-            mockMvc.perform(post(PATH + "/1/cancel").with(csrf()).with(TestLogin.as(1L, role)))
+            mockMvc.perform(post(PATH + "/1/cancel").with(GatewayLogin.as(1L, role)))
                     .andExpect(status().isForbidden());
         }
         assertNothingCreated();
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // 지갑 회원 확인 (#537, BD-131): 환전 신청은 토큰과 복제본 모두 정상 상태의 인플루언서 이상이어야 한다
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("지갑 회원이 없으면 404, 정지·유저(강등)면 403이고 신청·보류를 만들지 않는다. 조회는 확인하지 않는다")
+    void walletMember_notAllowed() throws Exception {
+        revenue(walletRepository.save(Wallet.create(3L)).getId(), 10_000L);
+        revenue(walletRepository.save(Wallet.create(4L)).getId(), 10_000L);
+        revenue(walletRepository.save(Wallet.create(5L)).getId(), 10_000L);
+        billingUserRepository.saveAndFlush(WalletMemberFixture.member(4L, Role.INFLUENCER, UserStatus.SUSPENDED));
+        // 토큰은 아직 인플루언서지만 복제본은 유저로 강등됐다
+        billingUserRepository.saveAndFlush(WalletMemberFixture.active(5L, Role.USER));
+        String body = body(1_000, "004", ACCOUNT, "홍길동");
+
+        request(3L, Role.INFLUENCER, "key-1", body).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("WALLET_MEMBER_NOT_FOUND"));
+        request(4L, Role.INFLUENCER, "key-1", body).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("WALLET_MEMBER_NOT_ALLOWED"));
+        request(5L, Role.INFLUENCER, "key-1", body).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("WALLET_MEMBER_NOT_ALLOWED"));
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.exchange", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_hold", Integer.class)).isZero();
+
+        mockMvc.perform(get(PATH).with(GatewayLogin.as(3L, Role.INFLUENCER))).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(4L, Role.INFLUENCER)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("복제본이 인플루언서여도 토큰이 유저면 기존대로 403 FORBIDDEN이다(토큰 역할을 먼저 본다)")
+    void walletMember_tokenRoleStillChecked() throws Exception {
+        request(1L, Role.USER, "key-1", body(1_000, "004", ACCOUNT, "홍길동")).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
     private ResultActions request(Long userId, Role role, String key, String body) throws Exception {
-        return mockMvc.perform(post(PATH).with(csrf()).with(TestLogin.as(userId, role))
+        return mockMvc.perform(post(PATH).with(GatewayLogin.as(userId, role))
                 .header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
     private ResultActions cancel(Long userId, Integer exchangeId) throws Exception {
-        return mockMvc.perform(post(PATH + "/{id}/cancel", exchangeId).with(csrf())
-                .with(TestLogin.as(userId, Role.INFLUENCER)));
+        return mockMvc.perform(post(PATH + "/{id}/cancel", exchangeId)
+                .with(GatewayLogin.as(userId, Role.INFLUENCER)));
     }
 
     private static String body(long amount, String bankCode, String accountNumber, String holder) {

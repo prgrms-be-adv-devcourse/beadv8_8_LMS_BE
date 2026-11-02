@@ -45,7 +45,10 @@
 | Billing 실제 연동 (Fake Billing·`mode` 설정 삭제, 실제 Billing 통합 테스트) | ✅ | #289 |
 | 정리: 작업 뒤 상세 조회 읽기 전용 트랜잭션, 충돌 변환 통합 | ✅ | #293 |
 | 격리된 HP 작업 관리자 조회·다시 시도 | ✅ | #397 |
-| 출연 리뷰 작성(블라인드 공개). 공개 이벤트·조회·기한 만료 공개는 #513~#515 | ✅ | #512 |
+| 출연 리뷰 작성(블라인드 공개) | ✅ | #512 |
+| 리뷰 공개 이벤트 Kafka 발행 (`AppearanceReviewPublishedEvent`) | ✅ | #513 |
+| 출연 상세 리뷰 정보, 회원이 받은 리뷰 내부 조회 API | ✅ | #514 |
+| 작성 기한 만료 리뷰 공개 배치 (기본 꺼 둠, 작성 기한을 켜면 동작) | ✅ | #515 |
 
 ---
 
@@ -579,6 +582,7 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
   ├ 00초 AppearanceHoldRecheckUseCase.recheckDue()   보류 처리 중 요청서·모집글 재확인
   ├ 05초 AppearanceEventRepublishUseCase.republishDue()  Kafka로 못 보낸 알림 이벤트 재발행 (#393, 11.3)
   ├ 10초 AppearanceRecruitDeadlineCloseUseCase.closeDue()  모집 기한 마감 + 미달분 반환 (#222, 10장)
+  ├ 15초 AppearanceReviewExpirePublishUseCase.publishDue()  리뷰 작성 기한 만료 공개 (#515, 21.7. 작성 기한이 없으면 아무것도 안 함)
   ├ 20초 AppearanceRequestExpireUseCase.expireDue()  수락 기한 만료 + 반환
   ├ 30초 AppearanceCancelAutoRejectUseCase.rejectDue()  출연 취소 요청 자동 거절 (#231, 12장)
   ├ 40초 HpTaskRetryUseCase.retryDue()               HP 작업 재시도·격리 + 지표 갱신
@@ -795,15 +799,15 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 항목 | 내용 |
 |---|---|
 | 방식 | Spring Modulith 이벤트 외부화(`spring-modulith-events-kafka`). 업무 트랜잭션 안에서 발행한 이벤트가 발행 기록(`event_publication`)에 남고, 커밋 뒤 비동기로 보낸다 |
-| 대상 | shared 출연 이벤트 중 `@Externalized`가 붙은 것: `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent`. 출연 취소 요청 이벤트 3종은 받는 곳이 없어 붙이지 않았다(받는 쪽이 생기면 key `appearance:<출연 ID>`로 더한다). 판단은 `app.AppearanceExternalEvents` |
+| 대상 | shared 출연 이벤트 중 `@Externalized`가 붙은 것: `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent`, `AppearanceReviewPublishedEvent`(#513, 21.6). 출연 취소 요청 이벤트 3종은 받는 곳이 없어 붙이지 않았다(받는 쪽이 생기면 key `appearance:<출연 ID>`로 더한다). 판단은 `app.AppearanceExternalEvents` |
 | 토픽 | `appearance.events.v1`(shared `AppearanceEventTopic.NAME`). 출연 이벤트 타입을 한 토픽에 섞는다. 출연 앱이 `NewTopic`으로 선언한다(partition 3개, 복제 1). 브로커 자동 생성은 꺼져 있다 |
-| key | 이벤트가 다루는 대상 ID에 종류 접두어: 요청 도착 `appearance-request:<요청서 ID>`, 지원 도착 `appearance-application:<지원 ID>`. shared 레코드의 `@Externalized("appearance.events.v1::#{…}")`로 정한다. 같은 key는 같은 partition으로 가지만, 커밋 뒤 비동기로 보내므로 순서는 보장하지 않는다 |
+| key | 이벤트가 다루는 대상 ID에 종류 접두어: 요청 도착 `appearance-request:<요청서 ID>`, 지원 도착 `appearance-application:<지원 ID>`, 리뷰 공개 `appearance-review-reviewee:<받은 회원 ID>`(받은 사람 단위로 모음, #513). shared 레코드의 `@Externalized("appearance.events.v1::#{…}")`로 정한다. 같은 key는 같은 partition으로 가지만, 커밋 뒤 비동기로 보내므로 순서는 보장하지 않는다 |
 | 본문 | shared 이벤트 레코드를 그대로 JSON으로 싣는다(봉투 없음). 예: `{"request":{"requestId":1,"hostId":1,"guestId":2,"title":"…","fee":30000,"scheduledAt":"2026-11-05T17:54:44","acceptDeadline":"2026-10-31T17:54:44"}}`. 시각은 KST `LocalDateTime` |
-| 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). 값 직렬화기 `JacksonJsonSerializer`가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
+| 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent`·`AppearanceReviewPublishedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). 값 직렬화기 `JacksonJsonSerializer`가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
 | 직렬화 | `appearance.yml`의 `spring.kafka.producer.value-serializer=JacksonJsonSerializer`. Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] + 바이트 JSON 변환기)는 끈다(`spring.modulith.events.kafka.enable-json=false`, #394). 회원 앱 발행 설계와 같은 방식이고, 켜 두면 회원 이벤트 수신(4.1)이 실패한다 |
 | 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
 | 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose의 Kafka(`localhost:9092`)로 보낸다. 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
-| 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification` (kafka.md 토픽 목록) |
+| 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification` (kafka.md 토픽 목록). 리뷰 공개는 회원 모듈이 받을 예정(#516). 채팅은 모르는 타입을 기본 처리기에서 무시한다 |
 
 - 같은 버전 안에서는 선택 필드 추가만 한다. 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(kafka.md 이벤트 버전).
 - 내보낼 이벤트를 더하려면 shared 레코드에 `@Externalized`를 붙이고 `out/event/AppearanceEventExternalizationConfig`에 `eventType` 헤더를 더한다. 받는 앱을 먼저 배포한다(ADR 0001).
@@ -1240,10 +1244,44 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 - 인덱스 `idx_appearance_reviews_reviewee_id_published_at (reviewee_id, published_at)`: 회원이 받은 공개 리뷰 조회(#514)
 - 마이그레이션: `V202611021050__create_appearance_review_table.sql`
 
-### 21.6 남은 일
+### 21.6 공개 이벤트 (#513)
 
-- 공개될 때 별점·ID를 담은 이벤트를 `appearance.events.v1`로 발행(#513), 작성 기한을 켰을 때 기한이 지난 한쪽 리뷰 공개 배치(#515, 기본 꺼 둠)
+리뷰가 공개되면 회원 모듈이 받은 사람의 평점을 계산할 수 있도록 `AppearanceReviewPublishedEvent`를 `appearance.events.v1`로 발행한다. 전송 방식(발행 기록, 커밋 뒤 Kafka, 재발행 배치)은 11.3과 같다.
+
+| 항목 | 내용 |
+|---|---|
+| 시점 | 리뷰가 공개되는 트랜잭션. 공개된 리뷰 하나에 한 번 발행하므로 블라인드 공개면 2개가 나간다. 한쪽만 쓴 동안·작성 실패·롤백이면 나가지 않는다 |
+| 본문 | `reviewId`, `appearanceId`, `reviewerUserId`, `revieweeUserId`, `revieweeRole`(shared `AppearanceParticipantRole` `HOST`·`GUEST`), `rating`(1~5 정수), `publishedAt`(KST, DB와 같은 마이크로초). 리뷰 본문은 담지 않는다 |
+| key | `appearance-review-reviewee:<revieweeUserId>`. 같은 사람이 받은 리뷰가 같은 partition으로 간다(순서는 보장하지 않음, 11.3) |
+| 헤더 | `eventType` `AppearanceReviewPublishedEvent`, `eventVersion` `1` |
+| 중복 | 최소 한 번 전달이라 받는 쪽(회원)은 `reviewId`로 중복을 거른다. 평점은 별점 합계·개수로 계산한다(별점이 정수여도 평균은 소수) |
+| 보존 | 토픽 보존은 72시간이다. 회원이 이보다 늦게 받기 시작하면 그 전 공개 리뷰는 조회 API(#514)로 초기 적재한다 |
+
+- 배포 메모: 같은 토픽을 받는 채팅 앱은 새 타입의 클래스(shared)가 있으면 기본 처리기에서 무시하고, 없으면 역직렬화에 실패해 DLT로 보낸다(ADR 0001). main 병합 뒤 배포에서는 shared 변경으로 모든 앱이 다시 배포되지만, 앱이 출연 → 강의 → 채팅 순서로 올라가므로 그사이 공개된 리뷰 이벤트는 옛 채팅 앱에서 DLT로 갈 수 있다(알림·데이터 영향 없음, 채팅이 올라가면 멈춤). 중간 앱 배포가 실패해 채팅이 옛 버전으로 남아도 같다.
+
+### 21.7 작성 기한 만료 공개 배치 (#515)
+
+작성 기한을 켜면 기한이 지난 뒤에는 상대가 더 쓸 수 없다. 그래서 한쪽만 쓴 리뷰가 영영 비공개로 남지 않도록 배치가 공개한다.
+
+| 항목 | 내용 |
+|---|---|
+| 켜고 끄기 | 작성 기한 설정 `appearance.review.write-period` 하나로 정한다. 비어 있으면(지금, 무기한) 배치는 대상을 찾지도 않고 끝난다. 값을 넣으면 작성 제한과 이 배치가 함께 켜진다 |
+| 주기 | 매분 15초 (`appearance.batch.review-expire-publish-cron`, 다른 배치와 겹치지 않는 초) |
+| 대상 | 공개 전 리뷰가 있고 출연 확인 시각 + 작성 기한 ≤ 지금인 출연. 출연 확인이 오래된 순으로 한 번에 최대 `batch-size`(100)개 출연, 나머지는 다음 주기 |
+| 처리 | 출연마다 [트랜잭션] 출연 배타 잠금 → 기한이 지났는지 다시 확인 → 공개 전 리뷰를 지금 시각으로 공개하고 리뷰마다 공개 이벤트(21.6) 1개 발행. 출연마다 예외를 잡아 다음 출연을 계속 처리 |
+| 동시 작성 | 작성 API와 같이 출연 행을 먼저 잠근다. 작성과 겹쳐도 차례로 처리돼 리뷰마다 한 번만 공개된다. 배치가 먼저 공개한 리뷰는 상대가 나중에 써도(기한 직전 요청이 잠금을 기다린 경우) 공개 시각을 바꾸지 않고 이벤트를 다시 보내지 않는다(작성 쪽은 이번에 공개된 리뷰만 발행) |
+| 인덱스 | 따로 두지 않았다. 기한을 켤 때만 돌고, 대상은 공개 전 리뷰라 많지 않다 |
+
+- 기한을 실제로 켤 때 확인할 것
+    - 프론트에 작성 기한 안내가 필요하다.
+    - 대상 조회(`published_at is null` + 출연 `confirmed_at` 조인·정렬)가 매분 돈다. 켜기 전에 운영 데이터로 실행 계획을 보고, 느리면 공개 전 리뷰만 담는 부분 인덱스(`where published_at is null`)를 더한다.
+    - 같은 출연이 매번 실패하면 오래된 순이라 계속 맨 앞에 남는다. 그런 출연이 `batch-size`개 쌓이면 뒤 출연은 처리되지 않는다. 지금은 매번 실패할 경로가 없지만, 켜면 경고 로그 `작성 기한 만료 리뷰 공개 중 예외`가 반복되는지 지켜본다.
+- 구조: `app.AppearanceReviewExpirePublishUseCase`, `Appearance.isReviewWritePeriodEnded`, `AppearanceReviewRepository.findAppearanceIdsWithUnpublishedConfirmedUpTo`, 배치 메서드 `AppearanceBatch.publishExpiredReviews`
+
+### 21.8 남은 일
+
 - 출연 상세의 리뷰·회원용 받은 리뷰 목록 조회는 22장(#514)
+- 문서·회원 연동 요청(#516)
 
 ---
 

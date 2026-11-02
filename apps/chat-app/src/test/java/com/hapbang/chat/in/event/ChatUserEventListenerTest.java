@@ -306,11 +306,11 @@ class ChatUserEventListenerTest {
     }
 
     @Test
-    void 로그아웃_이벤트는_sessionId를_쓰지_않고_회원_단위_연결_종료_작업과_대기_체크포인트를_남긴다() {
+    void 로그아웃_이벤트는_회원_단위_연결_종료_작업과_대기_체크포인트를_남긴다() {
         long id = nextId();
         joined(id, "호스트", Role.INFLUENCER, UserStatus.ACTIVE, 1L);
 
-        loggedOut(id, "\"any-session\"");
+        loggedOut(id, "\"2026-11-02T00:00:00Z\"");
         awaitProcessed();
 
         List<Map<String, Object>> rows = controlRows(id);
@@ -330,10 +330,10 @@ class ChatUserEventListenerTest {
 
     // 원본 버전이 없고 같은 회원이 여러 번 로그아웃하므로 이벤트마다 작업을 남긴다. 같은 이벤트를 다시 받아도 닫기만 반복한다
     @Test
-    void 같은_회원의_로그아웃을_여러_번_받으면_이벤트마다_작업을_남기고_sessionId가_없어도_처리한다() {
+    void 같은_회원의_로그아웃을_여러_번_받으면_이벤트마다_작업을_남기고_loggedOutAt이_없어도_처리한다() {
         long id = nextId();
 
-        loggedOut(id, "\"s-1\"");
+        loggedOut(id, "\"2026-11-02T00:00:00Z\"");
         loggedOut(id, "null");
         awaitProcessed();
 
@@ -358,7 +358,7 @@ class ChatUserEventListenerTest {
     @Test
     void 회원_ID가_없거나_1보다_작은_로그아웃은_재시도_없이_DLT로_보내고_작업을_남기지_않는다() {
         long key = nextId();
-        send(UserLoggedOutEvent.class.getName(), key, "{\"userId\":0,\"sessionId\":null}");
+        send(UserLoggedOutEvent.class.getName(), key, "{\"userId\":0,\"loggedOutAt\":null}");
 
         ConsumerRecord<String, byte[]> deadLetter = awaitDeadLetter(key);
         assertThat(exceptionClasses(deadLetter)).contains("RejectedEventException");
@@ -396,9 +396,9 @@ class ChatUserEventListenerTest {
         send(UserModifiedEvent.class.getName(), id, userJson(id, nickname, role, status, version));
     }
 
-    /** 지금 shared 레코드({@code UserLoggedOutEvent(userId, sessionId)})의 모양. sessionId는 JSON 값 그대로 넣는다 */
-    private void loggedOut(long id, String sessionIdJson) {
-        send(UserLoggedOutEvent.class.getName(), id, "{\"userId\":" + id + ",\"sessionId\":" + sessionIdJson + "}");
+    /** shared 레코드({@code UserLoggedOutEvent(userId, loggedOutAt)})의 모양 (#539). loggedOutAt은 JSON 값 그대로 넣는다 */
+    private void loggedOut(long id, String loggedOutAtJson) {
+        send(UserLoggedOutEvent.class.getName(), id, "{\"userId\":" + id + ",\"loggedOutAt\":" + loggedOutAtJson + "}");
     }
 
     /** member-app의 발행 형식: key = 회원 ID 문자열, value = JSON 바이트, 헤더 {@code __TypeId__} 하나 */

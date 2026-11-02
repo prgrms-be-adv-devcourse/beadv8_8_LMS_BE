@@ -7,7 +7,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-/** 주문의 HP 작업으로 결제 단계를 판정한다 (D58 (3), D69 (2)) */
+/** 주문의 HP 작업으로 결제 단계를 판정한다 (D58 (3), D69 (2), D73 (3)) */
 class OrderHoldTasksTest {
 
     private static final Long ORDER_ID = 3L;
@@ -66,6 +66,38 @@ class OrderHoldTasksTest {
     }
 
     @Test
+    void 보류_무효화로_끝낸_보류는_무효화가_성공해야_결제_실패다() {
+        LectureHpTask voided = voided(hold(31L));
+        LectureHpTask held = succeeded(hold(32L));
+        LectureHpTask compensation = succeeded(compensation(32L));
+        LectureHpTask holdVoid = holdVoid(31L);
+
+        assertThat(OrderHoldTasks.of(List.of(voided, held, compensation)).isFailureSettled()).isFalse();
+        assertThat(OrderHoldTasks.of(List.of(voided, held, compensation, holdVoid)).isFailureSettled()).isFalse();
+
+        succeeded(holdVoid);
+        assertThat(OrderHoldTasks.of(List.of(voided, held, compensation, holdVoid)).isFailureSettled()).isTrue();
+        // 무효화로 끝낸 보류는 성공한 보류가 아니라 반환하지 않는다
+        assertThat(OrderHoldTasks.of(List.of(voided, holdVoid)).holdsToCompensate()).isEmpty();
+    }
+
+    @Test
+    void 무효화_작업도_처리_상태에_센다() {
+        LectureHpTask voided = voided(hold(31L));
+        LectureHpTask holdVoid = holdVoid(31L);
+
+        assertThat(OrderHoldTasks.of(List.of(voided, holdVoid)).processingStatus())
+                .isEqualTo(ProcessingStatus.PROCESSING);
+
+        holdVoid.markDead("HOLD_OWNER_MISMATCH", NOW);
+        assertThat(OrderHoldTasks.of(List.of(voided, holdVoid)).processingStatus())
+                .isEqualTo(ProcessingStatus.ACTION_REQUIRED);
+
+        succeeded(holdVoid);
+        assertThat(OrderHoldTasks.of(List.of(voided, holdVoid)).processingStatus()).isNull();
+    }
+
+    @Test
     void 처리_상태는_끝나지_않은_작업_중_가장_나쁜_상태다() {
         LectureHpTask processing = hold(31L);
         LectureHpTask delayed = hold(32L);
@@ -101,6 +133,17 @@ class OrderHoldTasksTest {
     private static LectureHpTask compensation(Long orderItemId) {
         return LectureHpTask.create(LectureHpTaskPurpose.HOLD_COMPENSATION,
                 "LECTURE-HOLD-COMPENSATE-" + orderItemId, ORDER_ID, orderItemId, 7L, null, 10_000L, NOW);
+    }
+
+    private static LectureHpTask holdVoid(Long orderItemId) {
+        return LectureHpTask.create(LectureHpTaskPurpose.HOLD_VOID, "LECTURE-HOLD-VOID-" + orderItemId, ORDER_ID,
+                orderItemId, 7L, null, 10_000L, NOW);
+    }
+
+    private static LectureHpTask voided(LectureHpTask hold) {
+        hold.markDead("IDEMPOTENCY_KEY_CONFLICT", NOW);
+        hold.voidByAdmin(1L, NOW);
+        return hold;
     }
 
     private static LectureHpTask succeeded(LectureHpTask task) {

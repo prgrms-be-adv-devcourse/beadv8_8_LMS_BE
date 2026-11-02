@@ -9,6 +9,7 @@
 > - 2026-10-30 #428 반영: BT-EVT-01을 Kafka 소비 규칙(#339)에 맞춰 `eventId` inbox에서 자연 키 멱등·소비 그룹 둘·그룹별 DLT로 고쳤다.
 > - 2026-10-30 #430 반영: 회원 이벤트 리스너 두 개가 Kafka 소비로 바뀌었다. BT-EVT-01은 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증하고 JVM 칸을 "없음"으로, BT-WAL-02·BT-USR-02는 Kafka 경로 테스트로 옮겨 "없음"으로 바꿨다. 같은 JVM `Scenario.publish` 테스트는 없앴다(리스너 직접 호출 또는 Kafka 테스트로 대체).
 > - 2026-11-02 #280 반영: 소비 앱이 Java Port 없이 단독 기동하므로 BT-PORT-05를 k3s 기동 확인으로 바꾸고(JVM 깨짐 → 없음) Contract 대상에서 뺐다. BT-PORT-04는 소비 앱 테스트를 적고 JVM을 "경계"로 바꿨다.
+> - 2026-11-02 #537 반영: 테스트 로그인을 `TestLogin`(OAuth2 흉내)에서 `GatewayLogin`(사용자 헤더)으로 바꿔 API 테스트가 실제 헤더 필터를 거친다. CSRF 토큰(`csrf()`)과 OAuth2 등록 속성을 뺐다. BT-SEC-05(`GatewayUserHeaderFilterTest`)·BT-SEC-06(충전·환불·환전 컨트롤러 테스트의 `walletMember_*`)을 앱 쪽 검증으로 채웠다.
 > - 2026-11-02 #497 반영: 지갑 이벤트 발행(BT-EVT-02, `BillingEventKafkaTest`·`BillingExternalEventsTest`, 각 흐름 통합 테스트의 발행 기록 검증)을 더했고, BT-CFG-04(`ModulithEventsDisabledTest`)는 폐기했다. 7장은 82개 클래스·801개다.
 > - 2026-11-01 #494 반영: 내부 Command 경계(BT-PORT-06, `BillingSharedDtoAccessTest`·`PaymentHoldRequestsTest`)를 더했다. 기존 테스트는 shared Command 대신 `Payment*Command`를 쓴다. 7장은 81개 클래스·796개다.
 > - 2026-10-31 #486 반영: `BillingPortIntegrationTest`를 지우고 BT-PORT-01~03을 내부 API 테스트로 옮겼다(JVM 깨짐 → 없음). 다른 모듈 트랜잭션 참여 검증은 HTTP에 없는 동작이라 요청 단위 롤백으로 대신했다. 충전·환전·환불 테스트의 준비는 `HoldFacade`로 바꿨다(BT-CHG-08·BT-EXC-01 경계 → 없음). 7장은 79개 클래스·792개다.
@@ -98,7 +99,7 @@
 
 - `@IntegrationTest`는 `spring.config.name=hapbang-module-test`로 **앱의 `application.yaml`을 읽지 않는다.** 내부 API 키는 `test-internal-api-key`이고, 배치는 `hapbang.scheduling.enabled`가 없어 꺼진다(추정). 실제 설정으로 기동하는지는 검증하지 않는다(BT-CFG-02).
 - `ModuleTestConfiguration`은 `@ComponentScan("com.hapbang")`라 billing 테스트 클래스패스의 `shared` 빈도 함께 뜬다. 다른 앱의 빈은 클래스패스에 없다.
-- 로그인은 `TestLogin.as`(`oauth2Login()` 후처리기)로 흉내 낸다. 분리된 앱 사이의 실제 인증은 검증하지 않는다(BT-SEC-05).
+- 로그인은 `GatewayLogin.as`(운영에서 Gateway가 넘기는 `X-User-Id`·`X-User-Role` 헤더를 싣는 후처리기, #537)로 흉내 낸다. 요청이 실제 `GatewayUserHeaderFilter`를 거친다. Envoy의 JWT 검증과 헤더 제거는 검증하지 않는다(BT-SEC-05).
 - 회원 이벤트는 `BillingMemberEventKafkaTest`가 Kafka Testcontainers의 `member.events.v1`에 member-app과 같은 형식(shared 레코드 JSON, `__TypeId__` 헤더, key 회원 ID)으로 보내 두 소비 그룹의 처리를 검증한다. 리스너 로직은 직접 호출로도 본다(`WalletCreationIntegrationTest`). 실제 member-app 발행(#416)과 이어 보는 검증은 없다(BT-EVT-01, 6.2).
 
 ### 2.2 Unit 실행 목록 대조
@@ -119,7 +120,8 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | `@RepositoryTest` | 같은 곳 | `@DataJpaTest` + PG 컨테이너, 테스트마다 롤백 |
 | `PostgresTestcontainersConfig` | 같은 곳 | `postgres:18`, static 시작(JVM당 1개), Flyway baseline 0·out-of-order, `ddl-auto=validate` |
 | `DatabaseCleanUp(Listener)` | 같은 곳 | 테스트 메서드마다 JPA 매핑 테이블 TRUNCATE(IDENTITY 값은 초기화하지 않음) |
-| `TestLogin.as(userId, role)` | 같은 곳 | `oauth2Login()` 후처리기 |
+| `GatewayLogin.as(userId, role)` | `billing.fixture` | 사용자 헤더 후처리기 (#537) |
+| `WalletMemberFixture.active·member` | `billing.fixture` | 지갑 회원(복제본) 데이터. 충전·환불·환전 신청 테스트는 `setUp`에서 저장한다 (#537) |
 | `WebSliceTestConfiguration` | 같은 곳 | `@WebMvcTest` 진입점 |
 | `KafkaTestcontainersConfig`, `RedisTestcontainersConfig` (#380) | 같은 곳 | `@Import`로 가져온 테스트에서만 켜지는 Kafka(`apache/kafka:4.2.1` 단일 노드 KRaft)·Redis(`redis:8`). JVM당 종류별 1개, 동적 포트를 `spring.kafka.bootstrap-servers`·`spring.data.redis.*`에 주입. `@IntegrationTest` 기본값은 그대로 PostgreSQL만 띄운다. **billing 테스트는 아직 쓰지 않는다**(사용 0건). 쓰는 규칙은 `docs/dev/testing.md` "Kafka·Redis Testcontainers" |
 | `BillingFixture` | `fixture/` | 엔티티 빌더 |
@@ -149,7 +151,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | 값 | 뜻 |
 | --- | --- |
 | 없음 | Billing 앱 안에서 닫힌다. 분리 전후 의미가 같다 |
-| 경계 | 테스트는 같은 JVM 대역(Scenario, TestLogin, 가짜 서버)으로 경계를 흉내 낸다. 통과해도 분리 환경의 동작은 보장하지 않는다 |
+| 경계 | 테스트는 같은 JVM 대역(Scenario, GatewayLogin, 가짜 서버)으로 경계를 흉내 낸다. 통과해도 분리 환경의 동작은 보장하지 않는다 |
 | 깨짐 | 검증하는 계약 자체가 독립 JVM에서 성립하지 않는다 |
 | 미확인 | 코드로 영향을 판단하지 못했다 |
 
@@ -281,12 +283,12 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 
 | ID | 대상 | 검증 기준 | 근거 | 단계 | 테스트 | JVM | 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BT-SEC-01 | URL 인가 | 관리자 경로 두 겹, `@PreAuthorize` 역할, 공개 경로(헬스체크 등), 비로그인 401 | A14, policy.md 역할표 | S | `SecurityConfigTest`(12) | 미확인 (`TestLogin`으로 인증을 흉내 냄) | R-003 통과 (JVM 영향 미확인) |
-| BT-SEC-02 | `@LoginUserId` | 로그인 사용자 ID 해석, 익명 처리 | — | U | `LoginUserIdArgumentResolverTest`(4) | 미확인 (principal 이름 = 회원 ID라는 전제) | R-003 통과 (JVM 영향 미확인) |
-| BT-SEC-03 | 내부 API 키 | 맞는 키만 통과, 경로 prefix 보호, 세션과 키 분리, 내부 경로만 CSRF 해제, 키 미노출, 키 없으면 기동 실패 | AGENTS 7장 | U, S | `InternalApiKeyFilterTest`(2), `InternalApiPropertiesTest`(4), `InternalApiSecurityConfigTest`(11) | 없음 (체인만 있고 Billing이 노출하는 내부 경로는 없음) | R-003 통과 |
+| BT-SEC-01 | URL 인가 | 관리자 경로 두 겹, `@PreAuthorize` 역할, 공개 경로(헬스체크 등), 비로그인 401 | A14, policy.md 역할표 | S | `SecurityConfigTest`(11) | 경계 (사용자 헤더로 인증, #537) | #537 통과 |
+| BT-SEC-02 | `@LoginUserId` | 로그인 사용자 ID 해석, 익명 처리 | — | U | `LoginUserIdArgumentResolverTest`(4), `SecurityConfigTest#사용자_헤더로_인증하면_LoginUserId에_회원_ID가_들어간다` | 경계 (principal 이름 = 헤더의 회원 ID, #537) | R-003 통과 (JVM 영향 미확인) |
+| BT-SEC-03 | 내부 API 키 | 맞는 키만 통과, 경로 prefix 보호, 사용자 헤더와 키 분리, 두 체인 모두 CSRF 없음(#537), 키 미노출, 키 없으면 기동 실패 | AGENTS 7장 | U, S | `InternalApiKeyFilterTest`(2), `InternalApiPropertiesTest`(4), `InternalApiSecurityConfigTest`(11) | 없음 (체인만 있고 Billing이 노출하는 내부 경로는 없음) | R-003 통과 |
 | BT-SEC-04 | 기능별 역할 | Facade `@PreAuthorize` 역할(관리자 지갑 403 등) | policy.md 역할표 | I | `WalletFacadeTest`(2), 각 `ApiV1*ControllerTest#authorization`·`#roles` | 경계 (인증) | R-003 통과 (경계) |
-| BT-SEC-05 | 분리 환경 인증 | member-app이 발급한 JWT를 Envoy가 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더로 billing-app이 사용자·관리자를 인증하고 `@PreAuthorize`로 인가한다. 헤더 없는 요청은 비로그인(401), 외부에서 붙인 `X-User-*`는 앱에 닿지 않는다 | #370~#372, 인프라 문서 3장 | T | 없음 | 깨짐 (현재 방식 미확인) | 없음 |
-| BT-SEC-06 | HP 경로의 회원 상태 확인 | 토큰의 `role`만 믿지 않고 Billing 회원 복제본 상태를 함께 확인한다(정지·역할 변경이 토큰 수명만큼 늦게 반영되는 문제 방지). 대상 경로는 TBD(decisions 11장) | 인프라 문서 3장 인증 흐름 7, #371 | I | 없음 (현재 확인은 환전 승인뿐: BT-EXC-06) | 미확인 | 없음 |
+| BT-SEC-05 | 분리 환경 인증 | member-app이 발급한 JWT를 Envoy가 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더로 billing-app이 사용자·관리자를 인증하고 `@PreAuthorize`로 인가한다. 헤더 없는 요청은 비로그인(401), 외부에서 붙인 `X-User-*`는 앱에 닿지 않는다 | #370~#372, 인프라 문서 3장 | S, T | `GatewayUserHeaderFilterTest`(4): 헤더 인증·헤더 없음 401·한쪽만/형식 오류 익명 + 경고 로그·CSRF 없이 POST·세션·쿠키 없음. Envoy JWT 검증·외부 `X-User-*` 제거는 Gateway 테스트(`k8s/gateway/tests`) 몫 | 앱 쪽 구현됨(#537, BD-131) | #537 통과 (앱 쪽) |
+| BT-SEC-06 | HP 경로의 회원 상태 확인 | 토큰 역할과 함께 지갑 회원(복제본) 상태·역할을 확인한다. 충전 주문·승인 = 정상 + 유저 이상(관리자 제외), 환불 신청 = 정상·정지, 환전 신청 = 정상 + 인플루언서 이상. 복제본 없음 404 `WALLET_MEMBER_NOT_FOUND`, 부적격 403 `WALLET_MEMBER_NOT_ALLOWED`, 기록·HP 변화 없음. 결제창에 있는 동안 정지되면 승인 403·TossPayments 미호출. 조회는 확인하지 않음 | BD-131, policy.md 2장, 인프라 문서 3장 인증 흐름 7 | I | `ApiV1WalletChargeControllerTest#walletMember_*`(3), `ApiV1WalletRefundControllerTest#walletMember_*`(2), `ApiV1SettlementExchangeControllerTest#walletMember_*`(2), 환전 승인은 BT-EXC-06 | 경계 (회원 이벤트 반영 지연 동안은 404) | #537 통과 |
 | BT-ERR-01 | 오류 응답 | `ProblemDetail` + `code`, 검증 오류 항목, 403·405·500(내부 메시지 미노출) | conventions.md, BD-105, BD-106 | U, S | `GlobalExceptionHandlerTest`(15), `BusinessExceptionTest`(6) | 없음 | R-003 통과 |
 | BT-ERR-02 | 페이지 응답 | 형식, 최대 100, 기본 20 | A14 | S | `PageConfigTest`(3) | 없음 | R-003 통과 |
 | BT-DB-01 | 스키마 | Flyway 15개 테이블(#479 `hold_void` 포함) + Hibernate validate, TIMESTAMPTZ·BIGINT, FK는 Billing 내부만, 다른 도메인 테이블 없음 | module.md 8.2 | R | `BillingSchemaTest`(6) | 없음 (database 분리 시 다시 확인) | R-003 통과 |
@@ -307,7 +309,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | ~~BillingPort 호출~~ | 강의·출연이 `BillingPort` 빈을 주입받아 Java로 호출 | 해소: 강의(#275~#277)·출연(#274)이 지갑 내부 HTTP API를 부르고, `BillingPort`·`BillingPortAdapter`는 #486에서 지웠다 | BT-PORT-01, 04, 05 | BD-51, BD-52 |
 | 모듈 간 트랜잭션 경계 | 주문 저장 + 보류가 한 DB 트랜잭션, 실패하면 함께 롤백, 모듈 간 락 순서 | 원격 호출은 같은 트랜잭션에 참여할 수 없다. 부분 성공(보류만 되거나 주문만 됨)을 복구할 설계가 없다 | BT-PORT-02, 03 | BD-53, BD-60, BD-64, BD-72, BD-107 |
 | 회원 이벤트 수신 | #430부터 Kafka `member.events.v1`을 소비 그룹 둘로 받는다. 멱등은 자연 키(BD-123) | 발행 쪽 #416이 병합돼야 실제로 이벤트가 온다. 앱 시작 전 가입자의 지갑은 조회 시 보완, 복제본은 Backfill로 채운다. billing의 Modulith 이벤트 기록 테이블·설정은 #471에서 지웠다 | BT-WAL-02, BT-USR-01·02, BT-EVT-01 | BD-2, BD-6, BD-103, BD-123 |
-| 인증·인가 | member의 OAuth2 로그인 세션 principal을 같은 앱이 해석 | billing-app에 oauth2Login·spring-session 의존이 없다. 다른 앱의 로그인 세션을 해석할 방법이 코드에 없다(미확인). 목표는 JWT + `X-User-*` 헤더 인증이며, 그때 CSRF 설정·`@LoginUserId`가 바뀐다 | BT-SEC-01·02·04·05·06 | BD-3, BD-103 (#370~#372) |
+| ~~인증·인가~~ | member의 OAuth2 로그인 세션 principal을 같은 앱이 해석 | 해소(#537): Envoy가 넘긴 사용자 헤더로 인증한다(`GatewayUserHeaderFilter`, STATELESS, CSRF 없음). 충전·환불·환전 신청은 지갑 회원도 확인한다. Envoy JWT 검증과 외부 `X-User-*` 제거는 앱 테스트가 다루지 않는다 | BT-SEC-01·02·04·05·06 | BD-131 |
 | 내부 HTTP API | 수익 조회·Backfill은 이미 HTTP | Client는 분리 구조에 맞다. 대신 base-url 환경 변수가 필수다(기본값 없음). 제공자와의 계약 일치는 검증하지 않는다. Billing이 제공하는 내부 API는 없다 | BT-ERN-02·04, BT-USR-03·04, BT-SEC-03 | — |
 | 멱등성·재시도 | 실패하면 호출자 트랜잭션과 함께 롤백 → 같은 요청 ID로 재요청 | Billing 내부 멱등(요청 ID 재생)은 그대로다. 하지만 원격 호출의 타임아웃·결과 불명 시 호출자가 같은 ID로 재시도하고 오류를 성공으로 해석하지 않는 규칙(BD-70)을 검증하는 테스트가 없다 | BT-PAY-03·04, BT-PORT-04 | BD-69, BD-70 |
 | 외부 서비스 장애 | TossPayments·Mock 은행 장애는 이미 트랜잭션 밖 호출 + 복구 배치 | 변화 없음. 새로 생기는 장애 지점은 강의·출연·회원 앱 장애다(수익 조회 503은 검증됨, Billing 다운 시 호출자 동작은 Billing 범위 밖) | BT-CHG-04·05, BT-RFD-03, BT-EXP-03, BT-ERN-02 | BD-76, BD-89, BD-101 |

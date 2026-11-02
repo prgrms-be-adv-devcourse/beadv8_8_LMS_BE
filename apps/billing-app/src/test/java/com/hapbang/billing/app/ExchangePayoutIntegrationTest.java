@@ -10,7 +10,6 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -70,6 +69,7 @@ import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.domain.WalletType;
 import com.hapbang.billing.fixture.ChargeFixture;
+import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.out.MockPayoutHttpClient;
 import com.hapbang.billing.out.MockPayoutScenario;
 import com.hapbang.billing.out.PayoutTransferRequest;
@@ -86,7 +86,6 @@ import com.hapbang.testsupport.DatabaseCleanUpListener;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.ModuleTestConfiguration;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
-import com.hapbang.testsupport.TestLogin;
 
 // 환전 가상 송금 실행·결과 반영·운영자 처리(#304)를 실제 PostgreSQL과 실제 HTTP(랜덤 포트 서버의 Mock 은행)로 검증한다.
 // 관리자 API는 같은 서버 컨텍스트에서 MockMvc로 검증한다(권한·RsData·오류 코드).
@@ -97,8 +96,6 @@ import com.hapbang.testsupport.TestLogin;
 @SpringBootTest(classes = ModuleTestConfiguration.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "spring.config.name=hapbang-module-test",
-                "spring.security.oauth2.client.registration.google.client-id=test",
-                "spring.security.oauth2.client.registration.google.client-secret=test",
                 "hapbang.storage.s3.endpoint=http://localhost:9",
                 "hapbang.storage.s3.bucket=test",
                 "hapbang.storage.s3.region=ap-northeast-2",
@@ -1020,7 +1017,7 @@ class ExchangePayoutIntegrationTest {
 
         // 결과 재확인(1분 뒤, 은행 기록 없음 → FAILED)
         timeShift = AFTER_SCHEDULE.plus(STALE);
-        mockMvc.perform(post(PATH + "/{id}/payouts/recheck", review).with(csrf()).with(admin()))
+        mockMvc.perform(post(PATH + "/{id}/payouts/recheck", review).with(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("환전 송금 결과를 다시 확인했습니다."))
                 .andExpect(jsonPath("$.data.status").value("FAILED"))
@@ -1028,7 +1025,7 @@ class ExchangePayoutIntegrationTest {
                 .andExpect(jsonPath("$.data.manualCheckedBy").value(ADMIN));
 
         // 수동 재송금(새 ID) → 성공
-        mockMvc.perform(post(PATH + "/{id}/payouts/retry", review).with(csrf()).with(admin()))
+        mockMvc.perform(post(PATH + "/{id}/payouts/retry", review).with(admin()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.attemptNo").value(2))
                 .andExpect(jsonPath("$.data.payoutRequestId").value(ids.get(2)))
@@ -1039,7 +1036,7 @@ class ExchangePayoutIntegrationTest {
                 .andExpect(jsonPath("$.data.length()").value(2))
                 .andExpect(jsonPath("$.data[0].status").value("FAILED"))
                 .andExpect(jsonPath("$.data[1].status").value("COMPLETED"));
-        mockMvc.perform(post(PATH + "/{id}/payouts/retry", review).with(csrf()).with(admin()))
+        mockMvc.perform(post(PATH + "/{id}/payouts/retry", review).with(admin()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("EXCHANGE_PAYOUT_NOT_RETRYABLE"));
 
@@ -1073,16 +1070,16 @@ class ExchangePayoutIntegrationTest {
         Mockito.clearInvocations(client);
 
         for (var request : List.of(get(PATH + "/payouts"), get(PATH + "/{id}/payouts", exchangeId),
-                post(PATH + "/{id}/payouts/recheck", exchangeId).with(csrf()),
-                post(PATH + "/{id}/payouts/retry", exchangeId).with(csrf()),
-                post(PATH + "/{id}/payouts/final-failure", exchangeId).with(csrf())
+                post(PATH + "/{id}/payouts/recheck", exchangeId),
+                post(PATH + "/{id}/payouts/retry", exchangeId),
+                post(PATH + "/{id}/payouts/final-failure", exchangeId)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"사유\"}"))) {
-            mockMvc.perform(request.with(TestLogin.as(INFLUENCER, role))).andExpect(status().isForbidden());
+            mockMvc.perform(request.with(GatewayLogin.as(INFLUENCER, role))).andExpect(status().isForbidden());
         }
         mockMvc.perform(get(PATH + "/payouts")).andExpect(status().isUnauthorized());
-        mockMvc.perform(post(PATH + "/{id}/payouts/retry", exchangeId).with(csrf()))
+        mockMvc.perform(post(PATH + "/{id}/payouts/retry", exchangeId))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post(PATH + "/{id}/payouts/final-failure", exchangeId).with(csrf())
+        mockMvc.perform(post(PATH + "/{id}/payouts/final-failure", exchangeId)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"사유\"}"))
                 .andExpect(status().isUnauthorized());
 
@@ -1188,7 +1185,7 @@ class ExchangePayoutIntegrationTest {
     @DisplayName("관리자 플랫폼 지갑 API: 관리자가 아니면 403, 비로그인은 401")
     void platformWalletAdminApiAuthorization(Role role) throws Exception {
         for (String path : List.of(PLATFORM_WALLET_PATH, PLATFORM_WALLET_PATH + "/fee-incomes")) {
-            mockMvc.perform(get(path).with(TestLogin.as(INFLUENCER, role))).andExpect(status().isForbidden());
+            mockMvc.perform(get(path).with(GatewayLogin.as(INFLUENCER, role))).andExpect(status().isForbidden());
             mockMvc.perform(get(path)).andExpect(status().isUnauthorized());
         }
     }
@@ -1337,11 +1334,11 @@ class ExchangePayoutIntegrationTest {
     }
 
     private static RequestPostProcessor admin() {
-        return TestLogin.as(ADMIN, Role.ADMIN);
+        return GatewayLogin.as(ADMIN, Role.ADMIN);
     }
 
     private static MockHttpServletRequestBuilder finalFailure(Long exchangeId, String body) {
-        return post(PATH + "/{id}/payouts/final-failure", exchangeId).with(csrf()).with(admin())
+        return post(PATH + "/{id}/payouts/final-failure", exchangeId).with(admin())
                 .contentType(MediaType.APPLICATION_JSON).content(body);
     }
 

@@ -1,7 +1,10 @@
 package com.hapbang.appearance.domain;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 
+import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
+import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.shared.jpa.BaseEntity;
 
 import jakarta.persistence.Entity;
@@ -99,15 +102,31 @@ public class AppearanceReview extends BaseEntity {
         return new AppearanceReview(appearance, reviewerId, validRating, trimmed);
     }
 
-    /** 두 리뷰가 모두 들어와 공개한다. 이미 공개됐으면 처음 공개 시각을 그대로 둔다 */
+    /**
+     * 두 리뷰가 모두 들어와 공개한다. 이미 공개됐으면 처음 공개 시각을 그대로 둔다.
+     * 시각은 DB 컬럼(TIMESTAMP(6))과 같은 마이크로초까지만 둔다. 공개 이벤트의 시각이 저장된 값과 같아야 하기 때문이다.
+     */
     public void publish(LocalDateTime now) {
         if (publishedAt == null) {
-            this.publishedAt = now;
+            this.publishedAt = now.truncatedTo(ChronoUnit.MICROS);
         }
     }
 
     public boolean isPublished() {
         return publishedAt != null;
+    }
+
+    /**
+     * 다른 모듈에 알리는 공개 이벤트 (#513). 본문은 담지 않는다.
+     *
+     * @throws IllegalStateException 아직 공개되지 않은 리뷰
+     */
+    public AppearanceReviewPublishedEvent toPublishedEvent() {
+        if (!isPublished()) {
+            throw new IllegalStateException("공개된 리뷰만 공개 이벤트로 알릴 수 있습니다: " + id);
+        }
+        return new AppearanceReviewPublishedEvent(id, appearanceId, reviewerId, revieweeId,
+                AppearanceParticipantRole.valueOf(revieweeRole.name()), rating, publishedAt);
     }
 
     private static int requireRating(Integer rating) {

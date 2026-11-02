@@ -2,7 +2,6 @@ package com.hapbang.billing.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -20,12 +19,12 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.billing.app.MockPayoutBank;
 import com.hapbang.billing.app.MockPayoutScenarios;
+import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.out.MockPayoutAccessKey;
 import com.hapbang.billing.out.MockPayoutHttpClient;
 import com.hapbang.billing.out.PayoutTransferRequest;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 // 가상 송금 Mock이 꺼진 환경(운영·dev와 같은 기본 설정, #288)에서는 Mock 은행 API·시나리오 제어·전용 보안 체인이 없고,
 // 송금 Client도 HTTP를 보내지 않는지 확인한다.
@@ -63,13 +62,13 @@ class MockPayoutDisabledTest {
         String body = "{\"payoutRequestId\":\"" + UUID.randomUUID() + "\",\"exchangeId\":1,\"amountKrw\":1000,"
                 + "\"bankCode\":\"004\",\"accountNumber\":\"12345678\",\"accountHolderName\":\"홍길동\"}";
 
-        mockMvc.perform(post(PATH).with(csrf()).header(MockPayoutAccessKey.HEADER, "any")
+        mockMvc.perform(post(PATH).header(MockPayoutAccessKey.HEADER, "any")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post(PATH).with(csrf()).with(TestLogin.as(1L, Role.ADMIN))
+        mockMvc.perform(post(PATH).with(GatewayLogin.as(1L, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(get(PATH + "/" + UUID.randomUUID()).with(TestLogin.as(1L, Role.INFLUENCER)))
+        mockMvc.perform(get(PATH + "/" + UUID.randomUUID()).with(GatewayLogin.as(1L, Role.INFLUENCER)))
                 .andExpect(status().isNotFound());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.mock_payout_transfer", Integer.class))
                 .isZero();

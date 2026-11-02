@@ -30,9 +30,12 @@ import com.hapbang.lecture.domain.LectureHpTaskType;
 import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
@@ -44,7 +47,7 @@ import com.hapbang.shared.billing.out.BillingCallResult;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 강의 HP 작업 실행기 (D57, D62, #275). 작업 하나를 선점해 지갑 내부 API로 보내고 결과를 기록한다.
+ * 강의 HP 작업 실행기 (D57, D62, #275, D73). 작업 하나를 선점해 지갑 내부 API로 보내고 결과를 기록한다.
  * <ol>
  *     <li>선점(짧은 트랜잭션): 조건부 UPDATE로 {@code PROCESSING} + 선점 표식 + 시도 행. 선점이 만료된 앞 시도는 {@code LEASE_EXPIRED}로 닫는다.</li>
  *     <li>지갑 호출(트랜잭션 밖): {@link BillingApiClient}. 실패를 작업 유형별로 나눈다({@link LectureHpTaskClassifier}).</li>
@@ -147,6 +150,9 @@ public class LectureHpTaskExecutor {
                 case PAYOUT -> billingApiClient.payout(PayoutCommand.full(task.getPayerUserId(),
                         BillingReferenceType.LECTURE_ORDER_ITEM, task.getOrderItemId(), task.getRequestId(),
                         task.getReceiverUserId(), SettlementSourceType.LECTURE_ORDER_ITEM, task.getOrderItemId()));
+                // 지갑 멱등 키는 참조 대상이라 요청 ID를 보내지 않는다 (D73)
+                case VOID -> billingApiClient.voidHold(new HoldVoidCommand(task.getPayerUserId(),
+                        BillingReferenceType.LECTURE_ORDER_ITEM, task.getOrderItemId()));
             };
             return switch (result) {
                 case BillingCallResult.Succeeded<?> succeeded -> verifyAmount(task, succeeded.value());
@@ -169,6 +175,9 @@ public class LectureHpTaskExecutor {
 
     /** 결과 금액이 항목 가격과 다르면 불변식 위반이다 (D43). 같은 요청의 재현(replayed)은 정상이다 */
     private static Attempt verifyAmount(LectureHpTask task, Object value) {
+        if (value instanceof HoldVoidResultDto voided) {
+            return verifyVoid(task, voided);
+        }
         long amount = switch (value) {
             case HoldResultDto hold -> hold.heldHp();
             case ReleaseResultDto release -> release.releasedHp();
@@ -178,6 +187,27 @@ public class LectureHpTaskExecutor {
         if (amount != task.getAmountHp()) {
             return new Attempt(LectureHpAttemptResult.INVARIANT_VIOLATION, AMOUNT_MISMATCH, null,
                     "결과 금액 " + amount + " ≠ 작업 금액 " + task.getAmountHp() + ": " + value);
+        }
+        return new Attempt(LectureHpAttemptResult.SUCCEEDED, null, null, null);
+    }
+
+    /**
+     * 보류 무효화 결과 (D73 (4)). 남은 보류를 반환했으면({@code RELEASED}) 항목 가격, 보류가 없거나 이미 끝났으면 0이 정상이다.
+     * 지갑은 이미 그 보류를 끝냈고 같은 요청에는 처음 결과만 돌려주므로, 예상과 달라도 DEAD로 두지 않고 성공으로 기록해 주문을 끝낸다.
+     * 지갑 결과는 강의에 저장하지 않으며 기준 기록은 지갑의 무효화 기록이다
+     */
+    private static Attempt verifyVoid(LectureHpTask task, HoldVoidResultDto result) {
+        long expectedHp = result.outcome() == HoldVoidOutcome.RELEASED ? task.getAmountHp() : 0L;
+        if (result.releasedHp() != expectedHp) {
+            log.error("{} 보류 무효화의 반환 금액이 예상과 달라도 성공으로 기록한다 taskId={}, orderItemId={}, outcome={}, "
+                            + "releasedHp={}, expectedHp={}, replayed={}", AMOUNT_MISMATCH, task.getId(),
+                    task.getOrderItemId(), result.outcome(), result.releasedHp(), expectedHp, result.replayed());
+        } else if (result.outcome() == HoldVoidOutcome.ALREADY_CLOSED) {
+            log.warn("보류 무효화 대상 보류가 이미 끝나 있었다 taskId={}, orderItemId={}, replayed={}", task.getId(),
+                    task.getOrderItemId(), result.replayed());
+        } else {
+            log.info("보류 무효화 taskId={}, orderItemId={}, outcome={}, releasedHp={}, replayed={}", task.getId(),
+                    task.getOrderItemId(), result.outcome(), result.releasedHp(), result.replayed());
         }
         return new Attempt(LectureHpAttemptResult.SUCCEEDED, null, null, null);
     }

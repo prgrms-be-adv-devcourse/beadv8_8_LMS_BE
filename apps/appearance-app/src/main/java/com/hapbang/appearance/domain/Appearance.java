@@ -386,6 +386,14 @@ public class Appearance extends BaseEntity {
         }
     }
 
+    /**
+     * 리뷰 작성 기한이 끝났는지 (#515). 기한이 있고, 확인된 출연이며, 확인 시각 + 기한 ≤ 지금이면 true.
+     * 기한이 없으면(무기한) 끝나지 않는다.
+     */
+    public boolean isReviewWritePeriodEnded(AppearanceReviewPolicy policy, LocalDateTime now) {
+        return policy.hasWritePeriod() && status == AppearanceStatus.CONFIRMED && !policy.isWritable(confirmedAt, now);
+    }
+
     /** 이 출연에서 회원의 상대 (호스트면 게스트, 게스트면 호스트) */
     public Long counterpartOf(Long userId) {
         if (isHost(userId)) {

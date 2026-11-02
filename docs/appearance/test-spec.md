@@ -1444,3 +1444,39 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceApiClientTest` (shared) | 400 Problem Detail | `REJECTED`, `code=INVALID_REQUEST` |
 
 - 작성 API의 확인은 `AppearanceReviewEligibility`로 옮겼고(동작 같음), 30장의 작성 테스트가 그대로 확인한다. 상세의 `reviewable`은 같은 클래스라 확인 순서·기준이 따로 갈라지지 않는다.
+
+---
+
+## 32. 리뷰 공개 이벤트 Kafka 발행 (#513)
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceReviewTest` | 공개된 리뷰 → 공개 이벤트 | 리뷰·출연·쓴 사람·받은 사람·역할(`HOST`)·별점·공개 시각, 본문 없음 |
+| `AppearanceReviewTest` | 공개 전 리뷰 → 공개 이벤트 / 공개 시각 나노초 | `IllegalStateException` / 마이크로초까지만 저장 |
+| `AppearanceReviewFlowTest` | 한쪽만 작성 | 발행 없음 |
+| `AppearanceReviewFlowTest` | 상대가 써서 공개 | 리뷰마다 1개씩 2개, 공개 시각은 DB 값과 같음 |
+| `AppearanceReviewFlowTest` | 이미 씀·상대 정지로 작성 실패 | 발행 없음 |
+| `AppearanceReviewFlowTest` | 두 출연 중 한 출연만 공개 | 그 출연 리뷰 2개만 발행 |
+| `AppearanceReviewFlowTest` | 기한 14일 UseCase로 둘 다 작성 | 2개 발행 |
+| `AppearanceExternalEventsTest` | 리뷰 공개 이벤트 | Kafka로 내보내는 대상(재발행 배치 대상도 같은 판단) |
+| `AppearanceEventKafkaTest` | 확인된 출연에 호스트 작성 → 게스트 작성 | 호스트만 썼을 때 메시지 없음. 공개 뒤 key `appearance-review-reviewee:<게스트>`·`<호스트>` 각 1건, `eventType` `AppearanceReviewPublishedEvent`·`eventVersion` `1`·`__TypeId__`, 본문에 리뷰 내용 없음, 값이 DB 공개 시각과 같음 |
+
+---
+
+## 33. 작성 기한 만료 리뷰 공개 배치 (#515)
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceReviewTest` | 작성 기한 끝남: 기한 없음 1년 뒤 / 14일 기한 1초 전 / 그 시각 | false / false / true |
+| `AppearanceReviewTest` | 확인되지 않은 출연(성립·불참)에 기한 30일 뒤 | false |
+| `AppearanceReviewExpirePublishTest` | 운영 설정(기한 없음), 한쪽만 쓰고 1년 뒤 등록된 배치 실행 | 0건, 그대로 비공개 |
+| `AppearanceReviewExpirePublishTest` | 기한 14일: 확인 + 14일 1초 전 / 그 시각 | 0건 / 1건 공개, 이벤트 1개(받은 사람·별점·공개 시각 = DB) |
+| `AppearanceReviewExpirePublishTest` | 공개한 뒤 다시 실행 | 0건, 공개 시각·이벤트 1개 그대로 |
+| `AppearanceReviewExpirePublishTest` | 둘 다 써서 이미 공개된 출연 / 리뷰 없는 출연 | 대상 아님, 이벤트 없음 |
+| `AppearanceReviewExpirePublishTest` | 출연 3개, 처리 건수 2 | 확인이 오래된 2개 먼저, 다음 실행에 나머지 1개 |
+| `AppearanceReviewExpirePublishTest` | 배치가 공개한 뒤 상대가 작성(기한 없는 작성 UseCase) | 먼저 공개된 리뷰의 공개 시각 유지, 이벤트는 상대 리뷰 1개만 더 |
+| `AppearanceReviewExpirePublishTest` | 기한이 지난 뒤 배치와 상대 작성을 동시에 (5회) | 두 리뷰 모두 공개, 리뷰마다 이벤트 정확히 1개 |
+| `AppearanceBatchScheduleTest` | appearance.yml cron 8개 | 15초 추가, 서로 다른 초에 매분 한 번, 등록·기본값·UseCase 호출 |
+| `AppearanceBatchConditionTest` | 스위치 켬 | 배치 빈 생성 (새 UseCase 포함) |
+
+- 기한이 켜진 경우는 운영 설정(무기한)을 바꾸지 않고 기한 14일 정책으로 만든 UseCase로 확인한다. 이벤트는 UseCase에 넘긴 수집용 발행기로 모아 다른 스레드의 발행도 센다.

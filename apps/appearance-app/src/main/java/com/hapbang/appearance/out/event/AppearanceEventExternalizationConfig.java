@@ -13,6 +13,7 @@ import com.hapbang.appearance.app.AppearanceExternalEvents;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
+import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 
 /**
  * 출연 이벤트를 Kafka로 내보낸다 (Modulith 이벤트 외부화, #393). 규칙은 docs/architecture/infrastructure/kafka.md(#339)를 따른다.
@@ -37,6 +38,7 @@ public class AppearanceEventExternalizationConfig {
     /** {@value #EVENT_TYPE} 헤더 값. 레코드 이름을 바꿔도 그대로 둔다(받는 쪽 계약) */
     public static final String REQUEST_SENT = "AppearanceRequestSentEvent";
     public static final String APPLICATION_SUBMITTED = "AppearanceApplicationSubmittedEvent";
+    public static final String REVIEW_PUBLISHED = "AppearanceReviewPublishedEvent";
 
     /** 본문 형식 버전. 선택 필드를 추가만 하면 그대로 두고, 깨지는 변경은 새 레코드 타입으로 한다 (kafka.md 이벤트 버전) */
     static final String VERSION = "1";
@@ -50,6 +52,7 @@ public class AppearanceEventExternalizationConfig {
                 .select(AppearanceExternalEvents::isExternalized)
                 .headers(AppearanceRequestSentEvent.class, event -> headers(REQUEST_SENT))
                 .headers(AppearanceApplicationSubmittedEvent.class, event -> headers(APPLICATION_SUBMITTED))
+                .headers(AppearanceReviewPublishedEvent.class, event -> headers(REVIEW_PUBLISHED))
                 .build();
     }
 

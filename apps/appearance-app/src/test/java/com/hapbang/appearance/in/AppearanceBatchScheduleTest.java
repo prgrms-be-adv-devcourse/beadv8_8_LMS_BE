@@ -36,10 +36,11 @@ import com.hapbang.appearance.app.AppearanceHoldRecheckUseCase;
 import com.hapbang.appearance.app.AppearanceEventRepublishUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitDeadlineCloseUseCase;
 import com.hapbang.appearance.app.AppearanceRequestExpireUseCase;
+import com.hapbang.appearance.app.AppearanceReviewExpirePublishUseCase;
 import com.hapbang.appearance.app.HpTaskRetryUseCase;
 
 /**
- * 출연 배치 7개의 실행 주기 (#297). appearance.yml의 cron이 그대로 등록되는지, 매분 한 번씩 서로 다른 초에 도는지,
+ * 출연 배치 8개의 실행 주기 (#297, 리뷰 작성 기한 만료 공개 #515). appearance.yml의 cron이 그대로 등록되는지, 매분 한 번씩 서로 다른 초에 도는지,
  * 각 배치가 맞는 UseCase를 부르는지 확인한다. 배치 자체는 시각을 판단하지 않는다 (UseCase가 Clock으로 판단).
  */
 class AppearanceBatchScheduleTest {
@@ -53,6 +54,7 @@ class AppearanceBatchScheduleTest {
         SCHEDULES.put("recheckHolds", new Schedule("hold-recheck-cron", 0));
         SCHEDULES.put("republishEvents", new Schedule("event-republish-cron", 5));
         SCHEDULES.put("closeRecruits", new Schedule("recruit-close-cron", 10));
+        SCHEDULES.put("publishExpiredReviews", new Schedule("review-expire-publish-cron", 15));
         SCHEDULES.put("expireRequests", new Schedule("expire-cron", 20));
         SCHEDULES.put("autoRejectCancelRequests", new Schedule("cancel-auto-reject-cron", 30));
         SCHEDULES.put("retryHpTasks", new Schedule("hp-task-retry-cron", 40));
@@ -66,6 +68,8 @@ class AppearanceBatchScheduleTest {
     private final HpTaskRetryUseCase hpTaskRetry = mock(HpTaskRetryUseCase.class);
     private final AppearanceAutoConfirmUseCase autoConfirm = mock(AppearanceAutoConfirmUseCase.class);
     private final AppearanceEventRepublishUseCase eventRepublish = mock(AppearanceEventRepublishUseCase.class);
+    private final AppearanceReviewExpirePublishUseCase reviewExpirePublish =
+            mock(AppearanceReviewExpirePublishUseCase.class);
 
     /** 앱처럼 appearance.yml을 읽고 스위치를 켠 컨텍스트 (UseCase는 대역) */
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -82,6 +86,7 @@ class AppearanceBatchScheduleTest {
             .withBean(HpTaskRetryUseCase.class, () -> hpTaskRetry)
             .withBean(AppearanceAutoConfirmUseCase.class, () -> autoConfirm)
             .withBean(AppearanceEventRepublishUseCase.class, () -> eventRepublish)
+            .withBean(AppearanceReviewExpirePublishUseCase.class, () -> reviewExpirePublish)
             .withUserConfiguration(AppearanceBatch.class);
 
     private static Iterable<PropertySource<?>> loadAppearanceYaml() {
@@ -93,7 +98,7 @@ class AppearanceBatchScheduleTest {
     }
 
     @Test
-    @DisplayName("appearance.yml의 cron 7개는 모두 올바르고, 매분 한 번(간격 60초)씩 서로 다른 초(0·5·10·20·30·40·50초)에 돈다")
+    @DisplayName("appearance.yml의 cron 8개는 모두 올바르고, 매분 한 번(간격 60초)씩 서로 다른 초(0·5·10·15·20·30·40·50초)에 돈다")
     void cronsInYaml() {
         contextRunner.run(context -> {
             Set<Integer> seconds = new HashSet<>();
@@ -112,7 +117,7 @@ class AppearanceBatchScheduleTest {
     }
 
     @Test
-    @DisplayName("스위치를 켜면 배치 7개(@Scheduled 메서드 전부)가 appearance.yml의 cron 그대로 스케줄러에 등록된다")
+    @DisplayName("스위치를 켜면 배치 8개(@Scheduled 메서드 전부)가 appearance.yml의 cron 그대로 스케줄러에 등록된다")
     void registeredWithYamlCron() {
         contextRunner.withUserConfiguration(SchedulingOn.class).run(context -> {
             Map<String, String> registered = new HashMap<>();
@@ -151,7 +156,7 @@ class AppearanceBatchScheduleTest {
     }
 
     @Test
-    @DisplayName("각 배치는 맞는 UseCase를 한 번 부른다 (보류 재확인·알림 재발행·기한 마감·만료·자동 거절·HP 작업 재시도·자동 확인)")
+    @DisplayName("각 배치는 맞는 UseCase를 한 번 부른다 (보류 재확인·알림 재발행·기한 마감·리뷰 기한 만료 공개·만료·자동 거절·HP 작업 재시도·자동 확인)")
     void callsUseCase() {
         contextRunner.run(context -> {
             AppearanceBatch batch = context.getBean(AppearanceBatch.class);
@@ -159,6 +164,7 @@ class AppearanceBatchScheduleTest {
             batch.recheckHolds();
             batch.republishEvents();
             batch.closeRecruits();
+            batch.publishExpiredReviews();
             batch.expireRequests();
             batch.autoRejectCancelRequests();
             batch.retryHpTasks();
@@ -167,6 +173,7 @@ class AppearanceBatchScheduleTest {
             verify(holdRecheck).recheckDue();
             verify(eventRepublish).republishDue();
             verify(recruitClose).closeDue();
+            verify(reviewExpirePublish).publishDue();
             verify(expire).expireDue();
             verify(cancelAutoReject).rejectDue();
             verify(hpTaskRetry).retryDue();

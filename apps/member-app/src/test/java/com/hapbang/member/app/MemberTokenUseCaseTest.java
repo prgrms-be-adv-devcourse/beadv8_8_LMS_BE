@@ -10,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -20,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.member.domain.MemberErrorCode;
@@ -31,6 +33,7 @@ import com.hapbang.member.out.RotationResult;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.event.UserLoggedOutEvent;
 
 @ExtendWith(MockitoExtension.class)
 class MemberTokenUseCaseTest {
@@ -43,6 +46,9 @@ class MemberTokenUseCaseTest {
 
     @Mock
     UserRepository userRepository;
+
+    @Mock
+    ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     MemberTokenUseCase useCase;
@@ -162,12 +168,28 @@ class MemberTokenUseCaseTest {
     }
 
     @Test
-    @DisplayName("로그아웃하면 이 기기의 refresh token만 해시로 폐기한다")
+    @DisplayName("로그아웃하면 이 기기의 refresh token만 해시로 폐기하고, 그 회원의 로그아웃 이벤트를 발행한다 (#539)")
     void logout() {
+        given(refreshTokenStore.revoke(MemberTokenUseCase.hash("mine"))).willReturn(Optional.of(42L));
+        Instant before = Instant.now();
+
         useCase.logout("mine");
 
-        verify(refreshTokenStore).revoke(MemberTokenUseCase.hash("mine"));
         verify(refreshTokenStore, never()).revokeAll(any());
+        ArgumentCaptor<UserLoggedOutEvent> event = ArgumentCaptor.forClass(UserLoggedOutEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().userId()).isEqualTo(42L);
+        assertThat(event.getValue().loggedOutAt()).isBetween(before, Instant.now());
+    }
+
+    @Test
+    @DisplayName("없거나 이미 폐기된 refresh token으로 로그아웃하면 실패하지 않고 이벤트도 발행하지 않는다")
+    void logout_unknownToken() {
+        given(refreshTokenStore.revoke(anyString())).willReturn(Optional.empty());
+
+        useCase.logout("unknown");
+
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test
@@ -175,7 +197,7 @@ class MemberTokenUseCaseTest {
     void logout_withoutToken() {
         useCase.logout(null);
 
-        verifyNoInteractions(refreshTokenStore);
+        verifyNoInteractions(refreshTokenStore, eventPublisher);
     }
 
     @Test

@@ -31,10 +31,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 import com.sun.net.httpserver.HttpServer;
 
 // 지급 예정 수익 통합 API(#295)를 컨트롤러부터 실제 shared Client까지 확인한다. 강의·출연 내부 API는 가짜 HTTP 서버가 대신한다.
@@ -98,7 +98,7 @@ class ApiV1SettlementEarningControllerTest {
         RESPONSES.put(APPEARANCE_SUMMARY, ok(summary(bucket(30_000, 1), ZERO_BUCKET, bucket(20_000, 1), ZERO_BUCKET,
                 bucket(7_000, 2), "")));
 
-        mockMvc.perform(get(SUMMARY).with(TestLogin.as(5L, Role.INFLUENCER)))
+        mockMvc.perform(get(SUMMARY).with(GatewayLogin.as(5L, Role.INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("지급 예정 수익 요약을 조회했습니다."))
@@ -125,7 +125,7 @@ class ApiV1SettlementEarningControllerTest {
     @Test
     @DisplayName("수익이 없는 일반 유저도 조회할 수 있고 모든 상태가 0원·0건이다")
     void summary_userZero() throws Exception {
-        mockMvc.perform(get(SUMMARY).with(TestLogin.as(5L, Role.USER)))
+        mockMvc.perform(get(SUMMARY).with(GatewayLogin.as(5L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.confirmationPending.amountHp").value(0))
                 .andExpect(jsonPath("$.data.scheduled.count").value(0))
@@ -140,7 +140,7 @@ class ApiV1SettlementEarningControllerTest {
     @DisplayName("요약: 한쪽 출처가 5xx·4xx면 부분 합계 없이 503 ProblemDetail이고 실패한 출처를 source로 준다")
     void summary_sourceFailure() throws Exception {
         RESPONSES.put(APPEARANCE_SUMMARY, new Response(500, null));
-        mockMvc.perform(get(SUMMARY).with(TestLogin.as(5L, Role.USER)))
+        mockMvc.perform(get(SUMMARY).with(GatewayLogin.as(5L, Role.USER)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(503))
@@ -152,7 +152,7 @@ class ApiV1SettlementEarningControllerTest {
 
         RESPONSES.put(APPEARANCE_SUMMARY, RESPONSES.get(LECTURE_SUMMARY));
         RESPONSES.put(LECTURE_SUMMARY, new Response(401, null));
-        mockMvc.perform(get(SUMMARY).with(TestLogin.as(5L, Role.USER)))
+        mockMvc.perform(get(SUMMARY).with(GatewayLogin.as(5L, Role.USER)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("EARNING_SOURCE_REJECTED"))
                 .andExpect(jsonPath("$.source").value("LECTURE"));
@@ -175,7 +175,7 @@ class ApiV1SettlementEarningControllerTest {
                 {"sourceType":"APPEARANCE","sourceId":12,"earningType":"APPEARANCE_FEE","title":"합방","amountHp":30000,
                  "status":"CONFIRMATION_PENDING","statusUpdatedAt":"2026-10-30T09:00:00"}""", 1)));
 
-        mockMvc.perform(get(LIST).with(TestLogin.as(5L, Role.VERIFIED_INFLUENCER)))
+        mockMvc.perform(get(LIST).with(GatewayLogin.as(5L, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("지급 예정 수익 목록을 조회했습니다."))
@@ -209,7 +209,7 @@ class ApiV1SettlementEarningControllerTest {
     @DisplayName("목록: 명시한 status만 넘기고, 빈 status는 미지급 상태이며, 요청의 userId는 무시한다")
     void list_statusAndOwner() throws Exception {
         mockMvc.perform(get(LIST).param("status", "COMPLETED").param("status", "CANCELED").param("userId", "99")
-                        .with(TestLogin.as(5L, Role.USER)))
+                        .with(GatewayLogin.as(5L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(0))
                 .andExpect(jsonPath("$.data.page.totalElements").value(0));
@@ -218,7 +218,7 @@ class ApiV1SettlementEarningControllerTest {
                 .doesNotContain("userId=99", "status=FAILED"));
 
         REQUESTS.clear();
-        mockMvc.perform(get(LIST).param("status", "").with(TestLogin.as(5L, Role.USER)))
+        mockMvc.perform(get(LIST).param("status", "").with(GatewayLogin.as(5L, Role.USER)))
                 .andExpect(status().isOk());
         assertThat(REQUESTS).hasSize(2).allSatisfy(request -> assertThat(request)
                 .contains("status=CONFIRMATION_PENDING", "status=FAILED").doesNotContain("COMPLETED"));
@@ -228,7 +228,7 @@ class ApiV1SettlementEarningControllerTest {
     @CsvSource({"page, -1", "size, 0", "size, 101", "page, x", "size, 1.5", "status, PAID", "status, unpaid"})
     @DisplayName("목록: page < 0, size 범위 밖, 숫자가 아닌 값, 없는 status는 출처를 부르지 않고 400 INVALID_REQUEST다")
     void list_invalid(String name, String value) throws Exception {
-        mockMvc.perform(get(LIST).param(name, value).with(TestLogin.as(5L, Role.USER)))
+        mockMvc.perform(get(LIST).param(name, value).with(GatewayLogin.as(5L, Role.USER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
@@ -240,12 +240,12 @@ class ApiV1SettlementEarningControllerTest {
     @CsvSource({"10, 100", "50, 20", "2147483647, 100"})
     @DisplayName("목록: (page + 1) × size > 1,000이면 400 EARNING_PAGE_TOO_DEEP이고, 정확히 1,000은 허용한다")
     void list_tooDeep(String page, String size) throws Exception {
-        mockMvc.perform(get(LIST).param("page", page).param("size", size).with(TestLogin.as(5L, Role.USER)))
+        mockMvc.perform(get(LIST).param("page", page).param("size", size).with(GatewayLogin.as(5L, Role.USER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("EARNING_PAGE_TOO_DEEP"));
         assertThat(REQUESTS).isEmpty();
 
-        mockMvc.perform(get(LIST).param("page", "9").param("size", "100").with(TestLogin.as(5L, Role.USER)))
+        mockMvc.perform(get(LIST).param("page", "9").param("size", "100").with(GatewayLogin.as(5L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.page.number").value(9))
                 .andExpect(jsonPath("$.data.content.length()").value(0));
@@ -259,7 +259,7 @@ class ApiV1SettlementEarningControllerTest {
                  "status":"SCHEDULED","statusUpdatedAt":"2026-10-31T09:00:00+09:00"}""", 1)));
         RESPONSES.put(APPEARANCE_LIST, ok("{\"content\":["));
 
-        mockMvc.perform(get(LIST).with(TestLogin.as(5L, Role.USER)))
+        mockMvc.perform(get(LIST).with(GatewayLogin.as(5L, Role.USER)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("EARNING_SOURCE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.source").value("APPEARANCE"))
@@ -275,8 +275,8 @@ class ApiV1SettlementEarningControllerTest {
     @EnumSource(value = Role.class, names = {"USER", "INFLUENCER", "VERIFIED_INFLUENCER"})
     @DisplayName("유저·인플루언서·인증된 인플루언서는 요약·목록을 조회할 수 있다")
     void roles(Role role) throws Exception {
-        mockMvc.perform(get(SUMMARY).with(TestLogin.as(5L, role))).andExpect(status().isOk());
-        mockMvc.perform(get(LIST).with(TestLogin.as(5L, role))).andExpect(status().isOk());
+        mockMvc.perform(get(SUMMARY).with(GatewayLogin.as(5L, role))).andExpect(status().isOk());
+        mockMvc.perform(get(LIST).with(GatewayLogin.as(5L, role))).andExpect(status().isOk());
     }
 
     @Test
@@ -286,7 +286,7 @@ class ApiV1SettlementEarningControllerTest {
             mockMvc.perform(get(url))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.data").doesNotExist());
-            mockMvc.perform(get(url).with(TestLogin.as(1L, Role.ADMIN)))
+            mockMvc.perform(get(url).with(GatewayLogin.as(1L, Role.ADMIN)))
                     .andExpect(status().isForbidden())
                     .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
