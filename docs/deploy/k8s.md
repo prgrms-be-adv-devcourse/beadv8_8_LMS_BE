@@ -277,6 +277,34 @@ billing-app은 처음 뜰 때 기존 회원의 지갑 회원(회원 복제본)�
   - billing-app 메모리는 기동 1분과 리스너를 켠 뒤 모두 376~380Mi(limit 448Mi), 재시작 0이었다. 여유가 약 70Mi라 prod에서 RSS를 더 오래 지켜본다.
   - 로컬 Secret에 Toss 결제 키가 없어 충전 주문은 지갑 회원 확인 전에 503 `CHARGE_UNAVAILABLE`이었다. 지갑 회원 확인은 이 환경에서 따로 보지 않았다(통합 테스트로 검증).
 
+### billing-app 회원 이벤트 DLT 복구 (#564)
+
+billing-app은 `member.events.v1`을 두 소비 그룹으로 받는다. 처리에 실패하면 1초부터 최대 10초까지 3번 재시도한 뒤 그룹별 DLT로 보내고, 읽을 수 없는 메시지(역직렬화 실패)는 재시도 없이 바로 보낸다(`BillingKafkaConfig`). DLT로 보낸 뒤에는 offset을 커밋해 뒤 메시지는 계속 처리된다. DLT는 7일 보존한다.
+
+| 그룹 | DLT | 이 그룹이 만드는 데이터 |
+| --- | --- | --- |
+| `billing-app.member-replica` | `member.events.v1.billing-app.member-replica.DLT` | 지갑 회원(`billing.billing_user`) |
+| `billing-app.wallet-creation` | `member.events.v1.billing-app.wallet-creation.DLT` | 회원 지갑(`billing.wallet`) |
+
+DLT 메시지를 원래 리스너에 다시 넣는 도구는 두지 않는다(BD-136). 두 그룹이 만드는 데이터는 관리자 회원 Backfill이 회원 앱의 현재 정보로 다시 맞추고(지갑 회원은 회원 버전 비교, 지갑은 회원당 1개), 다시 실행해도 결과가 같기 때문이다(BD-123·BD-132).
+
+1. **DLT 확인**: 메시지가 있는지와 실패 원인을 본다. 헤더 `kafka_dlt-exception-fqcn`·`kafka_dlt-exception-message`가 예외, `kafka_dlt-original-topic`·`kafka_dlt-original-consumer-group`이 원래 위치이고, key는 회원 ID다. `kafka_dlt-exception-stacktrace` 헤더는 길어서 아래처럼 필요한 것만 고른다.
+
+   ```bash
+   # 파티션별 마지막 offset. 0이 아니면 메시지가 있다
+   kubectl --context hapbang-k3s -n hapbang-platform exec kafka-0 -- sh -c      '/opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server localhost:9092 --topic member.events.v1.billing-app.member-replica.DLT'
+   # 헤더·key·값. 읽기만 하며 소비 그룹을 쓰지 않는다
+   kubectl --context hapbang-k3s -n hapbang-platform exec kafka-0 -- sh -c      '/opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092         --topic member.events.v1.billing-app.member-replica.DLT --from-beginning --timeout-ms 8000         --formatter-property print.headers=true --formatter-property print.key=true'      | tr ',' '
+' | grep -aE '^kafka_dlt-(exception-fqcn|exception-message|original-topic|original-consumer-group)'
+   ```
+
+2. **원인 수정**: 역직렬화 실패면 발행 앱(member-app)과 계약(`shared.member.event`)을, 처리 실패면 billing-app 로그(같은 시각의 예외)와 DB 상태를 본다. 고치는 배포가 필요하면 먼저 배포한다.
+3. **Backfill로 다시 맞춘다**: route가 열려 있으면 관리자 토큰으로 Gateway를 거쳐, 열기 전이면 [billing-app 첫 배포](#billing-app-첫-배포-552) 3단계처럼 port-forward로 `POST /api/v1/settlements/admin/billing-users/backfill`을 실행한다. `failed` 0·`completed` true면 끝이다. 실패 회원은 `failedIds`에 있다.
+4. **확인**: 실패한 메시지의 key(회원 ID)가 `billing.billing_user`와 `billing.wallet`(관리자 제외)에 있는지 본다. DLT 메시지는 지우지 않는다. 7일 뒤 보존 기간이 지나면 사라진다.
+
+- 회원 이벤트 중 지갑이 쓰는 것은 가입·변경뿐이다. 로그아웃 등 다른 이벤트는 리스너가 무시하므로(`@KafkaHandler(isDefault = true)`) DLT로 가지 않는다.
+- 2026-11-02 로컬 k3d 확인(#564, 위 [billing-app 첫 배포](#billing-app-첫-배포-552)와 같은 최소 구성): 가입한 회원 4를 key로 읽을 수 없는 메시지(`{"broken":`)를 `member.events.v1`에 넣자 두 그룹의 DLT partition 1에 한 건씩 들어갔다. 헤더는 `DeserializationException`·`failed to deserialize`·원래 토픽·그룹이었고 두 그룹 lag은 0으로 막히지 않았다. 회원 4의 지갑 회원·지갑 행을 지워 반영 실패를 흉내 낸 뒤 Backfill을 실행하자 `created 1`·`walletsEnsured 3`·`failed 0`이었고 두 행이 다시 생겼다.
+
 ### 첫 릴리스
 
 main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app(2026-10-30)·appearance-app·customer-support-app·chat-app·billing-app(2026-11-02) 6개가 모두 있다([릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 여섯 패키지 모두 레포 상속을 켜 두었다. 첫 Publish run에서 push가 권한 오류로 실패하면 그 패키지의 Manage Actions access를 확인한다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
