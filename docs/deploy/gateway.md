@@ -29,6 +29,14 @@
 - base와 local overlay는 `https://gateway.invalid`(member 기본값과 같음)를 그대로 둔다. 로컬·k3d는 서명 키가 달라 운영 토큰을 받아들이지 않는다.
 - 서명은 #369대로 RS256 + JWKS다. member-app 하나만 개인 키를 갖고, Envoy는 JWKS로 공개 키만 받는다. 공유 비밀값(HS256)은 쓰지 않는다. Envoy v1.9.3의 `localJWKS`는 inline·ConfigMap만 받아 Secret이 아닌 곳에 비밀값을 두게 되고, 검증하는 곳(Envoy·chat)마다 모든 회원·ADMIN 토큰을 위조할 수 있는 키가 퍼지기 때문이다.
 
+## Swagger 공개 결정 (2026-11-02, #498)
+
+- 운영에서도 Swagger를 누구나 보게 연다. dev 서버가 없어 FE팀과 리뷰어가 운영 API를 명세로 확인한다. 레포가 public이라 명세 내용은 이미 공개돼 있고, Swagger를 막아도 API 호출은 막히지 않는다.
+- Swagger는 각 앱의 모듈 경로 아래(`/api/v1/<모듈>/swagger-ui.html`, `/api/v1/<모듈>/v3/api-docs`)에 두어 기존 앱 HTTPRoute가 받는다. Gateway route는 더하지 않는다. 루트 `/swagger-ui`·`/v3/api-docs`는 `api-not-found`로 계속 404다. 앱마다 같은 루트 경로를 써서 한 도메인에서 겹치기 때문이다.
+- 쓰지 않은 안: `/swagger/<앱>/` route와 URLRewrite(앱이 `forward-headers-strategy: native`라 `X-Forwarded-Prefix` 처리를 더해야 한다), 한 앱이 6개 명세를 모으는 단일 진입점(그 앱이 문서 서버가 된다), CI가 만든 정적 명세(다른 도메인이라 Try it out이 CORS로 막힌다).
+- 내부 API도 명세에 남는다. 외부에서 호출하면 Gateway에 route가 없어 404다(앱의 내부 포트 검사도 막는다).
+- 앱 설정과 Authorize 사용법은 [API 규칙](../api/conventions.md#swagger)에 있다.
+
 ## 구성과 적용 순서
 
 | 경로 | 책임 |
@@ -65,14 +73,16 @@ JWT는 업무 API route에만 적용한다. Grafana는 Grafana의 자체 로그�
 
 `ClientTrafficPolicy.earlyRequestHeaders`는 인증 전에 외부 `X-User-Id`, `X-User-Role`, `X-Internal-Api-Key`와 전달 프로토콜·호스트 위조 헤더를 제거한다. 검증한 claim만 사용자 헤더로 생성한다. XFF의 신뢰 hop은 0이며 Envoy가 실제 접속 주소를 오른쪽에 추가한다. 앱은 native RemoteIpValve로 읽는다. 실제 인터넷 client IP 보존은 EC2 ServiceLB 전환 후 다시 검증한다.
 
-prod issuer는 [JWT issuer 결정](#jwt-issuer-결정-2026-11-02-500)을 따른다. Gateway는 member Service 8080의 `/api/v1/members/.well-known/jwks.json`에서 공개 JWKS를 직접 읽는다. chat의 직접 JWT 검증(#371)은 member 내부 포트 8081의 `/api/v1/internal/members/jwks.json`을 내부 API 키로 받는다(#370 댓글). member 8080을 chat에 열지 않는다. 8080은 Envoy가 넣은 `X-User-Id`를 믿는 포트라 열면 chat pod가 아무 회원으로나 위장할 수 있다. 토큰 URL query 전달은 하지 않는다.
+prod issuer는 [JWT issuer 결정](#jwt-issuer-결정-2026-11-02-500)을 따른다. Gateway는 member Service 8080의 `/api/v1/members/.well-known/jwks.json`에서 공개 JWKS를 직접 읽는다. chat의 직접 JWT 검증(#371)은 member 내부 포트 8081의 `/api/v1/internal/members/jwks.json`을 내부 API 키로 받는다(#370 댓글). member 8080을 chat에 열지 않는다. 8080은 Envoy가 넣은 `X-User-Id`를 믿는 포트라 열면 chat pod가 아무 회원으로나 위장할 수 있다.
+
+Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractFrom.headers`, 2026-11-02 #508). `extractFrom`을 비워 두면 Envoy 기본값이 `access_token` query도 받는다. 그러면 토큰이 URL에 실려 브라우저 기록·Referer에 남을 수 있다. 토큰을 query로 보내는 클라이언트는 없다(chat STOMP는 CONNECT frame, #371). CI `check-prod-host.py`가 앱 6개 prod overlay의 JWT provider가 이 값인지 검사한다. 새 앱도 같은 `extractFrom`을 둔다.
 
 ## 본문·연결·Grafana·trace
 
 - 일반 업무 route만 `requestBuffer`로 1MiB 상한을 적용한다. 일반 요청 timeout은 30초다.
 - 파일 content 경로는 regex와 `PUT` 메서드로 분리해 timeout만 늘린다. 다른 메서드는 일반 route(1MiB·30초)로 간다. 업로드에는 requestBuffer·retry를 적용하지 않는다. 전체 timeout은 30분, stream idle은 60초다. Content-Type·Content-Length·크기 검사는 앱이 한다. Envoy에서 같은 검사를 다시 하지 않는다. `ClientTrafficPolicy`의 `requestReceivedTimeout`은 헤더뿐 아니라 본문까지 받는 시간이라 2GiB 업로드를 위해 0s(해제)로 둔다. 아무것도 보내지 않고 연결만 잡는 요청은 idle·stream idle 60초가 끊는다.
 - WebSocket은 별도 route에서 전체 timeout을 해제하고 stream idle 5분을 둔다. STOMP heartbeat·CONNECT JWT는 #371에서 처리한다.
-- 알 수 없는 `/api/**`, actuator·Swagger·api-docs는 앱/React backend로 보내지 않고 404다. 인증된 API도 실제 앱의 인가·권한 검사가 필요하다.
+- 알 수 없는 `/api/**`, actuator, 루트의 Swagger·api-docs(`/swagger-ui`, `/v3/api-docs`)는 앱/React backend로 보내지 않고 404다. Swagger는 앱의 모듈 경로 아래에서 그 앱의 route로 연다(#498). 인증된 API도 실제 앱의 인가·권한 검사가 필요하다.
 - `/grafana`는 `/grafana/`로 redirect한다. prefix는 지우지 않는다. Grafana `root_url`, `serve_from_sub_path`, Secure cookie를 설정한다. admin 자격 증명은 기존 chart Secret을 사용하고 레포·로그에 남기지 않는다.
 - Grafana는 320Mi 한도에서 subpath 변경 후 기동 시 높은 CPU·probe timeout이 관찰되어 384Mi와 `GOMAXPROCS=2`를 적용했다. 이 64Mi 증가는 #343의 medium 목표 예산 조정에 포함한다.
 - Grafana는 SQLite PVC를 공유하는 새·옛 pod가 함께 뜨지 않도록 `Recreate`로 갱신한다. probe는 `/grafana/api/health`, startup은 최대 5분을 기다린다. 로그인 화면·정적 자원은 익명에게 제공되고 dashboard·데이터 API는 로그인이 필요하다.
@@ -80,6 +90,26 @@ prod issuer는 [JWT issuer 결정](#jwt-issuer-결정-2026-11-02-500)을 따른�
 - Tempo는 trace 수신·조회 부하에서 기존 64Mi로 OOMKilled되어 128Mi·GOMEMLIMIT=112MiB·GOMAXPROCS=2를 적용한다. 이 조정과 Grafana 증가분, Envoy 종료 sidecar 32Mi를 [예산 표](../architecture/infrastructure/k3s.md)에 반영한다.
 - Envoy JSON access log는 query·본문·Authorization·쿠키를 기록하지 않는다. W3C trace를 Alloy OTLP 4317 → Tempo 4317로 전송한다. dashboard·앱 전체 계측·알림은 #343이다.
 - platform(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)에는 ingress NetworkPolicy를 두지 않는다. 외부에서는 닿지 않고, 막아 주는 경우는 cluster 안 pod가 먼저 뚫린 상황뿐이라 실서비스가 아닌 이 규모에서는 감수한다. 인증이 없는 Kafka·Redis도 같다. 앱 이름 허용 목록은 앱을 더할 때마다 고쳐야 하고 빠뜨려도 CI가 잡지 못한다(#374). `deny-metadata-egress`는 namespace의 모든 pod에 적용되므로 이 구성 요소들도 IMDS egress는 막힌다. k3s(kube-router)는 새 pod에 규칙을 거는 데 몇 초가 걸려 그동안은 IMDS가 막히지 않는다(EC2 실측, #374). metadata egress는 S3를 쓰는 member·appearance·lecture에만 허용한다. node 자체나 hostNetwork pod는 일반 NetworkPolicy의 신뢰 경계 밖이다.
+
+## 로컬 Envoy (#508)
+
+`docker/compose.yaml`의 `envoy`는 k3d 없이 로컬 앱 앞에서 이 문서의 JWT 검증·사용자 헤더 전달을 재현한다. 설정은 `docker/envoy/envoy.yaml`(정적 Envoy 설정)이다. 이미지는 Envoy Gateway v1.9.3이 띄우는 Envoy와 같은 `envoyproxy/envoy:distroless-v1.39.5`다. 사용법은 [로컬 실행](../dev/local.md#로그인과-사용자-헤더)에 있다.
+
+운영과 같게 둔 것:
+
+- 경로별 route. 호스트에서 실행한 앱의 기본 포트 8081~8086으로 보낸다
+- optional JWT(토큰이 없으면 통과, 잘못된 토큰은 401), `sub`·`role` → `X-User-Id`·`X-User-Role`, 토큰은 `Authorization: Bearer`에서만 읽기, 검증한 토큰을 앱에 그대로 넘기기(`forward`)
+- `earlyRequestHeaders` 제거, XFF 신뢰 hop 0, 경로 정규화
+- 일반 route 30초·본문 1MiB, 업로드 `PUT` 30분, WebSocket 전체 timeout 해제·stream idle 5분, idle·stream idle 60초, 나머지 경로 404(내부 API 포함)
+
+일부러 다르게 둔 것:
+
+- TLS·HTTPS redirect·access log·tracing·Grafana·Kafka UI·FE route는 없다. FE는 Vite dev server가 맡는다.
+- JWKS를 시작할 때 받지 않고 토큰이 처음 올 때 받는다(운영은 `async_fetch`). member가 늦게 떠도 Envoy가 바로 포트를 열어야 다른 앱의 spring-boot-docker-compose 기동 대기가 timeout으로 실패하지 않는다.
+- JWKS 캐시는 5초다(운영 300초). 로컬 member는 `JWT_PRIVATE_KEY`가 없으면 재시작마다 임시 서명 키를 만들고, Envoy는 모르는 kid가 와도 JWKS를 다시 받지 않는다.
+- 서명 키는 운영과 달라도 된다. 운영과 같아야 하는 것은 검증 동작이다.
+
+결정(2026-11-02, #508): 매일 개발에 k3d 전체(Docker 14GiB·이미지 빌드)는 과하다. 앱에 local 전용 JWT 검증 필터를 두면 운영과 다른 인증 경로가 생긴다. 그래서 Envoy 컨테이너 하나로 재현한다. 원본 manifest와 따로 쓰는 설정이라 어긋날 수 있다. Gateway 정책(`k8s/gateway/base/gateway.yaml`, `apps/*-app/k8s/base/gateway.yaml`)이나 Envoy Gateway 버전을 바꾸면 `docker/envoy/envoy.yaml`도 같이 고친다. CI로 비교하지는 않는다. 설정 문법은 `docker run --rm -v "$PWD/docker/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro" envoyproxy/envoy:distroless-v1.39.5 --mode validate -c /etc/envoy/envoy.yaml`로 확인한다.
 
 ## 로컬 검증 재현
 
@@ -95,7 +125,7 @@ k3d image import -c hapbang hapbang/gateway-test:372
 /tmp/gateway-test-venv/bin/python k8s/gateway/tests/run.py --large-upload
 ```
 
-`run.py`는 #372 완료 조건 7개만 검사한다. 2GiB 업로드는 `--large-upload`를 줄 때만 실행한다. 테스트는 테스트 전용 pod·route·policy를 만들고 종료 때 자기 label의 자원만 지운다. 기존 앱 Deployment·Service를 테스트 대역으로 바꾸지 않는다. 생성한 RS256 개인 키는 테스트 프로세스 메모리에만 둔다. 2GiB 본문은 1MiB chunk로 생성하며 디스크에 만들지 않는다.
+`run.py`는 #372 완료 조건 7개와 query 토큰을 읽지 않는지(#508)만 검사한다. 2GiB 업로드는 `--large-upload`를 줄 때만 실행한다. 테스트는 테스트 전용 pod·route·policy를 만들고 종료 때 자기 label의 자원만 지운다. 기존 앱 Deployment·Service를 테스트 대역으로 바꾸지 않는다. 생성한 RS256 개인 키는 테스트 프로세스 메모리에만 둔다. 2GiB 본문은 1MiB chunk로 생성하며 디스크에 만들지 않는다.
 
 앱 검증은 `./gradlew verifyModuleStructure --no-daemon` 뒤 `./gradlew check bootJar --parallel --no-daemon`로 한다. 구조 검사는 다른 프로젝트 설정을 조회하므로 parallel과 함께 실행하지 않는다. CI의 manifests job은 고정 버전 upstream CRD로 schema를 만들고 모든 overlay를 `kubeconform -strict`로 검사한다. CEL admission 제약·정책 충돌은 schema만으로 검증되지 않으므로 실제 k3d 검증이 필요하다.
 

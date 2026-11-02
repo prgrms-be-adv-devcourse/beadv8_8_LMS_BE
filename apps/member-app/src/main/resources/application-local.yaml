@@ -13,9 +13,6 @@ spring:
           google:
             client-id: "${GOOGLE_CLIENT_ID:local-placeholder}"
             client-secret: "${GOOGLE_CLIENT_SECRET:local-placeholder}"
-springdoc:
-  swagger-ui:
-    path: "/swagger-ui.html"
 hapbang:
   storage:
     s3:

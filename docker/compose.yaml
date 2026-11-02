@@ -66,6 +66,21 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
 
+  # 로컬용 Envoy (#508). 운영 Gateway처럼 access token을 검증해 X-User-Id·X-User-Role로 앱에 넘긴다.
+  # 호스트에서 실행한 앱(8081~8086)으로 보낸다. 설정은 envoy/envoy.yaml, 사용법은 docs/dev/local.md.
+  # 이미지는 운영 Envoy Gateway(v1.9.3)가 띄우는 Envoy와 같은 버전이다.
+  envoy:
+    image: envoyproxy/envoy:distroless-v1.39.5
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    # Linux Docker Engine에는 host.docker.internal이 없어 호스트 주소로 연결한다(Docker Desktop은 원래 있다)
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      - "${ENVOY_PORT:-8000}:8000"
+      # 관리 화면(config_dump·clusters)은 이 PC에서만 연다
+      - "127.0.0.1:9901:9901"
+
 volumes:
   postgres-data:
   s3mock-data:

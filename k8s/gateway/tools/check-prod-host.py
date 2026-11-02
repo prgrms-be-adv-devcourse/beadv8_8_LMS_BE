@@ -7,7 +7,9 @@
 - App prod overlays: member-app writes HAPBANG_JWT_ISSUER into the tokens it issues, and
   Envoy accepts only the issuer in each app's SecurityPolicy. Both must be https://<host>;
   a mismatch turns every token request of that app into 401. Envoy must also read the
-  JWKS from the member-app external port inside the cluster.
+  JWKS from the member-app external port inside the cluster, and read the token only from
+  the Authorization: Bearer header (#508). Without extractFrom it also accepts an
+  access_token query parameter, which leaves tokens in URLs.
 """
 
 import pathlib
@@ -20,6 +22,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 GATEWAY_OVERLAY = ROOT / "k8s/gateway/overlays/prod"
 ISSUER_KEY = "HAPBANG_JWT_ISSUER"
+EXTRACT_FROM = {"headers": [{"name": "Authorization", "valuePrefix": "Bearer "}]}
 # Sealed ciphertext is random text and may contain any word.
 SECRET_KINDS = {"Secret", "SealedSecret"}
 
@@ -91,6 +94,11 @@ for overlay in overlays:
                 f"{app} SecurityPolicy {name}: remoteJWKS must target member-app HTTP port 8080"
                 " without credentials/query"
             )
+        if provider.get("extractFrom") != EXTRACT_FROM:
+            errors.append(
+                f"{app} SecurityPolicy {name}: extractFrom must be only the Authorization"
+                " header with the 'Bearer ' prefix"
+            )
     if app == "member-app":
         values = [
             d.get("data", {}).get(ISSUER_KEY)
@@ -117,5 +125,5 @@ if errors:
     sys.exit(1)
 print(
     f"prod host {host}: Gateway {len(hosts)} places, JWT issuer {len(issuers)} places"
-    f" ({len(overlays)} apps)"
+    f" ({len(overlays)} apps), token from Authorization: Bearer only"
 )

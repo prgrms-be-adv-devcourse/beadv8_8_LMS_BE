@@ -281,7 +281,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 
 ### 5.3 Swagger 명세 — `AppearanceSwaggerDocsTest`
 
-`/v3/api-docs`를 요청해 명세의 응답 스키마가 실제 응답과 같은지 확인한다 (강의 모듈 `LectureSwaggerDocsTest`와 같은 방식).
+`/api/v1/appearances/v3/api-docs`를 요청해 명세의 응답 스키마가 실제 응답과 같은지 확인한다 (강의 모듈 `LectureSwaggerDocsTest`와 같은 방식).
 
 | 케이스 | 기대 결과 |
 |---|---|
@@ -1036,7 +1036,7 @@ Billing이 대역인 출연 모듈 테스트에서 실제 잔액을 확인하는
 | `AppearanceEarningSelfHttpIntegrationTest` (apps, 실제 포트) | Client 빈 | 앱 설정으로 1개 생김 |
 | 〃 | Client로 자기 자신 호출 | 출연이 없는 게스트 0원 요약·빈 페이지 (`page {20, 0, 0, 0}`) |
 | 〃 | 키가 틀린 Client | `REJECTED` 401 |
-| 〃 | 명세 `/v3/api-docs` | 두 경로·`X-Internal-Api-Key` 헤더가 나오고 키 값은 없음 |
+| 〃 | 명세 `/api/v1/appearances/v3/api-docs` | 두 경로·`X-Internal-Api-Key` 헤더가 나오고 키 값은 없음 |
 
 ## 20. E2E를 실제 포트로 전환 (#390)
 
