@@ -2,65 +2,77 @@ package com.hapbang.chat.in.support;
 
 import static org.assertj.core.api.Assertions.*;
 
-import java.util.List;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Base64;
 
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
+import com.hapbang.chat.app.ChatConnectionTicketStore;
+import com.hapbang.chat.app.dto.ChatConnectionTicket;
+import com.hapbang.chat.app.dto.ChatConnectionTicketResponse;
+import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
+import com.hapbang.chat.global.response.RsData;
 import com.hapbang.shared.member.domain.Role;
 
 /**
- * 실제 서버에 로그인한 세션. 세션 쿠키와 CSRF 토큰을 담는다.
- * <p>
- * 프론트와 같은 방식으로 요청한다: 모든 요청에 쿠키를 싣고, 변경 요청(POST·DELETE)에는 {@code X-XSRF-TOKEN} 헤더를 붙인다.
+ * 실제 서버에 요청하는 로그인 회원. 서버를 부르지 않고 만든다(로그인·토큰 발급은 회원 앱의 책임이다). 프론트·Gateway와 같은
+ * 방식으로 요청한다(설계 문서 6장).
+ * <ul>
+ *     <li>REST: Gateway가 access token을 검증한 뒤 넘기는 사용자 헤더({@code X-User-Id}·{@code X-User-Role})를 싣는다.</li>
+ *     <li>웹소켓: REST로 일회용 연결 티켓을 받아 {@code /api/v1/chats/ws?ticket=...}로 연결한다.</li>
+ * </ul>
  */
-public record E2ESession(String sessionCookie, String xsrfToken) {
+public record E2ESession(Long userId, Role role) {
 
-    private static final String XSRF_COOKIE = "XSRF-TOKEN";
-    private static final String XSRF_HEADER = "X-XSRF-TOKEN";
+    public static final String WS_PATH = "/api/v1/chats/ws";
+    public static final String TICKET_PATH = "/api/v1/chats/ws-tickets";
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    public static E2ESession of(Long userId, Role role) {
+        return new E2ESession(userId, role);
+    }
+
+    /** REST 요청에 Gateway 사용자 헤더를 붙인다 */
+    public void applyTo(HttpHeaders headers) {
+        headers.set(GatewayUserHeaderFilter.USER_ID, String.valueOf(userId));
+        headers.set(GatewayUserHeaderFilter.USER_ROLE, role.name());
+    }
+
+    /** REST로 연결 티켓을 받는다(채팅 역할만 받을 수 있다) */
+    public String issueTicket(RestTestClient client) {
+        RsData<ChatConnectionTicketResponse> response = client.post().uri(TICKET_PATH)
+                .headers(this::applyTo)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(new ParameterizedTypeReference<RsData<ChatConnectionTicketResponse>>() {
+                })
+                .returnResult().getResponseBody();
+        assertThat(response).isNotNull();
+        return response.data().ticket();
+    }
+
+    /** 연결 티켓을 받아 웹소켓 연결 주소를 만든다 */
+    public String connectUrl(RestTestClient client, int port) {
+        return wsUrl(port, issueTicket(client));
+    }
+
+    public static String wsUrl(int port, String ticket) {
+        return "ws://localhost:" + port + WS_PATH + "?ticket=" + ticket;
+    }
 
     /**
-     * 테스트 전용 로그인 경로로 세션을 만들고, 그 세션으로 GET 요청을 보내 CSRF 토큰 쿠키를 받는다.
+     * 발급 API를 거치지 않고 저장소에 티켓을 넣는다. 발급 API가 받지 않는 역할(일반 회원)이나 만료를 시험할 때 쓴다.
      */
-    public static E2ESession login(RestTestClient client, Long userId, Role role) {
-        List<String> loginCookies = client.post()
-                .uri(E2ELoginConfig.LOGIN_PATH + "?userId={userId}&role={role}", userId, role)
-                .exchange()
-                .expectStatus().isNoContent()
-                .returnResult().getResponseHeaders().get(HttpHeaders.SET_COOKIE);
-        String sessionCookie = cookie(loginCookies, "JSESSIONID");
-
-        // 쿠키만 받으면 되므로 응답 상태는 보지 않는다 (일반 유저는 채팅 역할 검사로 403)
-        List<String> csrfCookies = client.get().uri("/api/v1/chats")
-                .header(HttpHeaders.COOKIE, sessionCookie)
-                .exchange()
-                .returnResult().getResponseHeaders().get(HttpHeaders.SET_COOKIE);
-        String xsrfToken = cookie(csrfCookies, XSRF_COOKIE).substring(XSRF_COOKIE.length() + 1);
-        return new E2ESession(sessionCookie, xsrfToken);
-    }
-
-    /** 테스트 서버의 HTTP 세션 ID. 이벤트 수신 후 연결 종료 검증에 사용한다. */
-    public String httpSessionId() {
-        return sessionCookie.substring("JSESSIONID=".length());
-    }
-
-    /** 조회 요청용 쿠키 헤더 값 */
-    public String cookieHeader() {
-        return sessionCookie + "; " + XSRF_COOKIE + "=" + xsrfToken;
-    }
-
-    /** 변경 요청(POST·DELETE)에 쿠키와 CSRF 헤더를 붙인다 */
-    public void applyTo(HttpHeaders headers) {
-        headers.add(HttpHeaders.COOKIE, cookieHeader());
-        headers.add(XSRF_HEADER, xsrfToken);
-    }
-
-    private static String cookie(List<String> setCookies, String name) {
-        assertThat(setCookies).as(name + " 쿠키").isNotNull();
-        return setCookies.stream()
-                .filter(cookie -> cookie.startsWith(name + "="))
-                .map(cookie -> cookie.split(";", 2)[0])
-                .findFirst()
-                .orElseThrow(() -> new AssertionError(name + " 쿠키가 없습니다: " + setCookies));
+    public static String saveTicket(ChatConnectionTicketStore store, Long userId, Role role, Duration ttl,
+            Instant tokenExpiresAt) {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        String ticket = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        store.save(ticket, new ChatConnectionTicket(userId, role, Instant.now(), tokenExpiresAt), ttl);
+        return ticket;
     }
 }

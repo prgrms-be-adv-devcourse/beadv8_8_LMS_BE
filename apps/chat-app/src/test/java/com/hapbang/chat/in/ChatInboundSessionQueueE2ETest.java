@@ -24,7 +24,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.client.RestTestClient;
@@ -307,15 +306,14 @@ class ChatInboundSessionQueueE2ETest {
 
     /** STOMP 클라이언트 없이 웹소켓에 STOMP 프레임을 직접 쓴다. STOMP DISCONNECT 없이 웹소켓만 닫을 수 있다 */
     private RawStomp rawConnect(Long userId) throws Exception {
-        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
-        headers.add(HttpHeaders.COOKIE, E2ESession.login(restTestClient, userId, Role.INFLUENCER).cookieHeader());
+        String url = E2ESession.of(userId, Role.INFLUENCER).connectUrl(restTestClient, port);
         BlockingQueue<String> frames = new LinkedBlockingQueue<>();
         WebSocketSession session = new StandardWebSocketClient().execute(new TextWebSocketHandler() {
             @Override
             protected void handleTextMessage(WebSocketSession session, TextMessage message) {
                 frames.add(message.getPayload());
             }
-        }, headers, URI.create("ws://localhost:" + port + "/api/v1/chats/ws")).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }, new WebSocketHttpHeaders(), URI.create(url)).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         session.sendMessage(new TextMessage("CONNECT\naccept-version:1.2\nhost:localhost\nheart-beat:0,0\n\n\0"));
         String connected = frames.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(connected).startsWith("CONNECTED");

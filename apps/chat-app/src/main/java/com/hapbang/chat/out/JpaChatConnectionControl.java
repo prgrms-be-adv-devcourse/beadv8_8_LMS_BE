@@ -16,7 +16,8 @@ import org.springframework.util.Assert;
 
 /**
  * 연결 제어 작업을 제어 outbox와 발행 체크포인트에 기록한다. 회원 반영과 같은 트랜잭션에서만 쓴다.
- * 중복은 유일 제약의 {@code ON CONFLICT DO NOTHING}으로 흡수해, 호출한 트랜잭션을 rollback-only로 만들지 않는다.
+ * 재검사 작업의 중복은 유일 제약의 {@code ON CONFLICT DO NOTHING}으로 흡수해, 호출한 트랜잭션을 rollback-only로 만들지 않는다.
+ * 로그아웃 작업은 중복 식별 없이 호출마다 넣는다.
  */
 @Slf4j
 @Component
@@ -43,5 +44,18 @@ public class JpaChatConnectionControl implements ChatConnectionControl {
                 ChatPublishCheckpoint.pending(ChatRedisKeys.CONTROL_GROUP, controlId, now));
         log.info("연결 제어 작업 기록 controlId={}, userId={}, memberVersion={}, reason={}", controlId, userId,
                 memberVersion, reason);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void requestLogout(Long userId) {
+        Assert.notNull(userId, "userId가 필요합니다.");
+        UUID controlId = UUID.randomUUID();
+        LocalDateTime now = LocalDateTime.now();
+        chatControlOutboxRepository.insert(controlId, ChatControlType.LOGOUT_USER.name(), userId,
+                ChatControlReason.MEMBER_LOGGED_OUT.name(), now);
+        chatPublishCheckpointRepository.save(
+                ChatPublishCheckpoint.pending(ChatRedisKeys.CONTROL_GROUP, controlId, now));
+        log.info("연결 제어 작업 기록 controlId={}, userId={}, type={}", controlId, userId, ChatControlType.LOGOUT_USER);
     }
 }

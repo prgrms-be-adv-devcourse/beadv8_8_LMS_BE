@@ -14,9 +14,6 @@ dependencies {
     implementation("org.springframework.security:spring-security-core")
     // 기존 회원 백필의 회원 내부 API 호출(shared MemberApiClient가 RestClient.Builder를 쓴다, 설계 문서 5.4)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
-
-    // E2E 테스트 전용 로그인(OAuth2 로그인 세션을 직접 만든다)
-    testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-client")
 }
 
 springBoot {

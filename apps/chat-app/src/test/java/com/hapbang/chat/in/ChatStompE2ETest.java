@@ -2,11 +2,11 @@ package com.hapbang.chat.in;
 
 import static com.hapbang.chat.fixture.ChatFixture.*;
 import static org.assertj.core.api.Assertions.*;
-import static org.awaitility.Awaitility.*;
 
 import java.lang.reflect.Type;
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -23,7 +23,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
 import org.springframework.messaging.simp.stomp.ConnectionLostException;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
@@ -40,6 +39,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
+import com.hapbang.chat.app.ChatConnectionTicketStore;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
@@ -56,11 +56,10 @@ import com.hapbang.chat.in.support.E2ESession;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
-import com.hapbang.shared.member.event.UserLoggedOutEvent;
 
 /**
  * 실제 서버를 띄워 STOMP(WebSocketStompClient)로 채팅 흐름을 검증한다.
- * 웹소켓 핸드셰이크와 REST 호출(RestTestClient) 모두 로그인 세션 쿠키로 보낸다({@link E2ESession}).
+ * REST 호출(RestTestClient)은 Gateway 사용자 헤더로, 웹소켓은 REST로 받은 연결 티켓으로 로그인한다({@link E2ESession}).
  */
 @ChatE2ETest
 class ChatStompE2ETest {
@@ -75,6 +74,9 @@ class ChatStompE2ETest {
 
     @Autowired
     private ConfigurableApplicationContext applicationContext;
+
+    @Autowired
+    private ChatConnectionTicketStore chatConnectionTicketStore;
 
     private RestTestClient client;
     private WebSocketStompClient stompClient;
@@ -93,7 +95,7 @@ class ChatStompE2ETest {
     }
 
     @Test
-    void 로그인하지_않으면_웹소켓에_연결할_수_없다() {
+    void 연결_티켓이_없으면_웹소켓에_연결할_수_없다() {
         assertThatThrownBy(() -> stompClient.connectAsync(wsUrl(), new WebSocketHttpHeaders(), new StompHeaders(),
                 new StompSessionHandlerAdapter() {
                 }).get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
@@ -123,7 +125,7 @@ class ChatStompE2ETest {
         assertThat(received.content()).isEqualTo("금요일 밤 9시 괜찮으세요?");
         assertThat(received.senderUserId()).isEqualTo(HOST_ID);
         assertThat(received.roomSequence()).isEqualTo(1);
-        // 전송 ID는 보낸 사람에게만 담긴다 (#261)
+        // 전송 ID는 보낸 사람에게만 담긴다
         assertThat(received.clientMessageId()).isNull();
         assertThat(hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS))
                 .extracting(ChatMessageResponse::messageId, ChatMessageResponse::clientMessageId)
@@ -180,7 +182,7 @@ class ChatStompE2ETest {
         waitForSubscriptions();
 
         client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
-                .headers(E2ESession.login(client, GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
+                .headers(E2ESession.of(GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
                 .exchange()
                 .expectStatus().isNoContent();
 
@@ -203,7 +205,7 @@ class ChatStompE2ETest {
     void 나간_상대가_다시_채팅을_시작하면_남은_사람에게만_재입장_안내가_실시간으로_간다() throws Exception {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
         client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
-                .headers(E2ESession.login(client, GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
+                .headers(E2ESession.of(GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
                 .exchange()
                 .expectStatus().isNoContent();
         // 퇴장 안내는 outbox 경로로 비동기 전달된다. 발행(PUBLISHED)은 로컬 전달 완료가 아니므로(decisions.md), 연결 뒤에
@@ -216,7 +218,7 @@ class ChatStompE2ETest {
         waitForSubscriptions();
 
         client.post().uri("/api/v1/chats")
-                .headers(E2ESession.login(client, GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
+                .headers(E2ESession.of(GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
                 .body(new CreateChatRoomRequest(HOST_ID))
                 .exchange()
                 .expectStatus().isOk();
@@ -279,7 +281,7 @@ class ChatStompE2ETest {
 
     /**
      * 거절된 구독은 서버가 PROTOCOL_ERROR로 연결을 닫는 것으로 확인한다.
-     * Spring은 ERROR 프레임을 보낸 직후 연결을 닫아서, 다른 전송과 겹치면 ERROR 프레임이 클라이언트에 도착하지 않을 수 있다(#173).
+     * Spring은 ERROR 프레임을 보낸 직후 연결을 닫아서, 다른 전송과 겹치면 ERROR 프레임이 클라이언트에 도착하지 않을 수 있다.
      * 그래서 ERROR 프레임은 도착했을 때만 문구를 확인한다.
      */
     @Test
@@ -326,8 +328,8 @@ class ChatStompE2ETest {
 
     @Test
     void STOMP_프레임으로_연결해도_채팅_역할이_아니면_거절된다() throws Exception {
-        WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
-        handshakeHeaders.add(HttpHeaders.COOKIE, E2ESession.login(client, USER_ID, Role.USER).cookieHeader());
+        // 발급 API는 일반 회원에게 티켓을 주지 않는다. 저장소에 직접 넣어 CONNECT의 자격 검사를 본다
+        String url = E2ESession.wsUrl(port, userTicket());
         BlockingQueue<String> serverFrames = new LinkedBlockingQueue<>();
 
         CloseStatus closeStatus = closeStatusOf(USER_ID, () -> new StandardWebSocketClient().execute(
@@ -342,7 +344,7 @@ class ChatStompE2ETest {
                     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
                         serverFrames.add(message.getPayload());
                     }
-                }, handshakeHeaders, URI.create(wsUrl())).get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+                }, new WebSocketHttpHeaders(), URI.create(url)).get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
         assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
         assertThat(serverFrames).noneMatch(frame -> frame.startsWith("CONNECTED"));
@@ -361,28 +363,12 @@ class ChatStompE2ETest {
         assertThat(connectFrom(HOST_ID, "http://localhost:5173").isConnected()).isTrue();
     }
 
-    @Test
-    void 로그아웃_이벤트를_받으면_그_세션의_연결만_닫히고_다른_기기_연결은_유지된다() throws Exception {
-        E2ESession loggingOut = E2ESession.login(client, HOST_ID, Role.INFLUENCER);
-        StompSession closing = connectWith(loggingOut, new StompEvents());
-        StompSession otherDevice = connect(HOST_ID);
-
-        // 회원 로그아웃 HTTP 처리와 서비스 간 이벤트 전달은 회원 앱·연동 테스트의 책임이다.
-        // 이 테스트는 채팅 앱이 이벤트를 받은 뒤 실제 WebSocket 연결을 선택적으로 닫는지 검증한다.
-        CloseStatus closeStatus = closeStatusOf(HOST_ID,
-                () -> applicationContext.publishEvent(new UserLoggedOutEvent(HOST_ID, loggingOut.httpSessionId())));
-
-        assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
-        assertThat(closeStatus.getReason()).isEqualTo("LOGGED_OUT");
-        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS)).until(() -> !closing.isConnected());
-        assertThat(otherDevice.isConnected()).isTrue();
-    }
-
-    // 강등·정지된 회원의 연결 종료와 프로필 수정 시 연결 유지는 회원 변경 Kafka 소비가 남긴 연결 재검사 작업이
-    // 제어 Stream·제어 채널을 거쳐 처리한다. Kafka가 필요한 그 두 테스트는 ChatMemberControlE2ETest에 있다.
+    // 로그아웃(회원 단위 로그아웃 이벤트)·강등·정지된 회원의 연결 종료와 프로필 수정 시 연결 유지는 회원 이벤트 Kafka 소비가
+    // 남긴 연결 제어 작업이 제어 Stream·제어 채널을 거쳐 처리한다. Kafka가 필요한 그 테스트는 ChatMemberControlE2ETest에 있다.
+    // 토큰 인증·만료는 ChatStompAuthE2ETest에 있다.
 
     @Test
-    void 정지된_회원은_세션_역할이_인플루언서여도_연결할_수_없다() throws Exception {
+    void 정지된_회원은_토큰_역할이_인플루언서여도_연결할_수_없다() throws Exception {
         chatUserUseCase.update(userDto(HOST_ID, "호스트", Role.INFLUENCER, UserStatus.SUSPENDED));
         StompEvents events = new StompEvents();
 
@@ -452,7 +438,7 @@ class ChatStompE2ETest {
 
     private Long createRoom(Long userId, Long targetUserId) {
         RsData<ChatRoomResponse> room = client.post().uri("/api/v1/chats")
-                .headers(E2ESession.login(client, userId, Role.INFLUENCER)::applyTo)
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .body(new CreateChatRoomRequest(targetUserId))
                 .exchange()
                 .expectStatus().isCreated()
@@ -465,7 +451,7 @@ class ChatStompE2ETest {
 
     private List<String> messageContents(Long chatRoomId, Long userId) {
         RsData<ChatMessagePageResponse> page = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
-                .header(HttpHeaders.COOKIE, E2ESession.login(client, userId, Role.INFLUENCER).cookieHeader())
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<RsData<ChatMessagePageResponse>>() {
@@ -485,14 +471,14 @@ class ChatStompE2ETest {
 
     private StompSession connectFrom(Long userId, String origin) throws Exception {
         WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
-        handshakeHeaders.add(HttpHeaders.COOKIE, E2ESession.login(client, userId, Role.INFLUENCER).cookieHeader());
         handshakeHeaders.setOrigin(origin);
-        return stompClient.connectAsync(wsUrl(), handshakeHeaders, new StompHeaders(), new StompSessionHandlerAdapter() {
-        }).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        return stompClient.connectAsync(E2ESession.of(userId, Role.INFLUENCER).connectUrl(client, port),
+                handshakeHeaders, new StompHeaders(), new StompSessionHandlerAdapter() {
+                }).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
     /**
-     * 동작을 실행한 뒤 그 회원의 연결이 서버에서 닫힌 상태를 기다린다. 거절된 프레임은 ERROR 프레임이 오지 않을 수 있어(#173)
+     * 동작을 실행한 뒤 그 회원의 연결이 서버에서 닫힌 상태를 기다린다. 거절된 프레임은 ERROR 프레임이 오지 않을 수 있어
      * 연결 종료로 확인한다.
      */
     private CloseStatus closeStatusOf(Long userId, ThrowingRunnable action) throws Exception {
@@ -519,12 +505,10 @@ class ChatStompE2ETest {
     }
 
     private StompSession connect(Long userId, Role role, StompEvents events) throws Exception {
-        return connectWith(E2ESession.login(client, userId, role), events);
+        return connectWith(E2ESession.of(userId, role), events);
     }
 
     private StompSession connectWith(E2ESession login, StompEvents events) throws Exception {
-        WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
-        handshakeHeaders.add(HttpHeaders.COOKIE, login.cookieHeader());
         StompSessionHandlerAdapter handler = new StompSessionHandlerAdapter() {
             @Override
             public Type getPayloadType(StompHeaders headers) {
@@ -541,8 +525,15 @@ class ChatStompE2ETest {
                 events.transportErrors.add(exception);
             }
         };
-        return stompClient.connectAsync(wsUrl(), handshakeHeaders, new StompHeaders(), handler)
+        // 발급 API는 채팅 역할에만 티켓을 준다. 일반 회원은 저장소에 직접 넣어 CONNECT의 자격 검사를 본다
+        String url = login.role() == Role.USER ? E2ESession.wsUrl(port, userTicket()) : login.connectUrl(client, port);
+        return stompClient.connectAsync(url, new WebSocketHttpHeaders(), new StompHeaders(), handler)
                 .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private String userTicket() {
+        return E2ESession.saveTicket(chatConnectionTicketStore, USER_ID, Role.USER, Duration.ofSeconds(30),
+                Instant.now().plus(Duration.ofMinutes(15)));
     }
 
     private String wsUrl() {

@@ -1,7 +1,6 @@
 package com.hapbang.chat.global.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -27,24 +26,21 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.context.SecurityContextImpl;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hapbang.chat.global.auth.GatewayLogin;
 import com.hapbang.chat.global.config.PageConfig;
 import com.hapbang.chat.global.config.SecurityConfig;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.shared.internal.InternalApiHeaders;
+import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.lecture.domain.LectureEarningStatus;
 import com.hapbang.shared.lecture.domain.LectureEarningType;
 import com.hapbang.shared.lecture.dto.LectureEarningAmountDto;
@@ -55,7 +51,7 @@ import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-// Internal API 보안(#300 구현, #307 보강 검증)을 실제 SecurityConfig(회원 API)·InternalApiSecurityConfig(Internal API) 두 체인으로 검증한다.
+// Internal API 보안을 실제 SecurityConfig(회원 API)·InternalApiSecurityConfig(Internal API) 두 체인으로 검증한다.
 // 컨트롤러는 테스트 전용이다(운영 코드에 테스트용 API를 두지 않는다). Internal 응답 계약(RsData·offset 시각·null 생략·페이지 모양)도
 // 실제 MVC 변환기로 확인한다.
 @ContextConfiguration(classes = com.hapbang.testsupport.WebSliceTestConfiguration.class)
@@ -141,19 +137,19 @@ class InternalApiSecurityConfigTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("회원·관리자 로그인 세션만으로는 Internal API에 접근할 수 없다(같은 세션은 회원 API에서는 인증된다)")
-    void sessionIsNotInternalAuthentication() throws Exception {
-        for (String role : List.of("ROLE_ADMIN", "ROLE_USER", "ROLE_INFLUENCER")) {
-            MockHttpSession session = loggedInSession(role);
+    @DisplayName("회원·관리자 로그인(Gateway 사용자 헤더)만으로는 Internal API에 접근할 수 없다(같은 헤더는 회원 API에서는 인증된다)")
+    void userHeadersAreNotInternalAuthentication() throws Exception {
+        for (Role role : List.of(Role.ADMIN, Role.USER, Role.INFLUENCER)) {
+            var login = GatewayLogin.as(7L, role);
 
-            mockMvc.perform(get("/api/v1/samples/me").session(session))
+            mockMvc.perform(get("/api/v1/samples/me").with(login))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.authorities[0]").value(role));
-            mockMvc.perform(get(PROBE).session(session)).andExpect(status().isUnauthorized());
-            mockMvc.perform(get(PROBE).session(session).header(InternalApiHeaders.API_KEY, "wrong-key"))
+                    .andExpect(jsonPath("$.authorities[0]").value("ROLE_" + role.name()));
+            mockMvc.perform(get(PROBE).with(login)).andExpect(status().isUnauthorized());
+            mockMvc.perform(get(PROBE).with(login).header(InternalApiHeaders.API_KEY, "wrong-key"))
                     .andExpect(status().isUnauthorized());
-            // 세션과 함께 와도 올바른 키면 Internal 인증만 쓴다(세션의 역할이 섞이지 않는다)
-            mockMvc.perform(get(PROBE).session(session).header(InternalApiHeaders.API_KEY, KEY))
+            // 사용자 헤더와 함께 와도 올바른 키면 Internal 인증만 쓴다(헤더의 역할이 섞이지 않는다)
+            mockMvc.perform(get(PROBE).with(login).header(InternalApiHeaders.API_KEY, KEY))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.authorities.length()").value(1))
                     .andExpect(jsonPath("$.authorities[0]").value("ROLE_INTERNAL"));
@@ -168,14 +164,12 @@ class InternalApiSecurityConfigTest {
     }
 
     @Test
-    @DisplayName("CSRF: Internal API는 CSRF 토큰 없이 POST할 수 있고, 회원 API는 기존대로 토큰이 없으면 403이다")
-    void csrfOnlyDisabledForInternal() throws Exception {
+    @DisplayName("CSRF: Internal API와 회원 API 모두 CSRF 토큰 없이 POST할 수 있다(쿠키가 아니라 키·Gateway 헤더로 인증)")
+    void csrfDisabled() throws Exception {
         mockMvc.perform(post(PROBE).header(InternalApiHeaders.API_KEY, KEY)).andExpect(status().isOk());
         mockMvc.perform(post(PROBE)).andExpect(status().isUnauthorized());
 
-        MockHttpSession session = loggedInSession("ROLE_USER");
-        mockMvc.perform(post("/api/v1/samples/me").session(session)).andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/v1/samples/me").session(session).with(csrf())).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/samples/me").with(GatewayLogin.as(7L, Role.USER))).andExpect(status().isOk());
     }
 
     @Test
@@ -191,7 +185,7 @@ class InternalApiSecurityConfigTest {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Internal 응답 계약 (#300 Lecture DTO 기준): RsData · offset 시각 · null 생략 · 페이지 모양
+    // Internal 응답 계약 (강의 앱의 내부 API DTO와 같은 기준): RsData · offset 시각 · null 생략 · 페이지 모양
     // ---------------------------------------------------------------------------------------------
 
     @Test
@@ -242,15 +236,6 @@ class InternalApiSecurityConfigTest {
         assertThat(page.content()).hasSize(2);
         assertThat(page.content().get(0).statusUpdatedAt().toInstant()).isEqualTo(AS_OF.toInstant());
         assertThat(page.content().get(1).payoutScheduledAt()).isNull();
-    }
-
-    // 회원 로그인 세션: HttpSessionSecurityContextRepository가 회원 API에서 읽는 형태 그대로 둔다
-    private static MockHttpSession loggedInSession(String authority) {
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
-                new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated("7", null,
-                        List.of(new SimpleGrantedAuthority(authority)))));
-        return session;
     }
 
     record AuthView(Object principal, List<String> authorities) {

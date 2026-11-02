@@ -19,9 +19,10 @@ class ChatRealtimeFacadeTest {
 
     private final ChatFanoutDeliveryService deliveryService = mock(ChatFanoutDeliveryService.class);
     private final ChatConnectionRecheckService recheckService = mock(ChatConnectionRecheckService.class);
+    private final LocalChatConnections localChatConnections = mock(LocalChatConnections.class);
     private final ChatRoomActivityNotifier activityNotifier = mock(ChatRoomActivityNotifier.class);
     private final ChatRealtimeFacade facade = new ChatRealtimeFacade(deliveryService, recheckService,
-            activityNotifier);
+            localChatConnections, activityNotifier);
 
     @Test
     void 전달_작업은_전달_서비스에_넘긴다() {
@@ -53,14 +54,27 @@ class ChatRealtimeFacadeTest {
                 ChatControlReason.MEMBER_BACKFILL));
 
         verify(recheckService).recheckUser(HOST_ID);
-        verifyNoInteractions(deliveryService);
+        verifyNoInteractions(deliveryService, localChatConnections);
+    }
+
+    @Test
+    void LOGOUT_USER는_자격을_다시_보지_않고_그_회원의_로컬_연결을_모두_로그아웃으로_닫는다() {
+        ControlFanout logout = new ControlFanout(UUID.randomUUID(), ChatControlType.LOGOUT_USER, HOST_ID, null,
+                ChatControlReason.MEMBER_LOGGED_OUT);
+
+        facade.applyControl(logout);
+        // 같은 작업을 다시 받아도(재발행·재처리) 닫기만 반복한다
+        facade.applyControl(logout);
+
+        verify(localChatConnections, times(2)).closeLoggedOut(HOST_ID);
+        verifyNoInteractions(recheckService, deliveryService);
     }
 
     @Test
     void 종류를_모르는_제어_작업은_버린다() {
         facade.applyControl(new ControlFanout(UUID.randomUUID(), null, HOST_ID, 3L, ChatControlReason.MEMBER_MODIFIED));
 
-        verifyNoInteractions(recheckService, deliveryService);
+        verifyNoInteractions(recheckService, deliveryService, localChatConnections);
     }
 
     @Test

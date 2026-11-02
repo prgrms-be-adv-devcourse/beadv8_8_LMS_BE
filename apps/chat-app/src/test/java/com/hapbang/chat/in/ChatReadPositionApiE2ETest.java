@@ -168,6 +168,6 @@ class ChatReadPositionApiE2ETest {
     }
 
     private E2ESession login(Long userId, Role role) {
-        return E2ESession.login(client, userId, role);
+        return E2ESession.of(userId, role);
     }
 }

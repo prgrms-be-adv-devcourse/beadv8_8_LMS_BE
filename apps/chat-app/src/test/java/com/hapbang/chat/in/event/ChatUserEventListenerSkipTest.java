@@ -19,7 +19,7 @@ import com.hapbang.chat.in.event.kafka.ChatKafkaConsumerSettings;
 import com.hapbang.chat.in.event.kafka.MissingTypeEvent;
 import com.hapbang.chat.in.event.kafka.RejectedEventException;
 import com.hapbang.chat.in.event.kafka.SkippedEventLog;
-import com.hapbang.shared.member.event.UserLoggedOutEvent;
+import com.hapbang.shared.member.event.UnhandledMemberEvent;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -57,17 +57,17 @@ class ChatUserEventListenerSkipTest {
 
     @Test
     void 처리기가_없는_종류는_예외_없이_건너뛰고_INFO는_2의_거듭제곱_번째만_남긴다() {
-        UserLoggedOutEvent loggedOut = new UserLoggedOutEvent(1L, "session");
+        UnhandledMemberEvent unhandled = new UnhandledMemberEvent(1L, "session");
 
         for (long offset = 0; offset < 9; offset++) {
-            assertThatNoException().isThrownBy(() -> listener.onUnsupported(loggedOut, "1", 0, 0L));
+            assertThatNoException().isThrownBy(() -> listener.onUnsupported(unhandled, "1", 0, 0L));
         }
 
         List<ILoggingEvent> infos = appender.list.stream().filter(e -> e.getLevel() == Level.INFO).toList();
         assertThat(infos).extracting(e -> e.getArgumentArray()[4]).containsExactly(1L, 2L, 4L, 8L);
-        assertThat(infos).allSatisfy(e -> assertThat(e.getArgumentArray()[0]).isEqualTo(UserLoggedOutEvent.class.getName()));
+        assertThat(infos).allSatisfy(e -> assertThat(e.getArgumentArray()[0]).isEqualTo(UnhandledMemberEvent.class.getName()));
         assertThat(appender.list).filteredOn(e -> e.getLevel() == Level.DEBUG).hasSize(5);
-        // 회원 정보(세션 ID 등)는 로그에 남기지 않는다
+        // 회원 정보는 로그에 남기지 않는다
         assertThat(appender.list).noneSatisfy(e -> assertThat(e.getFormattedMessage()).contains("session"));
         verifyNoInteractions(facade);
     }
@@ -75,11 +75,11 @@ class ChatUserEventListenerSkipTest {
     @Test
     void 빈_값은_종류를_따로_세어_건너뛴다() {
         listener.onUnsupported(KafkaNull.INSTANCE, "2", 0, 5L);
-        listener.onUnsupported(new UserLoggedOutEvent(1L, "s"), "1", 0, 6L);
+        listener.onUnsupported(new UnhandledMemberEvent(1L, "s"), "1", 0, 6L);
 
         assertThat(appender.list).filteredOn(e -> e.getLevel() == Level.INFO)
                 .extracting(e -> e.getArgumentArray()[0])
-                .containsExactly("빈 값(tombstone)", UserLoggedOutEvent.class.getName());
+                .containsExactly("빈 값(tombstone)", UnhandledMemberEvent.class.getName());
     }
 
     @Test

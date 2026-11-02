@@ -99,13 +99,6 @@ public class ChatRoomMembershipCache {
         }
     }
 
-    /** 그 방의 캐시를 버린다(다음 조회가 다시 읽는다) */
-    public void invalidate(Long roomId) {
-        synchronized (entries) {
-            entries.remove(roomId);
-        }
-    }
-
     private static final class Entry {
         private RoomMembership membership;
         private long loadedAt;

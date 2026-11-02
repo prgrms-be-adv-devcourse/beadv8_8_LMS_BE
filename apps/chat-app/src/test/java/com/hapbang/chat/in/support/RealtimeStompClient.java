@@ -11,7 +11,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
@@ -52,10 +51,8 @@ public class RealtimeStompClient {
     }
 
     public StompSession connect(Long userId) throws Exception {
-        WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
-        handshakeHeaders.add(HttpHeaders.COOKIE, E2ESession.login(client, userId, Role.INFLUENCER).cookieHeader());
-        StompSession session = stompClient.connectAsync("ws://localhost:" + port + "/api/v1/chats/ws",
-                handshakeHeaders, new StompHeaders(), new StompSessionHandlerAdapter() {
+        StompSession session = stompClient.connectAsync(E2ESession.of(userId, Role.INFLUENCER).connectUrl(client, port),
+                new WebSocketHttpHeaders(), new StompHeaders(), new StompSessionHandlerAdapter() {
                 }).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         sessions.add(session);
         return session;

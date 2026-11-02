@@ -18,7 +18,7 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
 
 /**
  * 채팅 E2E 테스트. 실제 서버(랜덤 포트)를 띄우고 RestTestClient·STOMP 클라이언트로 HTTP·웹소켓 요청을 보낸다.
- * 로그인은 {@link E2ELoginConfig}의 테스트 전용 로그인 경로로 실제 세션을 만든다.
+ * 로그인은 운영과 같은 경로다: REST는 Gateway 사용자 헤더, 웹소켓은 REST로 받은 일회용 연결 티켓({@link E2ESession}).
  * <p>
  * 실시간 전달은 운영과 같은 경로다: 저장 트랜잭션의 outbox → relay → Redis Streams → consumer → Redis Pub/Sub → 로컬 STOMP.
  * Redis 컨테이너를 쓰고 이 테스트용 namespace로 Stream·채널을 나눈다.
@@ -36,12 +36,9 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "spring.config.name=hapbang-module-test",
                 "spring.modulith.events.jdbc.schema-initialization.enabled=true",
                 "spring.modulith.events.completion-mode=delete",
-                // global의 SecurityConfig(oauth2Login)가 구글 등록 정보를 요구한다
-                "spring.security.oauth2.client.registration.google.client-id=test",
-                "spring.security.oauth2.client.registration.google.client-secret=test",
-                // global 내부 API 보안(InternalApiSecurityConfig)이 키를 요구한다 (#300)
+                // global 내부 API 보안(InternalApiSecurityConfig)이 키를 요구한다
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
-                // 웹소켓 허용 출처 검사(#235)용 프론트 출처
+                // 웹소켓 허용 출처 검사용 프론트 출처
                 "hapbang.chat.websocket.allowed-origins=http://localhost:5173",
                 // 운영과 같은 실시간 전달 경로
                 "hapbang.chat.realtime.enabled=true",
@@ -51,10 +48,11 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 // 컨텍스트마다 다른 namespace로 Stream·채널을 나눈다(클래스마다 컨텍스트를 닫으므로 클래스마다 다르다)
                 "hapbang.chat.redis.namespace=test-chat-e2e-${random.uuid}",
                 // 메서드 사이에 파이프라인을 멈출 때 worker가 블로킹 읽기에서 빨리 돌아오게 한다
-                "hapbang.chat.delivery.consumer.block=200ms"
+                "hapbang.chat.delivery.consumer.block=200ms",
+                // 시험은 같은 회원으로 여러 번 연결한다. 연결 티켓 발급 상한(운영 60초에 10번)을 넉넉히 둔다
+                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000"
         })
-@Import({PostgresTestcontainersConfig.class, RedisTestcontainersConfig.class, E2ELoginConfig.class,
-        E2ELoginConfig.TestSessionLoginController.class})
+@Import({PostgresTestcontainersConfig.class, RedisTestcontainersConfig.class})
 @DirtiesContext
 @TestExecutionListeners(listeners = {ChatE2EDatabaseCleanUpListener.class, ChatPipelineIsolationListener.class},
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)

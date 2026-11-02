@@ -6,7 +6,6 @@ import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
-import com.hapbang.chat.domain.ChatControlType;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +21,7 @@ public class ChatRealtimeFacade {
 
     private final ChatFanoutDeliveryService chatFanoutDeliveryService;
     private final ChatConnectionRecheckService chatConnectionRecheckService;
+    private final LocalChatConnections localChatConnections;
     private final ChatRoomActivityNotifier chatRoomActivityNotifier;
 
     public void deliverMessage(MessageFanout fanout) {
@@ -34,12 +34,23 @@ public class ChatRealtimeFacade {
         chatRoomActivityNotifier.record(activity);
     }
 
+    /**
+     * 연결 제어 작업을 이 앱의 로컬 연결에 적용한다. 재검사는 최신 자격으로 판단하고, 로그아웃은 자격과 관계없이 그 회원의 연결을
+     * 모두 닫는다. 둘 다 반복해도 안전하다.
+     */
     public void applyControl(ControlFanout control) {
-        if (control.type() != ChatControlType.RECHECK_USER) {
+        if (control.type() == null || control.userId() == null) {
             log.warn("처리할 수 없는 연결 제어 작업을 버림 controlId={}, type={}", control.controlId(), control.type());
             return;
         }
-        chatConnectionRecheckService.recheckUser(control.userId());
+        switch (control.type()) {
+            case RECHECK_USER -> chatConnectionRecheckService.recheckUser(control.userId());
+            case LOGOUT_USER -> {
+                int closed = localChatConnections.closeLoggedOut(control.userId());
+                log.info("로그아웃한 회원의 로컬 연결 닫음 controlId={}, userId={}, closed={}", control.controlId(),
+                        control.userId(), closed);
+            }
+        }
     }
 
     /** 서버 채널 구독이 다시 연결됐다(방 채널도 같은 연결이다). 그 사이 놓친 메시지는 FE 이력 대조로 복구하도록 알린다 */

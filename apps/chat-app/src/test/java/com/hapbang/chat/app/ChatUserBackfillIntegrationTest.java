@@ -3,7 +3,6 @@ package com.hapbang.chat.app;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -277,7 +276,7 @@ class ChatUserBackfillIntegrationTest {
     void 관리자는_백필_API로_실행하고_집계를_RsData로_받는다() throws Exception {
         source(member(1L, "회원1", Role.INFLUENCER, UserStatus.ACTIVE, 1L));
 
-        mockMvc.perform(post(URL).param("limit", "5").with(csrf()).with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).param("limit", "5").with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.scanned").value(1))
@@ -290,20 +289,20 @@ class ChatUserBackfillIntegrationTest {
 
     @Test
     void 관리자가_아니면_백필_API를_쓸_수_없다() throws Exception {
-        mockMvc.perform(post(URL).param("limit", "5").with(csrf()).with(TestLogin.as(1L, Role.VERIFIED_INFLUENCER)))
+        mockMvc.perform(post(URL).param("limit", "5").with(TestLogin.as(1L, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(post(URL).with(csrf()))
+        mockMvc.perform(post(URL))
                 .andExpect(status().isUnauthorized());
         assertThat(REQUESTS).isEmpty();
     }
 
     @Test
     void 처리할_수_범위를_벗어나면_400이다() throws Exception {
-        mockMvc.perform(post(URL).param("limit", String.valueOf(MAX_LIMIT + 1)).with(csrf())
+        mockMvc.perform(post(URL).param("limit", String.valueOf(MAX_LIMIT + 1))
                         .with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        mockMvc.perform(post(URL).param("afterId", "-1").param("limit", "5").with(csrf()).with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).param("afterId", "-1").param("limit", "5").with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         assertThat(REQUESTS).isEmpty();
@@ -315,7 +314,7 @@ class ChatUserBackfillIntegrationTest {
         failOnRequest = 1;
         forcedStatus = 500;
 
-        mockMvc.perform(post(URL).param("afterId", "0").param("limit", "5").with(csrf())
+        mockMvc.perform(post(URL).param("afterId", "0").param("limit", "5")
                         .with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("MEMBER_SOURCE_UNAVAILABLE"))
@@ -329,7 +328,7 @@ class ChatUserBackfillIntegrationTest {
         failOnRequest = 1;
         forcedStatus = 401;
 
-        mockMvc.perform(post(URL).param("afterId", "0").param("limit", "5").with(csrf())
+        mockMvc.perform(post(URL).param("afterId", "0").param("limit", "5")
                         .with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("MEMBER_SOURCE_REJECTED"))
