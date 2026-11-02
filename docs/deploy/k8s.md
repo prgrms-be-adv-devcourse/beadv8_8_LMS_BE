@@ -223,7 +223,7 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
 - 릴리스 뒤에는 먼저 올린 앱을 Deploy의 `apps`에 적어 다시 배포한다. 입력 없이 돌리면 앱 내용이 그대로인 앱은 건너뛰어, 사람이 올린 이미지와 최소 배포에서 뺀 리소스(Service·HTTPRoute 등)가 그대로 남는다.
 - main 릴리스 리뷰와 CI를 거치지 않은 이미지다. 어떤 앱을 어느 커밋으로 언제 올렸는지 해당 티켓에 남긴다.
 - 2026-10-30 기록: member-app·lecture-app을 이 방식으로 올렸다(#461). 처음에는 ConfigMap·Deployment만 적용해 NetworkPolicy가 빠졌다. lecture-app은 384Mi·448Mi limit에서 기동 중 OOMKilled돼 640Mi로 올렸고, manifest와 [k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)도 640Mi로 고쳤다.
-- 2026-11-02 기록: appearance-app을 dev `5d66992`로 이 방식(NetworkPolicy → ConfigMap·Deployment)으로 올렸다(#504). Flyway가 `appearance` 스키마를 만들고 회원 이벤트 consumer가 `member.events.v1`을 받았다. route는 billing-app 배포 뒤 연다. billing-app이 없으면 요청서·모집글이 보류 요청 실패로 `HOLD_PENDING`에 남기 때문이다. 448Mi limit에서 기동 3분 뒤 RSS 425Mi로 한도에 붙어 512Mi로 올렸다([k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)).
+- 2026-11-02 기록: appearance-app을 dev `5d66992`로 이 방식(NetworkPolicy → ConfigMap·Deployment)으로 올렸다(#504). Flyway가 `appearance` 스키마를 만들고 회원 이벤트 consumer가 `member.events.v1`을 받았다. route는 billing-app 배포 뒤 연다. billing-app이 없으면 요청서·모집글이 보류 요청 실패로 `HOLD_PENDING`에 남기 때문이다. 448Mi limit에서 기동 3분 뒤 RSS 425Mi로 한도에 붙어 512Mi로 올렸고, 다시 뜬 뒤 4분에 RSS 414Mi였다([k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)).
 
 ### 첫 릴리스
 
