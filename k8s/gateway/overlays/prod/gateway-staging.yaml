@@ -4,7 +4,6 @@ metadata:
   name: gateway-staging
 spec:
   acme:
-    email: replace-before-apply@example.invalid
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: gateway-staging-account

@@ -24,7 +24,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http)
             throws Exception {
         http
-                // Gateway가 넘긴 사용자 헤더로 인증한다 (#521, D71). 프론트는 JWT를 Authorization: Bearer로 보내고,
+                // Gateway가 넘긴 사용자 헤더로 인증한다 (#521, D72). 프론트는 JWT를 Authorization: Bearer로 보내고,
                 // 브라우저가 자동으로 싣는 쿠키로 인증하지 않으므로 CSRF 대상이 아니다
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

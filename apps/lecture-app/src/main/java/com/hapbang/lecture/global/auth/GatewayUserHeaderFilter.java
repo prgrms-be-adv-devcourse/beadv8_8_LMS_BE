@@ -18,7 +18,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Gateway(Envoy)가 JWT를 검증한 뒤 넘겨 준 사용자 헤더로 로그인 상태를 만든다 (#521, D71).
+ * Gateway(Envoy)가 JWT를 검증한 뒤 넘겨 준 사용자 헤더로 로그인 상태를 만든다 (#521, D72).
  * <ul>
  *     <li>{@code X-User-Id}(회원 ID)와 {@code X-User-Role}(역할 하나)이 둘 다 맞으면 인증한다.
  *     {@code getName()}은 회원 ID({@code @LoginUserId}), 권한은 {@code ROLE_{역할}}({@code @PreAuthorize})이다.</li>

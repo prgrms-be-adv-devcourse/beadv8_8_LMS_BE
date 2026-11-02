@@ -132,22 +132,21 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | error_detail | varchar(1000) | 예외 종류·메시지 (진단용, 관리자만) |
 | started_at, completed_at | timestamp | |
 
-**objection_command** (**신규**, #278, D60): 이의 제기 명령 처리 이력(inbox). 삭제하지 않는다. 항목이 다시 `NONE`이 되거나 새 문의가 생겨도 과거 결과를 재현한다.
+**lecture_objection_command** (#278, D60·D71): 이의 제기 명령 처리 이력(inbox). 바꾸거나 삭제하지 않는다. 항목이 다시 `NONE`이 되거나 새 문의가 생겨도 과거 결과를 재현한다.
 
 | 컬럼 | 타입 | 비고 |
 | --- | --- | --- |
 | id | bigint PK | |
-| command_id | varchar | 유일. `FILE:{inquiryId}` / `RESOLVE:{inquiryId}` / `WITHDRAW:{inquiryId}` |
-| command_type | varchar | `FILE` / `RESOLVE` / `WITHDRAW` |
+| command_id | varchar(100) | 유일. `FILE:{inquiryId}` / `RESOLVE:{inquiryId}` / `WITHDRAW:{inquiryId}` (운영 복구 #267은 다른 ID) |
+| command_type | varchar(20) | `FILE` / `RESOLVE` / `WITHDRAW` (shared `LectureObjectionCommandType`) |
 | inquiry_id, order_item_id | bigint | 고객센터 문의 ID(FK 없음), 대상 항목 |
-| correlation_id | varchar | 접수부터 반환까지 한 흐름 |
-| last_event_id | varchar | 마지막으로 받은 명령 이벤트 ID (판단·철회) |
-| payload_fingerprint | varchar | 같은 `command_id`인데 다르면 `IDEMPOTENCY_KEY_CONFLICT` |
-| result | varchar | `SUCCEEDED` / `REJECTED` (최종 업무 거절만 저장) |
-| failure_code | varchar | `LectureObjectionFailureCode` |
+| payload_hash | varchar(64) | 명령 종류와 값의 SHA-256. 같은 `command_id`인데 다르면 `OBJECTION_COMMAND_CONFLICT`(이력은 그대로) |
+| outcome | varchar(20) | `SUCCEEDED` / `REFUSED` (업무 거절만 저장) |
+| failure_code | varchar(50) | `LectureObjectionFailureCode` |
 | processed_at | timestamp | |
 
-- 재시도하면 성공할 수 있는 실패(순서 지연, 낙관적 락 충돌)와 기술 실패(DB·타임아웃)는 결과로 저장하지 않는다 (#278).
+- 재시도하면 성공할 수 있는 실패(낙관적 락 충돌, 같은 명령의 동시 처리)와 기술 실패(DB)는 결과로 저장하지 않는다. 호출한 쪽이 같은 명령을 다시 보내면 처음부터 처리하거나 먼저 끝난 결과를 재현한다 (#278).
+- `correlation_id`·`last_event_id`는 두지 않는다. 추적은 trace, 멱등은 명령 ID가 맡는다(ADR 0002, D71).
 
 ### 7.2 ERD 반영 필요 목록
 
@@ -159,7 +158,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 - [ ] `LECTURE_ORDER`: `status` 값 정의(`PAID`/`CANCELED`), `canceled_at` 의미 정의
 - [ ] `ORDER_ITEM`: `buyer_user_id`, `purchased_at`, `confirmation_type`, `paid_out_at`, `objection_reason`, `objection_resolved_at`, `version` 추가, `refunded_at` → `returned_at`, `status` 값 정의
 - [ ] `LECTURE_USER` 추가
-- [ ] `LECTURE_ORDER`·`ORDER_ITEM` 처리 중 상태와 `paid_at`, `LECTURE_HP_TASK`·`LECTURE_HP_TASK_ATTEMPT`·`OBJECTION_COMMAND` 추가 (#275~#278, D57~D60)
+- [ ] `LECTURE_ORDER`·`ORDER_ITEM` 처리 중 상태와 `paid_at`, `LECTURE_HP_TASK`·`LECTURE_HP_TASK_ATTEMPT`·`LECTURE_OBJECTION_COMMAND` 추가 (#275~#278, D57~D60·D71)
 
 ---
 
@@ -270,7 +269,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 ### 8.6.1 판매 수익 내부 API (D63, #300)
 
-billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. 회원 로그인(Gateway 사용자 헤더)이 아니라 내부 API 키(`X-Internal-Api-Key`)로 인증하고, 내부 포트로만 받는다(외부 포트로 오면 404, D71). 계약 전체(상태 대응, 필드, 오류, Client)는 `docs/api/internal-earnings.md`.
+billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. 회원 로그인(Gateway 사용자 헤더)이 아니라 내부 API 키(`X-Internal-Api-Key`)로 인증하고, 내부 포트로만 받는다(외부 포트로 오면 404, D72). 계약 전체(상태 대응, 필드, 오류, Client)는 `docs/api/internal-earnings.md`.
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
@@ -337,12 +336,13 @@ com.hapbang.lecture
 ├── out/                Repository. 다른 bounded context용 Java Port는 두지 않는다(D62)
 └── config/             LectureConfig (강의 Clock `lectureClock`, D37), HP 작업 설정(`lecture.hp-task.*`, D57)
 
-com.hapbang.shared.lecture                         dto(이의 제기 접수 명령·결과), domain(오류 코드), event(V1), out(LectureApiClient) (D62)
+com.hapbang.shared.lecture                         dto(이의 제기 접수 요청·결과), domain(명령 종류·거절 사유), event(판단·철회 결과, 반환 완료·조치 필요), out(LectureApiClient) (D62, D71)
+com.hapbang.shared.customersupport                 event(이의 제기 판단·철회 요청) (D71)
 com.hapbang.shared.billing                         dto(HP 명령·결과), domain(참조·오류 코드), event, out(BillingApiClient·호출 결과/예외) (D62)
 com.hapbang.apps                                   bootstrap, scheduling, security·HTTP 공통 설정만 담당 (D62)
 ```
 
-- shared `LectureObjectionPort`와 `in/LectureObjectionPortAdapter`는 #433에서 지웠다. 이의 제기 거절은 `LectureErrorCode.OBJECTION_*`이고, 고객센터와 잇는 내부 HTTP·이벤트는 #278에서 만든다. 그 전까지 고객센터는 이의 제기 접수·판단·철회를 503(`OBJECTION_UNAVAILABLE`)으로 막는다.
+- shared `LectureObjectionPort`와 `in/LectureObjectionPortAdapter`는 #433에서 지웠다. 고객센터와는 내부 HTTP(접수, `ApiV1LectureObjectionInternalController`)와 이벤트(판단·철회, `LectureObjectionRequestListener`)로 잇는다(#278). 두 진입점 모두 `LectureObjectionFacade` → `LectureObjectionCommandUseCase`(명령 이력, 결과 이벤트)를 부른다. 이의 제기 거절은 `LectureErrorCode.OBJECTION_*`이고 shared `LectureObjectionFailureCode`와 이름이 같다.
 - `app`은 회원 모듈(`MemberFacade`)과 같은 Facade/UseCase/Support 구조다. 컨트롤러·이벤트 리스너는 Facade만 호출하고, `@Transactional`은 Facade 메서드에 건다 (D16). 예외: 파일 본문 업로드(D25)와 billing을 부르는 흐름(주문 생성·구매 취소·HP 작업 실행, D57)은 트랜잭션 없는 Facade가 짧은 트랜잭션들을 나눠 부르고, billing 호출은 그 사이 트랜잭션 밖에서 한다.
 - 예외 응답은 global `GlobalExceptionHandler`가 `ProblemDetail` + `code`로 만든다(#71). 강의 모듈은 예외 처리기를 두지 않고 `new LectureException(LectureErrorCode.X)`로 던진다.
 - S3는 global `S3FileStorage`를 `app`에서 쓴다. 강의 모듈에 S3 클라이언트를 두지 않는다 (D40).
@@ -359,7 +359,7 @@ com.hapbang.apps                                   bootstrap, scheduling, securi
 | HP 작업 선점·lease·`claimToken`·재시도·`DEAD`, 겹친 실행기, 결과 기록 실패 뒤 재실행 | `@IntegrationTest` (`Clock` 고정, 두 실행기를 동시에) |
 | **트랜잭션 밖 호출** — Client 호출 구간에는 강의 트랜잭션이 없고, HTTP 요청은 billing 로컬 트랜잭션으로 실행되며, 결과 기록 구간에만 새 강의 트랜잭션이 있는지 | 전체 앱 컨텍스트 + 실제 self-HTTP 통합 테스트. 성공 뒤 결과 기록 실패, timeout과 같은 멱등 키 재호출도 확인한다 |
 | 이의 제기 접수(동기)·판단·철회(이벤트), 명령 이력 멱등, 접수 ↔ 지급 대상 선점 경쟁 | `@IntegrationTest` (이벤트는 `TransactionTemplate` 안에서 발행하고 `await()`) |
-| 모듈 경계 | 기존 `ModularityTests`. #280에서 shared `..port..`, 다른 모듈 Application·Repository·엔티티·예외 의존과 `apps`의 모듈 연결 구현을 막는 구조 테스트를 더한다. 트랜잭션 밖 호출은 위 통합 테스트로 확인한다 |
+| 모듈 경계 | 앱마다 Gradle 프로젝트가 나뉘어 다른 앱의 타입은 import할 수 없다. 루트 `verifyModuleStructure`가 모든 프로젝트의 compileClasspath·runtimeClasspath에 다른 앱이 없는지 검사하고(CI `structure` job), shared `SharedContractRulesTest`가 shared의 앱 패키지 의존·`..port..`·sealed가 아닌 인터페이스를 막는다(#280). 앱마다 ArchUnit 구조 테스트를 따로 두지 않는다. 트랜잭션 밖 호출은 위 통합 테스트로 확인한다 |
 
 > **스키마 생성**: 모든 환경과 테스트가 Flyway 마이그레이션으로 스키마를 만들고 Hibernate는 `validate`만 한다 (D13, `docs/db-migration.md`). 강의 마이그레이션은 `boundedContext/lecture/src/main/resources/db/migration/`에 둔다.
 

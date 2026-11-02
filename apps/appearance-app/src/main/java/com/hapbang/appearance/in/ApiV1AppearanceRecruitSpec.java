@@ -26,7 +26,8 @@ import jakarta.validation.Valid;
  */
 @Tag(name = "출연 모집", description = """
         호스트가 여러 게스트를 공개 모집하는 출연 모집글. 올리기·수정·내 목록은 정상 상태의 인플루언서 이상만 쓸 수 있고 (관리자 제외),
-        공개 목록·상세는 로그인한 회원이면 누구나 볼 수 있다. 오류는 Problem Detail로 응답하며 `code`로 구분한다.""")
+        공개 목록·상세는 로그인한 회원이면 누구나 볼 수 있다.
+        공개 목록·상세 밖에서는 로그인 역할이 일반 유저·관리자면 403 `FORBIDDEN`이고, 로그인한 회원의 출연 회원 정보가 없으면 404 `APPEARANCE_USER_NOT_FOUND`, 로그인 뒤 정지·탈퇴했으면 403 `APPEARANCE_USER_NOT_ACTIVE`, 로그인 뒤 일반 유저로 강등됐으면 403 `NOT_INFLUENCER`이다. 오류는 Problem Detail로 응답하며 `code`로 구분한다.""")
 public interface ApiV1AppearanceRecruitSpec {
 
     String STATUS_FILTER = "상태 필터. 여러 번 보낼 수 있다 (예: status=RECRUITING&status=CLOSED). 생략하면 전체. "

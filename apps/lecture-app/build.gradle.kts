@@ -14,6 +14,8 @@ dependencies {
     implementation("org.springframework.security:spring-security-core")
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
     implementation(libs.swagger.annotations)
+    // 이의 제기 결과·반환 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #278). 버전은 Modulith BOM을 따른다
+    implementation("org.springframework.modulith:spring-modulith-events-kafka")
     // 동시 요청의 유일 인덱스 위반 판별(UniqueIndexViolation)에 PSQLException의 제약 이름을 쓴다(billing과 같음). 드라이버는 실행 시 이 앱(runtimeOnly)가 넣어 준다
     compileOnly("org.postgresql:postgresql")
     // Facade 테스트의 역할 넣기(@WithMockUser). API 테스트 로그인은 사용자 헤더(support.GatewayLogin)다

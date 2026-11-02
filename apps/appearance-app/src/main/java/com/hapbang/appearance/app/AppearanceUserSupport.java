@@ -56,6 +56,12 @@ public class AppearanceUserSupport {
         return user;
     }
 
+    /** 회원이 있고 정상(ACTIVE) 상태인지. 복제한 회원 정보가 없으면 false (리뷰 받을 상대, #512) */
+    public boolean isActive(Long userId) {
+        Optional<AppearanceUser> found = appearanceUserRepository.findById(userId);
+        return found.isPresent() && found.get().isActive();
+    }
+
     /**
      * 출연 요청을 받을 게스트를 찾고 자격을 확인한다. 오류 코드는 {@link #getParticipant}와 같고, 메시지만 게스트 기준으로 바꾼다.
      *

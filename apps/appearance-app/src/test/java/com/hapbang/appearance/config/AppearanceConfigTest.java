@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.ConfigDataApplicationContextInitial
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import com.hapbang.appearance.domain.AppearancePolicy;
+import com.hapbang.appearance.domain.AppearanceReviewPolicy;
 import com.hapbang.appearance.domain.HpTaskRetryPolicy;
 import com.hapbang.appearance.shared.time.AppearanceTime;
 
@@ -49,6 +50,27 @@ class AppearanceConfigTest {
             assertThat(batch.pendingGrace()).isEqualTo(Duration.ofMinutes(1));
             assertThat(retryPolicy).isEqualTo(new HpTaskRetryPolicy(Duration.ofMinutes(1), Duration.ofHours(1), 10, 0.2));
         });
+    }
+
+    @Test
+    @DisplayName("appearance.yml의 리뷰 작성 기간은 비어 있어 무기한이다 (#512)")
+    void reviewPolicyIsUnlimitedByDefault() {
+        contextRunner.run(context -> {
+            AppearanceReviewPolicy policy = context.getBean(AppearanceReviewPolicy.class);
+
+            assertThat(policy.writePeriod()).isNull();
+            assertThat(policy.hasWritePeriod()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("리뷰 작성 기간을 채우면(예: 14d) 그 기간이 들어오고, 0이면 앱이 뜨지 않는다 (#512)")
+    void reviewPolicyWithPeriod() {
+        contextRunner.withPropertyValues("appearance.review.write-period=14d")
+                .run(context -> assertThat(context.getBean(AppearanceReviewPolicy.class).writePeriod())
+                        .isEqualTo(Duration.ofDays(14)));
+        contextRunner.withPropertyValues("appearance.review.write-period=0s")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     /**

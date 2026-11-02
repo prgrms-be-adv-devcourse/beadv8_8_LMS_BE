@@ -20,6 +20,7 @@ import com.hapbang.customersupport.app.dto.InquiryResponse;
 import com.hapbang.customersupport.app.dto.InquirySort;
 import com.hapbang.customersupport.app.dto.InquirySummaryResponse;
 import com.hapbang.customersupport.domain.InquiryStatus;
+import com.hapbang.customersupport.domain.ObjectionLinkStatus;
 import com.hapbang.customersupport.in.dto.CreateInquiryRequest;
 import com.hapbang.customersupport.in.dto.InquiryReplyRequest;
 import com.hapbang.customersupport.in.dto.ObjectionResolutionRequest;
@@ -40,14 +41,17 @@ public class ApiV1InquiryController implements ApiV1InquirySpec {
 
     private final InquiryFacade inquiryFacade;
 
+    /** 이의 제기 접수 결과를 모르면(강의 접수 처리 중) 202, 그 밖에는 201이다 (D60 (1)) */
     @Override
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public RsData<InquiryResponse> createInquiry(@LoginUserId Long userId,
-                                                 @RequestBody CreateInquiryRequest request) {
+    public ResponseEntity<RsData<InquiryResponse>> createInquiry(@LoginUserId Long userId,
+                                                                 @RequestBody CreateInquiryRequest request) {
         InquiryResponse response = inquiryFacade.create(userId, request.category(), request.title(),
                 request.content(), request.orderItemId());
-        return RsData.created("문의를 접수했습니다.", response);
+        if (response.objectionLinkStatus() == ObjectionLinkStatus.FILING) {
+            return respond(HttpStatus.ACCEPTED, "문의를 저장했습니다. 이의 제기 접수를 처리하는 중입니다.", response);
+        }
+        return respond(HttpStatus.CREATED, "문의를 접수했습니다.", response);
     }
 
     @Override
@@ -67,10 +71,15 @@ public class ApiV1InquiryController implements ApiV1InquirySpec {
         return RsData.ok("문의를 조회했습니다.", inquiryFacade.getMyInquiry(inquiryId, userId));
     }
 
+    /** 이의 제기 철회를 강의에 요청했으면 202(철회 처리 중), 그 밖에는 204다 (D60 (2)) */
     @Override
     @DeleteMapping("/{inquiryId}")
-    public ResponseEntity<Void> deleteInquiry(@LoginUserId Long userId, @PathVariable("inquiryId") Long inquiryId) {
-        inquiryFacade.delete(inquiryId, userId);
+    public ResponseEntity<RsData<InquiryResponse>> deleteInquiry(@LoginUserId Long userId,
+                                                                 @PathVariable("inquiryId") Long inquiryId) {
+        InquiryResponse response = inquiryFacade.delete(inquiryId, userId);
+        if (response.objectionLinkStatus() == ObjectionLinkStatus.WITHDRAWAL_PENDING) {
+            return respond(HttpStatus.ACCEPTED, "이의 제기 철회를 처리하는 중입니다.", response);
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -109,13 +118,23 @@ public class ApiV1InquiryController implements ApiV1InquirySpec {
         return RsData.ok("답변을 수정했습니다.", inquiryFacade.editReply(inquiryId, replyId, request.content()));
     }
 
+    /** 강의 반영 전이면 202(판단 처리 중), 같은 판단이 이미 반영되었으면 200이다 (D60 (2)) */
     @Override
     @PostMapping("/admin/{inquiryId}/objection-resolution")
-    public RsData<InquiryResponse> resolveObjection(@LoginUserId Long userId,
-                                                    @PathVariable("inquiryId") Long inquiryId,
-                                                    @RequestBody ObjectionResolutionRequest request) {
-        return RsData.ok("이의 제기를 판단했습니다.",
-                inquiryFacade.resolveObjection(inquiryId, userId, request.accepted(), request.content()));
+    public ResponseEntity<RsData<InquiryResponse>> resolveObjection(@LoginUserId Long userId,
+                                                                    @PathVariable("inquiryId") Long inquiryId,
+                                                                    @RequestBody ObjectionResolutionRequest request) {
+        InquiryResponse response = inquiryFacade.resolveObjection(inquiryId, userId, request.accepted(),
+                request.content());
+        if (response.objectionLinkStatus() == ObjectionLinkStatus.RESOLUTION_PENDING) {
+            return respond(HttpStatus.ACCEPTED, "이의 제기 판단을 처리하는 중입니다.", response);
+        }
+        return respond(HttpStatus.OK, "이의 제기를 판단했습니다.", response);
+    }
+
+    private static ResponseEntity<RsData<InquiryResponse>> respond(HttpStatus status, String message,
+                                                                    InquiryResponse response) {
+        return ResponseEntity.status(status).body(RsData.of(status, message, response));
     }
 
     @Override

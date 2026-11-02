@@ -1,5 +1,8 @@
 package com.hapbang.customersupport.in;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.reset;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -14,12 +17,21 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.customersupport.app.InquiryUseCase;
-import com.hapbang.customersupport.domain.Inquiry;
+import com.hapbang.customersupport.app.LectureObjectionResultUseCase;
 import com.hapbang.customersupport.domain.InquiryCategory;
+import com.hapbang.customersupport.fixture.LectureObjectionFixture;
 import com.hapbang.customersupport.out.InquiryRepository;
+import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
+import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
+import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
+import com.hapbang.shared.lecture.event.LectureObjectionWithdrawnEvent;
+import com.hapbang.shared.lecture.out.LectureApiCallExceptions;
+import com.hapbang.shared.lecture.out.LectureApiClient;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.TestLogin;
@@ -42,6 +54,16 @@ class ApiV1InquiryControllerTest {
 
     @Autowired
     InquiryRepository inquiryRepository;
+
+    @Autowired
+    TransactionTemplate transactionTemplate;
+
+    @Autowired
+    LectureObjectionResultUseCase results;
+
+    /** 강의 내부 API 대역 (#279) */
+    @MockitoBean
+    LectureApiClient lectureApiClient;
 
     @ParameterizedTest
     @EnumSource(value = Role.class, names = {"USER", "INFLUENCER", "VERIFIED_INFLUENCER"})
@@ -380,14 +402,33 @@ class ApiV1InquiryControllerTest {
     }
 
     @Test
-    void 이의_제기는_강의_연동_전까지_503() throws Exception {
-        mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"category": "LECTURE_CONTENT_DISPUTE", "title": "내용이 달라요", "content": "커리큘럼과 달라요.",
-                                 "orderItemId": 100}"""))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value("OBJECTION_UNAVAILABLE"));
+    void 이의_제기를_강의가_접수하면_201_결과를_모르면_202_거절하면_사유_코드다() throws Exception {
+        given(lectureApiClient.fileObjection(any())).willAnswer(invocation -> {
+            LectureObjectionFileRequest request = invocation.getArgument(0);
+            return new LectureObjectionFiledDto(request.commandId(), request.inquiryId(), request.orderItemId());
+        });
+        postDispute()
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.statusCode").value(201))
+                .andExpect(jsonPath("$.data.objectionLinkStatus").value("FILED"))
+                .andExpect(jsonPath("$.data.targetId").value(100))
+                // 회원 응답에는 명령 ID를 싣지 않는다
+                .andExpect(jsonPath("$.data.objectionCommandId").doesNotExist());
+
+        reset(lectureApiClient);
+        given(lectureApiClient.fileObjection(any())).willThrow(LectureApiCallExceptions.unavailable());
+        postDispute()
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.statusCode").value(202))
+                .andExpect(jsonPath("$.message").value("문의를 저장했습니다. 이의 제기 접수를 처리하는 중입니다."))
+                .andExpect(jsonPath("$.data.objectionLinkStatus").value("FILING"));
+
+        reset(lectureApiClient);
+        given(lectureApiClient.fileObjection(any()))
+                .willThrow(LectureApiCallExceptions.rejected(404, "OBJECTION_NOT_BUYER"));
+        postDispute()
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("OBJECTION_NOT_BUYER"));
     }
 
     @Test
@@ -401,16 +442,29 @@ class ApiV1InquiryControllerTest {
     }
 
     @Test
-    void 이의_제기_판단은_강의_연동_전까지_503() throws Exception {
+    void 이의_제기_판단은_강의_반영_전이면_202_반영된_같은_판단은_200_다른_판단은_409다() throws Exception {
         Long inquiryId = saveDispute();
 
-        mockMvc.perform(post("/api/v1/inquiries/admin/{id}/objection-resolution", inquiryId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"accepted": true, "content": "확인 결과 반환합니다."}"""))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value("OBJECTION_UNAVAILABLE"));
+        resolve(inquiryId, true, "확인 결과 반환합니다.")
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.statusCode").value(202))
+                .andExpect(jsonPath("$.data.objectionLinkStatus").value("RESOLUTION_PENDING"))
+                .andExpect(jsonPath("$.data.status").value("WAITING"))
+                .andExpect(jsonPath("$.data.objectionCommandId").value("RESOLVE:" + inquiryId));
+        resolve(inquiryId, true, "확인 결과 반환합니다.").andExpect(status().isAccepted());
+        resolve(inquiryId, false, "기각합니다.")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OBJECTION_IN_PROGRESS"));
+
+        results.apply(new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, 100L, true));
+
+        resolve(inquiryId, true, "확인 결과 반환합니다.")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("이의 제기를 판단했습니다."))
+                .andExpect(jsonPath("$.data.objectionLinkStatus").value("RESOLVED"))
+                .andExpect(jsonPath("$.data.status").value("ANSWERED"))
+                .andExpect(jsonPath("$.data.objectionResult").value("ACCEPTED"))
+                .andExpect(jsonPath("$.data.hpReturnStatus").value("PENDING"));
     }
 
     @Test
@@ -440,16 +494,41 @@ class ApiV1InquiryControllerTest {
     }
 
     @Test
-    void 이의_제기_문의_삭제는_강의_연동_전까지_503() throws Exception {
+    void 이의_제기_문의_삭제는_철회_요청이라_202이고_철회가_끝난_뒤_다시_보내면_204다() throws Exception {
         Long inquiryId = saveDispute();
 
         mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value("OBJECTION_UNAVAILABLE"));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.message").value("이의 제기 철회를 처리하는 중입니다."))
+                .andExpect(jsonPath("$.data.objectionLinkStatus").value("WITHDRAWAL_PENDING"));
+
+        results.apply(new LectureObjectionWithdrawnEvent("WITHDRAW:" + inquiryId, inquiryId, 100L));
+
+        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)))
+                .andExpect(status().isNotFound());
     }
 
-    /** 강의 연동 전 접수된 이의 제기 문의. API로는 더 만들 수 없어 저장소에 직접 넣는다 */
+    private org.springframework.test.web.servlet.ResultActions postDispute() throws Exception {
+        return mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"category": "LECTURE_CONTENT_DISPUTE", "title": "내용이 달라요", "content": "커리큘럼과 달라요.",
+                         "orderItemId": 100}"""));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions resolve(Long inquiryId, boolean accepted, String content)
+            throws Exception {
+        return mockMvc.perform(post("/api/v1/inquiries/admin/{id}/objection-resolution", inquiryId)
+                .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"accepted": %s, "content": "%s"}""".formatted(accepted, content)));
+    }
+
+    /** 강의에 접수된 이의 제기 문의 */
     private Long saveDispute() {
-        return inquiryRepository.save(Inquiry.createLectureDispute(USER_ID, "내용이 달라요", "달라요.", 100L)).getId();
+        return LectureObjectionFixture.filed(transactionTemplate, inquiryRepository, USER_ID, 100L);
     }
 }

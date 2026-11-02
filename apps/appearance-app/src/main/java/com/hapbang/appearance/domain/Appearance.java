@@ -367,6 +367,36 @@ public class Appearance extends BaseEntity {
         this.confirmedAt = now;
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // 출연 리뷰 (#512). 리뷰 기록은 AppearanceReview에 남기고, 출연은 쓸 수 있는지만 판단한다.
+    // 작성자가 호스트·게스트인지는 다른 출연 기능처럼 validateViewableBy로 확인한다 (아니면 출연이 있다는 사실도 알리지 않는다).
+
+    /**
+     * 지금 이 출연에 리뷰를 쓸 수 있는지 확인한다. 출연 확인({@code CONFIRMED}, 호스트 확인·자동 확인)이 끝났고
+     * 작성 기한(확인 시각 + 기간, 정책에 기간이 없으면 무기한) 안이어야 한다.
+     *
+     * @throws AppearanceException 확인된 출연이 아님({@code APPEARANCE_NOT_REVIEWABLE}), 작성 기한 지남({@code REVIEW_PERIOD_ENDED})
+     */
+    public void validateReviewable(AppearanceReviewPolicy policy, LocalDateTime now) {
+        if (status != AppearanceStatus.CONFIRMED) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_NOT_REVIEWABLE);
+        }
+        if (!policy.isWritable(confirmedAt, now)) {
+            throw new AppearanceException(AppearanceErrorCode.REVIEW_PERIOD_ENDED);
+        }
+    }
+
+    /** 이 출연에서 회원의 상대 (호스트면 게스트, 게스트면 호스트) */
+    public Long counterpartOf(Long userId) {
+        if (isHost(userId)) {
+            return guestId;
+        }
+        if (isGuest(userId)) {
+            return hostId;
+        }
+        throw new IllegalArgumentException("출연의 호스트·게스트가 아닙니다: " + userId);
+    }
+
     /** 이 출연의 HP가 걸린 보류 종류 (요청서 또는 모집글) */
     public HpTaskRefType holdRefType() {
         return isFromRecruit() ? HpTaskRefType.APPEARANCE_RECRUIT : HpTaskRefType.APPEARANCE_REQUEST;

@@ -19,9 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.UnexpectedRollbackException;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
@@ -37,7 +36,10 @@ import com.hapbang.lecture.domain.ObjectionStatus;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.lecture.domain.LectureObjectionCommandOutcome;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
+import com.hapbang.lecture.fixture.ObjectionCommands;
+import com.hapbang.lecture.out.LectureObjectionCommandRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -45,14 +47,27 @@ import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.out.BillingCallResult;
+import com.hapbang.shared.customersupport.event.LectureObjectionResolutionRequestedEvent;
+import com.hapbang.shared.customersupport.event.LectureObjectionWithdrawalRequestedEvent;
+import com.hapbang.shared.lecture.domain.LectureObjectionCommandType;
+import com.hapbang.shared.lecture.domain.LectureObjectionFailureCode;
+import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
+import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
+import com.hapbang.shared.lecture.event.LectureObjectionRequestRefusedEvent;
+import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
+import com.hapbang.shared.lecture.event.LectureObjectionReturnActionRequiredEvent;
+import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
+import com.hapbang.shared.lecture.event.LectureObjectionWithdrawnEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 이의 제기 Facade(LectureObjectionFacade)를 직접 호출해 DB·HP 반환과 지급 예정 취소(Fake billing)·트랜잭션 참여까지 확인한다.
- * 상태 규칙과 기한 경계는 LectureOrderObjectionTest가 맡는다.
+ * 이의 제기 Facade(LectureObjectionFacade)를 직접 호출해 DB·HP 반환(Fake billing)·명령 이력·결과 이벤트까지 확인한다 (#278).
+ * 상태 규칙과 기한 경계는 LectureOrderObjectionTest가 맡는다. 명령은 고객센터가 보낸 것처럼 명령 하나가 강의 트랜잭션 하나다.
  */
 @IntegrationTest
-@WithMockUser(roles = "USER")
+// 주문은 회원, 이의 제기 접수는 내부 API 진입점이다 (D63)
+@WithMockUser(roles = {"USER", "INTERNAL"})
+@RecordApplicationEvents
 class LectureObjectionFacadeTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
@@ -84,14 +99,20 @@ class LectureObjectionFacadeTest {
     private LectureHpTaskRepository lectureHpTaskRepository;
 
     @Autowired
-    private PlatformTransactionManager transactionManager;
-
-    @Autowired
     @Qualifier(LectureConfig.CLOCK)
     private Clock clock;
 
+    @Autowired
+    private LectureObjectionCommandRepository lectureObjectionCommandRepository;
+
+    @Autowired
+    private ApplicationEvents events;
+
+    private ObjectionCommands objections;
+
     @BeforeEach
     void setUp() {
+        objections = new ObjectionCommands(lectureObjectionFacade);
         billing.reset();
         billing.setSettledHp(PRICE_HP);
     }
@@ -101,7 +122,7 @@ class LectureObjectionFacadeTest {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
 
-        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
         OrderItem item = item(orderItemId);
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.FILED);
@@ -116,7 +137,7 @@ class LectureObjectionFacadeTest {
 
     @Test
     void 없는_항목에는_이의_제기할_수_없다() {
-        assertRefused(() -> lectureObjectionFacade.fileObjection(999_999L, BUYER_ID, INQUIRY_ID, REASON),
+        assertRefused(() -> objections.file(999_999L, BUYER_ID, INQUIRY_ID, REASON),
                 LectureErrorCode.OBJECTION_NOT_BUYER);
     }
 
@@ -126,7 +147,7 @@ class LectureObjectionFacadeTest {
                 List.of(saveOnSale("OBS 방송 세팅")), LocalDateTime.now(clock).minusDays(31)));
         Long orderItemId = expired.getItems().getFirst().getId();
 
-        assertRefused(() -> lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON),
+        assertRefused(() -> objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON),
                 LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
         assertThat(item(orderItemId).getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
     }
@@ -135,9 +156,9 @@ class LectureObjectionFacadeTest {
     void 인정하면_반환_처리_중이_되고_HP_작업_배치가_반환하면_반환이_된다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
-        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        objections.resolve(orderItemId, INQUIRY_ID, true, ADMIN_ID);
 
         // 판단 요청 안에서는 지갑을 부르지 않는다 (D70 (1))
         OrderItem accepted = item(orderItemId);
@@ -172,9 +193,9 @@ class LectureObjectionFacadeTest {
     void 기각하면_REJECTED로_저장되고_HP는_움직이지_않는다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
-        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, false, ADMIN_ID);
+        objections.resolve(orderItemId, INQUIRY_ID, false, ADMIN_ID);
 
         OrderItem item = item(orderItemId);
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.REJECTED);
@@ -187,8 +208,8 @@ class LectureObjectionFacadeTest {
     void 인정_반환액이_항목_가격과_다르면_반환_처리_중에_멈추고_관리자_확인이_필요하다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
-        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.resolve(orderItemId, INQUIRY_ID, true, ADMIN_ID);
         billing.setSettledHp(PRICE_HP - 1_000L);
 
         lectureHpTaskBatchUseCase.runDue();
@@ -203,8 +224,8 @@ class LectureObjectionFacadeTest {
     void 지갑이_반환을_거부하면_반환_처리_중에_멈춘다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
-        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.resolve(orderItemId, INQUIRY_ID, true, ADMIN_ID);
         billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.HOLD_NOT_FOUND,
                 "HP 보류를 찾을 수 없습니다.", 404, "HOLD_NOT_FOUND"));
 
@@ -216,65 +237,154 @@ class LectureObjectionFacadeTest {
     }
 
     @Test
-    void 같은_판단을_두_번_호출하면_두_번째는_거부되고_HP는_한_번만_반환된다() {
+    void 같은_판단_명령이_다시_오면_처음_결과를_재현하고_새_명령이면_거부되며_HP는_한_번만_반환된다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
-        lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID);
+        objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        LectureObjectionResolutionRequestedEvent resolve = resolveCommand(orderItemId, true);
+        assertThat(lectureObjectionFacade.resolve(resolve).succeeded()).isTrue();
 
-        assertRefused(() -> lectureObjectionFacade.resolveObjection(orderItemId, INQUIRY_ID, true, ADMIN_ID),
+        // Kafka 재전달처럼 같은 명령이 다시 온다
+        LectureObjectionCommandResult replayed = lectureObjectionFacade.resolve(resolve);
+        // 다른 명령 ID(운영 복구 등)의 같은 판단은 이미 판단한 항목이라 거절된다
+        assertRefused(() -> objections.resolve(orderItemId, INQUIRY_ID, true, ADMIN_ID),
                 LectureErrorCode.OBJECTION_NOT_FILED);
         lectureHpTaskBatchUseCase.runDue();
 
+        assertThat(replayed.succeeded()).isTrue();
+        assertThat(replayed.replayed()).isTrue();
         assertThat(releases()).hasSize(1);
+        assertThat(lectureHpTaskRepository.findByRequestId("LECTURE-RETURN-" + orderItemId)).isPresent();
+        // 처음 판단만 결과 이벤트를 낸다
+        assertThat(events.stream(LectureObjectionResolvedEvent.class)).singleElement()
+                .isEqualTo(new LectureObjectionResolvedEvent(resolve.commandId(), INQUIRY_ID, orderItemId, true));
+    }
+
+    @Test
+    void 판단과_철회_결과는_명령_ID와_함께_강의_이벤트로_나가고_거절도_이벤트다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
+        Long rejectedItemId = order.items().getFirst().orderItemId();
+        Long withdrawnItemId = order.items().getLast().orderItemId();
+        objections.file(rejectedItemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(withdrawnItemId, BUYER_ID, INQUIRY_ID + 1, REASON);
+
+        LectureObjectionResolutionRequestedEvent reject = resolveCommand(rejectedItemId, false);
+        lectureObjectionFacade.resolve(reject);
+        LectureObjectionWithdrawalRequestedEvent withdraw = new LectureObjectionWithdrawalRequestedEvent(
+                "WITHDRAW:" + (INQUIRY_ID + 1), INQUIRY_ID + 1, withdrawnItemId, BUYER_ID);
+        lectureObjectionFacade.withdraw(withdraw);
+        // 이미 기각한 항목을 철회하려 한다
+        LectureObjectionWithdrawalRequestedEvent late = new LectureObjectionWithdrawalRequestedEvent(
+                "WITHDRAW:" + INQUIRY_ID, INQUIRY_ID, rejectedItemId, BUYER_ID);
+        LectureObjectionCommandResult refused = lectureObjectionFacade.withdraw(late);
+
+        assertThat(refused.failureCode()).isEqualTo(LectureObjectionFailureCode.OBJECTION_NOT_FILED);
+        assertThat(item(rejectedItemId).getObjectionStatus()).isEqualTo(ObjectionStatus.REJECTED);
+        assertThat(item(withdrawnItemId).getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
+        assertThat(events.stream(LectureObjectionResolvedEvent.class)).containsExactly(
+                new LectureObjectionResolvedEvent(reject.commandId(), INQUIRY_ID, rejectedItemId, false));
+        assertThat(events.stream(LectureObjectionWithdrawnEvent.class)).containsExactly(
+                new LectureObjectionWithdrawnEvent(withdraw.commandId(), INQUIRY_ID + 1, withdrawnItemId));
+        assertThat(events.stream(LectureObjectionRequestRefusedEvent.class)).containsExactly(
+                new LectureObjectionRequestRefusedEvent(late.commandId(), INQUIRY_ID, rejectedItemId,
+                        LectureObjectionCommandType.WITHDRAW, LectureObjectionFailureCode.OBJECTION_NOT_FILED));
+        assertThat(lectureObjectionCommandRepository.findByCommandId(late.commandId())).hasValueSatisfying(command -> {
+            assertThat(command.getOutcome()).isEqualTo(LectureObjectionCommandOutcome.REFUSED);
+            assertThat(command.getFailureCode()).isEqualTo(LectureObjectionFailureCode.OBJECTION_NOT_FILED);
+        });
+    }
+
+    @Test
+    void 같은_접수_명령을_다시_보내면_처음_결과를_돌려주고_항목은_한_번만_바뀐다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        Long orderItemId = order.items().getFirst().orderItemId();
+        LectureObjectionFileRequest file = LectureObjectionFileRequest.of(INQUIRY_ID, orderItemId, BUYER_ID, REASON);
+
+        LectureObjectionFiledDto first = lectureObjectionFacade.file(file);
+        LocalDateTime filedAt = item(orderItemId).getObjectionFiledAt();
+        LectureObjectionFiledDto second = lectureObjectionFacade.file(file);
+
+        assertThat(second).isEqualTo(first).isEqualTo(new LectureObjectionFiledDto("FILE:" + INQUIRY_ID, INQUIRY_ID,
+                orderItemId));
+        assertThat(item(orderItemId).getObjectionFiledAt()).isEqualTo(filedAt);
+        assertThat(lectureObjectionCommandRepository.findAll()).singleElement().satisfies(command -> {
+            assertThat(command.getCommandId()).isEqualTo("FILE:" + INQUIRY_ID);
+            assertThat(command.getCommandType()).isEqualTo(LectureObjectionCommandType.FILE);
+            assertThat(command.getOutcome()).isEqualTo(LectureObjectionCommandOutcome.SUCCEEDED);
+        });
+    }
+
+    @Test
+    void 거절한_접수_명령은_다시_보내도_같은_사유로_거절되고_이력은_하나다() {
+        LectureObjectionFileRequest file = LectureObjectionFileRequest.of(INQUIRY_ID, 999_999L, BUYER_ID, REASON);
+
+        assertRefused(() -> lectureObjectionFacade.file(file), LectureErrorCode.OBJECTION_NOT_BUYER);
+        assertRefused(() -> lectureObjectionFacade.file(file), LectureErrorCode.OBJECTION_NOT_BUYER);
+
+        assertThat(lectureObjectionCommandRepository.findAll()).singleElement().satisfies(command -> {
+            assertThat(command.getOutcome()).isEqualTo(LectureObjectionCommandOutcome.REFUSED);
+            assertThat(command.getFailureCode()).isEqualTo(LectureObjectionFailureCode.OBJECTION_NOT_BUYER);
+        });
+    }
+
+    @Test
+    void 같은_명령_ID로_다른_내용이_오면_충돌이고_처음_결과는_그대로다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        Long orderItemId = order.items().getFirst().orderItemId();
+        lectureObjectionFacade.file(LectureObjectionFileRequest.of(INQUIRY_ID, orderItemId, BUYER_ID, REASON));
+        LectureObjectionResolutionRequestedEvent reject = resolveCommand(orderItemId, false);
+        lectureObjectionFacade.resolve(reject);
+
+        assertRefused(() -> lectureObjectionFacade.file(LectureObjectionFileRequest.of(INQUIRY_ID, orderItemId,
+                BUYER_ID, "다른 사유")), LectureErrorCode.OBJECTION_COMMAND_CONFLICT);
+        LectureObjectionCommandResult conflict = lectureObjectionFacade.resolve(resolveCommand(orderItemId, true));
+
+        assertThat(conflict.failureCode()).isEqualTo(LectureObjectionFailureCode.OBJECTION_COMMAND_CONFLICT);
+        assertThat(item(orderItemId).getObjectionStatus()).isEqualTo(ObjectionStatus.REJECTED);
+        assertThat(item(orderItemId).getObjectionReason()).isEqualTo(REASON);
+        assertThat(lectureObjectionCommandRepository.findAll()).hasSize(2);
+        // 충돌은 기록하지 않고 거절 이벤트만 낸다. 고객센터는 처리 중인 명령이 아니면 무시한다
+        assertThat(events.stream(LectureObjectionRequestRefusedEvent.class)).singleElement()
+                .extracting(LectureObjectionRequestRefusedEvent::failureCode)
+                .isEqualTo(LectureObjectionFailureCode.OBJECTION_COMMAND_CONFLICT);
+    }
+
+    @Test
+    void 인정_반환이_끝나면_반환_완료_이벤트가_멈추면_조치_필요_이벤트가_나간다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
+        Long completedItemId = order.items().getFirst().orderItemId();
+        Long deadItemId = order.items().getLast().orderItemId();
+        objections.file(completedItemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(deadItemId, BUYER_ID, INQUIRY_ID + 1, REASON);
+        objections.resolve(completedItemId, INQUIRY_ID, true, ADMIN_ID);
+        objections.resolve(deadItemId, INQUIRY_ID + 1, true, ADMIN_ID);
+
+        lectureHpTaskExecutor.execute(returnTaskId(completedItemId));
+        // 결과 금액이 작업 금액과 달라 DEAD가 된다 (D43)
+        billing.setSettledHp(PRICE_HP - 1_000L);
+        lectureHpTaskExecutor.execute(returnTaskId(deadItemId));
+
+        assertThat(events.stream(LectureObjectionReturnCompletedEvent.class)).containsExactly(
+                new LectureObjectionReturnCompletedEvent(INQUIRY_ID, completedItemId));
+        assertThat(events.stream(LectureObjectionReturnActionRequiredEvent.class)).containsExactly(
+                new LectureObjectionReturnActionRequiredEvent(INQUIRY_ID + 1, deadItemId));
     }
 
     @Test
     void 없는_항목과_다른_문의로는_판단할_수_없다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
-        assertRefused(() -> lectureObjectionFacade.resolveObjection(999_999L, INQUIRY_ID, true, ADMIN_ID),
+        assertRefused(() -> objections.resolve(999_999L, INQUIRY_ID, true, ADMIN_ID),
                 LectureErrorCode.OBJECTION_NOT_FILED);
-        assertRefused(() -> lectureObjectionFacade.resolveObjection(999_999L, INQUIRY_ID, false, ADMIN_ID),
+        assertRefused(() -> objections.resolve(999_999L, INQUIRY_ID, false, ADMIN_ID),
                 LectureErrorCode.OBJECTION_NOT_FILED);
-        assertRefused(() -> lectureObjectionFacade.resolveObjection(orderItemId, 501L, false, ADMIN_ID),
+        assertRefused(() -> objections.resolve(orderItemId, 501L, false, ADMIN_ID),
                 LectureErrorCode.OBJECTION_INQUIRY_MISMATCH);
-        assertRefused(() -> lectureObjectionFacade.resolveObjection(orderItemId, 501L, true, ADMIN_ID),
+        assertRefused(() -> objections.resolve(orderItemId, 501L, true, ADMIN_ID),
                 LectureErrorCode.OBJECTION_INQUIRY_MISMATCH);
         assertFiledAndPurchased(orderItemId);
-    }
-
-    @Test
-    void 호출한_쪽_트랜잭션이_롤백되면_접수도_롤백된다() {
-        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
-        Long orderItemId = order.items().getFirst().orderItemId();
-
-        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
-            throw new IllegalStateException("고객센터 문의 저장 실패");
-        })).isInstanceOf(IllegalStateException.class);
-
-        assertThat(item(orderItemId).getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
-    }
-
-    @Test
-    void 접수_불가_예외를_잡고_삼키면_호출한_쪽_트랜잭션은_커밋되지_않는다() {
-        OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
-        Long firstItemId = order.items().getFirst().orderItemId();
-        Long secondItemId = order.items().getLast().orderItemId();
-
-        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            lectureObjectionFacade.fileObjection(firstItemId, BUYER_ID, INQUIRY_ID, REASON);
-            try {
-                lectureObjectionFacade.fileObjection(secondItemId, 4L, 501L, REASON);
-            } catch (LectureException ignored) {
-                // 계약 위반: 다시 던지지 않는다
-            }
-        })).isInstanceOf(UnexpectedRollbackException.class);
-
-        assertThat(item(firstItemId).getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
     }
 
     @Test
@@ -282,8 +392,8 @@ class LectureObjectionFacadeTest {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"), saveOnSale("마이크 고르기"));
         List<Long> itemIds = order.items().stream().map(OrderItemResponse::orderItemId).toList();
         for (Long itemId : itemIds) {
-            lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID + itemId, REASON);
-            lectureObjectionFacade.resolveObjection(itemId, INQUIRY_ID + itemId, true, ADMIN_ID);
+            objections.file(itemId, BUYER_ID, INQUIRY_ID + itemId, REASON);
+            objections.resolve(itemId, INQUIRY_ID + itemId, true, ADMIN_ID);
         }
         // 두 반환이 모두 지갑 호출에 들어갈 때까지 기다리게 해, 결과 기록이 주문을 잠그지 않으면 서로의 반환을 보지 못하게 한다
         CyclicBarrier bothReleasing = new CyclicBarrier(2);
@@ -310,9 +420,9 @@ class LectureObjectionFacadeTest {
     void 철회하면_NONE으로_저장되고_구매_취소하면_보류_HP를_반환한다() {
         OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
         Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
 
-        lectureObjectionFacade.withdrawObjection(orderItemId, BUYER_ID, INQUIRY_ID);
+        objections.withdraw(orderItemId, BUYER_ID, INQUIRY_ID);
 
         OrderItem item = item(orderItemId);
         assertThat(item.getObjectionStatus()).isEqualTo(ObjectionStatus.NONE);
@@ -330,23 +440,17 @@ class LectureObjectionFacadeTest {
 
     @Test
     void 없는_항목은_철회할_수_없다() {
-        assertRefused(() -> lectureObjectionFacade.withdrawObjection(999_999L, BUYER_ID, INQUIRY_ID),
+        assertRefused(() -> objections.withdraw(999_999L, BUYER_ID, INQUIRY_ID),
                 LectureErrorCode.OBJECTION_NOT_BUYER);
     }
 
-    @Test
-    void 호출한_쪽_트랜잭션이_롤백되면_철회도_롤백된다() {
-        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
-        Long orderItemId = order.items().getFirst().orderItemId();
-        lectureObjectionFacade.fileObjection(orderItemId, BUYER_ID, INQUIRY_ID, REASON);
+    private static LectureObjectionResolutionRequestedEvent resolveCommand(Long orderItemId, boolean accepted) {
+        return new LectureObjectionResolutionRequestedEvent("RESOLVE:" + INQUIRY_ID, INQUIRY_ID, orderItemId, accepted,
+                ADMIN_ID);
+    }
 
-        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            lectureObjectionFacade.withdrawObjection(orderItemId, BUYER_ID, INQUIRY_ID);
-            throw new IllegalStateException("고객센터 문의 삭제 실패");
-        })).isInstanceOf(IllegalStateException.class);
-
-        assertFiledAndPurchased(orderItemId);
-        assertThat(item(orderItemId).getObjectionInquiryId()).isEqualTo(INQUIRY_ID);
+    private Long returnTaskId(Long orderItemId) {
+        return lectureHpTaskRepository.findByRequestId("LECTURE-RETURN-" + orderItemId).orElseThrow().getId();
     }
 
     private OrderResponse order(Lecture... lectures) {
