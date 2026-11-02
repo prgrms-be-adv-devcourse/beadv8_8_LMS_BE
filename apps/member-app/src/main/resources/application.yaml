@@ -69,8 +69,9 @@ hapbang:
   auth:
     login-success-url: /
   # JWT 발급 (#370). issuer는 Envoy SecurityPolicy의 JWT provider issuer, chat-app의 STOMP 검증 issuer와 같아야 한다.
-  # 어긋나면 모든 토큰이 401이다. 기본값은 base manifest의 자리 표시 값이고, 운영은 prod overlay가 HAPBANG_JWT_ISSUER로
-  # 렌더링 도구(k8s/gateway/tools/render-prod.py)에 넣는 값과 같은 값을 넣는다 (#370 댓글, #374).
+  # 어긋나면 모든 토큰이 401이다. 기본값은 base manifest(로컬·k3d)의 SecurityPolicy issuer와 같은 자리 표시 값이고,
+  # 운영은 member prod overlay가 HAPBANG_JWT_ISSUER로 앱 6개 prod overlay의 SecurityPolicy issuer와 같은 값을 넣는다.
+  # CI가 두 값이 같은지 검사한다 (#500).
   # 개인 키(PKCS#8 PEM)는 공개 레포라 환경 변수로만 받고, 비어 있으면 앱이 시작하지 않는다
   jwt:
     issuer: "${HAPBANG_JWT_ISSUER:https://gateway.invalid}"
