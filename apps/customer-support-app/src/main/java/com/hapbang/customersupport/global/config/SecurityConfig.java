@@ -27,8 +27,10 @@ public class SecurityConfig {
                                 "/api/v1/inquiries/swagger-ui/**", "/api/v1/inquiries/v3/api-docs/**").permitAll()
                         // 예외가 나면 Spring이 /error로 보내는데, 막혀 있으면 원래 오류 대신 401이 나간다
                         .requestMatchers("/error").permitAll()
-                        // 헬스체크 (Docker healthcheck용). 서버 nginx가 /actuator를 프록시하지 않아 컨테이너·서버 안에서만 접근한다
+                        // 헬스체크(k8s probe)와 Prometheus 수집(#528). k8s에서는 관리 포트(MANAGEMENT_SERVER_PORT)에서만 열리고
+                        // NetworkPolicy가 그 포트에 Prometheus만 들인다. 외부 API 포트는 Gateway 전용이다 (D72). 로컬은 앱 포트에서 열린다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
                         // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)
                         .requestMatchers(HttpMethod.GET, "/api/v1/lectures").permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)
