@@ -1,6 +1,6 @@
 # Envoy Gateway (#372)
 
-상태: EC2에 Envoy Gateway·cert-manager를 설치하고 외부 진입점을 전환했다(2026-10-30, #372). ServiceLB → Envoy가 80·443을 받고 Let's Encrypt production 인증서를 사용한다. FE `web`은 `/` route에 연결됐고, 이 route는 FE 레포 `k8s/`가 소유한다(#454). member-app은 JWT 발급(#370)과 함께 route·JWT 검증을 연결했다(2026-11-02 #500, [릴리스 전 배포](k8s.md#릴리스-전-배포)). lecture-app은 Swagger 경로만 route가 있다(2026-11-02, #541). 강의 API route는 사용자 헤더 인증 이미지(#523)와 billing-app을 배포한 뒤 연다. 나머지 업무 앱 route는 각 앱이 사용자 헤더 인증(#371)을 갖춘 뒤 연결한다. 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
+상태: EC2에 Envoy Gateway·cert-manager를 설치하고 외부 진입점을 전환했다(2026-10-30, #372). ServiceLB → Envoy가 80·443을 받고 Let's Encrypt production 인증서를 사용한다. FE `web`은 `/` route에 연결됐고, 이 route는 FE 레포 `k8s/`가 소유한다(#454). member-app은 JWT 발급(#370)과 함께 route·JWT 검증을 연결했다(2026-11-02 #500). 같은 날 chat-app(#545)과 billing·appearance·lecture·customer-support(#541)도 사용자 헤더 인증 이미지로 route·JWT 검증을 연결해, 업무 앱 6개가 모두 열렸다([릴리스 전 배포](k8s.md#릴리스-전-배포)). 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
 
 ## 결정 기록 (2026-10-29)
 
@@ -33,7 +33,7 @@
 
 - 운영에서도 Swagger를 누구나 보게 연다. dev 서버가 없어 FE팀과 리뷰어가 운영 API를 명세로 확인한다. 레포가 public이라 명세 내용은 이미 공개돼 있고, Swagger를 막아도 API 호출은 막히지 않는다.
 - Swagger는 각 앱의 모듈 경로 아래(`/api/v1/<모듈>/swagger-ui.html`, `/api/v1/<모듈>/v3/api-docs`)에 두어 기존 앱 HTTPRoute가 받는다. Gateway route는 더하지 않는다. 루트 `/swagger-ui`·`/v3/api-docs`는 `api-not-found`로 계속 404다. 앱마다 같은 루트 경로를 써서 한 도메인에서 겹치기 때문이다.
-- 강의는 API route보다 Swagger를 먼저 열었다(2026-11-02, #541). `apps/lecture-app/k8s/base/gateway.yaml`의 `lecture-app-swagger` route가 Swagger 경로의 GET(`swagger-ui.html`은 Exact, `swagger-ui`·`v3/api-docs`는 PathPrefix)만 받는다. 앱이 permitAll로 여는 경로라 JWT 검증은 걸지 않는다. 강의 API route를 연 뒤에도 같은 앱으로 가므로 남겨 둔다. API route가 아직 없는 다른 앱도 Swagger를 먼저 열려면 같은 방식으로 한다.
+- 강의는 2026-11-02 API route보다 Swagger를 먼저 열려고, Swagger 경로의 GET만 받는 `lecture-app-swagger` route를 잠시 운영에 두었다(#541). 같은 날 billing-app을 배포하고 강의 API route를 열면서 지웠다. 지금은 6개 앱 모두 위 원칙대로 앱 HTTPRoute가 Swagger를 받는다.
 - 쓰지 않은 안: `/swagger/<앱>/` route와 URLRewrite(앱이 `forward-headers-strategy: native`라 `X-Forwarded-Prefix` 처리를 더해야 한다), 한 앱이 6개 명세를 모으는 단일 진입점(그 앱이 문서 서버가 된다), CI가 만든 정적 명세(다른 도메인이라 Try it out이 CORS로 막힌다).
 - 내부 API도 명세에 남는다. 외부에서 호출하면 Gateway에 route가 없어 404다(앱의 내부 포트 검사도 막는다).
 - 앱 설정과 Authorize 사용법은 [API 규칙](../api/conventions.md#swagger)에 있다.

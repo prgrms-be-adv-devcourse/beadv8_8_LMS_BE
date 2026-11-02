@@ -19,40 +19,6 @@ spec:
       request: 30s
       backendRequest: 30s
 ---
-# Swagger 경로만 따로 연다(#541). 앱이 permitAll로 여는 GET 경로뿐이라 JWT 검증(SecurityPolicy)을 걸지 않는다.
-# 외부가 보낸 X-User-* 헤더는 모든 route에서 ClientTrafficPolicy가 먼저 지운다.
-# 강의 API(lecture-app route)를 열기 전에 이 route만 운영에 적용해 Swagger를 먼저 공개했다. 그 뒤에도 같은 앱으로 가므로 그대로 둔다
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: lecture-app-swagger
-spec:
-  parentRefs:
-  - name: hapbang
-    namespace: envoy-gateway-system
-    sectionName: https
-  rules:
-  - matches:
-    # PathPrefix는 경로 조각 단위로 비교해 swagger-ui.html을 잡지 못하므로 Exact로 둔다
-    - path:
-        type: Exact
-        value: /api/v1/lectures/swagger-ui.html
-      method: GET
-    - path:
-        type: PathPrefix
-        value: /api/v1/lectures/swagger-ui
-      method: GET
-    - path:
-        type: PathPrefix
-        value: /api/v1/lectures/v3/api-docs
-      method: GET
-    backendRefs:
-    - name: lecture-app
-      port: 8080
-    timeouts:
-      request: 30s
-      backendRequest: 30s
----
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
