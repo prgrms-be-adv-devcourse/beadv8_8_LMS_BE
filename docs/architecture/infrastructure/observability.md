@@ -24,7 +24,8 @@
 
 - **지표**: member-app·lecture-app만 `/actuator/prometheus`를 연다. lecture-app은 관리 포트 8082, member-app은 8080이다(#528에서 8082로 옮긴다). Prometheus 차트 기본 `kubernetes-pods` job이 pod annotation을 보고 1분마다 수집한다. label은 pod label을 옮긴 `app_kubernetes_io_name`과 `namespace`·`pod`다.
 - **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 형식은 앱 기본 평문 그대로이고 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
-- 구조화 로그·`traceId`, dashboard·alert는 아직 없다(#343).
+- **dashboard**: Grafana `합방` 폴더에 세 개가 있다(#531, 아래 "Dashboard").
+- 구조화 로그·`traceId`, alert는 아직 없다(#343).
 
 다른 앱이 지표를 열 때는 다음 다섯 가지를 더한다. `micrometer-registry-prometheus`는 루트 `build.gradle.kts`가 모든 앱에 넣는다. lecture-app이 예시다.
 
@@ -37,6 +38,38 @@
 외부 API 포트(8080)는 쓰지 않는다. 앱은 Gateway 사용자 헤더(`X-User-*`)를 믿으므로 8080에는 Envoy만 들어와야 한다. Prometheus pod가 장악되면 헤더를 붙여 아무 회원으로 행세할 수 있기 때문이다([API Gateway](api-gateway.md#헤더-신뢰-구조를-유지하는-이유-2026-11-02), #521). member-app은 아직 8080에서 수집한다(#528). 내부 포트(8081)도 쓰지 않는다. `InternalApiPortValve`가 `/api/v1/internal` 밖 경로를 404로 막는다. `/actuator`는 HTTPRoute가 라우팅하지 않아 Gateway로 노출되지 않는다.
 
 registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한다(member-app은 448 MiB에서 OOMKilled, [k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)). 관리 포트는 Tomcat을 하나 더 띄운다. lecture-app은 로컬에서 RSS 약 +10MB, 스레드 +16이었다(1회 측정, #521).
+
+### Dashboard (#531)
+
+새 component(kube-state-metrics, node-exporter, DB·Kafka exporter)는 띄우지 않고 지금 수집하는 지표만 쓴다. kube-state-metrics는 medium node 메모리 예산 때문에 켜지 않았다.
+
+| dashboard (uid) | 지표 | 내용 |
+| --- | --- | --- |
+| JVM·Spring Boot (`hapbang-jvm`) | 앱 Micrometer, cAdvisor | heap·non-heap·buffer, 컨테이너 메모리와 limit, GC, 스레드·CPU, HTTP(상태별, URI별 평균·최대), HikariCP, 로그 레벨별 건수와 Loki의 ERROR·WARN 로그. 지표를 여는 앱만 앱 목록에 나온다 |
+| Kubernetes 자원 (`hapbang-kubernetes`) | cAdvisor, kubelet | node CPU·메모리·디스크(`/dev/root`)·네트워크, node별 memory limit 합계, namespace·pod별 CPU·메모리, limit 대비 사용률(현재·기간 최대), 컨테이너 재생성, 최근 시작한 컨테이너 |
+| Gateway (Envoy) (`hapbang-gateway`) | Envoy proxy | HTTPS 요청률, 응답 코드 class, p50·p95·p99 지연, route별 요청률·5xx·p95, upstream 연결 실패·timeout·overflow·reset |
+
+지금 지표로는 볼 수 없는 것:
+
+- pod 상태(Pending·CrashLoopBackOff), 정확한 재시작 횟수와 종료 사유(OOMKilled), Deployment 가용 replica: kube-state-metrics가 필요하다. "컨테이너 재생성"은 같은 pod 이름의 cAdvisor 컨테이너 ID 수로 센 근사치라 StatefulSet pod 재생성도 센다. 종료 사유는 `kubectl describe pod`로 본다.
+- OOMKilled 이벤트: cAdvisor `container_oom_events_total`은 2026-10-30 lecture-app OOMKilled(#461)를 기록하지 못했다. 대신 "메모리 사용률 / limit (선택 기간 최대, 상위 15)"로 위험을 본다.
+- 앱 HTTP percentile: `http_server_requests_seconds`에 histogram bucket이 없다. p95는 Gateway dashboard에서 route 단위로 본다.
+- PostgreSQL·Kafka·Redis 내부 지표: exporter가 없다. 앱 쪽 HikariCP·Kafka producer 지표만 있다.
+
+**수정 방법.** JSON 파일(`k8s/platform/base/dashboards/*.json`)이 원본이다. provider가 `allowUiUpdates: false`라 Grafana UI에서 고친 내용은 저장되지 않는다. UI에서 고친 뒤 Export → Export as JSON으로 내려받아 파일을 바꾸고 PR로 올린다. datasource는 uid(`prometheus`, `loki`)로 적는다. Prometheus datasource의 `timeInterval: 1m`(scrape 주기) 덕분에 `$__rate_interval`은 4분 이상이다.
+
+**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
+
+```bash
+kubectl kustomize k8s/platform/overlays/prod \
+  | yq 'select(.kind=="ConfigMap" and .metadata.name=="grafana-dashboards-hapbang")' > dashboards.yaml
+kubectl --context hapbang-k3s diff -f dashboards.yaml
+kubectl --context hapbang-k3s apply -f dashboards.yaml
+```
+
+Grafana는 dashboard 없이도 prod에서 3일 최대 working set이 374 MiB였다(2026-11-02, limit 384 MiB, 차트가 넣는 GOMEMLIMIT 345 MiB). 로컬 k3d에서는 384 MiB일 때 dashboard를 여는 동안 메모리가 GOMEMLIMIT 근처(342 MiB)에 붙은 채 unready였고, 448 MiB(GOMEMLIMIT 403 MiB)에서는 세 dashboard가 모두 그려졌다. 다만 k3d Grafana는 이 변경 전부터 CPU를 많이 쓰고 재시작을 반복해 원인을 dashboard 하나로 보지는 않는다. Grafana limit은 #532에서 448 MiB로 올렸고, dashboard는 그 뒤에 적용했다. 2026-11-02 운영 적용 직후 Grafana는 기동 중 최대 426 MiB(limit의 95%), 약 1분 뒤 CPU 15m·메모리 약 290 MiB로 내려왔다. 기동 최대치가 limit에 가까우니 Grafana 재시작 뒤 OOMKilled가 없는지 본다.
+
+client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 ConfigMap 전체를 넣는다. 세 파일 합계 약 110 KB에서 annotation은 약 150 KB다. 한도에 가까워지면 `--server-side`로 적용하거나 ConfigMap을 나눈다.
 
 ## metrics 수집과 저장 — Prometheus vs Mimir
 
