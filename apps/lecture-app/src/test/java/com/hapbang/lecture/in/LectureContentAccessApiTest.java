@@ -4,7 +4,6 @@ import static com.hapbang.lecture.fixture.LectureFixture.NOW;
 import static com.hapbang.lecture.fixture.LectureFixture.uploadedFile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -42,12 +41,12 @@ import com.hapbang.lecture.out.FileResourceRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.S3MockTestcontainersConfig;
-import com.hapbang.testsupport.TestLogin;
 
 import com.jayway.jsonpath.JsonPath;
 
@@ -197,7 +196,7 @@ class LectureContentAccessApiTest {
         Long replacedContentId = contentId(lectureId, 0);
         reject(lectureId);
         mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"contents": [{"fileId": %d, "title": "1강 (재녹음)", "contentType": "VIDEO"}]}
@@ -306,18 +305,18 @@ class LectureContentAccessApiTest {
 
     private ResultActions access(Long userId, Role role, Long lectureId, Long contentId) throws Exception {
         return mockMvc.perform(get("/api/v1/lectures/{lectureId}/contents/{contentId}/access", lectureId, contentId)
-                .with(TestLogin.as(userId, role)));
+                .with(GatewayLogin.as(userId, role)));
     }
 
     private void approve(Long lectureId) throws Exception {
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/approve", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNoContent());
     }
 
     private void deleteLecture(Long lectureId) throws Exception {
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isNoContent());
     }
 
@@ -331,13 +330,13 @@ class LectureContentAccessApiTest {
     private void consentToPlay(LectureOrder order) throws Exception {
         mockMvc.perform(post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/play-consent", order.getId(),
                         order.getItems().getFirst().getId())
-                        .with(TestLogin.as(BUYER_ID, Role.USER)).with(csrf()))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk());
     }
 
     private void reject(Long lectureId) throws Exception {
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/reject", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"reason": "영상 음질이 너무 낮습니다."}
@@ -354,7 +353,7 @@ class LectureContentAccessApiTest {
     /** 판매자가 영상·자료 순서로 강의를 등록한다(검수 대기) */
     private Long register(Long videoFileId, Long documentFileId) throws Exception {
         String response = mockMvc.perform(post("/api/v1/lectures")
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(REGISTER_BODY.formatted(videoFileId, documentFileId)))
                 .andExpect(status().isCreated())
@@ -366,7 +365,7 @@ class LectureContentAccessApiTest {
     /** 판매자가 상세 조회로 보는 index번째 콘텐츠의 ID */
     private Long contentId(Long lectureId, int index) throws Exception {
         String response = mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andReturn().getResponse().getContentAsString();

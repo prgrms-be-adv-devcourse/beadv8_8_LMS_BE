@@ -18,7 +18,7 @@ dependencies {
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
     // 동시 요청의 유일 인덱스 위반 판별(UniqueIndexViolation)에 PSQLException의 제약 이름을 쓴다(billing과 같음). 드라이버는 실행 시 이 앱(runtimeOnly)가 넣어 준다
     compileOnly("org.postgresql:postgresql")
-    // 테스트에서 로그인 상태 만들기 (oauth2Login())
+    // Facade 테스트의 역할 넣기(@WithMockUser). API 테스트 로그인은 사용자 헤더(support.GatewayLogin)다
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }
 

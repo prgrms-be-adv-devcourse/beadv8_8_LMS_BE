@@ -21,9 +21,9 @@ import com.hapbang.lecture.domain.FileType;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.out.FileResourceRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 import software.amazon.awssdk.core.exception.SdkClientException;
 
@@ -67,7 +67,7 @@ class LectureThumbnailFailureApiTest {
         Long lectureId = saveOnSaleLecture();
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.lectureId").value(lectureId))

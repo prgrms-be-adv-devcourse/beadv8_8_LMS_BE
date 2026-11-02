@@ -2,7 +2,6 @@ package com.hapbang.lecture.in;
 
 import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -25,9 +24,9 @@ import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
 import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 // 관리자의 HP 작업 조회·상세·DEAD 재시도 API를 HTTP부터 DB까지 확인한다 (reference.md 8.2.1, D57 (9)).
 // 실행·재시도 규칙은 LectureHpTaskExecutorTest가 맡는다.
@@ -59,14 +58,14 @@ class LectureHpTaskAdminApiTest {
         markDead(dead.getId(), "HOLD_ALREADY_CLOSED");
         save(LectureHpTaskPurpose.PAYOUT, "LECTURE-PAYOUT-33", 33L, SELLER_ID);
 
-        mockMvc.perform(get(BASE).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get(BASE).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("HP 작업 목록을 조회했습니다."))
                 .andExpect(jsonPath("$.data.page.totalElements").value(3))
                 .andExpect(jsonPath("$.data.content[0].requestId").value("LECTURE-PAYOUT-33"))
                 .andExpect(jsonPath("$.data.content[2].requestId").value("LECTURE-CANCEL-31"));
 
-        mockMvc.perform(get(BASE).param("status", "DEAD").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get(BASE).param("status", "DEAD").with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(jsonPath("$.data.page.totalElements").value(1))
                 .andExpect(jsonPath("$.data.content[0].id").value(dead.getId()))
                 .andExpect(jsonPath("$.data.content[0].status").value("DEAD"))
@@ -92,7 +91,7 @@ class LectureHpTaskAdminApiTest {
 
     @Test
     void 관리자가_아니면_HP_작업을_볼_수_없다() throws Exception {
-        mockMvc.perform(get(BASE).with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+        mockMvc.perform(get(BASE).with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isForbidden());
     }
 
@@ -102,7 +101,7 @@ class LectureHpTaskAdminApiTest {
         attempt(task.getId(), 1, LectureHpAttemptResult.UNKNOWN_RESULT, "UNKNOWN_RESULT", "HOLD_STATE_INCONSISTENT");
         attempt(task.getId(), 2, LectureHpAttemptResult.SUCCEEDED, null, null);
 
-        mockMvc.perform(get(BASE + "/{taskId}", task.getId()).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get(BASE + "/{taskId}", task.getId()).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.task.id").value(task.getId()))
                 .andExpect(jsonPath("$.data.task.requestId").value("LECTURE-CANCEL-31"))
@@ -117,7 +116,7 @@ class LectureHpTaskAdminApiTest {
 
     @Test
     void 없는_작업의_상세는_404_HP_TASK_NOT_FOUND다() throws Exception {
-        mockMvc.perform(get(BASE + "/{taskId}", 999_999L).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get(BASE + "/{taskId}", 999_999L).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("HP_TASK_NOT_FOUND"));
     }
@@ -129,7 +128,7 @@ class LectureHpTaskAdminApiTest {
         markDead(task.getId(), "UNKNOWN_RESULT");
 
         mockMvc.perform(post(BASE + "/{taskId}/retry", task.getId())
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNoContent());
 
         LectureHpTask retried = lectureHpTaskRepository.findById(task.getId()).orElseThrow();
@@ -146,23 +145,23 @@ class LectureHpTaskAdminApiTest {
     void 없는_작업은_404_DEAD가_아니면_409이고_관리자가_아니면_403이다() throws Exception {
         LectureHpTask pending = save(LectureHpTaskPurpose.CANCEL, "LECTURE-CANCEL-31", 31L, null);
 
-        mockMvc.perform(post(BASE + "/{taskId}/retry", 999_999L).with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+        mockMvc.perform(post(BASE + "/{taskId}/retry", 999_999L).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("HP_TASK_NOT_FOUND"));
         mockMvc.perform(post(BASE + "/{taskId}/retry", pending.getId())
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("HP_TASK_NOT_DEAD"));
         markDead(pending.getId(), "UNKNOWN_RESULT");
         mockMvc.perform(post(BASE + "/{taskId}/retry", pending.getId())
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isForbidden());
         assertThat(lectureHpTaskRepository.findById(pending.getId()).orElseThrow().getStatus())
                 .isEqualTo(LectureHpTaskStatus.DEAD);
     }
 
     private void expectTotal(MockHttpServletRequestBuilder request, int total) throws Exception {
-        mockMvc.perform(request.with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(request.with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.page.totalElements").value(total));
     }

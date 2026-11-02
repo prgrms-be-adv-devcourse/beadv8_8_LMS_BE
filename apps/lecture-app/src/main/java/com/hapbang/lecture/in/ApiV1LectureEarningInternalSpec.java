@@ -17,7 +17,7 @@ import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "강의 판매 수익 (내부)", description = "모듈 간 내부 API. billing이 회원의 지급 예정 수익을 보여 줄 때 호출한다 "
-        + "(docs/api/internal-earnings.md). 회원 세션으로는 호출할 수 없고, 서버 밖에서는 nginx가 404로 막는다.")
+        + "(docs/api/internal-earnings.md). 회원 로그인으로는 호출할 수 없고, 내부 포트로만 받는다(외부 포트로 오면 404).")
 public interface ApiV1LectureEarningInternalSpec {
 
     String API_KEY_DESCRIPTION = "내부 API 키 (hapbang.internal-api.key). 없거나 틀리면 401(본문 없음)";

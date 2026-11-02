@@ -8,7 +8,6 @@ import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -42,11 +41,11 @@ import com.hapbang.lecture.out.FileResourceRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.LectureUserRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 import com.jayway.jsonpath.JsonPath;
 
@@ -118,7 +117,7 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID);
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.lectureId").value(lectureId))
@@ -142,7 +141,7 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID);
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
     }
@@ -153,7 +152,7 @@ class LectureApiTest {
 
         approve(lectureId);
 
-        mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures").with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content.length()").value(1))
@@ -197,7 +196,7 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID, thumbnail.getId());
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.status").value("PENDING_INSPECTION"))
@@ -215,7 +214,7 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.data.content[0].lectureId").value(lectureId))
                 .andExpect(jsonPath("$.data.content[0].thumbnailUrl").value(nullValue()));
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.thumbnailUrl").value(nullValue()));
@@ -243,7 +242,7 @@ class LectureApiTest {
         Long lectureId = registeredId(register(SELLER_ID, thumbnailFileId, videoFileId, documentFileId));
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.thumbnailFileId").value(thumbnailFileId))
@@ -256,7 +255,7 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID);
         approve(lectureId);
 
-        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.thumbnailFileId").value(nullValue()))
@@ -266,7 +265,7 @@ class LectureApiTest {
         purchase(lectureId);
         deleteLecture(lectureId);
 
-        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.deleted").value(true))
@@ -283,7 +282,7 @@ class LectureApiTest {
         Long lectureId = registeredId(register(SELLER_ID, thumbnailFileId, videoFileId, documentFileId));
 
         mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.thumbnailFileId").value(thumbnailFileId))
@@ -299,7 +298,7 @@ class LectureApiTest {
         Long thumbnailFileId = idAt(sellerDetail(lectureId), "$.data.thumbnailFileId");
 
         mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": "방송 장비 세팅 강의 (개정판)", "priceHp": 10000, "thumbnailFileId": %d}
@@ -307,7 +306,7 @@ class LectureApiTest {
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.title").value("방송 장비 세팅 강의 (개정판)"))
@@ -320,7 +319,7 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID, uploaded(SELLER_ID, FileType.LECTURE_THUMBNAIL));
 
         mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": "방송 장비 세팅 강의", "priceHp": 10000, "thumbnailFileId": null}
@@ -328,7 +327,7 @@ class LectureApiTest {
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.thumbnailFileId").value(nullValue()))
@@ -345,7 +344,7 @@ class LectureApiTest {
         Long newFileId = uploaded(SELLER_ID, FileType.LECTURE_VIDEO);
 
         mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"contents": [
@@ -356,7 +355,7 @@ class LectureApiTest {
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.status").value("REJECTED"))
@@ -385,7 +384,7 @@ class LectureApiTest {
     void 검수_대기_중인_강의는_목록에_나오지_않는다() throws Exception {
         register(SELLER_ID);
 
-        mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures").with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content.length()").value(0))
@@ -396,7 +395,7 @@ class LectureApiTest {
     void 반려된_강의는_콘텐츠를_교체하고_재검수를_신청해_승인받으면_목록에_나온다() throws Exception {
         Long lectureId = register(SELLER_ID);
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/reject", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"reason": "영상 음질이 너무 낮습니다."}
@@ -404,16 +403,16 @@ class LectureApiTest {
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CONTENTS_BODY.formatted(uploaded(SELLER_ID, FileType.LECTURE_VIDEO))))
                 .andExpect(status().isNoContent());
         mockMvc.perform(post("/api/v1/lectures/{lectureId}/inspection-requests", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.status").value("PENDING_INSPECTION"))
@@ -424,7 +423,7 @@ class LectureApiTest {
 
         approve(lectureId);
 
-        mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures").with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content[0].lectureId").value(lectureId));
@@ -436,7 +435,7 @@ class LectureApiTest {
         approve(lectureId);
 
         mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CONTENTS_BODY.formatted(uploaded(SELLER_ID, FileType.LECTURE_VIDEO))))
                 .andExpect(status().isConflict())
@@ -449,13 +448,13 @@ class LectureApiTest {
         approve(lectureId);
 
         mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateInfoBody(SELLER_ID)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.status").value("ON_SALE"))
@@ -470,7 +469,7 @@ class LectureApiTest {
         approve(lectureId);
 
         mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(OTHER_USER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateInfoBody(SELLER_ID)))
                 .andExpect(status().isForbidden())
@@ -483,18 +482,18 @@ class LectureApiTest {
         approve(lectureId);
 
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures").with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.page.totalElements").value(0));
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.deleted").value(true));
@@ -507,7 +506,7 @@ class LectureApiTest {
         purchase(lectureId);
         deleteLecture(lectureId);
 
-        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.deleted").value(true))
@@ -525,7 +524,7 @@ class LectureApiTest {
                 LocalDateTime.now(LectureConfig.ZONE)));
         deleteLecture(lectureId);
 
-        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
     }
@@ -534,12 +533,12 @@ class LectureApiTest {
     void 내가_등록한_강의는_삭제된_강의를_포함해_최근_등록순으로_나오고_다른_판매자의_강의는_빠진다() throws Exception {
         Long deletedLectureId = register(SELLER_ID);
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", deletedLectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isNoContent());
         Long pendingLectureId = register(SELLER_ID);
         register(OTHER_USER_ID);
 
-        mockMvc.perform(get("/api/v1/lectures/me").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+        mockMvc.perform(get("/api/v1/lectures/me").with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.page.totalElements").value(2))
@@ -555,10 +554,10 @@ class LectureApiTest {
         FileResource thumbnail = uploadedThumbnail(SELLER_ID);
         Long lectureId = register(SELLER_ID, thumbnail.getId());
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/v1/lectures/me").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+        mockMvc.perform(get("/api/v1/lectures/me").with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content[0].deleted").value(true))
@@ -571,7 +570,7 @@ class LectureApiTest {
         Long secondLectureId = register(SELLER_ID);
         approve(register(SELLER_ID));
 
-        mockMvc.perform(get("/api/v1/lectures/admin/inspections").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get("/api/v1/lectures/admin/inspections").with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.page.totalElements").value(2))
@@ -588,7 +587,7 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID);
 
         mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.lectureId").value(lectureId))
@@ -609,7 +608,7 @@ class LectureApiTest {
         reject(lectureId);
 
         mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("REJECTED"))
                 .andExpect(jsonPath("$.data.rejectionReason").value("영상 음질이 너무 낮습니다."));
@@ -621,17 +620,17 @@ class LectureApiTest {
         approve(lectureId);
 
         mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("ON_SALE"))
                 .andExpect(jsonPath("$.data.deleted").value(false));
 
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.deleted").value(true));
     }
@@ -641,14 +640,14 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID);
 
         mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void 관리자_강의_상세에서_없는_강의는_404() throws Exception {
         mockMvc.perform(get("/api/v1/lectures/admin/{lectureId}", 999_999L)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
     }
@@ -658,7 +657,7 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID);
 
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("LECTURE_NOT_FOUND"));
     }
@@ -666,7 +665,7 @@ class LectureApiTest {
     @Test
     void 인증된_인플루언서가_아니면_강의를_등록할_수_없다() throws Exception {
         mockMvc.perform(post("/api/v1/lectures")
-                        .with(TestLogin.as(OTHER_USER_ID, Role.INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody(OTHER_USER_ID)))
                 .andExpect(status().isForbidden());
@@ -675,19 +674,19 @@ class LectureApiTest {
     @Test
     void 인증된_인플루언서가_아니면_강의를_수정_삭제하거나_내_강의를_볼_수_없다() throws Exception {
         Long lectureId = register(SELLER_ID);
-        var influencer = TestLogin.as(SELLER_ID, Role.INFLUENCER);
+        var influencer = GatewayLogin.as(SELLER_ID, Role.INFLUENCER);
 
-        mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId).with(influencer).with(csrf())
+        mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId).with(influencer)
                         .contentType(MediaType.APPLICATION_JSON).content(updateInfoBody(SELLER_ID)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId).with(influencer).with(csrf())
+        mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId).with(influencer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CONTENTS_BODY.formatted(uploaded(SELLER_ID, FileType.LECTURE_VIDEO))))
                 .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/v1/lectures/{lectureId}/inspection-requests", lectureId)
-                        .with(influencer).with(csrf()))
+                        .with(influencer))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId).with(influencer).with(csrf()))
+        mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId).with(influencer))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/lectures/me").with(influencer))
                 .andExpect(status().isForbidden());
@@ -698,7 +697,7 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID);
 
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/approve", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isForbidden());
     }
 
@@ -708,7 +707,7 @@ class LectureApiTest {
         registerOnSale("마이크 고르는 법", 10_000);
 
         mockMvc.perform(get("/api/v1/lectures").param("keyword", "obs")
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.page.totalElements").value(1))
@@ -722,7 +721,7 @@ class LectureApiTest {
         registerOnSale("고급 강의", 30_000);
 
         mockMvc.perform(get("/api/v1/lectures").param("sort", "PRICE_ASC").param("size", "2")
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content[0].priceHp").value(10000))
@@ -730,7 +729,7 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.data.page.totalElements").value(3))
                 .andExpect(jsonPath("$.data.page.totalPages").value(2));
         mockMvc.perform(get("/api/v1/lectures").param("sort", "PRICE_DESC").param("page", "1").param("size", "2")
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content.length()").value(1))
@@ -747,11 +746,11 @@ class LectureApiTest {
         Long returned = review(lectureId, 7L, 1);
         jdbcTemplate.update("update lectures.order_item set status = 'RETURNED' where id = ?", returned);
 
-        mockMvc.perform(get("/api/v1/lectures").with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures").with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].averageRating").value(4.3))
                 .andExpect(jsonPath("$.data.content[0].reviewCount").value(3));
-        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.averageRating").value(4.3))
                 .andExpect(jsonPath("$.data.reviewCount").value(3));
@@ -761,7 +760,7 @@ class LectureApiTest {
     void 리뷰가_없는_강의의_평균_평점은_null이다() throws Exception {
         Long lectureId = registerOnSale("OBS 방송 세팅", 10_000);
 
-        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId).with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.averageRating").value(nullValue()))
                 .andExpect(jsonPath("$.data.reviewCount").value(0));
@@ -776,14 +775,14 @@ class LectureApiTest {
         review(high, 4L, 5);
 
         mockMvc.perform(get("/api/v1/lectures").param("sort", "RATING")
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].lectureId").value(high))
                 .andExpect(jsonPath("$.data.content[1].lectureId").value(low))
                 .andExpect(jsonPath("$.data.content[2].lectureId").value(noReview))
                 .andExpect(jsonPath("$.data.page.totalElements").value(3));
         mockMvc.perform(get("/api/v1/lectures").param("sort", "RATING").param("keyword", "낮은")
-                        .with(TestLogin.as(OTHER_USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(OTHER_USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].lectureId").value(low));
@@ -792,7 +791,7 @@ class LectureApiTest {
     @Test
     void 요청_값이_잘못되면_400과_잘못된_항목을_알려_준다() throws Exception {
         mockMvc.perform(post("/api/v1/lectures")
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": " ", "priceHp": 10000, "contents": []}
@@ -806,7 +805,7 @@ class LectureApiTest {
     @Test
     void 콘텐츠_목록에_빈_항목이_있으면_400() throws Exception {
         mockMvc.perform(post("/api/v1/lectures")
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": "방송 장비 세팅 강의", "priceHp": 10000, "contents": [null]}
@@ -823,7 +822,7 @@ class LectureApiTest {
                 .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"))
                 .andExpect(jsonPath("$.detail", containsString("업로드가 끝나지 않은 파일")));
 
-        mockMvc.perform(get("/api/v1/lectures/me").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+        mockMvc.perform(get("/api/v1/lectures/me").with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(jsonPath("$.data.page.totalElements").value(0));
     }
 
@@ -873,13 +872,13 @@ class LectureApiTest {
         Long lectureId = register(SELLER_ID);
 
         mockMvc.perform(patch("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(UPDATE_INFO_BODY.formatted(uploaded(OTHER_USER_ID, FileType.LECTURE_THUMBNAIL))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"));
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(jsonPath("$.data.title").value("방송 장비 세팅 강의"));
     }
 
@@ -892,7 +891,7 @@ class LectureApiTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_LECTURE_FILE"));
         mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(jsonPath("$.data.contents.length()").value(2));
     }
 
@@ -918,7 +917,7 @@ class LectureApiTest {
     @Test
     void 가격이_천_HP_단위가_아니면_등록할_수_없다() throws Exception {
         mockMvc.perform(post("/api/v1/lectures")
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -940,7 +939,7 @@ class LectureApiTest {
                 }
                 """.formatted(title, priceHp, uploaded(SELLER_ID, FileType.LECTURE_VIDEO));
         String response = mockMvc.perform(post("/api/v1/lectures")
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -953,7 +952,7 @@ class LectureApiTest {
 
     private void deleteLecture(Long lectureId) throws Exception {
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isNoContent());
     }
 
@@ -964,10 +963,10 @@ class LectureApiTest {
                 LectureOrderFixture.order(buyerId, List.of(lecture), LocalDateTime.now(LectureConfig.ZONE)));
         Long orderItemId = order.getItems().getFirst().getId();
         mockMvc.perform(post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/confirm", order.getId(), orderItemId)
-                        .with(TestLogin.as(buyerId, Role.USER)).with(csrf()))
+                        .with(GatewayLogin.as(buyerId, Role.USER)))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/lectures/{lectureId}/reviews", lectureId)
-                        .with(TestLogin.as(buyerId, Role.USER)).with(csrf())
+                        .with(GatewayLogin.as(buyerId, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"orderItemId\": %d, \"rating\": %d}".formatted(orderItemId, rating)))
                 .andExpect(status().isCreated());
@@ -983,13 +982,13 @@ class LectureApiTest {
 
     private void approve(Long lectureId) throws Exception {
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/approve", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNoContent());
     }
 
     private Long register(Long sellerId) throws Exception {
         String response = mockMvc.perform(post("/api/v1/lectures")
-                        .with(TestLogin.as(sellerId, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(sellerId, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(registerBody(sellerId)))
                 .andExpect(status().isCreated())
@@ -1011,7 +1010,7 @@ class LectureApiTest {
     private ResultActions register(Long sellerId, Long thumbnailFileId, Long videoFileId, Long documentFileId)
             throws Exception {
         return mockMvc.perform(post("/api/v1/lectures")
-                .with(TestLogin.as(sellerId, Role.VERIFIED_INFLUENCER)).with(csrf())
+                .with(GatewayLogin.as(sellerId, Role.VERIFIED_INFLUENCER))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(REGISTER_BODY.formatted(thumbnailFileId, videoFileId, documentFileId)));
     }
@@ -1027,7 +1026,7 @@ class LectureApiTest {
     /** 판매자 본인이 조회한 강의 상세 응답 본문 */
     private String sellerDetail(Long lectureId) throws Exception {
         return mockMvc.perform(get("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
     }
@@ -1038,14 +1037,14 @@ class LectureApiTest {
 
     private ResultActions replaceContents(Long userId, Long lectureId, Long videoFileId) throws Exception {
         return mockMvc.perform(put("/api/v1/lectures/{lectureId}/contents", lectureId)
-                .with(TestLogin.as(userId, Role.VERIFIED_INFLUENCER)).with(csrf())
+                .with(GatewayLogin.as(userId, Role.VERIFIED_INFLUENCER))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(CONTENTS_BODY.formatted(videoFileId)));
     }
 
     private void reject(Long lectureId) throws Exception {
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/reject", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"reason": "영상 음질이 너무 낮습니다."}

@@ -269,7 +269,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 ### 8.6.1 판매 수익 내부 API (D63, #300)
 
-billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. 회원 세션이 아니라 내부 API 키(`X-Internal-Api-Key`)로 인증하고, 서버 밖에서는 nginx가 404로 막는다. 계약 전체(상태 대응, 필드, 오류, Client)는 `docs/api/internal-earnings.md`.
+billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. 회원 로그인(Gateway 사용자 헤더)이 아니라 내부 API 키(`X-Internal-Api-Key`)로 인증하고, 내부 포트로만 받는다(외부 포트로 오면 404, D72). 계약 전체(상태 대응, 필드, 오류, Client)는 `docs/api/internal-earnings.md`.
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |

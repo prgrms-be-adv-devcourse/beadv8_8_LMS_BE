@@ -4,7 +4,6 @@ import static com.hapbang.lecture.fixture.LectureFixture.uploadedFile;
 import static org.assertj.core.api.Assertions.*;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -30,9 +29,9 @@ import org.springframework.test.web.servlet.ResultActions;
 import com.hapbang.lecture.domain.FileResource;
 import com.hapbang.lecture.domain.FileType;
 import com.hapbang.lecture.out.FileResourceRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 import com.jayway.jsonpath.JsonPath;
 
@@ -62,7 +61,7 @@ class LectureCartApiTest {
         addItem(BUYER_ID, Role.USER, firstLectureId).andExpect(status().isNoContent());
         addItem(BUYER_ID, Role.USER, secondLectureId).andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/cart").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.items.length()").value(2))
@@ -77,7 +76,7 @@ class LectureCartApiTest {
 
     @Test
     void 장바구니가_없으면_빈_목록과_합계_0을_돌려준다() throws Exception {
-        mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/cart").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.items.length()").value(0))
@@ -92,10 +91,10 @@ class LectureCartApiTest {
         addItem(BUYER_ID, Role.USER, lectureId).andExpect(status().isNoContent());
 
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", deletedLectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/cart").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.items.length()").value(2))
@@ -112,10 +111,10 @@ class LectureCartApiTest {
         Long lectureId = registerOnSale("OBS 방송 세팅", 10_000, thumbnail.getId());
         addItem(BUYER_ID, Role.USER, lectureId).andExpect(status().isNoContent());
         mockMvc.perform(delete("/api/v1/lectures/{lectureId}", lectureId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf()))
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/cart").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.items[0].purchasable").value(false))
@@ -161,7 +160,7 @@ class LectureCartApiTest {
 
         removeItem(BUYER_ID, Role.USER, lectureId).andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/cart").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.items.length()").value(0))
@@ -180,7 +179,7 @@ class LectureCartApiTest {
     @Test
     void 강의_ID가_없으면_담을_수_없다() throws Exception {
         mockMvc.perform(post("/api/v1/lectures/cart/items")
-                        .with(TestLogin.as(BUYER_ID, Role.USER)).with(csrf())
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
@@ -196,7 +195,7 @@ class LectureCartApiTest {
         for (Role role : List.of(Role.USER, Role.INFLUENCER, Role.VERIFIED_INFLUENCER)) {
             userId++;
             addItem(userId, role, lectureId).andExpect(status().isNoContent());
-            mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(userId, role)))
+            mockMvc.perform(get("/api/v1/lectures/cart").with(GatewayLogin.as(userId, role)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.statusCode").value(200))
                     .andExpect(jsonPath("$.data.items[0].lectureId").value(lectureId));
@@ -208,7 +207,7 @@ class LectureCartApiTest {
     void 관리자는_장바구니를_조회_담기_빼기할_수_없다() throws Exception {
         Long lectureId = registerOnSale("OBS 방송 세팅", 10_000);
 
-        mockMvc.perform(get("/api/v1/lectures/cart").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get("/api/v1/lectures/cart").with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden());
         addItem(ADMIN_ID, Role.ADMIN, lectureId).andExpect(status().isForbidden());
         removeItem(ADMIN_ID, Role.ADMIN, lectureId).andExpect(status().isForbidden());
@@ -275,14 +274,14 @@ class LectureCartApiTest {
 
     private ResultActions addItem(Long userId, Role role, Long lectureId) throws Exception {
         return mockMvc.perform(post("/api/v1/lectures/cart/items")
-                .with(TestLogin.as(userId, role)).with(csrf())
+                .with(GatewayLogin.as(userId, role))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"lectureId\": %d}".formatted(lectureId)));
     }
 
     private ResultActions removeItem(Long userId, Role role, Long lectureId) throws Exception {
         return mockMvc.perform(delete("/api/v1/lectures/cart/items/{lectureId}", lectureId)
-                .with(TestLogin.as(userId, role)).with(csrf()));
+                .with(GatewayLogin.as(userId, role)));
     }
 
     private Long registerOnSale(String title, long priceHp) throws Exception {
@@ -293,7 +292,7 @@ class LectureCartApiTest {
     private Long registerOnSale(String title, long priceHp, Long thumbnailFileId) throws Exception {
         Long lectureId = register(title, priceHp, thumbnailFileId);
         mockMvc.perform(post("/api/v1/lectures/admin/{lectureId}/inspection/approve", lectureId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNoContent());
         return lectureId;
     }
@@ -309,7 +308,7 @@ class LectureCartApiTest {
                 """.formatted(title, priceHp, thumbnailFileId,
                 fileResourceRepository.save(uploadedFile(SELLER_ID, FileType.LECTURE_VIDEO)).getId());
         String response = mockMvc.perform(post("/api/v1/lectures")
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())

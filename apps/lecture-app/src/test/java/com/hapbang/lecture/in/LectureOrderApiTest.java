@@ -1,7 +1,6 @@
 package com.hapbang.lecture.in;
 
 import static com.hapbang.lecture.fixture.LectureFixture.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -31,9 +30,9 @@ import com.hapbang.shared.billing.out.BillingCallResult;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 // 주문·주문 조회·직접 구매 확정·구매 취소·재생 동의·시청 가능한 강의·판매 내역 API를 HTTP부터 DB까지 관통해 검증한다. 상태 전이·기한 규칙은 LectureOrderTest가 맡는다.
@@ -69,7 +68,7 @@ class LectureOrderApiTest {
     void 주문하면_201과_주문을_응답한다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
 
-        mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.statusCode").value(201))
                 .andExpect(jsonPath("$.message").value("주문했습니다."))
@@ -90,7 +89,7 @@ class LectureOrderApiTest {
             throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
         });
 
-        mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.statusCode").value(202))
                 .andExpect(jsonPath("$.message").value("주문 결제를 처리 중입니다."))
@@ -107,20 +106,20 @@ class LectureOrderApiTest {
         billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
                 "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
 
-        mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"));
     }
 
     @Test
     void 구매_취소하면_200과_CANCELED_항목을_응답한다() throws Exception {
-        String body = mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+        String body = mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         Long orderId = JsonPath.parse(body).read("$.data.orderId", Long.class);
         Long orderItemId = JsonPath.parse(body).read("$.data.items[0].orderItemId", Long.class);
 
-        mockMvc.perform(cancelItem(orderId, orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(cancelItem(orderId, orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("구매를 취소했습니다."))
@@ -131,7 +130,7 @@ class LectureOrderApiTest {
 
     @Test
     void 반환이_끝나지_않으면_202와_구매_취소_처리_중_항목을_응답한다() throws Exception {
-        String body = mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+        String body = mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         Long orderId = JsonPath.parse(body).read("$.data.orderId", Long.class);
@@ -140,7 +139,7 @@ class LectureOrderApiTest {
             throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
         });
 
-        mockMvc.perform(cancelItem(orderId, orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(cancelItem(orderId, orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.statusCode").value(202))
                 .andExpect(jsonPath("$.message").value("구매 취소를 처리 중입니다."))
@@ -148,11 +147,11 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.processingStatus").value("DELAYED"))
                 .andExpect(jsonPath("$.data.canceledAt").doesNotExist());
         // 처리 중 항목은 주문 상세에도 처리 상태가 보이고, 시청 가능한 강의에서는 빠진다 (D59 (2))
-        mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", orderId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", orderId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(jsonPath("$.data.processingStatus").doesNotExist())
                 .andExpect(jsonPath("$.data.items[0].status").value("CANCEL_PENDING"))
                 .andExpect(jsonPath("$.data.items[0].processingStatus").value("DELAYED"));
-        mockMvc.perform(get("/api/v1/lectures/purchased").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/purchased").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(jsonPath("$.data.content.length()").value(0));
     }
 
@@ -161,7 +160,7 @@ class LectureOrderApiTest {
         LectureOrder order = save(BUYER_ID, LocalDateTime.now(LectureConfig.ZONE).minusDays(8));
 
         mockMvc.perform(cancelItem(order.getId(), order.getItems().getFirst().getId())
-                        .with(TestLogin.as(BUYER_ID, Role.USER)))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CANCEL_PERIOD_EXPIRED"));
     }
@@ -170,7 +169,7 @@ class LectureOrderApiTest {
     void 내_주문_목록을_조회한다() throws Exception {
         LectureOrder order = save(BUYER_ID, LocalDateTime.now(LectureConfig.ZONE));
 
-        mockMvc.perform(get("/api/v1/lectures/orders").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/orders").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("주문 목록을 조회했습니다."))
@@ -187,25 +186,25 @@ class LectureOrderApiTest {
         billing.respond(command -> {
             throw BillingCallExceptions.of(BillingCallFailureKind.UNKNOWN_RESULT, 0, null);
         });
-        String body = mockMvc.perform(createOrder(lecture.getId()).with(TestLogin.as(BUYER_ID, Role.USER)))
+        String body = mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
                 .andReturn().getResponse().getContentAsString();
         Long orderId = JsonPath.parse(body).read("$.data.orderId", Long.class);
 
-        mockMvc.perform(get("/api/v1/lectures/orders").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/orders").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].orderId").value(orderId))
                 .andExpect(jsonPath("$.data.content[0].status").value("HOLD_PENDING"))
                 .andExpect(jsonPath("$.data.content[0].processingStatus").value("DELAYED"))
                 .andExpect(jsonPath("$.data.content[0].progress").doesNotExist());
-        mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", orderId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", orderId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("HOLD_PENDING"))
                 .andExpect(jsonPath("$.data.paidAt").doesNotExist())
                 .andExpect(jsonPath("$.data.items[0].purchasedAt").doesNotExist())
                 .andExpect(jsonPath("$.data.items[0].processingStatus").value("DELAYED"));
         // 결제가 끝나지 않은 강의는 시청 가능한 강의에 없다
-        mockMvc.perform(get("/api/v1/lectures/purchased").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/purchased").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(0));
     }
@@ -215,7 +214,7 @@ class LectureOrderApiTest {
         LectureOrder order = save(BUYER_ID, LocalDateTime.of(2026, 9, 30, 10, 0));
 
         mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", order.getId())
-                        .with(TestLogin.as(BUYER_ID, Role.USER)))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("주문을 조회했습니다."))
@@ -231,7 +230,7 @@ class LectureOrderApiTest {
         LectureOrder order = save(OTHER_BUYER_ID, LocalDateTime.now(LectureConfig.ZONE));
 
         mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", order.getId())
-                        .with(TestLogin.as(BUYER_ID, Role.USER)))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
     }
@@ -241,7 +240,7 @@ class LectureOrderApiTest {
         LectureOrder order = save(BUYER_ID, LocalDateTime.now(LectureConfig.ZONE));
         Long orderItemId = order.getItems().getFirst().getId();
 
-        mockMvc.perform(confirm(order.getId(), orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(confirm(order.getId(), orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("구매를 확정했습니다."))
@@ -254,10 +253,10 @@ class LectureOrderApiTest {
     void 이미_확정한_항목을_다시_확정하면_409_ORDER_ITEM_NOT_PURCHASED다() throws Exception {
         LectureOrder order = save(BUYER_ID, LocalDateTime.now(LectureConfig.ZONE));
         Long orderItemId = order.getItems().getFirst().getId();
-        mockMvc.perform(confirm(order.getId(), orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(confirm(order.getId(), orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(confirm(order.getId(), orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(confirm(order.getId(), orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ORDER_ITEM_NOT_PURCHASED"));
     }
@@ -267,19 +266,19 @@ class LectureOrderApiTest {
         LectureOrder order = save(BUYER_ID, LocalDateTime.now(LectureConfig.ZONE));
         Long orderItemId = order.getItems().getFirst().getId();
 
-        mockMvc.perform(get("/api/v1/lectures/orders").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get("/api/v1/lectures/orders").with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(confirm(order.getId(), orderItemId).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(confirm(order.getId(), orderItemId).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(playConsent(order.getId(), orderItemId).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(playConsent(order.getId(), orderItemId).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/v1/lectures/purchased").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get("/api/v1/lectures/purchased").with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(cancelItem(order.getId(), orderItemId).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(cancelItem(order.getId(), orderItemId).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/v1/lectures/sales").with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get("/api/v1/lectures/sales").with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isForbidden());
     }
 
@@ -299,7 +298,7 @@ class LectureOrderApiTest {
         otherSellers.approve(ADMIN_ID, NOW);
         saveOrder(BUYER_ID, lectureRepository.save(otherSellers), now);
 
-        mockMvc.perform(get("/api/v1/lectures/sales").with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+        mockMvc.perform(get("/api/v1/lectures/sales").with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("판매 내역을 조회했습니다."))
@@ -321,10 +320,10 @@ class LectureOrderApiTest {
 
     @Test
     void 인증된_인플루언서가_아니면_판매_내역을_볼_수_없다() throws Exception {
-        mockMvc.perform(get("/api/v1/lectures/sales").with(TestLogin.as(SELLER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/sales").with(GatewayLogin.as(SELLER_ID, Role.USER)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        mockMvc.perform(get("/api/v1/lectures/sales").with(TestLogin.as(SELLER_ID, Role.INFLUENCER)))
+        mockMvc.perform(get("/api/v1/lectures/sales").with(GatewayLogin.as(SELLER_ID, Role.INFLUENCER)))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/lectures/sales"))
                 .andExpect(status().isUnauthorized());
@@ -335,7 +334,7 @@ class LectureOrderApiTest {
         LectureOrder order = save(BUYER_ID, LocalDateTime.now(LectureConfig.ZONE));
         Long orderItemId = order.getItems().getFirst().getId();
 
-        mockMvc.perform(playConsent(order.getId(), orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(playConsent(order.getId(), orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.orderItemId").value(orderItemId))
@@ -348,10 +347,10 @@ class LectureOrderApiTest {
     void 이미_확정한_항목에_재생_동의하면_200과_그대로의_항목을_응답한다() throws Exception {
         LectureOrder order = save(BUYER_ID, LocalDateTime.now(LectureConfig.ZONE));
         Long orderItemId = order.getItems().getFirst().getId();
-        mockMvc.perform(confirm(order.getId(), orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(confirm(order.getId(), orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(playConsent(order.getId(), orderItemId).with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(playConsent(order.getId(), orderItemId).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.status").value("CONFIRMED"))
@@ -363,7 +362,7 @@ class LectureOrderApiTest {
         LectureOrder order = save(OTHER_BUYER_ID, LocalDateTime.now(LectureConfig.ZONE));
 
         mockMvc.perform(playConsent(order.getId(), order.getItems().getFirst().getId())
-                        .with(TestLogin.as(BUYER_ID, Role.USER)))
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
     }
@@ -382,7 +381,7 @@ class LectureOrderApiTest {
         cancel(saveOrder(BUYER_ID, saveOnSaleLecture(), now), now);
         saveOrder(OTHER_BUYER_ID, saveOnSaleLecture(), now);
 
-        mockMvc.perform(get("/api/v1/lectures/purchased").with(TestLogin.as(BUYER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/lectures/purchased").with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content.length()").value(2))
@@ -399,24 +398,21 @@ class LectureOrderApiTest {
     }
 
     private static MockHttpServletRequestBuilder createOrder(Long lectureId) {
-        return post("/api/v1/lectures/orders").with(csrf())
+        return post("/api/v1/lectures/orders")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"lectureIds\": [" + lectureId + "]}");
     }
 
     private static MockHttpServletRequestBuilder cancelItem(Long orderId, Long orderItemId) {
-        return post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/cancel", orderId, orderItemId)
-                .with(csrf());
+        return post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/cancel", orderId, orderItemId);
     }
 
     private static MockHttpServletRequestBuilder confirm(Long orderId, Long orderItemId) {
-        return post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/confirm", orderId, orderItemId)
-                .with(csrf());
+        return post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/confirm", orderId, orderItemId);
     }
 
     private static MockHttpServletRequestBuilder playConsent(Long orderId, Long orderItemId) {
-        return post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/play-consent", orderId, orderItemId)
-                .with(csrf());
+        return post("/api/v1/lectures/orders/{orderId}/items/{orderItemId}/play-consent", orderId, orderItemId);
     }
 
     private LectureOrder save(Long buyerUserId, LocalDateTime purchasedAt) {
