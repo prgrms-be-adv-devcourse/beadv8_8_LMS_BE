@@ -30,6 +30,9 @@ public enum MemberErrorCode implements BaseErrorCode {
     INVALID_NICKNAME_LENGTH(HttpStatus.BAD_REQUEST, "닉네임은 2~12자로 입력해 주세요."),
     INVALID_NICKNAME_CHARACTER(HttpStatus.BAD_REQUEST, "닉네임은 한글·영문·숫자·공백·밑줄만 쓸 수 있습니다."),
     INVALID_NICKNAME_SPACE(HttpStatus.BAD_REQUEST, "닉네임에 공백을 연속으로 쓸 수 없습니다."),
+    INVALID_PASSWORD_LENGTH(HttpStatus.BAD_REQUEST, "비밀번호는 8~64자로 입력해 주세요."),
+    INVALID_PASSWORD_CHARACTER(HttpStatus.BAD_REQUEST, "비밀번호는 영문·숫자·특수문자만 쓸 수 있습니다. 공백과 한글은 쓸 수 없습니다."),
+    PASSWORD_LETTER_AND_DIGIT_REQUIRED(HttpStatus.BAD_REQUEST, "비밀번호에 영문과 숫자를 하나 이상씩 넣어 주세요."),
     CHANNEL_APPROVAL_NOT_ALLOWED(HttpStatus.CONFLICT, "등록만 됐거나 반려된 채널만 승인 요청할 수 있습니다."),
     /** 심사 대기가 아닌 채널 (이미 처리됨 포함) */
     CHANNEL_REVIEW_NOT_ALLOWED(HttpStatus.CONFLICT, "심사 대기 중인 채널만 승인·반려할 수 있습니다."),
