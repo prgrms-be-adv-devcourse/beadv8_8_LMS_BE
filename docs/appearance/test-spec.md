@@ -1492,7 +1492,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceHoldVoidTest` | 보내기 요청의 보류가 `HOLD_VOIDED`로 거절 | 500 `HP_HOLD_FAILED`, `HOLD_FAILED` |
 | `AppearanceHoldVoidTest` | 요청서, 만든 지 1시간 | 보류 대신 무효화(호스트·`APPEARANCE_REQUEST`·요청서 ID), `VOIDED` → `HOLD_FAILED` |
 | `AppearanceHoldVoidTest` | 모집글, 지갑에 보류가 있었음 | 무효화(호스트·`APPEARANCE_RECRUIT`·모집글 ID), `RELEASED` → `HOLD_FAILED` |
-| `AppearanceHoldVoidTest` | `ALREADY_CLOSED` | `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | `ALREADY_CLOSED` / `VOIDED` 로그 | `HOLD_FAILED`, 예상 밖 상태라 WARN / 정리만 된 것이라 INFO |
 | `AppearanceHoldVoidTest` | 무효화 결과 불명 → 다음 회차 `replayed` | 처음엔 `HOLD_PENDING`, 다음 회차 `HOLD_FAILED`. 보류는 다시 보내지 않음 |
 | `AppearanceHoldVoidTest` | 무효화 거절 `HOLD_OWNER_MISMATCH` | `HOLD_PENDING` 그대로, 다음 회차에도 무효화를 다시 보냄 |
 | `AppearanceHoldVoidTest` | 수락 기한이 이미 지난 요청서 | 같은 기준으로 무효화 → `HOLD_FAILED`, 만료 배치 0건 |

@@ -14,7 +14,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 
@@ -48,6 +51,7 @@ import com.hapbang.shared.billing.dto.HoldVoidCommand;
  * </ul>
  */
 @AppearanceIntegrationTest
+@ExtendWith(OutputCaptureExtension.class)
 @WithMockUser(roles = "INFLUENCER")
 class AppearanceHoldVoidTest {
 
@@ -222,8 +226,8 @@ class AppearanceHoldVoidTest {
         }
 
         @Test
-        @DisplayName("ALREADY_CLOSED(보류가 이미 끝남)도 HOLD_FAILED")
-        void alreadyClosed() {
+        @DisplayName("ALREADY_CLOSED(보류가 이미 끝남)도 HOLD_FAILED. 출연은 HOLD_PENDING 동안 반환·지급을 보내지 않아 예상 밖 상태라 WARN 로그")
+        void alreadyClosed(CapturedOutput output) {
             Long requestId = requestHoldPending(GUEST);
             voidAfterPassed();
             BillingStubs.voidHoldResult(billingClient, HoldVoidOutcome.ALREADY_CLOSED, 0, false);
@@ -231,6 +235,22 @@ class AppearanceHoldVoidTest {
             appearanceHoldRecheckUseCase.recheckDue();
 
             assertThat(requestStatus(requestId)).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+            assertThat(output.getOut().lines()
+                    .filter(line -> line.contains("보류가 이미 끝나 있었다(예상 밖)") && line.contains("id=" + requestId)))
+                    .singleElement().asString().contains(" WARN ");
+        }
+
+        @Test
+        @DisplayName("VOIDED(보류 없었음)는 정리만 된 것이라 INFO 로그")
+        void voidedIsInfo(CapturedOutput output) {
+            Long requestId = requestHoldPending(GUEST);
+            voidAfterPassed();
+
+            appearanceHoldRecheckUseCase.recheckDue();
+
+            assertThat(output.getOut().lines()
+                    .filter(line -> line.contains("HP 보류 무효화: 요청서을 HOLD_FAILED로 둔다") && line.contains("id=" + requestId)))
+                    .singleElement().asString().contains(" INFO ");
         }
 
         @Test
