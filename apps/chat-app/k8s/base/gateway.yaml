@@ -59,7 +59,7 @@ spec:
       issuer: https://gateway.invalid
       remoteJWKS:
         uri: http://member-app.hapbang-prod.svc.cluster.local:8080/api/v1/members/.well-known/jwks.json
-      # 토큰은 Authorization: Bearer에서만 읽는다(#508). 비워 두면 access_token query도 받아 토큰이 URL에 남는다
+      # 토큰은 Authorization: Bearer에서만 읽는다. 비워 두면 access_token query도 받아 토큰이 URL에 남는다
       extractFrom:
         headers:
         - name: Authorization
@@ -69,6 +69,10 @@ spec:
         header: X-User-Id
       - claim: role
         header: X-User-Role
+      # access token의 exp(epoch 초 정수, Envoy는 숫자 claim도 문자열로 넘긴다). chat-app은 웹소켓 연결 티켓의 연결 만료에만 쓰고
+      # 발급 시각 + access token 수명으로 상한을 둔다. 외부에서 붙인 같은 헤더는 공용 Gateway의 earlyRequestHeaders가 지워야 한다
+      - claim: exp
+        header: X-User-Token-Exp
 ---
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy

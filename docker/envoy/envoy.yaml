@@ -45,6 +45,7 @@ static_resources:
               mutations:
               - remove: x-user-id
               - remove: x-user-role
+              - remove: x-user-token-exp
               - remove: x-internal-api-key
               - remove: x-forwarded-host
               - remove: x-forwarded-proto
@@ -151,6 +152,10 @@ static_resources:
                     claim_name: sub
                   - header_name: X-User-Role
                     claim_name: role
+                  # access token의 exp(epoch 초). chat SecurityPolicy와 같다. 로컬은 provider가 하나라 모든 앱에 붙지만
+                  # chat-app만 읽는다(웹소켓 연결 티켓의 연결 만료)
+                  - header_name: X-User-Token-Exp
+                    claim_name: exp
               requirement_map:
                 member-optional:
                   requires_any:
