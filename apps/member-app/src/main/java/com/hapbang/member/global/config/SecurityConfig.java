@@ -9,14 +9,17 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationFailureHandler;
 import org.springframework.security.web.authentication.preauth.AbstractPreAuthenticatedProcessingFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 
 import com.hapbang.member.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.member.in.NoOpOAuth2AuthorizedClientRepository;
+import com.hapbang.member.in.OAuthLoginFailureHandler;
 import com.hapbang.member.in.OAuthLoginSuccessHandler;
 import com.hapbang.member.in.RedisOAuth2AuthorizationRequestRepository;
 
@@ -28,7 +31,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    ObjectProvider<RedisOAuth2AuthorizationRequestRepository> authorizationRequestRepository,
-                                                   ObjectProvider<OAuthLoginSuccessHandler> oauthLoginSuccessHandler)
+                                                   ObjectProvider<OAuthLoginSuccessHandler> oauthLoginSuccessHandler,
+                                                   ObjectProvider<OAuthLoginFailureHandler> oauthLoginFailureHandler)
             throws Exception {
         http
                 // Gateway가 넘긴 사용자 헤더로 인증한다 (#370, 출연 #395와 같은 방식). 프론트는 access token을
@@ -55,6 +59,8 @@ public class SecurityConfig {
                         // 재발급·로그아웃 (access token이 만료된 상태에서 refresh token 쿠키로 부른다, #370)
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/auth/refresh", "/api/v1/members/auth/logout")
                         .permitAll()
+                        // 이메일·비밀번호 가입·로그인 (#499). 로그인 응답은 refresh token 쿠키만 준다
+                        .requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login").permitAll()
                         // 로컬 로그인 (local·dev에서만 켜짐. 운영(prod)엔 컨트롤러가 없어 404)
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/local-login").permitAll()
                         // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)
@@ -76,7 +82,9 @@ public class SecurityConfig {
                         // 로그인 뒤 구글 API를 부르지 않으므로 구글 토큰을 보관하지 않는다
                         .authorizedClientRepository(new NoOpOAuth2AuthorizedClientRepository())
                         // 성공하면 refresh token 쿠키를 주고 프론트로 보낸다 (access token은 프론트가 재발급 API로 받는다)
-                        .successHandler(loginSuccessHandler(oauthLoginSuccessHandler)))
+                        .successHandler(loginSuccessHandler(oauthLoginSuccessHandler))
+                        // 실패하면 프론트로 보내면서 이유를 error로 붙인다 (#499)
+                        .failureHandler(loginFailureHandler(oauthLoginFailureHandler)))
                 // 로그아웃은 토큰 API(POST /api/v1/members/auth/logout)가 맡는다. 비로그인 요청은 구글 로그인 화면으로
                 // 리다이렉트하지 않고 401
                 .exceptionHandling(e -> e
@@ -91,5 +99,12 @@ public class SecurityConfig {
             ObjectProvider<OAuthLoginSuccessHandler> oauthLoginSuccessHandler) {
         AuthenticationSuccessHandler handler = oauthLoginSuccessHandler.getIfAvailable();
         return handler != null ? handler : new SavedRequestAwareAuthenticationSuccessHandler();
+    }
+
+    /** 빈이 없는 웹 슬라이스 테스트에서는 Spring 기본 실패 처리(/login?error로 이동)를 쓴다 */
+    private static AuthenticationFailureHandler loginFailureHandler(
+            ObjectProvider<OAuthLoginFailureHandler> oauthLoginFailureHandler) {
+        AuthenticationFailureHandler handler = oauthLoginFailureHandler.getIfAvailable();
+        return handler != null ? handler : new SimpleUrlAuthenticationFailureHandler("/login?error");
     }
 }

@@ -1,0 +1,55 @@
+package com.hapbang.member.in;
+
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.hapbang.member.app.MemberFacade;
+import com.hapbang.member.app.TokenPair;
+import com.hapbang.member.domain.User;
+import com.hapbang.member.global.response.RsData;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+
+/**
+ * 이메일·비밀번호 가입·로그인 API (#499).
+ * 로그인은 구글·로컬 로그인과 같이 refresh token 쿠키만 주고, 프론트는 재발급 API로 access token을 받는다
+ */
+@RestController
+@RequestMapping("/api/v1/members")
+@RequiredArgsConstructor
+public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
+
+    private final MemberFacade memberFacade;
+    private final RefreshTokenCookies refreshTokenCookies;
+
+    /** 가입. 로그인은 따로 한다 */
+    @Override
+    @PostMapping("/signup")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RsData<MemberMeResponse> signUp(@Valid @RequestBody SignUpRequest request) {
+        User user = memberFacade.signUp(request.email(), request.password(), request.nickname());
+        return RsData.created("가입했습니다.", meResponse(user));
+    }
+
+    /** 로그인: refresh token 쿠키 */
+    @Override
+    @PostMapping("/login")
+    public ResponseEntity<RsData<MemberMeResponse>> login(@Valid @RequestBody PasswordLoginRequest request) {
+        User user = memberFacade.passwordLogin(request.email(), request.password());
+        TokenPair tokens = memberFacade.issueTokens(user.getId(), user.getRole());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString())
+                .body(RsData.ok("로그인했습니다.", meResponse(user)));
+    }
+
+    private MemberMeResponse meResponse(User user) {
+        return MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()));
+    }
+}

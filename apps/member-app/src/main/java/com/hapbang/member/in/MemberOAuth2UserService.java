@@ -4,10 +4,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.member.app.MemberFacade;
+import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
 
@@ -34,11 +37,18 @@ public class MemberOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
     public OAuth2User loadUser(OAuth2UserRequest userRequest) {
         OAuth2User googleUser = delegate.loadUser(userRequest);   // 구글에서 사용자 정보 조회
 
-        User user = memberFacade.oauthLogin(
-                OAuthProvider.GOOGLE,
-                googleUser.getName(),                // sub (구글 회원 고유 ID)
-                googleUser.getAttribute("email"),
-                googleUser.getAttribute("name"));
+        User user;
+        try {
+            user = memberFacade.oauthLogin(
+                    OAuthProvider.GOOGLE,
+                    googleUser.getName(),                // sub (구글 회원 고유 ID)
+                    googleUser.getAttribute("email"),
+                    googleUser.getAttribute("name"));
+        } catch (MemberException e) {
+            // 업무 실패(예: 이미 비밀번호로 가입된 이메일, #499)는 로그인 실패로 넘겨 실패 처리가 프론트로 보내게 한다
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error(e.getErrorCode().getCode(), e.getMessage(), null), e.getMessage(), e);
+        }
 
         return new MemberOAuth2User(user.getId(), user.getRole(), googleUser.getAttributes());
     }

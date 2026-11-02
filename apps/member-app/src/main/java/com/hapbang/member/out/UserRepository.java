@@ -18,6 +18,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByEmail(String email);
 
+    /** 가입할 때 이메일 중복 확인 (#499) */
+    boolean existsByEmail(String email);
+
     /** 역할·상태로 회원 목록 (인플루언서 목록) */
     Page<User> findByRoleInAndStatus(Collection<Role> roles, UserStatus status, Pageable pageable);
 
