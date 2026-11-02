@@ -6,8 +6,13 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.preauth.AbstractPreAuthenticatedProcessingFilter;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+
+import com.hapbang.customersupport.global.auth.GatewayUserHeaderFilter;
 
 
 @Configuration
@@ -19,8 +24,14 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http)
             throws Exception {
         http
-                // 세션 쿠키 인증이라 CSRF를 막는다. XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보내야 통과
-                .csrf(csrf -> csrf.spa())
+                // Gateway가 넘긴 사용자 헤더로 인증한다. 프론트는 JWT를 Authorization: Bearer로 보내고,
+                // 브라우저가 자동으로 싣는 쿠키로 인증하지 않으므로 CSRF 대상이 아니다
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // 세션에서 인증 정보를 읽거나 저장하지 않는다. 요청마다 헤더로 새로 만든다
+                .securityContext(context -> context
+                        .securityContextRepository(new RequestAttributeSecurityContextRepository()))
+                .addFilterBefore(new GatewayUserHeaderFilter(), AbstractPreAuthenticatedProcessingFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         // Swagger는 모듈 경로 아래에 있다 (swagger.yml, #498). 운영에서도 누구나 본다
                         .requestMatchers(HttpMethod.GET, "/api/v1/inquiries/swagger-ui.html",
@@ -31,17 +42,14 @@ public class SecurityConfig {
                         // NetworkPolicy가 그 포트에 Prometheus만 들인다. 외부 API 포트는 Gateway 전용이다 (D72). 로컬은 앱 포트에서 열린다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
-                        // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)
-                        .requestMatchers(HttpMethod.GET, "/api/v1/lectures").permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)
                         .requestMatchers("/api/v1/*/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
-                // 로그인·로그아웃은 회원 앱의 책임이다. 서비스 간 인증 전환은 별도 작업이다.
-                // 비로그인 요청은 구글 로그인 화면으로 리다이렉트하지 않고 401
+                // 로그인·로그아웃은 회원 앱의 책임이다. 비로그인 요청은 401
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
-                // 비로그인 요청을 세션에 저장하지 않는다 (SPA라 원래 페이지 복귀는 프론트가 처리, 불필요한 DB 세션 방지)
+                // 비로그인 요청을 세션에 저장하지 않는다 (SPA라 원래 페이지 복귀는 프론트가 처리)
                 .requestCache(cache -> cache.disable());
         return http.build();
     }

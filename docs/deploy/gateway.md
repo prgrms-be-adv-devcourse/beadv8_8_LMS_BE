@@ -141,7 +141,7 @@ k3d image import -c hapbang hapbang/gateway-test:372
 kubectl --context hapbang-k3s diff -k k8s/gateway/overlays/prod
 ```
 
-2026-11-02(#507) 기준 위 diff는 차이가 없다(exit 0). 업무 앱 manifest(route·JWT issuer 포함)는 앱 prod overlay가 원본이고 앱 배포(`k3s-deploy.sh`)가 적용한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
+2026-11-02(#507) 기준 위 diff는 차이가 없다(exit 0). #534가 더한 `x-user-token-exp` 제거는 같은 날 chat-app route를 열기 전에 `ClientTrafficPolicy hapbang`만 골라 적용했다(#545). 적용 뒤 위 diff는 다시 차이가 없다(exit 0). 업무 앱 manifest(route·JWT issuer 포함)는 앱 prod overlay가 원본이고 앱 배포(`k3s-deploy.sh`)가 적용한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
 
 ### 전체 서비스 전환 조건과 순서
 

@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.LectureHpTask;
+import com.hapbang.lecture.domain.LectureHpTaskOutcome;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureOrderStatus;
@@ -26,13 +27,15 @@ import com.hapbang.lecture.out.LectureOrderRepository;
  *     <li>주문 행을 먼저 잠가(D46) 같은 주문의 결과 기록을 한 줄로 세운다. 그래서 마지막으로 기록하는 쪽이 모든 작업 결과를 본다.</li>
  *     <li>모든 보류가 성공하면 결제 완료로 기록하고, 주문한 강의만 장바구니에서 뺀다(멱등).</li>
  *     <li>결제 취소 처리 중이면 성공한 보류마다 반환 작업을 만들고, 묶여 남은 HP가 없음이 확인되면 결제 실패다.</li>
+ *     <li>관리자가 보류를 보류 무효화로 끝내면 확정 거절과 같이 결제 취소 처리 중으로 바꾸고 무효화 작업을 만든다 (D73).</li>
  * </ul>
- * 반환 작업의 실행은 주문 요청(트랜잭션 밖)이나 HP 작업 재시도 배치가 한다.
+ * 반환·무효화 작업의 실행은 주문 요청(트랜잭션 밖)이나 HP 작업 재시도 배치가 한다.
  */
 @Component
 public class OrderHoldSettlement {
 
     static final String COMPENSATION_REQUEST_ID_PREFIX = "LECTURE-HOLD-COMPENSATE-";
+    static final String VOID_REQUEST_ID_PREFIX = "LECTURE-HOLD-VOID-";
 
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureHpTaskRepository lectureHpTaskRepository;
@@ -51,7 +54,7 @@ public class OrderHoldSettlement {
         this.clock = clock;
     }
 
-    /** 보류가 성공했거나 보상 반환이 끝났다 */
+    /** 보류가 성공했거나 보상 반환·보류 무효화가 끝났다 */
     @Transactional(propagation = Propagation.MANDATORY)
     public void settle(LectureHpTask task) {
         settle(lockOrder(task), LocalDateTime.now(clock));
@@ -65,11 +68,41 @@ public class OrderHoldSettlement {
     public void reject(LectureHpTask task) {
         LectureOrder order = lockOrder(task);
         LocalDateTime now = LocalDateTime.now(clock);
+        startCompensation(order, now);
+        settle(order, now);
+    }
+
+    /**
+     * 관리자가 결과를 확정하지 못한 보류를 보류 무효화로 끝냈다({@code VOIDED}, D73 (2)). 확정 거절과 같이 결제 취소 처리 중으로 바꾸고,
+     * 그 항목의 무효화 작업을 만든다. 결제 실패는 무효화와 다른 항목의 반환이 모두 끝난 뒤다.
+     *
+     * @return 만든 무효화 작업
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public LectureHpTask voidHold(LectureHpTask hold) {
+        if (hold.getOutcome() != LectureHpTaskOutcome.VOIDED) {
+            throw new IllegalStateException("보류 무효화로 끝낸 보류가 아닙니다. taskId=" + hold.getId());
+        }
+        LectureOrder order = lockOrder(hold);
+        if (!order.getStatus().isHoldInProgress()) {
+            throw new IllegalStateException("결제 단계가 끝난 주문의 보류입니다. taskId=" + hold.getId()
+                    + ", orderStatus=" + order.getStatus());
+        }
+        LocalDateTime now = LocalDateTime.now(clock);
+        startCompensation(order, now);
+        LectureHpTask voidTask = lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.HOLD_VOID,
+                VOID_REQUEST_ID_PREFIX + hold.getOrderItemId(), hold.getOrderId(), hold.getOrderItemId(),
+                hold.getPayerUserId(), null, hold.getAmountHp(), now));
+        settle(order, now);
+        return voidTask;
+    }
+
+    /** 결제 처리 중이면 결제 취소 처리 중으로 바꾸고, 한 번도 실행하지 않은 보류는 닫는다. 이미 시도한 보류는 끝까지 확인한다 (D69 (5)) */
+    private void startCompensation(LectureOrder order, LocalDateTime now) {
         if (order.getStatus() == LectureOrderStatus.HOLD_PENDING) {
             order.startHoldCompensation();
             lectureHpTaskRepository.skipUnstartedHolds(order.getId(), now);
         }
-        settle(order, now);
     }
 
     private void settle(LectureOrder order, LocalDateTime now) {

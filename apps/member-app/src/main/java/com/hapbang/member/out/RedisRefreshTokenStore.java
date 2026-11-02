@@ -2,6 +2,7 @@ package com.hapbang.member.out;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -71,14 +72,15 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
             return 'ROTATED:' .. userId
             """, String.class);
 
-    private static final RedisScript<Long> REVOKE = new DefaultRedisScript<>("""
+    /** 결과: 폐기한 토큰의 회원 ID, 없던 토큰이면 nil */
+    private static final RedisScript<String> REVOKE = new DefaultRedisScript<>("""
             local userId = redis.call('HGET', KEYS[1], 'userId')
             redis.call('DEL', KEYS[1])
             if userId then
                 redis.call('SREM', ARGV[1] .. userId, ARGV[2])
             end
-            return 1
-            """, Long.class);
+            return userId
+            """, String.class);
 
     private static final RedisScript<Long> REVOKE_ALL = new DefaultRedisScript<>("""
             local hashes = redis.call('SMEMBERS', KEYS[1])
@@ -114,8 +116,9 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
     }
 
     @Override
-    public void revoke(String tokenHash) {
-        redisTemplate.execute(REVOKE, List.of(tokenKey(tokenHash)), USER_KEY_PREFIX, tokenHash);
+    public Optional<Long> revoke(String tokenHash) {
+        String userId = redisTemplate.execute(REVOKE, List.of(tokenKey(tokenHash)), USER_KEY_PREFIX, tokenHash);
+        return Optional.ofNullable(userId).map(Long::valueOf);
     }
 
     @Override

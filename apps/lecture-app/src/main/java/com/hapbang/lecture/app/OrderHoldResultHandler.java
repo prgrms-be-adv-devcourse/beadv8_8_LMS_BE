@@ -9,7 +9,7 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 주문 항목 보류({@code ORDER_HOLD}) 결과 처리기 (D58, D65). {@code DEAD}가 되어도 주문은 결제 단계에 남고
- * 처리 상태가 {@code ACTION_REQUIRED}가 된다. 관리자가 재시도한다.
+ * 처리 상태가 {@code ACTION_REQUIRED}가 된다. 관리자가 재시도하고, 재시도로 결과가 바뀌지 않으면 보류 무효화로 끝낸다(D73).
  */
 @Component
 @RequiredArgsConstructor

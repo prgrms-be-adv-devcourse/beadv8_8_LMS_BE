@@ -163,15 +163,27 @@ class RedisRefreshTokenStoreTest {
     }
 
     @Test
-    @DisplayName("폐기한 토큰은 회전할 수 없다")
+    @DisplayName("폐기한 토큰은 회전할 수 없고, 폐기하면 그 토큰의 회원 ID를 돌려준다 (로그아웃 이벤트용, #539)")
     void revoke() {
         Long userId = newUserId();
         String token = newHash();
         store.save(userId, token);
 
-        store.revoke(token);
+        assertThat(store.revoke(token)).contains(userId);
 
         assertThat(store.rotate(token, newHash(), Instant.now())).isEqualTo(new RotationResult.NotFound());
+    }
+
+    @Test
+    @DisplayName("없거나 이미 폐기된 토큰을 폐기하면 빈 값이다")
+    void revoke_unknown() {
+        Long userId = newUserId();
+        String token = newHash();
+        store.save(userId, token);
+        store.revoke(token);
+
+        assertThat(store.revoke(token)).isEmpty();
+        assertThat(store.revoke(newHash())).isEmpty();
     }
 
     @Test

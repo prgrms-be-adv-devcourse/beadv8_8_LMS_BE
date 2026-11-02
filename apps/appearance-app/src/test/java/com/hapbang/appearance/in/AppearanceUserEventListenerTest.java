@@ -6,6 +6,7 @@ import static org.awaitility.Awaitility.await;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -157,7 +158,7 @@ class AppearanceUserEventListenerTest {
     void ignoresUnknownType() {
         long userId = 104L;
 
-        send(userId, new UserLoggedOutEvent(userId, "session-1"));
+        send(userId, new UserLoggedOutEvent(userId, Instant.now()));
         send(userId, new UserJoinedEvent(user(userId, "다음이벤트", Role.INFLUENCER, 0L)));
 
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(appearanceUserRepository.findById(userId)).isPresent());
