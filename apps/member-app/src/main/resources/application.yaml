@@ -66,6 +66,10 @@ hapbang:
       region: ap-northeast-2
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
+  # 받은 출연 리뷰 목록은 출연 내부 API로 읽는다 (#555, shared AppearanceApiClient)
+  clients:
+    appearance:
+      base-url: "${APPEARANCE_API_BASE_URL}"
   # 구글 로그인 성공 뒤 보낼 프론트 주소 (#370)
   auth:
     login-success-url: /
