@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-11-02 (#497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-11-02 (#537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -45,6 +45,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #486 | BillingPort 테스트 전환·삭제(#280의 billing 범위): `BillingPortIntegrationTest` 삭제, 결과 변환·금액 오류·강의 항목별 반환을 `ApiV1BillingInternalControllerTest`로 이동, 다른 모듈 트랜잭션 참여 검증은 요청 단위 롤백으로 대체, 충전·환전·환불 테스트 준비를 `HoldFacade`로, shared `BillingPort`·`BillingPortAdapter` 삭제, `SharedBillingDependencyTest#noJavaPorts`(BD-128) | `feature/tkt-486` | #493 | 완료 |
 | #494 | shared Command → billing 내부 Command 변환: `app.Payment{Hold,Release,Payout,Penalty,HoldVoid}Command`, `PaymentHoldRequests`(shared 규칙 복사 + 일치 테스트), `in.BillingCommands` 변환, `HoldFacade`·UseCase·`BillingCommandValidator`·`BillingKeys` 시그니처 변경, `BillingSharedDtoAccessTest`(BD-129) | `feature/tkt-494` | #495 | 완료 |
 | #497 | 지갑 이벤트 발행: `billing.events.v1`에 충전·지급·환불·환전 결과 7종(`shared.billing.event`), Modulith 발행 기록 복구(스키마 초기화·archive), `BillingEventPublisher`·재발행 배치, `PayoutType` shared 이동, `BillingEventKafkaTest`(BD-130, BD-124 대체) | `feature/tkt-497` | (PR 전) | 구현 완료 |
+| #537 | Gateway 사용자 헤더 인증: `GatewayUserHeaderFilter`(`X-User-Id`·`X-User-Role`), `SecurityConfig` STATELESS·CSRF 없음, 강의 앱 잔재 `GET /api/v1/lectures` 공개 규칙 삭제. 지갑 회원 확인 `WalletMemberCheck`: 충전 주문·승인·환불 신청·환전 신청에서 `billing_user` 상태·역할 확인(없음 404 `WALLET_MEMBER_NOT_FOUND`, 부적격 403 `WALLET_MEMBER_NOT_ALLOWED`, 정지 회원 환불은 허용). 테스트 로그인 `TestLogin` → `fixture.GatewayLogin`, `GatewayUserHeaderFilterTest`, 충전·환불·환전 컨트롤러 테스트 `walletMember_*`, policy.md 2장(BD-131) | `feature/tkt-537` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
@@ -761,6 +762,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 ### 다음 Issue 후보
 
 > 2026-10-16까지 적은 후보다. 충전·환불·환전은 그 뒤 구현됐고(1장), #142의 강의 지급 예정 건 설계는 #188로 폐기됐다(BD-62·BD-63, 당시 기록은 3.11). 열린 결정은 아래 "팀과 정할 것"이 가리키는 `decisions.md` 10장을 본다.
+- **#537 후속**: billing-app을 prod에 처음 배포할 때 route를 열기 전에 회원 Backfill(`POST /api/v1/settlements/admin/billing-users/backfill`)을 먼저 실행한다. 지갑 회원이 없는 기존 회원은 충전·환불·환전 신청이 404 `WALLET_MEMBER_NOT_FOUND`다. policy.md 2장 "회원 상태와 충전·환불·환전"은 팀 확인을 받는다.
 - **#224 후속**: 실제 TossPayments 테스트 키로 dev 서버에서 결제창 → 승인 수동 확인, 프론트 결제 계약 확정(결제창 방식·successUrl·failUrl), PENDING 주문 만료 정책, 최대 충전 금액, 가상계좌·웹훅(필요 시), PROCESSING 장기 미확정 건 운영자 조회·알림(관리자 Issue), ERD에 `pg_payment_key_hash`·`failure_reason` 반영.
 - **강의 지급 연동 검증 후속 (3.14, 각 담당)**:
     - 강의 #150: 지급 배치 실패를 오류 코드로 구분(정상 재시도 `WALLET_NOT_FOUND`·일시 장애 / 확인 필요 `HOLD_ALREADY_CLOSED`·`PAYOUT_ALREADY_SETTLED`·`HOLD_STATE_INCONSISTENT`·`IDEMPOTENCY_KEY_CONFLICT`), 확인 필요 항목 격리·알림·관리자 조회. 어느 오류도 PAID_OUT으로 바꾸지 않는다.

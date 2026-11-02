@@ -2,7 +2,6 @@ package com.hapbang.billing.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -24,13 +23,13 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.billing.app.MockPayoutBank;
 import com.hapbang.billing.app.MockPayoutScenarios;
+import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.out.MockPayoutAccessKey;
 import com.hapbang.billing.out.MockPayoutActivation;
 import com.hapbang.billing.out.MockPayoutHttpClient;
 import com.hapbang.billing.out.PayoutTransferRequest;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 // 활성 프로필이 전부 local·test가 아닌 환경(prod·dev, local+staging, 프로필 미지정, 기본 프로필만 local)에 가상 송금 Mock 설정(enabled=true)이 들어가도 Mock 은행 API·시나리오 제어·전용 보안 체인이 생기지 않고
 // 송금 Client도 HTTP를 보내지 않는지 확인한다(#288). URL 숨김·Swagger 제외가 아니라 빈 자체가 없다.
@@ -124,19 +123,16 @@ class MockPayoutDeployedProfileTest {
             String body = "{\"payoutRequestId\":\"" + UUID.randomUUID() + "\",\"exchangeId\":1,\"amountKrw\":1000,"
                     + "\"bankCode\":\"004\",\"accountNumber\":\"12345678\",\"accountHolderName\":\"홍길동\"}";
 
-            // CSRF 토큰이 없으면 global 보안이 그 전에 403으로 막는다. 토큰을 넣어 인증 단계(401)까지 확인한다
+            // CSRF 검사가 없으므로(#537) 비로그인 요청은 바로 인증 단계(401)에서 막힌다
             mockMvc.perform(post("/api/v1/wallets/mock-payouts").header(MockPayoutAccessKey.HEADER, "any")
                             .contentType(MediaType.APPLICATION_JSON).content(body))
-                    .andExpect(status().isForbidden());
-            mockMvc.perform(post("/api/v1/wallets/mock-payouts").with(csrf()).header(MockPayoutAccessKey.HEADER, "any")
-                            .contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isUnauthorized());
-            mockMvc.perform(post("/api/v1/wallets/mock-payouts").with(csrf()).with(TestLogin.as(1L, Role.ADMIN))
+            mockMvc.perform(post("/api/v1/wallets/mock-payouts").with(GatewayLogin.as(1L, Role.ADMIN))
                             .header(MockPayoutAccessKey.HEADER, "any")
                             .contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isNotFound());
             mockMvc.perform(get("/api/v1/wallets/mock-payouts/" + UUID.randomUUID())
-                            .with(TestLogin.as(1L, Role.INFLUENCER)))
+                            .with(GatewayLogin.as(1L, Role.INFLUENCER)))
                     .andExpect(status().isNotFound());
             assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.mock_payout_transfer", Integer.class))
                     .isZero();

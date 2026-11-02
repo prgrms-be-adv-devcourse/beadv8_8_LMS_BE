@@ -65,8 +65,6 @@ import com.hapbang.testsupport.PostgresTestcontainersConfig;
                 "spring.config.name=hapbang-module-test",
                 "spring.modulith.events.jdbc.schema-initialization.enabled=true",
                 "spring.modulith.events.completion-mode=delete",
-                "spring.security.oauth2.client.registration.google.client-id=test",
-                "spring.security.oauth2.client.registration.google.client-secret=test",
                 "hapbang.storage.s3.endpoint=http://localhost:9",
                 "hapbang.storage.s3.bucket=test",
                 "hapbang.storage.s3.region=ap-northeast-2",

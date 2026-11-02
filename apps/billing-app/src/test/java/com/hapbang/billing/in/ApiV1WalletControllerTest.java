@@ -17,10 +17,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 // 내 지갑 조회 API의 RsData 성공 응답·지갑 자동 생성·인증·인가(ProblemDetail 오류)를 MockMvc로 검증한다.
 @IntegrationTest
@@ -45,7 +45,7 @@ class ApiV1WalletControllerTest {
                 SET charge_balance_hp = 3000, revenue_balance_hp = 2000, held_charge_hp = 700, held_revenue_hp = 300
                 WHERE id = ?""", wallet.getId());
 
-        mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("내 지갑을 조회했습니다."))
@@ -62,7 +62,7 @@ class ApiV1WalletControllerTest {
     @Test
     @DisplayName("지갑이 없는 기존 회원이 조회하면 잔액이 0인 지갑을 만들어 200(RsData)으로 반환하고, 다시 조회하면 같은 지갑이다")
     void me_createsMissingWallet() throws Exception {
-        mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.walletId").isNumber())
@@ -74,7 +74,7 @@ class ApiV1WalletControllerTest {
                 .andExpect(jsonPath("$.data.heldTotalHp").value(0));
 
         Long walletId = walletRepository.findByUserId(1L).orElseThrow().getId();
-        mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.walletId").value(walletId));
     }
@@ -84,7 +84,7 @@ class ApiV1WalletControllerTest {
     void me_ownWalletOnly() throws Exception {
         Wallet other = walletRepository.save(Wallet.create(2L));
 
-        mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk());
 
         Wallet mine = walletRepository.findByUserId(1L).orElseThrow();
@@ -95,7 +95,7 @@ class ApiV1WalletControllerTest {
     @EnumSource(value = Role.class, names = {"INFLUENCER", "VERIFIED_INFLUENCER"})
     @DisplayName("인플루언서·인증된 인플루언서도 자기 지갑을 조회할 수 있다")
     void me_influencers(Role role) throws Exception {
-        mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, role)))
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(1L, role)))
                 .andExpect(status().isOk());
     }
 
@@ -110,7 +110,7 @@ class ApiV1WalletControllerTest {
     @Test
     @DisplayName("관리자가 조회하면 Facade 역할 검사(@PreAuthorize)로 403을 반환하고 지갑을 만들지 않는다")
     void me_admin() throws Exception {
-        mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, Role.ADMIN)))
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(1L, Role.ADMIN)))
                 .andExpect(status().isForbidden())
                 // 오류는 RsData가 아니라 global 공통 핸들러의 ProblemDetail이다.
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))

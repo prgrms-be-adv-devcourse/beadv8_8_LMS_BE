@@ -73,7 +73,8 @@ class BillingFailureCodeContractTest {
             case PENALTY_AMOUNT_ZERO -> BillingFailureCode.PENALTY_AMOUNT_ZERO;
             // 락 대기 초과
             case HP_LOCK_TIMEOUT -> BillingFailureCode.HP_LOCK_TIMEOUT;
-            // 내부 API에서 나오지 않는다: 역분개, 확정 차감(노출하지 않음), 충전, 환불, 환전, 수익 조회, Backfill, Mock 은행
+            // 내부 API에서 나오지 않는다: 역분개, 확정 차감(노출하지 않음), 충전, 환불, 환전, 수익 조회, Backfill,
+            // 지갑 회원 확인(사용자 신청에서만, #537), Mock 은행
             case ORIGINAL_LEDGER_NOT_FOUND, INVALID_REVERSAL, CAPTURE_AMOUNT_EXCEEDS_HELD,
                     CHARGE_UNAVAILABLE, CHARGE_AMOUNT_INVALID, CHARGE_NOT_FOUND, CHARGE_AMOUNT_MISMATCH,
                     CHARGE_PAYMENT_KEY_CONFLICT, CHARGE_ALREADY_FAILED, CHARGE_PAYMENT_REJECTED, CHARGE_STATE_INCONSISTENT,
@@ -87,6 +88,7 @@ class BillingFailureCodeContractTest {
                     EXCHANGE_STATE_INCONSISTENT, EXCHANGE_ACCOUNT_UNREADABLE,
                     EARNING_SOURCE_UNAVAILABLE, EARNING_SOURCE_REJECTED, EARNING_PAGE_TOO_DEEP,
                     MEMBER_SOURCE_UNAVAILABLE, MEMBER_SOURCE_REJECTED, BACKFILL_ALREADY_RUNNING,
+                    WALLET_MEMBER_NOT_FOUND, WALLET_MEMBER_NOT_ALLOWED,
                     MOCK_PAYOUT_FORBIDDEN, MOCK_PAYOUT_INVALID_REQUEST, MOCK_PAYOUT_IDEMPOTENCY_CONFLICT,
                     MOCK_PAYOUT_NOT_FOUND, MOCK_PAYOUT_UNAVAILABLE, MOCK_PAYOUT_SERVER_ERROR -> null;
         };

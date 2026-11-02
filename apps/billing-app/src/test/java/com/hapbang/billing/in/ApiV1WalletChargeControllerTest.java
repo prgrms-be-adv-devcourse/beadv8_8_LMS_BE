@@ -2,7 +2,6 @@ package com.hapbang.billing.in;
 
 import static com.hapbang.billing.fixture.ChargeFixture.paymentKey;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -22,14 +21,19 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import com.hapbang.billing.app.BillingUserSyncUseCase;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.fixture.ChargeFixture;
 import com.hapbang.billing.fixture.FakeTossPaymentsServer;
 import com.hapbang.billing.fixture.FakeTossPaymentsServer.Fault;
+import com.hapbang.billing.fixture.GatewayLogin;
+import com.hapbang.billing.fixture.WalletMemberFixture;
+import com.hapbang.billing.out.BillingUserRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.JsonPath;
 
 // HP 충전 API(#224)의 RsData 응답·상태 코드(201·200·202)·검증 오류·인증·인가를 MockMvc와 가짜 TossPayments 서버로 검증한다.
@@ -51,12 +55,19 @@ class ApiV1WalletChargeControllerTest {
     WalletRepository walletRepository;
 
     @Autowired
+    BillingUserRepository billingUserRepository;
+
+    @Autowired
+    BillingUserSyncUseCase billingUserSyncUseCase;
+
+    @Autowired
     JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void setUp() {
         TOSS.reset();
         walletRepository.save(Wallet.create(1L));
+        billingUserRepository.saveAndFlush(WalletMemberFixture.active(1L, Role.USER));
     }
 
     @AfterAll
@@ -80,7 +91,7 @@ class ApiV1WalletChargeControllerTest {
     @Test
     @DisplayName("금액이 없거나 0 이하면 400 INVALID_REQUEST, 1,000 단위가 아니면 400 CHARGE_AMOUNT_INVALID다")
     void createOrder_invalid() throws Exception {
-        mockMvc.perform(post("/api/v1/wallets/charges").with(csrf()).with(TestLogin.as(1L, Role.USER))
+        mockMvc.perform(post("/api/v1/wallets/charges").with(GatewayLogin.as(1L, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
@@ -104,11 +115,11 @@ class ApiV1WalletChargeControllerTest {
         assertThat(body).doesNotContain(paymentKey(orderId));
 
         confirm(1L, orderId, 10_000).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("COMPLETED"));
-        mockMvc.perform(get("/api/v1/wallets/charges/{orderId}", orderId).with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get("/api/v1/wallets/charges/{orderId}", orderId).with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.data.completedAt").isString());
-        mockMvc.perform(get("/api/v1/wallets/me").with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get("/api/v1/wallets/me").with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(jsonPath("$.data.chargeBalanceHp").value(10_000));
         assertThat(TOSS.confirmCount()).isEqualTo(1);
     }
@@ -150,8 +161,9 @@ class ApiV1WalletChargeControllerTest {
     void confirm_invalid() throws Exception {
         String orderId = orderId(createOrder(1L, 10_000));
         walletRepository.save(Wallet.create(2L));
+        billingUserRepository.saveAndFlush(WalletMemberFixture.active(2L, Role.USER));
 
-        mockMvc.perform(post("/api/v1/wallets/charges/confirm").with(csrf()).with(TestLogin.as(1L, Role.USER))
+        mockMvc.perform(post("/api/v1/wallets/charges/confirm").with(GatewayLogin.as(1L, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"paymentKey\":\"k\",\"orderId\":\"bad id!\",\"amount\":10000}"))
                 .andExpect(status().isBadRequest())
@@ -160,7 +172,7 @@ class ApiV1WalletChargeControllerTest {
                 .andExpect(jsonPath("$.code").value("CHARGE_AMOUNT_MISMATCH"));
         confirm(2L, orderId, 10_000).andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CHARGE_NOT_FOUND"));
-        mockMvc.perform(get("/api/v1/wallets/charges/{orderId}", orderId).with(TestLogin.as(2L, Role.USER)))
+        mockMvc.perform(get("/api/v1/wallets/charges/{orderId}", orderId).with(GatewayLogin.as(2L, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CHARGE_NOT_FOUND"));
         assertThat(TOSS.confirmCount()).isZero();
@@ -169,7 +181,7 @@ class ApiV1WalletChargeControllerTest {
     @Test
     @DisplayName("비로그인은 401, 관리자는 403(FORBIDDEN)이고 주문을 만들지 않는다")
     void authorization() throws Exception {
-        mockMvc.perform(post("/api/v1/wallets/charges").with(csrf())
+        mockMvc.perform(post("/api/v1/wallets/charges")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"amount\":10000}"))
                 .andExpect(status().isUnauthorized());
         createOrder(1L, Role.ADMIN, 10_000)
@@ -178,12 +190,58 @@ class ApiV1WalletChargeControllerTest {
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_charge", Integer.class)).isZero();
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // 지갑 회원 확인 (#537, BD-131): 토큰 역할과 함께 복제한 회원 상태·역할도 통과해야 한다
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("지갑 회원이 없으면 충전 주문·승인은 404 WALLET_MEMBER_NOT_FOUND이고 주문을 만들지 않는다")
+    void walletMember_notSynced() throws Exception {
+        walletRepository.save(Wallet.create(3L));
+
+        createOrder(3L, 10_000).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("WALLET_MEMBER_NOT_FOUND"));
+        confirm(3L, "HPCHG-order1", 10_000).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("WALLET_MEMBER_NOT_FOUND"));
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_charge", Integer.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("정지·탈퇴 회원은 충전 주문이 403 WALLET_MEMBER_NOT_ALLOWED다")
+    void walletMember_notActive() throws Exception {
+        walletRepository.save(Wallet.create(3L));
+        walletRepository.save(Wallet.create(4L));
+        billingUserRepository.saveAndFlush(WalletMemberFixture.member(3L, Role.USER, UserStatus.SUSPENDED));
+        billingUserRepository.saveAndFlush(WalletMemberFixture.member(4L, Role.USER, UserStatus.WITHDRAWN));
+
+        createOrder(3L, 10_000).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("WALLET_MEMBER_NOT_ALLOWED"));
+        createOrder(4L, 10_000).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("WALLET_MEMBER_NOT_ALLOWED"));
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_charge", Integer.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("주문 뒤 결제창에 있는 동안 정지되면 승인은 403이고, TossPayments 승인을 부르지 않아 주문은 PENDING에 남는다")
+    void walletMember_suspendedBeforeConfirm() throws Exception {
+        String orderId = orderId(createOrder(1L, 10_000));
+
+        // 회원 변경 이벤트로 정지가 반영된다(회원 버전 1 → 2)
+        billingUserSyncUseCase.apply(new UserDto(1L, "회원1", Role.USER, UserStatus.SUSPENDED, 2L));
+
+        confirm(1L, orderId, 10_000).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("WALLET_MEMBER_NOT_ALLOWED"));
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM billing.point_charge WHERE pg_order_id = ?",
+                String.class, orderId)).isEqualTo("PENDING");
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_ledger", Integer.class)).isZero();
+    }
+
     private ResultActions createOrder(Long userId, long amount) throws Exception {
         return createOrder(userId, Role.USER, amount);
     }
 
     private ResultActions createOrder(Long userId, Role role, long amount) throws Exception {
-        return mockMvc.perform(post("/api/v1/wallets/charges").with(csrf()).with(TestLogin.as(userId, role))
+        return mockMvc.perform(post("/api/v1/wallets/charges").with(GatewayLogin.as(userId, role))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"amount\":" + amount + "}"));
     }
 
@@ -197,8 +255,8 @@ class ApiV1WalletChargeControllerTest {
     }
 
     private ResultActions confirm(Long userId, String orderId, long amount) throws Exception {
-        return mockMvc.perform(post("/api/v1/wallets/charges/confirm").with(csrf())
-                .with(TestLogin.as(userId, Role.USER))
+        return mockMvc.perform(post("/api/v1/wallets/charges/confirm")
+                .with(GatewayLogin.as(userId, Role.USER))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"paymentKey\":\"" + paymentKey(orderId) + "\",\"orderId\":\"" + orderId
                         + "\",\"amount\":" + amount + "}"));

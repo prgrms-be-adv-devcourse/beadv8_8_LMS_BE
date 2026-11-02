@@ -14,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 // HP 충전 진입점 (#224). HP 충전은 유저·인플루언서·인증된 인플루언서만 한다(루트 AGENTS.md 6장, 관리자 403).
 // 트랜잭션은 열지 않는다(PG 호출을 DB 트랜잭션 밖에 두기 위해 UseCase가 단계별로 연다).
 // TossPayments 시크릿 키나 결제키 암호화 키가 없으면 상태를 바꾸기 전에 CHARGE_UNAVAILABLE(503)로 거절한다.
+// 주문·승인은 지갑 회원도 확인한다(#537, BD-131). 승인은 TossPayments를 부르기 전에 확인하므로, 결제창에 있는 동안 정지되면 돈이 빠져나가지 않는다.
+// 이미 PROCESSING인 주문은 충전 복구 배치가 이 Facade를 거치지 않고 끝까지 확인한다.
 @Service
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('USER', 'INFLUENCER', 'VERIFIED_INFLUENCER')")
@@ -24,10 +26,12 @@ public class ChargeFacade {
     private final ChargeProcessing chargeProcessing;
     private final TossPaymentsClient tossPaymentsClient;
     private final PaymentKeyCipher paymentKeyCipher;
+    private final WalletMemberCheck walletMemberCheck;
 
     // 결제 전 충전 주문을 만든다(PENDING, HP 변화 없음).
     public ChargeResult createOrder(Long userId, long amount) {
         requireAvailable();
+        walletMemberCheck.requireCanCharge(userId);
         return LockTimeouts.translate(() -> chargeOrderUseCase.create(userId, amount));
     }
 
@@ -35,6 +39,7 @@ public class ChargeFacade {
     // PG가 승인하지 않아 실패로 끝나면 CHARGE_PAYMENT_REJECTED(400)다.
     public ChargeResult confirm(Long userId, String paymentKey, String orderId, long amount) {
         requireAvailable();
+        walletMemberCheck.requireCanCharge(userId);
         // 락 대기 초과로 끝나면 충전 주문은 PROCESSING으로 남고, 같은 요청 재시도나 충전 복구 배치가 이어서 처리한다.
         ChargeResult result = LockTimeouts.translate(
                 () -> chargeConfirmUseCase.confirm(userId, paymentKey, orderId, amount));

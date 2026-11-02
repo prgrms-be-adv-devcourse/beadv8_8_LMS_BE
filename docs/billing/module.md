@@ -206,10 +206,8 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | Billing → 회원 (Backfill) | shared `MemberApiClient` 내부 HTTP | 분리 구조에 맞다 | #322, #324 |
 | Billing → TossPayments | HTTP (`TossPaymentsClient`) | 영향 없음 | — |
 | Billing → Mock 은행 | 같은 billing-app에 실제 HTTP (`localhost:{port}`) | 영향 없음(같은 앱). local·test 프로필에서만 켜짐 | #288 |
-| 인증 | billing `SecurityConfig`: CSRF SPA 쿠키, `/api/v1/*/admin/**` = ADMIN, 나머지 인증 필요. oauth2Login·spring-session 의존 없음. `@LoginUserId` = `Long.valueOf(authentication.getName())` | **미확인:** 다른 앱(member-app)이 만든 로그인 세션을 billing-app이 인식할 방법이 코드에 없다(추정: 지금은 사용자 API 인증 불가). 목표는 JWT + `X-User-*` 헤더다(7.2) | #370~#372 (JWT 전환) |
+| 인증 | `GatewayUserHeaderFilter`가 Envoy가 넘긴 `X-User-Id`·`X-User-Role`로 인증한다(#537, BD-131). `SecurityConfig`는 STATELESS·CSRF 없음, `/api/v1/*/admin/**` = ADMIN, 나머지 인증 필요. `@LoginUserId` = 헤더의 회원 ID. 충전 주문·승인·환불 신청·환전 신청은 지갑 회원(`billing_user`) 상태·역할도 확인한다(`WalletMemberCheck`, 없음 404·부적격 403) | 분리 구조에 맞다. Envoy SecurityPolicy(`apps/billing-app/k8s/base/gateway.yaml`)가 JWT를 검증하고, NetworkPolicy가 8080에 Gateway만 들인다 | #537, BD-131 |
 | 외부 노출 차단 | Envoy Gateway에 `/api/v1/internal/**` route가 없어 404다 | 지갑 내부 API도 서버 밖에서 닿지 않는다 | 루트 AGENTS 7장 |
-
-`SecurityConfig`에 `GET /api/v1/lectures`가 공개 경로로 남아 있다(billing이 제공하지 않는 경로, 모놀리스 시절 흔적으로 추정).
 
 ### 7.2 To-Be (목표, 구현되지 않음)
 
@@ -221,7 +219,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 내부 API 노출 | k3s에서는 `/api/v1/internal/**`에 Envoy `HTTPRoute`를 만들지 않고, NetworkPolicy로 내부 API는 앱끼리만 닿게 한다. 인증은 `X-Internal-Api-Key` 유지 (인프라 문서 3장) | 없음 (현재 키 필터 그대로) |
 | 회원 이벤트 수신 | Kafka(#339, [`kafka.md`](../architecture/infrastructure/kafka.md)). member-app이 Modulith publication registry를 outbox로 쓰는 externalization으로 `member.events.v1`(key 회원 ID)에 발행한다. `eventId`는 없다([ADR 0001](../adr/0001-context-topics-with-mixed-event-types.md)·[0002](../adr/0002-modulith-externalization-without-event-id.md)). Billing은 목적별 소비 그룹 둘로 받는다: `billing-app.member-replica`(가입·변경 → 회원 복제본 Upsert), `billing-app.wallet-creation`(가입 → 지갑 생성). 멱등은 업무 자연 키다: 복제본은 `(user.id, user.version)` 버전 비교(`BD-103`), 지갑은 회원 ID UNIQUE(`uk_wallet_user_id`, `BD-1`)로 이미 있으면 그대로 둔다. 별도 inbox·처리 기록 테이블은 두지 않는다(`BD-123`). 블로킹 재시도 3회(1초 → 최대 10초) 뒤 그룹별 DLT `member.events.v1.billing-app.member-replica.DLT`·`member.events.v1.billing-app.wallet-creation.DLT`(billing-app이 `NewTopic`으로 선언, partition 3, 보존 7일) | 소비는 #430에서 구현(7.1). Modulith 이벤트 기록 설정·테이블은 #471에서 지웠다. 남은 것: #416 실제 발행과 이어 보는 계약 검증 |
 | Billing 이벤트 발행 | 인프라 문서 1장의 시연 흐름: 지갑 이벤트 → notification-app 알림·감사 projection. HP 원장을 Kafka consumer가 확정하지 않는다 | 발행은 #497에서 구현했다(7.1). 알림 쪽 소비·매핑은 #193 |
-| 인증 | member-app이 JWT(RS256·JWKS) 발급 → Envoy가 서명 검증 후 `X-User-Id`·`X-User-Role` 헤더로 전달(외부에서 붙인 `X-User-*`는 제거) → 앱 공용 헤더 인증 필터가 인증 객체 생성 → `@PreAuthorize` 인가 (#370~#372). Bearer 헤더라 API의 `X-XSRF-TOKEN` CSRF 보호는 뺀다. NetworkPolicy로 앱 외부 API 포트는 Envoy만 접근 | `@LoginUserId`·`SecurityConfig`(CSRF SPA 설정) 전환. **HP가 움직이는 경로(보류·반환·지급·환전)는 토큰의 `role`만 믿지 않고 복제한 회원 상태를 함께 확인한다**(인프라 문서 3장, #371) → 현재 Billing은 환전 승인에서만 `billing_user`를 본다. 어느 경로에 확인을 더할지 TBD |
+| 인증 | member-app이 JWT(RS256·JWKS) 발급 → Envoy가 서명 검증 후 `X-User-Id`·`X-User-Role` 헤더로 전달(외부에서 붙인 `X-User-*`는 제거) → 앱 공용 헤더 인증 필터가 인증 객체 생성 → `@PreAuthorize` 인가 (#370~#372). Bearer 헤더라 API의 `X-XSRF-TOKEN` CSRF 보호는 뺀다. NetworkPolicy로 앱 외부 API 포트는 Envoy만 접근 | 구현됨(#537, 7.1). HP를 받거나 내보내는 신청(충전 주문·승인, 환불 신청, 환전 신청)은 지갑 회원 상태·역할을 함께 확인한다(BD-131). 보류·반환·지급은 내부 API라 호출 앱이 확인한다 |
 | rate limit | 각 앱의 Resilience4j RateLimiter, key는 `X-User-Id` 또는 client IP (인프라 문서 3장) | Billing 경로별 한도 (TBD) |
 | Database | 모듈별 database 분리 (8.3) | 8.3 |
 | 배포 | k3s, 앱마다 replica 1개, billing-app은 t3.large (6.1) | 배치 중복 실행 (L4) |
