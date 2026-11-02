@@ -10,6 +10,8 @@
 
 모두 `POST`, 요청 본문은 JSON(`Content-Type: application/json`)이다. 요청 하나를 지갑 로컬 트랜잭션 하나로 처리한다.
 
+확정 차감(capture: 보류 HP를 다른 회원에게 옮기지 않고 최종 차감)은 내부 API로 노출하지 않는다(#564, BD-135). 강의·출연의 확정은 모두 지급(`/payouts`)이고, 확정 차감은 지갑 안의 환불·환전에서만 쓴다. 강의·출연 보류(MIXED)의 확정 차감은 지갑이 `HOLD_TYPE_NOT_SUPPORTED`로 막는다.
+
 | 경로 | 요청 (`shared.billing.dto`) | 응답 `data` | 멱등 키 |
 | --- | --- | --- | --- |
 | `/api/v1/internal/billing/holds` | `HoldCommand` | `HoldResultDto` | 참조 대상(`referenceType` + `referenceId`). 참조 대상당 보류 1건 |
