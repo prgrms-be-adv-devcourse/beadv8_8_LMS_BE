@@ -1,6 +1,6 @@
 # Envoy Gateway (#372)
 
-상태: EC2에 Envoy Gateway·cert-manager를 설치하고 외부 진입점을 전환했다(2026-10-30, #372). ServiceLB → Envoy가 80·443을 받고 Let's Encrypt production 인증서를 사용한다. FE `web`은 `/` route에 연결됐다. member-app은 JWT 발급(#370)과 함께 route·JWT 검증을 연결했다(2026-11-02 #500, [릴리스 전 배포](k8s.md#릴리스-전-배포)). lecture-app은 2026-10-30 Deployment만 떠 있고 route가 없다. 나머지 업무 앱 route는 각 앱이 사용자 헤더 인증(#371)을 갖춘 뒤 연결한다. 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
+상태: EC2에 Envoy Gateway·cert-manager를 설치하고 외부 진입점을 전환했다(2026-10-30, #372). ServiceLB → Envoy가 80·443을 받고 Let's Encrypt production 인증서를 사용한다. FE `web`은 `/` route에 연결됐고, 이 route는 FE 레포 `k8s/`가 소유한다(#454). member-app은 JWT 발급(#370)과 함께 route·JWT 검증을 연결했다(2026-11-02 #500, [릴리스 전 배포](k8s.md#릴리스-전-배포)). lecture-app은 2026-10-30 Deployment만 떠 있고 route가 없다. 나머지 업무 앱 route는 각 앱이 사용자 헤더 인증(#371)을 갖춘 뒤 연결한다. 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
 
 ## 결정 기록 (2026-10-29)
 
@@ -16,16 +16,16 @@
 
 - 사용자는 기존 배포 서버와의 호환을 제외하고 Gateway 설치·전환을 먼저 진행하도록 지시했다. 공용 Gateway·TLS·관측성 경로를 먼저 적용하고 업무 앱·FE 연결은 후속 작업으로 남긴다. 기존 DB·PVC는 삭제하지 않는다.
 - 같은 날 진입점 전환 뒤 Compose(prod·dev app·web·PostgreSQL, edge nginx·certbot)를 볼륨까지 지웠다(#440). 기존 운영 DB에는 필요 없는 데이터만 있어 백업하지 않았다. 그래서 아래 [진입점 복구](#진입점-복구)의 nginx 복구 경로는 없어졌다.
-- `--gateway-only`는 앱 overlay와 FE의 `web` HTTPRoute를 제외한다. JWT 발급 앱이나 FE Service가 없어도 공용 진입점을 준비할 수 있다. `/`는 FE 배포 때 연결하며 그 전에는 404다. (#500에서 렌더러가 Gateway 전용이 되어 이 플래그는 없어지고 항상 이렇게 렌더링한다.)
-- 기본 렌더링은 인증서 연락 이메일을 요구한다. 기존 Compose는 이메일 없이 등록한 구성이며 설치된 ACME CRD에서 이메일은 선택 항목이다. 이번에는 연락처 답변을 기다린 뒤 `--without-acme-email`로 명시적으로 생략했다. 연락처가 정해지면 issuer의 `spec.acme.email`에 추가할 수 있다. 이메일을 지정한 상태에서 생략 플래그를 함께 쓰면 실패한다.
+- `--gateway-only`는 앱 overlay와 FE의 `web` HTTPRoute를 제외한다. JWT 발급 앱이나 FE Service가 없어도 공용 진입점을 준비할 수 있다. `/`는 FE 배포 때 연결하며 그 전에는 404다. (#500에서 렌더러가 Gateway 전용이 되어 이 플래그가 없어졌고, #507에서 렌더러를 지우며 BE의 `web` route 정의도 지웠다.)
+- 기본 렌더링은 인증서 연락 이메일을 요구한다. 기존 Compose는 이메일 없이 등록한 구성이며 설치된 ACME CRD에서 이메일은 선택 항목이다. 이번에는 연락처 답변을 기다린 뒤 `--without-acme-email`로 명시적으로 생략했다. 연락처가 정해지면 issuer의 `spec.acme.email`에 추가할 수 있다. 이메일을 지정한 상태에서 생략 플래그를 함께 쓰면 실패한다. (#507부터는 prod overlay의 ClusterIssuer에 email이 없다.)
 
 ## JWT issuer 결정 (2026-11-02, #500)
 
 #370(PR #496) 병합 뒤 member-app 첫 배포를 준비하며 사용자에게 확인한 결정이다.
 
 - 운영 issuer는 `https://hapbang.duckdns.org`(Gateway 호스트)다. 원본은 각 앱의 prod overlay다. 앱 6개 prod overlay가 SecurityPolicy issuer를 patch하고, member prod overlay가 같은 값을 `HAPBANG_JWT_ISSUER`(발급하는 토큰의 `iss`)로 넣는다. chat-app이 STOMP에서 직접 검증할 때(#371)도 같은 이름·값을 쓴다.
-- 앱 배포(`.github/scripts/k3s-deploy.sh`)는 overlay를 그대로 적용하고 렌더러를 거치지 않는다. 그래서 issuer를 배포 입력으로 주입하지 않고 overlay에 둔다. `render-prod.py`는 공용 Gateway만 렌더링한다.
-- 발급과 검증의 issuer가 다르면 그 앱의 토큰 요청이 모두 401이다. CI `manifests` job의 `k8s/gateway/tools/check-app-jwt.py`가 prod overlay 7곳(SecurityPolicy 6, member ConfigMap 1)이 같은 값인지, Envoy가 JWKS를 member 8080에서 읽는지 검사한다. 새 앱을 더하면 prod overlay에 같은 patch를 넣는다.
+- 앱 배포(`.github/scripts/k3s-deploy.sh`)는 overlay를 그대로 적용하고 렌더러를 거치지 않는다. 그래서 issuer를 배포 입력으로 주입하지 않고 overlay에 둔다. 공용 Gateway의 운영 값도 #507에서 prod overlay로 옮기고 렌더러(`render-prod.py`)를 지웠다([운영 Gateway 값](#운영-gateway-값-507)).
+- 발급과 검증의 issuer가 다르면 그 앱의 토큰 요청이 모두 401이다. CI `manifests` job의 `k8s/gateway/tools/check-prod-host.py`가 prod overlay 7곳(SecurityPolicy 6, member ConfigMap 1)이 `https://<Gateway 호스트>`인지, Envoy가 JWKS를 member 8080에서 읽는지 검사한다. 새 앱을 더하면 prod overlay에 같은 patch를 넣는다.
 - base와 local overlay는 `https://gateway.invalid`(member 기본값과 같음)를 그대로 둔다. 로컬·k3d는 서명 키가 달라 운영 토큰을 받아들이지 않는다.
 - 서명은 #369대로 RS256 + JWKS다. member-app 하나만 개인 키를 갖고, Envoy는 JWKS로 공개 키만 받는다. 공유 비밀값(HS256)은 쓰지 않는다. Envoy v1.9.3의 `localJWKS`는 inline·ConfigMap만 받아 Secret이 아닌 곳에 비밀값을 두게 되고, 검증하는 곳(Envoy·chat)마다 모든 회원·ADMIN 토큰을 위조할 수 있는 키가 퍼지기 때문이다.
 
@@ -36,7 +36,7 @@
 | `k8s/gateway/install/envoy-gateway` | 공식 HelmChart v1.9.3, controller medium 128Mi, Gateway API·Envoy CRD |
 | `k8s/gateway/install/cert-manager` | 공식 HelmChart v1.21.3, medium의 controller·cainjector 각 128Mi, webhook 50Mi |
 | `k8s/gateway/overlays/local` | `hapbang.local`, 로컬 self-signed TLS, trace sampling 100% |
-| `k8s/gateway/overlays/prod` | 명시적 입력이 필요한 운영 template, Let's Encrypt staging·production issuer, sampling 10% |
+| `k8s/gateway/overlays/prod` | 운영 호스트(`hapbang.duckdns.org`)·Grafana 주소, Let's Encrypt staging·production issuer(연락 이메일 없음), sampling 10%. 운영과 같은 값이라 그대로 적용한다 |
 | `apps/<앱>/k8s/base/gateway.yaml` | 모듈 HTTPRoute·optional JWT·본문 제한·업로드·WebSocket |
 | `apps/<앱>/k8s/base/networkpolicy.yaml` | 앱 ingress와 IMDS 접근 제한 |
 
@@ -49,7 +49,7 @@ bash k8s/gateway/tools/install-local.sh
 
 스크립트는 Envoy → CRD 대기 → cert-manager → webhook 대기 → local Gateway 순서로 적용한다. local server node에만 ServiceLB label을 붙인다. EC2 context는 받지 않는다. 기존 로컬 cluster와 데이터는 삭제하지 않는다.
 
-Gateway와 TLS는 `envoy-gateway-system`, Grafana route는 `hapbang-platform`, 앱 route는 `hapbang-prod`에 있다. Gateway listener의 허용 namespace도 이 셋으로 제한한다. 각 route의 `Accepted`·`ResolvedRefs`와 Gateway `Programmed`를 확인한다. `web:80`은 #374에서 FE 이미지를 배포할 Service 계약이다. 아직 FE Service가 없으면 `/`는 500, Service에 준비된 endpoint가 없으면 503이며 준비 완료로 보지 않는다.
+Gateway와 TLS는 `envoy-gateway-system`, Grafana route는 `hapbang-platform`, 앱 route는 `hapbang-prod`에 있다. Gateway listener의 허용 namespace도 이 셋으로 제한한다. 각 route의 `Accepted`·`ResolvedRefs`와 Gateway `Programmed`를 확인한다. `/` route(`HTTPRoute web` → `web:80`)는 FE 레포 `k8s/`가 Service와 함께 소유한다(#454). BE Gateway overlay만 적용한 로컬 cluster에서는 `/`가 404이고, FE local overlay를 적용하면 연결된다.
 
 ## 인증과 내부 포트
 
@@ -99,26 +99,19 @@ k3d image import -c hapbang hapbang/gateway-test:372
 
 앱 검증은 `./gradlew verifyModuleStructure --no-daemon` 뒤 `./gradlew check bootJar --parallel --no-daemon`로 한다. 구조 검사는 다른 프로젝트 설정을 조회하므로 parallel과 함께 실행하지 않는다. CI의 manifests job은 고정 버전 upstream CRD로 schema를 만들고 모든 overlay를 `kubeconform -strict`로 검사한다. CEL admission 제약·정책 충돌은 schema만으로 검증되지 않으므로 실제 k3d 검증이 필요하다.
 
-## 운영 template 준비 (실행 전 점검용)
+## 운영 Gateway 값 (#507)
 
-`render-prod.py`는 공용 Gateway(`k8s/gateway/overlays/prod`)만 stdout으로 출력한다. 앱 overlay와 FE의 `web` HTTPRoute는 내지 않는다. 비밀값이나 Secret은 읽지 않고 cluster도 변경하지 않는다. 아래 값은 운영 담당자와 맞춘 실제 값으로 입력한다. `.invalid` placeholder나 값 누락은 실패한다.
+`k8s/gateway/overlays/prod`가 운영 값의 원본이다. base의 `gateway.invalid`를 prod overlay가 운영 호스트로 바꾼다(Gateway listener 2곳·Certificate patch, `grafana.yaml`의 `root_url`). ClusterIssuer에는 연락 이메일을 두지 않는다. 2026-10-30에는 렌더러(`render-prod.py`)가 적용할 때마다 이 값을 넣었고, 2026-11-02에 overlay로 옮기며 렌더러를 지웠다. 운영 호스트는 앱 prod overlay의 JWT issuer(#500)에 이미 들어가 있어 Gateway만 자리 표시 값으로 둘 이유가 없었다.
 
-```bash
-export GATEWAY_HOST='<prod 도메인>'
-export ACME_EMAIL='<인증서 연락처>'
-/tmp/gateway-test-venv/bin/python k8s/gateway/tools/render-prod.py > /tmp/gateway-prod.yaml
-```
-
-출력 파일을 그대로 자동 apply하지 않는다. Gateway·platform은 수동으로 적용한다. 업무 앱 manifest(route·JWT issuer 포함)는 앱 prod overlay가 원본이고 앱 배포(`k3s-deploy.sh`)가 적용한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
-
-기본값은 연락 이메일 필수이며, 이번처럼 연락처 없이 등록할 때만 명시적인 생략 플래그를 쓴다.
+- CI `manifests` job의 `k8s/gateway/tools/check-prod-host.py`가 prod 결과에 `.invalid`가 남지 않았는지, Gateway·Certificate·Grafana가 한 호스트인지, 앱 JWT issuer가 `https://<그 호스트>`인지 검사한다. 호스트를 바꾸면 앱 issuer도 같이 바꿔야 CI를 통과한다.
+- FE `/` route(`HTTPRoute web`)는 FE 레포 `k8s/`가 소유한다(#454). BE overlay에는 두지 않는다. 로컬 k3d에서 `/`가 필요하면 FE local overlay를 적용한다.
+- Gateway·platform은 수동으로 적용한다. 적용 전에 운영과 비교하고, 바뀐 리소스만 고른다. Grafana HelmChartConfig처럼 재시작을 부르는 리소스는 의도한 변경일 때만 적용한다.
 
 ```bash
-# EC2용 렌더링만 수행하며 자동 apply하지 않는다.
-GATEWAY_HOST='<prod 도메인>' ACME_EMAIL= \
-  /tmp/gateway-test-venv/bin/python k8s/gateway/tools/render-prod.py \
-  --without-acme-email > /tmp/gateway-only.yaml
+kubectl --context hapbang-k3s diff -k k8s/gateway/overlays/prod
 ```
+
+2026-11-02(#507) 기준 위 diff는 차이가 없다(exit 0). 업무 앱 manifest(route·JWT issuer 포함)는 앱 prod overlay가 원본이고 앱 배포(`k3s-deploy.sh`)가 적용한다. 아직 세션을 쓰는 앱을 Gateway 헤더 인증이 완료된 앱처럼 배포하지 않는다.
 
 ### 전체 서비스 전환 조건과 순서
 
