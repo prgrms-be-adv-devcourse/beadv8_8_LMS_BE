@@ -1,6 +1,7 @@
 package com.hapbang.chat.app;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -94,6 +95,8 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
      * <ul>
      *     <li>처리 시각보다 늦으면(회원 앱 시계가 앞선 경우) 처리 시각으로 줄인다. 아직 맺지 않은 연결까지 닫지 않게 한다.</li>
      *     <li>없으면(옛 형식) 처리 시각으로 대신한다. 예전 동작과 같이 지금 결합된 연결을 모두 닫는다.</li>
+     *     <li>밀리초로 내림한다. 연결의 인증 시각(티켓 발급 시각)과 표식이 밀리초라, 로그아웃과 같은 밀리초에 발급된 티켓의 연결을
+     *     즉시 종료와 하트비트가 똑같이 로그아웃 뒤로 본다.</li>
      * </ul>
      * 표식을 남기지 못해도 실패로 보지 않는다(제어 경로와 만료가 남는다). 다시 처리하면 같은 일을 반복할 뿐이다.
      */
@@ -102,7 +105,7 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
         if (userId == null || userId < 1) {
             throw new ChatException(ChatErrorCode.INVALID_REQUEST, "로그아웃한 회원 ID가 올바르지 않습니다.");
         }
-        Instant cutoff = logoutCutoff(userId, loggedOutAt, Instant.now());
+        Instant cutoff = logoutCutoff(userId, loggedOutAt, Instant.now()).truncatedTo(ChronoUnit.MILLIS);
         logoutTransaction.executeWithoutResult(status -> chatConnectionControl.requestLogout(userId, cutoff));
         ChatLogoutMarkers markers = chatLogoutMarkers.getIfAvailable();
         if (markers == null) {

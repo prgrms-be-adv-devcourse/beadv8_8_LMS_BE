@@ -21,6 +21,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -163,6 +165,18 @@ class RedisChatConnectionTicketStoreTest {
 
         assertThat(markers.loggedOutAt(Set.of(7L, 9L))).containsExactlyInAnyOrderEntriesOf(Map.of(7L, later, 9L, ISSUED));
         assertThat(redis.getExpire(keys.logoutMarker(9L))).isBetween(1L, 20L * 60);
+    }
+
+    // Lua tonumber는 숫자로 받지만 읽는 쪽(Long.parseLong)은 무시하는 값까지 깨진 값으로 보고 덮는다. 덮지 못하면 TTL 동안 표식이 없다
+    @ParameterizedTest
+    @ValueSource(strings = {"1e30", "99999999999999999999", "12.5", "0x10", " 123", "-5", "abc", ""})
+    void 로그아웃_표식에_읽을_수_없는_값이_있으면_정수로_덮는다(String corrupted) {
+        redis.opsForValue().set(keys.logoutMarker(11L), corrupted);
+
+        markers.markLoggedOut(11L, ISSUED);
+
+        assertThat(markers.loggedOutAt(Set.of(11L))).containsExactly(Map.entry(11L, ISSUED));
+        assertThat(redis.getExpire(keys.logoutMarker(11L))).isBetween(1L, 20L * 60);
     }
 
     @Test

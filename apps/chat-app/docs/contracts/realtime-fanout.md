@@ -70,10 +70,10 @@ public interface RealtimeChatFanout {
 
 ```json
 { "controlId": "1f3e…", "type": "RECHECK_USER", "userId": 7, "memberVersion": 5, "reason": "MEMBER_MODIFIED", "loggedOutAt": null }
-{ "controlId": "5a2c…", "type": "LOGOUT_USER", "userId": 7, "memberVersion": null, "reason": "MEMBER_LOGGED_OUT", "loggedOutAt": "2026-11-02T06:00:00.123456Z" }
+{ "controlId": "5a2c…", "type": "LOGOUT_USER", "userId": 7, "memberVersion": null, "reason": "MEMBER_LOGGED_OUT", "loggedOutAt": "2026-11-02T06:00:00.123Z" }
 ```
 
-- `loggedOutAt`(#548): 로그아웃 작업이 닫을 연결의 기준 시각. 구독자는 그 회원의 로컬 연결 중 이보다 먼저 인증한 연결만 닫는다. 재검사 작업은 null이다. 로그아웃 작업이 null이면(값이 생기기 전의 작업) 그 회원의 연결을 모두 닫는다.
+- `loggedOutAt`(#548): 로그아웃 작업이 닫을 연결의 기준 시각(밀리초). 구독자는 그 회원의 로컬 연결 중 이보다 먼저 인증한 연결만 닫는다. 재검사 작업은 null이다. 로그아웃 작업이 null이면(값이 생기기 전의 작업) 그 회원의 연결을 모두 닫는다.
 
 - `MessageFanout`·`ControlFanout`·`ChatNotifyRule`은 공통 골격이다. 바꿀 때 이 계약과 [병렬 작업 계약](parallel-work.md)을 먼저 고친다.
 

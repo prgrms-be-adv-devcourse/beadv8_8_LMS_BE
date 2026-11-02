@@ -351,6 +351,21 @@ class ChatUserEventListenerTest {
                 .anySatisfy(at -> assertThat(at).isBetween(before, Instant.now().toEpochMilli()));
     }
 
+    // 인증 시각(티켓 발급 시각)과 표식이 밀리초라 기준 시각도 밀리초로 내린다. 로그아웃과 같은 밀리초에 발급된 티켓의 연결은
+    // 인증 시각이 기준과 같아 즉시 종료에서도 닫히지 않는다(하트비트와 같은 판단, 같은 시각은 로그아웃 뒤로 본다)
+    @Test
+    void 로그아웃_시각은_밀리초로_내려_남긴다() {
+        long id = nextId();
+
+        loggedOut(id, "\"2026-11-02T00:00:00.123456Z\"");
+        awaitProcessed();
+
+        assertThat(controlRows(id)).singleElement().satisfies(row -> {
+            assertThat(row.get("logged_out_at_ms")).isEqualTo(Instant.parse("2026-11-02T00:00:00.123Z").toEpochMilli());
+            assertThat(row.get("sub_millis_micros")).isEqualTo(0L);
+        });
+    }
+
     @Test
     void 처리_시각보다_늦은_로그아웃_시각은_처리_시각으로_줄여_남긴다() {
         long id = nextId();
@@ -483,7 +498,8 @@ class ChatUserEventListenerTest {
     private List<Map<String, Object>> controlRows(long userId) {
         return sql.rows("""
                 select control_id, control_type, member_version, reason, status,
-                       (extract(epoch from logged_out_at) * 1000)::bigint as logged_out_at_ms
+                       (extract(epoch from logged_out_at) * 1000)::bigint as logged_out_at_ms,
+                       (extract(microseconds from logged_out_at)::bigint % 1000) as sub_millis_micros
                 from chats.chat_control_outbox where user_id = :userId""", Map.of("userId", userId));
     }
 
