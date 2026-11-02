@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -13,19 +14,17 @@ import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceReview;
-import com.hapbang.appearance.domain.AppearanceReviewPolicy;
+import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 
 import lombok.RequiredArgsConstructor;
 
 /**
  * 출연 리뷰 작성 (#512). 트랜잭션은 호출한 {@link AppearanceReviewFacade}가 연다.
- * <p>
- * 확인 순서: 출연이 있고 그 출연의 호스트·게스트인지(아니면 출연이 있다는 사실도 알리지 않고 404) → 작성자 자격(정상 상태, 인플루언서 이상)(403) → 출연 확인이 끝났는지(409)
- * → 작성 기한 안인지(409) → 상대가 정상 회원인지(409) → 처음 쓰는지(409).
  * <ul>
- *     <li>작성자는 출연 거래와 같은 자격(정상 상태, 인플루언서 이상)이어야 한다. 출연은 인플루언서끼리만 해서 일반 유저는 쓸 수 없고,
- *     로그인 뒤 정지·강등된 경우를 복제한 회원 정보로 다시 막는다. 상대는 정상 상태만 본다(받는 쪽 역할은 따지지 않음).</li>
- *     <li>블라인드 공개: 상대 리뷰가 이미 있으면 같은 트랜잭션에서 두 리뷰의 공개 시각을 함께 채운다.</li>
+ *     <li>쓸 수 있는지는 {@link AppearanceReviewEligibility}가 확인한다 (출연 상세의 {@code reviewable}과 같은 기준, #514).</li>
+ *     <li>블라인드 공개: 상대 리뷰가 이미 있으면 같은 트랜잭션에서 두 리뷰의 공개 시각을 함께 채우고, 리뷰마다 공개 이벤트
+ *     ({@link AppearanceReviewPublishedEvent})를 발행한다 (#513). 한쪽만 쓴 동안에는 발행하지 않는다.
+ *     이벤트는 발행 기록에 남고 커밋 뒤 Kafka로 나간다(롤백되면 나가지 않음).</li>
  *     <li>출연 행을 배타 잠금({@code FOR UPDATE})으로 읽는다. 호스트·게스트가 동시에 써도 차례로 처리돼 나중 작성이
  *     먼저 쓴 리뷰를 보고 둘 다 공개한다. 같은 회원이 동시에 쓰면 나중 것은 {@code ALREADY_REVIEWED}이고,
  *     DB 유니크 제약이 최종으로 막는다.</li>
@@ -40,8 +39,8 @@ public class AppearanceReviewWriteUseCase {
 
     private final AppearanceSupport appearanceSupport;
     private final AppearanceReviewSupport appearanceReviewSupport;
-    private final AppearanceUserSupport appearanceUserSupport;
-    private final AppearanceReviewPolicy appearanceReviewPolicy;
+    private final AppearanceReviewEligibility appearanceReviewEligibility;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -57,17 +56,8 @@ public class AppearanceReviewWriteUseCase {
     public Long write(Long reviewerId, Long appearanceId, Integer rating, String content) {
         LocalDateTime now = LocalDateTime.now(clock);
         Appearance appearance = appearanceSupport.getForUpdate(appearanceId);
-        appearance.validateViewableBy(reviewerId);
-        appearanceUserSupport.getParticipant(reviewerId);
-        appearance.validateReviewable(appearanceReviewPolicy, now);
-
+        appearanceReviewEligibility.validate(reviewerId, appearance, now);
         Long revieweeId = appearance.counterpartOf(reviewerId);
-        if (!appearanceUserSupport.isActive(revieweeId)) {
-            throw new AppearanceException(AppearanceErrorCode.REVIEWEE_NOT_ACTIVE);
-        }
-        if (appearanceReviewSupport.existsByAppearanceAndReviewer(appearanceId, reviewerId)) {
-            throw new AppearanceException(AppearanceErrorCode.ALREADY_REVIEWED);
-        }
 
         AppearanceReview review = AppearanceReview.write(appearance, reviewerId, rating, content);
         AppearanceReview saved = saveOrAlreadyReviewed(review);
@@ -87,7 +77,7 @@ public class AppearanceReviewWriteUseCase {
         }
     }
 
-    /** 상대 리뷰가 이미 있으면 두 리뷰를 함께 공개한다 (블라인드) */
+    /** 상대 리뷰가 이미 있으면 두 리뷰를 함께 공개하고 공개 이벤트를 2개 발행한다 (블라인드) */
     private void publishIfBothWritten(AppearanceReview written, Long appearanceId, Long revieweeId,
                                       LocalDateTime now) {
         Optional<AppearanceReview> counterpartReview = appearanceReviewSupport.findByAppearanceAndReviewer(
@@ -95,9 +85,13 @@ public class AppearanceReviewWriteUseCase {
         if (counterpartReview.isEmpty()) {
             return;
         }
+        AppearanceReview counterpart = counterpartReview.get();
         written.publish(now);
-        counterpartReview.get().publish(now);
+        counterpart.publish(now);
         appearanceReviewSupport.flush();
+        // 회원 모듈이 평점을 계산하도록 공개된 리뷰마다 알린다 (커밋 뒤 Kafka, #513)
+        eventPublisher.publishEvent(counterpart.toPublishedEvent());
+        eventPublisher.publishEvent(written.toPublishedEvent());
     }
 
     private boolean isAppearanceReviewerConflict(DataIntegrityViolationException exception) {

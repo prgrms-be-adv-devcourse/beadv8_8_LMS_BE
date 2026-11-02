@@ -17,10 +17,11 @@ import com.hapbang.shared.appearance.domain.AppearanceEarningStatus;
 import com.hapbang.shared.appearance.domain.AppearanceEarningType;
 import com.hapbang.shared.appearance.dto.AppearanceEarningPageDto;
 import com.hapbang.shared.appearance.dto.AppearanceEarningSummaryDto;
+import com.hapbang.shared.appearance.dto.AppearanceReceivedReviewPageDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
 
 /**
- * 출연 내부 HTTP API Client (D62, #301). 다른 모듈은 출연 Java 타입 대신 이 Client로 출연을 부른다.
+ * 출연 내부 HTTP API Client (D62, #301, #514). 다른 모듈은 출연 Java 타입 대신 이 Client로 출연을 부른다.
  * URI·내부 API 키·응답 감싸기(RsData)·오류 변환을 감춘다. 실패는 {@link AppearanceApiCallException}이다.
  * {@code hapbang.clients.appearance.base-url}이 있을 때만 빈이 생긴다(모듈 테스트에는 없다).
  * 응답 시각은 offset 없는 KST {@code LocalDateTime}이다 (강의는 {@code +09:00} offset).
@@ -32,11 +33,15 @@ public class AppearanceApiClient {
 
     static final String EARNINGS_PATH = "/api/v1/internal/appearances/earnings";
     static final String EARNINGS_SUMMARY_PATH = EARNINGS_PATH + "/summary";
+    static final String RECEIVED_REVIEWS_PATH = "/api/v1/internal/appearances/users/{userId}/reviews";
 
     private static final ParameterizedTypeReference<Body<AppearanceEarningSummaryDto>> SUMMARY =
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Body<AppearanceEarningPageDto>> PAGE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<AppearanceReceivedReviewPageDto>> REVIEW_PAGE =
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Map<String, Object>> PROBLEM =
@@ -105,6 +110,21 @@ public class AppearanceApiClient {
                     }
                     return builder.queryParam("page", page).queryParam("size", size).build();
                 }), PAGE);
+    }
+
+    /**
+     * 회원이 받은 공개 출연 리뷰 목록 (#514). 최신 공개순이고, 공개 전 리뷰는 없다. 출연 쪽에 리뷰가 없는 회원은 빈 페이지다.
+     *
+     * @param userId 리뷰를 받은 회원 ID
+     * @param page   페이지 번호 (0부터)
+     * @param size   페이지 크기 (최대 100)
+     */
+    public AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int size) {
+        return call(restClient.get()
+                .uri(builder -> builder.path(RECEIVED_REVIEWS_PATH)
+                        .queryParam("page", page)
+                        .queryParam("size", size)
+                        .build(userId)), REVIEW_PAGE);
     }
 
     /**

@@ -23,15 +23,55 @@ rate limit은 Gateway가 아니라 각 앱의 Resilience4j가 맡는다(아래).
 JWT는 암호화가 아니라 **서명**이다. payload는 누구나 Base64로 풀어 읽을 수 있으므로 회원 ID·역할 외의 정보를 넣지 않는다. 서명 검증은 "member-app의 개인 키로 서명됐고, 그 뒤 내용이 바뀌지 않았는가"를 공개 키로 확인하는 일이다.
 
 1. member-app이 Google OAuth 로그인 뒤 access token(RS256, 15분)을 발급한다. 개인 키는 member-app만 갖고, 공개 키는 JWKS endpoint로 공개한다(#370).
-2. refresh token(14일)은 `member` database에 저장하고 쓸 때마다 회전한다. refresh 경로로만 가는 `HttpOnly; Secure; SameSite=Strict` 쿠키로 준다. 로그아웃하면 폐기한다.
+2. refresh token(14일)은 member-app이 Redis에 해시로 저장하고(`RedisRefreshTokenStore`) 쓸 때마다 회전한다. refresh 경로로만 가는 `HttpOnly; Secure; SameSite=Strict` 쿠키로 준다. 로그아웃하면 폐기한다.
 3. 프론트는 access token을 메모리에 두고 `Authorization: Bearer`로 보낸다. 새로고침하면 시작할 때 refresh를 한 번 호출한다. Bearer 헤더는 브라우저가 자동으로 싣지 않으므로 API의 CSRF 보호(`X-XSRF-TOKEN`)는 뺀다.
 4. Envoy가 서명을 검증한다. 위조·만료 토큰은 401로 거절하고, 토큰이 없는 요청은 헤더 없이 통과시킨다. 로그인이 필요한지는 각 앱의 Security 설정이 정한다. 그래서 비로그인 경로 목록을 Envoy와 앱 두 곳에 적지 않는다.
-5. 앱은 `X-User-*` 헤더로 인증 객체를 만들고 `@PreAuthorize`로 인가한다(#371). 앱은 서명을 다시 검증하지 않으므로, NetworkPolicy로 앱의 외부 API 포트에는 Envoy만 접근하게 한다. 앱 간 내부 API는 지금처럼 `X-Internal-Api-Key`로 인증한다.
-6. 채팅: 브라우저의 WebSocket upgrade 요청에는 Bearer 헤더를 실을 수 없다. chat-app은 STOMP CONNECT frame의 토큰을 JWKS로 직접 검증한다. 토큰을 URL query에 싣지 않는다(access log에 남는다). 연결 뒤 강제 종료는 회원 이벤트(#242)를 따른다.
-7. 발급한 JWT는 회수할 수 없다. 정지·역할 변경은 다음 refresh에서 막히고, 최대 15분(access token 수명) 늦게 반영된다. 그래서 HP가 움직이는 경로(보류·반환·지급·환전)와 역할 조건이 있는 거래(출연 거래는 활동 중인 인플루언서 이상, `docs/policy.md`)는 토큰의 `role`만 믿지 않고, 각 앱이 복제한 회원 상태를 함께 확인한다(#371).
+5. 앱은 `X-User-*` 헤더로 인증 객체를 만들고 `@PreAuthorize`로 인가한다(#371). 헤더 필터는 공용 모듈이 아니라 앱마다 안에 둔다. 지금 member·appearance(#395)·chat(#501)·lecture(#521)가 쓰고, billing·customer-support는 아직이다. 앱은 서명을 다시 검증하지 않으므로, NetworkPolicy로 앱의 외부 API 포트(8080)에는 Envoy만 접근하게 한다. Prometheus는 관리 포트(8082)로 수집한다(lecture #521, member #528). 앱 간 내부 API는 지금처럼 `X-Internal-Api-Key`로 인증한다. 이 구조를 고른 이유와 전제는 아래 [헤더 신뢰 구조](#헤더-신뢰-구조를-유지하는-이유-2026-11-02)에 있다.
+6. 채팅: 브라우저의 WebSocket upgrade 요청에는 Bearer 헤더를 실을 수 없다. 그래서 chat-app은 JWT를 직접 검증하지 않고, Gateway가 검증한 REST 요청으로 일회용 연결 티켓을 발급해 웹소켓 연결을 그 티켓으로 인증한다(#501). 연결 만료는 chat SecurityPolicy가 `exp` claim을 넘기는 `X-User-Token-Exp`로 정한다([Gateway 운영 문서](../../deploy/gateway.md)). 그래서 JWKS를 쓰는 곳은 Gateway뿐이다. JWT는 URL query에 싣지 않는다(access log에 남는다). 연결 뒤 강제 종료는 회원 이벤트(#242)를 따른다.
+7. 발급한 JWT는 회수할 수 없다. 정지·역할 변경은 다음 refresh에서 막히고, 최대 15분(access token 수명) 늦게 반영된다. 그래서 HP가 움직이는 경로(보류·반환·지급·환전)와 역할 조건이 있는 거래(출연 거래는 활동 중인 인플루언서 이상, `docs/policy.md`)는 토큰의 `role`만 믿지 않고, 각 앱이 복제한 회원 상태를 함께 확인한다(#371). 전역 차단 목록(blacklist)을 두지 않는 이유는 아래 [즉시 차단](#정지역할-변경의-즉시-차단)에 있다.
 8. `docs/policy.md`의 "로그인 상태는 서버 세션으로 유지"와 "역할 변경은 다시 로그인하지 않아도 바로 반영"은 JWT 전환과 맞지 않는다. policy를 어떻게 고칠지는 팀이 정한다(#370).
 
 OAuth 진행 상태(authorization request)는 HttpSession 대신 짧은 수명의 암호화 쿠키에 저장한다. 그래서 Spring Session과 그 저장소였던 `platform` database가 필요 없다.
+
+### 헤더 신뢰 구조를 유지하는 이유 (2026-11-02)
+
+PR #523 보안 리뷰에서 "앱이 서명 없는 헤더를 믿는다"는 지적을 받고 다시 판단했다. Gateway 뒤에서 사용자 정보를 서비스로 넘기는 방식은 보통 아래와 같다.
+
+| 방식 | 동작 | 예 | 합방 |
+| --- | --- | --- | --- |
+| 신뢰 헤더 | Gateway가 토큰을 검증하고 회원 ID·역할을 일반 헤더로 넘긴다. 앱은 그대로 믿는다 | Envoy `claimToHeaders`, oauth2-proxy | **지금 구조** |
+| 원래 토큰 전달 + 서비스마다 검증 | Gateway가 JWT를 그대로 넘기고 각 서비스가 JWKS로 다시 검증한다 | Spring `oauth2ResourceServer().jwt()` | 올릴 때의 후보 |
+| 신뢰할 발급자가 서명한 내부 assertion | Gateway(또는 발급자)가 서명한 값을 넘기고 서비스가 서명을 확인한다 | Google IAP `x-goog-iap-jwt-assertion` | 쓰지 않음 |
+| 토큰 교환(RFC 8693) | 서비스가 다음 서비스를 부를 때 그 대상 전용 토큰으로 바꾼다 | 서비스 간 위임이 깊은 조직 | 쓰지 않음 |
+| 서비스 메시 | 사이드카끼리 mTLS로 서로를 확인하고 사이드카가 JWT도 검증한다 | Istio | 쓰지 않음 |
+
+OWASP는 프록시가 넣은 헤더를 믿으려면 세 가지가 필요하다고 한다. 지금 상태는 다음과 같다.
+
+| 조건 | 상태 |
+| --- | --- |
+| 클라이언트가 보낸 같은 이름의 헤더를 지운다 | ✅ `ClientTrafficPolicy`가 `x-user-id`·`x-user-role`·`x-user-token-exp`를 요청 맨 앞에서 지운다(`k8s/gateway/base/gateway.yaml`, `k8s/gateway/tests/run.py`가 검사) |
+| 프록시를 거치지 않는 요청을 막는다 | ✅ NetworkPolicy가 8080에 Envoy pod만 들인다. 내부 포트(8081)는 `/api/v1/internal/**`만 받고, 그 경로의 보안 설정에는 헤더 필터가 없다 |
+| 프록시를 인증한다 | ❌ 앱은 보낸 쪽이 Envoy인지 암호로 확인하지 않는다(mTLS 없음). NetworkPolicy가 대신한다 |
+
+- **감수하는 위험**: 클러스터 안의 pod가 장악되어 앱 8080에 직접 닿으면 아무 회원(관리자 포함)으로 행세할 수 있다. 다만 그런 pod는 인증이 없는 Kafka·Redis에도 닿는다([Gateway 운영 문서](../../deploy/gateway.md)에서 이 규모에서는 감수하기로 함). 앱의 JWT 재검증만 더해서는 피해 범위가 크게 줄지 않는데, 바꾸려면 앱 6개에 JWT 검증을 넣고 Envoy가 원래 토큰을 앱까지 넘기게 해야 한다. 그래서 지금 구조를 유지한다.
+- **8080에 들어오는 다른 pod를 없앤다**: Prometheus도 지표를 모으려고 8080에 들어왔다. 헤더를 믿는 앱은 actuator를 관리 포트(8082)로 옮기고 Prometheus는 그 포트만 쓴다(lecture #521, member #528, [관측성](observability.md)).
+- **앱에서 JWT를 검증하는 구조로 올릴 때**: 아래 NetworkPolicy 확인이 실패할 때, 클러스터에 다른 서비스·사람이 늘어 "클러스터 안은 믿는다"는 가정이 약해질 때, 앱을 Gateway 밖(다른 진입점·클러스터)에서도 부르게 될 때.
+
+근거: [OWASP Identity Propagation Patterns](https://cheatsheetseries.owasp.org/cheatsheets/Identity_Propagation_Patterns_Cheat_Sheet.html)(trusted proxy header: 클라이언트 헤더 제거, 프록시 인증, 우회 차단), [OWASP Microservices Security](https://cheatsheetseries.owasp.org/cheatsheets/Microservices_Security_Cheat_Sheet.html)(Gateway 검사는 서비스 쪽 통제를 보완할 뿐이다), [Google IAP signed headers](https://docs.cloud.google.com/iap/docs/signed-headers-howto)(IAP를 우회하면 서명 없는 헤더는 위조될 수 있어 서명된 JWT를 확인한다).
+
+#### 확인할 전제: NetworkPolicy가 실제로 막는가
+
+헤더 위조를 막는 마지막 방어선이 NetworkPolicy다([k3s 문서](k3s.md)). k3s 내장 network policy controller(kube-router)가 동작하는 것은 IMDS 차단으로 확인했다([aws-k3s.md](../../deploy/aws-k3s.md)). 아직 **Envoy가 아닌 pod에서 앱 8080으로의 접속이 막히는지**는 확인 기록이 없다.
+
+- 확인 방법: `hapbang-prod`에 라벨 없는 임시 pod를 띄우고, Ready 뒤 15초 기다린 다음(kube-router가 새 pod에 규칙을 거는 동안은 막히지 않는다) `X-User-Id`·`X-User-Role`을 붙여 앱의 8080과 8082에 요청한다. 둘 다 연결되지 않아야 한다.
+- 결과는 [k3s 문서](k3s.md)의 완료 증거로 남긴다. 연결되면 앱에서 JWT를 검증하는 구조로 올린다.
+
+### 정지·역할 변경의 즉시 차단
+
+- **지금**: refresh token은 Redis에서 폐기할 수 있다. 비밀번호를 바꾸면 그 회원의 refresh token을 모두 폐기하고(`MemberTokenUseCase.revokeAll`), 이용할 수 없는 회원(정지 등)은 재발급을 거부하면서 모두 폐기한다. 이미 받은 access token은 만료(최대 15분)까지 통한다.
+- **access token까지 즉시 끊는 방법**: 토큰 ID(`jti`) 차단 목록, 또는 회원별 기준 시각(`iat`가 그보다 앞서면 거부)을 둔다. 지금 토큰에는 `jti`가 없다.
+- **전역 차단 목록을 두지 않는 이유**: 요청마다 누군가 목록을 조회해야 한다. Envoy의 JWT 검증에는 목록 조회가 없어 외부 인가 서비스(ext_authz)를 요청마다 불러야 한다. 각 앱이 공유 Redis를 읽으면 다른 모듈의 저장소를 직접 쓰게 되어 모듈 경계(`AGENTS.md` 3장)에 맞지 않고, Redis 장애 때 통과·거부도 정해야 한다.
+- **대신**: 7번처럼 중요한 경로(HP 이동, 역할 조건이 있는 거래, 관리자 기능)만 회원 이벤트로 갱신한 앱의 회원 복제본으로 다시 확인한다. 요청마다 다른 서비스를 부르지 않고, 지연은 Kafka 전달 시간이다. 모듈 경계를 지키는 차단 목록이다.
 
 ## rate limit — 각 앱의 Resilience4j
 

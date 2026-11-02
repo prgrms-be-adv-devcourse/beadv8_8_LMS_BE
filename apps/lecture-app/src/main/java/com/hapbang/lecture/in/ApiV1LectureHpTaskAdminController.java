@@ -59,4 +59,10 @@ public class ApiV1LectureHpTaskAdminController implements ApiV1LectureHpTaskAdmi
         lectureHpTaskAdminFacade.retry(adminUserId, taskId);
         return ResponseEntity.noContent().build();
     }
+
+    @Override
+    @PostMapping("/{taskId}/void")
+    public RsData<LectureHpTaskResponse> voidHold(@LoginUserId Long adminUserId, @PathVariable("taskId") Long taskId) {
+        return RsData.ok("보류 무효화를 등록했습니다.", lectureHpTaskAdminFacade.voidHold(adminUserId, taskId));
+    }
 }

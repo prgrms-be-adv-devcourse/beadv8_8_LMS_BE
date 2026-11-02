@@ -40,6 +40,8 @@ public record LectureHpTaskResponse(
         LocalDateTime lastFailedAt,
         Long lastRetriedByUserId,
         LocalDateTime lastRetriedAt,
+        @Schema(description = "이 보류를 보류 무효화로 끝낸 관리자(결과 VOIDED). 시각은 completedAt", nullable = true)
+        Long voidedByUserId,
         LocalDateTime completedAt,
         LocalDateTime createdAt
 ) {
@@ -50,6 +52,6 @@ public record LectureHpTaskResponse(
                 task.getPayerUserId(), task.getReceiverUserId(), task.getAmountHp(), task.getAttemptCount(),
                 task.getTotalAttemptCount(), task.getManualRetryCount(), task.getNextAttemptAt(),
                 task.getLastErrorCode(), task.getLastFailedAt(), task.getLastRetriedByUserId(),
-                task.getLastRetriedAt(), task.getCompletedAt(), task.getCreatedAt());
+                task.getLastRetriedAt(), task.getVoidedByUserId(), task.getCompletedAt(), task.getCreatedAt());
     }
 }

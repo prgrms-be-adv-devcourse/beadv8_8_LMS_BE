@@ -24,10 +24,10 @@ import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureObjectionCommandRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 // 이의 제기 접수 내부 API(#278)를 내부 API 보안 체인부터 명령 이력까지 관통해 검증한다. 항목 규칙은 LectureObjectionFacadeTest가 맡는다.
 @IntegrationTest
@@ -111,7 +111,7 @@ class LectureObjectionInternalApiTest {
         mockMvc.perform(post(FILE).contentType(MediaType.APPLICATION_JSON).content(body(12L, 1L, BUYER_ID, "사유")))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(post(FILE).contentType(MediaType.APPLICATION_JSON).content(body(12L, 1L, BUYER_ID, "사유"))
-                        .with(TestLogin.as(BUYER_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(BUYER_ID, Role.ADMIN)))
                 .andExpect(status().isUnauthorized());
         assertThat(lectureObjectionCommandRepository.findAll()).isEmpty();
     }

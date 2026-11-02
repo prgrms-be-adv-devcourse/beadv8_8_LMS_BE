@@ -18,7 +18,7 @@ public interface LectureHpTaskResultHandler {
     /** 지갑이 처리했다 */
     void onSucceeded(LectureHpTask task);
 
-    /** 보류가 확정 거절됐다(잔액 부족). 보류 목적만 받는다 */
+    /** 보류가 확정 거절됐다(잔액 부족, 보류 무효화된 대상). 보류 목적만 받는다 */
     default void onRejected(LectureHpTask task) {
     }
 

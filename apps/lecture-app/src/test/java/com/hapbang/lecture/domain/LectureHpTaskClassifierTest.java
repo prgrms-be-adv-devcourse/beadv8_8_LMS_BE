@@ -22,6 +22,21 @@ class LectureHpTaskClassifierTest {
     }
 
     @Test
+    void HOLD가_보류_무효화된_대상이면_확정_거절이다() {
+        // 지갑의 보류 무효화는 되돌릴 수 없어 다시 보내도 보류가 생기지 않는다 (D73 (5))
+        assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.HOLD, HOLD_VOIDED)).isEqualTo(TERMINAL_REJECTION);
+    }
+
+    @Test
+    void VOID는_지갑_없음만_재시도고_다른_회원의_보류는_불변식_위반이다() {
+        assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.VOID, WALLET_NOT_FOUND)).isEqualTo(RETRYABLE);
+        assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.VOID, HOLD_OWNER_MISMATCH))
+                .isEqualTo(INVARIANT_VIOLATION);
+        assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.VOID, INSUFFICIENT_BALANCE))
+                .isEqualTo(INVARIANT_VIOLATION);
+    }
+
+    @Test
     void RELEASE는_지갑_없음만_재시도고_나머지는_불변식_위반이다() {
         assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.RELEASE, WALLET_NOT_FOUND)).isEqualTo(RETRYABLE);
         assertThat(LectureHpTaskClassifier.classify(LectureHpTaskType.RELEASE, INSUFFICIENT_BALANCE))

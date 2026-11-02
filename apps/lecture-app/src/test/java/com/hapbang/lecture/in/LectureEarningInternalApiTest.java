@@ -13,11 +13,6 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextImpl;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -31,10 +26,10 @@ import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 // 판매 수익 내부 API(#300)를 내부 API 보안 체인부터 DB까지 관통해 검증한다. 상태 분류는 LectureEarningRepositoryTest가 맡는다.
 @IntegrationTest
@@ -192,17 +187,10 @@ class LectureEarningInternalApiTest {
     }
 
     @Test
-    void 회원_세션만으로는_내부_API를_부를_수_없다() throws Exception {
-        // 세션에 저장된 로그인 정보를 읽지 않는다
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
-                new SecurityContextImpl(UsernamePasswordAuthenticationToken.authenticated(SELLER_ID, null,
-                        List.of(new SimpleGrantedAuthority("ROLE_" + Role.VERIFIED_INFLUENCER.name())))));
-        mockMvc.perform(get(SUMMARY).param("userId", SELLER_ID.toString()).session(session))
-                .andExpect(status().isUnauthorized());
-        // 인증 정보가 이미 있어도 내부 호출이 아니면 401이다
+    void 회원_로그인만으로는_내부_API를_부를_수_없다() throws Exception {
+        // 관리자로 로그인해도(Gateway 사용자 헤더) 내부 키가 없으면 401이다
         mockMvc.perform(get(SUMMARY).param("userId", SELLER_ID.toString())
-                        .with(TestLogin.as(SELLER_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(SELLER_ID, Role.ADMIN)))
                 .andExpect(status().isUnauthorized());
     }
 

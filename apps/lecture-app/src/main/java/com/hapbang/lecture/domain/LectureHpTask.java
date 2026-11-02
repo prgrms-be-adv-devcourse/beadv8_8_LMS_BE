@@ -23,7 +23,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 강의 HP 작업: 보류·반환·지급을 지갑 내부 API로 보내는 요청 한 건 (D57, #275).
+ * 강의 HP 작업: 보류·반환·지급·보류 무효화를 지갑 내부 API로 보내는 요청 한 건 (D57, #275, D73).
  * <ul>
  *     <li>업무 상태와 같은 강의 트랜잭션에서 만든다. 지갑 호출은 커밋 뒤 트랜잭션 밖에서 하고, 결과는 짧은 트랜잭션으로 기록한다.</li>
  *     <li>선점은 저장소의 조건부 UPDATE로 한다({@code LectureHpTaskRepository.claim}). 결과는 선점 표식({@code claimToken})이
@@ -105,6 +105,9 @@ public class LectureHpTask {
     private Long lastRetriedByUserId;
 
     private LocalDateTime lastRetriedAt;
+
+    /** 이 보류를 보류 무효화로 끝낸 관리자. 시각은 {@code completedAt}이다 (D73) */
+    private Long voidedByUserId;
 
     private LocalDateTime completedAt;
 
@@ -204,6 +207,22 @@ public class LectureHpTask {
         this.lastRetriedAt = now;
         this.nextAttemptAt = now;
         this.updatedAt = now;
+    }
+
+    /**
+     * 관리자가 결과를 확정하지 못한 주문 항목 보류를 보류 무효화로 끝낸다: {@code DEAD} → {@code COMPLETED}·{@code VOIDED} (D73 (2)).
+     * 지갑 무효화는 되돌릴 수 없어 이 보류는 다시 보내지 않는다. 지갑 처리는 호출한 쪽이 등록하는 무효화 작업이 한다.
+     */
+    public void voidByAdmin(Long adminUserId, LocalDateTime now) {
+        Objects.requireNonNull(adminUserId, "관리자 ID는 필수입니다.");
+        if (purpose != LectureHpTaskPurpose.ORDER_HOLD) {
+            throw new LectureException(LectureErrorCode.HP_TASK_NOT_VOIDABLE);
+        }
+        if (status != LectureHpTaskStatus.DEAD) {
+            throw new LectureException(LectureErrorCode.HP_TASK_NOT_DEAD);
+        }
+        this.voidedByUserId = adminUserId;
+        complete(LectureHpTaskOutcome.VOIDED, now);
     }
 
     private void recordFailure(String errorCode, LocalDateTime now) {

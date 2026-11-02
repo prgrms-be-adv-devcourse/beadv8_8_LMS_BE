@@ -90,20 +90,20 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 **lecture_user** (**신규**, 회원 복제): `id`(회원 ID), `nickname`, `role`, `status`, `created_at`, `updated_at`. 채팅 모듈의 `CHAT_USER`와 같은 패턴.
 
-**lecture_hp_task** (**신규**, #275, D57): HP 작업. 강의의 보류·반환·지급 호출 한 건. 삭제하지 않는다.
+**lecture_hp_task** (**신규**, #275, D57, D73): HP 작업. 강의의 보류·반환·지급·보류 무효화 호출 한 건. 삭제하지 않는다.
 
 | 컬럼 | 타입 | 비고 |
 | --- | --- | --- |
 | id | bigint PK | |
-| task_type | varchar | `HOLD` / `RELEASE` / `PAYOUT` |
-| purpose | varchar | `ORDER_HOLD` / `HOLD_COMPENSATION` / `CANCEL` / `RETURN` / `PAYOUT` |
+| task_type | varchar | `HOLD` / `RELEASE` / `PAYOUT` / `VOID` |
+| purpose | varchar | `ORDER_HOLD` / `HOLD_COMPENSATION` / `CANCEL` / `RETURN` / `PAYOUT` / `HOLD_VOID` |
 | request_id | varchar | 유일. billing 요청 ID와 같다 (6.2 멱등 키) |
 | order_id, order_item_id | bigint | 대상 주문·항목 |
 | payer_user_id, receiver_user_id | bigint | 구매자, 지급받는 판매자(지급만) |
 | amount_hp | bigint | 항목 가격 |
 | payload_fingerprint | varchar | 요청 값의 해시. 같은 `request_id`인데 다르면 충돌 |
 | status | varchar | `PENDING` / `PROCESSING` / `COMPLETED` / `DEAD` |
-| outcome | varchar | `COMPLETED`일 때: `SUCCEEDED` / `REJECTED`(HOLD의 확정 거절) / `SKIPPED`(실행 전에 필요 없어진 HOLD) |
+| outcome | varchar | `COMPLETED`일 때: `SUCCEEDED` / `REJECTED`(HOLD의 확정 거절) / `SKIPPED`(실행 전에 필요 없어진 HOLD) / `VOIDED`(관리자가 보류 무효화로 끝낸 HOLD, D73) |
 | attempt_count | int | 현재 자동 재시도 주기의 선점 횟수 |
 | total_attempt_count | int | 관리자 재시도를 포함한 누적 선점 횟수 |
 | manual_retry_count | int | `DEAD`에서 관리자가 복구한 횟수 |
@@ -113,6 +113,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | last_error_code | varchar | 마지막 실패 코드 (`BillingFailureCode` 또는 실행기 결과) |
 | last_failed_at | timestamp | |
 | last_retried_by_user_id, last_retried_at | bigint, timestamp | 마지막 관리자 재시도 |
+| voided_by_user_id | bigint | 보류 무효화로 끝낸 관리자(`VOIDED`만). 시각은 `completed_at` (D73) |
 | completed_at | timestamp | |
 | created_at, updated_at | timestamp | |
 
@@ -195,11 +196,13 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/api/v1/lectures/admin/hp-tasks` | HP 작업 목록(페이지). 필터: `status`, `taskType`, `referenceType`, `orderId`·`orderItemId`, `errorCode`. 응답: 작업 상태·결과, 유형·목적, 요청 ID, 주문·항목 ID, 금액, 시도 횟수(`attemptCount`·`totalAttemptCount`·`manualRetryCount`), 다음 시도 시각, 마지막 오류 코드·시각, 마지막 관리자 재시도 |
+| GET | `/api/v1/lectures/admin/hp-tasks` | HP 작업 목록(페이지). 필터: `status`, `taskType`, `referenceType`, `orderId`·`orderItemId`, `errorCode`. 응답: 작업 상태·결과, 유형·목적, 요청 ID, 주문·항목 ID, 금액, 시도 횟수(`attemptCount`·`totalAttemptCount`·`manualRetryCount`), 다음 시도 시각, 마지막 오류 코드·시각, 마지막 관리자 재시도, 보류를 무효화한 관리자(`voidedByUserId`) |
 | GET | `/api/v1/lectures/admin/hp-tasks/{taskId}` | 작업 상세 + 시도 이력(`lecture_hp_task_attempt`, 원래 오류 코드·진단 정보 포함) |
 | POST | `/api/v1/lectures/admin/hp-tasks/{taskId}/retry` | `DEAD` → `PENDING`(204). `attemptCount`만 0으로 하고 누적 횟수는 유지, `manualRetryCount` +1, 관리자·시각 기록. 같은 요청 ID로 다시 보내므로 HP가 두 번 움직이지 않는다. 없는 작업 404, `DEAD`가 아니면 409 |
+| POST | `/api/v1/lectures/admin/hp-tasks/{taskId}/void` | 결과를 확정하지 못한 주문 항목 보류를 보류 무효화로 끝낸다(200, D73, #535). `DEAD`인 `ORDER_HOLD`만 받는다. 원래 보류를 `COMPLETED`·`VOIDED`로 닫고 관리자를 기록하며, 주문은 결제 취소 처리 중(`HOLD_COMPENSATING`)이 된다. 응답은 새로 등록한 무효화 작업(유형 `VOID`, 목적 `HOLD_VOID`)이고 다음 재시도 배치가 보낸다. 되돌릴 수 없으므로 재시도로 결과가 바뀌지 않을 때만 쓴다. 없는 작업 404, `ORDER_HOLD`가 아니면 409 `HP_TASK_NOT_VOIDABLE`, `DEAD`가 아니면 409 `HP_TASK_NOT_DEAD` |
 
 - 원인은 billing 데이터에서 먼저 확인한다. 예: `PAYOUT_ALREADY_SETTLED`는 지급 예정 건(`billing.settlement`)이 남은 경우, `HOLD_ALREADY_CLOSED`는 보류가 이미 닫힌 경우라 강의 항목 상태와 billing 보류를 대조해 어느 쪽이 맞는지 판단한다 (D54의 운영 절차를 그대로 옮김).
+- 보류 무효화는 일시 장애로 `DEAD`가 된 보류에 쓰지 않는다(재시도한다). `HOLD_OWNER_MISMATCH`로 `DEAD`인 보류는 지갑이 무효화에서도 소유를 확인해 같은 코드로 실패하므로, billing 보류 데이터를 먼저 확인한다 (D73 (5)).
 
 ### 8.2.2 지급 실패 (관리자, 삭제됨)
 
@@ -269,7 +272,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 ### 8.6.1 판매 수익 내부 API (D63, #300)
 
-billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. 회원 세션이 아니라 내부 API 키(`X-Internal-Api-Key`)로 인증하고, 서버 밖에서는 nginx가 404로 막는다. 계약 전체(상태 대응, 필드, 오류, Client)는 `docs/api/internal-earnings.md`.
+billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. 회원 로그인(Gateway 사용자 헤더)이 아니라 내부 API 키(`X-Internal-Api-Key`)로 인증하고, 내부 포트로만 받는다(외부 포트로 오면 404, D72). 계약 전체(상태 대응, 필드, 오류, Client)는 `docs/api/internal-earnings.md`.
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
@@ -294,7 +297,7 @@ billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. �
 | 반환 / 지급 | `return` (`RETURNED`) / `payout` (`PAID_OUT`) |
 | 결제 처리 중 / 결제 취소 처리 중 / 결제 실패 | `HOLD_PENDING` / `HOLD_COMPENSATING` / `HOLD_FAILED` |
 | 구매 취소 처리 중 / 반환 처리 중 / 지급 처리 중 | `CANCEL_PENDING` / `RETURN_PENDING` / `PAYOUT_PENDING` |
-| HP 작업 (보류·반환·지급 호출 한 건) | `LectureHpTask` (`HOLD`·`RELEASE`·`PAYOUT`) |
+| HP 작업 (보류·반환·지급·보류 무효화 호출 한 건) | `LectureHpTask` (`HOLD`·`RELEASE`·`PAYOUT`·`VOID`) |
 | 이의 제기 인정 뒤 HP 반환 상태 (고객센터) | `hpReturnStatus` ("환불"이 아니다, 4장 용어) |
 | 리뷰 / 평점 | `LectureReview` / `rating` |
 

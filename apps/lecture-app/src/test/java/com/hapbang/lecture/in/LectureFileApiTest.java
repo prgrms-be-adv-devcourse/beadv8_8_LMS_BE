@@ -1,7 +1,6 @@
 package com.hapbang.lecture.in;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -19,10 +18,10 @@ import com.hapbang.lecture.global.storage.S3FileStorage;
 import com.hapbang.lecture.domain.FileResource;
 import com.hapbang.lecture.domain.FileStatus;
 import com.hapbang.lecture.out.FileResourceRepository;
+import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.S3MockTestcontainersConfig;
-import com.hapbang.testsupport.TestLogin;
 
 import com.jayway.jsonpath.JsonPath;
 
@@ -77,7 +76,7 @@ class LectureFileApiTest {
     @Test
     void 파일_크기가_없으면_400_INVALID_REQUEST() throws Exception {
         mockMvc.perform(post("/api/v1/lectures/files")
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fileType": "LECTURE_VIDEO", "originalFilename": "1강.mp4", "contentType": "video/mp4"}
@@ -128,7 +127,7 @@ class LectureFileApiTest {
         Long fileId = registerVideo(VIDEO.length);
 
         mockMvc.perform(put("/api/v1/lectures/files/{fileId}/content", fileId)
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType("video/mp4"))
                 .andExpect(status().isLengthRequired())
                 .andExpect(jsonPath("$.code").value("FILE_LENGTH_REQUIRED"));
@@ -171,7 +170,7 @@ class LectureFileApiTest {
         uploadContent(SELLER_ID, fileId, "video/mp4", VIDEO).andExpect(status().isNoContent());
 
         mockMvc.perform(post("/api/v1/lectures")
-                        .with(TestLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)).with(csrf())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -187,7 +186,7 @@ class LectureFileApiTest {
     private ResultActions registerFile(Long userId, Role role, String contentType, long fileSize)
             throws Exception {
         return mockMvc.perform(post("/api/v1/lectures/files")
-                .with(TestLogin.as(userId, role)).with(csrf())
+                .with(GatewayLogin.as(userId, role))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"fileType": "LECTURE_VIDEO", "originalFilename": "1강 장비 고르기.mp4",
@@ -206,7 +205,7 @@ class LectureFileApiTest {
     /** 브라우저처럼 파일 본문을 그대로 PUT 한다 */
     private ResultActions uploadContent(Long userId, Long fileId, String contentType, byte[] body) throws Exception {
         return mockMvc.perform(put("/api/v1/lectures/files/{fileId}/content", fileId)
-                .with(TestLogin.as(userId, Role.VERIFIED_INFLUENCER)).with(csrf())
+                .with(GatewayLogin.as(userId, Role.VERIFIED_INFLUENCER))
                 .contentType(contentType)
                 .content(body));
     }

@@ -1,7 +1,11 @@
 package com.hapbang.appearance.app;
 
+import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.domain.AppearanceReview;
@@ -10,7 +14,7 @@ import com.hapbang.appearance.out.AppearanceReviewRepository;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 출연 리뷰 저장소 접근 (#512). 트랜잭션은 호출한 쪽이 연다.
+ * 출연 리뷰 저장소 접근 (#512, #514). 트랜잭션은 호출한 쪽이 연다.
  */
 @Service
 @RequiredArgsConstructor
@@ -26,6 +30,20 @@ public class AppearanceReviewSupport {
     /** 이 회원이 이 출연에 쓴 리뷰. 아직 안 썼으면 빈 값 */
     public Optional<AppearanceReview> findByAppearanceAndReviewer(Long appearanceId, Long reviewerId) {
         return appearanceReviewRepository.findByAppearanceIdAndReviewerId(appearanceId, reviewerId);
+    }
+
+    /** 이 출연의 리뷰 (최대 2건) */
+    public List<AppearanceReview> findByAppearance(Long appearanceId) {
+        return appearanceReviewRepository.findByAppearanceId(appearanceId);
+    }
+
+    /**
+     * 이 회원이 받은 공개 리뷰. 최신 공개순으로 고정이라 요청의 정렬(sort)은 버리고 page·size만 쓴다.
+     * 정렬을 넘기면 Spring Data가 쿼리 뒤에 덧붙여 순서가 바뀐다.
+     */
+    public Page<AppearanceReview> findPublishedByReviewee(Long revieweeId, Pageable pageable) {
+        Pageable unsorted = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+        return appearanceReviewRepository.findPublishedByReviewee(revieweeId, unsorted);
     }
 
     /**

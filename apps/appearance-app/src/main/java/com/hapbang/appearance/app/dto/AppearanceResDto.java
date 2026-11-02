@@ -42,6 +42,11 @@ public record AppearanceResDto(
         @Schema(description = "불참 사유 (선택, 불참인 경우)") String absentReason,
         @Schema(description = "출연료 지급(출연 확인) 진행 상태. 확인 전이면 null. PENDING 처리 중 / DONE 완료 / DEAD 실패(고객센터 확인)")
         HpTaskStatus hpPayoutStatus,
+        @Schema(description = "지금 내가 이 출연에 리뷰를 쓸 수 있는지. 리뷰 작성 API의 확인과 같은 기준이다 "
+                + "(출연 확인이 끝났고, 작성 기한 안이고, 나와 상대가 정상 회원이고, 아직 쓰지 않음)") boolean reviewable,
+        @Schema(description = "내가 쓴 리뷰. 쓰지 않았으면 null. 상대가 아직 쓰지 않았으면 published=false") AppearanceReviewResDto myReview,
+        @Schema(description = "상대가 나에게 쓴 리뷰. 두 리뷰가 함께 공개된 뒤에만 채우고, 그 전(상대만 쓴 경우 포함)에는 null (블라인드)")
+        AppearanceReviewResDto receivedReview,
         @Schema(description = "출연 버전") Long version,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
@@ -50,14 +55,16 @@ public record AppearanceResDto(
     public static AppearanceResDto from(Appearance appearance, String title,
                                         List<AppearanceCancelRequestResDto> cancelRequests,
                                         HpTaskStatus hpReleaseStatus, HpTaskStatus hpPenaltyStatus,
-                                        HpTaskStatus hpPayoutStatus) {
+                                        HpTaskStatus hpPayoutStatus, boolean reviewable,
+                                        AppearanceReviewResDto myReview, AppearanceReviewResDto receivedReview) {
         return new AppearanceResDto(appearance.getId(), appearance.getSourceType(), appearance.getRequestId(),
                 appearance.getRecruitId(), appearance.getApplicationId(), title, appearance.getHostId(),
                 appearance.getGuestId(), appearance.getFee(), appearance.getScheduledAt(), appearance.getStatus(),
                 appearance.getEstablishedAt(), appearance.getCanceledAt(), cancelRequests, hpReleaseStatus,
                 appearance.getPenaltyAmount(), appearance.getHostCancelReason(), hpPenaltyStatus,
                 appearance.getConfirmType(), appearance.getConfirmedAt(), appearance.getAbsentAt(),
-                appearance.getAbsentReason(), hpPayoutStatus, appearance.getVersion(),
+                appearance.getAbsentReason(), hpPayoutStatus, reviewable, myReview, receivedReview,
+                appearance.getVersion(),
                 appearance.getCreatedAt(), appearance.getUpdatedAt());
     }
 }

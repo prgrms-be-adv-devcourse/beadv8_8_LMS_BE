@@ -3,7 +3,6 @@ package com.hapbang.customersupport.in;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -13,19 +12,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.customersupport.app.InquiryUseCase;
 import com.hapbang.customersupport.app.LectureObjectionResultUseCase;
 import com.hapbang.customersupport.domain.InquiryCategory;
 import com.hapbang.customersupport.fixture.LectureObjectionFixture;
+import com.hapbang.customersupport.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.customersupport.out.InquiryRepository;
+import com.hapbang.customersupport.support.GatewayLogin;
 import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
@@ -34,7 +37,6 @@ import com.hapbang.shared.lecture.out.LectureApiCallExceptions;
 import com.hapbang.shared.lecture.out.LectureApiClient;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 // 문의 API의 응답·검증·인증·인가를 MockMvc로 검증한다.
 @IntegrationTest
@@ -68,7 +70,7 @@ class ApiV1InquiryControllerTest {
     @ParameterizedTest
     @EnumSource(value = Role.class, names = {"USER", "INFLUENCER", "VERIFIED_INFLUENCER"})
     void 회원은_문의를_접수하면_201(Role role) throws Exception {
-        mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, role)).with(csrf())
+        mockMvc.perform(post("/api/v1/inquiries").with(GatewayLogin.as(USER_ID, role))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"category": "SERVICE_COMPLAINT", "title": "환전 계좌 변경", "content": "오류가 나요."}"""))
@@ -86,7 +88,7 @@ class ApiV1InquiryControllerTest {
     @ParameterizedTest
     @EnumSource(value = InquiryCategory.class, names = "LECTURE_CONTENT_DISPUTE", mode = EnumSource.Mode.EXCLUDE)
     void 대상이_필요_없는_문의_유형으로_접수할_수_있다(InquiryCategory category) throws Exception {
-        mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
+        mockMvc.perform(post("/api/v1/inquiries").with(GatewayLogin.as(USER_ID, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"category": "%s", "title": "제목", "content": "내용"}""".formatted(category.name())))
@@ -96,7 +98,7 @@ class ApiV1InquiryControllerTest {
 
     @Test
     void 제목이_비어_있으면_400() throws Exception {
-        mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
+        mockMvc.perform(post("/api/v1/inquiries").with(GatewayLogin.as(USER_ID, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"category": "OTHER", "title": " ", "content": "내용"}"""))
@@ -107,7 +109,7 @@ class ApiV1InquiryControllerTest {
 
     @Test
     void 없는_문의_유형이면_400() throws Exception {
-        mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
+        mockMvc.perform(post("/api/v1/inquiries").with(GatewayLogin.as(USER_ID, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"category": "UNKNOWN", "title": "제목", "content": "내용"}"""))
@@ -117,7 +119,7 @@ class ApiV1InquiryControllerTest {
 
     @Test
     void 관리자는_문의를_접수할_수_없다_403() throws Exception {
-        mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.ADMIN)).with(csrf())
+        mockMvc.perform(post("/api/v1/inquiries").with(GatewayLogin.as(USER_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"category": "OTHER", "title": "제목", "content": "내용"}"""))
@@ -131,13 +133,27 @@ class ApiV1InquiryControllerTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    // Gateway 사용자 헤더가 한쪽만 있거나 형식이 틀리면 익명이라 로그인이 필요한 문의 API는 401이다
+    @ParameterizedTest(name = "[{index}] id={0}, role={1}")
+    @CsvSource(value = {"1, NULL", "NULL, USER", "abc, USER", "0, USER", "1, ROLE_USER"}, nullValues = "NULL")
+    void 사용자_헤더가_한쪽만_있거나_형식이_틀리면_401(String userId, String role) throws Exception {
+        MockHttpServletRequestBuilder request = get("/api/v1/inquiries");
+        if (userId != null) {
+            request.header(GatewayUserHeaderFilter.USER_ID, userId);
+        }
+        if (role != null) {
+            request.header(GatewayUserHeaderFilter.USER_ROLE, role);
+        }
+        mockMvc.perform(request).andExpect(status().isUnauthorized());
+    }
+
     @Test
     void 내_문의_목록을_최신순으로_조회한다() throws Exception {
         inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "첫 문의", "내용", null);
         inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용", null);
         inquiryUseCase.create(USER_ID, InquiryCategory.SERVICE_COMPLAINT, "두 번째 문의", "내용", null);
 
-        mockMvc.perform(get("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries").with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.content.length()").value(2))
@@ -157,7 +173,7 @@ class ApiV1InquiryControllerTest {
         inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "세 번째 문의", "내용", null);
 
         mockMvc.perform(get("/api/v1/inquiries").param("page", "1").param("size", "2")
-                        .with(TestLogin.as(USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].title").value("첫 문의"))
@@ -171,7 +187,7 @@ class ApiV1InquiryControllerTest {
         inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "첫 문의", "내용", null);
         inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "두 번째 문의", "내용", null);
 
-        mockMvc.perform(get("/api/v1/inquiries").param("sort", "OLDEST").with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries").param("sort", "OLDEST").with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].title").value("첫 문의"))
                 .andExpect(jsonPath("$.data.content[1].title").value("두 번째 문의"));
@@ -182,7 +198,7 @@ class ApiV1InquiryControllerTest {
         inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "환전 계좌 변경", "내용", null);
         inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "모집 글 수정", "가능한가요?", null);
 
-        mockMvc.perform(get("/api/v1/inquiries").param("keyword", "환전").with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries").param("keyword", "환전").with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].title").value("환전 계좌 변경"))
@@ -192,7 +208,7 @@ class ApiV1InquiryControllerTest {
     @Test
     void 검색어가_100자를_넘으면_400() throws Exception {
         mockMvc.perform(get("/api/v1/inquiries").param("keyword", "가".repeat(101))
-                        .with(TestLogin.as(USER_ID, Role.USER)))
+                        .with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.errors[0].field").value("keyword"));
@@ -200,7 +216,7 @@ class ApiV1InquiryControllerTest {
 
     @Test
     void sort에_필드_이름_정렬을_보내면_400() throws Exception {
-        mockMvc.perform(get("/api/v1/inquiries").param("sort", "title,asc").with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries").param("sort", "title,asc").with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
@@ -210,7 +226,7 @@ class ApiV1InquiryControllerTest {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "모집 글 수정 가능한가요?", "수정하고 싶어요.", null)
                 .getId();
 
-        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.inquiryId").value(inquiryId))
                 .andExpect(jsonPath("$.data.content").value("수정하고 싶어요."));
@@ -220,7 +236,7 @@ class ApiV1InquiryControllerTest {
     void 다른_회원의_문의를_조회하면_404() throws Exception {
         Long inquiryId = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용", null).getId();
 
-        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("INQUIRY_NOT_FOUND"));
     }
@@ -229,10 +245,10 @@ class ApiV1InquiryControllerTest {
     void 내_문의를_삭제하면_204_이후_조회는_404() throws Exception {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
 
-        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
+        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("INQUIRY_NOT_FOUND"));
     }
@@ -242,7 +258,7 @@ class ApiV1InquiryControllerTest {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
         inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변");
 
-        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
+        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INQUIRY_NOT_DELETABLE"));
     }
@@ -251,7 +267,7 @@ class ApiV1InquiryControllerTest {
     void 다른_회원의_문의를_삭제하면_404() throws Exception {
         Long inquiryId = inquiryUseCase.create(OTHER_USER_ID, InquiryCategory.OTHER, "남의 문의", "내용", null).getId();
 
-        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
+        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("INQUIRY_NOT_FOUND"));
     }
@@ -264,7 +280,7 @@ class ApiV1InquiryControllerTest {
         inquiryUseCase.reply(answered, ADMIN_ID, "답변");
 
         mockMvc.perform(get("/api/v1/inquiries/admin").param("status", "WAITING")
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(2))
                 .andExpect(jsonPath("$.data.content[0].title").value("첫 문의"))
@@ -276,7 +292,7 @@ class ApiV1InquiryControllerTest {
     void 관리자는_다른_회원의_문의_상세를_본다() throws Exception {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
 
-        mockMvc.perform(get("/api/v1/inquiries/admin/{id}", inquiryId).with(TestLogin.as(ADMIN_ID, Role.ADMIN)))
+        mockMvc.perform(get("/api/v1/inquiries/admin/{id}", inquiryId).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.userId").value(USER_ID))
                 .andExpect(jsonPath("$.data.content").value("내용"));
@@ -287,9 +303,9 @@ class ApiV1InquiryControllerTest {
     void 관리자가_아니면_관리자_API는_403(Role role) throws Exception {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
 
-        mockMvc.perform(get("/api/v1/inquiries/admin").with(TestLogin.as(USER_ID, role)))
+        mockMvc.perform(get("/api/v1/inquiries/admin").with(GatewayLogin.as(USER_ID, role)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/v1/inquiries/admin/{id}", inquiryId).with(TestLogin.as(USER_ID, role)))
+        mockMvc.perform(get("/api/v1/inquiries/admin/{id}", inquiryId).with(GatewayLogin.as(USER_ID, role)))
                 .andExpect(status().isForbidden());
     }
 
@@ -298,7 +314,7 @@ class ApiV1InquiryControllerTest {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
 
         mockMvc.perform(post("/api/v1/inquiries/admin/{id}/replies", inquiryId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"content": "확인했습니다."}"""))
@@ -309,7 +325,7 @@ class ApiV1InquiryControllerTest {
                 .andExpect(jsonPath("$.data.replies[0].replyId").isNumber())
                 .andExpect(jsonPath("$.data.replies[0].content").value("확인했습니다."));
 
-        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("ANSWERED"))
                 .andExpect(jsonPath("$.data.replies.length()").value(1))
@@ -322,7 +338,7 @@ class ApiV1InquiryControllerTest {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
 
         mockMvc.perform(post("/api/v1/inquiries/admin/{id}/replies", inquiryId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"content": " "}"""))
@@ -336,7 +352,7 @@ class ApiV1InquiryControllerTest {
         Long replyId = inquiryUseCase.reply(inquiryId, ADMIN_ID, "첫 답변").getReplies().getFirst().getId();
 
         mockMvc.perform(put("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, replyId)
-                        .with(TestLogin.as(OTHER_ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(OTHER_ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"content": "고친 답변"}"""))
@@ -352,10 +368,10 @@ class ApiV1InquiryControllerTest {
         Long replyId = inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변").getReplies().getFirst().getId();
 
         mockMvc.perform(delete("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, replyId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("WAITING"))
                 .andExpect(jsonPath("$.data.replies.length()").value(0));
@@ -366,14 +382,14 @@ class ApiV1InquiryControllerTest {
         Long inquiryId = inquiryUseCase.create(USER_ID, InquiryCategory.OTHER, "제목", "내용", null).getId();
 
         mockMvc.perform(put("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, 999L)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"content": "고친 답변"}"""))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("INQUIRY_REPLY_NOT_FOUND"));
         mockMvc.perform(delete("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, 999L)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf()))
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("INQUIRY_REPLY_NOT_FOUND"));
     }
@@ -385,19 +401,19 @@ class ApiV1InquiryControllerTest {
         Long replyId = inquiryUseCase.reply(inquiryId, ADMIN_ID, "답변").getReplies().getFirst().getId();
 
         mockMvc.perform(post("/api/v1/inquiries/admin/{id}/replies", inquiryId)
-                        .with(TestLogin.as(USER_ID, role)).with(csrf())
+                        .with(GatewayLogin.as(USER_ID, role))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"content": "답변"}"""))
                 .andExpect(status().isForbidden());
         mockMvc.perform(put("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, replyId)
-                        .with(TestLogin.as(USER_ID, role)).with(csrf())
+                        .with(GatewayLogin.as(USER_ID, role))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"content": "답변"}"""))
                 .andExpect(status().isForbidden());
         mockMvc.perform(delete("/api/v1/inquiries/admin/{id}/replies/{replyId}", inquiryId, replyId)
-                        .with(TestLogin.as(USER_ID, role)).with(csrf()))
+                        .with(GatewayLogin.as(USER_ID, role)))
                 .andExpect(status().isForbidden());
     }
 
@@ -433,7 +449,7 @@ class ApiV1InquiryControllerTest {
 
     @Test
     void 이의_제기에_주문_항목이_없으면_400() throws Exception {
-        mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
+        mockMvc.perform(post("/api/v1/inquiries").with(GatewayLogin.as(USER_ID, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"category": "LECTURE_CONTENT_DISPUTE", "title": "내용이 달라요", "content": "달라요."}"""))
@@ -472,7 +488,7 @@ class ApiV1InquiryControllerTest {
         Long inquiryId = saveDispute();
 
         mockMvc.perform(post("/api/v1/inquiries/admin/{id}/objection-resolution", inquiryId)
-                        .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"content": "답변"}"""))
@@ -486,7 +502,7 @@ class ApiV1InquiryControllerTest {
         Long inquiryId = saveDispute();
 
         mockMvc.perform(post("/api/v1/inquiries/admin/{id}/objection-resolution", inquiryId)
-                        .with(TestLogin.as(USER_ID, role)).with(csrf())
+                        .with(GatewayLogin.as(USER_ID, role))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"accepted": true, "content": "답변"}"""))
@@ -497,21 +513,21 @@ class ApiV1InquiryControllerTest {
     void 이의_제기_문의_삭제는_철회_요청이라_202이고_철회가_끝난_뒤_다시_보내면_204다() throws Exception {
         Long inquiryId = saveDispute();
 
-        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
+        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.message").value("이의 제기 철회를 처리하는 중입니다."))
                 .andExpect(jsonPath("$.data.objectionLinkStatus").value("WITHDRAWAL_PENDING"));
 
         results.apply(new LectureObjectionWithdrawnEvent("WITHDRAW:" + inquiryId, inquiryId, 100L));
 
-        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)).with(csrf()))
+        mockMvc.perform(delete("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(TestLogin.as(USER_ID, Role.USER)))
+        mockMvc.perform(get("/api/v1/inquiries/{id}", inquiryId).with(GatewayLogin.as(USER_ID, Role.USER)))
                 .andExpect(status().isNotFound());
     }
 
     private org.springframework.test.web.servlet.ResultActions postDispute() throws Exception {
-        return mockMvc.perform(post("/api/v1/inquiries").with(TestLogin.as(USER_ID, Role.USER)).with(csrf())
+        return mockMvc.perform(post("/api/v1/inquiries").with(GatewayLogin.as(USER_ID, Role.USER))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"category": "LECTURE_CONTENT_DISPUTE", "title": "내용이 달라요", "content": "커리큘럼과 달라요.",
@@ -521,7 +537,7 @@ class ApiV1InquiryControllerTest {
     private org.springframework.test.web.servlet.ResultActions resolve(Long inquiryId, boolean accepted, String content)
             throws Exception {
         return mockMvc.perform(post("/api/v1/inquiries/admin/{id}/objection-resolution", inquiryId)
-                .with(TestLogin.as(ADMIN_ID, Role.ADMIN)).with(csrf())
+                .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"accepted": %s, "content": "%s"}""".formatted(accepted, content)));

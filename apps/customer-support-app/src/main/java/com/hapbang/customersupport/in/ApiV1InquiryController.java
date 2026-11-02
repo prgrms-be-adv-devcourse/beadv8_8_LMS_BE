@@ -30,7 +30,7 @@ import com.hapbang.customersupport.global.response.RsData;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 고객센터 문의 REST API. 회원 ID는 팀 공통 로그인 세션에서 {@link LoginUserId}로 받는다.
+ * 고객센터 문의 REST API. 회원 ID는 Gateway 사용자 헤더로 만든 로그인 정보에서 {@link LoginUserId}로 받는다.
  * 성공은 {@link RsData}로, 오류는 global 공통 핸들러가 ProblemDetail로 응답한다.
  * 로그인하지 않은 요청은 global SecurityConfig에서 401로 막히고, 역할 검사는 Facade의 {@code @PreAuthorize}가 한다.
  */
