@@ -27,12 +27,16 @@ import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.EarningSourceType;
 import com.hapbang.billing.domain.EarningStatus;
 import com.hapbang.billing.domain.EarningType;
+import com.hapbang.billing.out.OutboundCircuitBreakers;
+import com.hapbang.billing.out.OutboundResilienceProperties;
 import com.hapbang.shared.appearance.out.AppearanceApiClient;
 import com.hapbang.shared.appearance.out.AppearanceClientProperties;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.lecture.out.LectureApiClient;
 import com.hapbang.shared.lecture.out.LectureClientProperties;
 import com.sun.net.httpserver.HttpServer;
+
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 // 강의·출연 수익 출처(#295)가 실제 shared Client로 가짜 내부 API를 불러 Billing 값으로 바꾸는지 확인한다:
 // 시각 정규화(강의 offset → Instant, 출연 KST LocalDateTime → Instant, JVM 시간대 무관), null 지급 예정 시각, 요청 모양,
@@ -260,6 +264,89 @@ class EarningSourceAdapterTest {
 
     // ---------------------------------------------------------------------------------------------
 
+    // ---------------------------------------------------------------------------------------------
+    // 회로·재시도 (#562)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("5xx가 최소 호출 수만큼 쌓이면 회로가 열려 요청을 보내지 않고 EARNING_SOURCE_UNAVAILABLE이다. 열린 시간이 지나면 시험 호출로 닫힌다")
+    void circuitOpensAndRecovers() throws InterruptedException {
+        OutboundCircuitBreakers circuits = smallCircuits();
+        LectureEarningSource source = new LectureEarningSource(() -> lectureClient(Duration.ofSeconds(5)), circuits);
+        respond(503, null);
+        for (int i = 0; i < 4; i++) {
+            assertFailure(() -> source.summary(7L), EarningSourceType.LECTURE,
+                    BillingErrorCode.EARNING_SOURCE_UNAVAILABLE);
+        }
+        assertThat(circuits.isOpen(OutboundCircuitBreakers.Target.LECTURE)).isTrue();
+        int sent = requests.size();
+
+        assertFailure(() -> source.summary(7L), EarningSourceType.LECTURE, BillingErrorCode.EARNING_SOURCE_UNAVAILABLE);
+        assertThat(requests).hasSize(sent);
+        // 출연 회로는 따로라 열리지 않는다
+        assertThat(circuits.isOpen(OutboundCircuitBreakers.Target.APPEARANCE)).isFalse();
+
+        respond(200, rs("""
+                {"confirmationPending":{"amountHp":10000,"count":1},"scheduled":{"amountHp":20000,"count":2},
+                 "onHold":{"amountHp":0,"count":0},"processing":{"amountHp":3000,"count":1},
+                 "failed":{"amountHp":5000,"count":1},"asOf":"2026-11-05T12:00:00+09:00"}"""));
+        awaitState(circuits, CircuitBreaker.State.HALF_OPEN);
+        assertThat(source.summary(7L).scheduled()).isEqualTo(new Amount(20_000, 2));
+        assertThat(circuits.circuitBreaker(OutboundCircuitBreakers.Target.LECTURE).getState())
+                .isEqualTo(CircuitBreaker.State.CLOSED);
+    }
+
+    @Test
+    @DisplayName("4xx(REJECTED)는 상대가 판단한 응답이라 실패로 세지 않아 회로가 열리지 않는다")
+    void rejectedDoesNotOpenCircuit() {
+        OutboundCircuitBreakers circuits = smallCircuits();
+        AppearanceEarningSource source = new AppearanceEarningSource(() -> appearanceClient(Duration.ofSeconds(5)),
+                circuits);
+        respond(400, "{\"status\":400,\"code\":\"INVALID_REQUEST\",\"detail\":\"x\"}");
+        for (int i = 0; i < 6; i++) {
+            assertFailure(() -> source.summary(7L), EarningSourceType.APPEARANCE,
+                    BillingErrorCode.EARNING_SOURCE_REJECTED);
+        }
+
+        assertThat(circuits.isOpen(OutboundCircuitBreakers.Target.APPEARANCE)).isFalse();
+        assertThat(circuits.circuitBreaker(OutboundCircuitBreakers.Target.APPEARANCE).getMetrics()
+                .getNumberOfFailedCalls()).isZero();
+    }
+
+    @Test
+    @DisplayName("연결 자체가 안 되면 한 번 더 보낸다(두 번 모두 회로에 실패로 남는다)")
+    void connectionRefusedIsRetriedOnce() {
+        OutboundCircuitBreakers circuits = smallCircuits();
+        String url = baseUrl();
+        server.stop(0);
+
+        assertFailure(() -> new LectureEarningSource(() -> new LectureApiClient(RestClient.builder(),
+                        new LectureClientProperties(url, Duration.ofSeconds(1), Duration.ofSeconds(1)), API_KEY), circuits)
+                .summary(7L), EarningSourceType.LECTURE, BillingErrorCode.EARNING_SOURCE_UNAVAILABLE);
+
+        assertThat(circuits.circuitBreaker(OutboundCircuitBreakers.Target.LECTURE).getMetrics()
+                .getNumberOfFailedCalls()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("응답 시간 초과와 5xx는 요청이 닿았을 수 있어 다시 보내지 않는다")
+    void timeoutAndServerErrorAreNotRetried() {
+        OutboundCircuitBreakers circuits = smallCircuits();
+        respond(503, null);
+        assertFailure(() -> new LectureEarningSource(() -> lectureClient(Duration.ofSeconds(5)), circuits).summary(7L),
+                EarningSourceType.LECTURE, BillingErrorCode.EARNING_SOURCE_UNAVAILABLE);
+        assertThat(requests).hasSize(1);
+
+        respond(200, rs("""
+                {"confirmationPending":{"amountHp":10000,"count":1},"scheduled":{"amountHp":20000,"count":2},
+                 "onHold":{"amountHp":0,"count":0},"processing":{"amountHp":3000,"count":1},
+                 "failed":{"amountHp":5000,"count":1},"asOf":"2026-11-05T12:00:00+09:00"}"""));
+        delayMillis = 1_000L;
+        assertFailure(() -> new LectureEarningSource(() -> lectureClient(Duration.ofMillis(200)), circuits).summary(7L),
+                EarningSourceType.LECTURE, BillingErrorCode.EARNING_SOURCE_UNAVAILABLE);
+        assertThat(requests).hasSize(2);
+    }
+
     private void assertFailure(Executable call, EarningSourceType source, BillingErrorCode code) {
         assertThatThrownBy(call::execute).isInstanceOfSatisfying(EarningSourceException.class, e -> {
             assertThat(e.getErrorCode()).isEqualTo(code);
@@ -285,6 +372,21 @@ class EarningSourceAdapterTest {
     private AppearanceApiClient appearanceClient(Duration readTimeout) {
         return new AppearanceApiClient(RestClient.builder(),
                 new AppearanceClientProperties(baseUrl(), Duration.ofSeconds(2), readTimeout), API_KEY);
+    }
+
+    // 최근 4번 중 실패 50% 이상이면 열리고, 200ms 뒤 시험 호출 1번으로 닫힌다
+    private static OutboundCircuitBreakers smallCircuits() {
+        return new OutboundCircuitBreakers(new OutboundResilienceProperties(4, 4, 50f, Duration.ofSeconds(4), 100f,
+                Duration.ofMillis(200), 1, Duration.ofMillis(10)));
+    }
+
+    private static void awaitState(OutboundCircuitBreakers circuits, CircuitBreaker.State state)
+            throws InterruptedException {
+        CircuitBreaker circuitBreaker = circuits.circuitBreaker(OutboundCircuitBreakers.Target.LECTURE);
+        for (int i = 0; i < 100 && circuitBreaker.getState() != state; i++) {
+            Thread.sleep(20);
+        }
+        assertThat(circuitBreaker.getState()).isEqualTo(state);
     }
 
     private String baseUrl() {

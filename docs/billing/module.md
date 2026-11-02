@@ -202,9 +202,9 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | Billing이 내부 API 제공 | `ApiV1BillingInternalController`(`/api/v1/internal/billing/{holds,releases,payouts,penalty-settlements,hold-voids}`), `X-Internal-Api-Key` → `ROLE_INTERNAL` | 제공 중. 계약은 [`internal-billing.md`](../api/internal-billing.md) | #273, #479 |
 | 회원 → Billing (지갑 생성, 복제본) | Kafka `member.events.v1`을 소비 그룹 둘로 받는다(#430): `billing-app.member-replica`(`BillingMemberEventListener`, 가입·변경 → 복제본 Upsert), `billing-app.wallet-creation`(`UserJoinedEventListener`, 가입 → 지갑, ADMIN 제외). 실패는 블로킹 재시도 3회 뒤 그룹별 DLT(`BillingKafkaConfig`) | 발행 쪽(#416)이 병합돼야 실제 이벤트가 온다. 로컬·테스트 설정은 리스너·토픽 생성을 끈다(Kafka 소비 테스트만 켬). 앱 시작 전 가입자는 지갑 조회 보완·Backfill로 채운다 | #430, BD-123 |
 | Billing → 다른 앱 (이벤트 발행) | Kafka `billing.events.v1`(#497): 충전·지급·환불·환전 결과 이벤트 7종. Modulith externalization(발행 기록 = outbox), 같은 트랜잭션 발행 + 매분 재발행(`BillingEventRepublishBatch`) | 분리 구조에 맞다. 아직 소비자는 없다(알림 #193) | [`CONTEXT.md`](CONTEXT.md) 9장 |
-| Billing → 강의·출연 (수익 조회) | shared `LectureApiClient`·`AppearanceApiClient` 내부 HTTP | 분리 구조에 맞다. base-url 환경 변수 필요 | #295, internal-earnings.md |
-| Billing → 회원 (Backfill) | shared `MemberApiClient` 내부 HTTP | 분리 구조에 맞다 | #322, #324 |
-| Billing → TossPayments | HTTP (`TossPaymentsClient`) | 영향 없음 | — |
+| Billing → 강의·출연 (수익 조회) | shared `LectureApiClient`·`AppearanceApiClient` 내부 HTTP. 지갑 쪽 회로 `lecture`·`appearance` + 연결 실패만 1회 재시도(#562) | 분리 구조에 맞다. base-url 환경 변수 필요 | #295, internal-earnings.md, BD-134 |
+| Billing → 회원 (Backfill) | shared `MemberApiClient` 내부 HTTP. 지갑 쪽 회로 `member`, 재시도 없음(#562) | 분리 구조에 맞다 | #322, #324, BD-134 |
+| Billing → TossPayments | HTTP (`TossPaymentsClient`). 회로 `toss`(결과 `Unknown`만 실패, 재시도 없음). 열려 있으면 충전·환불 신청 503, 결과 확인 배치는 회차를 건너뜀(#562) | 영향 없음 | BD-134 |
 | Billing → Mock 은행 | 같은 billing-app에 실제 HTTP (`localhost:{port}`) | 영향 없음(같은 앱). local·test 프로필에서만 켜짐 | #288 |
 | 인증 | `GatewayUserHeaderFilter`가 Envoy가 넘긴 `X-User-Id`·`X-User-Role`로 인증한다(#537, BD-131). `SecurityConfig`는 STATELESS·CSRF 없음, `/api/v1/*/admin/**` = ADMIN, 나머지 인증 필요. `@LoginUserId` = 헤더의 회원 ID. 충전 주문·승인·환불 신청·환전 신청은 지갑 회원(`billing_user`) 상태·역할도 확인한다(`WalletMemberCheck`, 없음 404·부적격 403) | 분리 구조에 맞다. Envoy SecurityPolicy(`apps/billing-app/k8s/base/gateway.yaml`)가 JWT를 검증하고, NetworkPolicy가 8080에 Gateway만 들인다 | #537, BD-131 |
 | 외부 노출 차단 | Envoy Gateway에 `/api/v1/internal/**` route가 없어 404다 | 지갑 내부 API도 서버 밖에서 닿지 않는다 | 루트 AGENTS 7장 |
@@ -329,3 +329,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-11-01 | aeb1bdb | #494 shared Command → billing 내부 Command(`Payment*Command`) 변환(1.1, 5.1). 상세는 [`CONTEXT.md`](CONTEXT.md) 8장 |
 | 2026-11-02 | 437411c | #497 지갑 이벤트 발행(7.1·7.2·8.2·8.3). 상세는 [`CONTEXT.md`](CONTEXT.md) 9장 |
 | 2026-11-02 | 81cfdd48 | #552 prod 첫 배포 준비: 관리 포트 8082·Prometheus, Hikari 10, 데이터 이관 없음, Backfill 지갑 생성(8.3, BD-132·BD-133) |
+| 2026-11-02 | 35e7aae1 | #562 나가는 호출 circuit breaker(7.1, BD-134) |

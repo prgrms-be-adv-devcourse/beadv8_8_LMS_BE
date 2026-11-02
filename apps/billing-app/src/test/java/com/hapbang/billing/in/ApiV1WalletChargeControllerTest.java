@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,7 @@ import com.hapbang.billing.fixture.FakeTossPaymentsServer.Fault;
 import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.fixture.WalletMemberFixture;
 import com.hapbang.billing.out.BillingUserRepository;
+import com.hapbang.billing.out.OutboundCircuitBreakers;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -61,7 +63,16 @@ class ApiV1WalletChargeControllerTest {
     BillingUserSyncUseCase billingUserSyncUseCase;
 
     @Autowired
+    OutboundCircuitBreakers circuits;
+
+    @Autowired
     JdbcTemplate jdbcTemplate;
+
+    @AfterEach
+    void closeTossCircuit() {
+        // 회로는 컨텍스트를 함께 쓰는 다른 테스트에도 남으므로 강제로 연 상태를 되돌린다 (#562)
+        circuits.circuitBreaker(OutboundCircuitBreakers.Target.TOSS).transitionToClosedState();
+    }
 
     @BeforeEach
     void setUp() {
@@ -234,6 +245,23 @@ class ApiV1WalletChargeControllerTest {
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM billing.point_charge WHERE pg_order_id = ?",
                 String.class, orderId)).isEqualTo("PENDING");
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_ledger", Integer.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("TossPayments 회로가 열려 있으면 충전 주문·승인은 상태를 바꾸기 전에 503 CHARGE_UNAVAILABLE이다 (#562)")
+    void circuitOpen() throws Exception {
+        String orderId = orderId(createOrder(1L, 10_000));
+        circuits.circuitBreaker(OutboundCircuitBreakers.Target.TOSS).transitionToForcedOpenState();
+
+        createOrder(1L, 10_000).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("CHARGE_UNAVAILABLE"));
+        confirm(1L, orderId, 10_000).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("CHARGE_UNAVAILABLE"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_charge", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM billing.point_charge WHERE pg_order_id = ?",
+                String.class, orderId)).isEqualTo("PENDING");
+        assertThat(TOSS.confirmCount()).isZero();
     }
 
     private ResultActions createOrder(Long userId, long amount) throws Exception {
