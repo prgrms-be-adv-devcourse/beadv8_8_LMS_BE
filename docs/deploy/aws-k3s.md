@@ -1,6 +1,6 @@
 # AWS 2노드 k3s 배치
 
-상태: k3s cluster(server 1 + agent 1), 공용 인프라와 Envoy Gateway 구성 완료. 업무 앱·FE의 k3s 배포는 아직이다. 기존 Docker Compose(prod·dev·edge nginx)는 2026-10-30에 볼륨까지 지웠다(#440).
+상태: k3s cluster(server 1 + agent 1), 공용 인프라와 Envoy Gateway 구성 완료. FE `web`과 업무 앱 6개가 k3s에 배포돼 있고(2026-11-02), 업무 앱은 dev 병합 때 자동으로 배포된다([배포 개요](README.md)). 기존 Docker Compose(prod·dev·edge nginx)는 2026-10-30에 볼륨까지 지웠다(#440).
 현재 AWS 현황 기준일: 2026-10-30
 
 배포 흐름 전체는 [배포 개요](README.md)를 따른다. 이 문서는 k3s에 적용하는 AWS 범위, node 역할과 workload 배치 규칙을 정의하고, 설치한 k3s cluster의 구성과 재설치 절차를 기록한다. workload를 옮기기 전에는 아래 workload 배치를 이미 배포된 상태로 표현하지 않는다.
@@ -52,7 +52,7 @@ Client
   → large/medium의 모듈 앱 pod
 ```
 
-외부 진입은 2026-10-30에 이 흐름으로 바꿨다([전환 순서](#전환-순서) 7). 업무 앱 pod는 아직 없다. nginx는 쓰지 않는다. TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다. EC2에는 prod 한 벌만 두고 dev 서버는 두지 않는다. prod에는 dev 브랜치를 배포한다(#559). 진입점과 인증 흐름은 [최종 인프라 설계 3장 API Gateway](../architecture/infrastructure/api-gateway.md)을 따른다.
+외부 진입은 2026-10-30에 이 흐름으로 바꿨다([전환 순서](#전환-순서) 7). 업무 앱 6개는 2026-11-02부터 route가 열려 있다. nginx는 쓰지 않는다. TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다. EC2에는 prod 한 벌만 두고 dev 서버는 두지 않는다. prod에는 dev 브랜치를 배포한다(#559). 진입점과 인증 흐름은 [최종 인프라 설계 3장 API Gateway](../architecture/infrastructure/api-gateway.md)을 따른다.
 
 - 서비스 DNS는 large EIP만 가리킨다.
 - medium EIP는 node 관리와 outbound 통신용이다. application 진입점으로 사용하지 않는다.
