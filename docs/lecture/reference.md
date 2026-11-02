@@ -195,11 +195,13 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/api/v1/lectures/admin/hp-tasks` | HP 작업 목록(페이지). 필터: `status`, `taskType`, `referenceType`, `orderId`·`orderItemId`, `errorCode`. 응답: 작업 상태·결과, 유형·목적, 요청 ID, 주문·항목 ID, 금액, 시도 횟수(`attemptCount`·`totalAttemptCount`·`manualRetryCount`), 다음 시도 시각, 마지막 오류 코드·시각, 마지막 관리자 재시도 |
+| GET | `/api/v1/lectures/admin/hp-tasks` | HP 작업 목록(페이지). 필터: `status`, `taskType`, `referenceType`, `orderId`·`orderItemId`, `errorCode`. 응답: 작업 상태·결과, 유형·목적, 요청 ID, 주문·항목 ID, 금액, 시도 횟수(`attemptCount`·`totalAttemptCount`·`manualRetryCount`), 다음 시도 시각, 마지막 오류 코드·시각, 마지막 관리자 재시도, 보류를 무효화한 관리자(`voidedByUserId`) |
 | GET | `/api/v1/lectures/admin/hp-tasks/{taskId}` | 작업 상세 + 시도 이력(`lecture_hp_task_attempt`, 원래 오류 코드·진단 정보 포함) |
 | POST | `/api/v1/lectures/admin/hp-tasks/{taskId}/retry` | `DEAD` → `PENDING`(204). `attemptCount`만 0으로 하고 누적 횟수는 유지, `manualRetryCount` +1, 관리자·시각 기록. 같은 요청 ID로 다시 보내므로 HP가 두 번 움직이지 않는다. 없는 작업 404, `DEAD`가 아니면 409 |
+| POST | `/api/v1/lectures/admin/hp-tasks/{taskId}/void` | 결과를 확정하지 못한 주문 항목 보류를 보류 무효화로 끝낸다(200, D73, #535). `DEAD`인 `ORDER_HOLD`만 받는다. 원래 보류를 `COMPLETED`·`VOIDED`로 닫고 관리자를 기록하며, 주문은 결제 취소 처리 중(`HOLD_COMPENSATING`)이 된다. 응답은 새로 등록한 무효화 작업(유형 `VOID`, 목적 `HOLD_VOID`)이고 다음 재시도 배치가 보낸다. 되돌릴 수 없으므로 재시도로 결과가 바뀌지 않을 때만 쓴다. 없는 작업 404, `ORDER_HOLD`가 아니면 409 `HP_TASK_NOT_VOIDABLE`, `DEAD`가 아니면 409 `HP_TASK_NOT_DEAD` |
 
 - 원인은 billing 데이터에서 먼저 확인한다. 예: `PAYOUT_ALREADY_SETTLED`는 지급 예정 건(`billing.settlement`)이 남은 경우, `HOLD_ALREADY_CLOSED`는 보류가 이미 닫힌 경우라 강의 항목 상태와 billing 보류를 대조해 어느 쪽이 맞는지 판단한다 (D54의 운영 절차를 그대로 옮김).
+- 보류 무효화는 일시 장애로 `DEAD`가 된 보류에 쓰지 않는다(재시도한다). `HOLD_OWNER_MISMATCH`로 `DEAD`인 보류는 지갑이 무효화에서도 소유를 확인해 같은 코드로 실패하므로, billing 보류 데이터를 먼저 확인한다 (D73 (5)).
 
 ### 8.2.2 지급 실패 (관리자, 삭제됨)
 
