@@ -1192,17 +1192,15 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 
 확인 순서 (앞 단계 오류가 먼저 난다):
 
-1. 출연이 없으면 404 `APPEARANCE_NOT_FOUND`
-2. 그 출연의 호스트·게스트가 아니면 403 `NOT_APPEARANCE_PARTICIPANT`
-3. 작성자가 정지·탈퇴면 403 `APPEARANCE_USER_NOT_ACTIVE`, 일반 유저로 강등됐으면 403 `NOT_INFLUENCER`
-4. 출연이 `CONFIRMED`가 아니면 409 `APPEARANCE_NOT_REVIEWABLE`
-5. 작성 기한이 지났으면 409 `REVIEW_PERIOD_ENDED`
-6. 상대가 정지·탈퇴면(복제 회원 정보가 없어도) 409 `REVIEWEE_NOT_ACTIVE`
-7. 이미 썼으면 409 `ALREADY_REVIEWED`
+1. 출연이 없거나 그 출연의 호스트·게스트가 아니면 404 `APPEARANCE_NOT_FOUND` (다른 출연 API처럼 다른 회원의 출연은 있다는 사실도 알리지 않는다)
+2. 작성자의 출연 회원 정보가 없으면 404 `APPEARANCE_USER_NOT_FOUND`(가입 이벤트 미반영), 정지·탈퇴면 403 `APPEARANCE_USER_NOT_ACTIVE`, 일반 유저로 강등됐으면 403 `NOT_INFLUENCER`
+3. 출연이 `CONFIRMED`가 아니면 409 `APPEARANCE_NOT_REVIEWABLE`
+4. 작성 기한이 지났으면 409 `REVIEW_PERIOD_ENDED`
+5. 상대가 정지·탈퇴면(복제 회원 정보가 없어도) 409 `REVIEWEE_NOT_ACTIVE`
+6. 이미 썼으면 409 `ALREADY_REVIEWED`
 
 - 별점·본문 형식 오류는 400 `INVALID_REQUEST`(요청 DTO 검증, 도메인도 같은 규칙을 다시 확인).
 - 별점은 정수다(강의 리뷰와 같음). JSON에 소수(`4.5`)가 오면 Spring의 JSON 변환(Jackson)이 정수 칸에 맞춰 소수점 아래를 버린다(`4`). 프론트는 정수로 보낸다.
-- 당사자가 아니면 다른 출연 API처럼 404로 숨기지 않고 403 `NOT_APPEARANCE_PARTICIPANT`로 알린다.
 
 ### 21.3 구조
 
@@ -1213,7 +1211,7 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 | app | `AppearanceReviewWriteUseCase` | 위 확인 순서, 저장, 블라인드 공개 |
 | app | `AppearanceReviewSupport` | 리뷰 저장소 접근 |
 | domain | `AppearanceReview` | 별점·본문 규칙, 받는 사람·역할, 공개 시각 |
-| domain | `Appearance.validateReviewer`·`validateReviewable`·`counterpartOf` | 당사자, 확인된 출연·작성 기한, 상대 |
+| domain | `Appearance.validateViewableBy`·`validateReviewable`·`counterpartOf` | 당사자(기존), 확인된 출연·작성 기한, 상대 |
 | domain / config | `AppearanceReviewPolicy` / `AppearanceReviewProperties` | 작성 기한 (`appearance.review.write-period`) |
 
 ### 21.4 동시 작성

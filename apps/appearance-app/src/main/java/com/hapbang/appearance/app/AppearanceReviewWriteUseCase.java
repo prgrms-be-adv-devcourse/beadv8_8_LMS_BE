@@ -20,7 +20,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 출연 리뷰 작성 (#512). 트랜잭션은 호출한 {@link AppearanceReviewFacade}가 연다.
  * <p>
- * 확인 순서: 출연이 있는지(404) → 그 출연의 호스트·게스트인지(403) → 작성자 자격(정상 상태, 인플루언서 이상)(403) → 출연 확인이 끝났는지(409)
+ * 확인 순서: 출연이 있고 그 출연의 호스트·게스트인지(아니면 출연이 있다는 사실도 알리지 않고 404) → 작성자 자격(정상 상태, 인플루언서 이상)(403) → 출연 확인이 끝났는지(409)
  * → 작성 기한 안인지(409) → 상대가 정상 회원인지(409) → 처음 쓰는지(409).
  * <ul>
  *     <li>작성자는 출연 거래와 같은 자격(정상 상태, 인플루언서 이상)이어야 한다. 출연은 인플루언서끼리만 해서 일반 유저는 쓸 수 없고,
@@ -49,15 +49,15 @@ public class AppearanceReviewWriteUseCase {
      * @param rating  별점 (1~5, 필수)
      * @param content 본문 (선택, 1,000자 이하)
      * @return 저장한 리뷰 ID
-     * @throws AppearanceException 없는 출연({@code APPEARANCE_NOT_FOUND}), 당사자 아님({@code NOT_APPEARANCE_PARTICIPANT}),
-     *                             작성자 정지·탈퇴({@code APPEARANCE_USER_NOT_ACTIVE})·일반 유저로 강등({@code NOT_INFLUENCER}), 확인된 출연 아님({@code APPEARANCE_NOT_REVIEWABLE}),
+     * @throws AppearanceException 없거나 당사자가 아닌 출연({@code APPEARANCE_NOT_FOUND}),
+     *                             작성자 출연 회원 정보 없음({@code APPEARANCE_USER_NOT_FOUND})·정지·탈퇴({@code APPEARANCE_USER_NOT_ACTIVE})·일반 유저로 강등({@code NOT_INFLUENCER}), 확인된 출연 아님({@code APPEARANCE_NOT_REVIEWABLE}),
      *                             작성 기한 지남({@code REVIEW_PERIOD_ENDED}), 상대 정지·탈퇴({@code REVIEWEE_NOT_ACTIVE}),
      *                             이미 씀({@code ALREADY_REVIEWED}), 별점·본문 형식({@code INVALID_REQUEST})
      */
     public Long write(Long reviewerId, Long appearanceId, Integer rating, String content) {
         LocalDateTime now = LocalDateTime.now(clock);
         Appearance appearance = appearanceSupport.getForUpdate(appearanceId);
-        appearance.validateReviewer(reviewerId);
+        appearance.validateViewableBy(reviewerId);
         appearanceUserSupport.getParticipant(reviewerId);
         appearance.validateReviewable(appearanceReviewPolicy, now);
 

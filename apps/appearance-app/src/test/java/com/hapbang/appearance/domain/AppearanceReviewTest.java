@@ -65,14 +65,13 @@ class AppearanceReviewTest {
     class Reviewable {
 
         @Test
-        @DisplayName("호스트·게스트는 작성자가 될 수 있고, 다른 회원은 403 NOT_APPEARANCE_PARTICIPANT")
+        @DisplayName("호스트·게스트는 작성자가 될 수 있고, 다른 회원에게는 출연이 없는 것으로 404 APPEARANCE_NOT_FOUND")
         void reviewer() {
             Appearance appearance = confirmed();
 
-            assertThatCode(() -> appearance.validateReviewer(HOST)).doesNotThrowAnyException();
-            assertThatCode(() -> appearance.validateReviewer(GUEST)).doesNotThrowAnyException();
-            assertError(() -> appearance.validateReviewer(OTHER), AppearanceErrorCode.NOT_APPEARANCE_PARTICIPANT);
-            assertThat(AppearanceErrorCode.NOT_APPEARANCE_PARTICIPANT.getStatus().value()).isEqualTo(403);
+            assertThatCode(() -> appearance.validateViewableBy(HOST)).doesNotThrowAnyException();
+            assertThatCode(() -> appearance.validateViewableBy(GUEST)).doesNotThrowAnyException();
+            assertError(() -> appearance.validateViewableBy(OTHER), AppearanceErrorCode.APPEARANCE_NOT_FOUND);
         }
 
         @Test

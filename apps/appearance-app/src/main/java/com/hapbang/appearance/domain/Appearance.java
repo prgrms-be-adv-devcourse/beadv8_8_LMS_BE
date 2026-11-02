@@ -369,17 +369,7 @@ public class Appearance extends BaseEntity {
 
     // ---------------------------------------------------------------------------------------------
     // 출연 리뷰 (#512). 리뷰 기록은 AppearanceReview에 남기고, 출연은 쓸 수 있는지만 판단한다.
-
-    /**
-     * 리뷰를 쓰려는 회원이 이 출연의 호스트·게스트인지 확인한다.
-     *
-     * @throws AppearanceException {@code NOT_APPEARANCE_PARTICIPANT}
-     */
-    public void validateReviewer(Long userId) {
-        if (!(isHost(userId) || isGuest(userId))) {
-            throw new AppearanceException(AppearanceErrorCode.NOT_APPEARANCE_PARTICIPANT);
-        }
-    }
+    // 작성자가 호스트·게스트인지는 다른 출연 기능처럼 validateViewableBy로 확인한다 (아니면 출연이 있다는 사실도 알리지 않는다).
 
     /**
      * 지금 이 출연에 리뷰를 쓸 수 있는지 확인한다. 출연 확인({@code CONFIRMED}, 호스트 확인·자동 확인)이 끝났고

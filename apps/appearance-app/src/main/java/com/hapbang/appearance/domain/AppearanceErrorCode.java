@@ -75,7 +75,6 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     APPEARANCE_CONFIRM_PERIOD_ENDED(HttpStatus.CONFLICT, "출연 확인 기간이 지났습니다. 출연은 자동으로 확인됩니다."),
 
     // 출연 리뷰 (#512)
-    NOT_APPEARANCE_PARTICIPANT(HttpStatus.FORBIDDEN, "출연의 호스트·게스트만 리뷰를 쓸 수 있습니다."),
     APPEARANCE_NOT_REVIEWABLE(HttpStatus.CONFLICT, "출연 확인이 끝난 출연에만 리뷰를 쓸 수 있습니다."),
     REVIEW_PERIOD_ENDED(HttpStatus.CONFLICT, "리뷰 작성 기한이 지났습니다."),
     REVIEWEE_NOT_ACTIVE(HttpStatus.CONFLICT, "상대가 현재 이용할 수 없는 회원이라 리뷰를 쓸 수 없습니다."),

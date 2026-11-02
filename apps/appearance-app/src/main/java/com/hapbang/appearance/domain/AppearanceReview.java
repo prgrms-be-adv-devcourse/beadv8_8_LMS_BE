@@ -19,7 +19,8 @@ import lombok.NoArgsConstructor;
 /**
  * 출연 리뷰 (#512). 출연 확인이 끝난 출연에서 호스트·게스트가 상대에게 남긴 별점·본문 1건이다 (출연당 방향별 1건).
  * <ul>
- *     <li>쓸 수 있는지(당사자·확인된 출연·작성 기한)는 출연({@link Appearance#validateReviewable})이 확인하고,
+ *     <li>쓸 수 있는지(당사자·확인된 출연·작성 기한)는 출연({@link Appearance#validateViewableBy},
+ *     {@link Appearance#validateReviewable})이 확인하고,
  *     이 엔티티는 별점·본문 규칙과 공개 시각을 맡는다.</li>
  *     <li>수정·삭제는 없다. 상호 평가라 고쳐 쓰지 못하게 한다.</li>
  *     <li>블라인드 공개: 처음에는 {@code publishedAt}이 비어 있고, 상대 리뷰가 들어오면 두 리뷰를 함께 공개한다.</li>

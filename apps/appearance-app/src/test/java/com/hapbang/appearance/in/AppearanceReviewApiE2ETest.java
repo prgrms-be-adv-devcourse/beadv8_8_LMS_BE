@@ -163,7 +163,7 @@ class AppearanceReviewApiE2ETest {
     }
 
     @Test
-    @DisplayName("오류 코드: 404 APPEARANCE_NOT_FOUND, 403 NOT_APPEARANCE_PARTICIPANT, 409 APPEARANCE_NOT_REVIEWABLE")
+    @DisplayName("오류 코드: 없는 출연·다른 회원의 출연 404 APPEARANCE_NOT_FOUND(같은 응답), 확인 전 409 APPEARANCE_NOT_REVIEWABLE")
     void appearanceErrors() {
         long established = establish();
         long confirmed = confirmed();
@@ -172,9 +172,9 @@ class AppearanceReviewApiE2ETest {
                 .then().statusCode(404)
                 .body("code", equalTo("APPEARANCE_NOT_FOUND"));
         write(OTHER, confirmed, "{\"rating\": 5}")
-                .then().statusCode(403)
-                .body("code", equalTo("NOT_APPEARANCE_PARTICIPANT"))
-                .body("detail", equalTo("출연의 호스트·게스트만 리뷰를 쓸 수 있습니다."));
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_NOT_FOUND"))
+                .body("detail", equalTo("출연을 찾을 수 없습니다."));
         write(HOST, established, "{\"rating\": 5}")
                 .then().statusCode(409)
                 .body("code", equalTo("APPEARANCE_NOT_REVIEWABLE"))

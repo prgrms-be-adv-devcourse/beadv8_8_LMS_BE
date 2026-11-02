@@ -23,13 +23,12 @@ public interface ApiV1AppearanceReviewSpec {
             출연의 상대에게 별점(1~5 정수, 필수)과 본문(선택, 1,000자 이하, 공백뿐이면 비움)을 남긴다. 201 `{id}`.
             상대가 이미 썼으면 두 리뷰가 함께 공개된다. 응답에는 공개 여부를 담지 않는다.
             확인 순서대로 오류가 난다.
-            1. 출연이 없으면 404 `APPEARANCE_NOT_FOUND`
-            2. 그 출연의 호스트·게스트가 아니면 403 `NOT_APPEARANCE_PARTICIPANT`
-            3. 작성자가 정지·탈퇴했으면 403 `APPEARANCE_USER_NOT_ACTIVE`, 일반 유저로 강등됐으면 403 `NOT_INFLUENCER`
-            4. 출연 확인(`CONFIRMED`, 호스트 확인·자동 확인)이 아니면 409 `APPEARANCE_NOT_REVIEWABLE` (불참·취소 포함)
-            5. 작성 기한(설정 시 출연 확인 시각 + 기간)이 지났으면 409 `REVIEW_PERIOD_ENDED`. 지금은 무기한
-            6. 상대가 정지·탈퇴했으면 409 `REVIEWEE_NOT_ACTIVE`
-            7. 이미 썼으면 409 `ALREADY_REVIEWED` (동시에 두 번 보내도 하나만 저장)
+            1. 출연이 없거나 그 출연의 호스트·게스트가 아니면 404 `APPEARANCE_NOT_FOUND` (다른 회원의 출연은 있다는 사실도 알리지 않는다)
+            2. 작성자의 출연 회원 정보가 없으면 404 `APPEARANCE_USER_NOT_FOUND`, 정지·탈퇴했으면 403 `APPEARANCE_USER_NOT_ACTIVE`, 일반 유저로 강등됐으면 403 `NOT_INFLUENCER`
+            3. 출연 확인(`CONFIRMED`, 호스트 확인·자동 확인)이 아니면 409 `APPEARANCE_NOT_REVIEWABLE` (불참·취소 포함)
+            4. 작성 기한(설정 시 출연 확인 시각 + 기간)이 지났으면 409 `REVIEW_PERIOD_ENDED`. 지금은 무기한
+            5. 상대가 정지·탈퇴했으면 409 `REVIEWEE_NOT_ACTIVE`
+            6. 이미 썼으면 409 `ALREADY_REVIEWED` (동시에 두 번 보내도 하나만 저장)
             - 인플루언서 이상만 쓸 수 있다 (로그인 역할이 일반 유저·관리자면 403 `FORBIDDEN`)
             - 별점이 없거나 범위 밖, 본문 1,000자 초과는 400 `INVALID_REQUEST`""")
     RsData<AppearanceReviewIdResDto> write(Long userId, Long appearanceId, @Valid WriteAppearanceReviewReqDto request);

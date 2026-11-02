@@ -23,6 +23,7 @@ import jakarta.validation.Valid;
  */
 @Tag(name = "출연 모집 지원", description = """
         게스트가 출연 모집글에 지원하고, 호스트가 지원을 수락·거절한다. 정상 상태의 인플루언서 이상만 쓸 수 있다 (관리자 제외).
+        로그인한 회원의 출연 회원 정보가 없으면 404 `APPEARANCE_USER_NOT_FOUND`, 정지·탈퇴면 403 `APPEARANCE_USER_NOT_ACTIVE`, 일반 유저·관리자면 403 `NOT_INFLUENCER`이다.
         오류는 Problem Detail로 응답하며 `code`로 구분한다.""")
 public interface ApiV1AppearanceApplicationSpec {
 

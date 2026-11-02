@@ -299,18 +299,18 @@ class AppearanceReviewFlowTest {
         }
 
         @Test
-        @DisplayName("2. 당사자가 아니면 403 NOT_APPEARANCE_PARTICIPANT (출연이 확인 전이고 작성자가 정지돼도 이 오류가 먼저)")
+        @DisplayName("1. 당사자가 아니면 없는 출연과 같은 404 APPEARANCE_NOT_FOUND (출연이 확인 전이고 작성자가 정지돼도 이 오류가 먼저)")
         void notParticipant() {
             Long confirmedId = confirmed();
             Long establishedId = established();
             changeUser(OTHER, Role.INFLUENCER, UserStatus.SUSPENDED);
 
-            assertErrorCode(() -> write(OTHER, confirmedId), AppearanceErrorCode.NOT_APPEARANCE_PARTICIPANT);
-            assertErrorCode(() -> write(OTHER, establishedId), AppearanceErrorCode.NOT_APPEARANCE_PARTICIPANT);
+            assertErrorCode(() -> write(OTHER, confirmedId), AppearanceErrorCode.APPEARANCE_NOT_FOUND);
+            assertErrorCode(() -> write(OTHER, establishedId), AppearanceErrorCode.APPEARANCE_NOT_FOUND);
         }
 
         @Test
-        @DisplayName("3. 작성자가 정지·탈퇴면 403 APPEARANCE_USER_NOT_ACTIVE (출연이 확인 전이어도 이 오류가 먼저)")
+        @DisplayName("2. 작성자가 정지·탈퇴면 403 APPEARANCE_USER_NOT_ACTIVE (출연이 확인 전이어도 이 오류가 먼저)")
         void reviewerNotActive() {
             Long confirmedId = confirmed();
             Long establishedId = established();
@@ -323,7 +323,7 @@ class AppearanceReviewFlowTest {
         }
 
         @Test
-        @DisplayName("4. 성립 상태(확인 전)면 409 APPEARANCE_NOT_REVIEWABLE (상대가 정지돼도 이 오류가 먼저)")
+        @DisplayName("3. 성립 상태(확인 전)면 409 APPEARANCE_NOT_REVIEWABLE (상대가 정지돼도 이 오류가 먼저)")
         void establishedOnly() {
             Long appearanceId = established();
             changeUser(GUEST, Role.INFLUENCER, UserStatus.SUSPENDED);
@@ -332,7 +332,7 @@ class AppearanceReviewFlowTest {
         }
 
         @Test
-        @DisplayName("4. 불참 처리된 출연은 409 APPEARANCE_NOT_REVIEWABLE")
+        @DisplayName("3. 불참 처리된 출연은 409 APPEARANCE_NOT_REVIEWABLE")
         void absent() {
             Long appearanceId = established();
             broadcastEnded(appearanceId);
@@ -343,7 +343,7 @@ class AppearanceReviewFlowTest {
         }
 
         @Test
-        @DisplayName("4. 호스트가 일방 취소한 출연·합의 취소한 출연은 409 APPEARANCE_NOT_REVIEWABLE")
+        @DisplayName("3. 호스트가 일방 취소한 출연·합의 취소한 출연은 409 APPEARANCE_NOT_REVIEWABLE")
         void canceled() {
             Long byHost = established();
             appearanceFacade.hostCancel(HOST, byHost, false, null);
@@ -356,7 +356,7 @@ class AppearanceReviewFlowTest {
         }
 
         @Test
-        @DisplayName("6. 상대가 정지·탈퇴면 409 REVIEWEE_NOT_ACTIVE (이미 썼어도 이 오류가 먼저)")
+        @DisplayName("5. 상대가 정지·탈퇴면 409 REVIEWEE_NOT_ACTIVE (이미 썼어도 이 오류가 먼저)")
         void revieweeNotActive() {
             Long appearanceId = confirmed();
             Long other = confirmed();
@@ -370,7 +370,7 @@ class AppearanceReviewFlowTest {
         }
 
         @Test
-        @DisplayName("7. 이미 썼으면 409 ALREADY_REVIEWED, 리뷰는 1건 그대로")
+        @DisplayName("6. 이미 썼으면 409 ALREADY_REVIEWED, 리뷰는 1건 그대로")
         void alreadyReviewed() {
             Long appearanceId = confirmed();
             write(GUEST, appearanceId);
@@ -417,7 +417,7 @@ class AppearanceReviewFlowTest {
         }
 
         @Test
-        @DisplayName("5. 확인 시각 + 14일부터 409 REVIEW_PERIOD_ENDED (상대가 정지돼도 이 오류가 먼저)")
+        @DisplayName("4. 확인 시각 + 14일부터 409 REVIEW_PERIOD_ENDED (상대가 정지돼도 이 오류가 먼저)")
         void afterDeadline() {
             Long appearanceId = confirmed();
             clock.advanceTo(confirmedAtOf(appearanceId).plus(WRITE_PERIOD));
