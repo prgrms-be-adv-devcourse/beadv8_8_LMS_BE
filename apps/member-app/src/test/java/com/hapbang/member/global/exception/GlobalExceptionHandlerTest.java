@@ -28,9 +28,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.global.config.SecurityConfig;
 import com.hapbang.shared.member.domain.Role;
-import com.hapbang.testsupport.TestLogin;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -196,7 +196,7 @@ class GlobalExceptionHandlerTest {
     }
 
     private MockHttpServletRequestBuilder asUser(MockHttpServletRequestBuilder request) {
-        return request.with(TestLogin.as(1L, Role.USER));
+        return request.with(GatewayLogin.as(1L, Role.USER));
     }
 
     /** 모듈 오류 코드 예시 (각 모듈의 {Module}ErrorCode) */

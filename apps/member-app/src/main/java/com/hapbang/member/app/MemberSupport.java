@@ -58,7 +58,7 @@ public class MemberSupport {
         }
     }
 
-    /** 역할을 바꾸고 UserModifiedEvent 발행 (다른 모듈 복제본 갱신, 커밋 뒤 세션 권한 갱신). 역할 변경은 반드시 여기로 */
+    /** 역할을 바꾸고 UserModifiedEvent 발행 (다른 모듈 복제본 갱신. 새 역할은 그 회원의 다음 access token 재발급에 반영된다). 역할 변경은 반드시 여기로 */
     public void changeRole(User user, Role role) {
         user.changeRole(role);
         flush();

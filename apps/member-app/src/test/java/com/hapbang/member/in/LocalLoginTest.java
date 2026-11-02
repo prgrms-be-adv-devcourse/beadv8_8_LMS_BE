@@ -2,7 +2,6 @@ package com.hapbang.member.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -12,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.app.MemberFacade;
+import com.hapbang.testsupport.RedisTestcontainersConfig;
 import com.jayway.jsonpath.JsonPath;
 
 import jakarta.servlet.http.Cookie;
@@ -26,6 +27,7 @@ import jakarta.servlet.http.Cookie;
 @MemberIntegrationTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "hapbang.local-login.enabled=true")
+@Import(RedisTestcontainersConfig.class)
 class LocalLoginTest {
 
     @Autowired
@@ -41,19 +43,41 @@ class LocalLoginTest {
     }
 
     @Test
-    @DisplayName("역할로 로컬 로그인하면 그 세션으로 내 정보를 조회할 수 있다")
+    @DisplayName("역할로 로컬 로그인하면 세션 없이 내 정보와 refresh token 쿠키를 준다 (#370)")
     void login() throws Exception {
         MvcResult result = login("role=INFLUENCER")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.role").value("INFLUENCER"))
                 .andExpect(jsonPath("$.data.email").value("test-influencer@hapbang.local"))
                 .andReturn();
-        Cookie session = result.getResponse().getCookie("SESSION");
-        assertThat(session).isNotNull();
 
-        mockMvc.perform(get("/api/v1/members/me").cookie(session))
+        assertThat(result.getResponse().getCookie("SESSION")).isNull();
+        Cookie refreshToken = result.getResponse().getCookie(RefreshTokenCookies.NAME);
+        assertThat(refreshToken).isNotNull();
+        // 만든 refresh token 키를 지운다 (Redis를 테스트끼리 같이 쓴다)
+        mockMvc.perform(post("/api/v1/members/auth/logout").cookie(refreshToken));
+    }
+
+    @Test
+    @DisplayName("로컬 로그인하면 구글 로그인과 같이 refresh token 쿠키를 주고, 그 쿠키로 access token을 재발급받는다 (#370)")
+    void login_issuesRefreshToken() throws Exception {
+        MvcResult result = login("role=VERIFIED_INFLUENCER")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.role").value("INFLUENCER"));
+                .andReturn();
+
+        Cookie refreshToken = result.getResponse().getCookie(RefreshTokenCookies.NAME);
+        assertThat(refreshToken).isNotNull();
+        assertThat(refreshToken.isHttpOnly()).isTrue();
+        assertThat(refreshToken.getPath()).isEqualTo("/api/v1/members/auth");
+        MvcResult refreshed = mockMvc.perform(post("/api/v1/members/auth/refresh").cookie(refreshToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        String accessToken = JsonPath.read(refreshed.getResponse().getContentAsString(), "$.data.accessToken");
+        assertThat(accessToken).isNotBlank();
+        // 만든 refresh token 키를 지운다 (Redis를 테스트끼리 같이 쓴다)
+        mockMvc.perform(post("/api/v1/members/auth/logout").cookie(refreshToken));
+        mockMvc.perform(post("/api/v1/members/auth/logout")
+                .cookie(refreshed.getResponse().getCookie(RefreshTokenCookies.NAME)));
     }
 
     @Test

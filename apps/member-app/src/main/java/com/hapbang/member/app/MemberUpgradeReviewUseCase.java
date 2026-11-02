@@ -45,7 +45,7 @@ public class MemberUpgradeReviewUseCase {
                 channelsByUser.getOrDefault(request.getUser().getId(), List.of())));
     }
 
-    /** 승인: 인증된 인플루언서로 바꾸고 UserModifiedEvent (세션은 커밋 뒤 MemberSessionRoleListener가 갱신) */
+    /** 승인: 인증된 인플루언서로 바꾸고 UserModifiedEvent (새 역할은 회원의 다음 access token 재발급에 반영된다, #370) */
     public void approve(Long adminId, Long requestId) {
         InfluencerUpgradeRequest request = findReviewable(requestId);
         User user = request.getUser();

@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.global.storage.S3FileStorage;
 import com.hapbang.member.domain.ProfileImage;
@@ -25,7 +26,6 @@ import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.S3MockTestcontainersConfig;
-import com.hapbang.testsupport.TestLogin;
 
 /** 업로드(서버가 S3Mock에 저장) → 지정 → 조회 URL을 HTTP부터 S3까지 확인한다. 형식·크기 경계값은 ProfileImageTest가 맡는다 */
 @MemberIntegrationTest
@@ -72,11 +72,11 @@ class ProfileImageApiTest {
         mockMvc.perform(upload(influencer, influencer.getId(), "image/webp", WEBP)).andExpect(status().isOk());
         User viewer = userRepository.save(MemberFixture.user());
 
-        mockMvc.perform(get("/api/v1/members/me").with(TestLogin.as(influencer.getId(), influencer.getRole())))
+        mockMvc.perform(get("/api/v1/members/me").with(GatewayLogin.as(influencer.getId(), influencer.getRole())))
                 .andExpect(jsonPath("$.data.profileImageUrl").value(Matchers.notNullValue()));
-        mockMvc.perform(get("/api/v1/members/{memberId}", influencer.getId()).with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/{memberId}", influencer.getId()).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(jsonPath("$.data.profileImageUrl").value(Matchers.notNullValue()));
-        mockMvc.perform(get("/api/v1/members/influencers").with(TestLogin.as(viewer.getId(), viewer.getRole())))
+        mockMvc.perform(get("/api/v1/members/influencers").with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(jsonPath("$.data.content[0].profileImageUrl").value(Matchers.notNullValue()));
     }
 
@@ -133,7 +133,7 @@ class ProfileImageApiTest {
         mockMvc.perform(upload(user, user.getId(), "image/png", IMAGE)).andExpect(status().isOk());
 
         mockMvc.perform(delete("/api/v1/members/me/profile-image")
-                        .with(TestLogin.as(user.getId(), user.getRole())).with(csrf()))
+                        .with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("프로필 사진을 삭제했습니다."))
                 .andExpect(jsonPath("$.data.profileImageUrl").value(Matchers.nullValue()));
@@ -163,7 +163,7 @@ class ProfileImageApiTest {
         return put("/api/v1/members/files/{memberId}/content", memberId)
                 .contentType(contentType)
                 .content(body)
-                .with(TestLogin.as(loginUser.getId(), loginUser.getRole()))
+                .with(GatewayLogin.as(loginUser.getId(), loginUser.getRole()))
                 .with(csrf());
     }
 }

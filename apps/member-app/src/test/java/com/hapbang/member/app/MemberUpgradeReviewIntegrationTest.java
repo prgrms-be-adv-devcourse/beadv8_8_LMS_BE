@@ -2,9 +2,6 @@ package com.hapbang.member.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,8 +22,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -72,12 +67,9 @@ class MemberUpgradeReviewIntegrationTest {
     @Autowired
     ApplicationEvents events;
 
-    /** member-app의 실제 JDBC 저장소를 spy로 감싸 커밋 뒤 세션 갱신 요청을 확인한다. */
-    @MockitoSpyBean
-    JdbcIndexedSessionRepository sessionRepository;
 
     @Test
-    @DisplayName("승인하면 인증된 인플루언서가 되고 변경 이벤트 1번, 커밋 뒤 그 회원의 세션 갱신을 부른다")
+    @DisplayName("승인하면 인증된 인플루언서가 되고 변경 이벤트가 1번 발행된다")
     void approve() {
         User influencer = userRepository.save(MemberFixture.member(Role.INFLUENCER));
         InfluencerUpgradeRequest request = pendingRequest(influencer, NOW);
@@ -92,11 +84,10 @@ class MemberUpgradeReviewIntegrationTest {
         assertThat(events.stream(UserModifiedEvent.class))
                 .singleElement()
                 .satisfies(event -> assertThat(event.user().role()).isEqualTo(Role.VERIFIED_INFLUENCER));
-        verify(sessionRepository).findByPrincipalName(String.valueOf(influencer.getId()));
     }
 
     @Test
-    @DisplayName("반려하면 사유가 저장되고 역할·이벤트·세션은 그대로다")
+    @DisplayName("반려하면 사유가 저장되고 역할·이벤트는 그대로다")
     void reject() {
         User influencer = userRepository.save(MemberFixture.member(Role.INFLUENCER));
         InfluencerUpgradeRequest request = pendingRequest(influencer, NOW);
@@ -108,7 +99,6 @@ class MemberUpgradeReviewIntegrationTest {
         assertThat(saved.getRejectionReason()).isEqualTo("활동 내역 부족");
         assertThat(userRepository.findById(influencer.getId()).orElseThrow().getRole()).isEqualTo(Role.INFLUENCER);
         assertThat(events.stream(UserModifiedEvent.class)).isEmpty();
-        verify(sessionRepository, never()).findByPrincipalName(any());
     }
 
     @Test

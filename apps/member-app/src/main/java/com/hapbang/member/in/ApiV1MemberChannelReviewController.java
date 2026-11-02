@@ -37,7 +37,7 @@ public class ApiV1MemberChannelReviewController implements ApiV1MemberChannelRev
                 memberChannelReviewFacade.findChannels(status, pageable).map(ChannelReviewResponse::from));
     }
 
-    /** 승인 (유저면 인플루언서로, 그 회원 세션도 커밋 뒤 갱신) */
+    /** 승인 (유저면 인플루언서로. 새 역할은 그 회원의 다음 access token 재발급에 반영) */
     @Override
     @PostMapping("/{channelId}/approve")
     public ResponseEntity<Void> approve(@LoginUserId Long adminId, @PathVariable("channelId") Long channelId) {

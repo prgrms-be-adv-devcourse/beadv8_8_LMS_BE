@@ -20,6 +20,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.fixture.MemberFixture;
@@ -28,7 +29,6 @@ import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.DocumentContext;
 import com.jayway.jsonpath.JsonPath;
@@ -182,7 +182,7 @@ class MemberInternalApiTest {
 
         mockMvc.perform(get(MEMBERS).session(session))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(get(MEMBERS).with(TestLogin.as(admin.getId(), Role.ADMIN)))
+        mockMvc.perform(get(MEMBERS).with(GatewayLogin.as(admin.getId(), Role.ADMIN)))
                 .andExpect(status().isUnauthorized());
     }
 

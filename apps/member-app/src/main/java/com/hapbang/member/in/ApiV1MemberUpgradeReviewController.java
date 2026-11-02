@@ -37,7 +37,7 @@ public class ApiV1MemberUpgradeReviewController implements ApiV1MemberUpgradeRev
                 memberUpgradeReviewFacade.findRequests(status, pageable).map(UpgradeReviewResponse::from));
     }
 
-    /** 승인 (인증된 인플루언서로, 그 회원 세션도 커밋 뒤 갱신) */
+    /** 승인 (인증된 인플루언서로. 새 역할은 그 회원의 다음 access token 재발급에 반영) */
     @Override
     @PostMapping("/{requestId}/approve")
     public ResponseEntity<Void> approve(@LoginUserId Long adminId, @PathVariable("requestId") Long requestId) {

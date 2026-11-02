@@ -13,7 +13,7 @@ public interface ApiV1MemberUpgradeSpec {
 
     @Operation(summary = "승급 신청",
             description = "인플루언서만 (유저·인증된 인플루언서·관리자는 403). 사유 필수·500자 이하 (어기면 400). "
-                    + "심사 대기(PENDING)로 저장되고 관리자가 승인하면 인증된 인플루언서가 된다 (세션 권한도 바로 바뀜). "
+                    + "심사 대기(PENDING)로 저장되고 관리자가 승인하면 인증된 인플루언서가 된다 (새 역할은 access token을 재발급받으면 반영). "
                     + "이미 심사 대기 중인 신청이 있으면 409 UPGRADE_REQUEST_ALREADY_PENDING. 반려된 뒤에는 다시 신청할 수 있다. "
                     + "정상 회원이 아니면 404 MEMBER_NOT_FOUND.")
     RsData<UpgradeRequestResponse> request(Long userId, UpgradeApplyRequest request);

@@ -2,9 +2,6 @@ package com.hapbang.member.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,10 +22,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ChannelPlatform;
@@ -66,9 +61,6 @@ class MemberChannelReviewIntegrationTest {
     @Autowired
     ApplicationEvents events;
 
-    /** member-app의 실제 JDBC 저장소를 spy로 감싸 커밋 뒤 세션 갱신 요청을 확인한다. */
-    @MockitoSpyBean
-    JdbcIndexedSessionRepository sessionRepository;
 
     @Test
     @DisplayName("심사 대기 채널을 승인하면 유저가 인플루언서가 되고 변경 이벤트가 한 번 발행된다")
@@ -210,32 +202,6 @@ class MemberChannelReviewIntegrationTest {
                 .extracting("errorCode").isEqualTo(MemberErrorCode.CHANNEL_REVIEW_NOT_ALLOWED);
         assertThat(influencerChannelRepository.findById(channelId).orElseThrow().getVerificationStatus())
                 .isIn(ChannelVerificationStatus.APPROVED, ChannelVerificationStatus.REJECTED);
-    }
-
-    @Test
-    @DisplayName("승인으로 역할이 바뀌면 커밋 뒤 그 회원의 세션을 찾아 갱신한다")
-    void approve_updatesSession() {
-        User user = userRepository.save(MemberFixture.user());
-        InfluencerChannel channel = pendingChannel(user, NOW);
-
-        memberChannelReviewFacade.approve(ADMIN_ID, channel.getId());
-
-        verify(sessionRepository).findByPrincipalName(String.valueOf(user.getId()));
-    }
-
-    @Test
-    @DisplayName("반려나 실패(롤백)면 세션을 건드리지 않는다")
-    void reject_or_fail_doesNotUpdateSession() {
-        User user = userRepository.save(MemberFixture.user());
-        InfluencerChannel rejected = pendingChannel(user, NOW);
-        InfluencerChannel registered = influencerChannelRepository.save(InfluencerChannel.register(user,
-                ChannelPlatform.CHZZK, "channel-" + CHANNEL_SEQUENCE.incrementAndGet(), "테스트 채널", 5, NOW));
-
-        memberChannelReviewFacade.reject(ADMIN_ID, rejected.getId(), "사유");
-        assertThatThrownBy(() -> memberChannelReviewFacade.approve(ADMIN_ID, registered.getId()))
-                .isInstanceOf(MemberException.class);
-
-        verify(sessionRepository, never()).findByPrincipalName(any());
     }
 
     /** 새 스레드에는 @WithMockUser가 없어서 관리자 권한을 직접 넣는다 */

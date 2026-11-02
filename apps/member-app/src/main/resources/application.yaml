@@ -33,9 +33,6 @@ spring:
     clients:
       connect-timeout: 3s
       read-timeout: 5s
-  session:
-    jdbc:
-      initialize-schema: always
   task:
     scheduling:
       pool:
@@ -65,6 +62,21 @@ hapbang:
       region: ap-northeast-2
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
+  # 구글 로그인 성공 뒤 보낼 프론트 주소 (#370)
+  auth:
+    login-success-url: /
+  # JWT 발급 (#370). issuer는 Envoy SecurityPolicy의 JWT provider issuer, chat-app의 STOMP 검증 issuer와 같아야 한다.
+  # 어긋나면 모든 토큰이 401이다. 기본값은 base manifest의 자리 표시 값이고, 운영은 prod overlay가 HAPBANG_JWT_ISSUER로
+  # 렌더링 도구(k8s/gateway/tools/render-prod.py)에 넣는 값과 같은 값을 넣는다 (#370 댓글, #374).
+  # 개인 키(PKCS#8 PEM)는 공개 레포라 환경 변수로만 받고, 비어 있으면 앱이 시작하지 않는다
+  jwt:
+    issuer: "${HAPBANG_JWT_ISSUER:https://gateway.invalid}"
+    access-token-ttl: 15m
+    private-key: "${JWT_PRIVATE_KEY:}"
+    # refresh token은 Redis에 해시로 저장한다. reuse-grace 안에 회전된 토큰이 다시 오면 재사용으로 보지 않는다 (여러 탭 동시 재발급)
+    refresh-token:
+      ttl: 14d
+      reuse-grace: 10s
   chzzk:
     client-id: "${CHZZK_CLIENT_ID}"
     client-secret: "${CHZZK_CLIENT_SECRET}"
