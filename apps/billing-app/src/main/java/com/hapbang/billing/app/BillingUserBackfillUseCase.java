@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
+import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.out.MemberApiCallException;
@@ -25,7 +26,9 @@ import lombok.extern.slf4j.Slf4j;
 // - 한 번에 최대 MAX_LIMIT명. 끝나지 않으면 결과의 nextAfterId를 다음 실행의 afterId로 넘긴다(처음부터 다시 실행해도 안전하다).
 // - 회원 하나의 반영 실패는 failed로 세고 다음 회원을 계속한다. 회원 내부 API 장애·계약 위반은 실행 전체를 멈춘다.
 // - 같은 앱에서 동시에 두 번 실행하지 않는다(BACKFILL_ALREADY_RUNNING). 단일 인스턴스 전제이며, 회원 이벤트 반영은 막지 않는다.
-// 지갑·원장·환전 데이터는 건드리지 않는다.
+// - 관리자가 아닌 회원은 지갑도 확인하고 없으면 만든다(#552, BD-132). 가입 이벤트(member.events.v1)는 72시간만 보존되어
+//   billing 첫 배포 전에 가입한 회원에게는 지갑이 생기지 않기 때문이다. 가입 리스너와 같은 WalletFacade.getOrCreateWallet을 쓴다.
+// 원장·환전 데이터는 건드리지 않는다.
 @Slf4j
 @Service
 public class BillingUserBackfillUseCase {
@@ -39,19 +42,21 @@ public class BillingUserBackfillUseCase {
 
     private final Supplier<MemberApiClient> memberApiClient;
     private final BillingUserSyncUseCase billingUserSyncUseCase;
+    private final WalletFacade walletFacade;
     // 빈(싱글턴)이 가진 실행 중 표시라 요청 사이에서 공유된다
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     @Autowired
     BillingUserBackfillUseCase(ObjectProvider<MemberApiClient> memberApiClient,
-            BillingUserSyncUseCase billingUserSyncUseCase) {
-        this((Supplier<MemberApiClient>) memberApiClient::getIfAvailable, billingUserSyncUseCase);
+            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade) {
+        this((Supplier<MemberApiClient>) memberApiClient::getIfAvailable, billingUserSyncUseCase, walletFacade);
     }
 
     BillingUserBackfillUseCase(Supplier<MemberApiClient> memberApiClient,
-            BillingUserSyncUseCase billingUserSyncUseCase) {
+            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade) {
         this.memberApiClient = memberApiClient;
         this.billingUserSyncUseCase = billingUserSyncUseCase;
+        this.walletFacade = walletFacade;
     }
 
     // afterId보다 큰 회원부터 최대 limit명을 반영한다. afterId는 0 이상, limit은 1~MAX_LIMIT(검사는 API 명세 제약이 한다).
@@ -85,7 +90,7 @@ public class BillingUserBackfillUseCase {
             MemberPageDto page = fetch(client, cursor, size, tally);
             verify(page, cursor, size, tally);
             for (UserDto user : page.items()) {
-                tally.apply(user, billingUserSyncUseCase);
+                tally.apply(user, billingUserSyncUseCase, walletFacade);
             }
             remaining -= page.items().size();
             if (page.nextAfterId() == null) {
@@ -96,8 +101,8 @@ public class BillingUserBackfillUseCase {
         }
         BillingUserBackfillResult result = tally.result(completed ? null : cursor, completed);
         log.info("BillingUser Backfill 종료 scanned={}, created={}, updated={}, ignoredStale={}, ignoredVersionless={}, "
-                        + "failed={}, lastProcessedId={}, nextAfterId={}, completed={}", result.scanned(), result.created(),
-                result.updated(), result.ignoredStale(), result.ignoredVersionless(), result.failed(),
+                        + "failed={}, walletsEnsured={}, lastProcessedId={}, nextAfterId={}, completed={}", result.scanned(), result.created(),
+                result.updated(), result.ignoredStale(), result.ignoredVersionless(), result.failed(), result.walletsEnsured(),
                 result.lastProcessedId(), result.nextAfterId(), result.completed());
         return result;
     }
@@ -168,15 +173,24 @@ public class BillingUserBackfillUseCase {
         private long ignoredStale;
         private long ignoredVersionless;
         private long failed;
+        private long walletsEnsured;
         private final List<Long> failedIds = new ArrayList<>();
         private Long lastProcessedId;
 
         // 회원 하나를 반영한다. 실패하면 failed로 세고 다음 회원을 계속한다(예외 메시지에는 회원 값이 담길 수 있어 로그에 남기지 않는다).
-        void apply(UserDto user, BillingUserSyncUseCase syncUseCase) {
+        // 복제본을 반영한 뒤 관리자가 아니면 지갑을 확인한다. 지갑에서 실패해도 그 회원은 failed로만 센다(scanned 합계 유지).
+        // 이미 반영한 복제본은 남지만, 다시 실행하면 복제본은 버전 비교로 무시되고 지갑만 다시 확인한다.
+        void apply(UserDto user, BillingUserSyncUseCase syncUseCase, WalletFacade walletFacade) {
             scanned++;
             lastProcessedId = user.id();
             try {
-                switch (syncUseCase.apply(user)) {
+                BillingUserSyncUseCase.Outcome outcome = syncUseCase.apply(user);
+                // 관리자는 HP를 쓰지 않으므로 지갑을 만들지 않는다 (BD-3)
+                if (user.role() != Role.ADMIN) {
+                    walletFacade.getOrCreateWallet(user.id());
+                    walletsEnsured++;
+                }
+                switch (outcome) {
                     case CREATED -> created++;
                     case UPDATED -> updated++;
                     case IGNORED_STALE -> ignoredStale++;
@@ -194,7 +208,7 @@ public class BillingUserBackfillUseCase {
 
         BillingUserBackfillResult result(Long nextAfterId, boolean completed) {
             return new BillingUserBackfillResult(scanned, created, updated, ignoredStale, ignoredVersionless, failed,
-                    failedIds, lastProcessedId, nextAfterId, completed);
+                    walletsEnsured, failedIds, lastProcessedId, nextAfterId, completed);
         }
     }
 }

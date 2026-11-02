@@ -16,8 +16,10 @@ public interface ApiV1SettlementMemberBackfillAdminSpec {
     @Operation(summary = "기존 회원 BillingUser Backfill (수동 실행)",
             description = "관리자. 회원 내부 API에서 afterId보다 큰 회원을 ID 오름차순으로 최대 limit명 읽어(한 번에 500명씩) 회원 "
                     + "이벤트와 같은 규칙으로 반영한다: 복제본이 없으면 만들고, 회원 버전이 더 높을 때만 갱신한다(같거나 낮은 버전·버전 "
-                    + "없는 정보는 무시). 이벤트로 반영한 최신 정보를 덮지 않고, 다시 실행해도 결과가 같다. 지갑은 만들지 않는다. "
-                    + "응답: scanned = created + updated + ignoredStale + ignoredVersionless + failed, failedIds(최대 100개), "
+                    + "없는 정보는 무시). 이벤트로 반영한 최신 정보를 덮지 않고, 다시 실행해도 결과가 같다. 관리자가 아닌 회원은 "
+                    + "지갑도 확인하고 없으면 만든다(#552, 가입 이벤트 보존 72시간 전에 가입한 회원 대비). "
+                    + "응답: scanned = created + updated + ignoredStale + ignoredVersionless + failed, walletsEnsured(지갑을 확인한 "
+                    + "관리자가 아닌 회원 수, 이미 있던 지갑 포함), failedIds(최대 100개), "
                     + "lastProcessedId, completed(회원 목록 끝까지 순회했는지, 성공 여부는 failed로 판단), completed가 false면 "
                     + "nextAfterId를 다음 afterId로 넘겨 이어서 실행한다. 회원 한 명의 반영 실패는 failed로 세고 계속한다. "
                     + "회원 내부 API 장애·응답 계약 위반은 실행을 멈추고 503(MEMBER_SOURCE_UNAVAILABLE: 일시 장애·잘못된 응답, "

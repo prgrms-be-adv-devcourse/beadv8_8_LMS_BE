@@ -261,7 +261,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
     - 멱등: 같은 관리자 재승인, 같은 관리자·같은 사유(정규화 후) 재거절 = 처음 결과(반환 다시 안 함). 그 밖(다른 관리자·다른 결정·다른 사유·취소·송금 단계) = 409 `EXCHANGE_ALREADY_REVIEWED`. 승인·거절된 신청의 회원 취소 = 409 `EXCHANGE_NOT_CANCELABLE`.
     - DB(Flyway `V202610162000`): 상태 APPROVED·REJECTED, `ck_exchange_6~9`(승인 기록 쌍, APPROVED면 승인 기록·REQUESTED·REJECTED·CANCELED면 없음 — 송금 단계에서는 보존, REJECTED ⇔ 거절 기록, 사유 1~500·trim).
 - **회원 복제본 (#294)**: `billing.billing_user`(Flyway `V202610162010`, `BillingUser extends ReplicaUser`, 회원 ID PK·FK 없음, 생성·수정 시각은 shared BaseEntity라 TIMESTAMP — Billing TIMESTAMPTZ 규칙의 예외). `BillingMemberEventListener`가 `UserJoinedEvent`·`UserModifiedEvent`를 **같은 Upsert 규칙**으로 반영(`BillingUserSyncUseCase`): 없으면 생성(가입 전 변경도 생성), 있으면 행을 PESSIMISTIC_WRITE로 잠그고 `ReplicaUser.syncFrom`(회원 버전 이하 무시). **버전 없는 정보는 반영하지 않는다.** 동시 생성 PK 충돌은 최대 3회 다시 시도. 지갑 리스너(`UserJoinedEventListener`)와 별도라 실패가 서로 영향을 주지 않는다. 관리자도 복제한다.
-    - **기존 회원 Backfill은 하지 않는다(#294 결정, 후속 Issue)**: 복제본 도입 전 가입자는 가입·변경 이벤트가 다시 오기 전까지 복제본이 없어 **환전 승인이 409**다(거절은 가능). Member 조회 Port·재발행 기능이 없어 Billing만으로는 채울 수 없다(Member 협의 필요). 테스트·운영 회원을 임의로 ACTIVE로 채우지 않는다.
+    - **기존 회원 Backfill (#324, #552)**: 관리자 API `POST /api/v1/settlements/admin/billing-users/backfill`이 회원 내부 API로 기존 회원을 읽어 복제본을 이벤트와 같은 규칙으로 반영하고, 관리자가 아닌 회원의 지갑도 `getOrCreateWallet`으로 만든다(BD-132). `member.events.v1`은 72시간만 보존되므로 prod 첫 배포 때 route를 열기 전에 실행한다(`docs/deploy/k8s.md` "billing-app 첫 배포"). 테스트·운영 회원을 임의로 ACTIVE로 채우지 않는다.
 - 가상 송금 성공 시 보류 HP를 차감하고, 최종 실패 시 반환한다.
 - 결과가 불명확한 경우에는 보류를 유지한다.
 
@@ -297,5 +297,5 @@ Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적�
     - 이벤트 리스너·배치처럼 로그인 정보 없이 호출하는 경로는 `@PreAuthorize`가 없는 별도 Facade 메서드를 쓴다 (예: `WalletFacade.getOrCreateWallet`).
     - `@PreAuthorize` 거절은 `BillingErrorCode`가 아니라 global `GlobalExceptionHandler`가 응답한다. 로그인했으면 403 `FORBIDDEN`, 비로그인이면 401 `UNAUTHORIZED`다 (루트 AGENTS.md 7장 "오류 응답", #71).
 - **성공 응답**: 컨트롤러는 루트 AGENTS.md 7장 "성공 응답 (RsData)"대로 `RsData`로 감싸 반환한다. Facade·UseCase는 응답 형식을 모르고 DTO·도메인 결과만 돌려준다(예: `ApiV1WalletController`가 `WalletResponse`를 `RsData.ok`로 감싼다). 오류는 `ProblemDetail` 그대로다.
-- **헬스체크**: Actuator `/actuator/health`로 앱·DB 상태를 확인한다 (global·apps 공통 설정, 모듈에서 따로 만들지 않는다).
+- **헬스체크·지표**: Actuator `/actuator/health`로 앱·DB 상태를 확인하고 `/actuator/prometheus`로 지표를 낸다. k8s에서는 관리 포트 8082(`MANAGEMENT_SERVER_PORT`)에서만 열리고, 8080(Gateway 전용)·8081(내부 API)에서는 404다(#552, BD-133, `ManagementPortTest`).
 - **테스트용 mock 계정**: 로컬 실행 시 member 모듈(`MemberDataInit`, 로컬 로그인)이 유저·인플루언서·인증된 인플루언서·관리자 역할별 테스트 계정을 만든다.
