@@ -63,7 +63,7 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 
 ## 현재 레포에서 출발할 수 있는 기반
 
-- #363으로 업무 모듈이 독립 Spring Boot 앱 6개(`apps/*-app`)와 공통 라이브러리(`common/*`)로 나뉘었다. 컨텍스트 간 연결이 ID와 Event로 제한되어 있어 Kafka seam을 만들기 좋다. 다만 앱 사이 통신(#280, #339)과 인증 전환(#370)이 끝나기 전에는 일부 앱이 단독으로 기동하지 못한다(`docs/architecture/app-modules.md`).
+- #363으로 업무 모듈이 독립 Spring Boot 앱 6개(`apps/*-app`)와 공통 라이브러리(`common/*`)로 나뉘었다. 컨텍스트 간 연결이 ID와 Event로 제한되어 있어 Kafka seam을 만들기 좋다. 모듈 간 Java Port를 모두 지워 여섯 앱 모두 다른 앱의 Java 빈 없이 기동한다(#280). 앱 사이 동기 호출은 제공 앱의 내부 HTTP, 비동기 연동은 Kafka 이벤트다(`docs/architecture/app-modules.md`).
 - Spring Modulith JDBC event publication registry, 미완료 이벤트 재발행, 완료 archive가 이미 설정되어 있다. Spring Modulith는 업무 트랜잭션 안에 publication을 기록하고 broker externalization 실패도 재제출할 수 있다([공식 문서](https://docs.spring.io/spring-modulith/reference/events.html#fundamentals-of-event-externalization)).
 - 채팅은 메시지를 PostgreSQL에 먼저 저장하고 커밋 뒤 내장 STOMP broker로 보낸다. `clientMessageId`와 방별 sequence도 있어 중복·순서 테스트의 기반이 있다.
 - EC2의 Docker Compose 배포, healthcheck, CI, 이미지 롤백이 있어 k3s 전환 전후를 비교할 기준선이 있다.

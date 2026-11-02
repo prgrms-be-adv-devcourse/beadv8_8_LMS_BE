@@ -10,7 +10,7 @@ k3d는 k3s와 다른 배포판이 아니다. 같은 k3s를 Docker container 안�
 | --- | --- | --- |
 | EC2 large + medium | **k3s** server 1 + agent 1 | Ubuntu host에 직접 설치하고 systemd로 기동한다. node 역할은 [AWS 2노드 k3s 배치](../../deploy/aws-k3s.md)를 따른다 |
 | 개발 PC (macOS) | k3d | k3s는 Linux용이다([k3s requirements](https://docs.k3s.io/installation/requirements)). k3d는 Docker만 있으면 같은 manifest를 띄운다. server 1(`core-data`) + agent 1(`app-observe`)에 EC2 node의 메모리 제한을 걸어 node별 예산까지 확인한다([k8s manifest](../../deploy/k8s.md)) |
-| CI | 렌더링·schema 검사 | 지금은 `kubectl kustomize`와 kubeconform만 돈다(#373). PR마다 k3d에 적용하는 smoke/E2E는 앱이 모두 단독 기동한 뒤(#280·#339) 더한다 |
+| CI | 렌더링·schema 검사 | 지금은 `kubectl kustomize`와 kubeconform만 돈다(#373). PR마다 k3d에 적용하는 smoke/E2E는 아직 없다. 전제였던 앱 단독 기동(#280)은 2026-11-02에 끝났다 |
 | node 장애 실험 | EC2 2노드 + 로컬 k3d multi-node | EC2에서는 medium 중지와 large 중지의 서로 다른 영향을 기록하고, 3개 이상 server가 필요한 control-plane HA는 로컬 실험으로 구분한다 |
 
 EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd HA에는 server node 3대 이상이 필요하다([k3s quick start](https://docs.k3s.io/quick-start), [HA 문서](https://docs.k3s.io/datastore/ha-embedded)). medium이 내려가면 large의 모듈 앱과 stateful workload는 남지만 medium의 모듈 앱과 관측성이 멈춘다. large가 내려가면 control plane, 진입점(Envoy proxy), PostgreSQL과 Elasticsearch가 함께 사라져 서비스가 중단된다. 이 차이를 숨기지 않고 pod 장애와 node 장애 시연 결과를 분리한다.

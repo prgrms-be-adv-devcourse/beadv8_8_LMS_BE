@@ -105,14 +105,17 @@ tasks.register("verifyModuleStructure") {
                 "${app.path}: 명시적인 실행 진입점 누락"
             }
         }
+        // 컴파일·실행 classpath 모두 본다. compileOnly로 다른 앱을 끌어와 그 앱의 타입을 import하는 것도 막는다 (#280, D62)
         subprojects.forEach { module ->
-            val appDependencies = module.configurations.getByName("runtimeClasspath")
-                .incoming.resolutionResult.allComponents
-                .mapNotNull { it.id as? org.gradle.api.artifacts.component.ProjectComponentIdentifier }
-                .map { it.projectPath }
-                .filter { dependency -> dependency != module.path && applications.any { it.path == dependency } }
-            check(appDependencies.isEmpty()) {
-                "${module.path} 런타임이 다른 앱에 의존합니다: $appDependencies"
+            listOf("compileClasspath", "runtimeClasspath").forEach { classpath ->
+                val appDependencies = module.configurations.getByName(classpath)
+                    .incoming.resolutionResult.allComponents
+                    .mapNotNull { it.id as? org.gradle.api.artifacts.component.ProjectComponentIdentifier }
+                    .map { it.projectPath }
+                    .filter { dependency -> dependency != module.path && applications.any { it.path == dependency } }
+                check(appDependencies.isEmpty()) {
+                    "${module.path}의 ${classpath}가 다른 앱에 의존합니다: $appDependencies"
+                }
             }
         }
     }

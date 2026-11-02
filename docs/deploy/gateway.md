@@ -147,7 +147,7 @@ kubectl --context hapbang-k3s diff -k k8s/gateway/overlays/prod
 
 아래는 업무 앱·FE를 포함한 전체 서비스 전환 절차다. Gateway 설치·진입점 전환은 위의 2026-10-30 결정에 따라 먼저 완료했다. Compose도 지웠으므로(#440) 2~4의 nginx·Compose 단계와 7은 더 해당하지 않는다. 인증·업무 앱의 완료 조건은 그대로 남는다.
 
-1. #370·#371 JWT/인가, #280 독립 기동, #338 데이터 이전·복구, #374 앱·FE 이미지와 Secret 준비를 확인한다. medium의 목표 구성 예산 초과는 #343에서 조정하고 sidecar·설치 Job·rolling 여유도 포함해 재측정한다.
+1. #370·#371 JWT/인가, #280 독립 기동(2026-11-02 완료), #338 데이터 이전·복구, #374 앱·FE 이미지와 Secret 준비를 확인한다. medium의 목표 구성 예산 초과는 #343에서 조정하고 sidecar·설치 Job·rolling 여유도 포함해 재측정한다.
 2. nginx·기존 인증서·Compose와 k3s config를 백업하고 중단 시간을 팀에 공지한다. 기존 서비스·DB는 지우지 않는다.
 3. Gateway controller·cert-manager·정책을 준비하되 edge nginx가 80·443을 쓰는 동안 ServiceLB를 켜지 않는다.
 4. nginx를 먼저 멈춘다. large에만 `svccontroller.k3s.cattle.io/enablelb=true` label을 붙이고 k3s config에서 `servicelb` disable을 제거하고 `traefik`을 disable한 뒤 재시작한다.
