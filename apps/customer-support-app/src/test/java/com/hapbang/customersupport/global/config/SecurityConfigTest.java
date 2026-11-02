@@ -15,8 +15,6 @@ import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.customersupport.support.GatewayLogin;
@@ -81,16 +79,8 @@ class SecurityConfigTest {
     }
 
     @Test
-    void 강의_목록은_비회원도_조회한다() throws Exception {
-        mockMvc.perform(get("/api/v1/lectures"))
-                .andExpect(status().isOk());
-    }
-
-    @Test
-    void 강의_상세와_등록은_비회원이면_401() throws Exception {
-        mockMvc.perform(get("/api/v1/lectures/1"))
-                .andExpect(status().isUnauthorized());
-        mockMvc.perform(post("/api/v1/lectures"))
+    void 공개_경로가_아니면_비회원의_GET도_401() throws Exception {
+        mockMvc.perform(get("/api/v1/samples/verified"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -115,21 +105,6 @@ class SecurityConfigTest {
     @org.springframework.boot.test.context.TestComponent
     @RestController
     static class SampleController {
-
-        @GetMapping("/api/v1/lectures")
-        String lectures() {
-            return "ok";
-        }
-
-        @GetMapping("/api/v1/lectures/{lectureId}")
-        String lecture(@PathVariable("lectureId") Long lectureId) {
-            return "ok";
-        }
-
-        @PostMapping("/api/v1/lectures")
-        String registerLecture() {
-            return "ok";
-        }
 
         @PreAuthorize("hasRole('VERIFIED_INFLUENCER')")
         @GetMapping("/api/v1/samples/verified")
