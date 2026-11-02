@@ -74,6 +74,13 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     APPEARANCE_CONFIRM_NOT_OPEN(HttpStatus.CONFLICT, "방송 예정 일시가 지난 뒤에 출연 확인을 할 수 있습니다."),
     APPEARANCE_CONFIRM_PERIOD_ENDED(HttpStatus.CONFLICT, "출연 확인 기간이 지났습니다. 출연은 자동으로 확인됩니다."),
 
+    // 출연 리뷰 (#512)
+    NOT_APPEARANCE_PARTICIPANT(HttpStatus.FORBIDDEN, "출연의 호스트·게스트만 리뷰를 쓸 수 있습니다."),
+    APPEARANCE_NOT_REVIEWABLE(HttpStatus.CONFLICT, "출연 확인이 끝난 출연에만 리뷰를 쓸 수 있습니다."),
+    REVIEW_PERIOD_ENDED(HttpStatus.CONFLICT, "리뷰 작성 기한이 지났습니다."),
+    REVIEWEE_NOT_ACTIVE(HttpStatus.CONFLICT, "상대가 현재 이용할 수 없는 회원이라 리뷰를 쓸 수 없습니다."),
+    ALREADY_REVIEWED(HttpStatus.CONFLICT, "이미 이 출연에 리뷰를 썼습니다."),
+
     // HP 작업 관리 (관리자, #397)
     HP_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "HP 작업을 찾을 수 없습니다."),
     HP_TASK_NOT_DEAD(HttpStatus.CONFLICT, "격리된(DEAD) HP 작업만 다시 시도할 수 있습니다."),

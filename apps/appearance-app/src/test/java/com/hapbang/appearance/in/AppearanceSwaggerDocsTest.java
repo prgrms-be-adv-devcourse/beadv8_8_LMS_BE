@@ -168,4 +168,15 @@ class AppearanceSwaggerDocsTest {
                 .andExpect(jsonPath(paths + "/{appearanceId}/absent'].post.responses['200'].content['*/*'].schema['$ref']")
                         .value("#/components/schemas/RsDataAppearanceResDto"));
     }
+
+    @Test
+    @DisplayName("출연 리뷰 작성은 201 RsData로 감싼 리뷰 ID (#512)")
+    void reviewSchemaIsRsData() throws Exception {
+        String paths = "$.paths['/api/v1/appearances";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(paths + "/{appearanceId}/reviews'].post.responses['201'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceReviewIdResDto"))
+                .andExpect(jsonPath(SCHEMAS + "WriteAppearanceReviewReqDto.required[0]").value("rating"));
+    }
 }

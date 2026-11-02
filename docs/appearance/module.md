@@ -13,7 +13,7 @@
 
 ### 1.1 출연 모듈이 하는 일
 
-- 출연 요청(1:1), 출연 모집(1:N)과 지원, 출연 성립, 출연 취소 요청, 출연 확인
+- 출연 요청(1:1), 출연 모집(1:N)과 지원, 출연 성립, 출연 취소 요청, 출연 확인, 출연 리뷰(원본)
 - 호스트·게스트 자격 확인 (회원 정보 복제본 기준)
 - HP 보류·반환·지급 시점 판단과 Billing 호출
 
@@ -45,6 +45,7 @@
 | Billing 실제 연동 (Fake Billing·`mode` 설정 삭제, 실제 Billing 통합 테스트) | ✅ | #289 |
 | 정리: 작업 뒤 상세 조회 읽기 전용 트랜잭션, 충돌 변환 통합 | ✅ | #293 |
 | 격리된 HP 작업 관리자 조회·다시 시도 | ✅ | #397 |
+| 출연 리뷰 작성(블라인드 공개). 공개 이벤트·조회·기한 만료 공개는 #513~#515 | ✅ | #512 |
 
 ---
 
@@ -1165,3 +1166,80 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 - 배포 순서: 이 변경이 운영(main)에 나가면 세션 로그인이 없어지므로, 회원 JWT 발급(#370)이 운영에 나간 뒤 함께 또는 그 뒤에 반영한다.
 - 남은 일: 회원 JWT 발급(#370)이 끝나야 운영에서 헤더가 온다. 공용 필터(#371)가 생기면 이 필터를 그것으로 바꾼다. 프론트는 `X-XSRF-TOKEN` 대신 `Authorization: Bearer`를 보낸다(#370과 함께).
 
+---
+
+## 21. 출연 리뷰 작성과 블라인드 공개 (#512)
+
+출연 확인(`CONFIRMED`)이 끝난 출연에서 호스트와 게스트가 서로 리뷰·별점을 남긴다. 리뷰 원본은 출연이 갖는다.
+회원 평점 계산은 회원 모듈이 출연의 공개 이벤트를 받아 한다(이벤트는 #513, 조회 API는 #514).
+
+### 21.1 정책
+
+| 항목 | 내용 |
+|---|---|
+| 작성 조건 | 출연이 `CONFIRMED`(호스트 확인·자동 확인 모두)일 때만. 성립·취소 요청 중·불참·취소는 쓸 수 없다 |
+| 작성자 | 그 출연의 호스트·게스트만, 방향별 1개(출연당 최대 2개) |
+| 작성 기한 | `appearance.review.write-period`. 비면 무기한(지금 값). 값이 있으면 출연 확인 시각 + 기간 전까지 |
+| 회원 자격 | 작성자는 출연 거래와 같은 자격(정상 상태, 인플루언서 이상). 출연은 인플루언서끼리만 해서 일반 유저는 쓸 수 없다. 상대는 정상(`ACTIVE`) 상태만 본다 |
+| 내용 | 별점 1~5 정수(필수). 본문 선택, 앞뒤 공백을 지우고 1,000자 이하, 공백뿐이면 null |
+| 수정·삭제 | 없다 (상호 평가라 고쳐 쓰지 못하게 함) |
+| 공개 | 블라인드. 처음 쓴 리뷰는 `published_at`이 null이고, 상대가 쓰는 트랜잭션에서 두 리뷰의 `published_at`을 같은 시각으로 채운다 |
+| 로그인 역할 | `@PreAuthorize` `INFLUENCER`·`VERIFIED_INFLUENCER` (일반 유저·관리자는 공통 `FORBIDDEN`). 토큰 발급 뒤 강등은 복제한 회원 정보로 다시 막는다 |
+
+### 21.2 API
+
+`POST /api/v1/appearances/{appearanceId}/reviews` `{rating, content}` → 201 `RsData` `{id}`. 응답에 공개 여부는 담지 않는다(상대가 썼는지 알게 되면 블라인드가 깨진다).
+
+확인 순서 (앞 단계 오류가 먼저 난다):
+
+1. 출연이 없으면 404 `APPEARANCE_NOT_FOUND`
+2. 그 출연의 호스트·게스트가 아니면 403 `NOT_APPEARANCE_PARTICIPANT`
+3. 작성자가 정지·탈퇴면 403 `APPEARANCE_USER_NOT_ACTIVE`, 일반 유저로 강등됐으면 403 `NOT_INFLUENCER`
+4. 출연이 `CONFIRMED`가 아니면 409 `APPEARANCE_NOT_REVIEWABLE`
+5. 작성 기한이 지났으면 409 `REVIEW_PERIOD_ENDED`
+6. 상대가 정지·탈퇴면(복제 회원 정보가 없어도) 409 `REVIEWEE_NOT_ACTIVE`
+7. 이미 썼으면 409 `ALREADY_REVIEWED`
+
+- 별점·본문 형식 오류는 400 `INVALID_REQUEST`(요청 DTO 검증, 도메인도 같은 규칙을 다시 확인).
+- 별점은 정수다(강의 리뷰와 같음). JSON에 소수(`4.5`)가 오면 Spring의 JSON 변환(Jackson)이 정수 칸에 맞춰 소수점 아래를 버린다(`4`). 프론트는 정수로 보낸다.
+- 당사자가 아니면 다른 출연 API처럼 404로 숨기지 않고 403 `NOT_APPEARANCE_PARTICIPANT`로 알린다.
+
+### 21.3 구조
+
+| 계층 | 클래스 | 역할 |
+|---|---|---|
+| in | `ApiV1AppearanceReviewController` / `ApiV1AppearanceReviewSpec`, `WriteAppearanceReviewReqDto` | 매핑·Swagger·요청 검증 |
+| app | `AppearanceReviewFacade` | 역할 검사, 트랜잭션 |
+| app | `AppearanceReviewWriteUseCase` | 위 확인 순서, 저장, 블라인드 공개 |
+| app | `AppearanceReviewSupport` | 리뷰 저장소 접근 |
+| domain | `AppearanceReview` | 별점·본문 규칙, 받는 사람·역할, 공개 시각 |
+| domain | `Appearance.validateReviewer`·`validateReviewable`·`counterpartOf` | 당사자, 확인된 출연·작성 기한, 상대 |
+| domain / config | `AppearanceReviewPolicy` / `AppearanceReviewProperties` | 작성 기한 (`appearance.review.write-period`) |
+
+### 21.4 동시 작성
+
+- 작성 때 출연 행을 배타 잠금(`SELECT … FOR UPDATE`, `AppearanceSupport.getForUpdate`)으로 읽는다. 호스트·게스트가 동시에 써도 차례로 처리돼, 나중 작성이 먼저 저장된 리뷰를 보고 둘 다 공개한다.
+- 같은 회원이 동시에 쓰면 나중 요청은 잠금이 풀린 뒤 `ALREADY_REVIEWED`다. 유니크 제약 `uk_appearance_reviews_appearance_reviewer` 위반도 같은 오류로 바꾼다(최종 방어).
+- 출연 행은 바꾸지 않아 출연 버전은 오르지 않는다.
+
+### 21.5 `appearances.reviews` 스키마
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `id` | BIGINT, PK, identity | |
+| `appearance_id` | BIGINT, FK → `appearances.appearances` | 출연 |
+| `reviewer_id` / `reviewee_id` | BIGINT | 쓴 사람 / 받은 사람 (회원 ID, FK 없음) |
+| `reviewee_role` | VARCHAR(255) | 받은 사람의 그 출연 역할 `HOST`·`GUEST` (`AppearanceRole`) |
+| `rating` | INTEGER | 1~5 (`ck_appearance_reviews_rating`) |
+| `content` | VARCHAR(1000), null 허용 | 본문 |
+| `published_at` | TIMESTAMP(6), null 허용 | 공개 시각. 공개 전 null |
+| `version` | BIGINT | 낙관적 락 |
+| `created_at`, `updated_at` | TIMESTAMP(6) | JPA Auditing |
+
+- 유니크 `uk_appearance_reviews_appearance_reviewer (appearance_id, reviewer_id)`, 체크 `ck_appearance_reviews_reviewer_reviewee (reviewer_id <> reviewee_id)`
+- 인덱스 `idx_appearance_reviews_reviewee_id_published_at (reviewee_id, published_at)`: 회원이 받은 공개 리뷰 조회(#514)
+- 마이그레이션: `V202611021050__create_appearance_review_table.sql`
+
+### 21.6 남은 일
+
+- 공개될 때 별점·ID를 담은 이벤트를 `appearance.events.v1`로 발행(#513), 출연 상세의 리뷰·회원용 받은 리뷰 목록 조회(#514), 작성 기한을 켰을 때 기한이 지난 한쪽 리뷰 공개 배치(#515, 기본 꺼 둠)

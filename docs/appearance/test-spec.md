@@ -1383,3 +1383,38 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 - `AppearancePolicy.canRequestCancel`은 #26에서 정책 판단 자리로 만들었지만 #231부터 쓰이지 않아(`Appearance.requestCancel`이 판단) 메서드와 테스트를 지웠다. 횟수 제한은 `AppearanceCancelRequestTest`가 확인한다.
 - 비로그인 401·내부 API 키 없음 401·정지된 관리자 403은 #395 이후 `SecurityConfigTest`·`InternalApiSecurityConfigTest`·`AppearanceEarningInternalApiTest`·`HpTaskAdminFacadeTest`가 확인하고 있어 추가하지 않았다.
 - 실제 시간을 기다리는 확인(회원 이벤트 DLT 지연, 회로 통합 테스트의 1초·5초 대기)은 이번 범위에서 바꾸지 않았다.
+
+## 30. 출연 리뷰 작성과 블라인드 공개 (#512)
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceReviewTest` | 호스트·게스트 / 다른 회원이 작성자 | 통과 / 403 `NOT_APPEARANCE_PARTICIPANT` |
+| `AppearanceReviewTest` | 호스트 확인·자동 확인된 출연 (기한 없음, 확인 1년 뒤) | 쓸 수 있음 |
+| `AppearanceReviewTest` | 성립·취소 요청 중·불참·호스트 취소·합의 취소 | 409 `APPEARANCE_NOT_REVIEWABLE` |
+| `AppearanceReviewTest` | 기한 14일: 확인 + 14일 1초 전 / 그 시각 / 불참 출연 30일 뒤 | 통과 / `REVIEW_PERIOD_ENDED` / 상태 오류 `APPEARANCE_NOT_REVIEWABLE`가 먼저 |
+| `AppearanceReviewTest` | 호스트가 쓴 리뷰 / 게스트가 쓴 리뷰 | 받는 사람 게스트(`GUEST`) / 호스트(`HOST`), 공개 전 |
+| `AppearanceReviewTest` | 별점 0·6·-1·null, 본문 1,001자 / 앞뒤 공백 + 1,000자, 공백뿐 | `INVALID_REQUEST` / 1,000자 저장, null |
+| `AppearanceReviewTest` | 당사자가 아닌 작성자로 생성 / 당사자가 아닌 회원의 상대 | `IllegalStateException` / `IllegalArgumentException` |
+| `AppearanceReviewTest` | 두 번 공개 | 처음 공개 시각 유지 |
+| `AppearanceReviewTest` | 리뷰 정책: 기한 없음 / 14일 경계 / 0·음수 | 항상 가능 / 14일 직전까지 / 생성 실패 |
+| `AppearanceConfigTest` | appearance.yml 기본 / `write-period=14d` / `0s` | 무기한 / 14일 / 앱 기동 실패 |
+| `AppearanceReviewRepositoryTest` | 저장·조회, 호스트·게스트 각 1건 | `published_at` null, 2건 |
+| `AppearanceReviewRepositoryTest` | 같은 작성자 두 번, 별점 0·6, 자기 자신에게, 본문 1,001자, 없는 출연 | 유니크·체크·길이·FK 제약 위반 |
+| `AppearanceReviewWriteUseCaseTest` | 저장 때 유니크 제약 위반 / 다른 제약 위반 | `ALREADY_REVIEWED` / 그대로 던짐 |
+| `AppearanceReviewFlowTest` | 호스트 먼저 작성 → 게스트 작성 (게스트 먼저도 같음) | 첫 리뷰는 비공개, 두 번째 작성 때 둘 다 같은 시각 공개, 공백뿐인 본문 null |
+| `AppearanceReviewFlowTest` | 같은 호스트의 다른 출연(다른 게스트) 리뷰 | 서로 공개에 섞이지 않음 |
+| `AppearanceReviewFlowTest` | 자동 확인 출연, 확인 1년 뒤(무기한), 복제 역할이 일반 유저로 강등된 상대 | 작성 성공 |
+| `AppearanceReviewFlowTest` | 복제 역할이 일반 유저로 강등된 작성자 | 403 `NOT_INFLUENCER`, 저장 없음 |
+| `AppearanceReviewFlowTest` | 확인 순서: 없는 출연 / 비당사자 + 확인 전 + 정지 / 작성자 정지·탈퇴 + 확인 전 / 성립 + 상대 정지 / 불참 / 일방·합의 취소 / 상대 정지·탈퇴 + 이미 씀 / 두 번째 작성 | `APPEARANCE_NOT_FOUND` / `NOT_APPEARANCE_PARTICIPANT` / `APPEARANCE_USER_NOT_ACTIVE` / `APPEARANCE_NOT_REVIEWABLE` / 같음 / 같음 / `REVIEWEE_NOT_ACTIVE` / `ALREADY_REVIEWED` (1건 그대로) |
+| `AppearanceReviewFlowTest` | 별점 6·null, 본문 1,001자 | `INVALID_REQUEST`, 저장 없음 |
+| `AppearanceReviewFlowTest` | 기한 14일 UseCase: 직전 / 지난 뒤 + 상대 정지 / 기한 안에 둘 다 작성 | 성공 / `REVIEW_PERIOD_ENDED`가 먼저 / 함께 공개 |
+| `AppearanceReviewFlowTest` | 호스트·게스트 동시 작성 (5회) | 2건 모두 저장, 같은 시각 공개 |
+| `AppearanceReviewFlowTest` | 같은 게스트 동시 3번 (5회) | 1건 저장, 나머지 2건 `ALREADY_REVIEWED`, 비공개 |
+| `AppearanceReviewApiE2ETest` | 호스트 작성 → 게스트 작성 | 201 `RsData` `{id}`(공개 여부 없음), 둘 다 공개 |
+| `AppearanceReviewApiE2ETest` | 별점 없음·0·6·null, 본문 1,001자, 본문 없는 요청 | 400 `INVALID_REQUEST` (`errors.field`에 `rating`) |
+| `AppearanceReviewApiE2ETest` | 헤더 없음 / 로그인 역할 관리자·일반 유저 / 로그인 역할은 인플루언서지만 복제본이 일반 유저 | 401 / 403 `FORBIDDEN` / 403 `NOT_INFLUENCER`, 저장 없음 |
+| `AppearanceReviewApiE2ETest` | 없는 출연 / 비당사자 / 확인 전 | 404 `APPEARANCE_NOT_FOUND` / 403 `NOT_APPEARANCE_PARTICIPANT` / 409 `APPEARANCE_NOT_REVIEWABLE` |
+| `AppearanceReviewApiE2ETest` | 두 번째 작성 / 상대 정지 / 작성자 정지 / 숫자가 아닌 출연 ID | 409 `ALREADY_REVIEWED` / 409 `REVIEWEE_NOT_ACTIVE` / 403 `APPEARANCE_USER_NOT_ACTIVE` / 404 |
+| `AppearanceSwaggerDocsTest` | 리뷰 작성 | 201 `RsDataAppearanceReviewIdResDto`, 요청 `rating` 필수 |
+
+- `REVIEW_PERIOD_ENDED`는 운영 설정이 무기한이라 HTTP로 만들지 않고 `AppearanceReviewFlowTest`(기한 14일 정책으로 만든 UseCase)가 확인한다.
