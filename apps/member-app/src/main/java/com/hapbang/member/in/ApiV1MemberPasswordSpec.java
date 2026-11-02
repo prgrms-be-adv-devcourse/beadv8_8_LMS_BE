@@ -28,7 +28,8 @@ public interface ApiV1MemberPasswordSpec {
 
     @Operation(summary = "비밀번호 변경",
             description = "로그인한 회원 본인. 현재 비밀번호가 틀리면 400 INVALID_CURRENT_PASSWORD, "
-                    + "비밀번호로 가입하지 않은 회원(구글 회원)은 409 PASSWORD_NOT_SET. 새 비밀번호 규칙은 가입과 같다. "
+                    + "비밀번호로 가입하지 않은 회원(구글 회원)은 409 PASSWORD_NOT_SET. 현재 비밀번호를 5번 연속 틀리면 15분 동안 429 PASSWORD_CHANGE_LOCKED. "
+                    + "새 비밀번호 규칙은 가입과 같다. "
                     + "바꾸면 모든 기기의 refresh token을 폐기하고, 이 기기에는 새 refresh token 쿠키를 준다 "
                     + "(다른 기기는 access token 만료 뒤 다시 로그인).")
     ResponseEntity<RsData<Void>> changePassword(Long userId, PasswordChangeRequest request);

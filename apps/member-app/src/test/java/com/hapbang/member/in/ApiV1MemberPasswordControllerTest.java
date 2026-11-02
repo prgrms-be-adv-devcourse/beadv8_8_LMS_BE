@@ -204,6 +204,31 @@ class ApiV1MemberPasswordControllerTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    @DisplayName("현재 비밀번호를 5번 연속 틀리면 맞는 비밀번호도 429 PASSWORD_CHANGE_LOCKED, 로그인은 그대로 된다")
+    void changePassword_locked() throws Exception {
+        String email = signedUp("abcd1234");
+        Long userId = userRepository.findByEmail(email).orElseThrow().getId();
+        String changeKeyHash = sha256("password-change:" + userId);
+        createdKeys.add("member:login-fail:" + changeKeyHash);
+        createdKeys.add("member:login-lock:" + changeKeyHash);
+        for (int i = 0; i < 5; i++) {
+            changePassword(userId, "wrong1234", "newpass5678").andExpect(status().isBadRequest());
+        }
+
+        changePassword(userId, "abcd1234", "newpass5678")
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("PASSWORD_CHANGE_LOCKED"));
+        cookieValue(login(email, "abcd1234").andExpect(status().isOk())
+                .andReturn().getResponse().getHeader(HttpHeaders.SET_COOKIE));
+    }
+
+    private ResultActions changePassword(Long userId, String currentPassword, String newPassword) throws Exception {
+        return mockMvc.perform(patch(CHANGE).with(GatewayLogin.as(userId, Role.USER))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}".formatted(currentPassword, newPassword)));
+    }
+
     private ResultActions signUp(String email, String password, String nickname) throws Exception {
         return mockMvc.perform(post(SIGNUP).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"email\":\"%s\",\"password\":\"%s\",\"nickname\":\"%s\"}".formatted(email, password, nickname)));

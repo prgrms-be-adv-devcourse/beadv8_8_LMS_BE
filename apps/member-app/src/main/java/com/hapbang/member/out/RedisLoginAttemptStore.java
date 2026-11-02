@@ -17,7 +17,7 @@ import com.hapbang.member.global.config.LoginLockProperties;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 로그인 실패 횟수·잠금을 Redis에 둔다 (#499). 키에는 이메일 원문 대신 SHA-256 해시를 쓴다.
+ * 비밀번호 확인 실패 횟수·잠금을 Redis에 둔다 (#499). Redis 키에는 받은 키(이메일 등) 원문 대신 SHA-256 해시를 쓴다.
  * <ul>
  *     <li>{@code member:login-fail:{해시}}: 실패 횟수. 첫 실패부터 잠금 시간 동안만 센다</li>
  *     <li>{@code member:login-lock:{해시}}: 잠금 표시. 잠금 시간이 지나면 저절로 사라진다</li>
@@ -49,26 +49,26 @@ public class RedisLoginAttemptStore implements LoginAttemptStore {
     private final LoginLockProperties properties;
 
     @Override
-    public boolean isLocked(String email) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(LOCK_KEY_PREFIX + hash(email)));
+    public boolean isLocked(String key) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(LOCK_KEY_PREFIX + hash(key)));
     }
 
     @Override
-    public boolean recordFailure(String email) {
-        String hash = hash(email);
+    public boolean recordFailure(String key) {
+        String hash = hash(key);
         Long locked = redisTemplate.execute(RECORD_FAILURE, List.of(FAIL_KEY_PREFIX + hash, LOCK_KEY_PREFIX + hash),
                 String.valueOf(properties.maxFailures()), String.valueOf(properties.duration().toMillis()));
         return Long.valueOf(1).equals(locked);
     }
 
     @Override
-    public void reset(String email) {
-        redisTemplate.delete(FAIL_KEY_PREFIX + hash(email));
+    public void reset(String key) {
+        redisTemplate.delete(FAIL_KEY_PREFIX + hash(key));
     }
 
-    static String hash(String email) {
+    static String hash(String key) {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(email.getBytes(StandardCharsets.UTF_8));
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256을 쓸 수 없습니다.", e);
