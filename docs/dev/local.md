@@ -25,7 +25,7 @@
 
 운영에서는 Gateway(Envoy)가 access token(JWT)을 검증해 `X-User-Id`·`X-User-Role` 헤더로 앱에 넘긴다. 앱은 서명을 다시 검증하지 않고 이 헤더만 믿는다. 로컬에서는 확인할 범위에 따라 둘 중 하나로 한다.
 
-- **앱 하나만 확인**: 앱 포트로 두 헤더를 직접 넣는다. 예: `curl -H 'X-User-Id: 1' -H 'X-User-Role: USER' localhost:8083/api/v1/appearances/...`. Swagger도 같다. 역할은 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`·`ADMIN` 중 하나다.
+- **앱 하나만 확인**: 앱 포트로 두 헤더를 직접 넣는다. 예: `curl -H 'X-User-Id: 1' -H 'X-User-Role: USER' localhost:8083/api/v1/appearances/...`. 로컬 Swagger(`/api/v1/<모듈>/swagger-ui.html`)의 Authorize도 이 두 헤더를 넣으므로 앱 포트로 연다. 로컬 Envoy를 거치면 헤더가 지워진다. 역할은 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`·`ADMIN` 중 하나다.
 - **토큰 흐름·프론트 연동**: 로컬 Envoy(`localhost:8000`, `ENVOY_PORT`로 바꿈)를 거친다. Envoy가 운영 Gateway처럼 토큰을 검증하고 헤더를 만든다. 외부에서 붙인 `X-User-*`는 지운다. 프론트 dev server는 `/api`를 이 주소로 보낸다.
   1. 로그인: `POST /api/v1/members/local-login?role=VERIFIED_INFLUENCER&number=1`(local 프로필의 테스트 계정) 또는 `POST /api/v1/members/login`(이메일·비밀번호). refresh token이 쿠키(`Path=/api/v1/members/auth`)로 온다.
   2. 재발급: refresh token 쿠키를 실어 `POST /api/v1/members/auth/refresh`. 본문 `data.accessToken`이 access token이다.
