@@ -1311,7 +1311,7 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 
 | 항목 | 내용 |
 |---|---|
-| 호출 | 회원 모듈이 프로필의 리뷰 목록을 만들 때 shared `AppearanceApiClient.getReceivedReviews`(22.3)로 부른다. 내부 포트(`http://appearance-app:8081`), Gateway를 거치지 않는다. 회원 쪽 연동 요청은 #516 |
+| 호출 | 회원 모듈이 프로필의 리뷰 목록을 만들 때 shared `AppearanceApiClient.getReceivedReviews`(22.3)로 부른다. 내부 포트(`http://appearance-app:8081`), Gateway를 거치지 않는다. 회원 쪽 구현은 #555 (23장) |
 | 인증·노출 | 수익 내부 조회(18.1)와 같다: `X-Internal-Api-Key`, 틀리거나 없으면 본문 없는 401, 회원 로그인으로는 401, 외부 포트는 404 |
 | 출연 쪽 방어 | ① 보안 체인의 키 검증 ② `AppearanceReviewInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
 | 범위 | 그 회원이 **받은** 리뷰 중 **공개된 것만**. 공개 전 리뷰는 받은 사람에게도 보이지 않으므로 뺀다. 쓴 사람이 그 뒤 정지·탈퇴해도 이미 공개된 리뷰는 그대로 준다 |
@@ -1345,7 +1345,7 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 
 ## 23. 리뷰 연동 정리 (#516)
 
-리뷰 원본은 출연이 갖고, 다른 쪽은 이벤트와 API로만 읽는다. 받는 쪽이 할 일을 한곳에 모았다. 형식의 기준은 21~22장과 shared 레코드다.
+리뷰 원본은 출연이 갖고, 다른 쪽은 이벤트와 API로만 읽는다. 받는 쪽이 할 일을 한곳에 모았다. 형식의 기준은 21~22장과 shared 레코드다. 회원 쪽 구현은 #555다.
 
 | 받는 쪽 | 쓰는 것 | 용도 |
 |---|---|---|
