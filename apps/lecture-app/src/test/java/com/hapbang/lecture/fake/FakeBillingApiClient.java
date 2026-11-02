@@ -10,8 +10,11 @@ import java.util.function.Supplier;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClient;
 
+import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -26,7 +29,8 @@ import com.hapbang.shared.billing.out.BillingClientProperties;
  * 강의 모듈 테스트용 지갑 내부 API Client (#275). 모듈 테스트에는 {@code hapbang.clients.billing.base-url}이 없어
  * 실제 Client 빈이 생기지 않으므로 이 대역으로 채운다. HTTP를 부르지 않는다.
  * <ul>
- *     <li>정한 응답이 없으면 성공이다. 보류는 요청 금액, 반환·지급은 {@link #setSettledHp}(기본 10,000 HP)를 돌려준다.</li>
+ *     <li>정한 응답이 없으면 성공이다. 보류는 요청 금액, 반환·지급은 {@link #setSettledHp}(기본 10,000 HP)를 돌려준다.
+ *     보류 무효화는 보류가 없었던 결과({@code VOIDED}, 0 HP)다.</li>
  *     <li>{@link #respond}로 다음 호출의 응답(실패·예외 포함)을 차례로 정한다.</li>
  *     <li>호출마다 요청과 그때 강의 트랜잭션이 열려 있었는지를 남긴다.</li>
  * </ul>
@@ -89,6 +93,12 @@ public class FakeBillingApiClient extends BillingApiClient {
         return answer(command, () -> new PayoutResultDto(command.referenceType(), command.referenceId(),
                 command.payoutRequestId(), command.receiverUserId(), command.sourceType(), command.sourceId(),
                 settledHp, 0L, false));
+    }
+
+    @Override
+    public BillingCallResult<HoldVoidResultDto> voidHold(HoldVoidCommand command) {
+        return answer(command, () -> new HoldVoidResultDto(command.referenceType(), command.referenceId(),
+                HoldVoidOutcome.VOIDED, 0L, false));
     }
 
     @Override

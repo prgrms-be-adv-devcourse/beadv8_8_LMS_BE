@@ -15,7 +15,7 @@ import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 관리자의 강의 HP 작업 조회·재시도 진입점 (reference.md 8.2.1, D57 (9)).
+ * 관리자의 강의 HP 작업 조회·재시도·보류 무효화 진입점 (reference.md 8.2.1, D57 (9), D73).
  * 관리자 여부는 여기서 검사한다. /admin 경로는 SecurityConfig도 함께 막는다 (D16).
  */
 @Service
@@ -26,6 +26,7 @@ public class LectureHpTaskAdminFacade {
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final LectureHpTaskAttemptRepository lectureHpTaskAttemptRepository;
     private final LectureHpTaskRetryUseCase lectureHpTaskRetryUseCase;
+    private final LectureHpTaskVoidUseCase lectureHpTaskVoidUseCase;
 
     /** 작업 목록 (최신순) */
     @Transactional(readOnly = true)
@@ -45,5 +46,11 @@ public class LectureHpTaskAdminFacade {
     @Transactional
     public void retry(Long adminUserId, Long taskId) {
         lectureHpTaskRetryUseCase.retry(adminUserId, taskId);
+    }
+
+    /** {@code DEAD}인 주문 항목 보류를 보류 무효화로 끝낸다. 등록한 무효화 작업을 돌려준다 (D73) */
+    @Transactional
+    public LectureHpTaskResponse voidHold(Long adminUserId, Long taskId) {
+        return LectureHpTaskResponse.of(lectureHpTaskVoidUseCase.voidHold(adminUserId, taskId));
     }
 }

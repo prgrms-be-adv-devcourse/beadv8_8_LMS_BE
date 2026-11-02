@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -17,19 +18,25 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureHpAttemptResult;
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskAttempt;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
 import com.hapbang.lecture.domain.LectureHpTaskStatus;
+import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.LectureOrderStatus;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
+import com.hapbang.lecture.out.LectureOrderRepository;
+import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
 
-// 관리자의 HP 작업 조회·상세·DEAD 재시도 API를 HTTP부터 DB까지 확인한다 (reference.md 8.2.1, D57 (9)).
-// 실행·재시도 규칙은 LectureHpTaskExecutorTest가 맡는다.
+// 관리자의 HP 작업 조회·상세·DEAD 재시도·보류 무효화 API를 HTTP부터 DB까지 확인한다 (reference.md 8.2.1, D57 (9), D73).
+// 실행·재시도 규칙은 LectureHpTaskExecutorTest가, 보류 무효화 뒤 주문 흐름은 OrderHoldVoidTest가 맡는다.
 @IntegrationTest
 @AutoConfigureMockMvc
 class LectureHpTaskAdminApiTest {
@@ -47,6 +54,12 @@ class LectureHpTaskAdminApiTest {
 
     @Autowired
     private LectureHpTaskAttemptRepository lectureHpTaskAttemptRepository;
+
+    @Autowired
+    private LectureOrderRepository lectureOrderRepository;
+
+    @Autowired
+    private LectureRepository lectureRepository;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -157,6 +170,63 @@ class LectureHpTaskAdminApiTest {
                         .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isForbidden());
         assertThat(lectureHpTaskRepository.findById(pending.getId()).orElseThrow().getStatus())
+                .isEqualTo(LectureHpTaskStatus.DEAD);
+    }
+
+    @Test
+    void 보류_무효화는_DEAD인_주문_항목_보류를_닫고_등록한_무효화_작업을_200으로_준다() throws Exception {
+        Lecture lecture = Lecture.register(SELLER_ID, TITLE, DESCRIPTION, PRICE_HP, null, contentSpecs(), NOW);
+        lecture.approve(ADMIN_ID, NOW);
+        LectureOrder order = lectureOrderRepository.save(
+                LectureOrderFixture.pending(BUYER_ID, List.of(lectureRepository.save(lecture)), CREATED_AT));
+        Long itemId = order.getItems().getFirst().getId();
+        LectureHpTask hold = lectureHpTaskRepository.save(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD,
+                "LECTURE-HOLD-" + itemId, order.getId(), itemId, BUYER_ID, null, PRICE_HP, CREATED_AT));
+        markDead(hold.getId(), "IDEMPOTENCY_KEY_CONFLICT");
+
+        mockMvc.perform(post(BASE + "/{taskId}/void", hold.getId()).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("보류 무효화를 등록했습니다."))
+                .andExpect(jsonPath("$.data.taskType").value("VOID"))
+                .andExpect(jsonPath("$.data.purpose").value("HOLD_VOID"))
+                .andExpect(jsonPath("$.data.status").value("PENDING"))
+                .andExpect(jsonPath("$.data.requestId").value("LECTURE-HOLD-VOID-" + itemId))
+                .andExpect(jsonPath("$.data.orderItemId").value(itemId))
+                .andExpect(jsonPath("$.data.amountHp").value(PRICE_HP));
+
+        mockMvc.perform(get(BASE + "/{taskId}", hold.getId()).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(jsonPath("$.data.task.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.task.outcome").value("VOIDED"))
+                .andExpect(jsonPath("$.data.task.voidedByUserId").value(ADMIN_ID))
+                .andExpect(jsonPath("$.data.task.lastErrorCode").value("IDEMPOTENCY_KEY_CONFLICT"));
+        assertThat(lectureOrderRepository.findById(order.getId()).orElseThrow().getStatus())
+                .isEqualTo(LectureOrderStatus.HOLD_COMPENSATING);
+    }
+
+    @Test
+    void 보류_무효화는_없는_작업은_404_주문_항목_보류가_아니면_409_DEAD가_아니면_409이고_관리자가_아니면_403이다()
+            throws Exception {
+        LectureHpTask cancel = save(LectureHpTaskPurpose.CANCEL, "LECTURE-CANCEL-31", 31L, null);
+        markDead(cancel.getId(), "HOLD_ALREADY_CLOSED");
+        LectureHpTask pendingHold = save(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-32", 32L, null);
+
+        mockMvc.perform(post(BASE + "/{taskId}/void", 999_999L).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("HP_TASK_NOT_FOUND"));
+        mockMvc.perform(post(BASE + "/{taskId}/void", cancel.getId()).with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("HP_TASK_NOT_VOIDABLE"));
+        mockMvc.perform(post(BASE + "/{taskId}/void", pendingHold.getId())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("HP_TASK_NOT_DEAD"));
+        markDead(pendingHold.getId(), "IDEMPOTENCY_KEY_CONFLICT");
+        mockMvc.perform(post(BASE + "/{taskId}/void", pendingHold.getId())
+                        .with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isForbidden());
+        assertThat(lectureHpTaskRepository.findById(pendingHold.getId()).orElseThrow().getStatus())
+                .isEqualTo(LectureHpTaskStatus.DEAD);
+        assertThat(lectureHpTaskRepository.findById(cancel.getId()).orElseThrow().getStatus())
                 .isEqualTo(LectureHpTaskStatus.DEAD);
     }
 

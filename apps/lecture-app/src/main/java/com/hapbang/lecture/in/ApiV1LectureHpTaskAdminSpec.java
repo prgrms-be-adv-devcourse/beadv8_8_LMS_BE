@@ -16,7 +16,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 /** 강의 HP 작업 관리 API Swagger 명세 (관리자, reference.md 8.2.1). 매핑은 {@link ApiV1LectureHpTaskAdminController} */
-@Tag(name = "강의 HP 작업", description = "관리자의 강의 HP 작업(보류·반환·지급 요청) 확인과 자동 처리가 멈춘 작업 재시도")
+@Tag(name = "강의 HP 작업", description = "관리자의 강의 HP 작업(보류·반환·지급·보류 무효화 요청) 확인, 자동 처리가 멈춘 작업 재시도와 주문 항목 보류 무효화")
 public interface ApiV1LectureHpTaskAdminSpec {
 
     @Operation(summary = "HP 작업 목록",
@@ -41,4 +41,14 @@ public interface ApiV1LectureHpTaskAdminSpec {
                     + "(기본 1분 안)가 같은 요청 ID로 보내므로 HP가 두 번 움직이지 않는다. 자동 재시도 횟수만 0이 되고 누적 횟수와 "
                     + "마지막 오류는 남는다. 없는 작업은 404 HP_TASK_NOT_FOUND, DEAD가 아니면 409 HP_TASK_NOT_DEAD.")
     ResponseEntity<Void> retry(Long adminUserId, Long taskId);
+
+    @Operation(summary = "주문 항목 보류 무효화",
+            description = "관리자. 결과를 확정하지 못한 주문 항목 보류(DEAD인 ORDER_HOLD)를 보류 무효화로 끝낸다(D73). 원래 보류는 "
+                    + "COMPLETED·VOIDED로 닫히고 주문은 결제 취소 처리 중(HOLD_COMPENSATING)이 된다. 응답은 새로 등록한 무효화 작업"
+                    + "(taskType VOID, purpose HOLD_VOID)이고, 다음 재시도 배치(기본 1분 안)가 지갑에 보낸다. 무효화와 다른 항목의 "
+                    + "반환이 끝나면 결제 실패(HOLD_FAILED)이고 같은 강의를 다시 살 수 있다. 되돌릴 수 없으므로 재시도로 결과가 바뀌지 "
+                    + "않을 때만 쓴다(일시 장애면 재시도). HOLD_OWNER_MISMATCH로 DEAD인 보류는 무효화도 같은 코드로 실패한다. "
+                    + "없는 작업은 404 HP_TASK_NOT_FOUND, ORDER_HOLD가 아니면 409 HP_TASK_NOT_VOIDABLE, "
+                    + "DEAD가 아니면 409 HP_TASK_NOT_DEAD.")
+    RsData<LectureHpTaskResponse> voidHold(Long adminUserId, Long taskId);
 }

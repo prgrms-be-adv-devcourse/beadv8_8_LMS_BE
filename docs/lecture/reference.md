@@ -90,20 +90,20 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 **lecture_user** (**신규**, 회원 복제): `id`(회원 ID), `nickname`, `role`, `status`, `created_at`, `updated_at`. 채팅 모듈의 `CHAT_USER`와 같은 패턴.
 
-**lecture_hp_task** (**신규**, #275, D57): HP 작업. 강의의 보류·반환·지급 호출 한 건. 삭제하지 않는다.
+**lecture_hp_task** (**신규**, #275, D57, D73): HP 작업. 강의의 보류·반환·지급·보류 무효화 호출 한 건. 삭제하지 않는다.
 
 | 컬럼 | 타입 | 비고 |
 | --- | --- | --- |
 | id | bigint PK | |
-| task_type | varchar | `HOLD` / `RELEASE` / `PAYOUT` |
-| purpose | varchar | `ORDER_HOLD` / `HOLD_COMPENSATION` / `CANCEL` / `RETURN` / `PAYOUT` |
+| task_type | varchar | `HOLD` / `RELEASE` / `PAYOUT` / `VOID` |
+| purpose | varchar | `ORDER_HOLD` / `HOLD_COMPENSATION` / `CANCEL` / `RETURN` / `PAYOUT` / `HOLD_VOID` |
 | request_id | varchar | 유일. billing 요청 ID와 같다 (6.2 멱등 키) |
 | order_id, order_item_id | bigint | 대상 주문·항목 |
 | payer_user_id, receiver_user_id | bigint | 구매자, 지급받는 판매자(지급만) |
 | amount_hp | bigint | 항목 가격 |
 | payload_fingerprint | varchar | 요청 값의 해시. 같은 `request_id`인데 다르면 충돌 |
 | status | varchar | `PENDING` / `PROCESSING` / `COMPLETED` / `DEAD` |
-| outcome | varchar | `COMPLETED`일 때: `SUCCEEDED` / `REJECTED`(HOLD의 확정 거절) / `SKIPPED`(실행 전에 필요 없어진 HOLD) |
+| outcome | varchar | `COMPLETED`일 때: `SUCCEEDED` / `REJECTED`(HOLD의 확정 거절) / `SKIPPED`(실행 전에 필요 없어진 HOLD) / `VOIDED`(관리자가 보류 무효화로 끝낸 HOLD, D73) |
 | attempt_count | int | 현재 자동 재시도 주기의 선점 횟수 |
 | total_attempt_count | int | 관리자 재시도를 포함한 누적 선점 횟수 |
 | manual_retry_count | int | `DEAD`에서 관리자가 복구한 횟수 |
@@ -113,6 +113,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | last_error_code | varchar | 마지막 실패 코드 (`BillingFailureCode` 또는 실행기 결과) |
 | last_failed_at | timestamp | |
 | last_retried_by_user_id, last_retried_at | bigint, timestamp | 마지막 관리자 재시도 |
+| voided_by_user_id | bigint | 보류 무효화로 끝낸 관리자(`VOIDED`만). 시각은 `completed_at` (D73) |
 | completed_at | timestamp | |
 | created_at, updated_at | timestamp | |
 
@@ -296,7 +297,7 @@ billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. �
 | 반환 / 지급 | `return` (`RETURNED`) / `payout` (`PAID_OUT`) |
 | 결제 처리 중 / 결제 취소 처리 중 / 결제 실패 | `HOLD_PENDING` / `HOLD_COMPENSATING` / `HOLD_FAILED` |
 | 구매 취소 처리 중 / 반환 처리 중 / 지급 처리 중 | `CANCEL_PENDING` / `RETURN_PENDING` / `PAYOUT_PENDING` |
-| HP 작업 (보류·반환·지급 호출 한 건) | `LectureHpTask` (`HOLD`·`RELEASE`·`PAYOUT`) |
+| HP 작업 (보류·반환·지급·보류 무효화 호출 한 건) | `LectureHpTask` (`HOLD`·`RELEASE`·`PAYOUT`·`VOID`) |
 | 이의 제기 인정 뒤 HP 반환 상태 (고객센터) | `hpReturnStatus` ("환불"이 아니다, 4장 용어) |
 | 리뷰 / 평점 | `LectureReview` / `rating` |
 
