@@ -9,6 +9,7 @@ import org.springframework.test.context.TestContext;
 import org.springframework.test.context.support.AbstractTestExecutionListener;
 
 import com.hapbang.chat.app.ChatDeliveryAvailability;
+import com.hapbang.chat.app.ChatRoomActivityNotifier;
 import com.hapbang.chat.in.redis.ChatRealtimeRedisListener;
 import com.hapbang.chat.in.stream.ChatDeliveryPipelineRunner;
 import com.hapbang.chat.out.redis.ChatRedisKeys;
@@ -24,6 +25,9 @@ import lombok.extern.slf4j.Slf4j;
  * <ol>
  *     <li>메서드가 끝나면 DB 정리 전에(이 리스너의 순서가 더 커서 afterTestMethod가 먼저 돈다) 파이프라인을 멈추고, 구독자의
  *     새 payload 처리를 멈춘 뒤 처리 중인 작업이 끝나기를 기다린다(운영 종료와 같은 {@code pause}·{@code awaitIdle}).</li>
+ *     <li>새 메시지 알림 묶음을 비운다. 묶음은 메모리에 방별로 모였다가 주기(1초)마다 나가므로, 메서드가 주기 전에 끝나면 남은 묶음이
+ *     다음 메서드의 주기에 그 메서드가 같은 회원으로 연 연결로 나간다(앞 메서드 방의 {@code ROOM_ACTIVITY}). 구독자 처리가 멈춘 뒤라
+ *     새 재료가 들어오지 않고, {@code flush}는 보낼 곳이 없어도 묶음을 떼어 내므로 다음 메서드는 빈 묶음에서 시작한다.</li>
  *     <li>이 컨텍스트의 namespace에 있는 전달·제어 Stream 키만 지운다(그룹·PEL도 함께 지워진다). FLUSHALL 등 전역 정리는 하지 않는다.</li>
  *     <li>다음 메서드 시작 전에 전달 가용성 상태(Redis 멈춤·자기 구독 단절·메모리 상한 재확인)를 초기화하고, 구독자 처리와
  *     파이프라인을 다시 시작한다. 시작할 때 그룹을 다시 만든다. 앞 실행의 worker가 아직 끝나지 않아 시작을 거절하면 끝날 때까지
@@ -105,6 +109,7 @@ public class ChatPipelineIsolationListener extends AbstractTestExecutionListener
                 throw new IllegalStateException("실시간 처리 작업이 " + drainTimeout
                         + " 안에 끝나지 않아 Stream·DB를 정리하지 않습니다. 다음 테스트로 작업이 샐 수 있습니다.");
             }
+            discardRoomActivity(context);
         }
         if (runner == null) {
             return;
@@ -153,6 +158,14 @@ public class ChatPipelineIsolationListener extends AbstractTestExecutionListener
             }
         }
         return true;
+    }
+
+    /** 남은 새 메시지 알림 묶음을 떼어 낸다. 아직 열린 앞 메서드의 연결로 나가도 그 메서드는 끝났으므로 영향이 없다 */
+    private static void discardRoomActivity(ApplicationContext context) {
+        ChatRoomActivityNotifier notifier = context.getBeanProvider(ChatRoomActivityNotifier.class).getIfAvailable();
+        if (notifier != null) {
+            notifier.flush();
+        }
     }
 
     private static ChatRealtimeRedisListener realtimeListener(ApplicationContext context) {

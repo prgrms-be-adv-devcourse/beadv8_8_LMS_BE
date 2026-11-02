@@ -102,7 +102,7 @@ class ChatRealtimeRedisListenerTest {
                 """.formatted(controlId)), null);
 
         verify(facade, timeout(TIMEOUT_MILLIS)).applyControl(new ControlFanout(UUID.fromString(controlId),
-                ChatControlType.RECHECK_USER, 7L, 5L, ChatControlReason.MEMBER_MODIFIED));
+                ChatControlType.RECHECK_USER, 7L, 5L, ChatControlReason.MEMBER_MODIFIED, null));
         verify(facade, after(200).times(1)).applyControl(any());
     }
 

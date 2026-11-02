@@ -35,8 +35,9 @@ public class ChatRealtimeFacade {
     }
 
     /**
-     * 연결 제어 작업을 이 앱의 로컬 연결에 적용한다. 재검사는 최신 자격으로 판단하고, 로그아웃은 자격과 관계없이 그 회원의 연결을
-     * 모두 닫는다. 둘 다 반복해도 안전하다.
+     * 연결 제어 작업을 이 앱의 로컬 연결에 적용한다. 재검사는 최신 자격으로 판단하고, 로그아웃은 자격과 관계없이 그 회원의 연결 중
+     * 로그아웃 시각보다 먼저 인증한 연결을 닫는다(늦게 온 옛 로그아웃이 다시 로그인한 연결을 닫지 않게). 로그아웃 시각이 없는 옛
+     * 작업은 그 회원의 연결을 모두 닫는다. 둘 다 반복해도 안전하다.
      */
     public void applyControl(ControlFanout control) {
         if (control.type() == null || control.userId() == null) {
@@ -46,9 +47,11 @@ public class ChatRealtimeFacade {
         switch (control.type()) {
             case RECHECK_USER -> chatConnectionRecheckService.recheckUser(control.userId());
             case LOGOUT_USER -> {
-                int closed = localChatConnections.closeLoggedOut(control.userId());
-                log.info("로그아웃한 회원의 로컬 연결 닫음 controlId={}, userId={}, closed={}", control.controlId(),
-                        control.userId(), closed);
+                int closed = control.loggedOutAt() == null
+                        ? localChatConnections.closeLoggedOut(control.userId())
+                        : localChatConnections.closeLoggedOutBefore(control.userId(), control.loggedOutAt());
+                log.info("로그아웃한 회원의 로컬 연결 닫음 controlId={}, userId={}, loggedOutAt={}, closed={}",
+                        control.controlId(), control.userId(), control.loggedOutAt(), closed);
             }
         }
     }

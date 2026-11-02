@@ -80,15 +80,16 @@ public class ChatUserEventListener {
     }
 
     /**
-     * 회원 로그아웃(설계 문서 Q8, 사용자 결정 2026-11-02): 회원 단위로 처리해 그 회원의 모든 로컬 연결을 닫는 작업을 남긴다.
-     * 이벤트의 {@code sessionId}는 쓰지 않는다(HTTP 세션 ID라 연결 티켓으로 맺은 웹소켓 연결과 대응하지 않는다). 연결 종료는 기록한 제어 작업이
+     * 회원 로그아웃(설계 문서 Q8, 사용자 결정 2026-11-02): 회원 단위로 처리해 그 회원의 로컬 연결 중 이벤트의 {@code loggedOutAt}보다
+     * 먼저 인증한 연결을 닫는 작업을 남긴다. 아웃박스 재전송으로 늦게 다시 온 옛 이벤트가 그 뒤에 다시 로그인한 연결을 닫지 않게
+     * 한다. {@code loggedOutAt}이 없으면(옛 형식) 처리 시각으로 대신한다. 연결 종료는 기록한 제어 작업이
      * 제어 Stream·제어 채널을 거쳐 처리하고, 이 메서드는 직접 닫지 않는다. 회원 ID가 없거나 1보다 작으면 다시 처리해도 같으므로
      * 재시도 없이 DLT로 보낸다.
      */
     @KafkaHandler
     public void on(UserLoggedOutEvent event) {
         try {
-            chatUserFacade.syncLoggedOut(event.userId());
+            chatUserFacade.syncLoggedOut(event.userId(), event.loggedOutAt());
         } catch (ChatException e) {
             if (e.getErrorCode() == ChatErrorCode.INVALID_REQUEST) {
                 throw new RejectedEventException("로그아웃한 회원 ID가 올바르지 않습니다.", e);

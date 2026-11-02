@@ -565,7 +565,7 @@ class ChatRealtimeDeliveryE2ETest {
 
     private static ControlFanout recheck(Long userId) {
         return new ControlFanout(UUID.randomUUID(), ChatControlType.RECHECK_USER, userId, 1L,
-                ChatControlReason.MEMBER_MODIFIED);
+                ChatControlReason.MEMBER_MODIFIED, null);
     }
 
     private static <T> Frame<T> poll(BlockingQueue<Frame<T>> queue) throws InterruptedException {
