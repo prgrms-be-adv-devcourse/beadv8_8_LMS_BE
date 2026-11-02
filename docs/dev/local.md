@@ -20,6 +20,7 @@
 기존 `docker/compose.yaml`의 PostgreSQL·S3Mock은 로컬 개발 보조 설정으로 보존한다. 앱별 설정에서 사용하는 DB·마이그레이션 이력은 [앱 구조](../architecture/app-modules.md)의 전환 제약을 따른다. 기존 운영 DB에 새 구성을 바로 적용하지 않는다.
 
 - 회원 앱의 로컬 로그인은 `POST /api/v1/members/local-login?role=VERIFIED_INFLUENCER&number=1`이다.
+- 운영(prod)도 첫 관리자를 만들려고 로컬 로그인을 켜 둔다(#517). 켜져 있는 동안 공개 주소에서 누구나 관리자 등 모든 역할로 로그인할 수 있으므로, 관리자 생성 API로 실제 관리자 계정을 만든 뒤 `HAPBANG_LOCAL_LOGIN_ENABLED=false`로 끈다.
 - 세션 인증의 POST는 CSRF 검사를 받는다. GET으로 받은 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로 보낸다.
 - S3Mock은 서명·만료·권한을 검사하지 않는다. 실제 S3 연동 확인은 [S3 문서](../deploy/s3.md)를 따른다.
 
