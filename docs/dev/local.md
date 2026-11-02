@@ -17,11 +17,23 @@
 
 ## 로컬 인프라와 로그인
 
-기존 `docker/compose.yaml`의 PostgreSQL·S3Mock은 로컬 개발 보조 설정으로 보존한다. 앱별 설정에서 사용하는 DB·마이그레이션 이력은 [앱 구조](../architecture/app-modules.md)의 전환 제약을 따른다. 기존 운영 DB에 새 구성을 바로 적용하지 않는다.
+`docker/compose.yaml`은 PostgreSQL·S3Mock·Redis·Kafka와 로컬 Envoy를 띄운다. 앱을 local 프로필로 시작하면 spring-boot-docker-compose가 함께 띄운다. 앱별 설정에서 사용하는 DB·마이그레이션 이력은 [앱 구조](../architecture/app-modules.md)의 전환 제약을 따른다. 기존 운영 DB에 새 구성을 바로 적용하지 않는다.
 
-- 회원 앱의 로컬 로그인은 `POST /api/v1/members/local-login?role=VERIFIED_INFLUENCER&number=1`이다.
-- 세션 인증의 POST는 CSRF 검사를 받는다. GET으로 받은 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로 보낸다.
 - S3Mock은 서명·만료·권한을 검사하지 않는다. 실제 S3 연동 확인은 [S3 문서](../deploy/s3.md)를 따른다.
+
+### 로그인과 사용자 헤더
+
+운영에서는 Gateway(Envoy)가 access token(JWT)을 검증해 `X-User-Id`·`X-User-Role` 헤더로 앱에 넘긴다. 앱은 서명을 다시 검증하지 않고 이 헤더만 믿는다. 로컬에서는 확인할 범위에 따라 둘 중 하나로 한다.
+
+- **앱 하나만 확인**: 앱 포트로 두 헤더를 직접 넣는다. 예: `curl -H 'X-User-Id: 1' -H 'X-User-Role: USER' localhost:8083/api/v1/appearances/...`. Swagger도 같다. 역할은 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`·`ADMIN` 중 하나다.
+- **토큰 흐름·프론트 연동**: 로컬 Envoy(`localhost:8000`, `ENVOY_PORT`로 바꿈)를 거친다. Envoy가 운영 Gateway처럼 토큰을 검증하고 헤더를 만든다. 외부에서 붙인 `X-User-*`는 지운다. 프론트 dev server는 `/api`를 이 주소로 보낸다.
+  1. 로그인: `POST /api/v1/members/local-login?role=VERIFIED_INFLUENCER&number=1`(local 프로필의 테스트 계정) 또는 `POST /api/v1/members/login`(이메일·비밀번호). refresh token이 쿠키(`Path=/api/v1/members/auth`)로 온다.
+  2. 재발급: refresh token 쿠키를 실어 `POST /api/v1/members/auth/refresh`. 본문 `data.accessToken`이 access token이다.
+  3. 호출: `Authorization: Bearer <access token>`. 토큰은 이 헤더에서만 읽는다(query `access_token`은 받지 않는다).
+
+- 사용자 헤더로 인증하는 앱은 지금 member·appearance다. 나머지 앱은 #371 전까지 세션 설정이라 로그인이 필요한 API를 인증하지 못한다. 이 앱들의 POST는 CSRF 검사를 받는다(GET으로 받은 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로).
+- 로컬 member는 `JWT_PRIVATE_KEY`가 없으면 시작할 때마다 임시 서명 키를 만든다. 재시작하면 이전 access token은 401이다. refresh로 다시 받으면 Envoy가 5초 안에 새 공개 키를 받아 통한다. 재시작해도 access token을 유지하려면 `JWT_PRIVATE_KEY`를 넣는다(형식은 [k8s.md](../deploy/k8s.md)의 `JWT_PRIVATE_KEY`).
+- Envoy는 각 앱의 기본 포트(8081~8086)로 보낸다. `SERVER_PORT`를 바꾼 앱은 Envoy 경유로 503이다. Envoy가 하는 일과 운영과 다른 점은 [로컬 Envoy](../deploy/gateway.md#로컬-envoy-508)에 있다.
 
 ## dev 서버
 

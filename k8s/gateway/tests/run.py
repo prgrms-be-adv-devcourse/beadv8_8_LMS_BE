@@ -408,6 +408,13 @@ try:
             and received.get("x-user-id") == "42"
             and received.get("x-user-role") == "USER",
         )
+        # #508: a valid token in the access_token query is not read (Authorization header only).
+        status, _, body = request(TEST_PREFIX + "/members/probe?access_token=" + token())
+        received = {k.lower(): v for k, v in json.loads(body)["headers"].items()}
+        check(
+            "query token ignored; Authorization header only",
+            status == 200 and "x-user-id" not in received,
+        )
         check(
             "internal API has no external backend",
             request("/api/v1/internal/members")[0] == 404,
