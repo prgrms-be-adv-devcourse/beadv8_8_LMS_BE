@@ -1,6 +1,7 @@
 package com.hapbang.member.in;
 
 import java.io.IOException;
+import java.util.Map;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.member.global.auth.LoginUserId;
 import com.hapbang.member.global.response.RsData;
 import com.hapbang.member.app.MemberFacade;
+import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.User;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -44,22 +46,26 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         return RsData.ok("내 정보를 수정했습니다.", meResponse(memberFacade.updateProfile(userId, request.nickname())));
     }
 
-    /** 인플루언서 목록 (최신 가입순) */
+    /** 인플루언서 목록 (최신 가입순). 출연 평점은 한 페이지의 회원을 한 번에 읽어 붙인다 */
     @Override
     @GetMapping("/influencers")
     public RsData<Page<MemberProfileResponse>> influencers(Pageable pageable) {
-        return RsData.ok("인플루언서 목록을 조회했습니다.",
-                memberFacade.findInfluencers(pageable).map(user ->
-                        MemberProfileResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()))));
+        Page<User> influencers = memberFacade.findInfluencers(pageable);
+        Map<Long, AppearanceRatingSummary> ratings = memberFacade.findAppearanceRatings(
+                influencers.map(User::getId).getContent());
+        return RsData.ok("인플루언서 목록을 조회했습니다.", influencers.map(user -> MemberProfileResponse.from(user,
+                memberFacade.profileImageUrl(user.getProfileImageKey()),
+                ratings.getOrDefault(user.getId(), AppearanceRatingSummary.EMPTY))));
     }
 
-    /** 회원 프로필 (등록된 채널 포함). 숫자만 받아 /signup 같은 다른 주소와 겹치지 않게 한다 */
+    /** 회원 프로필 (등록된 채널, 출연 평점 포함). 숫자만 받아 /signup 같은 다른 주소와 겹치지 않게 한다 */
     @Override
     @GetMapping("/{memberId:\\d+}")
     public RsData<MemberProfileDetailResponse> profile(@PathVariable(name = "memberId") Long memberId) {
         User user = memberFacade.findProfile(memberId);
         return RsData.ok("회원 프로필을 조회했습니다.", MemberProfileDetailResponse.from(user,
-                memberFacade.profileImageUrl(user.getProfileImageKey()), memberFacade.findChannels(memberId)));
+                memberFacade.profileImageUrl(user.getProfileImageKey()), memberFacade.findChannels(memberId),
+                memberFacade.findAppearanceRating(memberId)));
     }
 
     /** 프로필 사진 올리기. 본문이 이미지 그대로 (multipart 아님). 팀 업로드 경로 규칙이라 {memberId}에 내 회원 ID */

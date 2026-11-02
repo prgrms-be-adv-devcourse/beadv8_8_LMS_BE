@@ -29,12 +29,17 @@ public interface ApiV1MemberSpec {
 
     @Operation(summary = "인플루언서 목록",
             description = "로그인한 회원. 인플루언서·인증된 인플루언서 중 정상 회원만, 최신 가입순. "
-                    + "page·size로 페이징(최대 100). 정렬은 바꿀 수 없다.")
+                    + "page·size로 페이징(최대 100). 정렬은 바꿀 수 없다. "
+                    + "appearanceRating은 받은 출연 리뷰 전체 평점 {average, count} "
+                    + "(average는 소수 첫째 자리 반올림, 리뷰가 없으면 average null·count 0).")
     RsData<Page<MemberProfileResponse>> influencers(Pageable pageable);
 
     @Operation(summary = "회원 프로필",
             description = "로그인한 회원. 공개 정보(id·닉네임·역할·프로필 이미지)와 등록된 채널 전부 "
-                    + "(채널 이름·주소·팔로워 수, 승인 상태는 넣지 않음). 탈퇴·없는 회원은 404.")
+                    + "(채널 이름·주소·팔로워 수, 승인 상태는 넣지 않음). 탈퇴·없는 회원은 404. "
+                    + "appearanceRating은 출연 평점 {total, asHost, asGuest}: 전체, 호스트로 받은 리뷰(게스트가 씀), "
+                    + "게스트로 받은 리뷰(호스트가 씀). 각각 {average, count}이고 average는 소수 첫째 자리 반올림, "
+                    + "리뷰가 없으면 average null·count 0.")
     RsData<MemberProfileDetailResponse> profile(Long memberId);
 
     @Operation(summary = "프로필 사진 올리기",
