@@ -7,6 +7,7 @@
 > - 결정을 바꾸려면 팀과 먼저 합의하고, 기존 행의 상태를 바꾼 뒤 새 번호를 더한다.
 > - 2026-10-29 dev da834b1 반영: Billing 결정은 바뀌지 않았다. #369 최종 인프라 결정이 재검토 대상(11장)에 주는 방향만 더했다.
 > - 2026-10-30 PROGRESS 3.21(#273) 반영: BD-108을 결정했고 BD-111~BD-113을 더했다(9장). BD-28·BD-54는 일부 대체됐다. 이제 결정 원본은 이 문서이고, `PROGRESS.md` 3장은 결정 배경만 두고 각 절에서 `BD-*`를 가리킨다. 출처 칸의 `P`는 `PROGRESS.md`, `A`는 `apps/billing-app/AGENTS.md`, `C`는 [`CONTEXT.md`](CONTEXT.md)의 장 번호다.
+> - 2026-11-02 #537 반영: 사용자 API를 Gateway 사용자 헤더로 인증하고, 충전·환불·환전 신청은 지갑 회원(복제본)도 확인한다(BD-131). 11장 BD-3·BD-102·BD-103 재검토 항목을 해소했다.
 > - 2026-11-02 #497 반영: 지갑 이벤트를 Kafka로 발행한다(BD-130). BD-124는 대체됐다.
 > - 2026-11-01 #494 반영: shared Command를 billing 내부 Command로 바꿔 넘긴다(BD-129).
 > - 2026-10-31 #486 반영: `BillingPort`·`BillingPortAdapter`를 지웠다(BD-128). BD-51은 일부 대체, BD-52는 폐기됐다.
@@ -214,6 +215,7 @@
 | BD-120 | 환전 금액은 1 HP 이상·1 HP 단위다. 송금액 = floor(신청 × 90%), 수수료 = 신청 − 송금액(항상 1 HP 이상). 신청 때 확정·저장하고 `fee_rate`는 0.1000 그대로다. 이미 저장된 환전은 바뀌지 않는다(`ck_exchange_1` → `>= 1`, `V202610301200`) | 잔액 전부를 현금화하도록 최소 1 HP로 정했다(최소 1,000 유지·최소 2원 안도 있었다). 버림 대상을 송금액으로 바꿨다(사용자 결정) | 유효 (BD-95 수수료 계산 대체) | C4.1, C4.2, #453 | — |
 | BD-121 | 송금액 0원 환전(신청 1 HP)은 허용한다. 정산 배치가 정산 예정 시각에 은행을 부르지 않고 같은 트랜잭션에서 확정 차감 + 수수료 수입 + COMPLETED로 끝낸다. 송금 시도(`exchange_payout`)는 남기지 않는다. dev·prod(Mock 꺼짐)는 다른 환전처럼 건너뛴다 | 송금할 금액이 없다. 회차·승인 흐름과 환경별 규칙은 그대로 둔다 | 유효 | C4.3, #453 | — |
 | BD-122 | 오류 코드 `REFUND_AMOUNT_INVALID` → `REFUND_AMOUNT_TOO_SMALL`, `EXCHANGE_AMOUNT_INVALID` → `EXCHANGE_AMOUNT_TOO_SMALL`(1 HP 미만). 회원 API 코드라 shared `BillingFailureCode`와 관계없다 | 단위 검사가 없어져 뜻을 맞췄다(사용자 결정). 프론트와 맞춘다 | 유효 | C4.4, #453 | — |
+| BD-131 | (1) 사용자 API는 Gateway(Envoy)가 JWT를 검증해 넘긴 `X-User-Id`·`X-User-Role`로 인증한다(`GatewayUserHeaderFilter`, 강의 #521·D72와 같은 방식). 세션·CSRF를 쓰지 않고(STATELESS), 헤더가 한쪽만 있거나 형식이 틀리면 익명 + 경고 로그(로그인이 필요한 API는 401). 내부 API·Mock 송금 체인은 그대로다. (2) HP를 받거나 내보내는 신청은 토큰 역할(`@PreAuthorize`)과 함께 지갑 회원(`billing_user`)의 상태·역할도 통과해야 한다(`WalletMemberCheck`): 충전 주문·승인 = ACTIVE + 유저·인플루언서·인증된 인플루언서, 환불 신청 = ACTIVE·SUSPENDED + 같은 역할, 환전 신청 = ACTIVE + 인플루언서 이상. 복제본 없음 404 `WALLET_MEMBER_NOT_FOUND`, 부적격 403 `WALLET_MEMBER_NOT_ALLOWED`. 충전 승인은 TossPayments 승인 전에 확인한다. 조회·취소와 내부 API(보류·반환·지급)는 확인하지 않는다 | 발급한 JWT는 회수할 수 없어 정지·강등이 최대 15분 늦다(api-gateway.md 인증 흐름 7). 환불은 회원이 결제한 돈을 돌려받는 것이라 정지로 막지 않는다. 상태를 모르면 돈을 움직이지 않는다(BD-102·채팅과 같다). 복제본 없음은 가입 직후 일시적일 수 있어 403과 나눈다. 취소는 보류 HP를 돌려받는 쪽이라 막지 않는다. 내부 API의 `userId`는 호출 앱이 넘기며, 정지 회원의 출연도 지급한다(policy 5장). 이미 PROCESSING인 충전은 복구 배치가 Facade를 거치지 않고 끝까지 확인한다 | 유효 (2026-11-02 사용자 결정, policy.md 2장 팀 확인 요청) | #537 | — |
 
 ## 9. 오류·호출 계약 (5장·4장, #273)
 
@@ -253,7 +255,7 @@
 | BD-72, BD-73 | 여러 모듈 테이블 락이 한 DB 트랜잭션 안에 있다 | 모듈별 database 분리 확정(#338, 인프라 문서 10장) → 한 트랜잭션 안의 모듈 간 락은 불가능해진다 | 모듈 간 락 순서를 폐기할지, Billing 안 락 순서만 남길지 | 이 문서 (Billing 쪽 결론) |
 | BD-28, BD-54 | 내부 Java 호출이라 인증·예외 형식이 필요 없다 | 내부 API는 `X-Internal-Api-Key` 인증 유지, k3s에서는 Envoy route 없음 + NetworkPolicy(인프라 문서 3장) | 해소(#273): 400 응답은 BD-111, 인증·인가는 BD-112 | 9장 |
 | BD-2, BD-6, BD-103 | 회원 이벤트가 같은 프로세스에서 전달된다 | Kafka(#339). member-app이 Modulith publication registry를 outbox로 `member.events.v1`(key 회원 ID)에 발행하고 `eventId`는 없다. 소비는 업무 자연 키로 멱등하고, 블로킹 재시도 3회 뒤 그룹별 DLT([`kafka.md`](../architecture/infrastructure/kafka.md) 소비·재시도와 DLT) | 해소(#428 결정, #430 구현): 소비 그룹 둘(`billing-app.member-replica`·`billing-app.wallet-creation`), 자연 키 멱등, inbox 테이블 없음 → BD-123. 기존 `event_publication` 기록 정리는 Spring Event 제거 때 | [ADR 0001](../adr/0001-context-topics-with-mixed-event-types.md), [ADR 0002](../adr/0002-modulith-externalization-without-event-id.md), BD-123 |
-| BD-3, BD-102, BD-103 | 역할·회원 상태를 로그인 세션에서 바로 확인한다 | JWT 전환(#370~#372). HP가 움직이는 경로는 토큰 `role`만 믿지 않고 복제한 회원 상태를 함께 확인한다(인프라 문서 3장 인증 흐름 7) | 지금은 환전 승인만 `billing_user`를 확인한다. 보류·지급·환전 신청·충전·환불 중 어디에 확인을 더할지. 복제본이 없을 때 거절할지 | 이 문서 + `docs/policy.md` 변경 여부는 팀(#370) |
+| BD-3, BD-102, BD-103 | 역할·회원 상태를 로그인 세션에서 바로 확인한다 | JWT 전환(#370~#372). HP가 움직이는 경로는 토큰 `role`만 믿지 않고 복제한 회원 상태를 함께 확인한다(인프라 문서 3장 인증 흐름 7) | 해소(#537): 충전 주문·승인·환불 신청·환전 신청에 지갑 회원 확인을 더했고, 복제본이 없으면 404로 거절한다. 보류·지급은 내부 API라 호출 앱이 확인한다 → BD-131 | BD-131, `docs/policy.md` 2장 |
 | BD-66 | 출연 Fake 모드 | — | 코드에서 삭제됐는지 확인 후 상태 정리 | 이 문서 |
 
 ## 12. 결정 기록이 없는 구현 (코드에만 있음)

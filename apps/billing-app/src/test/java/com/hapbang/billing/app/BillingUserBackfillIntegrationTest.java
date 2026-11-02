@@ -2,7 +2,6 @@ package com.hapbang.billing.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -52,6 +51,7 @@ import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.fixture.ChargeFixture;
+import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.out.BillingUserRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
@@ -59,7 +59,6 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 import com.sun.net.httpserver.HttpServer;
 
 // 기존 회원 BillingUser Backfill(#324)을 실제 PostgreSQL과 실제 shared MemberApiClient로 검증한다. 회원 내부 API는 가짜 HTTP 서버다.
@@ -319,7 +318,7 @@ class BillingUserBackfillIntegrationTest {
         member(1L, Role.USER, UserStatus.ACTIVE, 0L);
         member(2L, Role.INFLUENCER, UserStatus.ACTIVE, 1L);
 
-        mockMvc.perform(post(URL).with(csrf()).with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).with(GatewayLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("회원 정보 Backfill을 실행했습니다."))
@@ -338,8 +337,8 @@ class BillingUserBackfillIntegrationTest {
         assertThat(REQUESTS).containsExactly("afterId=0&size=100");
 
         REQUESTS.clear();
-        mockMvc.perform(post(URL).param("afterId", "1").param("limit", "1").with(csrf())
-                        .with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).param("afterId", "1").param("limit", "1")
+                        .with(GatewayLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.scanned").value(1))
                 .andExpect(jsonPath("$.data.completed").value(true));
@@ -353,7 +352,7 @@ class BillingUserBackfillIntegrationTest {
             member(id, Role.USER, UserStatus.ACTIVE, 1L);
         }
 
-        mockMvc.perform(post(URL).with(csrf()).with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).with(GatewayLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.scanned").value(100))
                 .andExpect(jsonPath("$.data.created").value(100))
@@ -363,12 +362,12 @@ class BillingUserBackfillIntegrationTest {
         assertThat(REQUESTS).containsExactly("afterId=0&size=100");
         assertThat(count("billing.billing_user")).isEqualTo(100);
 
-        mockMvc.perform(post(URL).param("afterId", "100").with(csrf()).with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).param("afterId", "100").with(GatewayLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.scanned").value(100))
                 .andExpect(jsonPath("$.data.nextAfterId").value(200))
                 .andExpect(jsonPath("$.data.completed").value(false));
-        mockMvc.perform(post(URL).param("afterId", "200").with(csrf()).with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).param("afterId", "200").with(GatewayLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.scanned").value(50))
                 .andExpect(jsonPath("$.data.lastProcessedId").value(250))
@@ -385,7 +384,7 @@ class BillingUserBackfillIntegrationTest {
             member(id, Role.USER, UserStatus.ACTIVE, 1L);
         }
 
-        mockMvc.perform(post(URL).param("limit", "5000").with(csrf()).with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).param("limit", "5000").with(GatewayLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.scanned").value(5_000))
                 .andExpect(jsonPath("$.data.created").value(5_000))
@@ -396,8 +395,8 @@ class BillingUserBackfillIntegrationTest {
         assertThat(count("billing.billing_user")).isEqualTo(5_000);
 
         REQUESTS.clear();
-        mockMvc.perform(post(URL).param("afterId", "5000").param("limit", "5000").with(csrf())
-                        .with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).param("afterId", "5000").param("limit", "5000")
+                        .with(GatewayLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.scanned").value(100))
                 .andExpect(jsonPath("$.data.nextAfterId").doesNotExist())
@@ -410,7 +409,7 @@ class BillingUserBackfillIntegrationTest {
     @EnumSource(value = Role.class, names = {"USER", "INFLUENCER", "VERIFIED_INFLUENCER"})
     @DisplayName("관리자가 아니면 403, 회원 내부 API를 부르지 않는다")
     void api_forbidden(Role role) throws Exception {
-        mockMvc.perform(post(URL).with(csrf()).with(TestLogin.as(1L, role)))
+        mockMvc.perform(post(URL).with(GatewayLogin.as(1L, role)))
                 .andExpect(status().isForbidden());
         assertThat(REQUESTS).isEmpty();
     }
@@ -418,7 +417,7 @@ class BillingUserBackfillIntegrationTest {
     @Test
     @DisplayName("비로그인은 401이고 회원 내부 API를 부르지 않는다")
     void api_unauthenticated() throws Exception {
-        mockMvc.perform(post(URL).with(csrf()))
+        mockMvc.perform(post(URL))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.data").doesNotExist());
         assertThat(REQUESTS).isEmpty();
@@ -428,7 +427,7 @@ class BillingUserBackfillIntegrationTest {
     @CsvSource({"afterId, -1", "limit, 0", "limit, 5001", "limit, x", "afterId, y"})
     @DisplayName("afterId < 0, limit 1~5,000 밖, 숫자가 아닌 값은 400 INVALID_REQUEST(ProblemDetail)이다")
     void api_invalid(String name, String value) throws Exception {
-        mockMvc.perform(post(URL).param(name, value).with(csrf()).with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).param(name, value).with(GatewayLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
@@ -442,7 +441,7 @@ class BillingUserBackfillIntegrationTest {
         member(1L, Role.USER, UserStatus.ACTIVE, 0L);
         forcedStatus = 401;
 
-        mockMvc.perform(post(URL).param("afterId", "0").with(csrf()).with(TestLogin.as(ADMIN, Role.ADMIN)))
+        mockMvc.perform(post(URL).param("afterId", "0").with(GatewayLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(503))

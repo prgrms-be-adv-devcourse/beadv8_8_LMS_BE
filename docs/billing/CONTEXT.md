@@ -16,7 +16,7 @@
 
 ### 1.2 인증·노출
 
-- 기존 `InternalApiSecurityConfig`를 쓴다. `X-Internal-Api-Key`가 없거나 틀리면 401(본문 없음)이고, 회원 세션은 읽지 않는다.
+- 기존 `InternalApiSecurityConfig`를 쓴다. `X-Internal-Api-Key`가 없거나 틀리면 401(본문 없음)이고, 회원 로그인 정보(#537부터 Gateway 사용자 헤더)는 읽지 않는다.
 - `HoldFacade`에 `@PreAuthorize("hasRole('INTERNAL')")`를 붙인다(D63). #280 뒤에는 `HoldFacade`가 내부 API 전용 진입점이므로 최종 위치를 지금 정한다. 운영에서 `BillingPort`를 부르는 곳은 없고, `HoldFacade`·`BillingPort`를 직접 부르는 테스트는 `@WithMockUser(roles = "INTERNAL")`로 호출한다(검증 조건은 그대로).
 - 호출한 쪽이 넘긴 `userId`를 믿는다([`internal-earnings.md`](../api/internal-earnings.md) 1장).
 - Swagger에 노출한다. 외부는 진입점이 막는다(Compose는 nginx 404, k3s는 route 없음).
@@ -41,7 +41,7 @@
 
 ### 1.6 테스트
 
-- `@IntegrationTest` + MockMvc로 네 경로마다 성공·replay·409·400(구조 오류)·401(키 없음, 세션만 있음)을 검사한다. status·code·detail, 같은 요청의 동시 처리, 락 대기 초과 503, 처리 중 기술 실패의 500(내부 메시지 미노출)과 전체 롤백, Facade 인가, 요청 로그도 검사한다.
+- `@IntegrationTest` + MockMvc로 네 경로마다 성공·replay·409·400(구조 오류)·401(키 없음, 회원 로그인만 있음)을 검사한다. status·code·detail, 같은 요청의 동시 처리, 락 대기 초과 503, 처리 중 기술 실패의 500(내부 메시지 미노출)과 전체 롤백, Facade 인가, 요청 로그도 검사한다.
 - 오류 코드 대조 단위 테스트(이슈 #273대로 역방향): `BillingErrorCode` 전체를 `default` 없는 `switch`로 `BillingFailureCode`(내부 API에서 나오는 코드) 또는 `null`(나오지 않는 코드)로 바꾼다. 바뀐 코드는 이름이 같고, `UNMAPPED`를 뺀 `BillingFailureCode`가 모두 어떤 Billing 코드에서 나온다. Billing에 오류 코드가 늘면 컴파일되지 않아 분류를 빠뜨리지 않는다.
 
 ### 1.6.1 로그

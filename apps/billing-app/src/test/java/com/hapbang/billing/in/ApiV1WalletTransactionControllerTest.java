@@ -33,11 +33,11 @@ import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.IntegrationTest;
-import com.hapbang.testsupport.TestLogin;
 
 // 내 HP 거래 내역 API(#295)의 RsData·페이지 응답 모양, 시각(Instant UTC), 로그인 회원 기준 조회, 인가, page·size 검증을 MockMvc로 확인한다.
 // 원장 그룹화·분류 규칙은 WalletTransactionQueryIntegrationTest가 맡는다.
@@ -77,7 +77,7 @@ class ApiV1WalletTransactionControllerTest {
             SecurityContextHolder.clearContext();
         }
 
-        mockMvc.perform(get(URL).with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get(URL).with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("HP 거래 내역을 조회했습니다."))
@@ -118,7 +118,7 @@ class ApiV1WalletTransactionControllerTest {
         seedCharge(wallet, 3_000L);
 
         mockMvc.perform(get(URL).param("page", "1").param("size", "2").param("sort", "id,asc")
-                        .with(TestLogin.as(1L, Role.USER)))
+                        .with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.page.size").value(2))
                 .andExpect(jsonPath("$.data.page.number").value(1))
@@ -126,7 +126,7 @@ class ApiV1WalletTransactionControllerTest {
                 .andExpect(jsonPath("$.data.page.totalPages").value(2))
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].availableChangeHp").value(1000));
-        mockMvc.perform(get(URL).param("page", "9").param("size", "100").with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get(URL).param("page", "9").param("size", "100").with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(0))
                 .andExpect(jsonPath("$.data.page.totalElements").value(3));
@@ -136,7 +136,7 @@ class ApiV1WalletTransactionControllerTest {
     @CsvSource({"page, -1", "size, 0", "size, 101", "page, abc", "size, x"})
     @DisplayName("page < 0, size < 1, size > 100, 숫자가 아닌 값은 400 INVALID_REQUEST(ProblemDetail)이다")
     void invalidPaging(String name, String value) throws Exception {
-        mockMvc.perform(get(URL).param(name, value).with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get(URL).param(name, value).with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
@@ -151,7 +151,7 @@ class ApiV1WalletTransactionControllerTest {
         Long mine = walletRepository.save(Wallet.create(1L)).getId();
         seedCharge(mine, 1_000L);
 
-        mockMvc.perform(get(URL).param("userId", "2").with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get(URL).param("userId", "2").with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.page.totalElements").value(1))
                 .andExpect(jsonPath("$.data.content[0].availableChangeHp").value(1000));
@@ -160,7 +160,7 @@ class ApiV1WalletTransactionControllerTest {
     @Test
     @DisplayName("지갑이 없는 회원은 200 빈 목록이고 지갑을 만들지 않는다")
     void noWallet() throws Exception {
-        mockMvc.perform(get(URL).with(TestLogin.as(1L, Role.USER)))
+        mockMvc.perform(get(URL).with(GatewayLogin.as(1L, Role.USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(0))
                 .andExpect(jsonPath("$.data.page.totalElements").value(0));
@@ -172,7 +172,7 @@ class ApiV1WalletTransactionControllerTest {
     @EnumSource(value = Role.class, names = {"INFLUENCER", "VERIFIED_INFLUENCER"})
     @DisplayName("인플루언서·인증된 인플루언서도 조회할 수 있다")
     void influencers(Role role) throws Exception {
-        mockMvc.perform(get(URL).with(TestLogin.as(1L, role)))
+        mockMvc.perform(get(URL).with(GatewayLogin.as(1L, role)))
                 .andExpect(status().isOk());
     }
 
@@ -182,7 +182,7 @@ class ApiV1WalletTransactionControllerTest {
         mockMvc.perform(get(URL))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.data").doesNotExist());
-        mockMvc.perform(get(URL).with(TestLogin.as(1L, Role.ADMIN)))
+        mockMvc.perform(get(URL).with(GatewayLogin.as(1L, Role.ADMIN)))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"))
