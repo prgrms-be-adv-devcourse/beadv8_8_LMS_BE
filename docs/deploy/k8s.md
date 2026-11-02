@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐다. member-app은 route·JWT 검증까지 연결했고(2026-11-02, #500), lecture-app(2026-10-30, 2026-11-02 #525로 갱신)·appearance-app(2026-11-02, #504)·customer-support-app(2026-11-02, #525)은 ConfigMap·NetworkPolicy·Deployment만 올라가 외부 route가 없다(lecture-app은 고객센터가 부를 내부 Service도 있다). 넷 다 [릴리스 전 배포](#릴리스-전-배포)로 올렸다. 나머지 업무 앱(billing·chat)은 미배포다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
+상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐다. 업무 앱 6개(member·billing·appearance·lecture·chat·customer-support)는 모두 [릴리스 전 배포](#릴리스-전-배포)로 올라가 route·JWT 검증까지 연결됐다(2026-11-02, member #500, chat #545, 나머지 넷 #541). 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 
@@ -205,9 +205,9 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
    ```
 
 3. **push**: classic PAT(`write:packages`, 만료 1일)를 만들고 별도 터미널에서 `docker login ghcr.io -u <GitHub 아이디>`(Password 칸에 붙여 넣는다) → `docker push <이미지>` → `docker logout ghcr.io` → PAT 삭제. 토큰은 채팅·이슈에 붙이지 않는다.
-   - 패키지가 없으면 첫 push가 패키지를 만든다. 2026-10-30 member-app·lecture-app은 첫 push가 패키지만 만들고 `denied`로 끝났고, 다시 로그인해 push하자 올라갔다. 2026-11-02 appearance-app은 첫 push에 바로 올라갔다.
+   - 패키지가 없으면 첫 push가 패키지를 만든다. 2026-10-30 member-app·lecture-app은 첫 push가 패키지만 만들고 `denied`로 끝났고, 다시 로그인해 push하자 올라갔다. 2026-11-02 appearance-app은 첫 push에 바로 올라갔고, billing-app은 첫 push가 `denied`로 끝나 다시 push하자 올라갔다.
    - main의 Publish images(`GITHUB_TOKEN`)가 이 패키지에 push하려면 레포 Actions에 쓰기 권한이 있어야 한다. 위 라벨로 올리면 패키지가 레포에 연결된다. 패키지 페이지 → Package settings → Inherited access에서 "Inherit access from source repository"를 켜고, Manage Actions access에 `beadv8_8_LMS_BE`가 보이는지 확인한다. 연결되지 않았으면 패키지 페이지의 Connect Repository로 연결한 뒤 켠다. 조직이 상속을 막아 항목이 없으면 Manage Actions access → Add Repository → `beadv8_8_LMS_BE`(Write)로 더한다([GitHub 문서](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)).
-   - member-app·lecture-app은 2026-10-30, appearance-app·customer-support-app·chat-app은 2026-11-02 상속을 켰다.
+   - member-app·lecture-app은 2026-10-30, appearance-app·customer-support-app·chat-app·billing-app은 2026-11-02 상속을 켰다.
 4. **pull 확인**: `k8s/tools/ghcr-pull-check.sh <이미지> <pool>`([GHCR pull 인증](#ghcr-pull-인증)).
 5. **배포**: Deploy workflow는 main 커밋만 받으므로 로컬에서 한다. prod kubeconfig(context `hapbang-k3s`)가 필요하다. 앱은 배포 순서(member → billing → appearance → lecture → chat → customer-support)를 지킨다.
 
@@ -240,7 +240,13 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
 - 2026-10-30 기록: member-app·lecture-app을 이 방식으로 올렸다(#461). 처음에는 ConfigMap·Deployment만 적용해 NetworkPolicy가 빠졌다. lecture-app은 384Mi·448Mi limit에서 기동 중 OOMKilled돼 640Mi로 올렸고, manifest와 [k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)도 640Mi로 고쳤다.
 - 2026-11-02 기록: appearance-app을 dev `5d66992`로 이 방식(NetworkPolicy → ConfigMap·Deployment)으로 올렸다(#504). Flyway가 `appearance` 스키마를 만들고 회원 이벤트 consumer가 `member.events.v1`을 받았다. route는 billing-app 배포 뒤 연다. billing-app이 없으면 요청서·모집글이 보류 요청 실패로 `HOLD_PENDING`에 남기 때문이다. 448Mi limit에서 기동 3분 뒤 RSS 425Mi로 한도에 붙어 512Mi로 올렸고, 다시 뜬 뒤 4분에 RSS 414Mi였다([k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)).
 - 2026-11-02 기록: lecture-app과 customer-support-app을 dev `e85ae26f`(#525, 이의 제기 연동)로 이 방식으로 올렸다. lecture-app은 이미지와 함께 Service를 더 적용했다(고객센터 → 강의 내부 API 8081용, HTTPRoute 없음). customer-support-app은 처음 배포라 NetworkPolicy → ConfigMap·Deployment 순서로 적용했고, 이미지 패키지도 이때 처음 만들었다. Flyway가 강의 `V202611021128`, 고객센터 4개(`V202611021129`까지)를 적용했고, `lecture-app.objection-command`·`customer-support-app.objection-result`가 상대 토픽의 partition 3개씩을 받았다. 레이블을 붙인 임시 pod에서 강의 내부 API가 키 없이 401로 응답해 Service·NetworkPolicy를 확인했다(새 pod는 정책이 붙기까지 몇 초 걸리므로 `sleep 10` 뒤 요청한다). customer-support-app은 384Mi limit에서 기동 5분 뒤 RSS 353Mi라 448Mi로 올렸다(#527).
+- 2026-11-02 기록(#541): member-app을 dev `6ec33161`(#526 쿼리 로그인 삭제 포함)로 `k3s-deploy.sh apply`(overlay 전체)로 올렸다. 적용 전 `kubectl diff`로 바뀌는 것이 Deployment 이미지뿐임을 확인했다. 기동 때 역할별 초기 계정 3개가 생겼다. `POST /api/v1/members/local-login`은 400(컨트롤러 있음)에서 401(컨트롤러와 permitAll 없음)로 바뀌었고, `admin@hapbang.local`의 비밀번호 로그인 → 재발급 → `/me`가 ADMIN으로 응답했다. 같은 날 lecture-app은 이미지를 바꾸지 않고 `lecture-app-swagger` HTTPRoute 하나만 적용해 강의 Swagger를 먼저 열었다(`GET /api/v1/lectures`는 404). 이 route는 아래 billing-app 배포 기록에서 강의 API route를 열며 지웠다.
 - 2026-11-02 기록: chat-app을 dev `6ec33161`로 이 방식(NetworkPolicy → ConfigMap·Deployment)으로 처음 올리고 이미지 패키지도 이때 만들었다(#545). 로컬 `:chat-app:check`는 `ChatPipelineDeliveryE2ETest` 1개가 앞 테스트의 알림을 받아 두 번 다 실패했고 단독 실행은 통과해, 테스트 격리 문제로 보고 진행했다(#547). Flyway가 `chat` 스키마를 만들었고 `chat-app.member-replica`·`chat-app.appearance-notification`이 partition 3개씩을 받았다. 384Mi limit에서는 기동 직후 OOMKilled(5회 재시작)돼 512Mi로 올렸고, 기동 5분 뒤 working set 404Mi, 25분 뒤 430Mi였다. route는 공용 Gateway에 `x-user-token-exp` 헤더 제거(#534)를 먼저 적용한 뒤 Service·SecurityPolicy·BackendTrafficPolicy·HTTPRoute 순서로 열었다. 두 route가 Accepted·ResolvedRefs였고, 외부에서 토큰 없는 요청, 위조한 `X-User-Id`·`X-User-Role` 요청, 티켓 없는 WebSocket 업그레이드는 앱의 401로, 잘못된 Bearer는 Envoy의 401로 응답했다. 최소 배포 뒤 512Mi를 반영한 overlay와 운영의 diff는 없다.
+- 2026-11-02 기록(#541): billing-app을 처음 올리고 강의·출연·고객센터 API route를 열었다. 직전에 #528이 member·appearance·lecture·customer-support를 dev `bb79d097`(관리 포트 분리)로 route 없이 올렸다(기록은 #528). `bb79d097`과 dev `fe610951`은 앱 overlay가 같고 코드는 출연(#554)만 달라, 네 앱은 이미지를 그대로 두었다.
+  - billing-app(`fe610951`): NetworkPolicy를 먼저 적용하고 `k3s-deploy.sh apply`로 overlay 전체를 적용했다. Flyway가 빈 `billing` 스키마에 15개를 적용했고, `billing-app.member-replica`·`billing-app.wallet-creation`이 `member.events.v1`을 받았다. 이어서 관리자 토큰으로 Gateway를 거쳐 회원 Backfill(`POST /api/v1/settlements/admin/billing-users/backfill?afterId=0&limit=5000`)을 실행했다. 한 번에 `completed=true`였고, 15명 모두 가입 이벤트로 이미 반영돼 `ignoredStale`, `failed` 0이었다. 448Mi limit에서 기동 15분 뒤 working set은 391Mi였다.
+  - chat-app(`fe610951`): 이미지만 바꿨다. 출연(`bb79d097`)이 발행하는 리뷰 공개 이벤트(#538) 클래스가 이전 chat 이미지(`6ec33161`)에 없어서다(ADR 0001, 새 타입은 소비 앱 먼저).
+  - customer-support·lecture·appearance: `bb79d097` 그대로 overlay 전체를 적용했다. Deployment·ConfigMap·NetworkPolicy는 `unchanged`라 재시작이 없었고, Service(고객센터·출연)와 HTTPRoute·SecurityPolicy·BackendTrafficPolicy만 생겼다. 그 뒤 `lecture-app-swagger`를 지웠다.
+  - 확인: 새 route는 모두 Accepted·ResolvedRefs였다. 6개 모듈 Swagger는 `swagger-ui.html`이 302 → `index.html` 200, `v3/api-docs`가 200이었고, 회원 Swagger 상단 목록 6개가 모두 열렸다. 앱마다 토큰 없는 요청과 위조한 `X-User-Id`·`X-User-Role` 요청은 앱의 401, 잘못된 Bearer는 Envoy의 401로 응답했다. 역할이 맞지 않으면 403이었고(관리자의 `/wallets/me`도 설계대로 403), `/api/v1/internal/**`는 외부에서 404였다. 레이블을 붙인 임시 pod에서 지갑 내부 API는 키 없이 401, 8080은 연결되지 않았다. Kafka DLT는 모두 비었고 소비 lag은 0이었다. 6개 앱 overlay와 운영의 diff는 없다.
 
 ### billing-app 첫 배포 (#552)
 
@@ -273,7 +279,7 @@ billing-app은 처음 뜰 때 기존 회원의 지갑 회원(회원 복제본)�
 
 ### 첫 릴리스
 
-main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app(2026-10-30)·appearance-app·customer-support-app·chat-app(2026-11-02)이 있다([릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 다섯 패키지 모두 레포 상속을 켜 두었다. 첫 Publish run에서 이 앱들의 push가 권한 오류로 실패하면 Manage Actions access를 확인한다. 나머지 billing-app은 첫 Publish가 만든다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
+main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app(2026-10-30)·appearance-app·customer-support-app·chat-app·billing-app(2026-11-02) 6개가 모두 있다([릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 여섯 패키지 모두 레포 상속을 켜 두었다. 첫 Publish run에서 push가 권한 오류로 실패하면 그 패키지의 Manage Actions access를 확인한다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
 
 1. **dev → main 병합**: base `main` ← `dev`(또는 `release/review-N`) PR을 만들어 병합한다. 다른 브랜치에서 열면 `PR source / source-branch` 체크가 실패한다(#180).
 2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
