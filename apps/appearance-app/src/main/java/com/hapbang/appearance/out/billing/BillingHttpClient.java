@@ -4,6 +4,8 @@ import org.springframework.stereotype.Component;
 
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -48,6 +50,11 @@ public class BillingHttpClient implements BillingClient {
     @Override
     public BillingCallResult<PenaltyResultDto> settlePenalty(PenaltyCommand command) {
         return billingApiClient.settlePenalty(command);
+    }
+
+    @Override
+    public BillingCallResult<HoldVoidResultDto> voidHold(HoldVoidCommand command) {
+        return billingApiClient.voidHold(command);
     }
 
     @Override

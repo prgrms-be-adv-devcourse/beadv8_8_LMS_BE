@@ -1480,3 +1480,28 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceBatchConditionTest` | 스위치 켬 | 배치 빈 생성 (새 UseCase 포함) |
 
 - 기한이 켜진 경우는 운영 설정(무기한)을 바꾸지 않고 기한 14일 정책으로 만든 UseCase로 확인한다. 이벤트는 UseCase에 넘긴 수집용 발행기로 모아 다른 스레드의 발행도 센다.
+
+---
+
+## 34. 보류 결과를 확정하지 못한 요청서·모집글의 보류 무효화 (#536)
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceHoldVoidTest` | 만든 지 59분 | 보류를 다시 보내 `REQUESTED`, 무효화 없음 |
+| `AppearanceHoldVoidTest` | 포기 기준 전 재확인 보류가 `HOLD_VOIDED`로 거절 (무효화 뒤 늦은 보류) | `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | 보내기 요청의 보류가 `HOLD_VOIDED`로 거절 | 500 `HP_HOLD_FAILED`, `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | 요청서, 만든 지 1시간 | 보류 대신 무효화(호스트·`APPEARANCE_REQUEST`·요청서 ID), `VOIDED` → `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | 모집글, 지갑에 보류가 있었음 | 무효화(호스트·`APPEARANCE_RECRUIT`·모집글 ID), `RELEASED` → `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | `ALREADY_CLOSED` | `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | 무효화 결과 불명 → 다음 회차 `replayed` | 처음엔 `HOLD_PENDING`, 다음 회차 `HOLD_FAILED`. 보류는 다시 보내지 않음 |
+| `AppearanceHoldVoidTest` | 무효화 거절 `HOLD_OWNER_MISMATCH` | `HOLD_PENDING` 그대로, 다음 회차에도 무효화를 다시 보냄 |
+| `AppearanceHoldVoidTest` | 수락 기한이 이미 지난 요청서 | 같은 기준으로 무효화 → `HOLD_FAILED`, 만료 배치 0건 |
+| `AppearanceHoldVoidTest` | 무효화 뒤 같은 게스트에게 새 요청서 | `REQUESTED` (진행 중 1건 제한에서 빠짐) |
+| `AppearanceHoldVoidTest` | 한 회차에 1시간 지난 건과 30분 된 건 | 앞은 무효화 → `HOLD_FAILED`, 뒤는 보류 → `REQUESTED` |
+| `AppearanceBillingHttpTest` | Mock Billing: 보류 500이 계속 → 1시간 뒤 | 무효화 요청에 내부 API 키·JSON, 본문 `userId`·`referenceType`·`referenceId`만, `VOIDED` → `HOLD_FAILED` |
+| `AppearanceBillingHttpTest` | Mock Billing: 무효화도 500 → 지갑 복구 | `HOLD_PENDING` → 다음 회차 같은 참조 대상으로 다시 무효화해 `HOLD_FAILED` |
+| `AppearanceBatchUseCaseTest` (S5 수정) | 포기 기준 전(31분)에 수락 기한이 지난 보류 처리 중 요청서 | 재확인으로 `REQUESTED` → 만료 배치 `EXPIRED` + 반환 |
+| `AppearanceRecruitCloseTest` (C5 수정) | 포기 기준 전에 모집 마감이 지난 보류 처리 중 모집글 | 재확인으로 `RECRUITING` → 마감 배치 `CLOSED` + 전액 반환 |
+| `AppearanceConfigTest` | `hold-void-after` 기본 1시간 / `pending-grace` 이하(1분·30초) | 1시간 / 앱 기동 실패 |
+
+- 만든 시각(JPA Auditing)은 테스트 시계가 아니라 실제 시각이라, 같은 회차의 서로 다른 나이는 한 건의 `created_at`을 테스트 시계로 맞춰 만든다.

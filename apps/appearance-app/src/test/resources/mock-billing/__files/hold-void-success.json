@@ -1,0 +1,11 @@
+{
+  "statusCode": 200,
+  "message": "HP 보류를 무효화했습니다.",
+  "data": {
+    "referenceType": "{{jsonPath request.body '$.referenceType'}}",
+    "referenceId": {{jsonPath request.body '$.referenceId'}},
+    "outcome": "VOIDED",
+    "releasedHp": 0,
+    "replayed": {{#if parameters.replayed}}true{{else}}false{{/if}}
+  }
+}

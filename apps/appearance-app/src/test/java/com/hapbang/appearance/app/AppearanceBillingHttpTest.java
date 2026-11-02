@@ -274,6 +274,55 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
 
     // ---------------------------------------------------------------------------------------------
     @Nested
+    @DisplayName("보류 무효화 (#536)")
+    class HoldVoid {
+
+        @Test
+        @DisplayName("지갑이 계속 결과 불명(500)이면 포기 기준(1시간) 뒤 무효화를 보낸다: 내부 API 키·JSON으로 호스트·APPEARANCE_REQUEST·요청서 ID, 응답 VOIDED → HOLD_FAILED")
+        void voidAfterRepeatedUnknown() {
+            MockBilling.fail(Endpoint.HOLD, 500, "HOLD_STATE_INCONSISTENT", null);
+            assertErrorCode(AppearanceBillingHttpTest.this::send, AppearanceErrorCode.BILLING_UNAVAILABLE);
+            assertThat(recheckLater()).isZero(); // 포기 기준 전: 보류를 다시 보내지만 여전히 결과 불명
+
+            clock.advance(Duration.ofHours(1));
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
+
+            assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+            Long requestId = appearanceRequestRepository.findAll().getFirst().getId();
+            assertThat(MockBilling.requests(Endpoint.HOLD)).hasSize(2); // 보내기 1 + 포기 기준 전 재확인 1
+            assertThat(MockBilling.requests(Endpoint.HOLD_VOID)).singleElement().satisfies(voidHold -> {
+                assertThat(voidHold.apiKey()).isNotBlank();
+                assertThat(voidHold.contentType()).startsWith("application/json");
+                assertThat(voidHold.number("userId")).isEqualTo(HOST);
+                assertThat(voidHold.text("referenceType")).isEqualTo("APPEARANCE_REQUEST");
+                assertThat(voidHold.number("referenceId")).isEqualTo(requestId);
+                assertThat(voidHold.body()).containsOnlyKeys("userId", "referenceType", "referenceId");
+            });
+        }
+
+        @Test
+        @DisplayName("무효화도 결과 불명(500)이면 HOLD_PENDING 그대로 → 지갑이 돌아오면 다음 회차에 같은 참조 대상으로 다시 무효화해 HOLD_FAILED")
+        void voidUnknownThenAgain() {
+            MockBilling.fail(Endpoint.HOLD, 500, "HOLD_STATE_INCONSISTENT", null);
+            assertErrorCode(AppearanceBillingHttpTest.this::send, AppearanceErrorCode.BILLING_UNAVAILABLE);
+            MockBilling.fail(Endpoint.HOLD_VOID, 500, null, null);
+            clock.advance(Duration.ofHours(1));
+
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero();
+            assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
+
+            MockBilling.succeed(Endpoint.HOLD_VOID);
+            assertThat(recheckLater()).isEqualTo(1);
+
+            assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+            assertThat(MockBilling.requests(Endpoint.HOLD_VOID)).hasSizeGreaterThanOrEqualTo(2)
+                    .extracting(voidHold -> voidHold.number("referenceId")).containsOnly(
+                            appearanceRequestRepository.findAll().getFirst().getId());
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    @Nested
     @DisplayName("HP 작업 (반환·지급·위약금)")
     class Task {
 

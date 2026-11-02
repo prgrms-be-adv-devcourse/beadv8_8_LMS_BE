@@ -38,7 +38,8 @@ class AppearanceEventRepublishUseCaseTest {
 
     private final IncompleteEventPublications incompleteEventPublications = mock(IncompleteEventPublications.class);
     private final AppearanceEventRepublishUseCase useCase = new AppearanceEventRepublishUseCase(incompleteEventPublications,
-            new AppearanceBatchProperties(BATCH_SIZE, Duration.ofMinutes(1), Duration.ofMinutes(1), Duration.ofHours(1), 10, 0.2),
+            new AppearanceBatchProperties(BATCH_SIZE, Duration.ofMinutes(1), Duration.ofHours(1), Duration.ofMinutes(1),
+                    Duration.ofHours(1), 10, 0.2),
             Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test

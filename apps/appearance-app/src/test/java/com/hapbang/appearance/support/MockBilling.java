@@ -63,7 +63,8 @@ public final class MockBilling {
         HOLD("/api/v1/internal/billing/holds", "hold-success.json", null),
         RELEASE("/api/v1/internal/billing/releases", "release-success.json", "releaseRequestId"),
         PAYOUT("/api/v1/internal/billing/payouts", "payout-success.json", "payoutRequestId"),
-        PENALTY("/api/v1/internal/billing/penalty-settlements", "penalty-success.json", "cancellationId");
+        PENALTY("/api/v1/internal/billing/penalty-settlements", "penalty-success.json", "cancellationId"),
+        HOLD_VOID("/api/v1/internal/billing/hold-voids", "hold-void-success.json", null);
 
         private final String path;
         private final String successFile;
