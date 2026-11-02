@@ -1,0 +1,78 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+# Flyway 이력·Modulith 발행 기록은 앱 스키마에 둔다. 기존 모놀리스 DB의 이력 전환은 별도 작업이다.
+spring:
+  application:
+    name: billing-app
+  config:
+    import:
+    - classpath:billing.yml
+    - classpath:swagger.yml
+  profiles:
+    default: local
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
+  modulith:
+    detection-strategy: explicitly-annotated
+    # 지갑 이벤트(충전·지급·환불·환전 결과)를 Kafka로 내보낸다 (#497, docs/billing/CONTEXT.md 9장). 발행 기록이 outbox다.
+    # 테이블은 출연 앱과 같이 Modulith가 만든다(#471에서 지운 테이블을 다시 만든다). 기동 때 미완료 기록을 다시 보내고,
+    # 실행 중 재발행은 BillingEventRepublishBatch가 한다. 보낸 기록은 지우지 않고 archive 테이블로 옮긴다.
+    events:
+      jdbc:
+        schema-initialization:
+          enabled: true
+        schema: billing
+      republish-outstanding-events-on-restart: true
+      completion-mode: archive
+  # DB 연결 수 (#552). 기본값(10)을 그대로 명시한다. HP 보류·충전은 지갑 락을 최대 3초 기다리므로(billing.yml lock_timeout) 줄이지 않는다.
+  # 앱 전체 합계와 max_connections(100) 계산은 docs/architecture/infrastructure/database.md 5항에 있다.
+  datasource:
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+    out-of-order: true
+    default-schema: billing
+    schemas:
+    - billing
+  http:
+    clients:
+      connect-timeout: 3s
+      read-timeout: 5s
+  task:
+    scheduling:
+      pool:
+        size: 4
+management:
+  endpoints:
+    web:
+      exposure:
+        # k8s에서는 관리 포트(MANAGEMENT_SERVER_PORT=8082)로만 열리고 Prometheus가 수집한다 (#552, 강의 #521과 같음)
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+hapbang:
+  scheduling:
+    enabled: true
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:}"
+  billing:
+    toss:
+      secret-key: "${TOSS_PAYMENTS_SECRET_KEY:}"
+    payment-key:
+      encryption-key: "${BILLING_PAYMENT_KEY_ENCRYPTION_KEY:}"
+      hmac-key: "${BILLING_PAYMENT_KEY_HMAC_KEY:}"
+  clients:
+    member:
+      base-url: "${MEMBER_API_BASE_URL}"
+    lecture:
+      base-url: "${LECTURE_API_BASE_URL}"
+    appearance:
+      base-url: "${APPEARANCE_API_BASE_URL}"

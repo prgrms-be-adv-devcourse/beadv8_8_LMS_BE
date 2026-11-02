@@ -1,0 +1,32 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  docker:
+    compose:
+      file: docker/compose.yaml
+      lifecycle-management: start-only
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: "${GOOGLE_CLIENT_ID:local-placeholder}"
+            client-secret: "${GOOGLE_CLIENT_SECRET:local-placeholder}"
+hapbang:
+  storage:
+    s3:
+      endpoint: "${S3_ENDPOINT:http://localhost:9090}"
+      bucket: "${S3_BUCKET:hapbang-local}"
+      key-prefix: local
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
+  # JWT_PRIVATE_KEY가 없으면 시작할 때마다 임시 서명 키를 만든다 (재시작하면 다시 로그인)
+  jwt:
+    allow-ephemeral-key: true
+  chzzk:
+    client-id: "${CHZZK_CLIENT_ID:local-placeholder}"
+    client-secret: "${CHZZK_CLIENT_SECRET:local-placeholder}"
+    redirect-uri: http://localhost:${server.port}/api/v1/members/channels/chzzk/callback
+server:
+  port: "${SERVER_PORT:8081}"

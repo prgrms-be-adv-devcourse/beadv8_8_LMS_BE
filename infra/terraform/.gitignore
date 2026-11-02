@@ -1,0 +1,8 @@
+# state와 실제 tfvars에는 계정 ID·리소스 ID·IP가 들어간다. 공개 레포이므로 절대 커밋하지 않는다.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+crash*.log

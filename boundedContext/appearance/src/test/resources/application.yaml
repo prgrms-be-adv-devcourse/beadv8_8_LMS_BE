@@ -1,6 +1,0 @@
-# 출연 모듈 테스트 전용 설정. src/test 아래라 배포 jar에는 포함되지 않는다.
-# 테이블은 운영과 같이 Flyway 마이그레이션(src/main/resources/db/migration)으로 만든다 (test-support 설정).
-spring:
-  config:
-    # 테스트에는 apps 모듈이 없으므로, 전역 application.yaml처럼 출연 설정 파일을 직접 읽는다.
-    import: classpath:appearance.yml

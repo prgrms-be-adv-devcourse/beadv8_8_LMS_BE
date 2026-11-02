@@ -1,0 +1,15 @@
+{
+  "statusCode": 200,
+  "message": "HP를 지급했습니다.",
+  "data": {
+    "referenceType": "{{jsonPath request.body '$.referenceType'}}",
+    "referenceId": {{jsonPath request.body '$.referenceId'}},
+    "payoutRequestId": "{{jsonPath request.body '$.payoutRequestId'}}",
+    "receiverUserId": {{jsonPath request.body '$.receiverUserId'}},
+    "sourceType": "{{jsonPath request.body '$.sourceType'}}",
+    "sourceId": {{jsonPath request.body '$.sourceId'}},
+    "paidHp": {{#if (jsonPath request.body '$.amountHp')}}{{jsonPath request.body '$.amountHp'}}{{else}}0{{/if}},
+    "remainingHeldHp": 0,
+    "replayed": {{#if parameters.replayed}}true{{else}}false{{/if}}
+  }
+}

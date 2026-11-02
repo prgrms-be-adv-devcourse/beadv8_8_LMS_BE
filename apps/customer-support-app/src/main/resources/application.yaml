@@ -1,0 +1,60 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+# Flyway 이력·Modulith 발행 기록은 앱 스키마에 둔다. 기존 모놀리스 DB의 이력 전환은 별도 작업이다.
+spring:
+  application:
+    name: customer-support-app
+  config:
+    import:
+    - classpath:customer-support.yml
+    - classpath:swagger.yml
+  profiles:
+    default: local
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
+  modulith:
+    detection-strategy: explicitly-annotated
+    events:
+      jdbc:
+        schema-initialization:
+          enabled: true
+        schema: customersupport
+      republish-outstanding-events-on-restart: true
+      completion-mode: archive
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+    out-of-order: true
+    default-schema: customersupport
+    schemas:
+    - customersupport
+  http:
+    clients:
+      connect-timeout: 3s
+      read-timeout: 5s
+  task:
+    scheduling:
+      pool:
+        size: 4
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+hapbang:
+  scheduling:
+    enabled: true
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:}"
+  # 이의 제기 접수를 보내는 강의 내부 API 주소 (D62, #279). 없으면 강의 Client가 없어 접수가 처리 중(202)에 머문다
+  clients:
+    lecture:
+      base-url: "${LECTURE_API_BASE_URL}"

@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base
+- gateway-staging.yaml
+- gateway-issuer.yaml
+- grafana.yaml
+# Kafka UI Basic Auth 계정(admin). 비밀번호는 만든 사람의 ~/.hapbang/kafka-ui-password에만 있다(docs/deploy/gateway.md).
+- kafka-ui-basic-auth.yaml
+# 운영 호스트(#507). base의 gateway.invalid를 바꾼다. 앱 prod overlay의 JWT issuer(https://<호스트>)·grafana.yaml의
+# root_url과 같아야 하고, CI(manifests)의 k8s/gateway/tools/check-prod-host.py가 검사한다.
+patches:
+- target:
+    kind: Gateway
+    name: hapbang
+  patch: |
+    - op: replace
+      path: /spec/listeners/0/hostname
+      value: hapbang.duckdns.org
+    - op: replace
+      path: /spec/listeners/1/hostname
+      value: hapbang.duckdns.org
+- target:
+    kind: Certificate
+    name: hapbang-tls
+  patch: |
+    - op: replace
+      path: /spec/dnsNames/0
+      value: hapbang.duckdns.org

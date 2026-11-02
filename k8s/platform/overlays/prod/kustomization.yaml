@@ -1,0 +1,8 @@
+# EC2 k3s prod. 수동으로만 적용한다(docs/deploy/k8s.md).
+# - postgres-credentials는 kubeseal로 만든 SealedSecret이다. 앱별 값은 각 앱 Secret의 DB_PASSWORD와 같아야 한다.
+#   값은 레포에 없고 cluster의 Secret에만 있다. 앱 SealedSecret을 만들 때 cluster의 이 Secret에서 읽는다(#374).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - postgres-credentials.yaml

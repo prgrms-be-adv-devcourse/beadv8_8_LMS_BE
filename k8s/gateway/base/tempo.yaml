@@ -1,0 +1,20 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: tempo
+  namespace: hapbang-platform
+spec:
+  valuesContent: |
+    tempo:
+      # 128Mi에서 운영 3일 최대 working set 115Mi(90%)라 160Mi로 올렸다(#532). GOMEMLIMIT은 limit의 약 85%다
+      resources:
+        requests:
+          cpu: 50m
+          memory: 160Mi
+        limits:
+          memory: 160Mi
+      extraEnv:
+      - name: GOMEMLIMIT
+        value: 136MiB
+      - name: GOMAXPROCS
+        value: '2'

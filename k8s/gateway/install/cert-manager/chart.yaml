@@ -1,0 +1,48 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cert-manager
+  namespace: kube-system
+spec:
+  chart: oci://quay.io/jetstack/charts/cert-manager
+  version: v1.21.3
+  targetNamespace: cert-manager
+  valuesContent: |
+    crds:
+      enabled: true
+    config:
+      gatewayAPI:
+        enabled: true
+    # large(core-data)에 둔다. medium 메모리 예산 때문에 옮겼다(#532). 운영 최대 working set: controller 39·cainjector 44·webhook 27Mi
+    nodeSelector: &id001
+      hapbang.io/pool: core-data
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 128Mi
+    webhook:
+      nodeSelector: *id001
+      resources:
+        requests:
+          cpu: 50m
+          memory: 50Mi
+        limits:
+          memory: 50Mi
+    cainjector:
+      nodeSelector: *id001
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 128Mi
+    startupapicheck:
+      nodeSelector: *id001
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 64Mi

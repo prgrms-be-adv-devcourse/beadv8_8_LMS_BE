@@ -1,0 +1,21 @@
+# hapbang.io/pool=core-data label이 붙은 Deployment·StatefulSet을 large(core-data) node에만 배치한다.
+# stateful workload의 local-path volume은 다른 node로 옮겨지지 않으므로 required로 건다(docs/deploy/aws-k3s.md).
+# HelmChart·ECK CR에는 이 patch가 닿지 않아 각 values에 같은 affinity를 적는다.
+# 앱(apps/<앱>/k8s)은 앱 디렉터리만으로 배포할 수 있게 이 component를 쓰지 않고 affinity를 직접 적는다.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      group: apps
+      labelSelector: hapbang.io/pool=core-data
+    patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: hapbang.io/pool
+                      operator: In
+                      values: [core-data]

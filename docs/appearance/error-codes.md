@@ -35,16 +35,16 @@ Content-Type: application/problem+json
 - `type`은 기본값(`about:blank`)이라 응답에서 생략된다.
 - (#71) 모듈 핸들러(`AppearanceExceptionHandler`)는 없앴다. `AppearanceException extends BusinessException`이고, global의 공통 핸들러(`GlobalExceptionHandler`)가 모든 모듈의 오류를 같은 형식(Problem Detail + `code`)으로 응답한다 (AGENTS.md 7장).
 - 요청 값 검증·형식 오류(400 `INVALID_REQUEST` + `errors`), `@PreAuthorize` 거절(403 `FORBIDDEN`, 비로그인 401 `UNAUTHORIZED`)은 공통 코드로 응답한다.
-- 로그인하지 않은 요청의 401, CSRF 토큰이 없는 쓰기 요청의 403은 보안 필터가 응답하며, 이 형식이 아니다 (본문 없음).
+- 로그인하지 않은 요청(사용자 헤더 없음·형식 오류)의 401은 보안 필터가 응답하며, 이 형식이 아니다 (본문 없음). CSRF 검사는 없다 (#395).
 
 ## 2. 오류 코드
 
 | 코드 | 상태 | 기본 메시지 | 발생 상황 | 이슈 |
 |---|---|---|---|---|
-| `INVALID_REQUEST` | 400 | 요청 값이 올바르지 않습니다. | 요청 값 형식·범위 오류, 읽을 수 없는 요청 본문, 거절 사유·지원 메시지 500자 초과, 출연 취소 사유 없음·500자 초과, 취소 거절 사유 500자 초과, 일방 취소·모집 취소 사유 500자 초과, 보류 금액을 계산할 수 없을 만큼 큰 1인당 출연료, 숨김 상태로 목록 필터, 없는 상태 값. 검증 오류면 `errors`에 항목별 메시지. 도메인 형식 확인에 걸리면 `detail`에 제한 내용 | #26, #98, #137, #175, #195, #231, #239 |
+| `INVALID_REQUEST` | 400 | 요청 값이 올바르지 않습니다. | 요청 값 형식·범위 오류, 읽을 수 없는 요청 본문, 거절 사유·지원 메시지 500자 초과, 리뷰 별점 없음·1~5 밖·본문 1,000자 초과, 출연 취소 사유 없음·500자 초과, 취소 거절 사유 500자 초과, 일방 취소·모집 취소 사유 500자 초과, 보류 금액을 계산할 수 없을 만큼 큰 1인당 출연료, 숨김 상태로 목록 필터, 없는 상태 값. 검증 오류면 `errors`에 항목별 메시지. 도메인 형식 확인에 걸리면 `detail`에 제한 내용 | #26, #98, #137, #175, #195, #231, #239 |
 | `APPEARANCE_USER_NOT_FOUND` | 404 | 출연 회원 정보를 찾을 수 없습니다. | 출연 모듈에 복제된 회원 정보가 없음 (가입 이벤트 미반영 등) | #31 |
-| `APPEARANCE_USER_NOT_ACTIVE` | 403 | 현재 이용할 수 없는 회원입니다. | 탈퇴(`WITHDRAWN`)·정지(`SUSPENDED`) 회원이 출연 거래에 참여 | #31 |
-| `NOT_INFLUENCER` | 403 | 인플루언서 이상만 출연 거래에 참여할 수 있습니다. | 출연 회원(복제된 역할)이 일반 유저·관리자. 세션 역할 검사(`@PreAuthorize`) 거절은 공통 `FORBIDDEN` | #31, #98 |
+| `APPEARANCE_USER_NOT_ACTIVE` | 403 | 현재 이용할 수 없는 회원입니다. | 탈퇴(`WITHDRAWN`)·정지(`SUSPENDED`) 회원이 출연 거래에 참여·리뷰 작성 | #31, #512 |
+| `NOT_INFLUENCER` | 403 | 인플루언서 이상만 출연 거래에 참여할 수 있습니다. | 출연 회원(복제된 역할)이 일반 유저·관리자 (출연 거래 참여, 리뷰 작성). 로그인 역할 검사(`@PreAuthorize`) 거절은 공통 `FORBIDDEN` | #31, #98, #512 |
 | `CANNOT_REQUEST_SELF` | 400 | 자기 자신에게는 출연을 요청할 수 없습니다. | 호스트와 게스트가 같음 | #98 |
 | `FEE_BELOW_MINIMUM` | 400 | 출연료가 최저 출연료보다 적습니다. | 출연료 < 최저 출연료. `detail`에 최저 출연료 금액 표시 | #98 |
 | `INVALID_REQUEST_SCHEDULE` | 400 | 수락 기한은 현재 이후이고 방송 예정 일시보다 앞서야 합니다. | 현재 < 수락 기한 < 방송 예정 일시가 아님 | #98 |
@@ -68,7 +68,7 @@ Content-Type: application/problem+json
 | `APPLICATION_NOT_FOUND` | 404 | 지원을 찾을 수 없습니다. | 없는 지원에 취소·수락·거절 | #195 |
 | `NOT_APPLICATION_GUEST` | 403 | 지원한 게스트만 지원을 취소할 수 있습니다. | 다른 회원이 지원 취소 | #195 |
 | `APPLICATION_NOT_PENDING` | 409 | 호스트 응답을 기다리는 지원이 아닙니다. | 이미 수락·거절·취소된 지원에 취소·수락·거절 | #195 |
-| `APPEARANCE_NOT_FOUND` | 404 | 출연을 찾을 수 없습니다. | 없는 출연, 호스트·게스트가 아닌 회원의 조회·취소 요청·응답 | #231 |
+| `APPEARANCE_NOT_FOUND` | 404 | 출연을 찾을 수 없습니다. | 없는 출연, 호스트·게스트가 아닌 회원의 조회·취소 요청·응답·리뷰 작성 | #231, #512 |
 | `NOT_APPEARANCE_GUEST` | 403 | 출연하는 게스트만 출연 취소를 요청할 수 있습니다. | 호스트가 출연 취소 요청 | #231 |
 | `NOT_APPEARANCE_HOST` | 403 | 출연의 호스트만 출연 취소 요청에 응답할 수 있습니다. | 게스트가 취소 요청 수락·거절. 일방 취소는 `detail`이 "출연의 호스트만 출연을 취소할 수 있습니다.", 출연 확인·불참은 "출연의 호스트만 출연을 확인할 수 있습니다." | #231, #239, #282 |
 | `APPEARANCE_NOT_CANCELABLE` | 409 | 출연 취소를 요청할 수 있는 출연이 아닙니다. | 성립(`ESTABLISHED`) 상태가 아닌 출연(합의 취소됨 등)에 취소 요청. 일방 취소는 성립·취소 요청 중이 아닐 때, `detail` "취소할 수 있는 출연이 아닙니다." | #231, #239 |
@@ -81,21 +81,29 @@ Content-Type: application/problem+json
 | `APPEARANCE_NOT_CONFIRMABLE` | 409 | 출연 확인을 할 수 있는 출연이 아닙니다. | 성립 상태가 아닌 출연에 확인·불참. `detail`: 이미 응답 "이미 출연 확인에 응답한 출연입니다." / 취소 요청 처리 중 "처리 중인 출연 취소 요청이 정리된 뒤 출연을 확인할 수 있습니다." / 취소됨 "취소된 출연입니다." | #282 |
 | `APPEARANCE_CONFIRM_NOT_OPEN` | 409 | 방송 예정 일시가 지난 뒤에 출연 확인을 할 수 있습니다. | 방송 예정 일시 전에 확인·불참 | #282 |
 | `APPEARANCE_CONFIRM_PERIOD_ENDED` | 409 | 출연 확인 기간이 지났습니다. 출연은 자동으로 확인됩니다. | 방송 예정 일시 + 7일 이후 확인·불참 (자동 확인 대상) | #282 |
-| `CONCURRENT_UPDATE` | 409 | 다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요. | 같은 요청서·모집글·지원을 동시에 바꿔 버전(낙관적 락)이 맞지 않음 (예: 조기 마감과 수락). UseCase가 반영 시점에 확인해 던진다 | #98, #195, #222 |
-| `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | 보류 결과를 알 수 없음(무응답 등). 요청서는 `HOLD_PENDING`으로 남음 | #98 |
+| `APPEARANCE_NOT_REVIEWABLE` | 409 | 출연 확인이 끝난 출연에만 리뷰를 쓸 수 있습니다. | 확인(`CONFIRMED`)이 아닌 출연(성립·취소 요청 중·불참·취소)에 리뷰 작성 | #512 |
+| `REVIEW_PERIOD_ENDED` | 409 | 리뷰 작성 기한이 지났습니다. | 작성 기한을 켰을 때 출연 확인 시각 + 기간 이후 작성. 지금은 무기한이라 나지 않는다 | #512 |
+| `REVIEWEE_NOT_ACTIVE` | 409 | 상대가 현재 이용할 수 없는 회원이라 리뷰를 쓸 수 없습니다. | 리뷰 받을 상대가 정지·탈퇴(복제 회원 정보 없음 포함) | #512 |
+| `ALREADY_REVIEWED` | 409 | 이미 이 출연에 리뷰를 썼습니다. | 같은 출연에 두 번째 리뷰 (동시 작성 포함) | #512 |
+| `NOT_ADMIN` | 403 | 관리자만 이용할 수 있습니다. | 로그인 역할은 관리자지만 출연이 복제한 회원 정보에서 관리자가 아님(로그인 뒤 강등). 로그인 뒤 정지·탈퇴면 `APPEARANCE_USER_NOT_ACTIVE` | #397 |
+| `HP_TASK_NOT_FOUND` | 404 | HP 작업을 찾을 수 없습니다. | 관리자가 없는 HP 작업을 다시 시도 | #397 |
+| `HP_TASK_NOT_DEAD` | 409 | 격리된(DEAD) HP 작업만 다시 시도할 수 있습니다. | 관리자가 대기·완료 작업을 다시 시도 (다시 시도로 이미 `DONE`이 된 작업을 한 번 더 누른 경우 포함) | #397 |
+| `CONCURRENT_UPDATE` | 409 | 다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요. | 같은 요청서·모집글·지원을 동시에 바꿔 버전(낙관적 락)이 맞지 않음 (예: 조기 마감과 수락, 두 관리자가 같은 HP 작업을 동시에 다시 시도). UseCase가 반영 시점에 확인해 던진다 | #98, #195, #222, #397 |
+| `BILLING_UNAVAILABLE` | 503 | HP 보류 처리가 지연되고 있습니다. 잠시 후 보낸 요청 목록에서 결과를 확인해 주세요. | 보류 결과를 받지 못함(5xx·응답 시간 초과·연결 실패·요청 한도 초과). 요청서·모집글은 `HOLD_PENDING`으로 남고 재확인 배치가 다시 보낸다 (모집글은 문구의 목록 이름이 다르다) | #98, #274 |
+| `INSUFFICIENT_BALANCE` | 409 | HP 잔액이 부족합니다. 충전한 뒤 다시 시도해 주세요. | 지갑이 보류를 잔액 부족으로 거절. 요청서·모집글은 `HOLD_FAILED` | #274 |
+| `HP_HOLD_FAILED` | 500 | HP 보류를 처리하지 못했습니다. 문제가 계속되면 고객센터로 문의해 주세요. | 지갑이 그 밖의 이유로 보류를 거절(지갑 없음, 내부 API 키 오류 등 목록 밖 코드, 멱등 충돌, 보류 불변식 위반). 요청서·모집글은 `HOLD_FAILED`. 지갑 코드·HTTP 상태·설명은 오류 로그에만 남는다 | #274 |
+| `MEMBER_SOURCE_UNAVAILABLE` | 503 | 지금은 회원 정보를 조회할 수 없습니다. 잠시 후 다시 시도해 주세요. | 관리자 기존 회원 Backfill 중 회원 내부 API 장애(5xx·연결 실패·시간 초과·읽을 수 없는 응답)·키셋 계약 위반, 회원 내부 API 주소 미설정. 이미 반영한 회원은 유지하고 ProblemDetail에 집계와 `resumeAfterId`를 담는다 | #394 |
+| `MEMBER_SOURCE_REJECTED` | 503 | 지금은 회원 정보를 조회할 수 없습니다. | 관리자 기존 회원 Backfill 중 회원 내부 API가 거절(4xx: 내부 API 키 오류 등). 집계·`resumeAfterId`는 위와 같다 | #394 |
+| `BACKFILL_ALREADY_RUNNING` | 409 | 회원 정보 Backfill이 이미 실행 중입니다. | 관리자 기존 회원 Backfill이 실행 중인데 다시 실행 | #394 |
 
-### Billing 오류 (그대로 전달, #168)
+### 지갑 오류 (출연 코드로 바꿔 응답, #274)
 
-출연 요청서 보내기에서 Billing이 HP 보류를 거절하면 출연 오류로 바꾸지 않고 **Billing 오류 코드·메시지를 그대로** 응답한다.
-요청서는 `HOLD_FAILED`로 기록만 남는다. (이전의 `INSUFFICIENT_HP`는 없앴다.)
+지갑을 HTTP로 부르게 되면서(#274) 지갑 오류를 그대로 전달하지 않는다. 출연이 지갑 응답(`BillingCallResult.Failed`의 코드)을 보고
+사용자에게 알릴 거절(잔액 부족)만 같은 이름의 출연 코드로, 나머지는 `HP_HOLD_FAILED`로 응답한다. 문구는 출연이 정한다(지갑 `detail`을 그대로 보이지 않는다).
+FE가 쓰는 `INSUFFICIENT_BALANCE` 코드는 그대로다. 이전(#168~#289)에는 같은 JVM의 Billing 업무 예외를 그대로 전달했고, 지갑 없음은 404 `WALLET_NOT_FOUND`였다.
 
-| code | HTTP | detail | 상황 |
-|---|---|---|---|
-| `INSUFFICIENT_BALANCE` | 409 | HP 잔액이 부족합니다. | 출연료만큼 보류할 잔액이 없음 |
-| `WALLET_NOT_FOUND` | 404 | 지갑을 찾을 수 없습니다. | 호스트 지갑이 없음 |
+- 반환·지급·위약금은 업무 상태를 커밋한 뒤 처리하므로 사용자 응답에 지갑 오류가 나가지 않는다. 지갑 거절은 HP 작업 `last_error`에 `{code}: {지갑 설명}`으로 기록된다.
+  목록 밖 코드는 `UNMAPPED({원래 코드}, {HTTP 상태}): {설명}`, 결과를 받지 못한 실패는 `{UNKNOWN_RESULT|RETRYABLE} [{HTTP 상태}] [{지갑 코드}]: {메시지}`다.
 
-- 반환·지급은 업무 상태를 커밋한 뒤 처리하므로 사용자 응답에 Billing 오류가 나가지 않는다. Billing 오류는 HP 작업 `last_error`에 `{code}: {메시지}`로 기록된다.
-- 출연은 실제 Billing(`BillingPort`)의 오류를 그대로 쓴다 (#289에서 Fake Billing과 그 오류 코드 복사본을 없앴다).
-
-- 정의 위치: `boundedContext/appearance/src/main/java/com/hapbang/appearance/domain/AppearanceErrorCode.java`
+- 정의 위치: `apps/appearance-app/src/main/java/com/hapbang/appearance/domain/AppearanceErrorCode.java`
 - 출연 예외는 `throw new AppearanceException(AppearanceErrorCode.XXX)`로 던진다. 상황별 메시지가 필요하면 두 번째 인자로 넘긴다.
