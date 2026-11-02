@@ -19,6 +19,7 @@ public class BillingUserBackfillException extends BillingException {
         addProperty("ignoredStale", progress.ignoredStale());
         addProperty("ignoredVersionless", progress.ignoredVersionless());
         addProperty("failed", progress.failed());
+        addProperty("walletsEnsured", progress.walletsEnsured());
         addProperty("failedIds", progress.failedIds());
         addProperty("lastProcessedId", progress.lastProcessedId());
         addProperty("resumeAfterId", resumeAfterId);

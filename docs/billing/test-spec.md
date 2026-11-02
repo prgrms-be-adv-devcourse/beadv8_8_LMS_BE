@@ -9,6 +9,7 @@
 > - 2026-10-30 #428 반영: BT-EVT-01을 Kafka 소비 규칙(#339)에 맞춰 `eventId` inbox에서 자연 키 멱등·소비 그룹 둘·그룹별 DLT로 고쳤다.
 > - 2026-10-30 #430 반영: 회원 이벤트 리스너 두 개가 Kafka 소비로 바뀌었다. BT-EVT-01은 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증하고 JVM 칸을 "없음"으로, BT-WAL-02·BT-USR-02는 Kafka 경로 테스트로 옮겨 "없음"으로 바꿨다. 같은 JVM `Scenario.publish` 테스트는 없앴다(리스너 직접 호출 또는 Kafka 테스트로 대체).
 > - 2026-11-02 #280 반영: 소비 앱이 Java Port 없이 단독 기동하므로 BT-PORT-05를 k3s 기동 확인으로 바꾸고(JVM 깨짐 → 없음) Contract 대상에서 뺐다. BT-PORT-04는 소비 앱 테스트를 적고 JVM을 "경계"로 바꿨다.
+> - 2026-11-02 #552 반영: 관리 포트 분리(BT-CFG, `ManagementPortTest` 3개: 지표·헬스체크는 8082에서만, 8080·8081은 404, 관리 포트는 업무 API 없음)와 Backfill 지갑 생성(BT-USR-03)을 더했다.
 > - 2026-11-02 #537 반영: 테스트 로그인을 `TestLogin`(OAuth2 흉내)에서 `GatewayLogin`(사용자 헤더)으로 바꿔 API 테스트가 실제 헤더 필터를 거친다. CSRF 토큰(`csrf()`)과 OAuth2 등록 속성을 뺐다. BT-SEC-05(`GatewayUserHeaderFilterTest`)·BT-SEC-06(충전·환불·환전 컨트롤러 테스트의 `walletMember_*`)을 앱 쪽 검증으로 채웠다.
 > - 2026-11-02 #497 반영: 지갑 이벤트 발행(BT-EVT-02, `BillingEventKafkaTest`·`BillingExternalEventsTest`, 각 흐름 통합 테스트의 발행 기록 검증)을 더했고, BT-CFG-04(`ModulithEventsDisabledTest`)는 폐기했다. 7장은 82개 클래스·801개다.
 > - 2026-11-01 #494 반영: 내부 Command 경계(BT-PORT-06, `BillingSharedDtoAccessTest`·`PaymentHoldRequestsTest`)를 더했다. 기존 테스트는 shared Command 대신 `Payment*Command`를 쓴다. 7장은 81개 클래스·796개다.
@@ -276,7 +277,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-ERN-04 | 제공자 계약 일치 | lecture-app·appearance-app 실제 응답이 Billing Client 기대와 같다 | internal-earnings.md | T | 없음 | 경계 | 없음 |
 | BT-USR-01 | 복제본 동기화 | 가입·변경 Upsert, 버전 비교, 버전 없는 정보 무시, 늦은 가입 이벤트가 덮어쓰지 않음, 동시 Upsert | BD-103 | I | `BillingUserSyncIntegrationTest`(8) | 경계 (Scenario.publish) | R-003 통과 (경계) |
 | BT-USR-02 | 그룹 격리·재시도 | 복제본 그룹 실패가 지갑 생성 그룹을 막지 않음(재시도 뒤 복제본 DLT만), 복제본 PK 충돌 재시도는 새 트랜잭션 | BD-103, BD-123 | I | `BillingMemberEventKafkaTest``#replicaFailureDoesNotBlockWalletCreation`, `BillingMemberEventIsolationTest`(1) | 없음 | 기록 없음 (#430에서 Kafka로 바뀜) |
-| BT-USR-03 | Backfill | 페이지 순회·한도·재개 커서, 실패 분류, 계약 위반, 동시 실행 금지, 이벤트와 경합, 관리자 API | BD-104 (확인 필요) | U, I | `BillingUserBackfillUseCaseTest`(13), `BillingUserBackfillIntegrationTest`(14) | 경계 (MemberApiClient 실제 HTTP, 가짜 member 서버) | R-003 통과 (경계) |
+| BT-USR-03 | Backfill | 페이지 순회·한도·재개 커서, 실패 분류, 계약 위반, 동시 실행 금지, 이벤트와 경합, 관리자 API, 관리자가 아닌 회원 지갑 확인·생성(다시 실행해도 같음, 지갑 실패는 failed, #552) | BD-132 | U, I | `BillingUserBackfillUseCaseTest`(15), `BillingUserBackfillIntegrationTest`(15) | 경계 (MemberApiClient 실제 HTTP, 가짜 member 서버) | R-003 통과 (경계) |
 | BT-USR-04 | member 제공자 계약 일치 | member-app 내부 회원 API 응답이 Billing Client 기대와 같다 | `docs/api/internal-members.md` | T | 없음 | 경계 | 없음 |
 
 ### 4.8 보안·오류·DB·설정 (SEC·ERR·DB·CFG)

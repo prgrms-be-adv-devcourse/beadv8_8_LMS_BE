@@ -22,7 +22,7 @@
 
 ## 현재 수집 상태 (#480)
 
-- **지표**: member-app·lecture-app·appearance-app·customer-support-app이 관리 포트 8082에서 `/actuator/prometheus`를 연다(lecture #521, 나머지 #528). billing-app·chat-app은 아직 열지 않는다. Prometheus 차트 기본 `kubernetes-pods` job이 pod annotation을 보고 1분마다 수집한다. label은 pod label을 옮긴 `app_kubernetes_io_name`과 `namespace`·`pod`다.
+- **지표**: member-app·lecture-app·appearance-app·customer-support-app·billing-app이 관리 포트 8082에서 `/actuator/prometheus`를 연다(lecture #521, billing #552, 나머지 #528). chat-app은 아직 열지 않는다. Prometheus 차트 기본 `kubernetes-pods` job이 pod annotation을 보고 1분마다 수집한다. label은 pod label을 옮긴 `app_kubernetes_io_name`과 `namespace`·`pod`다.
 - **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 형식은 앱 기본 평문 그대로이고 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
 - **dashboard**: Grafana `합방` 폴더에 세 개가 있다(#531, 아래 "Dashboard").
 - 구조화 로그·`traceId`, alert는 아직 없다(#343).

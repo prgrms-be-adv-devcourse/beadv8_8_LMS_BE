@@ -270,6 +270,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 - PostgreSQL instance 1개 안에 앱마다 database를 둔다. Billing은 database `billing`(지갑, 원장, 보류, 지급, 환전)이다.
 - database마다 소유 role을 두고 `REVOKE CONNECT ... FROM PUBLIC`으로 막는다.
 - 진행 순서(#338): ① 모듈을 넘는 동기 호출을 내부 API + 보상 처리로 바꾼다(#271~#281) → ② 앱별 publication externalization을 만든다(#339) → ③ 스키마를 database로 옮긴다(`pg_dump`/restore, Flyway 이력 보존) → ④ connection 수와 메모리를 다시 잰다.
+- (#552 확인) k3s에는 database `billing`과 계정 `billing`이 이미 있다(`postgres-credentials`). 옮길 데이터는 없다: Compose 운영 DB는 #440에서 지웠고, Flyway가 빈 `billing` database에 스키마를 처음부터 만든다. 대신 기존 회원의 지갑 회원·지갑은 prod 첫 배포 때 Backfill로 채운다(BD-132, `docs/deploy/k8s.md` "billing-app 첫 배포"). connection은 Hikari 10 명시, 전체 최악 80/100이다(BD-133, `database.md` 5항).
 
 | 항목 | 현재 | 분리 시 바뀌는 것 / 검토 |
 | --- | --- | --- |
@@ -327,3 +328,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-10-31 | 454bfd2 | #486 shared `BillingPort`·`BillingPortAdapter` 삭제(1.1, 2, 7.1, 8.3, L1) |
 | 2026-11-01 | aeb1bdb | #494 shared Command → billing 내부 Command(`Payment*Command`) 변환(1.1, 5.1). 상세는 [`CONTEXT.md`](CONTEXT.md) 8장 |
 | 2026-11-02 | 437411c | #497 지갑 이벤트 발행(7.1·7.2·8.2·8.3). 상세는 [`CONTEXT.md`](CONTEXT.md) 9장 |
+| 2026-11-02 | 81cfdd48 | #552 prod 첫 배포 준비: 관리 포트 8082·Prometheus, Hikari 10, 데이터 이관 없음, Backfill 지갑 생성(8.3, BD-132·BD-133) |
