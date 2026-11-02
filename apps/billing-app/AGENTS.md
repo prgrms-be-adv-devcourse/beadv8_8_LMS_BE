@@ -129,7 +129,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 ### 8.0 종류별 보류와 확정 차감 (#241)
 
 - **보류 종류(`point_hold.hold_type`)**: MIXED(수익 HP 우선 + 충전 HP, 강의·출연 = 내부 API 보류 전부), CHARGE_ONLY(충전 HP만, 환불 `POINT_REFUND_REQUEST`), REVENUE_ONLY(수익 HP만, 환전 `EXCHANGE`). 종류는 참조 유형으로 정해지고(`InternalHoldRequests.holdTypeOf`), 쓸 수 있는 종류의 잔액이 모자라면 `INSUFFICIENT_BALANCE`. 기존 MIXED 규칙은 바꾸지 않는다. DB `ck_point_hold_5`가 종류와 구성(CHARGE_ONLY는 수익 0, REVENUE_ONLY는 충전 0)을 막는다.
-- **확정 차감(CAPTURE)**: 보류 HP를 다른 회원에게 옮기지 않고 최종 차감한다(받는 지갑 없음). 원장은 보류 감소 줄만(환불 `REFUND`, 환전 `EXCHANGE`). 충전 HP는 지급과 같이 배분 순서(FIFO)로 소진하고 원금은 충전 건에 돌아가지 않는다. 전체·부분 허용, 남은 금액은 추가 확정 차감·반환 가능. 확정 차감만으로 끝나면 `CAPTURED`, 반환·지급과 섞이면 `MIXED`. **MIXED 보류(강의·출연)는 확정 차감하지 않는다**(`HOLD_TYPE_NOT_SUPPORTED`), 강의·출연 지급을 확정 차감으로 대체하지 않는다.
+- **확정 차감(CAPTURE)**: 보류 HP를 다른 회원에게 옮기지 않고 최종 차감한다(받는 지갑 없음). 내부 API로 노출하지 않는다(#564, BD-135). 원장은 보류 감소 줄만(환불 `REFUND`, 환전 `EXCHANGE`). 충전 HP는 지급과 같이 배분 순서(FIFO)로 소진하고 원금은 충전 건에 돌아가지 않는다. 전체·부분 허용, 남은 금액은 추가 확정 차감·반환 가능. 확정 차감만으로 끝나면 `CAPTURED`, 반환·지급과 섞이면 `MIXED`. **MIXED 보류(강의·출연)는 확정 차감하지 않는다**(`HOLD_TYPE_NOT_SUPPORTED`), 강의·출연 지급을 확정 차감으로 대체하지 않는다.
 - **충전 건 지정 금액은 필수 (#241 2차)**: `CaptureCommand.ofCharge`·`InternalReleaseCommand.ofCharge`는 금액을 반드시 받는다(생략 시 요청 단계 `IllegalArgumentException`). PG가 실제 취소한 금액·실패 확정 금액을 그대로 넘기고, 그 배분의 남은 보류를 넘으면 다른 충전 건으로 나누지 않고 거절한다. 금액 없는 "남은 보류 전부"는 충전 건을 지정하지 않는 `full`에서만 쓴다.
 - **충전 건 지정(`point_hold_detail.target_charge_id`)**: CHARGE_ONLY 보류에서 PG 결제 건(충전 건)별 결과를 반영한다. 성공 건만 그 충전 건 배분에서 확정 차감, 실패 확정 건만 그 충전 건에 반환, 결과 불명확 건은 보류 유지. 비어 있는 상세는 기존 규칙(반환 = 배분 역순, 지급·확정 차감 = 배분 순서)으로 재생한다 → 기존 이력 재구성 불변.
 - **내부 경로만**: `InternalHoldFacade.hold(InternalHoldCommand)`·`capture(CaptureCommand)`·`release(InternalReleaseCommand)`. shared DTO·`HOLDABLE_REFERENCE_TYPES`는 바꾸지 않는다. 지급(`payout`)은 내부 참조 유형을 받지 않는다(shared 계약), 확정 차감은 강의·출연 참조 유형을 받지 않는다 → 같은 보류를 지급과 확정 차감이 나눠 쓰지 않는다.
@@ -165,6 +165,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
     - **내부 HTTP API는 shared Command를 요청 본문으로 그대로 받는다**(BD-54 재검토, `docs/billing/CONTEXT.md` 1.1). shared Command가 곧 모듈 간 HTTP 계약이기 때문이다. `app`·`domain`·`out`은 shared Command를 쓰지 않고 `Payment*Command`를 받는다(BD-129, `BillingSharedDtoAccessTest`). 회원이 부르는 사용자 API는 각 모듈의 요청 DTO(`@Valid`, 400 `INVALID_REQUEST`)로 받고 shared DTO를 쓰지 않는다.
 - 멱등키는 Billing이 만든다(`app.BillingKeys`). 호출한 쪽은 보류 멱등키를 만들거나 넘기지 않고, 반환·지급·취소마다 안정적인 요청 ID만 넘긴다. 같은 요청 ID로 다시 보내도 HP는 두 번 움직이지 않는다.
 - 호출 쪽의 실패 복구(HP 작업·재시도·보상)는 각 모듈이 소유한다: 강의 `docs/lecture/integration.md`, 출연 `docs/appearance/module.md`. Billing 오류·결과 불명을 성공으로 해석하지 않는다(BD-70).
+- **지갑이 부르는 다른 앱 내부 API (#562, BD-134)**: 수익 조회(shared `LectureApiClient`·`AppearanceApiClient`)와 회원 Backfill(`MemberApiClient`)은 shared Client를 고치지 않고 지갑의 `out.OutboundCircuitBreakers`로 감싼다(회로 `lecture`·`appearance`·`member`). `UNAVAILABLE`만 실패로 세고, 수익 조회만 연결 실패를 1회 다시 보낸다. 새 나가는 호출을 더하면 같은 컴포넌트에 회로를 더한다.
 - **지갑 이벤트 발행 (#497)**: 충전·지급·환불·환전 결과를 `billing.events.v1`에 발행한다(`BillingEventPublisher`, Modulith externalization, 같은 트랜잭션 + 매분 재발행). 이벤트 레코드는 `shared.billing.event`이고 사실만 담는다(계좌·결제키·사유 원문 없음). 상세는 `docs/billing/CONTEXT.md` 9장, BD-130.
 - 거래 상태의 확정·취소 판단은 각 업무 도메인이 담당한다.
 - Billing은 HP 이동 및 원장 정합성만 책임진다.
@@ -189,6 +190,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 - **멱등성**: 주문 ID UNIQUE, 결제키 HMAC UNIQUE(`uk_point_charge_pg_payment_key_hash`, 위반은 Repository `saveAndFlush`로 받아 409로 바꾼다 — `EntityManager.flush()` 직접 호출은 Spring 예외로 바뀌지 않아 500이 된다), 충전 원장 작업 키 `CHARGE:{chargeId}`, 확정은 지갑·충전 건 락 아래 상태 재확인, TossPayments 승인 `Idempotency-Key: hapbang-charge-confirm-{orderId}`. 끝난 주문 + 같은 결제키 = 처음 결과(replay), 다른 결제키 = `CHARGE_PAYMENT_KEY_CONFLICT`, FAILED 주문 = `CHARGE_ALREADY_FAILED`.
 - **결제키 보호**: `pg_payment_key` = AES-256-GCM 암호문(무작위 IV, "v1:" 접두사), `pg_payment_key_hash` = HMAC-SHA256(별도 키). 결제키·시크릿 키를 응답·로그·`toString`에 남기지 않는다. 키는 환경 변수 `TOSS_PAYMENTS_SECRET_KEY`·`BILLING_PAYMENT_KEY_ENCRYPTION_KEY`·`BILLING_PAYMENT_KEY_HMAC_KEY`(`hapbang.billing.*`). 셋이 없으면 앱은 뜨고 충전 API만 503 `CHARGE_UNAVAILABLE`. 암호화 키만 있거나 형식이 틀리면 시작 실패. HMAC 키는 바꾸지 않는다(기존 해시와 맞지 않게 된다).
 - **금액**: 1 HP = 1원, 1,000 이상·1,000 단위(`CHARGE_AMOUNT_INVALID`). 최대 금액·주문 만료는 정책이 없어 두지 않았다.
+- **TossPayments 회로 (#562, BD-134)**: `TossPaymentsClient`는 회로 `toss` 안에서 부르고 결과 `Unknown`만 실패로 센다(재시도 없음). 열린 채 호출되면 요청하지 않고 `Unknown(CIRCUIT_OPEN)`이라 기존 결과 불명 처리를 탄다. 충전 주문·승인·환불 신청은 회로가 열려 있으면 상태를 바꾸기 전에 503(`CHARGE_UNAVAILABLE`·`REFUND_UNAVAILABLE`), 결과 확인 배치는 건마다 `TossCircuitGate`로 확인해 열려 있으면 남은 건을 다음 회차로 넘긴다.
 - 충전은 유저·인플루언서·인증된 인플루언서만(`ChargeFacade` `@PreAuthorize`, 관리자 403). 주문·승인 모두 지갑 회원도 정상 상태의 같은 역할이어야 한다(`WalletMemberCheck`, 승인은 TossPayments를 부르기 전에 확인, #537·BD-131). 지갑을 만들지 않는다(없으면 `WALLET_NOT_FOUND`).
 
 ### 10.2 충전 HP 환불 (#260, TossPayments 결제 부분 취소)
@@ -260,8 +262,9 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
     - 보류 정합성(이 환전·REVENUE_ONLY·HELD·남은 수익 HP 보류 = 신청 금액·충전 0)이 틀리면 승인·거절 모두 중단(500 `EXCHANGE_STATE_INCONSISTENT`).
     - 멱등: 같은 관리자 재승인, 같은 관리자·같은 사유(정규화 후) 재거절 = 처음 결과(반환 다시 안 함). 그 밖(다른 관리자·다른 결정·다른 사유·취소·송금 단계) = 409 `EXCHANGE_ALREADY_REVIEWED`. 승인·거절된 신청의 회원 취소 = 409 `EXCHANGE_NOT_CANCELABLE`.
     - DB(Flyway `V202610162000`): 상태 APPROVED·REJECTED, `ck_exchange_6~9`(승인 기록 쌍, APPROVED면 승인 기록·REQUESTED·REJECTED·CANCELED면 없음 — 송금 단계에서는 보존, REJECTED ⇔ 거절 기록, 사유 1~500·trim).
+- **회원 이벤트 DLT 복구 (#564, BD-136)**: DLT를 리스너에 다시 넣는 도구는 없다. kafka CLI로 확인하고 원인을 고친 뒤 관리자 회원 Backfill로 다시 맞춘다(`docs/deploy/k8s.md` "billing-app 회원 이벤트 DLT 복구").
 - **회원 복제본 (#294)**: `billing.billing_user`(Flyway `V202610162010`, `BillingUser extends ReplicaUser`, 회원 ID PK·FK 없음, 생성·수정 시각은 shared BaseEntity라 TIMESTAMP — Billing TIMESTAMPTZ 규칙의 예외). `BillingMemberEventListener`가 `UserJoinedEvent`·`UserModifiedEvent`를 **같은 Upsert 규칙**으로 반영(`BillingUserSyncUseCase`): 없으면 생성(가입 전 변경도 생성), 있으면 행을 PESSIMISTIC_WRITE로 잠그고 `ReplicaUser.syncFrom`(회원 버전 이하 무시). **버전 없는 정보는 반영하지 않는다.** 동시 생성 PK 충돌은 최대 3회 다시 시도. 지갑 리스너(`UserJoinedEventListener`)와 별도라 실패가 서로 영향을 주지 않는다. 관리자도 복제한다.
-    - **기존 회원 Backfill은 하지 않는다(#294 결정, 후속 Issue)**: 복제본 도입 전 가입자는 가입·변경 이벤트가 다시 오기 전까지 복제본이 없어 **환전 승인이 409**다(거절은 가능). Member 조회 Port·재발행 기능이 없어 Billing만으로는 채울 수 없다(Member 협의 필요). 테스트·운영 회원을 임의로 ACTIVE로 채우지 않는다.
+    - **기존 회원 Backfill (#324, #552)**: 관리자 API `POST /api/v1/settlements/admin/billing-users/backfill`이 회원 내부 API로 기존 회원을 읽어 복제본을 이벤트와 같은 규칙으로 반영하고, 관리자가 아닌 회원의 지갑도 `getOrCreateWallet`으로 만든다(BD-132). `member.events.v1`은 72시간만 보존되므로 prod 첫 배포 때 route를 열기 전에 실행한다(`docs/deploy/k8s.md` "billing-app 첫 배포"). 테스트·운영 회원을 임의로 ACTIVE로 채우지 않는다.
 - 가상 송금 성공 시 보류 HP를 차감하고, 최종 실패 시 반환한다.
 - 결과가 불명확한 경우에는 보류를 유지한다.
 
@@ -297,5 +300,5 @@ Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적�
     - 이벤트 리스너·배치처럼 로그인 정보 없이 호출하는 경로는 `@PreAuthorize`가 없는 별도 Facade 메서드를 쓴다 (예: `WalletFacade.getOrCreateWallet`).
     - `@PreAuthorize` 거절은 `BillingErrorCode`가 아니라 global `GlobalExceptionHandler`가 응답한다. 로그인했으면 403 `FORBIDDEN`, 비로그인이면 401 `UNAUTHORIZED`다 (루트 AGENTS.md 7장 "오류 응답", #71).
 - **성공 응답**: 컨트롤러는 루트 AGENTS.md 7장 "성공 응답 (RsData)"대로 `RsData`로 감싸 반환한다. Facade·UseCase는 응답 형식을 모르고 DTO·도메인 결과만 돌려준다(예: `ApiV1WalletController`가 `WalletResponse`를 `RsData.ok`로 감싼다). 오류는 `ProblemDetail` 그대로다.
-- **헬스체크**: Actuator `/actuator/health`로 앱·DB 상태를 확인한다 (global·apps 공통 설정, 모듈에서 따로 만들지 않는다).
+- **헬스체크·지표**: Actuator `/actuator/health`로 앱·DB 상태를 확인하고 `/actuator/prometheus`로 지표를 낸다. k8s에서는 관리 포트 8082(`MANAGEMENT_SERVER_PORT`)에서만 열리고, 8080(Gateway 전용)·8081(내부 API)에서는 404다(#552, BD-133, `ManagementPortTest`).
 - **테스트용 mock 계정**: 로컬 실행 시 member 모듈(`MemberDataInit`, 로컬 로그인)이 유저·인플루언서·인증된 인플루언서·관리자 역할별 테스트 계정을 만든다.

@@ -139,22 +139,31 @@ class BillingUserBackfillIntegrationTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("복제본이 없는 기존 회원(모든 역할·상태)을 만들고, 지갑·원장은 만들지 않는다")
+    @DisplayName("복제본이 없는 기존 회원(모든 역할·상태)을 만들고, 관리자가 아닌 회원의 지갑을 만든다. 원장은 만들지 않고 다시 실행해도 지갑이 늘지 않는다 (#552)")
     void createsMissing() {
         member(1L, Role.USER, UserStatus.ACTIVE, 0L);
         member(2L, Role.INFLUENCER, UserStatus.SUSPENDED, 3L);
         member(3L, Role.ADMIN, UserStatus.ACTIVE, 1L);
         member(4L, Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN, 7L);
+        // 가입 이벤트·지갑 조회로 이미 지갑이 있는 회원은 그대로 쓴다
+        Long existingWalletId = walletRepository.save(Wallet.create(1L)).getId();
 
         BillingUserBackfillResult result = backfillUseCase.run(0, 5_000);
 
         assertThat(result.created()).isEqualTo(4);
+        assertThat(result.walletsEnsured()).isEqualTo(3);
         assertThat(result.completed()).isTrue();
         assertThat(replicas()).containsExactly("1 member1 USER ACTIVE 0", "2 member2 INFLUENCER SUSPENDED 3",
                 "3 member3 ADMIN ACTIVE 1", "4 member4 VERIFIED_INFLUENCER WITHDRAWN 7");
-        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet WHERE wallet_type = 'MEMBER'",
-                Long.class)).isZero();
+        assertThat(memberWalletUserIds()).containsExactly(1L, 2L, 4L);
+        assertThat(walletRepository.findByUserId(1L)).get().extracting(Wallet::getId).isEqualTo(existingWalletId);
         assertThat(count("billing.point_ledger")).isZero();
+
+        BillingUserBackfillResult again = backfillUseCase.run(0, 5_000);
+
+        assertThat(again.walletsEnsured()).isEqualTo(3);
+        assertThat(again.ignoredStale()).isEqualTo(4);
+        assertThat(memberWalletUserIds()).containsExactly(1L, 2L, 4L);
     }
 
     @Test
@@ -322,13 +331,14 @@ class BillingUserBackfillIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.message").value("회원 정보 Backfill을 실행했습니다."))
-                .andExpect(jsonPath("$.data.length()").value(10))
+                .andExpect(jsonPath("$.data.length()").value(11))
                 .andExpect(jsonPath("$.data.scanned").value(2))
                 .andExpect(jsonPath("$.data.created").value(2))
                 .andExpect(jsonPath("$.data.updated").value(0))
                 .andExpect(jsonPath("$.data.ignoredStale").value(0))
                 .andExpect(jsonPath("$.data.ignoredVersionless").value(0))
                 .andExpect(jsonPath("$.data.failed").value(0))
+                .andExpect(jsonPath("$.data.walletsEnsured").value(2))
                 .andExpect(jsonPath("$.data.failedIds.length()").value(0))
                 .andExpect(jsonPath("$.data.lastProcessedId").value(2))
                 .andExpect(jsonPath("$.data.completed").value(true))
@@ -471,6 +481,11 @@ class BillingUserBackfillIntegrationTest {
 
     private long count(String table) {
         return jdbcTemplate.queryForObject("SELECT count(*) FROM " + table, Long.class);
+    }
+
+    private List<Long> memberWalletUserIds() {
+        return jdbcTemplate.queryForList(
+                "SELECT user_id FROM billing.wallet WHERE wallet_type = 'MEMBER' ORDER BY user_id", Long.class);
     }
 
     private static String json(UserDto user) {

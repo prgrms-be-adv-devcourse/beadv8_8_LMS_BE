@@ -12,7 +12,7 @@
 #                                - 그 밖(docs/, k8s/, .github/ 등)      → 없음
 #                                base가 비었거나 0000…(브랜치 첫 push)이거나 커밋을 찾을 수 없으면 전체 앱
 #   apps.sh tested <base> <head>
-#                                PR CI가 테스트할 앱(#488). changed와 같고 아래만 다르다. 발행·배포는 changed를 쓴다
+#                                PR CI가 테스트할 앱(#488). changed와 같고 아래만 다르다. 배포는 changed를 쓴다(발행은 source 태그의 이미지가 없는 앱을 고른다)
 #                                - apps/<앱>/k8s/**, *.md                 → 판정에서 뺀다(manifests job이 검사, 문서)
 #                                - .github/workflows/ci.yml, .github/scripts/apps.sh, gradlew → 전체 앱
 #                                규칙을 바꾸면 apps-test.sh에 사례를 더한다(changes job이 실행)

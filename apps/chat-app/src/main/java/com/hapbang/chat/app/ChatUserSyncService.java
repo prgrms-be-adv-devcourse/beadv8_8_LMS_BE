@@ -1,5 +1,6 @@
 package com.hapbang.chat.app;
 
+import java.time.Instant;
 import com.hapbang.chat.app.dto.ChatUserSyncResult;
 import com.hapbang.shared.member.dto.UserDto;
 
@@ -37,7 +38,10 @@ public interface ChatUserSyncService {
      * 남기고, 커밋 뒤 로그아웃 표식({@link ChatLogoutMarkers})을 남긴다. 복제본은 바꾸지 않는다. 연결 종료는 그 작업이 제어 Stream·
      * 제어 채널을 거쳐 처리하고, 놓치면 하트비트가 표식으로 닫는다(설계 문서 6장·Q8).
      *
+     * 닫는 연결은 {@code loggedOutAt}보다 먼저 인증한 연결이다. 늦게 다시 온 옛 로그아웃이 그 뒤에 다시 로그인한 연결을 닫지 않는다.
+     *
+     * @param loggedOutAt 회원 앱이 정한 로그아웃 시각. 없으면(옛 형식) 처리 시각으로 대신하고, 처리 시각보다 늦으면 처리 시각으로 줄인다
      * @throws com.hapbang.chat.app.exception.ChatException 회원 ID가 없거나 1보다 작으면 {@code INVALID_REQUEST}
      */
-    void syncLoggedOut(Long userId);
+    void syncLoggedOut(Long userId, Instant loggedOutAt);
 }

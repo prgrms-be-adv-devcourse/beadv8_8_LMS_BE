@@ -200,11 +200,11 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 강의 → Billing (보류·반환·지급) | shared `BillingApiClient`로 지갑 내부 HTTP API 호출(#275~#277). HP 작업 실행기가 로컬 트랜잭션 밖에서 부른다 | 분리 구조에 맞다. 같은 JVM의 shared `BillingPort`·`BillingPortAdapter`는 #486에서 지웠다 | #271, #486 |
 | 출연 → Billing (보류·반환·지급·위약금) | shared `BillingApiClient`로 지갑 내부 HTTP API 호출(#274) | 분리 구조에 맞다 | #274, #486 |
 | Billing이 내부 API 제공 | `ApiV1BillingInternalController`(`/api/v1/internal/billing/{holds,releases,payouts,penalty-settlements,hold-voids}`), `X-Internal-Api-Key` → `ROLE_INTERNAL` | 제공 중. 계약은 [`internal-billing.md`](../api/internal-billing.md) | #273, #479 |
-| 회원 → Billing (지갑 생성, 복제본) | Kafka `member.events.v1`을 소비 그룹 둘로 받는다(#430): `billing-app.member-replica`(`BillingMemberEventListener`, 가입·변경 → 복제본 Upsert), `billing-app.wallet-creation`(`UserJoinedEventListener`, 가입 → 지갑, ADMIN 제외). 실패는 블로킹 재시도 3회 뒤 그룹별 DLT(`BillingKafkaConfig`) | 발행 쪽(#416)이 병합돼야 실제 이벤트가 온다. 로컬·테스트 설정은 리스너·토픽 생성을 끈다(Kafka 소비 테스트만 켬). 앱 시작 전 가입자는 지갑 조회 보완·Backfill로 채운다 | #430, BD-123 |
+| 회원 → Billing (지갑 생성, 복제본) | DLT 복구는 kafka CLI 확인 + 관리자 Backfill 운영 절차(BD-136, `docs/deploy/k8s.md`). Kafka `member.events.v1`을 소비 그룹 둘로 받는다(#430): `billing-app.member-replica`(`BillingMemberEventListener`, 가입·변경 → 복제본 Upsert), `billing-app.wallet-creation`(`UserJoinedEventListener`, 가입 → 지갑, ADMIN 제외). 실패는 블로킹 재시도 3회 뒤 그룹별 DLT(`BillingKafkaConfig`) | 발행 쪽(#416)이 병합돼야 실제 이벤트가 온다. 로컬·테스트 설정은 리스너·토픽 생성을 끈다(Kafka 소비 테스트만 켬). 앱 시작 전 가입자는 지갑 조회 보완·Backfill로 채운다 | #430, BD-123 |
 | Billing → 다른 앱 (이벤트 발행) | Kafka `billing.events.v1`(#497): 충전·지급·환불·환전 결과 이벤트 7종. Modulith externalization(발행 기록 = outbox), 같은 트랜잭션 발행 + 매분 재발행(`BillingEventRepublishBatch`) | 분리 구조에 맞다. 아직 소비자는 없다(알림 #193) | [`CONTEXT.md`](CONTEXT.md) 9장 |
-| Billing → 강의·출연 (수익 조회) | shared `LectureApiClient`·`AppearanceApiClient` 내부 HTTP | 분리 구조에 맞다. base-url 환경 변수 필요 | #295, internal-earnings.md |
-| Billing → 회원 (Backfill) | shared `MemberApiClient` 내부 HTTP | 분리 구조에 맞다 | #322, #324 |
-| Billing → TossPayments | HTTP (`TossPaymentsClient`) | 영향 없음 | — |
+| Billing → 강의·출연 (수익 조회) | shared `LectureApiClient`·`AppearanceApiClient` 내부 HTTP. 지갑 쪽 회로 `lecture`·`appearance` + 연결 실패만 1회 재시도(#562) | 분리 구조에 맞다. base-url 환경 변수 필요 | #295, internal-earnings.md, BD-134 |
+| Billing → 회원 (Backfill) | shared `MemberApiClient` 내부 HTTP. 지갑 쪽 회로 `member`, 재시도 없음(#562) | 분리 구조에 맞다 | #322, #324, BD-134 |
+| Billing → TossPayments | HTTP (`TossPaymentsClient`). 회로 `toss`(결과 `Unknown`만 실패, 재시도 없음). 열려 있으면 충전·환불 신청 503, 결과 확인 배치는 회차를 건너뜀(#562) | 영향 없음 | BD-134 |
 | Billing → Mock 은행 | 같은 billing-app에 실제 HTTP (`localhost:{port}`) | 영향 없음(같은 앱). local·test 프로필에서만 켜짐 | #288 |
 | 인증 | `GatewayUserHeaderFilter`가 Envoy가 넘긴 `X-User-Id`·`X-User-Role`로 인증한다(#537, BD-131). `SecurityConfig`는 STATELESS·CSRF 없음, `/api/v1/*/admin/**` = ADMIN, 나머지 인증 필요. `@LoginUserId` = 헤더의 회원 ID. 충전 주문·승인·환불 신청·환전 신청은 지갑 회원(`billing_user`) 상태·역할도 확인한다(`WalletMemberCheck`, 없음 404·부적격 403) | 분리 구조에 맞다. Envoy SecurityPolicy(`apps/billing-app/k8s/base/gateway.yaml`)가 JWT를 검증하고, NetworkPolicy가 8080에 Gateway만 들인다 | #537, BD-131 |
 | 외부 노출 차단 | Envoy Gateway에 `/api/v1/internal/**` route가 없어 404다 | 지갑 내부 API도 서버 밖에서 닿지 않는다 | 루트 AGENTS 7장 |
@@ -258,7 +258,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | (`wallet.wallet_type`·`fee_balance_hp`, 플랫폼 지갑 행, 원장 `FEE`·`EXCHANGE_FEE`) | `V202610301000` (#336) |
 | (`ck_exchange_1`을 1 HP 이상으로) | `V202610301200` (#453) |
 | `hold_void` (보류 무효화 기록) | `V202610301600` (#479) |
-| `event_publication`, `event_publication_archive` (Modulith 발행 기록) | #471(`V202610301400`)에서 지웠다가 #497에서 다시 쓴다. Flyway가 아니라 Modulith 스키마 초기화가 만든다(엔티티 아님) |
+| `event_publication`, `event_publication_archive` (Modulith 발행 기록) | #471(`V202610301400`)에서 지웠다가 #497에서 다시 쓴다. Flyway가 아니라 Modulith 스키마 초기화가 만든다(엔티티 아님). `V202610301400`의 첫 줄 주석("지갑은 Spring Event를 발행하지도 받지도 않는다")은 #471 당시 기준이다. 적용된 Flyway는 주석도 체크섬에 들어가므로 고치지 않는다(#564, BD-130) |
 
 - `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록에는 `billing_user`·`mock_payout_transfer`가 없다.
 - Flyway 설정: `baseline-on-migrate`, `baseline-version: 0`, `out-of-order: true`. 기존 모놀리스 공용 DB 이력 전환은 미완료(#338).
@@ -270,6 +270,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 - PostgreSQL instance 1개 안에 앱마다 database를 둔다. Billing은 database `billing`(지갑, 원장, 보류, 지급, 환전)이다.
 - database마다 소유 role을 두고 `REVOKE CONNECT ... FROM PUBLIC`으로 막는다.
 - 진행 순서(#338): ① 모듈을 넘는 동기 호출을 내부 API + 보상 처리로 바꾼다(#271~#281) → ② 앱별 publication externalization을 만든다(#339) → ③ 스키마를 database로 옮긴다(`pg_dump`/restore, Flyway 이력 보존) → ④ connection 수와 메모리를 다시 잰다.
+- (#552 확인) k3s에는 database `billing`과 계정 `billing`이 이미 있다(`postgres-credentials`). 옮길 데이터는 없다: Compose 운영 DB는 #440에서 지웠고, Flyway가 빈 `billing` database에 스키마를 처음부터 만든다. 대신 기존 회원의 지갑 회원·지갑은 prod 첫 배포 때 Backfill로 채운다(BD-132, `docs/deploy/k8s.md` "billing-app 첫 배포"). connection은 Hikari 10 명시, 전체 최악 80/100이다(BD-133, `database.md` 5항).
 
 | 항목 | 현재 | 분리 시 바뀌는 것 / 검토 |
 | --- | --- | --- |
@@ -327,3 +328,6 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-10-31 | 454bfd2 | #486 shared `BillingPort`·`BillingPortAdapter` 삭제(1.1, 2, 7.1, 8.3, L1) |
 | 2026-11-01 | aeb1bdb | #494 shared Command → billing 내부 Command(`Payment*Command`) 변환(1.1, 5.1). 상세는 [`CONTEXT.md`](CONTEXT.md) 8장 |
 | 2026-11-02 | 437411c | #497 지갑 이벤트 발행(7.1·7.2·8.2·8.3). 상세는 [`CONTEXT.md`](CONTEXT.md) 9장 |
+| 2026-11-02 | 81cfdd48 | #552 prod 첫 배포 준비: 관리 포트 8082·Prometheus, Hikari 10, 데이터 이관 없음, Backfill 지갑 생성(8.3, BD-132·BD-133) |
+| 2026-11-02 | 35e7aae1 | #562 나가는 호출 circuit breaker(7.1, BD-134) |
+| 2026-11-02 | 35e7aae1 | #564 DLT 복구 절차(BD-136), migration 주석 정정(8.2), capture 비노출(BD-135) |

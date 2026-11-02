@@ -38,8 +38,10 @@ public class SecurityConfig {
                                 "/api/v1/wallets/swagger-ui/**", "/api/v1/wallets/v3/api-docs/**").permitAll()
                         // 예외가 나면 Spring이 /error로 보내는데, 막혀 있으면 원래 오류 대신 401이 나간다
                         .requestMatchers("/error").permitAll()
-                        // 헬스체크(k8s probe). Gateway가 /actuator를 라우팅하지 않는다
+                        // 헬스체크(k8s probe)와 Prometheus 수집(#552). k8s에서는 관리 포트(MANAGEMENT_SERVER_PORT)에서만 열리고
+                        // NetworkPolicy가 그 포트에 Prometheus만 들인다. 외부 API 포트는 Gateway 전용이다. 로컬은 앱 포트에서 열린다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)
                         .requestMatchers("/api/v1/*/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()

@@ -60,6 +60,7 @@ class BillingUserBackfillUseCaseTest {
     private volatile CountDownLatch blockRequest;
 
     private final BillingUserSyncUseCase sync = mock(BillingUserSyncUseCase.class);
+    private final WalletFacade walletFacade = mock(WalletFacade.class);
     private final List<Long> applied = new CopyOnWriteArrayList<>();
 
     private record Response(int status, String body) {
@@ -249,6 +250,43 @@ class BillingUserBackfillUseCaseTest {
     }
 
     @Test
+    @DisplayName("관리자가 아닌 회원은 복제본을 반영한 뒤 지갑을 확인한다. 지갑에서 실패하면 그 회원은 failed로만 세고 다음 회원을 계속한다 (#552)")
+    void ensuresWallets() {
+        memberIds = ids(1, 5);
+        doAnswer(invocation -> {
+            Long userId = invocation.getArgument(0);
+            if (userId == 3L) {
+                throw new IllegalStateException("db");
+            }
+            return null;
+        }).when(walletFacade).getOrCreateWallet(any());
+
+        BillingUserBackfillResult result = useCase().run(0, 5_000);
+
+        for (long id = 1; id <= 5; id++) {
+            verify(walletFacade).getOrCreateWallet(id);
+        }
+        assertThat(result.walletsEnsured()).isEqualTo(4);
+        assertThat(result.created()).isEqualTo(4);
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.failedIds()).containsExactly(3L);
+        assertInvariant(result);
+    }
+
+    @Test
+    @DisplayName("복제본 반영이 실패한 회원은 지갑을 확인하지 않는다")
+    void noWalletWhenSyncFails() {
+        memberIds = ids(1, 2);
+        doThrow(new IllegalStateException("db")).when(sync).apply(any());
+
+        BillingUserBackfillResult result = useCase().run(0, 5_000);
+
+        verify(walletFacade, never()).getOrCreateWallet(any());
+        assertThat(result.walletsEnsured()).isZero();
+        assertThat(result.failed()).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("실패 회원 ID는 앞쪽 100개만 담고 failed는 전체 건수다")
     void failedIdsCap() {
         memberIds = ids(1, 250);
@@ -293,7 +331,7 @@ class BillingUserBackfillUseCaseTest {
         respond = null;
         memberIds = ids(1, 3);
         delayMillis = 1_000;
-        assertAbort(() -> new BillingUserBackfillUseCase(() -> client(Duration.ofMillis(200)), sync).run(0, 5_000),
+        assertAbort(() -> new BillingUserBackfillUseCase(() -> client(Duration.ofMillis(200)), sync, walletFacade).run(0, 5_000),
                 BillingErrorCode.MEMBER_SOURCE_UNAVAILABLE, 0, null, 0L);
         verify(sync, never()).apply(any());
     }
@@ -301,7 +339,7 @@ class BillingUserBackfillUseCaseTest {
     @Test
     @DisplayName("회원 내부 API Client가 없으면 빈 결과를 성공으로 주지 않고 MEMBER_SOURCE_UNAVAILABLE이다")
     void noClient() {
-        assertAbort(() -> new BillingUserBackfillUseCase(() -> null, sync).run(0, 5_000),
+        assertAbort(() -> new BillingUserBackfillUseCase(() -> null, sync, walletFacade).run(0, 5_000),
                 BillingErrorCode.MEMBER_SOURCE_UNAVAILABLE, 0, null, 0L);
         assertThat(requests).isEmpty();
     }
@@ -388,7 +426,7 @@ class BillingUserBackfillUseCaseTest {
     }
 
     private BillingUserBackfillUseCase useCase() {
-        return new BillingUserBackfillUseCase(() -> client(Duration.ofSeconds(5)), sync);
+        return new BillingUserBackfillUseCase(() -> client(Duration.ofSeconds(5)), sync, walletFacade);
     }
 
     private MemberApiClient client(Duration readTimeout) {

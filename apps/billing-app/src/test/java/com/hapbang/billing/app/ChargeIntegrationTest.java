@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -38,6 +39,7 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.fixture.ChargeFixture;
 import com.hapbang.billing.fixture.FakeTossPaymentsServer;
 import com.hapbang.billing.fixture.FakeTossPaymentsServer.Fault;
+import com.hapbang.billing.out.OutboundCircuitBreakers;
 import com.hapbang.billing.out.PaymentKeyCipher;
 import com.hapbang.billing.out.TossPayment;
 import com.hapbang.billing.out.WalletRepository;
@@ -72,6 +74,9 @@ class ChargeIntegrationTest {
     ChargeConfirmUseCase chargeConfirmUseCase;
 
     @Autowired
+    OutboundCircuitBreakers circuits;
+
+    @Autowired
     ChargeRecoveryUseCase chargeRecoveryUseCase;
 
     @Autowired
@@ -94,6 +99,12 @@ class ChargeIntegrationTest {
 
     @Autowired
     TransactionTemplate transactionTemplate;
+
+    @AfterEach
+    void closeTossCircuit() {
+        // 회로는 컨텍스트를 함께 쓰는 다른 테스트에도 남으므로 강제로 연 상태를 되돌린다 (#562)
+        circuits.circuitBreaker(OutboundCircuitBreakers.Target.TOSS).transitionToClosedState();
+    }
 
     @BeforeEach
     void setUp() {
@@ -415,6 +426,29 @@ class ChargeIntegrationTest {
         assertThat(chargeRecoveryUseCase.recoverStale(Instant.now().plusSeconds(120))).isZero();
         // 복구 배치로 완료해도 충전 완료 이벤트는 한 번이다(실패한 첫 시도는 원장 기록에서 롤백돼 발행 전에 끝났다)
         assertThat(applicationEvents.stream(ChargeCompletedEvent.class)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("TossPayments 회로가 열려 있으면 결과 확인 배치가 TossPayments를 부르지 않고 건을 PROCESSING으로 둔다. 닫히면 이어서 확정한다 (#562)")
+    void recovery_skippedWhileCircuitOpen() {
+        Long walletId = wallet(1L);
+        ChargeResult order = order(1L);
+        TOSS.nextConfirm(order.orderId(), Fault.UNREACHABLE);
+        assertThat(confirm(1L, order).status()).isEqualTo(PointChargeStatus.PROCESSING);
+        int requestsBefore = TOSS.requests().size();
+
+        circuits.circuitBreaker(OutboundCircuitBreakers.Target.TOSS).transitionToForcedOpenState();
+        chargeRecoveryUseCase.recoverStale(Instant.now().plusSeconds(120));
+
+        assertThat(TOSS.requests()).hasSize(requestsBefore);
+        assertThat(charge(order.orderId())).containsEntry("status", "PROCESSING");
+        assertWallet(walletId, 0L);
+
+        circuits.circuitBreaker(OutboundCircuitBreakers.Target.TOSS).transitionToClosedState();
+        chargeRecoveryUseCase.recoverStale(Instant.now().plusSeconds(120));
+
+        assertThat(charge(order.orderId())).containsEntry("status", "COMPLETED");
+        assertWallet(walletId, AMOUNT);
     }
 
     @Test

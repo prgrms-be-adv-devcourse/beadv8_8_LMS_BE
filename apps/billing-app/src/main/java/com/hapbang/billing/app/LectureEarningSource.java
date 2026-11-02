@@ -14,6 +14,7 @@ import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.EarningSourceType;
 import com.hapbang.billing.domain.EarningStatus;
 import com.hapbang.billing.domain.EarningType;
+import com.hapbang.billing.out.OutboundCircuitBreakers;
 import com.hapbang.shared.lecture.domain.LectureEarningStatus;
 import com.hapbang.shared.lecture.dto.LectureEarningAmountDto;
 import com.hapbang.shared.lecture.dto.LectureEarningItemDto;
@@ -21,6 +22,8 @@ import com.hapbang.shared.lecture.dto.LectureEarningPageDto;
 import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
 import com.hapbang.shared.lecture.out.LectureApiCallException;
 import com.hapbang.shared.lecture.out.LectureApiClient;
+
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -32,14 +35,20 @@ import lombok.extern.slf4j.Slf4j;
 class LectureEarningSource implements EarningSource {
 
     private final Supplier<LectureApiClient> client;
+    private final OutboundCircuitBreakers circuits;
 
     @Autowired
-    LectureEarningSource(ObjectProvider<LectureApiClient> client) {
-        this((Supplier<LectureApiClient>) client::getIfAvailable);
+    LectureEarningSource(ObjectProvider<LectureApiClient> client, OutboundCircuitBreakers circuits) {
+        this((Supplier<LectureApiClient>) client::getIfAvailable, circuits);
     }
 
     LectureEarningSource(Supplier<LectureApiClient> client) {
+        this(client, OutboundCircuitBreakers.defaults());
+    }
+
+    LectureEarningSource(Supplier<LectureApiClient> client, OutboundCircuitBreakers circuits) {
         this.client = client;
+        this.circuits = circuits;
     }
 
     @Override
@@ -94,9 +103,13 @@ class LectureEarningSource implements EarningSource {
     }
 
     // 4xx(REJECTED)는 내부 API 키·계약 불일치라 다시 시도해도 같고, 나머지(연결·시간 초과·5xx·읽을 수 없는 응답)는 일시 장애다.
+    // 회로 안에서 부르고, 연결 자체가 안 됐으면 한 번 더 보낸다(#562). 회로가 열려 있으면 부르지 않고 바로 일시 장애로 응답한다.
     private <T> T call(Supplier<T> request) {
         try {
-            return request.get();
+            return circuits.callWithConnectRetry(OutboundCircuitBreakers.Target.LECTURE, request);
+        } catch (CallNotPermittedException e) {
+            log.warn("강의 내부 수익 API 회로가 열려 있어 조회하지 않았습니다");
+            throw new EarningSourceException(BillingErrorCode.EARNING_SOURCE_UNAVAILABLE, type(), e);
         } catch (LectureApiCallException e) {
             boolean rejected = e.getReason() == LectureApiCallException.Reason.REJECTED;
             if (rejected) {

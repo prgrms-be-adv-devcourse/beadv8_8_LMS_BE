@@ -25,6 +25,11 @@ spring:
         schema: billing
       republish-outstanding-events-on-restart: true
       completion-mode: archive
+  # DB 연결 수 (#552). 기본값(10)을 그대로 명시한다. HP 보류·충전은 지갑 락을 최대 3초 기다리므로(billing.yml lock_timeout) 줄이지 않는다.
+  # 앱 전체 합계와 max_connections(100) 계산은 docs/architecture/infrastructure/database.md 5항에 있다.
+  datasource:
+    hikari:
+      maximum-pool-size: 10
   jpa:
     open-in-view: false
     hibernate:
@@ -48,7 +53,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        # k8s에서는 관리 포트(MANAGEMENT_SERVER_PORT=8082)로만 열리고 Prometheus가 수집한다 (#552, 강의 #521과 같음)
+        include: health,prometheus
   endpoint:
     health:
       show-details: never

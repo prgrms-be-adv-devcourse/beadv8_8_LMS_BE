@@ -14,7 +14,8 @@ import lombok.RequiredArgsConstructor;
 
 // 충전 HP 환불 진입점 (#260). HP 환불은 유저·인플루언서·인증된 인플루언서만 한다(루트 AGENTS.md 6장, 관리자 403).
 // 트랜잭션은 열지 않는다(PG 호출을 DB 트랜잭션 밖에 두기 위해 UseCase가 단계별로 연다).
-// TossPayments 시크릿 키나 결제키 암호화 키가 없으면 접수 전에 REFUND_UNAVAILABLE(503)로 거절한다(조회·취소는 PG가 필요 없다).
+// TossPayments 시크릿 키나 결제키 암호화 키가 없거나 TossPayments 회로가 열려 있으면(#562) 접수 전에 REFUND_UNAVAILABLE(503)로 거절한다
+// (조회·취소는 PG가 필요 없다).
 // 환불 신청은 지갑 회원도 확인한다(#537, BD-131). 정지 회원은 신청할 수 있고 탈퇴 회원은 막는다. 조회·취소는 확인하지 않는다.
 @Service
 @RequiredArgsConstructor
@@ -34,7 +35,7 @@ public class RefundFacade {
     // 환불 요청을 접수(충전 HP 보류)하고 이어서 충전 건별 PG 취소를 처리한 결과를 돌려준다.
     // 같은 Idempotency-Key 재요청은 처음 요청을 이어서 처리하거나 현재 결과를 돌려준다.
     public RefundResult request(Long userId, String idempotencyKey, long amount) {
-        if (!tossPaymentsClient.isConfigured() || !paymentKeyCipher.isConfigured()) {
+        if (!tossPaymentsClient.isConfigured() || !paymentKeyCipher.isConfigured() || tossPaymentsClient.isCircuitOpen()) {
             throw new BillingException(BillingErrorCode.REFUND_UNAVAILABLE);
         }
         if (idempotencyKey == null || !CLIENT_KEY.matcher(idempotencyKey).matches()) {

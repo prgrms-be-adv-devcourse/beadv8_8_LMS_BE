@@ -5,6 +5,7 @@ import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
 import com.hapbang.chat.domain.ChatPublishCheckpoint;
 import com.hapbang.chat.out.redis.ChatRedisKeys;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -48,14 +49,16 @@ public class JpaChatConnectionControl implements ChatConnectionControl {
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void requestLogout(Long userId) {
+    public void requestLogout(Long userId, Instant loggedOutAt) {
         Assert.notNull(userId, "userId가 필요합니다.");
+        Assert.notNull(loggedOutAt, "loggedOutAt이 필요합니다.");
         UUID controlId = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
         chatControlOutboxRepository.insert(controlId, ChatControlType.LOGOUT_USER.name(), userId,
-                ChatControlReason.MEMBER_LOGGED_OUT.name(), now);
+                ChatControlReason.MEMBER_LOGGED_OUT.name(), loggedOutAt, now);
         chatPublishCheckpointRepository.save(
                 ChatPublishCheckpoint.pending(ChatRedisKeys.CONTROL_GROUP, controlId, now));
-        log.info("연결 제어 작업 기록 controlId={}, userId={}, type={}", controlId, userId, ChatControlType.LOGOUT_USER);
+        log.info("연결 제어 작업 기록 controlId={}, userId={}, type={}, loggedOutAt={}", controlId, userId,
+                ChatControlType.LOGOUT_USER, loggedOutAt);
     }
 }

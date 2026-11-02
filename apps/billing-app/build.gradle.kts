@@ -21,6 +21,10 @@ dependencies {
     compileOnly("org.postgresql:postgresql")
     // 지갑 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #497). 버전은 Modulith BOM을 따른다
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
+    // 다른 앱 내부 API·TossPayments 호출의 circuit breaker·재시도와 그 지표 (#562, 루트 AGENTS.md 2장). 버전은 레포 카탈로그를 따른다
+    implementation(libs.resilience4j.circuitbreaker)
+    implementation(libs.resilience4j.retry)
+    implementation(libs.resilience4j.micrometer)
     // 테스트에서 로그인 상태 만들기 (oauth2Login())
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }

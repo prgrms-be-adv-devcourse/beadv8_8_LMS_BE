@@ -6,6 +6,7 @@ import java.util.Base64;
 import java.util.Map;
 import java.util.Set;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,6 +18,8 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -50,10 +53,21 @@ public class TossPaymentsClient {
     static final Set<Integer> UNRESOLVED_STATUSES = Set.of(401, 409, 429);
     static final int NOT_FOUND = 404;
 
+    // 회로가 열려 있어 요청을 보내지 않았다. 보내지 않은 것이 확실하지만 호출한 쪽의 결과 불명 처리(조회·복구 배치)를 그대로 쓴다 (#562)
+    static final String CIRCUIT_OPEN = "CIRCUIT_OPEN";
+
     private final RestClient restClient;
     private final boolean configured;
+    private final OutboundCircuitBreakers circuits;
 
     public TossPaymentsClient(RestClient.Builder restClientBuilder, TossPaymentsProperties properties) {
+        this(restClientBuilder, properties, OutboundCircuitBreakers.defaults());
+    }
+
+    @Autowired
+    public TossPaymentsClient(RestClient.Builder restClientBuilder, TossPaymentsProperties properties,
+                              OutboundCircuitBreakers circuits) {
+        this.circuits = circuits;
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.connectTimeout());
         requestFactory.setReadTimeout(properties.readTimeout());
@@ -74,6 +88,11 @@ public class TossPaymentsClient {
     // 시크릿 키가 설정되어 호출할 수 있는지 확인한다.
     public boolean isConfigured() {
         return configured;
+    }
+
+    // TossPayments 회로가 열려 있는지(#562). 열려 있으면 충전 승인·환불 신청은 상태를 바꾸기 전에 거절하고 복구 배치는 회차를 건너뛴다.
+    public boolean isCircuitOpen() {
+        return circuits.isOpen(OutboundCircuitBreakers.Target.TOSS);
     }
 
     // 결제를 승인한다. 같은 주문의 재요청은 같은 멱등키를 써서 TossPayments가 중복 승인하지 않게 한다.
@@ -128,7 +147,19 @@ public class TossPaymentsClient {
         return result;
     }
 
+    // toss 회로 안에서 부른다(#562). 결과 Unknown만 실패로 세고, 회로가 열려 있으면 부르지 않고 Unknown(CIRCUIT_OPEN)이다.
+    // 조회의 4xx를 Unknown으로 바꾸는 lookupResult는 회로 밖이라, TossPayments가 정상으로 답한 4xx는 장애로 세지 않는다.
     private TossResult call(String action, String reference, Set<String> unresolvedCodes, PaymentCall call) {
+        try {
+            return circuits.call(OutboundCircuitBreakers.Target.TOSS,
+                    () -> request(action, reference, unresolvedCodes, call));
+        } catch (CallNotPermittedException exception) {
+            log.warn("TossPayments {} 회로가 열려 있어 요청하지 않았습니다: ref={}", action, reference);
+            return new TossResult.Unknown(CIRCUIT_OPEN);
+        }
+    }
+
+    private TossResult request(String action, String reference, Set<String> unresolvedCodes, PaymentCall call) {
         try {
             TossPayment payment = call.execute();
             if (payment == null) {

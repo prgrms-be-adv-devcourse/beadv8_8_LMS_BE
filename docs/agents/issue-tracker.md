@@ -17,7 +17,7 @@
 - **하위 이슈로 묶기**: `gh issue create --parent <부모> ...` 또는 나중에 `gh issue edit <부모> --add-sub-issue <자식>`. 하위 이슈를 쓸 수 없으면 자식 본문 맨 위에 `Part of #<부모>`를 쓴다.
 - **댓글**: `gh issue comment <번호> --body-file <파일>`
 - **라벨 붙이기·떼기**: `gh issue edit <번호> --add-label "..."` / `--remove-label "..."`
-- **닫기**: PR 본문의 `close #N`은 `dev` 병합으로는 이슈를 닫지 않는다(기본 브랜치가 `main`). 병합 뒤 `gh issue close <번호> --reason completed`로 닫고 Status를 Done으로 바꾼다.
+- **닫기**: 기본 브랜치가 `dev`라(2026-11-02, #559) PR 본문의 `close #N`은 dev 병합 때 이슈를 닫는다. 닫힌 뒤 Status가 Done인지 본다. 키워드 없이 병합했으면 `gh issue close <번호> --reason completed`로 닫는다.
 
 ## PR을 요청 창구로 쓰는지
 

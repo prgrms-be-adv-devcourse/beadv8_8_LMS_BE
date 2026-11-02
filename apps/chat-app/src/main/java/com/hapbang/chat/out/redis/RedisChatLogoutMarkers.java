@@ -9,6 +9,7 @@ import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
 
@@ -18,7 +19,8 @@ import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 회원 로그아웃 표식을 Redis에 둔다(설계 문서 6장·Q8). 키 {@link ChatRedisKeys#logoutMarker(long)}, 값은 처리 시각(epoch ms).
+ * 회원 로그아웃 표식을 Redis에 둔다(설계 문서 6장·Q8). 키 {@link ChatRedisKeys#logoutMarker(long)}, 값은 로그아웃 시각(epoch ms).
+ * 쓰기는 {@code redis/scripts/logout-marker.lua}로 이미 있는 값보다 늦을 때만 한다(늦게 다시 온 옛 이벤트가 표식을 앞당기지 않게).
  * TTL은 가장 긴 연결(access token 수명 15분)보다 길게 둔다(초기값 20분, Q12). 그보다 오래된 표식은 이미 만료로 닫힌 연결에만 해당한다.
  * 읽기는 하트비트마다 로컬 회원을 {@code MGET} 한 번으로 읽는다.
  */
@@ -26,6 +28,8 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 @ConditionalOnChatRealtime
 public class RedisChatLogoutMarkers implements ChatLogoutMarkers {
+
+    private static final RedisScript<Long> MARK = RedisLuaSupport.longLuaScript("redis/scripts/logout-marker.lua");
 
     private final StringRedisTemplate stringRedisTemplate;
     private final ChatRedisKeys chatRedisKeys;
@@ -41,8 +45,8 @@ public class RedisChatLogoutMarkers implements ChatLogoutMarkers {
 
     @Override
     public void markLoggedOut(Long userId, Instant loggedOutAt) {
-        stringRedisTemplate.opsForValue().set(chatRedisKeys.logoutMarker(userId),
-                String.valueOf(loggedOutAt.toEpochMilli()), ttl);
+        RedisLuaSupport.runForLong(stringRedisTemplate, MARK, List.of(chatRedisKeys.logoutMarker(userId)),
+                loggedOutAt.toEpochMilli(), ttl.toMillis());
     }
 
     @Override

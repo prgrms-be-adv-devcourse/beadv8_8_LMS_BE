@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,7 @@ import com.hapbang.billing.fixture.FakeTossPaymentsServer.Fault;
 import com.hapbang.billing.fixture.GatewayLogin;
 import com.hapbang.billing.fixture.WalletMemberFixture;
 import com.hapbang.billing.out.BillingUserRepository;
+import com.hapbang.billing.out.OutboundCircuitBreakers;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -73,9 +75,18 @@ class ApiV1WalletRefundControllerTest {
     BillingUserSyncUseCase billingUserSyncUseCase;
 
     @Autowired
+    OutboundCircuitBreakers circuits;
+
+    @Autowired
     JdbcTemplate jdbcTemplate;
 
     private String orderId;
+
+    @AfterEach
+    void closeTossCircuit() {
+        // 회로는 컨텍스트를 함께 쓰는 다른 테스트에도 남으므로 강제로 연 상태를 되돌린다 (#562)
+        circuits.circuitBreaker(OutboundCircuitBreakers.Target.TOSS).transitionToClosedState();
+    }
 
     @BeforeEach
     void setUp() {
@@ -234,6 +245,19 @@ class ApiV1WalletRefundControllerTest {
 
         request(1L, "key-1", 10_000).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"));
+    }
+
+    @Test
+    @DisplayName("TossPayments 회로가 열려 있으면 환불 신청은 접수 전에 503 REFUND_UNAVAILABLE이고 충전 HP를 보류하지 않는다 (#562)")
+    void circuitOpen() throws Exception {
+        circuits.circuitBreaker(OutboundCircuitBreakers.Target.TOSS).transitionToForcedOpenState();
+
+        request(1L, "key-1", 1_000).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("REFUND_UNAVAILABLE"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_refund_request", Integer.class))
+                .isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.point_hold", Integer.class)).isZero();
     }
 
     private ResultActions request(Long userId, String key, long amount) throws Exception {

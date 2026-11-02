@@ -1,5 +1,6 @@
 package com.hapbang.chat.app;
 
+import java.time.Instant;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.chat.app.dto.ChatUserSyncResult;
@@ -34,10 +35,10 @@ public class ChatUserFacade {
 
     /**
      * 회원 로그아웃을 반영한다. 그 회원의 모든 로컬 연결을 닫는 작업이 남고, 연결 종료는 그 작업이 제어 Stream·제어 채널을 거쳐
-     * 처리한다(리스너가 직접 닫지 않는다, 설계 문서 Q8).
+     * 처리한다(리스너가 직접 닫지 않는다, 설계 문서 Q8). {@code loggedOutAt}보다 먼저 인증한 연결만 닫는다.
      */
-    public void syncLoggedOut(Long userId) {
-        chatUserSyncService.syncLoggedOut(userId);
+    public void syncLoggedOut(Long userId, Instant loggedOutAt) {
+        chatUserSyncService.syncLoggedOut(userId, loggedOutAt);
     }
 
     /** 채팅할 수 있는 회원인지 (웹소켓 연결 검사용). 복제본이 없으면 false */

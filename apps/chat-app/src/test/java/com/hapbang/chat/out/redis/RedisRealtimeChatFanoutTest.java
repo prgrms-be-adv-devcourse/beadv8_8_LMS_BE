@@ -35,7 +35,7 @@ class RedisRealtimeChatFanoutTest {
     private final RedisRealtimeChatFanout fanout = new RedisRealtimeChatFanout(template, JsonMapper.builder().build(),
             new ChatRedisKeys("test-fanout"));
     private final ControlFanout control = new ControlFanout(UUID.randomUUID(), ChatControlType.RECHECK_USER, 1L, 1L,
-            ChatControlReason.MEMBER_MODIFIED);
+            ChatControlReason.MEMBER_MODIFIED, null);
 
     @Test
     void 연결_불가는_전달_인프라_장애로_바꿔_던진다() {
