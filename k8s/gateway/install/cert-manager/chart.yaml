@@ -13,8 +13,9 @@ spec:
     config:
       gatewayAPI:
         enabled: true
+    # large(core-data)에 둔다. medium 메모리 예산 때문에 옮겼다(#532). 운영 최대 working set: controller 39·cainjector 44·webhook 27Mi
     nodeSelector: &id001
-      hapbang.io/pool: app-observe
+      hapbang.io/pool: core-data
     resources:
       requests:
         cpu: 50m

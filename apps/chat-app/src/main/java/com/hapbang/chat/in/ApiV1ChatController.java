@@ -4,19 +4,25 @@ import java.util.List;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hapbang.chat.app.ChatConnectionTicketFacade;
 import com.hapbang.chat.app.ChatMessageFacade;
 import com.hapbang.chat.app.ChatReceiptFacade;
 import com.hapbang.chat.app.ChatRoomFacade;
+import com.hapbang.chat.app.dto.ChatConnectionTicketResponse;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
@@ -25,19 +31,21 @@ import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.ReadChatRoomRequest;
 import com.hapbang.chat.in.dto.ReceivedChatRoomRequest;
+import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.chat.global.auth.LoginUserId;
 import com.hapbang.chat.global.response.RsData;
+import com.hapbang.shared.member.domain.Role;
 
 import lombok.RequiredArgsConstructor;
 
 /**
- * 채팅 REST API. 회원 ID는 팀 공통 로그인 세션에서 {@link LoginUserId}로 받는다.
+ * 채팅 REST API. 회원 ID는 Gateway 사용자 헤더로 만든 로그인 정보에서 {@link LoginUserId}로 받는다.
  * 성공은 {@link RsData}로, 오류는 global 공통 핸들러가 ProblemDetail로 응답한다. 채팅방 나가기는 본문 없이 204다.
  * 로그인하지 않은 요청은 global SecurityConfig({@code anyRequest().authenticated()})에서 401로 막힌다.
  * <p>
- * 역할 검사는 두 번 한다. Facade의 {@code @PreAuthorize}로 로그인 세션의 역할을 먼저 확인하고(팀 규칙),
- * UseCase에서 채팅 회원({@code ChatUser})의 복제된 역할로 다시 확인한다. 세션 역할은 로그인 시점 값이라
- * 로그인 이후 강등·정지된 경우는 UseCase 검사가 막는다.
+ * 역할 검사는 두 번 한다. Facade의 {@code @PreAuthorize}로 로그인 정보의 역할을 먼저 확인하고(팀 규칙),
+ * UseCase에서 채팅 회원({@code ChatUser})의 복제된 역할로 다시 확인한다. 로그인 정보의 역할은 토큰 발급 시점 값이라
+ * 발급 이후 강등·정지된 경우는 UseCase 검사가 막는다.
  */
 @RestController
 @RequestMapping("/api/v1/chats")
@@ -49,6 +57,7 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
     private final ChatRoomFacade chatRoomFacade;
     private final ChatMessageFacade chatMessageFacade;
     private final ChatReceiptFacade chatReceiptFacade;
+    private final ChatConnectionTicketFacade chatConnectionTicketFacade;
 
     /**
      * 1:1 채팅을 시작한다. 새로 만들면 201, 종료되지 않은 기존 방을 재사용하면 200.
@@ -94,7 +103,7 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
     }
 
     /**
-     * 누적 수신 위치를 반영한다. 회원은 로그인 세션으로 정한다. 같은 값·낮은 값은 현재 값으로 200이다(멱등).
+     * 누적 수신 위치를 반영한다. 회원은 로그인 정보로 정한다. 같은 값·낮은 값은 현재 값으로 200이다(멱등).
      */
     @Override
     @PutMapping("/{chatRoomId}/received")
@@ -134,5 +143,28 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
                                                       @RequestParam(name = "size",
                                                               defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
         return RsData.ok("채팅 기록을 조회했습니다.", chatRoomFacade.getHistory(chatRoomId, userId, cursor, size));
+    }
+
+    /**
+     * 웹소켓 연결 티켓을 발급한다. 역할은 Gateway 사용자 헤더로 만든 로그인 정보의 권한({@code ROLE_*}) 하나에서 읽고, 연결 만료는
+     * Gateway가 access token의 {@code exp}로 넣은 {@code X-User-Token-Exp}로 정한다(상한 있음, 설계 문서 6장).
+     */
+    @Override
+    @PostMapping("/ws-tickets")
+    public RsData<ChatConnectionTicketResponse> issueConnectionTicket(@LoginUserId Long userId,
+            Authentication authentication,
+            @RequestHeader(name = GatewayUserHeaderFilter.USER_TOKEN_EXP, required = false) String tokenExpiresAt) {
+        return RsData.ok("웹소켓 연결 티켓을 발급했습니다.",
+                chatConnectionTicketFacade.issueTicket(userId, roleOf(authentication), tokenExpiresAt));
+    }
+
+    /** 로그인 정보의 역할. Gateway 사용자 헤더 인증은 권한이 {@code ROLE_{역할}} 하나다 */
+    private static Role roleOf(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .filter(authority -> authority.startsWith("ROLE_"))
+                .map(authority -> Role.valueOf(authority.substring("ROLE_".length())))
+                .findFirst()
+                .orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인 역할이 없습니다."));
     }
 }

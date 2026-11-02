@@ -21,7 +21,7 @@ import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 관리자 채팅 기록을 커서로 나눠 조회해도 전체 기록이 누락·중복 없이 시간순으로 나오는지 검증한다 (#263).
+ * 관리자 채팅 기록을 커서로 나눠 조회해도 전체 기록이 누락·중복 없이 시간순으로 나오는지 검증한다.
  */
 @IntegrationTest
 class ChatRoomHistoryPagingTest {

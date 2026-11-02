@@ -20,7 +20,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -377,7 +376,7 @@ class ChatPipelineDeliveryE2ETest {
 
     private Long createRoom(Long userId, Long targetUserId) {
         RsData<ChatRoomResponse> room = client.post().uri("/api/v1/chats")
-                .headers(E2ESession.login(client, userId, Role.INFLUENCER)::applyTo)
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .body(new CreateChatRoomRequest(targetUserId))
                 .exchange()
                 .expectStatus().isCreated()
@@ -390,7 +389,7 @@ class ChatPipelineDeliveryE2ETest {
 
     private void leave(Long chatRoomId, Long userId) {
         client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
-                .headers(E2ESession.login(client, userId, Role.INFLUENCER)::applyTo)
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .exchange()
                 .expectStatus().isNoContent();
     }
@@ -399,7 +398,7 @@ class ChatPipelineDeliveryE2ETest {
         RsData<ChatMessagePageResponse> page = client.get()
                 .uri(cursor == null ? "/api/v1/chats/{id}/messages?size={size}"
                         : "/api/v1/chats/{id}/messages?size={size}&cursor=" + cursor, chatRoomId, size)
-                .header(HttpHeaders.COOKIE, E2ESession.login(client, userId, Role.INFLUENCER).cookieHeader())
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<RsData<ChatMessagePageResponse>>() {
@@ -411,7 +410,7 @@ class ChatPipelineDeliveryE2ETest {
 
     private ChatReceiptResponse markReceived(Long chatRoomId, Long userId, int participationVersion, long sequence) {
         RsData<ChatReceiptResponse> response = client.put().uri("/api/v1/chats/{id}/received", chatRoomId)
-                .headers(E2ESession.login(client, userId, Role.INFLUENCER)::applyTo)
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .body(new ReceivedChatRoomRequest(participationVersion, sequence))
                 .exchange()
                 .expectStatus().isOk()
@@ -424,7 +423,7 @@ class ChatPipelineDeliveryE2ETest {
 
     private long unreadCount(Long userId, Long chatRoomId) {
         RsData<List<ChatRoomResponse>> rooms = client.get().uri("/api/v1/chats")
-                .header(HttpHeaders.COOKIE, E2ESession.login(client, userId, Role.INFLUENCER).cookieHeader())
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<RsData<List<ChatRoomResponse>>>() {

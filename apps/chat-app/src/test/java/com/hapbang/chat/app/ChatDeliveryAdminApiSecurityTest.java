@@ -1,7 +1,6 @@
 package com.hapbang.chat.app;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,13 +21,14 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import com.hapbang.chat.app.dto.QueuedJob;
 import com.hapbang.chat.domain.ChatPublishStatus;
+import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.chat.out.ChatDeliveryReprocessAuditRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.TestLogin;
 
 /**
  * 관리자 전달 작업 API의 보안·입력 검증 보강 (재검증). {@link ChatDeliveryAdminApiTest}가 다루지 않은 것:
- * CSRF 없는 재처리, 기본 회원(USER), 잘못된 stream·UUID·cursor·size 형식, 클라이언트가 보낸 요청자 값 무시, 오류 응답의
+ * 로그인 정보 없는 재처리, 기본 회원(USER), 잘못된 stream·UUID·cursor·size 형식, 클라이언트가 보낸 요청자 값 무시, 오류 응답의
  * 내부 정보 노출.
  */
 @AutoConfigureMockMvc
@@ -49,12 +49,17 @@ class ChatDeliveryAdminApiSecurityTest extends ChatDeliveryTestSupport {
     @Autowired
     private ChatDeliveryReprocessAuditRepository auditRepository;
 
+    // 쿠키 세션이 아니라 Gateway 사용자 헤더로 인증하므로 CSRF 토큰은 보지 않는다. 사용자 헤더가 없거나 형식이 틀리면 401이다
     @Test
-    void 관리자라도_CSRF_토큰_없는_재처리는_403이고_상태를_바꾸지_않는다() throws Exception {
+    void 로그인_정보가_없거나_형식이_틀린_재처리는_401이고_상태를_바꾸지_않는다() throws Exception {
         UUID deliveryId = isolate(send("격리"));
 
-        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess").with(TestLogin.as(ADMIN, Role.ADMIN)))
-                .andExpect(status().isForbidden());
+        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess")
+                        .header(GatewayUserHeaderFilter.USER_ID, String.valueOf(ADMIN))
+                        .header(GatewayUserHeaderFilter.USER_ROLE, "ROLE_ADMIN"))
+                .andExpect(status().isUnauthorized());
 
         assertThat(auditRepository.count()).isZero();
         assertThat(checkpoint(deliveryId).getStatus()).isEqualTo(ChatPublishStatus.DEAD);
@@ -67,10 +72,10 @@ class ChatDeliveryAdminApiSecurityTest extends ChatDeliveryTestSupport {
 
         mockMvc.perform(get(URL).with(TestLogin.as(1L, Role.USER)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess").with(csrf())
+        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess")
                         .with(TestLogin.as(1L, Role.USER)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess").with(csrf())
+        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess")
                         .with(TestLogin.as(1L, Role.INFLUENCER)))
                 .andExpect(status().isForbidden());
 
@@ -82,7 +87,7 @@ class ChatDeliveryAdminApiSecurityTest extends ChatDeliveryTestSupport {
     void 요청자는_인증된_관리자에서_정하고_요청_값으로_바꿀_수_없다() throws Exception {
         UUID deliveryId = isolate(send("격리"));
 
-        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess").with(csrf())
+        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess")
                         .with(TestLogin.as(ADMIN, Role.ADMIN))
                         .param("requestedBy", "1")
                         .param("adminId", "1")
@@ -112,11 +117,11 @@ class ChatDeliveryAdminApiSecurityTest extends ChatDeliveryTestSupport {
         assertBadRequest(mockMvc.perform(get(URL).param("size", "2147483648").with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andReturn());
 
-        assertBadRequest(mockMvc.perform(post(URL + "/UNKNOWN/" + UUID.randomUUID() + "/reprocess").with(csrf())
+        assertBadRequest(mockMvc.perform(post(URL + "/UNKNOWN/" + UUID.randomUUID() + "/reprocess")
                 .with(TestLogin.as(ADMIN, Role.ADMIN))).andReturn());
-        assertBadRequest(mockMvc.perform(post(URL + "/DELIVERY/not-a-uuid/reprocess").with(csrf())
+        assertBadRequest(mockMvc.perform(post(URL + "/DELIVERY/not-a-uuid/reprocess")
                 .with(TestLogin.as(ADMIN, Role.ADMIN))).andReturn());
-        assertBadRequest(mockMvc.perform(post(URL + "/DELIVERY/' or 1=1 --/reprocess").with(csrf())
+        assertBadRequest(mockMvc.perform(post(URL + "/DELIVERY/' or 1=1 --/reprocess")
                 .with(TestLogin.as(ADMIN, Role.ADMIN))).andReturn());
 
         assertThat(auditRepository.count()).isZero();

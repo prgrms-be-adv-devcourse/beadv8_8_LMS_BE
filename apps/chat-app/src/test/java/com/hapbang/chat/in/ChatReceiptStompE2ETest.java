@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
@@ -172,13 +171,11 @@ class ChatReceiptStompE2ETest {
     }
 
     private E2ESession login(Long userId) {
-        return E2ESession.login(client, userId, Role.INFLUENCER);
+        return E2ESession.of(userId, Role.INFLUENCER);
     }
 
     private StompSession connect(E2ESession login) throws Exception {
-        WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
-        handshakeHeaders.add(HttpHeaders.COOKIE, login.cookieHeader());
-        return stompClient.connectAsync("ws://localhost:" + port + "/api/v1/chats/ws", handshakeHeaders,
+        return stompClient.connectAsync(login.connectUrl(client, port), new WebSocketHttpHeaders(),
                         new StompHeaders(), new StompSessionHandlerAdapter() {
                         })
                 .get(TIMEOUT_SECONDS, TimeUnit.SECONDS);

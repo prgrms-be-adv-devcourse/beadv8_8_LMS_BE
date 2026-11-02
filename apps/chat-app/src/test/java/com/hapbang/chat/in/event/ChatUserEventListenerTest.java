@@ -61,6 +61,7 @@ import com.hapbang.chat.out.JpaChatConnectionControl;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserJoinedEvent;
+import com.hapbang.shared.member.event.UserLoggedOutEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
@@ -305,6 +306,66 @@ class ChatUserEventListenerTest {
     }
 
     @Test
+    void 로그아웃_이벤트는_sessionId를_쓰지_않고_회원_단위_연결_종료_작업과_대기_체크포인트를_남긴다() {
+        long id = nextId();
+        joined(id, "호스트", Role.INFLUENCER, UserStatus.ACTIVE, 1L);
+
+        loggedOut(id, "\"any-session\"");
+        awaitProcessed();
+
+        List<Map<String, Object>> rows = controlRows(id);
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.get("control_type")).isEqualTo("LOGOUT_USER");
+            assertThat(row.get("reason")).isEqualTo("MEMBER_LOGGED_OUT");
+            assertThat(row.get("member_version")).isNull();
+            assertThat(row.get("status")).isEqualTo("PENDING");
+        });
+        assertThat(checkpointRows(rows.getFirst().get("control_id"))).singleElement().satisfies(row -> {
+            assertThat(row.get("consumer_group")).isEqualTo("chat-control-v1");
+            assertThat(row.get("status")).isEqualTo("PENDING");
+        });
+        // 회원 복제본은 바꾸지 않는다
+        assertThat(chatUserRepository.findById(id)).get().extracting(ChatUser::canChat).isEqualTo(true);
+    }
+
+    // 원본 버전이 없고 같은 회원이 여러 번 로그아웃하므로 이벤트마다 작업을 남긴다. 같은 이벤트를 다시 받아도 닫기만 반복한다
+    @Test
+    void 같은_회원의_로그아웃을_여러_번_받으면_이벤트마다_작업을_남기고_sessionId가_없어도_처리한다() {
+        long id = nextId();
+
+        loggedOut(id, "\"s-1\"");
+        loggedOut(id, "null");
+        awaitProcessed();
+
+        assertThat(controlRows(id)).hasSize(2)
+                .allSatisfy(row -> assertThat(row.get("control_type")).isEqualTo("LOGOUT_USER"));
+    }
+
+    @Test
+    void 로그아웃과_재검사_작업은_서로의_중복_식별에_걸리지_않는다() {
+        long id = nextId();
+        joined(id, "호스트", Role.INFLUENCER, UserStatus.ACTIVE, 1L);
+
+        modified(id, "호스트", Role.USER, UserStatus.ACTIVE, 2L);
+        loggedOut(id, "null");
+        modified(id, "호스트", Role.USER, UserStatus.ACTIVE, 2L);
+        awaitProcessed();
+
+        assertThat(controlRows(id)).extracting(row -> row.get("control_type"))
+                .containsExactlyInAnyOrder("RECHECK_USER", "LOGOUT_USER");
+    }
+
+    @Test
+    void 회원_ID가_없거나_1보다_작은_로그아웃은_재시도_없이_DLT로_보내고_작업을_남기지_않는다() {
+        long key = nextId();
+        send(UserLoggedOutEvent.class.getName(), key, "{\"userId\":0,\"sessionId\":null}");
+
+        ConsumerRecord<String, byte[]> deadLetter = awaitDeadLetter(key);
+        assertThat(exceptionClasses(deadLetter)).contains("RejectedEventException");
+        assertThat(controlRows(0L)).isEmpty();
+    }
+
+    @Test
     void 신뢰_패키지_밖의_타입_헤더는_재시도_없이_DLT로_보내고_만들지_않는다() {
         long id = nextId();
 
@@ -333,6 +394,11 @@ class ChatUserEventListenerTest {
 
     private void modified(long id, String nickname, Role role, UserStatus status, Long version) {
         send(UserModifiedEvent.class.getName(), id, userJson(id, nickname, role, status, version));
+    }
+
+    /** 지금 shared 레코드({@code UserLoggedOutEvent(userId, sessionId)})의 모양. sessionId는 JSON 값 그대로 넣는다 */
+    private void loggedOut(long id, String sessionIdJson) {
+        send(UserLoggedOutEvent.class.getName(), id, "{\"userId\":" + id + ",\"sessionId\":" + sessionIdJson + "}");
     }
 
     /** member-app의 발행 형식: key = 회원 ID 문자열, value = JSON 바이트, 헤더 {@code __TypeId__} 하나 */
@@ -444,6 +510,11 @@ class ChatUserEventListenerTest {
             if (failing.contains(userId)) {
                 throw new IllegalStateException("제어 작업 기록 뒤 실패");
             }
+        }
+
+        @Override
+        public void requestLogout(Long userId) {
+            delegate.requestLogout(userId);
         }
 
         void failAfterRecording(Long userId) {

@@ -2,14 +2,19 @@ package com.hapbang.chat.in;
 
 import static org.assertj.core.api.Assertions.*;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.ExecutorSubscribableChannel;
+import org.springframework.messaging.support.ImmutableMessageChannelInterceptor;
 
 import com.hapbang.chat.in.support.ChatE2ETest;
 import com.hapbang.chat.in.websocket.ChatInboundReceiveBudget;
 import com.hapbang.chat.in.websocket.ChatOutboundSendBudget;
+import com.hapbang.chat.in.websocket.ChatStompAuthInterceptor;
 import com.hapbang.chat.in.websocket.ChatStompInterceptor;
 
 /**
@@ -49,5 +54,27 @@ class ChatWebSocketTransportE2ETest {
         assertThat(chatInboundReceiveBudget.executor().getMaxPoolSize()).isEqualTo(8);
         assertThat(chatInboundReceiveBudget.executor().getQueueCapacity()).isEqualTo(1_000);
         assertThat(clientInboundChannel.getInterceptors()).hasAtLeastOneElementOfType(ChatStompInterceptor.class);
+    }
+
+    // 인증(회원 결합·만료 예약)이 회원을 쓰는 자격·경로 검사보다 먼저 돌아야 한다(설계 문서 6장). 둘 다 Spring의 불변 메시지
+    // 인터셉터보다 앞이라 accessor.setUser가 반영된다
+    @Test
+    void 수신_채널의_인터셉터는_인증_다음에_자격_경로_검사_순서다() {
+        List<ChannelInterceptor> interceptors = clientInboundChannel.getInterceptors();
+        int auth = indexOf(interceptors, ChatStompAuthInterceptor.class);
+        int chat = indexOf(interceptors, ChatStompInterceptor.class);
+        int immutable = indexOf(interceptors, ImmutableMessageChannelInterceptor.class);
+
+        assertThat(auth).isNotNegative().isLessThan(chat);
+        assertThat(chat).isLessThan(immutable);
+    }
+
+    private static int indexOf(List<ChannelInterceptor> interceptors, Class<?> type) {
+        for (int i = 0; i < interceptors.size(); i++) {
+            if (type.isInstance(interceptors.get(i))) {
+                return i;
+            }
+        }
+        return -1;
     }
 }

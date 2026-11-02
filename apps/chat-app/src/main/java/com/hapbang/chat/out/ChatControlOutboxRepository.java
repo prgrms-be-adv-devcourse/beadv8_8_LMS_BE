@@ -28,7 +28,7 @@ public interface ChatControlOutboxRepository extends JpaRepository<ChatControlOu
     Optional<ChatControlOutbox> findByControlId(UUID controlId);
 
     /**
-     * 같은 (회원, 원본 버전, 종류)가 없을 때만 넣는다. 중복은 유일 제약의 {@code ON CONFLICT DO NOTHING}으로 흡수해
+     * 재검사 작업(RECHECK_USER)을 같은 (회원, 원본 버전, 종류)가 없을 때만 넣는다. 유일 인덱스는 재검사 작업에만 있다. 중복은 유일 제약의 {@code ON CONFLICT DO NOTHING}으로 흡수해
      * 예외 없이 0을 돌려준다. 호출한 트랜잭션을 rollback-only로 만들지 않는다. 트랜잭션을 열지 않으므로 회원 반영
      * 트랜잭션 안에서만 부른다.
      *
@@ -41,11 +41,26 @@ public interface ChatControlOutboxRepository extends JpaRepository<ChatControlOu
                     updated_at)
             values (:controlId, :controlType, :userId, :memberVersion, :reason,
                     1, 'PENDING', 0, :now, 0, :now, :now)
-            on conflict (user_id, member_version, control_type) do nothing
+            on conflict (user_id, member_version, control_type) where control_type = 'RECHECK_USER' do nothing
             """)
     int insertIfAbsent(@Param("controlId") UUID controlId, @Param("controlType") String controlType,
             @Param("userId") Long userId, @Param("memberVersion") Long memberVersion, @Param("reason") String reason,
             @Param("now") LocalDateTime now);
+
+    /**
+     * 중복 식별 없이 한 행을 넣는다(로그아웃 작업 LOGOUT_USER, 원본 버전 없음). 트랜잭션을 열지 않으므로 기록하는 트랜잭션 안에서만
+     * 부른다.
+     */
+    @Modifying
+    @Query(nativeQuery = true, value = """
+            insert into chats.chat_control_outbox (control_id, control_type, user_id, member_version, reason,
+                    schema_version, status, attempt_count, next_attempt_at, requeue_count, created_at,
+                    updated_at)
+            values (:controlId, :controlType, :userId, null, :reason,
+                    1, 'PENDING', 0, :now, 0, :now, :now)
+            """)
+    void insert(@Param("controlId") UUID controlId, @Param("controlType") String controlType,
+            @Param("userId") Long userId, @Param("reason") String reason, @Param("now") LocalDateTime now);
 
     @Transactional
     @Modifying

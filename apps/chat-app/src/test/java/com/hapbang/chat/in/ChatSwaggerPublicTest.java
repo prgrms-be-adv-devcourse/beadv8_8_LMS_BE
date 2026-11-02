@@ -16,7 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.testsupport.IntegrationTest;
 
-// 운영 Swagger 공개(#498): 채팅 앱의 Swagger는 모듈 경로(/api/v1/chats) 아래에서 로그인 없이 열린다.
+// 운영 Swagger 공개: 채팅 앱의 Swagger는 모듈 경로(/api/v1/chats) 아래에서 로그인 없이 열린다.
 // 경로·운영 값은 swagger.yml에 있고 모듈 테스트 설정도 같은 파일을 읽으므로, 이 테스트가 실제 설정을 검사한다.
 class ChatSwaggerPublicTest {
 

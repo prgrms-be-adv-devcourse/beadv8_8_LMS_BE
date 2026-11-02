@@ -41,11 +41,12 @@ spec:
       periodSeconds: 5
       failureThreshold: 60
       timeoutSeconds: 5
+    # 384Mi에서 운영 3일 최대 working set 374Mi(97%)라 448Mi로 올렸다(#532)
     resources:
       requests:
         cpu: 50m
-        memory: 384Mi
+        memory: 448Mi
       limits:
-        memory: 384Mi
+        memory: 448Mi
     env:
       GOMAXPROCS: '2'

@@ -7,6 +7,7 @@ import static org.awaitility.Awaitility.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +46,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
+import com.hapbang.chat.app.ChatLogoutMarkers;
 import com.hapbang.chat.app.ChatUserUseCase;
 import com.hapbang.chat.app.LocalChatConnections;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
@@ -64,13 +66,14 @@ import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
 import com.hapbang.chat.out.ChatUserRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.event.UserLoggedOutEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 
 import jakarta.persistence.EntityManager;
 
 /**
- * 회원 변경이 실제 경로로 로컬 연결 종료까지 이어지는지 검증한다(회원 이벤트 Kafka 소비·전달 파이프라인·실시간 전파 통합, test-criteria "회원 이벤트").
+ * 회원 변경·로그아웃이 실제 경로로 로컬 연결 종료까지 이어지는지 검증한다(회원 이벤트 Kafka 소비·전달 파이프라인·실시간 전파 통합, test-criteria "회원 이벤트").
  * <p>
  * Kafka 회원 변경 이벤트 → 회원 반영과 연결 제어 outbox(같은 트랜잭션) → relay → 제어 Stream → consumer → 제어 채널
  * Pub/Sub → 구독자의 최신 회원 상태 재검사 → 로컬 연결 종료. 회원 이벤트 리스너는 연결을 직접 닫지 않는다.
@@ -117,6 +120,9 @@ class ChatMemberControlE2ETest {
 
     @Autowired
     private LocalChatConnections localChatConnections;
+
+    @Autowired
+    private ChatLogoutMarkers chatLogoutMarkers;
 
     @Autowired
     private ConfigurableApplicationContext applicationContext;
@@ -227,9 +233,42 @@ class ChatMemberControlE2ETest {
         assertThat(List.of(host1, host2, guest)).allMatch(StompSession::isConnected);
     }
 
+    /**
+     * 회원 단위 로그아웃(설계 문서 Q8): Kafka 로그아웃 이벤트 → 연결 종료 작업(제어 outbox) → 제어 Stream → 제어 채널 → 로컬 연결 종료.
+     * 그 회원의 모든 기기 연결이 {@code 1008 LOGGED_OUT}으로 닫히고 다른 회원의 연결은 남는다. 이벤트를 처리하면 로그아웃 표식도 남는다
+     * (하트비트의 두 번째 확인). 처리한 뒤에는 유효한 토큰으로 새 연결 티켓을 받아 다시 연결할 수 있고, 그 연결은 표식보다 뒤에 인증해
+     * 하트비트도 닫지 않는다(다른 기기는 refresh 뒤 다시 연결한다, 승인된 대가).
+     */
+    @Test
+    void 로그아웃_이벤트를_받으면_제어_경로로_그_회원의_모든_기기_연결만_LOGGED_OUT으로_닫히고_다시_연결할_수_있다() throws Exception {
+        StompSession first = stomp.connect(HOST_ID);
+        StompSession second = stomp.connect(HOST_ID);
+        StompSession other = stomp.connect(GUEST_ID);
+
+        List<CloseStatus> closeStatuses = closeStatusesOf(HOST_ID, 2, () -> loggedOut(HOST_ID));
+
+        assertThat(closeStatuses).allSatisfy(closeStatus -> {
+            assertThat(closeStatus.getCode()).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
+            assertThat(closeStatus.getReason()).isEqualTo("LOGGED_OUT");
+        });
+        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS)).until(() -> !first.isConnected() && !second.isConnected());
+        assertThat(other.isConnected()).isTrue();
+        await().atMost(Duration.ofSeconds(TIMEOUT_SECONDS))
+                .until(() -> localChatConnections.connectedUserIds().equals(Set.of(GUEST_ID)));
+        assertThat(controlRows(HOST_ID)).isEqualTo(1);
+        assertThat(controlRows(GUEST_ID)).isZero();
+        Instant marker = chatLogoutMarkers.loggedOutAt(Set.of(HOST_ID, GUEST_ID)).get(HOST_ID);
+        assertThat(marker).isNotNull();
+        assertThat(chatLogoutMarkers.loggedOutAt(Set.of(GUEST_ID))).isEmpty();
+
+        StompSession reconnected = stomp.connect(HOST_ID);
+        assertThat(localChatConnections.closeLoggedOutBefore(Map.of(HOST_ID, marker))).isZero();
+        await().during(Duration.ofSeconds(1)).atMost(Duration.ofSeconds(3)).until(reconnected::isConnected);
+    }
+
     private Long createRoom(RestTestClient client, Long userId, Long targetUserId) {
         RsData<ChatRoomResponse> room = client.post().uri("/api/v1/chats")
-                .headers(E2ESession.login(client, userId, Role.INFLUENCER)::applyTo)
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .body(new CreateChatRoomRequest(targetUserId))
                 .exchange()
                 .expectStatus().isCreated()
@@ -250,6 +289,18 @@ class ChatMemberControlE2ETest {
             producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception exception) {
             throw new IllegalStateException("회원 이벤트를 보내지 못했습니다.", exception);
+        }
+    }
+
+    /** 지금 shared 레코드({@code UserLoggedOutEvent(userId, sessionId)}) 모양. chat-app은 sessionId를 쓰지 않는다 */
+    private void loggedOut(long id) {
+        ProducerRecord<String, byte[]> record = new ProducerRecord<>(TOPIC, String.valueOf(id),
+                ("{\"userId\":" + id + ",\"sessionId\":null}").getBytes(StandardCharsets.UTF_8));
+        record.headers().add("__TypeId__", UserLoggedOutEvent.class.getName().getBytes(StandardCharsets.UTF_8));
+        try {
+            producer.send(record).get(10, TimeUnit.SECONDS);
+        } catch (Exception exception) {
+            throw new IllegalStateException("로그아웃 이벤트를 보내지 못했습니다.", exception);
         }
     }
 

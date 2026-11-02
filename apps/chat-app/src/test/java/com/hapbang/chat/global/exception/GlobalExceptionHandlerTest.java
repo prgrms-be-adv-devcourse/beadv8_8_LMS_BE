@@ -2,7 +2,6 @@ package com.hapbang.chat.global.exception;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -85,7 +84,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 요청_본문_검증에_실패하면_400과_항목별_오류를_담는다() throws Exception {
-        mockMvc.perform(asUser(post("/api/v1/samples")).with(csrf())
+        mockMvc.perform(asUser(post("/api/v1/samples"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": " ", "count": 0, "type": "BASIC"}
@@ -132,7 +131,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 요청_본문의_enum_값이_없는_값이면_필드와_사용_가능한_값을_알려_준다() throws Exception {
-        mockMvc.perform(asUser(post("/api/v1/samples")).with(csrf())
+        mockMvc.perform(asUser(post("/api/v1/samples"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "샘플", "count": 1, "type": "UNKNOWN"}
@@ -144,7 +143,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 요청_본문의_값_타입이_다르면_필드를_알려_준다() throws Exception {
-        mockMvc.perform(asUser(post("/api/v1/samples")).with(csrf())
+        mockMvc.perform(asUser(post("/api/v1/samples"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name": "샘플", "count": "많이", "type": "BASIC"}
@@ -155,7 +154,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 요청_본문이_JSON_문법에_맞지_않으면_400() throws Exception {
-        mockMvc.perform(asUser(post("/api/v1/samples")).with(csrf())
+        mockMvc.perform(asUser(post("/api/v1/samples"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\": "))
                 .andExpect(status().isBadRequest())
@@ -181,7 +180,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 지원하지_않는_메서드는_405와_코드로_응답한다() throws Exception {
-        mockMvc.perform(asUser(delete("/api/v1/samples/required")).with(csrf()))
+        mockMvc.perform(asUser(delete("/api/v1/samples/required")))
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
     }

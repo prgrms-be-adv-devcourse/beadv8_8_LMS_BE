@@ -26,8 +26,8 @@ JWT는 암호화가 아니라 **서명**이다. payload는 누구나 Base64로 �
 2. refresh token(14일)은 member-app이 Redis에 해시로 저장하고(`RedisRefreshTokenStore`) 쓸 때마다 회전한다. refresh 경로로만 가는 `HttpOnly; Secure; SameSite=Strict` 쿠키로 준다. 로그아웃하면 폐기한다.
 3. 프론트는 access token을 메모리에 두고 `Authorization: Bearer`로 보낸다. 새로고침하면 시작할 때 refresh를 한 번 호출한다. Bearer 헤더는 브라우저가 자동으로 싣지 않으므로 API의 CSRF 보호(`X-XSRF-TOKEN`)는 뺀다.
 4. Envoy가 서명을 검증한다. 위조·만료 토큰은 401로 거절하고, 토큰이 없는 요청은 헤더 없이 통과시킨다. 로그인이 필요한지는 각 앱의 Security 설정이 정한다. 그래서 비로그인 경로 목록을 Envoy와 앱 두 곳에 적지 않는다.
-5. 앱은 `X-User-*` 헤더로 인증 객체를 만들고 `@PreAuthorize`로 인가한다(#371). 헤더 필터는 공용 모듈이 아니라 앱마다 안에 둔다. 지금 member·appearance(#395)·lecture(#521)가 쓰고, billing·customer-support는 아직이다. 앱은 서명을 다시 검증하지 않으므로, NetworkPolicy로 앱의 외부 API 포트(8080)에는 Envoy만 접근하게 한다. Prometheus는 관리 포트(8082)로 수집한다(lecture #521, member #528). 앱 간 내부 API는 지금처럼 `X-Internal-Api-Key`로 인증한다. 이 구조를 고른 이유와 전제는 아래 [헤더 신뢰 구조](#헤더-신뢰-구조를-유지하는-이유-2026-11-02)에 있다.
-6. 채팅: 브라우저의 WebSocket upgrade 요청에는 Bearer 헤더를 실을 수 없다. 그래서 chat-app은 STOMP CONNECT frame의 토큰을 JWKS로 직접 검증한다(#501 진행 중, 아직 dev에 없다). 앱이 JWKS를 직접 쓰는 첫 사례다. 토큰을 URL query에 싣지 않는다(access log에 남는다). 연결 뒤 강제 종료는 회원 이벤트(#242)를 따른다.
+5. 앱은 `X-User-*` 헤더로 인증 객체를 만들고 `@PreAuthorize`로 인가한다(#371). 헤더 필터는 공용 모듈이 아니라 앱마다 안에 둔다. 지금 member·appearance(#395)·chat(#501)·lecture(#521)가 쓰고, billing·customer-support는 아직이다. 앱은 서명을 다시 검증하지 않으므로, NetworkPolicy로 앱의 외부 API 포트(8080)에는 Envoy만 접근하게 한다. Prometheus는 관리 포트(8082)로 수집한다(lecture #521, member #528). 앱 간 내부 API는 지금처럼 `X-Internal-Api-Key`로 인증한다. 이 구조를 고른 이유와 전제는 아래 [헤더 신뢰 구조](#헤더-신뢰-구조를-유지하는-이유-2026-11-02)에 있다.
+6. 채팅: 브라우저의 WebSocket upgrade 요청에는 Bearer 헤더를 실을 수 없다. 그래서 chat-app은 JWT를 직접 검증하지 않고, Gateway가 검증한 REST 요청으로 일회용 연결 티켓을 발급해 웹소켓 연결을 그 티켓으로 인증한다(#501). 연결 만료는 chat SecurityPolicy가 `exp` claim을 넘기는 `X-User-Token-Exp`로 정한다([Gateway 운영 문서](../../deploy/gateway.md)). 그래서 JWKS를 쓰는 곳은 Gateway뿐이다. JWT는 URL query에 싣지 않는다(access log에 남는다). 연결 뒤 강제 종료는 회원 이벤트(#242)를 따른다.
 7. 발급한 JWT는 회수할 수 없다. 정지·역할 변경은 다음 refresh에서 막히고, 최대 15분(access token 수명) 늦게 반영된다. 그래서 HP가 움직이는 경로(보류·반환·지급·환전)와 역할 조건이 있는 거래(출연 거래는 활동 중인 인플루언서 이상, `docs/policy.md`)는 토큰의 `role`만 믿지 않고, 각 앱이 복제한 회원 상태를 함께 확인한다(#371). 전역 차단 목록(blacklist)을 두지 않는 이유는 아래 [즉시 차단](#정지역할-변경의-즉시-차단)에 있다.
 8. `docs/policy.md`의 "로그인 상태는 서버 세션으로 유지"와 "역할 변경은 다시 로그인하지 않아도 바로 반영"은 JWT 전환과 맞지 않는다. policy를 어떻게 고칠지는 팀이 정한다(#370).
 
@@ -49,7 +49,7 @@ OWASP는 프록시가 넣은 헤더를 믿으려면 세 가지가 필요하다�
 
 | 조건 | 상태 |
 | --- | --- |
-| 클라이언트가 보낸 같은 이름의 헤더를 지운다 | ✅ `ClientTrafficPolicy`가 `x-user-id`·`x-user-role`을 요청 맨 앞에서 지운다(`k8s/gateway/base/gateway.yaml`, `k8s/gateway/tests/run.py`가 검사) |
+| 클라이언트가 보낸 같은 이름의 헤더를 지운다 | ✅ `ClientTrafficPolicy`가 `x-user-id`·`x-user-role`·`x-user-token-exp`를 요청 맨 앞에서 지운다(`k8s/gateway/base/gateway.yaml`, `k8s/gateway/tests/run.py`가 검사) |
 | 프록시를 거치지 않는 요청을 막는다 | ✅ NetworkPolicy가 8080에 Envoy pod만 들인다. 내부 포트(8081)는 `/api/v1/internal/**`만 받고, 그 경로의 보안 설정에는 헤더 필터가 없다 |
 | 프록시를 인증한다 | ❌ 앱은 보낸 쪽이 Envoy인지 암호로 확인하지 않는다(mTLS 없음). NetworkPolicy가 대신한다 |
 

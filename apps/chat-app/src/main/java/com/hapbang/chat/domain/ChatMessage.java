@@ -33,7 +33,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ChatMessage {
 
-    /** 회원이 보내는 메시지 본문의 최대 길이 (#311). 요청 검증(SendChatMessageRequest)과 같은 값을 쓴다 */
+    /** 회원이 보내는 메시지 본문의 최대 길이. 요청 검증(SendChatMessageRequest)과 같은 값을 쓴다 */
     public static final int MAX_CONTENT_LENGTH = 2000;
 
     /** 알림 메시지의 본문. 문구는 프론트가 알림 종류별 값으로 만들므로 서버는 비워 둔다 */

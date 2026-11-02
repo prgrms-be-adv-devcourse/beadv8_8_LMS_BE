@@ -18,7 +18,7 @@ public interface ChatRoomLogRepository extends JpaRepository<ChatRoomLog, Long> 
     List<ChatRoomLog> findByChatRoom_IdOrderByOccurredAtAscIdAsc(Long chatRoomId, Limit limit);
 
     /**
-     * 관리자 기록 조회 다음 페이지. 커서 시각 이후이거나, 같은 시각이면 {@code idAfter}보다 큰 기록 (#263).
+     * 관리자 기록 조회 다음 페이지. 커서 시각 이후이거나, 같은 시각이면 {@code idAfter}보다 큰 기록.
      * 행 비교로 써야 (chat_room_id, occurred_at, id) 인덱스의 범위 조건이 된다.
      */
     @Query("""

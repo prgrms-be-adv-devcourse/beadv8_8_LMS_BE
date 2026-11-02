@@ -28,6 +28,7 @@ import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.ReadChatRoomRequest;
 import com.hapbang.chat.in.dto.ReceivedChatRoomRequest;
 import com.hapbang.chat.in.support.ChatE2ETest;
+import com.hapbang.chat.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.chat.in.support.E2ESession;
 import com.hapbang.chat.global.response.RsData;
 import com.hapbang.chat.out.ChatRoomMemberRepository;
@@ -35,7 +36,7 @@ import com.hapbang.shared.member.domain.Role;
 
 /**
  * 실제 서버를 띄워 RestTestClient로 채팅 REST API를 검증한다.
- * 운영과 같은 보안 필터(세션 로그인, CSRF)를 거치며, {@code @LoginUserId}에는 로그인 세션의 회원 ID가 들어간다.
+ * 운영과 같은 보안 필터를 거친다. Gateway 사용자 헤더로 인증하고, {@code @LoginUserId}에는 그 헤더의 회원 ID가 들어간다.
  */
 @ChatE2ETest
 class ChatApiE2ETest {
@@ -96,14 +97,29 @@ class ChatApiE2ETest {
     }
 
     @Test
-    void CSRF_토큰_없이_변경_요청을_보내면_403() {
+    void 사용자_헤더가_한쪽만_있거나_형식이_맞지_않으면_401() {
+        client.get().uri("/api/v1/chats")
+                .header(GatewayUserHeaderFilter.USER_ID, String.valueOf(HOST_ID))
+                .exchange()
+                .expectStatus().isUnauthorized();
+        client.get().uri("/api/v1/chats")
+                .header(GatewayUserHeaderFilter.USER_ID, "abc")
+                .header(GatewayUserHeaderFilter.USER_ROLE, Role.INFLUENCER.name())
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    // 쿠키 세션이 아니라 Gateway 사용자 헤더로 인증하므로 CSRF 토큰 없이 변경 요청을 받고 세션을 만들지 않는다
+    @Test
+    void 사용자_헤더만으로_CSRF_토큰_없이_변경_요청이_되고_세션_쿠키를_만들지_않는다() {
         E2ESession host = login(HOST_ID, Role.INFLUENCER);
 
         client.post().uri("/api/v1/chats")
-                .header(HttpHeaders.COOKIE, host.sessionCookie())
+                .headers(host::applyTo)
                 .body(new CreateChatRoomRequest(GUEST_ID))
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isCreated()
+                .expectHeader().doesNotExist(HttpHeaders.SET_COOKIE);
     }
 
     @Test
@@ -154,7 +170,7 @@ class ChatApiE2ETest {
         Long chatRoomId = createRoom(host, GUEST_ID, HttpStatus.CREATED).chatRoomId();
 
         ProblemDetail problem = client.get().uri("/api/v1/chats/{id}/messages?size=0", chatRoomId)
-                .header(HttpHeaders.COOKIE, host.cookieHeader())
+                .headers(host::applyTo)
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody(ProblemDetail.class)
@@ -249,7 +265,7 @@ class ChatApiE2ETest {
         }
 
         ProblemDetail problem = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
-                .header(HttpHeaders.COOKIE, guest.cookieHeader())
+                .headers(guest::applyTo)
                 .exchange()
                 .expectStatus().isForbidden()
                 .expectBody(ProblemDetail.class)
@@ -264,11 +280,11 @@ class ChatApiE2ETest {
         E2ESession admin = login(ADMIN_ID, Role.ADMIN);
 
         client.get().uri("/api/v1/chats/admin/{id}/history?size=101", chatRoomId)
-                .header(HttpHeaders.COOKIE, admin.cookieHeader())
+                .headers(admin::applyTo)
                 .exchange()
                 .expectStatus().isBadRequest();
         ProblemDetail problem = client.get().uri("/api/v1/chats/admin/{id}/history?cursor=bad", chatRoomId)
-                .header(HttpHeaders.COOKIE, admin.cookieHeader())
+                .headers(admin::applyTo)
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody(ProblemDetail.class)
@@ -283,12 +299,12 @@ class ChatApiE2ETest {
         Long chatRoomId = createRoom(host, GUEST_ID, HttpStatus.CREATED).chatRoomId();
 
         client.get().uri("/api/v1/chats/admin/{id}/history", chatRoomId)
-                .header(HttpHeaders.COOKIE, host.cookieHeader())
+                .headers(host::applyTo)
                 .exchange()
                 .expectStatus().isForbidden();
 
         RsData<ChatRoomHistoryResponse> history = client.get().uri("/api/v1/chats/admin/{id}/history", chatRoomId)
-                .header(HttpHeaders.COOKIE, login(ADMIN_ID, Role.ADMIN).cookieHeader())
+                .headers(login(ADMIN_ID, Role.ADMIN)::applyTo)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<RsData<ChatRoomHistoryResponse>>() {
@@ -300,9 +316,9 @@ class ChatApiE2ETest {
     }
 
     @Test
-    void 채팅_회원_역할이_인플루언서여도_세션_역할이_일반_유저면_Facade에서_403() {
+    void 채팅_회원_역할이_인플루언서여도_헤더_역할이_일반_유저면_Facade에서_403() {
         ProblemDetail problem = client.get().uri("/api/v1/chats")
-                .header(HttpHeaders.COOKIE, login(HOST_ID, Role.USER).cookieHeader())
+                .headers(login(HOST_ID, Role.USER)::applyTo)
                 .exchange()
                 .expectStatus().isForbidden()
                 .expectBody(ProblemDetail.class)
@@ -313,12 +329,12 @@ class ChatApiE2ETest {
     }
 
     @Test
-    void 로그인_후_강등되면_세션_역할이_인플루언서여도_서비스에서_403() {
+    void 로그인_후_강등되면_헤더_역할이_인플루언서여도_서비스에서_403() {
         E2ESession host = login(HOST_ID, Role.INFLUENCER);
         chatUserUseCase.update(activeUser(HOST_ID, "호스트", Role.USER));
 
         ProblemDetail problem = client.get().uri("/api/v1/chats")
-                .header(HttpHeaders.COOKIE, host.cookieHeader())
+                .headers(host::applyTo)
                 .exchange()
                 .expectStatus().isForbidden()
                 .expectBody(ProblemDetail.class)
@@ -436,7 +452,7 @@ class ChatApiE2ETest {
 
     private Map<String, Object> rawMessagesPage(E2ESession session, String uri, Long chatRoomId) {
         RsData<Map<String, Object>> page = client.get().uri(uri, chatRoomId)
-                .header(HttpHeaders.COOKIE, session.cookieHeader())
+                .headers(session::applyTo)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<RsData<Map<String, Object>>>() {
@@ -475,7 +491,7 @@ class ChatApiE2ETest {
 
     private ChatMessagePageResponse messages(E2ESession session, Long chatRoomId) {
         RsData<ChatMessagePageResponse> page = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
-                .header(HttpHeaders.COOKIE, session.cookieHeader())
+                .headers(session::applyTo)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<RsData<ChatMessagePageResponse>>() {
@@ -491,7 +507,7 @@ class ChatApiE2ETest {
     }
 
     private E2ESession login(Long userId, Role role) {
-        return E2ESession.login(client, userId, role);
+        return E2ESession.of(userId, role);
     }
 
     private ChatRoomResponse createRoom(E2ESession session, Long targetUserId, HttpStatus expectedStatus) {
@@ -511,7 +527,7 @@ class ChatApiE2ETest {
 
     private List<ChatRoomResponse> myRooms(E2ESession session) {
         RsData<List<ChatRoomResponse>> rooms = client.get().uri("/api/v1/chats")
-                .header(HttpHeaders.COOKIE, session.cookieHeader())
+                .headers(session::applyTo)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<RsData<List<ChatRoomResponse>>>() {

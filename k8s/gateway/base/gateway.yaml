@@ -27,12 +27,13 @@ spec:
           labels:
             hapbang.io/gateway-proxy: 'true'
         container:
+          # 운영 3일 최대 working set 24Mi라 256Mi에서 128Mi로 낮췄다(#532). route·연결이 늘면 다시 잰다
           resources:
             requests:
               cpu: 50m
-              memory: 256Mi
+              memory: 128Mi
             limits:
-              memory: 256Mi
+              memory: 128Mi
         patch:
           type: StrategicMerge
           value:
@@ -137,6 +138,7 @@ spec:
       remove:
       - x-user-id
       - x-user-role
+      - x-user-token-exp
       - x-internal-api-key
       - x-forwarded-host
       - x-forwarded-proto

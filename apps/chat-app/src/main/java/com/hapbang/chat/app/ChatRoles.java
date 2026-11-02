@@ -1,8 +1,8 @@
 package com.hapbang.chat.app;
 
 /**
- * Facade의 {@code @PreAuthorize} 역할 조건. 로그인 세션의 역할로 먼저 막고, UseCase가 채팅 회원({@code ChatUser})의
- * 복제된 역할로 다시 확인한다(로그인 이후 강등·정지 대비).
+ * Facade의 {@code @PreAuthorize} 역할 조건. 로그인 정보(Gateway 사용자 헤더·웹소켓 연결 티켓)의 역할로 먼저 막고, UseCase가
+ * 채팅 회원({@code ChatUser})의 복제된 역할로 다시 확인한다(토큰 발급 이후 강등·정지 대비).
  */
 final class ChatRoles {
 

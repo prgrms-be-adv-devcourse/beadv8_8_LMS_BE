@@ -3,7 +3,9 @@ package com.hapbang.chat.in;
 import java.util.List;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 
+import com.hapbang.chat.app.dto.ChatConnectionTicketResponse;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
@@ -27,7 +29,7 @@ import jakarta.validation.constraints.Min;
  */
 @Tag(name = "채팅", description = """
         1:1 채팅방과 메시지 이력. 인플루언서 이상 또는 관리자만 쓸 수 있다.
-        실시간 송수신은 STOMP라 여기에 없다: 연결 `/api/v1/chats/ws`, 보내기 `/pub/chats/{chatRoomId}/messages`,
+        실시간 송수신은 STOMP라 여기에 없다: 연결 `/api/v1/chats/ws?ticket={웹소켓 연결 티켓}`(티켓은 아래 발급 API), 보내기 `/pub/chats/{chatRoomId}/messages`,
         받기: 열어 둔 방은 `/topic/chats/rooms/{chatRoomId}`(SUBSCRIBE 헤더 `participation-version` 필수, 방 메시지·구독 거절·회수),
         `/user/queue/chats/messages`(자기가 보낸 메시지의 전송 결과 확인)·`/user/queue/chats/notifications`(방을 열지 않은 연결의 방별 새 메시지 알림)·
         `/user/queue/chats/sync`(재동기화)·`/user/queue/chats/errors`(오류). 형식은 resync-frame 계약을 따른다.
@@ -85,7 +87,7 @@ public interface ApiV1ChatSpec {
     @Operation(summary = "수신 확인", description = """
             이 기기가 현재 참여 세대의 가시 범위에서 빠짐없이 반영한 연속 구간의 끝 `roomSequence`를 보낸다(누적 ACK).
             99까지 확인한 뒤 101만 받았으면 100을 확인하기 전에는 101을 보내지 않는다. 같은 방의 확인은 기기에서 합쳐 보낸다.
-            `participationVersion`은 메시지 이력 응답의 값을 쓴다. 회원은 로그인 세션으로 정한다.
+            `participationVersion`은 메시지 이력 응답의 값을 쓴다. 회원은 로그인 정보로 정한다.
             응답의 `lastReceivedSequence`는 반영 뒤 서버의 회원 수신 위치다. 다른 기기가 더 높게 올렸으면 요청 값보다 클 수 있다.
             같은 값·낮은 값은 바꾸지 않고 현재 값으로 200이다(멱등). 이 값은 "적어도 한 기기가 확인한 위치"라 기기의 확인 위치로 복사하지 않는다.
             읽음 처리·안 읽은 수와 독립이다.
@@ -113,4 +115,18 @@ public interface ApiV1ChatSpec {
             @Parameter(description = "페이지 크기 (기본 30, 기록과 메시지를 합친 개수)")
             @Min(value = 1, message = "size는 1 이상이어야 합니다.")
             @Max(value = MAX_PAGE_SIZE, message = "size는 " + MAX_PAGE_SIZE + " 이하여야 합니다.") int size);
+
+    @Operation(summary = "웹소켓 연결 티켓 발급", description = """
+            웹소켓(STOMP) 연결에 쓰는 일회용 티켓을 받는다. 인플루언서 이상 또는 관리자만 쓸 수 있다.
+            브라우저는 웹소켓 업그레이드 요청에 Authorization을 싣지 못하므로, 이 API를 access token(Bearer)으로 부른 뒤
+            `/api/v1/chats/ws?ticket={ticket}`로 연결한다. 티켓은 `expiresIn`초(기본 30초) 안에 한 번만 쓸 수 있다.
+            다시 연결할 때마다 새로 받는다. 티켓이 없거나 만료됐거나 이미 썼으면 핸드셰이크가 401이다(브라우저에는 1006).
+            연결은 `connectionExpiresAt`(access token의 만료 시각, 최대 발급 뒤 15분, ISO-8601 UTC)에 `4401 TOKEN_EXPIRED`로
+            닫힌다. 연결을 유지하려면 그 전에 새 티켓을 받아 열린 연결에 `SEND /pub/chats/reauth`(헤더 `ticket`)로 보낸다.
+            결과는 `/user/queue/chats/connection`으로 그 연결에만 온다.
+            회원마다 60초에 10번까지 받을 수 있다. 넘으면 429(TOO_MANY_TICKET_REQUESTS).
+            티켓을 저장할 수 없으면 503(CONNECTION_TICKET_UNAVAILABLE).""")
+    RsData<ChatConnectionTicketResponse> issueConnectionTicket(Long userId,
+            @Parameter(hidden = true) Authentication authentication,
+            @Parameter(hidden = true) String tokenExpiresAt);
 }

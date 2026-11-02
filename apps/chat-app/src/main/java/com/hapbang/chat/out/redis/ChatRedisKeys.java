@@ -6,7 +6,7 @@ import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
 /**
- * 채팅이 소유하는 Redis Stream·consumer group·Pub/Sub 채널·접속 정보 키 이름. 환경 namespace를 앞에 붙인다.
+ * 채팅이 소유하는 Redis Stream·consumer group·Pub/Sub 채널·접속 정보·연결 티켓·로그아웃 표식 키 이름. 환경 namespace를 앞에 붙인다.
  * 계약: {@code apps/chat-app/docs/contracts/realtime-fanout.md}
  */
 @Component
@@ -76,5 +76,20 @@ public class ChatRedisKeys {
     /** 한 회원의 연결(ZSET, 원소 {@code 앱ID:세션ID}, 점수 만료 시각 ms) */
     public String presenceUser(long userId) {
         return namespace + ":chat:presence:user:" + userId;
+    }
+
+    /** 웹소켓 연결 티켓(STRING, 회원·만료 JSON, 짧은 TTL). 키에는 티켓 원문이 아니라 SHA-256(hex)을 쓴다 */
+    public String connectionTicket(String ticketSha256Hex) {
+        return namespace + ":chat:ws-ticket:" + ticketSha256Hex;
+    }
+
+    /** 한 회원의 웹소켓 연결 티켓 발급 횟수(STRING 정수, 고정 창 TTL) */
+    public String connectionTicketRate(long userId) {
+        return namespace + ":chat:ws-ticket-rate:" + userId;
+    }
+
+    /** 한 회원의 마지막 로그아웃 처리 시각(STRING, epoch ms, TTL은 가장 긴 연결보다 길다) */
+    public String logoutMarker(long userId) {
+        return namespace + ":chat:logout:" + userId;
     }
 }
