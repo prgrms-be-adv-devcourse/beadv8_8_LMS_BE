@@ -21,3 +21,5 @@ configMapGenerator:
       - DB_USERNAME=chat
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
+      # 기존 회원 백필이 회원 목록을 읽는 회원 내부 API 주소 (#280). 없으면 yaml 기본값 localhost:8081(chat 자신의 내부 포트)을 부른다
+      - MEMBER_API_BASE_URL=http://member-app:8081

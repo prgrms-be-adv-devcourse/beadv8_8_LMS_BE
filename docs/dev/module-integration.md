@@ -1,18 +1,18 @@
 # 모듈 구조와 연동
 
-현재 소스 구조와 전환 범위는 [앱 구조](../architecture/app-modules.md)를 따른다. 각 앱은 독립 실행 JAR를 만들지만 기존 프로세스 내부 연동은 후속 전환 대상이다.
+현재 소스 구조는 [앱 구조](../architecture/app-modules.md)를 따른다. 각 앱은 독립 실행 JAR를 만들고, 앱 사이 연동은 제공 앱의 내부 HTTP API와 Kafka 이벤트다(#271~#280, D62).
 
 ## 의존 경계
 
 - 업무 코드는 `apps/<업무>-app`에 둔다. 다른 앱의 Gradle 프로젝트, 엔티티 또는 Repository를 의존하지 않는다.
 - 앱별 공통 코드는 `com.hapbang.<업무>.global`에 둔다. `global` Gradle 모듈은 없다.
 - `common`에는 재사용 기술 라이브러리와 기존 공유 타입을 둔다. common은 앱에 의존하지 않는다.
-- 이벤트 스키마와 Java 계약 모듈은 이번 작업에서 만들지 않는다. 기존 `shared`의 DTO·포트·이벤트는 업무 연동을 함께 바꾸지 않기 위해 그대로 보존한다. 신규 이벤트를 모두 shared에 추가한다는 정책은 아니다.
+- `shared`에는 DTO·이벤트·안정적인 Enum·오류 코드·공통 HTTP Client만 둔다. Java Port·엔티티·Repository·공유 업무 예외는 두지 않는다(D62, `SharedContractRulesTest`). 다른 앱이 받는 integration event만 shared에 두고, 앱 안에서만 쓰는 이벤트는 앱에 둔다.
 - 각 앱의 HTTP 요청·응답 DTO는 해당 앱의 `in/dto`·`app/dto`에 둔다.
 
 ## 기존 프로세스 내부 포트
 
-모듈 간 Java Port를 부르는 곳은 없다. 강의·출연은 billing 내부 HTTP(#274~#277)로 바꿨고, `LectureObjectionPort`는 #433에서 지웠다. 쓰는 곳 없는 shared `BillingPort`와 billing-app `BillingPortAdapter`는 #280에서 지운다. 다른 앱의 구현을 Gradle 의존으로 끌어오거나 운영용 Fake를 등록하지 않는다.
+모듈 간 Java Port는 없다. 강의·출연은 billing 내부 HTTP(#274~#277)로 바꿨고, `LectureObjectionPort`는 #433, shared `BillingPort`·`BillingPortAdapter`는 #486에서 지웠다. 고객센터 ↔ 강의 이의 제기는 내부 HTTP(접수)와 Kafka 이벤트(판단·철회·결과)다(#278·#279). shared에 Java Port를 두지 않는다(`SharedContractRulesTest`). 다른 앱의 구현을 Gradle 의존으로 끌어오거나(`verifyModuleStructure`가 compileClasspath·runtimeClasspath를 검사) 운영용 Fake를 등록하지 않는다.
 
 현재 일부 호출은 호출자 트랜잭션과 함께 커밋·롤백되는 의미를 가진다. HTTP 호출로 옮길 때는 소비 모듈 로컬 트랜잭션 밖에서 실행하고, 타임아웃·중복 요청·상태 복구를 설계해야 한다. 같은 JVM의 `@Transactional` 의미를 그대로 유지한다고 가정하지 않는다.
 

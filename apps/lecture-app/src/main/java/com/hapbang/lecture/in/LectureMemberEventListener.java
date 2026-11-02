@@ -32,7 +32,10 @@ import lombok.extern.slf4j.Slf4j;
                 "spring.deserializer.value.delegate.class=org.springframework.kafka.support.serializer.JacksonJsonDeserializer",
                 // 하위 패키지까지 자동으로 허용된다고 가정하지 않고 실제 이벤트 패키지만 믿는다.
                 "spring.json.trusted.packages=com.hapbang.shared.member.event",
-                "auto.offset.reset=earliest"
+                "auto.offset.reset=earliest",
+                // 토픽은 발행 앱이 partition 3개로 선언한다. 소비자가 먼저 붙어도 partition 1개짜리 토픽을 만들지 않게 한다
+                // (운영 broker는 자동 생성이 꺼져 있다. 자동 생성이 켜진 테스트 broker에서 다른 테스트의 토픽을 망가뜨리지 않게 한다)
+                "allow.auto.create.topics=false"
         })
 public class LectureMemberEventListener {
 

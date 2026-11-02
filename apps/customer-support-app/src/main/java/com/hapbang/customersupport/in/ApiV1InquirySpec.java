@@ -33,11 +33,14 @@ public interface ApiV1InquirySpec {
 
     @Operation(summary = "문의 접수", description = """
             새 문의를 접수한다(201). 접수한 문의는 답변 대기(WAITING) 상태다.
-            강의 내용 다름 이의 제기(`LECTURE_CONTENT_DISPUTE`)는 `orderItemId`(강의 주문 항목 ID)가 필수이고, 접수하면 그 항목의 판매자 지급이 멈춘다.
+            강의 내용 다름 이의 제기(`LECTURE_CONTENT_DISPUTE`)는 `orderItemId`(강의 주문 항목 ID)가 필수이고, 강의에 접수되면 그 항목의 판매자 지급이 멈춘다.
+            문의를 저장한 뒤 강의에 접수를 한 번 시도한다. 접수되면 201(`objectionLinkStatus: FILED`),
+            강의 응답을 받지 못하면 202(`FILING`, 접수 처리 중)이고 서버가 다시 시도한다. 202 뒤 접수되지 않으면 문의는 남고
+            `objectionLinkStatus: FILE_REJECTED`, `objectionNotice: "접수 불가 · 사유"`가 된다.
             `orderItemId`가 없으면 400(INQUIRY_TARGET_REQUIRED), 다른 유형에 보내면 400(INQUIRY_TARGET_NOT_ALLOWED).
-            접수할 수 없으면 문의가 만들어지지 않는다: 404(OBJECTION_NOT_BUYER), 409(OBJECTION_NOT_OBJECTIONABLE,
+            강의가 바로 거절하면 문의가 만들어지지 않는다: 404(OBJECTION_NOT_BUYER), 409(OBJECTION_NOT_OBJECTIONABLE,
             OBJECTION_ALREADY_PAID_OUT, OBJECTION_ALREADY_FILED, OBJECTION_PERIOD_EXPIRED).""")
-    RsData<InquiryResponse> createInquiry(Long userId, @Valid CreateInquiryRequest request);
+    ResponseEntity<RsData<InquiryResponse>> createInquiry(Long userId, @Valid CreateInquiryRequest request);
 
     @Operation(summary = "내 문의 목록", description = """
             내가 접수한 문의를 조회한다. `page`(0부터), `size`(기본 20, 최대 100)로 나눠 받는다.
@@ -55,9 +58,12 @@ public interface ApiV1InquirySpec {
     @Operation(summary = "내 문의 삭제", description = """
             답변 대기(WAITING)인 내 문의만 삭제할 수 있다(204). 답변 완료면 409(INQUIRY_NOT_DELETABLE).
             다른 회원의 문의나 이미 삭제된 문의는 404(INQUIRY_NOT_FOUND). 본문은 분쟁 확인용으로 남는다(Soft Delete).
-            강의 내용 다름 이의 제기 문의를 삭제하면 이의 제기를 철회하고 판매자 지급 중단을 푼다. 같은 주문 항목으로 다시 이의 제기할 수 있다.
-            강의 쪽에서 철회할 수 없으면 삭제되지 않는다: 404(OBJECTION_NOT_BUYER), 409(OBJECTION_NOT_FILED, OBJECTION_INQUIRY_MISMATCH).""")
-    ResponseEntity<Void> deleteInquiry(Long userId, Long inquiryId);
+            강의 내용 다름 이의 제기 문의(접수됨)를 삭제하면 이의 제기 철회를 강의에 요청한다(202, `objectionLinkStatus: WITHDRAWAL_PENDING`).
+            강의가 철회하면 문의가 삭제되고 판매자 지급 중단이 풀린다. 같은 주문 항목으로 다시 이의 제기할 수 있다.
+            철회 처리 중에 다시 보내면 202, 철회가 끝난 뒤 다시 보내면 204다. 접수 불가(FILE_REJECTED) 문의는 바로 삭제한다(204).
+            접수·판단 처리 중이면 409(OBJECTION_IN_PROGRESS), 강의가 철회를 거절했으면 409(OBJECTION_RECOVERY_REQUIRED,
+            `objectionNotice: "처리 지연 · 확인 중"`).""")
+    ResponseEntity<RsData<InquiryResponse>> deleteInquiry(Long userId, Long inquiryId);
 
     @Operation(summary = "문의 목록 (관리자)", description = """
             모든 회원의 문의를 조회한다. 삭제된 문의는 빠진다. `status`가 없으면 전체.
@@ -72,7 +78,7 @@ public interface ApiV1InquirySpec {
 
     @Operation(summary = "답변 등록 (관리자)", description = """
             답변을 등록하면(201) 문의가 답변 완료(ANSWERED)가 된다. 답변은 여러 번 달 수 있다.
-            회원이 삭제한 문의는 404(INQUIRY_NOT_FOUND).""")
+            회원이 삭제한 문의는 404(INQUIRY_NOT_FOUND). 이의 제기 철회 처리 중인 문의는 409(OBJECTION_IN_PROGRESS).""")
     RsData<InquiryResponse> replyInquiry(Long userId, Long inquiryId, @Valid InquiryReplyRequest request);
 
     @Operation(summary = "답변 수정 (관리자)", description = """
@@ -81,11 +87,16 @@ public interface ApiV1InquirySpec {
     RsData<InquiryResponse> editReply(Long inquiryId, Long replyId, @Valid InquiryReplyRequest request);
 
     @Operation(summary = "이의 제기 판단 (관리자)", description = """
-            강의 내용 다름 이의 제기를 인정(`accepted: true`)하거나 기각한다. 판단 안내 답변(`content`)을 함께 달아 답변 완료(ANSWERED)가 된다.
-            인정하면 해당 주문 항목의 HP를 구매자에게 반환하고, 기각하면 지급 예정 시각에 판매자에게 지급한다. 판단은 한 번만 한다.
-            이의 제기 문의가 아니면 400(NOT_OBJECTION_INQUIRY), 이미 판단했으면 409(OBJECTION_ALREADY_RESOLVED),
-            강의 쪽에서 판단할 수 없으면 409(OBJECTION_NOT_FILED, OBJECTION_INQUIRY_MISMATCH). 삭제된 문의는 404(INQUIRY_NOT_FOUND).""")
-    RsData<InquiryResponse> resolveObjection(Long userId, Long inquiryId, @Valid ObjectionResolutionRequest request);
+            강의 내용 다름 이의 제기를 인정(`accepted: true`)하거나 기각한다. 판단은 강의에 요청하고(202, `objectionLinkStatus: RESOLUTION_PENDING`),
+            강의가 반영하면 판단과 판단 안내 답변(`content`)이 기록되어 답변 완료(ANSWERED)가 된다(`RESOLVED`).
+            인정하면 해당 주문 항목의 HP를 구매자에게 반환한다(`hpReturnStatus`: PENDING → COMPLETED, 자동 처리가 멈추면 ACTION_REQUIRED).
+            기각하면 지급 예정 시각에 판매자에게 지급한다. 판단은 한 번만 한다.
+            같은 판단(인정 여부·답변·관리자)을 다시 보내면 처리 중이면 202, 반영되었으면 200이다.
+            다른 판단이나 철회·접수 처리 중이면 409(OBJECTION_IN_PROGRESS), 이미 다른 판단으로 끝났으면 409(OBJECTION_ALREADY_RESOLVED),
+            강의가 판단을 거절했으면 409(OBJECTION_RECOVERY_REQUIRED, 응답의 `objectionFailureCode`로 사유 확인).
+            이의 제기 문의가 아니면 400(NOT_OBJECTION_INQUIRY), 강의에 접수되지 않은 문의는 409(OBJECTION_NOT_FILED). 삭제된 문의는 404(INQUIRY_NOT_FOUND).""")
+    ResponseEntity<RsData<InquiryResponse>> resolveObjection(Long userId, Long inquiryId,
+                                                             @Valid ObjectionResolutionRequest request);
 
     @Operation(summary = "답변 삭제 (관리자)", description = """
             답변을 지운다(204, Soft Delete). 남은 답변이 없으면 문의가 답변 대기(WAITING)로 돌아간다(판단한 이의 제기는 답변 완료로 남는다).

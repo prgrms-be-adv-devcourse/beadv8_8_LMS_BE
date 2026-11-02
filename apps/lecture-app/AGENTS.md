@@ -20,6 +20,13 @@
   - 요청 안에서 한 번 시도하는 것은 주문 보류·보상(D58, 예산 D68)과 구매 취소(D59)다. 이의 제기 인정 반환과 지급은 HP 작업 배치가 실행한다(D70).
 - billing 지급 예정 건(`Settlement` SCHEDULED)이 남아 있으면 그 항목의 지급이 `PAYOUT_ALREADY_SETTLED`로 거절되고 작업이 `DEAD`가 된다.
 
+## 고객센터 연동 (이의 제기, #278, D71)
+
+- 접수는 내부 HTTP(`ApiV1LectureObjectionInternalController`), 판단·철회는 `customersupport.events.v1`(`LectureObjectionRequestListener`)로 받는다. 둘 다 `LectureObjectionFacade` → `LectureObjectionCommandUseCase`를 거친다. 항목 규칙(`OrderObjection*UseCase`)을 직접 부르지 않는다.
+- 명령 하나 = 강의 트랜잭션 하나다. 명령 이력(`LectureObjectionCommand`)·항목 변경·결과 이벤트(`lecture.events.v1`)를 함께 커밋한다. 업무 거절은 이력과 거절 이벤트로 남기고 예외로 던지지 않는다(접수 HTTP만 커밋 뒤 `LectureException`).
+- 반환 완료·조치 필요 이벤트는 `ReturnResultHandler`가 낸다. 내보내는 이벤트는 shared `lecture.event`에 `@Externalized`를 붙이고 `LectureEventExternalizationConfig`에 헤더를 더한다. 재발행은 `LectureEventRepublishBatch`다.
+- 테스트는 `fixture/ObjectionCommands`로 명령을 보낸다(부를 때마다 새 명령 ID). 같은 명령 ID의 재현·충돌은 Facade를 직접 부른다. 접수는 `INTERNAL` 역할이 필요하다. 이벤트는 `@RecordApplicationEvents`로 확인하고, Kafka 발행·소비는 `LectureObjectionKafkaTest`가 맡는다.
+
 ## 테스트
 
 - 강의 등록 등 파일이 필요한 테스트는 `LectureFixture.uploadedFile(판매자, FileType)`을 `FileResourceRepository`로 저장해 ID를 쓴다 (S3 불필요).

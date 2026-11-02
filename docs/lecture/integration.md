@@ -49,54 +49,34 @@ shared (데이터 계약 + 공통 HTTP Client SDK)
   billing.dto     HoldCommand, ReleaseCommand, PayoutCommand, PenaltyCommand, *ResultDto
   billing.domain  BillingReferenceType, SettlementSourceType, BillingFailureCode
   billing.out     BillingApiClient, BillingCallResult, BillingCallException
-  lecture.dto     이의 제기 접수 명령·결과
-  lecture.domain  LectureObjectionFailureCode
+  lecture.dto     이의 제기 접수 요청·결과 (LectureObjectionFileRequest, LectureObjectionFiledDto)
+  lecture.domain  LectureObjectionCommandType, LectureObjectionFailureCode
   lecture.out     LectureApiClient
-  lecture.event   이의 제기 판단·철회 명령, 명령 결과, 반환 결과 이벤트 (V1)
+  lecture.event   이의 제기 판단·철회 결과, 반환 완료·조치 필요 이벤트 (lecture.events.v1)
+  customersupport.event  이의 제기 판단·철회 요청 이벤트 (customersupport.events.v1)
 
 apps
   bootstrap, scheduling, security·HTTP 공통 설정만 담당
 ```
 
-#### 전환 상태
+#### 전환 결과
 
-2026-10-30 기준이다. 강의·출연의 HP 이동은 billing 내부 HTTP로 바뀌었고 모듈 간 Java Port 호출은 없다. 남은 흐름은 아래 티켓에서 바꾸고, **#280이 끝나면 이 표를 지운다.**
+#271의 하위 티켓(#272~#280)으로 모듈 간 Java Port 호출을 모두 내부 HTTP·이벤트로 바꿨다(2026-11-02 #278·#279·#280 마무리). 전환 표는 #280에서 지웠다. 남은 후속은 지급 실패 레거시 컬럼 정리(#268)와 이의 제기 실패 명령 운영 복구(#267)다.
 
-| 흐름 | 현재 구현 | 목표 구조 | 변경 티켓 | 전환 완료 조건 |
-| --- | --- | --- | --- | --- |
-| 공통 billing HTTP 계약 | ✅ `BillingApiClient` + DTO·오류 계약 | 같음 | #272 | 출연·강의가 같은 Client 코드를 쓴다 |
-| billing 진입점 | ✅ `/api/v1/internal/billing/*` Controller. 쓰는 곳 없는 `BillingPortAdapter`가 남아 있다 | 같음 | #273, #280 | 요청마다 billing 로컬 트랜잭션으로 처리한다 |
-| 출연 billing 연동 | ✅ `BillingApiClient` + 기존 `HpTask` | 같음 | #274 | fake 기본 모드가 없고 외부 호출이 출연 트랜잭션 밖이다 |
-| HP 작업 기반 | ✅ `LectureHpTask` 선점·재시도·관리자 복구 | 같음 | #275 | 외부 호출과 결과 기록 트랜잭션이 분리된다 |
-| 주문 보류 | ✅ `HOLD_PENDING` + 항목별 HOLD/보상 작업 | 같음 | #276 | 완료 상태가 실제 HP 이동과 일치한다 |
-| 구매 취소·반환·지급 | ✅ `*_PENDING` + RELEASE/PAYOUT 작업. 지급 실패 레거시 컬럼은 남아 있다 | 같음 + 컬럼 삭제 | #277, #268 | D54 이관과 접근·리뷰 규칙이 적용된다 |
-| 이의 제기 접수·명령 | `LectureObjectionPort` 삭제(#433). 접수·판단·철회는 강의 앱 안 `LectureObjectionFacade`뿐이다 | 강의 내부 HTTP + 명령 Inbox | #278 | 같은 명령을 다시 보내도 같은 결과다 |
-| 고객센터 연동 | 강의 연동 없음. 이의 제기 접수·판단·철회는 503 `OBJECTION_UNAVAILABLE`(#433) | 문의 커밋 → 내부 HTTP, 판단·철회는 이벤트 | #279, #266, #267 | 고객센터 로컬 트랜잭션과 원격 호출이 분리된다 |
-| 레거시 제거 | 쓰는 곳 없는 shared `BillingPort`·billing-app `BillingPortAdapter` | 삭제 + 구조 테스트, `apps` bootstrap-only | #280 | 저장소에 모듈 간 Java 연결 타입이 없다 |
+#### 실행 중 실패한 이벤트의 재처리 (D61 → D71)
 
-하위 티켓의 의존 관계 (13장 8단계)
+Modulith는 기동할 때만 미완료 발행 기록을 다시 보낸다(`republish-outstanding-events-on-restart: true`). 실행 중 재전송은 [`kafka.md`](../architecture/infrastructure/kafka.md) "발행" 규칙대로 Kafka로 발행하는 앱마다 둔다. D71이 D61의 global 공통 재발행(#266)을 대체했다.
 
-- HTTP 기반: #272 → #273 → #274, #275.
-- 강의 HP: #275 → #276 → #277. 지급 실패 레거시 정리 #268은 #277과 프론트 전환 뒤다.
-- 이의 제기: #278 → #279, 이벤트 재발행 #266은 #279의 선행이며 실패 명령 운영 복구 #267은 #279 후행이다. `kafka.md`가 발행 앱마다 실행 중 재전송을 두게 정해, #266을 그 규칙으로 대체할지는 #278에서 정한다.
-- 마무리: #280은 #278·#279가 끝난 뒤 진행한다(#272~#277은 끝났다). 쓰는 곳 없는 `BillingPort`·`BillingPortAdapter`는 그 전에 지워도 된다.
+| 항목 | 강의 앱 | 고객센터 앱 |
+| --- | --- | --- |
+| 주기 | 매분 5초 (`lecture.event-republish.cron`) | 매분 5초 (`customersupport.batch.event-republish-cron`) |
+| 처음 재발행할 최소 나이 | 발행 후 1분 (`lecture.event-republish.pending-grace`) | 발행 후 1분 (`customersupport.batch.pending-grace`) |
+| 한 번에 처리 | 100건, 오래된 기록부터 | 100건, 오래된 기록부터 |
+| 대상 | Kafka로 내보내는 강의 이벤트(`shared.lecture.event`)만 | Kafka로 내보내는 고객센터 이벤트(`shared.customersupport.event`)만 |
+| 중복 | 받는 쪽(고객센터)이 문의 상태·명령 ID로 거른다 | 받는 쪽(강의)이 명령 이력으로 거른다 |
 
-#### 실행 중 실패한 이벤트의 재처리 (D61)
-
-Spring Modulith 2.1.1의 재발행 기능(`IncompleteEventPublications`, `ResubmissionOptions`, `completionAttempts`)으로 실행 중에도 실패·미완료 이벤트를 다시 보낸다. global 공통 설정이라 이벤트 재발행 [Global] 티켓(#266)에서 만들고, 상세 설정과 운영 절차는 그 티켓의 문서에 둔다. 단, `kafka.md` "발행"은 Kafka로 발행하는 앱마다 실행 중 재전송을 직접 두게 정했다. 두 기준 중 어느 쪽을 따를지(#266을 대체할지)는 #278에서 정하고, 정한 뒤 이 절과 의존 관계를 함께 고친다. 요약:
-
-| 항목 | 결정 |
-| --- | --- |
-| 재발행 주기 | 1분마다 |
-| 처음 재발행할 최소 나이 | 발행 후 5분 |
-| 한 번에 처리 | 100건 |
-| stale 판정 | `PUBLISHED`·`PROCESSING`·`RESUBMITTED` 각각 5분, 1분마다 확인 |
-| 재발행 한도 | 자동으로 멈추지 않는다 |
-| 경고 | 재발행 10회 도달(`completionAttempts = 11`, 처음 발행이 1) 시 ERROR 로그 + Micrometer counter |
-| 재시작 재발행 | 기존 `republish-outstanding-events-on-restart: true` 유지 |
-
-- 10회 뒤 자동으로 멈추게 하려면 dead 상태 저장, 오래된 dead 행이 배치를 막지 않는 조회, 관리자 재발행, 재시작 재발행 제외, 감사 기록이 필요하다. 이번에는 하지 않는다.
-- 알림은 ERROR 로그와 counter까지다. 실제 호출·메시지 알림은 모니터링을 연동할 때 따로 설정한다.
+- 분산 락은 두지 않는다. replica 여럿이 같은 기록을 다시 보내도 받는 쪽 멱등이 흡수한다.
+- D61의 stale 판정, 재발행 10회 경고, 자동 중단은 두지 않았다(billing·출연 앱도 없다). 필요해지면 따로 설계한다.
 
 ### 6.2 동기 HTTP 인터페이스
 
@@ -158,19 +138,19 @@ public class BillingCallException extends RuntimeException {
 - `UNMAPPED`는 4xx의 오류 문자열이 목록에 없거나 본문이 없을 때(401 등) 쓴다. 실행기는 `INVARIANT_VIOLATION`으로 분류한다. 원래 코드 문자열은 사용자용 `detail`에 넣지 않고 `Failed.rawCode`로 받아 `lecture_hp_task_attempt.raw_error_code`에만 남긴다.
 - `HOLD_STATE_INCONSISTENT`·`CHARGE_PRINCIPAL_MISMATCH`는 billing이 500으로 응답하므로 `Failed`가 아니라 `BillingCallException(UNKNOWN_RESULT)`의 `rawCode`로 온다. 실행기는 재시도 한도를 넘기면 `DEAD`로 둔다 (D64).
 
-#### 강의: 이의 제기 접수 내부 HTTP (고객센터가 호출, D60·D62, #278·#279)
+#### 강의: 이의 제기 접수 내부 HTTP (고객센터가 호출, D60·D62·D71, #278·#279)
 
-고객센터는 shared의 `LectureApiClient`로 강의 내부 HTTP endpoint에 접수를 요청한다. 문의는 먼저 커밋되고, 호출은 고객센터 트랜잭션 밖에서 한다. 강의 Controller는 shared 요청 DTO를 강의 명령으로 바꾸고 강의 로컬 트랜잭션을 연다.
+고객센터는 shared의 `LectureApiClient.fileObjection`으로 강의 내부 HTTP endpoint(`POST /api/v1/internal/lectures/objections/file`)에 접수를 요청한다. 문의는 먼저 커밋되고, 호출은 고객센터 트랜잭션 밖에서 한다. 계약 문서는 [이의 제기 내부 API](../api/internal-objections.md)다.
 
 | 항목 | 내용 |
 | --- | --- |
-| 요청 (`shared.lecture.dto`) | `commandId = FILE:{inquiryId}`, `correlationId`, `inquiryId`, `orderItemId`, `buyerUserId`, `reason`. 전송 재시도에도 `commandId`는 같다. `correlationId`는 ADR 0002(추적 ID는 trace로 대신)와 맞춰 뺄지 #278에서 정한다. 이 결정은 요청뿐 아니라 `LectureObjectionCommandCompletedV1`·반환 이벤트의 `correlationId`까지 함께 정한다 |
-| 결과 | 성공 또는 `LectureObjectionFailureCode`. 예상된 거절은 예외가 아니라 결과다. 결과를 받지 못하면 연동 예외(결과 불명)다 |
-| 강의 처리 | 한 강의 트랜잭션에서 명령 이력 확인 → 항목 `objection FILED` → 명령 결과 기록. 같은 `commandId` + 같은 payload면 처음 결과를 재현한다 (D60, #278) |
+| 요청 (`shared.lecture.dto.LectureObjectionFileRequest`) | `commandId = FILE:{inquiryId}`, `inquiryId`, `orderItemId`, `buyerUserId`, `reason`(문의 내용). 전송 재시도에도 `commandId`는 같다. 추적 ID(`correlationId`)는 두지 않고 trace가 맡는다(ADR 0002, D71) |
+| 결과 | 성공이면 200 + `LectureObjectionFiledDto`, 거절이면 4xx ProblemDetail의 `code` = `LectureObjectionFailureCode`. 결과를 받지 못하면(5xx·시간 초과) 결과 불명이라 같은 요청을 다시 보낸다 |
+| 강의 처리 | 한 강의 트랜잭션에서 명령 이력(`lecture_objection_command`) 확인 → 항목 `objection FILED` → 명령 결과 기록. 거절도 이력에 남긴다. 같은 `commandId` + 같은 내용이면 처음 결과(성공·같은 거절)를 재현한다 (D60, #278) |
 | 접수 가능 조건 | 구매자 본인 항목, `PURCHASED` 또는 `CONFIRMED`, `objection_status = NONE`, `now < payout_scheduled_at` |
-| 거절 코드 (`LectureObjectionFailureCode`) | 이름은 강의 `LectureErrorCode.OBJECTION_*`(#433, 앞에 `OBJECTION_`만 붙음)와 같게 둔다. 접수: `NOT_BUYER`(없는 항목 포함) → `NOT_OBJECTIONABLE`(구매 완료 전·취소·반환 진행 중이거나 끝난 항목) → `ALREADY_PAID_OUT` → `ALREADY_FILED`(접수·판단된 항목) → `PERIOD_EXPIRED` 순서로 검사한다(D49). `PAYOUT_PENDING`은 지급 예정 시각이 지난 뒤에만 생기므로 `PERIOD_EXPIRED`(이미 판단됐으면 `ALREADY_FILED`)다. 판단·철회: `NOT_BUYER`·`NOT_FILED`·`INQUIRY_MISMATCH`. 명령 충돌: `IDEMPOTENCY_KEY_CONFLICT` |
-| 필수 값 | null ID·빈 사유는 호출한 쪽 코드 오류라 `NullPointerException`·`IllegalArgumentException`이다 |
-| 지급 배치와 경쟁 | 접수와 지급 대상 선점이 같은 항목 행을 바꾸므로 `order_item.version` 낙관적 락으로 직렬화된다. 접수가 먼저 커밋되면 지급 대상에서 빠지고, 지급 선점(`PAYOUT_PENDING`)이 먼저 커밋되면 접수는 `PERIOD_EXPIRED`다. 지급 작업이 `DEAD`가 되어도 항목은 `PAYOUT_PENDING`이고 접수 기한은 다시 열리지 않는다. 겹친 낙관적 락 충돌은 재시도할 수 있는 실패라 거절로 저장하지 않는다 (#278) |
+| 거절 코드 (`LectureObjectionFailureCode`) | 이름은 강의 `LectureErrorCode.OBJECTION_*`와 같다. 접수: `OBJECTION_NOT_BUYER`(404, 없는 항목 포함) → `OBJECTION_NOT_OBJECTIONABLE`(구매 완료 전·취소·반환 진행 중이거나 끝난 항목) → `OBJECTION_ALREADY_PAID_OUT` → `OBJECTION_ALREADY_FILED`(접수·판단된 항목) → `OBJECTION_PERIOD_EXPIRED` 순서로 검사한다(D49). `PAYOUT_PENDING`은 지급 예정 시각이 지난 뒤에만 생기므로 `OBJECTION_PERIOD_EXPIRED`(이미 판단됐으면 `OBJECTION_ALREADY_FILED`)다. 판단·철회: `OBJECTION_NOT_BUYER`·`OBJECTION_NOT_FILED`·`OBJECTION_INQUIRY_MISMATCH`. 같은 명령 ID·다른 내용: `OBJECTION_COMMAND_CONFLICT`(409, 이력은 그대로) |
+| 필수 값 | 빠진 값·빈 사유는 shared 요청 레코드가 거절해 400 `INVALID_REQUEST`다 |
+| 지급 배치와 경쟁 | 접수와 지급 대상 선점이 같은 항목 행을 바꾸므로 `order_item.version` 낙관적 락으로 직렬화된다. 접수가 먼저 커밋되면 지급 대상에서 빠지고, 지급 선점(`PAYOUT_PENDING`)이 먼저 커밋되면 접수는 `OBJECTION_PERIOD_EXPIRED`다. 지급 작업이 `DEAD`가 되어도 항목은 `PAYOUT_PENDING`이고 접수 기한은 다시 열리지 않는다. 겹친 낙관적 락 충돌은 재시도할 수 있는 실패라 거절로 저장하지 않는다(500, 고객센터가 다시 보낸다) |
 
 #### 서비스 분리 시 (D62)
 
@@ -178,25 +158,27 @@ public class BillingCallException extends RuntimeException {
 | --- | --- | --- |
 | self-HTTP → 분리 배포 HTTP | `hapbang.clients.[provider].base-url`을 해당 서비스 주소로 바꾸고 내부 인증·네트워크 정책을 분리 환경에 맞춘다 | shared Client, URI·DTO·오류·멱등 계약, HP 작업, 도메인 상태 전이 |
 | HTTP → Kafka | 동기 `BillingApiClient`를 Kafka request/reply로 흉내 내지 않는다. HP 작업 실행기를 **작업 발행(dispatcher) + 결과 수신(consumer)** 으로 바꾼다. 작업은 결과 이벤트를 기다리고, 같은 요청 ID·claim 정보일 때만 기록한다 | 작업 모델, 도메인 상태 전이, DTO·오류 코드 계약 |
-| 이의 제기 판단·철회 | 이벤트 계약 그대로 브로커만 바꾼다 | 이벤트 V1 계약, 명령 이력 |
+| 이의 제기 판단·철회 | 이미 Kafka 이벤트다(#278·#279). 바꿀 것이 없다 | 이벤트 계약, 명령 이력 |
 
 ### 6.3 이벤트 계약
 
-이벤트는 버전을 이름에 드러낸다(`V1`). 필드를 바꾸면 새 버전을 만든다.
+Kafka 토픽·key·헤더·재시도 규칙은 [`kafka.md`](../architecture/infrastructure/kafka.md)를 따른다. 이벤트 레코드는 `<대상><과거형>Event`이고, 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(ADR 0001). `eventId`·`occurredAt`·`correlationId`는 두지 않고 업무 자연 키(명령 ID, 문의·주문 항목 ID)로 멱등 처리한다(ADR 0002, D71).
 
-| 이벤트 | 발행 | 구독 | 필드 | 받는 쪽 처리 |
+| 이벤트 (토픽, key) | 발행 | 구독 | 필드 | 받는 쪽 처리 |
 | --- | --- | --- | --- | --- |
-| `UserJoinedEvent` (기존, Kafka `member.events.v1`) | 회원 | 강의 | `UserDto` | `LectureUser` 생성 (있으면 무시, D17) |
-| `UserModifiedEvent` (#56, Kafka `member.events.v1`) | 회원 | 강의 | `UserDto` | `LectureUser.syncFrom` (없으면 실패 → 재시도 뒤 DLT, 옛 버전은 무시, D17·#429) |
-| `LectureObjectionResolutionRequestedV1` (#279) | 고객센터 | 강의 | 공통 필드 + `accepted`, `adminUserId` | 명령 이력 확인 → 인정이면 `ACCEPTED` + `RETURN_PENDING` + RELEASE 작업, 기각이면 `REJECTED` → 결과 이벤트 |
-| `LectureObjectionWithdrawalRequestedV1` (#279) | 고객센터 | 강의 | 공통 필드 + `buyerUserId` | 명령 이력 확인 → `NONE`으로 되돌림(D52) → 결과 이벤트 |
-| `LectureObjectionCommandCompletedV1` (#279) | 강의 | 고객센터 | `eventId`, `causationId`(명령 이벤트 ID), `commandId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `success`, `failureCode`, `hpReturnStatus`(인정 성공이면 `PENDING`, 그 밖에는 `null`) | 판단·철회 결과 기록 (D60) |
-| `LectureObjectionReturnCompletedV1` (#277) | 강의 | 고객센터 | `eventId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `returnedHp` | `hpReturnStatus = COMPLETED` |
-| `LectureObjectionReturnActionRequiredV1` (#277) | 강의 | 고객센터 | `eventId`, `occurredAt`, `inquiryId`, `correlationId`, `orderItemId`, `failureCode` | `hpReturnStatus = ACTION_REQUIRED` (이미 `COMPLETED`면 무시) |
+| `UserJoinedEvent` (`member.events.v1`, 회원 ID) | 회원 | 강의 | `UserDto` | `LectureUser` 생성 (있으면 무시, D17) |
+| `UserModifiedEvent` (`member.events.v1`, 회원 ID) | 회원 | 강의 | `UserDto` | `LectureUser.syncFrom` (없으면 실패 → 재시도 뒤 DLT, 옛 버전은 무시, D17·#429) |
+| `LectureObjectionResolutionRequestedEvent` (`customersupport.events.v1`, `inquiry:<문의 ID>`) | 고객센터 | 강의 | `commandId`(`RESOLVE:{inquiryId}`), `inquiryId`, `orderItemId`, `accepted`, `adminUserId` | 명령 이력 확인 → 인정이면 `ACCEPTED` + `RETURN_PENDING` + RETURN 작업, 기각이면 `REJECTED` → 결과 이벤트 |
+| `LectureObjectionWithdrawalRequestedEvent` (`customersupport.events.v1`, `inquiry:<문의 ID>`) | 고객센터 | 강의 | `commandId`(`WITHDRAW:{inquiryId}`), `inquiryId`, `orderItemId`, `buyerUserId` | 명령 이력 확인 → `NONE`으로 되돌림(D52) → 결과 이벤트 |
+| `LectureObjectionResolvedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `commandId`, `inquiryId`, `orderItemId`, `accepted` | 처리 중인 그 판단이면 `RESOLVED` + `ANSWERED` + `objectionResult` + 판단 답변, 인정이면 `hpReturnStatus` ≥ `PENDING` |
+| `LectureObjectionWithdrawnEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `commandId`, `inquiryId`, `orderItemId` | 처리 중인 그 철회면 `WITHDRAWN` + `deleted_at` |
+| `LectureObjectionRequestRefusedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `commandId`, `inquiryId`, `orderItemId`, `commandType`(`RESOLVE`·`WITHDRAW`), `failureCode` | 처리 중인 그 명령이면 `RESOLUTION_FAILED`·`WITHDRAWAL_FAILED` + 사유 (운영 복구 #267) |
+| `LectureObjectionReturnCompletedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `inquiryId`, `orderItemId` | `hpReturnStatus = COMPLETED` |
+| `LectureObjectionReturnActionRequiredEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `inquiryId`, `orderItemId` | `hpReturnStatus = ACTION_REQUIRED` (이미 `COMPLETED`면 그대로) |
 
-- 명령 이벤트 공통 필드: `eventId`(이번 발행의 ID), `commandId`(논리 명령의 멱등 키, `RESOLVE:{inquiryId}`·`WITHDRAW:{inquiryId}`), `occurredAt`, `inquiryId`, `correlationId`(접수부터 반환까지 한 흐름), `orderItemId`. 네 ID는 역할이 달라 따로 저장하고 로그에 남긴다.
-- 강의 리스너는 예상된 업무 거절이면 **예외를 던지지 않고** 실패 결과 이벤트를 발행한다(무한 재시도 방지). 낙관적 락 충돌처럼 다시 하면 될 수 있는 실패와 DB·타임아웃 같은 기술 실패는 예외를 던져 이벤트 발행 기록에 남기고 재발행(D61)으로 다시 처리한다.
-- 도메인 변경, 명령 이력 기록, 결과 이벤트 발행은 같은 강의 트랜잭션이다.
+- 강의 리스너(`lecture-app.objection-command`)는 예상된 업무 거절이면 **예외를 던지지 않고** 거절 결과 이벤트를 발행한다(무한 재시도 방지). 낙관적 락 충돌처럼 다시 하면 될 수 있는 실패와 DB 같은 기술 실패는 예외를 던져 Kafka 재시도(3회) 뒤 그룹별 DLT로 보낸다.
+- 도메인 변경, 명령 이력 기록, 결과 이벤트 발행 기록은 같은 강의 트랜잭션이다. 반환 완료·조치 필요 이벤트는 HP 작업 결과를 기록하는 트랜잭션에서 발행한다(`ReturnResultHandler`).
+- 고객센터 리스너(`customer-support-app.objection-result`)는 문의 행을 잠그고, 처리 중인 명령(명령 ID가 같음)의 결과만 기록한다. 중복·늦은 결과는 무시하고, HP 반환 상태는 앞으로만 바꾼다. 반환 이벤트가 판단 결과보다 먼저 와도 된다.
 
 ### 6.4 주요 흐름
 
@@ -311,13 +293,13 @@ sequenceDiagram
         CS-->>B: 4xx + 사유 코드
     else 결과 불명 또는 결과 기록 실패
         CS-->>B: 202 {FILING}
-        Note over CS: 고객센터 재시도가 같은 commandId로 다시 보낸다
+        Note over CS: 접수 재시도 배치(매분, 1분 지난 문의)가 같은 commandId로 다시 보낸다
     end
 ```
 
 - 구매자는 강의 모듈의 주문 조회 API에서 `orderItemId`를 받아 고객센터 문의에 담는다.
-- 202 뒤에 재시도에서 거절되면 문의를 지우지 않고 `FILE_REJECTED`와 사유를 목록·상세에 보여 준다 (D60).
-- API 클라이언트가 같은 문의를 다시 보내면 문의가 새로 생긴다. 요청 멱등 키를 도입하기 전까지는 막지 못한다(#279에 기록).
+- 202 뒤에 재시도에서 거절되면 문의를 지우지 않고 `FILE_REJECTED`와 "접수 불가 · 사유"(`objectionNotice`)를 상세에 보여 준다 (D60). 이 문의는 강의에 접수되지 않았으므로 구매자가 바로 지울 수 있다.
+- API 클라이언트가 같은 문의를 다시 보내면 문의가 새로 생긴다(강의는 두 번째 접수를 `OBJECTION_ALREADY_FILED`로 거절한다). 요청 멱등 키를 도입하기 전까지는 막지 못한다(#279 범위 밖).
 
 #### 관리자 판단과 판단 전 철회 (D60)
 
@@ -328,27 +310,27 @@ sequenceDiagram
     participant LEC as 강의 모듈
     participant WAL as 지갑 모듈
     A->>CS: 판단 (인정 / 기각)
-    Note over CS: 트랜잭션 1: 조건부 갱신 FILED → RESOLUTION_PENDING + ResolutionRequestedV1 발행 기록
+    Note over CS: 트랜잭션 1: 문의 잠금, FILED → RESOLUTION_PENDING + ResolutionRequestedEvent 발행 기록
     CS-->>A: 202 {RESOLUTION_PENDING}
-    CS--)LEC: LectureObjectionResolutionRequestedV1
+    CS--)LEC: LectureObjectionResolutionRequestedEvent
     Note over LEC: 강의 트랜잭션: 명령 이력 + 상태 변경 + 결과 이벤트 발행 기록
     alt 인정
         LEC->>LEC: ACCEPTED, 항목 RETURN_PENDING, RELEASE 작업 ("LECTURE-RETURN-{itemId}")
     else 기각
         LEC->>LEC: REJECTED (지급 예정 시각이 지났으면 다음 지급 배치가 선점)
     end
-    LEC--)CS: LectureObjectionCommandCompletedV1 (인정이면 hpReturnStatus = PENDING)
-    CS->>CS: ANSWERED + objectionResult + 판단 답변 (+ hpReturnStatus)
+    LEC--)CS: LectureObjectionResolvedEvent (거절이면 RequestRefusedEvent)
+    CS->>CS: RESOLVED + ANSWERED + objectionResult + 판단 답변 (인정이면 hpReturnStatus = PENDING)
     LEC->>WAL: BillingApiClient.release (HP 작업 실행기, 트랜잭션 밖)
     Note over LEC: 짧은 트랜잭션: 주문 잠금 (D46)
     LEC->>LEC: RETURNED, returned_at, 모든 항목이 끝났으면 주문 CANCELED
-    LEC--)CS: LectureObjectionReturnCompletedV1 (작업 DEAD면 ReturnActionRequiredV1)
+    LEC--)CS: LectureObjectionReturnCompletedEvent (작업 DEAD면 ReturnActionRequiredEvent)
     CS->>CS: hpReturnStatus 갱신 (PENDING < ACTION_REQUIRED < COMPLETED)
 ```
 
-- 인정 반환은 요청 안에서 시도하지 않고 HP 작업 재시도 배치가 실행한다(D70 (1)). 지금(#277)은 고객센터가 in-process Port로 판단을 넘기고, 반환 완료·DEAD 이벤트는 Kafka 외부화(#339) 뒤에 발행한다(D70 (6)).
-- 판단 전 철회: 구매자가 이의 제기 문의를 삭제하면 고객센터가 `FILED → WITHDRAWAL_PENDING`과 `LectureObjectionWithdrawalRequestedV1` 발행을 한 트랜잭션에 기록하고 202로 응답한다. 강의는 항목을 `NONE`으로 되돌리고(D52) 결과 이벤트를 발행한다. 고객센터는 성공 결과를 받은 뒤에 `WITHDRAWN` + `deleted_at`을 기록한다.
-- 판단과 철회는 `FILED`에서 하나만 선점한다 (D60).
+- 인정 반환은 요청 안에서 시도하지 않고 HP 작업 재시도 배치가 실행한다(D70 (1)). 반환 완료·DEAD 이벤트는 #278에서 `lecture.events.v1`로 발행한다(D71이 D70 (6)을 바꿈).
+- 판단 전 철회: 구매자가 이의 제기 문의를 삭제하면 고객센터가 `FILED → WITHDRAWAL_PENDING`과 `LectureObjectionWithdrawalRequestedEvent` 발행을 한 트랜잭션에 기록하고 202로 응답한다. 강의는 항목을 `NONE`으로 되돌리고(D52) 결과 이벤트를 발행한다. 고객센터는 성공 결과를 받은 뒤에 `WITHDRAWN` + `deleted_at`을 기록한다. 그 뒤 같은 삭제를 다시 보내면 204다.
+- 판단과 철회는 문의 행을 잠근 뒤 `FILED`일 때 하나만 선점한다 (D60, D71). 버전 칸은 두지 않는다.
 - 접수가 지급보다 먼저 확정된다는 불변식(D9)은 유지된다: 접수는 여전히 동기 호출이고 강의 항목이 `FILED`가 된 뒤에야 성공으로 응답한다. 이벤트로 바뀐 판단·철회는 `FILED` 항목에만 적용되고, `FILED` 항목은 지급 대상이 아니라 지연돼도 지급이 먼저 나가지 않는다.
 
 ---
@@ -369,9 +351,9 @@ sequenceDiagram
 | 실행 중 서버 종료, 느린 billing 호출 | lease(5분)가 지나면 다른 실행기가 다시 선점한다. lease는 호출을 끊는 제한 시간이 아니라 결과 기록 권한과 재선점 시점을 정한다. 앞 호출이 그 뒤에도 실행 중일 수 있으며, billing 멱등 키가 중복 HP 이동을, `claimToken` 검사가 늦은 결과의 반영을 막는다. 보장하는 것은 "외부 호출이 하나뿐"이 아니라 "한 선점의 결과만 작업에 반영된다"이다 (D57) |
 | 같은 항목에 반환·지급이 두 번 호출 | 강의 상태 머신이 먼저 막고(처리 중 상태에서는 다른 HP 전이 불가), billing도 남은 보류가 없으면 거부한다. 같은 요청 ID로 다시 보내면 처음 결과를 돌려받는다 (6.2) |
 | 이벤트 중복 도착 (회원) | 가입 이벤트는 복제본이 이미 있으면 무시하고, 변경 이벤트는 있는 복제본만 갱신한다. 생성은 가입 이벤트로만 해서 가입·변경이 동시에 처리돼도 변경 정보를 덮어쓰지 않는다 (D17) |
-| 이의 제기 명령 중복·재전달 | 명령 이력(`objection_command`)이 `commandId`로 처음 결과를 재현하고, payload가 다르면 `IDEMPOTENCY_KEY_CONFLICT`다. 판단·철회 이후 늦게 도착한 접수 재시도도 원래 결과를 재현한다 (D60, #278) |
-| 이의 제기 판단 ↔ 철회 (같은 문의) | 고객센터가 `FILED`에서 조건부 갱신으로 하나만 선점한다. 진 쪽은 409 `OBJECTION_IN_PROGRESS`, 같은 요청 재시도는 202 (D60) |
-| 이벤트 처리 실패 (서버 실행 중) | 이벤트 재발행(D61, 6.1) |
+| 이의 제기 명령 중복·재전달 | 명령 이력(`lecture_objection_command`)이 `commandId`로 처음 결과를 재현하고, 내용이 다르면 `OBJECTION_COMMAND_CONFLICT`다. 판단·철회 이후 늦게 도착한 접수 재시도도 원래 결과를 재현한다. 같은 명령이 동시에 오면 명령 ID 유일 제약으로 한쪽이 실패하고, 다시 받으면 재현된다 (D60, D71, #278) |
+| 이의 제기 판단 ↔ 철회 (같은 문의) | 고객센터가 문의 행을 잠그고 `FILED`일 때 하나만 선점한다. 진 쪽은 409 `OBJECTION_IN_PROGRESS`, 같은 요청 재시도는 202 (D60, D71) |
+| 이벤트 발행 실패 (서버 실행 중) | 발행 앱마다 재발행 배치(6.1, D71) |
 | 배치 다중 실행 | EC2 1대·애플리케이션 1개이지만, HP 작업은 선점과 lease로 다중 실행기에서도 한 실행기만 결과를 기록한다. 지급 대상 선점·자동 구매 확정은 항목마다 별도 트랜잭션과 낙관적 락으로 처리해 한 건 실패가 전체를 막지 않게 한다 |
 
 배치 (`@Scheduled`, KST)
@@ -381,6 +363,7 @@ sequenceDiagram
 | 자동 구매 확정 | 10분마다 (`lecture.batch.auto-confirm-cron`, 기본 `0 */10 * * * *`, D41) | `PURCHASED` && `auto_confirm_at <= now` |
 | 지급 대상 선점 | 매일 01:00 (`lecture.batch.payout-cron`, 기본 `0 0 1 * * *`, D50) | `CONFIRMED` && `payout_scheduled_at <= now` && `objection_status IN (NONE, REJECTED)` → `PAYOUT_PENDING` + PAYOUT 작업 (D59) |
 | HP 작업 실행·재시도 | 1분마다 (`lecture.hp-task.retry-cron`, 기본 `0 * * * * *`, D57) | `PENDING` && `next_attempt_at <= now`, 또는 `PROCESSING` && `lease_until < now` |
+| 강의 이벤트 재발행 | 1분마다 (`lecture.event-republish.cron`, 기본 `5 * * * * *`, D71) | 발행 후 1분이 지난 미완료 강의 이벤트 발행 기록 100건 |
 
 - 지갑 동시성 제어 방식(`AGENTS.md` 11장 미정)은 강의 모듈이 정하지 않는다. 강의 모듈은 상태 머신·작업 선점·트랜잭션 경계를 보장하고, 지갑의 보장은 billing 연동 계약(6.2)을 따른다.
 - 스케줄링은 #157에서 켰다(`apps`의 `SchedulingConfig`). 배치 빈은 global `@ConditionalOnSchedulingEnabled`(`hapbang.scheduling.enabled`)를 붙여 앱에서만 실행되고 테스트에서는 꺼진다. 테스트는 처리 빈의 메서드를 직접 호출한다. cron에는 `zone = "Asia/Seoul"`을 쓴다. 새 배치는 `SchedulingEnabledTest`에 등록 확인을 더한다.

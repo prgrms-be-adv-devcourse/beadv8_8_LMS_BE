@@ -37,6 +37,8 @@ hapbang-backend/
 
 기존 `shared`의 포트·이벤트 DTO는 이번에 `common/shared`로 위치만 옮겼다. 서비스별 DTO와 네트워크 계약으로 바꾸는 작업은 통신 전환 범위에 속한다. 새 이벤트 스키마나 공유 계약 모듈을 추가한 것은 아니다.
 
+> 이후 변경(#271~#280): shared의 Java Port는 모두 지웠다(`LectureObjectionPort` #433, `BillingPort` #486). shared에는 DTO·이벤트·안정적인 Enum·오류 코드·공통 HTTP Client만 두고, `SharedContractRulesTest`가 Port를 막는다. 앱 사이 Gradle 의존은 `verifyModuleStructure`가 compileClasspath·runtimeClasspath 모두에서 막는다(#280).
+
 ## 빌드와 컨테이너 이미지
 
 ```bash
@@ -61,7 +63,6 @@ CI(`ci.yml`)는 PR에서 바뀐 앱만 앱마다 러너 하나에서 `./gradlew 
 
 | 영역 | 현재 남아 있는 제약 | 후속 작업 |
 | --- | --- | --- |
-| 고객센터 → 강의 | `LectureObjectionPort`를 지웠다(#433). 고객센터 앱은 혼자 기동하지만 이의 제기 접수·판단·철회는 503(`OBJECTION_UNAVAILABLE`)으로 막는다. | 이의 제기 접수 내부 HTTP와 판단·철회 이벤트 (#278, #279) |
 | 회원 복제·지갑 생성·알림 | Spring Event는 다른 JVM으로 전달되지 않는다. | 이벤트 전송·재처리·중복 처리 구현 (#339) |
 | 인증 | 기존 JDBC 세션 principal에 회원 앱의 클래스가 포함되어 있다. DB 세션 공유만으로 다른 앱 인증을 보장하지 못한다. | JWT 전환: member-app 발급(#370), Envoy 검증과 앱 공용 헤더 인증 필터(#371, #372) |
 | DB 이력 | 앱별 Flyway·이벤트 발행 이력을 분리한다. 기존 공용 이력 DB의 전환은 별도 계획이 필요하다. | 기존 데이터·마이그레이션 이력을 보존하는 전환 절차 검증 (#338) |
@@ -76,6 +77,8 @@ CI(`ci.yml`)는 PR에서 바뀐 앱만 앱마다 러너 하나에서 `./gradlew 
 ## 이번 변경의 실행 검증
 
 새 PostgreSQL 인스턴스에서 실제 실행 JAR를 별도 프로세스로 기동해 확인했다. 회원·billing·채팅 앱은 `/actuator/health`가 UP으로 응답했다. 출연·강의 앱은 `BillingPort`, 고객센터 앱은 `LectureObjectionPort` 빈이 없어 기동에 실패했다. 이는 위의 미완료 서비스 간 통신 범위이며 성공 처리로 대체하지 않았다. 여섯 앱의 Docker 이미지 빌드도 확인했다.
+
+> 이후 해소: 출연·강의 앱은 billing 내부 HTTP로, 고객센터 앱은 강의 내부 HTTP·Kafka 이벤트로 바꿔 모두 다른 앱의 빈 없이 기동한다(#274~#277, #433, #278·#279). 강의 앱(2026-10-30)·출연 앱(2026-11-02)은 k3s prod에서 단독 기동을 확인했다([k8s 문서](../deploy/k8s.md)).
 
 이 결과는 새 DB에서 앱별 기동과 이미지 생성을 확인한 것이다. 기존 운영 DB의 마이그레이션 전환, 앱 사이의 로그인 공유와 HP 거래 전체 시나리오를 검증한 결과는 아니다.
 

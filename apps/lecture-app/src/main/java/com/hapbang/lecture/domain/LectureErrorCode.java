@@ -44,6 +44,8 @@ public enum LectureErrorCode implements BaseErrorCode {
     OBJECTION_NOT_FILED(HttpStatus.CONFLICT, "판단을 기다리는 이의 제기가 없습니다."),
     /** 이의 제기 판단·철회: 접수할 때의 문의와 다른 문의다 */
     OBJECTION_INQUIRY_MISMATCH(HttpStatus.CONFLICT, "이의 제기를 접수한 문의가 아닙니다."),
+    /** 이의 제기 명령: 같은 명령 ID로 다른 내용이 왔다. 먼저 처리한 결과는 그대로다 (#278) */
+    OBJECTION_COMMAND_CONFLICT(HttpStatus.CONFLICT, "같은 명령 ID로 다른 내용의 이의 제기 명령이 왔습니다."),
     HP_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "HP 작업을 찾을 수 없습니다."),
     HP_TASK_NOT_DEAD(HttpStatus.CONFLICT, "자동 처리가 멈춘(DEAD) HP 작업만 재시도할 수 있습니다."),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "파일을 찾을 수 없습니다."),

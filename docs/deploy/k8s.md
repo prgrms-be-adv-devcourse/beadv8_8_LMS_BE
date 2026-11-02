@@ -43,6 +43,21 @@
 
 버전을 올릴 때는 이 표와 manifest를 함께 고친다. Elasticsearch는 Dockerfile의 `FROM`과 CR의 `spec.version`이 같아야 한다.
 
+## 앱 사이 내부 호출 주소
+
+앱은 다른 앱의 내부 API(`/api/v1/internal/**`)를 그 앱 Service의 내부 포트 8081로 부른다(D62·D63, #372). 주소는 비밀이 아니므로 각 앱 `k8s/base/kustomization.yaml`의 ConfigMap(`<앱>-config`)에 두고, 앱의 `application.yaml`이 `hapbang.clients.<제공 앱>.base-url`로 읽는다. 인증은 모든 앱이 같은 `HAPBANG_INTERNAL_API_KEY`([Secret](#secret))로 한다. 받는 앱의 NetworkPolicy는 `hapbang.io/internal-api-client: 'true'` 라벨이 붙은 pod만 8081로 받는다. 로컬은 각 앱의 `application-local.yaml`이 `http://localhost:<앱 포트>`를 쓴다.
+
+| 호출하는 앱 | 환경 변수 → Spring 키 | 값 | 쓰는 곳 |
+| --- | --- | --- | --- |
+| lecture-app | `BILLING_API_BASE_URL` → `hapbang.clients.billing.base-url` | `http://billing-app:8081` | HP 보류·반환·지급 (#275~#277) |
+| appearance-app | `BILLING_API_BASE_URL` → `hapbang.clients.billing.base-url`, `MEMBER_API_BASE_URL` → `hapbang.clients.member.base-url` | `http://billing-app:8081`, `http://member-app:8081` | HP 보류·반환·지급·위약금 (#274), 회원 Backfill (#394) |
+| billing-app | `MEMBER_API_BASE_URL`, `LECTURE_API_BASE_URL`, `APPEARANCE_API_BASE_URL` → `hapbang.clients.{member,lecture,appearance}.base-url` | `http://member-app:8081`, `http://lecture-app:8081`, `http://appearance-app:8081` | 회원 Backfill, 판매 수익 조회 (#295) |
+| chat-app | `MEMBER_API_BASE_URL` → `hapbang.clients.member.base-url` | `http://member-app:8081` | 회원 백필 (#280에서 ConfigMap에 추가) |
+| customer-support-app | `LECTURE_API_BASE_URL` → `hapbang.clients.lecture.base-url` | `http://lecture-app:8081` | 이의 제기 접수 (#279) |
+
+- chat-app 외의 앱은 `application.yaml`에 기본값이 없으므로 값을 꼭 넣는다. chat-app은 기본값이 `http://localhost:8081`이라 ConfigMap에 값이 없으면 회원 앱이 아니라 chat 자신의 내부 포트를 부른다.
+- 제공 앱을 새로 부르면 이 표, 호출하는 앱의 ConfigMap, 제공 앱 NetworkPolicy의 허용 라벨을 함께 확인한다.
+
 ## Secret
 
 평문 Secret은 커밋하지 않는다. prod는 `kubeseal`로 만든 SealedSecret을 각 prod overlay에 커밋한다(#374). local overlay는 같은 이름의 가짜 값 Secret을 쓴다. 이름에 hash를 붙이지 않으므로 prod와 이름이 같다. member의 `JWT_PRIVATE_KEY`는 가짜 값도 커밋하지 않고, local overlay가 `HAPBANG_JWT_ALLOW_EPHEMERAL_KEY=true`로 시작할 때마다 임시 서명 키를 만들게 한다(#500).

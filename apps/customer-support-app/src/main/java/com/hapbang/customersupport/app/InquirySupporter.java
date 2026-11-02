@@ -58,10 +58,10 @@ public class InquirySupporter {
         return inquiries.map(InquirySummaryResponse::from);
     }
 
-    /** 관리자 문의 상세. 모든 회원의 문의를 본다. 삭제된 문의는 404 */
+    /** 관리자 문의 상세. 모든 회원의 문의를 본다. 삭제된 문의는 404. 강의 거절 사유 코드·명령 ID도 보여 준다 */
     public InquiryResponse getInquiry(Long inquiryId) {
         return inquiryRepository.findByIdAndDeletedAtIsNull(inquiryId)
-                .map(InquiryResponse::of)
+                .map(InquiryResponse::ofAdmin)
                 .orElseThrow(() -> new CustomerSupportException(CustomerSupportErrorCode.INQUIRY_NOT_FOUND));
     }
 

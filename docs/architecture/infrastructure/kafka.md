@@ -26,6 +26,8 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 | `member.events.v1` | member-app | `UserJoinedEvent`, `UserModifiedEvent` | 회원 ID | `appearance-app.member-replica`, `billing-app.member-replica`, `billing-app.wallet-creation`, `lecture-app.member-replica`, `chat-app.member-replica` |
 | `appearance.events.v1` | appearance-app | `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent` | `appearance-request:<요청 ID>`, `appearance-application:<지원 ID>` | `chat-app.appearance-notification` |
 | `billing.events.v1` | billing-app | `ChargeCompletedEvent`, `PayoutCompletedEvent`, `RefundCompletedEvent`, `ExchangeCompletedEvent`, `ExchangeRejectedEvent`, `ExchangePayoutFailedEvent`, `ExchangeFinalFailedEvent` | `point-charge:<충전 ID>`, `settlement:<지급 건 ID>`, `point-refund-request:<환불 요청 ID>`, `exchange:<환전 ID>` | 없음 (알림 소비는 #193에서 정한다, #497) |
+| `lecture.events.v1` | lecture-app | `LectureObjectionResolvedEvent`, `LectureObjectionWithdrawnEvent`, `LectureObjectionRequestRefusedEvent`, `LectureObjectionReturnCompletedEvent`, `LectureObjectionReturnActionRequiredEvent` | `order-item:<주문 항목 ID>` | `customer-support-app.objection-result` (#279) |
+| `customersupport.events.v1` | customer-support-app | `LectureObjectionResolutionRequestedEvent`, `LectureObjectionWithdrawalRequestedEvent` | `inquiry:<문의 ID>` | `lecture-app.objection-command` (#278) |
 
 1차 범위는 지금 다른 앱에 소비자가 있는 이벤트만이다. `UserLoggedOutEvent`는 HTTP 세션 ID를 담아 JWT 전환과 함께 다시 정하므로 올리지 않는다. 출연 취소 이벤트(요청·수락·거절)는 소비자가 생길 때 `appearance.events.v1`에 key `appearance:<출연 ID>`로 더한다. 소비 그룹 이름은 구현할 때 이 표를 고친다.
 
@@ -46,7 +48,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - payload는 `common/shared`의 이벤트 레코드를 그대로 JSON으로 싣는다. 별도 envelope 레코드를 만들지 않는다.
 - 헤더는 `eventType`(레코드 이름, 예: `UserModifiedEvent`)과 `eventVersion`(이벤트 타입의 payload 버전, 예: `1`) 두 개를 UTF-8 문자열로 싣는다. `EventExternalizationConfiguration.headers(...)`로 넣는다. Spring Kafka JSON 직렬화가 붙이는 `__TypeId__`(레코드 클래스 이름)는 역직렬화에 쓴다.
 - `eventId`·`occurredAt`은 두지 않는다. 헤더 함수가 이벤트만 받아 재발행 때 같은 값을 만들 수 없다. 추적은 관측성(#343)의 trace 헤더가 맡는다.
-- Modulith는 기동할 때만 미완료 publication을 다시 보낸다(`republish-outstanding-events-on-restart`). 실행 중 재전송(`IncompleteEventPublications.resubmitIncompletePublicationsOlderThan`)은 **발행하는 앱마다 반드시 둔다.** 주기와 기준 시간은 앱이 정한다. replica 여럿이 같은 publication을 다시 보내도 소비 멱등이 흡수하므로 분산 락은 두지 않는다.
+- Modulith는 기동할 때만 미완료 publication을 다시 보낸다(`republish-outstanding-events-on-restart`). 실행 중 재전송은 **발행하는 앱마다 반드시 둔다.** 지금 앱들은 `IncompleteEventPublications.resubmitIncompletePublications(Predicate)`로 자기 앱이 내보내는 이벤트·발행 후 경과 시간·건수를 거른다(billing·출연·강의·고객센터, 매분·1분·100건). 주기와 기준 시간은 앱이 정한다. replica 여럿이 같은 publication을 다시 보내도 소비 멱등이 흡수하므로 분산 락은 두지 않는다.
 
 ## 소비
 
@@ -54,6 +56,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - 클래스 레벨 `@KafkaListener`에 받을 타입마다 `@KafkaHandler`를 둔다. 모르는 타입은 `@KafkaHandler(isDefault = true)`에서 무시하고 커밋한다.
 - 역직렬화는 `ErrorHandlingDeserializer`로 감싼 JSON 역직렬화다. 신뢰 패키지는 실제 이벤트 패키지(예: `com.hapbang.shared.member.event`)만 지정하고 `*`를 쓰지 않는다. 깨진 메시지는 재시도 없이 DLT로 간다.
 - 새 그룹의 시작점은 `auto-offset-reset=earliest`다.
+- 강의·고객센터 소비자(#278·#279)는 `allow.auto.create.topics=false`를 둔다. 운영 broker는 자동 생성이 꺼져 있어 차이가 없지만, 자동 생성이 켜진 테스트 broker에서 소비자가 먼저 붙으면 partition 1개짜리 토픽이 생겨 발행 앱의 선언(3개)과 어긋나고 다른 테스트가 메시지를 받지 못한다.
 - 토픽이 아직 없어도 소비 앱은 뜬다(`spring.kafka.listener.missing-topics-fatal` 기본값 `false`). 소비자는 `UNKNOWN_TOPIC_OR_PARTITION` 경고를 남기며 기다리다가, 발행 앱이 토픽을 만들면 바로 붙어 처음부터 읽는다. 로컬 k3d에서 소비자를 먼저 띄우고 15초 뒤 토픽을 만들어 1초 안에 메시지를 받는 것을 확인했다(#429). 그래서 발행 앱과 소비 앱의 기동 순서를 맞추지 않는다. 기다리는 동안 경고는 약 1초마다 남는다(prod lecture-app 12분에 721건, 2026-10-30). 토픽이 오래 없으면 로그 양을 보고 토픽을 먼저 만든다.
 - 멱등은 업무 자연 키로 한다. 상태 복제 이벤트는 `(대상 ID, 원본 버전)`(회원은 `user.id`, `user.version`), 한 번만 일어나는 사실은 `(eventType, 대상 ID)`다. 업무 반영과 멱등 기록은 같은 로컬 트랜잭션에서 하고, offset은 그 커밋 뒤에 커밋한다.
 - Modulith 전송은 같은 key라도 순서가 뒤바뀔 수 있다. 순서가 중요한 소비자는 원본 버전으로 늦은 이벤트를 거른다.
