@@ -17,6 +17,8 @@ import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.lecture.domain.LectureEarningStatus;
 import com.hapbang.shared.lecture.dto.LectureEarningPageDto;
 import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
+import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
+import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
 
 /**
  * 강의 내부 HTTP API Client (D62, #300). 다른 모듈은 강의 Java 타입 대신 이 Client로 강의를 부른다.
@@ -32,8 +34,12 @@ public class LectureApiClient {
 
     static final String EARNINGS_PATH = "/api/v1/internal/lectures/earnings";
     static final String EARNINGS_SUMMARY_PATH = EARNINGS_PATH + "/summary";
+    static final String OBJECTION_FILE_PATH = "/api/v1/internal/lectures/objections/file";
 
     private static final ParameterizedTypeReference<Body<LectureEarningSummaryDto>> SUMMARY =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<LectureObjectionFiledDto>> FILED =
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Body<LectureEarningPageDto>> PAGE =
@@ -80,6 +86,16 @@ public class LectureApiClient {
                     }
                     return builder.queryParam("page", page).queryParam("size", size).build();
                 }), PAGE);
+    }
+
+    /**
+     * 강의 내용 다름 이의 제기를 접수한다 (#278, D60 (1)). 같은 명령 ID로 다시 보내면 강의가 처음 결과를 돌려주므로,
+     * 결과를 받지 못했으면({@link LectureApiCallException.Reason#UNAVAILABLE}) 같은 요청을 다시 보내도 된다.
+     * 강의가 거절하면 {@link LectureApiCallException.Reason#REJECTED}이고, 사유는 {@code code}의
+     * {@link com.hapbang.shared.lecture.domain.LectureObjectionFailureCode}다.
+     */
+    public LectureObjectionFiledDto fileObjection(LectureObjectionFileRequest request) {
+        return call(restClient.post().uri(OBJECTION_FILE_PATH).body(request), FILED);
     }
 
     /**

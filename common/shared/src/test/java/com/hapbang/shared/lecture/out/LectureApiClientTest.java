@@ -20,9 +20,13 @@ import org.springframework.web.client.RestClient;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.lecture.domain.LectureEarningStatus;
 import com.hapbang.shared.lecture.domain.LectureEarningType;
+import com.hapbang.shared.lecture.domain.LectureObjectionCommandType;
+import com.hapbang.shared.lecture.domain.LectureObjectionFailureCode;
 import com.hapbang.shared.lecture.dto.LectureEarningAmountDto;
 import com.hapbang.shared.lecture.dto.LectureEarningPageDto;
 import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
+import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
+import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
 import com.sun.net.httpserver.HttpServer;
 
 // 강의 내부 API Client의 요청 모양·응답 해제·오류 변환을 가짜 HTTP 서버로 확인한다 (#300). 실제 강의 API는 apps 통합 테스트가 부른다.
@@ -32,6 +36,8 @@ class LectureApiClientTest {
 
     private HttpServer server;
     private final List<String> requests = new CopyOnWriteArrayList<>();
+    private final List<String> methods = new CopyOnWriteArrayList<>();
+    private final List<String> bodies = new CopyOnWriteArrayList<>();
     private volatile int status;
     private volatile String contentType;
     private volatile String body;
@@ -43,6 +49,8 @@ class LectureApiClientTest {
         server.createContext("/", exchange -> {
             requests.add(exchange.getRequestURI() + " key=" + exchange.getRequestHeaders()
                     .getFirst(InternalApiHeaders.API_KEY));
+            methods.add(exchange.getRequestMethod());
+            bodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             sleep(delayMillis);
             byte[] bytes = body == null ? new byte[0] : body.getBytes(StandardCharsets.UTF_8);
             if (contentType != null) {
@@ -198,6 +206,48 @@ class LectureApiClientTest {
                     assertThat(e.getStatus()).isEqualTo(500);
                     assertThat(e.getCode()).isEqualTo("INTERNAL_ERROR");
                 });
+    }
+
+    @Test
+    void 이의_제기_접수는_명령을_JSON으로_POST하고_접수_결과를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"이의 제기를 접수했습니다.","data":{
+                  "commandId":"FILE:12","inquiryId":12,"orderItemId":31}}""");
+
+        LectureObjectionFiledDto filed = client().fileObjection(LectureObjectionFileRequest.of(12L, 31L, 7L, "내용이 다릅니다."));
+
+        assertThat(requests).containsExactly("/api/v1/internal/lectures/objections/file key=" + API_KEY);
+        assertThat(methods).containsExactly("POST");
+        assertThat(bodies).singleElement().satisfies(sent -> assertThat(sent)
+                .contains("\"commandId\":\"FILE:12\"", "\"inquiryId\":12", "\"orderItemId\":31", "\"buyerUserId\":7",
+                        "\"reason\":\"내용이 다릅니다.\""));
+        assertThat(filed).isEqualTo(new LectureObjectionFiledDto("FILE:12", 12L, 31L));
+    }
+
+    @Test
+    void 이의_제기_접수_거절은_사유_코드를_담은_거절_예외다() {
+        respond(409, "application/problem+json", """
+                {"status":409,"detail":"이의 제기 기간이 지났습니다.","code":"OBJECTION_PERIOD_EXPIRED"}""");
+
+        assertThatThrownBy(() -> client().fileObjection(LectureObjectionFileRequest.of(12L, 31L, 7L, "내용이 다릅니다.")))
+                .isInstanceOfSatisfying(LectureApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.REJECTED);
+                    assertThat(LectureObjectionFailureCode.from(e.getCode()))
+                            .hasValue(LectureObjectionFailureCode.OBJECTION_PERIOD_EXPIRED);
+                });
+        // 계약에 없는 코드(요청 값 오류 등)는 이의 제기 거절 사유가 아니다
+        assertThat(LectureObjectionFailureCode.from("INVALID_REQUEST")).isEmpty();
+        assertThat(LectureObjectionFailureCode.from(null)).isEmpty();
+    }
+
+    @Test
+    void 접수_요청은_빠진_값이나_빈_사유를_만들_수_없고_명령_ID는_문의_ID로_정해진다() {
+        assertThat(LectureObjectionFileRequest.of(12L, 31L, 7L, "사유").commandId()).isEqualTo("FILE:12");
+        assertThat(LectureObjectionCommandType.RESOLVE.commandIdOf(12L)).isEqualTo("RESOLVE:12");
+        assertThatThrownBy(() -> LectureObjectionFileRequest.of(12L, 31L, 7L, " "))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new LectureObjectionFileRequest("FILE:12", 12L, null, 7L, "사유"))
+                .isInstanceOf(NullPointerException.class);
     }
 
     private static void assertUnavailable(Runnable call, int status) {
