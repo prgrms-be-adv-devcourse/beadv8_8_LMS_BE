@@ -1,6 +1,17 @@
 # 지갑 모듈 전용 설정.
 # 앱 실행 설정(application.yaml)과 나눠 두고, application.yaml의 spring.config.import로 읽는다 (테스트는 hapbang-module-test.yaml).
 spring:
+  # Kafka 값 직렬화 방식 (#430 수신, #497 발행). 운영과 테스트가 같은 값을 쓰도록 이 파일에 둔다(출연 앱과 같은 설정).
+  # Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] 직렬화·역직렬화 + 바이트 JSON 변환기 빈)를 끈다.
+  # 켜 두면 그 변환기가 기본 리스너 팩토리에도 들어가, 역직렬화기로 객체를 받는 회원 이벤트 리스너가 모두 실패한다(확인함).
+  # 발행은 아래 JSON 직렬화기가, 수신은 리스너마다 지정한 역직렬화기가 맡는다.
+  modulith:
+    events:
+      kafka:
+        enable-json: false
+  kafka:
+    producer:
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
   datasource:
     hikari:
       # 락 대기 상한 (#273, docs/billing/CONTEXT.md 1.4). 내부 API Client 응답 timeout(5초)보다 짧게 둔다.

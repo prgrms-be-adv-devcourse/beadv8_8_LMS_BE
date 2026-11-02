@@ -48,6 +48,7 @@ public class ExchangeReviewUseCase {
     private final ExchangeAccountCipher exchangeAccountCipher;
     // 승인 시각·정산 회차 판단 시각 (#305). 테스트는 이 빈을 바꿔 정산일 경계를 검증한다
     private final ExchangePayoutClock exchangePayoutClock;
+    private final BillingEventPublisher billingEventPublisher;
 
     @Transactional
     public AdminExchangeResult approve(Long adminId, Long exchangeId) {
@@ -92,6 +93,7 @@ public class ExchangeReviewUseCase {
                 || released.releasedChargeHp() != 0 || released.remainingHeldHp() != 0) {
             throw new BillingException(BillingErrorCode.EXCHANGE_STATE_INCONSISTENT);
         }
+        billingEventPublisher.exchangeRejected(exchange);
         log.info("환전 거절 exchangeId={}, adminId={}", exchangeId, adminId);
         return resultOf(exchange);
     }

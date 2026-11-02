@@ -22,7 +22,7 @@ import com.hapbang.billing.domain.MockPayoutTransferStatus;
 import com.hapbang.billing.domain.HoldDetailActionType;
 import com.hapbang.billing.domain.LedgerTransactionType;
 import com.hapbang.billing.domain.PayoutProvider;
-import com.hapbang.billing.domain.PayoutType;
+import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.billing.domain.PgProvider;
 import com.hapbang.billing.domain.PointChargeStatus;
 import com.hapbang.billing.domain.PointChargeUsageStatus;

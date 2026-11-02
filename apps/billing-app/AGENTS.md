@@ -165,6 +165,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
     - **내부 HTTP API는 shared Command를 요청 본문으로 그대로 받는다**(BD-54 재검토, `docs/billing/CONTEXT.md` 1.1). shared Command가 곧 모듈 간 HTTP 계약이기 때문이다. `app`·`domain`·`out`은 shared Command를 쓰지 않고 `Payment*Command`를 받는다(BD-129, `BillingSharedDtoAccessTest`). 회원이 부르는 사용자 API는 각 모듈의 요청 DTO(`@Valid`, 400 `INVALID_REQUEST`)로 받고 shared DTO를 쓰지 않는다.
 - 멱등키는 Billing이 만든다(`app.BillingKeys`). 호출한 쪽은 보류 멱등키를 만들거나 넘기지 않고, 반환·지급·취소마다 안정적인 요청 ID만 넘긴다. 같은 요청 ID로 다시 보내도 HP는 두 번 움직이지 않는다.
 - 호출 쪽의 실패 복구(HP 작업·재시도·보상)는 각 모듈이 소유한다: 강의 `docs/lecture/integration.md`, 출연 `docs/appearance/module.md`. Billing 오류·결과 불명을 성공으로 해석하지 않는다(BD-70).
+- **지갑 이벤트 발행 (#497)**: 충전·지급·환불·환전 결과를 `billing.events.v1`에 발행한다(`BillingEventPublisher`, Modulith externalization, 같은 트랜잭션 + 매분 재발행). 이벤트 레코드는 `shared.billing.event`이고 사실만 담는다(계좌·결제키·사유 원문 없음). 상세는 `docs/billing/CONTEXT.md` 9장, BD-130.
 - 거래 상태의 확정·취소 판단은 각 업무 도메인이 담당한다.
 - Billing은 HP 이동 및 원장 정합성만 책임진다.
 - 다른 도메인의 테이블을 직접 조회해 거래 상태를 변경하지 않는다.

@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-11-01 (#494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-11-02 (#497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -43,7 +43,8 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #471 | Spring Event 제거: Modulith 이벤트 기록 설정 삭제, Flyway `V202610301400`으로 `event_publication`·`event_publication_archive` 삭제, 이벤트 기록 자동 설정 2개 제외(앱·테스트), `ModulithEventsDisabledTest` | `feature/tkt-471` | #473 | 완료 |
 | #479 | 보류 무효화 내부 API `POST /api/v1/internal/billing/hold-voids`: 남은 보류 전부 반환(`RELEASED`)·끝난 보류(`ALREADY_CLOSED`)·보류 없음(`VOIDED`), 무효화 기록 `hold_void`(Flyway `V202610301600`), 무효화 뒤 보류는 `HOLD_VOIDED` 409, shared 계약·Client `voidHold`, `HoldVoidIntegrationTest` | `feature/tkt-479` | #483 | 완료 |
 | #486 | BillingPort 테스트 전환·삭제(#280의 billing 범위): `BillingPortIntegrationTest` 삭제, 결과 변환·금액 오류·강의 항목별 반환을 `ApiV1BillingInternalControllerTest`로 이동, 다른 모듈 트랜잭션 참여 검증은 요청 단위 롤백으로 대체, 충전·환전·환불 테스트 준비를 `HoldFacade`로, shared `BillingPort`·`BillingPortAdapter` 삭제, `SharedBillingDependencyTest#noJavaPorts`(BD-128) | `feature/tkt-486` | #493 | 완료 |
-| #494 | shared Command → billing 내부 Command 변환: `app.Payment{Hold,Release,Payout,Penalty,HoldVoid}Command`, `PaymentHoldRequests`(shared 규칙 복사 + 일치 테스트), `in.BillingCommands` 변환, `HoldFacade`·UseCase·`BillingCommandValidator`·`BillingKeys` 시그니처 변경, `BillingSharedDtoAccessTest`(BD-129) | `feature/tkt-494` | (PR 전) | 구현 완료 |
+| #494 | shared Command → billing 내부 Command 변환: `app.Payment{Hold,Release,Payout,Penalty,HoldVoid}Command`, `PaymentHoldRequests`(shared 규칙 복사 + 일치 테스트), `in.BillingCommands` 변환, `HoldFacade`·UseCase·`BillingCommandValidator`·`BillingKeys` 시그니처 변경, `BillingSharedDtoAccessTest`(BD-129) | `feature/tkt-494` | #495 | 완료 |
+| #497 | 지갑 이벤트 발행: `billing.events.v1`에 충전·지급·환불·환전 결과 7종(`shared.billing.event`), Modulith 발행 기록 복구(스키마 초기화·archive), `BillingEventPublisher`·재발행 배치, `PayoutType` shared 이동, `BillingEventKafkaTest`(BD-130, BD-124 대체) | `feature/tkt-497` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 

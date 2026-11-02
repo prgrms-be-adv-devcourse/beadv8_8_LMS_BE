@@ -30,6 +30,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 
 import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
@@ -42,6 +44,7 @@ import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.fixture.ChargeFixture;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.event.ExchangeRejectedEvent;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
@@ -54,7 +57,12 @@ import com.hapbang.testsupport.IntegrationTest;
 @TestPropertySource(properties = {"spring.datasource.hikari.maximum-pool-size=4",
         "spring.datasource.hikari.minimum-idle=1"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+// 환전 거절 이벤트(#497)를 발행 기록으로 본다(Kafka 전송은 BillingEventKafkaTest)
+@RecordApplicationEvents
 class ExchangeReviewIntegrationTest {
+
+    @Autowired
+    ApplicationEvents applicationEvents;
 
     private static final long INFLUENCER = 2L;
     private static final long ADMIN = 900L;
@@ -271,6 +279,9 @@ class ExchangeReviewIntegrationTest {
                 "REVENUE HELD -4000 RELEASE", "REVENUE AVAILABLE 4000 RELEASE");
         assertThat(releaseDetailKeys(exchangeId)).singleElement().asString().endsWith(":EXCHANGE-REJECT-" + exchangeId);
         assertConsistent(walletId);
+        // 거절 이벤트: 환전 ID·회원·신청(반환된) HP·거절 시각. 거절 사유는 싣지 않는다 (#497)
+        assertThat(applicationEvents.stream(ExchangeRejectedEvent.class)).containsExactly(
+                new ExchangeRejectedEvent(exchangeId, INFLUENCER, 4_000L, result.rejectedAt()));
     }
 
     @Test

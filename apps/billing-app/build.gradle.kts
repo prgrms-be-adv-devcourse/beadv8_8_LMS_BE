@@ -19,6 +19,8 @@ dependencies {
     implementation(libs.swagger.annotations)
     // 지갑 중복 생성 판별에 PSQLException의 제약 이름을 쓴다. 드라이버는 실행 시 이 앱(runtimeOnly)가 넣어 준다
     compileOnly("org.postgresql:postgresql")
+    // 지갑 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #497). 버전은 Modulith BOM을 따른다
+    implementation("org.springframework.modulith:spring-modulith-events-kafka")
     // 테스트에서 로그인 상태 만들기 (oauth2Login())
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }

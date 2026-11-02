@@ -16,6 +16,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.Check;
+import com.hapbang.shared.billing.domain.PayoutType;
 
 // 강의·출연의 보류 HP를 수령자에게 지급하기 위한 대상·예정 시각·총액·지급 누계·상태를 보관한다.
 @Entity

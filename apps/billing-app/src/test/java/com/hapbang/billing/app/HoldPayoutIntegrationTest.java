@@ -26,6 +26,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 
 import com.hapbang.billing.app.PayoutResult.ChargeConsumption;
 import com.hapbang.billing.app.ReleaseResult.ChargeRestoration;
@@ -39,7 +41,9 @@ import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.event.PayoutCompletedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 // 보류 지급(수익 HP 우선·충전 원금 FIFO 소진)·반환과의 혼합 이력·위약금 정산(70% 반환 + 30% 지급)의 금융 정합성,
@@ -47,6 +51,8 @@ import com.hapbang.testsupport.IntegrationTest;
 @IntegrationTest
 // HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273). 동시 실행 스레드에는 DelegatingSecurityContextExecutorService로 넘긴다
 @WithMockUser(roles = "INTERNAL")
+// 지급 완료 이벤트(#497)가 지급 건마다 한 번 발행되는지 발행 기록으로 본다(Kafka 전송은 BillingEventKafkaTest)
+@RecordApplicationEvents
 class HoldPayoutIntegrationTest {
 
     private static final Instant T1 = Instant.parse("2026-10-01T00:00:00Z");
@@ -58,6 +64,9 @@ class HoldPayoutIntegrationTest {
     private static final SettlementSourceType RECRUIT_SOURCE = SettlementSourceType.RECRUIT_APPEARANCE;
     private static final long HOST = 1L;
     private static final long GUEST = 2L;
+
+    @Autowired
+    ApplicationEvents applicationEvents;
     private static final int THREADS = 8;
 
     @Autowired
@@ -117,6 +126,14 @@ class HoldPayoutIntegrationTest {
         assertThat(settlementRows(hold.holdId())).containsExactly(
                 key + " " + GUEST + " " + guest + " APPEARANCE_REQUEST 7 NORMAL 4000 4000 COMPLETED");
         assertThat(holdRow(hold.holdId())).containsEntry("status", "PAID").containsEntry("released_at", null);
+        // 지급 완료 이벤트: 지급 건 ID·받는 회원·정상 지급·원천·지급액·지급 시각 (#497)
+        assertThat(applicationEvents.stream(PayoutCompletedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event.settlementId()).isEqualTo(settlementId(key));
+            assertThat(event).extracting(PayoutCompletedEvent::receiverUserId, PayoutCompletedEvent::payoutType,
+                    PayoutCompletedEvent::sourceType, PayoutCompletedEvent::sourceId, PayoutCompletedEvent::paidAmountHp)
+                    .containsExactly(GUEST, PayoutType.NORMAL, REQUEST_SOURCE, 7L, 4_000L);
+            assertThat(event.paidAt()).isNotNull();
+        });
         assertInvariants(host, guest);
     }
 
@@ -270,6 +287,8 @@ class HoldPayoutIntegrationTest {
         assertBillingError(() -> payout(HOST, RECRUIT, 9L, "A-101", GUEST, RECRUIT_SOURCE, 102L, 4_000L),
                 BillingErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         assertThat(snapshot()).isEqualTo(before);
+        // 재요청은 지급 건을 새로 만들지 않으므로 지급 완료 이벤트도 처음 한 번이다 (#497)
+        assertThat(applicationEvents.stream(PayoutCompletedEvent.class)).hasSize(1);
         assertInvariants(host, guest);
     }
 
@@ -406,7 +425,7 @@ class HoldPayoutIntegrationTest {
         assertThat(result.release().chargeRestorations()).containsExactly(new ChargeRestoration(second, 6_000L),
                 new ChargeRestoration(first, 1_000L));
         assertThat(result.payout().paidHp()).isEqualTo(3_000L);
-        assertThat(result.payout().payoutType()).isEqualTo(com.hapbang.billing.domain.PayoutType.PENALTY);
+        assertThat(result.payout().payoutType()).isEqualTo(com.hapbang.shared.billing.domain.PayoutType.PENALTY);
         assertThat(result.payout().chargeConsumptions()).containsExactly(new ChargeConsumption(first, 3_000L));
         assertThat(result.payout().holdStatus()).isEqualTo(PointHoldStatus.MIXED);
         String base = "PENALTY:" + hold.holdId() + ":C1";
@@ -415,6 +434,12 @@ class HoldPayoutIntegrationTest {
         assertThat(settlementRows(hold.holdId())).containsExactly(
                 base + " " + GUEST + " " + guest + " APPEARANCE_REQUEST 7 PENALTY 3000 3000 COMPLETED");
         assertThat(ledgerLines(base + ":RELEASE")).hasSize(2);
+        // 위약금 지급도 지급 완료 이벤트로 나간다(payoutType PENALTY, 지급액은 위약금만) (#497)
+        assertThat(applicationEvents.stream(PayoutCompletedEvent.class)).singleElement().satisfies(event -> {
+            assertThat(event.settlementId()).isEqualTo(settlementId(base));
+            assertThat(event).extracting(PayoutCompletedEvent::receiverUserId, PayoutCompletedEvent::payoutType,
+                    PayoutCompletedEvent::paidAmountHp).containsExactly(GUEST, PayoutType.PENALTY, 3_000L);
+        });
         assertThat(ledgerLines(base + ":PAYOUT")).containsExactly(
                 host + " " + base + ":PAYOUT:1 CHARGE HELD -3000",
                 guest + " " + base + ":PAYOUT:2 REVENUE AVAILABLE 3000");
@@ -1130,6 +1155,11 @@ class HoldPayoutIntegrationTest {
         assertBalances(a, 15_000L, 5_000L, 0L, 0L);
         assertBalances(b, 15_000L, 5_000L, 0L, 0L);
         assertInvariants(a, b);
+    }
+
+    private Long settlementId(String idempotencyKey) {
+        return jdbcTemplate.queryForObject("SELECT id FROM billing.settlement WHERE idempotency_key = ?", Long.class,
+                idempotencyKey);
     }
 
     // ---------------------------------------------------------------------------------------------
