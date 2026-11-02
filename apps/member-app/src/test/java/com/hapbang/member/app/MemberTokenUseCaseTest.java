@@ -179,7 +179,6 @@ class MemberTokenUseCaseTest {
         ArgumentCaptor<UserLoggedOutEvent> event = ArgumentCaptor.forClass(UserLoggedOutEvent.class);
         verify(eventPublisher).publishEvent(event.capture());
         assertThat(event.getValue().userId()).isEqualTo(42L);
-        assertThat(event.getValue().sessionId()).isNull();
         assertThat(event.getValue().loggedOutAt()).isBetween(before, Instant.now());
     }
 

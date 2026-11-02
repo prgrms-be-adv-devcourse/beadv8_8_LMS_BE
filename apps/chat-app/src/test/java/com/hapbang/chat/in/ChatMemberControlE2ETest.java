@@ -292,10 +292,10 @@ class ChatMemberControlE2ETest {
         }
     }
 
-    /** 지금 shared 레코드({@code UserLoggedOutEvent(userId, sessionId)}) 모양. chat-app은 sessionId를 쓰지 않는다 */
+    /** shared 레코드({@code UserLoggedOutEvent(userId, loggedOutAt)}) 모양 (#539). chat-app은 userId만 쓴다 */
     private void loggedOut(long id) {
         ProducerRecord<String, byte[]> record = new ProducerRecord<>(TOPIC, String.valueOf(id),
-                ("{\"userId\":" + id + ",\"sessionId\":null}").getBytes(StandardCharsets.UTF_8));
+                ("{\"userId\":" + id + ",\"loggedOutAt\":\"2026-11-02T00:00:00Z\"}").getBytes(StandardCharsets.UTF_8));
         record.headers().add("__TypeId__", UserLoggedOutEvent.class.getName().getBytes(StandardCharsets.UTF_8));
         try {
             producer.send(record).get(10, TimeUnit.SECONDS);

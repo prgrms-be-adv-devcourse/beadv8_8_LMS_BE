@@ -104,7 +104,7 @@ class MemberLogoutEventKafkaIntegrationTest {
     }
 
     @Test
-    @DisplayName("로그아웃하면 회원 ID를 key로 로그아웃 시각을 담은 UserLoggedOutEvent가 발행된다 (sessionId는 null)")
+    @DisplayName("로그아웃하면 회원 ID를 key로 로그아웃 시각을 담은 UserLoggedOutEvent가 발행된다")
     void logout() {
         User user = userRepository.save(MemberFixture.user());
         String refreshToken = memberFacade.issueTokens(user.getId(), user.getRole()).refreshToken();
@@ -121,7 +121,6 @@ class MemberLogoutEventKafkaIntegrationTest {
                 "eventVersion", "1"));
         UserLoggedOutEvent event = jsonMapper.readValue(record.value(), UserLoggedOutEvent.class);
         assertThat(event.userId()).isEqualTo(user.getId());
-        assertThat(event.sessionId()).isNull();
         assertThat(event.loggedOutAt()).isBetween(before, Instant.now());
     }
 

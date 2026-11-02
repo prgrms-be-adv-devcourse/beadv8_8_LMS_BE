@@ -84,7 +84,7 @@ public class MemberTokenUseCase {
             return;
         }
         refreshTokenStore.revoke(hash(refreshToken))
-                .ifPresent(userId -> eventPublisher.publishEvent(UserLoggedOutEvent.of(userId, Instant.now())));
+                .ifPresent(userId -> eventPublisher.publishEvent(new UserLoggedOutEvent(userId, Instant.now())));
     }
 
     private TokenPair issueForActiveMember(Long userId, String newRefreshToken) {
