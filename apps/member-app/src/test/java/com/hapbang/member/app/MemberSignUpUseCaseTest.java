@@ -64,6 +64,21 @@ class MemberSignUpUseCaseTest {
     }
 
     @Test
+    @DisplayName("관리자 계정은 같은 규칙으로 만들고 역할만 관리자이며, 가입 이벤트에도 관리자로 나간다 (#517)")
+    void registerAdmin() {
+        given(userRepository.saveAndFlush(any(User.class))).willAnswer(returnsFirstArg());
+
+        User user = useCase.registerAdmin("admin@example.com", "admin1234", "관리자");
+
+        assertThat(user.getRole()).isEqualTo(Role.ADMIN);
+        assertThat(user.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        verify(passwordCredentialRepository).save(any(PasswordCredential.class));
+        ArgumentCaptor<UserJoinedEvent> event = ArgumentCaptor.forClass(UserJoinedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().user().role()).isEqualTo(Role.ADMIN);
+    }
+
+    @Test
     @DisplayName("이미 가입된 이메일이면 DUPLICATE_EMAIL이고 저장하지 않는다")
     void signUp_duplicateEmail() {
         given(userRepository.existsByEmailIgnoreCase("tester1@example.com")).willReturn(true);
