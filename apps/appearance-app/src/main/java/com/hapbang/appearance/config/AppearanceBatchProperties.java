@@ -12,6 +12,8 @@ import com.hapbang.appearance.domain.HpTaskRetryPolicy;
  * @param batchSize         한 번 실행할 때 처리할 최대 건수. 나머지는 다음 주기에 처리한다
  * @param pendingGrace      방금 시작된 처리와 겹치지 않도록 기다리는 시간. 이보다 오래된 보류 처리 중 요청서·모집글과,
  *                          처음 시도 전인 HP 작업, Kafka로 보내지 못한 알림 발행 기록은 이 시간이 지나야 배치가 가져간다
+ * @param holdVoidAfter     보류 처리 중 요청서·모집글을 포기하는 기준 (#536). 만든 지 이 시간이 지나도 보류 결과를 모르면
+ *                          보류 재확인 배치가 보류 대신 보류 무효화를 보내 {@code HOLD_FAILED}로 끝낸다. {@code pendingGrace}보다 길어야 한다
  * @param retryBaseDelay    HP 작업 첫 실패 후 다음 시도까지 간격
  * @param retryMaxDelay     HP 작업 재시도 간격 상한
  * @param retryMaxAttempts  HP 작업 최대 시도 횟수 (넘으면 격리)
@@ -21,6 +23,7 @@ import com.hapbang.appearance.domain.HpTaskRetryPolicy;
 public record AppearanceBatchProperties(
         int batchSize,
         Duration pendingGrace,
+        Duration holdVoidAfter,
         Duration retryBaseDelay,
         Duration retryMaxDelay,
         int retryMaxAttempts,
@@ -33,6 +36,9 @@ public record AppearanceBatchProperties(
         }
         if (pendingGrace == null || pendingGrace.isNegative()) {
             throw new IllegalArgumentException("대기 시간은 0 이상이어야 합니다.");
+        }
+        if (holdVoidAfter == null || holdVoidAfter.compareTo(pendingGrace) <= 0) {
+            throw new IllegalArgumentException("보류 포기 기준은 대기 시간보다 길어야 합니다.");
         }
     }
 

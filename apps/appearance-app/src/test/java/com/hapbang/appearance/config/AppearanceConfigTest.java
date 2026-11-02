@@ -40,7 +40,7 @@ class AppearanceConfigTest {
     }
 
     @Test
-    @DisplayName("appearance.yml의 배치 값과 HP 작업 재시도 정책(1분부터 최대 1시간, 10회, 지터 0.2)이 들어온다")
+    @DisplayName("appearance.yml의 배치 값(보류 포기 기준 1시간 포함)과 HP 작업 재시도 정책(1분부터 최대 1시간, 10회, 지터 0.2)이 들어온다")
     void bindsBatchFromYaml() {
         contextRunner.run(context -> {
             AppearanceBatchProperties batch = context.getBean(AppearanceBatchProperties.class);
@@ -48,6 +48,7 @@ class AppearanceConfigTest {
 
             assertThat(batch.batchSize()).isEqualTo(100);
             assertThat(batch.pendingGrace()).isEqualTo(Duration.ofMinutes(1));
+            assertThat(batch.holdVoidAfter()).isEqualTo(Duration.ofHours(1));
             assertThat(retryPolicy).isEqualTo(new HpTaskRetryPolicy(Duration.ofMinutes(1), Duration.ofHours(1), 10, 0.2));
         });
     }
@@ -70,6 +71,15 @@ class AppearanceConfigTest {
                 .run(context -> assertThat(context.getBean(AppearanceReviewPolicy.class).writePeriod())
                         .isEqualTo(Duration.ofDays(14)));
         contextRunner.withPropertyValues("appearance.review.write-period=0s")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    @DisplayName("보류 포기 기준(hold-void-after)이 대기 시간(pending-grace)보다 짧거나 같으면 앱이 뜨지 않는다 (#536)")
+    void holdVoidAfterLongerThanGrace() {
+        contextRunner.withPropertyValues("appearance.batch.hold-void-after=1m")
+                .run(context -> assertThat(context).hasFailed());
+        contextRunner.withPropertyValues("appearance.batch.hold-void-after=30s")
                 .run(context -> assertThat(context).hasFailed());
     }
 

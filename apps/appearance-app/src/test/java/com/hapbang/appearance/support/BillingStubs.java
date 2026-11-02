@@ -15,8 +15,11 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
+import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -73,6 +76,21 @@ public final class BillingStubs {
             recordTransaction(invocation.getMethod().getName());
             throw unknown;
         }).when(billingClient).settlePenalty(any());
+        doAnswer(invocation -> {
+            recordTransaction(invocation.getMethod().getName());
+            throw unknown;
+        }).when(billingClient).voidHold(any());
+    }
+
+    /** 보류 무효화만 이 결과로 응답한다 (#536). 반환액은 {@code RELEASED}일 때만 0보다 크다 */
+    public static void voidHoldResult(BillingClient billingClient, HoldVoidOutcome outcome, long releasedHp,
+                                      boolean replayed) {
+        doAnswer(invocation -> {
+            recordTransaction("voidHold");
+            HoldVoidCommand command = invocation.getArgument(0);
+            return new BillingCallResult.Succeeded<>(new HoldVoidResultDto(command.referenceType(),
+                    command.referenceId(), outcome, releasedHp, replayed));
+        }).when(billingClient).voidHold(any());
     }
 
     /** 실패 설정을 지우고 다시 모든 요청이 성공한다 (보낸 요청 기록도 지운다) */
@@ -89,6 +107,7 @@ public final class BillingStubs {
         doAnswer(invocation -> rejected(invocation.getMethod().getName(), rejected)).when(billingClient).payout(any());
         doAnswer(invocation -> rejected(invocation.getMethod().getName(), rejected))
                 .when(billingClient).settlePenalty(any());
+        doAnswer(invocation -> rejected(invocation.getMethod().getName(), rejected)).when(billingClient).voidHold(any());
     }
 
     /** 지금까지 DB 트랜잭션 안에서 받은 요청 (메서드 이름) */
@@ -110,6 +129,7 @@ public final class BillingStubs {
         doAnswer(invocation -> released(invocation.getArgument(0))).when(billingClient).release(any());
         doAnswer(invocation -> paid(invocation.getArgument(0))).when(billingClient).payout(any());
         doAnswer(invocation -> settled(invocation.getArgument(0))).when(billingClient).settlePenalty(any());
+        doAnswer(invocation -> voided(invocation.getArgument(0))).when(billingClient).voidHold(any());
     }
 
     private static void recordTransaction(String method) {
@@ -150,6 +170,13 @@ public final class BillingStubs {
                 command.releaseAmountHp(), command.payoutAmountHp(), 0, false));
     }
 
+    /** 기본 무효화 결과: 보류가 없어 무효 표시만 남김 ({@code VOIDED}) */
+    private static BillingCallResult<HoldVoidResultDto> voided(HoldVoidCommand command) {
+        recordTransaction("voidHold");
+        return new BillingCallResult.Succeeded<>(new HoldVoidResultDto(command.referenceType(), command.referenceId(),
+                HoldVoidOutcome.VOIDED, 0, false));
+    }
+
     /** 금액이 없는 요청(남은 보류 전액)은 대역이 남은 보류를 모르므로 0으로 둔다 */
     private static long amountOf(Long amountHp) {
         return amountHp == null ? 0 : amountHp;
@@ -161,7 +188,9 @@ public final class BillingStubs {
     public enum Rejection {
         INSUFFICIENT_BALANCE(409, "HP 잔액이 부족합니다."),
         WALLET_NOT_FOUND(404, "지갑을 찾을 수 없습니다."),
-        HOLD_NOT_FOUND(404, "HP 보류를 찾을 수 없습니다.");
+        HOLD_NOT_FOUND(404, "HP 보류를 찾을 수 없습니다."),
+        HOLD_VOIDED(409, "무효화된 HP 보류입니다."),
+        HOLD_OWNER_MISMATCH(409, "HP 보류 회원이 일치하지 않습니다.");
 
         private final int httpStatus;
         private final String detail;

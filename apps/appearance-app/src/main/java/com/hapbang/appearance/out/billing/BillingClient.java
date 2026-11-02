@@ -2,6 +2,8 @@ package com.hapbang.appearance.out.billing;
 
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -40,6 +42,13 @@ public interface BillingClient {
 
     /** 호스트 일방 취소: 출연이 계산한 반환액은 호스트에게, 위약금은 게스트에게 한 번에 처리한다 */
     BillingCallResult<PenaltyResultDto> settlePenalty(PenaltyCommand command);
+
+    /**
+     * 참조 대상(요청서·모집글)의 보류를 더는 쓰지 않는다고 알린다 (보류 무효화, 지갑 #479, 출연 #536).
+     * 남은 보류는 호스트에게 반환하고({@code RELEASED}), 보류가 없으면 무효 표시만 남긴다({@code VOIDED}).
+     * 이후 같은 참조 대상의 보류는 {@code Failed(HOLD_VOIDED)}다. 참조 대상당 한 번이고, 다시 보내면 처음 결과를 돌려받는다.
+     */
+    BillingCallResult<HoldVoidResultDto> voidHold(HoldVoidCommand command);
 
     /**
      * 지갑 회로가 열려 지금 부르면 요청을 보내지 않고 실패하는지 (#439). 시험 중(HALF_OPEN)은 {@code false}다.

@@ -327,9 +327,17 @@ class AppearanceBatchUseCaseTest {
         }
 
         @Test
-        @DisplayName("수락 기한이 지난 보류 처리 중 요청서는 REQUESTED로 정리한 뒤 만료 배치가 EXPIRED + 반환한다 (S5)")
+        @DisplayName("보류 포기 기준(1시간) 전에 수락 기한이 지난 보류 처리 중 요청서는 REQUESTED로 정리한 뒤 만료 배치가 EXPIRED + 반환한다 (S5). "
+                + "포기 기준이 지난 요청서는 무효화한다(AppearanceHoldVoidTest, #536)")
         void recheckThenExpire() {
-            AppearanceRequest overdue = sentAndDeadlinePassed(false); // 이틀이 지나 배치 대기 시간도 지났다
+            // 수락 기한이 보낸 지 30분 뒤인 요청서. 31분이 지나 기한과 배치 대기 시간은 지났고 포기 기준(1시간)은 아직이다
+            BillingStubs.unavailable(billingClient);
+            assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, GUEST,
+                    AppearanceRequestFixture.content(now().plusMinutes(30), now().plusDays(7), FEE)))
+                    .isInstanceOf(AppearanceException.class);
+            BillingStubs.available(billingClient);
+            AppearanceRequest overdue = onlyRequest();
+            clock.advance(Duration.ofMinutes(31));
 
             appearanceHoldRecheckUseCase.recheckDue();
             assertThat(statusOf(overdue.getId())).isEqualTo(AppearanceRequestStatus.REQUESTED);
