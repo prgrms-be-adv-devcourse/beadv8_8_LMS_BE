@@ -39,7 +39,7 @@ public class MemberSignUpUseCase {
     public User signUp(String email, String password, String nickname) {
         String normalizedEmail = MemberEmail.normalize(email);
         Password.validate(password);
-        if (userRepository.existsByEmail(normalizedEmail)) {
+        if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
             throw new MemberException(MemberErrorCode.DUPLICATE_EMAIL);
         }
         // 닉네임 규칙은 User.join이 검사한다 (해시 계산 전에 실패하게 먼저 만든다)

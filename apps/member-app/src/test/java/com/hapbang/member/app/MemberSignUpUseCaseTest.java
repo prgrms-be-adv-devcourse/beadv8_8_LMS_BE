@@ -66,7 +66,7 @@ class MemberSignUpUseCaseTest {
     @Test
     @DisplayName("이미 가입된 이메일이면 DUPLICATE_EMAIL이고 저장하지 않는다")
     void signUp_duplicateEmail() {
-        given(userRepository.existsByEmail("tester1@example.com")).willReturn(true);
+        given(userRepository.existsByEmailIgnoreCase("tester1@example.com")).willReturn(true);
 
         assertError(() -> useCase.signUp("Tester1@example.com", "abcd1234", "tester1"), MemberErrorCode.DUPLICATE_EMAIL);
         verify(userRepository, never()).saveAndFlush(any());

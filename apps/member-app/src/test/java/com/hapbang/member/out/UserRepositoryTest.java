@@ -44,6 +44,17 @@ class UserRepositoryTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @Test
+    @DisplayName("이메일 중복 확인은 대소문자를 무시한다 (구글 가입 이메일에 대문자가 섞여도 찾는다, #499)")
+    void findByEmailIgnoreCase() {
+        User saved = userRepository.saveAndFlush(User.join("Tester1@Example.com", "tester1"));
+
+        assertThat(userRepository.existsByEmailIgnoreCase("tester1@example.com")).isTrue();
+        assertThat(userRepository.findByEmailIgnoreCase("TESTER1@EXAMPLE.COM"))
+                .hasValueSatisfying(found -> assertThat(found.getId()).isEqualTo(saved.getId()));
+        assertThat(userRepository.existsByEmailIgnoreCase("other@example.com")).isFalse();
+    }
+
     private static final List<Role> INFLUENCER_ROLES = List.of(Role.INFLUENCER, Role.VERIFIED_INFLUENCER);
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 

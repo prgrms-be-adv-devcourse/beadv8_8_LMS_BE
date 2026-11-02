@@ -96,6 +96,18 @@ class ApiV1MemberPasswordControllerTest {
     }
 
     @Test
+    @DisplayName("대문자가 섞인 이메일로 가입한 구글 회원이 있으면 소문자 이메일 가입도 409 DUPLICATE_EMAIL")
+    void signUp_duplicateIgnoringCase() throws Exception {
+        String email = newEmail();
+        User googleMember = userRepository.save(User.join(email.toUpperCase(), "google"));
+        trackUser(googleMember.getId());
+
+        signUp(email, "abcd1234", "tester")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_EMAIL"));
+    }
+
+    @Test
     @DisplayName("비밀번호 규칙을 어기면 400, 이메일 형식이 틀리면 400 INVALID_REQUEST")
     void signUp_invalid() throws Exception {
         signUp(newEmail(), "abcdefgh", "tester")

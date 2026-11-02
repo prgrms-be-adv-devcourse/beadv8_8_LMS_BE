@@ -35,10 +35,10 @@ public class MemberOAuthLoginUseCase {
 
     /**
      * 신규 가입 + OAuth 계정 연결 + 가입 이벤트 발행.
-     * 같은 이메일의 회원이 이미 있으면 가입하지 않는다 (#499). 메일 인증이 없어 계정을 자동으로 잇지 않는다 (나중에 검토)
+     * 같은 이메일의 회원이 이미 있으면 가입하지 않는다 (#499, 대소문자 무시). 메일 인증이 없어 계정을 자동으로 잇지 않는다 (나중에 검토)
      */
     private User join(OAuthProvider provider, String providerUserId, String email, String nickname) {
-        userRepository.findByEmail(email).ifPresent(existing -> {
+        userRepository.findByEmailIgnoreCase(email).ifPresent(existing -> {
             throw new MemberException(passwordCredentialRepository.existsByUserId(existing.getId())
                     ? MemberErrorCode.EMAIL_REGISTERED_WITH_PASSWORD
                     : MemberErrorCode.DUPLICATE_EMAIL);

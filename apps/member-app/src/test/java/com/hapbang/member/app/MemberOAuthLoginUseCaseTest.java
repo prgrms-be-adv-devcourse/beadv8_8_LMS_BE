@@ -89,7 +89,7 @@ class MemberOAuthLoginUseCaseTest {
         User existing = User.join("tester1@example.com", "tester1");
         given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
                 .willReturn(Optional.empty());
-        given(userRepository.findByEmail("tester1@example.com")).willReturn(Optional.of(existing));
+        given(userRepository.findByEmailIgnoreCase("tester1@example.com")).willReturn(Optional.of(existing));
         given(passwordCredentialRepository.existsByUserId(existing.getId())).willReturn(true);
 
         assertThatThrownBy(() -> useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "tester1"))
@@ -106,7 +106,7 @@ class MemberOAuthLoginUseCaseTest {
         User existing = User.join("tester1@example.com", "tester1");
         given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-2"))
                 .willReturn(Optional.empty());
-        given(userRepository.findByEmail("tester1@example.com")).willReturn(Optional.of(existing));
+        given(userRepository.findByEmailIgnoreCase("tester1@example.com")).willReturn(Optional.of(existing));
 
         assertThatThrownBy(() -> useCase.login(OAuthProvider.GOOGLE, "google-sub-2", "tester1@example.com", "tester1"))
                 .isInstanceOf(MemberException.class)
