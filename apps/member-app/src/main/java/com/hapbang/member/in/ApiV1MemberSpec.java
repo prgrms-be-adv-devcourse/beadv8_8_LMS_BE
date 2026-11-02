@@ -42,6 +42,13 @@ public interface ApiV1MemberSpec {
                     + "리뷰가 없으면 average null·count 0.")
     RsData<MemberProfileDetailResponse> profile(Long memberId);
 
+    @Operation(summary = "받은 출연 리뷰 목록",
+            description = "로그인한 회원. 그 회원이 받은 공개된 출연 리뷰를 최신 공개순으로 준다(정렬은 바꿀 수 없다). "
+                    + "page·size로 페이징(최대 100). revieweeRole은 받은 회원이 그 출연에서 맡은 역할(HOST·GUEST). "
+                    + "reviewer는 쓴 회원 {id, nickname, profileImageUrl}이고, 탈퇴한 회원이면 nickname은 '탈퇴한 회원', 사진은 null. "
+                    + "프로필과 같이 탈퇴·없는 회원은 404. 출연 앱을 부를 수 없으면 503 APPEARANCE_REVIEW_UNAVAILABLE.")
+    RsData<Page<AppearanceReviewResponse>> appearanceReviews(Long memberId, Pageable pageable);
+
     @Operation(summary = "프로필 사진 올리기",
             description = "로그인한 회원 본인. 요청 본문이 이미지 그대로다 (multipart 아님). "
                     + "Content-Type은 image/jpeg·image/png·image/webp, Content-Length 필수(최대 5MB). "

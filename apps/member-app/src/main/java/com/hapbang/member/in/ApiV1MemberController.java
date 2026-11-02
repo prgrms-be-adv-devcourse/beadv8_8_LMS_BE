@@ -68,6 +68,16 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
                 memberFacade.findAppearanceRating(memberId)));
     }
 
+    /** 회원이 받은 출연 리뷰 목록 (최신 공개순). 리뷰는 출연 앱에서 읽고 쓴 회원 정보를 붙인다 (#555) */
+    @Override
+    @GetMapping("/{memberId:\\d+}/appearance-reviews")
+    public RsData<Page<AppearanceReviewResponse>> appearanceReviews(@PathVariable(name = "memberId") Long memberId,
+                                                                    Pageable pageable) {
+        return RsData.ok("받은 출연 리뷰를 조회했습니다.", memberFacade.findReceivedAppearanceReviews(memberId, pageable)
+                .map(review -> AppearanceReviewResponse.from(review, review.reviewer() == null ? null
+                        : memberFacade.profileImageUrl(review.reviewer().getProfileImageKey()))));
+    }
+
     /** 프로필 사진 올리기. 본문이 이미지 그대로 (multipart 아님). 팀 업로드 경로 규칙이라 {memberId}에 내 회원 ID */
     @Override
     @PutMapping("/files/{memberId:\\d+}/content")
