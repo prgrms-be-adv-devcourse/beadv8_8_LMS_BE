@@ -1,6 +1,6 @@
 # k8s manifest
 
-상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐다. member-app은 route·JWT 검증까지 연결했고(2026-11-02, #500), lecture-app은 ConfigMap·Deployment만 올라가 외부 route가 없다(2026-10-30). 둘 다 [릴리스 전 배포](#릴리스-전-배포)로 올렸다. 나머지 업무 앱은 미배포다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
+상태: EC2 k3s에 `cluster`·`platform`(2026-10-29, #374)과 Envoy Gateway·cert-manager(2026-10-30, #372)를 적용했다. 외부 진입은 ServiceLB → Envoy다. FE `web`은 배포됐다. member-app은 route·JWT 검증까지 연결했고(2026-11-02, #500), lecture-app(2026-10-30)·appearance-app(2026-11-02, #504)은 ConfigMap·NetworkPolicy·Deployment만 올라가 외부 route가 없다. 셋 다 [릴리스 전 배포](#릴리스-전-배포)로 올렸다. 나머지 업무 앱은 미배포다. 기존 Docker Compose는 2026-10-30에 볼륨까지 지웠다(#440, [배포 개요](README.md)).
 
 앱들이 함께 쓰는 인프라는 레포 루트의 `k8s/`, 앱 manifest는 앱마다 `apps/<앱>/k8s/`에 두고 로컬 k3d와 EC2 k3s에 같은 구성으로 적용한다. 구조와 설치 방식을 고른 근거는 [최종 인프라 설계 3장](../architecture/infrastructure/k3s.md#manifest-관리--kustomize와-helm), node 배치는 [AWS 2노드 k3s 배치](aws-k3s.md)를 따른다.
 
@@ -190,9 +190,9 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
    ```
 
 3. **push**: classic PAT(`write:packages`, 만료 1일)를 만들고 별도 터미널에서 `docker login ghcr.io -u <GitHub 아이디>`(Password 칸에 붙여 넣는다) → `docker push <이미지>` → `docker logout ghcr.io` → PAT 삭제. 토큰은 채팅·이슈에 붙이지 않는다.
-   - 패키지가 없으면 첫 push가 패키지를 만든다. 2026-10-30 member-app·lecture-app은 첫 push가 패키지만 만들고 `denied`로 끝났고, 다시 로그인해 push하자 올라갔다.
+   - 패키지가 없으면 첫 push가 패키지를 만든다. 2026-10-30 member-app·lecture-app은 첫 push가 패키지만 만들고 `denied`로 끝났고, 다시 로그인해 push하자 올라갔다. 2026-11-02 appearance-app은 첫 push에 바로 올라갔다.
    - main의 Publish images(`GITHUB_TOKEN`)가 이 패키지에 push하려면 레포 Actions에 쓰기 권한이 있어야 한다. 위 라벨로 올리면 패키지가 레포에 연결된다. 패키지 페이지 → Package settings → Inherited access에서 "Inherit access from source repository"를 켜고, Manage Actions access에 `beadv8_8_LMS_BE`가 보이는지 확인한다. 연결되지 않았으면 패키지 페이지의 Connect Repository로 연결한 뒤 켠다. 조직이 상속을 막아 항목이 없으면 Manage Actions access → Add Repository → `beadv8_8_LMS_BE`(Write)로 더한다([GitHub 문서](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)).
-   - member-app·lecture-app은 2026-10-30 상속을 켰다.
+   - member-app·lecture-app은 2026-10-30, appearance-app은 2026-11-02 상속을 켰다.
 4. **pull 확인**: `k8s/tools/ghcr-pull-check.sh <이미지> <pool>`([GHCR pull 인증](#ghcr-pull-인증)).
 5. **배포**: Deploy workflow는 main 커밋만 받으므로 로컬에서 한다. prod kubeconfig(context `hapbang-k3s`)가 필요하다. 앱은 배포 순서(member → billing → appearance → lecture → chat → customer-support)를 지킨다.
 
@@ -223,10 +223,11 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
 - 릴리스 뒤에는 먼저 올린 앱을 Deploy의 `apps`에 적어 다시 배포한다. 입력 없이 돌리면 앱 내용이 그대로인 앱은 건너뛰어, 사람이 올린 이미지와 최소 배포에서 뺀 리소스(Service·HTTPRoute 등)가 그대로 남는다.
 - main 릴리스 리뷰와 CI를 거치지 않은 이미지다. 어떤 앱을 어느 커밋으로 언제 올렸는지 해당 티켓에 남긴다.
 - 2026-10-30 기록: member-app·lecture-app을 이 방식으로 올렸다(#461). 처음에는 ConfigMap·Deployment만 적용해 NetworkPolicy가 빠졌다. lecture-app은 384Mi·448Mi limit에서 기동 중 OOMKilled돼 640Mi로 올렸고, manifest와 [k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)도 640Mi로 고쳤다.
+- 2026-11-02 기록: appearance-app을 dev `5d66992`로 이 방식(NetworkPolicy → ConfigMap·Deployment)으로 올렸다(#504). Flyway가 `appearance` 스키마를 만들고 회원 이벤트 consumer가 `member.events.v1`을 받았다. route는 billing-app 배포 뒤 연다. billing-app이 없으면 요청서·모집글이 보류 요청 실패로 `HOLD_PENDING`에 남기 때문이다. 448Mi limit에서 기동 3분 뒤 RSS 425Mi로 한도에 붙어 512Mi로 올렸고, 다시 뜬 뒤 4분에 RSS 414Mi였다([k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)).
 
 ### 첫 릴리스
 
-main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app만 있다(2026-10-30 [릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 두 패키지는 레포 상속을 켜 두었다. 첫 Publish run에서 이 두 앱의 push가 권한 오류로 실패하면 Manage Actions access를 확인한다. 나머지 4개는 첫 Publish가 만든다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
+main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app(2026-10-30)·appearance-app(2026-11-02)만 있다([릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 세 패키지는 레포 상속을 켜 두었다. 첫 Publish run에서 이 세 앱의 push가 권한 오류로 실패하면 Manage Actions access를 확인한다. 나머지 3개는 첫 Publish가 만든다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
 
 1. **dev → main 병합**: base `main` ← `dev`(또는 `release/review-N`) PR을 만들어 병합한다. 다른 브랜치에서 열면 `PR source / source-branch` 체크가 실패한다(#180).
 2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
