@@ -13,9 +13,6 @@ spring:
       auto-startup: false
     admin:
       auto-create: false
-springdoc:
-  swagger-ui:
-    path: "/swagger-ui.html"
 hapbang:
   storage:
     s3:

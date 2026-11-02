@@ -46,12 +46,13 @@ spec:
                 name: appearance-app-config
             - secretRef:
                 name: appearance-app-secrets
+          # EC2에서 448Mi로 띄우자 기동 3분 뒤 RSS 425Mi로 한도에 붙었다(#504). member-app(#480)과 같은 512Mi로 올린다.
           resources:
             requests:
               cpu: 100m
-              memory: 448Mi
+              memory: 512Mi
             limits:
-              memory: 448Mi
+              memory: 512Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:

@@ -22,7 +22,9 @@ public class SecurityConfig {
                 // 세션 쿠키 인증이라 CSRF를 막는다. XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보내야 통과
                 .csrf(csrf -> csrf.spa())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
+                        // Swagger는 모듈 경로 아래에 있다 (swagger.yml, #498). 운영에서도 누구나 본다
+                        .requestMatchers(HttpMethod.GET, "/api/v1/wallets/swagger-ui.html",
+                                "/api/v1/wallets/swagger-ui/**", "/api/v1/wallets/v3/api-docs/**").permitAll()
                         // 예외가 나면 Spring이 /error로 보내는데, 막혀 있으면 원래 오류 대신 401이 나간다
                         .requestMatchers("/error").permitAll()
                         // 헬스체크 (Docker healthcheck용). 서버 nginx가 /actuator를 프록시하지 않아 컨테이너·서버 안에서만 접근한다

@@ -1,12 +1,12 @@
 # 배포 개요
 
-합방은 EC2 2노드 k3s(large server + medium agent)에서만 운영한다. 외부 80·443은 large의 ServiceLB → Envoy Gateway가 받고, TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다(2026-10-30, #372). 공용 인프라(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)는 `hapbang-platform` namespace에 있다. FE `web`은 `/` route에 연결됐다. 업무 앱 가운데 member-app만 route가 있다(2026-11-02 릴리스 전 배포, #500). 나머지 업무 API는 404다(lecture-app은 2026-10-30 릴리스 전 배포로 떠 있지만 외부에 열리지 않는다).
+합방은 EC2 2노드 k3s(large server + medium agent)에서만 운영한다. 외부 80·443은 large의 ServiceLB → Envoy Gateway가 받고, TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다(2026-10-30, #372). 공용 인프라(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)는 `hapbang-platform` namespace에 있다. FE `web`은 `/` route에 연결됐다. 업무 앱 가운데 member-app만 route가 있다(2026-11-02 릴리스 전 배포, #500). 나머지 업무 API는 404다(lecture-app(2026-10-30)·appearance-app(2026-11-02, #504)은 릴리스 전 배포로 떠 있지만 외부에 열리지 않는다).
 
 기존 Docker Compose(prod·dev app·web·PostgreSQL과 edge nginx·certbot)는 2026-10-30에 컨테이너와 볼륨까지 모두 지웠다(#440). 기존 운영 DB는 백업하지 않았다. 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다. dev 서버는 없다. 개발 확인은 로컬과 k3d에서 한다([로컬 개발](../dev/local.md)).
 
 | 대상 | 주소 | 상태 |
 | --- | --- | --- |
-| prod | https://hapbang.duckdns.org | FE `web`과 member-app(2026-11-02, #500)이 route에 연결됐다. lecture-app은 릴리스 전 배포로 떠 있지만 route가 없다(2026-10-30, [k8s.md](k8s.md#릴리스-전-배포)). 나머지 앱은 미배포. `main`의 앱 이미지를 수동 배포한다 |
+| prod | https://hapbang.duckdns.org | FE `web`과 member-app(2026-11-02, #500)이 route에 연결됐다. lecture-app(2026-10-30)·appearance-app(2026-11-02, #504)은 릴리스 전 배포로 떠 있지만 route가 없다([k8s.md](k8s.md#릴리스-전-배포)). 나머지 앱은 미배포. `main`의 앱 이미지를 수동 배포한다 |
 | Grafana | https://hapbang.duckdns.org/grafana/ | Grafana 자체 로그인 |
 | Kafka UI | https://hapbang.duckdns.org/kafka/ | Envoy Basic Auth |
 

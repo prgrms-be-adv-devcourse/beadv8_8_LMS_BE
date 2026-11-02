@@ -3,7 +3,10 @@
 spring:
   config:
     # 운영 application.yaml을 읽지 않는 모듈 테스트에도 출연 설정만 명시적으로 가져온다.
-    import: classpath:appearance.yml
+    # Swagger 설정도 그대로 가져와 실제 경로·운영 값을 검사한다 (#498)
+    import:
+    - classpath:appearance.yml
+    - classpath:swagger.yml
   datasource:
     hikari:
       # 테스트 컨텍스트는 캐시되어 여러 개가 함께 살아 있고, 컨텍스트마다 연결 풀을 가진다.

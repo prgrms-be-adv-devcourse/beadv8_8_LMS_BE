@@ -15,8 +15,3 @@ hapbang:
       key-prefix: prod
 server:
   forward-headers-strategy: native
-springdoc:
-  api-docs:
-    enabled: false
-  swagger-ui:
-    enabled: false

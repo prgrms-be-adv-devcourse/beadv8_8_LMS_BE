@@ -45,7 +45,9 @@ public class SecurityConfig {
                         .securityContextRepository(new RequestAttributeSecurityContextRepository()))
                 .addFilterBefore(new GatewayUserHeaderFilter(), AbstractPreAuthenticatedProcessingFilter.class)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
+                        // Swagger는 모듈 경로 아래에 있다 (swagger.yml, #498). 운영에서도 누구나 본다
+                        .requestMatchers(HttpMethod.GET, "/api/v1/members/swagger-ui.html",
+                                "/api/v1/members/swagger-ui/**", "/api/v1/members/v3/api-docs/**").permitAll()
                         // 예외가 나면 Spring이 /error로 보내는데, 막혀 있으면 원래 오류 대신 401이 나간다
                         .requestMatchers("/error").permitAll()
                         // 헬스체크 (k8s probe용). Gateway에 /actuator route가 없어 클러스터 안에서만 접근한다

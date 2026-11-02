@@ -11,6 +11,3 @@ hapbang:
       key-prefix: dev
 server:
   forward-headers-strategy: native
-springdoc:
-  swagger-ui:
-    path: "/swagger-ui.html"

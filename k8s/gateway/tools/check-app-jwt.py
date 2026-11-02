@@ -5,6 +5,8 @@ member-app writes HAPBANG_JWT_ISSUER into the tokens it issues, and Envoy accept
 the issuer in each app's SecurityPolicy. A mismatch turns every token request of that
 app into 401, so CI fails before merge instead. Envoy must also read the JWKS from the
 member-app external port inside the cluster (the check render-prod.py used to do).
+Envoy must read the token only from the Authorization: Bearer header (#508). Without
+extractFrom it also accepts an access_token query parameter, which leaves tokens in URLs.
 """
 
 import pathlib
@@ -16,6 +18,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 ISSUER_KEY = "HAPBANG_JWT_ISSUER"
+EXTRACT_FROM = {"headers": [{"name": "Authorization", "valuePrefix": "Bearer "}]}
 
 
 def render(path):
@@ -56,6 +59,11 @@ for overlay in overlays:
                 f"{app} SecurityPolicy {name}: remoteJWKS must target member-app HTTP port 8080"
                 " without credentials/query"
             )
+        if provider.get("extractFrom") != EXTRACT_FROM:
+            errors.append(
+                f"{app} SecurityPolicy {name}: extractFrom must be only the Authorization"
+                " header with the 'Bearer ' prefix"
+            )
     if app == "member-app":
         values = [
             d.get("data", {}).get(ISSUER_KEY)
@@ -78,4 +86,7 @@ for value in distinct:
 if errors:
     print("\n".join(errors), file=sys.stderr)
     sys.exit(1)
-print(f"JWT issuer {distinct.pop()} ({len(issuers)} places, {len(overlays)} apps)")
+print(
+    f"JWT issuer {distinct.pop()} ({len(issuers)} places, {len(overlays)} apps),"
+    " token from Authorization: Bearer only"
+)
