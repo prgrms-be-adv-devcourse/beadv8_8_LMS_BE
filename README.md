@@ -13,7 +13,7 @@
 docker build -f apps/member-app/Dockerfile apps/member-app/build/libs
 ```
 
-현재 변경은 구조·빌드·실행 기반까지다. 기존 Spring Event, 프로세스 내부 포트와 세션 인증의 서비스 간 전환은 남아 있다(인증은 JWT로 전환, #370). 독립 서버에서 거래가 모두 동작하는 상태로 간주하지 않는다. CI는 앱별 테스트·jar·이미지 빌드를 검증한다. 서버는 EC2 k3s prod 한 벌이고 dev 서버는 없다. 기존 Docker Compose는 2026-10-30에 지웠다(#440). main push 때 바뀐 앱 이미지를 발행하고, prod 배포는 수동 dispatch로 바뀐 앱만 한다(#374, [`docs/deploy/README.md`](docs/deploy/README.md)).
+현재 변경은 구조·빌드·실행 기반까지다. 기존 Spring Event, 프로세스 내부 포트와 세션 인증의 서비스 간 전환은 남아 있다(인증은 JWT로 전환, #370). 독립 서버에서 거래가 모두 동작하는 상태로 간주하지 않는다. CI는 앱별 테스트·jar·이미지 빌드를 검증한다. 서버는 EC2 k3s prod 한 벌이고 dev 서버는 없다. 기존 Docker Compose는 2026-10-30에 지웠다(#440). dev에 병합하면 바뀐 앱 이미지를 발행하고 prod에 자동으로 배포한다. main에는 서버가 없다(#374, #559, [`docs/deploy/README.md`](docs/deploy/README.md)).
 
 ## 문서
 

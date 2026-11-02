@@ -6,7 +6,7 @@
 
 | 대상 | 주소 | 상태 |
 | --- | --- | --- |
-| prod | https://hapbang.duckdns.org | FE `web`과 업무 앱 6개가 route에 연결됐다(2026-11-02, [릴리스 전 배포](k8s.md#릴리스-전-배포)). 앱 이미지는 아직 main을 거치지 않은 dev 커밋이다. 릴리스 뒤에는 `main`의 앱 이미지를 수동 배포한다 |
+| prod | https://hapbang.duckdns.org | FE `web`과 업무 앱 6개가 route에 연결됐다(2026-11-02, [릴리스 전 배포](k8s.md#릴리스-전-배포)). 지금 앱 이미지는 #559 전에 사람이 올린 dev 커밋이다. dev에 병합하면 바뀐 앱을 자동으로 배포한다(#559). main에는 서버가 없다 |
 | Grafana | https://hapbang.duckdns.org/grafana/ | Grafana 자체 로그인 |
 | Kafka UI | https://hapbang.duckdns.org/kafka/ | Envoy Basic Auth |
 
@@ -31,25 +31,29 @@ PR → GitHub Actions(CI)
   test       바뀐 앱마다 러너 하나: check bootJar → 이미지 빌드 확인(push 안 함)
   verify     위 결과 집계(필수 체크). 테스트할 앱이 없으면 Gradle job은 건너뛰고 통과
 
-main push → Publish images(publish.yml)   # 릴리스 전에는 사람이 write:packages PAT로 직접 push(k8s.md "릴리스 전 배포")
-  바뀐 앱만 GHCR(private, 조직 정책)에 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<커밋> 발행
+dev push → Publish and deploy(publish.yml)
+  images   이미지가 없는 앱을 고른다(이번 push에서 바뀐 앱 + 앞 run에서 발행하지 못한 앱)
+  ci       고른 앱만 테스트(ci.yml)
+  build    GHCR(private, 조직 정책)에 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<커밋> 발행
+  deploy   deploy.yml 호출. dev 최신 커밋이 아니면 건너뛴다
+           바뀐 앱만 SSM Run Command로 large에서 overlay apply → rollout status, 실패하면 그 앱만 rollout undo
+           node는 공유 Secret ghcr-pull(k8s/registry)로 이미지를 받는다(k8s.md "GHCR pull 인증")
 
-Actions → Deploy(deploy.yml) → Run workflow(main)
-  바뀐 앱만 SSM Run Command로 large에서 overlay apply → rollout status, 실패하면 그 앱만 rollout undo
-  node는 공유 Secret ghcr-pull(k8s/registry)로 이미지를 받는다(k8s.md "GHCR pull 인증")
+main push → workflow 없음(서버 없음, release/review-N → main 리뷰 제출용)
+gh workflow run deploy.yml --ref dev → 수동 Deploy(따라잡기·롤백)
 ```
 
-- 앱 배포 절차와 롤백은 [운영 앱 배포](k8s.md#운영-앱-배포)를 따른다. CI는 PR에서만 돌고 dev 병합 때는 workflow가 없다.
+- 앱 배포 절차와 롤백은 [운영 앱 배포](k8s.md#운영-앱-배포)를 따른다. dev 병합이 곧 운영 반영이다(#559). 승인 없이 병합되므로 위험은 [security.md](security.md#알려진-위험)에 적었다.
 - `k8s/cluster`·`k8s/platform`·`k8s/gateway`는 자동 배포하지 않는다. [적용 순서](k8s.md#적용-순서)대로 수동 적용한다.
-- FE의 k3s 배포는 #374에서 연결한다. FE 레포의 기존 배포 workflow는 서버의 Compose web을 교체하던 방식이라 더 쓰지 않는다.
-- **운영 시간**: EC2는 09:00~18:00에 자동으로 켜져 있다. 켜지면 k3s와 pod가 다시 뜬다. 그 외 시간에는 SSM 배포가 실패하므로 서버가 켜진 뒤 실행한다. 18:00 이후 작업이 필요하면 AWS 콘솔에서 인스턴스를 직접 시작하고, 끝나면 중지한다.
+- FE는 FE 레포의 workflow가 배포한다. FE도 dev 병합을 운영 배포로 바꾸는 중이다(FE 레포 #156).
+- **운영 시간**: EC2는 09:00~18:00에 자동으로 켜져 있다. 켜지면 k3s와 pod가 다시 뜬다. 그 외 시간에는 SSM 배포가 실패한다. 그때 병합한 변경은 다음 병합의 자동 배포나, 서버가 켜진 뒤 입력 없이 실행한 Deploy가 따라잡는다. 18:00 이후 작업이 필요하면 AWS 콘솔에서 인스턴스를 직접 시작하고, 끝나면 중지한다.
 
 ## 자주 하는 작업
 
 | 하고 싶은 것 | 방법 |
 | --- | --- |
-| 운영 반영 | `dev` → `main` PR 병합 → Publish images 성공 확인 → Actions → Deploy 실행([운영 앱 배포](k8s.md#운영-앱-배포)) |
-| 롤백 | Deploy를 `apps`에 앱, `sha`에 되돌릴 main 커밋을 넣어 실행. 그 커밋의 SealedSecret도 함께 돌아가므로 비밀값 교체·DB 마이그레이션 이전 커밋으로는 되돌리지 않는다([운영 앱 배포](k8s.md#운영-앱-배포)) |
+| 운영 반영 | `dev`에 PR 병합 → Publish and deploy run 성공 확인(`gh run list --workflow publish.yml --limit 1`, [운영 앱 배포](k8s.md#운영-앱-배포)) |
+| 롤백 | `gh workflow run deploy.yml --ref dev -f apps=<앱> -f sha=<되돌릴 dev 커밋>`. 다음 dev 병합이 다시 올리므로 revert 커밋 병합을 함께 한다. 그 커밋의 SealedSecret도 함께 돌아가므로 비밀값 교체·DB 마이그레이션 이전 커밋으로는 되돌리지 않는다([운영 앱 배포](k8s.md#운영-앱-배포)) |
 | 환경변수 추가 | [env-vars.md](env-vars.md) |
 | DB 스키마 변경 | Flyway 마이그레이션 SQL 추가, 앱 시작 시 자동 적용 → [db-migration.md](../db-migration.md) |
 | 공용 인프라 변경 | `k8s/` manifest 수정 → PR 병합 → 수동 적용([적용 순서](k8s.md#적용-순서)) |
@@ -60,4 +64,4 @@ Actions → Deploy(deploy.yml) → Run workflow(main)
 | 항목 | 현재 상태 |
 | --- | --- |
 | DB 백업 | k3s PostgreSQL의 자동 백업 없음. PVC는 Retain StorageClass지만 node 장애·uninstall에는 보호되지 않는다([aws-k3s.md](aws-k3s.md#되돌리기)) |
-| prod 배포 승인 | Deploy 수동 실행(실행하는 사람이 곧 승인). GitHub Environment `prod`는 `main`만 허용하고 승인자는 두지 않는다([security.md](security.md#알려진-위험)) |
+| prod 배포 승인 | dev 병합이 곧 배포다. dev 병합에 승인이 없고 GitHub Environment `prod`(`dev`만 허용)에도 승인자를 두지 않는다(2026-11-02 결정, #559). 위험은 [security.md](security.md#알려진-위험) |

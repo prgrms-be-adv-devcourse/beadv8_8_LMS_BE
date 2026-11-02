@@ -54,7 +54,7 @@ explain_failure() {
   if [ -z "$failing" ]; then
     echo "::error::$app: 이미지는 받았고 앱이 Ready가 되지 않았습니다(기동 실패·probe 실패). 위 pod 상태와 이벤트, 앱 로그를 확인하세요."
   elif grep -qiE ': not found|manifest unknown' <<< "$messages"; then
-    echo "::error::$app: 이미지가 GHCR에 없습니다. 그 커밋의 Publish images run을 확인하세요."
+    echo "::error::$app: 이미지가 GHCR에 없습니다. 그 커밋의 Publish and deploy run을 확인하세요."
   # 숫자(401·403)로 찾지 않는다. 메시지의 이미지 이름(:sha-<16진수 40자>)에 같은 숫자가 들어갈 수 있다.
   # containerd는 "401 Unauthorized"·"403 Forbidden"으로 적는다. GHCR은 아직 발행되지 않은 패키지도 403으로 답한다.
   elif grep -qiE 'unauthorized|forbidden|denied' <<< "$messages"; then

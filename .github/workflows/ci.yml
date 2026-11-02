@@ -1,6 +1,6 @@
 # main·dev로 가는 PR마다 바뀐 앱만 테스트하고, 테스트한 jar로 그 앱의 이미지가 빌드되는지까지 확인한다(push하지 않음, #488).
 # 앱은 apps/<앱>-app 여섯 개이고, 앱마다 jar(apps/<앱>-app/build/libs/app.jar)와 Dockerfile을 가진다(#356).
-# main push 때는 publish.yml이 이 워크플로를 호출해 여섯 앱을 모두 테스트하고, 앱별 jar를 artifact(app-jar-<앱>)로 넘겨받는다(#374).
+# dev push 때는 publish.yml이 이 워크플로를 호출해 발행할 앱만 테스트하고, 앱별 jar를 artifact(app-jar-<앱>)로 넘겨받는다(#374, #559).
 # 테스트는 Testcontainers로 PostgreSQL을 띄우므로 Docker가 있는 ubuntu 러너가 필요하다.
 #
 # changes: 바뀐 앱을 고른다(.github/scripts/apps.sh tested). 없으면 Gradle job을 건너뛴다.
@@ -19,6 +19,10 @@ on:
         description: 테스트한 jar를 앱별 artifact(app-jar-<앱>)로 올린다
         type: boolean
         default: false
+      apps:
+        description: 테스트할 앱의 JSON 배열(예 ["member-app"]). 비우면 여섯 앱 모두
+        type: string
+        default: ''
 
 # 같은 PR에 새 커밋이 올라오면 이전 실행을 취소한다.
 # 호출될 때는 호출한 run의 run_id가 들어가 run마다 그룹이 달라진다. 호출자(publish.yml)의 그룹과 이름이 겹치지 않으므로 서로 기다리지 않는다.
@@ -45,20 +49,24 @@ jobs:
       - name: 앱 목록 검사
         run: .github/scripts/apps.sh check
 
-      # 판정이 틀리면 바뀐 앱의 테스트가 조용히 빠지므로 PR마다 확인한다. main 발행은 판정하지 않으므로 돌리지 않는다.
+      # 판정이 틀리면 바뀐 앱의 테스트가 조용히 빠지므로 PR마다 확인한다. dev 발행은 판정하지 않으므로 돌리지 않는다.
       - name: 바뀐 앱 판정 검사
         if: github.event_name == 'pull_request'
         run: .github/scripts/apps-test.sh
 
       # PR은 base와 merge 커밋(GITHUB_SHA)을 비교한다. base가 그 뒤로 움직였으면 다른 PR의 변경까지 더 테스트할 뿐 빠뜨리지는 않는다.
-      # main 발행(workflow_call)은 여섯 앱을 모두 테스트한다.
+      # dev 발행(workflow_call)은 호출한 쪽이 넘긴 앱(publish.yml이 고른 발행할 앱)을 테스트한다. 넘기지 않으면 여섯 앱 모두다.
       - name: 바뀐 앱 찾기
         id: detect
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          INPUT_APPS: ${{ inputs.apps }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             apps=$(.github/scripts/apps.sh tested "$BASE" "$GITHUB_SHA")
+          elif [ -n "$INPUT_APPS" ]; then
+            # 목록에 있는 앱만 받는다. 순서는 배포 순서(apps.sh list)를 따른다.
+            apps=$(.github/scripts/apps.sh list | grep -Fx -f <(jq -r '.[]' <<< "$INPUT_APPS") || true)
           else
             apps=$(.github/scripts/apps.sh list)
           fi

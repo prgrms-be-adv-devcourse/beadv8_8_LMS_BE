@@ -178,7 +178,8 @@ class AppearanceApiClientTest {
 
         respond(200, "application/json", "{\"statusCode\":200,\"message\":\"\",\"data\":null}");
         delayMillis = 1_000L;
-        assertUnavailable(() -> client().getEarningSummary(7L), 0);
+        AppearanceApiClient shortRead = client("http://127.0.0.1:" + server.getAddress().getPort(), Duration.ofMillis(300));
+        assertUnavailable(() -> shortRead.getEarningSummary(7L), 0);
 
         delayMillis = 0;
         respond(503, null, null);
@@ -305,9 +306,15 @@ class AppearanceApiClientTest {
         return client("http://127.0.0.1:" + server.getAddress().getPort());
     }
 
+    // 읽기 timeout은 시간 초과를 시험할 때만 짧게 둔다. 모든 요청에 300ms를 두면 CI 러너에서 클래스의 첫 요청(가짜 서버·클라이언트 클래스 로딩)이
+    // 넘겨 Read timed out으로 흔들린다(#559, 2026-11-02 AppearanceApiClientTest).
     private static AppearanceApiClient client(String baseUrl) {
+        return client(baseUrl, Duration.ofSeconds(5));
+    }
+
+    private static AppearanceApiClient client(String baseUrl, Duration readTimeout) {
         return new AppearanceApiClient(RestClient.builder(),
-                new AppearanceClientProperties(baseUrl, Duration.ofMillis(500), Duration.ofMillis(300)), API_KEY);
+                new AppearanceClientProperties(baseUrl, Duration.ofMillis(500), readTimeout), API_KEY);
     }
 
     private static void sleep(long millis) {
