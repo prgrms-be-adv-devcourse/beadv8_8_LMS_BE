@@ -22,6 +22,7 @@ public class SwaggerConfig {
               (refresh token 쿠키가 자동으로 붙는다). 응답의 `data.accessToken`을 Authorize의 `bearerAuth`에 넣는다.
               access token은 15분 뒤 만료되니 다시 refresh한다. 만료된 토큰이 남아 있으면 로그인이 필요 없는 API도 401이므로 Logout으로 지운다.
             - 로컬: Gateway가 없으므로 Authorize에 `X-User-Id`·`X-User-Role` 값을 넣는다. 예: `1`, `USER`.
+              토큰 흐름을 확인하려면 초기 계정(관리자·인플루언서·인증된 인플루언서, #520)으로 `POST /api/v1/members/login`한다.
 
             로그아웃: `POST /api/v1/members/auth/logout`. 내부 API(`/api/v1/internal/**`)는 앱끼리만 부르며, 외부에서 호출하면 404다.
             """;

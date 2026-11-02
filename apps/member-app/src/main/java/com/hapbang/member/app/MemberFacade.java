@@ -29,6 +29,7 @@ import lombok.RequiredArgsConstructor;
 public class MemberFacade {
 
     private final MemberOAuthLoginUseCase memberOAuthLoginUseCase;
+    private final MemberSeedAccountUseCase memberSeedAccountUseCase;
     private final MemberUpdateProfileUseCase memberUpdateProfileUseCase;
     private final MemberSupport memberSupport;
     private final MemberChzzkUseCase memberChzzkUseCase;
@@ -58,6 +59,12 @@ public class MemberFacade {
     /** 채널 팔로워 수 일일 갱신 (배치용, 묶음마다 트랜잭션을 UseCase가 직접 연다) */
     public FollowerRefreshResult refreshFollowerCounts() {
         return memberFollowerRefreshUseCase.refreshAll();
+    }
+
+    /** 역할별 초기 계정 만들기 (#520, 이미 있으면 건너뜀) */
+    @Transactional
+    public void createSeedAccounts() {
+        memberSeedAccountUseCase.createAll();
     }
 
     /** 내 정보 수정 */

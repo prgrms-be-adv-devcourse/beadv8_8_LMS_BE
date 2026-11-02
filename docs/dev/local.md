@@ -27,10 +27,11 @@
 
 - **앱 하나만 확인**: 앱 포트로 두 헤더를 직접 넣는다. 예: `curl -H 'X-User-Id: 1' -H 'X-User-Role: USER' localhost:8083/api/v1/appearances/...`. 로컬 Swagger(`/api/v1/<모듈>/swagger-ui.html`)의 Authorize도 이 두 헤더를 넣으므로 앱 포트로 연다. 로컬 Envoy를 거치면 헤더가 지워진다. 역할은 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`·`ADMIN` 중 하나다.
 - **토큰 흐름·프론트 연동**: 로컬 Envoy(`localhost:8000`, `ENVOY_PORT`로 바꿈)를 거친다. Envoy가 운영 Gateway처럼 토큰을 검증하고 헤더를 만든다. 외부에서 붙인 `X-User-*`는 지운다. 프론트 dev server는 `/api`를 이 주소로 보낸다.
-  1. 로그인: `POST /api/v1/members/login`(이메일·비밀번호). refresh token이 쿠키(`Path=/api/v1/members/auth`)로 온다. 계정은 가입(`POST /api/v1/members/signup`)해서 쓴다.
+  1. 로그인: `POST /api/v1/members/login`(이메일·비밀번호). refresh token이 쿠키(`Path=/api/v1/members/auth`)로 온다. 유저는 가입(`POST /api/v1/members/signup`)해서 쓰고, 다른 역할은 아래 초기 계정을 쓴다.
   2. 재발급: refresh token 쿠키를 실어 `POST /api/v1/members/auth/refresh`. 본문 `data.accessToken`이 access token이다.
   3. 호출: `Authorization: Bearer <access token>`. 토큰은 이 헤더에서만 읽는다(query `access_token`은 받지 않는다).
 
+- member는 시작할 때 역할별 초기 계정을 하나씩 만든다(#520, local·운영 모두, 이미 있으면 건너뜀): `influencer@hapbang.local`(인플루언서), `verified-influencer@hapbang.local`(인증된 인플루언서), `admin@hapbang.local`(관리자). 비밀번호는 `MemberSeedAccountUseCase`에 있다. 공개 레포라 운영에서도 누구나 이 계정으로 로그인할 수 있다(HP·결제가 테스트라 받아들임). 관리자는 관리자 생성 API(`POST /api/v1/members/admin/accounts`)로 더 만든다.
 - 사용자 헤더로 인증하는 앱은 지금 member·appearance다. 나머지 앱은 #371 전까지 세션 설정이라 로그인이 필요한 API를 인증하지 못한다. 이 앱들의 POST는 CSRF 검사를 받는다(GET으로 받은 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로).
 - 로컬 member는 `JWT_PRIVATE_KEY`가 없으면 시작할 때마다 임시 서명 키를 만든다. 재시작하면 이전 access token은 401이다. refresh로 다시 받으면 Envoy가 5초 안에 새 공개 키를 받아 통한다. 재시작해도 access token을 유지하려면 `JWT_PRIVATE_KEY`를 넣는다(형식은 [k8s.md](../deploy/k8s.md)의 `JWT_PRIVATE_KEY`).
 - Envoy는 각 앱의 기본 포트(8081~8086)로 보낸다. `SERVER_PORT`를 바꾼 앱은 Envoy 경유로 503이다. Envoy가 하는 일과 운영과 다른 점은 [로컬 Envoy](../deploy/gateway.md#로컬-envoy-508)에 있다.
