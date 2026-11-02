@@ -42,7 +42,7 @@
 | 경로 | 책임 |
 | --- | --- |
 | `k8s/gateway/install/envoy-gateway` | 공식 HelmChart v1.9.3, controller medium 128Mi, Gateway API·Envoy CRD |
-| `k8s/gateway/install/cert-manager` | 공식 HelmChart v1.21.3, medium의 controller·cainjector 각 128Mi, webhook 50Mi |
+| `k8s/gateway/install/cert-manager` | 공식 HelmChart v1.21.3, large의 controller·cainjector 각 128Mi, webhook 50Mi(#532에서 medium에서 옮김) |
 | `k8s/gateway/overlays/local` | `hapbang.local`, 로컬 self-signed TLS, trace sampling 100% |
 | `k8s/gateway/overlays/prod` | 운영 호스트(`hapbang.duckdns.org`)·Grafana 주소, Let's Encrypt staging·production issuer(연락 이메일 없음), sampling 10%. 운영과 같은 값이라 그대로 적용한다 |
 | `apps/<앱>/k8s/base/gateway.yaml` | 모듈 HTTPRoute·optional JWT·본문 제한·업로드·WebSocket |
@@ -84,10 +84,10 @@ Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractF
 - WebSocket은 별도 route에서 전체 timeout을 해제하고 stream idle 5분을 둔다. STOMP heartbeat·CONNECT JWT는 #371에서 처리한다.
 - 알 수 없는 `/api/**`, actuator, 루트의 Swagger·api-docs(`/swagger-ui`, `/v3/api-docs`)는 앱/React backend로 보내지 않고 404다. Swagger는 앱의 모듈 경로 아래에서 그 앱의 route로 연다(#498). 인증된 API도 실제 앱의 인가·권한 검사가 필요하다.
 - `/grafana`는 `/grafana/`로 redirect한다. prefix는 지우지 않는다. Grafana `root_url`, `serve_from_sub_path`, Secure cookie를 설정한다. admin 자격 증명은 기존 chart Secret을 사용하고 레포·로그에 남기지 않는다.
-- Grafana는 320Mi 한도에서 subpath 변경 후 기동 시 높은 CPU·probe timeout이 관찰되어 384Mi와 `GOMAXPROCS=2`를 적용했다. 이 64Mi 증가는 #343의 medium 목표 예산 조정에 포함한다.
+- Grafana는 320Mi 한도에서 subpath 변경 후 기동 시 높은 CPU·probe timeout이 관찰되어 384Mi와 `GOMAXPROCS=2`를 적용했다. 운영 3일 최대 working set이 374Mi(97%)라 448Mi로 올렸다(#532). 이 64Mi 증가는 #343의 medium 목표 예산 조정에 포함한다.
 - Grafana는 SQLite PVC를 공유하는 새·옛 pod가 함께 뜨지 않도록 `Recreate`로 갱신한다. probe는 `/grafana/api/health`, startup은 최대 5분을 기다린다. 로그인 화면·정적 자원은 익명에게 제공되고 dashboard·데이터 API는 로그인이 필요하다.
 - Kafka UI(Redpanda Console)는 `/kafka/`에서 Envoy Basic Auth(`SecurityPolicy` basicAuth, SHA htpasswd)로 연다. Console 무료판에는 로그인이 없기 때문이다. 인증이 없으면 401과 `WWW-Authenticate: Basic`을 돌려줘 브라우저 로그인 창이 뜬다. route가 `X-Forwarded-Prefix: /kafka`를 넣어 Console이 하위 경로로 동작한다. 계정은 `admin` 하나이고 prod 비밀번호는 만든 사람의 `~/.hapbang/kafka-ui-password`에만 있어 팀 비밀 보관소로 공유한다. 바꿀 때는 새 비밀번호의 SHA htpasswd를 kubeseal로 다시 봉인해 `overlays/prod/kafka-ui-basic-auth.yaml`을 바꾼다. Basic Auth에는 로그아웃·시도 횟수 제한·사용자 구분이 없다. prod에서 이 경로로 토픽을 만들면 HTTP 405로 실패한다(2026-10-30, #484). Console에 직접 보낸 생성 요청은 405가 아니어서 Gateway 경로 쪽 원인으로 보이며, 그동안 쓰기는 port-forward로 한다([관측성 접속](k8s.md#관측성-접속)).
-- Tempo는 trace 수신·조회 부하에서 기존 64Mi로 OOMKilled되어 128Mi·GOMEMLIMIT=112MiB·GOMAXPROCS=2를 적용한다. 이 조정과 Grafana 증가분, Envoy 종료 sidecar 32Mi를 [예산 표](../architecture/infrastructure/k3s.md)에 반영한다.
+- Tempo는 trace 수신·조회 부하에서 기존 64Mi로 OOMKilled되어 128Mi·GOMEMLIMIT=112MiB·GOMAXPROCS=2를 적용했다. 운영 3일 최대 working set이 115Mi(90%)라 160Mi·GOMEMLIMIT=136MiB로 올렸다(#532). Envoy proxy는 운영 최대 24Mi라 256Mi에서 128Mi로 낮췄다(#532). 이 조정과 Grafana 증가분, Envoy 종료 sidecar 32Mi를 [예산 표](../architecture/infrastructure/k3s.md)에 반영한다.
 - Envoy JSON access log는 query·본문·Authorization·쿠키를 기록하지 않는다. W3C trace를 Alloy OTLP 4317 → Tempo 4317로 전송한다. dashboard·앱 전체 계측·알림은 #343이다.
 - platform(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)에는 ingress NetworkPolicy를 두지 않는다. 외부에서는 닿지 않고, 막아 주는 경우는 cluster 안 pod가 먼저 뚫린 상황뿐이라 실서비스가 아닌 이 규모에서는 감수한다. 인증이 없는 Kafka·Redis도 같다. 앱 이름 허용 목록은 앱을 더할 때마다 고쳐야 하고 빠뜨려도 CI가 잡지 못한다(#374). `deny-metadata-egress`는 namespace의 모든 pod에 적용되므로 이 구성 요소들도 IMDS egress는 막힌다. k3s(kube-router)는 새 pod에 규칙을 거는 데 몇 초가 걸려 그동안은 IMDS가 막히지 않는다(EC2 실측, #374). metadata egress는 S3를 쓰는 member·appearance·lecture에만 허용한다. node 자체나 hostNetwork pod는 일반 NetworkPolicy의 신뢰 경계 밖이다.
 

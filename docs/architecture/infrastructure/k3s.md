@@ -17,7 +17,7 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 
 ## EC2 2노드 자원 예산
 
-아래 예산은 cgroup limit 기준의 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. EC2에는 prod 한 벌만 둔다. 모듈 앱은 8개이고 앱마다 replica 1개다. 앱은 두 node에 네 개씩 나누고, stateful workload는 large에 고정한다. Envoy·cert-manager·ECK operator 값은 차트 기본값을 낮춘 추정값이라 설치 뒤 다시 잰다.
+아래 예산은 cgroup limit 기준의 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. EC2에는 prod 한 벌만 둔다. 모듈 앱은 8개이고 앱마다 replica 1개다. 앱은 large에 네 개, medium에 세 개를 두고 notification-app의 위치는 만들 때 정한다(#532). stateful workload는 large에 고정한다. Envoy·cert-manager·ECK operator 값은 차트 기본값을 낮춘 추정값이라 설치 뒤 다시 잰다.
 
 | t3.large `core-data` | 예산 |
 | --- | ---: |
@@ -28,26 +28,31 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | Redis | 64 MiB |
 | Elasticsearch | 1,536 MiB |
 | 모듈 앱 4개: member·appearance 2개 × 512 MiB(#480·#504) + billing·search 2개 × 448 MiB | 1,920 MiB |
-| Envoy proxy + shutdown-manager (#372) | 288 MiB |
-| **합계** | **7,276 MiB** |
+| Envoy proxy 128 + shutdown-manager 32 (#372, #532 운영 최대 24·21 MiB) | 160 MiB |
+| cert-manager (controller 128·webhook 50·cainjector 128, #372). #532에서 medium에서 옮겼다 | 306 MiB |
+| Sealed Secrets controller (#373). #532에서 medium에서 옮겼다 | 64 MiB |
+| **합계** | **7,518 MiB** |
 
-사용 가능 메모리를 약 7.6 GiB로 보면 약 0.49 GiB(506 MiB)가 남는다. 이 여유는 rolling surge pod 1개(최대 512 MiB)와 거의 같아, filesystem cache와 오차에 쓸 몫이 없다(#504). 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
+사용 가능 메모리를 약 7.6 GiB로 보면 약 0.26 GiB(264 MiB)가 남는다(#532 전 506 MiB). 아직 만들지 않은 search-app(448 MiB)을 빼면 약 0.7 GiB(712 MiB)가 남아 rolling surge pod 1개(최대 512 MiB)를 받는다. search-app을 만들 때는 surge 여유가 없으므로 이 표를 다시 맞춘다. 2026-11-02 운영 3일 최대 working set은 Elasticsearch 1,273·Kafka 488·appearance 452·member 443·PostgreSQL 144 MiB다. 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
 
 | t3.medium `app-observe` | 예산 |
 | --- | ---: |
 | OS | 350 MiB |
 | k3s agent + containerd | 400 MiB |
-| 모듈 앱 4개: lecture 640 MiB(#461·#480 실측), customer-support 448 MiB(#527 운영 실측), chat·notification × 384 MiB | 1,856 MiB |
+| 모듈 앱 3개: lecture 640 MiB(#461·#480 실측), customer-support 448 MiB(#527 운영 실측), chat 384 MiB | 1,472 MiB |
+| notification-app | 미정 (아래) |
 | Envoy Gateway controller | 128 MiB |
-| ECK operator | 256 MiB |
-| cert-manager (controller 128·webhook 50·cainjector 128, #372) | 306 MiB |
-| Sealed Secrets controller (#373) | 64 MiB |
+| ECK operator (#532 운영 최대 48 MiB) | 128 MiB |
 | React 정적 서버 | 64 MiB |
-| Prometheus 416(server 384·reload 32)·Loki 256·Tempo 128·Grafana 384·Alloy 192(alloy 160·reloader 32) (#372 override·#480 포함) | 1,376 MiB |
+| Prometheus 416(server 384·reload 32)·Loki 256·Tempo 160·Grafana 448·Alloy 192(alloy 160·reloader 32) (#372 override·#480·#532 포함) | 1,472 MiB |
 | Kafka UI(Redpanda Console, 로컬 실측 35~42 MiB, #374) | 128 MiB |
-| **합계** | **4,928 MiB** |
+| **합계** | **4,142 MiB** |
 
-사용 가능 메모리를 약 3.7 GiB로 보면 **약 1.1 GiB가 넘친다**(customer-support-app 448 MiB 반영 전 약 1 GiB, lecture-app 640 MiB 반영 전 약 0.6 GiB, #480 관측성 limit 상향 전 약 0.85 GiB). 2026-11-02 운영 customer-support-app은 384Mi limit에서 기동 5분 뒤 RSS 353Mi(92%)였다(#527). 관측성은 처음 600 MiB로 잡았지만 로컬 k3d idle 실측(#373)에서 Grafana 13(258 MiB)과 차트 기본 scrape의 Prometheus(292 MiB)가 그 limit에서 OOMKilled되어 실측에 여유를 더한 값으로 올렸다. #372 로컬 검증에서 Grafana는 384Mi·GOMAXPROCS=2, trace 수신·조회 중 OOMKilled된 Tempo는 128Mi·GOMEMLIMIT=112MiB로 조정했다. 2026-10-30 로컬 cert-manager의 controller 반복 종료와 cainjector OOMKilled를 확인해 각각 50Mi에서 128Mi로 올렸다. Envoy 종료 sidecar 32Mi도 large 예산에 포함한다. 현재 앱 3개는 replicas 0이고 notification-app은 없어 로컬 기동 결과를 목표 8개 앱 전체 예산 충족으로 해석하지 않는다. EC2 전환과 나머지 앱 활성화 전에 Prometheus scrape 범위와 보존 한도 등을 줄여 다시 맞춘다(#343). surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루는 chat-app과 같은 node에 둔다. 관측성에는 별도 backend를 추가하지 않는다.
+사용 가능 메모리를 약 3.7 GiB로 보면 limit 기준으로 **약 0.35 GiB가 넘친다**. #532에서 운영 3일 최대 working set으로 다시 맞췄다. ECK operator(최대 48 MiB)를 256→128 MiB로 줄이고, limit에 붙은 Grafana(최대 374 MiB, 97%)와 Tempo(최대 115 MiB, 90%)를 448·160 MiB로 올리고, cert-manager와 Sealed Secrets를 large로 옮겨 약 1.1 GiB에서 줄었다. 넘치는 만큼은 모든 pod가 동시에 limit까지 쓸 때만 문제가 된다. 2026-11-02 운영 실측으로는 OS·k3s agent가 약 610 MiB, pod 최대 working set 합계가 chat-app(customer-support와 비슷한 약 360 MiB로 가정)을 더해 약 2.6 GiB라 약 0.6 GiB가 남는다. 스케줄러가 보는 요청 합계는 chat-app을 448 MiB로 올려도 할당 가능 3,832 MiB의 약 88%(3,392 MiB)다. 이전 값: customer-support-app 448 MiB 반영 전 약 1 GiB, lecture-app 640 MiB 반영 전 약 0.6 GiB, #480 관측성 limit 상향 전 약 0.85 GiB. 2026-11-02 운영 customer-support-app은 384Mi limit에서 기동 5분 뒤 RSS 353Mi(92%)였다(#527).
+
+관측성은 처음 600 MiB로 잡았지만 로컬 k3d idle 실측(#373)에서 Grafana 13(258 MiB)과 차트 기본 scrape의 Prometheus(292 MiB)가 그 limit에서 OOMKilled되어 실측에 여유를 더한 값으로 올렸다. #372 로컬 검증에서 Grafana는 384Mi·GOMAXPROCS=2, trace 수신·조회 중 OOMKilled된 Tempo는 128Mi·GOMEMLIMIT=112MiB로 조정했다. 2026-10-30 로컬 cert-manager의 controller 반복 종료와 cainjector OOMKilled를 확인해 각각 50Mi에서 128Mi로 올렸다. Envoy 종료 sidecar 32Mi도 large 예산에 포함한다. 현재 앱 3개는 replicas 0이고 notification-app은 없어 로컬 기동 결과를 목표 8개 앱 전체 예산 충족으로 해석하지 않는다. EC2 전환과 나머지 앱 활성화 전에 Prometheus scrape 범위와 보존 한도 등을 줄여 다시 맞춘다(#343). surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루므로 chat-app과 같은 node가 기본이지만, 위치는 아래처럼 만들 때 정한다. 관측성에는 별도 backend를 추가하지 않는다.
+
+**notification-app (미정, #532)**: 목표 8개 앱 중 하나(384 MiB 추정)이고 아직 없다. medium에 넣으면 요청 합계가 약 98.5%(chat 448 MiB 기준 3,776 MiB)이고, large에 넣으면 rolling surge 여유가 없다. 만들 때 chat-app에 합칠지, JVM 메모리 튜닝(GC·metaspace·스레드 스택)으로 앱 limit을 줄여 자리를 만들지 정한다. 그 전까지 예산 표에 넣지 않는다.
 
 #480에서 member·lecture 지표와 pod log 수집을 붙이며 로컬 k3d에서 다음 limit을 정했다. 부하 없이 잰 값이다.
 
@@ -194,7 +199,7 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 - 모듈 앱 8개(`member-app`, `billing-app`, `appearance-app`, `lecture-app`, `chat-app`, `customer-support-app`, `notification-app`, `search-app`): 앱마다 Deployment 1개, replica 1개. node 배치는 위 자원 예산 표를 따른다.
 - React 정적 서버: FE 레포의 이미지를 그대로 pod로 띄운다. 이미지 안의 정적 서버도 nginx에서 static-web-server로 바꾼다(prgrms-be-adv-devcourse/beadv8_8_LMS_FE#126).
 - PostgreSQL, Kafka, Redis, Elasticsearch: StatefulSet과 large의 local-path volume. `core-data` required node affinity를 사용하며 medium으로 volume이 이동한다고 가정하지 않는다.
-- Envoy Gateway: proxy는 large, controller는 medium. cert-manager와 ECK operator는 medium.
+- Envoy Gateway: proxy는 large, controller는 medium. ECK operator는 medium, cert-manager와 Sealed Secrets controller는 large(#532, medium 메모리 예산 때문에 옮겼다).
 - observability stack: `hapbang-platform` namespace에서 prod를 관측한다. 로컬·PR k3d 결과는 테스트 artifact로 남긴다.
 
 replica가 1개라서 large의 앱은 새 pod가 ready가 된 뒤 기존 pod를 내리는 `maxSurge: 1`, `maxUnavailable: 0`으로 배포한다. medium의 앱은 surge 여유가 없어 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 잠깐 멈추는 것을 허용한다. `maxSurge`를 생략하면 기본값 25%가 1로 올림되어 surge pod가 생기므로 반드시 0으로 적는다. node가 멈추면 그 node의 앱은 node가 다시 뜰 때까지 멈춘다. 앱별 replica를 늘리는 것은 시연할 때만 하고, 그 전에 node 여유를 확인한다.
