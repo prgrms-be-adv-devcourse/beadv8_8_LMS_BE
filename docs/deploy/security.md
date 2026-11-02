@@ -41,7 +41,7 @@
 | `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |
 | BE 이미지 빌드 컨텍스트는 jar 폴더뿐 | 이미지에는 `app.jar`만 들어간다. 소스·`.env`가 들어갈 수 없음 |
 | CI(PR) 읽기 전용 권한 | PR 코드가 실행되는 job은 GHCR에 쓸 수 없음. Actions에서 push는 Publish and deploy의 `build` job만 |
-| 운영 배포 검사 | Deploy는 Environment `prod`(`dev`만)에서 실행되고, 테스트를 통과해 GHCR에 이미지가 있는 커밋만 배포된다. 자동 배포는 dev 최신 커밋만 배포한다 |
+| 운영 배포 검사 | Deploy는 Environment `prod`(`dev`만)에서 실행되고, GHCR에 이미지가 있는 커밋만 배포한다. 자동 배포는 dev 최신 커밋만 배포한다. Actions가 올린 이미지는 CI 테스트를 통과한 jar지만, 발행은 이미지가 이미 있으면 그 앱을 다시 테스트하지 않는다. #559 전에 사람이 올린 이미지([릴리스 전 배포](k8s.md#릴리스-전-배포))는 로컬 테스트만 거쳤다 |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
 | k3s 배포 role의 trust를 Environment `prod`로 제한 | 다른 브랜치·PR의 workflow는 role을 받지 못한다. `prod`는 `dev` 브랜치만 허용(#559 전에는 `main`) |
 | `hapbang-prod` Pod Security `baseline`(EC2 적용 2026-10-30) | 리뷰를 거쳐 배포되는 manifest가 privileged·hostNetwork·hostPath pod를 만들지 못한다. 그런 pod는 node root·IMDS(인스턴스 역할)에 닿는다. 배포 role 자체의 root 권한은 막지 못한다(아래 알려진 위험) |

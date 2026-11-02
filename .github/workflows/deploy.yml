@@ -53,10 +53,14 @@ jobs:
     environment: prod
     timeout-minutes: 90
     # 운영 배포는 한 번에 하나씩 순서대로 실행한다. 자동(publish.yml)과 수동 실행이 같은 group을 쓴다.
-    # 호출된 workflow에서도 적용되도록 job에 둔다. 기다리는 run이 있을 때 새 run이 오면 기다리던 run은 취소된다(새 run이 더 최신이다).
+    # 호출된 workflow에서도 적용되도록 job에 둔다.
+    # queue: max로 기다리는 run을 취소하지 않고 들어온 순서대로 실행한다. 기본값(single)은 기다리던 run을 새 run으로 바꾸는데,
+    # 늦게 끝난 앞 커밋의 run이 dev 최신 run을 밀어내면 최신 커밋이 배포되지 않고, 기다리던 수동 롤백도 조용히 취소된다.
+    # 앞 커밋의 run은 차례가 와도 dev 최신이 아니라 바로 건너뛴다(커밋 확인).
     concurrency:
       group: deploy-k3s-prod
       cancel-in-progress: false
+      queue: max
     permissions:
       contents: read
       # 러너에서 이미지가 GHCR에 있는지 확인한다(node의 pull 인증과 별개).
