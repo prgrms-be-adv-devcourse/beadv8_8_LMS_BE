@@ -184,7 +184,7 @@ dev push → Publish and deploy(publish.yml)
 - **발행할 앱**: 이번 push에서 바뀐 앱은 태그가 새 커밋이라 항상 발행한다. 앞 run이 실패했거나 아직 발행 중이라 이미지가 없는 앱도 다시 발행하므로, run이 성공하면 그 커밋의 모든 앱 이미지가 GHCR에 있다. 연달아 병합하면 두 run이 같은 태그를 함께 올릴 수 있지만, 같은 앱 내용을 테스트한 jar라 어느 쪽이 남아도 같다.
 - **dev 최신만 배포**: 배포 job은 자동·수동 모두 한 번에 하나씩 돈다(concurrency `deploy-k3s-prod`). 자동 배포는 차례가 왔을 때 dev 최신 커밋이 아니면 건너뛴다. 늦게 끝난 앞 run이 뒤 커밋의 배포를 되돌리지 않게 하기 위해서다. 그래서 dev 최신 커밋의 테스트·발행이 실패하면 그 앞 커밋도 배포되지 않는다. 고친 커밋을 병합하거나, 앞 커밋을 `sha`에 넣어 Deploy를 수동으로 실행한다.
 - **서버가 꺼진 시간**: EC2는 09:00~18:00에만 켜져 있다([배포 개요](README.md)). 그 밖에 병합하면 배포 job이 SSM에서 실패한다. 다음 병합의 run이 밀린 앱까지 배포한다. 기다리지 않으려면 서버가 켜진 뒤 Deploy를 입력 없이 실행한다.
-- **수동 실행**: `gh workflow run deploy.yml --ref dev`(입력은 `-f sha=<dev 커밋> -f apps="<앱> <앱>"`). Actions 화면의 "Run workflow" 버튼은 기본 브랜치(main)의 `deploy.yml` 기준으로 보인다. main의 파일은 Compose 시절 것(`workflow_dispatch` 없음)이라 버튼이 없으면 CLI로 실행한다. 최근 run은 `gh run list --workflow publish.yml --limit 3`으로 본다.
+- **수동 실행**: Actions → Deploy → Run workflow(브랜치 dev), 또는 `gh workflow run deploy.yml --ref dev`(입력은 `-f sha=<dev 커밋> -f apps="<앱> <앱>"`). 기본 브랜치가 `dev`라(2026-11-02) 버튼은 dev의 `deploy.yml`을 따른다. 최근 run은 `gh run list --workflow publish.yml --limit 3`으로 본다.
 - **롤백**: Deploy를 `apps`에 앱, `sha`에 되돌릴 dev 커밋을 넣어 실행한다. `rollout undo`는 Deployment만 되돌리고 ConfigMap 외의 리소스(HTTPRoute·Secret 등)는 되돌리지 않는다. 롤백 뒤 다음 dev 병합의 자동 배포는 지금 도는 이미지와 dev 최신을 비교해 그 앱을 다시 올린다. 문제를 고친 커밋을 병합할 때까지 dev 병합을 멈추거나, 되돌리는 커밋(revert)을 병합한다.
   - Deploy는 그 커밋의 overlay 전체를 적용하므로 SealedSecret도 그 커밋 것으로 돌아간다. 비밀번호·내부 API 키를 교체한 커밋보다 이전으로 롤백하면 새로 뜨는 pod가 무효한 자격 증명을 쓴다. 그런 경우 이전 커밋의 SealedSecret을 지금 값으로 다시 봉인한 커밋을 만들어 배포한다.
   - Flyway 마이그레이션은 되돌리지 않는다. 이전 이미지가 지금 스키마에서 동작하는지 먼저 확인한다.
@@ -212,7 +212,7 @@ dev 자동 배포(#559) 전에 쓰던 방식이다. 이제 쓰지 않는다. mai
 
 #559를 dev에 병합하면 첫 Publish and deploy run이 돈다. 사람이 먼저 올린 앱은 태그가 dev 기준 태그와 같으면 발행·배포를 건너뛰고, 그 뒤 바뀐 앱과 billing-app은 발행·배포한다. 배포는 overlay 전체를 적용하므로 지금 route 없이 떠 있는 앱도 배포되는 순간 route가 열린다. 이것을 첫 릴리스로 삼는다(2026-11-02 결정).
 
-1. **병합 전**: Settings → Environments → `prod` → Deployment branches and tags에서 `main`을 지우고 `dev`를 더한다. 바꾸지 않으면 deploy job이 environment 보호 규칙으로 거부된다. `gh api repos/prgrms-be-adv-devcourse/beadv8_8_LMS_BE/environments/prod/deployment-branch-policies --jq '.branch_policies[].name'`이 `dev`만 출력하는지 본다.
+1. **병합 전**(2026-11-02 완료): Settings → Environments → `prod` → Deployment branches and tags에서 `main`을 지우고 `dev`를 더한다. 바꾸지 않으면 deploy job이 environment 보호 규칙으로 거부된다. `gh api repos/prgrms-be-adv-devcourse/beadv8_8_LMS_BE/environments/prod/deployment-branch-policies --jq '.branch_policies[].name'`이 `dev`만 출력하는지 본다. 같은 날 레포 기본 브랜치도 `dev`로 바꿨다.
 2. **병합 전**: 로컬에서 진행 중인 수동 배포가 없는지 팀에 확인한다.
 3. **병합 뒤**: `gh run list --workflow publish.yml --limit 1`의 run을 본다. 요약의 "발행 대상"과 "운영 배포" 표에 앱과 커밋이 나온다.
    - billing-app 패키지는 이 run이 처음 만든다. push가 권한 오류로 실패하면 패키지 설정의 Manage Actions access를 확인한다([릴리스 전 배포](#릴리스-전-배포)).
