@@ -1,0 +1,223 @@
+# 로컬 개발용 Envoy (#508). 운영 Envoy Gateway의 JWT 검증·사용자 헤더 전달을 k3d 없이 재현한다.
+# 호스트에서 실행한 앱(각 앱 application-local.yaml의 포트 8081~8086)으로 보낸다. 사용법은 docs/dev/local.md.
+#
+# 원본은 아래 manifest다. 원본을 바꾸면 이 파일도 같이 고친다(docs/deploy/gateway.md "로컬 Envoy").
+# - k8s/gateway/base/gateway.yaml: ClientTrafficPolicy(위조 헤더 제거·XFF·timeout), api-not-found(404)
+# - apps/*-app/k8s/base/gateway.yaml: HTTPRoute(경로·timeout), SecurityPolicy(JWT), BackendTrafficPolicy(본문 1MiB·WebSocket)
+#
+# 운영과 일부러 다르게 둔 것
+# - TLS·HTTPS redirect·access log·tracing·Grafana·Kafka UI·FE(web) route는 없다. FE는 Vite dev server가 맡는다.
+# - JWKS를 시작할 때 받지 않고(async_fetch 없음) 토큰이 처음 올 때 받는다. member가 늦게 떠도 Envoy가 바로 열려야
+#   spring-boot-docker-compose의 기동 대기가 막히지 않는다.
+# - JWKS 캐시는 5초다(운영 300초). 로컬 member는 재시작마다 임시 서명 키를 만들고, Envoy는 모르는 kid가 와도 다시 받지 않는다.
+admin:
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+
+static_resources:
+  listeners:
+  - name: http
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 8000 }
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress
+          # ClientTrafficPolicy: XFF 신뢰 hop 0. Envoy가 실제 접속 주소를 X-Forwarded-For 오른쪽에 붙인다
+          use_remote_address: true
+          xff_num_trusted_hops: 0
+          # Envoy Gateway 기본값: 경로를 정규화한 뒤 route를 고른다(인코딩한 /api/v1/internal 우회 방지)
+          normalize_path: true
+          merge_slashes: true
+          path_with_escaped_slashes_action: UNESCAPE_AND_REDIRECT
+          # ClientTrafficPolicy timeout: 본문을 받는 시간은 제한하지 않고(대용량 업로드) idle·stream idle 60초
+          request_timeout: 0s
+          stream_idle_timeout: 60s
+          common_http_protocol_options:
+            idle_timeout: 60s
+          # ClientTrafficPolicy earlyRequestHeaders: JWT 검증 전에 외부에서 붙인 사용자 헤더·내부 키·전달 헤더를 지운다
+          early_header_mutation_extensions:
+          - name: envoy.http.early_header_mutation.header_mutation
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.http.early_header_mutation.header_mutation.v3.HeaderMutation
+              mutations:
+              - remove: x-user-id
+              - remove: x-user-role
+              - remove: x-internal-api-key
+              - remove: x-forwarded-host
+              - remove: x-forwarded-proto
+              - remove: forwarded
+          # WebSocket은 chat WebSocket route에서만 켠다
+          upgrade_configs:
+          - upgrade_type: websocket
+            enabled: false
+          route_config:
+            name: api
+            virtual_hosts:
+            - name: api
+              domains: ["*"]
+              routes:
+              # 파일 본문 업로드(PUT): timeout 30분, 본문 제한 없음
+              - match:
+                  safe_regex: { regex: "^/api/v1/members/files/[0-9]+/content$" }
+                  headers:
+                  - name: ":method"
+                    string_match: { exact: PUT }
+                route: { cluster: member-app, timeout: 1800s }
+                typed_per_filter_config: &jwt-unbuffered
+                  envoy.filters.http.jwt_authn:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.PerRouteConfig
+                    requirement_name: member-optional
+                  envoy.filters.http.buffer:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.buffer.v3.BufferPerRoute
+                    disabled: true
+              - match:
+                  safe_regex: { regex: "^/api/v1/appearances/files/[0-9]+/content$" }
+                  headers:
+                  - name: ":method"
+                    string_match: { exact: PUT }
+                route: { cluster: appearance-app, timeout: 1800s }
+                typed_per_filter_config: *jwt-unbuffered
+              - match:
+                  safe_regex: { regex: "^/api/v1/lectures/files/[0-9]+/content$" }
+                  headers:
+                  - name: ":method"
+                    string_match: { exact: PUT }
+                route: { cluster: lecture-app, timeout: 1800s }
+                typed_per_filter_config: *jwt-unbuffered
+              # chat WebSocket: 전체 timeout 해제, stream idle 5분, 본문 제한 없음
+              - match: { path_separated_prefix: /api/v1/chats/ws }
+                route:
+                  cluster: chat-app
+                  timeout: 0s
+                  idle_timeout: 300s
+                  upgrade_configs:
+                  - upgrade_type: websocket
+                    enabled: true
+                typed_per_filter_config: *jwt-unbuffered
+              # 업무 API: timeout 30초, 본문 1MiB(아래 buffer filter)
+              - match: { path_separated_prefix: /api/v1/members }
+                route: { cluster: member-app, timeout: 30s }
+                typed_per_filter_config: &jwt
+                  envoy.filters.http.jwt_authn:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.PerRouteConfig
+                    requirement_name: member-optional
+              - match: { path_separated_prefix: /api/v1/wallets }
+                route: { cluster: billing-app, timeout: 30s }
+                typed_per_filter_config: *jwt
+              - match: { path_separated_prefix: /api/v1/settlements }
+                route: { cluster: billing-app, timeout: 30s }
+                typed_per_filter_config: *jwt
+              - match: { path_separated_prefix: /api/v1/appearances }
+                route: { cluster: appearance-app, timeout: 30s }
+                typed_per_filter_config: *jwt
+              - match: { path_separated_prefix: /api/v1/lectures }
+                route: { cluster: lecture-app, timeout: 30s }
+                typed_per_filter_config: *jwt
+              - match: { path_separated_prefix: /api/v1/chats }
+                route: { cluster: chat-app, timeout: 30s }
+                typed_per_filter_config: *jwt
+              - match: { path_separated_prefix: /api/v1/inquiries }
+                route: { cluster: customer-support-app, timeout: 30s }
+                typed_per_filter_config: *jwt
+              # 나머지는 404다. 운영의 api-not-found(/api·/actuator·/swagger-ui·/v3/api-docs)와 같고
+              # 내부 API(/api/v1/internal/**)도 여기서 막힌다. 운영의 FE(/) 자리도 로컬에서는 404다.
+              - match: { prefix: / }
+                direct_response: { status: 404 }
+          http_filters:
+          # SecurityPolicy jwt: optional(토큰이 없으면 통과, 잘못된 토큰은 401), 토큰은 Authorization: Bearer에서만 읽는다
+          - name: envoy.filters.http.jwt_authn
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+              providers:
+                member:
+                  # member-app 기본 issuer(application.yaml의 hapbang.jwt.issuer), base SecurityPolicy와 같다
+                  issuer: https://gateway.invalid
+                  remote_jwks:
+                    http_uri:
+                      uri: http://host.docker.internal:8081/api/v1/members/.well-known/jwks.json
+                      cluster: member-app
+                      timeout: 10s
+                    cache_duration: 5s
+                  from_headers:
+                  - name: Authorization
+                    value_prefix: "Bearer "
+                  # 운영(Envoy Gateway)과 같이 검증한 토큰을 앱에 그대로 넘긴다
+                  forward: true
+                  claim_to_headers:
+                  - header_name: X-User-Id
+                    claim_name: sub
+                  - header_name: X-User-Role
+                    claim_name: role
+              requirement_map:
+                member-optional:
+                  requires_any:
+                    requirements:
+                    - provider_name: member
+                    - allow_missing: {}
+          # BackendTrafficPolicy requestBuffer: 업무 API 본문 1MiB 상한(넘으면 413). 업로드·WebSocket route는 끈다
+          - name: envoy.filters.http.buffer
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.buffer.v3.Buffer
+              max_request_bytes: 1048576
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  - name: member-app
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: member-app
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: host.docker.internal, port_value: 8081 } } }
+  - name: billing-app
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: billing-app
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: host.docker.internal, port_value: 8082 } } }
+  - name: appearance-app
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: appearance-app
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: host.docker.internal, port_value: 8083 } } }
+  - name: lecture-app
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: lecture-app
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: host.docker.internal, port_value: 8084 } } }
+  - name: chat-app
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: chat-app
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: host.docker.internal, port_value: 8085 } } }
+  - name: customer-support-app
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: customer-support-app
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: host.docker.internal, port_value: 8086 } } }
