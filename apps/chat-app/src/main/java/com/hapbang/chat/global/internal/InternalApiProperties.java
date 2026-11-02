@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 내부 API 설정 (hapbang.internal-api.*).
  *
  * @param key 모듈 간 내부 HTTP API 키. 공개 레포라 서버는 환경 변수(HAPBANG_INTERNAL_API_KEY)로만 받는다.
- *            비어 있으면 앱이 시작하지 않는다 (#300)
+ *            비어 있으면 앱이 시작하지 않는다
  */
 @ConfigurationProperties("hapbang.internal-api")
 record InternalApiProperties(String key) {

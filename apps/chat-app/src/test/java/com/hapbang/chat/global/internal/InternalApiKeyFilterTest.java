@@ -15,7 +15,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.hapbang.shared.internal.InternalApiHeaders;
 
-// 내부 API 키 필터 (#300). 맞는 키만 내부 호출로 인증하고, 실패 로그에는 보낸 키 값을 남기지 않는다.
+// 내부 API 키 필터. 맞는 키만 내부 호출로 인증하고, 실패 로그에는 보낸 키 값을 남기지 않는다.
 @ExtendWith(OutputCaptureExtension.class)
 class InternalApiKeyFilterTest {
 

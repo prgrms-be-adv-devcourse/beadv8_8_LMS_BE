@@ -54,7 +54,9 @@ import lombok.extern.slf4j.Slf4j;
  * 버린 SEND는 결과 미확인으로 남아 같은 {@code clientMessageId}로 다시 보내도 중복 저장되지 않는다. 버린 프레임 수는
  * {@value #REJECTED_METRIC}으로 센다.
  * <p>
- * 인증·경로 검사({@link ChatStompInterceptor})는 줄에 넣기 전 호출 스레드에서 끝난다.
+ * 인증({@link ChatStompAuthInterceptor})과 자격·경로 검사({@link ChatStompInterceptor})는 이 순서로 줄에 넣기 전 호출
+ * 스레드에서 끝난다. 그래서 CONNECT의 회원 결합은 그 연결의 다음 프레임 검사보다 먼저 끝나고, CONNECT 처리(CONNECTED 응답)는
+ * 결합 뒤에 줄에서 돈다.
  * <p>
  * <b>줄의 수명</b>(한 연결에 살아 있는 줄은 언제나 하나, 줄 비우기도 하나):
  * <ul>

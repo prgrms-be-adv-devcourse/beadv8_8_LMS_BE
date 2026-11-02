@@ -22,7 +22,7 @@ public class SwaggerConfig {
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String USER_ROLE_HEADER = "X-User-Role";
 
-    // Authorize 버튼의 인증 방식 (#498). 운영(swagger.yml의 prod)은 Gateway가 access token을 검증하므로 Bearer다.
+    // Authorize 버튼의 인증 방식. 운영(swagger.yml의 prod)은 Gateway가 access token을 검증하므로 Bearer다.
     // 로컬은 토큰을 검증할 Gateway가 없어 Gateway가 넣어 주는 사용자 헤더를 직접 넣는다.
     // 운영에는 헤더 방식을 두지 않는다. Envoy가 외부에서 보낸 X-User-* 헤더를 지운다
     @Bean

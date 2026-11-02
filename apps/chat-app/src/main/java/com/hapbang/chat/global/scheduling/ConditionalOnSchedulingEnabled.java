@@ -9,7 +9,7 @@ import java.lang.annotation.Target;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 /**
- * {@code @Scheduled} 배치 빈은 {@code hapbang.scheduling.enabled=true}일 때만 만든다 (#157).
+ * {@code @Scheduled} 배치 빈은 {@code hapbang.scheduling.enabled=true}일 때만 만든다.
  * <p>
  * spring-modulith-moments가 {@code @EnableScheduling}을 이미 켜 두었기 때문에, 배치 빈이 있으면 테스트에서도 실행된다.
  * 그래서 배치마다 이 애노테이션으로 실행 여부를 정한다. 앱(main {@code application.yaml})에서는 켜고,

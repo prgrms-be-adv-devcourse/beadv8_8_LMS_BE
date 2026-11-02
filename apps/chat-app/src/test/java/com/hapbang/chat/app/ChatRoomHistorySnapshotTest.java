@@ -23,7 +23,7 @@ import com.hapbang.chat.out.ChatRoomLogRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 관리자 기록 조회의 기록 조회와 메시지 조회 사이에 퇴장이 커밋돼도, 한 페이지는 같은 DB 스냅샷을 본다 (#263).
+ * 관리자 기록 조회의 기록 조회와 메시지 조회 사이에 퇴장이 커밋돼도, 한 페이지는 같은 DB 스냅샷을 본다.
  * 다른 스냅샷을 보면 퇴장 안내 메시지만 페이지에 들어가고, 커서가 그 메시지를 지나며 같은 시각의 퇴장 기록이 영구히 빠진다.
  */
 @IntegrationTest

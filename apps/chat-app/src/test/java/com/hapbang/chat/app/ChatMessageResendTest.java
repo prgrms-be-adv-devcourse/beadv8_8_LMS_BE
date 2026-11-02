@@ -23,7 +23,7 @@ import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
- * 같은 전송 ID(clientMessageId)로 다시 보낸 메시지는 한 번만 저장된다 (#261).
+ * 같은 전송 ID(clientMessageId)로 다시 보낸 메시지는 한 번만 저장된다.
  */
 @IntegrationTest
 class ChatMessageResendTest {
@@ -82,7 +82,7 @@ class ChatMessageResendTest {
         assertThat(chatMessageRepository.count()).isEqualTo(1);
     }
 
-    // 재전송 방지는 같은 참여 안에서만 적용한다 (#311)
+    // 재전송 방지는 같은 참여 안에서만 적용한다
     @Test
     void 나갔다가_재입장한_뒤_옛_전송_ID로_보내면_새_메시지로_저장하고_상대에게_알린다() {
         SentChatMessage beforeLeave = chatMessageUseCase.send(chatRoomId, HOST_ID, "나가기 전", "client-1");
