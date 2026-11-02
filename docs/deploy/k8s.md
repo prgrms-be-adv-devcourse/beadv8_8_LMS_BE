@@ -242,6 +242,35 @@ dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461
 - 2026-11-02 기록: lecture-app과 customer-support-app을 dev `e85ae26f`(#525, 이의 제기 연동)로 이 방식으로 올렸다. lecture-app은 이미지와 함께 Service를 더 적용했다(고객센터 → 강의 내부 API 8081용, HTTPRoute 없음). customer-support-app은 처음 배포라 NetworkPolicy → ConfigMap·Deployment 순서로 적용했고, 이미지 패키지도 이때 처음 만들었다. Flyway가 강의 `V202611021128`, 고객센터 4개(`V202611021129`까지)를 적용했고, `lecture-app.objection-command`·`customer-support-app.objection-result`가 상대 토픽의 partition 3개씩을 받았다. 레이블을 붙인 임시 pod에서 강의 내부 API가 키 없이 401로 응답해 Service·NetworkPolicy를 확인했다(새 pod는 정책이 붙기까지 몇 초 걸리므로 `sleep 10` 뒤 요청한다). customer-support-app은 384Mi limit에서 기동 5분 뒤 RSS 353Mi라 448Mi로 올렸다(#527).
 - 2026-11-02 기록: chat-app을 dev `6ec33161`로 이 방식(NetworkPolicy → ConfigMap·Deployment)으로 처음 올리고 이미지 패키지도 이때 만들었다(#545). 로컬 `:chat-app:check`는 `ChatPipelineDeliveryE2ETest` 1개가 앞 테스트의 알림을 받아 두 번 다 실패했고 단독 실행은 통과해, 테스트 격리 문제로 보고 진행했다(#547). Flyway가 `chat` 스키마를 만들었고 `chat-app.member-replica`·`chat-app.appearance-notification`이 partition 3개씩을 받았다. 384Mi limit에서는 기동 직후 OOMKilled(5회 재시작)돼 512Mi로 올렸고, 기동 5분 뒤 working set 404Mi, 25분 뒤 430Mi였다. route는 공용 Gateway에 `x-user-token-exp` 헤더 제거(#534)를 먼저 적용한 뒤 Service·SecurityPolicy·BackendTrafficPolicy·HTTPRoute 순서로 열었다. 두 route가 Accepted·ResolvedRefs였고, 외부에서 토큰 없는 요청, 위조한 `X-User-Id`·`X-User-Role` 요청, 티켓 없는 WebSocket 업그레이드는 앱의 401로, 잘못된 Bearer는 Envoy의 401로 응답했다. 최소 배포 뒤 512Mi를 반영한 overlay와 운영의 diff는 없다.
 
+### billing-app 첫 배포 (#552)
+
+billing-app은 처음 뜰 때 기존 회원의 지갑 회원(회원 복제본)과 지갑이 없다. `member.events.v1`은 72시간만 보존되므로(`KAFKA_LOG_RETENTION_HOURS`) 그보다 먼저 가입한 회원의 가입 이벤트는 이미 없다. 이 상태로 route를 열면 기존 회원의 충전·환불·환전 신청이 404 `WALLET_MEMBER_NOT_FOUND`(#537)이고, 지갑이 없는 회원의 충전 주문과 강의·출연의 보류·지급이 `WALLET_NOT_FOUND`다. 그래서 route를 열기 전에 회원 Backfill을 실행한다. Backfill은 지갑 회원을 반영하면서 관리자가 아닌 회원의 지갑도 만든다(BD-132).
+
+데이터 이관은 없다. Compose 운영 DB는 #440에서 지웠고, Flyway가 빈 `billing` database에 스키마를 처음부터 만든다([AWS k3s](aws-k3s.md#전환-순서) 9항).
+
+1. **최소 배포**: [릴리스 전 배포](#릴리스-전-배포) 5단계의 NetworkPolicy → ConfigMap·Deployment 순서로 올린다. Service·HTTPRoute는 아직 적용하지 않는다.
+2. **기동 확인**: Flyway가 `billing` 스키마를 만들었는지, 소비 그룹 `billing-app.member-replica`·`billing-app.wallet-creation`이 `member.events.v1`의 partition 3개씩을 받는지 본다. RSS도 확인한다. Prometheus 지표와 관리 포트로 메모리가 늘 수 있다([관측성](../architecture/infrastructure/observability.md)).
+3. **회원 Backfill**: 관리자 API도 Gateway route 뒤에 있으므로, route를 열기 전에는 port-forward로 외부 API 포트(8080)에 직접 붙어 관리자 사용자 헤더를 싣는다. 다른 터미널에서 `kubectl --context hapbang-k3s -n hapbang-prod port-forward deploy/billing-app 18080:8080`을 띄운다.
+
+   ```bash
+   # 관리자 회원 ID는 member-app의 실제 관리자 계정 ID를 쓴다. completed가 true가 될 때까지 nextAfterId를 afterId로 넘겨 반복한다.
+   curl -sS -X POST "http://127.0.0.1:18080/api/v1/settlements/admin/billing-users/backfill?afterId=0&limit=5000" \
+     -H "X-User-Id: <관리자 회원 ID>" -H "X-User-Role: ADMIN"
+   ```
+
+   - 응답의 `failed`가 0이고 `completed`가 true면 끝이다. `walletsEnsured`는 지갑을 확인한(없으면 만든) 관리자가 아닌 회원 수다. 실패가 있으면 처음부터(`afterId=0`) 다시 실행한다. 복제본은 회원 버전 비교로, 지갑은 회원당 1개 UNIQUE로 결과가 같다.
+   - 503 `MEMBER_SOURCE_*`면 응답의 `resumeAfterId`부터 다시 실행한다. member-app 내부 API(8081)와 내부 API 키가 맞는지 확인한다.
+   - port-forward는 NetworkPolicy와 Gateway를 거치지 않아 사용자 헤더를 검증하는 곳이 없다. prod kubeconfig가 있는 사람만 할 수 있고, 끝나면 바로 닫는다. 이 방식은 route를 열기 전 운영 작업에만 쓴다.
+4. **확인**: `billing.billing_user` 행 수가 member-app 회원 수와 같고, `billing.wallet`(MEMBER)이 관리자를 뺀 회원 수와 같은지 본다.
+5. **route 오픈**: billing-app의 Service·SecurityPolicy·BackendTrafficPolicy·HTTPRoute를 적용한다. 그 뒤 appearance-app route를 연다(#504 기록 참고).
+
+- 2026-11-02 로컬 k3d 확인(#552): 개발 PC 메모리(15.8 GiB)로는 [로컬 k3d 검증](#로컬-k3d-검증)의 platform 전체를 올릴 수 없어, 메모리 제한을 뺀 2-node 클러스터(k3s v1.36.5)에 PostgreSQL·Kafka·Redis·Prometheus와 member-app·billing-app만 올렸다. Envoy Gateway CRD가 없어 앱은 NetworkPolicy → ConfigMap·Secret·Service·Deployment만 적용했다.
+  - probe가 관리 포트(8082)에서 통과했다. 라벨 없는 pod에서 billing pod의 8080·8082는 둘 다 시간 초과로 막혔다. Prometheus target `http://<pod>:8082/actuator/prometheus`가 `up`이고 `hikaricp_connections_max`가 10이었다.
+  - billing을 Kafka 리스너를 끈 상태(`SPRING_KAFKA_LISTENER_AUTO_STARTUP=false`)로 띄워 가입 이벤트를 놓친 기존 회원 6명(관리자 1명 포함)을 재현했다. 위 3단계대로 port-forward로 Backfill을 실행해 `scanned 6`·`created 6`·`walletsEnsured 5`·`failed 0`이었고, 지갑 회원 6명·지갑 5개(관리자 제외)가 생겼다. 다시 실행해도 `created 0`·`ignoredStale 6`이고 지갑은 5개 그대로였다.
+  - 리스너를 켜고 다시 띄우자 두 소비 그룹이 partition 3개씩을 받아 이벤트를 끝까지 읽었다(lag 0, ERROR 0). 지갑 회원·지갑 수는 그대로였다. 새 Kafka에서 처음 합류할 때 `NotCoordinatorException` 재시도가 1초쯤 이어졌다(`__consumer_offsets` 생성 중).
+  - billing-app 메모리는 기동 1분과 리스너를 켠 뒤 모두 376~380Mi(limit 448Mi), 재시작 0이었다. 여유가 약 70Mi라 prod에서 RSS를 더 오래 지켜본다.
+  - 로컬 Secret에 Toss 결제 키가 없어 충전 주문은 지갑 회원 확인 전에 503 `CHARGE_UNAVAILABLE`이었다. 지갑 회원 확인은 이 환경에서 따로 보지 않았다(통합 테스트로 검증).
+
 ### 첫 릴리스
 
 main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app(2026-10-30)·appearance-app·customer-support-app·chat-app(2026-11-02)이 있다([릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 다섯 패키지 모두 레포 상속을 켜 두었다. 첫 Publish run에서 이 앱들의 push가 권한 오류로 실패하면 Manage Actions access를 확인한다. 나머지 billing-app은 첫 Publish가 만든다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
