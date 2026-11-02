@@ -22,6 +22,8 @@ import com.hapbang.shared.appearance.domain.AppearanceEarningType;
 import com.hapbang.shared.appearance.dto.AppearanceEarningAmountDto;
 import com.hapbang.shared.appearance.dto.AppearanceEarningPageDto;
 import com.hapbang.shared.appearance.dto.AppearanceEarningSummaryDto;
+import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
+import com.hapbang.shared.appearance.dto.AppearanceReceivedReviewPageDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
 
@@ -219,6 +221,70 @@ class AppearanceApiClientTest {
                     assertThat(e.getReason()).isEqualTo(AppearanceApiCallException.Reason.UNAVAILABLE);
                     assertThat(e.getStatus()).isEqualTo(500);
                     assertThat(e.getCode()).isEqualTo("INTERNAL_ERROR");
+                });
+    }
+
+    @Test
+    void 받은_리뷰_목록은_회원_ID를_경로에_페이지를_쿼리로_보내고_항목을_읽는다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"받은 출연 리뷰 목록을 조회했습니다.","data":{
+                  "content":[{"reviewId":51,"appearanceId":31,"reviewerUserId":3,"revieweeRole":"GUEST",
+                    "rating":4,"content":"준비가 꼼꼼했습니다.","publishedAt":"2026-11-04T01:00:00.123456"},
+                    {"reviewId":50,"appearanceId":30,"reviewerUserId":4,"revieweeRole":"HOST",
+                    "rating":5,"content":null,"publishedAt":"2026-11-03T01:00:00"}],
+                  "page":{"size":20,"number":1,"totalElements":22,"totalPages":2}}}""");
+
+        AppearanceReceivedReviewPageDto page = client().getReceivedReviews(7L, 1, 20);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/appearances/users/7/reviews?page=1&size=20 key=" + API_KEY);
+        assertThat(page.page()).isEqualTo(new AppearanceReceivedReviewPageDto.PageMetadata(20, 1, 22, 2));
+        assertThat(page.content()).hasSize(2);
+        assertThat(page.content().get(0)).satisfies(review -> {
+            assertThat(review.reviewId()).isEqualTo(51L);
+            assertThat(review.appearanceId()).isEqualTo(31L);
+            assertThat(review.reviewerUserId()).isEqualTo(3L);
+            assertThat(review.revieweeRole()).isEqualTo(AppearanceParticipantRole.GUEST);
+            assertThat(review.rating()).isEqualTo(4);
+            assertThat(review.content()).isEqualTo("준비가 꼼꼼했습니다.");
+            // offset 없는 KST 시각 그대로 읽는다
+            assertThat(review.publishedAt()).isEqualTo(LocalDateTime.parse("2026-11-04T01:00:00.123456"));
+        });
+        // 본문이 없는 리뷰는 null이다
+        assertThat(page.content().get(1).content()).isNull();
+        assertThat(page.content().get(1).revieweeRole()).isEqualTo(AppearanceParticipantRole.HOST);
+    }
+
+    @Test
+    void 받은_리뷰_목록의_필수_필드가_빠지거나_모르는_역할이면_호출_불가_예외로_바뀐다() {
+        String page = """
+                {"statusCode":200,"message":"","data":{"content":[%s],
+                 "page":{"size":20,"number":0,"totalElements":1,"totalPages":1}}}""";
+        // 공개 시각 없음 (공개된 리뷰만 오는 계약)
+        respond(200, "application/json", page.formatted("""
+                {"reviewId":51,"appearanceId":31,"reviewerUserId":3,"revieweeRole":"GUEST","rating":4}"""));
+        assertUnavailable(() -> client().getReceivedReviews(7L, 0, 20), 200);
+
+        // 계약에 없는 역할
+        respond(200, "application/json", page.formatted("""
+                {"reviewId":51,"appearanceId":31,"reviewerUserId":3,"revieweeRole":"VIEWER","rating":4,
+                 "publishedAt":"2026-11-04T01:00:00"}"""));
+        assertUnavailable(() -> client().getReceivedReviews(7L, 0, 20), 200);
+
+        respond(200, "application/json", "{\"statusCode\":200,\"message\":\"\",\"data\":{}}");
+        assertUnavailable(() -> client().getReceivedReviews(7L, 0, 20), 200);
+    }
+
+    @Test
+    void 받은_리뷰_목록의_요청_값_오류는_거절_예외다() {
+        respond(400, "application/problem+json", """
+                {"status":400,"detail":"회원 ID는 1 이상이어야 합니다.","code":"INVALID_REQUEST"}""");
+
+        assertThatThrownBy(() -> client().getReceivedReviews(0L, 0, 20))
+                .isInstanceOfSatisfying(AppearanceApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(AppearanceApiCallException.Reason.REJECTED);
+                    assertThat(e.getStatus()).isEqualTo(400);
+                    assertThat(e.getCode()).isEqualTo("INVALID_REQUEST");
                 });
     }
 

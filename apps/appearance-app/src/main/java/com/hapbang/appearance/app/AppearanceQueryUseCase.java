@@ -1,9 +1,12 @@
 package com.hapbang.appearance.app;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -11,10 +14,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.appearance.app.dto.AppearanceCancelRequestResDto;
 import com.hapbang.appearance.app.dto.AppearanceResDto;
+import com.hapbang.appearance.app.dto.AppearanceReviewResDto;
 import com.hapbang.appearance.app.dto.AppearanceSummaryResDto;
+import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceCancelRequest;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearanceReview;
 import com.hapbang.appearance.domain.AppearanceRole;
 import com.hapbang.appearance.domain.AppearanceStatus;
 
@@ -26,6 +32,8 @@ import lombok.RequiredArgsConstructor;
  * 한 시점의 값으로 응답하기 위해서다. Facade 트랜잭션 안에서 부르면 그 트랜잭션에 합류한다 (ISSUE.md APR-37 R1).
  * 출연은 호스트·게스트 두 사람만 볼 수 있다. 제목은 출처(요청서·모집글)에서 가져온다.
  * 상세의 반환 진행 상태는 이 출연 단위 반환(합의 취소·불참)만 본다 (요청서·모집글 상세의 반환과 섞지 않는다).
+ * 상세의 리뷰(#514): 작성 가능 여부는 작성 API와 같은 기준({@link AppearanceReviewEligibility})이고,
+ * 상대 리뷰는 두 리뷰가 함께 공개된 뒤에만 보여 준다 (블라인드).
  */
 @Service
 @RequiredArgsConstructor
@@ -36,6 +44,10 @@ public class AppearanceQueryUseCase {
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceTitleSupport appearanceTitleSupport;
     private final HpTaskSupport hpTaskSupport;
+    private final AppearanceReviewSupport appearanceReviewSupport;
+    private final AppearanceReviewEligibility appearanceReviewEligibility;
+    @Qualifier(AppearanceConfig.CLOCK)
+    private final Clock clock;
 
     /**
      * 내 출연 목록. 최신순.
@@ -81,10 +93,21 @@ public class AppearanceQueryUseCase {
         for (AppearanceCancelRequest cancelRequest : appearanceCancelRequestSupport.findByAppearance(appearanceId)) {
             cancelRequests.add(AppearanceCancelRequestResDto.from(cancelRequest));
         }
+        AppearanceReviewResDto myReview = null;
+        AppearanceReviewResDto receivedReview = null;
+        for (AppearanceReview review : appearanceReviewSupport.findByAppearance(appearanceId)) {
+            if (review.getReviewerId().equals(userId)) {
+                myReview = AppearanceReviewResDto.from(review);
+            } else if (review.isPublished()) {
+                receivedReview = AppearanceReviewResDto.from(review);
+            }
+        }
+        boolean reviewable = appearanceReviewEligibility.canWrite(userId, appearance, LocalDateTime.now(clock));
         return AppearanceResDto.from(appearance, appearanceTitleSupport.titleOf(appearance), cancelRequests,
                 hpTaskSupport.findReleaseStatusOfAppearance(appearance),
                 hpTaskSupport.findPenaltyStatusOfAppearance(appearance),
-                hpTaskSupport.findPayoutStatusOfAppearance(appearance));
+                hpTaskSupport.findPayoutStatusOfAppearance(appearance),
+                reviewable, myReview, receivedReview);
     }
 
     private static List<AppearanceStatus> orAll(List<AppearanceStatus> statuses) {

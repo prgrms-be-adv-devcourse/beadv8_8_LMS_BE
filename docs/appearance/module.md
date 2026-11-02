@@ -824,6 +824,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | POST | `/api/v1/appearances/{appearanceId}/cancel-requests/reject` | 처리 중인 요청 거절 (거절 사유 선택, 본문 없어도 됨) | 호스트 | 출연 취소 요청을 거절했습니다. |
 
 - 출연 ID는 숫자만 받는다 (`/requests`·`/recruits`·`/applications` 경로와 섞이지 않도록). 응답은 모두 출연 상세(`AppearanceResDto`).
+- 출연 상세에는 리뷰 정보(`reviewable`·`myReview`·`receivedReview`)도 담는다 (#514, 22.1).
 - 제목은 출처(요청서·모집글)의 제목이다 (출연은 제목을 따로 저장하지 않는다).
 - 처리 중인 요청은 출연당 하나라, 수락·거절은 요청 ID가 아니라 출연 ID로 부른다.
 
@@ -1171,7 +1172,7 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 ## 21. 출연 리뷰 작성과 블라인드 공개 (#512)
 
 출연 확인(`CONFIRMED`)이 끝난 출연에서 호스트와 게스트가 서로 리뷰·별점을 남긴다. 리뷰 원본은 출연이 갖는다.
-회원 평점 계산은 회원 모듈이 출연의 공개 이벤트를 받아 한다(이벤트는 #513, 조회 API는 #514).
+회원 평점 계산은 회원 모듈이 출연의 공개 이벤트를 받아 한다(이벤트는 #513, 조회 API는 #514, 22장).
 
 ### 21.1 정책
 
@@ -1208,7 +1209,8 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 |---|---|---|
 | in | `ApiV1AppearanceReviewController` / `ApiV1AppearanceReviewSpec`, `WriteAppearanceReviewReqDto` | 매핑·Swagger·요청 검증 |
 | app | `AppearanceReviewFacade` | 역할 검사, 트랜잭션 |
-| app | `AppearanceReviewWriteUseCase` | 위 확인 순서, 저장, 블라인드 공개 |
+| app | `AppearanceReviewWriteUseCase` | 저장, 블라인드 공개 |
+| app | `AppearanceReviewEligibility` | 위 확인 순서. 출연 상세의 `reviewable`도 같은 확인을 쓴다(#514) |
 | app | `AppearanceReviewSupport` | 리뷰 저장소 접근 |
 | domain | `AppearanceReview` | 별점·본문 규칙, 받는 사람·역할, 공개 시각 |
 | domain | `Appearance.validateViewableBy`·`validateReviewable`·`counterpartOf` | 당사자(기존), 확인된 출연·작성 기한, 상대 |
@@ -1240,4 +1242,62 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 
 ### 21.6 남은 일
 
-- 공개될 때 별점·ID를 담은 이벤트를 `appearance.events.v1`로 발행(#513), 출연 상세의 리뷰·회원용 받은 리뷰 목록 조회(#514), 작성 기한을 켰을 때 기한이 지난 한쪽 리뷰 공개 배치(#515, 기본 꺼 둠)
+- 공개될 때 별점·ID를 담은 이벤트를 `appearance.events.v1`로 발행(#513), 작성 기한을 켰을 때 기한이 지난 한쪽 리뷰 공개 배치(#515, 기본 꺼 둠)
+- 출연 상세의 리뷰·회원용 받은 리뷰 목록 조회는 22장(#514)
+
+---
+
+## 22. 출연 리뷰 조회 (#514)
+
+출연 화면에서 리뷰 작성 가능 여부와 내 리뷰·받은 리뷰를 보여 주고, 회원 모듈이 회원이 받은 리뷰 목록을 가져갈 내부 API를 둔다. 읽기 전용이다.
+
+### 22.1 출연 상세의 리뷰 정보
+
+출연 상세(`GET /api/v1/appearances/{appearanceId}`)와 상세를 돌려주는 모든 출연 API 응답(`AppearanceResDto`)에 세 필드를 더했다.
+
+| 필드 | 타입 | 내용 |
+|---|---|---|
+| `reviewable` | boolean | 지금 내가 이 출연에 리뷰를 쓸 수 있는지. 작성 API(21.2)의 확인과 **같은 클래스**(`AppearanceReviewEligibility`)로 판단한다: 확인된 출연, 작성 기한 안, 나와 상대가 정상 회원(나는 인플루언서 이상), 아직 쓰지 않음 |
+| `myReview` | `AppearanceReviewResDto` 또는 null | 내가 쓴 리뷰. 쓰지 않았으면 null. 상대가 아직 안 썼으면 `published=false`, `publishedAt=null` |
+| `receivedReview` | `AppearanceReviewResDto` 또는 null | 상대가 나에게 쓴 리뷰. **두 리뷰가 함께 공개된 뒤에만** 채운다. 상대만 쓴 동안에는 null (블라인드: 상대가 썼다는 사실도 알리지 않는다) |
+
+- `AppearanceReviewResDto`: `id`, `rating`, `content`(없으면 null), `published`, `publishedAt`, `createdAt`
+- 작성자 자격을 보지 않는 출연 확인·불참 응답(APR-35 E5)에서도 `reviewable`은 같은 기준이다. 정지된 호스트가 확인하면 응답의 `reviewable`은 false다.
+- 쓸 수 없는 이유는 상세에 담지 않는다. 화면은 `reviewable`로 버튼만 정하고, 이유는 작성 API의 오류 코드로 안다.
+- 리뷰는 출연당 최대 2건이라 상세마다 `appearance_id`로 한 번 더 읽는다 (유니크 제약의 인덱스). `reviewable` 판단에 회원 복제·리뷰 존재 조회가 더 붙는다.
+
+### 22.2 회원이 받은 공개 리뷰 (내부 API)
+
+`GET /api/v1/internal/appearances/users/{userId}/reviews?page=&size=` → `RsData<Page<AppearanceReceivedReviewDto>>`
+
+| 항목 | 내용 |
+|---|---|
+| 호출 | 회원 모듈이 프로필의 리뷰 목록을 만들 때 shared `AppearanceApiClient.getReceivedReviews`(22.3)로 부른다. 내부 포트(`http://appearance-app:8081`), Gateway를 거치지 않는다. 회원 쪽 연동 요청은 #516 |
+| 인증·노출 | 수익 내부 조회(18.1)와 같다: `X-Internal-Api-Key`, 틀리거나 없으면 본문 없는 401, 회원 로그인으로는 401, 외부 포트는 404 |
+| 출연 쪽 방어 | ① 보안 체인의 키 검증 ② `AppearanceReviewInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
+| 범위 | 그 회원이 **받은** 리뷰 중 **공개된 것만**. 공개 전 리뷰는 받은 사람에게도 보이지 않으므로 뺀다. 쓴 사람이 그 뒤 정지·탈퇴해도 이미 공개된 리뷰는 그대로 준다 |
+| 정렬 | 최신 공개순 `publishedAt desc, reviewId desc`로 고정, 요청의 `sort`는 무시한다 (수익 목록과 같은 방식). 함께 공개된 두 리뷰는 받은 사람이 달라 한 목록에 같이 나오지 않는다 |
+| 페이지 | `page`·`size`(기본 20, 최대 100. 출연 앱 공통 `PageConfig`). 응답은 `{content, page: {size, number, totalElements, totalPages}}` |
+| 회원 ID | 경로 `userId`. 1 미만이거나 숫자가 아니면 400 `INVALID_REQUEST`. 리뷰가 없는 회원은 빈 페이지 (회원 복제를 확인하지 않는다) |
+| 항목 | `reviewId`, `appearanceId`, `reviewerUserId`, `revieweeRole`(`HOST`·`GUEST`, 조회한 회원이 그 출연에서 맡은 역할), `rating`, `content`(없으면 null, 필드는 남는다), `publishedAt`(offset 없는 KST) |
+| 계약 타입 | shared `dto.AppearanceReceivedReviewDto`·`AppearanceReceivedReviewPageDto`, 역할 `dto.AppearanceParticipantRole`(공개 이벤트 #513과 같은 enum) |
+| 인덱스 | `idx_appearance_reviews_reviewee_id_published_at (reviewee_id, published_at)` (21.5, #512에서 미리 만듦) |
+
+### 22.3 Client
+
+```java
+AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int size);
+```
+
+- 설정·실패 규칙은 18.6과 같다 (`REJECTED`: 4xx, `UNAVAILABLE`: 연결 실패·시간 초과·5xx·읽을 수 없는 성공 응답). 필수 필드(`content` 본문 제외)가 빠지거나 계약에 없는 역할 값이면 `UNAVAILABLE`이다.
+
+### 22.4 구조
+
+| 계층 | 클래스 | 역할 |
+|---|---|---|
+| in | `ApiV1AppearanceReviewInternalController` / `ApiV1AppearanceReviewInternalSpec` | 내부 API 매핑·Swagger |
+| app | `AppearanceReviewInternalFacade` | 내부 역할 검사, 읽기 전용 트랜잭션 |
+| app | `AppearanceReviewQueryUseCase` | 받은 공개 리뷰 목록, 회원 ID 검증, shared DTO로 변환 |
+| app | `AppearanceQueryUseCase` (기존) | 출연 상세에 리뷰 정보 추가 |
+| app | `AppearanceReviewEligibility` | 작성 가능 여부 (작성 API와 상세가 같이 씀) |
+| app | `AppearanceReviewSupport` (기존) | 출연의 리뷰, 받은 공개 리뷰 페이지 조회 추가 |
