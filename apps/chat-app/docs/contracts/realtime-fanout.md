@@ -86,6 +86,8 @@ public interface RealtimeChatFanout {
 | 서버 채널(알림 재료) | `<ns>:chat:activity:v1` |
 | 제어 채널 | `<ns>:chat:control:v1` |
 | 접속 정보 | `<ns>:chat:presence:online`, `<ns>:chat:presence:user:{userId}` (#419) |
+| 웹소켓 연결 티켓 | `<ns>:chat:ws-ticket:{티켓 SHA-256 hex}`(STRING, 회원·역할·발급·연결 만료 JSON, TTL 30초, `GETDEL`로 한 번 사용), `<ns>:chat:ws-ticket-rate:{userId}`(STRING, 고정 창 60초 발급 횟수, `INCR` + 첫 발급만 `PEXPIRE`) (#501) |
+| 로그아웃 표식 | `<ns>:chat:logout:{userId}`(STRING, 처리 시각 epoch ms, TTL 20분, 하트비트가 `MGET`) (#501) |
 
 옛 전달 채널 `<ns>:chat:fanout:v1`과 수신자 목록 DTO `FanoutRecipient`는 없앴다. 발행·구독을 같은 배포에서 바꾸고 옛 채널과 함께 쓰지 않는다.
 

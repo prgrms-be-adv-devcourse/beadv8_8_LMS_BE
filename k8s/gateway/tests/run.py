@@ -386,6 +386,7 @@ try:
             headers={
                 "X-User-Id": "999",
                 "X-User-Role": "ADMIN",
+                "X-User-Token-Exp": "9999999999",
                 "X-Internal-Api-Key": "spoof",
             }
         )
@@ -394,7 +395,7 @@ try:
             "missing JWT allowed; spoofed identity/internal key removed",
             status == 200
             and not any(
-                k.lower() in ("x-user-id", "x-user-role", "x-internal-api-key")
+                k.lower() in ("x-user-id", "x-user-role", "x-user-token-exp", "x-internal-api-key")
                 for k in received
             ),
         )

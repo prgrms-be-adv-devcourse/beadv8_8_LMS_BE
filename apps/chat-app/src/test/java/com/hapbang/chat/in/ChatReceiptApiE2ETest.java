@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -68,10 +67,7 @@ class ChatReceiptApiE2ETest {
 
     @Test
     void 로그인하지_않으면_401이다() {
-        // CSRF 검사를 통과하는 쿠키·헤더 쌍을 실어 인증 거절만 본다
         client.put().uri(RECEIVED_URI, chatRoomId)
-                .header(HttpHeaders.COOKIE, "XSRF-TOKEN=anonymous-token")
-                .header("X-XSRF-TOKEN", "anonymous-token")
                 .body(new ReceivedChatRoomRequest(1, 1L))
                 .exchange()
                 .expectStatus().isUnauthorized();
@@ -79,7 +75,7 @@ class ChatReceiptApiE2ETest {
     }
 
     @Test
-    void 로그인_후_강등되거나_정지되면_세션_역할이_인플루언서여도_403_CHAT_NOT_ALLOWED다() {
+    void 로그인_후_강등되거나_정지되면_헤더_역할이_인플루언서여도_403_CHAT_NOT_ALLOWED다() {
         E2ESession guest = login(GUEST_ID, Role.VERIFIED_INFLUENCER);
 
         chatUserUseCase.update(activeUser(GUEST_ID, "게스트", Role.USER));
@@ -199,7 +195,7 @@ class ChatReceiptApiE2ETest {
 
     private ChatMessagePageResponse messages(E2ESession session) {
         RsData<ChatMessagePageResponse> page = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
-                .header(HttpHeaders.COOKIE, session.cookieHeader())
+                .headers(session::applyTo)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<RsData<ChatMessagePageResponse>>() {
@@ -228,6 +224,6 @@ class ChatReceiptApiE2ETest {
     }
 
     private E2ESession login(Long userId, Role role) {
-        return E2ESession.login(client, userId, role);
+        return E2ESession.of(userId, role);
     }
 }

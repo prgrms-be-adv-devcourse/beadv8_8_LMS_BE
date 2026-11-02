@@ -94,6 +94,21 @@ class ChatStompInterceptorTest {
                 .isExactlyInstanceOf(MessageDeliveryException.class);
     }
 
+    // 재인증은 방·자격 검사 없이 애플리케이션 목적지 규칙만 받는다. 회원 결합 확인은 앞의 인증 인터셉터가 한다
+    @ParameterizedTest
+    @ValueSource(strings = {"/pub/chats/reauth", "/pub/chats/12/messages"})
+    void 애플리케이션_목적지로_보내면_방이나_자격을_묻지_않고_통과시킨다(String destination) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
+        accessor.setDestination(destination);
+        accessor.setNativeHeader("ticket", "A".repeat(43));
+        accessor.setLeaveMutable(true);
+        Message<byte[]> send = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        assertThat(interceptor.preSend(send, channel)).isSameAs(send);
+        verifyNoInteractions(chatUserFacade, chatRoomTopicFacade);
+        assertThat(ChatWebSocketConfig.APP_PREFIX + ChatWebSocketConfig.REAUTH_DESTINATION).isEqualTo("/pub/chats/reauth");
+    }
+
     @ParameterizedTest
     @EnumSource(value = StompCommand.class, names = {"CONNECT", "STOMP"})
     void 채팅_역할이고_채팅_회원이_채팅할_수_있으면_연결을_허용한다(StompCommand command) {
@@ -105,7 +120,7 @@ class ChatStompInterceptorTest {
 
     @ParameterizedTest
     @EnumSource(value = StompCommand.class, names = {"CONNECT", "STOMP"})
-    void 채팅_회원이_채팅할_수_없으면_세션_역할이_인플루언서여도_연결을_거절한다(StompCommand command) {
+    void 채팅_회원이_채팅할_수_없으면_토큰_역할이_인플루언서여도_연결을_거절한다(StompCommand command) {
         when(chatUserFacade.canChat(1L)).thenReturn(false);
         Message<byte[]> connect = connect(command, 1L, "ROLE_INFLUENCER");
 
@@ -116,7 +131,7 @@ class ChatStompInterceptorTest {
 
     @ParameterizedTest
     @EnumSource(value = StompCommand.class, names = {"CONNECT", "STOMP"})
-    void 세션_역할이_채팅_역할이_아니면_연결을_거절한다(StompCommand command) {
+    void 토큰_역할이_채팅_역할이_아니면_연결을_거절한다(StompCommand command) {
         when(chatUserFacade.canChat(1L)).thenReturn(true);
         Message<byte[]> connect = connect(command, 1L, "ROLE_USER");
 

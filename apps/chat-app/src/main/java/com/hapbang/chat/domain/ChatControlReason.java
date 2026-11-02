@@ -9,5 +9,8 @@ public enum ChatControlReason {
     MEMBER_MODIFIED,
 
     /** 기존 회원 백필로 반영한 결과 채팅할 수 없음 */
-    MEMBER_BACKFILL
+    MEMBER_BACKFILL,
+
+    /** Kafka 회원 로그아웃 이벤트를 받음({@link ChatControlType#LOGOUT_USER}) */
+    MEMBER_LOGGED_OUT
 }

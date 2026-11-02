@@ -1,7 +1,6 @@
 package com.hapbang.chat.app;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -88,7 +87,7 @@ class ChatDeliveryAdminApiTest extends ChatDeliveryTestSupport {
     void 관리자가_재처리하면_요청한_관리자를_감사_기록에_남기고_다시_발행한다() throws Exception {
         UUID deliveryId = isolate(send("격리"));
 
-        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess").with(csrf())
+        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess")
                         .with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
@@ -112,11 +111,11 @@ class ChatDeliveryAdminApiTest extends ChatDeliveryTestSupport {
         relayAll(ChatJobStream.DELIVERY);
         pollAll(ChatJobStream.DELIVERY, WORKER);
 
-        mockMvc.perform(post(URL + "/DELIVERY/" + published + "/reprocess").with(csrf())
+        mockMvc.perform(post(URL + "/DELIVERY/" + published + "/reprocess")
                         .with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("DELIVERY_JOB_NOT_ISOLATED"));
-        mockMvc.perform(post(URL + "/DELIVERY/" + UUID.randomUUID() + "/reprocess").with(csrf())
+        mockMvc.perform(post(URL + "/DELIVERY/" + UUID.randomUUID() + "/reprocess")
                         .with(TestLogin.as(ADMIN, Role.ADMIN)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DELIVERY_JOB_NOT_FOUND"));
@@ -141,10 +140,10 @@ class ChatDeliveryAdminApiTest extends ChatDeliveryTestSupport {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get(URL))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess").with(csrf())
+        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess")
                         .with(TestLogin.as(1L, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess").with(csrf()))
+        mockMvc.perform(post(URL + "/DELIVERY/" + deliveryId + "/reprocess"))
                 .andExpect(status().isUnauthorized());
 
         assertThat(auditRepository.count()).isZero();

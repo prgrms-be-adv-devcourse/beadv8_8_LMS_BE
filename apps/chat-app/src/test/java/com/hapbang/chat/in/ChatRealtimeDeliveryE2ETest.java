@@ -311,7 +311,7 @@ class ChatRealtimeDeliveryE2ETest {
         waitForSubscriptions();
 
         client.delete().uri("/api/v1/chats/{id}/members/me", chatRoomId)
-                .headers(E2ESession.login(client, GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
+                .headers(E2ESession.of(GUEST_ID, Role.VERIFIED_INFLUENCER)::applyTo)
                 .exchange()
                 .expectStatus().isNoContent();
 
@@ -576,7 +576,7 @@ class ChatRealtimeDeliveryE2ETest {
 
     private Long createRoom(Long userId, Long targetUserId) {
         RsData<ChatRoomResponse> room = client.post().uri("/api/v1/chats")
-                .headers(E2ESession.login(client, userId, Role.INFLUENCER)::applyTo)
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .body(new CreateChatRoomRequest(targetUserId))
                 .exchange()
                 .expectStatus().isCreated()

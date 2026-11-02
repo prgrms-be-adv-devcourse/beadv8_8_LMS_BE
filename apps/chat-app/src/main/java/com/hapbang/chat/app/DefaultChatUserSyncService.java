@@ -1,7 +1,9 @@
 package com.hapbang.chat.app;
 
+import java.time.Instant;
 import java.util.Objects;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -11,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.chat.app.dto.ChatUserSyncResult;
+import com.hapbang.chat.app.exception.ChatErrorCode;
+import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.shared.member.dto.UserDto;
 
@@ -29,13 +33,19 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
 
     private final ChatUserUseCase chatUserUseCase;
     private final ChatConnectionControl chatConnectionControl;
+    /** 실시간 전달을 끈 실행에는 없다(Redis) */
+    private final ObjectProvider<ChatLogoutMarkers> chatLogoutMarkers;
     private final TransactionTemplate backfillTransaction;
+    private final TransactionTemplate logoutTransaction;
     private final int backfillMaxAttempts;
 
     public DefaultChatUserSyncService(ChatUserUseCase chatUserUseCase, ChatConnectionControl chatConnectionControl,
-            PlatformTransactionManager transactionManager, ChatUserBackfillProperties backfillProperties) {
+            ObjectProvider<ChatLogoutMarkers> chatLogoutMarkers, PlatformTransactionManager transactionManager,
+            ChatUserBackfillProperties backfillProperties) {
         this.chatUserUseCase = chatUserUseCase;
         this.chatConnectionControl = chatConnectionControl;
+        this.chatLogoutMarkers = chatLogoutMarkers;
+        this.logoutTransaction = new TransactionTemplate(transactionManager);
         // 백필은 회원마다 독립된 새 트랜잭션: 충돌로 실패한 시도는 그 트랜잭션만 롤백되고, 다음 시도는 새 영속성 컨텍스트에서 다시 읽는다
         this.backfillTransaction = new TransactionTemplate(transactionManager);
         this.backfillTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -76,6 +86,29 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
             }
         }
         throw Objects.requireNonNull(lastConflict);
+    }
+
+    /**
+     * 연결 종료 작업을 한 트랜잭션에 남기고, 커밋한 뒤 트랜잭션 밖에서 로그아웃 표식을 남긴다(하트비트의 두 번째 확인, 설계 문서 6장).
+     * 표식 시각은 처리를 시작한 시각이다. 표식을 남기지 못해도 실패로 보지 않는다(제어 경로와 만료가 남는다). 다시 처리하면 같은
+     * 일을 반복할 뿐이다.
+     */
+    @Override
+    public void syncLoggedOut(Long userId) {
+        if (userId == null || userId < 1) {
+            throw new ChatException(ChatErrorCode.INVALID_REQUEST, "로그아웃한 회원 ID가 올바르지 않습니다.");
+        }
+        Instant processedAt = Instant.now();
+        logoutTransaction.executeWithoutResult(status -> chatConnectionControl.requestLogout(userId));
+        ChatLogoutMarkers markers = chatLogoutMarkers.getIfAvailable();
+        if (markers == null) {
+            return;
+        }
+        try {
+            markers.markLoggedOut(userId, processedAt);
+        } catch (RuntimeException exception) {
+            log.warn("로그아웃 표식을 남기지 못함. 제어 경로와 연결 만료가 닫는다 userId={}", userId, exception);
+        }
     }
 
     private void requestRecheckIfCannotChat(ChatUserSyncResult result, ChatControlReason reason) {

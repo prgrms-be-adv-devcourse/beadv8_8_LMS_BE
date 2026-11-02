@@ -13,8 +13,56 @@
 | `/user/queue/chats/notifications` | 구독(Q20) | 방별로 묶은 새 메시지 알림 `ROOM_ACTIVITY`. 그 방 topic을 구독한 세션에는 오지 않는다 |
 | `/user/queue/chats/sync` | 구독 | `RESYNC` |
 | `/user/queue/chats/errors` | 구독 | 전송 오류 |
+| `/user/queue/chats/connection` | 구독 | 재인증 결과. 재인증 프레임을 보낸 연결에만 온다(아래 "재인증") |
 
-전송은 `SEND /pub/chats/{roomId}/messages`다.
+전송은 `SEND /pub/chats/{roomId}/messages`, 재인증은 `SEND /pub/chats/reauth`다.
+
+## 웹소켓 연결 티켓 (#501, FE #135)
+
+설계는 [설계 문서](../final-design.md) 6장이다. JWT는 Gateway만 검증한다. 브라우저는 업그레이드 요청에 `Authorization`을 싣지 못하고, JWT를 주소에 넣지 않는다.
+
+1. 연결할 때마다 `POST /api/v1/chats/ws-tickets`를 `Authorization: Bearer <access token>`으로 부른다. access token 만료까지 60초 미만이면 먼저 refresh한다(만료 직전 토큰의 티켓은 곧바로 `4401`로 닫힌다). 응답 `RsData`의 `data`는 `{ "ticket": "<43자 base64url>", "expiresIn": 30, "connectionExpiresAt": "2026-11-02T01:15:00Z" }`이다. `connectionExpiresAt`은 이 티켓으로 연결(또는 재인증)한 연결이 닫히는 시각(ISO-8601 UTC)이다. 인플루언서 이상·관리자만 받는다(그 밖의 역할은 403).
+2. `wss://<호스트>/api/v1/chats/ws?ticket=<ticket>`으로 연결한다(전달 방식 확정). 티켓은 `expiresIn`초 안에 **한 번만** 쓸 수 있다. 다시 연결할 때(재연결 포함)는 새 티켓을 받는다.
+3. CONNECT(또는 STOMP) 프레임에는 인증 헤더가 필요 없다(`Authorization`을 실어도 보지 않는다). 연결의 회원은 티켓으로 정해지고 바뀌지 않는다. 만료는 아래 재인증으로만 바뀐다. 같은 연결에서 CONNECT를 다시 보내지 않는다(거절되고 연결이 닫힌다).
+4. CONNECTED 전에는 SUBSCRIBE·SEND 등을 보내지 않는다(보내면 ERROR + 연결 종료).
+
+| 상황 | 서버 응답 | FE |
+| --- | --- | --- |
+| 티켓 발급 상한 초과(회원마다 60초에 10번) | 429, ProblemDetail `code: TOO_MANY_TICKET_REQUESTS` | 잠시 뒤(backoff) 다시 받는다 |
+| 티켓을 저장할 수 없음(Redis 장애) | 503, `code: CONNECTION_TICKET_UNAVAILABLE` | backoff로 다시 받는다 |
+| 티켓 발급 401 | access token 없음·만료(Gateway) | refresh 뒤 다시 받는다. refresh가 실패하면 로그아웃한다 |
+| 티켓 없음·형식 오류·만료·이미 씀 | 핸드셰이크 401(업그레이드 전). 브라우저 WebSocket에는 상태가 보이지 않고 `1006`으로 닫힌다 | 새 티켓을 받아 backoff로 다시 연결한다(상태를 알 수 없으므로 그 밖의 종료와 같다) |
+| 허용하지 않은 출처 | 핸드셰이크 403(티켓을 쓰지 않는다) | 설정 오류다 |
+| CONNECT에 결합한 회원이 없음(방어 검사) | ERROR `code: UNAUTHENTICATED` 뒤 `1002` | 아래 "연결 종료 사유" |
+| 채팅 자격 없음(역할·정지·탈퇴) | ERROR(`code` 없음, `message`에 사유) 뒤 `1002` | 그 밖의 종료 |
+
+- 연결 만료는 access token의 `exp`를 따르되 티켓 발급 뒤 15분을 넘지 않는다. 만료되면 `4401 TOKEN_EXPIRED`로 닫힌다.
+
+### 재인증 (2026-11-02 사용자 결정)
+
+토큰이 만료될 때마다 다시 연결하지 않고, 열린 연결의 만료만 새로 받는다.
+
+1. 연결 만료(`connectionExpiresAt`) 약 60초 전에 시작한다. access token 만료까지 60초 미만이면 먼저 refresh한다.
+2. `POST /api/v1/chats/ws-tickets`로 새 티켓을 받는다(발급 상한에 들어간다).
+3. 열린 연결에 `SEND`를 보낸다. 목적지 `/pub/chats/reauth`, 헤더 `ticket:<새 티켓>`, 본문 없음.
+4. 결과는 `/user/queue/chats/connection`으로 **그 연결에만** 온다(같은 회원의 다른 연결에는 오지 않는다). 연결한 뒤 이 큐를 구독해 둔다.
+
+```json
+{ "type": "REAUTHENTICATED", "code": null, "connectionExpiresAt": "2026-11-02T01:30:00Z" }
+{ "type": "REAUTH_FAILED", "code": "INVALID_TICKET", "connectionExpiresAt": "2026-11-02T01:15:00Z" }
+```
+
+| `type`·`code` | 의미 | FE |
+| --- | --- | --- |
+| `REAUTHENTICATED` | 새 만료로 바뀌었다(`connectionExpiresAt` = 새 값) | 다음 재인증을 새 값 60초 전으로 잡는다 |
+| `REAUTH_FAILED` + `INVALID_TICKET` | 티켓 없음·형식 오류·만료·이미 씀(또는 서버가 읽지 못함) | 만료 전이면 새 티켓으로 **한 번** 다시 시도한다. 아니면 `4401`을 기다린다 |
+| `REAUTH_FAILED` + `MEMBER_MISMATCH` | 다른 회원의 티켓이다 | 다시 시도하지 않는다(로그인 상태 확인). 연결은 기존 만료에 닫힌다 |
+| `REAUTH_FAILED` + `CONNECTION_CLOSING` | 연결이 이미 만료됐거나 닫히는 중이다 | 곧 닫힌다. 종료 사유대로 처리한다 |
+| 모르는 `type`·`code` | | 실패로 보고 기존 만료까지 둔다 |
+
+- 실패해도 서버는 연결을 바로 닫지 않는다. 실패 응답의 `connectionExpiresAt`은 바뀌지 않은 기존 만료이고, 그때 `4401 TOKEN_EXPIRED`로 닫힌다.
+- 만료 시각과 겹치면 만료가 먼저다. 만료가 지난 연결에 보낸 재인증 프레임은 처리하지 않고 연결을 `4401`로 닫는다. 그러므로 만료 직전에 보내지 않는다(60초 여유).
+- 재인증 프레임으로 채팅 메시지를 보낼 수 없다. 회원도 바뀌지 않는다.
 
 ## 재동기화 신호
 
@@ -109,15 +157,21 @@ FE 처리: 방 목록과 열어 둔 방의 이력을 자기 확인 위치부터 
   2. 방 목록을 다시 받는다. 열지 않은 방의 마지막 메시지·안 읽은 수는 여기서 바로잡힌다.
   3. 열어 둔 방은 최신 페이지부터 건너뛰지 않고 다시 읽은 뒤 대조한다.
 - 열지 않은 방에서 버려진 메시지는 그 방을 열 때 이력으로 받는다.
-- 재연결: 정책 종료 2종을 뺀 종료는 3초부터 두 배씩 최대 30초, 매번 0~1초 무작위 대기를 더한다. 연결되면 전체 재조회와 대조를 한다.
+- 재연결: 아래 "연결 종료 사유"에서 처리를 따로 정한 종료(`CHAT_NOT_ALLOWED`·`LOGGED_OUT`·`TOKEN_EXPIRED`·`UNAUTHENTICATED`)를 뺀 종료는 3초부터 두 배씩 최대 30초, 매번 0~1초 무작위 대기를 더한다. 연결되면 전체 재조회와 대조를 한다. 다시 연결할 때마다 새 연결 티켓을 받는다.
 - 전송 결과 확인: 10초 안에 자기 메시지 큐(`/user/queue/chats/messages`)로 같은 `clientMessageId` 응답이 없으면 최신 2페이지에서 찾는다. 없으면 "결과 미확인"으로 두고 같은 ID 재시도를 제공한다. 소켓 단절은 실패가 아니라 결과 미확인이다.
 
 ## 연결 종료 사유
 
 | 종료 | 의미 | FE |
 | --- | --- | --- |
-| `1008` + `LOGGED_OUT` | 로그아웃(기존) | 재연결하지 않는다 |
+| `4401` + `TOKEN_EXPIRED` | 연결 만료(access token `exp`, 티켓 발급 뒤 최대 15분)가 지났다(#501). 만료는 재인증(`/pub/chats/reauth`)으로만 늦출 수 있다 | refresh로 새 토큰을 받고 새 티켓으로 다시 연결해 재동기화한다. refresh가 실패하면 로그아웃한다. backoff 없이 바로 다시 연결해도 된다 |
+| ERROR `code: UNAUTHENTICATED` 뒤 `1002` | CONNECT에 결합한 회원이 없다(티켓 없이 열린 연결의 방어 검사). CONNECTED를 받지 못했다 | refresh를 **한 번** 시도해 새 티켓으로 다시 연결한다(refresh가 실패하면 로그아웃한다). 다시 실패하면 간격을 늘려 가며 다시 시도한다(그 밖의 종료와 같은 backoff·jitter). FE #135가 이미 이렇게 동작한다(확정, 2026-11-02). ERROR 프레임은 닫기와 겹치면 오지 않을 수 있으므로, CONNECTED 전에 ERROR 없이 닫히면 그 밖의 종료로 처리한다 |
+| `1006`(핸드셰이크 실패) | 티켓 없음·형식 오류·만료·이미 씀(서버는 401), 또는 서버에 닿지 못함 | 새 티켓을 받아 backoff로 다시 연결한다 |
+| `1008` + `LOGGED_OUT` | 그 회원이 로그아웃했다(회원 단위 로그아웃 이벤트, 설계 문서 Q8, 2026-11-02). 로그아웃하지 않은 다른 기기 연결도 함께 닫힌다 | **refresh를 한 번 시도해 성공하면 새 티켓으로 다시 연결하고(재동기화), 실패하면 로그아웃하고 다시 연결하지 않는다**(2026-11-02 변경. 이전: 재연결하지 않는다). 로그아웃한 기기는 FE가 먼저 연결을 끊고 토큰을 버리므로 이 경로를 타지 않는다 |
 | `1008` + `CHAT_NOT_ALLOWED` | 정지·강등·탈퇴(기존, 이제 RECHECK_USER로도 닫힌다) | 재연결하지 않는다 |
-| 그 밖의 종료(느린 수신자의 송신 버퍼 초과, 앱 전체 송·수신 대기열 초과 `4500` + `OUTBOUND_OVERFLOW`·`INBOUND_OVERFLOW` 포함) | 서버가 연결을 유지할 수 없음 | backoff·jitter로 재연결하고 재동기화한다. 수신 대기열 초과로 버려진 전송은 결과 미확인이므로 같은 `clientMessageId`로 다시 보낸다 |
+| 그 밖의 종료(느린 수신자의 송신 버퍼 초과, 앱 전체 송·수신 대기열 초과 `4500` + `OUTBOUND_OVERFLOW`·`INBOUND_OVERFLOW`, 채팅 자격 없음·경로 위반의 ERROR 뒤 `1002` 포함) | 서버가 연결을 유지할 수 없음 | backoff·jitter로 재연결하고 재동기화한다. 수신 대기열 초과로 버려진 전송은 결과 미확인이므로 같은 `clientMessageId`로 다시 보낸다 |
+
+- 종료 코드·사유와 FE 처리는 확정이다(2026-11-02, 오케스트레이터·사용자): 만료 `4401 TOKEN_EXPIRED`, 로그아웃 `1008 LOGGED_OUT`(FE 처리 변경), CONNECT 인증 실패 ERROR `code: UNAUTHENTICATED`(refresh 1회 뒤 재연결, 다시 실패하면 간격을 늘려 재시도), 핸드셰이크 401은 브라우저에 `1006`, 티켓 발급 상한 429 `TOO_MANY_TICKET_REQUESTS`.
+- 로그아웃 이벤트를 처리하는 순간 그 회원에 연결된 모든 연결이 닫힌다. 처리한 뒤 아직 유효한 토큰으로 새 티켓을 받아 다시 연결하는 것은 서버가 막지 않는다. 서버가 실시간 채널로 받은 로그아웃 종료를 놓쳐도 약 30초(하트비트) 안에 같은 사유로 닫히고, Redis 장애면 늦어도 연결 만료(`4401 TOKEN_EXPIRED`)에 닫힌다. 재인증한 연결도 처음 연결한 시각으로 확인하므로 로그아웃 전에 연결했으면 함께 닫힌다.
 
 연결이 닫히면 서버는 그 연결의 방 topic 구독을 모두 지운다.

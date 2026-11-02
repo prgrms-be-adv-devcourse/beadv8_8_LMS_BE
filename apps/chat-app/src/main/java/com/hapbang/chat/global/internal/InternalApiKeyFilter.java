@@ -21,9 +21,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 내부 API 키가 맞으면 내부 호출({@code ROLE_INTERNAL})로 인증한다. 없거나 틀리면 인증하지 않고 넘겨 401이 된다 (#300).
+ * 내부 API 키가 맞으면 내부 호출({@code ROLE_INTERNAL})로 인증한다. 없거나 틀리면 인증하지 않고 넘겨 401이 된다.
  * 키는 상수 시간으로 비교하고 로그에 남기지 않는다. 두 값을 SHA-256(32바이트)으로 같은 길이로 만든 뒤 비교해 길이 차이도
- * 처리 시간에 드러나지 않게 한다 (#307 보강, 인증 결과는 같다: 정확히 같은 키만 통과).
+ * 처리 시간에 드러나지 않게 한다 (인증 결과는 같다: 정확히 같은 키만 통과).
  */
 @Slf4j
 class InternalApiKeyFilter extends OncePerRequestFilter {

@@ -22,7 +22,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -47,7 +46,6 @@ import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2EDatabaseCleanUpListener;
 import com.hapbang.chat.in.support.ChatPipelineIsolationListener;
-import com.hapbang.chat.in.support.E2ELoginConfig;
 import com.hapbang.chat.in.support.E2ESession;
 import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
@@ -85,9 +83,11 @@ import jakarta.persistence.EntityManager;
                 "hapbang.chat.delivery.consumer.block=200ms",
                 "hapbang.chat.realtime.listener.recovery-interval=500ms",
                 // 장애 중 명령이 연결 복구를 기다리며 오래 멈추지 않게 한다(운영 기본값은 Lettuce 60초)
-                "spring.data.redis.timeout=2s"
+                "spring.data.redis.timeout=2s",
+                // 시험은 같은 회원으로 여러 번 연결한다. 연결 티켓 발급 상한(운영 60초에 10번)을 넉넉히 둔다
+                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000"
         })
-@Import({PostgresTestcontainersConfig.class, E2ELoginConfig.class, E2ELoginConfig.TestSessionLoginController.class})
+@Import({PostgresTestcontainersConfig.class})
 @DirtiesContext
 @TestExecutionListeners(listeners = {ChatE2EDatabaseCleanUpListener.class, ChatPipelineIsolationListener.class},
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
@@ -253,7 +253,7 @@ class ChatRedisOutageE2ETest {
 
     private Long createRoom(Long userId, Long targetUserId) {
         RsData<ChatRoomResponse> room = client.post().uri("/api/v1/chats")
-                .headers(E2ESession.login(client, userId, Role.INFLUENCER)::applyTo)
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .body(new CreateChatRoomRequest(targetUserId))
                 .exchange()
                 .expectStatus().isCreated()
@@ -266,7 +266,7 @@ class ChatRedisOutageE2ETest {
 
     private List<String> messageContents(Long chatRoomId, Long userId) {
         RsData<ChatMessagePageResponse> page = client.get().uri("/api/v1/chats/{id}/messages", chatRoomId)
-                .header(HttpHeaders.COOKIE, E2ESession.login(client, userId, Role.INFLUENCER).cookieHeader())
+                .headers(E2ESession.of(userId, Role.INFLUENCER)::applyTo)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<RsData<ChatMessagePageResponse>>() {

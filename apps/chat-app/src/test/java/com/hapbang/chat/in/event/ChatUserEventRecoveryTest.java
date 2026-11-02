@@ -299,9 +299,9 @@ class ChatUserEventRecoveryTest {
         long unknown = nextId();
         long next = nextId();
 
-        // 같은 이벤트 패키지의 다른 레코드(로그아웃)는 chat이 처리하지 않는 종류다. 회원 쪽이 같은 토픽에 더할 수 있다
-        RecordMetadata skipped = send("com.hapbang.shared.member.event.UserLoggedOutEvent", unknown,
-                ("{\"userId\":" + unknown + ",\"sessionId\":\"s\"}").getBytes(StandardCharsets.UTF_8));
+        // 같은 이벤트 패키지의 처리기 없는 레코드(테스트 전용 종류)다. 회원 쪽이 같은 토픽에 새 종류를 더할 수 있다
+        RecordMetadata skipped = send("com.hapbang.shared.member.event.UnhandledMemberEvent", unknown,
+                ("{\"userId\":" + unknown + ",\"detail\":\"s\"}").getBytes(StandardCharsets.UTF_8));
         joined(next, "다음회원", Role.INFLUENCER, UserStatus.ACTIVE, 0L);
 
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatUserRepository.findById(next)).isPresent());

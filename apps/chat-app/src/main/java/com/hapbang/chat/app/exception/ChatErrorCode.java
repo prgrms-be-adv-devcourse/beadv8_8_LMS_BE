@@ -28,7 +28,9 @@ public enum ChatErrorCode implements BaseErrorCode {
     DELIVERY_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "재처리할 전달 작업의 원본을 찾을 수 없습니다."),
     DELIVERY_JOB_NOT_ISOLATED(HttpStatus.CONFLICT, "격리된 전달 작업만 재처리할 수 있습니다."),
     STALE_PARTICIPATION(HttpStatus.CONFLICT, "현재 참여 세대의 요청이 아닙니다. 채팅방 목록과 이력을 다시 불러와 주세요."),
-    RECEIVED_SEQUENCE_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "수신 확인 순번이 볼 수 있는 메시지 범위를 벗어났습니다.");
+    RECEIVED_SEQUENCE_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "수신 확인 순번이 볼 수 있는 메시지 범위를 벗어났습니다."),
+    TOO_MANY_TICKET_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "웹소켓 연결 티켓을 너무 자주 요청했습니다. 잠시 후 다시 시도해 주세요."),
+    CONNECTION_TICKET_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 웹소켓 연결 티켓을 발급할 수 없습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

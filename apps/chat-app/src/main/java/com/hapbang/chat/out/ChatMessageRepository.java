@@ -60,7 +60,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             @Param("chatRoomIds") Collection<Long> chatRoomIds);
 
     /**
-     * 회원이 이 방에서 보낸 메시지의 전송 ID를 비운다. 재입장할 때 불러, 재전송 방지(#261)를 같은 참여 안으로 한정한다 (#311).
+     * 회원이 이 방에서 보낸 메시지의 전송 ID를 비운다. 재입장할 때 불러, 재전송 방지를 같은 참여 안으로 한정한다.
      * 재입장 처리 중인 엔티티가 영속성 컨텍스트에서 떨어지지 않도록 비우지(clear) 않는다.
      *
      * @return 비운 메시지 수
@@ -88,7 +88,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     List<ChatMessage> findByChatRoom_IdOrderBySentAtAscIdAsc(Long chatRoomId, Limit limit);
 
     /**
-     * 관리자 기록 조회 다음 페이지. 커서 시각 이후이거나, 같은 시각이면 {@code idAfter}보다 큰 메시지 (#263).
+     * 관리자 기록 조회 다음 페이지. 커서 시각 이후이거나, 같은 시각이면 {@code idAfter}보다 큰 메시지.
      * 행 비교로 써야 (chat_room_id, sent_at, id) 인덱스의 범위 조건이 되어 커서 앞 항목을 다시 훑지 않는다.
      */
     @Query("""

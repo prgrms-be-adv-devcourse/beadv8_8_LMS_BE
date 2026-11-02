@@ -71,11 +71,11 @@ NetworkPolicy는 HTTP path를 구분하지 못한다. 그래서 두 실제 liste
 
 JWT는 업무 API route에만 적용한다. Grafana는 Grafana의 자체 로그인, FE는 정적 서버다. `optional: true`로 토큰이 없는 요청만 허용하고, 잘못된 토큰은 거절한다. `failOpen`은 설정하지 않는다. v1.9.3 CRD는 값이 false여도 optional과 failOpen 필드의 동시 설정 자체를 거절한다.
 
-`ClientTrafficPolicy.earlyRequestHeaders`는 인증 전에 외부 `X-User-Id`, `X-User-Role`, `X-Internal-Api-Key`와 전달 프로토콜·호스트 위조 헤더를 제거한다. 검증한 claim만 사용자 헤더로 생성한다. XFF의 신뢰 hop은 0이며 Envoy가 실제 접속 주소를 오른쪽에 추가한다. 앱은 native RemoteIpValve로 읽는다. 실제 인터넷 client IP 보존은 EC2 ServiceLB 전환 후 다시 검증한다.
+`ClientTrafficPolicy.earlyRequestHeaders`는 인증 전에 외부 `X-User-Id`, `X-User-Role`, `X-User-Token-Exp`, `X-Internal-Api-Key`와 전달 프로토콜·호스트 위조 헤더를 제거한다. 검증한 claim만 사용자 헤더로 생성한다. XFF의 신뢰 hop은 0이며 Envoy가 실제 접속 주소를 오른쪽에 추가한다. 앱은 native RemoteIpValve로 읽는다. 실제 인터넷 client IP 보존은 EC2 ServiceLB 전환 후 다시 검증한다.
 
-prod issuer는 [JWT issuer 결정](#jwt-issuer-결정-2026-11-02-500)을 따른다. Gateway는 member Service 8080의 `/api/v1/members/.well-known/jwks.json`에서 공개 JWKS를 직접 읽는다. chat의 직접 JWT 검증(#371)은 member 내부 포트 8081의 `/api/v1/internal/members/jwks.json`을 내부 API 키로 받는다(#370 댓글). member 8080을 chat에 열지 않는다. 8080은 Envoy가 넣은 `X-User-Id`를 믿는 포트라 열면 chat pod가 아무 회원으로나 위장할 수 있다.
+prod issuer는 [JWT issuer 결정](#jwt-issuer-결정-2026-11-02-500)을 따른다. Gateway는 member Service 8080의 `/api/v1/members/.well-known/jwks.json`에서 공개 JWKS를 직접 읽는다. chat-app은 JWT를 직접 검증하지 않는다(#501). 웹소켓은 Gateway가 검증한 REST 요청으로 받은 일회용 연결 티켓으로 인증하고, 연결 만료는 chat SecurityPolicy가 `exp` claim을 넘기는 `X-User-Token-Exp`(epoch 초)로 정한다(chat-app이 발급 뒤 15분으로 상한을 둔다). member 8080을 chat에 열지 않는다. 8080은 Envoy가 넣은 `X-User-Id`를 믿는 포트라 열면 chat pod가 아무 회원으로나 위장할 수 있다.
 
-Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractFrom.headers`, 2026-11-02 #508). `extractFrom`을 비워 두면 Envoy 기본값이 `access_token` query도 받는다. 그러면 토큰이 URL에 실려 브라우저 기록·Referer에 남을 수 있다. 토큰을 query로 보내는 클라이언트는 없다(chat STOMP는 CONNECT frame, #371). CI `check-prod-host.py`가 앱 6개 prod overlay의 JWT provider가 이 값인지 검사한다. 새 앱도 같은 `extractFrom`을 둔다.
+Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractFrom.headers`, 2026-11-02 #508). `extractFrom`을 비워 두면 Envoy 기본값이 `access_token` query도 받는다. 그러면 토큰이 URL에 실려 브라우저 기록·Referer에 남을 수 있다. 토큰을 query로 보내는 클라이언트는 없다(chat 웹소켓은 JWT가 아니라 일회용 연결 티켓을 `ticket` query로 보낸다, #501). CI `check-prod-host.py`가 앱 6개 prod overlay의 JWT provider가 이 값인지 검사한다. 새 앱도 같은 `extractFrom`을 둔다.
 
 ## 본문·연결·Grafana·trace
 
@@ -98,8 +98,8 @@ Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractF
 운영과 같게 둔 것:
 
 - 경로별 route. 호스트에서 실행한 앱의 기본 포트 8081~8086으로 보낸다
-- optional JWT(토큰이 없으면 통과, 잘못된 토큰은 401), `sub`·`role` → `X-User-Id`·`X-User-Role`, 토큰은 `Authorization: Bearer`에서만 읽기, 검증한 토큰을 앱에 그대로 넘기기(`forward`)
-- `earlyRequestHeaders` 제거, XFF 신뢰 hop 0, 경로 정규화
+- optional JWT(토큰이 없으면 통과, 잘못된 토큰은 401), `sub`·`role` → `X-User-Id`·`X-User-Role`, `exp` → `X-User-Token-Exp`(chat SecurityPolicy와 같다. 로컬은 provider가 하나라 모든 앱 route에 붙지만 chat-app만 읽는다), 토큰은 `Authorization: Bearer`에서만 읽기, 검증한 토큰을 앱에 그대로 넘기기(`forward`)
+- `earlyRequestHeaders` 제거(`x-user-token-exp` 포함), XFF 신뢰 hop 0, 경로 정규화
 - 일반 route 30초·본문 1MiB, 업로드 `PUT` 30분, WebSocket 전체 timeout 해제·stream idle 5분, idle·stream idle 60초, 나머지 경로 404(내부 API 포함)
 
 일부러 다르게 둔 것:

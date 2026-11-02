@@ -45,7 +45,6 @@ import com.hapbang.chat.fixture.FixedPortRedis;
 import com.hapbang.chat.in.dto.SendChatMessageRequest;
 import com.hapbang.chat.in.support.ChatE2EDatabaseCleanUpListener;
 import com.hapbang.chat.in.support.ChatPipelineIsolationListener;
-import com.hapbang.chat.in.support.E2ELoginConfig;
 import com.hapbang.chat.in.support.RealtimeStompClient;
 import com.hapbang.chat.in.support.RealtimeStompClient.Frame;
 import com.hapbang.testsupport.IntegrationTest;
@@ -93,9 +92,11 @@ import jakarta.persistence.EntityManager;
                 "hapbang.chat.delivery.pause.probe-initial=50ms",
                 "hapbang.chat.delivery.pause.probe-max=200ms",
                 "hapbang.chat.realtime.listener.recovery-interval=200ms",
-                "spring.data.redis.timeout=500ms"
+                "spring.data.redis.timeout=500ms",
+                // 시험은 같은 회원으로 여러 번 연결한다. 연결 티켓 발급 상한(운영 60초에 10번)을 넉넉히 둔다
+                "hapbang.chat.realtime.websocket.ticket-issue-limit=1000"
         })
-@Import({PostgresTestcontainersConfig.class, E2ELoginConfig.class, E2ELoginConfig.TestSessionLoginController.class})
+@Import({PostgresTestcontainersConfig.class})
 @DirtiesContext
 @TestExecutionListeners(listeners = {ChatE2EDatabaseCleanUpListener.class, ChatPipelineIsolationListener.class},
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
