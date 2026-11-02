@@ -23,8 +23,10 @@ import org.springframework.kafka.support.KafkaUtils;
 import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
+import com.hapbang.shared.customersupport.event.CustomerSupportEventTopic;
+
 /**
- * 강의 앱의 Kafka 소비 설정. 규칙은 docs/architecture/infrastructure/kafka.md의 "소비"·"재시도와 DLT"다 (#339, #429).
+ * 강의 앱의 Kafka 소비 설정. 규칙은 docs/architecture/infrastructure/kafka.md의 "소비"·"재시도와 DLT"다 (#339, #429, #278).
  * <ul>
  *     <li>처리에 실패하면 같은 자리에서 1초부터 최대 10초까지 늘리며 3번 재시도한 뒤 그룹별 DLT로 보낸다.
  *     재시도하는 동안 그 partition의 뒤 메시지는 기다리므로 같은 회원의 순서가 지켜진다.</li>
@@ -40,6 +42,9 @@ public class LectureKafkaConfig {
     /** 강의 회원 복제본을 갱신하는 소비 그룹. 이름은 {@code <앱>.<목적>}이다. */
     public static final String MEMBER_REPLICA_GROUP = "lecture-app.member-replica";
 
+    /** 고객센터의 이의 제기 판단·철회 요청({@code customersupport.events.v1})을 처리하는 소비 그룹 (#278) */
+    public static final String OBJECTION_COMMAND_GROUP = "lecture-app.objection-command";
+
     private static final int PARTITIONS = 3;
     private static final Duration DEAD_LETTER_RETENTION = Duration.ofDays(7);
 
@@ -50,7 +55,16 @@ public class LectureKafkaConfig {
 
     @Bean
     NewTopic memberReplicaDeadLetterTopic() {
-        return TopicBuilder.name(deadLetterTopic(MEMBER_EVENTS_TOPIC, MEMBER_REPLICA_GROUP))
+        return deadLetter(MEMBER_EVENTS_TOPIC, MEMBER_REPLICA_GROUP);
+    }
+
+    @Bean
+    NewTopic objectionCommandDeadLetterTopic() {
+        return deadLetter(CustomerSupportEventTopic.NAME, OBJECTION_COMMAND_GROUP);
+    }
+
+    private static NewTopic deadLetter(String topic, String groupId) {
+        return TopicBuilder.name(deadLetterTopic(topic, groupId))
                 .partitions(PARTITIONS)
                 .replicas(1)
                 .config(TopicConfig.RETENTION_MS_CONFIG, String.valueOf(DEAD_LETTER_RETENTION.toMillis()))

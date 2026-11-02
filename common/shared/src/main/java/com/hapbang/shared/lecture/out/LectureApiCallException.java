@@ -9,7 +9,10 @@ public class LectureApiCallException extends RuntimeException {
     public enum Reason {
         /** 강의가 요청을 거절했다(4xx: 잘못된 요청 값, 내부 API 키 오류 등). 같은 요청을 다시 보내도 같다 */
         REJECTED,
-        /** 연결 실패·응답 시간 초과·5xx로 결과를 받지 못했다. 다시 시도할 수 있다(조회라 다시 보내도 안전하다) */
+        /**
+         * 연결 실패·응답 시간 초과·5xx로 결과를 받지 못했다. 다시 시도할 수 있다(조회와 명령 ID가 있는 접수는 다시 보내도 안전하다).
+         * 접수는 강의가 처리했을 수도 있으므로 성공으로도 거절로도 보지 않는다
+         */
         UNAVAILABLE
     }
 

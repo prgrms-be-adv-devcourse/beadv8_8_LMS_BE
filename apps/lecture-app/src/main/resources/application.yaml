@@ -5,6 +5,7 @@ spring:
     name: lecture-app
   config:
     import:
+    - classpath:lecture.yml
     - classpath:swagger.yml
   profiles:
     default: local

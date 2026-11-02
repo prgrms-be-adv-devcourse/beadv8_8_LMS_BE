@@ -11,6 +11,8 @@ dependencies {
     implementation(libs.swagger.annotations)
     // Facade 역할 검사(@PreAuthorize). 메서드 보안은 global SecurityConfig가 켠다
     implementation("org.springframework.security:spring-security-core")
+    // 이의 제기 판단·철회 요청을 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #279). 버전은 Modulith BOM을 따른다
+    implementation("org.springframework.modulith:spring-modulith-events-kafka")
 
     // 테스트에서 로그인 상태 만들기 (oauth2Login(), csrf())
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")

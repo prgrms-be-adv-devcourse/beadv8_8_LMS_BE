@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -34,6 +35,7 @@ import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.domain.OrderItemStatus;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
+import com.hapbang.lecture.fixture.ObjectionCommands;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -50,6 +52,8 @@ import com.hapbang.testsupport.IntegrationTest;
  * 겹치는 경우는 지급 예정 시각이 지난 항목에 기한 직전 시각으로 접수 도메인 메서드를 불러 재현한다.
  */
 @IntegrationTest
+// 이의 제기 접수는 내부 API 진입점이다 (D63)
+@WithMockUser(roles = "INTERNAL")
 class OrderPayoutObjectionTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
@@ -93,8 +97,11 @@ class OrderPayoutObjectionTest {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
+    private ObjectionCommands objections;
+
     @BeforeEach
     void setUp() {
+        objections = new ObjectionCommands(lectureObjectionFacade);
         billing.reset();
         billing.setSettledHp(PRICE_HP);
     }
@@ -108,10 +115,10 @@ class OrderPayoutObjectionTest {
     void 기각된_항목은_지급_시각이_지나면_지급하고_인정된_항목은_지급하지_않는다() {
         Long rejected = itemId(saveConfirmed(now().minusDays(20)));
         Long accepted = itemId(saveConfirmed(now().minusDays(20)));
-        lectureObjectionFacade.fileObjection(rejected, BUYER_ID, INQUIRY_ID, REASON);
-        lectureObjectionFacade.fileObjection(accepted, BUYER_ID, INQUIRY_ID + 1, REASON);
-        lectureObjectionFacade.resolveObjection(rejected, INQUIRY_ID, false, ADMIN_ID);
-        lectureObjectionFacade.resolveObjection(accepted, INQUIRY_ID + 1, true, ADMIN_ID);
+        objections.file(rejected, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(accepted, BUYER_ID, INQUIRY_ID + 1, REASON);
+        objections.resolve(rejected, INQUIRY_ID, false, ADMIN_ID);
+        objections.resolve(accepted, INQUIRY_ID + 1, true, ADMIN_ID);
         // 판단 뒤 지급 예정 시각이 지났다
         jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = ? where id in (?, ?)",
                 now().minusDays(1), rejected, accepted);
@@ -129,7 +136,7 @@ class OrderPayoutObjectionTest {
     @Test
     void 접수가_먼저_커밋되면_지급_시각이_지나도_지급하지_않는다() {
         Long itemId = itemId(saveConfirmed(now().minusDays(20)));
-        lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(itemId, BUYER_ID, INQUIRY_ID, REASON);
         // 접수 뒤 지급 예정 시각이 지났다
         jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = ? where id = ?",
                 now().minusDays(1), itemId);
@@ -144,14 +151,14 @@ class OrderPayoutObjectionTest {
     @Test
     void 철회한_항목은_지급_예정_시각이_지났으면_다음_지급_배치에서_지급한다() {
         Long itemId = itemId(saveConfirmed(now().minusDays(20)));
-        lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.file(itemId, BUYER_ID, INQUIRY_ID, REASON);
         // 접수 중에 지급 예정 시각이 지나 지급 배치가 건너뛴다
         jdbcTemplate.update("update lectures.order_item set payout_scheduled_at = ? where id = ?",
                 now().minusDays(1), itemId);
         orderPayoutUseCase.payOutDueItems();
         assertThat(lectureHpTaskRepository.count()).isZero();
 
-        lectureObjectionFacade.withdrawObjection(itemId, BUYER_ID, INQUIRY_ID);
+        objections.withdraw(itemId, BUYER_ID, INQUIRY_ID);
         orderPayoutUseCase.payOutDueItems();
         lectureHpTaskBatchUseCase.runDue();
 
@@ -166,10 +173,10 @@ class OrderPayoutObjectionTest {
         orderPayoutUseCase.payOutDueItems();
 
         // 지급 처리 중은 지급 예정 시각이 지난 뒤라 기한이 지났다. 지급 작업이 멈춰도 기한은 다시 열리지 않는다 (D59 (6))
-        assertRefused(() -> lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
+        assertRefused(() -> objections.file(itemId, BUYER_ID, INQUIRY_ID, REASON),
                 LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
         lectureHpTaskBatchUseCase.runDue();
-        assertRefused(() -> lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
+        assertRefused(() -> objections.file(itemId, BUYER_ID, INQUIRY_ID, REASON),
                 LectureErrorCode.OBJECTION_ALREADY_PAID_OUT);
         assertThat(item(itemId)).extracting(OrderItem::getStatus, OrderItem::getObjectionStatus)
                 .containsExactly(OrderItemStatus.PAID_OUT, ObjectionStatus.NONE);
@@ -220,7 +227,7 @@ class OrderPayoutObjectionTest {
 
         assertThatThrownBy(() -> filing.get(10, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(ObjectOptimisticLockingFailureException.class);
-        assertRefused(() -> lectureObjectionFacade.fileObjection(itemId, BUYER_ID, INQUIRY_ID, REASON),
+        assertRefused(() -> objections.file(itemId, BUYER_ID, INQUIRY_ID, REASON),
                 LectureErrorCode.OBJECTION_PERIOD_EXPIRED);
         lectureHpTaskBatchUseCase.runDue();
         assertThat(payouts()).extracting(PayoutCommand::referenceId).containsExactly(itemId);
