@@ -35,7 +35,8 @@
 
 ## 6. 배포 확인
 
-- dev 병합 때는 workflow가 돌지 않는다. CI(`verify`)는 PR에서만 돈다. dev 서버는 없다.
-- 운영 배포: main 병합 뒤 Publish images, 그다음 수동 Deploy다([운영 앱 배포](../deploy/k8s.md#운영-앱-배포)). 최근 실행은 `gh run list --workflow deploy.yml --limit 1`, 끝까지 기다리려면 `gh run watch <id> --exit-status`.
+- dev 병합이 곧 운영 배포다(#559). dev push마다 Publish and deploy가 바뀐 앱을 테스트·발행하고 운영 k3s에 배포한다([운영 앱 배포](../deploy/k8s.md#운영-앱-배포)). 최근 실행은 `gh run list --workflow publish.yml --limit 1`, 끝까지 기다리려면 `gh run watch <id> --exit-status`.
+- main에는 서버가 없다. `release/review-N` → main 리뷰 제출용으로만 병합하고, main 병합 때는 workflow가 돌지 않는다.
+- 18:00~09:00에는 서버가 꺼져 배포 job이 실패한다. 다음 병합이나 `gh workflow run deploy.yml --ref dev`가 따라잡는다.
 - 실패 로그는 `gh run view <id> --log-failed`로 본다.
 - 새 환경변수는 [env-vars.md](../deploy/env-vars.md) 절차로 ConfigMap·SealedSecret에 넣는다.

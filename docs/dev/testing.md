@@ -75,4 +75,4 @@ PR CI(`.github/workflows/ci.yml`)는 PR에서 바뀐 앱만 테스트한다(#488
 
 - **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`·`gradlew`·`ci.yml`·`apps.sh`가 바뀌면 전체다. `apps/<앱>/k8s/`(`manifests` job이 검사)와 `*.md`는 판정에서 빼므로, 이것만 바꾼 PR은 Gradle을 돌리지 않는다.
 - 판정 규칙을 바꾸면 `.github/scripts/apps-test.sh`에 사례를 더한다. `changes` job이 매번 실행한다.
-- main 발행(`publish.yml`)이 호출할 때는 여섯 앱을 모두 테스트한다.
+- dev 발행(`publish.yml`)이 호출할 때는 발행할 앱(이미지가 없는 앱)만 테스트한다(#559).

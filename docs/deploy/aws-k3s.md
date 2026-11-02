@@ -52,7 +52,7 @@ Client
   → large/medium의 모듈 앱 pod
 ```
 
-외부 진입은 2026-10-30에 이 흐름으로 바꿨다([전환 순서](#전환-순서) 7). 업무 앱 pod는 아직 없다. nginx는 쓰지 않는다. TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다. EC2에는 prod(main) 한 벌만 두고 dev 서버는 두지 않는다. 진입점과 인증 흐름은 [최종 인프라 설계 3장 API Gateway](../architecture/infrastructure/api-gateway.md)을 따른다.
+외부 진입은 2026-10-30에 이 흐름으로 바꿨다([전환 순서](#전환-순서) 7). 업무 앱 pod는 아직 없다. nginx는 쓰지 않는다. TLS 인증서는 cert-manager가 Let's Encrypt에서 발급·갱신한다. EC2에는 prod 한 벌만 두고 dev 서버는 두지 않는다. prod에는 dev 브랜치를 배포한다(#559). 진입점과 인증 흐름은 [최종 인프라 설계 3장 API Gateway](../architecture/infrastructure/api-gateway.md)을 따른다.
 
 - 서비스 DNS는 large EIP만 가리킨다.
 - medium EIP는 node 관리와 outbound 통신용이다. application 진입점으로 사용하지 않는다.

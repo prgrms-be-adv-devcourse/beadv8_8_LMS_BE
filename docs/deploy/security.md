@@ -23,9 +23,8 @@
 | DB 비밀번호 | SealedSecret `postgres-credentials`(`k8s/platform/overlays/prod`)와 각 앱 Secret의 `DB_PASSWORD` | cluster, 앱 pod | app → PostgreSQL | [DB 비밀번호 교체](#db-비밀번호-교체) |
 | 앱 비밀값(OAuth·결제 등) | 앱 SealedSecret. 원문은 `~/.hapbang/prod-secrets.env` | 앱 pod | Spring | [env-vars.md](env-vars.md#값-변경-비밀값-교체-포함) |
 | S3 접근 | EC2 인스턴스 역할(키 없음). 버킷 이름은 앱 Secret `S3_BUCKET` | IMDS egress가 허용된 member·appearance·lecture pod | Presigned URL 발급, 업로드 확인 | 자동(임시 자격 증명) → [s3.md](s3.md) |
-| k3s 배포 | IAM role(키 없음, GitHub OIDC 임시 자격 증명). role ARN·large 인스턴스 ID는 GitHub Environment `prod` Secrets | Environment `prod` job(`main`만) | SSM Run Command로 large에서 `k3s kubectl` 실행([k8s.md](k8s.md#운영-앱-배포)) | 자동(1시간 세션) |
+| k3s 배포 | IAM role(키 없음, GitHub OIDC 임시 자격 증명). role ARN·large 인스턴스 ID는 GitHub Environment `prod` Secrets | Environment `prod` job(`dev`만) | SSM Run Command로 large에서 `k3s kubectl` 실행([k8s.md](k8s.md#운영-앱-배포)) | 자동(1시간 세션) |
 | GHCR pull 토큰 | SealedSecret `ghcr-pull`(`k8s/registry`). kaameo의 classic PAT(`read:packages`만, 90일). 원문은 봉인할 때만 입력하고 저장하지 않는다 | cluster(kubelet), cluster 관리자 | BE 앱·FE 이미지 pull | 만료 14일 전 kaameo가 새 PAT로 다시 봉인 → 두 node pull 확인 → 이전 PAT 삭제([GHCR pull 인증](k8s.md#ghcr-pull-인증)) |
-| GHCR push 토큰(릴리스 전 배포) | 만들지 않고 둔다. 릴리스 전 배포 때만 classic PAT `write:packages`·만료 1일로 만들고 `docker logout` 뒤 삭제 | 사용자 본인 | 이미지 push([k8s.md](k8s.md#릴리스-전-배포)) | 사용 후 즉시 삭제 |
 | 개인 PAT(그 밖) | 만들지 않고 둔다. 로컬에서 수동 pull할 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |
 | TLS 개인 키 | cert-manager가 만든 Secret `hapbang-tls`(`envoy-gateway-system`) | cluster | HTTPS | cert-manager가 자동 갱신 |
@@ -41,11 +40,10 @@
 | HTTPS 리다이렉트 | 80은 HTTPS로 301. HSTS 헤더는 아직 보내지 않는다 |
 | `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |
 | BE 이미지 빌드 컨텍스트는 jar 폴더뿐 | 이미지에는 `app.jar`만 들어간다. 소스·`.env`가 들어갈 수 없음 |
-| CI(PR) 읽기 전용 권한 | PR 코드가 실행되는 job은 GHCR에 쓸 수 없음. Actions에서 push는 Publish images의 `build` job만(사람의 릴리스 전 배포 push는 별도) |
-| 운영 배포 수동 실행·검사 | Deploy는 Environment `prod`(`main`만)에서 실행되고, GHCR에 이미지가 있는(테스트 통과) 커밋만 배포된다 |
-| 릴리스 전 배포 | 사람이 `write:packages` 1일 PAT로 올린 이미지는 main 릴리스 리뷰·CI를 거치지 않는다. 배포는 prod kubeconfig를 가진 사람이 로컬에서 하고, 올린 앱·커밋을 티켓에 남긴다([k8s.md](k8s.md#릴리스-전-배포)) |
+| CI(PR) 읽기 전용 권한 | PR 코드가 실행되는 job은 GHCR에 쓸 수 없음. Actions에서 push는 Publish and deploy의 `build` job만 |
+| 운영 배포 검사 | Deploy는 Environment `prod`(`dev`만)에서 실행되고, 테스트를 통과해 GHCR에 이미지가 있는 커밋만 배포된다. 자동 배포는 dev 최신 커밋만 배포한다 |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
-| k3s 배포 role의 trust를 Environment `prod`로 제한 | 다른 브랜치·PR의 workflow는 role을 받지 못한다. `prod`는 `main` 브랜치만 허용 |
+| k3s 배포 role의 trust를 Environment `prod`로 제한 | 다른 브랜치·PR의 workflow는 role을 받지 못한다. `prod`는 `dev` 브랜치만 허용(#559 전에는 `main`) |
 | `hapbang-prod` Pod Security `baseline`(EC2 적용 2026-10-30) | 리뷰를 거쳐 배포되는 manifest가 privileged·hostNetwork·hostPath pod를 만들지 못한다. 그런 pod는 node root·IMDS(인스턴스 역할)에 닿는다. 배포 role 자체의 root 권한은 막지 못한다(아래 알려진 위험) |
 | k3s API(6443)는 사용자 IP `/32`만 | 배포는 SSM으로 하므로 6443을 열지 않는다. 자격 증명이 새도 네트워크에서 막힌다 |
 
@@ -56,7 +54,8 @@
 | SSH 22 전체 개방 | 기존 Compose 배포(Actions SSH) 때문에 열었다. 배포는 SSM으로 바뀌었지만 아직 열려 있다. 키 인증만 허용 | 허용 source 제한 또는 SSM Session Manager 전환([aws-k3s.md](aws-k3s.md#network와-외부-노출)) |
 | FE 레포에 Compose 배포 자격 증명이 남아 있음 | 서버의 `deploy` 계정과 BE 레포의 `DEPLOY_*` Secrets는 지웠다(#374). FE 레포의 `DEPLOY_SSH_KEY`·`DEPLOY_HOST`·`DEPLOY_KNOWN_HOSTS` Secrets와 Compose 배포 workflow는 남아 있다. 서버에 받을 계정이 없어 접속은 실패한다 | FE 레포에서 삭제(FE 티켓) |
 | main으로 가는 PR 출발 브랜치 검사가 이름만 봄 | ruleset `protect-main-dev`가 PR·`verify`·`source-branch`(dev, `release/review-N`만 허용, #180)를 요구한다. 승인 수는 0이라 이름을 맞춘 브랜치는 통과한다 | main 전용 ruleset으로 승인 1개 이상 요구 |
-| k3s 배포 role이 large에서 임의 명령을 root로 실행할 수 있음 | trust를 Environment `prod`(`main`만)로 제한. `main`에 병합된 workflow만 쓴다 | 토큰 발급만 하는 전용 SSM 문서로 권한 축소 |
+| k3s 배포 role이 large에서 임의 명령을 root로 실행할 수 있음 | trust를 Environment `prod`(`dev`만)로 제한. `dev`에 병합된 workflow만 쓴다 | 토큰 발급만 하는 전용 SSM 문서로 권한 축소 |
+| dev 병합이 승인 없이 운영에 나감 | dev는 승인 0개로 squash 병합된다(ruleset `merge-method-dev`). 병합하면 앱 코드·manifest와 배포 workflow·스크립트가 사람 승인 없이 운영에 반영되고, 배포 스크립트는 large에서 root로 돈다. 거치는 검사는 CI(`verify`)와 Claude Review 코멘트뿐이다. 팀 결정으로 승인 없이 둔다(2026-11-02, #559) | dev ruleset에 승인 1개 이상 요구, 또는 Environment `prod`에 승인자(required reviewers) 지정 |
 | GitHub Actions 메이저 버전 태그(`@v7` 등) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
 | DB 백업 없음 | k3s PostgreSQL 백업 절차가 없다 | 정기 백업 결정 |
 

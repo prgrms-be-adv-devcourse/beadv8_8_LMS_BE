@@ -1,12 +1,16 @@
-# 운영(prod) k3s 앱 배포·롤백(#374). Actions → Deploy → Run workflow(브랜치 main)에서 수동으로 실행한다.
-# 이미지는 main push 때 publish.yml이 바뀐 앱만 :sha-<그 앱을 마지막으로 바꾼 main 커밋>으로 올린다. 이 workflow는 이미지를 만들지 않는다.
-# - sha: 배포할 main 커밋. 비우면 main 최신이다. 앱마다 이 커밋 시점의 그 앱 이미지를 쓴다(.github/scripts/apps.sh source).
-# - apps: 비우면 클러스터에서 지금 도는 이미지와 비교해 바뀐 앱만 배포한다. 적으면 그 앱만 배포한다.
-#   롤백은 apps에 앱을, sha에 되돌릴 main 커밋을 넣는다.
+# 운영(prod) k3s 앱 배포·롤백(#374, #559). 서버는 prod 한 벌이고 dev 커밋을 배포한다. main에는 서버가 없다.
+# - 자동: dev push마다 publish.yml이 이미지를 발행한 뒤 이 workflow를 그 커밋으로 호출한다(workflow_call).
+#   그때 dev 최신 커밋이 아니면 건너뛴다. 뒤 push의 run이 그 커밋까지 포함해 배포하므로, 앞 커밋으로 되돌리지 않는다.
+# - 수동: Actions → Deploy → Run workflow(브랜치 dev), 또는 gh workflow run deploy.yml --ref dev [-f sha=…] [-f apps=…].
+#   18시 이후처럼 서버가 꺼져 자동 배포가 실패한 뒤 따라잡거나 롤백할 때 쓴다.
+# 이미지는 publish.yml이 :sha-<그 앱을 마지막으로 바꾼 dev 커밋>으로 올린다. 이 workflow는 이미지를 만들지 않는다.
+# - sha: 배포할 dev 커밋. 비우면 dev 최신이다. 앱마다 이 커밋 시점의 그 앱 이미지를 쓴다(.github/scripts/apps.sh source).
+# - apps: 비우면 클러스터에서 지금 도는 이미지와 비교해 바뀐 앱만 배포한다. 적으면 그 앱만 배포한다(수동만).
+#   롤백은 apps에 앱을, sha에 되돌릴 dev 커밋을 넣는다.
 # 앱은 apps.sh 순서대로 하나씩 apply → rollout status 한다. 실패하면 그 앱만 rollout undo하고, 남은 앱은 배포하지 않는다.
 #
 # 클러스터 접근: GitHub OIDC로 IAM role을 받아 SSM Run Command로 large에서 kubectl을 실행한다(6443·SSH를 쓰지 않는다).
-#   role의 trust는 environment prod job만 허용하고, prod environment는 main 브랜치만 허용한다.
+#   role의 trust는 environment prod job만 허용하고, prod environment는 dev 브랜치만 허용한다.
 #   prod environment Secrets: AWS_DEPLOY_ROLE_ARN(role ARN), DEPLOY_INSTANCE_ID(large 인스턴스 ID)
 # 공개 레포라 로그도 공개다. node 이름·IP가 나오는 출력을 하지 않는다(.github/scripts/k3s-deploy.sh).
 # GHCR은 조직 정책으로 private이다. 이 job의 GHCR 로그인(GITHUB_TOKEN)은 러너에서 이미지가 있는지 보는 데만 쓴다.
@@ -17,18 +21,25 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: 배포할 main 커밋 sha(7~40자). 비우면 main 최신
+        description: 배포할 dev 커밋 sha(7~40자). 비우면 dev 최신
         type: string
         required: false
       apps:
         description: 배포할 앱(공백 구분, 예 member-app chat-app). 비우면 바뀐 앱만 자동으로
         type: string
         required: false
-
-# 운영 배포는 한 번에 하나씩 순서대로 실행한다.
-concurrency:
-  group: deploy-k3s-prod
-  cancel-in-progress: false
+  # publish.yml이 dev push마다 그 커밋으로 호출한다. apps는 넘기지 않는다(바뀐 앱만 자동으로).
+  workflow_call:
+    inputs:
+      sha:
+        description: 배포할 dev 커밋 sha(40자)
+        type: string
+        required: true
+      apps:
+        description: 배포할 앱(공백 구분). publish.yml은 비워 둔다
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -41,6 +52,11 @@ jobs:
     runs-on: ubuntu-24.04
     environment: prod
     timeout-minutes: 90
+    # 운영 배포는 한 번에 하나씩 순서대로 실행한다. 자동(publish.yml)과 수동 실행이 같은 group을 쓴다.
+    # 호출된 workflow에서도 적용되도록 job에 둔다. 기다리는 run이 있을 때 새 run이 오면 기다리던 run은 취소된다(새 run이 더 최신이다).
+    concurrency:
+      group: deploy-k3s-prod
+      cancel-in-progress: false
     permissions:
       contents: read
       # 러너에서 이미지가 GHCR에 있는지 확인한다(node의 pull 인증과 별개).
@@ -54,8 +70,8 @@ jobs:
           INPUT_SHA: ${{ inputs.sha }}
           INPUT_APPS: ${{ inputs.apps }}
         run: |
-          if [ "$GITHUB_REF" != refs/heads/main ]; then
-            echo "::error::main 브랜치에서 실행하세요(Run workflow → Use workflow from: main). 현재: $GITHUB_REF"
+          if [ "$GITHUB_REF" != refs/heads/dev ]; then
+            echo "::error::dev 브랜치에서 실행하세요(Run workflow → Use workflow from: dev). main에는 서버가 없습니다. 현재: $GITHUB_REF"
             exit 1
           fi
           if [ -n "$INPUT_SHA" ] && ! [[ "$INPUT_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
@@ -67,10 +83,10 @@ jobs:
             exit 1
           fi
 
-      # 바뀐 앱 비교와 태그 결정에 main 전체 이력이 필요하다.
+      # 바뀐 앱 비교와 태그 결정에 dev 전체 이력이 필요하다. 받은 시점의 dev 최신이 HEAD가 된다.
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: dev
           fetch-depth: 0
 
       - name: 커밋 확인
@@ -83,17 +99,28 @@ jobs:
             exit 1
           }
           if ! git merge-base --is-ancestor "$sha" HEAD; then
-            echo "::error::main에 포함되지 않은 커밋입니다: $sha"
+            echo "::error::dev에 포함되지 않은 커밋입니다: $sha"
             exit 1
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # 자동 배포(push로 호출)는 dev 최신 커밋만 배포한다. 늦게 끝난 앞 run이 뒤 커밋의 배포를 되돌리지 않게 한다.
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$sha" != "$(git rev-parse HEAD)" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "dev 최신 커밋이 아니라 배포하지 않습니다: ${sha:0:7}(dev 최신 $(git rev-parse --short HEAD)). 뒤 push의 run이 배포합니다."
+            {
+              echo "### 운영 배포"
+              echo "- 건너뜀: \`${sha:0:7}\`은 dev 최신 커밋이 아니다(dev 최신 \`$(git rev-parse --short HEAD)\`). 뒤 push의 run이 배포한다."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: aws-actions/configure-aws-credentials@v6
+        if: steps.commit.outputs.skip != 'true'
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ap-northeast-2
 
       - name: 지금 배포된 이미지 확인
+        if: steps.commit.outputs.skip != 'true'
         env:
           INSTANCE_ID: ${{ secrets.DEPLOY_INSTANCE_ID }}
         # 기본 셸은 pipefail이 없어 파이프로 넘기면 실패가 가려진다. 파일로 받은 뒤 출력한다.
@@ -104,6 +131,7 @@ jobs:
       # plan.txt: 배포할 앱마다 "<앱> <태그 커밋> <지금 도는 태그 커밋|->"
       - name: 배포 대상 결정
         id: plan
+        if: steps.commit.outputs.skip != 'true'
         env:
           SHA: ${{ steps.commit.outputs.sha }}
           INPUT_APPS: ${{ inputs.apps }}
@@ -160,7 +188,7 @@ jobs:
           missing=0
           while read -r app tag _; do
             if ! docker buildx imagetools inspect "$IMAGE_PREFIX/$app:sha-$tag" > /dev/null; then
-              echo "::error::이미지 $IMAGE_PREFIX/$app:sha-$tag 가 없습니다. 그 커밋의 Publish images run이 실패했거나 아직 진행 중입니다."
+              echo "::error::이미지 $IMAGE_PREFIX/$app:sha-$tag 가 없습니다. 그 커밋의 Publish and deploy run이 실패했거나 아직 진행 중입니다."
               missing=1
             fi
           done < "$RUNNER_TEMP/plan.txt"

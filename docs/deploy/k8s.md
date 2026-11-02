@@ -98,7 +98,7 @@ GHCR 패키지는 조직 정책으로 private이고 public으로 바꿀 수 없�
 | 참조 | BE 앱 6개 prod overlay의 `imagePullSecrets` patch, FE 레포 `k8s/overlays/prod` |
 | 적용 | `k8s/registry`를 손으로 적용한다. 앱·FE 배포는 확인만 하고 만들거나 지우지 않는다 |
 
-- 인증은 셋으로 나뉜다. 발행은 Publish images job의 `GITHUB_TOKEN`(`packages: write`), Deploy job의 이미지 존재 확인은 러너의 `GITHUB_TOKEN`(`packages: read`), node의 pull은 `ghcr-pull`이다. job 토큰은 job이 끝나면 만료되므로 node pull에 쓰지 않고, 토큰을 SSM 명령으로 서버에 보내지 않는다.
+- 인증은 셋으로 나뉜다. 발행은 Publish and deploy `build` job의 `GITHUB_TOKEN`(`packages: write`), Deploy job의 이미지 존재 확인은 러너의 `GITHUB_TOKEN`(`packages: read`), node의 pull은 `ghcr-pull`이다. job 토큰은 job이 끝나면 만료되므로 node pull에 쓰지 않고, 토큰을 SSM 명령으로 서버에 보내지 않는다.
 - PAT의 `read:packages`는 그 계정이 읽을 수 있는 모든 package에 적용되고, cluster 관리자는 Secret을 읽을 수 있다. 짧은 만료와 교체로 노출 기간을 줄인다.
 - k8s 1.35부터 kubelet은 node에 있는 이미지도 pull 인증을 확인한다(`KubeletEnsureSecretPulledImages` 기본 켜짐, 정책 `NeverVerifyPreloadedImages`, [Kubernetes images](https://kubernetes.io/docs/concepts/containers/images/#ensureimagepullcredentialverification)). 같은 Secret으로 받은 적이 있는 이미지는 registry에 묻지 않고 통과하지만, Secret이 없거나 내용이 바뀌면 registry에서 다시 받는다. 그래서 Secret을 배포 동안만 두지 않고 계속 둔다.
   - 토큰이 만료돼도 Secret을 그대로 두면 이미 받은 이미지로는 pod가 다시 뜬다. 새 이미지 배포, node에 없는 이전 버전 롤백, image GC 뒤 재기동은 실패한다.
@@ -163,98 +163,61 @@ kubectl -n hapbang-platform delete helmchartconfig alloy --ignore-not-found
 
 ## 운영 앱 배포
 
-prod 앱은 GitHub Actions가 배포한다(#374). 앱 이미지는 private GHCR 패키지라 node가 공유 Secret `ghcr-pull`로 받는다([GHCR pull 인증](#ghcr-pull-인증)). 배포 스크립트는 적용 전에 그 Secret이 있고 형식이 맞는지 확인하고, rollout이 실패하면 원인을 이미지 없음·GHCR 인증 실패·앱 기동 실패로 나눠 알린다(#461).
+prod 앱은 dev에 병합하면 GitHub Actions가 발행부터 배포까지 자동으로 한다(#374, #559). 서버는 prod 한 벌이고 **main에는 서버가 없다**. main은 `release/review-N` → main 리뷰 제출용으로만 병합하고, main push에는 workflow가 돌지 않는다. 앱 이미지는 private GHCR 패키지라 node가 공유 Secret `ghcr-pull`로 받는다([GHCR pull 인증](#ghcr-pull-인증)). 배포 스크립트는 적용 전에 그 Secret이 있고 형식이 맞는지 확인하고, rollout이 실패하면 원인을 이미지 없음·GHCR 인증 실패·앱 기동 실패로 나눠 알린다(#461).
 
 ```
-main push → Publish images(publish.yml)
-  여섯 앱 테스트(ci.yml) → 바뀐 앱만 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<그 앱을 마지막으로 바꾼 main 커밋>
+dev push → Publish and deploy(publish.yml)
+  images  앱마다 이 커밋에서 쓸 이미지 :sha-<그 앱을 마지막으로 바꾼 dev 커밋>이 GHCR에 있는지 보고 없는 앱을 고른다
+  ci      고른 앱만 테스트(ci.yml)
+  build   고른 앱을 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<태그 커밋>으로 발행
+  deploy  deploy.yml 호출. 차례가 왔을 때 이 커밋이 dev 최신이 아니면 건너뛴다(뒤 push의 run이 배포)
+    지금 도는 이미지와 비교해 바뀐 앱을 고른다 → 이미지가 모두 GHCR에 있는지 확인
+    → 앱마다 순서대로(member → billing → appearance → lecture → chat → customer-support)
+       SSM Run Command로 large에서 .github/scripts/k3s-deploy.sh apply
+         ghcr-pull Secret 확인 → 해당 커밋의 apps/<앱>/k8s/overlays/prod를 받아 이미지 태그를 넣고 apply → rollout status
+         실패하면 원인을 알리고 그 앱만 rollout undo, 남은 앱은 배포하지 않음
 
-Actions → Deploy(deploy.yml) → Run workflow(main), 입력 sha(비우면 main 최신)·apps(비우면 자동)
-  지금 도는 이미지와 비교해 바뀐 앱을 고른다 → 이미지가 모두 GHCR에 있는지 확인
-  → 앱마다 순서대로(member → billing → appearance → lecture → chat → customer-support)
-     SSM Run Command로 large에서 .github/scripts/k3s-deploy.sh apply
-       ghcr-pull Secret 확인 → 해당 커밋의 apps/<앱>/k8s/overlays/prod를 받아 이미지 태그를 넣고 apply → rollout status
-       실패하면 원인을 알리고 그 앱만 rollout undo, 남은 앱은 배포하지 않음
+수동 Deploy(deploy.yml, 브랜치 dev): 입력 sha(비우면 dev 최신)·apps(비우면 자동). 따라잡기·롤백에 쓴다
 ```
 
 - **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`가 바뀌면 전체다. 앱 목록과 배포 순서는 `.github/scripts/apps.sh` 한 곳에 있고, `apps/*-app`과 다르면 CI(`verify`)가 실패한다. 새 앱은 여기에 추가한다.
-- **롤백**: Deploy를 `apps`에 앱, `sha`에 되돌릴 main 커밋을 넣어 실행한다. `rollout undo`는 Deployment만 되돌리고 ConfigMap 외의 리소스(HTTPRoute·Secret 등)는 되돌리지 않는다.
+- **발행할 앱**: 이번 push에서 바뀐 앱은 태그가 새 커밋이라 항상 발행한다. 앞 run이 실패했거나 아직 발행 중이라 이미지가 없는 앱도 다시 발행하므로, run이 성공하면 그 커밋의 모든 앱 이미지가 GHCR에 있다. 연달아 병합하면 두 run이 같은 태그를 함께 올릴 수 있지만, 같은 앱 내용을 테스트한 jar라 어느 쪽이 남아도 같다.
+- **dev 최신만 배포**: 배포 job은 자동·수동 모두 한 번에 하나씩 돈다(concurrency `deploy-k3s-prod`). 자동 배포는 차례가 왔을 때 dev 최신 커밋이 아니면 건너뛴다. 늦게 끝난 앞 run이 뒤 커밋의 배포를 되돌리지 않게 하기 위해서다. 그래서 dev 최신 커밋의 테스트·발행이 실패하면 그 앞 커밋도 배포되지 않는다. 고친 커밋을 병합하거나, 앞 커밋을 `sha`에 넣어 Deploy를 수동으로 실행한다.
+- **서버가 꺼진 시간**: EC2는 09:00~18:00에만 켜져 있다([배포 개요](README.md)). 그 밖에 병합하면 배포 job이 SSM에서 실패한다. 다음 병합의 run이 밀린 앱까지 배포한다. 기다리지 않으려면 서버가 켜진 뒤 Deploy를 입력 없이 실행한다.
+- **수동 실행**: `gh workflow run deploy.yml --ref dev`(입력은 `-f sha=<dev 커밋> -f apps="<앱> <앱>"`). Actions 화면의 "Run workflow" 버튼은 기본 브랜치(main)의 `deploy.yml` 기준으로 보인다. main의 파일은 Compose 시절 것(`workflow_dispatch` 없음)이라 버튼이 없으면 CLI로 실행한다. 최근 run은 `gh run list --workflow publish.yml --limit 3`으로 본다.
+- **롤백**: Deploy를 `apps`에 앱, `sha`에 되돌릴 dev 커밋을 넣어 실행한다. `rollout undo`는 Deployment만 되돌리고 ConfigMap 외의 리소스(HTTPRoute·Secret 등)는 되돌리지 않는다. 롤백 뒤 다음 dev 병합의 자동 배포는 지금 도는 이미지와 dev 최신을 비교해 그 앱을 다시 올린다. 문제를 고친 커밋을 병합할 때까지 dev 병합을 멈추거나, 되돌리는 커밋(revert)을 병합한다.
   - Deploy는 그 커밋의 overlay 전체를 적용하므로 SealedSecret도 그 커밋 것으로 돌아간다. 비밀번호·내부 API 키를 교체한 커밋보다 이전으로 롤백하면 새로 뜨는 pod가 무효한 자격 증명을 쓴다. 그런 경우 이전 커밋의 SealedSecret을 지금 값으로 다시 봉인한 커밋을 만들어 배포한다.
   - Flyway 마이그레이션은 되돌리지 않는다. 이전 이미지가 지금 스키마에서 동작하는지 먼저 확인한다.
-- **cluster 접근**: GitHub OIDC로 IAM role을 받아 SSM Run Command로 large에서 root로 `k3s kubectl`을 실행한다. 6443과 SSH를 쓰지 않는다. role trust는 GitHub Environment `prod`의 job만 허용하고, `prod`는 `main` 브랜치만 허용한다. `prod` Environment Secrets는 `AWS_DEPLOY_ROLE_ARN`, `DEPLOY_INSTANCE_ID`다.
-  - 이 레포는 GitHub OIDC의 immutable subject를 쓴다. trust의 `sub`는 `repo:<org>@<org id>/<repo>@<repo id>:environment:prod` 형식이라 레포를 옮기거나 다시 만들면 바꿔야 한다.
+- **cluster 접근**: GitHub OIDC로 IAM role을 받아 SSM Run Command로 large에서 root로 `k3s kubectl`을 실행한다. 6443과 SSH를 쓰지 않는다. role trust는 GitHub Environment `prod`의 job만 허용하고, `prod`는 `dev` 브랜치만 허용한다(#559 전에는 `main`). `prod` Environment Secrets는 `AWS_DEPLOY_ROLE_ARN`, `DEPLOY_INSTANCE_ID`다.
+  - 이 레포는 GitHub OIDC의 immutable subject를 쓴다. trust의 `sub`는 `repo:<org>@<org id>/<repo>@<repo id>:environment:prod` 형식이라 레포를 옮기거나 다시 만들면 바꿔야 한다. 브랜치는 `sub`에 들어가지 않으므로 배포 브랜치를 바꿀 때 role은 그대로다.
   - large의 인스턴스 역할에 `AmazonSSMManagedInstanceCore`가 있어야 SSM agent가 등록된다.
 - 공개 레포라 Actions 로그도 공개다. 배포 스크립트는 node 이름·IP가 나오는 출력(`-o wide`, `describe`)을 하지 않는다.
 - `k8s/cluster`·`k8s/platform`·`k8s/gateway`·`k8s/registry`는 자동 배포하지 않는다.
+- 로컬에서 prod에 앱을 직접 적용하지 않는다. 자동 배포와 겹치면 한쪽의 apply·`rollout undo`가 다른 쪽 배포를 덮어쓰거나 되돌린다. 장애 대응으로 불가피하면 그동안 dev 병합을 멈춘다.
 - 서버 스크립트는 로컬 k3d에서 시험할 수 있다: `KUBECTL="kubectl --context k3d-hapbang" ROLLOUT_TIMEOUT=60s .github/scripts/k3s-deploy.sh apply <앱> <GitHub에 있는 커밋> <태그 커밋>`. k3d에는 `ghcr-pull`이 없어 Secret 확인에서 멈추므로, 가짜 값으로 `kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io ...`를 만들어 둔다(pull은 401·403으로 실패해 원인 구분을 시험할 수 있다). 시험 뒤 `apps/<앱>/k8s/overlays/local`을 다시 적용하고, 함께 생긴 prod SealedSecret(`kubectl delete sealedsecret <앱>-secrets`)과 가짜 `ghcr-pull`을 지운다.
 
 ### 릴리스 전 배포
 
-dev → main 병합 전에 일부 앱을 먼저 운영에 올릴 때 쓴다(#461). 이미지는 사람이 `write:packages` PAT로 직접 빌드해 올린다. Publish images(Actions)는 main push에서만 돈다.
+dev 자동 배포(#559) 전에 쓰던 방식이다. 이제 쓰지 않는다. main 병합 전에 일부 앱을 먼저 운영에 올리려고, 사람이 origin/dev에서 `./gradlew :<앱>:check :<앱>:bootJar`로 jar를 만들고 `write:packages` 1일 PAT로 이미지를 push한 뒤 로컬에서 `k3s-deploy.sh apply`나 최소 배포(NetworkPolicy → ConfigMap·Deployment)로 올렸다(#461). 태그는 jar를 만든 dev 커밋이라 dev 자동 배포의 태그 규칙과 같다. 아래는 그때 확인한 사실이다.
 
-1. **테스트와 jar**: origin/dev를 받은 깨끗한 작업 폴더(커밋하지 않은 변경 없음)에서 `./gradlew :<앱>:check :<앱>:bootJar`. 변경이 남아 있으면 jar와 태그 커밋이 달라진다.
-2. **이미지 빌드**: EC2는 amd64다. 태그는 jar를 만든 dev 커밋으로 붙인다. 라벨은 패키지를 이 레포에 연결한다.
-
-   ```bash
-   test -z "$(git status --porcelain)" || { echo '커밋하지 않은 변경이 있다'; exit 1; }
-   T=$(git rev-parse HEAD)
-   docker buildx build --platform linux/amd64 --load \
-     --label org.opencontainers.image.source=https://github.com/prgrms-be-adv-devcourse/beadv8_8_LMS_BE \
-     -t "ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-${T}" \
-     -f apps/<앱>/Dockerfile apps/<앱>/build/libs
-   ```
-
-3. **push**: classic PAT(`write:packages`, 만료 1일)를 만들고 별도 터미널에서 `docker login ghcr.io -u <GitHub 아이디>`(Password 칸에 붙여 넣는다) → `docker push <이미지>` → `docker logout ghcr.io` → PAT 삭제. 토큰은 채팅·이슈에 붙이지 않는다.
-   - 패키지가 없으면 첫 push가 패키지를 만든다. 2026-10-30 member-app·lecture-app은 첫 push가 패키지만 만들고 `denied`로 끝났고, 다시 로그인해 push하자 올라갔다. 2026-11-02 appearance-app은 첫 push에 바로 올라갔다.
-   - main의 Publish images(`GITHUB_TOKEN`)가 이 패키지에 push하려면 레포 Actions에 쓰기 권한이 있어야 한다. 위 라벨로 올리면 패키지가 레포에 연결된다. 패키지 페이지 → Package settings → Inherited access에서 "Inherit access from source repository"를 켜고, Manage Actions access에 `beadv8_8_LMS_BE`가 보이는지 확인한다. 연결되지 않았으면 패키지 페이지의 Connect Repository로 연결한 뒤 켠다. 조직이 상속을 막아 항목이 없으면 Manage Actions access → Add Repository → `beadv8_8_LMS_BE`(Write)로 더한다([GitHub 문서](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)).
-   - member-app·lecture-app은 2026-10-30, appearance-app·customer-support-app·chat-app은 2026-11-02 상속을 켰다.
-4. **pull 확인**: `k8s/tools/ghcr-pull-check.sh <이미지> <pool>`([GHCR pull 인증](#ghcr-pull-인증)).
-5. **배포**: Deploy workflow는 main 커밋만 받으므로 로컬에서 한다. prod kubeconfig(context `hapbang-k3s`)가 필요하다. 앱은 배포 순서(member → billing → appearance → lecture → chat → customer-support)를 지킨다.
-
-   ```bash
-   KUBECTL="kubectl --context hapbang-k3s" .github/scripts/k3s-deploy.sh apply <앱> <dev 커밋 40자> <태그 커밋 40자>
-   ```
-
-   이 스크립트는 overlay 전체(Service·HTTPRoute·SecurityPolicy·NetworkPolicy 포함)를 적용해 Envoy로 외부에 연다. 처음 올리는 앱이 뜨는지만 볼 때는 ConfigMap·NetworkPolicy·Deployment만 적용한다. NetworkPolicy는 빼지 않는다. 빼면 다른 pod가 앱 포트에 바로 닿고, `hapbang-prod`의 `deny-metadata-egress`가 IMDS를 막아 S3를 쓰는 앱(member·appearance·lecture)이 자격 증명을 받지 못한다. 이미 Service·HTTPRoute가 있는 앱에 이 방식으로 올리면 새 이미지가 바로 요청을 받으므로 쓰지 않는다.
-
-   ```bash
-   # kustomize는 절대 경로 resource를 받지 않아 레포 안에 임시 폴더를 둔다.
-   d=$(mktemp -d "$PWD/.k3s-min.XXXXXX")
-   cat > "$d/kustomization.yaml" <<'YAML'
-   resources: [../apps/<앱>/k8s/overlays/prod]
-   images: [{name: <앱>, newName: ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>, newTag: sha-<태그 커밋>}]
-   YAML
-   kubectl kustomize "$d" > "$d/all.yaml"
-   # NetworkPolicy를 먼저 적용한다. kustomize 출력은 Deployment가 앞이라 한 번에 적용하면 pod가 정책 없이 먼저 뜬다.
-   yq 'select(.kind == "NetworkPolicy")' "$d/all.yaml" > "$d/np.yaml"
-   yq 'select(.kind == "ConfigMap" or .kind == "Deployment")' "$d/all.yaml" > "$d/app.yaml"
-   kubectl --context hapbang-k3s apply -f "$d/np.yaml"
-   kubectl --context hapbang-k3s apply -f "$d/app.yaml"
-   rm -rf "$d"
-   ```
-
-- 로컬 배포와 Deploy workflow를 동시에 돌리지 않는다. Deploy의 동시 실행 제한(`concurrency`)은 workflow끼리만 막는다. 겹치면 한쪽의 apply·`rollout undo`가 다른 쪽 배포를 덮어쓰거나 되돌린다.
-- 먼저 올린 앱의 커밋이 main에 들어가기 전에는 Deploy를 입력 없이 실행하지 않는다. 자동 판단이 그 앱을 main의 더 오래된 이미지로 되돌릴 수 있다.
-- 릴리스 뒤에는 먼저 올린 앱을 Deploy의 `apps`에 적어 다시 배포한다. 입력 없이 돌리면 앱 내용이 그대로인 앱은 건너뛰어, 사람이 올린 이미지와 최소 배포에서 뺀 리소스(Service·HTTPRoute 등)가 그대로 남는다.
-- main 릴리스 리뷰와 CI를 거치지 않은 이미지다. 어떤 앱을 어느 커밋으로 언제 올렸는지 해당 티켓에 남긴다.
+- 패키지가 없으면 첫 push가 패키지를 만든다. 2026-10-30 member-app·lecture-app은 첫 push가 패키지만 만들고 `denied`로 끝났고, 다시 로그인해 push하자 올라갔다. 2026-11-02 appearance-app은 첫 push에 바로 올라갔다.
+- 사람이 만든 패키지에 Publish and deploy(`GITHUB_TOKEN`)가 push하려면 레포 Actions에 쓰기 권한이 있어야 한다. 이미지 라벨 `org.opencontainers.image.source`로 패키지를 레포에 연결하고, 패키지 페이지 → Package settings → Inherited access에서 "Inherit access from source repository"를 켠다. Manage Actions access에 `beadv8_8_LMS_BE`가 보이는지 확인한다. 조직이 상속을 막아 항목이 없으면 Manage Actions access → Add Repository → `beadv8_8_LMS_BE`(Write)로 더한다([GitHub 문서](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)). member-app·lecture-app은 2026-10-30, appearance-app·customer-support-app·chat-app은 2026-11-02 상속을 켰다.
+- 최소 배포에서 NetworkPolicy를 빼면 다른 pod가 앱 포트에 바로 닿고, `hapbang-prod`의 `deny-metadata-egress`가 IMDS를 막아 S3를 쓰는 앱(member·appearance·lecture)이 자격 증명을 받지 못한다. kustomize 출력은 Deployment가 앞이라, 한 번에 적용하면 pod가 정책 없이 먼저 뜬다.
 - 2026-10-30 기록: member-app·lecture-app을 이 방식으로 올렸다(#461). 처음에는 ConfigMap·Deployment만 적용해 NetworkPolicy가 빠졌다. lecture-app은 384Mi·448Mi limit에서 기동 중 OOMKilled돼 640Mi로 올렸고, manifest와 [k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)도 640Mi로 고쳤다.
 - 2026-11-02 기록: appearance-app을 dev `5d66992`로 이 방식(NetworkPolicy → ConfigMap·Deployment)으로 올렸다(#504). Flyway가 `appearance` 스키마를 만들고 회원 이벤트 consumer가 `member.events.v1`을 받았다. route는 billing-app 배포 뒤 연다. billing-app이 없으면 요청서·모집글이 보류 요청 실패로 `HOLD_PENDING`에 남기 때문이다. 448Mi limit에서 기동 3분 뒤 RSS 425Mi로 한도에 붙어 512Mi로 올렸고, 다시 뜬 뒤 4분에 RSS 414Mi였다([k3s 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)).
 - 2026-11-02 기록: lecture-app과 customer-support-app을 dev `e85ae26f`(#525, 이의 제기 연동)로 이 방식으로 올렸다. lecture-app은 이미지와 함께 Service를 더 적용했다(고객센터 → 강의 내부 API 8081용, HTTPRoute 없음). customer-support-app은 처음 배포라 NetworkPolicy → ConfigMap·Deployment 순서로 적용했고, 이미지 패키지도 이때 처음 만들었다. Flyway가 강의 `V202611021128`, 고객센터 4개(`V202611021129`까지)를 적용했고, `lecture-app.objection-command`·`customer-support-app.objection-result`가 상대 토픽의 partition 3개씩을 받았다. 레이블을 붙인 임시 pod에서 강의 내부 API가 키 없이 401로 응답해 Service·NetworkPolicy를 확인했다(새 pod는 정책이 붙기까지 몇 초 걸리므로 `sleep 10` 뒤 요청한다). customer-support-app은 384Mi limit에서 기동 5분 뒤 RSS 353Mi라 448Mi로 올렸다(#527).
 - 2026-11-02 기록: chat-app을 dev `6ec33161`로 이 방식(NetworkPolicy → ConfigMap·Deployment)으로 처음 올리고 이미지 패키지도 이때 만들었다(#545). 로컬 `:chat-app:check`는 `ChatPipelineDeliveryE2ETest` 1개가 앞 테스트의 알림을 받아 두 번 다 실패했고 단독 실행은 통과해, 테스트 격리 문제로 보고 진행했다(#547). Flyway가 `chat` 스키마를 만들었고 `chat-app.member-replica`·`chat-app.appearance-notification`이 partition 3개씩을 받았다. 384Mi limit에서는 기동 직후 OOMKilled(5회 재시작)돼 512Mi로 올렸고, 기동 5분 뒤 working set 404Mi, 25분 뒤 430Mi였다. route는 공용 Gateway에 `x-user-token-exp` 헤더 제거(#534)를 먼저 적용한 뒤 Service·SecurityPolicy·BackendTrafficPolicy·HTTPRoute 순서로 열었다. 두 route가 Accepted·ResolvedRefs였고, 외부에서 토큰 없는 요청, 위조한 `X-User-Id`·`X-User-Role` 요청, 티켓 없는 WebSocket 업그레이드는 앱의 401로, 잘못된 Bearer는 Envoy의 401로 응답했다. 최소 배포 뒤 512Mi를 반영한 overlay와 운영의 diff는 없다.
 
-### 첫 릴리스
+### dev 자동 배포 전환
 
-main은 2026-10-28 이후 병합되지 않아 Publish images가 main에 없다. 앱 이미지 패키지는 member-app·lecture-app(2026-10-30)·appearance-app·customer-support-app·chat-app(2026-11-02)이 있다([릴리스 전 배포](#릴리스-전-배포)로 사람이 만들었다). 다섯 패키지 모두 레포 상속을 켜 두었다. 첫 Publish run에서 이 앱들의 push가 권한 오류로 실패하면 Manage Actions access를 확인한다. 나머지 billing-app은 첫 Publish가 만든다. 처음 한 번은 아래 순서로 한다. 이후 릴리스는 1·2·4단계만 한다.
+#559를 dev에 병합하면 첫 Publish and deploy run이 돈다. 사람이 먼저 올린 앱은 태그가 dev 기준 태그와 같으면 발행·배포를 건너뛰고, 그 뒤 바뀐 앱과 billing-app은 발행·배포한다. 배포는 overlay 전체를 적용하므로 지금 route 없이 떠 있는 앱도 배포되는 순간 route가 열린다. 이것을 첫 릴리스로 삼는다(2026-11-02 결정).
 
-1. **dev → main 병합**: base `main` ← `dev`(또는 `release/review-N`) PR을 만들어 병합한다. 다른 브랜치에서 열면 `PR source / source-branch` 체크가 실패한다(#180).
-2. **발행 확인**: Actions → Publish images의 main run이 성공했는지 본다. 발행한 앱은 run 요약의 "발행 대상"에 있다. 실패하면 원인을 고쳐 다시 병합한다.
-3. **pull 확인(앱마다 처음 한 번)**: 패키지는 private 그대로 둔다. 발행된 앱 이미지를 그 앱이 뜨는 pool에서 `ghcr-pull`로 받아 본다([GHCR pull 인증](#ghcr-pull-인증)). 태그는 Publish images run 요약에 있다. pool은 member·billing·appearance가 `core-data`, lecture·chat·customer-support가 `app-observe`다. 발행한 패키지를 kaameo 계정이 읽지 못하면 실패하므로, 패키지 설정의 Manage Actions access·권한을 확인한다.
-
-   ```bash
-   k8s/tools/ghcr-pull-check.sh ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<태그 커밋> <pool>
-   ```
-
-4. **배포**: Actions → Deploy → Run workflow(main)를 입력 없이 실행한다. 앱 SealedSecret과 `ghcr-pull`은 `hapbang-prod`에 이미 있다([Secret](#secret)).
+1. **병합 전**: Settings → Environments → `prod` → Deployment branches and tags에서 `main`을 지우고 `dev`를 더한다. 바꾸지 않으면 deploy job이 environment 보호 규칙으로 거부된다. `gh api repos/prgrms-be-adv-devcourse/beadv8_8_LMS_BE/environments/prod/deployment-branch-policies --jq '.branch_policies[].name'`이 `dev`만 출력하는지 본다.
+2. **병합 전**: 로컬에서 진행 중인 수동 배포가 없는지 팀에 확인한다.
+3. **병합 뒤**: `gh run list --workflow publish.yml --limit 1`의 run을 본다. 요약의 "발행 대상"과 "운영 배포" 표에 앱과 커밋이 나온다.
+   - billing-app 패키지는 이 run이 처음 만든다. push가 권한 오류로 실패하면 패키지 설정의 Manage Actions access를 확인한다([릴리스 전 배포](#릴리스-전-배포)).
+   - billing-app rollout이 GHCR 401·403으로 실패하면 kaameo 계정이 새 패키지를 읽지 못하는 것이다. 패키지 권한을 고친 뒤 `k8s/tools/ghcr-pull-check.sh <이미지> core-data`로 확인하고 Deploy를 입력 없이 실행한다. billing 다음 순서의 앱은 그때 함께 배포된다.
+4. 배포한 앱·커밋과 열린 route를 [배포 개요](README.md) 상태 표와 이 문서 맨 위 상태에 적는다.
 
 ## 로컬 k3d 검증
 
