@@ -17,7 +17,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
  *     (지표를 읽을 때마다 DB를 조회하지 않도록)</li>
  * </ul>
  * 앱에서는 Actuator가 만든 {@link MeterRegistry}에 등록된다. 출연 모듈 단독 테스트처럼 레지스트리가 없으면 메모리 레지스트리를 쓴다.
- * 지표를 밖에서 보는 경로(/actuator/metrics, Prometheus)는 팀 합의 후 연다.
+ * 클러스터 안의 Prometheus가 관리 포트의 {@code /actuator/prometheus}로 수집한다(#528).
  */
 @Component
 public class HpTaskMetrics {

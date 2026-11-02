@@ -13,6 +13,7 @@ import com.hapbang.appearance.app.AppearanceHoldRecheckUseCase;
 import com.hapbang.appearance.app.AppearanceEventRepublishUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitDeadlineCloseUseCase;
 import com.hapbang.appearance.app.AppearanceRequestExpireUseCase;
+import com.hapbang.appearance.app.AppearanceReviewExpirePublishUseCase;
 import com.hapbang.appearance.app.HpTaskRetryUseCase;
 
 /**
@@ -29,6 +30,7 @@ class AppearanceBatchConditionTest {
             .withBean(HpTaskRetryUseCase.class, () -> mock(HpTaskRetryUseCase.class))
             .withBean(AppearanceAutoConfirmUseCase.class, () -> mock(AppearanceAutoConfirmUseCase.class))
             .withBean(AppearanceEventRepublishUseCase.class, () -> mock(AppearanceEventRepublishUseCase.class))
+            .withBean(AppearanceReviewExpirePublishUseCase.class, () -> mock(AppearanceReviewExpirePublishUseCase.class))
             .withUserConfiguration(AppearanceBatch.class);
 
     @Test

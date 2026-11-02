@@ -1,5 +1,6 @@
 package com.hapbang.chat.out;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -55,6 +56,9 @@ public final class ChatOutboxRows {
         Long getMemberVersion();
 
         ChatControlReason getReason();
+
+        /** 로그아웃 작업의 기준 시각. 재검사 작업과 이 값이 생기기 전의 로그아웃 작업은 null */
+        Instant getLoggedOutAt();
 
         int getSchemaVersion();
     }

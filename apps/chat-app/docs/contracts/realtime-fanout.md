@@ -66,11 +66,14 @@ public interface RealtimeChatFanout {
 - 보낸 사람의 전송 결과 확인과 방별로 묶은 새 메시지 알림의 재료다. 모든 앱이 늘 구독하므로 보낸 사람이 그 방을 구독하지 않은 앱에서도 결과 확인을 보낼 수 있다.
 - `notifyRule`이 `NONE`인 작업도 발행한다(자기 구독 단절 신호를 겸한다). 알림 묶음에는 넣지 않는다.
 
-제어 채널 `chat:control:v1` ← `ControlFanout`(변경 없음)
+제어 채널 `chat:control:v1` ← `ControlFanout`
 
 ```json
-{ "controlId": "1f3e…", "type": "RECHECK_USER", "userId": 7, "memberVersion": 5, "reason": "MEMBER_MODIFIED" }
+{ "controlId": "1f3e…", "type": "RECHECK_USER", "userId": 7, "memberVersion": 5, "reason": "MEMBER_MODIFIED", "loggedOutAt": null }
+{ "controlId": "5a2c…", "type": "LOGOUT_USER", "userId": 7, "memberVersion": null, "reason": "MEMBER_LOGGED_OUT", "loggedOutAt": "2026-11-02T06:00:00.123Z" }
 ```
+
+- `loggedOutAt`(#548): 로그아웃 작업이 닫을 연결의 기준 시각(밀리초). 구독자는 그 회원의 로컬 연결 중 이보다 먼저 인증한 연결만 닫는다. 재검사 작업은 null이다. 로그아웃 작업이 null이면(값이 생기기 전의 작업) 그 회원의 연결을 모두 닫는다.
 
 - `MessageFanout`·`ControlFanout`·`ChatNotifyRule`은 공통 골격이다. 바꿀 때 이 계약과 [병렬 작업 계약](parallel-work.md)을 먼저 고친다.
 
@@ -87,7 +90,7 @@ public interface RealtimeChatFanout {
 | 제어 채널 | `<ns>:chat:control:v1` |
 | 접속 정보 | `<ns>:chat:presence:online`, `<ns>:chat:presence:user:{userId}` (#419) |
 | 웹소켓 연결 티켓 | `<ns>:chat:ws-ticket:{티켓 SHA-256 hex}`(STRING, 회원·역할·발급·연결 만료 JSON, TTL 30초, `GETDEL`로 한 번 사용), `<ns>:chat:ws-ticket-rate:{userId}`(STRING, 고정 창 60초 발급 횟수, `INCR` + 첫 발급만 `PEXPIRE`) (#501) |
-| 로그아웃 표식 | `<ns>:chat:logout:{userId}`(STRING, 처리 시각 epoch ms, TTL 20분, 하트비트가 `MGET`) (#501) |
+| 로그아웃 표식 | `<ns>:chat:logout:{userId}`(STRING, 로그아웃 기준 시각 epoch ms, TTL 20분, 하트비트가 `MGET`) (#501). 더 늦은 값일 때만 바꾼다(`logout-marker.lua`, #548) |
 
 옛 전달 채널 `<ns>:chat:fanout:v1`과 수신자 목록 DTO `FanoutRecipient`는 없앴다. 발행·구독을 같은 배포에서 바꾸고 옛 채널과 함께 쓰지 않는다.
 

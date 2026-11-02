@@ -1,5 +1,5 @@
 # hapbang-platform: 앱들이 함께 쓰는 인프라. Kafka·Redis(직접 작성), PostgreSQL(HelmChart),
-# Elasticsearch(ECK CR), 관측성(HelmChart). 앱 manifest는 각 앱의 k8s/ 디렉터리에 있다.
+# Elasticsearch(ECK CR), 관측성(HelmChart, Grafana dashboard ConfigMap). 앱 manifest는 각 앱의 k8s/ 디렉터리에 있다.
 # 자주 바뀌지 않고 잘못 건드리면 데이터가 위험하므로 수동으로만 적용한다.
 # Elasticsearch CR은 ECK CRD가 있어야 적용된다. k8s/cluster를 먼저 적용한다(docs/deploy/k8s.md).
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -14,3 +14,13 @@ resources:
   - redpanda-console.yaml
 components:
   - ../../components/core-data
+# Grafana dashboard(#531). Grafana 차트의 dashboardsConfigMaps가 이 이름을 문자열로 참조하므로 hash를 붙이지 않는다.
+# 디렉터리로 마운트되어(subPath 아님) ConfigMap을 고치면 Grafana 재시작 없이 1~2분 안에 반영된다.
+configMapGenerator:
+  - name: grafana-dashboards-hapbang
+    files:
+      - dashboards/gateway.json
+      - dashboards/jvm.json
+      - dashboards/kubernetes.json
+    options:
+      disableNameSuffixHash: true

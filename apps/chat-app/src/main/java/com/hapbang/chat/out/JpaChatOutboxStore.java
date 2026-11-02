@@ -317,6 +317,6 @@ public class JpaChatOutboxStore implements ChatOutboxStore {
 
     private static ControlJob controlJob(ControlJobRow row) {
         return new ControlJob(row.getId(), row.getJobId(), row.getControlType(), row.getUserId(),
-                row.getMemberVersion(), row.getReason(), row.getSchemaVersion());
+                row.getMemberVersion(), row.getReason(), row.getLoggedOutAt(), row.getSchemaVersion());
     }
 }

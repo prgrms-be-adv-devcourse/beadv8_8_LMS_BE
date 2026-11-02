@@ -1,6 +1,6 @@
 # 관측성 stack(Prometheus·Loki·Tempo·Grafana·Alloy). 모두 medium(app-observe)에 둔다.
 # 이 파일은 설치, 자원·보존 한도와 Alloy pipeline(Gateway trace·pod log)을 정한다. 앱 지표는 Prometheus 차트 기본
-# kubernetes-pods job이 pod annotation으로 수집한다(#480). dashboard, alert는 #343에서 더한다.
+# kubernetes-pods job이 pod annotation으로 수집한다(#480). dashboard는 dashboards/ JSON(#531)이고, alert는 #343에서 더한다.
 # 메모리 limit은 로컬 k3d 실측(#373·#443·#480)에 여유를 더한 값이다. 이 파일의 합계는 1,248 MiB이고, k8s/gateway의
 # Tempo 160·Grafana 448 override를 더하면 1,472 MiB다(#532 운영 실측으로 조정). 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다.
 # 예산 조정은 #343에서 한다(docs/architecture/infrastructure/k3s.md).
@@ -193,6 +193,9 @@ spec:
             uid: prometheus
             url: http://prometheus-server.hapbang-platform.svc.cluster.local
             isDefault: true
+            # scrape 주기(차트 기본 1m)를 알려 $__rate_interval이 4m 이상이 되게 한다. 짧으면 rate()가 빈다.
+            jsonData:
+              timeInterval: 1m
           - name: Loki
             type: loki
             uid: loki
@@ -201,6 +204,23 @@ spec:
             type: tempo
             uid: tempo
             url: http://tempo.hapbang-platform.svc.cluster.local:3200
+    # dashboard JSON은 레포의 k8s/platform/base/dashboards가 원본이다(#531). kustomization이 만든 ConfigMap을
+    # 디렉터리로 마운트한다. sidecar와 grafana.com 다운로드는 쓰지 않는다. UI에서 고친 내용은 저장되지 않으니
+    # JSON으로 내보내 레포를 고친다(docs/architecture/infrastructure/observability.md).
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: hapbang
+            orgId: 1
+            folder: 합방
+            type: file
+            disableDeletion: true
+            allowUiUpdates: false
+            options:
+              path: /var/lib/grafana/dashboards/hapbang
+    dashboardsConfigMaps:
+      hapbang: grafana-dashboards-hapbang
     persistence:
       enabled: true
       size: 1Gi

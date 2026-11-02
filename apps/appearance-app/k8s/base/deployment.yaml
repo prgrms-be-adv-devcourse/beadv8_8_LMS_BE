@@ -23,6 +23,11 @@ spec:
       labels:
         app.kubernetes.io/name: appearance-app
         hapbang.io/internal-api-client: 'true'
+      # Prometheus 차트 기본 kubernetes-pods job이 이 annotation을 보고 수집한다(#480). 관리 포트에서 읽는다(#528).
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8082'
+        prometheus.io/path: /actuator/prometheus
     spec:
       # node별 메모리 예산이 배치를 전제로 하므로 required로 건다(docs/deploy/aws-k3s.md).
       affinity:
@@ -41,34 +46,38 @@ spec:
               containerPort: 8080
             - name: internal
               containerPort: 8081
+            # actuator 전용(MANAGEMENT_SERVER_PORT). probe와 Prometheus만 쓴다
+            - name: management
+              containerPort: 8082
           envFrom:
             - configMapRef:
                 name: appearance-app-config
             - secretRef:
                 name: appearance-app-secrets
-          # EC2에서 448Mi로 띄우자 기동 3분 뒤 RSS 425Mi로 한도에 붙었다(#504). member-app(#480)과 같은 512Mi로 올린다.
+          # EC2에서 448Mi로 띄우자 기동 3분 뒤 RSS 425Mi로 한도에 붙어 512Mi로 올렸다(#504).
+          # 512Mi에서 운영 working set 461Mi(90%)였고, 지표 노출과 관리 포트(Tomcat 하나 더, 약 +10MB)를 더하며 576Mi로 올린다(#528).
           resources:
             requests:
               cpu: 100m
-              memory: 512Mi
+              memory: 576Mi
             limits:
-              memory: 512Mi
+              memory: 576Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:
               path: /actuator/health/liveness
-              port: http
+              port: management
             periodSeconds: 5
             failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
-              port: http
+              port: management
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
-              port: http
+              port: management
             periodSeconds: 10
           # 이미지의 USER가 이름(app)이라 kubelet이 non-root인지 확인할 수 있게 uid(Dockerfile의 10001)를 적는다.
           securityContext:

@@ -1,5 +1,6 @@
 package com.hapbang.chat.out;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -48,19 +49,20 @@ public interface ChatControlOutboxRepository extends JpaRepository<ChatControlOu
             @Param("now") LocalDateTime now);
 
     /**
-     * 중복 식별 없이 한 행을 넣는다(로그아웃 작업 LOGOUT_USER, 원본 버전 없음). 트랜잭션을 열지 않으므로 기록하는 트랜잭션 안에서만
-     * 부른다.
+     * 중복 식별 없이 한 행을 넣는다(로그아웃 작업 LOGOUT_USER, 원본 버전 없음). {@code loggedOutAt}보다 먼저 인증한 연결만 닫는
+     * 기준 시각을 함께 남긴다. 트랜잭션을 열지 않으므로 기록하는 트랜잭션 안에서만 부른다.
      */
     @Modifying
     @Query(nativeQuery = true, value = """
             insert into chats.chat_control_outbox (control_id, control_type, user_id, member_version, reason,
-                    schema_version, status, attempt_count, next_attempt_at, requeue_count, created_at,
-                    updated_at)
+                    logged_out_at, schema_version, status, attempt_count, next_attempt_at, requeue_count,
+                    created_at, updated_at)
             values (:controlId, :controlType, :userId, null, :reason,
-                    1, 'PENDING', 0, :now, 0, :now, :now)
+                    :loggedOutAt, 1, 'PENDING', 0, :now, 0, :now, :now)
             """)
     void insert(@Param("controlId") UUID controlId, @Param("controlType") String controlType,
-            @Param("userId") Long userId, @Param("reason") String reason, @Param("now") LocalDateTime now);
+            @Param("userId") Long userId, @Param("reason") String reason, @Param("loggedOutAt") Instant loggedOutAt,
+            @Param("now") LocalDateTime now);
 
     @Transactional
     @Modifying
@@ -90,7 +92,7 @@ public interface ChatControlOutboxRepository extends JpaRepository<ChatControlOu
                            limit :limit
                            for update skip locked)
             returning o.id, o.control_id as job_id, o.control_type, o.user_id, o.member_version, o.reason,
-                      o.schema_version, o.attempt_count
+                      o.logged_out_at, o.schema_version, o.attempt_count
             """)
     List<ClaimedControlRow> claim(@Param("claimToken") UUID claimToken, @Param("now") LocalDateTime now,
             @Param("leaseUntil") LocalDateTime leaseUntil, @Param("limit") int limit);
@@ -147,7 +149,7 @@ public interface ChatControlOutboxRepository extends JpaRepository<ChatControlOu
 
     @Query(nativeQuery = true, value = """
             select o.id, o.control_id as job_id, o.control_type, o.user_id, o.member_version, o.reason,
-                   o.schema_version
+                   o.logged_out_at, o.schema_version
             from chats.chat_control_outbox o
             where o.control_id = :jobId
             """)
@@ -156,7 +158,7 @@ public interface ChatControlOutboxRepository extends JpaRepository<ChatControlOu
     @Query(nativeQuery = true, value = """
             select c.id as checkpoint_id, c.generation, o.stream_entry_id, o.requeue_count,
                    o.id, o.control_id as job_id, o.control_type, o.user_id, o.member_version, o.reason,
-                   o.schema_version
+                   o.logged_out_at, o.schema_version
             from chats.chat_publish_checkpoint c
                      join chats.chat_control_outbox o on o.control_id = c.job_id
             where c.consumer_group = :group and c.status = 'PENDING' and c.id > :afterId
@@ -172,7 +174,7 @@ public interface ChatControlOutboxRepository extends JpaRepository<ChatControlOu
     @Query(nativeQuery = true, value = """
             select c.id as checkpoint_id, c.generation, o.stream_entry_id, o.requeue_count,
                    o.id, o.control_id as job_id, o.control_type, o.user_id, o.member_version, o.reason,
-                   o.schema_version
+                   o.logged_out_at, o.schema_version
             from chats.chat_publish_checkpoint c
                      join chats.chat_control_outbox o on o.control_id = c.job_id
             where c.consumer_group = :group and c.status = 'PENDING'

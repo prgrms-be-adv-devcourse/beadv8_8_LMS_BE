@@ -1,5 +1,6 @@
 package com.hapbang.appearance.out;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,20 @@ public interface AppearanceReviewRepository extends JpaRepository<AppearanceRevi
 
     /** 이 출연의 리뷰 (최대 2건: 호스트가 쓴 것, 게스트가 쓴 것) */
     List<AppearanceReview> findByAppearanceId(Long appearanceId);
+
+    /**
+     * 작성 기한 만료 공개 대상 출연 ID (#515): 공개 전 리뷰가 있고 출연 확인 시각이 기준 시각 이전·같은 출연.
+     * 출연 확인이 오래된 순, 같으면 출연 ID 순.
+     *
+     * @param cutoff 지금 − 작성 기한. 확인 시각이 이 시각 이전이면 기한이 지났다
+     */
+    @Query("""
+            select r.appearanceId from AppearanceReview r
+            join Appearance a on a.id = r.appearanceId
+            where r.publishedAt is null and a.confirmedAt <= :cutoff
+            group by r.appearanceId, a.confirmedAt
+            order by a.confirmedAt, r.appearanceId""")
+    List<Long> findAppearanceIdsWithUnpublishedConfirmedUpTo(@Param("cutoff") LocalDateTime cutoff, Pageable pageable);
 
     /**
      * 이 회원이 받은 공개 리뷰 (#514). 최신 공개순(공개 시각 desc, 같으면 ID desc)으로 고정한다.

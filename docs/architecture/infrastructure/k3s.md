@@ -27,13 +27,13 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | Kafka | 700 MiB |
 | Redis | 64 MiB |
 | Elasticsearch | 1,536 MiB |
-| 모듈 앱 4개: member·appearance 2개 × 512 MiB(#480·#504) + billing·search 2개 × 448 MiB | 1,920 MiB |
+| 모듈 앱 4개: member 512 MiB(#480) + appearance 576 MiB(#504·#528) + billing·search 2개 × 448 MiB | 1,984 MiB |
 | Envoy proxy 128 + shutdown-manager 32 (#372, #532 운영 최대 24·21 MiB) | 160 MiB |
 | cert-manager (controller 128·webhook 50·cainjector 128, #372). #532에서 medium에서 옮겼다 | 306 MiB |
 | Sealed Secrets controller (#373). #532에서 medium에서 옮겼다 | 64 MiB |
-| **합계** | **7,518 MiB** |
+| **합계** | **7,582 MiB** |
 
-사용 가능 메모리를 약 7.6 GiB로 보면 약 0.26 GiB(264 MiB)가 남는다(#532 전 506 MiB). 아직 만들지 않은 search-app(448 MiB)을 빼면 약 0.7 GiB(712 MiB)가 남아 rolling surge pod 1개(최대 512 MiB)를 받는다. search-app을 만들 때는 surge 여유가 없으므로 이 표를 다시 맞춘다. 2026-11-02 운영 3일 최대 working set은 Elasticsearch 1,273·Kafka 488·appearance 452·member 443·PostgreSQL 144 MiB다. 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
+사용 가능 메모리를 약 7.6 GiB로 보면 약 0.2 GiB(200 MiB)가 남는다(#528 전 264 MiB, #532 전 506 MiB). 아직 만들지 않은 search-app(448 MiB)을 빼면 약 0.63 GiB(648 MiB)가 남아 rolling surge pod 1개(최대 576 MiB)를 받는다. search-app을 만들 때는 surge 여유가 없으므로 이 표를 다시 맞춘다. 2026-11-02 운영 3일 최대 working set은 Elasticsearch 1,273·Kafka 488·appearance 452·member 443·PostgreSQL 144 MiB다. 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
 
 | t3.medium `app-observe` | 예산 |
 | --- | ---: |
@@ -72,6 +72,8 @@ Prometheus server 컨테이너는 두 앱을 수집한 뒤 291 → 332 MiB(limit
 2026-11-02 EC2 실측(#504): appearance-app은 448 MiB에서 떴지만(Prometheus registry 포함, 노출은 꺼짐) 기동 직후 326 MiB, 3분 뒤 RSS 425 MiB로 한도에 붙었다. member-app과 같은 512 MiB로 올리고 위 예산 표를 고쳤다. 512 MiB에서는 기동 4분 뒤 RSS 414 MiB(81%)였다. heap 상한도 limit의 60%라 268 → 307 MiB로 함께 늘어나므로 부하 뒤 RSS를 다시 잰다. 같은 시각 member-app(512 MiB, registry·노출 포함)은 RSS 364~366 MiB였다. 기동 최대치를 재서 낮출 수 있는지는 #343에서 본다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
 
 2026-11-02 EC2 실측(#545): chat-app은 384 MiB에서 기동(약 30초)을 마치고 Kafka consumer 두 개가 partition을 받은 직후 OOMKilled됐다(5회 재시작). member·appearance와 같은 512 MiB로 올리고 위 예산 표를 고쳤다. 512 MiB에서는 기동 5분 뒤 working set 404 MiB(79%), 25분 뒤 430 MiB(84%)였다. 아직 부하 없이 잰 값이라 채팅 사용 뒤 다시 잰다.
+
+2026-11-02 #528: member·appearance·customer-support의 지표를 관리 포트(8082)로 열며 appearance-app만 576 MiB로 올렸다. 변경 전 운영 working set은 appearance 461/512 MiB(90%), customer-support 374~383/448 MiB(85%), member 398~443/512 MiB(87%)였고, 관리 포트는 Tomcat을 하나 더 띄워 약 +10 MB다(lecture #521 로컬 1회 측정). k3d(`-XX:ActiveProcessorCount=2`)에서는 appearance가 512 MiB에서 기동 직후 OOMKilled됐고 768 MiB에서 10분 working set 570 MiB, customer-support는 448 MiB에서 420 MiB(10분 최대 436 MiB), member는 512 MiB에서 460 MiB였다. 576 MiB로 올린 appearance는 k3d에서 기동 4분 뒤 564 MiB로 떴다. k3d는 JVM 밖 native 메모리가 운영보다 크다(member RSS 중 heap·non-heap committed 밖 부분이 k3d 약 170 MiB, 운영 약 100 MiB). glibc malloc arena가 CPU 수(k3d 18개)를 따르기 때문으로 보지만 확인하지 않았다. 그래서 limit은 운영 실측으로 정했고, member·customer-support는 배포 뒤 working set을 다시 잰다.
 
 ### 과거 단일-node 측정 기록
 

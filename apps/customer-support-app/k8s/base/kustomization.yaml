@@ -15,6 +15,8 @@ configMapGenerator:
       - SPRING_PROFILES_ACTIVE=prod
       - TZ=Asia/Seoul
       - HAPBANG_INTERNAL_API_PORT=8081
+      # actuator(헬스체크·Prometheus 지표)는 관리 포트로만 연다. 8080에는 Gateway만 들인다(#528, D72)
+      - MANAGEMENT_SERVER_PORT=8082
       # 75%는 chat-app이 384Mi에서 OOMKilled됐다(#373 로컬 k3d). heap을 줄여 non-heap(metaspace·thread) 몫을 남긴다.
       - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60
       - DB_URL=jdbc:postgresql://postgres.hapbang-platform.svc.cluster.local:5432/customersupport

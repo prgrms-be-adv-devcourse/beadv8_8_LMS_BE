@@ -86,11 +86,15 @@ public class AppearanceReviewWriteUseCase {
             return;
         }
         AppearanceReview counterpart = counterpartReview.get();
+        boolean counterpartAlreadyPublished = counterpart.isPublished();
         written.publish(now);
         counterpart.publish(now);
         appearanceReviewSupport.flush();
-        // 회원 모듈이 평점을 계산하도록 공개된 리뷰마다 알린다 (커밋 뒤 Kafka, #513)
-        eventPublisher.publishEvent(counterpart.toPublishedEvent());
+        // 회원 모듈이 평점을 계산하도록 이번에 공개된 리뷰마다 알린다 (커밋 뒤 Kafka, #513).
+        // 상대 리뷰가 이미 공개돼 있으면(기한 만료 공개 배치, #515) 그 이벤트는 이미 나갔으므로 다시 보내지 않는다
+        if (!counterpartAlreadyPublished) {
+            eventPublisher.publishEvent(counterpart.toPublishedEvent());
+        }
         eventPublisher.publishEvent(written.toPublishedEvent());
     }
 

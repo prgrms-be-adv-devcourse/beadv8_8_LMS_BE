@@ -27,13 +27,16 @@ appearance:
     max-recruit-count: 10
   review:
     # 리뷰 작성 기간: 출연 확인 시각부터 이 기간 안에만 쓸 수 있다. 비우면 무기한 (지금은 무기한, 켤 때 예: 14d)
+    # 값을 넣으면 기한이 지나도록 한쪽만 쓴 리뷰를 공개하는 배치(review-expire-publish-cron)도 함께 켜진다 (#515)
     write-period:
   batch:
     # 배치는 hapbang.scheduling.enabled=true일 때만 돈다 (팀 공통 #157, 앱에서만 켜짐). 모든 cron은 KST
-    # 실행 순서를 엇갈리게 둔다: 보류 재확인(00초) → 알림 Kafka 재발행(05초) → 모집 기한 마감(10초) → 수락 기한 만료(20초) → 출연 취소 요청 자동 거절(30초) → HP 작업 재시도(40초) → 출연 자동 확인(50초)
+    # 실행 순서를 엇갈리게 둔다: 보류 재확인(00초) → 알림 Kafka 재발행(05초) → 모집 기한 마감(10초) → 리뷰 작성 기한 만료 공개(15초) → 수락 기한 만료(20초) → 출연 취소 요청 자동 거절(30초) → HP 작업 재시도(40초) → 출연 자동 확인(50초)
     hold-recheck-cron: "0 * * * * *"
     event-republish-cron: "5 * * * * *"
     recruit-close-cron: "10 * * * * *"
+    # 작성 기한(appearance.review.write-period)이 비어 있으면(지금) 아무것도 하지 않는다 (#515)
+    review-expire-publish-cron: "15 * * * * *"
     expire-cron: "20 * * * * *"
     cancel-auto-reject-cron: "30 * * * * *"
     hp-task-retry-cron: "40 * * * * *"

@@ -5,6 +5,7 @@ import static org.awaitility.Awaitility.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -319,6 +320,9 @@ class ChatUserEventListenerTest {
             assertThat(row.get("reason")).isEqualTo("MEMBER_LOGGED_OUT");
             assertThat(row.get("member_version")).isNull();
             assertThat(row.get("status")).isEqualTo("PENDING");
+            // 이벤트의 로그아웃 시각을 닫을 연결의 기준으로 남긴다
+            assertThat(row.get("logged_out_at_ms"))
+                    .isEqualTo(Instant.parse("2026-11-02T00:00:00Z").toEpochMilli());
         });
         assertThat(checkpointRows(rows.getFirst().get("control_id"))).singleElement().satisfies(row -> {
             assertThat(row.get("consumer_group")).isEqualTo("chat-control-v1");
@@ -332,13 +336,47 @@ class ChatUserEventListenerTest {
     @Test
     void 같은_회원의_로그아웃을_여러_번_받으면_이벤트마다_작업을_남기고_loggedOutAt이_없어도_처리한다() {
         long id = nextId();
+        long before = Instant.now().toEpochMilli();
 
         loggedOut(id, "\"2026-11-02T00:00:00Z\"");
         loggedOut(id, "null");
         awaitProcessed();
 
-        assertThat(controlRows(id)).hasSize(2)
+        List<Map<String, Object>> rows = controlRows(id);
+        assertThat(rows).hasSize(2)
                 .allSatisfy(row -> assertThat(row.get("control_type")).isEqualTo("LOGOUT_USER"));
+        // 로그아웃 시각이 없는 옛 형식은 처리 시각으로 대신한다(그때 결합된 연결을 모두 닫는다)
+        assertThat(rows).extracting(row -> (Long) row.get("logged_out_at_ms"))
+                .contains(Instant.parse("2026-11-02T00:00:00Z").toEpochMilli())
+                .anySatisfy(at -> assertThat(at).isBetween(before, Instant.now().toEpochMilli()));
+    }
+
+    // 인증 시각(티켓 발급 시각)과 표식이 밀리초라 기준 시각도 밀리초로 내린다. 로그아웃과 같은 밀리초에 발급된 티켓의 연결은
+    // 인증 시각이 기준과 같아 즉시 종료에서도 닫히지 않는다(하트비트와 같은 판단, 같은 시각은 로그아웃 뒤로 본다)
+    @Test
+    void 로그아웃_시각은_밀리초로_내려_남긴다() {
+        long id = nextId();
+
+        loggedOut(id, "\"2026-11-02T00:00:00.123456Z\"");
+        awaitProcessed();
+
+        assertThat(controlRows(id)).singleElement().satisfies(row -> {
+            assertThat(row.get("logged_out_at_ms")).isEqualTo(Instant.parse("2026-11-02T00:00:00.123Z").toEpochMilli());
+            assertThat(row.get("sub_millis_micros")).isEqualTo(0L);
+        });
+    }
+
+    @Test
+    void 처리_시각보다_늦은_로그아웃_시각은_처리_시각으로_줄여_남긴다() {
+        long id = nextId();
+
+        loggedOut(id, "\"2999-01-01T00:00:00Z\"");
+        awaitProcessed();
+
+        // 회원 앱 시계가 앞서도 아직 맺지 않은 연결의 기준이 되지 않게 한다
+        assertThat(controlRows(id)).singleElement()
+                .satisfies(row -> assertThat((Long) row.get("logged_out_at_ms")).isLessThanOrEqualTo(
+                        Instant.now().toEpochMilli()));
     }
 
     @Test
@@ -459,7 +497,9 @@ class ChatUserEventListenerTest {
 
     private List<Map<String, Object>> controlRows(long userId) {
         return sql.rows("""
-                select control_id, control_type, member_version, reason, status
+                select control_id, control_type, member_version, reason, status,
+                       (extract(epoch from logged_out_at) * 1000)::bigint as logged_out_at_ms,
+                       (extract(microseconds from logged_out_at)::bigint % 1000) as sub_millis_micros
                 from chats.chat_control_outbox where user_id = :userId""", Map.of("userId", userId));
     }
 
@@ -513,8 +553,8 @@ class ChatUserEventListenerTest {
         }
 
         @Override
-        public void requestLogout(Long userId) {
-            delegate.requestLogout(userId);
+        public void requestLogout(Long userId, java.time.Instant loggedOutAt) {
+            delegate.requestLogout(userId, loggedOutAt);
         }
 
         void failAfterRecording(Long userId) {
