@@ -2,7 +2,10 @@
 spring:
   config:
     # 운영 application.yaml을 읽지 않는 모듈 테스트에도 지갑 설정(락 대기 상한)만 명시적으로 가져온다.
-    import: classpath:billing.yml
+    # Swagger 설정도 그대로 가져와 실제 경로·운영 값을 검사한다 (#498)
+    import:
+    - classpath:billing.yml
+    - classpath:swagger.yml
   jpa:
     properties:
       # 플랫폼 지갑(#336)은 운영에서 Flyway가 한 행을 넣는다. 테스트 DB 정리(SchemaManager.truncate)가 그 행도 지우므로,

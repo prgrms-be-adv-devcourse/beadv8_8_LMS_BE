@@ -1,6 +1,9 @@
 # chat-app 테스트 전용 설정. @IntegrationTest·@ChatE2ETest가 spring.config.name=hapbang-module-test로 읽는다.
 # src/test 아래라 배포 jar에는 포함되지 않는다.
 spring:
+  config:
+    # 운영 application.yaml을 읽지 않는 모듈 테스트에도 Swagger 설정은 그대로 가져와 실제 경로·운영 값을 검사한다 (#498)
+    import: classpath:swagger.yml
   datasource:
     hikari:
       # 테스트는 컨텍스트를 여러 개 캐시하고 각 컨텍스트가 연결 풀을 가진다. 기본 10개면 PostgreSQL 컨테이너의

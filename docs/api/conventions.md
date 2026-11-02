@@ -43,5 +43,9 @@
 
 ## Swagger
 
+- 주소(#498): 앱마다 자기 모듈 경로 아래에 둔다. `/api/v1/<모듈>/swagger-ui.html`(화면), `/api/v1/<모듈>/v3/api-docs`(명세). 모듈 경로는 member `/api/v1/members`, lecture `/api/v1/lectures`, appearance `/api/v1/appearances`, billing `/api/v1/wallets`, chat `/api/v1/chats`, customer-support `/api/v1/inquiries`다. Gateway가 모듈 경로만 앱으로 보내므로 루트 `/swagger-ui`·`/v3/api-docs`는 쓰지 않는다. 모든 프로필에서 같다.
+- 설정은 앱의 `swagger.yml`에 있다. `application.yaml`과 모듈 테스트 설정(`hapbang-module-test.yaml`)이 함께 import하므로 앱의 `*SwaggerPublicTest`가 실제 경로·운영 값을 검사한다. 경로를 바꾸면 `SecurityConfig`의 Swagger permitAll도 바꾼다.
+- 운영은 누구나 볼 수 있다. 상단 목록에서 6개 앱 명세를 고른다(같은 도메인이라 가능).
+- Authorize 버튼(`hapbang.swagger.bearer-auth.enabled`): 운영(true)은 access token을 `bearerAuth`에 넣는다. 토큰은 구글 로그인 뒤 `POST /api/v1/members/auth/refresh`를 실행해 응답의 `data.accessToken`으로 받는다(회원 명세 설명). 로컬(false)은 Gateway가 없으므로 `X-User-Id`·`X-User-Role` 값을 넣는다. 운영에는 헤더 방식을 두지 않는다(Envoy가 외부의 `X-User-*`를 지운다). 토큰은 브라우저 저장소에 남기지 않는다(`persistAuthorization` 끔).
 - enum 설명(springdoc 3.1.1, OAS 3.1): 상수별 설명은 지원되지 않는다. enum 타입의 `@Schema(description)`이 필드에 인라인되지만, 필드에 `description`이 있으면 덮어쓴다.
 - 쿼리 파라미터는 Swagger UI가 스키마 설명을 보여 주지 않으므로 Spec의 `@Parameter(description)`에 둔다 (#112).

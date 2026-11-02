@@ -23,7 +23,7 @@ class LectureSwaggerDocsTest {
 
     @Test
     void 성공_응답_스키마는_RsData로_감싼_형식이다() throws Exception {
-        mockMvc.perform(get("/v3/api-docs"))
+        mockMvc.perform(get("/api/v1/lectures/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/lectures/cart'].get.responses['200'].content['*/*'].schema['$ref']")
                         .value("#/components/schemas/RsDataCartResponse"))
@@ -35,7 +35,7 @@ class LectureSwaggerDocsTest {
 
     @Test
     void 페이지_응답_스키마는_RsData의_data에_PagedModel을_담는다() throws Exception {
-        mockMvc.perform(get("/v3/api-docs"))
+        mockMvc.perform(get("/api/v1/lectures/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/lectures'].get.responses['200'].content['*/*'].schema['$ref']")
                         .value("#/components/schemas/RsDataPageLectureSummaryResponse"))
@@ -48,7 +48,7 @@ class LectureSwaggerDocsTest {
     @Test
     void 지급_실패_관리_API는_명세에_없고_HP_작업_관리_API로_본다() throws Exception {
         // D70 (5): /admin/payout-failures를 지우고 /admin/hp-tasks?taskType=PAYOUT으로 본다
-        mockMvc.perform(get("/v3/api-docs"))
+        mockMvc.perform(get("/api/v1/lectures/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/payout-failures']").doesNotExist())
                 .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/payout-failures/{orderItemId}/retry']")

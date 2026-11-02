@@ -3,6 +3,9 @@
 spring:
   application:
     name: customer-support-app
+  config:
+    import:
+    - classpath:swagger.yml
   profiles:
     default: local
   mvc:
@@ -50,7 +53,3 @@ hapbang:
     enabled: true
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
-springdoc:
-  swagger-ui:
-    csrf:
-      enabled: true

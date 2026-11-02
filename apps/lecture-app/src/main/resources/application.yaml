@@ -3,6 +3,9 @@
 spring:
   application:
     name: lecture-app
+  config:
+    import:
+    - classpath:swagger.yml
   profiles:
     default: local
   mvc:
@@ -57,7 +60,3 @@ hapbang:
   clients:
     billing:
       base-url: "${BILLING_API_BASE_URL}"
-springdoc:
-  swagger-ui:
-    csrf:
-      enabled: true

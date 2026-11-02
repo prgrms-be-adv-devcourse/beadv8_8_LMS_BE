@@ -63,7 +63,7 @@ class ChatApiE2ETest {
     @Test
     @SuppressWarnings("unchecked")
     void Swagger_명세에_알림_값이_종류별_필드와_record로_나온다() {
-        Map<String, Object> apiDocs = client.get().uri("/v3/api-docs")
+        Map<String, Object> apiDocs = client.get().uri("/api/v1/chats/v3/api-docs")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {

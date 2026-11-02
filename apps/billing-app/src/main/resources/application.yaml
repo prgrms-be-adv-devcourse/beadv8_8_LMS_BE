@@ -6,6 +6,7 @@ spring:
   config:
     import:
     - classpath:billing.yml
+    - classpath:swagger.yml
   profiles:
     default: local
   mvc:
@@ -65,7 +66,3 @@ hapbang:
       base-url: "${LECTURE_API_BASE_URL}"
     appearance:
       base-url: "${APPEARANCE_API_BASE_URL}"
-springdoc:
-  swagger-ui:
-    csrf:
-      enabled: true

@@ -12,9 +12,6 @@ spring:
       auto-startup: false
     admin:
       auto-create: false
-springdoc:
-  swagger-ui:
-    path: "/swagger-ui.html"
 hapbang:
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
