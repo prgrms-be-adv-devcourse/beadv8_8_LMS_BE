@@ -19,7 +19,6 @@ public enum MemberErrorCode implements BaseErrorCode {
      * 어느 경우인지는 응답에 드러내지 않고 서버 로그에만 남긴다. 프론트는 이 코드면 다시 로그인시킨다
      */
     INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인이 만료됐어요. 다시 로그인해 주세요."),
-    /** 로컬 로그인: 해당 역할·번호의 테스트 계정이 없음 */
     INVALID_PROFILE_IMAGE_TYPE(HttpStatus.BAD_REQUEST, "프로필 사진은 jpeg·png·webp만 올릴 수 있습니다."),
     /** 헤더(Content-Type)는 허용 형식인데 파일 앞부분(매직 넘버)이 그 형식이 아님: 헤더만 바꾼 다른 파일·깨진 파일 */
     PROFILE_IMAGE_CONTENT_MISMATCH(HttpStatus.BAD_REQUEST, "파일 내용이 이미지 형식과 맞지 않습니다. jpeg·png·webp 이미지를 올려 주세요."),
