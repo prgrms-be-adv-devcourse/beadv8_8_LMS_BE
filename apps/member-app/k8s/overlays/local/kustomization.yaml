@@ -11,9 +11,8 @@ images:
     newTag: local
 # 로컬 전용 가짜 값이다. prod 값은 SealedSecret으로만 만든다.
 # DB_PASSWORD는 k8s/platform/overlays/local의 postgres-credentials와 같아야 한다.
-# prod와 같은 Secret 이름을 쓰도록 hash를 붙이지 않는다.
-generatorOptions:
-  disableNameSuffixHash: true
+# prod와 같은 Secret 이름을 쓰도록 hash를 붙이지 않는다. 아래 ConfigMap은 base처럼 hash를 붙여야 해서
+# 전체 generatorOptions가 아니라 이 Secret에만 옵션을 둔다(#500).
 secretGenerator:
   - name: member-app-secrets
     literals:
@@ -25,3 +24,12 @@ secretGenerator:
       - CHZZK_CLIENT_ID=local-dummy
       - CHZZK_CLIENT_SECRET=local-dummy
       - CHZZK_REDIRECT_URI=http://localhost/api/v1/members/channels/chzzk/callback
+    options:
+      disableNameSuffixHash: true
+# base가 prod 프로필이라 개인 키(JWT_PRIVATE_KEY) 없이는 member-app이 뜨지 않는다. 로컬은 시작할 때마다 임시 서명 키를 만든다(#500).
+# 공개 레포라 가짜라도 개인 키는 커밋하지 않는다. prod overlay에는 이 값이 없어 키가 빠지면 시작이 막힌다.
+configMapGenerator:
+  - name: member-app-config
+    behavior: merge
+    literals:
+      - HAPBANG_JWT_ALLOW_EPHEMERAL_KEY=true
