@@ -25,6 +25,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
@@ -466,13 +467,14 @@ class ChatUserEventListenerTest {
     private ConsumerRecord<String, byte[]> awaitDeadLetter(long key) {
         Properties config = new Properties();
         config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        config.put(ConsumerConfig.GROUP_ID_CONFIG, "dlt-reader-" + UUID.randomUUID());
-        config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         List<ConsumerRecord<String, byte[]>> found = new ArrayList<>();
         try (KafkaConsumer<String, byte[]> consumer = new KafkaConsumer<>(config, new StringDeserializer(),
                 new ByteArrayDeserializer())) {
-            consumer.subscribe(List.of(DLT));
-            await().atMost(TIMEOUT).until(() -> {
+            TopicPartition partition = new TopicPartition(DLT, 0);
+            consumer.assign(List.of(partition));
+            consumer.seekToBeginning(List.of(partition));
+            await().pollDelay(Duration.ZERO).atMost(TIMEOUT).until(() -> {
                 consumer.poll(Duration.ofMillis(200)).forEach(record -> {
                     if (String.valueOf(key).equals(record.key())) {
                         found.add(record);
