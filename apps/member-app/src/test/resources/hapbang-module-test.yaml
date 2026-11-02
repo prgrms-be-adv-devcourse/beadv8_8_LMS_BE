@@ -6,6 +6,11 @@ spring:
     import:
     - classpath:member.yml
     - classpath:swagger.yml
+  kafka:
+    # 출연 이벤트 리스너(#555)는 대부분의 테스트에 필요 없다. 다른 테스트 컨텍스트에서 출연 토픽을 붙잡고 있지 않게 끈다.
+    # 리스너 테스트(AppearanceReviewEventListenerTest)만 다시 켠다
+    listener:
+      auto-startup: false
   datasource:
     hikari:
       # 캐시된 테스트 컨텍스트마다 연결 풀이 있어 PostgreSQL 연결 수(100)를 넘지 않게 줄인다
