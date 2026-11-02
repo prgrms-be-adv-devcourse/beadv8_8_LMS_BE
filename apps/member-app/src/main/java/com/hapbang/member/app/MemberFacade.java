@@ -188,7 +188,12 @@ public class MemberFacade {
         return memberTokenUseCase.refresh(refreshToken);
     }
 
-    /** 로그아웃: 이 기기의 refresh token 폐기 */
+    /**
+     * 로그아웃: 이 기기의 refresh token 폐기 + 로그아웃 이벤트 (#539).
+     * 이벤트는 가입·변경 이벤트처럼 발행 기록(아웃박스)을 이 트랜잭션에 남기고 커밋 뒤 Kafka로 나간다.
+     * 폐기는 Redis라 트랜잭션에 묶이지 않는다: 폐기 뒤 커밋이 실패하면 로그아웃은 되고 이벤트만 나가지 않는다
+     */
+    @Transactional
     public void logout(String refreshToken) {
         memberTokenUseCase.logout(refreshToken);
     }

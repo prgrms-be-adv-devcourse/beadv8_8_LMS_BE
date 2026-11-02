@@ -7,6 +7,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.member.domain.MemberErrorCode;
@@ -16,6 +17,7 @@ import com.hapbang.member.out.RefreshTokenStore;
 import com.hapbang.member.out.RotationResult;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.event.UserLoggedOutEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +37,7 @@ public class MemberTokenUseCase {
     private final AccessTokenIssuer accessTokenIssuer;
     private final RefreshTokenStore refreshTokenStore;
     private final UserRepository userRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 로그인: access token과 새 refresh token을 발급하고, refresh token은 해시로 저장한다 */
     public TokenPair issue(Long userId, Role role) {
@@ -72,11 +75,16 @@ public class MemberTokenUseCase {
         refreshTokenStore.revokeAll(userId);
     }
 
-    /** 로그아웃: 이 기기의 refresh token만 폐기한다. 토큰이 없거나 이미 폐기됐어도 실패하지 않는다 */
+    /**
+     * 로그아웃: 이 기기의 refresh token만 폐기한다. 토큰이 없거나 이미 폐기됐어도 실패하지 않는다.
+     * 폐기한 토큰이 있으면 그 회원의 로그아웃 이벤트를 발행한다 (#539, Kafka member.events.v1. 호출한 쪽 트랜잭션에 발행 기록을 남긴다)
+     */
     public void logout(String refreshToken) {
-        if (refreshToken != null && !refreshToken.isBlank()) {
-            refreshTokenStore.revoke(hash(refreshToken));
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return;
         }
+        refreshTokenStore.revoke(hash(refreshToken))
+                .ifPresent(userId -> eventPublisher.publishEvent(UserLoggedOutEvent.of(userId, Instant.now())));
     }
 
     private TokenPair issueForActiveMember(Long userId, String newRefreshToken) {
