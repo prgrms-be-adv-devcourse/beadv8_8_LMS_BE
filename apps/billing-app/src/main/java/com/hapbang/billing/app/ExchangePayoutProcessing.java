@@ -60,6 +60,7 @@ public class ExchangePayoutProcessing {
     private final ExchangePayoutClock clock;
     private final ExchangePayoutRequestIds requestIds;
     private final EntityManager entityManager;
+    private final BillingEventPublisher billingEventPublisher;
     private final Duration minimumAge;
     private final Duration autoCheckLimit;
 
@@ -68,6 +69,7 @@ public class ExchangePayoutProcessing {
             InternalHoldFacade internalHoldFacade, LedgerRecordUseCase ledgerRecordUseCase,
             ExchangeAccountCipher exchangeAccountCipher,
             ExchangePayoutClock clock, ExchangePayoutRequestIds requestIds, EntityManager entityManager,
+            BillingEventPublisher billingEventPublisher,
             @Value("${hapbang.billing.exchange.payout.recovery-after:PT1M}") Duration minimumAge,
             @Value("${hapbang.billing.exchange.payout.auto-check-limit:PT24H}") Duration autoCheckLimit) {
         this.exchangeLocks = exchangeLocks;
@@ -80,6 +82,7 @@ public class ExchangePayoutProcessing {
         this.clock = clock;
         this.requestIds = requestIds;
         this.entityManager = entityManager;
+        this.billingEventPublisher = billingEventPublisher;
         this.minimumAge = minimumAge;
         this.autoCheckLimit = autoCheckLimit;
     }
@@ -252,6 +255,7 @@ public class ExchangePayoutProcessing {
             throw inconsistent(exchange, "최종 실패 반환 결과 불일치 releasedRevenue=" + released.releasedRevenueHp()
                     + ", replayed=" + released.replayed());
         }
+        billingEventPublisher.exchangeFinalFailed(exchange);
         log.info("환전 최종 실패 확정·보류 반환: exchangeId={}, adminId={}, attempts={}, releasedHp={}", exchangeId, adminId,
                 latest.getAttemptNo(), released.releasedRevenueHp());
     }
@@ -374,6 +378,7 @@ public class ExchangePayoutProcessing {
                 : succeeded.completedAt().truncatedTo(ChronoUnit.MICROS);
         payout.succeed(succeeded.transactionId(), completedAt);
         exchange.completePayout(now);
+        billingEventPublisher.exchangeCompleted(exchange);
         log.info("환전 송금 성공·확정 차감·수수료 수입 기록: exchangeId={}, attemptNo={}, payoutRequestId={}, capturedHp={}, "
                 + "feeHp={}", exchange.getId(), payout.getAttemptNo(), payout.getPayoutRequestId(),
                 captured.capturedRevenueHp(), exchange.getFeeAmountHp());
@@ -387,6 +392,7 @@ public class ExchangePayoutProcessing {
         }
         CaptureResult captured = captureWithFeeIncome(exchange, 0L, platformWalletId, now);
         exchange.completeWithoutTransfer(now);
+        billingEventPublisher.exchangeCompleted(exchange);
         log.info("송금액 0원 환전 완료(은행 송금 없음)·확정 차감·수수료 수입 기록: exchangeId={}, capturedHp={}, feeHp={}",
                 exchange.getId(), captured.capturedRevenueHp(), exchange.getFeeAmountHp());
     }
@@ -430,6 +436,7 @@ public class ExchangePayoutProcessing {
         String code = failureCode == null ? "UNKNOWN" : failureCode;
         payout.fail(code, now);
         exchange.failPayout("MOCK_PAYOUT_FAILED:" + code, now);
+        billingEventPublisher.exchangePayoutFailed(exchange, payout);
         log.warn("환전 송금 시도 확정 실패(보류 유지, 관리자 판단 대기): exchangeId={}, attemptNo={}, payoutRequestId={}, code={}",
                 exchange.getId(), payout.getAttemptNo(), payout.getPayoutRequestId(), code);
     }

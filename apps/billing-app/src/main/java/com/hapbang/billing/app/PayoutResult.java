@@ -2,7 +2,7 @@ package com.hapbang.billing.app;
 
 import java.util.List;
 
-import com.hapbang.billing.domain.PayoutType;
+import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.billing.domain.PointHold;
 import com.hapbang.billing.domain.PointHoldDetail;
 import com.hapbang.billing.domain.PointHoldStatus;

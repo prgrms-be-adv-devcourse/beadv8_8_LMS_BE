@@ -6,8 +6,3 @@ spring:
     password: "${DB_PASSWORD}"
 server:
   forward-headers-strategy: native
-springdoc:
-  api-docs:
-    enabled: false
-  swagger-ui:
-    enabled: false

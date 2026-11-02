@@ -61,6 +61,7 @@ public class RefundProcessing {
     private final PaymentKeyCipher paymentKeyCipher;
     private final EntityManager entityManager;
     private final RefundClock refundClock;
+    private final BillingEventPublisher billingEventPublisher;
 
     // 다음에 할 일을 정한다. 앞 순서 충전 건이 모두 성공해야 다음 충전 건을 취소한다(순차 FIFO).
     // - 끝났거나 운영자 확인 상태 → Stop
@@ -114,6 +115,7 @@ public class RefundProcessing {
             }
         }
         request.close(now, null);
+        billingEventPublisher.refundClosed(request);
         return new Step.Stop(RefundResult.of(request, refunds));
     }
 
@@ -291,11 +293,12 @@ public class RefundProcessing {
         }
     }
 
-    // 결과를 기다리는 건이 남아 있지 않으면 요청을 끝낸다(순차 처리라 정상이면 남아 있지 않다).
-    private static void closeIfSettled(Locked locked, String reason, Instant now) {
+    // 결과를 기다리는 건이 남아 있지 않으면 요청을 끝낸다(순차 처리라 정상이면 남아 있지 않다). 환불한 금액이 있으면 환불 완료 이벤트를 남긴다.
+    private void closeIfSettled(Locked locked, String reason, Instant now) {
         boolean inFlight = locked.refunds().stream().anyMatch(PointRefund::isInFlight);
         if (!inFlight && locked.request().isOpen()) {
             locked.request().close(now, reason);
+            billingEventPublisher.refundClosed(locked.request());
         }
     }
 

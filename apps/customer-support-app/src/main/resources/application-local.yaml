@@ -6,9 +6,6 @@ spring:
     compose:
       file: docker/compose.yaml
       lifecycle-management: start-only
-springdoc:
-  swagger-ui:
-    path: "/swagger-ui.html"
 hapbang:
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"

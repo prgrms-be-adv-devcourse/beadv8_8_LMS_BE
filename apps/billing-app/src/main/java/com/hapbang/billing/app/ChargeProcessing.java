@@ -45,6 +45,7 @@ public class ChargeProcessing {
     private final LedgerRecordUseCase ledgerRecordUseCase;
     private final PaymentKeyCipher paymentKeyCipher;
     private final EntityManager entityManager;
+    private final BillingEventPublisher billingEventPublisher;
 
     // 승인 요청을 시작할 수 있는지 판단한다. 처음이면 PROCESSING으로 바꾸고(커밋 후 PG 승인), 같은 결제의 재요청이면 기존 결과나
     // 결과 확인으로 넘긴다. 다른 회원의 주문은 없는 주문과 같게(CHARGE_NOT_FOUND) 본다.
@@ -120,6 +121,8 @@ public class ChargeProcessing {
         ledgerRecordUseCase.record(new LedgerOperation(BillingKeys.charge(chargeId), LedgerTransactionType.CHARGE,
                 BillingReferenceType.POINT_CHARGE, chargeId, LEDGER_DESCRIPTION, now,
                 List.of(LedgerEntry.of(walletId, PointType.CHARGE, BalanceBucket.AVAILABLE, charge.getAmountHp()))));
+        // 충전 완료 이벤트는 완료와 같은 트랜잭션에 남긴다(#497). 승인 응답 처리와 복구 배치가 모두 여기를 지난다
+        billingEventPublisher.chargeCompleted(charge);
         return new Completion.Completed(ChargeResult.from(charge));
     }
 

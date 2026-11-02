@@ -26,6 +26,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 
@@ -40,6 +42,7 @@ import com.hapbang.billing.out.PaymentKeyCipher;
 import com.hapbang.billing.out.TossPayment;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.event.ChargeCompletedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 
 // TossPayments 테스트 결제 충전(#224)을 실제 PostgreSQL과 가짜 TossPayments HTTP 서버로 검증한다.
@@ -47,7 +50,12 @@ import com.hapbang.testsupport.IntegrationTest;
 @IntegrationTest
 // HoldFacade는 내부 호출(ROLE_INTERNAL)만 허용한다(D63, #273)
 @WithMockUser(roles = "INTERNAL")
+// 충전 완료 이벤트(#497)가 완료 때 한 번만 발행되는지 발행 기록으로 본다(Kafka 전송은 BillingEventKafkaTest)
+@RecordApplicationEvents
 class ChargeIntegrationTest {
+
+    @Autowired
+    ApplicationEvents applicationEvents;
 
     private static final FakeTossPaymentsServer TOSS = new FakeTossPaymentsServer();
     private static final long AMOUNT = 10_000L;
@@ -202,6 +210,9 @@ class ChargeIntegrationTest {
         assertThat(TOSS.confirmCount()).isEqualTo(1);
         assertThat(TOSS.requests().getFirst().idempotencyKey()).isEqualTo("hapbang-charge-confirm-" + order.orderId());
         assertThat(TOSS.requests().getFirst().authorization()).startsWith("Basic ");
+        // 충전 완료 이벤트: 충전 ID·회원·HP·결제 금액·완료 시각 (#497)
+        assertThat(applicationEvents.stream(ChargeCompletedEvent.class))
+                .containsExactly(new ChargeCompletedEvent(chargeId, 1L, AMOUNT, AMOUNT, result.completedAt()));
     }
 
     @Test
@@ -236,6 +247,7 @@ class ChargeIntegrationTest {
         assertThat(TOSS.confirmCount()).isEqualTo(1);
         assertWallet(walletId, AMOUNT);
         assertThat(ledgerCount()).isEqualTo(1);
+        assertThat(applicationEvents.stream(ChargeCompletedEvent.class)).hasSize(1);
     }
 
     @Test
@@ -311,6 +323,7 @@ class ChargeIntegrationTest {
         assertThat(ledgerCount()).isZero();
         assertBillingError(() -> confirm(1L, order), BillingErrorCode.CHARGE_ALREADY_FAILED);
         assertThat(TOSS.confirmCount()).isEqualTo(1);
+        assertThat(applicationEvents.stream(ChargeCompletedEvent.class)).isEmpty();
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -400,6 +413,8 @@ class ChargeIntegrationTest {
         assertThat(ledgerCount()).isEqualTo(1);
         // 확정된 건은 다음 실행의 대상이 아니다
         assertThat(chargeRecoveryUseCase.recoverStale(Instant.now().plusSeconds(120))).isZero();
+        // 복구 배치로 완료해도 충전 완료 이벤트는 한 번이다(실패한 첫 시도는 원장 기록에서 롤백돼 발행 전에 끝났다)
+        assertThat(applicationEvents.stream(ChargeCompletedEvent.class)).hasSize(1);
     }
 
     @Test

@@ -29,6 +29,14 @@
 - base와 local overlay는 `https://gateway.invalid`(member 기본값과 같음)를 그대로 둔다. 로컬·k3d는 서명 키가 달라 운영 토큰을 받아들이지 않는다.
 - 서명은 #369대로 RS256 + JWKS다. member-app 하나만 개인 키를 갖고, Envoy는 JWKS로 공개 키만 받는다. 공유 비밀값(HS256)은 쓰지 않는다. Envoy v1.9.3의 `localJWKS`는 inline·ConfigMap만 받아 Secret이 아닌 곳에 비밀값을 두게 되고, 검증하는 곳(Envoy·chat)마다 모든 회원·ADMIN 토큰을 위조할 수 있는 키가 퍼지기 때문이다.
 
+## Swagger 공개 결정 (2026-11-02, #498)
+
+- 운영에서도 Swagger를 누구나 보게 연다. dev 서버가 없어 FE팀과 리뷰어가 운영 API를 명세로 확인한다. 레포가 public이라 명세 내용은 이미 공개돼 있고, Swagger를 막아도 API 호출은 막히지 않는다.
+- Swagger는 각 앱의 모듈 경로 아래(`/api/v1/<모듈>/swagger-ui.html`, `/api/v1/<모듈>/v3/api-docs`)에 두어 기존 앱 HTTPRoute가 받는다. Gateway route는 더하지 않는다. 루트 `/swagger-ui`·`/v3/api-docs`는 `api-not-found`로 계속 404다. 앱마다 같은 루트 경로를 써서 한 도메인에서 겹치기 때문이다.
+- 쓰지 않은 안: `/swagger/<앱>/` route와 URLRewrite(앱이 `forward-headers-strategy: native`라 `X-Forwarded-Prefix` 처리를 더해야 한다), 한 앱이 6개 명세를 모으는 단일 진입점(그 앱이 문서 서버가 된다), CI가 만든 정적 명세(다른 도메인이라 Try it out이 CORS로 막힌다).
+- 내부 API도 명세에 남는다. 외부에서 호출하면 Gateway에 route가 없어 404다(앱의 내부 포트 검사도 막는다).
+- 앱 설정과 Authorize 사용법은 [API 규칙](../api/conventions.md#swagger)에 있다.
+
 ## 구성과 적용 순서
 
 | 경로 | 책임 |
@@ -74,7 +82,7 @@ Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractF
 - 일반 업무 route만 `requestBuffer`로 1MiB 상한을 적용한다. 일반 요청 timeout은 30초다.
 - 파일 content 경로는 regex와 `PUT` 메서드로 분리해 timeout만 늘린다. 다른 메서드는 일반 route(1MiB·30초)로 간다. 업로드에는 requestBuffer·retry를 적용하지 않는다. 전체 timeout은 30분, stream idle은 60초다. Content-Type·Content-Length·크기 검사는 앱이 한다. Envoy에서 같은 검사를 다시 하지 않는다. `ClientTrafficPolicy`의 `requestReceivedTimeout`은 헤더뿐 아니라 본문까지 받는 시간이라 2GiB 업로드를 위해 0s(해제)로 둔다. 아무것도 보내지 않고 연결만 잡는 요청은 idle·stream idle 60초가 끊는다.
 - WebSocket은 별도 route에서 전체 timeout을 해제하고 stream idle 5분을 둔다. STOMP heartbeat·CONNECT JWT는 #371에서 처리한다.
-- 알 수 없는 `/api/**`, actuator·Swagger·api-docs는 앱/React backend로 보내지 않고 404다. 인증된 API도 실제 앱의 인가·권한 검사가 필요하다.
+- 알 수 없는 `/api/**`, actuator, 루트의 Swagger·api-docs(`/swagger-ui`, `/v3/api-docs`)는 앱/React backend로 보내지 않고 404다. Swagger는 앱의 모듈 경로 아래에서 그 앱의 route로 연다(#498). 인증된 API도 실제 앱의 인가·권한 검사가 필요하다.
 - `/grafana`는 `/grafana/`로 redirect한다. prefix는 지우지 않는다. Grafana `root_url`, `serve_from_sub_path`, Secure cookie를 설정한다. admin 자격 증명은 기존 chart Secret을 사용하고 레포·로그에 남기지 않는다.
 - Grafana는 320Mi 한도에서 subpath 변경 후 기동 시 높은 CPU·probe timeout이 관찰되어 384Mi와 `GOMAXPROCS=2`를 적용했다. 이 64Mi 증가는 #343의 medium 목표 예산 조정에 포함한다.
 - Grafana는 SQLite PVC를 공유하는 새·옛 pod가 함께 뜨지 않도록 `Recreate`로 갱신한다. probe는 `/grafana/api/health`, startup은 최대 5분을 기다린다. 로그인 화면·정적 자원은 익명에게 제공되고 dashboard·데이터 API는 로그인이 필요하다.

@@ -1020,7 +1020,7 @@ Billing #295 "지급 예정 요약"이 게스트의 출연료·위약금과 지�
 | 호출 | Billing이 shared `AppearanceApiClient`(18.6)로 부른다. 클러스터 안 Service 주소의 내부 포트(`http://appearance-app:8081`, billing 설정 `APPEARANCE_API_BASE_URL`)로 부르고 Gateway를 거치지 않는다 |
 | 경로 | `GET /api/v1/internal/appearances/earnings/summary`, `GET /api/v1/internal/appearances/earnings` (공통 규칙 `/api/v1/internal/<제공 모듈>/...`) |
 | 인증 | 헤더 `X-Internal-Api-Key`(`shared.internal.InternalApiHeaders`), 설정 `hapbang.internal-api.key`(환경변수 `HAPBANG_INTERNAL_API_KEY`). 맞으면 `ROLE_INTERNAL`, 틀리거나 없으면 본문 없는 401. 회원 로그인(사용자 헤더)으로는 부를 수 없고, 반대로 내부 키로 회원 API를 부를 수 없다. 필터·전용 보안 체인은 global(#300·#307) |
-| 외부 노출 | Gateway에 `/api/v1/internal` route가 없고, 외부 포트(8080)로 오면 `InternalApiPortValve`가 404로 막는다(내부 포트 8081만, #372). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영은 Swagger가 꺼져 있다 |
+| 외부 노출 | Gateway에 `/api/v1/internal` route가 없고, 외부 포트(8080)로 오면 `InternalApiPortValve`가 404로 막는다(내부 포트 8081만, #372). Swagger에는 나온다(Spec `ApiV1AppearanceEarningInternalSpec`, 키 헤더 파라미터 표시). 운영 Swagger에도 나오지만 외부에서 호출하면 404다(#498) |
 | 출연 쪽 방어 | ① 보안 체인의 키 검증(공통부) ② `AppearanceEarningFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
 | 회원 ID | 쿼리 파라미터 `userId` (게스트). 없거나 1 미만이면 400 `INVALID_REQUEST`. 키가 곧 권한이라 아무 회원이나 조회할 수 있으므로, 로그인 회원 본인인지는 Billing이 확인한다. 출연 쪽에 데이터가 없는 회원은 0원 요약·빈 목록 (회원 복제를 확인하지 않는다) |
 | 응답 | 성공 `RsData`, 오류 Problem Detail + `code`(요청 값 오류는 `errors[{field, message}]`). 계약 타입은 shared `com.hapbang.shared.appearance`(`domain.AppearanceEarningStatus`·`AppearanceEarningType`, `dto.AppearanceEarning*Dto`). 값이 없을 수 있는 필드(`payoutScheduledAt`)는 계약대로 응답 JSON에서 빠진다(계약 DTO의 그 필드에만 `@JsonInclude(NON_NULL)`, #408. 출연 앱 전체 설정은 아니라 프론트용 API 응답은 그대로). 받는 쪽은 빠진 필드와 `null`을 같게 읽는다 |

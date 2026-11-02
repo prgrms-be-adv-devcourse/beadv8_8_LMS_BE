@@ -7,6 +7,7 @@
 > - 결정을 바꾸려면 팀과 먼저 합의하고, 기존 행의 상태를 바꾼 뒤 새 번호를 더한다.
 > - 2026-10-29 dev da834b1 반영: Billing 결정은 바뀌지 않았다. #369 최종 인프라 결정이 재검토 대상(11장)에 주는 방향만 더했다.
 > - 2026-10-30 PROGRESS 3.21(#273) 반영: BD-108을 결정했고 BD-111~BD-113을 더했다(9장). BD-28·BD-54는 일부 대체됐다. 이제 결정 원본은 이 문서이고, `PROGRESS.md` 3장은 결정 배경만 두고 각 절에서 `BD-*`를 가리킨다. 출처 칸의 `P`는 `PROGRESS.md`, `A`는 `apps/billing-app/AGENTS.md`, `C`는 [`CONTEXT.md`](CONTEXT.md)의 장 번호다.
+> - 2026-11-02 #497 반영: 지갑 이벤트를 Kafka로 발행한다(BD-130). BD-124는 대체됐다.
 > - 2026-11-01 #494 반영: shared Command를 billing 내부 Command로 바꿔 넘긴다(BD-129).
 > - 2026-10-31 #486 반영: `BillingPort`·`BillingPortAdapter`를 지웠다(BD-128). BD-51은 일부 대체, BD-52는 폐기됐다.
 > - 2026-10-30 #479 반영: 보류 무효화 API를 더했다(BD-125·BD-126, 미결 BD-127).
@@ -67,7 +68,8 @@
 | BD-5 | 중복 판별은 SQLState `23505`와 제약 이름 `uk_wallet_user_id`가 둘 다 맞을 때만 한다 | 메시지 파싱은 서버 언어(`lc_messages`)가 바뀌면 깨진다 | 유효 | P3.1 | — |
 | BD-6 | 리스너는 `@ApplicationModuleListener(propagation = NOT_SUPPORTED)`다. 실패하면 발행 기록이 미완료로 남아 재시작 때 다시 처리된다 | 리스너 트랜잭션까지 있으면 이벤트 하나가 커넥션 2개를 잡는다 | 대체됨 → BD-123 (#430: Kafka `@KafkaListener`, 실패는 블로킹 재시도 뒤 그룹별 DLT) | P3.1 | — |
 | BD-123 | 회원 이벤트(`member.events.v1`)는 목적별 소비 그룹 둘로 받는다. `billing-app.member-replica`: 가입·변경 → `billing_user` Upsert, 멱등은 `(user.id, user.version)` 버전 비교(BD-103). `billing-app.wallet-creation`: 가입 → `getOrCreate`(ADMIN은 건너뜀, BD-3), 멱등은 회원 ID UNIQUE(BD-1·BD-5). 두 그룹 모두 별도 inbox·처리 기록 테이블을 두지 않는다. DLT는 `member.events.v1.<그룹>.DLT` | `eventId`가 없다(ADR 0002). 업무 행 자체가 자연 키 멱등 기록이라 반영과 같은 커밋에 남는다(kafka.md "멱등은 업무 자연 키"). 같은 그룹에 리스너 둘을 두면 partition을 나눠 가져 각자 일부만 받는다 | 유효 (#430에서 구현) | #428, kafka.md | — |
-| BD-124 | 지갑은 Modulith 이벤트 기록을 두지 않는다. `spring.modulith.events.*` 설정을 지우고, Flyway `V202610301400`으로 `billing.event_publication`·`event_publication_archive`를 지운다(남은 기록은 확인하지 않고 함께 삭제). 앱·테스트 설정에서 `JdbcEventPublicationAutoConfiguration`·`EventPublicationAutoConfiguration`를 뺀다 | 지갑은 Spring Event를 발행하지도 받지도 않는다(#430). 테이블만 지우면 종료 때 이벤트 기록 레지스트리가 테이블을 조회하다 실패하고(확인함), JDBC 자동 설정만 빼면 레지스트리를 쓰는 설정이 기동에 실패해 둘 다 뺐다. 루트 Gradle은 바꾸지 않는다. 이벤트를 발행하게 되면(우선순위 6) 다시 만든다 | 유효 | C5, #471 | — |
+| BD-130 | 지갑은 HP 이동 결과(충전 완료, 지급 완료(정상·위약금), 환불 완료(전부·일부), 환전 완료·거절·송금 실패(시도별)·최종 실패)를 `billing.events.v1`에 발행한다. Modulith externalization(발행 기록 = outbox, Modulith 스키마 초기화, archive)으로, 끝 상태로 바꾸는 같은 트랜잭션에서 발행하고 매분 재발행한다. key는 `point-charge`·`settlement`·`point-refund-request`·`exchange` 접두어 + 대상 ID, 레코드는 `shared.billing.event`, `PayoutType`은 shared로 옮긴다. payload에 계좌·결제키·사유 원문은 없다 | 알림·감사 projection이 지갑을 동기 호출하지 않고 완료된 사실을 받게 한다. 팀 규칙(kafka.md, ADR 0001·0002)과 출연 발행 선례를 따른다. 송금 실패는 한 환전에서 여러 번 날 수 있어 시도 ID를 멱등 키로 한다 | 유효 | C9, #497 | — |
+| BD-124 | 지갑은 Modulith 이벤트 기록을 두지 않는다. `spring.modulith.events.*` 설정을 지우고, Flyway `V202610301400`으로 `billing.event_publication`·`event_publication_archive`를 지운다(남은 기록은 확인하지 않고 함께 삭제). 앱·테스트 설정에서 `JdbcEventPublicationAutoConfiguration`·`EventPublicationAutoConfiguration`를 뺀다 | 지갑은 Spring Event를 발행하지도 받지도 않는다(#430). 테이블만 지우면 종료 때 이벤트 기록 레지스트리가 테이블을 조회하다 실패하고(확인함), JDBC 자동 설정만 빼면 레지스트리를 쓰는 설정이 기동에 실패해 둘 다 뺐다. 루트 Gradle은 바꾸지 않는다. 이벤트를 발행하게 되면(우선순위 6) 다시 만든다 | 대체됨 → BD-130 (#497에서 발행 기록·자동 설정을 다시 켬) | C5, #471 | — |
 
 ## 2. 원장·멱등성·역분개·대사 (#57)
 

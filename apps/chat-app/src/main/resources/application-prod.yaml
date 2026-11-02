@@ -10,8 +10,3 @@ hapbang:
       allowed-origins: https://hapbang.duckdns.org
 server:
   forward-headers-strategy: native
-springdoc:
-  api-docs:
-    enabled: false
-  swagger-ui:
-    enabled: false

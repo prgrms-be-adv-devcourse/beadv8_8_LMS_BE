@@ -27,11 +27,11 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | Kafka | 700 MiB |
 | Redis | 64 MiB |
 | Elasticsearch | 1,536 MiB |
-| 모듈 앱 4개: member 512 MiB(#480) + billing·appearance·search 3개 × 448 MiB | 1,856 MiB |
+| 모듈 앱 4개: member·appearance 2개 × 512 MiB(#480·#504) + billing·search 2개 × 448 MiB | 1,920 MiB |
 | Envoy proxy + shutdown-manager (#372) | 288 MiB |
-| **합계** | **7,212 MiB** |
+| **합계** | **7,276 MiB** |
 
-사용 가능 메모리를 약 7.6 GiB로 보면 약 0.56 GiB가 남는다. 이 여유는 rolling surge pod 1개(최대 512 MiB), filesystem cache와 오차에 쓴다. large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
+사용 가능 메모리를 약 7.6 GiB로 보면 약 0.49 GiB(506 MiB)가 남는다. 이 여유는 rolling surge pod 1개(최대 512 MiB)와 거의 같아, filesystem cache와 오차에 쓸 몫이 없다(#504). 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
 
 | t3.medium `app-observe` | 예산 |
 | --- | ---: |
@@ -62,7 +62,9 @@ Prometheus server 컨테이너는 두 앱을 수집한 뒤 291 → 332 MiB(limit
 
 앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다.
 
-2026-10-30 EC2 실측(#461): lecture-app은 384 MiB(Flyway 시작 시점)와 448 MiB(JPA 초기화 시점)에서 기동 중 OOMKilled됐고, 640 MiB에서 떠 약 12분 뒤 536 MiB에서 멈췄다. member-app은 448 MiB에서 328 MiB로 안정됐다. lecture-app manifest와 위 예산 표를 640 MiB로 올렸다. 기동 최대치를 재서 낮출 수 있는지는 #343에서 본다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
+2026-10-30 EC2 실측(#461): lecture-app은 384 MiB(Flyway 시작 시점)와 448 MiB(JPA 초기화 시점)에서 기동 중 OOMKilled됐고, 640 MiB에서 떠 약 12분 뒤 536 MiB에서 멈췄다. member-app은 448 MiB에서 328 MiB로 안정됐다. lecture-app manifest와 위 예산 표를 640 MiB로 올렸다.
+
+2026-11-02 EC2 실측(#504): appearance-app은 448 MiB에서 떴지만(Prometheus registry 포함, 노출은 꺼짐) 기동 직후 326 MiB, 3분 뒤 RSS 425 MiB로 한도에 붙었다. member-app과 같은 512 MiB로 올리고 위 예산 표를 고쳤다. 512 MiB에서는 기동 4분 뒤 RSS 414 MiB(81%)였다. heap 상한도 limit의 60%라 268 → 307 MiB로 함께 늘어나므로 부하 뒤 RSS를 다시 잰다. 같은 시각 member-app(512 MiB, registry·노출 포함)은 RSS 364~366 MiB였다. 기동 최대치를 재서 낮출 수 있는지는 #343에서 본다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
 
 ### 과거 단일-node 측정 기록
 

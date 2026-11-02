@@ -125,7 +125,7 @@ class ApiV1WalletControllerTest {
     @Test
     @DisplayName("Swagger 명세의 200 응답 스키마는 실제 응답과 같은 RsData<WalletResponse>다")
     void swaggerMatchesResponse() throws Exception {
-        mockMvc.perform(get("/v3/api-docs"))
+        mockMvc.perform(get("/api/v1/wallets/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/wallets/me'].get.responses['200'].content['*/*'].schema['$ref']")
                         .value("#/components/schemas/RsDataWalletResponse"))

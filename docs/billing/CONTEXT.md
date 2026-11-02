@@ -324,3 +324,54 @@
 
 - 테스트의 `holdFacade.*`·`BillingKeys`·`BillingCommandValidator` 호출(13개 클래스)을 내부 Command로 바꿨다.
 - `PaymentHoldRequestsTest`(shared 계약과 규칙 일치, 구조 오류), `BillingSharedDtoAccessTest`(일부러 위반을 넣어 실패하는 것을 확인했다).
+
+## 9. 지갑 이벤트 발행 (#497)
+
+2026-11-02 `/grill-with-docs`로 정했다. 규칙은 [`kafka.md`](../architecture/infrastructure/kafka.md)와 ADR 0001·0002를 따른다. HP 원장은 지금처럼 PostgreSQL 트랜잭션과 멱등키가 확정하고, Kafka는 완료된 사실만 전달한다.
+
+### 9.1 결정
+
+- 범위: 지갑 발행까지. 알림 소비자·notification-app은 범위 밖이다(9.4를 #193에 넘긴다).
+- 발행: Spring Modulith externalization. 발행 기록(`billing.event_publication`)이 outbox다(BD-130, BD-124 대체).
+  - 테이블은 Flyway가 아니라 출연 앱처럼 Modulith 스키마 초기화로 만든다(`spring.modulith.events.jdbc.schema-initialization`). Modulith 2.1의 테이블 형식(v1·v2)을 직접 DDL로 맞추다 틀리지 않으려는 것이다. 이슈 본문의 "Flyway로"에서 바꿨다.
+  - 완료 모드는 `archive`(보낸 기록을 `event_publication_archive`로 옮긴다). 기동 때 미완료 기록을 다시 보낸다.
+- 발행 시점: 상태를 끝 상태로 바꾸는 같은 트랜잭션에서 `BillingEventPublisher`가 `publishEvent`한다. 롤백되면 이벤트도 없다.
+- 재발행: `BillingEventRepublishBatch`(기본 매분 5초) → `BillingEventRepublishUseCase`. 유예 시간(기본 1분)이 지난 미완료 기록을 한 번에 100개까지 보낸다(출연 앱과 같은 방식). 설정 `hapbang.billing.event.republish-*`.
+- Kafka 직렬화: 출연 앱과 같이 Modulith Kafka 모듈의 JSON 기본 세트를 끄고(`spring.modulith.events.kafka.enable-json: false`) 발행 값은 `JacksonJsonSerializer`로 보낸다(`billing.yml`). 켜 두면 그 변환기가 기본 리스너 팩토리에 들어가 회원 이벤트 소비(#430)가 모두 실패한다(확인함).
+- 토픽 `billing.events.v1`(partition 3)은 `BillingEventExternalizationConfig`가 `NewTopic`으로 선언한다. 헤더는 `eventType`(레코드 이름)·`eventVersion`(`1`).
+- 이벤트 레코드는 `common/shared`의 `com.hapbang.shared.billing.event`다. 지급 유형을 싣기 위해 `PayoutType`을 `shared.billing.domain`으로 옮겼다(`BillingReferenceType`·`SettlementSourceType` 선례).
+
+| 이벤트 | 발행 지점 | key | 받는 쪽 멱등 키 |
+| --- | --- | --- | --- |
+| `ChargeCompletedEvent` | `ChargeProcessing.complete`(승인 응답·복구 배치) | `point-charge:<충전 ID>` | 충전 ID |
+| `PayoutCompletedEvent` | `HoldPayoutUseCase`(정상)·`PenaltySettlementUseCase`(위약금)의 지급 건 저장. 재요청은 발행하지 않는다 | `settlement:<지급 건 ID>` | 지급 건 ID |
+| `RefundCompletedEvent` | `RefundProcessing`의 요청 종료 중 `COMPLETED`·`PARTIALLY_COMPLETED` | `point-refund-request:<환불 요청 ID>` | 환불 요청 ID |
+| `ExchangeCompletedEvent` | `ExchangePayoutProcessing` 송금 성공·송금액 0원 완료 | `exchange:<환전 ID>` | 환전 ID |
+| `ExchangeRejectedEvent` | `ExchangeReviewUseCase.reject` | `exchange:<환전 ID>` | 환전 ID |
+| `ExchangePayoutFailedEvent` | `ExchangePayoutProcessing` 송금 시도 확정 실패(시도마다) | `exchange:<환전 ID>` | 송금 시도 ID |
+| `ExchangeFinalFailedEvent` | `ExchangePayoutProcessing.failFinally` | `exchange:<환전 ID>` | 환전 ID |
+
+- payload: 대상 ID, 회원 ID, HP 금액, KRW 금액(충전 결제액, 환전 송금액·수수료), DB에 저장된 업무 시각. 계좌·예금주·은행·PG 결제키·실패 원문·관리자 사유는 싣지 않는다.
+
+### 9.2 테스트
+
+- `BillingEventKafkaTest`(Kafka Testcontainers): 토픽 선언, 지급 완료 이벤트의 key·헤더·본문, 롤백하면 안 나감, 응답 유실 뒤 재발행.
+- 각 흐름의 통합 테스트가 `@RecordApplicationEvents`로 발행 시점·내용·횟수를 본다: `ChargeIntegrationTest`, `HoldPayoutIntegrationTest`, `RefundIntegrationTest`, `ExchangeReviewIntegrationTest`, `ExchangePayoutIntegrationTest`. 다른 테스트는 외부화를 끈다(`hapbang-module-test.yaml`).
+- `BillingExternalEventsTest`: 지갑 이벤트만 내보내고 회원 이벤트는 내보내지 않는다.
+- #471의 `ModulithEventsDisabledTest`는 지웠다. `BillingSchemaTest`(`@RepositoryTest`)는 Flyway 테이블만 보고 Modulith 발행 기록 테이블은 목록에서 뺀다. 테스트의 완료 모드는 모두 운영과 같은 `archive`다(`ExchangePayoutIntegrationTest`에 남아 있던 `delete` 설정을 지웠다).
+
+### 9.3 범위 밖
+
+- 알림 소비자·notification-app, 채팅 책임 분리(#193, 팀 합의).
+- 이벤트 위치를 shared 밖으로 옮기는 것(kafka.md·ADR 변경이라 팀 안건). AsyncAPI·CI 호환성 검사(kafka.md 2차).
+
+### 9.4 알림 연동 검토 (#193에 넘김)
+
+소비하는 쪽(알림)이 정할 것이다. 지갑은 아래를 전제로 발행한다.
+
+- 소비 그룹 이름(`notification-app.<목적>`)과 kafka.md 토픽 목록의 소비 그룹 칸.
+- 알림 종류 매핑: 충전 완료, 지급 완료(정상·위약금 구분), 환불 완료(전부·일부), 환전 완료·거절·송금 실패·최종 실패 중 무엇을 알림으로 만들지. 알림 문서 후보의 "환전 송금 완료·실패"와 맞춘다.
+- 일반 유저 수신: 충전·환불 완료는 일반 유저(강의 구매자)도 받는다. 지금 채팅 알림은 일반 유저에게 가지 않는다.
+- 멱등: 이벤트마다 위 표의 멱등 키를 `(eventType, 대상 ID)`로 쓴다. 송금 실패만 송금 시도 ID다.
+- 순서: 같은 환전의 이벤트는 같은 key지만 Modulith 전송은 순서가 바뀔 수 있다. 송금 실패 알림이 완료 알림보다 늦게 오면 어떻게 보일지 정한다(예: 업무 시각 비교, 완료 뒤의 실패는 무시).
+- 문구: 이벤트에는 사실만 있다. 금액·시각 표시는 알림 쪽이 만든다.
