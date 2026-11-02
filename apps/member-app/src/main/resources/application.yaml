@@ -5,6 +5,7 @@ spring:
     name: member-app
   config:
     import:
+    - classpath:member.yml
     - classpath:swagger.yml
   profiles:
     default: local
