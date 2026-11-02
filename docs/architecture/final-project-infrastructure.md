@@ -16,7 +16,7 @@
 | EC2 | t3.large 1대 + t3.medium 1대, 각각 Ubuntu 24.04·gp3 50 GB·EIP 1개 | large는 `core-data`, medium은 `app-observe`로 사용한다. 상세 배치는 전용 문서를 따른다 |
 | CPU credit | **standard** 모드 | 기준선 이상 부하가 이어져 credit을 다 쓰면 CPU가 기준선으로 제한된다. 부하 test 결과에 credit 잔량을 함께 기록한다 |
 | 운영 시간 | 09:00~18:00 자동 시작·중지 | 매일 instance가 중지된다. 그 시간에 잡힌 `@Scheduled` 작업은 실행되지 않고, 종료 처리가 시연이 아니라 실제 요구다 |
-| 환경 | EC2에는 k3s prod 한 벌만 있다. 기존 Compose(prod·dev)는 2026-10-30에 볼륨까지 지웠고 dev 서버는 없다(#440). 업무 앱 6개는 main 릴리스 전 dev 이미지로 k3s에 올렸다(릴리스 전 배포, 2026-11-02) | k3s에는 **prod(main)만** 둔다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
+| 환경 | EC2에는 k3s prod 한 벌만 있다. 기존 Compose(prod·dev)는 2026-10-30에 볼륨까지 지웠고 dev 서버는 없다(#440). 업무 앱 6개는 2026-11-02 사람이 올린 dev 이미지로 k3s에 떠 있고(릴리스 전 배포), 이후 dev 병합 때 자동으로 배포된다(#559) | k3s에는 **prod만** 두고 dev 브랜치를 배포한다. main에는 서버가 없다. dev 서버는 없애고 개발 확인은 로컬과 PR k3d에서 한다. 현재와 목표 상태를 섞지 않는다 |
 | network | 프로젝트 전용 VPC 1개, public subnet 1개, Internet Gateway. private subnet·NAT 없음 | 두 node는 같은 subnet에서 private IP로 cluster 통신한다 |
 | security group | 22·80·443 inbound 전체 허용. 6443은 kubectl 사용자 IP `/32`만 허용(2026-10-28) | Grafana, Elasticsearch, Kafka, Redis port는 열지 않는다. k3s API(6443)는 사용자 IP `/32` 외에는 열지 않는다 |
 | 진입점 | large ServiceLB → Envoy Gateway, cert-manager의 Let's Encrypt 인증서(2026-10-30, #372). edge nginx는 지웠다. ELB·ACM 없음 | 외부 TLS 종료, 큰 본문 업로드, 내부 API 차단은 Envoy Gateway와 cert-manager가 맡는다. nginx는 쓰지 않는다 |
