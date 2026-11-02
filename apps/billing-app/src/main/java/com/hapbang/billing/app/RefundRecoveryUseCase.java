@@ -34,6 +34,7 @@ public class RefundRecoveryUseCase {
     private final TossPaymentsClient tossPaymentsClient;
     private final PaymentKeyCipher paymentKeyCipher;
     private final Duration minimumAge;
+    private final TossCircuitGate circuitGate = new TossCircuitGate("환불 결과 확인");
 
     public RefundRecoveryUseCase(PointRefundRequestRepository pointRefundRequestRepository,
             RefundProcessUseCase refundProcessUseCase, TossPaymentsClient tossPaymentsClient,
@@ -56,6 +57,10 @@ public class RefundRecoveryUseCase {
                 staleBefore, PageRequest.of(0, BATCH_SIZE));
         int unresolved = 0;
         for (Long requestId : requestIds) {
+            // TossPayments 회로가 열려 있으면 남은 건을 다음 실행으로 넘긴다 (#562)
+            if (!circuitGate.allows(tossPaymentsClient)) {
+                break;
+            }
             try {
                 // 이번 실행 뒤에도 자동 처리 대상(REQUESTED·PROCESSING)으로 남은 요청만 센다
                 if (OPEN_STATUSES.contains(refundProcessUseCase.recover(requestId, staleBefore).status())) {

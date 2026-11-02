@@ -11,11 +11,14 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
+import com.hapbang.billing.out.OutboundCircuitBreakers;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.out.MemberApiCallException;
 import com.hapbang.shared.member.out.MemberApiClient;
+
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -43,20 +46,27 @@ public class BillingUserBackfillUseCase {
     private final Supplier<MemberApiClient> memberApiClient;
     private final BillingUserSyncUseCase billingUserSyncUseCase;
     private final WalletFacade walletFacade;
+    private final OutboundCircuitBreakers circuits;
     // 빈(싱글턴)이 가진 실행 중 표시라 요청 사이에서 공유된다
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     @Autowired
     BillingUserBackfillUseCase(ObjectProvider<MemberApiClient> memberApiClient,
-            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade) {
-        this((Supplier<MemberApiClient>) memberApiClient::getIfAvailable, billingUserSyncUseCase, walletFacade);
+            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade, OutboundCircuitBreakers circuits) {
+        this((Supplier<MemberApiClient>) memberApiClient::getIfAvailable, billingUserSyncUseCase, walletFacade, circuits);
     }
 
     BillingUserBackfillUseCase(Supplier<MemberApiClient> memberApiClient,
             BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade) {
+        this(memberApiClient, billingUserSyncUseCase, walletFacade, OutboundCircuitBreakers.defaults());
+    }
+
+    BillingUserBackfillUseCase(Supplier<MemberApiClient> memberApiClient,
+            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade, OutboundCircuitBreakers circuits) {
         this.memberApiClient = memberApiClient;
         this.billingUserSyncUseCase = billingUserSyncUseCase;
         this.walletFacade = walletFacade;
+        this.circuits = circuits;
     }
 
     // afterId보다 큰 회원부터 최대 limit명을 반영한다. afterId는 0 이상, limit은 1~MAX_LIMIT(검사는 API 명세 제약이 한다).
@@ -108,9 +118,13 @@ public class BillingUserBackfillUseCase {
     }
 
     // 4xx(REJECTED)는 내부 API 키·계약 불일치라 다시 시도해도 같고, 나머지(연결·시간 초과·5xx·읽을 수 없는 응답)는 일시 장애다.
+    // 회원 회로 안에서 부른다(#562). 다시 보내지 않고, 회로가 열려 있으면 부르지 않고 일시 장애로 멈춘다(관리자가 resumeAfterId로 다시 실행).
     private MemberPageDto fetch(MemberApiClient client, long cursor, int size, Tally tally) {
         try {
-            return client.getMembers(cursor, size);
+            return circuits.call(OutboundCircuitBreakers.Target.MEMBER, () -> client.getMembers(cursor, size));
+        } catch (CallNotPermittedException e) {
+            log.warn("회원 내부 API 회로가 열려 있어 Backfill을 멈춥니다: afterId={}", cursor);
+            throw abort(BillingErrorCode.MEMBER_SOURCE_UNAVAILABLE, tally, cursor, e);
         } catch (MemberApiCallException e) {
             boolean rejected = e.getReason() == MemberApiCallException.Reason.REJECTED;
             if (rejected) {

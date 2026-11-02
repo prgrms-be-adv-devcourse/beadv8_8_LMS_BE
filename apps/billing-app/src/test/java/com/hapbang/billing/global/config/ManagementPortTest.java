@@ -88,6 +88,11 @@ class ManagementPortTest {
         HttpResponse<String> metrics = get(managementPort, "/actuator/prometheus");
         assertThat(metrics.statusCode()).isEqualTo(200);
         assertThat(metrics.body()).contains("jvm_memory_used_bytes").contains("hikaricp_connections_max");
+        // 나가는 호출 회로 4개의 상태 지표 (#562)
+        assertThat(metrics.body()).contains("resilience4j_circuitbreaker_state{name=\"toss\"")
+                .contains("resilience4j_circuitbreaker_state{name=\"lecture\"")
+                .contains("resilience4j_circuitbreaker_state{name=\"appearance\"")
+                .contains("resilience4j_circuitbreaker_state{name=\"member\"");
 
         assertThat(get(managementPort, "/actuator/health/liveness").statusCode()).isEqualTo(200);
         assertThat(get(managementPort, "/actuator/health/readiness").statusCode()).isEqualTo(200);

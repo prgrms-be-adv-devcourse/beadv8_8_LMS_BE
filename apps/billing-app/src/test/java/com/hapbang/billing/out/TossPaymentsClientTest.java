@@ -185,4 +185,54 @@ class TossPaymentsClientTest {
         assertThat(none.baseUrl()).isEqualTo("https://api.tosspayments.com");
         assertThat(new TossPaymentsProperties(null, SECRET_KEY, null, null).toString()).doesNotContain(SECRET_KEY);
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // 회로 (#562)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("결과 불명(5xx)이 최소 호출 수만큼 쌓이면 회로가 열려, 요청하지 않고 Unknown(CIRCUIT_OPEN)이다")
+    void circuitOpensOnUnknown() {
+        OutboundCircuitBreakers circuits = smallCircuits();
+        TossPaymentsClient guarded = guarded(circuits);
+        for (int i = 0; i < 4; i++) {
+            SERVER.nextConfirm(ORDER_ID, Fault.SERVER_ERROR);
+            assertThat(guarded.confirm(PAYMENT_KEY, ORDER_ID, 10_000L)).isInstanceOf(TossResult.Unknown.class);
+        }
+        assertThat(guarded.isCircuitOpen()).isTrue();
+        long sent = SERVER.confirmCount();
+
+        TossResult result = guarded.confirm(PAYMENT_KEY, ORDER_ID, 10_000L);
+
+        assertThat(result).isEqualTo(new TossResult.Unknown(TossPaymentsClient.CIRCUIT_OPEN));
+        assertThat(guarded.findByOrderId(ORDER_ID)).isEqualTo(new TossResult.Unknown(TossPaymentsClient.CIRCUIT_OPEN));
+        assertThat(SERVER.confirmCount()).isEqualTo(sent);
+    }
+
+    @Test
+    @DisplayName("TossPayments가 판단한 4xx 거절(Rejected)과 조회 404(NotFound)는 실패로 세지 않아 회로가 열리지 않는다")
+    void rejectionsDoNotOpenCircuit() {
+        OutboundCircuitBreakers circuits = smallCircuits();
+        TossPaymentsClient guarded = guarded(circuits);
+        for (int i = 0; i < 4; i++) {
+            SERVER.nextConfirm(ORDER_ID, Fault.REJECT_CARD);
+            assertThat(guarded.confirm(PAYMENT_KEY, ORDER_ID, 10_000L)).isInstanceOf(TossResult.Rejected.class);
+            assertThat(guarded.findByOrderId("HPCHG-unit-missing")).isInstanceOf(TossResult.NotFound.class);
+        }
+
+        assertThat(guarded.isCircuitOpen()).isFalse();
+        assertThat(circuits.circuitBreaker(OutboundCircuitBreakers.Target.TOSS).getMetrics().getNumberOfFailedCalls())
+                .isZero();
+    }
+
+    // 최근 4번 중 실패 50% 이상이면 열린다(열린 상태는 테스트 동안 유지)
+    private static OutboundCircuitBreakers smallCircuits() {
+        return new OutboundCircuitBreakers(new OutboundResilienceProperties(4, 4, 50f, Duration.ofSeconds(4), 100f,
+                Duration.ofMinutes(1), 1, Duration.ofMillis(10)));
+    }
+
+    private static TossPaymentsClient guarded(OutboundCircuitBreakers circuits) {
+        return new TossPaymentsClient(RestClient.builder(), new TossPaymentsProperties(SERVER.baseUrl(), SECRET_KEY,
+                Duration.ofSeconds(1), Duration.ofMillis(500)), circuits);
+    }
 }

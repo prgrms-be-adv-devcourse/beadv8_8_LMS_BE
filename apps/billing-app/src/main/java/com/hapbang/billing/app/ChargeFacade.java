@@ -13,7 +13,7 @@ import lombok.RequiredArgsConstructor;
 
 // HP 충전 진입점 (#224). HP 충전은 유저·인플루언서·인증된 인플루언서만 한다(루트 AGENTS.md 6장, 관리자 403).
 // 트랜잭션은 열지 않는다(PG 호출을 DB 트랜잭션 밖에 두기 위해 UseCase가 단계별로 연다).
-// TossPayments 시크릿 키나 결제키 암호화 키가 없으면 상태를 바꾸기 전에 CHARGE_UNAVAILABLE(503)로 거절한다.
+// TossPayments 시크릿 키나 결제키 암호화 키가 없거나 TossPayments 회로가 열려 있으면(#562) 상태를 바꾸기 전에 CHARGE_UNAVAILABLE(503)로 거절한다.
 // 주문·승인은 지갑 회원도 확인한다(#537, BD-131). 승인은 TossPayments를 부르기 전에 확인하므로, 결제창에 있는 동안 정지되면 돈이 빠져나가지 않는다.
 // 이미 PROCESSING인 주문은 충전 복구 배치가 이 Facade를 거치지 않고 끝까지 확인한다.
 @Service
@@ -55,7 +55,7 @@ public class ChargeFacade {
     }
 
     private void requireAvailable() {
-        if (!tossPaymentsClient.isConfigured() || !paymentKeyCipher.isConfigured()) {
+        if (!tossPaymentsClient.isConfigured() || !paymentKeyCipher.isConfigured() || tossPaymentsClient.isCircuitOpen()) {
             throw new BillingException(BillingErrorCode.CHARGE_UNAVAILABLE);
         }
     }

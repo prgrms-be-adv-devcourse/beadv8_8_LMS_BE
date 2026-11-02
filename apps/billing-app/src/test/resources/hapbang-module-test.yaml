@@ -30,3 +30,11 @@ spring:
       auto-startup: false
     admin:
       auto-create: false
+hapbang:
+  billing:
+    # 나가는 호출 회로(#562)는 컨텍스트 하나를 여러 테스트가 함께 쓴다. 장애를 일부러 만드는 테스트가 쌓여 회로가 열리면
+    # 뒤 테스트가 실제 호출 없이 거절되므로, 통합 테스트에서는 실패율로 열리지 않게 한다.
+    # 회로가 열리고 닫히는 동작은 작은 설정으로 직접 만든 OutboundCircuitBreakers로 확인하고, 통합 테스트는 상태를 강제로 바꿔 확인한다.
+    outbound:
+      minimum-number-of-calls: 100000
+      sliding-window-size: 100000

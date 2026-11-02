@@ -165,6 +165,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
     - **내부 HTTP API는 shared Command를 요청 본문으로 그대로 받는다**(BD-54 재검토, `docs/billing/CONTEXT.md` 1.1). shared Command가 곧 모듈 간 HTTP 계약이기 때문이다. `app`·`domain`·`out`은 shared Command를 쓰지 않고 `Payment*Command`를 받는다(BD-129, `BillingSharedDtoAccessTest`). 회원이 부르는 사용자 API는 각 모듈의 요청 DTO(`@Valid`, 400 `INVALID_REQUEST`)로 받고 shared DTO를 쓰지 않는다.
 - 멱등키는 Billing이 만든다(`app.BillingKeys`). 호출한 쪽은 보류 멱등키를 만들거나 넘기지 않고, 반환·지급·취소마다 안정적인 요청 ID만 넘긴다. 같은 요청 ID로 다시 보내도 HP는 두 번 움직이지 않는다.
 - 호출 쪽의 실패 복구(HP 작업·재시도·보상)는 각 모듈이 소유한다: 강의 `docs/lecture/integration.md`, 출연 `docs/appearance/module.md`. Billing 오류·결과 불명을 성공으로 해석하지 않는다(BD-70).
+- **지갑이 부르는 다른 앱 내부 API (#562, BD-134)**: 수익 조회(shared `LectureApiClient`·`AppearanceApiClient`)와 회원 Backfill(`MemberApiClient`)은 shared Client를 고치지 않고 지갑의 `out.OutboundCircuitBreakers`로 감싼다(회로 `lecture`·`appearance`·`member`). `UNAVAILABLE`만 실패로 세고, 수익 조회만 연결 실패를 1회 다시 보낸다. 새 나가는 호출을 더하면 같은 컴포넌트에 회로를 더한다.
 - **지갑 이벤트 발행 (#497)**: 충전·지급·환불·환전 결과를 `billing.events.v1`에 발행한다(`BillingEventPublisher`, Modulith externalization, 같은 트랜잭션 + 매분 재발행). 이벤트 레코드는 `shared.billing.event`이고 사실만 담는다(계좌·결제키·사유 원문 없음). 상세는 `docs/billing/CONTEXT.md` 9장, BD-130.
 - 거래 상태의 확정·취소 판단은 각 업무 도메인이 담당한다.
 - Billing은 HP 이동 및 원장 정합성만 책임진다.
@@ -189,6 +190,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 - **멱등성**: 주문 ID UNIQUE, 결제키 HMAC UNIQUE(`uk_point_charge_pg_payment_key_hash`, 위반은 Repository `saveAndFlush`로 받아 409로 바꾼다 — `EntityManager.flush()` 직접 호출은 Spring 예외로 바뀌지 않아 500이 된다), 충전 원장 작업 키 `CHARGE:{chargeId}`, 확정은 지갑·충전 건 락 아래 상태 재확인, TossPayments 승인 `Idempotency-Key: hapbang-charge-confirm-{orderId}`. 끝난 주문 + 같은 결제키 = 처음 결과(replay), 다른 결제키 = `CHARGE_PAYMENT_KEY_CONFLICT`, FAILED 주문 = `CHARGE_ALREADY_FAILED`.
 - **결제키 보호**: `pg_payment_key` = AES-256-GCM 암호문(무작위 IV, "v1:" 접두사), `pg_payment_key_hash` = HMAC-SHA256(별도 키). 결제키·시크릿 키를 응답·로그·`toString`에 남기지 않는다. 키는 환경 변수 `TOSS_PAYMENTS_SECRET_KEY`·`BILLING_PAYMENT_KEY_ENCRYPTION_KEY`·`BILLING_PAYMENT_KEY_HMAC_KEY`(`hapbang.billing.*`). 셋이 없으면 앱은 뜨고 충전 API만 503 `CHARGE_UNAVAILABLE`. 암호화 키만 있거나 형식이 틀리면 시작 실패. HMAC 키는 바꾸지 않는다(기존 해시와 맞지 않게 된다).
 - **금액**: 1 HP = 1원, 1,000 이상·1,000 단위(`CHARGE_AMOUNT_INVALID`). 최대 금액·주문 만료는 정책이 없어 두지 않았다.
+- **TossPayments 회로 (#562, BD-134)**: `TossPaymentsClient`는 회로 `toss` 안에서 부르고 결과 `Unknown`만 실패로 센다(재시도 없음). 열린 채 호출되면 요청하지 않고 `Unknown(CIRCUIT_OPEN)`이라 기존 결과 불명 처리를 탄다. 충전 주문·승인·환불 신청은 회로가 열려 있으면 상태를 바꾸기 전에 503(`CHARGE_UNAVAILABLE`·`REFUND_UNAVAILABLE`), 결과 확인 배치는 건마다 `TossCircuitGate`로 확인해 열려 있으면 남은 건을 다음 회차로 넘긴다.
 - 충전은 유저·인플루언서·인증된 인플루언서만(`ChargeFacade` `@PreAuthorize`, 관리자 403). 주문·승인 모두 지갑 회원도 정상 상태의 같은 역할이어야 한다(`WalletMemberCheck`, 승인은 TossPayments를 부르기 전에 확인, #537·BD-131). 지갑을 만들지 않는다(없으면 `WALLET_NOT_FOUND`).
 
 ### 10.2 충전 HP 환불 (#260, TossPayments 결제 부분 취소)
