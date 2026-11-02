@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 관리자 계정 관리 진입점 (#517). /admin 경로는 SecurityConfig도 함께 막는다.
- * 운영 첫 관리자는 로컬 로그인(관리자 테스트 계정)으로 이 API를 불러 만든다
+ * 첫 관리자는 초기 관리자 계정(#520)이고, 그 계정으로 로그인해 이 API로 관리자를 늘린다
  */
 @Slf4j
 @Service

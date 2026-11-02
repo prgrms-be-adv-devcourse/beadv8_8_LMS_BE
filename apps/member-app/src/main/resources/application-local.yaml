@@ -28,7 +28,5 @@ hapbang:
     client-id: "${CHZZK_CLIENT_ID:local-placeholder}"
     client-secret: "${CHZZK_CLIENT_SECRET:local-placeholder}"
     redirect-uri: http://localhost:${server.port}/api/v1/members/channels/chzzk/callback
-  local-login:
-    enabled: true
 server:
   port: "${SERVER_PORT:8081}"

@@ -2,7 +2,7 @@ package com.hapbang.member.in;
 
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
@@ -11,12 +11,12 @@ import com.hapbang.member.app.MemberFacade;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 로컬 로그인이 켜진 환경(local·dev, 운영은 켠 동안, #517)에서 앱 시작 시 역할별 테스트 계정 생성 (역할마다 2개). 이미 있으면 건너뛴다.
- * 운영에서 만든 테스트 계정은 로컬 로그인을 끈 뒤에도 남는다 (비밀번호가 없어 로그인할 수는 없다)
+ * 앱 시작 시 역할별 초기 계정(인플루언서·인증된 인플루언서·관리자)을 만든다 (#520). local·운영 프로필에서만 만들고, 이미 있으면 건너뛴다.
+ * 모듈 테스트는 application.yaml을 읽지 않아 프로필이 없으므로 만들지 않는다 (테스트는 테이블을 비우며 회원 수를 확인한다)
  */
 @Component
 @Order(1)
-@ConditionalOnProperty(name = "hapbang.local-login.enabled", havingValue = "true")
+@Profile({"local", "prod"})
 @RequiredArgsConstructor
 public class MemberDataInit implements ApplicationRunner {
 
@@ -24,6 +24,6 @@ public class MemberDataInit implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        memberFacade.createTestAccounts();
+        memberFacade.createSeedAccounts();
     }
 }

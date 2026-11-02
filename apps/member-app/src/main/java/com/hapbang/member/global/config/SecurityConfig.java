@@ -63,8 +63,6 @@ public class SecurityConfig {
                         .permitAll()
                         // 이메일·비밀번호 가입·로그인 (#499). 로그인 응답은 refresh token 쿠키만 준다
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login").permitAll()
-                        // 로컬 로그인 (hapbang.local-login.enabled일 때만 켜짐. 꺼져 있으면 컨트롤러가 없어 404. 운영은 첫 관리자용으로 켬, #517)
-                        .requestMatchers(HttpMethod.POST, "/api/v1/members/local-login").permitAll()
                         // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)
                         .requestMatchers(HttpMethod.GET, "/api/v1/lectures").permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)

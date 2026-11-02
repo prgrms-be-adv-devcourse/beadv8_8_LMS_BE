@@ -53,7 +53,7 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
                         MemberProfileResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()))));
     }
 
-    /** 회원 프로필 (등록된 채널 포함). 숫자만 받아 /local-login 같은 다른 주소와 겹치지 않게 한다 */
+    /** 회원 프로필 (등록된 채널 포함). 숫자만 받아 /signup 같은 다른 주소와 겹치지 않게 한다 */
     @Override
     @GetMapping("/{memberId:\\d+}")
     public RsData<MemberProfileDetailResponse> profile(@PathVariable(name = "memberId") Long memberId) {
