@@ -4,6 +4,7 @@ import static com.hapbang.appearance.out.event.AppearanceEventExternalizationCon
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_TYPE;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_VERSION;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.REQUEST_SENT;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.REVIEW_PUBLISHED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -44,8 +46,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.appearance.app.AppearanceApplicationFacade;
 import com.hapbang.appearance.app.AppearanceEventRepublishUseCase;
+import com.hapbang.appearance.app.AppearanceFacade;
 import com.hapbang.appearance.app.AppearanceRecruitFacade;
 import com.hapbang.appearance.app.AppearanceRequestFacade;
+import com.hapbang.appearance.app.AppearanceReviewFacade;
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
@@ -56,10 +60,12 @@ import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.AppearanceTestClock;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
+import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
+import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 
 import tools.jackson.databind.json.JsonMapper;
@@ -106,6 +112,15 @@ class AppearanceEventKafkaTest {
 
     @Autowired
     AppearanceUserFacade appearanceUserFacade;
+
+    @Autowired
+    AppearanceFacade appearanceFacade;
+
+    @Autowired
+    AppearanceReviewFacade appearanceReviewFacade;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     @Autowired
     ApplicationEventPublisher eventPublisher;
@@ -202,6 +217,38 @@ class AppearanceEventKafkaTest {
     }
 
     @Test
+    @DisplayName("리뷰가 공개되면(두 번째 작성 커밋) 받은 사람별 key appearance-review-reviewee:<회원 ID>로 리뷰 공개 이벤트가 하나씩 나간다. 한쪽만 쓰면 나가지 않는다 (#513)")
+    void reviewPublished() {
+        AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
+                AppearanceRequestFixture.content(clock.now()));
+        Long appearanceId = appearanceRequestFacade.accept(GUEST, sent.id(), sent.version()).appearanceId();
+        clock.advanceTo(sent.scheduledAt().plusHours(1));
+        appearanceFacade.confirm(HOST, appearanceId);
+
+        Long hostReviewId = appearanceReviewFacade.write(HOST, appearanceId, 5, "본문은 이벤트에 없음").id();
+        // 한쪽만 쓴 동안에는 나가지 않는다
+        await().during(HOLD).atMost(TIMEOUT).pollInSameThread()
+                .untilAsserted(() -> assertThat(records(reviewKey(GUEST))).isEmpty());
+        Long guestReviewId = appearanceReviewFacade.write(GUEST, appearanceId, 3, null).id();
+
+        ConsumerRecord<String, String> toGuest = awaitExactly(reviewKey(GUEST), 1).getFirst();
+        ConsumerRecord<String, String> toHost = awaitExactly(reviewKey(HOST), 1).getFirst();
+        LocalDateTime publishedAt = jdbcTemplate.queryForObject(
+                "select published_at from appearances.reviews where id = ?", LocalDateTime.class, hostReviewId);
+
+        assertThat(header(toGuest, EVENT_TYPE)).isEqualTo(REVIEW_PUBLISHED);
+        assertThat(header(toGuest, EVENT_VERSION)).isEqualTo("1");
+        assertThat(header(toGuest, "__TypeId__")).isEqualTo(AppearanceReviewPublishedEvent.class.getName());
+        assertThat(toGuest.value()).doesNotContain("content").doesNotContain("본문");
+        assertThat(jsonMapper.readValue(toGuest.value(), AppearanceReviewPublishedEvent.class))
+                .isEqualTo(new AppearanceReviewPublishedEvent(hostReviewId, appearanceId, HOST, GUEST,
+                        AppearanceParticipantRole.GUEST, 5, publishedAt));
+        assertThat(jsonMapper.readValue(toHost.value(), AppearanceReviewPublishedEvent.class))
+                .isEqualTo(new AppearanceReviewPublishedEvent(guestReviewId, appearanceId, GUEST, HOST,
+                        AppearanceParticipantRole.HOST, 3, publishedAt));
+    }
+
+    @Test
     @DisplayName("이벤트를 발행한 트랜잭션이 롤백되면 Kafka로 나가지 않는다")
     void notOnRollback() {
         AppearanceRequestSentEvent rolledBack = requestSentEvent(UNSAVED_ID.incrementAndGet());
@@ -255,6 +302,10 @@ class AppearanceEventKafkaTest {
         LocalDateTime now = clock.now();
         return new AppearanceRequestSentEvent(new AppearanceRequestDto(requestId, HOST, GUEST, "롤백 확인",
                 AppearanceRequestFixture.FEE, now.plusDays(7), now.plusDays(2)));
+    }
+
+    private static String reviewKey(Long revieweeUserId) {
+        return "appearance-review-reviewee:" + revieweeUserId;
     }
 
     private static String requestKey(Long requestId) {

@@ -1444,3 +1444,19 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceApiClientTest` (shared) | 400 Problem Detail | `REJECTED`, `code=INVALID_REQUEST` |
 
 - 작성 API의 확인은 `AppearanceReviewEligibility`로 옮겼고(동작 같음), 30장의 작성 테스트가 그대로 확인한다. 상세의 `reviewable`은 같은 클래스라 확인 순서·기준이 따로 갈라지지 않는다.
+
+---
+
+## 32. 리뷰 공개 이벤트 Kafka 발행 (#513)
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceReviewTest` | 공개된 리뷰 → 공개 이벤트 | 리뷰·출연·쓴 사람·받은 사람·역할(`HOST`)·별점·공개 시각, 본문 없음 |
+| `AppearanceReviewTest` | 공개 전 리뷰 → 공개 이벤트 / 공개 시각 나노초 | `IllegalStateException` / 마이크로초까지만 저장 |
+| `AppearanceReviewFlowTest` | 한쪽만 작성 | 발행 없음 |
+| `AppearanceReviewFlowTest` | 상대가 써서 공개 | 리뷰마다 1개씩 2개, 공개 시각은 DB 값과 같음 |
+| `AppearanceReviewFlowTest` | 이미 씀·상대 정지로 작성 실패 | 발행 없음 |
+| `AppearanceReviewFlowTest` | 두 출연 중 한 출연만 공개 | 그 출연 리뷰 2개만 발행 |
+| `AppearanceReviewFlowTest` | 기한 14일 UseCase로 둘 다 작성 | 2개 발행 |
+| `AppearanceExternalEventsTest` | 리뷰 공개 이벤트 | Kafka로 내보내는 대상(재발행 배치 대상도 같은 판단) |
+| `AppearanceEventKafkaTest` | 확인된 출연에 호스트 작성 → 게스트 작성 | 호스트만 썼을 때 메시지 없음. 공개 뒤 key `appearance-review-reviewee:<게스트>`·`<호스트>` 각 1건, `eventType` `AppearanceReviewPublishedEvent`·`eventVersion` `1`·`__TypeId__`, 본문에 리뷰 내용 없음, 값이 DB 공개 시각과 같음 |
