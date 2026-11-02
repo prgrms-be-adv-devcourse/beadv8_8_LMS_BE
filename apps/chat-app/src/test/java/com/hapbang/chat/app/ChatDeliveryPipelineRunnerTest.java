@@ -69,6 +69,8 @@ class ChatDeliveryPipelineRunnerTest extends ChatDeliveryTestSupport {
      */
     @Test
     void 멈추면_실행_중인_relay_배치가_끝난_뒤에_돌아온다() throws Exception {
+        // 실행 중인 relay 호출과 spy 설정이 겹치지 않게 멈춘 상태에서 설정한다.
+        runner.stop();
         CountDownLatch started = new CountDownLatch(1);
         AtomicBoolean armed = new AtomicBoolean(true);
         AtomicBoolean finished = new AtomicBoolean();
@@ -83,6 +85,7 @@ class ChatDeliveryPipelineRunnerTest extends ChatDeliveryTestSupport {
             return result;
         }).when(spiedRelay).relayBatch(any());
         try {
+            runner.start();
             assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
 
             runner.stop();
