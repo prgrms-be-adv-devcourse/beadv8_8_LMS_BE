@@ -1,6 +1,6 @@
 # Envoy Gateway (#372)
 
-상태: EC2에 Envoy Gateway·cert-manager를 설치하고 외부 진입점을 전환했다(2026-10-30, #372). ServiceLB → Envoy가 80·443을 받고 Let's Encrypt production 인증서를 사용한다. FE `web`은 `/` route에 연결됐고, 이 route는 FE 레포 `k8s/`가 소유한다(#454). member-app은 JWT 발급(#370)과 함께 route·JWT 검증을 연결했다(2026-11-02 #500). 같은 날 chat-app(#545)과 billing·appearance·lecture·customer-support(#541)도 사용자 헤더 인증 이미지로 route·JWT 검증을 연결해, 업무 앱 6개가 모두 열렸다([릴리스 전 배포](k8s.md#릴리스-전-배포)). 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
+상태: EC2에 Envoy Gateway·cert-manager를 설치하고 외부 진입점을 전환했다(2026-10-30, #372). ServiceLB → Envoy가 80·443을 받고 Let's Encrypt production 인증서를 사용한다. FE `web`은 `/` route에 연결됐고, 이 route는 FE 레포 `k8s/`가 소유한다(#454). member-app은 JWT 발급(#370)과 함께 route·JWT 검증을 연결했다(2026-11-02 #500). 같은 날 chat-app(#545)과 billing·appearance·lecture·customer-support(#541)도 사용자 헤더 인증 이미지로 route·JWT 검증을 연결해, 업무 앱 6개가 모두 열렸다([릴리스 전 배포](k8s.md#릴리스-전-배포)). 이후 업무 앱은 dev 병합 때 자동으로 배포된다(#559). 이 문서의 명령은 별도 표시가 없으면 로컬 `k3d-hapbang`만 대상으로 한다.
 
 ## 결정 기록 (2026-10-29)
 
