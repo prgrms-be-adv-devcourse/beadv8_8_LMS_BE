@@ -1,5 +1,6 @@
 package com.hapbang.chat.out;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 
@@ -10,12 +11,15 @@ import com.hapbang.chat.app.ChatDeliverySourceReader;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatMessageSender;
 import com.hapbang.chat.domain.ChatMessage;
+import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatUser;
+import com.hapbang.chat.out.ChatReadCountRows.MessageUnreadRow;
 
 import lombok.RequiredArgsConstructor;
 
 /**
  * {@link ChatDeliverySourceReader}의 JPA 구현. 메시지와 불변 수신자 집합 헤더를 짧은 읽기 전용 트랜잭션으로 읽는다.
+ * 일반 메시지는 전달 원본을 만들 때 안 읽은 사람 수를 집계 문장 하나로 함께 센다(받는 회원마다가 아니라 메시지마다 한 번).
  */
 @Component
 @RequiredArgsConstructor
@@ -35,8 +39,22 @@ public class JpaChatDeliverySourceReader implements ChatDeliverySourceReader {
                     ChatMessageResponse response = ChatMessageResponse.from(message).withSender(
                             ChatMessageSender.applies(message) ? ChatMessageSender.of(message.getSenderUserId(), sender)
                                     : null);
-                    return new MessageSource(response, message.getSenderUserId(), message.getClientMessageId());
+                    return new MessageSource(withUnreadMemberCount(response), message.getSenderUserId(),
+                            message.getClientMessageId());
                 });
+    }
+
+    /** 일반 메시지면 전달 시점의 안 읽은 사람 수와 버전을 담는다. 시스템 안내·알림은 세지 않는다 */
+    private ChatMessageResponse withUnreadMemberCount(ChatMessageResponse response) {
+        if (response.messageType() != ChatMessageType.TEXT) {
+            return response;
+        }
+        List<MessageUnreadRow> rows = chatMessageRepository.countUnreadMembers(List.of(response.messageId()));
+        if (rows.isEmpty()) {
+            return response;
+        }
+        MessageUnreadRow row = rows.getFirst();
+        return response.withReadCount(Math.toIntExact(row.getUnreadMemberCount()), row.getReadCountVersion());
     }
 
     @Override

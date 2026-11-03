@@ -1599,7 +1599,7 @@
           "sort": "desc"
         }
       },
-      "description": "앱 지표에는 histogram bucket이 없어 percentile은 Gateway dashboard에서 본다",
+      "description": "percentile은 아래 \"응답 시간 p50·p95·p99\"에서 본다",
       "id": 25,
       "gridPos": {
         "h": 8,
@@ -1659,6 +1659,132 @@
         "w": 8,
         "x": 16,
         "y": 49
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "응답 시간 p50·p95·p99",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_requests_seconds_bucket{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", uri!~\"/actuator.*\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "p50",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", uri!~\"/actuator.*\"}[$__rate_interval])))",
+          "refId": "B",
+          "legendFormat": "p95",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", uri!~\"/actuator.*\"}[$__rate_interval])))",
+          "refId": "C",
+          "legendFormat": "p99",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "bucket 경계(5ms~5s, 10개) 사이를 선형 보간한 근사치다. 5s를 넘는 요청이 percentile에 걸리면 5s로 나온다. 최대는 \"URI별 최대 응답 시간\"에서 본다",
+      "id": 47,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 57
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "URI별 p95 응답 시간",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, method, uri) (rate(http_server_requests_seconds_bucket{app_kubernetes_io_name=\"$app\", pod=~\"$pod\", uri!~\"/actuator.*\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{method}} {{uri}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "URI별 요청이 적으면 bucket 하나에 몰려 경계값(예: 250ms)이 그대로 나온다",
+      "id": 48,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 57
       }
     },
     {
@@ -1737,7 +1863,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 65
       }
     },
     {
@@ -1749,7 +1875,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 65
+        "y": 73
       },
       "panels": []
     },
@@ -1871,7 +1997,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 66
+        "y": 74
       }
     },
     {
@@ -1956,7 +2082,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 66
+        "y": 74
       }
     },
     {
@@ -2009,7 +2135,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 66
+        "y": 74
       }
     },
     {
@@ -2022,7 +2148,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 74
+        "y": 82
       }
     },
     {
@@ -2075,7 +2201,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 75
+        "y": 83
       }
     },
     {
@@ -2137,7 +2263,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 75
+        "y": 83
       }
     },
     {
@@ -2228,7 +2354,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 75
+        "y": 83
       }
     },
     {
@@ -2307,7 +2433,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 83
+        "y": 91
       }
     },
     {
@@ -2370,7 +2496,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 83
+        "y": 91
       }
     },
     {
@@ -2423,7 +2549,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 83
+        "y": 91
       }
     },
     {
@@ -2436,7 +2562,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 91
+        "y": 99
       }
     },
     {
@@ -2489,7 +2615,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 92
+        "y": 100
       }
     },
     {
@@ -2551,7 +2677,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 92
+        "y": 100
       }
     },
     {
@@ -2603,7 +2729,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 92
+        "y": 100
       }
     },
     {
@@ -2815,7 +2941,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 100
+        "y": 108
       }
     },
     {
@@ -2827,7 +2953,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 109
+        "y": 117
       },
       "panels": []
     },
@@ -2911,7 +3037,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 110
+        "y": 118
       }
     },
     {
@@ -2948,7 +3074,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 110
+        "y": 118
       }
     }
   ]

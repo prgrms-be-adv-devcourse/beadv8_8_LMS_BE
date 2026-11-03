@@ -86,7 +86,8 @@ public class ChatUserUseCase {
     }
 
     private static ChatUserSyncResult result(ChatUser chatUser, Outcome outcome) {
-        return new ChatUserSyncResult(chatUser.getId(), outcome, chatUser.getMemberVersion(), chatUser.canChat());
+        return new ChatUserSyncResult(chatUser.getId(), outcome, chatUser.getMemberVersion(), chatUser.canChat(),
+                chatUser.canHostGroup());
     }
 
     private void validate(UserDto user) {

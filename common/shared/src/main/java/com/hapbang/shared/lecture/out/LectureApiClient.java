@@ -19,6 +19,7 @@ import com.hapbang.shared.lecture.dto.LectureEarningPageDto;
 import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
 import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
+import com.hapbang.shared.member.dto.WithdrawalBlocksDto;
 
 /**
  * 강의 내부 HTTP API Client (D62, #300). 다른 모듈은 강의 Java 타입 대신 이 Client로 강의를 부른다.
@@ -35,6 +36,7 @@ public class LectureApiClient {
     static final String EARNINGS_PATH = "/api/v1/internal/lectures/earnings";
     static final String EARNINGS_SUMMARY_PATH = EARNINGS_PATH + "/summary";
     static final String OBJECTION_FILE_PATH = "/api/v1/internal/lectures/objections/file";
+    static final String WITHDRAWAL_BLOCKS_PATH = "/api/v1/internal/lectures/users/{userId}/withdrawal-blocks";
 
     private static final ParameterizedTypeReference<Body<LectureEarningSummaryDto>> SUMMARY =
             new ParameterizedTypeReference<>() {
@@ -43,6 +45,9 @@ public class LectureApiClient {
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Body<LectureEarningPageDto>> PAGE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<WithdrawalBlocksDto>> WITHDRAWAL_BLOCKS =
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Map<String, Object>> PROBLEM =
@@ -86,6 +91,14 @@ public class LectureApiClient {
                     }
                     return builder.queryParam("page", page).queryParam("size", size).build();
                 }), PAGE);
+    }
+
+    /**
+     * 회원 탈퇴가 막힌 강의 쪽 이유 (#625, docs/api/internal-withdrawals.md 3장). 막힌 이유가 없으면 빈 목록이다.
+     * 읽기만 하므로 {@link LectureApiCallException.Reason#UNAVAILABLE}이면 그대로 다시 불러도 안전하다
+     */
+    public WithdrawalBlocksDto getWithdrawalBlocks(long userId) {
+        return call(restClient.get().uri(WITHDRAWAL_BLOCKS_PATH, userId), WITHDRAWAL_BLOCKS);
     }
 
     /**

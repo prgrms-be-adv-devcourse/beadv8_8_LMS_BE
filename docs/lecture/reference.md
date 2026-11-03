@@ -332,6 +332,16 @@ billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. �
 
 - 다른 모듈은 `shared.lecture.out.LectureApiClient`로 부른다(D62). `apps`에 Adapter를 두지 않는다.
 
+### 8.6.2 회원 탈퇴 확인 내부 API (D75, #625)
+
+회원 #593이 탈퇴해도 되는지 확인할 때 호출한다. 인증·내부 포트는 8.6.1과 같다. 계약(이유 코드·문장·`availableAt`)은 `docs/api/internal-withdrawals.md` 3장.
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/api/v1/internal/lectures/users/{userId}/withdrawal-blocks` | 회원이 구매자·판매자로 남긴 막힌 이유(`WithdrawalBlocksDto`). 읽기만 한다. 없으면 `reasons: []` |
+
+- 다른 모듈은 `LectureApiClient.getWithdrawalBlocks`로 부른다.
+
 ### 8.7 용어 ↔ 코드 이름 (제안)
 
 `glossary.md`의 "코드 레벨" 열이 비어 있어 강의 영역만 제안한다. 검수와 리뷰가 영어로 둘 다 review가 되지 않도록 **검수 = inspection, 리뷰 = review**로 나눈다.
@@ -366,11 +376,13 @@ billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. �
 | 장바구니·주문·구매 확정·구매 취소·이의 제기 | X | O | O | O | X |
 | 판매 내역 | X | X | X | O (본인 판매분) | X |
 | 판매 수익 내부 조회 (D63) | X | X | X | X | X |
+| 회원 탈퇴 확인 내부 조회 (D75) | X | X | X | X | X |
 | 콘텐츠 시청 | X | 구매자 | 구매자 | 구매자·판매자 | O (검수용) |
 | 리뷰 작성·수정·삭제 | X | 구매자 | 구매자 | 구매자 | X |
 | 리뷰 목록 | X | O | O | O | O |
 
 - 판매 수익 내부 조회는 회원이 아니라 내부 API 키로 인증한 모듈(billing)만 부른다. `/api/v1/internal/**` 전용 보안 체인과 `LectureEarningInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")`가 막는다 (D63).
+- 회원 탈퇴 확인 내부 조회도 같다. 회원 모듈만 내부 API 키로 부르고 `LectureWithdrawalInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")`가 막는다 (D75).
 - 역할 검사는 Facade(`LectureFacade`, `LectureInspectionFacade`, `LectureOrderFacade`, `LecturePayoutAdminFacade`)의 `@PreAuthorize`로 한다. 관리자 API(`/admin` 경로)는 `SecurityConfig`도 함께 막는다 (D16).
 - 관리자의 강의 상세는 `/admin/{lectureId}`(`LectureInspectionFacade`)로 따로 두고, 일반 상세 API에는 역할 분기를 두지 않는다 (D30).
 - 콘텐츠 시청은 "판매자 본인 또는 관리자 또는 구매자"라는 OR 조건이라 `@PreAuthorize`를 두지 않고 `LectureContentAccessSupport`가 판정한다. 관리자 여부는 회원 복제본(`LectureUser`)으로, 구매자 여부는 시청 가능 항목으로 본다 (D26, D38, D69).
@@ -434,6 +446,7 @@ MVP 완료 기준인 "충전 → 강의 구매 → 구매 확정 → 지급 → 
 | 7 | 내용 다름 이의 제기 (`LectureObjectionPort` 구현) | 고객센터 호출부, `INQUIRY` 대상 컬럼 | 강의 구현 #156 ✅, 고객센터 호출부 #189 ✅, 철회 #203 |
 | 8 | 내부 HTTP 경계와 로컬 트랜잭션 기반으로 재설계 (D62, 6.1 전환 상태) | 고객센터·billing·출연 담당 | 상위 #271, HTTP 기반 #272 → #273 → #274·#275, 강의 HP #275 → #276 → #277, 이의 제기 #278 → #279, 이벤트 재발행 #266, 실패 명령 복구 #267, 지급 실패 레거시 정리 #268, 마무리 #280 |
 | 9 | billing 연동용 판매 수익 내부 조회 API, 내부 API 키 인증·nginx 차단, shared `LectureApiClient` (D62 구조 먼저 적용) | billing #295, 출연 #301 | #300 |
+| 10 | 회원 탈퇴 막힌 이유 조회 내부 API, shared `LectureApiClient.getWithdrawalBlocks` (D75) | 회원 #593 | #625 |
 | 공통 | 단계와 무관한 팀 공통 적용 | - | 공통 예외 #71 ✅, 관리자 권한·페이지 응답 #58 ✅, 성공 응답 RsData #126 ✅, enum 설명 #112 ✅ |
 
 ---

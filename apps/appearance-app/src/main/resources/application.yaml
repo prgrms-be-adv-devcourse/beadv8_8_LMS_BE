@@ -49,6 +49,14 @@ management:
   endpoint:
     health:
       show-details: never
+  metrics:
+    distribution:
+      # 응답 시간 p50·p95·p99를 histogram_quantile로 계산할 bucket 경계(#617).
+      # percentiles-histogram(기본 bucket 69개)보다 시리즈가 적도록 경계 10개만 직접 정한다
+      slo:
+        http.server.requests: 5ms,10ms,25ms,50ms,100ms,250ms,500ms,1000ms,2500ms,5000ms
+        # 진행 중 요청 수(http.server.requests.active)도 접두어가 같아 bucket이 붙으므로 빈 값으로 끈다
+        http.server.requests.active: ""
 hapbang:
   scheduling:
     enabled: true

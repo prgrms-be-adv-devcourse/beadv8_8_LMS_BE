@@ -31,6 +31,8 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.hapbang.billing.global.ratelimit.RateLimitExceededException;
+
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.exc.InvalidFormatException;
@@ -41,6 +43,7 @@ import tools.jackson.databind.exc.MismatchedInputException;
  * 모든 응답에 {@code code}가 있다.
  * <ul>
  *     <li>{@link BusinessException} → 오류 코드의 상태, detail, {@code code}({@link BaseErrorCode#getCode()}), 예외의 추가 속성</li>
+ *     <li>{@link RateLimitExceededException} → 429 {@code TOO_MANY_REQUESTS} + {@code Retry-After} 헤더(초, #627)</li>
  *     <li>요청 값 검증·형식 오류 → 400 {@code INVALID_REQUEST}, {@code errors: [{field, message}]}</li>
  *     <li>컨트롤러 안의 권한 거절({@code @PreAuthorize}) → 로그인했으면 403 {@code FORBIDDEN}, 아니면 401 {@code UNAUTHORIZED}</li>
  *     <li>그 밖의 Spring MVC 예외(405, 415, 없는 경로 404 등) → {@link ResponseEntityExceptionHandler} 기본 응답 + 상태에 맞는 {@code code}</li>
@@ -66,6 +69,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problemDetail = problem(errorCode, exception.getMessage());
         exception.getProperties().forEach(problemDetail::setProperty);
         return problemDetail;
+    }
+
+    /**
+     * 회원별 요청 한도 초과 (#627, BD-140). 다시 시도할 수 있을 때까지 남은 초를 {@code Retry-After}에 넣는다.
+     * 거절은 지표({@code hapbang.billing.rate.limit.rejected})로 보므로 요청마다 warn 로그를 남기지 않는다(남용 시 로그 폭주 방지).
+     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimitExceeded(RateLimitExceededException exception) {
+        log.debug("요청 한도 초과 retryAfterSeconds={}", exception.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(exception.getRetryAfterSeconds()))
+                .body(problem(GlobalErrorCode.TOO_MANY_REQUESTS, GlobalErrorCode.TOO_MANY_REQUESTS.getMessage()));
     }
 
     /** 컨트롤러·서비스의 {@code @PreAuthorize} 거절. 비로그인 사용자면 403이 아니라 401로 응답한다 */

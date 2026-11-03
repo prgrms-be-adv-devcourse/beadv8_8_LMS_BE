@@ -33,7 +33,7 @@ spec:
     # k3s는 apiserver·kubelet이 한 프로세스라 두 endpoint가 같은 제어부 지표 묶음을 내보낸다.
     # EC2에서 둘이 head series 18.5만 중 9.6만을 차지해 메모리가 limit에 붙고 GC로 CPU 1.5코어를 썼다(#443).
     # apiserver는 수집하지 않고, kubelet은 pod·컨테이너 수와 k3s 프로세스 자원 지표만 남긴다.
-    # kubelet_volume_stats는 local-path volume이 내보내지 않아 지금은 비어 있다. 디스크 알림은 #343에서 다른 지표로 정한다.
+    # kubelet_volume_stats는 local-path volume이 내보내지 않아 지금은 비어 있다. 디스크 alert는 #343에서 다른 지표로 정한다.
     # 컨테이너 CPU·메모리는 kubernetes-nodes-cadvisor가 따로 수집한다.
     scrapeConfigs:
       kubernetes-api-servers:

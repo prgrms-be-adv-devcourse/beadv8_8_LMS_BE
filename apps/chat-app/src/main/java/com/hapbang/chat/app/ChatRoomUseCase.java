@@ -43,6 +43,7 @@ public class ChatRoomUseCase {
     private final ChatRoomSupporter chatRoomSupporter;
     private final ChatRecipientSetRecorder chatRecipientSetRecorder;
     private final ChatDeliveryRecorder chatDeliveryRecorder;
+    private final ChatReadCountSignals chatReadCountSignals;
 
     /**
      * 1:1 채팅을 시작한다.
@@ -144,6 +145,8 @@ public class ChatRoomUseCase {
         if (remaining.getMemberCount() > 0) {
             chatDeliveryRecorder.recordMessage(leftNotice, remaining.getId(), ChatNotifyRule.NONE, now);
         }
+        // 나간 회원이 빠져 남은 참여자의 메시지의 안 읽은 사람 수가 줄 수 있다. 커밋된 뒤 알린다
+        chatReadCountSignals.membershipChanged(chatRoomId, remaining.getSetVersion());
 
         // 남은 참여자 목록을 만들지 않고, 퇴장을 반영한 수신자 집합의 인원수로 방 종료를 정한다
         boolean roomEnded = remaining.getMemberCount() == 0;
@@ -186,6 +189,7 @@ public class ChatRoomUseCase {
             }
             leftNotice = ChatMessageResponse.from(notice);
         }
+        chatReadCountSignals.membershipChanged(chatRoom.getId(), remaining.getSetVersion());
         log.info("단체방 퇴장 chatRoomId={}, userId={}, status={}", chatRoom.getId(), userId, chatRoom.getStatus());
         return new ChatRoomLeaveResult(true, leftNotice, false, member.getParticipationVersion());
     }

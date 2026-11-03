@@ -27,6 +27,15 @@ public interface LectureRepository extends JpaRepository<Lecture, Long> {
     Page<Lecture> findBySellerUserId(Long sellerUserId, Pageable pageable);
 
     /**
+     * 판매자 탈퇴를 막는 강의 수 (#625, D75). 삭제하지 않은 판매 중·검수 대기 강의다.
+     * 검수 대기는 탈퇴 뒤 관리자가 승인하면 판매되고, 반려는 판매자가 재검수를 신청해야만 판매되어 빠진다
+     */
+    @Query("select count(l) from Lecture l where l.sellerUserId = :sellerUserId and l.deletedAt is null "
+            + "and l.status in (com.hapbang.lecture.domain.LectureStatus.ON_SALE, "
+            + "com.hapbang.lecture.domain.LectureStatus.PENDING_INSPECTION)")
+    long countWithdrawalBlockingLectures(@Param("sellerUserId") Long sellerUserId);
+
+    /**
      * 판매 중인 강의를 평균 평점 → 리뷰 수 → 최신순으로 읽는다. 리뷰가 없는 강의는 맨 뒤다.
      * 검색어가 빈 문자열이면 모든 판매 중 강의다. 정렬은 쿼리에 고정되어 있어 {@code pageable}의 정렬은 쓰지 않는다.
      */

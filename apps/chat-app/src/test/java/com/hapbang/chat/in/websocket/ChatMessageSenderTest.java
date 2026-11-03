@@ -26,6 +26,7 @@ import org.springframework.messaging.support.NativeMessageHeaderAccessor;
 import com.hapbang.chat.app.LocalChatSender.RoomTarget;
 import com.hapbang.chat.app.LocalChatSender.SubscriptionSignal;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
@@ -40,7 +41,8 @@ class ChatMessageSenderTest {
     private final ChatMessageSender chatMessageSender = new ChatMessageSender(messagingTemplate, clientOutboundChannel);
 
     private final ChatMessageResponse message = new ChatMessageResponse(10L, 1L, 1L, HOST_ID, ChatMessageType.TEXT,
-            "안녕하세요", NOW, null, null, null, null, null, null, null, null, null, null, null);
+            "안녕하세요", NOW, null, null, null, null, null, null, null, null, null, null, null, null,
+            null, null);
 
     @BeforeEach
     void setUp() {
@@ -76,6 +78,26 @@ class ChatMessageSenderTest {
         assertThat(new String((byte[]) sent.getPayload(), StandardCharsets.UTF_8))
                 .isEqualTo("{\"type\":\"SUBSCRIPTION_REJECTED\",\"roomId\":12,\"reason\":\"STALE_PARTICIPATION\","
                         + "\"currentParticipationVersion\":2}");
+    }
+
+    @Test
+    void 안_읽은_사람_수_갱신은_구독마다_종류_헤더와_구독의_세대_헤더를_싣고_payload는_한_번만_만든다() {
+        ChatReadCounts readCounts = new ChatReadCounts(12L, 1_700_000_000_000_000L, 3L, 9L,
+                List.of(new ChatReadCounts.Count(5L, 2)));
+
+        chatMessageSender.sendReadCounts(12L, readCounts,
+                List.of(new RoomTarget("s-1", "sub-a", 1), new RoomTarget("s-2", "sub-b", 2)));
+
+        List<Message<?>> sent = captureOutbound(2);
+        assertFrame(sent.get(0), "s-1", "sub-a");
+        assertThat(nativeHeader(sent.get(0), ChatMessageSender.FRAME_TYPE_HEADER)).isEqualTo("READ_COUNTS");
+        assertThat(nativeHeader(sent.get(0), ChatMessageSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("1");
+        assertThat(nativeHeader(sent.get(1), ChatMessageSender.PARTICIPATION_VERSION_HEADER)).isEqualTo("2");
+        assertThat(sent.get(0).getPayload()).isSameAs(sent.get(1).getPayload());
+        assertThat(new String((byte[]) sent.get(0).getPayload(), StandardCharsets.UTF_8))
+                .isEqualTo("{\"type\":\"READ_COUNTS\",\"roomId\":12,\"readCountVersion\":1700000000000000,"
+                        + "\"fromSequence\":3,\"toSequence\":9,"
+                        + "\"counts\":[{\"roomSequence\":5,\"unreadMemberCount\":2}]}");
     }
 
     @Test

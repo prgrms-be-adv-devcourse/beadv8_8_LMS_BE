@@ -68,6 +68,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - DLT 이름은 `<토픽>.<그룹>.DLT`다(예: `member.events.v1.billing-app.wallet-creation.DLT`). 그룹마다 실패를 따로 모아 어느 소비자가 실패했는지 구분한다. Spring Kafka 기본값(`<토픽>.DLT`)은 쓰지 않는다.
 - DLT 토픽은 실패 처리를 소유한 소비 앱이 `NewTopic`으로 선언한다. partition은 원본과 같은 3개이고 원본과 같은 partition 번호로 보낸다. 보존은 7일(`retention.ms=604800000`)이다.
 - DLT 발행이 실패하면 처리 성공으로 간주하지 않는다. offset을 커밋하지 않고 다시 시도한다.
+- DLT 발행용 producer factory나 소비 ConsumerFactory를 앱이 직접 만들면, Boot가 자기 factory에 적용하는 customizer(`DefaultKafkaProducerFactoryCustomizer`·`DefaultKafkaConsumerFactoryCustomizer`)를 똑같이 적용한다. 적용하지 않으면 그 factory의 Kafka client 지표(DLT 전송, 소비 lag)가 빠진다. 빈이 아닌 DLT factory에는 이름 `deadLetterProducerFactory`를 붙여 지표의 `spring_id`로 업무 발행 producer와 구분한다(#339). 공통 코드로 두지 않고 앱마다 같은 모양으로 둔다.
 
 ## 이벤트 버전
 
@@ -105,6 +106,22 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 - 로컬·CI에서만 쓸 때. Testcontainers Redpanda module은 JVM 기동이 없어 test 시작이 빠를 수 있다. 다만 운영 broker와 test broker가 다르면 동작 차이를 놓칠 수 있으므로, Kafka 고유 동작(transaction, consumer group rebalance)에 대한 test는 Kafka로 한다.
 
 어느 쪽이든 앱 code는 Kafka client만 알고, broker는 설정(`bootstrap-servers`)으로만 바뀐다.
+
+## 장애와 복구
+
+**Kafka는 고가용성 구성이 아니다.** broker는 1개(single-node KRaft)이고 모든 토픽의 replication factor가 1이다. broker가 멈추면 그동안 발행과 소비가 모두 멈추고, broker의 디스크를 잃으면 토픽 데이터를 되살릴 수 없다. 대신 발행할 이벤트는 각 앱 DB의 publication(outbox)에 먼저 남으므로, broker가 돌아오면 다시 보낸다(아래 표). 소비는 그만큼 늦어진다.
+
+| 장애 | 동작 | 복구 | 증거 |
+| --- | --- | --- | --- |
+| 업무 커밋 직후, 전송 전에 앱 종료 | publication이 미완료로 남는다 | 재기동할 때 다시 보낸다(`republish-outstanding-events-on-restart`) | `MemberEventKafkaRecoveryIntegrationTest` |
+| broker 중단(발행 쪽) | 전송이 실패하고 publication이 미완료로 남는다 | 앱의 재발행 배치가 매분 다시 보낸다("발행" 절). 재기동해도 보낸다 | `BillingEventKafkaTest.republish()`, 앱별 `*EventRepublishUseCaseTest` |
+| broker 중단(소비 쪽) | 소비자가 재연결을 기다린다. offset은 커밋된 곳에 그대로 있다 | broker가 돌아오면 이어서 읽는다 | `LectureMemberEventListenerTest.broker가_멈췄다_살아나면_그_뒤에_발행한_회원_이벤트를_반영한다` |
+| consumer 중단(앱 장애·배포) | 그 그룹의 backlog가 쌓인다. Grafana lag series는 consumer가 없는 동안 사라진다 | 앱이 다시 뜨면 마지막 커밋 offset부터 읽고 lag가 줄어든다 | `LectureMemberEventListenerTest.소비를_멈춘_사이_쌓인_회원_이벤트를_재개하면_모두_반영한다`, 로컬 k3d 기록(#339) |
+| 처리 실패 | 1·2·4초 간격으로 3번 재시도한 뒤 그룹별 DLT로 보내고 offset을 커밋해 뒤 메시지를 처리한다 | 원인을 고친 뒤 아래 runbook으로 골라 다시 넣는다 | 앱별 DLT 테스트(예: `LectureMemberEventListenerTest`), 로컬 k3d 기록(#339) |
+| 읽을 수 없는 메시지 | 재시도 없이 바로 DLT로 보낸다 | 값을 고쳐 runbook으로 넣거나 그대로 둔다 | 앱별 "깨진 메시지" 테스트 |
+| broker 디스크 유실 | 이미 완료 처리된 publication은 다시 보내지 않으므로 그 이벤트는 사라진다 | 회원 복제본은 관리자 Backfill로 회원 앱의 현재 정보에 다시 맞춘다(출연·지갑·채팅) | billing 절차는 [`docs/deploy/k8s.md`](../../deploy/k8s.md) "billing-app 회원 이벤트 DLT 복구" |
+
+감시는 Grafana `Kafka` dashboard(`hapbang-kafka`)로 한다. consumer lag, "소비 그룹" 수(줄면 consumer가 멈춘 것), listener 처리 실패, 발행 실패, DLT 적재를 본다. 실패·DLT 값은 pod가 뜬 뒤 누적이라 재배포하면 0부터 다시 센다([관측성](observability.md#dashboard-531-597)).
 
 ## DLT 재처리 runbook
 
@@ -150,4 +167,4 @@ DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 
 - 같은 event를 두 번 소비해도 projection과 HP 원장 결과가 한 번 처리한 것과 같다.
 - consumer를 중지했다 재시작하면 lag가 줄어들고 DLT를 선택적으로 재처리할 수 있다.
 - Grafana에서 produce/consume rate, consumer lag, retry, DLT를 볼 수 있다. Kafka도 consumer max lag와 fetch rate 감시를 권장한다([공식 모니터링 문서](https://kafka.apache.org/42/operations/monitoring/)).
-  - Grafana `Kafka` dashboard(`hapbang-kafka`, #597)에서 consume·produce rate, consumer lag, listener 실패(재시도 포함)를 본다. DLT 적재 건수는 아직 지표가 없다([관측성](observability.md#dashboard-531-597)).
+  - Grafana `Kafka` dashboard(`hapbang-kafka`, #597)에서 consume·produce rate, consumer lag, listener 실패(재시도 포함)를, "DLT" 행에서 그룹별 DLT 적재를 본다(#339, [관측성](observability.md#dashboard-531-597)).

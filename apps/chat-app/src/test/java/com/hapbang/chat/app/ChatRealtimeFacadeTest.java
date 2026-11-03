@@ -22,8 +22,9 @@ class ChatRealtimeFacadeTest {
     private final ChatConnectionRecheckService recheckService = mock(ChatConnectionRecheckService.class);
     private final LocalChatConnections localChatConnections = mock(LocalChatConnections.class);
     private final ChatRoomActivityNotifier activityNotifier = mock(ChatRoomActivityNotifier.class);
+    private final ChatReadCountNotifier readCountNotifier = mock(ChatReadCountNotifier.class);
     private final ChatRealtimeFacade facade = new ChatRealtimeFacade(deliveryService, recheckService,
-            localChatConnections, activityNotifier);
+            localChatConnections, activityNotifier, readCountNotifier);
 
     @Test
     void 전달_작업은_전달_서비스에_넘긴다() {
