@@ -26,10 +26,11 @@ public interface ApiV1LectureOrderSpec {
                     + "보류 결과를 아직 모르거나 반환이 진행 중이면 202 + HOLD_PENDING·HOLD_COMPENSATING 주문이다. "
                     + "202를 받으면 다시 주문하지 말고 주문 상세로 결과를 확인한다. 장바구니는 그대로다. "
                     + "잔액이 부족하면 이미 성공한 보류까지 반환한 뒤 409 INSUFFICIENT_BALANCE이고, 주문은 결제 실패(HOLD_FAILED)로 남는다. "
+                    + "탈퇴로 닫힌 지갑이 결제를 거절했으면 같은 결제 실패이고 409 WALLET_CLOSED다. "
                     + "강의 하나라도 주문할 수 없으면 주문 전체를 거부한다. "
                     + "오류: 빈 목록·같은 강의 중복 400 INVALID_REQUEST, 본인 강의 403 OWN_LECTURE_NOT_PURCHASABLE, "
                     + "없거나 판매 중이 아닌 강의 404 LECTURE_NOT_FOUND, 이미 보유 중인(결제 처리 중 포함) 강의 409 "
-                    + "ALREADY_OWNED_LECTURE, 잔액 부족 409 INSUFFICIENT_BALANCE.")
+                    + "ALREADY_OWNED_LECTURE, 잔액 부족 409 INSUFFICIENT_BALANCE, 탈퇴로 닫힌 지갑 409 WALLET_CLOSED.")
     ResponseEntity<RsData<OrderResponse>> createOrder(Long userId, OrderCreateRequest request);
 
     @Operation(summary = "내 주문 목록", description = "최근 주문부터.")
