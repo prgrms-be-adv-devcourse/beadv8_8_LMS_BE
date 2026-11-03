@@ -47,4 +47,7 @@ public interface PointRefundRequestRepository extends Repository<PointRefundRequ
             order by r.updatedAt asc, r.id asc""")
     List<Long> findIdsByStatusInUpdatedBefore(@Param("statuses") Collection<PointRefundRequestStatus> statuses,
             @Param("before") Instant before, Pageable pageable);
+
+    // 지갑에 처리 중인 환불 요청이 있는지 (#623, 탈퇴 막힌 이유)
+    boolean existsByWalletIdAndStatusIn(Long walletId, Collection<PointRefundRequestStatus> statuses);
 }

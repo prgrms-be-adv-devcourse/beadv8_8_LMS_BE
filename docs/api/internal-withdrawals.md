@@ -73,8 +73,22 @@
   - `outcome` `BLOCKED`: 막힌 이유가 있어 닫지 않았다
 - 멱등: 같은 `withdrawalId` + 같은 `userId`면 처음 결과를 `replayed = true`로 돌려준다. 같은 `withdrawalId` + 다른 `userId`면 409 `IDEMPOTENCY_KEY_CONFLICT`.
 - 늦은 닫기 거절: 다시 열기(4.2)를 이미 받은 `withdrawalId`로 닫기가 오면 지갑을 닫지 않고 409 `WITHDRAWAL_ALREADY_REOPENED`로 거절한다. 회원이 결과를 모르는 닫기를 정리(다시 열기)한 뒤, 네트워크에서 늦어진 그 닫기가 도착해 지갑이 닫힌 채 남는 일을 막는다(보류 무효화 뒤 보류를 `HOLD_VOIDED`로 거절하는 것과 같은 방식)
-- 지갑 막을 조건 (안): 충전 HP·수익 HP 잔액, 처리 중인 환불·환전, 복구 대상인 미완료 결제
-- 닫힌 지갑 (안): 충전·보류·환전·환불 신청을 거절한다. 이미 생긴 의무(보류 반환·지급 받기, 결제 복구)는 받는다.
+- 지갑이 아직 없는 회원(가입 이벤트 미반영)은 지갑을 만들지 않고 `CLOSED` 기록만 남긴다. 나중에 지갑을 만들 때 이 기록으로 닫힌 지갑을 만든다(#623, BD-141).
+- 지갑 막을 조건 (#623 확정)
+
+| code | 조건 | message |
+| --- | --- | --- |
+| `BILLING_CHARGE_BALANCE_REMAINING` | 충전 HP 가용 잔액 > 0 | "충전 HP 12,000이 남아 있어요. 환불한 뒤 탈퇴할 수 있어요." |
+| `BILLING_REVENUE_BALANCE_REMAINING` | 수익 HP 가용 잔액 > 0 | "수익 HP 3,000이 남아 있어요. 환전을 신청한 뒤 탈퇴할 수 있어요." |
+| `BILLING_REFUND_IN_PROGRESS` | 환불 REQUESTED·PROCESSING·MANUAL_REVIEW_REQUIRED | "처리 중인 환불이 있어요. 환불이 끝난 뒤 탈퇴할 수 있어요." |
+| `BILLING_EXCHANGE_IN_PROGRESS` | 환전 REQUESTED·APPROVED·PROCESSING·FAILED·UNKNOWN | "처리 중인 환전이 있어요. 송금이 끝난 뒤 탈퇴할 수 있어요." 모두 신청·승인 상태면 `availableAt` = 가장 늦은 정산 예정일 |
+| `BILLING_CHARGE_IN_PROGRESS` | 충전 PROCESSING(PG 승인 결과 확인 중) | "확인 중인 충전이 있어요. 잠시 뒤 다시 시도해 주세요." |
+
+  - 주문만 한 충전(PENDING)은 막지 않는다. 닫힌 뒤 승인하면 PG를 부르기 전에 거절된다.
+  - 출연·강의 보류(보류 HP)는 그 모듈이 적으므로 지갑은 적지 않는다(2장).
+- 닫힌 지갑: 충전 주문, 충전 승인 시작(PG 호출 전), 새 보류(강의·출연 결제, 환불·환전 신청)를 409 `WALLET_CLOSED`로 거절한다. 이미 생긴 의무(닫기 전에 만든 보류의 재요청, 보류 반환·지급 받기·위약금, 결제 복구)는 받는다. 강의·출연이 `WALLET_CLOSED`를 정상 거절로 처리하는 일은 후속 이슈다.
+- 오류: 같은 `withdrawalId` + 다른 `userId` 409 `IDEMPOTENCY_KEY_CONFLICT`, 다시 열린 `withdrawalId` 409 `WITHDRAWAL_ALREADY_REOPENED`, `userId` 없음 400 `INVALID_REQUEST`, 락 대기 초과 503 `HP_LOCK_TIMEOUT`(처리하지 않음).
+- Client: `shared.billing.out.BillingApiClient.closeForWithdrawal(WithdrawalCloseCommand)` → `WithdrawalCloseResultDto`. 처리 안 됨이 확실하면 `BillingCallException(RETRYABLE)`, 결과 불명이면 `UNKNOWN_RESULT`, 업무 거절은 `BillingCallResult.Failed`.
 
 ### 4.2 `POST /api/v1/internal/billing/withdrawals/{withdrawalId}/reopen`
 
@@ -85,7 +99,9 @@
   - `REOPENED`: 다시 열었다
   - `NOT_CLOSED`: 이 작업으로 닫힌 적이 없다(닫기가 실패했거나 `BLOCKED`였다). 지갑은 바꾸지 않는다
 - 두 결과 모두 다시 열기 기록을 남긴다. 기록이 있는 `withdrawalId`의 닫기는 4.1대로 거절한다
-- 멱등: 같은 `withdrawalId`로 다시 오면 처음 결과를 `replayed = true`로 돌려준다.
+- 멱등: 같은 `withdrawalId`로 다시 오면 처음 결과를 `replayed = true`로 돌려준다. `userId`가 다르면 409 `IDEMPOTENCY_KEY_CONFLICT`.
+- 지갑이 다른 `withdrawalId`로 닫혀 있으면 열지 않는다(`NOT_CLOSED`). 지갑이 없으면 이 작업이 회원의 마지막 `CLOSED` 기록일 때 `REOPENED`다.
+- Client: `BillingApiClient.reopenForWithdrawal(WithdrawalReopenCommand)` → `WithdrawalReopenResultDto`.
 
 ## 5. 실패 처리 (회원)
 
@@ -101,7 +117,5 @@
 
 ## 6. 작업 전 결정할 것
 
-- 지갑: 999 HP 이하 소액 수익 HP(환전 불가)가 남으면 탈퇴가 계속 막힌다 → 포기 동의 후 허용할지
-- 지갑: 지갑이 아직 없는 회원(가입 이벤트 미반영)의 닫기 결과
 - 강의: 판매 중 강의는 판매 중지를 필수로 할지 (구매자 시청은 유지)
-- 각 모듈: 3장·4장의 막을 조건이 빠짐없는지
+- 각 모듈: 3장의 막을 조건이 빠짐없는지 (지갑 4장은 #623에서 확정했다. 환전이 1원 단위라 소액 수익 HP 문제는 없다)

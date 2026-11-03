@@ -18,6 +18,8 @@ import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalCloseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalReopenResultDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -84,6 +86,35 @@ public interface ApiV1BillingInternalSpec {
     @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
             description = API_KEY_DESCRIPTION)
     RsData<HoldVoidResultDto> voidHold(HoldVoidCommand command);
+
+    @Operation(summary = "회원 탈퇴용 지갑 확인하고 닫기",
+            description = "회원 앱이 탈퇴를 확인할 때 마지막으로 부른다(#623, docs/api/internal-withdrawals.md 4.1). 한 트랜잭션에서 "
+                    + "지갑을 잠그고 막힌 이유(충전·수익 HP 잔액, 처리 중인 환불·환전, 결과 확인 중인 충전)를 확인한 뒤, 이유가 없으면 "
+                    + "지갑을 닫는다(CLOSED, reasons 빈 목록). 이유가 있으면 닫지 않고 BLOCKED와 이유를 돌려준다. 출연·강의 보류는 그 "
+                    + "모듈이 이유를 적으므로 여기서 적지 않는다. 지갑이 아직 없는 회원은 기록만 남기고 CLOSED다. 닫힌 지갑은 충전·보류·"
+                    + "환불·환전 신청을 409 WALLET_CLOSED로 거절하고, 보류 반환·지급 받기·복구 배치는 받는다. 탈퇴 작업 ID가 멱등 키라 "
+                    + "같은 요청을 다시 보내면 처음 결과를 replayed=true로 돌려준다. "
+                    + "오류: 같은 탈퇴 작업 ID·다른 회원 409 IDEMPOTENCY_KEY_CONFLICT, 다시 열기를 이미 받은 탈퇴 작업 409 "
+                    + "WITHDRAWAL_ALREADY_REOPENED(지갑을 닫지 않음), userId 없음 400 INVALID_REQUEST, 락 대기 초과 503 "
+                    + "HP_LOCK_TIMEOUT(처리하지 않음).")
+    @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
+            description = API_KEY_DESCRIPTION)
+    RsData<WithdrawalCloseResultDto> closeForWithdrawal(
+            @Parameter(description = "회원 앱의 탈퇴 작업 ID (멱등 키)") long withdrawalId,
+            WalletWithdrawalRequest request);
+
+    @Operation(summary = "회원 탈퇴용 지갑 다시 열기",
+            description = "보상(다른 모듈에서 막힘, 회원 저장 실패)과 복구(30일 안 재로그인)에서 부른다(#623, "
+                    + "docs/api/internal-withdrawals.md 4.2). 이 탈퇴 작업으로 닫힌 지갑이면 다시 연다(REOPENED). 닫힌 적이 "
+                    + "없으면(닫기를 받지 못함, BLOCKED, 다른 탈퇴 작업으로 닫힘) 지갑을 바꾸지 않는다(NOT_CLOSED). 두 경우 모두 기록을 "
+                    + "남겨 이 탈퇴 작업의 늦은 닫기를 거절한다. 같은 요청을 다시 보내면 처음 결과를 replayed=true로 돌려준다. "
+                    + "오류: 같은 탈퇴 작업 ID·다른 회원 409 IDEMPOTENCY_KEY_CONFLICT, userId 없음 400 INVALID_REQUEST, "
+                    + "락 대기 초과 503 HP_LOCK_TIMEOUT(처리하지 않음).")
+    @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
+            description = API_KEY_DESCRIPTION)
+    RsData<WithdrawalReopenResultDto> reopenForWithdrawal(
+            @Parameter(description = "회원 앱의 탈퇴 작업 ID (멱등 키)") long withdrawalId,
+            WalletWithdrawalRequest request);
 
     @Operation(summary = "참조 대상별 보류·지급 조회 (서비스 간 HP 대사)",
             description = "강의·출연이 자기 대상(주문 항목·요청서·모집글)을 지갑 기록과 비교할 때 부른다(#577). HP는 움직이지 않는다. "
