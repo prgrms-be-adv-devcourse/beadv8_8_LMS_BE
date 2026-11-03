@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration;
+import org.springframework.boot.kafka.autoconfigure.metrics.KafkaMetricsAutoConfiguration;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.kafka.config.AbstractKafkaListenerContainerFactory;
@@ -20,6 +21,9 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.MicrometerConsumerListener;
+import org.springframework.kafka.core.MicrometerProducerListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
@@ -33,6 +37,9 @@ import com.hapbang.chat.in.event.AppearanceNotificationEventListener;
 import com.hapbang.chat.in.event.ChatMemberEventTopicVerifier;
 import com.hapbang.chat.in.event.ChatUserEventListener;
 import com.hapbang.chat.in.websocket.ChatMessageSender;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
  * Kafka 소비 설정은 설정 클래스와 상수({@link ChatKafkaConstants})로만 정하고, 설정 키는 소비를 켜고 끄는 {@code enabled} 둘뿐이다.
@@ -116,6 +123,28 @@ class ChatKafkaConfigTest {
                     .containsEntry(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 5_000)
                     .containsEntry(ProducerConfig.LINGER_MS_CONFIG, 0);
         });
+    }
+
+    /**
+     * 직접 만든 factory에도 Boot가 자기 factory에 적용하는 customizer를 적용해 Kafka client 지표(lag, DLT 전송)를 낸다 (#339).
+     * 적용하지 않으면 chat의 소비 그룹 lag와 DLT 전송이 {@code kafka_consumer_*}·{@code kafka_producer_*} 지표에 없다.
+     */
+    @Test
+    void 소비자와_DLT_producer도_Kafka_지표를_낸다() {
+        runner.withConfiguration(AutoConfigurations.of(KafkaMetricsAutoConfiguration.class))
+                .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
+                .run(context -> {
+                    for (String name : new String[] {"chatMemberEventConsumerFactory",
+                            "chatAppearanceEventConsumerFactory"}) {
+                        assertThat(context.getBean(name, DefaultKafkaConsumerFactory.class).getListeners())
+                                .as(name).hasAtLeastOneElementOfType(MicrometerConsumerListener.class);
+                    }
+                    for (String name : new String[] {"chatMemberEventDeadLetterProducerFactory",
+                            "chatAppearanceEventDeadLetterProducerFactory"}) {
+                        assertThat(context.getBean(name, DefaultKafkaProducerFactory.class).getListeners())
+                                .as(name).hasAtLeastOneElementOfType(MicrometerProducerListener.class);
+                    }
+                });
     }
 
     @Test

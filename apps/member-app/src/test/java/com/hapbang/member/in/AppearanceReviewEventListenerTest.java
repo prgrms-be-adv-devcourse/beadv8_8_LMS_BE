@@ -58,6 +58,9 @@ import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.MeterRegistry;
+
 /**
  * 출연 앱이 {@code appearance.events.v1}에 보낸 리뷰 공개 이벤트가 회원 출연 평점에 반영되는지 실제 Kafka로 검증한다 (#555).
  * <p>
@@ -91,6 +94,9 @@ class AppearanceReviewEventListenerTest {
 
     @Autowired
     KafkaAdmin kafkaAdmin;
+
+    @Autowired
+    MeterRegistry meterRegistry;
 
     @Autowired
     UserRepository userRepository;
@@ -178,6 +184,7 @@ class AppearanceReviewEventListenerTest {
         // 1초·2초·4초 재시도를 거쳤다
         assertThat(delayUntilDeadLetter(deadLetter)).isGreaterThanOrEqualTo(Duration.ofSeconds(7));
         assertThat(memberAppearanceRatingUseCase.find(unknownUserId)).isEqualTo(AppearanceRatingSummary.EMPTY);
+        assertDeadLetterSendCounted();
     }
 
     @Test
@@ -257,5 +264,16 @@ class AppearanceReviewEventListenerTest {
         long originalTimestamp = ByteBuffer.wrap(
                 deadLetter.headers().lastHeader(KafkaHeaders.DLT_ORIGINAL_TIMESTAMP).value()).getLong();
         return Duration.between(Instant.ofEpochMilli(originalTimestamp), Instant.ofEpochMilli(deadLetter.timestamp()));
+    }
+
+    /** DLT 전송도 Kafka producer 지표로 센다 (#339). 토픽별 지표는 Micrometer가 60초마다 새로 등록하므로 바로 생기는 client 지표로 본다. */
+    private void assertDeadLetterSendCounted() {
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(meterRegistry
+                .find("kafka.producer.record.send.total").functionCounters())
+                .filteredOn(counter -> String.valueOf(counter.getId().getTag("spring.id"))
+                        .startsWith(MemberKafkaConfig.DEAD_LETTER_PRODUCER_FACTORY + "."))
+                .extracting(FunctionCounter::count)
+                .isNotEmpty()
+                .allSatisfy(count -> assertThat(count).isGreaterThanOrEqualTo(1)));
     }
 }
