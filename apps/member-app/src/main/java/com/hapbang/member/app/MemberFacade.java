@@ -2,7 +2,9 @@ package com.hapbang.member.app;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -12,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
@@ -43,6 +46,8 @@ public class MemberFacade {
     private final MemberSignUpUseCase memberSignUpUseCase;
     private final MemberPasswordLoginUseCase memberPasswordLoginUseCase;
     private final MemberPasswordChangeUseCase memberPasswordChangeUseCase;
+    private final MemberAppearanceRatingUseCase memberAppearanceRatingUseCase;
+    private final MemberAppearanceReviewUseCase memberAppearanceReviewUseCase;
 
     // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
     private static final String USER_ONLY = "hasRole('USER')";
@@ -90,6 +95,27 @@ public class MemberFacade {
     @Transactional(readOnly = true)
     public User findProfile(Long memberId) {
         return memberSupport.findActiveUser(memberId);
+    }
+
+    /** 회원 출연 평점 (프로필, #555). 받은 리뷰가 없으면 모두 비어 있다 */
+    @Transactional(readOnly = true)
+    public AppearanceRatingSummary findAppearanceRating(Long userId) {
+        return memberAppearanceRatingUseCase.find(userId);
+    }
+
+    /**
+     * 회원이 받은 출연 리뷰 목록 (프로필, #555). 프로필과 같이 정상 회원만 본다. 정렬은 요청과 상관없이 최신 공개순.
+     * 출연 내부 API를 부르므로 트랜잭션을 두지 않는다
+     */
+    public Page<ReceivedAppearanceReview> findReceivedAppearanceReviews(Long memberId, Pageable pageable) {
+        memberSupport.findActiveUser(memberId);
+        return memberAppearanceReviewUseCase.findReceived(memberId, pageable.getPageNumber(), pageable.getPageSize());
+    }
+
+    /** 여러 회원의 출연 평점 (인플루언서 목록, #555). 받은 리뷰가 없는 회원은 결과에 없다 */
+    @Transactional(readOnly = true)
+    public Map<Long, AppearanceRatingSummary> findAppearanceRatings(Collection<Long> userIds) {
+        return memberAppearanceRatingUseCase.findAll(userIds);
     }
 
     /** 치지직 연동 시작 (#370): 연동하는 회원과 state를 맡기고 치지직 화면 주소를 준다 */

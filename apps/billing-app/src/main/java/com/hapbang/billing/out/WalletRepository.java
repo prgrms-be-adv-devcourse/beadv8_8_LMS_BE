@@ -1,5 +1,7 @@
 package com.hapbang.billing.out;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.Lock;
@@ -31,4 +33,7 @@ public interface WalletRepository extends Repository<Wallet, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select w from Wallet w where w.id = :id")
     Optional<Wallet> findByIdForUpdate(@Param("id") Long id);
+
+    // 지갑 ID로 회원 ID를 찾는다 (#577, 서비스 간 HP 대사의 보류한 회원)
+    List<Wallet> findAllByIdIn(Collection<Long> ids);
 }

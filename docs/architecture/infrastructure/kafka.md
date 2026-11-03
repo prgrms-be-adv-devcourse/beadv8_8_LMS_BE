@@ -24,7 +24,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 | 토픽 | 발행 앱 | 이벤트 타입 | key | 소비 그룹 |
 | --- | --- | --- | --- | --- |
 | `member.events.v1` | member-app | `UserJoinedEvent`, `UserModifiedEvent` | 회원 ID | `appearance-app.member-replica`, `billing-app.member-replica`, `billing-app.wallet-creation`, `lecture-app.member-replica`, `chat-app.member-replica` |
-| `appearance.events.v1` | appearance-app | `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent`, `AppearanceReviewPublishedEvent` | `appearance-request:<요청 ID>`, `appearance-application:<지원 ID>`, `appearance-review-reviewee:<리뷰 받은 회원 ID>` | `chat-app.appearance-notification` (리뷰 공개는 회원 앱이 `member-app.appearance-review`로 받을 예정, #555) |
+| `appearance.events.v1` | appearance-app | `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent`, `AppearanceReviewPublishedEvent` | `appearance-request:<요청 ID>`, `appearance-application:<지원 ID>`, `appearance-review-reviewee:<리뷰 받은 회원 ID>` | `chat-app.appearance-notification`, `member-app.appearance-review` (리뷰 공개, #555) |
 | `billing.events.v1` | billing-app | `ChargeCompletedEvent`, `PayoutCompletedEvent`, `RefundCompletedEvent`, `ExchangeCompletedEvent`, `ExchangeRejectedEvent`, `ExchangePayoutFailedEvent`, `ExchangeFinalFailedEvent` | `point-charge:<충전 ID>`, `settlement:<지급 건 ID>`, `point-refund-request:<환불 요청 ID>`, `exchange:<환전 ID>` | 없음 (알림 소비는 #193에서 정한다, #497) |
 | `lecture.events.v1` | lecture-app | `LectureObjectionResolvedEvent`, `LectureObjectionWithdrawnEvent`, `LectureObjectionRequestRefusedEvent`, `LectureObjectionReturnCompletedEvent`, `LectureObjectionReturnActionRequiredEvent` | `order-item:<주문 항목 ID>` | `customer-support-app.objection-result` (#279) |
 | `customersupport.events.v1` | customer-support-app | `LectureObjectionResolutionRequestedEvent`, `LectureObjectionWithdrawalRequestedEvent` | `inquiry:<문의 ID>` | `lecture-app.objection-command` (#278) |
@@ -74,7 +74,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - `eventVersion`은 이벤트 타입별 payload 버전이다. 같은 버전 안에서는 선택 필드 추가만 허용한다.
 - 필드 삭제·이름 변경·타입 변경·필수 필드 추가는 같은 토픽에 새 레코드 타입을 더해서 한다(예: `UserModifiedEventV2`, `eventVersion=2`). 소비 앱을 먼저 배포해 두 타입을 받게 하고, 그다음 발행 앱이 새 타입으로 바꾼다. 옛 소비자는 모르는 타입을 무시한다.
 - 토픽의 `.v<N>`은 key·partition 계약이 바뀔 때만 올린다. 이때는 새 토픽을 만들고 한동안 두 토픽에 함께 발행하며 옮긴다.
-- 1차 계약 검증은 shared 레코드 컴파일과 소비 테스트(Testcontainers)다. AsyncAPI와 CI 호환성 검사는 [7장](portfolio-items.md#kafka-schema와-apievent-contract)의 2차 작업이다.
+- 계약 검증은 shared 레코드 컴파일과 소비 테스트(Testcontainers)다. AsyncAPI와 schema CI 호환성 검사는 하지 않는다(#339, 2026-11-03, [7장](portfolio-items.md#kafka-이벤트-계약과-openapi-contract)).
 
 ## broker
 
@@ -88,14 +88,14 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 | 항목 | Apache Kafka (KRaft) | Redpanda |
 | --- | --- | --- |
 | 구현 | JVM. KRaft로 ZooKeeper 없이 broker 1개 실행 | C++(Seastar), 단일 binary. JVM·ZooKeeper 없음 |
-| schema registry | 별도 서버 필요. 이 문서는 registry 없이 레포 schema 파일과 CI 검사로 대신한다([7장](portfolio-items.md#kafka-schema와-apievent-contract)) | **broker에 내장**(port 8081). Avro, Protobuf, JSON Schema |
+| schema registry | 별도 서버 필요. 이 문서는 registry 없이 shared 레코드와 호환·배포 순서 규칙으로 대신한다([7장](portfolio-items.md#kafka-이벤트-계약과-openapi-contract)) | **broker에 내장**(port 8081). Avro, Protobuf, JSON Schema |
 | 공식 메모리 요구 | 운영 최소치를 정하지 않음. heap은 설정으로 조절(이 문서 예산은 heap 512 MiB에 700 MiB) | 운영 broker는 **core당 최소 2 GB, core 최소 2개**. development mode는 최소 메모리를 강제하지 않는다. Docker 실행은 개발·test 용도라고 명시 |
 | license | Apache 2.0 | Community Edition은 BSL. Redpanda를 남에게 상업 streaming·queue 서비스로 제공하는 것만 금지하고, 각 코드는 4년 뒤 Apache 2.0으로 바뀐다 |
 | 생태계 | Kafka 공식 문서, 운영 지표, Testcontainers | Kafka client 호환, Testcontainers Redpanda module, 자체 CLI(`rpk`)와 Console |
 
 근거: Redpanda production requirements("at least 2 GB of memory per core", "at least two physical CPU cores")([문서](https://docs.redpanda.com/current/deploy/redpanda/manual/production/requirements/)), development mode("No minimal memory limits are enforced")([문서](https://docs.redpanda.com/current/reference/rpk/rpk-redpanda/rpk-redpanda-mode/)), Docker quickstart("only for development and testing purposes")([문서](https://docs.redpanda.com/current/get-started/quick-start/)), schema registry 내장([문서](https://docs.redpanda.com/current/manage/schema-reg/schema-reg-overview/)), license([문서](https://docs.redpanda.com/current/get-started/licensing/overview/)).
 
-**구성 요소 수로는 Redpanda가 가볍다.** broker와 schema registry가 한 binary다. 다만 이 문서는 registry 서버를 쓰지 않으므로([7장](portfolio-items.md#kafka-schema와-apievent-contract)) 이 장점이 지금은 크지 않다. **메모리로는 공식 문서상 더 가볍다고 할 수 없다.**
+**구성 요소 수로는 Redpanda가 가볍다.** broker와 schema registry가 한 binary다. 다만 이 문서는 registry 서버를 쓰지 않으므로([7장](portfolio-items.md#kafka-이벤트-계약과-openapi-contract)) 이 장점이 지금은 크지 않다. **메모리로는 공식 문서상 더 가볍다고 할 수 없다.**
 - Redpanda의 운영 최소치는 2 core × 2 GB = 4 GB다. t3.large 8 GiB의 절반이라 [3장](k3s.md#ec2-2노드-자원-예산) 예산에 들어가지 않는다.
 - t3.large에 맞추려면 development mode에 `--smp 1`과 작은 `--memory`로 돌려야 한다. 문서가 개발·test 용도라고 한 구성을 운영 서버에 두는 셈이고, 이 경우 필요한 메모리를 문서로 정할 수 없다.
 - Kafka는 heap을 직접 정하므로 예산을 설정으로 맞출 수 있다(현재 700 MiB, heap 256 MiB면 더 줄일 수 있다).
@@ -150,3 +150,4 @@ DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 
 - 같은 event를 두 번 소비해도 projection과 HP 원장 결과가 한 번 처리한 것과 같다.
 - consumer를 중지했다 재시작하면 lag가 줄어들고 DLT를 선택적으로 재처리할 수 있다.
 - Grafana에서 produce/consume rate, consumer lag, retry, DLT를 볼 수 있다. Kafka도 consumer max lag와 fetch rate 감시를 권장한다([공식 모니터링 문서](https://kafka.apache.org/42/operations/monitoring/)).
+  - Grafana `Kafka` dashboard(`hapbang-kafka`, #597)에서 consume·produce rate, consumer lag, listener 실패(재시도 포함)를 본다. DLT 적재 건수는 아직 지표가 없다([관측성](observability.md#dashboard-531-597)).

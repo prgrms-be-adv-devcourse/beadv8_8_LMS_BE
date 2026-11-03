@@ -135,7 +135,7 @@ chat-app은 **replica 1개**로 운영하고 개발·통합·k3d E2E도 같은 �
 
 #### 출연 내부 API 계약 초안 (Q35, 2026-11-03 사용자 결정: 동기 HTTP)
 
-출연 담당에게 요청할 계약이다. 경로·필드는 출연 담당과 맞춰 확정하며, 확정본은 `docs/api/internal-appearances.md`(가칭)로 옮긴다. 공통 규칙은 기존 내부 API와 같다([내부 API 규칙](../../../docs/api/internal-earnings.md) 1장).
+출연 담당에게 요청한 계약이다. 출연 앱이 #596에서 같은 경로·필드로 구현했다(모집글이 없을 때 오류 코드 이름은 `APPEARANCE_RECRUIT_NOT_FOUND`이고, chat은 404 상태 코드로 판단한다). 공통 규칙은 기존 내부 API와 같다([내부 API 규칙](../../../docs/api/internal-earnings.md) 1장).
 
 - **경로·인증**: `/api/v1/internal/appearances/...`, 출연 앱 내부 포트(k8s `http://appearance-app:8081`, 지갑 앱이 이미 쓰는 주소)로만 받는다. 요청 헤더 `X-Internal-Api-Key`가 `hapbang.internal-api.key`와 같아야 하고 없거나 틀리면 401(본문 없음). 외부 route는 만들지 않는다.
 - **호출 쪽(chat-app)**: chat 전용 `@HttpExchange` 인터페이스(`out/appearance/ChatAppearanceInternalApi`)와 app 계약 인터페이스로 부른다(회원 내부 API와 같은 방식, 사용자 결정 2026-10-30). 설정 `hapbang.clients.appearance.base-url`(환경 변수 `APPEARANCE_API_BASE_URL`), 연결 2초·응답 5초. 호출은 채팅 트랜잭션 밖에서 한다(D62).
@@ -153,7 +153,7 @@ chat-app은 **replica 1개**로 운영하고 개발·통합·k3d E2E도 같은 �
   - 초대 후보 검색: A2로 지원자 ID를 모두 읽고(키셋 반복) chat 회원 복제본에서 회원 ID 정확 일치·닉네임 부분 일치로 거른다. 이때 A1을 함께 불러 바뀐 모집글 제목을 방 제목에 반영한다(안내 없음). 호스트 권한은 방에 저장한 호스트 ID로 확인한다.
   - 초대: A3으로 요청한 회원들의 지원 이력을 확인한다. 이력이 없는 회원은 그 회원만 `FAILED`(`NOT_APPLICANT`)다.
   - 장애: 출연 API가 응답하지 않거나(연결 실패·시간 초과) 5xx·읽을 수 없는 응답이면 생성·후보 검색·초대를 모두 거절한다(503 `APPEARANCE_UNAVAILABLE`). 아무것도 저장하지 않고, 출연 응답 없이 지원 여부를 추정해 초대하지 않는다. 4xx(404 등)는 위의 업무 오류로 바꾼다. 재시도는 사용자가 다시 요청할 때 한다.
-  - 출연 API가 생기기 전에는 테스트에서 같은 app 계약의 Fake를 쓴다. 출연 앱 코드는 chat 작업에서 고치지 않는다.
+  - chat 테스트는 같은 app 계약의 Fake를 쓴다. 출연 앱 코드는 chat 작업에서 고치지 않는다.
 
 ### 3.5 메시지별 안 읽은 사람 수
 
@@ -203,7 +203,7 @@ chat-app은 **replica 1개**로 운영하고 개발·통합·k3d E2E도 같은 �
 - **출연 호출 실패**: 404는 `RECRUIT_NOT_FOUND`, 그 밖의 4xx(키 오류·잘못된 요청)도 지원 여부를 알 수 없으므로 5xx·연결 실패와 같이 503 `APPEARANCE_UNAVAILABLE`이다.
 - **수치**: 게스트 정원 500, 한 요청 50명, 결과 보존 24시간은 `hapbang.chat.group.*` 코드 기본값이며 #574(Q12) 실측 때 확정한다.
 - **발신자 표시 정보(Q37, 1단계에 포함)**: 일반 메시지(`TEXT`)를 담는 응답(REST 이력·방 목록의 마지막 메시지·방 topic 프레임·전송 결과 확인)에 `sender: {userId, nickname, withdrawn}`를 싣는다. 1:1 방에도 싣는다. 시스템 안내·알림은 행위자를 값에 담으므로 `sender`가 null이다. 값은 채팅 회원 복제본이다: 나간·강퇴된 회원도 닉네임이 남고, 탈퇴한 회원은 `nickname = "탈퇴한 회원"`·`withdrawn = true`, 복제본이 없으면 `nickname = null`(FE가 `회원 {id}`). REST 이력·방 목록은 **조회 시점**의 닉네임이라 바뀐 닉네임이 지난 메시지에도 보인다(페이지마다 발신자를 한 번에 읽는다). 실시간 프레임은 **전달 시점**의 닉네임이다(전달 원본을 읽는 문장에서 함께 읽는다). 프로필 이미지는 복제본에 없어 싣지 않는다. 관리자 기록 응답에는 싣지 않는다.
-- **이번에 하지 않은 것**: 호스트 자격 상실·일시 중지·재개 전환(회원 이벤트로 바꾸는 기능, 상태·컬럼·안내 종류만 둠), 메시지별 안 읽은 사람 수(Q36), 방을 열지 않은 회원의 목록 변경 알림(Q37), 상태 `EXPIRED` 기록 배치, 초대 결과 보존 행 정리, 출연 앱의 A1~A3 구현(출연 담당).
+- **이번에 하지 않은 것**: 호스트 자격 상실·일시 중지·재개 전환(회원 이벤트로 바꾸는 기능, 상태·컬럼·안내 종류만 둠), 메시지별 안 읽은 사람 수(Q36), 방을 열지 않은 회원의 목록 변경 알림(Q37), 상태 `EXPIRED` 기록 배치, 초대 결과 보존 행 정리. 출연 앱의 A1~A3은 #596에서 구현됐다.
 
 ### 3.7 정원·동시 접속·처리량 검증안
 
@@ -627,7 +627,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 | 타입 구분 | Modulith 기본 `ByteArrayJacksonJsonMessageConverter`(Jackson 3)가 붙이는 `__TypeId__` 헤더(레코드 클래스 이름). 소비자는 `JacksonJsonDeserializer`(Jackson 3)에 실제 이벤트 패키지 `com.hapbang.shared.member.event`를 신뢰 패키지로 지정하고 `removeTypeHeaders=false`로 두며 `ErrorHandlingDeserializer`로 감싸 같은 레코드로 되돌린다(chat #417). 상위 패키지 이름이 하위 패키지까지 자동 허용한다고 가정하거나 전체 `*`를 신뢰하지 않는다. 두 앱이 같은 shared 클래스를 쓰므로 별도 타입 매핑은 두지 않는다 |
 | 멱등 키 | `user.id` + `user.version`. `version`은 회원 원본 `@Version`이라 변경마다 1씩 오른다. 별도 `eventId`는 두지 않는다 |
 | 헤더 | `eventType`(레코드 이름)과 `eventVersion`만 싣는다(#339). `occurredAt`·`correlationId`는 넣지 않는다. Modulith 헤더 함수는 이벤트만 받아 재발행 때 같은 값을 만들 수 없다. 추적은 관측성(#343)의 trace 헤더가 맡는다 |
-| 스키마 | 계약은 shared 레코드 자체다. 레코드 변경은 shared 변경이라 모든 앱이 함께 컴파일된다. JSON Schema 파일과 CI 호환성 검사(인프라 문서 7장)는 레코드에서 생성한다 |
+| 스키마 | 계약은 shared 레코드 자체다. 레코드 변경은 shared 변경이라 모든 앱이 함께 컴파일된다. JSON Schema 파일과 CI 호환성 검사는 하지 않는다(#339, 인프라 문서 7장) |
 
 로그아웃은 회원 단위로 처리한다(Q8, 2026-11-02 사용자 결정). 회원 앱은 #539에서 `UserLoggedOutEvent(userId, loggedOutAt)`를 같은 토픽에 발행한다(`eventType=UserLoggedOutEvent`, `eventVersion=1`). HTTP 세션 ID였던 `sessionId` 칸은 이때 지웠다. chat-app은 `userId`와 `loggedOutAt`(닫을 연결의 기준 시각, #548)을 쓴다(6장).
 
@@ -845,7 +845,7 @@ Q7은 2026-10-30에 "Kafka 소비로 유지하고, 알림 모듈 이관 때 옮�
 | 잠금 축소·불변 수신자 집합 | 4.6의 잠금 안 전체 참여자 로딩 제거, 트랜잭션 실제 종료 시점, 수신자 집합·집계·메시지·outbox의 원자성, 동시 참여 변경·재시도·캐시 유실을 검증한다. 새 참여자가 이전 메시지 수신자가 되지 않는다 |
 | 오픈 직후 급증 | 4.7의 시험을 출시 전 수행한다. 연결 수와 전송 빈도를 분리하고 인기 방·지속 과부하·입퇴장·재접속·장애를 혼합해 상한·거절·복구를 검증한다. 잠금 대기/유지 시간·쿼리 수·p95/p99·메모리·DB 디스크·다른 방의 진행과 변경 전후 결과를 기록한다 |
 
-Kafka·Redis 테스트는 필요한 공통 설정만 Import한다. chat-app E2E는 replica 1개로 실행한다. member-app 연동 데이터는 다른 앱의 엔티티를 테스트에 끌어오지 않고 공개 API·이벤트·ID로 준비한다. FE는 제어 가능한 타이머로 복구를 검증하고 Toxiproxy 지연·단절은 #344 D에 연결한다. 재시도·재조회·비동기 대기에는 제한 시간을 둔다.
+Kafka·Redis 테스트는 필요한 공통 설정만 Import한다. chat-app E2E는 replica 1개로 실행한다. member-app 연동 데이터는 다른 앱의 엔티티를 테스트에 끌어오지 않고 공개 API·이벤트·ID로 준비한다. FE는 제어 가능한 타이머로 복구를 검증하고 단절은 Testcontainers 컨테이너 pause·stop으로 만든다(Toxiproxy는 쓰지 않음, #339). 재시도·재조회·비동기 대기에는 제한 시간을 둔다.
 
 ## 10. 이 문서가 바꾸지 않는 것
 

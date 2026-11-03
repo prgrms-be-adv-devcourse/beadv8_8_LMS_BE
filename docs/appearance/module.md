@@ -51,6 +51,8 @@
 | 출연 상세 리뷰 정보, 회원이 받은 리뷰 내부 조회 API | ✅ | #514 |
 | 작성 기한 만료 리뷰 공개 배치 (기본 꺼 둠, 작성 기한을 켜면 동작) | ✅ | #515 |
 | 리뷰 연동 정리 (회원 평점·프로필 목록, FE 계약) | ✅ | #516 |
+| 모집글·지원 이력 내부 조회 API (채팅 모집용 단체방) | ✅ | #586 |
+| 서비스 간 HP 대사 (요청서·모집글·출연 ↔ 지갑 보류·지급 비교, 매일 배치·관리자 API) | ✅ | #581 |
 
 ---
 
@@ -828,7 +830,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 직렬화 | `appearance.yml`의 `spring.kafka.producer.value-serializer=JacksonJsonSerializer`. Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] + 바이트 JSON 변환기)는 끈다(`spring.modulith.events.kafka.enable-json=false`, #394). 회원 앱 발행 설계와 같은 방식이고, 켜 두면 회원 이벤트 수신(4.1)이 실패한다 |
 | 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
 | 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose의 Kafka(`localhost:9092`)로 보낸다. 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
-| 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification` (kafka.md 토픽 목록). 리뷰 공개는 회원 모듈이 받을 예정(#516). 채팅은 모르는 타입을 기본 처리기에서 무시한다 |
+| 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification`(요청·지원 알림), 회원 소비 그룹 `member-app.appearance-review`(리뷰 공개, #555) (kafka.md 토픽 목록). 각 소비자는 모르는 타입을 기본 처리기에서 무시한다 |
 
 - 같은 버전 안에서는 선택 필드 추가만 한다. 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(kafka.md 이벤트 버전).
 - 내보낼 이벤트를 더하려면 shared 레코드에 `@Externalized`를 붙이고 `out/event/AppearanceEventExternalizationConfig`에 `eventType` 헤더를 더한다. 받는 앱을 먼저 배포한다(ADR 0001).
@@ -1276,7 +1278,7 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 | key | `appearance-review-reviewee:<revieweeUserId>`. 같은 사람이 받은 리뷰가 같은 partition으로 간다(순서는 보장하지 않음, 11.3) |
 | 헤더 | `eventType` `AppearanceReviewPublishedEvent`, `eventVersion` `1` |
 | 중복 | 최소 한 번 전달이라 받는 쪽(회원)은 `reviewId`로 중복을 거른다. 평점은 별점 합계·개수로 계산한다(별점이 정수여도 평균은 소수) |
-| 보존 | 토픽 보존은 72시간이다. 회원이 이보다 늦게 받기 시작하면 그 전 공개 리뷰는 조회 API(#514)로 초기 적재한다 |
+| 보존 | 토픽 보존은 72시간이다. 회원 소비자(#555)는 처음 붙을 때 토픽 맨 앞부터 읽었고, 초기 적재는 하지 않았다(23.1) |
 
 - 배포 메모: 같은 토픽을 받는 채팅 앱은 새 타입의 클래스(shared)가 있으면 기본 처리기에서 무시하고, 없으면 역직렬화에 실패해 DLT로 보낸다(ADR 0001). dev 병합 뒤 배포에서는 shared 변경으로 모든 앱이 다시 배포되지만, 앱이 출연 → 강의 → 채팅 순서로 올라가므로 그사이 공개된 리뷰 이벤트는 옛 채팅 앱에서 DLT로 갈 수 있다(알림·데이터 영향 없음, 채팅이 올라가면 멈춤). 중간 앱 배포가 실패해 채팅이 옛 버전으로 남아도 같다.
 
@@ -1370,25 +1372,30 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 | 받는 쪽 | 쓰는 것 | 용도 |
 |---|---|---|
 | 회원 모듈 | `AppearanceReviewPublishedEvent` (`appearance.events.v1`, 21.6) | 회원별 출연 평점(평균·개수) 집계 |
-| 회원 모듈 | 내부 API `getReceivedReviews` (22.2·22.3) | 프로필의 받은 리뷰 목록, 평점 초기 적재 |
+| 회원 모듈 | 내부 API `getReceivedReviews` (22.2·22.3) | 프로필의 받은 리뷰 목록 (평점 초기 적재가 필요해지면 같은 API) |
 | FE | 작성 API (21.2), 출연 상세의 리뷰 필드 (22.1) | 출연 상세 화면의 리뷰 작성·표시 |
 
 ### 23.1 회원 모듈: 평점 집계
 
-- 공개 이벤트를 소비 그룹 `member-app.appearance-review`(제안, kafka.md `<앱>.<목적>` 규칙)로 받는다. 같은 토픽의 다른 타입(요청·지원 알림)은 기본 처리기에서 무시한다.
+회원 쪽 구현은 #555(PR #572)다. 출연 계약(토픽·key·`__TypeId__`·필드)은 바꾸지 않고 그대로 받는다.
+
+- 공개 이벤트를 소비 그룹 `member-app.appearance-review`로 받는다. 같은 토픽의 다른 타입(요청·지원 알림)은 기본 처리기에서 무시한다. 회원이 처리하지 못한 메시지(필수 값 누락, 회원 없음 등)는 회원 DLT `appearance.events.v1.member-app.appearance-review.DLT`에 쌓인다.
 - **중복 제거**: 최소 한 번 전달이라 같은 `reviewId`가 다시 올 수 있다. 처리한 `reviewId`를 저장하고(유니크) 이미 있으면 건너뛴다.
-- **집계 값**: 받은 회원(`revieweeUserId`)마다 별점 합계·개수를 쌓고 평균은 읽을 때 `합계 / 개수`로 낸다. 별점은 1~5 정수지만 평균은 소수다. 표시 자릿수(예: 소수 첫째 자리 반올림)는 회원 화면이 정한다.
-- **역할별 평점(선택)**: `revieweeRole`(`HOST`·`GUEST`)로 호스트로 받은 평점과 게스트로 받은 평점을 나눌 수 있다.
+- **집계 값**: 받은 회원(`revieweeUserId`)마다 `revieweeRole`(`HOST`·`GUEST`)별로 별점 합계·개수를 쌓는다(회원 `members.appearance_rating`, 반영한 리뷰는 `members.appearance_review_receipt`). 평균은 읽을 때 `합계 / 개수`로 내고, 서버가 소수 첫째 자리에서 반올림한다(4.25 → 4.3). 리뷰가 없으면 `average: null, count: 0`.
+- **응답 모양 (회원 API)**: 프로필 상세 `GET /api/v1/members/{id}`의 `appearanceRating`은 `total`·`asHost`·`asGuest` 각각 `{average, count}`다. 인플루언서 목록(검색)에는 전체만 `{average, count}`로 넣는다. FE는 이 값을 그대로 보여 주고 계산하지 않는다.
 - **이벤트 수**: 블라인드 공개면 출연 하나에 2개(받은 사람이 서로 다름)가 나간다. 작성 기한을 켜면 만료 공개 배치(21.7, #515)가 한쪽 리뷰만 1개 나갈 수 있다. 어느 경우든 이벤트 1개 = 공개 리뷰 1건으로 센다.
 - **순서**: key가 받은 회원 단위라 같은 회원의 이벤트는 한 partition에 모이지만, 재발행 때문에 순서는 보장하지 않는다. 합계·개수는 순서와 상관없다.
 - **수정·삭제 없음**: 리뷰는 고치거나 지우지 않으므로 공개된 리뷰를 빼는 이벤트는 없다. 쓴 사람이나 받은 사람이 뒤에 정지·탈퇴해도 공개된 리뷰는 그대로다.
-- **초기 적재**: 토픽 보존은 72시간이다. 회원이 그보다 늦게 받기 시작하면 받은 리뷰 내부 API로 회원별 공개 리뷰를 읽어 채운다(같은 `reviewId`로 중복 제거하면 이벤트와 겹쳐도 된다).
+- **초기 적재: 하지 않았다.** 회원 배포 시점에 FE 리뷰 작성 화면이 없어 운영에 공개된 리뷰가 사실상 없었고, 회원 그룹은 처음 붙을 때 토픽 맨 앞(`earliest`)부터 읽었다. 회원 소비자가 72시간 넘게 멈추는 등 이벤트를 놓쳤다면, 받은 리뷰 내부 API로 회원별 공개 리뷰를 읽어 같은 방식(`reviewId` 중복 제거)으로 다시 채운다. 회원 평점은 출연 원본에서 만든 집계본이라 언제든 이 방법으로 다시 만들 수 있다.
+- **출연이 평점이 필요해질 때**: 화면 표시용은 FE가 회원 API로 붙인다. 서버 판단용(정렬·필터 등)은 출연 리뷰 원본(`appearances.reviews`의 공개 리뷰를 `reviewee_id`·`reviewee_role`별로)으로 계산한다. 원본이 출연에 있으므로 회원 API를 동기로 부르지 않는다.
 
 ### 23.2 회원 모듈: 프로필 리뷰 목록
 
 - `AppearanceApiClient.getReceivedReviews(userId, page, size)`로 부른다. 최신 공개순 고정, `size` 최대 100, 리뷰가 없으면 빈 페이지다.
-- 항목에 쓴 사람 닉네임은 없다(`reviewerUserId`만). 회원 모듈이 자기 회원 정보로 채운다.
-- 실패는 `AppearanceApiCallException`의 `REJECTED`(4xx)·`UNAVAILABLE`(연결 실패·5xx·읽을 수 없는 응답)로 온다(18.6). 프로필 화면에서 리뷰 목록만 비우는 등 처리 방식은 회원 모듈이 정한다.
+- 회원 API는 `GET /api/v1/members/{id}/appearance-reviews?page=&size=`이고, page·size를 출연 내부 API에 그대로 넘긴다(최대 100).
+- 항목에 쓴 사람 닉네임은 없다(`reviewerUserId`만). 회원이 항목마다 `reviewer {id, nickname, profileImageUrl}`을 붙인다. 쓴 사람이 탈퇴했거나 없으면 "탈퇴한 회원", 정지 회원은 그대로 보여 준다.
+- 실패는 `AppearanceApiCallException`의 `REJECTED`(4xx)·`UNAVAILABLE`(연결 실패·5xx·읽을 수 없는 응답)로 온다(18.6). 회원은 둘 다 회원 503 `APPEARANCE_REVIEW_UNAVAILABLE`로 바꾸고, `REJECTED`는 error 로그로 남긴다(내부 API 키·계약이 어긋나면 회원 로그로 보임).
+- 프로필 주인이 정상 회원이 아니면 회원이 프로필과 같이 404를 주고, 이때는 출연 내부 API를 부르지 않는다.
 
 ### 23.3 FE: 출연 상세 화면
 
@@ -1396,6 +1403,122 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 - 작성: `POST /api/v1/appearances/{appearanceId}/reviews` `{rating: 1~5 정수, content?: 1,000자}` → 201 `{id}`. 성공 뒤 상세를 다시 읽는다(응답에 공개 여부가 없다).
 - `myReview`가 있고 `published=false`면 "상대가 쓰면 함께 공개" 상태, `receivedReview`는 둘 다 공개된 뒤에만 온다.
 - 작성 오류: 400 `INVALID_REQUEST`, 403 `APPEARANCE_USER_NOT_ACTIVE`·`NOT_INFLUENCER`, 404 `APPEARANCE_NOT_FOUND`, 409 `APPEARANCE_NOT_REVIEWABLE`·`REVIEW_PERIOD_ENDED`·`REVIEWEE_NOT_ACTIVE`·`ALREADY_REVIEWED` ([error-codes.md](error-codes.md)). 409는 화면 상태가 오래된 경우라 상세를 다시 읽으면 버튼이 사라진다.
-- 2026-11-02 기준 FE의 `Appearance` 타입에는 리뷰 필드가 없다. 필드만 더해진 것이라 기존 화면은 깨지지 않으며, 리뷰 화면 반영은 FE 담당과 따로 한다.
+- 2026-11-02 기준 FE의 `Appearance` 타입에는 리뷰 필드가 없다. 필드만 더해진 것이라 기존 화면은 깨지지 않는다. 리뷰 화면은 FE #161로 요청했다(타입·API·화면 상태·오류 처리 명세).
 - 작성 기한(`REVIEW_PERIOD_ENDED`)은 지금 꺼져 있다. 켤 때는 FE에 기한 안내가 필요하다(#515).
 
+---
+
+## 24. 모집글·지원 이력 내부 조회 (#586)
+
+채팅 앱이 모집용 단체방을 만들고 초대할 때 출연의 모집글·지원 이력을 확인하는 내부 API다. 채팅은 모집·지원을 복제하지 않고 그때그때 부른다(채팅 결정 Q35, 채팅 설계 문서 3.4). 읽기 전용이다.
+
+- 호출하는 쪽(채팅)이 보는 계약: [docs/api/internal-appearances.md](../api/internal-appearances.md)
+
+### 24.1 공통
+
+| 항목 | 내용 |
+|---|---|
+| 호출 | 채팅 앱이 자기 `@HttpExchange` Client로 부른다(shared Client 없음). 내부 포트(`http://appearance-app:8081`), Gateway를 거치지 않는다 |
+| 인증·노출 | 수익 내부 조회(18.1)와 같다: `X-Internal-Api-Key`, 틀리거나 없으면 본문 없는 401, 회원 로그인으로는 401, 외부 포트는 404 |
+| 출연 쪽 방어 | ① 보안 체인의 키 검증 ② `AppearanceRecruitInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 값 검증 |
+| 권한 | 호스트 확인은 하지 않는다. 채팅이 응답의 `hostId`로 확인한다 |
+| 오류 | 없는 모집글 404 `APPEARANCE_RECRUIT_NOT_FOUND`, 값 오류·숫자 아님 400 `INVALID_REQUEST` (회원 API와 같은 코드) |
+
+### 24.2 API
+
+| API | 요청 | 응답 `data` |
+|---|---|---|
+| `GET /api/v1/internal/appearances/recruits/{recruitId}` | | `{recruitId, hostId, title, status}` |
+| `GET …/recruits/{recruitId}/applicants` | `afterUserId`(생략하거나 0이면 처음부터, 음수는 400. 회원 내부 API의 `afterId`와 같음), `size`(기본 100, 1~500) | `{userIds, nextAfterUserId}`. 다음 페이지가 있으면 `nextAfterUserId`에 이 페이지의 마지막 ID, 마지막 페이지면 키가 빠진다 |
+| `GET …/recruits/{recruitId}/applicants/exists` | `userIds` 1~100개(중복 포함 개수). `userIds=1,2` 또는 `userIds=1&userIds=2` | `{appliedUserIds}`. 요청한 회원 중 지원 이력이 있는 회원, 오름차순·중복 없음 |
+
+- **모집글 상태는 그대로 준다.** 회원 API는 HP 보류 처리 중(`HOLD_PENDING`)·실패(`HOLD_FAILED`) 모집글을 호스트 외에는 없는 것처럼 숨기지만(404), 내부 API는 다섯 상태(`HOLD_PENDING`·`HOLD_FAILED`·`RECRUITING`·`CLOSED`·`CANCELED`)를 모두 그대로 주고 방을 만들 수 있는지는 채팅이 판단한다(채팅 담당과 합의, 11/03).
+- **지원 이력은 지원 상태와 관계없다**(`APPLIED`·`SELECTED`·`NOT_SELECTED`·`WITHDRAWN`). 같은 게스트는 같은 모집글에 다시 지원할 수 없어(유니크 제약 `uk_appearance_applications_recruit_guest`) 회원마다 한 번만 나온다. 지원 행은 지우지 않으므로 이력은 늘기만 한다.
+- 회원 복제를 확인하지 않는다. 정지·탈퇴 회원도 지원 이력이 있으면 나온다(채팅 자격은 채팅이 본다).
+- 지원자 ID 목록은 한 건 더 읽어 다음 페이지가 있는지 판단한다. 딱 맞게 끝나는 페이지도 `nextAfterUserId`가 없다.
+- 인덱스: 두 조회 모두 유니크 제약 `(recruit_id, guest_id)`의 인덱스를 쓴다.
+
+### 24.3 구조
+
+| 계층 | 클래스 | 역할 |
+|---|---|---|
+| in | `ApiV1AppearanceRecruitInternalController` / `ApiV1AppearanceRecruitInternalSpec` | 내부 API 매핑·Swagger |
+| app | `AppearanceRecruitInternalFacade` | 내부 역할 검사, 읽기 전용 트랜잭션 |
+| app | `AppearanceRecruitInternalQueryUseCase` | 값 검증, 모집글 확인, 키셋 페이지 |
+| app | `AppearanceApplicationSupport` (기존) | `findGuestIdsAfter`(키셋)·`findAppliedGuestIds`(지원 이력) 추가. 출연 안에서는 지원의 게스트 ID(`guestId`)라 하고 API에서는 회원 ID(`userId`)라 한다 |
+| out | `AppearanceApplicationRepository` (기존) | `findGuestIdsAfter`, `findAppliedGuestIds` |
+| app/dto | `AppearanceRecruitInternalResDto`, `AppearanceRecruitApplicantIdsResDto`, `AppearanceRecruitAppliedUserIdsResDto` | 응답 (출연 앱 안, shared 계약 없음) |
+
+## 25. 서비스 간 HP 대사 (#581)
+
+출연과 지갑은 database가 따로라 출연 상태와 지갑의 보류·지급을 한 트랜잭션으로 맞출 수 없다. 대사의 주체는 업무 모듈이고 지갑은 조회 API만 준다(지갑 #577, `docs/api/internal-billing.md` 4장, BD-137). 출연은 매일 자기 요청서·모집글·출연을 지갑 기록과 비교해 어긋난 건을 남긴다. **고치지 않는다.** 정정은 원인을 확인한 관리자가 기존 수단(HP 작업 다시 시도 19장, 보류 무효화 8.2)으로 한다.
+
+### 25.1 비교 방식: 출연 기록(HP 작업) 기준 두 단계
+
+| 단계 | 비교 | 잡는 문제 |
+|---|---|---|
+| ① 상태 → HP 작업 | 출연 상태로 계산한 남은 보류·지급액 = 끝난(`DONE`) HP 작업의 합 | 상태는 바뀌었는데 작업을 남기지 않은 출연 쪽 누락 |
+| ② HP 작업 → 지갑 | 끝난 작업의 반환 합·지급 합·지급 건 = 지갑 조회 결과 | 지갑 쪽 반영 누락·중복, 지갑에만 있는 보류 |
+
+상태별 공식은 ①에만 있다(`HpReconciliationTarget`). 지갑과는 작업의 합으로만 비교하므로 모집 중 취소·빈자리 반환·위약금이 모두 같은 식이다. 보류 상태 이름(`HELD`·`MIXED` 등)은 보지 않고 금액만 본다.
+
+- **최초 보류**: 보류 요청에 쓴 금액. 요청서는 출연료, 모집글은 1인당 출연료 × 모집 인원. 보류한 회원은 호스트
+- **상태로 계산한 남은 보류**
+  - 요청서: 요청 중 = 출연료, 수락 뒤 = 출연이 진행 중(성립·취소 요청 중)이면 출연료 아니면 0, 거절·만료·응답 전 취소 = 0
+  - 모집글: 모집 중 = 최초 보류 − 끝난 출연(확인·불참·호스트 일방 취소)의 출연료(모집 중 합의 취소는 자리가 다시 열려 반환하지 않는다, 13장), 마감·전체 취소 뒤 = 진행 중인 출연의 출연료 합(빈자리는 반환됐다)
+- **상태로 계산한 지급액**: 확인된 출연의 출연료 + 호스트 일방 취소의 위약금
+- **작업의 합**: 반환 = 반환 작업 금액 + 위약금 작업에서 호스트에게 돌려준 몫, 지급 = 지급 작업 + 위약금, 남은 보류 = 최초 − 반환 − 지급
+- **지급 건**: 끝난 지급·위약금 작업마다 지갑 지급 건 하나(원천 유형 `APPEARANCE_REQUEST`·`RECRUIT_APPEARANCE`, 원천 ID = 출연 ID, `NORMAL`·`PENALTY`, 받는 회원 = 게스트, 금액 = 작업의 지급액, `COMPLETED`)
+
+### 25.2 규칙 (`HpReconciliationRule`)
+
+| 규칙 | 단계 | 어긋남 |
+|---|---|---|
+| `HP_TASK_MISMATCH` | ① | 상태로 계산한 남은 보류·지급액 ≠ 끝난 작업의 합. 보류 실패 건은 작업이 있으면 |
+| `HOLD_MISSING` | ② | 보류가 있어야 하는데 지갑에 없음 |
+| `HOLD_MISMATCH` | ② | 최초 보류액이나 보류한 회원이 다름 |
+| `HOLD_BALANCE_MISMATCH` | ② | 반환·지급·확정 차감(0이어야 함)·남은 보류가 작업의 합과 다름 (예: 거절했는데 `HELD`, 요청 중인데 반환됨, 마감 뒤 빈자리 반환 누락) |
+| `HOLD_NOT_CLOSED` | ② | 보류 실패(`HOLD_FAILED`)인데 남은 보류·지급·확정 차감이 있음. 보류 없음·무효화·전부 반환은 정상 |
+| `VOIDED_WHILE_ACTIVE` | ② | 보류 실패가 아닌데 무효화 기록이 있음 (#536 배포 중 두 pod 경합 등) |
+| `SETTLEMENT_MISSING` | ② | 끝난 지급·위약금 작업의 지급 건이 없음 (출연 ID를 남긴다) |
+| `SETTLEMENT_MISMATCH` | ② | 지급 건의 받는 회원·금액·상태가 작업과 다름 |
+| `SETTLEMENT_UNEXPECTED` | ② | 출연 작업에 없는 지급 건 |
+| `WALLET_ONLY_HOLD` | ② | 지갑 보류 목록의 참조 ID가 출연에 없음 |
+| `HP_TASK_DEAD` | 표시 | 격리된 HP 작업이 있어 비교하지 않음 (어긋난 건 수에서 뺀다, 관리자 다시 시도 대상) |
+
+### 25.3 실행
+
+- **대상**: ① 출연 쪽은 비교 범위(`lookback`, 7일) 안에 요청서·모집글·그 출연·그 HP 작업 중 하나라도 바뀐 것, ② 지갑 쪽은 저장한 커서 뒤에 바뀐 보류(`listHolds`, 끝까지 읽음). 둘을 합쳐 500개씩 `queryHolds`로 조회한다.
+- **빼는 것(진행 중)**: 보류 결과 대기(`HOLD_PENDING`), 재시도를 기다리는 HP 작업(`PENDING`), 마지막 변경이 진행 중 유예(`settle-grace`, 2시간) 안인 것. 유예는 HP 작업 재시도 최대 간격·보류 포기 기준(1시간)보다 길다.
+- **커서**: 참조 유형마다 `hp_reconciliation_cursors` 한 행. 끝까지 비교한 실행만 앞으로 옮긴다(지갑 `Instant`를 KST `LocalDateTime`으로 저장). 처음에는 처음부터 읽는다.
+- **비교하는 사이의 변경**: 출연 쪽을 읽은 뒤 지갑을 조회하기 전에 다른 배치(HP 작업 재시도 40초·자동 확인 50초)가 작업을 실행하면 거짓 어긋남이 생길 수 있다. 어긋남이 나온 건은 다시 읽어 마지막 변경 시각이 달라졌으면 이번에는 남기지 않는다(비교 수에도 넣지 않고 다음 실행이 다시 본다).
+- **지갑 조회 실패**(회로 열림·결과 불명·거절·응답에서 ID 누락): 그 실행을 `INCOMPLETE`로 끝내고 커서를 옮기지 않는다. 그때까지 찾은 어긋남은 남긴다. 다음 실행이 같은 범위를 다시 본다.
+- **주기**: 매일 04:00:25(KST, `appearance.batch.hp-reconciliation-cron`). 매분 배치들이 쓰지 않는 25초다.
+- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리, 출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리한다. 롤링 배포로 두 pod가 겹치는 동안 새 pod가 실행을 시작하면 옛 pod의 정상 실행도 이렇게 정리될 수 있다(매일 한 번이라 드묾). replica를 늘리면 단일 실행 장치를 먼저 둔다.
+- **설정** (`appearance.hp-reconciliation.*`): `settle-grace` 2h, `lookback` 7d(유예보다 길어야 기동), `page-size` 500(1~500).
+
+### 25.4 결과
+
+- `hp_reconciliation_runs`(실행 1회: 계기·실행한 관리자·상태·비교 수·어긋난 수·DEAD 수·중단 이유), `hp_reconciliation_mismatches`(대상·출연 ID·규칙·출연 상태 요약·지갑 상태 요약). 오래된 기록은 지우지 않는다. 마이그레이션 `V202611031100`
+- 경고 로그: 어긋난 건마다 `[HP_RECONCILIATION_MISMATCH] rule=… runId=… referenceType=… referenceId=… appearanceId=… appearance=[…] wallet=[…]`. 끝까지 하지 못하면 경고 한 줄(이유 포함)
+- 지표: `appearance.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `appearance.hp_reconciliation.runs{status}`(끝난 실행 횟수). 알림 규칙은 아직 없다(인프라 #343)
+
+### 25.5 API (관리자, `/api/v1/appearances/admin/hp-reconciliations`)
+
+| 메서드·경로 | 동작 | 응답 |
+|---|---|---|
+| `POST` | 지금 실행하고 끝날 때까지 기다린다. 처음 실행은 지갑 목록을 처음부터 읽어 오래 걸릴 수 있고, 응답 전에 연결이 끊겨도 서버에서는 끝까지 실행되므로 `GET /latest`로 확인한다 | 200 실행 결과(`HpReconciliationRunResDto`, 어긋난 건 포함). 지갑 조회가 실패해도 200 `INCOMPLETE` + `failureReason`. 실행 중이면 409 `HP_RECONCILIATION_RUNNING` |
+| `GET /latest` | 마지막으로 시작한 실행과 어긋난 건 | 200. 실행 기록이 없으면 404 `HP_RECONCILIATION_NOT_FOUND`. 실행 중이면 `RUNNING`(어긋난 건은 끝난 뒤 남는다) |
+
+관리자 확인은 19장과 같다(보안 설정 → `@PreAuthorize` → 복제 회원 정보로 지금도 관리자인지).
+
+### 25.6 구조
+
+| 클래스 | 역할 |
+|---|---|
+| `HpReconciliationUseCase` | 실행 흐름(지갑 목록 → 대상 모음 → 500개씩 조회·비교 → 기록), 동시 실행 막기, 로그·지표 |
+| `HpReconciliationTarget` | 비교 대상 하나: 상태로 계산한 기대값과 작업의 합 |
+| `HpReconciliationComparer` | ①·② 비교 규칙 (DB·지갑을 부르지 않는 순수 비교), 상태 요약 문자열 |
+| `HpReconciliationSupport` | 트랜잭션 단위 DB 읽기·기록 (지갑 호출은 트랜잭션 밖) |
+| `HpReconciliationAdminFacade` | 관리자 API 진입점 |
+| `BillingClient.queryHolds`·`listHolds` | 공용 `BillingApiClient`에 그대로 넘긴다 (회로·재시도 정책 같음) |

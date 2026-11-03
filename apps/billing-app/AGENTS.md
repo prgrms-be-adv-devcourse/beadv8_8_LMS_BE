@@ -124,6 +124,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 - 지급 원천(`SETTLEMENT.source_type`·`source_id`)은 출연 계약·강의 주문 항목 단위다: 1:1은 출연 요청에서 성립한 출연 계약 ID, 1:N은 게스트별 출연 계약 ID, 강의는 주문 항목 ID. 게스트 회원 ID는 받는 사람 식별용이며 원천 ID로 쓰지 않는다. 한 원천은 보류·지급 유형(정상·위약금)과 관계없이 한 번만 정산하고(DB `UNIQUE(source_type, source_id)`, 앱 확인은 일찍 거절용), 1:1 출연 요청 보류의 지급은 1건이다. 출연 계약이 그 보류에 속하는지·계약 출연료는 출연이 검증한다.
 - 한 보류의 반환·지급 상세를 처리 순서대로 위 규칙으로 재생한 결과가 배분(`POINT_CHARGE_USAGE`) 누적값과 같아야 한다. 이 규칙들은 바꾸지 않는다(바꾸면 기존 이력을 재구성할 수 없다).
 - 두 지갑 이상을 바꾸는 작업은 모든 지갑을 ID 오름차순으로 먼저 잠근 뒤 보류 → 충전 건 순서로 잠근다.
+- **서비스 간 HP 대사 조회 (#577, BD-137)**: 대사 주체는 강의·출연이고 지갑은 조회만 준다. `POST /api/v1/internal/billing/holds/query`(참조 대상별)·`GET /api/v1/internal/billing/holds`(기간 안에 바뀐 보류, 키셋), 진입점 `HoldQueryFacade`(`ROLE_INTERNAL`, 읽기 전용). 응답은 HP 종류별 금액을 담는 예외이고, 지갑 Enum은 같은 이름의 shared Enum으로 준다(`BillingStatusContractTest`). 계약은 `docs/api/internal-billing.md` 4장.
 - **보류 무효화 (#479)**: 내부 API `POST /api/v1/internal/billing/hold-voids`(`HoldVoidUseCase`). 남은 보류는 전부 반환(반환 요청 ID `VOID`) → `RELEASED`, 끝난 보류 → `ALREADY_CLOSED`, 보류 없음 → `VOIDED`. 세 경우 모두 `hold_void`(참조 대상 UNIQUE)에 남기고, 기록이 있는 참조 대상의 보류(재요청 포함)는 `HOLD_VOIDED` 409로 거절한다. 보류와 같은 지갑 락으로 직렬화한다. 상세는 `docs/billing/CONTEXT.md` 6장, BD-125·BD-126.
 
 ### 8.0 종류별 보류와 확정 차감 (#241)
@@ -300,5 +301,6 @@ Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적�
     - 이벤트 리스너·배치처럼 로그인 정보 없이 호출하는 경로는 `@PreAuthorize`가 없는 별도 Facade 메서드를 쓴다 (예: `WalletFacade.getOrCreateWallet`).
     - `@PreAuthorize` 거절은 `BillingErrorCode`가 아니라 global `GlobalExceptionHandler`가 응답한다. 로그인했으면 403 `FORBIDDEN`, 비로그인이면 401 `UNAUTHORIZED`다 (루트 AGENTS.md 7장 "오류 응답", #71).
 - **성공 응답**: 컨트롤러는 루트 AGENTS.md 7장 "성공 응답 (RsData)"대로 `RsData`로 감싸 반환한다. Facade·UseCase는 응답 형식을 모르고 DTO·도메인 결과만 돌려준다(예: `ApiV1WalletController`가 `WalletResponse`를 `RsData.ok`로 감싼다). 오류는 `ProblemDetail` 그대로다.
+- **배치 실행 락 (#598, BD-138)**: `@Scheduled` 배치는 `run()`에서 `JobLock.runOrSkip(BillingJob.X, ...)`으로 감싸 배포 중 겹친 pod에서 한 곳만 실행한다(PostgreSQL advisory lock, 잡지 못하면 그 회차를 건너뜀). 동시에 한 번만 돌아야 하는 관리자 작업은 `tryAcquire`를 쓴다(Backfill: 다른 실행 중 409, 락 오류 503). 새 배치를 더하면 `BillingJob`에 다음 번호를 더하고 기존 번호는 바꾸지 않는다. UseCase의 건별 락·멱등성은 그대로 둔다(락은 동시 실행만 막는다).
 - **헬스체크·지표**: Actuator `/actuator/health`로 앱·DB 상태를 확인하고 `/actuator/prometheus`로 지표를 낸다. k8s에서는 관리 포트 8082(`MANAGEMENT_SERVER_PORT`)에서만 열리고, 8080(Gateway 전용)·8081(내부 API)에서는 404다(#552, BD-133, `ManagementPortTest`).
 - **테스트용 mock 계정**: 로컬 실행 시 member 모듈(`MemberDataInit`, 로컬 로그인)이 유저·인플루언서·인증된 인플루언서·관리자 역할별 테스트 계정을 만든다.

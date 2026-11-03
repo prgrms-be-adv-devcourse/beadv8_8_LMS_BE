@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,11 +22,14 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.app.MemberAppearanceRatingFacade;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
+import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
+import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 
@@ -41,6 +45,11 @@ class ApiV1MemberControllerTest {
 
     @Autowired
     InfluencerChannelRepository influencerChannelRepository;
+
+    @Autowired
+    MemberAppearanceRatingFacade memberAppearanceRatingFacade;
+
+    private static final AtomicLong REVIEW_ID = new AtomicLong(1);
 
     @Test
     @DisplayName("로그인 상태로 내 정보를 조회하면 200과 회원 정보를 반환한다")
@@ -249,6 +258,66 @@ class ApiV1MemberControllerTest {
         mockMvc.perform(get("/api/v1/members/{memberId}", 9999L).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("회원 프로필에는 출연 평점을 전체와 받은 역할별로 넣는다 (#555)")
+    void profile_appearanceRating() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User target = saveMember("target1", Role.INFLUENCER, UserStatus.ACTIVE);
+        applyReview(target, AppearanceParticipantRole.HOST, 5);
+        applyReview(target, AppearanceParticipantRole.HOST, 4);
+        applyReview(target, AppearanceParticipantRole.GUEST, 3);
+
+        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.appearanceRating.total.average").value(4.0))
+                .andExpect(jsonPath("$.data.appearanceRating.total.count").value(3))
+                .andExpect(jsonPath("$.data.appearanceRating.asHost.average").value(4.5))
+                .andExpect(jsonPath("$.data.appearanceRating.asHost.count").value(2))
+                .andExpect(jsonPath("$.data.appearanceRating.asGuest.average").value(3.0))
+                .andExpect(jsonPath("$.data.appearanceRating.asGuest.count").value(1));
+    }
+
+    @Test
+    @DisplayName("받은 출연 리뷰가 없으면 출연 평점은 평균 null, 개수 0이다 (#555)")
+    void profile_noAppearanceRating() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User target = saveMember("target1", Role.INFLUENCER, UserStatus.ACTIVE);
+
+        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.appearanceRating.total.average").value(nullValue()))
+                .andExpect(jsonPath("$.data.appearanceRating.total.count").value(0))
+                .andExpect(jsonPath("$.data.appearanceRating.asHost.count").value(0))
+                .andExpect(jsonPath("$.data.appearanceRating.asGuest.count").value(0));
+    }
+
+    @Test
+    @DisplayName("인플루언서 목록에는 출연 평점을 전체만 넣는다 (#555)")
+    void influencers_appearanceRating() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User unrated = saveMember("unrated1", Role.INFLUENCER, UserStatus.ACTIVE);
+        User rated = saveMember("rated1", Role.INFLUENCER, UserStatus.ACTIVE);
+        applyReview(rated, AppearanceParticipantRole.HOST, 5);
+        applyReview(rated, AppearanceParticipantRole.GUEST, 4);
+        applyReview(rated, AppearanceParticipantRole.GUEST, 4);
+
+        mockMvc.perform(get("/api/v1/members/influencers").with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].id").value(rated.getId()))
+                .andExpect(jsonPath("$.data.content[0].appearanceRating.average").value(4.3))
+                .andExpect(jsonPath("$.data.content[0].appearanceRating.count").value(3))
+                .andExpect(jsonPath("$.data.content[0].appearanceRating.asHost").doesNotExist())
+                .andExpect(jsonPath("$.data.content[1].id").value(unrated.getId()))
+                .andExpect(jsonPath("$.data.content[1].appearanceRating.average").value(nullValue()))
+                .andExpect(jsonPath("$.data.content[1].appearanceRating.count").value(0));
+    }
+
+    private void applyReview(User reviewee, AppearanceParticipantRole role, int rating) {
+        long reviewId = REVIEW_ID.getAndIncrement();
+        memberAppearanceRatingFacade.applyReviewPublished(new AppearanceReviewPublishedEvent(reviewId, reviewId, 999L,
+                reviewee.getId(), role, rating, LocalDateTime.now()));
     }
 
     /** 탈퇴 기능(F7)이 아직 없어 상태는 테스트에서만 직접 바꾼다 */

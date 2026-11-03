@@ -68,7 +68,9 @@ public enum MemberErrorCode implements BaseErrorCode {
     /** 치지직이 요청을 거절함(4xx, 키 오류 제외: code 만료 등) 또는 code 없이 돌아옴. 처음부터 다시 연동하면 된다 */
     CHZZK_REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "치지직 연동이 완료되지 않았습니다. 처음부터 다시 시도해 주세요."),
     /** 등록된 채널이 치지직 조회 결과에 없음 (삭제·정지 등) */
-    CHZZK_CHANNEL_NOT_FOUND(HttpStatus.NOT_FOUND, "치지직에서 채널을 찾을 수 없습니다.");
+    CHZZK_CHANNEL_NOT_FOUND(HttpStatus.NOT_FOUND, "치지직에서 채널을 찾을 수 없습니다."),
+    /** 받은 출연 리뷰 목록: 출연 내부 API를 부를 수 없거나(연결 실패·시간 초과·5xx·Client 없음) 거절됨(내부 키·계약 불일치) (#555) */
+    APPEARANCE_REVIEW_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 출연 리뷰를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

@@ -1,5 +1,7 @@
 package com.hapbang.billing.out;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.repository.Repository;
@@ -24,4 +26,7 @@ public interface SettlementRepository extends Repository<Settlement, Long> {
 
     // 보류에 지급 건이 하나라도 있는지 확인한다.
     boolean existsByPointHoldId(Long pointHoldId);
+
+    // 보류들에서 나간 지급 건 (#577, 서비스 간 HP 대사)
+    List<Settlement> findAllByPointHoldIdInOrderByIdAsc(Collection<Long> pointHoldIds);
 }

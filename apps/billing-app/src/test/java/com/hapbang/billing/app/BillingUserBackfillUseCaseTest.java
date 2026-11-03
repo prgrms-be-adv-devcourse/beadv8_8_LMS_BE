@@ -9,6 +9,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
@@ -33,11 +34,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.billing.app.BillingUserSyncUseCase.Outcome;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
+import com.hapbang.billing.global.scheduling.BillingJob;
+import com.hapbang.billing.global.scheduling.FakeAdvisoryLocks;
+import com.hapbang.billing.global.scheduling.JobLock;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.out.MemberApiClient;
@@ -62,6 +67,8 @@ class BillingUserBackfillUseCaseTest {
     private final BillingUserSyncUseCase sync = mock(BillingUserSyncUseCase.class);
     private final WalletFacade walletFacade = mock(WalletFacade.class);
     private final List<Long> applied = new CopyOnWriteArrayList<>();
+    // 실행 락(#598)의 가짜 DB. 테스트마다 새로 만든다
+    private final FakeAdvisoryLocks locks = new FakeAdvisoryLocks();
 
     private record Response(int status, String body) {
     }
@@ -331,7 +338,7 @@ class BillingUserBackfillUseCaseTest {
         respond = null;
         memberIds = ids(1, 3);
         delayMillis = 1_000;
-        assertAbort(() -> new BillingUserBackfillUseCase(() -> client(Duration.ofMillis(200)), sync, walletFacade).run(0, 5_000),
+        assertAbort(() -> new BillingUserBackfillUseCase(() -> client(Duration.ofMillis(200)), sync, walletFacade, locks.pod()).run(0, 5_000),
                 BillingErrorCode.MEMBER_SOURCE_UNAVAILABLE, 0, null, 0L);
         verify(sync, never()).apply(any());
     }
@@ -339,7 +346,7 @@ class BillingUserBackfillUseCaseTest {
     @Test
     @DisplayName("회원 내부 API Client가 없으면 빈 결과를 성공으로 주지 않고 MEMBER_SOURCE_UNAVAILABLE이다")
     void noClient() {
-        assertAbort(() -> new BillingUserBackfillUseCase(() -> null, sync, walletFacade).run(0, 5_000),
+        assertAbort(() -> new BillingUserBackfillUseCase(() -> null, sync, walletFacade, locks.pod()).run(0, 5_000),
                 BillingErrorCode.MEMBER_SOURCE_UNAVAILABLE, 0, null, 0L);
         assertThat(requests).isEmpty();
     }
@@ -404,6 +411,40 @@ class BillingUserBackfillUseCaseTest {
         assertThat(useCase.run(0, 5_000).ignoredStale()).isEqualTo(3);
     }
 
+    @Test
+    @DisplayName("배포 중 다른 pod가 실행 중이면 409 BACKFILL_ALREADY_RUNNING이고 회원 내부 API를 부르지 않는다 (#598)")
+    void runningOnOtherPod() {
+        memberIds = ids(1, 3);
+        JobLock otherPod = locks.pod();
+
+        try (JobLock.Lease ignored = otherPod.tryAcquire(BillingJob.MEMBER_BACKFILL).orElseThrow()) {
+            assertThatThrownBy(() -> useCase().run(0, 5_000)).isInstanceOfSatisfying(BillingException.class,
+                    e -> assertThat(e.getErrorCode()).isEqualTo(BillingErrorCode.BACKFILL_ALREADY_RUNNING));
+            assertThat(requests).isEmpty();
+        }
+
+        // 다른 pod가 끝나면 실행할 수 있다
+        assertThat(useCase().run(0, 5_000).scanned()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("실행 락을 시도하지 못하면 503 BACKFILL_LOCK_UNAVAILABLE이고 아무것도 실행하지 않는다 (#598)")
+    void lockUnavailable() {
+        memberIds = ids(1, 3);
+        BillingUserBackfillUseCase useCase = useCase();
+        locks.failing(true);
+
+        assertThatThrownBy(() -> useCase.run(0, 5_000)).isInstanceOfSatisfying(BillingException.class, e -> {
+            assertThat(e.getErrorCode()).isEqualTo(BillingErrorCode.BACKFILL_LOCK_UNAVAILABLE);
+            assertThat(e.getErrorCode().getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        });
+        assertThat(requests).isEmpty();
+        verifyNoInteractions(sync, walletFacade);
+
+        locks.failing(false);
+        assertThat(useCase.run(0, 5_000).scanned()).isEqualTo(3);
+    }
+
     // ---------------------------------------------------------------------------------------------
 
     private void assertAbort(Runnable run, BillingErrorCode code, long scanned, Long lastProcessedId,
@@ -426,7 +467,12 @@ class BillingUserBackfillUseCaseTest {
     }
 
     private BillingUserBackfillUseCase useCase() {
-        return new BillingUserBackfillUseCase(() -> client(Duration.ofSeconds(5)), sync, walletFacade);
+        return useCase(locks.pod());
+    }
+
+    // 실행 락을 지정한다. 같은 가짜 DB(locks)에서 만든 JobLock끼리는 다른 pod처럼 서로 막는다
+    private BillingUserBackfillUseCase useCase(JobLock jobLock) {
+        return new BillingUserBackfillUseCase(() -> client(Duration.ofSeconds(5)), sync, walletFacade, jobLock);
     }
 
     private MemberApiClient client(Duration readTimeout) {

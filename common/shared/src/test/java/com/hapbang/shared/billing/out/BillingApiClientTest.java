@@ -9,6 +9,7 @@ import java.net.ServerSocket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -23,11 +24,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.shared.billing.domain.BillingFailureCode;
+import com.hapbang.shared.billing.domain.BillingHoldStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.BillingSettlementStatus;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
+import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldStateDto;
+import com.hapbang.shared.billing.dto.HoldStatePageDto;
 import com.hapbang.shared.billing.dto.HoldVoidCommand;
 import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
@@ -403,6 +410,58 @@ class BillingApiClientTest {
     private String baseUrl() {
         return "http://127.0.0.1:" + server.getAddress().getPort();
     }
+    @Test
+    void 참조_대상별_조회는_holds_query_경로로_보내고_보류_금액과_지급_건을_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":[
+                  {"referenceType":"APPEARANCE_REQUEST","referenceId":5,
+                   "hold":{"status":"MIXED","payerUserId":7,
+                     "original":{"chargeHp":4000,"revenueHp":6000,"totalHp":10000},
+                     "remaining":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "released":{"chargeHp":4000,"revenueHp":3000,"totalHp":7000},
+                     "paid":{"chargeHp":0,"revenueHp":3000,"totalHp":3000},
+                     "captured":{"chargeHp":0,"revenueHp":0,"totalHp":0}},
+                   "voided":null,
+                   "settlements":[{"sourceType":"APPEARANCE_REQUEST","sourceId":51,"payoutType":"PENALTY",
+                     "receiverUserId":8,"grossAmountHp":3000,"paidAmountHp":3000,"status":"COMPLETED"}]},
+                  {"referenceType":"APPEARANCE_REQUEST","referenceId":6,"hold":null,
+                   "voided":{"outcome":"VOIDED","releasedHp":0},"settlements":[]}]}""");
+
+        BillingCallResult<List<HoldStateDto>> result = client().queryHolds(
+                new HoldQueryCommand(BillingReferenceType.APPEARANCE_REQUEST, List.of(5L, 6L)));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/holds/query", API_KEY,
+                "application/json", "{\"referenceType\":\"APPEARANCE_REQUEST\",\"referenceIds\":[5,6]}"));
+        List<HoldStateDto> states = ((BillingCallResult.Succeeded<List<HoldStateDto>>) result).value();
+        assertThat(states).hasSize(2);
+        assertThat(states.get(0).hold().status()).isEqualTo(BillingHoldStatus.MIXED);
+        assertThat(states.get(0).hold().released()).isEqualTo(new HoldStateDto.Amount(4_000, 3_000, 7_000));
+        assertThat(states.get(0).settlements()).containsExactly(new HoldStateDto.Settlement(
+                SettlementSourceType.APPEARANCE_REQUEST, 51L, PayoutType.PENALTY, 8L, 3_000, 3_000,
+                BillingSettlementStatus.COMPLETED));
+        assertThat(states.get(1).hold()).isNull();
+        assertThat(states.get(1).voided()).isEqualTo(new HoldStateDto.Voided(HoldVoidOutcome.VOIDED, 0));
+    }
+
+    @Test
+    void 목록_조회는_holds_경로에_GET_쿼리로_보내고_다음_커서를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[],
+                  "nextUpdatedAfter":"2026-11-03T01:02:03.456789Z","nextAfterId":42,"hasMore":true}}""");
+
+        BillingCallResult<HoldStatePageDto> result = client().listHolds(BillingReferenceType.LECTURE_ORDER_ITEM,
+                Instant.parse("2026-11-01T00:00:00Z"), 0L, 100);
+
+        assertThat(requests).hasSize(1);
+        Request request = requests.getFirst();
+        assertThat(request.method()).isEqualTo("GET");
+        assertThat(request.path()).isEqualTo("/api/v1/internal/billing/holds?referenceType=LECTURE_ORDER_ITEM"
+                + "&updatedAfter=2026-11-01T00:00:00Z&afterId=0&size=100");
+        assertThat(request.apiKey()).isEqualTo(API_KEY);
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldStatePageDto(List.of(),
+                Instant.parse("2026-11-03T01:02:03.456789Z"), 42L, true)));
+    }
+
 
     private BillingApiClient client() {
         return client(baseUrl());

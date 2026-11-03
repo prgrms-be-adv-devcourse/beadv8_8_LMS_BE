@@ -55,4 +55,15 @@ class LectureSwaggerDocsTest {
                         .doesNotExist())
                 .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/hp-tasks'].get").exists());
     }
+
+    @Test
+    void HP_대사_관리_API는_RsData로_감싼_실행_결과를_준다() throws Exception {
+        mockMvc.perform(get("/api/v1/lectures/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/hp-reconciliations'].post.responses['200']"
+                        + ".content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataLectureHpReconciliationRunResponse"))
+                .andExpect(jsonPath("$.paths['/api/v1/lectures/admin/hp-reconciliations/latest'].get").exists())
+                .andExpect(jsonPath(SCHEMAS + "LectureHpReconciliationRunResponse.properties.mismatches").exists());
+    }
 }
