@@ -111,7 +111,7 @@
   - 시간 초과 → UNKNOWN_RESULT
   - `Failed`·429·`HP_LOCK_TIMEOUT`은 CB 실패로 세지 않음
 - 설정 기본값·바인딩(`BillingClientPropertiesTest`), health 상태(`BillingClientHealthIndicatorTest`), base-url이 있을 때만 Client·지표·health 빈이 생기는지(`BillingClientWiringTest`)도 확인한다.
-- Toxiproxy 장애 주입은 최종 프로젝트 포트폴리오 항목으로 따로 둔다.
+- 장애 주입은 Toxiproxy 없이 Testcontainers 컨테이너 pause·stop으로 하는 최종 프로젝트 포트폴리오 항목으로 따로 둔다(#339, 2026-11-03).
 - 함께 고친 문서: `docs/api/internal-billing.md` 2·3장, 강의 결정 기록 D66~D68(D57·D58·D64 상태), `docs/lecture/integration.md` 6.2, `docs/billing/test-spec.md` BT-PORT-04.
 
 ## 3. 환전 수수료 수입 기록 — 플랫폼 지갑 (#336)
@@ -363,7 +363,7 @@
 ### 9.3 범위 밖
 
 - 알림 소비자·notification-app, 채팅 책임 분리(#193, 팀 합의).
-- 이벤트 위치를 shared 밖으로 옮기는 것(kafka.md·ADR 변경이라 팀 안건). AsyncAPI·CI 호환성 검사(kafka.md 2차).
+- 이벤트 위치를 shared 밖으로 옮기는 것(kafka.md·ADR 변경이라 팀 안건). AsyncAPI·CI 호환성 검사(하지 않기로 함, #339).
 
 ### 9.4 알림 연동 검토 (#193에 넘김)
 

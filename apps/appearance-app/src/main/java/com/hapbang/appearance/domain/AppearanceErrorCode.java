@@ -84,6 +84,10 @@ public enum AppearanceErrorCode implements BaseErrorCode {
     HP_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "HP 작업을 찾을 수 없습니다."),
     HP_TASK_NOT_DEAD(HttpStatus.CONFLICT, "격리된(DEAD) HP 작업만 다시 시도할 수 있습니다."),
 
+    // 서비스 간 HP 대사 (관리자, #581)
+    HP_RECONCILIATION_NOT_FOUND(HttpStatus.NOT_FOUND, "HP 대사 실행 기록이 없습니다."),
+    HP_RECONCILIATION_RUNNING(HttpStatus.CONFLICT, "HP 대사가 이미 실행 중입니다."),
+
     // 공통
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청이 먼저 처리되었습니다. 새로 고침한 뒤 다시 시도해 주세요."),
 

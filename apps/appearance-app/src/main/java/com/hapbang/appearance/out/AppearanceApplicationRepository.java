@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -44,6 +45,26 @@ public interface AppearanceApplicationRepository extends JpaRepository<Appearanc
             """)
     List<RecruitApplicantCount> countByRecruitIds(@Param("recruitIds") Collection<Long> recruitIds,
                                                   @Param("statuses") Collection<AppearanceApplicationStatus> statuses);
+
+    /**
+     * 모집글에 지원한 적이 있는 게스트 ID를 오름차순으로, {@code afterGuestId}보다 큰 것부터 {@code limit}개 (#586, 채팅 초대 후보).
+     * 지원 상태는 따지지 않는다. 유니크 제약 {@code (recruit_id, guest_id)}라 게스트마다 한 번만 나오고, 그 인덱스로 읽는다.
+     */
+    @Query("""
+            select a.guestId from AppearanceApplication a
+            where a.recruitId = :recruitId and a.guestId > :afterGuestId
+            order by a.guestId asc
+            """)
+    List<Long> findGuestIdsAfter(@Param("recruitId") Long recruitId, @Param("afterGuestId") long afterGuestId,
+                                 Limit limit);
+
+    /** 주어진 게스트 중 이 모집글에 지원한 적이 있는 게스트 ID, 오름차순 (#586, 상태 무관) */
+    @Query("""
+            select a.guestId from AppearanceApplication a
+            where a.recruitId = :recruitId and a.guestId in :guestIds
+            order by a.guestId asc
+            """)
+    List<Long> findAppliedGuestIds(@Param("recruitId") Long recruitId, @Param("guestIds") Collection<Long> guestIds);
 
     /** 모집글별 지원자 수 (조회 결과 모양) */
     interface RecruitApplicantCount {

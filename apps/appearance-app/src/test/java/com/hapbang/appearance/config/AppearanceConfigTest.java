@@ -83,6 +83,35 @@ class AppearanceConfigTest {
                 .run(context -> assertThat(context).hasFailed());
     }
 
+    @Test
+    @DisplayName("appearance.yml의 HP 대사 값: 진행 중 유예 2시간, 비교 범위 7일, 지갑 조회 500건 (#581)")
+    void bindsHpReconciliationFromYaml() {
+        contextRunner.run(context -> {
+            AppearanceHpReconciliationProperties properties =
+                    context.getBean(AppearanceHpReconciliationProperties.class);
+
+            assertThat(properties.settleGrace()).isEqualTo(Duration.ofHours(2));
+            assertThat(properties.lookback()).isEqualTo(Duration.ofDays(7));
+            assertThat(properties.pageSize()).isEqualTo(500);
+        });
+    }
+
+    @Test
+    @DisplayName("HP 대사: 유예가 음수, 비교 범위가 유예 이하, 지갑 조회 건수가 1~500 밖이면 앱이 뜨지 않는다 (#581)")
+    void hpReconciliationValidation() {
+        contextRunner.withPropertyValues("appearance.hp-reconciliation.settle-grace=-1s")
+                .run(context -> assertThat(context).hasFailed());
+        contextRunner.withPropertyValues("appearance.hp-reconciliation.lookback=2h")
+                .run(context -> assertThat(context).hasFailed());
+        contextRunner.withPropertyValues("appearance.hp-reconciliation.page-size=0")
+                .run(context -> assertThat(context).hasFailed());
+        contextRunner.withPropertyValues("appearance.hp-reconciliation.page-size=501")
+                .run(context -> assertThat(context).hasFailed());
+        contextRunner.withPropertyValues("appearance.hp-reconciliation.page-size=1",
+                        "appearance.hp-reconciliation.lookback=121m")
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
     /**
      * 설정 우선순위만 확인한다. 정책 값은 appearance.yml에서만 바꾼다(운영 규칙).
      */

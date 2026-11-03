@@ -39,6 +39,10 @@ public class ChatRoomLog {
     @Column(nullable = false, updatable = false)
     private Long actorUserId;
 
+    /** 행위 대상 회원(초대·강퇴된 회원). 대상이 행위자 자신이거나 없으면 null */
+    @Column(updatable = false)
+    private Long targetUserId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false)
     private ChatRoomEventType eventType;
@@ -46,15 +50,23 @@ public class ChatRoomLog {
     @Column(nullable = false, updatable = false)
     private LocalDateTime occurredAt;
 
-    private ChatRoomLog(ChatRoom chatRoom, Long actorUserId, ChatRoomEventType eventType, LocalDateTime now) {
+    private ChatRoomLog(ChatRoom chatRoom, Long actorUserId, Long targetUserId, ChatRoomEventType eventType,
+            LocalDateTime now) {
         this.chatRoom = chatRoom;
         this.actorUserId = actorUserId;
+        this.targetUserId = targetUserId;
         this.eventType = eventType;
         this.occurredAt = now;
     }
 
     public static ChatRoomLog record(ChatRoom chatRoom, Long actorUserId, ChatRoomEventType eventType,
             LocalDateTime now) {
-        return new ChatRoomLog(chatRoom, actorUserId, eventType, now);
+        return new ChatRoomLog(chatRoom, actorUserId, null, eventType, now);
+    }
+
+    /** 행위자와 대상이 다른 기록(호스트의 초대·강퇴) */
+    public static ChatRoomLog recordOn(ChatRoom chatRoom, Long actorUserId, Long targetUserId,
+            ChatRoomEventType eventType, LocalDateTime now) {
+        return new ChatRoomLog(chatRoom, actorUserId, targetUserId, eventType, now);
     }
 }

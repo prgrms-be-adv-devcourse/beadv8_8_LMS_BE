@@ -78,6 +78,8 @@ public enum BillingErrorCode implements BaseErrorCode {
     // 회원 내부 API가 요청을 거절했다(4xx: 내부 API 키·요청 계약 불일치). 다시 시도해도 같아 운영자 확인이 필요하다
     MEMBER_SOURCE_REJECTED(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보를 조회할 수 없습니다."),
     BACKFILL_ALREADY_RUNNING(HttpStatus.CONFLICT, "회원 정보 Backfill이 이미 실행 중입니다."),
+    // 실행 락(advisory lock)을 시도하지 못했다(DB 연결 불가 등). 아무것도 실행하지 않았으므로 다시 시도할 수 있다 (#598, BD-138)
+    BACKFILL_LOCK_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 회원 정보 Backfill을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."),
     // 지갑 회원 확인 (#537, BD-131). 로그인한 역할(토큰)과 함께 복제한 회원 상태·역할을 확인한다
     // 가입 직후 회원 이벤트가 아직 반영되지 않았을 수 있어 다시 시도할 수 있다
     WALLET_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원 정보가 아직 지갑에 반영되지 않았습니다. 잠시 후 다시 시도해 주세요."),

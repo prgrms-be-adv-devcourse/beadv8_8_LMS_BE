@@ -10,6 +10,7 @@ import com.hapbang.chat.app.dto.ChatRoomCreateResult;
 import com.hapbang.chat.app.dto.ChatRoomOpenResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLeaveResult;
+import com.hapbang.chat.app.dto.ChatRoomMemberPageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
 import com.hapbang.chat.app.exception.ChatErrorCode;
@@ -59,6 +60,18 @@ public class ChatRoomFacade {
     @PreAuthorize(ChatRoles.CHAT)
     public List<ChatRoomResponse> getMyRooms(Long userId) {
         return chatRoomSupporter.getMyRooms(userId);
+    }
+
+    /** 방 상세. 참여 중이고 볼 수 있는 방만(단체방은 조회 만료 전까지) */
+    @PreAuthorize(ChatRoles.CHAT)
+    public ChatRoomResponse getRoom(Long chatRoomId, Long userId) {
+        return chatRoomSupporter.getRoom(chatRoomId, userId);
+    }
+
+    /** 방의 활성 참여자 한 페이지. 참여 중이고 볼 수 있는 방만 */
+    @PreAuthorize(ChatRoles.CHAT)
+    public ChatRoomMemberPageResponse getMembers(Long chatRoomId, Long userId, Long cursor, int size) {
+        return chatRoomSupporter.getMembers(chatRoomId, userId, cursor, size);
     }
 
     /**

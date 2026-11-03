@@ -1,5 +1,6 @@
 package com.hapbang.chat.app;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -12,12 +13,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.chat.app.dto.ChatGroupRoomSummary;
 import com.hapbang.chat.app.dto.ChatHistoryCursor;
 import com.hapbang.chat.app.dto.ChatHistoryCursor.Kind;
 import com.hapbang.chat.app.dto.ChatMessageHistoryResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
 import com.hapbang.chat.app.dto.ChatRoomLogResponse;
+import com.hapbang.chat.app.dto.ChatRoomMemberPageResponse;
 import com.hapbang.chat.app.dto.ChatRoomMemberResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
@@ -56,10 +59,13 @@ public class ChatRoomSupporter {
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final ChatUserRepository chatUserRepository;
     private final ChatValidationService chatValidationService;
+    private final ChatMessageSenders chatMessageSenders;
 
     /**
      * 내 채팅방 목록. 방·참여자·닉네임·마지막 메시지·안 읽은 수를 여러 번 나눠 읽으므로, 그 사이 다른 트랜잭션의 퇴장·재입장·전송이
      * 커밋돼도 한 시점의 스냅샷으로 읽도록 REPEATABLE READ로 연다(참여 세대와 마지막 메시지가 섞이지 않게).
+     * <p>
+     * 단체방은 사용 중·일시 중지 방과 조회 만료 전의 읽기 전용 방이 나온다. 단체방의 참여자는 싣지 않고 인원과 내 참여 세대만 싣는다.
      * <p>
      * 이 격리 수준은 새 트랜잭션을 열 때만 적용된다. 이미 열린 트랜잭션 안에서 부르면 그 트랜잭션에 참여하고 격리 수준은 무시된다.
      * 그래서 트랜잭션 밖(트랜잭션이 없는 Facade·Controller)에서 부른다.
@@ -67,23 +73,79 @@ public class ChatRoomSupporter {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public List<ChatRoomResponse> getMyRooms(Long userId) {
         chatValidationService.validateCanChat(userId);
-        List<ChatRoom> rooms = chatRoomMemberRepository.findActiveByUserId(userId).stream()
-                .map(ChatRoomMember::getChatRoom)
-                .toList();
-        if (rooms.isEmpty()) {
+        LocalDateTime now = LocalDateTime.now();
+        return toResponses(userId, chatRoomMemberRepository.findActiveByUserId(userId, now), now);
+    }
+
+    /**
+     * 조회한 회원의 참여 행들로 방 응답을 만든다. 1:1 방만 참여자 전체를 읽고, 단체방은 조회한 회원의 참여 세대만 쓴다.
+     * 같은 트랜잭션에서 부른다.
+     *
+     * @param myMembers 조회한 회원의 활성 참여 행(방을 함께 읽은 것). 이 순서대로 응답한다
+     */
+    public List<ChatRoomResponse> toResponses(Long userId, List<ChatRoomMember> myMembers, LocalDateTime now) {
+        if (myMembers.isEmpty()) {
             return List.of();
         }
-        Map<Long, List<ChatRoomMember>> membersByRoom = chatRoomMemberRepository
-                .findByChatRoom_IdInAndDeletedAtIsNull(rooms.stream().map(ChatRoom::getId).toList()).stream()
-                .collect(Collectors.groupingBy(member -> member.getChatRoom().getId()));
+        List<Long> roomIds = myMembers.stream().map(member -> member.getChatRoom().getId()).toList();
+        List<Long> directRoomIds = myMembers.stream().map(ChatRoomMember::getChatRoom)
+                .filter(room -> !room.isGroup()).map(ChatRoom::getId).toList();
+        Map<Long, List<ChatRoomMember>> membersByRoom = directRoomIds.isEmpty() ? Map.of()
+                : chatRoomMemberRepository.findByChatRoom_IdInAndDeletedAtIsNull(directRoomIds).stream()
+                        .collect(Collectors.groupingBy(member -> member.getChatRoom().getId()));
         Map<Long, String> nicknames = findNicknames(membersByRoom.values().stream().flatMap(List::stream).toList());
-        List<Long> roomIds = rooms.stream().map(ChatRoom::getId).toList();
         Map<Long, ChatMessageResponse> lastMessages = findLastMessages(userId, roomIds);
         Map<Long, Long> unreadCounts = countUnread(userId, roomIds);
-        return rooms.stream()
-                .map(room -> ChatRoomResponse.of(room, toMemberResponses(membersByRoom.get(room.getId()), nicknames),
-                        lastMessages.get(room.getId()), unreadCounts.getOrDefault(room.getId(), 0L)))
+        return myMembers.stream()
+                .map(member -> {
+                    ChatRoom room = member.getChatRoom();
+                    ChatMessageResponse lastMessage = lastMessages.get(room.getId());
+                    long unreadCount = unreadCounts.getOrDefault(room.getId(), 0L);
+                    return room.isGroup()
+                            ? ChatRoomResponse.ofGroup(room,
+                                    ChatGroupRoomSummary.of(room, member.getParticipationVersion()), lastMessage,
+                                    unreadCount, now)
+                            : ChatRoomResponse.of(room, toMemberResponses(membersByRoom.get(room.getId()), nicknames),
+                                    lastMessage, unreadCount);
+                })
                 .toList();
+    }
+
+    /**
+     * 방 상세. 참여 중인 회원만 볼 수 있고, 단체방은 조회 만료 전까지다. 응답 형식은 방 목록의 한 항목과 같다.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ChatRoomResponse getRoom(Long chatRoomId, Long userId) {
+        chatValidationService.validateCanChat(userId);
+        LocalDateTime now = LocalDateTime.now();
+        ChatRoomMember member = findViewerMembership(chatRoomId, userId, now);
+        return toResponses(userId, List.of(member), now).getFirst();
+    }
+
+    /**
+     * 방의 활성 참여자 한 페이지(참여 행 순서의 키셋). 참여 중인 회원만 볼 수 있고, 단체방은 조회 만료 전까지다.
+     *
+     * @param cursor 이전 응답의 nextCursor. 없으면 처음부터
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ChatRoomMemberPageResponse getMembers(Long chatRoomId, Long userId, Long cursor, int size) {
+        chatValidationService.validateCanChat(userId);
+        findViewerMembership(chatRoomId, userId, LocalDateTime.now());
+        List<ChatRoomMember> members = chatRoomMemberRepository.findActivePage(chatRoomId,
+                cursor == null ? 0L : cursor, Limit.of(size + 1));
+        List<ChatRoomMember> page = members.subList(0, Math.min(size, members.size()));
+        Long nextCursor = members.size() > size ? page.getLast().getId() : null;
+        return new ChatRoomMemberPageResponse(toMemberResponses(page, findNicknames(page)), nextCursor);
+    }
+
+    /** 볼 수 있는 방의 조회한 회원 활성 참여 행. 방이 없거나 볼 수 없으면 404, 참여 중이 아니면 403 */
+    private ChatRoomMember findViewerMembership(Long chatRoomId, Long userId, LocalDateTime now) {
+        chatRoomRepository.findById(chatRoomId)
+                .filter(room -> room.isViewable(now))
+                .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
+        return chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, userId)
+                .filter(ChatRoomMember::isActive)
+                .orElseThrow(() -> new ChatException(ChatErrorCode.NOT_CHAT_ROOM_MEMBER));
     }
 
     /**
@@ -124,12 +186,13 @@ public class ChatRoomSupporter {
         Set<Long> pageLogIds = idsOf(page, Kind.LOG);
         Set<Long> pageMessageIds = idsOf(page, Kind.MESSAGE);
         List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoomId);
-        return new ChatRoomHistoryResponse(chatRoom.getId(), chatRoom.getStatus(), chatRoom.getCreatedAt(),
-                chatRoom.getEndedAt(), toMemberResponses(members, findNicknames(members)),
+        return new ChatRoomHistoryResponse(chatRoom.getId(), chatRoom.statusAt(LocalDateTime.now()),
+                chatRoom.getCreatedAt(), chatRoom.getEndedAt(), toMemberResponses(members, findNicknames(members)),
                 logs.stream().filter(log -> pageLogIds.contains(log.getId())).map(ChatRoomLogResponse::from).toList(),
                 messages.stream().filter(message -> pageMessageIds.contains(message.getId()))
                         .map(ChatMessageHistoryResponse::from).toList(),
-                nextCursor);
+                nextCursor, chatRoom.getRoomType(),
+                chatRoom.isGroup() ? ChatGroupRoomSummary.of(chatRoom, null) : null);
     }
 
     private static Set<Long> idsOf(List<ChatHistoryCursor> page, Kind kind) {
@@ -152,13 +215,26 @@ public class ChatRoomSupporter {
         return toResponse(chatRoom, userId);
     }
 
-    /** 채팅방 응답 (참여자·닉네임, 조회한 회원 기준 마지막 메시지·안 읽은 수 포함) */
+    /**
+     * 채팅방 응답 (조회한 회원 기준 마지막 메시지·안 읽은 수 포함). 1:1 방은 참여자·닉네임을 싣고, 단체방은 참여자 대신 조회한 회원의
+     * 참여 세대를 싣는다(참여 중이 아니면 null).
+     */
     public ChatRoomResponse toResponse(ChatRoom chatRoom, Long userId) {
-        List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId());
         List<Long> roomIds = List.of(chatRoom.getId());
-        return ChatRoomResponse.of(chatRoom, toMemberResponses(members, findNicknames(members)),
-                findLastMessages(userId, roomIds).get(chatRoom.getId()),
-                countUnread(userId, roomIds).getOrDefault(chatRoom.getId(), 0L));
+        ChatMessageResponse lastMessage = findLastMessages(userId, roomIds).get(chatRoom.getId());
+        long unreadCount = countUnread(userId, roomIds).getOrDefault(chatRoom.getId(), 0L);
+        if (chatRoom.isGroup()) {
+            Integer myParticipationVersion = chatRoomMemberRepository
+                    .findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoom.getId(), userId)
+                    .filter(ChatRoomMember::isActive)
+                    .map(ChatRoomMember::getParticipationVersion)
+                    .orElse(null);
+            return ChatRoomResponse.ofGroup(chatRoom, ChatGroupRoomSummary.of(chatRoom, myParticipationVersion),
+                    lastMessage, unreadCount, LocalDateTime.now());
+        }
+        List<ChatRoomMember> members = chatRoomMemberRepository.findByChatRoom_IdAndDeletedAtIsNull(chatRoom.getId());
+        return ChatRoomResponse.of(chatRoom, toMemberResponses(members, findNicknames(members)), lastMessage,
+                unreadCount);
     }
 
     /** 표시용 닉네임. 탈퇴 회원은 '탈퇴한 회원', 복제 정보가 없으면 '회원 {id}' */
@@ -167,9 +243,11 @@ public class ChatRoomSupporter {
     }
 
     private Map<Long, ChatMessageResponse> findLastMessages(Long userId, List<Long> chatRoomIds) {
-        return chatMessageRepository.findLastVisible(userId, chatRoomIds).stream()
+        List<ChatMessage> lastMessages = chatMessageRepository.findLastVisible(userId, chatRoomIds);
+        Map<Long, ChatUser> senders = chatMessageSenders.usersOf(lastMessages);
+        return lastMessages.stream()
                 .collect(Collectors.toMap(message -> message.getChatRoom().getId(),
-                        message -> ChatMessageResponse.of(message, userId)));
+                        message -> ChatMessageResponse.of(message, userId, senders)));
     }
 
     private Map<Long, Long> countUnread(Long userId, List<Long> chatRoomIds) {

@@ -8,6 +8,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.chat.app.ChatDeliverySourceReader;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.dto.ChatMessageSender;
+import com.hapbang.chat.domain.ChatMessage;
+import com.hapbang.chat.domain.ChatUser;
 
 import lombok.RequiredArgsConstructor;
 
@@ -24,9 +27,16 @@ public class JpaChatDeliverySourceReader implements ChatDeliverySourceReader {
     @Override
     @Transactional(readOnly = true)
     public Optional<MessageSource> findMessage(long messageId) {
-        return chatMessageRepository.findById(messageId)
-                .map(message -> new MessageSource(ChatMessageResponse.from(message), message.getSenderUserId(),
-                        message.getClientMessageId()));
+        // 발신자 표시 정보는 메시지와 같은 문장으로 읽는다(메시지마다 회원을 따로 조회하지 않는다). 전달 시점의 닉네임이다
+        return chatMessageRepository.findWithSender(messageId).stream().findFirst()
+                .map(row -> {
+                    ChatMessage message = (ChatMessage) row[0];
+                    ChatUser sender = (ChatUser) row[1];
+                    ChatMessageResponse response = ChatMessageResponse.from(message).withSender(
+                            ChatMessageSender.applies(message) ? ChatMessageSender.of(message.getSenderUserId(), sender)
+                                    : null);
+                    return new MessageSource(response, message.getSenderUserId(), message.getClientMessageId());
+                });
     }
 
     @Override

@@ -117,7 +117,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | completed_at | timestamp | |
 | created_at, updated_at | timestamp | |
 
-인덱스: `(status, next_attempt_at)`, `(status, lease_until)`, `(order_item_id)`, `(order_id)`.
+인덱스: `(status, next_attempt_at)`, `(status, lease_until)`, `(order_item_id)`, `(order_id)`, `(updated_at)`(HP 대사 비교 범위, D74).
 
 **lecture_hp_task_attempt** (**신규**, #275, D57): 선점 한 번 = 한 행. 선점할 때 만들고 실행 결과를 한 번만 기록한 뒤 다시 바꾸지 않는다. 삭제하지 않는다. 작업의 현재 상태와 시도 이력을 나눈다.
 
@@ -148,6 +148,47 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 - 재시도하면 성공할 수 있는 실패(낙관적 락 충돌, 같은 명령의 동시 처리)와 기술 실패(DB)는 결과로 저장하지 않는다. 호출한 쪽이 같은 명령을 다시 보내면 처음부터 처리하거나 먼저 끝난 결과를 재현한다 (#278).
 - `correlation_id`·`last_event_id`는 두지 않는다. 추적은 trace, 멱등은 명령 ID가 맡는다(ADR 0002, D71).
+
+**lecture_hp_reconciliation_run** (#580, D74): 서비스 간 HP 대사 실행 1회. 지우지 않는다.
+
+| 컬럼 | 타입 | 비고 |
+| --- | --- | --- |
+| id | bigint PK | |
+| trigger_type | varchar(20) | `SCHEDULED`(매일 배치) / `MANUAL`(관리자) |
+| triggered_by | bigint | 수동 실행한 관리자. 배치면 null |
+| status | varchar(20) | `RUNNING` / `COMPLETED` / `INCOMPLETE`(지갑 조회 실패 등으로 중단, 커서를 옮기지 않음) |
+| started_at, finished_at | timestamp | |
+| checked_count | int | 비교한 주문 항목 수(진행 중이라 뺀 항목 제외, DEAD 표시·지갑에만 있는 보류 포함) |
+| mismatch_count | int | 어긋난 건 수(`HP_TASK_DEAD` 표시 제외) |
+| dead_count | int | DEAD 작업이 있어 표시만 한 항목 수 |
+| failure_reason | varchar(500) | 끝까지 비교하지 못한 이유 |
+| version | bigint | |
+
+인덱스: `(started_at)`.
+
+**lecture_hp_reconciliation_mismatch** (#580, D74): 어긋난 건(`HP_TASK_DEAD` 표시 포함). 만든 뒤 바꾸지 않는다.
+
+| 컬럼 | 타입 | 비고 |
+| --- | --- | --- |
+| id | bigint PK | |
+| run_id | bigint FK | `lecture_hp_reconciliation_run.id` |
+| order_item_id | bigint | 지갑 참조 ID. 지갑에만 있는 보류면 강의에 없는 ID |
+| order_id | bigint | 지갑에만 있는 보류는 null |
+| rule | varchar(50) | `LectureHpReconciliationRule` (integration.md 10.1) |
+| item_status | varchar(50) | 비교할 때의 항목 상태. 지갑에만 있는 보류는 null |
+| lecture_state, wallet_state | varchar(1000) | 관리자가 읽는 요약 문자열 |
+| created_at | timestamp | |
+
+인덱스: `(run_id, id)`.
+
+**lecture_hp_reconciliation_cursor** (#580, D74): 지갑 보류 목록(`listHolds`) 커서. 참조 유형(`LECTURE_ORDER_ITEM`)마다 한 행이고, `COMPLETED` 실행만 앞으로 옮긴다.
+
+| 컬럼 | 타입 | 비고 |
+| --- | --- | --- |
+| reference_type | varchar(50) PK | `LECTURE_ORDER_ITEM` |
+| updated_after | timestamp | 지갑 `nextUpdatedAfter`(Instant)를 KST로 바꾼 값 |
+| after_id | bigint | 지갑 `nextAfterId` |
+| version | bigint | |
 
 ### 7.2 ERD 반영 필요 목록
 
@@ -203,6 +244,16 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 - 원인은 billing 데이터에서 먼저 확인한다. 예: `PAYOUT_ALREADY_SETTLED`는 지급 예정 건(`billing.settlement`)이 남은 경우, `HOLD_ALREADY_CLOSED`는 보류가 이미 닫힌 경우라 강의 항목 상태와 billing 보류를 대조해 어느 쪽이 맞는지 판단한다 (D54의 운영 절차를 그대로 옮김).
 - 보류 무효화는 일시 장애로 `DEAD`가 된 보류에 쓰지 않는다(재시도한다). `HOLD_OWNER_MISMATCH`로 `DEAD`인 보류는 지갑이 무효화에서도 소유를 확인해 같은 코드로 실패하므로, billing 보류 데이터를 먼저 확인한다 (D73 (5)).
+
+### 8.2.1.1 HP 대사 (관리자, D74, #580)
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| POST | `/api/v1/lectures/admin/hp-reconciliations` | 지금 대사를 실행하고 끝날 때까지 기다려 결과(어긋난 건 포함)를 준다(200). 처음 실행은 지갑 보류 목록을 처음부터 읽어 오래 걸릴 수 있고, 응답 전에 연결이 끊겨도 서버에서는 끝까지 실행되므로 `GET /latest`로 확인한다. 지갑 조회가 실패하면 오류가 아니라 200 + `INCOMPLETE` + `failureReason`. 실행 중이면 409 `HP_RECONCILIATION_RUNNING` |
+| GET | `/api/v1/lectures/admin/hp-reconciliations/latest` | 마지막으로 시작한 실행과 어긋난 건. 실행 중이면 `RUNNING`(어긋난 건은 끝난 뒤 남는다). 기록이 없으면 404 `HP_RECONCILIATION_NOT_FOUND` |
+
+- 응답 `LectureHpReconciliationRunResponse`: 계기·실행한 관리자·상태·시각·비교 수·어긋난 수·DEAD 수·중단 이유와 `mismatches[]`(항목 ID·주문 ID·규칙·항목 상태·강의 상태 요약·지갑 상태 요약).
+- 고치지 않는다. 어긋난 건은 원인을 확인한 뒤 8.2.1의 재시도·보류 무효화로 정정한다. 규칙과 실행 방식은 integration.md 10.1.
 
 ### 8.2.2 지급 실패 (관리자, 삭제됨)
 

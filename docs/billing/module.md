@@ -184,11 +184,21 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | `RefundRecoveryBatch` | `hapbang.billing.refund.recovery-cron` (`30 */5 * * * *`) | — |
 | `ExchangePayoutRecoveryBatch` | `hapbang.billing.exchange.payout.recovery-cron` (`15 */5 * * * *`) | `…payout.recovery-enabled` (없으면 켬) |
 | `ExchangeSettlementBatch` | `hapbang.billing.exchange.settlement.cron` (`0 5 10-23 * * *`) | `…settlement.enabled` (없으면 켬). 송금 Client를 못 쓰면 실행을 건너뜀 |
+| `BillingEventRepublishBatch` | `hapbang.billing.event.republish-cron` (`5 * * * * *`) | — |
 
-여러 인스턴스로 실행할 때의 중복 실행 방지(분산 락)는 없다. 현재 배포 단위가 1개라는 전제다.
+여러 pod에서 같은 배치가 동시에 돌지 않게 실행 락을 둔다(#598, BD-138). 배치는 `run()`에서 `JobLock.runOrSkip`으로 PostgreSQL advisory lock을 기다리지 않고 잡고, 잡지 못하면 그 회차를 건너뛴다. 관리자 회원 Backfill도 같은 락을 쓴다(다른 실행 중 409 `BACKFILL_ALREADY_RUNNING`, 락 오류 503 `BACKFILL_LOCK_UNAVAILABLE`).
+
+| 항목 | 내용 |
+| --- | --- |
+| 락 번호 | `global.scheduling.BillingJob` enum의 고정 상수(598001~598006). 바꾸지 않고, 새 작업은 다음 번호를 쓴다 |
+| 락 연결 | Hikari pool 밖의 전용 연결 1개(`ApplicationName=billing-app-job-lock`). 첫 락 시도 때 연결한다. pod당 DB 연결 +1. 호출은 한 모니터로 직렬화되고, 상한은 연결 확인 1초·연결 3초·쿼리 3초(호출당 최악 락 시도 약 7초, 해제 약 4초) |
+| 같은 pod 안 | advisory lock은 같은 session이면 재진입되므로, 이 pod가 쥔 작업을 메모리로 확인해 막는다 |
+| 다른 실행이 쥠 / 락 오류 | info 로그 / warn 로그. 둘 다 실행하지 않고 `hapbang.billing.job.lock.skipped{job, reason=held\|error}`를 센다 |
+| 락 연결이 끊김 | 그 연결의 락은 PostgreSQL이 푼다. 돌던 작업은 끝까지 두고, 다음 시도 때 다시 연결하며 warn을 남긴다 |
+| 막지 않는 것 | 한쪽이 끝내고 푼 뒤 다른 pod가 늦게 시작한 같은 회차, 기동 때 Modulith 미완료 이벤트 재발행. 각 UseCase의 락·멱등성으로 허용한다 |
 
 - To-Be(k3s): 앱마다 replica 1개다. billing-app은 t3.large(`core-data`)에 두고, `maxSurge: 1`, `maxUnavailable: 0`으로 배포한다(final-project-infrastructure.md 3장).
-- 추정: rolling update 중에는 새 pod와 기존 pod가 잠깐 함께 뜬다. 이 사이에 두 pod의 배치가 같은 cron 시각에 겹칠 수 있다. 이때 중복 처리를 막는 것은 각 UseCase의 락·멱등성뿐이다(L4).
+- rolling update 중에는 새 pod와 기존 pod가 잠깐 함께 떠서 두 pod의 배치가 같은 cron 시각에 겹칠 수 있다. 위 실행 락이 한쪽만 실행하게 한다(L4 해소).
 - Graceful shutdown 때 배치·HTTP를 어떤 순서로 멈출지는 같은 문서 4장(`DrainCoordinator`, `/api/v1/internal/operations/drain`)이 목표이며, billing-app에는 아직 없다.
 
 ## 7. 외부 의존과 JVM 분리 이후 통신 상태
@@ -293,7 +303,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | `TOSS_PAYMENTS_SECRET_KEY` | 빈 값 | 충전·환불 503 |
 | `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY` | 빈 값 | 둘 다 없으면 충전·환불·환전 신청·Mock 송금 503. 하나만 있거나 형식이 틀리거나 두 값이 같으면 **기동 실패** |
 | `hapbang.billing.mock-payout.enabled` + 활성 프로필 전부 local/test | local yaml만 true | 송금 불가, 정산 배치 건너뜀, 송금 관리자 API 503 |
-| `hapbang.scheduling.enabled` | true | 배치 4개 미등록 |
+| `hapbang.scheduling.enabled` | true | 배치 5개 미등록 |
 | 서버 포트 | local 8082 | — |
 
 키 값은 코드·로그·문서에 남기지 않는다 ([`docs/deploy/env-vars.md`](../deploy/env-vars.md)).
@@ -305,8 +315,8 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | ~~L1~~ | ~~`BillingPort` 원격 구현 없음~~ | 해소: 강의·출연이 내부 HTTP API로 전환했고 `BillingPort`·`BillingPortAdapter`를 지웠다 | #273~#277, #486 |
 | L2 | 회원 이벤트가 JVM을 넘지 않음 | 신규 가입자 지갑·복제본 미생성(지갑은 조회 시 생성, 복제본은 Backfill로 보완) → 환전 승인 409 가능 | #339 |
 | L3 | 앱 간 로그인 공유 미확인 | 사용자·관리자 API 인증 경로 미검증. 목표는 JWT + `X-User-*` 헤더(7.2) | #370~#372 |
-| L4 | 배치 분산 락 없음 | 인스턴스 2개 이상이면 중복 실행 가능. 목표 배포는 replica 1개지만 rolling update(`maxSurge: 1`) 중 잠깐 겹칠 수 있다(추정, 6.1) | TBD |
-| L5 | Backfill 동시 실행 방지가 인스턴스 내부만 | 위와 같음 | TBD |
+| ~~L4~~ | ~~배치 분산 락 없음~~ | 해소: 배치 5개가 PostgreSQL advisory lock으로 pod 사이에서 한 곳만 실행한다(6.1) | #598, `BD-138` |
+| ~~L5~~ | ~~Backfill 동시 실행 방지가 인스턴스 내부만~~ | 해소: 같은 실행 락으로 pod 사이도 막는다(6.1) | #598, `BD-138` |
 | L6 | 잔액 대사는 라이브러리만, 호출하는 API·배치 없음 | 불일치 감지가 수동 | `BD-20` |
 | L7 | `lock_timeout` 미설정 | 락 대기 무제한 | `BD-108` |
 | L8 | 환전 정산일 공휴일 미반영 | 잠정 예정일 | `BD-96` |
@@ -332,3 +342,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-11-02 | 35e7aae1 | #562 나가는 호출 circuit breaker(7.1, BD-134) |
 | 2026-11-02 | 35e7aae1 | #564 DLT 복구 절차(BD-136), migration 주석 정정(8.2), capture 비노출(BD-135) |
 | 2026-11-03 | 8e7fa8b7 | #577 서비스 간 HP 대사용 보류·지급 조회 내부 API(7.1, BD-137) |
+| 2026-11-03 | 2cfe5307 | #598 배치·Backfill 실행 락(6.1, 9, L4·L5, BD-138) |

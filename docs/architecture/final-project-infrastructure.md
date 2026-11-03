@@ -139,7 +139,7 @@ PostgreSQL이 Kafka나 Redis로 대체되지 않는다. HP 원장과 채팅 이�
 | 3 | [API Gateway](infrastructure/api-gateway.md) | Envoy Gateway, JWT 인증 흐름, rate limit |
 | 4 | [Graceful Shutdown](infrastructure/graceful-shutdown.md) | 전체 workload drain |
 | 5 | [관측성](infrastructure/observability.md) | Grafana observability stack, Prometheus vs Mimir, 부하 테스트 |
-| 6·7 | [포트폴리오 추가 항목](infrastructure/portfolio-items.md) | SonarQube Cloud, test fixtures, Toxiproxy, Spring AI RAG, event contract, JFR, Terraform |
+| 6·7 | [포트폴리오 추가 항목](infrastructure/portfolio-items.md) | SonarQube Cloud, test fixtures, Testcontainers 장애 test, Spring AI RAG, 이벤트 계약·OpenAPI contract, JFR, Terraform |
 | 8 | [알림 모듈](infrastructure/notification.md) | notification 앱 분리 |
 | 9 | [검색 모듈](infrastructure/search.md) | search 앱과 Elasticsearch |
 | 10 | [모듈별 database](infrastructure/database.md) | instance 1개 + 앱별 database |
@@ -179,7 +179,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 4. Prometheus·Alloy·Loki·Tempo·Grafana 연결. Mimir 비교는 [5장](infrastructure/observability.md) 비교표에만 남김
 5. SonarQube Cloud + JaCoCo PR quality gate 연결
 6. 각 업무 모듈의 data fixture를 `src/testFixtures`로 분리하고 `:test-support`는 공통 infrastructure로 유지
-7. Testcontainers 공통 fixture와 Toxiproxy 장애 test 기반 구축
+7. Testcontainers 공통 fixture와 장애 test 기반 구축(컨테이너 pause·stop, Toxiproxy 없음)
 8. 같은 k6 scenario의 JFR baseline을 저장하고 JMC 분석 template 작성
 
 ### Phase 2 — 모듈별 database 분리
@@ -194,7 +194,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 ### Phase 3 — Kafka
 
 1. 토픽·key·헤더 계약([1장](infrastructure/kafka.md), ADR 0001·0002)
-2. 레포 JSON Schema·AsyncAPI와 호환성 CI(`asyncapi diff`, version별 샘플 contract test)
+2. 이벤트 버전 호환·배포 순서 규칙(AsyncAPI·schema CI 검사는 하지 않음, #339)
 3. 모듈별 outbox → Kafka relay adapter
 4. 자연 키 멱등 consumer, 블로킹 retry/그룹별 DLT, 재처리 runbook
 5. 회원 복제 이벤트 하나로 end-to-end 완성 후 출연·강의로 확장
@@ -252,7 +252,7 @@ KEDA(Kubernetes Event-Driven Autoscaling)는 CPU·메모리가 아니라 외부 
 4. baseline/after JFR과 JMC 분석 report
 5. Kafka/Redis/pod 강제 종료 demo script
 6. Graceful Shutdown drain demo
-7. OpenAPI·AsyncAPI와 schema compatibility 실패 PR 예시
+7. OpenAPI 호환성 검사 실패 PR 예시
 8. RAG 검색 근거·답변 거절·출처 반환 평가 report
 9. Sonar quality gate 결과
 10. Terraform zero-change plan과 실제 배포 AWS diagram
