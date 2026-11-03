@@ -353,7 +353,7 @@ kubectl --context "$CTX" -n hapbang-platform port-forward svc/redpanda-console 8
 - admin 비밀번호는 차트가 처음 설치할 때 만든 Secret(`grafana`)에 있다. 레포·채팅에 옮기지 않는다.
 - Loki(3100)·Tempo(3200)는 Grafana datasource로 조회한다.
 - Redpanda Console은 자체 로그인이 없고 메시지 발행·토픽 삭제도 할 수 있다. Gateway를 설치하면 `https://<도메인>/kafka/`에서 Envoy Basic Auth만 거쳐 접속한다([Gateway 구성](gateway.md)). 그 전에는 port-forward로 접속한다.
-- prod `/kafka/`에서 토픽 생성은 HTTP 405로 실패한다(#484, 조회는 된다). 쓰기는 port-forward로 한다: `kubectl --context hapbang-k3s -n hapbang-platform port-forward svc/redpanda-console 18080:8080` 뒤 `http://localhost:18080`.
+- `/kafka/`에서는 토픽 생성이 HTTP 405로 실패한다. Console 프론트엔드가 생성 요청을 base path 없이 보내는 upstream 문제라 고치지 않는다(원인과 결정은 [Gateway 구성](gateway.md), #484). 토픽 생성은 port-forward로 한다: `kubectl --context hapbang-k3s -n hapbang-platform port-forward svc/redpanda-console 18080:8080` 뒤 `http://localhost:18080`.
 
 ## CI
 
