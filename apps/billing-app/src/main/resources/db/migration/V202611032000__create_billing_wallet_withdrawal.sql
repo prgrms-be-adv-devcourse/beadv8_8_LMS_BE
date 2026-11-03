@@ -6,6 +6,9 @@ ALTER TABLE billing.wallet
     ADD COLUMN closed_at TIMESTAMPTZ,
     ADD CONSTRAINT ck_wallet_closed CHECK ((closed_by_withdrawal_id IS NULL) = (closed_at IS NULL));
 
+-- 닫힌 지갑만 담는 부분 인덱스. 잔액이 남은 닫힌 지갑 수 지표가 수집 때마다 이 인덱스로 센다(대부분의 지갑은 열려 있다)
+CREATE INDEX idx_wallet_2 ON billing.wallet (id) WHERE closed_by_withdrawal_id IS NOT NULL;
+
 -- 2) 탈퇴 기록: 회원 앱이 준 탈퇴 작업 ID(withdrawal_id)당 한 건이다. 닫기·다시 열기의 멱등 키 저장소이고,
 --    다시 열기 기록이 있는 탈퇴 작업의 늦은 닫기를 거절(WITHDRAWAL_ALREADY_REOPENED)하는 근거다.
 --    지갑이 아직 없는 회원도 기록만 남긴다(wallet_id 없음). 나중에 지갑을 만들 때 이 기록으로 닫힌 지갑을 만든다.

@@ -86,7 +86,7 @@ class WalletWithdrawalIntegrationTest {
     ExchangeRepository exchangeRepository;
 
     @Autowired
-    ChangedWalletReconciliationUseCase changedWalletReconciliationUseCase;
+    ClosedWalletBalanceMetrics closedWalletBalanceMetrics;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -321,8 +321,8 @@ class WalletWithdrawalIntegrationTest {
 
         // 닫힌 뒤 들어온 HP는 환불·환전할 수 없어 묶이므로 운영자가 알 수 있게 한다 (BD-141)
         assertThat(output).contains("닫힌 지갑에 HP가 들어왔다", "walletId=" + walletId, "closedByWithdrawalId=100");
-        changedWalletReconciliationUseCase.reconcileChanged(Instant.now());
-        assertThat(changedWalletReconciliationUseCase.closedWalletsWithBalance()).isEqualTo(1L);
+        // 지표는 수집 때마다 DB에서 세므로 배치를 기다리지 않고 바로 보인다
+        assertThat(closedWalletBalanceMetrics.count()).isEqualTo(1.0);
     }
 
     // ---------------------------------------------------------------------------------------------
