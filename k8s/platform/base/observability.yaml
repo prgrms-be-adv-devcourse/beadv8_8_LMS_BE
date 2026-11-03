@@ -196,14 +196,36 @@ spec:
             # scrape 주기(차트 기본 1m)를 알려 $__rate_interval이 4m 이상이 되게 한다. 짧으면 rate()가 빈다.
             jsonData:
               timeInterval: 1m
+          # 로그 줄의 trace ID를 Tempo trace 링크로 만든다(#579). provisioning은 $를 환경 변수로 읽으므로 $$로 쓴다.
+          # 앱: Boot 로그 상관 ID "[<traceId 32자>-<spanId 16자>] ". Envoy: JSON access log의 trace_id(traceparent 전체)
           - name: Loki
             type: loki
             uid: loki
             url: http://loki.hapbang-platform.svc.cluster.local:3100
+            jsonData:
+              derivedFields:
+                - name: traceId
+                  matcherRegex: '\[([0-9a-f]{32})-[0-9a-f]{16}\]'
+                  datasourceUid: tempo
+                  url: '$${__value.raw}'
+                  urlDisplayLabel: Tempo에서 보기
+                - name: trace_id
+                  matcherRegex: '"trace_id":"00-([0-9a-f]{32})-'
+                  datasourceUid: tempo
+                  url: '$${__value.raw}'
+                  urlDisplayLabel: Tempo에서 보기
+          # trace에서 같은 trace ID가 찍힌 앱·Envoy 로그로 이동한다(#579). span 시간 앞뒤 5분을 찾는다
           - name: Tempo
             type: tempo
             uid: tempo
             url: http://tempo.hapbang-platform.svc.cluster.local:3200
+            jsonData:
+              tracesToLogsV2:
+                datasourceUid: loki
+                spanStartTimeShift: '-5m'
+                spanEndTimeShift: '5m'
+                customQuery: true
+                query: '{namespace=~"hapbang-prod|envoy-gateway-system"} |= "$${__trace.traceId}"'
     # dashboard JSON은 레포의 k8s/platform/base/dashboards가 원본이다(#531). kustomization이 만든 ConfigMap을
     # 디렉터리로 마운트한다. sidecar와 grafana.com 다운로드는 쓰지 않는다. UI에서 고친 내용은 저장되지 않으니
     # JSON으로 내보내 레포를 고친다(docs/architecture/infrastructure/observability.md).
