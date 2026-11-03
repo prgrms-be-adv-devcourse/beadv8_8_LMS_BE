@@ -79,9 +79,9 @@ lecture-app이 첫 적용이다. 요청 하나가 `Envoy ingress → Envoy route
 
 **지금 계측하지 않는 것.**
 
-- Kafka producer·consumer context 전파와 `eventId` 연결(#343 하위 티켓). listener 스레드의 로그에는 traceId가 없다.
+- Kafka producer·consumer context 전파와 `eventId` 연결(#630). listener 스레드의 로그에는 traceId가 없다.
 - DB(JDBC) span. 요청 span의 시간에 DB 시간이 포함될 뿐 쿼리 단위로 나뉘지 않는다.
-- 받는 앱의 server span: lecture-app이 지갑을 부르면 client span까지만 남는다. billing-app은 billing 담당자가 위 절차로 붙인다. 반대로 계측하지 않은 앱이 lecture 내부 API(8081)를 부르면 `traceparent`가 없어 lecture-app이 새 trace(10%)를 시작한다.
+- 받는 앱의 server span: lecture-app이 지갑을 부르면 client span까지만 남는다. 나머지 5개 앱은 #631에서 한 번에 붙인다. 반대로 계측하지 않은 앱이 lecture 내부 API(8081)를 부르면 `traceparent`가 없어 lecture-app이 새 trace(10%)를 시작한다.
 
 ### Dashboard (#531, #597, #601)
 
@@ -122,6 +122,63 @@ kubectl --context hapbang-k3s apply -f dashboards.yaml
 Grafana는 dashboard 없이도 prod에서 3일 최대 working set이 374 MiB였다(2026-11-02, limit 384 MiB, 차트가 넣는 GOMEMLIMIT 345 MiB). 로컬 k3d에서는 384 MiB일 때 dashboard를 여는 동안 메모리가 GOMEMLIMIT 근처(342 MiB)에 붙은 채 unready였고, 448 MiB(GOMEMLIMIT 403 MiB)에서는 세 dashboard가 모두 그려졌다. 다만 k3d Grafana는 이 변경 전부터 CPU를 많이 쓰고 재시작을 반복해 원인을 dashboard 하나로 보지는 않는다. Grafana limit은 #532에서 448 MiB로 올렸고, dashboard는 그 뒤에 적용했다. 2026-11-02 운영 적용 직후 Grafana는 기동 중 최대 426 MiB(limit의 95%), 약 1분 뒤 CPU 15m·메모리 약 290 MiB로 내려왔다. 기동 최대치가 limit에 가까우니 Grafana 재시작 뒤 OOMKilled가 없는지 본다. dashboard 다섯 개(#601)를 쓰며 7일 최대 418 MiB(93%, 2026-11-03)가 되어 limit을 512 MiB로 올렸다(#608, `k8s/gateway/overlays/prod/grafana.yaml`).
 
 client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 ConfigMap 전체를 넣는다. 세 파일 합계 약 110 KB에서 annotation은 약 150 KB다. 한도에 가까워지면 `--server-side`로 적용하거나 ConfigMap을 나눈다.
+
+## Alert 정책 (#629)
+
+대상 지표와 정책만 정했다. alert rule과 통보는 아직 구성하지 않았다. 구현은 #343의 후속 티켓에서 운영 실측을 본 뒤 한다.
+
+운영자가 받는 장애 통보는 **alert**라고 쓴다. 회원이 받는 **알림**(notification, [용어집](../../GLOSSARY.md))과 섞어 쓰지 않는다.
+
+### 경로와 통보
+
+- **평가**: Grafana alerting으로 한다. Prometheus·Loki 쿼리를 모두 rule로 쓸 수 있고 pod가 늘지 않는다. Prometheus 차트의 Alertmanager는 켜지 않는다(pod가 하나 늘어 medium node 예산을 다시 잡아야 한다).
+- **통보**: Slack으로 보낸다. Grafana의 Slack contact point(incoming webhook)를 쓰고, webhook URL은 Sealed Secret에 둔다.
+- **관리**: rule과 contact point는 dashboard처럼 레포 파일로 provisioning한다. UI에서 고친 내용은 저장하지 않는다.
+- **자원**: rule 평가가 Grafana에 더해지므로 적용 전후 메모리를 잰다(limit 512 MiB, 7일 최대 418 MiB, #608).
+- **온콜 도구는 쓰지 않는다.** 당번 체계가 없고, Opsgenie는 신규 판매가 끝났으며 2027-04-05에 지원이 끝난다([Atlassian 안내](https://www.atlassian.com/licensing/opsgenie)).
+
+### alert마다 정할 것
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상·조건 | 어떤 지표가 어떤 값을 넘는가 |
+| 지속 시간 | 조건이 얼마 동안 이어져야 보내는가. 잠깐 튀는 값은 거른다 |
+| 통보 채널 | 보낼 Slack 채널 |
+| 중복 억제 | 같은 alert를 다시 보내는 간격과 묶는 label |
+| 복구 통보 | 정상으로 돌아왔을 때 알리는가 |
+| 확인할 곳과 대응 | 받은 사람이 볼 dashboard·로그 쿼리와 대응 절차 |
+
+**임계값.** 돈·HP 정합성 alert는 0건을 넘으면 바로 보낸다(지속 시간 없음). 나머지는 운영 7일 실측(평소 값과 최대)을 본 뒤 구현 티켓에서 정한다. 실측 없이 정한 숫자는 평소에도 울리거나, 장애 때도 울리지 않는다.
+
+**메모리는 컨테이너 기준이다.** 메모리 alert는 컨테이너 working set ÷ limit으로 본다. OOMKilled는 이 값이 limit에 닿을 때 일어난다. JVM heap 사용률은 GC가 정상으로 돌아도 높게 나오므로 alert에 쓰지 않고 dashboard에서만 본다. 평소 비율이 앱마다 다르고 이미 높다(2026-11-03 7일 최대, 앱 6개 모두 85% 이상, #610). "80% 넘으면"처럼 한 숫자로 정하면 지금도 계속 울린다.
+
+### 후보
+
+지금 수집하는 지표로 만들 수 있는 것이다. 지표 이름은 Micrometer 이름이고, Prometheus에서는 `.`이 `_`로 바뀐다.
+
+| 분류 | alert | 지표 | 조건 |
+| --- | --- | --- | --- |
+| 돈·HP 정합성 | 서비스 간 HP 대사 불일치 | `lecture.hp_reconciliation.mismatches`, `appearance.hp_reconciliation.mismatches` | 0 초과 즉시 |
+| 돈·HP 정합성 | 지갑 잔액 대사 불일치·실패 | `hapbang.billing.reconciliation.wallets{result="mismatched"\|"failed"}` | 0 초과 즉시 |
+| 돈·HP 정합성 | 대사가 돌지 않음 | `hapbang.billing.reconciliation.last.success`, `*.hp_reconciliation.runs` | 마지막 성공이 하루 넘게 없음 |
+| 돈·HP 정합성 | HP 작업 DEAD | `lecture.hp_task.dead`, `appearance.hp_task.dead` | 0 초과 즉시 |
+| 앱 상태 | 지표 수집 끊김 | `up` (`kubernetes-pods` job) | 0이 지속 |
+| 앱 상태 | 컨테이너 메모리 | cAdvisor working set ÷ limit | 실측 뒤 |
+| 앱 상태 | 5xx 비율 | Envoy `envoy_http_downstream_rq_xx` (route별) | 실측 뒤 |
+| 앱 상태 | DB 연결 대기·timeout | HikariCP `hikaricp.connections.pending`, `hikaricp.connections.timeout` | 실측 뒤 |
+| 앱 상태 | circuit breaker 열림 | `resilience4j.circuitbreaker.state{state="open"}` | 열린 상태가 지속 |
+| 비동기 | Kafka 소비 lag | Kafka client `records-lag` (topic label 중복 주의, 위 "Dashboard") | 실측 뒤 |
+| 비동기 | 소비 그룹 사라짐 | 같은 지표의 series 부재 | 그룹 수 감소 |
+| 비동기 | 채팅 전달 작업 격리·전달 중지 | `chat.delivery.isolated`, `chat.delivery.paused.state` | 격리 증가, 중지 지속 |
+| 인프라 | node 디스크 | cAdvisor `container_fs_usage_bytes` / `container_fs_limit_bytes` (`/dev/root`) | 실측 뒤 |
+| 인프라 | ERROR 로그 급증 | Loki, JVM dashboard의 ERROR 쿼리 | 실측 뒤 |
+
+지표가 없어 지금은 만들 수 없는 것:
+
+- DLT 적재 건수: 앱 카운터가 필요하다(위 "Dashboard").
+- 채팅 outbox DEAD·적재 대기: outbox 상태 지표가 없다. 전달 작업 격리(`chat.delivery.isolated`)로만 본다.
+- OOMKilled 사유, CrashLoopBackOff, Deployment 가용 replica: kube-state-metrics가 필요하다.
+- PostgreSQL·Kafka·Redis 내부 상태: exporter가 없다.
 
 ## metrics 수집과 저장 — Prometheus vs Mimir
 
