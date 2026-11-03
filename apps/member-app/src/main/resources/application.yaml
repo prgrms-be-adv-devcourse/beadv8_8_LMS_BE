@@ -69,6 +69,11 @@ management:
 hapbang:
   scheduling:
     enabled: true
+  # 회원 탈퇴 기능 스위치 (#593). 지갑·출연·강의의 탈퇴 내부 API(docs/api/internal-withdrawals.md)와 회원 쪽 연결 코드가
+  # 준비되면 켠다. 꺼져 있으면 탈퇴 API는 404이고 꼬인 탈퇴 정리 배치도 돌지 않는다
+  member:
+    withdrawal:
+      enabled: false
   storage:
     s3:
       region: ap-northeast-2
