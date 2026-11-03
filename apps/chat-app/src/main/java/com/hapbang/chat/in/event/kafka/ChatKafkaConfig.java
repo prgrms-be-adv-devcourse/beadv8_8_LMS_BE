@@ -9,9 +9,12 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaConsumerFactoryCustomizer;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
@@ -45,6 +48,8 @@ import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
  * </ul>
  * 소비자마다 {@code hapbang.chat.member-events.enabled}·{@code hapbang.chat.appearance-events.enabled}로 켜고 끈다(없으면 켜짐).
  * Kafka 빈은 기본 후보에서 빼서({@code defaultCandidate = false}) Boot의 기본 Kafka 빈이 물러나지 않게 하고, 이름으로만 쓴다.
+ * 직접 만든 ConsumerFactory·ProducerFactory에도 Boot가 자기 factory에 적용하는 customizer(지표 listener 등)를 적용한다.
+ * 적용하지 않으면 chat의 소비 그룹 lag와 DLT 전송이 Kafka client 지표에 없다(#339).
  */
 @Configuration(proxyBeanMethods = false)
 public class ChatKafkaConfig {
@@ -58,9 +63,15 @@ public class ChatKafkaConfig {
     public static final String APPEARANCE_EVENT_DEAD_LETTER_TEMPLATE = "chatAppearanceEventDeadLetterTemplate";
 
     private final String bootstrapServers;
+    private final ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> consumerFactoryCustomizers;
+    private final ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers;
 
-    public ChatKafkaConfig(@Value("${spring.kafka.bootstrap-servers:localhost:9092}") String bootstrapServers) {
+    public ChatKafkaConfig(@Value("${spring.kafka.bootstrap-servers:localhost:9092}") String bootstrapServers,
+            ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> consumerFactoryCustomizers,
+            ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers) {
         this.bootstrapServers = bootstrapServers;
+        this.consumerFactoryCustomizers = consumerFactoryCustomizers;
+        this.producerFactoryCustomizers = producerFactoryCustomizers;
     }
 
     // 회원 이벤트
@@ -165,7 +176,10 @@ public class ChatKafkaConfig {
                 ConsumerConfig.GROUP_ID_CONFIG, settings.groupId(),
                 ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, ChatKafkaConstants.AUTO_OFFSET_RESET,
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), eventDeserializer(trustedPackage));
+        DefaultKafkaConsumerFactory<String, Object> factory = new DefaultKafkaConsumerFactory<>(props,
+                new StringDeserializer(), eventDeserializer(trustedPackage));
+        consumerFactoryCustomizers.orderedStream().forEach(customizer -> customizer.customize(factory));
+        return factory;
     }
 
     /**
@@ -181,7 +195,10 @@ public class ChatKafkaConfig {
                 ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, (int) settings.deadLetterDeliveryMillis(),
                 ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, (int) settings.deadLetterDeliveryMillis(),
                 ProducerConfig.LINGER_MS_CONFIG, 0);
-        return new DefaultKafkaProducerFactory<>(props, new StringSerializer(), deadLetterValueSerializer());
+        DefaultKafkaProducerFactory<String, Object> factory = new DefaultKafkaProducerFactory<>(props,
+                new StringSerializer(), deadLetterValueSerializer());
+        producerFactoryCustomizers.orderedStream().forEach(customizer -> customizer.customize(factory));
+        return factory;
     }
 
     private static ConcurrentKafkaListenerContainerFactory<String, Object> containerFactory(

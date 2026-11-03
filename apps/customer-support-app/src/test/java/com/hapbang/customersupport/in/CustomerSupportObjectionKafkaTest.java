@@ -20,6 +20,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterEach;
@@ -50,6 +51,9 @@ import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.MeterRegistry;
+
 /**
  * 판단 요청이 {@code customersupport.events.v1}에 key {@code inquiry:<문의 ID>}로 나가고, 강의가 {@code lecture.events.v1}에
  * 보낸 결과·반환 이벤트가 문의에 기록되는지 실제 Kafka로 확인한다 (#279).
@@ -79,6 +83,9 @@ class CustomerSupportObjectionKafkaTest {
 
     @Autowired
     private KafkaAdmin kafkaAdmin;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @Autowired
     private InquiryUseCase inquiryUseCase;
@@ -144,6 +151,23 @@ class CustomerSupportObjectionKafkaTest {
                 .allSatisfy((name, description) -> assertThat(description.partitions()).hasSize(3));
     }
 
+    /** 깨진 강의 이벤트는 재시도 없이 DLT로 가고, 그 전송이 지표에 잡힌다 (#339) */
+    @Test
+    void 읽을_수_없는_강의_이벤트는_DLT로_보내고_전송_지표에_센다() {
+        ProducerRecord<String, byte[]> broken = new ProducerRecord<>(LectureEventTopic.NAME, "order-item:802",
+                "{not json".getBytes(StandardCharsets.UTF_8));
+        broken.headers().add("__TypeId__",
+                LectureObjectionResolvedEvent.class.getName().getBytes(StandardCharsets.UTF_8));
+        try (Producer<String, byte[]> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
+                new StringSerializer(), new ByteArraySerializer())) {
+            producer.send(broken).get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+
+        assertDeadLetterSendCounted();
+    }
+
     /** 강의 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. */
     private void send(long orderItemId, Object event) {
         try (Producer<String, Object> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
@@ -171,5 +195,16 @@ class CustomerSupportObjectionKafkaTest {
     private static String header(ConsumerRecord<String, String> record, String name) {
         Header header = record.headers().lastHeader(name);
         return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
+    }
+
+    /** DLT 전송도 Kafka producer 지표로 센다 (#339). 토픽별 지표는 Micrometer가 60초마다 새로 등록하므로 바로 생기는 client 지표로 본다. */
+    private void assertDeadLetterSendCounted() {
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(meterRegistry
+                .find("kafka.producer.record.send.total").functionCounters())
+                .filteredOn(counter -> String.valueOf(counter.getId().getTag("spring.id"))
+                        .startsWith(CustomerSupportKafkaConfig.DEAD_LETTER_PRODUCER_FACTORY + "."))
+                .extracting(FunctionCounter::count)
+                .isNotEmpty()
+                .allSatisfy(count -> assertThat(count).isGreaterThanOrEqualTo(1)));
     }
 }

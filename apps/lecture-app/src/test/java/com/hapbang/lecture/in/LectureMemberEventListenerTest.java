@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.LongStream;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.kafka.clients.admin.Admin;
@@ -35,10 +36,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
@@ -54,6 +57,9 @@ import com.hapbang.shared.member.event.UserLoggedOutEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * 회원 앱이 {@code member.events.v1}에 보낸 회원 이벤트가 강의 회원 복제본에 반영되는지 실제 Kafka로 검증한다 (#429).
@@ -91,6 +97,12 @@ class LectureMemberEventListenerTest {
 
     @Autowired
     private LectureUserRepository lectureUserRepository;
+
+    @Autowired
+    private KafkaListenerEndpointRegistry listenerRegistry;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @Test
     void 회원_가입_이벤트를_받으면_강의_회원으로_복제한다() {
@@ -187,6 +199,24 @@ class LectureMemberEventListenerTest {
         assertThat(delayUntilDeadLetter(deadLetters.getFirst())).isLessThan(Duration.ofSeconds(1));
     }
 
+    /** DLT 전송도 Kafka producer 지표로 센다 (#339, Grafana Kafka dashboard "DLT 적재") */
+    @Test
+    void DLT로_보내면_DLT_토픽_전송_지표가_오른다() {
+        long userId = 107L;
+
+        sendRaw(userId, "{not json".getBytes(StandardCharsets.UTF_8), UserJoinedEvent.class.getName());
+        awaitDeadLettersOf(userId);
+
+        // 토픽별 지표(kafka.producer.topic.*)는 Micrometer가 60초마다 새로 등록하므로, 바로 생기는 client 지표로 확인한다
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(meterRegistry.find("kafka.producer.record.send.total")
+                .functionCounters())
+                .filteredOn(counter -> String.valueOf(counter.getId().getTag("spring.id"))
+                        .startsWith(LectureKafkaConfig.DEAD_LETTER_PRODUCER_FACTORY + "."))
+                .extracting(FunctionCounter::count)
+                .isNotEmpty()
+                .allSatisfy(count -> assertThat(count).isGreaterThanOrEqualTo(1)));
+    }
+
     @Test
     void 강의_DLT는_partition_3개와_보존_7일로_만든다() throws Exception {
         try (Admin admin = Admin.create(kafkaAdmin.getConfigurationProperties())) {
@@ -199,6 +229,49 @@ class LectureMemberEventListenerTest {
             assertThat(config.get(TopicConfig.RETENTION_MS_CONFIG).value())
                     .isEqualTo(String.valueOf(Duration.ofDays(7).toMillis()));
         }
+    }
+
+    /** 장애·복구 시나리오 "consumer 중단" (#339, kafka.md "장애와 복구") */
+    @Test
+    void 소비를_멈춘_사이_쌓인_회원_이벤트를_재개하면_모두_반영한다() {
+        List<Long> userIds = LongStream.rangeClosed(701L, 705L).boxed().toList();
+        MessageListenerContainer container = memberReplicaContainer();
+
+        container.stop();
+        try {
+            userIds.forEach(id -> send(id, new UserJoinedEvent(user(id, "밀린회원" + id, Role.USER, 0L))));
+            await().during(Duration.ofSeconds(2)).atMost(TIMEOUT)
+                    .untilAsserted(() -> assertThat(lectureUserRepository.findAllById(userIds)).isEmpty());
+        } finally {
+            container.start();
+        }
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(lectureUserRepository.findAllById(userIds)).hasSize(userIds.size()));
+    }
+
+    /** 장애·복구 시나리오 "broker 중단" (#339, kafka.md "장애와 복구") */
+    @Test
+    void broker가_멈췄다_살아나면_그_뒤에_발행한_회원_이벤트를_반영한다() {
+        long beforeId = 711L;
+        long afterId = 712L;
+        send(beforeId, new UserJoinedEvent(user(beforeId, "멈추기전", Role.USER, 0L)));
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(lectureUserRepository.findById(beforeId)).isPresent());
+
+        // 소비자가 broker와의 연결이 끊긴 것을 겪을 만큼 멈춘다
+        KafkaTestcontainersConfig.withBrokerPaused(
+                () -> await().pollDelay(Duration.ofSeconds(8)).atMost(Duration.ofSeconds(9)).until(() -> true));
+
+        send(afterId, new UserJoinedEvent(user(afterId, "살아난뒤", Role.USER, 0L)));
+        await().atMost(Duration.ofSeconds(60))
+                .untilAsserted(() -> assertThat(lectureUserRepository.findById(afterId)).isPresent());
+    }
+
+    private MessageListenerContainer memberReplicaContainer() {
+        return listenerRegistry.getListenerContainers().stream()
+                .filter(container -> LectureKafkaConfig.MEMBER_REPLICA_GROUP.equals(container.getGroupId()))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static UserDto user(long id, String nickname, Role role, long version) {
