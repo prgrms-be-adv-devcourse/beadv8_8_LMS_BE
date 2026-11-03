@@ -59,6 +59,7 @@ public class ChatRoomSupporter {
     private final ChatRoomLogRepository chatRoomLogRepository;
     private final ChatUserRepository chatUserRepository;
     private final ChatValidationService chatValidationService;
+    private final ChatMessageSenders chatMessageSenders;
 
     /**
      * 내 채팅방 목록. 방·참여자·닉네임·마지막 메시지·안 읽은 수를 여러 번 나눠 읽으므로, 그 사이 다른 트랜잭션의 퇴장·재입장·전송이
@@ -242,9 +243,11 @@ public class ChatRoomSupporter {
     }
 
     private Map<Long, ChatMessageResponse> findLastMessages(Long userId, List<Long> chatRoomIds) {
-        return chatMessageRepository.findLastVisible(userId, chatRoomIds).stream()
+        List<ChatMessage> lastMessages = chatMessageRepository.findLastVisible(userId, chatRoomIds);
+        Map<Long, ChatUser> senders = chatMessageSenders.usersOf(lastMessages);
+        return lastMessages.stream()
                 .collect(Collectors.toMap(message -> message.getChatRoom().getId(),
-                        message -> ChatMessageResponse.of(message, userId)));
+                        message -> ChatMessageResponse.of(message, userId, senders)));
     }
 
     private Map<Long, Long> countUnread(Long userId, List<Long> chatRoomIds) {

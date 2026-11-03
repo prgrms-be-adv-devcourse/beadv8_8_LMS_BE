@@ -1,11 +1,13 @@
 package com.hapbang.chat.app.dto;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
 import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
+import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.domain.GroupMemberKickedData;
 import com.hapbang.chat.domain.GroupMemberLeftData;
 import com.hapbang.chat.domain.GroupMembersInvitedData;
@@ -30,6 +32,8 @@ import com.hapbang.chat.domain.NotificationKind;
  * @param groupMemberKicked              단체방 강퇴 안내({@code GROUP_MEMBER_KICKED})의 값. 다른 메시지는 null
  * @param groupMemberLeft                단체방 나가기 안내({@code GROUP_MEMBER_LEFT})의 값. 다른 메시지는 null
  * @param groupRoomClosed                단체방 폐쇄 안내({@code GROUP_ROOM_CLOSED})의 값. 다른 메시지는 null
+ * @param sender                         일반 메시지의 발신자 표시 정보({@link ChatMessageSender}). 시스템 안내·알림은 null. REST 이력·방 목록은
+ *                                       조회 시점의 복제본, 실시간 프레임은 전달 시점의 복제본 값이다
  */
 public record ChatMessageResponse(
         Long messageId,
@@ -48,7 +52,8 @@ public record ChatMessageResponse(
         GroupMembersInvitedData groupMembersInvited,
         GroupMemberKickedData groupMemberKicked,
         GroupMemberLeftData groupMemberLeft,
-        GroupRoomClosedData groupRoomClosed
+        GroupRoomClosedData groupRoomClosed,
+        ChatMessageSender sender
 ) {
     public static ChatMessageResponse from(ChatMessage message) {
         return new ChatMessageResponse(message.getId(), message.getChatRoom().getId(), message.getRoomSequence(),
@@ -56,7 +61,12 @@ public record ChatMessageResponse(
                 message.getNotificationKind(), message.getReferenceId(), message.getParentReferenceId(),
                 message.readAppearanceRequestSent(), message.readAppearanceApplicationSubmitted(),
                 message.readGroupMembersInvited(), message.readGroupMemberKicked(), message.readGroupMemberLeft(),
-                message.readGroupRoomClosed());
+                message.readGroupRoomClosed(), null);
+    }
+
+    /** 발신자 정보를 함께 담은 응답. 일반 메시지가 아니면 발신자 정보는 null이다 */
+    public static ChatMessageResponse from(ChatMessage message, Map<Long, ChatUser> users) {
+        return from(message).withSender(ChatMessageSender.forMessage(message, users));
     }
 
     /** 조회한 회원 기준 응답. 본인이 보낸 메시지에만 전송 ID를 담는다 */
@@ -65,10 +75,22 @@ public record ChatMessageResponse(
         return message.isSentBy(viewerUserId) ? response.withClientMessageId(message.getClientMessageId()) : response;
     }
 
+    /** 조회한 회원 기준 응답에 미리 묶어 읽은 회원 복제본으로 발신자 정보를 담는다 */
+    public static ChatMessageResponse of(ChatMessage message, Long viewerUserId, Map<Long, ChatUser> users) {
+        return of(message, viewerUserId).withSender(ChatMessageSender.forMessage(message, users));
+    }
+
+    public ChatMessageResponse withSender(ChatMessageSender sender) {
+        return new ChatMessageResponse(messageId, chatRoomId, roomSequence, senderUserId, messageType, content, sentAt,
+                clientMessageId, notificationKind, referenceId, parentReferenceId, appearanceRequestSent,
+                appearanceApplicationSubmitted, groupMembersInvited, groupMemberKicked, groupMemberLeft,
+                groupRoomClosed, sender);
+    }
+
     public ChatMessageResponse withClientMessageId(String clientMessageId) {
         return new ChatMessageResponse(messageId, chatRoomId, roomSequence, senderUserId, messageType, content, sentAt,
                 clientMessageId, notificationKind, referenceId, parentReferenceId, appearanceRequestSent,
                 appearanceApplicationSubmitted, groupMembersInvited, groupMemberKicked, groupMemberLeft,
-                groupRoomClosed);
+                groupRoomClosed, sender);
     }
 }

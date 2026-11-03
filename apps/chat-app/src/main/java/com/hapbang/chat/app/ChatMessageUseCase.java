@@ -7,10 +7,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.dto.ChatMessageSender;
 import com.hapbang.chat.app.dto.SentChatMessage;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatMessage;
+import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.domain.ChatNotifyRule;
 import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomMember;
@@ -58,7 +60,8 @@ public class ChatMessageUseCase {
         ChatRoomMember sender = chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, senderId)
                 .filter(ChatRoomMember::isActive)
                 .orElseThrow(() -> new ChatException(ChatErrorCode.NOT_CHAT_ROOM_MEMBER));
-        chatValidationService.validateCanChat(senderId);
+        ChatUser senderUser = chatValidationService.getChattableUser(senderId);
+        ChatMessageSender senderInfo = ChatMessageSender.of(senderId, senderUser);
         if (clientMessageId != null) {
             // 재전송은 같은 참여 안에서만 본다. 재입장 이전 메시지는 재입장 때 전송 ID를 비우지만, 한 번 더 확인한다
             Optional<ChatMessage> resent = chatMessageRepository
@@ -66,7 +69,7 @@ public class ChatMessageUseCase {
                     .filter(message -> sender.canView(message.getRoomSequence()));
             if (resent.isPresent()) {
                 log.info("재전송이라 기존 메시지를 돌려줌 chatRoomId={}, messageId={}", chatRoomId, resent.get().getId());
-                return new SentChatMessage(ChatMessageResponse.from(resent.get()), true,
+                return new SentChatMessage(ChatMessageResponse.from(resent.get()).withSender(senderInfo), true,
                         sender.getParticipationVersion());
             }
         }
@@ -88,7 +91,8 @@ public class ChatMessageUseCase {
                 ChatMessage.text(chatRoom, senderId, content, clientMessageId, now));
         chatDeliveryRecorder.recordMessage(message, chatRoom.getCurrentRecipientSetId(),
                 ChatNotifyRule.RECIPIENTS_EXCEPT_SENDER, now);
-        return new SentChatMessage(ChatMessageResponse.from(message), false, sender.getParticipationVersion());
+        return new SentChatMessage(ChatMessageResponse.from(message).withSender(senderInfo), false,
+                sender.getParticipationVersion());
     }
 
     /**

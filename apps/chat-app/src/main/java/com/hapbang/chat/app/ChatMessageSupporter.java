@@ -2,6 +2,7 @@ package com.hapbang.chat.app;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -11,6 +12,8 @@ import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
+import com.hapbang.chat.domain.ChatMessage;
+import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.domain.ChatRoomMember;
 import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.chat.out.ChatRoomMemberRepository;
@@ -28,6 +31,7 @@ public class ChatMessageSupporter {
     private final ChatMessageRepository chatMessageRepository;
     private final ChatRoomMemberRepository chatRoomMemberRepository;
     private final ChatValidationService chatValidationService;
+    private final ChatMessageSenders chatMessageSenders;
 
     /**
      * 참여자 본인의 조회 범위 안에서 최신순으로 조회한다. cursor는 방 메시지 순번이며, 없으면 가장 최근부터 조회한다.
@@ -45,10 +49,12 @@ public class ChatMessageSupporter {
         chatValidationService.validateCanChat(userId);
 
         long beforeSequence = cursor == null ? Long.MAX_VALUE : cursor;
-        List<ChatMessageResponse> messages = chatMessageRepository
-                .findVisible(chatRoomId, member.getVisibleFromSequence(), beforeSequence, Limit.of(size + 1))
-                .stream()
-                .map(message -> ChatMessageResponse.of(message, userId))
+        List<ChatMessage> found = chatMessageRepository
+                .findVisible(chatRoomId, member.getVisibleFromSequence(), beforeSequence, Limit.of(size + 1));
+        // 발신자 복제본은 페이지마다 한 번에 읽는다. 조회 시점의 닉네임이라 바뀐 닉네임이 지난 메시지에도 보인다
+        Map<Long, ChatUser> senders = chatMessageSenders.usersOf(found);
+        List<ChatMessageResponse> messages = found.stream()
+                .map(message -> ChatMessageResponse.of(message, userId, senders))
                 .toList();
         if (messages.size() <= size) {
             return new ChatMessagePageResponse(messages, null, member.getParticipationVersion(),

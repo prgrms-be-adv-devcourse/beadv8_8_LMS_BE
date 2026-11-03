@@ -9,13 +9,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.dto.ChatMessageSender;
 import com.hapbang.chat.app.dto.SentChatMessage;
 import com.hapbang.chat.app.exception.ChatErrorCode;
 import com.hapbang.chat.app.exception.ChatException;
 import com.hapbang.chat.domain.ChatMessage;
 import com.hapbang.chat.domain.ChatMessageType;
+import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.fixture.ChatUserSeeder;
 import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.IntegrationTest;
 
 @IntegrationTest
@@ -51,6 +54,38 @@ class ChatMessageUseCaseTest {
         // 전달 대상·알림은 저장 트랜잭션에 남긴 outbox가 맡는다(수신자 집합 기록은 ChatDeliveryOutboxRecordTest)
         assertThat(sent.resent()).isFalse();
         assertThat(sent.senderParticipationVersion()).isEqualTo(1);
+        assertThat(sent.message().sender()).isEqualTo(new ChatMessageSender(HOST_ID, "호스트", false));
+    }
+
+    // 발신자 표시 정보는 조회 시점의 복제본이다. 바뀐 닉네임이 지난 메시지에도 보이고, 나간 회원의 메시지도 이름이 남는다
+    @Test
+    void 이력의_일반_메시지는_조회_시점의_발신자_닉네임을_싣고_시스템_안내는_발신자가_없다() {
+        chatMessageUseCase.send(chatRoomId, HOST_ID, "호스트 메시지", null);
+        chatMessageUseCase.send(chatRoomId, GUEST_ID, "게스트 메시지", null);
+        chatUserUseCase.update(userDto(HOST_ID, "바뀐호스트", Role.INFLUENCER, UserStatus.ACTIVE));
+        chatRoomUseCase.leave(chatRoomId, GUEST_ID, null);
+
+        var messages = chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 30).messages();
+
+        assertThat(messages).filteredOn(message -> "호스트 메시지".equals(message.content()))
+                .singleElement().extracting(ChatMessageResponse::sender)
+                .isEqualTo(new ChatMessageSender(HOST_ID, "바뀐호스트", false));
+        assertThat(messages).filteredOn(message -> "게스트 메시지".equals(message.content()))
+                .singleElement().extracting(ChatMessageResponse::sender)
+                .isEqualTo(new ChatMessageSender(GUEST_ID, "게스트", false));
+        assertThat(messages).filteredOn(message -> message.messageType() == ChatMessageType.SYSTEM)
+                .isNotEmpty().allSatisfy(message -> assertThat(message.sender()).isNull());
+    }
+
+    @Test
+    void 탈퇴한_발신자는_탈퇴한_회원_표시와_탈퇴_표시로_싣는다() {
+        chatMessageUseCase.send(chatRoomId, GUEST_ID, "탈퇴 전 메시지", null);
+        chatUserUseCase.update(userDto(GUEST_ID, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.WITHDRAWN));
+
+        assertThat(chatMessageSupporter.getMessages(chatRoomId, HOST_ID, null, 30).messages())
+                .filteredOn(message -> "탈퇴 전 메시지".equals(message.content()))
+                .singleElement().extracting(ChatMessageResponse::sender)
+                .isEqualTo(new ChatMessageSender(GUEST_ID, ChatUser.WITHDRAWN_NICKNAME, true));
     }
 
     @Test

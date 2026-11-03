@@ -41,7 +41,7 @@ public interface RealtimeChatFanout {
   "type": "MESSAGE",
   "roomId": 12,
   "recipientSetVersion": 7,
-  "message": { "messageId": 501, "chatRoomId": 12, "roomSequence": 88, "senderUserId": 3, "messageType": "TEXT", "content": "…", "sentAt": "2026-10-29T10:00:00", "clientMessageId": null, "notificationKind": null, "referenceId": null, "parentReferenceId": null, "appearanceRequestSent": null, "appearanceApplicationSubmitted": null },
+  "message": { "messageId": 501, "chatRoomId": 12, "roomSequence": 88, "senderUserId": 3, "messageType": "TEXT", "content": "…", "sentAt": "2026-10-29T10:00:00", "clientMessageId": null, "notificationKind": null, "referenceId": null, "parentReferenceId": null, "appearanceRequestSent": null, "appearanceApplicationSubmitted": null, "sender": { "userId": 3, "nickname": "호스트", "withdrawn": false } },
   "notifyRule": "RECIPIENTS_EXCEPT_SENDER",
   "senderClientMessageId": "c-123"
 }
@@ -60,7 +60,7 @@ public interface RealtimeChatFanout {
 서버 채널 `chat:activity:v1` ← `RoomActivityFanout`(알림 재료). `RedisRealtimeChatFanout`이 `MessageFanout`에서 만든다.
 
 ```json
-{ "deliveryId": "9b0c…", "roomId": 12, "recipientSetVersion": 7, "roomSequence": 88, "notifyRule": "RECIPIENTS_EXCEPT_SENDER", "senderUserId": 3, "lastMessage": { "messageId": 501, "chatRoomId": 12, "roomSequence": 88, "senderUserId": 3, "messageType": "TEXT", "content": "…", "sentAt": "2026-10-29T10:00:00", "clientMessageId": null, "notificationKind": null, "referenceId": null, "parentReferenceId": null }, "senderClientMessageId": "c-123" }
+{ "deliveryId": "9b0c…", "roomId": 12, "recipientSetVersion": 7, "roomSequence": 88, "notifyRule": "RECIPIENTS_EXCEPT_SENDER", "senderUserId": 3, "lastMessage": { "messageId": 501, "chatRoomId": 12, "roomSequence": 88, "senderUserId": 3, "messageType": "TEXT", "content": "…", "sentAt": "2026-10-29T10:00:00", "clientMessageId": null, "notificationKind": null, "referenceId": null, "parentReferenceId": null, "sender": { "userId": 3, "nickname": "호스트", "withdrawn": false } }, "senderClientMessageId": "c-123" }
 ```
 
 - 보낸 사람의 전송 결과 확인과 방별로 묶은 새 메시지 알림의 재료다. 모든 앱이 늘 구독하므로 보낸 사람이 그 방을 구독하지 않은 앱에서도 결과 확인을 보낼 수 있다.
