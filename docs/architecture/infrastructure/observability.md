@@ -24,7 +24,7 @@
 
 - **지표**: 모듈 앱 6개(member·lecture·appearance·customer-support·billing·chat)가 관리 포트 8082에서 `/actuator/prometheus`를 연다(lecture #521, billing #552, chat #590, 나머지 #528). Prometheus 차트 기본 `kubernetes-pods` job이 pod annotation을 보고 1분마다 수집한다. label은 pod label을 옮긴 `app_kubernetes_io_name`과 `namespace`·`pod`다.
 - **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 형식은 앱 기본 평문 그대로이고 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
-- **dashboard**: Grafana `합방` 폴더에 네 개가 있다(#531, Kafka #597, 아래 "Dashboard").
+- **dashboard**: Grafana `합방` 폴더에 다섯 개가 있다(#531, Kafka #597, 앱 개요 #601, 아래 "Dashboard").
 - 구조화 로그·`traceId`, alert는 아직 없다(#343).
 
 다른 앱이 지표를 열 때는 다음 다섯 가지를 더한다. `micrometer-registry-prometheus`는 루트 `build.gradle.kts`가 모든 앱에 넣는다. lecture-app이 예시다.
@@ -39,13 +39,14 @@
 
 registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한다(member-app은 448 MiB에서 OOMKilled, [k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)). 관리 포트는 Tomcat을 하나 더 띄운다. lecture-app은 로컬에서 RSS 약 +10MB, 스레드 +16이었다(1회 측정, #521).
 
-### Dashboard (#531, #597)
+### Dashboard (#531, #597, #601)
 
 새 component(kube-state-metrics, node-exporter, DB·Kafka exporter)는 띄우지 않고 지금 수집하는 지표만 쓴다. kube-state-metrics는 medium node 메모리 예산 때문에 켜지 않았다.
 
 | dashboard (uid) | 지표 | 내용 |
 | --- | --- | --- |
-| JVM·Spring Boot (`hapbang-jvm`) | 앱 Micrometer, cAdvisor | heap·non-heap·buffer, 컨테이너 메모리와 limit, GC, 스레드·CPU, HTTP(상태별, URI별 평균·최대), HikariCP, 로그 레벨별 건수와 Loki의 ERROR·WARN 로그. 지표를 여는 앱만 앱 목록에 나온다 |
+| 앱 개요 (`hapbang-apps`) | 앱 Micrometer, cAdvisor | 앱별 요약 표(scrape 상태, 가동 시간, heap, 메모리/limit 현재·기간 최대, 요청 수, 5xx 비율, 평균·최대 응답, GC 정지 비율, DB 연결 대기·timeout, ERROR 로그, 열린 circuit breaker)와 앱별 비교 시계열. 앱 이름을 누르면 같은 시간 범위로 `hapbang-jvm`을 연다 |
+| JVM·Spring Boot (`hapbang-jvm`) | 앱 Micrometer, cAdvisor | 한 앱의 heap·non-heap·buffer, 컨테이너 메모리와 limit, GC, 스레드·CPU, HTTP(상태별, URI별 평균·최대), HikariCP, 나가는 HTTP 호출(대상·URI별 요청·응답 시간), circuit breaker 상태·호출 결과·호출 시간과 retry 결과, `@Scheduled` 작업 실행·시간, Spring Data Repository 메서드별 호출, 로그 레벨별 건수와 Loki의 ERROR·WARN 로그. 지표를 여는 앱만 앱 목록에 나온다 |
 | Kubernetes 자원 (`hapbang-kubernetes`) | cAdvisor, kubelet | node CPU·메모리·디스크(`/dev/root`)·네트워크, node별 memory limit 합계, namespace·pod별 CPU·메모리, limit 대비 사용률(현재·기간 최대), 컨테이너 재생성, 최근 시작한 컨테이너 |
 | Gateway (Envoy) (`hapbang-gateway`) | Envoy proxy | HTTPS 요청률, 응답 코드 class, p50·p95·p99 지연, route별 요청률·5xx·p95, upstream 연결 실패·timeout·overflow·reset |
 | Kafka (`hapbang-kafka`) | 앱 Kafka client, Spring Kafka | 소비 그룹·토픽별 lag, 소비 건수, listener 처리 결과(성공·실패, 재시도 포함)·처리 시간, 마지막 poll 뒤 경과 시간, 할당된 partition, rebalance, KafkaTemplate 전송 결과·시간, 토픽별 전송 레코드·오류·재시도 |
@@ -55,6 +56,9 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 - pod 상태(Pending·CrashLoopBackOff), 정확한 재시작 횟수와 종료 사유(OOMKilled), Deployment 가용 replica: kube-state-metrics가 필요하다. "컨테이너 재생성"은 같은 pod 이름의 cAdvisor 컨테이너 ID 수로 센 근사치라 StatefulSet pod 재생성도 센다. 종료 사유는 `kubectl describe pod`로 본다.
 - OOMKilled 이벤트: cAdvisor `container_oom_events_total`은 2026-10-30 lecture-app OOMKilled(#461)를 기록하지 못했다. 대신 "메모리 사용률 / limit (선택 기간 최대, 상위 15)"로 위험을 본다.
 - 앱 HTTP percentile: `http_server_requests_seconds`에 histogram bucket이 없다. p95는 Gateway dashboard에서 route 단위로 본다.
+- 앱 개요의 cAdvisor 지표(메모리/limit, CPU): cAdvisor에는 앱 label이 없어 pod 이름(`<앱>-<replicaset hash>-<5자>`)에서 앱 이름을 꺼낸다. Deployment가 아닌 workload나 이름 규칙이 다른 pod는 잡히지 않는다.
+- circuit breaker 실패율: `resilience4j_circuitbreaker_failure_rate`는 sliding window의 최소 호출 수를 채우기 전에는 -1이라, 호출이 드문 지금(2026-11-03 운영 전부 -1)은 그리지 않는다. 대신 호출 결과(`failed`)와 상태를 본다.
+- 나가는 HTTP 호출: `http_client_requests_seconds` series는 앱이 그 대상을 처음 부른 뒤에 생긴다. pod가 새로 뜬 뒤 호출이 없으면 비어 있다.
 - PostgreSQL·Kafka·Redis 내부 지표: exporter가 없다. 앱 쪽 HikariCP·Kafka client 지표만 있다.
 - Kafka consumer 중단: lag는 consumer client가 보고하는 값이라, consumer가 멈추면 lag가 늘지 않고 series가 사라진다. Kafka dashboard의 "소비 그룹" 수가 줄어드는 것으로 본다. broker 쪽 lag는 exporter가 필요하다.
 - DLT 적재 건수와 미완료 publication 수: 지표가 없다. chat-app 밖의 DLT template은 빈이 아니고 producer factory에 Micrometer listener도 없어 전송이 집계되지 않는다. "listener 처리 실패"는 재시도마다 세므로 DLT 건수가 아니다. 앱 카운터를 더하는 별도 작업이다.
@@ -62,7 +66,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 **수정 방법.** JSON 파일(`k8s/platform/base/dashboards/*.json`)이 원본이다. provider가 `allowUiUpdates: false`라 Grafana UI에서 고친 내용은 저장되지 않는다. UI에서 고친 뒤 Export → Export as JSON으로 내려받아 파일을 바꾸고 PR로 올린다. datasource는 uid(`prometheus`, `loki`)로 적는다. Prometheus datasource의 `timeInterval: 1m`(scrape 주기) 덕분에 `$__rate_interval`은 4분 이상이다.
 
-**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
+**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. client-side `kubectl apply`는 객체 전체를 `last-applied-configuration` annotation에 담고, annotation은 256 KiB(262,144 byte)를 넘을 수 없다. #601 뒤 이 ConfigMap의 JSON은 약 227 KB라 여유가 35 KB쯤이다. dashboard를 더 늘리려면 ConfigMap을 나누거나 `--server-side` 적용으로 바꾼다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
 
 ```bash
 kubectl kustomize k8s/platform/overlays/prod \

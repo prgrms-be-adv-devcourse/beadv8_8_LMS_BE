@@ -19,6 +19,7 @@ components:
 configMapGenerator:
   - name: grafana-dashboards-hapbang
     files:
+      - dashboards/apps.json
       - dashboards/gateway.json
       - dashboards/jvm.json
       - dashboards/kafka.json
