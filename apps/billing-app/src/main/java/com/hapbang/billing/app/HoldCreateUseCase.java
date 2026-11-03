@@ -105,6 +105,9 @@ public class HoldCreateUseCase {
         if (ledgerExists) {
             throw new BillingException(BillingErrorCode.HOLD_STATE_INCONSISTENT);
         }
+        // 탈퇴로 닫힌 지갑에는 새 보류(강의·출연 결제, 환불·환전 신청)를 만들지 않는다(WALLET_CLOSED, #623). 닫기와 같은 지갑 락 아래에서
+        // 확인하므로 둘 중 하나만 이긴다. 닫기 전에 만든 보류의 재요청은 위에서 처음 결과를 돌려준다(이미 생긴 보류를 실패로 알리지 않는다).
+        wallet.requireOpen();
 
         HoldSplit split = HoldSplit.of(holdType, wallet.getRevenueBalanceHp(), wallet.getChargeBalanceHp(), amountHp);
         // 지갑 락을 잡은 뒤에 충전 건을 잠근다(지갑 → 충전 건 순서).

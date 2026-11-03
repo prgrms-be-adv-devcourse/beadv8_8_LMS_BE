@@ -121,7 +121,7 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 | 읽을 수 없는 메시지 | 재시도 없이 바로 DLT로 보낸다 | 값을 고쳐 runbook으로 넣거나 그대로 둔다 | 앱별 "깨진 메시지" 테스트 |
 | broker 디스크 유실 | 이미 완료 처리된 publication은 다시 보내지 않으므로 그 이벤트는 사라진다 | 회원 복제본은 관리자 Backfill로 회원 앱의 현재 정보에 다시 맞춘다(출연·지갑·채팅) | billing 절차는 [`docs/deploy/k8s.md`](../../deploy/k8s.md) "billing-app 회원 이벤트 DLT 복구" |
 
-감시는 Grafana `Kafka` dashboard(`hapbang-kafka`)로 한다. consumer lag, "소비 그룹" 수(줄면 consumer가 멈춘 것), listener 처리 실패, 발행 실패, DLT 적재를 본다. 실패·DLT 값은 pod가 뜬 뒤 누적이라 재배포하면 0부터 다시 센다([관측성](observability.md#dashboard-531-597)).
+감시는 Grafana `Kafka` dashboard(`hapbang-kafka`)로 한다. consumer lag, "소비 그룹" 수(줄면 consumer가 멈춘 것), listener 처리 실패, 발행 실패, DLT 적재를 본다. 실패·DLT 값은 pod가 뜬 뒤 누적이라 재배포하면 0부터 다시 센다([관측성 "Dashboard" 절](observability.md)).
 
 ## DLT 재처리 runbook
 
@@ -167,4 +167,4 @@ DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 
 - 같은 event를 두 번 소비해도 projection과 HP 원장 결과가 한 번 처리한 것과 같다.
 - consumer를 중지했다 재시작하면 lag가 줄어들고 DLT를 선택적으로 재처리할 수 있다.
 - Grafana에서 produce/consume rate, consumer lag, retry, DLT를 볼 수 있다. Kafka도 consumer max lag와 fetch rate 감시를 권장한다([공식 모니터링 문서](https://kafka.apache.org/42/operations/monitoring/)).
-  - Grafana `Kafka` dashboard(`hapbang-kafka`, #597)에서 consume·produce rate, consumer lag, listener 실패(재시도 포함)를, "DLT" 행에서 그룹별 DLT 적재를 본다(#339, [관측성](observability.md#dashboard-531-597)).
+  - Grafana `Kafka` dashboard(`hapbang-kafka`, #597)에서 consume·produce rate, consumer lag, listener 실패(재시도 포함)를, "DLT" 행에서 그룹별 DLT 적재를 본다(#339, [관측성 "Dashboard" 절](observability.md)).

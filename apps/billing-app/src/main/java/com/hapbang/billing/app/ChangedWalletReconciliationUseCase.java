@@ -100,10 +100,24 @@ public class ChangedWalletReconciliationUseCase implements MeterBinder {
         if (failed.isEmpty()) {
             lastSuccessEpochSeconds.set(now.getEpochSecond());
         }
+        checkClosedWallets();
         log.info("잔액 대사 완료 since={}, total={}, matched={}, mismatched={}, retried={}, failed={}", since,
                 result.total(), result.matched(), result.mismatchedWalletIds().size(), retry.size(),
                 result.failedWalletIds().size());
         return result;
+    }
+
+    // 탈퇴로 닫혔는데 쓸 수 있는 HP가 남은 지갑 ID를 warn 로그로 남긴다 (#623, BD-141). 닫힌 뒤 들어온 반환·지급은 환불·환전할 수 없어
+    // 회원이 복구하기 전까지 묶인다. 대사 대상(최근 변경)과 관계없이 전체를 본다. 지표는 수집 때마다 세는 ClosedWalletBalanceMetrics가 낸다.
+    private void checkClosedWallets() {
+        try {
+            List<Long> walletIds = walletRepository.findClosedIdsWithBalance();
+            if (!walletIds.isEmpty()) {
+                log.warn("잔액이 남은 닫힌 지갑 count={}, walletIds={}", walletIds.size(), walletIds);
+            }
+        } catch (RuntimeException e) {
+            log.warn("잔액이 남은 닫힌 지갑을 세지 못했다", e);
+        }
     }
 
     /** 다음 회차로 넘긴 지갑 ID(테스트·진단용) */

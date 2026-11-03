@@ -115,6 +115,14 @@ public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
                                             @Param("includeMissingTask") boolean includeMissingTask,
                                             Pageable pageable);
 
+    /** 회원이 호스트나 게스트로 참여한 출연 중 이 상태들인 수 (탈퇴 막힌 이유, #624) */
+    @Query("""
+            select count(a) from Appearance a
+            where (a.hostId = :userId or a.guestId = :userId) and a.status in :statuses
+            """)
+    long countByParticipantAndStatusIn(@Param("userId") Long userId,
+                                       @Param("statuses") Collection<AppearanceStatus> statuses);
+
     /**
      * 출연의 출처 (모집에서 성립했으면 모집글 ID가 있다). 출연 ID를 함께 담는다: 모집글 ID 하나만 고르면
      * 요청서 출처(모집글 ID null)의 결과 행이 null이 되어 "없음"으로 읽히기 때문이다.

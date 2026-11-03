@@ -37,7 +37,9 @@ public class SecurityConfig {
         http
                 // Gateway가 넘긴 사용자 헤더로 인증한다 (#370, 출연 #395와 같은 방식). 프론트는 access token을
                 // Authorization: Bearer로 보내고, 브라우저가 자동으로 싣는 쿠키로 인증하지 않으므로 CSRF 대상이 아니다.
-                // refresh token 쿠키는 SameSite=Strict라 다른 사이트에서 시작한 요청에 붙지 않는다
+                // refresh token 쿠키는 SameSite=Strict라 다른 사이트에서 시작한 요청에 붙지 않는다.
+                // 탈퇴 회원 복구(/api/v1/members/restore)는 복구 티켓 쿠키로만 본인을 확인하는데, 이 쿠키도 SameSite=Strict다(#633).
+                // 두 쿠키의 SameSite를 Lax·None으로 풀면 쿠키만으로 인증되는 이 API들에 CSRF 방어가 필요하다
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 세션에서 인증 정보를 읽거나 저장하지 않는다. 요청마다 헤더로 새로 만든다
@@ -63,8 +65,9 @@ public class SecurityConfig {
                         .permitAll()
                         // 이메일·비밀번호 가입·로그인 (#499). 로그인 응답은 refresh token 쿠키만 준다
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login").permitAll()
-                        // 탈퇴 회원 복구 (#593). 탈퇴 회원은 토큰이 없어 로그인 때 받은 복구 티켓으로 본인을 확인한다
+                        // 탈퇴 회원 복구·복구 취소 (#593, #633). 탈퇴 회원은 토큰이 없어 로그인 때 받은 복구 티켓 쿠키로 본인을 확인한다
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/restore").permitAll()
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/members/restore").permitAll()
                         // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)
                         .requestMatchers(HttpMethod.GET, "/api/v1/lectures").permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)

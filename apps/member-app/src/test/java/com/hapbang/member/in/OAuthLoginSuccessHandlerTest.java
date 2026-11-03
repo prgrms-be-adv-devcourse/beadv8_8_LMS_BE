@@ -26,7 +26,8 @@ class OAuthLoginSuccessHandlerTest {
 
     MemberFacade memberFacade = mock(MemberFacade.class);
     OAuthLoginSuccessHandler handler = new OAuthLoginSuccessHandler(memberFacade,
-            new RefreshTokenCookies(new RefreshTokenProperties(Duration.ofDays(14), Duration.ofSeconds(10))), "/");
+            new RefreshTokenCookies(new RefreshTokenProperties(Duration.ofDays(14), Duration.ofSeconds(10))),
+            new RestoreTicketCookies(), "/");
 
     @Test
     @DisplayName("구글 로그인에 성공하면 그 회원의 refresh token을 쿠키로 주고 프론트로 보낸다")
@@ -41,6 +42,10 @@ class OAuthLoginSuccessHandlerTest {
         assertThat(response.getHeader(HttpHeaders.SET_COOKIE))
                 .startsWith(RefreshTokenCookies.NAME + "=refresh-value;")
                 .contains("Path=/api/v1/members/auth", "HttpOnly", "Secure", "SameSite=Strict");
+        // 앞사람이 남긴 복구 티켓 쿠키는 지운다 (공용 PC, #633)
+        assertThat(response.getHeaders(HttpHeaders.SET_COOKIE)).anySatisfy(cookie -> assertThat(cookie)
+                .startsWith(RestoreTicketCookies.NAME + "=;")
+                .contains("Max-Age=0", "Path=/api/v1/members/restore"));
         assertThat(response.getRedirectedUrl()).isEqualTo("/");
         // access token은 302 응답에 싣지 않는다 (프론트가 재발급 API로 받는다)
         assertThat(response.getContentAsString()).doesNotContain("access");

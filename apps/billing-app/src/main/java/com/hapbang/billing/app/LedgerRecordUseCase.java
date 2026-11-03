@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hapbang.billing.domain.BalanceBucket;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
 import com.hapbang.billing.domain.LedgerTransactionType;
@@ -26,11 +27,13 @@ import com.hapbang.billing.out.WalletRepository;
 
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 // 원장 기록과 지갑 캐시 잔액 변경을 한 트랜잭션에서 함께 처리하는 Billing 내부 금융 처리 기반이다.
 // 지갑 잔액은 이 UseCase가 저장하는 원장 항목으로만 바뀐다. 금융 거래에서는 지갑을 자동 생성하지 않는다.
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class LedgerRecordUseCase {
 
     static final String LEDGER_IDEMPOTENCY_UNIQUE = "uk_point_ledger_idempotency_key";
@@ -74,8 +77,20 @@ public class LedgerRecordUseCase {
                     .build();
             wallet.applyLedger(ledger);
             ledgerIds.add(save(ledger).getId());
+            warnIfClosedWalletReceives(wallet, entry, operation);
         }
         return new LedgerOperationResult(operation.operationKey(), false, ledgerIds);
+    }
+
+    // 탈퇴로 닫힌 지갑에 쓸 수 있는 HP가 들어오면(보류 반환·지급 받기 등) 알린다 (#623, BD-141). 닫힌 지갑은 환불·환전 신청을 받지 않아
+    // 이 HP는 회원이 복구하기 전까지 묶인다. 막지는 않고(이미 생긴 의무), 운영자가 알 수 있게 warn 로그를 남긴다.
+    private static void warnIfClosedWalletReceives(Wallet wallet, LedgerEntry entry, LedgerOperation operation) {
+        if (wallet.isClosed() && entry.balanceBucket() == BalanceBucket.AVAILABLE && entry.amountHp() > 0) {
+            log.warn("닫힌 지갑에 HP가 들어왔다. 복구 전까지 환불·환전할 수 없다 walletId={}, closedByWithdrawalId={}, "
+                            + "pointType={}, amountHp={}, transactionType={}, operationKey={}", wallet.getId(),
+                    wallet.getClosedByWithdrawalId(), entry.pointType(), entry.amountHp(), operation.transactionType(),
+                    operation.operationKey());
+        }
     }
 
     // 요청의 지갑을 ID 오름차순으로 하나씩 PESSIMISTIC_WRITE로 잠그고 DB의 최신 잔액으로 다시 읽으며, 없는 지갑은 만들지 않고 WALLET_NOT_FOUND로 거절한다.

@@ -84,6 +84,10 @@ public enum BillingErrorCode implements BaseErrorCode {
     // 가입 직후 회원 이벤트가 아직 반영되지 않았을 수 있어 다시 시도할 수 있다
     WALLET_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원 정보가 아직 지갑에 반영되지 않았습니다. 잠시 후 다시 시도해 주세요."),
     WALLET_MEMBER_NOT_ALLOWED(HttpStatus.FORBIDDEN, "회원 상태나 역할 때문에 이 신청을 할 수 없습니다."),
+    // 회원 탈퇴 (#623, docs/api/internal-withdrawals.md 4장). 탈퇴로 닫힌 지갑은 새로 HP가 드나드는 신청을 받지 않는다
+    WALLET_CLOSED(HttpStatus.CONFLICT, "탈퇴한 회원의 지갑이에요."),
+    // 다시 열기를 이미 받은 탈퇴 작업의 늦은 닫기. 지갑을 닫지 않는다
+    WITHDRAWAL_ALREADY_REOPENED(HttpStatus.CONFLICT, "이미 다시 열기를 처리한 탈퇴 작업이라 지갑을 닫을 수 없습니다."),
     // 가상 송금 Mock 은행 API (#288, 로컬·테스트 전용)
     MOCK_PAYOUT_FORBIDDEN(HttpStatus.FORBIDDEN, "가상 송금 API 접근 키가 올바르지 않습니다."),
     MOCK_PAYOUT_INVALID_REQUEST(HttpStatus.BAD_REQUEST, "Idempotency-Key와 지급 요청 ID가 같은 UUID여야 합니다."),

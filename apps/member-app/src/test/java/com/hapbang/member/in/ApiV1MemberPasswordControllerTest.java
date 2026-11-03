@@ -123,13 +123,18 @@ class ApiV1MemberPasswordControllerTest {
     void login() throws Exception {
         String email = signedUp("abcd1234");
 
-        String setCookie = login(email, "abcd1234")
+        List<String> setCookies = login(email, "abcd1234")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.email").value(email))
-                .andReturn().getResponse().getHeader(HttpHeaders.SET_COOKIE);
+                .andReturn().getResponse().getHeaders(HttpHeaders.SET_COOKIE);
+        String setCookie = setCookies.get(0);
 
         assertThat(setCookie).startsWith(RefreshTokenCookies.NAME + "=")
                 .contains("Path=/api/v1/members/auth", "HttpOnly", "Secure", "SameSite=Strict");
+        // 앞사람이 남긴 복구 티켓 쿠키는 지운다 (공용 PC, #633)
+        assertThat(setCookies).anySatisfy(cookie -> assertThat(cookie)
+                .startsWith(RestoreTicketCookies.NAME + "=;")
+                .contains("Max-Age=0", "Path=/api/v1/members/restore"));
         mockMvc.perform(post(REFRESH).cookie(refreshCookie(cookieValue(setCookie))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accessToken").isNotEmpty());

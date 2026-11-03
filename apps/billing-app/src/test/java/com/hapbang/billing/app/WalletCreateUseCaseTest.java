@@ -11,12 +11,14 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.sql.SQLException;
+import java.time.Instant;
 import java.util.Optional;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -24,12 +26,19 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.domain.WalletWithdrawal;
 import com.hapbang.billing.out.WalletRepository;
+import com.hapbang.billing.out.WalletUserLock;
+import com.hapbang.billing.out.WalletWithdrawalRepository;
+import com.hapbang.shared.billing.domain.WithdrawalCloseOutcome;
+import com.hapbang.shared.billing.domain.WithdrawalReopenOutcome;
 
 // 지갑 생성 UseCase의 트랜잭션 순서와 중복 판별을 DB 없이 검증한다.
 class WalletCreateUseCaseTest {
 
     WalletRepository walletRepository = mock(WalletRepository.class);
+    WalletWithdrawalRepository walletWithdrawalRepository = mock(WalletWithdrawalRepository.class);
+    WalletUserLock walletUserLock = mock(WalletUserLock.class);
     PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
     WalletCreateUseCase useCase;
 
@@ -37,7 +46,8 @@ class WalletCreateUseCaseTest {
     @BeforeEach
     void setUp() {
         given(transactionManager.getTransaction(any())).willReturn(new SimpleTransactionStatus());
-        useCase = new WalletCreateUseCase(walletRepository, transactionManager);
+        useCase = new WalletCreateUseCase(walletRepository, walletWithdrawalRepository, walletUserLock,
+                transactionManager);
     }
 
     @Test
@@ -51,18 +61,62 @@ class WalletCreateUseCaseTest {
     }
 
     @Test
+    @DisplayName("회원 락을 기다리는 동안 다른 요청이 지갑을 만들었으면 새로 만들지 않고 그 지갑을 반환한다 (#623)")
+    void createdWhileWaitingForLock() {
+        Wallet existing = Wallet.create(1L);
+        given(walletRepository.findByUserId(1L)).willReturn(Optional.empty(), Optional.of(existing));
+
+        assertThat(useCase.getOrCreate(1L)).isSameAs(existing);
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("회원의 마지막 닫기가 다시 열리지 않았으면 그 탈퇴 작업으로 닫힌 지갑을 만든다 (#623)")
+    void createClosedWallet() {
+        Instant closedAt = Instant.parse("2026-11-01T00:00:00Z");
+        given(walletRepository.findByUserId(1L)).willReturn(Optional.empty());
+        given(walletWithdrawalRepository.findFirstByUserIdAndCloseOutcomeOrderByClosedAtDescWithdrawalIdDesc(1L,
+                WithdrawalCloseOutcome.CLOSED)).willReturn(Optional.of(WalletWithdrawal.closed(77L, 1L, closedAt)));
+        given(walletRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+
+        Wallet wallet = useCase.getOrCreate(1L);
+
+        assertThat(wallet.isClosedBy(77L)).isTrue();
+        assertThat(wallet.getClosedAt()).isEqualTo(closedAt);
+    }
+
+    @Test
+    @DisplayName("회원의 마지막 닫기가 다시 열렸으면 열린 지갑을 만든다 (#623)")
+    void createOpenWalletAfterReopen() {
+        WalletWithdrawal reopened = WalletWithdrawal.closed(77L, 1L, Instant.parse("2026-11-01T00:00:00Z"));
+        reopened.recordReopen(WithdrawalReopenOutcome.REOPENED, Instant.parse("2026-11-02T00:00:00Z"));
+        given(walletRepository.findByUserId(1L)).willReturn(Optional.empty());
+        given(walletWithdrawalRepository.findFirstByUserIdAndCloseOutcomeOrderByClosedAtDescWithdrawalIdDesc(1L,
+                WithdrawalCloseOutcome.CLOSED)).willReturn(Optional.of(reopened));
+        ArgumentCaptor<Wallet> saved = ArgumentCaptor.forClass(Wallet.class);
+        given(walletRepository.save(saved.capture())).willAnswer(invocation -> invocation.getArgument(0));
+
+        useCase.getOrCreate(1L);
+
+        assertThat(saved.getValue().isClosed()).isFalse();
+    }
+
+    @Test
     @DisplayName("회원 ID UNIQUE 제약 위반이면 먼저 만들어진 지갑을 다시 조회해 반환한다")
     void duplicateWallet() {
         Wallet existing = Wallet.create(1L);
-        given(walletRepository.findByUserId(1L)).willReturn(Optional.empty(), Optional.of(existing));
+        given(walletRepository.findByUserId(1L)).willReturn(Optional.empty(), Optional.empty(),
+                Optional.of(existing));
         given(walletRepository.save(any())).willThrow(violation("uk_wallet_user_id"));
 
         assertThat(useCase.getOrCreate(1L)).isSameAs(existing);
 
         // 생성 트랜잭션을 롤백으로 끝낸 뒤에 기존 지갑을 다시 조회한다. 실패한 트랜잭션은 커밋하지 않는다.
-        InOrder order = inOrder(walletRepository, transactionManager);
+        InOrder order = inOrder(walletRepository, transactionManager, walletUserLock);
         order.verify(walletRepository).findByUserId(1L);
         order.verify(transactionManager).getTransaction(any());
+        order.verify(walletUserLock).lock(1L);
+        order.verify(walletRepository).findByUserId(1L);
         order.verify(walletRepository).save(any());
         order.verify(transactionManager).rollback(any());
         order.verify(walletRepository).findByUserId(1L);
@@ -78,7 +132,7 @@ class WalletCreateUseCaseTest {
 
         assertThatThrownBy(() -> useCase.getOrCreate(1L)).isSameAs(exception);
         verify(transactionManager).rollback(any());
-        verify(walletRepository, times(1)).findByUserId(1L);
+        verify(walletRepository, times(2)).findByUserId(1L);
     }
 
     @Test
@@ -89,7 +143,7 @@ class WalletCreateUseCaseTest {
         given(walletRepository.save(any())).willThrow(exception);
 
         assertThatThrownBy(() -> useCase.getOrCreate(1L)).isSameAs(exception);
-        verify(walletRepository, times(1)).findByUserId(1L);
+        verify(walletRepository, times(2)).findByUserId(1L);
     }
 
     @Test
@@ -121,7 +175,7 @@ class WalletCreateUseCaseTest {
 
         assertThatThrownBy(() -> useCase.getOrCreate(1L)).isSameAs(exception);
         verify(transactionManager).rollback(any());
-        verify(walletRepository, times(1)).findByUserId(1L);
+        verify(walletRepository, times(2)).findByUserId(1L);
     }
 
     @Test

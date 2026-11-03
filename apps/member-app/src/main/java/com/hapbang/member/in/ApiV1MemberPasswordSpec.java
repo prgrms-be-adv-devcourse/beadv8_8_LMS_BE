@@ -5,7 +5,9 @@ import org.springframework.http.ResponseEntity;
 import com.hapbang.member.global.response.RsData;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 
 /** 이메일·비밀번호 로그인 API Swagger 명세 (#499). 매핑은 {@link ApiV1MemberPasswordController} */
 @Tag(name = "비밀번호 로그인", description = "이메일·비밀번호 가입, 로그인, 비밀번호 변경")
@@ -23,8 +25,12 @@ public interface ApiV1MemberPasswordSpec {
             description = "로그인 없이 부른다. 맞으면 refresh token 쿠키(REFRESH_TOKEN)를 주고, access token은 재발급 API "
                     + "(POST /api/v1/members/auth/refresh)로 받는다 (구글 로그인과 같다). "
                     + "없는 이메일과 틀린 비밀번호는 모두 401 INVALID_CREDENTIALS. "
-                    + "같은 이메일로 5번 연속 틀리면 15분 동안 429 LOGIN_LOCKED. 정지·탈퇴 회원은 403 LOGIN_NOT_ALLOWED.")
-    ResponseEntity<RsData<MemberMeResponse>> login(PasswordLoginRequest request);
+                    + "같은 이메일로 5번 연속 틀리면 15분 동안 429 LOGIN_LOCKED. 정지·탈퇴 회원은 403 LOGIN_NOT_ALLOWED. "
+                    + "30일 안의 탈퇴 회원(탈퇴 기능이 켜져 있을 때)은 409 WITHDRAWN_RESTORABLE과 restorableUntil을 주고, "
+                    + "복구 티켓은 쿠키(RESTORE_TICKET, HttpOnly, 경로 /api/v1/members/restore, 10분)로 준다. "
+                    + "\"복구할까요?\"에서 복구하면 본문 없이 POST /api/v1/members/restore를 부른다.")
+    ResponseEntity<RsData<MemberMeResponse>> login(PasswordLoginRequest request,
+                                                   @Parameter(hidden = true) HttpServletResponse response);
 
     @Operation(summary = "비밀번호 변경",
             description = "로그인한 회원 본인. 현재 비밀번호가 틀리면 400 INVALID_CURRENT_PASSWORD, "

@@ -59,12 +59,13 @@ public interface ApiV1ChatGroupSpec {
     @Operation(summary = "초대 후보 검색", description = """
             호스트만, 사용 중인 방에서만 쓴다. 모집글에 지원 이력이 있는 회원(대기·수락·미선정·지원 취소 모두) 중
             지금 참여 중이 아닌 회원을 회원 ID 오름차순으로 준다. 나갔거나 내보낸 회원, 초대에 실패한 회원도 다시 나온다.
-            `keyword`는 회원 ID 정확 일치 또는 닉네임 부분 일치다(없으면 모두). 닉네임은 같을 수 있으니 회원 ID로 초대한다.
+            `keyword`는 닉네임 부분 일치다(대소문자 무시, 없으면 모두). 회원 ID로는 찾지 않는다(숫자 검색어도 닉네임으로 찾는다).
+            같은 닉네임이 여럿이면 모두 돌려준다. 응답의 `userId`는 초대 요청에 넣는 키이며 화면에 표시하지 않는다.
             `invitable`이 false면 `reason`(CHAT_NOT_ALLOWED)이 있다. `remainingGuestSlots`는 남은 게스트 자리 수다.
             이때 모집글 제목이 바뀌었으면 방 제목을 맞춘다(안내 없음).
             오류: 403 `NOT_GROUP_HOST`, 404 `CHAT_ROOM_NOT_FOUND`, 409 `GROUP_ROOM_NOT_ACTIVE`, 503 `APPEARANCE_UNAVAILABLE`.""")
     RsData<ChatInviteCandidatePageResponse> getInviteCandidates(Long userId, Long chatRoomId,
-            @Parameter(description = "회원 ID 정확 일치 또는 닉네임 부분 일치. 없으면 모두")
+            @Parameter(description = "닉네임 부분 일치(대소문자 무시). 없으면 모두")
             @Size(max = 50, message = "검색어는 50자 이하여야 합니다.") String keyword,
             @Parameter(description = "이전 응답의 nextCursor(회원 ID). 없으면 처음부터") Long cursor,
             @Parameter(description = "페이지 크기 (기본 20)")

@@ -150,4 +150,9 @@ public class HpTaskSupport {
     public long countByStatus(HpTaskStatus status) {
         return hpTaskRepository.countByStatus(status);
     }
+
+    /** 회원이 보류한 회원(호스트)이거나 받는 회원(게스트)인 작업 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    public long countByParticipant(Long userId, HpTaskStatus status) {
+        return hpTaskRepository.countByParticipantAndStatus(userId, status);
+    }
 }

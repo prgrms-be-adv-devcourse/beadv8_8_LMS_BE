@@ -230,4 +230,19 @@ class AppearanceSwaggerDocsTest {
                 .andExpect(jsonPath(SCHEMAS + "HpReconciliationMismatchResDto.properties.rule.enum")
                         .value(org.hamcrest.Matchers.hasItems("HP_TASK_MISMATCH", "WALLET_ONLY_HOLD", "HP_TASK_DEAD")));
     }
+
+    @Test
+    @DisplayName("탈퇴 확인 내부 API는 RsData로 감싼 회원 공통 막힌 이유 목록이고 내부 키 헤더를 받는다 (#624)")
+    void withdrawalBlocksSchema() throws Exception {
+        String path = "$.paths['/api/v1/internal/appearances/users/{userId}/withdrawal-blocks'].get";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(path + ".responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataWithdrawalBlocksDto"))
+                .andExpect(jsonPath(path + ".parameters[?(@.name == 'X-Internal-Api-Key')].in").value(hasItems("header")))
+                .andExpect(jsonPath(SCHEMAS + "WithdrawalBlocksDto.properties.reasons.items['$ref']")
+                        .value("#/components/schemas/WithdrawalBlockReasonDto"))
+                .andExpect(jsonPath(SCHEMAS + "WithdrawalBlockReasonDto.properties.code").exists())
+                .andExpect(jsonPath(SCHEMAS + "WithdrawalBlockReasonDto.properties.message").exists());
+    }
 }

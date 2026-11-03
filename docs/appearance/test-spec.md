@@ -1559,3 +1559,23 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceBatchScheduleTest` | HP 대사 cron | 매일 04:00:25(KST), 매분 배치 초와 겹치지 않음, 배치 9개 등록, UseCase 호출 |
 | `AppearanceConfigTest` | 기본값 / 유예 음수·범위 ≤ 유예·건수 0·501 | 2h·7d·500 / 앱 기동 실패 |
 | `AppearanceSwaggerDocsTest` | 실행·마지막 결과 | `RsDataHpReconciliationRunResDto`, 어긋난 건 목록·규칙 값 |
+
+## 37. 회원 탈퇴 막힌 이유 조회 (#624)
+
+요청서·모집글·지원·출연은 Facade로 만들고, 만들기 어려운 상태(HP 보류 확인 중, 출연 취소 요청 처리 중, HP 작업 대기·격리)는 SQL로 바꿔 둔다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceWithdrawalInternalApiE2ETest` | 회원 하나에 일곱 조건 모두: 보낸 요청 2, 받은 요청 1, 모집 중 1, 지원 대기 1, 진행 중 출연(호스트 성립·게스트 취소 요청 처리 중·지급 격리된 성립) 3, HP 처리 중(보류 확인 중 요청서·모집글, 반환 작업 대기) 3, 격리된 지급 작업(받는 회원) 1 | 200 `RsData`, 이유 7개를 정해진 순서·문구·건수로, `availableAt` 모두 null |
+| `AppearanceWithdrawalInternalApiE2ETest` | 같은 데이터를 상대 쪽(게스트 5·호스트 4·게스트 1)에서 조회 | 각각 진행 중 출연 / 모집 중 / 받은 요청 하나씩 |
+| `AppearanceWithdrawalInternalApiE2ETest` | 끝난 건만(거절·취소·보류 실패 요청서, 지원 취소, 조기 마감 모집글, 확인된 출연) / 출연 기록 없음 / 복제 회원 없음 | 셋 다 빈 목록 |
+| `AppearanceWithdrawalInternalApiE2ETest` | `userId` 0·-1·숫자 아님 | 400 `INVALID_REQUEST` |
+| `AppearanceWithdrawalInternalApiE2ETest` | 키 없음 / 틀린 키 / 회원 로그인(본인) | 본문 없는 401 / 401 / 401 |
+| `AppearanceWithdrawalBlockTest` | 건수 1,234 / 건수 없는 문구 | 천 단위 쉼표(서버 언어 설정 무관) / 건수와 관계없이 같은 문장 |
+| `AppearanceSwaggerDocsTest` | 탈퇴 확인 스키마 | `RsDataWithdrawalBlocksDto`, 이유 항목 `WithdrawalBlockReasonDto`(code·message), 내부 키 헤더 |
+| `AppearanceApiClientTest` (shared) | 성공 / 빈 목록 | 경로 `/users/{userId}/withdrawal-blocks`·내부 키 헤더, 이유 순서대로, `availableAt` null·빠짐 모두 null / 빈 목록·`isBlocked=false` |
+| `AppearanceApiClientTest` (shared) | `reasons` 없음 / `code` 없음 / `message` 없음 / null 항목 | 호출 불가(`UNAVAILABLE`) |
+| `AppearanceApiClientTest` (shared) | 400 ProblemDetail / 본문 없는 401 / 503 / 연결 거부 | 거절(`REJECTED`, code 담음) / 거절(code null) / 호출 불가 / 호출 불가 |
+
+- 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
+

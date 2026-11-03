@@ -25,6 +25,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -100,6 +101,9 @@ class ChargeIntegrationTest {
     @Autowired
     TransactionTemplate transactionTemplate;
 
+    @Autowired
+    WalletWithdrawalFacade walletWithdrawalFacade;
+
     @AfterEach
     void closeTossCircuit() {
         // 회로는 컨텍스트를 함께 쓰는 다른 테스트에도 남으므로 강제로 연 상태를 되돌린다 (#562)
@@ -115,6 +119,60 @@ class ChargeIntegrationTest {
     @AfterAll
     static void tearDown() {
         TOSS.close();
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 탈퇴로 닫힌 지갑 (#623)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("탈퇴로 닫힌 지갑의 충전 승인은 PG를 부르지 않고 WALLET_CLOSED로 거절하며 주문은 PENDING으로 남는다")
+    void closedWalletConfirmRejectedBeforePg() {
+        Long walletId = wallet(1L);
+        ChargeResult order = order(1L);
+        walletWithdrawalFacade.close(100L, 1L);
+
+        assertBillingError(() -> confirm(1L, order), BillingErrorCode.WALLET_CLOSED);
+
+        assertThat(TOSS.confirmCount()).isZero();
+        assertThat(charge(order.orderId()).get("status")).isEqualTo(PointChargeStatus.PENDING.name());
+        assertThat(walletRepository.findById(walletId).orElseThrow().getChargeBalanceHp()).isZero();
+    }
+
+    @Test
+    @DisplayName("충전 승인 시작과 탈퇴용 닫기가 동시에 와도 둘 중 하나만 이긴다(확인 중인 충전이 남은 채 닫히지 않는다)")
+    void concurrentClaimAndWithdrawalClose() throws Exception {
+        for (long userId = 11L; userId <= 20L; userId++) {
+            long user = userId;
+            Long walletId = wallet(user);
+            ChargeResult order = order(user);
+            CountDownLatch start = new CountDownLatch(1);
+            ExecutorService executor = new DelegatingSecurityContextExecutorService(Executors.newFixedThreadPool(2));
+            try {
+                Future<String> claim = executor.submit(() -> {
+                    awaitLatch(start);
+                    try {
+                        chargeProcessing.claim(user, order.orderId(), AMOUNT, paymentKey(order.orderId()));
+                        return "CLAIMED";
+                    } catch (BillingException exception) {
+                        return exception.getErrorCode().name();
+                    }
+                });
+                Future<String> close = executor.submit(() -> {
+                    awaitLatch(start);
+                    return walletWithdrawalFacade.close(user * 100, user).outcome().name();
+                });
+                start.countDown();
+
+                List<String> results = List.of(claim.get(30, TimeUnit.SECONDS), close.get(30, TimeUnit.SECONDS));
+                assertThat(results).isIn(List.of("CLAIMED", "BLOCKED"), List.of("WALLET_CLOSED", "CLOSED"));
+                assertThat(walletRepository.findById(walletId).orElseThrow().isClosed())
+                        .isEqualTo(results.get(1).equals("CLOSED"));
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+        assertThat(TOSS.confirmCount()).isZero();
     }
 
     // ---------------------------------------------------------------------------------------------

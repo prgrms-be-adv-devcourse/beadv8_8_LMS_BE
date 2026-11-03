@@ -66,6 +66,9 @@ public interface AppearanceApplicationRepository extends JpaRepository<Appearanc
             """)
     List<Long> findAppliedGuestIds(@Param("recruitId") Long recruitId, @Param("guestIds") Collection<Long> guestIds);
 
+    /** 게스트의 지원 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    long countByGuestIdAndStatus(Long guestId, AppearanceApplicationStatus status);
+
     /** 모집글별 지원자 수 (조회 결과 모양) */
     interface RecruitApplicantCount {
 

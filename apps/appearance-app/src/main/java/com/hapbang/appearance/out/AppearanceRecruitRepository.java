@@ -61,4 +61,7 @@ public interface AppearanceRecruitRepository extends JpaRepository<AppearanceRec
     /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 모집글 ID */
     @Query("select r.id from AppearanceRecruit r where r.updatedAt >= :since")
     List<Long> findIdsUpdatedSince(@Param("since") LocalDateTime since);
+
+    /** 호스트가 올린 모집글 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    long countByHostIdAndStatus(Long hostId, AppearanceRecruitStatus status);
 }

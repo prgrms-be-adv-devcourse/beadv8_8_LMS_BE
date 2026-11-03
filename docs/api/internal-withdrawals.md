@@ -58,8 +58,28 @@
 
 | 모듈 | 막을 조건 (안) |
 | --- | --- |
-| 출연 | 호스트·게스트로 진행 중인 출연 요청·출연·모집·지원, 처리 중인 출연 취소 요청·이의 제기, 지급 전 출연료 |
+| 출연 | 확정(#624). 아래 표 |
 | 강의 | 확정(#625, 강의 D75). 아래 표 |
+
+출연 막을 조건 (#624). 회원이 호스트로도 게스트로도 관련될 수 있어 양쪽을 본다. 기준은 탈퇴한 뒤에도 출연 때문에 그 회원 지갑으로 HP가 드나들 일이 남았거나, 상대가 그 회원의 응답을 기다리는 건이 있는지다. 조건마다 건수를 세어 이유 하나를 만들고, 응답 순서는 이 표의 순서다.
+
+| code | 역할 | 조건 | message (N은 천 단위 쉼표) | availableAt |
+| --- | --- | --- | --- | --- |
+| `APPEARANCE_REQUEST_SENT` | 호스트 | 보낸 요청서 응답 대기(`REQUESTED`) | 응답을 기다리는 출연 요청 N건이 있어요. 요청을 취소한 뒤 탈퇴할 수 있어요. | 없음 |
+| `APPEARANCE_REQUEST_RECEIVED` | 게스트 | 받은 요청서에 응답하지 않음(`REQUESTED`) | 받은 출연 요청 N건에 아직 응답하지 않았어요. 요청한 회원이 기다리고 있으니 거절한 뒤 탈퇴할 수 있어요. | 없음 |
+| `APPEARANCE_RECRUITING` | 호스트 | 모집 중인 모집글(`RECRUITING`) | 모집 중인 출연 모집 N건이 있어요. 모집을 마감하거나 취소한 뒤 탈퇴할 수 있어요. | 없음 |
+| `APPEARANCE_APPLICATION_PENDING` | 게스트 | 결과 대기 지원(`APPLIED`) | 결과를 기다리는 출연 지원 N건이 있어요. 호스트가 선정할 수 있으니 지원을 취소한 뒤 탈퇴할 수 있어요. | 없음 |
+| `APPEARANCE_IN_PROGRESS` | 둘 다 | 성립한 출연(`ESTABLISHED`), 출연 취소 요청 처리 중(`CANCEL_REQUESTED`) | 성립된 출연 N건이 진행 중이라 탈퇴할 수 없어요. 출연이 끝나거나 취소된 뒤 탈퇴할 수 있어요. | 없음 |
+| `APPEARANCE_HP_PROCESSING` | 둘 다 | HP 보류 확인 중인 요청서·모집글(`HOLD_PENDING`, 호스트), 처리 중인 HP 작업(반환·위약금·지급 `PENDING`) | 출연 HP를 처리하고 있어요. 잠시 뒤 다시 시도해 주세요. | 없음 |
+| `APPEARANCE_HP_CHECK_REQUIRED` | 둘 다 | 운영자 확인이 필요한 HP 작업(`DEAD`) | 출연 HP 처리에 문제가 있어 확인하고 있어요. 확인이 끝난 뒤 탈퇴할 수 있어요. | 없음 |
+
+- 끝난 건(요청 거절·만료·취소·보류 실패, 모집 마감·취소, 지원 선정·미선정·취소, 출연 확인·불참·취소, HP 작업 완료)은 막지 않는다. 마감한 모집글에서 성립한 출연은 `APPEARANCE_IN_PROGRESS`로 센다.
+- `availableAt`은 주지 않는다(항상 null). 출연 확인 기한(방송 예정 일시 + 7일)이 있지만 지급 지연·취소로 어긋날 수 있어 날짜를 약속하지 않는다.
+- 출연에는 이의 제기 기능이 없다(고객센터 관할).
+- 확인과 지갑 닫기 사이(보통 1초 미만)에 생긴 새 건은 출연이 막지 않는다(알려진 한계). 호스트가 그 사이 올린 요청서·모집글은 보류가 남은 채 지갑이 닫힐 수 있고(지갑은 출연 보류를 보지 않는다, 2장), 게스트가 그 사이 받은 요청을 수락하면 탈퇴 게스트와 출연이 성립한다. 두 경우 모두 나중에 반환·지급된 HP는 닫힌 지갑에 남아 잃지 않고, 지갑의 닫힌 지갑 입금 로그·지표로 찾는다(4장).
+- 오류: 내부 키 없음·틀림 401(본문 없음), `userId`가 1 미만·숫자가 아님 400 `INVALID_REQUEST`.
+- Client: `shared.appearance.out.AppearanceApiClient.getWithdrawalBlocks(long userId)`. 실패는 `AppearanceApiCallException`(4xx `REJECTED`, 5xx·연결 실패·읽을 수 없는 응답 `UNAVAILABLE`)이다.
+- 상세: `docs/appearance/module.md` 26장
 
 강의 막을 조건 (#625, 강의 D75). 판정은 주문 항목 단위이고, 한 항목은 위에서부터 먼저 맞는 이유 하나로만 센다(구매자는 이의 제기가 먼저다). 같은 이유는 건수를 합친다. 응답 순서는 이 표의 순서다.
 
@@ -88,8 +108,23 @@
   - `outcome` `BLOCKED`: 막힌 이유가 있어 닫지 않았다
 - 멱등: 같은 `withdrawalId` + 같은 `userId`면 처음 결과를 `replayed = true`로 돌려준다. 같은 `withdrawalId` + 다른 `userId`면 409 `IDEMPOTENCY_KEY_CONFLICT`.
 - 늦은 닫기 거절: 다시 열기(4.2)를 이미 받은 `withdrawalId`로 닫기가 오면 지갑을 닫지 않고 409 `WITHDRAWAL_ALREADY_REOPENED`로 거절한다. 회원이 결과를 모르는 닫기를 정리(다시 열기)한 뒤, 네트워크에서 늦어진 그 닫기가 도착해 지갑이 닫힌 채 남는 일을 막는다(보류 무효화 뒤 보류를 `HOLD_VOIDED`로 거절하는 것과 같은 방식)
-- 지갑 막을 조건 (안): 충전 HP·수익 HP 잔액, 처리 중인 환불·환전, 복구 대상인 미완료 결제
-- 닫힌 지갑 (안): 충전·보류·환전·환불 신청을 거절한다. 이미 생긴 의무(보류 반환·지급 받기, 결제 복구)는 받는다.
+- 지갑이 아직 없는 회원(가입 이벤트 미반영)은 지갑을 만들지 않고 `CLOSED` 기록만 남긴다. 나중에 지갑을 만들 때 이 기록으로 닫힌 지갑을 만든다(#623, BD-141).
+- 지갑 막을 조건 (#623 확정)
+
+| code | 조건 | message |
+| --- | --- | --- |
+| `BILLING_CHARGE_BALANCE_REMAINING` | 충전 HP 가용 잔액 > 0 | "충전 HP 12,000이 남아 있어요. 환불한 뒤 탈퇴할 수 있어요." |
+| `BILLING_REVENUE_BALANCE_REMAINING` | 수익 HP 가용 잔액 > 0 | "수익 HP 3,000이 남아 있어요. 환전을 신청한 뒤 탈퇴할 수 있어요." |
+| `BILLING_REFUND_IN_PROGRESS` | 환불 REQUESTED·PROCESSING·MANUAL_REVIEW_REQUIRED | "처리 중인 환불이 있어요. 환불이 끝난 뒤 탈퇴할 수 있어요." |
+| `BILLING_EXCHANGE_IN_PROGRESS` | 환전 REQUESTED·APPROVED·PROCESSING·FAILED·UNKNOWN | "처리 중인 환전이 있어요. 송금이 끝난 뒤 탈퇴할 수 있어요." 모두 신청·승인 상태면 `availableAt` = 가장 늦은 정산 예정일 |
+| `BILLING_CHARGE_IN_PROGRESS` | 충전 PROCESSING(PG 승인 결과 확인 중) | "확인 중인 충전이 있어요. 잠시 뒤 다시 시도해 주세요." |
+
+  - 주문만 한 충전(PENDING)은 막지 않는다. 닫힌 뒤 승인하면 PG를 부르기 전에 거절된다.
+  - 출연·강의 보류(보류 HP)는 그 모듈이 적으므로 지갑은 적지 않는다(2장).
+- 닫힌 지갑: 충전 주문, 충전 승인 시작(PG 호출 전), 새 보류(강의·출연 결제, 환불·환전 신청)를 409 `WALLET_CLOSED`로 거절한다. 이미 생긴 의무(닫기 전에 만든 보류의 재요청, 보류 반환·지급 받기·위약금, 결제 복구)는 받는다. 강의·출연이 `WALLET_CLOSED`를 정상 거절로 처리하는 일은 후속 이슈다.
+- 닫힌 지갑에 들어온 HP는 지갑에 남는다. 환불·환전은 회원이 복구(4.2 다시 열기)한 뒤에 할 수 있다. 지갑은 들어올 때 warn 로그를 남기고, 잔액이 남은 닫힌 지갑 수를 지표(`hapbang.billing.wallet.closed.with.balance`, 수집 때마다 셈, 실패하면 NaN)로 낸다(BD-141 (7)). 정상 흐름에서는 출연·강의가 받을 돈이 남은 회원을 3장 조건으로 먼저 막는다.
+- 오류: 같은 `withdrawalId` + 다른 `userId` 409 `IDEMPOTENCY_KEY_CONFLICT`, 다시 열린 `withdrawalId` 409 `WITHDRAWAL_ALREADY_REOPENED`, `userId` 없음 400 `INVALID_REQUEST`, 락 대기 초과 503 `HP_LOCK_TIMEOUT`(처리하지 않음).
+- Client: `shared.billing.out.BillingApiClient.closeForWithdrawal(WithdrawalCloseCommand)` → `WithdrawalCloseResultDto`. 처리 안 됨이 확실하면 `BillingCallException(RETRYABLE)`, 결과 불명이면 `UNKNOWN_RESULT`, 업무 거절은 `BillingCallResult.Failed`.
 
 ### 4.2 `POST /api/v1/internal/billing/withdrawals/{withdrawalId}/reopen`
 
@@ -100,7 +135,9 @@
   - `REOPENED`: 다시 열었다
   - `NOT_CLOSED`: 이 작업으로 닫힌 적이 없다(닫기가 실패했거나 `BLOCKED`였다). 지갑은 바꾸지 않는다
 - 두 결과 모두 다시 열기 기록을 남긴다. 기록이 있는 `withdrawalId`의 닫기는 4.1대로 거절한다
-- 멱등: 같은 `withdrawalId`로 다시 오면 처음 결과를 `replayed = true`로 돌려준다.
+- 멱등: 같은 `withdrawalId`로 다시 오면 처음 결과를 `replayed = true`로 돌려준다. `userId`가 다르면 409 `IDEMPOTENCY_KEY_CONFLICT`.
+- 지갑이 다른 `withdrawalId`로 닫혀 있으면 열지 않는다(`NOT_CLOSED`). 지갑이 없으면 이 작업이 회원의 마지막 `CLOSED` 기록일 때 `REOPENED`다.
+- Client: `BillingApiClient.reopenForWithdrawal(WithdrawalReopenCommand)` → `WithdrawalReopenResultDto`.
 
 ## 5. 실패 처리 (회원)
 
@@ -116,7 +153,5 @@
 
 ## 6. 작업 전 결정할 것
 
-- 지갑: 999 HP 이하 소액 수익 HP(환전 불가)가 남으면 탈퇴가 계속 막힌다 → 포기 동의 후 허용할지
-- 지갑: 지갑이 아직 없는 회원(가입 이벤트 미반영)의 닫기 결과
 - ~~강의: 판매 중 강의는 판매 중지를 필수로 할지 (구매자 시청은 유지)~~ → 막는다. 판매 중지 상태를 새로 두지 않고 강의 삭제로 정리한다(강의 D75, 3장)
-- 각 모듈: 3장·4장의 막을 조건이 빠짐없는지
+- 각 모듈: 3장의 막을 조건이 빠짐없는지 (지갑 4장은 #623에서 확정했다. 환전이 1원 단위라 소액 수익 HP 문제는 없다)

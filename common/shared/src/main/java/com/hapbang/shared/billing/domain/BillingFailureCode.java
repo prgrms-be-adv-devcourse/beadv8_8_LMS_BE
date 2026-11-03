@@ -1,7 +1,7 @@
 package com.hapbang.shared.billing.domain;
 
 /**
- * 지갑 내부 API가 보류·반환·지급·위약금 정산·보류 무효화에서 응답할 수 있는 실패 코드 (D62, D64, #479).
+ * 지갑 내부 API가 보류·반환·지급·위약금 정산·보류 무효화·탈퇴용 지갑 닫기(#623)에서 응답할 수 있는 실패 코드 (D62, D64, #479).
  * 지갑 {@code BillingErrorCode} 전체가 아니라 이 네 호출에서 나올 수 있는 코드만 같은 이름으로 둔다.
  * 지갑 코드와의 대조는 지갑 쪽(#273)이 {@code default} 없는 {@code switch}와 테스트로 고정한다.
  * 실패를 재시도할지·거절로 볼지는 호출한 쪽이 작업 유형별로 정한다(강의 D57).
@@ -38,6 +38,11 @@ public enum BillingFailureCode {
     // 위약금 정산 (출연)
     PENALTY_BASE_EXCEEDS_HELD,
     PENALTY_AMOUNT_ZERO,
+
+    // 회원 탈퇴 (#623). 탈퇴로 닫힌 지갑이라 보류를 만들지 않았다(409)
+    WALLET_CLOSED,
+    // 다시 열기를 이미 받은 탈퇴 작업 ID로 닫기가 왔다(409). 지갑은 닫지 않았다
+    WITHDRAWAL_ALREADY_REOPENED,
 
     // 락 대기 초과(503). 지갑이 처리하지 않고 롤백했으므로 같은 요청을 다시 보내면 된다 (#273)
     HP_LOCK_TIMEOUT,
