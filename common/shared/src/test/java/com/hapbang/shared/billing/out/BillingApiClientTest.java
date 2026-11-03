@@ -47,6 +47,7 @@ import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.micrometer.context.ContextRegistry;
 
 // 지갑 내부 API Client의 요청 모양·응답 해제·실패 분류(D64)를 가짜 HTTP 서버로 확인한다 (#272). 실제 지갑 API는 #273이 확인한다.
 // Circuit Breaker·짧은 Retry·TimeLimiter(#411)도 여기서 확인한다. 재시도 대기는 테스트 시간을 줄이려고 10ms로 둔다.
@@ -387,6 +388,33 @@ class BillingApiClientTest {
                     assertThat(e).hasRootCauseInstanceOf(TimeoutException.class);
                 });
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(900));
+    }
+
+    // 호출은 TimeLimiter 때문에 다른 스레드에서 나간다. 요청 스레드의 trace(Observation) 같은 context가 그 스레드로 넘어가야
+    // 지갑 호출이 같은 trace에 이어진다(#579). 여기서는 tracing 대신 테스트용 ThreadLocal로 전달 여부만 본다
+    @Test
+    void 호출_스레드의_컨텍스트가_HTTP_요청_스레드로_전달된다() {
+        respond(200, "application/json", HOLD_SUCCEEDED);
+        String key = "billing-api-client-test";
+        ThreadLocal<String> context = new ThreadLocal<>();
+        List<String> seen = new CopyOnWriteArrayList<>();
+        ContextRegistry.getInstance().registerThreadLocalAccessor(key, context);
+        try {
+            BillingApiClient client = new BillingApiClient(RestClient.builder().requestInterceptor((request, body,
+                    execution) -> {
+                seen.add(String.valueOf(context.get()));
+                return execution.execute(request, body);
+            }), new BillingClientProperties(baseUrl(), Duration.ofMillis(500), Duration.ofMillis(300),
+                    new BillingClientProperties.Resilience(null, FAST_RETRY, null)), API_KEY);
+            context.set("trace-1");
+
+            client.hold(holdCommand());
+
+            assertThat(seen).containsExactly("trace-1");
+        } finally {
+            context.remove();
+            ContextRegistry.getInstance().removeThreadLocalAccessor(key);
+        }
     }
 
     private static void assertUnknown(Runnable call, int status, String rawCode) {
