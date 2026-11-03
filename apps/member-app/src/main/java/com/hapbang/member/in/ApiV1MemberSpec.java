@@ -75,18 +75,19 @@ public interface ApiV1MemberSpec {
             description = "로그인하지 않고 부른다 (#593). 탈퇴하고 30일 안에 로그인하면 409 WITHDRAWN_RESTORABLE(비밀번호 로그인) 또는 "
                     + "/login?error=WITHDRAWN_RESTORABLE&restorableUntil=…(구글 로그인)을 받고, 두 경우 모두 복구 티켓(10분)은 "
                     + "쿠키 RESTORE_TICKET(HttpOnly, 경로 /api/v1/members/restore)로 받는다. 본문 없이 부르면 브라우저가 쿠키를 붙여 보낸다 "
-                    + "(주소·본문에 티켓을 싣지 않는다, #633). 탈퇴 때 닫은 지갑을 다시 열고 계정을 되살린 뒤, "
-                    + "로그인처럼 refresh token 쿠키와 내 정보를 주고 복구 티켓 쿠키를 지운다. "
+                    + "(주소·본문에 티켓을 싣지 않는다, #633). 탈퇴 때 닫은 지갑을 다시 열고 계정을 되살린 뒤 204를 주고 복구 티켓 쿠키를 지운다. "
+                    + "로그인은 하지 않는다: 프론트는 204를 받으면 로그인을 다시 부른다(비밀번호 로그인 다시 호출 또는 구글 로그인으로 다시 이동). "
+                    + "복구 티켓만으로 로그인까지 되면 공용 PC에 남은 티켓으로 계정을 빼앗을 수 있어서다. "
                     + "쿠키가 없거나 만료되면 401 INVALID_RESTORE_TICKET(다시 로그인), 복구 기한이 지났으면 403 LOGIN_NOT_ALLOWED "
                     + "(두 경우 쿠키를 지운다), 지갑을 열지 못하면 503 RESTORE_UNAVAILABLE(복구하지 않음, 쿠키는 남아 그대로 다시 시도).")
-    ResponseEntity<RsData<MemberMeResponse>> restore(
+    ResponseEntity<Void> restore(
             @Parameter(in = ParameterIn.COOKIE, name = RestoreTicketCookies.NAME, description = "로그인 때 받은 복구 티켓")
             String restoreTicket,
             @Parameter(hidden = true) HttpServletResponse response);
 
     @Operation(summary = "탈퇴 회원 복구 취소",
             description = "로그인하지 않고 부른다 (#633). \"복구할까요?\"에서 복구하지 않으면 부른다. 복구 티켓 쿠키(RESTORE_TICKET)의 "
-                    + "티켓을 지우고 쿠키도 지워, 공용 PC에서 다음 사람이 그 티켓으로 복구·로그인하지 못하게 한다. "
+                    + "티켓을 지우고 쿠키도 지워, 공용 PC에서 다음 사람이 그 티켓으로 원치 않는 복구를 하지 못하게 한다. "
                     + "쿠키가 없거나 티켓이 이미 없어도 204.")
     ResponseEntity<Void> cancelRestore(
             @Parameter(in = ParameterIn.COOKIE, name = RestoreTicketCookies.NAME, description = "로그인 때 받은 복구 티켓")
