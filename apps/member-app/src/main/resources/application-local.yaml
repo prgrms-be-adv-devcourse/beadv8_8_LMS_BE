@@ -24,6 +24,10 @@ hapbang:
   clients:
     appearance:
       base-url: http://localhost:8083
+    lecture:
+      base-url: http://localhost:8084
+    billing:
+      base-url: http://localhost:8082
   # JWT_PRIVATE_KEY가 없으면 시작할 때마다 임시 서명 키를 만든다 (재시작하면 다시 로그인)
   jwt:
     allow-ephemeral-key: true

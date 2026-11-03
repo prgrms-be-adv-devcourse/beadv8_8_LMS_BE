@@ -23,5 +23,8 @@ configMapGenerator:
       - DB_USERNAME=member
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
-      # 받은 출연 리뷰 목록 (#555). 출연 앱 내부 포트, NetworkPolicy는 hapbang.io/internal-api-client 라벨로 이미 허용
+      # 다른 앱 내부 포트. NetworkPolicy는 hapbang.io/internal-api-client 라벨로 이미 허용
+      # 출연: 받은 출연 리뷰 목록(#555)·탈퇴 확인, 강의: 탈퇴 확인, 지갑: 탈퇴 닫기·다시 열기 (#654)
       - APPEARANCE_API_BASE_URL=http://appearance-app:8081
+      - LECTURE_API_BASE_URL=http://lecture-app:8081
+      - BILLING_API_BASE_URL=http://billing-app:8081

@@ -69,11 +69,11 @@ management:
 hapbang:
   scheduling:
     enabled: true
-  # 회원 탈퇴 기능 스위치 (#593). 지갑·출연·강의의 탈퇴 내부 API(docs/api/internal-withdrawals.md)와 회원 쪽 연결 코드가
-  # 준비되면 켠다. 꺼져 있으면 탈퇴 API는 404이고 꼬인 탈퇴 정리 배치도 돌지 않는다
+  # 회원 탈퇴 기능 스위치 (#593, 켬 #654). 켜면 시작할 때 지갑·출연·강의 Client 주소(hapbang.clients.*)와 연결 코드가 있어야 한다.
+  # 꺼져 있으면 탈퇴 API는 404이고 꼬인 탈퇴 정리 배치도 돌지 않는다
   member:
     withdrawal:
-      enabled: false
+      enabled: true
     # Kafka로 보내지 못한 회원 이벤트 재발행 (#421). 매분(member.batch.event-republish-cron) 실패한 기록만, 발행한 지
     # min-age가 지난 것을 batch-size건까지 다시 보낸다. 장애가 길어 밀리면 batch-size를 올린다
     event:
@@ -84,10 +84,14 @@ hapbang:
       region: ap-northeast-2
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
-  # 받은 출연 리뷰 목록은 출연 내부 API로 읽는다 (#555, shared AppearanceApiClient)
+  # 다른 앱 내부 API 주소. 출연은 받은 리뷰 목록(#555)과 탈퇴 확인(#654), 강의는 탈퇴 확인, 지갑은 탈퇴 닫기·다시 열기(#654)
   clients:
     appearance:
       base-url: "${APPEARANCE_API_BASE_URL}"
+    lecture:
+      base-url: "${LECTURE_API_BASE_URL}"
+    billing:
+      base-url: "${BILLING_API_BASE_URL}"
   # 구글 로그인 성공 뒤 보낼 프론트 주소 (#370)
   auth:
     login-success-url: /
