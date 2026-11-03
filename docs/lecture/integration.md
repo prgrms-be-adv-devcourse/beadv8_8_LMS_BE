@@ -152,6 +152,17 @@ public class BillingCallException extends RuntimeException {
 | 필수 값 | 빠진 값·빈 사유는 shared 요청 레코드가 거절해 400 `INVALID_REQUEST`다 |
 | 지급 배치와 경쟁 | 접수와 지급 대상 선점이 같은 항목 행을 바꾸므로 `order_item.version` 낙관적 락으로 직렬화된다. 접수가 먼저 커밋되면 지급 대상에서 빠지고, 지급 선점(`PAYOUT_PENDING`)이 먼저 커밋되면 접수는 `OBJECTION_PERIOD_EXPIRED`다. 지급 작업이 `DEAD`가 되어도 항목은 `PAYOUT_PENDING`이고 접수 기한은 다시 열리지 않는다. 겹친 낙관적 락 충돌은 재시도할 수 있는 실패라 거절로 저장하지 않는다(500, 고객센터가 다시 보낸다) |
 
+#### 강의: 회원 탈퇴 확인 내부 HTTP (회원이 호출, D75, #625)
+
+회원은 탈퇴를 지휘하면서 출연 다음에 shared의 `LectureApiClient.getWithdrawalBlocks`로 강의 내부 HTTP endpoint(`GET /api/v1/internal/lectures/users/{userId}/withdrawal-blocks`)를 부른다. 강의는 읽기만 해서 되돌릴 것이 없다. 계약 문서는 [회원 탈퇴 내부 API](../api/internal-withdrawals.md) 3장이다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 응답 | 회원 공통 DTO `shared.member.dto.WithdrawalBlocksDto`. 이유 코드·문장·`availableAt` 규칙은 D75 |
+| 강의 처리 | 읽기 전용 트랜잭션에서 구매자 집계(`summarizeBuyerWithdrawalBlocks`), 판매자 집계(`summarizeSellerWithdrawalBlocks`, 판매 수익 분류 `EARNING_STATUS` 재사용), 판매 중·검수 대기 강의 수를 읽는다 |
+| 실패 | 회원은 어떤 실패(`LectureApiCallException`)든 탈퇴를 멈추고 503으로 안내한다 |
+| 탈퇴 반영 | 탈퇴가 끝나면 기존 `UserModifiedEvent`로 `LectureUser`가 `WITHDRAWN`이 된다. 이 조회는 이벤트 처리를 바꾸지 않는다 |
+
 #### 서비스 분리 시 (D62)
 
 | 전환 | 바꾸는 것 | 유지하는 것 |
