@@ -2,6 +2,7 @@ package com.hapbang.member.in;
 
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
@@ -17,6 +18,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
+import org.hamcrest.Matcher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +43,8 @@ import com.hapbang.member.out.RestoreTicketStore;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.dto.WithdrawalBlockReasonDto;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
+
+import jakarta.servlet.http.Cookie;
 
 /**
  * 회원 탈퇴·복구 API (#593). 오케스트레이터와 복구 티켓 저장소는 대역으로 두고 응답 모양(204·쿠키 삭제, 409·이유 모음, 503,
@@ -152,45 +156,54 @@ class MemberWithdrawalApiTest {
     }
 
     @Test
-    @DisplayName("복구 티켓으로 복구하면 로그인처럼 refresh token 쿠키와 내 정보를 주고 티켓을 지운다 (로그인 없이 부른다)")
+    @DisplayName("복구 티켓 쿠키로 복구하면 로그인처럼 refresh token 쿠키와 내 정보를 주고 티켓과 티켓 쿠키를 지운다 (로그인·본문 없이 부른다)")
     void restore() throws Exception {
         User user = User.join("tester1@example.com", "tester1");
         ReflectionTestUtils.setField(user, "id", USER_ID);
         given(restoreTicketStore.find("ticket-1")).willReturn(Optional.of(USER_ID));
         given(memberWithdrawalUseCase.restore(USER_ID)).willReturn(user);
 
-        mockMvc.perform(post("/api/v1/members/restore")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"restoreTicket\": \"ticket-1\"}"))
+        mockMvc.perform(post("/api/v1/members/restore").cookie(restoreTicketCookie("ticket-1")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("계정을 복구했습니다."))
                 .andExpect(jsonPath("$.data.id").value(USER_ID))
-                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(RefreshTokenCookies.NAME + "=")))
-                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("HttpOnly")));
+                .andExpect(header().stringValues(HttpHeaders.SET_COOKIE, hasItem(allOf(
+                        startsWith(RefreshTokenCookies.NAME + "="), containsString("HttpOnly")))))
+                .andExpect(header().stringValues(HttpHeaders.SET_COOKIE, hasItem(expiredRestoreTicketCookie())));
         verify(restoreTicketStore).delete("ticket-1");
     }
 
     @Test
-    @DisplayName("복구 티켓이 없거나 만료됐으면 401 INVALID_RESTORE_TICKET")
+    @DisplayName("복구 티켓이 만료됐으면 401 INVALID_RESTORE_TICKET이고 쓸모없는 티켓 쿠키를 지운다")
     void restoreInvalidTicket() throws Exception {
         given(restoreTicketStore.find("expired")).willReturn(Optional.empty());
 
-        mockMvc.perform(post("/api/v1/members/restore")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"restoreTicket\": \"expired\"}"))
+        mockMvc.perform(post("/api/v1/members/restore").cookie(restoreTicketCookie("expired")))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("INVALID_RESTORE_TICKET"));
+                .andExpect(jsonPath("$.code").value("INVALID_RESTORE_TICKET"))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, expiredRestoreTicketCookie()));
     }
 
     @Test
-    @DisplayName("지갑을 열지 못해 복구하지 못하면 503 RESTORE_UNAVAILABLE이고 티켓은 남겨 다시 시도할 수 있다")
+    @DisplayName("복구 기한이 지났으면 403 LOGIN_NOT_ALLOWED이고 다시 시도해도 안 되므로 티켓 쿠키를 지운다")
+    void restoreExpiredPeriod() throws Exception {
+        given(restoreTicketStore.find("ticket-1")).willReturn(Optional.of(USER_ID));
+        willThrow(new MemberException(MemberErrorCode.LOGIN_NOT_ALLOWED)).given(memberWithdrawalUseCase).restore(USER_ID);
+
+        mockMvc.perform(post("/api/v1/members/restore").cookie(restoreTicketCookie("ticket-1")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("LOGIN_NOT_ALLOWED"))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, expiredRestoreTicketCookie()));
+        verify(restoreTicketStore, never()).delete("ticket-1");
+    }
+
+    @Test
+    @DisplayName("지갑을 열지 못해 복구하지 못하면 503 RESTORE_UNAVAILABLE이고 티켓과 쿠키를 남겨 다시 시도할 수 있다")
     void restoreUnavailable() throws Exception {
         given(restoreTicketStore.find("ticket-1")).willReturn(Optional.of(USER_ID));
         willThrow(new MemberException(MemberErrorCode.RESTORE_UNAVAILABLE)).given(memberWithdrawalUseCase).restore(USER_ID);
 
-        mockMvc.perform(post("/api/v1/members/restore")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"restoreTicket\": \"ticket-1\"}"))
+        mockMvc.perform(post("/api/v1/members/restore").cookie(restoreTicketCookie("ticket-1")))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("RESTORE_UNAVAILABLE"))
                 .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
@@ -198,11 +211,22 @@ class MemberWithdrawalApiTest {
     }
 
     @Test
-    @DisplayName("복구 티켓이 비어 있으면 400")
-    void restoreBlankTicket() throws Exception {
+    @DisplayName("복구 티켓 쿠키가 없으면 401 INVALID_RESTORE_TICKET (본문에 티켓을 넣어도 읽지 않는다)")
+    void restoreWithoutCookie() throws Exception {
         mockMvc.perform(post("/api/v1/members/restore")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"restoreTicket\": \"\"}"))
-                .andExpect(status().isBadRequest());
+                        .content("{\"restoreTicket\": \"ticket-1\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_RESTORE_TICKET"));
+        verify(restoreTicketStore, never()).find("ticket-1");
+    }
+
+    private static Cookie restoreTicketCookie(String ticket) {
+        return new Cookie(RestoreTicketCookies.NAME, ticket);
+    }
+
+    private static Matcher<String> expiredRestoreTicketCookie() {
+        return allOf(startsWith(RestoreTicketCookies.NAME + "=;"), containsString("Max-Age=0"),
+                containsString("Path=/api/v1/members/restore"));
     }
 }

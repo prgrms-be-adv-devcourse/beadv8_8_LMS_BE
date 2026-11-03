@@ -36,7 +36,10 @@ public enum MemberErrorCode implements BaseErrorCode {
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."),
     LOGIN_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "로그인에 여러 번 실패했어요. 15분 뒤에 다시 시도해 주세요."),
     LOGIN_NOT_ALLOWED(HttpStatus.FORBIDDEN, "탈퇴했거나 이용할 수 없는 회원입니다."),
-    /** 탈퇴했지만 복구 기한 안 (#593). 응답에 restoreTicket·restorableUntil을 싣고 프론트가 "복구할까요?"를 보여 준다 */
+    /**
+     * 탈퇴했지만 복구 기한 안 (#593). 본문에는 restorableUntil만 싣고 복구 티켓은 쿠키(RESTORE_TICKET)로 준다(#633).
+     * 프론트가 "복구할까요?"를 보여 준다
+     */
     WITHDRAWN_RESTORABLE(HttpStatus.CONFLICT, "탈퇴한 계정이에요. 복구하면 다시 이용할 수 있어요."),
     /** 복구 (#593): 복구 티켓이 없거나 만료됨(10분). 다시 로그인하면 새 티켓을 받는다 */
     INVALID_RESTORE_TICKET(HttpStatus.UNAUTHORIZED, "복구 요청이 만료됐어요. 다시 로그인해 주세요."),

@@ -9,11 +9,14 @@ import org.springframework.http.ResponseEntity;
 import com.hapbang.member.global.response.RsData;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 /** 회원 API Swagger 명세. 매핑은 {@link ApiV1MemberController}. 성공 응답은 RsData의 data에 담는다 */
 @Tag(name = "회원", description = "내 정보, 인플루언서 목록, 회원 프로필")
@@ -70,11 +73,16 @@ public interface ApiV1MemberSpec {
 
     @Operation(summary = "탈퇴 회원 복구",
             description = "로그인하지 않고 부른다 (#593). 탈퇴하고 30일 안에 로그인하면 409 WITHDRAWN_RESTORABLE(비밀번호 로그인) 또는 "
-                    + "/login?error=WITHDRAWN_RESTORABLE&restoreTicket=…(구글 로그인)으로 복구 티켓(10분)을 받는다. "
-                    + "이 티켓으로 부르면 탈퇴 때 닫은 지갑을 다시 열고 계정을 되살린 뒤, 로그인처럼 refresh token 쿠키와 내 정보를 준다. "
-                    + "티켓이 없거나 만료되면 401 INVALID_RESTORE_TICKET(다시 로그인), 지갑을 열지 못하면 503 RESTORE_UNAVAILABLE"
-                    + "(복구하지 않음, 티켓은 남아 그대로 다시 시도), 복구 기한이 지났으면 403 LOGIN_NOT_ALLOWED.")
-    ResponseEntity<RsData<MemberMeResponse>> restore(RestoreRequest request);
+                    + "/login?error=WITHDRAWN_RESTORABLE&restorableUntil=…(구글 로그인)을 받고, 두 경우 모두 복구 티켓(10분)은 "
+                    + "쿠키 RESTORE_TICKET(HttpOnly, 경로 /api/v1/members/restore)로 받는다. 본문 없이 부르면 브라우저가 쿠키를 붙여 보낸다 "
+                    + "(주소·본문에 티켓을 싣지 않는다, #633). 탈퇴 때 닫은 지갑을 다시 열고 계정을 되살린 뒤, "
+                    + "로그인처럼 refresh token 쿠키와 내 정보를 주고 복구 티켓 쿠키를 지운다. "
+                    + "쿠키가 없거나 만료되면 401 INVALID_RESTORE_TICKET(다시 로그인), 복구 기한이 지났으면 403 LOGIN_NOT_ALLOWED "
+                    + "(두 경우 쿠키를 지운다), 지갑을 열지 못하면 503 RESTORE_UNAVAILABLE(복구하지 않음, 쿠키는 남아 그대로 다시 시도).")
+    ResponseEntity<RsData<MemberMeResponse>> restore(
+            @Parameter(in = ParameterIn.COOKIE, name = RestoreTicketCookies.NAME, description = "로그인 때 받은 복구 티켓")
+            String restoreTicket,
+            @Parameter(hidden = true) HttpServletResponse response);
 
     @Operation(summary = "회원 탈퇴",
             description = "로그인한 회원 본인 (#593). 지갑·출연·강의에 탈퇴해도 되는지 확인한 뒤 탈퇴한다. "
