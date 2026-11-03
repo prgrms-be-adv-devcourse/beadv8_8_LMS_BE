@@ -28,7 +28,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 // 충전 승인 흐름의 DB 단계를 각각 짧은 트랜잭션으로 처리한다 (#224). TossPayments 호출은 이 단계들 사이(트랜잭션 밖)에서 한다.
-// - claim: 충전 건만 잠그고(지갑 락 없음) 주문·소유·금액을 확인한 뒤 PENDING → PROCESSING으로 바꾸며 결제키 암호문·HMAC을 남긴다.
+// - claim: 지갑 → 충전 건 순서로 잠그고 주문·소유·금액·지갑 닫힘(#623)을 확인한 뒤 PENDING → PROCESSING으로 바꾸며 결제키 암호문·HMAC을 남긴다.
 // - complete: 지갑 → 충전 건 순서로 잠그고(보류·반환과 같은 순서) 승인 결과를 대조한 뒤 COMPLETED + 충전 원장을 한 트랜잭션에 기록한다.
 // - fail·noteUnresolved: 승인 실패 확정·결과 미확정 사유를 남긴다.
 // 모든 단계는 현재 상태를 다시 읽고 판단하므로 같은 충전 건을 여러 요청·배치가 동시에 처리해도 HP는 한 번만 늘어난다.
@@ -54,6 +54,8 @@ public class ChargeProcessing {
         Long walletId = walletRepository.findByUserId(userId)
                 .map(Wallet::getId)
                 .orElseThrow(() -> new BillingException(BillingErrorCode.WALLET_NOT_FOUND));
+        // 지갑 → 충전 건 락 순서(complete와 같다). 탈퇴용 닫기와 이 락으로 직렬화되어 둘 중 하나만 이긴다 (#623)
+        Wallet wallet = ledgerRecordUseCase.lockWallet(walletId);
         PointCharge charge = pointChargeRepository.findByPgOrderIdForUpdate(orderId)
                 .filter(found -> found.getWalletId().equals(walletId))
                 .orElseThrow(() -> new BillingException(BillingErrorCode.CHARGE_NOT_FOUND));
@@ -71,7 +73,10 @@ public class ChargeProcessing {
         if (charge.getStatus() == PointChargeStatus.PROCESSING) {
             return replayOrConflict(charge, paymentKeyHash, new Claim.Recover(charge.getId()));
         }
-        // PENDING: 같은 결제키가 다른 주문에 쓰였으면 거절한다(최종 방어는 HMAC UNIQUE)
+        // PENDING: 탈퇴로 닫힌 지갑이면 PG를 부르지 않는다(WALLET_CLOSED, #623). 돈이 빠져나가기 전에 막는다.
+        // 이미 승인을 시작한 충전(PROCESSING)·확정된 충전의 재요청은 이미 생긴 의무라 위에서 그대로 처리한다
+        wallet.requireOpen();
+        // 같은 결제키가 다른 주문에 쓰였으면 거절한다(최종 방어는 HMAC UNIQUE)
         if (pointChargeRepository.existsByPgPaymentKeyHash(paymentKeyHash)) {
             throw new BillingException(BillingErrorCode.CHARGE_PAYMENT_KEY_CONFLICT);
         }

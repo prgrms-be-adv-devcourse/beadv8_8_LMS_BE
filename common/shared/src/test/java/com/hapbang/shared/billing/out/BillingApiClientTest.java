@@ -10,6 +10,7 @@ import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -30,6 +31,8 @@ import com.hapbang.shared.billing.domain.BillingSettlementStatus;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
 import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.domain.WithdrawalCloseOutcome;
+import com.hapbang.shared.billing.domain.WithdrawalReopenOutcome;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
@@ -43,7 +46,12 @@ import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalCloseCommand;
+import com.hapbang.shared.billing.dto.WithdrawalCloseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalReopenCommand;
+import com.hapbang.shared.billing.dto.WithdrawalReopenResultDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
+import com.hapbang.shared.member.dto.WithdrawalBlockReasonDto;
 import com.sun.net.httpserver.HttpServer;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -147,6 +155,83 @@ class BillingApiClientTest {
                 "application/json", "{\"userId\":7,\"referenceType\":\"LECTURE_ORDER_ITEM\",\"referenceId\":31}"));
         assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldVoidResultDto(
                 BillingReferenceType.LECTURE_ORDER_ITEM, 31L, HoldVoidOutcome.VOIDED, 0L, false)));
+    }
+
+    @Test
+    void 탈퇴용_지갑_닫기는_탈퇴_작업_경로에_userId_본문으로_보내고_막힌_이유를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"지갑 탈퇴 확인을 마쳤습니다.","data":{
+                  "withdrawalId":55,"outcome":"BLOCKED","replayed":false,"reasons":[
+                    {"code":"BILLING_CHARGE_BALANCE_REMAINING","message":"충전 HP 12,000이 남아 있어요."},
+                    {"code":"BILLING_EXCHANGE_IN_PROGRESS","message":"처리 중인 환전이 있어요.",
+                     "availableAt":"2026-12-10"}]}}""");
+
+        BillingCallResult<WithdrawalCloseResultDto> result = client().closeForWithdrawal(
+                new WithdrawalCloseCommand(55L, 7L));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/withdrawals/55/close",
+                API_KEY, "application/json", "{\"userId\":7}"));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new WithdrawalCloseResultDto(55L,
+                WithdrawalCloseOutcome.BLOCKED, List.of(
+                        WithdrawalBlockReasonDto.of("BILLING_CHARGE_BALANCE_REMAINING", "충전 HP 12,000이 남아 있어요."),
+                        new WithdrawalBlockReasonDto("BILLING_EXCHANGE_IN_PROGRESS", "처리 중인 환전이 있어요.",
+                                LocalDate.of(2026, 12, 10))), false)));
+    }
+
+    @Test
+    void 탈퇴용_지갑_다시_열기는_reopen_경로로_보내고_결과를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"지갑을 다시 열었습니다.","data":{
+                  "withdrawalId":55,"outcome":"REOPENED","replayed":true}}""");
+
+        BillingCallResult<WithdrawalReopenResultDto> result = client().reopenForWithdrawal(
+                new WithdrawalReopenCommand(55L, 7L));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/withdrawals/55/reopen",
+                API_KEY, "application/json", "{\"userId\":7}"));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(
+                new WithdrawalReopenResultDto(55L, WithdrawalReopenOutcome.REOPENED, true)));
+    }
+
+    @Test
+    void 탈퇴용_지갑_닫기의_업무_거절은_Failed이고_새_코드를_바꾼다() {
+        respond(409, "application/problem+json", """
+                {"status":409,"detail":"이미 다시 열기를 처리한 탈퇴 작업이라 지갑을 닫을 수 없습니다.",
+                 "code":"WITHDRAWAL_ALREADY_REOPENED"}""");
+
+        assertThat(client().closeForWithdrawal(new WithdrawalCloseCommand(55L, 7L))).isEqualTo(
+                new BillingCallResult.Failed<>(BillingFailureCode.WITHDRAWAL_ALREADY_REOPENED,
+                        "이미 다시 열기를 처리한 탈퇴 작업이라 지갑을 닫을 수 없습니다.", 409, "WITHDRAWAL_ALREADY_REOPENED"));
+        assertThat(BillingFailureCode.from("WALLET_CLOSED")).isEqualTo(BillingFailureCode.WALLET_CLOSED);
+    }
+
+    @Test
+    void 탈퇴용_지갑_닫기는_연결_거부면_재시도_가능이고_응답이_늦으면_결과_불명이다() throws IOException {
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        assertThatThrownBy(() -> client("http://127.0.0.1:" + closedPort)
+                .closeForWithdrawal(new WithdrawalCloseCommand(55L, 7L)))
+                .isInstanceOfSatisfying(BillingCallException.class,
+                        e -> assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.RETRYABLE));
+
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"withdrawalId":55,"outcome":"CLOSED","reasons":[],
+                  "replayed":false}}""");
+        delayMillis = 1_000L;
+        assertThatThrownBy(() -> client().closeForWithdrawal(new WithdrawalCloseCommand(55L, 7L)))
+                .isInstanceOfSatisfying(BillingCallException.class,
+                        e -> assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.UNKNOWN_RESULT));
+        assertThatThrownBy(() -> client().reopenForWithdrawal(new WithdrawalReopenCommand(55L, 7L)))
+                .isInstanceOfSatisfying(BillingCallException.class,
+                        e -> assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.UNKNOWN_RESULT));
+    }
+
+    @Test
+    void 탈퇴_작업_ID와_회원_ID는_양수여야_한다() {
+        assertThatThrownBy(() -> new WithdrawalCloseCommand(0L, 7L)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new WithdrawalReopenCommand(55L, -1L)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

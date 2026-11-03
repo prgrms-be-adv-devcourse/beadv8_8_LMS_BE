@@ -26,6 +26,13 @@ final class BillingRequests {
         }
     }
 
+    // ID가 양수인지 확인한다 (#623, 탈퇴 작업 ID·회원 ID).
+    static void requirePositiveId(long id, String name) {
+        if (id <= 0) {
+            throw new IllegalArgumentException(name + "는 양수여야 합니다: " + id);
+        }
+    }
+
     // 요청 ID가 있고 형식에 맞는지 확인한다.
     static void requireRequestId(String requestId, String name) {
         if (requestId == null || !REQUEST_ID.matcher(requestId).matches()) {

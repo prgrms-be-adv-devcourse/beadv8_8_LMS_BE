@@ -40,6 +40,10 @@ import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalCloseCommand;
+import com.hapbang.shared.billing.dto.WithdrawalCloseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalReopenCommand;
+import com.hapbang.shared.billing.dto.WithdrawalReopenResultDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
 
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
@@ -73,6 +77,7 @@ public class BillingApiClient {
     static final String PENALTY_SETTLEMENTS_PATH = BASE_PATH + "/penalty-settlements";
     static final String HOLD_VOIDS_PATH = BASE_PATH + "/hold-voids";
     static final String HOLD_QUERY_PATH = HOLDS_PATH + "/query";
+    static final String WITHDRAWALS_PATH = BASE_PATH + "/withdrawals";
 
     /** 408 Request Timeout, 425 Too Early, 429 Too Many Requests */
     private static final Set<Integer> NOT_PROCESSED_STATUSES = Set.of(408, 425, 429);
@@ -103,6 +108,12 @@ public class BillingApiClient {
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Body<HoldStatePageDto>> HOLD_STATE_PAGE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<WithdrawalCloseResultDto>> WITHDRAWAL_CLOSE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<WithdrawalReopenResultDto>> WITHDRAWAL_REOPEN =
             new ParameterizedTypeReference<>() {
             };
     private static final ParameterizedTypeReference<Map<String, Object>> PROBLEM =
@@ -204,6 +215,27 @@ public class BillingApiClient {
      */
     public BillingCallResult<HoldVoidResultDto> voidHold(HoldVoidCommand command) {
         return post(HOLD_VOIDS_PATH, command, HOLD_VOID);
+    }
+
+    /**
+     * 탈퇴용 지갑 확인하고 닫기 (#623, docs/api/internal-withdrawals.md 4.1). 지갑이 한 트랜잭션에서 지갑을 잠그고 막힌 이유를 확인한 뒤,
+     * 이유가 없으면 닫는다({@code CLOSED}), 있으면 닫지 않고 이유를 돌려준다({@code BLOCKED}). 탈퇴 작업 ID가 멱등 키다.
+     * 다시 열기를 이미 받은 탈퇴 작업이면 {@code Failed(WITHDRAWAL_ALREADY_REOPENED)}다
+     */
+    public BillingCallResult<WithdrawalCloseResultDto> closeForWithdrawal(WithdrawalCloseCommand command) {
+        Objects.requireNonNull(command, "요청은 필수입니다.");
+        return post(WITHDRAWALS_PATH + "/" + command.withdrawalId() + "/close", new WithdrawalBody(command.userId()),
+                WITHDRAWAL_CLOSE);
+    }
+
+    /**
+     * 탈퇴용 지갑 다시 열기 (#623, docs/api/internal-withdrawals.md 4.2). 이 탈퇴 작업으로 닫힌 지갑이면 열고({@code REOPENED}),
+     * 아니면 바꾸지 않는다({@code NOT_CLOSED}). 어느 결과든 이 탈퇴 작업의 늦은 닫기는 거절된다. 탈퇴 작업 ID가 멱등 키다
+     */
+    public BillingCallResult<WithdrawalReopenResultDto> reopenForWithdrawal(WithdrawalReopenCommand command) {
+        Objects.requireNonNull(command, "요청은 필수입니다.");
+        return post(WITHDRAWALS_PATH + "/" + command.withdrawalId() + "/reopen", new WithdrawalBody(command.userId()),
+                WITHDRAWAL_REOPEN);
     }
 
     /**
@@ -379,6 +411,10 @@ public class BillingApiClient {
         } catch (RuntimeException unreadable) {
             return Map.of();
         }
+    }
+
+    /** 탈퇴용 지갑 닫기·다시 열기 요청 본문. 탈퇴 작업 ID는 경로로 보낸다 */
+    record WithdrawalBody(long userId) {
     }
 
     /** 지갑 성공 응답(RsData)의 모양. shared는 앱에 의존하지 않아 같은 필드로 읽는다 */

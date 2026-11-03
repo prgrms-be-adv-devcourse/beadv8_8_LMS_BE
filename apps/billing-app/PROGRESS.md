@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-11-03 (#627 사용자 API 회원별 rate limit, #607 변경된 지갑의 잔액 대사 배치, #598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-11-03 (#627 사용자 API 회원별 rate limit, #623 회원 탈퇴용 지갑 닫기·다시 열기 내부 API, #607 변경된 지갑의 잔액 대사 배치, #598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -52,6 +52,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #562 | 나가는 호출 circuit breaker: `out.OutboundCircuitBreakers`(회로 `lecture`·`appearance`·`member`·`toss`, `hapbang.billing.outbound.*`, 지표), 수익 조회 연결 실패 1회 재시도, Backfill 회로, `TossPaymentsClient` 회로(`Unknown`만 실패, 열리면 `Unknown(CIRCUIT_OPEN)`), 충전·환불 신청 503, 결과 확인 배치 `TossCircuitGate`, billing Gradle에 resilience4j 추가(BD-134) | `feature/tkt-562` | (PR 전) | 구현 완료 |
 | #598 | 배치·Backfill 실행 락: `global.scheduling.JobLock`(PostgreSQL session advisory lock, Hikari pool 밖 락 전용 연결 1개, 같은 pod 재진입은 메모리로 차단), 락 번호 `BillingJob` enum(598001~598006), 배치 5개 `run()`을 `runOrSkip`으로 감쌈(쥐고 있음·락 오류면 그 회차 건너뜀), Backfill `AtomicBoolean` → `tryAcquire`(다른 실행 409 `BACKFILL_ALREADY_RUNNING`, 락 오류 503 `BACKFILL_LOCK_UNAVAILABLE`), 지표 `hapbang.billing.job.lock.skipped{job, reason}`, `JobLockTest`·`JobLockPostgresIntegrationTest`·`BillingBatchJobLockTest`(BD-138, module.md L4·L5 해소) | `feature/tkt-598` | #600 | 완료 |
 | #607 | 변경된 지갑의 잔액 대사 배치: `WalletReconciliationBatch`(매일 04:02:45 KST, 실행 락 607001) → `ChangedWalletReconciliationUseCase`(최근 72시간 안에 `wallet.updated_at`·`point_ledger.created_at`이 있는 지갑, 지갑마다 `reconcile`, 고치지 않음, 지갑 오류는 끝에 1회 재시도 후 failed로 세고 다음 회차로 이월), 지표 `hapbang.billing.reconciliation.wallets{result}`·`.last.success`(failed 0일 때만 갱신), Flyway `V202611031800`(`idx_wallet_1`, `idx_point_ledger_5`), BD-139 | `feature/tkt-607` | #611 | 완료 |
+| #623 | 회원 탈퇴용 지갑 확인하고 닫기·다시 열기 내부 API `POST /api/v1/internal/billing/withdrawals/{withdrawalId}/{close,reopen}`(`WalletWithdrawalFacade`·`UseCase`·`Blocks`): 막힌 이유(충전·수익 잔액, 처리 중인 환불·환전, 확인 중인 충전) 없으면 CLOSED·있으면 BLOCKED, 탈퇴 기록 `wallet_withdrawal`과 지갑 닫힘 `wallet.closed_by_withdrawal_id`·`closed_at`(Flyway `V202611032000`), 멱등(replayed, 다른 회원 409), 다시 열기 뒤 늦은 닫기 409 `WITHDRAWAL_ALREADY_REOPENED`, 닫힌 지갑의 충전 주문·충전 승인 시작·새 보류(강의·출연·환불·환전) 409 `WALLET_CLOSED`, 지갑 없는 회원은 기록만 + 회원별 advisory lock(`WalletUserLock`)으로 지갑 생성 때 닫힌 지갑, shared 계약·Client `closeForWithdrawal`·`reopenForWithdrawal`·실패 코드 2개, 닫힌 지갑에 들어온 HP 알림(원장 기록 warn 로그, 수집 때마다 DB에서 세는 지표 `hapbang.billing.wallet.closed.with.balance`(`ClosedWalletBalanceMetrics`, 실패하면 NaN, 부분 인덱스 `idx_wallet_2`), 매일 대사 배치의 지갑 ID warn 로그), `WalletWithdrawalIntegrationTest`(BD-141) | `feature/tkt-623` | (PR 전) | 구현 완료 |
 | #627 | 사용자 API 회원별 rate limit: `global.ratelimit`(`@RateLimited`·`RateLimitedApi` 14개·`RateLimitInterceptor`·`UserRateLimiter`, Resilience4j `RateLimiter` 앱 메모리), 회원 × API마다 분당 신청·취소 10·일반 조회 60·수익 조회 20(`hapbang.billing.rate-limit.*`), 429 `TOO_MANY_REQUESTS`(`GlobalErrorCode`) + `Retry-After`, 지표 `hapbang.billing.rate.limit.rejected{api}`, 의존성 `resilience4j-ratelimiter`, BD-140 | `feature/tkt-627` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
@@ -94,6 +95,8 @@ boundedContext/billing/src/main/java/com/hapbang/billing/
 | app | `LedgerOperation`, `LedgerEntry`, `LedgerOperationResult` | 원장 기록 요청·결과 |
 | app | `WalletReconciliationUseCase`, `WalletReconciliation` | 지갑 캐시 ↔ 원장 합계 대사 |
 | app | `ChangedWalletReconciliationUseCase`, `WalletReconciliationBatch` | 최근 바뀐 지갑의 매일 대사, 결과 지표 (#607) |
+| app | `WalletWithdrawalFacade`, `WalletWithdrawalUseCase`, `WalletWithdrawalBlocks` | 회원 탈퇴용 지갑 확인하고 닫기·다시 열기와 지갑이 적는 막힌 이유 (#623, BD-141) |
+| out | `WalletWithdrawalRepository`, `WalletUserLock` | 탈퇴 기록, 회원별 지갑 생성·닫기 직렬화 advisory lock (#623) |
 | in | `UserJoinedEventListener` | 가입 이벤트로 지갑 생성 (ADMIN 제외) |
 | (삭제) | `LectureSettlementFacade`·`UseCase`·`Result`·`Schedule`, `in.LectureSettlementPortAdapter`, shared `LectureSettlementPort`·`LectureSettlementCommand`·`LectureSettlementResultDto`, `Settlement.scheduledLecture`·`suspend`·`resume`·`cancel`·`isPayableAt` | #142·#182에서 만든 강의 지급 예정 관리 경로. #188에서 없앴다(3.13) |
 | domain | `Settlement` (#142 추가) | `scheduledLecture`(예정 건 생성), `suspend`·`resume`·`cancel`(상태 전이, 같은 상태면 false), `isPayableAt`(SCHEDULED + 예정 시각 경과) |
@@ -679,6 +682,8 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 | 코드 | HTTP | 상황 |
 | --- | --- | --- |
 | `WALLET_NOT_FOUND` | 404 | 거래·대사 대상 지갑 없음 |
+| `WALLET_CLOSED` | 409 | 탈퇴로 닫힌 지갑에 충전 주문·충전 승인 시작·새 보류(환불·환전 신청 포함) (#623) |
+| `WITHDRAWAL_ALREADY_REOPENED` | 409 | 다시 열기를 이미 받은 탈퇴 작업의 닫기 (#623) |
 | `ORIGINAL_LEDGER_NOT_FOUND` | 404 | 역분개 원본 원장 없음 |
 | `INVALID_REVERSAL` | 400 | 역분개 정책 위반 |
 | `INVALID_POINT_AMOUNT` | 400 | 0 HP 줄, 0 이하 이동 금액, 0 이하 보류·부분 반환·부분 지급 금액, 음수 위약금 반환액·지급액, 반환액 + 지급액 long 초과 |
