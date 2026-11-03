@@ -24,3 +24,5 @@ configMapGenerator:
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
       - BILLING_API_BASE_URL=http://billing-app:8081
+      # trace를 Alloy(OTLP gRPC)로 보낸다. Alloy가 Tempo로 넘긴다(#579). service name은 spring.application.name(lecture-app)이다
+      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy.hapbang-platform.svc.cluster.local:4317
