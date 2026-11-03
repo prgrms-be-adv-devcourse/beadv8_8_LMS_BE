@@ -23,8 +23,15 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class PostgresAdvisoryLockSession implements AdvisoryLockSession {
 
+    // JobLock이 모든 호출을 한 모니터로 직렬화하므로, 여기서 기다리는 시간이 곧 다른 배치·Backfill의 대기 시간이다(#598 리뷰).
+    // pg_try_advisory_lock·pg_advisory_unlock은 기다리지 않고 바로 답하므로 상한을 짧게 둔다.
+    // 호출당 최악: 락 시도 = 확인 1 + 연결 3 + 쿼리 3 = 약 7초, 해제 = 확인 1 + 쿼리 3 = 약 4초.
     /** 연결 확인(isValid)을 기다리는 최대 초 */
-    private static final int VALID_TIMEOUT_SECONDS = 2;
+    static final int VALID_TIMEOUT_SECONDS = 1;
+    /** 연결을 맺을 때 기다리는 최대 초 */
+    static final int CONNECT_TIMEOUT_SECONDS = 3;
+    /** 쿼리 응답을 기다리는 최대 초 */
+    static final int SOCKET_TIMEOUT_SECONDS = 3;
 
     private final Opener opener;
     private Connection connection;
@@ -49,10 +56,10 @@ public class PostgresAdvisoryLockSession implements AdvisoryLockSession {
             if (details.getPassword() != null) {
                 properties.setProperty("password", details.getPassword());
             }
-            // pg_stat_activity에서 락 연결을 알아볼 수 있게 한다. 호출이 걸려도 스케줄러가 오래 멈추지 않게 시간 상한을 둔다(초)
+            // pg_stat_activity에서 락 연결을 알아볼 수 있게 한다. 시간 상한은 위 상수(초)다
             properties.setProperty("ApplicationName", "billing-app-job-lock");
-            properties.setProperty("connectTimeout", "3");
-            properties.setProperty("socketTimeout", "10");
+            properties.setProperty("connectTimeout", String.valueOf(CONNECT_TIMEOUT_SECONDS));
+            properties.setProperty("socketTimeout", String.valueOf(SOCKET_TIMEOUT_SECONDS));
             return DriverManager.getConnection(details.getJdbcUrl(), properties);
         });
     }

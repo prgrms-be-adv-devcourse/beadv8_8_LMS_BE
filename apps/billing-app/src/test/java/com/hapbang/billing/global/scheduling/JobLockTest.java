@@ -27,6 +27,16 @@ class JobLockTest {
     }
 
     @Test
+    @DisplayName("락 호출은 한 모니터에서 줄을 서므로 호출당 대기 상한이 짧다(락 시도 약 7초, 해제 약 4초)")
+    void waitUpperBound() {
+        assertThat(PostgresAdvisoryLockSession.VALID_TIMEOUT_SECONDS
+                + PostgresAdvisoryLockSession.CONNECT_TIMEOUT_SECONDS
+                + PostgresAdvisoryLockSession.SOCKET_TIMEOUT_SECONDS).isLessThanOrEqualTo(7);
+        assertThat(PostgresAdvisoryLockSession.VALID_TIMEOUT_SECONDS
+                + PostgresAdvisoryLockSession.SOCKET_TIMEOUT_SECONDS).isLessThanOrEqualTo(4);
+    }
+
+    @Test
     @DisplayName("한 pod가 쥐고 있으면 다른 pod는 잡지 못하고, 풀면 잡는다")
     void otherPodWaitsForRelease() {
         JobLock podA = db.pod();

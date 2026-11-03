@@ -191,7 +191,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 항목 | 내용 |
 | --- | --- |
 | 락 번호 | `global.scheduling.BillingJob` enum의 고정 상수(598001~598006). 바꾸지 않고, 새 작업은 다음 번호를 쓴다 |
-| 락 연결 | Hikari pool 밖의 전용 연결 1개(`ApplicationName=billing-app-job-lock`). 첫 락 시도 때 연결한다. pod당 DB 연결 +1 |
+| 락 연결 | Hikari pool 밖의 전용 연결 1개(`ApplicationName=billing-app-job-lock`). 첫 락 시도 때 연결한다. pod당 DB 연결 +1. 호출은 한 모니터로 직렬화되고, 상한은 연결 확인 1초·연결 3초·쿼리 3초(호출당 최악 락 시도 약 7초, 해제 약 4초) |
 | 같은 pod 안 | advisory lock은 같은 session이면 재진입되므로, 이 pod가 쥔 작업을 메모리로 확인해 막는다 |
 | 다른 실행이 쥠 / 락 오류 | info 로그 / warn 로그. 둘 다 실행하지 않고 `hapbang.billing.job.lock.skipped{job, reason=held\|error}`를 센다 |
 | 락 연결이 끊김 | 그 연결의 락은 PostgreSQL이 푼다. 돌던 작업은 끝까지 두고, 다음 시도 때 다시 연결하며 warn을 남긴다 |
