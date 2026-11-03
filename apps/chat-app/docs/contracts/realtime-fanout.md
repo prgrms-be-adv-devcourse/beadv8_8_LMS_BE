@@ -52,7 +52,7 @@ public interface RealtimeChatFanout {
 | `deliveryId` | outbox의 안정 ID. 재시도·재적재해도 같다 |
 | `recipientSetVersion` | 메시지 저장 때 가리킨 불변 수신자 집합의 방 안 버전(`set_version`). 참여 변경마다 1씩 는다. 받는 앱이 방 참여 캐시를 다시 읽을지 정하는 기준이다. 현재 참여의 버전으로 바꾸지 않는다 |
 | `message` | `clientMessageId`가 null인 공용 `ChatMessageResponse` |
-| `notifyRule` | `NONE`(퇴장·재입장 안내) 또는 `RECIPIENTS_EXCEPT_SENDER`(일반 메시지·출연 알림). outbox에 저장한 규칙(`ChatNotifyRule`)을 그대로 싣는다 |
+| `notifyRule` | `NONE`(퇴장·재입장 안내, 단체방의 초대·강퇴·나가기·폐쇄 안내) 또는 `RECIPIENTS_EXCEPT_SENDER`(일반 메시지·출연 알림). outbox에 저장한 규칙(`ChatNotifyRule`)을 그대로 싣는다 |
 | `senderClientMessageId` | 보낸 사람 세션의 프레임에만 붙일 전송 ID. 메시지 행의 값이며 없으면 null |
 
 - consumer(#418)는 집합 항목을 읽지 않고 집합 헤더의 버전만 읽는다. 메시지나 집합 헤더가 없으면 발행하지 않고 원본 누락(`SOURCE_MISSING`)으로 격리한다. 항목 행은 계속 기록하지만 실시간 경로에서 쓰지 않는다(알림 대상은 Redis 접속 정보, 설계 문서 Q21).

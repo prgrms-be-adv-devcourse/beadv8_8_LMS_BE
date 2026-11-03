@@ -101,7 +101,7 @@ FE 처리: 방 목록과 열어 둔 방의 이력을 자기 확인 위치부터 
 | --- | --- | --- |
 | (없음) `MESSAGE` | `ChatMessageResponse`. 헤더 `participation-version` = 그 구독의 세대. `clientMessageId`는 **보낸 사람 회원의 세션에 쓰는 프레임에만** 싣고 다른 참여자 프레임에는 null이다(R1, Q24) | `messageId` 중복 제거, `roomSequence` 정렬, 아래 "프레임의 참여 세대" 규칙을 따른다. 자기 메시지는 `clientMessageId`로 보내는 중 항목과 맞춘다(내용으로 맞추지 않는다) |
 | `SUBSCRIPTION_REJECTED` | `{type, roomId, reason, currentParticipationVersion?}`. `reason`: `NOT_MEMBER`·`STALE_PARTICIPATION`·`ROOM_NOT_FOUND`·`CHAT_NOT_ALLOWED`·`TOO_MANY_SUBSCRIPTIONS`·`SERVER_BUSY`(서버의 방 채널 수 상한, 설계 문서 Q30. 구독 확인 조회 실패도 이 사유다). `currentParticipationVersion`은 `STALE_PARTICIPATION`일 때만 싣는 선택 필드로 자기 현재 세대다(남의 정보가 아니다) | 서버는 구독을 등록하지 않았다. 연결은 유지된다(Q18). 아래 "거절·회수 사유별 FE 처리" |
-| `SUBSCRIPTION_REVOKED` | `{type, roomId, reason, currentParticipationVersion?}`. `reason`: `LEFT`·`REMOVED`·`STALE_PARTICIPATION`·`ROOM_CLOSED`(`REMOVED`·`ROOM_CLOSED`는 강퇴·폐쇄가 생기면 쓴다). `currentParticipationVersion`은 `STALE_PARTICIPATION`일 때만 싣는다 | 서버가 구독을 지웠다. 바로 UNSUBSCRIBE하고 그 방의 실시간 반영을 멈춘다. 이후 그 구독으로 온 메시지는 적용하지 않는다. 아래 "거절·회수 사유별 FE 처리" |
+| `SUBSCRIPTION_REVOKED` | `{type, roomId, reason, currentParticipationVersion?}`. `reason`: `LEFT`·`REMOVED`·`STALE_PARTICIPATION`·`ROOM_CLOSED`(`REMOVED`는 단체방 강퇴 뒤 쓴다(#584). `ROOM_CLOSED`는 아직 쓰지 않는다: 폐쇄한 단체방은 읽기 전용으로 조회 만료 전까지 구독할 수 있다). `currentParticipationVersion`은 `STALE_PARTICIPATION`일 때만 싣는다 | 서버가 구독을 지웠다. 바로 UNSUBSCRIBE하고 그 방의 실시간 반영을 멈춘다. 이후 그 구독으로 온 메시지는 적용하지 않는다. 아래 "거절·회수 사유별 FE 처리" |
 
 **거절·회수 사유별 FE 처리(FE 합의 내용)**
 
