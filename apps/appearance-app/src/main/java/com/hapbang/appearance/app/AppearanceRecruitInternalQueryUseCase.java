@@ -23,6 +23,8 @@ import lombok.RequiredArgsConstructor;
  *     방을 만들 수 있는지는 채팅이 판단한다.</li>
  *     <li>지원 이력은 지원 상태(지원·수락·미선정·지원 취소)와 관계없이 센다. 같은 게스트는 같은 모집글에 다시 지원할 수 없어
  *     (유니크 제약) 회원마다 한 번만 나온다.</li>
+ *     <li>이름: API는 채팅 쪽 말로 회원 ID({@code userId})라 하고, 출연 안(Support·Repository)은 지원의 게스트 ID({@code guestId})라 한다.
+ *     지원자의 회원 ID가 곧 그 지원의 게스트 ID다.</li>
  *     <li>회원 복제를 확인하지 않는다. 탈퇴·정지 회원도 지원 이력이 있으면 나온다 (채팅 자격은 채팅이 본다).</li>
  * </ul>
  */
@@ -65,12 +67,12 @@ public class AppearanceRecruitInternalQueryUseCase {
         appearanceRecruitSupport.getById(validRecruitId);
 
         // 한 건 더 읽어 다음 페이지가 있는지 안다
-        List<Long> found = appearanceApplicationSupport.findApplicantIdsAfter(validRecruitId,
+        List<Long> guestIds = appearanceApplicationSupport.findGuestIdsAfter(validRecruitId,
                 afterUserId == null ? 0L : afterUserId, pageSize + 1);
-        if (found.size() <= pageSize) {
-            return new AppearanceRecruitApplicantIdsResDto(found, null);
+        if (guestIds.size() <= pageSize) {
+            return new AppearanceRecruitApplicantIdsResDto(guestIds, null);
         }
-        List<Long> page = List.copyOf(found.subList(0, pageSize));
+        List<Long> page = List.copyOf(guestIds.subList(0, pageSize));
         return new AppearanceRecruitApplicantIdsResDto(page, page.getLast());
     }
 
@@ -87,16 +89,16 @@ public class AppearanceRecruitInternalQueryUseCase {
             throw new AppearanceException(AppearanceErrorCode.INVALID_REQUEST,
                     "userIds는 1개 이상 " + MAX_CHECK_USER_COUNT + "개 이하여야 합니다.");
         }
-        Set<Long> distinct = new LinkedHashSet<>();
+        Set<Long> candidateGuestIds = new LinkedHashSet<>();
         for (Long userId : userIds) {
             if (userId == null || userId < 1) {
                 throw new AppearanceException(AppearanceErrorCode.INVALID_REQUEST, "userIds는 1 이상이어야 합니다.");
             }
-            distinct.add(userId);
+            candidateGuestIds.add(userId);
         }
         appearanceRecruitSupport.getById(validRecruitId);
         return new AppearanceRecruitAppliedUserIdsResDto(
-                appearanceApplicationSupport.findAppliedGuestIds(validRecruitId, distinct));
+                appearanceApplicationSupport.findAppliedGuestIds(validRecruitId, candidateGuestIds));
     }
 
     private static Long validRecruitId(Long recruitId) {

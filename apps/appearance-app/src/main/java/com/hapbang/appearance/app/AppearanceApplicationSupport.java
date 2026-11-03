@@ -51,8 +51,8 @@ public class AppearanceApplicationSupport {
         return appearanceApplicationRepository.existsByRecruitIdAndGuestId(recruitId, guestId);
     }
 
-    /** 이 모집글에 지원한 적이 있는 게스트 ID, 오름차순 키셋 (#586). {@code afterGuestId}보다 큰 것부터 최대 {@code limit}개 */
-    public List<Long> findApplicantIdsAfter(Long recruitId, long afterGuestId, int limit) {
+    /** 이 모집글에 지원한 적이 있는 게스트 ID, 오름차순 키셋 (#586, 채팅 API에서는 지원자 회원 ID). {@code afterGuestId}보다 큰 것부터 최대 {@code limit}개 */
+    public List<Long> findGuestIdsAfter(Long recruitId, long afterGuestId, int limit) {
         return appearanceApplicationRepository.findGuestIdsAfter(recruitId, afterGuestId, Limit.of(limit));
     }
 

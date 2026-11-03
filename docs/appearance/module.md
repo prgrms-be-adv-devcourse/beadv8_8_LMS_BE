@@ -1444,7 +1444,7 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 | in | `ApiV1AppearanceRecruitInternalController` / `ApiV1AppearanceRecruitInternalSpec` | 내부 API 매핑·Swagger |
 | app | `AppearanceRecruitInternalFacade` | 내부 역할 검사, 읽기 전용 트랜잭션 |
 | app | `AppearanceRecruitInternalQueryUseCase` | 값 검증, 모집글 확인, 키셋 페이지 |
-| app | `AppearanceApplicationSupport` (기존) | 지원자 ID 키셋·지원 이력 조회 추가 |
+| app | `AppearanceApplicationSupport` (기존) | `findGuestIdsAfter`(키셋)·`findAppliedGuestIds`(지원 이력) 추가. 출연 안에서는 지원의 게스트 ID(`guestId`)라 하고 API에서는 회원 ID(`userId`)라 한다 |
 | out | `AppearanceApplicationRepository` (기존) | `findGuestIdsAfter`, `findAppliedGuestIds` |
 | app/dto | `AppearanceRecruitInternalResDto`, `AppearanceRecruitApplicantIdsResDto`, `AppearanceRecruitAppliedUserIdsResDto` | 응답 (출연 앱 안, shared 계약 없음) |
 
