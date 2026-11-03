@@ -5,7 +5,9 @@ import java.time.Instant;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.billing.global.scheduling.BillingJob;
 import com.hapbang.billing.global.scheduling.ConditionalOnSchedulingEnabled;
+import com.hapbang.billing.global.scheduling.JobLock;
 
 import lombok.RequiredArgsConstructor;
 
@@ -16,9 +18,11 @@ import lombok.RequiredArgsConstructor;
 class ChargeRecoveryBatch {
 
     private final ChargeRecoveryUseCase chargeRecoveryUseCase;
+    private final JobLock jobLock;
 
     @Scheduled(cron = "${hapbang.billing.charge.recovery-cron:0 */5 * * * *}", zone = "Asia/Seoul")
     void run() {
-        chargeRecoveryUseCase.recoverStale(Instant.now());
+        // 배포 중 두 pod가 겹쳐도 한 곳만 실행한다. 락을 잡지 못하면 이번 회차를 건너뛴다(#598)
+        jobLock.runOrSkip(BillingJob.CHARGE_RECOVERY, () -> chargeRecoveryUseCase.recoverStale(Instant.now()));
     }
 }

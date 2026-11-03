@@ -301,5 +301,6 @@ Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적�
     - 이벤트 리스너·배치처럼 로그인 정보 없이 호출하는 경로는 `@PreAuthorize`가 없는 별도 Facade 메서드를 쓴다 (예: `WalletFacade.getOrCreateWallet`).
     - `@PreAuthorize` 거절은 `BillingErrorCode`가 아니라 global `GlobalExceptionHandler`가 응답한다. 로그인했으면 403 `FORBIDDEN`, 비로그인이면 401 `UNAUTHORIZED`다 (루트 AGENTS.md 7장 "오류 응답", #71).
 - **성공 응답**: 컨트롤러는 루트 AGENTS.md 7장 "성공 응답 (RsData)"대로 `RsData`로 감싸 반환한다. Facade·UseCase는 응답 형식을 모르고 DTO·도메인 결과만 돌려준다(예: `ApiV1WalletController`가 `WalletResponse`를 `RsData.ok`로 감싼다). 오류는 `ProblemDetail` 그대로다.
+- **배치 실행 락 (#598, BD-138)**: `@Scheduled` 배치는 `run()`에서 `JobLock.runOrSkip(BillingJob.X, ...)`으로 감싸 배포 중 겹친 pod에서 한 곳만 실행한다(PostgreSQL advisory lock, 잡지 못하면 그 회차를 건너뜀). 동시에 한 번만 돌아야 하는 관리자 작업은 `tryAcquire`를 쓴다(Backfill: 다른 실행 중 409, 락 오류 503). 새 배치를 더하면 `BillingJob`에 다음 번호를 더하고 기존 번호는 바꾸지 않는다. UseCase의 건별 락·멱등성은 그대로 둔다(락은 동시 실행만 막는다).
 - **헬스체크·지표**: Actuator `/actuator/health`로 앱·DB 상태를 확인하고 `/actuator/prometheus`로 지표를 낸다. k8s에서는 관리 포트 8082(`MANAGEMENT_SERVER_PORT`)에서만 열리고, 8080(Gateway 전용)·8081(내부 API)에서는 404다(#552, BD-133, `ManagementPortTest`).
 - **테스트용 mock 계정**: 로컬 실행 시 member 모듈(`MemberDataInit`, 로컬 로그인)이 유저·인플루언서·인증된 인플루언서·관리자 역할별 테스트 계정을 만든다.
