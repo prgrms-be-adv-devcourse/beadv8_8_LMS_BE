@@ -8,7 +8,7 @@
 
 | 목적지 | FE | 내용 |
 | --- | --- | --- |
-| `/topic/chats/rooms/{roomId}` | 열어 둔 방만 구독(Q14). "열어 둔 방"은 화면 경로가 그 방인 것이다. 탭이 숨겨져도 구독을 유지한다 | 그 방의 새 메시지. 같은 구독으로 그 세션에만 구독 거절·회수 프레임도 온다(성공 프레임은 없다) |
+| `/topic/chats/rooms/{roomId}` | 열어 둔 방만 구독(Q14). "열어 둔 방"은 화면 경로가 그 방인 것이다. 탭이 숨겨져도 구독을 유지한다 | 그 방의 새 메시지와 안 읽은 사람 수 갱신(`READ_COUNTS`, #615). 같은 구독으로 그 세션에만 구독 거절·회수 프레임도 온다(성공 프레임은 없다) |
 | `/user/queue/chats/messages` | 구독 | **자기가 보낸 메시지의 전송 결과 확인만**(전송 ID 포함. 전송 ID 없이 보냈으면 `clientMessageId: null`. 자기 모든 세션. 같은 전송 ID 재전송의 응답 포함). 남의 메시지는 오지 않는다 |
 | `/user/queue/chats/notifications` | 구독(Q20) | 방별로 묶은 새 메시지 알림 `ROOM_ACTIVITY`. 그 방 topic을 구독한 세션에는 오지 않는다 |
 | `/user/queue/chats/sync` | 구독 | `RESYNC` |
@@ -100,6 +100,7 @@ FE 처리: 방 목록과 열어 둔 방의 이력을 자기 확인 위치부터 
 | `chat-frame-type` | payload | FE 처리 |
 | --- | --- | --- |
 | (없음) `MESSAGE` | `ChatMessageResponse`. 헤더 `participation-version` = 그 구독의 세대. `clientMessageId`는 **보낸 사람 회원의 세션에 쓰는 프레임에만** 싣고 다른 참여자 프레임에는 null이다(R1, Q24) | `messageId` 중복 제거, `roomSequence` 정렬, 아래 "프레임의 참여 세대" 규칙을 따른다. 자기 메시지는 `clientMessageId`로 보내는 중 항목과 맞춘다(내용으로 맞추지 않는다) |
+| `READ_COUNTS` (#615) | `{type, roomId, readCountVersion, fromSequence, toSequence, counts: [{roomSequence, unreadMemberCount}]}`. 헤더 `participation-version` = 그 구독의 세대. [`fromSequence`, `toSequence`] 안의 일반 메시지 중 `counts`에 없는 순번은 0이다 | 세대 헤더가 현재 세대와 다르면 버린다. 구간 안의 메시지마다 가진 값과 비교해 작은 값을 남긴다(값은 줄기만 한다). 읽음·참여 변경을 방별 최대 1초로 묶은 최선 노력 갱신이라 유실은 이력 재조회로 보정한다. [안 읽은 사람 수 계약](unread-count.md) |
 | `SUBSCRIPTION_REJECTED` | `{type, roomId, reason, currentParticipationVersion?}`. `reason`: `NOT_MEMBER`·`STALE_PARTICIPATION`·`ROOM_NOT_FOUND`·`CHAT_NOT_ALLOWED`·`TOO_MANY_SUBSCRIPTIONS`·`SERVER_BUSY`(서버의 방 채널 수 상한, 설계 문서 Q30. 구독 확인 조회 실패도 이 사유다). `currentParticipationVersion`은 `STALE_PARTICIPATION`일 때만 싣는 선택 필드로 자기 현재 세대다(남의 정보가 아니다) | 서버는 구독을 등록하지 않았다. 연결은 유지된다(Q18). 아래 "거절·회수 사유별 FE 처리" |
 | `SUBSCRIPTION_REVOKED` | `{type, roomId, reason, currentParticipationVersion?}`. `reason`: `LEFT`·`REMOVED`·`STALE_PARTICIPATION`·`ROOM_CLOSED`(`REMOVED`는 단체방 강퇴 뒤 쓴다(#584). `ROOM_CLOSED`는 아직 쓰지 않는다: 폐쇄한 단체방은 읽기 전용으로 조회 만료 전까지 구독할 수 있다). `currentParticipationVersion`은 `STALE_PARTICIPATION`일 때만 싣는다 | 서버가 구독을 지웠다. 바로 UNSUBSCRIBE하고 그 방의 실시간 반영을 멈춘다. 이후 그 구독으로 온 메시지는 적용하지 않는다. 아래 "거절·회수 사유별 FE 처리" |
 
@@ -119,7 +120,7 @@ FE 처리: 방 목록과 열어 둔 방의 이력을 자기 확인 위치부터 
 ## 프레임의 참여 세대
 
 - 방 topic `MESSAGE` 프레임의 헤더 `participation-version`은 그 구독의 세대다. `/user/queue/chats/messages`(전송 결과 확인) 프레임의 같은 헤더는 보낸 사람의 현재 세대다.
-- payload(`ChatMessageResponse`)는 바꾸지 않는다.
+- payload(`ChatMessageResponse`)는 바꾸지 않는다. 일반 메시지의 `unreadMemberCount`·`readCountVersion`(#615)은 payload의 값이다([안 읽은 사람 수 계약](unread-count.md)).
 - FE는 헤더 값이 그 방에서 알고 있는 현재 세대보다 낮으면 프레임을 적용하지 않는다. 더 높으면 그 프레임은 적용하지 않고, 그 탭의 옛 세대 이력·보내는 중 표시·확인 위치를 버린 뒤 방 목록·이력을 새로 받는다(그 메시지는 새 세대 이력으로 들어온다).
 - `ROOM_ACTIVITY`에는 헤더를 붙이지 않고 payload의 `participationVersion`으로 비교한다(아래).
 
