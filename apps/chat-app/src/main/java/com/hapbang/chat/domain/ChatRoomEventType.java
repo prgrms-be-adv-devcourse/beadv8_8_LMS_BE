@@ -14,5 +14,7 @@ public enum ChatRoomEventType {
     /** 호스트가 단체방에서 내보냈다. 행위자는 호스트, 대상은 내보낸 회원 */
     MEMBER_KICKED,
     /** 호스트가 단체방을 폐쇄해 읽기 전용이 됐다. 행위자는 호스트 */
-    ROOM_CLOSED
+    ROOM_CLOSED,
+    /** 호스트가 탈퇴하거나 호스트 자격이 없는 역할이 되어 단체방이 읽기 전용이 됐다 */
+    HOST_UNAVAILABLE
 }

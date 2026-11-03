@@ -182,6 +182,17 @@ public class ChatMessage {
         return groupNotice(chatRoom, hostId, NotificationKind.GROUP_ROOM_CLOSED, data, now);
     }
 
+    /** 단체방 호스트 자격 상실 안내. 보낸 사람은 자격을 잃은 호스트다. 방을 읽기 전용으로 바꾸기 전에 만든다 */
+    public static ChatMessage groupHostUnavailable(ChatRoom chatRoom, Long hostId, GroupHostUnavailableData data,
+            LocalDateTime now) {
+        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_HOST_UNAVAILABLE, data, now);
+    }
+
+    /** 단체방 호스트 자격 상실 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
+    public GroupHostUnavailableData readGroupHostUnavailable() {
+        return readNotificationData(NotificationKind.GROUP_HOST_UNAVAILABLE, GroupHostUnavailableData.class);
+    }
+
     /** 단체방 초대 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
     public GroupMembersInvitedData readGroupMembersInvited() {
         return readNotificationData(NotificationKind.GROUP_MEMBERS_INVITED, GroupMembersInvitedData.class);

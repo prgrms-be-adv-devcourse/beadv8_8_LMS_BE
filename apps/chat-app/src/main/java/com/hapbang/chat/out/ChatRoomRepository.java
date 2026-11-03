@@ -1,6 +1,7 @@
 package com.hapbang.chat.out;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,6 +15,22 @@ import com.hapbang.chat.domain.ChatRoom;
 import jakarta.persistence.LockModeType;
 
 public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
+
+    /**
+     * 그 회원이 호스트인 현재 단체방(사용 중·일시 중지)을 잠그고 ID 순으로 조회한다. 호스트 자격 상실 반영이 쓴다.
+     * 여러 방을 같은 순서로 잠가 다른 잠금 순서와 엇갈리지 않게 한다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select r from ChatRoom r
+            where r.roomType = com.hapbang.chat.domain.ChatRoomType.GROUP
+              and r.ownerUserId = :ownerUserId
+              and r.status in (com.hapbang.chat.domain.ChatRoomStatus.ACTIVE,
+                               com.hapbang.chat.domain.ChatRoomStatus.SUSPENDED)
+              and r.deletedAt is null
+            order by r.id
+            """)
+    List<ChatRoom> findCurrentGroupsByOwnerForUpdate(@Param("ownerUserId") Long ownerUserId);
 
     /**
      * 방을 잠그고 조회한다. 메시지 순번 발급, 입장·퇴장·종료는 이 잠금 안에서 처리한다.

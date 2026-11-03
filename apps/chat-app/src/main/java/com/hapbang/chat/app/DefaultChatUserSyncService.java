@@ -34,6 +34,7 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
 
     private final ChatUserUseCase chatUserUseCase;
     private final ChatConnectionControl chatConnectionControl;
+    private final ChatGroupRoomService chatGroupRoomService;
     /** 실시간 전달을 끈 실행에는 없다(Redis) */
     private final ObjectProvider<ChatLogoutMarkers> chatLogoutMarkers;
     private final TransactionTemplate backfillTransaction;
@@ -41,10 +42,11 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
     private final int backfillMaxAttempts;
 
     public DefaultChatUserSyncService(ChatUserUseCase chatUserUseCase, ChatConnectionControl chatConnectionControl,
-            ObjectProvider<ChatLogoutMarkers> chatLogoutMarkers, PlatformTransactionManager transactionManager,
-            ChatUserBackfillProperties backfillProperties) {
+            ChatGroupRoomService chatGroupRoomService, ObjectProvider<ChatLogoutMarkers> chatLogoutMarkers,
+            PlatformTransactionManager transactionManager, ChatUserBackfillProperties backfillProperties) {
         this.chatUserUseCase = chatUserUseCase;
         this.chatConnectionControl = chatConnectionControl;
+        this.chatGroupRoomService = chatGroupRoomService;
         this.chatLogoutMarkers = chatLogoutMarkers;
         this.logoutTransaction = new TransactionTemplate(transactionManager);
         // 백필은 회원마다 독립된 새 트랜잭션: 충돌로 실패한 시도는 그 트랜잭션만 롤백되고, 다음 시도는 새 영속성 컨텍스트에서 다시 읽는다
@@ -64,6 +66,7 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
     public ChatUserSyncResult syncModified(UserDto user) {
         ChatUserSyncResult result = chatUserUseCase.update(user);
         requestRecheckIfCannotChat(result, ChatControlReason.MEMBER_MODIFIED);
+        markHostUnavailableIfIneligible(result);
         return result;
     }
 
@@ -79,6 +82,7 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
                 return Objects.requireNonNull(backfillTransaction.execute(status -> {
                     ChatUserSyncResult result = chatUserUseCase.applySnapshot(user);
                     requestRecheckIfCannotChat(result, ChatControlReason.MEMBER_BACKFILL);
+                    markHostUnavailableIfIneligible(result);
                     return result;
                 }));
             } catch (DataIntegrityViolationException | ObjectOptimisticLockingFailureException conflict) {
@@ -129,6 +133,17 @@ public class DefaultChatUserSyncService implements ChatUserSyncService {
             return processedAt;
         }
         return loggedOutAt;
+    }
+
+    /**
+     * 이번에 반영한 회원이 호스트를 계속할 수 없으면(탈퇴·호스트 자격이 없는 역할) 그 회원의 현재 단체방을 같은 트랜잭션에서 읽기 전용으로
+     * 바꾼다(설계 Q31). 늦게 온·중복된 정보는 반영되지 않으므로(버전 규칙) 바꾸지 않는다. 자격을 회복한 정보는 아무것도 하지 않는다
+     * (읽기 전용 방을 되돌리지 않는다). 정지는 자격 상실로 보지 않는다(일시 중지는 회원 정지 기능이 생긴 뒤에 다룬다).
+     */
+    private void markHostUnavailableIfIneligible(ChatUserSyncResult result) {
+        if (result.updated() && !result.canHostGroup()) {
+            chatGroupRoomService.markHostUnavailable(result.userId());
+        }
     }
 
     private void requestRecheckIfCannotChat(ChatUserSyncResult result, ChatControlReason reason) {

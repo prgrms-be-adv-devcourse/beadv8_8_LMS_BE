@@ -59,6 +59,24 @@ class ChatGroupRoomTest {
     }
 
     @Test
+    void 호스트_자격을_잃으면_사유와_함께_읽기_전용이_되고_전환_시각부터_30일_뒤_조회가_만료된다() {
+        ChatRoom room = groupRoom();
+
+        room.markHostUnavailable(NOW);
+
+        assertThat(room.getStatus()).isEqualTo(ChatRoomStatus.READ_ONLY);
+        assertThat(room.getStatusReason()).isEqualTo(ChatRoomStatusReason.HOST_UNAVAILABLE);
+        assertThat(room.getReadOnlyAt()).isEqualTo(NOW);
+        assertThat(room.getHistoryExpiresAt()).isEqualTo(NOW.plusDays(30));
+        assertThat(room.getStatusVersion()).isEqualTo(1);
+        assertThat(room.isClosedByHost()).isFalse();
+        assertThat(room.isCurrentGroup()).isFalse();
+        // 이미 읽기 전용이면 다시 바꾸지 않는다(조회 만료 시각을 늘리지 않는다)
+        assertThatThrownBy(() -> room.markHostUnavailable(NOW.plusDays(1))).isInstanceOf(IllegalStateException.class);
+        assertThat(room.getHistoryExpiresAt()).isEqualTo(NOW.plusDays(30));
+    }
+
+    @Test
     void 조회_만료_시각에_도달한_순간부터_볼_수_없다() {
         ChatRoom room = groupRoom();
         room.closeByHost(NOW);

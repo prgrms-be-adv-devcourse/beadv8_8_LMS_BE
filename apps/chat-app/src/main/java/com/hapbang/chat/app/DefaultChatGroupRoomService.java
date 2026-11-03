@@ -17,6 +17,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import com.hapbang.chat.app.ChatRecruitSource.ChatRecruit;
 import com.hapbang.chat.app.dto.ChatGroupCloseResponse;
@@ -41,6 +42,7 @@ import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.domain.GroupMemberKickedData;
 import com.hapbang.chat.domain.GroupMembersInvitedData;
 import com.hapbang.chat.domain.GroupRoomClosedData;
+import com.hapbang.chat.domain.GroupHostUnavailableData;
 import com.hapbang.chat.out.ChatGroupInviteRequestRepository;
 import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.chat.out.ChatRoomLogRepository;
@@ -90,7 +92,13 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     @Override
     @Transactional
     public ChatRoomOpenResult createRoom(Long requesterId, ChatRecruit recruit) {
-        chatValidationService.validateCanChat(requesterId);
+        // 호스트의 회원 복제본을 잠그고 자격을 확인한다. 호스트 자격 상실 반영(회원 변경 이벤트·백필)도 같은 행을 갱신하며 잠그므로,
+        // 이 생성이 커밋하기 전에 반영되어 새 방이 사용 중으로 남는 일이 없다(반영이 이 방을 보고 읽기 전용으로 바꾸거나, 생성이 바뀐 자격을 본다)
+        ChatUser host = chatUserRepository.findByIdForUpdate(requesterId)
+                .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_USER_NOT_FOUND));
+        if (!host.canChat() || !host.canHostGroup()) {
+            throw new ChatException(ChatErrorCode.CHAT_NOT_ALLOWED);
+        }
         if (!recruit.hostId().equals(requesterId)) {
             throw new ChatException(ChatErrorCode.NOT_RECRUIT_HOST);
         }
@@ -323,6 +331,28 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, requesterId, ChatRoomEventType.ROOM_CLOSED, now));
         log.info("단체방 폐쇄 chatRoomId={}, historyExpiresAt={}", chatRoomId, chatRoom.getHistoryExpiresAt());
         return ChatGroupCloseResponse.from(chatRoom);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int markHostUnavailable(Long hostUserId) {
+        List<ChatRoom> rooms = chatRoomRepository.findCurrentGroupsByOwnerForUpdate(hostUserId);
+        LocalDateTime now = LocalDateTime.now();
+        for (ChatRoom chatRoom : rooms) {
+            // 안내를 먼저 저장한다(읽기 전용 방에는 순번을 발급하지 않는다). 연결된 참여자에게는 폐쇄와 같이 이 안내가 상태 변경을 알린다
+            ChatMessage notice = chatMessageRepository.save(ChatMessage.groupHostUnavailable(chatRoom, hostUserId,
+                    GroupHostUnavailableData.of(hostUserId), now));
+            if (chatRoom.getActiveMemberCount() > 0) {
+                chatDeliveryRecorder.recordMessage(notice, chatRoom.getCurrentRecipientSetId(), ChatNotifyRule.NONE,
+                        now);
+            }
+            chatRoom.markHostUnavailable(now);
+            chatRoomLogRepository.save(
+                    ChatRoomLog.record(chatRoom, hostUserId, ChatRoomEventType.HOST_UNAVAILABLE, now));
+            log.info("호스트 자격 상실로 단체방을 읽기 전용으로 바꿈 chatRoomId={}, hostUserId={}, historyExpiresAt={}",
+                    chatRoom.getId(), hostUserId, chatRoom.getHistoryExpiresAt());
+        }
+        return rooms.size();
     }
 
     /**

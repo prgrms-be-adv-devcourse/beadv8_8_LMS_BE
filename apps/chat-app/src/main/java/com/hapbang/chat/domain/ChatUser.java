@@ -43,6 +43,14 @@ public class ChatUser extends ReplicaUser {
         return isActive() && (isInfluencerOrAbove() || getRole() == Role.ADMIN);
     }
 
+    /**
+     * 모집용 단체방의 호스트를 계속할 수 있는지: 탈퇴하지 않았고 출연 모집을 올릴 수 있는 역할(인플루언서·인증된 인플루언서)이다.
+     * 정지는 따로 다루므로(일시 중지) 여기서는 자격 상실로 보지 않는다. 인증된 인플루언서가 인플루언서가 되어도 자격은 유지된다.
+     */
+    public boolean canHostGroup() {
+        return !isWithdrawn() && isInfluencerOrAbove();
+    }
+
     public boolean isAdmin() {
         return isActive() && getRole() == Role.ADMIN;
     }
