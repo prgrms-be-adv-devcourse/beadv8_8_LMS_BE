@@ -103,6 +103,7 @@ Content-Type: application/problem+json
 
 지갑을 HTTP로 부르게 되면서(#274) 지갑 오류를 그대로 전달하지 않는다. 출연이 지갑 응답(`BillingCallResult.Failed`의 코드)을 보고
 사용자에게 알릴 거절(잔액 부족, 닫힌 지갑)만 같은 이름의 출연 코드로, 나머지는 `HP_HOLD_FAILED`로 응답한다. 문구는 출연이 정한다(지갑 `detail`을 그대로 보이지 않는다).
+`WALLET_CLOSED`만은 지갑·강의(#649)와 같은 문구("~이에요" 말투)를 그대로 쓴다. 세 모듈에서 같은 코드에 같은 안내가 나가게 하려는 것이다(#648).
 FE가 쓰는 `INSUFFICIENT_BALANCE` 코드는 그대로다. 이전(#168~#289)에는 같은 JVM의 Billing 업무 예외를 그대로 전달했고, 지갑 없음은 404 `WALLET_NOT_FOUND`였다.
 
 - 반환·지급·위약금은 업무 상태를 커밋한 뒤 처리하므로 사용자 응답에 지갑 오류가 나가지 않는다. 지갑 거절은 HP 작업 `last_error`에 `{code}: {지갑 설명}`으로 기록된다.
