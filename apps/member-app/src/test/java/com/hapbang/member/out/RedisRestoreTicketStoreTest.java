@@ -45,7 +45,7 @@ class RedisRestoreTicketStoreTest {
         String key = RedisRestoreTicketStore.KEY_PREFIX + RedisRestoreTicketStore.hash(ticket);
         assertThat(key).doesNotContain(ticket);
         assertThat(redisTemplate.getExpire(key, TimeUnit.SECONDS))
-                .isBetween(Duration.ofMinutes(9).toSeconds(), RedisRestoreTicketStore.TTL.toSeconds());
+                .isBetween(Duration.ofMinutes(9).toSeconds(), RestoreTicketStore.TTL.toSeconds());
     }
 
     @Test
