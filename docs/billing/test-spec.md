@@ -182,7 +182,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-LED-07 | 원장 append-only | SQL UPDATE·DELETE 거부(트리거) | INV-2 | R | `BillingConstraintsTest#원장은_SQL로도_수정하거나_삭제할_수_없다` | 없음 | R-003 통과 |
 | BT-LED-08 | 잔액 대사 | 일치·캐시 불일치·원장 불일치 탐지, 동시 작업 중 같은 스냅숏, 수수료 수입 칸(FEE 가용, #336) | BD-20, INV-1 | I | `WalletReconciliationIntegrationTest`(6), `ExchangePayoutIntegrationTest`의 플랫폼 지갑 대사(BT-EXP-08) | 없음 | R-003 통과 |
 | BT-LED-09 | 원장 기록의 트랜잭션 참여 | 같은 앱 안 호출자 트랜잭션에 참여 | BD-53 | I | `LedgerRecordIntegrationTest#joinsCallerTransaction`, `#multipleRecordsInSameTransaction_keepPendingChanges` | 없음 (Billing 내부 호출) | R-003 통과 |
-| BT-LED-10 | 잔액 대사 자동 실행 (#607) | 창(72시간) 안에서 수정된 지갑만 대사하고 창 밖은 대사 안 함, 원장만 생긴 지갑·캐시만 바뀐 지갑을 불일치로 잡음, 고치지 않음, 수정·원장이 함께 있어도 한 번만, 한 지갑의 오류에도 계속, 결과별 지갑 수·마지막 성공 시각 지표(다음 실행은 덮어씀), 다른 pod가 락을 쥐면 실행 안 함 | BD-139, BD-20, INV-1 | U, I | `ChangedWalletReconciliationIntegrationTest`(4), `ChangedWalletReconciliationUseCaseTest`(3), `BillingBatchJobLockTest`(대사 배치), `ManagementPortTest`(지표 노출) | 없음 | #607 통과 |
+| BT-LED-10 | 잔액 대사 자동 실행 (#607) | 창(72시간) 안에서 수정된 지갑만 대사하고 창 밖은 대사 안 함, 원장만 생긴 지갑·캐시만 바뀐 지갑을 불일치로 잡음, 고치지 않음, 수정·원장이 함께 있어도 한 번만, 한 지갑의 오류에도 계속, 오류 지갑은 끝에 1회 재시도, 재시도에도 실패하면 다음 회차에 창 밖이어도 대사하고 성공하면 빠짐, 결과별 지갑 수(다음 실행은 덮어씀)·마지막 성공 시각(failed 0일 때만, 전부 실패면 그대로, 대상 0개는 성공), 창 설정값 적용(24h)·기본 72h, 다른 pod가 락을 쥐면 실행 안 함 | BD-139, BD-20, INV-1 | U, I | `ChangedWalletReconciliationIntegrationTest`(4), `ChangedWalletReconciliationUseCaseTest`(7), `BillingBatchJobLockTest`(대사 배치), `ManagementPortTest`(지표 노출) | 없음 | #607 통과 |
 
 ### 4.3 보류·반환·지급·위약금·확정 차감 (HLD·REL·PAY·PEN·CAP)
 
@@ -387,7 +387,7 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.BillingUserBackfillUseCaseTest | U (로컬 HTTP) | 17 | — | USR-03 |
 | app.BillingUserSyncIntegrationTest | I | 6 | 필요 | USR-01 |
 | app.ChangedWalletReconciliationIntegrationTest | I | 4 | 필요 | LED-10 |
-| app.ChangedWalletReconciliationUseCaseTest | U | 3 | — | LED-10 |
+| app.ChangedWalletReconciliationUseCaseTest | U | 7 | — | LED-10 |
 | app.ChargeIntegrationTest | I | 29 | 필요 | CHG-01~06·08 |
 | app.ChargeUsageHistoryTest | U | 11 | — | REL-01·04, CAP-03 |
 | app.EarningQueryUseCaseTest | U | 13 | — | ERN-01 |

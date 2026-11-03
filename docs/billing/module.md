@@ -207,9 +207,9 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 대상 | 지금 − 창(`hapbang.billing.reconciliation.window`, 72h) 이후 수정된 지갑 ∪ 원장이 기록된 지갑. 플랫폼 지갑 포함. 실행 시점을 저장하지 않으므로 두 회차를 연달아 건너뛰어도 놓치지 않는다. 창보다 오래 바뀌지 않은 지갑은 보지 않는다 |
 | 인덱스 | `idx_wallet_1 (updated_at)`, `idx_point_ledger_5 (created_at)` (`V202611031800`) |
 | 불일치 | error 로그 `잔액 대사 불일치 walletId=…, buckets=[CHARGE/AVAILABLE wallet=… ledger=… diff=…]` |
-| 지갑 하나의 오류 | warn 로그, `failed`로 세고 계속 |
-| 끝 | info 로그 `잔액 대사 완료 since=…, total, matched, mismatched, failed` |
-| 지표 | `hapbang.billing.reconciliation.wallets{result=matched\|mismatched\|failed}`(마지막 실행, gauge), `hapbang.billing.reconciliation.last.success`(epoch 초, Prometheus `…_last_success_seconds`). pod가 다시 뜨면 첫 실행 전까지 0 |
+| 지갑 하나의 오류 | warn 로그 후 계속. 전체를 돈 뒤 한 번 더 시도하고, 그래도 실패하면 `failed`로 세고 다음 회차 대상에 창과 관계없이 더한다(pod 메모리, 재시작 때 사라짐) |
+| 끝 | info 로그 `잔액 대사 완료 since=…, total, matched, mismatched, retried, failed` |
+| 지표 | `hapbang.billing.reconciliation.wallets{result=matched\|mismatched\|failed}`(마지막 실행, gauge), `hapbang.billing.reconciliation.last.success`(epoch 초, Prometheus `…_last_success_seconds`). last.success는 재시도 뒤 `failed`가 0일 때만 갱신한다(불일치는 성공, 대상 0개도 성공). pod가 다시 뜨면 첫 실행 전까지 0 |
 | 실행 락 | `BillingJob.WALLET_RECONCILIATION`(607001). 다른 pod가 쥐면 그 회차를 건너뛴다 |
 
 - To-Be(k3s): 앱마다 replica 1개다. billing-app은 t3.large(`core-data`)에 두고, `maxSurge: 1`, `maxUnavailable: 0`으로 배포한다(final-project-infrastructure.md 3장).
