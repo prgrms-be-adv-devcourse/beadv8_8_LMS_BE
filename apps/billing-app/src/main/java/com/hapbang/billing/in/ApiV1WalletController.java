@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.billing.app.WalletFacade;
 import com.hapbang.billing.global.auth.LoginUserId;
+import com.hapbang.billing.global.ratelimit.RateLimited;
+import com.hapbang.billing.global.ratelimit.RateLimitedApi;
 import com.hapbang.billing.global.response.RsData;
 
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ public class ApiV1WalletController implements ApiV1WalletSpec {
     private final WalletFacade walletFacade;
 
     // 내 지갑 잔액을 조회하며, 지갑이 없으면 만들어 반환한다. 역할 검사는 WalletFacade가 한다.
+    @RateLimited(RateLimitedApi.WALLET)
     @Override
     @GetMapping("/me")
     public RsData<WalletResponse> me(@LoginUserId Long userId) {
@@ -29,6 +32,7 @@ public class ApiV1WalletController implements ApiV1WalletSpec {
     }
 
     // 내 HP 거래 내역을 작업 단위 최신순으로 조회한다 (#295). page·size 범위 검사는 명세(ApiV1WalletSpec)의 제약이 한다.
+    @RateLimited(RateLimitedApi.WALLET_TRANSACTIONS)
     @Override
     @GetMapping("/me/transactions")
     public RsData<Page<WalletTransactionResponse>> transactions(@LoginUserId Long userId,

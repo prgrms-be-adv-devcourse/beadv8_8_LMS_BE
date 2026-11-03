@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import com.hapbang.chat.domain.AppearanceApplicationSubmittedData;
 import com.hapbang.chat.domain.AppearanceRequestSentData;
 import com.hapbang.chat.domain.ChatMessage;
+import com.hapbang.chat.domain.ChatRoom;
+import com.hapbang.chat.domain.GroupMemberLeftData;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
 
@@ -95,5 +97,25 @@ class ChatMessageResponseTest {
         assertThat(response.appearanceApplicationSubmitted())
                 .isEqualTo(new AppearanceApplicationSubmittedData(1, "게스트", "주말 게임 합방 모집"));
         assertThat(response.appearanceRequestSent()).isNull();
+    }
+
+    @Test
+    void 안_읽은_사람_수는_일반_메시지에만_담고_시스템_안내는_둘_다_null이다() {
+        ChatMessage text = ChatMessage.text(directRoom(), HOST_ID, "안녕하세요", null, NOW);
+        ChatMessage notice = ChatMessage.groupMemberLeft(ChatRoom.createGroup(70L, HOST_ID, "모집", 3, NOW), GUEST_ID,
+                GroupMemberLeftData.of(GUEST_ID), NOW);
+
+        ChatMessageResponse counted = ChatMessageResponse.from(text).withReadCount(2, 1_000L);
+        JsonNode json = JSON.readTree(JSON.writeValueAsString(ChatMessageResponse.from(text)));
+
+        assertThat(counted.unreadMemberCount()).isEqualTo(2);
+        assertThat(counted.readCountVersion()).isEqualTo(1_000L);
+        assertThat(counted.withClientMessageId("c-1").unreadMemberCount()).isEqualTo(2);
+        assertThat(ChatMessageResponse.from(notice).withReadCount(2, 1_000L))
+                .extracting(ChatMessageResponse::unreadMemberCount, ChatMessageResponse::readCountVersion)
+                .containsExactly(null, null);
+        assertThat(json.has("unreadMemberCount")).isTrue();
+        assertThat(json.get("unreadMemberCount").isNull()).isTrue();
+        assertThat(json.get("readCountVersion").isNull()).isTrue();
     }
 }

@@ -33,13 +33,17 @@ import jakarta.validation.constraints.Min;
         단체방에서는 사용 중(ACTIVE)일 때만 보낼 수 있다(호스트 혼자여도 된다). 읽기 전용·일시 중지 방에 보내면 오류 큐로 GROUP_ROOM_NOT_ACTIVE가 온다.
         단체방의 방 topic 구독·읽음·수신 확인은 조회 만료 전까지 읽기 전용·일시 중지 방에서도 된다.
         실시간 송수신은 STOMP라 여기에 없다: 연결 `/api/v1/chats/ws?ticket={웹소켓 연결 티켓}`(티켓은 아래 발급 API), 보내기 `/pub/chats/{chatRoomId}/messages`,
-        받기: 열어 둔 방은 `/topic/chats/rooms/{chatRoomId}`(SUBSCRIBE 헤더 `participation-version` 필수, 방 메시지·구독 거절·회수),
+        받기: 열어 둔 방은 `/topic/chats/rooms/{chatRoomId}`(SUBSCRIBE 헤더 `participation-version` 필수, 방 메시지·구독 거절·회수·안 읽은 사람 수 갱신 `READ_COUNTS`),
         `/user/queue/chats/messages`(자기가 보낸 메시지의 전송 결과 확인)·`/user/queue/chats/notifications`(방을 열지 않은 연결의 방별 새 메시지 알림)·
         `/user/queue/chats/sync`(재동기화)·`/user/queue/chats/errors`(오류). 형식은 resync-frame 계약을 따른다.
         보내는 본문(`content`)은 공백만으로 이뤄질 수 없고 2,000자 이하다. 넘으면 오류 큐로 INVALID_REQUEST가 `clientMessageId`와 함께 온다.
         보낼 때 `clientMessageId`(선택, 64자 이하)를 붙이면 보낸 사람에게 전달되는 메시지와 오류에 그대로 돌려준다.
         같은 참여 안에서 같은 `clientMessageId`로 다시 보내면 새로 저장하지 않고 기존 메시지를 보낸 사람에게만 다시 보낸다(알림 없음, 본문이 달라도 기존 메시지).
         나갔다가 재입장한 뒤에는 이전에 쓴 `clientMessageId`로 보내도 새 메시지로 저장한다.
+        일반 메시지(`TEXT`)에는 안 읽은 사람 수 `unreadMemberCount`(보낸 사람 제외 현재 참여자 중 아직 읽지 않은 수, 0이면 숨김)와
+        그 값을 센 시점 `readCountVersion`(DB 시각, epoch 마이크로초)이 담긴다. 1:1 방도 같다(0 또는 1). 시스템 안내·알림은 둘 다 null이다.
+        값은 줄기만 하므로 프론트는 같은 메시지의 더 작은 값을 남긴다. 읽음·참여 변경은 방 topic의 `READ_COUNTS`로 최대 1초 묶어 오고,
+        놓친 갱신은 메시지 이력을 다시 읽어 보정한다(unread-count 계약). 방 목록·상세의 `lastMessage`에는 담지 않는다(null).
         `clientMessageId`는 보낸 사람 본인 메시지에만 담긴다(보낸 사람 연결의 방 topic 프레임·전송 결과 확인·메시지 이력·방 목록의 마지막 메시지).
         출연 요청 도착·모집 지원 도착은 호스트-게스트 1:1 방에 알림 메시지(`messageType: NOTIFICATION`)로 온다.
         `notificationKind`와 `referenceId`·`parentReferenceId`로 출연 건을 찾는다:
@@ -90,7 +94,11 @@ public interface ApiV1ChatSpec {
             단체방은 읽기 전용·일시 중지 방도 조회 만료 시각 전까지 조회한다(그 시각부터 404 `CHAT_ROOM_NOT_FOUND`).
             다음 페이지는 응답의 `nextCursor`를 `cursor`로 보낸다. `nextCursor`가 null이면 마지막 페이지다.
             `participationVersion`은 현재 참여 세대, `visibleFromSequence`는 볼 수 있는 첫 메시지 순번이다.
-            세대가 바뀌면 이전 세대의 캐시·확인 위치를 버리고, `visibleFromSequence` 앞 순번은 누락으로 보지 않는다.""")
+            세대가 바뀌면 이전 세대의 캐시·확인 위치를 버리고, `visibleFromSequence` 앞 순번은 누락으로 보지 않는다.
+            일반 메시지(`TEXT`)마다 `unreadMemberCount`(보낸 사람을 뺀 현재 참여자 중 아직 읽지 않은 수. 늦게 초대·재입장한 회원은 그 전
+            메시지에 들지 않고 나간·강퇴된 회원은 빠진다)와 `readCountVersion`을 싣고, 시스템 안내·알림은 둘 다 null이다.
+            `readCountVersion`(페이지에도 같은 값)은 이 페이지의 값을 센 시점(DB 시각, epoch 마이크로초)이다. 값은 줄기만 하므로
+            이미 가진 값보다 크면 버리고 작은 값을 남긴다. 읽기 전용 방도 같다.""")
     RsData<ChatMessagePageResponse> getMessages(Long userId, Long chatRoomId,
             @Parameter(description = "이전 응답의 nextCursor. 없으면 가장 최근부터") Long cursor,
             @Parameter(description = "페이지 크기 (기본 30)")
@@ -104,6 +112,7 @@ public interface ApiV1ChatSpec {
             다르면 아무것도 바꾸지 않고 409 `STALE_PARTICIPATION`이다. 보내지 않으면 처리 시점의 현재 세대로 본다(전환 전 호환).
             처리 중 재입장하면 409 `STALE_PARTICIPATION`, 퇴장하면 403 `NOT_CHAT_ROOM_MEMBER`이며 반영하지 않는다.
             409면 그 방의 이전 세대 상태를 버리고 방 목록·이력을 다시 동기화하며, 읽음 요청을 다시 보내지 않는다.
+            읽음 순번이 실제로 오르면 커밋 뒤 그 방을 연 연결에 안 읽은 사람 수 갱신(`READ_COUNTS`)이 최대 1초 묶어 간다. 읽기 전용 방도 같다.
             오류: 400 `INVALID_REQUEST`(`lastReadSequence` 누락·음수, `participationVersion` 1 미만), 403 `CHAT_NOT_ALLOWED`,
             403 `NOT_CHAT_ROOM_MEMBER`, 404 `CHAT_ROOM_NOT_FOUND`, 409 `STALE_PARTICIPATION`.""")
     ResponseEntity<Void> markRead(Long userId, Long chatRoomId, @Valid ReadChatRoomRequest request);

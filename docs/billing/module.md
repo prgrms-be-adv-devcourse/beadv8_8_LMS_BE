@@ -245,7 +245,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 회원 이벤트 수신 | Kafka(#339, [`kafka.md`](../architecture/infrastructure/kafka.md)). member-app이 Modulith publication registry를 outbox로 쓰는 externalization으로 `member.events.v1`(key 회원 ID)에 발행한다. `eventId`는 없다([ADR 0001](../adr/0001-context-topics-with-mixed-event-types.md)·[0002](../adr/0002-modulith-externalization-without-event-id.md)). Billing은 목적별 소비 그룹 둘로 받는다: `billing-app.member-replica`(가입·변경 → 회원 복제본 Upsert), `billing-app.wallet-creation`(가입 → 지갑 생성). 멱등은 업무 자연 키다: 복제본은 `(user.id, user.version)` 버전 비교(`BD-103`), 지갑은 회원 ID UNIQUE(`uk_wallet_user_id`, `BD-1`)로 이미 있으면 그대로 둔다. 별도 inbox·처리 기록 테이블은 두지 않는다(`BD-123`). 블로킹 재시도 3회(1초 → 최대 10초) 뒤 그룹별 DLT `member.events.v1.billing-app.member-replica.DLT`·`member.events.v1.billing-app.wallet-creation.DLT`(billing-app이 `NewTopic`으로 선언, partition 3, 보존 7일) | 소비는 #430에서 구현(7.1). Modulith 이벤트 기록 설정·테이블은 #471에서 지웠다. 남은 것: #416 실제 발행과 이어 보는 계약 검증 |
 | Billing 이벤트 발행 | 인프라 문서 1장의 시연 흐름: 지갑 이벤트 → notification-app 알림·감사 projection. HP 원장을 Kafka consumer가 확정하지 않는다 | 발행은 #497에서 구현했다(7.1). 알림 쪽 소비·매핑은 #193 |
 | 인증 | member-app이 JWT(RS256·JWKS) 발급 → Envoy가 서명 검증 후 `X-User-Id`·`X-User-Role` 헤더로 전달(외부에서 붙인 `X-User-*`는 제거) → 앱 공용 헤더 인증 필터가 인증 객체 생성 → `@PreAuthorize` 인가 (#370~#372). Bearer 헤더라 API의 `X-XSRF-TOKEN` CSRF 보호는 뺀다. NetworkPolicy로 앱 외부 API 포트는 Envoy만 접근 | 구현됨(#537, 7.1). HP를 받거나 내보내는 신청(충전 주문·승인, 환불 신청, 환전 신청)은 지갑 회원 상태·역할을 함께 확인한다(BD-131). 보류·반환·지급은 내부 API라 호출 앱이 확인한다 |
-| rate limit | 각 앱의 Resilience4j RateLimiter, key는 `X-User-Id` 또는 client IP (인프라 문서 3장) | Billing 경로별 한도 (TBD) |
+| rate limit | 각 앱의 Resilience4j RateLimiter, key는 `X-User-Id` 또는 client IP (인프라 문서 3장) | 구현됨(#627, BD-140): 사용자 API 14개, 회원 × API마다 분당 신청·취소 10·일반 조회 60·수익 조회 20(`hapbang.billing.rate-limit.*`), 넘으면 429 `TOO_MANY_REQUESTS` + `Retry-After`, 지표 `hapbang.billing.rate.limit.rejected{api}`. 내부·관리자 API 제외 |
 | Database | 모듈별 database 분리 (8.3) | 8.3 |
 | 배포 | k3s, 앱마다 replica 1개, billing-app은 t3.large (6.1) | 배치 중복 실행 (L4) |
 
@@ -319,6 +319,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY` | 빈 값 | 둘 다 없으면 충전·환불·환전 신청·Mock 송금 503. 하나만 있거나 형식이 틀리거나 두 값이 같으면 **기동 실패** |
 | `hapbang.billing.mock-payout.enabled` + 활성 프로필 전부 local/test | local yaml만 true | 송금 불가, 정산 배치 건너뜀, 송금 관리자 API 503 |
 | `hapbang.scheduling.enabled` | true | 배치 6개 미등록 |
+| `hapbang.billing.rate-limit.write`·`read`·`earning` (#627) | 10·60·20 (회원 × API마다 분당) | 기본값. 1 미만이면 **기동 실패** |
 | 서버 포트 | local 8082 | — |
 
 키 값은 코드·로그·문서에 남기지 않는다 ([`docs/deploy/env-vars.md`](../deploy/env-vars.md)).
@@ -359,3 +360,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-11-03 | 8e7fa8b7 | #577 서비스 간 HP 대사용 보류·지급 조회 내부 API(7.1, BD-137) |
 | 2026-11-03 | 2cfe5307 | #598 배치·Backfill 실행 락(6.1, 9, L4·L5, BD-138) |
 | 2026-11-03 | 84f504c4 | #607 변경된 지갑의 잔액 대사 배치(2, 6.1, 6.2, 9, L6, BD-139) |
+| 2026-11-03 | 90938379 | #627 사용자 API 회원별 rate limit(8.1 rate limit 행, 9, BD-140) |

@@ -10,6 +10,7 @@
 > - 2026-10-30 #430 반영: 회원 이벤트 리스너 두 개가 Kafka 소비로 바뀌었다. BT-EVT-01은 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증하고 JVM 칸을 "없음"으로, BT-WAL-02·BT-USR-02는 Kafka 경로 테스트로 옮겨 "없음"으로 바꿨다. 같은 JVM `Scenario.publish` 테스트는 없앴다(리스너 직접 호출 또는 Kafka 테스트로 대체).
 > - 2026-11-02 #280 반영: 소비 앱이 Java Port 없이 단독 기동하므로 BT-PORT-05를 k3s 기동 확인으로 바꾸고(JVM 깨짐 → 없음) Contract 대상에서 뺐다. BT-PORT-04는 소비 앱 테스트를 적고 JVM을 "경계"로 바꿨다.
 > - 2026-11-03 #577 반영: 서비스 간 HP 대사 조회(BT-PORT-07)를 더했다.
+> - 2026-11-03 #627 반영: 회원별 요청 한도(BT-CFG-07)를 더했다. 공유 테스트 컨텍스트는 같은 회원 ID를 반복해 쓰므로 `hapbang-module-test.yaml`에서 한도를 크게 두고, 한도 동작은 작은 값의 `UserRateLimiter`와 따로 띄운 컨텍스트(`RateLimitIntegrationTest`)로 확인한다.
 > - 2026-11-03 #607 반영: 변경된 지갑의 잔액 대사 배치(BT-LED-10)를 더했다. `BillingBatchJobLockTest`가 배치 6개를 본다.
 > - 2026-11-03 #598 반영: 배치·Backfill 실행 락(BT-CFG-06, `JobLockTest`·`JobLockPostgresIntegrationTest`·`BillingBatchJobLockTest`)을 더했다. 배치 5개의 UseCase 위임은 `BillingBatchJobLockTest`가 보므로 BT-CFG-03은 등록만 남았다. BT-USR-03에 pod 사이 동시 실행·락 오류를 더했다.
 > - 2026-11-02 #562 반영: 나가는 호출 회로(BT-CFG-05)를 더했다. 공유 테스트 컨텍스트는 실패율로 회로가 열리지 않게 `hapbang.billing.outbound.minimum-number-of-calls`를 크게 두고(`hapbang-module-test.yaml`), 열고 닫히는 동작은 작은 설정으로 직접 만든 `OutboundCircuitBreakers`로, 통합 테스트는 상태를 강제로 바꿔 확인한다.
@@ -72,6 +73,7 @@
   --tests 'com.hapbang.billing.global.internal.InternalApiKeyFilterTest' \
   --tests 'com.hapbang.billing.global.internal.InternalApiPortConfigTest' \
   --tests 'com.hapbang.billing.global.internal.InternalApiPropertiesTest' \
+  --tests 'com.hapbang.billing.global.ratelimit.UserRateLimiterTest' \
   --tests 'com.hapbang.billing.global.scheduling.ConditionalOnSchedulingEnabledTest' \
   --tests 'com.hapbang.billing.global.scheduling.JobLockTest' \
   --tests 'com.hapbang.billing.in.BillingFailureCodeContractTest' \
@@ -311,6 +313,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-CFG-04 | Modulith 이벤트 기록 끔 (#471) | 폐기: #497에서 발행 기록을 다시 켰다(BT-EVT-02로 대체) | BD-124 | — | 없음 (`ModulithEventsDisabledTest` 삭제) | 없음 | 폐기 (#497) |
 | BT-CFG-05 | 나가는 호출 회로 (#562) | 상대별 회로. 강의·출연·회원은 `UNAVAILABLE`만 실패·`REJECTED`는 성공, 수익 조회는 연결 실패만 1회 재시도(시간 초과·5xx는 안 함), 열리면 요청 없이 503. Toss는 `Unknown`만 실패·`Rejected`·`NotFound`는 성공, 열리면 `Unknown(CIRCUIT_OPEN)`, 충전 주문·승인·환불 신청 503(상태 변경 없음), 결과 확인 배치 건너뜀 후 닫히면 이어서 확정. 회로 상태 지표가 Prometheus에 나온다 | BD-134 | U, I | `EarningSourceAdapterTest`(+4), `TossPaymentsClientTest`(+2), `ApiV1WalletChargeControllerTest#circuitOpen`, `ApiV1WalletRefundControllerTest#circuitOpen`, `ChargeIntegrationTest#recovery_skippedWhileCircuitOpen`, `ManagementPortTest` | 경계 (가짜 서버·닫힌 포트, 회로 강제 상태) | #562 통과 |
 | BT-CFG-06 | 배치·Backfill 실행 락 (#598) | 두 pod(서로 다른 락 연결) 중 한쪽만 잡고 풀면 다른 쪽이 잡음, 같은 pod 재진입은 메모리로 차단(PostgreSQL은 같은 session 재획득 허용), 작업 예외에도 해제, 락 연결이 끊기면 다른 pod가 잡고 끊긴 쪽은 예외 없이 끝낸 뒤 다시 연결, pod 종료 시 해제, 동시 시작 시 한쪽만 실행, 락 오류면 실행 안 함, 작업마다 락 번호 다름, 건너뛴 횟수 지표, 배치 5개가 다른 pod·락 오류에 UseCase를 부르지 않음 | BD-138 | U, I | `JobLockTest`(10), `JobLockPostgresIntegrationTest`(6), `BillingBatchJobLockTest`(2 × 배치 5개), `ManagementPortTest#지표와_헬스체크는_관리_포트에서_로그인_없이_응답한다`(관리 포트 노출) | 없음 (rolling update 중 두 pod 겹침을 연결 둘로 흉내) | #598 통과 |
+| BT-CFG-07 | 회원별 요청 한도 (#627) | 한도까지 통과·넘으면 429 `TOO_MANY_REQUESTS` + `Retry-After`(1~60초), 넘은 요청은 주문을 만들지 않음, API·회원마다 따로, 종류별 설정값(신청·취소·일반 조회·수익 조회) 적용, 주기가 지나면 다시 통과, 쓰지 않은 카운터 정리(쓰는 중인 카운터는 정리와 경합해도 남음), 관리자 API 제외, 비로그인은 401 먼저, API별 거절 지표(관리 포트 노출 포함) | BD-140 | U, I | `UserRateLimiterTest`(8), `RateLimitIntegrationTest`(6), `ManagementPortTest` | 없음 (rolling update 중 두 pod의 한도 2배는 확인 안 함) | #627 통과 |
 
 ## 5. JVM 분리 영향 정리
 
@@ -441,6 +444,8 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | global.internal.InternalApiPortConfigTest | U (로컬 HTTP) | 2 | — | — (#372 내부 API 포트, BT 미연결) |
 | global.internal.InternalApiPropertiesTest | U (ACR) | 4 | — | SEC-03 |
 | global.internal.InternalApiSecurityConfigTest | S | 11 | — | SEC-03 |
+| global.ratelimit.RateLimitIntegrationTest | I | 6 | 필요 | CFG-07 |
+| global.ratelimit.UserRateLimiterTest | U | 8 | — | CFG-07 |
 | global.scheduling.ConditionalOnSchedulingEnabledTest | U (ACR) | 3 | — | CFG-01 |
 | global.scheduling.JobLockPostgresIntegrationTest | I | 6 | 필요 | CFG-06 |
 | global.scheduling.JobLockTest | U | 10 | — | CFG-06 |
