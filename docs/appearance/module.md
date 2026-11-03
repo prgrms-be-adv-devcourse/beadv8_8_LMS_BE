@@ -51,6 +51,7 @@
 | 출연 상세 리뷰 정보, 회원이 받은 리뷰 내부 조회 API | ✅ | #514 |
 | 작성 기한 만료 리뷰 공개 배치 (기본 꺼 둠, 작성 기한을 켜면 동작) | ✅ | #515 |
 | 리뷰 연동 정리 (회원 평점·프로필 목록, FE 계약) | ✅ | #516 |
+| 모집글·지원 이력 내부 조회 API (채팅 모집용 단체방) | ✅ | #586 |
 
 ---
 
@@ -1403,4 +1404,47 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 - 작성 오류: 400 `INVALID_REQUEST`, 403 `APPEARANCE_USER_NOT_ACTIVE`·`NOT_INFLUENCER`, 404 `APPEARANCE_NOT_FOUND`, 409 `APPEARANCE_NOT_REVIEWABLE`·`REVIEW_PERIOD_ENDED`·`REVIEWEE_NOT_ACTIVE`·`ALREADY_REVIEWED` ([error-codes.md](error-codes.md)). 409는 화면 상태가 오래된 경우라 상세를 다시 읽으면 버튼이 사라진다.
 - 2026-11-02 기준 FE의 `Appearance` 타입에는 리뷰 필드가 없다. 필드만 더해진 것이라 기존 화면은 깨지지 않는다. 리뷰 화면은 FE #161로 요청했다(타입·API·화면 상태·오류 처리 명세).
 - 작성 기한(`REVIEW_PERIOD_ENDED`)은 지금 꺼져 있다. 켤 때는 FE에 기한 안내가 필요하다(#515).
+
+---
+
+## 24. 모집글·지원 이력 내부 조회 (#586)
+
+채팅 앱이 모집용 단체방을 만들고 초대할 때 출연의 모집글·지원 이력을 확인하는 내부 API다. 채팅은 모집·지원을 복제하지 않고 그때그때 부른다(채팅 결정 Q35, 채팅 설계 문서 3.4). 읽기 전용이다.
+
+- 호출하는 쪽(채팅)이 보는 계약: [docs/api/internal-appearances.md](../api/internal-appearances.md)
+
+### 24.1 공통
+
+| 항목 | 내용 |
+|---|---|
+| 호출 | 채팅 앱이 자기 `@HttpExchange` Client로 부른다(shared Client 없음). 내부 포트(`http://appearance-app:8081`), Gateway를 거치지 않는다 |
+| 인증·노출 | 수익 내부 조회(18.1)와 같다: `X-Internal-Api-Key`, 틀리거나 없으면 본문 없는 401, 회원 로그인으로는 401, 외부 포트는 404 |
+| 출연 쪽 방어 | ① 보안 체인의 키 검증 ② `AppearanceRecruitInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 값 검증 |
+| 권한 | 호스트 확인은 하지 않는다. 채팅이 응답의 `hostId`로 확인한다 |
+| 오류 | 없는 모집글 404 `APPEARANCE_RECRUIT_NOT_FOUND`, 값 오류·숫자 아님 400 `INVALID_REQUEST` (회원 API와 같은 코드) |
+
+### 24.2 API
+
+| API | 요청 | 응답 `data` |
+|---|---|---|
+| `GET /api/v1/internal/appearances/recruits/{recruitId}` | | `{recruitId, hostId, title, status}` |
+| `GET …/recruits/{recruitId}/applicants` | `afterUserId`(생략하거나 0이면 처음부터, 음수는 400. 회원 내부 API의 `afterId`와 같음), `size`(기본 100, 1~500) | `{userIds, nextAfterUserId}`. 다음 페이지가 있으면 `nextAfterUserId`에 이 페이지의 마지막 ID, 마지막 페이지면 키가 빠진다 |
+| `GET …/recruits/{recruitId}/applicants/exists` | `userIds` 1~100개(중복 포함 개수). `userIds=1,2` 또는 `userIds=1&userIds=2` | `{appliedUserIds}`. 요청한 회원 중 지원 이력이 있는 회원, 오름차순·중복 없음 |
+
+- **모집글 상태는 그대로 준다.** 회원 API는 HP 보류 처리 중(`HOLD_PENDING`)·실패(`HOLD_FAILED`) 모집글을 호스트 외에는 없는 것처럼 숨기지만(404), 내부 API는 다섯 상태(`HOLD_PENDING`·`HOLD_FAILED`·`RECRUITING`·`CLOSED`·`CANCELED`)를 모두 그대로 주고 방을 만들 수 있는지는 채팅이 판단한다(채팅 담당과 합의, 11/03).
+- **지원 이력은 지원 상태와 관계없다**(`APPLIED`·`SELECTED`·`NOT_SELECTED`·`WITHDRAWN`). 같은 게스트는 같은 모집글에 다시 지원할 수 없어(유니크 제약 `uk_appearance_applications_recruit_guest`) 회원마다 한 번만 나온다. 지원 행은 지우지 않으므로 이력은 늘기만 한다.
+- 회원 복제를 확인하지 않는다. 정지·탈퇴 회원도 지원 이력이 있으면 나온다(채팅 자격은 채팅이 본다).
+- 지원자 ID 목록은 한 건 더 읽어 다음 페이지가 있는지 판단한다. 딱 맞게 끝나는 페이지도 `nextAfterUserId`가 없다.
+- 인덱스: 두 조회 모두 유니크 제약 `(recruit_id, guest_id)`의 인덱스를 쓴다.
+
+### 24.3 구조
+
+| 계층 | 클래스 | 역할 |
+|---|---|---|
+| in | `ApiV1AppearanceRecruitInternalController` / `ApiV1AppearanceRecruitInternalSpec` | 내부 API 매핑·Swagger |
+| app | `AppearanceRecruitInternalFacade` | 내부 역할 검사, 읽기 전용 트랜잭션 |
+| app | `AppearanceRecruitInternalQueryUseCase` | 값 검증, 모집글 확인, 키셋 페이지 |
+| app | `AppearanceApplicationSupport` (기존) | 지원자 ID 키셋·지원 이력 조회 추가 |
+| out | `AppearanceApplicationRepository` (기존) | `findGuestIdsAfter`, `findAppliedGuestIds` |
+| app/dto | `AppearanceRecruitInternalResDto`, `AppearanceRecruitApplicantIdsResDto`, `AppearanceRecruitAppliedUserIdsResDto` | 응답 (출연 앱 안, shared 계약 없음) |
 
