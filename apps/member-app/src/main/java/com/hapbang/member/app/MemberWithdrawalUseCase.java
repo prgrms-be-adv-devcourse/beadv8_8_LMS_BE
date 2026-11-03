@@ -114,6 +114,45 @@ public class MemberWithdrawalUseCase {
     }
 
     /**
+     * 탈퇴 회원 복구 (#593). 탈퇴 때 닫은 지갑을 먼저 다시 열고(같은 작업 ID라 몇 번 불러도 안전), 성공하면 회원을 정상으로 되돌리고
+     * UserModifiedEvent(ACTIVE)로 다른 앱 복제본도 되돌린다. 지갑을 열지 못하면 복구하지 않는다(503, 회원·지갑 상태가 어긋나지 않게).
+     * 지갑만 열리고 회원 복구가 실패해도 회원은 탈퇴 상태라 거래할 수 없고, 다시 시도하면 된다.
+     * 이미 정상 회원이면 그대로 돌려준다(두 번 누름)
+     *
+     * @throws MemberException {@code RESTORE_UNAVAILABLE}(503), 복구할 수 없는 회원이면 {@code LOGIN_NOT_ALLOWED}(403)
+     */
+    public User restore(Long userId) {
+        User user = memberSupport.findUser(userId);
+        if (user.isActive()) {
+            return user;
+        }
+        if (!user.canRestore(now())) {
+            throw new MemberException(MemberErrorCode.LOGIN_NOT_ALLOWED);
+        }
+        withdrawalRepository.findFirstByUserIdAndStatusOrderByIdDesc(userId, WithdrawalStatus.COMPLETED)
+                .ifPresent(completed -> {
+                    try {
+                        walletGate.reopen(completed.getId(), userId);
+                    } catch (RuntimeException e) {
+                        log.warn("복구하려고 지갑을 다시 열지 못했습니다. withdrawalId={}", completed.getId(), e);
+                        throw new MemberException(MemberErrorCode.RESTORE_UNAVAILABLE, e);
+                    }
+                });
+        try {
+            return transactionTemplate.execute(status -> {
+                User target = memberSupport.findUser(userId);
+                target.restore(now());
+                memberSupport.flush();
+                eventPublisher.publishEvent(new UserModifiedEvent(target.toDto()));
+                return target;
+            });
+        } catch (IllegalStateException e) {
+            // 지갑을 여는 사이 복구 기한이 지났다
+            throw new MemberException(MemberErrorCode.LOGIN_NOT_ALLOWED, e);
+        }
+    }
+
+    /**
      * 배치: 복구가 필요한 작업(다시 열기 실패, {@link Withdrawal#STALE_AFTER} 넘게 멈춤)을 오래된 순으로 최대 {@code limit}개 정리한다.
      * 작업마다 따로 처리하고, 하나가 실패해도 다음 작업으로 넘어간다
      *

@@ -3,20 +3,27 @@ package com.hapbang.member.in;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.member.GatewayLogin;
@@ -24,16 +31,21 @@ import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.app.MemberWithdrawalUseCase;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
+import com.hapbang.member.domain.User;
 import com.hapbang.member.domain.WithdrawalBlockedException;
+import com.hapbang.member.out.RestoreTicketStore;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.dto.WithdrawalBlockReasonDto;
+import com.hapbang.testsupport.RedisTestcontainersConfig;
 
 /**
- * 회원 탈퇴 API (#593). 오케스트레이터는 대역으로 두고 응답 모양(204·쿠키 삭제, 409·이유 모음, 503)을 확인한다.
+ * 회원 탈퇴·복구 API (#593). 오케스트레이터와 복구 티켓 저장소는 대역으로 두고 응답 모양(204·쿠키 삭제, 409·이유 모음, 503,
+ * 복구 200·쿠키 발급·401)을 확인한다. 복구 응답의 refresh token은 실제 Redis에 저장한다.
  * 오케스트레이터 동작은 MemberWithdrawalUseCaseTest, 스위치가 꺼졌을 때 404는 ApiV1MemberControllerTest가 확인한다
  */
 @MemberIntegrationTest
 @AutoConfigureMockMvc
+@Import(RedisTestcontainersConfig.class)
 class MemberWithdrawalApiTest {
 
     private static final long USER_ID = 42L;
@@ -43,6 +55,9 @@ class MemberWithdrawalApiTest {
 
     @MockitoBean
     MemberWithdrawalUseCase memberWithdrawalUseCase;
+
+    @MockitoBean
+    RestoreTicketStore restoreTicketStore;
 
     @Test
     @DisplayName("탈퇴하면 204이고 refresh token 쿠키를 지운다")
@@ -103,5 +118,60 @@ class MemberWithdrawalApiTest {
     void notLoggedIn() throws Exception {
         mockMvc.perform(delete("/api/v1/members/me"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("복구 티켓으로 복구하면 로그인처럼 refresh token 쿠키와 내 정보를 주고 티켓을 지운다 (로그인 없이 부른다)")
+    void restore() throws Exception {
+        User user = User.join("tester1@example.com", "tester1");
+        ReflectionTestUtils.setField(user, "id", USER_ID);
+        given(restoreTicketStore.find("ticket-1")).willReturn(Optional.of(USER_ID));
+        given(memberWithdrawalUseCase.restore(USER_ID)).willReturn(user);
+
+        mockMvc.perform(post("/api/v1/members/restore")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"restoreTicket\": \"ticket-1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("계정을 복구했습니다."))
+                .andExpect(jsonPath("$.data.id").value(USER_ID))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString(RefreshTokenCookies.NAME + "=")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, containsString("HttpOnly")));
+        verify(restoreTicketStore).delete("ticket-1");
+    }
+
+    @Test
+    @DisplayName("복구 티켓이 없거나 만료됐으면 401 INVALID_RESTORE_TICKET")
+    void restoreInvalidTicket() throws Exception {
+        given(restoreTicketStore.find("expired")).willReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/v1/members/restore")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"restoreTicket\": \"expired\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_RESTORE_TICKET"));
+    }
+
+    @Test
+    @DisplayName("지갑을 열지 못해 복구하지 못하면 503 RESTORE_UNAVAILABLE이고 티켓은 남겨 다시 시도할 수 있다")
+    void restoreUnavailable() throws Exception {
+        given(restoreTicketStore.find("ticket-1")).willReturn(Optional.of(USER_ID));
+        willThrow(new MemberException(MemberErrorCode.RESTORE_UNAVAILABLE)).given(memberWithdrawalUseCase).restore(USER_ID);
+
+        mockMvc.perform(post("/api/v1/members/restore")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"restoreTicket\": \"ticket-1\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("RESTORE_UNAVAILABLE"))
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+        verify(restoreTicketStore, never()).delete("ticket-1");
+    }
+
+    @Test
+    @DisplayName("복구 티켓이 비어 있으면 400")
+    void restoreBlankTicket() throws Exception {
+        mockMvc.perform(post("/api/v1/members/restore")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"restoreTicket\": \"\"}"))
+                .andExpect(status().isBadRequest());
     }
 }

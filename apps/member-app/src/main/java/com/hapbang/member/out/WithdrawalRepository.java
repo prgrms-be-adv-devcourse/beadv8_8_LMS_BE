@@ -16,6 +16,9 @@ import com.hapbang.member.domain.WithdrawalStatus;
 /** 회원 탈퇴 작업 기록 저장소 (#593) */
 public interface WithdrawalRepository extends JpaRepository<Withdrawal, Long> {
 
+    /** 회원의 가장 최근 작업 중 이 상태인 것 (복구 때 지갑을 닫은 완료 작업을 찾는다) */
+    Optional<Withdrawal> findFirstByUserIdAndStatusOrderByIdDesc(Long userId, WithdrawalStatus status);
+
     /** 회원의 진행 중인 작업 (부분 유일 인덱스로 회원당 하나뿐이다) */
     Optional<Withdrawal> findFirstByUserIdAndStatusIn(Long userId, Collection<WithdrawalStatus> statuses);
 

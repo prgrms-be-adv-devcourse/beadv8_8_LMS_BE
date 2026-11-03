@@ -38,6 +38,10 @@ public enum MemberErrorCode implements BaseErrorCode {
     LOGIN_NOT_ALLOWED(HttpStatus.FORBIDDEN, "탈퇴했거나 이용할 수 없는 회원입니다."),
     /** 탈퇴했지만 복구 기한 안 (#593). 응답에 restoreTicket·restorableUntil을 싣고 프론트가 "복구할까요?"를 보여 준다 */
     WITHDRAWN_RESTORABLE(HttpStatus.CONFLICT, "탈퇴한 계정이에요. 복구하면 다시 이용할 수 있어요."),
+    /** 복구 (#593): 복구 티켓이 없거나 만료됨(10분). 다시 로그인하면 새 티켓을 받는다 */
+    INVALID_RESTORE_TICKET(HttpStatus.UNAUTHORIZED, "복구 요청이 만료됐어요. 다시 로그인해 주세요."),
+    /** 복구 (#593): 탈퇴 때 닫은 지갑을 다시 열지 못해 복구하지 않음. 티켓이 남아 있어 그대로 다시 시도하면 된다 */
+    RESTORE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 복구할 수 없어요. 잠시 후 다시 시도해 주세요."),
     EMAIL_REGISTERED_WITH_PASSWORD(HttpStatus.CONFLICT, "이미 비밀번호로 가입된 이메일입니다. 이메일과 비밀번호로 로그인해 주세요."),
     PASSWORD_NOT_SET(HttpStatus.CONFLICT, "비밀번호로 가입한 회원만 비밀번호를 바꿀 수 있습니다."),
     INVALID_CURRENT_PASSWORD(HttpStatus.BAD_REQUEST, "현재 비밀번호가 올바르지 않습니다."),

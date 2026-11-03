@@ -369,6 +369,62 @@ class MemberWithdrawalUseCaseTest {
         assertThat(saved.getAttempts()).isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("복구하면 탈퇴 때 닫은 지갑을 다시 열고 회원을 정상으로 되돌리며 이벤트를 남긴다")
+    void restore() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        Long completedId = onlyWithdrawalOf(user).getId();
+        events.clear();
+
+        User restored = memberWithdrawalUseCase.restore(user.getId());
+
+        assertThat(restored.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertActive(user);
+        assertThat(walletGate.reopened).containsExactly(completedId);
+        assertThat(events.stream(UserModifiedEvent.class)).singleElement()
+                .satisfies(event -> assertThat(event.user().status()).isEqualTo(UserStatus.ACTIVE));
+    }
+
+    @Test
+    @DisplayName("복구하려는데 지갑을 다시 열지 못하면 복구하지 않고 503 RESTORE_UNAVAILABLE")
+    void restoreWalletUnavailable() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        walletGate.reopenFailure = new WithdrawalCallException(WithdrawalCallException.Kind.UNKNOWN_RESULT,
+                "응답 시간 초과", null);
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.RESTORE_UNAVAILABLE);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.WITHDRAWN);
+    }
+
+    @Test
+    @DisplayName("복구 기한이 지났으면 지갑을 부르지 않고 LOGIN_NOT_ALLOWED")
+    void restoreExpired() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        jdbcTemplate.update("update members.users set deleted_at = now() - interval '31 days' where id = ?", user.getId());
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LOGIN_NOT_ALLOWED);
+        assertThat(walletGate.reopened).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이미 정상 회원이면 아무것도 하지 않고 그대로 돌려준다 (두 번 누름)")
+    void restoreAlreadyActive() {
+        User user = userRepository.save(MemberFixture.user());
+
+        User result = memberWithdrawalUseCase.restore(user.getId());
+
+        assertThat(result.getId()).isEqualTo(user.getId());
+        assertThat(walletGate.reopened).isEmpty();
+        assertThat(events.stream(UserModifiedEvent.class)).isEmpty();
+    }
+
     /** 처리하던 요청이 멈춘 것처럼 마지막 변경 시각을 5분 전으로 돌린다 */
     private void makeStale(Long withdrawalId) {
         jdbcTemplate.update("update members.withdrawal set updated_at = now() - interval '5 minutes' where id = ?",

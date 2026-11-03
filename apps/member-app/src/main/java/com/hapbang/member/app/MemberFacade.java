@@ -25,6 +25,7 @@ import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.global.exception.BusinessException;
 import com.hapbang.member.global.exception.GlobalErrorCode;
+import com.hapbang.member.out.RestoreTicketStore;
 import com.hapbang.shared.member.domain.Role;
 
 import lombok.RequiredArgsConstructor;
@@ -53,6 +54,7 @@ public class MemberFacade {
     private final MemberAppearanceReviewUseCase memberAppearanceReviewUseCase;
     /** 탈퇴 기능 스위치가 켜졌을 때만 있다 (#593) */
     private final ObjectProvider<MemberWithdrawalUseCase> memberWithdrawalUseCase;
+    private final RestoreTicketStore restoreTicketStore;
 
     // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
     private static final String USER_ONLY = "hasRole('USER')";
@@ -218,6 +220,23 @@ public class MemberFacade {
             throw new BusinessException(GlobalErrorCode.NOT_FOUND);
         }
         useCase.withdraw(userId);
+    }
+
+    /**
+     * 탈퇴 회원 복구 (#593). 로그인 때 받은 복구 티켓으로 본인을 확인한다. 성공하면 티켓을 지우고,
+     * 실패하면(지갑 장애 등) 남겨 둬 10분 안에 그대로 다시 시도할 수 있다. 다른 앱을 부르므로 트랜잭션을 두지 않는다
+     */
+    public User restore(String restoreTicket) {
+        // 탈퇴 기능이 꺼져 있으면 티켓을 발급하지 않으므로 받은 티켓도 없는 것으로 본다
+        MemberWithdrawalUseCase useCase = memberWithdrawalUseCase.getIfAvailable();
+        if (useCase == null) {
+            throw new MemberException(MemberErrorCode.INVALID_RESTORE_TICKET);
+        }
+        Long userId = restoreTicketStore.find(restoreTicket)
+                .orElseThrow(() -> new MemberException(MemberErrorCode.INVALID_RESTORE_TICKET));
+        User user = useCase.restore(userId);
+        restoreTicketStore.delete(restoreTicket);
+        return user;
     }
 
     /** 로그인 토큰 발급 (access token + refresh token, #370) */

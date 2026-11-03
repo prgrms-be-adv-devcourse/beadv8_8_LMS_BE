@@ -332,6 +332,16 @@ class ApiV1MemberControllerTest {
         assertThat(userRepository.findById(user.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
     }
 
+    @Test
+    @DisplayName("탈퇴 기능 스위치가 꺼져 있으면 복구 티켓이 없으므로 복구 API는 401 INVALID_RESTORE_TICKET (#593)")
+    void restore_disabled() throws Exception {
+        mockMvc.perform(post("/api/v1/members/restore")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"restoreTicket\": \"any\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_RESTORE_TICKET"));
+    }
+
     /** 탈퇴 기능(F7)이 아직 없어 상태는 테스트에서만 직접 바꾼다 */
     private User saveMember(String nickname, Role role, UserStatus status) {
         User user = User.join(nickname + "@example.com", nickname);
