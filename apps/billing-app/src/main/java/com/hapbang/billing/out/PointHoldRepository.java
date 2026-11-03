@@ -28,13 +28,15 @@ public interface PointHoldRepository extends Repository<PointHold, Long> {
     // 서비스 간 HP 대사 조회 (#577). 참조 대상의 보류 멱등키(HOLD:{유형}:{ID}, UNIQUE)로 찾는다
     List<PointHold> findAllByIdempotencyKeyIn(Collection<String> idempotencyKeys);
 
-    // 참조 유형별로 (updatedAfter, afterId) 뒤에 바뀐 보류를 마지막 변경 시각·ID 순으로 읽는다(키셋, idx_point_hold_2, #577)
+    // 참조 유형별로 (updatedAfter, afterId) 뒤에 바뀐 보류를 마지막 변경 시각·ID 순으로 읽는다(키셋, idx_point_hold_2, #577).
+    // updatedBefore보다 최근에 바뀐 보류는 아직 커밋 전일 수 있어 읽지 않는다(HoldQueryUseCase의 확정 대기 시간)
     @Query("""
             select h from PointHold h
             where h.referenceType = :referenceType
               and (h.updatedAt > :updatedAfter or (h.updatedAt = :updatedAfter and h.id > :afterId))
+              and h.updatedAt < :updatedBefore
             order by h.updatedAt, h.id""")
     List<PointHold> findChangedAfter(@Param("referenceType") BillingReferenceType referenceType,
                                      @Param("updatedAfter") Instant updatedAfter, @Param("afterId") long afterId,
-                                     Limit limit);
+                                     @Param("updatedBefore") Instant updatedBefore, Limit limit);
 }

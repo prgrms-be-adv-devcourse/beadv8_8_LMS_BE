@@ -176,8 +176,12 @@ class HoldQueryApiTest {
         call("/holds", hold(HOST, 32, 1_000)).andExpect(status().isOk());
         call("/holds", hold(HOST, 33, 1_000)).andExpect(status().isOk());
         call("/holds", lectureHold(41, 1_000)).andExpect(status().isOk());
-        // 먼저 만든 보류를 나중에 바꾸면 순서가 뒤로 간다
         call("/releases", release(HOST, 31, "R31", 500L)).andExpect(status().isOk());
+        // 확정 대기 시간(기본 10초)보다 전에 바뀐 것으로 옮겨 순서를 정한다. 31은 마지막에 바뀌었다(반환)
+        changedMinutesAgo(BillingReferenceType.APPEARANCE_REQUEST, 32, 5);
+        changedMinutesAgo(BillingReferenceType.APPEARANCE_REQUEST, 33, 4);
+        changedMinutesAgo(BillingReferenceType.APPEARANCE_REQUEST, 31, 3);
+        changedMinutesAgo(BillingReferenceType.LECTURE_ORDER_ITEM, 41, 5);
 
         String first = list("APPEARANCE_REQUEST", Instant.EPOCH.toString(), 0, 2)
                 .andExpect(status().isOk())
@@ -196,6 +200,23 @@ class HoldQueryApiTest {
 
         list("LECTURE_ORDER_ITEM", Instant.EPOCH.toString(), 0, 100)
                 .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(41)));
+    }
+
+    @Test
+    @DisplayName("확정 대기 시간(10초) 안에 바뀐 보류는 아직 커밋 전일 수 있어 목록에 없고, 지나면 마지막 변경 순서대로 나온다")
+    void listSkipsUnsettled() throws Exception {
+        call("/holds", hold(HOST, 51, 1_000)).andExpect(status().isOk());
+        call("/holds", hold(HOST, 52, 1_000)).andExpect(status().isOk());
+        changedMinutesAgo(BillingReferenceType.APPEARANCE_REQUEST, 51, 5);
+
+        list("APPEARANCE_REQUEST", Instant.EPOCH.toString(), 0, 100)
+                .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(51)));
+
+        changedMinutesAgo(BillingReferenceType.APPEARANCE_REQUEST, 52, 1);
+        list("APPEARANCE_REQUEST", Instant.EPOCH.toString(), 0, 100)
+                .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(51, 52)));
+        // 참조 대상별 조회는 확정 대기 시간과 관계없다
+        query(List.of(52L)).andExpect(jsonPath("$.data[0].hold.status").value("HELD"));
     }
 
     @Test
@@ -271,6 +292,12 @@ class HoldQueryApiTest {
         return """
                 {"userId": %d, "referenceType": "APPEARANCE_REQUEST", "referenceId": %d}""".formatted(userId,
                 referenceId);
+    }
+
+    // 보류의 마지막 변경 시각을 지금보다 minutes분 전으로 옮긴다(확정 대기 시간 밖으로)
+    private void changedMinutesAgo(BillingReferenceType referenceType, long referenceId, int minutes) {
+        jdbcTemplate.update("UPDATE billing.point_hold SET updated_at = now() - make_interval(mins => ?) "
+                + "WHERE reference_type = ? AND reference_id = ?", minutes, referenceType.name(), referenceId);
     }
 
     private Long wallet(Long userId) {
