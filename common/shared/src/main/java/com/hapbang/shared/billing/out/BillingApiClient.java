@@ -52,6 +52,8 @@ import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
 import io.github.resilience4j.timelimiter.TimeLimiter;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import io.micrometer.context.ContextExecutorService;
+import io.micrometer.context.ContextSnapshotFactory;
 
 /**
  * 지갑 내부 HTTP API Client (D62, D64, #272). 강의·출연은 지갑 Java 타입 대신 이 Client로 HP를 보류·반환·지급한다.
@@ -113,9 +115,11 @@ public class BillingApiClient {
     private final CircuitBreaker circuitBreaker;
     private final Retry retry;
     private final TimeLimiter timeLimiter;
-    // 시간 상한을 걸려면 호출을 다른 스레드에서 돌려야 한다. 동시 호출 수는 배치 크기가 정하므로 풀을 두지 않는다
-    private final Executor executor = Executors.newThreadPerTaskExecutor(
-            Thread.ofVirtual().name("billing-client-", 0).factory());
+    // 시간 상한을 걸려면 호출을 다른 스레드에서 돌려야 한다. 동시 호출 수는 배치 크기가 정하므로 풀을 두지 않는다.
+    // 작업을 넘길 때 요청 스레드의 context(trace 등)를 캡처해 그 스레드에 복원한다. 없으면 지갑 호출이 trace에서 끊긴다(#579)
+    private final Executor executor = ContextExecutorService.wrap(
+            Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("billing-client-", 0).factory()),
+            ContextSnapshotFactory.builder().build());
 
     public BillingApiClient(RestClient.Builder restClientBuilder, BillingClientProperties properties,
                             @Value("${hapbang.internal-api.key}") String internalApiKey) {

@@ -5,10 +5,13 @@ import java.util.Map;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,10 +20,12 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.member.global.auth.LoginUserId;
 import com.hapbang.member.global.response.RsData;
 import com.hapbang.member.app.MemberFacade;
+import com.hapbang.member.app.TokenPair;
 import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.User;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
 
@@ -31,6 +36,7 @@ import lombok.RequiredArgsConstructor;
 public class ApiV1MemberController implements ApiV1MemberSpec {
 
     private final MemberFacade memberFacade;
+    private final RefreshTokenCookies refreshTokenCookies;
 
     /** 내 정보 조회 */
     @Override
@@ -88,6 +94,27 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         User user = memberFacade.uploadProfileImage(userId, memberId, request.getContentType(),
                 request.getContentLengthLong(), request.getInputStream());
         return RsData.ok("프로필 사진을 바꿨습니다.", meResponse(user));
+    }
+
+    /** 탈퇴 회원 복구 (#593). 로그인처럼 refresh token 쿠키와 내 정보를 준다 (로그인하지 않고 복구 티켓으로 부른다) */
+    @Override
+    @PostMapping("/restore")
+    public ResponseEntity<RsData<MemberMeResponse>> restore(@Valid @RequestBody RestoreRequest request) {
+        User user = memberFacade.restore(request.restoreTicket());
+        TokenPair tokens = memberFacade.issueTokens(user.getId(), user.getRole());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString())
+                .body(RsData.ok("계정을 복구했습니다.", meResponse(user)));
+    }
+
+    /** 회원 탈퇴 (#593). 성공하면 로그아웃처럼 refresh token 쿠키도 지운다. 이미 탈퇴했으면 그대로 성공 */
+    @Override
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> withdraw(@LoginUserId Long userId) {
+        memberFacade.withdraw(userId);
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.expire().toString())
+                .build();
     }
 
     /** 프로필 사진 삭제 (DB에서만 연결 해제, S3 파일은 그대로) */

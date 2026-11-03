@@ -17,6 +17,7 @@
 | `V202611021013__allow_repeated_chat_logout_control.sql` | #501 | `chat_control_outbox`의 중복 식별 유일 제약을 재검사(`RECHECK_USER`) 행에만 거는 부분 유일 인덱스로 바꾼다. 로그아웃(`LOGOUT_USER`)은 이벤트마다 한 행이다 |
 | `V202611021600__add_chat_control_outbox_logged_out_at.sql` | #548 | `chat_control_outbox.logged_out_at`(timestamptz, null 가능). 로그아웃 작업이 닫을 연결의 기준 시각. 재검사 행과 이전 로그아웃 행은 null |
 | `V202611030922__add_chat_group_room.sql` | #584 | 모집용 단체방: `chat_room`의 단체방 컬럼·검사 제약·현재 방 부분 유일 인덱스, `chat_room_log.target_user_id`, `chat_group_invite_request`(아래 "모집용 단체방") |
+| `V202611031434__add_chat_group_cleanup_indexes.sql` | #616 | 조회 만료 배치가 대상을 찾는 부분 인덱스 `idx_chat_room_group_history_expiry`, 초대 결과 기록 정리가 지난 행을 고르는 `idx_chat_group_invite_request_recorded_at (recorded_at, id)`(아래 "정리 배치") |
 
 `out-of-order: true`라 병합 순서와 무관하게 적용된다. 이미 배포한 마이그레이션은 고치지 않는다.
 
@@ -133,15 +134,27 @@ chat-app의 `spring.datasource.hikari.maximum-pool-size` 기본값은 20이다. 
 | `chat_room` | `title`(VARCHAR 255) | 모집글 제목. 생성 때 복사하고 초대 후보 검색 때 모집글 제목으로 맞춘다(제목 컬럼만 조건부 UPDATE) |
 | `chat_room` | `max_guest_members`(INTEGER) | 게스트 정원(호스트 제외). 생성 때 `hapbang.chat.group.max-guest-members`(코드 기본값 500, Q12 실측 전)를 저장한다 |
 | `chat_room` | `status_reason`(VARCHAR 40) | 읽기 전용 사유 `CLOSED_BY_HOST`·`HOST_UNAVAILABLE`. 그 밖에는 null |
-| `chat_room` | `read_only_at`, `history_expires_at` | 읽기 전용 전환 시각과 참여자 조회 만료 시각(전환 + 30×24시간). 만료는 조회 때 `now >= history_expires_at`로 정한다(그 시각 포함). 상태를 `EXPIRED`로 바꾸는 배치는 없다 |
-| `chat_room` | `status_version`(INTEGER NOT NULL DEFAULT 0) | 상태가 바뀔 때마다 1 늘린다(지금은 폐쇄만). 늦은 상태 변경을 걸러 낼 기준이다. 1:1 방과 기존 행은 0이다 |
+| `chat_room` | `read_only_at`, `history_expires_at` | 읽기 전용 전환 시각과 참여자 조회 만료 시각(전환 + 30×24시간). 만료는 조회 때 `now >= history_expires_at`로 정한다(그 시각 포함). 조회 만료 배치가 뒤에 상태를 `EXPIRED`로 바꿔 저장한다(아래 "정리 배치"). 노출 차단은 배치와 관계없이 이 시각으로 한다 |
+| `chat_room` | `status_version`(INTEGER NOT NULL DEFAULT 0) | 상태가 바뀔 때마다 1 늘린다(지금은 폐쇄와 조회 만료). 늦은 상태 변경을 걸러 낼 기준이다. 1:1 방과 기존 행은 0이다 |
 | `chat_room` | `ck_chat_room_group_columns` | `room_type = 'GROUP'`이면 모집글·호스트·제목·정원이 있어야 한다. 1:1 방은 모두 null이다 |
 | `chat_room` | `uk_chat_room_group_current (recruit_id) where room_type = 'GROUP' and status in ('ACTIVE', 'SUSPENDED')` | 모집글마다 현재 방 하나. 읽기 전용으로 남은 이전 방과 새 방은 공존한다. 동시 생성은 이 인덱스에 걸린 쪽이 다시 시도해 먼저 만든 방을 돌려준다 |
 | `chat_room_log` | `target_user_id`(BIGINT, null 가능) | 행위 대상. 초대(`MEMBER_INVITED`)·강퇴(`MEMBER_KICKED`)는 행위자가 호스트, 대상이 회원이다. 그 밖에는 null |
-| `chat_group_invite_request` | `id`, `chat_room_id`(FK), `request_id`(UUID), `requester_user_id`, `results`(JSONB), `recorded_at`, `unique (chat_room_id, request_id)` | 초대 요청의 회원별 결과(Q34). 보존 기간(`hapbang.chat.group.invite-request-retention`, 코드 기본값 24시간, Q12 실측 전) 안의 같은 요청 ID는 이 결과를 그대로 돌려준다. 지난 요청 ID는 새 요청으로 처리하고 이 행을 새 결과로 바꾼다. 방을 잠근 초대 트랜잭션에서 참여 행·안내·전달 작업과 함께 쓴다. 오래된 행 정리는 아직 없다 |
+| `chat_room_log` | `event_type = 'HISTORY_EXPIRED'` | 조회 만료(#616). 배치가 방마다 한 번 남긴다. 시스템 전환이지만 `actor_user_id`가 NOT NULL이라 방의 호스트(`owner_user_id`)를 남기고, `occurred_at`은 배치 실행 시각이 아니라 `history_expires_at`이다 |
+| `chat_group_invite_request` | `id`, `chat_room_id`(FK), `request_id`(UUID), `requester_user_id`, `results`(JSONB), `recorded_at`, `unique (chat_room_id, request_id)` | 초대 요청의 회원별 결과(Q34). 보존 기간(`hapbang.chat.group.invite-request-retention`, 코드 기본값 24시간, Q12 실측 전) 안의 같은 요청 ID는 이 결과를 그대로 돌려준다. 지난 요청 ID는 새 요청으로 처리하고 이 행을 새 결과로 바꾼다. 방을 잠근 초대 트랜잭션에서 참여 행·안내·전달 작업과 함께 쓴다(이 행도 잠가 읽는다). 보존 기간이 지난 행은 정리 배치가 물리 삭제한다(아래 "정리 배치") |
 
-- 상태: 1:1 방은 `ACTIVE`·`ENDED`, 단체방은 `ACTIVE`·`SUSPENDED`·`READ_ONLY`를 저장한다. `EXPIRED`는 저장하지 않고 응답에서만 쓴다(관리자 기록). 단체방은 모두 나가도 `ENDED`가 되지 않는다.
+- 상태: 1:1 방은 `ACTIVE`·`ENDED`, 단체방은 `ACTIVE`·`SUSPENDED`·`READ_ONLY`·`EXPIRED`를 저장한다. `EXPIRED`는 조회 만료 배치가 저장하고, 배치 전의 만료된 `READ_ONLY` 방도 응답(관리자 기록)에서는 `EXPIRED`다. 만료 뒤에도 `status_reason`·`read_only_at`·`history_expires_at`은 그대로 둔다. `EXPIRED`는 현재 방이 아니라 `uk_chat_room_group_current`에 들지 않는다. 단체방은 모두 나가도 `ENDED`가 되지 않는다.
 - 단체방 안내는 `chat_message`의 `message_type = 'SYSTEM'`, `content = ''`, `notification_kind`(종류), `notification_data`(값)에 남긴다. `reference_id`는 null이라 출연 알림의 `uk_chat_message_notification`에 걸리지 않는다([알림 값 계약](notification-data.md)).
 - 읽기 전용 방에는 순번을 발급하지 않는다. 폐쇄 안내가 마지막 메시지이고, 읽기 전용 방에서 나가면 기록·수신자 집합만 남긴다.
 - `HOST_UNAVAILABLE`(사유)은 회원 변경 이벤트·백필이 호스트 자격 상실(탈퇴, 인플루언서 이상이 아닌 역할)을 반영할 때 그 회원의 현재 단체방에 쓴다. 방 기록은 `HOST_UNAVAILABLE`(행위자 = 호스트, 대상 null)이다. `SUSPENDED`로 바꾸는 기능은 아직 없다(상태 값과 컬럼만 둔다).
 
+### 정리 배치 (#616)
+
+`hapbang.scheduling.enabled`일 때만 돈다(`ChatGroupRoomBatch`). 주기·묶음 크기는 미확정 코드 기본값이다.
+
+| 배치 | 대상·처리 | 기본값 |
+| --- | --- | --- |
+| 조회 만료 상태 기록 (`ChatGroupHistoryExpiryService`) | `room_type = 'GROUP' and status = 'READ_ONLY' and history_expires_at <= now`인 방을 방 ID 키셋으로 한 묶음씩 읽고(잠그지 않음), 방마다 짧은 트랜잭션에서 방을 잠근 뒤 같은 조건을 다시 확인해 `EXPIRED`로 바꾸고 `status_version`을 1 늘리며 `HISTORY_EXPIRED` 기록을 남긴다. 메시지·참여 행·기록은 지우지 않고 안내 메시지·전달 작업도 만들지 않는다(참여자에게 이미 보이지 않는 방이다). 한 방의 실패는 그 방만 롤백하고 다음 실행이 다시 한다. 다시 실행하거나 여러 실행이 겹쳐도 방마다 한 번만 바뀐다 | 주기 `hapbang.chat.group.history-expiry-interval` 10m, 묶음 `history-expiry-batch-size` 100 |
+| 초대 결과 기록 정리 (`ChatGroupInviteRequestCleaner`) | `recorded_at <= now − invite-request-retention`인 `chat_group_invite_request` 행을 `delete ... where id = any(array(select id ... order by recorded_at, id limit n for update skip locked))`로 묶음마다 한 트랜잭션에서 물리 삭제한다. 기준은 초대의 보존 판정(`isRetained`: `now < recorded_at + retention`)과 같아 보존 기간 안의 행은 지우지 않는다. 초대 트랜잭션은 이 행을 잠가 읽으므로, 지난 행을 새 결과로 바꾸는 중이면 정리가 건너뛰고, 정리가 먼저 잠갔으면 초대는 빈 값을 받아 새 행을 만든다 | 주기 `invite-request-cleanup-interval` 1h, 묶음 `invite-request-cleanup-batch-size` 500 |
+
+- 조회 만료 배치의 대상 조회는 부분 인덱스 `idx_chat_room_group_history_expiry (history_expires_at) where room_type = 'GROUP' and status = 'READ_ONLY'`를 쓴다. 만료로 바뀐 방은 인덱스에서 빠지므로 크기는 조회 기간 안의 읽기 전용 방 수에 묶인다. 초대 결과 기록 정리는 `idx_chat_group_invite_request_recorded_at (recorded_at, id)` 순서로 지난 행만 골라, 보존 중인 행을 묶음마다 다시 훑지 않는다. 바깥 삭제는 고른 ID 배열로 기본 키를 찾는다.
+- 초대 결과 기록을 물리 삭제하는 이유(사용자 결정 2026-11-03): 재시도 판정용 기술 데이터라 업무 의미가 없다. 초대된 회원은 `chat_room_log`(`MEMBER_INVITED`)와 초대 안내 메시지에 계속 남는다. [정책](../../../../docs/policy.md) 7장의 Soft Delete 규칙(Hard Delete 금지)은 업무 데이터에 대한 것이다.

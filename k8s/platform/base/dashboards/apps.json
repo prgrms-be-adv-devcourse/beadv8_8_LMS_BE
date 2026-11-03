@@ -1350,7 +1350,7 @@
           "sort": "desc"
         }
       },
-      "description": "앱 HTTP 지표에 histogram이 없어 percentile은 없다. route별 p95는 Gateway dashboard에서 본다",
+      "description": "percentile은 JVM·Spring Boot dashboard의 \"응답 시간 p50·p95·p99\"에서 본다",
       "id": 12,
       "gridPos": {
         "h": 8,

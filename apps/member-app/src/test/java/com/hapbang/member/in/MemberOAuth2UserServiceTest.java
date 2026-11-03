@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +27,7 @@ import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.domain.WithdrawnRestorableException;
 
 @ExtendWith(MockitoExtension.class)
 class MemberOAuth2UserServiceTest {
@@ -75,5 +77,24 @@ class MemberOAuth2UserServiceTest {
                 .isInstanceOf(OAuth2AuthenticationException.class)
                 .extracting(e -> ((OAuth2AuthenticationException) e).getError().getErrorCode())
                 .isEqualTo("EMAIL_REGISTERED_WITH_PASSWORD");
+    }
+
+    @Test
+    @DisplayName("복구할 수 있는 탈퇴 회원이면 복구 티켓을 담은 로그인 실패로 바꾼다 (#593)")
+    void loadUser_restorable() {
+        given(googleUserService.loadUser(any())).willReturn(new DefaultOAuth2User(
+                List.of(),
+                Map.of("sub", "google-sub-1", "email", "tester1@example.com", "name", "tester1"),
+                "sub"));
+        given(memberFacade.oauthLogin(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "tester1"))
+                .willThrow(new WithdrawnRestorableException("ticket-1", LocalDateTime.of(2026, 12, 3, 12, 0)));
+
+        MemberOAuth2UserService service = new MemberOAuth2UserService(memberFacade, googleUserService);
+
+        assertThatThrownBy(() -> service.loadUser(null))
+                .isInstanceOfSatisfying(RestorableOAuth2AuthenticationException.class, e -> {
+                    assertThat(e.getError().getErrorCode()).isEqualTo("WITHDRAWN_RESTORABLE");
+                    assertThat(e.getRestoreTicket()).isEqualTo("ticket-1");
+                });
     }
 }

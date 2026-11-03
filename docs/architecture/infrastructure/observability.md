@@ -23,13 +23,15 @@
 ## 현재 수집 상태 (#480)
 
 - **지표**: 모듈 앱 6개(member·lecture·appearance·customer-support·billing·chat)가 관리 포트 8082에서 `/actuator/prometheus`를 연다(lecture #521, billing #552, chat #590, 나머지 #528). Prometheus 차트 기본 `kubernetes-pods` job이 pod annotation을 보고 1분마다 수집한다. label은 pod label을 옮긴 `app_kubernetes_io_name`과 `namespace`·`pod`다.
+- **HTTP 응답 시간 bucket** (#617): 6개 앱이 `management.metrics.distribution.slo.http.server.requests`에 경계 10개(5·10·25·50·100·250·500·1000·2500·5000ms)를 같은 값으로 두어 `http_server_requests_seconds_bucket`을 낸다. p50·p95·p99는 `histogram_quantile`로 계산한다. `percentiles-histogram`은 bucket이 기본 69개(5ms~5s로 좁혀도 48개)라 쓰지 않았다. Prometheus memory limit이 384Mi이고 2026-11-03 사용량이 211Mi였기 때문이다. bucket은 uri·method·status 조합마다 11개(`+Inf` 포함)씩 생긴다. 2026-11-03 운영의 조합은 20개라 약 220 series가 늘어난다. 진행 중 요청 수(`http.server.requests.active`)는 접두어가 같아 bucket이 따라 붙으므로 빈 값으로 끈다.
 - **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 형식은 앱 기본 평문 그대로이고 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
+- **trace**: Envoy가 요청의 10%를 샘플링해 OTLP gRPC로 Alloy(4317)에 보내고 Alloy가 Tempo로 넘긴다(#372). lecture-app은 Envoy가 넘긴 `traceparent`를 이어받아 server span과 지갑 내부 API client span을 같은 trace에 보낸다(#579, 아래 "앱 trace 계측"). 나머지 앱은 아직 계측하지 않아 그 앱의 요청은 Envoy span만 남는다.
 - **dashboard**: Grafana `합방` 폴더에 다섯 개가 있다(#531, Kafka #597, 앱 개요 #601, 아래 "Dashboard").
-- 구조화 로그·`traceId`, alert는 아직 없다(#343).
+- 구조화 로그(#582)와 alert는 아직 없다(#343). 계측한 앱의 평문 로그에는 Boot가 trace ID를 붙인다.
 
 다른 앱이 지표를 열 때는 다음 다섯 가지를 더한다. `micrometer-registry-prometheus`는 루트 `build.gradle.kts`가 모든 앱에 넣는다. lecture-app이 예시다.
 
-1. `application.yaml`: `management.endpoints.web.exposure.include: health,prometheus`
+1. `application.yaml`: `management.endpoints.web.exposure.include: health,prometheus`와 위의 HTTP 응답 시간 bucket(`management.metrics.distribution.slo`)
 2. `SecurityConfig`: `GET /actuator/prometheus`만 permitAll로 연다. 다른 actuator 경로는 계속 막는다.
 3. `k8s/base/kustomization.yaml`의 ConfigMap: `MANAGEMENT_SERVER_PORT=8082`. actuator(헬스체크·지표)가 관리 포트에서만 열린다. 로컬 실행은 설정하지 않아 앱 포트에서 열린다.
 4. `k8s/base/deployment.yaml`: `management` containerPort 8082, probe 포트를 `management`로, pod template annotation `prometheus.io/scrape: 'true'`, `prometheus.io/port: '8082'`, `prometheus.io/path: /actuator/prometheus`
@@ -39,14 +41,57 @@
 
 registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한다(member-app은 448 MiB에서 OOMKilled, [k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)). 관리 포트는 Tomcat을 하나 더 띄운다. lecture-app은 로컬에서 RSS 약 +10MB, 스레드 +16이었다(1회 측정, #521).
 
-### Dashboard (#531, #597, #601)
+### 앱 trace 계측 (#579)
+
+lecture-app이 첫 적용이다. 요청 하나가 `Envoy ingress → Envoy router egress → lecture-app server → lecture-app 지갑 client` span으로 Tempo에 남는다.
+
+**동작.**
+
+- **샘플링**: Boot 기본 sampler(`PARENT_BASED_TRACE_ID_RATIO`)라 부모가 있으면 부모의 결정을 따른다. Envoy를 거친 요청은 Envoy가 `traceparent` flag에 실은 결정(10%)을 그대로 쓰고, flag가 `00`이면 앱도 span을 보내지 않는다. `management.tracing.sampling.probability`(0.1)는 배치(`@Scheduled`)처럼 앱 안에서 시작하는 trace에만 쓴다.
+- **전송**: Alloy는 OTLP gRPC(4317)만 받는다. Boot 기본 transport는 HTTP라 `grpc`로 바꾼다. endpoint는 ConfigMap이 넣는다. endpoint가 없으면(로컬 실행, 테스트) exporter가 생기지 않아 아무것도 보내지 않는다.
+- **로그**: tracing이 켜지면 Boot가 로그 줄의 스레드 이름 뒤에 `[<traceId 32자>-<spanId 16자>] `를 붙인다. trace 밖의 줄은 같은 폭의 공백이다. 같은 요청의 Envoy access log `trace_id`는 `traceparent` 전체(`00-<traceId>-<spanId>-<flag>`)라 가운데 32자가 앱 로그의 traceId와 같다.
+- **Grafana 연결**: Tempo datasource의 trace → logs는 `{namespace=~"hapbang-prod|envoy-gateway-system"} |= "<traceId>"`로 span 앞뒤 5분의 앱·Envoy 로그를 찾는다. Loki datasource의 derived field 두 개(앱 로그 `traceId`, Envoy `trace_id`)가 로그 줄에서 Tempo trace로 가는 링크를 만든다(`k8s/platform/base/observability.yaml`).
+- **관리 포트**: 관리 포트(8082)에는 HTTP 요청 observation이 없어 Spring Security filter chain observation이 부모 없이 시작된다. 그대로 두면 probe(5초마다 3종)와 Prometheus 수집마다 root trace가 생기므로 부모 없는 `spring.security.*` observation을 막는다(`ObservationConfig`). 업무 요청의 Security span은 HTTP 요청 span 아래에 그대로 남는다.
+
+**다른 앱에 붙이는 절차.** lecture-app이 예시다.
+
+1. `build.gradle.kts`: `implementation("org.springframework.boot:spring-boot-starter-opentelemetry")`. Micrometer Tracing OTel bridge, OTLP exporter와 함께 OTLP 지표 registry도 들어온다.
+2. `application.yaml`:
+   ```yaml
+   management:
+     tracing:
+       sampling:
+         probability: 0.1
+     opentelemetry:
+       tracing:
+         export:
+           otlp:
+             transport: grpc
+     otlp:
+       metrics:
+         export:
+           enabled: false   # 지표는 Prometheus가 수집한다. 켜 두면 localhost:4318로 보내다 실패한다
+   ```
+3. `global/config/ObservationConfig`: 부모 없는 `spring.security.*` observation을 막는 `ObservationPredicate` 빈.
+4. `k8s/base/kustomization.yaml`의 ConfigMap: `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy.hapbang-platform.svc.cluster.local:4317`. service name은 `spring.application.name`이다. 앱 NetworkPolicy에는 egress 제한이 없어 정책은 바꾸지 않는다.
+5. 스레드를 바꾸는 곳: trace context는 스레드 로컬이라 다른 스레드로 넘어가지 않는다. 앱이 직접 만든 executor로 HTTP를 부르면 `ContextExecutorService.wrap(executor, ContextSnapshotFactory.builder().build())`로 감싼다(`shared`의 `BillingApiClient`가 예다. `RestClient`는 Boot가 주입하는 `RestClient.Builder`로 만들어야 client span과 `traceparent`가 붙는다). `@Async`·`TaskExecutor`도 같은 문제가 있다.
+6. 메모리: 적용 전후 working set을 재고 limit을 다시 본다. lecture-app은 k3d에서 같은 heap 상한(`-Xmx384m`, `-XX:ActiveProcessorCount=2`)으로 기동 10분 뒤(샘플링된 요청 300건 뒤) 685 → 703 MiB였다(non-heap 190 → 198 MiB, 스레드 64 → 73, 클래스 28,175 → 29,323, 각 1회 측정). 적용 전 운영 working set이 588 MiB(640 MiB의 92%)라 704 MiB로 올렸다([k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)). k3d는 운영보다 working set이 커서(같은 이미지가 640 MiB에서 OOMKilled) 차이만 쓴다.
+7. 확인: Grafana Explore → Tempo에서 TraceQL `{resource.service.name="<앱>"}`로 찾는다. 한 trace에 Envoy span 2개와 앱 server span이 있고, 앱 로그 줄의 traceId로 같은 trace가 열리는지 본다.
+
+**지금 계측하지 않는 것.**
+
+- Kafka producer·consumer context 전파와 `eventId` 연결(#630). listener 스레드의 로그에는 traceId가 없다.
+- DB(JDBC) span. 요청 span의 시간에 DB 시간이 포함될 뿐 쿼리 단위로 나뉘지 않는다.
+- 받는 앱의 server span: lecture-app이 지갑을 부르면 client span까지만 남는다. 나머지 5개 앱은 #631에서 한 번에 붙인다. 반대로 계측하지 않은 앱이 lecture 내부 API(8081)를 부르면 `traceparent`가 없어 lecture-app이 새 trace(10%)를 시작한다.
+
+### Dashboard (#531, #597, #601, #617)
 
 새 component(kube-state-metrics, node-exporter, DB·Kafka exporter)는 띄우지 않고 지금 수집하는 지표만 쓴다. kube-state-metrics는 medium node 메모리 예산 때문에 켜지 않았다.
 
 | dashboard (uid) | 지표 | 내용 |
 | --- | --- | --- |
 | 앱 개요 (`hapbang-apps`) | 앱 Micrometer, cAdvisor | 앱별 요약 표(scrape 상태, 가동 시간, heap, 메모리/limit 현재·기간 최대, 요청 수, 5xx 비율, 평균·최대 응답, GC 정지 비율, DB 연결 대기·timeout, ERROR 로그, 열린 circuit breaker)와 앱별 비교 시계열. 앱 이름을 누르면 같은 시간 범위로 `hapbang-jvm`을 연다 |
-| JVM·Spring Boot (`hapbang-jvm`) | 앱 Micrometer, cAdvisor | 한 앱의 heap·non-heap·buffer, 컨테이너 메모리와 limit, GC, 스레드·CPU, HTTP(상태별, URI별 평균·최대), HikariCP, 나가는 HTTP 호출(대상·URI별 요청·응답 시간), circuit breaker 상태·호출 결과·호출 시간과 retry 결과, `@Scheduled` 작업 실행·시간, Spring Data Repository 메서드별 호출, 로그 레벨별 건수와 Loki의 ERROR·WARN 로그. 지표를 여는 앱만 앱 목록에 나온다 |
+| JVM·Spring Boot (`hapbang-jvm`) | 앱 Micrometer, cAdvisor | 한 앱의 heap·non-heap·buffer, 컨테이너 메모리와 limit, GC, 스레드·CPU, HTTP(상태별, URI별 평균·최대, 앱 전체 p50·p95·p99와 URI별 p95), HikariCP, 나가는 HTTP 호출(대상·URI별 요청·응답 시간), circuit breaker 상태·호출 결과·호출 시간과 retry 결과, `@Scheduled` 작업 실행·시간, Spring Data Repository 메서드별 호출, 로그 레벨별 건수와 Loki의 ERROR·WARN 로그. 지표를 여는 앱만 앱 목록에 나온다 |
 | Kubernetes 자원 (`hapbang-kubernetes`) | cAdvisor, kubelet | node CPU·메모리·디스크(`/dev/root`)·네트워크, node별 memory limit 합계, namespace·pod별 CPU·메모리, limit 대비 사용률(현재·기간 최대), 컨테이너 재생성, 최근 시작한 컨테이너 |
 | Gateway (Envoy) (`hapbang-gateway`) | Envoy proxy | HTTPS 요청률, 응답 코드 class, p50·p95·p99 지연, route별 요청률·5xx·p95, upstream 연결 실패·timeout·overflow·reset |
 | Kafka (`hapbang-kafka`) | 앱 Kafka client, Spring Kafka | 소비 그룹·토픽별 lag, 소비 건수, listener 처리 결과(성공·실패, 재시도 포함)·처리 시간, 마지막 poll 뒤 경과 시간, 할당된 partition, rebalance, KafkaTemplate 전송 결과·시간, 토픽별 전송 레코드·오류·재시도 |
@@ -55,7 +100,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 - pod 상태(Pending·CrashLoopBackOff), 정확한 재시작 횟수와 종료 사유(OOMKilled), Deployment 가용 replica: kube-state-metrics가 필요하다. "컨테이너 재생성"은 같은 pod 이름의 cAdvisor 컨테이너 ID 수로 센 근사치라 StatefulSet pod 재생성도 센다. 종료 사유는 `kubectl describe pod`로 본다.
 - OOMKilled 이벤트: cAdvisor `container_oom_events_total`은 2026-10-30 lecture-app OOMKilled(#461)를 기록하지 못했다. 대신 "메모리 사용률 / limit (선택 기간 최대, 상위 15)"로 위험을 본다.
-- 앱 HTTP percentile: `http_server_requests_seconds`에 histogram bucket이 없다. p95는 Gateway dashboard에서 route 단위로 본다.
+- 정확한 앱 HTTP percentile: bucket 경계 사이는 선형 보간한 근사치다(예: p95가 250~500ms 사이면 그 안에서 비례로 정한다). 5s를 넘는 요청이 percentile에 걸리면 5s로 나온다. 최대값은 `http_server_requests_seconds_max`로 본다. Gateway dashboard의 percentile은 Envoy가 잰 외부 요청만이라 앱 사이 내부 HTTP 호출이 빠진다.
 - 앱 개요의 cAdvisor 지표(메모리/limit, CPU): cAdvisor에는 앱 label이 없어 pod 이름(`<앱>-<replicaset hash>-<5자>`)에서 앱 이름을 꺼낸다. Deployment가 아닌 workload나 이름 규칙이 다른 pod는 잡히지 않는다.
 - circuit breaker 실패율: `resilience4j_circuitbreaker_failure_rate`는 sliding window의 최소 호출 수를 채우기 전에는 -1이라, 호출이 드문 지금(2026-11-03 운영 전부 -1)은 그리지 않는다. 대신 호출 결과(`failed`)와 상태를 본다.
 - 나가는 HTTP 호출: `http_client_requests_seconds` series는 앱이 그 대상을 처음 부른 뒤에 생긴다. pod가 새로 뜬 뒤 호출이 없으면 비어 있다.
@@ -66,7 +111,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 **수정 방법.** JSON 파일(`k8s/platform/base/dashboards/*.json`)이 원본이다. provider가 `allowUiUpdates: false`라 Grafana UI에서 고친 내용은 저장되지 않는다. UI에서 고친 뒤 Export → Export as JSON으로 내려받아 파일을 바꾸고 PR로 올린다. datasource는 uid(`prometheus`, `loki`)로 적는다. Prometheus datasource의 `timeInterval: 1m`(scrape 주기) 덕분에 `$__rate_interval`은 4분 이상이다.
 
-**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. client-side `kubectl apply`는 객체 전체를 `last-applied-configuration` annotation에 담고, annotation은 256 KiB(262,144 byte)를 넘을 수 없다. #601 뒤 이 ConfigMap의 JSON은 약 227 KB라 여유가 35 KB쯤이다. dashboard를 더 늘리려면 ConfigMap을 나누거나 `--server-side` 적용으로 바꾼다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
+**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. client-side `kubectl apply`는 객체 전체를 `last-applied-configuration` annotation에 담고, annotation은 256 KiB(262,144 byte)를 넘을 수 없다. #617 뒤 이 ConfigMap의 JSON은 약 231 KB라 여유가 31 KB쯤이다. dashboard를 더 늘리려면 ConfigMap을 나누거나 `--server-side` 적용으로 바꾼다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
 
 ```bash
 kubectl kustomize k8s/platform/overlays/prod \
@@ -78,6 +123,63 @@ kubectl --context hapbang-k3s apply -f dashboards.yaml
 Grafana는 dashboard 없이도 prod에서 3일 최대 working set이 374 MiB였다(2026-11-02, limit 384 MiB, 차트가 넣는 GOMEMLIMIT 345 MiB). 로컬 k3d에서는 384 MiB일 때 dashboard를 여는 동안 메모리가 GOMEMLIMIT 근처(342 MiB)에 붙은 채 unready였고, 448 MiB(GOMEMLIMIT 403 MiB)에서는 세 dashboard가 모두 그려졌다. 다만 k3d Grafana는 이 변경 전부터 CPU를 많이 쓰고 재시작을 반복해 원인을 dashboard 하나로 보지는 않는다. Grafana limit은 #532에서 448 MiB로 올렸고, dashboard는 그 뒤에 적용했다. 2026-11-02 운영 적용 직후 Grafana는 기동 중 최대 426 MiB(limit의 95%), 약 1분 뒤 CPU 15m·메모리 약 290 MiB로 내려왔다. 기동 최대치가 limit에 가까우니 Grafana 재시작 뒤 OOMKilled가 없는지 본다. dashboard 다섯 개(#601)를 쓰며 7일 최대 418 MiB(93%, 2026-11-03)가 되어 limit을 512 MiB로 올렸다(#608, `k8s/gateway/overlays/prod/grafana.yaml`).
 
 client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 ConfigMap 전체를 넣는다. 세 파일 합계 약 110 KB에서 annotation은 약 150 KB다. 한도에 가까워지면 `--server-side`로 적용하거나 ConfigMap을 나눈다.
+
+## Alert 정책 (#629)
+
+대상 지표와 정책만 정했다. alert rule과 통보는 아직 구성하지 않았다. 구현은 #343의 후속 티켓에서 운영 실측을 본 뒤 한다.
+
+운영자가 받는 장애 통보는 **alert**라고 쓴다. 회원이 받는 **알림**(notification, [용어집](../../GLOSSARY.md))과 섞어 쓰지 않는다.
+
+### 경로와 통보
+
+- **평가**: Grafana alerting으로 한다. Prometheus·Loki 쿼리를 모두 rule로 쓸 수 있고 pod가 늘지 않는다. Prometheus 차트의 Alertmanager는 켜지 않는다(pod가 하나 늘어 medium node 예산을 다시 잡아야 한다).
+- **통보**: Slack으로 보낸다. Grafana의 Slack contact point(incoming webhook)를 쓰고, webhook URL은 Sealed Secret에 둔다.
+- **관리**: rule과 contact point는 dashboard처럼 레포 파일로 provisioning한다. UI에서 고친 내용은 저장하지 않는다.
+- **자원**: rule 평가가 Grafana에 더해지므로 적용 전후 메모리를 잰다(limit 512 MiB, 7일 최대 418 MiB, #608).
+- **온콜 도구는 쓰지 않는다.** 당번 체계가 없고, Opsgenie는 신규 판매가 끝났으며 2027-04-05에 지원이 끝난다([Atlassian 안내](https://www.atlassian.com/licensing/opsgenie)).
+
+### alert마다 정할 것
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상·조건 | 어떤 지표가 어떤 값을 넘는가 |
+| 지속 시간 | 조건이 얼마 동안 이어져야 보내는가. 잠깐 튀는 값은 거른다 |
+| 통보 채널 | 보낼 Slack 채널 |
+| 중복 억제 | 같은 alert를 다시 보내는 간격과 묶는 label |
+| 복구 통보 | 정상으로 돌아왔을 때 알리는가 |
+| 확인할 곳과 대응 | 받은 사람이 볼 dashboard·로그 쿼리와 대응 절차 |
+
+**임계값.** 돈·HP 정합성 alert는 0건을 넘으면 바로 보낸다(지속 시간 없음). 나머지는 운영 7일 실측(평소 값과 최대)을 본 뒤 구현 티켓에서 정한다. 실측 없이 정한 숫자는 평소에도 울리거나, 장애 때도 울리지 않는다.
+
+**메모리는 컨테이너 기준이다.** 메모리 alert는 컨테이너 working set ÷ limit으로 본다. OOMKilled는 이 값이 limit에 닿을 때 일어난다. JVM heap 사용률은 GC가 정상으로 돌아도 높게 나오므로 alert에 쓰지 않고 dashboard에서만 본다. 평소 비율이 앱마다 다르고 이미 높다(2026-11-03 7일 최대, 앱 6개 모두 85% 이상, #610). "80% 넘으면"처럼 한 숫자로 정하면 지금도 계속 울린다.
+
+### 후보
+
+지금 수집하는 지표로 만들 수 있는 것이다. 지표 이름은 Micrometer 이름이고, Prometheus에서는 `.`이 `_`로 바뀐다.
+
+| 분류 | alert | 지표 | 조건 |
+| --- | --- | --- | --- |
+| 돈·HP 정합성 | 서비스 간 HP 대사 불일치 | `lecture.hp_reconciliation.mismatches`, `appearance.hp_reconciliation.mismatches` | 0 초과 즉시 |
+| 돈·HP 정합성 | 지갑 잔액 대사 불일치·실패 | `hapbang.billing.reconciliation.wallets{result="mismatched"\|"failed"}` | 0 초과 즉시 |
+| 돈·HP 정합성 | 대사가 돌지 않음 | `hapbang.billing.reconciliation.last.success`, `*.hp_reconciliation.runs` | 마지막 성공이 하루 넘게 없음 |
+| 돈·HP 정합성 | HP 작업 DEAD | `lecture.hp_task.dead`, `appearance.hp_task.dead` | 0 초과 즉시 |
+| 앱 상태 | 지표 수집 끊김 | `up` (`kubernetes-pods` job) | 0이 지속 |
+| 앱 상태 | 컨테이너 메모리 | cAdvisor working set ÷ limit | 실측 뒤 |
+| 앱 상태 | 5xx 비율 | Envoy `envoy_http_downstream_rq_xx` (route별) | 실측 뒤 |
+| 앱 상태 | DB 연결 대기·timeout | HikariCP `hikaricp.connections.pending`, `hikaricp.connections.timeout` | 실측 뒤 |
+| 앱 상태 | circuit breaker 열림 | `resilience4j.circuitbreaker.state{state="open"}` | 열린 상태가 지속 |
+| 비동기 | Kafka 소비 lag | Kafka client `records-lag` (topic label 중복 주의, 위 "Dashboard") | 실측 뒤 |
+| 비동기 | 소비 그룹 사라짐 | 같은 지표의 series 부재 | 그룹 수 감소 |
+| 비동기 | 채팅 전달 작업 격리·전달 중지 | `chat.delivery.isolated`, `chat.delivery.paused.state` | 격리 증가, 중지 지속 |
+| 인프라 | node 디스크 | cAdvisor `container_fs_usage_bytes` / `container_fs_limit_bytes` (`/dev/root`) | 실측 뒤 |
+| 인프라 | ERROR 로그 급증 | Loki, JVM dashboard의 ERROR 쿼리 | 실측 뒤 |
+
+지표가 없어 지금은 만들 수 없는 것:
+
+- DLT 적재 건수: 앱 카운터가 필요하다(위 "Dashboard").
+- 채팅 outbox DEAD·적재 대기: outbox 상태 지표가 없다. 전달 작업 격리(`chat.delivery.isolated`)로만 본다.
+- OOMKilled 사유, CrashLoopBackOff, Deployment 가용 replica: kube-state-metrics가 필요하다.
+- PostgreSQL·Kafka·Redis 내부 상태: exporter가 없다.
 
 ## metrics 수집과 저장 — Prometheus vs Mimir
 

@@ -91,6 +91,37 @@ class ChatGroupRoomTest {
     }
 
     @Test
+    void 조회_만료_시각에_도달한_읽기_전용_방만_만료로_바꾸고_상태_버전을_한_번_올린다() {
+        ChatRoom room = groupRoom();
+        room.closeByHost(NOW);
+        var expiresAt = NOW.plusDays(30);
+
+        assertThat(groupRoom().isHistoryExpiryDue(expiresAt)).isFalse();
+        assertThat(room.isHistoryExpiryDue(expiresAt.minusNanos(1000))).isFalse();
+        assertThatIllegalStateException().isThrownBy(() -> room.expireHistory(expiresAt.minusNanos(1000)));
+        assertThat(room.isHistoryExpiryDue(expiresAt)).isTrue();
+
+        room.expireHistory(expiresAt);
+
+        assertThat(room.getStatus()).isEqualTo(ChatRoomStatus.EXPIRED);
+        assertThat(room.getStatusVersion()).isEqualTo(2);
+        assertThat(room.getUpdatedAt()).isEqualTo(expiresAt);
+        // 사유·전환 시각·만료 시각은 관리자 기록용으로 남긴다
+        assertThat(room.getStatusReason()).isEqualTo(ChatRoomStatusReason.CLOSED_BY_HOST);
+        assertThat(room.getReadOnlyAt()).isEqualTo(NOW);
+        assertThat(room.getHistoryExpiresAt()).isEqualTo(expiresAt);
+        // 저장한 만료 상태도 배치 전 조회 때 정한 만료와 같게 보인다
+        assertThat(room.isViewable(expiresAt)).isFalse();
+        assertThat(room.statusAt(expiresAt)).isEqualTo(ChatRoomStatus.EXPIRED);
+        assertThat(room.isCurrentGroup()).isFalse();
+        assertThat(room.isGroupActive()).isFalse();
+        // 이미 만료된 방은 다시 바꾸지 않는다
+        assertThat(room.isHistoryExpiryDue(expiresAt.plusDays(1))).isFalse();
+        assertThatIllegalStateException().isThrownBy(() -> room.expireHistory(expiresAt.plusDays(1)));
+        assertThat(room.getStatusVersion()).isEqualTo(2);
+    }
+
+    @Test
     void 읽기_전용_방에는_순번을_발급하지_않고_다시_폐쇄할_수_없다() {
         ChatRoom room = groupRoom();
         room.issueSequence();
