@@ -3,6 +3,7 @@ package com.hapbang.member.in;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -318,6 +319,27 @@ class ApiV1MemberControllerTest {
         long reviewId = REVIEW_ID.getAndIncrement();
         memberAppearanceRatingFacade.applyReviewPublished(new AppearanceReviewPublishedEvent(reviewId, reviewId, 999L,
                 reviewee.getId(), role, rating, LocalDateTime.now()));
+    }
+
+    @Test
+    @DisplayName("탈퇴 기능 스위치가 꺼져 있으면 탈퇴 API는 404이고 회원은 그대로다 (#593)")
+    void withdraw_disabled() throws Exception {
+        User user = saveMember("tester1", Role.USER, UserStatus.ACTIVE);
+
+        mockMvc.perform(delete("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("탈퇴 기능 스위치가 꺼져 있으면 복구 티켓이 없으므로 복구 API는 401 INVALID_RESTORE_TICKET (#593)")
+    void restore_disabled() throws Exception {
+        mockMvc.perform(post("/api/v1/members/restore")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"restoreTicket\": \"any\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_RESTORE_TICKET"));
     }
 
     /** 탈퇴 기능(F7)이 아직 없어 상태는 테스트에서만 직접 바꾼다 */

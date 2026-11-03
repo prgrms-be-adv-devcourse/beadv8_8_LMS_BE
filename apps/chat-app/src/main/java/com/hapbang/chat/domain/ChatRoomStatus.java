@@ -2,7 +2,7 @@ package com.hapbang.chat.domain;
 
 /**
  * 채팅방 상태. 1:1 방은 {@link #ACTIVE}·{@link #ENDED}만 쓰고, 모집용 단체방은 {@link #ACTIVE}·{@link #SUSPENDED}·
- * {@link #READ_ONLY}를 쓴다. 단체방은 모두 나가도 {@link #ENDED}가 되지 않는다.
+ * {@link #READ_ONLY}·{@link #EXPIRED}를 쓴다. 단체방은 모두 나가도 {@link #ENDED}가 되지 않는다.
  */
 public enum ChatRoomStatus {
     /** 사용 중. 1:1 방은 참여자가 한 명 이상 남아 있는 방이다 */
@@ -20,8 +20,8 @@ public enum ChatRoomStatus {
      */
     READ_ONLY,
     /**
-     * 참여자 조회 기간이 끝난 단체방. 저장하지 않고 조회 때 {@code historyExpiresAt}으로 정한다(그 시각 포함). 관리자 기록 조회에만
-     * 나온다.
+     * 참여자 조회 기간이 끝난 단체방. 관리자 기록 조회에만 나온다. 조회 만료 배치가 읽기 전용 방을 이 상태로 바꿔 저장하지만, 배치 전에도
+     * 조회 때 {@code historyExpiresAt}으로 같은 상태로 본다(그 시각 포함). 현재 방이 아니다.
      */
     EXPIRED
 }

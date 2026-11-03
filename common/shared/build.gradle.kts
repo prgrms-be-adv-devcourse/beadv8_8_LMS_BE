@@ -8,6 +8,8 @@ dependencies {
     implementation(libs.resilience4j.retry)
     implementation(libs.resilience4j.timelimiter)
     implementation(libs.resilience4j.micrometer)
+    // 지갑 Client가 TimeLimiter용 스레드로 호출을 넘길 때 요청 스레드의 trace context를 함께 넘긴다(#579). 버전은 Micrometer BOM을 따른다
+    implementation("io.micrometer:context-propagation")
     // 지갑 Client health. 앱에는 actuator가 있어 컴파일에만 쓴다
     compileOnly("org.springframework.boot:spring-boot-health")
     testImplementation("org.springframework.boot:spring-boot-health")

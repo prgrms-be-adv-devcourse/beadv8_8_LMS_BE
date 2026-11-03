@@ -190,14 +190,31 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 
 진행 순서는 `AWS inventory와 tag 확인 → 민감 값 없는 import block 작성 → terraform plan 결과가 변경 0인지 확인 → HCL 정리 → CI의 fmt/validate/plan 검증`이다. 첫 완료 조건은 새 resource 생성이 아니라 **기존 환경에 대한 zero-change plan**이다. 이후 실제 AWS를 바꿀 때만 PR의 plan을 검토하고 apply 여부를 별도로 결정한다. 민감한 account ID, bucket 이름, instance ID, public IP는 variable/state backend에서 다루고 문서와 repository output에 노출하지 않는다.
 
+### JVM 메모리 줄이기 실험 (#609, #610)
+
+node 메모리 예산에서 가장 큰 몫은 앱 JVM이다. 2026-11-03 운영 7일 실측에서 앱 heap 사용 최대는 82~154 MiB인데 heap 밖(Metaspace, 코드 캐시, native)이 280~355 MiB였고, 앱 6개 모두 working set이 limit의 85% 이상이었다(#610). 두 가지를 차례로 잰다.
+
+- **GraalVM Native Image** (#609): 실행 전에 기계어로 컴파일(AOT)해 JVM 고정 비용 대부분을 없앤다. 트래픽이 가장 적은 customer-support-app 하나로 시험하고, 결과로 다른 앱에 넓힐지 되돌릴지 정한다.
+- **JVM 유지 + heap·native 튜닝** (#610): `-Xmx`를 실사용에 맞추고 heap 밖 메모리를 줄인다. #609 결과를 본 뒤 진행한다.
+
+Java 25의 AOT cache(JVM 유지)는 주 효과가 기동 시간이라 메모리 문제의 첫 후보로 두지 않는다. 기동 시간이 문제가 될 때 같은 방법으로 잰다.
+
+비교는 같은 앱·같은 시나리오의 전후로 한다. 지표는 working set·RSS, 기동 시간, 응답 시간(p95), 이미지 빌드·CI 시간이다. Native Image의 비용도 함께 적는다.
+
+- reflection·proxy·resource hint: Spring Modulith, Hibernate·Flyway, Spring Security, springdoc를 확인한다.
+- JIT가 없어 최고 처리량이 낮을 수 있다. k6 같은 시나리오로 확인한다.
+- JFR 이벤트 일부만 지원해 위 "JFR + JDK Mission Control"의 증거 방식이 달라진다.
+
 ### 지금 넣지 않는 것
 
 - **Toxiproxy**: 장애 test는 컨테이너 pause·stop과 listener stop으로 만든다(위 "Testcontainers 장애 test"). 느린 응답을 재현해야 할 때 다시 검토한다.
 - **AsyncAPI와 이벤트 schema CI 검사**: 이벤트 계약은 `shared` 레코드와 호환·배포 순서 규칙으로 관리한다(위 "Kafka 이벤트 계약과 OpenAPI contract").
 - **Debezium**: 현재 Spring Modulith publication/outbox externalization과 같은 DB→Kafka 전달 책임을 하나 더 만든다. CDC 자체를 비교하는 별도 실험이 아니라면 제외한다.
 - **Spring Cloud Gateway, k3s 내장 Traefik**: Gateway 책임은 Envoy Gateway가 맡는다([3장 "API Gateway"](api-gateway.md)).
+- **BFF(Backend for Frontend)**: 프런트엔드가 React 하나뿐이고 진입점은 Envoy Gateway다. 프런트별로 응답을 따로 조립할 필요가 없다.
 - **nginx(edge nginx, Ingress NGINX controller)**: 진입점은 Envoy Gateway 하나다. Ingress NGINX controller는 2026년 3월에 은퇴해 보안 수정도 나오지 않는다.
 - **Prometheus 장기 저장 + Mimir 장기 저장, Elastic Observability 추가**: 같은 telemetry signal의 backend를 두 벌 운영하지 않는다.
+- **Opsgenie 등 온콜 호출 도구**: alert는 Grafana alerting에서 Slack으로 보낸다([5장 "Alert 정책"](observability.md#alert-정책-629)). Opsgenie는 신규 판매가 끝났고 2027-04-05에 지원이 끝난다.
 - **Pyroscope**: 이 포트폴리오에서는 JFR/JMC가 JVM code-level profiling 증거를 담당한다. 별도 continuous-profile backend까지 더하지 않는다.
 - **JConsole·VisualVM 상시 운영**: 필요할 때 로컬에서 쓰는 수동 도구일 뿐 배포 component나 포트폴리오 증거 pipeline으로 만들지 않는다.
 - **Bitnami 차트와 추가 operator**(Strimzi, CloudNativePG, redis-operator): Bitnami는 무료 이미지에 보안 패치가 없고, operator는 상시 메모리를 쓰는데 instance 1개 구성에서 얻는 것이 적다. 쓰는 차트는 [3장 "manifest 관리"](k3s.md#manifest-관리--kustomize와-helm)의 표로 정한다.

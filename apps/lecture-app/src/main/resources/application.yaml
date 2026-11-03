@@ -49,6 +49,30 @@ management:
   endpoint:
     health:
       show-details: never
+  metrics:
+    distribution:
+      # 응답 시간 p50·p95·p99를 histogram_quantile로 계산할 bucket 경계(#617).
+      # percentiles-histogram(기본 bucket 69개)보다 시리즈가 적도록 경계 10개만 직접 정한다
+      slo:
+        http.server.requests: 5ms,10ms,25ms,50ms,100ms,250ms,500ms,1000ms,2500ms,5000ms
+        # 진행 중 요청 수(http.server.requests.active)도 접두어가 같아 bucket이 붙으므로 빈 값으로 끈다
+        http.server.requests.active: ""
+  # trace(#579). Envoy를 거친 요청은 Envoy가 traceparent flag로 넘긴 샘플링 결정을 따른다(Boot 기본 sampler가 parent-based).
+  # 아래 비율은 배치처럼 앱 안에서 시작하는 trace에만 쓴다
+  tracing:
+    sampling:
+      probability: 0.1
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Alloy는 OTLP gRPC(4317)만 받는다. endpoint는 k8s ConfigMap이 넣고, 없으면(로컬·테스트) 보내지 않는다
+          transport: grpc
+  otlp:
+    metrics:
+      export:
+        # starter-opentelemetry가 함께 넣는 OTLP 지표 export를 끈다. 지표는 Prometheus가 /actuator/prometheus로 수집한다
+        enabled: false
 hapbang:
   scheduling:
     enabled: true
