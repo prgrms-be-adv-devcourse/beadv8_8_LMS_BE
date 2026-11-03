@@ -38,8 +38,10 @@ public class SecurityConfig {
                                 "/api/v1/chats/swagger-ui/**", "/api/v1/chats/v3/api-docs/**").permitAll()
                         // 예외가 나면 Spring이 /error로 보내는데, 막혀 있으면 원래 오류 대신 401이 나간다
                         .requestMatchers("/error").permitAll()
-                        // 헬스체크 (k8s probe용). Gateway에 /actuator route가 없어 클러스터 안에서만 접근한다
+                        // 헬스체크(k8s probe)와 Prometheus 수집(#590). k8s에서는 관리 포트(MANAGEMENT_SERVER_PORT)에서만 열리고
+                        // NetworkPolicy가 그 포트에 Prometheus만 들인다. 외부 API 포트는 Gateway 전용이다 (D72). 로컬은 앱 포트에서 열린다
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
                         // 웹소켓 핸드셰이크. 브라우저는 업그레이드 요청에 Authorization 헤더를 싣지 못하므로 익명으로 열고,
                         // REST로 받은 일회용 연결 티켓(ticket 쿼리)으로 인증한다(설계 문서 6장, ChatConnectionTicketHandshakeInterceptor).
                         // 허용 출처 검사는 핸드셰이크에서 그대로 한다(ChatWebSocketConfig)
