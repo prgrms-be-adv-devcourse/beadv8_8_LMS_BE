@@ -46,11 +46,14 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>지갑 보류 목록: 저장한 커서 뒤에 바뀐 보류를 끝까지 읽는다(지갑 쪽 변경 수집, 지갑에만 있는 보류 찾기)</li>
  *     <li>출연 쪽 변경: 비교 범위({@code lookback}) 안에 대상·출연·HP 작업이 바뀐 요청서·모집글</li>
  *     <li>둘을 합쳐 500개씩 지갑에 조회하고 {@link HpReconciliationComparer}로 비교한다. 진행 중인 건(보류 결과 대기,
- *     대기 중인 HP 작업, 유예 시간 안의 변경)은 빼고, 격리된 HP 작업이 있는 건은 표시만 한다</li>
+ *     대기 중인 HP 작업, 유예 시간 안의 변경)은 빼고, 격리된 HP 작업이 있는 건은 표시만 한다.
+ *     어긋남이 나온 건은 다시 읽어, 비교하는 사이에 바뀌었으면(다른 배치가 작업을 실행) 이번에는 남기지 않는다</li>
  *     <li>지갑 조회가 실패하면(회로 열림·결과 불명·거절) 그 실행을 {@code INCOMPLETE}로 끝내고 커서를 옮기지 않는다.
  *     그때까지 찾은 어긋남은 남긴다. 다음 실행이 같은 범위를 다시 본다</li>
  * </ol>
  * 같은 앱에서 동시에 두 번 실행하지 않는다(출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고, 관리자 실행은 409다.
+ * 실행 중 표시는 앱 메모리라, 롤링 배포로 두 pod가 겹치는 동안 새 pod가 실행을 시작하면 옛 pod의 정상 실행이 멈춘 실행으로
+ * 정리될 수 있다(옛 pod는 끝낼 때 상태 오류로 기록하지 못한다). 매일 04:00 한 번이라 배포와 겹칠 일이 드물고, replica를 늘리면 단일 실행 장치를 먼저 둔다.
  * 배치는 시스템이 실행하므로 Facade를 거치지 않고 이 UseCase를 직접 부른다.
  */
 @Slf4j
@@ -190,16 +193,51 @@ public class HpReconciliationUseCase {
         Map<Long, HoldStateDto> states = call("지갑 보류 조회 " + refType,
                 () -> billingClient.queryHolds(new HoldQueryCommand(billingType, queryIds))).stream()
                 .collect(Collectors.toMap(HoldStateDto::referenceId, Function.identity(), (first, second) -> first));
+        Map<Long, List<HpReconciliationComparer.Finding>> findings = new LinkedHashMap<>();
         for (HpReconciliationTarget target : toQuery) {
             HoldStateDto state = states.get(target.refId());
             if (state == null) {
                 throw new WalletUnavailableException("지갑 보류 조회 응답에 " + refType + " " + target.refId() + "이 없음");
             }
+            findings.put(target.refId(), HpReconciliationComparer.compare(target, state));
+        }
+        Set<Long> changedMeanwhile = findChangedMeanwhile(refType, toQuery, findings);
+        for (HpReconciliationTarget target : toQuery) {
+            if (changedMeanwhile.contains(target.refId())) {
+                log.info("HP 대사: 비교하는 사이에 바뀌어 다음 실행에서 다시 본다 {} {}", refType, target.refId());
+                continue;
+            }
             progress.checked++;
-            for (HpReconciliationComparer.Finding finding : HpReconciliationComparer.compare(target, state)) {
+            for (HpReconciliationComparer.Finding finding : findings.get(target.refId())) {
                 progress.add(refType, target.refId(), finding);
             }
         }
+    }
+
+    /**
+     * 어긋남이 나온 대상을 다시 읽어, 출연 쪽을 읽은 뒤 지갑을 조회하기 전에 바뀐 것을 찾는다.
+     * 그사이 다른 배치(HP 작업 재시도·자동 확인)가 작업을 실행하면 출연 쪽은 옛 값, 지갑은 새 값이라 거짓 어긋남이 생긴다.
+     * 마지막 변경 시각이 달라졌으면 이번에는 남기지 않는다(다음 실행이 다시 본다). 어긋남이 없는 대상은 다시 읽지 않는다.
+     */
+    private Set<Long> findChangedMeanwhile(HpTaskRefType refType, List<HpReconciliationTarget> compared,
+                                           Map<Long, List<HpReconciliationComparer.Finding>> findings) {
+        List<Long> suspicious = compared.stream().map(HpReconciliationTarget::refId)
+                .filter(refId -> !findings.get(refId).isEmpty()).toList();
+        if (suspicious.isEmpty()) {
+            return Set.of();
+        }
+        Map<Long, HpReconciliationTarget> reloaded = hpReconciliationSupport.loadTargets(refType, suspicious);
+        Set<Long> changed = new TreeSet<>();
+        for (HpReconciliationTarget target : compared) {
+            if (!suspicious.contains(target.refId())) {
+                continue;
+            }
+            HpReconciliationTarget now = reloaded.get(target.refId());
+            if (now == null || !now.changedAt().equals(target.changedAt())) {
+                changed.add(target.refId());
+            }
+        }
+        return changed;
     }
 
     /** 보류 결과 대기, 재시도를 기다리는 HP 작업, 유예 시간 안의 변경(대상·출연·작업)이 있으면 진행 중이다 */

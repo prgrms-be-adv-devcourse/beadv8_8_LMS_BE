@@ -1491,9 +1491,10 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 - **대상**: ① 출연 쪽은 비교 범위(`lookback`, 7일) 안에 요청서·모집글·그 출연·그 HP 작업 중 하나라도 바뀐 것, ② 지갑 쪽은 저장한 커서 뒤에 바뀐 보류(`listHolds`, 끝까지 읽음). 둘을 합쳐 500개씩 `queryHolds`로 조회한다.
 - **빼는 것(진행 중)**: 보류 결과 대기(`HOLD_PENDING`), 재시도를 기다리는 HP 작업(`PENDING`), 마지막 변경이 진행 중 유예(`settle-grace`, 2시간) 안인 것. 유예는 HP 작업 재시도 최대 간격·보류 포기 기준(1시간)보다 길다.
 - **커서**: 참조 유형마다 `hp_reconciliation_cursors` 한 행. 끝까지 비교한 실행만 앞으로 옮긴다(지갑 `Instant`를 KST `LocalDateTime`으로 저장). 처음에는 처음부터 읽는다.
+- **비교하는 사이의 변경**: 출연 쪽을 읽은 뒤 지갑을 조회하기 전에 다른 배치(HP 작업 재시도 40초·자동 확인 50초)가 작업을 실행하면 거짓 어긋남이 생길 수 있다. 어긋남이 나온 건은 다시 읽어 마지막 변경 시각이 달라졌으면 이번에는 남기지 않는다(비교 수에도 넣지 않고 다음 실행이 다시 본다).
 - **지갑 조회 실패**(회로 열림·결과 불명·거절·응답에서 ID 누락): 그 실행을 `INCOMPLETE`로 끝내고 커서를 옮기지 않는다. 그때까지 찾은 어긋남은 남긴다. 다음 실행이 같은 범위를 다시 본다.
 - **주기**: 매일 04:00:25(KST, `appearance.batch.hp-reconciliation-cron`). 매분 배치들이 쓰지 않는 25초다.
-- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리, 출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리한다.
+- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리, 출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리한다. 롤링 배포로 두 pod가 겹치는 동안 새 pod가 실행을 시작하면 옛 pod의 정상 실행도 이렇게 정리될 수 있다(매일 한 번이라 드묾). replica를 늘리면 단일 실행 장치를 먼저 둔다.
 - **설정** (`appearance.hp-reconciliation.*`): `settle-grace` 2h, `lookback` 7d(유예보다 길어야 기동), `page-size` 500(1~500).
 
 ### 25.4 결과
@@ -1506,7 +1507,7 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 
 | 메서드·경로 | 동작 | 응답 |
 |---|---|---|
-| `POST` | 지금 실행하고 끝날 때까지 기다린다 | 200 실행 결과(`HpReconciliationRunResDto`, 어긋난 건 포함). 지갑 조회가 실패해도 200 `INCOMPLETE` + `failureReason`. 실행 중이면 409 `HP_RECONCILIATION_RUNNING` |
+| `POST` | 지금 실행하고 끝날 때까지 기다린다. 처음 실행은 지갑 목록을 처음부터 읽어 오래 걸릴 수 있고, 응답 전에 연결이 끊겨도 서버에서는 끝까지 실행되므로 `GET /latest`로 확인한다 | 200 실행 결과(`HpReconciliationRunResDto`, 어긋난 건 포함). 지갑 조회가 실패해도 200 `INCOMPLETE` + `failureReason`. 실행 중이면 409 `HP_RECONCILIATION_RUNNING` |
 | `GET /latest` | 마지막으로 시작한 실행과 어긋난 건 | 200. 실행 기록이 없으면 404 `HP_RECONCILIATION_NOT_FOUND`. 실행 중이면 `RUNNING`(어긋난 건은 끝난 뒤 남는다) |
 
 관리자 확인은 19장과 같다(보안 설정 → `@PreAuthorize` → 복제 회원 정보로 지금도 관리자인지).

@@ -61,6 +61,7 @@ public class HpReconciliationSupport {
 
     /**
      * 실행을 시작한다. 앱이 멈춰 실행 중으로 남은 실행은 먼저 {@code INCOMPLETE}로 끝낸다(출연 앱 1대 전제, 실행 중 표시는 앱 메모리).
+     * 롤링 배포로 두 pod가 겹치면 다른 pod의 정상 실행도 이렇게 정리될 수 있다({@link HpReconciliationUseCase} 참고).
      *
      * @return 새 실행 ID
      */

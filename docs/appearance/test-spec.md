@@ -1548,6 +1548,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceHpReconciliationTest` | 보류 조회 결과 불명 / 목록 거절 / 회로 열림 | `INCOMPLETE`(이유), 커서 저장 안 함, 지표 그대로 / 회로 열림이면 지갑 호출 없음 |
 | `AppearanceHpReconciliationTest` | 요청서 비교 뒤 모집글 목록에서 실패 | `INCOMPLETE`, 그때까지의 어긋남 1건은 남음 |
 | `AppearanceHpReconciliationTest` | 목록 `hasMore` 두 페이지 → 다음 실행 | 응답 커서로 이어 읽고 마지막 커서를 KST로 저장, 다음 실행은 그 커서에서 시작 |
+| `AppearanceHpReconciliationTest` | 출연을 읽은 뒤 지갑 조회 전에 작업이 바뀜 / 바뀌었지만 어긋남 없음 | 어긋남 안 남김·비교 수 0, 다음 실행에서 `HOLD_BALANCE_MISMATCH` / 다시 읽지 않고 비교 수 1 |
 | `AppearanceHpReconciliationTest` | 관리자 실행 중 다시 실행 / 배치 | 409 `HP_RECONCILIATION_RUNNING` / 건너뜀(null), 끝나면 다시 실행 가능 |
 | `AppearanceHpReconciliationTest` | 앱이 멈춰 `RUNNING`으로 남은 실행 | 다음 실행 시작 때 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행) |
 | `AppearanceHpReconciliationHttpTest` | Mock Billing: 목록 GET·조회 POST | 내부 API 키, 쿼리(참조 유형·처음 커서·500건), JSON 본문(참조 유형·ID 목록), 응답 해석, 커서 KST 저장 |

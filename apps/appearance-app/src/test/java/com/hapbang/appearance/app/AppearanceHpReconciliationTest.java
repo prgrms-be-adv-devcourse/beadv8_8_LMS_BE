@@ -617,6 +617,56 @@ class AppearanceHpReconciliationTest {
     }
 
     @Nested
+    @DisplayName("비교하는 사이에 바뀐 건")
+    class ChangedMeanwhile {
+
+        @Test
+        @DisplayName("출연을 읽은 뒤 지갑 조회 전에 작업이 바뀌면(다른 배치 실행) 어긋남을 남기지 않고 비교 수에도 넣지 않는다. 다음 실행이 다시 본다")
+        void skipsAndRechecksNextRun() {
+            AppearanceRequestResDto sent = sendRequest(GUEST);
+            appearanceRequestFacade.reject(GUEST, sent.id(), "일정이 맞지 않습니다.");
+            walletRequest(sent.id(), hold(BillingHoldStatus.HELD, HOST, FEE, FEE, 0, 0), null);
+            HoldStateDto held = wallet.get(key(BillingReferenceType.APPEARANCE_REQUEST, sent.id()));
+            doAnswer(invocation -> {
+                // 지갑을 조회하는 동안 다른 배치가 이 요청서의 작업을 바꾼다
+                jdbcTemplate.update("update appearances.hp_tasks set updated_at = ?", clock.now().minusHours(2).minusMinutes(30));
+                return new BillingCallResult.Succeeded<>(List.of(held));
+            }).when(billingClient).queryHolds(any());
+
+            HpReconciliationRun changed = runAfterGrace();
+
+            assertThat(changed.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
+            assertThat(changed.getCheckedCount()).isZero();
+            assertThat(rulesOf(changed)).isEmpty();
+
+            stubWallet();
+            HpReconciliationRun next = runAfterGrace();
+            assertThat(next.getCheckedCount()).isEqualTo(1);
+            assertThat(rulesOf(next)).containsExactly(HpReconciliationRule.HOLD_BALANCE_MISMATCH);
+        }
+
+        @Test
+        @DisplayName("어긋남이 없으면 다시 읽지 않는다 (출연 쪽 조회는 대상 모음 1번뿐)")
+        void noRecheckWhenConsistent() {
+            AppearanceRequestResDto sent = sendRequest(GUEST);
+            appearanceRequestFacade.reject(GUEST, sent.id(), "일정이 맞지 않습니다.");
+            walletRequest(sent.id(), hold(BillingHoldStatus.RELEASED, HOST, FEE, 0, FEE, 0), null);
+            doAnswer(invocation -> {
+                // 바뀌어도 어긋남이 없으면 다시 읽지 않으므로 그대로 비교 수에 들어간다
+                jdbcTemplate.update("update appearances.hp_tasks set updated_at = ?", clock.now().minusHours(2).minusMinutes(30));
+                HoldQueryCommand command = invocation.getArgument(0);
+                return new BillingCallResult.Succeeded<>(List.of(
+                        wallet.get(key(command.referenceType(), command.referenceIds().getFirst()))));
+            }).when(billingClient).queryHolds(any());
+
+            HpReconciliationRun run = runAfterGrace();
+
+            assertThat(run.getCheckedCount()).isEqualTo(1);
+            assertThat(rulesOf(run)).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("지갑 조회가 실패하면 그 실행을 미완료로 끝낸다")
     class WalletFailure {
 
