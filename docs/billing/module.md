@@ -15,7 +15,7 @@
 | 영역 | 기능 | 진입점 |
 | --- | --- | --- |
 | 지갑 | 회원 지갑 생성·조회, 내 HP 거래 내역 | `WalletFacade`, `UserJoinedEventListener` |
-| 원장 | HP 원장 기록, 잔액 버킷 이동, 역분개 검증, 잔액 대사(라이브러리만) | `LedgerRecordUseCase`, `WalletReconciliationUseCase` |
+| 원장 | HP 원장 기록, 잔액 버킷 이동, 역분개 검증, 잔액 대사(최근 바뀐 지갑 매일 자동, #607) | `LedgerRecordUseCase`, `WalletReconciliationUseCase`, `WalletReconciliationBatch` |
 | 보류 | 보류·반환·지급·위약금(강의·출연용), 종류별 보류·확정 차감(Billing 내부용) | `HoldFacade`(← 내부 API `ApiV1BillingInternalController`, `in.BillingCommands`가 shared Command를 `Payment*Command`로 변환, #494), `InternalHoldFacade` |
 | 충전 | TossPayments 테스트 결제 승인, 결과 불명확 복구 | `ChargeFacade`, `ChargeRecoveryBatch` |
 | 환불 | 충전 HP 환불(PG 부분 취소, FIFO), 결과 불명확 복구 | `RefundFacade`, `RefundRecoveryBatch` |
@@ -185,17 +185,32 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | `ExchangePayoutRecoveryBatch` | `hapbang.billing.exchange.payout.recovery-cron` (`15 */5 * * * *`) | `…payout.recovery-enabled` (없으면 켬) |
 | `ExchangeSettlementBatch` | `hapbang.billing.exchange.settlement.cron` (`0 5 10-23 * * *`) | `…settlement.enabled` (없으면 켬). 송금 Client를 못 쓰면 실행을 건너뜀 |
 | `BillingEventRepublishBatch` | `hapbang.billing.event.republish-cron` (`5 * * * * *`) | — |
+| `WalletReconciliationBatch` (#607) | `hapbang.billing.reconciliation.cron` (`45 2 4 * * *`) | 대상 창 `hapbang.billing.reconciliation.window` (`72h`) |
 
 여러 pod에서 같은 배치가 동시에 돌지 않게 실행 락을 둔다(#598, BD-138). 배치는 `run()`에서 `JobLock.runOrSkip`으로 PostgreSQL advisory lock을 기다리지 않고 잡고, 잡지 못하면 그 회차를 건너뛴다. 관리자 회원 Backfill도 같은 락을 쓴다(다른 실행 중 409 `BACKFILL_ALREADY_RUNNING`, 락 오류 503 `BACKFILL_LOCK_UNAVAILABLE`).
 
 | 항목 | 내용 |
 | --- | --- |
-| 락 번호 | `global.scheduling.BillingJob` enum의 고정 상수(598001~598006). 바꾸지 않고, 새 작업은 다음 번호를 쓴다 |
+| 락 번호 | `global.scheduling.BillingJob` enum의 고정 상수(598001~598006, 잔액 대사 607001). 바꾸지 않고, 새 작업은 그 작업을 더한 이슈 번호 × 1000 + 순번을 쓴다(BD-139) |
 | 락 연결 | Hikari pool 밖의 전용 연결 1개(`ApplicationName=billing-app-job-lock`). 첫 락 시도 때 연결한다. pod당 DB 연결 +1. 호출은 한 모니터로 직렬화되고, 상한은 연결 확인 1초·연결 3초·쿼리 3초(호출당 최악 락 시도 약 7초, 해제 약 4초) |
 | 같은 pod 안 | advisory lock은 같은 session이면 재진입되므로, 이 pod가 쥔 작업을 메모리로 확인해 막는다 |
 | 다른 실행이 쥠 / 락 오류 | info 로그 / warn 로그. 둘 다 실행하지 않고 `hapbang.billing.job.lock.skipped{job, reason=held\|error}`를 센다 |
 | 락 연결이 끊김 | 그 연결의 락은 PostgreSQL이 푼다. 돌던 작업은 끝까지 두고, 다음 시도 때 다시 연결하며 warn을 남긴다 |
 | 막지 않는 것 | 한쪽이 끝내고 푼 뒤 다른 pod가 늦게 시작한 같은 회차, 기동 때 Modulith 미완료 이벤트 재발행. 각 UseCase의 락·멱등성으로 허용한다 |
+
+### 6.2 잔액 대사 배치 (#607, BD-139)
+
+매일 04:02:45 KST에 최근 72시간 안에 바뀐 지갑(`wallet.updated_at` 또는 `point_ledger.created_at`)을 지갑마다 `WalletReconciliationUseCase.reconcile`로 대사한다. 불일치를 고치지 않는다(BD-20).
+
+| 항목 | 내용 |
+| --- | --- |
+| 대상 | 지금 − 창(`hapbang.billing.reconciliation.window`, 72h) 이후 수정된 지갑 ∪ 원장이 기록된 지갑. 플랫폼 지갑 포함. 실행 시점을 저장하지 않으므로 두 회차를 연달아 건너뛰어도 놓치지 않는다. 창보다 오래 바뀌지 않은 지갑은 보지 않는다 |
+| 인덱스 | `idx_wallet_1 (updated_at)`, `idx_point_ledger_5 (created_at)` (`V202611031800`) |
+| 불일치 | error 로그 `잔액 대사 불일치 walletId=…, buckets=[CHARGE/AVAILABLE wallet=… ledger=… diff=…]` |
+| 지갑 하나의 오류 | warn 로그, `failed`로 세고 계속 |
+| 끝 | info 로그 `잔액 대사 완료 since=…, total, matched, mismatched, failed` |
+| 지표 | `hapbang.billing.reconciliation.wallets{result=matched\|mismatched\|failed}`(마지막 실행, gauge), `hapbang.billing.reconciliation.last.success`(epoch 초, Prometheus `…_last_success_seconds`). pod가 다시 뜨면 첫 실행 전까지 0 |
+| 실행 락 | `BillingJob.WALLET_RECONCILIATION`(607001). 다른 pod가 쥐면 그 회차를 건너뛴다 |
 
 - To-Be(k3s): 앱마다 replica 1개다. billing-app은 t3.large(`core-data`)에 두고, `maxSurge: 1`, `maxUnavailable: 0`으로 배포한다(final-project-infrastructure.md 3장).
 - rolling update 중에는 새 pod와 기존 pod가 잠깐 함께 떠서 두 pod의 배치가 같은 cron 시각에 겹칠 수 있다. 위 실행 락이 한쪽만 실행하게 한다(L4 해소).
@@ -303,7 +318,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | `TOSS_PAYMENTS_SECRET_KEY` | 빈 값 | 충전·환불 503 |
 | `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY` | 빈 값 | 둘 다 없으면 충전·환불·환전 신청·Mock 송금 503. 하나만 있거나 형식이 틀리거나 두 값이 같으면 **기동 실패** |
 | `hapbang.billing.mock-payout.enabled` + 활성 프로필 전부 local/test | local yaml만 true | 송금 불가, 정산 배치 건너뜀, 송금 관리자 API 503 |
-| `hapbang.scheduling.enabled` | true | 배치 5개 미등록 |
+| `hapbang.scheduling.enabled` | true | 배치 6개 미등록 |
 | 서버 포트 | local 8082 | — |
 
 키 값은 코드·로그·문서에 남기지 않는다 ([`docs/deploy/env-vars.md`](../deploy/env-vars.md)).
@@ -317,7 +332,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | L3 | 앱 간 로그인 공유 미확인 | 사용자·관리자 API 인증 경로 미검증. 목표는 JWT + `X-User-*` 헤더(7.2) | #370~#372 |
 | ~~L4~~ | ~~배치 분산 락 없음~~ | 해소: 배치 5개가 PostgreSQL advisory lock으로 pod 사이에서 한 곳만 실행한다(6.1) | #598, `BD-138` |
 | ~~L5~~ | ~~Backfill 동시 실행 방지가 인스턴스 내부만~~ | 해소: 같은 실행 락으로 pod 사이도 막는다(6.1) | #598, `BD-138` |
-| L6 | 잔액 대사는 라이브러리만, 호출하는 API·배치 없음 | 불일치 감지가 수동 | `BD-20` |
+| L6 | 잔액 대사는 최근 72시간 안에 바뀐 지갑만 매일 자동으로 한다(6.2). 관리자 API 없음, alert 없음(#343) | 창보다 오래 바뀌지 않은 지갑의 불일치는 수동으로만 찾는다. 불일치는 로그·지표로만 안다 | `BD-20`, `BD-139` |
 | L7 | `lock_timeout` 미설정 | 락 대기 무제한 | `BD-108` |
 | L8 | 환전 정산일 공휴일 미반영 | 잠정 예정일 | `BD-96` |
 | L9 | 실제 송금은 Mock(local·test)만 | dev·prod에서 송금 기능 503 | policy.md 2장 |
@@ -343,3 +358,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-11-02 | 35e7aae1 | #564 DLT 복구 절차(BD-136), migration 주석 정정(8.2), capture 비노출(BD-135) |
 | 2026-11-03 | 8e7fa8b7 | #577 서비스 간 HP 대사용 보류·지급 조회 내부 API(7.1, BD-137) |
 | 2026-11-03 | 2cfe5307 | #598 배치·Backfill 실행 락(6.1, 9, L4·L5, BD-138) |
+| 2026-11-03 | 84f504c4 | #607 변경된 지갑의 잔액 대사 배치(2, 6.1, 6.2, 9, L6, BD-139) |

@@ -10,6 +10,7 @@
 > - 2026-10-30 #430 반영: 회원 이벤트 리스너 두 개가 Kafka 소비로 바뀌었다. BT-EVT-01은 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증하고 JVM 칸을 "없음"으로, BT-WAL-02·BT-USR-02는 Kafka 경로 테스트로 옮겨 "없음"으로 바꿨다. 같은 JVM `Scenario.publish` 테스트는 없앴다(리스너 직접 호출 또는 Kafka 테스트로 대체).
 > - 2026-11-02 #280 반영: 소비 앱이 Java Port 없이 단독 기동하므로 BT-PORT-05를 k3s 기동 확인으로 바꾸고(JVM 깨짐 → 없음) Contract 대상에서 뺐다. BT-PORT-04는 소비 앱 테스트를 적고 JVM을 "경계"로 바꿨다.
 > - 2026-11-03 #577 반영: 서비스 간 HP 대사 조회(BT-PORT-07)를 더했다.
+> - 2026-11-03 #607 반영: 변경된 지갑의 잔액 대사 배치(BT-LED-10)를 더했다. `BillingBatchJobLockTest`가 배치 6개를 본다.
 > - 2026-11-03 #598 반영: 배치·Backfill 실행 락(BT-CFG-06, `JobLockTest`·`JobLockPostgresIntegrationTest`·`BillingBatchJobLockTest`)을 더했다. 배치 5개의 UseCase 위임은 `BillingBatchJobLockTest`가 보므로 BT-CFG-03은 등록만 남았다. BT-USR-03에 pod 사이 동시 실행·락 오류를 더했다.
 > - 2026-11-02 #562 반영: 나가는 호출 회로(BT-CFG-05)를 더했다. 공유 테스트 컨텍스트는 실패율로 회로가 열리지 않게 `hapbang.billing.outbound.minimum-number-of-calls`를 크게 두고(`hapbang-module-test.yaml`), 열고 닫히는 동작은 작은 설정으로 직접 만든 `OutboundCircuitBreakers`로, 통합 테스트는 상태를 강제로 바꿔 확인한다.
 > - 2026-11-02 #552 반영: 관리 포트 분리(BT-CFG, `ManagementPortTest` 3개: 지표·헬스체크는 8082에서만, 8080·8081은 404, 관리 포트는 업무 API 없음)와 Backfill 지갑 생성(BT-USR-03)을 더했다.
@@ -48,6 +49,7 @@
   --tests 'com.hapbang.billing.app.BillingCommandValidatorTest' \
   --tests 'com.hapbang.billing.app.BillingKeysTest' \
   --tests 'com.hapbang.billing.app.BillingBatchJobLockTest' \
+  --tests 'com.hapbang.billing.app.ChangedWalletReconciliationUseCaseTest' \
   --tests 'com.hapbang.billing.app.BillingSharedDtoAccessTest' \
   --tests 'com.hapbang.billing.app.BillingUserBackfillUseCaseTest' \
   --tests 'com.hapbang.billing.app.ChargeUsageHistoryTest' \
@@ -180,6 +182,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-LED-07 | 원장 append-only | SQL UPDATE·DELETE 거부(트리거) | INV-2 | R | `BillingConstraintsTest#원장은_SQL로도_수정하거나_삭제할_수_없다` | 없음 | R-003 통과 |
 | BT-LED-08 | 잔액 대사 | 일치·캐시 불일치·원장 불일치 탐지, 동시 작업 중 같은 스냅숏, 수수료 수입 칸(FEE 가용, #336) | BD-20, INV-1 | I | `WalletReconciliationIntegrationTest`(6), `ExchangePayoutIntegrationTest`의 플랫폼 지갑 대사(BT-EXP-08) | 없음 | R-003 통과 |
 | BT-LED-09 | 원장 기록의 트랜잭션 참여 | 같은 앱 안 호출자 트랜잭션에 참여 | BD-53 | I | `LedgerRecordIntegrationTest#joinsCallerTransaction`, `#multipleRecordsInSameTransaction_keepPendingChanges` | 없음 (Billing 내부 호출) | R-003 통과 |
+| BT-LED-10 | 잔액 대사 자동 실행 (#607) | 창(72시간) 안에서 수정된 지갑만 대사하고 창 밖은 대사 안 함, 원장만 생긴 지갑·캐시만 바뀐 지갑을 불일치로 잡음, 고치지 않음, 수정·원장이 함께 있어도 한 번만, 한 지갑의 오류에도 계속, 결과별 지갑 수·마지막 성공 시각 지표(다음 실행은 덮어씀), 다른 pod가 락을 쥐면 실행 안 함 | BD-139, BD-20, INV-1 | U, I | `ChangedWalletReconciliationIntegrationTest`(4), `ChangedWalletReconciliationUseCaseTest`(3), `BillingBatchJobLockTest`(대사 배치), `ManagementPortTest`(지표 노출) | 없음 | #607 통과 |
 
 ### 4.3 보류·반환·지급·위약금·확정 차감 (HLD·REL·PAY·PEN·CAP)
 
@@ -378,11 +381,13 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.BillingCommandValidatorTest | U | 6 | — | PEN-01·02 |
 | app.BillingExternalEventsTest | U | 2 | — | EVT-02 |
 | app.BillingKeysTest | U | 7 | — | HLD-06, RFD-02 |
-| app.BillingBatchJobLockTest | U | 2 (배치 5개씩) | — | CFG-03, CFG-06 |
+| app.BillingBatchJobLockTest | U | 2 (배치 6개씩) | — | CFG-03, CFG-06, LED-10 |
 | app.BillingSharedDtoAccessTest | U (ArchUnit) | 1 | — | PORT-06 |
 | app.BillingUserBackfillIntegrationTest | I | 14 | 필요 | USR-03 |
 | app.BillingUserBackfillUseCaseTest | U (로컬 HTTP) | 17 | — | USR-03 |
 | app.BillingUserSyncIntegrationTest | I | 6 | 필요 | USR-01 |
+| app.ChangedWalletReconciliationIntegrationTest | I | 4 | 필요 | LED-10 |
+| app.ChangedWalletReconciliationUseCaseTest | U | 3 | — | LED-10 |
 | app.ChargeIntegrationTest | I | 29 | 필요 | CHG-01~06·08 |
 | app.ChargeUsageHistoryTest | U | 11 | — | REL-01·04, CAP-03 |
 | app.EarningQueryUseCaseTest | U | 13 | — | ERN-01 |

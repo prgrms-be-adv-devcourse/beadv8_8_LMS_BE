@@ -169,7 +169,7 @@
 
 - `WalletReconciliationUseCase.reconcile`이 FEE 칸도 비교한다(`fee_balance_hp` = FEE 원장 합).
 - "FEE 원장 합 = 송금 완료 환전의 `fee_amount_hp` 합"은 테스트로 확인한다.
-- `reconcile`을 주기적으로 부르는 점검 배치는 지금 없고, 이번 범위 밖이다.
+- `reconcile`을 주기적으로 부르는 점검 배치는 #336 범위 밖이었다. #607부터 최근 바뀐 지갑(플랫폼 지갑 포함)을 매일 대사한다(BD-139).
 
 ### 3.6 관리자 조회 API
 

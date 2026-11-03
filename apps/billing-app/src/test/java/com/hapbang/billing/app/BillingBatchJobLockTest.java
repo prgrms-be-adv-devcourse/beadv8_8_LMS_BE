@@ -16,7 +16,7 @@ import com.hapbang.billing.global.scheduling.BillingJob;
 import com.hapbang.billing.global.scheduling.FakeAdvisoryLocks;
 import com.hapbang.billing.global.scheduling.JobLock;
 
-// 스케줄 배치 5개가 실행 락(#598, BD-138)을 거친다: 다른 pod가 쥐고 있거나 락 오류면 UseCase를 부르지 않고, 잡으면 한 번 부른다.
+// 스케줄 배치 6개(#607 잔액 대사 포함)가 실행 락(#598, BD-138)을 거친다: 다른 pod가 쥐고 있거나 락 오류면 UseCase를 부르지 않고, 잡으면 한 번 부른다.
 class BillingBatchJobLockTest {
 
     /**
@@ -48,7 +48,11 @@ class BillingBatchJobLockTest {
                         useCase -> verify((ExchangeSettlementUseCase) useCase).run()),
                 new Case("BillingEventRepublishBatch", BillingJob.EVENT_REPUBLISH, BillingEventRepublishUseCase.class,
                         (useCase, lock) -> new BillingEventRepublishBatch((BillingEventRepublishUseCase) useCase, lock)::run,
-                        useCase -> verify((BillingEventRepublishUseCase) useCase).republishDue(any())));
+                        useCase -> verify((BillingEventRepublishUseCase) useCase).republishDue(any())),
+                new Case("WalletReconciliationBatch", BillingJob.WALLET_RECONCILIATION,
+                        ChangedWalletReconciliationUseCase.class,
+                        (useCase, lock) -> new WalletReconciliationBatch((ChangedWalletReconciliationUseCase) useCase, lock)::run,
+                        useCase -> verify((ChangedWalletReconciliationUseCase) useCase).reconcileChanged(any())));
     }
 
     @ParameterizedTest(name = "{0}")

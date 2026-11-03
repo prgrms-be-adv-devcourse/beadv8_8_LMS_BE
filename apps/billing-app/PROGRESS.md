@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-11-03 (#598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-11-03 (#607 변경된 지갑의 잔액 대사 배치, #598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -50,7 +50,8 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #564 | 배포 전 정리: 회원 이벤트 DLT 복구는 도구 없이 운영 절차(kafka CLI 확인 → 원인 수정 → 관리자 Backfill, `docs/deploy/k8s.md`, BD-136, 로컬 k3d로 한 건 복구 확인), `V202610301400` 주석 정정은 문서로만(BD-124·BD-130, `module.md` 8.2), capture 내부 API 비노출(BD-135, `internal-billing.md`) | `feature/tkt-564` | (PR 전) | 완료 (문서) |
 | #577 | 서비스 간 HP 대사용 보류·지급 조회 내부 API: `POST holds/query`(1~500개)·`GET holds`(키셋, 커서 항상 + `hasMore`, 최근 10초 제외, Flyway `V202611031200` `idx_point_hold_2`), `HoldQueryFacade`·`HoldQueryUseCase`, HP 종류별 금액, shared `HoldQueryCommand`·`HoldStateDto`·`HoldStatePageDto`·`BillingHoldStatus`·`BillingSettlementStatus`, `BillingApiClient.queryHolds`·`listHolds`(GET 지원)(BD-137) | `feature/tkt-577` | (PR 전) | 구현 완료 |
 | #562 | 나가는 호출 circuit breaker: `out.OutboundCircuitBreakers`(회로 `lecture`·`appearance`·`member`·`toss`, `hapbang.billing.outbound.*`, 지표), 수익 조회 연결 실패 1회 재시도, Backfill 회로, `TossPaymentsClient` 회로(`Unknown`만 실패, 열리면 `Unknown(CIRCUIT_OPEN)`), 충전·환불 신청 503, 결과 확인 배치 `TossCircuitGate`, billing Gradle에 resilience4j 추가(BD-134) | `feature/tkt-562` | (PR 전) | 구현 완료 |
-| #598 | 배치·Backfill 실행 락: `global.scheduling.JobLock`(PostgreSQL session advisory lock, Hikari pool 밖 락 전용 연결 1개, 같은 pod 재진입은 메모리로 차단), 락 번호 `BillingJob` enum(598001~598006), 배치 5개 `run()`을 `runOrSkip`으로 감쌈(쥐고 있음·락 오류면 그 회차 건너뜀), Backfill `AtomicBoolean` → `tryAcquire`(다른 실행 409 `BACKFILL_ALREADY_RUNNING`, 락 오류 503 `BACKFILL_LOCK_UNAVAILABLE`), 지표 `hapbang.billing.job.lock.skipped{job, reason}`, `JobLockTest`·`JobLockPostgresIntegrationTest`·`BillingBatchJobLockTest`(BD-138, module.md L4·L5 해소) | `feature/tkt-598` | (PR 전) | 구현 완료 |
+| #598 | 배치·Backfill 실행 락: `global.scheduling.JobLock`(PostgreSQL session advisory lock, Hikari pool 밖 락 전용 연결 1개, 같은 pod 재진입은 메모리로 차단), 락 번호 `BillingJob` enum(598001~598006), 배치 5개 `run()`을 `runOrSkip`으로 감쌈(쥐고 있음·락 오류면 그 회차 건너뜀), Backfill `AtomicBoolean` → `tryAcquire`(다른 실행 409 `BACKFILL_ALREADY_RUNNING`, 락 오류 503 `BACKFILL_LOCK_UNAVAILABLE`), 지표 `hapbang.billing.job.lock.skipped{job, reason}`, `JobLockTest`·`JobLockPostgresIntegrationTest`·`BillingBatchJobLockTest`(BD-138, module.md L4·L5 해소) | `feature/tkt-598` | #600 | 완료 |
+| #607 | 변경된 지갑의 잔액 대사 배치: `WalletReconciliationBatch`(매일 04:02:45 KST, 실행 락 607001) → `ChangedWalletReconciliationUseCase`(최근 72시간 안에 `wallet.updated_at`·`point_ledger.created_at`이 있는 지갑, 지갑마다 `reconcile`, 고치지 않음, 지갑 오류는 failed로 세고 계속), 지표 `hapbang.billing.reconciliation.wallets{result}`·`.last.success`, Flyway `V202611031800`(`idx_wallet_1`, `idx_point_ledger_5`), BD-139 | `feature/tkt-607` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
@@ -91,6 +92,7 @@ boundedContext/billing/src/main/java/com/hapbang/billing/
 | app | `HoldResult`, `HoldSplit` | 보류 결과(충전 건별 배분 포함)·수익/충전 배분 계산 |
 | app | `LedgerOperation`, `LedgerEntry`, `LedgerOperationResult` | 원장 기록 요청·결과 |
 | app | `WalletReconciliationUseCase`, `WalletReconciliation` | 지갑 캐시 ↔ 원장 합계 대사 |
+| app | `ChangedWalletReconciliationUseCase`, `WalletReconciliationBatch` | 최근 바뀐 지갑의 매일 대사, 결과 지표 (#607) |
 | in | `UserJoinedEventListener` | 가입 이벤트로 지갑 생성 (ADMIN 제외) |
 | (삭제) | `LectureSettlementFacade`·`UseCase`·`Result`·`Schedule`, `in.LectureSettlementPortAdapter`, shared `LectureSettlementPort`·`LectureSettlementCommand`·`LectureSettlementResultDto`, `Settlement.scheduledLecture`·`suspend`·`resume`·`cancel`·`isPayableAt` | #142·#182에서 만든 강의 지급 예정 관리 경로. #188에서 없앴다(3.13) |
 | domain | `Settlement` (#142 추가) | `scheduledLecture`(예정 건 생성), `suspend`·`resume`·`cancel`(상태 전이, 같은 상태면 false), `isPayableAt`(SCHEDULED + 예정 시각 경과) |
@@ -164,7 +166,7 @@ Gradle 의존성(`build.gradle.kts`): `:shared`, `:global`(`@LoginUserId`), data
 
 - `reconcile(walletId)`는 `@Transactional(readOnly = true, isolation = REPEATABLE_READ)` — 지갑과 원장 합계를 같은 스냅숏에서 읽어 동시 거래 중 오탐을 막는다(READ COMMITTED로 바꾸면 테스트가 실패함을 확인).
 - 결과: 버킷 4개마다 `walletHp`, `ledgerHp`, `differenceHp`(캐시 − 원장)와 전체 `matched`. 원장이 없는 버킷은 0.
-- 불일치가 있어도 원장·지갑을 고치지 않는다. 관리자 API·Scheduler는 아직 없다.
+- 불일치가 있어도 원장·지갑을 고치지 않는다. 관리자 API는 없다. #607부터 최근 72시간 안에 바뀐 지갑을 매일 자동으로 대사한다(BD-139).
 
 ### 3.6 HP 보류 생성 (#78)
 
