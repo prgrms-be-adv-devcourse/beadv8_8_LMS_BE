@@ -828,7 +828,7 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 직렬화 | `appearance.yml`의 `spring.kafka.producer.value-serializer=JacksonJsonSerializer`. Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] + 바이트 JSON 변환기)는 끈다(`spring.modulith.events.kafka.enable-json=false`, #394). 회원 앱 발행 설계와 같은 방식이고, 켜 두면 회원 이벤트 수신(4.1)이 실패한다 |
 | 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
 | 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose의 Kafka(`localhost:9092`)로 보낸다. 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
-| 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification` (kafka.md 토픽 목록). 리뷰 공개는 회원 모듈이 받을 예정(#516). 채팅은 모르는 타입을 기본 처리기에서 무시한다 |
+| 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification`(요청·지원 알림), 회원 소비 그룹 `member-app.appearance-review`(리뷰 공개, #555) (kafka.md 토픽 목록). 각 소비자는 모르는 타입을 기본 처리기에서 무시한다 |
 
 - 같은 버전 안에서는 선택 필드 추가만 한다. 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(kafka.md 이벤트 버전).
 - 내보낼 이벤트를 더하려면 shared 레코드에 `@Externalized`를 붙이고 `out/event/AppearanceEventExternalizationConfig`에 `eventType` 헤더를 더한다. 받는 앱을 먼저 배포한다(ADR 0001).
@@ -1276,7 +1276,7 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 | key | `appearance-review-reviewee:<revieweeUserId>`. 같은 사람이 받은 리뷰가 같은 partition으로 간다(순서는 보장하지 않음, 11.3) |
 | 헤더 | `eventType` `AppearanceReviewPublishedEvent`, `eventVersion` `1` |
 | 중복 | 최소 한 번 전달이라 받는 쪽(회원)은 `reviewId`로 중복을 거른다. 평점은 별점 합계·개수로 계산한다(별점이 정수여도 평균은 소수) |
-| 보존 | 토픽 보존은 72시간이다. 회원이 이보다 늦게 받기 시작하면 그 전 공개 리뷰는 조회 API(#514)로 초기 적재한다 |
+| 보존 | 토픽 보존은 72시간이다. 회원 소비자(#555)는 처음 붙을 때 토픽 맨 앞부터 읽었고, 초기 적재는 하지 않았다(23.1) |
 
 - 배포 메모: 같은 토픽을 받는 채팅 앱은 새 타입의 클래스(shared)가 있으면 기본 처리기에서 무시하고, 없으면 역직렬화에 실패해 DLT로 보낸다(ADR 0001). dev 병합 뒤 배포에서는 shared 변경으로 모든 앱이 다시 배포되지만, 앱이 출연 → 강의 → 채팅 순서로 올라가므로 그사이 공개된 리뷰 이벤트는 옛 채팅 앱에서 DLT로 갈 수 있다(알림·데이터 영향 없음, 채팅이 올라가면 멈춤). 중간 앱 배포가 실패해 채팅이 옛 버전으로 남아도 같다.
 
@@ -1370,25 +1370,30 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 | 받는 쪽 | 쓰는 것 | 용도 |
 |---|---|---|
 | 회원 모듈 | `AppearanceReviewPublishedEvent` (`appearance.events.v1`, 21.6) | 회원별 출연 평점(평균·개수) 집계 |
-| 회원 모듈 | 내부 API `getReceivedReviews` (22.2·22.3) | 프로필의 받은 리뷰 목록, 평점 초기 적재 |
+| 회원 모듈 | 내부 API `getReceivedReviews` (22.2·22.3) | 프로필의 받은 리뷰 목록 (평점 초기 적재가 필요해지면 같은 API) |
 | FE | 작성 API (21.2), 출연 상세의 리뷰 필드 (22.1) | 출연 상세 화면의 리뷰 작성·표시 |
 
 ### 23.1 회원 모듈: 평점 집계
 
-- 공개 이벤트를 소비 그룹 `member-app.appearance-review`(제안, kafka.md `<앱>.<목적>` 규칙)로 받는다. 같은 토픽의 다른 타입(요청·지원 알림)은 기본 처리기에서 무시한다.
+회원 쪽 구현은 #555(PR #572)다. 출연 계약(토픽·key·`__TypeId__`·필드)은 바꾸지 않고 그대로 받는다.
+
+- 공개 이벤트를 소비 그룹 `member-app.appearance-review`로 받는다. 같은 토픽의 다른 타입(요청·지원 알림)은 기본 처리기에서 무시한다. 회원이 처리하지 못한 메시지(필수 값 누락, 회원 없음 등)는 회원 DLT `appearance.events.v1.member-app.appearance-review.DLT`에 쌓인다.
 - **중복 제거**: 최소 한 번 전달이라 같은 `reviewId`가 다시 올 수 있다. 처리한 `reviewId`를 저장하고(유니크) 이미 있으면 건너뛴다.
-- **집계 값**: 받은 회원(`revieweeUserId`)마다 별점 합계·개수를 쌓고 평균은 읽을 때 `합계 / 개수`로 낸다. 별점은 1~5 정수지만 평균은 소수다. 표시 자릿수(예: 소수 첫째 자리 반올림)는 회원 화면이 정한다.
-- **역할별 평점(선택)**: `revieweeRole`(`HOST`·`GUEST`)로 호스트로 받은 평점과 게스트로 받은 평점을 나눌 수 있다.
+- **집계 값**: 받은 회원(`revieweeUserId`)마다 `revieweeRole`(`HOST`·`GUEST`)별로 별점 합계·개수를 쌓는다(회원 `members.appearance_rating`, 반영한 리뷰는 `members.appearance_review_receipt`). 평균은 읽을 때 `합계 / 개수`로 내고, 서버가 소수 첫째 자리에서 반올림한다(4.25 → 4.3). 리뷰가 없으면 `average: null, count: 0`.
+- **응답 모양 (회원 API)**: 프로필 상세 `GET /api/v1/members/{id}`의 `appearanceRating`은 `total`·`asHost`·`asGuest` 각각 `{average, count}`다. 인플루언서 목록(검색)에는 전체만 `{average, count}`로 넣는다. FE는 이 값을 그대로 보여 주고 계산하지 않는다.
 - **이벤트 수**: 블라인드 공개면 출연 하나에 2개(받은 사람이 서로 다름)가 나간다. 작성 기한을 켜면 만료 공개 배치(21.7, #515)가 한쪽 리뷰만 1개 나갈 수 있다. 어느 경우든 이벤트 1개 = 공개 리뷰 1건으로 센다.
 - **순서**: key가 받은 회원 단위라 같은 회원의 이벤트는 한 partition에 모이지만, 재발행 때문에 순서는 보장하지 않는다. 합계·개수는 순서와 상관없다.
 - **수정·삭제 없음**: 리뷰는 고치거나 지우지 않으므로 공개된 리뷰를 빼는 이벤트는 없다. 쓴 사람이나 받은 사람이 뒤에 정지·탈퇴해도 공개된 리뷰는 그대로다.
-- **초기 적재**: 토픽 보존은 72시간이다. 회원이 그보다 늦게 받기 시작하면 받은 리뷰 내부 API로 회원별 공개 리뷰를 읽어 채운다(같은 `reviewId`로 중복 제거하면 이벤트와 겹쳐도 된다).
+- **초기 적재: 하지 않았다.** 회원 배포 시점에 FE 리뷰 작성 화면이 없어 운영에 공개된 리뷰가 사실상 없었고, 회원 그룹은 처음 붙을 때 토픽 맨 앞(`earliest`)부터 읽었다. 회원 소비자가 72시간 넘게 멈추는 등 이벤트를 놓쳤다면, 받은 리뷰 내부 API로 회원별 공개 리뷰를 읽어 같은 방식(`reviewId` 중복 제거)으로 다시 채운다. 회원 평점은 출연 원본에서 만든 집계본이라 언제든 이 방법으로 다시 만들 수 있다.
+- **출연이 평점이 필요해질 때**: 화면 표시용은 FE가 회원 API로 붙인다. 서버 판단용(정렬·필터 등)은 출연 리뷰 원본(`appearances.reviews`의 공개 리뷰를 `reviewee_id`·`reviewee_role`별로)으로 계산한다. 원본이 출연에 있으므로 회원 API를 동기로 부르지 않는다.
 
 ### 23.2 회원 모듈: 프로필 리뷰 목록
 
 - `AppearanceApiClient.getReceivedReviews(userId, page, size)`로 부른다. 최신 공개순 고정, `size` 최대 100, 리뷰가 없으면 빈 페이지다.
-- 항목에 쓴 사람 닉네임은 없다(`reviewerUserId`만). 회원 모듈이 자기 회원 정보로 채운다.
-- 실패는 `AppearanceApiCallException`의 `REJECTED`(4xx)·`UNAVAILABLE`(연결 실패·5xx·읽을 수 없는 응답)로 온다(18.6). 프로필 화면에서 리뷰 목록만 비우는 등 처리 방식은 회원 모듈이 정한다.
+- 회원 API는 `GET /api/v1/members/{id}/appearance-reviews?page=&size=`이고, page·size를 출연 내부 API에 그대로 넘긴다(최대 100).
+- 항목에 쓴 사람 닉네임은 없다(`reviewerUserId`만). 회원이 항목마다 `reviewer {id, nickname, profileImageUrl}`을 붙인다. 쓴 사람이 탈퇴했거나 없으면 "탈퇴한 회원", 정지 회원은 그대로 보여 준다.
+- 실패는 `AppearanceApiCallException`의 `REJECTED`(4xx)·`UNAVAILABLE`(연결 실패·5xx·읽을 수 없는 응답)로 온다(18.6). 회원은 둘 다 회원 503 `APPEARANCE_REVIEW_UNAVAILABLE`로 바꾸고, `REJECTED`는 error 로그로 남긴다(내부 API 키·계약이 어긋나면 회원 로그로 보임).
+- 프로필 주인이 정상 회원이 아니면 회원이 프로필과 같이 404를 주고, 이때는 출연 내부 API를 부르지 않는다.
 
 ### 23.3 FE: 출연 상세 화면
 
@@ -1396,6 +1401,6 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 - 작성: `POST /api/v1/appearances/{appearanceId}/reviews` `{rating: 1~5 정수, content?: 1,000자}` → 201 `{id}`. 성공 뒤 상세를 다시 읽는다(응답에 공개 여부가 없다).
 - `myReview`가 있고 `published=false`면 "상대가 쓰면 함께 공개" 상태, `receivedReview`는 둘 다 공개된 뒤에만 온다.
 - 작성 오류: 400 `INVALID_REQUEST`, 403 `APPEARANCE_USER_NOT_ACTIVE`·`NOT_INFLUENCER`, 404 `APPEARANCE_NOT_FOUND`, 409 `APPEARANCE_NOT_REVIEWABLE`·`REVIEW_PERIOD_ENDED`·`REVIEWEE_NOT_ACTIVE`·`ALREADY_REVIEWED` ([error-codes.md](error-codes.md)). 409는 화면 상태가 오래된 경우라 상세를 다시 읽으면 버튼이 사라진다.
-- 2026-11-02 기준 FE의 `Appearance` 타입에는 리뷰 필드가 없다. 필드만 더해진 것이라 기존 화면은 깨지지 않으며, 리뷰 화면 반영은 FE 담당과 따로 한다.
+- 2026-11-02 기준 FE의 `Appearance` 타입에는 리뷰 필드가 없다. 필드만 더해진 것이라 기존 화면은 깨지지 않는다. 리뷰 화면은 FE #161로 요청했다(타입·API·화면 상태·오류 처리 명세).
 - 작성 기한(`REVIEW_PERIOD_ENDED`)은 지금 꺼져 있다. 켤 때는 FE에 기한 안내가 필요하다(#515).
 
