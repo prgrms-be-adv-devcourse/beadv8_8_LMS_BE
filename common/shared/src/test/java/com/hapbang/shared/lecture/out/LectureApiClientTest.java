@@ -7,6 +7,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -27,6 +28,8 @@ import com.hapbang.shared.lecture.dto.LectureEarningPageDto;
 import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
 import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
+import com.hapbang.shared.member.dto.WithdrawalBlockReasonDto;
+import com.hapbang.shared.member.dto.WithdrawalBlocksDto;
 import com.sun.net.httpserver.HttpServer;
 
 // 강의 내부 API Client의 요청 모양·응답 해제·오류 변환을 가짜 HTTP 서버로 확인한다 (#300). 실제 강의 API는 apps 통합 테스트가 부른다.
@@ -207,6 +210,80 @@ class LectureApiClientTest {
                     assertThat(e.getStatus()).isEqualTo(500);
                     assertThat(e.getCode()).isEqualTo("INTERNAL_ERROR");
                 });
+    }
+
+    @Test
+    void 탈퇴_막힌_이유_조회는_경로와_내부_키를_붙여_보내고_data를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"탈퇴 확인을 마쳤습니다.","data":{"reasons":[
+                  {"code":"LECTURE_ORDER_HOLDING","message":"구매한 강의 2건의 이의 제기 기간이 끝나지 않았어요.",
+                   "availableAt":"2026-11-20"},
+                  {"code":"LECTURE_ON_SALE","message":"판매 중이거나 검수 대기 중인 강의 1개가 있어요."}]}}""");
+
+        WithdrawalBlocksDto blocks = client().getWithdrawalBlocks(7L);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/lectures/users/7/withdrawal-blocks key=" + API_KEY);
+        assertThat(methods).containsExactly("GET");
+        // 응답에서 빠진 availableAt은 null이다
+        assertThat(blocks.reasons()).containsExactly(
+                new WithdrawalBlockReasonDto("LECTURE_ORDER_HOLDING", "구매한 강의 2건의 이의 제기 기간이 끝나지 않았어요.",
+                        LocalDate.of(2026, 11, 20)),
+                WithdrawalBlockReasonDto.of("LECTURE_ON_SALE", "판매 중이거나 검수 대기 중인 강의 1개가 있어요."));
+        assertThat(blocks.isBlocked()).isTrue();
+    }
+
+    @Test
+    void 탈퇴_막힌_이유가_없으면_빈_목록이다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"탈퇴 확인을 마쳤습니다.","data":{"reasons":[]}}""");
+
+        WithdrawalBlocksDto blocks = client().getWithdrawalBlocks(7L);
+
+        assertThat(blocks.reasons()).isEmpty();
+        assertThat(blocks.isBlocked()).isFalse();
+    }
+
+    @Test
+    void 탈퇴_막힌_이유_조회의_4xx는_거절_예외다() {
+        respond(400, "application/problem+json", """
+                {"status":400,"detail":"요청 값이 올바르지 않습니다.","code":"INVALID_REQUEST",
+                 "errors":[{"field":"userId","message":"값이 올바르지 않습니다."}]}""");
+        assertThatThrownBy(() -> client().getWithdrawalBlocks(7L))
+                .isInstanceOfSatisfying(LectureApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.REJECTED);
+                    assertThat(e.getStatus()).isEqualTo(400);
+                    assertThat(e.getCode()).isEqualTo("INVALID_REQUEST");
+                });
+
+        // 내부 API 키 오류는 본문이 없다
+        respond(401, null, null);
+        assertThatThrownBy(() -> client().getWithdrawalBlocks(7L))
+                .isInstanceOfSatisfying(LectureApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.REJECTED);
+                    assertThat(e.getStatus()).isEqualTo(401);
+                    assertThat(e.getCode()).isNull();
+                });
+    }
+
+    @Test
+    void 탈퇴_막힌_이유_조회의_연결_실패와_5xx와_읽을_수_없는_응답은_호출_불가_예외다() throws IOException {
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        LectureApiClient refused = client("http://127.0.0.1:" + closedPort);
+        assertUnavailable(() -> refused.getWithdrawalBlocks(7L), 0);
+
+        respond(503, null, null);
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 503);
+
+        // reasons가 없거나 이유에 code가 없으면 계약에 맞지 않는 응답이다
+        respond(200, "application/json", "{\"statusCode\":200,\"message\":\"\",\"data\":{}}");
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 200);
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"reasons":[{"message":"처리 중인 주문 1건이 있어요."}]}}""");
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 200);
     }
 
     @Test

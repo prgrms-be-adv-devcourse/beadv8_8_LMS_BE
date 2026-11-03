@@ -201,6 +201,63 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
                                         @Param("statuses") Collection<String> statuses,
                                         @Param("now") LocalDateTime now, Pageable pageable);
 
+    /**
+     * 구매자 쪽 탈퇴 막힌 이유 (#625, D75). 위에서부터 먼저 맞는 조건을 써서 주문 항목 하나는 이유 하나로만 센다.
+     * 이의 제기 접수 중 → 결제·반환 처리 중 → 구매 HP 보류 중(지급 예정일까지) 순이다. 결제 실패와 끝난 주문은 {@code null}이라 빠진다.
+     * 상수 이름은 {@link com.hapbang.lecture.domain.LectureWithdrawalBlockCode}다
+     */
+    String BUYER_WITHDRAWAL_BLOCK = "case "
+            + "when i.objectionStatus = com.hapbang.lecture.domain.ObjectionStatus.FILED "
+            + "then 'LECTURE_OBJECTION_FILED' "
+            + "when i.status in (com.hapbang.lecture.domain.OrderItemStatus.HOLD_PENDING, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.HOLD_COMPENSATING, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.CANCEL_PENDING, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.RETURN_PENDING) then 'LECTURE_ORDER_PROCESSING' "
+            + "when i.status in (com.hapbang.lecture.domain.OrderItemStatus.PURCHASED, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.CONFIRMED, "
+            + "com.hapbang.lecture.domain.OrderItemStatus.PAYOUT_PENDING) then 'LECTURE_ORDER_HOLDING' "
+            + "end";
+
+    /**
+     * 판매 수익 상태 중 지급 예정 시각을 정할 수 없는 상태(지급 중단·지급 실패). 수익 API가 지급 예정 시각을 {@code null}로 주는 상태와 같다
+     */
+    Set<LectureEarningStatus> UNDATABLE_EARNING_STATUSES = Arrays.stream(LectureEarningStatus.values())
+            .filter(status -> status.isUnpaid() && !status.hasPayoutSchedule())
+            .collect(Collectors.toUnmodifiableSet());
+
+    /** 구매자의 탈퇴 막힌 이유별 주문 항목 집계 (#625). 이유가 없는 집계는 빠진다 */
+    default List<WithdrawalBlockTotal> summarizeBuyerWithdrawalBlocks(Long buyerUserId, LocalDateTime now) {
+        return summarizeBuyerWithdrawalBlocksByName(buyerUserId, names(UNDATABLE_EARNING_STATUSES), now);
+    }
+
+    // 분류 식에 :now가 있어 파생 테이블로 한 번만 쓴다 (summarizeEarningsByName과 같은 이유)
+    @Query("select new com.hapbang.lecture.out.WithdrawalBlockTotal(b.code, count(*), max(b.payoutScheduledAt), "
+            + "count(case when b.earningStatus in :undatableStatuses then 1 end)) "
+            + "from (select " + BUYER_WITHDRAWAL_BLOCK + " as code, i.payoutScheduledAt as payoutScheduledAt, "
+            + EARNING_STATUS + " as earningStatus from OrderItem i where i.buyerUserId = :buyerUserId) b "
+            + "where b.code is not null group by b.code")
+    List<WithdrawalBlockTotal> summarizeBuyerWithdrawalBlocksByName(
+            @Param("buyerUserId") Long buyerUserId, @Param("undatableStatuses") Collection<String> undatableStatuses,
+            @Param("now") LocalDateTime now);
+
+    /**
+     * 판매자의 아직 지급하지 않은 판매 수익 집계 (#625). 판매 수익 요약과 같은 분류식·상태라 건수가 요약의 합계와 같다.
+     * 판매 기록이 없어도 건수 0인 한 행이다
+     */
+    default WithdrawalBlockTotal summarizeSellerWithdrawalBlocks(Long sellerUserId, LocalDateTime now) {
+        return summarizeSellerWithdrawalBlocksByName(sellerUserId, names(UNPAID_EARNING_STATUSES),
+                names(UNDATABLE_EARNING_STATUSES), now);
+    }
+
+    @Query("select new com.hapbang.lecture.out.WithdrawalBlockTotal('LECTURE_SALE_PAYOUT_PENDING', count(*), "
+            + "max(e.payoutScheduledAt), count(case when e.status in :undatableStatuses then 1 end)) "
+            + "from (select " + EARNING_STATUS + " as status, i.payoutScheduledAt as payoutScheduledAt from OrderItem i "
+            + "where i.sellerUserId = :sellerUserId and " + SOLD + ") e "
+            + "where e.status in :statuses")
+    WithdrawalBlockTotal summarizeSellerWithdrawalBlocksByName(
+            @Param("sellerUserId") Long sellerUserId, @Param("statuses") Collection<String> statuses,
+            @Param("undatableStatuses") Collection<String> undatableStatuses, @Param("now") LocalDateTime now);
+
     private static Set<String> names(Collection<LectureEarningStatus> statuses) {
         return statuses.stream().map(Enum::name).collect(Collectors.toUnmodifiableSet());
     }
