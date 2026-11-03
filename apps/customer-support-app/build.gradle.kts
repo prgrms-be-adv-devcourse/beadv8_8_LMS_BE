@@ -54,10 +54,12 @@ tasks.named<org.springframework.boot.gradle.tasks.aot.ProcessAot>("processAot") 
 }
 
 // 실행 파일 이름을 앱마다 같게 둔다(Dockerfile.native가 build/native/nativeCompile/app을 복사한다).
-// application 플러그인이 없어 main class를 직접 넘긴다. 없으면 실행 파일이 아니라 공유 라이브러리(app.so)가 만들어진다.
+// 루트가 모든 모듈에 java-library를 적용하면 Native Build Tools는 공유 라이브러리(app.so)를 기본값으로 만든다.
+// 실행 파일로 만들도록 끄고, application 플러그인이 없으니 main class도 직접 넘긴다.
 graalvmNative {
     binaries.named("main") {
         imageName = "app"
         mainClass = springBoot.mainClass
+        sharedLibrary = false
     }
 }
