@@ -43,6 +43,8 @@ import com.hapbang.shared.appearance.event.AppearanceEventTopic;
  *     ({@code @Externalized} 이벤트를 고른다)에 {@code eventType}·{@code eventVersion} 헤더만 더한다.</li>
  *     <li>헤더 값은 UTF-8 바이트로 넣는다. 문자열로 넣으면 Spring Kafka가 타입 정보 헤더({@code spring_json_header_types})를 더 붙인다.
  *     역직렬화에 쓰는 {@code __TypeId__}는 값 직렬화기({@code member.yml}의 JSON 직렬화기)가 따로 붙인다.</li>
+ *     <li>보내지 못한 발행 기록은 재기동 때({@code republish-outstanding-events-on-restart})와, 앱이 떠 있는 동안 매분
+ *     재발행 배치({@code MemberEventRepublishBatch}, #421)가 다시 보낸다.</li>
  * </ul>
  * 수신 (#555)
  * <ul>
