@@ -3,19 +3,14 @@ package com.hapbang.member.app;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.modulith.events.EventExternalizationConfiguration;
 import org.springframework.modulith.events.EventPublication;
 import org.springframework.modulith.events.IncompleteEventPublications;
 import org.springframework.modulith.events.ResubmissionOptions;
-
-import com.hapbang.member.domain.User;
-import com.hapbang.shared.member.event.UserModifiedEvent;
 
 /**
  * 회원 이벤트 Kafka 재발행이 Modulith에 넘기는 조건 (#421). {@link ResubmissionOptions} 경로라 Modulith가 실패(FAILED)한 기록만
@@ -24,9 +19,8 @@ import com.hapbang.shared.member.event.UserModifiedEvent;
 class MemberEventRepublishUseCaseTest {
 
     private final IncompleteEventPublications incompleteEventPublications = mock(IncompleteEventPublications.class);
-    private final EventExternalizationConfiguration externalization = mock(EventExternalizationConfiguration.class);
     private final MemberEventRepublishUseCase useCase =
-            new MemberEventRepublishUseCase(incompleteEventPublications, externalization, 500, Duration.ofMinutes(1));
+            new MemberEventRepublishUseCase(incompleteEventPublications, 500, Duration.ofMinutes(1));
 
     @Test
     @DisplayName("실패한 기록 중 1분 지난 것을 한 번에 500건까지, 다시 보내는 중인 기록이 500건이면 쉬도록 넘긴다")
@@ -40,20 +34,8 @@ class MemberEventRepublishUseCaseTest {
     }
 
     @Test
-    @DisplayName("Kafka로 내보내는 이벤트인지는 외부화 설정이 판단한다 (기준을 하나로)")
-    void filtersByExternalizationConfiguration() {
-        UserModifiedEvent externalized = new UserModifiedEvent(User.join("tester@example.com", "tester").toDto());
-        Object internal = new Object();
-        when(externalization.supports(externalized)).thenReturn(true);
-        when(externalization.supports(internal)).thenReturn(false);
-
-        assertThat(useCase.options().getFilter().test(publication(externalized))).isTrue();
-        assertThat(useCase.options().getFilter().test(publication(internal))).isFalse();
-    }
-
-    private static EventPublication publication(Object event) {
-        EventPublication publication = mock(EventPublication.class);
-        when(publication.getEvent()).thenReturn(event);
-        return publication;
+    @DisplayName("대상 필터를 두지 않는다: DB에서 읽은 실패 기록을 모두 다시 보내, 걸러진 기록이 쌓여 회원 이벤트가 굶는 일이 없다")
+    void noFilter() {
+        assertThat(useCase.options().getFilter().test(mock(EventPublication.class))).isTrue();
     }
 }
