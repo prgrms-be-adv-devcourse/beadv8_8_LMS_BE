@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -44,6 +45,9 @@ class MemberOAuthLoginUseCaseTest {
     @Mock
     ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    MemberLoginGuard memberLoginGuard;
+
     @InjectMocks
     MemberOAuthLoginUseCase useCase;
 
@@ -59,6 +63,19 @@ class MemberOAuthLoginUseCaseTest {
         assertThat(result).isSameAs(user);
         verify(userRepository, never()).save(any());
         verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("연결된 회원도 로그인해도 되는지 판단(MemberLoginGuard)을 거치고, 막히면 그 오류를 그대로 던진다 (#593)")
+    void login_guarded() {
+        User user = User.join("tester1@example.com", "tester1");
+        given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
+                .willReturn(Optional.of(OAuthAccount.connect(user, OAuthProvider.GOOGLE, "google-sub-1")));
+        willThrow(new MemberException(MemberErrorCode.LOGIN_NOT_ALLOWED)).given(memberLoginGuard).check(user);
+
+        assertThatThrownBy(() -> useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "tester1"))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LOGIN_NOT_ALLOWED);
     }
 
     @Test

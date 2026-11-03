@@ -2,6 +2,8 @@ package com.hapbang.member.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.LocalDateTime;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -9,6 +11,8 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
+
+import com.hapbang.member.domain.WithdrawnRestorableException;
 
 class OAuthLoginFailureHandlerTest {
 
@@ -44,5 +48,17 @@ class OAuthLoginFailureHandlerTest {
         handler.onAuthenticationFailure(new MockHttpServletRequest(), response, new BadCredentialsException("x"));
 
         assertThat(response.getRedirectedUrl()).isEqualTo("/login?error=LOGIN_FAILED");
+    }
+
+    @Test
+    @DisplayName("복구할 수 있는 탈퇴 회원이면 복구 티켓과 복구 기한을 함께 붙인다 (#593)")
+    void failure_restorable() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler.onAuthenticationFailure(new MockHttpServletRequest(), response, new RestorableOAuth2AuthenticationException(
+                new WithdrawnRestorableException("ticket-1", LocalDateTime.of(2026, 12, 3, 12, 0))));
+
+        assertThat(response.getRedirectedUrl()).isEqualTo(
+                "/login?error=WITHDRAWN_RESTORABLE&restoreTicket=ticket-1&restorableUntil=2026-12-03T12:00");
     }
 }

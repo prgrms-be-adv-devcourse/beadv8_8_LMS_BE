@@ -63,6 +63,8 @@ public class SecurityConfig {
                         .permitAll()
                         // 이메일·비밀번호 가입·로그인 (#499). 로그인 응답은 refresh token 쿠키만 준다
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login").permitAll()
+                        // 탈퇴 회원 복구 (#593). 탈퇴 회원은 토큰이 없어 로그인 때 받은 복구 티켓으로 본인을 확인한다
+                        .requestMatchers(HttpMethod.POST, "/api/v1/members/restore").permitAll()
                         // 비회원은 강의·모집글 목록만 조회한다 (AGENTS.md 6장)
                         .requestMatchers(HttpMethod.GET, "/api/v1/lectures").permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)
