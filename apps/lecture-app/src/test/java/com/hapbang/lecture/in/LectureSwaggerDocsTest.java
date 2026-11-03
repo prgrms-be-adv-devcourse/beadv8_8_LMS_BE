@@ -57,6 +57,19 @@ class LectureSwaggerDocsTest {
     }
 
     @Test
+    void 탈퇴_막힌_이유_내부_API는_내부_키_헤더와_함께_명세에_있다() throws Exception {
+        // #625: 회원 공통 DTO(WithdrawalBlocksDto)를 RsData로 감싸고, 내부 API 키 헤더를 받는다
+        String path = "$.paths['/api/v1/internal/lectures/users/{userId}/withdrawal-blocks'].get";
+        mockMvc.perform(get("/api/v1/lectures/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(path + ".parameters[?(@.name == 'X-Internal-Api-Key')].in").value("header"))
+                .andExpect(jsonPath(path + ".parameters[?(@.name == 'userId')].in").value("path"))
+                .andExpect(jsonPath(path + ".responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataWithdrawalBlocksDto"))
+                .andExpect(jsonPath(SCHEMAS + "WithdrawalBlockReasonDto.properties.availableAt.format").value("date"));
+    }
+
+    @Test
     void HP_대사_관리_API는_RsData로_감싼_실행_결과를_준다() throws Exception {
         mockMvc.perform(get("/api/v1/lectures/v3/api-docs"))
                 .andExpect(status().isOk())

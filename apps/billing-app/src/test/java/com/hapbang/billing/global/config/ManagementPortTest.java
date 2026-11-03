@@ -97,6 +97,9 @@ class ManagementPortTest {
         assertThat(metrics.body()).contains("hapbang_billing_job_lock_skipped_total{job=\"charge-recovery\",reason=\"held\"}")
                 .contains("hapbang_billing_job_lock_skipped_total{job=\"member-backfill\",reason=\"error\"}");
         // 잔액 대사 결과 (#607). 첫 실행 전에도 0으로 나온다
+        // 회원별 요청 한도 거절 횟수 (#627). 거절이 없어도 API마다 0으로 나온다
+        assertThat(metrics.body()).contains("hapbang_billing_rate_limit_rejected_total{api=\"charge-order\"}")
+                .contains("hapbang_billing_rate_limit_rejected_total{api=\"earning-summary\"}");
         assertThat(metrics.body()).contains("hapbang_billing_reconciliation_wallets{result=\"mismatched\"}")
                 .contains("hapbang_billing_reconciliation_wallets{result=\"failed\"}")
                 .contains("hapbang_billing_reconciliation_last_success_seconds");

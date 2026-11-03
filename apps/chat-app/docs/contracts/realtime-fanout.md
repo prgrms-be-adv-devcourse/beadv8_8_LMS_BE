@@ -41,7 +41,7 @@ public interface RealtimeChatFanout {
   "type": "MESSAGE",
   "roomId": 12,
   "recipientSetVersion": 7,
-  "message": { "messageId": 501, "chatRoomId": 12, "roomSequence": 88, "senderUserId": 3, "messageType": "TEXT", "content": "…", "sentAt": "2026-10-29T10:00:00", "clientMessageId": null, "notificationKind": null, "referenceId": null, "parentReferenceId": null, "appearanceRequestSent": null, "appearanceApplicationSubmitted": null, "sender": { "userId": 3, "nickname": "호스트", "withdrawn": false } },
+  "message": { "messageId": 501, "chatRoomId": 12, "roomSequence": 88, "senderUserId": 3, "messageType": "TEXT", "content": "…", "sentAt": "2026-10-29T10:00:00", "clientMessageId": null, "notificationKind": null, "referenceId": null, "parentReferenceId": null, "appearanceRequestSent": null, "appearanceApplicationSubmitted": null, "sender": { "userId": 3, "nickname": "호스트", "withdrawn": false }, "unreadMemberCount": 4, "readCountVersion": 1762149600123456 },
   "notifyRule": "RECIPIENTS_EXCEPT_SENDER",
   "senderClientMessageId": "c-123"
 }
@@ -51,7 +51,7 @@ public interface RealtimeChatFanout {
 | --- | --- |
 | `deliveryId` | outbox의 안정 ID. 재시도·재적재해도 같다 |
 | `recipientSetVersion` | 메시지 저장 때 가리킨 불변 수신자 집합의 방 안 버전(`set_version`). 참여 변경마다 1씩 는다. 받는 앱이 방 참여 캐시를 다시 읽을지 정하는 기준이다. 현재 참여의 버전으로 바꾸지 않는다 |
-| `message` | `clientMessageId`가 null인 공용 `ChatMessageResponse` |
+| `message` | `clientMessageId`가 null인 공용 `ChatMessageResponse`. 일반 메시지면 전달 원본을 읽을 때 센 `unreadMemberCount`·`readCountVersion`을 싣는다(#615, [안 읽은 사람 수 계약](unread-count.md)) |
 | `notifyRule` | `NONE`(퇴장·재입장 안내, 단체방의 초대·강퇴·나가기·폐쇄 안내) 또는 `RECIPIENTS_EXCEPT_SENDER`(일반 메시지·출연 알림). outbox에 저장한 규칙(`ChatNotifyRule`)을 그대로 싣는다 |
 | `senderClientMessageId` | 보낸 사람 세션의 프레임에만 붙일 전송 ID. 메시지 행의 값이며 없으면 null |
 
@@ -75,6 +75,16 @@ public interface RealtimeChatFanout {
 
 - `loggedOutAt`(#548): 로그아웃 작업이 닫을 연결의 기준 시각(밀리초). 구독자는 그 회원의 로컬 연결 중 이보다 먼저 인증한 연결만 닫는다. 재검사 작업은 null이다. 로그아웃 작업이 null이면(값이 생기기 전의 작업) 그 회원의 연결을 모두 닫는다.
 
+서버 채널 `chat:read:v1` ← `ReadChangedFanout`(안 읽은 사람 수 변경 신호, #615). `RealtimeChatFanout`이 아니라 `ChatReadCountPublisher`(`out/redis/RedisChatReadCountPublisher`)가 낸다.
+
+```json
+{ "roomId": 12, "recipientSetVersion": 0 }
+```
+
+- 읽음 위치가 실제로 오른 읽음 처리와 참여·방 상태 변경(초대·강퇴·나가기·폐쇄·호스트 자격 상실)이 **커밋된 뒤** 그 앱이 발행한다. 커밋 뒤 콜백은 상한이 있는 전용 발행 실행기(`hapbang.chat.realtime.read-counts.publish-workers` 1, `publish-queue-capacity` 1000)에 넣기만 하고, 가득 차면 버린다. outbox·Stream을 거치지 않는 최선 노력이다: 발행이 실패해도 변경은 성공이고, 구독자 수는 보지 않는다. 잃은 갱신은 FE가 REST 이력으로 보정한다.
+- `recipientSetVersion`: 참여 변경이 만든 수신자 집합 버전. 읽음·폐쇄·호스트 자격 상실은 0이다. 받는 앱이 방 참여 캐시를 그 버전 이상으로 맞춘다(메시지와 같은 버전 확인 규칙).
+- 값은 싣지 않는다. 받는 앱이 다시 센다([안 읽은 사람 수 계약](unread-count.md)).
+
 - `MessageFanout`·`ControlFanout`·`ChatNotifyRule`은 공통 골격이다. 바꿀 때 이 계약과 [병렬 작업 계약](parallel-work.md)을 먼저 고친다.
 
 ## 이름 (`ChatRedisKeys`)
@@ -87,6 +97,7 @@ public interface RealtimeChatFanout {
 | 제어 Stream / 그룹 | `<ns>:chat:control:stream:v1` / `chat-control-v1` |
 | 방 채널 | `<ns>:chat:room:{roomId}:v1` |
 | 서버 채널(알림 재료) | `<ns>:chat:activity:v1` |
+| 서버 채널(안 읽은 사람 수 변경) | `<ns>:chat:read:v1` (#615) |
 | 제어 채널 | `<ns>:chat:control:v1` |
 | 접속 정보 | `<ns>:chat:presence:online`, `<ns>:chat:presence:user:{userId}` (#419) |
 | 웹소켓 연결 티켓 | `<ns>:chat:ws-ticket:{티켓 SHA-256 hex}`(STRING, 회원·역할·발급·연결 만료 JSON, TTL 30초, `GETDEL`로 한 번 사용), `<ns>:chat:ws-ticket-rate:{userId}`(STRING, 고정 창 60초 발급 횟수, `INCR` + 첫 발급만 `PEXPIRE`) (#501) |
@@ -96,11 +107,12 @@ public interface RealtimeChatFanout {
 
 ## 구독자 동작 (#419)
 
-- **구독**: 서버 채널 두 개(`activity`·`control`)는 시작 때 구독해 둔다. 방 채널은 그 방의 로컬 방 topic 구독이 0 → 1이 될 때 `RedisMessageListenerContainer`(구독 연결 하나)에 더하고, 1 → 0이 된 뒤 유예(초기값 60초, Q29) 뒤 뺀다. 유예 중 다시 구독하면 그대로 쓴다. 방 채널 추가는 비동기이고 구독 성공 프레임은 없다(구독 순간 공백 허용, Q23). 참조 수는 잠금 안에서 Redis 명령 없이 세고(해제 대기 방도 같은 값의 상한으로 센다), 컨테이너 추가·제거는 스레드 하나인 실행기가 방마다 맞춘다(구독 확인을 잠금에서 기다리지 않는다). 방 채널 명령이 실패하거나 시간을 넘기면 구독 컨테이너를 재설정해(멈춤 → 서버 채널 + 원하는 방 채널로 등록 다시 쓰기 → 시작) 새 연결에서 다시 구독하고, 서버 채널 재구독으로 `RESYNC(REALTIME_RESUBSCRIBED)`가 간다. 앱이 멈출 때는 컨테이너보다 먼저 방 채널 구독을 멈춘다. 앱 전체 방 채널 수 상한(Q30)에 닿으면 먼저 유예 중인 채널을 정리하고, 그래도 넘으면 그 SUBSCRIBE를 `SUBSCRIPTION_REJECTED(SERVER_BUSY)`로 거절한다.
+- **구독**: 서버 채널 세 개(`activity`·`control`·`read`)는 시작 때 구독해 둔다(구독 컨테이너를 재설정할 때도 셋을 다시 등록한다). 방 채널은 그 방의 로컬 방 topic 구독이 0 → 1이 될 때 `RedisMessageListenerContainer`(구독 연결 하나)에 더하고, 1 → 0이 된 뒤 유예(초기값 60초, Q29) 뒤 뺀다. 유예 중 다시 구독하면 그대로 쓴다. 방 채널 추가는 비동기이고 구독 성공 프레임은 없다(구독 순간 공백 허용, Q23). 참조 수는 잠금 안에서 Redis 명령 없이 세고(해제 대기 방도 같은 값의 상한으로 센다), 컨테이너 추가·제거는 스레드 하나인 실행기가 방마다 맞춘다(구독 확인을 잠금에서 기다리지 않는다). 방 채널 명령이 실패하거나 시간을 넘기면 구독 컨테이너를 재설정해(멈춤 → 서버 채널 + 원하는 방 채널로 등록 다시 쓰기 → 시작) 새 연결에서 다시 구독하고, 서버 채널 재구독으로 `RESYNC(REALTIME_RESUBSCRIBED)`가 간다. 앱이 멈출 때는 컨테이너보다 먼저 방 채널 구독을 멈춘다. 앱 전체 방 채널 수 상한(Q30)에 닿으면 먼저 유예 중인 채널을 정리하고, 그래도 넘으면 그 SUBSCRIBE를 `SUBSCRIPTION_REJECTED(SERVER_BUSY)`로 거절한다.
 - **처리 실행기**: 방 채널과 알림 재료는 방 ID로 고른 방별 처리 실행기에서, 제어와 구독 복구 처리는 제어 실행기에서 처리한다(Q22, 순서 보장은 아니다). 대기열이 넘쳐 방 메시지를 버리면 그 방의 로컬 구독 회원에게 `RESYNC(DELIVERY_DROPPED)`를 보낸다. 버린 알림 재료는 FE 주기 대조, 버린 제어는 주기 재검사가 메운다.
-- **재구독 감지**: 서버 채널로만 한다. 알림 재료 채널이 다시 구독되면 모든 로컬 연결에 `RESYNC(REALTIME_RESUBSCRIBED)`를, 제어 채널이면 로컬 연결 회원 전체 재검사를 한 번 한다. 방 채널은 같은 구독 연결로 함께 다시 구독되며, 해제 뒤 다시 더하면 확인이 또 오므로 재구독 판단에 쓰지 않는다.
+- **재구독 감지**: 서버 채널로만 한다. 알림 재료 채널이 다시 구독되면 모든 로컬 연결에 `RESYNC(REALTIME_RESUBSCRIBED)`를, 제어 채널이면 로컬 연결 회원 전체 재검사를 한 번 한다. 안 읽은 사람 수 변경 채널은 같은 구독 연결이라 따로 하는 일이 없다(알림 재료 채널의 `RESYNC`가 이력 재조회로 보정하게 한다). 방 채널은 같은 구독 연결로 함께 다시 구독되며, 해제 뒤 다시 더하면 확인이 또 오므로 재구독 판단에 쓰지 않는다.
 - **메시지(방 채널)**: 그 방의 로컬 방 topic 구독을 고른다(없으면 DB를 읽지 않는다). 방 참여 캐시(활성 참여자 전원과 그 상태를 읽기 직전의 방 수신자 집합 버전)가 `recipientSetVersion`보다 낮으면 한 번 다시 읽는다(방 현재 버전을 먼저, 참여 행을 나중에). 구독 세대 == 현재 세대·활성 참여·`roomSequence >= visibleFromSequence`·채팅 가능인 구독에만 `/topic/chats/rooms/{roomId}` 프레임을 쓴다. 맞지 않는 구독이 있으면 회수하기 전에 DB를 한 번 더 읽고, 그래도 나갔거나 더 새 세대가 있는 구독만 지우고 `SUBSCRIPTION_REVOKED`를 쓴다. 자격 상실·가시 범위 밖은 그 메시지만 건너뛴다. 보낸 사람 회원(`message.senderUserId`)의 구독에 쓰는 프레임에만 `senderClientMessageId`를 `clientMessageId`로 싣는다(Q24). 직렬화는 공용 1회 + 보낸 사람용 1회다. 조회가 실패하면 그 방 누구에게도 쓰지 않고 그 방의 로컬 구독 회원에게 `RESYNC(DELIVERY_DROPPED)`를 보낸다.
 - **전송 결과 확인(서버 채널)**: 회원이 보낸 일반 메시지(`lastMessage.messageType == TEXT`, 시스템 안내·알림 제외)이고 보낸 사람 회원의 로컬 연결이 있으면, 방 참여 캐시(같은 버전 규칙)로 보낸 사람의 현재 세대·가시 범위·자격을 확인한 뒤 `senderClientMessageId`를 `clientMessageId`로 붙인 메시지를 `/user/queue/chats/messages`로 바로 보낸다(묶지 않는다, 헤더 `participation-version`). 방 구독과 무관하다. 전송 ID는 선택이라 없으면 `clientMessageId: null`로 보낸다(FE는 `messageId`로 중복을 버린다). 조회가 실패하면 버리고 FE가 이력에서 전송 ID를 찾는다.
 - **새 메시지 알림(서버 채널)**: `notifyRule`이 `RECIPIENTS_EXCEPT_SENDER`인 재료만 방별로 모아 묶음 주기(초기값 1초, Q12)마다 `ROOM_ACTIVITY`를 `/user/queue/chats/notifications`로 보낸다. 대상은 방 참여 캐시(묶음의 가장 높은 수신자 집합 버전으로 버전 규칙 적용)의 채팅 가능한 활성 참여자 중 이 앱에 연결이 있고 Redis 접속 정보(`ZMSCORE <ns>:chat:presence:online`)로 접속 중인 회원의, 그 방 topic을 구독하지 않은 이 앱 세션이다(Q21). `messageCount`는 그 회원에게 보이고 그 회원이 보내지 않은 메시지 수이며, 0이면 보내지 않는다. 알림은 최선 노력이라 조회가 실패하면 그 묶음을 버린다.
+- **안 읽은 사람 수 변경(서버 채널, #615)**: 방 ID로 고른 방별 처리 실행기에서 받는다(대기열이 넘치면 버리고 지표만 센다). 그 방의 로컬 방 topic 구독이 있을 때만 방을 표시하고(가장 높은 `recipientSetVersion`을 기억), 묶음 주기(초기값 1초, `hapbang.chat.realtime.read-counts.batch-interval`)마다 표시된 방 하나에 집계 문장 하나로 마지막 100개 순번(`hapbang.chat.realtime.read-counts.window`)의 일반 메시지를 센다. 같은 문장이 방의 현재 수신자 집합 버전을 함께 읽고, 볼 수 없는 방(종료·조회 만료)은 세지 않아 보내지 않는다. 센 뒤에 방 참여 캐시(스냅샷 버전과 신호 버전 중 큰 값 이상)로 구독 세대 == 현재 세대·활성 참여·채팅 가능인 구독을 고르고, 그 회원의 가시 범위 앞 순번을 뺀 `READ_COUNTS` 프레임을 쓴다(같은 가시 범위의 구독은 payload 한 번). 조회가 실패하면 그 방의 묶음을 버린다. 형식은 [안 읽은 사람 수 계약](unread-count.md)이다.
 - **제어**: 최신 채팅 회원 상태를 조회해 지금도 채팅 불가일 때만 로컬 연결을 닫는다. 연결을 닫으면 그 연결의 방 구독도 지운다.
 - 프레임 형식은 [재동기화 계약](resync-frame.md)을 따른다.

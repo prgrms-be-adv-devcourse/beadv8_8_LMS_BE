@@ -79,12 +79,11 @@ class RedisRoomChannelSubscriptionsRedisTest {
         redis = new StringRedisTemplate(factory);
         keys = new ChatRedisKeys("room-channels-" + UUID.randomUUID());
         RecordingListener listener = new RecordingListener(keys.activityChannel(), activitySubscribed);
-        // 운영과 같이 서버 채널 두 개를 늘 구독하는 컨테이너에 방 채널을 더하고 뺀다
+        // 운영과 같이 서버 채널을 늘 구독하는 컨테이너에 방 채널을 더하고 뺀다
         container = new RedisMessageListenerContainer();
         container.setConnectionFactory(factory);
         container.setTaskExecutor(new SyncTaskExecutor());
-        container.addMessageListener(listener, List.of(new ChannelTopic(keys.activityChannel()),
-                new ChannelTopic(keys.controlChannel())));
+        container.addMessageListener(listener, ChatRealtimeRedisConfig.serverTopics(keys));
         container.afterPropertiesSet();
         container.start();
         channels = new RedisRoomChannelSubscriptions(container, listener, keys, new SimpleMeterRegistry(),
@@ -117,7 +116,7 @@ class RedisRoomChannelSubscriptionsRedisTest {
         await().atMost(WAIT).until(() -> subscribers(1L) == 0);
 
         await().atMost(WAIT).untilAsserted(() -> assertThat(trackedChannels())
-                .as("드라이버가 기억하는 채널은 서버 채널 두 개뿐이다").hasSize(2));
+                .as("드라이버가 기억하는 채널은 서버 채널뿐이다").hasSize(ChatRealtimeRedisConfig.serverTopics(keys).size()));
         assertThat(activitySubscribed.get()).as("재설정이 서버 채널을 다시 구독해 REALTIME_RESUBSCRIBED 재동기화 신호를 낸다")
                 .isGreaterThan(1);
     }

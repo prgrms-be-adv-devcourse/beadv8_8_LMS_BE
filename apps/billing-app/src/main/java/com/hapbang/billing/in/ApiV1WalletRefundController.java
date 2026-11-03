@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.billing.app.RefundFacade;
 import com.hapbang.billing.app.RefundResult;
 import com.hapbang.billing.global.auth.LoginUserId;
+import com.hapbang.billing.global.ratelimit.RateLimited;
+import com.hapbang.billing.global.ratelimit.RateLimitedApi;
 import com.hapbang.billing.global.response.RsData;
 
 import jakarta.validation.Valid;
@@ -28,6 +30,7 @@ public class ApiV1WalletRefundController implements ApiV1WalletRefundSpec {
 
     // 처리가 끝났으면(COMPLETED·PARTIALLY_COMPLETED·FAILED·CANCELED) 200, 결과 확인 중·운영자 확인이면 202로
     // 같은 상태를 본문과 응답에 함께 쓴다.
+    @RateLimited(RateLimitedApi.REFUND_REQUEST)
     @Override
     @PostMapping
     public ResponseEntity<RsData<RefundResponse>> request(@LoginUserId Long userId,
@@ -41,6 +44,7 @@ public class ApiV1WalletRefundController implements ApiV1WalletRefundSpec {
         return ResponseEntity.ok(RsData.ok("환불 요청을 처리했습니다.", body));
     }
 
+    @RateLimited(RateLimitedApi.REFUND_GET)
     @Override
     @GetMapping("/{refundRequestId}")
     public RsData<RefundResponse> getRefund(@LoginUserId Long userId,
@@ -48,6 +52,7 @@ public class ApiV1WalletRefundController implements ApiV1WalletRefundSpec {
         return RsData.ok("환불 요청을 조회했습니다.", RefundResponse.from(refundFacade.getRefund(userId, refundRequestId)));
     }
 
+    @RateLimited(RateLimitedApi.REFUND_CANCEL)
     @Override
     @PostMapping("/{refundRequestId}/cancel")
     public RsData<RefundResponse> cancel(@LoginUserId Long userId,

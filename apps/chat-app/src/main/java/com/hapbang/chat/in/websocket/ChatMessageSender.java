@@ -19,10 +19,12 @@ import org.springframework.util.MimeType;
 
 import com.hapbang.chat.app.LocalChatSender;
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
 import com.hapbang.chat.in.dto.ChatNotification;
+import com.hapbang.chat.in.dto.ChatReadCountsFrame;
 import com.hapbang.chat.in.dto.ChatSubscriptionFrame;
 import com.hapbang.chat.in.dto.ChatSyncSignal;
 
@@ -32,7 +34,8 @@ import lombok.extern.slf4j.Slf4j;
  * 수신 자격을 확인한 연결에 STOMP 프레임을 보낸다(resync-frame.md).
  * <ul>
  *     <li>방 topic({@code /topic/chats/rooms/{roomId}}): 브로커가 아니라 이 클래스가 구독마다 세션 ID·구독 ID 헤더를 붙여
- *     {@code clientOutboundChannel}에 쓴다(simple broker가 하는 방식과 같다). payload는 한 번만 직렬화한다.</li>
+ *     {@code clientOutboundChannel}에 쓴다(simple broker가 하는 방식과 같다). payload는 한 번만 직렬화한다. 메시지와 안 읽은 사람 수
+ *     갱신({@code READ_COUNTS})에는 그 구독의 세대 헤더를 싣는다.</li>
  *     <li>회원별 큐(전송 결과 확인·재동기화·새 메시지 알림)는 사용자 목적지로 보낸다. 새 메시지 알림은 세션 ID 헤더로 그 연결
  *     하나에만 보낸다.</li>
  * </ul>
@@ -70,7 +73,18 @@ public class ChatMessageSender implements LocalChatSender {
             return;
         }
         for (RoomTarget target : targets) {
-            writeToSubscription(roomId, target, converted, null);
+            writeToSubscription(roomId, target, converted, null, true);
+        }
+    }
+
+    @Override
+    public void sendReadCounts(Long roomId, ChatReadCounts readCounts, List<RoomTarget> targets) {
+        Message<?> converted = convert(ChatReadCountsFrame.of(readCounts));
+        if (converted == null) {
+            return;
+        }
+        for (RoomTarget target : targets) {
+            writeToSubscription(roomId, target, converted, ChatReadCountsFrame.FrameType.READ_COUNTS.name(), true);
         }
     }
 
@@ -79,7 +93,7 @@ public class ChatMessageSender implements LocalChatSender {
             ChatSubscriptionReason reason, Integer currentParticipationVersion) {
         Message<?> converted = convert(new ChatSubscriptionFrame(signal, roomId, reason, currentParticipationVersion));
         if (converted != null) {
-            writeToSubscription(roomId, target, converted, signal.name());
+            writeToSubscription(roomId, target, converted, signal.name(), false);
         }
     }
 
@@ -116,7 +130,12 @@ public class ChatMessageSender implements LocalChatSender {
         }
     }
 
-    private void writeToSubscription(Long roomId, RoomTarget target, Message<?> converted, String frameType) {
+    /**
+     * @param frameType            메시지가 아니면 {@code chat-frame-type} 헤더 값. 메시지면 null(헤더 없음)
+     * @param participationVersion 그 구독의 세대를 {@code participation-version} 헤더로 실을지
+     */
+    private void writeToSubscription(Long roomId, RoomTarget target, Message<?> converted, String frameType,
+            boolean participationVersion) {
         SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
         accessor.setSessionId(target.sessionId());
         accessor.setSubscriptionId(target.subscriptionId());
@@ -125,10 +144,11 @@ public class ChatMessageSender implements LocalChatSender {
         if (contentType instanceof MimeType mimeType) {
             accessor.setContentType(mimeType);
         }
-        if (frameType == null) {
-            accessor.setNativeHeader(PARTICIPATION_VERSION_HEADER, String.valueOf(target.participationVersion()));
-        } else {
+        if (frameType != null) {
             accessor.setNativeHeader(FRAME_TYPE_HEADER, frameType);
+        }
+        if (participationVersion) {
+            accessor.setNativeHeader(PARTICIPATION_VERSION_HEADER, String.valueOf(target.participationVersion()));
         }
         try {
             clientOutboundChannel.send(MessageBuilder.createMessage(converted.getPayload(),

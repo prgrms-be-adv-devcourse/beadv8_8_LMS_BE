@@ -17,7 +17,7 @@ import org.springframework.data.redis.connection.MessageListener;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 
 /**
- * 채팅 실시간 경로의 Redis Pub/Sub 구독. 서버 채널(알림 재료·제어)은 늘 구독하고, 방 채널은 그 방을 연 로컬 세션이 있을 때만
+ * 채팅 실시간 경로의 Redis Pub/Sub 구독. 서버 채널(알림 재료·제어·안 읽은 사람 수 변경)은 늘 구독하고, 방 채널은 그 방을 연 로컬 세션이 있을 때만
  * 구독한다. 모든 채널을 한 구독 연결로 받는다(설계 4.2).
  * <ul>
  *     <li>구독 진입 어댑터({@code in/redis}의 {@value #LISTENER_BEAN_NAME})는 {@link MessageListener}이자
@@ -52,9 +52,10 @@ public class ChatRealtimeRedisConfig {
         return container;
     }
 
-    /** 늘 구독하는 서버 채널(알림 재료·제어). 방 채널 구독을 재설정할 때도 이 목록으로 다시 등록한다 */
+    /** 늘 구독하는 서버 채널(알림 재료·제어·안 읽은 사람 수 변경). 방 채널 구독을 재설정할 때도 이 목록으로 다시 등록한다 */
     static List<ChannelTopic> serverTopics(ChatRedisKeys chatRedisKeys) {
         return List.of(new ChannelTopic(chatRedisKeys.activityChannel()),
-                new ChannelTopic(chatRedisKeys.controlChannel()));
+                new ChannelTopic(chatRedisKeys.controlChannel()),
+                new ChannelTopic(chatRedisKeys.readChannel()));
     }
 }
