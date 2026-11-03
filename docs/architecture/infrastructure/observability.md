@@ -94,7 +94,7 @@ lecture-app이 첫 적용이다. 요청 하나가 `Envoy ingress → Envoy route
 | JVM·Spring Boot (`hapbang-jvm`) | 앱 Micrometer, cAdvisor | 한 앱의 heap·non-heap·buffer, 컨테이너 메모리와 limit, GC, 스레드·CPU, HTTP(상태별, URI별 평균·최대, 앱 전체 p50·p95·p99와 URI별 p95), HikariCP, 나가는 HTTP 호출(대상·URI별 요청·응답 시간), circuit breaker 상태·호출 결과·호출 시간과 retry 결과, `@Scheduled` 작업 실행·시간, Spring Data Repository 메서드별 호출, 로그 레벨별 건수와 Loki의 ERROR·WARN 로그. 지표를 여는 앱만 앱 목록에 나온다 |
 | Kubernetes 자원 (`hapbang-kubernetes`) | cAdvisor, kubelet | node CPU·메모리·디스크(`/dev/root`)·네트워크, node별 memory limit 합계, namespace·pod별 CPU·메모리, limit 대비 사용률(현재·기간 최대), 컨테이너 재생성, 최근 시작한 컨테이너 |
 | Gateway (Envoy) (`hapbang-gateway`) | Envoy proxy | HTTPS 요청률, 응답 코드 class, p50·p95·p99 지연, route별 요청률·5xx·p95, upstream 연결 실패·timeout·overflow·reset |
-| Kafka (`hapbang-kafka`) | 앱 Kafka client, Spring Kafka | 소비 그룹·토픽별 lag, 소비 건수, listener 처리 결과(성공·실패, 재시도 포함)·처리 시간, 마지막 poll 뒤 경과 시간, 할당된 partition, rebalance, KafkaTemplate 전송 결과·시간, 토픽별 전송 레코드·오류·재시도 |
+| Kafka (`hapbang-kafka`) | 앱 Kafka client, Spring Kafka | 소비 그룹·토픽별 lag, 소비 건수, listener 처리 결과(성공·실패, 재시도 포함)·처리 시간, 마지막 poll 뒤 경과 시간, 할당된 partition, rebalance, KafkaTemplate 전송 결과·시간, 토픽별 전송 레코드·오류·재시도, 그룹별 DLT 적재(#339). 실패·DLT 개요 값은 pod가 뜬 뒤 누적이다. 처음 실패할 때 생기는 series는 `increase()`가 첫 값을 놓치기 때문이다 |
 
 지금 지표로는 볼 수 없는 것:
 
@@ -106,7 +106,8 @@ lecture-app이 첫 적용이다. 요청 하나가 `Envoy ingress → Envoy route
 - 나가는 HTTP 호출: `http_client_requests_seconds` series는 앱이 그 대상을 처음 부른 뒤에 생긴다. pod가 새로 뜬 뒤 호출이 없으면 비어 있다.
 - PostgreSQL·Kafka·Redis 내부 지표: exporter가 없다. 앱 쪽 HikariCP·Kafka client 지표만 있다.
 - Kafka consumer 중단: lag는 consumer client가 보고하는 값이라, consumer가 멈추면 lag가 늘지 않고 series가 사라진다. Kafka dashboard의 "소비 그룹" 수가 줄어드는 것으로 본다. broker 쪽 lag는 exporter가 필요하다.
-- DLT 적재 건수와 미완료 publication 수: 지표가 없다. chat-app 밖의 DLT template은 빈이 아니고 producer factory에 Micrometer listener도 없어 전송이 집계되지 않는다. "listener 처리 실패"는 재시도마다 세므로 DLT 건수가 아니다. 앱 카운터를 더하는 별도 작업이다.
+- 미완료 publication 수: 지표가 없다. 발행 실패는 "발행 실패"(KafkaTemplate 결과)로만 본다.
+- DLT 토픽별 지표는 첫 DLT 전송 뒤 1~2분 늦게 나타난다. Micrometer가 Kafka client의 새 지표(토픽별 지표 포함)를 60초마다 등록하기 때문이다. "listener 처리 실패"는 재시도마다 세므로 DLT 건수가 아니다.
 - Kafka client 지표의 `topic` label은 `member.events.v1`과 `member_events_v1` 두 형태로 함께 나온다. 점이 있는 쪽만 고르지 않으면 합계가 두 배가 된다. `records_lag_max`는 최근 fetch가 없으면 NaN이라 `records_lag`를 쓴다.
 
 **수정 방법.** JSON 파일(`k8s/platform/base/dashboards/*.json`)이 원본이다. provider가 `allowUiUpdates: false`라 Grafana UI에서 고친 내용은 저장되지 않는다. UI에서 고친 뒤 Export → Export as JSON으로 내려받아 파일을 바꾸고 PR로 올린다. datasource는 uid(`prometheus`, `loki`)로 적는다. Prometheus datasource의 `timeInterval: 1m`(scrape 주기) 덕분에 `$__rate_interval`은 4분 이상이다.

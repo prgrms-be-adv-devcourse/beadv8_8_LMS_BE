@@ -56,6 +56,9 @@ import com.hapbang.shared.member.event.UserLoggedOutEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.MeterRegistry;
+
 /**
  * 회원 앱이 {@code member.events.v1}에 보낸 회원 이벤트가 출연 회원 복제본에 반영되는지 실제 Kafka로 확인한다 (#394).
  * <ul>
@@ -89,6 +92,9 @@ class AppearanceUserEventListenerTest {
 
     @Autowired
     KafkaAdmin kafkaAdmin;
+
+    @Autowired
+    MeterRegistry meterRegistry;
 
     @Autowired
     AppearanceUserRepository appearanceUserRepository;
@@ -196,6 +202,7 @@ class AppearanceUserEventListenerTest {
         assertThat(deadLetters).hasSize(1);
         assertThat(deadLetters.getFirst().value()).isEqualTo(broken);
         assertThat(delayUntilDeadLetter(deadLetters.getFirst())).isLessThan(Duration.ofSeconds(1));
+        assertDeadLetterSendCounted();
     }
 
     @Test
@@ -287,5 +294,16 @@ class AppearanceUserEventListenerTest {
 
     private static String header(ConsumerRecord<?, ?> record, String name) {
         return new String(record.headers().lastHeader(name).value(), StandardCharsets.UTF_8);
+    }
+
+    /** DLT 전송도 Kafka producer 지표로 센다 (#339). 토픽별 지표는 Micrometer가 60초마다 새로 등록하므로 바로 생기는 client 지표로 본다. */
+    private void assertDeadLetterSendCounted() {
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(meterRegistry
+                .find("kafka.producer.record.send.total").functionCounters())
+                .filteredOn(counter -> String.valueOf(counter.getId().getTag("spring.id"))
+                        .startsWith(AppearanceKafkaConfig.DEAD_LETTER_PRODUCER_FACTORY + "."))
+                .extracting(FunctionCounter::count)
+                .isNotEmpty()
+                .allSatisfy(count -> assertThat(count).isGreaterThanOrEqualTo(1)));
     }
 }

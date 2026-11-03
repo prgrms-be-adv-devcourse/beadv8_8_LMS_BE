@@ -10,6 +10,8 @@ import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -45,6 +47,12 @@ public class LectureKafkaConfig {
     /** 고객센터의 이의 제기 판단·철회 요청({@code customersupport.events.v1})을 처리하는 소비 그룹 (#278) */
     public static final String OBJECTION_COMMAND_GROUP = "lecture-app.objection-command";
 
+    /**
+     * DLT로 보내는 producer factory 이름. Kafka producer 지표의 {@code spring_id} label이 {@code <이름>.<client id>}가 되어
+     * 업무 발행 producer와 구분된다 (#339).
+     */
+    public static final String DEAD_LETTER_PRODUCER_FACTORY = "deadLetterProducerFactory";
+
     private static final int PARTITIONS = 3;
     private static final Duration DEAD_LETTER_RETENTION = Duration.ofDays(7);
 
@@ -76,16 +84,23 @@ public class LectureKafkaConfig {
      * <p>
      * DLT로 보내는 template은 빈으로 두지 않는다. 빈으로 두면 Boot의 기본 {@code KafkaTemplate}·{@code ProducerFactory}를 대신하게 된다.
      * 역직렬화에 실패한 메시지는 원본 바이트로, 처리에 실패한 메시지는 받은 레코드를 JSON으로 보낸다.
+     * <p>
+     * Boot가 자기 ProducerFactory에 적용하는 customizer(지표 listener 등)를 DLT용 factory에도 적용한다(#339).
+     * 적용하지 않으면 DLT 전송이 {@code kafka_producer_*} 지표에 잡히지 않는다.
      */
     @Bean
-    DefaultErrorHandler kafkaErrorHandler(ProducerFactory<?, ?> producerFactory) {
+    DefaultErrorHandler kafkaErrorHandler(ProducerFactory<?, ?> producerFactory,
+            ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers) {
         Map<Class<?>, Serializer<?>> valueSerializers = Map.of(
                 byte[].class, new ByteArraySerializer(),
                 Object.class, new JacksonJsonSerializer<>());
-        KafkaTemplate<String, Object> deadLetterTemplate = new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(
+        DefaultKafkaProducerFactory<String, Object> deadLetterProducerFactory = new DefaultKafkaProducerFactory<>(
                 producerFactory.getConfigurationProperties(),
                 new StringSerializer(),
-                new DelegatingByTypeSerializer(valueSerializers, true)));
+                new DelegatingByTypeSerializer(valueSerializers, true));
+        deadLetterProducerFactory.setBeanName(DEAD_LETTER_PRODUCER_FACTORY);
+        producerFactoryCustomizers.orderedStream().forEach(customizer -> customizer.customize(deadLetterProducerFactory));
+        KafkaTemplate<String, Object> deadLetterTemplate = new KafkaTemplate<>(deadLetterProducerFactory);
 
         // 원본과 같은 partition 번호로 보낸다. 원본 토픽의 partition이 DLT(3개)보다 많아 번호가 없으면
         // DeadLetterPublishingRecoverer가 전송 전에 확인해 partition을 비우고(-1) key로 고르게 한다(verifyPartition 기본값).
