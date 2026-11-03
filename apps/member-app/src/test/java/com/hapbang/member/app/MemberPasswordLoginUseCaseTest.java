@@ -16,6 +16,7 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -25,6 +26,7 @@ import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.LoginAttemptStore;
+import com.hapbang.member.out.RestoreTicketStore;
 import com.hapbang.member.out.PasswordCredentialRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -41,7 +43,12 @@ class MemberPasswordLoginUseCaseTest {
     void setUp() {
         passwordCredentialRepository = mock(PasswordCredentialRepository.class);
         loginAttemptStore = mock(LoginAttemptStore.class);
-        useCase = new MemberPasswordLoginUseCase(passwordCredentialRepository, passwordEncoder, loginAttemptStore);
+        // 탈퇴 기능이 꺼진 판단(복구 티켓 없음)으로 둔다. 복구 티켓 판단은 MemberLoginGuardTest가 확인한다
+        @SuppressWarnings("unchecked")
+        ObjectProvider<MemberWithdrawalUseCase> withdrawalDisabled = mock(ObjectProvider.class);
+        MemberLoginGuard memberLoginGuard = new MemberLoginGuard(withdrawalDisabled, mock(RestoreTicketStore.class));
+        useCase = new MemberPasswordLoginUseCase(passwordCredentialRepository, passwordEncoder, loginAttemptStore,
+                memberLoginGuard);
     }
 
     @Test

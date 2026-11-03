@@ -150,4 +150,16 @@ class UserTest {
         assertThat(restored.getDeletedAt()).isNull();
         assertThatThrownBy(() -> expired.restore(withdrawnAt.plusDays(31))).isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    @DisplayName("복구 기한은 탈퇴 시각 + 30일이고, 탈퇴하지 않았으면 없다 (#593)")
+    void restorableUntil() {
+        User user = User.join("tester1@example.com", "tester1");
+        assertThat(user.restorableUntil()).isNull();
+        LocalDateTime withdrawnAt = LocalDateTime.of(2026, 11, 3, 12, 0);
+
+        user.withdraw(withdrawnAt);
+
+        assertThat(user.restorableUntil()).isEqualTo(LocalDateTime.of(2026, 12, 3, 12, 0));
+    }
 }

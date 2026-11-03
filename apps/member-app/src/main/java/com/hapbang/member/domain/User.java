@@ -79,6 +79,11 @@ public class User extends SourceUser {
         return isWithdrawn() && deletedAt != null && now.isBefore(deletedAt.plus(RESTORE_PERIOD));
     }
 
+    /** 복구할 수 있는 마지막 시각 (탈퇴 시각 + {@link #RESTORE_PERIOD}). 탈퇴하지 않았으면 null */
+    public LocalDateTime restorableUntil() {
+        return isWithdrawn() && deletedAt != null ? deletedAt.plus(RESTORE_PERIOD) : null;
+    }
+
     /** 복구 (#593): 정상 회원으로 되돌린다. 같은 계정 그대로이고 기록·날짜는 바뀌지 않는다 */
     public void restore(LocalDateTime now) {
         if (!canRestore(now)) {
