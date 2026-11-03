@@ -2,7 +2,7 @@
 
 회원 #593(탈퇴·복구)이 탈퇴해도 되는지 확인할 때 쓰는 내부 HTTP API다. 회원 앱이 탈퇴 확인을 지휘(오케스트레이션)하고, 지갑·출연·강의가 이 문서대로 제공한다.
 
-- 구조: [수익 내부 API 계약](internal-earnings.md)과 같다. 제공 모듈이 내부 API와 `shared.<제공 모듈>` Client 메서드를 제공하고, 회원은 Client만 쓴다. 공통 DTO `WithdrawalBlockReasonDto`는 탈퇴가 회원 개념이라 `shared.member.dto`에 둔다.
+- 구조: [수익 내부 API 계약](internal-earnings.md)과 같다. 제공 모듈이 내부 API와 `shared.<제공 모듈>` Client 메서드를 제공하고, 회원은 Client만 쓴다. 공통 DTO(`WithdrawalBlockReasonDto`, 조회 응답 `WithdrawalBlocksDto`)는 탈퇴가 회원 개념이라 `shared.member.dto`에 둔다. 지갑의 닫기·다시 열기 요청·응답은 지갑 전용이라 지갑이 `shared.billing.dto`에 둔다.
 - 공통 규칙(경로, 내부 API 키, 회원 세션 불가, 외부 차단, RsData·ProblemDetail, Swagger)은 수익 내부 API 계약 1장과 같다.
 
 ## 1. 흐름
@@ -40,7 +40,7 @@
 `GET /api/v1/internal/lectures/users/{userId}/withdrawal-blocks`
 
 - 읽기만 한다. 멱등 키가 없다.
-- 응답 `data`: `{ "reasons": [WithdrawalBlockReasonDto] }`. 막힌 이유가 없으면 빈 목록이다. 복제 회원 정보가 없는 회원도 빈 목록이다.
+- 응답 `data`: `shared.member.dto.WithdrawalBlocksDto` `{ "reasons": [WithdrawalBlockReasonDto] }`. 막힌 이유가 없으면 빈 목록이다. 복제 회원 정보가 없는 회원도 빈 목록이다.
 
 ```json
 {
