@@ -61,7 +61,7 @@ Toxiproxy를 쓰지 않는 이유: 완료 조건에 필요한 장애는 멈춤�
 최소 장애 test matrix는 다음과 같다.
 
 - Kafka publish 응답 유실 → Modulith publication 재발행 → consumer 결과 한 번
-- Kafka broker pause 중 발행·소비 → unpause 뒤 미완료 publication 재발행과 backlog 소비 → 중복 처리 0건
+- Kafka broker pause 중 발행·소비 → unpause 뒤 미완료 publication 재발행과 backlog 소비 → 같은 자연 키의 업무 반영은 한 번(재전달은 멱등 처리가 흡수)
 - 채팅 relay 선점 직후 종료 → lease 회수, XADD 직후 DB 기록 전 종료 → 중복 적재 흡수·옛 claimToken 무시, Stream 소비/PUBLISH/DB 체크포인트/XACK 사이 종료 → PEL 회수·중복 흡수, Stream 유실 → DB 미완료 작업 재구성
 - PostgreSQL 컨테이너 pause로 commit 응답 timeout → 같은 command 재시도 → HP 원장 불변식 유지
 
