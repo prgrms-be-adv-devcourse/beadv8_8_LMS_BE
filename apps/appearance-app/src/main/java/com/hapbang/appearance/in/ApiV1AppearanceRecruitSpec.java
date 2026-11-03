@@ -39,7 +39,8 @@ public interface ApiV1AppearanceRecruitSpec {
             - 모집 인원이 1~10명이 아니면 400 `RECRUIT_COUNT_OUT_OF_RANGE`
             - 현재 < 모집 마감 일시 < 방송 예정 일시가 아니면 400 `INVALID_RECRUIT_SCHEDULE`
             - HP 보류를 지갑이 거절하면 모집글은 기록으로만 남고 목록에 보이지 않는다.
-              잔액 부족이면 409 `INSUFFICIENT_BALANCE`, 그 밖의 거절은 500 `HP_HOLD_FAILED`(지갑 내부 정보는 응답하지 않는다)
+              잔액 부족이면 409 `INSUFFICIENT_BALANCE`, 탈퇴로 닫힌 지갑이면 409 `WALLET_CLOSED`,
+              그 밖의 거절은 500 `HP_HOLD_FAILED`(지갑 내부 정보는 응답하지 않는다)
             - HP 보류 결과를 확인하지 못하면 503 `BILLING_UNAVAILABLE`. 처리가 끝나면 내 모집글 목록에 나타난다""")
     RsData<AppearanceRecruitResDto> create(Long userId, @Valid CreateAppearanceRecruitReqDto request);
 

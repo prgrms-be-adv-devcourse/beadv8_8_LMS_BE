@@ -49,7 +49,7 @@ public class AppearanceRequestHoldUseCase {
     /**
      * 출연료만큼 호스트의 HP 보류를 요청한다.
      *
-     * @throws AppearanceHoldRejectedException 지갑이 거절했을 때 (409 {@code INSUFFICIENT_BALANCE} 또는 500 {@code HP_HOLD_FAILED}).
+     * @throws AppearanceHoldRejectedException 지갑이 거절했을 때 (409 {@code INSUFFICIENT_BALANCE}·{@code WALLET_CLOSED} 또는 500 {@code HP_HOLD_FAILED}).
      *                                          요청서는 {@code HOLD_FAILED}
      * @throws AppearanceException              처리 결과를 받지 못했을 때 ({@code BILLING_UNAVAILABLE}). 요청서는 {@code HOLD_PENDING}으로 남는다
      */

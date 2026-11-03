@@ -39,7 +39,8 @@ public interface ApiV1AppearanceRequestSpec {
             요청서를 저장하고 출연료만큼 호스트의 HP를 보류한다. 보류에 성공하면 `REQUESTED`로 201 응답한다.
             - 같은 게스트에게 처리 중이거나 응답 대기 중인 요청이 있으면 409 `DUPLICATE_APPEARANCE_REQUEST`
             - HP 보류를 지갑이 거절하면 요청서는 기록으로만 남고 목록에 보이지 않는다.
-              잔액 부족이면 409 `INSUFFICIENT_BALANCE`, 그 밖의 거절은 500 `HP_HOLD_FAILED`(지갑 내부 정보는 응답하지 않는다)
+              잔액 부족이면 409 `INSUFFICIENT_BALANCE`, 탈퇴로 닫힌 지갑이면 409 `WALLET_CLOSED`,
+              그 밖의 거절은 500 `HP_HOLD_FAILED`(지갑 내부 정보는 응답하지 않는다)
             - HP 보류 결과를 확인하지 못하면 503 `BILLING_UNAVAILABLE`. 처리가 끝나면 보낸 요청 목록에 나타난다""")
     RsData<AppearanceRequestResDto> create(Long userId, @Valid CreateAppearanceRequestReqDto request);
 

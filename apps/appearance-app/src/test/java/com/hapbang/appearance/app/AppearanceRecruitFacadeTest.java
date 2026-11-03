@@ -137,6 +137,21 @@ class AppearanceRecruitFacadeTest {
     }
 
     @Test
+    @DisplayName("지갑이 닫혀 있으면(탈퇴 직후) 409 WALLET_CLOSED, 모집글은 HOLD_FAILED로 남고 목록에 보이지 않는다 (#648)")
+    void walletClosed() {
+        BillingStubs.reject(billingClient, Rejection.WALLET_CLOSED);
+
+        assertThatThrownBy(() -> post(HOST))
+                .isInstanceOf(AppearanceHoldRejectedException.class)
+                .hasMessage("탈퇴한 회원의 지갑이에요.")
+                .extracting("errorCode").isEqualTo(AppearanceErrorCode.WALLET_CLOSED);
+
+        assertThat(findOnly().getStatus()).isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
+        assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getTotalElements()).isZero();
+        assertThat(appearanceRecruitFacade.getOpen(FIRST_PAGE).getTotalElements()).isZero();
+    }
+
+    @Test
     @DisplayName("Billing 결과를 알 수 없으면 BILLING_UNAVAILABLE(내 모집글 목록 안내), 모집글은 HOLD_PENDING")
     void billingUnavailable() {
         BillingStubs.unavailable(billingClient);
