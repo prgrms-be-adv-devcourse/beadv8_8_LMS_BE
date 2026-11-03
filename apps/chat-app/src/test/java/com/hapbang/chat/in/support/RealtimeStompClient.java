@@ -76,11 +76,13 @@ public class RealtimeStompClient {
 
     /**
      * 방 topic({@code /topic/chats/rooms/{roomId}})을 {@code participation-version} 헤더로 구독한다. 같은 구독으로 메시지와
-     * 거절·회수 프레임이 오므로 payload는 Map으로 받고 {@link Frame#frameType()}으로 가른다.
+     * 거절·회수 프레임이 오므로 payload는 Map으로 받고 {@link Frame#frameType()}으로 가른다. 안 읽은 사람 수 갱신({@code READ_COUNTS})은
+     * 읽음·참여 변경 뒤 1초 묶음으로 따로 오므로 {@link RoomSubscription#readCounts()}에 모은다(메시지·신호를 보는 시험이 섞이지 않게).
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
     public RoomSubscription subscribeRoom(StompSession session, Long roomId, int participationVersion) {
         BlockingQueue<Frame<Map>> queue = new LinkedBlockingQueue<>();
+        BlockingQueue<Frame<Map>> readCounts = new LinkedBlockingQueue<>();
         StompHeaders headers = new StompHeaders();
         headers.setDestination("/topic/chats/rooms/" + roomId);
         headers.add("participation-version", String.valueOf(participationVersion));
@@ -92,10 +94,11 @@ public class RealtimeStompClient {
 
             @Override
             public void handleFrame(StompHeaders frameHeaders, Object payload) {
-                queue.add(new Frame<>(frameHeaders, (Map) payload));
+                Frame<Map> frame = new Frame<>(frameHeaders, (Map) payload);
+                (READ_COUNTS.equals(frame.frameType()) ? readCounts : queue).add(frame);
             }
         });
-        return new RoomSubscription(subscription, queue);
+        return new RoomSubscription(subscription, queue, readCounts);
     }
 
     /** 방 topic을 구독하고 메시지 프레임만 {@code ChatMessageResponse}로 모은다(거절·회수 프레임은 버린다) */
@@ -121,10 +124,18 @@ public class RealtimeStompClient {
         return queue;
     }
 
-    /** 방 topic 구독과 받은 프레임 */
+    /**
+     * 방 topic 구독과 받은 프레임.
+     *
+     * @param frames     메시지와 거절·회수 프레임
+     * @param readCounts 안 읽은 사람 수 갱신 프레임({@code READ_COUNTS})
+     */
     @SuppressWarnings("rawtypes")
-    public record RoomSubscription(StompSession.Subscription subscription, BlockingQueue<Frame<Map>> frames) {
+    public record RoomSubscription(StompSession.Subscription subscription, BlockingQueue<Frame<Map>> frames,
+            BlockingQueue<Frame<Map>> readCounts) {
     }
+
+    private static final String READ_COUNTS = "READ_COUNTS";
 
     /** 내장 브로커는 SUBSCRIBE 처리 완료(RECEIPT)를 보내지 않으므로 구독이 등록될 때까지 잠깐 기다린다 */
     public static void waitForSubscriptions() throws InterruptedException {

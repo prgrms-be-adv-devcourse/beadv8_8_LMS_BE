@@ -81,6 +81,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
     private final ChatRecipientSetRecorder chatRecipientSetRecorder;
     private final ChatDeliveryRecorder chatDeliveryRecorder;
     private final ChatGroupProperties properties;
+    private final ChatReadCountSignals chatReadCountSignals;
 
     @Override
     @Transactional(readOnly = true)
@@ -263,6 +264,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
             ChatMessage notice = chatMessageRepository.save(ChatMessage.groupMembersInvited(chatRoom, requesterId,
                     GroupMembersInvitedData.of(requesterId, joined), now));
             chatDeliveryRecorder.recordMessage(notice, recipientSet.getId(), ChatNotifyRule.NONE, now);
+            // 새 참여자는 이전 메시지를 볼 수 없어 이전 값은 그대로지만, 참여 변경은 모두 알린다(받는 앱이 참여 캐시를 맞춘다)
+            chatReadCountSignals.membershipChanged(chatRoomId, recipientSet.getSetVersion());
         }
         if (stored.isPresent()) {
             stored.get().replace(requesterId, outcomes, now);
@@ -302,6 +305,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         ChatMessage notice = chatMessageRepository.save(ChatMessage.groupMemberKicked(chatRoom, requesterId,
                 GroupMemberKickedData.of(requesterId, targetUserId), now));
         chatDeliveryRecorder.recordMessage(notice, remaining.getId(), ChatNotifyRule.NONE, now);
+        chatReadCountSignals.membershipChanged(chatRoomId, remaining.getSetVersion());
         log.info("단체방 강퇴 chatRoomId={}, targetUserId={}, participationVersion={}", chatRoomId, targetUserId,
                 participationVersion);
         return Optional.of(member.getParticipationVersion());
@@ -329,6 +333,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         }
         chatRoom.closeByHost(now);
         chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, requesterId, ChatRoomEventType.ROOM_CLOSED, now));
+        // 참여자는 그대로라 값은 바뀌지 않지만 방 상태 변경도 알린다(읽기 전용 방도 계속 갱신한다, Q33)
+        chatReadCountSignals.membershipChanged(chatRoomId, 0);
         log.info("단체방 폐쇄 chatRoomId={}, historyExpiresAt={}", chatRoomId, chatRoom.getHistoryExpiresAt());
         return ChatGroupCloseResponse.from(chatRoom);
     }
@@ -349,6 +355,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
             chatRoom.markHostUnavailable(now);
             chatRoomLogRepository.save(
                     ChatRoomLog.record(chatRoom, hostUserId, ChatRoomEventType.HOST_UNAVAILABLE, now));
+            chatReadCountSignals.membershipChanged(chatRoom.getId(), 0);
             log.info("호스트 자격 상실로 단체방을 읽기 전용으로 바꿈 chatRoomId={}, hostUserId={}, historyExpiresAt={}",
                     chatRoom.getId(), hostUserId, chatRoom.getHistoryExpiresAt());
         }

@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 import com.hapbang.chat.app.ChatRealtimeFacade;
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.global.config.ConditionalOnChatRealtime;
 import com.hapbang.chat.out.redis.ChatRealtimeRedisConfig;
@@ -41,13 +42,15 @@ import tools.jackson.databind.json.JsonMapper;
  *     <li>버린 방 메시지: 제어 실행기에서 그 방의 로컬 구독 회원에게만 {@code RESYNC/DELIVERY_DROPPED}를 보낸다
  *     (resync-frame.md). 제어 실행기마저 차 있으면 FE 주기 대조가 회복한다.</li>
  *     <li>버린 알림 재료: 알림은 최선 노력이라 FE 주기 대조가 회복한다.</li>
+ *     <li>버린 안 읽은 사람 수 변경 신호: 최선 노력이라 FE가 REST 이력으로 보정한다.</li>
  *     <li>버린 제어: 주기 재검사가 회복한다.</li>
  * </ul>
  * <p>
  * <b>재구독 감지</b>: 서버 채널마다 첫 구독 확인은 시작 구독이라 무시한다. 같은 서버 채널의 구독 확인이 다시 오면 연결이 끊겼다가
  * 다시 구독된 것이다(Lettuce 재연결의 재구독, 컨테이너 재시작). 알림 재료 채널이면 모든 로컬 연결에 재동기화 신호를, 제어 채널이면
  * 로컬 연결 회원 전체 재검사를 한 번 실행한다. 방 채널은 같은 구독 연결로 함께 다시 구독되며, 해제 뒤 다시 더하면 확인이 또
- * 오므로 재구독 판단에 쓰지 않는다.
+ * 오므로 재구독 판단에 쓰지 않는다. 안 읽은 사람 수 변경 채널은 같은 구독 연결이고 놓친 갱신은 REST 이력으로 보정하므로 재구독에
+ * 따로 하는 일이 없다(알림 재료 채널의 재구독이 이미 재동기화 신호를 보낸다).
  */
 @Slf4j
 @Component(ChatRealtimeRedisConfig.LISTENER_BEAN_NAME)
@@ -62,6 +65,7 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
     private final ChatRedisKeys chatRedisKeys;
     private final String activityChannel;
     private final String controlChannel;
+    private final String readChannel;
     /** 방별 처리 실행기. 방 ID로 하나를 골라 같은 방의 메시지는 한 스레드가 차례로 처리한다(설계 Q22, 순서 보장은 아니다) */
     private final ThreadPoolTaskExecutor[] messageExecutors;
     private final ThreadPoolTaskExecutor controlExecutor;
@@ -103,6 +107,7 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
         this.chatRedisKeys = chatRedisKeys;
         this.activityChannel = chatRedisKeys.activityChannel();
         this.controlChannel = chatRedisKeys.controlChannel();
+        this.readChannel = chatRedisKeys.readChannel();
         this.messageExecutors = new ThreadPoolTaskExecutor[messageWorkers];
         for (int i = 0; i < messageWorkers; i++) {
             messageExecutors[i] = boundedExecutor("chat-realtime-message-" + i + "-", 1, messageQueueCapacity);
@@ -141,6 +146,16 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
                     () -> chatRealtimeFacade.onRoomActivity(activity)) == Submitted.REJECTED) {
                 messageDropped.increment();
             }
+        } else if (readChannel.equals(channel)) {
+            ReadChangedFanout readChanged = read(body, ReadChangedFanout.class, channel);
+            if (readChanged == null || readChanged.roomId() == null) {
+                return;
+            }
+            // 최선 노력이다. 대기열이 넘쳐 버리면 FE가 REST 이력으로 보정한다
+            if (submit(generation, messageExecutorOf(readChanged.roomId()), channel,
+                    () -> chatRealtimeFacade.onReadChanged(readChanged)) == Submitted.REJECTED) {
+                messageDropped.increment();
+            }
         } else if (controlChannel.equals(channel)) {
             submitControl(generation, channel, () -> {
                 ControlFanout control = read(body, ControlFanout.class, channel);
@@ -155,6 +170,10 @@ public class ChatRealtimeRedisListener implements MessageListener, SubscriptionL
     public void onChannelSubscribed(byte[] channel, long count) {
         long generation = intakeGeneration;
         String name = new String(channel, StandardCharsets.UTF_8);
+        if (readChannel.equals(name)) {
+            log.info("안 읽은 사람 수 변경 채널 구독 확인 channel={}", name);
+            return;
+        }
         if (!activityChannel.equals(name) && !controlChannel.equals(name)) {
             log.debug("방 채널 구독 확인 channel={}", name);
             return;
