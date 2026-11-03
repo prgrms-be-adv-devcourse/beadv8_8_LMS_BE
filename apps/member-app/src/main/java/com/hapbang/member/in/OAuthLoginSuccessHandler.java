@@ -16,19 +16,23 @@ import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * 구글 로그인 성공 (#370): refresh token을 쿠키로 주고 프론트로 보낸다.
- * 콜백 응답은 302라 access token을 본문으로 줄 수 없다. 프론트가 시작할 때 재발급 API로 access token을 받는다
+ * 콜백 응답은 302라 access token을 본문으로 줄 수 없다. 프론트가 시작할 때 재발급 API로 access token을 받는다.
+ * 앞사람이 남긴 복구 티켓 쿠키는 지운다(공용 PC, #633)
  */
 @Component
 public class OAuthLoginSuccessHandler implements AuthenticationSuccessHandler {
 
     private final MemberFacade memberFacade;
     private final RefreshTokenCookies refreshTokenCookies;
+    private final RestoreTicketCookies restoreTicketCookies;
     private final String loginSuccessUrl;
 
     public OAuthLoginSuccessHandler(MemberFacade memberFacade, RefreshTokenCookies refreshTokenCookies,
+                                    RestoreTicketCookies restoreTicketCookies,
                                     @Value("${hapbang.auth.login-success-url:/}") String loginSuccessUrl) {
         this.memberFacade = memberFacade;
         this.refreshTokenCookies = refreshTokenCookies;
+        this.restoreTicketCookies = restoreTicketCookies;
         this.loginSuccessUrl = loginSuccessUrl;
     }
 
@@ -41,6 +45,7 @@ public class OAuthLoginSuccessHandler implements AuthenticationSuccessHandler {
         }
         TokenPair tokens = memberFacade.issueTokens(member.getUserId(), member.getRole());
         response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, restoreTicketCookies.expire().toString());
         response.sendRedirect(loginSuccessUrl);
     }
 }

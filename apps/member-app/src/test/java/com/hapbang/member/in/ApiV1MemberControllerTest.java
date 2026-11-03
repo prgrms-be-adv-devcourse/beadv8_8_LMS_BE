@@ -34,6 +34,8 @@ import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 
+import jakarta.servlet.http.Cookie;
+
 @MemberIntegrationTest
 @AutoConfigureMockMvc
 class ApiV1MemberControllerTest {
@@ -336,8 +338,7 @@ class ApiV1MemberControllerTest {
     @DisplayName("탈퇴 기능 스위치가 꺼져 있으면 복구 티켓이 없으므로 복구 API는 401 INVALID_RESTORE_TICKET (#593)")
     void restore_disabled() throws Exception {
         mockMvc.perform(post("/api/v1/members/restore")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"restoreTicket\": \"any\"}"))
+                        .cookie(new Cookie(RestoreTicketCookies.NAME, "any")))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_RESTORE_TICKET"));
     }

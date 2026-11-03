@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -20,12 +21,13 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.member.global.auth.LoginUserId;
 import com.hapbang.member.global.response.RsData;
 import com.hapbang.member.app.MemberFacade;
-import com.hapbang.member.app.TokenPair;
 import com.hapbang.member.domain.AppearanceRatingSummary;
+import com.hapbang.member.domain.MemberErrorCode;
+import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
 
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -37,6 +39,7 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
 
     private final MemberFacade memberFacade;
     private final RefreshTokenCookies refreshTokenCookies;
+    private final RestoreTicketCookies restoreTicketCookies;
 
     /** 내 정보 조회 */
     @Override
@@ -96,15 +99,40 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         return RsData.ok("프로필 사진을 바꿨습니다.", meResponse(user));
     }
 
-    /** 탈퇴 회원 복구 (#593). 로그인처럼 refresh token 쿠키와 내 정보를 준다 (로그인하지 않고 복구 티켓으로 부른다) */
+    /**
+     * 탈퇴 회원 복구 (#593). 로그인하지 않고 복구 티켓으로 부르고, 계정만 되살린다(204). 로그인은 프론트가 이어서 다시 한다.
+     * 복구 티켓으로 로그인까지 되면 공용 PC에 남은 티켓으로 그 계정을 빼앗을 수 있어서다 (#633).
+     * 복구 티켓은 로그인 때 받은 복구 티켓 쿠키에서만 읽고, 복구하면 그 쿠키를 지운다.
+     * 다시 시도해도 안 되는 실패(티켓 없음·만료 401, 기한 지남 403)도 쿠키를 지우고, 지갑 장애 503만 남겨 다시 시도할 수 있게 한다
+     */
     @Override
     @PostMapping("/restore")
-    public ResponseEntity<RsData<MemberMeResponse>> restore(@Valid @RequestBody RestoreRequest request) {
-        User user = memberFacade.restore(request.restoreTicket());
-        TokenPair tokens = memberFacade.issueTokens(user.getId(), user.getRole());
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString())
-                .body(RsData.ok("계정을 복구했습니다.", meResponse(user)));
+    public ResponseEntity<Void> restore(
+            @CookieValue(name = RestoreTicketCookies.NAME, required = false) String restoreTicket,
+            HttpServletResponse response) {
+        try {
+            memberFacade.restore(restoreTicket);
+        } catch (MemberException e) {
+            if (e.getErrorCode() == MemberErrorCode.INVALID_RESTORE_TICKET
+                    || e.getErrorCode() == MemberErrorCode.LOGIN_NOT_ALLOWED) {
+                response.addHeader(HttpHeaders.SET_COOKIE, restoreTicketCookies.expire().toString());
+            }
+            throw e;
+        }
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, restoreTicketCookies.expire().toString())
+                .build();
+    }
+
+    /** 복구 취소 (#633). 복구 티켓을 지우고 티켓 쿠키도 지운다. 로그인하지 않고 부르고, 티켓이 없어도 204 */
+    @Override
+    @DeleteMapping("/restore")
+    public ResponseEntity<Void> cancelRestore(
+            @CookieValue(name = RestoreTicketCookies.NAME, required = false) String restoreTicket) {
+        memberFacade.cancelRestore(restoreTicket);
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, restoreTicketCookies.expire().toString())
+                .build();
     }
 
     /** 회원 탈퇴 (#593). 성공하면 로그아웃처럼 refresh token 쿠키도 지운다. 이미 탈퇴했으면 그대로 성공 */

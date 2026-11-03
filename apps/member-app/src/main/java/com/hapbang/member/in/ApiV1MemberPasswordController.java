@@ -13,9 +13,11 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.app.TokenPair;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.domain.WithdrawnRestorableException;
 import com.hapbang.member.global.auth.LoginUserId;
 import com.hapbang.member.global.response.RsData;
 
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -30,6 +32,7 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
 
     private final MemberFacade memberFacade;
     private final RefreshTokenCookies refreshTokenCookies;
+    private final RestoreTicketCookies restoreTicketCookies;
 
     /** 가입. 로그인은 따로 한다 */
     @Override
@@ -40,14 +43,26 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
         return RsData.created("가입했습니다.", meResponse(user));
     }
 
-    /** 로그인: refresh token 쿠키 */
+    /**
+     * 로그인: refresh token 쿠키. 복구할 수 있는 탈퇴 회원이면 복구 티켓 쿠키를 붙이고 409는 공통 예외 처리에 맡긴다
+     * (본문에는 복구 기한만, #633). 로그인에 성공하면 앞사람이 남긴 복구 티켓 쿠키를 지운다(공용 PC)
+     */
     @Override
     @PostMapping("/login")
-    public ResponseEntity<RsData<MemberMeResponse>> login(@Valid @RequestBody PasswordLoginRequest request) {
-        User user = memberFacade.passwordLogin(request.email(), request.password());
+    public ResponseEntity<RsData<MemberMeResponse>> login(@Valid @RequestBody PasswordLoginRequest request,
+                                                          HttpServletResponse response) {
+        User user;
+        try {
+            user = memberFacade.passwordLogin(request.email(), request.password());
+        } catch (WithdrawnRestorableException e) {
+            response.addHeader(HttpHeaders.SET_COOKIE, restoreTicketCookies.issue(e.getRestoreTicket()).toString());
+            throw e;
+        }
         TokenPair tokens = memberFacade.issueTokens(user.getId(), user.getRole());
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString())
+                .header(HttpHeaders.SET_COOKIE,
+                        refreshTokenCookies.issue(tokens.refreshToken()).toString(),
+                        restoreTicketCookies.expire().toString())
                 .body(RsData.ok("로그인했습니다.", meResponse(user)));
     }
 

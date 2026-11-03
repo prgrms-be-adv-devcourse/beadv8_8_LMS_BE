@@ -224,9 +224,10 @@ public class MemberFacade {
 
     /**
      * 탈퇴 회원 복구 (#593). 로그인 때 받은 복구 티켓으로 본인을 확인한다. 성공하면 티켓을 지우고,
-     * 실패하면(지갑 장애 등) 남겨 둬 10분 안에 그대로 다시 시도할 수 있다. 다른 앱을 부르므로 트랜잭션을 두지 않는다
+     * 실패하면(지갑 장애 등) 남겨 둬 10분 안에 그대로 다시 시도할 수 있다. 다른 앱을 부르므로 트랜잭션을 두지 않는다.
+     * 계정만 되살리고 로그인 토큰은 주지 않는다(로그인은 다시 한다, #633)
      */
-    public User restore(String restoreTicket) {
+    public void restore(String restoreTicket) {
         // 탈퇴 기능이 꺼져 있으면 티켓을 발급하지 않으므로 받은 티켓도 없는 것으로 본다
         MemberWithdrawalUseCase useCase = memberWithdrawalUseCase.getIfAvailable();
         if (useCase == null) {
@@ -234,9 +235,19 @@ public class MemberFacade {
         }
         Long userId = restoreTicketStore.find(restoreTicket)
                 .orElseThrow(() -> new MemberException(MemberErrorCode.INVALID_RESTORE_TICKET));
-        User user = useCase.restore(userId);
+        useCase.restore(userId);
         restoreTicketStore.delete(restoreTicket);
-        return user;
+    }
+
+    /**
+     * 복구 취소 (#633). "복구할까요?"에서 복구하지 않으면 남은 복구 티켓을 지운다. 공용 PC에서 다음 사람이 그 티켓으로
+     * 원치 않는 복구를 하지 못하게 한다. 지우기만 하므로 티켓이 없거나 이미 지워졌어도 그대로 끝난다
+     */
+    public void cancelRestore(String restoreTicket) {
+        if (restoreTicket == null || restoreTicket.isBlank()) {
+            return;
+        }
+        restoreTicketStore.delete(restoreTicket);
     }
 
     /** 로그인 토큰 발급 (access token + refresh token, #370) */
