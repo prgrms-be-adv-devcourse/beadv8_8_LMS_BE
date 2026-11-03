@@ -17,6 +17,7 @@ import org.springframework.data.redis.connection.DefaultMessage;
 import com.hapbang.chat.app.ChatRealtimeFacade;
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.domain.ChatControlReason;
 import com.hapbang.chat.domain.ChatControlType;
@@ -90,6 +91,20 @@ class ChatRealtimeRedisListenerTest {
         assertThat(captor.getValue().roomId()).isEqualTo(12L);
         assertThat(captor.getValue().recipientSetVersion()).isEqualTo(7);
         assertThat(captor.getValue().lastMessage().messageId()).isEqualTo(501L);
+    }
+
+    @Test
+    void 안_읽은_사람_수_변경_신호를_읽어_Facade에_넘기고_그_채널의_구독_확인은_재구독으로_보지_않는다() {
+        listener.onMessage(message(keys.readChannel(), """
+                { "roomId": 12, "recipientSetVersion": 3 }
+                """), null);
+
+        verify(facade, timeout(TIMEOUT_MILLIS)).onReadChanged(new ReadChangedFanout(12L, 3));
+
+        listener.onChannelSubscribed(bytes(keys.readChannel()), 3);
+        listener.onChannelSubscribed(bytes(keys.readChannel()), 3);
+        verify(facade, after(300).never()).onMessageSubscriptionRecovered();
+        verify(facade, never()).onControlSubscriptionRecovered();
     }
 
     @Test

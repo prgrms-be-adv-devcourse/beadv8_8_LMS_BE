@@ -36,6 +36,10 @@ import com.hapbang.chat.domain.NotificationKind;
  * @param groupHostUnavailable           단체방 호스트 자격 상실 안내({@code GROUP_HOST_UNAVAILABLE})의 값. 다른 메시지는 null
  * @param sender                         일반 메시지의 발신자 표시 정보({@link ChatMessageSender}). 시스템 안내·알림은 null. REST 이력·방 목록은
  *                                       조회 시점의 복제본, 실시간 프레임은 전달 시점의 복제본 값이다
+ * @param unreadMemberCount              일반 메시지({@code TEXT})를 아직 읽지 않은 현재 참여자 수(보낸 사람 제외). 시스템 안내·알림과
+ *                                       집계하지 않은 응답(방 목록의 마지막 메시지·관리자 기록·재전송 응답)은 null. 한 번 낸 값은 줄기만 한다.
+ *                                       계약: {@code apps/chat-app/docs/contracts/unread-count.md}
+ * @param readCountVersion               {@code unreadMemberCount}를 센 시점(DB 시각, epoch 마이크로초). 그 값이 null이면 null
  */
 public record ChatMessageResponse(
         Long messageId,
@@ -56,7 +60,9 @@ public record ChatMessageResponse(
         GroupMemberLeftData groupMemberLeft,
         GroupRoomClosedData groupRoomClosed,
         GroupHostUnavailableData groupHostUnavailable,
-        ChatMessageSender sender
+        ChatMessageSender sender,
+        Integer unreadMemberCount,
+        Long readCountVersion
 ) {
     public static ChatMessageResponse from(ChatMessage message) {
         return new ChatMessageResponse(message.getId(), message.getChatRoom().getId(), message.getRoomSequence(),
@@ -64,7 +70,7 @@ public record ChatMessageResponse(
                 message.getNotificationKind(), message.getReferenceId(), message.getParentReferenceId(),
                 message.readAppearanceRequestSent(), message.readAppearanceApplicationSubmitted(),
                 message.readGroupMembersInvited(), message.readGroupMemberKicked(), message.readGroupMemberLeft(),
-                message.readGroupRoomClosed(), message.readGroupHostUnavailable(), null);
+                message.readGroupRoomClosed(), message.readGroupHostUnavailable(), null, null, null);
     }
 
     /** 발신자 정보를 함께 담은 응답. 일반 메시지가 아니면 발신자 정보는 null이다 */
@@ -87,13 +93,28 @@ public record ChatMessageResponse(
         return new ChatMessageResponse(messageId, chatRoomId, roomSequence, senderUserId, messageType, content, sentAt,
                 clientMessageId, notificationKind, referenceId, parentReferenceId, appearanceRequestSent,
                 appearanceApplicationSubmitted, groupMembersInvited, groupMemberKicked, groupMemberLeft,
-                groupRoomClosed, groupHostUnavailable, sender);
+                groupRoomClosed, groupHostUnavailable, sender, unreadMemberCount, readCountVersion);
     }
 
     public ChatMessageResponse withClientMessageId(String clientMessageId) {
         return new ChatMessageResponse(messageId, chatRoomId, roomSequence, senderUserId, messageType, content, sentAt,
                 clientMessageId, notificationKind, referenceId, parentReferenceId, appearanceRequestSent,
                 appearanceApplicationSubmitted, groupMembersInvited, groupMemberKicked, groupMemberLeft,
-                groupRoomClosed, groupHostUnavailable, sender);
+                groupRoomClosed, groupHostUnavailable, sender, unreadMemberCount, readCountVersion);
+    }
+
+    /**
+     * 안 읽은 사람 수를 담는다. 일반 메시지({@code TEXT})에만 담고, 그 밖의 메시지는 둘 다 null로 둔다.
+     *
+     * @param unreadMemberCount 센 값. 세지 않았으면 null
+     * @param readCountVersion  센 시점(DB 시각, epoch 마이크로초)
+     */
+    public ChatMessageResponse withReadCount(Integer unreadMemberCount, Long readCountVersion) {
+        boolean counted = messageType == ChatMessageType.TEXT && unreadMemberCount != null;
+        return new ChatMessageResponse(messageId, chatRoomId, roomSequence, senderUserId, messageType, content, sentAt,
+                clientMessageId, notificationKind, referenceId, parentReferenceId, appearanceRequestSent,
+                appearanceApplicationSubmitted, groupMembersInvited, groupMemberKicked, groupMemberLeft,
+                groupRoomClosed, groupHostUnavailable, sender, counted ? unreadMemberCount : null,
+                counted ? readCountVersion : null);
     }
 }
