@@ -17,6 +17,16 @@ import com.hapbang.chat.domain.NotificationKind;
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
 
     /**
+     * 메시지와 발신자 복제본을 한 문장으로 읽는다(전달 원본). 발신자가 없거나 복제본이 없으면 둘째 값이 null이다.
+     * 결과는 [ChatMessage, ChatUser] 한 행이고, 메시지가 없으면 빈 목록이다.
+     */
+    @Query("""
+            select m, u from ChatMessage m left join ChatUser u on u.id = m.senderUserId
+            where m.id = :messageId
+            """)
+    List<Object[]> findWithSender(@Param("messageId") long messageId);
+
+    /**
      * 참여자의 조회 범위([fromSequence, beforeSequence)) 안의 메시지를 최신순으로 조회한다.
      */
     @Query("""

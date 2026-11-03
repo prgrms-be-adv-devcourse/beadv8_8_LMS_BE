@@ -15,6 +15,12 @@
 | --- | --- | --- |
 | `APPEARANCE_REQUEST_SENT` | `appearanceRequestSent` | `AppearanceRequestSentData` |
 | `APPEARANCE_APPLICATION_SUBMITTED` | `appearanceApplicationSubmitted` | `AppearanceApplicationSubmittedData` |
+| `GROUP_MEMBERS_INVITED` | `groupMembersInvited` | `GroupMembersInvitedData` |
+| `GROUP_MEMBER_KICKED` | `groupMemberKicked` | `GroupMemberKickedData` |
+| `GROUP_MEMBER_LEFT` | `groupMemberLeft` | `GroupMemberLeftData` |
+| `GROUP_ROOM_CLOSED` | `groupRoomClosed` | `GroupRoomClosedData` |
+
+`GROUP_`으로 시작하는 종류는 모집용 단체방 안내(`messageType: SYSTEM`, 아래 "단체방 안내")다.
 
 - 서버는 종류와 필드를 1:1로 맞춘다. 메시지의 종류에 해당하는 필드만 채우고 나머지 값 필드는 null이다. FE는 채워진 필드를 찾지 않고 `notificationKind`로 필드를 고른다.
 - 값 필드는 null이어도 JSON에서 빠지지 않고 `null`로 나온다. `clientMessageId` 등 다른 null 필드와 같은 규칙이다(Jackson 기본 설정, 별도 제외 설정 없음).
@@ -26,7 +32,7 @@
 | 경로 | 위치 |
 | --- | --- |
 | REST 메시지 이력 `GET /api/v1/chats/{chatRoomId}/messages` | `data.messages[]` |
-| REST 방 목록 `GET /api/v1/chats` | `data[].lastMessage` |
+| REST 방 목록 `GET /api/v1/chats`, 방 상세 `GET /api/v1/chats/{chatRoomId}`, 모집글의 단체방 `GET /api/v1/chats/groups` | `data[].lastMessage`, `data.lastMessage`, `data.currentRoom.lastMessage`·`data.previousRooms[].lastMessage` |
 | STOMP `/user/queue/chats/messages`, `/user/queue/chats/notifications` | 프레임 payload |
 | 관리자 기록 `GET /api/v1/chats/admin/{chatRoomId}/history` | `data.messages[]` (`ChatMessageHistoryResponse`, 같은 필드) |
 | 실시간 전파 payload(`MessageFanout.message`) | 같은 `ChatMessageResponse`라 그대로 실린다 |
@@ -80,6 +86,36 @@
 | `guestNickname` | string | 지원한 게스트 닉네임(채팅 회원 복제본) |
 | `recruitTitle` | string | 모집글 제목(이벤트) |
 
+## 단체방 안내 (Q38, #584)
+
+모집용 단체방의 상태·참여 변경 안내다. 출연 알림과 같은 방식으로 서버는 문구를 만들지 않고 종류와 회원 ID만 남긴다. FE가 회원 ID로 닉네임을 찾아(참여자 페이지·방 응답) 종류별 템플릿으로 문구를 만든다. 정지·탈퇴 같은 호스트 사유는 남기지 않는다.
+
+- `messageType`은 `SYSTEM`, `content`는 빈 문자열, `referenceId`·`parentReferenceId`는 null이다. 출연 건을 가리키지 않으므로 멱등 키 `(notification_kind, reference_id)` 유일 인덱스(`uk_chat_message_notification`)에 걸리지 않는다(PostgreSQL은 null을 서로 다른 값으로 본다). 같은 종류의 안내가 한 방·여러 방에 여러 번 남는다.
+- `senderUserId`는 행위자다. 값에도 행위자·대상 회원 ID를 담아 `senderUserId`를 해석하지 않아도 문구를 만들 수 있게 했다.
+- 전달은 알림 없이(`notifyRule: NONE`) 방 topic으로만 간다. 방을 열지 않은 회원의 목록 갱신 알림(Q37)은 후속이다.
+- 일반 메시지별 안 읽은 사람 수(Q36)는 안내에 표시하지 않는다(후속 구현).
+
+| `notificationKind` | 언제 | 누가 보는가 | 값 |
+| --- | --- | --- | --- |
+| `GROUP_MEMBERS_INVITED` | 초대 요청 한 번에 한 명 이상 참여했을 때(요청당 하나) | 참여자 전원과 이번에 초대된 회원(초대된 회원의 첫 메시지) | `{v, inviterUserId, invitedUserIds}`. `invitedUserIds`는 이번 요청으로 참여한 회원(요청 순서). 이미 참여 중·실패한 회원은 넣지 않는다 |
+| `GROUP_MEMBER_KICKED` | 호스트가 내보냈을 때 | 남은 참여자(내보내진 회원은 보지 않는다) | `{v, kickedByUserId, kickedUserId}` |
+| `GROUP_MEMBER_LEFT` | 사용 중·일시 중지 방에서 나갔을 때 | 남은 참여자 | `{v, leftUserId}`. 읽기 전용 방에서 나가면 안내를 남기지 않는다 |
+| `GROUP_ROOM_CLOSED` | 호스트가 폐쇄했을 때(읽기 전용 방의 마지막 메시지) | 참여자 전원 | `{v, closedByUserId}` |
+| `GROUP_HOST_UNAVAILABLE`·`GROUP_ROOM_SUSPENDED`·`GROUP_ROOM_RESUMED` | 종류 이름만 정했다. 호스트 자격 상실·일시 중지·재개 전환을 구현할 때 값 필드와 함께 남기기 시작한다 | | |
+
+```json
+{
+  "messageType": "SYSTEM", "content": "", "notificationKind": "GROUP_MEMBERS_INVITED", "senderUserId": 1,
+  "referenceId": null, "parentReferenceId": null,
+  "groupMembersInvited": { "v": 1, "inviterUserId": 1, "invitedUserIds": [2, 3] },
+  "groupMemberKicked": null, "groupMemberLeft": null, "groupRoomClosed": null,
+  "appearanceRequestSent": null, "appearanceApplicationSubmitted": null
+}
+```
+
+- 1:1 방의 퇴장·재입장 안내는 그대로다(문구 `content`, 종류·값 없음). #470에서 값으로 바꿀 때 이 표를 넓힌다.
+- FE 결정 순서는 아래와 같다. 모르는 `GROUP_` 종류이면서 `content`가 비어 있으면 `SYSTEM`의 일반 문구("새 안내가 있습니다.")다.
+
 ## `content`와 호환 규칙
 
 - 값이 있는 알림의 `content`는 **빈 문자열** `""`이다. `chat_message.content`의 `NOT NULL`은 그대로 둔다. 이 변경 전에 문구로 남긴 기존 알림은 고치지 않으며, 값 필드가 모두 null이고 `content`에 문구가 있다.
@@ -94,7 +130,7 @@
 ## 확장
 
 - 새 종류는 **종류별 값 필드를 새로 더하는** 방식으로 늘린다(종류 + record + `v`, 서버 문구 없음). 공용 필드나 공통 상위 타입으로 합치지 않는다.
-- 퇴장·재입장 같은 시스템 메시지(`messageType: SYSTEM`)도 #470에서 같은 방식으로 종류 이름과 값 필드를 정하고, 위 "종류와 필드" 표(종류 → 필드)를 넓힌다.
+- 퇴장·재입장 같은 시스템 메시지(`messageType: SYSTEM`)도 #470에서 같은 방식으로 종류 이름과 값 필드를 정하고, 위 "종류와 필드" 표(종류 → 필드)를 넓힌다. 단체방 안내(#584)가 이 방식으로 먼저 넓혔다.
 - FE는 모르는 필드를 무시하고, 모르는 종류는 위 결정 순서(`content` → 일반 문구)를 따른다.
 
 ## 바뀌지 않는 것

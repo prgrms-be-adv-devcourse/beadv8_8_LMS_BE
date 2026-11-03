@@ -9,6 +9,7 @@ import com.hapbang.chat.app.dto.ChatConnectionTicketResponse;
 import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
+import com.hapbang.chat.app.dto.ChatRoomMemberPageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.ReadChatRoomRequest;
@@ -28,7 +29,9 @@ import jakarta.validation.constraints.Min;
  * 파라미터 검증(@Valid, @Min 등)은 여기에 둔다. 구현 메서드에서 제약을 새로 정의하면 Bean Validation 규칙 위반으로 요청이 실패한다.
  */
 @Tag(name = "채팅", description = """
-        1:1 채팅방과 메시지 이력. 인플루언서 이상 또는 관리자만 쓸 수 있다.
+        1:1 채팅방·모집용 단체방 공용 API와 메시지 이력. 인플루언서 이상 또는 관리자만 쓸 수 있다. 단체방 전용 API는 "채팅 단체방" 태그에 있다.
+        단체방에서는 사용 중(ACTIVE)일 때만 보낼 수 있다(호스트 혼자여도 된다). 읽기 전용·일시 중지 방에 보내면 오류 큐로 GROUP_ROOM_NOT_ACTIVE가 온다.
+        단체방의 방 topic 구독·읽음·수신 확인은 조회 만료 전까지 읽기 전용·일시 중지 방에서도 된다.
         실시간 송수신은 STOMP라 여기에 없다: 연결 `/api/v1/chats/ws?ticket={웹소켓 연결 티켓}`(티켓은 아래 발급 API), 보내기 `/pub/chats/{chatRoomId}/messages`,
         받기: 열어 둔 방은 `/topic/chats/rooms/{chatRoomId}`(SUBSCRIBE 헤더 `participation-version` 필수, 방 메시지·구독 거절·회수),
         `/user/queue/chats/messages`(자기가 보낸 메시지의 전송 결과 확인)·`/user/queue/chats/notifications`(방을 열지 않은 연결의 방별 새 메시지 알림)·
@@ -59,11 +62,32 @@ public interface ApiV1ChatSpec {
 
     @Operation(summary = "내 채팅방 목록", description = """
             현재 참여 중인 채팅방만 조회한다. 인플루언서 이상 또는 관리자만 쓸 수 있다.
-            `lastMessage`는 내가 볼 수 있는 가장 최근 메시지(없으면 null), `unreadCount`는 읽음 처리 이후 온 상대 메시지 수다.""")
+            `lastMessage`는 내가 볼 수 있는 가장 최근 메시지(없으면 null), `unreadCount`는 읽음 처리 이후 온 상대 메시지 수다.
+            1:1 방(`roomType: DIRECT`)은 `members`에 두 참여자를 싣고 `group`은 null이다.
+            모집용 단체방(`roomType: GROUP`)은 사용 중(ACTIVE)·일시 중지(SUSPENDED)와 조회 만료 전의 읽기 전용(READ_ONLY) 방이 나온다.
+            단체방은 `members`가 빈 목록이고, `group`에 모집글 ID·호스트 ID(왕관 표시)·제목·읽기 전용 사유·전환 시각·조회 만료 시각·
+            인원(호스트 포함)·게스트 정원·내 참여 세대(`myParticipationVersion`)를 싣는다. 참여자는 참여자 페이지로 읽는다.""")
     RsData<List<ChatRoomResponse>> getMyChatRooms(Long userId);
+
+    @Operation(summary = "채팅방 상세", description = """
+            참여 중인 방 하나를 방 목록의 한 항목과 같은 형식으로 조회한다.
+            단체방은 조회 만료 시각(`group.historyExpiresAt`)에 도달하면 볼 수 없다(404).
+            오류: 403 `CHAT_NOT_ALLOWED`, 403 `NOT_CHAT_ROOM_MEMBER`(참여 중이 아님), 404 `CHAT_ROOM_NOT_FOUND`(없음·종료·조회 만료).""")
+    RsData<ChatRoomResponse> getChatRoom(Long userId, Long chatRoomId);
+
+    @Operation(summary = "참여자 페이지", description = """
+            방의 현재 참여자를 참여 순서로 나눠 조회한다. 다음 페이지는 응답의 `nextCursor`를 `cursor`로 보낸다(null이면 마지막).
+            각 참여자의 `participationVersion`은 강퇴 요청에 쓴다. 단체방 목록·상세는 참여자를 싣지 않으므로 이 API로 읽는다.
+            오류: 403 `CHAT_NOT_ALLOWED`, 403 `NOT_CHAT_ROOM_MEMBER`, 404 `CHAT_ROOM_NOT_FOUND`(없음·종료·조회 만료).""")
+    RsData<ChatRoomMemberPageResponse> getMembers(Long userId, Long chatRoomId,
+            @Parameter(description = "이전 응답의 nextCursor. 없으면 처음부터") Long cursor,
+            @Parameter(description = "페이지 크기 (기본 50)")
+            @Min(value = 1, message = "size는 1 이상이어야 합니다.")
+            @Max(value = MAX_PAGE_SIZE, message = "size는 " + MAX_PAGE_SIZE + " 이하여야 합니다.") int size);
 
     @Operation(summary = "메시지 이력 조회", description = """
             최신순으로 조회한다. 본인이 볼 수 있는 범위(재입장 이후)의 메시지만 나온다.
+            단체방은 읽기 전용·일시 중지 방도 조회 만료 시각 전까지 조회한다(그 시각부터 404 `CHAT_ROOM_NOT_FOUND`).
             다음 페이지는 응답의 `nextCursor`를 `cursor`로 보낸다. `nextCursor`가 null이면 마지막 페이지다.
             `participationVersion`은 현재 참여 세대, `visibleFromSequence`는 볼 수 있는 첫 메시지 순번이다.
             세대가 바뀌면 이전 세대의 캐시·확인 위치를 버리고, `visibleFromSequence` 앞 순번은 누락으로 보지 않는다.""")
@@ -98,7 +122,11 @@ public interface ApiV1ChatSpec {
 
     @Operation(summary = "채팅방 나가기", description = """
             남은 참여자에게 퇴장 안내가 실시간으로 가고, 마지막 참여자가 나가면 방이 종료된다.
-            이미 나갔어도 204로 응답한다. 강등·정지된 회원도 나갈 수 있다.""")
+            이미 나갔어도 204로 응답한다. 강등·정지된 회원도 나갈 수 있다.
+            단체방: 모두 나가도 방이 종료되지 않는다. 사용 중·일시 중지 방에서는 남은 참여자에게 나가기 안내(`GROUP_MEMBER_LEFT`)가 가고,
+            읽기 전용 방에서는 안내를 남기지 않는다. 호스트는 사용 중·일시 중지 방을 나갈 수 없고(409 `HOST_CANNOT_LEAVE`, 대신 폐쇄)
+            직접 폐쇄한 방만 나갈 수 있다. 나간 뒤에는 호스트가 다시 초대해야만 들어오고 이전 메시지는 보이지 않는다.
+            조회 만료된 단체방은 404 `CHAT_ROOM_NOT_FOUND`다.""")
     ResponseEntity<Void> leaveChatRoom(Long userId, Long chatRoomId,
             @Parameter(description = "참여 세대. 보내면 지연 도착한 옛 요청이 재입장한 참여를 끝내지 않는다")
             Integer participationVersion);

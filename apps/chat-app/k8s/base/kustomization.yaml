@@ -25,3 +25,5 @@ configMapGenerator:
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
       # 기존 회원 백필이 회원 목록을 읽는 회원 내부 API 주소 (출연·지갑과 같은 값)
       - MEMBER_API_BASE_URL=http://member-app:8081
+      # 모집용 단체방이 모집글·지원 이력을 읽는 출연 내부 API 주소 (지갑과 같은 값)
+      - APPEARANCE_API_BASE_URL=http://appearance-app:8081
