@@ -239,6 +239,17 @@ public class MemberFacade {
         return user;
     }
 
+    /**
+     * 복구 취소 (#633). "복구할까요?"에서 복구하지 않으면 남은 복구 티켓을 지운다. 공용 PC에서 다음 사람이 그 티켓으로
+     * 복구·로그인하지 못하게 한다. 지우기만 하므로 티켓이 없거나 이미 지워졌어도 그대로 끝난다
+     */
+    public void cancelRestore(String restoreTicket) {
+        if (restoreTicket == null || restoreTicket.isBlank()) {
+            return;
+        }
+        restoreTicketStore.delete(restoreTicket);
+    }
+
     /** 로그인 토큰 발급 (access token + refresh token, #370) */
     public TokenPair issueTokens(Long userId, Role role) {
         return memberTokenUseCase.issue(userId, role);

@@ -84,6 +84,14 @@ public interface ApiV1MemberSpec {
             String restoreTicket,
             @Parameter(hidden = true) HttpServletResponse response);
 
+    @Operation(summary = "탈퇴 회원 복구 취소",
+            description = "로그인하지 않고 부른다 (#633). \"복구할까요?\"에서 복구하지 않으면 부른다. 복구 티켓 쿠키(RESTORE_TICKET)의 "
+                    + "티켓을 지우고 쿠키도 지워, 공용 PC에서 다음 사람이 그 티켓으로 복구·로그인하지 못하게 한다. "
+                    + "쿠키가 없거나 티켓이 이미 없어도 204.")
+    ResponseEntity<Void> cancelRestore(
+            @Parameter(in = ParameterIn.COOKIE, name = RestoreTicketCookies.NAME, description = "로그인 때 받은 복구 티켓")
+            String restoreTicket);
+
     @Operation(summary = "회원 탈퇴",
             description = "로그인한 회원 본인 (#593). 지갑·출연·강의에 탈퇴해도 되는지 확인한 뒤 탈퇴한다. "
                     + "성공하면 204이고 refresh token 쿠키를 지운다(그 회원의 refresh token은 서버에서도 모두 폐기). "

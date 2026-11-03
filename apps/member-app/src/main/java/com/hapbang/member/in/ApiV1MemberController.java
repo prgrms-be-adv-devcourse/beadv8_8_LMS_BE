@@ -128,6 +128,17 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
                 .body(RsData.ok("계정을 복구했습니다.", meResponse(user)));
     }
 
+    /** 복구 취소 (#633). 복구 티켓을 지우고 티켓 쿠키도 지운다. 로그인하지 않고 부르고, 티켓이 없어도 204 */
+    @Override
+    @DeleteMapping("/restore")
+    public ResponseEntity<Void> cancelRestore(
+            @CookieValue(name = RestoreTicketCookies.NAME, required = false) String restoreTicket) {
+        memberFacade.cancelRestore(restoreTicket);
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, restoreTicketCookies.expire().toString())
+                .build();
+    }
+
     /** 회원 탈퇴 (#593). 성공하면 로그아웃처럼 refresh token 쿠키도 지운다. 이미 탈퇴했으면 그대로 성공 */
     @Override
     @DeleteMapping("/me")

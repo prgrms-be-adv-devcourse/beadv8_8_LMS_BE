@@ -45,7 +45,7 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
 
     /**
      * 로그인: refresh token 쿠키. 복구할 수 있는 탈퇴 회원이면 복구 티켓 쿠키를 붙이고 409는 공통 예외 처리에 맡긴다
-     * (본문에는 복구 기한만, #633)
+     * (본문에는 복구 기한만, #633). 로그인에 성공하면 앞사람이 남긴 복구 티켓 쿠키를 지운다(공용 PC)
      */
     @Override
     @PostMapping("/login")
@@ -60,7 +60,9 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
         }
         TokenPair tokens = memberFacade.issueTokens(user.getId(), user.getRole());
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString())
+                .header(HttpHeaders.SET_COOKIE,
+                        refreshTokenCookies.issue(tokens.refreshToken()).toString(),
+                        restoreTicketCookies.expire().toString())
                 .body(RsData.ok("로그인했습니다.", meResponse(user)));
     }
 

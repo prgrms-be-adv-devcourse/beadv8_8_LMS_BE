@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.startsWith;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.BDDMockito.given;
@@ -208,6 +209,24 @@ class MemberWithdrawalApiTest {
                 .andExpect(jsonPath("$.code").value("RESTORE_UNAVAILABLE"))
                 .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
         verify(restoreTicketStore, never()).delete("ticket-1");
+    }
+
+    @Test
+    @DisplayName("복구 취소는 로그인 없이 부르고, 복구 티켓을 지우고 티켓 쿠키도 지운다 (#633)")
+    void cancelRestore() throws Exception {
+        mockMvc.perform(delete("/api/v1/members/restore").cookie(restoreTicketCookie("ticket-1")))
+                .andExpect(status().isNoContent())
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, expiredRestoreTicketCookie()));
+        verify(restoreTicketStore).delete("ticket-1");
+    }
+
+    @Test
+    @DisplayName("복구 티켓 쿠키 없이 복구를 취소해도 204이고 지울 티켓이 없다")
+    void cancelRestoreWithoutCookie() throws Exception {
+        mockMvc.perform(delete("/api/v1/members/restore"))
+                .andExpect(status().isNoContent())
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, expiredRestoreTicketCookie()));
+        verify(restoreTicketStore, never()).delete(any());
     }
 
     @Test
