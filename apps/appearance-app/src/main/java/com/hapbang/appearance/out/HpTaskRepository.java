@@ -39,6 +39,16 @@ public interface HpTaskRepository extends JpaRepository<HpTask, Long> {
     /** 상태별 작업 수 (지표용) */
     long countByStatus(HpTaskStatus status);
 
+    /**
+     * 회원이 보류한 회원(호스트)이거나 받는 회원(게스트)인 작업 중 이 상태인 수 (탈퇴 막힌 이유, #624).
+     * 반환은 받는 회원이 없어 호스트 쪽으로만 센다
+     */
+    @Query("""
+            select count(t) from HpTask t
+            where (t.memberId = :userId or t.receiverId = :userId) and t.status = :status
+            """)
+    long countByParticipantAndStatus(@Param("userId") Long userId, @Param("status") HpTaskStatus status);
+
     /** 상태별 작업 목록 (관리자 조회, #397). 정렬은 넘겨받은 페이지 요청을 따른다 */
     Page<HpTask> findByStatus(HpTaskStatus status, Pageable pageable);
 

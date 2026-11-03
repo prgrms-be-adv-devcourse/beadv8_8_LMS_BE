@@ -53,6 +53,7 @@
 | 리뷰 연동 정리 (회원 평점·프로필 목록, FE 계약) | ✅ | #516 |
 | 모집글·지원 이력 내부 조회 API (채팅 모집용 단체방) | ✅ | #586 |
 | 서비스 간 HP 대사 (요청서·모집글·출연 ↔ 지갑 보류·지급 비교, 매일 배치·관리자 API) | ✅ | #581 |
+| 회원 탈퇴 막힌 이유 조회 내부 API, shared Client `getWithdrawalBlocks` | ✅ | #624 |
 
 ---
 
@@ -212,6 +213,7 @@ com.hapbang.appearance
 | 회원 | 회원 내부 HTTP API (`GET /api/v1/internal/members`, shared `MemberApiClient`) | 기존 회원 목록(키셋) → 관리자 Backfill로 출연 회원 생성·갱신 | ✅ #394 (4.1.1) |
 | 회원 (global) | 로그인 | Gateway가 JWT를 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더 → `@LoginUserId`·`@PreAuthorize` (20장) | ✅ 앱 쪽 (#395). 회원 JWT 발급(#370) 전까지 운영에는 헤더가 오지 않는다 |
 | 지갑+정산 (billing) | 지갑 내부 HTTP API (`/api/v1/internal/billing/*`, 공용 `BillingApiClient`) | 보류, 반환, 지급, 위약금 | ✅ HTTP 연동 (#274). 이전에는 shared `BillingPort`(같은 서버 안 Java 호출, #289) |
+| 회원 | 출연 내부 HTTP API 제공 (`GET /api/v1/internal/appearances/users/{userId}/withdrawal-blocks`, shared `AppearanceApiClient`) | 회원 탈퇴 전 출연 쪽 막힌 이유 (26장) | ✅ 출연 쪽 (#624). 회원 앱 연결 코드와 기능 스위치는 회원 담당 |
 | 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
 
 ### 4.1 회원 정보 복제 (Kafka 수신, #394)
@@ -1522,3 +1524,70 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 | `HpReconciliationSupport` | 트랜잭션 단위 DB 읽기·기록 (지갑 호출은 트랜잭션 밖) |
 | `HpReconciliationAdminFacade` | 관리자 API 진입점 |
 | `BillingClient.queryHolds`·`listHolds` | 공용 `BillingApiClient`에 그대로 넘긴다 (회로·재시도 정책 같음) |
+
+## 26. 회원 탈퇴 막힌 이유 조회 (#624)
+
+회원 탈퇴(#593)는 회원 앱이 ① 출연 → ② 강의 → ③ 지갑 닫기 순서로 막힌 이유를 모아 회원에게 한 번에 보여 준다. 출연은 ①이고 **읽기만 한다**(아무것도 취소·환불·변경하지 않는다). 막힌 이유가 있으면 회원이 안내를 보고 직접 정리한 뒤 다시 탈퇴한다.
+
+- 계약(원본): [docs/api/internal-withdrawals.md](../api/internal-withdrawals.md) 2장(공통 DTO)·3장(조회). 설계 결정은 ISSUE.md APR-49 WB1~WB5
+- 탈퇴가 끝나면 기존 `UserModifiedEvent(WITHDRAWN)`로 출연 회원이 탈퇴 상태가 되고, 이미 있는 "정지·탈퇴 회원과 거래 막기" 확인이 그대로 동작한다. 이벤트 처리는 바꾸지 않았다.
+
+### 26.1 API
+
+`GET /api/v1/internal/appearances/users/{userId}/withdrawal-blocks` → `RsData<WithdrawalBlocksDto>` (메시지 "탈퇴 확인을 마쳤습니다.")
+
+| 항목 | 내용 |
+|---|---|
+| 호출 | 회원 앱이 shared `AppearanceApiClient.getWithdrawalBlocks(userId)`로 부른다. 실패는 기존 `AppearanceApiCallException`(`REJECTED`·`UNAVAILABLE`)이고, 회원은 어떤 실패든 탈퇴를 멈춘다(읽기라 되돌릴 것이 없다) |
+| 인증·노출 | 수익 내부 조회(18.1)와 같다: `X-Internal-Api-Key`, 틀리거나 없으면 본문 없는 401, 회원 로그인으로는 401, 외부 포트는 404 |
+| 출연 쪽 방어 | ① 보안 체인의 키 검증 ② `AppearanceWithdrawalInternalFacade`의 `@PreAuthorize("hasRole('INTERNAL')")` ③ UseCase의 회원 ID 검증 |
+| 응답 | 회원 공통 DTO `shared.member.dto.WithdrawalBlocksDto` `{reasons: [{code, message, availableAt}]}`를 그대로 쓴다. 막힌 이유가 없으면 빈 목록 |
+| 빈 목록 | 끝난 건만 있는 회원, 출연 기록이 없는 회원, 복제 회원 정보가 없는 회원 (회원 복제를 확인하지 않는다) |
+| 오류 | `userId` 1 미만·숫자 아님 400 `INVALID_REQUEST` |
+
+### 26.2 막힌 이유
+
+판단 기준: **탈퇴한 뒤에도 출연 때문에 그 회원 지갑으로 HP가 드나들 일이 남았으면 막는다.** 닫힌 지갑도 보류 반환·지급은 받으므로(#623), 막지 않으면 HP가 탈퇴 회원의 닫힌 지갑에 들어가 아무도 쓸 수 없다. 돈 문제는 없어도 **상대가 그 회원의 응답을 기다리는 건**도 막는다(WB1).
+
+조건마다 건수를 세어 이유 하나를 만든다(건마다 만들지 않는다). 순서는 아래 표 순서이고(`AppearanceWithdrawalBlock` 선언 순서), 건수는 천 단위 쉼표다.
+
+| code | 역할 | 조건 | message |
+|---|---|---|---|
+| `APPEARANCE_REQUEST_SENT` | 호스트 | 요청서 `REQUESTED` | 응답을 기다리는 출연 요청 N건이 있어요. 요청을 취소한 뒤 탈퇴할 수 있어요. |
+| `APPEARANCE_REQUEST_RECEIVED` | 게스트 | 요청서 `REQUESTED` | 받은 출연 요청 N건에 아직 응답하지 않았어요. 요청한 회원이 기다리고 있으니 거절한 뒤 탈퇴할 수 있어요. |
+| `APPEARANCE_RECRUITING` | 호스트 | 모집글 `RECRUITING` | 모집 중인 출연 모집 N건이 있어요. 모집을 마감하거나 취소한 뒤 탈퇴할 수 있어요. |
+| `APPEARANCE_APPLICATION_PENDING` | 게스트 | 지원 `APPLIED` | 결과를 기다리는 출연 지원 N건이 있어요. 호스트가 선정할 수 있으니 지원을 취소한 뒤 탈퇴할 수 있어요. |
+| `APPEARANCE_IN_PROGRESS` | 둘 다 | 출연 `ESTABLISHED`·`CANCEL_REQUESTED` | 성립된 출연 N건이 진행 중이라 탈퇴할 수 없어요. 출연이 끝나거나 취소된 뒤 탈퇴할 수 있어요. |
+| `APPEARANCE_HP_PROCESSING` | 둘 다 | 요청서·모집글 `HOLD_PENDING`(호스트) + HP 작업 `PENDING`(보류한 회원 또는 받는 회원) | 출연 HP를 처리하고 있어요. 잠시 뒤 다시 시도해 주세요. |
+| `APPEARANCE_HP_CHECK_REQUIRED` | 둘 다 | HP 작업 `DEAD`(보류한 회원 또는 받는 회원) | 출연 HP 처리에 문제가 있어 확인하고 있어요. 확인이 끝난 뒤 탈퇴할 수 있어요. |
+
+- 막지 않는 끝난 상태: 요청서 `REJECTED`·`EXPIRED`·`CANCELED`·`HOLD_FAILED`·`ACCEPTED`(출연으로 넘어감), 모집글 `CLOSED`·`CANCELED`·`HOLD_FAILED`, 지원 `SELECTED`·`NOT_SELECTED`·`WITHDRAWN`, 출연 `CONFIRMED`·`ABSENT`·`CANCELED_*`, HP 작업 `DONE`. 마감한 모집글의 남은 인원분 반환은 HP 작업으로 센다.
+- 출연 취소 요청 처리 중(`CANCEL_REQUESTED`)은 진행 중 출연에 포함한다(따로 적지 않는다).
+- **`availableAt`은 주지 않는다**(항상 null, WB2). D+7 자동 확인일이 있지만 지급 지연·취소로 어긋날 수 있어 날짜를 약속하지 않는다.
+- **격리된 HP 작업(`DEAD`)도 막는다**(WB3). 운영자가 다시 시도하면 HP가 움직이기 때문이다. "잠시 뒤 다시 시도"로 풀리지 않으므로 처리 중과 코드를 나눴다.
+- 이의 제기: 출연에는 이의 제기 기능이 없다(고객센터 관할, APR-35 E4). 계약 3장 출연 행에서 뺐다.
+
+### 26.3 알려진 한계 (확인과 지갑 닫기 사이)
+
+①(출연 확인)과 ③(지갑 닫기) 사이(보통 1초 미만)에 회원은 아직 로그인 상태다(WB4).
+
+| 빈틈에 생긴 일 | 처리 |
+|---|---|
+| 호스트로 새 요청서·모집글을 올림 → HP 보류가 남은 채 지갑이 닫힐 수 있음. 만료·마감되면 반환 HP가 닫힌 지갑으로 | 감당한다. 지갑은 닫을 때 출연·강의 보류를 보지 않는다(같은 보류를 두 번 적지 않는 계약 2장, #623) |
+| 게스트로 받은 요청을 수락함 → 탈퇴 게스트와 출연이 성립, 확인하면 지급금이 닫힌 지갑으로 | 감당한다. 막으려면 출연 확인·지급 흐름을 바꿔야 해 범위 밖이다 |
+
+두 경우 모두 HP는 닫힌 지갑에 남아 잃지 않는다(회원이 복구하면 다시 쓸 수 있다). 지갑이 닫힌 지갑에 들어온 HP를 warn 로그와 지표(`hapbang.billing.wallet.closed.with.balance`)로 알리므로(#623) 운영자가 찾을 수 있다. 닫힌 뒤 새 보류는 지갑이 409 `WALLET_CLOSED`로 거절하고, 출연은 지금처럼 보류 실패(`HOLD_FAILED`)로 처리한다.
+
+### 26.4 구조
+
+| 계층 | 클래스 | 역할 |
+|---|---|---|
+| in | `ApiV1AppearanceWithdrawalInternalController` / `ApiV1AppearanceWithdrawalInternalSpec` | 내부 API 매핑·Swagger |
+| app | `AppearanceWithdrawalInternalFacade` | 내부 역할 검사, 읽기 전용 트랜잭션 하나(여러 건수를 한 시점 값으로) |
+| app | `AppearanceWithdrawalBlockQueryUseCase` | 회원 ID 검증, 조건별 건수 → 이유 |
+| domain | `AppearanceWithdrawalBlock` | 이유 코드(이름)·문구·순서 |
+| app | `AppearanceRequestSupport`·`AppearanceRecruitSupport`·`AppearanceApplicationSupport`·`AppearanceSupport`·`HpTaskSupport` (기존) | 상태별 건수 메서드 추가 |
+| out | 각 Repository (기존) | `countByHostIdAndStatus`·`countByGuestIdAndStatus`, 출연 `countByParticipantAndStatusIn`, HP 작업 `countByParticipantAndStatus` |
+| shared | `AppearanceApiClient.getWithdrawalBlocks` | 회원 앱이 쓰는 Client 메서드 (`WITHDRAWAL_BLOCKS_PATH`) |
+
+- 인덱스: 요청서·모집글·지원·출연은 기존 `host_id`·`guest_id` 인덱스를 쓴다. HP 작업은 `(status, next_attempt_at)` 인덱스로 `PENDING`·`DEAD`(적은 행)만 읽고 회원으로 거른다. 새 마이그레이션은 없다.
