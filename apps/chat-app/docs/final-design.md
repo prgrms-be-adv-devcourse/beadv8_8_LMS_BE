@@ -526,7 +526,7 @@ Kafka 입력 로그 후보는 `roomId` key의 파티션 순서를 활용할 수 
 | 타입 구분 | Modulith 기본 `ByteArrayJacksonJsonMessageConverter`(Jackson 3)가 붙이는 `__TypeId__` 헤더(레코드 클래스 이름). 소비자는 `JacksonJsonDeserializer`(Jackson 3)에 실제 이벤트 패키지 `com.hapbang.shared.member.event`를 신뢰 패키지로 지정하고 `removeTypeHeaders=false`로 두며 `ErrorHandlingDeserializer`로 감싸 같은 레코드로 되돌린다(chat #417). 상위 패키지 이름이 하위 패키지까지 자동 허용한다고 가정하거나 전체 `*`를 신뢰하지 않는다. 두 앱이 같은 shared 클래스를 쓰므로 별도 타입 매핑은 두지 않는다 |
 | 멱등 키 | `user.id` + `user.version`. `version`은 회원 원본 `@Version`이라 변경마다 1씩 오른다. 별도 `eventId`는 두지 않는다 |
 | 헤더 | `eventType`(레코드 이름)과 `eventVersion`만 싣는다(#339). `occurredAt`·`correlationId`는 넣지 않는다. Modulith 헤더 함수는 이벤트만 받아 재발행 때 같은 값을 만들 수 없다. 추적은 관측성(#343)의 trace 헤더가 맡는다 |
-| 스키마 | 계약은 shared 레코드 자체다. 레코드 변경은 shared 변경이라 모든 앱이 함께 컴파일된다. JSON Schema 파일과 CI 호환성 검사(인프라 문서 7장)는 레코드에서 생성한다 |
+| 스키마 | 계약은 shared 레코드 자체다. 레코드 변경은 shared 변경이라 모든 앱이 함께 컴파일된다. JSON Schema 파일과 CI 호환성 검사는 하지 않는다(#339, 인프라 문서 7장) |
 
 로그아웃은 회원 단위로 처리한다(Q8, 2026-11-02 사용자 결정). 회원 앱은 #539에서 `UserLoggedOutEvent(userId, loggedOutAt)`를 같은 토픽에 발행한다(`eventType=UserLoggedOutEvent`, `eventVersion=1`). HTTP 세션 ID였던 `sessionId` 칸은 이때 지웠다. chat-app은 `userId`와 `loggedOutAt`(닫을 연결의 기준 시각, #548)을 쓴다(6장).
 
@@ -727,7 +727,7 @@ Q7은 2026-10-30에 "Kafka 소비로 유지하고, 알림 모듈 이관 때 옮�
 | 잠금 축소·불변 수신자 집합 | 4.6의 잠금 안 전체 참여자 로딩 제거, 트랜잭션 실제 종료 시점, 수신자 집합·집계·메시지·outbox의 원자성, 동시 참여 변경·재시도·캐시 유실을 검증한다. 새 참여자가 이전 메시지 수신자가 되지 않는다 |
 | 오픈 직후 급증 | 4.7의 시험을 출시 전 수행한다. 연결 수와 전송 빈도를 분리하고 인기 방·지속 과부하·입퇴장·재접속·장애를 혼합해 상한·거절·복구를 검증한다. 잠금 대기/유지 시간·쿼리 수·p95/p99·메모리·DB 디스크·다른 방의 진행과 변경 전후 결과를 기록한다 |
 
-Kafka·Redis 테스트는 필요한 공통 설정만 Import한다. chat-app E2E는 replica 1개로 실행한다. member-app 연동 데이터는 다른 앱의 엔티티를 테스트에 끌어오지 않고 공개 API·이벤트·ID로 준비한다. FE는 제어 가능한 타이머로 복구를 검증하고 Toxiproxy 지연·단절은 #344 D에 연결한다. 재시도·재조회·비동기 대기에는 제한 시간을 둔다.
+Kafka·Redis 테스트는 필요한 공통 설정만 Import한다. chat-app E2E는 replica 1개로 실행한다. member-app 연동 데이터는 다른 앱의 엔티티를 테스트에 끌어오지 않고 공개 API·이벤트·ID로 준비한다. FE는 제어 가능한 타이머로 복구를 검증하고 단절은 Testcontainers 컨테이너 pause·stop으로 만든다(Toxiproxy는 쓰지 않음, #339). 재시도·재조회·비동기 대기에는 제한 시간을 둔다.
 
 ## 10. 이 문서가 바꾸지 않는 것
 
