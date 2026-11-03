@@ -7,8 +7,10 @@ package com.hapbang.chat.app.dto;
  * @param outcome       생성·갱신·건너뜀 구분
  * @param memberVersion 처리 뒤 복제본이 가진 회원 원본 버전. 버전 없는 정보만 받았으면 null
  * @param canChat       처리 뒤 복제본 기준으로 지금 채팅할 수 있는지
+ * @param canHostGroup  처리 뒤 복제본 기준으로 모집용 단체방의 호스트를 계속할 수 있는지(탈퇴하지 않은 인플루언서 이상)
  */
-public record ChatUserSyncResult(Long userId, Outcome outcome, Long memberVersion, boolean canChat) {
+public record ChatUserSyncResult(Long userId, Outcome outcome, Long memberVersion, boolean canChat,
+        boolean canHostGroup) {
 
     public enum Outcome {
         /** 복제본을 새로 만들었다 (가입 이벤트·백필) */

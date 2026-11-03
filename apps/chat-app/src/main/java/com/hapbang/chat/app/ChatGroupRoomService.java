@@ -83,6 +83,15 @@ public interface ChatGroupRoomService {
     /** 폐쇄한다(읽기 전용 전환, 30×24시간 뒤 참여자 조회 만료). 이미 직접 폐쇄한 방이면 그 상태를 돌려준다 */
     ChatGroupCloseResponse close(Long chatRoomId, Long requesterId);
 
+    /**
+     * 호스트가 탈퇴하거나 호스트 자격이 없는 역할이 되면 그 회원의 현재 단체방(사용 중·일시 중지)을 모두 읽기 전용으로 바꾼다
+     * (설계 3.1 "호스트 탈퇴·자격 상실", Q31). 방마다 자격 상실 안내(값만)·방 기록·전달 작업을 남긴다. 회원 반영과 같은 트랜잭션에서만
+     * 부른다(MANDATORY). 이미 읽기 전용·만료인 방은 대상이 아니므로 같은 반영이 다시 와도 아무것도 바꾸지 않는다.
+     *
+     * @return 읽기 전용으로 바꾼 방 수
+     */
+    int markHostUnavailable(Long hostUserId);
+
     /** 저장이 커밋된 뒤의 방 응답. 별도 읽기 트랜잭션이다 */
     ChatRoomResponse toRoomResponse(Long chatRoomId, Long userId);
 

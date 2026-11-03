@@ -10,6 +10,7 @@ import com.hapbang.chat.domain.GroupMemberKickedData;
 import com.hapbang.chat.domain.GroupMemberLeftData;
 import com.hapbang.chat.domain.GroupMembersInvitedData;
 import com.hapbang.chat.domain.GroupRoomClosedData;
+import com.hapbang.chat.domain.GroupHostUnavailableData;
 import com.hapbang.chat.domain.NotificationKind;
 
 /**
@@ -21,6 +22,7 @@ import com.hapbang.chat.domain.NotificationKind;
  * @param groupMemberKicked              단체방 강퇴 안내의 값. {@link ChatMessageResponse}와 같다
  * @param groupMemberLeft                단체방 나가기 안내의 값. {@link ChatMessageResponse}와 같다
  * @param groupRoomClosed                단체방 폐쇄 안내의 값. {@link ChatMessageResponse}와 같다
+ * @param groupHostUnavailable           단체방 호스트 자격 상실 안내의 값. {@link ChatMessageResponse}와 같다
  */
 public record ChatMessageHistoryResponse(
         Long messageId,
@@ -38,7 +40,8 @@ public record ChatMessageHistoryResponse(
         GroupMembersInvitedData groupMembersInvited,
         GroupMemberKickedData groupMemberKicked,
         GroupMemberLeftData groupMemberLeft,
-        GroupRoomClosedData groupRoomClosed
+        GroupRoomClosedData groupRoomClosed,
+        GroupHostUnavailableData groupHostUnavailable
 ) {
 
     public static ChatMessageHistoryResponse from(ChatMessage message) {
@@ -47,6 +50,6 @@ public record ChatMessageHistoryResponse(
                 message.getNotificationKind(), message.getReferenceId(), message.getParentReferenceId(),
                 message.readAppearanceRequestSent(), message.readAppearanceApplicationSubmitted(),
                 message.readGroupMembersInvited(), message.readGroupMemberKicked(), message.readGroupMemberLeft(),
-                message.readGroupRoomClosed());
+                message.readGroupRoomClosed(), message.readGroupHostUnavailable());
     }
 }

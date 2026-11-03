@@ -8,6 +8,6 @@ package com.hapbang.chat.domain;
 public enum ChatRoomStatusReason {
     /** 호스트가 직접 폐쇄했다. 호스트도 개별로 나갈 수 있다 */
     CLOSED_BY_HOST,
-    /** 호스트가 방을 운영할 수 없게 됐다(탈퇴·자격 상실). 이 단계에서는 전환하는 기능이 없다 */
+    /** 호스트가 방을 운영할 수 없게 됐다(탈퇴·호스트 자격이 없는 역할). 회원 변경 반영이 바꾼다. 자격을 회복해도 되돌리지 않는다 */
     HOST_UNAVAILABLE
 }

@@ -33,7 +33,8 @@ import jakarta.validation.constraints.Size;
         단체방 안내는 `messageType: SYSTEM`이고 `content`는 빈 문자열이다. `notificationKind`에 맞는 값 필드 하나만 채운다:
         GROUP_MEMBERS_INVITED → `groupMembersInvited` `{v, inviterUserId, invitedUserIds}`(초대된 회원도 본다),
         GROUP_MEMBER_KICKED → `groupMemberKicked` `{v, kickedByUserId, kickedUserId}`,
-        GROUP_MEMBER_LEFT → `groupMemberLeft` `{v, leftUserId}`, GROUP_ROOM_CLOSED → `groupRoomClosed` `{v, closedByUserId}`.
+        GROUP_MEMBER_LEFT → `groupMemberLeft` `{v, leftUserId}`, GROUP_ROOM_CLOSED → `groupRoomClosed` `{v, closedByUserId}`,
+        GROUP_HOST_UNAVAILABLE → `groupHostUnavailable` `{v, hostUserId}`(호스트 탈퇴·자격 상실로 읽기 전용, 세부 사유 없음).
         프론트가 회원 ID로 닉네임을 찾아 문구를 만든다. 정원·한 요청의 초대 인원·초대 결과 보존 기간은 부하 실측 전의 코드 기본값이다.""")
 public interface ApiV1ChatGroupSpec {
 

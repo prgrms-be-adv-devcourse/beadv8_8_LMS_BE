@@ -203,8 +203,21 @@ public class ChatRoom {
      */
     public void closeByHost(LocalDateTime now) {
         Assert.state(isCurrentGroup(), "사용 중이거나 일시 중지된 단체방만 폐쇄할 수 있습니다.");
+        toReadOnly(ChatRoomStatusReason.CLOSED_BY_HOST, now);
+    }
+
+    /**
+     * 호스트가 탈퇴하거나 호스트 자격이 없는 역할이 되어 단체방을 읽기 전용으로 바꾼다. 폐쇄와 같이 참여자를 내보내지 않고 지금부터
+     * 30×24시간 뒤 참여자 조회를 만료한다. 일시 중지된 방도 자격 상실이 우선해 읽기 전용이 된다. 안내는 상태를 바꾸기 전에 저장한다.
+     */
+    public void markHostUnavailable(LocalDateTime now) {
+        Assert.state(isCurrentGroup(), "사용 중이거나 일시 중지된 단체방만 호스트 자격 상실로 바꿀 수 있습니다.");
+        toReadOnly(ChatRoomStatusReason.HOST_UNAVAILABLE, now);
+    }
+
+    private void toReadOnly(ChatRoomStatusReason reason, LocalDateTime now) {
         this.status = ChatRoomStatus.READ_ONLY;
-        this.statusReason = ChatRoomStatusReason.CLOSED_BY_HOST;
+        this.statusReason = reason;
         this.readOnlyAt = now;
         this.historyExpiresAt = now.plus(GROUP_HISTORY_RETENTION);
         this.statusVersion++;

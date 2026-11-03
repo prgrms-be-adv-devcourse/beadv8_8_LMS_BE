@@ -101,7 +101,8 @@
 | `GROUP_MEMBER_KICKED` | 호스트가 내보냈을 때 | 남은 참여자(내보내진 회원은 보지 않는다) | `{v, kickedByUserId, kickedUserId}` |
 | `GROUP_MEMBER_LEFT` | 사용 중·일시 중지 방에서 나갔을 때 | 남은 참여자 | `{v, leftUserId}`. 읽기 전용 방에서 나가면 안내를 남기지 않는다 |
 | `GROUP_ROOM_CLOSED` | 호스트가 폐쇄했을 때(읽기 전용 방의 마지막 메시지) | 참여자 전원 | `{v, closedByUserId}` |
-| `GROUP_HOST_UNAVAILABLE`·`GROUP_ROOM_SUSPENDED`·`GROUP_ROOM_RESUMED` | 종류 이름만 정했다. 호스트 자격 상실·일시 중지·재개 전환을 구현할 때 값 필드와 함께 남기기 시작한다 | | |
+| `GROUP_HOST_UNAVAILABLE` | 호스트가 탈퇴하거나 호스트 자격이 없는 역할이 되어 방이 읽기 전용으로 바뀌었을 때(읽기 전용 방의 마지막 메시지). 탈퇴·강등 같은 세부 사유는 담지 않는다 | 참여자 전원 | `{v, hostUserId}` |
+| `GROUP_ROOM_SUSPENDED`·`GROUP_ROOM_RESUMED` | 종류 이름만 정했다. 일시 중지·재개 전환(회원 정지 기능)을 구현할 때 값 필드와 함께 남기기 시작한다 | | |
 
 ```json
 {
