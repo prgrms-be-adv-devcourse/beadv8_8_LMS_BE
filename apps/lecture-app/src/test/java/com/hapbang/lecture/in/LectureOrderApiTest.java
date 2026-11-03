@@ -112,6 +112,18 @@ class LectureOrderApiTest {
     }
 
     @Test
+    void 탈퇴로_닫힌_지갑이면_결제_실패로_409_INSUFFICIENT_BALANCE다() throws Exception {
+        // 결제 실패 응답은 거절 사유와 관계없이 하나다 (D69 (1), D76)
+        Lecture lecture = saveOnSaleLecture();
+        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.WALLET_CLOSED,
+                "탈퇴한 회원의 지갑이에요.", 409, "WALLET_CLOSED"));
+
+        mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"));
+    }
+
+    @Test
     void 구매_취소하면_200과_CANCELED_항목을_응답한다() throws Exception {
         String body = mockMvc.perform(createOrder(saveOnSaleLecture().getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isCreated())

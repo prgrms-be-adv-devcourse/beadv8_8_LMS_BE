@@ -173,6 +173,28 @@ class LectureHpTaskExecutorTest {
     }
 
     @Test
+    void HOLD가_탈퇴로_닫힌_지갑이면_DEAD가_아니라_COMPLETED_REJECTED다() {
+        LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.pending(7L,
+                List.of(withId(onSaleLecture(), 10L)), LocalDateTime.now(clock)));
+        Long itemId = order.getItems().getFirst().getId();
+        Long id = register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, "LECTURE-HOLD-" + itemId,
+                order.getId(), itemId, 7L, null, PRICE_HP, LocalDateTime.now(clock)));
+        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.WALLET_CLOSED,
+                "탈퇴한 회원의 지갑이에요.", 409, "WALLET_CLOSED"));
+
+        executor.execute(id);
+
+        // 잔액 부족과 같은 결제 실패다. 운영 확인 대상(DEAD)으로 남기지 않는다 (D76)
+        LectureHpTask task = find(id);
+        assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
+        assertThat(task.getOutcome()).isEqualTo(LectureHpTaskOutcome.REJECTED);
+        assertThat(lectureOrderRepository.findById(order.getId()).orElseThrow().getStatus())
+                .isEqualTo(LectureOrderStatus.HOLD_FAILED);
+        assertThat(attempts(id)).singleElement()
+                .satisfies(attempt -> assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.TERMINAL_REJECTION));
+    }
+
+    @Test
     void 불변식_위반과_결과_금액_불일치는_바로_DEAD다() {
         Long invariant = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
         billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.HOLD_ALREADY_CLOSED,
