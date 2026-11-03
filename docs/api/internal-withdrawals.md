@@ -72,6 +72,7 @@
   - `outcome` `CLOSED`: 닫았다 (`reasons` 빈 목록)
   - `outcome` `BLOCKED`: 막힌 이유가 있어 닫지 않았다
 - 멱등: 같은 `withdrawalId` + 같은 `userId`면 처음 결과를 `replayed = true`로 돌려준다. 같은 `withdrawalId` + 다른 `userId`면 409 `IDEMPOTENCY_KEY_CONFLICT`.
+- 늦은 닫기 거절: 다시 열기(4.2)를 이미 받은 `withdrawalId`로 닫기가 오면 지갑을 닫지 않고 409 `WITHDRAWAL_ALREADY_REOPENED`로 거절한다. 회원이 결과를 모르는 닫기를 정리(다시 열기)한 뒤, 네트워크에서 늦어진 그 닫기가 도착해 지갑이 닫힌 채 남는 일을 막는다(보류 무효화 뒤 보류를 `HOLD_VOIDED`로 거절하는 것과 같은 방식)
 - 지갑 막을 조건 (안): 충전 HP·수익 HP 잔액, 처리 중인 환불·환전, 복구 대상인 미완료 결제
 - 닫힌 지갑 (안): 충전·보류·환전·환불 신청을 거절한다. 이미 생긴 의무(보류 반환·지급 받기, 결제 복구)는 받는다.
 
@@ -82,7 +83,8 @@
 - 이 `withdrawalId`로 닫은 지갑을 다시 연다. 보상(다른 모듈에서 막힘, 회원 저장 실패)과 복구(30일 안 재로그인)에서 부른다.
 - 응답 `data`: `{ withdrawalId, outcome, replayed }`
   - `REOPENED`: 다시 열었다
-  - `NOT_CLOSED`: 이 작업으로 닫힌 적이 없다(닫기가 실패했거나 `BLOCKED`였다). 아무것도 바꾸지 않는다
+  - `NOT_CLOSED`: 이 작업으로 닫힌 적이 없다(닫기가 실패했거나 `BLOCKED`였다). 지갑은 바꾸지 않는다
+- 두 결과 모두 다시 열기 기록을 남긴다. 기록이 있는 `withdrawalId`의 닫기는 4.1대로 거절한다
 - 멱등: 같은 `withdrawalId`로 다시 오면 처음 결과를 `replayed = true`로 돌려준다.
 
 ## 5. 실패 처리 (회원)

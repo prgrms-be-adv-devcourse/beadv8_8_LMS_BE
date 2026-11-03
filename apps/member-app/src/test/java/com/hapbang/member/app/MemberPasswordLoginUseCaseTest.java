@@ -93,12 +93,12 @@ class MemberPasswordLoginUseCaseTest {
     }
 
     @Test
-    @DisplayName("비밀번호가 맞아도 정지·탈퇴 회원이면 LOGIN_NOT_ALLOWED")
+    @DisplayName("비밀번호가 맞아도 정지·탈퇴 회원이면 LOGIN_NOT_ALLOWED이고, 비밀번호는 맞았으니 실패 횟수는 지운다")
     void login_inactiveMember() {
         registered("tester1@example.com", "abcd1234", UserStatus.SUSPENDED);
 
         assertError(() -> useCase.login("tester1@example.com", "abcd1234"), MemberErrorCode.LOGIN_NOT_ALLOWED);
-        verify(loginAttemptStore, never()).reset(anyString());
+        verify(loginAttemptStore).reset("tester1@example.com");
     }
 
     @Test

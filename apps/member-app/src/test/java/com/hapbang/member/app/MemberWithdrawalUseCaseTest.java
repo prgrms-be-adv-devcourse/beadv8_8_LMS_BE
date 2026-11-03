@@ -414,6 +414,24 @@ class MemberWithdrawalUseCaseTest {
     }
 
     @Test
+    @DisplayName("지갑은 다시 열었는데 회원 복구 저장이 실패하면 회원은 탈퇴 상태 그대로이고, 다시 시도할 수 있다")
+    void restoreSaveFailsAfterReopen() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        events.clear();
+        // 지갑을 여는 사이 복구 기한이 지나 회원 복구 저장이 실패하는 상황
+        walletGate.onReopen = () -> jdbcTemplate.update(
+                "update members.users set deleted_at = now() - interval '31 days' where id = ?", user.getId());
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LOGIN_NOT_ALLOWED);
+        assertThat(walletGate.reopened).hasSize(1);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.WITHDRAWN);
+        assertThat(events.stream(UserModifiedEvent.class)).isEmpty();
+    }
+
+    @Test
     @DisplayName("이미 정상 회원이면 아무것도 하지 않고 그대로 돌려준다 (두 번 누름)")
     void restoreAlreadyActive() {
         User user = userRepository.save(MemberFixture.user());
@@ -496,6 +514,7 @@ class MemberWithdrawalUseCaseTest {
         RuntimeException closeFailure;
         RuntimeException reopenFailure;
         Runnable onClose;
+        Runnable onReopen;
         final List<Long> closed = new ArrayList<>();
         final List<Long> reopened = new ArrayList<>();
 
@@ -508,6 +527,8 @@ class MemberWithdrawalUseCaseTest {
             closeFailure = null;
             reopenFailure = null;
             onClose = () -> {
+            };
+            onReopen = () -> {
             };
             closed.clear();
             reopened.clear();
@@ -527,6 +548,7 @@ class MemberWithdrawalUseCaseTest {
 
         @Override
         public void reopen(long withdrawalId, long userId) {
+            onReopen.run();
             if (reopenFailure != null) {
                 throw reopenFailure;
             }

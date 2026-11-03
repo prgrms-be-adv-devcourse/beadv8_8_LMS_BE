@@ -59,9 +59,10 @@ public class MemberPasswordLoginUseCase {
             }
             throw new MemberException(MemberErrorCode.INVALID_CREDENTIALS);
         }
+        // 비밀번호가 맞았으니 실패 횟수는 지운다 (복구할까요?·정지로 끝나도 같다)
+        loginAttemptStore.reset(normalizedEmail);
         User user = credential.get().getUser();
         memberLoginGuard.check(user);
-        loginAttemptStore.reset(normalizedEmail);
         return user;
     }
 }
