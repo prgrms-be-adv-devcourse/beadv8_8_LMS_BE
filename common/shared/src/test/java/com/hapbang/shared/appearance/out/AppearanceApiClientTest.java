@@ -25,9 +25,11 @@ import com.hapbang.shared.appearance.dto.AppearanceEarningSummaryDto;
 import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
 import com.hapbang.shared.appearance.dto.AppearanceReceivedReviewPageDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
+import com.hapbang.shared.member.dto.WithdrawalBlockReasonDto;
+import com.hapbang.shared.member.dto.WithdrawalBlocksDto;
 import com.sun.net.httpserver.HttpServer;
 
-// 출연 내부 API Client의 요청 모양·응답 해제·오류 변환을 가짜 HTTP 서버로 확인한다 (#301, 강의 LectureApiClientTest와 같은 범위).
+// 출연 내부 API Client의 요청 모양·응답 해제·오류 변환을 가짜 HTTP 서버로 확인한다 (#301, #514, #624, 강의 LectureApiClientTest와 같은 범위).
 // 실제 출연 API는 apps 통합 테스트가 부른다.
 class AppearanceApiClientTest {
 
@@ -287,6 +289,90 @@ class AppearanceApiClientTest {
                     assertThat(e.getStatus()).isEqualTo(400);
                     assertThat(e.getCode()).isEqualTo("INVALID_REQUEST");
                 });
+    }
+
+    @Test
+    void 탈퇴_막힌_이유는_회원_ID를_경로에_보내고_이유를_순서대로_읽는다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"탈퇴 확인을 마쳤습니다.","data":{"reasons":[
+                  {"code":"APPEARANCE_REQUEST_SENT","message":"응답을 기다리는 출연 요청 2건이 있어요. 요청을 취소한 뒤 탈퇴할 수 있어요.",
+                   "availableAt":null},
+                  {"code":"APPEARANCE_IN_PROGRESS","message":"성립된 출연 1건이 진행 중이라 탈퇴할 수 없어요. 출연이 끝나거나 취소된 뒤 탈퇴할 수 있어요."}]}}""");
+
+        WithdrawalBlocksDto blocks = client().getWithdrawalBlocks(7L);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/appearances/users/7/withdrawal-blocks key=" + API_KEY);
+        assertThat(blocks.isBlocked()).isTrue();
+        // availableAt은 null로 와도, 빠져도 null이다
+        assertThat(blocks.reasons()).containsExactly(
+                WithdrawalBlockReasonDto.of("APPEARANCE_REQUEST_SENT",
+                        "응답을 기다리는 출연 요청 2건이 있어요. 요청을 취소한 뒤 탈퇴할 수 있어요."),
+                WithdrawalBlockReasonDto.of("APPEARANCE_IN_PROGRESS",
+                        "성립된 출연 1건이 진행 중이라 탈퇴할 수 없어요. 출연이 끝나거나 취소된 뒤 탈퇴할 수 있어요."));
+    }
+
+    @Test
+    void 탈퇴_막힌_이유가_없으면_빈_목록이다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"탈퇴 확인을 마쳤습니다.","data":{"reasons":[]}}""");
+
+        WithdrawalBlocksDto blocks = client().getWithdrawalBlocks(7L);
+
+        assertThat(blocks.reasons()).isEmpty();
+        assertThat(blocks.isBlocked()).isFalse();
+    }
+
+    @Test
+    void 탈퇴_막힌_이유의_필수_필드가_빠지면_호출_불가_예외로_바뀐다() {
+        // reasons 없음
+        respond(200, "application/json", "{\"statusCode\":200,\"message\":\"\",\"data\":{}}");
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 200);
+
+        // code 없음
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"reasons":[{"message":"출연 HP를 처리하고 있어요."}]}}""");
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 200);
+
+        // message 없음
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"reasons":[{"code":"APPEARANCE_HP_PROCESSING"}]}}""");
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 200);
+
+        // null 항목
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"reasons":[null]}}""");
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 200);
+    }
+
+    @Test
+    void 탈퇴_막힌_이유의_4xx는_거절_예외이고_5xx와_연결_실패는_호출_불가_예외다() throws IOException {
+        respond(400, "application/problem+json", """
+                {"status":400,"detail":"회원 ID는 1 이상이어야 합니다.","code":"INVALID_REQUEST"}""");
+        assertThatThrownBy(() -> client().getWithdrawalBlocks(0L))
+                .isInstanceOfSatisfying(AppearanceApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(AppearanceApiCallException.Reason.REJECTED);
+                    assertThat(e.getStatus()).isEqualTo(400);
+                    assertThat(e.getCode()).isEqualTo("INVALID_REQUEST");
+                });
+
+        // 키가 틀리면 본문 없는 401
+        respond(401, null, null);
+        assertThatThrownBy(() -> client().getWithdrawalBlocks(7L))
+                .isInstanceOfSatisfying(AppearanceApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(AppearanceApiCallException.Reason.REJECTED);
+                    assertThat(e.getStatus()).isEqualTo(401);
+                    assertThat(e.getCode()).isNull();
+                });
+
+        respond(503, null, null);
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 503);
+
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        assertUnavailable(() -> client("http://127.0.0.1:" + closedPort).getWithdrawalBlocks(7L), 0);
     }
 
     private static void assertUnavailable(Runnable call, int status) {

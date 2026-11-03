@@ -140,4 +140,9 @@ public class AppearanceSupport {
         return appearanceRepository.findByRecruitForUpdate(recruitId,
                 List.of(AppearanceStatus.ESTABLISHED, AppearanceStatus.CANCEL_REQUESTED));
     }
+
+    /** 회원이 호스트나 게스트로 참여한 출연 중 이 상태들인 수 (탈퇴 막힌 이유, #624) */
+    public long countByParticipant(Long userId, Collection<AppearanceStatus> statuses) {
+        return appearanceRepository.countByParticipantAndStatusIn(userId, statuses);
+    }
 }

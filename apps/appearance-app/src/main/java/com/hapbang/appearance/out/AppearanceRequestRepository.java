@@ -47,4 +47,10 @@ public interface AppearanceRequestRepository extends JpaRepository<AppearanceReq
     /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 요청서 ID */
     @Query("select r.id from AppearanceRequest r where r.updatedAt >= :since")
     List<Long> findIdsUpdatedSince(@Param("since") LocalDateTime since);
+
+    /** 호스트가 보낸 요청서 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    long countByHostIdAndStatus(Long hostId, AppearanceRequestStatus status);
+
+    /** 게스트가 받은 요청서 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    long countByGuestIdAndStatus(Long guestId, AppearanceRequestStatus status);
 }
