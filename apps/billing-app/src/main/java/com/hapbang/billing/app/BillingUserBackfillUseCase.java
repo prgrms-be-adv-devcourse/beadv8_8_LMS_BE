@@ -2,7 +2,7 @@ package com.hapbang.billing.app;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
+import com.hapbang.billing.global.scheduling.BillingJob;
+import com.hapbang.billing.global.scheduling.JobLock;
 import com.hapbang.billing.out.OutboundCircuitBreakers;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.dto.MemberPageDto;
@@ -28,7 +30,8 @@ import lombok.extern.slf4j.Slf4j;
 // - 트랜잭션을 열지 않는다: 회원 내부 API를 부르는 동안 Billing DB 트랜잭션이 없고, 회원마다 apply가 짧은 트랜잭션을 연다.
 // - 한 번에 최대 MAX_LIMIT명. 끝나지 않으면 결과의 nextAfterId를 다음 실행의 afterId로 넘긴다(처음부터 다시 실행해도 안전하다).
 // - 회원 하나의 반영 실패는 failed로 세고 다음 회원을 계속한다. 회원 내부 API 장애·계약 위반은 실행 전체를 멈춘다.
-// - 같은 앱에서 동시에 두 번 실행하지 않는다(BACKFILL_ALREADY_RUNNING). 단일 인스턴스 전제이며, 회원 이벤트 반영은 막지 않는다.
+// - 동시에 두 번 실행하지 않는다(BACKFILL_ALREADY_RUNNING). 같은 pod 안과 배포 중 겹친 pod 사이를 JobLock(#598, BD-138)이 함께
+//   막는다. 락을 시도하지 못하면(DB 연결 불가) 실행하지 않고 BACKFILL_LOCK_UNAVAILABLE이다. 회원 이벤트 반영은 막지 않는다.
 // - 관리자가 아닌 회원은 지갑도 확인하고 없으면 만든다(#552, BD-132). 가입 이벤트(member.events.v1)는 72시간만 보존되어
 //   billing 첫 배포 전에 가입한 회원에게는 지갑이 생기지 않기 때문이다. 가입 리스너와 같은 WalletFacade.getOrCreateWallet을 쓴다.
 // 원장·환전 데이터는 건드리지 않는다.
@@ -47,26 +50,29 @@ public class BillingUserBackfillUseCase {
     private final BillingUserSyncUseCase billingUserSyncUseCase;
     private final WalletFacade walletFacade;
     private final OutboundCircuitBreakers circuits;
-    // 빈(싱글턴)이 가진 실행 중 표시라 요청 사이에서 공유된다
-    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final JobLock jobLock;
 
     @Autowired
     BillingUserBackfillUseCase(ObjectProvider<MemberApiClient> memberApiClient,
-            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade, OutboundCircuitBreakers circuits) {
-        this((Supplier<MemberApiClient>) memberApiClient::getIfAvailable, billingUserSyncUseCase, walletFacade, circuits);
+            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade, OutboundCircuitBreakers circuits,
+            JobLock jobLock) {
+        this((Supplier<MemberApiClient>) memberApiClient::getIfAvailable, billingUserSyncUseCase, walletFacade, circuits,
+                jobLock);
     }
 
     BillingUserBackfillUseCase(Supplier<MemberApiClient> memberApiClient,
-            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade) {
-        this(memberApiClient, billingUserSyncUseCase, walletFacade, OutboundCircuitBreakers.defaults());
+            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade, JobLock jobLock) {
+        this(memberApiClient, billingUserSyncUseCase, walletFacade, OutboundCircuitBreakers.defaults(), jobLock);
     }
 
     BillingUserBackfillUseCase(Supplier<MemberApiClient> memberApiClient,
-            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade, OutboundCircuitBreakers circuits) {
+            BillingUserSyncUseCase billingUserSyncUseCase, WalletFacade walletFacade, OutboundCircuitBreakers circuits,
+            JobLock jobLock) {
         this.memberApiClient = memberApiClient;
         this.billingUserSyncUseCase = billingUserSyncUseCase;
         this.walletFacade = walletFacade;
         this.circuits = circuits;
+        this.jobLock = jobLock;
     }
 
     // afterId보다 큰 회원부터 최대 limit명을 반영한다. afterId는 0 이상, limit은 1~MAX_LIMIT(검사는 API 명세 제약이 한다).
@@ -74,13 +80,17 @@ public class BillingUserBackfillUseCase {
         if (afterId < 0 || limit < 1 || limit > MAX_LIMIT) {
             throw new IllegalArgumentException("afterId는 0 이상, limit은 1~" + MAX_LIMIT + "이어야 합니다.");
         }
-        if (!running.compareAndSet(false, true)) {
+        Optional<JobLock.Lease> lease;
+        try {
+            lease = jobLock.tryAcquire(BillingJob.MEMBER_BACKFILL);
+        } catch (JobLock.JobLockException e) {
+            throw new BillingException(BillingErrorCode.BACKFILL_LOCK_UNAVAILABLE, e);
+        }
+        if (lease.isEmpty()) {
             throw new BillingException(BillingErrorCode.BACKFILL_ALREADY_RUNNING);
         }
-        try {
+        try (JobLock.Lease ignored = lease.get()) {
             return backfill(afterId, limit);
-        } finally {
-            running.set(false);
         }
     }
 

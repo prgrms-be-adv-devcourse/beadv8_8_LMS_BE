@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-11-03 (#577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-11-03 (#598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -50,6 +50,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #564 | 배포 전 정리: 회원 이벤트 DLT 복구는 도구 없이 운영 절차(kafka CLI 확인 → 원인 수정 → 관리자 Backfill, `docs/deploy/k8s.md`, BD-136, 로컬 k3d로 한 건 복구 확인), `V202610301400` 주석 정정은 문서로만(BD-124·BD-130, `module.md` 8.2), capture 내부 API 비노출(BD-135, `internal-billing.md`) | `feature/tkt-564` | (PR 전) | 완료 (문서) |
 | #577 | 서비스 간 HP 대사용 보류·지급 조회 내부 API: `POST holds/query`(1~500개)·`GET holds`(키셋, 커서 항상 + `hasMore`, 최근 10초 제외, Flyway `V202611031200` `idx_point_hold_2`), `HoldQueryFacade`·`HoldQueryUseCase`, HP 종류별 금액, shared `HoldQueryCommand`·`HoldStateDto`·`HoldStatePageDto`·`BillingHoldStatus`·`BillingSettlementStatus`, `BillingApiClient.queryHolds`·`listHolds`(GET 지원)(BD-137) | `feature/tkt-577` | (PR 전) | 구현 완료 |
 | #562 | 나가는 호출 circuit breaker: `out.OutboundCircuitBreakers`(회로 `lecture`·`appearance`·`member`·`toss`, `hapbang.billing.outbound.*`, 지표), 수익 조회 연결 실패 1회 재시도, Backfill 회로, `TossPaymentsClient` 회로(`Unknown`만 실패, 열리면 `Unknown(CIRCUIT_OPEN)`), 충전·환불 신청 503, 결과 확인 배치 `TossCircuitGate`, billing Gradle에 resilience4j 추가(BD-134) | `feature/tkt-562` | (PR 전) | 구현 완료 |
+| #598 | 배치·Backfill 실행 락: `global.scheduling.JobLock`(PostgreSQL session advisory lock, Hikari pool 밖 락 전용 연결 1개, 같은 pod 재진입은 메모리로 차단), 락 번호 `BillingJob` enum(598001~598006), 배치 5개 `run()`을 `runOrSkip`으로 감쌈(쥐고 있음·락 오류면 그 회차 건너뜀), Backfill `AtomicBoolean` → `tryAcquire`(다른 실행 409 `BACKFILL_ALREADY_RUNNING`, 락 오류 503 `BACKFILL_LOCK_UNAVAILABLE`), 지표 `hapbang.billing.job.lock.skipped{job, reason}`, `JobLockTest`·`JobLockPostgresIntegrationTest`·`BillingBatchJobLockTest`(BD-138, module.md L4·L5 해소) | `feature/tkt-598` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 

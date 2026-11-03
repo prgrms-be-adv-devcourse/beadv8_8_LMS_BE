@@ -10,6 +10,7 @@
 > - 2026-10-30 #430 반영: 회원 이벤트 리스너 두 개가 Kafka 소비로 바뀌었다. BT-EVT-01은 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증하고 JVM 칸을 "없음"으로, BT-WAL-02·BT-USR-02는 Kafka 경로 테스트로 옮겨 "없음"으로 바꿨다. 같은 JVM `Scenario.publish` 테스트는 없앴다(리스너 직접 호출 또는 Kafka 테스트로 대체).
 > - 2026-11-02 #280 반영: 소비 앱이 Java Port 없이 단독 기동하므로 BT-PORT-05를 k3s 기동 확인으로 바꾸고(JVM 깨짐 → 없음) Contract 대상에서 뺐다. BT-PORT-04는 소비 앱 테스트를 적고 JVM을 "경계"로 바꿨다.
 > - 2026-11-03 #577 반영: 서비스 간 HP 대사 조회(BT-PORT-07)를 더했다.
+> - 2026-11-03 #598 반영: 배치·Backfill 실행 락(BT-CFG-06, `JobLockTest`·`JobLockPostgresIntegrationTest`·`BillingBatchJobLockTest`)을 더했다. 배치 5개의 UseCase 위임은 `BillingBatchJobLockTest`가 보므로 BT-CFG-03은 등록만 남았다. BT-USR-03에 pod 사이 동시 실행·락 오류를 더했다.
 > - 2026-11-02 #562 반영: 나가는 호출 회로(BT-CFG-05)를 더했다. 공유 테스트 컨텍스트는 실패율로 회로가 열리지 않게 `hapbang.billing.outbound.minimum-number-of-calls`를 크게 두고(`hapbang-module-test.yaml`), 열고 닫히는 동작은 작은 설정으로 직접 만든 `OutboundCircuitBreakers`로, 통합 테스트는 상태를 강제로 바꿔 확인한다.
 > - 2026-11-02 #552 반영: 관리 포트 분리(BT-CFG, `ManagementPortTest` 3개: 지표·헬스체크는 8082에서만, 8080·8081은 404, 관리 포트는 업무 API 없음)와 Backfill 지갑 생성(BT-USR-03)을 더했다.
 > - 2026-11-02 #537 반영: 테스트 로그인을 `TestLogin`(OAuth2 흉내)에서 `GatewayLogin`(사용자 헤더)으로 바꿔 API 테스트가 실제 헤더 필터를 거친다. CSRF 토큰(`csrf()`)과 OAuth2 등록 속성을 뺐다. BT-SEC-05(`GatewayUserHeaderFilterTest`)·BT-SEC-06(충전·환불·환전 컨트롤러 테스트의 `walletMember_*`)을 앱 쪽 검증으로 채웠다.
@@ -46,6 +47,7 @@
 ./gradlew :billing-app:test --rerun-tasks \
   --tests 'com.hapbang.billing.app.BillingCommandValidatorTest' \
   --tests 'com.hapbang.billing.app.BillingKeysTest' \
+  --tests 'com.hapbang.billing.app.BillingBatchJobLockTest' \
   --tests 'com.hapbang.billing.app.BillingSharedDtoAccessTest' \
   --tests 'com.hapbang.billing.app.BillingUserBackfillUseCaseTest' \
   --tests 'com.hapbang.billing.app.ChargeUsageHistoryTest' \
@@ -69,6 +71,7 @@
   --tests 'com.hapbang.billing.global.internal.InternalApiPortConfigTest' \
   --tests 'com.hapbang.billing.global.internal.InternalApiPropertiesTest' \
   --tests 'com.hapbang.billing.global.scheduling.ConditionalOnSchedulingEnabledTest' \
+  --tests 'com.hapbang.billing.global.scheduling.JobLockTest' \
   --tests 'com.hapbang.billing.in.BillingFailureCodeContractTest' \
   --tests 'com.hapbang.billing.out.MockPayoutActivationTest' \
   --tests 'com.hapbang.billing.out.PaymentKeyCipherTest' \
@@ -280,7 +283,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-ERN-04 | 제공자 계약 일치 | lecture-app·appearance-app 실제 응답이 Billing Client 기대와 같다 | internal-earnings.md | T | 없음 | 경계 | 없음 |
 | BT-USR-01 | 복제본 동기화 | 가입·변경 Upsert, 버전 비교, 버전 없는 정보 무시, 늦은 가입 이벤트가 덮어쓰지 않음, 동시 Upsert | BD-103 | I | `BillingUserSyncIntegrationTest`(8) | 경계 (Scenario.publish) | R-003 통과 (경계) |
 | BT-USR-02 | 그룹 격리·재시도 | 복제본 그룹 실패가 지갑 생성 그룹을 막지 않음(재시도 뒤 복제본 DLT만), 복제본 PK 충돌 재시도는 새 트랜잭션 | BD-103, BD-123 | I | `BillingMemberEventKafkaTest``#replicaFailureDoesNotBlockWalletCreation`, `BillingMemberEventIsolationTest`(1) | 없음 | 기록 없음 (#430에서 Kafka로 바뀜) |
-| BT-USR-03 | Backfill | 페이지 순회·한도·재개 커서, 실패 분류, 계약 위반, 동시 실행 금지, 이벤트와 경합, 관리자 API, 관리자가 아닌 회원 지갑 확인·생성(다시 실행해도 같음, 지갑 실패는 failed, #552) | BD-132 | U, I | `BillingUserBackfillUseCaseTest`(15), `BillingUserBackfillIntegrationTest`(15) | 경계 (MemberApiClient 실제 HTTP, 가짜 member 서버) | R-003 통과 (경계) |
+| BT-USR-03 | Backfill | 페이지 순회·한도·재개 커서, 실패 분류, 계약 위반, 동시 실행 금지(배포 중 다른 pod 포함 409, 락 오류 503 `BACKFILL_LOCK_UNAVAILABLE`, #598), 이벤트와 경합, 관리자 API, 관리자가 아닌 회원 지갑 확인·생성(다시 실행해도 같음, 지갑 실패는 failed, #552) | BD-132, BD-138 | U, I | `BillingUserBackfillUseCaseTest`(17), `BillingUserBackfillIntegrationTest`(15) | 경계 (MemberApiClient 실제 HTTP, 가짜 member 서버) | R-003 통과 (경계) |
 | BT-USR-04 | member 제공자 계약 일치 | member-app 내부 회원 API 응답이 Billing Client 기대와 같다 | `docs/api/internal-members.md` | T | 없음 | 경계 | 없음 |
 
 ### 4.8 보안·오류·DB·설정 (SEC·ERR·DB·CFG)
@@ -301,9 +304,10 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | BT-DB-04 | 엔티티 저장 | 전체 엔티티 저장·조회, Instant 보존, 감사 시각, ID 참조 FK | BD-36 | R | `BillingRepositoryTest`(7) | 없음 | R-003 통과 |
 | BT-CFG-01 | 배치 스위치 | `hapbang.scheduling.enabled` 조건 | — | U | `ConditionalOnSchedulingEnabledTest`(3) | 없음 | R-003 통과 |
 | BT-CFG-02 | 실제 설정 기동 | 앱 `application.yaml`·프로필(local·dev·prod)과 필수 환경 변수로 기동, 누락 시 기대한 실패 | module.md 9장 | T | 없음 (`@IntegrationTest`는 앱 yaml을 읽지 않는다) | 미확인 | 없음 |
-| BT-CFG-03 | 복구 배치 실행 | `ChargeRecoveryBatch`·`RefundRecoveryBatch`가 등록되고 UseCase에 위임 | BD-78, BD-92 | I | 없음 (UseCase만 검증) | 없음 | 없음 |
+| BT-CFG-03 | 복구 배치 실행 | `ChargeRecoveryBatch`·`RefundRecoveryBatch`가 등록되고 UseCase에 위임 | BD-78, BD-92 | U | 위임: `BillingBatchJobLockTest`(락을 잡으면 UseCase 1회 호출, #598). 등록: 없음 | 없음 | 일부 (#598 위임만) |
 | BT-CFG-04 | Modulith 이벤트 기록 끔 (#471) | 폐기: #497에서 발행 기록을 다시 켰다(BT-EVT-02로 대체) | BD-124 | — | 없음 (`ModulithEventsDisabledTest` 삭제) | 없음 | 폐기 (#497) |
 | BT-CFG-05 | 나가는 호출 회로 (#562) | 상대별 회로. 강의·출연·회원은 `UNAVAILABLE`만 실패·`REJECTED`는 성공, 수익 조회는 연결 실패만 1회 재시도(시간 초과·5xx는 안 함), 열리면 요청 없이 503. Toss는 `Unknown`만 실패·`Rejected`·`NotFound`는 성공, 열리면 `Unknown(CIRCUIT_OPEN)`, 충전 주문·승인·환불 신청 503(상태 변경 없음), 결과 확인 배치 건너뜀 후 닫히면 이어서 확정. 회로 상태 지표가 Prometheus에 나온다 | BD-134 | U, I | `EarningSourceAdapterTest`(+4), `TossPaymentsClientTest`(+2), `ApiV1WalletChargeControllerTest#circuitOpen`, `ApiV1WalletRefundControllerTest#circuitOpen`, `ChargeIntegrationTest#recovery_skippedWhileCircuitOpen`, `ManagementPortTest` | 경계 (가짜 서버·닫힌 포트, 회로 강제 상태) | #562 통과 |
+| BT-CFG-06 | 배치·Backfill 실행 락 (#598) | 두 pod(서로 다른 락 연결) 중 한쪽만 잡고 풀면 다른 쪽이 잡음, 같은 pod 재진입은 메모리로 차단(PostgreSQL은 같은 session 재획득 허용), 작업 예외에도 해제, 락 연결이 끊기면 다른 pod가 잡고 끊긴 쪽은 예외 없이 끝낸 뒤 다시 연결, pod 종료 시 해제, 동시 시작 시 한쪽만 실행, 락 오류면 실행 안 함, 작업마다 락 번호 다름, 건너뛴 횟수 지표, 배치 5개가 다른 pod·락 오류에 UseCase를 부르지 않음 | BD-138 | U, I | `JobLockTest`(10), `JobLockPostgresIntegrationTest`(6), `BillingBatchJobLockTest`(2 × 배치 5개), `ManagementPortTest#지표와_헬스체크는_관리_포트에서_로그인_없이_응답한다`(관리 포트 노출) | 없음 (rolling update 중 두 pod 겹침을 연결 둘로 흉내) | #598 통과 |
 
 ## 5. JVM 분리 영향 정리
 
@@ -318,7 +322,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | 내부 HTTP API | 수익 조회·Backfill은 이미 HTTP | Client는 분리 구조에 맞다. 대신 base-url 환경 변수가 필수다(기본값 없음). 제공자와의 계약 일치는 검증하지 않는다. Billing이 제공하는 내부 API는 없다 | BT-ERN-02·04, BT-USR-03·04, BT-SEC-03 | — |
 | 멱등성·재시도 | 실패하면 호출자 트랜잭션과 함께 롤백 → 같은 요청 ID로 재요청 | Billing 내부 멱등(요청 ID 재생)은 그대로다. 하지만 원격 호출의 타임아웃·결과 불명 시 호출자가 같은 ID로 재시도하고 오류를 성공으로 해석하지 않는 규칙(BD-70)을 검증하는 테스트가 없다 | BT-PAY-03·04, BT-PORT-04 | BD-69, BD-70 |
 | 외부 서비스 장애 | TossPayments·Mock 은행 장애는 이미 트랜잭션 밖 호출 + 복구 배치 | 변화 없음. 새로 생기는 장애 지점은 강의·출연·회원 앱 장애다(수익 조회 503은 검증됨, Billing 다운 시 호출자 동작은 Billing 범위 밖) | BT-CHG-04·05, BT-RFD-03, BT-EXP-03, BT-ERN-02 | BD-76, BD-89, BD-101 |
-| 배치·단일 실행 | 앱 1개 | 분산 락 없음. Backfill 동시 실행 방지는 인스턴스 안에서만. 목표 배포는 replica 1개지만 rolling update(`maxSurge: 1`) 중 두 pod가 잠깐 겹칠 수 있다(추정, module.md 6.1) | BT-EXP-04·05, BT-USR-03 | — |
+| 배치·단일 실행 | 앱 1개 | rolling update(`maxSurge: 1`) 중 두 pod가 잠깐 겹친다. #598부터 배치 5개·Backfill이 PostgreSQL advisory lock으로 한 곳만 실행한다(module.md 6.1). 한쪽이 끝낸 뒤 늦게 시작한 같은 회차는 막지 않는다(UseCase 락·멱등성) | BT-EXP-04·05, BT-USR-03, BT-CFG-06 | BD-138 |
 | 설정 | 공용 설정 | 앱별 yaml, 필수 환경 변수(내부 키·DB·Client URL). 실제 설정 기동 테스트 없음 | BT-CFG-02 | — |
 
 ### 5.2 영향별 개수
@@ -341,7 +345,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 | --- | --- | --- |
 | 판매자 지갑 없음 재지급 | 지갑 없음 거절·상태 불변은 `payout_invalidRequests`에 있다. 지갑 생성 뒤 같은 요청 ID 재지급은 없다 | BT-PAY-07 |
 | 중복 지급 오류 순서 | 끝난 보류와 원천 중복이 함께 걸리는 경우를 시험하는 테스트가 없다 | BT-PAY-04 |
-| 복구 배치 빈 | `ChargeRecoveryBatch`·`RefundRecoveryBatch` 등록·위임 테스트 없음(`@IntegrationTest`에서 스케줄링이 꺼짐, 추정) | BT-CFG-03 |
+| 복구 배치 빈 | `ChargeRecoveryBatch`·`RefundRecoveryBatch` 등록 테스트 없음(`@IntegrationTest`에서 스케줄링이 꺼짐, 추정). 위임은 `BillingBatchJobLockTest`(#598) | BT-CFG-03 |
 | 실제 설정 기동 | 앱 yaml·프로필로 기동하는 테스트 없음 | BT-CFG-02 |
 | 레거시 SettlementStatus | SCHEDULED 등 레거시 행이 있을 때 `PAYOUT_ALREADY_SETTLED`. 테스트가 없다. SCHEDULED 지급 건 픽스처(`BillingFixture.settlement`)는 `BillingConstraintsTest`·`BillingRepositoryTest`에서만 쓴다(2026-10-29 코드 확인) | BD-71 |
 | 이름으로 참조되지 않는 클래스 | `HoldCaptureUseCase`·`HoldPayoutUseCase`·`HoldReleaseUseCase`·`HoldProcessing`·`PenaltySettlementUseCase`·Facade·`ExchangeLocks`·`CaptureSplit`·`InternalHoldRequests`는 Facade·컨트롤러를 거쳐 간접 검증된다. 직접 테스트가 필요한지는 TBD | — |
@@ -374,9 +378,10 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.BillingCommandValidatorTest | U | 6 | — | PEN-01·02 |
 | app.BillingExternalEventsTest | U | 2 | — | EVT-02 |
 | app.BillingKeysTest | U | 7 | — | HLD-06, RFD-02 |
+| app.BillingBatchJobLockTest | U | 2 (배치 5개씩) | — | CFG-03, CFG-06 |
 | app.BillingSharedDtoAccessTest | U (ArchUnit) | 1 | — | PORT-06 |
 | app.BillingUserBackfillIntegrationTest | I | 14 | 필요 | USR-03 |
-| app.BillingUserBackfillUseCaseTest | U (로컬 HTTP) | 13 | — | USR-03 |
+| app.BillingUserBackfillUseCaseTest | U (로컬 HTTP) | 17 | — | USR-03 |
 | app.BillingUserSyncIntegrationTest | I | 6 | 필요 | USR-01 |
 | app.ChargeIntegrationTest | I | 29 | 필요 | CHG-01~06·08 |
 | app.ChargeUsageHistoryTest | U | 11 | — | REL-01·04, CAP-03 |
@@ -432,6 +437,8 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | global.internal.InternalApiPropertiesTest | U (ACR) | 4 | — | SEC-03 |
 | global.internal.InternalApiSecurityConfigTest | S | 11 | — | SEC-03 |
 | global.scheduling.ConditionalOnSchedulingEnabledTest | U (ACR) | 3 | — | CFG-01 |
+| global.scheduling.JobLockPostgresIntegrationTest | I | 6 | 필요 | CFG-06 |
+| global.scheduling.JobLockTest | U | 10 | — | CFG-06 |
 | in.ApiV1BillingInternalControllerTest | I | 16 | 필요 | PORT-01~03, REL-06 (`voidHold`) |
 | in.ApiV1SettlementEarningControllerTest | I | 10 | 필요 | ERN-03 |
 | in.ApiV1SettlementExchangeAdminControllerTest | I | 4 | 필요 | EXC-07 |
