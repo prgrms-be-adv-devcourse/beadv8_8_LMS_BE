@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -100,6 +102,9 @@ class MemberWithdrawalUseCaseTest {
 
     @Autowired
     ApplicationEvents events;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     @MockitoBean
     RefreshTokenStore refreshTokenStore;
@@ -258,16 +263,120 @@ class MemberWithdrawalUseCaseTest {
     }
 
     @Test
-    @DisplayName("정상 회원이 아니면 탈퇴 작업을 만들지 않고 MEMBER_NOT_FOUND")
-    void notActive() {
+    @DisplayName("이미 탈퇴한 회원이 다시 보내면 아무것도 하지 않고 성공한다 (멱등)")
+    void alreadyWithdrawn() {
         User user = MemberFixture.user();
         ReflectionTestUtils.setField(user, "status", UserStatus.WITHDRAWN);
         User withdrawn = userRepository.save(user);
 
-        assertThatThrownBy(() -> memberWithdrawalUseCase.withdraw(withdrawn.getId()))
+        memberWithdrawalUseCase.withdraw(withdrawn.getId());
+
+        assertThat(withdrawalsOf(withdrawn)).isEmpty();
+        assertThat(walletGate.closed).isEmpty();
+    }
+
+    @Test
+    @DisplayName("정지 회원은 탈퇴 작업을 만들지 않고 MEMBER_NOT_FOUND")
+    void suspended() {
+        User user = MemberFixture.user();
+        ReflectionTestUtils.setField(user, "status", UserStatus.SUSPENDED);
+        User suspended = userRepository.save(user);
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.withdraw(suspended.getId()))
                 .isInstanceOf(MemberException.class)
                 .extracting("errorCode").isEqualTo(MemberErrorCode.MEMBER_NOT_FOUND);
-        assertThat(withdrawalsOf(withdrawn)).isEmpty();
+        assertThat(withdrawalsOf(suspended)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("2분 넘게 멈춘 작업이 있으면 다시 누를 때 지갑을 다시 열어 정리하고 새로 탈퇴한다")
+    void staleRecoveredOnRetry() {
+        User user = userRepository.save(MemberFixture.user());
+        Long stuckId = withdrawalRepository.saveAndFlush(Withdrawal.start(user)).getId();
+        makeStale(stuckId);
+
+        memberWithdrawalUseCase.withdraw(user.getId());
+
+        assertThat(walletGate.reopened).containsExactly(stuckId);
+        assertThat(withdrawalsOf(user)).extracting(Withdrawal::getStatus)
+                .containsExactlyInAnyOrder(WithdrawalStatus.ROLLED_BACK, WithdrawalStatus.COMPLETED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.WITHDRAWN);
+    }
+
+    @Test
+    @DisplayName("복구가 필요한 작업이 있는데 다시 누를 때도 지갑을 다시 열지 못하면 503이고 실패 횟수가 오른다")
+    void recoveryFailsOnRetry() {
+        User user = userRepository.save(MemberFixture.user());
+        Withdrawal stuck = Withdrawal.start(user);
+        stuck.needRecovery("지갑 닫기 결과 불명");
+        Long stuckId = withdrawalRepository.saveAndFlush(stuck).getId();
+        walletGate.reopenFailure = new WithdrawalCallException(WithdrawalCallException.Kind.UNKNOWN_RESULT,
+                "응답 시간 초과", null);
+
+        assertUnavailable(user);
+
+        Withdrawal saved = onlyWithdrawalOf(user);
+        assertThat(saved.getId()).isEqualTo(stuckId);
+        assertThat(saved.getStatus()).isEqualTo(WithdrawalStatus.NEEDS_RECOVERY);
+        assertThat(saved.getAttempts()).isEqualTo(1);
+        assertActive(user);
+    }
+
+    @Test
+    @DisplayName("배치는 복구가 필요한 작업과 2분 넘게 멈춘 작업만 정리하고, 아직 처리 중일 수 있는 작업과 끝난 작업은 두지 않는다")
+    void recoverStuck() {
+        User recoveryUser = userRepository.save(MemberFixture.user());
+        User staleUser = userRepository.save(MemberFixture.user());
+        User freshUser = userRepository.save(MemberFixture.user());
+        User finishedUser = userRepository.save(MemberFixture.user());
+        Withdrawal needsRecovery = Withdrawal.start(recoveryUser);
+        needsRecovery.needRecovery("지갑 닫기 결과 불명");
+        Long recoveryId = withdrawalRepository.saveAndFlush(needsRecovery).getId();
+        Long staleId = withdrawalRepository.saveAndFlush(Withdrawal.start(staleUser)).getId();
+        makeStale(staleId);
+        Long freshId = withdrawalRepository.saveAndFlush(Withdrawal.start(freshUser)).getId();
+        Withdrawal finished = Withdrawal.start(finishedUser);
+        finished.block("[]", LocalDateTime.now());
+        Long finishedId = withdrawalRepository.saveAndFlush(finished).getId();
+        makeStale(finishedId);
+
+        int recovered = memberWithdrawalUseCase.recoverStuck(100);
+
+        assertThat(recovered).isEqualTo(2);
+        assertThat(walletGate.reopened).containsExactlyInAnyOrder(recoveryId, staleId);
+        assertThat(statusOf(recoveryId)).isEqualTo(WithdrawalStatus.ROLLED_BACK);
+        assertThat(statusOf(staleId)).isEqualTo(WithdrawalStatus.ROLLED_BACK);
+        assertThat(statusOf(freshId)).isEqualTo(WithdrawalStatus.CHECKING);
+        assertThat(statusOf(finishedId)).isEqualTo(WithdrawalStatus.BLOCKED);
+    }
+
+    @Test
+    @DisplayName("배치가 지갑을 다시 열지 못하면 실패 횟수만 올리고 다음에 다시 시도한다")
+    void recoverStuckFails() {
+        User user = userRepository.save(MemberFixture.user());
+        Withdrawal needsRecovery = Withdrawal.start(user);
+        needsRecovery.needRecovery("지갑 닫기 결과 불명");
+        Long id = withdrawalRepository.saveAndFlush(needsRecovery).getId();
+        walletGate.reopenFailure = new WithdrawalCallException(WithdrawalCallException.Kind.UNKNOWN_RESULT,
+                "응답 시간 초과", null);
+
+        assertThat(memberWithdrawalUseCase.recoverStuck(100)).isZero();
+        assertThat(memberWithdrawalUseCase.recoverStuck(100)).isZero();
+
+        Withdrawal saved = onlyWithdrawalOf(user);
+        assertThat(saved.getId()).isEqualTo(id);
+        assertThat(saved.getStatus()).isEqualTo(WithdrawalStatus.NEEDS_RECOVERY);
+        assertThat(saved.getAttempts()).isEqualTo(2);
+    }
+
+    /** 처리하던 요청이 멈춘 것처럼 마지막 변경 시각을 5분 전으로 돌린다 */
+    private void makeStale(Long withdrawalId) {
+        jdbcTemplate.update("update members.withdrawal set updated_at = now() - interval '5 minutes' where id = ?",
+                withdrawalId);
+    }
+
+    private WithdrawalStatus statusOf(Long withdrawalId) {
+        return withdrawalRepository.findById(withdrawalId).orElseThrow().getStatus();
     }
 
     private void assertUnavailable(User user) {

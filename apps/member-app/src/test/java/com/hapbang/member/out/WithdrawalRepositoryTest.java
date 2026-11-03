@@ -9,6 +9,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.User;
@@ -27,6 +29,9 @@ class WithdrawalRepositoryTest {
 
     @Autowired
     UserRepository userRepository;
+
+    @Autowired
+    TransactionTemplate transactionTemplate;
 
     @Test
     @DisplayName("막힌 이유 JSON을 저장하고 다시 읽는다")
@@ -69,5 +74,21 @@ class WithdrawalRepositoryTest {
         Withdrawal next = withdrawalRepository.saveAndFlush(Withdrawal.start(user));
 
         assertThat(next.getStatus()).isEqualTo(WithdrawalStatus.CHECKING);
+    }
+
+    @Test
+    @DisplayName("같은 작업을 동시에 바꾸면 늦게 저장하는 쪽이 실패한다 (낙관적 락)")
+    void optimisticLock() {
+        User user = userRepository.save(MemberFixture.user());
+        Long id = withdrawalRepository.saveAndFlush(Withdrawal.start(user)).getId();
+        Withdrawal stale = withdrawalRepository.findById(id).orElseThrow();
+
+        transactionTemplate.executeWithoutResult(status ->
+                withdrawalRepository.findById(id).orElseThrow().rollBack("배치가 먼저 정리", NOW));
+        stale.needRecovery("요청이 늦게 저장");
+
+        assertThatThrownBy(() -> withdrawalRepository.saveAndFlush(stale))
+                .isInstanceOf(ObjectOptimisticLockingFailureException.class);
+        assertThat(withdrawalRepository.findById(id).orElseThrow().getStatus()).isEqualTo(WithdrawalStatus.ROLLED_BACK);
     }
 }

@@ -73,8 +73,11 @@ public enum MemberErrorCode implements BaseErrorCode {
     APPEARANCE_REVIEW_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 출연 리뷰를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."),
     /** 탈퇴 (#593): 남은 돈·진행 중 거래가 있어 막힘. 응답 reasons에 정리할 항목을 모아 준다 */
     WITHDRAWAL_BLOCKED(HttpStatus.CONFLICT, "탈퇴하기 전에 정리할 항목이 있어요."),
-    /** 탈퇴 (#593): 이미 진행 중인 탈퇴가 있음 (두 번 누름 등) */
-    WITHDRAWAL_IN_PROGRESS(HttpStatus.CONFLICT, "탈퇴를 처리하고 있어요. 잠시 후 다시 확인해 주세요."),
+    /**
+     * 탈퇴 (#593): 이미 진행 중인 탈퇴가 있음 (두 번 누름, 처리 도중 멈춤). "2분"은 Withdrawal.STALE_AFTER와 같은 값이다:
+     * 그 뒤에 다시 누르면 멈춘 작업을 정리하고 새로 진행한다
+     */
+    WITHDRAWAL_IN_PROGRESS(HttpStatus.CONFLICT, "이미 탈퇴를 처리하고 있어요. 결과가 나오지 않으면 2분쯤 뒤에 다시 시도해 주세요."),
     /** 탈퇴 (#593): 지갑·출연·강의에 확인하지 못해 진행하지 않음 (되돌렸거나 되돌리는 중) */
     WITHDRAWAL_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 탈퇴할 수 없어요. 잠시 후 다시 시도해 주세요.");
 

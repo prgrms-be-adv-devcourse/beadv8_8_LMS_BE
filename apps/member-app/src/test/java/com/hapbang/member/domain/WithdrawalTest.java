@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.member.fixture.MemberFixture;
 
@@ -91,5 +92,24 @@ class WithdrawalTest {
         withdrawal.needRecovery("x".repeat(Withdrawal.LAST_ERROR_MAX_LENGTH + 10));
 
         assertThat(withdrawal.getLastError()).hasSize(Withdrawal.LAST_ERROR_MAX_LENGTH);
+    }
+
+    @Test
+    @DisplayName("다시 열기에 실패한 작업과 2분 넘게 바뀌지 않은 진행 중 작업은 복구가 필요하고, 그 안의 작업과 끝난 작업은 아니다")
+    void needsRecovery() {
+        Withdrawal failed = Withdrawal.start(MemberFixture.user());
+        failed.needRecovery("지갑 닫기 결과 불명");
+        Withdrawal stale = Withdrawal.start(MemberFixture.user());
+        ReflectionTestUtils.setField(stale, "updatedAt", NOW.minus(Withdrawal.STALE_AFTER));
+        Withdrawal fresh = Withdrawal.start(MemberFixture.user());
+        ReflectionTestUtils.setField(fresh, "updatedAt", NOW.minus(Withdrawal.STALE_AFTER).plusSeconds(1));
+        Withdrawal blocked = Withdrawal.start(MemberFixture.user());
+        blocked.block("[]", NOW);
+        ReflectionTestUtils.setField(blocked, "updatedAt", NOW.minusHours(1));
+
+        assertThat(failed.needsRecovery(NOW)).isTrue();
+        assertThat(stale.needsRecovery(NOW)).isTrue();
+        assertThat(fresh.needsRecovery(NOW)).isFalse();
+        assertThat(blocked.needsRecovery(NOW)).isFalse();
     }
 }

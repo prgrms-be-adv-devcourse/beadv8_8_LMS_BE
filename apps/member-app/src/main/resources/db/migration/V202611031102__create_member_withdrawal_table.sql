@@ -11,6 +11,8 @@ create table members.withdrawal
     attempts           INTEGER                                 not null,
     last_error         VARCHAR(1000),
     completed_at       TIMESTAMP(6) WITHOUT TIME ZONE,
+    -- 낙관적 락 버전. 요청과 복구(재시도·배치)가 같은 작업을 동시에 바꾸면 늦게 저장하는 쪽이 실패한다
+    version            BIGINT                                  not null default 0,
     created_at         TIMESTAMP(6) WITHOUT TIME ZONE,
     updated_at         TIMESTAMP(6) WITHOUT TIME ZONE,
     constraint pk_withdrawal primary key (id),
