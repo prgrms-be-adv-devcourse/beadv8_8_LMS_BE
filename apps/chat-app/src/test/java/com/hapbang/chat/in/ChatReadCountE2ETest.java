@@ -93,7 +93,7 @@ class ChatReadCountE2ETest {
                 .exchange()
                 .expectStatus().isNoContent();
 
-        Frame<Map> update = poll(hostRoom.frames());
+        Frame<Map> update = poll(hostRoom.readCounts());
         assertThat(update.frameType()).isEqualTo("READ_COUNTS");
         assertThat(update.participationVersion()).isEqualTo("1");
         assertThat(update.payload()).containsEntry("type", "READ_COUNTS")
@@ -111,7 +111,7 @@ class ChatReadCountE2ETest {
                 .body(new ReadChatRoomRequest(1L, 1))
                 .exchange()
                 .expectStatus().isNoContent();
-        assertThat(hostRoom.frames().poll(1_500, TimeUnit.MILLISECONDS)).isNull();
+        assertThat(hostRoom.readCounts().poll(1_500, TimeUnit.MILLISECONDS)).isNull();
     }
 
     private ChatMessagePageResponse messages(Long chatRoomId, Long userId) {
