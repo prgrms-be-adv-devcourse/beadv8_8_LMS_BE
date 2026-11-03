@@ -54,12 +54,14 @@ spec:
                 name: billing-app-config
             - secretRef:
                 name: billing-app-secrets
+          # 448Mi에서 운영 working set이 7일 최대 448Mi(100%, 2026-11-03)로 한도에 붙어 512Mi로 올렸다(#608).
+          # heap 상한(MaxRAMPercentage=60)과 heap 밖 약 285Mi의 합이 limit을 넘는 구성은 #610에서 -Xmx로 고친다.
           resources:
             requests:
               cpu: 100m
-              memory: 448Mi
+              memory: 512Mi
             limits:
-              memory: 448Mi
+              memory: 512Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:
