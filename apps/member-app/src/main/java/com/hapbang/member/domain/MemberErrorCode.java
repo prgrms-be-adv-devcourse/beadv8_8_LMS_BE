@@ -70,7 +70,13 @@ public enum MemberErrorCode implements BaseErrorCode {
     /** 등록된 채널이 치지직 조회 결과에 없음 (삭제·정지 등) */
     CHZZK_CHANNEL_NOT_FOUND(HttpStatus.NOT_FOUND, "치지직에서 채널을 찾을 수 없습니다."),
     /** 받은 출연 리뷰 목록: 출연 내부 API를 부를 수 없거나(연결 실패·시간 초과·5xx·Client 없음) 거절됨(내부 키·계약 불일치) (#555) */
-    APPEARANCE_REVIEW_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 출연 리뷰를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.");
+    APPEARANCE_REVIEW_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 출연 리뷰를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    /** 탈퇴 (#593): 남은 돈·진행 중 거래가 있어 막힘. 응답 reasons에 정리할 항목을 모아 준다 */
+    WITHDRAWAL_BLOCKED(HttpStatus.CONFLICT, "탈퇴하기 전에 정리할 항목이 있어요."),
+    /** 탈퇴 (#593): 이미 진행 중인 탈퇴가 있음 (두 번 누름 등) */
+    WITHDRAWAL_IN_PROGRESS(HttpStatus.CONFLICT, "탈퇴를 처리하고 있어요. 잠시 후 다시 확인해 주세요."),
+    /** 탈퇴 (#593): 지갑·출연·강의에 확인하지 못해 진행하지 않음 (되돌렸거나 되돌리는 중) */
+    WITHDRAWAL_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 탈퇴할 수 없어요. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;
