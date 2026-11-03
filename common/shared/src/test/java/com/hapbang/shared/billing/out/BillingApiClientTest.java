@@ -447,7 +447,7 @@ class BillingApiClientTest {
     void 목록_조회는_holds_경로에_GET_쿼리로_보내고_다음_커서를_돌려준다() {
         respond(200, "application/json", """
                 {"statusCode":200,"message":"","data":{"items":[],
-                  "nextUpdatedAfter":"2026-11-03T01:02:03.456789Z","nextAfterId":42}}""");
+                  "nextUpdatedAfter":"2026-11-03T01:02:03.456789Z","nextAfterId":42,"hasMore":true}}""");
 
         BillingCallResult<HoldStatePageDto> result = client().listHolds(BillingReferenceType.LECTURE_ORDER_ITEM,
                 Instant.parse("2026-11-01T00:00:00Z"), 0L, 100);
@@ -459,7 +459,7 @@ class BillingApiClientTest {
                 + "&updatedAfter=2026-11-01T00:00:00Z&afterId=0&size=100");
         assertThat(request.apiKey()).isEqualTo(API_KEY);
         assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldStatePageDto(List.of(),
-                Instant.parse("2026-11-03T01:02:03.456789Z"), 42L)));
+                Instant.parse("2026-11-03T01:02:03.456789Z"), 42L, true)));
     }
 
 

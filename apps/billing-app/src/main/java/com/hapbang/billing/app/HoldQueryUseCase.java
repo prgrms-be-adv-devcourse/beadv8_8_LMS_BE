@@ -38,7 +38,9 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
  *     READ COMMITTED라 조회 사이에 커밋된 처리가 섞일 수 있다. 대사는 다음 실행에서 다시 보므로 잠그지 않는다).</li>
  *     <li>목록 조회는 최근 확정 대기 시간({@code settleWindow}, 기본 10초) 안에 바뀐 보류를 주지 않는다. {@code updated_at}은 커밋이 아니라
  *     플러시 시점의 앱 시각이라, 늦게 커밋된 보류가 이미 지나간 커서 뒤에 끼어 영영 빠질 수 있기 때문이다. 시각 기록 뒤 가장 길게
- *     기다리는 곳은 같은 참조 대상 보류의 UNIQUE 대기이고 락 대기 상한({@code lock_timeout}) 3초에서 끝나므로, 그보다 넉넉히 둔다.</li>
+ *     기다리는 곳은 같은 참조 대상 보류의 UNIQUE 대기이고 락 대기 상한({@code lock_timeout}) 3초에서 끝나므로, 그보다 넉넉히 둔다.
+ *     {@code updated_at}과 기준 시각은 모두 지갑 앱 시각이다. 지갑 앱 인스턴스 하나(replica 1)를 전제로 하며, 여러 인스턴스로
+ *     늘리면 인스턴스 사이 시각 차이만큼 여유가 줄어든다.</li>
  * </ul>
  */
 @Service
@@ -77,7 +79,10 @@ public class HoldQueryUseCase {
         return assemble(referenceType, distinctIds, holds);
     }
 
-    /** 참조 유형별로 (updatedAfter, afterId) 뒤에, 확정 대기 시간보다 전에 바뀐 보류. size + 1개를 읽어 다음 페이지가 있는지 안다 */
+    /**
+     * 참조 유형별로 (updatedAfter, afterId) 뒤에, 확정 대기 시간보다 전에 바뀐 보류. size + 1개를 읽어 다음 페이지가 있는지 안다.
+     * 커서는 마지막 페이지에서도 주어 호출자가 저장해 다음 대사를 이어 시작한다. 커서는 확정 대기 시간을 넘지 않는다.
+     */
     @Transactional(readOnly = true)
     public HoldStatePage changes(BillingReferenceType referenceType, Instant updatedAfter, long afterId, int size) {
         List<PointHold> found = pointHoldRepository.findChangedAfter(referenceType, updatedAfter, afterId,
@@ -87,11 +92,11 @@ public class HoldQueryUseCase {
         Map<Long, PointHold> holds = page.stream()
                 .collect(Collectors.toMap(PointHold::getReferenceId, Function.identity()));
         List<HoldState> items = assemble(referenceType, page.stream().map(PointHold::getReferenceId).toList(), holds);
-        if (!hasNext) {
-            return new HoldStatePage(items, null, null);
+        if (page.isEmpty()) {
+            return new HoldStatePage(items, updatedAfter, afterId, false);
         }
         PointHold last = page.getLast();
-        return new HoldStatePage(items, last.getUpdatedAt(), last.getId());
+        return new HoldStatePage(items, last.getUpdatedAt(), last.getId(), hasNext);
     }
 
     private List<HoldState> assemble(BillingReferenceType referenceType, List<Long> referenceIds,

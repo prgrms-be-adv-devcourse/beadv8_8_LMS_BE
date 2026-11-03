@@ -170,7 +170,8 @@ class HoldQueryApiTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("참조 유형별로 바뀐 순서대로 size개씩 주고, 다음 커서로 이어서 끝까지 읽으면 커서가 null이다. 다른 참조 유형은 섞이지 않는다")
+    @DisplayName("참조 유형별로 바뀐 순서대로 size개씩 주고, hasMore가 false가 될 때까지 커서로 이어 읽는다. 마지막 커서로 다시 부르면 "
+            + "빈 페이지에 같은 커서다. 다른 참조 유형은 섞이지 않는다")
     void listChanged() throws Exception {
         call("/holds", hold(HOST, 31, 1_000)).andExpect(status().isOk());
         call("/holds", hold(HOST, 32, 1_000)).andExpect(status().isOk());
@@ -188,15 +189,27 @@ class HoldQueryApiTest {
                 .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(32, 33)))
                 .andExpect(jsonPath("$.data.nextUpdatedAfter").isString())
                 .andExpect(jsonPath("$.data.nextAfterId").isNumber())
+                .andExpect(jsonPath("$.data.hasMore").value(true))
                 .andReturn().getResponse().getContentAsString();
 
-        list("APPEARANCE_REQUEST", JsonPath.read(first, "$.data.nextUpdatedAfter"),
+        String last = list("APPEARANCE_REQUEST", JsonPath.read(first, "$.data.nextUpdatedAfter"),
                 ((Number) JsonPath.read(first, "$.data.nextAfterId")).longValue(), 2)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(31)))
                 .andExpect(jsonPath("$.data.items[0].hold.released.totalHp").value(500))
-                .andExpect(jsonPath("$.data.nextUpdatedAfter").value(Matchers.nullValue()))
-                .andExpect(jsonPath("$.data.nextAfterId").value(Matchers.nullValue()));
+                .andExpect(jsonPath("$.data.nextUpdatedAfter").isString())
+                .andExpect(jsonPath("$.data.nextAfterId").isNumber())
+                .andExpect(jsonPath("$.data.hasMore").value(false))
+                .andReturn().getResponse().getContentAsString();
+
+        // 다음 대사: 저장한 마지막 커서로 부르면 그 뒤에 바뀐 것만 온다(없으면 빈 페이지에 같은 커서)
+        String cursorAt = JsonPath.read(last, "$.data.nextUpdatedAfter");
+        long cursorId = ((Number) JsonPath.read(last, "$.data.nextAfterId")).longValue();
+        list("APPEARANCE_REQUEST", cursorAt, cursorId, 2)
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.nextUpdatedAfter").value(cursorAt))
+                .andExpect(jsonPath("$.data.nextAfterId").value(cursorId))
+                .andExpect(jsonPath("$.data.hasMore").value(false));
 
         list("LECTURE_ORDER_ITEM", Instant.EPOCH.toString(), 0, 100)
                 .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(41)));
@@ -217,6 +230,26 @@ class HoldQueryApiTest {
                 .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(51, 52)));
         // 참조 대상별 조회는 확정 대기 시간과 관계없다
         query(List.of(52L)).andExpect(jsonPath("$.data[0].hold.status").value("HELD"));
+    }
+
+    @Test
+    @DisplayName("마지막 변경 시각이 같은 보류는 커서의 보류 위치로 나눠, 페이지 경계에서 빠지거나 겹치지 않는다")
+    void listSplitsSameUpdatedAt() throws Exception {
+        call("/holds", hold(HOST, 61, 1_000)).andExpect(status().isOk());
+        call("/holds", hold(HOST, 62, 1_000)).andExpect(status().isOk());
+        jdbcTemplate.update("UPDATE billing.point_hold SET updated_at = date_trunc('second', now()) - interval '5 minutes' "
+                + "WHERE reference_type = ? AND reference_id IN (61, 62)", BillingReferenceType.APPEARANCE_REQUEST.name());
+
+        String first = list("APPEARANCE_REQUEST", Instant.EPOCH.toString(), 0, 1)
+                .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(61)))
+                .andExpect(jsonPath("$.data.hasMore").value(true))
+                .andReturn().getResponse().getContentAsString();
+        String cursorAt = JsonPath.read(first, "$.data.nextUpdatedAfter");
+
+        list("APPEARANCE_REQUEST", cursorAt, ((Number) JsonPath.read(first, "$.data.nextAfterId")).longValue(), 1)
+                .andExpect(jsonPath("$.data.items[*].referenceId").value(Matchers.contains(62)))
+                .andExpect(jsonPath("$.data.nextUpdatedAfter").value(cursorAt))
+                .andExpect(jsonPath("$.data.hasMore").value(false));
     }
 
     @Test

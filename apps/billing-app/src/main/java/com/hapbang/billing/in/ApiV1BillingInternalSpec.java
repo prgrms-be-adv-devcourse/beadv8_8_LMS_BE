@@ -97,8 +97,10 @@ public interface ApiV1BillingInternalSpec {
 
     @Operation(summary = "기간 안에 바뀐 보류 목록 (서비스 간 HP 대사)",
             description = "강의·출연이 지갑에만 있는 보류를 찾을 때 부른다(#577). 참조 유형별로 (updatedAfter, afterId) 뒤에 바뀐 보류를 "
-                    + "마지막 변경 시각·보류 순으로 size개 준다. 항목 모양은 참조 대상별 조회와 같다. 다음 페이지가 있으면 "
-                    + "nextUpdatedAfter·nextAfterId를 다음 요청의 updatedAfter·afterId로 그대로 넘기고, 없으면 둘 다 null이다. "
+                    + "마지막 변경 시각·보류 순으로 size개 준다. 항목 모양은 참조 대상별 조회와 같다. nextUpdatedAfter·nextAfterId는 "
+                    + "항상 있고 이 페이지의 마지막 보류 위치다(빈 페이지면 요청한 커서 그대로). hasMore가 true면 다음 요청의 "
+                    + "updatedAfter·afterId로 그대로 넘기고, false면 멈추고 커서를 저장해 다음 대사를 거기서 시작한다. "
+                    + "최근 10초 안에 바뀐 보류는 주지 않는다. "
                     + "오류: size 1~500 밖·afterId 음수·보류할 수 없는 참조 유형·시각 형식 오류 400 INVALID_REQUEST.")
     @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
             description = API_KEY_DESCRIPTION)

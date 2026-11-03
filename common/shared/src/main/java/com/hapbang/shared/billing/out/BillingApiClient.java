@@ -212,7 +212,8 @@ public class BillingApiClient {
 
     /**
      * 참조 유형별로 {@code updatedAfter} 이후에 바뀐 보류 목록 (#577, "지갑에만 있는 보류" 찾기). 마지막 변경 시각·보류 순이다.
-     * 처음에는 {@code afterId} 0으로 부르고, 다음 페이지는 응답의 {@code nextUpdatedAfter}·{@code nextAfterId}를 그대로 넘긴다.
+     * 처음에는 {@code afterId} 0으로 부르고, 응답의 {@code hasMore}가 true인 동안 {@code nextUpdatedAfter}·{@code nextAfterId}를
+     * 그대로 넘긴다. false면 멈추고 그 커서를 저장해 다음 대사를 거기서 시작한다(커서는 마지막 페이지에서도 온다).
      *
      * @param size 1~{@value HoldStatePageDto#MAX_SIZE}
      */

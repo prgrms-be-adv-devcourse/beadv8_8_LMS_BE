@@ -132,7 +132,7 @@ try {
 | 메서드·경로 | 요청 | 응답 `data` | Client |
 | --- | --- | --- | --- |
 | `POST /api/v1/internal/billing/holds/query` | `HoldQueryCommand{referenceType, referenceIds}`. 참조 ID 1~500개 | `List<HoldStateDto>`: 요청 순서대로, 같은 ID는 한 번 | `queryHolds` |
-| `GET /api/v1/internal/billing/holds?referenceType=&updatedAfter=&afterId=&size=` | 참조 유형, 이 시각 이후(ISO 8601), 커서(처음 0), 건수 1~500(기본 100) | `HoldStatePageDto{items, nextUpdatedAfter, nextAfterId}` | `listHolds` |
+| `GET /api/v1/internal/billing/holds?referenceType=&updatedAfter=&afterId=&size=` | 참조 유형, 이 시각 이후(ISO 8601), 커서(처음 0), 건수 1~500(기본 100) | `HoldStatePageDto{items, nextUpdatedAfter, nextAfterId, hasMore}` | `listHolds` |
 
 `HoldStateDto` (참조 대상 하나)
 
@@ -146,7 +146,7 @@ try {
 
 - 지갑에 기록이 없는 참조 ID도 `hold`·`voided`가 `null`이고 `settlements`가 빈 기록으로 준다. 빠진 ID가 없다.
 - 지갑·보류·원장 ID와 충전 건별 배분은 담지 않는다. HP 종류별 금액은 대사용 조회에서만 준다(다른 내부 API 결과는 합계만 준다).
-- 목록 조회는 마지막 변경 시각·보류 순 키셋이다. 다음 페이지가 있으면 `nextUpdatedAfter`·`nextAfterId`를 다음 요청의 `updatedAfter`·`afterId`로 그대로 넘기고, 없으면 둘 다 `null`이다. `nextAfterId`는 커서 값으로만 쓴다. 보류는 반환·지급될 때마다 마지막 변경 시각이 바뀌어 목록 뒤로 간다. 보류 없이 무효화만 있는 참조 대상은 목록에 없다.
-- 목록 조회는 최근 10초(확정 대기 시간, `hapbang.billing.hold-query.settle-window`) 안에 바뀐 보류를 주지 않는다. 마지막 변경 시각은 커밋이 아니라 기록 시점의 시각이라, 늦게 커밋된 보류가 이미 지나간 커서 뒤에 끼어 영영 빠지는 것을 막기 위해서다. 시각 기록 뒤 가장 오래 기다리는 곳(같은 참조 대상 보류의 UNIQUE 대기)이 락 대기 상한 3초에서 끝나므로 그보다 넉넉히 둔다. 호출자는 커서를 되돌려 겹쳐 읽지 않아도 된다. 참조 대상별 조회에는 이 제한이 없다.
+- 목록 조회는 마지막 변경 시각·보류 순 키셋이다. `nextUpdatedAfter`·`nextAfterId`는 항상 있고 이 페이지의 마지막 보류 위치다(빈 페이지면 요청한 커서 그대로). `hasMore`가 `true`면 다음 요청의 `updatedAfter`·`afterId`로 그대로 넘겨 이어 읽고, `false`면 멈추고 커서를 저장해 다음 대사를 거기서 시작한다. 커서는 확정 대기 시간을 넘지 않으므로 저장한 커서에서 시작해도 빠지는 보류가 없다. `nextAfterId`는 커서 값으로만 쓴다. 마지막 변경 시각이 같은 보류는 커서의 보류 위치로 나뉘어 페이지 경계에서 빠지거나 겹치지 않는다. 보류는 반환·지급될 때마다 마지막 변경 시각이 바뀌어 목록 뒤로 간다. 보류 없이 무효화만 있는 참조 대상은 목록에 없다.
+- 목록 조회는 최근 10초(확정 대기 시간, `hapbang.billing.hold-query.settle-window`) 안에 바뀐 보류를 주지 않는다. 마지막 변경 시각은 커밋이 아니라 기록 시점의 시각이라, 늦게 커밋된 보류가 이미 지나간 커서 뒤에 끼어 영영 빠지는 것을 막기 위해서다. 시각 기록 뒤 가장 오래 기다리는 곳(같은 참조 대상 보류의 UNIQUE 대기)이 락 대기 상한 3초에서 끝나므로 그보다 넉넉히 둔다. 호출자는 커서를 되돌려 겹쳐 읽지 않아도 된다. 참조 대상별 조회에는 이 제한이 없다. 마지막 변경 시각과 기준 시각은 모두 지갑 앱 시각이고, 지갑 앱 인스턴스 하나(replica 1)를 전제로 한다. 여러 인스턴스로 늘리면 인스턴스 사이 시각 차이만큼 여유가 줄어든다.
 - 한 응답 안의 값은 읽기 전용 트랜잭션 하나에서 읽지만 같은 스냅숏은 아니다(READ COMMITTED). 대사 중에 처리가 끼면 다음 대사에서 다시 본다.
 - 오류: 참조 ID 0개·501개 이상, 보류할 수 없는 참조 유형, `size` 1~500 밖, `afterId` 음수, 시각 형식 오류는 400 `INVALID_REQUEST`(`Failed`). 키 없음 401.

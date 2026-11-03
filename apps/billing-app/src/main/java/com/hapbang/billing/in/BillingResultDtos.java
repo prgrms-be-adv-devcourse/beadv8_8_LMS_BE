@@ -51,7 +51,8 @@ final class BillingResultDtos {
     }
 
     static HoldStatePageDto holdStatePage(HoldStatePage page) {
-        return new HoldStatePageDto(holdStates(page.items()), page.nextUpdatedAfter(), page.nextAfterId());
+        return new HoldStatePageDto(holdStates(page.items()), page.nextUpdatedAfter(), page.nextAfterId(),
+                page.hasMore());
     }
 
     private static HoldStateDto holdState(HoldState state) {
