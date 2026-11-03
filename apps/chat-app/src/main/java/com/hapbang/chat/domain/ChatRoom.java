@@ -27,7 +27,8 @@ import lombok.NoArgsConstructor;
  *     모집글마다 현재 방(사용 중·일시 중지)은 하나뿐이다(부분 유일 인덱스 {@code uk_chat_room_group_current}).
  *     폐쇄한 방은 읽기 전용으로 남고 같은 모집글에 새 방을 만들 수 있다.</li>
  *     <li>단체방의 조회 만료는 조회 때 {@code historyExpiresAt}으로 정한다. 그 시각에 도달한 순간부터(같은 시각 포함) 참여자는
- *     볼 수 없다. 기록은 지우지 않는다.</li>
+ *     볼 수 없다. 기록은 지우지 않는다. 조회 만료 배치가 뒤에 상태를 {@link ChatRoomStatus#EXPIRED}로 바꿔 기록하지만,
+ *     노출 차단은 배치 실행 여부와 관계없이 이 시각으로 정한다.</li>
  *     <li>{@code lastSequence}는 방 단위 메시지 순번이다. 방을 잠근 상태에서만 발급한다.</li>
  *     <li>{@code currentRecipientSetId}·{@code activeMemberCount}는 참여 변경 때 방 잠금 아래 참여 행과 함께 바꾼다.
  *     메시지 전달 작업은 저장 시점의 현재 집합 버전을 참조한다.</li>
@@ -165,7 +166,9 @@ public class ChatRoom {
         return historyExpiresAt != null && !now.isBefore(historyExpiresAt);
     }
 
-    /** 응답에 보일 상태. 조회 기간이 끝난 읽기 전용 단체방은 {@link ChatRoomStatus#EXPIRED}다 */
+    /**
+     * 응답에 보일 상태. 조회 기간이 끝난 읽기 전용 단체방은 배치가 아직 상태를 바꾸지 않았어도 {@link ChatRoomStatus#EXPIRED}다
+     */
     public ChatRoomStatus statusAt(LocalDateTime now) {
         return status == ChatRoomStatus.READ_ONLY && isHistoryExpired(now) ? ChatRoomStatus.EXPIRED : status;
     }
@@ -204,6 +207,23 @@ public class ChatRoom {
         this.statusReason = ChatRoomStatusReason.CLOSED_BY_HOST;
         this.readOnlyAt = now;
         this.historyExpiresAt = now.plus(GROUP_HISTORY_RETENTION);
+        this.statusVersion++;
+        this.updatedAt = now;
+    }
+
+    /** 조회 만료 배치가 상태를 바꿀 방인지. 조회 만료 시각에 도달한(같은 시각 포함) 읽기 전용 단체방이다 */
+    public boolean isHistoryExpiryDue(LocalDateTime now) {
+        return isGroup() && status == ChatRoomStatus.READ_ONLY && isHistoryExpired(now);
+    }
+
+    /**
+     * 조회 만료 시각이 지난 읽기 전용 단체방을 {@link ChatRoomStatus#EXPIRED}로 바꾼다(조회 만료 배치). 참여자 노출은 이미 조회 때
+     * 만료 시각으로 막고 있으므로 상태를 맞춰 기록하는 일이다. 읽기 전용 사유·전환 시각·만료 시각은 관리자 기록용으로 그대로 둔다.
+     * 방을 잠근 트랜잭션에서 {@link #isHistoryExpiryDue}를 다시 확인한 뒤 부른다.
+     */
+    public void expireHistory(LocalDateTime now) {
+        Assert.state(isHistoryExpiryDue(now), "조회 만료 시각이 지난 읽기 전용 단체방만 만료할 수 있습니다.");
+        this.status = ChatRoomStatus.EXPIRED;
         this.statusVersion++;
         this.updatedAt = now;
     }

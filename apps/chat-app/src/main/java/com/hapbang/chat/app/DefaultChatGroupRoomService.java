@@ -211,8 +211,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         ChatRoom chatRoom = lockViewableGroup(chatRoomId);
         requireOwner(chatRoom, requesterId);
         LocalDateTime now = LocalDateTime.now();
-        Optional<ChatGroupInviteRequest> stored = chatGroupInviteRequestRepository
-                .findByChatRoomIdAndRequestId(chatRoomId, requestId);
+        // 결과 기록을 잠가 읽는다. 보존 기간이 지난 행을 새 결과로 바꾸기 전에 정리 배치가 지우지 못하게 한다
+        Optional<ChatGroupInviteRequest> stored = chatGroupInviteRequestRepository.findForUpdate(chatRoomId, requestId);
         if (stored.isPresent() && stored.get().isRetained(now, properties.inviteRequestRetention())) {
             // 같은 요청의 재시도(동시에 온 재시도 포함): 저장한 결과를 그대로 돌려주고 다시 초대하지 않는다
             return stored.get().outcomes();
