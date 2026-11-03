@@ -79,19 +79,17 @@ class ChatDeliveryPauseLivenessTest extends ChatDeliveryTestSupport {
                     "version", member.get("participation_version"))));
         });
 
-        // 구독이 돌아왔다. 재확인 간격 상한(200ms)·회수 min-idle(100ms)보다 충분히 오래 실행기처럼 돌린다
+        // 구독이 돌아오면 실행기처럼 재확인하되 발행이 끝난 뒤에는 더 기다리지 않는다.
         fanout.subscribers(1);
         UUID afterRecovery = send("돌아온 뒤");
         relayAll(ChatJobStream.DELIVERY);
-        for (int round = 0; round < 20; round++) {
-            await().pollDelay(Duration.ofMillis(100)).atMost(WAIT).until(() -> true);
+        await().pollInterval(Duration.ofMillis(100)).atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
             processor.reclaim(ChatJobStream.DELIVERY, RECLAIMER, 10);
             processor.pollNew(ChatJobStream.DELIVERY, WORKER);
-        }
-
-        assertThat(checkpoint(afterRecovery).getStatus())
-                .as("구독이 돌아온 뒤 2초 동안 새 작업이 발행되지 않으면 큐가 재시작 전까지 멈춰 있다")
-                .isEqualTo(ChatPublishStatus.PUBLISHED);
+            assertThat(checkpoint(afterRecovery).getStatus())
+                    .as("구독이 돌아온 뒤 2초 안에 새 작업을 발행한다")
+                    .isEqualTo(ChatPublishStatus.PUBLISHED);
+        });
     }
 
     private void withoutConstraints(Runnable statements) {

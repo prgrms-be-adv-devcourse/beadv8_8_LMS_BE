@@ -196,14 +196,17 @@ class DefaultChatConnectionRecheckServiceTest {
         when(connections.connectedAmong(List.of(HOST_ID))).thenReturn(Set.of(HOST_ID));
         when(reader.findChatAllowedUserIds(any())).thenThrow(new QueryTimeoutException("DB 지연"));
 
-        for (int i = 0; i < 5_000; i++) {
+        // 예약이 이미 있는 상태에서 반복 요청해도 하나만 유지하는 정책을 검증한다.
+        // 같은 실패를 수천 번 반복하는 부하 측정은 이 정책 테스트의 범위가 아니다.
+        int requests = 20;
+        for (int i = 0; i < requests; i++) {
             service.recheckUser(HOST_ID);
         }
 
         verify(scheduler, times(1)).schedule(any(Runnable.class), any(Instant.class));
         assertThat(service.pendingRetryUsers()).isEqualTo(1);
         assertThat(meterRegistry.counter(DefaultChatConnectionRecheckService.RETRY_COALESCED_METRIC).count())
-                .isEqualTo(4_999);
+                .isEqualTo(requests - 1);
     }
 
     @Test

@@ -28,3 +28,10 @@ tasks.bootJar {
 tasks.bootRun {
     workingDir = rootDir
 }
+
+tasks.test {
+    // 클래스는 두 JVM으로 나눈다. Testcontainers는 JVM마다 DB·Redis·Kafka를 따로 만들므로
+    // DB 전체 정리와 실행 중인 파이프라인이 다른 worker의 테스트에 섞이지 않는다.
+    // 같은 JVM 안의 테스트 메서드는 순차 실행해 기존 컨텍스트·파이프라인 격리를 유지한다.
+    maxParallelForks = minOf(2, Runtime.getRuntime().availableProcessors())
+}

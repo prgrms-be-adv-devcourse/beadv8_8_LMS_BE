@@ -21,6 +21,9 @@ hapbang:
       key-prefix: local
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
+  clients:
+    appearance:
+      base-url: http://localhost:8083
   # JWT_PRIVATE_KEY가 없으면 시작할 때마다 임시 서명 키를 만든다 (재시작하면 다시 로그인)
   jwt:
     allow-ephemeral-key: true
