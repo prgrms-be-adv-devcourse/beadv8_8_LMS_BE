@@ -102,6 +102,7 @@
   - 주문만 한 충전(PENDING)은 막지 않는다. 닫힌 뒤 승인하면 PG를 부르기 전에 거절된다.
   - 출연·강의 보류(보류 HP)는 그 모듈이 적으므로 지갑은 적지 않는다(2장).
 - 닫힌 지갑: 충전 주문, 충전 승인 시작(PG 호출 전), 새 보류(강의·출연 결제, 환불·환전 신청)를 409 `WALLET_CLOSED`로 거절한다. 이미 생긴 의무(닫기 전에 만든 보류의 재요청, 보류 반환·지급 받기·위약금, 결제 복구)는 받는다. 강의·출연이 `WALLET_CLOSED`를 정상 거절로 처리하는 일은 후속 이슈다.
+- 닫힌 지갑에 들어온 HP는 지갑에 남는다. 환불·환전은 회원이 복구(4.2 다시 열기)한 뒤에 할 수 있다. 지갑은 들어올 때 warn 로그를, 매일 잔액이 남은 닫힌 지갑 수를 지표(`hapbang.billing.wallet.closed.with.balance`)로 낸다(BD-141 (7)). 정상 흐름에서는 출연·강의가 받을 돈이 남은 회원을 3장 조건으로 먼저 막는다.
 - 오류: 같은 `withdrawalId` + 다른 `userId` 409 `IDEMPOTENCY_KEY_CONFLICT`, 다시 열린 `withdrawalId` 409 `WITHDRAWAL_ALREADY_REOPENED`, `userId` 없음 400 `INVALID_REQUEST`, 락 대기 초과 503 `HP_LOCK_TIMEOUT`(처리하지 않음).
 - Client: `shared.billing.out.BillingApiClient.closeForWithdrawal(WithdrawalCloseCommand)` → `WithdrawalCloseResultDto`. 처리 안 됨이 확실하면 `BillingCallException(RETRYABLE)`, 결과 불명이면 `UNKNOWN_RESULT`, 업무 거절은 `BillingCallResult.Failed`.
 

@@ -42,6 +42,7 @@ public class ChangedWalletReconciliationUseCase implements MeterBinder {
 
     static final String WALLETS_METRIC = "hapbang.billing.reconciliation.wallets";
     static final String LAST_SUCCESS_METRIC = "hapbang.billing.reconciliation.last.success";
+    static final String CLOSED_WITH_BALANCE_METRIC = "hapbang.billing.wallet.closed.with.balance";
 
     private final WalletRepository walletRepository;
     private final PointLedgerRepository pointLedgerRepository;
@@ -52,6 +53,7 @@ public class ChangedWalletReconciliationUseCase implements MeterBinder {
     private final AtomicLong mismatchedWallets = new AtomicLong();
     private final AtomicLong failedWallets = new AtomicLong();
     private final AtomicLong lastSuccessEpochSeconds = new AtomicLong();
+    private final AtomicLong closedWalletsWithBalance = new AtomicLong();
     /** 지난 회차에서 재시도 뒤에도 실패해 다음 회차에 창과 관계없이 다시 대사할 지갑 */
     private final SortedSet<Long> carriedOver = new ConcurrentSkipListSet<>();
 
@@ -100,10 +102,30 @@ public class ChangedWalletReconciliationUseCase implements MeterBinder {
         if (failed.isEmpty()) {
             lastSuccessEpochSeconds.set(now.getEpochSecond());
         }
+        checkClosedWallets();
         log.info("잔액 대사 완료 since={}, total={}, matched={}, mismatched={}, retried={}, failed={}", since,
                 result.total(), result.matched(), result.mismatchedWalletIds().size(), retry.size(),
                 result.failedWalletIds().size());
         return result;
+    }
+
+    // 탈퇴로 닫혔는데 쓸 수 있는 HP가 남은 지갑을 센다 (#623, BD-141). 닫힌 뒤 들어온 반환·지급은 환불·환전할 수 없어
+    // 회원이 복구하기 전까지 묶이므로 운영자가 알 수 있게 지표와 warn 로그로 낸다. 대사 대상(최근 변경)과 관계없이 전체를 본다.
+    private void checkClosedWallets() {
+        try {
+            List<Long> walletIds = walletRepository.findClosedIdsWithBalance();
+            closedWalletsWithBalance.set(walletIds.size());
+            if (!walletIds.isEmpty()) {
+                log.warn("잔액이 남은 닫힌 지갑 count={}, walletIds={}", walletIds.size(), walletIds);
+            }
+        } catch (RuntimeException e) {
+            log.warn("잔액이 남은 닫힌 지갑을 세지 못했다", e);
+        }
+    }
+
+    /** 마지막으로 센 잔액이 남은 닫힌 지갑 수(테스트·진단용) */
+    long closedWalletsWithBalance() {
+        return closedWalletsWithBalance.get();
     }
 
     /** 다음 회차로 넘긴 지갑 ID(테스트·진단용) */
@@ -134,6 +156,9 @@ public class ChangedWalletReconciliationUseCase implements MeterBinder {
         Gauge.builder(LAST_SUCCESS_METRIC, lastSuccessEpochSeconds, AtomicLong::get)
                 .description("잔액 대사가 대상 지갑을 모두 대사한(재시도 뒤 failed 0) 마지막 시각(epoch 초). pod가 뜬 뒤 아직 없으면 0")
                 .baseUnit("seconds")
+                .register(registry);
+        Gauge.builder(CLOSED_WITH_BALANCE_METRIC, closedWalletsWithBalance, AtomicLong::get)
+                .description("탈퇴로 닫혔는데 쓸 수 있는 충전·수익 HP가 남은 지갑 수(마지막 잔액 대사 때 셈, #623)")
                 .register(registry);
     }
 

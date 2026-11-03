@@ -41,4 +41,11 @@ public interface WalletRepository extends Repository<Wallet, Long> {
     // 기준 시각 이후 캐시 잔액 등이 바뀐 지갑 ID를 찾는다 (#607, 잔액 대사 대상). idx_wallet_1(updated_at)을 탄다
     @Query("select w.id from Wallet w where w.updatedAt >= :since")
     List<Long> findIdsUpdatedSince(@Param("since") Instant since);
+
+    // 탈퇴로 닫혔는데 쓸 수 있는 충전·수익 HP가 남은 지갑 ID (#623, BD-141). 닫힌 뒤 들어온 반환·지급은 환불·환전할 수 없어 묶인다
+    @Query("""
+            select w.id from Wallet w
+            where w.closedByWithdrawalId is not null and (w.chargeBalanceHp > 0 or w.revenueBalanceHp > 0)
+            order by w.id""")
+    List<Long> findClosedIdsWithBalance();
 }

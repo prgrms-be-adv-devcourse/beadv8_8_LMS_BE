@@ -20,7 +20,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -47,6 +50,7 @@ import com.hapbang.testsupport.IntegrationTest;
 @IntegrationTest
 // 내부 Facade(HoldFacade·WalletWithdrawalFacade)는 내부 호출(ROLE_INTERNAL)만 허용한다
 @WithMockUser(roles = "INTERNAL")
+@ExtendWith(OutputCaptureExtension.class)
 class WalletWithdrawalIntegrationTest {
 
     private static final Instant T1 = Instant.parse("2026-10-01T00:00:00Z");
@@ -80,6 +84,9 @@ class WalletWithdrawalIntegrationTest {
 
     @Autowired
     ExchangeRepository exchangeRepository;
+
+    @Autowired
+    ChangedWalletReconciliationUseCase changedWalletReconciliationUseCase;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -291,8 +298,8 @@ class WalletWithdrawalIntegrationTest {
     }
 
     @Test
-    @DisplayName("닫힌 지갑도 이미 생긴 보류의 반환·재요청과 다른 회원이 보낸 지급은 받는다")
-    void closedWalletKeepsObligations() {
+    @DisplayName("닫힌 지갑도 이미 생긴 보류의 반환·재요청과 다른 회원이 보낸 지급은 받고, 들어온 HP를 warn 로그와 지표로 알린다")
+    void closedWalletKeepsObligations(CapturedOutput output) {
         Long walletId = wallet(1L);
         charge(walletId, 1_000L);
         HoldResult hold = hold(1L, 1001L, 1_000L);
@@ -311,6 +318,11 @@ class WalletWithdrawalIntegrationTest {
         assertThat(closed.getChargeBalanceHp()).isEqualTo(1_000L);
         assertThat(closed.getRevenueBalanceHp()).isEqualTo(2_000L);
         assertThat(walletReconciliationUseCase.reconcile(walletId).matched()).isTrue();
+
+        // 닫힌 뒤 들어온 HP는 환불·환전할 수 없어 묶이므로 운영자가 알 수 있게 한다 (BD-141)
+        assertThat(output).contains("닫힌 지갑에 HP가 들어왔다", "walletId=" + walletId, "closedByWithdrawalId=100");
+        changedWalletReconciliationUseCase.reconcileChanged(Instant.now());
+        assertThat(changedWalletReconciliationUseCase.closedWalletsWithBalance()).isEqualTo(1L);
     }
 
     // ---------------------------------------------------------------------------------------------
