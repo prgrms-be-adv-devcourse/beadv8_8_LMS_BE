@@ -21,6 +21,7 @@ configMapGenerator:
     files:
       - dashboards/gateway.json
       - dashboards/jvm.json
+      - dashboards/kafka.json
       - dashboards/kubernetes.json
     options:
       disableNameSuffixHash: true
