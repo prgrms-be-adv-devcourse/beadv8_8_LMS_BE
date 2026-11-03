@@ -364,9 +364,57 @@ sequenceDiagram
 | 지급 대상 선점 | 매일 01:00 (`lecture.batch.payout-cron`, 기본 `0 0 1 * * *`, D50) | `CONFIRMED` && `payout_scheduled_at <= now` && `objection_status IN (NONE, REJECTED)` → `PAYOUT_PENDING` + PAYOUT 작업 (D59) |
 | HP 작업 실행·재시도 | 1분마다 (`lecture.hp-task.retry-cron`, 기본 `0 * * * * *`, D57) | `PENDING` && `next_attempt_at <= now`, 또는 `PROCESSING` && `lease_until < now` |
 | 강의 이벤트 재발행 | 1분마다 (`lecture.event-republish.cron`, 기본 `5 * * * * *`, D71) | 발행 후 1분이 지난 미완료 강의 이벤트 발행 기록 100건 |
+| 서비스 간 HP 대사 | 매일 04:30:25 (`lecture.batch.hp-reconciliation-cron`, 기본 `25 30 4 * * *`, D74) | 최근 7일 안에 HP 작업이 바뀐 항목 + 커서 뒤에 바뀐 지갑 보류 (10.1) |
 
 - 지갑 동시성 제어 방식(`AGENTS.md` 11장 미정)은 강의 모듈이 정하지 않는다. 강의 모듈은 상태 머신·작업 선점·트랜잭션 경계를 보장하고, 지갑의 보장은 billing 연동 계약(6.2)을 따른다.
 - 스케줄링은 #157에서 켰다(`apps`의 `SchedulingConfig`). 배치 빈은 global `@ConditionalOnSchedulingEnabled`(`hapbang.scheduling.enabled`)를 붙여 앱에서만 실행되고 테스트에서는 꺼진다. 테스트는 처리 빈의 메서드를 직접 호출한다. cron에는 `zone = "Asia/Seoul"`을 쓴다. 새 배치는 `SchedulingEnabledTest`에 등록 확인을 더한다.
+
+### 10.1 서비스 간 HP 대사 (#580, D74)
+
+주문 항목과 지갑은 database가 따로라 항목 상태와 지갑의 보류·지급을 한 트랜잭션으로 맞출 수 없다. 대사의 주체는 강의이고 지갑은 조회 API만 준다(`docs/api/internal-billing.md` 4장, #577). 강의는 매일 주문 항목 상태를 지갑 기록과 비교해 어긋난 건을 남긴다. **고치지 않는다.** 정정은 원인을 확인한 관리자가 기존 수단(HP 작업 재시도·보류 무효화, reference.md 8.2.1)으로 한다. 출연 대사(#581, `docs/appearance/module.md` 25장)와 같은 운영 모양이다.
+
+**비교: 항목 상태 → 지갑, 한 단계.** 상태 전이와 HP 작업 등록이 같은 트랜잭션이라(D57) 작업의 합을 따로 비교하지 않는다. 강의는 늘 전액 반환·전액 지급이라 보류 상태 이름 대신 합계 금액 네 개(`remaining`·`released`·`paid`·`captured`의 `totalHp`)를 비교한다. 금액이 맞으면 상태(`HELD`·`RELEASED`·`PAID`)도 맞다.
+
+| 항목 상태 | 지갑 보류 | 지급 건 |
+| --- | --- | --- |
+| `HOLD_PENDING`·`HOLD_COMPENSATING` | 진행 중이라 비교하지 않음 | |
+| `HOLD_FAILED` | 없음, 무효화, 또는 남은 보류·지급·확정 차감 0 | 없음 |
+| `PURCHASED`·`CONFIRMED`·`CANCEL_PENDING`·`RETURN_PENDING`·`PAYOUT_PENDING` | 최초 = 남은 = 가격, 보류한 회원 = 구매자 | 없음 |
+| `CANCELED`·`RETURNED` | 최초 = 반환 = 가격, 남은 0 | 없음 |
+| `PAID_OUT` | 최초 = 지급 = 가격, 남은 0 | 하나: 원천 `LECTURE_ORDER_ITEM` + 항목 ID, `NORMAL`, 받는 회원 = 판매자, `paidAmountHp` = 가격, `COMPLETED` |
+
+규칙(`LectureHpReconciliationRule`, 출연과 뜻이 같은 규칙은 같은 이름)
+
+| 규칙 | 어긋남 |
+| --- | --- |
+| `HOLD_MISSING` | 결제 실패가 아닌데 보류가 없음 |
+| `HOLD_MISMATCH` | 최초 보류액 ≠ 가격, 또는 보류한 회원 ≠ 구매자 |
+| `HOLD_BALANCE_MISMATCH` | 남은 보류·반환·지급·확정 차감이 기대값과 다름 (예: 취소됐는데 `HELD`) |
+| `HOLD_NOT_CLOSED` | 결제 실패인데 남은 보류·지급·확정 차감이 있음 |
+| `VOIDED_WHILE_ACTIVE` | 결제 실패가 아닌데 무효화 기록이 있음 |
+| `SETTLEMENT_MISSING` | `PAID_OUT`인데 지급 건이 없음 |
+| `SETTLEMENT_MISMATCH` | 지급 건의 원천·유형·받는 회원·금액·상태가 다르거나 2건 이상 |
+| `SETTLEMENT_UNEXPECTED` | `PAID_OUT`이 아닌데 지급 건이 있음 (#142·#182 시절 지급 예정 건 포함) |
+| `WALLET_ONLY_HOLD` | 지갑 보류 목록의 주문 항목 ID가 강의에 없음 |
+| `HP_TASK_DEAD` | 표시만 함. 항목에 `DEAD` 작업이 있어 비교하지 않고 어긋난 건 수에서 뺀다(관리자 HP 작업 화면에서 이미 보인다) |
+
+실행
+
+- **대상**: ① 강의 쪽은 비교 범위(`lookback`, 7일) 안에 HP 작업이 바뀐 주문 항목, ② 지갑 쪽은 저장한 커서 뒤에 바뀐 보류(`listHolds`, `hasMore`가 `false`일 때까지). 둘을 합쳐 500개씩 `queryHolds`로 조회한다. 목록 응답의 상태는 강의를 읽은 시점보다 오래됐을 수 있어 비교에는 `queryHolds` 결과만 쓴다. 목록은 대상 모으기와 지갑에만 있는 보류 찾기에 쓴다.
+- **빼는 것(진행 중)**: 결제 단계(`HOLD_PENDING`·`HOLD_COMPENSATING`), 같은 주문에 `PENDING`·`PROCESSING` 작업이 있는 항목, 마지막 변경이 진행 중 유예(`settle-grace`, 2시간) 안인 항목. 항목에는 변경 시각 컬럼이 없어 마지막 변경은 그 **주문**의 HP 작업 `updated_at`과 항목의 구매·취소·반환·지급 시각 중 가장 늦은 것이다. 결제 단계가 주문 단위라(D58) 다른 항목의 작업도 본다. 유예는 HP 작업 재시도 최대 간격(1시간)보다 길다.
+- **커서**: `lecture_hp_reconciliation_cursor` 한 행. 끝까지 비교한 실행만 앞으로 옮긴다(지갑 `Instant`를 KST로 저장). 처음에는 처음부터 읽는다. 지갑은 최근 10초 안에 바뀐 보류를 주지 않으므로 커서를 되돌려 겹쳐 읽지 않는다.
+- **비교하는 사이의 변경**: 강의를 읽은 뒤 지갑을 조회하기 전에 구매 취소의 즉시 반환이나 HP 작업 배치가 지갑을 바꾸면 거짓 어긋남이 생긴다. 어긋남이 나온 항목만 다시 읽어 항목 버전·상태나 마지막 변경 시각이 달라졌으면 이번에는 남기지 않는다(비교 수에도 넣지 않고 다음 실행이 다시 본다).
+- **지갑 조회 실패**(회로 열림·결과 불명·거절·응답에서 ID 누락): 그 실행을 `INCOMPLETE`로 끝내고 커서를 옮기지 않는다. 그때까지 찾은 어긋남은 남기고, 결과를 모르는 항목은 어긋남으로 세지 않는다.
+- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리). 강의 앱은 `replicas: 1`·`maxSurge: 0`이라 pod가 겹치지 않는다. 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리한다. replica를 늘리면 단일 실행 장치(billing `JobLock` 같은 advisory lock)를 먼저 둔다.
+- **설정** (`lecture.hp-reconciliation.*`): `settle-grace` 2h, `lookback` 7d(유예보다 길어야 기동), `page-size` 500(1~500). 주기는 `lecture.batch.hp-reconciliation-cron`.
+
+결과
+
+- `lecture_hp_reconciliation_run`·`lecture_hp_reconciliation_mismatch`(reference.md 7.1). 오래된 기록은 지우지 않는다. 마이그레이션 `V202611031600`.
+- 경고 로그: 어긋난 건마다 `[LECTURE_HP_RECONCILIATION_MISMATCH] rule=… runId=… orderItemId=… orderId=… itemStatus=… lecture=[…] wallet=[…]`. 끝까지 하지 못하면 경고 한 줄(이유 포함).
+- 지표: `lecture.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `lecture.hp_reconciliation.runs{status}`(끝난 실행 횟수). 알림 규칙은 아직 없다(#343이 생기면 이 지표에 건다).
+- 관리자 API: reference.md 8.2.1.1.
+- 구조: `LectureHpReconciliationUseCase`(흐름·동시 실행·로그·지표), `LectureHpReconciliationComparer`(DB·지갑을 부르지 않는 순수 비교), `LectureHpReconciliationTarget`(항목 하나의 비교 값), `LectureHpReconciliationSupport`(트랜잭션 단위 읽기·기록, 지갑 호출은 트랜잭션 밖), `LectureHpReconciliationAdminFacade`. 지갑은 shared `BillingApiClient.queryHolds`·`listHolds`를 그대로 쓴다(회로·재시도 정책 같음).
 
 ---
 

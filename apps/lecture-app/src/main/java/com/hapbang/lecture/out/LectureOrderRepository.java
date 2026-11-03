@@ -116,6 +116,11 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     @Query("select o from LectureOrder o where o.id = :id")
     Optional<LectureOrder> findForUpdateById(@Param("id") Long id);
 
+    /** 주문 항목들과 그 주문 ID. 서비스 간 HP 대사가 읽는다 (D74). 없는 ID는 빠진다 */
+    @Query("select new com.hapbang.lecture.out.OrderItemWithOrderId(i, i.order.id) from OrderItem i "
+            + "where i.id in :itemIds")
+    List<OrderItemWithOrderId> findItemsWithOrderId(@Param("itemIds") Collection<Long> itemIds);
+
     /** 이 주문 항목이 속한 주문의 ID. 주문을 잠그기 전에 항목 엔티티를 읽지 않도록 ID만 읽는다 */
     @Query("select i.order.id from OrderItem i where i.id = :itemId")
     Optional<Long> findOrderIdByItemId(@Param("itemId") Long itemId);
