@@ -1505,3 +1505,20 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceConfigTest` | `hold-void-after` 기본 1시간 / `pending-grace` 이하(1분·30초) | 1시간 / 앱 기동 실패 |
 
 - 만든 시각(JPA Auditing)은 테스트 시계가 아니라 실제 시각이라, 같은 회차의 서로 다른 나이는 한 건의 `created_at`을 테스트 시계로 맞춰 만든다.
+
+## 35. 모집글·지원 이력 내부 조회 (#586)
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceRecruitInternalApiE2ETest` | 모집글 요약 | 200 `RsData`, `recruitId`·`hostId`·`title`·`status=RECRUITING` |
+| `AppearanceRecruitInternalApiE2ETest` | 상태를 `HOLD_PENDING`·`HOLD_FAILED`·`CLOSED`·`CANCELED`로 바꿈 | 숨기지 않고 각 상태 그대로 |
+| `AppearanceRecruitInternalApiE2ETest` | 없는 모집글 / ID 0 / 숫자 아님 | 404 `APPEARANCE_RECRUIT_NOT_FOUND` / 400 `INVALID_REQUEST` / 400 `INVALID_REQUEST` |
+| `AppearanceRecruitInternalApiE2ETest` | 지원자 4명(지원·수락·미선정·지원 취소, ID 순서와 다른 지원 순서) + 다른 모집글 지원자 | 4명 모두 회원 ID 오름차순, 다른 모집글 지원자 없음, `nextAfterUserId` 키 없음 |
+| `AppearanceRecruitInternalApiE2ETest` | 키셋: `size=3` → `afterUserId=4` / `afterUserId=0` / `size=4`(딱 맞음) / 마지막 뒤 / 지원 없는 모집글 | `[2,3,4]`·다음 4 → `[5]`·다음 없음 / 처음부터 `[2,3,4]` / 4명·다음 없음 / 빈 목록 / 빈 목록 |
+| `AppearanceRecruitInternalApiE2ETest` | `size` 0·501·숫자 아님, `afterUserId` -1 / `size` 500 / 없는 모집글 | 400 `INVALID_REQUEST` / 200 / 404 |
+| `AppearanceRecruitInternalApiE2ETest` | 지원 이력 확인 `userIds=4,6,2,99,4`(6은 다른 모집글 지원자, 2는 지원 취소) / 반복 형식 / 지원 없는 회원만 | `[2,4]` / `[2,4]` / 빈 목록 |
+| `AppearanceRecruitInternalApiE2ETest` | `userIds` 없음·101개·0·숫자 섞임 / 100개 / 없는 모집글 | 400 `INVALID_REQUEST` / 200 / 404 |
+| `AppearanceRecruitInternalApiE2ETest` | 세 경로: 키 없음 / 틀린 키 / 회원 로그인(호스트 본인) / 내부 키 | 본문 없는 401 / 401 / 401 / 200 |
+| `AppearanceSwaggerDocsTest` | 내부 API 스키마 | 세 경로 `RsData` 응답, 모집글 상태 enum 5가지, `nextAfterUserId` 속성 |
+
+- 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.

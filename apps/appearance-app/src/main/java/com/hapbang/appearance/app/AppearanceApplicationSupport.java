@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -48,6 +49,16 @@ public class AppearanceApplicationSupport {
     /** 이 게스트가 이 모집글에 지원한 적이 있는지 (취소·거절된 지원 포함) */
     public boolean existsByRecruitAndGuest(Long recruitId, Long guestId) {
         return appearanceApplicationRepository.existsByRecruitIdAndGuestId(recruitId, guestId);
+    }
+
+    /** 이 모집글에 지원한 적이 있는 게스트 ID, 오름차순 키셋 (#586, 채팅 API에서는 지원자 회원 ID). {@code afterGuestId}보다 큰 것부터 최대 {@code limit}개 */
+    public List<Long> findGuestIdsAfter(Long recruitId, long afterGuestId, int limit) {
+        return appearanceApplicationRepository.findGuestIdsAfter(recruitId, afterGuestId, Limit.of(limit));
+    }
+
+    /** 주어진 게스트 중 이 모집글에 지원한 적이 있는 게스트 ID, 오름차순 (#586, 취소·거절된 지원 포함) */
+    public List<Long> findAppliedGuestIds(Long recruitId, Collection<Long> guestIds) {
+        return appearanceApplicationRepository.findAppliedGuestIds(recruitId, guestIds);
     }
 
     /** 이 게스트의 이 모집글 지원 (모집글 상세의 내 지원). 지원한 적이 없으면 빈 값 */

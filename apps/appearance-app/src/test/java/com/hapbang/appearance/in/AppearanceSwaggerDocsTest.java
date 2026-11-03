@@ -1,5 +1,6 @@
 package com.hapbang.appearance.in;
 
+import static org.hamcrest.Matchers.hasItems;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -195,5 +196,22 @@ class AppearanceSwaggerDocsTest {
                         .value("#/components/schemas/RsDataPageAppearanceReceivedReviewDto"))
                 .andExpect(jsonPath(SCHEMAS + "RsDataPageAppearanceReceivedReviewDto.properties.data['$ref']")
                         .value("#/components/schemas/PagedModelAppearanceReceivedReviewDto"));
+    }
+
+    @Test
+    @DisplayName("모집글 내부 API(#586): 세 경로의 응답 스키마, 모집글 상태 5가지, 다음 페이지 키")
+    void recruitInternalSchema() throws Exception {
+        String recruits = "$.paths['/api/v1/internal/appearances/recruits/{recruitId}";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(recruits + "'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRecruitInternalResDto"))
+                .andExpect(jsonPath(recruits + "/applicants'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRecruitApplicantIdsResDto"))
+                .andExpect(jsonPath(recruits + "/applicants/exists'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRecruitAppliedUserIdsResDto"))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceRecruitInternalResDto.properties.status.enum",
+                        hasItems("HOLD_PENDING", "HOLD_FAILED", "RECRUITING", "CLOSED", "CANCELED")))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceRecruitApplicantIdsResDto.properties.nextAfterUserId").exists());
     }
 }
