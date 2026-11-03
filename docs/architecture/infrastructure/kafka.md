@@ -150,3 +150,4 @@ DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 
 - 같은 event를 두 번 소비해도 projection과 HP 원장 결과가 한 번 처리한 것과 같다.
 - consumer를 중지했다 재시작하면 lag가 줄어들고 DLT를 선택적으로 재처리할 수 있다.
 - Grafana에서 produce/consume rate, consumer lag, retry, DLT를 볼 수 있다. Kafka도 consumer max lag와 fetch rate 감시를 권장한다([공식 모니터링 문서](https://kafka.apache.org/42/operations/monitoring/)).
+  - Grafana `Kafka` dashboard(`hapbang-kafka`, #597)에서 consume·produce rate, consumer lag, listener 실패(재시도 포함)를 본다. DLT 적재 건수는 아직 지표가 없다([관측성](observability.md#dashboard-531-597)).
