@@ -128,4 +128,9 @@ public class AppearanceApplicationSupport {
     private Pageable latestFirst(Pageable pageable) {
         return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), LATEST_FIRST);
     }
+
+    /** 게스트의 지원 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
+    public long countByGuest(Long guestId, AppearanceApplicationStatus status) {
+        return appearanceApplicationRepository.countByGuestIdAndStatus(guestId, status);
+    }
 }
