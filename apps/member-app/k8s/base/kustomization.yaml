@@ -23,3 +23,5 @@ configMapGenerator:
       - DB_USERNAME=member
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
+      # 받은 출연 리뷰 목록 (#555). 출연 앱 내부 포트, NetworkPolicy는 hapbang.io/internal-api-client 라벨로 이미 허용
+      - APPEARANCE_API_BASE_URL=http://appearance-app:8081
