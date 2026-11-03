@@ -13,11 +13,14 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
@@ -27,6 +30,7 @@ import com.hapbang.member.domain.User;
 import com.hapbang.member.out.OAuthAccountRepository;
 import com.hapbang.member.out.PasswordCredentialRepository;
 import com.hapbang.member.out.UserRepository;
+import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,6 +63,20 @@ class MemberOAuthLoginUseCaseTest {
         assertThat(result).isSameAs(user);
         verify(userRepository, never()).save(any());
         verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = UserStatus.class, names = {"SUSPENDED", "WITHDRAWN"})
+    @DisplayName("연결된 회원이 정지·탈퇴 상태면 LOGIN_NOT_ALLOWED (비밀번호 로그인과 같은 규칙, #593)")
+    void login_notActive(UserStatus status) {
+        User user = User.join("tester1@example.com", "tester1");
+        ReflectionTestUtils.setField(user, "status", status);
+        given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
+                .willReturn(Optional.of(OAuthAccount.connect(user, OAuthProvider.GOOGLE, "google-sub-1")));
+
+        assertThatThrownBy(() -> useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "tester1"))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LOGIN_NOT_ALLOWED);
     }
 
     @Test
