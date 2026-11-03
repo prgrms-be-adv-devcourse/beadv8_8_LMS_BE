@@ -74,6 +74,11 @@ hapbang:
   member:
     withdrawal:
       enabled: false
+    # Kafka로 보내지 못한 회원 이벤트 재발행 (#421). 매분(member.batch.event-republish-cron) 실패한 기록만, 발행한 지
+    # min-age가 지난 것을 batch-size건까지 다시 보낸다. 장애가 길어 밀리면 batch-size를 올린다
+    event:
+      republish-batch-size: 500
+      republish-min-age: 1m
   storage:
     s3:
       region: ap-northeast-2

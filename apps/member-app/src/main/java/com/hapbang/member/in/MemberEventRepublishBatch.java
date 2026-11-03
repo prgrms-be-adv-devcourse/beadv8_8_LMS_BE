@@ -1,7 +1,5 @@
 package com.hapbang.member.in;
 
-import java.time.Instant;
-
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +21,6 @@ class MemberEventRepublishBatch {
 
     @Scheduled(cron = "${member.batch.event-republish-cron:5 * * * * *}", zone = "Asia/Seoul")
     void run() {
-        memberEventRepublishUseCase.republishDue(Instant.now());
+        memberEventRepublishUseCase.republishFailed();
     }
 }

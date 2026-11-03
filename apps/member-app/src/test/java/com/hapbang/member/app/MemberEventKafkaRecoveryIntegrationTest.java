@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -173,9 +172,9 @@ class MemberEventKafkaRecoveryIntegrationTest {
 
         startBroker();
 
-        // 재발행 배치가 부르는 UseCase. 테스트에서는 스케줄이 꺼져 있어 직접 부르고, 유예 시간(1분)이 지난 시각을 준다
+        // 재발행 배치가 부르는 UseCase. 테스트에서는 스케줄이 꺼져 있어 직접 부른다(유예 시간은 MemberApp에서 0초)
         MemberEventRepublishUseCase republish = app.getApplicationContext().getBean(MemberEventRepublishUseCase.class);
-        assertThat(republish.republishDue(Instant.now().plus(Duration.ofMinutes(2)))).isEqualTo(1);
+        republish.republishFailed();
 
         // 같은 소비자가 장애 전 레코드에 이어 장애 중 변경을 받는다. 앱은 그대로 떠 있다
         Consumer<String, byte[]> consumer = subscribe();
@@ -186,8 +185,10 @@ class MemberEventKafkaRecoveryIntegrationTest {
         });
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(externalizations(user)).isEmpty());
 
-        // 완료된 기록은 다시 고르지 않는다
-        assertThat(republish.republishDue(Instant.now().plus(Duration.ofMinutes(4)))).isZero();
+        // 완료된 기록은 다시 보내지 않는다: 한 번 더 불러도 잠시 읽는 동안 새 레코드가 오지 않는다
+        republish.republishFailed();
+        received.addAll(poll(consumer, user, Duration.ofSeconds(3)));
+        assertThat(received).extracting(this::nicknameOf).containsExactly("장애전수정", "장애중수정");
     }
 
     @Test
@@ -218,6 +219,8 @@ class MemberEventKafkaRecoveryIntegrationTest {
     @Import(TargetBroker.class)
     @TestPropertySource(properties = {
             "spring.modulith.events.republish-outstanding-events-on-restart=true",
+            // 실패한 기록을 기다리지 않고 바로 다시 보내게 한다(운영은 1분)
+            "hapbang.member.event.republish-min-age=0s",
             "spring.kafka.producer.properties.max.block.ms=3000",
             "spring.kafka.producer.properties.request.timeout.ms=1000",
             "spring.kafka.producer.properties.delivery.timeout.ms=3000"

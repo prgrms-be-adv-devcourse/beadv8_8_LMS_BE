@@ -1,59 +1,52 @@
 package com.hapbang.member.app;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.modulith.events.EventExternalizationConfiguration;
 import org.springframework.modulith.events.IncompleteEventPublications;
+import org.springframework.modulith.events.ResubmissionOptions;
 import org.springframework.stereotype.Service;
 
-import lombok.extern.slf4j.Slf4j;
-
 /**
- * 회원 이벤트 Kafka 재발행 (#421, kafka.md "발행": 발행하는 앱마다 반드시 둔다). Kafka로 보내지 못해 발행 기록이 미완료로 남은
- * 회원 이벤트를 앱이 떠 있는 동안 다시 보낸다.
+ * 회원 이벤트 Kafka 재발행 (#421, kafka.md "발행": 발행하는 앱마다 반드시 둔다). Kafka로 보내지 못한 회원 이벤트를 앱이 떠 있는
+ * 동안 다시 보낸다.
  * <ul>
  *     <li>Modulith는 기동할 때만 미완료 기록을 다시 보낸다({@code republish-outstanding-events-on-restart}). broker가 producer
- *     재시도 시간(약 2분)보다 오래 멈췄다 돌아오면, 이 배치가 없을 때는 다음 배포까지 다른 앱의 회원 복제본과 지갑 생성이 밀린다.</li>
- *     <li>발행한 지 대기 시간({@code pendingGrace})이 지난 기록만 가져간다. 커밋 직후 보내는 중인 기록과 겹치지 않게 하기 위해서다.</li>
- *     <li>겹치거나 서버 여러 대가 같이 다시 보내 두 번 가거나 순서가 바뀌어도, 받는 쪽이 회원 버전({@code memberVersion})으로
+ *     재시도 시간보다 오래 멈췄다 돌아오면, 이 배치가 없을 때는 다음 배포까지 다른 앱의 회원 복제본과 지갑 생성이 밀린다.</li>
+ *     <li>{@link ResubmissionOptions}로 <b>실패(FAILED)한 기록만</b> 다시 보낸다. 아직 전송 중(producer가 스스로 재시도 중)인 기록은
+ *     건드리지 않아 같은 이벤트를 겹쳐 보내지 않는다. DB에서 실패한 기록을 {@code batchSize}건까지만 읽고, 다시 보내는 중인 기록이
+ *     {@code batchSize}건이면 그 회차는 건너뛴다.</li>
+ *     <li>발행한 지 {@code minAge}가 지난 기록만 고른다. 실제로 Kafka로 내보내는 이벤트인지는 외부화 설정
+ *     ({@link EventExternalizationConfiguration#supports})으로 판단해 기준을 하나로 둔다.</li>
+ *     <li>서버 여러 대가 같이 다시 보내 두 번 가거나 순서가 바뀌어도, 받는 쪽이 회원 버전({@code memberVersion})으로
  *     거른다(분산 락 없음, kafka.md).</li>
- *     <li>Kafka로 내보내는 회원 이벤트({@link MemberExternalEvents})만, 한 번에 최대 {@code batchSize}건, 오래된 기록부터 보낸다.
- *     나머지는 다음 주기에 보낸다.</li>
  * </ul>
  */
-@Slf4j
 @Service
 public class MemberEventRepublishUseCase {
 
     private final IncompleteEventPublications incompleteEventPublications;
-    private final Duration pendingGrace;
-    private final int batchSize;
+    private final ResubmissionOptions options;
 
     public MemberEventRepublishUseCase(IncompleteEventPublications incompleteEventPublications,
-                                       @Value("${member.event.republish-pending-grace:1m}") Duration pendingGrace,
-                                       @Value("${member.event.republish-batch-size:100}") int batchSize) {
+                                       EventExternalizationConfiguration externalization,
+                                       @Value("${hapbang.member.event.republish-batch-size:500}") int batchSize,
+                                       @Value("${hapbang.member.event.republish-min-age:1m}") Duration minAge) {
         this.incompleteEventPublications = incompleteEventPublications;
-        this.pendingGrace = pendingGrace;
-        this.batchSize = batchSize;
+        this.options = ResubmissionOptions.defaults()
+                .withBatchSize(batchSize)
+                .withMaxInFlight(batchSize)
+                .withMinAge(minAge)
+                .withFilter(publication -> externalization.supports(publication.getEvent()));
     }
 
-    /**
-     * @return 다시 보낸 기록 수
-     */
-    public int republishDue(Instant now) {
-        Instant publishedBefore = now.minus(pendingGrace);
-        AtomicInteger selected = new AtomicInteger();
-        incompleteEventPublications.resubmitIncompletePublications(publication ->
-                MemberExternalEvents.isExternalized(publication.getEvent())
-                        && publication.getPublicationDate().isBefore(publishedBefore)
-                        && selected.incrementAndGet() <= batchSize);
-        int republished = Math.min(selected.get(), batchSize);
-        if (republished > 0) {
-            log.warn("Kafka로 못 보낸 회원 이벤트 재발행 count={}, waiting={}, batchSize={}", republished,
-                    selected.get() - republished, batchSize);
-        }
-        return republished;
+    /** 실패한 회원 이벤트 발행 기록을 다시 보낸다. 보낼 것이 없으면 아무것도 하지 않는다 */
+    public void republishFailed() {
+        incompleteEventPublications.resubmitIncompletePublications(options);
+    }
+
+    ResubmissionOptions options() {
+        return options;
     }
 }
