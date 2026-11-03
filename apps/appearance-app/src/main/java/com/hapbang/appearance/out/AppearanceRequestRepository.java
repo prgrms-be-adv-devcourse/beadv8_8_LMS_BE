@@ -43,4 +43,8 @@ public interface AppearanceRequestRepository extends JpaRepository<AppearanceReq
             """)
     List<Long> findIdsByStatusAndCreatedBefore(@Param("status") AppearanceRequestStatus status,
                                                @Param("cutoff") LocalDateTime cutoff, Pageable pageable);
+
+    /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 요청서 ID */
+    @Query("select r.id from AppearanceRequest r where r.updatedAt >= :since")
+    List<Long> findIdsUpdatedSince(@Param("since") LocalDateTime since);
 }

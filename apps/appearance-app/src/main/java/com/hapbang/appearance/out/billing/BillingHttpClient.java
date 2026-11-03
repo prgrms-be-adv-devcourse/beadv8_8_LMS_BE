@@ -1,9 +1,16 @@
 package com.hapbang.appearance.out.billing;
 
+import java.time.Instant;
+import java.util.List;
+
 import org.springframework.stereotype.Component;
 
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldStateDto;
+import com.hapbang.shared.billing.dto.HoldStatePageDto;
 import com.hapbang.shared.billing.dto.HoldVoidCommand;
 import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
@@ -55,6 +62,17 @@ public class BillingHttpClient implements BillingClient {
     @Override
     public BillingCallResult<HoldVoidResultDto> voidHold(HoldVoidCommand command) {
         return billingApiClient.voidHold(command);
+    }
+
+    @Override
+    public BillingCallResult<List<HoldStateDto>> queryHolds(HoldQueryCommand command) {
+        return billingApiClient.queryHolds(command);
+    }
+
+    @Override
+    public BillingCallResult<HoldStatePageDto> listHolds(BillingReferenceType referenceType, Instant updatedAfter,
+                                                         long afterId, int size) {
+        return billingApiClient.listHolds(referenceType, updatedAfter, afterId, size);
     }
 
     @Override

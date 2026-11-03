@@ -214,4 +214,20 @@ class AppearanceSwaggerDocsTest {
                         hasItems("HOLD_PENDING", "HOLD_FAILED", "RECRUITING", "CLOSED", "CANCELED")))
                 .andExpect(jsonPath(SCHEMAS + "AppearanceRecruitApplicantIdsResDto.properties.nextAfterUserId").exists());
     }
+
+    @Test
+    @DisplayName("관리자 HP 대사 실행·마지막 결과는 RsData로 감싼 실행 결과이고, 어긋난 건 목록과 규칙 값을 담는다 (#581)")
+    void hpReconciliationSchema() throws Exception {
+        String paths = "$.paths['/api/v1/appearances/admin/hp-reconciliations";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(paths + "'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataHpReconciliationRunResDto"))
+                .andExpect(jsonPath(paths + "/latest'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataHpReconciliationRunResDto"))
+                .andExpect(jsonPath(SCHEMAS + "HpReconciliationRunResDto.properties.mismatches.items['$ref']")
+                        .value("#/components/schemas/HpReconciliationMismatchResDto"))
+                .andExpect(jsonPath(SCHEMAS + "HpReconciliationMismatchResDto.properties.rule.enum")
+                        .value(org.hamcrest.Matchers.hasItems("HP_TASK_MISMATCH", "WALLET_ONLY_HOLD", "HP_TASK_DEAD")));
+    }
 }

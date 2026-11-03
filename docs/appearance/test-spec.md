@@ -1522,3 +1522,40 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceSwaggerDocsTest` | 내부 API 스키마 | 세 경로 `RsData` 응답, 모집글 상태 enum 5가지, `nextAfterUserId` 속성 |
 
 - 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
+
+## 36. 서비스 간 HP 대사 (#581)
+
+출연은 실제 흐름(보내기·수락·확인·취소·모집 마감)으로 만들고, 지갑 기록은 Mockito 대역에 손으로 적는다(출연료 30,000, 위약금 9,000). 변경 시각(JPA Auditing)은 실제 시각이라 테스트가 SQL로 3시간 전으로 맞춘 뒤 실행한다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceHpReconciliationTest` | 요청서 요청 중(HELD)·거절(RELEASED)·확인(PAID + 지급 건)·일방 취소(MIXED + 위약금)·불참(RELEASED) | 5건 비교, 어긋남 0, 규칙별 지표 0 |
+| `AppearanceHpReconciliationTest` | 모집글 3명 중 2명 선발 → 조기 마감(빈자리 반환) → 확인 1·일방 취소 1 | 어긋남 0 |
+| `AppearanceHpReconciliationTest` | 모집 중 합의 취소(작업 없음), 보류 전부 남음 | 어긋남 0 |
+| `AppearanceHpReconciliationTest` | 보류 실패 요청서: 보류 없음 / 무효화로 반환됨 | 어긋남 0 |
+| `AppearanceHpReconciliationTest` | 거절했는데 보류 `HELD` | `HOLD_BALANCE_MISMATCH`, 상태 요약·경고 로그 태그·지표 1 |
+| `AppearanceHpReconciliationTest` | 출연 확인인데 지급 건 없음 / 일방 취소인데 위약금 지급 건 없음 | `SETTLEMENT_MISSING` (출연 ID) |
+| `AppearanceHpReconciliationTest` | 모집 마감 뒤 남은 보류 ≠ 남은 출연료 합 | `HOLD_BALANCE_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 마감 뒤 빈자리 반환 작업이 없음(출연 쪽 누락) | `HP_TASK_MISMATCH` + `HOLD_BALANCE_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 요청 중인데 지갑 보류가 반환·무효화됨 | `VOIDED_WHILE_ACTIVE` + `HOLD_BALANCE_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 지갑 목록에만 있는 요청서 ID | `WALLET_ONLY_HOLD`, 보류 조회로 다시 묻지 않음 |
+| `AppearanceHpReconciliationTest` | 보류 없음 / 보류한 회원이 다름 | `HOLD_MISSING` / `HOLD_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 지급 건 받는 회원이 다름 / 작업에 없는 지급 건 | `SETTLEMENT_MISMATCH` / `SETTLEMENT_UNEXPECTED` |
+| `AppearanceHpReconciliationTest` | 보류 실패인데 보류가 남음 | `HOLD_NOT_CLOSED` |
+| `AppearanceHpReconciliationTest` | 유예(2시간) 안의 변경 / `HOLD_PENDING` / 재시도 대기 작업 | 비교 안 함, 보류 조회 없음 |
+| `AppearanceHpReconciliationTest` | 비교 범위(7일) 밖 변경 → 지갑 목록에 오면 | 처음엔 비교 안 함 → 지갑 목록으로 다시 봐 `HOLD_BALANCE_MISMATCH` |
+| `AppearanceHpReconciliationTest` | 격리 작업이 있음 | `HP_TASK_DEAD` 표시, DEAD 수 1, 어긋난 수 0, 보류 조회 없음 |
+| `AppearanceHpReconciliationTest` | 보류 조회 결과 불명 / 목록 거절 / 회로 열림 | `INCOMPLETE`(이유), 커서 저장 안 함, 지표 그대로 / 회로 열림이면 지갑 호출 없음 |
+| `AppearanceHpReconciliationTest` | 요청서 비교 뒤 모집글 목록에서 실패 | `INCOMPLETE`, 그때까지의 어긋남 1건은 남음 |
+| `AppearanceHpReconciliationTest` | 목록 `hasMore` 두 페이지 → 다음 실행 | 응답 커서로 이어 읽고 마지막 커서를 KST로 저장, 다음 실행은 그 커서에서 시작 |
+| `AppearanceHpReconciliationTest` | 출연을 읽은 뒤 지갑 조회 전에 작업이 바뀜 / 바뀌었지만 어긋남 없음 | 어긋남 안 남김·비교 수 0, 다음 실행에서 `HOLD_BALANCE_MISMATCH` / 다시 읽지 않고 비교 수 1 |
+| `AppearanceHpReconciliationTest` | 관리자 실행 중 다시 실행 / 배치 | 409 `HP_RECONCILIATION_RUNNING` / 건너뜀(null), 끝나면 다시 실행 가능 |
+| `AppearanceHpReconciliationTest` | 앱이 멈춰 `RUNNING`으로 남은 실행 | 다음 실행 시작 때 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행) |
+| `AppearanceHpReconciliationHttpTest` | Mock Billing: 목록 GET·조회 POST | 내부 API 키, 쿼리(참조 유형·처음 커서·500건), JSON 본문(참조 유형·ID 목록), 응답 해석, 커서 KST 저장 |
+| `AppearanceHpReconciliationHttpTest` | Mock Billing: 조회 500 | `INCOMPLETE`, 커서 저장 안 함 |
+| `AppearanceHpReconciliationAdminApiE2ETest` | 기록 없음 → 실행 → 마지막 결과 | 404 `HP_RECONCILIATION_NOT_FOUND` → 200 `COMPLETED`·어긋난 건 → 200 같은 실행 |
+| `AppearanceHpReconciliationAdminApiE2ETest` | 회로 열림 | 200 `INCOMPLETE` + 이유 |
+| `AppearanceHpReconciliationAdminApiE2ETest` | 관리자 아님 / 비로그인 / 권한 잃은 관리자 | 403 / 401 / 403 `NOT_ADMIN`, 실행 기록 없음 |
+| `AppearanceBatchScheduleTest` | HP 대사 cron | 매일 04:00:25(KST), 매분 배치 초와 겹치지 않음, 배치 9개 등록, UseCase 호출 |
+| `AppearanceConfigTest` | 기본값 / 유예 음수·범위 ≤ 유예·건수 0·501 | 2h·7d·500 / 앱 기동 실패 |
+| `AppearanceSwaggerDocsTest` | 실행·마지막 결과 | `RsDataHpReconciliationRunResDto`, 어긋난 건 목록·규칙 값 |

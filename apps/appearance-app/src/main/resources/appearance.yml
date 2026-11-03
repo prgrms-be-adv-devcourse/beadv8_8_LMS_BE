@@ -41,6 +41,8 @@ appearance:
     cancel-auto-reject-cron: "30 * * * * *"
     hp-task-retry-cron: "40 * * * * *"
     auto-confirm-cron: "50 * * * * *"
+    # 서비스 간 HP 대사 (#581): 매일 04:00:25. 매분 도는 배치들과 겹치지 않는 25초
+    hp-reconciliation-cron: "25 0 4 * * *"
     # 한 번 실행할 때 처리할 최대 건수 (나머지는 다음 주기)
     batch-size: 100
     # 방금 시작된 처리(보내기·거절 직후 즉시 실행, 커밋 직후 Kafka 보내기)와 겹치지 않도록 이 시간이 지난 것만 배치가 가져간다
@@ -52,3 +54,11 @@ appearance:
     retry-max-delay: 1h
     retry-max-attempts: 10
     retry-jitter-ratio: 0.2
+  # 서비스 간 HP 대사 (#581): 요청서·모집글·출연 상태와 지갑 보류·지급을 비교해 어긋난 건을 남긴다(고치지 않음)
+  hp-reconciliation:
+    # 진행 중으로 보고 빼는 시간: 대상·출연·HP 작업이 이 시간 안에 바뀌었으면 비교하지 않는다 (HP 작업 재시도 최대 간격 1시간보다 길게)
+    settle-grace: 2h
+    # 출연 쪽 비교 범위: 이 기간 안에 바뀐 요청서·모집글. 지갑 쪽 변경은 지갑 보류 목록 커서로 모은다
+    lookback: 7d
+    # 지갑 조회 한 번의 건수 (최대 500)
+    page-size: 500

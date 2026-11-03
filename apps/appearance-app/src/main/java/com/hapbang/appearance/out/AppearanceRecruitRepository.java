@@ -57,4 +57,8 @@ public interface AppearanceRecruitRepository extends JpaRepository<AppearanceRec
             """)
     List<Long> findIdsByStatusAndDeadlinePassed(@Param("status") AppearanceRecruitStatus status,
                                                 @Param("now") LocalDateTime now, Pageable pageable);
+
+    /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 모집글 ID */
+    @Query("select r.id from AppearanceRecruit r where r.updatedAt >= :since")
+    List<Long> findIdsUpdatedSince(@Param("since") LocalDateTime since);
 }
