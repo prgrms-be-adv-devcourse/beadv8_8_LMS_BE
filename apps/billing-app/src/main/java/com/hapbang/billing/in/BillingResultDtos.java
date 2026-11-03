@@ -1,11 +1,19 @@
 package com.hapbang.billing.in;
 
+import java.util.List;
+
 import com.hapbang.billing.app.HoldResult;
+import com.hapbang.billing.app.HoldState;
+import com.hapbang.billing.app.HoldStatePage;
 import com.hapbang.billing.app.HoldVoidResult;
 import com.hapbang.billing.app.PayoutResult;
 import com.hapbang.billing.app.PenaltyResult;
 import com.hapbang.billing.app.ReleaseResult;
+import com.hapbang.shared.billing.domain.BillingHoldStatus;
+import com.hapbang.shared.billing.domain.BillingSettlementStatus;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldStateDto;
+import com.hapbang.shared.billing.dto.HoldStatePageDto;
 import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
@@ -35,6 +43,34 @@ final class BillingResultDtos {
         return new PayoutResultDto(result.referenceType(), result.referenceId(), command.payoutRequestId(),
                 command.receiverUserId(), result.sourceType(), result.sourceId(), result.paidHp(),
                 result.remainingHeldHp(), result.replayed());
+    }
+
+    // 서비스 간 HP 대사 조회 결과 (#577). 지갑 Enum은 같은 이름의 shared Enum으로 바꾼다(상수 일치는 테스트가 확인한다)
+    static List<HoldStateDto> holdStates(List<HoldState> states) {
+        return states.stream().map(BillingResultDtos::holdState).toList();
+    }
+
+    static HoldStatePageDto holdStatePage(HoldStatePage page) {
+        return new HoldStatePageDto(holdStates(page.items()), page.nextUpdatedAfter(), page.nextAfterId(),
+                page.hasMore());
+    }
+
+    private static HoldStateDto holdState(HoldState state) {
+        HoldState.Hold hold = state.hold();
+        HoldState.Voided voided = state.voided();
+        return new HoldStateDto(state.referenceType(), state.referenceId(),
+                hold == null ? null : new HoldStateDto.Hold(BillingHoldStatus.valueOf(hold.status().name()),
+                        hold.payerUserId(), amount(hold.original()), amount(hold.remaining()), amount(hold.released()),
+                        amount(hold.paid()), amount(hold.captured())),
+                voided == null ? null : new HoldStateDto.Voided(voided.outcome(), voided.releasedHp()),
+                state.settlements().stream().map(settlement -> new HoldStateDto.Settlement(settlement.sourceType(),
+                        settlement.sourceId(), settlement.payoutType(), settlement.receiverUserId(),
+                        settlement.grossAmountHp(), settlement.paidAmountHp(),
+                        BillingSettlementStatus.valueOf(settlement.status().name()))).toList());
+    }
+
+    private static HoldStateDto.Amount amount(HoldState.Amount amount) {
+        return new HoldStateDto.Amount(amount.chargeHp(), amount.revenueHp(), amount.totalHp());
     }
 
     static HoldVoidResultDto holdVoid(HoldVoidResult result) {
