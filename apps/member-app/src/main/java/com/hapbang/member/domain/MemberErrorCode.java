@@ -36,6 +36,12 @@ public enum MemberErrorCode implements BaseErrorCode {
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."),
     LOGIN_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "로그인에 여러 번 실패했어요. 15분 뒤에 다시 시도해 주세요."),
     LOGIN_NOT_ALLOWED(HttpStatus.FORBIDDEN, "탈퇴했거나 이용할 수 없는 회원입니다."),
+    /** 탈퇴했지만 복구 기한 안 (#593). 응답에 restoreTicket·restorableUntil을 싣고 프론트가 "복구할까요?"를 보여 준다 */
+    WITHDRAWN_RESTORABLE(HttpStatus.CONFLICT, "탈퇴한 계정이에요. 복구하면 다시 이용할 수 있어요."),
+    /** 복구 (#593): 복구 티켓이 없거나 만료됨(10분). 다시 로그인하면 새 티켓을 받는다 */
+    INVALID_RESTORE_TICKET(HttpStatus.UNAUTHORIZED, "복구 요청이 만료됐어요. 다시 로그인해 주세요."),
+    /** 복구 (#593): 탈퇴 때 닫은 지갑을 다시 열지 못해 복구하지 않음. 티켓이 남아 있어 그대로 다시 시도하면 된다 */
+    RESTORE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 복구할 수 없어요. 잠시 후 다시 시도해 주세요."),
     EMAIL_REGISTERED_WITH_PASSWORD(HttpStatus.CONFLICT, "이미 비밀번호로 가입된 이메일입니다. 이메일과 비밀번호로 로그인해 주세요."),
     PASSWORD_NOT_SET(HttpStatus.CONFLICT, "비밀번호로 가입한 회원만 비밀번호를 바꿀 수 있습니다."),
     INVALID_CURRENT_PASSWORD(HttpStatus.BAD_REQUEST, "현재 비밀번호가 올바르지 않습니다."),
@@ -70,7 +76,16 @@ public enum MemberErrorCode implements BaseErrorCode {
     /** 등록된 채널이 치지직 조회 결과에 없음 (삭제·정지 등) */
     CHZZK_CHANNEL_NOT_FOUND(HttpStatus.NOT_FOUND, "치지직에서 채널을 찾을 수 없습니다."),
     /** 받은 출연 리뷰 목록: 출연 내부 API를 부를 수 없거나(연결 실패·시간 초과·5xx·Client 없음) 거절됨(내부 키·계약 불일치) (#555) */
-    APPEARANCE_REVIEW_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 출연 리뷰를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.");
+    APPEARANCE_REVIEW_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 출연 리뷰를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    /** 탈퇴 (#593): 남은 돈·진행 중 거래가 있어 막힘. 응답 reasons에 정리할 항목을 모아 준다 */
+    WITHDRAWAL_BLOCKED(HttpStatus.CONFLICT, "탈퇴하기 전에 정리할 항목이 있어요."),
+    /**
+     * 탈퇴 (#593): 이미 진행 중인 탈퇴가 있음 (두 번 누름, 처리 도중 멈춤). "2분"은 Withdrawal.STALE_AFTER와 같은 값이다:
+     * 그 뒤에 다시 누르면 멈춘 작업을 정리하고 새로 진행한다
+     */
+    WITHDRAWAL_IN_PROGRESS(HttpStatus.CONFLICT, "이미 탈퇴를 처리하고 있어요. 결과가 나오지 않으면 2분쯤 뒤에 다시 시도해 주세요."),
+    /** 탈퇴 (#593): 지갑·출연·강의에 확인하지 못해 진행하지 않음 (되돌렸거나 되돌리는 중) */
+    WITHDRAWAL_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 탈퇴할 수 없어요. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

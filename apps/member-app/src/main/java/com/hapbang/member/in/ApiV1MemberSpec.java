@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
 
 import com.hapbang.member.global.response.RsData;
 
@@ -66,4 +67,21 @@ public interface ApiV1MemberSpec {
     @Operation(summary = "프로필 사진 삭제",
             description = "로그인한 회원 본인. 프로필 사진 연결만 해제한다 (S3 파일은 지우지 않는다). 사진이 없어도 200.")
     RsData<MemberMeResponse> deleteProfileImage(Long userId);
+
+    @Operation(summary = "탈퇴 회원 복구",
+            description = "로그인하지 않고 부른다 (#593). 탈퇴하고 30일 안에 로그인하면 409 WITHDRAWN_RESTORABLE(비밀번호 로그인) 또는 "
+                    + "/login?error=WITHDRAWN_RESTORABLE&restoreTicket=…(구글 로그인)으로 복구 티켓(10분)을 받는다. "
+                    + "이 티켓으로 부르면 탈퇴 때 닫은 지갑을 다시 열고 계정을 되살린 뒤, 로그인처럼 refresh token 쿠키와 내 정보를 준다. "
+                    + "티켓이 없거나 만료되면 401 INVALID_RESTORE_TICKET(다시 로그인), 지갑을 열지 못하면 503 RESTORE_UNAVAILABLE"
+                    + "(복구하지 않음, 티켓은 남아 그대로 다시 시도), 복구 기한이 지났으면 403 LOGIN_NOT_ALLOWED.")
+    ResponseEntity<RsData<MemberMeResponse>> restore(RestoreRequest request);
+
+    @Operation(summary = "회원 탈퇴",
+            description = "로그인한 회원 본인 (#593). 지갑·출연·강의에 탈퇴해도 되는지 확인한 뒤 탈퇴한다. "
+                    + "성공하면 204이고 refresh token 쿠키를 지운다(그 회원의 refresh token은 서버에서도 모두 폐기). "
+                    + "이미 탈퇴했으면 그대로 204. 남은 돈·진행 중 거래가 있으면 409 WITHDRAWAL_BLOCKED + reasons"
+                    + "[{code, message, availableAt?}](모든 앱의 이유를 한 번에, 회원이 정리한 뒤 다시 탈퇴), "
+                    + "이미 처리 중이면 409 WITHDRAWAL_IN_PROGRESS, 다른 앱을 부를 수 없으면 503 WITHDRAWAL_UNAVAILABLE. "
+                    + "탈퇴 기능이 꺼져 있으면 404. 30일 안에 다시 로그인하면 복구할 수 있다.")
+    ResponseEntity<Void> withdraw(Long userId);
 }

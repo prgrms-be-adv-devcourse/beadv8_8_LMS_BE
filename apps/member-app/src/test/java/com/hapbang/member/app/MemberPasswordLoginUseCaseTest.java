@@ -16,6 +16,7 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -25,6 +26,7 @@ import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.LoginAttemptStore;
+import com.hapbang.member.out.RestoreTicketStore;
 import com.hapbang.member.out.PasswordCredentialRepository;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -41,7 +43,12 @@ class MemberPasswordLoginUseCaseTest {
     void setUp() {
         passwordCredentialRepository = mock(PasswordCredentialRepository.class);
         loginAttemptStore = mock(LoginAttemptStore.class);
-        useCase = new MemberPasswordLoginUseCase(passwordCredentialRepository, passwordEncoder, loginAttemptStore);
+        // 탈퇴 기능이 꺼진 판단(복구 티켓 없음)으로 둔다. 복구 티켓 판단은 MemberLoginGuardTest가 확인한다
+        @SuppressWarnings("unchecked")
+        ObjectProvider<MemberWithdrawalUseCase> withdrawalDisabled = mock(ObjectProvider.class);
+        MemberLoginGuard memberLoginGuard = new MemberLoginGuard(withdrawalDisabled, mock(RestoreTicketStore.class));
+        useCase = new MemberPasswordLoginUseCase(passwordCredentialRepository, passwordEncoder, loginAttemptStore,
+                memberLoginGuard);
     }
 
     @Test
@@ -86,12 +93,12 @@ class MemberPasswordLoginUseCaseTest {
     }
 
     @Test
-    @DisplayName("비밀번호가 맞아도 정지·탈퇴 회원이면 LOGIN_NOT_ALLOWED")
+    @DisplayName("비밀번호가 맞아도 정지·탈퇴 회원이면 LOGIN_NOT_ALLOWED이고, 비밀번호는 맞았으니 실패 횟수는 지운다")
     void login_inactiveMember() {
         registered("tester1@example.com", "abcd1234", UserStatus.SUSPENDED);
 
         assertError(() -> useCase.login("tester1@example.com", "abcd1234"), MemberErrorCode.LOGIN_NOT_ALLOWED);
-        verify(loginAttemptStore, never()).reset(anyString());
+        verify(loginAttemptStore).reset("tester1@example.com");
     }
 
     @Test
