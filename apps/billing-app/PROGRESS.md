@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-11-02 (#562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-11-03 (#577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -48,6 +48,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #537 | Gateway 사용자 헤더 인증: `GatewayUserHeaderFilter`(`X-User-Id`·`X-User-Role`), `SecurityConfig` STATELESS·CSRF 없음, 강의 앱 잔재 `GET /api/v1/lectures` 공개 규칙 삭제. 지갑 회원 확인 `WalletMemberCheck`: 충전 주문·승인·환불 신청·환전 신청에서 `billing_user` 상태·역할 확인(없음 404 `WALLET_MEMBER_NOT_FOUND`, 부적격 403 `WALLET_MEMBER_NOT_ALLOWED`, 정지 회원 환불은 허용). 테스트 로그인 `TestLogin` → `fixture.GatewayLogin`, `GatewayUserHeaderFilterTest`, 충전·환불·환전 컨트롤러 테스트 `walletMember_*`, policy.md 2장(BD-131) | `feature/tkt-537` | (PR 전) | 구현 완료 |
 | #552 | prod 첫 배포 준비: actuator 관리 포트 8082·Prometheus 노출(`deployment`·`networkpolicy`·`kustomization`, `SecurityConfig` `/actuator/prometheus` 공개, `ManagementPortTest`), Hikari pool 10 명시(연결 수 최악 80/100, `database.md` 5항), 데이터 이관 없음 확인(#440), 회원 Backfill이 관리자가 아닌 회원 지갑도 생성(`walletsEnsured`, BD-132), 첫 배포 절차(`docs/deploy/k8s.md`, port-forward Backfill, BD-133). 로컬 k3d 최소 구성으로 8082 수집·NetworkPolicy·Backfill·리스너 재기동을 확인(k8s.md 기록, RSS 380Mi/448Mi) | `feature/tkt-552` | (PR 전) | 구현 완료 |
 | #564 | 배포 전 정리: 회원 이벤트 DLT 복구는 도구 없이 운영 절차(kafka CLI 확인 → 원인 수정 → 관리자 Backfill, `docs/deploy/k8s.md`, BD-136, 로컬 k3d로 한 건 복구 확인), `V202610301400` 주석 정정은 문서로만(BD-124·BD-130, `module.md` 8.2), capture 내부 API 비노출(BD-135, `internal-billing.md`) | `feature/tkt-564` | (PR 전) | 완료 (문서) |
+| #577 | 서비스 간 HP 대사용 보류·지급 조회 내부 API: `POST holds/query`(1~500개)·`GET holds`(키셋, Flyway `V202611031200` `idx_point_hold_2`), `HoldQueryFacade`·`HoldQueryUseCase`, HP 종류별 금액, shared `HoldQueryCommand`·`HoldStateDto`·`HoldStatePageDto`·`BillingHoldStatus`·`BillingSettlementStatus`, `BillingApiClient.queryHolds`·`listHolds`(GET 지원)(BD-137) | `feature/tkt-577` | (PR 전) | 구현 완료 |
 | #562 | 나가는 호출 circuit breaker: `out.OutboundCircuitBreakers`(회로 `lecture`·`appearance`·`member`·`toss`, `hapbang.billing.outbound.*`, 지표), 수익 조회 연결 실패 1회 재시도, Backfill 회로, `TossPaymentsClient` 회로(`Unknown`만 실패, 열리면 `Unknown(CIRCUIT_OPEN)`), 충전·환불 신청 503, 결과 확인 배치 `TossCircuitGate`, billing Gradle에 resilience4j 추가(BD-134) | `feature/tkt-562` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.

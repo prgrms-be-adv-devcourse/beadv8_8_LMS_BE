@@ -1,5 +1,7 @@
 package com.hapbang.billing.out;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.repository.Repository;
@@ -18,4 +20,8 @@ public interface HoldVoidRepository extends Repository<HoldVoid, Long> {
 
     // 참조 대상이 무효화됐는지 확인한다.
     boolean existsByReferenceTypeAndReferenceId(BillingReferenceType referenceType, Long referenceId);
+
+    // 참조 대상들의 보류 무효화 기록 (#577, 서비스 간 HP 대사)
+    List<HoldVoid> findAllByReferenceTypeAndReferenceIdIn(BillingReferenceType referenceType,
+                                                          Collection<Long> referenceIds);
 }
