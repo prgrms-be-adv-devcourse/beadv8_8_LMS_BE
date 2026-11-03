@@ -20,10 +20,9 @@ SonarQube Cloud는 GitHub Actions 분석, PR decoration, quality gate 실패 시
 
 | 우선순위 | 항목 | 결정 | 보여 줄 증거 |
 | --- | --- | --- | --- |
-| Must | Testcontainers + Toxiproxy | 도입 | 실제 PostgreSQL·Kafka·Redis 통합 test와 지연·단절·복구 |
+| Must | Testcontainers 장애 test | 도입 (컨테이너 pause·stop, Toxiproxy 없음) | 실제 PostgreSQL·Kafka·Redis 통합 test와 단절·복구 |
 | Must | 모듈별 Gradle test fixtures | 도입 | test data builder·fake의 소유권과 소비 관계 |
-| Must | Kafka event schema + contract compatibility | 도입 (레포 schema 파일, CI 검사. registry 서버 없음) | breaking schema 차단, version별 샘플 contract test |
-| Must | OpenAPI·AsyncAPI contract CI | 도입 | HTTP/event 계약의 문서화와 호환성 검증 |
+| Must | OpenAPI contract CI | 도입 | HTTP 계약의 문서화와 호환성 검증 |
 | Must | Spring AI + Elasticsearch hybrid RAG | 고객센터에 도입 | BM25/vector/RRF 비교, 근거 검색·출처 반환·답변 거절과 RAG 평가 |
 | Must | JFR + JDK Mission Control | 도입 | k6 부하 중 CPU·allocation·GC·lock 근거와 전후 비교 |
 | Must | Terraform 현행 AWS 구성 | import-first로 도입 | 실제 배포 자원의 구성과 drift 검증 |
@@ -47,16 +46,24 @@ Gradle 공식 plugin은 `src/testFixtures` source set과 별도 consumable varia
 
 완료 기준은 `:test-support`의 9개 공통 infrastructure class는 유지되고, 업무 모듈의 builder·object mother·fake만 `src/testFixtures`로 이동하며, `apps` E2E가 다른 모듈의 entity fixture를 새로 직접 참조하지 않는 것이다.
 
-### Testcontainers + Toxiproxy
+### Testcontainers 장애 test
 
-repository·serialization·멱등 consumer test는 mock broker가 아니라 Testcontainers의 PostgreSQL, Kafka, Redis를 사용한다. Toxiproxy를 application과 dependency 사이에 두고 latency, timeout, connection cut을 test code에서 재현한다. Testcontainers 공식 Toxiproxy module도 이 구성을 client resilience와 multi-container 장애 시험 용도로 제공한다([공식 문서](https://java.testcontainers.org/modules/toxiproxy/)).
+repository·serialization·멱등 consumer test는 mock broker가 아니라 Testcontainers의 PostgreSQL, Kafka, Redis를 사용한다. 장애는 Toxiproxy 없이 컨테이너와 listener를 직접 멈춰 만든다(#339, 2026-11-03).
+
+- **broker·DB 단절**: 공유 컨테이너를 `docker pause`/`unpause`한다(`KAFKA.getDockerClient().pauseContainerCmd(...)`). 도우미는 `:test-support`의 Testcontainers 설정 class에 둔다. Kafka 컨테이너는 stop/start하면 포트가 바뀌어 client가 다시 붙지 못하므로 pause를 쓴다. 컨테이너를 JVM 전체가 같이 쓰므로 `finally`에서 반드시 되살린다.
+- **Redis 단절**: 고정 포트 컨테이너를 stop/start한다(chat-app `FixedPortRedis`, `ChatRedisOutageE2ETest`).
+- **consumer 중단**: Kafka listener container를 `KafkaListenerEndpointRegistry`에서 꺼내 `stop()`/`start()`한다. Redis 구독은 `ChatSubscriptionOutageE2ETest`가 같은 방식으로 멈춘다.
+- **응답 유실**: `KafkaTemplate`을 spy로 감싸 broker에는 도착했지만 앱은 실패로 받는 상황을 만든다(`BillingEventKafkaTest.republish()`).
+- producer `max.block.ms`처럼 기다리는 시간이 긴 client 설정은 test에서 몇 초로 줄인다.
+
+Toxiproxy를 쓰지 않는 이유: 완료 조건에 필요한 장애는 멈춤과 복구뿐이고, Toxiproxy만 만들 수 있는 느린 응답·대역폭 제한 시나리오는 없다. 프록시 컨테이너와 client 연결 경로를 하나 더 두는 비용만 생긴다. timeout 직전의 지연을 재현해야 하는 요구가 생기면 Testcontainers 공식 Toxiproxy module([공식 문서](https://java.testcontainers.org/modules/toxiproxy/))로 다시 검토한다.
 
 최소 장애 test matrix는 다음과 같다.
 
 - Kafka publish 응답 유실 → Modulith publication 재발행 → consumer 결과 한 번
-- Kafka consumer 처리 중 connection cut → retry/DLT → inbox 중복 0건
+- Kafka broker pause 중 발행·소비 → unpause 뒤 미완료 publication 재발행과 backlog 소비 → 중복 처리 0건
 - 채팅 relay 선점 직후 종료 → lease 회수, XADD 직후 DB 기록 전 종료 → 중복 적재 흡수·옛 claimToken 무시, Stream 소비/PUBLISH/DB 체크포인트/XACK 사이 종료 → PEL 회수·중복 흡수, Stream 유실 → DB 미완료 작업 재구성
-- PostgreSQL commit 응답 timeout → 같은 command 재시도 → HP 원장 불변식 유지
+- PostgreSQL 컨테이너 pause로 commit 응답 timeout → 같은 command 재시도 → HP 원장 불변식 유지
 
 ### Spring AI + Elasticsearch — 고객센터 근거 기반 답변
 
@@ -128,29 +135,19 @@ Chroma, Weaviate, Milvus도 Spring AI가 지원한다. 그러나 Qdrant와 같�
 
 판단: **Elasticsearch를 Vector DB로 선택한다.** 검색용으로 반드시 배포할 process를 고객센터 RAG도 물리적으로 공유하므로 pgvector·Qdrant·Redis Vector를 함께 운영하지 않는다. 위 대안 표는 선택 과정의 기록이며 구현 후보 목록이 아니다. Elasticsearch에는 검색·RAG index만 두고 telemetry는 저장하지 않는다.
 
-### Kafka schema와 API/event contract
+### Kafka 이벤트 계약과 OpenAPI contract
 
-schema registry 서버(Apicurio, Confluent 등)는 **두지 않는다.** 앱이 따로 배포되므로(#363) version이 다른 producer와 consumer가 꽤 오래 함께 돌 수 있다. 예를 들어 billing-app만 먼저 배포된 경우다. 이 문제는 runtime registry 대신 아래 두 가지로 막는다.
+schema registry 서버(Apicurio, Confluent 등)는 **두지 않는다.** 앱이 따로 배포되므로(#363) version이 다른 producer와 consumer가 꽤 오래 함께 돌 수 있다. 예를 들어 billing-app만 먼저 배포된 경우다. 이 문제는 runtime registry 대신 아래 규칙으로 막는다.
 
-- 레포 schema 파일과 CI 호환성 검사가 breaking 변경을 PR 단계에서 막는다.
-- **배포 순서 규칙**: 깨지는 변경은 같은 토픽에 새 레코드 타입(`eventVersion`을 올린 것)으로 더한다. 두 타입을 받는 consumer 앱을 먼저 배포하고, 그 뒤에 producer 앱이 새 타입으로 바꾼다. 옛 consumer는 모르는 타입을 무시한다([1장](kafka.md#이벤트-버전)).
-
-registry 서버는 메모리 예산([3장](k3s.md#ec2-2노드-자원-예산))에 들어가지 않고, 위 두 가지가 막지 못하는 문제가 아직 없다.
-
-대신 schema를 **레포의 파일**로 관리하고 **CI에서 호환성을 검사**한다.
-
-- 이벤트 payload는 JSON Schema 파일로 `shared`에 둔다. 예: `shared/src/main/resources/events/lecture/LectureOrderConfirmed.v1.json`. 이벤트 record와 schema가 어긋나지 않게, record에서 schema를 생성해 커밋된 파일과 비교하는 test를 둔다.
-- 메시지는 schema ID 없이 일반 JSON으로 직렬화한다. header에 `eventType`과 `eventVersion`을 싣는다.
 - **호환 규칙**: 같은 `eventVersion` 안에서는 필드 추가(선택 필드)만 허용한다. 삭제, 이름 변경, 타입 변경, 필수 필드 추가는 금지한다. 그런 변경은 `eventVersion`을 올린 새 레코드 타입을 같은 토픽에 더한다([1장](kafka.md#이벤트-버전)).
-- **CI 검사**: AsyncAPI 문서가 topic과 message payload schema를 함께 담는다. CI에서 `asyncapi validate`와 `asyncapi diff`로 `dev` 기준 문서와 비교하고, breaking 변경이면 실패시킨다([AsyncAPI CLI 공식 문서](https://www.asyncapi.com/docs/tools/cli/usage)).
-- **transitive 보장**: diff는 직전 version과만 비교한다. 그래서 version별 **샘플 payload**를 레포에 남기고, 현재 consumer가 모든 이전 version 샘플을 읽을 수 있는지 contract test로 확인한다. registry의 `FULL_TRANSITIVE` 검사를 이 test가 대신한다.
+- **배포 순서 규칙**: 두 타입을 받는 consumer 앱을 먼저 배포하고, 그 뒤에 producer 앱이 새 타입으로 바꾼다. 옛 consumer는 모르는 타입을 무시한다([1장](kafka.md#이벤트-버전)).
+- **계약 검증**: producer와 consumer가 `shared`의 같은 레코드를 컴파일하고, 소비 test(Testcontainers)가 실제 Kafka에서 읽는다. 메시지는 schema ID 없이 일반 JSON으로 직렬화하고 header에 `eventType`과 `eventVersion`을 싣는다.
 
-계약은 두 층으로 나눈다.
+registry 서버는 메모리 예산([3장](k3s.md#ec2-2노드-자원-예산))에 들어가지 않고, 위 규칙이 막지 못하는 문제가 아직 없다.
 
-- OpenAPI: 외부 HTTP endpoint, request/response, `ProblemDetail`, `RsData`
-- AsyncAPI: Kafka topic/channel, message header, payload JSON Schema, producer/consumer 관계
+**이벤트 schema 파일과 CI 호환성 검사는 하지 않는다(#339, 2026-11-03).** 계획했던 AsyncAPI 문서, `shared`의 JSON Schema 파일, `asyncapi validate`·`asyncapi diff` CI, version별 샘플 payload contract test를 모두 뺐다. 그래서 같은 `eventVersion` 안의 깨지는 변경을 PR 단계에서 자동으로 막는 장치는 없고, 위 호환 규칙과 리뷰로 막는다.
 
-CI는 생성된 OpenAPI를 `dev` 기준 spec과 비교하고 backward-incompatible 변경이면 실패시킨다. `openapi-diff`는 `--fail-on-incompatible` 검사를 제공한다([공식 저장소](https://github.com/OpenAPITools/openapi-diff)). schema 변경 PR에서는 old producer/new consumer와 new producer/old consumer contract test도 실행한다.
+HTTP 계약은 OpenAPI로 관리한다(외부 HTTP endpoint, request/response, `ProblemDetail`, `RsData`). CI는 생성된 OpenAPI를 `dev` 기준 spec과 비교하고 backward-incompatible 변경이면 실패시킨다. `openapi-diff`는 `--fail-on-incompatible` 검사를 제공한다([공식 저장소](https://github.com/OpenAPITools/openapi-diff)).
 
 registry는 배포 순서 규칙을 지킬 수 없게 될 때 다시 검토한다. 예를 들어 같은 event를 소비하는 앱이 많아져 순서를 맞추기 어려워질 때다. 이 경우 broker를 schema registry가 내장된 Redpanda로 바꾸는 방안도 함께 비교한다([1장](kafka.md#broker-선택--apache-kafka와-redpanda)).
 
@@ -195,6 +192,8 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 
 ### 지금 넣지 않는 것
 
+- **Toxiproxy**: 장애 test는 컨테이너 pause·stop과 listener stop으로 만든다(위 "Testcontainers 장애 test"). 느린 응답을 재현해야 할 때 다시 검토한다.
+- **AsyncAPI와 이벤트 schema CI 검사**: 이벤트 계약은 `shared` 레코드와 호환·배포 순서 규칙으로 관리한다(위 "Kafka 이벤트 계약과 OpenAPI contract").
 - **Debezium**: 현재 Spring Modulith publication/outbox externalization과 같은 DB→Kafka 전달 책임을 하나 더 만든다. CDC 자체를 비교하는 별도 실험이 아니라면 제외한다.
 - **Spring Cloud Gateway, k3s 내장 Traefik**: Gateway 책임은 Envoy Gateway가 맡는다([3장 "API Gateway"](api-gateway.md)).
 - **nginx(edge nginx, Ingress NGINX controller)**: 진입점은 Envoy Gateway 하나다. Ingress NGINX controller는 2026년 3월에 은퇴해 보안 수정도 나오지 않는다.
