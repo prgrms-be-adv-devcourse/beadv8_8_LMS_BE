@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +23,8 @@ import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.global.exception.BusinessException;
+import com.hapbang.member.global.exception.GlobalErrorCode;
 import com.hapbang.shared.member.domain.Role;
 
 import lombok.RequiredArgsConstructor;
@@ -48,6 +51,8 @@ public class MemberFacade {
     private final MemberPasswordChangeUseCase memberPasswordChangeUseCase;
     private final MemberAppearanceRatingUseCase memberAppearanceRatingUseCase;
     private final MemberAppearanceReviewUseCase memberAppearanceReviewUseCase;
+    /** 탈퇴 기능 스위치가 켜졌을 때만 있다 (#593) */
+    private final ObjectProvider<MemberWithdrawalUseCase> memberWithdrawalUseCase;
 
     // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
     private static final String USER_ONLY = "hasRole('USER')";
@@ -201,6 +206,18 @@ public class MemberFacade {
     /** 프로필 사진 조회 URL (응답을 만들 때 쓴다). 사진이 없으면 null */
     public String profileImageUrl(String key) {
         return memberProfileImageUseCase.urlOf(key);
+    }
+
+    /**
+     * 회원 탈퇴 (#593). 탈퇴 기능 스위치가 꺼져 있으면 없는 기능처럼 404.
+     * 다른 앱(지갑·출연·강의) 내부 API를 부르므로 트랜잭션을 두지 않는다 (오케스트레이터가 단계마다 짧게 연다)
+     */
+    public void withdraw(Long userId) {
+        MemberWithdrawalUseCase useCase = memberWithdrawalUseCase.getIfAvailable();
+        if (useCase == null) {
+            throw new BusinessException(GlobalErrorCode.NOT_FOUND);
+        }
+        useCase.withdraw(userId);
     }
 
     /** 로그인 토큰 발급 (access token + refresh token, #370) */

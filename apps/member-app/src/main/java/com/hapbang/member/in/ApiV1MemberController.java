@@ -5,6 +5,8 @@ import java.util.Map;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -31,6 +33,7 @@ import lombok.RequiredArgsConstructor;
 public class ApiV1MemberController implements ApiV1MemberSpec {
 
     private final MemberFacade memberFacade;
+    private final RefreshTokenCookies refreshTokenCookies;
 
     /** 내 정보 조회 */
     @Override
@@ -88,6 +91,16 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         User user = memberFacade.uploadProfileImage(userId, memberId, request.getContentType(),
                 request.getContentLengthLong(), request.getInputStream());
         return RsData.ok("프로필 사진을 바꿨습니다.", meResponse(user));
+    }
+
+    /** 회원 탈퇴 (#593). 성공하면 로그아웃처럼 refresh token 쿠키도 지운다. 이미 탈퇴했으면 그대로 성공 */
+    @Override
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> withdraw(@LoginUserId Long userId) {
+        memberFacade.withdraw(userId);
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.expire().toString())
+                .build();
     }
 
     /** 프로필 사진 삭제 (DB에서만 연결 해제, S3 파일은 그대로) */
