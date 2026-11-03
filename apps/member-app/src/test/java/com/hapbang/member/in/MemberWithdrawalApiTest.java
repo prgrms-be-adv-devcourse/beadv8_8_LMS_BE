@@ -1,6 +1,8 @@
 package com.hapbang.member.in;
 
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.BDDMockito.given;
@@ -22,12 +24,14 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.app.MemberWithdrawalUseCase;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
@@ -58,6 +62,12 @@ class MemberWithdrawalApiTest {
 
     @MockitoBean
     RestoreTicketStore restoreTicketStore;
+
+    @Autowired
+    MemberFacade memberFacade;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     @Test
     @DisplayName("탈퇴하면 204이고 refresh token 쿠키를 지운다")
@@ -118,6 +128,27 @@ class MemberWithdrawalApiTest {
     void notLoggedIn() throws Exception {
         mockMvc.perform(delete("/api/v1/members/me"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("30일 안의 탈퇴 회원이 비밀번호로 로그인하면 409이고, 복구 티켓은 본문이 아니라 쿠키로 준다 (#633)")
+    void passwordLoginRestorable() throws Exception {
+        User user = memberFacade.signUp("withdrawn1@example.com", "abcd1234", "withdrawn1");
+        jdbcTemplate.update("update members.users set status = 'WITHDRAWN', deleted_at = now() where id = ?", user.getId());
+        given(restoreTicketStore.issue(user.getId())).willReturn("ticket-1");
+
+        mockMvc.perform(post("/api/v1/members/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\": \"withdrawn1@example.com\", \"password\": \"abcd1234\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("WITHDRAWN_RESTORABLE"))
+                .andExpect(jsonPath("$.restorableUntil").exists())
+                .andExpect(jsonPath("$.restoreTicket").doesNotExist())
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, allOf(
+                        startsWith(RestoreTicketCookies.NAME + "=ticket-1;"),
+                        containsString("Path=/api/v1/members/restore"),
+                        containsString("HttpOnly"),
+                        containsString("SameSite=Strict"))));
     }
 
     @Test
