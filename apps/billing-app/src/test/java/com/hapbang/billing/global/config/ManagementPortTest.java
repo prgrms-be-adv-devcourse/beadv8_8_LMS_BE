@@ -96,6 +96,10 @@ class ManagementPortTest {
         // 배치·Backfill 실행 락이 건너뛴 횟수 (#598). 건너뛴 일이 없어도 작업·이유마다 0으로 나온다
         assertThat(metrics.body()).contains("hapbang_billing_job_lock_skipped_total{job=\"charge-recovery\",reason=\"held\"}")
                 .contains("hapbang_billing_job_lock_skipped_total{job=\"member-backfill\",reason=\"error\"}");
+        // 잔액 대사 결과 (#607). 첫 실행 전에도 0으로 나온다
+        assertThat(metrics.body()).contains("hapbang_billing_reconciliation_wallets{result=\"mismatched\"}")
+                .contains("hapbang_billing_reconciliation_wallets{result=\"failed\"}")
+                .contains("hapbang_billing_reconciliation_last_success_seconds");
 
         assertThat(get(managementPort, "/actuator/health/liveness").statusCode()).isEqualTo(200);
         assertThat(get(managementPort, "/actuator/health/readiness").statusCode()).isEqualTo(200);

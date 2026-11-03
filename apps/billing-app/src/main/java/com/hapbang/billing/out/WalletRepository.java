@@ -1,5 +1,6 @@
 package com.hapbang.billing.out;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -36,4 +37,8 @@ public interface WalletRepository extends Repository<Wallet, Long> {
 
     // 지갑 ID로 회원 ID를 찾는다 (#577, 서비스 간 HP 대사의 보류한 회원)
     List<Wallet> findAllByIdIn(Collection<Long> ids);
+
+    // 기준 시각 이후 캐시 잔액 등이 바뀐 지갑 ID를 찾는다 (#607, 잔액 대사 대상). idx_wallet_1(updated_at)을 탄다
+    @Query("select w.id from Wallet w where w.updatedAt >= :since")
+    List<Long> findIdsUpdatedSince(@Param("since") Instant since);
 }
