@@ -143,5 +143,5 @@ chat-app의 `spring.datasource.hikari.maximum-pool-size` 기본값은 20이다. 
 - 상태: 1:1 방은 `ACTIVE`·`ENDED`, 단체방은 `ACTIVE`·`SUSPENDED`·`READ_ONLY`를 저장한다. `EXPIRED`는 저장하지 않고 응답에서만 쓴다(관리자 기록). 단체방은 모두 나가도 `ENDED`가 되지 않는다.
 - 단체방 안내는 `chat_message`의 `message_type = 'SYSTEM'`, `content = ''`, `notification_kind`(종류), `notification_data`(값)에 남긴다. `reference_id`는 null이라 출연 알림의 `uk_chat_message_notification`에 걸리지 않는다([알림 값 계약](notification-data.md)).
 - 읽기 전용 방에는 순번을 발급하지 않는다. 폐쇄 안내가 마지막 메시지이고, 읽기 전용 방에서 나가면 기록·수신자 집합만 남긴다.
-- `SUSPENDED`·`HOST_UNAVAILABLE`로 바꾸는 기능은 아직 없다(상태 값과 컬럼만 둔다).
+- `HOST_UNAVAILABLE`(사유)은 회원 변경 이벤트·백필이 호스트 자격 상실(탈퇴, 인플루언서 이상이 아닌 역할)을 반영할 때 그 회원의 현재 단체방에 쓴다. 방 기록은 `HOST_UNAVAILABLE`(행위자 = 호스트, 대상 null)이다. `SUSPENDED`로 바꾸는 기능은 아직 없다(상태 값과 컬럼만 둔다).
 
