@@ -73,7 +73,7 @@ class ChatMemberEventDeadLetterMissingTest {
     private static final String DLT = TOPIC + "." + GROUP + ".DLT";
     private static final TopicPartition PARTITION = new TopicPartition(TOPIC, 0);
     private static final Duration TIMEOUT = Duration.ofSeconds(60);
-    private static final Duration SEND_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration SEND_TIMEOUT = Duration.ofSeconds(1);
     // 재처리 주기의 DLT 발행 외 비용(seek·poll·리스너 처리) 여유
     private static final Duration CYCLE_SLACK = Duration.ofSeconds(1);
 
@@ -96,7 +96,7 @@ class ChatMemberEventDeadLetterMissingTest {
         registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
     }
 
-    /** 이 클래스 전용 토픽·그룹·DLT. 브로커 1대에 DLT 복제 3이라 KafkaAdmin의 DLT 생성이 실패한다(앱은 뜬다). DLT 발행 대기는 2초로 줄인다 */
+    /** 이 클래스 전용 토픽·그룹·DLT. 브로커 1대에 DLT 복제 3이라 KafkaAdmin의 DLT 생성이 실패한다(앱은 뜬다). DLT 발행 대기는 최소 허용값인 1초로 줄인다 */
     @TestBean(name = ChatKafkaConfig.MEMBER_EVENT_SETTINGS)
     private ChatKafkaConsumerSettings memberEventSettings;
 
@@ -212,8 +212,11 @@ class ChatMemberEventDeadLetterMissingTest {
             consumer.assign(List.of(dlt));
             consumer.seekToBeginning(List.of(dlt));
             long end = consumer.endOffsets(List.of(dlt)).get(dlt);
-            await().atMost(TIMEOUT).until(() -> {
-                for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(200))) {
+            await().pollDelay(Duration.ZERO).atMost(TIMEOUT).until(() -> {
+                if (consumer.position(dlt) >= end) {
+                    return true;
+                }
+                for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(50))) {
                     keys.add(record.key());
                 }
                 return consumer.position(dlt) >= end;

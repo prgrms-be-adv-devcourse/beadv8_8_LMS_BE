@@ -177,27 +177,24 @@ class ChatInboundSessionQueueTest {
 
     /**
      * 공정성: 처리 스레드 2개에 뜨거운 연결 4개가 몫 바로 아래(19프레임)를 계속 채우고(작업 하나 1ms), 일반 연결 20개가 20ms마다 한 프레임씩
-     * 보낸다. 일반 연결의 프레임이 처리 시작까지 기다린 시간을 연결별 줄(지금)과 공용 실행기 직접(이전 방식, 연결별 몫 없음)으로 잰다.
+     * 보낸다. 일반 연결의 프레임이 처리 시작까지 기다린 시간이 연결별 줄의 몫 안에 들어오는지 확인한다.
      */
     @Test
     void 뜨거운_연결이_몫_가장자리를_채워도_다른_연결의_대기_시간은_한_줄_비우기_단위로_묶인다() throws Exception {
-        Latencies perSession = measureFairness(true);
-        Latencies plainPool = measureFairness(false);
-        log.info("공정성(일반 연결 처리 대기, ms) 연결별 줄: {} / 공용 실행기 직접(이전): {}", perSession, plainPool);
-        System.out.println("FAIRNESS per-session=" + perSession + " plain-pool=" + plainPool);
+        Latencies perSession = measureFairness();
+        log.info("공정성(일반 연결 처리 대기, ms) 연결별 줄: {}", perSession);
 
         // 뜨거운 연결 4개 x 한 줄 비우기 30작업 x 1ms / 스레드 2개 ~ 60ms 차례. 여유를 두고 300ms 안
         assertThat(perSession.p99()).isLessThan(300);
         assertThat(perSession.hotClosed()).isZero();
     }
 
-    private Latencies measureFairness(boolean perSessionQueue) throws Exception {
+    private Latencies measureFairness() throws Exception {
         int hotSessions = 4;
         int normalSessions = 20;
         int perSessionFrames = 20;
         ChatInboundReceiveBudget budget = budget(2, 1000, perSessionFrames);
-        ExecutorSubscribableChannel inbound = new ExecutorSubscribableChannel(
-                perSessionQueue ? budget.channelExecutor() : budget.executor());
+        ExecutorSubscribableChannel inbound = new ExecutorSubscribableChannel(budget.channelExecutor());
         Map<String, Long> sentAt = new ConcurrentHashMap<>();
         List<Long> waits = new CopyOnWriteArrayList<>();
         AtomicIntegerArray hotOutstanding = new AtomicIntegerArray(hotSessions);

@@ -20,6 +20,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
@@ -236,8 +237,8 @@ class AppearanceNotificationEventListenerTest {
     private ConsumerRecord<String, byte[]> awaitDeadLetter(String key) {
         List<ConsumerRecord<String, byte[]>> found = new ArrayList<>();
         try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer()) {
-            await().atMost(TIMEOUT).until(() -> {
-                consumer.poll(Duration.ofMillis(200)).forEach(record -> {
+            await().pollDelay(Duration.ZERO).atMost(TIMEOUT).until(() -> {
+                consumer.poll(Duration.ofMillis(50)).forEach(record -> {
                     if (key.equals(record.key())) {
                         found.add(record);
                     }
@@ -251,9 +252,16 @@ class AppearanceNotificationEventListenerTest {
     private List<String> deadLetterKeys() {
         List<String> keys = new ArrayList<>();
         try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer()) {
-            for (int i = 0; i < 5; i++) {
-                consumer.poll(Duration.ofMillis(200)).forEach(record -> keys.add(record.key()));
-            }
+            TopicPartition partition = new TopicPartition(DLT, 0);
+            long end = consumer.endOffsets(List.of(partition)).get(partition);
+            // 뒤에 보낸 표식 이벤트의 처리가 끝난 뒤 호출한다. 현재 끝 offset까지 읽으면 부재도 검증할 수 있다.
+            await().pollDelay(Duration.ZERO).atMost(TIMEOUT).until(() -> {
+                if (consumer.position(partition) >= end) {
+                    return true;
+                }
+                consumer.poll(Duration.ofMillis(50)).forEach(record -> keys.add(record.key()));
+                return consumer.position(partition) >= end;
+            });
         }
         return keys;
     }
@@ -261,11 +269,12 @@ class AppearanceNotificationEventListenerTest {
     private KafkaConsumer<String, byte[]> deadLetterConsumer() {
         Properties config = new Properties();
         config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        config.put(ConsumerConfig.GROUP_ID_CONFIG, "dlt-reader-" + UUID.randomUUID());
-        config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         KafkaConsumer<String, byte[]> consumer = new KafkaConsumer<>(config, new StringDeserializer(),
                 new ByteArrayDeserializer());
-        consumer.subscribe(List.of(DLT));
+        TopicPartition partition = new TopicPartition(DLT, 0);
+        consumer.assign(List.of(partition));
+        consumer.seekToBeginning(List.of(partition));
         return consumer;
     }
 

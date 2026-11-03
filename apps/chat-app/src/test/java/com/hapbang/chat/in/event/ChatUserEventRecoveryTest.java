@@ -38,6 +38,7 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -137,6 +138,8 @@ class ChatUserEventRecoveryTest {
     private ChatNativeSql sql;
 
     private KafkaProducer<String, byte[]> producer;
+    // 이 클래스 전용 partition을 다시 읽는다. 조회마다 연결·메타데이터 준비를 반복하지 않는다.
+    private static KafkaConsumer<String, byte[]> deadLetterConsumer;
     // DLT 발행을 실패시킬지와 회원 ID(key)별 DLT 발행 시도 수
     private final AtomicBoolean deadLetterDown = new AtomicBoolean();
     private final Map<String, AtomicInteger> deadLetterAttempts = new ConcurrentHashMap<>();
@@ -613,24 +616,37 @@ class ChatUserEventRecoveryTest {
         }
     }
 
-    /** DLT를 처음부터 끝 offset까지 읽는다(회원 ID key → 마지막 레코드) */
+    /** DLT를 처음부터 현재 끝 offset까지 읽는다(회원 ID key → 마지막 레코드). 그룹에 가입하지 않는다. */
     private Map<String, ConsumerRecord<String, byte[]>> deadLetters() {
-        Properties config = new Properties();
-        config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        Map<String, ConsumerRecord<String, byte[]>> found = new ConcurrentHashMap<>();
         TopicPartition dlt = new TopicPartition(DLT, 0);
-        try (KafkaConsumer<String, byte[]> consumer = new KafkaConsumer<>(config, new StringDeserializer(),
-                new ByteArrayDeserializer())) {
-            consumer.assign(List.of(dlt));
-            consumer.seekToBeginning(List.of(dlt));
-            long end = consumer.endOffsets(List.of(dlt)).get(dlt);
-            await().atMost(TIMEOUT).until(() -> {
-                consumer.poll(Duration.ofMillis(200)).forEach(record -> found.put(record.key(), record));
-                return consumer.position(dlt) >= end;
-            });
+        if (deadLetterConsumer == null) {
+            Properties config = new Properties();
+            config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+            config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+            deadLetterConsumer = new KafkaConsumer<>(config, new StringDeserializer(), new ByteArrayDeserializer());
+            deadLetterConsumer.assign(List.of(dlt));
         }
+        KafkaConsumer<String, byte[]> consumer = deadLetterConsumer;
+        consumer.seekToBeginning(List.of(dlt));
+        long end = consumer.endOffsets(List.of(dlt)).get(dlt);
+        Map<String, ConsumerRecord<String, byte[]>> found = new ConcurrentHashMap<>();
+        // 이 메서드는 테스트/바깥 await 조건에서 순차 호출한다. 안쪽 poll도 같은 스레드에서 수행한다.
+        await().pollInSameThread().pollDelay(Duration.ZERO).atMost(TIMEOUT).until(() -> {
+            if (consumer.position(dlt) >= end) {
+                return true;
+            }
+            consumer.poll(Duration.ofMillis(50)).forEach(record -> found.put(record.key(), record));
+            return consumer.position(dlt) >= end;
+        });
         return found;
+    }
+
+    @AfterAll
+    static void closeDeadLetterConsumer() {
+        if (deadLetterConsumer != null) {
+            deadLetterConsumer.close(Duration.ofSeconds(5));
+            deadLetterConsumer = null;
+        }
     }
 
     private Set<String> deadLetterKeys() {
