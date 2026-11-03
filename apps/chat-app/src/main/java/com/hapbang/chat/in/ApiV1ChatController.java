@@ -27,6 +27,7 @@ import com.hapbang.chat.app.dto.ChatMessagePageResponse;
 import com.hapbang.chat.app.dto.ChatReceiptResponse;
 import com.hapbang.chat.app.dto.ChatRoomCreateResult;
 import com.hapbang.chat.app.dto.ChatRoomHistoryResponse;
+import com.hapbang.chat.app.dto.ChatRoomMemberPageResponse;
 import com.hapbang.chat.app.dto.ChatRoomResponse;
 import com.hapbang.chat.in.dto.CreateChatRoomRequest;
 import com.hapbang.chat.in.dto.ReadChatRoomRequest;
@@ -53,6 +54,7 @@ import lombok.RequiredArgsConstructor;
 public class ApiV1ChatController implements ApiV1ChatSpec {
 
     private static final int DEFAULT_PAGE_SIZE = 30;
+    private static final int DEFAULT_MEMBER_PAGE_SIZE = 50;
 
     private final ChatRoomFacade chatRoomFacade;
     private final ChatMessageFacade chatMessageFacade;
@@ -77,6 +79,24 @@ public class ApiV1ChatController implements ApiV1ChatSpec {
     @GetMapping
     public RsData<List<ChatRoomResponse>> getMyChatRooms(@LoginUserId Long userId) {
         return RsData.ok("내 채팅방 목록을 조회했습니다.", chatRoomFacade.getMyRooms(userId));
+    }
+
+    @Override
+    @GetMapping("/{chatRoomId:\\d+}")
+    public RsData<ChatRoomResponse> getChatRoom(@LoginUserId Long userId,
+                                                @PathVariable("chatRoomId") Long chatRoomId) {
+        return RsData.ok("채팅방을 조회했습니다.", chatRoomFacade.getRoom(chatRoomId, userId));
+    }
+
+    @Override
+    @GetMapping("/{chatRoomId}/members")
+    public RsData<ChatRoomMemberPageResponse> getMembers(@LoginUserId Long userId,
+                                                         @PathVariable("chatRoomId") Long chatRoomId,
+                                                         @RequestParam(name = "cursor", required = false) Long cursor,
+                                                         @RequestParam(name = "size",
+                                                                 defaultValue = "" + DEFAULT_MEMBER_PAGE_SIZE)
+                                                         int size) {
+        return RsData.ok("참여자를 조회했습니다.", chatRoomFacade.getMembers(chatRoomId, userId, cursor, size));
     }
 
     @Override

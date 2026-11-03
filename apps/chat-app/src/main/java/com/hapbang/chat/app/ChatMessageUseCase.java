@@ -34,7 +34,8 @@ public class ChatMessageUseCase {
     private final ChatDeliveryRecorder chatDeliveryRecorder;
 
     /**
-     * 메시지를 보낸다. 방을 잠그고 순번을 발급한다. 상대가 나간 동안에는 보낼 수 없다(조회만 허용).
+     * 메시지를 보낸다. 방을 잠그고 순번을 발급한다. 1:1 방은 상대가 나간 동안에는 보낼 수 없다(조회만 허용).
+     * 단체방은 사용 중일 때만 보낼 수 있고, 호스트 혼자 남아도 보낼 수 있다.
      * <p>
      * 같은 참여 안에서 같은 전송 ID로 이미 저장한 메시지가 있으면(응답을 놓친 클라이언트의 재전송) 새로 저장하지 않고
      * 기존 메시지를 보낸 사람에게만 다시 전달한다. 본문이 달라도 기존 메시지를 돌려준다. 재입장 이전에 쓴 전송 ID는 새 메시지로 저장한다. 알림·안 읽은 수는 다시 올리지 않는다. 같은 방의 전송은 방 잠금으로 줄을 서므로
@@ -50,8 +51,9 @@ public class ChatMessageUseCase {
         validateContent(content);
         // 저장 트랜잭션(설계 4.6): 방 잠금 → 발신자 참여 행 하나 → 회원 자격 → 같은 참여의 멱등 조회 → 상대 퇴장(집계)
         // → 순번·메시지·outbox 저장. 방 참여자 전체를 읽거나 전달 대상 목록·응답을 조립하지 않는다
+        LocalDateTime now = LocalDateTime.now();
         ChatRoom chatRoom = chatRoomRepository.findByIdForUpdate(chatRoomId)
-                .filter(room -> !room.isEnded())
+                .filter(room -> room.isViewable(now))
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
         ChatRoomMember sender = chatRoomMemberRepository.findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, senderId)
                 .filter(ChatRoomMember::isActive)
@@ -72,12 +74,16 @@ public class ChatMessageUseCase {
             log.error("수신자 집합이 없는 방이라 메시지를 저장하지 않음 chatRoomId={}", chatRoomId);
             throw new ChatException(ChatErrorCode.CHAT_ROOM_NOT_READY);
         }
-        // 1:1 방의 상대 퇴장: 참여 변경 때 방 잠금 아래 함께 바꾸는 활성 참여자 수로 확인한다(목록을 만들지 않는다)
-        if (chatRoom.getActiveMemberCount() < 2) {
+        if (chatRoom.isGroup()) {
+            // 단체방은 사용 중일 때만 보낸다. 호스트 혼자 남아도 보낼 수 있다(Q2). 읽기 전용·일시 중지 방은 조회만 한다
+            if (!chatRoom.isGroupActive()) {
+                throw new ChatException(ChatErrorCode.GROUP_ROOM_NOT_ACTIVE);
+            }
+        } else if (chatRoom.getActiveMemberCount() < 2) {
+            // 1:1 방의 상대 퇴장: 참여 변경 때 방 잠금 아래 함께 바꾸는 활성 참여자 수로 확인한다(목록을 만들지 않는다)
             throw new ChatException(ChatErrorCode.CHAT_PARTNER_LEFT);
         }
 
-        LocalDateTime now = LocalDateTime.now();
         ChatMessage message = chatMessageRepository.save(
                 ChatMessage.text(chatRoom, senderId, content, clientMessageId, now));
         chatDeliveryRecorder.recordMessage(message, chatRoom.getCurrentRecipientSetId(),

@@ -1,5 +1,6 @@
 package com.hapbang.chat.app;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.data.domain.Limit;
@@ -35,7 +36,7 @@ public class ChatMessageSupporter {
      */
     public ChatMessagePageResponse getMessages(Long chatRoomId, Long userId, Long cursor, int size) {
         chatRoomRepository.findById(chatRoomId)
-                .filter(room -> !room.isEnded() && room.getDeletedAt() == null)
+                .filter(room -> room.isViewable(LocalDateTime.now()))
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
         ChatRoomMember member = chatRoomMemberRepository
                 .findByChatRoom_IdAndUserIdAndDeletedAtIsNull(chatRoomId, userId)
