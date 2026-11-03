@@ -4,19 +4,30 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import io.micrometer.observation.ObservationPredicate;
+import io.micrometer.tracing.exporter.SpanExportingPredicate;
+import io.opentelemetry.api.trace.SpanId;
 
 /**
- * 관리 포트(actuator) 요청이 trace를 만들지 않게 한다 (#579).
- * <p>
- * 관리 포트에는 HTTP 요청 observation이 없어 Spring Security filter chain observation({@code spring.security.*})이
- * 부모 없이 시작된다. 그대로 두면 probe(5초마다 3종)와 Prometheus 수집마다 root trace가 Tempo에 쌓인다.
- * 업무 요청에서는 HTTP 요청 observation 아래에서 시작되므로 그 trace에는 남는다.
+ * 업무 진입점이 아닌 곳에서 부모 없이 시작되는 observation·span이 trace를 만들지 않게 한다 (#579, #631).
+ * <ul>
+ *     <li>{@code spring.security.*}: 관리 포트(actuator)에는 HTTP 요청 observation이 없어 Spring Security filter chain
+ *     observation이 부모 없이 시작된다. 그대로 두면 probe(5초마다 3종)와 Prometheus 수집마다 root trace가 Tempo에 쌓인다.</li>
+ *     <li>Redis 명령: Boot가 Lettuce 명령마다 span을 만든다(LettuceObservationAutoConfiguration). 요청·배치 밖의 명령(연결
+ *     handshake, 구독·스트림 읽기 등)은 root span이 되므로 내보내지 않는다. Lettuce는 observation을 만든 뒤에 부모를 붙여서
+ *     {@link ObservationPredicate}로는 부모 유무를 볼 수 없다. 그래서 끝난 span의 부모로 내보낼 때 거른다.</li>
+ * </ul>
+ * 업무 요청·배치 안에서 시작된 것은 그 trace 아래에 그대로 남는다.
  */
 @Configuration(proxyBeanMethods = false)
 public class ObservationConfig {
 
     @Bean
-    ObservationPredicate noRootSecurityObservation() {
-        return (name, context) -> !(name.startsWith("spring.security.") && context.getParentObservation() == null);
+    public ObservationPredicate noRootInfrastructureObservation() {
+        return (name, context) -> context.getParentObservation() != null || !name.startsWith("spring.security.");
+    }
+
+    @Bean
+    public SpanExportingPredicate noRootRedisSpan() {
+        return span -> SpanId.isValid(span.getParentId()) || !"redis".equals(span.getTags().get("db.system"));
     }
 }

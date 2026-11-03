@@ -74,6 +74,16 @@ configure(subprojects.filter { it.name.endsWith("-app") }) {
         add("runtimeOnly", "org.flywaydb:flyway-database-postgresql")
         add("runtimeOnly", "org.postgresql:postgresql")
         add("runtimeOnly", "io.micrometer:micrometer-registry-prometheus")
+        // trace(#579, #631): Micrometer Tracing OTel bridge와 OTLP exporter. Envoy가 넘긴 traceparent를 이어받아 Alloy(OTLP gRPC)로
+        // 보낸다. 샘플링·전송·OTLP 지표 끄기와 부모 없는 observation 차단(ObservationConfig)은 앱마다 둔다.
+        // customer-support는 Native Image 시험(#609) 결과를 본 뒤 넣는다
+        if (name != "customer-support-app") {
+            add("implementation", "org.springframework.boot:spring-boot-starter-opentelemetry")
+            // 만든 span을 메모리에 모아 확인한다(test-support RecordedSpans). 버전은 Boot가 관리하는 OpenTelemetry BOM을 따른다
+            add("testImplementation", "io.opentelemetry:opentelemetry-sdk-testing")
+            // 메모리에 모은 span을 내보내기 판정(SpanExportingPredicate)에 넣어 본다(OtelFinishedSpan). starter는 실행 시에만 넣는다
+            add("testImplementation", "io.micrometer:micrometer-tracing-bridge-otel")
+        }
         add("testImplementation", "org.springframework.boot:spring-boot-starter-security-test")
         add("testImplementation", "org.springframework.boot:spring-boot-starter-security-oauth2-client-test")
     }
