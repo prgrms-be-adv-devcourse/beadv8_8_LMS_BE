@@ -188,7 +188,7 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
         } else {
             users = findUsers(candidateIds);
             matched = candidateIds.stream()
-                    .filter(userId -> matches(userId, users.get(userId), term))
+                    .filter(userId -> matches(users.get(userId), term))
                     .limit(size + 1L)
                     .toList();
         }
@@ -434,11 +434,11 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
                 .collect(Collectors.toMap(ChatUser::getId, Function.identity()));
     }
 
-    /** 회원 ID 정확 일치 또는 닉네임 부분 일치(대소문자 무시). 채팅 회원 정보가 없으면 ID로만 찾는다 */
-    private static boolean matches(Long userId, ChatUser user, String term) {
-        if (term.equals(String.valueOf(userId))) {
-            return true;
-        }
+    /**
+     * 닉네임 부분 일치(대소문자 무시). 회원 ID는 사용자에게 드러내지 않으므로 검색어로 쓰지 않는다(숫자 검색어도 닉네임으로만 찾는다).
+     * 같은 닉네임이 여럿이면 모두 찾는다. 채팅 회원 정보가 없는 지원자는 검색어가 있으면 찾지 않는다
+     */
+    private static boolean matches(ChatUser user, String term) {
         return user != null && user.getNickname() != null
                 && user.getNickname().toLowerCase(Locale.ROOT).contains(term.toLowerCase(Locale.ROOT));
     }

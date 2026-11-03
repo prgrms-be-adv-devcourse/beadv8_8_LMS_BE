@@ -81,6 +81,8 @@ class ChatGroupRoomFacadeTest {
     private static final Long GUEST_B = 12L;
     private static final Long GUEST_C = 13L;
     private static final Long GUEST_D = 14L;
+    private static final Long NUMERIC_NICK_A = 15L;
+    private static final Long NUMERIC_NICK_B = 16L;
 
     /** Facade의 @PreAuthorize를 통과할 로그인 상태. 스레드마다 따로라 작업 스레드에도 넣는다 */
     private static final Authentication INFLUENCER = new TestingAuthenticationToken("test", null, "ROLE_INFLUENCER");
@@ -254,7 +256,7 @@ class ChatGroupRoomFacadeTest {
     // ===== 초대 후보 =====
 
     @Test
-    void 초대_후보는_지원_이력이_있는_참여_중이_아닌_회원이고_회원_ID_정확_일치_닉네임_부분_일치로_찾는다() {
+    void 초대_후보는_지원_이력이_있는_참여_중이_아닌_회원이고_닉네임_부분_일치로만_찾는다() {
         Long roomId = createRoom();
         invite(roomId, GUEST_ID);
 
@@ -273,10 +275,20 @@ class ChatGroupRoomFacadeTest {
 
         assertThat(candidates(roomId, "게스트", null, 20).candidates()).extracting(ChatInviteCandidateResponse::userId)
                 .containsExactly(GUEST_A, GUEST_B, GUEST_D);
-        assertThat(candidates(roomId, String.valueOf(GUEST_C), null, 20).candidates())
+        assertThat(candidates(roomId, "다른닉", null, 20).candidates())
                 .extracting(ChatInviteCandidateResponse::userId, ChatInviteCandidateResponse::nickname)
                 .containsExactly(tuple(GUEST_C, "다른닉"));
         assertThat(candidates(roomId, "없는닉네임", null, 20).candidates()).isEmpty();
+
+        // 회원 ID로는 찾지 않는다. 숫자 검색어도 닉네임으로만 찾고, 같은 닉네임은 모두 돌려준다
+        assertThat(candidates(roomId, String.valueOf(GUEST_C), null, 20).candidates()).isEmpty();
+        chatUserUseCase.createIfAbsent(activeUser(NUMERIC_NICK_A, "1004", Role.INFLUENCER));
+        chatUserUseCase.createIfAbsent(activeUser(NUMERIC_NICK_B, "1004", Role.INFLUENCER));
+        recruits.addApplicants(RECRUIT_ID, NUMERIC_NICK_A, NUMERIC_NICK_B);
+        assertThat(candidates(roomId, "100", null, 20).candidates())
+                .extracting(ChatInviteCandidateResponse::userId, ChatInviteCandidateResponse::nickname)
+                .containsExactly(tuple(NUMERIC_NICK_A, "1004"), tuple(NUMERIC_NICK_B, "1004"));
+        assertThat(candidates(roomId, String.valueOf(NUMERIC_NICK_A), null, 20).candidates()).isEmpty();
     }
 
     @Test

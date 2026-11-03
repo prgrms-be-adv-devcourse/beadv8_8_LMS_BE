@@ -51,7 +51,7 @@ public interface ChatGroupRoomService {
      * 초대 후보 한 페이지. 모집글 제목이 바뀌었으면 방 제목을 맞춘다(안내 없음).
      *
      * @param applicantUserIds 출연 앱에서 읽은 지원 이력이 있는 회원 전부(지원 상태 무관)
-     * @param keyword          회원 ID 정확 일치 또는 닉네임 부분 일치. 비어 있으면 모두
+     * @param keyword          닉네임 부분 일치(대소문자 무시, 숫자도 닉네임으로 찾는다). 비어 있으면 모두
      * @param cursor           이전 응답의 nextCursor(회원 ID). 없으면 처음부터
      */
     ChatInviteCandidatePageResponse findInviteCandidates(Long chatRoomId, Long requesterId, String recruitTitle,
