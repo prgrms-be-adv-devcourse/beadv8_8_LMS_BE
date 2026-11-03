@@ -119,7 +119,7 @@ kubectl --context hapbang-k3s diff -f dashboards.yaml
 kubectl --context hapbang-k3s apply -f dashboards.yaml
 ```
 
-Grafana는 dashboard 없이도 prod에서 3일 최대 working set이 374 MiB였다(2026-11-02, limit 384 MiB, 차트가 넣는 GOMEMLIMIT 345 MiB). 로컬 k3d에서는 384 MiB일 때 dashboard를 여는 동안 메모리가 GOMEMLIMIT 근처(342 MiB)에 붙은 채 unready였고, 448 MiB(GOMEMLIMIT 403 MiB)에서는 세 dashboard가 모두 그려졌다. 다만 k3d Grafana는 이 변경 전부터 CPU를 많이 쓰고 재시작을 반복해 원인을 dashboard 하나로 보지는 않는다. Grafana limit은 #532에서 448 MiB로 올렸고, dashboard는 그 뒤에 적용했다. 2026-11-02 운영 적용 직후 Grafana는 기동 중 최대 426 MiB(limit의 95%), 약 1분 뒤 CPU 15m·메모리 약 290 MiB로 내려왔다. 기동 최대치가 limit에 가까우니 Grafana 재시작 뒤 OOMKilled가 없는지 본다.
+Grafana는 dashboard 없이도 prod에서 3일 최대 working set이 374 MiB였다(2026-11-02, limit 384 MiB, 차트가 넣는 GOMEMLIMIT 345 MiB). 로컬 k3d에서는 384 MiB일 때 dashboard를 여는 동안 메모리가 GOMEMLIMIT 근처(342 MiB)에 붙은 채 unready였고, 448 MiB(GOMEMLIMIT 403 MiB)에서는 세 dashboard가 모두 그려졌다. 다만 k3d Grafana는 이 변경 전부터 CPU를 많이 쓰고 재시작을 반복해 원인을 dashboard 하나로 보지는 않는다. Grafana limit은 #532에서 448 MiB로 올렸고, dashboard는 그 뒤에 적용했다. 2026-11-02 운영 적용 직후 Grafana는 기동 중 최대 426 MiB(limit의 95%), 약 1분 뒤 CPU 15m·메모리 약 290 MiB로 내려왔다. 기동 최대치가 limit에 가까우니 Grafana 재시작 뒤 OOMKilled가 없는지 본다. dashboard 다섯 개(#601)를 쓰며 7일 최대 418 MiB(93%, 2026-11-03)가 되어 limit을 512 MiB로 올렸다(#608, `k8s/gateway/overlays/prod/grafana.yaml`).
 
 client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 ConfigMap 전체를 넣는다. 세 파일 합계 약 110 KB에서 annotation은 약 150 KB다. 한도에 가까워지면 `--server-side`로 적용하거나 ConfigMap을 나눈다.
 

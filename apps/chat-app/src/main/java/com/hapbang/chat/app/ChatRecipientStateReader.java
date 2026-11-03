@@ -20,7 +20,10 @@ public interface ChatRecipientStateReader {
      */
     RoomMembership findRoomMembership(Long roomId);
 
-    /** 방 topic 구독을 허가할 때 그 회원의 상태. 방이 없거나 종료됐으면 {@code roomOpen}이 false다 */
+    /**
+     * 방 topic 구독을 허가할 때 그 회원의 상태. 방이 없거나 볼 수 없으면(종료된 1:1 방, 조회 만료된 단체방) {@code roomOpen}이
+     * false다
+     */
     SubscriptionCheck checkSubscription(Long roomId, Long userId);
 
     /** 주어진 회원 중 지금 채팅할 수 있는 회원. 복제본이 없는 회원은 채팅할 수 없다 */
@@ -34,7 +37,7 @@ public interface ChatRecipientStateReader {
     }
 
     /**
-     * @param roomOpen 방이 있고 종료되지 않았다
+     * @param roomOpen 방이 있고 참여자가 볼 수 있다(1:1 방은 종료 전, 단체방은 조회 만료 전)
      * @param state    회원 자격과 그 방의 참여 상태. 회원 복제본이 없으면 null
      */
     record SubscriptionCheck(boolean roomOpen, ChatRecipientState state) {

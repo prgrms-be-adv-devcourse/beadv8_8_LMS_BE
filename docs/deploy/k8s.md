@@ -52,7 +52,7 @@
 | lecture-app | `BILLING_API_BASE_URL` → `hapbang.clients.billing.base-url` | `http://billing-app:8081` | HP 보류·반환·지급 (#275~#277) |
 | appearance-app | `BILLING_API_BASE_URL` → `hapbang.clients.billing.base-url`, `MEMBER_API_BASE_URL` → `hapbang.clients.member.base-url` | `http://billing-app:8081`, `http://member-app:8081` | HP 보류·반환·지급·위약금 (#274), 회원 Backfill (#394) |
 | billing-app | `MEMBER_API_BASE_URL`, `LECTURE_API_BASE_URL`, `APPEARANCE_API_BASE_URL` → `hapbang.clients.{member,lecture,appearance}.base-url` | `http://member-app:8081`, `http://lecture-app:8081`, `http://appearance-app:8081` | 회원 Backfill, 판매 수익 조회 (#295) |
-| chat-app | `MEMBER_API_BASE_URL` → `hapbang.clients.member.base-url` | `http://member-app:8081` | 회원 백필 (#280에서 ConfigMap에 추가) |
+| chat-app | `MEMBER_API_BASE_URL`, `APPEARANCE_API_BASE_URL` → `hapbang.clients.{member,appearance}.base-url` | `http://member-app:8081`, `http://appearance-app:8081` | 회원 백필 (#280에서 ConfigMap에 추가), 모집용 단체방의 모집글·지원 이력 조회 (#584) |
 | customer-support-app | `LECTURE_API_BASE_URL` → `hapbang.clients.lecture.base-url` | `http://lecture-app:8081` | 이의 제기 접수 (#279) |
 
 - chat-app 외의 앱은 `application.yaml`에 기본값이 없으므로 값을 꼭 넣는다. chat-app은 기본값이 `http://localhost:8081`이라 ConfigMap에 값이 없으면 회원 앱이 아니라 chat 자신의 내부 포트를 부른다.

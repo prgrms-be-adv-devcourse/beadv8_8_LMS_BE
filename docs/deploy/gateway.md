@@ -85,7 +85,7 @@ Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractF
 - WebSocket은 별도 route에서 전체 timeout을 해제하고 stream idle 5분을 둔다. STOMP heartbeat·CONNECT JWT는 #371에서 처리한다.
 - 알 수 없는 `/api/**`, actuator, 루트의 Swagger·api-docs(`/swagger-ui`, `/v3/api-docs`)는 앱/React backend로 보내지 않고 404다. Swagger는 앱의 모듈 경로 아래에서 그 앱의 route로 연다(#498). 인증된 API도 실제 앱의 인가·권한 검사가 필요하다.
 - `/grafana`는 `/grafana/`로 redirect한다. prefix는 지우지 않는다. Grafana `root_url`, `serve_from_sub_path`, Secure cookie를 설정한다. admin 자격 증명은 기존 chart Secret을 사용하고 레포·로그에 남기지 않는다.
-- Grafana는 320Mi 한도에서 subpath 변경 후 기동 시 높은 CPU·probe timeout이 관찰되어 384Mi와 `GOMAXPROCS=2`를 적용했다. 운영 3일 최대 working set이 374Mi(97%)라 448Mi로 올렸다(#532). 이 64Mi 증가는 #343의 medium 목표 예산 조정에 포함한다.
+- Grafana는 320Mi 한도에서 subpath 변경 후 기동 시 높은 CPU·probe timeout이 관찰되어 384Mi와 `GOMAXPROCS=2`를 적용했다. 운영 3일 최대 working set이 374Mi(97%)라 448Mi로 올렸다(#532). 이 64Mi 증가는 #343의 medium 목표 예산 조정에 포함한다. 448Mi에서도 운영 7일 최대 418Mi(93%)로 GOMEMLIMIT(403MiB)을 넘어 512Mi로 올렸다(#608).
 - Grafana는 SQLite PVC를 공유하는 새·옛 pod가 함께 뜨지 않도록 `Recreate`로 갱신한다. probe는 `/grafana/api/health`, startup은 최대 5분을 기다린다. 로그인 화면·정적 자원은 익명에게 제공되고 dashboard·데이터 API는 로그인이 필요하다.
 - Kafka UI(Redpanda Console)는 `/kafka/`에서 Envoy Basic Auth(`SecurityPolicy` basicAuth, SHA htpasswd)로 연다. Console 무료판에는 로그인이 없기 때문이다. 인증이 없으면 401과 `WWW-Authenticate: Basic`을 돌려줘 브라우저 로그인 창이 뜬다. route가 `X-Forwarded-Prefix: /kafka`를 넣어 Console이 하위 경로로 동작한다. 계정은 `admin` 하나이고 prod 비밀번호는 만든 사람의 `~/.hapbang/kafka-ui-password`에만 있어 팀 비밀 보관소로 공유한다. 바꿀 때는 새 비밀번호의 SHA htpasswd를 kubeseal로 다시 봉인해 `overlays/prod/kafka-ui-basic-auth.yaml`을 바꾼다. Basic Auth에는 로그아웃·시도 횟수 제한·사용자 구분이 없다.
 - `/kafka/`에서는 토픽 생성이 HTTP 405로 실패한다(#484). 토픽 생성이 필요하면 port-forward로 연 Console에서 한다([관측성 접속](k8s.md#관측성-접속)).

@@ -1,5 +1,7 @@
 package com.hapbang.chat.app;
 
+import java.time.LocalDateTime;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,7 +34,7 @@ public class DefaultChatReadService implements ChatReadService {
     @Transactional
     public void markRead(Long chatRoomId, Long userId, long lastReadSequence, Integer participationVersion) {
         ChatRoom chatRoom = chatRoomRepository.findById(chatRoomId)
-                .filter(room -> !room.isEnded() && room.getDeletedAt() == null)
+                .filter(room -> room.isViewable(LocalDateTime.now()))
                 .orElseThrow(() -> new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
         ChatRoomMember member = findActiveMember(chatRoomId, userId);
         chatValidationService.validateCanChat(userId);
