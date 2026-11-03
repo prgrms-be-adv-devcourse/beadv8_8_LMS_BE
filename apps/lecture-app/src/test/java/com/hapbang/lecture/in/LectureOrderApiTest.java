@@ -112,15 +112,16 @@ class LectureOrderApiTest {
     }
 
     @Test
-    void 탈퇴로_닫힌_지갑이면_결제_실패로_409_INSUFFICIENT_BALANCE다() throws Exception {
-        // 결제 실패 응답은 거절 사유와 관계없이 하나다 (D69 (1), D76)
+    void 탈퇴로_닫힌_지갑이면_결제_실패로_409_WALLET_CLOSED다() throws Exception {
+        // 결제 실패 사유를 보류 작업의 확정 거절 기록에서 읽어 잔액 부족과 나눈다 (D76)
         Lecture lecture = saveOnSaleLecture();
         billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.WALLET_CLOSED,
                 "탈퇴한 회원의 지갑이에요.", 409, "WALLET_CLOSED"));
 
         mockMvc.perform(createOrder(lecture.getId()).with(GatewayLogin.as(BUYER_ID, Role.USER)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INSUFFICIENT_BALANCE"));
+                .andExpect(jsonPath("$.code").value("WALLET_CLOSED"))
+                .andExpect(jsonPath("$.detail").value("탈퇴한 회원의 지갑이에요."));
     }
 
     @Test
