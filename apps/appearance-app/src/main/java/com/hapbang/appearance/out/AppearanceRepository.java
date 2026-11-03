@@ -125,4 +125,18 @@ public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
 
         Long getRecruitId();
     }
+
+    /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 요청서 출처 출연의 요청서 ID */
+    @Query("select distinct a.requestId from Appearance a where a.requestId is not null and a.updatedAt >= :since")
+    List<Long> findRequestIdsUpdatedSince(@Param("since") LocalDateTime since);
+
+    /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 모집 출처 출연의 모집글 ID */
+    @Query("select distinct a.recruitId from Appearance a where a.recruitId is not null and a.updatedAt >= :since")
+    List<Long> findRecruitIdsUpdatedSince(@Param("since") LocalDateTime since);
+
+    /** 요청서들에서 성립한 출연 (#581) */
+    List<Appearance> findByRequestIdIn(Collection<Long> requestIds);
+
+    /** 모집글들에서 성립한 출연 (#581) */
+    List<Appearance> findByRecruitIdIn(Collection<Long> recruitIds);
 }

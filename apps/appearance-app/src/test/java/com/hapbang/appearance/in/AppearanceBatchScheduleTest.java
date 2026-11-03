@@ -37,10 +37,12 @@ import com.hapbang.appearance.app.AppearanceEventRepublishUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitDeadlineCloseUseCase;
 import com.hapbang.appearance.app.AppearanceRequestExpireUseCase;
 import com.hapbang.appearance.app.AppearanceReviewExpirePublishUseCase;
+import com.hapbang.appearance.app.HpReconciliationUseCase;
 import com.hapbang.appearance.app.HpTaskRetryUseCase;
 
 /**
- * 출연 배치 8개의 실행 주기 (#297, 리뷰 작성 기한 만료 공개 #515). appearance.yml의 cron이 그대로 등록되는지, 매분 한 번씩 서로 다른 초에 도는지,
+ * 출연 배치 9개의 실행 주기 (#297, 리뷰 작성 기한 만료 공개 #515, 서비스 간 HP 대사 #581). appearance.yml의 cron이 그대로 등록되는지,
+ * 매분 배치 8개가 한 번씩 서로 다른 초에 돌고 HP 대사는 매일 04:00:25에 한 번 도는지,
  * 각 배치가 맞는 UseCase를 부르는지 확인한다. 배치 자체는 시각을 판단하지 않는다 (UseCase가 Clock으로 판단).
  */
 class AppearanceBatchScheduleTest {
@@ -61,6 +63,17 @@ class AppearanceBatchScheduleTest {
         SCHEDULES.put("autoConfirmAppearances", new Schedule("auto-confirm-cron", 50));
     }
 
+    /** 매일 한 번 도는 배치 (#581). 매분 배치들이 쓰지 않는 초에 둔다 */
+    private static final String DAILY_METHOD = "reconcileHp";
+    private static final Schedule DAILY = new Schedule("hp-reconciliation-cron", 25);
+
+    /** 배치 전부: 매분 + 매일 */
+    private static final Map<String, Schedule> ALL = new LinkedHashMap<>(SCHEDULES);
+
+    static {
+        ALL.put(DAILY_METHOD, DAILY);
+    }
+
     private final AppearanceHoldRecheckUseCase holdRecheck = mock(AppearanceHoldRecheckUseCase.class);
     private final AppearanceRecruitDeadlineCloseUseCase recruitClose = mock(AppearanceRecruitDeadlineCloseUseCase.class);
     private final AppearanceRequestExpireUseCase expire = mock(AppearanceRequestExpireUseCase.class);
@@ -70,6 +83,7 @@ class AppearanceBatchScheduleTest {
     private final AppearanceEventRepublishUseCase eventRepublish = mock(AppearanceEventRepublishUseCase.class);
     private final AppearanceReviewExpirePublishUseCase reviewExpirePublish =
             mock(AppearanceReviewExpirePublishUseCase.class);
+    private final HpReconciliationUseCase hpReconciliation = mock(HpReconciliationUseCase.class);
 
     /** 앱처럼 appearance.yml을 읽고 스위치를 켠 컨텍스트 (UseCase는 대역) */
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -87,6 +101,7 @@ class AppearanceBatchScheduleTest {
             .withBean(AppearanceAutoConfirmUseCase.class, () -> autoConfirm)
             .withBean(AppearanceEventRepublishUseCase.class, () -> eventRepublish)
             .withBean(AppearanceReviewExpirePublishUseCase.class, () -> reviewExpirePublish)
+            .withBean(HpReconciliationUseCase.class, () -> hpReconciliation)
             .withUserConfiguration(AppearanceBatch.class);
 
     private static Iterable<PropertySource<?>> loadAppearanceYaml() {
@@ -117,24 +132,39 @@ class AppearanceBatchScheduleTest {
     }
 
     @Test
-    @DisplayName("스위치를 켜면 배치 8개(@Scheduled 메서드 전부)가 appearance.yml의 cron 그대로 스케줄러에 등록된다")
+    @DisplayName("HP 대사 cron은 매일 04:00:25(KST)에 한 번 돌고, 매분 배치들이 쓰는 초와 겹치지 않는다")
+    void dailyCronInYaml() {
+        contextRunner.run(context -> {
+            CronExpression expression = CronExpression.parse(
+                    context.getEnvironment().getRequiredProperty("appearance.batch." + DAILY.key()));
+            ZonedDateTime first = expression.next(ZonedDateTime.of(2026, 11, 3, 12, 0, 0, 0, KST));
+            ZonedDateTime second = expression.next(first);
+
+            assertThat(first).isEqualTo(ZonedDateTime.of(2026, 11, 4, 4, 0, 25, 0, KST));
+            assertThat(Duration.between(first, second)).isEqualTo(Duration.ofDays(1));
+            assertThat(SCHEDULES.values()).extracting(Schedule::second).doesNotContain(DAILY.second());
+        });
+    }
+
+    @Test
+    @DisplayName("스위치를 켜면 배치 9개(@Scheduled 메서드 전부)가 appearance.yml의 cron 그대로 스케줄러에 등록된다")
     void registeredWithYamlCron() {
         contextRunner.withUserConfiguration(SchedulingOn.class).run(context -> {
             Map<String, String> registered = new HashMap<>();
             for (ScheduledTask task : context.getBean(ScheduledTaskHolder.class).getScheduledTasks()) {
                 if (task.getTask() instanceof CronTask cronTask) {
                     String runnable = cronTask.getRunnable().toString();
-                    SCHEDULES.keySet().stream().filter(method -> runnable.endsWith("AppearanceBatch." + method))
+                    ALL.keySet().stream().filter(method -> runnable.endsWith("AppearanceBatch." + method))
                             .findFirst().ifPresent(method -> registered.put(method, cronTask.getExpression()));
                 }
             }
 
-            // 배치를 새로 추가하면 이 표(SCHEDULES)에도 넣어야 검사에 들어온다
+            // 배치를 새로 추가하면 이 표(SCHEDULES 또는 DAILY)에도 넣어야 검사에 들어온다
             assertThat(Arrays.stream(AppearanceBatch.class.getDeclaredMethods())
                     .filter(method -> method.isAnnotationPresent(Scheduled.class)).count())
-                    .isEqualTo(SCHEDULES.size());
-            assertThat(registered).hasSize(SCHEDULES.size());
-            SCHEDULES.forEach((method, schedule) -> assertThat(registered.get(method)).as(method)
+                    .isEqualTo(ALL.size());
+            assertThat(registered).hasSize(ALL.size());
+            ALL.forEach((method, schedule) -> assertThat(registered.get(method)).as(method)
                     .isEqualTo(context.getEnvironment().getRequiredProperty("appearance.batch." + schedule.key())));
         });
     }
@@ -143,7 +173,7 @@ class AppearanceBatchScheduleTest {
     @DisplayName("@Scheduled의 기본값(설정이 없을 때)도 appearance.yml과 같고, 시간대는 한국 시간이다")
     void annotationDefaultsMatchYaml() {
         contextRunner.run(context -> {
-            for (Map.Entry<String, Schedule> entry : SCHEDULES.entrySet()) {
+            for (Map.Entry<String, Schedule> entry : ALL.entrySet()) {
                 Method method = AppearanceBatch.class.getDeclaredMethod(entry.getKey());
                 Scheduled scheduled = method.getAnnotation(Scheduled.class);
                 String key = "appearance.batch." + entry.getValue().key();
@@ -156,7 +186,7 @@ class AppearanceBatchScheduleTest {
     }
 
     @Test
-    @DisplayName("각 배치는 맞는 UseCase를 한 번 부른다 (보류 재확인·알림 재발행·기한 마감·리뷰 기한 만료 공개·만료·자동 거절·HP 작업 재시도·자동 확인)")
+    @DisplayName("각 배치는 맞는 UseCase를 한 번 부른다 (보류 재확인·알림 재발행·기한 마감·리뷰 기한 만료 공개·만료·자동 거절·HP 작업 재시도·자동 확인·HP 대사)")
     void callsUseCase() {
         contextRunner.run(context -> {
             AppearanceBatch batch = context.getBean(AppearanceBatch.class);
@@ -169,6 +199,7 @@ class AppearanceBatchScheduleTest {
             batch.autoRejectCancelRequests();
             batch.retryHpTasks();
             batch.autoConfirmAppearances();
+            batch.reconcileHp();
 
             verify(holdRecheck).recheckDue();
             verify(eventRepublish).republishDue();
@@ -178,6 +209,7 @@ class AppearanceBatchScheduleTest {
             verify(cancelAutoReject).rejectDue();
             verify(hpTaskRetry).retryDue();
             verify(autoConfirm).confirmDue();
+            verify(hpReconciliation).runScheduled();
         });
     }
 

@@ -52,6 +52,7 @@
 | 작성 기한 만료 리뷰 공개 배치 (기본 꺼 둠, 작성 기한을 켜면 동작) | ✅ | #515 |
 | 리뷰 연동 정리 (회원 평점·프로필 목록, FE 계약) | ✅ | #516 |
 | 모집글·지원 이력 내부 조회 API (채팅 모집용 단체방) | ✅ | #586 |
+| 서비스 간 HP 대사 (요청서·모집글·출연 ↔ 지갑 보류·지급 비교, 매일 배치·관리자 API) | ✅ | #581 |
 
 ---
 
@@ -1448,3 +1449,75 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 | out | `AppearanceApplicationRepository` (기존) | `findGuestIdsAfter`, `findAppliedGuestIds` |
 | app/dto | `AppearanceRecruitInternalResDto`, `AppearanceRecruitApplicantIdsResDto`, `AppearanceRecruitAppliedUserIdsResDto` | 응답 (출연 앱 안, shared 계약 없음) |
 
+## 25. 서비스 간 HP 대사 (#581)
+
+출연과 지갑은 database가 따로라 출연 상태와 지갑의 보류·지급을 한 트랜잭션으로 맞출 수 없다. 대사의 주체는 업무 모듈이고 지갑은 조회 API만 준다(지갑 #577, `docs/api/internal-billing.md` 4장, BD-137). 출연은 매일 자기 요청서·모집글·출연을 지갑 기록과 비교해 어긋난 건을 남긴다. **고치지 않는다.** 정정은 원인을 확인한 관리자가 기존 수단(HP 작업 다시 시도 19장, 보류 무효화 8.2)으로 한다.
+
+### 25.1 비교 방식: 출연 기록(HP 작업) 기준 두 단계
+
+| 단계 | 비교 | 잡는 문제 |
+|---|---|---|
+| ① 상태 → HP 작업 | 출연 상태로 계산한 남은 보류·지급액 = 끝난(`DONE`) HP 작업의 합 | 상태는 바뀌었는데 작업을 남기지 않은 출연 쪽 누락 |
+| ② HP 작업 → 지갑 | 끝난 작업의 반환 합·지급 합·지급 건 = 지갑 조회 결과 | 지갑 쪽 반영 누락·중복, 지갑에만 있는 보류 |
+
+상태별 공식은 ①에만 있다(`HpReconciliationTarget`). 지갑과는 작업의 합으로만 비교하므로 모집 중 취소·빈자리 반환·위약금이 모두 같은 식이다. 보류 상태 이름(`HELD`·`MIXED` 등)은 보지 않고 금액만 본다.
+
+- **최초 보류**: 보류 요청에 쓴 금액. 요청서는 출연료, 모집글은 1인당 출연료 × 모집 인원. 보류한 회원은 호스트
+- **상태로 계산한 남은 보류**
+  - 요청서: 요청 중 = 출연료, 수락 뒤 = 출연이 진행 중(성립·취소 요청 중)이면 출연료 아니면 0, 거절·만료·응답 전 취소 = 0
+  - 모집글: 모집 중 = 최초 보류 − 끝난 출연(확인·불참·호스트 일방 취소)의 출연료(모집 중 합의 취소는 자리가 다시 열려 반환하지 않는다, 13장), 마감·전체 취소 뒤 = 진행 중인 출연의 출연료 합(빈자리는 반환됐다)
+- **상태로 계산한 지급액**: 확인된 출연의 출연료 + 호스트 일방 취소의 위약금
+- **작업의 합**: 반환 = 반환 작업 금액 + 위약금 작업에서 호스트에게 돌려준 몫, 지급 = 지급 작업 + 위약금, 남은 보류 = 최초 − 반환 − 지급
+- **지급 건**: 끝난 지급·위약금 작업마다 지갑 지급 건 하나(원천 유형 `APPEARANCE_REQUEST`·`RECRUIT_APPEARANCE`, 원천 ID = 출연 ID, `NORMAL`·`PENALTY`, 받는 회원 = 게스트, 금액 = 작업의 지급액, `COMPLETED`)
+
+### 25.2 규칙 (`HpReconciliationRule`)
+
+| 규칙 | 단계 | 어긋남 |
+|---|---|---|
+| `HP_TASK_MISMATCH` | ① | 상태로 계산한 남은 보류·지급액 ≠ 끝난 작업의 합. 보류 실패 건은 작업이 있으면 |
+| `HOLD_MISSING` | ② | 보류가 있어야 하는데 지갑에 없음 |
+| `HOLD_MISMATCH` | ② | 최초 보류액이나 보류한 회원이 다름 |
+| `HOLD_BALANCE_MISMATCH` | ② | 반환·지급·확정 차감(0이어야 함)·남은 보류가 작업의 합과 다름 (예: 거절했는데 `HELD`, 요청 중인데 반환됨, 마감 뒤 빈자리 반환 누락) |
+| `HOLD_NOT_CLOSED` | ② | 보류 실패(`HOLD_FAILED`)인데 남은 보류·지급·확정 차감이 있음. 보류 없음·무효화·전부 반환은 정상 |
+| `VOIDED_WHILE_ACTIVE` | ② | 보류 실패가 아닌데 무효화 기록이 있음 (#536 배포 중 두 pod 경합 등) |
+| `SETTLEMENT_MISSING` | ② | 끝난 지급·위약금 작업의 지급 건이 없음 (출연 ID를 남긴다) |
+| `SETTLEMENT_MISMATCH` | ② | 지급 건의 받는 회원·금액·상태가 작업과 다름 |
+| `SETTLEMENT_UNEXPECTED` | ② | 출연 작업에 없는 지급 건 |
+| `WALLET_ONLY_HOLD` | ② | 지갑 보류 목록의 참조 ID가 출연에 없음 |
+| `HP_TASK_DEAD` | 표시 | 격리된 HP 작업이 있어 비교하지 않음 (어긋난 건 수에서 뺀다, 관리자 다시 시도 대상) |
+
+### 25.3 실행
+
+- **대상**: ① 출연 쪽은 비교 범위(`lookback`, 7일) 안에 요청서·모집글·그 출연·그 HP 작업 중 하나라도 바뀐 것, ② 지갑 쪽은 저장한 커서 뒤에 바뀐 보류(`listHolds`, 끝까지 읽음). 둘을 합쳐 500개씩 `queryHolds`로 조회한다.
+- **빼는 것(진행 중)**: 보류 결과 대기(`HOLD_PENDING`), 재시도를 기다리는 HP 작업(`PENDING`), 마지막 변경이 진행 중 유예(`settle-grace`, 2시간) 안인 것. 유예는 HP 작업 재시도 최대 간격·보류 포기 기준(1시간)보다 길다.
+- **커서**: 참조 유형마다 `hp_reconciliation_cursors` 한 행. 끝까지 비교한 실행만 앞으로 옮긴다(지갑 `Instant`를 KST `LocalDateTime`으로 저장). 처음에는 처음부터 읽는다.
+- **지갑 조회 실패**(회로 열림·결과 불명·거절·응답에서 ID 누락): 그 실행을 `INCOMPLETE`로 끝내고 커서를 옮기지 않는다. 그때까지 찾은 어긋남은 남긴다. 다음 실행이 같은 범위를 다시 본다.
+- **주기**: 매일 04:00:25(KST, `appearance.batch.hp-reconciliation-cron`). 매분 배치들이 쓰지 않는 25초다.
+- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리, 출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리한다.
+- **설정** (`appearance.hp-reconciliation.*`): `settle-grace` 2h, `lookback` 7d(유예보다 길어야 기동), `page-size` 500(1~500).
+
+### 25.4 결과
+
+- `hp_reconciliation_runs`(실행 1회: 계기·실행한 관리자·상태·비교 수·어긋난 수·DEAD 수·중단 이유), `hp_reconciliation_mismatches`(대상·출연 ID·규칙·출연 상태 요약·지갑 상태 요약). 오래된 기록은 지우지 않는다. 마이그레이션 `V202611031100`
+- 경고 로그: 어긋난 건마다 `[HP_RECONCILIATION_MISMATCH] rule=… runId=… referenceType=… referenceId=… appearanceId=… appearance=[…] wallet=[…]`. 끝까지 하지 못하면 경고 한 줄(이유 포함)
+- 지표: `appearance.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `appearance.hp_reconciliation.runs{status}`(끝난 실행 횟수). 알림 규칙은 아직 없다(인프라 #343)
+
+### 25.5 API (관리자, `/api/v1/appearances/admin/hp-reconciliations`)
+
+| 메서드·경로 | 동작 | 응답 |
+|---|---|---|
+| `POST` | 지금 실행하고 끝날 때까지 기다린다 | 200 실행 결과(`HpReconciliationRunResDto`, 어긋난 건 포함). 지갑 조회가 실패해도 200 `INCOMPLETE` + `failureReason`. 실행 중이면 409 `HP_RECONCILIATION_RUNNING` |
+| `GET /latest` | 마지막으로 시작한 실행과 어긋난 건 | 200. 실행 기록이 없으면 404 `HP_RECONCILIATION_NOT_FOUND`. 실행 중이면 `RUNNING`(어긋난 건은 끝난 뒤 남는다) |
+
+관리자 확인은 19장과 같다(보안 설정 → `@PreAuthorize` → 복제 회원 정보로 지금도 관리자인지).
+
+### 25.6 구조
+
+| 클래스 | 역할 |
+|---|---|
+| `HpReconciliationUseCase` | 실행 흐름(지갑 목록 → 대상 모음 → 500개씩 조회·비교 → 기록), 동시 실행 막기, 로그·지표 |
+| `HpReconciliationTarget` | 비교 대상 하나: 상태로 계산한 기대값과 작업의 합 |
+| `HpReconciliationComparer` | ①·② 비교 규칙 (DB·지갑을 부르지 않는 순수 비교), 상태 요약 문자열 |
+| `HpReconciliationSupport` | 트랜잭션 단위 DB 읽기·기록 (지갑 호출은 트랜잭션 밖) |
+| `HpReconciliationAdminFacade` | 관리자 API 진입점 |
+| `BillingClient.queryHolds`·`listHolds` | 공용 `BillingApiClient`에 그대로 넘긴다 (회로·재시도 정책 같음) |

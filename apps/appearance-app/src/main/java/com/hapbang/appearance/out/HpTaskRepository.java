@@ -1,6 +1,7 @@
 package com.hapbang.appearance.out;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -11,6 +12,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.appearance.domain.HpTask;
+import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
 
 public interface HpTaskRepository extends JpaRepository<HpTask, Long> {
@@ -39,4 +41,11 @@ public interface HpTaskRepository extends JpaRepository<HpTask, Long> {
 
     /** 상태별 작업 목록 (관리자 조회, #397). 정렬은 넘겨받은 페이지 요청을 따른다 */
     Page<HpTask> findByStatus(HpTaskStatus status, Pageable pageable);
+
+    /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 작업의 대상 ID */
+    @Query("select distinct t.refId from HpTask t where t.refType = :refType and t.updatedAt >= :since")
+    List<Long> findRefIdsUpdatedSince(@Param("refType") HpTaskRefType refType, @Param("since") LocalDateTime since);
+
+    /** 대상(요청서·모집글)들의 모든 작업 (#581) */
+    List<HpTask> findByRefTypeAndRefIdIn(HpTaskRefType refType, Collection<Long> refIds);
 }
