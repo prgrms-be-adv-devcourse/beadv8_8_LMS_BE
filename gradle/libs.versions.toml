@@ -15,6 +15,8 @@ rest-assured = "6.1.0"
 wiremock = "3.13.2"
 # Spring Boot 4 BOM이 관리하지 않는다. 지갑 내부 API Client의 Circuit Breaker·Retry·TimeLimiter(#411)
 resilience4j = "2.4.0"
+# Spring Boot 4.1.1 BOM의 native-build-tools-plugin.version과 맞춘다(#609)
+graalvm-native = "1.1.8"
 
 [libraries]
 spring-modulith-bom = { module = "org.springframework.modulith:spring-modulith-bom", version.ref = "spring-modulith" }
@@ -31,3 +33,4 @@ resilience4j-micrometer = { module = "io.github.resilience4j:resilience4j-microm
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
 spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }
+graalvm-native = { id = "org.graalvm.buildtools.native", version.ref = "graalvm-native" }

@@ -106,6 +106,23 @@ jobs:
           name: app-jar-${{ matrix.app }}
           path: apps/${{ matrix.app }}/build/libs
 
+      # GraalVM Native Image 앱은 ci가 만든 실행 파일(app-native-<앱>)을 Dockerfile.native로 담는다(#609).
+      - name: native 앱 판정
+        id: native
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          if grep -q 'org.graalvm.buildtools.native' "apps/$APP/build.gradle.kts"; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: native 실행 파일 받기
+        if: steps.native.outputs.enabled == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: app-native-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/build/native/nativeCompile
+
       - uses: docker/setup-buildx-action@v4
 
       - uses: docker/login-action@v4
@@ -117,8 +134,8 @@ jobs:
       # :sha-<커밋>은 배포·롤백 때 고르는 태그다.
       - uses: docker/build-push-action@v7
         with:
-          context: apps/${{ matrix.app }}/build/libs
-          file: apps/${{ matrix.app }}/Dockerfile
+          context: ${{ steps.native.outputs.enabled == 'true' && format('apps/{0}/build/native/nativeCompile', matrix.app) || format('apps/{0}/build/libs', matrix.app) }}
+          file: ${{ steps.native.outputs.enabled == 'true' && format('apps/{0}/Dockerfile.native', matrix.app) || format('apps/{0}/Dockerfile', matrix.app) }}
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.app }}:sha-${{ steps.tag.outputs.sha }}
 
