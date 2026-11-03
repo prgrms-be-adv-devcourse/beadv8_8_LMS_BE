@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.billing.app.ExchangeFacade;
 import com.hapbang.billing.global.auth.LoginUserId;
+import com.hapbang.billing.global.ratelimit.RateLimited;
+import com.hapbang.billing.global.ratelimit.RateLimitedApi;
 import com.hapbang.billing.global.response.RsData;
 
 import jakarta.validation.Valid;
@@ -28,6 +30,7 @@ public class ApiV1SettlementExchangeController implements ApiV1SettlementExchang
 
     private final ExchangeFacade exchangeFacade;
 
+    @RateLimited(RateLimitedApi.EXCHANGE_REQUEST)
     @Override
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -37,6 +40,7 @@ public class ApiV1SettlementExchangeController implements ApiV1SettlementExchang
                 ExchangeResponse.from(exchangeFacade.request(userId, idempotencyKey, request.toCommand())));
     }
 
+    @RateLimited(RateLimitedApi.EXCHANGE_LIST)
     @Override
     @GetMapping
     public RsData<Page<ExchangeResponse>> getExchanges(@LoginUserId Long userId, Pageable pageable) {
@@ -44,6 +48,7 @@ public class ApiV1SettlementExchangeController implements ApiV1SettlementExchang
                 exchangeFacade.list(userId, pageable).map(ExchangeResponse::from));
     }
 
+    @RateLimited(RateLimitedApi.EXCHANGE_GET)
     @Override
     @GetMapping("/{exchangeId}")
     public RsData<ExchangeResponse> getExchange(@LoginUserId Long userId,
@@ -51,6 +56,7 @@ public class ApiV1SettlementExchangeController implements ApiV1SettlementExchang
         return RsData.ok("환전 신청을 조회했습니다.", ExchangeResponse.from(exchangeFacade.get(userId, exchangeId)));
     }
 
+    @RateLimited(RateLimitedApi.EXCHANGE_CANCEL)
     @Override
     @PostMapping("/{exchangeId}/cancel")
     public RsData<ExchangeResponse> cancel(@LoginUserId Long userId, @PathVariable("exchangeId") Long exchangeId) {
