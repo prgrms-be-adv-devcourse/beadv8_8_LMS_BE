@@ -57,12 +57,13 @@ spec:
                 name: chat-app-secrets
           # 384Mi에서 운영 기동 직후(Kafka consumer partition 할당 뒤) OOMKilled돼 512Mi로 올렸다. 기동 25분 뒤 430Mi(84%) (#545, docs/architecture/infrastructure/k3s.md)
           # 512Mi에서 운영 working set 433Mi(85%)였고, 지표 노출과 관리 포트(Tomcat 하나 더, 약 +10MB)를 더하며 576Mi로 올린다(#590).
+          # trace(#631)를 붙이며 640Mi로 올렸다. 2026-11-03 운영 working set 541Mi(94%)였고, lecture-app은 trace로 k3d에서 약 +18Mi(#579)였다.
           resources:
             requests:
               cpu: 100m
-              memory: 576Mi
+              memory: 640Mi
             limits:
-              memory: 576Mi
+              memory: 640Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:
