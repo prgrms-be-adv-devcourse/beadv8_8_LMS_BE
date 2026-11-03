@@ -6,13 +6,13 @@ spring:
     compose:
       file: docker/compose.yaml
       lifecycle-management: start-only
-  # 로컬 compose(docker/compose.yaml)에는 Kafka가 없다. 회원 이벤트 리스너와 DLT 토픽 생성이 연결을 계속 시도하지 않게 끈다.
-  # Kafka를 띄워 회원 이벤트 소비를 확인할 때는 SPRING_KAFKA_LISTENER_AUTO_STARTUP·SPRING_KAFKA_ADMIN_AUTO_CREATE를 true로 준다.
+  # 회원·고객센터 이벤트 리스너와 DLT 토픽 생성은 기본으로 끈다. Kafka가 없어도 연결을 계속 시도하지 않게 한다.
+  # 로컬 compose(docker/compose.yaml)의 Kafka로 이벤트 소비를 확인할 때는 두 값을 true로 준다(루트 .env나 환경 변수).
   kafka:
     listener:
-      auto-startup: false
+      auto-startup: "${SPRING_KAFKA_LISTENER_AUTO_STARTUP:false}"
     admin:
-      auto-create: false
+      auto-create: "${SPRING_KAFKA_ADMIN_AUTO_CREATE:false}"
 hapbang:
   storage:
     s3:
@@ -23,6 +23,6 @@ hapbang:
     key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
   clients:
     billing:
-      base-url: http://localhost:8082
+      base-url: "${BILLING_API_BASE_URL:http://localhost:8082}"
 server:
   port: "${SERVER_PORT:8084}"
