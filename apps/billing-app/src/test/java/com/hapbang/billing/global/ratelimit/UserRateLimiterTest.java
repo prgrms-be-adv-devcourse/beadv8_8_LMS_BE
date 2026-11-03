@@ -6,6 +6,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.DisplayName;
@@ -103,6 +108,40 @@ class UserRateLimiterTest {
         now.set(minute * 3);
         swept.acquire(3L, RateLimitedApi.WALLET);
         assertThat(swept.size()).as("회원 1은 3분 동안 안 써서 지워진다").isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("쉬던 카운터를 쓰는 순간 다른 요청이 정리를 돌려도, 방금 쓴 카운터는 지우지 않는다(#627 리뷰: sweep·acquire 경합)")
+    void sweepDoesNotRemoveCounterInUse() throws Exception {
+        AtomicLong now = new AtomicLong();
+        long round = Duration.ofMinutes(3).toNanos();
+        UserRateLimiter raced = new UserRateLimiter(new RateLimitProperties(1_000_000, 1_000_000, 1_000_000),
+                Duration.ofMinutes(1), now::get);
+        raced.acquire(1L, RateLimitedApi.WALLET);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier start = new CyclicBarrier(2);
+            for (int i = 1; i <= 2_000; i++) {
+                // 회원 1의 카운터는 지난 회차(3분 전)에 쓰여 이제 쉬는 상태다. 회원 1이 쓰는 순간 회원 2의 요청이 정리를 돌린다
+                now.set(round * i);
+                Future<?> user = executor.submit(() -> {
+                    start.await();
+                    raced.acquire(1L, RateLimitedApi.WALLET);
+                    return null;
+                });
+                Future<?> sweeper = executor.submit(() -> {
+                    start.await();
+                    raced.acquire(2L, RateLimitedApi.WALLET);
+                    return null;
+                });
+                user.get(5, TimeUnit.SECONDS);
+                sweeper.get(5, TimeUnit.SECONDS);
+
+                assertThat(raced.contains(1L, RateLimitedApi.WALLET)).as("%d회차", i).isTrue();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

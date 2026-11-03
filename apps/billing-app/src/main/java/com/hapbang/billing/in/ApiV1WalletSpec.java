@@ -17,7 +17,7 @@ public interface ApiV1WalletSpec {
     @Operation(summary = "내 지갑 조회",
             description = "유저·인플루언서·인증된 인플루언서. 충전·수익 HP의 가용·보류 잔액과 합계를 반환한다. "
                     + "지갑이 없으면 잔액 0인 지갑을 만들어 반환한다(만들어도 200). 응답은 RsData의 data에 담는다. "
-                    + "비로그인 401, 관리자 403(ProblemDetail). 회원마다 기본 분당 60회, 넘으면 429 TOO_MANY_REQUESTS(Retry-After 헤더, 초).")
+                    + "비로그인 401, 관리자 403(ProblemDetail). 회원마다 기본 분당 60회(400·403으로 끝난 요청도 셈), 넘으면 429 TOO_MANY_REQUESTS(Retry-After 헤더, 초).")
     RsData<WalletResponse> me(Long userId);
 
     @Operation(summary = "내 HP 거래 내역",
@@ -28,7 +28,7 @@ public interface ApiV1WalletSpec {
                     + "type: CHARGE, PAYMENT_HOLD, PAYMENT_RELEASE, PAYMENT_SETTLED, PENALTY_PAID, EARNING_RECEIVED, "
                     + "PENALTY_RECEIVED, REFUND_HOLD, REFUND_RELEASE, REFUND, EXCHANGE_HOLD, EXCHANGE_RELEASE, EXCHANGE, "
                     + "REVERSAL. 시각은 UTC Instant. 지갑이 없으면 빈 목록. page 0 이상, size 1~100(기본 20), 범위 밖은 "
-                    + "400 INVALID_REQUEST. 비로그인 401, 관리자 403(ProblemDetail). 회원마다 기본 분당 60회, 넘으면 429 TOO_MANY_REQUESTS(Retry-After 헤더, 초).")
+                    + "400 INVALID_REQUEST. 비로그인 401, 관리자 403(ProblemDetail). 회원마다 기본 분당 60회(400·403으로 끝난 요청도 셈), 넘으면 429 TOO_MANY_REQUESTS(Retry-After 헤더, 초).")
     RsData<Page<WalletTransactionResponse>> transactions(Long userId,
             @Parameter(description = "페이지 번호(0부터)") @Min(0) int page,
             @Parameter(description = "페이지 크기(1~100)") @Min(1) @Max(100) int size);
