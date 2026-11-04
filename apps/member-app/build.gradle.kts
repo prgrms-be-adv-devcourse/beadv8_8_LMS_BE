@@ -18,6 +18,9 @@ dependencies {
     // 출연·강의 내부 API 호출의 circuit breaker와 지표 (#654, 지갑 OutboundCircuitBreakers와 같은 방식)
     implementation(libs.resilience4j.circuitbreaker)
     implementation(libs.resilience4j.micrometer)
+    // 동시 요청의 유일 위반 판별(UserUniqueViolation)에 PSQLException의 SQLState·제약 이름을 쓴다(#646, 강의·지갑과 같음, D48).
+    // 드라이버는 실행 시 들어 있다
+    compileOnly("org.postgresql:postgresql")
     // 테스트에서 로그인 상태 만들기 (oauth2Login())
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }

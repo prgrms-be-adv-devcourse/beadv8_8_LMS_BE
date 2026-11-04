@@ -1,5 +1,7 @@
 package com.hapbang.member.app;
 
+import static com.hapbang.member.fixture.PostgresErrorFixture.UNIQUE_VIOLATION;
+import static com.hapbang.member.fixture.PostgresErrorFixture.violation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
@@ -91,8 +93,8 @@ class MemberSignUpUseCaseTest {
     @Test
     @DisplayName("동시 가입으로 이메일 유일 제약에 걸리면 DUPLICATE_EMAIL")
     void signUp_concurrentDuplicate() {
-        given(userRepository.saveAndFlush(any(User.class))).willThrow(new DataIntegrityViolationException(
-                "duplicate key value violates unique constraint \"" + MemberSignUpUseCase.EMAIL_UNIQUE + "\""));
+        given(userRepository.saveAndFlush(any(User.class)))
+                .willThrow(violation(UNIQUE_VIOLATION, UserUniqueViolation.EMAIL_UNIQUE));
 
         assertError(() -> useCase.signUp("tester1@example.com", "abcd1234", "tester1"), MemberErrorCode.DUPLICATE_EMAIL);
         verify(passwordCredentialRepository, never()).save(any());
@@ -112,8 +114,8 @@ class MemberSignUpUseCaseTest {
     @Test
     @DisplayName("동시 가입으로 닉네임 유일 인덱스에 걸리면 DUPLICATE_NICKNAME (#646)")
     void signUp_concurrentDuplicateNickname() {
-        given(userRepository.saveAndFlush(any(User.class))).willThrow(new DataIntegrityViolationException(
-                "duplicate key value violates unique constraint \"" + MemberSupport.NICKNAME_UNIQUE + "\""));
+        given(userRepository.saveAndFlush(any(User.class)))
+                .willThrow(violation(UNIQUE_VIOLATION, UserUniqueViolation.NICKNAME_UNIQUE));
 
         assertError(() -> useCase.signUp("tester1@example.com", "abcd1234", "tester1"),
                 MemberErrorCode.DUPLICATE_NICKNAME);

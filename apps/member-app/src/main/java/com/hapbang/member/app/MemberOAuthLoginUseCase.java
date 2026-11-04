@@ -56,13 +56,10 @@ public class MemberOAuthLoginUseCase {
         });
         User user;
         try {
-            // 저장하면서 바로 INSERT된다(ID 자동 생성). 확인과 저장 사이에 같은 닉네임이 먼저 저장되면 유일 인덱스에 걸린다
+            // 저장하면서 바로 INSERT된다(ID 자동 생성). 확인과 저장 사이에 같은 이메일·닉네임이 먼저 저장되면 유일 제약에 걸린다(409)
             user = userRepository.save(User.join(email, availableNickname(nickname)));
         } catch (DataIntegrityViolationException e) {
-            if (MemberSupport.isNicknameViolation(e)) {
-                throw new MemberException(MemberErrorCode.DUPLICATE_NICKNAME, e);
-            }
-            throw e;
+            throw UserUniqueViolation.translate(e);
         }
         oAuthAccountRepository.save(OAuthAccount.connect(user, provider, providerUserId));
         eventPublisher.publishEvent(new UserJoinedEvent(user.toDto()));

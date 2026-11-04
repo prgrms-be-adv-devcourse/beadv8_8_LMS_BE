@@ -1,5 +1,7 @@
 package com.hapbang.member.app;
 
+import static com.hapbang.member.fixture.PostgresErrorFixture.UNIQUE_VIOLATION;
+import static com.hapbang.member.fixture.PostgresErrorFixture.violation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
@@ -21,7 +23,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.dao.DataIntegrityViolationException;
 
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
@@ -180,12 +181,25 @@ class MemberOAuthLoginUseCaseTest {
     void login_newUser_concurrentNickname() {
         given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
                 .willReturn(Optional.empty());
-        given(userRepository.save(any(User.class))).willThrow(new DataIntegrityViolationException(
-                "duplicate key value violates unique constraint \"" + MemberSupport.NICKNAME_UNIQUE + "\""));
+        given(userRepository.save(any(User.class)))
+                .willThrow(violation(UNIQUE_VIOLATION, UserUniqueViolation.NICKNAME_UNIQUE));
 
         assertThatThrownBy(() -> useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "홍길동"))
                 .isInstanceOf(MemberException.class)
                 .extracting("errorCode").isEqualTo(MemberErrorCode.DUPLICATE_NICKNAME);
         verify(oAuthAccountRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("같은 이메일로 처음 구글 로그인이 동시에 들어와 이메일 유일 제약에 걸리면 DUPLICATE_EMAIL (#646 리뷰)")
+    void login_newUser_concurrentEmail() {
+        given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class)))
+                .willThrow(violation(UNIQUE_VIOLATION, UserUniqueViolation.EMAIL_UNIQUE));
+
+        assertThatThrownBy(() -> useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "홍길동"))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.DUPLICATE_EMAIL);
     }
 }

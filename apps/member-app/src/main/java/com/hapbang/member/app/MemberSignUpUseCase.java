@@ -3,7 +3,6 @@ package com.hapbang.member.app;
 import java.time.LocalDateTime;
 
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -30,9 +29,6 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class MemberSignUpUseCase {
-
-    /** users.email 유일 제약 (V202610121119) */
-    static final String EMAIL_UNIQUE = "uc_users_email";
 
     private final UserRepository userRepository;
     private final PasswordCredentialRepository passwordCredentialRepository;
@@ -68,22 +64,11 @@ public class MemberSignUpUseCase {
             // 바로 INSERT해서 동시 가입의 유일 제약 위반을 여기서 409로 바꾼다
             userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
-            if (isEmailViolation(e)) {
-                throw new MemberException(MemberErrorCode.DUPLICATE_EMAIL, e);
-            }
-            if (MemberSupport.isNicknameViolation(e)) {
-                throw new MemberException(MemberErrorCode.DUPLICATE_NICKNAME, e);
-            }
-            throw e;
+            throw UserUniqueViolation.translate(e);
         }
         passwordCredentialRepository.save(
                 PasswordCredential.register(user, passwordEncoder.encode(password), LocalDateTime.now()));
         eventPublisher.publishEvent(new UserJoinedEvent(user.toDto()));
         return user;
-    }
-
-    private static boolean isEmailViolation(DataIntegrityViolationException e) {
-        String message = NestedExceptionUtils.getMostSpecificCause(e).getMessage();
-        return message != null && message.contains(EMAIL_UNIQUE);
     }
 }

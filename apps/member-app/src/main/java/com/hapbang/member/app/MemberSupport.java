@@ -3,7 +3,6 @@ package com.hapbang.member.app;
 import java.util.List;
 
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,9 +23,6 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class MemberSupport {
-
-    /** users lower(nickname) 유일 인덱스 (V202611040948, #646) */
-    static final String NICKNAME_UNIQUE = "uk_users_nickname_lower";
 
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -68,12 +64,6 @@ public class MemberSupport {
                 : !userRepository.existsByNicknameLowerExcept(nickname, selfId);
     }
 
-    /** 닉네임 유일 인덱스 위반인지 (확인과 저장 사이에 다른 요청이 같은 닉네임을 먼저 저장한 경우) */
-    public static boolean isNicknameViolation(DataIntegrityViolationException e) {
-        String message = NestedExceptionUtils.getMostSpecificCause(e).getMessage();
-        return message != null && message.contains(NICKNAME_UNIQUE);
-    }
-
     /**
      * 바뀐 회원 정보를 지금 DB에 반영한다. 다른 트랜잭션이 먼저 바꿨으면(@Version 충돌) MEMBER_CONCURRENT_UPDATE(409),
      * 다른 회원이 같은 닉네임을 먼저 저장했으면 DUPLICATE_NICKNAME(409).
@@ -85,10 +75,7 @@ public class MemberSupport {
         } catch (ObjectOptimisticLockingFailureException e) {
             throw new MemberException(MemberErrorCode.MEMBER_CONCURRENT_UPDATE);
         } catch (DataIntegrityViolationException e) {
-            if (isNicknameViolation(e)) {
-                throw new MemberException(MemberErrorCode.DUPLICATE_NICKNAME, e);
-            }
-            throw e;
+            throw UserUniqueViolation.translate(e);
         }
     }
 
