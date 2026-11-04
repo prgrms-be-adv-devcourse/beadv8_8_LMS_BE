@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -62,6 +63,7 @@ class ApiV1MemberChannelControllerTest {
 
     private static final String CALLBACK = "/api/v1/members/channels/chzzk/callback";
     private static final String AUTHORIZE = "/api/v1/members/channels/chzzk/authorize";
+    private static final AtomicInteger USER_SEQ = new AtomicInteger();
 
     @Autowired
     MockMvc mockMvc;
@@ -434,7 +436,9 @@ class ApiV1MemberChannelControllerTest {
     }
 
     private User saveUser(Role role) {
-        User user = User.join("tester" + System.nanoTime() + "@example.com", "tester1");
+        // 닉네임은 겹칠 수 없다 (#646)
+        int seq = USER_SEQ.incrementAndGet();
+        User user = User.join("tester" + System.nanoTime() + "@example.com", "tester" + seq);
         user.changeRole(role);
         return userRepository.save(user);
     }
