@@ -42,22 +42,21 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByNicknameLowerExcept(@Param("nickname") String nickname, @Param("userId") Long userId);
 
     /**
-     * 마스킹할 회원 ID (#594): 탈퇴했고, 아직 마스킹하지 않았고, 복구 기한이 지난 회원을 탈퇴 시각 순으로.
-     * 복구 기한은 탈퇴 시각 + 30일이고, 기한 안에 지갑 장애로 복구가 실패했으면(restoreFailedAt) 7일을 더한다
-     * ({@code User.restorableUntil}과 같은 규칙). 기준 시각은 부르는 쪽이 계산해 넘긴다
+     * 마스킹 후보 회원 ID (#594): 탈퇴했고, 아직 마스킹하지 않았고, 탈퇴하고 30일이 지난 회원을 ID 순으로 {@code afterId} 다음부터.
+     * 복구 유예(7일) 같은 최종 판단은 하지 않는다. 후보를 넓게 고르고 {@code User.canRestore}가 한 곳에서 정한다(규칙이 두 곳에 나뉘지 않게).
+     * ID 순으로 이어 읽어, 실패한 회원이 앞에 남아도 다음 회원으로 넘어간다
      *
      * @param deadlineCutoff 지금 − 30일. 탈퇴 시각이 이보다 앞서야 한다
-     * @param graceCutoff    지금 − 37일. 복구 실패 기록이 있으면 탈퇴 시각이 이보다 앞서야 한다
      */
     @Query("""
             select u.id from User u
             where u.status = com.hapbang.shared.member.domain.UserStatus.WITHDRAWN
               and u.maskedAt is null
               and u.deletedAt < :deadlineCutoff
-              and (u.restoreFailedAt is null or u.deletedAt < :graceCutoff)
-            order by u.deletedAt, u.id""")
-    List<Long> findMaskingTargetIds(@Param("deadlineCutoff") LocalDateTime deadlineCutoff,
-                                    @Param("graceCutoff") LocalDateTime graceCutoff, Limit limit);
+              and u.id > :afterId
+            order by u.id""")
+    List<Long> findMaskingCandidateIds(@Param("deadlineCutoff") LocalDateTime deadlineCutoff,
+                                       @Param("afterId") long afterId, Limit limit);
 
     /** 역할·상태로 회원 목록 (인플루언서 목록) */
     Page<User> findByRoleInAndStatus(Collection<Role> roles, UserStatus status, Pageable pageable);

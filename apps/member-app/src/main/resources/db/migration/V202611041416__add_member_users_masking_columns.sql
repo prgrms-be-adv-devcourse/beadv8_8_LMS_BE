@@ -6,6 +6,6 @@ alter table members.users
     add column masked_at TIMESTAMP(6) WITHOUT TIME ZONE,
     add column restore_failed_at TIMESTAMP(6) WITHOUT TIME ZONE;
 
--- 마스킹 배치 대상 찾기: 탈퇴했고 아직 마스킹하지 않은 회원을 탈퇴 시각 순으로 읽는다
-create index ix_users_masking_target on members.users (deleted_at)
+-- 마스킹 배치 후보 찾기: 탈퇴했고 아직 마스킹하지 않은 회원만 담아 작게 유지한다 (ID 순으로 이어 읽고 탈퇴 시각으로 거른다)
+create index ix_users_masking_target on members.users (id, deleted_at)
     where status = 'WITHDRAWN' and masked_at is null;

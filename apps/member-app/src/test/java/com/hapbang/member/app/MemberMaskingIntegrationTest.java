@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 
@@ -23,6 +24,7 @@ import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.global.storage.S3FileStorage;
 import com.hapbang.member.global.storage.StoredFile;
 import com.hapbang.member.out.InfluencerChannelRepository;
+import com.hapbang.member.out.NicknameDedupRepository;
 import com.hapbang.member.out.OAuthAccountRepository;
 import com.hapbang.member.out.PasswordCredentialRepository;
 import com.hapbang.member.out.UserRepository;
@@ -56,6 +58,12 @@ class MemberMaskingIntegrationTest {
     S3FileStorage s3FileStorage;
 
     @Autowired
+    NicknameDedupRepository nicknameDedupRepository;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Autowired
     ApplicationEvents events;
 
     @Test
@@ -68,14 +76,14 @@ class MemberMaskingIntegrationTest {
         User graceOver = withdrawn(now.minusDays(38), now.minusDays(9));
         User active = userRepository.save(MemberFixture.user());
 
-        assertThat(memberMaskingUseCase.maskDue(100)).isEqualTo(2);
+        assertThat(memberMaskingUseCase.maskAllDue(100)).isEqualTo(2);
 
         assertThat(reload(due).isMasked()).isTrue();
         assertThat(reload(graceOver).isMasked()).isTrue();
         assertThat(reload(restorable).isMasked()).isFalse();
         assertThat(reload(inGrace).isMasked()).isFalse();
         assertThat(reload(active).isMasked()).isFalse();
-        assertThat(memberMaskingUseCase.maskDue(100)).isZero();
+        assertThat(memberMaskingUseCase.maskAllDue(100)).isZero();
     }
 
     @Test
@@ -94,7 +102,7 @@ class MemberMaskingIntegrationTest {
         userRepository.save(withPhoto);
         events.clear();
 
-        assertThat(memberMaskingUseCase.maskDue(100)).isEqualTo(1);
+        assertThat(memberMaskingUseCase.maskAllDue(100)).isEqualTo(1);
 
         User masked = reload(user);
         assertThat(masked.getEmail()).isEqualTo("withdrawn_" + id + "@masked.invalid");
@@ -126,7 +134,7 @@ class MemberMaskingIntegrationTest {
         influencerChannelRepository.save(InfluencerChannel.register(user, ChannelPlatform.CHZZK, "channel-rejoin", "방송인",
                 10, LocalDateTime.now()));
 
-        memberMaskingUseCase.maskDue(100);
+        memberMaskingUseCase.maskAllDue(100);
 
         assertThat(userRepository.existsByEmailIgnoreCase(email)).isFalse();
         assertThat(userRepository.existsByNicknameLower(nickname)).isFalse();
@@ -135,6 +143,57 @@ class MemberMaskingIntegrationTest {
                 .isFalse();
         User rejoined = userRepository.save(User.join(email, nickname));
         assertThat(rejoined.getId()).isNotEqualTo(user.getId());
+    }
+
+    @Test
+    @DisplayName("한 회원이 실패해도 그 회원만 건너뛰고 뒤 회원은 마스킹한다 (마스킹 이메일을 다른 회원이 먼저 쓰고 있는 경우)")
+    void skipsFailedMember() {
+        LocalDateTime withdrawnAt = LocalDateTime.now().minusDays(31);
+        User blocked = withdrawn(withdrawnAt);
+        userRepository.save(User.join("withdrawn_" + blocked.getId() + "@masked.invalid", "선점자"));
+        User next = withdrawn(withdrawnAt);
+
+        assertThat(memberMaskingUseCase.maskAllDue(1)).isEqualTo(1);
+
+        assertThat(reload(blocked).isMasked()).isFalse();
+        assertThat(reload(next).isMasked()).isTrue();
+    }
+
+    @Test
+    @DisplayName("예전에 바꾼 사진까지 사진 폴더의 파일을 모두 비우고, #646 닉네임 정리 기록의 닉네임도 마스킹한다")
+    void erasesAllPhotosAndDedupRecord() {
+        User user = withdrawn(LocalDateTime.now().minusDays(31));
+        Long id = user.getId();
+        String oldPhoto = "member/profile/" + id + "/old";
+        String unlinkedPhoto = "member/profile/" + id + "/unlinked";
+        s3FileStorage.upload(oldPhoto, "image/png", 3, new ByteArrayInputStream(new byte[] {1, 2, 3}));
+        s3FileStorage.upload(unlinkedPhoto, "image/png", 3, new ByteArrayInputStream(new byte[] {1, 2, 3}));
+        jdbcTemplate.update("""
+                insert into members.nickname_dedup (user_id, old_nickname, new_nickname, notified_at)
+                values (?, '홍길동', '홍길동4821', localtimestamp)""", id);
+
+        memberMaskingUseCase.maskAllDue(100);
+
+        assertThat(s3FileStorage.find(oldPhoto)).hasValueSatisfying(file -> assertThat(file.size()).isZero());
+        assertThat(s3FileStorage.find(unlinkedPhoto)).hasValueSatisfying(file -> assertThat(file.size()).isZero());
+        assertThat(nicknameDedupRepository.findById(id).orElseThrow())
+                .satisfies(dedup -> {
+                    assertThat(dedup.getOldNickname()).isEqualTo("탈퇴회원#" + id);
+                    assertThat(dedup.getNewNickname()).isEqualTo("탈퇴회원#" + id);
+                });
+    }
+
+    @Test
+    @DisplayName("복구 유예 중인 회원은 후보로 읽어도 사진을 건드리지 않고 건너뛴다")
+    void doesNotTouchPhotosOfRestorableMember() {
+        User inGrace = withdrawn(LocalDateTime.now().minusDays(31), LocalDateTime.now().minusDays(2));
+        String photo = "member/profile/" + inGrace.getId() + "/photo";
+        s3FileStorage.upload(photo, "image/png", 3, new ByteArrayInputStream(new byte[] {1, 2, 3}));
+
+        assertThat(memberMaskingUseCase.maskAllDue(100)).isZero();
+
+        assertThat(s3FileStorage.find(photo)).hasValueSatisfying(file -> assertThat(file.size()).isEqualTo(3));
+        assertThat(reload(inGrace).isMasked()).isFalse();
     }
 
     private User withdrawn(LocalDateTime withdrawnAt) {
