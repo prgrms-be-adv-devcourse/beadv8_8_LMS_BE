@@ -77,7 +77,7 @@ public interface ApiV1MemberSpec {
     RsData<MemberMeResponse> uploadProfileImage(Long userId, Long memberId, HttpServletRequest request) throws IOException;
 
     @Operation(summary = "프로필 사진 삭제",
-            description = "로그인한 회원 본인. 프로필 사진 연결만 해제한다 (S3 파일은 지우지 않는다). 사진이 없어도 200.")
+            description = "로그인한 회원 본인. 프로필 사진 연결을 해제하고 S3 파일은 빈 파일로 덮어 지운다(#594). 사진이 없어도 200.")
     RsData<MemberMeResponse> deleteProfileImage(Long userId);
 
     @Operation(summary = "탈퇴 회원 복구",

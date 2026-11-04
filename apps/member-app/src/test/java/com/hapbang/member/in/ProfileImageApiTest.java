@@ -131,6 +131,7 @@ class ProfileImageApiTest {
     void delete_profileImage() throws Exception {
         User user = userRepository.save(MemberFixture.user());
         mockMvc.perform(upload(user, user.getId(), "image/png", IMAGE)).andExpect(status().isOk());
+        String key = userRepository.findById(user.getId()).orElseThrow().getProfileImageKey();
 
         mockMvc.perform(delete("/api/v1/members/me/profile-image")
                         .with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf()))
@@ -139,6 +140,22 @@ class ProfileImageApiTest {
                 .andExpect(jsonPath("$.data.profileImageUrl").value(Matchers.nullValue()));
 
         assertThat(userRepository.findById(user.getId()).orElseThrow().getProfileImageKey()).isNull();
+        assertThat(s3FileStorage.find(key)).hasValueSatisfying(file -> assertThat(file.size()).isZero());
+    }
+
+    @Test
+    @DisplayName("사진을 바꾸면 옛 사진 파일은 빈 파일로 덮이고 새 사진은 그대로다 (#594)")
+    void upload_erasesPrevious() throws Exception {
+        User user = userRepository.save(MemberFixture.user());
+        mockMvc.perform(upload(user, user.getId(), "image/png", IMAGE)).andExpect(status().isOk());
+        String previousKey = userRepository.findById(user.getId()).orElseThrow().getProfileImageKey();
+
+        mockMvc.perform(upload(user, user.getId(), "image/webp", WEBP)).andExpect(status().isOk());
+
+        String currentKey = userRepository.findById(user.getId()).orElseThrow().getProfileImageKey();
+        assertThat(currentKey).isNotEqualTo(previousKey);
+        assertThat(s3FileStorage.find(previousKey)).hasValueSatisfying(file -> assertThat(file.size()).isZero());
+        assertThat(s3FileStorage.find(currentKey)).hasValueSatisfying(file -> assertThat(file.size()).isEqualTo(WEBP.length));
     }
 
     @Test
