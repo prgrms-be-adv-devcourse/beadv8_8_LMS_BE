@@ -54,7 +54,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #607 | 변경된 지갑의 잔액 대사 배치: `WalletReconciliationBatch`(매일 04:02:45 KST, 실행 락 607001) → `ChangedWalletReconciliationUseCase`(최근 72시간 안에 `wallet.updated_at`·`point_ledger.created_at`이 있는 지갑, 지갑마다 `reconcile`, 고치지 않음, 지갑 오류는 끝에 1회 재시도 후 failed로 세고 다음 회차로 이월), 지표 `hapbang.billing.reconciliation.wallets{result}`·`.last.success`(failed 0일 때만 갱신), Flyway `V202611031800`(`idx_wallet_1`, `idx_point_ledger_5`), BD-139 | `feature/tkt-607` | #611 | 완료 |
 | #623 | 회원 탈퇴용 지갑 확인하고 닫기·다시 열기 내부 API `POST /api/v1/internal/billing/withdrawals/{withdrawalId}/{close,reopen}`(`WalletWithdrawalFacade`·`UseCase`·`Blocks`): 막힌 이유(충전·수익 잔액, 처리 중인 환불·환전, 확인 중인 충전) 없으면 CLOSED·있으면 BLOCKED, 탈퇴 기록 `wallet_withdrawal`과 지갑 닫힘 `wallet.closed_by_withdrawal_id`·`closed_at`(Flyway `V202611032000`), 멱등(replayed, 다른 회원 409), 다시 열기 뒤 늦은 닫기 409 `WITHDRAWAL_ALREADY_REOPENED`, 닫힌 지갑의 충전 주문·충전 승인 시작·새 보류(강의·출연·환불·환전) 409 `WALLET_CLOSED`, 지갑 없는 회원은 기록만 + 회원별 advisory lock(`WalletUserLock`)으로 지갑 생성 때 닫힌 지갑, shared 계약·Client `closeForWithdrawal`·`reopenForWithdrawal`·실패 코드 2개, 닫힌 지갑에 들어온 HP 알림(원장 기록 warn 로그, 수집 때마다 DB에서 세는 지표 `hapbang.billing.wallet.closed.with.balance`(`ClosedWalletBalanceMetrics`, 실패하면 NaN, 부분 인덱스 `idx_wallet_2`), 매일 대사 배치의 지갑 ID warn 로그), `WalletWithdrawalIntegrationTest`(BD-141) | `feature/tkt-623` | (PR 전) | 구현 완료 |
 | #627 | 사용자 API 회원별 rate limit: `global.ratelimit`(`@RateLimited`·`RateLimitedApi` 14개·`RateLimitInterceptor`·`UserRateLimiter`, Resilience4j `RateLimiter` 앱 메모리), 회원 × API마다 분당 신청·취소 10·일반 조회 60·수익 조회 20(`hapbang.billing.rate-limit.*`), 429 `TOO_MANY_REQUESTS`(`GlobalErrorCode`) + `Retry-After`, 지표 `hapbang.billing.rate.limit.rejected{api}`, 의존성 `resilience4j-ratelimiter`, BD-140 | `feature/tkt-627` | (PR 전) | 구현 완료 |
-| #655 | JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(BD-141), 원격 호출 트랜잭션 계약(BD-142), BD-53·60·64·66·72·73·107 상태 정리, `module.md` 해소된 제약(L2·L3·L7·L10)·7.2·8.3을 현재 상태로, 7장 옛 후보 정리. 운영 코드 변경 없음 | `feature/tkt-655` | — | 진행 중 |
+| #655 | JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(BD-142), 원격 호출 트랜잭션 계약(BD-143), BD-53·60·64·66·72·73·107 상태 정리, `module.md` 해소된 제약(L2·L3·L7·L10)·7.2·8.3을 현재 상태로, 7장 옛 후보 정리. 운영 코드 변경 없음 | `feature/tkt-655` | — | 진행 중 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
@@ -775,7 +775,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 ### 다음 Issue 후보
 
-> 2026-11-04 #655에서 다시 정리했다. 같은 JVM 호출(`BillingPort`)·한 트랜잭션 연동을 전제로 한 #145·#182·#188 후속은 강의·출연이 내부 HTTP API와 HP 작업으로 바꾸면서 끝났다(BD-128, BD-141, BD-142, 강의 D62·D65). 당시 기록은 3장에 남아 있다. 열린 결정은 아래 "팀과 정할 것"이 가리키는 `decisions.md` 10장을 본다.
+> 2026-11-04 #655에서 다시 정리했다. 같은 JVM 호출(`BillingPort`)·한 트랜잭션 연동을 전제로 한 #145·#182·#188 후속은 강의·출연이 내부 HTTP API와 HP 작업으로 바꾸면서 끝났다(BD-128, BD-142, BD-143, 강의 D62·D65). 당시 기록은 3장에 남아 있다. 열린 결정은 아래 "팀과 정할 것"이 가리키는 `decisions.md` 10장을 본다.
 - **#537 후속**: policy.md 2장 "회원 상태와 충전·환불·환전"은 팀 확인을 받는다.
 - **#552 후속**: Prometheus 지표·관리 포트로 메모리가 늘 수 있어 448Mi limit에서 RSS를 확인한다. notification·search 앱을 더하기 전에 앱별 pool 또는 `max_connections`를 다시 정한다(`database.md` 5항).
 - **#224 후속**: 실제 TossPayments 테스트 키로 prod(유일한 서버)에서 결제창 → 승인 수동 확인, 프론트 결제 계약 확정(결제창 방식·successUrl·failUrl), PENDING 주문 만료 정책, 최대 충전 금액, 가상계좌·웹훅(필요 시), PROCESSING 장기 미확정 건 운영자 조회·알림(관리자 Issue), ERD에 `pg_payment_key_hash`·`failure_reason` 반영.

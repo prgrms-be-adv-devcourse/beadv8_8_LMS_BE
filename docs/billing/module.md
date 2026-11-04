@@ -131,7 +131,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 환불 | 지갑 → 환불 요청 → 보류 → 충전 건 |
 | 환전·송금 | 지갑 → 환전(`findByIdForUpdate` + refresh) → 보류 → 환전 송금 |
 | 충전 claim | 충전 건만(`FOR NO KEY UPDATE`), 지갑 없음 |
-| 모듈 간 | 없다. database가 나뉘어 한 트랜잭션 안에 다른 모듈 락이 없다(`BD-72` 폐기 → `BD-141`) |
+| 모듈 간 | 없다. database가 나뉘어 한 트랜잭션 안에 다른 모듈 락이 없다(`BD-72` 폐기 → `BD-142`) |
 
 `lock_timeout`은 3초다(연결마다 `SET lock_timeout = '3s'`, `billing.yml`, `BD-108`).
 
@@ -240,7 +240,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 
 | 영역 | 목표 (정해진 것) | Billing에서 검토할 것 (TBD) |
 | --- | --- | --- |
-| 보류·반환·지급 | Billing이 `/api/v1/internal/billing/...` 내부 HTTP API 제공, 소비 앱은 shared Client 사용 (AGENTS 3장 경계 규칙, D62·D63). 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 **Resilience4j**로 통일 (인프라 문서 3장, #280). database 분리 전에 보상 처리를 끝낸다: 보류 실패 → 주문 취소, 주문 실패 → 보류 반환 (인프라 문서 10장) | 구현됨: 요청 하나 = 지갑 트랜잭션 하나, 호출자 상태 + 같은 요청 ID 재시도(`BD-142`, 강의 D62·D65, 출연 `BD-65`), 모듈 간 락 순서 폐기(`BD-141`), 지갑 쪽 나가는 호출 회로(`BD-134`) |
+| 보류·반환·지급 | Billing이 `/api/v1/internal/billing/...` 내부 HTTP API 제공, 소비 앱은 shared Client 사용 (AGENTS 3장 경계 규칙, D62·D63). 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 **Resilience4j**로 통일 (인프라 문서 3장, #280). database 분리 전에 보상 처리를 끝낸다: 보류 실패 → 주문 취소, 주문 실패 → 보류 반환 (인프라 문서 10장) | 구현됨: 요청 하나 = 지갑 트랜잭션 하나, 호출자 상태 + 같은 요청 ID 재시도(`BD-143`, 강의 D62·D65, 출연 `BD-65`), 모듈 간 락 순서 폐기(`BD-142`), 지갑 쪽 나가는 호출 회로(`BD-134`) |
 | 내부 API 노출 | k3s에서는 `/api/v1/internal/**`에 Envoy `HTTPRoute`를 만들지 않고, NetworkPolicy로 내부 API는 앱끼리만 닿게 한다. 인증은 `X-Internal-Api-Key` 유지 (인프라 문서 3장) | 없음 (현재 키 필터 그대로) |
 | 회원 이벤트 수신 | Kafka(#339, [`kafka.md`](../architecture/infrastructure/kafka.md)). member-app이 Modulith publication registry를 outbox로 쓰는 externalization으로 `member.events.v1`(key 회원 ID)에 발행한다. `eventId`는 없다([ADR 0001](../adr/0001-context-topics-with-mixed-event-types.md)·[0002](../adr/0002-modulith-externalization-without-event-id.md)). Billing은 목적별 소비 그룹 둘로 받는다: `billing-app.member-replica`(가입·변경 → 회원 복제본 Upsert), `billing-app.wallet-creation`(가입 → 지갑 생성). 멱등은 업무 자연 키다: 복제본은 `(user.id, user.version)` 버전 비교(`BD-103`), 지갑은 회원 ID UNIQUE(`uk_wallet_user_id`, `BD-1`)로 이미 있으면 그대로 둔다. 별도 inbox·처리 기록 테이블은 두지 않는다(`BD-123`). 블로킹 재시도 3회(1초 → 최대 10초) 뒤 그룹별 DLT `member.events.v1.billing-app.member-replica.DLT`·`member.events.v1.billing-app.wallet-creation.DLT`(billing-app이 `NewTopic`으로 선언, partition 3, 보존 7일) | 구현됨: 소비는 #430(7.1), 발행은 #416. #552 로컬 k3d에서 두 소비 그룹이 member-app 이벤트를 끝까지 읽었다(`docs/deploy/k8s.md` "billing-app 첫 배포") |
 | Billing 이벤트 발행 | 인프라 문서 1장의 시연 흐름: 지갑 이벤트 → notification-app 알림·감사 projection. HP 원장을 Kafka consumer가 확정하지 않는다 | 발행은 #497에서 구현했다(7.1). 알림 쪽 소비·매핑은 #193 |
@@ -301,8 +301,8 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | --- | --- | --- |
 | 접속 정보 | dev·prod `DB_URL`·`DB_USERNAME`·`DB_PASSWORD` (앱별 값 가능) | database `billing`, Billing 전용 계정은 자기 database에만 접속 |
 | 다른 모듈 테이블과의 관계 | FK·JOIN 없음(코드 기준, `BillingSchemaTest`) | 그대로 |
-| 모듈 간 트랜잭션 | 없음. 강의·출연은 내부 HTTP API로 부르고 요청 하나가 지갑 트랜잭션 하나다(#486에서 `BillingPort` 삭제, `BD-142`) | 그대로 |
-| 모듈 간 락 순서 `BD-72` | 폐기(`BD-141`) | 지갑 안 락 순서만 남는다(5.2) |
+| 모듈 간 트랜잭션 | 없음. 강의·출연은 내부 HTTP API로 부르고 요청 하나가 지갑 트랜잭션 하나다(#486에서 `BillingPort` 삭제, `BD-143`) | 그대로 |
+| 모듈 간 락 순서 `BD-72` | 폐기(`BD-142`) | 지갑 안 락 순서만 남는다(5.2) |
 | Flyway 이력 | `billing` 스키마의 `flyway_schema_history`, baseline 0 | `pg_dump`/restore로 데이터·이력 보존 |
 | Modulith 이벤트 기록 | `billing.event_publication`·`event_publication_archive`(#497, 지갑 이벤트 outbox) | 자기 database로 옮긴다(registry는 `DataSource` 하나에 묶인다) |
 | connection | 앱별 pool | 총 connection = (앱 수 + surge pod 수) × pool 크기. `max_connections`와 함께 다시 계산 |
@@ -361,4 +361,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-11-03 | 2cfe5307 | #598 배치·Backfill 실행 락(6.1, 9, L4·L5, BD-138) |
 | 2026-11-03 | 84f504c4 | #607 변경된 지갑의 잔액 대사 배치(2, 6.1, 6.2, 9, L6, BD-139) |
 | 2026-11-03 | 90938379 | #627 사용자 API 회원별 rate limit(8.1 rate limit 행, 9, BD-140) |
-| 2026-11-04 | b0731110 | #655 JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(5.2, BD-141), 원격 호출 트랜잭션 계약(7.2, 8.3, BD-142), 해소된 제약 L2·L3·L7·L10 표시, 7.2·8.3을 현재 상태로 고침 |
+| 2026-11-04 | b0731110 | #655 JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(5.2, BD-142), 원격 호출 트랜잭션 계약(7.2, 8.3, BD-143), 해소된 제약 L2·L3·L7·L10 표시, 7.2·8.3을 현재 상태로 고침 |
