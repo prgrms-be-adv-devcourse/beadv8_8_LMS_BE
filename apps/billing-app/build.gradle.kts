@@ -10,9 +10,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     // TossPayments 결제 승인·조회 호출 (RestClient.Builder, #224)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
-    // Facade 역할 검사(@PreAuthorize). 메서드 보안은 global SecurityConfig가 켠다
+    // Facade 역할 검사(@PreAuthorize). 메서드 보안은 앱 안의 global.config.SecurityConfig가 켠다
     implementation("org.springframework.security:spring-security-core")
-    // 가상 송금 Mock 은행 API 경로만의 보안 체인(SecurityFilterChain, #288). 실행 시 클래스는 global이 이미 넣는다
+    // 보안 체인(SecurityFilterChain): 사용자 API(SecurityConfig), 내부 API(InternalApiSecurityConfig), 가상 송금 Mock 은행 API(#288)
     implementation("org.springframework.security:spring-security-config")
     implementation("org.springframework.security:spring-security-web")
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
@@ -27,7 +27,7 @@ dependencies {
     implementation(libs.resilience4j.retry)
     implementation(libs.resilience4j.ratelimiter)
     implementation(libs.resilience4j.micrometer)
-    // 테스트에서 로그인 상태 만들기 (oauth2Login())
+    // 테스트 보안 지원(@WithMockUser). API 로그인은 Gateway 사용자 헤더(fixture.GatewayLogin)로 만든다 (#537)
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }
 

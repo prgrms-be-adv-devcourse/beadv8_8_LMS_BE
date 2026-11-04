@@ -2,7 +2,7 @@
 
 > 문서 지도: **[현재 구현](module.md)** · [결정 기록](decisions.md) · [테스트 검증 기준](test-spec.md) · [회귀 실행 기록](regression-log.md)
 >
-> - 기준: 2026-10-29 작업 트리(`dev` da834b1 + 커밋하지 않은 `apps/billing-app/AGENTS.md`·`PROGRESS.md` 변경). 문서와 코드가 다르면 **코드가 맞다**. 확인 후 이 문서를 고친다.
+> - 기준: 2026-11-04 `dev` b0731110 (#655). 문서와 코드가 다르면 **코드가 맞다**. 확인 후 이 문서를 고친다.
 > - 목표 구조(To-Be)의 원본은 [`docs/architecture/final-project-infrastructure.md`](../architecture/final-project-infrastructure.md)(#369 최종 인프라 결정)다. 이 문서는 그중 Billing에 닿는 부분만 가리킨다. 갱신 이력은 11장에 있다.
 > - 이 문서는 "지금 코드가 어떻게 동작하는가"만 적는다. 지켜야 할 규칙은 `apps/billing-app/AGENTS.md`, 진행 상황은 `apps/billing-app/PROGRESS.md`, 결정 이유는 [decisions.md](decisions.md)(`BD-*`)에 있다.
 > - 돈·HP 정책 수치는 [`docs/policy.md`](../policy.md), 용어는 [`docs/GLOSSARY.md`](../GLOSSARY.md)가 원본이다. 여기서는 장 번호로만 가리킨다.
@@ -131,9 +131,9 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 환불 | 지갑 → 환불 요청 → 보류 → 충전 건 |
 | 환전·송금 | 지갑 → 환전(`findByIdForUpdate` + refresh) → 보류 → 환전 송금 |
 | 충전 claim | 충전 건만(`FOR NO KEY UPDATE`), 지갑 없음 |
-| 모듈 간 (단일 DB 트랜잭션 시절) | `lecture_order → inquiry → order_item → wallet → point_hold → point_charge` (`BD-72`, 분리 후 재검토 대상) |
+| 모듈 간 | 없다. database가 나뉘어 한 트랜잭션 안에 다른 모듈 락이 없다(`BD-72` 폐기 → `BD-142`) |
 
-`lock_timeout`은 설정하지 않았다(무제한 대기, `BD-108` TBD).
+`lock_timeout`은 3초다(연결마다 `SET lock_timeout = '3s'`, `billing.yml`, `BD-108`).
 
 ### 5.3 멱등키
 
@@ -225,7 +225,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 강의 → Billing (보류·반환·지급) | shared `BillingApiClient`로 지갑 내부 HTTP API 호출(#275~#277). HP 작업 실행기가 로컬 트랜잭션 밖에서 부른다 | 분리 구조에 맞다. 같은 JVM의 shared `BillingPort`·`BillingPortAdapter`는 #486에서 지웠다 | #271, #486 |
 | 출연 → Billing (보류·반환·지급·위약금) | shared `BillingApiClient`로 지갑 내부 HTTP API 호출(#274) | 분리 구조에 맞다 | #274, #486 |
 | Billing이 내부 API 제공 | `ApiV1BillingInternalController`(`/api/v1/internal/billing/{holds,releases,payouts,penalty-settlements,hold-voids}`, 대사 조회 `POST holds/query`·`GET holds`(#577, BD-137)), `X-Internal-Api-Key` → `ROLE_INTERNAL` | 제공 중. 계약은 [`internal-billing.md`](../api/internal-billing.md) | #273, #479 |
-| 회원 → Billing (지갑 생성, 복제본) | DLT 복구는 kafka CLI 확인 + 관리자 Backfill 운영 절차(BD-136, `docs/deploy/k8s.md`). Kafka `member.events.v1`을 소비 그룹 둘로 받는다(#430): `billing-app.member-replica`(`BillingMemberEventListener`, 가입·변경 → 복제본 Upsert), `billing-app.wallet-creation`(`UserJoinedEventListener`, 가입 → 지갑, ADMIN 제외). 실패는 블로킹 재시도 3회 뒤 그룹별 DLT(`BillingKafkaConfig`) | 발행 쪽(#416)이 병합돼야 실제 이벤트가 온다. 로컬·테스트 설정은 리스너·토픽 생성을 끈다(Kafka 소비 테스트만 켬). 앱 시작 전 가입자는 지갑 조회 보완·Backfill로 채운다 | #430, BD-123 |
+| 회원 → Billing (지갑 생성, 복제본) | DLT 복구는 kafka CLI 확인 + 관리자 Backfill 운영 절차(BD-136, `docs/deploy/k8s.md`). Kafka `member.events.v1`을 소비 그룹 둘로 받는다(#430): `billing-app.member-replica`(`BillingMemberEventListener`, 가입·변경 → 복제본 Upsert), `billing-app.wallet-creation`(`UserJoinedEventListener`, 가입 → 지갑, ADMIN 제외). 실패는 블로킹 재시도 3회 뒤 그룹별 DLT(`BillingKafkaConfig`) | 발행은 #416에서 병합됐다. 로컬·테스트 설정은 리스너·토픽 생성을 끈다(Kafka 소비 테스트만 켬). 앱 시작 전 가입자는 지갑 조회 보완·Backfill로 채운다 | #430, BD-123 |
 | Billing → 다른 앱 (이벤트 발행) | Kafka `billing.events.v1`(#497): 충전·지급·환불·환전 결과 이벤트 7종. Modulith externalization(발행 기록 = outbox), 같은 트랜잭션 발행 + 매분 재발행(`BillingEventRepublishBatch`) | 분리 구조에 맞다. 아직 소비자는 없다(알림 #193) | [`CONTEXT.md`](CONTEXT.md) 9장 |
 | Billing → 강의·출연 (수익 조회) | shared `LectureApiClient`·`AppearanceApiClient` 내부 HTTP. 지갑 쪽 회로 `lecture`·`appearance` + 연결 실패만 1회 재시도(#562) | 분리 구조에 맞다. base-url 환경 변수 필요 | #295, internal-earnings.md, BD-134 |
 | Billing → 회원 (Backfill) | shared `MemberApiClient` 내부 HTTP. 지갑 쪽 회로 `member`, 재시도 없음(#562) | 분리 구조에 맞다 | #322, #324, BD-134 |
@@ -234,20 +234,20 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 인증 | `GatewayUserHeaderFilter`가 Envoy가 넘긴 `X-User-Id`·`X-User-Role`로 인증한다(#537, BD-131). `SecurityConfig`는 STATELESS·CSRF 없음, `/api/v1/*/admin/**` = ADMIN, 나머지 인증 필요. `@LoginUserId` = 헤더의 회원 ID. 충전 주문·승인·환불 신청·환전 신청은 지갑 회원(`billing_user`) 상태·역할도 확인한다(`WalletMemberCheck`, 없음 404·부적격 403) | 분리 구조에 맞다. Envoy SecurityPolicy(`apps/billing-app/k8s/base/gateway.yaml`)가 JWT를 검증하고, NetworkPolicy가 8080에 Gateway만 들인다 | #537, BD-131 |
 | 외부 노출 차단 | Envoy Gateway에 `/api/v1/internal/**` route가 없어 404다 | 지갑 내부 API도 서버 밖에서 닿지 않는다 | 루트 AGENTS 7장 |
 
-### 7.2 To-Be (목표, 구현되지 않음)
+### 7.2 목표 대비 상태
 
-출처는 `docs/architecture/final-project-infrastructure.md`(아래 "인프라 문서")와 루트 `AGENTS.md` 2·7장이다. Billing 쪽 구현은 아직 없다.
+출처는 `docs/architecture/final-project-infrastructure.md`(아래 "인프라 문서")와 루트 `AGENTS.md` 2·7장이다. 2026-11-04(#655) 기준으로 Billing 쪽 항목은 모두 구현됐다. 오른쪽 열은 그 근거다.
 
 | 영역 | 목표 (정해진 것) | Billing에서 검토할 것 (TBD) |
 | --- | --- | --- |
-| 보류·반환·지급 | Billing이 `/api/v1/internal/billing/...` 내부 HTTP API 제공, 소비 앱은 shared Client 사용 (AGENTS 3장 경계 규칙, D62·D63). 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 **Resilience4j**로 통일 (인프라 문서 3장, #280). database 분리 전에 보상 처리를 끝낸다: 보류 실패 → 주문 취소, 주문 실패 → 보류 반환 (인프라 문서 10장) | 호출자 트랜잭션 참여(`BD-53`)·한 트랜잭션 원자성(`BD-64`)을 대신할 방식(호출자 상태 + 멱등 재시도, 결과 불명확 처리), 오류 응답 → 호출자 상태 매핑, circuit open일 때 호출자 처리, 모듈 간 락 순서(`BD-72`) 폐기 여부 |
+| 보류·반환·지급 | Billing이 `/api/v1/internal/billing/...` 내부 HTTP API 제공, 소비 앱은 shared Client 사용 (AGENTS 3장 경계 규칙, D62·D63). 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 **Resilience4j**로 통일 (인프라 문서 3장, #280). database 분리 전에 보상 처리를 끝낸다: 보류 실패 → 주문 취소, 주문 실패 → 보류 반환 (인프라 문서 10장) | 구현됨: 요청 하나 = 지갑 트랜잭션 하나, 호출자 상태 + 같은 요청 ID 재시도(`BD-143`, 강의 D62·D65, 출연 `BD-65`), 모듈 간 락 순서 폐기(`BD-142`), 지갑 쪽 나가는 호출 회로(`BD-134`) |
 | 내부 API 노출 | k3s에서는 `/api/v1/internal/**`에 Envoy `HTTPRoute`를 만들지 않고, NetworkPolicy로 내부 API는 앱끼리만 닿게 한다. 인증은 `X-Internal-Api-Key` 유지 (인프라 문서 3장) | 없음 (현재 키 필터 그대로) |
-| 회원 이벤트 수신 | Kafka(#339, [`kafka.md`](../architecture/infrastructure/kafka.md)). member-app이 Modulith publication registry를 outbox로 쓰는 externalization으로 `member.events.v1`(key 회원 ID)에 발행한다. `eventId`는 없다([ADR 0001](../adr/0001-context-topics-with-mixed-event-types.md)·[0002](../adr/0002-modulith-externalization-without-event-id.md)). Billing은 목적별 소비 그룹 둘로 받는다: `billing-app.member-replica`(가입·변경 → 회원 복제본 Upsert), `billing-app.wallet-creation`(가입 → 지갑 생성). 멱등은 업무 자연 키다: 복제본은 `(user.id, user.version)` 버전 비교(`BD-103`), 지갑은 회원 ID UNIQUE(`uk_wallet_user_id`, `BD-1`)로 이미 있으면 그대로 둔다. 별도 inbox·처리 기록 테이블은 두지 않는다(`BD-123`). 블로킹 재시도 3회(1초 → 최대 10초) 뒤 그룹별 DLT `member.events.v1.billing-app.member-replica.DLT`·`member.events.v1.billing-app.wallet-creation.DLT`(billing-app이 `NewTopic`으로 선언, partition 3, 보존 7일) | 소비는 #430에서 구현(7.1). Modulith 이벤트 기록 설정·테이블은 #471에서 지웠다. 남은 것: #416 실제 발행과 이어 보는 계약 검증 |
+| 회원 이벤트 수신 | Kafka(#339, [`kafka.md`](../architecture/infrastructure/kafka.md)). member-app이 Modulith publication registry를 outbox로 쓰는 externalization으로 `member.events.v1`(key 회원 ID)에 발행한다. `eventId`는 없다([ADR 0001](../adr/0001-context-topics-with-mixed-event-types.md)·[0002](../adr/0002-modulith-externalization-without-event-id.md)). Billing은 목적별 소비 그룹 둘로 받는다: `billing-app.member-replica`(가입·변경 → 회원 복제본 Upsert), `billing-app.wallet-creation`(가입 → 지갑 생성). 멱등은 업무 자연 키다: 복제본은 `(user.id, user.version)` 버전 비교(`BD-103`), 지갑은 회원 ID UNIQUE(`uk_wallet_user_id`, `BD-1`)로 이미 있으면 그대로 둔다. 별도 inbox·처리 기록 테이블은 두지 않는다(`BD-123`). 블로킹 재시도 3회(1초 → 최대 10초) 뒤 그룹별 DLT `member.events.v1.billing-app.member-replica.DLT`·`member.events.v1.billing-app.wallet-creation.DLT`(billing-app이 `NewTopic`으로 선언, partition 3, 보존 7일) | 구현됨: 소비는 #430(7.1), 발행은 #416. #552 로컬 k3d에서 두 소비 그룹이 member-app 이벤트를 끝까지 읽었다(`docs/deploy/k8s.md` "billing-app 첫 배포") |
 | Billing 이벤트 발행 | 인프라 문서 1장의 시연 흐름: 지갑 이벤트 → notification-app 알림·감사 projection. HP 원장을 Kafka consumer가 확정하지 않는다 | 발행은 #497에서 구현했다(7.1). 알림 쪽 소비·매핑은 #193 |
 | 인증 | member-app이 JWT(RS256·JWKS) 발급 → Envoy가 서명 검증 후 `X-User-Id`·`X-User-Role` 헤더로 전달(외부에서 붙인 `X-User-*`는 제거) → 앱 공용 헤더 인증 필터가 인증 객체 생성 → `@PreAuthorize` 인가 (#370~#372). Bearer 헤더라 API의 `X-XSRF-TOKEN` CSRF 보호는 뺀다. NetworkPolicy로 앱 외부 API 포트는 Envoy만 접근 | 구현됨(#537, 7.1). HP를 받거나 내보내는 신청(충전 주문·승인, 환불 신청, 환전 신청)은 지갑 회원 상태·역할을 함께 확인한다(BD-131). 보류·반환·지급은 내부 API라 호출 앱이 확인한다 |
 | rate limit | 각 앱의 Resilience4j RateLimiter, key는 `X-User-Id` 또는 client IP (인프라 문서 3장) | 구현됨(#627, BD-140): 사용자 API 14개, 회원 × API마다 분당 신청·취소 10·일반 조회 60·수익 조회 20(`hapbang.billing.rate-limit.*`), 넘으면 429 `TOO_MANY_REQUESTS` + `Retry-After`, 지표 `hapbang.billing.rate.limit.rejected{api}`. 내부·관리자 API 제외 |
-| Database | 모듈별 database 분리 (8.3) | 8.3 |
-| 배포 | k3s, 앱마다 replica 1개, billing-app은 t3.large (6.1) | 배치 중복 실행 (L4) |
+| Database | 모듈별 database 분리 (8.3) | prod는 적용됨(8.3). 로컬·테스트는 아직 공용 database + `billing` 스키마 |
+| 배포 | k3s, 앱마다 replica 1개, billing-app은 t3.large (6.1) | 구현됨: dev 병합 때 자동 배포(#559). 배포 중 배치 중복 실행은 실행 락으로 막는다(L4 해소, `BD-138`) |
 
 ## 8. API와 DB 요약
 
@@ -288,9 +288,9 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 - `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록에는 `billing_user`·`mock_payout_transfer`가 없다.
 - Flyway 설정: `baseline-on-migrate`, `baseline-version: 0`, `out-of-order: true`. 기존 모놀리스 공용 DB 이력 전환은 미완료(#338).
 
-### 8.3 Database 분리 To-Be (목표, 구현되지 않음)
+### 8.3 Database 분리
 
-루트 `AGENTS.md` 2·3장은 "모듈마다 database"를 규칙으로 적고 있고, 현재 구현은 schema 분리다. 목표의 원본은 인프라 문서 10장이다.
+루트 `AGENTS.md` 2·3장의 "모듈마다 database" 규칙이다. 목표의 원본은 인프라 문서 10장이다. prod(k3s)는 적용됐다: `DB_URL`이 database `billing`, 계정은 `billing`이고 `k8s/platform/base/postgres.yaml`이 `REVOKE CONNECT ... FROM PUBLIC`을 건다. 로컬(Compose)·테스트(Testcontainers)는 아직 공용 database 안의 `billing` 스키마다.
 
 - PostgreSQL instance 1개 안에 앱마다 database를 둔다. Billing은 database `billing`(지갑, 원장, 보류, 지급, 환전)이다.
 - database마다 소유 role을 두고 `REVOKE CONNECT ... FROM PUBLIC`으로 막는다.
@@ -301,8 +301,8 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | --- | --- | --- |
 | 접속 정보 | dev·prod `DB_URL`·`DB_USERNAME`·`DB_PASSWORD` (앱별 값 가능) | database `billing`, Billing 전용 계정은 자기 database에만 접속 |
 | 다른 모듈 테이블과의 관계 | FK·JOIN 없음(코드 기준, `BillingSchemaTest`) | 그대로 |
-| 모듈 간 트랜잭션 | 없음. 강의·출연은 내부 HTTP API로 부르고 요청 하나가 지갑 트랜잭션 하나다(#486에서 `BillingPort` 삭제, `BD-53`·`BD-64` 재검토 11장) | 그대로 |
-| 모듈 간 락 순서 `BD-72` | 같은 DB 트랜잭션 전제 | 성립하지 않는다 → 폐기·대체 결정 필요 |
+| 모듈 간 트랜잭션 | 없음. 강의·출연은 내부 HTTP API로 부르고 요청 하나가 지갑 트랜잭션 하나다(#486에서 `BillingPort` 삭제, `BD-143`) | 그대로 |
+| 모듈 간 락 순서 `BD-72` | 폐기(`BD-142`) | 지갑 안 락 순서만 남는다(5.2) |
 | Flyway 이력 | `billing` 스키마의 `flyway_schema_history`, baseline 0 | `pg_dump`/restore로 데이터·이력 보존 |
 | Modulith 이벤트 기록 | `billing.event_publication`·`event_publication_archive`(#497, 지갑 이벤트 outbox) | 자기 database로 옮긴다(registry는 `DataSource` 하나에 묶인다) |
 | connection | 앱별 pool | 총 connection = (앱 수 + surge pod 수) × pool 크기. `max_connections`와 함께 다시 계산 |
@@ -329,15 +329,15 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | # | 제약 | 영향 | 관련 |
 | --- | --- | --- | --- |
 | ~~L1~~ | ~~`BillingPort` 원격 구현 없음~~ | 해소: 강의·출연이 내부 HTTP API로 전환했고 `BillingPort`·`BillingPortAdapter`를 지웠다 | #273~#277, #486 |
-| L2 | 회원 이벤트가 JVM을 넘지 않음 | 신규 가입자 지갑·복제본 미생성(지갑은 조회 시 생성, 복제본은 Backfill로 보완) → 환전 승인 409 가능 | #339 |
-| L3 | 앱 간 로그인 공유 미확인 | 사용자·관리자 API 인증 경로 미검증. 목표는 JWT + `X-User-*` 헤더(7.2) | #370~#372 |
+| ~~L2~~ | ~~회원 이벤트가 JVM을 넘지 않음~~ | 해소: Kafka `member.events.v1`을 소비 그룹 둘로 받는다(7.1). 첫 배포 전 가입자는 Backfill로 채운다(`BD-132`) | #430, #416 |
+| ~~L3~~ | ~~앱 간 로그인 공유 미확인~~ | 해소: Envoy가 JWT를 검증해 넘긴 `X-User-*` 헤더로 인증한다(7.1) | #537, `BD-131` |
 | ~~L4~~ | ~~배치 분산 락 없음~~ | 해소: 배치 5개가 PostgreSQL advisory lock으로 pod 사이에서 한 곳만 실행한다(6.1) | #598, `BD-138` |
 | ~~L5~~ | ~~Backfill 동시 실행 방지가 인스턴스 내부만~~ | 해소: 같은 실행 락으로 pod 사이도 막는다(6.1) | #598, `BD-138` |
 | L6 | 잔액 대사는 최근 72시간 안에 바뀐 지갑만 매일 자동으로 한다(6.2). 관리자 API 없음, alert 없음(#343) | 창보다 오래 바뀌지 않은 지갑의 불일치는 수동으로만 찾는다. 불일치는 로그·지표로만 안다 | `BD-20`, `BD-139` |
-| L7 | `lock_timeout` 미설정 | 락 대기 무제한 | `BD-108` |
+| ~~L7~~ | ~~`lock_timeout` 미설정~~ | 해소: 3초(5.2) | #273, `BD-108` |
 | L8 | 환전 정산일 공휴일 미반영 | 잠정 예정일 | `BD-96` |
 | L9 | 실제 송금은 Mock(local·test)만 | dev·prod에서 송금 기능 503 | policy.md 2장 |
-| L10 | HP 이동 경로의 회원 상태 확인은 환전 승인뿐 | JWT 전환 후에는 정지·역할 변경이 최대 15분(access token 수명) 늦게 반영된다. 목표는 HP 경로에서 복제본 상태를 함께 확인하는 것(7.2) | #371 |
+| ~~L10~~ | ~~HP 이동 경로의 회원 상태 확인은 환전 승인뿐~~ | 해소: 충전 주문·승인, 환불 신청, 환전 신청도 지갑 회원 상태·역할을 확인한다. 보류·반환·지급은 호출 앱이 확인한다 | #537, `BD-131` |
 
 ## 11. 갱신 이력
 
@@ -361,3 +361,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-11-03 | 2cfe5307 | #598 배치·Backfill 실행 락(6.1, 9, L4·L5, BD-138) |
 | 2026-11-03 | 84f504c4 | #607 변경된 지갑의 잔액 대사 배치(2, 6.1, 6.2, 9, L6, BD-139) |
 | 2026-11-03 | 90938379 | #627 사용자 API 회원별 rate limit(8.1 rate limit 행, 9, BD-140) |
+| 2026-11-04 | b0731110 | #655 JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(5.2, BD-142), 원격 호출 트랜잭션 계약(7.2, 8.3, BD-143), 해소된 제약 L2·L3·L7·L10 표시, 7.2·8.3을 현재 상태로 고침 |
