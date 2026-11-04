@@ -81,6 +81,28 @@ class BillingWalletWithdrawalGateTest {
         assertKind(() -> gate.close(WITHDRAWAL_ID, USER_ID), WithdrawalCallException.Kind.UNKNOWN_RESULT);
     }
 
+    @Test
+    @DisplayName("닫기 응답이 계약과 다르면(결과값 없음, 이유 없는 BLOCKED) 막힘으로 넘기지 않고 결과 불명으로 되돌리게 한다")
+    void closeContractMismatch() {
+        given(billingApiClient.closeForWithdrawal(CLOSE)).willReturn(new BillingCallResult.Succeeded<>(
+                new WithdrawalCloseResultDto(WITHDRAWAL_ID, null, List.of(), false)));
+        assertKind(() -> gate.close(WITHDRAWAL_ID, USER_ID), WithdrawalCallException.Kind.UNKNOWN_RESULT);
+
+        given(billingApiClient.closeForWithdrawal(CLOSE)).willReturn(new BillingCallResult.Succeeded<>(
+                new WithdrawalCloseResultDto(WITHDRAWAL_ID, WithdrawalCloseOutcome.BLOCKED, List.of(), false)));
+        assertKind(() -> gate.close(WITHDRAWAL_ID, USER_ID), WithdrawalCallException.Kind.UNKNOWN_RESULT);
+    }
+
+    @Test
+    @DisplayName("지갑 Client가 예상하지 못한 예외를 던지면 요청이 갔는지 몰라 결과 불명이다 (닫기·다시 열기)")
+    void unexpectedException() {
+        given(billingApiClient.closeForWithdrawal(CLOSE)).willThrow(new IllegalStateException("timeout wrapper"));
+        given(billingApiClient.reopenForWithdrawal(REOPEN)).willThrow(new IllegalStateException("timeout wrapper"));
+
+        assertKind(() -> gate.close(WITHDRAWAL_ID, USER_ID), WithdrawalCallException.Kind.UNKNOWN_RESULT);
+        assertKind(() -> gate.reopen(WITHDRAWAL_ID, USER_ID), WithdrawalCallException.Kind.UNKNOWN_RESULT);
+    }
+
     @ParameterizedTest(name = "{0} {1}")
     @CsvSource({
             "409, WITHDRAWAL_ALREADY_REOPENED",
