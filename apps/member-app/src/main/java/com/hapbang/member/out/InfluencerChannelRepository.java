@@ -30,6 +30,9 @@ public interface InfluencerChannelRepository extends JpaRepository<InfluencerCha
 
     List<InfluencerChannel> findByUserIdAndDeletedAtIsNullOrderByIdAsc(Long userId);
 
+    /** 회원의 채널 전부, 삭제한 채널 포함 (탈퇴 회원 마스킹, #594) */
+    List<InfluencerChannel> findByUserId(Long userId);
+
     /** 심사 목록: 상태별, 삭제된 채널·해당 상태가 아닌 회원 제외, 회원(닉네임)을 함께 읽는다 */
     @EntityGraph(attributePaths = "user")
     Page<InfluencerChannel> findByVerificationStatusAndDeletedAtIsNullAndUserStatus(
