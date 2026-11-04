@@ -29,10 +29,11 @@ public interface MockPayoutTransferRepository extends Repository<MockPayoutTrans
     @Query("""
             update MockPayoutTransfer t
             set t.accountHolderName = :maskedHolder, t.accountNumberHash = :maskedHash, t.updatedAt = :now
-            where t.status in :finished
+            where t.status in :finishedTransfers
               and (t.accountHolderName <> :maskedHolder or t.accountNumberHash <> :maskedHash)
-              and t.exchangeId in (select e.id from Exchange e where e.userId = :userId and e.status not in :inProgress)""")
-    int maskFinishedOf(@Param("userId") Long userId, @Param("inProgress") Collection<ExchangeStatus> inProgress,
-            @Param("finished") Collection<MockPayoutTransferStatus> finished, @Param("maskedHolder") String maskedHolder,
+              and t.exchangeId in (select e.id from Exchange e where e.userId = :userId and e.status in :finishedExchanges)""")
+    int maskFinishedOf(@Param("userId") Long userId,
+            @Param("finishedExchanges") Collection<ExchangeStatus> finishedExchanges,
+            @Param("finishedTransfers") Collection<MockPayoutTransferStatus> finishedTransfers, @Param("maskedHolder") String maskedHolder,
             @Param("maskedHash") String maskedHash, @Param("now") Instant now);
 }

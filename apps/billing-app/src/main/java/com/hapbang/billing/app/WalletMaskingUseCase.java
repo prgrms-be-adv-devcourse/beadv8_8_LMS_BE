@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.billing.domain.Exchange;
+import com.hapbang.billing.domain.ExchangeStatus;
 import com.hapbang.billing.domain.MockPayoutTransferStatus;
 import com.hapbang.billing.domain.Wallet;
 import com.hapbang.billing.out.ExchangeAccountRepository;
@@ -28,7 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 // - 지갑: 열려 있으면 닫는다(탈퇴 작업 ID 없이 닫은 시각만). 복구 때 다시 열기가 회원 쪽 시간 제한에 걸린 뒤 지갑에서 늦게 처리돼
 //   지갑이 열린 채 남은 경우다. 잔액·처리 중인 거래와 관계없이 닫는다. 닫힌 지갑도 이미 생긴 의무(보류 반환·지급·복구 배치)는 받고,
 //   남은 잔액은 "잔액이 남은 닫힌 지갑" 지표로 운영자가 확인한다(policy.md 지갑 규칙). 이미 닫혀 있으면 바꾸지 않는다.
-// - 계좌: 끝난 환전만 지운다. 처리 중인 환전(탈퇴를 막는 상태와 같다)은 송금에 계좌가 필요해 남기고 error 로그를 남긴다.
+// - 계좌: 끝난 환전(COMPLETED·REJECTED·CANCELED·FINAL_FAILED)만 지운다. 처리 중인 환전(탈퇴를 막는 상태와 같다)은 송금에 계좌가 필요해 남기고 error 로그를 남긴다.
 //   이벤트는 다시 오지 않으므로 남긴 계좌는 운영자가 정리한다.
 // - 금액·상태·일시·원장은 건드리지 않는다. 같은 이벤트를 다시 받아도 지운 값을 다시 지우는 일이라 결과가 같다.
 @Slf4j
@@ -39,6 +40,10 @@ public class WalletMaskingUseCase {
     // 가상 송금 기록의 예금주·계좌번호 해시를 덮는 값. 해시 자리에 해시가 아닌 값을 넣어 어떤 계좌의 HMAC과도 같아질 수 없다
     static final String MASKED_HOLDER_NAME = "탈퇴회원";
     static final String MASKED_ACCOUNT_HASH = "masked";
+    // 끝난 환전: 이후 송금하지 않아 계좌가 필요 없다. 처리 중 상태(WalletWithdrawalBlocks.EXCHANGE_IN_PROGRESS_STATUSES)를 빼는 대신
+    // 끝난 상태를 명시해, 새 상태가 생겨도 정하기 전에는 지우지 않는다. 모든 상태가 둘 중 한 곳에만 있는지 테스트가 확인한다
+    static final Set<ExchangeStatus> EXCHANGE_FINISHED_STATUSES = EnumSet.of(ExchangeStatus.COMPLETED,
+            ExchangeStatus.REJECTED, ExchangeStatus.CANCELED, ExchangeStatus.FINAL_FAILED);
     private static final Set<MockPayoutTransferStatus> FINISHED_TRANSFERS = EnumSet.of(
             MockPayoutTransferStatus.SUCCEEDED, MockPayoutTransferStatus.FAILED);
 
@@ -63,10 +68,9 @@ public class WalletMaskingUseCase {
             log.error("파기된 회원에게 처리 중인 환전이 있어 그 환전의 계좌는 지우지 않았다. 송금이 끝난 뒤 운영자가 지워야 한다 "
                     + "userId={}, exchangeIds={}, maskedAt={}", userId, inProgress, maskedAt);
         }
-        int accounts = exchangeAccountRepository.eraseFinishedOf(userId,
-                WalletWithdrawalBlocks.EXCHANGE_IN_PROGRESS_STATUSES);
-        int transfers = mockPayoutTransferRepository.maskFinishedOf(userId,
-                WalletWithdrawalBlocks.EXCHANGE_IN_PROGRESS_STATUSES, FINISHED_TRANSFERS, MASKED_HOLDER_NAME,
+        int accounts = exchangeAccountRepository.eraseFinishedOf(userId, EXCHANGE_FINISHED_STATUSES);
+        int transfers = mockPayoutTransferRepository.maskFinishedOf(userId, EXCHANGE_FINISHED_STATUSES,
+                FINISHED_TRANSFERS, MASKED_HOLDER_NAME,
                 MASKED_ACCOUNT_HASH, now);
         log.info("파기된 회원의 환전 계좌를 지웠다 userId={}, erasedAccounts={}, maskedTransfers={}, maskedAt={}", userId,
                 accounts, transfers, maskedAt);

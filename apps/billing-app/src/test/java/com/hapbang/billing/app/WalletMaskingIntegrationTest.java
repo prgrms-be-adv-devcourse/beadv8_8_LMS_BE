@@ -46,6 +46,12 @@ class WalletMaskingIntegrationTest {
     WalletWithdrawalFacade walletWithdrawalFacade;
 
     @Autowired
+    ExchangeProcessing exchangeProcessing;
+
+    @Autowired
+    ExchangeReviewUseCase exchangeReviewUseCase;
+
+    @Autowired
     LedgerRecordUseCase ledgerRecordUseCase;
 
     @Autowired
@@ -90,6 +96,44 @@ class WalletMaskingIntegrationTest {
             assertThat(saved.getRequestedAmountHp()).isEqualTo(1_000L);
             assertThat(saved.getPayoutAmountKrw()).isEqualTo(exchange.getPayoutAmountKrw());
         });
+    }
+
+    @Test
+    @DisplayName("송금 성공(COMPLETED)·최종 실패(FINAL_FAILED)한 환전의 계좌도 지운다")
+    void erasesCompletedAndFinalFailedExchangeAccount() {
+        Long walletId = wallet(1L);
+        Exchange completed = requestedExchange(1L, walletId);
+        account(completed);
+        Exchange finalFailed = requestedExchange(1L, walletId);
+        account(finalFailed);
+        jdbcTemplate.update("UPDATE billing.exchange SET status = 'COMPLETED', completed_at = now() WHERE id = ?",
+                completed.getId());
+        jdbcTemplate.update("""
+                UPDATE billing.exchange SET status = 'FINAL_FAILED', failed_at = now(), final_failed_by = 99,
+                    final_failed_at = now(), final_failure_reason = '최종 실패' WHERE id = ?""", finalFailed.getId());
+
+        walletMaskingUseCase.erase(1L, MASKED_AT);
+
+        assertThat(accountOf(completed.getId())).containsEntry("account_number_encrypted", null);
+        assertThat(accountOf(finalFailed.getId())).containsEntry("account_number_encrypted", null);
+    }
+
+    @Test
+    @DisplayName("지운 계좌를 회원·관리자가 조회하면 계좌번호는 ****, 예금주는 null이고 복호화 실패 로그를 남기지 않는다")
+    void erasedAccountView(CapturedOutput output) {
+        Long walletId = wallet(1L);
+        Exchange exchange = canceledExchange(1L, walletId);
+        account(exchange);
+        walletMaskingUseCase.erase(1L, MASKED_AT);
+
+        ExchangeResult member = exchangeProcessing.get(1L, exchange.getId());
+        AdminExchangeResult admin = exchangeReviewUseCase.get(exchange.getId());
+
+        assertThat(member.account().accountNumberMasked()).isEqualTo(ExchangeAccountCipher.UNREADABLE_MASK);
+        assertThat(member.account().accountHolderName()).isNull();
+        assertThat(admin.account().accountNumberMasked()).isEqualTo(ExchangeAccountCipher.UNREADABLE_MASK);
+        assertThat(admin.account().accountHolderName()).isNull();
+        assertThat(output).doesNotContain("복호화하지 못해");
     }
 
     @Test
