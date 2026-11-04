@@ -13,8 +13,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -65,6 +68,7 @@ import com.hapbang.testsupport.IntegrationTest;
  * </ul>
  */
 @IntegrationTest
+@ExtendWith(OutputCaptureExtension.class)
 class LectureHpReconciliationTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
@@ -197,6 +201,19 @@ class LectureHpReconciliationTest {
         assertThat(metrics.mismatches(LectureHpReconciliationRule.SETTLEMENT_MISSING)).isEqualTo(1);
         assertThat(metrics.mismatches(LectureHpReconciliationRule.HOLD_MISMATCH)).isEqualTo(1);
         assertThat(metrics.mismatches(LectureHpReconciliationRule.WALLET_ONLY_HOLD)).isEqualTo(1);
+    }
+
+    @Test
+    void 어긋난_건은_대사_불일치_표식을_붙여_ERROR_로그로_남긴다(CapturedOutput output) {
+        Item canceledButHeld = item(OrderItemStatus.CANCELED, old);
+        billing.putHoldState(held(canceledButHeld.id()));
+
+        useCase.runScheduled();
+
+        assertThat(output.getAll().lines()
+                .filter(line -> line.contains(LectureHpReconciliationUseCase.MISMATCH_LOG_TAG)))
+                .singleElement().satisfies(line -> assertThat(line)
+                        .contains(" ERROR ", "rule=HOLD_BALANCE_MISMATCH", "orderItemId=" + canceledButHeld.id()));
     }
 
     @Test

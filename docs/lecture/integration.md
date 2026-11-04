@@ -422,7 +422,7 @@ sequenceDiagram
 결과
 
 - `lecture_hp_reconciliation_run`·`lecture_hp_reconciliation_mismatch`(reference.md 7.1). 오래된 기록은 지우지 않는다. 마이그레이션 `V202611031600`.
-- 경고 로그: 어긋난 건마다 `[LECTURE_HP_RECONCILIATION_MISMATCH] rule=… runId=… orderItemId=… orderId=… itemStatus=… lecture=[…] wallet=[…]`. 끝까지 하지 못하면 경고 한 줄(이유 포함).
+- 로그: 어긋난 건마다 ERROR `[LECTURE_HP_RECONCILIATION_MISMATCH] 강의 HP 대사에서 어긋난 건을 찾았다 rule=…, runId=…, orderItemId=…, orderId=…, itemStatus=…, lectureState=[…], walletState=[…]`(D77). 끝까지 하지 못하면 WARN 한 줄(`failureReason` 포함).
 - 지표: `lecture.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `lecture.hp_reconciliation.runs{status}`(끝난 실행 횟수). alert 규칙은 아직 없다(#343이 생기면 이 지표에 건다).
 - 관리자 API: reference.md 8.2.1.1.
 - 구조: `LectureHpReconciliationUseCase`(흐름·동시 실행·로그·지표), `LectureHpReconciliationComparer`(DB·지갑을 부르지 않는 순수 비교), `LectureHpReconciliationTarget`(항목 하나의 비교 값), `LectureHpReconciliationSupport`(트랜잭션 단위 읽기·기록, 지갑 호출은 트랜잭션 밖), `LectureHpReconciliationAdminFacade`. 지갑은 shared `BillingApiClient.queryHolds`·`listHolds`를 그대로 쓴다(회로·재시도 정책 같음).

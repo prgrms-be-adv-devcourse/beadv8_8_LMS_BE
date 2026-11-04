@@ -57,7 +57,7 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class LectureHpReconciliationUseCase {
 
-    /** 어긋난 건 경고 로그 태그. Loki에서 이 문자열로 찾는다 */
+    /** 어긋난 건 ERROR 로그의 alert 표식. Loki에서 이 문자열로 찾는다 */
     static final String MISMATCH_LOG_TAG = "[LECTURE_HP_RECONCILIATION_MISMATCH]";
 
     private static final BillingReferenceType REFERENCE_TYPE = BillingReferenceType.LECTURE_ORDER_ITEM;
@@ -180,9 +180,9 @@ public class LectureHpReconciliationUseCase {
                         LectureHpReconciliationComparer.walletOnly(itemId, listed.get(itemId))));
             } else if (target == null) {
                 // HP 작업에서 모은 ID인데 항목을 읽지 못했다 (항목은 지우지 않으므로 생기지 않아야 한다)
-                log.warn("강의 HP 대사: HP 작업에서 모은 주문 항목을 읽지 못했다 orderItemId={}", itemId);
+                log.warn("강의 HP 대사에서 HP 작업으로 모은 주문 항목을 읽지 못했다 orderItemId={}", itemId);
             } else if (target.isInProgress(settleCutoff)) {
-                log.debug("강의 HP 대사: 진행 중이라 뺀다 orderItemId={}", itemId);
+                log.debug("강의 HP 대사에서 진행 중인 주문 항목을 뺀다 orderItemId={}", itemId);
             } else if (target.hasDeadTask()) {
                 progress.checked++;
                 progress.dead++;
@@ -210,7 +210,7 @@ public class LectureHpReconciliationUseCase {
         Set<Long> changedMeanwhile = findChangedMeanwhile(toQuery, findings);
         for (LectureHpReconciliationTarget target : toQuery) {
             if (changedMeanwhile.contains(target.orderItemId())) {
-                log.info("강의 HP 대사: 비교하는 사이에 바뀌어 다음 실행에서 다시 본다 orderItemId={}", target.orderItemId());
+                log.warn("강의 HP 대사 중 주문 항목이 바뀌어 다음 실행에서 다시 본다 orderItemId={}", target.orderItemId());
                 continue;
             }
             progress.checked++;
@@ -263,9 +263,10 @@ public class LectureHpReconciliationUseCase {
     private void report(LectureHpReconciliationRun run, Progress progress) {
         for (LectureHpReconciliationSupport.Mismatch mismatch : progress.mismatches) {
             LectureHpReconciliationComparer.Finding finding = mismatch.finding();
-            log.warn("{} rule={} runId={} orderItemId={} orderId={} itemStatus={} lecture=[{}] wallet=[{}]",
-                    MISMATCH_LOG_TAG, finding.rule(), run.getId(), mismatch.orderItemId(), mismatch.orderId(),
-                    mismatch.itemStatus(), finding.lectureState(), finding.walletState());
+            log.error(MISMATCH_LOG_TAG + " 강의 HP 대사에서 어긋난 건을 찾았다 rule={}, runId={}, orderItemId={}, orderId={}, "
+                            + "itemStatus={}, lectureState=[{}], walletState=[{}]", finding.rule(), run.getId(),
+                    mismatch.orderItemId(), mismatch.orderId(), mismatch.itemStatus(), finding.lectureState(),
+                    finding.walletState());
         }
         metrics.recordRun(run.getStatus());
         if (run.getStatus() == LectureHpReconciliationStatus.COMPLETED) {
@@ -274,10 +275,11 @@ public class LectureHpReconciliationUseCase {
                 counts.merge(mismatch.finding().rule(), 1L, Long::sum);
             }
             metrics.updateMismatches(counts);
-            log.info("강의 HP 대사 완료 runId={} checked={} mismatches={} dead={}", run.getId(),
+            log.info("강의 HP 대사를 마쳤다 runId={}, checkedCount={}, mismatchCount={}, deadCount={}", run.getId(),
                     run.getCheckedCount(), run.getMismatchCount(), run.getDeadCount());
         } else {
-            log.warn("강의 HP 대사를 끝까지 하지 못했다. 다음 실행에서 다시 본다 runId={} checked={} mismatches={} reason={}",
+            log.warn("강의 HP 대사를 끝까지 하지 못해 다음 실행에서 다시 본다 runId={}, checkedCount={}, mismatchCount={}, "
+                            + "failureReason={}",
                     run.getId(), run.getCheckedCount(), run.getMismatchCount(), run.getFailureReason());
         }
     }
