@@ -3,6 +3,8 @@ package com.hapbang.member.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.regex.Pattern;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -76,5 +78,19 @@ class NicknameTest {
         String nickname = Nickname.fromGoogleName(googleName);
 
         assertThat(Nickname.validate(nickname)).isEqualTo(nickname);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "홍길동|홍길동",
+            "abcdefg hijkl|abcdefg",
+            "가나다라마바사아자차카타|가나다라마바사아"
+    })
+    @DisplayName("겹칠 때 앞 8자(끝 공백 지움) 뒤에 숫자 4자리를 붙인다 (#646)")
+    void withRandomSuffix(String nickname, String base) {
+        String suffixed = Nickname.withRandomSuffix(nickname);
+
+        assertThat(suffixed).matches(Pattern.quote(base) + "\\d{4}");
+        assertThat(Nickname.validate(suffixed)).isEqualTo(suffixed);
     }
 }
