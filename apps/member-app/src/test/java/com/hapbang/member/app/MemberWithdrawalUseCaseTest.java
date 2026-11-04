@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -418,6 +419,37 @@ class MemberWithdrawalUseCaseTest {
     }
 
     @Test
+    @DisplayName("기한 직전에 누르고 지갑을 여는 사이 기한이 지나도, 누른 시각 기준이라 복구된다 (#594 리뷰)")
+    void restoreJustBeforeDeadline() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        moveDeadlineSoon(user);
+        walletGate.onReopen = () -> sleep(Duration.ofMillis(700));
+
+        User restored = memberWithdrawalUseCase.restore(user.getId());
+
+        assertThat(restored.getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("기한 직전에 누르고 지갑 장애가 기한 뒤에 나도, 누른 시각으로 실패를 남겨 유예를 받는다 (#594 리뷰)")
+    void restoreFailureJustBeforeDeadline() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        moveDeadlineSoon(user);
+        walletGate.onReopen = () -> sleep(Duration.ofMillis(700));
+        walletGate.reopenFailure = new WithdrawalCallException(WithdrawalCallException.Kind.UNKNOWN_RESULT,
+                "응답 시간 초과", null);
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.RESTORE_UNAVAILABLE);
+        User saved = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(saved.getRestoreFailedAt()).isNotNull();
+        assertThat(saved.canRestore(LocalDateTime.now())).isTrue();
+    }
+
+    @Test
     @DisplayName("유예 7일도 지났으면 지갑을 부르지 않고 LOGIN_NOT_ALLOWED (#594)")
     void restoreAfterGrace() {
         User user = userRepository.save(MemberFixture.user());
@@ -585,6 +617,21 @@ class MemberWithdrawalUseCaseTest {
                 throw reopenFailure;
             }
             reopened.add(withdrawalId);
+        }
+    }
+
+    /** 복구 기한을 0.3초 뒤로 당긴다 (탈퇴 시각을 30일 전 + 0.3초로) */
+    private void moveDeadlineSoon(User user) {
+        jdbcTemplate.update("update members.users set deleted_at = ? where id = ?",
+                LocalDateTime.now().minus(User.RESTORE_PERIOD).plus(Duration.ofMillis(300)), user.getId());
+    }
+
+    private static void sleep(Duration duration) {
+        try {
+            Thread.sleep(duration);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
         }
     }
 }
