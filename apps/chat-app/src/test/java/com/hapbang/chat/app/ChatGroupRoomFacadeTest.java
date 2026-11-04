@@ -52,6 +52,7 @@ import com.hapbang.chat.domain.ChatRoomStatus;
 import com.hapbang.chat.domain.ChatRoomStatusReason;
 import com.hapbang.chat.domain.ChatRoomType;
 import com.hapbang.chat.domain.GroupMembersInvitedData;
+import com.hapbang.chat.domain.ChatUser;
 import com.hapbang.chat.domain.NotificationKind;
 import com.hapbang.chat.fixture.ChatNativeSql;
 import com.hapbang.chat.fixture.ChatUserSeeder;
@@ -83,6 +84,7 @@ class ChatGroupRoomFacadeTest {
     private static final Long GUEST_D = 14L;
     private static final Long NUMERIC_NICK_A = 15L;
     private static final Long NUMERIC_NICK_B = 16L;
+    private static final Long NO_REPLICA_ID = 17L;
 
     /** Facade의 @PreAuthorize를 통과할 로그인 상태. 스레드마다 따로라 작업 스레드에도 넣는다 */
     private static final Authentication INFLUENCER = new TestingAuthenticationToken("test", null, "ROLE_INFLUENCER");
@@ -289,6 +291,16 @@ class ChatGroupRoomFacadeTest {
                 .extracting(ChatInviteCandidateResponse::userId, ChatInviteCandidateResponse::nickname)
                 .containsExactly(tuple(NUMERIC_NICK_A, "1004"), tuple(NUMERIC_NICK_B, "1004"));
         assertThat(candidates(roomId, String.valueOf(NUMERIC_NICK_A), null, 20).candidates()).isEmpty();
+
+        // 채팅 회원 복제본이 없는 지원자는 회원 ID 대신 "알 수 없는 회원"으로 보인다(검색어가 없을 때만 나온다)
+        recruits.addApplicants(RECRUIT_ID, NO_REPLICA_ID);
+        assertThat(candidates(roomId, null, null, 20).candidates())
+                .filteredOn(candidate -> candidate.userId().equals(NO_REPLICA_ID)).singleElement()
+                .satisfies(candidate -> {
+                    assertThat(candidate.nickname()).isEqualTo(ChatUser.UNKNOWN_NICKNAME);
+                    assertThat(candidate.invitable()).isFalse();
+                });
+        assertThat(chatRoomSupporter.displayNicknameOf(NO_REPLICA_ID)).isEqualTo(ChatUser.UNKNOWN_NICKNAME);
     }
 
     @Test
