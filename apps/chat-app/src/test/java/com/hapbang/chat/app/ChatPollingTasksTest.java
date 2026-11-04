@@ -55,7 +55,9 @@ class ChatPollingTasksTest {
         List<Class<?>> shortTasks = new ArrayList<>();
         for (Resource resource : resolver.getResources("classpath*:com/hapbang/chat/**/*.class")) {
             MetadataReader reader = readers.getMetadataReader(resource);
-            if (!reader.getAnnotationMetadata().hasAnnotatedMethods(Scheduled.class.getName())) {
+            // 한 메서드에 @Scheduled를 여러 개 두면 컴파일된 annotation은 @Schedules 컨테이너다
+            if (!reader.getAnnotationMetadata().hasAnnotatedMethods(Scheduled.class.getName())
+                    && !reader.getAnnotationMetadata().hasAnnotatedMethods(Schedules.class.getName())) {
                 continue;
             }
             Class<?> type = Class.forName(reader.getClassMetadata().getClassName());
@@ -82,10 +84,10 @@ class ChatPollingTasksTest {
             return Duration.of(scheduled.fixedRate(), scheduled.timeUnit().toChronoUnit());
         }
         if (!scheduled.fixedDelayString().isEmpty()) {
-            return DurationStyle.detectAndParse(defaultOf(scheduled.fixedDelayString()));
+            return DurationStyle.detectAndParse(defaultOf(scheduled.fixedDelayString()), scheduled.timeUnit().toChronoUnit());
         }
         if (!scheduled.fixedRateString().isEmpty()) {
-            return DurationStyle.detectAndParse(defaultOf(scheduled.fixedRateString()));
+            return DurationStyle.detectAndParse(defaultOf(scheduled.fixedRateString()), scheduled.timeUnit().toChronoUnit());
         }
         CronExpression cron = CronExpression.parse(defaultOf(scheduled.cron()));
         LocalDateTime first = cron.next(LocalDateTime.of(2026, 1, 1, 0, 0));
