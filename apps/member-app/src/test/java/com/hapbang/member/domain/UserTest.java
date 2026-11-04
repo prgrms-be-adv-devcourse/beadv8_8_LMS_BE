@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -210,5 +211,55 @@ class UserTest {
 
         assertThat(user.getRestoreFailedAt()).isNull();
         assertThat(user.restorableUntil()).isEqualTo(withdrawnAt.plusDays(33));
+    }
+
+    @Test
+    @DisplayName("복구 기한이 지난 탈퇴 회원을 마스킹하면 이메일·닉네임이 회원 ID를 넣은 값이 되고 사진 연결이 끊긴다 (#594)")
+    void mask() {
+        LocalDateTime withdrawnAt = LocalDateTime.of(2026, 11, 3, 12, 0);
+        User user = User.join("tester1@example.com", "tester1");
+        ReflectionTestUtils.setField(user, "id", 5L);
+        user.changeProfileImage("member/profile/5");
+        user.withdraw(withdrawnAt);
+
+        user.mask(withdrawnAt.plusDays(30));
+
+        assertThat(user.getEmail()).isEqualTo("withdrawn_5@masked.invalid");
+        assertThat(user.getNickname()).isEqualTo("탈퇴회원#5");
+        assertThat(user.getProfileImageKey()).isNull();
+        assertThat(user.getMaskedAt()).isEqualTo(withdrawnAt.plusDays(30));
+        assertThat(user.isMasked()).isTrue();
+        assertThat(user.getStatus()).isEqualTo(UserStatus.WITHDRAWN);
+        assertThat(user.canRestore(withdrawnAt.plusDays(30))).isFalse();
+    }
+
+    @Test
+    @DisplayName("마스킹한 닉네임은 닉네임 규칙 밖이라 사용자가 같은 값으로 바꿀 수 없다 (#594)")
+    void maskedNicknameNotAllowedForUsers() {
+        assertThatThrownBy(() -> Nickname.validate(User.MASKED_NICKNAME_PREFIX + 5))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.INVALID_NICKNAME_CHARACTER);
+    }
+
+    @Test
+    @DisplayName("정상 회원, 복구 기한(유예 포함) 안의 회원, 이미 마스킹한 회원은 마스킹할 수 없다 (#594)")
+    void maskNotAllowed() {
+        LocalDateTime withdrawnAt = LocalDateTime.of(2026, 11, 3, 12, 0);
+        User active = User.join("tester1@example.com", "tester1");
+        User restorable = User.join("tester2@example.com", "tester2");
+        restorable.withdraw(withdrawnAt);
+        User inGrace = User.join("tester3@example.com", "tester3");
+        inGrace.withdraw(withdrawnAt);
+        inGrace.recordRestoreFailure(withdrawnAt.plusDays(29));
+        User masked = User.join("tester4@example.com", "tester4");
+        masked.withdraw(withdrawnAt);
+        masked.mask(withdrawnAt.plusDays(30));
+
+        assertThatThrownBy(() -> active.mask(withdrawnAt.plusDays(40))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> restorable.mask(withdrawnAt.plusDays(29))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> inGrace.mask(withdrawnAt.plusDays(36))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> masked.mask(withdrawnAt.plusDays(31))).isInstanceOf(IllegalStateException.class);
+        inGrace.mask(withdrawnAt.plusDays(37));
+        assertThat(inGrace.isMasked()).isTrue();
     }
 }

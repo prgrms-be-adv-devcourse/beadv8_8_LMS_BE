@@ -32,6 +32,12 @@ public class User extends SourceUser {
      */
     public static final Duration RESTORE_GRACE = Duration.ofDays(7);
 
+    /**
+     * 마스킹한 닉네임 앞부분 (#594). 뒤에 회원 ID를 붙여 마스킹 값끼리 겹치지 않게 한다(닉네임 유일 인덱스, #646).
+     * {@code #}은 닉네임 규칙에 없는 글자라 사용자가 이 값을 닉네임으로 쓸 수 없다(탈퇴 회원 사칭 방지)
+     */
+    public static final String MASKED_NICKNAME_PREFIX = "탈퇴회원#";
+
     @Column(unique = true)
     private String email;
 
@@ -124,6 +130,27 @@ public class User extends SourceUser {
         changeProfile(getNickname(), getRole(), UserStatus.ACTIVE);
         this.deletedAt = null;
         this.restoreFailedAt = null;
+    }
+
+    /**
+     * 개인정보 마스킹 (#594, docs/policy.md 삭제 정책). 복구 기한이 지난 탈퇴 회원만 한 번 한다.
+     * 이메일·닉네임은 회원 ID를 넣은 값으로 바꿔 유일 제약을 지키고(같은 이메일로 새로 가입 가능), 프로필 사진 연결을 끊는다.
+     * 닉네임은 규칙 검사를 거치지 않는다({@link #MASKED_NICKNAME_PREFIX}의 {@code #}은 규칙 밖 글자다). 회원 행·ID·상태(탈퇴)는 남긴다
+     */
+    public void mask(LocalDateTime now) {
+        if (!isWithdrawn() || maskedAt != null || canRestore(now)) {
+            throw new IllegalStateException("마스킹할 수 없는 회원입니다. status=" + getStatus() + ", maskedAt=" + maskedAt
+                    + ", restorableUntil=" + restorableUntil());
+        }
+        changeProfile(MASKED_NICKNAME_PREFIX + getId(), getRole(), getStatus());
+        this.email = "withdrawn_" + getId() + "@masked.invalid";
+        this.profileImageKey = null;
+        this.maskedAt = now;
+    }
+
+    /** 마스킹했는지 */
+    public boolean isMasked() {
+        return maskedAt != null;
     }
 
     /** 다른 모듈에 넘길 회원 정보. 버전은 flush 뒤에 불러야 올라간 값이 담긴다 (MemberSupport.flush) */
