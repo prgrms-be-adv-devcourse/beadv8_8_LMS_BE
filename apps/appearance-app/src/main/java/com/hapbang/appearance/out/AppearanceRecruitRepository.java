@@ -66,6 +66,7 @@ public interface AppearanceRecruitRepository extends JpaRepository<AppearanceRec
     /** 호스트가 올린 모집글 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
     long countByHostIdAndStatus(Long hostId, AppearanceRecruitStatus status);
 
+    /** 이 회원이 호스트인 모집글 중 {@code statuses} 상태인 수 (탈퇴 회원 파기 때 진행 중인 글 확인, #675) */
     long countByHostIdAndStatusIn(Long hostId, Collection<AppearanceRecruitStatus> statuses);
 
     /**

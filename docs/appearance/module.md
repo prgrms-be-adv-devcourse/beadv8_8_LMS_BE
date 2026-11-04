@@ -286,6 +286,8 @@ com.hapbang.appearance
 
 - 다른 복사본은 없다: 출연·지원·리뷰·HP 작업·대사 기록에는 채널 주소가 없고, Kafka 이벤트(`AppearanceRequestDto`)·이벤트 보관(`event_publication` archive)·로그에도 싣지 않는다.
 - 결정 근거: 이슈 #675 댓글(a안, 고정 값). 비우기(null)는 마이그레이션과 응답 계약(`string`) 변경이 필요해 하지 않았다.
+- **건너뛴 글 다시 덮기 (운영 조치)**: 파기 이벤트는 한 번만 오므로 `[HOST_CHANNEL_MASK_SKIPPED]`로 건너뛴 글을 자동으로 다시 덮는 경로는 없다. 로그의 거래가 끝난 뒤 같은 조건으로 직접 덮는다: `update appearances.requests set host_channel_url = 'withdrawn' where host_id = :userId and status not in ('HOLD_PENDING', 'REQUESTED') and host_channel_url <> 'withdrawn'` (모집글은 `appearances.recruits`, 제외 상태 `HOLD_PENDING`·`RECRUITING`).
+- **배포 순서**: FE가 `withdrawn`을 글자로 보여 주는 변경(FE 이슈)이 첫 파기 전에 나가야 한다. 그 전에 파기되면 상세 화면에 `withdrawn`이 상대 링크로 보인다(데이터는 맞고 표시만 어긋남).
 
 ### 4.2 Billing 연동 (#168)
 
