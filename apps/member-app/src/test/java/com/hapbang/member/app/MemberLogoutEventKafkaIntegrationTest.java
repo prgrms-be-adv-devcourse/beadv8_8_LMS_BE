@@ -141,6 +141,10 @@ class MemberLogoutEventKafkaIntegrationTest {
     private static Map<String, String> headers(ConsumerRecord<String, byte[]> record) {
         Map<String, String> headers = new HashMap<>();
         for (Header header : record.headers()) {
+            // trace 헤더는 발행 계약이 아니라 trace 계측(#630)이 붙인다. 값은 요청마다 달라 trace 테스트가 따로 본다
+            if (header.key().equals("traceparent")) {
+                continue;
+            }
             headers.put(header.key(), new String(header.value(), StandardCharsets.UTF_8));
         }
         return headers;

@@ -48,6 +48,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - payload는 `common/shared`의 이벤트 레코드를 그대로 JSON으로 싣는다. 별도 envelope 레코드를 만들지 않는다.
 - 헤더는 `eventType`(레코드 이름, 예: `UserModifiedEvent`)과 `eventVersion`(이벤트 타입의 payload 버전, 예: `1`) 두 개를 UTF-8 문자열로 싣는다. `EventExternalizationConfiguration.headers(...)`로 넣는다. Spring Kafka JSON 직렬화가 붙이는 `__TypeId__`(레코드 클래스 이름)는 역직렬화에 쓴다.
 - `eventId`·`occurredAt`은 두지 않는다. 헤더 함수가 이벤트만 받아 재발행 때 같은 값을 만들 수 없다. 추적은 관측성(#343)의 trace 헤더가 맡는다.
+- trace 헤더 `traceparent`(W3C)는 Spring Kafka observation이 보낼 때마다 붙인다(#630, [관측성](observability.md#앱-trace-계측-579-631-630)). 발행 계약이 아니므로 소비자는 업무에 쓰지 않는다. 받는 앱은 이 헤더를 부모로 consumer span을 만든다.
 - Modulith는 기동할 때만 미완료 publication을 다시 보낸다(`republish-outstanding-events-on-restart`). 실행 중 재전송은 **발행하는 앱마다 반드시 둔다.** 지금 앱들은 `IncompleteEventPublications.resubmitIncompletePublications(Predicate)`로 자기 앱이 내보내는 이벤트·발행 후 경과 시간·건수를 거른다(billing·출연·강의·고객센터, 매분·1분·100건). 회원은 `resubmitIncompletePublications(ResubmissionOptions)`로 **실패(FAILED)한 기록만** DB에서 건수를 제한해 읽어 다시 보낸다(매분·1분·500건, #421). `Predicate` 방식은 미완료 기록 전부(아직 전송 중인 것 포함)를 읽어 메모리에서 거르므로, 전송 중인 기록을 겹쳐 보내고 장애가 길면 매분 전부를 읽는다. 회원은 대상 필터를 두지 않는다. Modulith가 필터를 DB에서 읽은 뒤에 적용해, 걸러지는 실패 기록이 batchSize만큼 쌓이면 보낼 기록이 영영 읽히지 않기 때문이다(회원 앱은 같은 JVM 리스너가 없어 실패 기록은 모두 Kafka 전송). 실행 중 재발행은 실패한 기록만 다루므로, 전송 중(PROCESSING)에 앱이 죽어 남은 기록은 재기동 때 보낸다. 주기와 기준 시간은 앱이 정한다. replica 여럿이 같은 publication을 다시 보내도 소비 멱등이 흡수하므로 분산 락은 두지 않는다.
 
 ## 소비
@@ -68,6 +69,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - DLT 이름은 `<토픽>.<그룹>.DLT`다(예: `member.events.v1.billing-app.wallet-creation.DLT`). 그룹마다 실패를 따로 모아 어느 소비자가 실패했는지 구분한다. Spring Kafka 기본값(`<토픽>.DLT`)은 쓰지 않는다.
 - DLT 토픽은 실패 처리를 소유한 소비 앱이 `NewTopic`으로 선언한다. partition은 원본과 같은 3개이고 원본과 같은 partition 번호로 보낸다. 보존은 7일(`retention.ms=604800000`)이다.
 - DLT 발행이 실패하면 처리 성공으로 간주하지 않는다. offset을 커밋하지 않고 다시 시도한다.
+- DLT로 보내는 template·리스너 컨테이너 팩토리를 앱이 직접 만들면 Boot의 `spring.kafka.template.observation-enabled`·`spring.kafka.listener.observation-enabled`가 적용되지 않는다. template은 `setObservationEnabled(true)`와, 빈이 아니면 `setObservationRegistry(...)`까지, 팩토리는 `getContainerProperties().setObservationEnabled(true)`를 직접 넣는다(#630). 빠지면 DLT 전송·소비가 trace에 남지 않는다.
 - DLT 발행용 producer factory나 소비 ConsumerFactory를 앱이 직접 만들면, Boot가 자기 factory에 적용하는 customizer(`DefaultKafkaProducerFactoryCustomizer`·`DefaultKafkaConsumerFactoryCustomizer`)를 똑같이 적용한다. 적용하지 않으면 그 factory의 Kafka client 지표(DLT 전송, 소비 lag)가 빠진다. 빈이 아닌 DLT factory에는 이름 `deadLetterProducerFactory`를 붙여 지표의 `spring_id`로 업무 발행 producer와 구분한다(#339). 공통 코드로 두지 않고 앱마다 같은 모양으로 둔다.
 
 ## 이벤트 버전
@@ -148,7 +150,7 @@ DLT 메시지는 원인을 고친 뒤 원본 토픽에 다시 넣는다. 같은 
        --formatter-property print.key=true --formatter-property print.headers=true
    ```
 
-2. 다시 넣을 메시지를 골라 key와 `__TypeId__`·`eventType`·`eventVersion` 헤더만 남겨 원본 토픽에 보낸다. 형식은 `헤더<탭>key<탭>값`이다. Spring Kafka의 DLT 예외 헤더(`kafka_dlt-*`)는 옮기지 않는다. 역직렬화에 실패해 DLT로 간 메시지는 값이 원본 바이트 그대로이므로, 고친 값을 넣는다.
+2. 다시 넣을 메시지를 골라 key와 `__TypeId__`·`eventType`·`eventVersion` 헤더만 남겨 원본 토픽에 보낸다. `traceparent`는 옮기지 않는다. 옮기면 재처리가 며칠 전 원래 trace에 붙는다. 형식은 `헤더<탭>key<탭>값`이다. Spring Kafka의 DLT 예외 헤더(`kafka_dlt-*`)는 옮기지 않는다. 역직렬화에 실패해 DLT로 간 메시지는 값이 원본 바이트 그대로이므로, 고친 값을 넣는다.
 
    ```bash
    printf '__TypeId__:<레코드 클래스 이름>,eventType:<레코드 이름>,eventVersion:<버전>\t<key>\t<JSON 값>\n' | \

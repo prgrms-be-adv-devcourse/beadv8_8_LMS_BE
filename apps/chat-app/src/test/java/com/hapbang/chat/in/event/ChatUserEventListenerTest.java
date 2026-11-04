@@ -67,6 +67,11 @@ import com.hapbang.shared.member.event.UserLoggedOutEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+import com.hapbang.testsupport.RecordedSpans;
+import com.hapbang.testsupport.TraceRequests;
+
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.trace.data.SpanData;
 
 import jakarta.persistence.EntityManager;
 
@@ -83,7 +88,7 @@ import jakarta.persistence.EntityManager;
 // 이 클래스만 쓰는 토픽·그룹 설정의 컨텍스트라 끝나면 닫아 Kafka 소비자를 남기지 않는다
 @DirtiesContext
 @Import({KafkaTestcontainersConfig.class, ChatUserEventListenerTest.Topics.class,
-        ChatUserEventListenerTest.FailableConnectionControl.class})
+        ChatUserEventListenerTest.FailableConnectionControl.class, RecordedSpans.Config.class})
 class ChatUserEventListenerTest {
 
     private static final String SUFFIX = UUID.randomUUID().toString();
@@ -96,6 +101,8 @@ class ChatUserEventListenerTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add(ChatKafkaConstants.MEMBER_EVENTS_ENABLED, () -> "true");
+        // trace 확인(#630)은 부모 없이 시작한 span도 놓치지 않게 모두 남긴다
+        registry.add("management.tracing.sampling.probability", () -> "1.0");
     }
 
     /** 이 클래스 전용 토픽·그룹·DLT. 재시도는 2회·첫 간격 100ms로 줄이고, 시험용 원본 토픽이 partition 1개라 DLT도 1개로 맞춘다(운영은 원본과 같은 3) */
@@ -124,6 +131,9 @@ class ChatUserEventListenerTest {
 
     @Autowired
     private FailableConnectionControl connectionControl;
+
+    @Autowired
+    private RecordedSpans spans;
 
     private KafkaProducer<String, byte[]> producer;
 
@@ -219,6 +229,32 @@ class ChatUserEventListenerTest {
         // DLT로 넘긴 뒤 offset이 넘어가 다음 레코드(같은 회원의 가입)를 처리한다
         joined(id, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 0L);
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(chatUserRepository.findById(id)).isPresent());
+    }
+
+    // trace(#630): 채팅은 리스너 컨테이너 팩토리와 DLT template을 직접 만든다(ChatKafkaConfig). 받은 메시지의 traceparent를
+    // 부모로 시도마다 consumer span을 남기고, DLT 전송도 같은 trace에 남는다
+    @Test
+    void 보낸_쪽_trace를_이어받아_재시도와_DLT_전송까지_같은_trace에_남긴다() throws Exception {
+        long id = nextId();
+        String traceId = TraceRequests.randomTraceId();
+        String parentSpanId = TraceRequests.randomSpanId();
+
+        send(UserModifiedEvent.class.getName(), id, userJson(id, "게스트", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE,
+                1L), TraceRequests.traceparent(traceId, parentSpanId, true));
+
+        ConsumerRecord<String, byte[]> deadLetter = awaitDeadLetter(id);
+        RecordedSpans.await(() -> spans.all().stream()
+                .anyMatch(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.PRODUCER));
+        List<SpanData> consumes = spans.all().stream()
+                .filter(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER).toList();
+        // 처음 1번 + 재시도 2번(이 클래스 설정)
+        assertThat(consumes).hasSize(3)
+                .allSatisfy(consume -> assertThat(consume.getParentSpanId()).isEqualTo(parentSpanId));
+        SpanData send = spans.all().stream()
+                .filter(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.PRODUCER)
+                .findFirst().orElseThrow();
+        assertThat(consumes).extracting(SpanData::getSpanId).contains(send.getParentSpanId());
+        assertThat(header(deadLetter, "traceparent")).startsWith("00-" + traceId + "-" + send.getSpanId() + "-");
     }
 
     @Test
@@ -442,9 +478,17 @@ class ChatUserEventListenerTest {
 
     /** member-app의 발행 형식: key = 회원 ID 문자열, value = JSON 바이트, 헤더 {@code __TypeId__} 하나 */
     private void send(String typeId, long key, String json) {
+        send(typeId, key, json, null);
+    }
+
+    /** {@code traceparent}(없으면 null)를 헤더에 실어, trace를 계측한 회원 앱이 보낸 것처럼 보낸다 (#630) */
+    private void send(String typeId, long key, String json, String traceparent) {
         ProducerRecord<String, byte[]> record = new ProducerRecord<>(TOPIC, String.valueOf(key),
                 json.getBytes(StandardCharsets.UTF_8));
         record.headers().add("__TypeId__", typeId.getBytes(StandardCharsets.UTF_8));
+        if (traceparent != null) {
+            record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
+        }
         try {
             producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
