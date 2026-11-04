@@ -41,9 +41,9 @@
 
 registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한다(member-app은 448 MiB에서 OOMKilled, [k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)). 관리 포트는 Tomcat을 하나 더 띄운다. lecture-app은 로컬에서 RSS 약 +10MB, 스레드 +16이었다(1회 측정, #521).
 
-### 앱 trace 계측 (#579, #631)
+### 앱 trace 계측 (#579, #631, #630)
 
-업무 앱 6개가 계측한다(lecture #579, member·appearance·billing·chat #631, customer-support #663). customer-support-app은 GraalVM Native Image 실행 파일이다(#609, [Native Image](native-image.md)). 요청 하나가 `Envoy ingress → Envoy router egress → 앱 server` span으로 Tempo에 남고, 앱이 다른 앱의 내부 API를 부르면 `→ 앱 client → 받는 앱 server`까지 같은 trace로 이어진다.
+업무 앱 6개가 계측한다(lecture #579, member·appearance·billing·chat #631, customer-support #663). customer-support-app은 GraalVM Native Image 실행 파일이다(#609, [Native Image](native-image.md)). 요청 하나가 `Envoy ingress → Envoy router egress → 앱 server` span으로 Tempo에 남고, 앱이 다른 앱의 내부 API를 부르면 `→ 앱 client → 받는 앱 server`까지 같은 trace로 이어진다. 요청이 Kafka 이벤트를 내보내면 `→ 발행 앱 producer → 받는 앱마다 consumer`까지 같은 trace로 이어진다(#630).
 
 **동작.**
 
@@ -63,6 +63,11 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
   - **관리 포트**: 관리 포트(8082)에는 HTTP 요청 observation이 없어 Spring Security filter chain observation이 부모 없이 시작된다. 그대로 두면 probe(5초마다 3종)와 Prometheus 수집마다 root trace가 생기므로 부모 없는 `spring.security.*` observation을 막는다(`ObservationPredicate`).
   - **Redis 명령**: Boot가 Lettuce 명령마다 span을 만든다(`LettuceObservationAutoConfiguration`). 요청·배치 밖의 명령(연결 handshake, 구독, 스트림 읽기)은 root span이 된다. Lettuce는 observation을 만든 **뒤에** 부모를 붙이므로 `ObservationPredicate`로 막으면 요청 안의 명령까지 사라진다(#631 테스트에서 확인). 그래서 내보낼 때(`SpanExportingPredicate`) 부모 없는 Redis span만 거른다. 거른 span도 만들어지기는 한다.
   - **짧은 주기 polling** (chat): `ChatRoomActivityBatch`(1초), `ChatReadCountBatch`(1초, #663), `ChatPresenceHeartbeat`(30초)의 `@Scheduled` 실행은 trace를 만들지 않는다. 그대로 두면 1초 작업 하나가 0.1 비율로 하루 약 8,600개의 root trace를 만든다. 대상은 `chat.app.ChatPollingTasks`에 둔다. `ChatReadCountBatch`는 #631 뒤에 들어와 목록에서 빠졌고, 배포 뒤 15분 동안 root trace 10건을 만들었다. 그래서 `ChatPollingTasksTest`가 chat의 `@Scheduled` 중 코드 기본 주기가 1분보다 짧은 것이 모두 목록에 있는지 검사한다. 1분 이상 주기의 배치(HP 작업, 대사, 재발행 등)는 0.1 비율로 trace를 만든다.
+- **Kafka** (#630): 보내는 쪽은 KafkaTemplate observation이 producer span을 만들고 메시지 헤더에 `traceparent`를 싣는다. 받는 쪽은 리스너 컨테이너 observation이 그 헤더를 부모로 consumer span을 만든다. 처리 중 로그와 내부 API 호출은 consumer span 아래에 남는다.
+  - **커밋 뒤 발행**: Modulith 외부화는 `@ApplicationModuleListener`(`@Async`)라 커밋 뒤 앱의 `taskScheduler` 스레드에서 보낸다. `ObservationConfig`의 `traceContextTaskDecorator`(Observation만 넘기는 `ContextPropagatingTaskDecorator`)를 Boot가 그 executor builder에 적용해 요청·소비의 trace가 발행으로 이어진다. 빼면 발행이 새 trace가 된다(`LectureObjectionKafkaTest`에서 확인). Boot의 `spring.task.execution.propagate-context`는 쓰지 않는다. 등록된 전파기를 모두 넘겨 Spring Security 인증 정보까지 비동기 리스너로 넘어간다.
+  - **재시도·DLT**: 재시도마다 consumer span이 하나씩 같은 부모로 남고, 실패한 시도는 오류 상태다. DLT 전송은 마지막 시도의 consumer span 아래 producer span으로 남고, DLT 메시지의 `traceparent`도 그 span을 가리킨다.
+  - **설정 위치**: `spring.kafka.template.observation-enabled`·`spring.kafka.listener.observation-enabled`는 앱 전용 설정(`<앱>.yml`)에 둔다. 모듈 테스트도 같은 파일을 읽는다. 직접 만든 DLT template(빈이 아닌 것은 registry까지)과 chat의 리스너 컨테이너 팩토리는 코드에서 켠다([Kafka](kafka.md#재시도와-dlt)).
+  - **이어지지 않는 경우**: 발행에 실패해 재발행 배치·재시작 재발행으로 나중에 보내는 이벤트는 원래 요청의 trace가 발행 기록에 없어 재발행 배치의 trace(0.1 비율)로 나간다. 장애 뒤에만 생기는 경로라 받아들였다(2026-11-04 사용자 결정). 역직렬화에 실패한 메시지는 Spring Kafka가 리스너 어댑터를 부르기 전에 끝나 consumer span을 끝내지 않는다(내보내지 않음). DLT 전송 span과 DLT 메시지의 `traceparent`는 같은 trace로 남지만 Tempo에서 부모 span이 없는 것으로 보인다. `traceparent` 없이 온 메시지(계측 전 발행분)는 consumer가 새 trace(0.1 비율)를 시작한다.
 - **새 실행 진입점을 더할 때**: span이 생기는지 확인한다. `@Scheduled`는 Spring이, Spring Batch는 자체 observation이 span을 만든다. Quartz job은 Boot가 계측하지 않는 것으로 알고 있으므로 도입할 때 소스 jar로 확인하고, 없으면 job 실행을 `Observation`으로 감싼다. 1분보다 짧은 주기로 도는 polling은 위처럼 root trace를 만들지 않게 한다.
 
 **새 앱에 붙이는 절차.** notification·search 앱을 만들 때 따른다.
@@ -84,16 +89,17 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
          export:
            enabled: false   # 지표는 Prometheus가 수집한다. 켜 두면 localhost:4318로 보내다 실패한다
    ```
-3. `global/config/ObservationConfig`: 다른 앱 것을 그대로 옮긴다(부모 없는 `spring.security.*` 막기, 부모 없는 Redis span 내보내지 않기). 짧은 주기 polling이 있으면 chat처럼 더한다.
+3. `global/config/ObservationConfig`: 다른 앱 것을 그대로 옮긴다(부모 없는 `spring.security.*` 막기, 부모 없는 Redis span 내보내지 않기, 비동기 작업에 trace를 넘기는 `traceContextTaskDecorator`). 짧은 주기 polling이 있으면 chat처럼 더한다.
 4. `k8s/base/kustomization.yaml`의 ConfigMap: `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy.hapbang-platform.svc.cluster.local:4317`. Native Image 앱은 `processAot` 인자에도 같은 endpoint를 넣는다. 빠지면 OTLP exporter가 실행 파일에서 빠져 span을 보내지 않는다([Native Image](native-image.md)). service name은 `spring.application.name`이다. 앱 NetworkPolicy에는 egress 제한이 없어 정책은 바꾸지 않는다.
-5. 스레드를 바꾸는 곳: trace context는 스레드 로컬이라 다른 스레드로 넘어가지 않는다. 앱이 직접 만든 executor로 HTTP를 부르면 `ContextExecutorService.wrap(executor, ContextSnapshotFactory.builder().build())`로 감싼다(`shared`의 `BillingApiClient`가 예다). `RestClient`는 Boot가 주입하는 `RestClient.Builder`로 만들어야 client span과 `traceparent`가 붙는다. shared의 내부 API Client 4개와 chat의 내부 API 설정, billing의 TossPayments Client가 모두 그렇게 만든다. `@Async`·`TaskExecutor`도 같은 문제가 있다.
-6. 테스트: `<앱>TracingTest`(실제 서버, 관리 포트·내부 API 포트 분리, 샘플링 1.0). `test-support`의 `RecordedSpans`(span을 메모리에 모음)와 `TraceRequests`(`traceparent` 요청, 가짜 내부 API 서버)를 쓴다. 샘플링된 요청의 server span, 샘플링되지 않은 요청과 관리 포트 요청의 span 없음, 내부 API 포트의 server span, 내부 API 호출의 client span과 `traceparent`를 확인한다.
-7. 메모리: 적용 전후 working set을 재고 limit을 다시 본다. lecture-app은 k3d에서 같은 heap 상한(`-Xmx384m`, `-XX:ActiveProcessorCount=2`)으로 기동 10분 뒤(샘플링된 요청 300건 뒤) 685 → 703 MiB였다(non-heap 190 → 198 MiB, 스레드 64 → 73, 클래스 28,175 → 29,323, 각 1회 측정). 적용 전 운영 working set이 588 MiB(640 MiB의 92%)라 704 MiB로 올렸다([k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)). k3d는 운영보다 working set이 커서(같은 이미지가 640 MiB에서 OOMKilled) 차이만 쓴다.
-8. 확인: Grafana Explore → Tempo에서 TraceQL `{resource.service.name="<앱>"}`로 찾는다. 한 trace에 Envoy span 2개와 앱 server span이 있고, 앱 로그 줄의 traceId로 같은 trace가 열리는지 본다.
+5. 스레드를 바꾸는 곳: trace context는 스레드 로컬이라 다른 스레드로 넘어가지 않는다. 앱이 직접 만든 executor로 HTTP를 부르면 `ContextExecutorService.wrap(executor, ContextSnapshotFactory.builder().build())`로 감싼다(`shared`의 `BillingApiClient`가 예다). `RestClient`는 Boot가 주입하는 `RestClient.Builder`로 만들어야 client span과 `traceparent`가 붙는다. shared의 내부 API Client 4개와 chat의 내부 API 설정, billing의 TossPayments Client가 모두 그렇게 만든다. `@Async`는 앱의 `taskScheduler`가 실행하고 3의 `traceContextTaskDecorator`가 trace를 넘긴다. 앱이 `new`로 만든 executor·scheduler에는 적용되지 않는다.
+6. Kafka를 쓰면 `<앱>.yml`에 `spring.kafka.template.observation-enabled: true`·`spring.kafka.listener.observation-enabled: true`를 넣고, DLT template·리스너 팩토리를 직접 만들었으면 위 "Kafka"처럼 코드에서 켠다. Kafka 통합 테스트에 `traceparent`를 실어 보내 consumer span의 부모와 발행·DLT 메시지의 `traceparent`를 확인한다(`LectureObjectionKafkaTest`, `ChatUserEventListenerTest`가 예).
+7. 테스트: `<앱>TracingTest`(실제 서버, 관리 포트·내부 API 포트 분리, 샘플링 1.0). `test-support`의 `RecordedSpans`(span을 메모리에 모음)와 `TraceRequests`(`traceparent` 요청, 가짜 내부 API 서버)를 쓴다. 샘플링된 요청의 server span, 샘플링되지 않은 요청과 관리 포트 요청의 span 없음, 내부 API 포트의 server span, 내부 API 호출의 client span과 `traceparent`를 확인한다.
+8. 메모리: 적용 전후 working set을 재고 limit을 다시 본다. lecture-app은 k3d에서 같은 heap 상한(`-Xmx384m`, `-XX:ActiveProcessorCount=2`)으로 기동 10분 뒤(샘플링된 요청 300건 뒤) 685 → 703 MiB였다(non-heap 190 → 198 MiB, 스레드 64 → 73, 클래스 28,175 → 29,323, 각 1회 측정). 적용 전 운영 working set이 588 MiB(640 MiB의 92%)라 704 MiB로 올렸다([k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)). k3d는 운영보다 working set이 커서(같은 이미지가 640 MiB에서 OOMKilled) 차이만 쓴다.
+9. 확인: Grafana Explore → Tempo에서 TraceQL `{resource.service.name="<앱>"}`로 찾는다. 한 trace에 Envoy span 2개와 앱 server span이 있고, 앱 로그 줄의 traceId로 같은 trace가 열리는지 본다.
 
 **지금 계측하지 않는 것.**
 
-- Kafka producer·consumer context 전파와 `eventId` 연결(#630). listener 스레드의 로그에는 traceId가 없다.
+- 재발행으로 나중에 보낸 이벤트와 원래 요청의 연결, 역직렬화 실패 메시지의 consumer span(위 "Kafka"). 이벤트별 식별자(`eventId`)는 두지 않는다([Kafka](kafka.md#발행)). 로그로 이벤트 처리를 모으는 키는 #582에서 정한다.
 - DB(JDBC) span. 요청 span의 시간에 DB 시간이 포함될 뿐 쿼리 단위로 나뉘지 않는다.
 - WebSocket(STOMP) 메시지: 연결을 여는 HTTP 요청만 span이 남고 메시지 단위 trace는 없다.
 
