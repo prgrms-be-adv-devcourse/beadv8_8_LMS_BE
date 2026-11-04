@@ -99,6 +99,28 @@ class MemberSignUpUseCaseTest {
     }
 
     @Test
+    @DisplayName("다른 회원이 쓰는 닉네임이면(대소문자 무시) DUPLICATE_NICKNAME이고 저장하지 않는다 (#646)")
+    void signUp_duplicateNickname() {
+        given(userRepository.existsByNicknameLower("Tester1")).willReturn(true);
+
+        assertError(() -> useCase.signUp("tester1@example.com", "abcd1234", " Tester1 "),
+                MemberErrorCode.DUPLICATE_NICKNAME);
+        verify(userRepository, never()).saveAndFlush(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("동시 가입으로 닉네임 유일 인덱스에 걸리면 DUPLICATE_NICKNAME (#646)")
+    void signUp_concurrentDuplicateNickname() {
+        given(userRepository.saveAndFlush(any(User.class))).willThrow(new DataIntegrityViolationException(
+                "duplicate key value violates unique constraint \"" + MemberSupport.NICKNAME_UNIQUE + "\""));
+
+        assertError(() -> useCase.signUp("tester1@example.com", "abcd1234", "tester1"),
+                MemberErrorCode.DUPLICATE_NICKNAME);
+        verify(passwordCredentialRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("다른 제약 위반은 그대로 던진다")
     void signUp_otherViolation() {
         given(userRepository.saveAndFlush(any(User.class))).willThrow(new DataIntegrityViolationException("other"));

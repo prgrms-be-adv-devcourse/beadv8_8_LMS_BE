@@ -3,6 +3,8 @@ package com.hapbang.member.app;
 import java.util.List;
 
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -22,6 +24,9 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class MemberSupport {
+
+    /** users lower(nickname) 유일 인덱스 (V202611040948, #646) */
+    static final String NICKNAME_UNIQUE = "uk_users_nickname_lower";
 
     private final UserRepository userRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -47,7 +52,27 @@ public class MemberSupport {
     }
 
     /**
-     * 바뀐 회원 정보를 지금 DB에 반영한다. 다른 트랜잭션이 먼저 바꿨으면(@Version 충돌) MEMBER_CONCURRENT_UPDATE(409).
+     * 닉네임을 쓸 수 있는지 확인한다 (#646). 겹치면 DUPLICATE_NICKNAME(409). 대소문자를 무시하고 탈퇴 회원도 포함한다.
+     * selfId가 있으면 그 회원 자신은 빼고 본다. 회원을 바꾸기 전에 부른다(바꾼 뒤 부르면 조회 전 자동 반영에서 인덱스 오류가 난다)
+     */
+    public void checkNicknameAvailable(String nickname, Long selfId) {
+        boolean taken = selfId == null
+                ? userRepository.existsByNicknameLower(nickname)
+                : userRepository.existsByNicknameLowerExcept(nickname, selfId);
+        if (taken) {
+            throw new MemberException(MemberErrorCode.DUPLICATE_NICKNAME);
+        }
+    }
+
+    /** 닉네임 유일 인덱스 위반인지 (확인과 저장 사이에 다른 요청이 같은 닉네임을 먼저 저장한 경우) */
+    public static boolean isNicknameViolation(DataIntegrityViolationException e) {
+        String message = NestedExceptionUtils.getMostSpecificCause(e).getMessage();
+        return message != null && message.contains(NICKNAME_UNIQUE);
+    }
+
+    /**
+     * 바뀐 회원 정보를 지금 DB에 반영한다. 다른 트랜잭션이 먼저 바꿨으면(@Version 충돌) MEMBER_CONCURRENT_UPDATE(409),
+     * 다른 회원이 같은 닉네임을 먼저 저장했으면 DUPLICATE_NICKNAME(409).
      * 커밋 때 충돌하면 500이 되므로, 회원을 바꾸는 곳은 이벤트 발행 전에 부른다
      */
     public void flush() {
@@ -55,6 +80,11 @@ public class MemberSupport {
             userRepository.flush();
         } catch (ObjectOptimisticLockingFailureException e) {
             throw new MemberException(MemberErrorCode.MEMBER_CONCURRENT_UPDATE);
+        } catch (DataIntegrityViolationException e) {
+            if (isNicknameViolation(e)) {
+                throw new MemberException(MemberErrorCode.DUPLICATE_NICKNAME, e);
+            }
+            throw e;
         }
     }
 

@@ -101,6 +101,37 @@ class ApiV1MemberControllerTest {
     }
 
     @Test
+    @DisplayName("다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME (#646)")
+    void updateMe_duplicateNickname() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+        userRepository.save(User.join("tester2@example.com", "Tester2"));
+        User withdrawn = User.join("tester3@example.com", "tester3");
+        ReflectionTestUtils.setField(withdrawn, "status", UserStatus.WITHDRAWN);
+        userRepository.save(withdrawn);
+
+        for (String nickname : new String[] {"tester2", "TESTER3"}) {
+            mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"nickname\":\"%s\"}".formatted(nickname)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("DUPLICATE_NICKNAME"));
+        }
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getNickname()).isEqualTo("tester1");
+    }
+
+    @Test
+    @DisplayName("내 닉네임의 대소문자만 바꾸면 200 (#646)")
+    void updateMe_ownNicknameCase() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+
+        mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"TESTER1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nickname").value("TESTER1"));
+    }
+
+    @Test
     @DisplayName("닉네임 없이 수정하면 200이고 닉네임은 그대로다")
     void updateMe_withoutNickname() throws Exception {
         User user = userRepository.save(User.join("tester1@example.com", "tester1"));
