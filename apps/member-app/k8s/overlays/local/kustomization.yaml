@@ -24,6 +24,8 @@ secretGenerator:
       - CHZZK_CLIENT_ID=local-dummy
       - CHZZK_CLIENT_SECRET=local-dummy
       - CHZZK_REDIRECT_URI=http://localhost/api/v1/members/channels/chzzk/callback
+      - MAIL_USERNAME=local-dummy@example.com
+      - MAIL_PASSWORD=local-dummy
     options:
       disableNameSuffixHash: true
 # base가 prod 프로필이라 개인 키(JWT_PRIVATE_KEY) 없이는 member-app이 뜨지 않는다. 로컬은 시작할 때마다 임시 서명 키를 만든다(#500).
