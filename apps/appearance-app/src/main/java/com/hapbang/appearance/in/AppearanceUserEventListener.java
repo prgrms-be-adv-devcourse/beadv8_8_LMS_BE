@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import com.hapbang.appearance.app.AppearanceUserFacade;
 import com.hapbang.appearance.config.AppearanceKafkaConfig;
 import com.hapbang.shared.member.event.UserJoinedEvent;
+import com.hapbang.shared.member.event.UserMaskedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 
 import lombok.RequiredArgsConstructor;
@@ -49,6 +50,15 @@ public class AppearanceUserEventListener {
     @KafkaHandler
     public void on(UserModifiedEvent event) {
         appearanceUserFacade.syncModified(event.user());
+    }
+
+    /**
+     * 탈퇴 회원 개인정보 파기 (#675). 출연 회원(복제 회원)이 없어도 실패로 보내지 않는다(호스트로 쓴 글이 없으면 덮을 것도 없다).
+     * 닉네임은 같은 때 오는 {@link UserModifiedEvent}로 바뀐다.
+     */
+    @KafkaHandler
+    public void on(UserMaskedEvent event) {
+        appearanceUserFacade.maskWithdrawn(event.userId());
     }
 
     /** 출연이 쓰지 않는 회원 이벤트(예: 로그아웃). 토픽에 타입이 섞이므로 실패로 보내지 않고 넘어간다. */

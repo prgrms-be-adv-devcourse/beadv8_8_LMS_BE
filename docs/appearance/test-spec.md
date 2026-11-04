@@ -198,9 +198,21 @@
 | 가입 → `UserModifiedEvent`(닉네임, VERIFIED_INFLUENCER, SUSPENDED, 버전 1) | 닉네임·역할·상태 갱신, 회원 버전 1 |
 | 가입 → 변경(버전 2) 반영 뒤 같은 가입·버전 1 변경(늦게 옴)·버전 2 변경(중복) | 버전 2 정보 유지, DLT 없음. 같은 key로 보낸 표지(다른 회원 가입)가 반영된 뒤 확인해 앞 이벤트 처리가 끝났음을 보장 |
 | `UserLoggedOutEvent`(출연이 쓰지 않는 타입) → 가입 | 로그아웃은 무시하고 가입 반영, DLT 없음 |
+| 끝난 요청서(`HOLD_FAILED`) → `UserMaskedEvent` 두 번 (#675) | 채널 URL `withdrawn`, 같은 key 표지 반영 뒤 DLT 없음 |
 | 가입 없이 `UserModifiedEvent` | 출연 회원 생성 안 됨. 재시도(1·2·4초, 7초 이상 걸림) 뒤 출연 DLT 1건: 원본 토픽·`AppearanceException` 헤더·본문 포함 |
 | 깨진 JSON → 가입 | 깨진 메시지는 재시도 없이(1초 안) 원본 바이트 그대로 DLT 1건, 다음 가입은 반영 |
 | DLT 토픽 | 이름 `member.events.v1.appearance-app.member-replica.DLT`, partition 3, 보존 7일 |
+
+### 4.4.1 탈퇴 회원 파기: 호스트 채널 URL — `AppearanceHostChannelMaskTest` (#675)
+
+| 케이스 | 기대 결과 |
+|---|---|
+| 호스트가 취소한 요청서·조기 마감한 모집글 → 파기 | 둘 다 채널 URL `withdrawn`, 요청서 상태·버전·제목·본문 그대로 |
+| 다른 회원이 호스트인 글 | 그대로 (`https://…`) |
+| 같은 파기 두 번 | 결과 같음 |
+| 호스트로 쓴 글이 없는 회원·출연 회원이 없는 회원 | 실패하지 않음 |
+| 응답 대기 요청서·모집 중 모집글 + 취소한 요청서 → 파기 | 진행 중인 글은 그대로, 취소한 글은 `withdrawn`, error 로그 `[HOST_CHANNEL_MASK_SKIPPED] … activeRequests=1, activeRecruits=1` |
+| 파기 뒤 게스트가 요청서 상세 조회 | `hostChannelUrl` = `withdrawn` (FE 계약 값) |
 
 - 회원 버전 비교 자체는 공통 `ReplicaUser`(회원 #292, `ReplicaUserTest`)가 확인한다. 출연 쪽은 Kafka로 받았을 때 그 동작이 출연 회원에 적용되는지 본다.
 - 이전 테스트(같은 서버 안 이벤트 발행, 발행 트랜잭션 롤백 경우)는 회원이 다른 앱이 되어 없앴다. 롤백된 회원 변경은 회원 앱이 Kafka로 보내지 않는다(#393과 같은 Modulith 외부화).

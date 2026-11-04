@@ -29,7 +29,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 | `lecture.events.v1` | lecture-app | `LectureObjectionResolvedEvent`, `LectureObjectionWithdrawnEvent`, `LectureObjectionRequestRefusedEvent`, `LectureObjectionReturnCompletedEvent`, `LectureObjectionReturnActionRequiredEvent` | `order-item:<주문 항목 ID>` | `customer-support-app.objection-result` (#279) |
 | `customersupport.events.v1` | customer-support-app | `LectureObjectionResolutionRequestedEvent`, `LectureObjectionWithdrawalRequestedEvent` | `inquiry:<문의 ID>` | `lecture-app.objection-command` (#278) |
 
-1차 범위는 지금 다른 앱에 소비자가 있는 이벤트만이다. `UserLoggedOutEvent(userId, loggedOutAt)`는 #539에서 `member.events.v1`에 올렸다(chat이 회원 단위로 연결을 닫는다, #501). `UserMaskedEvent(userId, maskedAt)`는 #594에서 올렸다(탈퇴 회원 파기 신호. 지갑의 환전 계좌, 출연의 호스트 채널 주소처럼 회원 앱 밖의 파기 대상을 받은 앱이 지운다. 소비는 후속 이슈). 출연 취소 이벤트(요청·수락·거절)는 소비자가 생길 때 `appearance.events.v1`에 key `appearance:<출연 ID>`로 더한다. 소비 그룹 이름은 구현할 때 이 표를 고친다.
+1차 범위는 지금 다른 앱에 소비자가 있는 이벤트만이다. `UserLoggedOutEvent(userId, loggedOutAt)`는 #539에서 `member.events.v1`에 올렸다(chat이 회원 단위로 연결을 닫는다, #501). `UserMaskedEvent(userId, maskedAt)`는 #594에서 올렸다(탈퇴 회원 파기 신호. 지갑의 환전 계좌, 출연의 호스트 채널 주소처럼 회원 앱 밖의 파기 대상을 받은 앱이 지운다. 출연은 #675에서 기존 그룹 `appearance-app.member-replica`로 받는다. 다른 앱의 소비는 각 앱 이슈). 출연 취소 이벤트(요청·수락·거절)는 소비자가 생길 때 `appearance.events.v1`에 key `appearance:<출연 ID>`로 더한다. 소비 그룹 이름은 구현할 때 이 표를 고친다.
 
 ## 토픽 규칙
 
