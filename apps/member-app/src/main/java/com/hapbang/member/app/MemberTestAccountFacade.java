@@ -2,6 +2,7 @@ package com.hapbang.member.app;
 
 import java.util.regex.Pattern;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,11 +16,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 부하 시험용 회원 승급. 2026-11-04 사용자 결정으로 인증 없이 공개한다.
+ * 부하 시험용 회원 승급. 2026-11-04 변경 결정으로 ADMIN만 호출한다.
  * 채널 인증 예외는 accounts.py가 생성하는 이메일 형식(배치당 001~100)에만 적용한다.
  */
 @Slf4j
 @Service
+@PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
 public class MemberTestAccountFacade {
 
@@ -29,7 +31,7 @@ public class MemberTestAccountFacade {
     private final MemberSupport memberSupport;
 
     @Transactional
-    public TestInfluencerResponse promote(Long userId) {
+    public TestInfluencerResponse promote(Long adminId, Long userId) {
         User user = memberSupport.findActiveUser(userId);
         if (user.getEmail() == null || !TEST_EMAIL.matcher(user.getEmail()).matches()) {
             throw new MemberException(MemberErrorCode.TEST_ACCOUNT_REQUIRED);
@@ -41,7 +43,7 @@ public class MemberTestAccountFacade {
             throw new MemberException(MemberErrorCode.TEST_ACCOUNT_ROLE_NOT_ALLOWED);
         }
         memberSupport.changeRole(user, Role.INFLUENCER);
-        log.info("테스트 회원 승급: userId={}, role={}", user.getId(), user.getRole());
+        log.info("테스트 회원 승급: adminId={}, userId={}, role={}", adminId, user.getId(), user.getRole());
         return new TestInfluencerResponse(user.getId(), user.getRole(), true);
     }
 }
