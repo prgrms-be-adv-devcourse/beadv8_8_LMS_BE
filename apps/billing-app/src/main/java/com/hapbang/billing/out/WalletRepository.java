@@ -42,16 +42,16 @@ public interface WalletRepository extends Repository<Wallet, Long> {
     @Query("select w.id from Wallet w where w.updatedAt >= :since")
     List<Long> findIdsUpdatedSince(@Param("since") Instant since);
 
-    // 탈퇴로 닫혔는데 쓸 수 있는 충전·수익 HP가 남은 지갑 ID (#623, BD-141). 닫힌 뒤 들어온 반환·지급은 환불·환전할 수 없어 묶인다
+    // 탈퇴·파기로 닫혔는데 쓸 수 있는 충전·수익 HP가 남은 지갑 ID (#623, BD-141, #674). 닫힌 뒤 들어온 반환·지급은 환불·환전할 수 없어 묶인다
     @Query("""
             select w.id from Wallet w
-            where w.closedByWithdrawalId is not null and (w.chargeBalanceHp > 0 or w.revenueBalanceHp > 0)
+            where w.closedAt is not null and (w.chargeBalanceHp > 0 or w.revenueBalanceHp > 0)
             order by w.id""")
     List<Long> findClosedIdsWithBalance();
 
     // 잔액이 남은 닫힌 지갑 수 (#623, 지표). 닫힌 지갑만 담은 부분 인덱스 idx_wallet_2를 탄다
     @Query("""
             select count(w) from Wallet w
-            where w.closedByWithdrawalId is not null and (w.chargeBalanceHp > 0 or w.revenueBalanceHp > 0)""")
+            where w.closedAt is not null and (w.chargeBalanceHp > 0 or w.revenueBalanceHp > 0)""")
     long countClosedWithBalance();
 }

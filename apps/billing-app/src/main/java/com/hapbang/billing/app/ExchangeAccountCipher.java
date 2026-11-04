@@ -60,7 +60,11 @@ class ExchangeAccountCipher {
     }
 
     // 암호문을 마스킹한 계좌번호로 바꾼다. 키가 없거나 복호화할 수 없으면 전부 가린 값을 돌려준다(조회는 막지 않는다).
+    // 회원 정보 파기로 지운 계좌(암호문 없음, #674)도 전부 가린다. 키·암호문 장애가 아니므로 로그를 남기지 않는다.
     String masked(Long exchangeId, String encrypted) {
+        if (encrypted == null) {
+            return UNREADABLE_MASK;
+        }
         try {
             return mask(paymentKeyCipher.decrypt(encrypted));
         } catch (RuntimeException exception) {

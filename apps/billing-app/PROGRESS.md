@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-11-04 (#660 지갑 테스트 옛 공용 설정 제거·테스트 목록 정리, #655 JVM 분리 재검토 결정 마무리·모놀리스 시절 문서 정리, #627 사용자 API 회원별 rate limit, #623 회원 탈퇴용 지갑 닫기·다시 열기 내부 API, #607 변경된 지갑의 잔액 대사 배치, #598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-11-04 (#674 회원 정보 파기 때 환전 계좌 지우기·열린 지갑 닫기, #660 지갑 테스트 옛 공용 설정 제거·테스트 목록 정리, #655 JVM 분리 재검토 결정 마무리·모놀리스 시절 문서 정리, #627 사용자 API 회원별 rate limit, #623 회원 탈퇴용 지갑 닫기·다시 열기 내부 API, #607 변경된 지갑의 잔액 대사 배치, #598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -56,6 +56,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #627 | 사용자 API 회원별 rate limit: `global.ratelimit`(`@RateLimited`·`RateLimitedApi` 14개·`RateLimitInterceptor`·`UserRateLimiter`, Resilience4j `RateLimiter` 앱 메모리), 회원 × API마다 분당 신청·취소 10·일반 조회 60·수익 조회 20(`hapbang.billing.rate-limit.*`), 429 `TOO_MANY_REQUESTS`(`GlobalErrorCode`) + `Retry-After`, 지표 `hapbang.billing.rate.limit.rejected{api}`, 의존성 `resilience4j-ratelimiter`, BD-140 | `feature/tkt-627` | (PR 전) | 구현 완료 |
 | #655 | JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(BD-142), 원격 호출 트랜잭션 계약(BD-143), BD-53·60·64·66·72·73·107 상태 정리, `module.md` 해소된 제약(L2·L3·L7·L10)·7.2·8.3을 현재 상태로, 7장 옛 후보 정리. 운영 코드 변경 없음 | `feature/tkt-655` | #657 | 완료 |
 | #660 | 지갑 테스트 정리: 직접 `@SpringBootTest` 5개에서 지갑에 없는 S3·OAuth 설정 삭제, `EarningSourceAdapterTest` → `EarningSourceTest`, `test-spec.md` 7장을 97개 클래스·918개로 맞춤(빠진 9개 추가). 검증 내용·운영 코드 변경 없음. 공통 `test-support` 정리는 범위 밖 | `feature/tkt-660` | — | 진행 중 |
+| #674 | 회원 정보 파기(`UserMaskedEvent`) 소비: `BillingMemberEventListener` 처리기 → `WalletMaskingUseCase`(회원 락 → 지갑 락, 한 트랜잭션). 끝난 환전(COMPLETED·REJECTED·CANCELED·FINAL_FAILED 명시)의 `exchange_account` 계좌번호 암호문·예금주 NULL(조회하면 `****`·null, 복호화 실패 로그 없음), 끝난 환전의 끝난 가상 송금 예금주·해시를 `탈퇴회원`·`masked`로 덮기, 처리 중인 환전(탈퇴 막기와 같은 상태)은 남기고 error 로그, 열린 지갑은 탈퇴 작업 ID 없이 닫기(닫힘 표시를 `closed_at`으로, Flyway `V202611041200` CHECK·부분 인덱스 변경), `WalletMaskingIntegrationTest`·Kafka 경로 테스트(BD-144·BD-145) | `feature/tkt-674` | (PR 전) | 구현 완료 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
@@ -99,6 +100,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | app | `ChangedWalletReconciliationUseCase`, `WalletReconciliationBatch` | 최근 바뀐 지갑의 매일 대사, 결과 지표 (#607) |
 | app | `WalletWithdrawalFacade`, `WalletWithdrawalUseCase`, `WalletWithdrawalBlocks` | 회원 탈퇴용 지갑 확인하고 닫기·다시 열기와 지갑이 적는 막힌 이유 (#623, BD-141) |
 | out | `WalletWithdrawalRepository`, `WalletUserLock` | 탈퇴 기록, 회원별 지갑 생성·닫기 직렬화 advisory lock (#623) |
+| app | `WalletMaskingUseCase` | 회원 정보 파기 때 환전 계좌 지우기·열린 지갑 닫기 (#674, BD-144·BD-145) |
 | in | `UserJoinedEventListener` | 가입 이벤트로 지갑 생성 (ADMIN 제외) |
 | (삭제) | `LectureSettlementFacade`·`UseCase`·`Result`·`Schedule`, `in.LectureSettlementPortAdapter`, shared `LectureSettlementPort`·`LectureSettlementCommand`·`LectureSettlementResultDto`, `Settlement.scheduledLecture`·`suspend`·`resume`·`cancel`·`isPayableAt` | #142·#182에서 만든 강의 지급 예정 관리 경로. #188에서 없앴다(3.13) |
 | domain | `Settlement` (#142 추가) | `scheduledLecture`(예정 건 생성), `suspend`·`resume`·`cancel`(상태 전이, 같은 상태면 false), `isPayableAt`(SCHEDULED + 예정 시각 경과) |
@@ -684,7 +686,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 | 코드 | HTTP | 상황 |
 | --- | --- | --- |
 | `WALLET_NOT_FOUND` | 404 | 거래·대사 대상 지갑 없음 |
-| `WALLET_CLOSED` | 409 | 탈퇴로 닫힌 지갑에 충전 주문·충전 승인 시작·새 보류(환불·환전 신청 포함) (#623) |
+| `WALLET_CLOSED` | 409 | 탈퇴·파기로 닫힌 지갑에 충전 주문·충전 승인 시작·새 보류(환불·환전 신청 포함) (#623) |
 | `WITHDRAWAL_ALREADY_REOPENED` | 409 | 다시 열기를 이미 받은 탈퇴 작업의 닫기 (#623) |
 | `ORIGINAL_LEDGER_NOT_FOUND` | 404 | 역분개 원본 원장 없음 |
 | `INVALID_REVERSAL` | 400 | 역분개 정책 위반 |
@@ -737,6 +739,7 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 ## 6. 테스트
 
 - 실행: `./gradlew :billing:test --no-daemon`, 전체 `./gradlew check --no-daemon` (`ModularityTests` 포함).
+- 2026-11-04 기준(#674, `feature/tkt-674`, origin/dev ef093e99): 바뀐 부분만 실행 — `WalletMaskingIntegrationTest` 11, `WalletMaskingStatusesTest` 1, `ExchangeAccountCipherTest` 4(+1), `WalletTest` 14(+3), `WalletWithdrawalIntegrationTest` 17, `BillingMemberEventKafkaTest` 11(+1), `ClosedWalletBalanceMetricsTest` 2, `BillingConstraintsTest` 95, `BillingEnumStorageTest` 1 통과. 전체 `check`는 돌리지 않았다.
 - 2026-10-29 기준(#273, `feature/tkt-273`, origin/dev 29d1ea5): `./gradlew check --continue` 성공 — billing 1,125(+84), lecture 567, appearance 570, member 320, chat 247, customer-support 181, shared 82, test-support 4, 실패 0. 첫 `check`에서 테스트 인증 설정 문제(다른 스레드로 인증 미전달 17, 클래스 단위 인증이 비로그인 요청에 섞임 1)로 billing 18건이 실패해 고친 뒤 다시 실행했다.
 - 2026-10-15 기준(#260, `feature/tkt-260`, origin/dev 4eb55ea): 메모리 부족으로 `clean check`가 중간에 멈춰 모듈별로 나눠 실행했다 — billing 486, appearance 401, apps 56(ModularityTests·강의·출연 실제 Billing 포함), chat 142(이상 `clean check` 중 완료), shared 35, global 59, member 206, customersupport 112, lecture 421(이후 따로 실행), 전체 1,918개·실패 0. 정리 3건(주석·미사용 코드·배치 로그) 뒤에는 환불 테스트 39개만 다시 돌렸다. 실제 TossPayments 호출 없음.
 - 2026-10-15 기준(#241, `feature/tkt-241`, origin/dev 5d58307): `./gradlew clean :billing:test` Billing 437개, `./gradlew clean check --continue` 성공 — shared 35, lecture 421, appearance 372, member 206, chat 142, customersupport 112, apps 56(강의 지급·주문 실제 Billing 29·2, 출연 BillingPort 6, ModularityTests 2), global 59, 전체 1,840개·실패 0. 첫 `check`에서 lecture `OrderPayoutUseCaseTest`(#150, 시각 정밀도, Fake billing) 1건이 실패했고 재실행에서 통과(기존 불안정 테스트, #241과 무관).

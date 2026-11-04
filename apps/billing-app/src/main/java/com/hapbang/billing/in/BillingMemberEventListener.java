@@ -5,14 +5,17 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.billing.app.BillingUserSyncUseCase;
+import com.hapbang.billing.app.WalletMaskingUseCase;
 import com.hapbang.billing.global.config.BillingKafkaConfig;
 import com.hapbang.shared.member.event.UserJoinedEvent;
+import com.hapbang.shared.member.event.UserMaskedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 // 회원 앱이 Kafka(member.events.v1)로 보낸 가입·변경 이벤트로 Billing 회원 복제본을 동기화한다 (#294, #430).
+// 파기 이벤트(UserMaskedEvent)를 받으면 지갑이 가진 그 회원의 계좌 정보를 지우고 열린 지갑을 닫는다 (#674, WalletMaskingUseCase).
 // 소비 그룹은 billing-app.member-replica다. 지갑 생성(UserJoinedEventListener, billing-app.wallet-creation)과 그룹이 달라
 // 복제본 반영이 실패해도 지갑 생성은 영향을 받지 않고, 실패한 쪽만 재시도 뒤 자기 그룹 DLT로 간다(BD-123).
 // 관리자도 복제한다(지갑과 달리). 멱등은 회원 원본 버전 비교다: 같거나 낮은 버전은 무시하고, 가입보다 변경이 먼저 와도 복제본을 만든다
@@ -34,6 +37,7 @@ import lombok.extern.slf4j.Slf4j;
 public class BillingMemberEventListener {
 
     private final BillingUserSyncUseCase billingUserSyncUseCase;
+    private final WalletMaskingUseCase walletMaskingUseCase;
 
     @KafkaHandler
     public void on(UserJoinedEvent event) {
@@ -43,6 +47,12 @@ public class BillingMemberEventListener {
     @KafkaHandler
     public void on(UserModifiedEvent event) {
         billingUserSyncUseCase.apply(event.user());
+    }
+
+    // 회원 정보 파기 (#674). 최소 한 번 전달이라 여러 번 올 수 있고, 다시 처리해도 결과가 같다. 실패하면 재시도 뒤 이 그룹의 DLT로 간다
+    @KafkaHandler
+    public void on(UserMaskedEvent event) {
+        walletMaskingUseCase.erase(event.userId(), event.maskedAt());
     }
 
     // 복제본에 쓰지 않는 회원 이벤트(예: 로그아웃). 토픽에 타입이 섞이므로 실패로 보내지 않고 넘어간다.
