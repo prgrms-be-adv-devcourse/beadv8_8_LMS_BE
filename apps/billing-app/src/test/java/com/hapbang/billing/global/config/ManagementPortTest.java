@@ -36,10 +36,6 @@ import com.hapbang.testsupport.PostgresTestcontainersConfig;
                 "spring.config.name=hapbang-module-test",
                 "spring.modulith.events.jdbc.schema-initialization.enabled=true",
                 "spring.modulith.events.completion-mode=delete",
-                "hapbang.storage.s3.endpoint=http://localhost:9",
-                "hapbang.storage.s3.bucket=test",
-                "hapbang.storage.s3.region=ap-northeast-2",
-                "hapbang.storage.s3.key-prefix=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 // 운영 application.yaml과 같은 노출 범위. k8s에서 자동으로 켜지는 liveness·readiness 그룹도 켠다
                 "management.endpoints.web.exposure.include=health,prometheus",

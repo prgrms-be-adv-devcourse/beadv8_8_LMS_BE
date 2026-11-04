@@ -41,7 +41,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 // 강의·출연 수익 출처(#295)가 실제 shared Client로 가짜 내부 API를 불러 Billing 값으로 바꾸는지 확인한다:
 // 시각 정규화(강의 offset → Instant, 출연 KST LocalDateTime → Instant, JVM 시간대 무관), null 지급 예정 시각, 요청 모양,
 // 장애(5xx·시간 초과·연결 실패·읽을 수 없는 응답 → UNAVAILABLE, 4xx → REJECTED), 계약에 맞지 않는 응답 거절, Client 없음.
-class EarningSourceAdapterTest {
+class EarningSourceTest {
 
     private static final String API_KEY = "billing-unit-internal-key";
     private static final Set<EarningStatus> UNPAID = EarningStatus.UNPAID;
