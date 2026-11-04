@@ -1,0 +1,223 @@
+package com.hapbang.member.app;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.List;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.hapbang.member.domain.ChannelPlatform;
+import com.hapbang.member.domain.InfluencerChannel;
+import com.hapbang.member.domain.InfluencerUpgradeRequest;
+import com.hapbang.member.domain.MemberErrorCode;
+import com.hapbang.member.domain.MemberException;
+import com.hapbang.member.domain.OAuthProvider;
+import com.hapbang.member.domain.User;
+import com.hapbang.shared.member.domain.Role;
+
+import lombok.RequiredArgsConstructor;
+
+/** 회원 모듈 진입점 */
+@Service
+@RequiredArgsConstructor
+public class MemberFacade {
+
+    private final MemberOAuthLoginUseCase memberOAuthLoginUseCase;
+    private final MemberSeedAccountUseCase memberSeedAccountUseCase;
+    private final MemberUpdateProfileUseCase memberUpdateProfileUseCase;
+    private final MemberSupport memberSupport;
+    private final MemberChzzkUseCase memberChzzkUseCase;
+    private final MemberChannelRegisterUseCase memberChannelRegisterUseCase;
+    private final MemberChannelApprovalUseCase memberChannelApprovalUseCase;
+    private final MemberChannelSupport memberChannelSupport;
+    private final MemberProfileImageUseCase memberProfileImageUseCase;
+    private final MemberUpgradeRequestUseCase memberUpgradeRequestUseCase;
+    private final MemberFollowerRefreshUseCase memberFollowerRefreshUseCase;
+    private final MemberTokenUseCase memberTokenUseCase;
+    private final MemberSignUpUseCase memberSignUpUseCase;
+    private final MemberPasswordLoginUseCase memberPasswordLoginUseCase;
+    private final MemberPasswordChangeUseCase memberPasswordChangeUseCase;
+
+    // 채널 인증은 유저만 (AGENTS.md 6장 권한표)
+    private static final String USER_ONLY = "hasRole('USER')";
+    // 승급 신청은 인플루언서만 (인증된 인플루언서·유저·관리자 불가)
+    private static final String INFLUENCER_ONLY = "hasRole('INFLUENCER')";
+    private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+
+    /** OAuth 로그인 (처음이면 가입) */
+    @Transactional
+    public User oauthLogin(OAuthProvider provider, String providerUserId, String email, String nickname) {
+        return memberOAuthLoginUseCase.login(provider, providerUserId, email, nickname);
+    }
+
+    /** 채널 팔로워 수 일일 갱신 (배치용, 묶음마다 트랜잭션을 UseCase가 직접 연다) */
+    public FollowerRefreshResult refreshFollowerCounts() {
+        return memberFollowerRefreshUseCase.refreshAll();
+    }
+
+    /** 역할별 초기 계정 만들기 (#520, 이미 있으면 건너뜀) */
+    @Transactional
+    public void createSeedAccounts() {
+        memberSeedAccountUseCase.createAll();
+    }
+
+    /** 내 정보 수정 */
+    @Transactional
+    public User updateProfile(Long userId, String nickname) {
+        return memberUpdateProfileUseCase.update(userId, nickname);
+    }
+
+    /** 회원 조회 */
+    @Transactional(readOnly = true)
+    public User findById(Long userId) {
+        return memberSupport.findUser(userId);
+    }
+
+    /** 인플루언서 목록 (최신 가입순). 정렬은 요청과 상관없이 고정 */
+    @Transactional(readOnly = true)
+    public Page<User> findInfluencers(Pageable pageable) {
+        return memberSupport.findInfluencers(
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
+    }
+
+    /** 회원 프로필 (정상 회원만) */
+    @Transactional(readOnly = true)
+    public User findProfile(Long memberId) {
+        return memberSupport.findActiveUser(memberId);
+    }
+
+    /** 치지직 연동 시작 (#370): 연동하는 회원과 state를 맡기고 치지직 화면 주소를 준다 */
+    @PreAuthorize(USER_ONLY)
+    public ChzzkAuthorization startChzzkConnect(Long userId) {
+        return memberChzzkUseCase.start(userId);
+    }
+
+    /**
+     * 치지직 연동 콜백 (#370). 브라우저 이동이라 로그인 정보가 없으므로, 시작할 때 맡긴 회원으로 연동한다.
+     * 시작 뒤 역할이 바뀌었을 수 있어 유저인지 DB로 다시 확인한다 (시작 때는 @PreAuthorize로 확인).
+     * 트랜잭션을 두지 않는다: 치지직을 기다리는 동안 DB 커넥션을 잡지 않도록 저장(UseCase)만 트랜잭션으로 한다
+     */
+    public ChzzkConnection completeChzzkConnect(String browserId, String code, String state) {
+        Long userId = memberChzzkUseCase.takeUserId(browserId, state);
+        if (code == null) {
+            // 치지직 동의를 취소하는 등 code 없이 돌아온 경우
+            throw new MemberException(MemberErrorCode.CHZZK_REQUEST_REJECTED);
+        }
+        if (memberSupport.findActiveUser(userId).getRole() != Role.USER) {
+            throw new MemberException(MemberErrorCode.CHANNEL_CONNECT_NOT_ALLOWED);
+        }
+        ChzzkChannel chzzkChannel = memberChzzkUseCase.fetchChannel(code, state);
+        return new ChzzkConnection(userId,
+                memberChannelRegisterUseCase.register(userId, ChannelPlatform.CHZZK, chzzkChannel));
+    }
+
+    /**
+     * 채널 승인 요청: 내 채널 확인 → 치지직에서 팔로워 수 다시 조회 → 기준 이상이면 자동 승인, 아니면 심사 대기.
+     * 연동과 같은 이유로 트랜잭션을 두지 않는다 (저장은 UseCase에서)
+     */
+    @PreAuthorize(USER_ONLY)
+    public ChannelVerificationResult requestChannelApproval(Long userId, Long channelId) {
+        // 우리 DB로 판단할 수 있는 건 치지직 호출 전에 막는다 (저장 때 한 번 더 확인)
+        memberSupport.findActiveUser(userId);
+        InfluencerChannel channel = memberChannelSupport.findMyChannel(userId, channelId);
+        if (!channel.canRequestApproval()) {
+            throw new MemberException(MemberErrorCode.CHANNEL_APPROVAL_NOT_ALLOWED);
+        }
+        int followerCount = memberChzzkUseCase.fetchFollowerCount(channel.getChannelIdentifier());
+        return memberChannelApprovalUseCase.request(userId, channelId, followerCount);
+    }
+
+    /** 승급 신청 (인플루언서만, 심사 대기 중이면 409) */
+    @PreAuthorize(INFLUENCER_ONLY)
+    @Transactional
+    public InfluencerUpgradeRequest requestUpgrade(Long userId, String reason) {
+        return memberUpgradeRequestUseCase.request(userId, reason);
+    }
+
+    /** 내 승급 신청 내역 (최신순) */
+    @Transactional(readOnly = true)
+    public List<InfluencerUpgradeRequest> findMyUpgradeRequests(Long userId) {
+        return memberUpgradeRequestUseCase.findMine(userId);
+    }
+
+    /** 회원의 채널 전부 (내 채널 목록, 회원 프로필) */
+    @Transactional(readOnly = true)
+    public List<InfluencerChannel> findChannels(Long userId) {
+        return memberChannelSupport.findChannels(userId);
+    }
+
+    /**
+     * 프로필 사진 올리기: 본인·정상 회원·형식·크기·내용(매직 넘버) 검사 → S3 업로드 → key 저장.
+     * 트랜잭션을 두지 않는다: 업로드하는 동안 DB 커넥션을 잡지 않도록 저장(UseCase)만 트랜잭션으로 한다
+     */
+    public User uploadProfileImage(Long userId, Long memberId, String contentType, long contentLength,
+                                   InputStream body) throws IOException {
+        if (!userId.equals(memberId)) {
+            throw new MemberException(MemberErrorCode.PROFILE_IMAGE_FORBIDDEN);
+        }
+        // 우리 DB로 판단할 수 있는 건 업로드 전에 막는다 (저장 때 한 번 더 확인)
+        memberSupport.findActiveUser(userId);
+        String key = memberProfileImageUseCase.store(userId, contentType, contentLength, body);
+        return memberProfileImageUseCase.change(userId, key);
+    }
+
+    /** 프로필 사진 연결 해제 (DB에서만, S3 파일은 그대로) */
+    public User deleteProfileImage(Long userId) {
+        return memberProfileImageUseCase.change(userId, null);
+    }
+
+    /** 프로필 사진 조회 URL (응답을 만들 때 쓴다). 사진이 없으면 null */
+    public String profileImageUrl(String key) {
+        return memberProfileImageUseCase.urlOf(key);
+    }
+
+    /** 로그인 토큰 발급 (access token + refresh token, #370) */
+    public TokenPair issueTokens(Long userId, Role role) {
+        return memberTokenUseCase.issue(userId, role);
+    }
+
+    /** refresh token으로 재발급. 회원의 최신 역할·상태를 읽는다 */
+    @Transactional(readOnly = true)
+    public TokenPair refreshTokens(String refreshToken) {
+        return memberTokenUseCase.refresh(refreshToken);
+    }
+
+    /**
+     * 로그아웃: 이 기기의 refresh token 폐기 + 로그아웃 이벤트 (#539).
+     * 이벤트는 가입·변경 이벤트처럼 발행 기록(아웃박스)을 이 트랜잭션에 남기고 커밋 뒤 Kafka로 나간다.
+     * 폐기는 Redis라 트랜잭션에 묶이지 않는다: 폐기 뒤 커밋이 실패하면 로그아웃은 되고 이벤트만 나가지 않는다
+     */
+    @Transactional
+    public void logout(String refreshToken) {
+        memberTokenUseCase.logout(refreshToken);
+    }
+
+    /** 이메일·비밀번호 가입 (#499). 로그인은 따로 한다 */
+    @Transactional
+    public User signUp(String email, String password, String nickname) {
+        return memberSignUpUseCase.signUp(email, password, nickname);
+    }
+
+    /** 이메일·비밀번호 로그인 (#499). 토큰은 issueTokens로 발급한다 */
+    @Transactional(readOnly = true)
+    public User passwordLogin(String email, String password) {
+        return memberPasswordLoginUseCase.login(email, password);
+    }
+
+    /**
+     * 비밀번호 변경 (#499): 모든 기기의 refresh token을 폐기하고, 이 기기에는 새 토큰을 준다.
+     * 폐기는 커밋 전에 하므로 변경이 실패해도 로그아웃만 되고 예전 비밀번호는 그대로다 (안전한 쪽)
+     */
+    @Transactional
+    public TokenPair changePassword(Long userId, String currentPassword, String newPassword) {
+        User user = memberPasswordChangeUseCase.change(userId, currentPassword, newPassword);
+        memberTokenUseCase.revokeAll(userId);
+        return memberTokenUseCase.issue(user.getId(), user.getRole());
+    }
+}

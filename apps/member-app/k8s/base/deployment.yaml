@@ -1,0 +1,86 @@
+# 회원 앱. large(core-data)에 둔다. 메모리 예산은 docs/architecture/infrastructure/k3s.md.
+# 설정은 member-app-config(ConfigMap), 비밀값은 member-app-secrets(Secret)로 받는다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: member-app
+  labels:
+    app.kubernetes.io/name: member-app
+    hapbang.io/pool: core-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: member-app
+  # large는 surge pod 1개를 받을 여유가 있다. 새 pod가 Ready가 된 뒤 기존 pod를 내린다.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: member-app
+        hapbang.io/internal-api-client: 'true'
+      # Prometheus 차트 기본 kubernetes-pods job이 이 annotation을 보고 수집한다(#480). 관리 포트에서 읽는다(#528).
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8082'
+        prometheus.io/path: /actuator/prometheus
+    spec:
+      # node별 메모리 예산이 배치를 전제로 하므로 required로 건다(docs/deploy/aws-k3s.md).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: hapbang.io/pool
+                    operator: In
+                    values: [core-data]
+      containers:
+        - name: app
+          image: member-app
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: internal
+              containerPort: 8081
+            # actuator 전용(MANAGEMENT_SERVER_PORT). probe와 Prometheus만 쓴다
+            - name: management
+              containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: member-app-config
+            - secretRef:
+                name: member-app-secrets
+          # 448Mi에서는 RSS가 한도에 붙어 Prometheus registry를 더한 뒤 k3d에서 OOMKilled가 났다. heap 93·non-heap 173·
+          # JVM 밖 native 약 175 = RSS 441Mi였다(#480).
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 512Mi
+          # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 10
+          # 이미지의 USER가 이름(app)이라 kubelet이 non-root인지 확인할 수 있게 uid(Dockerfile의 10001)를 적는다.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false

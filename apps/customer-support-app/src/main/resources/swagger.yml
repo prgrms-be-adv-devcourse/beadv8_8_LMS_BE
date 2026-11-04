@@ -1,0 +1,44 @@
+# Swagger(springdoc) 설정 (#498). application.yaml과 모듈 테스트 설정(hapbang-module-test.yaml)이 함께 import해서
+# 테스트가 실제 경로·운영 값을 그대로 검사한다.
+# Gateway는 모듈 경로(/api/v1/inquiries)만 이 앱으로 보내므로 Swagger도 그 아래에 둔다. 모든 프로필에서 같다.
+# 경로를 바꾸면 SecurityConfig의 Swagger permitAll도 함께 바꾼다.
+springdoc:
+  api-docs:
+    path: /api/v1/inquiries/v3/api-docs
+  swagger-ui:
+    path: /api/v1/inquiries/swagger-ui.html
+    csrf:
+      enabled: true
+---
+# 운영: 누구나 본다(#498). 같은 도메인의 6개 앱 명세를 상단 목록에서 고르고, Authorize 버튼은 access token(Bearer)으로 받는다
+spring:
+  config:
+    activate:
+      on-profile: prod
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    # 목록은 이름 가나다순으로 보인다. 자기 앱은 자동으로 들어가지 않으므로 6개를 모두 적는다
+    urls:
+    - name: 회원
+      url: /api/v1/members/v3/api-docs
+    - name: 강의
+      url: /api/v1/lectures/v3/api-docs
+    - name: 출연
+      url: /api/v1/appearances/v3/api-docs
+    - name: 지갑
+      url: /api/v1/wallets/v3/api-docs
+    - name: 채팅
+      url: /api/v1/chats/v3/api-docs
+    - name: 고객센터
+      url: /api/v1/inquiries/v3/api-docs
+    urls-primary-name: 고객센터
+  # 명세는 언어(Accept-Language)마다 따로 만들어 캐시한다. 누구나 부르므로 언어를 하나로 묶어 캐시를 1개로 둔다
+  allowed-locales:
+  - ko-KR
+hapbang:
+  swagger:
+    bearer-auth:
+      enabled: true

@@ -1,0 +1,54 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: appearance-app
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: appearance-app
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # 외부 API 포트(8080)는 Gateway 전용이다. Gateway 사용자 헤더(X-User-*)를 믿는 앱이므로 다른 pod를 들이지 않는다(#528, D72)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: envoy-gateway-system
+      podSelector:
+        matchLabels:
+          hapbang.io/gateway-proxy: 'true'
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Prometheus는 관리 포트(8082)의 /actuator/prometheus만 수집한다(#480, #528)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: hapbang-platform
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: prometheus
+          app.kubernetes.io/component: server
+    ports:
+    - protocol: TCP
+      port: 8082
+  - from:
+    - podSelector:
+        matchLabels:
+          hapbang.io/internal-api-client: 'true'
+    ports:
+    - protocol: TCP
+      port: 8081
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 169.254.169.254/32
+  - to:
+    - ipBlock:
+        cidr: 169.254.169.254/32
+    ports:
+    - protocol: TCP
+      port: 80

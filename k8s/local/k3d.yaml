@@ -1,0 +1,31 @@
+# 로컬 k3d cluster. EC2와 같은 k3s 버전, 같은 node label로 large·medium 두 node를 흉내 낸다.
+# 메모리는 EC2 node의 사용 가능 메모리(약 7.6 GiB·3.7 GiB)로 제한한다. k3d가 제한값을 kubelet에 보이게 한다.
+# Docker Desktop 메모리를 14 GiB 이상으로 둔다. 사용법은 docs/deploy/k8s.md.
+# 설정 schema: https://k3d.io/stable/usage/configfile/
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: hapbang
+servers: 1
+agents: 1
+image: rancher/k3s:v1.36.5-k3s1
+options:
+  k3s:
+    # 목표 구조는 Traefik을 쓰지 않는다. 진입점(Envoy Gateway)은 #372에서 더한다.
+    extraArgs:
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+    nodeLabels:
+      - label: svccontroller.k3s.cattle.io/enablelb=true
+        nodeFilters:
+          - server:*
+      - label: hapbang.io/pool=core-data
+        nodeFilters:
+          - server:*
+      - label: hapbang.io/pool=app-observe
+        nodeFilters:
+          - agent:*
+  runtime:
+    serversMemory: 7600m
+    agentsMemory: 3700m

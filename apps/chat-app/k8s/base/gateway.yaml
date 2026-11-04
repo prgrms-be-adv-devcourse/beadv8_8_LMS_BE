@@ -1,0 +1,101 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: chat-app
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api/v1/chats
+    backendRefs:
+    - name: chat-app
+      port: 8080
+    timeouts:
+      request: 30s
+      backendRequest: 30s
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: chat-app-websocket
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api/v1/chats/ws
+    backendRefs:
+    - name: chat-app
+      port: 8080
+    timeouts:
+      request: 0s
+      backendRequest: 0s
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: chat-app
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: chat-app
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: chat-app-websocket
+  jwt:
+    optional: true
+    providers:
+    - name: member
+      issuer: https://gateway.invalid
+      remoteJWKS:
+        uri: http://member-app.hapbang-prod.svc.cluster.local:8080/api/v1/members/.well-known/jwks.json
+      # 토큰은 Authorization: Bearer에서만 읽는다. 비워 두면 access_token query도 받아 토큰이 URL에 남는다
+      extractFrom:
+        headers:
+        - name: Authorization
+          valuePrefix: "Bearer "
+      claimToHeaders:
+      - claim: sub
+        header: X-User-Id
+      - claim: role
+        header: X-User-Role
+      # access token의 exp(epoch 초 정수, Envoy는 숫자 claim도 문자열로 넘긴다). chat-app은 웹소켓 연결 티켓의 연결 만료에만 쓰고
+      # 발급 시각 + access token 수명으로 상한을 둔다. 외부에서 붙인 같은 헤더는 공용 Gateway의 earlyRequestHeaders가 지워야 한다
+      - claim: exp
+        header: X-User-Token-Exp
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: chat-app-websocket
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: chat-app-websocket
+  timeout:
+    http:
+      requestTimeout: 0s
+      streamIdleTimeout: 300s
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: chat-app-body-limit
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: chat-app
+  requestBuffer:
+    limit: 1Mi

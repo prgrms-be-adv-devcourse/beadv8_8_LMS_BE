@@ -1,0 +1,23 @@
+# 앱별 실행 설정. 구조 전환 제약은 docs/architecture/app-modules.md 참고.
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  docker:
+    compose:
+      file: docker/compose.yaml
+      lifecycle-management: start-only
+  # 로컬에서는 Kafka 리스너와 DLT 토픽 생성을 끈다(강의 앱 로컬 설정과 같다).
+  # Kafka를 띄워 이의 제기 결과 소비를 확인할 때는 SPRING_KAFKA_LISTENER_AUTO_STARTUP·SPRING_KAFKA_ADMIN_AUTO_CREATE를 true로 준다.
+  kafka:
+    listener:
+      auto-startup: false
+    admin:
+      auto-create: false
+hapbang:
+  internal-api:
+    key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
+  clients:
+    lecture:
+      base-url: http://localhost:8084
+server:
+  port: "${SERVER_PORT:8086}"

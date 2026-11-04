@@ -1,0 +1,4 @@
+# 새 계정에 처음부터 만들 때. 복사해서 <이름>.tfvars로 쓴다(gitignore). 나머지는 variables.tf의 기본값을 따른다.
+account_id           = "<계정 ID>"
+public_key           = "<ssh-keygen -y -f <키>.pem 출력>"
+cors_allowed_origins = ["https://<prod 도메인>", "https://<dev 도메인>", "http://localhost:5173"]

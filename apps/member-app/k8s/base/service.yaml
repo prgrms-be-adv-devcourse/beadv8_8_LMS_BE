@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: member-app
+  labels:
+    app.kubernetes.io/name: member-app
+spec:
+  selector:
+    app.kubernetes.io/name: member-app
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: internal
+      port: 8081
+      targetPort: internal

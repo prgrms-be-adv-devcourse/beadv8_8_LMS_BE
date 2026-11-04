@@ -20,14 +20,14 @@ reviews:
     - "!**/.gradle/**"
     - "!gradle/wrapper/**"
   path_instructions:
-    - path: "boundedContext/**/*.java"
+    - path: "apps/*-app/**/*.java"
       instructions: |
         AGENTS.md 3장 모듈 경계를 확인한다.
         - 다른 모듈의 엔티티·Repository를 직접 쓰거나 JPA 연관관계(@ManyToOne 등)로 걸지 않는다. 회원 ID(Long)로만 참조한다.
         - 모듈 간 테이블 JOIN·스키마 간 FK를 쓰지 않는다. 모듈 간 통신은 Spring Event를 기본으로 한다.
         - 모듈에서 @RestControllerAdvice를 만들지 않는다. 오류는 {Module}ErrorCode + {Module}Exception(BusinessException 상속)으로 던진다.
         - 성공 응답은 RsData로 감싸고, 200이 아니면 @ResponseStatus 또는 ResponseEntity로 상태를 맞춘다.
-    - path: "boundedContext/billing/**"
+    - path: "apps/billing-app/**"
       instructions: |
         돈과 HP를 다루는 영역이다. AGENTS.md 5장 규칙을 엄격히 확인한다.
         - 원장은 append-only다. 수정·삭제하지 않고 정정은 역분개로 한다. 돈 관련 데이터는 Hard Delete하지 않는다.
@@ -43,7 +43,7 @@ knowledge_base:
     enabled: true
     filePatterns:
       - "AGENTS.md"
-      - "boundedContext/**/AGENTS.md"
+      - "apps/*-app/AGENTS.md"
 
 chat:
   auto_reply: true

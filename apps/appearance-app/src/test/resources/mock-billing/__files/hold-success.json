@@ -1,0 +1,10 @@
+{
+  "statusCode": 200,
+  "message": "HP를 보류했습니다.",
+  "data": {
+    "referenceType": "{{jsonPath request.body '$.referenceType'}}",
+    "referenceId": {{jsonPath request.body '$.referenceId'}},
+    "heldHp": {{jsonPath request.body '$.amountHp'}},
+    "replayed": {{#if parameters.replayed}}true{{else}}false{{/if}}
+  }
+}
