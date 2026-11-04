@@ -56,6 +56,6 @@ public class LectureObjectionRequestListener {
     /** 강의가 쓰지 않는 고객센터 이벤트. 토픽에 타입이 섞이므로 실패로 보내지 않고 넘어간다. */
     @KafkaHandler(isDefault = true)
     public void ignore(Object event) {
-        log.debug("강의가 쓰지 않는 고객센터 이벤트라 무시한다 type={}", event.getClass().getSimpleName());
+        log.debug("강의가 쓰지 않는 고객센터 이벤트라 무시한다 eventType={}", event.getClass().getSimpleName());
     }
 }

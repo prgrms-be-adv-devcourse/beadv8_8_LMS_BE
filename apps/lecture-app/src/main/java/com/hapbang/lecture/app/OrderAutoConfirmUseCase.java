@@ -52,11 +52,11 @@ public class OrderAutoConfirmUseCase {
                         lectureOrderSupport.findOrderByItemId(itemId).autoConfirmItem(itemId, now));
             } catch (RuntimeException exception) {
                 failed++;
-                log.warn("자동 구매 확정 실패, 다음 실행에서 다시 처리한다 orderItemId={}", itemId, exception);
+                log.warn("자동 구매 확정에 실패해 다음 실행에서 다시 처리한다 orderItemId={}", itemId, exception);
             }
         }
         if (!itemIds.isEmpty()) {
-            log.info("자동 구매 확정 대상 {}건, 실패 {}건", itemIds.size(), failed);
+            log.info("자동 구매 확정 배치를 마쳤다 itemCount={}, failed={}", itemIds.size(), failed);
         }
     }
 }

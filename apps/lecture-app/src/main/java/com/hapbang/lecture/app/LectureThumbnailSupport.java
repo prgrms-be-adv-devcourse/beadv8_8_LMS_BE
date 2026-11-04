@@ -55,7 +55,7 @@ class LectureThumbnailSupport {
                 urls.put(file.getId(), s3FileStorage.presignDownload(file.getObjectKey(), URL_EXPIRY).url());
             } catch (SdkException e) {
                 // URL에는 서명이 들어 있으므로 남기지 않는다
-                log.error("썸네일 조회 URL을 발급하지 못해 남은 썸네일을 비워 응답합니다: fileId={}", file.getId(), e);
+                log.error("썸네일 조회 URL을 발급하지 못해 남은 썸네일을 비워 응답한다 fileId={}", file.getId(), e);
                 break;
             }
         }

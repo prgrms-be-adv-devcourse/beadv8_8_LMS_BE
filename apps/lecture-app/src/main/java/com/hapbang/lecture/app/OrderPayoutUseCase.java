@@ -61,11 +61,11 @@ public class OrderPayoutUseCase {
                 transaction.executeWithoutResult(status -> startPayout(itemId, now));
             } catch (RuntimeException exception) {
                 failed++;
-                log.warn("지급을 시작하지 못했다, 다음 실행에서 다시 고른다 orderItemId={}", itemId, exception);
+                log.warn("지급을 시작하지 못해 다음 실행에서 다시 고른다 orderItemId={}", itemId, exception);
             }
         }
         if (!itemIds.isEmpty()) {
-            log.info("지급 시작 대상 {}건, 실패 {}건", itemIds.size(), failed);
+            log.info("지급 시작 배치를 마쳤다 itemCount={}, failed={}", itemIds.size(), failed);
         }
     }
 

@@ -52,8 +52,8 @@ public class GatewayUserHeaderFilter extends OncePerRequestFilter {
         Long id = parseUserId(userId);
         Role parsedRole = parseRole(role);
         if (id == null || parsedRole == null) {
-            log.warn("사용자 헤더 형식 오류로 인증하지 않음: {} {} ({}={}, {}={})", request.getMethod(), request.getRequestURI(),
-                    USER_ID, userId, USER_ROLE, role);
+            log.warn("사용자 헤더 형식이 틀려 인증하지 않는다 method={}, uri={}, userId={}, role={}", request.getMethod(),
+                    request.getRequestURI(), userId, role);
             return;
         }
         var authentication = new PreAuthenticatedAuthenticationToken(String.valueOf(id), null,

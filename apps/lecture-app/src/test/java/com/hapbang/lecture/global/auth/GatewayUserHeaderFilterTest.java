@@ -69,7 +69,7 @@ class GatewayUserHeaderFilterTest {
             throws Exception {
         mockMvc.perform(withUser(get(PATH), userId, role)).andExpect(status().isUnauthorized());
 
-        assertThat(output.getAll()).contains("사용자 헤더 형식 오류로 인증하지 않음");
+        assertThat(output.getAll()).contains("사용자 헤더 형식이 틀려 인증하지 않는다");
     }
 
     @Test

@@ -179,7 +179,7 @@ class InternalApiSecurityConfigTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(rejected).doesNotContain(KEY);
-        assertThat(output.getAll()).contains("내부 API 인증 실패").doesNotContain(KEY);
+        assertThat(output.getAll()).contains("내부 API 인증에 실패했다").doesNotContain(KEY);
     }
 
     // ---------------------------------------------------------------------------------------------

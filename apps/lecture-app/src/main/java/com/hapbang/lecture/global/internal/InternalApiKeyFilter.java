@@ -48,7 +48,7 @@ class InternalApiKeyFilter extends OncePerRequestFilter {
             context.setAuthentication(authentication);
             contextHolder.setContext(context);
         } else {
-            log.warn("내부 API 인증 실패: {} {} (키 {})", request.getMethod(), request.getRequestURI(),
+            log.warn("내부 API 인증에 실패했다 method={}, uri={}, reason={}", request.getMethod(), request.getRequestURI(),
                     key == null ? "없음" : "불일치");
         }
         chain.doFilter(request, response);

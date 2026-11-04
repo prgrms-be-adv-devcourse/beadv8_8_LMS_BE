@@ -53,7 +53,7 @@ public class ReturnResultHandler implements LectureHpTaskResultHandler {
     /** 반환 작업은 이의 제기 인정으로만 생기므로 문의 ID가 있다. 없으면 알릴 문의가 없어 로그만 남긴다 */
     private void publish(OrderItem item, Object event) {
         if (item.getObjectionInquiryId() == null) {
-            log.error("이의 제기 문의 ID가 없는 반환이라 고객센터에 알리지 않는다 orderItemId={}, event={}", item.getId(),
+            log.error("이의 제기 문의 ID가 없는 반환이라 고객센터에 알리지 않는다 orderItemId={}, eventType={}", item.getId(),
                     event.getClass().getSimpleName());
             return;
         }
