@@ -28,8 +28,17 @@ public interface ApiV1MemberSpec {
 
     @Operation(summary = "내 정보 수정",
             description = "로그인한 회원. 지금은 닉네임만. 안 보내거나 null이면 그대로 둔다. "
-                    + "닉네임은 앞뒤 공백을 지운 뒤 2~12자, 한글·영문·숫자·공백·밑줄만, 연속 공백 불가 (어기면 400).")
+                    + "닉네임은 앞뒤 공백을 지운 뒤 2~12자, 한글·영문·숫자·공백·밑줄만, 연속 공백 불가 (어기면 400). "
+                    + "다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME. 내 닉네임의 대소문자만 바꾸는 것은 된다.")
     RsData<MemberMeResponse> updateMe(Long userId, MemberUpdateRequest request);
+
+    @Operation(summary = "닉네임 중복 확인",
+            description = "로그인 없이 부른다 (#646). 가입·내 정보 수정 전에 닉네임을 쓸 수 있는지 알려 준다(available). "
+                    + "대소문자를 무시하고(Tester = tester), 탈퇴 회원 닉네임도 쓸 수 없다. 로그인하고 부르면 내 닉네임은 true다. "
+                    + "규칙에 맞지 않으면 400 INVALID_NICKNAME_LENGTH·INVALID_NICKNAME_CHARACTER·INVALID_NICKNAME_SPACE. "
+                    + "확인한 뒤 다른 사람이 먼저 가져가면 가입·수정에서 409 DUPLICATE_NICKNAME이 날 수 있다.")
+    RsData<NicknameAvailabilityResponse> nicknameAvailability(Long userId,
+            @Parameter(description = "확인할 닉네임 (앞뒤 공백은 지우고 본다)", example = "홍길동") String nickname);
 
     @Operation(summary = "인플루언서 목록",
             description = "로그인한 회원. 인플루언서·인증된 인플루언서 중 정상 회원만, 최신 가입순. "

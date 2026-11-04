@@ -56,12 +56,16 @@ public class MemberSupport {
      * selfId가 있으면 그 회원 자신은 빼고 본다. 회원을 바꾸기 전에 부른다(바꾼 뒤 부르면 조회 전 자동 반영에서 인덱스 오류가 난다)
      */
     public void checkNicknameAvailable(String nickname, Long selfId) {
-        boolean taken = selfId == null
-                ? userRepository.existsByNicknameLower(nickname)
-                : userRepository.existsByNicknameLowerExcept(nickname, selfId);
-        if (taken) {
+        if (!isNicknameAvailable(nickname, selfId)) {
             throw new MemberException(MemberErrorCode.DUPLICATE_NICKNAME);
         }
+    }
+
+    /** 닉네임을 쓸 수 있는지 (규칙 검사는 하지 않는다). selfId가 있으면 그 회원 자신은 빼고 본다 */
+    public boolean isNicknameAvailable(String nickname, Long selfId) {
+        return selfId == null
+                ? !userRepository.existsByNicknameLower(nickname)
+                : !userRepository.existsByNicknameLowerExcept(nickname, selfId);
     }
 
     /** 닉네임 유일 인덱스 위반인지 (확인과 저장 사이에 다른 요청이 같은 닉네임을 먼저 저장한 경우) */
