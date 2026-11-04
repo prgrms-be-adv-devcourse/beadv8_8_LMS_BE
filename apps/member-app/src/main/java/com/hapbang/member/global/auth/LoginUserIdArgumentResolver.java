@@ -25,6 +25,10 @@ public class LoginUserIdArgumentResolver implements HandlerMethodArgumentResolve
                                 NativeWebRequest webRequest, WebDataBinderFactory binderFactory) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || authentication instanceof AnonymousAuthenticationToken) {
+            LoginUserId loginUserId = parameter.getParameterAnnotation(LoginUserId.class);
+            if (loginUserId != null && !loginUserId.required()) {
+                return null;
+            }
             // 공개 URL에서 쓰인 경우. Spring Security가 401로 바꿔 응답한다
             throw new AuthenticationCredentialsNotFoundException("로그인이 필요합니다.");
         }

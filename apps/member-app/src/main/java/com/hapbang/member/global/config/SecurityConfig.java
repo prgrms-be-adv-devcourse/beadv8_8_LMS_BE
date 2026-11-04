@@ -65,6 +65,8 @@ public class SecurityConfig {
                         .permitAll()
                         // 이메일·비밀번호 가입·로그인 (#499). 로그인 응답은 refresh token 쿠키만 준다
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login").permitAll()
+                        // 닉네임 중복 확인 (#646). 가입 화면에서 부른다. 로그인했으면 자기 닉네임은 쓸 수 있다고 답한다
+                        .requestMatchers(HttpMethod.GET, "/api/v1/members/nicknames/availability").permitAll()
                         // 탈퇴 회원 복구·복구 취소 (#593, #633). 탈퇴 회원은 토큰이 없어 로그인 때 받은 복구 티켓 쿠키로 본인을 확인한다
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/restore").permitAll()
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/members/restore").permitAll()

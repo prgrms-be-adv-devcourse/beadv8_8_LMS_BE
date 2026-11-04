@@ -96,6 +96,17 @@ class ApiV1MemberPasswordControllerTest {
     }
 
     @Test
+    @DisplayName("다른 회원이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME (#646)")
+    void signUp_duplicateNickname() throws Exception {
+        signedUp("abcd1234");
+
+        signUp(newEmail(), "abcd1234", "TESTER")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_NICKNAME"))
+                .andExpect(jsonPath("$.detail").value("이미 쓰고 있는 닉네임이에요."));
+    }
+
+    @Test
     @DisplayName("대문자가 섞인 이메일로 가입한 구글 회원이 있으면 소문자 이메일 가입도 409 DUPLICATE_EMAIL")
     void signUp_duplicateIgnoringCase() throws Exception {
         String email = newEmail();

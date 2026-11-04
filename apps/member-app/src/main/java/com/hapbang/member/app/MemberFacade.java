@@ -21,6 +21,7 @@ import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
+import com.hapbang.member.domain.Nickname;
 import com.hapbang.member.domain.OAuthProvider;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.global.exception.BusinessException;
@@ -37,6 +38,7 @@ public class MemberFacade {
 
     private final MemberOAuthLoginUseCase memberOAuthLoginUseCase;
     private final MemberSeedAccountUseCase memberSeedAccountUseCase;
+    private final MemberNicknameDedupNotifyUseCase memberNicknameDedupNotifyUseCase;
     private final MemberUpdateProfileUseCase memberUpdateProfileUseCase;
     private final MemberSupport memberSupport;
     private final MemberChzzkUseCase memberChzzkUseCase;
@@ -77,6 +79,21 @@ public class MemberFacade {
     @Transactional
     public void createSeedAccounts() {
         memberSeedAccountUseCase.createAll();
+    }
+
+    /** 마이그레이션이 바꾼 중복 닉네임을 다른 앱에 알리기 (#646, 앱 시작 시 한 번) */
+    @Transactional
+    public int notifyNicknameDedup() {
+        return memberNicknameDedupNotifyUseCase.notifyPending();
+    }
+
+    /**
+     * 닉네임 중복 확인 (#646). 규칙에 맞지 않으면 닉네임 규칙 오류(400). 대소문자를 무시하고 탈퇴 회원 닉네임도 쓸 수 없다.
+     * 로그인한 회원(userId)이 자기 닉네임을 넣으면 쓸 수 있다고 답한다
+     */
+    @Transactional(readOnly = true)
+    public boolean isNicknameAvailable(String nickname, Long userId) {
+        return memberSupport.isNicknameAvailable(Nickname.validate(nickname), userId);
     }
 
     /** 내 정보 수정 */

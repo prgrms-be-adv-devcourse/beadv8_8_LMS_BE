@@ -28,6 +28,8 @@ public enum MemberErrorCode implements BaseErrorCode {
     INVALID_NICKNAME_LENGTH(HttpStatus.BAD_REQUEST, "닉네임은 2~12자로 입력해 주세요."),
     INVALID_NICKNAME_CHARACTER(HttpStatus.BAD_REQUEST, "닉네임은 한글·영문·숫자·공백·밑줄만 쓸 수 있습니다."),
     INVALID_NICKNAME_SPACE(HttpStatus.BAD_REQUEST, "닉네임에 공백을 연속으로 쓸 수 없습니다."),
+    /** 닉네임 중복 (#646). 대소문자만 달라도 같은 닉네임이고, 탈퇴 회원 닉네임도 쓸 수 없다 */
+    DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "이미 쓰고 있는 닉네임이에요."),
     INVALID_PASSWORD_LENGTH(HttpStatus.BAD_REQUEST, "비밀번호는 8~64자로 입력해 주세요."),
     INVALID_PASSWORD_CHARACTER(HttpStatus.BAD_REQUEST, "비밀번호는 영문·숫자·특수문자만 쓸 수 있습니다. 공백과 한글은 쓸 수 없습니다."),
     PASSWORD_LETTER_AND_DIGIT_REQUIRED(HttpStatus.BAD_REQUEST, "비밀번호에 영문과 숫자를 하나 이상씩 넣어 주세요."),

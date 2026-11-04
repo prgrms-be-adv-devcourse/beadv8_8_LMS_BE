@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.member.global.auth.LoginUserId;
@@ -53,6 +54,15 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
     @PatchMapping("/me")
     public RsData<MemberMeResponse> updateMe(@LoginUserId Long userId, @RequestBody MemberUpdateRequest request) {
         return RsData.ok("내 정보를 수정했습니다.", meResponse(memberFacade.updateProfile(userId, request.nickname())));
+    }
+
+    /** 닉네임 중복 확인 (#646). 로그인 없이 부른다. 로그인했으면 자기 닉네임은 쓸 수 있다고 답한다 */
+    @Override
+    @GetMapping("/nicknames/availability")
+    public RsData<NicknameAvailabilityResponse> nicknameAvailability(@LoginUserId(required = false) Long userId,
+                                                                     @RequestParam(required = false) String nickname) {
+        return RsData.ok("닉네임을 확인했습니다.",
+                new NicknameAvailabilityResponse(memberFacade.isNicknameAvailable(nickname, userId)));
     }
 
     /** 인플루언서 목록 (최신 가입순). 출연 평점은 한 페이지의 회원을 한 번에 읽어 붙인다 */

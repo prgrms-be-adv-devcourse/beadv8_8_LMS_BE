@@ -40,6 +40,8 @@ import jakarta.servlet.http.Cookie;
 @AutoConfigureMockMvc
 class ApiV1MemberControllerTest {
 
+    private static final String NICKNAME_AVAILABILITY = "/api/v1/members/nicknames/availability";
+
     @Autowired
     MockMvc mockMvc;
 
@@ -98,6 +100,88 @@ class ApiV1MemberControllerTest {
                 .andExpect(jsonPath("$.data.nickname").value("새 닉네임"));
 
         assertThat(userRepository.findById(user.getId()).orElseThrow().getNickname()).isEqualTo("새 닉네임");
+    }
+
+    @Test
+    @DisplayName("다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME (#646)")
+    void updateMe_duplicateNickname() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+        userRepository.save(User.join("tester2@example.com", "Tester2"));
+        User withdrawn = User.join("tester3@example.com", "tester3");
+        ReflectionTestUtils.setField(withdrawn, "status", UserStatus.WITHDRAWN);
+        userRepository.save(withdrawn);
+
+        for (String nickname : new String[] {"tester2", "TESTER3"}) {
+            mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"nickname\":\"%s\"}".formatted(nickname)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("DUPLICATE_NICKNAME"));
+        }
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getNickname()).isEqualTo("tester1");
+    }
+
+    @Test
+    @DisplayName("내 닉네임의 대소문자만 바꾸면 200 (#646)")
+    void updateMe_ownNicknameCase() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+
+        mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"TESTER1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nickname").value("TESTER1"));
+    }
+
+    @Test
+    @DisplayName("닉네임 중복 확인: 로그인 없이 부르고, 아무도 안 쓰면 true (#646)")
+    void nicknameAvailability_available() throws Exception {
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", " 새닉네임 "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.available").value(true));
+    }
+
+    @Test
+    @DisplayName("닉네임 중복 확인: 다른 회원(탈퇴 회원 포함)이 쓰면 대소문자만 달라도 false (#646)")
+    void nicknameAvailability_taken() throws Exception {
+        userRepository.save(User.join("tester2@example.com", "Tester2"));
+        User withdrawn = User.join("tester3@example.com", "tester3");
+        ReflectionTestUtils.setField(withdrawn, "status", UserStatus.WITHDRAWN);
+        userRepository.save(withdrawn);
+
+        for (String nickname : new String[] {"tester2", "TESTER3"}) {
+            mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", nickname))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.available").value(false));
+        }
+    }
+
+    @Test
+    @DisplayName("닉네임 중복 확인: 로그인한 회원이 자기 닉네임을 넣으면 true, 남의 닉네임이면 false (#646)")
+    void nicknameAvailability_loggedIn() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+        userRepository.save(User.join("tester2@example.com", "tester2"));
+
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", "TESTER1")
+                        .with(GatewayLogin.as(user.getId(), user.getRole())))
+                .andExpect(jsonPath("$.data.available").value(true));
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", "tester2")
+                        .with(GatewayLogin.as(user.getId(), user.getRole())))
+                .andExpect(jsonPath("$.data.available").value(false));
+    }
+
+    @Test
+    @DisplayName("닉네임 중복 확인: 규칙에 맞지 않거나 없으면 400 닉네임 오류 (#646)")
+    void nicknameAvailability_invalid() throws Exception {
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", "민"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_NICKNAME_LENGTH"));
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", "민규!"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_NICKNAME_CHARACTER"));
+        mockMvc.perform(get(NICKNAME_AVAILABILITY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_NICKNAME_LENGTH"));
     }
 
     @Test

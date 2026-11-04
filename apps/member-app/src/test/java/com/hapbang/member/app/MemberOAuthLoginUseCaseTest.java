@@ -1,12 +1,16 @@
 package com.hapbang.member.app;
 
+import static com.hapbang.member.fixture.PostgresErrorFixture.UNIQUE_VIOLATION;
+import static com.hapbang.member.fixture.PostgresErrorFixture.violation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.util.Optional;
@@ -141,5 +145,61 @@ class MemberOAuthLoginUseCaseTest {
         User result = useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "🔥게임하는 민규🔥 [LIVE]");
 
         assertThat(result.getNickname()).isEqualTo("게임하는 민규 LIVE");
+    }
+
+    @Test
+    @DisplayName("구글 이름 닉네임을 다른 회원이 쓰고 있으면 뒤에 숫자 4자리를 붙여 가입한다 (#646)")
+    void login_newUser_nicknameTaken() {
+        given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
+                .willReturn(Optional.empty());
+        given(userRepository.existsByNicknameLower("홍길동")).willReturn(true);
+        given(userRepository.save(any(User.class))).willAnswer(returnsFirstArg());
+
+        User result = useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "홍길동");
+
+        assertThat(result.getNickname()).matches("홍길동\\d{4}");
+    }
+
+    @Test
+    @DisplayName("숫자를 정한 횟수만큼 다시 뽑아도 모두 겹치면 DUPLICATE_NICKNAME이고 가입하지 않는다 (#646)")
+    void login_newUser_nicknameExhausted() {
+        given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
+                .willReturn(Optional.empty());
+        given(userRepository.existsByNicknameLower(anyString())).willReturn(true);
+
+        assertThatThrownBy(() -> useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "홍길동"))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.DUPLICATE_NICKNAME);
+        verify(userRepository, times(1 + MemberOAuthLoginUseCase.SUFFIX_TRIES))
+                .existsByNicknameLower(anyString());
+        verify(userRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("확인과 저장 사이에 같은 닉네임이 먼저 저장돼 유일 인덱스에 걸리면 DUPLICATE_NICKNAME (#646)")
+    void login_newUser_concurrentNickname() {
+        given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class)))
+                .willThrow(violation(UNIQUE_VIOLATION, UserUniqueViolation.NICKNAME_UNIQUE));
+
+        assertThatThrownBy(() -> useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "홍길동"))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.DUPLICATE_NICKNAME);
+        verify(oAuthAccountRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("같은 이메일로 처음 구글 로그인이 동시에 들어와 이메일 유일 제약에 걸리면 DUPLICATE_EMAIL (#646 리뷰)")
+    void login_newUser_concurrentEmail() {
+        given(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-1"))
+                .willReturn(Optional.empty());
+        given(userRepository.save(any(User.class)))
+                .willThrow(violation(UNIQUE_VIOLATION, UserUniqueViolation.EMAIL_UNIQUE));
+
+        assertThatThrownBy(() -> useCase.login(OAuthProvider.GOOGLE, "google-sub-1", "tester1@example.com", "홍길동"))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.DUPLICATE_EMAIL);
     }
 }
