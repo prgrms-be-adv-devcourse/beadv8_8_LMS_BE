@@ -288,6 +288,9 @@ public class LectureHpTaskExecutor {
                 } else {
                     metrics.recordSucceeded();
                 }
+                log.info("HP 작업을 마쳤다 taskId={}, taskType={}, purpose={}, orderItemId={}, amountHp={}, outcome={}, "
+                                + "attemptCount={}", task.getId(), task.getTaskType(), task.getPurpose(),
+                        task.getOrderItemId(), task.getAmountHp(), task.getOutcome(), task.getAttemptCount());
             }
             case DEAD -> {
                 metrics.recordDead();

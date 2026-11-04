@@ -12,12 +12,14 @@ import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.HpTaskReason;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 출연 요청 거절 (게스트). 요청서를 {@code REJECTED}로 바꾸고 보류 HP 반환 작업을 기록한다.
  * <p>
  * 반환은 Billing 호출이라 커밋 뒤에 실행해야 해서, Facade가 아니라 여기서 트랜잭션을 연다 (요청서 보내기와 같은 방식).
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceRequestRejectUseCase {
@@ -40,6 +42,10 @@ public class AppearanceRequestRejectUseCase {
 
         LocalDateTime now = LocalDateTime.now(clock);
         request.reject(guestId, reason, now);
-        return appearanceRequestReleaseRecorder.applyAndRecordRelease(request, HpTaskReason.REQUEST_REJECTED, now);
+        Long releaseTaskId = appearanceRequestReleaseRecorder.applyAndRecordRelease(request,
+                HpTaskReason.REQUEST_REJECTED, now);
+        // 거절 사유는 게스트가 쓴 본문이라 남기지 않는다
+        log.info("출연 요청을 거절했다 requestId={}, guestId={}, releaseTaskId={}", requestId, guestId, releaseTaskId);
+        return releaseTaskId;
     }
 }

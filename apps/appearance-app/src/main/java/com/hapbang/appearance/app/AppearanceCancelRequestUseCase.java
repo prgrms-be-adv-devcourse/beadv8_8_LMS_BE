@@ -15,6 +15,7 @@ import com.hapbang.appearance.domain.AppearancePolicy;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 출연 취소 요청 (게스트). 트랜잭션은 호출한 {@link AppearanceFacade}가 연다.
@@ -24,6 +25,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>요청이 저장되면 취소 요청 도착 이벤트({@link AppearanceCancelRequestedEvent})를 발행한다 (ISSUE.md APR-31 K7).</li>
  * </ul>
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceCancelRequestUseCase {
@@ -51,6 +53,8 @@ public class AppearanceCancelRequestUseCase {
                 previousCount, appearancePolicy, LocalDateTime.now(clock));
         AppearanceCancelRequest saved = appearanceCancelRequestSupport.save(cancelRequest);
         appearanceSupport.flushOrConflict();
+        log.info("출연 취소를 요청했다 appearanceId={}, cancelRequestId={}, guestId={}", appearanceId, saved.getId(),
+                guestId);
 
         // 호스트에게 취소 요청 도착을 알린다. 받는 쪽은 커밋 뒤에 처리한다 (@ApplicationModuleListener)
         eventPublisher.publishEvent(new AppearanceCancelRequestedEvent(

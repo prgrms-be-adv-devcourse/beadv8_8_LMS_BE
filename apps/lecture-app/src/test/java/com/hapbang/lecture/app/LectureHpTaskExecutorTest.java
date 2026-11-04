@@ -59,6 +59,8 @@ class LectureHpTaskExecutorTest {
 
     private static final String CANCEL_ID = "LECTURE-CANCEL-31";
     private static final long AMOUNT = 10_000L;
+    private static final String REGISTERED_LOG = "HP 작업을 등록했다";
+    private static final String FINISHED_LOG = "HP 작업을 마쳤다";
 
     @Autowired
     private LectureHpTaskExecutor executor;
@@ -102,13 +104,34 @@ class LectureHpTaskExecutorTest {
     }
 
     @Test
-    void 같은_요청_ID에_같은_payload면_기존_작업을_돌려주고_다른_payload면_충돌이다() {
+    void 같은_요청_ID에_같은_payload면_기존_작업을_돌려주고_다른_payload면_충돌이다(CapturedOutput output) {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
 
         assertThat(register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT))).isEqualTo(id);
         assertThatThrownBy(() -> register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, 20_000L)))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(lectureHpTaskRepository.count()).isEqualTo(1);
+        // 기존 작업을 돌려준 등록은 새 등록이 아니라 INFO를 다시 남기지 않는다
+        assertThat(lines(output, REGISTERED_LOG)).hasSize(1);
+    }
+
+    @Test
+    void HP_작업을_등록하면_커밋_뒤에_INFO_로그를_한_줄_남긴다(CapturedOutput output) {
+        Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
+
+        assertThat(lines(output, REGISTERED_LOG)).singleElement().satisfies(line -> assertThat(line)
+                .contains(" INFO ", "taskId=" + id, "purpose=CANCEL", "requestId=" + CANCEL_ID, "amountHp=" + AMOUNT));
+    }
+
+    @Test
+    void 등록한_트랜잭션이_롤백되면_등록_로그를_남기지_않는다(CapturedOutput output) {
+        transactionTemplate.executeWithoutResult(status -> {
+            lectureHpTaskSupport.register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
+            status.setRollbackOnly();
+        });
+
+        assertThat(lectureHpTaskRepository.count()).isZero();
+        assertThat(lines(output, REGISTERED_LOG)).isEmpty();
     }
 
     @Test
@@ -130,7 +153,7 @@ class LectureHpTaskExecutorTest {
     }
 
     @Test
-    void 성공하면_COMPLETED_SUCCEEDED이고_목적별_처리기를_부른다() {
+    void 성공하면_COMPLETED_SUCCEEDED이고_목적별_처리기를_부른다(CapturedOutput output) {
         Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
 
         executor.execute(id);
@@ -148,10 +171,12 @@ class LectureHpTaskExecutorTest {
         });
         assertThat(billing.calls()).singleElement().satisfies(call -> assertThat(call.command())
                 .isEqualTo(ReleaseCommand.full(7L, BillingReferenceType.LECTURE_ORDER_ITEM, 31L, CANCEL_ID)));
+        assertThat(lines(output, FINISHED_LOG)).singleElement().satisfies(line -> assertThat(line)
+                .contains(" INFO ", "taskId=" + id, "taskType=RELEASE", "outcome=SUCCEEDED", "attemptCount=1"));
     }
 
     @Test
-    void HOLD_확정_거절은_COMPLETED_REJECTED다() {
+    void HOLD_확정_거절은_COMPLETED_REJECTED다(CapturedOutput output) {
         LectureOrder order = lectureOrderRepository.save(LectureOrderFixture.pending(7L,
                 List.of(withId(onSaleLecture(), 10L)), LocalDateTime.now(clock)));
         Long itemId = order.getItems().getFirst().getId();
@@ -170,6 +195,8 @@ class LectureHpTaskExecutorTest {
                 .isEqualTo(LectureOrderStatus.HOLD_FAILED);
         assertThat(attempts(id)).singleElement()
                 .satisfies(attempt -> assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.TERMINAL_REJECTION));
+        assertThat(lines(output, FINISHED_LOG)).singleElement().satisfies(line -> assertThat(line)
+                .contains(" INFO ", "taskId=" + id, "taskType=HOLD", "outcome=REJECTED"));
     }
 
     @Test
@@ -367,6 +394,10 @@ class LectureHpTaskExecutorTest {
 
     private LectureHpTask task(LectureHpTaskPurpose purpose, String requestId, long amount) {
         return LectureHpTask.create(purpose, requestId, 3L, 31L, 7L, null, amount, LocalDateTime.now(clock));
+    }
+
+    private static List<String> lines(CapturedOutput output, String text) {
+        return output.getAll().lines().filter(line -> line.contains(text)).toList();
     }
 
     private Long register(LectureHpTask task) {

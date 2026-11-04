@@ -10,6 +10,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -21,10 +23,12 @@ import com.hapbang.appearance.domain.HpTaskType;
 import com.hapbang.appearance.out.HpTaskRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * HP 작업 저장소 접근. 트랜잭션은 호출한 쪽이 연다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class HpTaskSupport {
@@ -34,8 +38,30 @@ public class HpTaskSupport {
 
     private final HpTaskRepository hpTaskRepository;
 
+    /** 새 작업이면 커밋 뒤 등록 로그를 남긴다(롤백된 등록은 남기지 않는다) */
     public HpTask save(HpTask task) {
-        return hpTaskRepository.save(task);
+        boolean created = task.getId() == null;
+        HpTask saved = hpTaskRepository.save(task);
+        if (created) {
+            logRegistered(saved);
+        }
+        return saved;
+    }
+
+    private static void logRegistered(HpTask task) {
+        Runnable write = () -> log.info("HP 작업을 등록했다 taskId={}, taskType={}, refType={}, refId={}, appearanceId={}, "
+                        + "memberId={}, amount={}, reason={}", task.getId(), task.getTaskType(), task.getRefType(),
+                task.getRefId(), task.getAppearanceId(), task.getMemberId(), task.getAmount(), task.getReason());
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            write.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                write.run();
+            }
+        });
     }
 
     /**

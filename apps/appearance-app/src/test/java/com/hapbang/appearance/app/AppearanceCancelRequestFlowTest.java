@@ -16,7 +16,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -63,6 +66,7 @@ import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 @AppearanceIntegrationTest
 @RecordApplicationEvents
 @WithMockUser(roles = "INFLUENCER")
+@ExtendWith(OutputCaptureExtension.class)
 class AppearanceCancelRequestFlowTest {
 
     private static final Long HOST = 1L;
@@ -174,7 +178,7 @@ class AppearanceCancelRequestFlowTest {
 
         @Test
         @DisplayName("취소 요청: 출연 CANCEL_REQUESTED, 이력 1건(REQUESTED·순번 1·사유), 호스트에게 알릴 이벤트 1건")
-        void request() {
+        void request(CapturedOutput output) {
             RequestAppearance established = establishFromRequest(GUEST);
 
             AppearanceResDto requested = requestCancel(established.appearanceId());
@@ -191,11 +195,14 @@ class AppearanceCancelRequestFlowTest {
             assertThat(events.getFirst().cancelRequest().hostId()).isEqualTo(HOST);
             assertThat(events.getFirst().cancelRequest().appearanceId()).isEqualTo(established.appearanceId());
             assertThat(events.getFirst().cancelRequest().title()).isEqualTo(requested.title());
+            assertThat(output.getAll().lines().filter(line -> line.contains("출연 취소를 요청했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "appearanceId=" + established.appearanceId(), "guestId=" + GUEST));
         }
 
         @Test
         @DisplayName("수락: 합의 취소, Billing에 출연료 30,000 전액 반환 요청(CANCEL_AGREED, 출연별 반환 요청 ID, DONE), 게스트에게 알릴 이벤트")
-        void accept() {
+        void accept(CapturedOutput output) {
             RequestAppearance established = establishFromRequest(GUEST);
             requestCancel(established.appearanceId());
 
@@ -219,11 +226,14 @@ class AppearanceCancelRequestFlowTest {
             // 반환 진행 상태는 출연 상세에만 보이고, 요청서 상세(거절·취소·만료 반환용)에는 섞이지 않는다
             assertThat(accepted.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
             assertThat(appearanceRequestFacade.getDetail(HOST, established.requestId()).hpReleaseStatus()).isNull();
+            assertThat(output.getAll().lines().filter(line -> line.contains("출연 취소 요청을 수락했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "appearanceId=" + established.appearanceId(), "hostId=" + HOST));
         }
 
         @Test
         @DisplayName("거절 → 출연 유지(ESTABLISHED, 거절 사유) → 1번 더 요청(순번 2) → 거절 → 3번째는 CANCEL_REQUEST_LIMIT_EXCEEDED")
-        void rejectAndLimit() {
+        void rejectAndLimit(CapturedOutput output) {
             Long appearanceId = establishFromRequest(GUEST).appearanceId();
             requestCancel(appearanceId);
 
@@ -242,6 +252,9 @@ class AppearanceCancelRequestFlowTest {
             appearanceFacade.rejectCancel(HOST, appearanceId, null);
             assertErrorCode(() -> requestCancel(appearanceId), AppearanceErrorCode.CANCEL_REQUEST_LIMIT_EXCEEDED);
             assertThat(hpTaskRepository.count()).isZero();
+            assertThat(output.getAll().lines().filter(line -> line.contains("출연 취소 요청을 거절했다")))
+                    .hasSize(2).allSatisfy(line -> assertThat(line)
+                            .contains(" INFO ", "appearanceId=" + appearanceId, "hostId=" + HOST));
         }
 
         @Test

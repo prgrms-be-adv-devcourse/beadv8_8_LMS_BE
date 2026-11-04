@@ -16,12 +16,15 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.LectureOrderRepository;
 
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * 이의 제기 판단 (설계 6.4, D59 (1)). 호출한 쪽(고객센터) 트랜잭션에서 판단을 기록한다.
  * 인정하면 항목을 반환 처리 중으로 바꾸고 RELEASE 작업을 함께 등록한다. 반환은 HP 작업 재시도 배치가 하고,
  * 반환이 끝나면 항목이 반환이 된다 (D70 (1)). 반환은 billing이 차감했던 HP 종류 그대로 한다 (D42).
  * 기각은 항목을 그대로 두고, 지급 예정 시각이 지나면 지급 배치가 지급을 시작한다.
  */
+@Slf4j
 @Service
 public class OrderObjectionResolveUseCase {
 
@@ -54,6 +57,8 @@ public class OrderObjectionResolveUseCase {
         OrderItem item = order.resolveObjection(orderItemId, inquiryId, accepted, adminUserId, now);
         // 같은 항목을 동시에 바꾼 변경(낙관적 락 충돌)을 작업 등록 전에 확인한다 (설계 6.2)
         lectureOrderRepository.flush();
+        log.info("이의 제기를 판단했다 orderId={}, orderItemId={}, inquiryId={}, accepted={}, adminUserId={}",
+                order.getId(), orderItemId, inquiryId, accepted, adminUserId);
         if (!accepted) {
             return;
         }

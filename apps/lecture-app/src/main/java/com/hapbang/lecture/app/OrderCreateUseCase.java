@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * 주문 (장바구니 주문·바로 구매, 설계 6.4, D58). 세 단계로 나눠 호출한 Facade가 차례로 부른다.
  * <ol>
@@ -32,6 +34,7 @@ import java.util.stream.Collectors;
  * </ol>
  * 끝나지 않은 작업은 HP 작업 재시도 배치가 같은 요청 ID로 이어서 처리한다(D57).
  */
+@Slf4j
 @Service
 public class OrderCreateUseCase {
 
@@ -92,6 +95,8 @@ public class OrderCreateUseCase {
                         HOLD_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
                         item.getPriceHp(), now)).getId())
                 .toList();
+        log.info("주문을 만들었다 orderId={}, buyerUserId={}, itemCount={}, totalHp={}", order.getId(), buyerUserId,
+                order.getItems().size(), order.getItems().stream().mapToLong(OrderItem::getPriceHp).sum());
         return new Placement(order.getId(), holdTaskIds);
     }
 

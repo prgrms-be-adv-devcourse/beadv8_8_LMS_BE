@@ -13,6 +13,7 @@ import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearancePolicy;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 호스트의 출연 확인 응답 (#282): 확인 → 게스트에게 출연료 지급, 불참 → 호스트에게 출연료 반환.
@@ -24,6 +25,7 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  * HP 작업은 Billing 호출이라 커밋 뒤에 실행해야 해서 여기서 트랜잭션을 연다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceConfirmUseCase {
@@ -48,6 +50,7 @@ public class AppearanceConfirmUseCase {
         appearance.confirmByHost(hostId, appearancePolicy, now);
         Long taskId = appearanceConfirmRecorder.recordPayout(appearance, now);
         appearanceSupport.flushOrConflict();
+        log.info("출연을 확인했다 appearanceId={}, hostId={}, payoutTaskId={}", appearanceId, hostId, taskId);
         return taskId;
     }
 
@@ -65,6 +68,8 @@ public class AppearanceConfirmUseCase {
         appearance.markAbsent(hostId, reason, appearancePolicy, now);
         Long taskId = appearanceConfirmRecorder.recordAbsentRelease(appearance, now);
         appearanceSupport.flushOrConflict();
+        // 불참 사유는 호스트가 쓴 본문이라 남기지 않는다
+        log.info("출연 불참을 기록했다 appearanceId={}, hostId={}, releaseTaskId={}", appearanceId, hostId, taskId);
         return taskId;
     }
 
