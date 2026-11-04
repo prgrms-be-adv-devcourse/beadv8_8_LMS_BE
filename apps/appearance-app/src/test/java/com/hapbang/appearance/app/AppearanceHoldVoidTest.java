@@ -180,6 +180,18 @@ class AppearanceHoldVoidTest {
         }
 
         @Test
+        @DisplayName("다시 보낸 보류가 WALLET_CLOSED로 거절되면(보류 결과를 모르는 사이 탈퇴로 지갑이 닫힘) HOLD_FAILED (#648)")
+        void recheckRejectedAsWalletClosed() {
+            Long requestId = requestHoldPending(GUEST);
+            clock.advance(Duration.ofMinutes(2));
+            BillingStubs.reject(billingClient, Rejection.WALLET_CLOSED);
+
+            assertThat(appearanceHoldRecheckUseCase.recheckDue()).isEqualTo(1);
+
+            assertThat(requestStatus(requestId)).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+        }
+
+        @Test
         @DisplayName("보내기 요청의 보류가 HOLD_VOIDED로 거절되면 500 HP_HOLD_FAILED, 요청서는 HOLD_FAILED")
         void createRejectedAsVoided() {
             BillingStubs.reject(billingClient, Rejection.HOLD_VOIDED);

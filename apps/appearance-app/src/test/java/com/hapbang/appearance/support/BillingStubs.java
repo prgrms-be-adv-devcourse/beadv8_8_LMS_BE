@@ -190,6 +190,7 @@ public final class BillingStubs {
         WALLET_NOT_FOUND(404, "지갑을 찾을 수 없습니다."),
         HOLD_NOT_FOUND(404, "HP 보류를 찾을 수 없습니다."),
         HOLD_VOIDED(409, "무효화된 HP 보류입니다."),
+        WALLET_CLOSED(409, "탈퇴한 회원의 지갑이에요."),
         HOLD_OWNER_MISMATCH(409, "HP 보류 회원이 일치하지 않습니다.");
 
         private final int httpStatus;

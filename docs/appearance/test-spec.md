@@ -223,6 +223,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 |---|---|
 | 보내기 | `REQUESTED`, 보류 30,000, 호스트 잔액 −30,000 |
 | 잔액 29,999에서 보내기 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), 요청서 `HOLD_FAILED`, 잔액 그대로, 보낸 목록 0건 |
+| 닫힌 지갑(탈퇴 직후)에서 보내기 (#648) | 409 `WALLET_CLOSED`, 요청서 `HOLD_FAILED`, 보낸 목록 0건 |
 | 호스트 지갑 없음 (#168) | 500 `HP_HOLD_FAILED`(지갑 코드는 응답하지 않음, #274), 요청서 `HOLD_FAILED` |
 | 잔액 부족 실패 뒤 잔액을 채우고 같은 게스트에게 다시 보내기 | `REQUESTED` |
 | Billing 무응답 | `BILLING_UNAVAILABLE`, 요청서 `HOLD_PENDING`, 보낸 목록 0건. 응답이 돌아와도 바로 다시 보내면 `DUPLICATE_APPEARANCE_REQUEST` |
@@ -413,6 +414,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 올리기 | `RECRUITING`, 성립 인원 0, 응답 버전 = DB, Billing에 보류 요청(`APPEARANCE_RECRUIT`, 모집글 ID, 호스트, 90,000) |
 | 같은 호스트가 두 번 올리기 | 2건 저장 (중복 제한 없음) |
 | 잔액 89,999 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), `HOLD_FAILED`, 내 목록·공개 목록 0건 |
+| 닫힌 지갑(탈퇴 직후) (#648) | 409 `WALLET_CLOSED`, `HOLD_FAILED`, 내 목록·공개 목록 0건 |
 | Billing 무응답 | `BILLING_UNAVAILABLE` ("…내 모집글 목록에서 결과를 확인해 주세요."), `HOLD_PENDING` |
 | 모집 인원 11명 | `RECRUIT_COUNT_OUT_OF_RANGE`, 저장·보류 없음 |
 | 정지된 호스트 | `APPEARANCE_USER_NOT_ACTIVE` |
@@ -1203,6 +1205,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 |---|---|---|
 | 보류 | 성공 | `REQUESTED`. 지갑이 받은 요청: 내부 API 키, JSON, 호스트·`APPEARANCE_REQUEST`·요청서 ID·출연료 |
 | 보류 | 잔액 부족 409 (지갑 설명 있음) | `AppearanceHoldRejectedException` 409 `INSUFFICIENT_BALANCE`, 메시지는 출연 문구(지갑 설명 아님), `HOLD_FAILED` |
+| 보류 | 닫힌 지갑 409 `WALLET_CLOSED` (#648) | `AppearanceHoldRejectedException` 409 `WALLET_CLOSED` "탈퇴한 회원의 지갑이에요.", `HOLD_FAILED` |
 | 보류 | 목록 밖 코드(처음 보는 404 `SOMETHING_NEW`) | 500 `HP_HOLD_FAILED`, 메시지는 출연 문구(지갑 코드·설명이 나가지 않음), `HOLD_FAILED` |
 | 보류 | 내부 API 키 오류(본문 없는 401, 지갑 계약) (#463) | 500 `HP_HOLD_FAILED`, `HOLD_FAILED`(결과 불명으로 보지 않음), 지갑 요청 1번 |
 | 보류 | 409 `IDEMPOTENCY_KEY_CONFLICT` | 500 `HP_HOLD_FAILED`, `HOLD_FAILED` |
@@ -1489,6 +1492,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 |---|---|---|
 | `AppearanceHoldVoidTest` | 만든 지 59분 | 보류를 다시 보내 `REQUESTED`, 무효화 없음 |
 | `AppearanceHoldVoidTest` | 포기 기준 전 재확인 보류가 `HOLD_VOIDED`로 거절 (무효화 뒤 늦은 보류) | `HOLD_FAILED` |
+| `AppearanceHoldVoidTest` | 포기 기준 전 재확인 보류가 `WALLET_CLOSED`로 거절 (보류 결과를 모르는 사이 탈퇴로 지갑이 닫힘, #648) | `HOLD_FAILED` |
 | `AppearanceHoldVoidTest` | 보내기 요청의 보류가 `HOLD_VOIDED`로 거절 | 500 `HP_HOLD_FAILED`, `HOLD_FAILED` |
 | `AppearanceHoldVoidTest` | 요청서, 만든 지 1시간 | 보류 대신 무효화(호스트·`APPEARANCE_REQUEST`·요청서 ID), `VOIDED` → `HOLD_FAILED` |
 | `AppearanceHoldVoidTest` | 모집글, 지갑에 보류가 있었음 | 무효화(호스트·`APPEARANCE_RECRUIT`·모집글 ID), `RELEASED` → `HOLD_FAILED` |
