@@ -13,7 +13,7 @@ public interface ApiV1MemberAdminAccountSpec {
             description = "관리자만 (아니면 403). 이메일·비밀번호·닉네임으로 역할이 관리자인 새 계정을 만든다. "
                     + "만든 계정은 비밀번호 로그인(POST /api/v1/members/login)으로 들어온다. "
                     + "이메일·비밀번호·닉네임 규칙과 오류는 가입(POST /api/v1/members/signup)과 같다 "
-                    + "(이미 가입된 이메일 409 DUPLICATE_EMAIL, 비밀번호 규칙 400). "
+                    + "(이미 가입된 이메일 409 DUPLICATE_EMAIL, 쓰고 있는 닉네임 409 DUPLICATE_NICKNAME, 비밀번호 규칙 400). "
                     + "첫 관리자는 앱이 시작할 때 만드는 초기 관리자 계정(admin@hapbang.local)이다.")
     RsData<MemberMeResponse> create(Long adminId, SignUpRequest request);
 }
