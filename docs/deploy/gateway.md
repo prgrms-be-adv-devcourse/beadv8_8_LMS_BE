@@ -44,8 +44,8 @@
 | --- | --- |
 | `k8s/gateway/install/envoy-gateway` | 공식 HelmChart v1.9.3, controller medium 128Mi, Gateway API·Envoy CRD |
 | `k8s/gateway/install/cert-manager` | 공식 HelmChart v1.21.3, large의 controller·cainjector 각 128Mi, webhook 50Mi(#532에서 medium에서 옮김) |
-| `k8s/gateway/overlays/local` | `hapbang.local`, 로컬 self-signed TLS, trace sampling 100% |
-| `k8s/gateway/overlays/prod` | 운영 호스트(`hapbang.duckdns.org`)·Grafana 주소, Let's Encrypt staging·production issuer(연락 이메일 없음), sampling 10%. 운영과 같은 값이라 그대로 적용한다 |
+| `k8s/gateway/overlays/local` | `hapbang.local`, 로컬 self-signed TLS. trace sampling은 base와 같은 100%다(#679 전에는 로컬만 100%) |
+| `k8s/gateway/overlays/prod` | 운영 호스트(`hapbang.duckdns.org`)·Grafana 주소, Let's Encrypt staging·production issuer(연락 이메일 없음). sampling은 base의 100%(운영 도구 route는 0%, #679)를 그대로 쓴다. 운영과 같은 값이라 그대로 적용한다 |
 | `apps/<앱>/k8s/base/gateway.yaml` | 모듈 HTTPRoute·optional JWT·본문 제한·업로드·WebSocket |
 | `apps/<앱>/k8s/base/networkpolicy.yaml` | 앱 ingress와 IMDS 접근 제한 |
 
@@ -185,7 +185,7 @@ Compose edge nginx와 그 인증서 볼륨, 뒤의 app·web·DB를 2026-10-30에
 - k3s 설정·edge Compose/nginx 구성·기존 인증서를 서버의 root 전용 `/var/backups/hapbang/gateway-<UTC>/`에 백업했다. edge nginx·certbot을 중지하고, k3s의 `disable: servicelb`를 `disable: traefik`으로 바꾼 뒤 재시작했다. ServiceLB label은 large에만 붙였으며 두 ServiceLB 포트 컨테이너가 large에서 Ready다. 이때 기존 app·web·DB와 PVC는 보존했고, 같은 날 뒤이어 Compose를 볼륨까지 지웠다(#440).
 - Let's Encrypt staging 발급 성공 뒤 `gateway-issuer` production 인증서로 전환했다. Certificate Ready와 일반 TLS 검증을 통과했다. 만료는 2027-01-28, cert-manager의 갱신 예정은 2026-12-29다. 실제 만료 갱신을 실행했다는 뜻은 아니다.
 - 외부 도메인 검증 12개 통과: HTTP→HTTPS 301, 신뢰된 TLS와 Grafana 로그인 화면 200, Grafana 익명 데이터 401·실제 로그인/인증 데이터 200, Kafka UI 익명 401·인증 화면/토픽 API 200, 내부 API 404, 미등록 앱 API·FE root 404, 위조 사용자 헤더로 Grafana 데이터 접근 불가.
-- Alloy의 OTLP 수신 13 spans·Tempo 전송 13 spans·수신 거절 0을 확인했고 Tempo에서 Envoy ingress trace를 조회했다. 운영 샘플링은 10%여서 특정 단건 요청이 항상 저장되는 것은 아니다.
+- Alloy의 OTLP 수신 13 spans·Tempo 전송 13 spans·수신 거절 0을 확인했고 Tempo에서 Envoy ingress trace를 조회했다. 당시 운영 샘플링은 10%여서 특정 단건 요청이 항상 저장되지 않았다. 2026-11-04부터 업무 route는 100%다(#679).
 - Gateway 전용 렌더링에서 업무 앱·FE route를 제외했다. 초기 `web` route는 FE Service가 없어 500을 반환했으며 이번에 생성한 그 route만 제거한 뒤 404를 확인했다. FE 배포 때 root route를 연결해야 한다.
 - 로컬 k3d 통합 검증 14개 통과: 2GiB 스트리밍, optional JWT·서명/만료/issuer/kid 거절, 사용자 헤더·내부 키 위조 제거, 내부 경로·8080 우회 차단, XFF 우측 hop, WebSocket, Grafana 익명 차단·로그인·데이터 조회. 테스트 경로는 `/api/v1/gateway-test/`로 분리해 이미 설치된 실제 앱 route와 충돌하지 않는다.
 - 운영 렌더러의 Basic Auth `SecurityPolicy` 처리 시 `KeyError: jwt`를 수정했다. 실제 Kustomize overlay를 쓰는 회귀 검사 3개를 CI에 추가했다. `verifyModuleStructure`, 전체 `check`(3,153개, 실패·오류·건너뜀 0개), Gateway manifest schema 검사를 통과했다.

@@ -50,3 +50,19 @@ spec:
   basicAuth:
     users:
       name: kafka-ui-basic-auth
+---
+# Kafka UI 요청은 trace로 남기지 않는다(#679). 운영 도구 요청이라 업무 trace와 섞지 않는다.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: kafka-ui-no-tracing
+  namespace: hapbang-platform
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: kafka-ui
+  telemetry:
+    tracing:
+      samplingFraction:
+        numerator: 0

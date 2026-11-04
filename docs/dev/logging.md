@@ -48,7 +48,7 @@
 | `eventType` | Kafka 헤더 `eventType`(예: `ExchangeCompletedEvent`) | `common/kafka`의 `RecordInterceptor` |
 | `eventKey` | Kafka 레코드 key(예: `exchange:45`, `order-item:123`) | 위와 같다 |
 
-- **`traceId`는 모든 요청·실행에 찍힌다.** Tempo로 보내는 trace는 10%뿐이지만, 샘플링되지 않은 요청·실행의 로그에도 `traceId`가 찍힌다. 2026-11-04 운영에서 로그에 찍힌 `traceId` 3건(billing `@Scheduled` 2건, member 4xx 요청 1건)이 Tempo에 없는 것으로 확인했다. 로그끼리 모으는 데는 샘플링이 상관없고, 그 줄에서 Tempo로 가는 링크만 10%가 열린다.
+- **`traceId`는 모든 요청·실행에 찍힌다.** Tempo로 보내지 않는 요청·실행(앱 안에서 시작하는 배치는 10%만, Grafana·Kafka UI 요청은 0%, #679)의 로그에도 `traceId`가 찍힌다. 2026-11-04 운영에서 로그에 찍힌 `traceId` 3건(billing `@Scheduled` 2건, member 4xx 요청 1건)이 Tempo에 없는 것으로 확인했다. 로그끼리 모으는 데는 샘플링이 상관없고, 그 줄에서 Tempo로 가는 링크는 Tempo에 남은 trace만 열린다(업무 요청은 모두, 앱 안에서 시작한 배치는 10%).
 - **`userId`가 없는 로그**: 내부 API를 받은 앱(내부 API는 키로만 인증하고 사용자 헤더를 읽지 않는다, D63), Kafka 소비, 비동기 스레드의 로그다. 이 로그는 `traceId`로 찾는다. trace baggage로 `userId`를 다른 앱까지 넘기지 않는다. 앱 사이 헤더와 Envoy 설정이 늘고, `traceId`가 이미 같은 일을 한다.
 - **스케줄 작업**: 실행마다 Boot가 trace를 만들어 `traceId`가 실행 한 번을 묶는다. 어느 작업인지는 `logger_name`으로 거른다. 그래서 `jobName`·`runId` MDC는 두지 않는다. chat의 1초 polling처럼 trace를 막아 둔 작업([관측성](../architecture/infrastructure/observability.md)의 "짧은 주기 polling")은 `traceId`가 없다.
 - **Kafka 소비**: #630으로 소비가 보낸 쪽 trace를 이어받아 "요청 → 발행 → 다른 앱의 소비"가 `traceId` 하나로 묶인다. `eventKey`는 "무엇에 대한 이벤트인지"로 거를 때 쓴다. Boot는 `RecordInterceptor` 빈이 하나일 때만 자기 리스너 컨테이너 팩토리에 붙인다. 앱이 팩토리를 직접 만들면(chat의 `ChatKafkaConfig`) 그 팩토리에도 직접 붙인다.
