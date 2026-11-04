@@ -37,6 +37,7 @@ public class MemberFacade {
 
     private final MemberOAuthLoginUseCase memberOAuthLoginUseCase;
     private final MemberSeedAccountUseCase memberSeedAccountUseCase;
+    private final MemberNicknameDedupNotifyUseCase memberNicknameDedupNotifyUseCase;
     private final MemberUpdateProfileUseCase memberUpdateProfileUseCase;
     private final MemberSupport memberSupport;
     private final MemberChzzkUseCase memberChzzkUseCase;
@@ -77,6 +78,12 @@ public class MemberFacade {
     @Transactional
     public void createSeedAccounts() {
         memberSeedAccountUseCase.createAll();
+    }
+
+    /** 마이그레이션이 바꾼 중복 닉네임을 다른 앱에 알리기 (#646, 앱 시작 시 한 번) */
+    @Transactional
+    public int notifyNicknameDedup() {
+        return memberNicknameDedupNotifyUseCase.notifyPending();
     }
 
     /** 내 정보 수정 */
