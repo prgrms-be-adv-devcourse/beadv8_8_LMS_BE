@@ -304,10 +304,16 @@ public class MemberFacade {
         return memberEmailVerificationUseCase.verifySignUpCode(email, code);
     }
 
-    /** 이메일·비밀번호 가입 (#499). 로그인은 따로 한다 */
+    /**
+     * 이메일·비밀번호 가입 (#499). 로그인은 따로 한다. 이메일 인증(#557)을 마친 토큰이 있어야 하고, 가입이 커밋되면 토큰을 지운다.
+     * 초기 계정·관리자 계정은 이 메서드가 아니라 가입 처리(register)를 바로 불러 인증을 거치지 않는다
+     */
     @Transactional
-    public User signUp(String email, String password, String nickname) {
-        return memberSignUpUseCase.signUp(email, password, nickname);
+    public User signUp(String email, String password, String nickname, String emailVerificationToken) {
+        memberEmailVerificationUseCase.requireVerified(email, emailVerificationToken);
+        User user = memberSignUpUseCase.signUp(email, password, nickname);
+        memberEmailVerificationUseCase.consumeAfterSignUp(emailVerificationToken);
+        return user;
     }
 
     /** 이메일·비밀번호 로그인 (#499). 토큰은 issueTokens로 발급한다 */

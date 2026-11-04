@@ -63,7 +63,8 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
     public RsData<MemberMeResponse> signUp(@Valid @RequestBody SignUpRequest request) {
-        User user = memberFacade.signUp(request.email(), request.password(), request.nickname());
+        User user = memberFacade.signUp(request.email(), request.password(), request.nickname(),
+                request.emailVerificationToken());
         return RsData.created("가입했습니다.", meResponse(user));
     }
 

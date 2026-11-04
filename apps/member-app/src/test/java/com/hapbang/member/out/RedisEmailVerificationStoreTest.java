@@ -110,7 +110,7 @@ class RedisEmailVerificationStoreTest {
     }
 
     @Test
-    @DisplayName("인증 토큰은 30분 동안 이메일과 묶이고, 한 번 쓰면 사라진다. 저장 키에 토큰 원문은 없다")
+    @DisplayName("인증 토큰은 30분 동안 이메일과 묶이고, 지우면 사라진다. 저장 키에 토큰 원문은 없다")
     void token() {
         String email = newEmail();
 
@@ -121,10 +121,12 @@ class RedisEmailVerificationStoreTest {
         assertThat(token).hasSizeGreaterThanOrEqualTo(40);
         assertThat(key).doesNotContain(token);
         assertThat(redisTemplate.getExpire(key, TimeUnit.MINUTES)).isBetween(29L, 30L);
-        assertThat(store.consumeToken(token)).contains(email);
-        assertThat(store.consumeToken(token)).isEmpty();
-        assertThat(store.consumeToken("")).isEmpty();
-        assertThat(store.consumeToken(null)).isEmpty();
+        assertThat(store.findTokenEmail(token)).contains(email);
+        assertThat(store.findTokenEmail(token)).contains(email);
+        store.deleteToken(token);
+        assertThat(store.findTokenEmail(token)).isEmpty();
+        assertThat(store.findTokenEmail("")).isEmpty();
+        assertThat(store.findTokenEmail(null)).isEmpty();
     }
 
     private String newEmail() {

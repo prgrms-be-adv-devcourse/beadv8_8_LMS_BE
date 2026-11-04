@@ -5,6 +5,8 @@ import java.net.UnknownHostException;
 import java.security.SecureRandom;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.hapbang.member.domain.MemberEmail;
 import com.hapbang.member.domain.MemberErrorCode;
@@ -82,6 +84,34 @@ public class MemberEmailVerificationUseCase {
             case WRONG -> throw new MemberException(MemberErrorCode.INVALID_EMAIL_CODE);
             case ATTEMPTS_EXCEEDED, NOT_FOUND -> throw new MemberException(MemberErrorCode.EMAIL_CODE_EXPIRED);
         };
+    }
+
+    /**
+     * 가입할 이메일이 인증됐는지 확인한다 (가입 API 입구에서만 부른다. 초기 계정·관리자 계정은 거치지 않는다).
+     * 토큰이 없거나, 만료됐거나, 다른 이메일의 토큰이면 400 EMAIL_NOT_VERIFIED
+     */
+    public void requireVerified(String email, String token) {
+        String normalizedEmail = MemberEmail.normalize(email);
+        boolean verified = emailVerificationStore.findTokenEmail(token).filter(normalizedEmail::equals).isPresent();
+        if (!verified) {
+            throw new MemberException(MemberErrorCode.EMAIL_NOT_VERIFIED);
+        }
+    }
+
+    /**
+     * 가입에 쓴 인증 토큰을 지운다. 트랜잭션 안이면 커밋된 뒤에 지운다(가입이 실패하면 토큰을 그대로 둬 인증을 다시 하지 않게)
+     */
+    public void consumeAfterSignUp(String token) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    emailVerificationStore.deleteToken(token);
+                }
+            });
+            return;
+        }
+        emailVerificationStore.deleteToken(token);
     }
 
     /** 6자리 숫자 (앞자리 0 포함) */

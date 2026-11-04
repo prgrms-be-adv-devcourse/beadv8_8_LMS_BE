@@ -36,7 +36,10 @@ public interface ApiV1MemberPasswordSpec {
                     + "다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME (#646, 미리 확인: GET /api/v1/members/nicknames/availability). "
                     + "비밀번호는 8~64자, 영문과 숫자를 하나 이상씩, 영문·숫자·키보드 특수문자만(공백·한글 불가). "
                     + "어기면 400 INVALID_PASSWORD_LENGTH·INVALID_PASSWORD_CHARACTER·PASSWORD_LETTER_AND_DIGIT_REQUIRED. "
-                    + "닉네임은 내 정보 수정과 같은 규칙. 메일 인증은 아직 없다.")
+                    + "닉네임은 내 정보 수정과 같은 규칙. "
+                    + "이메일 인증(#557)이 먼저 필요하다: 인증 코드 받기(POST /api/v1/members/email-codes) → 확인(POST /api/v1/members/email-codes/verify)으로 "
+                    + "받은 emailVerificationToken을 넣는다. 없거나 만료(30분)됐거나 다른 이메일의 토큰이면 400 EMAIL_NOT_VERIFIED. "
+                    + "가입되면 토큰은 사라진다(가입이 실패하면 그대로 남아 다시 쓸 수 있다).")
     RsData<MemberMeResponse> signUp(SignUpRequest request);
 
     @Operation(summary = "로그인",

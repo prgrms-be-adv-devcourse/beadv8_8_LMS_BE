@@ -31,8 +31,11 @@ public interface EmailVerificationStore {
     /** 인증을 마친 이메일에 인증 토큰을 발급한다. 토큰을 가진 사람만 그 이메일로 가입할 수 있다 */
     String issueToken(String email);
 
-    /** 인증 토큰을 쓰고 지운다(한 번만 쓸 수 있다). 묶인 이메일을 돌려주고, 없거나 만료됐으면 빈 값 */
-    Optional<String> consumeToken(String token);
+    /** 인증 토큰에 묶인 이메일. 없거나 만료됐으면 빈 값 */
+    Optional<String> findTokenEmail(String token);
+
+    /** 인증 토큰을 지운다 (가입에 쓰면 지워 한 번만 쓰게 한다) */
+    void deleteToken(String token);
 
     /** 코드 확인 결과 */
     enum CodeCheck {

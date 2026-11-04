@@ -132,6 +132,30 @@ class EmailVerificationApiTest {
         verify(email, "12ab56").andExpect(status().isBadRequest());
     }
 
+    @Test
+    @DisplayName("코드 받기 → 확인 → 받은 토큰으로 가입하면 201이고, 같은 토큰으로 다시 가입할 수 없다")
+    void signUpFlow() throws Exception {
+        String email = newEmail();
+        sendCode(email, newIp()).andExpect(status().isOk());
+        String body = verify(email, savedCode(email)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String token = JsonPath.read(body, "$.data.emailVerificationToken");
+        createdKeys.add("member:email-verified:" + hash(token));
+
+        signUp(email, "abcd1234", "가입흐름", token).andExpect(status().isCreated());
+        User user = userRepository.findByEmail(email).orElseThrow();
+        createdKeys.add("member:user-refresh:" + user.getId());
+
+        signUp(newEmail(), "abcd1234", "가입흐름2", token)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
+    }
+
+    private ResultActions signUp(String email, String password, String nickname, String token) throws Exception {
+        return mockMvc.perform(post("/api/v1/members/signup").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"password\":\"%s\",\"nickname\":\"%s\",\"emailVerificationToken\":\"%s\"}"
+                        .formatted(email, password, nickname, token)));
+    }
+
     private ResultActions verify(String email, String code) throws Exception {
         return mockMvc.perform(post(EMAIL_CODES + "/verify").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"email\":\"%s\",\"code\":\"%s\"}".formatted(email, code)));
