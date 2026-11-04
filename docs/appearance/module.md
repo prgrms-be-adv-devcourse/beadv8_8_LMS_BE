@@ -209,7 +209,7 @@ com.hapbang.appearance
 
 | 상대 | 방식 | 주고받는 것 | 상태 |
 |---|---|---|---|
-| 회원 | Kafka 이벤트 수신 (`member.events.v1`) | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신 | ✅ Kafka 수신 (#394). 이전에는 같은 서버 안 `@ApplicationModuleListener` |
+| 회원 | Kafka 이벤트 수신 (`member.events.v1`) | `UserJoinedEvent`, `UserModifiedEvent` → 출연 회원 생성·갱신, `UserMaskedEvent` → 호스트 채널 URL 파기 (4.1.2) | ✅ Kafka 수신 (#394, 파기 #675). 이전에는 같은 서버 안 `@ApplicationModuleListener` |
 | 회원 | 회원 내부 HTTP API (`GET /api/v1/internal/members`, shared `MemberApiClient`) | 기존 회원 목록(키셋) → 관리자 Backfill로 출연 회원 생성·갱신 | ✅ #394 (4.1.1) |
 | 회원 (global) | 로그인 | Gateway가 JWT를 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더 → `@LoginUserId`·`@PreAuthorize` (20장) | ✅ 앱 쪽 (#395). 회원 JWT 발급(#370) 전까지 운영에는 헤더가 오지 않는다 |
 | 지갑+정산 (billing) | 지갑 내부 HTTP API (`/api/v1/internal/billing/*`, 공용 `BillingApiClient`) | 보류, 반환, 지급, 위약금 | ✅ HTTP 연동 (#274). 이전에는 shared `BillingPort`(같은 서버 안 Java 호출, #289) |
@@ -224,6 +224,7 @@ com.hapbang.appearance
 회원 앱 ─(Kafka member.events.v1, key 회원 ID)─▶ AppearanceUserEventListener (그룹 appearance-app.member-replica)
    ├ UserJoinedEvent   ─▶ AppearanceUserFacade.syncJoined()   ─▶ createIfAbsent() ─▶ appearances.users
    ├ UserModifiedEvent ─▶ AppearanceUserFacade.syncModified() ─▶ update()
+   ├ UserMaskedEvent   ─▶ AppearanceUserFacade.maskWithdrawn() ─▶ AppearanceHostChannelMaskUseCase.mask() (4.1.2)
    └ 그 밖의 회원 이벤트(로그아웃 등) ─▶ 무시하고 커밋
 ```
 
@@ -231,10 +232,11 @@ com.hapbang.appearance
 |---|---|---|
 | `UserJoinedEvent` | 회원 가입 | 출연 회원 생성. **이미 있으면 무시** |
 | `UserModifiedEvent` | 회원 정보(닉네임·역할·상태) 변경 | 있는 출연 회원 갱신. **없으면 `APPEARANCE_USER_NOT_FOUND`로 실패** → 재시도 뒤 DLT |
+| `UserMaskedEvent` | 탈퇴 회원 개인정보 파기 (복구 기한 + 1시간 뒤, 매일 10:30, #594) | 그 회원이 호스트인 요청서·모집글의 채널 URL을 `withdrawn`으로 덮기 (4.1.2). 출연 회원이 없어도 실패하지 않는다 |
 
 | 항목 | 내용 |
 |---|---|
-| 리스너 | 클래스 레벨 `@KafkaListener`에 가입·변경 `@KafkaHandler`, 모르는 타입은 `@KafkaHandler(isDefault = true)`에서 무시 (토픽에 회원 이벤트 타입이 섞임, ADR 0001) |
+| 리스너 | 클래스 레벨 `@KafkaListener`에 가입·변경·파기 `@KafkaHandler`, 모르는 타입은 `@KafkaHandler(isDefault = true)`에서 무시 (토픽에 회원 이벤트 타입이 섞임, ADR 0001) |
 | 역직렬화 | `ErrorHandlingDeserializer` + JSON(`__TypeId__` 헤더), 신뢰 패키지는 `com.hapbang.shared.member.event`만. 시작점 `earliest` |
 | 재시도 | `DefaultErrorHandler` 블로킹 재시도 1초 → 2초 → 4초(최대 10초) 3회. 그동안 그 partition의 뒤 메시지는 기다림 |
 | DLT | `member.events.v1.appearance-app.member-replica.DLT`. 출연 앱이 `NewTopic`으로 선언(partition 3, 보존 7일). 원본과 같은 partition 번호. 역직렬화 실패는 재시도 없이 원본 바이트 그대로 DLT. 재처리는 kafka.md runbook |
@@ -268,6 +270,22 @@ com.hapbang.appearance
 | 권한 | 보안 설정(`/api/v1/appearances/admin/**`)과 `@PreAuthorize`(Gateway 사용자 헤더의 역할). HP 작업 관리와 달리 복제 회원으로 관리자 자격을 다시 확인하지 않는다(Backfill 전에는 관리자 자신의 출연 회원이 없을 수 있다) |
 | 설정 | `hapbang.clients.member.base-url`: 운영 `${MEMBER_API_BASE_URL}`(k8s `http://member-app:8081`), 로컬 `http://localhost:8081`. 주소가 없으면 Client 빈이 없고 실행하면 503 |
 | 운영 절차 | 출연 앱 배포 뒤 관리자가 `completed = true`가 될 때까지 `nextAfterId`로 이어서 실행한다. 그 전에 쌓인 회원 변경 DLT는 Backfill 뒤 runbook대로 다시 넣는다 |
+
+#### 4.1.2 탈퇴 회원 파기: 호스트 채널 URL (#675)
+
+회원 앱이 복구 기한이 지난 탈퇴 회원의 개인정보를 파기하고 `UserMaskedEvent(userId, maskedAt)`를 보낸다(#594). 출연이 가진 그 회원의 파기 대상은 **호스트가 요청서·모집글을 쓸 때 직접 입력한 호스트 채널 URL**뿐이다(`docs/policy.md` 삭제 정책·파기 방법). 닉네임은 같은 때 오는 `UserModifiedEvent`로 바뀐다.
+
+| 항목 | 내용 |
+|---|---|
+| 대상 | `appearances.requests`·`appearances.recruits`에서 `host_id` = 파기 회원인 행의 `host_channel_url` |
+| 바꾸는 값 | `withdrawn` (`AppearanceBasicInfo.WITHDRAWN_HOST_CHANNEL_URL`). **응답 계약 값**이다: 상세 응답 `hostChannelUrl`이 이 값이면 FE는 링크 대신 "탈퇴한 회원의 채널"로 보여 준다. 그 밖에 http(s)가 아니면 링크로 그리지 않는다(FE 방어) |
+| 방법 | 한 트랜잭션에서 update 쿼리 두 번(`maskHostChannelUrl`). 마이그레이션 없음(`NOT NULL` 유지). 형식 제한(http(s))은 생성·수정 때만 확인하므로 걸리지 않는다. 버전·수정 시각은 바꾸지 않는다 |
+| 중복 | 이미 `withdrawn`인 행은 건드리지 않아 같은 이벤트를 여러 번 받아도 결과가 같다(회원 아웃박스·재발행 #421, 최소 한 번 전달) |
+| 진행 중인 글 | 요청서 `HOLD_PENDING`·`REQUESTED`, 모집글 `HOLD_PENDING`·`RECRUITING`은 덮지 않고 error 로그 `[HOST_CHANNEL_MASK_SKIPPED] userId=…, activeRequests=…, activeRecruits=…`. 탈퇴 확인(26장)이 막았어야 하는 비정상 상태라 운영이 확인한다. 끝난 글은 그대로 덮는다 |
+| 출연 회원 없음 | 실패하지 않는다(호스트로 쓴 글이 없으면 덮을 것도 없다) |
+
+- 다른 복사본은 없다: 출연·지원·리뷰·HP 작업·대사 기록에는 채널 주소가 없고, Kafka 이벤트(`AppearanceRequestDto`)·이벤트 보관(`event_publication` archive)·로그에도 싣지 않는다.
+- 결정 근거: 이슈 #675 댓글(a안, 고정 값). 비우기(null)는 마이그레이션과 응답 계약(`string`) 변경이 필요해 하지 않았다.
 
 ### 4.2 Billing 연동 (#168)
 
@@ -1532,6 +1550,7 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 
 - 계약(원본): [docs/api/internal-withdrawals.md](../api/internal-withdrawals.md) 2장(공통 DTO)·3장(조회). 설계 결정은 ISSUE.md APR-49 WB1~WB5
 - 탈퇴가 끝나면 기존 `UserModifiedEvent(WITHDRAWN)`로 출연 회원이 탈퇴 상태가 되고, 이미 있는 "정지·탈퇴 회원과 거래 막기" 확인이 그대로 동작한다. 이벤트 처리는 바꾸지 않았다.
+- 복구 기한이 지나 회원 앱이 파기하면 `UserMaskedEvent`로 호스트 채널 URL을 덮는다(4.1.2, #675).
 
 ### 26.1 API
 

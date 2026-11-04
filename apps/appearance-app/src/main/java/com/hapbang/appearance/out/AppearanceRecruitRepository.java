@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -64,4 +65,20 @@ public interface AppearanceRecruitRepository extends JpaRepository<AppearanceRec
 
     /** 호스트가 올린 모집글 중 이 상태인 수 (탈퇴 막힌 이유, #624) */
     long countByHostIdAndStatus(Long hostId, AppearanceRecruitStatus status);
+
+    long countByHostIdAndStatusIn(Long hostId, Collection<AppearanceRecruitStatus> statuses);
+
+    /**
+     * 탈퇴 회원 파기(#675): 이 회원이 호스트인 모집글의 호스트 채널 URL을 {@code masked}로 덮는다.
+     * {@code excluded} 상태의 모집글과 이미 덮은 모집글은 건드리지 않는다(같은 이벤트를 다시 받아도 결과가 같다).
+     * 버전·수정 시각은 바꾸지 않는다(업무 상태 변경이 아니다).
+     *
+     * @return 덮은 모집글 수
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update AppearanceRecruit r set r.basicInfo.hostChannelUrl = :masked
+            where r.hostId = :hostId and r.status not in :excluded and r.basicInfo.hostChannelUrl <> :masked""")
+    int maskHostChannelUrl(@Param("hostId") Long hostId, @Param("masked") String masked,
+                           @Param("excluded") Collection<AppearanceRecruitStatus> excluded);
 }

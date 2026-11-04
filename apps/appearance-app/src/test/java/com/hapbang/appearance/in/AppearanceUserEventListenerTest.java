@@ -7,6 +7,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -45,7 +46,12 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
 import com.hapbang.appearance.config.AppearanceKafkaConfig;
+import com.hapbang.appearance.domain.AppearanceBasicInfo;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.AppearancePolicy;
+import com.hapbang.appearance.domain.AppearanceRequest;
+import com.hapbang.appearance.fixture.AppearanceRequestFixture;
+import com.hapbang.appearance.out.AppearanceRequestRepository;
 import com.hapbang.appearance.out.AppearanceUserRepository;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.shared.member.domain.Role;
@@ -53,6 +59,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserLoggedOutEvent;
+import com.hapbang.shared.member.event.UserMaskedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 import com.hapbang.testsupport.RecordedSpans;
@@ -108,6 +115,12 @@ class AppearanceUserEventListenerTest {
 
     @Autowired
     RecordedSpans spans;
+
+    @Autowired
+    AppearanceRequestRepository appearanceRequestRepository;
+
+    @Autowired
+    AppearancePolicy appearancePolicy;
 
     @Test
     @DisplayName("회원 앱이 보낸 trace를 이어받아 처리한다 (#630)")
@@ -196,6 +209,30 @@ class AppearanceUserEventListenerTest {
 
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(appearanceUserRepository.findById(userId)).isPresent());
         assertThat(deadLettersOf(userId, Duration.ofSeconds(1))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("탈퇴 회원 파기 이벤트를 받으면 그 회원이 호스트인 끝난 요청서의 채널 URL을 withdrawn으로 덮는다, 두 번 받아도 같다 (#675)")
+    void masked() {
+        long hostId = 107L;
+        LocalDateTime now = LocalDateTime.now();
+        AppearanceRequest request = AppearanceRequest.create(hostId, 1071L, AppearanceRequestFixture.content(now),
+                appearancePolicy, now);
+        request.markHoldFailed();
+        Long requestId = appearanceRequestRepository.saveAndFlush(request).getId();
+
+        UserMaskedEvent masked = new UserMaskedEvent(hostId, Instant.now());
+        send(hostId, masked);
+        send(hostId, masked);
+
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(appearanceRequestRepository.findById(requestId))
+                .hasValueSatisfying(saved -> assertThat(saved.getHostChannelUrl())
+                        .isEqualTo(AppearanceBasicInfo.WITHDRAWN_HOST_CHANNEL_URL)));
+        // 같은 key로 보낸 표지가 반영되면 두 번째 파기 이벤트도 처리가 끝난 것이다
+        long markerId = 1072L;
+        send(hostId, new UserJoinedEvent(user(markerId, "파기표지", Role.USER, 0L)));
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(appearanceUserRepository.findById(markerId)).isPresent());
+        assertThat(deadLettersOf(hostId, Duration.ofSeconds(1))).isEmpty();
     }
 
     @Test
