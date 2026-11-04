@@ -21,6 +21,7 @@ Native Image는 앱을 빌드할 때 기계어로 컴파일하고 JVM 없이 실
 ### 빌드 설정에서 정해야 했던 것
 
 - **AOT는 빈 조건을 빌드 때 정한다.** `@Profile`·`@ConditionalOnProperty`가 빌드 시점 값으로 굳는다. `processAot`에 운영 조건(`--spring.profiles.active=prod`, `--hapbang.internal-api.port=8081`, `--management.server.port=8082`)을 넘긴다. 넘기지 않으면 내부 API 포트 설정(`InternalApiPortConfig`)과 별도 actuator context가 빠진다. 값 자체는 실행 때 환경 변수로 다시 읽는다.
+- **trace 전송도 빌드 때 조건이 굳는다** (#663). Boot의 OTLP span exporter는 `management.opentelemetry.tracing.export.otlp.endpoint`가 있을 때만 생긴다(`OtlpTracingConfigurations.ConnectionDetails`의 `@ConditionalOnProperty`). endpoint는 ConfigMap이 실행 때 넣으므로 빌드 때 비어 있어 exporter가 실행 파일에서 빠졌다. JVM 테스트는 통과하고 native는 span을 만들기만 하고 보내지 않았다. `processAot`에 운영 endpoint를 넘겨 고쳤다. 2026-11-04 로컬에서 임시 PostgreSQL과 Tempo(OTLP gRPC)에 붙여 확인했다: 샘플링된 `traceparent` 요청은 server span과 Security span 5개가 그 trace로 들어왔고, 샘플링되지 않은 요청과 관리 포트 요청(probe·Prometheus 6건)은 span을 보내지 않았다(Tempo 수신 span 5개). RSS는 기동 직후 220 MiB, 요청 뒤 227 MiB였다(Kafka 없이, 위 결과와 조건이 달라 직접 비교하지 않는다).
 - **실행 파일로 만든다.** 루트가 모든 모듈에 `java-library`를 적용하면 Native Build Tools는 공유 라이브러리(`app.so`)를 기본값으로 만든다. `sharedLibrary = false`를 준다. `application` 플러그인이 없으므로 `mainClass`도 직접 넘긴다.
 
 ### 메타데이터를 더한 것

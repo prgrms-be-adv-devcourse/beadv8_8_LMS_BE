@@ -42,6 +42,8 @@ tasks.named<org.springframework.boot.gradle.tasks.aot.ProcessAot>("processAot") 
         "--spring.profiles.active=prod",
         "--hapbang.internal-api.port=8081",
         "--management.server.port=8082",
+        // trace 전송(#663). OTLP exporter 빈은 이 속성이 있을 때만 생기므로 빌드 때 넣지 않으면 native에서 trace를 보내지 않는다
+        "--management.opentelemetry.tracing.export.otlp.endpoint=http://alloy.hapbang-platform.svc.cluster.local:4317",
     )
     environment(
         mapOf(
