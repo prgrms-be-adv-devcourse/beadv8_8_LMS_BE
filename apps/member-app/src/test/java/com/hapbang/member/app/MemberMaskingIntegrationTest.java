@@ -199,6 +199,19 @@ class MemberMaskingIntegrationTest {
         assertThat(reload(inGrace).isMasked()).isFalse();
     }
 
+    @Test
+    @DisplayName("복구 기한이 지나도 1시간이 더 지나기 전에는 마스킹하지 않는다 (기한 직전에 누른 복구와 겹치지 않게, #669 리뷰)")
+    void waitsMarginAfterDeadline() {
+        LocalDateTime now = LocalDateTime.now();
+        User justExpired = withdrawn(now.minus(User.RESTORE_PERIOD).minusMinutes(30));
+        User expiredLonger = withdrawn(now.minus(User.RESTORE_PERIOD).minusHours(2));
+
+        assertThat(memberMaskingUseCase.maskAllDue(100)).isEqualTo(1);
+
+        assertThat(reload(justExpired).isMasked()).isFalse();
+        assertThat(reload(expiredLonger).isMasked()).isTrue();
+    }
+
     private User withdrawn(LocalDateTime withdrawnAt) {
         return withdrawn(withdrawnAt, null);
     }

@@ -139,8 +139,9 @@ public class MemberWithdrawalUseCase {
         if (!user.canRestore(requestedAt)) {
             throw new MemberException(MemberErrorCode.LOGIN_NOT_ALLOWED);
         }
-        withdrawalRepository.findFirstByUserIdAndStatusOrderByIdDesc(userId, WithdrawalStatus.COMPLETED)
-                .ifPresent(completed -> {
+        Optional<Withdrawal> completedWithdrawal =
+                withdrawalRepository.findFirstByUserIdAndStatusOrderByIdDesc(userId, WithdrawalStatus.COMPLETED);
+        completedWithdrawal.ifPresent(completed -> {
                     try {
                         walletGate.reopen(completed.getId(), userId);
                     } catch (RuntimeException e) {
@@ -158,7 +159,11 @@ public class MemberWithdrawalUseCase {
                 return target;
             });
         } catch (IllegalStateException e) {
-            // 지갑을 여는 사이 다른 처리(마스킹 등)로 복구할 수 없게 됐다
+            // 지갑을 여는 사이 다른 처리(마스킹 등)로 복구할 수 없게 됐다. 마스킹은 기한 + 여유(MemberMaskingUseCase.MASKING_MARGIN)
+            // 뒤에만 해서 생기지 않아야 하지만, 생기면 탈퇴 회원의 지갑이 열린 채라 사람이 다시 닫도록 error로 남긴다
+            completedWithdrawal.ifPresent(completed -> log.error(
+                    "지갑은 다시 열었는데 회원을 복구하지 못했습니다. 지갑을 다시 닫아야 합니다. userId={}, withdrawalId={}",
+                    userId, completed.getId(), e));
             throw new MemberException(MemberErrorCode.LOGIN_NOT_ALLOWED, e);
         }
     }

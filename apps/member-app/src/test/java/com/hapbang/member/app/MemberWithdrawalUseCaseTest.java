@@ -13,8 +13,11 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -52,6 +55,7 @@ import com.hapbang.shared.member.event.UserModifiedEvent;
 @TestPropertySource(properties = MemberWithdrawalUseCase.ENABLED + "=true")
 @Import(MemberWithdrawalUseCaseTest.FakeParticipants.class)
 @RecordApplicationEvents
+@ExtendWith(OutputCaptureExtension.class)
 class MemberWithdrawalUseCaseTest {
 
     private static final WithdrawalBlockReasonDto APPEARANCE_REASON =
@@ -447,6 +451,22 @@ class MemberWithdrawalUseCaseTest {
         User saved = userRepository.findById(user.getId()).orElseThrow();
         assertThat(saved.getRestoreFailedAt()).isNotNull();
         assertThat(saved.canRestore(LocalDateTime.now())).isTrue();
+    }
+
+    @Test
+    @DisplayName("지갑을 여는 사이 회원이 마스킹되면 403이고, 열린 지갑을 다시 닫도록 error 로그를 남긴다 (#669 리뷰)")
+    void restoreRacesWithMasking(CapturedOutput output) {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        Long completedId = onlyWithdrawalOf(user).getId();
+        walletGate.onReopen = () -> jdbcTemplate.update(
+                "update members.users set masked_at = localtimestamp where id = ?", user.getId());
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LOGIN_NOT_ALLOWED);
+        assertThat(walletGate.reopened).containsExactly(completedId);
+        assertThat(output).contains("지갑은 다시 열었는데 회원을 복구하지 못했습니다", "withdrawalId=" + completedId);
     }
 
     @Test

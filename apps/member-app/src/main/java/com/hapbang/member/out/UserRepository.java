@@ -46,7 +46,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * 복구 유예(7일) 같은 최종 판단은 하지 않는다. 후보를 넓게 고르고 {@code User.canRestore}가 한 곳에서 정한다(규칙이 두 곳에 나뉘지 않게).
      * ID 순으로 이어 읽어, 실패한 회원이 앞에 남아도 다음 회원으로 넘어간다
      *
-     * @param deadlineCutoff 지금 − 30일. 탈퇴 시각이 이보다 앞서야 한다
+     * @param deadlineCutoff 지금 − 30일 − 마스킹 여유. 탈퇴 시각이 이보다 앞서야 한다
      */
     @Query("""
             select u.id from User u

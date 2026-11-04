@@ -1,5 +1,6 @@
 package com.hapbang.member.app;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -38,14 +39,18 @@ import lombok.extern.slf4j.Slf4j;
  *     (지금 사진, 예전에 바꾼 사진, 내린 사진 모두). 덮은 뒤 DB 마스킹이 실패해도 다음에 다시 덮을 뿐이라 안전하다.</li>
  *     <li>DB는 한 트랜잭션에서 회원(이메일·닉네임·사진 연결), 구글 계정 연결, 비밀번호 정보, 채널, 닉네임 정리 기록(#646)을 마스킹하고
  *     {@link UserModifiedEvent}(바뀐 닉네임)와 {@link UserMaskedEvent}(다른 앱이 자기 개인정보를 지우는 신호)를 아웃박스로 남긴다.</li>
- *     <li>같은 회원을 복구와 동시에 처리하면 회원 버전(@Version)이 겹쳐 늦은 쪽이 실패한다. 마스킹 대상은 복구 기한이 지난 회원뿐이라
- *     실제로는 기한 경계에서만 생긴다.</li>
+ *     <li>복구 기한이 지나고 {@link #MASKING_MARGIN}이 더 지난 회원만 마스킹한다. 복구는 누른 시각으로 기한을 판단해, 기한 직전에
+ *     눌러 지갑을 여는 중인 복구가 있을 수 있다. 그 복구가 끝나기 전에 파기하면 지갑만 열리고 회원은 파기된 채 남으므로, 진행 중인
+ *     복구가 반드시 끝났을 만큼 기다린다(지갑 호출은 몇 초 안에 끝나거나 실패한다). 배치가 하루 한 번이라 늦어지는 영향은 없다.</li>
  * </ul>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class MemberMaskingUseCase {
+
+    /** 복구 기한이 지나고 이만큼 더 기다린 뒤 마스킹한다 (기한 직전에 누른 복구와 겹치지 않게, #669 리뷰) */
+    static final Duration MASKING_MARGIN = Duration.ofHours(1);
 
     private final UserRepository userRepository;
     private final OAuthAccountRepository oAuthAccountRepository;
@@ -63,7 +68,7 @@ public class MemberMaskingUseCase {
      * @return 이번에 마스킹한 회원 수
      */
     public int maskAllDue(int pageSize) {
-        LocalDateTime deadlineCutoff = LocalDateTime.now().minus(User.RESTORE_PERIOD);
+        LocalDateTime deadlineCutoff = LocalDateTime.now().minus(User.RESTORE_PERIOD).minus(MASKING_MARGIN);
         int masked = 0;
         long afterId = 0;
         while (true) {
@@ -112,8 +117,8 @@ public class MemberMaskingUseCase {
         }));
     }
 
-    /** 마스킹할 때가 됐는지: 탈퇴했고, 아직 마스킹하지 않았고, 복구 기한(유예 포함)이 지났다 */
+    /** 마스킹할 때가 됐는지: 탈퇴했고, 아직 마스킹하지 않았고, 복구 기한(유예 포함)이 지나고 {@link #MASKING_MARGIN}이 더 지났다 */
     private static boolean isDue(User user, LocalDateTime now) {
-        return user.isWithdrawn() && !user.isMasked() && !user.canRestore(now);
+        return user.isWithdrawn() && !user.isMasked() && !user.canRestore(now.minus(MASKING_MARGIN));
     }
 }
