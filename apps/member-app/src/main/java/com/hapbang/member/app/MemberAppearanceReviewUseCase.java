@@ -14,19 +14,22 @@ import org.springframework.stereotype.Service;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.out.MemberOutboundCircuitBreakers;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.appearance.dto.AppearanceReceivedReviewDto;
 import com.hapbang.shared.appearance.dto.AppearanceReceivedReviewPageDto;
 import com.hapbang.shared.appearance.out.AppearanceApiCallException;
 import com.hapbang.shared.appearance.out.AppearanceApiClient;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * 회원이 받은 출연 리뷰 목록 (#555). 리뷰는 회원 DB에 복사하지 않고 출연 내부 API(shared {@link AppearanceApiClient})로
  * 그때그때 읽고, 쓴 회원은 한 페이지분을 회원 DB에서 한 번에 읽어 붙인다.
  * <p>
- * 동기 HTTP 호출이라 트랜잭션 안에서 부르지 않는다(AGENTS.md 3장). Client가 없으면(출연 주소 미설정) 읽을 수 없는 것으로 본다
+ * 동기 HTTP 호출이라 트랜잭션 안에서 부르지 않는다(AGENTS.md 3장). Client가 없으면(출연 주소 미설정) 읽을 수 없는 것으로 본다.
+ * 출연 회로({@link MemberOutboundCircuitBreakers}, 탈퇴 확인과 같은 회로) 안에서 부르고, 회로가 열려 있으면 부르지 않고 바로 읽을 수 없다고 답한다 (#654)
  */
 @Slf4j
 @Service
@@ -34,11 +37,13 @@ public class MemberAppearanceReviewUseCase {
 
     private final ObjectProvider<AppearanceApiClient> appearanceApiClient;
     private final UserRepository userRepository;
+    private final MemberOutboundCircuitBreakers circuitBreakers;
 
     public MemberAppearanceReviewUseCase(ObjectProvider<AppearanceApiClient> appearanceApiClient,
-                                         UserRepository userRepository) {
+                                         UserRepository userRepository, MemberOutboundCircuitBreakers circuitBreakers) {
         this.appearanceApiClient = appearanceApiClient;
         this.userRepository = userRepository;
+        this.circuitBreakers = circuitBreakers;
     }
 
     /** 최신 공개순. 출연 쪽에 리뷰가 없으면 빈 페이지 */
@@ -66,7 +71,11 @@ public class MemberAppearanceReviewUseCase {
             throw new MemberException(MemberErrorCode.APPEARANCE_REVIEW_UNAVAILABLE);
         }
         try {
-            return client.getReceivedReviews(userId, page, size);
+            return circuitBreakers.call(MemberOutboundCircuitBreakers.Target.APPEARANCE,
+                    () -> client.getReceivedReviews(userId, page, size));
+        } catch (CallNotPermittedException e) {
+            log.warn("출연 회로가 열려 있어 받은 리뷰를 읽지 않았습니다.");
+            throw new MemberException(MemberErrorCode.APPEARANCE_REVIEW_UNAVAILABLE, e);
         } catch (AppearanceApiCallException e) {
             if (e.getReason() == AppearanceApiCallException.Reason.REJECTED) {
                 log.error("출연 내부 API가 받은 리뷰 조회를 거절했습니다. status={}, code={}", e.getStatus(), e.getCode(), e);

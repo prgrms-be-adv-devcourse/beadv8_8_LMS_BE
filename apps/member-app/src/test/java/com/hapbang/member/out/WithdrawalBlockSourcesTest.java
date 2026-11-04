@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.util.List;
 
@@ -26,8 +27,10 @@ class WithdrawalBlockSourcesTest {
 
     private final AppearanceApiClient appearanceApiClient = mock(AppearanceApiClient.class);
     private final LectureApiClient lectureApiClient = mock(LectureApiClient.class);
-    private final AppearanceWithdrawalBlockSource appearance = new AppearanceWithdrawalBlockSource(appearanceApiClient);
-    private final LectureWithdrawalBlockSource lecture = new LectureWithdrawalBlockSource(lectureApiClient);
+    private final MemberOutboundCircuitBreakers circuitBreakers = MemberOutboundCircuitBreakers.defaults();
+    private final AppearanceWithdrawalBlockSource appearance =
+            new AppearanceWithdrawalBlockSource(appearanceApiClient, circuitBreakers);
+    private final LectureWithdrawalBlockSource lecture = new LectureWithdrawalBlockSource(lectureApiClient, circuitBreakers);
 
     @Test
     @DisplayName("출연·강의가 준 막힌 이유를 그대로 넘긴다")
@@ -55,5 +58,20 @@ class WithdrawalBlockSourcesTest {
         assertThatThrownBy(() -> lecture.blocks(USER_ID))
                 .isInstanceOfSatisfying(WithdrawalCallException.class,
                         e -> assertThat(e.getKind()).isEqualTo(WithdrawalCallException.Kind.NOT_PROCESSED));
+    }
+
+    @Test
+    @DisplayName("회로가 열려 있으면 Client를 부르지 않고 바로 NOT_PROCESSED다")
+    void openCircuitDoesNotCall() {
+        circuitBreakers.circuitBreaker(MemberOutboundCircuitBreakers.Target.APPEARANCE).transitionToOpenState();
+        circuitBreakers.circuitBreaker(MemberOutboundCircuitBreakers.Target.LECTURE).transitionToOpenState();
+
+        assertThatThrownBy(() -> appearance.blocks(USER_ID))
+                .isInstanceOfSatisfying(WithdrawalCallException.class,
+                        e -> assertThat(e.getKind()).isEqualTo(WithdrawalCallException.Kind.NOT_PROCESSED));
+        assertThatThrownBy(() -> lecture.blocks(USER_ID))
+                .isInstanceOfSatisfying(WithdrawalCallException.class,
+                        e -> assertThat(e.getKind()).isEqualTo(WithdrawalCallException.Kind.NOT_PROCESSED));
+        verifyNoInteractions(appearanceApiClient, lectureApiClient);
     }
 }

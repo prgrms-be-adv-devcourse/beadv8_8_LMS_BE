@@ -15,7 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 강의 쪽 탈퇴가 막힌 이유 (#654, docs/api/internal-withdrawals.md 3장, 강의 #625). 강의 내부 API를 읽기만 한다.
- * 실패 처리와 만드는 조건은 {@link AppearanceWithdrawalBlockSource}와 같다. 출연 다음에 묻는다
+ * 실패 처리와 만드는 조건은 {@link AppearanceWithdrawalBlockSource}와 같다. 강의 회로 안에서 부르고, 출연 다음에 묻는다
  */
 @Slf4j
 @Component
@@ -26,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 public class LectureWithdrawalBlockSource implements WithdrawalBlockSource {
 
     private final LectureApiClient lectureApiClient;
+    private final MemberOutboundCircuitBreakers circuitBreakers;
 
     @Override
     public String name() {
@@ -35,7 +36,8 @@ public class LectureWithdrawalBlockSource implements WithdrawalBlockSource {
     @Override
     public WithdrawalBlocksDto blocks(long userId) {
         try {
-            return lectureApiClient.getWithdrawalBlocks(userId);
+            return circuitBreakers.call(MemberOutboundCircuitBreakers.Target.LECTURE,
+                    () -> lectureApiClient.getWithdrawalBlocks(userId));
         } catch (LectureApiCallException e) {
             if (e.getReason() == LectureApiCallException.Reason.REJECTED) {
                 log.error("강의가 탈퇴 확인을 거절했습니다. 설정이나 코드를 확인해야 합니다. userId={}, status={}, code={}",

@@ -15,6 +15,9 @@ dependencies {
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
     implementation(libs.swagger.annotations)
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
+    // 출연·강의 내부 API 호출의 circuit breaker와 지표 (#654, 지갑 OutboundCircuitBreakers와 같은 방식)
+    implementation(libs.resilience4j.circuitbreaker)
+    implementation(libs.resilience4j.micrometer)
     // 테스트에서 로그인 상태 만들기 (oauth2Login())
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }
