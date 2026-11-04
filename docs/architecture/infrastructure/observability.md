@@ -25,7 +25,7 @@
 - **지표**: 모듈 앱 6개(member·lecture·appearance·customer-support·billing·chat)가 관리 포트 8082에서 `/actuator/prometheus`를 연다(lecture #521, billing #552, chat #590, 나머지 #528). Prometheus 차트 기본 `kubernetes-pods` job이 pod annotation을 보고 1분마다 수집한다. label은 pod label을 옮긴 `app_kubernetes_io_name`과 `namespace`·`pod`다.
 - **HTTP 응답 시간 bucket** (#617): 6개 앱이 `management.metrics.distribution.slo.http.server.requests`에 경계 10개(5·10·25·50·100·250·500·1000·2500·5000ms)를 같은 값으로 두어 `http_server_requests_seconds_bucket`을 낸다. p50·p95·p99는 `histogram_quantile`로 계산한다. `percentiles-histogram`은 bucket이 기본 69개(5ms~5s로 좁혀도 48개)라 쓰지 않았다. Prometheus memory limit이 384Mi이고 2026-11-03 사용량이 211Mi였기 때문이다. bucket은 uri·method·status 조합마다 11개(`+Inf` 포함)씩 생긴다. 2026-11-03 운영의 조합은 20개라 약 220 series가 늘어난다. 진행 중 요청 수(`http.server.requests.active`)는 접두어가 같아 bucket이 따라 붙으므로 빈 값으로 끈다.
 - **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 형식은 앱 기본 평문 그대로이고 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
-- **trace**: Envoy가 요청의 10%를 샘플링해 OTLP gRPC로 Alloy(4317)에 보내고 Alloy가 Tempo로 넘긴다(#372). customer-support-app을 뺀 5개 앱(lecture #579, member·appearance·billing·chat #631)은 Envoy가 넘긴 `traceparent`를 이어받아 server span과 내부 API client span을 같은 trace에 보낸다(아래 "앱 trace 계측"). customer-support-app은 아직 계측하지 않아(#609 뒤) 그 앱의 요청은 Envoy span만 남는다.
+- **trace**: Envoy가 요청의 10%를 샘플링해 OTLP gRPC로 Alloy(4317)에 보내고 Alloy가 Tempo로 넘긴다(#372). 업무 앱 6개(lecture #579, member·appearance·billing·chat #631, customer-support #663)는 Envoy가 넘긴 `traceparent`를 이어받아 server span과 내부 API client span을 같은 trace에 보낸다(아래 "앱 trace 계측").
 - **dashboard**: Grafana `합방` 폴더에 다섯 개가 있다(#531, Kafka #597, 앱 개요 #601, 아래 "Dashboard").
 - 구조화 로그(#582)와 alert는 아직 없다(#343). 계측한 앱의 평문 로그에는 Boot가 trace ID를 붙인다.
 
@@ -43,7 +43,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 ### 앱 trace 계측 (#579, #631)
 
-customer-support-app을 뺀 5개 앱이 계측한다(lecture #579, member·appearance·billing·chat #631). customer-support는 Native Image 시험(#609) 결과를 본 뒤 붙인다. 요청 하나가 `Envoy ingress → Envoy router egress → 앱 server` span으로 Tempo에 남고, 앱이 다른 앱의 내부 API를 부르면 `→ 앱 client → 받는 앱 server`까지 같은 trace로 이어진다.
+업무 앱 6개가 계측한다(lecture #579, member·appearance·billing·chat #631, customer-support #663). customer-support-app은 GraalVM Native Image 실행 파일이다(#609, [Native Image](native-image.md)). 요청 하나가 `Envoy ingress → Envoy router egress → 앱 server` span으로 Tempo에 남고, 앱이 다른 앱의 내부 API를 부르면 `→ 앱 client → 받는 앱 server`까지 같은 trace로 이어진다.
 
 **동작.**
 
@@ -62,12 +62,12 @@ customer-support-app을 뺀 5개 앱이 계측한다(lecture #579, member·appea
 - **업무 진입점이 아닌 root trace 거르기** (`global/config/ObservationConfig`, 앱마다). 업무 요청·배치 안에서 생긴 것은 그 trace 아래에 그대로 남는다.
   - **관리 포트**: 관리 포트(8082)에는 HTTP 요청 observation이 없어 Spring Security filter chain observation이 부모 없이 시작된다. 그대로 두면 probe(5초마다 3종)와 Prometheus 수집마다 root trace가 생기므로 부모 없는 `spring.security.*` observation을 막는다(`ObservationPredicate`).
   - **Redis 명령**: Boot가 Lettuce 명령마다 span을 만든다(`LettuceObservationAutoConfiguration`). 요청·배치 밖의 명령(연결 handshake, 구독, 스트림 읽기)은 root span이 된다. Lettuce는 observation을 만든 **뒤에** 부모를 붙이므로 `ObservationPredicate`로 막으면 요청 안의 명령까지 사라진다(#631 테스트에서 확인). 그래서 내보낼 때(`SpanExportingPredicate`) 부모 없는 Redis span만 거른다. 거른 span도 만들어지기는 한다.
-  - **짧은 주기 polling** (chat): `ChatRoomActivityBatch`(1초)와 `ChatPresenceHeartbeat`(30초)의 `@Scheduled` 실행은 trace를 만들지 않는다. 그대로 두면 1초 작업 하나가 0.1 비율로 하루 약 8,600개의 root trace를 만든다. 대상은 `chat.app.ChatPollingTasks`에 둔다. 1분 이상 주기의 배치(HP 작업, 대사, 재발행 등)는 0.1 비율로 trace를 만든다.
+  - **짧은 주기 polling** (chat): `ChatRoomActivityBatch`(1초), `ChatReadCountBatch`(1초, #663), `ChatPresenceHeartbeat`(30초)의 `@Scheduled` 실행은 trace를 만들지 않는다. 그대로 두면 1초 작업 하나가 0.1 비율로 하루 약 8,600개의 root trace를 만든다. 대상은 `chat.app.ChatPollingTasks`에 둔다. `ChatReadCountBatch`는 #631 뒤에 들어와 목록에서 빠졌고, 배포 뒤 15분 동안 root trace 10건을 만들었다. 그래서 `ChatPollingTasksTest`가 chat의 `@Scheduled` 중 코드 기본 주기가 1분보다 짧은 것이 모두 목록에 있는지 검사한다. 1분 이상 주기의 배치(HP 작업, 대사, 재발행 등)는 0.1 비율로 trace를 만든다.
 - **새 실행 진입점을 더할 때**: span이 생기는지 확인한다. `@Scheduled`는 Spring이, Spring Batch는 자체 observation이 span을 만든다. Quartz job은 Boot가 계측하지 않는 것으로 알고 있으므로 도입할 때 소스 jar로 확인하고, 없으면 job 실행을 `Observation`으로 감싼다. 1분보다 짧은 주기로 도는 polling은 위처럼 root trace를 만들지 않게 한다.
 
-**새 앱에 붙이는 절차.** 다음 대상은 customer-support-app이다.
+**새 앱에 붙이는 절차.** notification·search 앱을 만들 때 따른다.
 
-1. 루트 `build.gradle.kts`의 `-app` 블록이 `spring-boot-starter-opentelemetry`(Micrometer Tracing OTel bridge, OTLP exporter와 OTLP 지표 registry)와 테스트용 `opentelemetry-sdk-testing`·`micrometer-tracing-bridge-otel`을 넣는다. customer-support를 빼는 조건을 지운다.
+1. 루트 `build.gradle.kts`의 `-app` 블록이 `spring-boot-starter-opentelemetry`(Micrometer Tracing OTel bridge, OTLP exporter와 OTLP 지표 registry)와 테스트용 `opentelemetry-sdk-testing`·`micrometer-tracing-bridge-otel`을 모든 앱에 넣으므로 의존성은 따로 더하지 않는다.
 2. `application.yaml`:
    ```yaml
    management:
@@ -85,7 +85,7 @@ customer-support-app을 뺀 5개 앱이 계측한다(lecture #579, member·appea
            enabled: false   # 지표는 Prometheus가 수집한다. 켜 두면 localhost:4318로 보내다 실패한다
    ```
 3. `global/config/ObservationConfig`: 다른 앱 것을 그대로 옮긴다(부모 없는 `spring.security.*` 막기, 부모 없는 Redis span 내보내지 않기). 짧은 주기 polling이 있으면 chat처럼 더한다.
-4. `k8s/base/kustomization.yaml`의 ConfigMap: `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy.hapbang-platform.svc.cluster.local:4317`. service name은 `spring.application.name`이다. 앱 NetworkPolicy에는 egress 제한이 없어 정책은 바꾸지 않는다.
+4. `k8s/base/kustomization.yaml`의 ConfigMap: `MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy.hapbang-platform.svc.cluster.local:4317`. Native Image 앱은 `processAot` 인자에도 같은 endpoint를 넣는다. 빠지면 OTLP exporter가 실행 파일에서 빠져 span을 보내지 않는다([Native Image](native-image.md)). service name은 `spring.application.name`이다. 앱 NetworkPolicy에는 egress 제한이 없어 정책은 바꾸지 않는다.
 5. 스레드를 바꾸는 곳: trace context는 스레드 로컬이라 다른 스레드로 넘어가지 않는다. 앱이 직접 만든 executor로 HTTP를 부르면 `ContextExecutorService.wrap(executor, ContextSnapshotFactory.builder().build())`로 감싼다(`shared`의 `BillingApiClient`가 예다). `RestClient`는 Boot가 주입하는 `RestClient.Builder`로 만들어야 client span과 `traceparent`가 붙는다. shared의 내부 API Client 4개와 chat의 내부 API 설정, billing의 TossPayments Client가 모두 그렇게 만든다. `@Async`·`TaskExecutor`도 같은 문제가 있다.
 6. 테스트: `<앱>TracingTest`(실제 서버, 관리 포트·내부 API 포트 분리, 샘플링 1.0). `test-support`의 `RecordedSpans`(span을 메모리에 모음)와 `TraceRequests`(`traceparent` 요청, 가짜 내부 API 서버)를 쓴다. 샘플링된 요청의 server span, 샘플링되지 않은 요청과 관리 포트 요청의 span 없음, 내부 API 포트의 server span, 내부 API 호출의 client span과 `traceparent`를 확인한다.
 7. 메모리: 적용 전후 working set을 재고 limit을 다시 본다. lecture-app은 k3d에서 같은 heap 상한(`-Xmx384m`, `-XX:ActiveProcessorCount=2`)으로 기동 10분 뒤(샘플링된 요청 300건 뒤) 685 → 703 MiB였다(non-heap 190 → 198 MiB, 스레드 64 → 73, 클래스 28,175 → 29,323, 각 1회 측정). 적용 전 운영 working set이 588 MiB(640 MiB의 92%)라 704 MiB로 올렸다([k3s 자원 예산](k3s.md#ec2-2노드-자원-예산)). k3d는 운영보다 working set이 커서(같은 이미지가 640 MiB에서 OOMKilled) 차이만 쓴다.
@@ -95,7 +95,6 @@ customer-support-app을 뺀 5개 앱이 계측한다(lecture #579, member·appea
 
 - Kafka producer·consumer context 전파와 `eventId` 연결(#630). listener 스레드의 로그에는 traceId가 없다.
 - DB(JDBC) span. 요청 span의 시간에 DB 시간이 포함될 뿐 쿼리 단위로 나뉘지 않는다.
-- customer-support-app(#609 뒤). customer-support가 lecture 내부 API(8081)를 부르면 `traceparent`가 없어 lecture-app이 새 trace(10%)를 시작한다.
 - WebSocket(STOMP) 메시지: 연결을 여는 HTTP 요청만 span이 남고 메시지 단위 trace는 없다.
 
 ### Dashboard (#531, #597, #601, #617)
