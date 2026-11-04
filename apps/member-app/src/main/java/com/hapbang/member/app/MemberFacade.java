@@ -52,6 +52,7 @@ public class MemberFacade {
     private final MemberTokenUseCase memberTokenUseCase;
     private final MemberSignUpUseCase memberSignUpUseCase;
     private final MemberEmailVerificationUseCase memberEmailVerificationUseCase;
+    private final MemberPasswordResetUseCase memberPasswordResetUseCase;
     private final MemberPasswordLoginUseCase memberPasswordLoginUseCase;
     private final MemberPasswordChangeUseCase memberPasswordChangeUseCase;
     private final MemberAppearanceRatingUseCase memberAppearanceRatingUseCase;
@@ -321,6 +322,19 @@ public class MemberFacade {
     @Transactional(readOnly = true)
     public User passwordLogin(String email, String password) {
         return memberPasswordLoginUseCase.login(email, password);
+    }
+
+    /**
+     * 비밀번호 재설정 (#557): 재설정용 인증 토큰을 확인하고 새 비밀번호로 바꾼 뒤, 그 회원의 모든 기기를 로그아웃시킨다.
+     * 로그아웃(refresh token 폐기)은 비밀번호 변경과 같이 커밋 전에 한다(바꾸기가 실패해도 로그아웃만 되는 안전한 쪽).
+     * 토큰은 커밋된 뒤 지운다(실패하면 남아 다시 시도할 수 있다)
+     */
+    @Transactional
+    public void resetPassword(String email, String emailVerificationToken, String newPassword) {
+        memberEmailVerificationUseCase.requireVerified(email, EmailVerificationPurpose.PASSWORD_RESET, emailVerificationToken);
+        User user = memberPasswordResetUseCase.reset(email, newPassword);
+        memberTokenUseCase.revokeAll(user.getId());
+        memberEmailVerificationUseCase.consumeAfterUse(emailVerificationToken, EmailVerificationPurpose.PASSWORD_RESET);
     }
 
     /**

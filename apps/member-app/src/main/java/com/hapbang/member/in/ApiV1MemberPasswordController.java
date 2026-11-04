@@ -91,6 +91,14 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
                 .body(RsData.ok("로그인했습니다.", meResponse(user)));
     }
 
+    /** 비밀번호 재설정 (#557): 로그인 없이 부른다. 모든 기기가 로그아웃되고, 새 비밀번호로 다시 로그인한다 */
+    @Override
+    @PostMapping("/password-reset")
+    public RsData<Void> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
+        memberFacade.resetPassword(request.email(), request.emailVerificationToken(), request.newPassword());
+        return RsData.ok("비밀번호를 다시 설정했습니다. 새 비밀번호로 로그인해 주세요.", null);
+    }
+
     /** 비밀번호 변경: 다른 기기는 로그아웃되고, 이 기기는 새 refresh token 쿠키를 받는다 */
     @Override
     @PatchMapping("/me/password")

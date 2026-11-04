@@ -60,6 +60,14 @@ public interface ApiV1MemberPasswordSpec {
     ResponseEntity<RsData<MemberMeResponse>> login(PasswordLoginRequest request,
                                                    @Parameter(hidden = true) HttpServletResponse response);
 
+    @Operation(summary = "비밀번호 재설정",
+            description = "로그인 없이 부른다 (#557). 비밀번호를 잊었을 때: 인증 코드 받기(purpose=PASSWORD_RESET) → 확인으로 받은 "
+                    + "emailVerificationToken과 새 비밀번호를 보낸다. 토큰이 없거나 만료(30분)됐거나 다른 이메일·가입용 토큰이면 400 EMAIL_NOT_VERIFIED. "
+                    + "토큰을 받은 뒤 탈퇴·정지됐어도 400 EMAIL_NOT_VERIFIED(정상 회원만 재설정). 비밀번호가 없는 회원(구글)은 409 PASSWORD_NOT_SET. "
+                    + "새 비밀번호 규칙은 가입과 같다(어기면 400, 토큰은 남아 다시 시도 가능). "
+                    + "바꾸면 로그인 실패 잠금을 풀고 그 회원의 모든 기기를 로그아웃시킨다. 토큰은 한 번만 쓸 수 있다.")
+    RsData<Void> resetPassword(PasswordResetRequest request);
+
     @Operation(summary = "비밀번호 변경",
             description = "로그인한 회원 본인. 현재 비밀번호가 틀리면 400 INVALID_CURRENT_PASSWORD, "
                     + "비밀번호로 가입하지 않은 회원(구글 회원)은 409 PASSWORD_NOT_SET. 현재 비밀번호를 5번 연속 틀리면 15분 동안 429 PASSWORD_CHANGE_LOCKED. "
