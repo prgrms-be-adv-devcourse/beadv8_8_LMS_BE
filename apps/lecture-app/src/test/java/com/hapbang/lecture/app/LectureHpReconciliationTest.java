@@ -217,7 +217,7 @@ class LectureHpReconciliationTest {
     }
 
     @Test
-    void DEAD_작업이_있는_항목은_표시만_하고_어긋난_수에_넣지_않는다() {
+    void DEAD_작업이_있는_항목은_표시만_하고_어긋난_수에_넣지_않는다(CapturedOutput output) {
         Item payoutPending = item(OrderItemStatus.PAYOUT_PENDING, old);
         transactionTemplate.executeWithoutResult(status -> lectureHpTaskRepository.save(task(
                 LectureHpTaskPurpose.PAYOUT, payoutPending, SELLER_ID, old)).markDead("PAYOUT_ALREADY_SETTLED", old));
@@ -235,6 +235,11 @@ class LectureHpReconciliationTest {
                 });
         assertThat(queriedIds()).isEmpty();
         assertThat(metrics.mismatches(LectureHpReconciliationRule.HP_TASK_DEAD)).isEqualTo(1);
+        // 어긋남이 아니므로 대사 불일치 alert 표식 없이 WARN으로만 남긴다. DEAD 자체의 alert는 HP 작업이 남긴다
+        assertThat(output.getAll()).doesNotContain(LectureHpReconciliationUseCase.MISMATCH_LOG_TAG);
+        assertThat(output.getAll().lines().filter(line -> line.contains("DEAD 작업이 있어 비교하지 않았다")))
+                .singleElement().satisfies(line -> assertThat(line)
+                        .contains(" WARN ", "orderItemId=" + payoutPending.id()));
     }
 
     @Test

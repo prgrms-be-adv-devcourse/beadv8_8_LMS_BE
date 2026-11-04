@@ -263,6 +263,13 @@ public class LectureHpReconciliationUseCase {
     private void report(LectureHpReconciliationRun run, Progress progress) {
         for (LectureHpReconciliationSupport.Mismatch mismatch : progress.mismatches) {
             LectureHpReconciliationComparer.Finding finding = mismatch.finding();
+            if (finding.rule() == LectureHpReconciliationRule.HP_TASK_DEAD) {
+                // 어긋남이 아니라 비교하지 않았다는 표시다(D74). DEAD 자체의 alert는 HP 작업의 [LECTURE_HP_TASK_DEAD]가 맡는다
+                log.warn("강의 HP 대사에서 DEAD 작업이 있어 비교하지 않았다 runId={}, orderItemId={}, orderId={}, "
+                                + "itemStatus={}, lectureState=[{}]", run.getId(), mismatch.orderItemId(),
+                        mismatch.orderId(), mismatch.itemStatus(), finding.lectureState());
+                continue;
+            }
             log.error(MISMATCH_LOG_TAG + " 강의 HP 대사에서 어긋난 건을 찾았다 rule={}, runId={}, orderItemId={}, orderId={}, "
                             + "itemStatus={}, lectureState=[{}], walletState=[{}]", finding.rule(), run.getId(),
                     mismatch.orderItemId(), mismatch.orderId(), mismatch.itemStatus(), finding.lectureState(),
