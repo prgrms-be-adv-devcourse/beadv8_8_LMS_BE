@@ -174,6 +174,16 @@ class MemberEmailVerificationUseCaseTest {
         verify(store, never()).issueToken(anyString());
     }
 
+    @Test
+    @DisplayName("가입 뒤 인증 토큰을 지우다 Redis 오류가 나도 예외를 던지지 않는다 (가입은 이미 끝났으므로 500으로 만들지 않음)")
+    void consumeTokenFailureIsQuiet() {
+        willThrow(new IllegalStateException("redis down")).given(store).deleteToken("token-1");
+
+        useCase.consumeAfterSignUp("token-1");
+
+        verify(store).deleteToken("token-1");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"203.0.113.5", "8.8.8.8", "2001:4860:4860::8888"})
     @DisplayName("인터넷 주소는 공인 주소로 본다")

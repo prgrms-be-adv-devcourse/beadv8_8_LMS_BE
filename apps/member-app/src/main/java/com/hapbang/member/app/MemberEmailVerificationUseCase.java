@@ -125,19 +125,29 @@ public class MemberEmailVerificationUseCase {
     }
 
     /**
-     * 가입에 쓴 인증 토큰을 지운다. 트랜잭션 안이면 커밋된 뒤에 지운다(가입이 실패하면 토큰을 그대로 둬 인증을 다시 하지 않게)
+     * 가입에 쓴 인증 토큰을 지운다. 트랜잭션 안이면 커밋된 뒤에 지운다(가입이 실패하면 토큰을 그대로 둬 인증을 다시 하지 않게).
+     * 지우다 실패해도(Redis 오류) 가입은 이미 끝났으므로 오류로 돌려주지 않고 로그만 남긴다. 토큰은 30분 뒤 저절로 사라지고,
+     * 그사이 다시 써도 그 이메일은 이미 가입돼 409 DUPLICATE_EMAIL이다
      */
     public void consumeAfterSignUp(String token) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    emailVerificationStore.deleteToken(token);
+                    deleteTokenQuietly(token);
                 }
             });
             return;
         }
-        emailVerificationStore.deleteToken(token);
+        deleteTokenQuietly(token);
+    }
+
+    private void deleteTokenQuietly(String token) {
+        try {
+            emailVerificationStore.deleteToken(token);
+        } catch (RuntimeException e) {
+            log.warn("가입에 쓴 인증 토큰을 지우지 못했습니다. 30분 뒤 저절로 사라집니다.", e);
+        }
     }
 
     /** 6자리 숫자 (앞자리 0 포함) */
