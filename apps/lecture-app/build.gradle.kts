@@ -16,15 +16,10 @@ dependencies {
     implementation(libs.swagger.annotations)
     // 이의 제기 결과·반환 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #278). 버전은 Modulith BOM을 따른다
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
-    // trace(#579): Micrometer Tracing OTel bridge와 OTLP exporter. Envoy가 넘긴 traceparent를 이어받아 Alloy(OTLP gRPC)로 보낸다.
-    // 함께 들어오는 OTLP 지표 export는 application.yaml에서 끈다(지표는 Prometheus가 수집한다)
-    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
     // 동시 요청의 유일 인덱스 위반 판별(UniqueIndexViolation)에 PSQLException의 제약 이름을 쓴다(billing과 같음). 드라이버는 실행 시 이 앱(runtimeOnly)가 넣어 준다
     compileOnly("org.postgresql:postgresql")
     // Facade 테스트의 역할 넣기(@WithMockUser). API 테스트 로그인은 사용자 헤더(support.GatewayLogin)다
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
-    // 만든 span을 메모리에 모아 확인한다(LectureTracingTest, #579). 버전은 Boot가 관리하는 OpenTelemetry BOM을 따른다
-    testImplementation("io.opentelemetry:opentelemetry-sdk-testing")
 }
 
 // 이 앱의 global.storage 구현에서 사용하는 S3 클라이언트.

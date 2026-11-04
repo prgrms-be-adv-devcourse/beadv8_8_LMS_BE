@@ -19,6 +19,8 @@ configMapGenerator:
       - MANAGEMENT_SERVER_PORT=8082
       # 75%는 chat-app이 384Mi에서 OOMKilled됐다(#373 로컬 k3d). heap을 줄여 non-heap(metaspace·thread) 몫을 남긴다.
       - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60
+      # trace를 Alloy(OTLP gRPC)로 보낸다. Alloy가 Tempo로 넘긴다(#631). service name은 spring.application.name(appearance-app)이다
+      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy.hapbang-platform.svc.cluster.local:4317
       - DB_URL=jdbc:postgresql://postgres.hapbang-platform.svc.cluster.local:5432/appearance
       - DB_USERNAME=appearance
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
