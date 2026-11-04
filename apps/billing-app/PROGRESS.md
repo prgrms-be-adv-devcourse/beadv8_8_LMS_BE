@@ -1,13 +1,13 @@
 # Billing 모듈 진행 기록
 
 Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)가 작업 전에 읽는 문서다.
-규칙은 루트 `AGENTS.md`와 `boundedContext/billing/AGENTS.md`가 우선이고, 이 문서는 지금까지 **무엇을 만들었고 그때 무엇을 검토했는지**를 기록한다. 결정과 그 상태(유효·대체됨·폐기·미결)의 원본은 [decisions.md](../../docs/billing/decisions.md)(`BD-*`)다.
+규칙은 루트 `AGENTS.md`와 `apps/billing-app/AGENTS.md`가 우선이고, 이 문서는 지금까지 **무엇을 만들었고 그때 무엇을 검토했는지**를 기록한다. 결정과 그 상태(유효·대체됨·폐기·미결)의 원본은 [decisions.md](../../docs/billing/decisions.md)(`BD-*`)다.
 
 - 작업을 시작하기 전에 이 문서를 읽는다.
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-11-03 (#627 사용자 API 회원별 rate limit, #623 회원 탈퇴용 지갑 닫기·다시 열기 내부 API, #607 변경된 지갑의 잔액 대사 배치, #598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-11-04 (#655 JVM 분리 재검토 결정 마무리·모놀리스 시절 문서 정리, #627 사용자 API 회원별 rate limit, #623 회원 탈퇴용 지갑 닫기·다시 열기 내부 API, #607 변경된 지갑의 잔액 대사 배치, #598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -54,6 +54,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #607 | 변경된 지갑의 잔액 대사 배치: `WalletReconciliationBatch`(매일 04:02:45 KST, 실행 락 607001) → `ChangedWalletReconciliationUseCase`(최근 72시간 안에 `wallet.updated_at`·`point_ledger.created_at`이 있는 지갑, 지갑마다 `reconcile`, 고치지 않음, 지갑 오류는 끝에 1회 재시도 후 failed로 세고 다음 회차로 이월), 지표 `hapbang.billing.reconciliation.wallets{result}`·`.last.success`(failed 0일 때만 갱신), Flyway `V202611031800`(`idx_wallet_1`, `idx_point_ledger_5`), BD-139 | `feature/tkt-607` | #611 | 완료 |
 | #623 | 회원 탈퇴용 지갑 확인하고 닫기·다시 열기 내부 API `POST /api/v1/internal/billing/withdrawals/{withdrawalId}/{close,reopen}`(`WalletWithdrawalFacade`·`UseCase`·`Blocks`): 막힌 이유(충전·수익 잔액, 처리 중인 환불·환전, 확인 중인 충전) 없으면 CLOSED·있으면 BLOCKED, 탈퇴 기록 `wallet_withdrawal`과 지갑 닫힘 `wallet.closed_by_withdrawal_id`·`closed_at`(Flyway `V202611032000`), 멱등(replayed, 다른 회원 409), 다시 열기 뒤 늦은 닫기 409 `WITHDRAWAL_ALREADY_REOPENED`, 닫힌 지갑의 충전 주문·충전 승인 시작·새 보류(강의·출연·환불·환전) 409 `WALLET_CLOSED`, 지갑 없는 회원은 기록만 + 회원별 advisory lock(`WalletUserLock`)으로 지갑 생성 때 닫힌 지갑, shared 계약·Client `closeForWithdrawal`·`reopenForWithdrawal`·실패 코드 2개, 닫힌 지갑에 들어온 HP 알림(원장 기록 warn 로그, 수집 때마다 DB에서 세는 지표 `hapbang.billing.wallet.closed.with.balance`(`ClosedWalletBalanceMetrics`, 실패하면 NaN, 부분 인덱스 `idx_wallet_2`), 매일 대사 배치의 지갑 ID warn 로그), `WalletWithdrawalIntegrationTest`(BD-141) | `feature/tkt-623` | (PR 전) | 구현 완료 |
 | #627 | 사용자 API 회원별 rate limit: `global.ratelimit`(`@RateLimited`·`RateLimitedApi` 14개·`RateLimitInterceptor`·`UserRateLimiter`, Resilience4j `RateLimiter` 앱 메모리), 회원 × API마다 분당 신청·취소 10·일반 조회 60·수익 조회 20(`hapbang.billing.rate-limit.*`), 429 `TOO_MANY_REQUESTS`(`GlobalErrorCode`) + `Retry-After`, 지표 `hapbang.billing.rate.limit.rejected{api}`, 의존성 `resilience4j-ratelimiter`, BD-140 | `feature/tkt-627` | (PR 전) | 구현 완료 |
+| #655 | JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(BD-141), 원격 호출 트랜잭션 계약(BD-142), BD-53·60·64·66·72·73·107 상태 정리, `module.md` 해소된 제약(L2·L3·L7·L10)·7.2·8.3을 현재 상태로, 7장 옛 후보 정리. 운영 코드 변경 없음 | `feature/tkt-655` | — | 진행 중 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
@@ -62,7 +63,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 ## 2. 현재 구조
 
 ```
-boundedContext/billing/src/main/java/com/hapbang/billing/
+apps/billing-app/src/main/java/com/hapbang/billing/
 ├── domain/   Entity·Enum·오류 타입
 ├── out/      Repository (삭제 메서드 없음), 조회 결과 record
 ├── app/      UseCase·Facade·요청/결과 record
@@ -774,36 +775,19 @@ Issue #142의 확정 정책을 적용했다. 실제 지급(HP 이동)·스케줄
 
 ### 다음 Issue 후보
 
-> 2026-10-16까지 적은 후보다. 충전·환불·환전은 그 뒤 구현됐고(1장), #142의 강의 지급 예정 건 설계는 #188로 폐기됐다(BD-62·BD-63, 당시 기록은 3.11). 열린 결정은 아래 "팀과 정할 것"이 가리키는 `decisions.md` 10장을 본다.
-- **#537 후속**: policy.md 2장 "회원 상태와 충전·환불·환전"은 팀 확인을 받는다. (prod 첫 배포 Backfill 절차는 #552에서 `docs/deploy/k8s.md` "billing-app 첫 배포"로 정했다.)
-- **#552 후속 (배포 이슈)**: 첫 배포는 `docs/deploy/k8s.md` "billing-app 첫 배포" 순서를 따른다. Prometheus 지표·관리 포트로 메모리가 늘 수 있어 448Mi limit에서 RSS를 확인한다. notification·search 앱을 더하기 전에 앱별 pool 또는 `max_connections`를 다시 정한다(`database.md` 5항).
-- **#224 후속**: 실제 TossPayments 테스트 키로 dev 서버에서 결제창 → 승인 수동 확인, 프론트 결제 계약 확정(결제창 방식·successUrl·failUrl), PENDING 주문 만료 정책, 최대 충전 금액, 가상계좌·웹훅(필요 시), PROCESSING 장기 미확정 건 운영자 조회·알림(관리자 Issue), ERD에 `pg_payment_key_hash`·`failure_reason` 반영.
-- **강의 지급 연동 검증 후속 (3.14, 각 담당)**:
-    - 강의 #150: 지급 배치 실패를 오류 코드로 구분(정상 재시도 `WALLET_NOT_FOUND`·일시 장애 / 확인 필요 `HOLD_ALREADY_CLOSED`·`PAYOUT_ALREADY_SETTLED`·`HOLD_STATE_INCONSISTENT`·`IDEMPOTENCY_KEY_CONFLICT`), 확인 필요 항목 격리·알림·관리자 조회. 어느 오류도 PAID_OUT으로 바꾸지 않는다.
-    - 강의 #150: 판매자 탈퇴 확인(팀이 탈퇴 후 최종 수익 정책을 정한 뒤).
-    - 팀: dev DB 레거시 강의 지급 건 확인 쿼리 실행, 남아 있으면 보정 Issue.
-    - 운영: 지급 배치 다중 인스턴스 실행 시에도 항목 낙관적 락 + 같은 요청 ID replay로 중복 이동은 없지만 경고 로그가 늘어난다(현재 EC2 1대라 해당 없음).
-- **#188 후속 (각 담당)**:
-    - 강의 #150: `BillingPort.payout` 직접 지급(이미 작업 중인 `feature/tkt-150`의 호출 형태와 같다), 지급 적격성(구매 확정·지급 예정일 경과·판매자 탈퇴 아님) 판단, 지급 예정 금액 조회는 강의 주문 항목(가격·`payout_scheduled_at`·지급 상태) 기준으로 제공. `feature/tkt-150`은 #182 이전 dev 기준이라 dev를 병합할 때 `OrderCreateUseCase`·`OrderCancelUseCase`의 #182 변경과 겹칠 수 있다(#188 뒤면 겹침이 없다).
-    - 강의 #156: 이의 제기 중 지급 차단(강의 상태로 판단), 인정 시 `release(full, "LECTURE-RETURN-{id}")`.
-    - 강의 #150: 판매자 지갑 누락(`WALLET_NOT_FOUND`)은 항목을 CONFIRMED로 두고 다음 배치에서 같은 요청 ID로 재시도(지갑은 가입·지갑 조회 경로로만 생긴다). 재시도해도 결과가 같은 `PAYOUT_ALREADY_SETTLED`·`HOLD_ALREADY_CLOSED`는 계속 재시도하지 않도록 구분·알림할지 결정.
-    - 팀: 판매자 탈퇴 후 최종 수익 정산 정책, dev DB 강의 지급 건 확인 쿼리 실행과 결과에 따른 보정 Issue(3.13 2차).
-- **#182 후속 (각 담당, 강의 부분은 #188로 대체)**:
-    - 출연(2차 확정: 분리 트랜잭션·HpTask 유지): `billing-port` 운영 전환 시점, **`HOLD_PENDING` 재확인 스케줄러**(상태 조회 메서드·인덱스 포함, 보류 재요청 → REQUESTED), **HpTask 재시도 스케줄러**(PENDING·next_attempt_at 조회, 재시도 한도·간격, `DEAD` 격리, Billing 영구 거절과 일시 실패 구분), Billing 500 계열을 HOLD_FAILED로 확정하지 않을지 검토, 지급·위약금도 HpTask 같은 상태 기반 복구로 설계, 요청 만료 반환, 1:N 모집 지원·선택·마감·취소 반환, 출연 확인 정상 지급(원천 = 출연 계약 ID), 호스트 일방 취소 `settlePenalty`(출연 계산 반환액·지급액).
-    - 강의: 지급(#150)은 Billing의 SCHEDULED → COMPLETED 지급 경로(3.11 후속)와 함께 설계한다. 이의 제기(#156) 인정 반환은 `release(full, "LECTURE-RETURN-{id}")` 뒤 지급 건 취소가 필요하고, 이의 제기 중 지급 중단에는 `suspend`·`resume`을 포트에 더해야 한다.
-    - 문서: 강의 설계서(`docs/design/lecture-module.md`)의 Billing 호출 표에 지급 예정 등록·취소를 더하는 것은 강의 담당이 한다(이번에 바꾸지 않았다).
-- **#145 후속 (각 담당)**:
-    - 강의 #146: 주문 항목별 `BillingPort.hold`, 구매 취소 `release`(3.10 "강의 #146이 쓸 계약"). 주문 상태 변경과 같은 트랜잭션에서 호출하고 Billing 예외를 잡지 않는다.
-    - 출연: `BillingClient`·`FakeBillingClient`를 shared `BillingPort`로 교체(3.10 비교표). 위약금은 출연이 계산한 반환액·지급액으로 `settlePenalty`, 모집 전체 취소는 게스트별 `settlePenalty` + 빈자리 `release`를 같은 트랜잭션에서 호출. 출연 테스트 대역(Fake)을 어떻게 둘지는 출연이 정한다.
-    - 강의 정산 #142: 아래 "강의 정산"의 예정 지급 건 방식. 지급은 shared 계약이 아니라 Billing 스케줄러 내부 경로가 될 수 있어 공개 범위는 그때 정한다.
-    - 반환·지급 사유를 원장 `description`에 남길지(지금 계약에 사유 필드 없음).
-    - 루트 AGENTS.md 3장은 "모듈 간 통신은 Spring Event 기본"이고 Billing 연동은 팀 확정에 따라 동기 `BillingPort` 호출이다. 루트 문서에 예외로 적을지는 팀이 정한다(이번 Issue에서 루트 문서는 바꾸지 않았다).
-- **출연 연동**: 계약은 #145의 shared `BillingPort`로 정했다(3.10의 비교표). 출연 쪽 어댑터 교체는 출연 담당이 한다. 모집 전체 취소(선택된 게스트별 위약금 + 빈자리 반환)를 한 번에 처리하는 일괄 진입점이 필요하면 `HoldProcessing`으로 만든다(지금은 게스트별 위약금 정산 + 반환을 각각 호출).
+> 2026-11-04 #655에서 다시 정리했다. 같은 JVM 호출(`BillingPort`)·한 트랜잭션 연동을 전제로 한 #145·#182·#188 후속은 강의·출연이 내부 HTTP API와 HP 작업으로 바꾸면서 끝났다(BD-128, BD-141, BD-142, 강의 D62·D65). 당시 기록은 3장에 남아 있다. 열린 결정은 아래 "팀과 정할 것"이 가리키는 `decisions.md` 10장을 본다.
+- **#537 후속**: policy.md 2장 "회원 상태와 충전·환불·환전"은 팀 확인을 받는다.
+- **#552 후속**: Prometheus 지표·관리 포트로 메모리가 늘 수 있어 448Mi limit에서 RSS를 확인한다. notification·search 앱을 더하기 전에 앱별 pool 또는 `max_connections`를 다시 정한다(`database.md` 5항).
+- **#224 후속**: 실제 TossPayments 테스트 키로 prod(유일한 서버)에서 결제창 → 승인 수동 확인, 프론트 결제 계약 확정(결제창 방식·successUrl·failUrl), PENDING 주문 만료 정책, 최대 충전 금액, 가상계좌·웹훅(필요 시), PROCESSING 장기 미확정 건 운영자 조회·알림(관리자 Issue), ERD에 `pg_payment_key_hash`·`failure_reason` 반영.
+- **팀 확인 (decisions.md 10장)**: 레거시 SCHEDULED 지급 건 확인(BD-71), 강의 지급 배치의 재시도 불가 오류 격리·판매자 탈퇴 후 최종 수익(BD-74), 반환·지급 사유를 원장 `description`에 남길지(BD-109).
+- **공통 테스트 기반 (`common/test-support`, 별도 Issue)**: Testcontainers가 공용 PostgreSQL 하나에 스키마만 나눠 쓴다. 인프라 문서 Phase 2-5(앱별 database·계정 구조, database 간 접근 차단 테스트)가 없고, 세션 시절 설정 `spring.session.jdbc.initialize-schema`가 남아 있다. 모든 앱에 영향을 주므로 지갑 Issue에서 바꾸지 않는다.
+
+### 구현 메모 (참고)
+
 - **Charge·Refund**: TossPayments 테스트 API, PG 승인과 DB 커밋 사이 상태 관리(`POINT_CHARGE` 상태·멱등키), 타임아웃을 성공·실패로 단정하지 않기.
     - 반환은 충전 원금을 역순으로 복원하므로, 환불(FIFO)이 어느 충전 건(PG 결제)을 취소할지가 반환 이력에 따라 달라진다. 환불 가능 총액은 같다.
     - 보류에 배분된 원금이 남은 충전 건은 `REFUNDED`로 바꾸면 안 된다(반환 때 원금을 되돌릴 곳이 없어 `CHARGE_PRINCIPAL_MISMATCH`). 일부 환불이면 `PARTIALLY_REFUNDED`로 둔다.
 - **Exchange**: 수익 HP 1 HP 단위(#453, 이전 1,000 단위), 송금액 = floor(신청 × 90%)·수수료 = 신청 − 송금액, 정산일(매월 10일, 주말이면 다음 월요일), Mock 송금. 송금액 0원은 은행 없이 완료.
-- **다른 모듈 연동**: #145에서 공개 계약을 shared `com.hapbang.shared.billing`(`BillingPort`·DTO·Enum)으로 정했다(3.10). 남은 일: 강의 #146이 `hold`·`release`를, 출연이 `BillingClient` 대신 `BillingPort`를 쓰도록 각 담당이 바꾼다. 반환·지급 사유(`reason`)를 원장 `description`에 남길지는 연동 때 정한다(지금 계약에는 없다).
 
 ### 팀과 정할 것
 - 미결 항목은 [decisions.md](../../docs/billing/decisions.md) 10장에 모았다(QueryDSL 도입·버전, `UserModifiedEvent`로 ADMIN이 될 때 지갑 처리, 반환·지급 사유 기록 등). 새 미결 항목도 그곳에 적는다.

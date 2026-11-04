@@ -24,14 +24,14 @@ Billing은 다음 기능을 담당한다.
 
 ## 2. 프로젝트 및 DB 구조
 
-- Gradle 모듈: `:billing`
-- PostgreSQL 스키마: `billing`
+- Gradle 프로젝트: `:billing-app` (`apps/billing-app`, 독립 실행 앱)
+- PostgreSQL: database `billing`, 스키마 `billing` (prod 기준. 로컬·테스트는 공용 database 안의 `billing` 스키마, `docs/billing/module.md` 8.3)
 - Entity 및 Enum 패키지: `com.hapbang.billing.domain`
 - Repository 패키지: `com.hapbang.billing.out`
 - 테이블 생성과 변경은 Flyway를 사용한다.
 - Hibernate `ddl-auto=validate` 정책을 유지한다.
 - 기존 Flyway 마이그레이션은 수정하지 않는다.
-- 기존 `shared`, `global`, 다른 바운디드 컨텍스트의 코드를 임의로 변경하지 않는다.
+- `common/shared`, 다른 앱의 코드를 임의로 변경하지 않는다. `global`은 이 앱 안의 패키지(`com.hapbang.billing.global`)다.
 
 ## 3. ERD
 
@@ -157,7 +157,7 @@ ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않�
 ## 9. 도메인 간 통신
 
 - Lecture와 Appearance의 HP 보류·반환·지급·위약금 정산 요청은 지갑 내부 HTTP API(`POST /api/v1/internal/billing/{holds,releases,payouts,penalty-settlements,hold-voids}`, #273·#479)로 한다. 소비 앱은 shared `BillingApiClient`(Resilience4j, #411)만 쓰고, 로컬 트랜잭션 밖에서 부른다(D62). 계약은 `docs/api/internal-billing.md`, 지갑 쪽 정책은 `docs/billing/CONTEXT.md` 1·2·6장.
-- **연동 계약은 `shared`의 `com.hapbang.shared.billing`에 둔다(#145).** 요청·결과 `dto`(`HoldCommand`·`ReleaseCommand`·`PayoutCommand`·`PenaltyCommand`·`HoldVoidCommand`와 각 결과 DTO), Enum·오류 코드 `domain`(`BillingReferenceType`·`SettlementSourceType`·`BillingFailureCode`·`HoldVoidOutcome`), 공통 HTTP Client `out`. **Java Port는 두지 않는다**: 같은 JVM 호출용 `BillingPort`·`BillingPortAdapter`는 #486에서 지웠고 `SharedBillingDependencyTest`가 port 패키지 없음·sealed가 아닌 인터페이스 없음을 고정한다(BD-128). Lecture·Appearance는 `:shared`만 의존하고 `:billing`의 클래스를 참조하지 않는다.
+- **연동 계약은 `shared`의 `com.hapbang.shared.billing`에 둔다(#145).** 요청·결과 `dto`(`HoldCommand`·`ReleaseCommand`·`PayoutCommand`·`PenaltyCommand`·`HoldVoidCommand`와 각 결과 DTO), Enum·오류 코드 `domain`(`BillingReferenceType`·`SettlementSourceType`·`BillingFailureCode`·`HoldVoidOutcome`), 공통 HTTP Client `out`. **Java Port는 두지 않는다**: 같은 JVM 호출용 `BillingPort`·`BillingPortAdapter`는 #486에서 지웠고 `SharedBillingDependencyTest`가 port 패키지 없음·sealed가 아닌 인터페이스 없음을 고정한다(BD-128). Lecture·Appearance는 `:shared`만 의존하고 `:billing-app`의 클래스를 참조하지 않는다.
 - 진입점은 `billing.in.ApiV1BillingInternalController` → `in.BillingCommands`(shared Command → `app.Payment*Command`, #494) → `HoldFacade`(`@PreAuthorize("hasRole('INTERNAL')")`, D63)다. 요청 하나가 지갑 트랜잭션 하나이고, 실패하면 그 요청의 변경이 전부 롤백된다. 호출한 쪽 트랜잭션에는 참여하지 않는다.
 - `shared`는 `billing`에 의존하지 않는다. shared 요청 DTO는 구조(필수 값·참조 유형·요청 ID 형식)만 검사하고, 금액·잔액·소유·초과·지급 원천·자기 지급·멱등성 같은 금융 검증은 Billing이 `BillingException`으로 한다. shared에서 `BillingException`·`BillingErrorCode`를 쓰지 않는다.
 - **두 종류의 예외를 구분한다 (#145 2차 확정).**
