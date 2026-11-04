@@ -12,6 +12,9 @@ dependencies {
     testImplementation(project(":kafka"))
     testImplementation(project(":redis"))
 
+    // trace 계측 테스트 도우미(RecordedSpans, TraceRequests, #631). 쓰는 앱이 testImplementation으로 둔다(루트 build.gradle.kts)
+    compileOnly("io.opentelemetry:opentelemetry-sdk-testing")
+
     // 테스트 로그인 헬퍼(TestLogin)
     implementation(project(":shared"))
     // 보안을 안 쓰는 모듈 테스트에 Spring Security가 끼어들지 않도록 compileOnly
