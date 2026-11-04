@@ -60,9 +60,13 @@ import com.hapbang.shared.member.event.UserLoggedOutEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+import com.hapbang.testsupport.RecordedSpans;
+import com.hapbang.testsupport.TraceRequests;
 
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.trace.data.SpanData;
 
 /**
  * 회원 앱이 {@code member.events.v1}에 보낸 회원 이벤트가 두 소비 그룹(복제본·지갑 생성)으로 반영되는지 실제 Kafka로 검증한다 (#430).
@@ -75,9 +79,12 @@ import io.micrometer.core.instrument.MeterRegistry;
  * 설정이 달라 다른 테스트와 컨텍스트를 공유하지 못한다. 끝나면 컨텍스트를 닫아 DB 연결과 리스너를 정리한다.
  */
 @IntegrationTest
-@Import({KafkaTestcontainersConfig.class, BillingMemberEventKafkaTest.MemberTopicConfig.class})
+@Import({KafkaTestcontainersConfig.class, BillingMemberEventKafkaTest.MemberTopicConfig.class,
+        RecordedSpans.Config.class})
+// trace 확인(#630)은 부모 없이 시작한 span도 놓치지 않게 샘플링 비율을 1로 둔다
 @TestPropertySource(properties = {"spring.kafka.listener.auto-startup=true", "spring.kafka.admin.auto-create=true",
-        "spring.datasource.hikari.maximum-pool-size=4", "spring.datasource.hikari.minimum-idle=1"})
+        "spring.datasource.hikari.maximum-pool-size=4", "spring.datasource.hikari.minimum-idle=1",
+        "management.tracing.sampling.probability=1.0"})
 @DirtiesContext
 class BillingMemberEventKafkaTest {
 
@@ -118,6 +125,30 @@ class BillingMemberEventKafkaTest {
 
     @MockitoSpyBean
     private BillingUserSyncUseCase billingUserSyncUseCase;
+
+    @Autowired
+    private RecordedSpans spans;
+
+    @Test
+    @DisplayName("회원 앱이 보낸 trace를 이어받아 두 소비 그룹(지갑·복제본)이 각각 처리한다 (#630)")
+    void continuesSenderTrace() throws Exception {
+        long userId = 310L;
+        String traceId = TraceRequests.randomTraceId();
+        String parentSpanId = TraceRequests.randomSpanId();
+
+        send(userId, new UserJoinedEvent(user(userId, "추적", Role.INFLUENCER, 0L)),
+                TraceRequests.traceparent(traceId, parentSpanId, true));
+
+        await().atMost(TIMEOUT).untilAsserted(() -> {
+            assertThat(walletRepository.findByUserId(userId)).isPresent();
+            assertThat(billingUserRepository.findById(userId)).isPresent();
+        });
+        RecordedSpans.await(() -> spans.all().stream()
+                .filter(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER).count() >= 2);
+        assertThat(spans.all()).filteredOn(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER)
+                .hasSize(2)
+                .extracting(SpanData::getParentSpanId).containsOnly(parentSpanId);
+    }
 
     @Test
     @DisplayName("가입 이벤트를 받으면 지갑(잔액 0)과 회원 복제본을 각각의 그룹이 만든다")
@@ -303,10 +334,19 @@ class BillingMemberEventKafkaTest {
 
     /** 회원 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. */
     private void send(long userId, Object event) {
+        send(userId, event, null);
+    }
+
+    /** {@code traceparent}(없으면 null)를 헤더에 실어, trace를 계측한 회원 앱이 보낸 것처럼 보낸다 (#630) */
+    private void send(long userId, Object event, String traceparent) {
         try (Producer<String, Object> producer = new KafkaProducer<>(producerProperties(),
                 new StringSerializer(), new JacksonJsonSerializer<>())) {
-            producer.send(new ProducerRecord<>(BillingKafkaConfig.MEMBER_EVENTS_TOPIC, String.valueOf(userId), event))
-                    .get(10, TimeUnit.SECONDS);
+            ProducerRecord<String, Object> record = new ProducerRecord<>(BillingKafkaConfig.MEMBER_EVENTS_TOPIC,
+                    String.valueOf(userId), event);
+            if (traceparent != null) {
+                record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
+            }
+            producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

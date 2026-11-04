@@ -208,6 +208,9 @@ public class ChatKafkaConfig {
         factory.setCommonErrorHandler(errorHandler);
         factory.setConcurrency(1);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
+        // 직접 만든 팩토리에는 Boot의 spring.kafka.listener.observation-enabled가 적용되지 않는다. 받은 메시지의 traceparent를
+        // 부모로 consumer span을 만들게 켠다(#630)
+        factory.getContainerProperties().setObservationEnabled(true);
         return factory;
     }
 
@@ -236,6 +239,8 @@ public class ChatKafkaConfig {
         LoggingProducerListener<K, V> producerListener = new LoggingProducerListener<>();
         producerListener.setIncludeContents(false);
         template.setProducerListener(producerListener);
+        // DLT 전송도 실패한 소비의 trace에 남긴다(#630). 빈으로 등록되므로 registry는 template이 컨텍스트에서 찾는다
+        template.setObservationEnabled(true);
         return template;
     }
 }

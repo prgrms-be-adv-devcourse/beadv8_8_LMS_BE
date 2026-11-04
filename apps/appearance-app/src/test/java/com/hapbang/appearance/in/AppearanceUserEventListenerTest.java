@@ -55,9 +55,13 @@ import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserLoggedOutEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+import com.hapbang.testsupport.RecordedSpans;
+import com.hapbang.testsupport.TraceRequests;
 
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.trace.data.SpanData;
 
 /**
  * 회원 앱이 {@code member.events.v1}에 보낸 회원 이벤트가 출연 회원 복제본에 반영되는지 실제 Kafka로 확인한다 (#394).
@@ -69,8 +73,11 @@ import io.micrometer.core.instrument.MeterRegistry;
  * 강의 앱의 같은 테스트(#429 {@code LectureMemberEventListenerTest})와 같은 경우를 확인한다.
  */
 @AppearanceIntegrationTest
-@Import({KafkaTestcontainersConfig.class, AppearanceUserEventListenerTest.MemberTopicConfig.class})
-@TestPropertySource(properties = {"spring.kafka.listener.auto-startup=true", "spring.kafka.admin.auto-create=true"})
+@Import({KafkaTestcontainersConfig.class, AppearanceUserEventListenerTest.MemberTopicConfig.class,
+        RecordedSpans.Config.class})
+// trace 확인(#630)은 부모 없이 시작한 span도 놓치지 않게 샘플링 비율을 1로 둔다
+@TestPropertySource(properties = {"spring.kafka.listener.auto-startup=true", "spring.kafka.admin.auto-create=true",
+        "management.tracing.sampling.probability=1.0"})
 @DirtiesContext
 class AppearanceUserEventListenerTest {
 
@@ -98,6 +105,26 @@ class AppearanceUserEventListenerTest {
 
     @Autowired
     AppearanceUserRepository appearanceUserRepository;
+
+    @Autowired
+    RecordedSpans spans;
+
+    @Test
+    @DisplayName("회원 앱이 보낸 trace를 이어받아 처리한다 (#630)")
+    void continuesSenderTrace() throws Exception {
+        long userId = 108L;
+        String traceId = TraceRequests.randomTraceId();
+        String parentSpanId = TraceRequests.randomSpanId();
+
+        send(userId, new UserJoinedEvent(user(userId, "추적", Role.INFLUENCER, 0L)),
+                TraceRequests.traceparent(traceId, parentSpanId, true));
+
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(appearanceUserRepository.findById(userId)).isPresent());
+        RecordedSpans.await(() -> spans.all().stream()
+                .anyMatch(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER));
+        assertThat(spans.all()).filteredOn(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER)
+                .extracting(SpanData::getParentSpanId).containsOnly(parentSpanId);
+    }
 
     @Test
     @DisplayName("회원 가입 이벤트를 받으면 출연 회원을 만든다 (닉네임·역할·상태·회원 버전)")
@@ -229,10 +256,19 @@ class AppearanceUserEventListenerTest {
 
     /** 회원 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. key는 userId다 */
     private void send(long userId, Object event) {
+        send(userId, event, null);
+    }
+
+    /** {@code traceparent}(없으면 null)를 헤더에 실어, trace를 계측한 회원 앱이 보낸 것처럼 보낸다 (#630) */
+    private void send(long userId, Object event, String traceparent) {
         try (Producer<String, Object> producer = new KafkaProducer<>(producerProperties(),
                 new StringSerializer(), new JacksonJsonSerializer<>())) {
-            producer.send(new ProducerRecord<>(AppearanceKafkaConfig.MEMBER_EVENTS_TOPIC, String.valueOf(userId), event))
-                    .get(10, TimeUnit.SECONDS);
+            ProducerRecord<String, Object> record = new ProducerRecord<>(AppearanceKafkaConfig.MEMBER_EVENTS_TOPIC,
+                    String.valueOf(userId), event);
+            if (traceparent != null) {
+                record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
+            }
+            producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

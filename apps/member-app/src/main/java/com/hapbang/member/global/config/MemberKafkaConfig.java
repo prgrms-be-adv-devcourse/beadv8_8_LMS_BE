@@ -32,6 +32,8 @@ import org.springframework.modulith.events.EventExternalizationConfiguration;
 import com.hapbang.member.in.RejectedEventException;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 
+import io.micrometer.observation.ObservationRegistry;
+
 /**
  * 회원 앱의 Kafka 설정. 규칙은 docs/architecture/infrastructure/kafka.md의 "토픽 규칙"·"발행"·"소비"·"재시도와 DLT"다.
  * <p>
@@ -120,7 +122,8 @@ public class MemberKafkaConfig {
      */
     @Bean
     DefaultErrorHandler kafkaErrorHandler(ProducerFactory<?, ?> producerFactory,
-            ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers) {
+            ObjectProvider<DefaultKafkaProducerFactoryCustomizer> producerFactoryCustomizers,
+            ObjectProvider<ObservationRegistry> observationRegistry) {
         Map<Class<?>, Serializer<?>> valueSerializers = Map.of(
                 byte[].class, new ByteArraySerializer(),
                 Object.class, new JacksonJsonSerializer<>());
@@ -131,6 +134,10 @@ public class MemberKafkaConfig {
         deadLetterProducerFactory.setBeanName(DEAD_LETTER_PRODUCER_FACTORY);
         producerFactoryCustomizers.orderedStream().forEach(customizer -> customizer.customize(deadLetterProducerFactory));
         KafkaTemplate<String, Object> deadLetterTemplate = new KafkaTemplate<>(deadLetterProducerFactory);
+        // 직접 만든 template에는 Boot의 spring.kafka.template.observation-enabled가 적용되지 않고, 빈이 아니라 registry도
+        // 받지 못한다. DLT 전송도 실패한 소비의 trace에 남게 둘 다 넣는다(#630)
+        deadLetterTemplate.setObservationEnabled(true);
+        observationRegistry.ifAvailable(deadLetterTemplate::setObservationRegistry);
         // 원본과 같은 partition 번호로 보낸다. 원본 토픽의 partition이 DLT(3개)보다 많아 번호가 없으면
         // DeadLetterPublishingRecoverer가 전송 전에 확인해 partition을 비우고(-1) key로 고르게 한다(verifyPartition 기본값).
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(deadLetterTemplate,

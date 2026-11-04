@@ -50,9 +50,15 @@ import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+import com.hapbang.testsupport.RecordedSpans;
+import com.hapbang.testsupport.TraceRequests;
 
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.trace.data.SpanData;
 
 /**
  * 판단 요청이 {@code customersupport.events.v1}에 key {@code inquiry:<문의 ID>}로 나가고, 강의가 {@code lecture.events.v1}에
@@ -60,9 +66,11 @@ import io.micrometer.core.instrument.MeterRegistry;
  * 테스트마다 다른 주문 항목·문의를 쓰고 자기 key의 메시지만 본다. 외부화와 리스너를 켠 설정이라 컨텍스트를 따로 띄우고 끝나면 닫는다.
  */
 @IntegrationTest
-@Import({KafkaTestcontainersConfig.class, CustomerSupportObjectionKafkaTest.LectureTopicConfig.class})
+@Import({KafkaTestcontainersConfig.class, CustomerSupportObjectionKafkaTest.LectureTopicConfig.class,
+        RecordedSpans.Config.class})
+// trace 확인(#630)은 부모 없이 시작한 span도 놓치지 않게 샘플링 비율을 1로 둔다
 @TestPropertySource(properties = {"spring.kafka.listener.auto-startup=true", "spring.kafka.admin.auto-create=true",
-        "spring.modulith.events.externalization.enabled=true"})
+        "spring.modulith.events.externalization.enabled=true", "management.tracing.sampling.probability=1.0"})
 @DirtiesContext
 class CustomerSupportObjectionKafkaTest {
 
@@ -95,6 +103,12 @@ class CustomerSupportObjectionKafkaTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private ObservationRegistry observationRegistry;
+
+    @Autowired
+    private RecordedSpans spans;
 
     private KafkaConsumer<String, String> consumer;
     private final List<ConsumerRecord<String, String>> received = new CopyOnWriteArrayList<>();
@@ -143,6 +157,37 @@ class CustomerSupportObjectionKafkaTest {
                 }));
     }
 
+    // trace(#630): 관리자 요청 안에서 보낸 판단 요청은 커밋 뒤 다른 스레드에서 나가도 요청과 같은 trace를 싣고,
+    // 강의가 그 trace로 보낸 결과도 같은 trace에서 처리한다
+    @Test
+    void 판단_요청과_강의_결과_처리가_관리자_요청과_같은_trace에_남는다() throws Exception {
+        long orderItemId = 803L;
+        Long inquiryId = LectureObjectionFixture.filed(transactionTemplate, inquiryRepository, USER_ID, orderItemId);
+
+        // 관리자 요청 하나(HTTP server span)를 대신한다
+        Observation.createNotStarted("objection-resolve-request", observationRegistry)
+                .observe(() -> inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다."));
+
+        ConsumerRecord<String, String> record = awaitExactly("inquiry:" + inquiryId, 1).getFirst();
+        RecordedSpans.await(() -> !spans.named("objection-resolve-request").isEmpty());
+        String traceId = spans.named("objection-resolve-request").getFirst().getTraceId();
+        RecordedSpans.await(() -> spans.all().stream()
+                .anyMatch(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.PRODUCER));
+        SpanData sent = spans.all().stream()
+                .filter(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.PRODUCER)
+                .findFirst().orElseThrow();
+        assertThat(header(record, "traceparent")).startsWith("00-" + traceId + "-" + sent.getSpanId() + "-");
+
+        // 강의 앱이 받은 traceparent를 이어 결과를 보낸 것처럼 보낸다
+        String lectureSpanId = TraceRequests.randomSpanId();
+        send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true),
+                TraceRequests.traceparent(traceId, lectureSpanId, true));
+        RecordedSpans.await(() -> spans.all().stream()
+                .anyMatch(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER));
+        assertThat(spans.all()).filteredOn(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER)
+                .extracting(SpanData::getParentSpanId).containsOnly(lectureSpanId);
+    }
+
     @Test
     void 고객센터_토픽과_강의_결과_DLT는_partition_3개로_선언한다() {
         String deadLetter = CustomerSupportKafkaConfig.deadLetterTopic(LectureEventTopic.NAME,
@@ -170,10 +215,19 @@ class CustomerSupportObjectionKafkaTest {
 
     /** 강의 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. */
     private void send(long orderItemId, Object event) {
+        send(orderItemId, event, null);
+    }
+
+    /** {@code traceparent}(없으면 null)를 헤더에 실어, trace를 계측한 강의 앱이 보낸 것처럼 보낸다 (#630) */
+    private void send(long orderItemId, Object event, String traceparent) {
         try (Producer<String, Object> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
                 new StringSerializer(), new JacksonJsonSerializer<>())) {
-            producer.send(new ProducerRecord<>(LectureEventTopic.NAME, "order-item:" + orderItemId, event))
-                    .get(10, TimeUnit.SECONDS);
+            ProducerRecord<String, Object> record = new ProducerRecord<>(LectureEventTopic.NAME,
+                    "order-item:" + orderItemId, event);
+            if (traceparent != null) {
+                record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
+            }
+            producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
