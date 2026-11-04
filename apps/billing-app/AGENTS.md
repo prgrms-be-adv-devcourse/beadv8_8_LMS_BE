@@ -295,6 +295,7 @@ Billing의 Controller·Facade를 새로 만들거나 고칠 때 따른다. 적�
 - **관리자 API 경로**: 관리자 전용 API만 `/api/v1/{module}/admin/**` 아래에 둔다 (예: `/api/v1/wallets/admin/...`, `/api/v1/settlements/admin/...`). 관리자가 아닌 API에는 `admin`을 붙이지 않는다.
 - **인증 (#537, BD-131)**: 사용자 API는 Envoy가 JWT를 검증해 넘긴 `X-User-Id`·`X-User-Role`로 인증한다(`global.auth.GatewayUserHeaderFilter`). 세션·CSRF를 쓰지 않는다. 테스트는 `fixture.GatewayLogin.as(userId, role)`로 로그인하고 `csrf()`를 붙이지 않는다.
 - **탈퇴로 닫힌 지갑 (#623, BD-141)**: 새로 HP가 드나드는 신청(충전 주문·충전 승인 시작·새 보류)은 그 작업의 지갑 락 아래에서 `Wallet.requireOpen()`으로 확인하고 409 `WALLET_CLOSED`로 거절한다. Facade에서 미리 보는 것만으로는 닫기와 직렬화되지 않는다. 이미 생긴 의무(보류 재요청·반환·지급 받기·위약금·복구 배치)는 거절하지 않는다. 지갑을 새로 만드는 경로는 `WalletCreateUseCase`만 쓴다(회원 락 아래에서 탈퇴 기록을 보고 닫힌 지갑을 만든다).
+- **파기로 닫힌 지갑 (#674, BD-145)**: 닫힘 표시는 `wallet.closed_at`이다(`Wallet.isClosed`). 탈퇴로 닫으면 탈퇴 작업 ID와 시각이, 회원 정보 파기(`UserMaskedEvent`)로 닫으면 시각만 있다. 다시 열기는 탈퇴 작업 ID가 같을 때만 열어 파기로 닫힌 지갑은 열리지 않는다. 닫힌 지갑을 찾는 쿼리는 `closed_at`으로 거른다. 파기 때 끝난 환전의 계좌만 지우고 처리 중인 환전의 계좌는 송금에 필요해 남긴다(BD-144, `WalletMaskingUseCase`).
 - **지갑 회원 확인 (#537, BD-131)**: HP를 받거나 내보내는 사용자 신청(충전 주문·승인, 환불 신청, 환전 신청)은 Facade의 `@PreAuthorize`(토큰 역할)에 더해 `WalletMemberCheck`로 `billing_user`의 상태·역할을 확인한다. 복제본 없음 404 `WALLET_MEMBER_NOT_FOUND`, 부적격 403 `WALLET_MEMBER_NOT_ALLOWED`. 이런 신청을 새로 만들면 같은 확인을 붙이고, 테스트 `setUp`에서 `WalletMemberFixture`로 지갑 회원을 저장한다.
 - **권한 검사**:
     - 관리자 API는 두 겹으로 막는다. `SecurityConfig`의 `requestMatchers("/api/v1/*/admin/**").hasRole("ADMIN")`과 서비스 레이어(Facade·Service 등)의 `@PreAuthorize("hasRole('ADMIN')")`.
