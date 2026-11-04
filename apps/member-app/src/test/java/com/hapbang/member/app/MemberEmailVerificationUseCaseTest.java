@@ -1,13 +1,19 @@
 package com.hapbang.member.app;
 
+import static com.hapbang.member.domain.EmailVerificationPurpose.PASSWORD_RESET;
+import static com.hapbang.member.domain.EmailVerificationPurpose.SIGN_UP;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,12 +25,16 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.MailSendException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
+import com.hapbang.member.domain.PasswordCredential;
+import com.hapbang.member.domain.User;
 import com.hapbang.member.out.EmailSender;
 import com.hapbang.member.out.EmailVerificationStore;
+import com.hapbang.member.out.PasswordCredentialRepository;
 import com.hapbang.member.out.UserRepository;
 
 /** 가입 인증 코드 보내기 (#557) */
@@ -42,6 +52,9 @@ class MemberEmailVerificationUseCaseTest {
     @Mock
     EmailSender emailSender;
 
+    @Mock
+    PasswordCredentialRepository passwordCredentialRepository;
+
     @InjectMocks
     MemberEmailVerificationUseCase useCase;
 
@@ -50,10 +63,10 @@ class MemberEmailVerificationUseCaseTest {
     void sendSignUpCode() {
         allowAll("tester@example.com", PUBLIC_IP);
 
-        useCase.sendSignUpCode(" Tester@Example.com ", PUBLIC_IP);
+        useCase.sendCode(" Tester@Example.com ", SIGN_UP, PUBLIC_IP);
 
         ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
-        verify(store).saveCode(eq("tester@example.com"), code.capture());
+        verify(store).saveCode(eq("tester@example.com"), eq(SIGN_UP), code.capture());
         assertThat(code.getValue()).matches("\\d{6}");
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(emailSender).send(eq("tester@example.com"), eq(MemberEmailVerificationUseCase.SUBJECT), body.capture());
@@ -66,11 +79,11 @@ class MemberEmailVerificationUseCaseTest {
         allowAll("tester@example.com", PUBLIC_IP);
         given(userRepository.existsByEmailIgnoreCase("tester@example.com")).willReturn(true);
 
-        useCase.sendSignUpCode("tester@example.com", PUBLIC_IP);
+        useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP);
 
         verify(emailSender).send(eq("tester@example.com"), eq(MemberEmailVerificationUseCase.ALREADY_REGISTERED_SUBJECT),
                 anyString());
-        verify(store, never()).saveCode(anyString(), anyString());
+        verify(store, never()).saveCode(anyString(), any(), anyString());
         verify(store).tryCountIp(PUBLIC_IP);
         verify(store).tryCountEmailDaily("tester@example.com");
         verify(store).tryCountGlobalDaily();
@@ -81,7 +94,7 @@ class MemberEmailVerificationUseCaseTest {
     void resendTooSoon() {
         given(store.tryStartResendCooldown("tester@example.com")).willReturn(false);
 
-        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP),
+        assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP),
                 MemberErrorCode.EMAIL_CODE_RESEND_TOO_SOON);
         verify(store, never()).tryCountIp(anyString());
         verify(store, never()).tryCountEmailDaily(anyString());
@@ -95,7 +108,7 @@ class MemberEmailVerificationUseCaseTest {
         given(store.tryStartResendCooldown("tester@example.com")).willReturn(true);
         given(store.tryCountIp(PUBLIC_IP)).willReturn(false);
 
-        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP),
+        assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP),
                 MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
         verify(store).clearResendCooldown("tester@example.com");
         verify(emailSender, never()).send(anyString(), anyString(), anyString());
@@ -108,7 +121,7 @@ class MemberEmailVerificationUseCaseTest {
         given(store.tryCountIp(PUBLIC_IP)).willReturn(true);
         given(store.tryCountEmailDaily("tester@example.com")).willReturn(false);
 
-        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP), MemberErrorCode.EMAIL_CODE_DAILY_LIMIT);
+        assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP), MemberErrorCode.EMAIL_CODE_DAILY_LIMIT);
         verify(store).clearResendCooldown("tester@example.com");
         verify(store, never()).tryCountGlobalDaily();
         verify(emailSender, never()).send(anyString(), anyString(), anyString());
@@ -122,7 +135,7 @@ class MemberEmailVerificationUseCaseTest {
         given(store.tryCountEmailDaily("tester@example.com")).willReturn(true);
         given(store.tryCountGlobalDaily()).willReturn(false);
 
-        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP), MemberErrorCode.EMAIL_SEND_UNAVAILABLE);
+        assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP), MemberErrorCode.EMAIL_SEND_UNAVAILABLE);
         verify(store).clearResendCooldown("tester@example.com");
         verify(emailSender, never()).send(anyString(), anyString(), anyString());
     }
@@ -134,7 +147,7 @@ class MemberEmailVerificationUseCaseTest {
         given(store.tryCountEmailDaily("tester@example.com")).willReturn(true);
         given(store.tryCountGlobalDaily()).willReturn(true);
 
-        useCase.sendSignUpCode("tester@example.com", "10.42.0.15");
+        useCase.sendCode("tester@example.com", SIGN_UP, "10.42.0.15");
 
         verify(store, never()).tryCountIp(anyString());
         verify(emailSender).send(eq("tester@example.com"), anyString(), anyString());
@@ -146,42 +159,93 @@ class MemberEmailVerificationUseCaseTest {
         allowAll("tester@example.com", PUBLIC_IP);
         willThrow(new MailSendException("smtp down")).given(emailSender).send(anyString(), anyString(), anyString());
 
-        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP), MemberErrorCode.EMAIL_SEND_FAILED);
-        verify(store).deleteCode("tester@example.com");
+        assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP), MemberErrorCode.EMAIL_SEND_FAILED);
+        verify(store).deleteCode("tester@example.com", SIGN_UP);
         verify(store).clearResendCooldown("tester@example.com");
+    }
+
+    @Test
+    @DisplayName("재설정: 비밀번호가 있는 정상 회원이면 재설정 코드를 저장하고 메일로 보낸다")
+    void passwordResetCode() {
+        allowAll("tester@example.com", PUBLIC_IP);
+        User user = activeUser(7L);
+        given(userRepository.findByEmailIgnoreCase("tester@example.com")).willReturn(Optional.of(user));
+        given(passwordCredentialRepository.findByUserId(7L))
+                .willReturn(Optional.of(PasswordCredential.register(user, "{bcrypt}hash", LocalDateTime.now())));
+
+        useCase.sendCode("tester@example.com", PASSWORD_RESET, PUBLIC_IP);
+
+        ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
+        verify(store).saveCode(eq("tester@example.com"), eq(PASSWORD_RESET), code.capture());
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(emailSender).send(eq("tester@example.com"), eq(MemberEmailVerificationUseCase.PASSWORD_RESET_SUBJECT),
+                body.capture());
+        assertThat(body.getValue()).contains(code.getValue());
+    }
+
+    @Test
+    @DisplayName("재설정: 구글로만 가입한(비밀번호 없는) 정상 회원이면 코드 대신 구글 로그인 안내를 보낸다")
+    void passwordResetGoogleMember() {
+        allowAll("tester@example.com", PUBLIC_IP);
+        given(userRepository.findByEmailIgnoreCase("tester@example.com")).willReturn(Optional.of(activeUser(7L)));
+        given(passwordCredentialRepository.findByUserId(7L)).willReturn(Optional.empty());
+
+        useCase.sendCode("tester@example.com", PASSWORD_RESET, PUBLIC_IP);
+
+        verify(emailSender).send(eq("tester@example.com"), eq(MemberEmailVerificationUseCase.GOOGLE_ACCOUNT_SUBJECT),
+                anyString());
+        verify(store, never()).saveCode(anyString(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("재설정: 없는 아이디·탈퇴·정지 회원이면 아무것도 보내지 않지만 같은 응답(예외 없음)이고 제한은 센다")
+    void passwordResetNoMember() {
+        allowAll("none@example.com", PUBLIC_IP);
+        allowAll("withdrawn@example.com", PUBLIC_IP);
+        User withdrawn = activeUser(8L);
+        withdrawn.withdraw(LocalDateTime.now());
+        given(userRepository.findByEmailIgnoreCase("none@example.com")).willReturn(Optional.empty());
+        given(userRepository.findByEmailIgnoreCase("withdrawn@example.com")).willReturn(Optional.of(withdrawn));
+
+        useCase.sendCode("none@example.com", PASSWORD_RESET, PUBLIC_IP);
+        useCase.sendCode("withdrawn@example.com", PASSWORD_RESET, PUBLIC_IP);
+
+        verify(emailSender, never()).send(anyString(), anyString(), anyString());
+        verify(store).tryCountEmailDaily("none@example.com");
+        verify(store).tryCountEmailDaily("withdrawn@example.com");
     }
 
     @Test
     @DisplayName("코드가 맞으면 소문자 이메일로 인증 토큰을 발급한다")
     void verifyMatched() {
-        given(store.checkCode("tester@example.com", "123456", EmailVerificationPolicy.MAX_CODE_ATTEMPTS))
+        given(store.checkCode("tester@example.com", SIGN_UP, "123456", EmailVerificationPolicy.MAX_CODE_ATTEMPTS))
                 .willReturn(EmailVerificationStore.CodeCheck.MATCHED);
-        given(store.issueToken("tester@example.com")).willReturn("token-1");
+        given(store.issueToken("tester@example.com", SIGN_UP)).willReturn("token-1");
 
-        assertThat(useCase.verifySignUpCode("Tester@example.com", "123456")).isEqualTo("token-1");
+        assertThat(useCase.verifyCode("Tester@example.com", SIGN_UP, "123456")).isEqualTo("token-1");
     }
 
     @Test
     @DisplayName("틀리면 INVALID_EMAIL_CODE, 횟수 초과·코드 없음은 EMAIL_CODE_EXPIRED이고 토큰을 발급하지 않는다")
     void verifyRejected() {
-        given(store.checkCode(eq("tester@example.com"), anyString(), eq(EmailVerificationPolicy.MAX_CODE_ATTEMPTS)))
+        given(store.checkCode(eq("tester@example.com"), eq(SIGN_UP), anyString(), eq(EmailVerificationPolicy.MAX_CODE_ATTEMPTS)))
                 .willReturn(EmailVerificationStore.CodeCheck.WRONG, EmailVerificationStore.CodeCheck.ATTEMPTS_EXCEEDED,
                         EmailVerificationStore.CodeCheck.NOT_FOUND);
 
-        assertError(() -> useCase.verifySignUpCode("tester@example.com", "000000"), MemberErrorCode.INVALID_EMAIL_CODE);
-        assertError(() -> useCase.verifySignUpCode("tester@example.com", "000000"), MemberErrorCode.EMAIL_CODE_EXPIRED);
-        assertError(() -> useCase.verifySignUpCode("tester@example.com", "000000"), MemberErrorCode.EMAIL_CODE_EXPIRED);
-        verify(store, never()).issueToken(anyString());
+        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000"), MemberErrorCode.INVALID_EMAIL_CODE);
+        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000"), MemberErrorCode.EMAIL_CODE_EXPIRED);
+        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000"), MemberErrorCode.EMAIL_CODE_EXPIRED);
+        verify(store, never()).issueToken(anyString(), any());
     }
 
     @Test
     @DisplayName("가입 뒤 인증 토큰을 지우다 Redis 오류가 나도 예외를 던지지 않는다 (가입은 이미 끝났으므로 500으로 만들지 않음)")
     void consumeTokenFailureIsQuiet() {
-        willThrow(new IllegalStateException("redis down")).given(store).deleteToken("token-1");
+        willThrow(new IllegalStateException("redis down")).given(store).deleteToken("token-1", SIGN_UP);
 
-        useCase.consumeAfterSignUp("token-1");
+        useCase.consumeAfterUse("token-1", SIGN_UP);
 
-        verify(store).deleteToken("token-1");
+        verify(store).deleteToken("token-1", SIGN_UP);
     }
 
     @ParameterizedTest
@@ -217,5 +281,11 @@ class MemberEmailVerificationUseCaseTest {
         given(store.tryCountIp(ip)).willReturn(true);
         given(store.tryCountEmailDaily(email)).willReturn(true);
         given(store.tryCountGlobalDaily()).willReturn(true);
+    }
+
+    private static User activeUser(Long id) {
+        User user = User.join("tester@example.com", "tester");
+        ReflectionTestUtils.setField(user, "id", id);
+        return user;
     }
 }

@@ -1,5 +1,7 @@
 package com.hapbang.member.out;
 
+import static com.hapbang.member.domain.EmailVerificationPurpose.PASSWORD_RESET;
+import static com.hapbang.member.domain.EmailVerificationPurpose.SIGN_UP;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
@@ -16,6 +18,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.EmailVerificationPolicy;
+import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 
 /** 가입 이메일 인증 저장소 (#557): 실제 Redis로 재발송 간격·IP 횟수·코드 저장을 확인한다 */
@@ -70,44 +73,44 @@ class RedisEmailVerificationStoreTest {
     void saveCode() {
         String email = newEmail();
         String hash = RedisLoginAttemptStore.hash(email);
-        redisTemplate.opsForValue().set(RedisEmailVerificationStore.FAIL_KEY_PREFIX + hash, "3");
+        redisTemplate.opsForValue().set(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.FAIL_KEY_PREFIX, SIGN_UP, hash), "3");
 
-        store.saveCode(email, "111111");
-        store.saveCode(email, "222222");
+        store.saveCode(email, SIGN_UP, "111111");
+        store.saveCode(email, SIGN_UP, "222222");
 
-        assertThat(redisTemplate.opsForValue().get(RedisEmailVerificationStore.CODE_KEY_PREFIX + hash)).isEqualTo("222222");
-        assertThat(redisTemplate.hasKey(RedisEmailVerificationStore.FAIL_KEY_PREFIX + hash)).isFalse();
-        assertThat(redisTemplate.getExpire(RedisEmailVerificationStore.CODE_KEY_PREFIX + hash, TimeUnit.MINUTES))
+        assertThat(redisTemplate.opsForValue().get(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.CODE_KEY_PREFIX, SIGN_UP, hash))).isEqualTo("222222");
+        assertThat(redisTemplate.hasKey(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.FAIL_KEY_PREFIX, SIGN_UP, hash))).isFalse();
+        assertThat(redisTemplate.getExpire(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.CODE_KEY_PREFIX, SIGN_UP, hash), TimeUnit.MINUTES))
                 .isBetween(9L, 10L);
         assertThat(hash).doesNotContain("@");
 
-        store.deleteCode(email);
-        assertThat(redisTemplate.hasKey(RedisEmailVerificationStore.CODE_KEY_PREFIX + hash)).isFalse();
+        store.deleteCode(email, SIGN_UP);
+        assertThat(redisTemplate.hasKey(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.CODE_KEY_PREFIX, SIGN_UP, hash))).isFalse();
     }
 
     @Test
     @DisplayName("맞는 코드는 MATCHED이고 코드를 지워 다시 쓸 수 없다")
     void checkCodeMatched() {
         String email = newEmail();
-        store.saveCode(email, "123456");
+        store.saveCode(email, SIGN_UP, "123456");
 
-        assertThat(store.checkCode(email, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.MATCHED);
-        assertThat(store.checkCode(email, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.NOT_FOUND);
+        assertThat(store.checkCode(email, SIGN_UP, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.MATCHED);
+        assertThat(store.checkCode(email, SIGN_UP, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.NOT_FOUND);
     }
 
     @Test
     @DisplayName("4번 틀릴 때까지는 WRONG이고, 5번째에 ATTEMPTS_EXCEEDED로 코드를 지운다. 맞는 코드도 그 뒤엔 못 쓴다")
     void checkCodeAttempts() {
         String email = newEmail();
-        store.saveCode(email, "123456");
+        store.saveCode(email, SIGN_UP, "123456");
         for (int i = 0; i < 4; i++) {
-            assertThat(store.checkCode(email, "000000", 5)).isEqualTo(EmailVerificationStore.CodeCheck.WRONG);
+            assertThat(store.checkCode(email, SIGN_UP, "000000", 5)).isEqualTo(EmailVerificationStore.CodeCheck.WRONG);
         }
-        assertThat(redisTemplate.getExpire(RedisEmailVerificationStore.FAIL_KEY_PREFIX + RedisLoginAttemptStore.hash(email),
+        assertThat(redisTemplate.getExpire(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.FAIL_KEY_PREFIX, SIGN_UP, RedisLoginAttemptStore.hash(email)),
                 TimeUnit.MINUTES)).isBetween(9L, 10L);
 
-        assertThat(store.checkCode(email, "000000", 5)).isEqualTo(EmailVerificationStore.CodeCheck.ATTEMPTS_EXCEEDED);
-        assertThat(store.checkCode(email, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.NOT_FOUND);
+        assertThat(store.checkCode(email, SIGN_UP, "000000", 5)).isEqualTo(EmailVerificationStore.CodeCheck.ATTEMPTS_EXCEEDED);
+        assertThat(store.checkCode(email, SIGN_UP, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.NOT_FOUND);
     }
 
     @Test
@@ -115,19 +118,19 @@ class RedisEmailVerificationStoreTest {
     void token() {
         String email = newEmail();
 
-        String token = store.issueToken(email);
-        String key = RedisEmailVerificationStore.TOKEN_KEY_PREFIX + RedisLoginAttemptStore.hash(token);
+        String token = store.issueToken(email, SIGN_UP);
+        String key = RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.TOKEN_KEY_PREFIX, SIGN_UP, RedisLoginAttemptStore.hash(token));
         createdKeys.add(key);
 
         assertThat(token).hasSizeGreaterThanOrEqualTo(40);
         assertThat(key).doesNotContain(token);
         assertThat(redisTemplate.getExpire(key, TimeUnit.MINUTES)).isBetween(29L, 30L);
-        assertThat(store.findTokenEmail(token)).contains(email);
-        assertThat(store.findTokenEmail(token)).contains(email);
-        store.deleteToken(token);
-        assertThat(store.findTokenEmail(token)).isEmpty();
-        assertThat(store.findTokenEmail("")).isEmpty();
-        assertThat(store.findTokenEmail(null)).isEmpty();
+        assertThat(store.findTokenEmail(token, SIGN_UP)).contains(email);
+        assertThat(store.findTokenEmail(token, SIGN_UP)).contains(email);
+        store.deleteToken(token, SIGN_UP);
+        assertThat(store.findTokenEmail(token, SIGN_UP)).isEmpty();
+        assertThat(store.findTokenEmail("", SIGN_UP)).isEmpty();
+        assertThat(store.findTokenEmail(null, SIGN_UP)).isEmpty();
     }
 
     @Test
@@ -155,11 +158,27 @@ class RedisEmailVerificationStoreTest {
         assertThat(store.tryCountGlobalDaily()).isFalse();
     }
 
+    @Test
+    @DisplayName("코드와 토큰은 용도마다 따로다: 가입 코드로 재설정 확인이 안 되고, 가입 토큰은 재설정 토큰으로 찾을 수 없다")
+    void purposesAreSeparate() {
+        String email = newEmail();
+        store.saveCode(email, SIGN_UP, "123456");
+
+        assertThat(store.checkCode(email, PASSWORD_RESET, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.NOT_FOUND);
+        assertThat(store.checkCode(email, SIGN_UP, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.MATCHED);
+
+        String token = store.issueToken(email, SIGN_UP);
+        createdKeys.add(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.TOKEN_KEY_PREFIX, SIGN_UP,
+                RedisLoginAttemptStore.hash(token)));
+        assertThat(store.findTokenEmail(token, PASSWORD_RESET)).isEmpty();
+        assertThat(store.findTokenEmail(token, SIGN_UP)).contains(email);
+    }
+
     private String newEmail() {
         String email = UUID.randomUUID() + "@example.com";
         String hash = RedisLoginAttemptStore.hash(email);
-        createdKeys.add(RedisEmailVerificationStore.CODE_KEY_PREFIX + hash);
-        createdKeys.add(RedisEmailVerificationStore.FAIL_KEY_PREFIX + hash);
+        createdKeys.add(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.CODE_KEY_PREFIX, SIGN_UP, hash));
+        createdKeys.add(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.FAIL_KEY_PREFIX, SIGN_UP, hash));
         createdKeys.add(RedisEmailVerificationStore.COOLDOWN_KEY_PREFIX + hash);
         createdKeys.add(RedisEmailVerificationStore.EMAIL_DAILY_KEY_PREFIX + hash);
         return email;

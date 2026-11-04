@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.EmailVerificationStore;
@@ -122,7 +123,7 @@ class ApiV1MemberPasswordControllerTest {
         signUp(newEmail(), "abcd1234", "tester3", token)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
-        assertThat(emailVerificationStore.findTokenEmail(token)).isEmpty();
+        assertThat(emailVerificationStore.findTokenEmail(token, EmailVerificationPurpose.SIGN_UP)).isEmpty();
     }
 
     @Test
@@ -312,8 +313,8 @@ class ApiV1MemberPasswordControllerTest {
 
     /** 인증 코드 확인을 마친 것처럼 토큰을 발급한다 (코드 받기·확인은 EmailVerificationApiTest가 확인) */
     private String verifiedToken(String email) {
-        String token = emailVerificationStore.issueToken(email.strip().toLowerCase());
-        createdKeys.add("member:email-verified:" + sha256(token));
+        String token = emailVerificationStore.issueToken(email.strip().toLowerCase(), EmailVerificationPurpose.SIGN_UP);
+        createdKeys.add("member:email-verified:sign_up:" + sha256(token));
         return token;
     }
 

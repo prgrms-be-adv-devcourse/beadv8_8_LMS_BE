@@ -128,7 +128,7 @@ class EmailVerificationApiTest {
                 .andExpect(jsonPath("$.data.expiresInSeconds").value(1800))
                 .andReturn().getResponse().getContentAsString();
         String token = JsonPath.read(body, "$.data.emailVerificationToken");
-        createdKeys.add("member:email-verified:" + hash(token));
+        createdKeys.add("member:email-verified:sign_up:" + hash(token));
 
         verify(email, code)
                 .andExpect(status().isBadRequest())
@@ -160,7 +160,7 @@ class EmailVerificationApiTest {
         sendCode(email, newIp()).andExpect(status().isOk());
         String body = verify(email, savedCode(email)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         String token = JsonPath.read(body, "$.data.emailVerificationToken");
-        createdKeys.add("member:email-verified:" + hash(token));
+        createdKeys.add("member:email-verified:sign_up:" + hash(token));
 
         signUp(email, "abcd1234", "가입흐름", token).andExpect(status().isCreated());
         User user = userRepository.findByEmail(email).orElseThrow();
@@ -179,12 +179,12 @@ class EmailVerificationApiTest {
 
     private ResultActions verify(String email, String code) throws Exception {
         return mockMvc.perform(post(EMAIL_CODES + "/verify").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"%s\",\"code\":\"%s\"}".formatted(email, code)));
+                .content("{\"email\":\"%s\",\"purpose\":\"SIGN_UP\",\"code\":\"%s\"}".formatted(email, code)));
     }
 
     /** 메일 대신 Redis에 저장된 코드를 읽는다 (테스트에는 메일 계정이 없어 로그 발송기를 쓴다) */
     private String savedCode(String email) {
-        return redisTemplate.opsForValue().get("member:email-code:" + hash(email));
+        return redisTemplate.opsForValue().get("member:email-code:sign_up:" + hash(email));
     }
 
     private ResultActions sendCode(String email, String ip) throws Exception {
@@ -194,14 +194,16 @@ class EmailVerificationApiTest {
                     return request;
                 })
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"%s\"}".formatted(email)));
+                .content("{\"email\":\"%s\",\"purpose\":\"SIGN_UP\"}".formatted(email)));
     }
 
     private String newEmail() {
         String email = UUID.randomUUID() + "@example.com";
         String hash = hash(email);
-        createdKeys.add("member:email-code:" + hash);
-        createdKeys.add("member:email-code-fail:" + hash);
+        for (String purpose : new String[] {"sign_up", "password_reset"}) {
+            createdKeys.add("member:email-code:" + purpose + ":" + hash);
+            createdKeys.add("member:email-code-fail:" + purpose + ":" + hash);
+        }
         createdKeys.add("member:email-code-cooldown:" + hash);
         createdKeys.add("member:email-code-daily:" + hash);
         return email;

@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.ChannelPlatform;
+import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
 import com.hapbang.member.domain.MemberErrorCode;
@@ -294,14 +295,14 @@ public class MemberFacade {
         memberTokenUseCase.logout(refreshToken);
     }
 
-    /** 가입 인증 코드 메일 보내기 (#557). 메일 발송을 DB 트랜잭션에 두지 않으려고 트랜잭션을 두지 않는다 */
-    public void sendSignUpEmailCode(String email, String clientIp) {
-        memberEmailVerificationUseCase.sendSignUpCode(email, clientIp);
+    /** 인증 코드 메일 보내기 (#557, 가입·비밀번호 재설정). 메일 발송을 DB 트랜잭션에 두지 않으려고 트랜잭션을 두지 않는다 */
+    public void sendEmailCode(String email, EmailVerificationPurpose purpose, String clientIp) {
+        memberEmailVerificationUseCase.sendCode(email, purpose, clientIp);
     }
 
-    /** 가입 인증 코드 확인 → 인증 토큰 (#557) */
-    public String verifySignUpEmailCode(String email, String code) {
-        return memberEmailVerificationUseCase.verifySignUpCode(email, code);
+    /** 인증 코드 확인 → 그 용도의 인증 토큰 (#557) */
+    public String verifyEmailCode(String email, EmailVerificationPurpose purpose, String code) {
+        return memberEmailVerificationUseCase.verifyCode(email, purpose, code);
     }
 
     /**
@@ -310,9 +311,9 @@ public class MemberFacade {
      */
     @Transactional
     public User signUp(String email, String password, String nickname, String emailVerificationToken) {
-        memberEmailVerificationUseCase.requireVerified(email, emailVerificationToken);
+        memberEmailVerificationUseCase.requireVerified(email, EmailVerificationPurpose.SIGN_UP, emailVerificationToken);
         User user = memberSignUpUseCase.signUp(email, password, nickname);
-        memberEmailVerificationUseCase.consumeAfterSignUp(emailVerificationToken);
+        memberEmailVerificationUseCase.consumeAfterUse(emailVerificationToken, EmailVerificationPurpose.SIGN_UP);
         return user;
     }
 

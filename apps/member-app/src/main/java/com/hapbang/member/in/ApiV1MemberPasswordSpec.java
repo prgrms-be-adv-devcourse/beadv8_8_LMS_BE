@@ -14,22 +14,26 @@ import jakarta.servlet.http.HttpServletResponse;
 @Tag(name = "비밀번호 로그인", description = "이메일·비밀번호 가입, 로그인, 비밀번호 변경")
 public interface ApiV1MemberPasswordSpec {
 
-    @Operation(summary = "가입 인증 코드 받기",
-            description = "로그인 없이 부른다 (#557). 가입할 이메일로 6자리 인증 코드를 보낸다. 코드는 10분 유효하고, 다시 받으면 이전 코드는 못 쓴다. "
-                    + "가입 여부는 응답으로 알려 주지 않는다: 이미 가입된 이메일(구글 가입 포함)이어도 같은 200을 주고, 코드 대신 "
-                    + "\"이미 가입된 이메일\" 안내 메일을 보낸다(메일함 주인만 앎). 프론트는 \"메일을 확인해 주세요\"로 안내한다. "
-                    + "같은 이메일은 1분에 한 번(429 EMAIL_CODE_RESEND_TOO_SOON), 한 IP는 1시간에 10통(429 EMAIL_CODE_TOO_MANY_REQUESTS), "
-                    + "한 이메일은 하루 3통(429 EMAIL_CODE_DAILY_LIMIT)까지 받을 수 있다. 앱 전체 하루 상한(300통)에 닿으면 503 EMAIL_SEND_UNAVAILABLE. "
+    @Operation(summary = "인증 코드 받기 (가입·비밀번호 재설정)",
+            description = "로그인 없이 부른다 (#557). purpose: SIGN_UP(가입) 또는 PASSWORD_RESET(비밀번호 재설정). "
+                    + "6자리 인증 코드를 메일로 보낸다. 코드는 10분 유효하고, 다시 받으면 이전 코드는 못 쓴다. "
+                    + "가입 여부는 응답으로 알려 주지 않는다: 상황과 상관없이 같은 200이고 메일함에 가는 것만 다르다. "
+                    + "SIGN_UP: 가입되지 않은 이메일 → 코드, 이미 가입된 이메일(구글 포함) → \"이미 가입된 이메일\" 안내. "
+                    + "PASSWORD_RESET: 비밀번호가 있는 정상 회원 → 코드, 구글로만 가입한 정상 회원 → \"구글로 로그인\" 안내, "
+                    + "없는 이메일·탈퇴·정지 회원 → 보내지 않음. 프론트는 항상 \"메일을 확인해 주세요\"로 안내한다. "
+                    + "제한은 용도와 상관없이 합쳐 센다: 같은 이메일 1분에 한 번(429 EMAIL_CODE_RESEND_TOO_SOON), 한 IP 1시간 10통(429 EMAIL_CODE_TOO_MANY_REQUESTS), "
+                    + "한 이메일 하루 3통(429 EMAIL_CODE_DAILY_LIMIT). 앱 전체 하루 상한(300통)에 닿으면 503 EMAIL_SEND_UNAVAILABLE. "
                     + "메일을 보내지 못하면 503 EMAIL_SEND_FAILED(바로 다시 시도 가능). "
                     + "응답 data: expiresInSeconds(코드 유효 시간), resendAfterSeconds(다시 받을 수 있을 때까지).")
     RsData<EmailCodeResponse> sendEmailCode(EmailCodeRequest request,
                                             @Parameter(hidden = true) HttpServletRequest httpRequest);
 
-    @Operation(summary = "가입 인증 코드 확인",
-            description = "로그인 없이 부른다 (#557). 메일로 받은 6자리 코드를 확인하고, 맞으면 인증 토큰(30분, 이 이메일로 한 번 가입 가능)을 준다. "
+    @Operation(summary = "인증 코드 확인 (가입·비밀번호 재설정)",
+            description = "로그인 없이 부른다 (#557). 받은 6자리 코드를 코드를 받을 때와 같은 purpose로 확인하고, 맞으면 그 용도의 인증 토큰(30분)을 준다. "
+                    + "SIGN_UP 토큰은 가입에, PASSWORD_RESET 토큰은 비밀번호 재설정에만 쓸 수 있다(한 번만). "
                     + "틀리면 400 INVALID_EMAIL_CODE(코드 하나에 5번까지). 5번째로 틀리거나, 받은 코드가 없거나 10분이 지났으면 "
                     + "400 EMAIL_CODE_EXPIRED(코드를 다시 받아야 함). 코드는 숫자 6자리(아니면 400). "
-                    + "응답 data: emailVerificationToken(가입 요청에 넣는다), expiresInSeconds.")
+                    + "응답 data: emailVerificationToken, expiresInSeconds.")
     RsData<EmailVerificationTokenResponse> verifyEmailCode(EmailCodeVerifyRequest request);
 
     @Operation(summary = "가입",

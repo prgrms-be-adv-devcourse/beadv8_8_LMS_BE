@@ -37,23 +37,23 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
     private final RestoreTicketCookies restoreTicketCookies;
 
     /**
-     * 가입 인증 코드 받기 (#557). IP당 발송 제한에 쓰는 접속 IP는 Gateway가 붙인 X-Forwarded-For를 Tomcat이 풀어 준 값이다
+     * 인증 코드 받기 (#557, 가입·비밀번호 재설정). IP당 발송 제한에 쓰는 접속 IP는 Gateway가 붙인 X-Forwarded-For를 Tomcat이 풀어 준 값이다
      * (운영 server.forward-headers-strategy=native, docs/architecture/infrastructure/api-gateway.md)
      */
     @Override
     @PostMapping("/email-codes")
     public RsData<EmailCodeResponse> sendEmailCode(@Valid @RequestBody EmailCodeRequest request,
                                                    HttpServletRequest httpRequest) {
-        memberFacade.sendSignUpEmailCode(request.email(), httpRequest.getRemoteAddr());
+        memberFacade.sendEmailCode(request.email(), request.purpose(), httpRequest.getRemoteAddr());
         return RsData.ok("인증 코드를 보냈습니다.", new EmailCodeResponse(
                 EmailVerificationPolicy.CODE_TTL.toSeconds(), EmailVerificationPolicy.RESEND_COOLDOWN.toSeconds()));
     }
 
-    /** 가입 인증 코드 확인 (#557). 맞으면 가입에 쓸 인증 토큰을 준다 */
+    /** 인증 코드 확인 (#557). 맞으면 그 용도(가입·재설정)에 쓸 인증 토큰을 준다 */
     @Override
     @PostMapping("/email-codes/verify")
     public RsData<EmailVerificationTokenResponse> verifyEmailCode(@Valid @RequestBody EmailCodeVerifyRequest request) {
-        String token = memberFacade.verifySignUpEmailCode(request.email(), request.code());
+        String token = memberFacade.verifyEmailCode(request.email(), request.purpose(), request.code());
         return RsData.ok("이메일을 인증했습니다.",
                 new EmailVerificationTokenResponse(token, EmailVerificationPolicy.TOKEN_TTL.toSeconds()));
     }

@@ -35,6 +35,7 @@ import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.app.MemberWithdrawalUseCase;
+import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
@@ -141,7 +142,7 @@ class MemberWithdrawalApiTest {
     @Test
     @DisplayName("30일 안의 탈퇴 회원이 비밀번호로 로그인하면 409이고, 복구 티켓은 본문이 아니라 쿠키로 준다 (#633)")
     void passwordLoginRestorable() throws Exception {
-        String token = emailVerificationStore.issueToken("withdrawn1@example.com");
+        String token = emailVerificationStore.issueToken("withdrawn1@example.com", EmailVerificationPurpose.SIGN_UP);
         User user = memberFacade.signUp("withdrawn1@example.com", "abcd1234", "withdrawn1", token);
         jdbcTemplate.update("update members.users set status = 'WITHDRAWN', deleted_at = now() where id = ?", user.getId());
         given(restoreTicketStore.issue(user.getId())).willReturn("ticket-1");

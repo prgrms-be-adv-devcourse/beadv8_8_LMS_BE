@@ -4,6 +4,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -12,6 +13,7 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.member.domain.EmailVerificationPolicy;
+import com.hapbang.member.domain.EmailVerificationPurpose;
 
 import lombok.RequiredArgsConstructor;
 
@@ -19,13 +21,13 @@ import lombok.RequiredArgsConstructor;
  * 가입 이메일 인증을 Redis에 둔다 (#557). 발송 횟수 제한(IP·이메일·전체)도 Redis로 센다. 팀 규칙은 요청 제한을 앱의 Resilience4j로 하지만
  * (AGENTS.md 2장), 하루 단위 상한이 배포·재시작 뒤에도 유지돼야 해서(메모리 카운터는 배포하면 0이 된다) Redis로 했다 (#557 결정). 키에는 이메일·IP 원문 대신 SHA-256 해시를 쓴다({@link RedisLoginAttemptStore#hash}).
  * <ul>
- *     <li>{@code member:email-code:{해시}}: 인증 코드, {@link EmailVerificationPolicy#CODE_TTL}</li>
- *     <li>{@code member:email-code-fail:{해시}}: 코드 틀린 횟수 (코드와 함께 사라진다)</li>
- *     <li>{@code member:email-code-cooldown:{해시}}: 재발송 간격 표시, {@link EmailVerificationPolicy#RESEND_COOLDOWN}</li>
+ *     <li>{@code member:email-code:{용도}:{해시}}: 인증 코드, {@link EmailVerificationPolicy#CODE_TTL}</li>
+ *     <li>{@code member:email-code-fail:{용도}:{해시}}: 코드 틀린 횟수 (코드와 함께 사라진다)</li>
+ *     <li>(아래 발송 제한은 용도와 상관없이 합쳐 센다) {@code member:email-code-cooldown:{해시}}: 재발송 간격 표시, {@link EmailVerificationPolicy#RESEND_COOLDOWN}</li>
  *     <li>{@code member:email-code-ip:{해시}}: IP당 발송 수, 첫 발송부터 {@link EmailVerificationPolicy#IP_WINDOW}</li>
  *     <li>{@code member:email-code-daily:{해시}}: 이메일당 발송 수, 첫 발송부터 {@link EmailVerificationPolicy#EMAIL_WINDOW}</li>
  *     <li>{@code member:email-code-global}: 앱 전체 발송 수, 첫 발송부터 {@link EmailVerificationPolicy#GLOBAL_WINDOW}</li>
- *     <li>{@code member:email-verified:{토큰 해시}}: 인증 토큰 → 이메일, {@link EmailVerificationPolicy#TOKEN_TTL}. 토큰 원문은 저장하지 않는다</li>
+ *     <li>{@code member:email-verified:{용도}:{토큰 해시}}: 인증 토큰 → 이메일, {@link EmailVerificationPolicy#TOKEN_TTL}. 토큰 원문은 저장하지 않는다</li>
  * </ul>
  */
 @Component
@@ -114,22 +116,23 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
     }
 
     @Override
-    public void saveCode(String email, String code) {
+    public void saveCode(String email, EmailVerificationPurpose purpose, String code) {
         String hash = RedisLoginAttemptStore.hash(email);
-        redisTemplate.delete(FAIL_KEY_PREFIX + hash);
-        redisTemplate.opsForValue().set(CODE_KEY_PREFIX + hash, code, EmailVerificationPolicy.CODE_TTL);
+        redisTemplate.delete(scoped(FAIL_KEY_PREFIX, purpose, hash));
+        redisTemplate.opsForValue().set(scoped(CODE_KEY_PREFIX, purpose, hash), code, EmailVerificationPolicy.CODE_TTL);
     }
 
     @Override
-    public void deleteCode(String email) {
+    public void deleteCode(String email, EmailVerificationPurpose purpose) {
         String hash = RedisLoginAttemptStore.hash(email);
-        redisTemplate.delete(List.of(CODE_KEY_PREFIX + hash, FAIL_KEY_PREFIX + hash));
+        redisTemplate.delete(List.of(scoped(CODE_KEY_PREFIX, purpose, hash), scoped(FAIL_KEY_PREFIX, purpose, hash)));
     }
 
     @Override
-    public CodeCheck checkCode(String email, String code, int maxAttempts) {
+    public CodeCheck checkCode(String email, EmailVerificationPurpose purpose, String code, int maxAttempts) {
         String hash = RedisLoginAttemptStore.hash(email);
-        Long result = redisTemplate.execute(CHECK_CODE, List.of(CODE_KEY_PREFIX + hash, FAIL_KEY_PREFIX + hash),
+        Long result = redisTemplate.execute(CHECK_CODE,
+                List.of(scoped(CODE_KEY_PREFIX, purpose, hash), scoped(FAIL_KEY_PREFIX, purpose, hash)),
                 code, String.valueOf(maxAttempts));
         return switch (result == null ? 0 : result.intValue()) {
             case 1 -> CodeCheck.MATCHED;
@@ -140,26 +143,33 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
     }
 
     @Override
-    public String issueToken(String email) {
+    public String issueToken(String email, EmailVerificationPurpose purpose) {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        redisTemplate.opsForValue().set(TOKEN_KEY_PREFIX + RedisLoginAttemptStore.hash(token), email, EmailVerificationPolicy.TOKEN_TTL);
+        redisTemplate.opsForValue().set(scoped(TOKEN_KEY_PREFIX, purpose, RedisLoginAttemptStore.hash(token)), email,
+                EmailVerificationPolicy.TOKEN_TTL);
         return token;
     }
 
     @Override
-    public Optional<String> findTokenEmail(String token) {
+    public Optional<String> findTokenEmail(String token, EmailVerificationPurpose purpose) {
         if (token == null || token.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(redisTemplate.opsForValue().get(TOKEN_KEY_PREFIX + RedisLoginAttemptStore.hash(token)));
+        return Optional.ofNullable(redisTemplate.opsForValue()
+                .get(scoped(TOKEN_KEY_PREFIX, purpose, RedisLoginAttemptStore.hash(token))));
     }
 
     @Override
-    public void deleteToken(String token) {
+    public void deleteToken(String token, EmailVerificationPurpose purpose) {
         if (token != null && !token.isBlank()) {
-            redisTemplate.delete(TOKEN_KEY_PREFIX + RedisLoginAttemptStore.hash(token));
+            redisTemplate.delete(scoped(TOKEN_KEY_PREFIX, purpose, RedisLoginAttemptStore.hash(token)));
         }
+    }
+
+    /** 용도마다 다른 키 ({@code 접두어 + 용도 소문자 + ":" + 해시}) */
+    static String scoped(String prefix, EmailVerificationPurpose purpose, String hash) {
+        return prefix + purpose.name().toLowerCase(Locale.ROOT) + ":" + hash;
     }
 }
