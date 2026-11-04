@@ -100,7 +100,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 **지금 계측하지 않는 것.**
 
-- 재발행으로 나중에 보낸 이벤트와 원래 요청의 연결, 역직렬화 실패 메시지의 consumer span(위 "Kafka"). 이벤트별 식별자(`eventId`)는 두지 않는다([Kafka](kafka.md#발행)). 로그로 이벤트 처리를 모으는 키는 #582에서 정한다.
+- 재발행으로 나중에 보낸 이벤트와 원래 요청의 연결, 역직렬화 실패 메시지의 consumer span(위 "Kafka"). 이벤트별 식별자(`eventId`)는 두지 않는다([Kafka](kafka.md#발행)). 로그로 이벤트 처리를 모으는 키는 `traceId`와 `eventType`·`eventKey`다([로그 표준](../../dev/logging.md#mdc-키), 적용은 #582).
 - DB(JDBC) span. 요청 span의 시간에 DB 시간이 포함될 뿐 쿼리 단위로 나뉘지 않는다.
 - WebSocket(STOMP) 메시지: 연결을 여는 HTTP 요청만 span이 남고 메시지 단위 trace는 없다.
 
