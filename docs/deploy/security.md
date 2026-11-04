@@ -82,5 +82,5 @@ PostgreSQL은 데이터 디렉터리가 비어 있을 때만 `postgres-credentia
 
 - `.env`, `*.env`, `*.pem`, 개인 키를 커밋하거나 채팅·노션에 붙여넣기
 - `~/.hapbang` 파일이나 `kubectl get secret -o yaml` 출력을 화면 공유·캡처
-- 비밀값을 로그에 출력하는 코드(`log.info(secret)`), Actions에서 `echo $SECRET`
+- 비밀값을 로그에 출력하는 코드(`log.info(secret)`), Actions에서 `echo $SECRET`. 앱 로그에 남기지 않는 값의 목록은 [로그 표준](../dev/logging.md)의 "민감 정보"다
 - 문서·PR에 실제 IP, 계정 ID, 키 파일 이름, 서버 DB 이름·계정 기재
