@@ -41,7 +41,7 @@ class InternalApiKeyFilterTest {
         filter.doFilter(request("guessed-key-value"), new MockHttpServletResponse(), new MockFilterChain());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-        assertThat(output).contains("내부 API 인증 실패", "불일치")
+        assertThat(output).contains("내부 API 인증에 실패했다", "reason=불일치")
                 .doesNotContain("guessed-key-value")
                 .doesNotContain(KEY);
     }

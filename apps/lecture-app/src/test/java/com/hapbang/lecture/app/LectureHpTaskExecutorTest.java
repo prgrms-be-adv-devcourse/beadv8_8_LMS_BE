@@ -319,7 +319,7 @@ class LectureHpTaskExecutorTest {
         assertThat(cancelHandler().events()).containsExactly("succeeded:" + CANCEL_ID);
         assertThat(attempts(id)).extracting(LectureHpTaskAttempt::getResult)
                 .containsExactly(LectureHpAttemptResult.LEASE_EXPIRED, LectureHpAttemptResult.SUCCEEDED);
-        assertThat(output).contains("late result ignored");
+        assertThat(output).contains("HP 작업 결과를 버린다");
     }
 
     @Test

@@ -18,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 public class AppearanceUserFacade {
 
     private final AppearanceUserSyncUseCase appearanceUserSyncUseCase;
+    private final AppearanceHostChannelMaskUseCase appearanceHostChannelMaskUseCase;
 
     /** 가입 정보로 출연 회원을 만든다. 이미 있으면 무시한다. */
     @Transactional
@@ -29,5 +30,11 @@ public class AppearanceUserFacade {
     @Transactional
     public void syncModified(UserDto user) {
         appearanceUserSyncUseCase.update(user);
+    }
+
+    /** 탈퇴 회원 개인정보 파기(#675): 그 회원이 호스트인 요청서·모집글의 호스트 채널 URL을 덮는다. 여러 번 불러도 결과가 같다. */
+    @Transactional
+    public void maskWithdrawn(Long userId) {
+        appearanceHostChannelMaskUseCase.mask(userId);
     }
 }

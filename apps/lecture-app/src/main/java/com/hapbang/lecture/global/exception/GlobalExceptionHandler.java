@@ -59,9 +59,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleBusinessException(BusinessException exception) {
         BaseErrorCode errorCode = exception.getErrorCode();
         if (errorCode.getStatus().is5xxServerError()) {
-            log.error("업무 예외 code={}, message={}", errorCode.getCode(), exception.getMessage(), exception);
+            log.error("업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), exception.getMessage(), exception);
         } else {
-            log.warn("업무 예외 code={}, message={}", errorCode.getCode(), exception.getMessage());
+            log.warn("업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), exception.getMessage());
         }
         ProblemDetail problemDetail = problem(errorCode, exception.getMessage());
         exception.getProperties().forEach(problemDetail::setProperty);
@@ -86,7 +86,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     /** 처리하지 못한 예외. 같은 클래스의 더 구체적인 핸들러(위·{@link ResponseEntityExceptionHandler})가 먼저 선택된다 */
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception exception) {
-        log.error("처리하지 못한 예외", exception);
+        log.error("처리하지 못한 예외로 500을 응답한다", exception);
         return problem(GlobalErrorCode.INTERNAL_ERROR, GlobalErrorCode.INTERNAL_ERROR.getMessage());
     }
 

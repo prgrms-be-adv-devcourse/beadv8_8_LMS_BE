@@ -7,7 +7,10 @@ import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 
@@ -44,6 +47,7 @@ import com.hapbang.testsupport.IntegrationTest;
  * 실패 분류는 LectureHpTaskClassifierTest, 결제 단계 판정은 OrderHoldTasksTest, HTTP 응답은 LectureHpTaskAdminApiTest가 맡는다.
  */
 @IntegrationTest
+@ExtendWith(OutputCaptureExtension.class)
 // 주문은 구매자, 보류 무효화·재시도는 관리자 진입점이다
 @WithMockUser(roles = {"USER", "ADMIN"})
 class OrderHoldVoidTest {
@@ -213,7 +217,7 @@ class OrderHoldVoidTest {
     }
 
     @Test
-    void 예상과_다른_무효화_결과도_DEAD로_두지_않고_결제_실패로_끝낸다() {
+    void 예상과_다른_무효화_결과도_DEAD로_두지_않고_결제_실패로_끝낸다(CapturedOutput output) {
         Lecture first = saveOnSale("OBS 방송 세팅", PRICE_HP);
         Lecture second = saveOnSale("마이크 고르기", PRICE_HP);
         billing.respond(command -> invariantViolation());
@@ -234,6 +238,11 @@ class OrderHoldVoidTest {
                 .containsOnly(tuple(LectureHpTaskStatus.COMPLETED, LectureHpTaskOutcome.SUCCEEDED));
         assertThat(lectureOrderFacade.getOrder(BUYER_ID, order.orderId()).status())
                 .isEqualTo(LectureOrderStatus.HOLD_FAILED);
+        // 반환 금액이 다른 건만 사람이 확인하도록 표식을 붙인 ERROR로 남긴다
+        assertThat(output.getAll().lines()
+                .filter(line -> line.contains(LectureHpTaskExecutor.VOID_AMOUNT_MISMATCH_LOG)))
+                .singleElement()
+                .satisfies(line -> assertThat(line).contains(" ERROR ", "releasedHp=" + (PRICE_HP - 1)));
     }
 
     @Test

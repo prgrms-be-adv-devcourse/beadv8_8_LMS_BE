@@ -51,7 +51,7 @@ public class LectureEventRepublishUseCase {
                         && selected.incrementAndGet() <= properties.batchSize());
         int republished = Math.min(selected.get(), properties.batchSize());
         if (republished > 0) {
-            log.warn("Kafka로 못 보낸 강의 이벤트 재발행 count={}, waiting={}, batchSize={}", republished,
+            log.warn("Kafka로 못 보낸 강의 이벤트를 다시 발행했다 republished={}, waiting={}, batchSize={}", republished,
                     selected.get() - republished, properties.batchSize());
         }
         return republished;
