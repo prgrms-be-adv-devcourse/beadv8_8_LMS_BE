@@ -29,9 +29,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.modulith.events.core.EventPublicationRepository;
 import org.springframework.modulith.events.core.TargetEventPublication;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -42,6 +44,12 @@ import com.hapbang.member.fixture.MemberFixture;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
+import com.hapbang.testsupport.RecordedSpans;
+
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.trace.data.SpanData;
 
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
@@ -53,6 +61,9 @@ import tools.jackson.databind.json.JsonMapper;
  * 회원 ID는 테스트 JVM 안에서 다시 쓰이지 않는다(DB 정리가 ID를 초기화하지 않는다).
  */
 @MemberIntegrationTest
+// trace 확인(#630)용 span 수집과 샘플링 1. 이 설정 때문에 다른 회원 통합 테스트와 컨텍스트를 함께 쓰지 않는다
+@Import(RecordedSpans.Config.class)
+@TestPropertySource(properties = "management.tracing.sampling.probability=1.0")
 class MemberEventKafkaIntegrationTest {
 
     private static final String TOPIC = "member.events.v1";
@@ -77,6 +88,12 @@ class MemberEventKafkaIntegrationTest {
 
     @Autowired
     KafkaAdmin kafkaAdmin;
+
+    @Autowired
+    ObservationRegistry observationRegistry;
+
+    @Autowired
+    RecordedSpans spans;
 
     @Value("${spring.kafka.bootstrap-servers}")
     String bootstrapServers;
@@ -152,6 +169,28 @@ class MemberEventKafkaIntegrationTest {
     }
 
     @Test
+    @DisplayName("요청 trace 안에서 회원을 바꾸면, 커밋 뒤 다른 스레드에서 발행해도 메시지에 같은 trace가 실린다(#630)")
+    void traceparent() throws Exception {
+        User user = userRepository.save(MemberFixture.user());
+
+        // 요청 하나(HTTP server span)를 대신한다. Modulith 외부화는 커밋 뒤 @Async로 보내므로 trace가 스레드를 넘어가야 한다
+        Observation.createNotStarted("member-trace-request", observationRegistry)
+                .observe(() -> memberFacade.updateProfile(user.getId(), "카프카추적"));
+
+        ConsumerRecord<String, byte[]> record = awaitRecords(user.getId(), 1).getFirst();
+        RecordedSpans.await(() -> !spans.named("member-trace-request").isEmpty());
+        String traceId = spans.named("member-trace-request").getFirst().getTraceId();
+        RecordedSpans.await(() -> spans.all().stream()
+                .anyMatch(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.PRODUCER));
+        SpanData send = spans.all().stream()
+                .filter(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.PRODUCER)
+                .findFirst().orElseThrow();
+        assertThat(record.headers().headers("traceparent")).singleElement()
+                .extracting(header -> new String(header.value(), StandardCharsets.UTF_8)).asString()
+                .startsWith("00-" + traceId + "-" + send.getSpanId() + "-");
+    }
+
+    @Test
     @DisplayName("발행 기록은 회원 변경과 같은 트랜잭션에 남아, 롤백되면 기록도 메시지도 남지 않는다")
     void sameTransaction() {
         User user = userRepository.save(MemberFixture.user());
@@ -206,6 +245,10 @@ class MemberEventKafkaIntegrationTest {
     private Map<String, String> headers(ConsumerRecord<String, byte[]> record) {
         Map<String, String> headers = new HashMap<>();
         for (Header header : record.headers()) {
+            // trace 헤더는 발행 계약이 아니라 trace 계측(#630)이 붙인다. 값은 요청마다 달라 trace 테스트가 따로 본다
+            if (header.key().equals("traceparent")) {
+                continue;
+            }
             assertThat(headers.put(header.key(), new String(header.value(), StandardCharsets.UTF_8)))
                     .as("헤더 %s 중복", header.key()).isNull();
         }
