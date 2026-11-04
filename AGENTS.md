@@ -105,7 +105,7 @@
 
 아래는 팀 합의 전이다. 에이전트가 임의로 정해서 코드에 넣지 않고 질문한다.
 
-- 코드 컨벤션 (네이밍, 패키지 구조 등. 오류 응답 형식은 [`docs/api/conventions.md`](docs/api/conventions.md)에서 정했다)
+- 코드 컨벤션 (네이밍, 패키지 구조 등. 오류 응답 형식은 [`docs/api/conventions.md`](docs/api/conventions.md), 로그 형식·메시지는 [`docs/dev/logging.md`](docs/dev/logging.md)에서 정했다)
 - 테스트 방식 (단위·통합 테스트 기준, 테스트용 DB)
 
 ## 12. 작업별로 읽을 문서
@@ -120,6 +120,7 @@
 | 모듈 간 연동(shared 계약, 내부 API, 이벤트), 빈·배치 추가 | [`docs/dev/module-integration.md`](docs/dev/module-integration.md) |
 | 엔티티·Repository·HQL | [`docs/dev/persistence.md`](docs/dev/persistence.md), [`docs/db-migration.md`](docs/db-migration.md) |
 | 테스트 작성·실행 | [`docs/dev/testing.md`](docs/dev/testing.md) |
+| 로그 문 작성·수정, MDC 키, executor·scheduler 추가 | [`docs/dev/logging.md`](docs/dev/logging.md) |
 | 파일 업로드(S3) | [`docs/deploy/s3.md`](docs/deploy/s3.md) |
 | 로컬 확인, 라이브러리 추가 | [`docs/dev/local.md`](docs/dev/local.md) |
 | 모듈 작업 | `docs/<모듈>/module.md`(강의 [`docs/lecture/module.md`](docs/lecture/module.md), 출연 [`docs/appearance/module.md`](docs/appearance/module.md)), `boundedContext/<모듈>/AGENTS.md` |

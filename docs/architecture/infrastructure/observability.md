@@ -13,7 +13,7 @@
 - Micrometer Prometheus-format endpoint: HTTP, JVM, HikariCP, Kafka lag, 채팅 outbox 적재 대기·재시도·DEAD, Stream 그룹 lag·PEL/idle·ACK 지연·회수·메모리, DB 발행 체크포인트·재구성, Redis Pub/Sub 발행 실패, HP task 노출
 - Prometheus: `/actuator/prometheus`와 infrastructure exporter를 직접 scrape하고 local TSDB·PromQL·rule 평가 담당
 - Grafana Alloy: pod log 수집과 OTLP trace 수신·전달 담당. Mimir로 바꿀 때만 metrics scrape·remote write까지 확장
-- Loki: JSON log 저장; `traceId`, `correlationId`, 배포 version으로 연결
+- Loki: 앱·Envoy log 저장. 앱 로그 형식(운영 JSON)과 `traceId`·`userId` 등 MDC 키는 [로그 표준](../../dev/logging.md)
 - Tempo: HTTP → 업무 transaction → Kafka publish/consume → chat delivery trace 저장
 - Grafana: Prometheus·Loki·Tempo datasource와 API, Kafka, chat, HP, Kubernetes dashboard·alert
 - k6: 일반 API, WebSocket, 돈 흐름 재시도 시나리오
@@ -27,7 +27,7 @@
 - **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 형식은 앱 기본 평문 그대로이고 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
 - **trace**: Envoy가 요청의 10%를 샘플링해 OTLP gRPC로 Alloy(4317)에 보내고 Alloy가 Tempo로 넘긴다(#372). 업무 앱 6개(lecture #579, member·appearance·billing·chat #631, customer-support #663)는 Envoy가 넘긴 `traceparent`를 이어받아 server span과 내부 API client span을 같은 trace에 보낸다(아래 "앱 trace 계측").
 - **dashboard**: Grafana `합방` 폴더에 다섯 개가 있다(#531, Kafka #597, 앱 개요 #601, 아래 "Dashboard").
-- 구조화 로그(#582)와 alert는 아직 없다(#343). 계측한 앱의 평문 로그에는 Boot가 trace ID를 붙인다.
+- 구조화 로그는 표준만 정했고 앱에는 아직 적용하지 않았다([로그 표준](../../dev/logging.md), #582). alert는 아직 없다(#343). 계측한 앱의 평문 로그에는 Boot가 trace ID를 붙인다.
 
 다른 앱이 지표를 열 때는 다음 다섯 가지를 더한다. `micrometer-registry-prometheus`는 루트 `build.gradle.kts`가 모든 앱에 넣는다. lecture-app이 예시다.
 
@@ -100,7 +100,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 **지금 계측하지 않는 것.**
 
-- 재발행으로 나중에 보낸 이벤트와 원래 요청의 연결, 역직렬화 실패 메시지의 consumer span(위 "Kafka"). 이벤트별 식별자(`eventId`)는 두지 않는다([Kafka](kafka.md#발행)). 로그로 이벤트 처리를 모으는 키는 #582에서 정한다.
+- 재발행으로 나중에 보낸 이벤트와 원래 요청의 연결, 역직렬화 실패 메시지의 consumer span(위 "Kafka"). 이벤트별 식별자(`eventId`)는 두지 않는다([Kafka](kafka.md#발행)). 로그로 이벤트 처리를 모으는 키는 `traceId`와 `eventType`·`eventKey`다([로그 표준](../../dev/logging.md#mdc-키), 적용은 #582).
 - DB(JDBC) span. 요청 span의 시간에 DB 시간이 포함될 뿐 쿼리 단위로 나뉘지 않는다.
 - WebSocket(STOMP) 메시지: 연결을 여는 HTTP 요청만 span이 남고 메시지 단위 trace는 없다.
 
