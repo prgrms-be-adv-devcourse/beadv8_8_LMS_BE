@@ -397,7 +397,39 @@ class MemberWithdrawalUseCaseTest {
         assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
                 .isInstanceOf(MemberException.class)
                 .extracting("errorCode").isEqualTo(MemberErrorCode.RESTORE_UNAVAILABLE);
-        assertThat(userRepository.findById(user.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.WITHDRAWN);
+        User saved = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(UserStatus.WITHDRAWN);
+        assertThat(saved.getRestoreFailedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("기한 안에 지갑 장애로 복구가 실패했으면 기한이 지나도 7일 안에는 복구할 수 있다 (#594)")
+    void restoreWithinGrace() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        jdbcTemplate.update("""
+                update members.users set deleted_at = now() - interval '31 days', restore_failed_at = now() - interval '2 days'
+                where id = ?""", user.getId());
+
+        User restored = memberWithdrawalUseCase.restore(user.getId());
+
+        assertThat(restored.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getRestoreFailedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("유예 7일도 지났으면 지갑을 부르지 않고 LOGIN_NOT_ALLOWED (#594)")
+    void restoreAfterGrace() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        jdbcTemplate.update("""
+                update members.users set deleted_at = now() - interval '38 days', restore_failed_at = now() - interval '9 days'
+                where id = ?""", user.getId());
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LOGIN_NOT_ALLOWED);
+        assertThat(walletGate.reopened).isEmpty();
     }
 
     @Test

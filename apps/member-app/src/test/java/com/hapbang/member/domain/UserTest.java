@@ -162,4 +162,53 @@ class UserTest {
 
         assertThat(user.restorableUntil()).isEqualTo(LocalDateTime.of(2026, 12, 3, 12, 0));
     }
+
+    @Test
+    @DisplayName("기한 안에 지갑 장애로 복구가 실패했으면 복구 기한이 7일 늘어난다 (#594)")
+    void restoreGrace() {
+        LocalDateTime withdrawnAt = LocalDateTime.of(2026, 11, 3, 12, 0);
+        User user = User.join("tester1@example.com", "tester1");
+        user.withdraw(withdrawnAt);
+
+        user.recordRestoreFailure(withdrawnAt.plusDays(29));
+
+        assertThat(user.getRestoreFailedAt()).isEqualTo(withdrawnAt.plusDays(29));
+        assertThat(user.restorableUntil()).isEqualTo(withdrawnAt.plusDays(37));
+        assertThat(user.canRestore(withdrawnAt.plusDays(36))).isTrue();
+        assertThat(user.canRestore(withdrawnAt.plusDays(37))).isFalse();
+    }
+
+    @Test
+    @DisplayName("원래 기한이 지난 뒤의 실패나 두 번째 실패는 남기지 않아 유예가 더 늘지 않는다 (#594)")
+    void restoreGraceOnlyOnce() {
+        LocalDateTime withdrawnAt = LocalDateTime.of(2026, 11, 3, 12, 0);
+        User late = User.join("tester1@example.com", "tester1");
+        late.withdraw(withdrawnAt);
+        User twice = User.join("tester2@example.com", "tester2");
+        twice.withdraw(withdrawnAt);
+
+        late.recordRestoreFailure(withdrawnAt.plusDays(30));
+        twice.recordRestoreFailure(withdrawnAt.plusDays(10));
+        twice.recordRestoreFailure(withdrawnAt.plusDays(33));
+
+        assertThat(late.getRestoreFailedAt()).isNull();
+        assertThat(late.restorableUntil()).isEqualTo(withdrawnAt.plusDays(30));
+        assertThat(twice.getRestoreFailedAt()).isEqualTo(withdrawnAt.plusDays(10));
+        assertThat(twice.restorableUntil()).isEqualTo(withdrawnAt.plusDays(37));
+    }
+
+    @Test
+    @DisplayName("복구하면 복구 실패 기록이 지워져, 다시 탈퇴했을 때 예전 실패로 유예를 받지 않는다 (#594)")
+    void restoreFailureCleared() {
+        LocalDateTime withdrawnAt = LocalDateTime.of(2026, 11, 3, 12, 0);
+        User user = User.join("tester1@example.com", "tester1");
+        user.withdraw(withdrawnAt);
+        user.recordRestoreFailure(withdrawnAt.plusDays(1));
+
+        user.restore(withdrawnAt.plusDays(2));
+        user.withdraw(withdrawnAt.plusDays(3));
+
+        assertThat(user.getRestoreFailedAt()).isNull();
+        assertThat(user.restorableUntil()).isEqualTo(withdrawnAt.plusDays(33));
+    }
 }
