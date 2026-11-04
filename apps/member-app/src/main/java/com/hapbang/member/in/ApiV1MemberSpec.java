@@ -77,7 +77,7 @@ public interface ApiV1MemberSpec {
     RsData<MemberMeResponse> uploadProfileImage(Long userId, Long memberId, HttpServletRequest request) throws IOException;
 
     @Operation(summary = "프로필 사진 삭제",
-            description = "로그인한 회원 본인. 프로필 사진 연결만 해제한다 (S3 파일은 지우지 않는다). 사진이 없어도 200.")
+            description = "로그인한 회원 본인. 프로필 사진 연결을 해제하고 S3 파일은 빈 파일로 덮어 지운다(#594). 사진이 없어도 200.")
     RsData<MemberMeResponse> deleteProfileImage(Long userId);
 
     @Operation(summary = "탈퇴 회원 복구",
@@ -88,7 +88,9 @@ public interface ApiV1MemberSpec {
                     + "로그인은 하지 않는다: 프론트는 204를 받으면 로그인을 다시 부른다(비밀번호 로그인 다시 호출 또는 구글 로그인으로 다시 이동). "
                     + "복구 티켓만으로 로그인까지 되면 공용 PC에 남은 티켓으로 계정을 빼앗을 수 있어서다. "
                     + "쿠키가 없거나 만료되면 401 INVALID_RESTORE_TICKET(다시 로그인), 복구 기한이 지났으면 403 LOGIN_NOT_ALLOWED "
-                    + "(두 경우 쿠키를 지운다), 지갑을 열지 못하면 503 RESTORE_UNAVAILABLE(복구하지 않음, 쿠키는 남아 그대로 다시 시도).")
+                    + "(두 경우 쿠키를 지운다), 지갑을 열지 못하면 503 RESTORE_UNAVAILABLE(복구하지 않음, 쿠키는 남아 그대로 다시 시도). "
+                    + "기한 안에 503으로 실패했으면 복구 기한이 7일 늘어난다(#594, 늘어난 기한은 다음 로그인의 restorableUntil에 나온다). "
+                    + "기한이 지나면 개인정보를 파기해 복구할 수 없다.")
     ResponseEntity<Void> restore(
             @Parameter(in = ParameterIn.COOKIE, name = RestoreTicketCookies.NAME, description = "로그인 때 받은 복구 티켓")
             String restoreTicket,
@@ -108,6 +110,7 @@ public interface ApiV1MemberSpec {
                     + "이미 탈퇴했으면 그대로 204. 남은 돈·진행 중 거래가 있으면 409 WITHDRAWAL_BLOCKED + reasons"
                     + "[{code, message, availableAt?}](모든 앱의 이유를 한 번에, 회원이 정리한 뒤 다시 탈퇴), "
                     + "이미 처리 중이면 409 WITHDRAWAL_IN_PROGRESS, 다른 앱을 부를 수 없으면 503 WITHDRAWAL_UNAVAILABLE. "
-                    + "탈퇴 기능이 꺼져 있으면 404. 30일 안에 다시 로그인하면 복구할 수 있다.")
+                    + "탈퇴 기능이 꺼져 있으면 404. 30일 안에 다시 로그인하면 복구할 수 있고, 30일이 지나면 개인정보를 파기한다(#594). "
+                    + "파기한 뒤에는 같은 이메일·구글 계정으로 새로 가입할 수 있다.")
     ResponseEntity<Void> withdraw(Long userId);
 }

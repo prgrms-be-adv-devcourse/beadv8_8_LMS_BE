@@ -26,12 +26,30 @@ public class User extends SourceUser {
     /** 탈퇴 뒤 복구할 수 있는 기간 (#593). 30일 뒤 식별 정보 마스킹(#594)도 이 기간을 쓴다 (policy.md 삭제 정책) */
     public static final Duration RESTORE_PERIOD = Duration.ofDays(30);
 
+    /**
+     * 복구 유예 (#594). 복구 기한 안에 복구를 눌렀는데 지갑 장애로 실패했으면 기한과 마스킹을 이만큼 미룬다.
+     * 회원 잘못이 아닌 장애로 마지막 날 복구를 놓치지 않게 한다
+     */
+    public static final Duration RESTORE_GRACE = Duration.ofDays(7);
+
+    /**
+     * 마스킹한 닉네임 앞부분 (#594). 뒤에 회원 ID를 붙여 마스킹 값끼리 겹치지 않게 한다(닉네임 유일 인덱스, #646).
+     * {@code #}은 닉네임 규칙에 없는 글자라 사용자가 이 값을 닉네임으로 쓸 수 없다(탈퇴 회원 사칭 방지)
+     */
+    public static final String MASKED_NICKNAME_PREFIX = "탈퇴회원#";
+
     @Column(unique = true)
     private String email;
 
     private String profileImageKey;
 
     private LocalDateTime deletedAt;
+
+    /** 복구 기한 안에 지갑 장애로 복구가 처음 실패한 시각 (#594). 있으면 복구 기한이 {@link #RESTORE_GRACE}만큼 늘어난다 */
+    private LocalDateTime restoreFailedAt;
+
+    /** 개인정보를 마스킹한 시각 (#594). 있으면 복구할 수 없다 */
+    private LocalDateTime maskedAt;
 
     /** 낙관적 락 버전. 동시에 수정하면 늦게 저장하는 쪽이 실패한다 (값은 JPA가 관리, MemberSupport.flush가 409로 바꾼다) */
     @Version
@@ -72,16 +90,36 @@ public class User extends SourceUser {
         }
         changeProfile(getNickname(), getRole(), UserStatus.WITHDRAWN);
         this.deletedAt = now;
+        this.restoreFailedAt = null;
     }
 
-    /** 복구할 수 있는지: 탈퇴하고 {@link #RESTORE_PERIOD}가 지나기 전 */
+    /** 복구할 수 있는지: 탈퇴했고, 마스킹 전이고, {@link #restorableUntil()} 전 */
     public boolean canRestore(LocalDateTime now) {
-        return isWithdrawn() && deletedAt != null && now.isBefore(deletedAt.plus(RESTORE_PERIOD));
+        LocalDateTime until = restorableUntil();
+        return until != null && maskedAt == null && now.isBefore(until);
     }
 
-    /** 복구할 수 있는 마지막 시각 (탈퇴 시각 + {@link #RESTORE_PERIOD}). 탈퇴하지 않았으면 null */
+    /**
+     * 복구할 수 있는 마지막 시각. 탈퇴 시각 + {@link #RESTORE_PERIOD}이고, 그 안에 지갑 장애로 복구가 실패했으면
+     * {@link #RESTORE_GRACE}를 더한다 (#594). 마스킹 배치도 이 시각이 지난 회원만 고른다. 탈퇴하지 않았으면 null
+     */
     public LocalDateTime restorableUntil() {
-        return isWithdrawn() && deletedAt != null ? deletedAt.plus(RESTORE_PERIOD) : null;
+        if (!isWithdrawn() || deletedAt == null) {
+            return null;
+        }
+        LocalDateTime deadline = deletedAt.plus(RESTORE_PERIOD);
+        return restoreFailedAt != null && restoreFailedAt.isBefore(deadline) ? deadline.plus(RESTORE_GRACE) : deadline;
+    }
+
+    /**
+     * 지갑 장애로 복구가 실패했음을 남긴다 (#594). 원래 기한({@link #RESTORE_PERIOD}) 안의 첫 실패만 남긴다.
+     * 유예 중에 다시 실패해도 유예를 또 늘리지 않는다
+     */
+    public void recordRestoreFailure(LocalDateTime now) {
+        if (isWithdrawn() && deletedAt != null && restoreFailedAt == null
+                && now.isBefore(deletedAt.plus(RESTORE_PERIOD))) {
+            this.restoreFailedAt = now;
+        }
     }
 
     /** 복구 (#593): 정상 회원으로 되돌린다. 같은 계정 그대로이고 기록·날짜는 바뀌지 않는다 */
@@ -91,6 +129,30 @@ public class User extends SourceUser {
         }
         changeProfile(getNickname(), getRole(), UserStatus.ACTIVE);
         this.deletedAt = null;
+        this.restoreFailedAt = null;
+    }
+
+    /**
+     * 개인정보 마스킹 (#594, docs/policy.md 삭제 정책). 복구 기한이 지난 탈퇴 회원만 한 번 한다.
+     * 이메일은 지운다(null). 빈 값끼리는 유일 제약에 걸리지 않아 다른 회원과 겹치거나 미리 선점될 일이 없고, 로그인에서도 찾아지지 않으며,
+     * 같은 이메일로 새로 가입할 수 있다. 닉네임은 다른 앱 복제본(채팅은 not null)에 나가므로 회원 ID를 넣은 값으로 바꾼다.
+     * 프로필 사진 연결을 끊는다.
+     * 닉네임은 규칙 검사를 거치지 않는다({@link #MASKED_NICKNAME_PREFIX}의 {@code #}은 규칙 밖 글자다). 회원 행·ID·상태(탈퇴)는 남긴다
+     */
+    public void mask(LocalDateTime now) {
+        if (!isWithdrawn() || maskedAt != null || canRestore(now)) {
+            throw new IllegalStateException("마스킹할 수 없는 회원입니다. status=" + getStatus() + ", maskedAt=" + maskedAt
+                    + ", restorableUntil=" + restorableUntil());
+        }
+        changeProfile(MASKED_NICKNAME_PREFIX + getId(), getRole(), getStatus());
+        this.email = null;
+        this.profileImageKey = null;
+        this.maskedAt = now;
+    }
+
+    /** 마스킹했는지 */
+    public boolean isMasked() {
+        return maskedAt != null;
     }
 
     /** 다른 모듈에 넘길 회원 정보. 버전은 flush 뒤에 불러야 올라간 값이 담긴다 (MemberSupport.flush) */

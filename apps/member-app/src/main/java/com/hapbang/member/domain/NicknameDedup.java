@@ -39,4 +39,10 @@ public class NicknameDedup {
     public void markNotified(LocalDateTime now) {
         this.notifiedAt = now;
     }
+
+    /** 탈퇴 회원 파기 (#594). 이 기록의 옛·새 닉네임도 회원을 알아볼 수 있는 정보라 마스킹한 닉네임으로 덮는다 */
+    public void mask(String maskedNickname) {
+        this.oldNickname = maskedNickname;
+        this.newNickname = maskedNickname;
+    }
 }

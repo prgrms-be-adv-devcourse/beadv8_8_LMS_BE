@@ -203,7 +203,7 @@ public class MemberFacade {
     }
 
     /**
-     * 프로필 사진 올리기: 본인·정상 회원·형식·크기·내용(매직 넘버) 검사 → S3 업로드 → key 저장.
+     * 프로필 사진 올리기: 본인·정상 회원·형식·크기·내용(매직 넘버) 검사 → S3 업로드 → key 저장 → 옛 사진 파일 비우기(#594).
      * 트랜잭션을 두지 않는다: 업로드하는 동안 DB 커넥션을 잡지 않도록 저장(UseCase)만 트랜잭션으로 한다
      */
     public User uploadProfileImage(Long userId, Long memberId, String contentType, long contentLength,
@@ -212,14 +212,19 @@ public class MemberFacade {
             throw new MemberException(MemberErrorCode.PROFILE_IMAGE_FORBIDDEN);
         }
         // 우리 DB로 판단할 수 있는 건 업로드 전에 막는다 (저장 때 한 번 더 확인)
-        memberSupport.findActiveUser(userId);
+        String previousKey = memberSupport.findActiveUser(userId).getProfileImageKey();
         String key = memberProfileImageUseCase.store(userId, contentType, contentLength, body);
-        return memberProfileImageUseCase.change(userId, key);
+        User user = memberProfileImageUseCase.change(userId, key);
+        memberProfileImageUseCase.eraseReplaced(previousKey, key);
+        return user;
     }
 
-    /** 프로필 사진 연결 해제 (DB에서만, S3 파일은 그대로) */
+    /** 프로필 사진 내리기: 연결을 끊고, 커밋 뒤 S3 파일을 빈 파일로 덮어 지운다 (#594) */
     public User deleteProfileImage(Long userId) {
-        return memberProfileImageUseCase.change(userId, null);
+        String previousKey = memberSupport.findActiveUser(userId).getProfileImageKey();
+        User user = memberProfileImageUseCase.change(userId, null);
+        memberProfileImageUseCase.eraseReplaced(previousKey, null);
+        return user;
     }
 
     /** 프로필 사진 조회 URL (응답을 만들 때 쓴다). 사진이 없으면 null */

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,8 +13,11 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -51,6 +55,7 @@ import com.hapbang.shared.member.event.UserModifiedEvent;
 @TestPropertySource(properties = MemberWithdrawalUseCase.ENABLED + "=true")
 @Import(MemberWithdrawalUseCaseTest.FakeParticipants.class)
 @RecordApplicationEvents
+@ExtendWith(OutputCaptureExtension.class)
 class MemberWithdrawalUseCaseTest {
 
     private static final WithdrawalBlockReasonDto APPEARANCE_REASON =
@@ -397,7 +402,86 @@ class MemberWithdrawalUseCaseTest {
         assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
                 .isInstanceOf(MemberException.class)
                 .extracting("errorCode").isEqualTo(MemberErrorCode.RESTORE_UNAVAILABLE);
-        assertThat(userRepository.findById(user.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.WITHDRAWN);
+        User saved = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(UserStatus.WITHDRAWN);
+        assertThat(saved.getRestoreFailedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("기한 안에 지갑 장애로 복구가 실패했으면 기한이 지나도 7일 안에는 복구할 수 있다 (#594)")
+    void restoreWithinGrace() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        jdbcTemplate.update("""
+                update members.users set deleted_at = now() - interval '31 days', restore_failed_at = now() - interval '2 days'
+                where id = ?""", user.getId());
+
+        User restored = memberWithdrawalUseCase.restore(user.getId());
+
+        assertThat(restored.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getRestoreFailedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("기한 직전에 누르고 지갑을 여는 사이 기한이 지나도, 누른 시각 기준이라 복구된다 (#594 리뷰)")
+    void restoreJustBeforeDeadline() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        moveDeadlineSoon(user);
+        walletGate.onReopen = () -> sleep(Duration.ofMillis(700));
+
+        User restored = memberWithdrawalUseCase.restore(user.getId());
+
+        assertThat(restored.getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("기한 직전에 누르고 지갑 장애가 기한 뒤에 나도, 누른 시각으로 실패를 남겨 유예를 받는다 (#594 리뷰)")
+    void restoreFailureJustBeforeDeadline() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        moveDeadlineSoon(user);
+        walletGate.onReopen = () -> sleep(Duration.ofMillis(700));
+        walletGate.reopenFailure = new WithdrawalCallException(WithdrawalCallException.Kind.UNKNOWN_RESULT,
+                "응답 시간 초과", null);
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.RESTORE_UNAVAILABLE);
+        User saved = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(saved.getRestoreFailedAt()).isNotNull();
+        assertThat(saved.canRestore(LocalDateTime.now())).isTrue();
+    }
+
+    @Test
+    @DisplayName("지갑을 여는 사이 회원이 마스킹되면 403이고, 열린 지갑을 다시 닫도록 error 로그를 남긴다 (#669 리뷰)")
+    void restoreRacesWithMasking(CapturedOutput output) {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        Long completedId = onlyWithdrawalOf(user).getId();
+        walletGate.onReopen = () -> jdbcTemplate.update(
+                "update members.users set masked_at = localtimestamp where id = ?", user.getId());
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LOGIN_NOT_ALLOWED);
+        assertThat(walletGate.reopened).containsExactly(completedId);
+        assertThat(output).contains("지갑은 다시 열었는데 회원을 복구하지 못했습니다", "withdrawalId=" + completedId);
+    }
+
+    @Test
+    @DisplayName("유예 7일도 지났으면 지갑을 부르지 않고 LOGIN_NOT_ALLOWED (#594)")
+    void restoreAfterGrace() {
+        User user = userRepository.save(MemberFixture.user());
+        memberWithdrawalUseCase.withdraw(user.getId());
+        jdbcTemplate.update("""
+                update members.users set deleted_at = now() - interval '38 days', restore_failed_at = now() - interval '9 days'
+                where id = ?""", user.getId());
+
+        assertThatThrownBy(() -> memberWithdrawalUseCase.restore(user.getId()))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.LOGIN_NOT_ALLOWED);
+        assertThat(walletGate.reopened).isEmpty();
     }
 
     @Test
@@ -553,6 +637,21 @@ class MemberWithdrawalUseCaseTest {
                 throw reopenFailure;
             }
             reopened.add(withdrawalId);
+        }
+    }
+
+    /** 복구 기한을 0.3초 뒤로 당긴다 (탈퇴 시각을 30일 전 + 0.3초로) */
+    private void moveDeadlineSoon(User user) {
+        jdbcTemplate.update("update members.users set deleted_at = ? where id = ?",
+                LocalDateTime.now().minus(User.RESTORE_PERIOD).plus(Duration.ofMillis(300)), user.getId());
+    }
+
+    private static void sleep(Duration duration) {
+        try {
+            Thread.sleep(duration);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
         }
     }
 }

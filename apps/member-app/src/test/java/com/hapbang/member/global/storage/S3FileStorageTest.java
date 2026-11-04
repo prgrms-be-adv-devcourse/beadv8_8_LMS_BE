@@ -56,6 +56,33 @@ class S3FileStorageTest {
     }
 
     @Test
+    @DisplayName("지우면 같은 key의 내용이 빈 파일(0바이트)로 바뀌고, 없는 key여도 실패하지 않는다 (#594)")
+    void erase() {
+        String key = newKey();
+        storage.upload(key, "image/png", 5, new ByteArrayInputStream(new byte[] {1, 2, 3, 4, 5}));
+
+        storage.erase(key);
+        storage.erase(key);
+        String missing = newKey();
+        storage.erase(missing);
+
+        assertThat(storage.find(key)).contains(new StoredFile(0, "application/octet-stream"));
+        assertThat(storage.find(missing)).contains(new StoredFile(0, "application/octet-stream"));
+    }
+
+    @Test
+    @DisplayName("prefix로 시작하는 파일 key를 환경 prefix 없이 모두 돌려주고, 다른 폴더 파일은 넣지 않는다 (#594)")
+    void listKeys() {
+        String folder = newKey() + "/";
+        storage.upload(folder + "a", "image/png", 1, new ByteArrayInputStream(new byte[] {1}));
+        storage.upload(folder + "b", "image/png", 1, new ByteArrayInputStream(new byte[] {1}));
+        storage.upload(newKey(), "image/png", 1, new ByteArrayInputStream(new byte[] {1}));
+
+        assertThat(storage.listKeys(folder)).containsExactlyInAnyOrder(folder + "a", folder + "b");
+        assertThat(storage.listKeys(newKey() + "/")).isEmpty();
+    }
+
+    @Test
     @DisplayName("업로드는 key 앞에 환경 prefix를 붙여 저장한다")
     void upload_addsKeyPrefix() {
         String key = newKey();
