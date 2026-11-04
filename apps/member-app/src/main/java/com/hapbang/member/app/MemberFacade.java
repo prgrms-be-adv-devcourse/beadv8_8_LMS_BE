@@ -299,6 +299,11 @@ public class MemberFacade {
         memberEmailVerificationUseCase.sendSignUpCode(email, clientIp);
     }
 
+    /** 가입 인증 코드 확인 → 인증 토큰 (#557) */
+    public String verifySignUpEmailCode(String email, String code) {
+        return memberEmailVerificationUseCase.verifySignUpCode(email, code);
+    }
+
     /** 이메일·비밀번호 가입 (#499). 로그인은 따로 한다 */
     @Transactional
     public User signUp(String email, String password, String nickname) {

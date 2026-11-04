@@ -84,6 +84,49 @@ class RedisEmailVerificationStoreTest {
         assertThat(redisTemplate.hasKey(RedisEmailVerificationStore.CODE_KEY_PREFIX + hash)).isFalse();
     }
 
+    @Test
+    @DisplayName("맞는 코드는 MATCHED이고 코드를 지워 다시 쓸 수 없다")
+    void checkCodeMatched() {
+        String email = newEmail();
+        store.saveCode(email, "123456");
+
+        assertThat(store.checkCode(email, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.MATCHED);
+        assertThat(store.checkCode(email, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("4번 틀릴 때까지는 WRONG이고, 5번째에 ATTEMPTS_EXCEEDED로 코드를 지운다. 맞는 코드도 그 뒤엔 못 쓴다")
+    void checkCodeAttempts() {
+        String email = newEmail();
+        store.saveCode(email, "123456");
+        for (int i = 0; i < 4; i++) {
+            assertThat(store.checkCode(email, "000000", 5)).isEqualTo(EmailVerificationStore.CodeCheck.WRONG);
+        }
+        assertThat(redisTemplate.getExpire(RedisEmailVerificationStore.FAIL_KEY_PREFIX + RedisLoginAttemptStore.hash(email),
+                TimeUnit.MINUTES)).isBetween(9L, 10L);
+
+        assertThat(store.checkCode(email, "000000", 5)).isEqualTo(EmailVerificationStore.CodeCheck.ATTEMPTS_EXCEEDED);
+        assertThat(store.checkCode(email, "123456", 5)).isEqualTo(EmailVerificationStore.CodeCheck.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("인증 토큰은 30분 동안 이메일과 묶이고, 한 번 쓰면 사라진다. 저장 키에 토큰 원문은 없다")
+    void token() {
+        String email = newEmail();
+
+        String token = store.issueToken(email);
+        String key = RedisEmailVerificationStore.TOKEN_KEY_PREFIX + RedisLoginAttemptStore.hash(token);
+        createdKeys.add(key);
+
+        assertThat(token).hasSizeGreaterThanOrEqualTo(40);
+        assertThat(key).doesNotContain(token);
+        assertThat(redisTemplate.getExpire(key, TimeUnit.MINUTES)).isBetween(29L, 30L);
+        assertThat(store.consumeToken(token)).contains(email);
+        assertThat(store.consumeToken(token)).isEmpty();
+        assertThat(store.consumeToken("")).isEmpty();
+        assertThat(store.consumeToken(null)).isEmpty();
+    }
+
     private String newEmail() {
         String email = UUID.randomUUID() + "@example.com";
         String hash = RedisLoginAttemptStore.hash(email);

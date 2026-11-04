@@ -49,6 +49,15 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
                 RedisEmailVerificationStore.CODE_TTL.toSeconds(), RedisEmailVerificationStore.RESEND_COOLDOWN.toSeconds()));
     }
 
+    /** 가입 인증 코드 확인 (#557). 맞으면 가입에 쓸 인증 토큰을 준다 */
+    @Override
+    @PostMapping("/email-codes/verify")
+    public RsData<EmailVerificationTokenResponse> verifyEmailCode(@Valid @RequestBody EmailCodeVerifyRequest request) {
+        String token = memberFacade.verifySignUpEmailCode(request.email(), request.code());
+        return RsData.ok("이메일을 인증했습니다.",
+                new EmailVerificationTokenResponse(token, RedisEmailVerificationStore.TOKEN_TTL.toSeconds()));
+    }
+
     /** 가입. 로그인은 따로 한다 */
     @Override
     @PostMapping("/signup")

@@ -23,6 +23,13 @@ public interface ApiV1MemberPasswordSpec {
     RsData<EmailCodeResponse> sendEmailCode(EmailCodeRequest request,
                                             @Parameter(hidden = true) HttpServletRequest httpRequest);
 
+    @Operation(summary = "가입 인증 코드 확인",
+            description = "로그인 없이 부른다 (#557). 메일로 받은 6자리 코드를 확인하고, 맞으면 인증 토큰(30분, 이 이메일로 한 번 가입 가능)을 준다. "
+                    + "틀리면 400 INVALID_EMAIL_CODE(코드 하나에 5번까지). 5번째로 틀리거나, 받은 코드가 없거나 10분이 지났으면 "
+                    + "400 EMAIL_CODE_EXPIRED(코드를 다시 받아야 함). 코드는 숫자 6자리(아니면 400). "
+                    + "응답 data: emailVerificationToken(가입 요청에 넣는다), expiresInSeconds.")
+    RsData<EmailVerificationTokenResponse> verifyEmailCode(EmailCodeVerifyRequest request);
+
     @Operation(summary = "가입",
             description = "로그인 없이 부른다. 이메일·비밀번호·닉네임으로 가입하고 역할은 유저다. 가입만 하고 로그인은 따로 한다. "
                     + "이메일은 앞뒤 공백을 지우고 소문자로 저장한다. 이미 가입된 이메일(구글 가입 포함)이면 409 DUPLICATE_EMAIL. "

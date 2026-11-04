@@ -38,6 +38,12 @@ public enum MemberErrorCode implements BaseErrorCode {
     EMAIL_CODE_RESEND_TOO_SOON(HttpStatus.TOO_MANY_REQUESTS, "인증 코드는 1분에 한 번 받을 수 있어요. 잠시 뒤 다시 시도해 주세요."),
     /** 가입 이메일 인증 (#557): 한 IP에서 1시간에 보낼 수 있는 코드 수를 넘음 */
     EMAIL_CODE_TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "인증 코드 요청이 너무 많아요. 1시간 뒤에 다시 시도해 주세요."),
+    /** 가입 이메일 인증 (#557): 코드가 틀림 (5번까지 시도할 수 있음) */
+    INVALID_EMAIL_CODE(HttpStatus.BAD_REQUEST, "인증 코드가 맞지 않아요."),
+    /** 가입 이메일 인증 (#557): 받은 코드가 없거나 10분이 지났거나 5번 틀려 지워짐 */
+    EMAIL_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "인증 코드가 만료됐어요. 코드를 다시 받아 주세요."),
+    /** 가입 이메일 인증 (#557): 가입할 때 인증 토큰이 없거나, 만료됐거나, 다른 이메일의 토큰 */
+    EMAIL_NOT_VERIFIED(HttpStatus.BAD_REQUEST, "이메일 인증을 먼저 해 주세요."),
     /** 가입 이메일 인증 (#557): 메일 서버 오류 등으로 메일을 보내지 못함 */
     EMAIL_SEND_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "인증 메일을 보내지 못했어요. 잠시 뒤 다시 시도해 주세요."),
     // 가입된 이메일인지 알려주지 않으려고 없는 이메일과 틀린 비밀번호를 같은 오류로 답한다

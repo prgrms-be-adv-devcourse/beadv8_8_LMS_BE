@@ -114,6 +114,29 @@ class MemberEmailVerificationUseCaseTest {
         verify(store).clearResendCooldown("tester@example.com");
     }
 
+    @Test
+    @DisplayName("코드가 맞으면 소문자 이메일로 인증 토큰을 발급한다")
+    void verifyMatched() {
+        given(store.checkCode("tester@example.com", "123456", MemberEmailVerificationUseCase.MAX_CODE_ATTEMPTS))
+                .willReturn(EmailVerificationStore.CodeCheck.MATCHED);
+        given(store.issueToken("tester@example.com")).willReturn("token-1");
+
+        assertThat(useCase.verifySignUpCode("Tester@example.com", "123456")).isEqualTo("token-1");
+    }
+
+    @Test
+    @DisplayName("틀리면 INVALID_EMAIL_CODE, 횟수 초과·코드 없음은 EMAIL_CODE_EXPIRED이고 토큰을 발급하지 않는다")
+    void verifyRejected() {
+        given(store.checkCode(eq("tester@example.com"), anyString(), eq(MemberEmailVerificationUseCase.MAX_CODE_ATTEMPTS)))
+                .willReturn(EmailVerificationStore.CodeCheck.WRONG, EmailVerificationStore.CodeCheck.ATTEMPTS_EXCEEDED,
+                        EmailVerificationStore.CodeCheck.NOT_FOUND);
+
+        assertError(() -> useCase.verifySignUpCode("tester@example.com", "000000"), MemberErrorCode.INVALID_EMAIL_CODE);
+        assertError(() -> useCase.verifySignUpCode("tester@example.com", "000000"), MemberErrorCode.EMAIL_CODE_EXPIRED);
+        assertError(() -> useCase.verifySignUpCode("tester@example.com", "000000"), MemberErrorCode.EMAIL_CODE_EXPIRED);
+        verify(store, never()).issueToken(anyString());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"203.0.113.5", "8.8.8.8", "2001:4860:4860::8888"})
     @DisplayName("인터넷 주소는 공인 주소로 본다")

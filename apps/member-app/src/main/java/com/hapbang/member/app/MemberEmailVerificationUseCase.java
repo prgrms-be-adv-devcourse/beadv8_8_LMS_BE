@@ -33,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
 public class MemberEmailVerificationUseCase {
 
     static final String SUBJECT = "[합방] 이메일 인증 코드";
+    /** 코드 하나를 틀릴 수 있는 횟수. 이만큼 틀리면 코드를 지워 다시 받아야 한다 */
+    static final int MAX_CODE_ATTEMPTS = 5;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -67,6 +69,19 @@ public class MemberEmailVerificationUseCase {
             emailVerificationStore.clearResendCooldown(normalizedEmail);
             throw new MemberException(MemberErrorCode.EMAIL_SEND_FAILED, e);
         }
+    }
+
+    /**
+     * 코드를 확인하고 맞으면 인증 토큰을 준다. 틀리면 400 INVALID_EMAIL_CODE, 5번째로 틀리거나 코드가 없으면(10분 지남, 이미 씀)
+     * 400 EMAIL_CODE_EXPIRED(다시 받아야 함)
+     */
+    public String verifySignUpCode(String email, String code) {
+        String normalizedEmail = MemberEmail.normalize(email);
+        return switch (emailVerificationStore.checkCode(normalizedEmail, code, MAX_CODE_ATTEMPTS)) {
+            case MATCHED -> emailVerificationStore.issueToken(normalizedEmail);
+            case WRONG -> throw new MemberException(MemberErrorCode.INVALID_EMAIL_CODE);
+            case ATTEMPTS_EXCEEDED, NOT_FOUND -> throw new MemberException(MemberErrorCode.EMAIL_CODE_EXPIRED);
+        };
     }
 
     /** 6자리 숫자 (앞자리 0 포함) */

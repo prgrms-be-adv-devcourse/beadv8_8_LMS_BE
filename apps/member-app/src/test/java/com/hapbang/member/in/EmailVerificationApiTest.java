@@ -28,6 +28,7 @@ import com.hapbang.member.domain.User;
 import com.hapbang.member.out.RedisEmailVerificationStore;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
+import com.jayway.jsonpath.JsonPath;
 
 /** 가입 이메일 인증 API (#557): 로그인 없이 부르고, 메일 계정이 없는 테스트에서는 로그 발송기로 보낸다 */
 @MemberIntegrationTest
@@ -92,6 +93,53 @@ class EmailVerificationApiTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("DUPLICATE_EMAIL"));
         sendCode("not-an-email", newIp()).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("받은 코드를 확인하면 인증 토큰(30분)을 주고, 같은 코드는 다시 쓸 수 없다")
+    void verifyCode() throws Exception {
+        String email = newEmail();
+        sendCode(email, newIp()).andExpect(status().isOk());
+        String code = savedCode(email);
+
+        String body = verify(email, code)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.expiresInSeconds").value(1800))
+                .andReturn().getResponse().getContentAsString();
+        String token = JsonPath.read(body, "$.data.emailVerificationToken");
+        createdKeys.add("member:email-verified:" + hash(token));
+
+        verify(email, code)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+    }
+
+    @Test
+    @DisplayName("틀리면 400 INVALID_EMAIL_CODE, 5번째로 틀리면 400 EMAIL_CODE_EXPIRED이고 맞는 코드도 더는 못 쓴다. 숫자 6자리가 아니면 400")
+    void verifyWrongCode() throws Exception {
+        String email = newEmail();
+        sendCode(email, newIp()).andExpect(status().isOk());
+        String code = savedCode(email);
+        String wrong = code.equals("000000") ? "111111" : "000000";
+        for (int i = 0; i < 4; i++) {
+            verify(email, wrong)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_EMAIL_CODE"));
+        }
+
+        verify(email, wrong).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+        verify(email, code).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+        verify(email, "12ab56").andExpect(status().isBadRequest());
+    }
+
+    private ResultActions verify(String email, String code) throws Exception {
+        return mockMvc.perform(post(EMAIL_CODES + "/verify").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"code\":\"%s\"}".formatted(email, code)));
+    }
+
+    /** 메일 대신 Redis에 저장된 코드를 읽는다 (테스트에는 메일 계정이 없어 로그 발송기를 쓴다) */
+    private String savedCode(String email) {
+        return redisTemplate.opsForValue().get("member:email-code:" + hash(email));
     }
 
     private ResultActions sendCode(String email, String ip) throws Exception {
