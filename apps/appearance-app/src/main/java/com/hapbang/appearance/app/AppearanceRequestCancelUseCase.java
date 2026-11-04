@@ -12,6 +12,7 @@ import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.HpTaskReason;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 출연 요청 응답 전 취소 (호스트). 요청서를 {@code CANCELED}로 바꾸고 보류 HP 반환 작업을 기록한다.
@@ -19,6 +20,7 @@ import lombok.RequiredArgsConstructor;
  * <p>
  * 반환은 Billing 호출이라 커밋 뒤에 실행해야 해서, Facade가 아니라 여기서 트랜잭션을 연다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceRequestCancelUseCase {
@@ -40,6 +42,11 @@ public class AppearanceRequestCancelUseCase {
 
         LocalDateTime now = LocalDateTime.now(clock);
         request.cancel(hostId, now);
-        return appearanceRequestReleaseRecorder.applyAndRecordRelease(request, HpTaskReason.REQUEST_CANCELED, now);
+        Long releaseTaskId = appearanceRequestReleaseRecorder.applyAndRecordRelease(request,
+                HpTaskReason.REQUEST_CANCELED, now);
+        AfterCommit.run(() -> {
+            log.info("출연 요청을 취소했다 requestId={}, hostId={}, releaseTaskId={}", requestId, hostId, releaseTaskId);
+        });
+        return releaseTaskId;
     }
 }

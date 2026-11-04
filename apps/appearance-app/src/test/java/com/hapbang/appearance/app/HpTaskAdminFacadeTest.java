@@ -10,12 +10,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.appearance.app.dto.HpTaskAdminResDto;
 import com.hapbang.appearance.config.AppearanceBatchProperties;
@@ -44,6 +49,7 @@ import com.hapbang.shared.member.domain.UserStatus;
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "ADMIN")
+@ExtendWith(OutputCaptureExtension.class)
 class HpTaskAdminFacadeTest {
 
     private static final long ADMIN = 900L;
@@ -73,6 +79,12 @@ class HpTaskAdminFacadeTest {
 
     @Autowired
     HpTaskRepository hpTaskRepository;
+
+    @Autowired
+    HpTaskSupport hpTaskSupport;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     @Autowired
     BillingClient billingClient;
@@ -112,6 +124,23 @@ class HpTaskAdminFacadeTest {
 
     private HpTask task(Long taskId) {
         return hpTaskRepository.findById(taskId).orElseThrow();
+    }
+
+    @Test
+    @DisplayName("HP 작업 등록 로그는 커밋 뒤에 한 줄 남고, 등록한 트랜잭션이 롤백되면 남지 않는다 (#681)")
+    void registerLogAfterCommit(CapturedOutput output) {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        transaction.executeWithoutResult(status -> {
+            hpTaskSupport.save(HpTask.release(HpTaskRefType.APPEARANCE_REQUEST, 21L, HOST, AMOUNT,
+                    HpTaskReason.REQUEST_REJECTED, keyOf(21L), now()));
+            status.setRollbackOnly();
+        });
+        Long taskId = transaction.execute(status -> hpTaskSupport.save(HpTask.release(HpTaskRefType.APPEARANCE_REQUEST,
+                22L, HOST, AMOUNT, HpTaskReason.REQUEST_REJECTED, keyOf(22L), now())).getId());
+
+        assertThat(output.getAll().lines().filter(line -> line.contains("HP 작업을 등록했다")))
+                .singleElement().satisfies(line -> assertThat(line).contains(" INFO ", "taskId=" + taskId,
+                        "refId=22", "amount=" + AMOUNT));
     }
 
     @Nested
@@ -167,7 +196,7 @@ class HpTaskAdminFacadeTest {
 
         @Test
         @DisplayName("성공하면 DONE, 같은 멱등 키로 Billing에 한 번 더 보냄, 다시 시도 기록(관리자·시각·횟수)")
-        void succeeds() {
+        void succeeds(CapturedOutput output) {
             Long taskId = deadTask(11L);
 
             HpTaskAdminResDto retried = hpTaskAdminFacade.retry(ADMIN, taskId);
@@ -180,6 +209,13 @@ class HpTaskAdminFacadeTest {
             assertThat(retried.lastManualRetryAt()).isNotNull();
             assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::releaseRequestId)
                     .containsExactly(keyOf(11L));
+            assertThat(output.getAll().lines().filter(line -> line.contains("관리자가 DEAD HP 작업을 다시 시도하게 했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "taskId=" + taskId, "adminId=" + ADMIN, "manualRetryCount=1"));
+            assertThat(output.getAll()).doesNotContain("[HP_TASK_MANUAL_RETRY]");
+            assertThat(output.getAll().lines().filter(line -> line.contains("HP 작업을 마쳤다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "taskId=" + taskId, "taskType=RELEASE"));
         }
 
         @Test

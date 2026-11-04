@@ -689,7 +689,7 @@ in.AppearanceBatch (@ConditionalOnSchedulingEnabled, 매분 실행, KST)
 | 격리 로그 | `DEAD`가 되는 순간 ERROR 로그 `[HP_TASK_DEAD] taskId=…, type=…, ref=APPEARANCE_REQUEST-12, memberId=…, amount=…, attempts=…, error=…` | `docker logs <컨테이너> 2>&1 \| grep HP_TASK_DEAD` |
 | 지표 (Micrometer) | `appearance.hp_task.executions{result=done\|retry\|dead}`, `appearance.hp_task.pending`, `appearance.hp_task.dead` (재시도 배치 실행 시점 값) | 앱의 `MeterRegistry`에 등록됨. 보는 경로(`/actuator/metrics`, Prometheus)는 팀 합의 후 연다 |
 | 관리자 API | 격리 작업 목록 `GET /api/v1/appearances/admin/hp-tasks`, 다시 시도 `POST …/{taskId}/retry` (19장, #397) | 관리자 로그인 |
-| 다시 시도 로그 | 관리자가 다시 시도하는 순간 WARN 로그 `[HP_TASK_MANUAL_RETRY] taskId=…, adminId=…, manualRetryCount=…, previousAttempts=…, previousError=…` (다시 시도하면 시도 횟수가 0으로 돌아가므로 직전 값을 여기에 남긴다) | `grep HP_TASK_MANUAL_RETRY` |
+| 다시 시도 로그 | 관리자가 다시 시도하는 순간 INFO 로그 `관리자가 DEAD HP 작업을 다시 시도하게 했다 taskId=…, adminId=…, manualRetryCount=…, previousAttempts=…, previousError=…` (다시 시도하면 시도 횟수가 0으로 돌아가므로 직전 값을 여기에 남긴다). alert 대상이 아니라 표식을 붙이지 않는다(#681, `docs/dev/logging.md`) | `grep "DEAD HP 작업을 다시 시도"` |
 | DB | `select * from appearances.hp_tasks where status = 'DEAD'` | 언제든 |
 
 - Prometheus + Grafana 대시보드·alert는 `docker/compose*.yaml` 변경이 필요해 팀 결정 사항이다.
@@ -1177,7 +1177,7 @@ AppearanceEarningPageDto getEarnings(long guestUserId, Collection<AppearanceEarn
 ```
 [트랜잭션] 관리자 자격 확인(정지 403 APPEARANCE_USER_NOT_ACTIVE / 강등 403 NOT_ADMIN) → 작업 조회(없으면 404 HP_TASK_NOT_FOUND) → DEAD 확인(아니면 409 HP_TASK_NOT_DEAD)
           → PENDING, 시도 횟수 0, 다음 시도 시각 = 지금, 완료 시각 비움, 다시 시도 기록(횟수+1·관리자·시각)
-          → 바로 반영해 버전 충돌이면 409 CONCURRENT_UPDATE → [HP_TASK_MANUAL_RETRY] 로그 (커밋)
+          → 바로 반영해 버전 충돌이면 409 CONCURRENT_UPDATE → 다시 시도 INFO 로그 (커밋)
 [트랜잭션 밖] HpTaskExecuteUseCase.execute — 업무 처리 직후 실행과 같은 1회 실행
           → 성공 DONE / Billing 거절 DEAD / 결과 모름 PENDING(재시도 배치가 이어서)
 [읽기 전용 트랜잭션] 실행 뒤 작업을 읽어 응답 (다시 실패해도 200, 결과는 status로 본다)

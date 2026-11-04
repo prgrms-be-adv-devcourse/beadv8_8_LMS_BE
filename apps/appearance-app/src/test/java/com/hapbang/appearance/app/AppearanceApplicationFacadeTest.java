@@ -17,7 +17,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -25,6 +28,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
@@ -51,6 +56,7 @@ import com.hapbang.shared.member.domain.UserStatus;
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
+@ExtendWith(OutputCaptureExtension.class)
 class AppearanceApplicationFacadeTest {
 
     private static final Long HOST = 1L;
@@ -79,6 +85,9 @@ class AppearanceApplicationFacadeTest {
 
     @Autowired
     JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     @Autowired
     AppearanceTestClock clock;
@@ -218,7 +227,7 @@ class AppearanceApplicationFacadeTest {
 
         @Test
         @DisplayName("지원한 게스트가 대기 중에 취소하면 WITHDRAWN, 지원자 수에서 빠진다")
-        void withdraw() {
+        void withdraw(CapturedOutput output) {
             Long recruitId = postRecruit(3);
             AppearanceApplicationResDto applied = apply(GUEST, recruitId);
 
@@ -227,6 +236,25 @@ class AppearanceApplicationFacadeTest {
             assertThat(withdrawn.status()).isEqualTo(AppearanceApplicationStatus.WITHDRAWN);
             assertThat(withdrawn.withdrawnAt()).isNotNull();
             assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).applicantCount()).isZero();
+            assertThat(output.getAll().lines().filter(line -> line.contains("모집 지원을 철회했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "applicationId=" + applied.id(), "recruitId=" + recruitId,
+                                    "guestId=" + GUEST));
+        }
+
+        @Test
+        @DisplayName("철회한 트랜잭션이 롤백되면 결정 로그를 남기지 않는다 (#681, 결정 로그는 커밋 뒤)")
+        void withdrawRolledBack(CapturedOutput output) {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto applied = apply(GUEST, recruitId);
+
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                appearanceApplicationFacade.withdraw(GUEST, applied.id());
+                status.setRollbackOnly();
+            });
+
+            assertThat(output.getAll()).doesNotContain("모집 지원을 철회했다");
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).applicantCount()).isEqualTo(1);
         }
 
         @Test
@@ -279,7 +307,7 @@ class AppearanceApplicationFacadeTest {
 
         @Test
         @DisplayName("수락하면 SELECTED, 성립 인원 +1, 출연 성립(출처 RECRUIT·1인당 출연료), HP는 이동하지 않는다")
-        void accept() {
+        void accept(CapturedOutput output) {
             Long recruitId = postRecruit(3);
             AppearanceApplicationResDto applied = apply(GUEST, recruitId);
             BillingStubs.available(billingClient); // 모집글 보류 요청 기록을 지운다
@@ -298,6 +326,10 @@ class AppearanceApplicationFacadeTest {
             assertThat(recruit.selectedCount()).isEqualTo(1);
             assertThat(recruit.applicantCount()).isEqualTo(1);
             assertThat(BillingCalls.none(billingClient)).isTrue();
+            assertThat(output.getAll().lines().filter(line -> line.contains("모집 지원을 수락했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "applicationId=" + applied.id(), "recruitId=" + recruitId,
+                                    "hostId=" + HOST, "guestId=" + GUEST));
         }
 
         @Test
@@ -378,7 +410,7 @@ class AppearanceApplicationFacadeTest {
 
         @Test
         @DisplayName("거절하면 NOT_SELECTED(사유 없음), 지원자 수에는 남고, 그 게스트는 다시 지원할 수 없다")
-        void reject() {
+        void reject(CapturedOutput output) {
             Long recruitId = postRecruit(3);
             AppearanceApplicationResDto applied = apply(GUEST, recruitId);
 
@@ -388,6 +420,10 @@ class AppearanceApplicationFacadeTest {
             assertThat(rejected.respondedAt()).isNotNull();
             assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).applicantCount()).isEqualTo(1);
             assertErrorCode(() -> apply(GUEST, recruitId), AppearanceErrorCode.DUPLICATE_APPLICATION);
+            assertThat(output.getAll().lines().filter(line -> line.contains("모집 지원을 거절했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "applicationId=" + applied.id(), "recruitId=" + recruitId,
+                                    "hostId=" + HOST));
         }
 
         @Test

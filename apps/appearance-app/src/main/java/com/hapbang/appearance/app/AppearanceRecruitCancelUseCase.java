@@ -20,6 +20,7 @@ import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskType;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 모집 전체 취소 (호스트, #239). 모집글 {@code CANCELED}, 성립한 출연마다 호스트 일방 취소(위약금), 대기 중 지원 미선정,
@@ -33,6 +34,7 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  * 정산은 Billing 호출이라 커밋 뒤에 실행해야 해서 여기서 트랜잭션을 연다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceRecruitCancelUseCase {
@@ -79,6 +81,10 @@ public class AppearanceRecruitCancelUseCase {
             taskIds.add(recordVacancyRelease(recruit, vacancyFee, now));
         }
         appearanceRecruitSupport.flushOrConflict();
+        AfterCommit.run(() -> {
+            log.info("모집을 취소했다 recruitId={}, hostId={}, appearanceCount={}, vacancyFee={}, taskIds={}", recruitId,
+                    hostId, appearances.size(), vacancyFee, taskIds);
+        });
         return taskIds;
     }
 
