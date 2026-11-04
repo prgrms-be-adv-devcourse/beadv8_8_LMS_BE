@@ -46,6 +46,7 @@
 | k3s 배포 role의 trust를 Environment `prod`로 제한 | 다른 브랜치·PR의 workflow는 role을 받지 못한다. `prod`는 `dev` 브랜치만 허용(#559 전에는 `main`) |
 | `hapbang-prod` Pod Security `baseline`(EC2 적용 2026-10-30) | 리뷰를 거쳐 배포되는 manifest가 privileged·hostNetwork·hostPath pod를 만들지 못한다. 그런 pod는 node root·IMDS(인스턴스 역할)에 닿는다. 배포 role 자체의 root 권한은 막지 못한다(아래 알려진 위험) |
 | k3s API(6443)는 사용자 IP `/32`만 | 배포는 SSM으로 하므로 6443을 열지 않는다. 자격 증명이 새도 네트워크에서 막힌다 |
+| 운영으로 이어지는 workflow의 action을 커밋 SHA로 고정 | `ci.yml`·`publish.yml`·`deploy.yml`은 action을 40자리 SHA로 고정한다(#656). 이 workflow들은 운영에 나갈 jar를 만들고(`ci.yml`은 `publish.yml`이 호출한다), GHCR에 이미지를 올리고(`packages: write`), 배포 role을 받는다(`id-token: write`). 액션의 태그가 악성 커밋으로 옮겨져도 고정한 커밋만 실행된다. 갱신은 Dependabot이 주 1회 PR 하나로 올리고, 나온 지 7일이 지난 릴리스만 반영한다(`.github/dependabot.yml`). Dependabot PR은 바뀐 SHA가 그 버전 태그의 커밋인지 확인하고 병합한다 |
 
 ## 알려진 위험
 
@@ -56,7 +57,7 @@
 | main으로 가는 PR 출발 브랜치 검사가 이름만 봄 | ruleset `protect-main-dev`가 PR·`verify`·`source-branch`(dev, `release/review-N`만 허용, #180)를 요구한다. 승인 수는 0이라 이름을 맞춘 브랜치는 통과한다 | main 전용 ruleset으로 승인 1개 이상 요구 |
 | k3s 배포 role이 large에서 임의 명령을 root로 실행할 수 있음 | trust를 Environment `prod`(`dev`만)로 제한. `dev`에 병합된 workflow만 쓴다 | 토큰 발급만 하는 전용 SSM 문서로 권한 축소 |
 | dev 병합이 승인 없이 운영에 나감 | dev는 승인 0개로 squash 병합된다(ruleset `merge-method-dev`). 병합하면 앱 코드·manifest와 배포 workflow·스크립트가 사람 승인 없이 운영에 반영되고, 배포 스크립트는 large에서 root로 돈다. 거치는 검사는 CI(`verify`)와 Claude Review 코멘트뿐이다. 팀 결정으로 승인 없이 둔다(2026-11-02, #559) | dev ruleset에 승인 1개 이상 요구, 또는 Environment `prod`에 승인자(required reviewers) 지정 |
-| GitHub Actions 메이저 버전 태그(`@v7` 등) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
+| `claude-review.yml`은 action을 메이저 태그(`@v1` 등)로 씀 | 운영으로 이어지는 workflow는 SHA로 고정했다(위 보호 장치). `claude-review.yml`은 읽기 권한과 PR 코멘트 권한만 가지고, `claude-code-action@v1`이 자주 바뀌어 고정하면 갱신 PR이 많아지므로 태그로 둔다(2026-11-04, #656). 액션 저장소가 오염되면 `CLAUDE_CODE_OAUTH_TOKEN`이 샐 수 있다 | 이 파일도 SHA로 고정 |
 | DB 백업 없음 | k3s PostgreSQL 백업 절차가 없다 | 정기 백업 결정 |
 
 ## DB 비밀번호 교체
