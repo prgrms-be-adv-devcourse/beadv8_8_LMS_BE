@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.PasswordCredentialRepository;
 import com.hapbang.member.out.UserRepository;
@@ -149,6 +150,20 @@ class ApiV1MemberPasswordControllerTest {
         mockMvc.perform(post(REFRESH).cookie(refreshCookie(cookieValue(setCookie))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accessToken").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("마스킹으로 지운 비밀번호는 없는 것과 같아 500이 아니라 401 INVALID_CREDENTIALS다 (#594)")
+    void login_wipedCredential() throws Exception {
+        String email = signedUp("abcd1234");
+        User user = userRepository.findByEmail(email).orElseThrow();
+        PasswordCredential credential = passwordCredentialRepository.findByUserId(user.getId()).orElseThrow();
+        credential.wipe();
+        passwordCredentialRepository.saveAndFlush(credential);
+
+        login(email, PasswordCredential.WIPED_HASH)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
     }
 
     @Test

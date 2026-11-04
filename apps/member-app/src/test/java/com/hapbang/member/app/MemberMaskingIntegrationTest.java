@@ -105,7 +105,7 @@ class MemberMaskingIntegrationTest {
         assertThat(memberMaskingUseCase.maskAllDue(100)).isEqualTo(1);
 
         User masked = reload(user);
-        assertThat(masked.getEmail()).isEqualTo("withdrawn_" + id + "@masked.invalid");
+        assertThat(masked.getEmail()).isNull();
         assertThat(masked.getNickname()).isEqualTo("탈퇴회원#" + id);
         assertThat(masked.getProfileImageKey()).isNull();
         assertThat(masked.getStatus()).isEqualTo(UserStatus.WITHDRAWN);
@@ -137,6 +137,7 @@ class MemberMaskingIntegrationTest {
         memberMaskingUseCase.maskAllDue(100);
 
         assertThat(userRepository.existsByEmailIgnoreCase(email)).isFalse();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getEmail()).isNull();
         assertThat(userRepository.existsByNicknameLower(nickname)).isFalse();
         assertThat(oAuthAccountRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-sub-rejoin")).isEmpty();
         assertThat(influencerChannelRepository.existsByPlatformAndChannelIdentifier(ChannelPlatform.CHZZK, "channel-rejoin"))
@@ -146,11 +147,13 @@ class MemberMaskingIntegrationTest {
     }
 
     @Test
-    @DisplayName("한 회원이 실패해도 그 회원만 건너뛰고 뒤 회원은 마스킹한다 (마스킹 이메일을 다른 회원이 먼저 쓰고 있는 경우)")
+    @DisplayName("한 회원이 실패해도 그 회원만 건너뛰고 뒤 회원은 마스킹한다 (마스킹할 구글 계정 값이 이미 있어 유일 제약에 걸리는 경우)")
     void skipsFailedMember() {
         LocalDateTime withdrawnAt = LocalDateTime.now().minusDays(31);
         User blocked = withdrawn(withdrawnAt);
-        userRepository.save(User.join("withdrawn_" + blocked.getId() + "@masked.invalid", "선점자"));
+        OAuthAccount account = oAuthAccountRepository.save(OAuthAccount.connect(blocked, OAuthProvider.GOOGLE, "google-sub-blocked"));
+        User other = userRepository.save(MemberFixture.user());
+        oAuthAccountRepository.save(OAuthAccount.connect(other, OAuthProvider.GOOGLE, "withdrawn_" + account.getId()));
         User next = withdrawn(withdrawnAt);
 
         assertThat(memberMaskingUseCase.maskAllDue(1)).isEqualTo(1);

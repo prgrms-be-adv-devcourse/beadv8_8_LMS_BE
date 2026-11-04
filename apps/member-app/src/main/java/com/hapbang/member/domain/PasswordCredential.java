@@ -64,10 +64,15 @@ public class PasswordCredential extends BaseEntity {
 
     /**
      * 탈퇴 회원 마스킹 (#594). 행은 남기고(삭제 금지) 해시를 {@link #WIPED_HASH}로 덮는다.
-     * 마스킹한 회원은 이메일도 바뀌어 비밀번호 로그인에서 찾을 수 없으므로 이 값과 비교할 일은 없다
+     * 마스킹한 회원은 이메일도 지워져 비밀번호 로그인에서 찾을 수 없다. 그래도 로그인·비밀번호 변경은 {@link #isWiped()}로 한 번 더 거른다
      */
     public void wipe() {
         this.passwordHash = WIPED_HASH;
+    }
+
+    /** 마스킹으로 해시를 지웠는지. 지운 값은 해시가 아니라 비밀번호 비교에 넘기면 오류가 나므로 비교 전에 거른다 */
+    public boolean isWiped() {
+        return WIPED_HASH.equals(passwordHash);
     }
 
     @Override

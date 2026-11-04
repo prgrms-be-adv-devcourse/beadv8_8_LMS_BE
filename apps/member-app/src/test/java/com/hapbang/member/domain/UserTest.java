@@ -214,7 +214,7 @@ class UserTest {
     }
 
     @Test
-    @DisplayName("복구 기한이 지난 탈퇴 회원을 마스킹하면 이메일·닉네임이 회원 ID를 넣은 값이 되고 사진 연결이 끊긴다 (#594)")
+    @DisplayName("복구 기한이 지난 탈퇴 회원을 마스킹하면 이메일은 지워지고 닉네임은 회원 ID를 넣은 값이 되며 사진 연결이 끊긴다 (#594)")
     void mask() {
         LocalDateTime withdrawnAt = LocalDateTime.of(2026, 11, 3, 12, 0);
         User user = User.join("tester1@example.com", "tester1");
@@ -224,7 +224,7 @@ class UserTest {
 
         user.mask(withdrawnAt.plusDays(30));
 
-        assertThat(user.getEmail()).isEqualTo("withdrawn_5@masked.invalid");
+        assertThat(user.getEmail()).isNull();
         assertThat(user.getNickname()).isEqualTo("탈퇴회원#5");
         assertThat(user.getProfileImageKey()).isNull();
         assertThat(user.getMaskedAt()).isEqualTo(withdrawnAt.plusDays(30));

@@ -134,7 +134,9 @@ public class User extends SourceUser {
 
     /**
      * 개인정보 마스킹 (#594, docs/policy.md 삭제 정책). 복구 기한이 지난 탈퇴 회원만 한 번 한다.
-     * 이메일·닉네임은 회원 ID를 넣은 값으로 바꿔 유일 제약을 지키고(같은 이메일로 새로 가입 가능), 프로필 사진 연결을 끊는다.
+     * 이메일은 지운다(null). 빈 값끼리는 유일 제약에 걸리지 않아 다른 회원과 겹치거나 미리 선점될 일이 없고, 로그인에서도 찾아지지 않으며,
+     * 같은 이메일로 새로 가입할 수 있다. 닉네임은 다른 앱 복제본(채팅은 not null)에 나가므로 회원 ID를 넣은 값으로 바꾼다.
+     * 프로필 사진 연결을 끊는다.
      * 닉네임은 규칙 검사를 거치지 않는다({@link #MASKED_NICKNAME_PREFIX}의 {@code #}은 규칙 밖 글자다). 회원 행·ID·상태(탈퇴)는 남긴다
      */
     public void mask(LocalDateTime now) {
@@ -143,7 +145,7 @@ public class User extends SourceUser {
                     + ", restorableUntil=" + restorableUntil());
         }
         changeProfile(MASKED_NICKNAME_PREFIX + getId(), getRole(), getStatus());
-        this.email = "withdrawn_" + getId() + "@masked.invalid";
+        this.email = null;
         this.profileImageKey = null;
         this.maskedAt = now;
     }

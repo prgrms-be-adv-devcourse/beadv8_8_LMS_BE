@@ -50,7 +50,9 @@ public class MemberPasswordLoginUseCase {
         if (loginAttemptStore.isLocked(normalizedEmail)) {
             throw new MemberException(MemberErrorCode.LOGIN_LOCKED);
         }
-        Optional<PasswordCredential> credential = passwordCredentialRepository.findByUserEmail(normalizedEmail);
+        // 마스킹으로 지운 비밀번호(#594)는 없는 것과 같다. 비교기에 넘기면 해시 형식이 아니라 오류(500)가 난다
+        Optional<PasswordCredential> credential = passwordCredentialRepository.findByUserEmail(normalizedEmail)
+                .filter(found -> !found.isWiped());
         String hash = credential.map(PasswordCredential::getPasswordHash).orElse(dummyHash);
         boolean matches = passwordEncoder.matches(password == null ? "" : password, hash);
         if (credential.isEmpty() || !matches) {
