@@ -84,6 +84,20 @@ class EmailVerificationApiTest {
     }
 
     @Test
+    @DisplayName("한 이메일은 하루 3통까지 받고 4통째는 429 EMAIL_CODE_DAILY_LIMIT (1분 간격은 지우고 다시 요청)")
+    void emailDailyLimit() throws Exception {
+        String email = newEmail();
+        for (int i = 0; i < EmailVerificationPolicy.EMAIL_DAILY_LIMIT; i++) {
+            sendCode(email, newIp()).andExpect(status().isOk());
+            redisTemplate.delete("member:email-code-cooldown:" + hash(email));
+        }
+
+        sendCode(email, newIp())
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("EMAIL_CODE_DAILY_LIMIT"));
+    }
+
+    @Test
     @DisplayName("이미 가입된 이메일이면 409 DUPLICATE_EMAIL, 이메일 형식이 틀리면 400")
     void rejects() throws Exception {
         String email = newEmail();
@@ -182,6 +196,7 @@ class EmailVerificationApiTest {
         createdKeys.add("member:email-code:" + hash);
         createdKeys.add("member:email-code-fail:" + hash);
         createdKeys.add("member:email-code-cooldown:" + hash);
+        createdKeys.add("member:email-code-daily:" + hash);
         return email;
     }
 

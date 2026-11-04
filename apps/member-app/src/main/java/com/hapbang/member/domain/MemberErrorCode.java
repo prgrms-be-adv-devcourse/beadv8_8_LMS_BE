@@ -44,6 +44,10 @@ public enum MemberErrorCode implements BaseErrorCode {
     EMAIL_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "인증 코드가 만료됐어요. 코드를 다시 받아 주세요."),
     /** 가입 이메일 인증 (#557): 가입할 때 인증 토큰이 없거나, 만료됐거나, 다른 이메일의 토큰 */
     EMAIL_NOT_VERIFIED(HttpStatus.BAD_REQUEST, "이메일 인증을 먼저 해 주세요."),
+    /** 가입 이메일 인증 (#557): 한 이메일이 하루에 받을 수 있는 메일 수(3통)를 넘음 */
+    EMAIL_CODE_DAILY_LIMIT(HttpStatus.TOO_MANY_REQUESTS, "이 이메일로는 오늘 인증 메일을 더 받을 수 없어요. 내일 다시 시도해 주세요."),
+    /** 가입 이메일 인증 (#557): 앱 전체 하루 발송 상한(300통)에 닿음. 남용이 의심돼 운영자가 확인해야 한다 */
+    EMAIL_SEND_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 인증 메일을 보낼 수 없어요. 잠시 뒤 다시 시도해 주세요."),
     /** 가입 이메일 인증 (#557): 메일 서버 오류 등으로 메일을 보내지 못함 */
     EMAIL_SEND_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "인증 메일을 보내지 못했어요. 잠시 뒤 다시 시도해 주세요."),
     // 가입된 이메일인지 알려주지 않으려고 없는 이메일과 틀린 비밀번호를 같은 오류로 답한다

@@ -130,12 +130,38 @@ class RedisEmailVerificationStoreTest {
         assertThat(store.findTokenEmail(null)).isEmpty();
     }
 
+    @Test
+    @DisplayName("한 이메일은 하루 3통까지 세고 4통째부터 막는다. 세는 기간은 하루다")
+    void emailDailyLimit() {
+        String email = newEmail();
+        for (int i = 0; i < EmailVerificationPolicy.EMAIL_DAILY_LIMIT; i++) {
+            assertThat(store.tryCountEmailDaily(email)).isTrue();
+        }
+
+        assertThat(store.tryCountEmailDaily(email)).isFalse();
+        assertThat(store.tryCountEmailDaily(newEmail())).isTrue();
+        assertThat(redisTemplate.getExpire(RedisEmailVerificationStore.EMAIL_DAILY_KEY_PREFIX + RedisLoginAttemptStore.hash(email),
+                TimeUnit.HOURS)).isBetween(23L, 24L);
+    }
+
+    @Test
+    @DisplayName("앱 전체 발송은 하루 300통까지 센다")
+    void globalDailyLimit() {
+        String key = RedisEmailVerificationStore.GLOBAL_DAILY_KEY;
+        createdKeys.add(key);
+        redisTemplate.opsForValue().set(key, String.valueOf(EmailVerificationPolicy.GLOBAL_DAILY_LIMIT - 1));
+
+        assertThat(store.tryCountGlobalDaily()).isTrue();
+        assertThat(store.tryCountGlobalDaily()).isFalse();
+    }
+
     private String newEmail() {
         String email = UUID.randomUUID() + "@example.com";
         String hash = RedisLoginAttemptStore.hash(email);
         createdKeys.add(RedisEmailVerificationStore.CODE_KEY_PREFIX + hash);
         createdKeys.add(RedisEmailVerificationStore.FAIL_KEY_PREFIX + hash);
         createdKeys.add(RedisEmailVerificationStore.COOLDOWN_KEY_PREFIX + hash);
+        createdKeys.add(RedisEmailVerificationStore.EMAIL_DAILY_KEY_PREFIX + hash);
         return email;
     }
 

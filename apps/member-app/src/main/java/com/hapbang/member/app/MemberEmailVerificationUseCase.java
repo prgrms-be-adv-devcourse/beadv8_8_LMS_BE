@@ -22,8 +22,9 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 가입 이메일 인증 (#557). 이메일 가입 전에 메일로 받은 6자리 코드로 이메일 주인인지 확인한다. 구글 가입·초기 계정·관리자 계정은 거치지 않는다.
  * <ul>
- *     <li>이미 가입된 이메일이면 보내지 않는다(409 DUPLICATE_EMAIL, 가입 API와 같은 답).</li>
- *     <li>남용 막기: 같은 이메일은 1분에 한 번, 한 IP는 1시간에 10통(#557 결정). Gmail 하루 발송 한도와 남의 메일함 스팸을 막는다.
+ *     <li>이미 가입된 이메일이면 보내지 않는다(409 DUPLICATE_EMAIL).</li>
+ *     <li>남용 막기 (#557 결정): 같은 이메일 1분에 한 번, 한 IP 1시간 10통, 한 이메일 하루 3통, 앱 전체 하루 300통.
+ *     Gmail 하루 발송 한도(약 500통) 소진, 남의 메일함 스팸·메일 폭탄, 코드 맞히기를 막는다.
  *     IP가 내부 주소(사설·루프백 등)면 진짜 접속 IP를 모르는 것이라 IP 제한을 건너뛰고 경고만 남긴다. 모든 사람이 한 IP로 보여
  *     가입 전체가 막히는 일을 피하려는 것이다(운영에서 진짜 IP가 오는지는 배포 뒤 확인한다, docs/deploy/gateway.md).</li>
  *     <li>메일을 못 보내면 저장한 코드와 재발송 간격을 지워 바로 다시 받을 수 있게 하고 503을 준다. IP 발송 수는 그대로 센다.</li>
@@ -42,22 +43,25 @@ public class MemberEmailVerificationUseCase {
     private final EmailVerificationStore emailVerificationStore;
     private final EmailSender emailSender;
 
-    /** 가입 인증 코드를 메일로 보낸다. 트랜잭션 없이 부른다(메일 발송을 DB 트랜잭션 안에 두지 않는다) */
+    /**
+     * 가입 인증 코드를 메일로 보낸다. 트랜잭션 없이 부른다(메일 발송을 DB 트랜잭션 안에 두지 않는다).
+     * 제한은 싼 것부터 본다: 같은 이메일 1분 간격 → IP 1시간 10통 → 이메일 하루 3통 → 전체 하루 300통.
+     * 1분 간격에 막힌 요청(연타)은 IP·이메일·전체 수를 쓰지 않는다. 뒤 제한에 막히면 1분 간격을 지워 되돌린다
+     */
     public void sendSignUpCode(String email, String clientIp) {
         String normalizedEmail = MemberEmail.normalize(email);
-        if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
-            throw new MemberException(MemberErrorCode.DUPLICATE_EMAIL);
-        }
-        if (isPublicAddress(clientIp)) {
-            if (!emailVerificationStore.tryCountIp(clientIp)) {
-                throw new MemberException(MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
-            }
-        } else {
-            log.warn("가입 인증 코드 요청의 IP가 내부 주소라 IP당 발송 제한을 건너뜁니다. 진짜 접속 IP가 오는지 확인해야 합니다. ip={}",
-                    clientIp);
-        }
         if (!emailVerificationStore.tryStartResendCooldown(normalizedEmail)) {
             throw new MemberException(MemberErrorCode.EMAIL_CODE_RESEND_TOO_SOON);
+        }
+        try {
+            checkSendLimits(normalizedEmail, clientIp);
+        } catch (MemberException e) {
+            emailVerificationStore.clearResendCooldown(normalizedEmail);
+            throw e;
+        }
+        if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
+            emailVerificationStore.clearResendCooldown(normalizedEmail);
+            throw new MemberException(MemberErrorCode.DUPLICATE_EMAIL);
         }
         String code = newCode();
         emailVerificationStore.saveCode(normalizedEmail, code);
@@ -68,6 +72,26 @@ public class MemberEmailVerificationUseCase {
             emailVerificationStore.deleteCode(normalizedEmail);
             emailVerificationStore.clearResendCooldown(normalizedEmail);
             throw new MemberException(MemberErrorCode.EMAIL_SEND_FAILED, e);
+        }
+    }
+
+    /** IP·이메일·전체 발송 수를 센다. 하나라도 넘으면 예외 (이미 센 수는 되돌리지 않는다) */
+    private void checkSendLimits(String normalizedEmail, String clientIp) {
+        if (isPublicAddress(clientIp)) {
+            if (!emailVerificationStore.tryCountIp(clientIp)) {
+                throw new MemberException(MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
+            }
+        } else {
+            log.warn("가입 인증 코드 요청의 IP가 내부 주소라 IP당 발송 제한을 건너뜁니다. 진짜 접속 IP가 오는지 확인해야 합니다. ip={}",
+                    clientIp);
+        }
+        if (!emailVerificationStore.tryCountEmailDaily(normalizedEmail)) {
+            throw new MemberException(MemberErrorCode.EMAIL_CODE_DAILY_LIMIT);
+        }
+        if (!emailVerificationStore.tryCountGlobalDaily()) {
+            log.error("가입 인증 메일이 앱 전체 하루 상한({}통)에 닿았습니다. 남용인지 확인해야 합니다.",
+                    EmailVerificationPolicy.GLOBAL_DAILY_LIMIT);
+            throw new MemberException(MemberErrorCode.EMAIL_SEND_UNAVAILABLE);
         }
     }
 

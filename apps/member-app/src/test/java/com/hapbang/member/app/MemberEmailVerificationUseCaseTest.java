@@ -48,8 +48,7 @@ class MemberEmailVerificationUseCaseTest {
     @Test
     @DisplayName("소문자로 바꾼 이메일로 6자리 코드를 저장하고 그 코드를 메일로 보낸다")
     void sendSignUpCode() {
-        given(store.tryCountIp(PUBLIC_IP)).willReturn(true);
-        given(store.tryStartResendCooldown("tester@example.com")).willReturn(true);
+        allowAll("tester@example.com", PUBLIC_IP);
 
         useCase.sendSignUpCode(" Tester@Example.com ", PUBLIC_IP);
 
@@ -62,40 +61,73 @@ class MemberEmailVerificationUseCaseTest {
     }
 
     @Test
-    @DisplayName("이미 가입된 이메일이면 409 DUPLICATE_EMAIL이고 아무것도 세거나 보내지 않는다")
+    @DisplayName("이미 가입된 이메일이면 제한을 다 센 뒤 409 DUPLICATE_EMAIL이고 보내지 않는다 (가입 여부를 마음대로 확인하지 못하게)")
     void duplicateEmail() {
+        allowAll("tester@example.com", PUBLIC_IP);
         given(userRepository.existsByEmailIgnoreCase("tester@example.com")).willReturn(true);
 
         assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP), MemberErrorCode.DUPLICATE_EMAIL);
-        verify(store, never()).tryCountIp(anyString());
+        verify(store).tryCountIp(PUBLIC_IP);
         verify(emailSender, never()).send(anyString(), anyString(), anyString());
     }
 
     @Test
-    @DisplayName("IP 한도를 넘으면 429 EMAIL_CODE_TOO_MANY_REQUESTS이고 보내지 않는다")
-    void ipLimitExceeded() {
-        given(store.tryCountIp(PUBLIC_IP)).willReturn(false);
-
-        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP),
-                MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
-        verify(emailSender, never()).send(anyString(), anyString(), anyString());
-    }
-
-    @Test
-    @DisplayName("같은 이메일 재발송 간격 안이면 429 EMAIL_CODE_RESEND_TOO_SOON이고 보내지 않는다")
+    @DisplayName("1분 간격 안이면 429 EMAIL_CODE_RESEND_TOO_SOON이고, IP·이메일·전체 수를 쓰지 않는다 (연타해도 한도가 닳지 않게)")
     void resendTooSoon() {
-        given(store.tryCountIp(PUBLIC_IP)).willReturn(true);
         given(store.tryStartResendCooldown("tester@example.com")).willReturn(false);
 
         assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP),
                 MemberErrorCode.EMAIL_CODE_RESEND_TOO_SOON);
-        verify(store, never()).saveCode(anyString(), anyString());
+        verify(store, never()).tryCountIp(anyString());
+        verify(store, never()).tryCountEmailDaily(anyString());
+        verify(store, never()).tryCountGlobalDaily();
+        verify(store, never()).clearResendCooldown(anyString());
     }
 
     @Test
-    @DisplayName("IP가 내부 주소면 IP 제한을 건너뛰고 보낸다 (모든 사람이 한 IP로 보여 가입이 막히지 않게)")
+    @DisplayName("IP 한도를 넘으면 429 EMAIL_CODE_TOO_MANY_REQUESTS, 1분 간격은 되돌리고 보내지 않는다")
+    void ipLimitExceeded() {
+        given(store.tryStartResendCooldown("tester@example.com")).willReturn(true);
+        given(store.tryCountIp(PUBLIC_IP)).willReturn(false);
+
+        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP),
+                MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
+        verify(store).clearResendCooldown("tester@example.com");
+        verify(emailSender, never()).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("이메일 하루 한도를 넘으면 429 EMAIL_CODE_DAILY_LIMIT, 1분 간격은 되돌리고 보내지 않는다")
+    void emailDailyLimitExceeded() {
+        given(store.tryStartResendCooldown("tester@example.com")).willReturn(true);
+        given(store.tryCountIp(PUBLIC_IP)).willReturn(true);
+        given(store.tryCountEmailDaily("tester@example.com")).willReturn(false);
+
+        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP), MemberErrorCode.EMAIL_CODE_DAILY_LIMIT);
+        verify(store).clearResendCooldown("tester@example.com");
+        verify(store, never()).tryCountGlobalDaily();
+        verify(emailSender, never()).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("앱 전체 하루 상한에 닿으면 503 EMAIL_SEND_UNAVAILABLE, 1분 간격은 되돌리고 보내지 않는다")
+    void globalDailyLimitReached() {
+        given(store.tryStartResendCooldown("tester@example.com")).willReturn(true);
+        given(store.tryCountIp(PUBLIC_IP)).willReturn(true);
+        given(store.tryCountEmailDaily("tester@example.com")).willReturn(true);
+        given(store.tryCountGlobalDaily()).willReturn(false);
+
+        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP), MemberErrorCode.EMAIL_SEND_UNAVAILABLE);
+        verify(store).clearResendCooldown("tester@example.com");
+        verify(emailSender, never()).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("IP가 내부 주소면 IP 제한만 건너뛰고(이메일·전체 한도는 센다) 보낸다")
     void privateIpSkipsLimit() {
         given(store.tryStartResendCooldown("tester@example.com")).willReturn(true);
+        given(store.tryCountEmailDaily("tester@example.com")).willReturn(true);
+        given(store.tryCountGlobalDaily()).willReturn(true);
 
         useCase.sendSignUpCode("tester@example.com", "10.42.0.15");
 
@@ -104,10 +136,9 @@ class MemberEmailVerificationUseCaseTest {
     }
 
     @Test
-    @DisplayName("메일을 못 보내면 코드와 재발송 간격을 지우고 503 EMAIL_SEND_FAILED")
+    @DisplayName("메일을 못 보내면 코드와 1분 간격을 지우고 503 EMAIL_SEND_FAILED")
     void sendFailed() {
-        given(store.tryCountIp(PUBLIC_IP)).willReturn(true);
-        given(store.tryStartResendCooldown("tester@example.com")).willReturn(true);
+        allowAll("tester@example.com", PUBLIC_IP);
         willThrow(new MailSendException("smtp down")).given(emailSender).send(anyString(), anyString(), anyString());
 
         assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP), MemberErrorCode.EMAIL_SEND_FAILED);
@@ -163,5 +194,13 @@ class MemberEmailVerificationUseCaseTest {
 
     private static void assertError(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, MemberErrorCode code) {
         assertThatThrownBy(call).isInstanceOf(MemberException.class).extracting("errorCode").isEqualTo(code);
+    }
+
+    /** 1분 간격·IP·이메일·전체 한도를 모두 통과시킨다 */
+    private void allowAll(String email, String ip) {
+        given(store.tryStartResendCooldown(email)).willReturn(true);
+        given(store.tryCountIp(ip)).willReturn(true);
+        given(store.tryCountEmailDaily(email)).willReturn(true);
+        given(store.tryCountGlobalDaily()).willReturn(true);
     }
 }
