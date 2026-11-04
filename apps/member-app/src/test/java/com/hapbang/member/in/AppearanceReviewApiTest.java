@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.out.MemberOutboundCircuitBreakers;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
 import com.hapbang.shared.appearance.dto.AppearanceReceivedReviewDto;
@@ -33,6 +34,8 @@ import com.hapbang.shared.appearance.out.AppearanceApiCallException;
 import com.hapbang.shared.appearance.out.AppearanceApiClient;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 /** 회원이 받은 출연 리뷰 목록 (#555). 출연 내부 API Client는 대역으로 두고 회원 쪽 조립(쓴 회원 붙이기, 오류 변환)을 확인한다 */
 @MemberIntegrationTest
@@ -49,6 +52,9 @@ class AppearanceReviewApiTest {
 
     @MockitoBean
     AppearanceApiClient appearanceApiClient;
+
+    @Autowired
+    MemberOutboundCircuitBreakers circuitBreakers;
 
     @Test
     @DisplayName("받은 리뷰에 쓴 회원의 닉네임을 붙이고, 탈퇴했거나 없는 회원은 '탈퇴한 회원'으로 보여 준다")
@@ -117,6 +123,25 @@ class AppearanceReviewApiTest {
     @DisplayName("출연 API가 거절해도(내부 키·계약 불일치) 사용자에게는 503 APPEARANCE_REVIEW_UNAVAILABLE")
     void rejected() throws Exception {
         assertUnavailable(AppearanceApiCallException.Reason.REJECTED);
+    }
+
+    @Test
+    @DisplayName("출연 회로가 열려 있으면 출연 API를 부르지 않고 바로 503 APPEARANCE_REVIEW_UNAVAILABLE (#654)")
+    void circuitOpen() throws Exception {
+        User viewer = saveMember("viewer2", Role.USER, UserStatus.ACTIVE);
+        User target = saveMember("target2", Role.INFLUENCER, UserStatus.ACTIVE);
+        CircuitBreaker appearance = circuitBreakers.circuitBreaker(MemberOutboundCircuitBreakers.Target.APPEARANCE);
+        appearance.transitionToOpenState();
+        try {
+            mockMvc.perform(get("/api/v1/members/{memberId}/appearance-reviews", target.getId())
+                            .with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("APPEARANCE_REVIEW_UNAVAILABLE"));
+            verify(appearanceApiClient, never()).getReceivedReviews(anyLong(), anyInt(), anyInt());
+        } finally {
+            // 테스트 컨텍스트를 같이 쓰는 다른 테스트에 열린 회로가 남지 않게 되돌린다
+            appearance.reset();
+        }
     }
 
     @Test

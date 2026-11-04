@@ -9,7 +9,10 @@ import org.springframework.context.ApplicationContext;
 
 import com.hapbang.member.MemberIntegrationTest;
 
-/** 탈퇴 기능 스위치 (#593). 기본은 꺼져 있어 출연·강의·지갑 연결 코드가 없어도 앱이 뜨고, 오케스트레이터를 만들지 않는다 */
+/**
+ * 탈퇴 기능 스위치 (#593). 꺼져 있으면 출연·강의·지갑 Client 주소와 연결 코드가 없어도 앱이 뜨고, 오케스트레이터를 만들지 않는다.
+ * 테스트 설정은 운영 application.yaml을 읽지 않아 꺼진 상태다(운영 기본값은 켬, #654). 켰을 때의 배선은 {@link MemberWithdrawalWiringTest}
+ */
 @MemberIntegrationTest
 class MemberWithdrawalSwitchTest {
 

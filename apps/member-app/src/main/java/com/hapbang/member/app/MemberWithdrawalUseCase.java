@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty;
 import org.springframework.context.ApplicationEventPublisher;
@@ -61,6 +62,8 @@ public class MemberWithdrawalUseCase {
     public static final String ENABLED = "hapbang.member.withdrawal.enabled";
     /** 정리를 이만큼 실패하면 error 로그로 알린다 (그 뒤에도 배치는 계속 시도한다) */
     static final int ALERT_ATTEMPTS = 10;
+    /** 탈퇴 전에 막힌 이유를 반드시 물어야 하는 앱 ({@link WithdrawalBlockSource#name()}) */
+    static final Set<String> REQUIRED_BLOCK_SOURCES = Set.of("appearance", "lecture");
 
     private static final Set<WithdrawalStatus> IN_PROGRESS =
             EnumSet.of(WithdrawalStatus.CHECKING, WithdrawalStatus.WALLET_CLOSED, WithdrawalStatus.NEEDS_RECOVERY);
@@ -79,8 +82,11 @@ public class MemberWithdrawalUseCase {
                                    List<WithdrawalBlockSource> blockSources, WalletWithdrawalGate walletGate,
                                    RefreshTokenStore refreshTokenStore, ApplicationEventPublisher eventPublisher,
                                    TransactionTemplate transactionTemplate) {
-        if (blockSources.isEmpty()) {
-            throw new IllegalStateException("탈퇴 기능을 켰지만 막힌 이유를 알려 줄 앱(출연·강의) 연결 코드가 없습니다.");
+        // 출연·강의 중 하나라도 빠지면(Client 주소 누락 등) 그 앱의 막힌 이유를 묻지 않고 탈퇴되므로 시작하지 않는다 (#654)
+        Set<String> names = blockSources.stream().map(WithdrawalBlockSource::name).collect(Collectors.toSet());
+        if (!names.containsAll(REQUIRED_BLOCK_SOURCES)) {
+            throw new IllegalStateException("탈퇴 기능을 켰지만 막힌 이유를 알려 줄 앱 연결 코드가 모자랍니다. 필요: "
+                    + REQUIRED_BLOCK_SOURCES + ", 있음: " + names);
         }
         this.withdrawalRepository = withdrawalRepository;
         this.memberSupport = memberSupport;
