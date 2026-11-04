@@ -4,6 +4,10 @@
 -- 3) lower(nickname) 유일 인덱스로 이후 중복(동시 가입 포함)을 막는다. 유일 제약(UNIQUE)은 식을 쓸 수 없어 인덱스로 만든다.
 -- 탈퇴 회원도 포함한다(30일 동안 닉네임을 묶어 두어 복구 때 겹치지 않게 한다. 30일 뒤 마스킹 #594에서 풀어 준다).
 
+-- 배포 중에는 옛 앱이 계속 요청을 받는다(RollingUpdate). 정리한 뒤 인덱스를 만들기 전에 옛 앱이 같은 닉네임을 저장하면
+-- 인덱스 생성이 실패하므로, 이 마이그레이션(한 트랜잭션)이 끝날 때까지 회원 쓰기를 막는다. 읽기는 막지 않는다
+lock table members.users in share row exclusive mode;
+
 -- 마이그레이션이 바꾼 닉네임 기록. notified_at이 비어 있으면 아직 다른 앱에 알리지 않은 것이다
 create table members.nickname_dedup
 (
