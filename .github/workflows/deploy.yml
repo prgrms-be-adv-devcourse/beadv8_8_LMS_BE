@@ -94,7 +94,7 @@ jobs:
           fi
 
       # 바뀐 앱 비교와 태그 결정에 dev 전체 이력이 필요하다. 받은 시점의 dev 최신이 HEAD가 된다.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: dev
           fetch-depth: 0
@@ -123,7 +123,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         if: steps.commit.outputs.skip != 'true'
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
@@ -184,7 +184,7 @@ jobs:
           fi
           cat "$RUNNER_TEMP/plan.txt"
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         if: steps.plan.outputs.deploy
         with:
           registry: ghcr.io
