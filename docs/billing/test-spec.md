@@ -9,6 +9,7 @@
 > - 2026-10-30 #428 반영: BT-EVT-01을 Kafka 소비 규칙(#339)에 맞춰 `eventId` inbox에서 자연 키 멱등·소비 그룹 둘·그룹별 DLT로 고쳤다.
 > - 2026-10-30 #430 반영: 회원 이벤트 리스너 두 개가 Kafka 소비로 바뀌었다. BT-EVT-01은 `BillingMemberEventKafkaTest`(Kafka Testcontainers)로 검증하고 JVM 칸을 "없음"으로, BT-WAL-02·BT-USR-02는 Kafka 경로 테스트로 옮겨 "없음"으로 바꿨다. 같은 JVM `Scenario.publish` 테스트는 없앴다(리스너 직접 호출 또는 Kafka 테스트로 대체).
 > - 2026-11-02 #280 반영: 소비 앱이 Java Port 없이 단독 기동하므로 BT-PORT-05를 k3s 기동 확인으로 바꾸고(JVM 깨짐 → 없음) Contract 대상에서 뺐다. BT-PORT-04는 소비 앱 테스트를 적고 JVM을 "경계"로 바꿨다.
+> - 2026-11-04 #660 반영: 7장 목록을 지금 코드와 맞췄다(97개 클래스·918개). 빠져 있던 9개 클래스(#623 `WalletWithdrawalIntegrationTest`·`ClosedWalletBalanceMetricsTest`, #631 `BillingTracingTest`, `GatewayUserHeaderFilterTest`·`ManagementPortTest`·`BillingStatusContractTest`·`BillingSwaggerPublicTest`·`HoldQueryApiTest`)를 더하고 메서드 수가 달라진 10개를 고쳤다. `EarningSourceAdapterTest`는 검사 대상에 맞춰 `EarningSourceTest`로 이름을 바꿨다. 1.3 Unit 명령에 빠진 Unit 3개를 더했다. 직접 `@SpringBootTest` 5개에서 지갑에 없는 S3·OAuth 설정을 지웠다(검증 내용 변경 없음).
 > - 2026-11-03 #577 반영: 서비스 간 HP 대사 조회(BT-PORT-07)를 더했다.
 > - 2026-11-03 #627 반영: 회원별 요청 한도(BT-CFG-07)를 더했다. 공유 테스트 컨텍스트는 같은 회원 ID를 반복해 쓰므로 `hapbang-module-test.yaml`에서 한도를 크게 두고, 한도 동작은 작은 값의 `UserRateLimiter`와 따로 띄운 컨텍스트(`RateLimitIntegrationTest`)로 확인한다.
 > - 2026-11-03 #607 반영: 변경된 지갑의 잔액 대사 배치(BT-LED-10)를 더했다. `BillingBatchJobLockTest`가 배치 6개를 본다.
@@ -48,14 +49,16 @@
 ```bash
 ./gradlew :billing-app:test --rerun-tasks \
   --tests 'com.hapbang.billing.app.BillingCommandValidatorTest' \
+  --tests 'com.hapbang.billing.app.BillingExternalEventsTest' \
   --tests 'com.hapbang.billing.app.BillingKeysTest' \
   --tests 'com.hapbang.billing.app.BillingBatchJobLockTest' \
   --tests 'com.hapbang.billing.app.ChangedWalletReconciliationUseCaseTest' \
   --tests 'com.hapbang.billing.app.BillingSharedDtoAccessTest' \
   --tests 'com.hapbang.billing.app.BillingUserBackfillUseCaseTest' \
   --tests 'com.hapbang.billing.app.ChargeUsageHistoryTest' \
+  --tests 'com.hapbang.billing.app.ClosedWalletBalanceMetricsTest' \
   --tests 'com.hapbang.billing.app.EarningQueryUseCaseTest' \
-  --tests 'com.hapbang.billing.app.EarningSourceAdapterTest' \
+  --tests 'com.hapbang.billing.app.EarningSourceTest' \
   --tests 'com.hapbang.billing.app.ExchangeAccountCipherTest' \
   --tests 'com.hapbang.billing.app.ExchangeSettlementBatchConditionTest' \
   --tests 'com.hapbang.billing.app.ExchangeSettlementRoundTest' \
@@ -77,13 +80,14 @@
   --tests 'com.hapbang.billing.global.scheduling.ConditionalOnSchedulingEnabledTest' \
   --tests 'com.hapbang.billing.global.scheduling.JobLockTest' \
   --tests 'com.hapbang.billing.in.BillingFailureCodeContractTest' \
+  --tests 'com.hapbang.billing.in.BillingStatusContractTest' \
   --tests 'com.hapbang.billing.out.MockPayoutActivationTest' \
   --tests 'com.hapbang.billing.out.PaymentKeyCipherTest' \
   --tests 'com.hapbang.billing.out.TossPaymentsClientTest'
 ```
 
 - `com.hapbang.billing.domain.*`는 9개 클래스이고 모두 Unit이다(`WalletApplyLedgerAccessTest`는 ArchUnit).
-- `BillingUserBackfillUseCaseTest`·`EarningSourceAdapterTest`·`TossPaymentsClientTest`는 테스트 안에서 JDK `HttpServer`로 로컬 가짜 서버를 띄운다. `InternalApiPortConfigTest`는 내장 Tomcat 리스너를 직접 띄운다. Docker는 필요 없다.
+- `BillingUserBackfillUseCaseTest`·`EarningSourceTest`·`TossPaymentsClientTest`는 테스트 안에서 JDK `HttpServer`로 로컬 가짜 서버를 띄운다. `InternalApiPortConfigTest`는 내장 Tomcat 리스너를 직접 띄운다. Docker는 필요 없다.
 - 테스트 클래스를 더하거나 종류를 바꾸면 이 목록과 7장을 함께 고친다.
 
 ### 1.4 Unit 분리 방법 제안 (Gradle은 아직 바꾸지 않는다)
@@ -140,7 +144,7 @@ Unit은 "실패 0"만으로 통과로 보지 않는다. 테스트가 빠지거�
 
 | 대역 종류 | 쓰는 곳 | 대신하는 대상 |
 | --- | --- | --- |
-| JDK `HttpServer` 가짜 서버 | `EarningSourceAdapterTest`, `ApiV1SettlementEarningControllerTest`, `BillingUserBackfill*Test` | lecture·appearance·member 앱의 내부 API (**제공자 코드는 검증하지 않는다**) |
+| JDK `HttpServer` 가짜 서버 | `EarningSourceTest`, `ApiV1SettlementEarningControllerTest`, `BillingUserBackfill*Test` | lecture·appearance·member 앱의 내부 API (**제공자 코드는 검증하지 않는다**) |
 | `FakeTossPaymentsServer` | 충전·환불·`TossPaymentsClientTest` | TossPayments |
 | Mock 은행 시나리오(`MockPayoutScenarios`) | 송금·정산·Mock HTTP 테스트 | 은행(운영 코드의 Mock 은행 자체를 실제 HTTP로 호출) |
 | `@MockitoSpyBean` | `HoldCreateIntegrationTest`(Repository 장애 주입), 송금·정산(Clock·RequestIds·Client·`InternalHoldFacade`), `RefundIntegrationTest`(`RefundClock`), `BillingMemberEventIsolationTest`, `BillingMemberEventKafkaTest`(복제본 반영 실패 주입) | 장애·시각 주입 |
@@ -391,10 +395,11 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.BillingUserSyncIntegrationTest | I | 6 | 필요 | USR-01 |
 | app.ChangedWalletReconciliationIntegrationTest | I | 4 | 필요 | LED-10 |
 | app.ChangedWalletReconciliationUseCaseTest | U | 7 | — | LED-10 |
-| app.ChargeIntegrationTest | I | 29 | 필요 | CHG-01~06·08 |
+| app.ChargeIntegrationTest | I | 32 | 필요 | CHG-01~06·08 |
 | app.ChargeUsageHistoryTest | U | 11 | — | REL-01·04, CAP-03 |
+| app.ClosedWalletBalanceMetricsTest | U | 2 | — | — (#623 잔액이 남은 닫힌 지갑 지표, BT 미연결) |
 | app.EarningQueryUseCaseTest | U | 13 | — | ERN-01 |
-| app.EarningSourceAdapterTest | U (로컬 HTTP) | 9 | — | ERN-02 |
+| app.EarningSourceTest | U (로컬 HTTP) | 13 | — | ERN-02 |
 | app.ExchangeAccountCipherTest | U | 3 | — | EXC-01 |
 | app.ExchangeIntegrationTest | I | 21 | 필요 | EXC-01~03 |
 | app.ExchangePayoutIntegrationTest | I (직접 `@SpringBootTest`) | 38 | 필요 | EXP-01~04·07~10 |
@@ -419,12 +424,13 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | app.PayoutSplitTest | U | 2 | — | PAY-01 |
 | app.RefundIntegrationTest | I | 39 | 필요 | RFD-01~07 |
 | app.ReleaseSplitTest | U | 6 | — | REL-01 |
-| app.WalletCreateUseCaseTest | U | 9 | — | WAL-01 |
+| app.WalletCreateUseCaseTest | U | 12 | — | WAL-01 |
 | app.WalletCreationIntegrationTest | I | 11 | 필요 | WAL-01·02 |
 | app.WalletDuplicateViolationTest | I | 5 | 필요 | WAL-01 |
 | app.WalletFacadeTest | I | 2 | 필요 | WAL-03, SEC-04 |
 | app.WalletReconciliationIntegrationTest | I | 6 | 필요 | LED-08 |
 | app.WalletTransactionQueryIntegrationTest | I | 12 | 필요 | WAL-04 |
+| app.WalletWithdrawalIntegrationTest | I | 17 | 필요 | — (#623 회원 탈퇴용 지갑 확인하고 닫기·다시 열기, BT 미연결) |
 | domain.ExchangePayoutTest | U | 15 | — | EXP-01 |
 | domain.ExchangeTest | U | 14 | — | EXC-01, EXP-10 |
 | domain.MockPayoutTransferTest | U | 2 | — | MCK-01 |
@@ -434,10 +440,13 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | domain.PointRefundTest | U | 5 | — | RFD-04~06 |
 | domain.WalletApplyLedgerAccessTest | U (ArchUnit) | 1 | — | LED-02 |
 | domain.WalletTest | U | 11 | — | LED-03, EXP-08·09 |
+| global.auth.GatewayUserHeaderFilterTest | S | 4 | — | SEC-05 |
 | global.auth.LoginUserIdArgumentResolverTest | U | 4 | — | SEC-02 |
 | global.config.BillingEventKafkaTest | I (Kafka) | 4 | 필요 | EVT-02 |
+| global.config.BillingTracingTest | I (직접 `@SpringBootTest`) | 5 | 필요 | — (#631 Envoy `traceparent` 이어받기, BT 미연결) |
+| global.config.ManagementPortTest | I (직접 `@SpringBootTest`) | 3 | 필요 | LED-10, CFG-05~07 (관리 포트 지표) |
 | global.config.PageConfigTest | S | 3 | — | ERR-02 |
-| global.config.SecurityConfigTest | S | 12 | — | SEC-01 |
+| global.config.SecurityConfigTest | S | 11 | — | SEC-01 |
 | global.exception.BusinessExceptionTest | U | 6 | — | ERR-01 |
 | global.exception.GlobalExceptionHandlerTest | S | 15 | — | ERR-01 |
 | global.internal.InternalApiKeyFilterTest | U | 2 | — | SEC-03 |
@@ -449,18 +458,21 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | global.scheduling.ConditionalOnSchedulingEnabledTest | U (ACR) | 3 | — | CFG-01 |
 | global.scheduling.JobLockPostgresIntegrationTest | I | 6 | 필요 | CFG-06 |
 | global.scheduling.JobLockTest | U | 10 | — | CFG-06 |
-| in.ApiV1BillingInternalControllerTest | I | 16 | 필요 | PORT-01~03, REL-06 (`voidHold`) |
+| in.ApiV1BillingInternalControllerTest | I | 19 | 필요 | PORT-01~03, REL-06 (`voidHold`) |
 | in.ApiV1SettlementEarningControllerTest | I | 10 | 필요 | ERN-03 |
 | in.ApiV1SettlementExchangeAdminControllerTest | I | 4 | 필요 | EXC-07 |
-| in.ApiV1SettlementExchangeControllerTest | I | 6 | 필요 | EXC-07 |
-| in.ApiV1WalletChargeControllerTest | I | 7 | 필요 | CHG-09 |
+| in.ApiV1SettlementExchangeControllerTest | I | 8 | 필요 | EXC-07 |
+| in.ApiV1WalletChargeControllerTest | I | 11 | 필요 | CHG-09 |
 | in.ApiV1WalletChargeUnavailableTest | I | 3 | 필요 | CHG-07 |
-| in.ApiV1WalletControllerTest | I | 7 | 필요 | WAL-03 |
-| in.ApiV1WalletRefundControllerTest | I | 6 | 필요 | RFD-08 |
+| in.ApiV1WalletControllerTest | I | 8 | 필요 | WAL-03 |
+| in.ApiV1WalletRefundControllerTest | I | 9 | 필요 | RFD-08 |
 | in.ApiV1WalletTransactionControllerTest | I | 7 | 필요 | WAL-04 |
 | in.BillingFailureCodeContractTest | U | 2 | — | — (#273 오류 코드 대조, BT 미연결) |
 | in.BillingMemberEventIsolationTest | I | 1 | 필요 | USR-02 |
 | in.BillingMemberEventKafkaTest | I (Kafka) | 9 | 필요 | EVT-01, WAL-02, USR-02 |
+| in.BillingStatusContractTest | U | 2 | — | PORT-07 |
+| in.BillingSwaggerPublicTest | I (`@Nested`) | 6 | 필요 | — (#498 Swagger 공개 경로, BT 미연결) |
+| in.HoldQueryApiTest | I | 7 | 필요 | PORT-07 |
 | in.MockPayoutDeployedProfileTest | I (`@Nested` 5개) | 2 | 필요 | MCK-02 |
 | in.MockPayoutDisabledTest | I | 3 | 필요 | MCK-02 |
 | out.BillingConstraintsTest | R | 33 | 필요 | DB-02, LED-07, PAY-02 |
@@ -469,15 +481,15 @@ grep -rnE "@(Test|ParameterizedTest)" -A3 apps/billing-app/src/test/java | grep 
 | out.BillingSchemaTest | R | 6 | 필요 | DB-01 |
 | out.MockPayoutActivationTest | U | 3 | — | MCK-02 |
 | out.PaymentKeyCipherTest | U | 6 | — | CHG-06 |
-| out.TossPaymentsClientTest | U (로컬 HTTP) | 8 | — | CHG-04 |
+| out.TossPaymentsClientTest | U (로컬 HTTP) | 10 | — | CHG-04 |
 
 | 종류 | 클래스 | 메서드 |
 | --- | --- | --- |
-| U (ACR·로컬 HTTP·ArchUnit 포함) | 38 | 223 |
-| S (`@WebMvcTest`) | 4 | 41 |
+| U (ACR·로컬 HTTP·ArchUnit 포함) | 44 | 267 |
+| S (`@WebMvcTest`) | 5 | 44 |
 | R (`@RepositoryTest`) | 4 | 47 |
-| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 36 | 490 |
-| 합계 | 82 | 801 |
+| I (`@IntegrationTest`·직접 `@SpringBootTest`) | 44 | 560 |
+| 합계 | 97 | 918 |
 
 ## 8. 운영 규칙
 

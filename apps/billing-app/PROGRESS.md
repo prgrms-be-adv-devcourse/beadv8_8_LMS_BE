@@ -7,7 +7,7 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 - Issue 하나를 끝내면 "1. 진행 현황"과 "7. 남은 일"을 갱신한다. 새 결정은 `decisions.md`에 `BD-*`로 먼저 적고, 3장에는 그 번호와 배경만 더한다.
 - 코드와 이 문서가 다르면 코드가 맞다. 확인 후 이 문서를 고친다.
 
-마지막 갱신: 2026-11-04 (#655 JVM 분리 재검토 결정 마무리·모놀리스 시절 문서 정리, #627 사용자 API 회원별 rate limit, #623 회원 탈퇴용 지갑 닫기·다시 열기 내부 API, #607 변경된 지갑의 잔액 대사 배치, #598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
+마지막 갱신: 2026-11-04 (#660 지갑 테스트 옛 공용 설정 제거·테스트 목록 정리, #655 JVM 분리 재검토 결정 마무리·모놀리스 시절 문서 정리, #627 사용자 API 회원별 rate limit, #623 회원 탈퇴용 지갑 닫기·다시 열기 내부 API, #607 변경된 지갑의 잔액 대사 배치, #598 배치·Backfill 실행 락, #577 서비스 간 HP 대사 조회 API, #562 나가는 호출 circuit breaker, #552 prod 첫 배포 준비, #537 Gateway 사용자 헤더 인증·지갑 회원 확인, #497 지갑 이벤트 발행, #494 shared Command → 내부 Command 변환, #486 BillingPort 테스트 전환·삭제, #479 보류 무효화 내부 API, #471 Spring Event 제거, #430 회원 이벤트 Kafka 소비, #428 Kafka 소비 문서 정리, #453 환불·환전 1원 단위 3.22)
 
 ---
 
@@ -54,7 +54,8 @@ Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)
 | #607 | 변경된 지갑의 잔액 대사 배치: `WalletReconciliationBatch`(매일 04:02:45 KST, 실행 락 607001) → `ChangedWalletReconciliationUseCase`(최근 72시간 안에 `wallet.updated_at`·`point_ledger.created_at`이 있는 지갑, 지갑마다 `reconcile`, 고치지 않음, 지갑 오류는 끝에 1회 재시도 후 failed로 세고 다음 회차로 이월), 지표 `hapbang.billing.reconciliation.wallets{result}`·`.last.success`(failed 0일 때만 갱신), Flyway `V202611031800`(`idx_wallet_1`, `idx_point_ledger_5`), BD-139 | `feature/tkt-607` | #611 | 완료 |
 | #623 | 회원 탈퇴용 지갑 확인하고 닫기·다시 열기 내부 API `POST /api/v1/internal/billing/withdrawals/{withdrawalId}/{close,reopen}`(`WalletWithdrawalFacade`·`UseCase`·`Blocks`): 막힌 이유(충전·수익 잔액, 처리 중인 환불·환전, 확인 중인 충전) 없으면 CLOSED·있으면 BLOCKED, 탈퇴 기록 `wallet_withdrawal`과 지갑 닫힘 `wallet.closed_by_withdrawal_id`·`closed_at`(Flyway `V202611032000`), 멱등(replayed, 다른 회원 409), 다시 열기 뒤 늦은 닫기 409 `WITHDRAWAL_ALREADY_REOPENED`, 닫힌 지갑의 충전 주문·충전 승인 시작·새 보류(강의·출연·환불·환전) 409 `WALLET_CLOSED`, 지갑 없는 회원은 기록만 + 회원별 advisory lock(`WalletUserLock`)으로 지갑 생성 때 닫힌 지갑, shared 계약·Client `closeForWithdrawal`·`reopenForWithdrawal`·실패 코드 2개, 닫힌 지갑에 들어온 HP 알림(원장 기록 warn 로그, 수집 때마다 DB에서 세는 지표 `hapbang.billing.wallet.closed.with.balance`(`ClosedWalletBalanceMetrics`, 실패하면 NaN, 부분 인덱스 `idx_wallet_2`), 매일 대사 배치의 지갑 ID warn 로그), `WalletWithdrawalIntegrationTest`(BD-141) | `feature/tkt-623` | (PR 전) | 구현 완료 |
 | #627 | 사용자 API 회원별 rate limit: `global.ratelimit`(`@RateLimited`·`RateLimitedApi` 14개·`RateLimitInterceptor`·`UserRateLimiter`, Resilience4j `RateLimiter` 앱 메모리), 회원 × API마다 분당 신청·취소 10·일반 조회 60·수익 조회 20(`hapbang.billing.rate-limit.*`), 429 `TOO_MANY_REQUESTS`(`GlobalErrorCode`) + `Retry-After`, 지표 `hapbang.billing.rate.limit.rejected{api}`, 의존성 `resilience4j-ratelimiter`, BD-140 | `feature/tkt-627` | (PR 전) | 구현 완료 |
-| #655 | JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(BD-142), 원격 호출 트랜잭션 계약(BD-143), BD-53·60·64·66·72·73·107 상태 정리, `module.md` 해소된 제약(L2·L3·L7·L10)·7.2·8.3을 현재 상태로, 7장 옛 후보 정리. 운영 코드 변경 없음 | `feature/tkt-655` | — | 진행 중 |
+| #655 | JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(BD-142), 원격 호출 트랜잭션 계약(BD-143), BD-53·60·64·66·72·73·107 상태 정리, `module.md` 해소된 제약(L2·L3·L7·L10)·7.2·8.3을 현재 상태로, 7장 옛 후보 정리. 운영 코드 변경 없음 | `feature/tkt-655` | #657 | 완료 |
+| #660 | 지갑 테스트 정리: 직접 `@SpringBootTest` 5개에서 지갑에 없는 S3·OAuth 설정 삭제, `EarningSourceAdapterTest` → `EarningSourceTest`, `test-spec.md` 7장을 97개 클래스·918개로 맞춤(빠진 9개 추가). 검증 내용·운영 코드 변경 없음. 공통 `test-support` 정리는 범위 밖 | `feature/tkt-660` | — | 진행 중 |
 
 다음 후보는 7장, 미결 항목은 `decisions.md` 10장에 있다.
 
