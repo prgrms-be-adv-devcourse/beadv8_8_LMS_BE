@@ -57,6 +57,7 @@ import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 import com.hapbang.shared.member.event.UserLoggedOutEvent;
+import com.hapbang.shared.member.event.UserMaskedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
@@ -237,6 +238,20 @@ class BillingMemberEventKafkaTest {
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(billingUserRepository.findById(userId))
                 .hasValueSatisfying(replica -> assertThat(replica.getMemberVersion()).isEqualTo(1L)));
         assertThat(walletRepository.findByUserId(userId)).isEmpty();
+        assertThat(deadLettersOf(REPLICA_DLT, userId, Duration.ofSeconds(1))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("파기 이벤트를 받으면 회원 이벤트 그룹이 열린 지갑을 닫고, DLT로 보내지 않는다 (#674)")
+    void masked_closesOpenWallet() {
+        long userId = 311L;
+        send(userId, new UserJoinedEvent(user(userId, "파기", Role.USER, 0L)));
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(walletRepository.findByUserId(userId)).isPresent());
+
+        send(userId, new UserMaskedEvent(userId, Instant.now()));
+
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(walletRepository.findByUserId(userId))
+                .hasValueSatisfying(wallet -> assertThat(wallet.isClosed()).isTrue()));
         assertThat(deadLettersOf(REPLICA_DLT, userId, Duration.ofSeconds(1))).isEmpty();
     }
 

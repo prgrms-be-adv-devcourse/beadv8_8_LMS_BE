@@ -58,4 +58,7 @@ public interface ExchangeRepository extends Repository<Exchange, Long> {
 
     // 지갑의 처리 중인 환전 신청 (#623, 탈퇴 막힌 이유)
     List<Exchange> findAllByWalletIdAndStatusIn(Long walletId, Collection<ExchangeStatus> statuses);
+
+    // 회원의 환전 중 주어진 상태인 것 (#674, 파기 때 처리 중인 환전 확인)
+    List<Exchange> findAllByUserIdAndStatusIn(Long userId, Collection<ExchangeStatus> statuses);
 }
