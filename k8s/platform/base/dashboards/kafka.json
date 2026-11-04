@@ -229,7 +229,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(spring_kafka_listener_seconds_count{result=\"failure\"}) or vector(0)",
+          "expr": "sum(spring_kafka_listener_seconds_count{error!~\"none|\"}) or vector(0)",
           "refId": "A",
           "legendFormat": "__auto",
           "instant": true,
@@ -306,7 +306,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(spring_kafka_template_seconds_count{result=\"failure\"}) or vector(0)",
+          "expr": "sum(spring_kafka_template_seconds_count{error!~\"none|\"}) or vector(0)",
           "refId": "A",
           "legendFormat": "__auto",
           "instant": true,
@@ -579,9 +579,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (app_kubernetes_io_name, result, exception) (rate(spring_kafka_listener_seconds_count[$__rate_interval])) * 60",
+          "expr": "sum by (app_kubernetes_io_name, messaging_kafka_consumer_group, error) (rate(spring_kafka_listener_seconds_count[$__rate_interval])) * 60",
           "refId": "A",
-          "legendFormat": "{{app_kubernetes_io_name}} {{result}} {{exception}}",
+          "legendFormat": "{{app_kubernetes_io_name}} {{messaging_kafka_consumer_group}} {{error}}",
           "range": true
         }
       ],
@@ -630,7 +630,7 @@
           "sort": "desc"
         }
       },
-      "description": "listener 호출 결과(분당). failure는 재시도마다 한 번씩 센다",
+      "description": "listener 호출 결과(분당), 소비 그룹별. error가 none이면 성공이고, 실패는 예외 클래스 이름이다. 실패는 재시도마다 한 번씩 센다. Kafka observation(#630)이 만든 지표라 error 태그를 쓴다",
       "id": 10,
       "gridPos": {
         "h": 8,
@@ -887,9 +887,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (app_kubernetes_io_name, name, result, exception) (rate(spring_kafka_template_seconds_count[$__rate_interval])) * 60",
+          "expr": "sum by (app_kubernetes_io_name, messaging_destination_name, error) (rate(spring_kafka_template_seconds_count[$__rate_interval])) * 60",
           "refId": "A",
-          "legendFormat": "{{app_kubernetes_io_name}} {{name}} {{result}} {{exception}}",
+          "legendFormat": "{{app_kubernetes_io_name}} {{messaging_destination_name}} {{error}}",
           "range": true
         }
       ],
@@ -938,7 +938,7 @@
           "sort": "desc"
         }
       },
-      "description": "Modulith externalization이 쓰는 기본 kafkaTemplate의 전송 결과(분당). chat-app의 DLT template은 빈이라 이름으로 따로 보인다. 다른 앱의 DLT 전송은 지표가 없다",
+      "description": "KafkaTemplate 전송 결과(분당), 대상 토픽별. error가 none이면 성공이고, 실패는 예외 클래스 이름이다. 업무 발행(Modulith externalization)과 DLT 전송(토픽이 .DLT로 끝남)이 함께 보인다. Kafka observation(#630)이 만든 지표라 error 태그를 쓴다",
       "id": 16,
       "gridPos": {
         "h": 8,

@@ -36,6 +36,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaAdmin;
+import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
@@ -264,6 +265,9 @@ class LectureObjectionKafkaTest {
             sendUnreadable(key, TraceRequests.traceparent(traceId, TraceRequests.randomSpanId(), true));
 
             ConsumerRecord<String, String> record = awaitDeadLetter(deadLetters, key);
+            // 타입 정보가 없어서가 아니라 JSON을 읽다 실패한 것인지. 원인이 Jackson 읽기 예외다(타입이 없으면 IllegalStateException)
+            assertThat(header(record, KafkaHeaders.DLT_EXCEPTION_FQCN)).endsWith("DeserializationException");
+            assertThat(header(record, KafkaHeaders.DLT_EXCEPTION_STACKTRACE)).contains("Caused by: tools.jackson.");
             RecordedSpans.await(() -> !spans(traceId, SpanKind.PRODUCER).isEmpty());
             SpanData deadLetter = spans(traceId, SpanKind.PRODUCER).getFirst();
             assertThat(header(record, TRACEPARENT)).startsWith("00-" + traceId + "-" + deadLetter.getSpanId() + "-");
@@ -311,11 +315,16 @@ class LectureObjectionKafkaTest {
         }
     }
 
-    /** JSON으로 읽을 수 없는 본문을 보낸다. 역직렬화에 실패해 재시도 없이 DLT로 가야 한다 */
+    /**
+     * 받는 타입({@code __TypeId__})은 맞지만 JSON으로 읽을 수 없는 본문을 보낸다. 역직렬화에 실패해 재시도 없이 DLT로 가야 한다.
+     * 타입 헤더가 없으면 JSON을 읽기 전에 타입 정보가 없어 실패하므로 함께 붙인다.
+     */
     private void sendUnreadable(String key, String traceparent) {
         try (Producer<String, String> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
                 new StringSerializer(), new StringSerializer())) {
             ProducerRecord<String, String> record = new ProducerRecord<>(CustomerSupportEventTopic.NAME, key, "{not json");
+            record.headers().add("__TypeId__",
+                    LectureObjectionResolutionRequestedEvent.class.getName().getBytes(StandardCharsets.UTF_8));
             record.headers().add(TRACEPARENT, traceparent.getBytes(StandardCharsets.UTF_8));
             producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
