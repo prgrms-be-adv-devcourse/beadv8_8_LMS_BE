@@ -33,6 +33,9 @@ public class S3FileStorage {
     /** SigV4 Presigned URL의 최대 유효 기간 */
     private static final Duration MAX_URL_EXPIRY = Duration.ofDays(7);
 
+    /** {@link #erase}로 비운 파일의 Content-Type */
+    private static final String ERASED_CONTENT_TYPE = "application/octet-stream";
+
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
     private final S3StorageProperties properties;
@@ -70,6 +73,16 @@ public class S3FileStorage {
                         client -> client.retryStrategy(AwsRetryStrategy.doNotRetry()))))
                 .build();
         s3Client.putObject(putObject, RequestBody.fromInputStream(body, contentLength));
+    }
+
+    /**
+     * 파일 내용을 지운다 (#594 탈퇴 회원 사진 파기). 같은 key에 빈 파일(0바이트)을 덮어써 원본을 없앤다.
+     * <p>
+     * 앱에는 S3 삭제 권한({@code DeleteObject})이 없어(docs/deploy/s3.md, Soft Delete) 객체를 지우지 않고 내용만 비운다.
+     * 버킷에 버전 관리가 없어 덮어쓴 원본은 남지 않는다. 없는 key여도 빈 파일이 생길 뿐 실패하지 않으므로 여러 번 불러도 된다
+     */
+    public void erase(String key) {
+        upload(key, ERASED_CONTENT_TYPE, 0, InputStream.nullInputStream());
     }
 
     /**
