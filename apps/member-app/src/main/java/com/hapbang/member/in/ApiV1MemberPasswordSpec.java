@@ -27,7 +27,7 @@ public interface ApiV1MemberPasswordSpec {
                     + "(POST /api/v1/members/auth/refresh)로 받는다 (구글 로그인과 같다). "
                     + "없는 이메일과 틀린 비밀번호는 모두 401 INVALID_CREDENTIALS. "
                     + "같은 이메일로 5번 연속 틀리면 15분 동안 429 LOGIN_LOCKED. 정지·탈퇴 회원은 403 LOGIN_NOT_ALLOWED. "
-                    + "30일 안의 탈퇴 회원(탈퇴 기능이 켜져 있을 때)은 409 WITHDRAWN_RESTORABLE과 restorableUntil을 주고, "
+                    + "복구 기한(30일, 기한 안에 지갑 장애로 복구가 실패했으면 7일 더) 안의 탈퇴 회원(탈퇴 기능이 켜져 있을 때)은 409 WITHDRAWN_RESTORABLE과 restorableUntil을 주고, "
                     + "복구 티켓은 쿠키(RESTORE_TICKET, HttpOnly, 경로 /api/v1/members/restore, 10분)로 준다. "
                     + "\"복구할까요?\"에서 복구하면 본문 없이 POST /api/v1/members/restore를 부른다.")
     ResponseEntity<RsData<MemberMeResponse>> login(PasswordLoginRequest request,
