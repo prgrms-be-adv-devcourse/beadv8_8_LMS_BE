@@ -93,6 +93,7 @@ agent 결과에는 AOT가 이미 등록한 것과 Hibernate 같은 라이브러�
 - **heap 상한 기본값은 메모리의 80%다**(빌드 출력 `Serial GC (max heap size: 80% of RAM)`). 256 MiB면 약 205 MiB라 heap 밖을 더하면 limit을 넘을 수 있어 `-Xmx`를 명시한다. 128 MiB는 관측 최대 84 MiB의 약 1.5배다.
 - 256 MiB 안의 구성: heap 상한 128 + heap 밖 약 30(RSS 111 − heap 82) + page cache 최대 69(회수 가능) ≈ 227 MiB.
 - medium node 스케줄러 요청 합계가 3,712 MiB(96%)에서 3,520 MiB(92%)가 된다.
+- 적용 뒤 1시간 15분(2026-11-04 06:54~08:09 UTC): 재시작 0, heap 최대 48.5 MiB(상한 128 MiB의 38%), working set 최대 108 MiB(limit의 42%), RSS 최대 78 MiB, `UnsupportedFeatureError`·`OutOfMemoryError` 0. 같은 시간 운영 요청: 문의 목록 200 ×108, 등록 201 ×16·409 ×86(`OBJECTION_ALREADY_FILED`, 같은 주문 항목 반복 시험), 강의 내부 API 이의 제기 접수 200 ×3·409 ×86. native에서 고친 강의 Client record 직렬화가 운영에서도 동작했다. 이의 제기 판단·철회 이벤트 발행과 강의 결과 이벤트 받기는 아직 운영에서 돌지 않았다.
 
 ## 비용과 한계
 
@@ -104,8 +105,13 @@ agent 결과에는 AOT가 이미 등록한 것과 Hibernate 같은 라이브러�
 - **JFR 지원이 일부다.** Phase 9의 JFR·JMC 분석은 JVM 앱으로 한다.
 - **CPU 대상**: x86-64-v3(AVX2 이상)로 컴파일된다. EC2 t3(Intel Xeon)는 지원한다.
 
+## 결정 (2026-11-04, #609)
+
+- **customer-support-app만 native로 유지하고, 다른 앱으로 넓히는 것은 보류한다.** JVM 앱 튜닝(#610) 결과를 본 뒤 다시 정한다. 넓히면 앱마다 CI가 native 컴파일 10~14분만큼 늘고, 위 메타데이터 확인(smoke 실행과 tracing agent)을 앱마다 다시 해야 한다.
+- 새로 만드는 aux-app(검색·알림·AI)은 JVM으로 띄운다(#193·#234·#345).
+- 되돌리지 않는다. 같은 조건에서 메모리 44~45%, 운영 기동 23~28초 → 1.1초, medium 요청 192 MiB를 얻었고, 운영에서 확인한 범위에서 native 전용 오류가 없다.
+
 ## 남은 일
 
-- 256 MiB·`-Xmx128m`에서 heap·GC·재시작을 지켜본다(#672). 운영에서 이의 제기 흐름과 이벤트 발행이 처음 돌 때 로그의 `UnsupportedFeatureError`를 본다.
-- 다른 앱으로 넓힐지, 되돌릴지 정한다. 넓히면 앱마다 위 메타데이터 확인을 다시 한다.
-- JVM 앱 튜닝(#610)은 이 결과를 본 뒤 한다.
+- 운영에서 이의 제기 판단·철회 이벤트 발행과 강의 결과 이벤트 받기가 처음 돌 때 로그의 `UnsupportedFeatureError`를 본다.
+- JVM 앱 튜닝(#610)은 나중에 한다.
