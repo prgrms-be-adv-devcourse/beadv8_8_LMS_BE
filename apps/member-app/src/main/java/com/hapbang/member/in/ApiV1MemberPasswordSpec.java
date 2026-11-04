@@ -16,8 +16,10 @@ public interface ApiV1MemberPasswordSpec {
 
     @Operation(summary = "가입 인증 코드 받기",
             description = "로그인 없이 부른다 (#557). 가입할 이메일로 6자리 인증 코드를 보낸다. 코드는 10분 유효하고, 다시 받으면 이전 코드는 못 쓴다. "
-                    + "이미 가입된 이메일(구글 가입 포함)이면 보내지 않고 409 DUPLICATE_EMAIL. "
-                    + "같은 이메일은 1분에 한 번(429 EMAIL_CODE_RESEND_TOO_SOON), 한 IP는 1시간에 10통(429 EMAIL_CODE_TOO_MANY_REQUESTS)까지 받을 수 있다. "
+                    + "가입 여부는 응답으로 알려 주지 않는다: 이미 가입된 이메일(구글 가입 포함)이어도 같은 200을 주고, 코드 대신 "
+                    + "\"이미 가입된 이메일\" 안내 메일을 보낸다(메일함 주인만 앎). 프론트는 \"메일을 확인해 주세요\"로 안내한다. "
+                    + "같은 이메일은 1분에 한 번(429 EMAIL_CODE_RESEND_TOO_SOON), 한 IP는 1시간에 10통(429 EMAIL_CODE_TOO_MANY_REQUESTS), "
+                    + "한 이메일은 하루 3통(429 EMAIL_CODE_DAILY_LIMIT)까지 받을 수 있다. 앱 전체 하루 상한(300통)에 닿으면 503 EMAIL_SEND_UNAVAILABLE. "
                     + "메일을 보내지 못하면 503 EMAIL_SEND_FAILED(바로 다시 시도 가능). "
                     + "응답 data: expiresInSeconds(코드 유효 시간), resendAfterSeconds(다시 받을 수 있을 때까지).")
     RsData<EmailCodeResponse> sendEmailCode(EmailCodeRequest request,
@@ -32,7 +34,8 @@ public interface ApiV1MemberPasswordSpec {
 
     @Operation(summary = "가입",
             description = "로그인 없이 부른다. 이메일·비밀번호·닉네임으로 가입하고 역할은 유저다. 가입만 하고 로그인은 따로 한다. "
-                    + "이메일은 앞뒤 공백을 지우고 소문자로 저장한다. 이미 가입된 이메일(구글 가입 포함)이면 409 DUPLICATE_EMAIL. "
+                    + "이메일은 앞뒤 공백을 지우고 소문자로 저장한다. 이미 가입된 이메일(구글 가입 포함)이면 409 DUPLICATE_EMAIL "
+                    + "(인증 토큰은 가입되지 않은 이메일에만 나가므로, 토큰을 받은 뒤 다른 경로로 먼저 가입된 경우만 해당). "
                     + "다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME (#646, 미리 확인: GET /api/v1/members/nicknames/availability). "
                     + "비밀번호는 8~64자, 영문과 숫자를 하나 이상씩, 영문·숫자·키보드 특수문자만(공백·한글 불가). "
                     + "어기면 400 INVALID_PASSWORD_LENGTH·INVALID_PASSWORD_CHARACTER·PASSWORD_LETTER_AND_DIGIT_REQUIRED. "

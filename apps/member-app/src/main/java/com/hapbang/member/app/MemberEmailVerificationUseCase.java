@@ -22,7 +22,9 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 가입 이메일 인증 (#557). 이메일 가입 전에 메일로 받은 6자리 코드로 이메일 주인인지 확인한다. 구글 가입·초기 계정·관리자 계정은 거치지 않는다.
  * <ul>
- *     <li>이미 가입된 이메일이면 보내지 않는다(409 DUPLICATE_EMAIL).</li>
+ *     <li>가입 여부를 응답으로 알려 주지 않는다 (#557 결정). 이미 가입된 이메일이어도 같은 200을 주고, 코드 대신 "이미 가입된 이메일" 안내 메일을
+ *     보낸다. 메일함 주인만 가입 여부를 안다. 가입 API는 인증 토큰부터 보고, 토큰은 가입되지 않은 이메일에만 나가므로 가입 API로도 알 수 없다.
+ *     제한(1분 간격·IP·이메일·전체)은 가입 여부와 상관없이 똑같이 센다.</li>
  *     <li>남용 막기 (#557 결정): 같은 이메일 1분에 한 번, 한 IP 1시간 10통, 한 이메일 하루 3통, 앱 전체 하루 300통.
  *     Gmail 하루 발송 한도(약 500통) 소진, 남의 메일함 스팸·메일 폭탄, 코드 맞히기를 막는다.
  *     IP가 내부 주소(사설·루프백 등)면 진짜 접속 IP를 모르는 것이라 IP 제한을 건너뛰고 경고만 남긴다. 모든 사람이 한 IP로 보여
@@ -36,6 +38,7 @@ import lombok.extern.slf4j.Slf4j;
 public class MemberEmailVerificationUseCase {
 
     static final String SUBJECT = "[합방] 이메일 인증 코드";
+    static final String ALREADY_REGISTERED_SUBJECT = "[합방] 이미 가입된 이메일이에요";
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -59,14 +62,15 @@ public class MemberEmailVerificationUseCase {
             emailVerificationStore.clearResendCooldown(normalizedEmail);
             throw e;
         }
-        if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
-            emailVerificationStore.clearResendCooldown(normalizedEmail);
-            throw new MemberException(MemberErrorCode.DUPLICATE_EMAIL);
-        }
-        String code = newCode();
-        emailVerificationStore.saveCode(normalizedEmail, code);
         try {
-            emailSender.send(normalizedEmail, SUBJECT, body(code));
+            if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
+                // 가입 여부는 응답으로 알려 주지 않고, 메일함 주인에게만 안내한다
+                emailSender.send(normalizedEmail, ALREADY_REGISTERED_SUBJECT, alreadyRegisteredBody());
+            } else {
+                String code = newCode();
+                emailVerificationStore.saveCode(normalizedEmail, code);
+                emailSender.send(normalizedEmail, SUBJECT, body(code));
+            }
         } catch (RuntimeException e) {
             log.warn("가입 인증 메일을 보내지 못했습니다.", e);
             emailVerificationStore.deleteCode(normalizedEmail);
@@ -139,6 +143,15 @@ public class MemberEmailVerificationUseCase {
     /** 6자리 숫자 (앞자리 0 포함) */
     static String newCode() {
         return String.format("%06d", RANDOM.nextInt(1_000_000));
+    }
+
+    static String alreadyRegisteredBody() {
+        return """
+                이 이메일은 이미 합방에 가입되어 있어요.
+                가입할 때 쓴 방법(이메일과 비밀번호, 또는 구글)으로 로그인해 주세요.
+
+                직접 요청하지 않았다면 이 메일은 무시해 주세요.
+                """;
     }
 
     static String body(String code) {

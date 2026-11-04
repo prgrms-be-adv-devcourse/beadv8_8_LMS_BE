@@ -61,14 +61,19 @@ class MemberEmailVerificationUseCaseTest {
     }
 
     @Test
-    @DisplayName("이미 가입된 이메일이면 제한을 다 센 뒤 409 DUPLICATE_EMAIL이고 보내지 않는다 (가입 여부를 마음대로 확인하지 못하게)")
-    void duplicateEmail() {
+    @DisplayName("이미 가입된 이메일이면 오류 없이(같은 응답) 코드 대신 \"이미 가입됨\" 안내 메일을 보내고 코드는 저장하지 않는다. 제한은 똑같이 센다")
+    void registeredEmailGetsNotice() {
         allowAll("tester@example.com", PUBLIC_IP);
         given(userRepository.existsByEmailIgnoreCase("tester@example.com")).willReturn(true);
 
-        assertError(() -> useCase.sendSignUpCode("tester@example.com", PUBLIC_IP), MemberErrorCode.DUPLICATE_EMAIL);
+        useCase.sendSignUpCode("tester@example.com", PUBLIC_IP);
+
+        verify(emailSender).send(eq("tester@example.com"), eq(MemberEmailVerificationUseCase.ALREADY_REGISTERED_SUBJECT),
+                anyString());
+        verify(store, never()).saveCode(anyString(), anyString());
         verify(store).tryCountIp(PUBLIC_IP);
-        verify(emailSender, never()).send(anyString(), anyString(), anyString());
+        verify(store).tryCountEmailDaily("tester@example.com");
+        verify(store).tryCountGlobalDaily();
     }
 
     @Test

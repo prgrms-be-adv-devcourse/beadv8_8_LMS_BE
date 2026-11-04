@@ -1,5 +1,6 @@
 package com.hapbang.member.in;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -98,14 +99,20 @@ class EmailVerificationApiTest {
     }
 
     @Test
-    @DisplayName("이미 가입된 이메일이면 409 DUPLICATE_EMAIL, 이메일 형식이 틀리면 400")
-    void rejects() throws Exception {
+    @DisplayName("이미 가입된 이메일이어도 같은 200을 주고 코드는 만들지 않는다(가입 여부를 응답으로 알 수 없음). 이메일 형식이 틀리면 400")
+    void registeredEmailLooksTheSame() throws Exception {
         String email = newEmail();
         userRepository.save(User.join(email, "tester" + UUID.randomUUID().toString().substring(0, 4)));
+        String unregistered = newEmail();
 
-        sendCode(email.toUpperCase(), newIp())
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("DUPLICATE_EMAIL"));
+        String registeredBody = sendCode(email.toUpperCase(), newIp()).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String unregisteredBody = sendCode(unregistered, newIp()).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(registeredBody).isEqualTo(unregisteredBody);
+        assertThat(savedCode(email)).isNull();
+        assertThat(savedCode(unregistered)).matches("\\d{6}");
         sendCode("not-an-email", newIp()).andExpect(status().isBadRequest());
     }
 
