@@ -68,8 +68,11 @@ spec:
         - type: File
           file:
             path: /dev/stdout
+    # 업무 요청은 모두 trace로 남긴다(#679). 앱은 parent-based라 이 결정을 따른다. 운영 도구(Grafana·Kafka UI) route는
+    # 각 route의 BackendTrafficPolicy가 0으로 덮어 남기지 않는다. 앱 요청은 분당 수 건이라 Tempo 수신이 하루 수백 MB 안이다
+    # (docs/architecture/infrastructure/observability.md)
     tracing:
-      samplingRate: 10
+      samplingRate: 100
       provider:
         type: OpenTelemetry
         backendRefs:
