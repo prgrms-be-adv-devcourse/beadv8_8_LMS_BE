@@ -21,6 +21,9 @@ public class ChatUser extends ReplicaUser {
 
     public static final String WITHDRAWN_NICKNAME = "탈퇴한 회원";
 
+    /** 채팅 회원 복제본이 없는 회원의 표시 닉네임. 회원 ID는 사용자에게 드러내지 않으므로 대신 쓴다 */
+    public static final String UNKNOWN_NICKNAME = "알 수 없는 회원";
+
     private ChatUser(UserDto user) {
         super(user);
     }
