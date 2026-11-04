@@ -26,7 +26,7 @@ Native Image는 앱을 빌드할 때 기계어로 컴파일하고 JVM 없이 실
 
 ### 메타데이터를 더한 것
 
-`apps/customer-support-app/src/main/resources/META-INF/native-image/com.hapbang/customer-support-app-hints/reachability-metadata.json`에 Spring Boot AOT가 등록하지 않는 것만 둔다. AOT가 `com.hapbang/customer-support-app`에 파일을 만들므로 경로를 나눈다(같은 경로면 `bootJar`가 중복으로 실패하고, native 빌드에서는 한쪽이 가려진다).
+`apps/customer-support-app/src/main/resources/META-INF/native-image/com.hapbang/customer-support-app-hints/reachability-metadata.json`에 Spring Boot AOT가 등록하지 않는 것만 둔다. AOT가 `com.hapbang/customer-support-app`에 파일을 만들므로 경로를 나눈다(같은 경로면 `bootJar`가 중복으로 실패한다. 그 CI는 `bootJar`에서 멈춰 native 빌드에서도 한쪽이 가려지는지는 확인하지 않았다).
 
 | 증상(native에서만) | 원인 | 더한 것 |
 | --- | --- | --- |
@@ -54,19 +54,45 @@ $GRAALVM_HOME/bin/java -agentlib:native-image-agent=config-output-dir=agent-out 
 
 agent 결과에는 AOT가 이미 등록한 것과 Hibernate 같은 라이브러리가 존재만 확인하는 조회가 섞여 있다. 실패한 경로에 필요한 것만 골라 hints 파일에 옮긴다.
 
-## 결과 (2026-11-03, 로컬)
+## 결과
 
-임시 PostgreSQL·Redis·Kafka에 붙여 같은 작업을 돌렸다. HTTP(문의 등록·조회·답변·관리자 목록, 403·401·400, 내부 포트 404, actuator·Prometheus), Kafka 받기(강의 이벤트 처리, 깨진 메시지 2건 DLT), 이의 제기 흐름(강의 API stub 접수, 재시도 batch, 판단·철회 이벤트를 key `inquiry:N`으로 `customersupport.events.v1`에 발행, 발행 기록 완료), 목록 조회 300건이다. native에서 위 문제를 고친 뒤 모두 통과했다.
+### 로컬 (2026-11-03~04)
+
+임시 PostgreSQL·Redis·Kafka에 붙여 같은 작업을 돌렸다. HTTP(문의 등록·조회·답변·관리자 목록, 403·401·400, 내부 포트 404, actuator·Prometheus), Kafka 받기(강의 이벤트 처리, 모르는 타입·깨진 JSON·타입 불일치 메시지 3건 DLT, listener 계속 동작), 이의 제기 흐름(강의 API stub 접수, 재시도 batch, 판단·철회 이벤트를 key `inquiry:N`으로 `customersupport.events.v1`에 발행, 발행 기록 완료), 목록 조회 300건이다. native에서 위 문제를 고친 뒤 모두 통과했다.
 
 | 조건 | 지표 | JVM | native |
 | --- | --- | ---: | ---: |
-| macOS arm64, JVM은 `-XX:MaxRAM=448m -XX:MaxRAMPercentage=60` | 기동 | 4.2초 | 0.6초 |
-| 〃 | RSS 기동 20초 뒤 / 작업 직후 / 60초 쉰 뒤 | 390 / 419 / 415 Mi | 210 / 236 / 208 Mi |
+| macOS arm64. JVM은 `-XX:+UseSerialGC -XX:ActiveProcessorCount=2 -XX:MaxRAM=448m -XX:MaxRAMPercentage=60`(운영과 같은 Serial GC·CPU 2개), native는 `-XX:ActiveProcessorCount=2` | 기동 | 4.3초 | 0.57초 |
+| 〃 | RSS 기동 20초 뒤 / 작업 직후 / 60초 쉰 뒤 | 379 / 413 / 415 Mi | 208 / 231 / 233 Mi |
+| macOS arm64, JVM은 heap 상한만 맞춤(GC·CPU는 로컬 기본값) | RSS 같은 시점 | 390 / 419 / 415 Mi | 210 / 236 / 208 Mi |
 | linux/amd64 컨테이너(memory 448m, Rosetta 번역) | working set 기동 20초 뒤 / 작업 직후 / 60초 쉰 뒤 | 446 / 444 / 447 Mi | 221 / 264 / 264 Mi |
 
-- 같은 조건에서 native가 메모리를 약 45~50% 덜 쓴다.
+- 같은 조건(Serial GC·CPU 2개)에서 native가 메모리를 약 44~45% 덜 쓴다. 처음에는 heap 상한만 맞춰 쟀는데, 로컬 JVM이 CPU가 많아 G1을 골랐을 수 있다는 리뷰를 받고 GC·CPU까지 맞춰 다시 쟀다(로그 `Using Serial` 확인). 결과는 크게 다르지 않았다.
 - linux/amd64 컨테이너 값은 macOS가 amd64를 Rosetta로 번역해 돌린 값이다. JVM은 기동이 38초로 늘고 limit에 붙었다. 두 방식 모두 번역을 거친 비교라 절대값은 운영 측정으로 정한다.
 - 운영 JVM 기준선: limit 448 MiB, 7일 최대 working set 404 MiB, 평소 380~390 MiB.
+
+### 운영 (2026-11-04)
+
+| 지표 | JVM | native |
+| --- | ---: | ---: |
+| working set | 391 MiB(배포 직전, 하루 넘게 돈 pod), 7일 최대 404 MiB | 배포 1~12분 뒤 120~129 MiB, 5시간 최대 142·174 MiB(native pod 2개, page cache 포함) |
+| RSS | - | 5시간 최대 110·111 MiB |
+| heap 사용 | 7일 최대 82 MiB | 5시간 최대 82~84 MiB(committed 약 82 MiB) |
+| 기동(`application_ready_time_seconds`) | 최근 3일 JVM pod 22.9~27.8초 | 1.10~1.16초 |
+| 압축 이미지(amd64) | 204.5 MiB(`sha-265cee7b`) | 144.3 MiB(`sha-821abc2d`) |
+
+- 실제 요청(2026-11-04 05:25~05:26 UTC, 프론트): 문의 등록 10건 201(5~60 ms), 목록 11건 200(첫 요청 401 ms, 이후 4~15 ms), 앱 로그 오류 0. 이의 제기(강의 연동)와 이벤트 발행은 운영에서 아직 돌지 않았다(로컬에서 같은 linux 실행 파일로 확인).
+- heap은 JVM과 거의 같다. 줄어든 것은 heap 밖 메모리(Metaspace·JIT 코드 캐시·native)다.
+- JVM 값은 오래 돈 pod, native 값은 막 뜬 pod라 측정 시점이 다르다. 같은 조건 비교는 위 로컬 표다.
+
+### memory limit과 heap 상한 (#672)
+
+운영 request·limit을 448 MiB에서 256 MiB로 낮추고 실행 인자 `-Xmx128m`을 준다(prod overlay만. base는 로컬 k3d의 JVM 이미지용이라 448 MiB와 `JAVA_TOOL_OPTIONS`를 그대로 둔다).
+
+- **native는 `JAVA_TOOL_OPTIONS`를 읽지 않는다.** 로컬에서 `JAVA_TOOL_OPTIONS=-Xmx24m`은 GC를 일으키지 않았고, 인자 `-Xmx24m`은 기동 0.07초 안에 GC 10회를 일으켰다(`-XX:+PrintGC`). 운영 ConfigMap의 `-XX:MaxRAMPercentage=60`은 native에 효과가 없다.
+- **heap 상한 기본값은 메모리의 80%다**(빌드 출력 `Serial GC (max heap size: 80% of RAM)`). 256 MiB면 약 205 MiB라 heap 밖을 더하면 limit을 넘을 수 있어 `-Xmx`를 명시한다. 128 MiB는 관측 최대 84 MiB의 약 1.5배다.
+- 256 MiB 안의 구성: heap 상한 128 + heap 밖 약 30(RSS 111 − heap 82) + page cache 최대 69(회수 가능) ≈ 227 MiB.
+- medium node 스케줄러 요청 합계가 3,712 MiB(96%)에서 3,520 MiB(92%)가 된다.
 
 ## 비용과 한계
 
@@ -80,6 +106,6 @@ agent 결과에는 AOT가 이미 등록한 것과 Hibernate 같은 라이브러�
 
 ## 남은 일
 
-- 운영 배포 뒤 working set·RSS·기동 시간을 JVM 기준선과 비교하고, limit(지금 448 MiB)을 실측에 맞게 낮춘다.
+- 256 MiB·`-Xmx128m`에서 heap·GC·재시작을 지켜본다(#672). 운영에서 이의 제기 흐름과 이벤트 발행이 처음 돌 때 로그의 `UnsupportedFeatureError`를 본다.
 - 다른 앱으로 넓힐지, 되돌릴지 정한다. 넓히면 앱마다 위 메타데이터 확인을 다시 한다.
 - JVM 앱 튜닝(#610)은 이 결과를 본 뒤 한다.
