@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(description = """
         HP 작업 시도 결과
         - `SUCCEEDED`: 지갑이 처리했다
-        - `TERMINAL_REJECTION`: 다시 보내도 같은 거절 (HOLD 잔액 부족, PAYOUT 이미 지급)
+        - `TERMINAL_REJECTION`: 다시 보내도 같은 거절 (HOLD 잔액 부족·보류 무효화됨·탈퇴로 닫힌 지갑, PAYOUT 이미 지급)
         - `RETRYABLE`: 지갑이 처리하지 않았다. 다시 보낸다
         - `UNKNOWN_RESULT`: 지갑이 처리했는지 모른다. 같은 요청 ID로 다시 보낸다
         - `INVARIANT_VIOLATION`: 있어서는 안 되는 결과. 바로 운영 확인 대상이다

@@ -195,6 +195,18 @@ class AppearanceBillingHttpTest extends MockBillingIntegrationTest {
         }
 
         @Test
+        @DisplayName("닫힌 지갑(409 WALLET_CLOSED, #648): 409 WALLET_CLOSED를 출연 코드로 응답, 요청서 HOLD_FAILED")
+        void walletClosed() {
+            MockBilling.fail(Endpoint.HOLD, 409, "WALLET_CLOSED", "탈퇴한 회원의 지갑이에요.");
+
+            assertThatThrownBy(AppearanceBillingHttpTest.this::send)
+                    .isInstanceOf(AppearanceHoldRejectedException.class)
+                    .hasMessage(AppearanceErrorCode.WALLET_CLOSED.getMessage())
+                    .extracting("errorCode").isEqualTo(AppearanceErrorCode.WALLET_CLOSED);
+            assertThat(requestStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+        }
+
+        @Test
         @DisplayName("목록 밖 코드(처음 보는 404 코드): 500 HP_HOLD_FAILED, 지갑 코드·설명은 응답에 나가지 않음, HOLD_FAILED")
         void unmappedHidden() {
             MockBilling.fail(Endpoint.HOLD, 404, "SOMETHING_NEW", "지갑 내부 설명");

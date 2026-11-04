@@ -143,6 +143,7 @@ PostgreSQL이 Kafka나 Redis로 대체되지 않는다. HP 원장과 채팅 이�
 | 8 | [알림 모듈](infrastructure/notification.md) | notification 앱 분리 |
 | 9 | [검색 모듈](infrastructure/search.md) | search 앱과 Elasticsearch |
 | 10 | [모듈별 database](infrastructure/database.md) | instance 1개 + 앱별 database |
+| - | [GraalVM Native Image](infrastructure/native-image.md) | customer-support-app native 시험 적용(#609), JVM과 메모리 비교, native 메타데이터 관리 |
 | 11 | [아래](#11-실서비스-전환-시-고려사항) | 실서비스 전환 시 고려사항 |
 
 ## 11. 실서비스 전환 시 고려사항

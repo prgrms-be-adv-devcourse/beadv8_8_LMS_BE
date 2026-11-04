@@ -48,7 +48,7 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - payload는 `common/shared`의 이벤트 레코드를 그대로 JSON으로 싣는다. 별도 envelope 레코드를 만들지 않는다.
 - 헤더는 `eventType`(레코드 이름, 예: `UserModifiedEvent`)과 `eventVersion`(이벤트 타입의 payload 버전, 예: `1`) 두 개를 UTF-8 문자열로 싣는다. `EventExternalizationConfiguration.headers(...)`로 넣는다. Spring Kafka JSON 직렬화가 붙이는 `__TypeId__`(레코드 클래스 이름)는 역직렬화에 쓴다.
 - `eventId`·`occurredAt`은 두지 않는다. 헤더 함수가 이벤트만 받아 재발행 때 같은 값을 만들 수 없다. 추적은 관측성(#343)의 trace 헤더가 맡는다.
-- Modulith는 기동할 때만 미완료 publication을 다시 보낸다(`republish-outstanding-events-on-restart`). 실행 중 재전송은 **발행하는 앱마다 반드시 둔다.** 지금 앱들은 `IncompleteEventPublications.resubmitIncompletePublications(Predicate)`로 자기 앱이 내보내는 이벤트·발행 후 경과 시간·건수를 거른다(billing·출연·강의·고객센터, 매분·1분·100건). 주기와 기준 시간은 앱이 정한다. replica 여럿이 같은 publication을 다시 보내도 소비 멱등이 흡수하므로 분산 락은 두지 않는다.
+- Modulith는 기동할 때만 미완료 publication을 다시 보낸다(`republish-outstanding-events-on-restart`). 실행 중 재전송은 **발행하는 앱마다 반드시 둔다.** 지금 앱들은 `IncompleteEventPublications.resubmitIncompletePublications(Predicate)`로 자기 앱이 내보내는 이벤트·발행 후 경과 시간·건수를 거른다(billing·출연·강의·고객센터, 매분·1분·100건). 회원은 `resubmitIncompletePublications(ResubmissionOptions)`로 **실패(FAILED)한 기록만** DB에서 건수를 제한해 읽어 다시 보낸다(매분·1분·500건, #421). `Predicate` 방식은 미완료 기록 전부(아직 전송 중인 것 포함)를 읽어 메모리에서 거르므로, 전송 중인 기록을 겹쳐 보내고 장애가 길면 매분 전부를 읽는다. 회원은 대상 필터를 두지 않는다. Modulith가 필터를 DB에서 읽은 뒤에 적용해, 걸러지는 실패 기록이 batchSize만큼 쌓이면 보낼 기록이 영영 읽히지 않기 때문이다(회원 앱은 같은 JVM 리스너가 없어 실패 기록은 모두 Kafka 전송). 실행 중 재발행은 실패한 기록만 다루므로, 전송 중(PROCESSING)에 앱이 죽어 남은 기록은 재기동 때 보낸다. 주기와 기준 시간은 앱이 정한다. replica 여럿이 같은 publication을 다시 보내도 소비 멱등이 흡수하므로 분산 락은 두지 않는다.
 
 ## 소비
 
@@ -114,7 +114,7 @@ Redpanda는 Kafka API와 호환되는 broker다. 앱의 Kafka client(Spring Kafk
 | 장애 | 동작 | 복구 | 증거 |
 | --- | --- | --- | --- |
 | 업무 커밋 직후, 전송 전에 앱 종료 | publication이 미완료로 남는다 | 재기동할 때 다시 보낸다(`republish-outstanding-events-on-restart`) | `MemberEventKafkaRecoveryIntegrationTest` |
-| broker 중단(발행 쪽) | 전송이 실패하고 publication이 미완료로 남는다 | 앱의 재발행 배치가 매분 다시 보낸다("발행" 절). 재기동해도 보낸다 | `BillingEventKafkaTest.republish()`, 앱별 `*EventRepublishUseCaseTest` |
+| broker 중단(발행 쪽) | 전송이 실패하고 publication이 미완료로 남는다 | 앱의 재발행 배치가 매분 다시 보낸다("발행" 절). 재기동해도 보낸다 | `BillingEventKafkaTest.republish()`, `MemberEventKafkaRecoveryIntegrationTest`, 앱별 `*EventRepublishUseCaseTest` |
 | broker 중단(소비 쪽) | 소비자가 재연결을 기다린다. offset은 커밋된 곳에 그대로 있다 | broker가 돌아오면 이어서 읽는다 | `LectureMemberEventListenerTest.broker가_멈췄다_살아나면_그_뒤에_발행한_회원_이벤트를_반영한다` |
 | consumer 중단(앱 장애·배포) | 그 그룹의 backlog가 쌓인다. Grafana lag series는 consumer가 없는 동안 사라진다 | 앱이 다시 뜨면 마지막 커밋 offset부터 읽고 lag가 줄어든다 | `LectureMemberEventListenerTest.소비를_멈춘_사이_쌓인_회원_이벤트를_재개하면_모두_반영한다`, 로컬 k3d 기록(#339) |
 | 처리 실패 | 1·2·4초 간격으로 3번 재시도한 뒤 그룹별 DLT로 보내고 offset을 커밋해 뒤 메시지를 처리한다 | 원인을 고친 뒤 아래 runbook으로 골라 다시 넣는다 | 앱별 DLT 테스트(예: `LectureMemberEventListenerTest`), 로컬 k3d 기록(#339) |

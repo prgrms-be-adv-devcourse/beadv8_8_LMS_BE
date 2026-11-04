@@ -166,6 +166,40 @@ jobs:
       - name: 이미지 빌드 확인
         run: docker build -f "apps/$APP/Dockerfile" "apps/$APP/build/libs"
 
+      # GraalVM Native Image 앱(build.gradle.kts에 org.graalvm.buildtools.native를 적용한 앱)은 실행 파일도 만든다(#609).
+      # JVM 테스트(check)는 위에서 Temurin으로 끝냈다. 여기서는 native 컴파일과 이미지가 되는지만 본다.
+      - name: native 앱 판정
+        id: native
+        run: |
+          if grep -q 'org.graalvm.buildtools.native' "apps/$APP/build.gradle.kts"; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: graalvm/setup-graalvm@v1
+        if: steps.native.outputs.enabled == 'true'
+        with:
+          java-version: '25'
+          distribution: graalvm
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: native 실행 파일 빌드
+        if: steps.native.outputs.enabled == 'true'
+        run: ./gradlew ":$APP:nativeCompile" --no-daemon
+
+      # publish.yml이 이미지를 만들 때 쓴다. PR에서도 올려 두어 로컬에서 같은 실행 파일로 확인할 수 있게 한다.
+      - name: native 실행 파일 업로드
+        if: steps.native.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-native-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/build/native/nativeCompile/app
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: native 이미지 빌드 확인
+        if: steps.native.outputs.enabled == 'true'
+        run: docker build -f "apps/$APP/Dockerfile.native" "apps/$APP/build/native/nativeCompile"
+
   # 테스트한 앱이 PR마다 달라 matrix job 이름(test (<앱>))을 필수 체크로 걸 수 없으므로 결과를 여기서 모은다.
   # 건너뛴 job(바뀐 앱 없음)은 통과, 실패·취소는 실패다. always()라 앞 job이 실패·취소돼도 실행되어 실패를 남긴다.
   verify:

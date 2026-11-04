@@ -18,6 +18,7 @@ import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.config.LectureOrderProperties;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
+import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -32,7 +33,8 @@ class OrderCreateViolationTest {
     private final LectureRepository lectureRepository = mock(LectureRepository.class);
     private final LectureOrderRepository lectureOrderRepository = mock(LectureOrderRepository.class);
     private final OrderCreateUseCase useCase = new OrderCreateUseCase(lectureRepository, lectureOrderRepository,
-            mock(LectureHpTaskRepository.class), mock(LectureHpTaskSupport.class), mock(LectureHpTaskExecutor.class),
+            mock(LectureHpTaskRepository.class), mock(LectureHpTaskAttemptRepository.class),
+            mock(LectureHpTaskSupport.class), mock(LectureHpTaskExecutor.class),
             mock(LectureOrderSupport.class), new LectureOrderProperties(null),
             Clock.fixed(NOW.atZone(LectureConfig.ZONE).toInstant(), LectureConfig.ZONE));
 

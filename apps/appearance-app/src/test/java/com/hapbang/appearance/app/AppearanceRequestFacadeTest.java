@@ -167,6 +167,17 @@ class AppearanceRequestFacadeTest {
     }
 
     @Test
+    @DisplayName("지갑이 닫혀 있으면(탈퇴 직후) 409 WALLET_CLOSED, 요청서는 HOLD_FAILED로 남고 목록에 보이지 않는다 (#648)")
+    void walletClosed() {
+        BillingStubs.reject(billingClient, Rejection.WALLET_CLOSED);
+
+        assertHoldRejected(() -> send(HOST, GUEST), AppearanceErrorCode.WALLET_CLOSED);
+
+        assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
+        assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
+    }
+
+    @Test
     @DisplayName("Billing이 응답하지 않으면 BILLING_UNAVAILABLE, 요청서는 HOLD_PENDING으로 남고 바로 다시 보내면 중복으로 막힌다")
     void billingUnavailable() {
         BillingStubs.unavailable(billingClient);

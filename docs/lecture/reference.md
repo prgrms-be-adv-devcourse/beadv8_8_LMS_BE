@@ -297,7 +297,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | 결과 | 응답 |
 | --- | --- |
 | 모든 보류 성공 | 201 + `PAID` 주문 |
-| billing 확정 거절 + 성공했던 보류의 반환까지 완료 (`HOLD_FAILED`) | 409 `INSUFFICIENT_BALANCE`. 보류의 확정 거절은 잔액 부족뿐이고, 강의 오류 코드가 billing과 같은 `code` 문자열을 써서 프론트 분기가 바뀌지 않는다 (D69) |
+| billing 확정 거절 + 성공했던 보류의 반환까지 완료 (`HOLD_FAILED`) | 409 `INSUFFICIENT_BALANCE`. 탈퇴로 닫힌 지갑이 보류를 거절했으면 409 `WALLET_CLOSED`다(D76, 사유는 보류 작업의 확정 거절 기록에서 읽는다). 강의 오류 코드가 billing과 같은 `code` 문자열을 써서 프론트 분기가 바뀌지 않는다 (D69) |
 | 보류 결과 불명, 재시도 대상, 보상 반환 진행 중, 또는 요청 시간 예산(10초, D68)을 넘김 | 202 + `HOLD_PENDING`·`HOLD_COMPENSATING` 주문. `RsData.data`에 `orderId`·`status`를 담는다 |
 
 ```json

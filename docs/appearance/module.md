@@ -296,6 +296,7 @@ com.hapbang.appearance
   |---|---|---|
   | `Succeeded` (같은 요청을 다시 보냈으면 처음 결과) | `REQUESTED` / `RECRUITING` | `DONE` |
   | `Failed` 잔액 부족 | `HOLD_FAILED`, 409 `INSUFFICIENT_BALANCE`(출연 문구) | 바로 `DEAD` |
+  | `Failed` 닫힌 지갑 (#648) | `HOLD_FAILED`, 409 `WALLET_CLOSED`, info 로그 | (HP 작업에는 나오지 않음: 닫힌 지갑도 반환·지급·위약금은 받는다) |
   | `Failed` 그 밖 (지갑 없음, 목록 밖 코드, 멱등 충돌 등) | `HOLD_FAILED`, 500 `HP_HOLD_FAILED`. 지갑 코드·상태·설명은 오류 로그에만 | 바로 `DEAD`, `last_error`에 코드·설명(목록 밖이면 원래 코드·HTTP 상태) |
   | `BillingCallException` (`UNKNOWN_RESULT`: 5xx·응답 시간 초과·응답 도중 끊김 / `RETRYABLE`: 연결 실패·408·425·429·회로 열림) | `HOLD_PENDING` + 503 `BILLING_UNAVAILABLE` → 재확인 배치가 같은 참조 대상으로 다시 보내고, 만든 지 1시간이 지나면 보류 무효화로 `HOLD_FAILED` (8.2, #536) | 재시도 정책대로 같은 요청 ID로 다시 보내고 10회째 `DEAD` |
 
@@ -484,7 +485,7 @@ Controller ─▶ AppearanceRequestFacade.create (@PreAuthorize, 트랜잭션 �
        → 진행 중 요청 확인 → HOLD_PENDING 저장 (부분 유니크 인덱스 위반이면 DUPLICATE)
   ② HoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold (보류 키는 Billing이 요청서로 만듦)
        ├─ 보류 성공                    → ③ HoldUseCase.markRequested [트랜잭션 2] → REQUESTED, 201
-       ├─ 지갑 거절 (Failed)            → HOLD_FAILED 기록 [트랜잭션 2] → 잔액 부족 409 INSUFFICIENT_BALANCE, 그 밖 500 HP_HOLD_FAILED
+       ├─ 지갑 거절 (Failed)            → HOLD_FAILED 기록 [트랜잭션 2] → 잔액 부족 409 INSUFFICIENT_BALANCE, 닫힌 지갑 409 WALLET_CLOSED, 그 밖 500 HP_HOLD_FAILED
        └─ 결과를 받지 못함 (BillingCallException) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE
 ```
 
@@ -557,7 +558,7 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
        호스트 자격 → 값 검증(형식, 최저 출연료, 모집 인원 1~10, 현재 < 모집 마감 < 방송 예정 일시) → HOLD_PENDING 저장
   ② RecruitHoldUseCase.requestHold  [트랜잭션 밖]  BillingClient.hold(APPEARANCE_RECRUIT, 모집글 ID, 1인당 출연료 × 모집 인원)
        ├─ 보류 성공                    → ③ markRecruiting [트랜잭션 2] → RECRUITING, 201
-       ├─ 지갑 거절 (Failed)            → HOLD_FAILED 기록 → 잔액 부족 409 INSUFFICIENT_BALANCE, 그 밖 500 HP_HOLD_FAILED
+       ├─ 지갑 거절 (Failed)            → HOLD_FAILED 기록 → 잔액 부족 409 INSUFFICIENT_BALANCE, 닫힌 지갑 409 WALLET_CLOSED, 그 밖 500 HP_HOLD_FAILED
        └─ 결과를 받지 못함 (BillingCallException) → HOLD_PENDING 그대로, 503 BILLING_UNAVAILABLE ("내 모집글 목록에서 확인")
 ```
 
