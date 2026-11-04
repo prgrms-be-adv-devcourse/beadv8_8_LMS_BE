@@ -24,8 +24,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.member.domain.User;
-import com.hapbang.member.out.RedisEmailVerificationStore;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 import com.jayway.jsonpath.JsonPath;
@@ -74,7 +74,7 @@ class EmailVerificationApiTest {
     @DisplayName("한 IP에서 10통을 넘게 받으면 429 EMAIL_CODE_TOO_MANY_REQUESTS")
     void ipLimit() throws Exception {
         String ip = newIp();
-        for (int i = 0; i < RedisEmailVerificationStore.IP_LIMIT; i++) {
+        for (int i = 0; i < EmailVerificationPolicy.IP_LIMIT; i++) {
             sendCode(newEmail(), ip).andExpect(status().isOk());
         }
 

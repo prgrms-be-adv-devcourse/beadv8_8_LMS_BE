@@ -20,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.MailSendException;
 
+import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.out.EmailSender;
@@ -117,7 +118,7 @@ class MemberEmailVerificationUseCaseTest {
     @Test
     @DisplayName("코드가 맞으면 소문자 이메일로 인증 토큰을 발급한다")
     void verifyMatched() {
-        given(store.checkCode("tester@example.com", "123456", MemberEmailVerificationUseCase.MAX_CODE_ATTEMPTS))
+        given(store.checkCode("tester@example.com", "123456", EmailVerificationPolicy.MAX_CODE_ATTEMPTS))
                 .willReturn(EmailVerificationStore.CodeCheck.MATCHED);
         given(store.issueToken("tester@example.com")).willReturn("token-1");
 
@@ -127,7 +128,7 @@ class MemberEmailVerificationUseCaseTest {
     @Test
     @DisplayName("틀리면 INVALID_EMAIL_CODE, 횟수 초과·코드 없음은 EMAIL_CODE_EXPIRED이고 토큰을 발급하지 않는다")
     void verifyRejected() {
-        given(store.checkCode(eq("tester@example.com"), anyString(), eq(MemberEmailVerificationUseCase.MAX_CODE_ATTEMPTS)))
+        given(store.checkCode(eq("tester@example.com"), anyString(), eq(EmailVerificationPolicy.MAX_CODE_ATTEMPTS)))
                 .willReturn(EmailVerificationStore.CodeCheck.WRONG, EmailVerificationStore.CodeCheck.ATTEMPTS_EXCEEDED,
                         EmailVerificationStore.CodeCheck.NOT_FOUND);
 

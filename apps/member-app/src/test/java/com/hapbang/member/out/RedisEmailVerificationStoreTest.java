@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 
 /** 가입 이메일 인증 저장소 (#557): 실제 Redis로 재발송 간격·IP 횟수·코드 저장을 확인한다 */
@@ -54,7 +55,7 @@ class RedisEmailVerificationStoreTest {
     @DisplayName("한 IP는 10통까지 세고 11통째부터 막는다. 세는 기간은 1시간이다")
     void ipLimit() {
         String ip = newIp();
-        for (int i = 0; i < RedisEmailVerificationStore.IP_LIMIT; i++) {
+        for (int i = 0; i < EmailVerificationPolicy.IP_LIMIT; i++) {
             assertThat(store.tryCountIp(ip)).isTrue();
         }
 

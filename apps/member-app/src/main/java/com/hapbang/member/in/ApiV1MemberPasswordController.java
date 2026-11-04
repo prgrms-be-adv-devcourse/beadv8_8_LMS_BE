@@ -11,8 +11,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.member.app.MemberFacade;
-import com.hapbang.member.out.RedisEmailVerificationStore;
 import com.hapbang.member.app.TokenPair;
+import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.domain.WithdrawnRestorableException;
 import com.hapbang.member.global.auth.LoginUserId;
@@ -46,7 +46,7 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
                                                    HttpServletRequest httpRequest) {
         memberFacade.sendSignUpEmailCode(request.email(), httpRequest.getRemoteAddr());
         return RsData.ok("인증 코드를 보냈습니다.", new EmailCodeResponse(
-                RedisEmailVerificationStore.CODE_TTL.toSeconds(), RedisEmailVerificationStore.RESEND_COOLDOWN.toSeconds()));
+                EmailVerificationPolicy.CODE_TTL.toSeconds(), EmailVerificationPolicy.RESEND_COOLDOWN.toSeconds()));
     }
 
     /** 가입 인증 코드 확인 (#557). 맞으면 가입에 쓸 인증 토큰을 준다 */
@@ -55,7 +55,7 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
     public RsData<EmailVerificationTokenResponse> verifyEmailCode(@Valid @RequestBody EmailCodeVerifyRequest request) {
         String token = memberFacade.verifySignUpEmailCode(request.email(), request.code());
         return RsData.ok("이메일을 인증했습니다.",
-                new EmailVerificationTokenResponse(token, RedisEmailVerificationStore.TOKEN_TTL.toSeconds()));
+                new EmailVerificationTokenResponse(token, EmailVerificationPolicy.TOKEN_TTL.toSeconds()));
     }
 
     /** 가입. 로그인은 따로 한다 */

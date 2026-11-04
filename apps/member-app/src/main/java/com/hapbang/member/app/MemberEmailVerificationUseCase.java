@@ -8,12 +8,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.member.domain.MemberEmail;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.out.EmailSender;
 import com.hapbang.member.out.EmailVerificationStore;
-import com.hapbang.member.out.RedisEmailVerificationStore;
 import com.hapbang.member.out.UserRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -35,8 +35,6 @@ import lombok.extern.slf4j.Slf4j;
 public class MemberEmailVerificationUseCase {
 
     static final String SUBJECT = "[합방] 이메일 인증 코드";
-    /** 코드 하나를 틀릴 수 있는 횟수. 이만큼 틀리면 코드를 지워 다시 받아야 한다 */
-    static final int MAX_CODE_ATTEMPTS = 5;
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -79,7 +77,7 @@ public class MemberEmailVerificationUseCase {
      */
     public String verifySignUpCode(String email, String code) {
         String normalizedEmail = MemberEmail.normalize(email);
-        return switch (emailVerificationStore.checkCode(normalizedEmail, code, MAX_CODE_ATTEMPTS)) {
+        return switch (emailVerificationStore.checkCode(normalizedEmail, code, EmailVerificationPolicy.MAX_CODE_ATTEMPTS)) {
             case MATCHED -> emailVerificationStore.issueToken(normalizedEmail);
             case WRONG -> throw new MemberException(MemberErrorCode.INVALID_EMAIL_CODE);
             case ATTEMPTS_EXCEEDED, NOT_FOUND -> throw new MemberException(MemberErrorCode.EMAIL_CODE_EXPIRED);
@@ -125,7 +123,7 @@ public class MemberEmailVerificationUseCase {
                 %d분 안에 가입 화면에 입력해 주세요.
 
                 직접 요청하지 않았다면 이 메일은 무시해 주세요.
-                """.formatted(code, RedisEmailVerificationStore.CODE_TTL.toMinutes());
+                """.formatted(code, EmailVerificationPolicy.CODE_TTL.toMinutes());
     }
 
     /**
