@@ -11,12 +11,14 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.member.app.MemberFacade;
+import com.hapbang.member.out.RedisEmailVerificationStore;
 import com.hapbang.member.app.TokenPair;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.domain.WithdrawnRestorableException;
 import com.hapbang.member.global.auth.LoginUserId;
 import com.hapbang.member.global.response.RsData;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,19 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
     private final MemberFacade memberFacade;
     private final RefreshTokenCookies refreshTokenCookies;
     private final RestoreTicketCookies restoreTicketCookies;
+
+    /**
+     * 가입 인증 코드 받기 (#557). IP당 발송 제한에 쓰는 접속 IP는 Gateway가 붙인 X-Forwarded-For를 Tomcat이 풀어 준 값이다
+     * (운영 server.forward-headers-strategy=native, docs/architecture/infrastructure/api-gateway.md)
+     */
+    @Override
+    @PostMapping("/email-codes")
+    public RsData<EmailCodeResponse> sendEmailCode(@Valid @RequestBody EmailCodeRequest request,
+                                                   HttpServletRequest httpRequest) {
+        memberFacade.sendSignUpEmailCode(request.email(), httpRequest.getRemoteAddr());
+        return RsData.ok("인증 코드를 보냈습니다.", new EmailCodeResponse(
+                RedisEmailVerificationStore.CODE_TTL.toSeconds(), RedisEmailVerificationStore.RESEND_COOLDOWN.toSeconds()));
+    }
 
     /** 가입. 로그인은 따로 한다 */
     @Override

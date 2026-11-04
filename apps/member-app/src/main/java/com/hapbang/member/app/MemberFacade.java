@@ -50,6 +50,7 @@ public class MemberFacade {
     private final MemberFollowerRefreshUseCase memberFollowerRefreshUseCase;
     private final MemberTokenUseCase memberTokenUseCase;
     private final MemberSignUpUseCase memberSignUpUseCase;
+    private final MemberEmailVerificationUseCase memberEmailVerificationUseCase;
     private final MemberPasswordLoginUseCase memberPasswordLoginUseCase;
     private final MemberPasswordChangeUseCase memberPasswordChangeUseCase;
     private final MemberAppearanceRatingUseCase memberAppearanceRatingUseCase;
@@ -291,6 +292,11 @@ public class MemberFacade {
     @Transactional
     public void logout(String refreshToken) {
         memberTokenUseCase.logout(refreshToken);
+    }
+
+    /** 가입 인증 코드 메일 보내기 (#557). 메일 발송을 DB 트랜잭션에 두지 않으려고 트랜잭션을 두지 않는다 */
+    public void sendSignUpEmailCode(String email, String clientIp) {
+        memberEmailVerificationUseCase.sendSignUpCode(email, clientIp);
     }
 
     /** 이메일·비밀번호 가입 (#499). 로그인은 따로 한다 */

@@ -7,11 +7,21 @@ import com.hapbang.member.global.response.RsData;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /** 이메일·비밀번호 로그인 API Swagger 명세 (#499). 매핑은 {@link ApiV1MemberPasswordController} */
 @Tag(name = "비밀번호 로그인", description = "이메일·비밀번호 가입, 로그인, 비밀번호 변경")
 public interface ApiV1MemberPasswordSpec {
+
+    @Operation(summary = "가입 인증 코드 받기",
+            description = "로그인 없이 부른다 (#557). 가입할 이메일로 6자리 인증 코드를 보낸다. 코드는 10분 유효하고, 다시 받으면 이전 코드는 못 쓴다. "
+                    + "이미 가입된 이메일(구글 가입 포함)이면 보내지 않고 409 DUPLICATE_EMAIL. "
+                    + "같은 이메일은 1분에 한 번(429 EMAIL_CODE_RESEND_TOO_SOON), 한 IP는 1시간에 10통(429 EMAIL_CODE_TOO_MANY_REQUESTS)까지 받을 수 있다. "
+                    + "메일을 보내지 못하면 503 EMAIL_SEND_FAILED(바로 다시 시도 가능). "
+                    + "응답 data: expiresInSeconds(코드 유효 시간), resendAfterSeconds(다시 받을 수 있을 때까지).")
+    RsData<EmailCodeResponse> sendEmailCode(EmailCodeRequest request,
+                                            @Parameter(hidden = true) HttpServletRequest httpRequest);
 
     @Operation(summary = "가입",
             description = "로그인 없이 부른다. 이메일·비밀번호·닉네임으로 가입하고 역할은 유저다. 가입만 하고 로그인은 따로 한다. "
