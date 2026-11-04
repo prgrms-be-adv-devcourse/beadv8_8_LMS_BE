@@ -237,9 +237,9 @@ public class ChatRoomSupporter {
                 unreadCount);
     }
 
-    /** 표시용 닉네임. 탈퇴 회원은 '탈퇴한 회원', 복제 정보가 없으면 '회원 {id}' */
+    /** 표시용 닉네임. 탈퇴 회원은 '탈퇴한 회원', 복제 정보가 없으면 '알 수 없는 회원'(회원 ID는 사용자에게 드러내지 않는다) */
     public String displayNicknameOf(Long userId) {
-        return chatUserRepository.findById(userId).map(ChatUser::getDisplayNickname).orElse("회원 " + userId);
+        return chatUserRepository.findById(userId).map(ChatUser::getDisplayNickname).orElse(ChatUser.UNKNOWN_NICKNAME);
     }
 
     private Map<Long, ChatMessageResponse> findLastMessages(Long userId, List<Long> chatRoomIds) {

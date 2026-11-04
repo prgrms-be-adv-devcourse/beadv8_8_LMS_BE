@@ -445,7 +445,8 @@ public class DefaultChatGroupRoomService implements ChatGroupRoomService {
 
     private static ChatInviteCandidateResponse toCandidate(Long userId, ChatUser user) {
         if (user == null) {
-            return new ChatInviteCandidateResponse(userId, "회원 " + userId, false,
+            // 회원 ID는 사용자에게 드러내지 않는다
+            return new ChatInviteCandidateResponse(userId, ChatUser.UNKNOWN_NICKNAME, false,
                     ChatGroupInviteFailure.CHAT_NOT_ALLOWED);
         }
         boolean invitable = user.canChat();

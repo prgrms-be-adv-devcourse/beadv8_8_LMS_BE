@@ -1,8 +1,8 @@
 # 관측성 stack(Prometheus·Loki·Tempo·Grafana·Alloy). 모두 medium(app-observe)에 둔다.
 # 이 파일은 설치, 자원·보존 한도와 Alloy pipeline(Gateway trace·pod log)을 정한다. 앱 지표는 Prometheus 차트 기본
 # kubernetes-pods job이 pod annotation으로 수집한다(#480). dashboard는 dashboards/ JSON(#531)이고, alert는 #343에서 더한다.
-# 메모리 limit은 로컬 k3d 실측(#373·#443·#480)에 여유를 더한 값이다. 이 파일의 합계는 1,248 MiB이고, k8s/gateway의
-# Tempo 160·Grafana 512 override를 더하면 1,536 MiB다(#532·#608 운영 실측으로 조정). 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다.
+# 메모리 limit은 로컬 k3d 실측(#373·#443·#480)에 여유를 더한 값이다. 이 파일의 합계는 1,312 MiB이고, k8s/gateway의
+# Tempo 160·Grafana 512 override를 더하면 1,600 MiB다(#532·#608·#684 운영 실측으로 조정). 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다.
 # 예산 조정은 #343에서 한다(docs/architecture/infrastructure/k3s.md).
 # Loki·Tempo·Grafana 차트는 2026년에 grafana에서 grafana-community 저장소로 옮겨졌다(각 차트 README).
 apiVersion: helm.cattle.io/v1
@@ -50,12 +50,14 @@ spec:
         size: 5Gi
         storageClass: local-path-retain
       # 차트 기본 scrape(cadvisor·pod 등)로 idle 292Mi를 썼다.
+      # 운영에서 #443 뒤 앱이 늘며 head series가 1.3만 → 4.3만, 하루 최대 working set이 291 → 320Mi로 올랐다(2026-10-31~11-04).
+      # Prometheus 3은 GOMEMLIMIT을 limit의 90%(384Mi면 346Mi)로 잡으므로 여유를 두려고 448Mi로 올린다(#684).
       resources:
         requests:
           cpu: 50m
-          memory: 384Mi
+          memory: 448Mi
         limits:
-          memory: 384Mi
+          memory: 448Mi
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
