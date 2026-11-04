@@ -23,7 +23,9 @@ public class LectureDeleteUseCase {
         lecture.delete(sellerUserId, LocalDateTime.now());
         // 이미 삭제된 강의의 삭제는 아무것도 바꾸지 않으므로 남기지 않는다
         if (!alreadyDeleted) {
-            log.info("강의를 삭제했다 lectureId={}, sellerUserId={}", lectureId, sellerUserId);
+            AfterCommit.run(() -> {
+                log.info("강의를 삭제했다 lectureId={}, sellerUserId={}", lectureId, sellerUserId);
+            });
         }
     }
 }

@@ -28,6 +28,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
@@ -83,6 +85,9 @@ class AppearanceApplicationFacadeTest {
 
     @Autowired
     JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     @Autowired
     AppearanceTestClock clock;
@@ -235,6 +240,21 @@ class AppearanceApplicationFacadeTest {
                     .singleElement().satisfies(line -> assertThat(line)
                             .contains(" INFO ", "applicationId=" + applied.id(), "recruitId=" + recruitId,
                                     "guestId=" + GUEST));
+        }
+
+        @Test
+        @DisplayName("철회한 트랜잭션이 롤백되면 결정 로그를 남기지 않는다 (#681, 결정 로그는 커밋 뒤)")
+        void withdrawRolledBack(CapturedOutput output) {
+            Long recruitId = postRecruit(3);
+            AppearanceApplicationResDto applied = apply(GUEST, recruitId);
+
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                appearanceApplicationFacade.withdraw(GUEST, applied.id());
+                status.setRollbackOnly();
+            });
+
+            assertThat(output.getAll()).doesNotContain("모집 지원을 철회했다");
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).applicantCount()).isEqualTo(1);
         }
 
         @Test

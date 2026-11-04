@@ -95,8 +95,10 @@ public class OrderCreateUseCase {
                         HOLD_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
                         item.getPriceHp(), now)).getId())
                 .toList();
-        log.info("주문을 만들었다 orderId={}, buyerUserId={}, itemCount={}, totalHp={}", order.getId(), buyerUserId,
-                order.getItems().size(), order.getItems().stream().mapToLong(OrderItem::getPriceHp).sum());
+        AfterCommit.run(() -> {
+            log.info("주문을 만들었다 orderId={}, buyerUserId={}, itemCount={}, totalHp={}", order.getId(), buyerUserId,
+                    order.getItems().size(), order.getItems().stream().mapToLong(OrderItem::getPriceHp).sum());
+        });
         return new Placement(order.getId(), holdTaskIds);
     }
 

@@ -44,7 +44,9 @@ public class AppearanceRequestCancelUseCase {
         request.cancel(hostId, now);
         Long releaseTaskId = appearanceRequestReleaseRecorder.applyAndRecordRelease(request,
                 HpTaskReason.REQUEST_CANCELED, now);
-        log.info("출연 요청을 취소했다 requestId={}, hostId={}, releaseTaskId={}", requestId, hostId, releaseTaskId);
+        AfterCommit.run(() -> {
+            log.info("출연 요청을 취소했다 requestId={}, hostId={}, releaseTaskId={}", requestId, hostId, releaseTaskId);
+        });
         return releaseTaskId;
     }
 }

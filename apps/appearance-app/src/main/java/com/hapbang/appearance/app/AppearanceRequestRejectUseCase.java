@@ -45,7 +45,9 @@ public class AppearanceRequestRejectUseCase {
         Long releaseTaskId = appearanceRequestReleaseRecorder.applyAndRecordRelease(request,
                 HpTaskReason.REQUEST_REJECTED, now);
         // 거절 사유는 게스트가 쓴 본문이라 남기지 않는다
-        log.info("출연 요청을 거절했다 requestId={}, guestId={}, releaseTaskId={}", requestId, guestId, releaseTaskId);
+        AfterCommit.run(() -> {
+            log.info("출연 요청을 거절했다 requestId={}, guestId={}, releaseTaskId={}", requestId, guestId, releaseTaskId);
+        });
         return releaseTaskId;
     }
 }

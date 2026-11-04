@@ -29,7 +29,9 @@ public class OrderObjectionWithdrawUseCase {
         order.withdrawObjection(orderItemId, buyerUserId, inquiryId);
         // 같은 항목을 동시에 바꾼 변경(판단 등)과의 충돌을 이 호출 안에서 드러낸다
         lectureOrderRepository.flush();
-        log.info("이의 제기를 철회했다 orderId={}, orderItemId={}, inquiryId={}, buyerUserId={}", order.getId(),
-                orderItemId, inquiryId, buyerUserId);
+        AfterCommit.run(() -> {
+            log.info("이의 제기를 철회했다 orderId={}, orderItemId={}, inquiryId={}, buyerUserId={}", order.getId(),
+                    orderItemId, inquiryId, buyerUserId);
+        });
     }
 }

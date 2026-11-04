@@ -10,8 +10,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -49,19 +47,9 @@ public class HpTaskSupport {
     }
 
     private static void logRegistered(HpTask task) {
-        Runnable write = () -> log.info("HP 작업을 등록했다 taskId={}, taskType={}, refType={}, refId={}, appearanceId={}, "
+        AfterCommit.run(() -> log.info("HP 작업을 등록했다 taskId={}, taskType={}, refType={}, refId={}, appearanceId={}, "
                         + "memberId={}, amount={}, reason={}", task.getId(), task.getTaskType(), task.getRefType(),
-                task.getRefId(), task.getAppearanceId(), task.getMemberId(), task.getAmount(), task.getReason());
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            write.run();
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                write.run();
-            }
-        });
+                task.getRefId(), task.getAppearanceId(), task.getMemberId(), task.getAmount(), task.getReason()));
     }
 
     /**

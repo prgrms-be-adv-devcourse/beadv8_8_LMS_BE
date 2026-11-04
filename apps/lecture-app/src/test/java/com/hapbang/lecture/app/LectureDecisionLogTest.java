@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.domain.Lecture;
@@ -50,6 +52,9 @@ class LectureDecisionLogTest {
 
     @Autowired
     private FakeBillingApiClient billing;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void setUp() {
@@ -138,6 +143,18 @@ class LectureDecisionLogTest {
         // 이미 삭제된 강의를 다시 삭제하면 아무것도 바뀌지 않아 남기지 않는다
         assertThat(lines(output, "강의를 삭제했다")).singleElement()
                 .satisfies(line -> assertThat(line).contains(" INFO ", "lectureId=" + lectureId));
+    }
+
+    @Test
+    void 결정한_트랜잭션이_롤백되면_결정_로그를_남기지_않는다(CapturedOutput output) {
+        Long lectureId = lectureRepository.save(rejectedLecture()).getId();
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            lectureFacade.requestInspection(SELLER_ID, lectureId);
+            status.setRollbackOnly();
+        });
+
+        assertThat(lines(output, "강의 검수를 요청했다")).isEmpty();
     }
 
     private OrderResponse order(Lecture... lectures) {

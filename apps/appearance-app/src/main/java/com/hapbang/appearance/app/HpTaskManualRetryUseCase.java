@@ -50,9 +50,11 @@ public class HpTaskManualRetryUseCase {
         String previousError = task.getLastError();
         task.reopenForManualRetry(adminId, LocalDateTime.now(clock));
         hpTaskSupport.flushOrConflict();
-        log.info("관리자가 DEAD HP 작업을 다시 시도하게 했다 taskId={}, adminId={}, taskType={}, refType={}, refId={}, "
-                        + "amount={}, manualRetryCount={}, previousAttempts={}, previousError={}",
-                task.getId(), adminId, task.getTaskType(), task.getRefType(), task.getRefId(), task.getAmount(),
-                task.getManualRetryCount(), previousAttempts, previousError);
+        AfterCommit.run(() -> {
+            log.info("관리자가 DEAD HP 작업을 다시 시도하게 했다 taskId={}, adminId={}, taskType={}, refType={}, refId={}, "
+                            + "amount={}, manualRetryCount={}, previousAttempts={}, previousError={}",
+                    task.getId(), adminId, task.getTaskType(), task.getRefType(), task.getRefId(), task.getAmount(),
+                    task.getManualRetryCount(), previousAttempts, previousError);
+        });
     }
 }

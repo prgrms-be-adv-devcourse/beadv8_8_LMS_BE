@@ -53,8 +53,10 @@ public class AppearanceCancelRequestUseCase {
                 previousCount, appearancePolicy, LocalDateTime.now(clock));
         AppearanceCancelRequest saved = appearanceCancelRequestSupport.save(cancelRequest);
         appearanceSupport.flushOrConflict();
-        log.info("출연 취소를 요청했다 appearanceId={}, cancelRequestId={}, guestId={}", appearanceId, saved.getId(),
-                guestId);
+        AfterCommit.run(() -> {
+            log.info("출연 취소를 요청했다 appearanceId={}, cancelRequestId={}, guestId={}", appearanceId, saved.getId(),
+                    guestId);
+        });
 
         // 호스트에게 취소 요청 도착을 알린다. 받는 쪽은 커밋 뒤에 처리한다 (@ApplicationModuleListener)
         eventPublisher.publishEvent(new AppearanceCancelRequestedEvent(

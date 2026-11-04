@@ -35,8 +35,10 @@ public class OrderPlayConsentUseCase {
         OrderItem item = order.consentToPlay(orderItemId, LocalDateTime.now(clock));
         // 이미 확정·지급된 항목의 재생 동의는 아무것도 바꾸지 않으므로 남기지 않는다 (D38)
         if (purchased && item.getStatus() == OrderItemStatus.CONFIRMED) {
-            log.info("재생 동의로 구매를 확정했다 orderId={}, orderItemId={}, buyerUserId={}, confirmationType={}", orderId,
-                    orderItemId, buyerUserId, item.getConfirmationType());
+            AfterCommit.run(() -> {
+                log.info("재생 동의로 구매를 확정했다 orderId={}, orderItemId={}, buyerUserId={}, confirmationType={}", orderId,
+                        orderItemId, buyerUserId, item.getConfirmationType());
+            });
         }
         return OrderItemResponse.of(item);
     }

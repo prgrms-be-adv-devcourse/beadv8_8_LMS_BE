@@ -46,8 +46,10 @@ public class AppearanceRequestAcceptUseCase {
         // 같은 요청서를 동시에 수락·거절·취소하면 먼저 반영된 쪽만 성공한다
         appearanceRequestSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(request, now));
-        log.info("출연 요청을 수락했다 requestId={}, appearanceId={}, guestId={}, hostId={}", requestId,
-                appearance.getId(), guestId, request.getHostId());
+        AfterCommit.run(() -> {
+            log.info("출연 요청을 수락했다 requestId={}, appearanceId={}, guestId={}, hostId={}", requestId,
+                    appearance.getId(), guestId, request.getHostId());
+        });
         return appearance;
     }
 }

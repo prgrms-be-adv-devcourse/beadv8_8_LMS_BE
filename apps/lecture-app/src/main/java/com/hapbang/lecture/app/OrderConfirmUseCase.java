@@ -30,7 +30,9 @@ public class OrderConfirmUseCase {
     public OrderItemResponse confirm(Long buyerUserId, Long orderId, Long orderItemId) {
         LectureOrder order = lectureOrderSupport.findOrder(buyerUserId, orderId);
         OrderItem item = order.confirmItem(orderItemId, LocalDateTime.now(clock));
-        log.info("구매를 확정했다 orderId={}, orderItemId={}, buyerUserId={}", orderId, orderItemId, buyerUserId);
+        AfterCommit.run(() -> {
+            log.info("구매를 확정했다 orderId={}, orderItemId={}, buyerUserId={}", orderId, orderItemId, buyerUserId);
+        });
         return OrderItemResponse.of(item);
     }
 }

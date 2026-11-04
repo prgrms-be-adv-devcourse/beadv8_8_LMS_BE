@@ -81,8 +81,10 @@ public class AppearanceRecruitCancelUseCase {
             taskIds.add(recordVacancyRelease(recruit, vacancyFee, now));
         }
         appearanceRecruitSupport.flushOrConflict();
-        log.info("모집을 취소했다 recruitId={}, hostId={}, appearanceCount={}, vacancyFee={}, taskIds={}", recruitId, hostId,
-                appearances.size(), vacancyFee, taskIds);
+        AfterCommit.run(() -> {
+            log.info("모집을 취소했다 recruitId={}, hostId={}, appearanceCount={}, vacancyFee={}, taskIds={}", recruitId,
+                    hostId, appearances.size(), vacancyFee, taskIds);
+        });
         return taskIds;
     }
 

@@ -12,8 +12,6 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.hapbang.lecture.app.dto.LectureHpTaskSearch;
 import com.hapbang.lecture.domain.LectureErrorCode;
@@ -58,14 +56,9 @@ public class LectureHpTaskSupport {
 
     /** 롤백된 등록(같은 요청 ID 동시 등록의 늦은 쪽 등)은 남기지 않도록 커밋 뒤에 찍는다 */
     private static void logAfterCommit(LectureHpTask task) {
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                log.info("HP 작업을 등록했다 taskId={}, taskType={}, purpose={}, requestId={}, orderItemId={}, amountHp={}",
-                        task.getId(), task.getTaskType(), task.getPurpose(), task.getRequestId(),
-                        task.getOrderItemId(), task.getAmountHp());
-            }
-        });
+        AfterCommit.run(() -> log.info("HP 작업을 등록했다 taskId={}, taskType={}, purpose={}, requestId={}, "
+                        + "orderItemId={}, amountHp={}", task.getId(), task.getTaskType(), task.getPurpose(),
+                task.getRequestId(), task.getOrderItemId(), task.getAmountHp()));
     }
 
     public LectureHpTask getById(Long taskId) {

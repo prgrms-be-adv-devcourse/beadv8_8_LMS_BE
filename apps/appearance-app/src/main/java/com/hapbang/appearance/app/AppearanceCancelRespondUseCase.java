@@ -79,12 +79,11 @@ public class AppearanceCancelRespondUseCase {
         HpTask releaseTask = releaseOnAgreement(appearance, recruit, now);
         appearanceSupport.flushOrConflict();
 
-        Long releaseTaskId = null;
-        if (releaseTask != null) {
-            releaseTaskId = hpTaskSupport.save(releaseTask).getId();
-        }
-        log.info("출연 취소 요청을 수락했다 appearanceId={}, cancelRequestId={}, hostId={}, releaseTaskId={}", appearanceId,
-                cancelRequest.getId(), hostId, releaseTaskId);
+        Long releaseTaskId = releaseTask == null ? null : hpTaskSupport.save(releaseTask).getId();
+        AfterCommit.run(() -> {
+            log.info("출연 취소 요청을 수락했다 appearanceId={}, cancelRequestId={}, hostId={}, releaseTaskId={}",
+                    appearanceId, cancelRequest.getId(), hostId, releaseTaskId);
+        });
         eventPublisher.publishEvent(new AppearanceCancelRequestAcceptedEvent(
                 cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt())));
         return releaseTaskId;
@@ -106,8 +105,10 @@ public class AppearanceCancelRespondUseCase {
         cancelRequest.reject(rejectReason, now);
         appearance.keepAfterCancelRejected();
         appearanceSupport.flushOrConflict();
-        log.info("출연 취소 요청을 거절했다 appearanceId={}, cancelRequestId={}, hostId={}", appearanceId,
-                cancelRequest.getId(), hostId);
+        AfterCommit.run(() -> {
+            log.info("출연 취소 요청을 거절했다 appearanceId={}, cancelRequestId={}, hostId={}", appearanceId,
+                    cancelRequest.getId(), hostId);
+        });
 
         eventPublisher.publishEvent(new AppearanceCancelRequestRejectedEvent(
                 cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt()), false));

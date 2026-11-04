@@ -41,8 +41,10 @@ public class AppearanceApplicationWithdrawUseCase {
         AppearanceApplication application = appearanceApplicationSupport.getById(applicationId);
         application.withdraw(guestId, LocalDateTime.now(clock));
         appearanceApplicationSupport.flushOrConflict();
-        log.info("모집 지원을 철회했다 applicationId={}, recruitId={}, guestId={}", applicationId,
-                application.getRecruitId(), guestId);
+        AfterCommit.run(() -> {
+            log.info("모집 지원을 철회했다 applicationId={}, recruitId={}, guestId={}", applicationId,
+                    application.getRecruitId(), guestId);
+        });
         AppearanceRecruit recruit = appearanceRecruitSupport.getById(application.getRecruitId());
         return AppearanceApplicationResDto.from(application, recruit, null);
     }

@@ -17,6 +17,8 @@ public class LectureApproveUseCase {
 
     public void approve(Long adminUserId, Long lectureId) {
         lectureSupport.findLecture(lectureId).approve(adminUserId, LocalDateTime.now());
-        log.info("강의 검수를 승인했다 lectureId={}, adminUserId={}", lectureId, adminUserId);
+        AfterCommit.run(() -> {
+            log.info("강의 검수를 승인했다 lectureId={}, adminUserId={}", lectureId, adminUserId);
+        });
     }
 }

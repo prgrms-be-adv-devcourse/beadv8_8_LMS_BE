@@ -37,9 +37,11 @@ public class LectureHpTaskVoidUseCase {
         LectureHpTask hold = lectureHpTaskSupport.getById(taskId);
         hold.voidByAdmin(adminUserId, LocalDateTime.now(clock));
         LectureHpTask voidTask = orderHoldSettlement.voidHold(hold);
-        log.info("관리자가 보류 무효화 작업을 만들었다 holdTaskId={}, voidTaskId={}, orderId={}, orderItemId={}, "
-                        + "lastErrorCode={}, adminUserId={}", hold.getId(), voidTask.getId(), hold.getOrderId(),
-                hold.getOrderItemId(), hold.getLastErrorCode(), adminUserId);
+        AfterCommit.run(() -> {
+            log.info("관리자가 보류 무효화 작업을 만들었다 holdTaskId={}, voidTaskId={}, orderId={}, orderItemId={}, "
+                            + "lastErrorCode={}, adminUserId={}", hold.getId(), voidTask.getId(), hold.getOrderId(),
+                    hold.getOrderItemId(), hold.getLastErrorCode(), adminUserId);
+        });
         return voidTask;
     }
 }

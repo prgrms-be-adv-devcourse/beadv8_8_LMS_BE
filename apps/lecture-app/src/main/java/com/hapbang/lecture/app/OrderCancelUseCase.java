@@ -61,8 +61,10 @@ public class OrderCancelUseCase {
         Long taskId = lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.CANCEL,
                 RELEASE_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
                 item.getPriceHp(), now)).getId();
-        log.info("구매 취소를 요청했다 orderId={}, orderItemId={}, buyerUserId={}", order.getId(), item.getId(),
-                buyerUserId);
+        AfterCommit.run(() -> {
+            log.info("구매 취소를 요청했다 orderId={}, orderItemId={}, buyerUserId={}", order.getId(), item.getId(),
+                    buyerUserId);
+        });
         return taskId;
     }
 

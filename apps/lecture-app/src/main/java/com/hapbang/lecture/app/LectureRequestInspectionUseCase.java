@@ -17,6 +17,8 @@ public class LectureRequestInspectionUseCase {
 
     public void requestInspection(Long sellerUserId, Long lectureId) {
         lectureSupport.findLecture(lectureId).requestInspection(sellerUserId, LocalDateTime.now());
-        log.info("강의 검수를 요청했다 lectureId={}, sellerUserId={}", lectureId, sellerUserId);
+        AfterCommit.run(() -> {
+            log.info("강의 검수를 요청했다 lectureId={}, sellerUserId={}", lectureId, sellerUserId);
+        });
     }
 }

@@ -18,6 +18,8 @@ public class LectureRejectUseCase {
     public void reject(Long adminUserId, Long lectureId, String reason) {
         lectureSupport.findLecture(lectureId).reject(adminUserId, reason, LocalDateTime.now());
         // 반려 사유는 관리자가 쓴 본문이라 남기지 않는다(조회는 관리자 API)
-        log.info("강의 검수를 반려했다 lectureId={}, adminUserId={}", lectureId, adminUserId);
+        AfterCommit.run(() -> {
+            log.info("강의 검수를 반려했다 lectureId={}, adminUserId={}", lectureId, adminUserId);
+        });
     }
 }

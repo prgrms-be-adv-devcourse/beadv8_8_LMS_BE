@@ -31,8 +31,10 @@ public class LectureHpTaskRetryUseCase {
     public void retry(Long adminUserId, Long taskId) {
         LectureHpTask task = lectureHpTaskSupport.getById(taskId);
         task.retryManually(adminUserId, LocalDateTime.now(clock));
-        log.info("관리자가 DEAD HP 작업을 다시 시도하게 했다 taskId={}, adminUserId={}, lastErrorCode={}, "
-                        + "totalAttemptCount={}", task.getId(), adminUserId, task.getLastErrorCode(),
-                task.getTotalAttemptCount());
+        AfterCommit.run(() -> {
+            log.info("관리자가 DEAD HP 작업을 다시 시도하게 했다 taskId={}, adminUserId={}, lastErrorCode={}, "
+                            + "totalAttemptCount={}", task.getId(), adminUserId, task.getLastErrorCode(),
+                    task.getTotalAttemptCount());
+        });
     }
 }

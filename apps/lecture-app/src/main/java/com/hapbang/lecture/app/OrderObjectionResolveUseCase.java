@@ -57,8 +57,10 @@ public class OrderObjectionResolveUseCase {
         OrderItem item = order.resolveObjection(orderItemId, inquiryId, accepted, adminUserId, now);
         // 같은 항목을 동시에 바꾼 변경(낙관적 락 충돌)을 작업 등록 전에 확인한다 (설계 6.2)
         lectureOrderRepository.flush();
-        log.info("이의 제기를 판단했다 orderId={}, orderItemId={}, inquiryId={}, accepted={}, adminUserId={}",
-                order.getId(), orderItemId, inquiryId, accepted, adminUserId);
+        AfterCommit.run(() -> {
+            log.info("이의 제기를 판단했다 orderId={}, orderItemId={}, inquiryId={}, accepted={}, adminUserId={}",
+                    order.getId(), orderItemId, inquiryId, accepted, adminUserId);
+        });
         if (!accepted) {
             return;
         }

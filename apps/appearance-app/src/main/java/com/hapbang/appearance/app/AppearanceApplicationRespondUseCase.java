@@ -61,8 +61,10 @@ public class AppearanceApplicationRespondUseCase {
 
         appearanceApplicationSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(recruit, application, now));
-        log.info("모집 지원을 수락했다 applicationId={}, recruitId={}, appearanceId={}, hostId={}, guestId={}",
-                applicationId, recruit.getId(), appearance.getId(), hostId, application.getGuestId());
+        AfterCommit.run(() -> {
+            log.info("모집 지원을 수락했다 applicationId={}, recruitId={}, appearanceId={}, hostId={}, guestId={}",
+                    applicationId, recruit.getId(), appearance.getId(), hostId, application.getGuestId());
+        });
         return AppearanceApplicationResDto.from(application, recruit, appearance.getId());
     }
 
@@ -79,7 +81,9 @@ public class AppearanceApplicationRespondUseCase {
         application.reject(now);
 
         appearanceApplicationSupport.flushOrConflict();
-        log.info("모집 지원을 거절했다 applicationId={}, recruitId={}, hostId={}", applicationId, recruit.getId(), hostId);
+        AfterCommit.run(() -> {
+            log.info("모집 지원을 거절했다 applicationId={}, recruitId={}, hostId={}", applicationId, recruit.getId(), hostId);
+        });
         return AppearanceApplicationResDto.from(application, recruit, null);
     }
 }
