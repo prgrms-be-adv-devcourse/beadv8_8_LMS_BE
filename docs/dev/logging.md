@@ -21,7 +21,7 @@
 
 로그 양을 줄여야 하면 `logging.structured.json.exclude`로 고정 필드(`@version`·`level_value`)를 뺀다. JSON으로 바꾸기 전 Loki 하루 수집량은 앱 6개 합계 약 2.2 MB(약 1만 9천 줄)였다(2026-11-04, #582에 전후 비교).
 
-JSON으로 바꾼 뒤 앱 메모리 차이는 pod마다 흔들리는 폭 안이었다. 바꾸기 전 같은 설정 pod와 기동 90분 working set을 비교하면 앱별 차이가 −16~+25 MiB였고, 같은 설정 pod끼리의 차이(appearance 두 pod 40 MiB)보다 작았다(2026-11-05, #699).
+JSON으로 바꾼 뒤 앱 메모리 차이는 pod마다 흔들리는 폭과 구분되지 않았다. 바꾸기 전 같은 설정 pod와 기동 90분 working set을 비교하면 앱별 차이가 −16~+25 MiB였고, 같은 설정 pod끼리의 차이(appearance 두 pod 40 MiB)보다 작았다(2026-11-05, #699). 앱마다 pod 1~2개를 기동 90분 시점에 비교한 결과이고, 오래 돈 pod끼리는 아직 비교하지 않았다([k3s 자원 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)).
 
 ## 수집과 조회
 
