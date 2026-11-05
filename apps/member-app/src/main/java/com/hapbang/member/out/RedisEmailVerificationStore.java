@@ -25,6 +25,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>{@code member:email-code-fail:{용도}:{해시}}: 코드 틀린 횟수 (코드와 함께 사라진다)</li>
  *     <li>(아래 발송 제한은 용도와 상관없이 합쳐 센다) {@code member:email-code-cooldown:{해시}}: 재발송 간격 표시, {@link EmailVerificationPolicy#RESEND_COOLDOWN}</li>
  *     <li>{@code member:email-code-ip:{해시}}: IP당 발송 수, 첫 발송부터 {@link EmailVerificationPolicy#IP_WINDOW}</li>
+ *     <li>{@code member:email-verify-ip:{해시}}: IP당 코드 확인 수, 첫 확인부터 {@link EmailVerificationPolicy#VERIFY_IP_WINDOW}</li>
  *     <li>{@code member:email-code-daily:{해시}}: 이메일당 발송 수, 첫 발송부터 {@link EmailVerificationPolicy#EMAIL_WINDOW}</li>
  *     <li>{@code member:email-code-global}: 앱 전체 발송 수, 첫 발송부터 {@link EmailVerificationPolicy#GLOBAL_WINDOW}</li>
  *     <li>{@code member:email-verified:{용도}:{토큰 해시}}: 인증 토큰 → 이메일, {@link EmailVerificationPolicy#TOKEN_TTL}. 토큰 원문은 저장하지 않는다</li>
@@ -38,6 +39,7 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
     static final String FAIL_KEY_PREFIX = "member:email-code-fail:";
     static final String COOLDOWN_KEY_PREFIX = "member:email-code-cooldown:";
     static final String IP_KEY_PREFIX = "member:email-code-ip:";
+    static final String VERIFY_IP_KEY_PREFIX = "member:email-verify-ip:";
     static final String EMAIL_DAILY_KEY_PREFIX = "member:email-code-daily:";
     static final String GLOBAL_DAILY_KEY = "member:email-code-global";
     static final String TOKEN_KEY_PREFIX = "member:email-verified:";
@@ -104,6 +106,12 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
     public boolean tryCountIp(String ip) {
         return countInWindow(IP_KEY_PREFIX + RedisLoginAttemptStore.hash(ip),
                 EmailVerificationPolicy.IP_LIMIT, EmailVerificationPolicy.IP_WINDOW);
+    }
+
+    @Override
+    public boolean tryCountVerifyIp(String ip) {
+        return countInWindow(VERIFY_IP_KEY_PREFIX + RedisLoginAttemptStore.hash(ip),
+                EmailVerificationPolicy.VERIFY_IP_LIMIT, EmailVerificationPolicy.VERIFY_IP_WINDOW);
     }
 
     @Override

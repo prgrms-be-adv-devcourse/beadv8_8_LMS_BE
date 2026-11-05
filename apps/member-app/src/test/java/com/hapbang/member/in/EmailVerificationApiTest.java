@@ -87,6 +87,20 @@ class EmailVerificationApiTest {
     }
 
     @Test
+    @DisplayName("한 IP에서 코드 확인을 30번 넘게 하면 429 EMAIL_CODE_TOO_MANY_REQUESTS (남의 코드를 틀린 코드로 지우는 방해 제한)")
+    void verifyIpLimit() throws Exception {
+        String ip = newIp();
+        createdKeys.add("member:email-verify-ip:" + hash(MemberEmailVerificationUseCase.ipLimitKey(ip)));
+        for (int i = 0; i < EmailVerificationPolicy.VERIFY_IP_LIMIT; i++) {
+            verifyFrom(newEmail(), "000000", ip).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+        }
+
+        verifyFrom(newEmail(), "000000", ip)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("EMAIL_CODE_TOO_MANY_REQUESTS"));
+    }
+
+    @Test
     @DisplayName("한 이메일은 하루 5통까지 받고 6통째는 429 EMAIL_CODE_DAILY_LIMIT (1분 간격은 지우고 다시 요청)")
     void emailDailyLimit() throws Exception {
         String email = newEmail();
@@ -204,6 +218,16 @@ class EmailVerificationApiTest {
         return mockMvc.perform(post("/api/v1/members/signup").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"email\":\"%s\",\"password\":\"%s\",\"nickname\":\"%s\",\"emailVerificationToken\":\"%s\"}"
                         .formatted(email, password, nickname, token)));
+    }
+
+    private ResultActions verifyFrom(String email, String code, String ip) throws Exception {
+        return mockMvc.perform(post(EMAIL_CODES + "/verify")
+                .with(request -> {
+                    request.setRemoteAddr(ip);
+                    return request;
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"purpose\":\"SIGN_UP\",\"code\":\"%s\"}".formatted(email, code)));
     }
 
     private ResultActions verify(String email, String code) throws Exception {

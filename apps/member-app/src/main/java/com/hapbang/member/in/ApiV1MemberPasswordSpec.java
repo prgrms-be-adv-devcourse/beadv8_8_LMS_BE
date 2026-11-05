@@ -34,8 +34,10 @@ public interface ApiV1MemberPasswordSpec {
                     + "SIGN_UP 토큰은 가입에, PASSWORD_RESET 토큰은 비밀번호 재설정에만 쓸 수 있다(한 번만). "
                     + "틀리면 400 INVALID_EMAIL_CODE(코드 하나에 5번까지). 5번째로 틀리거나, 받은 코드가 없거나 10분이 지났으면 "
                     + "400 EMAIL_CODE_EXPIRED(코드를 다시 받아야 함). 코드는 숫자 6자리(아니면 400). "
+                    + "한 IP는 1시간에 30번까지 확인할 수 있다(넘으면 429 EMAIL_CODE_TOO_MANY_REQUESTS). "
                     + "응답 data: emailVerificationToken, expiresInSeconds.")
-    RsData<EmailVerificationTokenResponse> verifyEmailCode(EmailCodeVerifyRequest request);
+    RsData<EmailVerificationTokenResponse> verifyEmailCode(EmailCodeVerifyRequest request,
+                                                           @Parameter(hidden = true) HttpServletRequest httpRequest);
 
     @Operation(summary = "가입",
             description = "로그인 없이 부른다. 이메일·비밀번호·닉네임으로 가입하고 역할은 유저다. 가입만 하고 로그인은 따로 한다. "

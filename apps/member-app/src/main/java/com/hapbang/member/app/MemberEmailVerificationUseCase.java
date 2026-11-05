@@ -228,9 +228,14 @@ public class MemberEmailVerificationUseCase {
 
     /**
      * 코드를 확인하고 맞으면 그 용도의 인증 토큰을 준다. 틀리면 400 INVALID_EMAIL_CODE, 5번째로 틀리거나 코드가 없으면
-     * (10분 지남, 이미 씀, 받지 않음) 400 EMAIL_CODE_EXPIRED(다시 받아야 함)
+     * (10분 지남, 이미 씀, 받지 않음) 400 EMAIL_CODE_EXPIRED(다시 받아야 함).
+     * 공인 IP 하나는 1시간에 30번까지 확인한다(넘으면 429 EMAIL_CODE_TOO_MANY_REQUESTS). 남의 이메일로 틀린 코드를 5번 보내
+     * 그 코드를 지우는 방해를 IP 하나로 많이 못 하게 한다. 내부 주소면 진짜 IP를 모르는 것이라 세지 않는다(발송 제한과 같음)
      */
-    public String verifyCode(String email, EmailVerificationPurpose purpose, String code) {
+    public String verifyCode(String email, EmailVerificationPurpose purpose, String code, String clientIp) {
+        if (isPublicAddress(clientIp) && !emailVerificationStore.tryCountVerifyIp(ipLimitKey(clientIp))) {
+            throw new MemberException(MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
+        }
         String normalizedEmail = MemberEmail.normalize(email);
         return switch (emailVerificationStore.checkCode(normalizedEmail, purpose, code,
                 EmailVerificationPolicy.MAX_CODE_ATTEMPTS)) {

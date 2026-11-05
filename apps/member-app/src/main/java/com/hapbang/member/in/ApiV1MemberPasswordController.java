@@ -49,11 +49,13 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
                 EmailVerificationPolicy.CODE_TTL.toSeconds(), EmailVerificationPolicy.RESEND_COOLDOWN.toSeconds()));
     }
 
-    /** 인증 코드 확인 (#557). 맞으면 그 용도(가입·재설정)에 쓸 인증 토큰을 준다 */
+    /** 인증 코드 확인 (#557). 맞으면 그 용도(가입·재설정)에 쓸 인증 토큰을 준다. 접속 IP는 IP당 확인 제한에 쓴다(코드 받기와 같음) */
     @Override
     @PostMapping("/email-codes/verify")
-    public RsData<EmailVerificationTokenResponse> verifyEmailCode(@Valid @RequestBody EmailCodeVerifyRequest request) {
-        String token = memberFacade.verifyEmailCode(request.email(), request.purpose(), request.code());
+    public RsData<EmailVerificationTokenResponse> verifyEmailCode(@Valid @RequestBody EmailCodeVerifyRequest request,
+                                                                  HttpServletRequest httpRequest) {
+        String token = memberFacade.verifyEmailCode(request.email(), request.purpose(), request.code(),
+                httpRequest.getRemoteAddr());
         return RsData.ok("이메일을 인증했습니다.",
                 new EmailVerificationTokenResponse(token, EmailVerificationPolicy.TOKEN_TTL.toSeconds()));
     }

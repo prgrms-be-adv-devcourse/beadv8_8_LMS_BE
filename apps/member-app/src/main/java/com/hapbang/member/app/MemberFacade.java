@@ -305,8 +305,8 @@ public class MemberFacade {
     }
 
     /** 인증 코드 확인 → 그 용도의 인증 토큰 (#557) */
-    public String verifyEmailCode(String email, EmailVerificationPurpose purpose, String code) {
-        return memberEmailVerificationUseCase.verifyCode(email, purpose, code);
+    public String verifyEmailCode(String email, EmailVerificationPurpose purpose, String code, String clientIp) {
+        return memberEmailVerificationUseCase.verifyCode(email, purpose, code, clientIp);
     }
 
     /**

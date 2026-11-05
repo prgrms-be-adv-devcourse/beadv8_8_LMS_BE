@@ -69,6 +69,21 @@ class RedisEmailVerificationStoreTest {
     }
 
     @Test
+    @DisplayName("한 IP의 코드 확인은 30번까지 세고 31번째부터 막는다. 세는 기간은 1시간이고 발송 수와 따로 센다")
+    void verifyIpLimit() {
+        String ip = newIp();
+        createdKeys.add(RedisEmailVerificationStore.VERIFY_IP_KEY_PREFIX + RedisLoginAttemptStore.hash(ip));
+        for (int i = 0; i < EmailVerificationPolicy.VERIFY_IP_LIMIT; i++) {
+            assertThat(store.tryCountVerifyIp(ip)).isTrue();
+        }
+
+        assertThat(store.tryCountVerifyIp(ip)).isFalse();
+        assertThat(store.tryCountIp(ip)).isTrue();
+        assertThat(redisTemplate.getExpire(RedisEmailVerificationStore.VERIFY_IP_KEY_PREFIX + RedisLoginAttemptStore.hash(ip),
+                TimeUnit.MINUTES)).isBetween(59L, 60L);
+    }
+
+    @Test
     @DisplayName("코드는 10분 동안 저장하고, 다시 저장하면 새 코드로 바뀌며 틀린 횟수는 지운다. 키에 이메일 원문은 없다")
     void saveCode() {
         String email = newEmail();

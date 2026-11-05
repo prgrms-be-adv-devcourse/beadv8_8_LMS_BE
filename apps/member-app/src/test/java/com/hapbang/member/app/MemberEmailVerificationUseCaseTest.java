@@ -5,6 +5,7 @@ import static com.hapbang.member.domain.EmailVerificationPurpose.SIGN_UP;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -319,24 +320,47 @@ class MemberEmailVerificationUseCaseTest {
     @Test
     @DisplayName("코드가 맞으면 소문자 이메일로 인증 토큰을 발급한다")
     void verifyMatched() {
+        given(store.tryCountVerifyIp(PUBLIC_IP)).willReturn(true);
         given(store.checkCode("tester@example.com", SIGN_UP, "123456", EmailVerificationPolicy.MAX_CODE_ATTEMPTS))
                 .willReturn(EmailVerificationStore.CodeCheck.MATCHED);
         given(store.issueToken("tester@example.com", SIGN_UP)).willReturn("token-1");
 
-        assertThat(useCase.verifyCode("Tester@example.com", SIGN_UP, "123456")).isEqualTo("token-1");
+        assertThat(useCase.verifyCode("Tester@example.com", SIGN_UP, "123456", PUBLIC_IP)).isEqualTo("token-1");
     }
 
     @Test
     @DisplayName("틀리면 INVALID_EMAIL_CODE, 횟수 초과·코드 없음은 EMAIL_CODE_EXPIRED이고 토큰을 발급하지 않는다")
     void verifyRejected() {
+        given(store.tryCountVerifyIp(PUBLIC_IP)).willReturn(true);
         given(store.checkCode(eq("tester@example.com"), eq(SIGN_UP), anyString(), eq(EmailVerificationPolicy.MAX_CODE_ATTEMPTS)))
                 .willReturn(EmailVerificationStore.CodeCheck.WRONG, EmailVerificationStore.CodeCheck.ATTEMPTS_EXCEEDED,
                         EmailVerificationStore.CodeCheck.NOT_FOUND);
 
-        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000"), MemberErrorCode.INVALID_EMAIL_CODE);
-        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000"), MemberErrorCode.EMAIL_CODE_EXPIRED);
-        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000"), MemberErrorCode.EMAIL_CODE_EXPIRED);
+        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000", PUBLIC_IP), MemberErrorCode.INVALID_EMAIL_CODE);
+        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000", PUBLIC_IP), MemberErrorCode.EMAIL_CODE_EXPIRED);
+        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000", PUBLIC_IP), MemberErrorCode.EMAIL_CODE_EXPIRED);
         verify(store, never()).issueToken(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("한 IP의 코드 확인 한도를 넘으면 429 EMAIL_CODE_TOO_MANY_REQUESTS이고 코드를 보지 않는다 (남의 코드를 틀린 코드로 지우는 방해 제한)")
+    void verifyIpLimit() {
+        given(store.tryCountVerifyIp(PUBLIC_IP)).willReturn(false);
+
+        assertError(() -> useCase.verifyCode("tester@example.com", SIGN_UP, "000000", PUBLIC_IP),
+                MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
+        verify(store, never()).checkCode(anyString(), any(), anyString(), anyInt());
+    }
+
+    @Test
+    @DisplayName("코드 확인 IP가 내부 주소면 IP 확인 수를 세지 않고 확인한다 (발송 제한과 같음)")
+    void verifyInternalIpNotCounted() {
+        given(store.checkCode("tester@example.com", SIGN_UP, "123456", EmailVerificationPolicy.MAX_CODE_ATTEMPTS))
+                .willReturn(EmailVerificationStore.CodeCheck.MATCHED);
+        given(store.issueToken("tester@example.com", SIGN_UP)).willReturn("token-1");
+
+        assertThat(useCase.verifyCode("tester@example.com", SIGN_UP, "123456", "10.0.0.7")).isEqualTo("token-1");
+        verify(store, never()).tryCountVerifyIp(anyString());
     }
 
     @Test

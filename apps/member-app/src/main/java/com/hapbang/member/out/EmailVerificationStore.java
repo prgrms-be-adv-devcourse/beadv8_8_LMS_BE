@@ -19,6 +19,9 @@ public interface EmailVerificationStore {
     /** 이 IP의 발송을 하나 센다. 한도를 넘었으면 false (센 수는 그대로 남아 기간 동안 계속 막힌다) */
     boolean tryCountIp(String ip);
 
+    /** 이 IP의 코드 확인을 하나 센다. 한도를 넘었으면 false */
+    boolean tryCountVerifyIp(String ip);
+
     /** 이 이메일로 보내는 메일을 하나 센다(하루). 한도를 넘었으면 false */
     boolean tryCountEmailDaily(String email);
 
