@@ -594,7 +594,7 @@ Controller ─▶ AppearanceRecruitFacade.create (@PreAuthorize, 트랜잭션 �
 | 중복 | 같은 호스트의 모집글 수 제한 없음 | 사용자 결정 (2026-10-14) |
 | 입력 제한 | 제목 100자, 채널 URL http(s) 255자, 설명 5,000자, 예상 출연 시간 1~1,440분 | 요청서와 같음 (`AppearanceBasicInfo`, `AppearanceContentRules`) |
 | 공개 목록 | `RECRUITING`이고 모집 마감 일시가 지나지 않은 모집글 (마감 처리 전이어도 시각으로 거름) | |
-| 상세·내 목록 | 다른 회원에게는 `RECRUITING`·`CLOSED`·`CANCELED`만. `HOLD_PENDING`·`HOLD_FAILED`는 올린 호스트의 내 목록(기본 포함)·상세에만 보이고, 지원·수정·마감·취소는 호스트도 404 (27장, #306) | 요청서와 같음 |
+| 상세·내 목록 | 다른 회원에게는 `RECRUITING`·`CLOSED`·`CANCELED`만. `HOLD_PENDING`·`HOLD_FAILED`는 올린 호스트의 내 목록(기본 포함)·상세·지원자 목록(빈 목록)에만 보이고, 지원·수정·마감·취소는 호스트도 404 (27장, #306) | 요청서와 같음 |
 | 수정 | 호스트만, `RECRUITING`이고 모집 마감 일시 전까지. 동시 수정은 409 `CONCURRENT_UPDATE` | ISSUE.md APR-08 |
 | 응답 | 성립 인원(`selectedCount`), 지원자 수(`applicantCount`, #195), 마감 방식·마감 시각(#222), 마감 반환 진행 상태(`hpReleaseStatus`, 호스트만, 마감 반환만 — 합의 취소 반환은 출연 상세, #222·#231), 버전 포함. 취소 시각은 모집 취소에서 채움 | |
 | 미정 | 방송 플랫폼·카테고리 등 분류, 검색·필터, 비회원 공개, 정지 호스트 모집글 노출 | 필요할 때 결정 |
@@ -1626,6 +1626,7 @@ HP 보류가 끝나지 않았거나(`HOLD_PENDING`) 실패한(`HOLD_FAILED`) 요
 | 내 모집글 목록 `GET /recruits/mine` | 두 상태 숨김, `status=HOLD_*`는 400 | `status`를 생략하면 두 상태도 포함, `status=HOLD_PENDING`·`HOLD_FAILED`로 거를 수 있음 |
 | 보낸 요청 목록 `GET /requests/sent` | 같음 | 같음 |
 | 모집글 상세 `GET /recruits/{id}` | 두 상태는 누구에게나 404 | 올린 호스트는 200, 다른 회원은 404 |
+| 지원자 목록 `GET /recruits/{id}/applications` | 두 상태는 호스트에게도 404 | 올린 호스트는 빈 목록 200, 다른 회원은 404 (상세 화면이 호스트에게 지원자 목록을 함께 불러오므로 상세와 맞춤) |
 | 요청서 상세 `GET /requests/{id}` | 두 상태는 호스트·게스트 모두 404 | 호스트는 200, 게스트·다른 회원은 404 |
 | 그대로 | | 받은 요청 목록(두 상태 없음, 필터하면 400), 공개 모집 목록(`RECRUITING`만), 두 상태 글에 대한 모든 동작(지원·수정·마감·취소·수락·거절, 404) |
 
@@ -1636,7 +1637,7 @@ HP 보류가 끝나지 않았거나(`HOLD_PENDING`) 실패한(`HOLD_FAILED`) 요
 
 | 결정 | 내용 | 이유 |
 |---|---|---|
-| 확인을 둘로 나눔 | 상세는 `validateDetailViewableBy(userId)`(새로 추가), 동작은 기존 `validateVisible()`·`validateViewableBy(userId)` | 보기와 다루기를 한 메서드로 묶으면 상세를 열 때 동작도 같이 열린다. 동작 쪽 코드는 손대지 않아 두 상태로 수정·취소·수락이 열릴 일이 없다 |
+| 확인을 둘로 나눔 | 상세·지원자 목록은 `validateDetailViewableBy(userId)`(새로 추가), 동작은 기존 `validateVisible()`·`validateViewableBy(userId)` | 보기와 다루기를 한 메서드로 묶으면 상세를 열 때 동작도 같이 열린다. 동작 쪽 코드는 손대지 않아 두 상태로 수정·취소·수락이 열릴 일이 없다 |
 | 호스트만 | 게스트·다른 회원에게는 계속 404 | 보류에 성공해야 게스트에게 도착한 요청서·공개된 모집글이 된다. 실패한 글은 호스트의 기록일 뿐이다 |
 | 목록 기본값에 포함 | `status`를 생략하면 모든 상태 | 호스트가 실패를 놓치지 않게. 대신 실패 글이 목록에 쌓이고, 숨기거나 따로 보여 줄지는 FE가 상태로 거른다(FE #170) |
 | 새 컬럼 없음 | 거절 사유·실패 시각을 저장하지 않음 | FE 요구는 "상태를 알 수 있게"다. 사유는 보낼 때 응답으로 이미 알렸다. 마이그레이션 없이 끝낸다 |
@@ -1649,4 +1650,5 @@ HP 보류가 끝나지 않았거나(`HOLD_PENDING`) 실패한(`HOLD_FAILED`) 요
 | domain | `AppearanceRecruit.validateDetailViewableBy`, `AppearanceRequest.validateDetailViewableBy` | 새 메서드. 공개 상태가 아니면 호스트만 통과 |
 | domain | `AppearanceRecruitStatus.VISIBLE`, `AppearanceRequestStatus.VISIBLE` | 값은 그대로, 뜻을 "누구에게나 보이고 다룰 수 있는 상태"로 좁힘 |
 | app | `AppearanceRecruitQueryUseCase`, `AppearanceRequestQueryUseCase` | 내 목록·보낸 목록은 필터가 없으면 모든 상태, 상세는 새 확인 메서드. 받은 목록은 그대로 |
+| app | `AppearanceApplicationQueryUseCase.getApplicants` | 모집글 확인을 상세와 같은 새 메서드로. 호스트가 아니면 403은 그대로 |
 | in | `ApiV1AppearanceRecruitSpec`, `ApiV1AppearanceRequestSpec` | 상태 필터 설명을 보낸·받은 목록으로 나누고, 올리기·목록·상세 설명 갱신 |

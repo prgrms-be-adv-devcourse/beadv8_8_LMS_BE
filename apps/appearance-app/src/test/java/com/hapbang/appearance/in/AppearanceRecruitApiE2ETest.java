@@ -175,7 +175,7 @@ class AppearanceRecruitApiE2ETest {
     }
 
     @Test
-    @DisplayName("보류 처리 중·실패한 모집글은 내 목록(기본·필터)과 호스트 상세에만 보이고, 공개 목록·다른 회원 상세·동작은 404 (#306)")
+    @DisplayName("보류 처리 중·실패한 모집글은 내 목록(기본·필터)과 호스트 상세·지원자 목록(빈 목록)에만 보이고, 공개 목록·다른 회원 상세·동작은 404 (#306)")
     void holdStatusVisibleToHostOnly() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
         createRequest(HOST, Role.INFLUENCER, createBody(30_000, 3)).then().statusCode(409);
@@ -211,6 +211,17 @@ class AppearanceRecruitApiE2ETest {
                 .then().statusCode(404)
                 .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
         E2ELogin.as(VIEWER, Role.USER).get(BASE + "/" + pending)
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
+
+        // 지원자 목록: 상세처럼 호스트는 빈 목록, 다른 회원은 404 (모집 중인 글의 다른 회원은 403 그대로)
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/" + failed + "/applications")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(0));
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/" + pending + "/applications")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(0));
+        E2ELogin.as(OTHER, Role.INFLUENCER).get(BASE + "/" + failed + "/applications")
                 .then().statusCode(404)
                 .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
 

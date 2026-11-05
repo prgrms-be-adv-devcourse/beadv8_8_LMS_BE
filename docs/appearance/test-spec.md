@@ -451,7 +451,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 일반 유저(USER) 공개 목록·상세 / 올리기 | 200 / 403 `FORBIDDEN` |
 | 비로그인 공개 목록 | 401 (비회원 공개는 팀 합의 후) |
 | 내 목록 `status=RECRUITING` / `status=HOLD_PENDING` / `status=UNKNOWN` | 내 글 1건 / 0건 (#306) / 400 `INVALID_REQUEST` |
-| 보류 실패·보류 처리 중·모집 중 각 1건 (#306) | 내 목록 기본 3건(세 상태), `status=HOLD_FAILED`·`HOLD_PENDING` 각 1건 / 공개 목록은 모집 중 1건 / 호스트 상세 200(`HOLD_FAILED`, `hpReleaseStatus`·`myApplication` null)·(`HOLD_PENDING`), 다른 회원·일반 유저 상세 404 / 호스트 수정·마감·취소, 다른 회원 지원 모두 404 `APPEARANCE_RECRUIT_NOT_FOUND` |
+| 보류 실패·보류 처리 중·모집 중 각 1건 (#306) | 내 목록 기본 3건(세 상태), `status=HOLD_FAILED`·`HOLD_PENDING` 각 1건 / 공개 목록은 모집 중 1건 / 호스트 상세 200(`HOLD_FAILED`, `hpReleaseStatus`·`myApplication` null)·(`HOLD_PENDING`), 다른 회원·일반 유저 상세 404 / 지원자 목록은 호스트 빈 목록 200(두 상태), 다른 회원 404 / 호스트 수정·마감·취소, 다른 회원 지원 모두 404 `APPEARANCE_RECRUIT_NOT_FOUND` |
 | 호스트 수정 / 다른 회원 수정 / 빈 수정 | 200 "출연 모집글을 수정했습니다." / 403 `NOT_RECRUIT_HOST` / 400 |
 | 없는 모집글 상세 | 404 `APPEARANCE_RECRUIT_NOT_FOUND` |
 | Swagger (`AppearanceSwaggerDocsTest`) | 올리기·상세·수정은 `RsDataAppearanceRecruitResDto`, 공개·내 목록은 `RsDataPageAppearanceRecruitSummaryResDto` → `PagedModelAppearanceRecruitSummaryResDto` |
@@ -1606,7 +1606,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
-| `AppearanceRecruitApiE2ETest` | 보류 실패·보류 처리 중·모집 중 각 1건 | 내 목록 기본 3건, 상태 필터로 각 1건 / 공개 목록 모집 중 1건 / 상세는 호스트 200, 다른 회원·일반 유저 404 / 수정·마감·취소·지원 404 |
+| `AppearanceRecruitApiE2ETest` | 보류 실패·보류 처리 중·모집 중 각 1건 | 내 목록 기본 3건, 상태 필터로 각 1건 / 공개 목록 모집 중 1건 / 상세는 호스트 200, 다른 회원·일반 유저 404 / 지원자 목록은 호스트 빈 목록, 다른 회원 404 / 수정·마감·취소·지원 404 |
 | `AppearanceRequestApiE2ETest` | 보류 실패(게스트에게)·보류 처리 중(다른 회원에게)·응답 대기 각 1건 | 보낸 목록 기본 3건, 상태 필터로 각 1건 / 받은 목록에 두 상태 없음, 두 상태로 거르면 400 / 상세는 호스트 200, 게스트 404 / 수정·취소·수락 404 |
 | `AppearanceRecruitTest` | 다루기 확인 / 상세 확인 | 두 상태는 호스트에게도 404 / 두 상태는 호스트만 통과 |
 | `AppearanceRequestTest` | 상세 확인 | 호스트·게스트 통과, 다른 회원 404 / 두 상태는 호스트만 통과, 게스트·다른 회원 404 |
