@@ -23,7 +23,10 @@ public enum AppearanceRecruitStatus {
     CLOSED("모집 마감. 마감 일시가 지났거나 호스트가 조기 마감해 더 이상 지원·수락할 수 없다"),
     CANCELED("모집 전체 취소. 호스트가 방송 예정 일시 전에 모집을 취소했다");
 
-    /** 목록·상세에 보이는 상태. 보류가 끝나지 않았거나 실패한 모집글은 숨긴다 */
+    /**
+     * 누구에게나 보이고 다룰 수 있는 상태. 공개 목록·동작은 이 상태만 쓴다.
+     * 보류가 끝나지 않았거나 실패한 모집글은 올린 호스트의 내 목록·상세에만 보인다 (#306)
+     */
     public static final List<AppearanceRecruitStatus> VISIBLE = List.of(RECRUITING, CLOSED, CANCELED);
 
     private final String description;

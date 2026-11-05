@@ -18,7 +18,6 @@ import com.hapbang.appearance.app.dto.AppearanceRecruitResDto;
 import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.domain.AppearanceApplication;
-import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRecruitStatus;
@@ -33,7 +32,8 @@ import lombok.RequiredArgsConstructor;
  * <ul>
  *     <li>공개 목록·상세: 로그인한 회원이면 역할과 관계없이 볼 수 있다 (AGENTS.md 6장 "모집글 조회").
  *     출연 회원 자격은 확인하지 않는다.</li>
- *     <li>내가 올린 목록: 호스트 본인의 목록이라 출연 회원 자격(정지·강등)을 확인한다.</li>
+ *     <li>내가 올린 목록: 호스트 본인의 목록이라 출연 회원 자격(정지·강등)을 확인한다. 보류 처리 중·실패한 모집글도 담는다 (#306).</li>
+ *     <li>보류 처리 중·실패한 모집글의 상세는 올린 호스트만 볼 수 있다. 다른 회원에게는 없는 것으로 응답한다 (#306).</li>
  *     <li>모든 응답에 지원자 수(취소한 지원만 뺀 전체 지원)를 담는다. 화면에 보일지는 화면이 정한다 (ISSUE.md APR-27 A6).</li>
  *     <li>상세의 마감 반환 진행 상태는 호스트 본인의 돈이라 호스트에게만 담는다 (APR-28 C4).</li>
  *     <li>상세에 조회한 회원의 지원을 담는다. 호스트 본인이거나 지원한 적이 없으면 null (APR-33).</li>
@@ -61,25 +61,25 @@ public class AppearanceRecruitQueryUseCase {
     /**
      * 내가 올린 모집글 목록 (호스트).
      *
-     * @param statuses 상태 필터. 비어 있으면 보이는 상태 전체. 보류 처리 중·실패 상태는 넣을 수 없다
+     * @param statuses 상태 필터. 비어 있으면 보류 처리 중·실패를 포함한 모든 상태 (#306)
      */
     public Page<AppearanceRecruitSummaryResDto> getMine(Long userId, List<AppearanceRecruitStatus> statuses,
                                                         Pageable pageable) {
         appearanceUserSupport.getParticipant(userId);
-        Page<AppearanceRecruit> recruits = appearanceRecruitSupport.findByHost(userId, visibleOnly(statuses),
+        Page<AppearanceRecruit> recruits = appearanceRecruitSupport.findByHost(userId, allIfEmpty(statuses),
                 pageable);
         return toSummaries(recruits);
     }
 
     /**
-     * 모집글 상세. 보류가 끝나지 않았거나 실패한 모집글은 없는 것으로 응답한다.
+     * 모집글 상세. 보류가 끝나지 않았거나 실패한 모집글은 올린 호스트에게만 보이고, 다른 회원에게는 없는 것으로 응답한다 (#306).
      *
      * @throws AppearanceException 없거나 볼 수 없는 모집글({@code APPEARANCE_RECRUIT_NOT_FOUND})
      */
     @Transactional(readOnly = true)
     public AppearanceRecruitResDto getDetail(Long userId, Long recruitId) {
         AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);
-        recruit.validateVisible();
+        recruit.validateDetailViewableBy(userId);
         HpTaskStatus hpReleaseStatus = null;
         if (recruit.isHost(userId)) {
             hpReleaseStatus = hpTaskSupport.findReleaseStatusOfRecruit(recruitId);
@@ -115,15 +115,9 @@ public class AppearanceRecruitQueryUseCase {
                 applicantCounts.getOrDefault(recruit.getId(), 0L)));
     }
 
-    private List<AppearanceRecruitStatus> visibleOnly(List<AppearanceRecruitStatus> statuses) {
+    private List<AppearanceRecruitStatus> allIfEmpty(List<AppearanceRecruitStatus> statuses) {
         if (statuses == null || statuses.isEmpty()) {
-            return AppearanceRecruitStatus.VISIBLE;
-        }
-        for (AppearanceRecruitStatus status : statuses) {
-            if (!status.isVisible()) {
-                throw new AppearanceException(AppearanceErrorCode.INVALID_REQUEST,
-                        "조회할 수 없는 상태입니다: " + status);
-            }
+            return List.of(AppearanceRecruitStatus.values());
         }
         return statuses;
     }

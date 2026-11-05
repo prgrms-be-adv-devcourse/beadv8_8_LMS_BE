@@ -67,7 +67,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 
 | Secret | namespace | 키 | 위치 |
 | --- | --- | --- | --- |
-| `member-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`(JWT 서명 키, #500), `MAIL_USERNAME`·`MAIL_PASSWORD`(가입 인증 메일 Gmail 계정·앱 비밀번호, #557) | `apps/member-app/k8s/overlays/prod` |
+| `member-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`(JWT 서명 키, #500), `MAIL_USERNAME`, `MAIL_PASSWORD`(이메일 인증 코드 발송용 Gmail 계정·앱 비밀번호, #557) | `apps/member-app/k8s/overlays/prod` |
 | `billing-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`(없으면 충전 API만 503) | `apps/billing-app/k8s/overlays/prod` |
 | `lecture-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `S3_BUCKET` | `apps/lecture-app/k8s/overlays/prod` |
 | `appearance-app-secrets`, `chat-app-secrets`, `customer-support-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY` | 각 앱의 `k8s/overlays/prod` |
@@ -80,7 +80,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 앱 SealedSecret은 `k8s/tools/seal-app-secrets.sh`로 만든다. 값은 화면에 출력하지 않는다.
 
 - `DB_PASSWORD`는 EC2 cluster의 `postgres-credentials`에서 읽고, `HAPBANG_INTERNAL_API_KEY`는 `~/.hapbang/internal-api-key`를 쓴다. 파일이 없으면 멈추고, 처음 설치할 때만 앱 이름 없이 `HAPBANG_NEW_INTERNAL_API_KEY=1`로 실행해 새 키로 앱 6개를 함께 봉인한다. 빈 `DB_PASSWORD`, billing 결제 키 한쪽만 있는 경우도 멈춘다.
-- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 처음 값은 기존 Compose 서버의 `prod.env`에서 옮겼다. 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`.
+- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 처음 값은 기존 Compose 서버의 `prod.env`에서 옮겼다. 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`, `MAIL_USERNAME`, `MAIL_PASSWORD`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`.
 - 필수 값이 없으면 키 이름만 알리고 멈춘다. 만든 파일은 각 앱의 `overlays/prod/<앱>-app-secrets.yaml`이고 kustomization `resources`에 더한다.
 - `~/.hapbang`의 파일은 팀 비밀 보관소에도 둔다. 내부 API 키를 다시 만들면 앱 6개를 모두 다시 봉인한다.
 - `JWT_PRIVATE_KEY`는 RSA 2048 PKCS#8 PEM을 줄바꿈 없이 한 줄로 적는다(`openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 | tr -d '\n'`). env 파일은 여러 줄 값을 받지 못하고, member-app은 공백·줄바꿈을 지우고 읽는다. 이 키는 팀 비밀 보관소에 두지 않는다. 잃으면 새로 만들어 member만 다시 봉인한다. refresh token은 서명 키와 무관해 그대로 쓰이고, 이미 발급한 access token(최대 15분)만 무효가 된다(#500).
