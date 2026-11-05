@@ -68,6 +68,8 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | medium | lecture-app | 704 | 596 | #610의 `-Xmx`로 640 (heap 사용 최대 161, 상한 410) |
 | medium | customer-support-app | 256 | 174 | 192. 256 MiB·`-Xmx128m` 약 17시간 최대 working set 123·RSS 80·heap 52(2026-11-05) |
 
+2026-11-05에는 오래 돈 pod가 위 7일 최대를 넘었다(#699). lecture-app은 기동 약 16시간 뒤 610 MiB(704의 87%), billing-app은 약 17시간 뒤 463 MiB(576의 80%)로, 같은 pod의 기동 90분 값(580·435 MiB)보다 약 30 MiB 높았다. #610에서 `-Xmx`와 limit 후보를 정할 때는 기동 직후가 아니라 오래 돈 pod의 값으로 본다.
+
 limit에 붙은 쪽도 있다. Tempo는 160 MiB 중 24시간 최대 150 MiB(94%)라 #680(업무 요청 trace 100%) 적용 뒤 다시 잰다.
 
 #480에서 member·lecture 지표와 pod log 수집을 붙이며 로컬 k3d에서 다음 limit을 정했다. 부하 없이 잰 값이다.

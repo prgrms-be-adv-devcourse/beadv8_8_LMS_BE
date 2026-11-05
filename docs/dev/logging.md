@@ -21,6 +21,8 @@
 
 로그 양을 줄여야 하면 `logging.structured.json.exclude`로 고정 필드(`@version`·`level_value`)를 뺀다. JSON으로 바꾸기 전 Loki 하루 수집량은 앱 6개 합계 약 2.2 MB(약 1만 9천 줄)였다(2026-11-04, #582에 전후 비교).
 
+JSON으로 바꾼 뒤 앱 메모리 차이는 pod마다 흔들리는 폭 안이었다. 바꾸기 전 같은 설정 pod와 기동 90분 working set을 비교하면 앱별 차이가 −16~+25 MiB였고, 같은 설정 pod끼리의 차이(appearance 두 pod 40 MiB)보다 작았다(2026-11-05, #699).
+
 ## 수집과 조회
 
 - Alloy는 pod log를 형식 그대로 Loki로 보낸다. label은 `namespace`·`app`·`pod`·`container`뿐이고 JSON은 수집할 때 파싱하지 않는다. `level`·`userId`를 label로 올리면 stream이 그 값마다 갈라져(특히 `userId`는 회원 수만큼) Loki가 느려진다.
