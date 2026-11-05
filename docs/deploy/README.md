@@ -29,12 +29,14 @@ PR → GitHub Actions(CI)
   changes    앱 목록 검사 → 바뀐 앱 판정(apps.sh tested)
   structure  verifyModuleStructure → common 라이브러리 check
   test       바뀐 앱마다 러너 하나: check bootJar → 이미지 빌드 확인(push 안 함)
+             native 앱(customer-support-app)은 이어서 nativeCompile → Dockerfile.native 이미지 빌드 확인
   verify     위 결과 집계(필수 체크). 테스트할 앱이 없으면 Gradle job은 건너뛰고 통과
 
 dev push → Publish and deploy(publish.yml)
   images   이미지가 없는 앱을 고른다(이번 push에서 바뀐 앱 + 앞 run에서 발행하지 못한 앱)
   ci       고른 앱만 테스트(ci.yml)
   build    GHCR(private, 조직 정책)에 ghcr.io/prgrms-be-adv-devcourse/beadv8_8_lms_be/<앱>:sha-<커밋> 발행
+           native 앱은 ci가 만든 실행 파일(app-native-<앱>)을 Dockerfile.native로 담는다
   deploy   deploy.yml 호출. dev 최신 커밋이 아니면 건너뛴다
            바뀐 앱만 SSM Run Command로 large에서 overlay apply → rollout status, 실패하면 그 앱만 rollout undo
            node는 공유 Secret ghcr-pull(k8s/registry)로 이미지를 받는다(k8s.md "GHCR pull 인증")

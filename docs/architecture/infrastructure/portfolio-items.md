@@ -162,7 +162,7 @@ JVM 성능 증거의 표준은 **JFR recording 파일**로 정한다. k6 기준�
 - p95 변화와 JFR 원인을 연결한 짧은 performance report
 - pod 종료 직전 또는 오류율 급등 구간을 `jcmd <pid> JFR.dump`로 추출하는 runbook
 
-현재 runtime image는 `eclipse-temurin:25-jre`라서 `jcmd`를 전제로 하지 않는다. 기본 image는 그대로 유지하고, JFR demo profile에서만 JDK 기반 diagnostic image를 사용해 `jcmd` dump를 지원하거나 JVM 시작 option으로 duration·destination이 정해진 recording을 만든다. profile용 편의를 production image 크기 증가로 바꾸지 않는다.
+현재 runtime image는 `eclipse-temurin:25-jre`라서 `jcmd`를 전제로 하지 않는다. customer-support-app은 Native Image라 JFR을 일부 이벤트만 지원하므로, JFR·JMC 분석은 JVM 앱으로 한다([Native Image](native-image.md)). 기본 image는 그대로 유지하고, JFR demo profile에서만 JDK 기반 diagnostic image를 사용해 `jcmd` dump를 지원하거나 JVM 시작 option으로 duration·destination이 정해진 recording을 만든다. profile용 편의를 production image 크기 증가로 바꾸지 않는다.
 
 JConsole과 VisualVM은 채택 stack이 아니라 **로컬 수동 진단 대안**으로만 기록한다. JConsole은 JMX 기반 live monitoring·MBean 조작 도구이고 local monitoring도 관찰 대상에 부하를 줄 수 있다([Java 25 JConsole 문서](https://docs.oracle.com/en/java/javase/25/management/using-jconsole.html)). VisualVM은 live CPU·heap·thread 관찰과 sampler, thread/heap dump에 편리하지만 사람이 붙어 있어야 한다([VisualVM 공식 기능 문서](https://visualvm.github.io/features.html)). 둘은 CI artifact와 동일 시간 구간의 재분석이 가능한 JFR을 대체하지 않는다. 이를 위해 Kubernetes에 원격 JMX port를 별도로 공개하지 않는다.
 
@@ -194,8 +194,8 @@ GitHub ruleset, repository secret, k3s·k3d, Kubernetes manifest, Kafka, Redis, 
 
 node 메모리 예산에서 가장 큰 몫은 앱 JVM이다. 2026-11-03 운영 7일 실측에서 앱 heap 사용 최대는 82~154 MiB인데 heap 밖(Metaspace, 코드 캐시, native)이 280~355 MiB였고, 앱 6개 모두 working set이 limit의 85% 이상이었다(#610). 두 가지를 차례로 잰다.
 
-- **GraalVM Native Image** (#609): 실행 전에 기계어로 컴파일(AOT)해 JVM 고정 비용 대부분을 없앤다. 트래픽이 가장 적은 customer-support-app 하나로 시험하고, 결과로 다른 앱에 넓힐지 되돌릴지 정한다.
-- **JVM 유지 + heap·native 튜닝** (#610): `-Xmx`를 실사용에 맞추고 heap 밖 메모리를 줄인다. #609 결과를 본 뒤 진행한다.
+- **GraalVM Native Image** (#609, 완료): 실행 전에 기계어로 컴파일(AOT)해 JVM 고정 비용 대부분을 없앤다. 트래픽이 가장 적은 customer-support-app 하나에 적용했다. 같은 조건에서 메모리 −44~45%, 운영 기동 23~28초 → 1.1초, limit 448 → 256 MiB(#672)였다. 다른 앱으로 넓히는 것은 #610 뒤 다시 정한다(2026-11-04 결정, [Native Image](native-image.md)).
+- **JVM 유지 + heap·native 튜닝** (#610): `-Xmx`를 실사용에 맞추고 heap 밖 메모리를 줄인다. 나중에 한다.
 
 Java 25의 AOT cache(JVM 유지)는 주 효과가 기동 시간이라 메모리 문제의 첫 후보로 두지 않는다. 기동 시간이 문제가 될 때 같은 방법으로 잰다.
 
