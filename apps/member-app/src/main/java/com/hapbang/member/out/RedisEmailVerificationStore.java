@@ -162,6 +162,15 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
     }
 
     @Override
+    public Optional<String> takeTokenEmail(String token, EmailVerificationPurpose purpose) {
+        if (token == null || token.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(redisTemplate.opsForValue()
+                .getAndDelete(scoped(TOKEN_KEY_PREFIX, purpose, RedisLoginAttemptStore.hash(token))));
+    }
+
+    @Override
     public void deleteToken(String token, EmailVerificationPurpose purpose) {
         if (token != null && !token.isBlank()) {
             redisTemplate.delete(scoped(TOKEN_KEY_PREFIX, purpose, RedisLoginAttemptStore.hash(token)));

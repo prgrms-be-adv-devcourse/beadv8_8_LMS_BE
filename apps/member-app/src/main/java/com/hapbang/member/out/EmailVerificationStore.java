@@ -42,6 +42,9 @@ public interface EmailVerificationStore {
     /** 그 용도의 인증 토큰에 묶인 이메일. 없거나 만료됐거나 다른 용도의 토큰이면 빈 값 */
     Optional<String> findTokenEmail(String token, EmailVerificationPurpose purpose);
 
+    /** 인증 토큰을 꺼내면서 바로 지운다(한 번에). 같은 토큰으로 동시에 와도 한 요청만 이메일을 받는다. 없으면 빈 값 */
+    Optional<String> takeTokenEmail(String token, EmailVerificationPurpose purpose);
+
     /** 인증 토큰을 지운다 (쓰면 지워 한 번만 쓰게 한다) */
     void deleteToken(String token, EmailVerificationPurpose purpose);
 

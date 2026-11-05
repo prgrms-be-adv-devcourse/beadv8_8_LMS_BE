@@ -222,6 +222,19 @@ public class MemberEmailVerificationUseCase {
     }
 
     /**
+     * 그 용도로 인증됐는지 확인하면서 토큰을 바로 지운다(비밀번호 재설정용). 같은 토큰으로 동시에 와도 한 요청만 통과한다.
+     * 토큰이 없거나, 만료됐거나, 다른 이메일·다른 용도의 토큰이면 400 EMAIL_NOT_VERIFIED. 이 뒤에 실패하면 토큰은 이미 없으므로
+     * 실패할 만한 검사(새 비밀번호 규칙 등)는 부르기 전에 끝낸다
+     */
+    public void takeVerified(String email, EmailVerificationPurpose purpose, String token) {
+        String normalizedEmail = MemberEmail.normalize(email);
+        boolean verified = emailVerificationStore.takeTokenEmail(token, purpose).filter(normalizedEmail::equals).isPresent();
+        if (!verified) {
+            throw new MemberException(MemberErrorCode.EMAIL_NOT_VERIFIED);
+        }
+    }
+
+    /**
      * 쓴 인증 토큰을 지운다. 트랜잭션 안이면 커밋된 뒤에 지운다(가입·재설정이 실패하면 토큰을 그대로 둬 인증을 다시 하지 않게).
      * 지우다 실패해도(Redis 오류) 일은 이미 끝났으므로 오류로 돌려주지 않고 로그만 남긴다. 토큰은 30분 뒤 저절로 사라진다
      * (가입은 다시 써도 409 DUPLICATE_EMAIL, 재설정은 다시 쓰면 그 사이 비밀번호를 한 번 더 바꿀 수 있지만 메일함 주인만 가진 토큰이다)

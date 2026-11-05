@@ -174,6 +174,19 @@ class RedisEmailVerificationStoreTest {
         assertThat(store.findTokenEmail(token, SIGN_UP)).contains(email);
     }
 
+    @Test
+    @DisplayName("토큰을 꺼내면 바로 지워져, 같은 토큰으로 두 번째 꺼내기는 빈 값이다 (재설정 한 번만)")
+    void takeTokenOnce() {
+        String email = newEmail();
+        String token = store.issueToken(email, PASSWORD_RESET);
+        createdKeys.add(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.TOKEN_KEY_PREFIX, PASSWORD_RESET,
+                RedisLoginAttemptStore.hash(token)));
+
+        assertThat(store.takeTokenEmail(token, PASSWORD_RESET)).contains(email);
+        assertThat(store.takeTokenEmail(token, PASSWORD_RESET)).isEmpty();
+        assertThat(store.takeTokenEmail(null, PASSWORD_RESET)).isEmpty();
+    }
+
     private String newEmail() {
         String email = UUID.randomUUID() + "@example.com";
         String hash = RedisLoginAttemptStore.hash(email);
