@@ -20,6 +20,8 @@ import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
+import com.hapbang.member.domain.LoadTestAccount;
+import com.hapbang.member.domain.MemberEmail;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.Nickname;
@@ -313,9 +315,15 @@ public class MemberFacade {
      */
     @Transactional
     public User signUp(String email, String password, String nickname, String emailVerificationToken) {
-        memberEmailVerificationUseCase.requireVerified(email, EmailVerificationPurpose.SIGN_UP, emailVerificationToken);
+        // 부하 시험 계정(k6-…@example.invalid)은 메일을 받을 수 없어 이메일 인증을 건너뛴다 (#557 임시 예외, LoadTestAccount)
+        boolean loadTest = LoadTestAccount.isLoadTestEmail(MemberEmail.normalize(email));
+        if (!loadTest) {
+            memberEmailVerificationUseCase.requireVerified(email, EmailVerificationPurpose.SIGN_UP, emailVerificationToken);
+        }
         User user = memberSignUpUseCase.signUp(email, password, nickname);
-        memberEmailVerificationUseCase.consumeAfterUse(emailVerificationToken, EmailVerificationPurpose.SIGN_UP);
+        if (!loadTest) {
+            memberEmailVerificationUseCase.consumeAfterUse(emailVerificationToken, EmailVerificationPurpose.SIGN_UP);
+        }
         return user;
     }
 

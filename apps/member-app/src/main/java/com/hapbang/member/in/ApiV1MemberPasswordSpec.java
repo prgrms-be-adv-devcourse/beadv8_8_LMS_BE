@@ -47,7 +47,8 @@ public interface ApiV1MemberPasswordSpec {
                     + "닉네임은 내 정보 수정과 같은 규칙. "
                     + "이메일 인증(#557)이 먼저 필요하다: 인증 코드 받기(POST /api/v1/members/email-codes) → 확인(POST /api/v1/members/email-codes/verify)으로 "
                     + "받은 emailVerificationToken을 넣는다. 없거나 만료(30분)됐거나 다른 이메일의 토큰이면 400 EMAIL_NOT_VERIFIED. "
-                    + "가입되면 토큰은 사라진다(가입이 실패하면 그대로 남아 다시 쓸 수 있다).")
+                    + "가입되면 토큰은 사라진다(가입이 실패하면 그대로 남아 다시 쓸 수 있다). "
+                    + "임시 예외: 부하 시험 계정 이메일(k6-날짜8-시각6-hex6-001~100@example.invalid)은 메일을 받을 수 없어 토큰 없이 가입된다.")
     RsData<MemberMeResponse> signUp(SignUpRequest request);
 
     @Operation(summary = "로그인",

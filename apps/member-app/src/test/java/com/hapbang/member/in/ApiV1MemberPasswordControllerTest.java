@@ -98,7 +98,8 @@ class ApiV1MemberPasswordControllerTest {
 
         mockMvc.perform(post(SIGNUP).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"%s\",\"password\":\"abcd1234\",\"nickname\":\"tester\"}".formatted(email)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
         signUp(email, "abcd1234", "tester", verifiedToken(newEmail()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
@@ -106,6 +107,20 @@ class ApiV1MemberPasswordControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
         assertThat(userRepository.findByEmail(email)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("부하 시험 계정 이메일(k6-…@example.invalid)은 인증 토큰 없이 가입된다 (#557 임시 예외)")
+    void signUp_loadTestAccountWithoutToken() throws Exception {
+        String email = "k6-20261105-101500-%s-001@example.invalid".formatted(UUID.randomUUID().toString().substring(0, 6));
+        createdKeys.add("member:login-fail:" + sha256(email));
+        createdKeys.add("member:login-lock:" + sha256(email));
+
+        mockMvc.perform(post(SIGNUP).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"abcd1234\",\"nickname\":\"%s\"}"
+                                .formatted(email, "k6" + UUID.randomUUID().toString().substring(0, 6))))
+                .andExpect(status().isCreated());
+        trackUser(userRepository.findByEmail(email).orElseThrow().getId());
     }
 
     @Test
