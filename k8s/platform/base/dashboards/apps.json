@@ -1517,6 +1517,152 @@
         "x": 16,
         "y": 34
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "요청 한도·업로드 거절 (분당)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (app_kubernetes_io_name, api) (rate({__name__=~\"hapbang_billing_rate_limit_rejected_total|lecture_rate_limit_rejected_total\", app_kubernetes_io_name=~\"$app\"}[$__rate_interval])) * 60 > 0",
+          "refId": "A",
+          "legendFormat": "{{app_kubernetes_io_name}} {{api}} 429",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (app_kubernetes_io_name) (rate(http_server_requests_seconds_count{app_kubernetes_io_name=~\"$app\", uri=\"/api/v1/lectures/files/{fileId}/content\", status=\"503\"}[$__rate_interval])) * 60 > 0",
+          "refId": "B",
+          "legendFormat": "{{app_kubernetes_io_name}} 업로드 503",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "회원별 요청 한도를 넘어 429로 거절한 요청(지갑 #627, 강의 D80)과 업로드 자리가 없어 503으로 거절한 업로드(강의 D81). 비어 있으면 거절이 없다",
+      "id": 16,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "업로드 동시 수",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (app_kubernetes_io_name, name) (resilience4j_bulkhead_max_allowed_concurrent_calls{app_kubernetes_io_name=~\"$app\"}) - max by (app_kubernetes_io_name, name) (resilience4j_bulkhead_available_concurrent_calls{app_kubernetes_io_name=~\"$app\"})",
+          "refId": "A",
+          "legendFormat": "{{app_kubernetes_io_name}} {{name}} 사용 중",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (app_kubernetes_io_name, name) (resilience4j_bulkhead_max_allowed_concurrent_calls{app_kubernetes_io_name=~\"$app\"})",
+          "refId": "B",
+          "legendFormat": "{{app_kubernetes_io_name}} {{name}} 상한",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "파일 본문 업로드를 받고 있는 수와 앱 전체 상한(강의 lecture.file.upload-max-concurrent, D81). 사용 중이 상한에 닿으면 새 업로드는 503 FILE_UPLOAD_BUSY다",
+      "id": 17,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      }
     }
   ]
 }
