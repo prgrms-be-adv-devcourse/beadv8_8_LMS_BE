@@ -47,13 +47,13 @@ hapbang-backend/
 docker build -f apps/member-app/Dockerfile apps/member-app/build/libs
 ```
 
-실행 JAR는 `apps/<앱>/build/libs/app.jar`다. Dockerfile은 CI에서 검증한 JAR를 이미지에 복사한다. 빌드 컨텍스트는 해당 JAR 디렉터리이며 소스나 `.env`를 이미지에 넣지 않는다.
+실행 JAR는 `apps/<앱>/build/libs/app.jar`다. Dockerfile은 CI에서 검증한 JAR를 이미지에 복사한다. 빌드 컨텍스트는 해당 JAR 디렉터리이며 소스나 `.env`를 이미지에 넣지 않는다. 예외로 customer-support-app은 운영 이미지가 GraalVM Native Image 실행 파일이다(`Dockerfile.native`, #609). 이 앱의 JVM `Dockerfile`은 CI 이미지 확인과 로컬 k3d에 그대로 쓴다([Native Image](infrastructure/native-image.md)).
 
 루트 Gradle에서 Java·Spring Boot 버전과 공통 빌드 규칙을 관리한다. `verifyModuleStructure`는 앱 사이의 실행 의존성, common의 앱 의존성, 실행 진입점·설정·Dockerfile 누락을 검사한다.
 
 ## CI와 배포 경계
 
-CI(`ci.yml`)는 PR에서 바뀐 앱만 앱마다 러너 하나에서 `./gradlew :<앱>:check :<앱>:bootJar`로 테스트해 jar를 만들고, 자기 `Dockerfile`로 이미지 빌드를 확인한다(#488). 구조 검사(`verifyModuleStructure`)와 common 라이브러리 테스트는 따로 돈다. 이미지는 발행하지 않는다. 바뀐 앱을 고르는 규칙은 [테스트 문서](../dev/testing.md#ci)에 있다.
+CI(`ci.yml`)는 PR에서 바뀐 앱만 앱마다 러너 하나에서 `./gradlew :<앱>:check :<앱>:bootJar`로 테스트해 jar를 만들고, 자기 `Dockerfile`로 이미지 빌드를 확인한다(#488). native 앱(`build.gradle.kts`에 `org.graalvm.buildtools.native`를 적용한 앱, 지금은 customer-support-app)은 이어서 `nativeCompile`(10~14분)과 `Dockerfile.native` 이미지 빌드까지 확인한다. 구조 검사(`verifyModuleStructure`)와 common 라이브러리 테스트는 따로 돈다. 이미지는 발행하지 않는다. 바뀐 앱을 고르는 규칙은 [테스트 문서](../dev/testing.md#ci)에 있다.
 
 기존 단일 앱 Compose 배포는 멈췄고, 서버의 Compose(prod·dev)도 2026-10-30에 지웠다(#440). 앱별 이미지 발행(`publish.yml`)과 k3s 앱별 배포(`deploy.yml`)는 #374에서 다시 작성했다([운영 앱 배포](../deploy/k8s.md#운영-앱-배포)).
 

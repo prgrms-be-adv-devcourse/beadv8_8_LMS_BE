@@ -72,7 +72,7 @@ chat-app 테스트 설정(`apps/chat-app/src/test/resources/hapbang-module-test.
 
 ## CI
 
-PR CI(`.github/workflows/ci.yml`)는 PR에서 바뀐 앱만 테스트한다(#488). `changes` job이 `.github/scripts/apps.sh tested`로 앱을 고르고, 앱마다 러너 하나(`test (<앱>)`)에서 `./gradlew :<앱>:check :<앱>:bootJar --parallel`로 테스트해 jar를 만든 뒤 자기 `Dockerfile`로 이미지가 빌드되는지 확인한다(push하지 않음). `structure` job은 `./gradlew verifyModuleStructure`로 모듈 구조를 검사하고 common 라이브러리를 테스트한다. `verifyModuleStructure`는 `--parallel`과 함께 실행하면 Gradle이 막으므로 따로 실행한다. 필수 체크 `verify`는 이 job들의 결과를 모은다.
+PR CI(`.github/workflows/ci.yml`)는 PR에서 바뀐 앱만 테스트한다(#488). `changes` job이 `.github/scripts/apps.sh tested`로 앱을 고르고, 앱마다 러너 하나(`test (<앱>)`)에서 `./gradlew :<앱>:check :<앱>:bootJar --parallel`로 테스트해 jar를 만든 뒤 자기 `Dockerfile`로 이미지가 빌드되는지 확인한다(push하지 않음). native 앱(지금은 customer-support-app)은 이어서 `nativeCompile`과 `Dockerfile.native` 이미지 빌드를 확인한다(약 10~14분 추가, [Native Image](../architecture/infrastructure/native-image.md)). JVM 테스트는 native 실행 파일에서만 나는 reflection·resource 오류를 잡지 못한다. `structure` job은 `./gradlew verifyModuleStructure`로 모듈 구조를 검사하고 common 라이브러리를 테스트한다. `verifyModuleStructure`는 `--parallel`과 함께 실행하면 Gradle이 막으므로 따로 실행한다. 필수 체크 `verify`는 이 job들의 결과를 모은다.
 
 - **바뀐 앱**: `apps/<앱>/`가 바뀌면 그 앱, `common/`·`gradle/`·루트 `build.gradle.kts`·`settings.gradle.kts`·`gradlew`·`ci.yml`·`apps.sh`가 바뀌면 전체다. `apps/<앱>/k8s/`(`manifests` job이 검사)와 `*.md`는 판정에서 빼므로, 이것만 바꾼 PR은 Gradle을 돌리지 않는다.
 - 판정 규칙을 바꾸면 `.github/scripts/apps-test.sh`에 사례를 더한다. `changes` job이 매번 실행한다.

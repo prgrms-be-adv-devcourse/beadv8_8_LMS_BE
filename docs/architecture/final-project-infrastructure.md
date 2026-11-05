@@ -51,6 +51,7 @@ AGENTS.md 8장에 따라 EC2 2대, VPC 1개, S3 버킷 1개 범위에서만 운�
 | Gradle `java-test-fixtures` | 모듈별 도입 | fixture 공개 범위와 test dependency를 variant로 명시 |
 | Spring AI + Elasticsearch | 고객센터 hybrid RAG에 도입 | nori BM25 + dense vector + RRF, 출처가 있는 답변, 검색 실패 시 답변 거절 |
 | JFR + JDK Mission Control | 도입 | 부하 구간의 JVM recording과 재현 가능한 사후 분석 |
+| GraalVM Native Image | customer-support-app 한 앱만 도입(#609), 다른 앱 확대는 보류 ([Native Image](infrastructure/native-image.md)) | JVM 고정 비용 실측, 빌드 시점 AOT 조건, native 메타데이터 관리, 같은 조건 메모리 −44~45%·기동 1초 |
 | Terraform | 현행 AWS 구성만 코드화 | 이미 배포된 EC2·network·S3·IAM 구성을 import해 재현 |
 
 핵심은 기술을 나열하는 것이 아니라 다음 다섯 가지 이야기를 끝까지 완성하는 것이다.
