@@ -3,6 +3,7 @@ package com.hapbang.lecture.global.auth;
 import java.io.IOException;
 import java.util.List;
 
+import org.slf4j.MDC;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextHolderStrategy;
@@ -27,6 +28,8 @@ import lombok.extern.slf4j.Slf4j;
  *     Gateway는 검증한 claim만 헤더로 만들므로 이런 요청은 설정 오류다. 경고 로그를 남긴다.</li>
  *     <li>서명은 다시 검증하지 않는다. Gateway가 외부 요청의 {@code X-User-*}를 먼저 지우고,
  *     NetworkPolicy가 외부 API 포트(8080)에 Gateway만 들어오게 한다 (k8s {@code networkpolicy.yaml}).</li>
+ *     <li>인증한 회원 ID를 MDC {@code userId}에 넣어 이 요청에서 찍는 로그에 붙이고, 요청이 끝나면 지운다
+ *     (docs/dev/logging.md, #582).</li>
  * </ul>
  */
 @Slf4j
@@ -34,6 +37,8 @@ public class GatewayUserHeaderFilter extends OncePerRequestFilter {
 
     public static final String USER_ID = "X-User-Id";
     public static final String USER_ROLE = "X-User-Role";
+    /** 인증한 회원 ID를 로그에 붙이는 MDC 키 (docs/dev/logging.md) */
+    public static final String MDC_USER_ID = "userId";
 
     private final SecurityContextHolderStrategy contextHolder = SecurityContextHolder.getContextHolderStrategy();
 
@@ -42,25 +47,35 @@ public class GatewayUserHeaderFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String userId = request.getHeader(USER_ID);
         String role = request.getHeader(USER_ROLE);
-        if (userId != null || role != null) {
-            authenticate(request, userId, role);
+        Long authenticated = userId != null || role != null ? authenticate(request, userId, role) : null;
+        if (authenticated == null) {
+            chain.doFilter(request, response);
+            return;
         }
-        chain.doFilter(request, response);
+        // 요청 스레드는 다시 쓰이므로 끝나면 지운다. 지우지 않으면 다음 요청의 로그에 남는다
+        MDC.put(MDC_USER_ID, String.valueOf(authenticated));
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            MDC.remove(MDC_USER_ID);
+        }
     }
 
-    private void authenticate(HttpServletRequest request, String userId, String role) {
+    /** 인증하면 회원 ID, 헤더 형식이 틀려 인증하지 않으면 {@code null} */
+    private Long authenticate(HttpServletRequest request, String userId, String role) {
         Long id = parseUserId(userId);
         Role parsedRole = parseRole(role);
         if (id == null || parsedRole == null) {
             log.warn("사용자 헤더 형식이 틀려 인증하지 않는다 method={}, uri={}, userId={}, role={}", request.getMethod(),
                     request.getRequestURI(), userId, role);
-            return;
+            return null;
         }
         var authentication = new PreAuthenticatedAuthenticationToken(String.valueOf(id), null,
                 List.of(new SimpleGrantedAuthority("ROLE_" + parsedRole.name())));
         var context = contextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         contextHolder.setContext(context);
+        return id;
     }
 
     private static Long parseUserId(String value) {

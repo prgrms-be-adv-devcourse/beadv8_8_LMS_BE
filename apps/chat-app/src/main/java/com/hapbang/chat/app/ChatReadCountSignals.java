@@ -3,6 +3,7 @@ package com.hapbang.chat.app;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>outbox를 쓰지 않는 최선 노력이다. 대기열이 가득 차거나 발행이 실패하면 버리고 기록만 남긴다. 변경은 실패시키지 않는다.
  *     잃은 갱신은 FE가 REST 이력으로 보정한다.</li>
  *     <li>실시간 전달을 끈 앱(발행 빈이 없음)에서는 아무것도 하지 않는다.</li>
+ *     <li>실행기는 Boot가 주입하는 builder로 만든다. 그래야 앱의 {@code traceContextTaskDecorator}(#630)가 붙어 발행 스레드의
+ *     로그에 신호를 낸 요청·소비의 {@code traceId}가 찍힌다(docs/dev/logging.md "스레드 경계", #582).</li>
  * </ul>
  */
 @Slf4j
@@ -36,16 +39,21 @@ public class ChatReadCountSignals implements DisposableBean {
      * 발행 스레드 수(1)·대기열 상한(1000)은 미확정 운영 수치(Q12)다. 기본값은 코드가 원본이고 같은 키의 yaml·환경 변수가 덮는다.
      */
     public ChatReadCountSignals(ObjectProvider<ChatReadCountPublisher> publisher,
+            ThreadPoolTaskExecutorBuilder executorBuilder,
             @Value("${hapbang.chat.realtime.read-counts.publish-workers:1}") int workers,
             @Value("${hapbang.chat.realtime.read-counts.publish-queue-capacity:1000}") int queueCapacity) {
         Assert.isTrue(workers > 0, "hapbang.chat.realtime.read-counts.publish-workers는 1 이상이어야 합니다.");
         Assert.isTrue(queueCapacity > 0, "hapbang.chat.realtime.read-counts.publish-queue-capacity는 1 이상이어야 합니다.");
         this.publisher = publisher;
-        this.executor = new ThreadPoolTaskExecutor();
-        this.executor.setThreadNamePrefix("chat-read-count-signal-");
-        this.executor.setCorePoolSize(workers);
-        this.executor.setMaxPoolSize(workers);
-        this.executor.setQueueCapacity(queueCapacity);
+        // builder의 기본값(spring.task.execution.*) 중 바꾸면 동작이 달라지는 값은 모두 여기서 정한다.
+        // 빈이 아니라 Spring이 초기화하지 않으므로 직접 initialize한다
+        this.executor = executorBuilder
+                .threadNamePrefix("chat-read-count-signal-")
+                .corePoolSize(workers)
+                .maxPoolSize(workers)
+                .queueCapacity(queueCapacity)
+                .allowCoreThreadTimeOut(false)
+                .build();
         this.executor.initialize();
     }
 

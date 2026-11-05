@@ -42,8 +42,8 @@ public class MemberSeedAccountUseCase {
                 continue;
             }
             if (userRepository.existsByNicknameLower(account.nickname())) {
-                log.warn("초기 계정 닉네임을 다른 회원이 쓰고 있어 만들지 않았습니다. role={}, nickname={}",
-                        account.role(), account.nickname());
+                // 닉네임은 그 닉네임을 쓰는 다른 회원의 정보라 로그에 남기지 않는다(docs/dev/logging.md "민감 정보", #582)
+                log.warn("초기 계정 닉네임을 다른 회원이 쓰고 있어 만들지 않았습니다. role={}", account.role());
                 continue;
             }
             User user = memberSignUpUseCase.register(account.email(), PASSWORD, account.nickname(), account.role());

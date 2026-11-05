@@ -3053,7 +3053,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{namespace=\"hapbang-prod\", app=\"$app\", pod=~\"$pod\"} |~ `^\\S+\\s+(ERROR|WARN)\\s`",
+          "expr": "{namespace=\"hapbang-prod\", app=\"$app\", pod=~\"$pod\"} |~ `^\\S+\\s+(ERROR|WARN)\\s|\"level\":\"(ERROR|WARN)\"`",
           "refId": "A",
           "range": true
         }

@@ -51,7 +51,10 @@ public class AppearanceReviewEventListener {
         }
         if (!memberAppearanceRatingFacade.applyReviewPublished(event)) {
             log.debug("이미 반영한 출연 리뷰라 건너뛴다 reviewId={}", event.reviewId());
+            return;
         }
+        log.info("출연 리뷰 별점을 반영했다 reviewId={}, revieweeUserId={}, rating={}", event.reviewId(),
+                event.revieweeUserId(), event.rating());
     }
 
     /** 회원이 쓰지 않는 출연 이벤트(예: 출연 요청 도착). 토픽에 타입이 섞이므로 실패로 보내지 않고 넘어간다. */
