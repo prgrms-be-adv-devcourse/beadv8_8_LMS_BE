@@ -289,7 +289,7 @@ DLT 메시지를 원래 리스너에 다시 넣는 도구는 두지 않는다(BD
 - 6개 앱 모두 배포된 이유: #561에 함께 넣은 테스트 수정이 `common/shared` 아래라 모든 앱의 태그 커밋이 바뀌었다. 이미지는 billing-app이 `sha-9639d7a`(#565가 `apps/billing-app/` 문서를 바꿈), 나머지가 `sha-e6e43b0`이다.
 - 배포 5~10분 뒤(08:48 UTC) working set은 member 368Mi(limit 512Mi), billing 388Mi(448Mi), appearance 459Mi(576Mi), lecture 524Mi(640Mi), chat 425Mi(512Mi), customer-support 354Mi(448Mi)였다. node 메모리는 61%·68%였다. billing이 limit의 87%로 가장 높아 계속 지켜본다.
 - 외부에서 6개 모듈의 `/api/v1/<모듈>/v3/api-docs`가 모두 200이었다.
-- 이제 운영 이미지는 모두 Actions가 테스트한 jar로 만든 것이다. 사람이 올린 이미지는 남아 있지 않다. (2026-11-04부터 customer-support-app은 Actions가 만든 Native Image 실행 파일 이미지다, #609)
+- 이제 운영 이미지는 모두 Actions가 검증한 산출물로 만든 것이다. 사람이 올린 이미지는 남아 있지 않다. 산출물은 JVM 앱이 테스트한 jar(`Dockerfile`), customer-support-app이 2026-11-04부터 Native Image 실행 파일(`Dockerfile.native`, #609)이다.
 
 ## 로컬 k3d 검증
 
