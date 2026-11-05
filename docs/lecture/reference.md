@@ -74,10 +74,6 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | objection_inquiry_id | bigint | **추가** (#156). 접수한 고객센터 문의 ID. 판단할 때 대조한다. 다른 모듈 ID라 FK 없음 |
 | objection_resolved_at | timestamp | **추가** |
 | objection_resolved_by_user_id | bigint | **추가** (#156). 판단한 관리자 ID |
-| payout_failure_count | int | **deprecated** (#218, D54 → D59). 지급 실패 횟수. #277 이관 뒤에는 쓰지 않고 이력으로만 남는다 |
-| last_payout_failure_code | varchar(100) | **deprecated** (#218, D54 → D59). 마지막 지급 실패 코드 |
-| last_payout_failed_at | timestamp | **deprecated** (#218, D54 → D59). 마지막 지급 실패 시각 |
-| payout_quarantined_at | timestamp | **deprecated** (#218, D54 → D59). 지급 격리 시각. 격리는 PAYOUT 작업 `DEAD`로 바뀐다. 물리 제거는 지급 실패 레거시 정리 티켓(#268)에서 별도 합의 후 |
 | version | bigint | **추가**. 낙관적 락 (10장) |
 
 인덱스
