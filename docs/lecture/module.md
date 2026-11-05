@@ -193,6 +193,7 @@ sequenceDiagram
 
 - 업로드는 서버 경유다 (D22). 인스턴스 역할로 서명한 Presigned PUT은 EC2 밖에서 조직 정책으로 거부된다(`docs/deploy/s3.md`).
 - 본문 업로드 규칙은 D24, 트랜잭션 경계는 D25를 따른다. 저장에 실패하거나 연결이 끊기면 `PENDING`으로 남아 처음부터 다시 올린다.
+- 앱 전체 동시 업로드는 20개까지다(D81). 넘으면 본문을 읽지 않고 503 `FILE_UPLOAD_BUSY`(`Retry-After: 60`)로 거절하고, 파일은 `PENDING`으로 남아 다시 올릴 수 있다.
 
 - `file_type`: `LECTURE_THUMBNAIL`, `LECTURE_VIDEO`, `LECTURE_DOCUMENT`
 - `status`: `PENDING` → `UPLOADED` (삭제 시 `deleted_at`)
@@ -217,6 +218,7 @@ sequenceDiagram
 #### 주문(LectureOrder)은 결제 단위
 
 - 장바구니 주문과 바로 구매(강의 1개 주문)를 같은 모델로 처리한다.
+- 한 주문에 강의는 100개까지다(D80). 장바구니에는 상한이 없다. 주문·구매 취소는 요청 안에서 지갑을 부르므로 회원별로 API마다 분당 10번까지 받는다(넘으면 429 `TOO_MANY_REQUESTS`, D80).
 - **HP 보류는 주문 항목 단위**다(D36). 항목마다 그 가격을 보류하고(참조 `LECTURE_ORDER_ITEM`, 주문 항목 ID), 구매 취소·지급도 그 항목의 보류만 쓴다. 혼합 HP는 항목마다 차감한 HP 종류 그대로 반환·지급한다(D42).
 - **주문은 보류보다 먼저 저장된다(D58).** 주문·항목과 항목별 HOLD 작업을 한 강의 트랜잭션에 커밋한 뒤, 트랜잭션 밖에서 보류한다. 모든 보류가 성공해야 `PAID`가 되고, 하나라도 확정 거절되면 이미 성공한 보류를 반환(보상)한 뒤 `HOLD_FAILED`가 된다. 돈과 관련된 처리 이력이므로 `HOLD_FAILED` 주문도 지우지 않는다.
 - 주문 상태(`status`)는 저장값이 기준이다.

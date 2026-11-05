@@ -44,6 +44,7 @@ import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
+import com.hapbang.shared.billing.out.BillingApiClient;
 import com.hapbang.shared.billing.out.BillingCallExceptions;
 import com.hapbang.shared.billing.out.BillingCallFailureKind;
 import com.hapbang.shared.billing.out.BillingCallResult;
@@ -267,6 +268,47 @@ class LectureHpTaskExecutorTest {
             assertThat(attempt.getRawErrorCode()).isEqualTo("HOLD_STATE_INCONSISTENT");
         });
         assertThat(cancelHandler().events()).isEmpty();
+    }
+
+    @Test
+    void 선점한_뒤_회로가_막혀_CIRCUIT_OPEN이면_한_번으로_센다() {
+        Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
+        // 선점 전 확인 때는 닫혀 있었지만, 호출할 때는 시험 호출 몫이 없어 Client가 보내지 않았다 (D79 드문 예외)
+        billing.respond(command -> {
+            throw BillingCallExceptions.of(BillingCallFailureKind.RETRYABLE, 0, BillingApiClient.CIRCUIT_OPEN);
+        });
+
+        executor.execute(id);
+
+        LectureHpTask task = find(id);
+        assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.PENDING);
+        assertThat(task.getAttemptCount()).isEqualTo(1);
+        assertThat(attempts(id)).singleElement().satisfies(attempt -> {
+            assertThat(attempt.getResult()).isEqualTo(LectureHpAttemptResult.RETRYABLE);
+            assertThat(attempt.getRawErrorCode()).isEqualTo(BillingApiClient.CIRCUIT_OPEN);
+        });
+    }
+
+    @Test
+    void 회로가_열려_있으면_선점하지_않아_시도_횟수와_시도_행이_그대로다() {
+        Long id = register(task(LectureHpTaskPurpose.CANCEL, CANCEL_ID, AMOUNT));
+        billing.setCircuitOpen(true);
+
+        for (int i = 0; i < 20; i++) {
+            executor.execute(id);
+        }
+
+        LectureHpTask task = find(id);
+        assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.PENDING);
+        assertThat(task.getAttemptCount()).isZero();
+        assertThat(task.getLastFailedAt()).isNull();
+        assertThat(attempts(id)).isEmpty();
+        assertThat(billing.calls()).isEmpty();
+
+        billing.setCircuitOpen(false);
+        executor.execute(id);
+
+        assertThat(find(id).getStatus()).isEqualTo(LectureHpTaskStatus.COMPLETED);
     }
 
     @Test

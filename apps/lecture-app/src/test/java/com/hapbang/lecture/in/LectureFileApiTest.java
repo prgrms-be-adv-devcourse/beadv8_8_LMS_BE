@@ -3,8 +3,14 @@ package com.hapbang.lecture.in;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +20,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import com.hapbang.lecture.app.FileUploadBulkhead;
+import com.hapbang.lecture.config.LectureFileProperties;
 import com.hapbang.lecture.global.storage.S3FileStorage;
 import com.hapbang.lecture.domain.FileResource;
 import com.hapbang.lecture.domain.FileStatus;
@@ -43,6 +51,12 @@ class LectureFileApiTest {
 
     @Autowired
     private S3FileStorage s3FileStorage;
+
+    @Autowired
+    private FileUploadBulkhead fileUploadBulkhead;
+
+    @Autowired
+    private LectureFileProperties lectureFileProperties;
 
     @Test
     void 인증된_인플루언서가_파일_정보를_등록하면_fileId만_받고_파일은_PENDING으로_남는다() throws Exception {
@@ -99,6 +113,39 @@ class LectureFileApiTest {
             assertThat(stored.size()).isEqualTo(VIDEO.length);
             assertThat(stored.contentType()).isEqualTo("video/mp4");
         });
+    }
+
+    @Test
+    void 동시_업로드가_상한이면_503_FILE_UPLOAD_BUSY와_Retry_After이고_PENDING으로_남는다() throws Exception {
+        Long fileId = registerVideo(VIDEO.length);
+        int slots = lectureFileProperties.uploadMaxConcurrent();
+        CountDownLatch occupied = new CountDownLatch(slots);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(slots);
+        try {
+            // 다른 업로드들이 자리를 모두 잡고 있다
+            for (int i = 0; i < slots; i++) {
+                long busyFileId = -1L - i;
+                executor.submit(() -> fileUploadBulkhead.run(busyFileId, () -> {
+                    occupied.countDown();
+                    awaitQuietly(release);
+                }));
+            }
+            assertThat(occupied.await(5, TimeUnit.SECONDS)).isTrue();
+
+            uploadContent(SELLER_ID, fileId, "video/mp4", VIDEO)
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(header().string("Retry-After", "60"))
+                    .andExpect(jsonPath("$.code").value("FILE_UPLOAD_BUSY"));
+            assertPendingAndNotStored(fileId);
+        } finally {
+            release.countDown();
+            executor.shutdown();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+
+        // 자리가 나면 같은 파일을 다시 올릴 수 있다
+        uploadContent(SELLER_ID, fileId, "video/mp4", VIDEO).andExpect(status().isNoContent());
     }
 
     @Test
@@ -214,6 +261,14 @@ class LectureFileApiTest {
         FileResource file = fileResourceRepository.findById(fileId).orElseThrow();
         assertThat(file.getStatus()).isEqualTo(FileStatus.PENDING);
         assertThat(s3FileStorage.find(file.getObjectKey())).isEmpty();
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static Long fileId(String response) {

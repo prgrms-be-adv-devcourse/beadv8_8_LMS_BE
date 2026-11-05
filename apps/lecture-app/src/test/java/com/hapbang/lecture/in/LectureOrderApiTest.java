@@ -1,6 +1,7 @@
 package com.hapbang.lecture.in;
 
 import static com.hapbang.lecture.fixture.LectureFixture.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -9,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,6 +83,24 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.items[0].status").value("PURCHASED"))
                 .andExpect(jsonPath("$.data.paidAt").isString())
                 .andExpect(jsonPath("$.data.processingStatus").doesNotExist());
+    }
+
+    @Test
+    void 한_주문에_강의를_100개보다_많이_담으면_400_INVALID_REQUEST이고_주문하지_않는다() throws Exception {
+        String lectureIds = LongStream.rangeClosed(1, 101)
+                .mapToObj(String::valueOf)
+                .collect(Collectors.joining(","));
+
+        mockMvc.perform(post("/api/v1/lectures/orders")
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lectureIds\": [" + lectureIds + "]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("lectureIds"));
+
+        assertThat(lectureOrderRepository.count()).isZero();
+        assertThat(billing.calls()).isEmpty();
     }
 
     @Test

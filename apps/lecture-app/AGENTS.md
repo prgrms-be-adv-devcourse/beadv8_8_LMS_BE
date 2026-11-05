@@ -18,6 +18,7 @@
   - 업무 상태와 작업을 한 강의 트랜잭션에 등록하고(`LectureHpTaskSupport.register`, `MANDATORY`), 지갑 호출은 커밋 뒤 트랜잭션 밖에서 `LectureHpTaskExecutor.execute`가 shared `BillingApiClient`로 한다.
   - 완료 상태(`PAID`·`CANCELED`·`RETURNED`·`PAID_OUT`)는 목적별 결과 처리기(`LectureHpTaskResultHandler`)가 결과 기록 트랜잭션에서만 쓴다. 목적마다 처리기는 하나다.
   - 요청 안에서 한 번 시도하는 것은 주문 보류·보상(D58, 예산 D68)과 구매 취소(D59)다. 이의 제기 인정 반환과 지급은 HP 작업 배치가 실행한다(D70).
+  - 지갑 회로가 열려 있으면 `LectureHpTaskExecutor`가 선점하지 않는다(`canCallBilling()`, D79). 지갑을 부르는 새 경로도 `execute`를 거쳐 이 확인을 지나게 한다.
 - billing 지급 예정 건(`Settlement` SCHEDULED)이 남아 있으면 그 항목의 지급이 `PAYOUT_ALREADY_SETTLED`로 거절되고 작업이 `DEAD`가 된다.
 - 서비스 간 HP 대사(D74, integration.md 10.1)는 지갑 조회(`queryHolds`·`listHolds`)만 하고 HP를 움직이지 않는다. 비교 규칙은 `LectureHpReconciliationComparer` 한 곳에 둔다. 항목 상태나 HP 작업 흐름을 바꾸면 규칙 표와 테스트(`LectureHpReconciliationComparerTest`)도 같이 고친다.
 
@@ -37,6 +38,13 @@
   - 기한 경계는 도메인 메서드에 `now`를 넘기는 단위 테스트로 확인한다.
 - 지갑은 테스트 소스 `fake/FakeBillingApiClient`(HTTP 없음)다. `@Component`로 두지 않고 `FakeBillingApiClientConfig`의 `@Bean`으로 등록한다.
   - 기본은 성공이다(보류는 요청 금액, 반환·지급은 `setSettledHp`). `respond`로 다음 응답(실패·예외)을, `setDuringCall`로 호출 중 할 일(늦은 결과·동시 실행)을 정한다. `@BeforeEach`에서 `reset()`한다.
+  - `setCircuitOpen(true)`로 지갑 회로가 열린 상태를 만든다(D79). `reset()`이 닫는다.
   - `BillingCallException`은 테스트 소스 `shared.billing.out.BillingCallExceptions`로 만든다.
   - 배치가 할 일은 `LectureHpTaskBatchUseCase.runDue()`로 실행한다. 재시도를 기다리는 작업은 `next_attempt_at`·`lease_until`을 당긴다.
   - 실행기 자체만 확인할 때는 `@TestBean(methodName = RecordingCancelResultHandler.FACTORY)`로 운영 `CANCEL` 처리기를 바꿔 끼운다. 같은 팩토리를 써야 테스트 컨텍스트가 늘지 않는다.
+
+## 요청 보호 (D80, D81)
+
+- 주문·구매 취소처럼 요청 안에서 지갑을 부르는 사용자 API에는 `@RateLimited(RateLimitedApi.X)`를 붙인다(`global.ratelimit`, 회원 × API 분당 `lecture.rate-limit.write`). 내부·관리자 API에는 붙이지 않는다.
+- 테스트 설정(`hapbang-module-test.yaml`)은 한도를 크게 둔다. 한도 동작은 `UserRateLimiterTest`와 따로 띄운 컨텍스트(`RateLimitIntegrationTest`)가 맡는다.
+- 파일 본문 업로드는 `FileUploadBulkhead`(앱 전체 `lecture.file.upload-max-concurrent`)를 지난다. 잠시 뒤 다시 보내면 되는 거절은 `RetryLater`를 구현한 예외로 던지면 공통 핸들러가 `Retry-After`를 붙인다.
