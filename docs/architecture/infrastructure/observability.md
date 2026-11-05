@@ -107,7 +107,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 | dashboard (uid) | 지표 | 내용 |
 | --- | --- | --- |
-| 앱 개요 (`hapbang-apps`) | 앱 Micrometer, cAdvisor | 앱별 요약 표(scrape 상태, 가동 시간, heap, 메모리/limit 현재·기간 최대, 요청 수, 5xx 비율, 평균·최대 응답, GC 정지 비율, DB 연결 대기·timeout, ERROR 로그, 열린 circuit breaker)와 앱별 비교 시계열. 앱 이름을 누르면 같은 시간 범위로 `hapbang-jvm`을 연다 |
+| 앱 개요 (`hapbang-apps`) | 앱 Micrometer, cAdvisor | 앱별 요약 표(scrape 상태, 가동 시간, heap, 메모리/limit 현재·기간 최대, 요청 수, 5xx 비율, 평균·최대 응답, GC 정지 비율, DB 연결 대기·timeout, ERROR 로그, 열린 circuit breaker)와 앱별 비교 시계열. 요청 한도(429)·업로드 자리 없음(503) 거절 수와 업로드 동시 수/상한도 본다(#698). 앱 이름을 누르면 같은 시간 범위로 `hapbang-jvm`을 연다 |
 | JVM·Spring Boot (`hapbang-jvm`) | 앱 Micrometer, cAdvisor | 한 앱의 heap·non-heap·buffer, 컨테이너 메모리와 limit, GC, 스레드·CPU, HTTP(상태별, URI별 평균·최대, 앱 전체 p50·p95·p99와 URI별 p95), HikariCP, 나가는 HTTP 호출(대상·URI별 요청·응답 시간), circuit breaker 상태·호출 결과·호출 시간과 retry 결과, `@Scheduled` 작업 실행·시간, Spring Data Repository 메서드별 호출, 로그 레벨별 건수와 Loki의 ERROR·WARN 로그. 지표를 여는 앱만 앱 목록에 나온다. customer-support-app은 Native Image라 GC pause·non-heap 패널이 빈다. heap 패널의 max 선과 개요의 heap 사용률은 `jvm_memory_max_bytes > 0`만 쓰므로 값이 나오지 않는다. 원시 지표 `jvm_memory_max_bytes{area="heap"}`는 −1이다(정상, [Native Image](native-image.md)) |
 | Kubernetes 자원 (`hapbang-kubernetes`) | cAdvisor, kubelet | node CPU·메모리·디스크(`/dev/root`)·네트워크, node별 memory limit 합계, namespace·pod별 CPU·메모리, limit 대비 사용률(현재·기간 최대), 컨테이너 재생성, 최근 시작한 컨테이너 |
 | Gateway (Envoy) (`hapbang-gateway`) | Envoy proxy | HTTPS 요청률, 응답 코드 class, p50·p95·p99 지연, route별 요청률·5xx·p95, upstream 연결 실패·timeout·overflow·reset |
@@ -129,7 +129,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
 
 **수정 방법.** JSON 파일(`k8s/platform/base/dashboards/*.json`)이 원본이다. provider가 `allowUiUpdates: false`라 Grafana UI에서 고친 내용은 저장되지 않는다. UI에서 고친 뒤 Export → Export as JSON으로 내려받아 파일을 바꾸고 PR로 올린다. datasource는 uid(`prometheus`, `loki`)로 적는다. Prometheus datasource의 `timeInterval: 1m`(scrape 주기) 덕분에 `$__rate_interval`은 4분 이상이다.
 
-**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. client-side `kubectl apply`는 객체 전체를 `last-applied-configuration` annotation에 담고, annotation은 256 KiB(262,144 byte)를 넘을 수 없다. #617 뒤 이 ConfigMap의 JSON은 약 231 KB라 여유가 31 KB쯤이다. dashboard를 더 늘리려면 ConfigMap을 나누거나 `--server-side` 적용으로 바꾼다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
+**적용.** dashboard만 바꿨으면 ConfigMap만 적용한다. client-side `kubectl apply`는 객체 전체를 `last-applied-configuration` annotation에 담고, annotation은 256 KiB(262,144 byte)를 넘을 수 없다. #698 뒤 이 ConfigMap의 JSON은 약 241 KB(현재 운영 annotation 약 236 KB)라 여유가 21 KB쯤이다. dashboard를 더 늘리려면 ConfigMap을 나누거나 `--server-side` 적용으로 바꾼다. 디렉터리로 마운트되어 Grafana 재시작 없이 1~2분 안에 반영된다. provider·datasource를 바꿨으면 grafana HelmChart도 고른다(overlay 전체를 적용하지 않는다).
 
 ```bash
 kubectl kustomize k8s/platform/overlays/prod \
