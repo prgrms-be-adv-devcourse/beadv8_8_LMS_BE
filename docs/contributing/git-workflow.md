@@ -26,6 +26,10 @@
 - CodeRabbit 지적은 인라인 코멘트로 온다: `gh api repos/<owner>/<repo>/pulls/<N>/comments`.
 - 인라인 답글은 `gh api repos/<owner>/<repo>/pulls/<N>/comments/<id>/replies`로 단다.
 - CodeRabbit이 무료 한도에 걸리면 `Review limit reached` 코멘트만 남는다.
+- Claude Review(`.github/workflows/claude-review.yml`)는 dev로 가는 PR마다 돈다. CodeRabbit이 한도에 걸린 PR에서도 리뷰가 남도록 전체 범위를 보며, CodeRabbit과 지적이 겹칠 수 있다. 작성자는 `github-actions[bot]`이다. 지적은 인라인 코멘트로, 요약은 PR 코멘트 하나로 단다.
+  - 리뷰 기준(AGENTS.md, `docs/`)은 PR head가 아니라 dev에서 읽는다. PR이 고친 기준 문서는 리뷰 대상이다.
+  - run마다 turn·비용·토큰·도구별 호출 수가 Actions run의 Summary에 남는다(#700).
+  - base가 dev가 아닌 PR(쌓은 PR)에는 돌지 않는다.
 
 ## 5. 병합과 이슈 닫기
 
