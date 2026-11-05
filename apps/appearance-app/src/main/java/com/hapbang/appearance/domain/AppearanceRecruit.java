@@ -316,13 +316,26 @@ public class AppearanceRecruit extends BaseEntity {
     }
 
     /**
-     * 공개된 모집글인지 확인한다. 보류가 끝나지 않았거나 실패한 모집글은 올린 호스트에게도 숨긴다.
-     * 볼 수 없으면 모집글이 있다는 사실도 알리지 않도록 "없음"으로 응답한다.
+     * 모집글을 다룰 수 있는지(지원·지원 목록·수정·마감·취소) 확인한다. 보류가 끝나지 않았거나 실패한 모집글은 올린 호스트에게도 없는 것으로 응답한다.
+     * 상세 조회는 {@link #validateDetailViewableBy}를 쓴다.
      *
      * @throws AppearanceException {@code APPEARANCE_RECRUIT_NOT_FOUND}
      */
     public void validateVisible() {
         if (!status.isVisible()) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
+        }
+    }
+
+    /**
+     * 이 회원이 상세를 볼 수 있는 모집글인지 확인한다. 공개된 모집글은 누구나 볼 수 있고,
+     * 보류가 끝나지 않았거나 실패한 모집글은 올린 호스트만 볼 수 있다 (#306, 결과를 호스트가 알 수 있도록).
+     * 볼 수 없으면 모집글이 있다는 사실도 알리지 않도록 "없음"으로 응답한다.
+     *
+     * @throws AppearanceException {@code APPEARANCE_RECRUIT_NOT_FOUND}
+     */
+    public void validateDetailViewableBy(Long userId) {
+        if (!status.isVisible() && !isHost(userId)) {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
         }
     }

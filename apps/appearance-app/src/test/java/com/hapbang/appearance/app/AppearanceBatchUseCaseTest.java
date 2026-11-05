@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.test.context.support.WithMockUser;
 
+import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.config.AppearanceBatchProperties;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -303,7 +304,7 @@ class AppearanceBatchUseCaseTest {
         }
 
         @Test
-        @DisplayName("보류 처리 중인 모집글을 재확인할 때 Billing이 거절하면(잔액 부족) HOLD_FAILED로 정리하고, 목록·상세에 보이지 않는다")
+        @DisplayName("보류 처리 중인 모집글을 재확인할 때 Billing이 거절하면(잔액 부족) HOLD_FAILED로 정리하고, 공개 목록에는 없고 호스트의 내 목록·상세에만 보인다 (#306)")
         void recheckRecruitToHoldFailed() {
             BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now())))
@@ -319,8 +320,12 @@ class AppearanceBatchUseCaseTest {
                     .isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
             assertThat(BillingCalls.holds(billingClient)).hasSize(2)
                     .allSatisfy(hold -> assertThat(hold.referenceId()).isEqualTo(recruitId));
-            assertThat(appearanceRecruitFacade.getMine(HOST, null, PageRequest.of(0, 10)).getContent()).isEmpty();
-            assertThatThrownBy(() -> appearanceRecruitFacade.getDetail(HOST, recruitId))
+            assertThat(appearanceRecruitFacade.getOpen(PageRequest.of(0, 10)).getContent()).isEmpty();
+            assertThat(appearanceRecruitFacade.getMine(HOST, null, PageRequest.of(0, 10)).getContent())
+                    .extracting(AppearanceRecruitSummaryResDto::status).containsExactly(AppearanceRecruitStatus.HOLD_FAILED);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).status())
+                    .isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
+            assertThatThrownBy(() -> appearanceRecruitFacade.getDetail(GUEST, recruitId))
                     .isInstanceOf(AppearanceException.class)
                     .extracting("errorCode").isEqualTo(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
             assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero(); // 정리된 모집글은 다시 가져가지 않는다

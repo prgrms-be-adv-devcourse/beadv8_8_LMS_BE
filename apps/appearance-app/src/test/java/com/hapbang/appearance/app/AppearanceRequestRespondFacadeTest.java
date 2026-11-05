@@ -432,10 +432,12 @@ class AppearanceRequestRespondFacadeTest {
     }
 
     @Test
-    @DisplayName("숨김 상태(HOLD_PENDING·HOLD_FAILED)로 필터하면 INVALID_REQUEST")
+    @DisplayName("받은 목록을 보류 처리 중·실패 상태로 필터하면 INVALID_REQUEST, 보낸 목록은 그 상태로 거를 수 있다 (#306)")
     void hiddenStatusFilter() {
-        assertErrorCode(() -> appearanceRequestFacade.getSent(HOST, List.of(AppearanceRequestStatus.HOLD_FAILED),
+        assertErrorCode(() -> appearanceRequestFacade.getReceived(GUEST, List.of(AppearanceRequestStatus.HOLD_FAILED),
                 PageRequest.of(0, 20)), AppearanceErrorCode.INVALID_REQUEST);
+        assertThat(appearanceRequestFacade.getSent(HOST, List.of(AppearanceRequestStatus.HOLD_FAILED),
+                PageRequest.of(0, 20)).getTotalElements()).isZero();
     }
 
     @Test

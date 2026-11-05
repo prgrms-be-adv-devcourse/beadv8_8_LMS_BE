@@ -22,6 +22,7 @@ import lombok.RequiredArgsConstructor;
  * 상세 조회는 스스로 읽기 전용 트랜잭션을 연다: Billing 호출 때문에 트랜잭션 없이 도는 Facade 메서드가 작업 뒤 상세를 다시 읽을 때도
  * 한 시점의 값으로 응답하기 위해서다. Facade 트랜잭션 안에서 부르면 그 트랜잭션에 합류한다 (ISSUE.md APR-37 R1).
  * 모든 조회에서 출연 회원 자격(정지·강등)을 먼저 확인한다.
+ * 보류 처리 중·실패한 요청서는 보낸 호스트의 보낸 목록·상세에만 보이고, 게스트에게는 도착하지 않은 요청서라 보이지 않는다 (#306).
  */
 @Service
 @RequiredArgsConstructor
@@ -35,12 +36,12 @@ public class AppearanceRequestQueryUseCase {
     /**
      * 보낸 요청 목록 (호스트).
      *
-     * @param statuses 상태 필터. 비어 있으면 보이는 상태 전체. 보류 처리 중·실패 상태는 넣을 수 없다
+     * @param statuses 상태 필터. 비어 있으면 보류 처리 중·실패를 포함한 모든 상태 (#306)
      */
     public Page<AppearanceRequestSummaryResDto> getSent(Long userId, List<AppearanceRequestStatus> statuses,
                                                         Pageable pageable) {
         appearanceUserSupport.getParticipant(userId);
-        Page<AppearanceRequest> requests = appearanceRequestSupport.findSent(userId, visibleOnly(statuses), pageable);
+        Page<AppearanceRequest> requests = appearanceRequestSupport.findSent(userId, allIfEmpty(statuses), pageable);
         return requests.map(AppearanceRequestSummaryResDto::from);
     }
 
@@ -58,7 +59,7 @@ public class AppearanceRequestQueryUseCase {
     }
 
     /**
-     * 요청서 상세. 호스트·게스트만 볼 수 있다. 수락됐으면 출연 ID, 거절·취소됐으면 반환 진행 상태를 함께 담는다.
+     * 요청서 상세. 호스트·게스트만 볼 수 있고, 보류 처리 중·실패한 요청서는 호스트만 볼 수 있다. 수락됐으면 출연 ID, 거절·취소됐으면 반환 진행 상태를 함께 담는다.
      *
      * @throws AppearanceException 없거나 볼 수 없는 요청서({@code APPEARANCE_REQUEST_NOT_FOUND})
      */
@@ -66,10 +67,17 @@ public class AppearanceRequestQueryUseCase {
     public AppearanceRequestResDto getDetail(Long userId, Long requestId) {
         appearanceUserSupport.getParticipant(userId);
         AppearanceRequest request = appearanceRequestSupport.getById(requestId);
-        request.validateViewableBy(userId);
+        request.validateDetailViewableBy(userId);
         Long appearanceId = appearanceSupport.findIdByRequestId(requestId);
         HpTaskStatus hpReleaseStatus = hpTaskSupport.findReleaseStatusOfRequest(requestId);
         return AppearanceRequestResDto.from(request, appearanceId, hpReleaseStatus);
+    }
+
+    private List<AppearanceRequestStatus> allIfEmpty(List<AppearanceRequestStatus> statuses) {
+        if (statuses == null || statuses.isEmpty()) {
+            return List.of(AppearanceRequestStatus.values());
+        }
+        return statuses;
     }
 
     private List<AppearanceRequestStatus> visibleOnly(List<AppearanceRequestStatus> statuses) {
