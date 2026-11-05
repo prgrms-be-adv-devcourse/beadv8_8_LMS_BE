@@ -32,13 +32,14 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # 리뷰 기준(AGENTS.md, docs/)은 PR head가 아니라 dev에서 꺼낸다.
+      # 리뷰 기준(루트와 앱별 AGENTS.md, docs/)은 PR head가 아니라 dev에서 꺼낸다.
       # action은 CLAUDE.md·.claude 등만 dev에서 되돌리므로, 이 단계가 없으면 AGENTS.md를 고친 PR이 자기 리뷰 기준을 바꿀 수 있다.
+      # glob이 루트 AGENTS.md와 apps/<앱>/AGENTS.md를 함께 잡는다. 루트 AGENTS.md가 없으면 일치하는 파일이 없어 실패한다.
       - name: Save review rules from dev
         run: |
           git fetch --no-tags --depth=1 origin dev
           mkdir -p "$RUNNER_TEMP/review-base"
-          git archive FETCH_HEAD AGENTS.md docs | tar -x -C "$RUNNER_TEMP/review-base"
+          git archive FETCH_HEAD docs ':(glob)**/AGENTS.md' | tar -x -C "$RUNNER_TEMP/review-base"
 
       - id: claude
         uses: anthropics/claude-code-action@v1
@@ -49,7 +50,7 @@ jobs:
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
-            BASE RULES: ${{ runner.temp }}/review-base (dev 브랜치의 AGENTS.md와 docs/)
+            BASE RULES: ${{ runner.temp }}/review-base (dev 브랜치의 AGENTS.md, apps/<앱>/AGENTS.md, docs/)
 
             이 PR을 한국어로 리뷰한다. 이 리뷰가 PR의 유일한 자동 리뷰일 수 있으니 범위를 줄이지 않는다. 다른 리뷰어(CodeRabbit 등)와 지적이 겹쳐도 된다.
             작업 디렉터리는 PR을 dev에 병합한 결과(merge commit)다. 리뷰 기준은 BASE RULES에서 읽는다.
@@ -57,7 +58,8 @@ jobs:
             1. 리뷰 기준을 읽는다.
                - BASE RULES의 AGENTS.md를 읽는다. 3장(모듈 경계)과 5장(돈과 포인트 규칙)은 모든 PR의 기준이다.
                - AGENTS.md 12장 표에서 바뀐 파일에 맞는 문서를 골라 BASE RULES의 docs/에서 읽는다. 예: 로그 문은 docs/dev/logging.md, 테스트는 docs/dev/testing.md, k8s manifest는 docs/deploy/k8s.md, 돈·HP는 docs/policy.md.
-               - PR이 AGENTS.md나 docs/를 고쳤으면 그 변경도 리뷰할 데이터다. 바뀐 규칙이 코드와 맞는지, 바꾼 이유가 PR에 있는지 본다.
+               - 바뀐 파일이 apps/<앱>/ 아래에 있고 BASE RULES에 apps/<앱>/AGENTS.md가 있으면 그것도 읽는다.
+               - PR이 AGENTS.md(루트·앱별)나 docs/를 고쳤으면 그 변경도 리뷰할 데이터다. 바뀐 규칙이 코드와 맞는지, 바꾼 이유가 PR에 있는지 본다.
             2. GitHub MCP 도구로 PR 정보·diff를 본다.
             3. 이전 리뷰를 확인한다: PR 코멘트(get_issue_comments), 리뷰(get_pull_request_reviews), 인라인 코멘트와 답글(get_pull_request_review_comments).
                - 답글로 결론이 난 지적(반영함, 그대로 둠)은 다시 달지 않는다.
