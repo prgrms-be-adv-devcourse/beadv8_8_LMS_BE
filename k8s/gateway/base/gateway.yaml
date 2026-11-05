@@ -64,6 +64,9 @@ spec:
             duration_ms: '%DURATION%'
             client_ip: '%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%'
             trace_id: '%REQ(TRACEPARENT)%'
+            # JWT 필터가 넣은 회원 ID. 외부에서 보낸 x-user-id는 earlyRequestHeaders에서 먼저 지운다(아래 ClientTrafficPolicy).
+            # 회원 → trace_id 입구다(docs/dev/logging.md "수집과 조회", #582)
+            user_id: '%REQ(X-USER-ID)%'
         sinks:
         - type: File
           file:

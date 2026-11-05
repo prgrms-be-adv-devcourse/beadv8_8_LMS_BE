@@ -47,26 +47,36 @@ public class CustomerSupportLectureEventListener {
     @KafkaHandler
     public void on(LectureObjectionResolvedEvent event) {
         lectureObjectionResultUseCase.apply(event);
+        logHandled(event.inquiryId(), event.orderItemId());
     }
 
     @KafkaHandler
     public void on(LectureObjectionWithdrawnEvent event) {
         lectureObjectionResultUseCase.apply(event);
+        logHandled(event.inquiryId(), event.orderItemId());
     }
 
     @KafkaHandler
     public void on(LectureObjectionRequestRefusedEvent event) {
         lectureObjectionResultUseCase.apply(event);
+        logHandled(event.inquiryId(), event.orderItemId());
     }
 
     @KafkaHandler
     public void on(LectureObjectionReturnCompletedEvent event) {
         lectureObjectionResultUseCase.apply(event);
+        logHandled(event.inquiryId(), event.orderItemId());
     }
 
     @KafkaHandler
     public void on(LectureObjectionReturnActionRequiredEvent event) {
         lectureObjectionResultUseCase.apply(event);
+        logHandled(event.inquiryId(), event.orderItemId());
+    }
+
+    // 이벤트 종류는 MDC eventType으로 붙는다(#582)
+    private static void logHandled(Long inquiryId, Long orderItemId) {
+        log.info("강의 이의 제기 결과 이벤트를 처리했다 inquiryId={}, orderItemId={}", inquiryId, orderItemId);
     }
 
     /** 고객센터가 쓰지 않는 강의 이벤트. 토픽에 타입이 섞이므로 실패로 보내지 않고 넘어간다. */

@@ -2,8 +2,6 @@
 
 업무 앱 6개가 함께 따르는 로그 표준이다. 요청 하나·회원 한 명·이벤트 하나의 로그를 Loki에서 모으고 Tempo trace와 오갈 수 있게 하는 것이 목적이다. 결정은 #582(2026-11-04)에서 했다.
 
-**적용 상태(2026-11-04).** 이 문서는 표준만 정한다. 6개 앱 적용(형식 전환, MDC, Envoy access log, 4xx 레벨)은 #582의 적용 PR에서 한 번에 하고, 그때 이 줄을 지운다. 그 전까지 운영 로그는 Boot 기본 평문이고, 평문 줄의 `[traceId-spanId]`로 trace와 잇는다([관측성](../architecture/infrastructure/observability.md)).
-
 ## 형식
 
 - **운영**(`prod` 프로필)은 Boot 내장 구조화 로그의 `logstash` 형식(JSON 한 줄)으로 쓴다. 앱마다 `application-prod.yaml`에 `logging.structured.format.console: logstash` 한 줄을 둔다.
@@ -21,7 +19,7 @@
 | MDC 키 | `traceId`·`userId` 등이 최상위 필드로 들어간다(아래 "MDC 키") |
 | `@version`·`level_value` | logstash 형식 고정 필드 |
 
-로그 양을 줄여야 하면 `logging.structured.json.exclude`로 고정 필드(`@version`·`level_value`)를 뺀다. 적용 PR에서 Loki 하루 수집량과 Loki·Alloy 메모리를 전후로 잰다.
+로그 양을 줄여야 하면 `logging.structured.json.exclude`로 고정 필드(`@version`·`level_value`)를 뺀다. JSON으로 바꾸기 전 Loki 하루 수집량은 앱 6개 합계 약 2.2 MB(약 1만 9천 줄)였다(2026-11-04, #582에 전후 비교).
 
 ## 수집과 조회
 
@@ -36,8 +34,8 @@
 | 앱의 ERROR·WARN | `{namespace="hapbang-prod", app="lecture-app"} \| json \| level=~"ERROR\|WARN"` |
 
 - **회원에서 요청으로**: `userId`는 그 회원의 요청을 처음 받은 앱의 로그에만 있다. 그 줄의 `traceId`로 다시 찾으면 비동기 스레드·다른 앱의 로그까지 모인다. Loki는 두 쿼리를 하나로 합치지 못하므로 두 번 찾는다.
-- **입구가 없는 요청**: 성공한 조회(GET)는 앱 로그를 남기지 않고, Envoy에서 끝난 요청(401, route 없음)은 앱에 오지 않는다. 그래서 Envoy access log에 `user_id: '%REQ(X-USER-ID)%'`를 더해 모든 요청에 회원 ID와 `trace_id`의 짝을 남긴다(`k8s/gateway/base/gateway.yaml`). 외부에서 보낸 `x-user-id`는 Envoy가 먼저 지운다(`earlyRequestHeaders.remove`). JWT 필터가 넣은 값을 access log가 읽는지는 적용 PR에서 k3d로 확인한다.
-- **JSON으로 바꿀 때 같이 고치는 것**: JVM dashboard의 ERROR·WARN 패널은 평문 정규식(`^\S+\s+(ERROR|WARN)\s`)을 `| json | level=~"ERROR|WARN"`으로 바꾼다(`k8s/platform/base/dashboards/jvm.json`). Loki datasource의 derived field(앱 로그 → Tempo)는 평문의 `[traceId-` 대신 JSON의 `"traceId":"…"`를 읽게 바꾼다(`k8s/platform/base/observability.yaml`). 앱 개요의 로그 레벨별 건수는 지표(`logback_events_total`)라 그대로다.
+- **입구가 없는 요청**: 성공한 조회(GET)는 앱 로그를 남기지 않고, Envoy에서 끝난 요청(401, route 없음)은 앱에 오지 않는다. 그래서 Envoy access log에 `user_id: '%REQ(X-USER-ID)%'`를 더해 모든 요청에 회원 ID와 `trace_id`의 짝을 남긴다(`k8s/gateway/base/gateway.yaml`). 외부에서 보낸 `x-user-id`는 Envoy가 먼저 지운다(`earlyRequestHeaders.remove`). JWT 필터가 넣은 값을 access log가 읽는지는 Gateway를 운영에 적용한 뒤 access log로 확인한다(#582).
+- **평문과 JSON을 함께 읽는 곳**: JVM dashboard의 ERROR·WARN 패널(`k8s/platform/base/dashboards/jvm.json`)과 Loki datasource의 derived field(앱 로그 → Tempo, `k8s/platform/base/observability.yaml`)는 평문(`[traceId-spanId]`, 줄 앞 레벨)과 JSON(`"traceId":"…"`, `"level":"ERROR"`)을 모두 정규식으로 찾는다. 로컬 k3d(평문)와 전환 전 운영 로그도 그대로 보이게 하기 위해서다. 앱 개요의 로그 레벨별 건수는 지표(`logback_events_total`)라 형식과 상관없다.
 
 ## MDC 키
 
@@ -45,13 +43,13 @@
 | --- | --- | --- |
 | `traceId`, `spanId` | trace 식별자 | Micrometer Tracing이 자동으로 넣는다. HTTP 요청, `@Scheduled` 실행마다, Kafka 소비(#630) |
 | `userId` | 회원 ID | 각 앱의 `global/auth/GatewayUserHeaderFilter`가 `X-User-Id`를 읽은 뒤. chat STOMP 메시지는 `ChatStompInterceptor` |
-| `eventType` | Kafka 헤더 `eventType`(예: `ExchangeCompletedEvent`) | `common/kafka`의 `RecordInterceptor` |
+| `eventType` | Kafka 헤더 `eventType`(예: `ExchangeCompletedEvent`) | `common/kafka`의 `EventLogContextRecordInterceptor` |
 | `eventKey` | Kafka 레코드 key(예: `exchange:45`, `order-item:123`) | 위와 같다 |
 
 - **`traceId`는 모든 요청·실행에 찍힌다.** Tempo로 보내지 않는 요청·실행(앱 안에서 시작하는 배치는 10%만, Grafana·Kafka UI 요청은 0%, #679)의 로그에도 `traceId`가 찍힌다. 2026-11-04 운영에서 로그에 찍힌 `traceId` 3건(billing `@Scheduled` 2건, member 4xx 요청 1건)이 Tempo에 없는 것으로 확인했다. 로그끼리 모으는 데는 샘플링이 상관없고, 그 줄에서 Tempo로 가는 링크는 Tempo에 남은 trace만 열린다(업무 요청은 모두, 앱 안에서 시작한 배치는 10%).
 - **`userId`가 없는 로그**: 내부 API를 받은 앱(내부 API는 키로만 인증하고 사용자 헤더를 읽지 않는다, D63), Kafka 소비, 비동기 스레드의 로그다. 이 로그는 `traceId`로 찾는다. trace baggage로 `userId`를 다른 앱까지 넘기지 않는다. 앱 사이 헤더와 Envoy 설정이 늘고, `traceId`가 이미 같은 일을 한다.
 - **스케줄 작업**: 실행마다 Boot가 trace를 만들어 `traceId`가 실행 한 번을 묶는다. 어느 작업인지는 `logger_name`으로 거른다. 그래서 `jobName`·`runId` MDC는 두지 않는다. chat의 1초 polling처럼 trace를 막아 둔 작업([관측성](../architecture/infrastructure/observability.md)의 "짧은 주기 polling")은 `traceId`가 없다.
-- **Kafka 소비**: #630으로 소비가 보낸 쪽 trace를 이어받아 "요청 → 발행 → 다른 앱의 소비"가 `traceId` 하나로 묶인다. `eventKey`는 "무엇에 대한 이벤트인지"로 거를 때 쓴다. Boot는 `RecordInterceptor` 빈이 하나일 때만 자기 리스너 컨테이너 팩토리에 붙인다. 앱이 팩토리를 직접 만들면(chat의 `ChatKafkaConfig`) 그 팩토리에도 직접 붙인다.
+- **Kafka 소비**: #630으로 소비가 보낸 쪽 trace를 이어받아 "요청 → 발행 → 다른 앱의 소비"가 `traceId` 하나로 묶인다. `eventKey`는 "무엇에 대한 이벤트인지"로 거를 때 쓴다. Boot는 `RecordInterceptor` 빈이 하나일 때만 자기 리스너 컨테이너 팩토리에 붙인다. 그래서 앱이 자기 `RecordInterceptor` 빈을 두면 `common/kafka`의 빈은 만들지 않는다(그 앱이 MDC도 맡는다). 앱이 팩토리를 직접 만들면(chat의 `ChatKafkaConfig`) 그 팩토리에도 직접 붙인다. 레코드 처리가 끝나면(`afterRecord`) 지우므로 재시도·DLT 전송 로그까지 키가 붙는다.
 - **두지 않는 키**: `eventId`는 Modulith가 재발행할 때마다 값이 달라 쓰지 않는다([ADR 0002](../adr/0002-modulith-externalization-without-event-id.md)). `correlationId`는 `traceId`가 대신한다.
 - **새 키를 더할 때**: 여러 로그 줄에 공통으로 붙어야 하는 식별자만 MDC에 넣는다. 한 줄에만 쓰는 값은 메시지에 쓴다. MDC는 넣은 곳에서 `finally`로 지운다. 스레드를 다시 쓰므로 지우지 않으면 다음 요청 로그에 남는다.
 
@@ -61,7 +59,8 @@ trace context와 MDC는 스레드 로컬이라 다른 스레드로 저절로 넘
 
 - **`@Async`**(Modulith 이벤트 외부화, `@ApplicationModuleListener`)는 앱의 `taskScheduler`가 실행한다. 앱에 `taskScheduler`가 있으면 Boot는 `applicationTaskExecutor`를 만들지 않는다. 앱마다 `global/config/ObservationConfig`의 `traceContextTaskDecorator`가 Observation만 넘기고(#630), Boot가 이 decorator를 executor·scheduler builder에 붙인다. 비동기 스레드의 로그에는 넘긴 쪽의 `traceId`가 찍히고 `userId`는 없다.
 - `spring.task.execution.propagate-context`는 쓰지 않는다. 등록된 전파기를 모두 넘겨 Spring Security 인증 정보까지 비동기 리스너로 넘어간다.
-- **executor·scheduler는 직접 `new`로 만들지 않는다.** Boot가 주입하는 `ThreadPoolTaskExecutorBuilder`·`ThreadPoolTaskSchedulerBuilder`·`SimpleAsyncTaskExecutorBuilder`(가상 스레드)로 만들면 위 decorator가 붙는다. 2026-11-04 기준 chat이 `new`로 만든 executor·scheduler(읽음 수 신호, STOMP 수신 채널, Redis 방별 전달, 전달 pipeline, 세션 만료, 방 채널 구독)는 적용 PR에서 builder로 바꾼다. builder로 만들 수 없는 `ExecutorService`는 `ContextExecutorService.wrap`으로 감싼다(`shared`의 `BillingApiClient`가 예다).
+- **작업을 하나씩 넘기는 executor는 Boot builder로 만든다.** Boot가 주입하는 `ThreadPoolTaskExecutorBuilder`·`ThreadPoolTaskSchedulerBuilder`·`SimpleAsyncTaskExecutorBuilder`(가상 스레드)로 만들면 위 decorator가 붙어, 작업을 넘긴 요청·소비의 `traceId`가 작업 스레드 로그에 찍힌다. chat의 읽음 수 신호(`ChatReadCountSignals`)가 예다. builder는 `spring.task.execution.*` 기본값(코어 스레드 유휴 종료 등)을 가져오므로 동작에 영향을 주는 값은 모두 명시한다. 빈이 아니면 `initialize()`도 직접 부른다. builder로 만들 수 없는 `ExecutorService`는 `ContextExecutorService.wrap`으로 감싼다(`shared`의 `BillingApiClient`가 예다).
+- **여러 요청의 작업을 줄에 모아 처리하는 executor에는 decorator를 붙이지 않는다.** 줄 비우기 작업을 넘긴 쪽의 trace가 묶음 안 다른 작업의 로그에도 붙어 틀린 `traceId`가 된다. chat의 STOMP 수신·송신 실행기(`ChatChannelBudget`)가 그렇다. 처음부터 넘길 trace가 없는 스레드(Redis 구독, 주기 작업, 세션 만료)의 executor도 바꿀 필요가 없다. 2026-11-04 기준 chat의 나머지 executor·scheduler는 이 이유로 `new`로 만든 채 둔다.
 - **진입점에서 새로 시작하는 곳**: `@Scheduled` 실행과 Kafka 소비는 Boot·Spring Kafka가 진입할 때 trace를 만들고, Kafka MDC는 `RecordInterceptor`가 레코드마다 넣고 지운다.
 - **chat STOMP 메시지**는 HTTP 요청이 아니어서 `GatewayUserHeaderFilter`도 trace도 거치지 않는다. `ChatStompInterceptor`가 프레임을 처리하는 스레드에서 `userId`를 넣고 처리가 끝나면 지운다(`ExecutorChannelInterceptor`의 `beforeHandle`·`afterMessageHandled`). `chatRoomId`는 MDC에 넣지 않고 메시지에 쓴다. Redis로 받은 다른 서버의 전달 작업에는 회원이 정해져 있지 않아 키를 넣지 않는다.
 
@@ -74,7 +73,8 @@ trace context와 MDC는 스레드 로컬이라 다른 스레드로 저절로 넘
 | INFO | 상태 변경, 돈·HP 이동의 시작과 결과, 요청을 거절한 업무 사유 | 주문 생성, HP 작업 등록·결과, 관리자·회원이 돈 흐름을 바꾼 결정(결정한 회원 ID 포함), 보류 무효화 결과, 배치 처리 건수, 4xx 업무 예외(`code`·`message`) |
 | DEBUG | 개발 중에만 본다. 운영에서는 끈다 | 이미 처리한 이벤트라 무시 |
 
-- **4xx 업무 예외는 INFO다.** 사용자 입력이 틀렸거나 정책상 거절한 정상 응답이므로 WARN 패널과 alert를 채우지 않는다. 그래도 문의를 조사할 때 거절 사유(`code`)가 필요하므로 INFO로 남긴다. Envoy access log에는 상태 코드만 있다. 지금 6개 앱의 `GlobalExceptionHandler`는 WARN으로 찍고 있어 적용 PR에서 바꾼다.
+- **4xx 업무 예외는 INFO다.** 사용자 입력이 틀렸거나 정책상 거절한 정상 응답이므로 WARN 패널과 alert를 채우지 않는다. 그래도 문의를 조사할 때 거절 사유(`code`)가 필요하므로 6개 앱의 `GlobalExceptionHandler`가 INFO로 남긴다. Envoy access log에는 상태 코드만 있다.
+- **Kafka 소비 처리 결과는 INFO 한 줄을 남긴다.** 복제본 반영, 명령 처리, 별점 반영처럼 받은 이벤트로 상태를 바꿨으면 리스너나 그 처리기가 한 줄을 남긴다. 그래야 `eventKey`·`traceId`로 찾을 줄이 생긴다. 쓰지 않는 이벤트를 넘기는 것은 DEBUG다.
 - 5xx 업무 예외와 처리하지 못한 예외는 ERROR다.
 - **HP 작업 등록과 결정 로그는 커밋 뒤에 찍는다.** 작업과 결정은 업무 트랜잭션 안에서 저장되고, 같은 요청 ID 동시 등록이나 커밋 때의 충돌처럼 롤백될 수 있다. 롤백된 변경이 "~했다" 로그로 남지 않도록 `TransactionSynchronization.afterCommit`에서 찍는다(앱마다 `app/AfterCommit`). HP 작업 결과도 결과를 기록한 트랜잭션이 커밋된 뒤에 찍는다(#681).
 - **결정 로그에는 결정한 회원 ID를 쓴다.** 수락·거절·취소·확인·검수처럼 회원이나 관리자가 돈 흐름이나 판매 상태를 바꾼 결정은 대상 ID와 결정한 회원 ID(`adminUserId`, `buyerUserId`, `hostId` 등 코드의 필드 이름)를 남긴다. 사유처럼 회원이 쓴 본문은 남기지 않는다.
@@ -107,4 +107,4 @@ trace context와 MDC는 스레드 로컬이라 다른 스레드로 저절로 넘
 - SLF4J `addKeyValue`는 쓰지 않는다. JSON에는 필드로 들어가지만 로컬 평문 패턴에는 보이지 않는다. 여러 줄에 붙일 값은 MDC로 넣는다.
 - **예외**는 마지막 인자로 넘겨 stack trace를 남긴다. 잡아서 다시 던질 때는 찍지 않고, 처리하는 곳에서 한 번만 찍는다.
 - **alert 표식**: 사람이 바로 봐야 하는 ERROR는 메시지 앞에 `[대문자_코드]`를 붙이고(예: `[HP_TASK_DEAD]`, `[LECTURE_HP_RECONCILIATION_MISMATCH]`), alert 쿼리는 이 코드로 찾는다(`|= "[HP_TASK_DEAD]"`). 평문과 JSON에서 똑같이 찾을 수 있어 SLF4J Marker(`tags` 필드)는 쓰지 않는다. 표식은 ERROR에만 붙인다. WARN·INFO에 붙이면 alert 쿼리가 사람이 볼 필요 없는 줄까지 잡는다.
-- 기존 로그 문은 한꺼번에 고치지 않고, 새로 쓰거나 고치는 로그 문부터 맞춘다. 강의 앱은 #666에서 모두 맞춘다.
+- 기존 로그 문은 한꺼번에 고치지 않고, 새로 쓰거나 고치는 로그 문부터 맞춘다. 강의 앱은 #666에서 모두 맞췄다.

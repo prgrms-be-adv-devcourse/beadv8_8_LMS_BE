@@ -41,12 +41,16 @@ public class BillingMemberEventListener {
 
     @KafkaHandler
     public void on(UserJoinedEvent event) {
-        billingUserSyncUseCase.apply(event.user());
+        BillingUserSyncUseCase.Outcome outcome = billingUserSyncUseCase.apply(event.user());
+        log.info("지갑 회원 가입 이벤트를 처리했다 userId={}, version={}, outcome={}", event.user().id(),
+                event.user().version(), outcome);
     }
 
     @KafkaHandler
     public void on(UserModifiedEvent event) {
-        billingUserSyncUseCase.apply(event.user());
+        BillingUserSyncUseCase.Outcome outcome = billingUserSyncUseCase.apply(event.user());
+        log.info("지갑 회원 변경 이벤트를 처리했다 userId={}, version={}, outcome={}", event.user().id(),
+                event.user().version(), outcome);
     }
 
     // 회원 정보 파기 (#674). 최소 한 번 전달이라 여러 번 올 수 있고, 다시 처리해도 결과가 같다. 실패하면 재시도 뒤 이 그룹의 DLT로 간다
