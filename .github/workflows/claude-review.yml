@@ -52,7 +52,7 @@ jobs:
             BASE RULES: ${{ runner.temp }}/review-base (dev 브랜치의 AGENTS.md와 docs/)
 
             이 PR을 한국어로 리뷰한다. 이 리뷰가 PR의 유일한 자동 리뷰일 수 있으니 범위를 줄이지 않는다. 다른 리뷰어(CodeRabbit 등)와 지적이 겹쳐도 된다.
-            작업 디렉터리는 PR head 코드다. 리뷰 기준은 BASE RULES에서 읽는다.
+            작업 디렉터리는 PR을 dev에 병합한 결과(merge commit)다. 리뷰 기준은 BASE RULES에서 읽는다.
 
             1. 리뷰 기준을 읽는다.
                - BASE RULES의 AGENTS.md를 읽는다. 3장(모듈 경계)과 5장(돈과 포인트 규칙)은 모든 PR의 기준이다.
@@ -92,8 +92,10 @@ jobs:
             --disallowedTools "Bash,Read(//proc/**)"
 
       # 실행 수치만 Step Summary에 남긴다. 도구 입력·결과(코드, PR 내용)는 남기지 않는다.
+      # 관측용이라 실패해도 리뷰 job을 실패로 만들지 않는다.
       - name: Summarize review run
         if: always() && steps.claude.outputs.execution_file != ''
+        continue-on-error: true
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |

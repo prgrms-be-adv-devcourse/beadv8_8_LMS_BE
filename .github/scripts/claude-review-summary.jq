@@ -8,6 +8,7 @@ def num: if type == "number" then tostring else "-" end;
 (map(select(.type == "system" and .subtype == "init")) | first // {}) as $init
 | (map(select(.type == "result")) | last // {}) as $result
 | [.[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use")] as $calls
+| [$calls[] | select(.name == "Read") | .input.file_path? | select(type == "string" and startswith($base))] as $baseReads
 | ($result.usage // {}) as $usage
 | "### Claude 리뷰 실행 수치",
   "",
@@ -19,7 +20,8 @@ def num: if type == "number" then tostring else "-" end;
   "| 시간(초) | \(if ($result.duration_ms | type) == "number" then ($result.duration_ms / 1000 | floor | tostring) else "-" end) |",
   "| 비용(USD, 환산) | \(if ($result.total_cost_usd | type) == "number" then ($result.total_cost_usd * 100 | round / 100 | tostring) else "-" end) |",
   "| 토큰(입력 · 캐시 쓰기 · 캐시 읽기 · 출력) | \($usage.input_tokens | num) · \($usage.cache_creation_input_tokens | num) · \($usage.cache_read_input_tokens | num) · \($usage.output_tokens | num) |",
-  "| dev 기준 문서 읽기 | \([$calls[] | select(.name == "Read") | .input.file_path? | select(type == "string" and startswith($base))] | length) |",
+  "| dev 기준 문서 읽기(전체) | \($baseReads | length) |",
+  "| dev AGENTS.md 읽기 | \([$baseReads[] | select(. == $base + "AGENTS.md")] | length) |",
   "",
   "| 도구 | 호출 수 |",
   "| --- | --- |",
