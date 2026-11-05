@@ -229,6 +229,9 @@ public class HpTaskExecuteUseCase {
     private void report(HpTask task) {
         if (task.getStatus() == HpTaskStatus.DONE) {
             hpTaskMetrics.recordDone();
+            log.info("HP 작업을 마쳤다 taskId={}, taskType={}, refType={}, refId={}, memberId={}, amount={}, attemptCount={}",
+                    task.getId(), task.getTaskType(), task.getRefType(), task.getRefId(), task.getMemberId(),
+                    task.getAmount(), task.getAttemptCount());
             return;
         }
         if (task.getStatus() == HpTaskStatus.DEAD) {

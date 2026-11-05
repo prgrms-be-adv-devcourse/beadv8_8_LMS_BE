@@ -66,7 +66,7 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | medium | Envoy Gateway controller | 128 | 71 | large로 이동, 또는 96 |
 | medium | React 정적 서버 | 64 | 28 | 32 |
 | medium | lecture-app | 704 | 596 | #610의 `-Xmx`로 640 (heap 사용 최대 161, 상한 410) |
-| medium | customer-support-app | 256 | 174 | native 적용(2026-11-04) 관찰 뒤 192 |
+| medium | customer-support-app | 256 | 174 | 192. 256 MiB·`-Xmx128m` 약 17시간 최대 working set 123·RSS 80·heap 52(2026-11-05) |
 
 limit에 붙은 쪽도 있다. Tempo는 160 MiB 중 24시간 최대 150 MiB(94%)라 #680(업무 요청 trace 100%) 적용 뒤 다시 잰다.
 
@@ -81,7 +81,7 @@ limit에 붙은 쪽도 있다. Tempo는 160 MiB 중 24시간 최대 150 MiB(94%)
 
 Prometheus server 컨테이너는 두 앱을 수집한 뒤 291 → 332 MiB(limit 384 MiB, reload sidecar 제외)다. 앱 series는 member 179·lecture 380개다. k3d의 JVM은 CPU를 18개로 보지만 `-XX:ActiveProcessorCount=2`로 EC2와 맞춰도 lecture-app은 448 MiB에서 기동하지 못했다.
 
-앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다.
+앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. Native Image 앱(customer-support-app)은 `JAVA_TOOL_OPTIONS`를 읽지 않으므로 heap 상한을 실행 인자 `-Xmx`로 준다([Native Image](native-image.md)). 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다.
 
 2026-10-30 EC2 실측(#461): lecture-app은 384 MiB(Flyway 시작 시점)와 448 MiB(JPA 초기화 시점)에서 기동 중 OOMKilled됐고, 640 MiB에서 떠 약 12분 뒤 536 MiB에서 멈췄다. member-app은 448 MiB에서 328 MiB로 안정됐다. lecture-app manifest와 위 예산 표를 640 MiB로 올렸다.
 

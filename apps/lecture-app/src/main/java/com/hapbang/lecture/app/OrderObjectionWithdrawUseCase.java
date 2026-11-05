@@ -8,12 +8,14 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.out.LectureOrderRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 판단 전 이의 제기 철회 (#203, D52). 고객센터의 문의 삭제와 같은 트랜잭션에서 항목을 접수 전 상태(NONE)로 되돌려 지급 중단을 푼다.
  * HP는 움직이지 않고 주문을 닫지 않으므로 주문을 잠그지 않는다. 같은 항목을 바꾸는 판단·구매 취소와는 항목의 낙관적 락으로
  * 직렬화된다 (설계 10장).
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderObjectionWithdrawUseCase {
@@ -27,5 +29,9 @@ public class OrderObjectionWithdrawUseCase {
         order.withdrawObjection(orderItemId, buyerUserId, inquiryId);
         // 같은 항목을 동시에 바꾼 변경(판단 등)과의 충돌을 이 호출 안에서 드러낸다
         lectureOrderRepository.flush();
+        AfterCommit.run(() -> {
+            log.info("이의 제기를 철회했다 orderId={}, orderItemId={}, inquiryId={}, buyerUserId={}", order.getId(),
+                    orderItemId, inquiryId, buyerUserId);
+        });
     }
 }

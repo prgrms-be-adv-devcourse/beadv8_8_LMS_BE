@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.member.app.MemberTestAccountFacade;
 import com.hapbang.member.app.dto.TestInfluencerResponse;
 import com.hapbang.member.global.response.RsData;
+import com.hapbang.member.global.auth.LoginUserId;
 
 import lombok.RequiredArgsConstructor;
 
@@ -20,7 +21,7 @@ public class ApiV1MemberTestAccountController implements ApiV1MemberTestAccountS
 
     @Override
     @PostMapping("/{userId}/influencer")
-    public RsData<TestInfluencerResponse> promote(@PathVariable("userId") Long userId) {
-        return RsData.ok("테스트 회원의 인플루언서 역할을 확인했습니다.", memberTestAccountFacade.promote(userId));
+    public RsData<TestInfluencerResponse> promote(@LoginUserId Long adminId, @PathVariable("userId") Long userId) {
+        return RsData.ok("테스트 회원의 인플루언서 역할을 확인했습니다.", memberTestAccountFacade.promote(adminId, userId));
     }
 }

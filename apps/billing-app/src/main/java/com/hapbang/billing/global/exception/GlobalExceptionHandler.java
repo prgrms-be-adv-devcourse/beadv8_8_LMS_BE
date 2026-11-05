@@ -64,7 +64,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         if (errorCode.getStatus().is5xxServerError()) {
             log.error("업무 예외 code={}, message={}", errorCode.getCode(), exception.getMessage(), exception);
         } else {
-            log.warn("업무 예외 code={}, message={}", errorCode.getCode(), exception.getMessage());
+            // 4xx는 사용자 입력·정책상 거절한 정상 응답이라 WARN이 아니다. 문의를 조사할 때 쓰도록 사유는 INFO로 남긴다
+            // (docs/dev/logging.md "레벨", #582)
+            log.info("업무 예외 code={}, message={}", errorCode.getCode(), exception.getMessage());
         }
         ProblemDetail problemDetail = problem(errorCode, exception.getMessage());
         exception.getProperties().forEach(problemDetail::setProperty);

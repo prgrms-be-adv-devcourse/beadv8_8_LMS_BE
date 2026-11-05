@@ -14,6 +14,7 @@ import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 출연 모집 지원 응답 (호스트): 수락·거절. 트랜잭션은 호출한 {@link AppearanceApplicationFacade}가 연다.
@@ -30,6 +31,7 @@ import lombok.RequiredArgsConstructor;
  *     <li>다른 회원이 지원에 응답하려 하면 {@code NOT_RECRUIT_HOST}(403)다.</li>
  * </ul>
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceApplicationRespondUseCase {
@@ -59,6 +61,10 @@ public class AppearanceApplicationRespondUseCase {
 
         appearanceApplicationSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(recruit, application, now));
+        AfterCommit.run(() -> {
+            log.info("모집 지원을 수락했다 applicationId={}, recruitId={}, appearanceId={}, hostId={}, guestId={}",
+                    applicationId, recruit.getId(), appearance.getId(), hostId, application.getGuestId());
+        });
         return AppearanceApplicationResDto.from(application, recruit, appearance.getId());
     }
 
@@ -75,6 +81,9 @@ public class AppearanceApplicationRespondUseCase {
         application.reject(now);
 
         appearanceApplicationSupport.flushOrConflict();
+        AfterCommit.run(() -> {
+            log.info("모집 지원을 거절했다 applicationId={}, recruitId={}, hostId={}", applicationId, recruit.getId(), hostId);
+        });
         return AppearanceApplicationResDto.from(application, recruit, null);
     }
 }

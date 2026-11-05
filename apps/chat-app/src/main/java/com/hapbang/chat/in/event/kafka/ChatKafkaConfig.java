@@ -31,6 +31,8 @@ import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 
+import com.hapbang.common.kafka.EventLogContextRecordInterceptor;
+
 /**
  * chat-app Kafka 소비 설정: 소비자 값, ConsumerFactory, DLT 발행용 ProducerFactory·KafkaTemplate, 리스너 ContainerFactory.
  * 오류 처리는 {@link ChatKafkaErrorHandlerConfig}, DLT 토픽 선언은 {@link ChatKafkaTopicConfig}, 이름과 값은
@@ -211,6 +213,9 @@ public class ChatKafkaConfig {
         // 직접 만든 팩토리에는 Boot의 spring.kafka.listener.observation-enabled가 적용되지 않는다. 받은 메시지의 traceparent를
         // 부모로 consumer span을 만들게 켠다(#630)
         factory.getContainerProperties().setObservationEnabled(true);
+        // Boot 팩토리에는 common/kafka의 인터셉터 빈이 붙지만 직접 만든 팩토리에는 붙지 않는다. 처리 로그에 eventType·eventKey를
+        // 붙이게 직접 넣는다(#582, docs/dev/logging.md)
+        factory.setRecordInterceptor(new EventLogContextRecordInterceptor<>());
         return factory;
     }
 

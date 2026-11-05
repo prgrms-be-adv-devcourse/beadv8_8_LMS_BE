@@ -21,6 +21,7 @@ import com.hapbang.shared.appearance.event.AppearanceCancelRequestAcceptedEvent;
 import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 출연 취소 요청 응답 (호스트): 수락(합의 취소)·거절.
@@ -38,6 +39,7 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  * 수락은 반환을 커밋 뒤에 실행해야 해서 여기서 트랜잭션을 연다. 거절은 호출한 Facade가 연다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceCancelRespondUseCase {
@@ -77,10 +79,11 @@ public class AppearanceCancelRespondUseCase {
         HpTask releaseTask = releaseOnAgreement(appearance, recruit, now);
         appearanceSupport.flushOrConflict();
 
-        Long releaseTaskId = null;
-        if (releaseTask != null) {
-            releaseTaskId = hpTaskSupport.save(releaseTask).getId();
-        }
+        Long releaseTaskId = releaseTask == null ? null : hpTaskSupport.save(releaseTask).getId();
+        AfterCommit.run(() -> {
+            log.info("출연 취소 요청을 수락했다 appearanceId={}, cancelRequestId={}, hostId={}, releaseTaskId={}",
+                    appearanceId, cancelRequest.getId(), hostId, releaseTaskId);
+        });
         eventPublisher.publishEvent(new AppearanceCancelRequestAcceptedEvent(
                 cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt())));
         return releaseTaskId;
@@ -102,6 +105,10 @@ public class AppearanceCancelRespondUseCase {
         cancelRequest.reject(rejectReason, now);
         appearance.keepAfterCancelRejected();
         appearanceSupport.flushOrConflict();
+        AfterCommit.run(() -> {
+            log.info("출연 취소 요청을 거절했다 appearanceId={}, cancelRequestId={}, hostId={}", appearanceId,
+                    cancelRequest.getId(), hostId);
+        });
 
         eventPublisher.publishEvent(new AppearanceCancelRequestRejectedEvent(
                 cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt()), false));

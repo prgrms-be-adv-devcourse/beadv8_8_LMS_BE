@@ -15,6 +15,8 @@ import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.LectureOrderRepository;
 
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * 구매 취소 (설계 6.4, D59 (1)). 세 단계로 나눠 호출한 Facade가 차례로 부른다.
  * <ol>
@@ -24,6 +26,7 @@ import com.hapbang.lecture.out.LectureOrderRepository;
  * </ol>
  * 끝나지 않은 반환은 HP 작업 재시도 배치가 같은 요청 ID로 이어서 한다(D57). 반환은 billing이 차감했던 HP 종류 그대로 한다 (D42).
  */
+@Slf4j
 @Service
 public class OrderCancelUseCase {
 
@@ -55,9 +58,14 @@ public class OrderCancelUseCase {
         OrderItem item = order.requestCancelItem(orderItemId, now);
         // 같은 항목을 동시에 바꾼 요청(낙관적 락 충돌)을 작업 등록 전에 확인한다 (설계 6.2)
         lectureOrderRepository.flush();
-        return lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.CANCEL,
+        Long taskId = lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.CANCEL,
                 RELEASE_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
                 item.getPriceHp(), now)).getId();
+        AfterCommit.run(() -> {
+            log.info("구매 취소를 요청했다 orderId={}, orderItemId={}, buyerUserId={}", order.getId(), item.getId(),
+                    buyerUserId);
+        });
+        return taskId;
     }
 
     /** 반환을 한 번 시도한다. 트랜잭션 밖에서 부른다 */

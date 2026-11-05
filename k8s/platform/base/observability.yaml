@@ -199,7 +199,8 @@ spec:
             jsonData:
               timeInterval: 1m
           # 로그 줄의 trace ID를 Tempo trace 링크로 만든다(#579). provisioning은 $를 환경 변수로 읽으므로 $$로 쓴다.
-          # 앱: Boot 로그 상관 ID "[<traceId 32자>-<spanId 16자>] ". Envoy: JSON access log의 trace_id(traceparent 전체)
+          # 앱: 운영 JSON 로그의 "traceId":"<32자>"(#582)와 평문 로그의 "[<traceId 32자>-<spanId 16자>] ".
+          # Envoy: JSON access log의 trace_id(traceparent 전체)
           - name: Loki
             type: loki
             uid: loki
@@ -207,7 +208,7 @@ spec:
             jsonData:
               derivedFields:
                 - name: traceId
-                  matcherRegex: '\[([0-9a-f]{32})-[0-9a-f]{16}\]'
+                  matcherRegex: '(?:"traceId":"|\[)([0-9a-f]{32})(?:"|-[0-9a-f]{16}\])'
                   datasourceUid: tempo
                   url: '$${__value.raw}'
                   urlDisplayLabel: Tempo에서 보기

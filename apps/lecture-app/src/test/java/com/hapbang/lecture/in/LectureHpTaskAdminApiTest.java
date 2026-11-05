@@ -12,6 +12,9 @@ import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
@@ -39,6 +42,7 @@ import com.hapbang.testsupport.IntegrationTest;
 // 실행·재시도 규칙은 LectureHpTaskExecutorTest가, 보류 무효화 뒤 주문 흐름은 OrderHoldVoidTest가 맡는다.
 @IntegrationTest
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 class LectureHpTaskAdminApiTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
@@ -135,7 +139,7 @@ class LectureHpTaskAdminApiTest {
     }
 
     @Test
-    void DEAD_재시도는_attemptCount만_0으로_하고_204다() throws Exception {
+    void DEAD_재시도는_attemptCount만_0으로_하고_204다(CapturedOutput output) throws Exception {
         LectureHpTask task = save(LectureHpTaskPurpose.CANCEL, "LECTURE-CANCEL-31", 31L, null);
         claimTimes(task.getId(), 3);
         markDead(task.getId(), "UNKNOWN_RESULT");
@@ -152,6 +156,9 @@ class LectureHpTaskAdminApiTest {
         assertThat(retried.getLastRetriedByUserId()).isEqualTo(ADMIN_ID);
         assertThat(retried.getLastRetriedAt()).isNotNull();
         assertThat(retried.getLastErrorCode()).isEqualTo("UNKNOWN_RESULT");
+        assertThat(output.getAll().lines().filter(line -> line.contains("관리자가 DEAD HP 작업을 다시 시도하게 했다")))
+                .singleElement().satisfies(line -> assertThat(line).contains(" INFO ", "taskId=" + task.getId(),
+                        "adminUserId=" + ADMIN_ID, "lastErrorCode=UNKNOWN_RESULT", "totalAttemptCount=3"));
     }
 
     @Test

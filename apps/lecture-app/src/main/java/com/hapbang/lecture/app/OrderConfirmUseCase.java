@@ -9,8 +9,12 @@ import org.springframework.stereotype.Service;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.OrderItem;
+
+import lombok.extern.slf4j.Slf4j;
 
 /** 직접 구매 확정. HP는 움직이지 않는다(지급은 구매일 D+30 배치) */
+@Slf4j
 @Service
 public class OrderConfirmUseCase {
 
@@ -25,6 +29,10 @@ public class OrderConfirmUseCase {
 
     public OrderItemResponse confirm(Long buyerUserId, Long orderId, Long orderItemId) {
         LectureOrder order = lectureOrderSupport.findOrder(buyerUserId, orderId);
-        return OrderItemResponse.of(order.confirmItem(orderItemId, LocalDateTime.now(clock)));
+        OrderItem item = order.confirmItem(orderItemId, LocalDateTime.now(clock));
+        AfterCommit.run(() -> {
+            log.info("구매를 확정했다 orderId={}, orderItemId={}, buyerUserId={}", orderId, orderItemId, buyerUserId);
+        });
+        return OrderItemResponse.of(item);
     }
 }

@@ -13,6 +13,7 @@ import com.hapbang.appearance.domain.AppearanceException;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 출연 모집 지원 취소 (게스트). 호스트가 응답하기 전까지만 할 수 있고, 취소한 뒤에는 다시 지원할 수 없다.
@@ -20,6 +21,7 @@ import lombok.RequiredArgsConstructor;
  * <p>
  * 호스트 수락과 동시에 취소하면 버전(낙관적 락)이 맞지 않는 쪽을 {@code CONCURRENT_UPDATE}(409)로 막는다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceApplicationWithdrawUseCase {
@@ -39,6 +41,10 @@ public class AppearanceApplicationWithdrawUseCase {
         AppearanceApplication application = appearanceApplicationSupport.getById(applicationId);
         application.withdraw(guestId, LocalDateTime.now(clock));
         appearanceApplicationSupport.flushOrConflict();
+        AfterCommit.run(() -> {
+            log.info("모집 지원을 철회했다 applicationId={}, recruitId={}, guestId={}", applicationId,
+                    application.getRecruitId(), guestId);
+        });
         AppearanceRecruit recruit = appearanceRecruitSupport.getById(application.getRecruitId());
         return AppearanceApplicationResDto.from(application, recruit, null);
     }

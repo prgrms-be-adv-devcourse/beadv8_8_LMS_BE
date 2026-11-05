@@ -44,12 +44,14 @@ public class AppearanceUserEventListener {
     @KafkaHandler
     public void on(UserJoinedEvent event) {
         appearanceUserFacade.syncJoined(event.user());
+        log.info("출연 회원 가입 이벤트를 처리했다 userId={}, version={}", event.user().id(), event.user().version());
     }
 
     /** 회원 정보(닉네임·역할·상태) 변경 */
     @KafkaHandler
     public void on(UserModifiedEvent event) {
         appearanceUserFacade.syncModified(event.user());
+        log.info("출연 회원 변경 이벤트를 처리했다 userId={}, version={}", event.user().id(), event.user().version());
     }
 
     /**
