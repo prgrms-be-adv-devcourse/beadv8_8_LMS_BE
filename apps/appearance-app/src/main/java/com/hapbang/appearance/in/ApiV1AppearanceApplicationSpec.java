@@ -38,7 +38,8 @@ public interface ApiV1AppearanceApplicationSpec {
     RsData<AppearanceApplicationResDto> apply(Long userId, Long recruitId, @Valid ApplyAppearanceRecruitReqDto request);
 
     @Operation(summary = "모집글의 지원자 목록 (호스트)", description = """
-            모집글을 올린 호스트만 볼 수 있다 (다른 회원은 403 `NOT_RECRUIT_HOST`). 최신순 고정, 페이지는 page·size(기본 20, 최대 100).
+            모집글을 올린 호스트만 볼 수 있다 (다른 회원은 403 `NOT_RECRUIT_HOST`).
+            보류 처리 중(`HOLD_PENDING`)·실패(`HOLD_FAILED`)한 모집글은 호스트에게 빈 목록, 다른 회원에게 404 `APPEARANCE_RECRUIT_NOT_FOUND`. 최신순 고정, 페이지는 page·size(기본 20, 최대 100).
             수락된 지원에는 `appearanceId`가 있다.""")
     RsData<Page<AppearanceApplicationResDto>> getApplicants(Long userId, Long recruitId,
             @Parameter(description = STATUS_FILTER) List<AppearanceApplicationStatus> statuses,

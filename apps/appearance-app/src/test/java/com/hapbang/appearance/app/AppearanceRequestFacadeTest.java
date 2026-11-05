@@ -134,14 +134,16 @@ class AppearanceRequestFacadeTest {
     }
 
     @Test
-    @DisplayName("지갑이 보류를 거절하면(잔액 부족) 409 INSUFFICIENT_BALANCE(출연 문구), 요청서는 HOLD_FAILED로 남고 목록에 보이지 않는다")
+    @DisplayName("지갑이 보류를 거절하면(잔액 부족) 409 INSUFFICIENT_BALANCE(출연 문구), 요청서는 HOLD_FAILED로 남아 보낸 목록에만 보인다 (#306)")
     void insufficientBalance() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
         assertHoldRejected(() -> send(HOST, GUEST), AppearanceErrorCode.INSUFFICIENT_BALANCE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
-        assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
+        assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getContent())
+                .extracting(AppearanceRequestSummaryResDto::status).containsExactly(AppearanceRequestStatus.HOLD_FAILED);
+        assertThat(appearanceRequestFacade.getReceived(GUEST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
     }
 
     @Test
@@ -167,25 +169,29 @@ class AppearanceRequestFacadeTest {
     }
 
     @Test
-    @DisplayName("지갑이 닫혀 있으면(탈퇴 직후) 409 WALLET_CLOSED, 요청서는 HOLD_FAILED로 남고 목록에 보이지 않는다 (#648)")
+    @DisplayName("지갑이 닫혀 있으면(탈퇴 직후) 409 WALLET_CLOSED, 요청서는 HOLD_FAILED로 남아 보낸 목록에만 보인다 (#648, #306)")
     void walletClosed() {
         BillingStubs.reject(billingClient, Rejection.WALLET_CLOSED);
 
         assertHoldRejected(() -> send(HOST, GUEST), AppearanceErrorCode.WALLET_CLOSED);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_FAILED);
-        assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
+        assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getContent())
+                .extracting(AppearanceRequestSummaryResDto::status).containsExactly(AppearanceRequestStatus.HOLD_FAILED);
+        assertThat(appearanceRequestFacade.getReceived(GUEST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
     }
 
     @Test
-    @DisplayName("Billing이 응답하지 않으면 BILLING_UNAVAILABLE, 요청서는 HOLD_PENDING으로 남고 바로 다시 보내면 중복으로 막힌다")
+    @DisplayName("Billing이 응답하지 않으면 BILLING_UNAVAILABLE, 요청서는 HOLD_PENDING으로 남아 보낸 목록에만 보이고(#306) 바로 다시 보내면 중복으로 막힌다")
     void billingUnavailable() {
         BillingStubs.unavailable(billingClient);
 
         assertErrorCode(() -> send(HOST, GUEST), AppearanceErrorCode.BILLING_UNAVAILABLE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRequestStatus.HOLD_PENDING);
-        assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
+        assertThat(appearanceRequestFacade.getSent(HOST, null, PageRequest.of(0, 20)).getContent())
+                .extracting(AppearanceRequestSummaryResDto::status).containsExactly(AppearanceRequestStatus.HOLD_PENDING);
+        assertThat(appearanceRequestFacade.getReceived(GUEST, null, PageRequest.of(0, 20)).getTotalElements()).isZero();
 
         BillingStubs.available(billingClient);
         assertErrorCode(() -> send(HOST, GUEST), AppearanceErrorCode.DUPLICATE_APPEARANCE_REQUEST);

@@ -3,6 +3,7 @@ package com.hapbang.appearance.in;
 import static com.hapbang.appearance.support.E2EMatchers.number;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
@@ -147,7 +148,7 @@ class AppearanceRecruitApiE2ETest {
     }
 
     @Test
-    @DisplayName("내 목록은 내가 올린 모집글만, 숨김 상태 필터는 400")
+    @DisplayName("내 목록은 내가 올린 모집글만, 상태 필터는 그 상태만, 없는 값은 400")
     void mine() {
         long mine = postRecruit(HOST);
         postRecruit(OTHER);
@@ -158,8 +159,85 @@ class AppearanceRecruitApiE2ETest {
                 .body("data.content[0].id", number(mine))
                 .body("data.page.totalElements", equalTo(1));
         E2ELogin.as(HOST, Role.INFLUENCER).queryParam("status", "HOLD_PENDING").get(BASE + "/mine")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(0));
+        E2ELogin.as(HOST, Role.INFLUENCER).queryParam("status", "UNKNOWN").get(BASE + "/mine")
                 .then().statusCode(400)
                 .body("code", equalTo("INVALID_REQUEST"));
+    }
+
+    /** 내 목록에서 그 상태인 모집글 ID 하나를 찾는다 (올리기가 실패 응답이라 응답 본문에 ID가 없다) */
+    private long mineIdOf(String status) {
+        return E2ELogin.as(HOST, Role.INFLUENCER).queryParam("status", status).get(BASE + "/mine")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(1))
+                .extract().jsonPath().getLong("data.content[0].id");
+    }
+
+    @Test
+    @DisplayName("보류 처리 중·실패한 모집글은 내 목록(기본·필터)과 호스트 상세·지원자 목록(빈 목록)에만 보이고, 공개 목록·다른 회원 상세·동작은 404 (#306)")
+    void holdStatusVisibleToHostOnly() {
+        BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
+        createRequest(HOST, Role.INFLUENCER, createBody(30_000, 3)).then().statusCode(409);
+        BillingStubs.unavailable(billingClient);
+        createRequest(HOST, Role.INFLUENCER, createBody(30_000, 3)).then().statusCode(503);
+        BillingStubs.available(billingClient);
+        long recruiting = postRecruit(HOST);
+        long failed = mineIdOf("HOLD_FAILED");
+        long pending = mineIdOf("HOLD_PENDING");
+
+        // 내 목록: 상태를 지정하지 않으면 두 상태도 함께 나온다
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/mine")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(3))
+                .body("data.content.status", containsInAnyOrder("RECRUITING", "HOLD_PENDING", "HOLD_FAILED"));
+
+        // 공개 목록: 모집 중인 글만
+        E2ELogin.as(OTHER, Role.INFLUENCER).get(BASE)
+                .then().statusCode(200)
+                .body("data.content[0].id", number(recruiting))
+                .body("data.page.totalElements", equalTo(1));
+
+        // 상세: 올린 호스트만 200, 다른 회원은 404
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/" + failed)
+                .then().statusCode(200)
+                .body("data.status", equalTo("HOLD_FAILED"))
+                .body("data.hpReleaseStatus", nullValue())
+                .body("data.myApplication", nullValue());
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/" + pending)
+                .then().statusCode(200)
+                .body("data.status", equalTo("HOLD_PENDING"));
+        E2ELogin.as(OTHER, Role.INFLUENCER).get(BASE + "/" + failed)
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
+        E2ELogin.as(VIEWER, Role.USER).get(BASE + "/" + pending)
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
+
+        // 지원자 목록: 상세처럼 호스트는 빈 목록, 다른 회원은 404 (모집 중인 글의 다른 회원은 403 그대로)
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/" + failed + "/applications")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(0));
+        E2ELogin.as(HOST, Role.INFLUENCER).get(BASE + "/" + pending + "/applications")
+                .then().statusCode(200)
+                .body("data.page.totalElements", equalTo(0));
+        E2ELogin.as(OTHER, Role.INFLUENCER).get(BASE + "/" + failed + "/applications")
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
+
+        // 동작: 호스트의 수정·마감·취소, 다른 회원의 지원은 그대로 404
+        patchAs(HOST, failed, "{\"title\": \"바뀐 제목\"}")
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
+        E2ELogin.as(HOST, Role.INFLUENCER).post(BASE + "/" + pending + "/close")
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
+        E2ELogin.as(HOST, Role.INFLUENCER).post(BASE + "/" + failed + "/cancel")
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
+        E2ELogin.as(OTHER, Role.INFLUENCER).post(BASE + "/" + pending + "/applications")
+                .then().statusCode(404)
+                .body("code", equalTo("APPEARANCE_RECRUIT_NOT_FOUND"));
     }
 
     @Test
