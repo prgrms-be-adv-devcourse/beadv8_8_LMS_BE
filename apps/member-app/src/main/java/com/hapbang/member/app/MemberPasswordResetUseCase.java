@@ -69,7 +69,7 @@ public class MemberPasswordResetUseCase {
             try {
                 task.run();
             } catch (RuntimeException e) {
-                log.warn("비밀번호 재설정 뒤 잠금 해제·로그아웃을 마치지 못했습니다.", e);
+                log.warn("비밀번호 재설정 뒤 잠금 해제·로그아웃을 마치지 못했다", e);
             }
         };
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {

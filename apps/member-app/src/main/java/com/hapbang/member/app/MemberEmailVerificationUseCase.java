@@ -89,7 +89,7 @@ public class MemberEmailVerificationUseCase {
      * <p>
      * 메일은 뒤에서 보낸다(대기열에 맡기고 바로 돌아온다). 그래서 응답 시간·코드가 메일을 보내는지(가입 여부)와 상관없이 같다.
      * 대기열이 가득 차면 503 EMAIL_SEND_UNAVAILABLE. 뒤에서 보내다 실패하면 코드와 1분 간격을 지워 바로 다시 받을 수 있게 하고
-     * error 로그를 남긴다(사용자는 메일이 오지 않아 다시 받는다)
+     * {@code [EMAIL_SEND_FAILED]} error 로그를 남긴다(사용자는 메일이 오지 않아 다시 받는다)
      */
     public void sendCode(String email, EmailVerificationPurpose purpose, String clientIp) {
         String normalizedEmail = MemberEmail.normalize(email);
@@ -151,14 +151,13 @@ public class MemberEmailVerificationUseCase {
                 try {
                     emailSender.send(normalizedEmail, mail.subject(), mail.text());
                 } catch (RuntimeException e) {
-                    log.error("인증 메일을 보내지 못했습니다. 코드와 1분 간격을 지워 바로 다시 받을 수 있게 합니다. purpose={}", purpose, e);
+                    log.error("[EMAIL_SEND_FAILED] 인증 메일을 보내지 못해 코드와 1분 간격을 지웠다 purpose={}", purpose, e);
                     cleanUpQuietly(normalizedEmail, purpose);
                 }
             });
         } catch (RejectedExecutionException e) {
-            log.error("인증 메일 대기열이 가득 차 맡기지 못했습니다. purpose={}", purpose, e);
             deleteCodeQuietly(normalizedEmail, purpose);
-            // 1분 간격은 sendCode가 되돌린다
+            // 1분 간격은 sendCode가 되돌린다. 로그는 5xx를 처리하는 GlobalExceptionHandler가 원인과 함께 한 번 남긴다
             throw new MemberException(MemberErrorCode.EMAIL_SEND_UNAVAILABLE, e);
         }
     }
@@ -173,7 +172,7 @@ public class MemberEmailVerificationUseCase {
         try {
             emailVerificationStore.deleteCode(normalizedEmail, purpose);
         } catch (RuntimeException e) {
-            log.warn("인증 코드를 지우지 못했습니다. 10분 뒤 저절로 만료됩니다. purpose={}", purpose, e);
+            log.warn("인증 코드를 지우지 못해 10분 뒤 저절로 만료되게 뒀다 purpose={}", purpose, e);
         }
     }
 
@@ -181,7 +180,7 @@ public class MemberEmailVerificationUseCase {
         try {
             emailVerificationStore.clearResendCooldown(normalizedEmail);
         } catch (RuntimeException e) {
-            log.warn("1분 간격을 지우지 못했습니다. 1분 뒤 저절로 풀립니다.", e);
+            log.warn("1분 간격을 지우지 못해 1분 뒤 저절로 풀리게 뒀다", e);
         }
     }
 
@@ -192,15 +191,15 @@ public class MemberEmailVerificationUseCase {
                 throw new MemberException(MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
             }
         } else {
-            log.warn("인증 코드 요청의 IP가 내부 주소라 IP당 발송 제한을 건너뜁니다. 진짜 접속 IP가 오는지 확인해야 합니다. ip={}",
+            log.warn("인증 코드 요청의 IP가 내부 주소라 IP당 발송 제한을 건너뛰었다. 진짜 접속 IP가 오는지 확인한다 ip={}",
                     clientIp);
         }
         if (!emailVerificationStore.tryCountEmailDaily(normalizedEmail)) {
             throw new MemberException(MemberErrorCode.EMAIL_CODE_DAILY_LIMIT);
         }
         if (!emailVerificationStore.tryCountGlobalDaily()) {
-            log.error("인증 메일이 앱 전체 하루 상한({}통)에 닿았습니다. 남용인지 확인해야 합니다.",
-                    EmailVerificationPolicy.GLOBAL_DAILY_LIMIT);
+            // 503은 GlobalExceptionHandler가 ERROR로 남긴다. 대기열이 가득 찬 503과 구분하려고 사유만 INFO로 남긴다
+            log.info("앱 전체 하루 상한에 닿아 인증 메일을 거절했다 limit={}", EmailVerificationPolicy.GLOBAL_DAILY_LIMIT);
             throw new MemberException(MemberErrorCode.EMAIL_SEND_UNAVAILABLE);
         }
     }
@@ -266,7 +265,7 @@ public class MemberEmailVerificationUseCase {
         try {
             emailVerificationStore.deleteToken(token, purpose);
         } catch (RuntimeException e) {
-            log.warn("쓴 인증 토큰을 지우지 못했습니다. 30분 뒤 저절로 사라집니다. purpose={}", purpose, e);
+            log.warn("쓴 인증 토큰을 지우지 못해 30분 뒤 저절로 사라지게 뒀다 purpose={}", purpose, e);
         }
     }
 
