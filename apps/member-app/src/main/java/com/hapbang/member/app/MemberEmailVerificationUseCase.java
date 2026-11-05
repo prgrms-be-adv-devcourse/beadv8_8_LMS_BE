@@ -7,7 +7,7 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -18,6 +18,7 @@ import com.hapbang.member.domain.MemberEmail;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.out.EmailSendQueue;
 import com.hapbang.member.out.EmailSender;
 import com.hapbang.member.out.EmailVerificationStore;
 import com.hapbang.member.out.PasswordCredentialRepository;
@@ -38,7 +39,7 @@ import lombok.extern.slf4j.Slf4j;
  *     Gmail 하루 발송 한도(약 500통) 소진, 남의 메일함 스팸·메일 폭탄, 코드 맞히기를 막는다.
  *     IP가 내부 주소(사설·루프백 등)면 진짜 접속 IP를 모르는 것이라 IP 제한을 건너뛰고 경고만 남긴다. 모든 사람이 한 IP로 보여
  *     가입 전체가 막히는 일을 피하려는 것이다(운영에서 진짜 IP가 오는지는 병합 전에 확인한다, docs/deploy/gateway.md).</li>
- *     <li>메일은 뒤에서 보낸다(EmailSendConfig 대기열). 응답 시간·코드가 메일을 보내는지와 상관없이 같아 가입 여부가 드러나지 않고,
+ *     <li>메일은 뒤에서 보낸다(EmailSendQueue). 응답 시간·코드가 메일을 보내는지와 상관없이 같아 가입 여부가 드러나지 않고,
  *     Gmail이 느려도 요청이 묶이지 않는다. 못 보내면 코드와 재발송 간격을 지워 바로 다시 받을 수 있게 한다. IP·이메일·전체 발송 수는 그대로 센다.</li>
  * </ul>
  */
@@ -57,13 +58,22 @@ public class MemberEmailVerificationUseCase {
     private final PasswordCredentialRepository passwordCredentialRepository;
     private final EmailVerificationStore emailVerificationStore;
     private final EmailSender emailSender;
-    /** 메일을 뒤에서 보내는 대기열 (EmailSendConfig) */
+    /** 메일을 뒤에서 보내는 대기열 (EmailSendQueue) */
     private final Executor emailSendExecutor;
 
+    @Autowired
     MemberEmailVerificationUseCase(UserRepository userRepository,
                                    PasswordCredentialRepository passwordCredentialRepository,
                                    EmailVerificationStore emailVerificationStore, EmailSender emailSender,
-                                   @Qualifier("emailSendExecutor") Executor emailSendExecutor) {
+                                   EmailSendQueue emailSendQueue) {
+        this(userRepository, passwordCredentialRepository, emailVerificationStore, emailSender, emailSendQueue::submit);
+    }
+
+    /** 테스트가 메일 대기열 대신 실행 방법을 정할 때 쓴다 */
+    MemberEmailVerificationUseCase(UserRepository userRepository,
+                                   PasswordCredentialRepository passwordCredentialRepository,
+                                   EmailVerificationStore emailVerificationStore, EmailSender emailSender,
+                                   Executor emailSendExecutor) {
         this.userRepository = userRepository;
         this.passwordCredentialRepository = passwordCredentialRepository;
         this.emailVerificationStore = emailVerificationStore;
