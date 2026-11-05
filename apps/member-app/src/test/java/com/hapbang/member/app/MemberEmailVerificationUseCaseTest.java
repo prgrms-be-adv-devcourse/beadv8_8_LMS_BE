@@ -85,16 +85,19 @@ class MemberEmailVerificationUseCaseTest {
     }
 
     @Test
-    @DisplayName("이미 가입된 이메일이면 오류 없이(같은 응답) 코드 대신 \"이미 가입됨\" 안내 메일을 보내고 코드는 저장하지 않는다. 제한은 똑같이 센다")
+    @DisplayName("이미 가입된 이메일이면 오류 없이(같은 응답) \"이미 가입됨\" 안내 메일을 보낸다. 코드는 똑같이 저장하되 메일에 싣지 않고, 제한도 똑같이 센다")
     void registeredEmailGetsNotice() {
         allowAll("tester@example.com", PUBLIC_IP);
         given(userRepository.existsByEmailIgnoreCase("tester@example.com")).willReturn(true);
 
         useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP);
 
+        ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
+        verify(store).saveCode(eq("tester@example.com"), eq(SIGN_UP), code.capture());
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(emailSender).send(eq("tester@example.com"), eq(MemberEmailVerificationUseCase.ALREADY_REGISTERED_SUBJECT),
-                anyString());
-        verify(store, never()).saveCode(anyString(), any(), anyString());
+                body.capture());
+        assertThat(body.getValue()).doesNotContain(code.getValue());
         verify(store).tryCountIp(PUBLIC_IP);
         verify(store).tryCountEmailDaily("tester@example.com");
         verify(store).tryCountGlobalDaily();
@@ -205,15 +208,18 @@ class MemberEmailVerificationUseCaseTest {
     }
 
     @Test
-    @DisplayName("안내 메일(코드 없음)을 못 보내면 1분 간격만 지운다")
-    void noticeFailureClearsCooldownOnly() {
+    @DisplayName("안내 메일을 못 보내도 이번에 저장한(메일에 없는) 코드와 1분 간격을 지운다")
+    void noticeFailureCleansUp() {
         allowAll("tester@example.com", PUBLIC_IP);
         given(userRepository.existsByEmailIgnoreCase("tester@example.com")).willReturn(true);
+        given(store.deleteCodeIfMatches(eq("tester@example.com"), eq(SIGN_UP), anyString())).willReturn(true);
         willThrow(new MailSendException("smtp down")).given(emailSender).send(anyString(), anyString(), anyString());
 
         useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP);
 
-        verify(store, never()).deleteCodeIfMatches(anyString(), any(), anyString());
+        ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
+        verify(store).saveCode(eq("tester@example.com"), eq(SIGN_UP), saved.capture());
+        verify(store).deleteCodeIfMatches("tester@example.com", SIGN_UP, saved.getValue());
         verify(store).clearResendCooldown("tester@example.com");
     }
 
@@ -274,7 +280,7 @@ class MemberEmailVerificationUseCaseTest {
     }
 
     @Test
-    @DisplayName("재설정: 구글로만 가입한(비밀번호 없는) 정상 회원이면 코드 대신 구글 로그인 안내를 보낸다")
+    @DisplayName("재설정: 구글로만 가입한(비밀번호 없는) 정상 회원이면 구글 로그인 안내를 보낸다. 코드는 똑같이 저장하되 메일에 싣지 않는다")
     void passwordResetGoogleMember() {
         allowAll("tester@example.com", PUBLIC_IP);
         given(userRepository.findByEmailIgnoreCase("tester@example.com")).willReturn(Optional.of(activeUser(7L)));
@@ -282,13 +288,16 @@ class MemberEmailVerificationUseCaseTest {
 
         useCase.sendCode("tester@example.com", PASSWORD_RESET, PUBLIC_IP);
 
+        ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
+        verify(store).saveCode(eq("tester@example.com"), eq(PASSWORD_RESET), code.capture());
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(emailSender).send(eq("tester@example.com"), eq(MemberEmailVerificationUseCase.GOOGLE_ACCOUNT_SUBJECT),
-                anyString());
-        verify(store, never()).saveCode(anyString(), any(), anyString());
+                body.capture());
+        assertThat(body.getValue()).doesNotContain(code.getValue());
     }
 
     @Test
-    @DisplayName("재설정: 없는 아이디·탈퇴·정지 회원이면 아무것도 보내지 않지만 같은 응답(예외 없음)이고 제한은 센다")
+    @DisplayName("재설정: 없는 아이디·탈퇴·정지 회원이면 아무것도 보내지 않지만 같은 응답(예외 없음)이고, 제한을 세고 코드도 똑같이 저장한다")
     void passwordResetNoMember() {
         allowAll("none@example.com", PUBLIC_IP);
         allowAll("withdrawn@example.com", PUBLIC_IP);
@@ -303,6 +312,8 @@ class MemberEmailVerificationUseCaseTest {
         verify(emailSender, never()).send(anyString(), anyString(), anyString());
         verify(store).tryCountEmailDaily("none@example.com");
         verify(store).tryCountEmailDaily("withdrawn@example.com");
+        verify(store).saveCode(eq("none@example.com"), eq(PASSWORD_RESET), anyString());
+        verify(store).saveCode(eq("withdrawn@example.com"), eq(PASSWORD_RESET), anyString());
     }
 
     @Test

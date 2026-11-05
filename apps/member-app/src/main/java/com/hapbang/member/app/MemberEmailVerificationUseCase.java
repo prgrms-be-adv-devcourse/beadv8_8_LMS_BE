@@ -33,7 +33,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>가입 여부를 응답으로 알려 주지 않는다 (#557 결정). 코드 받기는 상황과 상관없이 같은 200이고, 메일함에 가는 것만 다르다.
  *     가입: 가입되지 않은 이메일 → 코드, 이미 가입된 이메일 → "이미 가입된 이메일" 안내.
  *     재설정: 비밀번호가 있는 정상 회원 → 코드, 구글로만 가입한 정상 회원 → "구글로 로그인" 안내, 그 밖(없는 아이디, 탈퇴·정지 회원) → 보내지 않음.
- *     가입 API는 인증 토큰부터 보고, 가입 토큰은 가입되지 않은 이메일에만 나가므로 가입 API로도 알 수 없다.</li>
+ *     가입 API는 인증 토큰부터 보고, 가입 토큰은 가입되지 않은 이메일에만 나가므로 가입 API로도 알 수 없다.
+ *     코드 확인 API로도 알 수 없게, 안내 메일을 보내거나 아무것도 보내지 않을 때도 아무도 모르는 코드를 똑같이 저장한다
+ *     (코드가 있으면 틀림, 없으면 만료로 응답이 갈려 가입 여부가 드러나던 것을 막는다).</li>
  *     <li>남용 막기 (#557 결정): 같은 이메일 1분에 한 번, 한 IP 1시간 10통, 한 이메일 하루 5통, 앱 전체 하루 300통. 용도와 상관없이 합쳐 세고,
  *     메일을 보내지 않는 경우에도 똑같이 센다(응답·제한으로 가입 여부를 알아내지 못하게).
  *     Gmail 하루 발송 한도(약 500통) 소진, 남의 메일함 스팸·메일 폭탄, 코드 맞히기를 막는다.
@@ -113,30 +115,30 @@ public class MemberEmailVerificationUseCase {
     /**
      * 보낼 메일 한 통
      *
-     * @param code 이 메일로 보내는 인증 코드. 안내 메일이면 null. 못 보냈을 때 이 코드일 때만 지운다
+     * @param code 이번 요청이 저장한 코드. 안내 메일이면 메일에 싣지 않은(아무도 모르는) 코드다. 못 보냈을 때 이 코드일 때만 지운다
      */
     private record OutgoingMail(String subject, String text, String code) {
-
-        static OutgoingMail notice(String subject, String text) {
-            return new OutgoingMail(subject, text, null);
-        }
     }
 
-    /** 가입: 가입되지 않은 이메일이면 코드(저장), 이미 가입된 이메일이면 안내(가입 여부는 메일함 주인만 안다) */
+    /**
+     * 가입: 가입되지 않은 이메일이면 코드, 이미 가입된 이메일이면 안내(가입 여부는 메일함 주인만 안다).
+     * 코드는 두 경우 모두 저장한다(안내 메일에는 싣지 않음). 확인 API의 응답이 같아지게 하려는 것이다
+     */
     private OutgoingMail signUpMail(String normalizedEmail) {
+        String code = saveNewCode(normalizedEmail, EmailVerificationPurpose.SIGN_UP);
         if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
-            return OutgoingMail.notice(ALREADY_REGISTERED_SUBJECT, alreadyRegisteredBody());
+            return new OutgoingMail(ALREADY_REGISTERED_SUBJECT, alreadyRegisteredBody(), code);
         }
-        String code = newCode();
-        emailVerificationStore.saveCode(normalizedEmail, EmailVerificationPurpose.SIGN_UP, code);
         return new OutgoingMail(SUBJECT, body(code), code);
     }
 
     /**
      * 재설정: 비밀번호가 있는 정상 회원이면 코드(저장), 구글로만 가입한 정상 회원이면 "구글로 로그인" 안내.
-     * 없는 아이디, 탈퇴·정지 회원(#557 결정: 정상 회원만)에게는 보내지 않는다(회원이 아닌 사람 메일함에 메일이 가지 않게)
+     * 없는 아이디, 탈퇴·정지 회원(#557 결정: 정상 회원만)에게는 보내지 않는다(회원이 아닌 사람 메일함에 메일이 가지 않게).
+     * 코드는 모든 경우에 저장한다(코드 메일이 아니면 아무도 모르는 코드). 확인 API의 응답이 같아지게 하려는 것이다
      */
     private Optional<OutgoingMail> passwordResetMail(String normalizedEmail) {
+        String code = saveNewCode(normalizedEmail, EmailVerificationPurpose.PASSWORD_RESET);
         Optional<User> member = userRepository.findByEmailIgnoreCase(normalizedEmail).filter(User::isActive);
         if (member.isEmpty()) {
             return Optional.empty();
@@ -145,11 +147,16 @@ public class MemberEmailVerificationUseCase {
                 .filter(credential -> !credential.isWiped())
                 .isPresent();
         if (!hasPassword) {
-            return Optional.of(OutgoingMail.notice(GOOGLE_ACCOUNT_SUBJECT, googleAccountBody()));
+            return Optional.of(new OutgoingMail(GOOGLE_ACCOUNT_SUBJECT, googleAccountBody(), code));
         }
-        String code = newCode();
-        emailVerificationStore.saveCode(normalizedEmail, EmailVerificationPurpose.PASSWORD_RESET, code);
         return Optional.of(new OutgoingMail(PASSWORD_RESET_SUBJECT, passwordResetBody(code), code));
+    }
+
+    /** 새 코드를 만들어 저장한다(같은 이메일·용도의 이전 코드와 틀린 횟수는 지워진다) */
+    private String saveNewCode(String normalizedEmail, EmailVerificationPurpose purpose) {
+        String code = newCode();
+        emailVerificationStore.saveCode(normalizedEmail, purpose, code);
+        return code;
     }
 
     /** 메일을 대기열에 맡긴다. 가득 차면 503. 뒤에서 실패하면 이번 코드·1분 간격을 정리하고 error 로그 */
@@ -173,19 +180,16 @@ public class MemberEmailVerificationUseCase {
     /**
      * 뒤에서 메일을 못 보냈을 때 이번 요청이 남긴 코드와 1분 간격을 지워 바로 다시 받을 수 있게 한다. 지우다 오류가 나도 로그만 남긴다.
      * 보내는 데 오래 걸려(Gmail 장애로 대기열이 밀림) 그 사이 같은 이메일이 새 코드를 받았으면, 저장된 코드가 이번 코드와 달라
-     * 아무것도 지우지 않는다. 1분 간격도 새 요청의 것이라 그대로 둔다. 안내 메일(코드 없음)은 1분 간격만 지운다
+     * 아무것도 지우지 않는다. 1분 간격도 새 요청의 것이라 그대로 둔다
      */
     private void cleanUpQuietly(String normalizedEmail, EmailVerificationPurpose purpose, String code) {
-        if (code == null || deleteCodeQuietly(normalizedEmail, purpose, code)) {
+        if (deleteCodeQuietly(normalizedEmail, purpose, code)) {
             clearCooldownQuietly(normalizedEmail);
         }
     }
 
-    /** 저장된 코드가 {@code code}일 때만 지운다. 지웠으면 true. 안내 메일(코드 없음)이거나 지우다 오류가 나면 false */
+    /** 저장된 코드가 {@code code}일 때만 지운다. 지웠으면 true. 지우다 오류가 나면 false */
     private boolean deleteCodeQuietly(String normalizedEmail, EmailVerificationPurpose purpose, String code) {
-        if (code == null) {
-            return false;
-        }
         try {
             return emailVerificationStore.deleteCodeIfMatches(normalizedEmail, purpose, code);
         } catch (RuntimeException e) {

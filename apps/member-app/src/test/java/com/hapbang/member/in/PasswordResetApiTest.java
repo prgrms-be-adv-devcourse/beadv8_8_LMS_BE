@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -120,7 +121,7 @@ class PasswordResetApiTest {
     }
 
     @Test
-    @DisplayName("받는 사람 규칙: 비밀번호 회원만 코드를 받고, 구글 회원·없는 이메일은 코드 없이 같은 200이다")
+    @DisplayName("받는 사람 규칙: 비밀번호 회원만 코드 메일을 받고, 구글 회원·없는 이메일도 같은 200이다. 코드 확인 응답도 같다(틀림 → 5번째 만료)")
     void whoGetsCode() throws Exception {
         String passwordEmail = newEmail();
         passwordMember(passwordEmail, "oldpass1234");
@@ -137,8 +138,24 @@ class PasswordResetApiTest {
 
         assertThat(googleBody).isEqualTo(passwordBody).isEqualTo(unknownBody);
         assertThat(savedCode(passwordEmail, "password_reset")).matches("\\d{6}");
-        assertThat(savedCode(googleEmail, "password_reset")).isNull();
-        assertThat(savedCode(unknownEmail, "password_reset")).isNull();
+
+        // 코드 확인으로도 계정 종류·가입 여부를 알 수 없다
+        String wrong = Stream.of("000000", "111111", "222222", "333333")
+                .filter(candidate -> !candidate.equals(savedCode(passwordEmail, "password_reset"))
+                        && !candidate.equals(savedCode(googleEmail, "password_reset"))
+                        && !candidate.equals(savedCode(unknownEmail, "password_reset")))
+                .findFirst().orElseThrow();
+        for (String email : new String[] {passwordEmail, googleEmail, unknownEmail}) {
+            for (int i = 0; i < 4; i++) {
+                verifyResult(email, wrong).andExpect(jsonPath("$.code").value("INVALID_EMAIL_CODE"));
+            }
+            verifyResult(email, wrong).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+        }
+    }
+
+    private ResultActions verifyResult(String email, String code) throws Exception {
+        return mockMvc.perform(post(EMAIL_CODES + "/verify").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"%s\",\"purpose\":\"PASSWORD_RESET\",\"code\":\"%s\"}".formatted(email, code)));
     }
 
     @Test

@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
@@ -100,7 +101,7 @@ class EmailVerificationApiTest {
     }
 
     @Test
-    @DisplayName("이미 가입된 이메일이어도 같은 200을 주고 코드는 만들지 않는다(가입 여부를 응답으로 알 수 없음). 이메일 형식이 틀리면 400")
+    @DisplayName("이미 가입된 이메일이어도 같은 200을 준다(가입 여부를 응답으로 알 수 없음). 이메일 형식이 틀리면 400")
     void registeredEmailLooksTheSame() throws Exception {
         String email = newEmail();
         userRepository.save(User.join(email, "tester" + UUID.randomUUID().toString().substring(0, 4)));
@@ -112,9 +113,36 @@ class EmailVerificationApiTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(registeredBody).isEqualTo(unregisteredBody);
-        assertThat(savedCode(email)).isNull();
         assertThat(savedCode(unregistered)).matches("\\d{6}");
         sendCode("not-an-email", newIp()).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("코드 확인으로도 가입 여부를 알 수 없다: 가입된 이메일과 안 된 이메일에 같은 틀린 코드를 보내면 같은 응답(틀림 → 5번째 만료)")
+    void verifyLooksTheSameForRegisteredEmail() throws Exception {
+        String registered = newEmail();
+        userRepository.save(User.join(registered, "tester" + UUID.randomUUID().toString().substring(0, 4)));
+        String unregistered = newEmail();
+        sendCode(registered, newIp()).andExpect(status().isOk());
+        sendCode(unregistered, newIp()).andExpect(status().isOk());
+        String wrong = wrongCodeFor(savedCode(registered), savedCode(unregistered));
+
+        for (int i = 0; i < 4; i++) {
+            verify(registered, wrong).andExpect(jsonPath("$.code").value("INVALID_EMAIL_CODE"));
+            verify(unregistered, wrong).andExpect(jsonPath("$.code").value("INVALID_EMAIL_CODE"));
+        }
+        verify(registered, wrong).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+        verify(unregistered, wrong).andExpect(jsonPath("$.code").value("EMAIL_CODE_EXPIRED"));
+    }
+
+    /** 두 저장된 코드와 모두 다른 6자리 */
+    private static String wrongCodeFor(String... saved) {
+        for (String candidate : new String[] {"000000", "111111", "222222"}) {
+            if (!Arrays.asList(saved).contains(candidate)) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException("틀린 코드를 고르지 못했다");
     }
 
     @Test
