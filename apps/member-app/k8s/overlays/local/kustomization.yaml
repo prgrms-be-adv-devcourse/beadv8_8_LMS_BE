@@ -24,6 +24,8 @@ secretGenerator:
       - CHZZK_CLIENT_ID=local-dummy
       - CHZZK_CLIENT_SECRET=local-dummy
       - CHZZK_REDIRECT_URI=http://localhost/api/v1/members/channels/chzzk/callback
+      - MAIL_USERNAME=local-dummy@example.com
+      - MAIL_PASSWORD=local-dummy
     options:
       disableNameSuffixHash: true
 # base가 prod 프로필이라 개인 키(JWT_PRIVATE_KEY) 없이는 member-app이 뜨지 않는다. 로컬은 시작할 때마다 임시 서명 키를 만든다(#500).
@@ -33,3 +35,5 @@ configMapGenerator:
     behavior: merge
     literals:
       - HAPBANG_JWT_ALLOW_EPHEMERAL_KEY=true
+      # 가입·재설정 인증 메일을 Gmail로 보내지 않고 로그로 남긴다(#557). prod 프로필이라 켜지 않으면 가짜 계정으로 Gmail에 붙다가 실패한다
+      - HAPBANG_MEMBER_MAIL_LOG_ONLY=true

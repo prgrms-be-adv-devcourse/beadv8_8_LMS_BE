@@ -6,6 +6,10 @@ spring:
     compose:
       file: docker/compose.yaml
       lifecycle-management: start-only
+  # 가입 이메일 인증 메일 (#557). 비워 두면 메일 대신 로그에 코드가 찍힌다. 진짜로 보내 보려면 .env에 넣는다
+  mail:
+    username: "${MAIL_USERNAME:}"
+    password: "${MAIL_PASSWORD:}"
   security:
     oauth2:
       client:

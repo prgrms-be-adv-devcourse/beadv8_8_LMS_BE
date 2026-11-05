@@ -7,19 +7,50 @@ import com.hapbang.member.global.response.RsData;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /** 이메일·비밀번호 로그인 API Swagger 명세 (#499). 매핑은 {@link ApiV1MemberPasswordController} */
 @Tag(name = "비밀번호 로그인", description = "이메일·비밀번호 가입, 로그인, 비밀번호 변경")
 public interface ApiV1MemberPasswordSpec {
 
+    @Operation(summary = "인증 코드 받기 (가입·비밀번호 재설정)",
+            description = "로그인 없이 부른다 (#557). purpose: SIGN_UP(가입) 또는 PASSWORD_RESET(비밀번호 재설정). "
+                    + "6자리 인증 코드를 메일로 보낸다. 코드는 10분 유효하고, 다시 받으면 이전 코드는 못 쓴다. "
+                    + "가입 여부는 응답으로 알려 주지 않는다: 상황과 상관없이 같은 200이고 메일함에 가는 것만 다르다. "
+                    + "SIGN_UP: 가입되지 않은 이메일 → 코드, 이미 가입된 이메일(구글 포함) → \"이미 가입된 이메일\" 안내. "
+                    + "PASSWORD_RESET: 비밀번호가 있는 정상 회원 → 코드, 구글로만 가입한 정상 회원 → \"구글로 로그인\" 안내, "
+                    + "없는 이메일·탈퇴·정지 회원 → 보내지 않음. 프론트는 항상 \"메일을 확인해 주세요\"로 안내한다. "
+                    + "제한은 용도와 상관없이 합쳐 센다: 같은 이메일 1분에 한 번(429 EMAIL_CODE_RESEND_TOO_SOON), 한 IP 1시간 10통(429 EMAIL_CODE_TOO_MANY_REQUESTS), "
+                    + "한 이메일 하루 5통(429 EMAIL_CODE_DAILY_LIMIT). 앱 전체 하루 상한(300통)에 닿으면 503 EMAIL_SEND_UNAVAILABLE. "
+                    + "메일은 뒤에서 보내므로 응답은 바로 온다. 메일이 오지 않으면 1분 뒤 다시 받는다(발송에 실패했으면 서버가 1분 간격을 풀어 바로 다시 받을 수 있다). "
+                    + "메일 대기열이 가득 차도 503 EMAIL_SEND_UNAVAILABLE. "
+                    + "응답 data: expiresInSeconds(코드 유효 시간), resendAfterSeconds(다시 받을 수 있을 때까지).")
+    RsData<EmailCodeResponse> sendEmailCode(EmailCodeRequest request,
+                                            @Parameter(hidden = true) HttpServletRequest httpRequest);
+
+    @Operation(summary = "인증 코드 확인 (가입·비밀번호 재설정)",
+            description = "로그인 없이 부른다 (#557). 받은 6자리 코드를 코드를 받을 때와 같은 purpose로 확인하고, 맞으면 그 용도의 인증 토큰(30분)을 준다. "
+                    + "SIGN_UP 토큰은 가입에, PASSWORD_RESET 토큰은 비밀번호 재설정에만 쓸 수 있다(한 번만). "
+                    + "틀리면 400 INVALID_EMAIL_CODE(코드 하나에 5번까지). 5번째로 틀리거나, 받은 코드가 없거나 10분이 지났으면 "
+                    + "400 EMAIL_CODE_EXPIRED(코드를 다시 받아야 함). 코드는 숫자 6자리(아니면 400). "
+                    + "한 IP는 1시간에 30번까지 확인할 수 있다(넘으면 429 EMAIL_CODE_TOO_MANY_REQUESTS). "
+                    + "응답 data: emailVerificationToken, expiresInSeconds.")
+    RsData<EmailVerificationTokenResponse> verifyEmailCode(EmailCodeVerifyRequest request,
+                                                           @Parameter(hidden = true) HttpServletRequest httpRequest);
+
     @Operation(summary = "가입",
             description = "로그인 없이 부른다. 이메일·비밀번호·닉네임으로 가입하고 역할은 유저다. 가입만 하고 로그인은 따로 한다. "
-                    + "이메일은 앞뒤 공백을 지우고 소문자로 저장한다. 이미 가입된 이메일(구글 가입 포함)이면 409 DUPLICATE_EMAIL. "
+                    + "이메일은 앞뒤 공백을 지우고 소문자로 저장한다. 이미 가입된 이메일(구글 가입 포함)이면 409 DUPLICATE_EMAIL "
+                    + "(인증 토큰은 가입되지 않은 이메일에만 나가므로, 토큰을 받은 뒤 다른 경로로 먼저 가입된 경우만 해당). "
                     + "다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME (#646, 미리 확인: GET /api/v1/members/nicknames/availability). "
                     + "비밀번호는 8~64자, 영문과 숫자를 하나 이상씩, 영문·숫자·키보드 특수문자만(공백·한글 불가). "
                     + "어기면 400 INVALID_PASSWORD_LENGTH·INVALID_PASSWORD_CHARACTER·PASSWORD_LETTER_AND_DIGIT_REQUIRED. "
-                    + "닉네임은 내 정보 수정과 같은 규칙. 메일 인증은 아직 없다.")
+                    + "닉네임은 내 정보 수정과 같은 규칙. "
+                    + "이메일 인증(#557)이 먼저 필요하다: 인증 코드 받기(POST /api/v1/members/email-codes) → 확인(POST /api/v1/members/email-codes/verify)으로 "
+                    + "받은 emailVerificationToken을 넣는다. 없거나 만료(30분)됐거나 다른 이메일의 토큰이면 400 EMAIL_NOT_VERIFIED. "
+                    + "가입되면 토큰은 사라진다(가입이 실패하면 그대로 남아 다시 쓸 수 있다). "
+                    + "임시 예외: 부하 시험 계정 이메일(k6-날짜8-시각6-hex6-001~100@example.invalid)은 메일을 받을 수 없어 토큰 없이 가입된다.")
     RsData<MemberMeResponse> signUp(SignUpRequest request);
 
     @Operation(summary = "로그인",
@@ -32,6 +63,14 @@ public interface ApiV1MemberPasswordSpec {
                     + "\"복구할까요?\"에서 복구하면 본문 없이 POST /api/v1/members/restore를 부른다.")
     ResponseEntity<RsData<MemberMeResponse>> login(PasswordLoginRequest request,
                                                    @Parameter(hidden = true) HttpServletResponse response);
+
+    @Operation(summary = "비밀번호 재설정",
+            description = "로그인 없이 부른다 (#557). 비밀번호를 잊었을 때: 인증 코드 받기(purpose=PASSWORD_RESET) → 확인으로 받은 "
+                    + "emailVerificationToken과 새 비밀번호를 보낸다. 토큰이 없거나 만료(30분)됐거나 다른 이메일·가입용 토큰이면 400 EMAIL_NOT_VERIFIED. "
+                    + "토큰을 받은 뒤 탈퇴·정지됐어도 400 EMAIL_NOT_VERIFIED(정상 회원만 재설정). 비밀번호가 없는 회원(구글)은 409 PASSWORD_NOT_SET. "
+                    + "새 비밀번호 규칙은 가입과 같다(어기면 400, 토큰은 남아 다시 시도 가능). "
+                    + "바꾸면 로그인 실패 잠금을 풀고 그 회원의 모든 기기를 로그아웃시킨다. 토큰은 한 번만 쓸 수 있다.")
+    RsData<Void> resetPassword(PasswordResetRequest request);
 
     @Operation(summary = "비밀번호 변경",
             description = "로그인한 회원 본인. 현재 비밀번호가 틀리면 400 INVALID_CURRENT_PASSWORD, "

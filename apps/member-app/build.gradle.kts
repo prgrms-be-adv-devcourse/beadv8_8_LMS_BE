@@ -12,6 +12,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security-oauth2-client")
     // 치지직 Open API 호출 (채널 인증)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
+    // 가입 이메일 인증 코드 메일 발송 (#557, Gmail SMTP)
+    implementation("org.springframework.boot:spring-boot-starter-mail")
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
     implementation(libs.swagger.annotations)
     implementation("org.springframework.modulith:spring-modulith-events-kafka")

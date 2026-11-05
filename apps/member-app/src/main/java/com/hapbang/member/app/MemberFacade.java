@@ -17,12 +17,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.ChannelPlatform;
+import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
+import com.hapbang.member.domain.LoadTestAccount;
+import com.hapbang.member.domain.MemberEmail;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.Nickname;
 import com.hapbang.member.domain.OAuthProvider;
+import com.hapbang.member.domain.Password;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.global.exception.BusinessException;
 import com.hapbang.member.global.exception.GlobalErrorCode;
@@ -50,6 +54,8 @@ public class MemberFacade {
     private final MemberFollowerRefreshUseCase memberFollowerRefreshUseCase;
     private final MemberTokenUseCase memberTokenUseCase;
     private final MemberSignUpUseCase memberSignUpUseCase;
+    private final MemberEmailVerificationUseCase memberEmailVerificationUseCase;
+    private final MemberPasswordResetUseCase memberPasswordResetUseCase;
     private final MemberPasswordLoginUseCase memberPasswordLoginUseCase;
     private final MemberPasswordChangeUseCase memberPasswordChangeUseCase;
     private final MemberAppearanceRatingUseCase memberAppearanceRatingUseCase;
@@ -293,16 +299,52 @@ public class MemberFacade {
         memberTokenUseCase.logout(refreshToken);
     }
 
-    /** 이메일·비밀번호 가입 (#499). 로그인은 따로 한다 */
+    /** 인증 코드 메일 보내기 (#557, 가입·비밀번호 재설정). 메일 발송을 DB 트랜잭션에 두지 않으려고 트랜잭션을 두지 않는다 */
+    public void sendEmailCode(String email, EmailVerificationPurpose purpose, String clientIp) {
+        memberEmailVerificationUseCase.sendCode(email, purpose, clientIp);
+    }
+
+    /** 인증 코드 확인 → 그 용도의 인증 토큰 (#557) */
+    public String verifyEmailCode(String email, EmailVerificationPurpose purpose, String code, String clientIp) {
+        return memberEmailVerificationUseCase.verifyCode(email, purpose, code, clientIp);
+    }
+
+    /**
+     * 이메일·비밀번호 가입 (#499). 로그인은 따로 한다. 이메일 인증(#557)을 마친 토큰이 있어야 하고, 가입이 커밋되면 토큰을 지운다.
+     * 초기 계정·관리자 계정은 이 메서드가 아니라 가입 처리(register)를 바로 불러 인증을 거치지 않는다
+     */
     @Transactional
-    public User signUp(String email, String password, String nickname) {
-        return memberSignUpUseCase.signUp(email, password, nickname);
+    public User signUp(String email, String password, String nickname, String emailVerificationToken) {
+        // 부하 시험 계정(k6-…@example.invalid)은 메일을 받을 수 없어 이메일 인증을 건너뛴다 (#557 임시 예외, LoadTestAccount)
+        boolean loadTest = LoadTestAccount.isLoadTestEmail(MemberEmail.normalize(email));
+        if (!loadTest) {
+            memberEmailVerificationUseCase.requireVerified(email, EmailVerificationPurpose.SIGN_UP, emailVerificationToken);
+        }
+        User user = memberSignUpUseCase.signUp(email, password, nickname);
+        if (!loadTest) {
+            memberEmailVerificationUseCase.consumeAfterUse(emailVerificationToken, EmailVerificationPurpose.SIGN_UP);
+        }
+        return user;
     }
 
     /** 이메일·비밀번호 로그인 (#499). 토큰은 issueTokens로 발급한다 */
     @Transactional(readOnly = true)
     public User passwordLogin(String email, String password) {
         return memberPasswordLoginUseCase.login(email, password);
+    }
+
+    /**
+     * 비밀번호 재설정 (#557): 새 비밀번호 규칙을 먼저 보고(어기면 토큰이 남아 다시 시도 가능), 재설정용 인증 토큰을 꺼내면서 지운 뒤
+     * (같은 토큰으로 동시에 와도 한 번만) 새 비밀번호로 바꾸고 그 회원의 모든 기기를 로그아웃시킨다.
+     * 로그아웃(refresh token 폐기)은 비밀번호 변경과 같이 커밋 전에 하고(바꾸기가 실패해도 로그아웃만 되는 안전한 쪽),
+     * 커밋 뒤에 한 번 더 한다(그 사이 예전 비밀번호로 받은 토큰까지 지운다, MemberPasswordResetUseCase)
+     */
+    @Transactional
+    public void resetPassword(String email, String emailVerificationToken, String newPassword) {
+        Password.validate(newPassword);
+        memberEmailVerificationUseCase.takeVerified(email, EmailVerificationPurpose.PASSWORD_RESET, emailVerificationToken);
+        User user = memberPasswordResetUseCase.reset(email, newPassword);
+        memberTokenUseCase.revokeAll(user.getId());
     }
 
     /**

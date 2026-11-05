@@ -28,7 +28,8 @@ public class ApiV1MemberAdminAccountController implements ApiV1MemberAdminAccoun
     @Override
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public RsData<MemberMeResponse> create(@LoginUserId Long adminId, @Valid @RequestBody SignUpRequest request) {
+    public RsData<MemberMeResponse> create(@LoginUserId Long adminId,
+                                           @Valid @RequestBody AdminAccountCreateRequest request) {
         User created = memberAdminAccountFacade.createAdmin(adminId, request.email(), request.password(),
                 request.nickname());
         // 새 계정이라 프로필 사진이 없다

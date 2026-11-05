@@ -65,6 +65,11 @@ public class SecurityConfig {
                         .permitAll()
                         // 이메일·비밀번호 가입·로그인 (#499). 로그인 응답은 refresh token 쿠키만 준다
                         .requestMatchers(HttpMethod.POST, "/api/v1/members/signup", "/api/v1/members/login").permitAll()
+                        // 인증 코드 받기·확인 (#557, 가입·비밀번호 재설정). 로그인 정보가 없다
+                        .requestMatchers(HttpMethod.POST, "/api/v1/members/email-codes", "/api/v1/members/email-codes/verify")
+                        .permitAll()
+                        // 비밀번호 재설정 (#557). 비밀번호를 잊어 로그인할 수 없으므로 재설정용 인증 토큰으로 확인한다
+                        .requestMatchers(HttpMethod.POST, "/api/v1/members/password-reset").permitAll()
                         // 닉네임 중복 확인 (#646). 가입 화면에서 부른다. 로그인했으면 자기 닉네임은 쓸 수 있다고 답한다
                         .requestMatchers(HttpMethod.GET, "/api/v1/members/nicknames/availability").permitAll()
                         // 부하 시험용 승급 API도 관리자만 호출한다. 대상 계정은 Facade에서 제한한다.
