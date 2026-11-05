@@ -264,6 +264,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 - 등록: 허용하지 않는 형식 `UNSUPPORTED_FILE_CONTENT_TYPE`(400), 최대 크기 초과 `FILE_TOO_LARGE`(400).
 - 본문 업로드: 없는 파일 `FILE_NOT_FOUND`(404), 업로더가 아님 `NOT_FILE_UPLOADER`(403), 이미 올림 `FILE_ALREADY_UPLOADED`(409), `Content-Length` 없음 `FILE_LENGTH_REQUIRED`(411), 크기가 등록과 다름 `FILE_SIZE_MISMATCH`(400), 형식이 등록과 다름 `FILE_CONTENT_TYPE_MISMATCH`(400). 이 순서로 검사한다 (D24).
+- 앱 전체 동시 업로드가 상한(기본 20, `lecture.file.upload-max-concurrent`)이면 위 검사 전에 503 `FILE_UPLOAD_BUSY` + `Retry-After: 60`이다. 본문을 읽지 않고 파일은 `PENDING`으로 남는다 (D81).
 - 업로드 경로는 nginx가 PUT만 받고 form·multipart 본문은 415로 끊는다(`docs/deploy/s3.md`).
 - 강의 등록·정보 수정·콘텐츠 교체에 맞지 않는 파일을 보내면 `INVALID_LECTURE_FILE`(400) (D21).
 
@@ -294,7 +295,9 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | --- | --- |
 | 모든 보류 성공 | 201 + `PAID` 주문 |
 | billing 확정 거절 + 성공했던 보류의 반환까지 완료 (`HOLD_FAILED`) | 409 `INSUFFICIENT_BALANCE`. 탈퇴로 닫힌 지갑이 보류를 거절했으면 409 `WALLET_CLOSED`다(D76, 사유는 보류 작업의 확정 거절 기록에서 읽는다). 강의 오류 코드가 billing과 같은 `code` 문자열을 써서 프론트 분기가 바뀌지 않는다 (D69) |
-| 보류 결과 불명, 재시도 대상, 보상 반환 진행 중, 또는 요청 시간 예산(10초, D68)을 넘김 | 202 + `HOLD_PENDING`·`HOLD_COMPENSATING` 주문. `RsData.data`에 `orderId`·`status`를 담는다 |
+| 보류 결과 불명, 재시도 대상, 보상 반환 진행 중, 요청 시간 예산(10초, D68)을 넘김, 또는 지갑 회로가 열려 보내지 않음(D79) | 202 + `HOLD_PENDING`·`HOLD_COMPENSATING` 주문. `RsData.data`에 `orderId`·`status`를 담는다 |
+| 강의 101개 이상 | 400 `INVALID_REQUEST`(`errors[].field` = `lectureIds`). 한 주문에 강의는 100개까지다 (D80) |
+| 회원별 요청 한도(기본 분당 10) 초과 | 429 `TOO_MANY_REQUESTS` + `Retry-After`(초). 주문을 만들지 않는다. 구매 취소도 따로 같은 한도다 (D80) |
 
 ```json
 { "statusCode": 202, "message": "주문 결제를 처리 중입니다.", "data": { "orderId": 123, "status": "HOLD_PENDING", "items": [ ... ] } }

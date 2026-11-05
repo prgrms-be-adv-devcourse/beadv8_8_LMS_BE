@@ -20,3 +20,8 @@ spring:
       auto-startup: false
     admin:
       auto-create: false
+lecture:
+  # 회원별 요청 한도(D80)는 컨텍스트 하나를 여러 테스트가 함께 쓰고 같은 회원 ID를 반복해 쓴다. 한도에 걸려 뒤 테스트가 429를 받지 않게
+  # 크게 둔다. 한도 동작은 작은 값으로 직접 만든 UserRateLimiter와 따로 띄운 컨텍스트(RateLimitIntegrationTest)로 확인한다(지갑과 같음)
+  rate-limit:
+    write: 1000000

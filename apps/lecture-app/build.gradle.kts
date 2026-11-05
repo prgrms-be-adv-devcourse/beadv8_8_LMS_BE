@@ -14,6 +14,10 @@ dependencies {
     implementation("org.springframework.security:spring-security-core")
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
     implementation(libs.swagger.annotations)
+    // 주문·구매 취소 회원별 요청 한도(D80), 파일 업로드 동시 수 상한(D81)과 그 지표. starter 없이 코드로 조합한다(지갑·shared와 같음)
+    implementation(libs.resilience4j.ratelimiter)
+    implementation(libs.resilience4j.bulkhead)
+    implementation(libs.resilience4j.micrometer)
     // 이의 제기 결과·반환 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #278). 버전은 Modulith BOM을 따른다
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
     // 동시 요청의 유일 인덱스 위반 판별(UniqueIndexViolation)에 PSQLException의 제약 이름을 쓴다(billing과 같음). 드라이버는 실행 시 이 앱(runtimeOnly)가 넣어 준다

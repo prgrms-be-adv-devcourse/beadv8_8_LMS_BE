@@ -75,14 +75,14 @@ OWASP는 프록시가 넣은 헤더를 믿으려면 세 가지가 필요하다�
 
 ## rate limit — 각 앱의 Resilience4j
 
-- 대상: 로그인, HP 충전 요청, 고객센터 RAG 질문처럼 남용되면 비용이 드는 경로
+- 대상: 로그인, HP 충전 요청, 고객센터 RAG 질문처럼 남용되면 비용이 드는 경로. 요청 안에서 다른 앱을 동기로 부르는 경로도 넣는다(강의 주문·구매 취소, 강의 D80). 내부 API(`/api/v1/internal/**`)와 관리자 API는 넣지 않는다. 내부 API는 회원이 아니라 앱이 부르므로 부르는 앱의 circuit breaker와 그 앞단 사용자 한도로 막는다
 - key: `X-User-Id`가 있으면 회원 ID, 없으면 client IP
 - client IP 신뢰 경계: Envoy 앞에는 신뢰할 proxy가 없으므로 `ClientTrafficPolicy`의 `X-Forwarded-For` 신뢰 hop 수는 0으로 둔다. Envoy는 실제 접속 주소를 `X-Forwarded-For` 맨 뒤에 붙인다. 앱(`server.forward-headers-strategy=native`, Tomcat `RemoteIpValve`)은 오른쪽부터 읽어 cluster 내부 주소가 아닌 첫 주소를 client IP로 쓴다. 그래서 클라이언트가 앞쪽에 넣은 값은 무시된다. Envoy가 실제 client IP를 보는지(ServiceLB와 `externalTrafficPolicy: Local`)는 설치 뒤 access log로 확인한다
 - client IP rate limit을 구현할 때 Envoy가 실제 공인 IP를 보는지 다시 확인한다. Envoy가 private 주소(로컬 k3d의 docker 대역, SNAT된 node 주소)를 보면 Tomcat이 그 주소도 proxy로 건너뛰어 클라이언트가 넣은 값을 읽는다. 그때는 Envoy에서 `X-Forwarded-For`를 실제 접속 주소로 덮어쓰는 방식을 검토한다. 앱 코드에 client IP rate limit이 아직 없어 #372에서는 넣지 않았다
 - 한도를 넘으면 429를 `ProblemDetail`로 응답한다
 - RateLimiter는 앱 프로세스 메모리에서 센다. 앱마다 replica가 1개라 앱 하나의 한도가 곧 전체 한도다. replica를 늘리면 한도도 replica 수만큼 늘어나므로, 그때 공유 저장소 방식을 다시 판단한다
 - 예외: 회원 앱의 이메일 인증 제한(발송: 같은 이메일 1분, IP 1시간 10통, 이메일 하루 5통, 전체 하루 300통 / 코드 확인: IP 1시간 30번, #557)은 Redis로 센다. 이유: (1) 하루 단위 상한이 배포·재시작 뒤에도 유지돼야 한다. Resilience4j는 pod 메모리에서 세어 배포(dev 병합)마다 0이 된다. (2) 세는 단위가 이메일·IP마다 따로라 키가 끝없이 늘어나는데, Redis는 키마다 TTL로 저절로 지워지고 Lua로 원자적으로 센다. (3) Redis는 이미 쓰고 있어(refresh token, 채팅) 새 인프라가 아니다. client IP는 위 신뢰 경계대로 읽고, IPv6는 /64 단위로 센다. 운영에서 진짜 client IP가 오는지는 병합 전에 확인한다
-- 구현은 쓰는 앱에 먼저 두고, 두 앱 이상이 같은 코드를 쓰면 `common`으로 옮긴다
+- 구현은 쓰는 앱에 먼저 두고, 두 앱 이상이 같은 코드를 쓰면 `common`으로 옮길지 판단한다. 지갑(#627)과 강의(#423)가 같은 방식의 `global.ratelimit`를 각자 두고 있고, 옮길지는 #697에서 판단한다
 - 앱 간 내부 HTTP 호출(#280)의 timeout·circuit breaker도 Resilience4j로 통일한다
 
 ## 구현 후보와 판단

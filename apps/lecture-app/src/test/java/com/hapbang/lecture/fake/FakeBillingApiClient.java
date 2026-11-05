@@ -42,6 +42,7 @@ import com.hapbang.shared.billing.out.BillingClientProperties;
  *     <li>대사 조회(#580): 참조 대상별 조회는 {@link #putHoldState}로 넣은 기록을, 없으면 빈 기록을 준다.
  *     목록 조회는 {@link #addHoldPage}로 넣은 페이지를 차례로 주고, 없으면 요청한 커서 그대로의 빈 마지막 페이지다.</li>
  *     <li>호출마다 요청과 그때 강의 트랜잭션이 열려 있었는지를 남긴다.</li>
+ *     <li>{@link #setCircuitOpen}으로 지갑 회로가 열린 상태를 흉내 낸다(D79). 기본은 닫혀 있다.</li>
  * </ul>
  * 컨텍스트가 테스트 사이에 재사용되므로 테스트마다 {@link #reset()}한다.
  * 빈은 {@link FakeBillingApiClientConfig}가 등록한다(부모 클래스의 설정 애노테이션이 처리되지 않게 {@code @Component}로 두지 않는다).
@@ -55,6 +56,7 @@ public class FakeBillingApiClient extends BillingApiClient {
     };
     private final Map<Long, HoldStateDto> holdStates = new ConcurrentHashMap<>();
     private final Deque<HoldStatePageDto> holdPages = new ArrayDeque<>();
+    private volatile boolean circuitOpen;
 
     public FakeBillingApiClient() {
         super(RestClient.builder(), new BillingClientProperties("http://127.0.0.1:9", null, null), "test");
@@ -68,6 +70,17 @@ public class FakeBillingApiClient extends BillingApiClient {
         };
         holdStates.clear();
         holdPages.clear();
+        circuitOpen = false;
+    }
+
+    /** 지갑 회로가 열려 있는지. 열려 있으면 실행기는 작업을 선점하지 않는다 (D79) */
+    public void setCircuitOpen(boolean circuitOpen) {
+        this.circuitOpen = circuitOpen;
+    }
+
+    @Override
+    public boolean isCircuitOpen() {
+        return circuitOpen;
     }
 
     /** 참조 대상별 조회가 돌려줄 지갑 기록 (주문 항목 ID 기준) */

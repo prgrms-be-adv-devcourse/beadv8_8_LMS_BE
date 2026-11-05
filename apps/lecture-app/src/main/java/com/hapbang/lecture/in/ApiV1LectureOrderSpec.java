@@ -28,9 +28,11 @@ public interface ApiV1LectureOrderSpec {
                     + "잔액이 부족하면 이미 성공한 보류까지 반환한 뒤 409 INSUFFICIENT_BALANCE이고, 주문은 결제 실패(HOLD_FAILED)로 남는다. "
                     + "탈퇴로 닫힌 지갑이 결제를 거절했으면 같은 결제 실패이고 409 WALLET_CLOSED다. "
                     + "강의 하나라도 주문할 수 없으면 주문 전체를 거부한다. "
-                    + "오류: 빈 목록·같은 강의 중복 400 INVALID_REQUEST, 본인 강의 403 OWN_LECTURE_NOT_PURCHASABLE, "
+                    + "한 주문에 강의는 100개까지다(장바구니에는 상한이 없다). "
+                    + "오류: 빈 목록·강의 101개 이상·같은 강의 중복 400 INVALID_REQUEST, 본인 강의 403 OWN_LECTURE_NOT_PURCHASABLE, "
                     + "없거나 판매 중이 아닌 강의 404 LECTURE_NOT_FOUND, 이미 보유 중인(결제 처리 중 포함) 강의 409 "
-                    + "ALREADY_OWNED_LECTURE, 잔액 부족 409 INSUFFICIENT_BALANCE, 탈퇴로 닫힌 지갑 409 WALLET_CLOSED.")
+                    + "ALREADY_OWNED_LECTURE, 잔액 부족 409 INSUFFICIENT_BALANCE, 탈퇴로 닫힌 지갑 409 WALLET_CLOSED, "
+                    + "회원별 요청 한도(기본 분당 10) 초과 429 TOO_MANY_REQUESTS(Retry-After 헤더의 초가 지난 뒤 다시 보낸다, D80).")
     ResponseEntity<RsData<OrderResponse>> createOrder(Long userId, OrderCreateRequest request);
 
     @Operation(summary = "내 주문 목록", description = "최근 주문부터.")
@@ -59,7 +61,8 @@ public interface ApiV1LectureOrderSpec {
                     + "주문 상세로 결과를 확인한다. 모든 항목이 끝나면 주문도 CANCELED가 된다. "
                     + "오류: 남의 주문·없는 주문 404 ORDER_NOT_FOUND, 주문에 없는 항목 404 ORDER_ITEM_NOT_FOUND, "
                     + "이미 확정·취소·반환된 항목 409 ORDER_ITEM_NOT_PURCHASED, autoConfirmAt이 지남 409 CANCEL_PERIOD_EXPIRED, "
-                    + "이의 제기가 접수된 항목 409 OBJECTION_FILED.")
+                    + "이의 제기가 접수된 항목 409 OBJECTION_FILED, "
+                    + "회원별 요청 한도(기본 분당 10) 초과 429 TOO_MANY_REQUESTS(Retry-After 헤더의 초가 지난 뒤 다시 보낸다, D80).")
     ResponseEntity<RsData<OrderItemResponse>> cancel(Long userId, Long orderId, Long orderItemId);
 
     @Operation(summary = "시청 가능한 강의",

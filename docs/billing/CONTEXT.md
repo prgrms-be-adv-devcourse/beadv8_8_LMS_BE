@@ -78,7 +78,7 @@
   - 503 `HP_LOCK_TIMEOUT`(1.4): 특정 지갑의 락 경합이라, 세면 회원 한 명의 경합으로 모든 회원의 호출이 막힌다. 분류는 그대로 UNKNOWN_RESULT다.
 - 값: count 기반 창 20, 최소 호출 10, 실패율 50%, OPEN 30초, HALF_OPEN 허용 3회, 느린 호출 4초(응답 timeout 5초보다 짧고 `lock_timeout` 3초보다 길다), 느린 호출 비율 50%(실패율과 같게. 기본값 100%면 느린 호출로는 사실상 열리지 않는다).
 - OPEN이라 요청을 보내지 않으면 `BillingCallException(RETRYABLE, 0, rawCode = "CIRCUIT_OPEN")`을 던진다. 요청이 지갑에 닿지 않은 것이 확실하므로 RETRYABLE이다. **강의 합의 → D66**(D64 보강, D58 보상 판단과 연결).
-- 강의 HP 작업 배치는 선점 전에 CB가 OPEN이면 그 회차를 건너뛴다. 그래야 지갑 장애가 길어져도 정상 작업이 시도 횟수를 다 써서 `DEAD`가 되지 않는다. Client는 CB 상태를 알려 주는 `isCircuitOpen()`을 제공한다(OPEN·FORCED_OPEN이면 `true`, HALF_OPEN은 `false`). **강의 합의 → D67**(D57 실행기 변경). 실행기 변경은 강의 후속 이슈에서 한다.
+- 강의 HP 작업 배치는 선점 전에 CB가 OPEN이면 그 회차를 건너뛴다. 그래야 지갑 장애가 길어져도 정상 작업이 시도 횟수를 다 써서 `DEAD`가 되지 않는다. Client는 CB 상태를 알려 주는 `isCircuitOpen()`을 제공한다(OPEN·FORCED_OPEN이면 `true`, HALF_OPEN은 `false`). **강의 합의 → D67**(D57 실행기 변경). 강의는 #423에서 실행기 선점 직전으로 옮겨 구현했다(강의 D79).
   - 배치가 열린 회로를 부르지 않으므로 OPEN → HALF_OPEN 자동 전이를 켠다(`automaticTransitionFromOpenToHalfOpenEnabled`). 끄면 호출이 있어야 HALF_OPEN이 되어, 주문 요청이 없을 때 회로가 계속 열려 배치가 영원히 건너뛴다.
 - CB 상태는 Micrometer 지표와 health에 노출한다. readiness에는 넣지 않는다. 지갑 장애로 강의·출연 pod까지 트래픽에서 빠지면 안 되기 때문이다.
   - 지표: `resilience4j-micrometer`로 CB·Retry 지표를 Resilience4j 기본 이름(`resilience4j.circuitbreaker.*`, `resilience4j.retry.calls`)과 `name=billing` 태그로 낸다(`BillingClientMetrics`).

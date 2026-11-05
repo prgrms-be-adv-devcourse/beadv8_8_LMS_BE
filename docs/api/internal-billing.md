@@ -121,7 +121,7 @@ try {
 - 설정: `hapbang.clients.billing.base-url`(billing-app 주소, 로컬 `http://localhost:8082`), 연결 2초·응답 5초(`connect-timeout`·`read-timeout`), 내부 API 키 `hapbang.internal-api.key`. base-url이 없으면 Client 빈이 생기지 않는다.
 - 회복성(#411): Client 안에서 `Retry( CircuitBreaker( TimeLimiter( HTTP ) ) )`를 건다.
   - Circuit Breaker는 `BillingCallException`만 실패로 세고 429와 `HP_LOCK_TIMEOUT`은 세지 않는다. `Failed`는 지갑이 응답한 결과라 세지 않는다.
-  - `isCircuitOpen()`이 `true`면 지금 부르면 `CIRCUIT_OPEN`으로 실패한다. HP 작업 배치는 이때 작업을 선점하지 않는다(강의 D67). 회로는 호출이 없어도 OPEN 시간이 지나면 시험 중(HALF_OPEN)으로 넘어간다.
+  - `isCircuitOpen()`이 `true`면 지금 부르면 `CIRCUIT_OPEN`으로 실패한다. 강의는 HP 작업 실행기가 선점 직전에 보고 이때 선점하지 않는다(배치·요청 안 즉시 실행 모두, 강의 D67 → D79). 출연은 배치가 건너뛴다(#439). 회로는 호출이 없어도 OPEN 시간이 지나면 시험 중(HALF_OPEN)으로 넘어간다.
   - 설정은 `hapbang.clients.billing.resilience.*`이고, 기본값·지표·health는 [`docs/billing/CONTEXT.md`](../billing/CONTEXT.md) 2장에 있다.
 - correlation ID 헤더는 보내지 않는다. 요청 ID는 본문 필드로 전달하고, 추적 헤더는 추적(tracing)을 도입할 때 정한다.
 

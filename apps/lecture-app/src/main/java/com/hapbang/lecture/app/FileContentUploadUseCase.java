@@ -15,28 +15,37 @@ import java.time.LocalDateTime;
  * 본문은 DB 트랜잭션 밖에서 S3로 스트리밍한다(D25). 영상은 업로드에 수십 분이 걸릴 수 있어, 그동안 DB 연결을 잡지 않도록
  * 검사와 상태 변경만 각각 짧은 트랜잭션으로 묶는다. 저장에 실패하거나 연결이 끊기면 PENDING으로 남아 다시 올릴 수 있다.
  * 같은 파일을 동시에 올리면 나중에 끝난 쪽이 S3를 덮어쓰고, 상태는 한 번만 UPLOADED가 된다.
+ * <p>
+ * 앱 전체 동시 업로드 수에 상한을 둔다({@link FileUploadBulkhead}, D81). 자리가 없으면 본문을 읽기 전에 503으로 거절하고 파일은 PENDING으로 남는다.
  */
 @Service
 public class FileContentUploadUseCase {
 
     private final LectureFileSupport lectureFileSupport;
     private final S3FileStorage s3FileStorage;
+    private final FileUploadBulkhead fileUploadBulkhead;
     private final TransactionTemplate transaction;
     private final TransactionTemplate readOnlyTransaction;
 
     public FileContentUploadUseCase(
             LectureFileSupport lectureFileSupport,
             S3FileStorage s3FileStorage,
+            FileUploadBulkhead fileUploadBulkhead,
             PlatformTransactionManager transactionManager
     ) {
         this.lectureFileSupport = lectureFileSupport;
         this.s3FileStorage = s3FileStorage;
+        this.fileUploadBulkhead = fileUploadBulkhead;
         this.transaction = new TransactionTemplate(transactionManager);
         this.readOnlyTransaction = new TransactionTemplate(transactionManager);
         this.readOnlyTransaction.setReadOnly(true);
     }
 
     public void upload(Long userId, Long fileId, String contentType, long contentLength, InputStream body) {
+        fileUploadBulkhead.run(fileId, () -> store(userId, fileId, contentType, contentLength, body));
+    }
+
+    private void store(Long userId, Long fileId, String contentType, long contentLength, InputStream body) {
         FileResource file = readOnlyTransaction.execute(status -> {
             FileResource found = lectureFileSupport.findFile(fileId);
             found.validateUploadable(userId, contentType, contentLength);

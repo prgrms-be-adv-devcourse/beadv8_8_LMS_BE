@@ -3,6 +3,7 @@ package com.hapbang.lecture.config;
 import java.time.Clock;
 import java.time.ZoneId;
 
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -11,6 +12,7 @@ import org.springframework.context.annotation.Configuration;
  * 서버 기본 시간대와 관계없이 현재 시각은 {@link #CLOCK} 빈으로 얻는다 (D37).
  */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(LectureFileProperties.class)
 public class LectureConfig {
 
     /** 다른 모듈의 Clock 빈과 겹치지 않도록 이름을 구분한다. 주입할 때는 {@code @Qualifier(CLOCK)}를 붙인다. */
