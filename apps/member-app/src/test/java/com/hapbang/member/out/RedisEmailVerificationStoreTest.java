@@ -134,7 +134,7 @@ class RedisEmailVerificationStoreTest {
     }
 
     @Test
-    @DisplayName("한 이메일은 하루 3통까지 세고 4통째부터 막는다. 세는 기간은 하루다")
+    @DisplayName("한 이메일은 하루 5통까지 세고 6통째부터 막는다. 세는 기간은 하루다")
     void emailDailyLimit() {
         String email = newEmail();
         for (int i = 0; i < EmailVerificationPolicy.EMAIL_DAILY_LIMIT; i++) {

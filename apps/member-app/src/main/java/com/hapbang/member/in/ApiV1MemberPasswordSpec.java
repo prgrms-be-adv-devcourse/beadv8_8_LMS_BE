@@ -22,7 +22,7 @@ public interface ApiV1MemberPasswordSpec {
                     + "PASSWORD_RESET: 비밀번호가 있는 정상 회원 → 코드, 구글로만 가입한 정상 회원 → \"구글로 로그인\" 안내, "
                     + "없는 이메일·탈퇴·정지 회원 → 보내지 않음. 프론트는 항상 \"메일을 확인해 주세요\"로 안내한다. "
                     + "제한은 용도와 상관없이 합쳐 센다: 같은 이메일 1분에 한 번(429 EMAIL_CODE_RESEND_TOO_SOON), 한 IP 1시간 10통(429 EMAIL_CODE_TOO_MANY_REQUESTS), "
-                    + "한 이메일 하루 3통(429 EMAIL_CODE_DAILY_LIMIT). 앱 전체 하루 상한(300통)에 닿으면 503 EMAIL_SEND_UNAVAILABLE. "
+                    + "한 이메일 하루 5통(429 EMAIL_CODE_DAILY_LIMIT). 앱 전체 하루 상한(300통)에 닿으면 503 EMAIL_SEND_UNAVAILABLE. "
                     + "메일을 보내지 못하면 503 EMAIL_SEND_FAILED(바로 다시 시도 가능). "
                     + "응답 data: expiresInSeconds(코드 유효 시간), resendAfterSeconds(다시 받을 수 있을 때까지).")
     RsData<EmailCodeResponse> sendEmailCode(EmailCodeRequest request,

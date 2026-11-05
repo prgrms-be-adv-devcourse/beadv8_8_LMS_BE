@@ -85,7 +85,7 @@ class EmailVerificationApiTest {
     }
 
     @Test
-    @DisplayName("한 이메일은 하루 3통까지 받고 4통째는 429 EMAIL_CODE_DAILY_LIMIT (1분 간격은 지우고 다시 요청)")
+    @DisplayName("한 이메일은 하루 5통까지 받고 6통째는 429 EMAIL_CODE_DAILY_LIMIT (1분 간격은 지우고 다시 요청)")
     void emailDailyLimit() throws Exception {
         String email = newEmail();
         for (int i = 0; i < EmailVerificationPolicy.EMAIL_DAILY_LIMIT; i++) {

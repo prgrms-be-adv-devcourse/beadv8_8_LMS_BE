@@ -20,8 +20,11 @@ public final class EmailVerificationPolicy {
     /** 한 IP가 받을 수 있는 메일 수와 세는 기간 (#557 결정: 1시간 10통) */
     public static final int IP_LIMIT = 10;
     public static final Duration IP_WINDOW = Duration.ofHours(1);
-    /** 한 이메일이 받을 수 있는 메일 수와 세는 기간 (#557 결정: 하루 3통, 메일 폭탄·코드 맞히기 방지) */
-    public static final int EMAIL_DAILY_LIMIT = 3;
+    /**
+     * 한 이메일이 받을 수 있는 메일 수와 세는 기간 (#557 결정: 하루 5통, 메일 폭탄·코드 맞히기 방지). 가입·재설정을 합쳐 센다.
+     * 누가 남의 이메일로 이만큼 요청하면 그날 그 회원은 재설정 코드를 못 받는다(알려진 한계, 3통에서 5통으로 늘려 덜 쉽게 함)
+     */
+    public static final int EMAIL_DAILY_LIMIT = 5;
     public static final Duration EMAIL_WINDOW = Duration.ofDays(1);
     /** 앱 전체가 보낼 수 있는 메일 수와 세는 기간 (#557 결정: 하루 300통, Gmail 하루 한도 약 500통보다 낮게) */
     public static final int GLOBAL_DAILY_LIMIT = 300;
