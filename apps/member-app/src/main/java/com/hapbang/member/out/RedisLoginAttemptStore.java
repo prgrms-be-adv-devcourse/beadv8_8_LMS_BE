@@ -66,6 +66,12 @@ public class RedisLoginAttemptStore implements LoginAttemptStore {
         redisTemplate.delete(FAIL_KEY_PREFIX + hash(key));
     }
 
+    @Override
+    public void unlock(String key) {
+        String hash = hash(key);
+        redisTemplate.delete(List.of(FAIL_KEY_PREFIX + hash, LOCK_KEY_PREFIX + hash));
+    }
+
     static String hash(String key) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));

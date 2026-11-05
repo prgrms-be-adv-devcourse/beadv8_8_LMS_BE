@@ -144,8 +144,10 @@
 | 게스트가 수정 | `NOT_REQUEST_HOST` |
 | `HOLD_PENDING` 요청서 수정 | `APPEARANCE_REQUEST_NOT_EDITABLE` |
 | 호스트·게스트 조회 / 다른 회원 조회 | 통과 / `APPEARANCE_REQUEST_NOT_FOUND` |
-| `HOLD_PENDING`·`HOLD_FAILED` 요청서를 호스트가 조회 | `APPEARANCE_REQUEST_NOT_FOUND` (숨김) |
-| `REQUESTED`·`ACCEPTED`·`REJECTED`·`EXPIRED`·`CANCELED` | 목록·상세에 보이는 상태 |
+| `HOLD_PENDING`·`HOLD_FAILED` 요청서를 호스트가 다루기(수정·취소 확인) | `APPEARANCE_REQUEST_NOT_FOUND` |
+| 상세: 호스트·게스트 / 다른 회원 | 통과 / `APPEARANCE_REQUEST_NOT_FOUND` |
+| 상세: `HOLD_PENDING`·`HOLD_FAILED`를 호스트 / 게스트·다른 회원 (#306) | 통과 / `APPEARANCE_REQUEST_NOT_FOUND` |
+| `REQUESTED`·`ACCEPTED`·`REJECTED`·`EXPIRED`·`CANCELED` | 게스트에게 보이고 다룰 수 있는 상태 |
 
 ### 3.7 요청 값 형식 — `AppearanceRequestValidationTest`
 
@@ -234,11 +236,11 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 케이스 | 기대 결과 |
 |---|---|
 | 보내기 | `REQUESTED`, 보류 30,000, 호스트 잔액 −30,000 |
-| 잔액 29,999에서 보내기 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), 요청서 `HOLD_FAILED`, 잔액 그대로, 보낸 목록 0건 |
-| 닫힌 지갑(탈퇴 직후)에서 보내기 (#648) | 409 `WALLET_CLOSED`, 요청서 `HOLD_FAILED`, 보낸 목록 0건 |
+| 잔액 29,999에서 보내기 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), 요청서 `HOLD_FAILED`, 잔액 그대로, 보낸 목록에 `HOLD_FAILED` 1건·받은 목록 0건 (#306) |
+| 닫힌 지갑(탈퇴 직후)에서 보내기 (#648) | 409 `WALLET_CLOSED`, 요청서 `HOLD_FAILED`, 보낸 목록에 `HOLD_FAILED` 1건·받은 목록 0건 (#306) |
 | 호스트 지갑 없음 (#168) | 500 `HP_HOLD_FAILED`(지갑 코드는 응답하지 않음, #274), 요청서 `HOLD_FAILED` |
 | 잔액 부족 실패 뒤 잔액을 채우고 같은 게스트에게 다시 보내기 | `REQUESTED` |
-| Billing 무응답 | `BILLING_UNAVAILABLE`, 요청서 `HOLD_PENDING`, 보낸 목록 0건. 응답이 돌아와도 바로 다시 보내면 `DUPLICATE_APPEARANCE_REQUEST` |
+| Billing 무응답 | `BILLING_UNAVAILABLE`, 요청서 `HOLD_PENDING`, 보낸 목록에 `HOLD_PENDING` 1건·받은 목록 0건 (#306). 응답이 돌아와도 바로 다시 보내면 `DUPLICATE_APPEARANCE_REQUEST` |
 | 응답 대기 중인 게스트에게 다시 보내기 / 다른 게스트에게 보내기 | `DUPLICATE_APPEARANCE_REQUEST` / `REQUESTED` (보류 2건) |
 | 같은 게스트에게 5개 스레드가 동시에 저장 | 1건 저장, 4건 `DUPLICATE_APPEARANCE_REQUEST`, DB에 1건 |
 | 게스트가 일반 유저 / 없는 회원 | `NOT_INFLUENCER` ("인플루언서 이상에게만 출연을 요청할 수 있습니다.") / `APPEARANCE_USER_NOT_FOUND` ("게스트 회원 정보를 찾을 수 없습니다."), 저장 안 됨 |
@@ -288,6 +290,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 잔액 10,000에서 30,000 요청 | 409, `code: INSUFFICIENT_BALANCE`, `detail: HP 잔액이 부족합니다. 충전한 뒤 다시 시도해 주세요.` (출연 문구, #274) |
 | 응답 대기 중인 게스트에게 다시 보내기 | 409, `code: DUPLICATE_APPEARANCE_REQUEST` |
 | Billing 무응답 | 503, `code: BILLING_UNAVAILABLE` |
+| 보류 실패(게스트에게)·보류 처리 중(다른 회원에게)·응답 대기 각 1건 (#306) | 보낸 목록 기본 3건(세 상태), `status=HOLD_FAILED`·`HOLD_PENDING` 각 1건 / 받은 목록은 응답 대기 1건·0건, `status=HOLD_FAILED`는 400 / 호스트 상세 200(`HOLD_FAILED`, `appearanceId` null)·(`HOLD_PENDING`), 게스트 상세 404 / 호스트 수정·취소, 게스트 수락 모두 404 `APPEARANCE_REQUEST_NOT_FOUND` |
 | 다른 회원 상세 조회 / 게스트 수정 | 404 `APPEARANCE_REQUEST_NOT_FOUND` / 403 `NOT_REQUEST_HOST` |
 | 빈 본문(`{}`)으로 수정 | 400, `code: INVALID_REQUEST` |
 | 사용자 헤더 없이 보내기 / `X-User-Id`만 보내기 | 401 / 401 (보안 필터, #395) |
@@ -384,7 +387,7 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 응답 전 취소 / 게스트가 취소 | `CANCELED` + `DONE`(사유 `REQUEST_CANCELED`) / `NOT_REQUEST_HOST`, 작업 없음 |
 | 거절 후 다시 거절·취소 | `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`, 작업은 1건뿐 |
 | 수락과 취소를 동시에 | 하나만 성공, 다른 쪽은 `CONCURRENT_UPDATE` 또는 `APPEARANCE_REQUEST_NOT_AWAITING_RESPONSE`, 출연 + 작업 합계 1건 |
-| 상태 필터 `REJECTED·CANCELED` / 생략 / `HOLD_FAILED` | 거절 1건 / 전체 최신순 / `INVALID_REQUEST` |
+| 상태 필터 `REJECTED·CANCELED` / 생략 / `HOLD_FAILED` | 거절 1건 / 전체 최신순 / 받은 목록은 `INVALID_REQUEST`, 보낸 목록은 0건 (#306) |
 | 상세 | `version` 포함, 수락 후 `appearanceId`, 반환 상태 없음 |
 
 ---
@@ -407,7 +410,8 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 다른 회원이 수정 | `NOT_RECRUIT_HOST` |
 | `HOLD_PENDING` 수정 / 모집 중이지만 마감 일시가 지남 | `APPEARANCE_RECRUIT_NOT_EDITABLE` |
 | 형식이 틀린 값으로 수정 | `INVALID_REQUEST`, 아무것도 바뀌지 않음 |
-| `HOLD_PENDING` 상세 확인 | `APPEARANCE_RECRUIT_NOT_FOUND` |
+| `HOLD_PENDING`·`HOLD_FAILED`를 다루기(지원·수정·마감·취소 확인) | 호스트에게도 `APPEARANCE_RECRUIT_NOT_FOUND` |
+| 상세: `HOLD_PENDING`·`HOLD_FAILED`를 올린 호스트 / 다른 회원, 모집 중을 다른 회원 (#306) | 통과 / `APPEARANCE_RECRUIT_NOT_FOUND`, 통과 |
 
 ### 8.2 저장소 — `AppearanceRecruitRepositoryTest`
 
@@ -425,15 +429,15 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 |---|---|
 | 올리기 | `RECRUITING`, 성립 인원 0, 응답 버전 = DB, Billing에 보류 요청(`APPEARANCE_RECRUIT`, 모집글 ID, 호스트, 90,000) |
 | 같은 호스트가 두 번 올리기 | 2건 저장 (중복 제한 없음) |
-| 잔액 89,999 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), `HOLD_FAILED`, 내 목록·공개 목록 0건 |
-| 닫힌 지갑(탈퇴 직후) (#648) | 409 `WALLET_CLOSED`, `HOLD_FAILED`, 내 목록·공개 목록 0건 |
+| 잔액 89,999 | 409 `INSUFFICIENT_BALANCE`(출연 문구, #274), `HOLD_FAILED`, 내 목록에 `HOLD_FAILED` 1건·공개 목록 0건 (#306) |
+| 닫힌 지갑(탈퇴 직후) (#648) | 409 `WALLET_CLOSED`, `HOLD_FAILED`, 내 목록에 `HOLD_FAILED` 1건·공개 목록 0건 (#306) |
 | Billing 무응답 | `BILLING_UNAVAILABLE` ("…내 모집글 목록에서 결과를 확인해 주세요."), `HOLD_PENDING` |
 | 모집 인원 11명 | `RECRUIT_COUNT_OUT_OF_RANGE`, 저장·보류 없음 |
 | 정지된 호스트 | `APPEARANCE_USER_NOT_ACTIVE` |
 | 로그인 역할 USER | 올리기·수정·내 목록은 `AccessDeniedException`, 공개 목록·상세는 조회 가능 |
 | 공개 목록 | 모든 호스트의 모집 중 모집글, 최신순 |
-| 내 목록 / `CLOSED` 필터 / `HOLD_FAILED` 필터 | 내 글만 / 0건 / `INVALID_REQUEST` |
-| 상세 / 보류 처리 중 / 없는 ID | 다른 회원도 조회 / `APPEARANCE_RECRUIT_NOT_FOUND` / `APPEARANCE_RECRUIT_NOT_FOUND` |
+| 내 목록 / `CLOSED` 필터 / `HOLD_FAILED` 필터 | 내 글만 / 0건 / 0건 (#306) |
+| 상세 / 보류 처리 중 / 없는 ID | 다른 회원도 조회 / 올린 호스트는 `HOLD_PENDING`, 다른 회원은 `APPEARANCE_RECRUIT_NOT_FOUND` (#306) / `APPEARANCE_RECRUIT_NOT_FOUND` |
 | 수정 / 같은 수정 반복 | 보낸 값만 바뀌고 버전 증가 / 버전 그대로 (멱등) |
 | 다른 회원이 수정 / 없는 모집글 | `NOT_RECRUIT_HOST` / `APPEARANCE_RECRUIT_NOT_FOUND` |
 
@@ -446,7 +450,8 @@ DB와 Billing 대역을 함께 쓴다. 로그인 역할은 `@WithMockUser(roles 
 | 잔액 부족 | 409 `INSUFFICIENT_BALANCE` |
 | 일반 유저(USER) 공개 목록·상세 / 올리기 | 200 / 403 `FORBIDDEN` |
 | 비로그인 공개 목록 | 401 (비회원 공개는 팀 합의 후) |
-| 내 목록 `status=RECRUITING` / `status=HOLD_PENDING` | 내 글 1건 / 400 `INVALID_REQUEST` |
+| 내 목록 `status=RECRUITING` / `status=HOLD_PENDING` / `status=UNKNOWN` | 내 글 1건 / 0건 (#306) / 400 `INVALID_REQUEST` |
+| 보류 실패·보류 처리 중·모집 중 각 1건 (#306) | 내 목록 기본 3건(세 상태), `status=HOLD_FAILED`·`HOLD_PENDING` 각 1건 / 공개 목록은 모집 중 1건 / 호스트 상세 200(`HOLD_FAILED`, `hpReleaseStatus`·`myApplication` null)·(`HOLD_PENDING`), 다른 회원·일반 유저 상세 404 / 지원자 목록은 호스트 빈 목록 200(두 상태), 다른 회원 404 / 호스트 수정·마감·취소, 다른 회원 지원 모두 404 `APPEARANCE_RECRUIT_NOT_FOUND` |
 | 호스트 수정 / 다른 회원 수정 / 빈 수정 | 200 "출연 모집글을 수정했습니다." / 403 `NOT_RECRUIT_HOST` / 400 |
 | 없는 모집글 상세 | 404 `APPEARANCE_RECRUIT_NOT_FOUND` |
 | Swagger (`AppearanceSwaggerDocsTest`) | 올리기·상세·수정은 `RsDataAppearanceRecruitResDto`, 공개·내 목록은 `RsDataPageAppearanceRecruitSummaryResDto` → `PagedModelAppearanceRecruitSummaryResDto` |
@@ -957,7 +962,7 @@ DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFL
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
-| `AppearanceBatchUseCaseTest` › 보류 재확인 | 보류 처리 중 모집글 재확인 중 Billing 거절(잔액 부족) | `HOLD_FAILED`, 같은 모집글로 보류 요청 2번, 내 목록·상세에 안 보임, 다시 가져가지 않음 |
+| `AppearanceBatchUseCaseTest` › 보류 재확인 | 보류 처리 중 모집글 재확인 중 Billing 거절(잔액 부족) | `HOLD_FAILED`, 같은 모집글로 보류 요청 2번, 공개 목록 0건·내 목록과 호스트 상세에 `HOLD_FAILED`·다른 회원 상세 404 (#306), 다시 가져가지 않음 |
 | `AppearanceHostCancelFlowTest` › 일방 취소 | 일방 취소(확인함)와 합의 취소 수락 동시 | 한쪽만 성공: `CANCELED_BY_HOST`(요청 `CLOSED_BY_HOST_CANCEL`, 위약금만) 또는 `CANCELED_BY_AGREEMENT`(요청 `ACCEPTED`, 반환만) |
 | `AppearanceHostCancelFlowTest` › 모집 전체 취소 | 모집 전체 취소(확인 없음)와 게스트 취소 요청 동시 | 취소가 먼저: 출연 `CANCELED_BY_HOST`·위약금 1건·요청 없음 / 요청이 먼저: 취소는 `CANCEL_REQUEST_CONFIRM_REQUIRED`(또는 충돌), 모집 `RECRUITING`·출연 `CANCEL_REQUESTED`·HP 작업 없음 |
 | `AppearanceBatchScheduleTest` | appearance.yml cron 7개 | 모두 올바르고 매분 한 번, 서로 다른 초(0·5·10·20·30·40·50, 05초 알림 재발행은 #393) |
@@ -1595,3 +1600,16 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 - 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
 
+## 38. 보류 처리 중·실패 상태 호스트 조회 (#306)
+
+보류 실패는 지갑 대역의 잔액 부족 거절로, 보류 처리 중은 지갑 무응답으로 만든다. 결과 응답에 ID가 없어 내 목록·보낸 목록을 상태로 걸러 찾는다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceRecruitApiE2ETest` | 보류 실패·보류 처리 중·모집 중 각 1건 | 내 목록 기본 3건, 상태 필터로 각 1건 / 공개 목록 모집 중 1건 / 상세는 호스트 200, 다른 회원·일반 유저 404 / 지원자 목록은 호스트 빈 목록, 다른 회원 404 / 수정·마감·취소·지원 404 |
+| `AppearanceRequestApiE2ETest` | 보류 실패(게스트에게)·보류 처리 중(다른 회원에게)·응답 대기 각 1건 | 보낸 목록 기본 3건, 상태 필터로 각 1건 / 받은 목록에 두 상태 없음, 두 상태로 거르면 400 / 상세는 호스트 200, 게스트 404 / 수정·취소·수락 404 |
+| `AppearanceRecruitTest` | 다루기 확인 / 상세 확인 | 두 상태는 호스트에게도 404 / 두 상태는 호스트만 통과 |
+| `AppearanceRequestTest` | 상세 확인 | 호스트·게스트 통과, 다른 회원 404 / 두 상태는 호스트만 통과, 게스트·다른 회원 404 |
+| `AppearanceRecruitFacadeTest`·`AppearanceRequestFacadeTest` | 잔액 부족·닫힌 지갑·무응답 | 내 목록·보낸 목록에 그 상태 1건, 공개 목록·받은 목록 0건 |
+| `AppearanceBatchUseCaseTest` | 재확인에서 보류 실패한 모집글 | 내 목록·호스트 상세에 `HOLD_FAILED`, 다른 회원 상세 404 |
+| `AppearanceSwaggerDocsTest` | 상태 필터 설명 | 내 모집글·보낸 요청 목록에는 `HOLD_FAILED`가 적혀 있고, 받은 요청 목록에는 없다 |

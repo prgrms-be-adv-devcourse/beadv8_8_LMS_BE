@@ -15,4 +15,7 @@ public interface LoginAttemptStore {
 
     /** 로그인에 성공하면 실패 횟수를 지운다 */
     void reset(String key);
+
+    /** 실패 횟수와 잠금을 모두 지운다 (비밀번호를 재설정하면 잠금도 푼다, #557) */
+    void unlock(String key);
 }

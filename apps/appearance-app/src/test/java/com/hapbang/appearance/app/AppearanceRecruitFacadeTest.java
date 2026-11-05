@@ -123,7 +123,7 @@ class AppearanceRecruitFacadeTest {
     }
 
     @Test
-    @DisplayName("지갑이 보류를 거절하면(잔액 부족) 409 INSUFFICIENT_BALANCE(출연 문구), 모집글은 HOLD_FAILED로 남고 목록에 보이지 않는다")
+    @DisplayName("지갑이 보류를 거절하면(잔액 부족) 409 INSUFFICIENT_BALANCE(출연 문구), 모집글은 HOLD_FAILED로 남아 내 목록에만 보이고 공개 목록에는 없다 (#306)")
     void insufficientBalance() {
         BillingStubs.reject(billingClient, Rejection.INSUFFICIENT_BALANCE);
 
@@ -132,12 +132,13 @@ class AppearanceRecruitFacadeTest {
                 .extracting("errorCode").isEqualTo(AppearanceErrorCode.INSUFFICIENT_BALANCE);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
-        assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getTotalElements()).isZero();
+        assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getContent())
+                .extracting(AppearanceRecruitSummaryResDto::status).containsExactly(AppearanceRecruitStatus.HOLD_FAILED);
         assertThat(appearanceRecruitFacade.getOpen(FIRST_PAGE).getTotalElements()).isZero();
     }
 
     @Test
-    @DisplayName("지갑이 닫혀 있으면(탈퇴 직후) 409 WALLET_CLOSED, 모집글은 HOLD_FAILED로 남고 목록에 보이지 않는다 (#648)")
+    @DisplayName("지갑이 닫혀 있으면(탈퇴 직후) 409 WALLET_CLOSED, 모집글은 HOLD_FAILED로 남아 내 목록에만 보이고 공개 목록에는 없다 (#648, #306)")
     void walletClosed() {
         BillingStubs.reject(billingClient, Rejection.WALLET_CLOSED);
 
@@ -147,7 +148,8 @@ class AppearanceRecruitFacadeTest {
                 .extracting("errorCode").isEqualTo(AppearanceErrorCode.WALLET_CLOSED);
 
         assertThat(findOnly().getStatus()).isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
-        assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getTotalElements()).isZero();
+        assertThat(appearanceRecruitFacade.getMine(HOST, null, FIRST_PAGE).getContent())
+                .extracting(AppearanceRecruitSummaryResDto::status).containsExactly(AppearanceRecruitStatus.HOLD_FAILED);
         assertThat(appearanceRecruitFacade.getOpen(FIRST_PAGE).getTotalElements()).isZero();
     }
 
@@ -215,7 +217,7 @@ class AppearanceRecruitFacadeTest {
     }
 
     @Test
-    @DisplayName("내 목록은 내가 올린 모집글만, 상태 필터를 적용한다. 숨김 상태 필터는 INVALID_REQUEST")
+    @DisplayName("내 목록은 내가 올린 모집글만, 상태 필터를 적용한다. 보류 처리 중·실패도 거를 수 있다 (#306)")
     void getMine() {
         AppearanceRecruitResDto mine = post(HOST);
         post(OTHER);
@@ -226,12 +228,12 @@ class AppearanceRecruitFacadeTest {
 
         assertThat(all.getContent()).extracting(AppearanceRecruitSummaryResDto::id).containsExactly(mine.id());
         assertThat(closed.getTotalElements()).isZero();
-        assertErrorCode(() -> appearanceRecruitFacade.getMine(HOST, List.of(AppearanceRecruitStatus.HOLD_FAILED),
-                FIRST_PAGE), AppearanceErrorCode.INVALID_REQUEST);
+        assertThat(appearanceRecruitFacade.getMine(HOST, List.of(AppearanceRecruitStatus.HOLD_FAILED), FIRST_PAGE)
+                .getTotalElements()).isZero();
     }
 
     @Test
-    @DisplayName("상세는 다른 회원도 볼 수 있고, 보류 처리 중인 모집글은 올린 호스트에게도 APPEARANCE_RECRUIT_NOT_FOUND")
+    @DisplayName("상세는 다른 회원도 볼 수 있고, 보류 처리 중인 모집글은 올린 호스트만 볼 수 있다 (다른 회원은 APPEARANCE_RECRUIT_NOT_FOUND, #306)")
     void getDetail() {
         AppearanceRecruitResDto posted = post(HOST);
 
@@ -247,7 +249,9 @@ class AppearanceRecruitFacadeTest {
         Long pendingId = appearanceRecruitRepository.findAll().stream()
                 .filter(recruit -> recruit.getStatus() == AppearanceRecruitStatus.HOLD_PENDING)
                 .findFirst().orElseThrow().getId();
-        assertErrorCode(() -> appearanceRecruitFacade.getDetail(HOST, pendingId),
+        assertThat(appearanceRecruitFacade.getDetail(HOST, pendingId).status())
+                .isEqualTo(AppearanceRecruitStatus.HOLD_PENDING);
+        assertErrorCode(() -> appearanceRecruitFacade.getDetail(OTHER, pendingId),
                 AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
         assertErrorCode(() -> appearanceRecruitFacade.getDetail(HOST, 999_999L),
                 AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);

@@ -1,6 +1,8 @@
 package com.hapbang.appearance.in;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -244,5 +246,19 @@ class AppearanceSwaggerDocsTest {
                         .value("#/components/schemas/WithdrawalBlockReasonDto"))
                 .andExpect(jsonPath(SCHEMAS + "WithdrawalBlockReasonDto.properties.code").exists())
                 .andExpect(jsonPath(SCHEMAS + "WithdrawalBlockReasonDto.properties.message").exists());
+    }
+
+    @Test
+    @DisplayName("내 모집글·보낸 요청 목록의 상태 필터는 보류 처리 중·실패를 포함한 전체가 기본이고, 받은 요청 목록은 그대로 (#306)")
+    void holdStatusFilterDescription() throws Exception {
+        String status = ".get.parameters[?(@.name == 'status')].description";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/appearances/recruits/mine']" + status)
+                        .value(hasItems(containsString("HOLD_FAILED"))))
+                .andExpect(jsonPath("$.paths['/api/v1/appearances/requests/sent']" + status)
+                        .value(hasItems(containsString("HOLD_FAILED"))))
+                .andExpect(jsonPath("$.paths['/api/v1/appearances/requests/received']" + status)
+                        .value(hasItems(not(containsString("HOLD_FAILED")))));
     }
 }

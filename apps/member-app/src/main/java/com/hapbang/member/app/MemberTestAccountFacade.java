@@ -1,12 +1,11 @@
 package com.hapbang.member.app;
 
-import java.util.regex.Pattern;
-
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.app.dto.TestInfluencerResponse;
+import com.hapbang.member.domain.LoadTestAccount;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
@@ -17,7 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 부하 시험용 회원 승급. 2026-11-04 변경 결정으로 ADMIN만 호출한다.
- * 채널 인증 예외는 accounts.py가 생성하는 이메일 형식(배치당 001~100)에만 적용한다.
+ * 채널 인증 예외는 accounts.py가 생성하는 이메일 형식(배치당 001~100, {@link LoadTestAccount})에만 적용한다.
  */
 @Slf4j
 @Service
@@ -25,15 +24,12 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class MemberTestAccountFacade {
 
-    private static final Pattern TEST_EMAIL = Pattern.compile(
-            "k6-[0-9]{8}-[0-9]{6}-[0-9a-f]{6}-(?:00[1-9]|0[1-9][0-9]|100)@example\\.invalid");
-
     private final MemberSupport memberSupport;
 
     @Transactional
     public TestInfluencerResponse promote(Long adminId, Long userId) {
         User user = memberSupport.findActiveUser(userId);
-        if (user.getEmail() == null || !TEST_EMAIL.matcher(user.getEmail()).matches()) {
+        if (!LoadTestAccount.isLoadTestEmail(user.getEmail())) {
             throw new MemberException(MemberErrorCode.TEST_ACCOUNT_REQUIRED);
         }
         if (user.getRole() == Role.INFLUENCER) {

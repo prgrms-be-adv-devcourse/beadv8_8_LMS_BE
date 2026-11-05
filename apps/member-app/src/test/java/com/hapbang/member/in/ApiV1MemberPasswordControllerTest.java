@@ -27,8 +27,10 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.out.EmailVerificationStore;
 import com.hapbang.member.out.PasswordCredentialRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
@@ -58,6 +60,9 @@ class ApiV1MemberPasswordControllerTest {
     PasswordCredentialRepository passwordCredentialRepository;
 
     @Autowired
+    EmailVerificationStore emailVerificationStore;
+
+    @Autowired
     StringRedisTemplate redisTemplate;
 
     /** 테스트가 만든 Redis 키만 지운다 (docs/dev/testing.md) */
@@ -84,6 +89,56 @@ class ApiV1MemberPasswordControllerTest {
         trackUser(user.getId());
         assertThat(passwordCredentialRepository.findByUserId(user.getId()))
                 .hasValueSatisfying(c -> assertThat(c.getPasswordHash()).startsWith("{bcrypt}").doesNotContain("abcd1234"));
+    }
+
+    @Test
+    @DisplayName("인증 토큰이 없으면 400, 다른 이메일의 토큰·없는 토큰이면 400 EMAIL_NOT_VERIFIED이고 가입되지 않는다 (#557)")
+    void signUp_notVerified() throws Exception {
+        String email = newEmail();
+
+        mockMvc.perform(post(SIGNUP).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"abcd1234\",\"nickname\":\"tester\"}".formatted(email)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
+        signUp(email, "abcd1234", "tester", verifiedToken(newEmail()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
+        signUp(email, "abcd1234", "tester", "no-such-token")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
+        assertThat(userRepository.findByEmail(email)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("부하 시험 계정 이메일(k6-…@example.invalid)은 인증 토큰 없이 가입된다 (#557 임시 예외)")
+    void signUp_loadTestAccountWithoutToken() throws Exception {
+        String email = "k6-20261105-101500-%s-001@example.invalid".formatted(UUID.randomUUID().toString().substring(0, 6));
+        createdKeys.add("member:login-fail:" + sha256(email));
+        createdKeys.add("member:login-lock:" + sha256(email));
+
+        mockMvc.perform(post(SIGNUP).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"abcd1234\",\"nickname\":\"%s\"}"
+                                .formatted(email, "k6" + UUID.randomUUID().toString().substring(0, 6))))
+                .andExpect(status().isCreated());
+        trackUser(userRepository.findByEmail(email).orElseThrow().getId());
+    }
+
+    @Test
+    @DisplayName("인증 토큰은 가입에 한 번만 쓰이고, 가입이 실패하면(닉네임 중복) 그대로 남아 다시 쓸 수 있다 (#557)")
+    void signUp_tokenOnce() throws Exception {
+        signedUp("abcd1234");
+        String email = newEmail();
+        String token = verifiedToken(email);
+
+        signUp(email, "abcd1234", "tester", token)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_NICKNAME"));
+        signUp(email, "abcd1234", "tester2", token).andExpect(status().isCreated());
+        trackUser(userRepository.findByEmail(email).orElseThrow().getId());
+        signUp(newEmail(), "abcd1234", "tester3", token)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
+        assertThat(emailVerificationStore.findTokenEmail(token, EmailVerificationPurpose.SIGN_UP)).isEmpty();
     }
 
     @Test
@@ -260,9 +315,22 @@ class ApiV1MemberPasswordControllerTest {
                 .content("{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}".formatted(currentPassword, newPassword)));
     }
 
+    /** 이메일 인증(#557)을 마친 것으로 보고 그 이메일의 인증 토큰을 넣어 가입한다 */
     private ResultActions signUp(String email, String password, String nickname) throws Exception {
+        return signUp(email, password, nickname, verifiedToken(email));
+    }
+
+    private ResultActions signUp(String email, String password, String nickname, String token) throws Exception {
         return mockMvc.perform(post(SIGNUP).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"%s\",\"password\":\"%s\",\"nickname\":\"%s\"}".formatted(email, password, nickname)));
+                .content("{\"email\":\"%s\",\"password\":\"%s\",\"nickname\":\"%s\",\"emailVerificationToken\":\"%s\"}"
+                        .formatted(email, password, nickname, token)));
+    }
+
+    /** 인증 코드 확인을 마친 것처럼 토큰을 발급한다 (코드 받기·확인은 EmailVerificationApiTest가 확인) */
+    private String verifiedToken(String email) {
+        String token = emailVerificationStore.issueToken(email.strip().toLowerCase(), EmailVerificationPurpose.SIGN_UP);
+        createdKeys.add("member:email-verified:sign_up:" + sha256(token));
+        return token;
     }
 
     private ResultActions login(String email, String password) throws Exception {

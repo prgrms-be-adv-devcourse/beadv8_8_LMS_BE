@@ -245,13 +245,30 @@ public class AppearanceRequest extends BaseEntity {
     }
 
     /**
-     * 이 회원이 볼 수 있는 요청서인지 확인한다. 호스트·게스트만 볼 수 있고, 보류가 끝나지 않았거나 실패한 요청서는 숨긴다.
-     * 볼 수 없으면 요청서가 있다는 사실도 알리지 않도록 "없음"으로 응답한다.
+     * 이 회원이 요청서를 다룰 수 있는지(수정·취소·수락·거절) 확인한다. 호스트·게스트만 다룰 수 있고,
+     * 보류가 끝나지 않았거나 실패한 요청서는 호스트에게도 없는 것으로 응답한다. 상세 조회는 {@link #validateDetailViewableBy}를 쓴다.
+     * 다룰 수 없으면 요청서가 있다는 사실도 알리지 않도록 "없음"으로 응답한다.
      *
      * @throws AppearanceException {@code APPEARANCE_REQUEST_NOT_FOUND}
      */
     public void validateViewableBy(Long userId) {
         if (!status.isVisible() || !(isHost(userId) || isGuest(userId))) {
+            throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_NOT_FOUND);
+        }
+    }
+
+    /**
+     * 이 회원이 상세를 볼 수 있는 요청서인지 확인한다. 호스트·게스트만 볼 수 있고, 보류가 끝나지 않았거나 실패한 요청서는
+     * 보낸 호스트만 볼 수 있다 (#306, 결과를 호스트가 알 수 있도록. 게스트에게는 도착하지 않은 요청서다).
+     * 볼 수 없으면 요청서가 있다는 사실도 알리지 않도록 "없음"으로 응답한다.
+     *
+     * @throws AppearanceException {@code APPEARANCE_REQUEST_NOT_FOUND}
+     */
+    public void validateDetailViewableBy(Long userId) {
+        if (isHost(userId)) {
+            return;
+        }
+        if (!status.isVisible() || !isGuest(userId)) {
             throw new AppearanceException(AppearanceErrorCode.APPEARANCE_REQUEST_NOT_FOUND);
         }
     }

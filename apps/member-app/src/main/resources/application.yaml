@@ -3,6 +3,18 @@
 spring:
   application:
     name: member-app
+  # 가입 이메일 인증 코드 발송 (#557). Gmail SMTP(STARTTLS). 계정·앱 비밀번호는 프로필별 설정(운영은 Secret)에서 넣는다.
+  # 계정이 없으면(로컬·테스트) 메일 대신 로그로 코드를 남기는 발송기를 쓴다 (LoggingEmailSender, 운영에서는 만들지 않음)
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
   config:
     import:
     - classpath:member.yml
@@ -51,6 +63,10 @@ spring:
             scope: profile,email
             redirect-uri: "{baseUrl}/api/v1/members/login/oauth2/code/{registrationId}"
 management:
+  health:
+    # 메일 서버 연결은 헬스체크에 넣지 않는다 (#557). Gmail이 잠깐 안 돼도 회원 앱 전체가 준비 안 됨(readiness 실패)이 되면 안 된다
+    mail:
+      enabled: false
   endpoints:
     web:
       exposure:

@@ -36,6 +36,20 @@ public enum MemberErrorCode implements BaseErrorCode {
     INVALID_PASSWORD_CHARACTER(HttpStatus.BAD_REQUEST, "비밀번호는 영문·숫자·특수문자만 쓸 수 있습니다. 공백과 한글은 쓸 수 없습니다."),
     PASSWORD_LETTER_AND_DIGIT_REQUIRED(HttpStatus.BAD_REQUEST, "비밀번호에 영문과 숫자를 하나 이상씩 넣어 주세요."),
     DUPLICATE_EMAIL(HttpStatus.CONFLICT, "이미 가입된 이메일입니다."),
+    /** 가입 이메일 인증 (#557): 같은 이메일은 1분에 한 번만 코드를 받는다 */
+    EMAIL_CODE_RESEND_TOO_SOON(HttpStatus.TOO_MANY_REQUESTS, "인증 코드는 1분에 한 번 받을 수 있어요. 잠시 뒤 다시 시도해 주세요."),
+    /** 가입 이메일 인증 (#557): 한 IP에서 1시간에 보낼 수 있는 코드 수를 넘음 */
+    EMAIL_CODE_TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "인증 코드 요청이 너무 많아요. 1시간 뒤에 다시 시도해 주세요."),
+    /** 가입 이메일 인증 (#557): 코드가 틀림 (5번까지 시도할 수 있음) */
+    INVALID_EMAIL_CODE(HttpStatus.BAD_REQUEST, "인증 코드가 맞지 않아요."),
+    /** 가입 이메일 인증 (#557): 받은 코드가 없거나 10분이 지났거나 5번 틀려 지워짐 */
+    EMAIL_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "인증 코드가 만료됐어요. 코드를 다시 받아 주세요."),
+    /** 가입 이메일 인증 (#557): 가입할 때 인증 토큰이 없거나, 만료됐거나, 다른 이메일의 토큰 */
+    EMAIL_NOT_VERIFIED(HttpStatus.BAD_REQUEST, "이메일 인증을 먼저 해 주세요."),
+    /** 이메일 인증 (#557): 한 이메일이 하루에 받을 수 있는 메일 수(5통)를 넘음 */
+    EMAIL_CODE_DAILY_LIMIT(HttpStatus.TOO_MANY_REQUESTS, "이 이메일로는 오늘 인증 메일을 더 받을 수 없어요. 내일 다시 시도해 주세요."),
+    /** 이메일 인증 (#557): 앱 전체 하루 발송 상한(300통)에 닿았거나 메일 대기열이 가득 참. 남용이 의심돼 운영자가 확인해야 한다 */
+    EMAIL_SEND_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 인증 메일을 보낼 수 없어요. 잠시 뒤 다시 시도해 주세요."),
     // 가입된 이메일인지 알려주지 않으려고 없는 이메일과 틀린 비밀번호를 같은 오류로 답한다
     INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."),
     LOGIN_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "로그인에 여러 번 실패했어요. 15분 뒤에 다시 시도해 주세요."),

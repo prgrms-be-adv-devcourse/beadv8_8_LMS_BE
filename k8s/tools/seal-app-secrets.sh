@@ -21,7 +21,7 @@ root=$(git rev-parse --show-toplevel)
 # 앱마다 DB role, 필수 키, 선택 키(없으면 넣지 않는다)를 정한다. 키 목록은 docs/deploy/k8s.md "Secret"과 같다.
 spec() {
   case "$1" in
-    member) echo "member|S3_BUCKET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET CHZZK_CLIENT_ID CHZZK_CLIENT_SECRET CHZZK_REDIRECT_URI JWT_PRIVATE_KEY|" ;;
+    member) echo "member|S3_BUCKET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET CHZZK_CLIENT_ID CHZZK_CLIENT_SECRET CHZZK_REDIRECT_URI JWT_PRIVATE_KEY MAIL_USERNAME MAIL_PASSWORD|" ;;
     billing) echo "billing||TOSS_PAYMENTS_SECRET_KEY BILLING_PAYMENT_KEY_ENCRYPTION_KEY BILLING_PAYMENT_KEY_HMAC_KEY" ;;
     lecture) echo "lecture|S3_BUCKET|" ;;
     appearance) echo "appearance||" ;;
