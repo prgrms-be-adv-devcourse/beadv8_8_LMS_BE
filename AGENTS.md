@@ -41,8 +41,9 @@
 | 지갑 (`billing`) | HP 충전·환불, 원장, 보류, 지급, 환전 (지급·환전을 통틀어 "정산") | `/api/v1/wallets`, `/api/v1/settlements` |
 | 채팅 (`chat`) | 1:1 대화, 알림, 차단 | `/api/v1/chats` |
 | 고객센터 (`customersupport`) | 공지, FAQ, 문의, 이의 제기 접수 | `/api/v1/inquiries` |
+| 알림 (`notification`, aux-app) | 알림센터 알림 생성·보관·실시간 전달 | `/api/v1/notifications` |
 
-최종 프로젝트에서는 #363으로 모듈마다 독립 앱(`apps/*-app`)이 되었고, 알림(`notification`)·검색(`search`)을 별도 앱으로 더하는 계획이 [`docs/architecture/final-project-infrastructure.md`](docs/architecture/final-project-infrastructure.md) 8·9장에 있다. 위 표는 팀 합의 뒤 바꾼다.
+최종 프로젝트에서는 #363으로 모듈마다 독립 앱(`apps/*-app`)이 되었다. 검색·챗봇·알림은 독립 앱으로 나누지 않고 앱 하나(`aux-app`)에 모듈로 담는다(#684). 세미 프로젝트의 멀티모듈 모놀리스와 같은 구조이며, aux-app 안의 모듈도 아래 경계 규칙을 지키고 자기 database만 쓴다. 알림 설계는 [`docs/architecture/infrastructure/notification.md`](docs/architecture/infrastructure/notification.md)에 있다.
 
 ### 경계 규칙 (반드시 지킨다)
 
