@@ -84,8 +84,26 @@ class RedisEmailVerificationStoreTest {
                 .isBetween(9L, 10L);
         assertThat(hash).doesNotContain("@");
 
-        store.deleteCode(email, SIGN_UP);
-        assertThat(redisTemplate.hasKey(RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.CODE_KEY_PREFIX, SIGN_UP, hash))).isFalse();
+    }
+
+    @Test
+    @DisplayName("코드 지우기는 저장된 코드가 같을 때만 코드와 틀린 횟수를 지운다 (새로 받은 코드는 그대로)")
+    void deleteCodeIfMatches() {
+        String email = newEmail();
+        String hash = RedisLoginAttemptStore.hash(email);
+        String codeKey = RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.CODE_KEY_PREFIX, SIGN_UP, hash);
+        String failKey = RedisEmailVerificationStore.scoped(RedisEmailVerificationStore.FAIL_KEY_PREFIX, SIGN_UP, hash);
+        store.saveCode(email, SIGN_UP, "222222");
+        redisTemplate.opsForValue().set(failKey, "1");
+
+        assertThat(store.deleteCodeIfMatches(email, SIGN_UP, "111111")).isFalse();
+        assertThat(redisTemplate.opsForValue().get(codeKey)).isEqualTo("222222");
+        assertThat(redisTemplate.hasKey(failKey)).isTrue();
+
+        assertThat(store.deleteCodeIfMatches(email, SIGN_UP, "222222")).isTrue();
+        assertThat(redisTemplate.hasKey(codeKey)).isFalse();
+        assertThat(redisTemplate.hasKey(failKey)).isFalse();
+        assertThat(store.deleteCodeIfMatches(email, SIGN_UP, "222222")).isFalse();
     }
 
     @Test

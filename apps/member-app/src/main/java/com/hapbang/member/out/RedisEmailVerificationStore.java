@@ -69,6 +69,15 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
             return 2
             """, Long.class);
 
+    /** 저장한 코드가 같을 때만 코드·틀린 횟수를 지운다. 결과: 1 = 지움, 0 = 없거나 다른 코드 */
+    private static final RedisScript<Long> DELETE_CODE_IF_MATCHES = new DefaultRedisScript<>("""
+            if redis.call('GET', KEYS[1]) == ARGV[1] then
+                redis.call('DEL', KEYS[1], KEYS[2])
+                return 1
+            end
+            return 0
+            """, Long.class);
+
     /** 센 수를 하나 늘리고, 처음이면 기간을 건다. 결과: 늘린 뒤의 수 */
     private static final RedisScript<Long> COUNT_IN_WINDOW = new DefaultRedisScript<>("""
             local count = redis.call('INCR', KEYS[1])
@@ -123,9 +132,11 @@ public class RedisEmailVerificationStore implements EmailVerificationStore {
     }
 
     @Override
-    public void deleteCode(String email, EmailVerificationPurpose purpose) {
+    public boolean deleteCodeIfMatches(String email, EmailVerificationPurpose purpose, String code) {
         String hash = RedisLoginAttemptStore.hash(email);
-        redisTemplate.delete(List.of(scoped(CODE_KEY_PREFIX, purpose, hash), scoped(FAIL_KEY_PREFIX, purpose, hash)));
+        Long deleted = redisTemplate.execute(DELETE_CODE_IF_MATCHES,
+                List.of(scoped(CODE_KEY_PREFIX, purpose, hash), scoped(FAIL_KEY_PREFIX, purpose, hash)), code);
+        return deleted != null && deleted == 1;
     }
 
     @Override

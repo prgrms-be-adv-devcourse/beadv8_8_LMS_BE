@@ -28,8 +28,11 @@ public interface EmailVerificationStore {
     /** 인증 코드를 저장한다. 같은 이메일·용도의 이전 코드와 틀린 횟수는 지운다 */
     void saveCode(String email, EmailVerificationPurpose purpose, String code);
 
-    /** 저장한 코드를 지운다 */
-    void deleteCode(String email, EmailVerificationPurpose purpose);
+    /**
+     * 저장한 코드가 {@code code}일 때만 코드와 틀린 횟수를 지운다. 지웠으면 true.
+     * 메일을 못 보낸 요청이 그 사이 새로 받은 코드(다음 요청이 저장한 코드)를 지우지 않게 한다
+     */
+    boolean deleteCodeIfMatches(String email, EmailVerificationPurpose purpose, String code);
 
     /**
      * 코드를 확인한다. 맞으면 코드를 지운다. 틀리면 틀린 횟수를 세고, {@code maxAttempts}번째로 틀리면 코드를 지운다

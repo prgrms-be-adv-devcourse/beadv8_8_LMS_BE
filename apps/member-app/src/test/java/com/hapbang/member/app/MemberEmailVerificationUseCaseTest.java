@@ -8,13 +8,17 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -166,9 +170,50 @@ class MemberEmailVerificationUseCaseTest {
         allowAll("tester@example.com", PUBLIC_IP);
         willThrow(new MailSendException("smtp down")).given(emailSender).send(anyString(), anyString(), anyString());
 
+        given(store.deleteCodeIfMatches(eq("tester@example.com"), eq(SIGN_UP), anyString())).willReturn(true);
+
         useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP);
 
-        verify(store).deleteCode("tester@example.com", SIGN_UP);
+        ArgumentCaptor<String> saved = ArgumentCaptor.forClass(String.class);
+        verify(store).saveCode(eq("tester@example.com"), eq(SIGN_UP), saved.capture());
+        verify(store).deleteCodeIfMatches("tester@example.com", SIGN_UP, saved.getValue());
+        verify(store).clearResendCooldown("tester@example.com");
+    }
+
+    @Test
+    @DisplayName("늦게 실패한 메일은 그 사이 같은 이메일이 새로 받은 코드와 1분 간격을 지우지 않는다 (이번 코드일 때만 지움)")
+    void lateFailureKeepsNewerCode() {
+        List<Runnable> queued = new ArrayList<>();
+        useCase = new MemberEmailVerificationUseCase(userRepository, passwordCredentialRepository, store, emailSender,
+                queued::add);
+        allowAll("tester@example.com", PUBLIC_IP);
+        AtomicReference<String> latest = new AtomicReference<>();
+        willAnswer(invocation -> {
+            latest.set(invocation.getArgument(2));
+            return null;
+        }).given(store).saveCode(eq("tester@example.com"), eq(SIGN_UP), anyString());
+        given(store.deleteCodeIfMatches(eq("tester@example.com"), eq(SIGN_UP), anyString()))
+                .willAnswer(invocation -> invocation.getArgument(2).equals(latest.get()));
+        willThrow(new MailSendException("smtp down")).given(emailSender).send(anyString(), anyString(), anyString());
+
+        useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP); // A: 대기열에서 밀림
+        useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP); // B: 1분 뒤 새 코드
+        queued.get(0).run(); // A가 뒤늦게 실패
+
+        verify(store, never()).clearResendCooldown(anyString());
+        assertThat(latest.get()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("안내 메일(코드 없음)을 못 보내면 1분 간격만 지운다")
+    void noticeFailureClearsCooldownOnly() {
+        allowAll("tester@example.com", PUBLIC_IP);
+        given(userRepository.existsByEmailIgnoreCase("tester@example.com")).willReturn(true);
+        willThrow(new MailSendException("smtp down")).given(emailSender).send(anyString(), anyString(), anyString());
+
+        useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP);
+
+        verify(store, never()).deleteCodeIfMatches(anyString(), any(), anyString());
         verify(store).clearResendCooldown("tester@example.com");
     }
 
@@ -182,7 +227,7 @@ class MemberEmailVerificationUseCaseTest {
                 });
 
         assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP), MemberErrorCode.EMAIL_SEND_UNAVAILABLE);
-        verify(store).deleteCode("tester@example.com", SIGN_UP);
+        verify(store).deleteCodeIfMatches(eq("tester@example.com"), eq(SIGN_UP), anyString());
         verify(store).clearResendCooldown("tester@example.com");
         verify(emailSender, never()).send(anyString(), anyString(), anyString());
     }
@@ -195,7 +240,7 @@ class MemberEmailVerificationUseCaseTest {
         given(store.tryCountEmailDaily("tester@example.com")).willReturn(false);
 
         assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP), MemberErrorCode.EMAIL_CODE_DAILY_LIMIT);
-        verify(store, never()).deleteCode(anyString(), any());
+        verify(store, never()).deleteCodeIfMatches(anyString(), any(), anyString());
     }
 
     @Test

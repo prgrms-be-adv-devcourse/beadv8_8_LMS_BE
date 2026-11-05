@@ -110,18 +110,26 @@ public class MemberEmailVerificationUseCase {
         }
     }
 
-    /** 보낼 메일 한 통 */
-    private record OutgoingMail(String subject, String text) {
+    /**
+     * 보낼 메일 한 통
+     *
+     * @param code 이 메일로 보내는 인증 코드. 안내 메일이면 null. 못 보냈을 때 이 코드일 때만 지운다
+     */
+    private record OutgoingMail(String subject, String text, String code) {
+
+        static OutgoingMail notice(String subject, String text) {
+            return new OutgoingMail(subject, text, null);
+        }
     }
 
     /** 가입: 가입되지 않은 이메일이면 코드(저장), 이미 가입된 이메일이면 안내(가입 여부는 메일함 주인만 안다) */
     private OutgoingMail signUpMail(String normalizedEmail) {
         if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
-            return new OutgoingMail(ALREADY_REGISTERED_SUBJECT, alreadyRegisteredBody());
+            return OutgoingMail.notice(ALREADY_REGISTERED_SUBJECT, alreadyRegisteredBody());
         }
         String code = newCode();
         emailVerificationStore.saveCode(normalizedEmail, EmailVerificationPurpose.SIGN_UP, code);
-        return new OutgoingMail(SUBJECT, body(code));
+        return new OutgoingMail(SUBJECT, body(code), code);
     }
 
     /**
@@ -137,42 +145,52 @@ public class MemberEmailVerificationUseCase {
                 .filter(credential -> !credential.isWiped())
                 .isPresent();
         if (!hasPassword) {
-            return Optional.of(new OutgoingMail(GOOGLE_ACCOUNT_SUBJECT, googleAccountBody()));
+            return Optional.of(OutgoingMail.notice(GOOGLE_ACCOUNT_SUBJECT, googleAccountBody()));
         }
         String code = newCode();
         emailVerificationStore.saveCode(normalizedEmail, EmailVerificationPurpose.PASSWORD_RESET, code);
-        return Optional.of(new OutgoingMail(PASSWORD_RESET_SUBJECT, passwordResetBody(code)));
+        return Optional.of(new OutgoingMail(PASSWORD_RESET_SUBJECT, passwordResetBody(code), code));
     }
 
-    /** 메일을 대기열에 맡긴다. 가득 차면 503. 뒤에서 실패하면 코드·1분 간격을 지우고 error 로그 */
+    /** 메일을 대기열에 맡긴다. 가득 차면 503. 뒤에서 실패하면 이번 코드·1분 간격을 정리하고 error 로그 */
     private void dispatch(String normalizedEmail, EmailVerificationPurpose purpose, OutgoingMail mail) {
         try {
             emailSendExecutor.execute(() -> {
                 try {
                     emailSender.send(normalizedEmail, mail.subject(), mail.text());
                 } catch (RuntimeException e) {
-                    log.error("[EMAIL_SEND_FAILED] 인증 메일을 보내지 못해 코드와 1분 간격을 지웠다 purpose={}", purpose, e);
-                    cleanUpQuietly(normalizedEmail, purpose);
+                    log.error("[EMAIL_SEND_FAILED] 인증 메일을 보내지 못해 이번 코드와 1분 간격을 정리한다 purpose={}", purpose, e);
+                    cleanUpQuietly(normalizedEmail, purpose, mail.code());
                 }
             });
         } catch (RejectedExecutionException e) {
-            deleteCodeQuietly(normalizedEmail, purpose);
+            deleteCodeQuietly(normalizedEmail, purpose, mail.code());
             // 1분 간격은 sendCode가 되돌린다. 로그는 5xx를 처리하는 GlobalExceptionHandler가 원인과 함께 한 번 남긴다
             throw new MemberException(MemberErrorCode.EMAIL_SEND_UNAVAILABLE, e);
         }
     }
 
-    /** 이번 요청이 저장한 코드와 1분 간격을 지운다(메일을 못 보냈을 때). 지우다 오류가 나도 원래 오류를 가리지 않게 로그만 남긴다 */
-    private void cleanUpQuietly(String normalizedEmail, EmailVerificationPurpose purpose) {
-        deleteCodeQuietly(normalizedEmail, purpose);
-        clearCooldownQuietly(normalizedEmail);
+    /**
+     * 뒤에서 메일을 못 보냈을 때 이번 요청이 남긴 코드와 1분 간격을 지워 바로 다시 받을 수 있게 한다. 지우다 오류가 나도 로그만 남긴다.
+     * 보내는 데 오래 걸려(Gmail 장애로 대기열이 밀림) 그 사이 같은 이메일이 새 코드를 받았으면, 저장된 코드가 이번 코드와 달라
+     * 아무것도 지우지 않는다. 1분 간격도 새 요청의 것이라 그대로 둔다. 안내 메일(코드 없음)은 1분 간격만 지운다
+     */
+    private void cleanUpQuietly(String normalizedEmail, EmailVerificationPurpose purpose, String code) {
+        if (code == null || deleteCodeQuietly(normalizedEmail, purpose, code)) {
+            clearCooldownQuietly(normalizedEmail);
+        }
     }
 
-    private void deleteCodeQuietly(String normalizedEmail, EmailVerificationPurpose purpose) {
+    /** 저장된 코드가 {@code code}일 때만 지운다. 지웠으면 true. 안내 메일(코드 없음)이거나 지우다 오류가 나면 false */
+    private boolean deleteCodeQuietly(String normalizedEmail, EmailVerificationPurpose purpose, String code) {
+        if (code == null) {
+            return false;
+        }
         try {
-            emailVerificationStore.deleteCode(normalizedEmail, purpose);
+            return emailVerificationStore.deleteCodeIfMatches(normalizedEmail, purpose, code);
         } catch (RuntimeException e) {
             log.warn("인증 코드를 지우지 못해 10분 뒤 저절로 만료되게 뒀다 purpose={}", purpose, e);
+            return false;
         }
     }
 
