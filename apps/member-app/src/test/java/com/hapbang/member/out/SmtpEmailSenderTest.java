@@ -65,6 +65,15 @@ class SmtpEmailSenderTest {
     }
 
     @Test
+    @DisplayName("로그로만 남기기를 켜면(로컬 k3d) prod 프로필이고 메일 계정이 있어도 로그 발송기만 뜬다")
+    void logOnly() {
+        contextRunner.withPropertyValues("spring.profiles.active=prod", "spring.mail.username=dummy@example.com",
+                        "hapbang.member.mail.log-only=true")
+                .run(context -> assertThat(context).hasSingleBean(LoggingEmailSender.class)
+                        .doesNotHaveBean(SmtpEmailSender.class));
+    }
+
+    @Test
     @DisplayName("운영(prod)은 메일 계정이 없어도 로그 발송기를 만들지 않는다(인증 코드가 로그에 남지 않게)")
     void noLoggingSenderInProd() {
         contextRunner.withPropertyValues("spring.profiles.active=prod")

@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.app.MemberEmailVerificationUseCase;
 import com.hapbang.member.domain.EmailVerificationPolicy;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.UserRepository;
@@ -214,7 +215,7 @@ class EmailVerificationApiTest {
         String hex = UUID.randomUUID().toString().replace("-", "");
         String ip = "2001:db8:%s:%s:%s:%s::1".formatted(hex.substring(0, 4), hex.substring(4, 8), hex.substring(8, 12),
                 hex.substring(12, 16));
-        createdKeys.add("member:email-code-ip:" + hash(ip));
+        createdKeys.add("member:email-code-ip:" + hash(MemberEmailVerificationUseCase.ipLimitKey(ip)));
         return ip;
     }
 

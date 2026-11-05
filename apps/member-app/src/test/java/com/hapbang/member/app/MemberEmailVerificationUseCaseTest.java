@@ -309,6 +309,17 @@ class MemberEmailVerificationUseCaseTest {
     }
 
     @Test
+    @DisplayName("IP 제한 단위: IPv4는 주소 그대로, IPv6는 같은 /64면 같은 것으로 센다")
+    void ipLimitKey() {
+        assertThat(MemberEmailVerificationUseCase.ipLimitKey("203.0.113.5")).isEqualTo("203.0.113.5");
+        assertThat(MemberEmailVerificationUseCase.ipLimitKey("2001:db8:1:2::1"))
+                .isEqualTo(MemberEmailVerificationUseCase.ipLimitKey("2001:db8:1:2:ffff:eeee:dddd:cccc"))
+                .isEqualTo("v6/64:2001:0db8:0001:0002");
+        assertThat(MemberEmailVerificationUseCase.ipLimitKey("2001:db8:1:3::1"))
+                .isNotEqualTo(MemberEmailVerificationUseCase.ipLimitKey("2001:db8:1:2::1"));
+    }
+
+    @Test
     @DisplayName("코드는 앞자리 0을 포함한 6자리 숫자다")
     void newCode() {
         for (int i = 0; i < 100; i++) {

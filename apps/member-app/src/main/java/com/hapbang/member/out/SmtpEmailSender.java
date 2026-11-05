@@ -14,11 +14,12 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 
 /**
- * Gmail SMTP로 메일을 보낸다 (#557). 메일 계정({@code spring.mail.username})이 있을 때만 만든다.
+ * Gmail SMTP로 메일을 보낸다 (#557). 메일 계정({@code spring.mail.username})이 있고, 로그로만 남기기
+ * ({@code hapbang.member.mail.log-only})가 꺼져 있을 때만 만든다.
  * 보낸 사람은 그 계정이고 표시 이름은 "합방"이다. SMTP 연결·응답 제한 시간은 application.yaml(5초)
  */
 @Component
-@ConditionalOnExpression("!'${spring.mail.username:}'.isBlank()")
+@ConditionalOnExpression("!'${spring.mail.username:}'.isBlank() and !${hapbang.member.mail.log-only:false}")
 public class SmtpEmailSender implements EmailSender {
 
     static final String SENDER_NAME = "합방";

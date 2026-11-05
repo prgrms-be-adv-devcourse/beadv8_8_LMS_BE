@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.app.MemberEmailVerificationUseCase;
 import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.PasswordCredential;
 import com.hapbang.member.domain.User;
@@ -196,7 +197,7 @@ class PasswordResetApiTest {
 
     private ResultActions sendCode(String email, String purpose) throws Exception {
         String ip = "2001:db8:" + UUID.randomUUID().toString().substring(0, 4) + "::1";
-        createdKeys.add("member:email-code-ip:" + hash(ip));
+        createdKeys.add("member:email-code-ip:" + hash(MemberEmailVerificationUseCase.ipLimitKey(ip)));
         return mockMvc.perform(post(EMAIL_CODES)
                 .with(request -> {
                     request.setRemoteAddr(ip);

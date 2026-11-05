@@ -178,7 +178,7 @@ public class MemberEmailVerificationUseCase {
     /** IP·이메일·전체 발송 수를 센다. 하나라도 넘으면 예외 (이미 센 수는 되돌리지 않는다) */
     private void checkSendLimits(String normalizedEmail, String clientIp) {
         if (isPublicAddress(clientIp)) {
-            if (!emailVerificationStore.tryCountIp(clientIp)) {
+            if (!emailVerificationStore.tryCountIp(ipLimitKey(clientIp))) {
                 throw new MemberException(MemberErrorCode.EMAIL_CODE_TOO_MANY_REQUESTS);
             }
         } else {
@@ -286,6 +286,29 @@ public class MemberEmailVerificationUseCase {
 
                 직접 요청하지 않았다면 이 메일은 무시해 주세요.
                 """.formatted(code, EmailVerificationPolicy.CODE_TTL.toMinutes());
+    }
+
+    /**
+     * IP 제한을 세는 단위. IPv4는 주소 그대로, IPv6는 앞 64비트(/64)다. IPv6는 보통 한 사용자·회선에 /64 묶음을 주므로
+     * 주소 하나씩 세면 그 안에서 주소를 바꿔 가며 제한을 피할 수 있다(#557 리뷰). 공인 주소로 확인된 값만 넘긴다
+     */
+    public static String ipLimitKey(String ip) {
+        try {
+            byte[] bytes = InetAddress.getByName(ip).getAddress();
+            if (bytes.length != 16) {
+                return ip;
+            }
+            StringBuilder prefix = new StringBuilder("v6/64:");
+            for (int i = 0; i < 8; i += 2) {
+                prefix.append(String.format("%02x%02x", bytes[i], bytes[i + 1]));
+                if (i < 6) {
+                    prefix.append(':');
+                }
+            }
+            return prefix.toString();
+        } catch (UnknownHostException e) {
+            return ip;
+        }
     }
 
     /**

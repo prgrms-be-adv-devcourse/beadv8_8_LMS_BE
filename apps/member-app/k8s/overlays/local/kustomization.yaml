@@ -35,3 +35,5 @@ configMapGenerator:
     behavior: merge
     literals:
       - HAPBANG_JWT_ALLOW_EPHEMERAL_KEY=true
+      # 가입·재설정 인증 메일을 Gmail로 보내지 않고 로그로 남긴다(#557). prod 프로필이라 켜지 않으면 가짜 계정으로 Gmail에 붙다가 실패한다
+      - HAPBANG_MEMBER_MAIL_LOG_ONLY=true
