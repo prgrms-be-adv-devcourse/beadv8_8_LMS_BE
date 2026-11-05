@@ -4,7 +4,10 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.security.SecureRandom;
 import java.util.Optional;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -20,7 +23,6 @@ import com.hapbang.member.out.EmailVerificationStore;
 import com.hapbang.member.out.PasswordCredentialRepository;
 import com.hapbang.member.out.UserRepository;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -36,12 +38,12 @@ import lombok.extern.slf4j.Slf4j;
  *     Gmail 하루 발송 한도(약 500통) 소진, 남의 메일함 스팸·메일 폭탄, 코드 맞히기를 막는다.
  *     IP가 내부 주소(사설·루프백 등)면 진짜 접속 IP를 모르는 것이라 IP 제한을 건너뛰고 경고만 남긴다. 모든 사람이 한 IP로 보여
  *     가입 전체가 막히는 일을 피하려는 것이다(운영에서 진짜 IP가 오는지는 병합 전에 확인한다, docs/deploy/gateway.md).</li>
- *     <li>메일을 못 보내면 저장한 코드와 재발송 간격을 지워 바로 다시 받을 수 있게 하고 503을 준다. IP·이메일·전체 발송 수는 그대로 센다.</li>
+ *     <li>메일은 뒤에서 보낸다(EmailSendConfig 대기열). 응답 시간·코드가 메일을 보내는지와 상관없이 같아 가입 여부가 드러나지 않고,
+ *     Gmail이 느려도 요청이 묶이지 않는다. 못 보내면 코드와 재발송 간격을 지워 바로 다시 받을 수 있게 한다. IP·이메일·전체 발송 수는 그대로 센다.</li>
  * </ul>
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class MemberEmailVerificationUseCase {
 
     static final String SUBJECT = "[합방] 이메일 인증 코드";
@@ -55,11 +57,29 @@ public class MemberEmailVerificationUseCase {
     private final PasswordCredentialRepository passwordCredentialRepository;
     private final EmailVerificationStore emailVerificationStore;
     private final EmailSender emailSender;
+    /** 메일을 뒤에서 보내는 대기열 (EmailSendConfig) */
+    private final Executor emailSendExecutor;
+
+    MemberEmailVerificationUseCase(UserRepository userRepository,
+                                   PasswordCredentialRepository passwordCredentialRepository,
+                                   EmailVerificationStore emailVerificationStore, EmailSender emailSender,
+                                   @Qualifier("emailSendExecutor") Executor emailSendExecutor) {
+        this.userRepository = userRepository;
+        this.passwordCredentialRepository = passwordCredentialRepository;
+        this.emailVerificationStore = emailVerificationStore;
+        this.emailSender = emailSender;
+        this.emailSendExecutor = emailSendExecutor;
+    }
 
     /**
-     * 인증 코드를 메일로 보낸다(용도별로 받는 메일이 다르다, 클래스 설명). 트랜잭션 없이 부른다(메일 발송을 DB 트랜잭션 안에 두지 않는다).
+     * 인증 코드를 메일로 보낸다(용도별로 받는 메일이 다르다, 클래스 설명). 트랜잭션 없이 부른다.
      * 제한은 싼 것부터 본다: 같은 이메일 1분 간격 → IP 1시간 10통 → 이메일 하루 5통 → 전체 하루 300통.
-     * 1분 간격에 막힌 요청(연타)은 IP·이메일·전체 수를 쓰지 않는다. 뒤 제한에 막히면 1분 간격을 지워 되돌린다
+     * 1분 간격에 막힌 요청(연타)은 IP·이메일·전체 수를 쓰지 않는다. 뒤 제한에 막히거나 오류가 나면(Redis 오류 포함) 1분 간격을
+     * 지워 되돌린다. 이전 요청에서 받은 유효한 코드는 지우지 않는다.
+     * <p>
+     * 메일은 뒤에서 보낸다(대기열에 맡기고 바로 돌아온다). 그래서 응답 시간·코드가 메일을 보내는지(가입 여부)와 상관없이 같다.
+     * 대기열이 가득 차면 503 EMAIL_SEND_UNAVAILABLE. 뒤에서 보내다 실패하면 코드와 1분 간격을 지워 바로 다시 받을 수 있게 하고
+     * error 로그를 남긴다(사용자는 메일이 오지 않아 다시 받는다)
      */
     public void sendCode(String email, EmailVerificationPurpose purpose, String clientIp) {
         String normalizedEmail = MemberEmail.normalize(email);
@@ -68,53 +88,91 @@ public class MemberEmailVerificationUseCase {
         }
         try {
             checkSendLimits(normalizedEmail, clientIp);
-        } catch (MemberException e) {
-            emailVerificationStore.clearResendCooldown(normalizedEmail);
-            throw e;
-        }
-        try {
-            switch (purpose) {
-                case SIGN_UP -> sendSignUpMail(normalizedEmail);
-                case PASSWORD_RESET -> sendPasswordResetMail(normalizedEmail);
-            }
+            Optional<OutgoingMail> mail = switch (purpose) {
+                case SIGN_UP -> Optional.of(signUpMail(normalizedEmail));
+                case PASSWORD_RESET -> passwordResetMail(normalizedEmail);
+            };
+            mail.ifPresent(outgoing -> dispatch(normalizedEmail, purpose, outgoing));
         } catch (RuntimeException e) {
-            log.warn("인증 메일을 보내지 못했습니다. purpose={}", purpose, e);
-            emailVerificationStore.deleteCode(normalizedEmail, purpose);
-            emailVerificationStore.clearResendCooldown(normalizedEmail);
-            throw new MemberException(MemberErrorCode.EMAIL_SEND_FAILED, e);
+            // 1분 간격만 되돌린다. 코드는 이번 요청이 맡기지 못한 경우에만 dispatch가 지운다(이전에 받은 유효한 코드는 지우지 않는다)
+            clearCooldownQuietly(normalizedEmail);
+            throw e;
         }
     }
 
-    /** 가입: 가입되지 않은 이메일이면 코드, 이미 가입된 이메일이면 안내(가입 여부는 메일함 주인만 안다) */
-    private void sendSignUpMail(String normalizedEmail) {
+    /** 보낼 메일 한 통 */
+    private record OutgoingMail(String subject, String text) {
+    }
+
+    /** 가입: 가입되지 않은 이메일이면 코드(저장), 이미 가입된 이메일이면 안내(가입 여부는 메일함 주인만 안다) */
+    private OutgoingMail signUpMail(String normalizedEmail) {
         if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
-            emailSender.send(normalizedEmail, ALREADY_REGISTERED_SUBJECT, alreadyRegisteredBody());
-            return;
+            return new OutgoingMail(ALREADY_REGISTERED_SUBJECT, alreadyRegisteredBody());
         }
         String code = newCode();
         emailVerificationStore.saveCode(normalizedEmail, EmailVerificationPurpose.SIGN_UP, code);
-        emailSender.send(normalizedEmail, SUBJECT, body(code));
+        return new OutgoingMail(SUBJECT, body(code));
     }
 
     /**
-     * 재설정: 비밀번호가 있는 정상 회원이면 코드, 구글로만 가입한 정상 회원이면 "구글로 로그인" 안내.
+     * 재설정: 비밀번호가 있는 정상 회원이면 코드(저장), 구글로만 가입한 정상 회원이면 "구글로 로그인" 안내.
      * 없는 아이디, 탈퇴·정지 회원(#557 결정: 정상 회원만)에게는 보내지 않는다(회원이 아닌 사람 메일함에 메일이 가지 않게)
      */
-    private void sendPasswordResetMail(String normalizedEmail) {
+    private Optional<OutgoingMail> passwordResetMail(String normalizedEmail) {
         Optional<User> member = userRepository.findByEmailIgnoreCase(normalizedEmail).filter(User::isActive);
         if (member.isEmpty()) {
-            return;
+            return Optional.empty();
         }
         boolean hasPassword = passwordCredentialRepository.findByUserId(member.get().getId())
                 .filter(credential -> !credential.isWiped())
                 .isPresent();
         if (!hasPassword) {
-            emailSender.send(normalizedEmail, GOOGLE_ACCOUNT_SUBJECT, googleAccountBody());
-            return;
+            return Optional.of(new OutgoingMail(GOOGLE_ACCOUNT_SUBJECT, googleAccountBody()));
         }
         String code = newCode();
         emailVerificationStore.saveCode(normalizedEmail, EmailVerificationPurpose.PASSWORD_RESET, code);
-        emailSender.send(normalizedEmail, PASSWORD_RESET_SUBJECT, passwordResetBody(code));
+        return Optional.of(new OutgoingMail(PASSWORD_RESET_SUBJECT, passwordResetBody(code)));
+    }
+
+    /** 메일을 대기열에 맡긴다. 가득 차면 503. 뒤에서 실패하면 코드·1분 간격을 지우고 error 로그 */
+    private void dispatch(String normalizedEmail, EmailVerificationPurpose purpose, OutgoingMail mail) {
+        try {
+            emailSendExecutor.execute(() -> {
+                try {
+                    emailSender.send(normalizedEmail, mail.subject(), mail.text());
+                } catch (RuntimeException e) {
+                    log.error("인증 메일을 보내지 못했습니다. 코드와 1분 간격을 지워 바로 다시 받을 수 있게 합니다. purpose={}", purpose, e);
+                    cleanUpQuietly(normalizedEmail, purpose);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            log.error("인증 메일 대기열이 가득 차 맡기지 못했습니다. purpose={}", purpose, e);
+            deleteCodeQuietly(normalizedEmail, purpose);
+            // 1분 간격은 sendCode가 되돌린다
+            throw new MemberException(MemberErrorCode.EMAIL_SEND_UNAVAILABLE, e);
+        }
+    }
+
+    /** 이번 요청이 저장한 코드와 1분 간격을 지운다(메일을 못 보냈을 때). 지우다 오류가 나도 원래 오류를 가리지 않게 로그만 남긴다 */
+    private void cleanUpQuietly(String normalizedEmail, EmailVerificationPurpose purpose) {
+        deleteCodeQuietly(normalizedEmail, purpose);
+        clearCooldownQuietly(normalizedEmail);
+    }
+
+    private void deleteCodeQuietly(String normalizedEmail, EmailVerificationPurpose purpose) {
+        try {
+            emailVerificationStore.deleteCode(normalizedEmail, purpose);
+        } catch (RuntimeException e) {
+            log.warn("인증 코드를 지우지 못했습니다. 10분 뒤 저절로 만료됩니다. purpose={}", purpose, e);
+        }
+    }
+
+    private void clearCooldownQuietly(String normalizedEmail) {
+        try {
+            emailVerificationStore.clearResendCooldown(normalizedEmail);
+        } catch (RuntimeException e) {
+            log.warn("1분 간격을 지우지 못했습니다. 1분 뒤 저절로 풀립니다.", e);
+        }
     }
 
     /** IP·이메일·전체 발송 수를 센다. 하나라도 넘으면 예외 (이미 센 수는 되돌리지 않는다) */

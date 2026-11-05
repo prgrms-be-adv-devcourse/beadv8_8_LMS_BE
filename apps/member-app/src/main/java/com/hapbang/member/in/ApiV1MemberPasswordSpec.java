@@ -23,7 +23,8 @@ public interface ApiV1MemberPasswordSpec {
                     + "없는 이메일·탈퇴·정지 회원 → 보내지 않음. 프론트는 항상 \"메일을 확인해 주세요\"로 안내한다. "
                     + "제한은 용도와 상관없이 합쳐 센다: 같은 이메일 1분에 한 번(429 EMAIL_CODE_RESEND_TOO_SOON), 한 IP 1시간 10통(429 EMAIL_CODE_TOO_MANY_REQUESTS), "
                     + "한 이메일 하루 5통(429 EMAIL_CODE_DAILY_LIMIT). 앱 전체 하루 상한(300통)에 닿으면 503 EMAIL_SEND_UNAVAILABLE. "
-                    + "메일을 보내지 못하면 503 EMAIL_SEND_FAILED(바로 다시 시도 가능). "
+                    + "메일은 뒤에서 보내므로 응답은 바로 온다. 메일이 오지 않으면 1분 뒤 다시 받는다(발송에 실패했으면 서버가 1분 간격을 풀어 바로 다시 받을 수 있다). "
+                    + "메일 대기열이 가득 차도 503 EMAIL_SEND_UNAVAILABLE. "
                     + "응답 data: expiresInSeconds(코드 유효 시간), resendAfterSeconds(다시 받을 수 있을 때까지).")
     RsData<EmailCodeResponse> sendEmailCode(EmailCodeRequest request,
                                             @Parameter(hidden = true) HttpServletRequest httpRequest);

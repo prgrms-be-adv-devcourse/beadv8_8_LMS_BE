@@ -14,14 +14,15 @@ import static org.mockito.Mockito.verify;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.concurrent.RejectedExecutionException;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.MailSendException;
@@ -55,8 +56,14 @@ class MemberEmailVerificationUseCaseTest {
     @Mock
     PasswordCredentialRepository passwordCredentialRepository;
 
-    @InjectMocks
+    /** 메일 대기열 대신 그 자리에서 바로 실행한다(뒤에서 보내는 동작을 순서대로 확인하려고) */
     MemberEmailVerificationUseCase useCase;
+
+    @BeforeEach
+    void setUp() {
+        useCase = new MemberEmailVerificationUseCase(userRepository, passwordCredentialRepository, store, emailSender,
+                Runnable::run);
+    }
 
     @Test
     @DisplayName("소문자로 바꾼 이메일로 6자리 코드를 저장하고 그 코드를 메일로 보낸다")
@@ -154,13 +161,51 @@ class MemberEmailVerificationUseCaseTest {
     }
 
     @Test
-    @DisplayName("메일을 못 보내면 코드와 1분 간격을 지우고 503 EMAIL_SEND_FAILED")
-    void sendFailed() {
+    @DisplayName("뒤에서 메일을 못 보내면 요청은 그대로 성공이고, 코드와 1분 간격을 지워 바로 다시 받을 수 있게 한다")
+    void sendFailedInBackground() {
         allowAll("tester@example.com", PUBLIC_IP);
         willThrow(new MailSendException("smtp down")).given(emailSender).send(anyString(), anyString(), anyString());
 
-        assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP), MemberErrorCode.EMAIL_SEND_FAILED);
+        useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP);
+
         verify(store).deleteCode("tester@example.com", SIGN_UP);
+        verify(store).clearResendCooldown("tester@example.com");
+    }
+
+    @Test
+    @DisplayName("메일 대기열이 가득 차면 503 EMAIL_SEND_UNAVAILABLE이고 이번 코드와 1분 간격을 지운다")
+    void queueFull() {
+        allowAll("tester@example.com", PUBLIC_IP);
+        useCase = new MemberEmailVerificationUseCase(userRepository, passwordCredentialRepository, store, emailSender,
+                task -> {
+                    throw new RejectedExecutionException("full");
+                });
+
+        assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP), MemberErrorCode.EMAIL_SEND_UNAVAILABLE);
+        verify(store).deleteCode("tester@example.com", SIGN_UP);
+        verify(store).clearResendCooldown("tester@example.com");
+        verify(emailSender, never()).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("제한에 막히면 이전에 받은 유효한 코드는 지우지 않는다 (1분 간격만 되돌림)")
+    void limitKeepsPreviousCode() {
+        given(store.tryStartResendCooldown("tester@example.com")).willReturn(true);
+        given(store.tryCountIp(PUBLIC_IP)).willReturn(true);
+        given(store.tryCountEmailDaily("tester@example.com")).willReturn(false);
+
+        assertError(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP), MemberErrorCode.EMAIL_CODE_DAILY_LIMIT);
+        verify(store, never()).deleteCode(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("제한을 세다 Redis 오류가 나도 1분 간격을 되돌리고 원래 오류를 그대로 던진다")
+    void redisErrorClearsCooldown() {
+        given(store.tryStartResendCooldown("tester@example.com")).willReturn(true);
+        IllegalStateException redisDown = new IllegalStateException("redis down");
+        given(store.tryCountIp(PUBLIC_IP)).willThrow(redisDown);
+
+        assertThatThrownBy(() -> useCase.sendCode("tester@example.com", SIGN_UP, PUBLIC_IP)).isSameAs(redisDown);
         verify(store).clearResendCooldown("tester@example.com");
     }
 
