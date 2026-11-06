@@ -6,7 +6,7 @@
 - 이 문서와 코드·decisions.md가 다르면 코드와 decisions.md가 맞다. 확인한 뒤 이 문서를 고친다.
 - 작업 하나를 끝내면 3장 상태 칸과 1장을 갱신한다.
 
-마지막 갱신: 2026-11-06 (처음 작성. 상태는 `dev` `e054d6f6` 기준 git log·코드 검색으로 확인. 같은 날 발행 앱 코드 조사로 M1~M7 근거 보강, U16~U18 반영)
+마지막 갱신: 2026-11-06. 상태는 `dev` `e054d6f6` 기준 git log·코드 검색으로 확인했다.
 
 ## 1. 현재 상태
 
@@ -17,7 +17,7 @@
 | notification Gradle 모듈 | 미등록 | `settings.gradle.kts`의 `auxiliaryModules`에 `notification`이 없다 |
 | `boundedContext/notification` 디렉터리 | 문서만 | `AGENTS.md`, `PROGRESS.md`뿐. `build.gradle.kts`·`src/` 없음 |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
-| 나머지 알림 문서 | 이번 단계(3.4단계) 작성, 미커밋 | 2장 |
+| 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
 | 기능 구현 | 미착수 | 알림 모듈 코드 없음 |
 | 테스트 | 미실행 | 테스트 코드 없음 |
 | Flyway | 미작성 | 알림 schema SQL 없음 |
@@ -27,13 +27,13 @@
 | 문서 | 상태 |
 | --- | --- |
 | [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md) | 작성 완료(#746) |
-| [`docs/notification/CONTEXT.md`](../../../../docs/notification/CONTEXT.md) | 이번 단계 작성 |
-| [`docs/notification/module.md`](../../../../docs/notification/module.md) | 이번 단계 작성 |
-| [`docs/notification/notification-catalog.md`](../../../../docs/notification/notification-catalog.md) | 이번 단계 작성 |
-| [`docs/notification/test-spec.md`](../../../../docs/notification/test-spec.md) | 이번 단계 작성 |
-| [`docs/notification/regression-log.md`](../../../../docs/notification/regression-log.md) | 이번 단계 작성 |
-| [`docs/api/notification.md`](../../../../docs/api/notification.md) | 이번 단계 작성 |
-| [`AGENTS.md`](AGENTS.md), 이 문서 | 이번 단계 작성 |
+| [`docs/notification/CONTEXT.md`](../../../../docs/notification/CONTEXT.md) | 작성 완료 (#750) |
+| [`docs/notification/module.md`](../../../../docs/notification/module.md) | 작성 완료 (#750) |
+| [`docs/notification/notification-catalog.md`](../../../../docs/notification/notification-catalog.md) | 작성 완료 (#750) |
+| [`docs/notification/test-spec.md`](../../../../docs/notification/test-spec.md) | 작성 완료 (#750) |
+| [`docs/notification/regression-log.md`](../../../../docs/notification/regression-log.md) | 작성 완료 (#750) |
+| [`docs/api/notification.md`](../../../../docs/api/notification.md) | 작성 완료 (#750) |
+| [`AGENTS.md`](AGENTS.md), 이 문서 | 작성 완료 (#750) |
 | `docs/notification/INDEX.md` | 후속 단계 |
 | `docs/policy.md` 알림센터 장 | 후속(팀 승인 필요, 4장) |
 
@@ -50,7 +50,7 @@
 | N3 | P0 | STOMP, 연결 티켓, Redis Pub/Sub 전달 | 알림 | N1 | 미착수 | 코드 없음. U15 |
 | N4 | P0 | Envoy route(REST, WebSocket) | 알림 | X1 | 미착수 | `apps/auxiliary-app/k8s/base/gateway.yaml`에 알림 경로 없음. U14 |
 | N5 | P0 | 이벤트 소비: 출연 요청 도착·모집 지원 도착, 지갑 7종(묶음 제외), 회원 가입·승인 추정 2종 | 알림 | N0, N2 | 미착수 | 코드 없음 |
-| M1 | P0 | 출연: 출연 취소 요청 이벤트 3종 Kafka 발행 | 출연 | 없음 | 미착수 | 2026-11-06 조사: 출연 취소 요청 3종(`AppearanceCancelRequested`·`AppearanceCancelRequestAccepted`·`AppearanceCancelRequestRejectedEvent`)은 shared에 있고 출연 앱 JVM 안에서는 발행된다. `@Externalized`가 없어 Kafka로는 나가지 않는다(출연 앱은 `@Externalized`가 붙은 것만 내보낸다, `apps/appearance-app/src/main/java/com/hapbang/appearance/app/AppearanceExternalEvents.java:12`) |
+| M1 | P0 | 출연: 출연 취소 요청 이벤트 3종 Kafka 발행 | 출연 | 없음 | 미착수 | 2026-11-06 조사: 출연 취소 요청 3종(`AppearanceCancelRequestedEvent`·`AppearanceCancelRequestAcceptedEvent`·`AppearanceCancelRequestRejectedEvent`)은 shared에 있고 출연 앱 JVM 안에서는 발행된다. `@Externalized`가 없어 Kafka로는 나가지 않는다(출연 앱은 `@Externalized`가 붙은 것만 내보낸다, `apps/appearance-app/src/main/java/com/hapbang/appearance/app/AppearanceExternalEvents.java:12`) |
 | M2 | P0 | 강의: 이의 제기 이벤트 4종에 구매자·판매자 ID 추가 | 강의 | N0 | 미착수 | 2026-11-06 조사: 이의 제기 4종(`LectureObjectionResolved`·`ReturnCompleted`·`Withdrawn`·`ReturnActionRequiredEvent`)에 `buyerUserId`·`sellerUserId`·제목이 없다 |
 | N6 | P0 | M1·M2 이벤트 소비 | 알림 | M1 또는 M2, N2 | 미착수 | 코드 없음 |
 | M3 | P1 | 출연 새 이벤트 12종 | 출연 | N0 | 미착수 | 2026-11-06 조사: 12종 레코드가 shared·출연 앱에 없다. `AppearanceChangedEvent`(#713)는 AI 추천용 상태 사본(id, hostId, guestId, result, scheduledAt, version)이라 M3 전체를 대체할 수 없다(요청 수락/지원 수락, 일방/합의 취소, HOST/AUTO 확인을 구분할 수 없고 요청서·지원·모집글 단계 전이를 담지 않는다). 부분 충족 5, 미충족 7 |
@@ -91,6 +91,7 @@
 | U16 | 알림 담당 (B안은 팀) | N1(예약 테이블 설계)·N10 |
 | U17 | 알림 담당 (+ 회원 내부 API를 쓰면 회원 담당) | N1(회원 복제본·Kafka 소비)·첫 배포 |
 | U18 | 회원 담당 + 알림 담당 협의 | N5(회원 이벤트 소비) |
+| U19 | 알림 담당 (+ 회원 정책은 팀) | N0(문구 템플릿)·N1(테이블 설계)·N2(알림 저장) |
 | T8 | 채팅 담당 | — (chat-app 불변식, decisions.md 12장) |
 
 그 밖의 팀 승인 필요:
@@ -105,7 +106,7 @@
 
 | Issue | 내용 | 확인 |
 | --- | --- | --- |
-| #193 | 알림 기능 | git log에 커밋 없음(decisions.md ND-001 출처로만 확인). 다른 팀원의 향후 작업이며 이번 단계의 차단 요소가 아니다 |
+| #193 | 알림 기능 | git log에 커밋 없음(decisions.md ND-001 출처로만 확인). 다른 팀원의 향후 작업이며 알림 문서 구축의 차단 요소가 아니다 |
 | #684 | 메모리 예산(검색·챗봇·알림을 앱 하나로 묶는 근거, README) | 커밋 `e872d3c1`(PR #686, 제목은 chat-app heap 상한) |
 | #710 | 알림 최종 기획 반영 | 커밋 `83d564e8` |
 | #714 | auxiliary-app 뼈대와 챗봇 모듈 자리 | 커밋 `363dbeef`(PR #736) |
@@ -115,6 +116,3 @@
 
 - `docs/notification/INDEX.md` 구축(후속 단계).
 - 알림 모듈 Gradle 등록과 구현은 4장의 차단 요소를 정한 뒤 시작한다(AGENTS.md 5장).
-
-변경 이력
-- 2026-11-06 발행 앱 코드 조사 반영: M1~M7 근거 보강(상태는 미착수 그대로), M3~M7 "미확인" 해소, 4장에 U16·U17·U18 추가, #193은 차단 요소가 아님을 명시.

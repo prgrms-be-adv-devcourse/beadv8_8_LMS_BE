@@ -21,7 +21,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 | 순서 | 문서 | 역할 |
 | --- | --- | --- |
 | 1 | [`docs/policy.md`](../../../../docs/policy.md) | 업무 규칙 원본(SoT). 알림센터 장은 아직 없다. 장을 더하는 일은 팀 승인을 받는 후속 작업이고, 그때까지 알림센터 정책은 decisions.md에만 있다 |
-| 2 | [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md) | 결정·이유·상태(`ND-*`), 미결(U1~U18), 팀 결정 필요(T1~T8) |
+| 2 | [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md) | 결정·이유·상태(`ND-*`), 미결(U1~U19), 팀 결정 필요(T1~T8) |
 | 3 | [`docs/notification/CONTEXT.md`](../../../../docs/notification/CONTEXT.md) | 배경과 도메인 맥락 |
 | 4 | [`docs/notification/module.md`](../../../../docs/notification/module.md) | 모듈 구조(현재 상태와 제안 To-Be) |
 | 5 | [`docs/notification/notification-catalog.md`](../../../../docs/notification/notification-catalog.md) | 알림 종류·받는 사람·발생 조건 |
@@ -86,7 +86,7 @@ Kafka 공통 규칙은 [`docs/architecture/infrastructure/kafka.md`](../../../..
 
 ## 4. 임의로 정하지 않는 것
 
-- 미결 U1~U18과 팀 결정 필요 T1~T8은 [decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)에 있다. 해당 작업에 닿으면 구현하지 말고 결정 주체에게 질문한다. 질문과 결과는 기록한다(루트 AGENTS 10장). 결정되면 decisions.md에 새 `ND-*`로 먼저 적는다.
+- 미결 U1~U19과 팀 결정 필요 T1~T8은 [decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)에 있다. 해당 작업에 닿으면 구현하지 말고 결정 주체에게 질문한다. 질문과 결과는 기록한다(루트 AGENTS 10장). 결정되면 decisions.md에 새 `ND-*`로 먼저 적는다.
 - **consumer group 이름**은 미결이다(U1). 이름을 임의로 정해 코드에 넣지 않는다.
 - **패키지 구조**는 제안 단계다([`module.md`](../../../../docs/notification/module.md)의 제안 To-Be). 루트 AGENTS 11장에 따라 코드 컨벤션은 팀 합의 전이므로 확정된 규칙으로 쓰지 않는다.
 - 발행 모듈 이벤트 계약(notification.md 7장)은 각 발행 모듈 담당과 합의하기 전이다(decisions.md 8장). 발행 모듈 코드나 `common/shared` 이벤트를 알림 작업에서 임의로 만들거나 고치지 않는다.
