@@ -71,7 +71,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 | `billing-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`(없으면 충전 API만 503) | `apps/billing-app/k8s/overlays/prod` |
 | `lecture-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `S3_BUCKET` | `apps/lecture-app/k8s/overlays/prod` |
 | `appearance-app-secrets`, `chat-app-secrets`, `customer-support-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY` | 각 앱의 `k8s/overlays/prod` |
-| `postgres-credentials` | hapbang-platform | `postgres`(superuser), `member`, `billing`, `appearance`, `lecture`, `chat`, `customersupport` | `k8s/platform/overlays/prod` |
+| `postgres-credentials` | hapbang-platform | `postgres`(superuser), `member`, `billing`, `appearance`, `lecture`, `chat`, `customersupport`, `auxiliary`(#726) | `k8s/platform/overlays/prod` |
 | `ghcr-pull` | hapbang-prod | `.dockerconfigjson`(type `kubernetes.io/dockerconfigjson`). BE 앱 6개와 FE가 함께 쓴다 | `k8s/registry` ([GHCR pull 인증](#ghcr-pull-인증)) |
 
 - `postgres-credentials`의 앱별 값은 각 앱 Secret의 `DB_PASSWORD`와 같아야 한다. PostgreSQL이 첫 기동 때 이 값으로 앱 role을 만든다.
@@ -133,8 +133,130 @@ GHCR 패키지는 조직 정책으로 private이고 public으로 바꿀 수 없�
 PostgreSQL은 앱들이 함께 쓰는 인프라라 `hapbang-platform`에 둔다. 그래서 앱 배포가 PostgreSQL을 건드리지 않는다. instance 1개에 앱마다 database와 같은 이름의 소유 role을 두고 `REVOKE CONNECT ... FROM PUBLIC`으로 다른 role의 접속을 막는다([10장](../architecture/infrastructure/database.md)). 앱의 Flyway가 database 안에 자기 schema를 만든다.
 
 - database·role은 차트의 initdb script(`k8s/platform/base/postgres.yaml`)가 **데이터 디렉터리가 비어 있을 때만** 만든다.
-- 이미 초기화된 instance에 database를 더할 때(notification·search 앱 추가 등)는 script를 고치고, 실행 중인 instance에도 같은 SQL을 superuser로 실행한다.
+- 이미 초기화된 instance에 database를 더할 때는 script를 고치고, 실행 중인 instance에도 같은 SQL을 superuser로 실행한다(아래 절차). auxiliary-app의 `auxiliary`도 이렇게 더한다(#726).
 - 기존 Compose 운영 DB는 이전하지 않고 2026-10-30에 지웠다(#440). 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다.
+- `max_connections` 100은 앱 6개 × HikariCP 기본 10 + auxiliary-app 5 + rolling surge 10 = 75에 맞춘 값이다. 앱을 더하거나 풀 크기를 바꾸면 다시 계산한다.
+
+### 실행 중인 instance에 database 더하기
+
+비밀번호는 화면·명령 인자에 남기지 않는다. `<db>`는 database·role·`postgres-credentials` 키 이름이다(예: `auxiliary`).
+
+1. PR에서 `postgres-credentials`에 키를 더해 다시 봉인한다. `--merge-into`는 기존 키의 암호문을 그대로 두고 새 키만 더한다. 같은 PR에서 initdb 목록(`k8s/platform/base/postgres.yaml`)과 local overlay의 가짜 값도 더한다. local에 값이 없으면 새 로컬 cluster의 initdb가 `set -u`로 멈춘다.
+
+   ```bash
+   openssl rand -hex 24 | tr -d '\n' \
+     | kubectl create secret generic postgres-credentials -n hapbang-platform --from-file=<db>=/dev/stdin --dry-run=client -o yaml \
+     | kubeseal --context hapbang-k3s --format yaml --merge-into k8s/platform/overlays/prod/postgres-credentials.yaml
+   ```
+
+2. 병합 뒤 SealedSecret만 적용하고, 풀린 Secret에 키가 생겼는지 본다. platform overlay 전체를 적용하지 않는다(ECK 기본값 diff로 Elasticsearch가 다시 뜰 수 있다).
+
+   ```bash
+   kubectl --context hapbang-k3s apply -f k8s/platform/overlays/prod/postgres-credentials.yaml
+   kubectl --context hapbang-k3s -n hapbang-platform get sealedsecret postgres-credentials -o jsonpath='{.metadata.generation} {.status.observedGeneration} {.status.conditions[0].status}{"\n"}'
+   kubectl --context hapbang-k3s -n hapbang-platform get secret postgres-credentials -o go-template='{{range $k, $v := .data}}{{$k}} {{end}}{{"\n"}}'
+   ```
+
+3. superuser로 role과 database를 만든다. 비밀번호는 Secret에서 읽어 psql의 표준 입력으로만 넘긴다. pod 안의 psql은 local socket(trust)으로 접속한다.
+
+   ```bash
+   db=<db>
+   pw=$(kubectl --context hapbang-k3s -n hapbang-platform get secret postgres-credentials -o jsonpath="{.data.${db}}" | base64 -d)
+   { printf '\\set db %s\n\\set pw %s\n' "$db" "$pw"; cat <<'SQL'; } | kubectl --context hapbang-k3s -n hapbang-platform exec -i postgres-0 -c postgres -- psql -v ON_ERROR_STOP=1 -U postgres -d postgres
+   CREATE ROLE :"db" LOGIN PASSWORD :'pw';
+   CREATE DATABASE :"db" OWNER :"db";
+   REVOKE CONNECT ON DATABASE :"db" FROM PUBLIC;
+   SQL
+   unset pw
+   ```
+
+4. 결과를 본다. owner가 `<db>`이고, PUBLIC에 CONNECT 권한이 없어야 한다(`datacl`에 `=Tc/`가 아니라 `=T/`).
+
+   ```bash
+   kubectl --context hapbang-k3s -n hapbang-platform exec postgres-0 -c postgres -- psql -U postgres -d postgres -Atc "select datname, pg_get_userbyid(datdba), datacl from pg_database where datname = '<db>'"
+   ```
+
+앱 Secret의 `DB_PASSWORD`는 `k8s/tools/seal-app-secrets.sh`가 cluster의 `postgres-credentials`에서 읽어 봉인한다([Secret](#secret)). schema는 앱의 Flyway가 만든다.
+
+## Elasticsearch 앱 접근
+
+Elasticsearch는 `hapbang-platform`의 ECK CR `hapbang`이다. 앱은 모듈마다 role 하나와 API key 하나로 자기 index pattern에만 접근한다([검색 설계](../architecture/infrastructure/search.md#고객센터-rag와의-관계)). elastic superuser 비밀번호는 앱에 주지 않는다.
+
+| 항목 | 값 |
+| --- | --- |
+| 주소 | `https://hapbang-es-http.hapbang-platform.svc:9200`. ECK HTTP Service이고 서버 인증서 SAN에 있다. 비밀이 아니므로 앱 ConfigMap에 둔다 |
+| CA | ECK 자체 서명 CA. `hapbang-platform`의 Secret `hapbang-es-http-certs-public` 키 `ca.crt`. 앱은 다른 namespace의 Secret을 마운트할 수 없으므로 `hapbang-prod`의 ConfigMap `elasticsearch-ca`(키 `ca.crt`)로 복사해 둔다. 2026-10-29 생성, 2027-10-29 만료(ECK 기본 1년, 만료 전에 ECK가 새로 만든다) |
+
+| 모듈 (앱) | role | index pattern | 권한 | API key 이름 | 앱 Secret 키 |
+| --- | --- | --- | --- | --- | --- |
+| chatbot (auxiliary-app) | `chatbot` | `chatbot-*` (`chatbot-<종류>-<공급자>-<차원>`) | index `all`, cluster `monitor` | `auxiliary-app-chatbot` | `ES_API_KEY` |
+
+API key 만료는 GHCR PAT와 같이 90일로 하고, 만든 날과 만료일을 [Secret](#secret) 표에 적는다. 만료 14일 전에 새 key를 만들어 앱 Secret을 다시 봉인하고, 배포 뒤 이전 key를 무효로 한다.
+
+### CA를 앱 namespace로 복사
+
+공개 인증서라 Secret이 아니라 ConfigMap으로 둔다. cluster를 다시 만들었거나 ECK가 CA를 새로 만들었으면 다시 실행하고 ES를 쓰는 앱을 다시 띄운다. 로컬 k3d는 `--context k3d-hapbang`으로 같은 명령을 실행한다.
+
+```bash
+kubectl --context hapbang-k3s -n hapbang-platform get secret hapbang-es-http-certs-public -o jsonpath='{.data.ca\.crt}' | base64 -d \
+  | kubectl --context hapbang-k3s -n hapbang-prod create configmap elasticsearch-ca --from-file=ca.crt=/dev/stdin --dry-run=client -o yaml \
+  | kubectl --context hapbang-k3s apply -f -
+kubectl --context hapbang-k3s -n hapbang-prod get configmap elasticsearch-ca -o jsonpath='{.data.ca\.crt}' | openssl x509 -noout -subject -enddate
+```
+
+마지막 줄은 `CN=hapbang-http`와 만료일을 출력해야 한다.
+
+### role과 API key 만들기
+
+elastic superuser로 port-forward를 거쳐 만든다. 한 터미널에서 port-forward를 띄워 둔다.
+
+```bash
+kubectl --context hapbang-k3s -n hapbang-platform port-forward svc/hapbang-es-http 9200:9200
+```
+
+다른 터미널에서 접속 함수를 만든다. 비밀번호·key는 curl 설정 파일 형식(`-K`)으로 넘겨 명령 인자에 남기지 않는다. 인증서 이름을 맞추려고 Service 이름을 127.0.0.1로 돌린다.
+
+```bash
+es_pw=$(kubectl --context hapbang-k3s -n hapbang-platform get secret hapbang-es-elastic-user -o go-template='{{.data.elastic | base64decode}}')
+ca=$(mktemp)
+kubectl --context hapbang-k3s -n hapbang-platform get secret hapbang-es-http-certs-public -o jsonpath='{.data.ca\.crt}' | base64 -d > "$ca"
+es() { local p=$1; shift; curl -sS --cacert "$ca" --resolve hapbang-es-http.hapbang-platform.svc:9200:127.0.0.1 -K <(printf 'user = "elastic:%s"\n' "$es_pw") -H 'Content-Type: application/json' "https://hapbang-es-http.hapbang-platform.svc:9200${p}" "$@"; }
+```
+
+먼저 조회한다. role이 없으면 `{}`, 같은 이름의 유효한 key가 없으면 빈 목록이다.
+
+```bash
+es /_security/_authenticate | jq '{username, roles}'
+es /_security/role/chatbot
+es '/_security/api_key?name=auxiliary-app-chatbot&active_only=true' | jq '[.api_keys[] | {id, name, expiration: (.expiration / 1000 | todate)}]'
+```
+
+role과 API key를 만든다. key 값(`encoded`)은 화면에 내지 않고 `~/.hapbang/prod-secrets.env`의 `ES_API_KEY` 줄로 바로 쓴다. API key의 권한은 만들 때 넣은 `role_descriptors`로 고정되므로 role을 바꾸면 key를 다시 만든다.
+
+```bash
+desc='{"cluster":["monitor"],"indices":[{"names":["chatbot-*"],"privileges":["all"]}]}'
+es /_security/role/chatbot -X PUT -d "$desc"
+resp=$(es /_security/api_key -X POST -d "{\"name\":\"auxiliary-app-chatbot\",\"expiration\":\"90d\",\"role_descriptors\":{\"chatbot\":${desc}},\"metadata\":{\"app\":\"auxiliary-app\",\"issue\":726}}")
+printf '%s' "$resp" | jq '{id, name, expiration: (.expiration / 1000 | todate)}'
+key=$(printf '%s' "$resp" | jq -r '.encoded // empty')
+[ -n "$key" ] && { sed -i '' '/^ES_API_KEY=/d' ~/.hapbang/prod-secrets.env; printf 'ES_API_KEY=%s\n' "$key" >> ~/.hapbang/prod-secrets.env; echo saved; }
+unset resp key
+```
+
+key로 권한을 확인한다. 기대 결과는 순서대로 `api_key`, 200, 200, 200, 403이다. 확인용 index는 바로 지운다.
+
+```bash
+k=$(grep -m1 '^ES_API_KEY=' ~/.hapbang/prod-secrets.env | cut -d= -f2-)
+esk() { local p=$1; shift; curl -sS --cacert "$ca" --resolve hapbang-es-http.hapbang-platform.svc:9200:127.0.0.1 -K <(printf 'header = "Authorization: ApiKey %s"\n' "$k") "https://hapbang-es-http.hapbang-platform.svc:9200${p}" "$@"; }
+esk /_security/_authenticate | jq -r .authentication_type
+esk /_cluster/health -o /dev/null -w '%{http_code}\n'
+esk /chatbot-check-726 -X PUT -o /dev/null -w '%{http_code}\n'
+esk /chatbot-check-726 -X DELETE -o /dev/null -w '%{http_code}\n'
+esk /search-check-726 -X PUT -o /dev/null -w '%{http_code}\n'
+unset k es_pw; rm -f "$ca"
+```
+
+이전 key를 무효로 할 때는 `es /_security/api_key -X DELETE -d '{"ids":["<id>"]}'`를 쓴다.
 
 ## 적용 순서
 
