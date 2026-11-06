@@ -1,0 +1,144 @@
+package com.hapbang.lecture.in;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.serialization.StringDeserializer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.Import;
+import org.springframework.kafka.core.KafkaAdmin;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import com.hapbang.lecture.config.LectureEventExternalizationConfig;
+import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
+import com.hapbang.shared.lecture.dto.CartItemSyncDto;
+import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
+import com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto;
+import com.hapbang.shared.lecture.dto.LectureReviewSyncDto;
+import com.hapbang.shared.lecture.dto.LectureSyncDto;
+import com.hapbang.shared.lecture.event.CartItemChangedEvent;
+import com.hapbang.shared.lecture.event.LectureChangedEvent;
+import com.hapbang.shared.lecture.event.LectureEventTopic;
+import com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent;
+import com.hapbang.shared.lecture.event.LectureReviewChangedEvent;
+import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.KafkaTestcontainersConfig;
+
+/**
+ * AI 추천용 동기화 이벤트 4종(#712)이 커밋 뒤 {@code lecture.events.v1}에 종류별 key와 {@code eventType}·{@code eventVersion} 헤더로
+ * 나가는지 실제 Kafka로 확인한다. 받는 쪽은 {@code __TypeId__} 헤더로 레코드 클래스를 찾는다.
+ * 외부화를 켠 설정이라 컨텍스트를 따로 띄우고, 끝나면 닫는다.
+ */
+@IntegrationTest
+@Import(KafkaTestcontainersConfig.class)
+@TestPropertySource(properties = {"spring.kafka.admin.auto-create=true",
+        "spring.modulith.events.externalization.enabled=true"})
+@DirtiesContext
+class LectureSyncEventKafkaTest {
+
+    private static final Duration TIMEOUT = Duration.ofSeconds(15);
+    private static final OffsetDateTime AT = OffsetDateTime.parse("2026-11-06T09:00:00+09:00");
+
+    @Autowired
+    private KafkaAdmin kafkaAdmin;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    private KafkaConsumer<String, String> consumer;
+    private final List<ConsumerRecord<String, String>> received = new CopyOnWriteArrayList<>();
+
+    @BeforeEach
+    void setUp() {
+        consumer = consumerAtEnd();
+    }
+
+    @AfterEach
+    void tearDown() {
+        consumer.close();
+        received.clear();
+    }
+
+    @Test
+    void 동기화_이벤트는_종류별_key와_eventType_헤더로_강의_토픽에_나간다() {
+        long id = 9_000_000L + (System.nanoTime() % 1_000_000L);
+        transactionTemplate.executeWithoutResult(status -> {
+            eventPublisher.publishEvent(new LectureChangedEvent(new LectureSyncDto(id, 1L, "강의", null, true, false,
+                    List.of(new LectureContentSyncDto(id, "1강", 1)), 3L)));
+            eventPublisher.publishEvent(new LecturePurchaseChangedEvent(new LecturePurchaseSyncDto(id, 2L, id,
+                    LecturePurchaseResult.OWNED, AT, AT, 1L)));
+            eventPublisher.publishEvent(new CartItemChangedEvent(new CartItemSyncDto(id, 2L, id, false, AT, 0L)));
+            eventPublisher.publishEvent(new LectureReviewChangedEvent(new LectureReviewSyncDto(id, id, 2L, 5, true,
+                    false, 0L)));
+        });
+
+        assertRecord("lecture:" + id, LectureEventExternalizationConfig.LECTURE_CHANGED, LectureChangedEvent.class,
+                "\"lecture\":{\"id\":" + id);
+        assertRecord("order-item:" + id, LectureEventExternalizationConfig.PURCHASE_CHANGED,
+                LecturePurchaseChangedEvent.class, "\"purchase\":{\"orderItemId\":" + id);
+        assertRecord("cart-item:" + id, LectureEventExternalizationConfig.CART_ITEM_CHANGED,
+                CartItemChangedEvent.class, "\"cartItem\":{\"id\":" + id);
+        assertRecord("lecture-review:" + id, LectureEventExternalizationConfig.REVIEW_CHANGED,
+                LectureReviewChangedEvent.class, "\"review\":{\"id\":" + id);
+    }
+
+    private void assertRecord(String key, String eventType, Class<?> recordType, String payloadPart) {
+        ConsumerRecord<String, String> record = awaitRecord(key);
+        assertThat(header(record, LectureEventExternalizationConfig.EVENT_TYPE)).isEqualTo(eventType);
+        assertThat(header(record, LectureEventExternalizationConfig.EVENT_VERSION)).isEqualTo("1");
+        assertThat(header(record, "__TypeId__")).isEqualTo(recordType.getName());
+        assertThat(record.value()).contains(payloadPart);
+    }
+
+    /** 이 토픽을 읽는 소비자. 파티션을 받을 때까지 읽은 뒤 끝으로 옮겨, 이후 이 테스트가 만든 메시지만 받는다 */
+    private KafkaConsumer<String, String> consumerAtEnd() {
+        Map<String, Object> properties = new HashMap<>(kafkaAdmin.getConfigurationProperties());
+        properties.put(ConsumerConfig.GROUP_ID_CONFIG, "lecture-sync-test-" + UUID.randomUUID());
+        properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        KafkaConsumer<String, String> topicConsumer = new KafkaConsumer<>(properties, new StringDeserializer(),
+                new StringDeserializer());
+        topicConsumer.subscribe(List.of(LectureEventTopic.NAME));
+        await().atMost(TIMEOUT).pollInSameThread().until(() -> {
+            topicConsumer.poll(Duration.ofMillis(100));
+            return !topicConsumer.assignment().isEmpty();
+        });
+        topicConsumer.seekToEnd(topicConsumer.assignment());
+        topicConsumer.assignment().forEach(topicConsumer::position);
+        return topicConsumer;
+    }
+
+    private ConsumerRecord<String, String> awaitRecord(String key) {
+        await().atMost(TIMEOUT).pollInSameThread().untilAsserted(() -> {
+            consumer.poll(Duration.ofMillis(200)).forEach(received::add);
+            assertThat(received).anyMatch(record -> key.equals(record.key()));
+        });
+        return received.stream().filter(record -> key.equals(record.key())).findFirst().orElseThrow();
+    }
+
+    private static String header(ConsumerRecord<String, String> record, String name) {
+        Header header = record.headers().lastHeader(name);
+        return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
+    }
+}

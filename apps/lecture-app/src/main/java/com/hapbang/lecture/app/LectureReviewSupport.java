@@ -24,9 +24,12 @@ public class LectureReviewSupport {
     private final LectureSupport lectureSupport;
     private final LectureUserNicknameSupport nicknameSupport;
 
-    /** 살아 있는 리뷰. 없거나 삭제된 리뷰는 {@code REVIEW_NOT_FOUND} */
-    public LectureReview findReview(Long reviewId) {
-        return lectureReviewRepository.findByIdAndDeletedAtIsNull(reviewId)
+    /**
+     * 살아 있는 리뷰를 행 잠금으로 읽는다. 없거나 삭제된 리뷰는 {@code REVIEW_NOT_FOUND}.
+     * 리뷰를 바꾸는 요청이 동시에 와도 버전(#712) 충돌 없이 줄을 선다 (D82)
+     */
+    public LectureReview findReviewForUpdate(Long reviewId) {
+        return lectureReviewRepository.findAliveForUpdate(reviewId)
                 .orElseThrow(() -> new LectureException(LectureErrorCode.REVIEW_NOT_FOUND));
     }
 

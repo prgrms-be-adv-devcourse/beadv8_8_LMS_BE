@@ -23,11 +23,21 @@ import com.hapbang.shared.lecture.domain.LectureEarningStatus;
 import com.hapbang.shared.lecture.domain.LectureEarningType;
 import com.hapbang.shared.lecture.domain.LectureObjectionCommandType;
 import com.hapbang.shared.lecture.domain.LectureObjectionFailureCode;
+import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
+import com.hapbang.shared.lecture.dto.CartItemSyncDto;
+import com.hapbang.shared.lecture.dto.CartItemSyncPageDto;
+import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
 import com.hapbang.shared.lecture.dto.LectureEarningAmountDto;
 import com.hapbang.shared.lecture.dto.LectureEarningPageDto;
 import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
 import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
+import com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto;
+import com.hapbang.shared.lecture.dto.LecturePurchaseSyncPageDto;
+import com.hapbang.shared.lecture.dto.LectureReviewSyncDto;
+import com.hapbang.shared.lecture.dto.LectureReviewSyncPageDto;
+import com.hapbang.shared.lecture.dto.LectureSyncDto;
+import com.hapbang.shared.lecture.dto.LectureSyncPageDto;
 import com.hapbang.shared.member.dto.WithdrawalBlockReasonDto;
 import com.hapbang.shared.member.dto.WithdrawalBlocksDto;
 import com.sun.net.httpserver.HttpServer;
@@ -326,6 +336,80 @@ class LectureApiClientTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new LectureObjectionFileRequest("FILE:12", 12L, null, 7L, "사유"))
                 .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void 강의_동기화_목록은_afterId와_size를_쿼리로_보내고_페이지를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"강의 동기화 목록을 조회했습니다.","data":{
+                  "items":[{"id":11,"sellerUserId":3,"title":"방송 장비 세팅","onSale":true,"deleted":false,
+                    "contents":[{"id":21,"title":"1강","sequence":1},{"id":22,"title":"2강","sequence":2}],
+                    "version":4}],
+                  "nextAfterId":11}}""");
+
+        LectureSyncPageDto page = client().getSyncLectures(10L, 1);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/lectures/sync/lectures?afterId=10&size=1 key=" + API_KEY);
+        assertThat(methods).containsExactly("GET");
+        // 응답에서 빠진 소개는 null이다
+        assertThat(page.items()).containsExactly(new LectureSyncDto(11L, 3L, "방송 장비 세팅", null, true, false,
+                List.of(new LectureContentSyncDto(21L, "1강", 1), new LectureContentSyncDto(22L, "2강", 2)), 4L));
+        assertThat(page.nextAfterId()).isEqualTo(11L);
+    }
+
+    @Test
+    void 구매_동기화_목록은_afterId가_없으면_처음부터_부르고_마지막_페이지는_nextAfterId가_null이다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"구매 동기화 목록을 조회했습니다.","data":{
+                  "items":[{"orderItemId":31,"buyerUserId":7,"lectureId":11,"result":"PENDING",
+                    "orderedAt":"2026-11-05T12:00:00+09:00","version":0}]}}""");
+
+        LecturePurchaseSyncPageDto page = client().getSyncPurchases(null, LecturePurchaseSyncPageDto.MAX_SIZE);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/lectures/sync/purchases?size=500 key=" + API_KEY);
+        // 결제 전이라 빠진 구매 시각은 null이다
+        assertThat(page.items()).containsExactly(new LecturePurchaseSyncDto(31L, 7L, 11L,
+                LecturePurchaseResult.PENDING, OffsetDateTime.parse("2026-11-05T12:00:00+09:00"), null, 0L));
+        assertThat(page.nextAfterId()).isNull();
+    }
+
+    @Test
+    void 장바구니_항목과_리뷰_동기화_목록도_같은_규칙으로_부른다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[{"id":41,"userId":7,"lectureId":11,"deleted":true,
+                  "addedAt":"2026-11-05T12:00:00+09:00","version":1}],"nextAfterId":41}}""");
+        CartItemSyncPageDto cartItems = client().getSyncCartItems(0L, 100);
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[{"id":51,"lectureId":11,"reviewerUserId":7,
+                  "rating":5,"counted":false,"deleted":false,"version":2}]}}""");
+        LectureReviewSyncPageDto reviews = client().getSyncReviews(40L, 100);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/lectures/sync/cart-items?afterId=0&size=100 key=" + API_KEY,
+                "/api/v1/internal/lectures/sync/reviews?afterId=40&size=100 key=" + API_KEY);
+        assertThat(cartItems.items()).containsExactly(new CartItemSyncDto(41L, 7L, 11L, true,
+                OffsetDateTime.parse("2026-11-05T12:00:00+09:00"), 1L));
+        assertThat(cartItems.nextAfterId()).isEqualTo(41L);
+        assertThat(reviews.items()).containsExactly(new LectureReviewSyncDto(51L, 11L, 7L, 5, false, false, 2L));
+        assertThat(reviews.nextAfterId()).isNull();
+    }
+
+    @Test
+    void 동기화_목록의_빠진_필수_필드와_4xx는_예외로_바뀐다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[{"id":11,"title":"제목","onSale":true,
+                  "deleted":false,"contents":[],"version":0}]}}""");
+        assertUnavailable(() -> client().getSyncLectures(null, 100), 200);
+
+        respond(400, "application/problem+json", """
+                {"status":400,"code":"INVALID_REQUEST","detail":"size는 500 이하여야 합니다."}""");
+        assertThatThrownBy(() -> client().getSyncReviews(null, 501))
+                .isInstanceOfSatisfying(LectureApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.REJECTED);
+                    assertThat(e.getCode()).isEqualTo("INVALID_REQUEST");
+                });
     }
 
     private static void assertUnavailable(Runnable call, int status) {

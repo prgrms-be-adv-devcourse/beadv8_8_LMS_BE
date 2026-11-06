@@ -11,18 +11,22 @@ import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.modulith.events.EventExternalizationConfiguration;
 
 import com.hapbang.lecture.app.LectureExternalEvents;
+import com.hapbang.shared.lecture.event.CartItemChangedEvent;
+import com.hapbang.shared.lecture.event.LectureChangedEvent;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 import com.hapbang.shared.lecture.event.LectureObjectionRequestRefusedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnActionRequiredEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionWithdrawnEvent;
+import com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent;
+import com.hapbang.shared.lecture.event.LectureReviewChangedEvent;
 
 /**
  * 강의 이벤트를 Kafka로 내보낸다 (Modulith 이벤트 외부화, #278). 규칙은 docs/architecture/infrastructure/kafka.md(#339)를 따른다.
  * <ul>
  *     <li>대상은 {@link LectureExternalEvents}가 정한다(shared 강의 이벤트 중 {@code @Externalized}가 붙은 것).
- *     토픽({@value LectureEventTopic#NAME})과 key({@code order-item:<주문 항목 ID>})는 레코드의 {@code @Externalized}가 정하고,
+ *     토픽({@value LectureEventTopic#NAME})과 key({@code order-item:<주문 항목 ID>} 등)는 레코드의 {@code @Externalized}가 정하고,
  *     이 설정은 헤더만 더한다.</li>
  *     <li>업무 트랜잭션 안에서 발행한 이벤트가 Modulith 발행 기록({@code event_publication})에 남고 커밋 뒤에 Kafka로 간다.
  *     롤백되면 보내지 않고, 보내기에 실패하면 기록이 남아 재발행 배치({@code LectureEventRepublishUseCase})와 서버 재시작 때 다시 보낸다.</li>
@@ -44,6 +48,11 @@ public class LectureEventExternalizationConfig {
     public static final String OBJECTION_REQUEST_REFUSED = "LectureObjectionRequestRefusedEvent";
     public static final String OBJECTION_RETURN_COMPLETED = "LectureObjectionReturnCompletedEvent";
     public static final String OBJECTION_RETURN_ACTION_REQUIRED = "LectureObjectionReturnActionRequiredEvent";
+    /** AI 추천용 동기화 이벤트 (#712, D82) */
+    public static final String LECTURE_CHANGED = "LectureChangedEvent";
+    public static final String PURCHASE_CHANGED = "LecturePurchaseChangedEvent";
+    public static final String CART_ITEM_CHANGED = "CartItemChangedEvent";
+    public static final String REVIEW_CHANGED = "LectureReviewChangedEvent";
 
     /** 본문 형식 버전. 선택 필드를 추가만 하면 그대로 두고, 깨지는 변경은 새 레코드 타입으로 한다 (kafka.md 이벤트 버전) */
     static final String VERSION = "1";
@@ -61,6 +70,10 @@ public class LectureEventExternalizationConfig {
                 .headers(LectureObjectionReturnCompletedEvent.class, event -> headers(OBJECTION_RETURN_COMPLETED))
                 .headers(LectureObjectionReturnActionRequiredEvent.class,
                         event -> headers(OBJECTION_RETURN_ACTION_REQUIRED))
+                .headers(LectureChangedEvent.class, event -> headers(LECTURE_CHANGED))
+                .headers(LecturePurchaseChangedEvent.class, event -> headers(PURCHASE_CHANGED))
+                .headers(CartItemChangedEvent.class, event -> headers(CART_ITEM_CHANGED))
+                .headers(LectureReviewChangedEvent.class, event -> headers(REVIEW_CHANGED))
                 .build();
     }
 

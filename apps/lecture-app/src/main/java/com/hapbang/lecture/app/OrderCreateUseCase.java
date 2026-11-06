@@ -52,6 +52,7 @@ public class OrderCreateUseCase {
     private final LectureHpTaskExecutor lectureHpTaskExecutor;
     private final LectureOrderSupport lectureOrderSupport;
     private final LectureOrderProperties properties;
+    private final LectureSyncEvents lectureSyncEvents;
     private final Clock clock;
 
     public OrderCreateUseCase(
@@ -63,6 +64,7 @@ public class OrderCreateUseCase {
             LectureHpTaskExecutor lectureHpTaskExecutor,
             LectureOrderSupport lectureOrderSupport,
             LectureOrderProperties properties,
+            LectureSyncEvents lectureSyncEvents,
             @Qualifier(LectureConfig.CLOCK) Clock clock
     ) {
         this.lectureRepository = lectureRepository;
@@ -73,6 +75,7 @@ public class OrderCreateUseCase {
         this.lectureHpTaskExecutor = lectureHpTaskExecutor;
         this.lectureOrderSupport = lectureOrderSupport;
         this.properties = properties;
+        this.lectureSyncEvents = lectureSyncEvents;
         this.clock = clock;
     }
 
@@ -90,6 +93,7 @@ public class OrderCreateUseCase {
 
         // 보류 작업의 참조 ID(주문 항목 ID)를 얻고, 같은 강의의 동시 주문을 작업 등록 전에 걸러낸다
         save(order);
+        lectureSyncEvents.purchasesChanged(order.getItems());
         List<Long> holdTaskIds = order.getItems().stream()
                 .map(item -> lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD,
                         HOLD_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
