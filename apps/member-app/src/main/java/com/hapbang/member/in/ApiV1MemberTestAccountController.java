@@ -22,6 +22,6 @@ public class ApiV1MemberTestAccountController implements ApiV1MemberTestAccountS
     @Override
     @PostMapping("/{userId}/influencer")
     public RsData<TestInfluencerResponse> promote(@LoginUserId Long adminId, @PathVariable("userId") Long userId) {
-        return RsData.ok("테스트 회원의 인플루언서 역할을 확인했습니다.", memberTestAccountFacade.promote(adminId, userId));
+        return RsData.ok("회원의 인플루언서 역할을 확인했습니다.", memberTestAccountFacade.promote(adminId, userId));
     }
 }

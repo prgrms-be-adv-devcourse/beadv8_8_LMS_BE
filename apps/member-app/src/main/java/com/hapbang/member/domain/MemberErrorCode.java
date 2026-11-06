@@ -12,8 +12,11 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum MemberErrorCode implements BaseErrorCode {
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다."),
-    TEST_ACCOUNT_REQUIRED(HttpStatus.FORBIDDEN, "부하 시험용 이메일 형식의 회원만 승급할 수 있습니다."),
-    TEST_ACCOUNT_ROLE_NOT_ALLOWED(HttpStatus.CONFLICT, "테스트 일반 회원만 인플루언서로 승급할 수 있습니다."),
+    /**
+     * 관리자 인플루언서 승급에서 USER·INFLUENCER가 아닌 회원. 2026-11-06(#724)부터 테스트 계정 전용이 아니지만,
+     * API 경로·클래스 이름을 유지한 것처럼 응답 code 값도 유지한다
+     */
+    TEST_ACCOUNT_ROLE_NOT_ALLOWED(HttpStatus.CONFLICT, "일반 회원만 인플루언서로 승급할 수 있습니다."),
     /** 같은 회원을 동시에 수정해 늦게 저장한 쪽이 실패 (관리자 역할 변경과 본인 수정이 겹칠 때 등). 다시 시도하면 된다 */
     MEMBER_CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 변경과 겹쳤어요. 다시 시도해 주세요."),
     /**
