@@ -4,6 +4,8 @@ plugins {
 
 dependencies {
     implementation(project(":shared"))
+    // 쿠폰 모듈(boundedContext/coupon). 같은 jar·같은 JVM에 싣되 강의 코드가 쿠폰 클래스를 컴파일 시점에 볼 수 없게 runtimeOnly다
+    runtimeOnly(project(":coupon"))
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-validation")
@@ -48,6 +50,14 @@ tasks.bootJar {
 // 공통 로컬 인프라(docker/compose.yaml)와 .env는 저장소 루트 기준이다.
 tasks.bootRun {
     workingDir = rootDir
+}
+
+// CI는 앱마다 :<앱>:check만 돌린다(.github/workflows/ci.yml). 이 앱 디렉터리 안의 하위 프로젝트(boundedContext/*)
+// 테스트도 함께 돌도록 check에 건다(auxiliary-app과 같다). 모듈을 더하면 자동으로 포함된다.
+tasks.check {
+    dependsOn(rootProject.subprojects
+        .filter { it != project && it.projectDir.startsWith(projectDir) }
+        .map { "${it.path}:check" })
 }
 
 // 대용량 업로드 확인(@Tag("large-upload"))은 시간이 걸려 check에서 뺀다. 수동 실행: ./gradlew :lecture-app:largeUploadTest

@@ -36,8 +36,11 @@ spring:
     baseline-version: 0
     out-of-order: true
     default-schema: lecture
+    # 쿠폰 모듈(:coupon)의 스키마. 같은 lecture database 안에서 스키마를 나눈다. 쿠폰 마이그레이션은 :coupon의
+    # db/migration/coupon에 있고, 기본 위치(classpath:db/migration)가 하위 디렉터리까지 읽어 한 Flyway가 함께 적용한다
     schemas:
     - lecture
+    - coupon
   http:
     clients:
       connect-timeout: 3s
