@@ -25,7 +25,7 @@ public class ApiV1MemberInfluencerDesignationController implements ApiV1MemberIn
     @PostMapping("/{userId}/make-influencer")
     public RsData<InfluencerDesignationResponse> makeInfluencer(@LoginUserId Long adminId,
             @PathVariable("userId") Long userId) {
-        return RsData.ok("회원의 인플루언서 역할을 확인했습니다.",
+        return RsData.ok("회원을 인플루언서로 지정했습니다.",
                 memberInfluencerDesignationFacade.makeInfluencer(adminId, userId));
     }
 }
