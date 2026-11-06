@@ -111,9 +111,10 @@ agent 결과에는 AOT가 이미 등록한 것과 Hibernate 같은 라이브러�
 - 새로 만드는 aux-app(검색·알림·AI)은 JVM으로 띄운다(#193·#234·#345).
 - 되돌리지 않는다. 같은 조건에서 메모리 44~45%, 운영 기동 23~28초 → 1.1초, medium 요청 192 MiB를 얻었고, 운영에서 확인한 범위에서 native 전용 오류가 없다.
 
-### 운영 이벤트 흐름과 하루 관찰 (2026-11-04~05)
+### 운영 이벤트 흐름과 하루 관찰 (2026-11-04~06)
 
 - **이벤트 흐름**: 2026-11-04 08:24 UTC 관리자 이의 제기 판단(문의 24·12, 202)에서 고객센터가 `customersupport.events.v1`에 2건 발행(`spring_kafka_template_seconds` `error=none`) → lecture-app `lecture-app.objection-command` 그룹이 받아 처리(`error=none`) → 고객센터가 `lecture.events.v1`에서 결과 2건 처리(`spring_kafka_listener_seconds` `error=none`). 이것으로 HTTP, 강의 내부 API 호출, Kafka 발행·받기를 모두 운영에서 확인했다.
+- **JSON 로그와 trace**(#699): 로그를 JSON으로 바꾼 뒤(#695) 2026-11-06 03:46 UTC 관리자 이의 제기 판단(문의 114) 한 건이 Envoy → 고객센터 HTTP → 고객센터 발행 → lecture-app 받기·발행 → 고객센터 받기까지 한 trace(span 12개)로 Tempo에 남았다. 커밋 뒤 발행(`scheduling-N` 스레드)의 로그에도 요청의 `traceId`가 찍혀, native에서도 비동기 발행으로 trace가 넘어간다. 고객센터 로그는 모두 JSON이었고 받는 로그에 `traceId`·`eventType`·`eventKey`가 붙었다. ERROR·`UnsupportedFeatureError`는 없었다.
 - **256 MiB·`-Xmx128m` pod 약 17시간**(2026-11-04 06:54 ~ 11-05 00:08 UTC): 재시작 0, working set 최대 123 MiB(limit의 48%), RSS 최대 80 MiB, heap 최대 52 MiB(상한의 41%).
 - **로그(Loki, 전환 뒤 30시간)**: `UnsupportedFeatureError`, listener 정지, DLT, `OutOfMemoryError`, ERROR 0건. WARN은 기동 때의 Flyway 스캔·GC 알림 미지원 같은 예상된 로그뿐이다.
 - Loki로 본 기동 시간: JVM 24.8~27.7초(2026-11-03), native 1.10~1.16초.
