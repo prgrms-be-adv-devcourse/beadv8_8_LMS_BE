@@ -19,7 +19,7 @@
 | MDC 키 | `traceId`·`userId` 등이 최상위 필드로 들어간다(아래 "MDC 키") |
 | `@version`·`level_value` | logstash 형식 고정 필드 |
 
-로그 양을 줄여야 하면 `logging.structured.json.exclude`로 고정 필드(`@version`·`level_value`)를 뺀다. JSON으로 바꾸기 전 Loki 하루 수집량은 앱 6개 합계 약 2.2 MB(약 1만 9천 줄)였다(2026-11-04, #582에 전후 비교).
+로그 양을 줄여야 하면 `logging.structured.json.exclude`로 고정 필드(`@version`·`level_value`)를 뺀다. 지금은 뺄 필요가 없다. JSON 줄은 줄당 약 466 B로 바꾸기 전(약 111 B)의 4.2배다. 그래도 바꾸기 전 하루(앱 6개 약 2만 줄, 약 2.2 MB)만큼 줄이 나오면 앱 로그는 하루 약 9.3 MB이고, Envoy 로그를 더한 7일치는 약 105 MB(압축 전)로 Loki PVC 5 GiB의 약 2%다. Loki 메모리도 하루 최대 140 MiB(limit 256 MiB의 55%)로 바꾸기 전(138 MiB)과 같았다(2026-11-06, #699).
 
 JSON으로 바꾼 뒤 앱 메모리 차이는 pod마다 흔들리는 폭과 구분되지 않았다. 바꾸기 전 같은 설정 pod와 기동 90분 working set을 비교하면 앱별 차이가 −16~+25 MiB였고, 같은 설정 pod끼리의 차이(appearance 두 pod 40 MiB)보다 작았다(2026-11-05, #699). 앱마다 pod 1~2개를 기동 90분 시점에 비교한 결과이고, 오래 돈 pod끼리는 아직 비교하지 않았다([k3s 자원 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)).
 
