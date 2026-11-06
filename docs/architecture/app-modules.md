@@ -39,7 +39,7 @@ hapbang-backend/
 
 > 이후 변경(#271~#280): shared의 Java Port는 모두 지웠다(`LectureObjectionPort` #433, `BillingPort` #486). shared에는 DTO·이벤트·안정적인 Enum·오류 코드·공통 HTTP Client만 두고, `SharedContractRulesTest`가 Port를 막는다. 앱 사이 Gradle 의존은 `verifyModuleStructure`가 compileClasspath·runtimeClasspath 모두에서 막는다(#280).
 
-lecture-app 안에는 쿠폰 모듈 Gradle 하위 프로젝트 `:coupon`(`apps/lecture-app/boundedContext/coupon`, 패키지 `com.hapbang.coupon`)이 있다(#744). 실행 진입점·`application.yaml`·Dockerfile은 `:lecture-app`이 가지고, `:lecture-app`은 `:coupon`을 `runtimeOnly`로 실어 같은 jar·JVM에서 띄운다. 강의 코드는 쿠폰 클래스를 컴파일 시점에 볼 수 없고 쿠폰은 강의를 의존하지 않으며, 둘은 내부 HTTP API와 Kafka로만 통신한다. database는 예외적으로 같은 `lecture` database를 쓰되 스키마를 `lecture`·`coupon`으로 나누고, 다른 스키마의 테이블은 JOIN·FK·같은 트랜잭션 쓰기를 하지 않는다. 설계는 [쿠폰 모듈 문서](../../apps/lecture-app/boundedContext/coupon/docs/design.md)에 있다.
+lecture-app 안에는 쿠폰 모듈 Gradle 하위 프로젝트 `:coupon`(`apps/lecture-app/boundedContext/coupon`, 패키지 `com.hapbang.coupon`)이 있다(#744). 실행 진입점·`application.yaml`·Dockerfile은 `:lecture-app`이 가지고, `:lecture-app`은 `:coupon`을 `runtimeOnly`로 실어 같은 jar·JVM에서 띄운다. 강의 코드는 쿠폰 클래스를 컴파일 시점에 볼 수 없고 쿠폰은 강의를 의존하지 않으며, 둘은 내부 HTTP API와 Kafka로만 통신한다. database는 예외적으로 같은 `lecture` database를 쓰되 스키마를 `lecture`·`coupon`으로 나누고, 다른 스키마의 테이블은 JOIN·FK·같은 트랜잭션 쓰기를 하지 않는다(루트 `AGENTS.md` 2·3장의 예외). 설계는 [쿠폰 모듈 문서](../../apps/lecture-app/boundedContext/coupon/docs/design.md)에 있다.
 
 ## 빌드와 컨테이너 이미지
 

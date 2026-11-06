@@ -21,7 +21,7 @@
 ## 2. 기술 스택
 
 - Java 25 (Gradle Toolchain), Spring Boot 4.1.1, Gradle 멀티모듈
-- DB: PostgreSQL 인스턴스 1개, 모듈마다 database를 따로 둔다 (#338). auxiliary-app 안의 모듈만 앱 공통 database 하나를 모듈별 schema로 나눠 쓴다 (#714).
+- DB: PostgreSQL 인스턴스 1개, 모듈마다 database를 따로 둔다 (#338). auxiliary-app 안의 모듈만 앱 공통 database 하나를 모듈별 schema로 나눠 쓴다 (#714). lecture-app 안의 쿠폰 모듈(`coupon`)도 같은 `lecture` database의 `coupon` schema를 쓴다 (#744).
 - 인증: OAuth 소셜 로그인 + JWT. member-app이 발급(RS256, JWKS)하고 Envoy Gateway가 서명을 검증해 사용자 헤더로 넘긴다. 앱은 `@PreAuthorize`로 인가한다 (#369, #370). 전환 전 코드는 세션을 쓴다.
 - 진입점: Envoy Gateway(Kubernetes Gateway API). EC2 k3s prod 한 벌이 유일한 서버 환경이다(dev 서버 없음).
 - 회복성: rate limit과 앱 간 HTTP 호출의 timeout·circuit breaker는 각 앱의 Resilience4j로 한다.
@@ -45,6 +45,7 @@
 | 고객센터 (`customersupport`) | 공지, FAQ, 문의, 이의 제기 접수 | `/api/v1/inquiries` |
 | 알림 (`notification`, auxiliary-app) | 알림센터 알림 생성·보관·실시간 전달 | `/api/v1/notifications` |
 | 챗봇 (`chatbot`, auxiliary-app) | FAQ, 강의·인플루언서 추천, 추천용 데이터 동기화, 대화 | `/api/v1/chatbot` |
+| 쿠폰 (`coupon`, lecture-app, database `lecture`·schema `coupon`) | 쿠폰 정책·발급·계산·예약·복원. 강의와는 내부 HTTP API·Kafka로만 통신 | `/api/v1/coupons` |
 
 최종 프로젝트에서는 #363으로 모듈마다 독립 앱(`apps/*-app`)이 되었다. 검색·챗봇·알림은 독립 앱으로 나누지 않고 앱 하나(`auxiliary-app`)에 모듈로 담는다(#684, #714). Windows가 `aux`를 예약 장치 이름으로 막아 `aux-app`이 아니라 `auxiliary-app`이다.
 
@@ -63,6 +64,7 @@
 - 모듈 간 통신은 이벤트를 기본으로 한다. 단, 즉시 결과가 필요한 HP 이동(보류·반환·지급)과 이의 제기 접수는 제공 모듈의 내부 HTTP API를 호출할 수 있다. 동기 HTTP 호출은 소비 모듈의 로컬 트랜잭션 밖에서 실행하고, `shared`의 DTO·공통 HTTP Client 계약만 사용한다 (`docs/lecture/decisions.md` D62).
 - 모듈마다 database를 분리하고, database 이름은 위 표의 모듈 이름을 따른다. 모듈은 자기 database에만 연결하고, 다른 모듈의 database·테이블·트랜잭션을 쓰지 않는다.
     - 예외: auxiliary-app 안의 모듈은 앱 공통 database `auxiliary`를 쓰고, 모듈 이름의 schema에만 테이블을 둔다(엔티티 `@Table(schema = "<모듈>")`). 다른 모듈 schema의 테이블은 쓰지 않는다.
+    - 예외: lecture-app 안의 쿠폰 모듈(`coupon`)은 같은 `lecture` database를 쓰고, `coupon` schema에만 테이블을 둔다(엔티티 `@Table(schema = "coupon")`). 강의와 쿠폰은 서로의 schema 테이블을 쓰지 않고 내부 HTTP API·Kafka로만 통신한다.
 - 이 규칙을 지키기 어려운 요구가 나오면 임의로 우회하지 말고 질문한다.
 
 ## 4. 용어 (유비쿼터스 언어)
