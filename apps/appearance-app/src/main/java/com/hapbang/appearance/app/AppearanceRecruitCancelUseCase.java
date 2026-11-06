@@ -83,7 +83,7 @@ public class AppearanceRecruitCancelUseCase {
             taskIds.add(recordVacancyRelease(recruit, vacancyFee, now));
         }
         appearanceRecruitSupport.flushOrConflict();
-        // 출연 변경도 위 flush로 반영됐다. version이 오른 뒤라 여기서 출연마다 알린다 (#713)
+        // 출연 변경 이벤트는 flush 뒤에 만든다(Appearance.toChangedEvent). 출연도 위 모집글 flush로 함께 반영됐다
         for (Appearance appearance : appearances) {
             eventPublisher.publishEvent(appearance.toChangedEvent());
         }

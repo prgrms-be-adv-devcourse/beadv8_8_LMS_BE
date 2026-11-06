@@ -1721,3 +1721,5 @@ AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공�
 
 - shared가 바뀌어 모든 앱이 다시 배포된다(`.github/scripts/apps.sh`).
 - 새 이벤트 클래스가 없는 옛 빌드의 소비자: chat-app은 `MissingTypeEvent`로 건너뛴다. member-app은 역직렬화에 실패해 `appearance.events.v1.member-app.appearance-review.DLT`로 보낸다. 회원이 쓰지 않는 이벤트라 되살릴 것은 없고, 모든 앱이 새 빌드로 바뀌는 짧은 틈에만 생긴다. 새 빌드에서는 두 앱 모두 기본 처리기로 무시한다(코드 확인, 다른 앱 코드 변경 없음).
+- **첫 배포 직후 member-app DLT에 쌓인 `AppearanceChangedEvent`는 버려도 된다**(회원은 이 이벤트를 쓰지 않는다). 다시 보낼 필요가 없다.
+- 소비자(auxiliary-app chatbot)는 아직 없다. 소비자가 먼저 배포될 필요는 없고(받는 쪽이 없으면 토픽에 쌓이기만 한다), 주간 동기화 첫 실행이 그 전 출연을 채운다. 소비 그룹 이름은 같은 앱 notification 모듈(`notification.<목적>`)처럼 `chatbot.<목적>`으로 소비 구현 때 kafka.md 표에 적는다.
