@@ -37,15 +37,12 @@ Billing은 다음 기능을 담당한다.
 
 ## 3. 테이블
 
-현재 테이블은 Flyway(`apps/billing-app/src/main/resources/db/migration`) 기준 16개다.
+현재 테이블 목록·수와 추가한 마이그레이션은 `docs/billing/module.md` 8.2가 원본이다. 필드·자료형·제약 조건은 Flyway 마이그레이션(`apps/billing-app/src/main/resources/db/migration`)에서 확인한다.
 
-- 기획서 ERD의 12개: `wallet`, `point_ledger`, `point_hold`, `point_hold_detail`, `point_charge`, `point_charge_usage`, `point_refund_request`, `point_refund`, `settlement`, `exchange`, `exchange_account`, `exchange_payout`
-- ERD 밖 4개: `mock_payout_transfer`(Mock 은행 기록, BD-99), `billing_user`(지갑 회원, BD-103), `hold_void`(보류 무효화, BD-125), `wallet_withdrawal`(탈퇴 지갑 닫기, BD-141)
-- 이 밖에 Spring Modulith가 만드는 `event_publication`·`event_publication_archive`가 있다(이벤트 발행 기록, BD-130).
+- 기획서 ERD에 없던 테이블은 결정으로 추가했다: `mock_payout_transfer`(BD-99), `billing_user`(BD-103), `hold_void`(BD-125), `wallet_withdrawal`(BD-141). Spring Modulith 발행 기록 테이블은 BD-130.
+- 무엇을 기준 ERD로 삼을지는 미결이다(`docs/billing/decisions.md` 10장 "Billing 기준 ERD" 행). 임의로 정하지 않는다.
 
-현재 필드·자료형·제약 조건은 Flyway 마이그레이션에서 확인한다. 옛 규칙이 가리키던 "별도로 제공하는 최종 Billing ERD"는 레포에 없고, 무엇을 기준 ERD로 삼을지는 미결이다(`docs/billing/decisions.md` 10장, T7). 임의로 정하지 않는다.
-
-결정(`BD-*`) 없이 테이블이나 컬럼을 임의로 추가하지 않는다(옛 규칙 "ERD에 정의되지 않은 컬럼이나 테이블을 임의로 추가하지 않는다"의 취지, 2026-11-06 사용자 결정 D1).
+결정(`BD-*`) 없이 테이블이나 컬럼을 임의로 추가하지 않는다.
 
 ## 4. Entity 규칙
 
