@@ -45,6 +45,10 @@ public class ReviewWriteUseCase {
 
     public Long write(Long userId, Long lectureId, Long orderItemId, int rating, String content) {
         Lecture lecture = lectureSupport.findLecture(lectureId);
+        // 이의 제기 인정과 같은 주문 행을 먼저 잠근다(D46 순서: 주문 → 리뷰). 인정이 먼저면 항목이 반환 처리 중이라 쓸 수 없고,
+        // 작성이 먼저면 인정이 커밋된 리뷰를 보고 version을 올려 평점 반영 여부(counted)를 다시 보낸다 (#712, D82).
+        // 항목은 잠근 뒤에 읽어야 최신 상태다. 없는 항목은 아래 findItem이 ORDER_ITEM_NOT_FOUND로 거절한다
+        lectureOrderSupport.findOrderForUpdateByItemId(orderItemId);
         OrderItem item = lectureOrderSupport.findItem(userId, orderItemId);
         if (!item.getLectureId().equals(lecture.getId())) {
             throw new LectureException(LectureErrorCode.ORDER_ITEM_NOT_FOUND);

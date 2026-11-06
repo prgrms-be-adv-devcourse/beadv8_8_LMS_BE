@@ -49,6 +49,7 @@ class LectureSyncConcurrencyTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
     private static final long PAUSE_MILLIS = 500;
+    private static final Long INQUIRY_ID = 500L;
 
     @MockitoSpyBean
     private LectureSyncEvents lectureSyncEvents;
@@ -64,6 +65,9 @@ class LectureSyncConcurrencyTest {
 
     @Autowired
     private ReviewEditUseCase reviewEditUseCase;
+
+    @Autowired
+    private OrderObjectionResolveUseCase orderObjectionResolveUseCase;
 
     @Autowired
     private LectureRepository lectureRepository;
@@ -124,6 +128,40 @@ class LectureSyncConcurrencyTest {
         assertThat(row.get("rating")).isEqualTo(3);
         assertThat(row.get("version")).isEqualTo(2L);
         verify(spy(), times(2)).reviewChanged(any());
+    }
+
+    // 리뷰 작성이 counted=true로 발행한 뒤 커밋하기 전에 이의 제기가 인정되면, 인정 쪽은 아직 커밋되지 않은 리뷰를 보지 못해 version을 올리지 못한다.
+    // 그러면 같은 version에 이벤트는 counted=true, 내부 API는 counted=false가 된다. 리뷰 작성도 주문 행을 잠가 둘을 한 줄로 세운다 (D82)
+    @Test
+    void 리뷰_작성과_이의_제기_인정이_겹쳐도_리뷰_version이_올라_counted_false가_다시_나간다() throws Exception {
+        Lecture lecture = saveOnSale();
+        Long itemId = confirmedItem(lecture);
+        inTransaction(() -> lectureOrderRepository.findByItemId(itemId).orElseThrow()
+                .fileObjection(itemId, BUYER_ID, INQUIRY_ID, "내용이 다릅니다.", LocalDateTime.now(LectureConfig.ZONE)));
+        CountDownLatch firstPaused = new CountDownLatch(1);
+        doAnswer(invocation -> publishThenPause(firstPaused, invocation)).when(spy()).reviewChanged(any());
+        clearInvocations(spy());
+
+        runConcurrently(firstPaused,
+                () -> reviewWriteUseCase.write(BUYER_ID, lecture.getId(), itemId, 5, "좋아요"),
+                () -> orderObjectionResolveUseCase.resolveObjection(itemId, INQUIRY_ID, true, ADMIN_ID));
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "select deleted_at, version from lectures.lecture_review where order_item_id = ?", itemId);
+        assertThat(row.get("deleted_at")).isNull();
+        // 작성(version 0, counted=true) 뒤 인정이 version을 올려 counted=false로 다시 보냈다
+        assertThat(row.get("version")).isEqualTo(1L);
+        verify(spy(), times(1)).reviewCountChanged(any());
+    }
+
+    /** 첫 호출(앞 요청)이면 실제 발행을 한 뒤 커밋하기 전에 잠시 멈춘다 */
+    private Object publishThenPause(CountDownLatch firstPaused, InvocationOnMock invocation) throws Throwable {
+        Object result = invocation.callRealMethod();
+        if (firstPaused.getCount() > 0) {
+            firstPaused.countDown();
+            Thread.sleep(PAUSE_MILLIS);
+        }
+        return result;
     }
 
     /**

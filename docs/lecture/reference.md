@@ -82,7 +82,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 - `(status, auto_confirm_at)`, `(status, payout_scheduled_at)` — 배치 조회용
 - `(seller_user_id, purchased_at desc, id desc)` — 판매 내역 조회용 (D51)
 
-**lecture_review**: ERD + `version`(bigint, 기본 0) **추가**: AI 추천 동기화의 버전이다(D82, #712). 고치기·지우기·대체는 리뷰 행을 잠그고 읽고, 이의 제기 인정으로 평점 반영 여부가 바뀌면 `PESSIMISTIC_FORCE_INCREMENT`로 올린다. `rating` 1~5 CHECK. 유일 `(order_item_id) WHERE deleted_at IS NULL`, 유일 `(lecture_id, reviewer_user_id) WHERE deleted_at IS NULL` — 삭제 후 재작성 허용.
+**lecture_review**: ERD + `version`(bigint, 기본 0) **추가**: AI 추천 동기화의 버전이다(D82, #712). 고치기·지우기·대체는 리뷰 행을 잠그고 읽고, 이의 제기 인정으로 평점 반영 여부가 바뀌면 `PESSIMISTIC_FORCE_INCREMENT`로 올린다. 작성은 이의 제기 인정과 같은 주문 행을 먼저 잠근다. `rating` 1~5 CHECK. 유일 `(order_item_id) WHERE deleted_at IS NULL`, 유일 `(lecture_id, reviewer_user_id) WHERE deleted_at IS NULL` — 삭제 후 재작성 허용.
 
 **lecture_user** (**신규**, 회원 복제): `id`(회원 ID), `nickname`, `role`, `status`, `created_at`, `updated_at`. 채팅 모듈의 `CHAT_USER`와 같은 패턴.
 

@@ -7,6 +7,7 @@ import java.util.function.Function;
 import org.springframework.data.domain.Limit;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.lecture.domain.CartItem;
@@ -42,7 +43,12 @@ public class LectureSyncInternalFacade {
     private final CartRepository cartRepository;
     private final LectureReviewRepository lectureReviewRepository;
 
-    @Transactional(readOnly = true)
+    /**
+     * 강의 행과 콘텐츠를 다른 쿼리로 읽으므로, 사이에 콘텐츠 교체가 커밋되면 옛 version에 새 콘텐츠가 실릴 수 있다.
+     * 트랜잭션 하나가 한 스냅숏을 보게 REPEATABLE READ로 읽는다(PostgreSQL에서 읽기 전용이면 직렬화 실패가 없다).
+     * 다른 종류는 한 쿼리(fetch join·projection)로 읽어 쿼리 하나의 스냅숏으로 충분하다
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public LectureSyncPageDto getLectures(Long afterId, int size) {
         KeysetPage<Lecture> page = KeysetPage.of(lectureRepository::findByIdGreaterThanOrderByIdAsc, afterId, size);
         return new LectureSyncPageDto(page.map(Lecture::toSyncDto), page.nextAfterId(Lecture::getId));

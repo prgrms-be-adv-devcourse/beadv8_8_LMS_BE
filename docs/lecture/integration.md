@@ -170,7 +170,7 @@ aux-app AI context는 주 1회 shared의 `LectureApiClient.getSync*`로 강의 �
 | 항목 | 내용 |
 | --- | --- |
 | 응답 | 종류별 `shared.lecture.dto.*SyncPageDto`(`items`, `nextAfterId`). 항목은 이벤트와 같은 DTO이고 둘 다 엔티티의 `toSyncDto()`로 만든다 |
-| 강의 처리 | 읽기 전용 트랜잭션에서 ID 키셋으로 size+1개를 읽는다. 구매는 주문, 장바구니 항목은 장바구니를 fetch join하고, 강의 콘텐츠는 `@BatchSize`로 한 번에 읽는다. 리뷰는 주문 항목 상태를 함께 읽어 `counted`를 정한다 |
+| 강의 처리 | 읽기 전용 트랜잭션에서 ID 키셋으로 size+1개를 읽는다. 구매는 주문, 장바구니 항목은 장바구니를 fetch join하고, 강의 콘텐츠는 `@BatchSize`로 한 번에 읽는다(강의와 콘텐츠가 다른 쿼리라 REPEATABLE READ로 한 스냅숏을 본다). 리뷰는 주문 항목 상태를 함께 읽어 `counted`를 정한다 |
 | 범위 | Soft Delete된 행도 `deleted=true`로 싣는다. 강의 콘텐츠만 삭제되지 않은 것을 싣는다 |
 
 #### 서비스 분리 시 (D62)
