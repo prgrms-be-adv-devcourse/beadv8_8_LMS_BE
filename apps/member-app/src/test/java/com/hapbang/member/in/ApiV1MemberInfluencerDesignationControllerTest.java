@@ -2,6 +2,7 @@ package com.hapbang.member.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -53,13 +54,33 @@ class ApiV1MemberInfluencerDesignationControllerTest {
     }
 
     @Test
-    @DisplayName("관리자가 아니면 403, 로그인하지 않으면 401이고 역할은 그대로다")
+    @DisplayName("관리자가 아니면 403, 로그인하지 않으면 401이고 역할은 그대로다 (/admin/** URL 규칙이 막아 본문이 없다)")
     void makeInfluencer_forbidden() throws Exception {
         User user = userRepository.save(MemberFixture.user());
 
-        makeInfluencer(GatewayLogin.as(user.getId(), Role.USER), user.getId()).andExpect(status().isForbidden());
-        makeInfluencer(GatewayLogin.as(1L, Role.VERIFIED_INFLUENCER), user.getId()).andExpect(status().isForbidden());
-        makeInfluencer(null, user.getId()).andExpect(status().isUnauthorized());
+        // Facade의 @PreAuthorize가 막으면 ProblemDetail 본문(code=FORBIDDEN)이 온다.
+        // 본문이 없어야 보안 필터의 URL 규칙(/api/v1/*/admin/**)에서 막힌 것이다 (docs/api/conventions.md)
+        makeInfluencer(GatewayLogin.as(user.getId(), Role.USER), user.getId())
+                .andExpect(status().isForbidden())
+                .andExpect(content().string(""));
+        makeInfluencer(GatewayLogin.as(1L, Role.VERIFIED_INFLUENCER), user.getId())
+                .andExpect(status().isForbidden())
+                .andExpect(content().string(""));
+        makeInfluencer(null, user.getId())
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string(""));
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getRole()).isEqualTo(Role.USER);
+    }
+
+    @Test
+    @DisplayName("옛 경로 /api/v1/members/test/{userId}/influencer는 관리자가 불러도 404이고 역할은 그대로다")
+    void oldPath_removed() throws Exception {
+        User user = userRepository.save(MemberFixture.user());
+
+        mockMvc.perform(post("/api/v1/members/test/{userId}/influencer", user.getId())
+                        .with(GatewayLogin.as(ADMIN_ID, Role.ADMIN)))
+                .andExpect(status().isNotFound());
 
         assertThat(userRepository.findById(user.getId()).orElseThrow().getRole()).isEqualTo(Role.USER);
     }
