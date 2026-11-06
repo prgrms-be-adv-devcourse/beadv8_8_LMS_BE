@@ -1,5 +1,7 @@
 package com.hapbang.lecture.domain;
 
+import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
@@ -66,5 +68,27 @@ public enum OrderItemStatus {
     /** 반환·지급 처리 중인지. 항목 단위 처리 상태를 그 항목의 작업으로 보여 준다 (D70 (7)) */
     public boolean isSettlementPending() {
         return this == CANCEL_PENDING || this == RETURN_PENDING || this == PAYOUT_PENDING;
+    }
+
+    /**
+     * 이 항목의 리뷰가 강의 평균 평점·리뷰 목록에 반영되는지 (D47, D59). 반환 처리 중·반환이면 리뷰는 남지만 빠진다.
+     * {@code LectureReviewRepository.VISIBLE_REVIEWS}와 같은 규칙이다(테스트가 모든 상태에서 대조한다)
+     */
+    public boolean countsReview() {
+        return this != RETURN_PENDING && this != RETURNED;
+    }
+
+    /**
+     * AI 추천용 구매 결과 (#712, D82). 시청 가능하면 {@code OWNED}, 보유 중이지만 볼 수 없으면 {@code PENDING}이다.
+     * 둘을 합친 것이 {@link #isHeld()}와 같다. 새 상태를 더하면 여기서 컴파일이 멈춘다
+     */
+    public LecturePurchaseResult toPurchaseResult() {
+        return switch (this) {
+            case PURCHASED, CONFIRMED, PAYOUT_PENDING, PAID_OUT -> LecturePurchaseResult.OWNED;
+            case HOLD_PENDING, HOLD_COMPENSATING, CANCEL_PENDING, RETURN_PENDING -> LecturePurchaseResult.PENDING;
+            case CANCELED -> LecturePurchaseResult.CANCELED;
+            case RETURNED -> LecturePurchaseResult.RETURNED;
+            case HOLD_FAILED -> LecturePurchaseResult.FAILED;
+        };
     }
 }

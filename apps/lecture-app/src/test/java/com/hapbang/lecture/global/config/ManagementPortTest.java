@@ -12,6 +12,8 @@ import java.net.http.HttpResponse;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -20,6 +22,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.ModuleTestConfiguration;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
@@ -102,8 +105,26 @@ class ManagementPortTest {
         assertThat(get(serverPort, "/api/v1/lectures").statusCode()).isEqualTo(200);
     }
 
+    // AI 추천용 동기화 내부 API(#712)도 내부 포트로만 받는다. 외부 포트로 오면 키가 맞아도 404다
+    @ParameterizedTest
+    @ValueSource(strings = {"lectures", "purchases", "cart-items", "reviews"})
+    void 동기화_내부_API는_외부_포트에서_404이고_내부_포트에서만_응답한다(String kind) throws Exception {
+        String path = "/api/v1/internal/lectures/sync/" + kind;
+
+        assertThat(getInternal(serverPort, path).statusCode()).isEqualTo(404);
+        HttpResponse<String> internal = getInternal(internalPort, path);
+        assertThat(internal.statusCode()).isEqualTo(200);
+        assertThat(internal.body()).contains("\"items\"");
+    }
+
     private static HttpResponse<String> get(int port, String path) throws Exception {
         return client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static HttpResponse<String> getInternal(int port, String path) throws Exception {
+        return client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+                        .header(InternalApiHeaders.API_KEY, IntegrationTest.INTERNAL_API_KEY).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
     }
 }

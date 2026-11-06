@@ -34,15 +34,18 @@ public class OrderObjectionResolveUseCase {
     private final LectureOrderSupport lectureOrderSupport;
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureHpTaskSupport lectureHpTaskSupport;
+    private final LectureSyncEvents lectureSyncEvents;
     private final Clock clock;
 
     public OrderObjectionResolveUseCase(LectureOrderSupport lectureOrderSupport,
                                         LectureOrderRepository lectureOrderRepository,
                                         LectureHpTaskSupport lectureHpTaskSupport,
+                                        LectureSyncEvents lectureSyncEvents,
                                         @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderSupport = lectureOrderSupport;
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
+        this.lectureSyncEvents = lectureSyncEvents;
         this.clock = clock;
     }
 
@@ -61,9 +64,13 @@ public class OrderObjectionResolveUseCase {
             log.info("이의 제기를 판단했다 orderId={}, orderItemId={}, inquiryId={}, accepted={}, adminUserId={}",
                     order.getId(), orderItemId, inquiryId, accepted, adminUserId);
         });
+        // 기각은 항목 상태와 구매 결과가 그대로라 보내지 않는다 (#712, D82)
         if (!accepted) {
             return;
         }
+        // 반환 처리 중이 되어 구매 결과가 바뀌고, 그 항목의 리뷰는 평점에서 빠진다
+        lectureSyncEvents.purchaseChanged(item);
+        lectureSyncEvents.reviewCountChanged(item);
         lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.RETURN,
                 RELEASE_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), item.getBuyerUserId(), null,
                 item.getPriceHp(), now));

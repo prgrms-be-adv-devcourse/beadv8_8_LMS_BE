@@ -37,15 +37,17 @@ public class OrderCancelUseCase {
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final LectureHpTaskExecutor lectureHpTaskExecutor;
+    private final LectureSyncEvents lectureSyncEvents;
     private final Clock clock;
 
     public OrderCancelUseCase(LectureOrderSupport lectureOrderSupport, LectureOrderRepository lectureOrderRepository,
                               LectureHpTaskSupport lectureHpTaskSupport, LectureHpTaskExecutor lectureHpTaskExecutor,
-                              @Qualifier(LectureConfig.CLOCK) Clock clock) {
+                              LectureSyncEvents lectureSyncEvents, @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderSupport = lectureOrderSupport;
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
         this.lectureHpTaskExecutor = lectureHpTaskExecutor;
+        this.lectureSyncEvents = lectureSyncEvents;
         this.clock = clock;
     }
 
@@ -58,6 +60,7 @@ public class OrderCancelUseCase {
         OrderItem item = order.requestCancelItem(orderItemId, now);
         // 같은 항목을 동시에 바꾼 요청(낙관적 락 충돌)을 작업 등록 전에 확인한다 (설계 6.2)
         lectureOrderRepository.flush();
+        lectureSyncEvents.purchaseChanged(item);
         Long taskId = lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.CANCEL,
                 RELEASE_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
                 item.getPriceHp(), now)).getId();

@@ -30,13 +30,16 @@ public class ReviewWriteUseCase {
     private final LectureReviewRepository lectureReviewRepository;
     private final LectureSupport lectureSupport;
     private final LectureOrderSupport lectureOrderSupport;
+    private final LectureSyncEvents lectureSyncEvents;
     private final Clock clock;
 
     public ReviewWriteUseCase(LectureReviewRepository lectureReviewRepository, LectureSupport lectureSupport,
-                              LectureOrderSupport lectureOrderSupport, @Qualifier(LectureConfig.CLOCK) Clock clock) {
+                              LectureOrderSupport lectureOrderSupport, LectureSyncEvents lectureSyncEvents,
+                              @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureReviewRepository = lectureReviewRepository;
         this.lectureSupport = lectureSupport;
         this.lectureOrderSupport = lectureOrderSupport;
+        this.lectureSyncEvents = lectureSyncEvents;
         this.clock = clock;
     }
 
@@ -48,20 +51,22 @@ public class ReviewWriteUseCase {
         }
         LocalDateTime now = LocalDateTime.now(clock);
         LectureReview review = LectureReview.write(item, userId, rating, content, now);
-        lectureReviewRepository.findAlive(lectureId, userId)
+        lectureReviewRepository.findAliveForUpdate(lectureId, userId)
                 .ifPresent(existing -> replaceReturned(existing, userId, now));
         // 같은 강의에 동시에 쓴 요청이 먼저 커밋했으면 부분 유일 인덱스에 걸린다. 커밋 전에 확인해 409로 바꾼다.
         // 그 밖의 무결성 위반은 예상하지 못한 실패라 그대로 던진다(공통 핸들러가 500으로 응답)
+        LectureReview saved;
         try {
-            LectureReview saved = lectureReviewRepository.save(review);
+            saved = lectureReviewRepository.save(review);
             lectureReviewRepository.flush();
-            return saved.getId();
         } catch (DataIntegrityViolationException exception) {
             if (!UniqueIndexViolation.isOf(exception, ORDER_ITEM_INDEX, LECTURE_REVIEWER_INDEX)) {
                 throw exception;
             }
             throw new LectureException(LectureErrorCode.ALREADY_REVIEWED);
         }
+        lectureSyncEvents.reviewChanged(saved);
+        return saved.getId();
     }
 
     /**
@@ -74,7 +79,7 @@ public class ReviewWriteUseCase {
             throw new LectureException(LectureErrorCode.ALREADY_REVIEWED);
         }
         existing.delete(userId, now);
-        // 부분 유일 인덱스 검사 전에 삭제 표시를 먼저 반영한다. INSERT가 UPDATE보다 먼저 실행되지 않게 한다
-        lectureReviewRepository.flush();
+        // 부분 유일 인덱스 검사 전에 삭제 표시를 먼저 반영한다(이벤트 발행이 flush한다). INSERT가 UPDATE보다 먼저 실행되지 않게 한다
+        lectureSyncEvents.reviewChanged(existing);
     }
 }

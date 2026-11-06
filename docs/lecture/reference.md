@@ -34,7 +34,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 
 **cart**: ERD와 같음. 유일 `uc_cart_user_id (user_id)`.
 
-**cart_item**: ERD + `deleted_at` **추가**(정책 7). 부분 유일 인덱스 `uk_cart_item_cart_lecture (cart_id, lecture_id) WHERE deleted_at IS NULL`. `lecture_id`는 다른 애그리거트라 FK를 두지 않는다. 같은 트랜잭션에서 같은 강의를 빼고 다시 담으면 Hibernate가 INSERT를 UPDATE보다 먼저 실행해 이 인덱스에 걸린다(7.1 `lecture_content`와 같은 문제). 지금 API는 요청마다 한 동작이라 해당 없고, 주문 후 빼기를 넣을 때 다시 확인한다.
+**cart_item**: ERD + `deleted_at` **추가**(정책 7). `version`(bigint, 기본 0) **추가**: AI 추천 동기화의 버전이다(D82, #712). 빼기는 장바구니 행을 잠그고 읽어 동시에 빼도 버전 충돌이 없다. 부분 유일 인덱스 `uk_cart_item_cart_lecture (cart_id, lecture_id) WHERE deleted_at IS NULL`. `lecture_id`는 다른 애그리거트라 FK를 두지 않는다. 같은 트랜잭션에서 같은 강의를 빼고 다시 담으면 Hibernate가 INSERT를 UPDATE보다 먼저 실행해 이 인덱스에 걸린다(7.1 `lecture_content`와 같은 문제). 지금 API는 요청마다 한 동작이라 해당 없고, 주문 후 빼기를 넣을 때 다시 확인한다.
 
 **lecture_order**
 
@@ -82,7 +82,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 - `(status, auto_confirm_at)`, `(status, payout_scheduled_at)` — 배치 조회용
 - `(seller_user_id, purchased_at desc, id desc)` — 판매 내역 조회용 (D51)
 
-**lecture_review**: ERD와 같음. `rating` 1~5 CHECK. 유일 `(order_item_id) WHERE deleted_at IS NULL`, 유일 `(lecture_id, reviewer_user_id) WHERE deleted_at IS NULL` — 삭제 후 재작성 허용.
+**lecture_review**: ERD + `version`(bigint, 기본 0) **추가**: AI 추천 동기화의 버전이다(D82, #712). 고치기·지우기·대체는 리뷰 행을 잠그고 읽고, 이의 제기 인정으로 평점 반영 여부가 바뀌면 `PESSIMISTIC_FORCE_INCREMENT`로 올린다. `rating` 1~5 CHECK. 유일 `(order_item_id) WHERE deleted_at IS NULL`, 유일 `(lecture_id, reviewer_user_id) WHERE deleted_at IS NULL` — 삭제 후 재작성 허용.
 
 **lecture_user** (**신규**, 회원 복제): `id`(회원 ID), `nickname`, `role`, `status`, `created_at`, `updated_at`. 채팅 모듈의 `CHAT_USER`와 같은 패턴.
 
@@ -340,6 +340,20 @@ billing #295가 회원의 받을 지급을 모아 보여 줄 때 호출한다. �
 | GET | `/api/v1/internal/lectures/users/{userId}/withdrawal-blocks` | 회원이 구매자·판매자로 남긴 막힌 이유(`WithdrawalBlocksDto`). 읽기만 한다. 없으면 `reasons: []` |
 
 - 다른 모듈은 `LectureApiClient.getWithdrawalBlocks`로 부른다.
+
+### 8.6.3 AI 추천 동기화 내부 API (D82, #712)
+
+aux-app AI context가 주 1회 처음부터 끝까지 읽어 이벤트 누락을 바로잡는다. 인증·내부 포트는 8.6.1과 같다. 계약(필드, 구매 결과, 버전 규칙, 이벤트 지점)은 `docs/api/internal-lecture-sync.md`.
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| GET | `/api/v1/internal/lectures/sync/lectures?afterId=&size=` | 모든 상태의 강의 `LectureSyncDto`. 콘텐츠는 삭제되지 않은 것만 |
+| GET | `/api/v1/internal/lectures/sync/purchases?afterId=&size=` | 모든 주문 항목 `LecturePurchaseSyncDto` (ID = 주문 항목 ID) |
+| GET | `/api/v1/internal/lectures/sync/cart-items?afterId=&size=` | 뺀 항목을 포함한 장바구니 항목 `CartItemSyncDto` |
+| GET | `/api/v1/internal/lectures/sync/reviews?afterId=&size=` | 지운 리뷰를 포함한 리뷰 `LectureReviewSyncDto` |
+
+- 모두 ID 오름차순 키셋이다. `size` 1~500(기본 100), `afterId` 0 이상, 마지막 페이지면 `nextAfterId`가 빠진다.
+- 다른 모듈은 `LectureApiClient.getSync*`로 부른다.
 
 ### 8.7 용어 ↔ 코드 이름 (제안)
 

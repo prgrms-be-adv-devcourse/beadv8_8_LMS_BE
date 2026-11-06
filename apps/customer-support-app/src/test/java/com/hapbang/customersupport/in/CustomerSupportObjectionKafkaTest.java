@@ -5,6 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,9 +46,19 @@ import com.hapbang.customersupport.global.config.CustomerSupportEventExternaliza
 import com.hapbang.customersupport.global.config.CustomerSupportKafkaConfig;
 import com.hapbang.customersupport.out.InquiryRepository;
 import com.hapbang.shared.customersupport.event.CustomerSupportEventTopic;
+import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
+import com.hapbang.shared.lecture.dto.CartItemSyncDto;
+import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
+import com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto;
+import com.hapbang.shared.lecture.dto.LectureReviewSyncDto;
+import com.hapbang.shared.lecture.dto.LectureSyncDto;
+import com.hapbang.shared.lecture.event.CartItemChangedEvent;
+import com.hapbang.shared.lecture.event.LectureChangedEvent;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
+import com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent;
+import com.hapbang.shared.lecture.event.LectureReviewChangedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 import com.hapbang.testsupport.RecordedSpans;
@@ -211,6 +222,58 @@ class CustomerSupportObjectionKafkaTest {
         }
 
         assertDeadLetterSendCounted();
+    }
+
+    /**
+     * 강의가 같은 토픽에 내보내는 AI 추천용 동기화 이벤트(#712)는 고객센터가 받지 않는 타입이다. 기본 처리기에서 무시하고 커밋해,
+     * 재시도·DLT 없이 같은 partition의 다음 결과를 처리한다(새 shared로 빌드된 상태).
+     * native 운영 이미지는 이 타입들을 reachability-metadata.json에 등록해야 같은 동작이다
+     */
+    @Test
+    void 강의_동기화_이벤트는_무시하고_DLT로_보내지_않고_다음_결과를_처리한다() {
+        long orderItemId = 804L;
+        Long inquiryId = LectureObjectionFixture.filed(transactionTemplate, inquiryRepository, USER_ID, orderItemId);
+        inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다.");
+        String deadLetter = CustomerSupportKafkaConfig.deadLetterTopic(LectureEventTopic.NAME,
+                CustomerSupportKafkaConfig.OBJECTION_RESULT_GROUP);
+        OffsetDateTime at = OffsetDateTime.parse("2026-11-06T09:00:00+09:00");
+        try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(deadLetter)) {
+            // 같은 key로 보내 같은 partition에서 결과보다 먼저 읽히게 한다
+            send(orderItemId, new LectureChangedEvent(new LectureSyncDto(11L, 3L, "강의", null, true, false,
+                    List.of(new LectureContentSyncDto(21L, "1강", 1)), 1L)));
+            send(orderItemId, new LecturePurchaseChangedEvent(new LecturePurchaseSyncDto(orderItemId, USER_ID, 11L,
+                    LecturePurchaseResult.PENDING, at, at, 2L)));
+            send(orderItemId, new CartItemChangedEvent(new CartItemSyncDto(31L, USER_ID, 11L, true, at, 1L)));
+            send(orderItemId, new LectureReviewChangedEvent(new LectureReviewSyncDto(41L, 11L, USER_ID, 5, false,
+                    false, 1L)));
+            send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true));
+
+            await().atMost(TIMEOUT).untilAsserted(() -> assertThat(inquiryRepository.findById(inquiryId))
+                    .hasValueSatisfying(inquiry ->
+                            assertThat(inquiry.getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED)));
+            List<ConsumerRecord<String, String>> deadLettered = new CopyOnWriteArrayList<>();
+            await().during(HOLD).atMost(TIMEOUT).pollInSameThread().untilAsserted(() -> {
+                deadLetters.poll(Duration.ofMillis(200)).forEach(deadLettered::add);
+                assertThat(deadLettered).noneMatch(record -> ("order-item:" + orderItemId).equals(record.key()));
+            });
+        }
+    }
+
+    /** 이 토픽을 읽는 소비자. 파티션을 받을 때까지 읽은 뒤 끝으로 옮겨, 이후 이 테스트가 만든 메시지만 받는다 */
+    private KafkaConsumer<String, String> consumerAtEnd(String topic) {
+        Map<String, Object> properties = new HashMap<>(kafkaAdmin.getConfigurationProperties());
+        properties.put(ConsumerConfig.GROUP_ID_CONFIG, "customer-support-test-" + UUID.randomUUID());
+        properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        KafkaConsumer<String, String> topicConsumer = new KafkaConsumer<>(properties, new StringDeserializer(),
+                new StringDeserializer());
+        topicConsumer.subscribe(List.of(topic));
+        await().atMost(TIMEOUT).pollInSameThread().until(() -> {
+            topicConsumer.poll(Duration.ofMillis(100));
+            return !topicConsumer.assignment().isEmpty();
+        });
+        topicConsumer.seekToEnd(topicConsumer.assignment());
+        topicConsumer.assignment().forEach(topicConsumer::position);
+        return topicConsumer;
     }
 
     /** 강의 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. */

@@ -3,6 +3,7 @@ package com.hapbang.lecture.domain;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.hibernate.annotations.SQLRestriction;
 
@@ -74,8 +75,10 @@ public class Cart {
 
     /**
      * 본인 강의 → 판매 중 → 중복 순서로 검사한다. 판매 중이 아닌 강의는 상세 조회처럼 없는 강의로 본다.
+     *
+     * @return 담은 항목
      */
-    public void add(Lecture lecture, LocalDateTime now) {
+    public CartItem add(Lecture lecture, LocalDateTime now) {
         if (lecture.getSellerUserId().equals(userId)) {
             throw new LectureException(LectureErrorCode.OWN_LECTURE_NOT_PURCHASABLE);
         }
@@ -85,19 +88,26 @@ public class Cart {
         if (items.stream().anyMatch(item -> item.getLectureId().equals(lecture.getId()))) {
             throw new LectureException(LectureErrorCode.ALREADY_IN_CART);
         }
-        items.add(new CartItem(this, lecture.getId(), now));
+        CartItem added = new CartItem(this, lecture.getId(), now);
+        items.add(added);
         this.updatedAt = now;
+        return added;
     }
 
-    /** 담지 않은 강의면 아무것도 하지 않는다. */
-    public void remove(Long lectureId, LocalDateTime now) {
-        items.stream()
+    /**
+     * 담지 않은 강의면 아무것도 하지 않는다.
+     *
+     * @return 뺀 항목. 담지 않은 강의면 비어 있다
+     */
+    public Optional<CartItem> remove(Long lectureId, LocalDateTime now) {
+        Optional<CartItem> removed = items.stream()
                 .filter(item -> item.getLectureId().equals(lectureId))
-                .findFirst()
-                .ifPresent(item -> {
-                    item.markDeleted(now);
-                    items.remove(item);
-                    this.updatedAt = now;
-                });
+                .findFirst();
+        removed.ifPresent(item -> {
+            item.markDeleted(now);
+            items.remove(item);
+            this.updatedAt = now;
+        });
+        return removed;
     }
 }

@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 public class CancelResultHandler implements LectureHpTaskResultHandler {
 
     private final OrderSettlementRecorder orderSettlementRecorder;
+    private final LectureSyncEvents lectureSyncEvents;
 
     @Override
     public LectureHpTaskPurpose purpose() {
@@ -24,6 +25,7 @@ public class CancelResultHandler implements LectureHpTaskResultHandler {
 
     @Override
     public void onSucceeded(LectureHpTask task) {
-        orderSettlementRecorder.record(task, (order, now) -> order.completeCancelItem(task.getOrderItemId(), now));
+        orderSettlementRecorder.record(task, (order, now) ->
+                lectureSyncEvents.purchaseChanged(order.completeCancelItem(task.getOrderItemId(), now)));
     }
 }

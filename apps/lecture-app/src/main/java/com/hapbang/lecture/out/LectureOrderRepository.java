@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -115,6 +116,17 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from LectureOrder o where o.id = :id")
     Optional<LectureOrder> findForUpdateById(@Param("id") Long id);
+
+    /**
+     * 구매 동기화 내부 API(#712): {@code afterId}보다 큰 주문 항목을 ID 오름차순으로 {@code limit}개. 모든 상태를 싣는다.
+     * 주문 시각을 실으므로 주문을 함께 읽는다(항목마다 따로 읽지 않음)
+     */
+    @Query("select i from OrderItem i join fetch i.order where i.id > :afterId order by i.id")
+    List<OrderItem> findSyncPurchases(@Param("afterId") long afterId, Limit limit);
+
+    /** 주문 항목의 지금 상태. 리뷰의 평점 반영 여부를 정할 때 쓴다 (#712) */
+    @Query("select i.status from OrderItem i where i.id = :id")
+    Optional<OrderItemStatus> findStatusById(@Param("id") Long id);
 
     /** 주문 항목들과 그 주문 ID. 서비스 간 HP 대사가 읽는다 (D74). 없는 ID는 빠진다 */
     @Query("select new com.hapbang.lecture.out.OrderItemWithOrderId(i, i.order.id) from OrderItem i "

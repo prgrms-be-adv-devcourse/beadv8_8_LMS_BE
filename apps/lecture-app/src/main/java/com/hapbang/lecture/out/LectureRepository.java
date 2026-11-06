@@ -1,5 +1,8 @@
 package com.hapbang.lecture.out;
 
+import java.util.List;
+
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -25,6 +28,12 @@ public interface LectureRepository extends JpaRepository<Lecture, Long> {
                                                                             Pageable pageable);
 
     Page<Lecture> findBySellerUserId(Long sellerUserId, Pageable pageable);
+
+    /**
+     * 강의 동기화 내부 API(#712): {@code afterId}보다 큰 강의를 ID 오름차순으로 {@code limit}개. 모든 상태(검수 대기·반려·삭제 포함)다.
+     * 콘텐츠는 {@code Lecture.contents}의 일괄 읽기로 한 번에 읽는다
+     */
+    List<Lecture> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
 
     /**
      * 판매자 탈퇴를 막는 강의 수 (#625, D75). 삭제하지 않은 판매 중·검수 대기 강의다.
