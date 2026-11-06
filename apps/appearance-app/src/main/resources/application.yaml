@@ -9,6 +9,11 @@ spring:
     - classpath:swagger.yml
   profiles:
     default: local
+  autoconfigure:
+    # 앱은 Gateway 사용자 헤더와 내부 API 키로 인증해 UserDetailsService가 없다. 빼지 않으면 Boot가 기본 사용자(user)를 만들고
+    # 생성 비밀번호를 기동 로그(WARN)에 남긴다(#733). 프로필 파일에서 이 목록을 다시 쓰면 합쳐지지 않고 바뀐다
+    exclude:
+    - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   mvc:
     formcontent:
       filter:
