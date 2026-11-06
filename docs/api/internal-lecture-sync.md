@@ -142,4 +142,5 @@ do {
 - 주 1회(월요일 10:00 KST) 종류별로 따로 처음부터 끝까지 읽어 이벤트 누락을 바로잡는다. 첫 실행이 곧 초기 적재다.
 - 키셋이라 페이지를 넘기는 사이 생긴 행 때문에 중복·누락이 생기지 않는다. 대조 중 바뀐 행은 이벤트로 들어온다.
 - 탈퇴 회원: 강의는 따로 할 일이 없다. AI가 `UserMaskedEvent`를 받아 자기 쪽 데이터를 지우고, 이후 들어오는 그 회원 데이터를 버린다.
-- 같은 토픽의 다른 소비자(고객센터 `customer-support-app.objection-result`, 알림)는 이 타입을 기본 처리기에서 무시한다. native 이미지로 도는 소비자는 이 레코드들을 reflection에 등록해야 DLT로 보내지 않는다(고객센터 `reachability-metadata.json`).
+- 같은 토픽의 지금 소비자인 고객센터(`customer-support-app.objection-result`)는 이 타입을 기본 처리기에서 무시한다. 고객센터는 native 이미지라 이 레코드들을 reflection에 등록해 두었다(`reachability-metadata.json`, 일반 해결은 #722).
+- 같은 토픽을 소비할 계획인 알림(`notification.lecture-event`, [알림 설계](../architecture/infrastructure/notification.md))은 구현할 때 같은 처리가 필요하다: 기본 `@KafkaHandler`로 무시하고, native 앱이면 reflection에 등록한다.
