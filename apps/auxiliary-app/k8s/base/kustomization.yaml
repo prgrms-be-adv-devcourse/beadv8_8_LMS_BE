@@ -1,0 +1,31 @@
+# auxiliary-app의 기본 manifest. 레포를 나눠도 앱 디렉터리만으로 빌드·배포할 수 있게 앱 안에 둔다.
+# 공용 인프라(PostgreSQL·Kafka·Redis)는 루트 k8s/platform에 있고 아래 주소로만 연결한다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: hapbang-prod
+resources:
+  - deployment.yaml
+  - service.yaml
+  - gateway.yaml
+  - networkpolicy.yaml
+# 이름에 내용 hash가 붙으므로 값을 바꾸면 앱이 다시 배포되고, rollout undo가 이전 ConfigMap까지 되돌린다.
+configMapGenerator:
+  - name: auxiliary-app-config
+    literals:
+      - SPRING_PROFILES_ACTIVE=prod
+      - TZ=Asia/Seoul
+      - HAPBANG_INTERNAL_API_PORT=8081
+      # actuator(헬스체크·Prometheus 지표)는 관리 포트로만 연다. 8080에는 Gateway만 들인다(D72)
+      - MANAGEMENT_SERVER_PORT=8082
+      # heap 상한을 limit 비율이 아니라 고정값으로 둔다. 비율로 두면 limit을 올릴 때 heap 상한도 같이 올라
+      # heap 상한 + heap 밖(약 370Mi)이 limit을 넘는다(#684, #610. chat-app과 같다)
+      - JAVA_TOOL_OPTIONS=-Xmx256m
+      # glibc malloc arena 수를 줄여 heap 밖 native 메모리를 줄인다. 기본값은 CPU 수 × 8이다(#610).
+      - MALLOC_ARENA_MAX=2
+      # trace를 Alloy(OTLP gRPC)로 보낸다. Alloy가 Tempo로 넘긴다(#631). service name은 spring.application.name(auxiliary-app)이다
+      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy.hapbang-platform.svc.cluster.local:4317
+      # 앱 공통 database 하나를 모듈이 schema로 나눠 쓴다(chatbot 등, apps/auxiliary-app/README.md)
+      - DB_URL=jdbc:postgresql://postgres.hapbang-platform.svc.cluster.local:5432/auxiliary
+      - DB_USERNAME=auxiliary
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
+      - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local

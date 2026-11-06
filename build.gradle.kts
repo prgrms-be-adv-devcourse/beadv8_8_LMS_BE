@@ -99,7 +99,7 @@ tasks.register("verifyModuleStructure") {
     description = "앱별 실행 파일과 런타임 프로젝트 의존성 경계를 검사한다."
     doLast {
         val applications = subprojects.filter { it.name.endsWith("-app") }
-        check(applications.size == 6) { "여섯 개의 독립 실행 앱이 필요합니다." }
+        check(applications.size == 7) { "일곱 개의 독립 실행 앱이 필요합니다." }
         check(findProject(":global") == null && findProject(":apps") == null) {
             "global/통합 apps 실행 프로젝트는 제거해야 합니다."
         }
@@ -123,6 +123,25 @@ tasks.register("verifyModuleStructure") {
                     .filter { dependency -> dependency != module.path && applications.any { it.path == dependency } }
                 check(appDependencies.isEmpty()) {
                     "${module.path}의 ${classpath}가 다른 앱에 의존합니다: $appDependencies"
+                }
+            }
+        }
+        // auxiliary-app 안(#714): 업무 모듈(boundedContext/<모듈>)은 :auxiliary-global과 :shared에만, :auxiliary-global은
+        // :shared에만 의존한다. 업무 모듈끼리의 코드 참조는 Modulith 검사(AuxiliaryModularityTest)도 막는다
+        val auxiliaryApp = project(":auxiliary-app")
+        val auxiliaryModules = subprojects.filter { it.projectDir.parentFile == auxiliaryApp.file("boundedContext") }
+        check(auxiliaryModules.isNotEmpty()) { "auxiliary-app 업무 모듈(boundedContext/<모듈>)을 찾지 못했습니다." }
+        val allowedDependencies = auxiliaryModules.associateWith { setOf(":auxiliary-global", ":shared") } +
+                (project(":auxiliary-global") to setOf(":shared"))
+        allowedDependencies.forEach { (module, allowed) ->
+            listOf("compileClasspath", "runtimeClasspath").forEach { classpath ->
+                val notAllowed = module.configurations.getByName(classpath)
+                    .incoming.resolutionResult.allComponents
+                    .mapNotNull { it.id as? org.gradle.api.artifacts.component.ProjectComponentIdentifier }
+                    .map { it.projectPath }
+                    .filter { it != module.path && it !in allowed }
+                check(notAllowed.isEmpty()) {
+                    "${module.path}의 ${classpath}가 허용하지 않은 프로젝트에 의존합니다: $notAllowed (허용: $allowed)"
                 }
             }
         }
