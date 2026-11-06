@@ -51,7 +51,7 @@ def main():
     if admin['role'] != 'ADMIN' or admin['status'] != 'ACTIVE':
         raise ValueError('An ACTIVE ADMIN account is required; no accounts were promoted')
     for index, member in enumerate(members, 1):
-        status, body = api.call(f'/api/v1/members/test/{member["id"]}/influencer', {}, token=token)
+        status, body = api.call(f'/api/v1/members/admin/users/{member["id"]}/make-influencer', {}, token=token)
         result = body['data']
         if status != 200 or result['userId'] != member['id'] or result['role'] != 'INFLUENCER':
             raise ValueError(f'Account {index}: unexpected promotion response')
