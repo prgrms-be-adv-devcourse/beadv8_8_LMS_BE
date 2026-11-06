@@ -72,7 +72,13 @@ NetworkPolicy는 HTTP path를 구분하지 못한다. 그래서 두 실제 liste
 
 JWT는 업무 API route에만 적용한다. Grafana는 Grafana의 자체 로그인, FE는 정적 서버다. `optional: true`로 토큰이 없는 요청만 허용하고, 잘못된 토큰은 거절한다. `failOpen`은 설정하지 않는다. v1.9.3 CRD는 값이 false여도 optional과 failOpen 필드의 동시 설정 자체를 거절한다.
 
-`ClientTrafficPolicy.earlyRequestHeaders`는 인증 전에 외부 `X-User-Id`, `X-User-Role`, `X-User-Token-Exp`, `X-Internal-Api-Key`와 전달 프로토콜·호스트 위조 헤더를 제거한다. 검증한 claim만 사용자 헤더로 생성한다. XFF의 신뢰 hop은 0이며 Envoy가 실제 접속 주소를 오른쪽에 추가한다. 앱은 native RemoteIpValve로 읽는다. 실제 인터넷 client IP 보존은 EC2 ServiceLB 전환 후 다시 검증한다.
+`ClientTrafficPolicy.earlyRequestHeaders`는 인증 전에 외부 `X-User-Id`, `X-User-Role`, `X-User-Token-Exp`, `X-Internal-Api-Key`와 전달 프로토콜·호스트 위조 헤더를 제거한다. 검증한 claim만 사용자 헤더로 생성한다. XFF의 신뢰 hop은 0이며 Envoy가 실제 접속 주소를 오른쪽에 추가한다. 앱은 native RemoteIpValve로 읽는다.
+
+**실제 client IP (2026-11-06 운영 확인, #726)**: 앱이 받는 remote address는 사용자의 공인 IP다. 그래서 비회원 요청의 IP rate limit을 앱에서 걸 수 있다.
+
+- ServiceLB가 `externalTrafficPolicy: Local`로 접속 주소를 보존한다. Envoy pod는 ServiceLB와 같은 large node에 있다. 그때 Envoy 접근 로그 2,000줄의 접속 주소는 모두 공인 IP였고(서로 다른 주소 20개), 개발자 PC에서 보낸 요청은 그 PC의 공인 IP로 남았다.
+- Envoy는 접속 주소를 XFF 맨 오른쪽에 붙여 앱으로 보낸다. 앱의 RemoteIpValve는 Envoy pod 주소(10.42.x, 내부 proxy)를 건너뛰고 그 값을 쓴다. 클라이언트가 보낸 XFF는 그 왼쪽에 남으므로 앱의 remote address를 바꾸지 못한다(로컬 `run.py` 5번).
+- **Envoy 접근 로그의 `client_ip`는 위조된다.** 운영에서 `X-Forwarded-For: 198.51.100.77`을 붙인 요청은 `client_ip`가 198.51.100.77로 남았다. v1.9.3은 `numTrustedHops: 0`을 XFF 원래 IP 감지 확장(`use_remote_address: false`, `xff_num_trusted_hops: 0`)으로 바꾸고, Envoy는 이때 들어온 XFF의 맨 오른쪽 값을 client로 본다(XFF가 없으면 접속 주소). 앱으로 가는 XFF에는 실제 접속 주소가 붙으므로 앱은 영향이 없다. 로그로 사용자를 추적할 때는 이 값을 믿지 않는다.
 
 prod issuer는 [JWT issuer 결정](#jwt-issuer-결정-2026-11-02-500)을 따른다. Gateway는 member Service 8080의 `/api/v1/members/.well-known/jwks.json`에서 공개 JWKS를 직접 읽는다. chat-app은 JWT를 직접 검증하지 않는다(#501). 웹소켓은 Gateway가 검증한 REST 요청으로 받은 일회용 연결 티켓으로 인증하고, 연결 만료는 chat SecurityPolicy가 `exp` claim을 넘기는 `X-User-Token-Exp`(epoch 초)로 정한다(chat-app이 발급 뒤 15분으로 상한을 둔다). member 8080을 chat에 열지 않는다. 8080은 Envoy가 넣은 `X-User-Id`를 믿는 포트라 열면 chat pod가 아무 회원으로나 위장할 수 있다.
 
@@ -176,7 +182,7 @@ Compose edge nginx와 그 인증서 볼륨, 뒤의 app·web·DB를 2026-10-30에
 - 2GiB 스트리밍은 업로드 Lua를 지우기 전에 검증 backend 64Mi, Envoy 본체 256Mi 한도에서 통과했다. Lua를 지운 뒤에는 다시 실행하지 않았다. 실제 S3 업로드와 도메인 파일 크기 정책 검증을 대신하지 않는다.
 - 범위를 줄이기 전에 한 번 확인하고 `run.py`에서 뺀 항목이 있다. 업무 경로 7개 라우팅, JWKS 키 교체·장애, 8081 허용 목록·키 인증, 일반 본문 1MiB 제한, Grafana Secure cookie·Live WebSocket이다. trace ID의 Envoy → Alloy → Tempo 도착과 로컬 인증서 갱신·Envoy TLS reload도 이때 확인했다. Let's Encrypt의 실제 발급·갱신 검증은 아니다.
 - `verifyModuleStructure`, 전체 `check bootJar`, 고정 CRD schema 검사, Python lint를 통과했다. 최신 dev의 출연 RestAssured 변경(#402)을 병합하고 출연 check를 다시 통과했다. 강의 HP 작업 실행기(#275)가 추가한 Billing Client 주소도 8081로 맞추고 통합 check를 다시 통과했다.
-- EC2·DNS·security group·운영 nginx·운영 데이터는 변경하지 않았다. IMDS 정책의 실제 AWS 동작, 인터넷 client IP, 실제 STOMP JWT와 FE 통합은 운영 전환 전에 확인한다.
+- EC2·DNS·security group·운영 nginx·운영 데이터는 변경하지 않았다. IMDS 정책의 실제 AWS 동작, 인터넷 client IP, 실제 STOMP JWT와 FE 통합은 운영 전환 전에 확인한다. 인터넷 client IP는 2026-11-06에 확인했다(위 "실제 client IP", #726).
 
 ## EC2 적용·검증 기록 (2026-10-30)
 

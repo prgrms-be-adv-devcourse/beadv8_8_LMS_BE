@@ -55,8 +55,9 @@ spec:
             - secretRef:
                 name: billing-app-secrets
           # 448Mi에서 운영 working set이 7일 최대 448Mi(100%, 2026-11-03)로 한도에 붙어 512Mi로 올렸다(#608).
-          # heap 상한(MaxRAMPercentage=60)과 heap 밖 약 285Mi의 합이 limit을 넘는 구성은 #610에서 -Xmx로 고친다.
           # trace(#631)를 붙이며 576Mi로 올렸다. 2026-11-03 운영 working set 427Mi(83%)였고, lecture-app은 trace로 k3d에서 약 +18Mi(#579)였다.
+          # 7일 최대 working set 469Mi(81%)였다. heap 상한을 -Xmx160m으로 고정하고(kustomization.yaml) limit은 둔다.
+          # heap 160 + heap 외 JVM 영역 214 + native 131 ≈ 505Mi(88%)다(#726, #610).
           resources:
             requests:
               cpu: 100m
