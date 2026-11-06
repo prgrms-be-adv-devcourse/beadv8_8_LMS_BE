@@ -60,6 +60,7 @@ spec:
           # trace(#631)를 붙이며 640Mi로 올렸다. 2026-11-03 운영 working set 541Mi(94%)였고, lecture-app은 trace로 k3d에서 약 +18Mi(#579)였다.
           # 640Mi에서 7일 최대 598Mi(93%)였다. heap 사용은 최대 176Mi인데 상한(limit의 60%)이 371Mi라 상한까지 차면 limit을 넘는다.
           # heap 상한을 -Xmx256m으로 고정하고(kustomization.yaml) heap 256 + heap 외 JVM 영역 238 + native 약 130 ≈ 624Mi에 여유를 더해 704Mi로 올린다(#684, #610).
+          # 704Mi에서 운영 약 40시간(pod 4개) 최대 working set 592Mi(84%), heap committed 최대 210Mi, 재시작 0회였다(2026-11-06, #694).
           resources:
             requests:
               cpu: 100m
