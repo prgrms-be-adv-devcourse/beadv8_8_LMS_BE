@@ -124,6 +124,10 @@ public interface LectureOrderRepository extends JpaRepository<LectureOrder, Long
     @Query("select i from OrderItem i join fetch i.order where i.id > :afterId order by i.id")
     List<OrderItem> findSyncPurchases(@Param("afterId") long afterId, Limit limit);
 
+    /** 구매자 본인의 주문 항목인지. 항목을 영속성 컨텍스트에 올리지 않는다 */
+    @Query("select count(i) > 0 from OrderItem i where i.id = :orderItemId and i.buyerUserId = :buyerUserId")
+    boolean existsItemOfBuyer(@Param("orderItemId") Long orderItemId, @Param("buyerUserId") Long buyerUserId);
+
     /** 주문 항목의 지금 상태. 리뷰의 평점 반영 여부를 정할 때 쓴다 (#712) */
     @Query("select i.status from OrderItem i where i.id = :id")
     Optional<OrderItemStatus> findStatusById(@Param("id") Long id);

@@ -34,7 +34,7 @@
 - 강의·주문 항목·장바구니 항목·리뷰를 바꾸는 전이를 더하면, 대상을 다 바꾼 뒤 같은 트랜잭션에서 `LectureSyncEvents`를 부른다. flush 뒤 `toSyncDto()`로 만들어야 이벤트 version이 커밋된 행과 같다. 구매는 `toPurchaseResult()`나 실린 값이 바뀌는 전이만 보낸다.
   - `toPurchaseResult()`의 `switch`는 새 상태만 잡고 새 전이는 잡지 않는다. 새 전이는 `LectureSyncEventTest`·`LectureSyncCartReviewEventTest`에 지점 테스트를 더한다(내부 API로 다시 읽어 이벤트와 비교).
 - version이 있는 장바구니 항목·리뷰는 행을 잠그고 읽어 바꾼다: 장바구니는 `CartRepository.findForUpdateByUserId`, 리뷰는 `findAliveForUpdate`. 주문과 함께 잠그면 주문 행을 먼저 잠근다.
-  - 리뷰 작성은 이의 제기 인정과 같은 주문 행을 먼저 잠근다(`findOrderForUpdateByItemId`). 잠그지 않으면 인정이 커밋 전 리뷰를 보지 못해 `counted` 재발행이 빠진다.
+  - 리뷰 작성은 이의 제기 인정과 같은 주문 행을 먼저 잠근다(`LectureOrderSupport.lockOrderOfBuyerItem`). 잠그지 않으면 인정이 커밋 전 리뷰를 보지 못해 `counted` 재발행이 빠진다. 회원 입력으로 잠그는 경로는 본인 항목인지 먼저 확인하고 잠근다.
 - `OrderItemStatus`나 `LectureReviewRepository.VISIBLE_REVIEWS`를 바꾸면 `toPurchaseResult()`·`countsReview()`와 대조 테스트(`OrderItemStatusTest`, `LectureReviewRepositoryTest`)를 같이 고친다.
 
 ## 테스트

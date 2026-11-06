@@ -20,9 +20,12 @@ import java.util.function.Supplier;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
@@ -30,11 +33,15 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.lecture.config.LectureConfig;
+import com.hapbang.lecture.domain.ContentType;
 import com.hapbang.lecture.domain.Lecture;
+import com.hapbang.lecture.domain.LectureContentSpec;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
+import com.hapbang.shared.lecture.dto.LectureSyncDto;
 import com.hapbang.testsupport.IntegrationTest;
 
 /**
@@ -69,8 +76,12 @@ class LectureSyncConcurrencyTest {
     @Autowired
     private OrderObjectionResolveUseCase orderObjectionResolveUseCase;
 
-    @Autowired
+    // 강의 동기화 목록이 강의 행을 읽은 직후에 다른 요청을 끼워 넣는다. 정하지 않으면 실제 메서드를 부른다
+    @MockitoSpyBean
     private LectureRepository lectureRepository;
+
+    @Autowired
+    private LectureSyncInternalFacade lectureSyncInternalFacade;
 
     @Autowired
     private LectureOrderRepository lectureOrderRepository;
@@ -152,6 +163,30 @@ class LectureSyncConcurrencyTest {
         // 작성(version 0, counted=true) 뒤 인정이 version을 올려 counted=false로 다시 보냈다
         assertThat(row.get("version")).isEqualTo(1L);
         verify(spy(), times(1)).reviewCountChanged(any());
+    }
+
+    // 강의 행과 콘텐츠(@BatchSize)는 다른 쿼리라, 사이에 콘텐츠 교체가 커밋되면 READ COMMITTED에서는 옛 version에 새 콘텐츠가 실린다.
+    // REPEATABLE READ로 읽어 강의 행을 읽은 시점의 콘텐츠를 싣는다 (#712 리뷰, D82)
+    @Test
+    @WithMockUser(roles = "INTERNAL")
+    void 강의_동기화_목록은_강의를_읽은_뒤_콘텐츠가_바뀌어도_읽은_version의_콘텐츠를_싣는다() throws Exception {
+        Long lectureId = lectureRepository.save(rejectedLecture()).getId();
+        // Spring Data Repository는 JDK 프록시라 spy의 기본 응답이 실제 빈에 넘기는 것(delegatesTo)이다. callRealMethod 대신 그것을 부른다
+        Answer<?> real = Mockito.mockingDetails(lectureRepository).getMockCreationSettings().getDefaultAnswer();
+        doAnswer(invocation -> {
+            Object rows = real.answer(invocation);
+            // 다른 요청이 그사이 콘텐츠를 바꾸고 커밋한다(강의 version 0 → 1)
+            executor.submit(() -> inTransaction(() -> lectureRepository.findById(lectureId).orElseThrow()
+                    .replaceContents(SELLER_ID, List.of(new LectureContentSpec(201L, "다시 찍은 1강", ContentType.VIDEO)),
+                            NOW.plusMinutes(1)))).get(10, TimeUnit.SECONDS);
+            return rows;
+        }).when(lectureRepository).findByIdGreaterThanOrderByIdAsc(any(), any());
+
+        LectureSyncDto synced = lectureSyncInternalFacade.getLectures(lectureId - 1, 1).items().getFirst();
+
+        assertThat(synced.version()).isZero();
+        assertThat(synced.contents()).extracting(LectureContentSyncDto::title)
+                .containsExactly("1강 장비 고르기", "장비 목록");
     }
 
     /** 첫 호출(앞 요청)이면 실제 발행을 한 뒤 커밋하기 전에 잠시 멈춘다 */
