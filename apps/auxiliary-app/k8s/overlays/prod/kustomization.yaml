@@ -1,13 +1,13 @@
 # EC2 k3s prod. 배포 workflow가 앱마다 이 overlay를 적용한다.
 # - 이미지: 배포 workflow가 `kustomize edit set image`로 GHCR의 sha-<커밋> 태그를 넣는다.
-# - replicas 0으로 시작한다(#714). dev 병합이 곧 운영 배포라, 운영 database(auxiliary)와 Secret이 준비되기 전에 뜨면 기동에 실패한다.
-#   인프라 준비가 끝나면 auxiliary-app-secrets.yaml(SealedSecret)을 더하고
-#   아래 replicas 패치를 지우는 PR을 따로 낸다. 그때까지 Secret이 없어도 pod가 없으므로 적용은 성공한다.
+# - 비밀값은 auxiliary-app-secrets.yaml(SealedSecret, k8s/tools/seal-app-secrets.sh auxiliary)이다.
+#   replicas 0으로 시작했고(#714), 운영 database·Secret·ES key·CA가 준비되어 1로 올렸다(#726).
 # - GHCR 패키지는 조직 정책으로 private이다. hapbang-prod의 공유 Secret ghcr-pull(k8s/registry)로 받는다. 앱 배포는 이 Secret을 만들거나 지우지 않는다.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
+  - auxiliary-app-secrets.yaml
 patches:
   - target:
       kind: Deployment
@@ -16,13 +16,6 @@ patches:
         path: /spec/template/spec/imagePullSecrets
         value:
           - name: ghcr-pull
-  # 운영 database·Secret이 준비될 때까지 pod를 띄우지 않는다(위 설명)
-  - target:
-      kind: Deployment
-    patch: |-
-      - op: replace
-        path: /spec/replicas
-        value: 0
   # Envoy가 받아들일 JWT issuer. member-app이 발급하는 토큰의 iss(member prod overlay의 HAPBANG_JWT_ISSUER)와
   # 같아야 하고, 다르면 이 앱의 토큰 요청이 모두 401이다. CI(manifests)가 앱들의 값이 같은지 검사한다.
   - target:

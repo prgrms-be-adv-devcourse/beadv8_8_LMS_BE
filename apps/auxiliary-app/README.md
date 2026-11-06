@@ -90,11 +90,7 @@ STOMP 연결 티켓(알림 모듈)에 쓰는 토큰 만료 헤더 `X-User-Token-
 
 ## 운영 배포
 
-- prod overlay는 `replicas: 0`으로 시작한다(#714). dev 병합이 곧 운영 배포라, 운영 database와 Secret이 준비되기 전에 뜨면 기동에 실패한다.
-- 공용 인프라(`k8s/platform`, `k8s/tools`, `k8s/gateway`, `docker/`)와 인프라 문서는 이 앱 작업에서 고치지 않는다. 띄우기 전에 인프라 담당과 정해서 할 일:
-  1. 운영 PostgreSQL에 role·database `auxiliary`를 만들고, `postgres-credentials`(hapbang-platform)에 `auxiliary` 키를 더한다. 새 cluster용 initdb 목록과 로컬 platform overlay에도 `auxiliary`가 들어가야 한다.
-  2. `k8s/tools/seal-app-secrets.sh`에 `auxiliary`를 더하고, 이 앱의 SealedSecret `k8s/overlays/prod/auxiliary-app-secrets.yaml`(`DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`)을 만든다.
-  3. #684에 적은 large node 선행 작업(PostgreSQL 512Mi, member·appearance·billing `-Xmx`)을 적용한다.
-  4. PostgreSQL `max_connections` 계산에 이 앱(Hikari 5)을 넣는다.
-  5. 문서와 로컬 설정: `docs/architecture/infrastructure/k3s.md` 메모리 예산, `docs/deploy/k8s.md` Secret 표, `k8s/gateway/tests/run.py` 앱 목록, 로컬 Gateway `docker/envoy/envoy.yaml`의 `/api/v1/chatbot` route.
-- 끝나면 `auxiliary-app-secrets.yaml`을 prod overlay `resources`에 더하고 `replicas` 패치를 지우는 PR을 낸다. 그때 이 앱의 첫 이미지로 CI가 새로 만든 GHCR 패키지에 "Inherit access from source repository"가 켜져 있는지 보고, `k8s/tools/ghcr-pull-check.sh`로 운영 `ghcr-pull`이 이 이미지를 받을 수 있는지 확인한다(`docs/deploy/k8s.md`).
+- prod overlay는 `replicas: 0`으로 시작했고(#714), 운영 준비가 끝나 1로 올렸다(#726). dev에 병합하면 다른 앱처럼 자동으로 배포된다.
+- 운영 준비(#726): PostgreSQL role·database `auxiliary`, SealedSecret `k8s/overlays/prod/auxiliary-app-secrets.yaml`(`DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `ES_API_KEY`, `OPENAI_API_KEY`), ES role `chatbot`·API key, `hapbang-prod`의 ConfigMap `elasticsearch-ca`(키 `ca.crt`), large node 자리, `max_connections` 계산. 값과 절차는 `docs/deploy/k8s.md`의 "Secret"·"PostgreSQL database"·"Elasticsearch 앱 접근"에 있다.
+- 공용 인프라(`k8s/platform`, `k8s/tools`, `k8s/gateway`, `docker/`)와 인프라 문서는 이 앱 작업에서 고치지 않고 인프라 담당과 정한다.
+- 비밀값을 더하거나 바꾸면 `~/.hapbang/prod-secrets.env`에 넣고 `k8s/tools/seal-app-secrets.sh auxiliary`로 다시 봉인한다(선택 키 목록은 그 스크립트의 `auxiliary` spec).
