@@ -25,7 +25,7 @@
 
 - 운영 issuer는 `https://hapbang.duckdns.org`(Gateway 호스트)다. 원본은 각 앱의 prod overlay다. 앱 7개 prod overlay가 SecurityPolicy issuer를 patch하고, member prod overlay가 같은 값을 `HAPBANG_JWT_ISSUER`(발급하는 토큰의 `iss`)로 넣는다. chat-app이 STOMP에서 직접 검증할 때(#371)도 같은 이름·값을 쓴다.
 - 앱 배포(`.github/scripts/k3s-deploy.sh`)는 overlay를 그대로 적용하고 렌더러를 거치지 않는다. 그래서 issuer를 배포 입력으로 주입하지 않고 overlay에 둔다. 공용 Gateway의 운영 값도 #507에서 prod overlay로 옮기고 렌더러(`render-prod.py`)를 지웠다([운영 Gateway 값](#운영-gateway-값-507)).
-- 발급과 검증의 issuer가 다르면 그 앱의 토큰 요청이 모두 401이다. CI `manifests` job의 `k8s/gateway/tools/check-prod-host.py`가 prod overlay 7곳(SecurityPolicy 6, member ConfigMap 1)이 `https://<Gateway 호스트>`인지, Envoy가 JWKS를 member 8080에서 읽는지 검사한다. 새 앱을 더하면 prod overlay에 같은 patch를 넣는다.
+- 발급과 검증의 issuer가 다르면 그 앱의 토큰 요청이 모두 401이다. CI `manifests` job의 `k8s/gateway/tools/check-prod-host.py`가 prod overlay 8곳(SecurityPolicy 7, member ConfigMap 1)이 `https://<Gateway 호스트>`인지, Envoy가 JWKS를 member 8080에서 읽는지 검사한다. 새 앱을 더하면 prod overlay에 같은 patch를 넣는다.
 - base와 local overlay는 `https://gateway.invalid`(member 기본값과 같음)를 그대로 둔다. 로컬·k3d는 서명 키가 달라 운영 토큰을 받아들이지 않는다.
 - 서명은 #369대로 RS256 + JWKS다. member-app 하나만 개인 키를 갖고, Envoy는 JWKS로 공개 키만 받는다. 공유 비밀값(HS256)은 쓰지 않는다. Envoy v1.9.3의 `localJWKS`는 inline·ConfigMap만 받아 Secret이 아닌 곳에 비밀값을 두게 되고, 검증하는 곳(Envoy·chat)마다 모든 회원·ADMIN 토큰을 위조할 수 있는 키가 퍼지기 때문이다.
 
