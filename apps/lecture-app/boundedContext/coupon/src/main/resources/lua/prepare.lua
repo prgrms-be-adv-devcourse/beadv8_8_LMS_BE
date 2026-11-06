@@ -1,0 +1,58 @@
+-- 발급 준비. stock과 issue-control(ready=1, epoch, 기간, keysExpireAt, fence)을 쓰고 둘에 만료를 붙인다. 접수는 아직 열지 않는다.
+-- 새로 만들거나 epoch가 바뀌면 status를 READY(접수 불가. issue.lua는 OPEN만 받는다)로 쓴다. 같은 epoch면 지금 status를 그대로 둔다
+-- (그 사이 다른 요청이 DB OPEN 커밋 뒤 연 접수를 되돌리지 않는다). 접수를 여는 것은 allow-issue.lua다.
+-- 같은 값으로 다시 불러도 안전하다: 같은 epoch이고 stock이 이미 있으면 stock을 덮지 않는다(그 사이 접수로 줄었을 수 있다).
+-- epoch가 다르면 stock을 새 값으로 쓴다. users·requests·sold_out은 건드리지 않는다.
+-- fence(쿠폰 DB version): issue-control에 없을 때만 ARGV의 fence를 쓰고, 있으면 그대로 둔다.
+-- KEYS[1] = coupon:<couponId>:issue-control (Hash), KEYS[2] = coupon:<couponId>:stock (String)
+-- ARGV: epoch, stock, startAtMs, endAtMs, keysExpireAtMs, fence
+-- 반환: 1 준비함 | -1 같은 epoch가 이미 종료(CLOSED)되어 다시 준비하지 않음 | -9 인수·key 타입·fence 형식 오류(쓰기 없음)
+
+local controlKey, stockKey = KEYS[1], KEYS[2]
+local epoch, stock, startAt, endAt, keysExpireAt, fence = ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6]
+
+local function isUint(value)
+    return type(value) == 'string' and string.len(value) <= 19 and string.match(value, '^%d+$') ~= nil
+end
+
+if not (isUint(epoch) and isUint(stock) and isUint(startAt) and isUint(endAt) and isUint(keysExpireAt)
+        and isUint(fence)) then
+    return -9
+end
+if tonumber(startAt) >= tonumber(endAt) or tonumber(keysExpireAt) < tonumber(endAt) then
+    return -9
+end
+
+local controlType = redis.call('TYPE', controlKey)['ok']
+local stockType = redis.call('TYPE', stockKey)['ok']
+if not ((controlType == 'hash' or controlType == 'none') and (stockType == 'string' or stockType == 'none')) then
+    return -9
+end
+
+local sameEpoch = false
+local status = 'READY'
+if controlType == 'hash' then
+    local current = redis.call('HMGET', controlKey, 'epoch', 'status', 'fence')
+    sameEpoch = current[1] == epoch
+    if sameEpoch and current[2] == 'CLOSED' then
+        return -1
+    end
+    if sameEpoch and current[2] then
+        status = current[2]
+    end
+    if current[3] then
+        if not isUint(current[3]) then
+            return -9
+        end
+        fence = current[3]
+    end
+end
+
+if not (sameEpoch and stockType == 'string') then
+    redis.call('SET', stockKey, stock)
+end
+redis.call('HSET', controlKey, 'ready', '1', 'status', status, 'epoch', epoch,
+    'startAt', startAt, 'endAt', endAt, 'keysExpireAt', keysExpireAt, 'fence', fence)
+redis.call('PEXPIREAT', controlKey, keysExpireAt)
+redis.call('PEXPIREAT', stockKey, keysExpireAt)
+return 1

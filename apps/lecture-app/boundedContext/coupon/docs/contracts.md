@@ -7,10 +7,10 @@
 | 소유 | 데이터 | 필수 내용·제약 |
 | --- | --- | --- |
 | coupon | coupon | 유형, 신청자, 대상, 할인 방식/값, 장당 최대 할인액(모든 강의 대상 정률만 필수), 수량, 발급 기간, 만료 방식, 중첩, 정책 버전, 승인/운영 상태, 예산 예약 ID, epoch·준비 상태 |
-| coupon | member_coupon | 소유자, 정책 ID, 발급 요청 ID, 상태, generation, 현재 항목, 발급/만료 시각. UNIQUE(member_id,coupon_id), UNIQUE(issue_request_id) |
+| coupon | member_coupon | 소유자, 쿠폰 ID, 발급 요청 ID, 상태, generation, 현재 항목, 발급/만료 시각. UNIQUE(member_id,coupon_id), UNIQUE(coupon_id,issue_request_id). 요청 ID는 쿠폰 안에서만 유일하다(Redis requests도 쿠폰별) |
 | coupon | coupon_usage | 발급 쿠폰+generation UNIQUE, 주문/항목, 적용 순서·기준액·d/f/s·정책 버전, 예약 작업 ID, 결제/해제/취소/복원 사실 |
 | coupon | processed_operation | 이벤트/작업 ID UNIQUE, 요청 내용 식별값, 결과. last_event_id 하나로 전체 중복 처리를 대체하지 않음 |
-| coupon | coupon_issue_request | 요청 ID PK, 회원/쿠폰/epoch, ISSUED/REJECTED 결과, 거절 사유, 최초 접수 시각, 발급 건, 보상 상태 |
+| coupon | coupon_issue_request | (쿠폰 ID, 요청 ID) 유일, 회원/epoch, ISSUED/REJECTED 결과, 거절 사유, 최초 접수 시각, 발급 건, 보상 상태 |
 | coupon | budget_work | 예산 예약·해제의 작업 ID, 대상, 금액, 사유, 진행/완료 결과. 상태 변경과 작업을 함께 저장 |
 | coupon | recovery_run | 복구 ID, 이전/새 epoch, 단계, Stream 경계, Kafka 파티션 경계, 미처리 결과, 재개 근거 |
 | coupon | coupon_dlt_log | 원문, 요청 ID, 실패 원인, 격리·재발행·최종 처리 상태 |
@@ -51,7 +51,7 @@ JVM 분리 가정에 따라 아래는 Java 인터페이스가 아니라 **내부
 
 ## Redis
 
-키 생성은 한 클래스에 모은다. 쿠폰별 stock, users, requests, issue-control, sold_out과 공통 발급 Stream을 둔다. issue-control은 준비 여부·운영 상태·epoch·발급 시작/종료를 가진 권위 있는 판정 데이터다. SWR 정책 캐시와 분리한다.
+키 생성은 한 클래스에 모은다. 쿠폰별 stock, users, requests, issue-control, sold_out과 공통 발급 Stream을 둔다. issue-control은 준비 여부·운영 상태·epoch·발급 시작/종료·fence(쿠폰 DB version)를 가진 권위 있는 판정 데이터다. 상태 쓰기는 fence 비교로 늦은 옛 쓰기를 무시한다(design.md "발행과 플랫폼 예산" 5). SWR 정책 캐시와 분리한다.
 
 requests는 요청 ID로 회원·내용·접수 결과를 조회할 수 있게 구성한다. 회원 중복 인덱스는 별도로 유지한다. 보상은 요청별 표식·epoch 검증·재고 복구를 원자적으로 처리한다. Stream ACK는 DB 완료가 아니다. 미처리 기록은 고정 TTL/MAXLEN으로 삭제하지 않는다.
 
