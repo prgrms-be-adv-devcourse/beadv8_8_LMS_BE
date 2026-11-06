@@ -26,3 +26,12 @@ auxiliaryModules.forEach { name ->
     include(":$name")
     project(":$name").projectDir = file("apps/auxiliary-app/boundedContext/$name")
 }
+
+// lecture-app 안의 Gradle 프로젝트. 실행 진입점은 :lecture-app이고, 쿠폰 모듈은 boundedContext/coupon이다.
+// 같은 JVM에 실리지만 강의 ↔ 쿠폰은 내부 HTTP API와 Kafka로만 통신한다(apps/lecture-app/boundedContext/coupon/docs/design.md).
+// 하위 프로젝트 이름에 -app을 붙이지 않는다. verifyModuleStructure가 -app으로 끝나는 프로젝트를 실행 앱으로 센다.
+val lectureModules = listOf("coupon")
+lectureModules.forEach { name ->
+    include(":$name")
+    project(":$name").projectDir = file("apps/lecture-app/boundedContext/$name")
+}
