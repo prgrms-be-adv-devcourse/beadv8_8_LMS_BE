@@ -33,7 +33,7 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 | Sealed Secrets controller (#373). #532에서 medium에서 옮겼다 | 64 MiB |
 | **합계** | **8,094 MiB** |
 
-사용 가능 메모리를 약 7.6 GiB로 보면 limit 기준으로 약 312 MiB가 넘친다(#684에서 search-app 448 MiB를 aux-app 704 MiB로 바꾸기 전 56 MiB, #631 trace로 앱 3개를 64 MiB씩 올리기 전 136 MiB 남음, #608 billing-app 512 MiB 전 200 MiB, #528 전 264 MiB, #532 전 506 MiB). 아직 만들지 않은 aux-app(704 MiB)을 빼면 약 0.38 GiB(392 MiB)가 남는다. aux-app을 띄우기 전에 PostgreSQL을 512 MiB로 낮추고 member·appearance·billing에 #610의 `-Xmx`를 적용해(아래 후보) 약 136 MiB를 남긴다. 세 앱의 약 −64 MiB는 #694 실측으로 보면 어려울 수 있어 적용 뒤 다시 맞춘다. limit 기준으로는 rolling surge pod 1개(최대 704 MiB, aux-app)를 받을 여유가 없지만, 스케줄러가 보는 요청 합계는 2026-11-03 #631 적용 뒤 약 5,530 MiB(할당 가능 7,818 MiB의 71%)이고, aux-app을 더해도 약 6,234 MiB(80%), 가장 큰 surge pod인 aux-app 704 MiB까지 약 6,938 MiB(89%)라 surge pod는 뜬다. aux-app을 띄운 뒤 이 표를 실측으로 다시 맞춘다. 2026-11-02 운영 3일 최대 working set은 Elasticsearch 1,273·Kafka 488·appearance 452·member 443·PostgreSQL 144 MiB다. 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. aux-app은 검색이 쓰는 ES와 같은 node에 둔다.
+사용 가능 메모리를 약 7.6 GiB로 보면 limit 기준으로 약 312 MiB가 넘친다(#684에서 search-app 448 MiB를 aux-app 704 MiB로 바꾸기 전 56 MiB, #631 trace로 앱 3개를 64 MiB씩 올리기 전 136 MiB 남음, #608 billing-app 512 MiB 전 200 MiB, #528 전 264 MiB, #532 전 506 MiB). 아직 만들지 않은 aux-app(704 MiB)을 빼면 약 0.38 GiB(392 MiB)가 남는다. aux-app을 띄우기 전에 PostgreSQL을 512 MiB로 낮추고 member·appearance·billing에 #610의 `-Xmx`를 적용해(아래 후보) 약 136 MiB를 남긴다. 이 136 MiB는 세 앱을 약 −64 MiB씩(합 −192 MiB) 줄인다는 전제다. #694 실측(heap committed 138~150 MiB)으로는 이만큼 줄기 어렵고, 줄지 않으면 limit 기준으로 약 56 MiB가 넘친다. limit 합계가 넘치는 부분은 기록만 하고 자리는 아래 요청 합계로 본다(#684 기준). 세 앱에 적용한 뒤 실측으로 다시 맞춘다. limit 기준으로는 rolling surge pod 1개(최대 704 MiB, aux-app)를 받을 여유가 없지만, 스케줄러가 보는 요청 합계는 2026-11-03 #631 적용 뒤 약 5,530 MiB(할당 가능 7,818 MiB의 71%)이고, aux-app을 더해도 약 6,234 MiB(80%), 가장 큰 surge pod인 aux-app 704 MiB까지 약 6,938 MiB(89%)라 surge pod는 뜬다. aux-app을 띄운 뒤 이 표를 실측으로 다시 맞춘다. 2026-11-02 운영 3일 최대 working set은 Elasticsearch 1,273·Kafka 488·appearance 452·member 443·PostgreSQL 144 MiB다. 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. aux-app은 검색이 쓰는 ES와 같은 node에 둔다.
 
 | t3.medium `app-observe` | 예산 |
 | --- | ---: |
@@ -57,7 +57,7 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 
 **줄일 수 있는 후보 (2026-11-04 운영 7일 최대 working set, #684)**: 지금은 적용하지 않는다. large 후보는 aux-app을 띄우기 전에 적용하고, medium 후보는 자리가 더 필요할 때 고른다.
 
-| node | 대상 | 지금 (MiB) | 7일 최대 (MiB) | 후보 |
+| node | 대상 | 지금 (MiB) | 7일 최대 (MiB, 2026-11-04 기준) | 후보 |
 | --- | --- | ---: | ---: | --- |
 | large | PostgreSQL | 768 | 251 | 512, `effective_cache_size` 384 → 256MB (pod가 다시 떠 앱 DB 연결이 잠깐 끊긴다) |
 | large | member·appearance·billing | 576·640·576 | 489·510·458 | #610의 `-Xmx`. 처음에는 앱마다 약 −64로 잡았지만, 기동 18시간 working set이 511·500·468이고 heap committed가 138·150·140이라 `-Xmx`로 줄어드는 양이 작다(chat-app도 `-Xmx` 뒤 working set이 크게 줄지 않았다, #694). limit은 적용 뒤 실측으로 다시 정한다 |
