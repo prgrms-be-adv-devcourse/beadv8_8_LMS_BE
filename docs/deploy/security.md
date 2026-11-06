@@ -28,7 +28,7 @@
 | 개인 PAT(그 밖) | 만들지 않고 둔다. 로컬에서 수동 pull할 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |
 | TLS 개인 키 | cert-manager가 만든 Secret `hapbang-tls`(`envoy-gateway-system`) | cluster | HTTPS | cert-manager가 자동 갱신 |
-| 내부 API 키 | 앱 Secret `HAPBANG_INTERNAL_API_KEY`. 원문은 `~/.hapbang/internal-api-key` | 앱 pod | 모듈 간 내부 HTTP API(`/api/v1/internal/**`) 인증 (#300) | 앱 6개를 함께 다시 봉인하고 배포([env-vars.md](env-vars.md#값-변경-비밀값-교체-포함)) |
+| 내부 API 키 | 앱 Secret `HAPBANG_INTERNAL_API_KEY`. 원문은 `~/.hapbang/internal-api-key` | 앱 pod | 모듈 간 내부 HTTP API(`/api/v1/internal/**`) 인증 (#300) | 앱 7개를 함께 다시 봉인하고 배포([env-vars.md](env-vars.md#값-변경-비밀값-교체-포함)) |
 
 ## 구조상 보호 장치
 

@@ -6,7 +6,7 @@
 
 #372 계획에서 사용자에게 확인한 결정이다.
 
-- 내부·외부 API를 실제 listener로 분리한다. 외부 8080은 Envoy만, 내부 8081은 앱 pod끼리만 접근한다. 호출 관계별 허용 목록은 두지 않는다. 같은 내부 API 키를 쓰는 앱 6개 사이에서 목록이 막는 경로가 작고, 호출을 더할 때마다 제공 앱 정책을 고쳐야 했기 때문이다. 내부 API 키도 앱 6개가 같은 값을 쓴다. 제공 앱별 키로 호출 관계를 Secret에서 제한하는 방식은 실서비스가 아닌 이 규모에서 과하다고 보고 두지 않는다. Service 포트 이름만 나누는 방식은 쓰지 않는다.
+- 내부·외부 API를 실제 listener로 분리한다. 외부 8080은 Envoy만, 내부 8081은 앱 pod끼리만 접근한다. 호출 관계별 허용 목록은 두지 않는다. 같은 내부 API 키를 쓰는 앱 7개 사이에서 목록이 막는 경로가 작고, 호출을 더할 때마다 제공 앱 정책을 고쳐야 했기 때문이다. 내부 API 키도 앱 7개가 같은 값을 쓴다. 제공 앱별 키로 호출 관계를 Secret에서 제한하는 방식은 실서비스가 아닌 이 규모에서 과하다고 보고 두지 않는다. Service 포트 이름만 나누는 방식은 쓰지 않는다.
 - Grafana는 prod 도메인의 `/grafana/`에서 자체 계정 로그인으로 공개한다. 익명 접근·가입·auth proxy는 끈다. NodePort·3000 공개는 하지 않는다.
 - 이번 작업은 manifest·앱 포트 분리·로컬 검증·운영 전환 절차까지다. 실제 EC2 진입점 전환과 운영 검증 전에는 #372를 완료 처리하지 않는다.
 - 티켓 범위를 넘는 장치는 두지 않는다. 업로드 메서드·형식·크기 검사는 앱이 원본이고 Envoy는 timeout만 늘린다. platform에는 ingress NetworkPolicy를 두지 않는다. `run.py`는 완료 조건만 검사한다.
@@ -23,9 +23,9 @@
 
 #370(PR #496) 병합 뒤 member-app 첫 배포를 준비하며 사용자에게 확인한 결정이다.
 
-- 운영 issuer는 `https://hapbang.duckdns.org`(Gateway 호스트)다. 원본은 각 앱의 prod overlay다. 앱 6개 prod overlay가 SecurityPolicy issuer를 patch하고, member prod overlay가 같은 값을 `HAPBANG_JWT_ISSUER`(발급하는 토큰의 `iss`)로 넣는다. chat-app이 STOMP에서 직접 검증할 때(#371)도 같은 이름·값을 쓴다.
+- 운영 issuer는 `https://hapbang.duckdns.org`(Gateway 호스트)다. 원본은 각 앱의 prod overlay다. 앱 7개 prod overlay가 SecurityPolicy issuer를 patch하고, member prod overlay가 같은 값을 `HAPBANG_JWT_ISSUER`(발급하는 토큰의 `iss`)로 넣는다. chat-app이 STOMP에서 직접 검증할 때(#371)도 같은 이름·값을 쓴다.
 - 앱 배포(`.github/scripts/k3s-deploy.sh`)는 overlay를 그대로 적용하고 렌더러를 거치지 않는다. 그래서 issuer를 배포 입력으로 주입하지 않고 overlay에 둔다. 공용 Gateway의 운영 값도 #507에서 prod overlay로 옮기고 렌더러(`render-prod.py`)를 지웠다([운영 Gateway 값](#운영-gateway-값-507)).
-- 발급과 검증의 issuer가 다르면 그 앱의 토큰 요청이 모두 401이다. CI `manifests` job의 `k8s/gateway/tools/check-prod-host.py`가 prod overlay 7곳(SecurityPolicy 6, member ConfigMap 1)이 `https://<Gateway 호스트>`인지, Envoy가 JWKS를 member 8080에서 읽는지 검사한다. 새 앱을 더하면 prod overlay에 같은 patch를 넣는다.
+- 발급과 검증의 issuer가 다르면 그 앱의 토큰 요청이 모두 401이다. CI `manifests` job의 `k8s/gateway/tools/check-prod-host.py`가 prod overlay 8곳(SecurityPolicy 7, member ConfigMap 1)이 `https://<Gateway 호스트>`인지, Envoy가 JWKS를 member 8080에서 읽는지 검사한다. 새 앱을 더하면 prod overlay에 같은 patch를 넣는다.
 - base와 local overlay는 `https://gateway.invalid`(member 기본값과 같음)를 그대로 둔다. 로컬·k3d는 서명 키가 달라 운영 토큰을 받아들이지 않는다.
 - 서명은 #369대로 RS256 + JWKS다. member-app 하나만 개인 키를 갖고, Envoy는 JWKS로 공개 키만 받는다. 공유 비밀값(HS256)은 쓰지 않는다. Envoy v1.9.3의 `localJWKS`는 inline·ConfigMap만 받아 Secret이 아닌 곳에 비밀값을 두게 되고, 검증하는 곳(Envoy·chat)마다 모든 회원·ADMIN 토큰을 위조할 수 있는 키가 퍼지기 때문이다.
 
@@ -66,7 +66,7 @@ Gateway와 TLS는 `envoy-gateway-system`, Grafana route는 `hapbang-platform`, �
 
 분리 모드에서 Tomcat이 정규화·decode한 경로와 실제 수신 포트를 비교한다. 외부 포트의 `/api/v1/internal`·하위 경로는 404, 내부 포트의 나머지도 404다. forwarded 헤더는 포트 판단에 사용하지 않는다. 내부 API는 계속 `X-Internal-Api-Key`와 기존 전용 SecurityFilterChain을 사용한다. 앱 간 동기 호출의 transaction·보상 정책은 바꾸지 않는다.
 
-앱 6개의 pod에는 `hapbang.io/internal-api-client: 'true'` label을 붙인다. 모든 앱의 8081은 이 label을 가진 pod만 허용한다. 새 앱은 자기 Deployment에 label을 붙이면 다른 앱의 내부 API를 부를 수 있다. 현재 chat·customer-support의 8081을 부르는 앱은 없다. 앱 egress는 IMDS만 막으므로 8081 접근 통제는 제공 앱의 ingress NetworkPolicy가 맡는다.
+앱 7개의 pod에는 `hapbang.io/internal-api-client: 'true'` label을 붙인다. 모든 앱의 8081은 이 label을 가진 pod만 허용한다. 새 앱은 자기 Deployment에 label을 붙이면 다른 앱의 내부 API를 부를 수 있다. 현재 chat·customer-support의 8081을 부르는 앱은 없다. 앱 egress는 IMDS만 막으므로 8081 접근 통제는 제공 앱의 ingress NetworkPolicy가 맡는다.
 
 NetworkPolicy는 HTTP path를 구분하지 못한다. 그래서 두 실제 listener와 앱의 경로 검사를 함께 둔다. 같은 namespace라는 이유로 앱의 8080을 열지 않는다. Prometheus는 앱의 관리 포트(8082, `MANAGEMENT_SERVER_PORT`)에서 수집하고 NetworkPolicy는 그 포트만 Prometheus에 연다(lecture #521, member·appearance·customer-support #528, chat #590, [관측성](../architecture/infrastructure/observability.md)).
 
@@ -82,7 +82,7 @@ JWT는 업무 API route에만 적용한다. Grafana는 Grafana의 자체 로그�
 
 prod issuer는 [JWT issuer 결정](#jwt-issuer-결정-2026-11-02-500)을 따른다. Gateway는 member Service 8080의 `/api/v1/members/.well-known/jwks.json`에서 공개 JWKS를 직접 읽는다. chat-app은 JWT를 직접 검증하지 않는다(#501). 웹소켓은 Gateway가 검증한 REST 요청으로 받은 일회용 연결 티켓으로 인증하고, 연결 만료는 chat SecurityPolicy가 `exp` claim을 넘기는 `X-User-Token-Exp`(epoch 초)로 정한다(chat-app이 발급 뒤 15분으로 상한을 둔다). member 8080을 chat에 열지 않는다. 8080은 Envoy가 넣은 `X-User-Id`를 믿는 포트라 열면 chat pod가 아무 회원으로나 위장할 수 있다.
 
-Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractFrom.headers`, 2026-11-02 #508). `extractFrom`을 비워 두면 Envoy 기본값이 `access_token` query도 받는다. 그러면 토큰이 URL에 실려 브라우저 기록·Referer에 남을 수 있다. 토큰을 query로 보내는 클라이언트는 없다(chat 웹소켓은 JWT가 아니라 일회용 연결 티켓을 `ticket` query로 보낸다, #501). CI `check-prod-host.py`가 앱 6개 prod overlay의 JWT provider가 이 값인지 검사한다. 새 앱도 같은 `extractFrom`을 둔다.
+Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractFrom.headers`, 2026-11-02 #508). `extractFrom`을 비워 두면 Envoy 기본값이 `access_token` query도 받는다. 그러면 토큰이 URL에 실려 브라우저 기록·Referer에 남을 수 있다. 토큰을 query로 보내는 클라이언트는 없다(chat 웹소켓은 JWT가 아니라 일회용 연결 티켓을 `ticket` query로 보낸다, #501). CI `check-prod-host.py`가 앱 7개 prod overlay의 JWT provider가 이 값인지 검사한다. 새 앱도 같은 `extractFrom`을 둔다.
 
 ## 본문·연결·Grafana·trace
 
