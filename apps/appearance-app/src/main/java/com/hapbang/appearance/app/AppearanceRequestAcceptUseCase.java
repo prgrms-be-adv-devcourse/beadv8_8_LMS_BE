@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.config.AppearanceConfig;
@@ -26,6 +27,7 @@ public class AppearanceRequestAcceptUseCase {
     private final AppearanceRequestSupport appearanceRequestSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceSupport appearanceSupport;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -46,6 +48,7 @@ public class AppearanceRequestAcceptUseCase {
         // 같은 요청서를 동시에 수락·거절·취소하면 먼저 반영된 쪽만 성공한다
         appearanceRequestSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(request, now));
+        eventPublisher.publishEvent(appearance.toChangedEvent());
         AfterCommit.run(() -> {
             log.info("출연 요청을 수락했다 requestId={}, appearanceId={}, guestId={}, hostId={}", requestId,
                     appearance.getId(), guestId, request.getHostId());

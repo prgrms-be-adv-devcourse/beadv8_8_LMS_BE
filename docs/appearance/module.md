@@ -55,6 +55,7 @@
 | 서비스 간 HP 대사 (요청서·모집글·출연 ↔ 지갑 보류·지급 비교, 매일 배치·관리자 API) | ✅ | #581 |
 | 회원 탈퇴 막힌 이유 조회 내부 API, shared Client `getWithdrawalBlocks` | ✅ | #624 |
 | 보류 처리 중·실패 요청서·모집글을 올린 호스트의 목록·상세에 표시 | ✅ | #306 |
+| AI 추천용 출연 변경 이벤트(`AppearanceChangedEvent`)와 출연·공개 리뷰 동기화 내부 API | ✅ | #713 |
 
 ---
 
@@ -215,6 +216,7 @@ com.hapbang.appearance
 | 회원 (global) | 로그인 | Gateway가 JWT를 검증해 넘긴 `X-User-Id`·`X-User-Role` 헤더 → `@LoginUserId`·`@PreAuthorize` (20장) | ✅ 앱 쪽 (#395). 회원 JWT 발급(#370) 전까지 운영에는 헤더가 오지 않는다 |
 | 지갑+정산 (billing) | 지갑 내부 HTTP API (`/api/v1/internal/billing/*`, 공용 `BillingApiClient`) | 보류, 반환, 지급, 위약금 | ✅ HTTP 연동 (#274). 이전에는 shared `BillingPort`(같은 서버 안 Java 호출, #289) |
 | 회원 | 출연 내부 HTTP API 제공 (`GET /api/v1/internal/appearances/users/{userId}/withdrawal-blocks`, shared `AppearanceApiClient`) | 회원 탈퇴 전 출연 쪽 막힌 이유 (26장) | ✅ 출연 쪽 (#624). 회원 앱 연결 코드와 기능 스위치는 회원 담당 |
+| AI 추천 (auxiliary-app chatbot) | Kafka 이벤트 발행 (`appearance.events.v1`) + 출연 내부 HTTP API 제공 (`/api/v1/internal/appearances/sync/*`, shared `AppearanceApiClient`) | 출연 변경(공개 결과)·공개 리뷰 별점 → AI의 읽기용 사본 (28장) | ✅ 출연 쪽 (#713). 받는 쪽은 AI 이슈 |
 | 고객센터 | 없음 | 불참 게스트 이의 제기(패널티)는 고객센터 문의로 접수한다. 출연은 기록하지 않는다 (APR-35 E4) | — |
 
 ### 4.1 회원 정보 복제 (Kafka 수신, #394)
@@ -846,15 +848,15 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 항목 | 내용 |
 |---|---|
 | 방식 | Spring Modulith 이벤트 외부화(`spring-modulith-events-kafka`). 업무 트랜잭션 안에서 발행한 이벤트가 발행 기록(`event_publication`)에 남고, 커밋 뒤 비동기로 보낸다 |
-| 대상 | shared 출연 이벤트 중 `@Externalized`가 붙은 것: `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent`, `AppearanceReviewPublishedEvent`(#513, 21.6). 출연 취소 요청 이벤트 3종은 받는 곳이 없어 붙이지 않았다(받는 쪽이 생기면 key `appearance:<출연 ID>`로 더한다). 판단은 `app.AppearanceExternalEvents` |
+| 대상 | shared 출연 이벤트 중 `@Externalized`가 붙은 것: `AppearanceRequestSentEvent`, `AppearanceApplicationSubmittedEvent`, `AppearanceReviewPublishedEvent`(#513, 21.6), `AppearanceChangedEvent`(#713, 28장). 출연 취소 요청 이벤트 3종은 받는 곳이 없어 붙이지 않았다(받는 쪽이 생기면 key `appearance:<출연 ID>`로 더한다). 판단은 `app.AppearanceExternalEvents` |
 | 토픽 | `appearance.events.v1`(shared `AppearanceEventTopic.NAME`). 출연 이벤트 타입을 한 토픽에 섞는다. 출연 앱이 `NewTopic`으로 선언한다(partition 3개, 복제 1). 브로커 자동 생성은 꺼져 있다 |
-| key | 이벤트가 다루는 대상 ID에 종류 접두어: 요청 도착 `appearance-request:<요청서 ID>`, 지원 도착 `appearance-application:<지원 ID>`, 리뷰 공개 `appearance-review-reviewee:<받은 회원 ID>`(받은 사람 단위로 모음, #513). shared 레코드의 `@Externalized("appearance.events.v1::#{…}")`로 정한다. 같은 key는 같은 partition으로 가지만, 커밋 뒤 비동기로 보내므로 순서는 보장하지 않는다 |
+| key | 이벤트가 다루는 대상 ID에 종류 접두어: 요청 도착 `appearance-request:<요청서 ID>`, 지원 도착 `appearance-application:<지원 ID>`, 리뷰 공개 `appearance-review-reviewee:<받은 회원 ID>`(받은 사람 단위로 모음, #513), 출연 변경 `appearance:<출연 ID>`(#713). shared 레코드의 `@Externalized("appearance.events.v1::#{…}")`로 정한다. 같은 key는 같은 partition으로 가지만, 커밋 뒤 비동기로 보내므로 순서는 보장하지 않는다 |
 | 본문 | shared 이벤트 레코드를 그대로 JSON으로 싣는다(봉투 없음). 예: `{"request":{"requestId":1,"hostId":1,"guestId":2,"title":"…","fee":30000,"scheduledAt":"2026-11-05T17:54:44","acceptDeadline":"2026-10-31T17:54:44"}}`. 시각은 KST `LocalDateTime` |
-| 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent`·`AppearanceReviewPublishedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). 값 직렬화기 `JacksonJsonSerializer`가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
+| 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent`·`AppearanceReviewPublishedEvent`·`AppearanceChangedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). 값 직렬화기 `JacksonJsonSerializer`가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
 | 직렬화 | `appearance.yml`의 `spring.kafka.producer.value-serializer=JacksonJsonSerializer`. Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] + 바이트 JSON 변환기)는 끈다(`spring.modulith.events.kafka.enable-json=false`, #394). 회원 앱 발행 설계와 같은 방식이고, 켜 두면 회원 이벤트 수신(4.1)이 실패한다 |
 | 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
 | 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose의 Kafka(`localhost:9092`)로 보낸다. 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
-| 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification`(요청·지원 알림), 회원 소비 그룹 `member-app.appearance-review`(리뷰 공개, #555) (kafka.md 토픽 목록). 각 소비자는 모르는 타입을 기본 처리기에서 무시한다 |
+| 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification`(요청·지원 알림), 회원 소비 그룹 `member-app.appearance-review`(리뷰 공개, #555), AI 추천(출연 변경·리뷰 공개, #713, 그룹은 AI 이슈) (kafka.md 토픽 목록). 각 소비자는 모르는 타입을 기본 처리기에서 무시한다 |
 
 - 같은 버전 안에서는 선택 필드 추가만 한다. 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(kafka.md 이벤트 버전).
 - 내보낼 이벤트를 더하려면 shared 레코드에 `@Externalized`를 붙이고 `out/event/AppearanceEventExternalizationConfig`에 `eventType` 헤더를 더한다. 받는 앱을 먼저 배포한다(ADR 0001).
@@ -1652,3 +1654,72 @@ HP 보류가 끝나지 않았거나(`HOLD_PENDING`) 실패한(`HOLD_FAILED`) 요
 | app | `AppearanceRecruitQueryUseCase`, `AppearanceRequestQueryUseCase` | 내 목록·보낸 목록은 필터가 없으면 모든 상태, 상세는 새 확인 메서드. 받은 목록은 그대로 |
 | app | `AppearanceApplicationQueryUseCase.getApplicants` | 모집글 확인을 상세와 같은 새 메서드로. 호스트가 아니면 403은 그대로 |
 | in | `ApiV1AppearanceRecruitSpec`, `ApiV1AppearanceRequestSpec` | 상태 필터 설명을 보낸·받은 목록으로 나누고, 올리기·목록·상세 설명 갱신 |
+
+## 28. AI 추천용 출연 동기화 (#713)
+
+AI 추천(auxiliary-app chatbot)이 출연 데이터의 **읽기용 사본**을 둘 수 있게, 성립 이후의 출연과 공개된 리뷰 별점을 이벤트와 키셋 내부 API로 준다. 평상시는 이벤트로 반영하고, 주 1회 내부 API로 처음부터 끝까지 읽어 이벤트 누락을 바로잡는다(첫 실행이 곧 초기 적재). 이벤트와 내부 API는 같은 DTO를 쓴다. 계약은 [`docs/api/internal-appearance-sync.md`](../api/internal-appearance-sync.md).
+
+### 28.1 공개 결과
+
+AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공개 결과(shared `AppearanceResult`)로 보낸다. 매핑은 `AppearanceStatus.result()` 한 곳의 `switch`라 상태를 더하면 컴파일이 잡는다.
+
+| 내부 상태 | 공개 결과 |
+|---|---|
+| `ESTABLISHED`, `CANCEL_REQUESTED` | `SCHEDULED` |
+| `CONFIRMED` | `COMPLETED` |
+| `CANCELED_BY_HOST`, `CANCELED_BY_AGREEMENT` | `CANCELED` |
+| `ABSENT` | `NO_SHOW` |
+
+- 금액(출연료·위약금), 취소·불참 사유, 리뷰 본문, 출처(요청·모집), 리뷰 쓴 사람은 보내지 않는다. 노쇼한 쪽 같은 정보도 보내지 않는다(노쇼 감점은 기획 범위 밖).
+
+### 28.2 DTO (`shared.appearance.dto`)
+
+| DTO | 필드 | 버전 |
+|---|---|---|
+| `AppearanceSyncDto` | `id`, `hostId`, `guestId`, `result`, `scheduledAt`(KST, 마이크로초까지), `version` | 출연 `@Version`. 받는 쪽은 큰 것만 반영 |
+| `AppearanceReviewSyncDto` | `reviewId`, `appearanceId`, `revieweeUserId`, `rating` | 없음. 리뷰는 공개 뒤 바뀌지 않아 `reviewId`로 한 번만 넣는다 |
+
+- 만드는 곳은 `Appearance.toSyncDto()`·`AppearanceReview.toSyncDto()` 한 곳이다. 이벤트와 내부 API가 같은 메서드를 써서, 같은 출연·같은 version이면 값이 같다(AI가 DTO 해시로 어긋남을 비교).
+- `toSyncDto()`는 ID·version이 없으면(DB에 반영 전) `IllegalStateException`. 리뷰는 공개 전이면 같은 예외.
+- 리뷰 사본의 필드 4개는 기존 공개 이벤트(`AppearanceReviewPublishedEvent`, 21.6)의 같은 이름 필드와 값이 같다.
+
+### 28.3 이벤트 `AppearanceChangedEvent(AppearanceSyncDto appearance)`
+
+| 항목 | 내용 |
+|---|---|
+| 언제 | 모든 상태 전이에서 바뀐 뒤 한 번씩: 성립(요청 수락·모집 지원 수락), 취소 요청, 취소 요청 거절(호스트·자동 거절 배치), 합의 취소, 확인(호스트·D+7 자동 확인 배치), 불참, 호스트 일방 취소(단건·모집 전체 취소는 출연마다) |
+| 공개 결과가 같은 전이 | `ESTABLISHED ↔ CANCEL_REQUESTED`도 version이 오르므로 발행한다(단순함 우선) |
+| version | `@Version`은 flush 때 오른다. 그래서 **flush 바로 뒤에** 만든다: 성립은 `saveNow()` 뒤, 그 밖은 `AppearanceSupport.flushOrConflict()` 뒤, 모집 전체 취소는 `AppearanceRecruitSupport.flushOrConflict()` 뒤(루프 뒤 한 번에 flush하므로 `AppearanceHostCancelRecorder` 안이 아니다). flush 전에 만들면 오르기 전 version이 실려 AI가 오래된 이벤트로 버린다 |
+| Kafka | 토픽 `appearance.events.v1`, key `appearance:<출연 ID>`, 헤더 `eventType=AppearanceChangedEvent` (11.3) |
+| 리뷰 | 새 이벤트를 만들지 않는다. 기존 리뷰 공개 이벤트로 충분하다(21.6). 리뷰 수정·블라인드가 생기면 그때 변경 이벤트와 version을 더한다 |
+| 순서 | 보장하지 않는다. 출연 이벤트끼리(커밋 뒤 비동기 전송·재발행), 출연과 리뷰 사이(key가 달라 다른 partition) 모두. AI는 출연을 version으로, 리뷰를 `reviewId`로 멱등 처리한다 |
+
+### 28.4 내부 API (내부 포트 8081, `X-Internal-Api-Key`)
+
+| 경로 | `data` |
+|---|---|
+| `GET /api/v1/internal/appearances/sync/appearances?afterId=&size=` | `AppearanceSyncPageDto(items, nextAfterId)`: 모든 출연(지우지 않음, 탈퇴 회원의 출연 포함) |
+| `GET /api/v1/internal/appearances/sync/reviews?afterId=&size=` | `AppearanceReviewSyncPageDto(items, nextAfterId)`: 공개된 리뷰만 |
+
+- 쿼리 규칙은 회원 내부 API와 같다: `afterId` 0 이상·생략 가능, `size` 1~500 기본 100, ID 오름차순, 마지막 페이지 `nextAfterId` null. 범위 밖은 400 `INVALID_REQUEST`, 키가 없거나 틀리면 401.
+- 리뷰는 `published_at IS NOT NULL`로 DB에서 걸러 키셋이 끊기지 않는다. 스캔 뒤 공개된 작은 ID 리뷰는 공개 이벤트가 채운다.
+- shared Client: `AppearanceApiClient.getSyncAppearances(afterId, size)`·`getSyncReviews(afterId, size)`.
+- 받는 앱은 출연 NetworkPolicy의 내부 API label(`hapbang.io/internal-api-client: 'true'`)이 있어야 8081에 닿는다(auxiliary-app 배포 파일).
+
+### 28.5 구조
+
+| 계층 | 클래스 | 변경 |
+|---|---|---|
+| shared | `domain.AppearanceResult`, `dto.AppearanceSyncDto`·`AppearanceReviewSyncDto`·`AppearanceSyncPageDto`·`AppearanceReviewSyncPageDto`, `event.AppearanceChangedEvent`, `out.AppearanceApiClient` | 새 계약, Client 메서드 2개 |
+| domain | `AppearanceStatus.result()`, `Appearance.toSyncDto()`·`toChangedEvent()`, `AppearanceReview.toSyncDto()` | 매핑·사본 생성 |
+| app | 전이 UseCase 9개(`AppearanceRequestAcceptUseCase`, `AppearanceApplicationRespondUseCase`, `AppearanceCancelRequestUseCase`, `AppearanceCancelRespondUseCase`, `AppearanceCancelAutoRejectUseCase`, `AppearanceConfirmUseCase`, `AppearanceAutoConfirmUseCase`, `AppearanceHostCancelUseCase`, `AppearanceRecruitCancelUseCase`) | flush 뒤 발행 11곳 |
+| app | `AppearanceSyncQueryUseCase`, `AppearanceSyncInternalFacade`(`ROLE_INTERNAL`) | 키셋 조회 |
+| in | `ApiV1AppearanceSyncInternalSpec`·`Controller` | 내부 API 2개, Swagger에 내부 키 헤더 |
+| out | `AppearanceRepository.findByIdGreaterThanOrderByIdAsc`, `AppearanceReviewRepository.findByIdGreaterThanAndPublishedAtIsNotNullOrderByIdAsc`, `AppearanceEventExternalizationConfig`(`eventType` 헤더) | 마이그레이션 없음 |
+
+### 28.6 배포 순서
+
+- shared가 바뀌어 모든 앱이 다시 배포된다(`.github/scripts/apps.sh`).
+- 새 이벤트 클래스가 없는 옛 빌드의 소비자: chat-app은 `MissingTypeEvent`로 건너뛴다. member-app은 역직렬화에 실패해 `appearance.events.v1.member-app.appearance-review.DLT`로 보낸다. 회원이 쓰지 않는 이벤트라 되살릴 것은 없고, 모든 앱이 새 빌드로 바뀌는 짧은 틈에만 생긴다. 새 빌드에서는 두 앱 모두 기본 처리기로 무시한다(코드 확인, 다른 앱 코드 변경 없음).
+- **첫 배포 직후 member-app DLT에 쌓인 `AppearanceChangedEvent`는 버려도 된다**(회원은 이 이벤트를 쓰지 않는다). 다시 보낼 필요가 없다.
+- 소비자(auxiliary-app chatbot)는 아직 없다. 소비자가 먼저 배포될 필요는 없고(받는 쪽이 없으면 토픽에 쌓이기만 한다), 주간 동기화 첫 실행이 그 전 출연을 채운다. 소비 그룹 이름은 같은 앱 notification 모듈(`notification.<목적>`)처럼 `chatbot.<목적>`으로 소비 구현 때 kafka.md 표에 적는다.

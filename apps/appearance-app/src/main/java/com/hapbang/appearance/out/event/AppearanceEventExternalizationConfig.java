@@ -11,6 +11,7 @@ import org.springframework.modulith.events.EventExternalizationConfiguration;
 
 import com.hapbang.appearance.app.AppearanceExternalEvents;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
+import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
@@ -39,6 +40,7 @@ public class AppearanceEventExternalizationConfig {
     public static final String REQUEST_SENT = "AppearanceRequestSentEvent";
     public static final String APPLICATION_SUBMITTED = "AppearanceApplicationSubmittedEvent";
     public static final String REVIEW_PUBLISHED = "AppearanceReviewPublishedEvent";
+    public static final String CHANGED = "AppearanceChangedEvent";
 
     /** 본문 형식 버전. 선택 필드를 추가만 하면 그대로 두고, 깨지는 변경은 새 레코드 타입으로 한다 (kafka.md 이벤트 버전) */
     static final String VERSION = "1";
@@ -53,6 +55,7 @@ public class AppearanceEventExternalizationConfig {
                 .headers(AppearanceRequestSentEvent.class, event -> headers(REQUEST_SENT))
                 .headers(AppearanceApplicationSubmittedEvent.class, event -> headers(APPLICATION_SUBMITTED))
                 .headers(AppearanceReviewPublishedEvent.class, event -> headers(REVIEW_PUBLISHED))
+                .headers(AppearanceChangedEvent.class, event -> headers(CHANGED))
                 .build();
     }
 

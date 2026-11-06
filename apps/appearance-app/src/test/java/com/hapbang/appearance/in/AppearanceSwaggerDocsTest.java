@@ -249,6 +249,27 @@ class AppearanceSwaggerDocsTest {
     }
 
     @Test
+    @DisplayName("동기화 내부 API 두 경로(#713)는 RsData로 감싼 키셋 페이지이고, 내부 키 헤더를 받으며 공개 결과는 4가지다")
+    void syncInternalSchema() throws Exception {
+        String sync = "$.paths['/api/v1/internal/appearances/sync";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(sync + "/appearances'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceSyncPageDto"))
+                .andExpect(jsonPath(sync + "/reviews'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceReviewSyncPageDto"))
+                .andExpect(jsonPath(sync + "/appearances'].get.parameters[?(@.name == 'X-Internal-Api-Key')].in")
+                        .value(hasItems("header")))
+                .andExpect(jsonPath(sync + "/reviews'].get.parameters[?(@.name == 'X-Internal-Api-Key')].in")
+                        .value(hasItems("header")))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceSyncPageDto.properties.nextAfterId").exists())
+                .andExpect(jsonPath(SCHEMAS + "AppearanceSyncDto.properties.result.enum",
+                        hasItems("SCHEDULED", "COMPLETED", "CANCELED", "NO_SHOW")))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceSyncDto.properties.fee").doesNotExist())
+                .andExpect(jsonPath(SCHEMAS + "AppearanceReviewSyncDto.properties.content").doesNotExist());
+    }
+
+    @Test
     @DisplayName("내 모집글·보낸 요청 목록의 상태 필터는 보류 처리 중·실패를 포함한 전체가 기본이고, 받은 요청 목록은 그대로 (#306)")
     void holdStatusFilterDescription() throws Exception {
         String status = ".get.parameters[?(@.name == 'status')].description";

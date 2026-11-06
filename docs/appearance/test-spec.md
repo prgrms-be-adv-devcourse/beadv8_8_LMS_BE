@@ -1613,3 +1613,31 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceRecruitFacadeTest`·`AppearanceRequestFacadeTest` | 잔액 부족·닫힌 지갑·무응답 | 내 목록·보낸 목록에 그 상태 1건, 공개 목록·받은 목록 0건 |
 | `AppearanceBatchUseCaseTest` | 재확인에서 보류 실패한 모집글 | 내 목록·호스트 상세에 `HOLD_FAILED`, 다른 회원 상세 404 |
 | `AppearanceSwaggerDocsTest` | 상태 필터 설명 | 내 모집글·보낸 요청 목록에는 `HOLD_FAILED`가 적혀 있고, 받은 요청 목록에는 없다 |
+
+## 39. AI 추천용 출연 동기화 (#713)
+
+전이는 Facade·배치로 실제로 일으키고, 발행한 이벤트는 `@RecordApplicationEvents`로 본다. 이벤트 값은 매번 동기화 목록(`AppearanceSyncQueryUseCase`, 내부 API와 같은 생성 메서드)으로 읽은 커밋된 값과 통째로 비교한다. 같으면 version이 커밋된 값이고, 이벤트와 내부 API 값도 같다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceStatusTest` | 출연 상태 6개 전부 | 성립·취소 요청 중 `SCHEDULED`, 확인 `COMPLETED`, 일방·합의 취소 `CANCELED`, 불참 `NO_SHOW`. 공개 결과 4개가 모두 쓰인다 |
+| `AppearanceTest` | 동기화 사본 / 방송 예정 일시 나노초 / ID·version 없음 | ID·호스트·게스트·결과·일시·version, 변경 이벤트가 같은 값을 감쌈 / 마이크로초까지만 / `IllegalStateException`(flush 전 생성 차단) |
+| `AppearanceReviewTest` | 공개된 리뷰 사본 / 공개 전 | 리뷰·출연·받은 사람·별점, 공개 이벤트의 같은 이름 필드와 같음 / `IllegalStateException` |
+| `AppearanceChangedEventTest` | 요청 수락 / 모집 지원 수락 2명 | 출연마다 1건, `SCHEDULED`, version 0, 커밋된 값과 같음 |
+| `AppearanceChangedEventTest` | 취소 요청 / 호스트 거절 / 자동 거절 배치 / 합의 취소 | 전이마다 1건 더: `SCHEDULED`(version 1) / `SCHEDULED`(version 2) / `SCHEDULED` / `CANCELED` |
+| `AppearanceChangedEventTest` | 호스트 확인 / 불참 / D+7 자동 확인 배치 | `COMPLETED` / `NO_SHOW` / `COMPLETED` |
+| `AppearanceChangedEventTest` | 호스트 일방 취소 / 모집 전체 취소(출연 2건) | `CANCELED` / 출연마다 `CANCELED` 1건, 각각 커밋된 version |
+| `AppearanceChangedEventTest` | 호스트가 아닌 회원의 확인(막힘) | 성립 때 1건 뒤로 더 나가지 않음 |
+| `AppearanceEventKafkaTest` | 성립 뒤 취소 요청 (각각 커밋) | key `appearance:<출연 ID>`로 2건, `eventType=AppearanceChangedEvent`·`eventVersion=1`·`__TypeId__`, 본문에 금액 없음, 두 번째 version = 커밋된 version 1 |
+| `AppearanceExternalEventsTest` | `AppearanceChangedEvent` | 내보낸다 |
+| `AppearanceSyncInternalApiE2ETest` | 출연 3건(성립·일방 취소·취소 요청 중), size 2 → 다음 페이지 / 생략 / 딱 맞게 끝남 / 끝 뒤 | 키셋·`nextAfterId`=마지막 ID, 결과·version, 금액 없음 / 처음부터 3건 / `nextAfterId` null / 빈 목록 |
+| `AppearanceSyncInternalApiE2ETest` | 공개 리뷰 2건 사이에 공개 전 리뷰 1건, size 1 | 첫 페이지 공개 리뷰, 다음 페이지는 공개 전 리뷰를 건너뛰고 이어짐, 본문·쓴 사람 없음 |
+| `AppearanceSyncInternalApiE2ETest` | size 0·501·숫자 아님, afterId -1 / size 500 | 400 `INVALID_REQUEST` / 200 |
+| `AppearanceSyncInternalApiE2ETest` | 키 없음 / 틀린 키 / 회원 로그인 | 본문 없는 401 / 401 / 401 |
+| `AppearanceSwaggerDocsTest` | 동기화 스키마 | 두 경로 `RsData` 키셋 페이지, 내부 키 헤더, `result` 4가지, 금액·본문 필드 없음 |
+| `AppearanceApiClientTest` (shared) | 출연 목록 / afterId 생략·빈 마지막 페이지 / version 없음·모르는 결과·`items` 없음 | 경로·쿼리·내부 키, 항목·다음 키 / `size`만 보냄, null / 호출 불가 |
+| `AppearanceApiClientTest` (shared) | 리뷰 목록 / 받은 사람 없음 / 400 | 경로·쿼리, 항목 / 호출 불가 / 거절(`INVALID_REQUEST`) |
+
+- 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
+- 소비 앱(chat-app·member-app)이 새 타입에서 실패하지 않는 것은 코드로 확인했다(chat `MissingTypeEvent`·기본 처리기, member `@KafkaHandler(isDefault = true)`). 다른 앱 코드는 바꾸지 않았다.
+

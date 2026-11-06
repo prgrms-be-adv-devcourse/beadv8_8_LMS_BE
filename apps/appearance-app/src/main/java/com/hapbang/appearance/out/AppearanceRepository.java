@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -20,6 +21,9 @@ import com.hapbang.appearance.domain.HpTaskType;
 import jakarta.persistence.LockModeType;
 
 public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
+
+    /** 동기화 내부 API(#713): 이 ID보다 큰 출연을 ID 오름차순으로. 모든 상태가 나온다 */
+    List<Appearance> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
 
     /** 출연 요청서에서 성립한 출연 */
     Optional<Appearance> findByRequestId(Long requestId);
