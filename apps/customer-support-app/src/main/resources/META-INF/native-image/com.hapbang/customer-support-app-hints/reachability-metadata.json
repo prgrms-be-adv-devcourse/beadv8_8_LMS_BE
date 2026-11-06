@@ -4,7 +4,7 @@
     "reflection: 고객센터가 발행하는 이벤트(Modulith 발행 기록 JSON 저장·재발행, Kafka JSON 직렬화, @Externalized key의 SpEL)와 강의 내부 API Client(LectureApiClient)가 JSON으로 주고받는 record. native에서는 record component를 등록해야 Jackson이 읽는다.",
     "resources: application.yaml의 spring.config.import가 읽는 파일.",
     "serializable: Kafka ErrorHandlingDeserializer가 역직렬화 실패(DeserializationException)를 Java 직렬화로 헤더에 담는다. 빠지면 listener container가 멈춘다. 모르는 타입·깨진 JSON·타입 불일치를 tracing agent로 실행해 모은 목록에 IllegalArgument·IllegalState를 더했다.",
-    "reflection(#712): 강의가 lecture.events.v1에 함께 내보내는 AI 추천용 동기화 이벤트와 그 DTO. 고객센터는 받지 않는 타입이지만, native에서 등록하지 않으면 __TypeId__로 클래스를 찾지 못해 역직렬화에 실패하고 DLT로 간다. 등록해 두면 JVM처럼 읽은 뒤 기본 처리기에서 무시한다. 강의가 이 토픽에 새 타입을 더하면 여기에도 더한다."
+    "reflection(#722): 강의 이벤트를 받을 때 JacksonJsonDeserializer가 spring.json.value.type.method로 이름을 받아 reflection으로 부르는 LectureEventTypeResolver.resolve. 받는 타입과 무시용 레코드(IgnoredLectureEvent)는 @KafkaHandler 파라미터라 AOT가 등록하고, 받지 않는 타입은 클래스를 찾지 않으므로 강의가 lecture.events.v1에 새 타입을 더해도 여기에 더하지 않는다."
   ],
   "reflection": [
     {
@@ -38,64 +38,17 @@
       "allDeclaredFields": true
     },
     {
-      "type": "com.hapbang.shared.lecture.event.LectureChangedEvent",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
-    },
-    {
-      "type": "com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
-    },
-    {
-      "type": "com.hapbang.shared.lecture.event.CartItemChangedEvent",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
-    },
-    {
-      "type": "com.hapbang.shared.lecture.event.LectureReviewChangedEvent",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
-    },
-    {
-      "type": "com.hapbang.shared.lecture.dto.LectureSyncDto",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
-    },
-    {
-      "type": "com.hapbang.shared.lecture.dto.LectureContentSyncDto",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
-    },
-    {
-      "type": "com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
-    },
-    {
-      "type": "com.hapbang.shared.lecture.dto.CartItemSyncDto",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
-    },
-    {
-      "type": "com.hapbang.shared.lecture.dto.LectureReviewSyncDto",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
-    },
-    {
-      "type": "com.hapbang.shared.lecture.domain.LecturePurchaseResult",
-      "allDeclaredConstructors": true,
-      "allDeclaredMethods": true,
-      "allDeclaredFields": true
+      "type": "com.hapbang.customersupport.in.LectureEventTypeResolver",
+      "methods": [
+        {
+          "name": "resolve",
+          "parameterTypes": [
+            "java.lang.String",
+            "byte[]",
+            "org.apache.kafka.common.header.Headers"
+          ]
+        }
+      ]
     },
     {
       "type": "byte[]",

@@ -207,37 +207,28 @@ class CustomerSupportObjectionKafkaTest {
                 .allSatisfy((name, description) -> assertThat(description.partitions()).hasSize(3));
     }
 
-    /** 깨진 강의 이벤트는 재시도 없이 DLT로 가고, 그 전송이 지표에 잡힌다 (#339) */
+    /**
+     * 깨진 강의 이벤트는 재시도 없이 DLT로 가고, 그 전송이 지표에 잡힌다 (#339).
+     * {@code eventType} 헤더 없이 보내 {@code __TypeId__}로 찾는 경로도 함께 지난다(#722)
+     */
     @Test
     void 읽을_수_없는_강의_이벤트는_DLT로_보내고_전송_지표에_센다() {
-        ProducerRecord<String, byte[]> broken = new ProducerRecord<>(LectureEventTopic.NAME, "order-item:802",
-                "{not json".getBytes(StandardCharsets.UTF_8));
-        broken.headers().add("__TypeId__",
-                LectureObjectionResolvedEvent.class.getName().getBytes(StandardCharsets.UTF_8));
-        try (Producer<String, byte[]> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
-                new StringSerializer(), new ByteArraySerializer())) {
-            producer.send(broken).get(10, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
+        sendRaw("order-item:802", "{not json", Map.of("__TypeId__", LectureObjectionResolvedEvent.class.getName()));
 
         assertDeadLetterSendCounted();
     }
 
     /**
-     * 강의가 같은 토픽에 내보내는 AI 추천용 동기화 이벤트(#712)는 고객센터가 받지 않는 타입이다. 기본 처리기에서 무시하고 커밋해,
-     * 재시도·DLT 없이 같은 partition의 다음 결과를 처리한다(새 shared로 빌드된 상태).
-     * native 운영 이미지는 이 타입들을 reachability-metadata.json에 등록해야 같은 동작이다
+     * 강의가 같은 토픽에 내보내는 AI 추천용 동기화 이벤트(#712)는 고객센터가 받지 않는 타입이다. 무시용 레코드로 읽어 커밋해,
+     * 재시도·DLT 없이 같은 partition의 다음 결과를 처리한다. 클래스를 찾지 않으므로 native 이미지에 등록하지 않아도 같다(#722)
      */
     @Test
     void 강의_동기화_이벤트는_무시하고_DLT로_보내지_않고_다음_결과를_처리한다() {
         long orderItemId = 804L;
         Long inquiryId = LectureObjectionFixture.filed(transactionTemplate, inquiryRepository, USER_ID, orderItemId);
         inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다.");
-        String deadLetter = CustomerSupportKafkaConfig.deadLetterTopic(LectureEventTopic.NAME,
-                CustomerSupportKafkaConfig.OBJECTION_RESULT_GROUP);
         OffsetDateTime at = OffsetDateTime.parse("2026-11-06T09:00:00+09:00");
-        try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(deadLetter)) {
+        try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(objectionResultDeadLetter())) {
             // 같은 key로 보내 같은 partition에서 결과보다 먼저 읽히게 한다
             send(orderItemId, new LectureChangedEvent(new LectureSyncDto(11L, 3L, "강의", null, true, false,
                     List.of(new LectureContentSyncDto(21L, "1강", 1)), 1L)));
@@ -251,11 +242,56 @@ class CustomerSupportObjectionKafkaTest {
             await().atMost(TIMEOUT).untilAsserted(() -> assertThat(inquiryRepository.findById(inquiryId))
                     .hasValueSatisfying(inquiry ->
                             assertThat(inquiry.getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED)));
-            List<ConsumerRecord<String, String>> deadLettered = new CopyOnWriteArrayList<>();
-            await().during(HOLD).atMost(TIMEOUT).pollInSameThread().untilAsserted(() -> {
-                deadLetters.poll(Duration.ofMillis(200)).forEach(deadLettered::add);
-                assertThat(deadLettered).noneMatch(record -> ("order-item:" + orderItemId).equals(record.key()));
-            });
+            assertNoDeadLetter(deadLetters, "order-item:" + orderItemId);
+        }
+    }
+
+    /**
+     * 고객센터 앱에 클래스가 없는 타입(native 이미지에 등록하지 않은 새 이벤트와 같은 상황)도 {@code eventType}만 보고 무시한다 (#722).
+     * {@code __TypeId__}로 클래스를 찾으면 역직렬화에 실패해 재시도 없이 DLT로 간다
+     */
+    @Test
+    void 클래스가_없는_모르는_타입은_DLT로_보내지_않고_다음_결과를_처리한다() {
+        long orderItemId = 805L;
+        Long inquiryId = LectureObjectionFixture.filed(transactionTemplate, inquiryRepository, USER_ID, orderItemId);
+        inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다.");
+        try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(objectionResultDeadLetter())) {
+            sendRaw("order-item:" + orderItemId, "{\"lectureId\":11}", Map.of(
+                    "__TypeId__", "com.hapbang.shared.lecture.event.NotYetKnownEvent",
+                    CustomerSupportEventExternalizationConfig.EVENT_TYPE, "NotYetKnownEvent"));
+            send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true));
+
+            await().atMost(TIMEOUT).untilAsserted(() -> assertThat(inquiryRepository.findById(inquiryId))
+                    .hasValueSatisfying(inquiry ->
+                            assertThat(inquiry.getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED)));
+            assertNoDeadLetter(deadLetters, "order-item:" + orderItemId);
+        }
+    }
+
+    private static String objectionResultDeadLetter() {
+        return CustomerSupportKafkaConfig.deadLetterTopic(LectureEventTopic.NAME,
+                CustomerSupportKafkaConfig.OBJECTION_RESULT_GROUP);
+    }
+
+    /** 잠시 기다려도 이 key의 메시지가 DLT에 오지 않는다 */
+    private static void assertNoDeadLetter(KafkaConsumer<String, String> deadLetters, String key) {
+        List<ConsumerRecord<String, String>> deadLettered = new CopyOnWriteArrayList<>();
+        await().during(HOLD).atMost(TIMEOUT).pollInSameThread().untilAsserted(() -> {
+            deadLetters.poll(Duration.ofMillis(200)).forEach(deadLettered::add);
+            assertThat(deadLettered).noneMatch(record -> key.equals(record.key()));
+        });
+    }
+
+    /** 본문과 헤더를 그대로 실어 보낸다. 강의 앱이 아직 만들지 않은 타입이나 깨진 본문을 흉내 낸다 */
+    private void sendRaw(String key, String body, Map<String, String> headers) {
+        ProducerRecord<String, byte[]> record = new ProducerRecord<>(LectureEventTopic.NAME, key,
+                body.getBytes(StandardCharsets.UTF_8));
+        headers.forEach((name, value) -> record.headers().add(name, value.getBytes(StandardCharsets.UTF_8)));
+        try (Producer<String, byte[]> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
+                new StringSerializer(), new ByteArraySerializer())) {
+            producer.send(record).get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
         }
     }
 
@@ -276,7 +312,10 @@ class CustomerSupportObjectionKafkaTest {
         return topicConsumer;
     }
 
-    /** 강의 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. */
+    /**
+     * 강의 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로, 레코드 이름을 {@code eventType} 헤더로 붙인다.
+     * 강의 앱의 {@code eventType} 값은 지금 레코드 이름과 같다(LectureEventExternalizationConfig)
+     */
     private void send(long orderItemId, Object event) {
         send(orderItemId, event, null);
     }
@@ -287,6 +326,8 @@ class CustomerSupportObjectionKafkaTest {
                 new StringSerializer(), new JacksonJsonSerializer<>())) {
             ProducerRecord<String, Object> record = new ProducerRecord<>(LectureEventTopic.NAME,
                     "order-item:" + orderItemId, event);
+            record.headers().add(CustomerSupportEventExternalizationConfig.EVENT_TYPE,
+                    event.getClass().getSimpleName().getBytes(StandardCharsets.UTF_8));
             if (traceparent != null) {
                 record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
             }
