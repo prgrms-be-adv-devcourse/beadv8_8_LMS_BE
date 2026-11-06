@@ -22,14 +22,14 @@
 각 앱 ──(Kafka integration event)──▶ aux-app
  (알림을 모른다)                       ├ search        검색
                                       ├ chatbot       고객센터 hybrid RAG
-                                      └ notification  ──▶ PostgreSQL database `notification`
+                                      └ notification  ──▶ PostgreSQL database `auxiliary`, schema `notification`
                                            │ 저장 commit 뒤
                                            └▶ Redis Pub/Sub ─▶ notification 모듈의 STOMP
                                                                `/user/queue/notifications`
 프론트 재접속 ─▶ REST `/api/v1/notifications`로 최신 20개를 다시 읽는다 (DB가 원천)
 ```
 
-- **배포 단위**: 검색·챗봇·알림을 JVM 앱 하나(`aux-app`)에 모듈로 담는다(#684). 세미 프로젝트의 멀티모듈 모놀리스와 같은 구조다. notification 모듈은 자기 database `notification`에만 연결하고, 같은 앱의 다른 모듈과 테이블·트랜잭션을 나누지 않는다.
+- **배포 단위**: 검색·챗봇·알림을 JVM 앱 하나(`aux-app`)에 모듈로 담는다(#684). 세미 프로젝트의 멀티모듈 모놀리스와 같은 구조다. notification 모듈은 앱 공통 database `auxiliary`의 자기 schema `notification`에만 테이블을 두고, 같은 앱의 다른 모듈과 테이블·트랜잭션을 나누지 않는다(AGENTS.md 경계 규칙의 auxiliary-app 예외, #714).
 - **입력**: 각 모듈의 integration event([1장 Kafka](kafka.md))다. 발행하는 모듈은 알림의 존재를 모른다. 알림 모듈이 받는 사람, 종류, 문구를 정한다. 이벤트에는 문구가 아니라 사실(ID, 제목, 금액, 일시)을 담는다.
 - **실시간 전달**: 저장이 commit된 뒤 Redis Pub/Sub으로 발행하고, notification 모듈의 STOMP가 받는 사람의 연결로 보낸다. 실시간 전달은 유실될 수 있으므로 재접속하면 REST 목록으로 맞춘다.
 - **채팅 코드 재사용**: STOMP 연결 티켓(`ChatConnectionTicketHandshakeInterceptor`, `/api/v1/chats/ws-tickets`), Redis Pub/Sub 전달, Kafka 소비·DLT 설정, 유일 인덱스로 이벤트 중복을 흡수하는 방식을 가져와 쓴다.
@@ -182,7 +182,7 @@ consumer group 이름은 `notification.<목적>`이다. 처리하지 못한 메�
 
 ## 6. 데이터, API, 처리 규칙
 
-### 6.1 테이블 (database `notification`)
+### 6.1 테이블 (database `auxiliary`, schema `notification`)
 
 | 테이블 | 주요 컬럼 | 규칙 |
 | --- | --- | --- |
@@ -296,7 +296,7 @@ X1 ─▶ N4
 
 | 항목 | 결정 |
 | --- | --- |
-| 배포 단위 | 별도 `notification-app`을 만들지 않고 aux-app 안의 모듈로 둔다(#684). database 이름은 `notification` |
+| 배포 단위 | 별도 `notification-app`을 만들지 않고 aux-app 안의 모듈로 둔다(#684). database는 앱 공통 `auxiliary`, schema는 `notification`이다(#714) |
 | consumer group | `notification.<목적>` |
 | 실시간 전달 | aux-app notification 모듈의 자체 STOMP. chat-app 연결을 빌리지 않는다 |
 | 채팅 알림 | 옮기거나 없애지 않는다. 채팅과 알림센터가 같은 이벤트로 함께 보낸다. 채팅 모듈의 "알림" 책임은 그대로다 |
