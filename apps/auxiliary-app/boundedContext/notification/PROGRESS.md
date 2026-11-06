@@ -36,7 +36,7 @@
 | [`docs/notification/regression-log.md`](../../../../docs/notification/regression-log.md) | 작성 완료 (#750) |
 | [`docs/api/notification.md`](../../../../docs/api/notification.md) | 작성 완료 (#750) |
 | [`AGENTS.md`](AGENTS.md), 이 문서 | 작성 완료 (#750) |
-| `docs/notification/INDEX.md` | 후속 단계 |
+| [`docs/notification/INDEX.md`](../../../../docs/notification/INDEX.md) | 작성 완료 (#752) |
 | `docs/policy.md` 알림센터 장 | 후속(팀 승인 필요, 4장) |
 
 ## 3. 구현 작업 계획
@@ -115,5 +115,4 @@
 
 ## 6. 후속
 
-- `docs/notification/INDEX.md` 구축(후속 단계).
 - 알림 모듈 Gradle 등록과 구현은 4장의 차단 요소를 정한 뒤 시작한다(AGENTS.md 5장).

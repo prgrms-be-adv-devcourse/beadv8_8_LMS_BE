@@ -113,7 +113,7 @@ Flyway 마이그레이션은 `apps/billing-app/src/main/resources/db/migration`�
 ## 8. 정책 결정과 미결 사항 찾기
 
 - 결정 하나를 찾을 때: [`decisions.md`](decisions.md)에서 `BD-n`. 상태 표기는 0.1장.
-- 미결은 [`decisions.md`](decisions.md) 10장에만 있다. 이 문서에는 본문을 옮기지 않는다. 지금 10장에 있는 항목: BD-71, BD-74(지급 배치 오류 격리), BD-109, BD-127(BD-137과의 관계), 기준 Billing ERD, 루트 AGENTS 3장 동기 HTTP 예외 범위. 알림 결정 기록의 팀 결정 표(T6·T7)가 마지막 두 항목을 가리킨다.
+- 미결은 [`decisions.md`](decisions.md) 10장에만 있다. 항목 목록과 본문은 그곳에서 읽고, 이 문서에는 옮기지 않는다(목록이 바뀌어도 이 문서는 고치지 않는다).
 - 차단 요소와 후속 작업: [`apps/billing-app/PROGRESS.md`](../../apps/billing-app/PROGRESS.md) 7장.
 - 미결은 임의로 정하지 않는다(루트 AGENTS 10·11장).
 
