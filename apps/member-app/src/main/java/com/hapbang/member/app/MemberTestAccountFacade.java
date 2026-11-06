@@ -35,7 +35,7 @@ public class MemberTestAccountFacade {
             throw new MemberException(MemberErrorCode.TEST_ACCOUNT_ROLE_NOT_ALLOWED);
         }
         memberSupport.changeRole(user, Role.INFLUENCER);
-        log.info("테스트 회원 승급: adminId={}, userId={}, role={}", adminId, user.getId(), user.getRole());
+        log.info("관리자가 회원을 인플루언서로 승급했다 adminId={}, userId={}, role={}", adminId, user.getId(), user.getRole());
         return new TestInfluencerResponse(user.getId(), user.getRole(), true);
     }
 }
