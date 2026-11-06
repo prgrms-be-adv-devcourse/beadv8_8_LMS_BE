@@ -1,5 +1,7 @@
 # 지갑(Billing) 모듈 — 결정 기록
 
+> 문서 탐색: [지갑 문서 INDEX](INDEX.md)
+
 > 문서 지도: [현재 구현](module.md) · **[결정 기록](decisions.md)** · [테스트 검증 기준](test-spec.md) · [회귀 실행 기록](regression-log.md)
 >
 > - 이 문서는 Billing 설계 결정과 그 이유를 `BD-*` 번호로 모은다. 번호는 바꾸거나 재사용하지 않는다.

@@ -1,5 +1,7 @@
 # 알림(notification) API
 
+> 문서 탐색: [알림 문서 INDEX](../notification/INDEX.md)
+
 > - 대상: auxiliary-app `notification` 모듈의 외부 API(알림센터). **구현 상태: 미구현**(2026-11-06 `dev` e054d6f6 기준 코드·Gateway route 없음, [모듈 문서](../notification/module.md) 2장).
 > - 원천: [알림 설계](../architecture/infrastructure/notification.md) 6.3, 결정 [ND-026](../notification/decisions.md)·ND-023·ND-027·ND-028. 이 문서는 원천에 있는 사실만 옮긴다. 원천에 없는 값은 "미정(구현 때 정함)"으로 둔다.
 > - 공통 규칙: 성공 응답 `RsData`, 오류 `ProblemDetail`(+ `code`)은 [API 규칙](conventions.md)을 따른다. 모듈은 `@RestControllerAdvice`를 만들지 않는다.

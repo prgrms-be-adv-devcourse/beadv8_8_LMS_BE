@@ -1,5 +1,7 @@
 # Billing 모듈 진행 기록
 
+> 문서 탐색: [지갑 문서 INDEX](../../docs/billing/INDEX.md)
+
 Billing 작업을 이어받는 사람과 AI 에이전트(Claude Code, Codex 등)가 작업 전에 읽는 **작업 진행 상태** 문서다. 무엇을 언제 만들었고, 그때 무엇을 검토했는지를 남긴다.
 
 | 알고 싶은 것 | 원본 |

@@ -1,5 +1,7 @@
 # Billing Module — AGENTS.md
 
+> 문서 탐색: [지갑 문서 INDEX](../../docs/billing/INDEX.md)
+
 이 문서는 합방 프로젝트의 Billing(지갑) 모듈에서 에이전트가 지킬 개발 규칙을 정의한다.
 
 루트 `AGENTS.md`의 공통 아키텍처 및 코딩 규칙을 준수하며, Billing의 금융 정합성 관련 세부 규칙을 추가한다.

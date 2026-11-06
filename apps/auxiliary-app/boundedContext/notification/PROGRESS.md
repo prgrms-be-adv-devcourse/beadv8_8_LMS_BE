@@ -1,5 +1,7 @@
 # 알림(notification) 모듈 진행 기록
 
+> 문서 탐색: [알림 문서 INDEX](../../../../docs/notification/INDEX.md)
+
 알림 모듈 작업을 이어받는 사람과 AI 에이전트가 작업 전에 읽는 **진행 상태** 문서다. 알림 모듈의 상태만 적는다. 챗봇 모듈과 auxiliary-app 전체 상태는 적지 않는다.
 
 - 규칙은 [`AGENTS.md`](AGENTS.md), 결정은 [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md)(`ND-*`)에 있다. 이 문서는 결정을 따로 관리하지 않는다.
