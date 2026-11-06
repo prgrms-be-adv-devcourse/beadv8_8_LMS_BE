@@ -21,14 +21,14 @@ import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.domain.Role;
 
 /**
- * 관리자 인플루언서 승급 API (#724): 보안 설정의 URL 권한·응답 모양 (처리 규칙 자세한 경우는 MemberTestAccountIntegrationTest).
+ * 관리자 인플루언서 지정 API (#724): 보안 설정의 URL 권한·응답 모양 (처리 규칙 자세한 경우는 MemberInfluencerDesignationIntegrationTest).
  * 대상 이메일 제한이 없어져 URL 단의 ADMIN 제한이 주된 방어선이라 실제 진입 경로로 확인한다
  */
 @MemberIntegrationTest
 @AutoConfigureMockMvc
-class ApiV1MemberTestAccountControllerTest {
+class ApiV1MemberInfluencerDesignationControllerTest {
 
-    private static final String PROMOTE = "/api/v1/members/test/{userId}/influencer";
+    private static final String MAKE_INFLUENCER = "/api/v1/members/admin/users/{userId}/make-influencer";
     private static final Long ADMIN_ID = 99L;
 
     @Autowired
@@ -39,10 +39,10 @@ class ApiV1MemberTestAccountControllerTest {
 
     @Test
     @DisplayName("관리자가 부르면 200이고 회원이 인플루언서가 된다 (changed=true)")
-    void promote() throws Exception {
+    void makeInfluencer() throws Exception {
         User user = userRepository.save(MemberFixture.user());
 
-        promote(GatewayLogin.as(ADMIN_ID, Role.ADMIN), user.getId())
+        makeInfluencer(GatewayLogin.as(ADMIN_ID, Role.ADMIN), user.getId())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.userId").value(user.getId()))
@@ -54,28 +54,28 @@ class ApiV1MemberTestAccountControllerTest {
 
     @Test
     @DisplayName("관리자가 아니면 403, 로그인하지 않으면 401이고 역할은 그대로다")
-    void promote_forbidden() throws Exception {
+    void makeInfluencer_forbidden() throws Exception {
         User user = userRepository.save(MemberFixture.user());
 
-        promote(GatewayLogin.as(user.getId(), Role.USER), user.getId()).andExpect(status().isForbidden());
-        promote(GatewayLogin.as(1L, Role.VERIFIED_INFLUENCER), user.getId()).andExpect(status().isForbidden());
-        promote(null, user.getId()).andExpect(status().isUnauthorized());
+        makeInfluencer(GatewayLogin.as(user.getId(), Role.USER), user.getId()).andExpect(status().isForbidden());
+        makeInfluencer(GatewayLogin.as(1L, Role.VERIFIED_INFLUENCER), user.getId()).andExpect(status().isForbidden());
+        makeInfluencer(null, user.getId()).andExpect(status().isUnauthorized());
 
         assertThat(userRepository.findById(user.getId()).orElseThrow().getRole()).isEqualTo(Role.USER);
     }
 
     @Test
-    @DisplayName("관리자 회원을 승급하려 하면 409 TEST_ACCOUNT_ROLE_NOT_ALLOWED")
-    void promote_admin() throws Exception {
+    @DisplayName("관리자 회원을 지정하려 하면 409 INFLUENCER_DESIGNATION_ROLE_NOT_ALLOWED")
+    void makeInfluencer_admin() throws Exception {
         User admin = userRepository.save(MemberFixture.member(Role.ADMIN));
 
-        promote(GatewayLogin.as(ADMIN_ID, Role.ADMIN), admin.getId())
+        makeInfluencer(GatewayLogin.as(ADMIN_ID, Role.ADMIN), admin.getId())
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("TEST_ACCOUNT_ROLE_NOT_ALLOWED"));
+                .andExpect(jsonPath("$.code").value("INFLUENCER_DESIGNATION_ROLE_NOT_ALLOWED"));
     }
 
-    private ResultActions promote(RequestPostProcessor login, Long userId) throws Exception {
-        var request = post(PROMOTE, userId);
+    private ResultActions makeInfluencer(RequestPostProcessor login, Long userId) throws Exception {
+        var request = post(MAKE_INFLUENCER, userId);
         return mockMvc.perform(login == null ? request : request.with(login));
     }
 }
