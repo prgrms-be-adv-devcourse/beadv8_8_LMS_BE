@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
+import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureContentSpec;
 
 import lombok.RequiredArgsConstructor;
@@ -19,9 +20,13 @@ public class LectureReplaceContentsUseCase {
 
     private final LectureSupport lectureSupport;
     private final LectureFileSupport lectureFileSupport;
+    private final LectureSyncEvents lectureSyncEvents;
 
     public void replaceContents(Long sellerUserId, Long lectureId, List<LectureContentSpec> contentSpecs) {
-        lectureSupport.findLecture(lectureId).replaceContents(sellerUserId, contentSpecs, LocalDateTime.now());
+        Lecture lecture = lectureSupport.findLecture(lectureId);
+        lecture.replaceContents(sellerUserId, contentSpecs, LocalDateTime.now());
         lectureFileSupport.validateAttachable(sellerUserId, null, contentSpecs);
+        // 콘텐츠는 강의 버전이 없지만, 교체가 강의의 수정 시각을 바꿔 강의 버전이 오른다
+        lectureSyncEvents.lectureChanged(lecture);
     }
 }

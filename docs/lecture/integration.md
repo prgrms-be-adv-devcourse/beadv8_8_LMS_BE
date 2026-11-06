@@ -163,6 +163,16 @@ public class BillingCallException extends RuntimeException {
 | 실패 | 회원은 어떤 실패(`LectureApiCallException`)든 탈퇴를 멈추고 503으로 안내한다 |
 | 탈퇴 반영 | 탈퇴가 끝나면 기존 `UserModifiedEvent`로 `LectureUser`가 `WITHDRAWN`이 된다. 이 조회는 이벤트 처리를 바꾸지 않는다 |
 
+#### 강의: AI 추천 동기화 내부 HTTP (aux-app이 호출, D82, #712)
+
+aux-app AI context는 주 1회 shared의 `LectureApiClient.getSync*`로 강의 내부 HTTP endpoint(`GET /api/v1/internal/lectures/sync/{lectures|purchases|cart-items|reviews}`)를 처음부터 끝까지 읽어 이벤트 누락을 바로잡는다. 평상시는 6.3의 동기화 이벤트로 반영한다. 계약 문서는 [강의 동기화 내부 API](../api/internal-lecture-sync.md)다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 응답 | 종류별 `shared.lecture.dto.*SyncPageDto`(`items`, `nextAfterId`). 항목은 이벤트와 같은 DTO이고 둘 다 엔티티의 `toSyncDto()`로 만든다 |
+| 강의 처리 | 읽기 전용 트랜잭션에서 ID 키셋으로 size+1개를 읽는다. 구매는 주문, 장바구니 항목은 장바구니를 fetch join하고, 강의 콘텐츠는 `@BatchSize`로 한 번에 읽는다(강의와 콘텐츠가 다른 쿼리라 REPEATABLE READ로 한 스냅숏을 본다). 리뷰는 주문 항목 상태를 함께 읽어 `counted`를 정한다 |
+| 범위 | Soft Delete된 행도 `deleted=true`로 싣는다. 강의 콘텐츠만 삭제되지 않은 것을 싣는다 |
+
 #### 서비스 분리 시 (D62)
 
 | 전환 | 바꾸는 것 | 유지하는 것 |
@@ -186,9 +196,14 @@ Kafka 토픽·key·헤더·재시도 규칙은 [`kafka.md`](../architecture/infr
 | `LectureObjectionRequestRefusedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `commandId`, `inquiryId`, `orderItemId`, `commandType`(`RESOLVE`·`WITHDRAW`), `failureCode` | 처리 중인 그 명령이면 `RESOLUTION_FAILED`·`WITHDRAWAL_FAILED` + 사유 (운영 복구 #267) |
 | `LectureObjectionReturnCompletedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `inquiryId`, `orderItemId` | `hpReturnStatus = COMPLETED` |
 | `LectureObjectionReturnActionRequiredEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | 고객센터 | `inquiryId`, `orderItemId` | `hpReturnStatus = ACTION_REQUIRED` (이미 `COMPLETED`면 그대로) |
+| `LectureChangedEvent` (`lecture.events.v1`, `lecture:<강의 ID>`) | 강의 | aux-app (AI) | `LectureSyncDto` | 강의 사본 반영 (version이 크면). 등록·정보 수정·콘텐츠 교체·검수 승인·반려·재검수 신청·삭제 (D82) |
+| `LecturePurchaseChangedEvent` (`lecture.events.v1`, `order-item:<주문 항목 ID>`) | 강의 | aux-app (AI) | `LecturePurchaseSyncDto` | 구매 사본 반영. 구매 결과·실린 값이 바뀌는 전이에서만 (D82) |
+| `CartItemChangedEvent` (`lecture.events.v1`, `cart-item:<장바구니 항목 ID>`) | 강의 | aux-app (AI) | `CartItemSyncDto` | 장바구니 사본 반영. 담기·빼기·결제 뒤 자동 빼기 (D82) |
+| `LectureReviewChangedEvent` (`lecture.events.v1`, `lecture-review:<리뷰 ID>`) | 강의 | aux-app (AI) | `LectureReviewSyncDto` | 리뷰 별점 사본 반영. 작성·수정·삭제·반환된 항목 리뷰 대체·이의 제기 인정으로 `counted` 변경 (D82) |
 
 - 강의 리스너(`lecture-app.objection-command`)는 예상된 업무 거절이면 **예외를 던지지 않고** 거절 결과 이벤트를 발행한다(무한 재시도 방지). 낙관적 락 충돌처럼 다시 하면 될 수 있는 실패와 DB 같은 기술 실패는 예외를 던져 Kafka 재시도(3회) 뒤 그룹별 DLT로 보낸다.
 - 도메인 변경, 명령 이력 기록, 결과 이벤트 발행 기록은 같은 강의 트랜잭션이다. 반환 완료·조치 필요 이벤트는 HP 작업 결과를 기록하는 트랜잭션에서 발행한다(`ReturnResultHandler`).
+- AI 추천용 동기화 이벤트 4종(D82, [계약](../api/internal-lecture-sync.md))은 대상을 바꾼 강의 트랜잭션에서 `LectureSyncEvents`가 flush한 뒤 엔티티의 `toSyncDto()`로 만들어 발행한다(flush 전이면 오르기 전 version이 실린다). 고객센터 리스너는 이 타입을 기본 처리기에서 무시한다.
 - 고객센터 리스너(`customer-support-app.objection-result`)는 문의 행을 잠그고, 처리 중인 명령(명령 ID가 같음)의 결과만 기록한다. 중복·늦은 결과는 무시하고, HP 반환 상태는 앞으로만 바꾼다. 반환 이벤트가 판단 결과보다 먼저 와도 된다.
 
 ### 6.4 주요 흐름

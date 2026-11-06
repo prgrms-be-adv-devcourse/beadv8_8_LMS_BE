@@ -18,12 +18,15 @@ public class LectureRegisterUseCase {
 
     private final LectureRepository lectureRepository;
     private final LectureFileSupport lectureFileSupport;
+    private final LectureSyncEvents lectureSyncEvents;
 
     public Long register(Long sellerUserId, String title, String description, long priceHp, Long thumbnailFileId,
                          List<LectureContentSpec> contentSpecs) {
         Lecture lecture = Lecture.register(sellerUserId, title, description, priceHp, thumbnailFileId, contentSpecs,
                 LocalDateTime.now());
         lectureFileSupport.validateAttachable(sellerUserId, thumbnailFileId, contentSpecs);
-        return lectureRepository.save(lecture).getId();
+        Lecture saved = lectureRepository.save(lecture);
+        lectureSyncEvents.lectureChanged(saved);
+        return saved.getId();
     }
 }

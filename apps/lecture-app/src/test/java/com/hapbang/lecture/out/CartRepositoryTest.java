@@ -82,6 +82,19 @@ class CartRepositoryTest {
         assertThatThrownBy(() -> cartRepository.flush()).isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @Test
+    void 장바구니_항목을_빼면_version이_오른다() {
+        Cart cart = cartRepository.save(Cart.create(BUYER_ID, NOW));
+        CartItem item = cart.add(withId(onSaleLecture(), 10L), NOW);
+        cartRepository.flush();
+        assertThat(item.getVersion()).isZero();
+
+        cart.remove(10L, NOW.plusMinutes(1));
+        cartRepository.flush();
+
+        assertThat(item.getVersion()).isEqualTo(1);
+    }
+
     private long countRows(String sql) {
         return ((Number) entityManager.createNativeQuery(sql).getSingleResult()).longValue();
     }

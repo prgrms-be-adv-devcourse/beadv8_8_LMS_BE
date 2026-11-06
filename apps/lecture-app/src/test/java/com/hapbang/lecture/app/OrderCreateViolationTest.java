@@ -35,7 +35,7 @@ class OrderCreateViolationTest {
     private final OrderCreateUseCase useCase = new OrderCreateUseCase(lectureRepository, lectureOrderRepository,
             mock(LectureHpTaskRepository.class), mock(LectureHpTaskAttemptRepository.class),
             mock(LectureHpTaskSupport.class), mock(LectureHpTaskExecutor.class),
-            mock(LectureOrderSupport.class), new LectureOrderProperties(null),
+            mock(LectureOrderSupport.class), new LectureOrderProperties(null), mock(LectureSyncEvents.class),
             Clock.fixed(NOW.atZone(LectureConfig.ZONE).toInstant(), LectureConfig.ZONE));
 
     @BeforeEach

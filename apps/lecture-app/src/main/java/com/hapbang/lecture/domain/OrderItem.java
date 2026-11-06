@@ -9,6 +9,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
+import com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto;
+
 
 /**
  * 주문 항목(강의 하나). 구매 확정·구매 취소·지급·이의 제기는 항목 단위로 일어난다 (설계 4.6).
@@ -136,6 +138,15 @@ public class OrderItem {
     /** 리뷰를 쓸 수 있는지. 구매 확정 후(구매 확정, 지급 처리 중, 지급)에만 쓴다 (D5, D59 (5)) */
     public boolean isReviewable() {
         return status.isReviewable();
+    }
+
+    /**
+     * AI 추천용 구매 (#712, D82). 이벤트와 동기화 내부 API가 같은 값을 쓰도록 여기서만 만든다. 버전이 맞으려면 flush 뒤에 부른다.
+     * 주문 시각은 주문에서 읽으므로 여러 항목을 만들 때는 주문을 함께 읽는다
+     */
+    public LecturePurchaseSyncDto toSyncDto() {
+        return new LecturePurchaseSyncDto(id, buyerUserId, lectureId, status.toPurchaseResult(),
+                SyncTimes.kst(order.getOrderedAt()), SyncTimes.kst(purchasedAt), version);
     }
 
     /** 구매 취소·반환되어 HP가 구매자에게 돌아갔는지 */

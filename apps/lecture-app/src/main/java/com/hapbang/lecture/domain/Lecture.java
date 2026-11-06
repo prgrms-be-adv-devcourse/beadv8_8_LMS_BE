@@ -4,7 +4,11 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.SQLRestriction;
+
+import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
+import com.hapbang.shared.lecture.dto.LectureSyncDto;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -72,9 +76,11 @@ public class Lecture {
     private LocalDateTime deletedAt;
 
     // 저장만 전파한다. Soft Delete 원칙상 콘텐츠를 물리 삭제하는 경로(REMOVE)는 열어 두지 않는다.
+    // 동기화 내부 API(#712)는 한 페이지(최대 500개) 강의의 콘텐츠를 강의마다 따로 읽지 않고 한 번에 읽는다
     @OneToMany(mappedBy = "lecture", cascade = CascadeType.PERSIST)
     @SQLRestriction("deleted_at is null")
     @OrderBy("sequence")
+    @BatchSize(size = 500)
     private List<LectureContent> contents = new ArrayList<>();
 
     private Lecture(Long sellerUserId, String title, String description, long priceHp, Long thumbnailFileId,
@@ -130,6 +136,19 @@ public class Lecture {
 
     public boolean isDeleted() {
         return deletedAt != null;
+    }
+
+    /**
+     * AI 추천용 강의 (#712, D82). 이벤트와 동기화 내부 API가 같은 값을 쓰도록 여기서만 만든다. 버전이 맞으려면 flush 뒤에 부른다.
+     * 추천해도 되는지({@code onSale})는 강의가 판단한다. 콘텐츠는 삭제되지 않은 것만 순서대로 싣는다
+     */
+    public LectureSyncDto toSyncDto() {
+        return new LectureSyncDto(id, sellerUserId, title, description, isOnSale(), isDeleted(),
+                contents.stream()
+                        .map(content -> new LectureContentSyncDto(content.getId(), content.getTitle(),
+                                content.getSequence()))
+                        .toList(),
+                version);
     }
 
     /**
