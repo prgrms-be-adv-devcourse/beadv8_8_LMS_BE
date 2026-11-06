@@ -19,7 +19,7 @@
 ## 2. 구조
 
 ```
-각 앱 ──(Kafka integration event)──▶ aux-app
+각 앱 ──(Kafka integration event)──▶ auxiliary-app
  (알림을 모른다)                       ├ search        검색
                                       ├ chatbot       고객센터 hybrid RAG
                                       └ notification  ──▶ PostgreSQL database `auxiliary`, schema `notification`
@@ -29,7 +29,7 @@
 프론트 재접속 ─▶ REST `/api/v1/notifications`로 최신 20개를 다시 읽는다 (DB가 원천)
 ```
 
-- **배포 단위**: 검색·챗봇·알림을 JVM 앱 하나(`aux-app`)에 모듈로 담는다(#684). 세미 프로젝트의 멀티모듈 모놀리스와 같은 구조다. notification 모듈은 앱 공통 database `auxiliary`의 자기 schema `notification`에만 테이블을 두고, 같은 앱의 다른 모듈과 테이블·트랜잭션을 나누지 않는다(AGENTS.md 경계 규칙의 auxiliary-app 예외, #714).
+- **배포 단위**: 검색·챗봇·알림을 JVM 앱 하나(`auxiliary-app`)에 모듈로 담는다(#684). 세미 프로젝트의 멀티모듈 모놀리스와 같은 구조다. notification 모듈은 앱 공통 database `auxiliary`의 자기 schema `notification`에만 테이블을 두고, 같은 앱의 다른 모듈과 테이블·트랜잭션을 나누지 않는다(AGENTS.md 경계 규칙의 auxiliary-app 예외, #714).
 - **입력**: 각 모듈의 integration event([1장 Kafka](kafka.md))다. 발행하는 모듈은 알림의 존재를 모른다. 알림 모듈이 받는 사람, 종류, 문구를 정한다. 이벤트에는 문구가 아니라 사실(ID, 제목, 금액, 일시)을 담는다.
 - **실시간 전달**: 저장이 commit된 뒤 Redis Pub/Sub으로 발행하고, notification 모듈의 STOMP가 받는 사람의 연결로 보낸다. 실시간 전달은 유실될 수 있으므로 재접속하면 REST 목록으로 맞춘다.
 - **채팅 코드 재사용**: STOMP 연결 티켓(`ChatConnectionTicketHandshakeInterceptor`, `/api/v1/chats/ws-tickets`), Redis Pub/Sub 전달, Kafka 소비·DLT 설정, 유일 인덱스로 이벤트 중복을 흡수하는 방식을 가져와 쓴다.
@@ -200,7 +200,7 @@ consumer group 이름은 `notification.<목적>`이다. 처리하지 못한 메�
 
 ### 6.3 API
 
-모든 API는 로그인 회원 본인의 알림만 다룬다. Envoy에 `/api/v1/notifications`(REST, WebSocket) route를 aux-app으로 둔다.
+모든 API는 로그인 회원 본인의 알림만 다룬다. Envoy에 `/api/v1/notifications`(REST, WebSocket) route를 auxiliary-app으로 둔다.
 
 | 기능 | API | 비고 |
 | --- | --- | --- |
@@ -247,7 +247,7 @@ consumer group 이름은 `notification.<목적>`이다. 처리하지 못한 메�
 
 | ID | 우선순위 | 작업 | 담당 | 선행 |
 | --- | --- | --- | --- | --- |
-| X1 | P0 | aux-app 생성 (모듈 구조, k8s, CI) | 검색·챗봇·알림 공동 | 없음 |
+| X1 | P0 | auxiliary-app 생성 (모듈 구조, k8s, CI) | 검색·챗봇·알림 공동 | 없음 |
 | N0 | P0 | 이벤트 계약(7장 값) 합의, 문구 템플릿 확정 | 알림 | 없음 |
 | N1 | P0 | notification 모듈 뼈대: database, 테이블, 회원 복제본, Kafka 소비·DLT 설정 | 알림 | X1 |
 | N2 | P0 | 알림 저장, 20개 유지, REST API | 알림 | N1 |
@@ -296,9 +296,9 @@ X1 ─▶ N4
 
 | 항목 | 결정 |
 | --- | --- |
-| 배포 단위 | 별도 `notification-app`을 만들지 않고 aux-app 안의 모듈로 둔다(#684). database는 앱 공통 `auxiliary`, schema는 `notification`이다(#714) |
+| 배포 단위 | 별도 `notification-app`을 만들지 않고 auxiliary-app 안의 모듈로 둔다(#684). database는 앱 공통 `auxiliary`, schema는 `notification`이다(#714) |
 | consumer group | `notification.<목적>` |
-| 실시간 전달 | aux-app notification 모듈의 자체 STOMP. chat-app 연결을 빌리지 않는다 |
+| 실시간 전달 | auxiliary-app notification 모듈의 자체 STOMP. chat-app 연결을 빌리지 않는다 |
 | 채팅 알림 | 옮기거나 없애지 않는다. 채팅과 알림센터가 같은 이벤트로 함께 보낸다. 채팅 모듈의 "알림" 책임은 그대로다 |
 | 관리자 | 알림센터를 쓰지 않는다 |
 | 이메일·푸시 | 쓰지 않는다 |
@@ -321,5 +321,5 @@ X1 ─▶ N4
 - 같은 integration event를 두 번 소비해도 알림은 한 번만 생긴다.
 - 실시간 알림이 WebSocket으로 도착한다. 실시간 전달을 일부러 유실시켜도 재접속 후 목록이 같다.
 - 알림이 21개가 되면 가장 오래된 알림이 목록에서 빠지고, 그 알림의 이벤트를 다시 소비해도 되살아나지 않는다.
-- aux-app을 끈 동안 쌓인 이벤트가 재시작 후 consumer lag가 줄면서 모두 알림이 된다.
+- auxiliary-app을 끈 동안 쌓인 이벤트가 재시작 후 consumer lag가 줄면서 모두 알림이 된다.
 - 채팅의 출연 알림 메시지도 그대로 남는다.

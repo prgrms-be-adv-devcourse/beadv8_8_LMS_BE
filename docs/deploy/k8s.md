@@ -136,7 +136,7 @@ PostgreSQL은 앱들이 함께 쓰는 인프라라 `hapbang-platform`에 둔다.
 - database·role은 차트의 initdb script(`k8s/platform/base/postgres.yaml`)가 **데이터 디렉터리가 비어 있을 때만** 만든다.
 - 이미 초기화된 instance에 database를 더할 때는 script를 고치고, 실행 중인 instance에도 같은 SQL을 superuser로 실행한다(아래 절차). auxiliary-app의 `auxiliary`도 이렇게 더한다(#726).
 - 기존 Compose 운영 DB는 이전하지 않고 2026-10-30에 지웠다(#440). 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다.
-- `max_connections` 100에서 슈퍼유저 예약 3을 뺀 97개를 앱이 쓴다. HikariCP 풀은 앱 5개 × 10 + chat-app 20 + auxiliary-app 5 = 75이고, large rolling surge pod 1개(10)를 더하면 85다(2026-11-06 운영 `hikaricp_connections_max`, #726). 앱을 더하거나 풀 크기를 바꾸면 다시 계산한다.
+- `max_connections` 100에서 슈퍼유저 예약 3을 뺀 97개를 앱이 쓴다. HikariCP 풀은 앱 5개 × 10 + chat-app 20 + auxiliary-app 5 = 75이고, large rolling surge pod 1개(10)를 더하면 85다(2026-11-06 운영 `hikaricp_connections_max`, #726). billing-app의 pool 밖 실행 락 연결(pod당 1개, 배포 중 2개)까지 넣으면 87이다([database 분리](../architecture/infrastructure/database.md)). 앱을 더하거나 풀 크기를 바꾸면 다시 계산한다.
 
 ### 실행 중인 instance에 database 더하기
 
