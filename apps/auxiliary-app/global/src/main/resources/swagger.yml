@@ -1,0 +1,28 @@
+# Swagger(springdoc) 설정. application.yaml과 테스트 설정(hapbang-module-test.yaml)이 함께 import해서
+# 테스트가 실제 경로·운영 값을 그대로 검사한다.
+# 이 앱에는 챗봇·검색·알림 모듈이 함께 있어 명세도 하나다. 어느 모듈 경로도 아닌 앱 경로(/api/v1/auxiliary) 아래에 두고,
+# Gateway가 이 경로를 이 앱으로 보낸다(k8s/base/gateway.yaml). 모듈 API는 컨트롤러 @Tag로 나눈다.
+# 경로를 바꾸면 SecurityConfig의 Swagger permitAll도 함께 바꾼다.
+springdoc:
+  api-docs:
+    path: /api/v1/auxiliary/v3/api-docs
+  swagger-ui:
+    path: /api/v1/auxiliary/swagger-ui.html
+---
+# 운영: 누구나 본다. Authorize 버튼은 access token(Bearer)으로 받는다.
+# 다른 앱 명세 목록(urls)은 다른 앱의 swagger.yml에 이 앱을 더할 때 함께 맞춘다.
+spring:
+  config:
+    activate:
+      on-profile: prod
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+  allowed-locales:
+  - ko-KR
+hapbang:
+  swagger:
+    bearer-auth:
+      enabled: true
