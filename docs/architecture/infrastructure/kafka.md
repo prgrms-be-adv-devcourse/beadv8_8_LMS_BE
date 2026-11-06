@@ -56,6 +56,11 @@ HP 원장을 Kafka consumer가 직접 확정하게 만들지는 않는다. 원�
 - 그룹 이름은 `<앱>.<목적>`이다(예: `billing-app.wallet-creation`). 한 앱의 리스너 여러 개가 같은 그룹을 쓰면 partition을 나눠 가져 각자 메시지 일부만 받는다. 목적이 다르면 그룹을 나눈다.
 - 클래스 레벨 `@KafkaListener`에 받을 타입마다 `@KafkaHandler`를 둔다. 모르는 타입은 `@KafkaHandler(isDefault = true)`에서 무시하고 커밋한다.
 - 역직렬화는 `ErrorHandlingDeserializer`로 감싼 JSON 역직렬화다. 신뢰 패키지는 실제 이벤트 패키지(예: `com.hapbang.shared.member.event`)만 지정하고 `*`를 쓰지 않는다. 깨진 메시지는 재시도 없이 DLT로 간다.
+- **native 소비자는 `eventType` 헤더로 타입을 정한다(#722).** native 이미지는 등록하지 않은 클래스를 실행 중에 찾지 못한다. 받는 타입은 `@KafkaHandler` 파라미터라 Spring AOT가 등록하지만, 모르는 타입은 `__TypeId__`로 클래스를 찾다 역직렬화에 실패해 재시도 없이 DLT로 간다. 그래서 native 소비자는 다음처럼 한다.
+  - `eventType` 값 → 받을 클래스 표를 가진 static 메서드를 `spring.json.value.type.method`로 넘긴다. 표의 값은 발행 앱의 `eventType` 상수와 같아야 하고, 발행 앱은 레코드 이름을 바꿔도 이 값을 그대로 둔다.
+  - 표에 없는 값은 클래스를 찾지 않고 필드 없는 무시용 레코드로 읽어, 그 타입의 `@KafkaHandler`에서 무시하고 커밋한다. 헤더가 없으면 null을 돌려 지금처럼 `__TypeId__`로 찾는다(받을 이벤트를 조용히 버리지 않기 위해서다).
+  - 그 메서드는 역직렬화기가 reflection으로 부르므로 native hints에 등록한다. 발행 앱이 같은 토픽에 새 타입을 더해도 소비자의 hints는 고치지 않는다.
+  - 지금 native 소비자는 customer-support-app(`LectureEventTypeResolver`) 하나다. 확인 방법은 [Native Image](native-image.md#모르는-이벤트-타입-확인-722)에 있다.
 - 새 그룹의 시작점은 `auto-offset-reset=earliest`다.
 - 강의·고객센터 소비자(#278·#279)는 `allow.auto.create.topics=false`를 둔다. 운영 broker는 자동 생성이 꺼져 있어 차이가 없지만, 자동 생성이 켜진 테스트 broker에서 소비자가 먼저 붙으면 partition 1개짜리 토픽이 생겨 발행 앱의 선언(3개)과 어긋나고 다른 테스트가 메시지를 받지 못한다.
 - 토픽이 아직 없어도 소비 앱은 뜬다(`spring.kafka.listener.missing-topics-fatal` 기본값 `false`). 소비자는 `UNKNOWN_TOPIC_OR_PARTITION` 경고를 남기며 기다리다가, 발행 앱이 토픽을 만들면 바로 붙어 처음부터 읽는다. 로컬 k3d에서 소비자를 먼저 띄우고 15초 뒤 토픽을 만들어 1초 안에 메시지를 받는 것을 확인했다(#429). 그래서 발행 앱과 소비 앱의 기동 순서를 맞추지 않는다. 기다리는 동안 경고는 약 1초마다 남는다(prod lecture-app 12분에 721건, 2026-10-30). 토픽이 오래 없으면 로그 양을 보고 토픽을 먼저 만든다.

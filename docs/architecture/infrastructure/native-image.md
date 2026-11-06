@@ -34,8 +34,9 @@ Native Image는 앱을 빌드할 때 기계어로 컴파일하고 JVM 없이 실
 | 모르는 타입·깨진 JSON 하나에 Kafka listener container가 멈춤(`SerializationConstructorAccessor class not found ... Throwable`) | `ErrorHandlingDeserializer`가 역직렬화 실패를 Java 직렬화로 헤더에 담는다 | serializable 33개. 모르는 타입, 깨진 JSON, 타입 불일치 세 경우를 tracing agent로 실행해 모은 목록 + `IllegalArgumentException`·`IllegalStateException` |
 | 이의 제기 접수 500(`Record components not available ... LectureObjectionFileRequest`) | 강의 내부 API Client가 주고받는 record는 AOT가 모른다 | reflection: `LectureObjectionFileRequest`, `LectureObjectionFiledDto`, `LectureApiClient$Body` |
 | (예방) | 고객센터가 발행하는 이벤트는 Modulith 발행 기록 JSON 저장·재발행, Kafka JSON 직렬화, `@Externalized` key의 SpEL이 reflection으로 읽는다 | reflection: `LectureObjectionResolutionRequestedEvent`, `LectureObjectionWithdrawalRequestedEvent` |
+| `lecture.events.v1`의 받지 않는 타입(#712 동기화 이벤트 등)이 DLT로 감 | 모르는 타입은 AOT가 등록하지 않아 `__TypeId__`로 클래스를 찾지 못한다. #712에서 4종과 DTO를 손으로 등록했다 | 등록 대신 `eventType` 헤더로 읽을 타입을 정한다(#722, [Kafka "소비"](kafka.md#소비)). reflection: `LectureEventTypeResolver.resolve`(역직렬화기가 이름으로 부른다). #712의 손 등록 10개는 지웠다 |
 
-**새 코드를 더할 때.** 앱 밖(`common/shared`)의 record를 JSON으로 주고받거나, 새 이벤트를 발행하거나, 설정 파일을 `spring.config.import`로 더하면 이 파일에도 더한다. JVM 테스트는 이것을 잡지 못한다. 빠진 것은 native 실행 파일로 아래 확인을 돌려야 드러난다.
+**새 코드를 더할 때.** 앱 밖(`common/shared`)의 record를 JSON으로 주고받거나, 새 이벤트를 발행하거나, 설정 파일을 `spring.config.import`로 더하면 이 파일에도 더한다. JVM 테스트는 이것을 잡지 못한다. 빠진 것은 native 실행 파일로 아래 확인을 돌려야 드러난다. 강의 이벤트를 새로 받을 때는 `@KafkaHandler`와 `LectureEventTypeResolver` 표에 더한다. 처리기 파라미터는 AOT가 등록하므로 이 파일은 고치지 않는다. 강의가 받지 않는 타입을 더할 때는 아무것도 더하지 않는다.
 
 ## 로컬 확인 방법
 
@@ -53,6 +54,35 @@ $GRAALVM_HOME/bin/java -agentlib:native-image-agent=config-output-dir=agent-out 
 ```
 
 agent 결과에는 AOT가 이미 등록한 것과 Hibernate 같은 라이브러리가 존재만 확인하는 조회가 섞여 있다. 실패한 경로에 필요한 것만 골라 hints 파일에 옮긴다.
+
+### 모르는 이벤트 타입 확인 (#722)
+
+강의가 `lecture.events.v1`에 고객센터가 받지 않는 새 타입을 더해도 DLT로 가지 않는지 native 실행 파일로 확인한다. JVM 테스트(`CustomerSupportObjectionKafkaTest`의 `클래스가_없는_모르는_타입은_DLT로_보내지_않고_다음_결과를_처리한다`)는 클래스가 없는 타입으로 같은 경로를 재현하지만, reflection 등록 누락은 native에서만 드러난다.
+
+1. 임시 PostgreSQL·Redis·Kafka를 기본과 다른 port로 띄운다(예: 55432·56379·59092). Kafka는 운영처럼 토픽 자동 생성을 끄고, 컨테이너 안에서 쓸 listener(예: `INTERNAL://localhost:29092`)를 따로 둔다. `lecture.events.v1`을 partition 3개로 만든다. DLT는 앱이 만든다.
+2. 실행 파일을 붙인다. 실행 파일은 빌드 때 prod 조건으로 굳어 있으므로 운영 ConfigMap·Secret의 키를 환경 변수로 준다.
+
+   ```bash
+   env SPRING_PROFILES_ACTIVE=prod SERVER_PORT=58080 HAPBANG_INTERNAL_API_PORT=58081 MANAGEMENT_SERVER_PORT=58082 \
+     DB_URL=jdbc:postgresql://localhost:55432/customersupport DB_USERNAME=customersupport DB_PASSWORD=<임시 값> \
+     SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:59092 SPRING_DATA_REDIS_HOST=localhost SPRING_DATA_REDIS_PORT=56379 \
+     LECTURE_API_BASE_URL=http://localhost:58099 HAPBANG_INTERNAL_API_KEY=<임시 값> \
+     MANAGEMENT_TRACING_SAMPLING_PROBABILITY=0 LOGGING_LEVEL_COM_HAPBANG_CUSTOMERSUPPORT_IN=DEBUG \
+     apps/customer-support-app/build/native/nativeCompile/app
+   ```
+
+3. 같은 key로 레코드를 보낸다. 형식은 `헤더<탭>key<탭>값`이다([DLT 재처리 runbook](kafka.md#dlt-재처리-runbook)과 같은 console producer 옵션).
+   - 클래스가 없는 타입: `__TypeId__:com.hapbang.shared.lecture.event.NotYetKnownEvent,eventType:NotYetKnownEvent`
+   - 받지 않는 기존 타입: `__TypeId__:...LectureChangedEvent,eventType:LectureChangedEvent`
+   - 받는 타입(없는 문의 ID): `__TypeId__:...LectureObjectionResolvedEvent,eventType:LectureObjectionResolvedEvent`
+   - 깨진 JSON(받는 타입 헤더, 다른 key)
+4. 기대 결과는 다음과 같다.
+   - 앞의 둘은 DEBUG "고객센터가 쓰지 않는 강의 이벤트라 무시한다"(MDC `eventType`)를 남긴다.
+   - 받는 타입은 ERROR "강의 결과 이벤트에 맞는 이의 제기 문의가 없어 무시한다"를 남긴다. 그 클래스로 읽었다는 뜻이다.
+   - DLT(`lecture.events.v1.customer-support-app.objection-result.DLT`)에는 깨진 JSON 1건만 있다.
+   - `kafka-consumer-groups.sh --describe --group customer-support-app.objection-result`의 LAG는 0이다. 깨진 JSON 뒤에 보낸 레코드도 처리된다.
+
+2026-11-06 macOS arm64에서 위 결과대로 나왔다(기동 0.54초, ERROR는 받는 타입의 1줄뿐).
 
 ## 결과
 
