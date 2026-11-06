@@ -1,5 +1,7 @@
 # 알림(notification) 모듈 진행 기록
 
+> 문서 탐색: [알림 문서 INDEX](../../../../docs/notification/INDEX.md)
+
 알림 모듈 작업을 이어받는 사람과 AI 에이전트가 작업 전에 읽는 **진행 상태** 문서다. 알림 모듈의 상태만 적는다. 챗봇 모듈과 auxiliary-app 전체 상태는 적지 않는다.
 
 - 규칙은 [`AGENTS.md`](AGENTS.md), 결정은 [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md)(`ND-*`)에 있다. 이 문서는 결정을 따로 관리하지 않는다.
@@ -34,7 +36,7 @@
 | [`docs/notification/regression-log.md`](../../../../docs/notification/regression-log.md) | 작성 완료 (#750) |
 | [`docs/api/notification.md`](../../../../docs/api/notification.md) | 작성 완료 (#750) |
 | [`AGENTS.md`](AGENTS.md), 이 문서 | 작성 완료 (#750) |
-| `docs/notification/INDEX.md` | 후속 단계 |
+| [`docs/notification/INDEX.md`](../../../../docs/notification/INDEX.md) | 작성 완료 (#752) |
 | `docs/policy.md` 알림센터 장 | 후속(팀 승인 필요, 4장) |
 
 ## 3. 구현 작업 계획
@@ -113,5 +115,4 @@
 
 ## 6. 후속
 
-- `docs/notification/INDEX.md` 구축(후속 단계).
 - 알림 모듈 Gradle 등록과 구현은 4장의 차단 요소를 정한 뒤 시작한다(AGENTS.md 5장).

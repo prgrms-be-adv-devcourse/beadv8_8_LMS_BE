@@ -1,5 +1,7 @@
 # 알림(notification) 모듈 — 결정 기록
 
+> 문서 탐색: [알림 문서 INDEX](INDEX.md)
+
 > - 이 문서는 auxiliary-app 안 알림 모듈(알림센터)의 결정과 그 이유를 `ND-*` 번호로 모은다. 번호는 바꾸거나 재사용하지 않는다.
 > - 원천은 [알림 설계](../architecture/infrastructure/notification.md)(#710, 2026-11-05)다. 루트 `AGENTS.md`, [Kafka](../architecture/infrastructure/kafka.md), [최종 인프라 설계](../architecture/final-project-infrastructure.md), [auxiliary-app README](../../apps/auxiliary-app/README.md)(#714)로 바뀐 점을 반영했다. 결정을 새로 만들지 않았고, 원문에 이유가 없으면 "기록 없음"으로 적었다.
 > - **구현 상태**: 2026-11-06 기준 알림 모듈 코드는 없다(`apps/auxiliary-app/boundedContext/`에는 `chatbot`만 있다). 이 문서의 "유효"는 정책이 확정됐다는 뜻이고, 구현·테스트를 마쳤다는 뜻이 아니다.

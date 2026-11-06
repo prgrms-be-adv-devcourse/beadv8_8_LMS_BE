@@ -1,5 +1,7 @@
 # 지갑(Billing) 모듈 — 현재 구현
 
+> 문서 탐색: [지갑 문서 INDEX](INDEX.md)
+
 > 문서 지도: **[현재 구현](module.md)** · [결정 기록](decisions.md) · [테스트 검증 기준](test-spec.md) · [회귀 실행 기록](regression-log.md)
 >
 > - 기준: 2026-11-06 `dev` 40fa9b25 (Billing 코드 마지막 변경은 #674 파기). 문서와 코드가 다르면 **코드가 맞다**. 확인 후 이 문서를 고친다.

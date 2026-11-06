@@ -1,6 +1,8 @@
 # 알림(notification) 모듈 — 도메인 개념
 
-> 문서 지도: **[도메인 개념](CONTEXT.md)** · [설계·구현 구조](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API](../api/notification.md) · [테스트 검증 기준](test-spec.md) · [회귀 실행 기록](regression-log.md). 문서 목록(INDEX)은 후속 단계에서 만든다.
+> 문서 탐색: [알림 문서 INDEX](INDEX.md)
+
+> 문서 지도: **[도메인 개념](CONTEXT.md)** · [설계·구현 구조](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API](../api/notification.md) · [테스트 검증 기준](test-spec.md) · [회귀 실행 기록](regression-log.md). 문서 목록은 [INDEX](INDEX.md).
 >
 > - 이 문서는 알림센터가 다루는 **개념과 개념 사이의 관계**만 적는다. 정책이 아니다. 각 개념의 세부 규칙은 [decisions.md](decisions.md)의 `ND-*` 번호로 가리키고 본문을 다시 쓰지 않는다.
 > - 업무 정책의 원본은 [`docs/policy.md`](../policy.md)다. 알림센터 장은 아직 없고, 반영은 팀 승인 뒤 후속 작업이다(decisions.md 머리말). 그 전까지 알림센터 결정은 decisions.md에 있다.

@@ -1,5 +1,7 @@
 # 알림(notification) 모듈 — 테스트 검증 기준
 
+> 문서 탐색: [알림 문서 INDEX](INDEX.md)
+
 > 문서 지도: [모듈](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API 계약](../api/notification.md) · **[테스트 검증 기준](test-spec.md)** · [회귀 실행 기록](regression-log.md) · [진행](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
 >
 > - **역할**: 이 문서는 알림센터(auxiliary-app 알림 모듈)가 **무엇을 만족해야 하는가**(요구사항, 합격 기준, 근거 결정)를 `NT-*` ID로 정리한다. 통과·실패, 실행 날짜, 실행 건수는 적지 않는다. **실제로 실행한 결과는 [regression-log.md](regression-log.md)에만 적는다.**

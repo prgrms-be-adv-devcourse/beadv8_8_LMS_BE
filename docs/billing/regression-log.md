@@ -1,5 +1,7 @@
 # 지갑(Billing) 모듈 — 회귀 실행 기록
 
+> 문서 탐색: [지갑 문서 INDEX](INDEX.md)
+
 > 문서 지도: [현재 구현](module.md) · [결정 기록](decisions.md) · [테스트 검증 기준](test-spec.md) · **[회귀 실행 기록](regression-log.md)**
 >
 > - 이 문서는 **실제로 실행한** 테스트 결과만 쌓는다: 언제, 어느 커밋에서, 무슨 명령을 돌렸고, 결과가 어땠고, 실패는 무엇 때문이었나. 검증 대상과 합격 기준은 [test-spec.md](test-spec.md)에 있다.

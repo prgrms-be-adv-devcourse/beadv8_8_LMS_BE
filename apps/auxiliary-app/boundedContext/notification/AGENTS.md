@@ -1,5 +1,7 @@
 # 알림(notification) 모듈 — AGENTS.md
 
+> 문서 탐색: [알림 문서 INDEX](../../../../docs/notification/INDEX.md)
+
 auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 지킬 개발 규칙이다.
 
 - **현재 상태(2026-11-06)**: 이 디렉터리는 아직 Gradle 모듈이 아니고 문서만 있다. 알림 모듈 코드·`build.gradle.kts`·Flyway SQL·테스트는 없다(`settings.gradle.kts`의 `auxiliaryModules`에 `notification`이 없다). 진행 상태는 [`PROGRESS.md`](PROGRESS.md)에 있다.

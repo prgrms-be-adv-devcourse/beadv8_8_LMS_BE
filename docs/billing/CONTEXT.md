@@ -1,5 +1,7 @@
 # 지갑(Billing) 작업 맥락
 
+> 문서 탐색: [지갑 문서 INDEX](INDEX.md)
+
 2026-10-29~11-02에 `/grill-with-docs` 작업 세션에서 합의한 맥락(배경, 검토한 대안, 당시 범위)을 이슈별로 남긴 기록이다.
 
 - 이 문서는 **당시 기록**이다. 여기 나온 결정은 모두 [decisions.md](decisions.md)의 `BD-*`로 옮겨졌고, 결정의 원본은 decisions.md다. 업무 규칙의 원본은 [`docs/policy.md`](../policy.md), 지금 코드 동작은 [module.md](module.md)다. 이 문서와 그 문서들이 다르면 그 문서들이 맞다.
