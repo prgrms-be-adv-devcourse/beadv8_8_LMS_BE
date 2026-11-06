@@ -2,7 +2,7 @@
 # CloudPirates postgres 차트는 공식 postgres 이미지를 쓴다. k3s helm-controller가 설치한다(Helm CLI를 쓰지 않는다).
 # 앱은 postgres.hapbang-platform.svc.cluster.local:5432/<database>로 접속한다.
 # 앱별 database·role은 데이터 디렉터리가 비어 있을 때(첫 기동)만 아래 initdb script로 만든다.
-# notification·search database는 각 앱을 만들 때 더한다. 이미 초기화된 instance에는 수동으로 만든다(docs/deploy/k8s.md).
+# 이미 초기화된 instance에 database를 더할 때는 수동으로 만든다(docs/deploy/k8s.md). 운영 instance의 auxiliary도 이렇게 만든다(#726).
 apiVersion: helm.cattle.io/v1
 kind: HelmChart
 metadata:
@@ -28,7 +28,8 @@ spec:
           #!/bin/bash
           # 앱마다 소유 role과 database를 만들고, 다른 role은 접속하지 못하게 한다.
           set -euo pipefail
-          for db in member billing appearance lecture chat customersupport; do
+          # auxiliary는 auxiliary-app의 공통 database다. 모듈(chatbot 등)은 그 안에서 schema로 나뉜다(#714).
+          for db in member billing appearance lecture chat customersupport auxiliary; do
             psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
               -v db="$db" -v pw="${!db}" <<'SQL'
           CREATE ROLE :"db" LOGIN PASSWORD :'pw';
@@ -39,17 +40,18 @@ spec:
     config:
       postgresql:
         timezone: Asia/Seoul
-        # 앱 6개 × HikariCP 기본 10 + rolling surge 1개 = 70.
+        # 앱 6개 × HikariCP 기본 10 + auxiliary-app 5(#714) + rolling surge 1개 10 = 75.
         max_connections: 100
         shared_buffers: 128MB
-        # 기본값 4GB는 node 메모리보다 커서 limit에 맞춘다.
-        effective_cache_size: 384MB
+        # 기본값 4GB는 node 메모리보다 커서 limit에 맞춘다(512Mi의 절반, #726).
+        effective_cache_size: 256MB
+    # 운영 7일 최대 working set 251Mi(2026-11-06)라 768Mi에서 512Mi로 낮춰 large에 auxiliary-app 자리를 만든다(#726, #684).
     resources:
       requests:
         cpu: 100m
-        memory: 768Mi
+        memory: 512Mi
       limits:
-        memory: 768Mi
+        memory: 512Mi
     persistence:
       storageClass: local-path-retain
       size: 10Gi

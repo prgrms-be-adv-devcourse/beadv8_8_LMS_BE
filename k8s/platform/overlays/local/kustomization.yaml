@@ -30,3 +30,4 @@ secretGenerator:
       - lecture=local-lecture-password
       - chat=local-chat-password
       - customersupport=local-customersupport-password
+      - auxiliary=local-auxiliary-password

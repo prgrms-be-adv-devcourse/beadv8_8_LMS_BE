@@ -57,6 +57,8 @@ spec:
           # EC2에서 448Mi로 띄우자 기동 3분 뒤 RSS 425Mi로 한도에 붙어 512Mi로 올렸다(#504).
           # 512Mi에서 운영 working set 461Mi(90%)였고, 지표 노출과 관리 포트(Tomcat 하나 더, 약 +10MB)를 더하며 576Mi로 올린다(#528).
           # trace(#631)를 붙이며 640Mi로 올렸다. 2026-11-03 운영 working set 463Mi(80%)였고, lecture-app은 trace로 k3d에서 약 +18Mi(#579)였다.
+          # 7일 최대 working set 510Mi(80%)였다. heap 상한을 -Xmx176m으로 고정하고(kustomization.yaml) limit은 둔다.
+          # heap 176 + heap 외 JVM 영역 213 + native 132 ≈ 521Mi(81%)다(#726, #610).
           resources:
             requests:
               cpu: 100m

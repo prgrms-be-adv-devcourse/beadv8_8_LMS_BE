@@ -34,7 +34,7 @@
 | k3s server, ServiceLB, Envoy proxy | large | control plane과 외부 HTTPS 진입. 진입점 전환([전환 순서](#전환-순서) 7) 뒤에는 Traefik을 끄고 ServiceLB를 large에서만 켠다 |
 | PostgreSQL | large | `core-data` required node affinity |
 | Kafka, Redis, Elasticsearch | large | 도입 시 `core-data` required node affinity |
-| 모듈 앱 8개 | 양쪽 | 앱마다 replica 1개. large에 member(576 MiB, #480·#631)·appearance(640 MiB, #504·#528·#631)·billing(576 MiB, #608·#631)·search(448 MiB), medium에 lecture(704 MiB, #461 실측·#579 trace)·customer-support(256 MiB, #609 Native Image·#672 실측)·chat(640 MiB, #545 실측·#590·#631)을 둔다. notification-app 위치는 만들 때 정한다(#532)([자원 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)) |
+| 모듈 앱 7개 | 양쪽 | 앱마다 replica 1개. large에 member(640 MiB, #480·#631·#726)·appearance(640 MiB, #504·#528·#631)·billing(576 MiB, #608·#631)·auxiliary-app(704 MiB, 검색·챗봇·알림, #684·#714), medium에 lecture(704 MiB, #461 실측·#579 trace)·customer-support(256 MiB, #609 Native Image·#672 실측)·chat(704 MiB, #545 실측·#590·#631·#684)을 둔다([자원 예산](../architecture/infrastructure/k3s.md#ec2-2노드-자원-예산)) |
 | Envoy Gateway controller, ECK operator | medium | stateless controller |
 | cert-manager, Sealed Secrets controller | large | stateless controller. medium 메모리 예산 때문에 옮겼다(#532). Sealed Secrets의 개인 키는 Secret이라 controller와 함께 옮겨진다([키 백업](#sealed-secrets-키-백업)) |
 | React 정적 서버 | medium | stateless workload |
