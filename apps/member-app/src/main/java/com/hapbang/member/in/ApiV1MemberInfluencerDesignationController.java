@@ -12,7 +12,9 @@ import com.hapbang.member.global.auth.LoginUserId;
 
 import lombok.RequiredArgsConstructor;
 
+/** 관리자 인플루언서 지정 API (#724, #735) */
 @RestController
+// 관리자 API는 /admin 경로(SecurityConfig)와 MemberInfluencerDesignationFacade의 @PreAuthorize로 함께 막는다
 @RequestMapping("/api/v1/members/admin/users")
 @RequiredArgsConstructor
 public class ApiV1MemberInfluencerDesignationController implements ApiV1MemberInfluencerDesignationSpec {
