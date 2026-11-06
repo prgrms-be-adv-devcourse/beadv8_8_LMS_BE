@@ -67,15 +67,24 @@ class MemberTestAccountIntegrationTest {
     }
 
     @Test
-    @DisplayName("USER·INFLUENCER가 아닌 역할은 409이고 역할은 그대로다")
-    void promote_otherRole() {
-        User verified = userRepository.save(MemberFixture.member(Role.VERIFIED_INFLUENCER));
+    @DisplayName("인증된 인플루언서는 409이고 역할은 그대로다")
+    void promote_verifiedInfluencer() {
+        assertRoleNotAllowed(Role.VERIFIED_INFLUENCER);
+    }
 
-        assertThatThrownBy(() -> memberTestAccountFacade.promote(ADMIN_ID, verified.getId()))
+    @Test
+    @DisplayName("관리자 회원은 409이고 역할은 그대로다 (관리자를 인플루언서로 바꾸지 않는다)")
+    void promote_admin() {
+        assertRoleNotAllowed(Role.ADMIN);
+    }
+
+    private void assertRoleNotAllowed(Role role) {
+        User member = userRepository.save(MemberFixture.member(role));
+
+        assertThatThrownBy(() -> memberTestAccountFacade.promote(ADMIN_ID, member.getId()))
                 .isInstanceOf(MemberException.class)
                 .extracting("errorCode").isEqualTo(MemberErrorCode.TEST_ACCOUNT_ROLE_NOT_ALLOWED);
-        assertThat(userRepository.findById(verified.getId()).orElseThrow().getRole())
-                .isEqualTo(Role.VERIFIED_INFLUENCER);
+        assertThat(userRepository.findById(member.getId()).orElseThrow().getRole()).isEqualTo(role);
         assertThat(events.stream(UserModifiedEvent.class)).isEmpty();
     }
 
