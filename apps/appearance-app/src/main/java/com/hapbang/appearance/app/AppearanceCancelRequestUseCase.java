@@ -53,6 +53,7 @@ public class AppearanceCancelRequestUseCase {
                 previousCount, appearancePolicy, LocalDateTime.now(clock));
         AppearanceCancelRequest saved = appearanceCancelRequestSupport.save(cancelRequest);
         appearanceSupport.flushOrConflict();
+        eventPublisher.publishEvent(appearance.toChangedEvent());
         AfterCommit.run(() -> {
             log.info("출연 취소를 요청했다 appearanceId={}, cancelRequestId={}, guestId={}", appearanceId, saved.getId(),
                     guestId);

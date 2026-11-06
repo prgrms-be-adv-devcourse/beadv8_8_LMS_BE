@@ -78,6 +78,7 @@ public class AppearanceCancelRespondUseCase {
         appearance.agreeCancel(now);
         HpTask releaseTask = releaseOnAgreement(appearance, recruit, now);
         appearanceSupport.flushOrConflict();
+        eventPublisher.publishEvent(appearance.toChangedEvent());
 
         Long releaseTaskId = releaseTask == null ? null : hpTaskSupport.save(releaseTask).getId();
         AfterCommit.run(() -> {
@@ -105,6 +106,7 @@ public class AppearanceCancelRespondUseCase {
         cancelRequest.reject(rejectReason, now);
         appearance.keepAfterCancelRejected();
         appearanceSupport.flushOrConflict();
+        eventPublisher.publishEvent(appearance.toChangedEvent());
         AfterCommit.run(() -> {
             log.info("출연 취소 요청을 거절했다 appearanceId={}, cancelRequestId={}, hostId={}", appearanceId,
                     cancelRequest.getId(), hostId);

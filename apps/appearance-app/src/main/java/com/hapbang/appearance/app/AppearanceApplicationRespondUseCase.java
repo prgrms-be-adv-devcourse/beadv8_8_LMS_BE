@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.appearance.app.dto.AppearanceApplicationResDto;
@@ -40,6 +41,7 @@ public class AppearanceApplicationRespondUseCase {
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceSupport appearanceSupport;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -61,6 +63,7 @@ public class AppearanceApplicationRespondUseCase {
 
         appearanceApplicationSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(recruit, application, now));
+        eventPublisher.publishEvent(appearance.toChangedEvent());
         AfterCommit.run(() -> {
             log.info("모집 지원을 수락했다 applicationId={}, recruitId={}, appearanceId={}, hostId={}, guestId={}",
                     applicationId, recruit.getId(), appearance.getId(), hostId, application.getGuestId());

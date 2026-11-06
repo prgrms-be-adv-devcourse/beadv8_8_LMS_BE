@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -22,6 +23,11 @@ public interface AppearanceReviewRepository extends JpaRepository<AppearanceRevi
 
     /** 이 출연의 리뷰 (최대 2건: 호스트가 쓴 것, 게스트가 쓴 것) */
     List<AppearanceReview> findByAppearanceId(Long appearanceId);
+
+    /**
+     * 동기화 내부 API(#713): 이 ID보다 큰 공개된 리뷰를 ID 오름차순으로. 공개 전 리뷰는 DB에서 걸러 키셋이 끊기지 않는다
+     */
+    List<AppearanceReview> findByIdGreaterThanAndPublishedAtIsNotNullOrderByIdAsc(Long afterId, Limit limit);
 
     /**
      * 작성 기한 만료 공개 대상 출연 ID (#515): 공개 전 리뷰가 있고 출연 확인 시각이 기준 시각 이전·같은 출연.
