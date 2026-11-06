@@ -5,7 +5,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.app.dto.TestInfluencerResponse;
-import com.hapbang.member.domain.LoadTestAccount;
 import com.hapbang.member.domain.MemberErrorCode;
 import com.hapbang.member.domain.MemberException;
 import com.hapbang.member.domain.User;
@@ -29,9 +28,6 @@ public class MemberTestAccountFacade {
     @Transactional
     public TestInfluencerResponse promote(Long adminId, Long userId) {
         User user = memberSupport.findActiveUser(userId);
-        if (!LoadTestAccount.isLoadTestEmail(user.getEmail())) {
-            throw new MemberException(MemberErrorCode.TEST_ACCOUNT_REQUIRED);
-        }
         if (user.getRole() == Role.INFLUENCER) {
             return new TestInfluencerResponse(user.getId(), user.getRole(), false);
         }
