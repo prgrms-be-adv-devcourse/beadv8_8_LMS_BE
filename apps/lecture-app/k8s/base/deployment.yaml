@@ -60,6 +60,8 @@ spec:
           # = RSS 593Mi였다(#480).
           # trace(#579) 적용 전 운영 working set이 588Mi(640Mi의 92%)였고, k3d에서 trace를 더하면 기동 10분 뒤 약 +18Mi
           # (non-heap +8Mi, 스레드 +9, 클래스 +1,148)였다. 여유를 두려고 704Mi로 올렸다(docs/architecture/infrastructure/k3s.md).
+          # 704Mi에서 기동 20시간 working set 646Mi(92%)였다. heap 사용은 최대 164Mi인데 상한(limit의 60%)이 410Mi라 상한까지 차면 limit을 넘는다.
+          # heap 상한을 -Xmx224m으로 고정하고(kustomization.yaml) limit은 둔다. heap 224 + heap 외 JVM 영역 246 + native 148 ≈ 618Mi(88%)다(#727, #610).
           resources:
             requests:
               cpu: 100m
