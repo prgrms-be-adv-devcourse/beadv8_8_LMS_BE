@@ -36,6 +36,7 @@
 | --- | --- |
 | 외부 포트는 Envoy(80·443)만 | app·platform(PostgreSQL·Kafka·Redis 등)에 직접 접근 불가 |
 | 내부 API 차단 | Envoy에 `/api/v1/internal/**` route가 없어 404. 앱 외부 포트(8080)도 내부 경로를 404로 막고, 내부 포트(8081)는 허용 label이 있는 pod만 접근한다. 앱도 내부 API 키가 없으면 401 (#300, [gateway.md](gateway.md#인증과-내부-포트)) |
+| 앱에 Boot 기본 사용자 없음 | 앱은 Gateway 사용자 헤더·내부 API 키(member는 OAuth2 로그인도)로 인증해 `UserDetailsService`가 없다. 각 앱 `application.yaml`의 `spring.autoconfigure.exclude`로 `UserDetailsServiceAutoConfiguration`을 빼서 Boot가 기본 사용자(`user`)와 생성 비밀번호를 만들지 않는다. 비밀번호가 기동 로그·Loki에 남지 않고, 누가 `httpBasic`을 켜도 로그인할 기본 사용자가 없다. 테스트 classpath에는 OAuth2 client가 있어 이 자동 설정이 원래 붙지 않으므로 `DefaultSecurityUserTest`가 그 패키지를 숨겨 확인한다 (#733) |
 | 미등록 도메인 차단 | 443은 prod 도메인 외 TLS 핸드셰이크를 거부하고, 80은 404 |
 | HTTPS 리다이렉트 | 80은 HTTPS로 301. HSTS 헤더는 아직 보내지 않는다 |
 | `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |
