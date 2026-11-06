@@ -47,6 +47,17 @@ class LectureEventTypeResolverTest {
         assertThat(type).isNull();
     }
 
+    /** Kafka 헤더는 값이 null일 수 있다. 헤더가 없을 때처럼 {@code __TypeId__}로 찾게 하고, 역직렬화 실패(DLT)로 보내지 않는다 */
+    @Test
+    void eventType_헤더_값이_null이면_null을_돌려_TypeId로_찾게_한다() {
+        RecordHeaders headers = new RecordHeaders();
+        headers.add("eventType", null);
+
+        JavaType type = LectureEventTypeResolver.resolve(LectureEventTopic.NAME, BODY, headers);
+
+        assertThat(type).isNull();
+    }
+
     /**
      * 처리기를 더하고 표에 빠뜨리면 그 이벤트를 무시용 레코드로 읽어 조용히 버린다. 처리기마다 표에 있는지 본다.
      * 헤더 값은 지금 레코드 이름과 같다. 강의 앱은 레코드 이름을 바꿔도 헤더 값을 그대로 두므로, 이름을 바꾸면 이 대응을 고친다

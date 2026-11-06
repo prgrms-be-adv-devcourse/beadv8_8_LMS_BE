@@ -23,7 +23,7 @@ import tools.jackson.databind.type.TypeFactory;
  *     강의 앱은 레코드 이름을 바꿔도 이 값을 그대로 둔다. 처리기({@link CustomerSupportLectureEventListener})를 더하면 표에도 더한다.</li>
  *     <li>받지 않는 타입은 클래스를 찾지 않고 {@link IgnoredLectureEvent}로 읽는다. {@code __TypeId__}로 찾으면 native 이미지에
  *     등록하지 않은 클래스라 역직렬화에 실패해 DLT로 간다.</li>
- *     <li>헤더가 없으면 null을 돌려 지금처럼 {@code __TypeId__}로 찾게 한다. 받는 이벤트를 조용히 버리지 않기 위해서다.</li>
+ *     <li>헤더가 없거나 값이 null이면 null을 돌려 지금처럼 {@code __TypeId__}로 찾게 한다. 받는 이벤트를 조용히 버리지 않기 위해서다.</li>
  * </ul>
  * 역직렬화기가 {@code spring.json.value.type.method}로 이름을 받아 reflection으로 부르므로, native 이미지에는
  * {@code reachability-metadata.json}에 이 메서드를 등록한다.
@@ -47,7 +47,8 @@ public final class LectureEventTypeResolver {
     /** {@code JacksonJsonTypeResolver#resolveType}과 같은 모양이다. 역직렬화기가 이 메서드를 이름으로 찾는다 */
     public static JavaType resolve(String topic, byte[] data, Headers headers) {
         Header header = headers.lastHeader(CustomerSupportEventExternalizationConfig.EVENT_TYPE);
-        if (header == null) {
+        // 헤더가 없거나 값이 null이면(Kafka 헤더는 값이 null일 수 있다) 받는 이벤트를 버리지 않게 __TypeId__로 찾는다
+        if (header == null || header.value() == null) {
             return null;
         }
         return HANDLED.getOrDefault(new String(header.value(), StandardCharsets.UTF_8), IGNORED);
