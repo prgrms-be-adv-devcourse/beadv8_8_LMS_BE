@@ -14,8 +14,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 부하 시험용 회원 승급. 2026-11-04 변경 결정으로 ADMIN만 호출한다.
- * 채널 인증 예외는 accounts.py가 생성하는 이메일 형식(배치당 001~100, {@link LoadTestAccount})에만 적용한다.
+ * 관리자가 일반 회원을 채널 인증 없이 인플루언서로 승급한다 (부하 시험·테스트용). 2026-11-04 변경 결정으로 ADMIN만 호출한다.
+ * 2026-11-06 사용자 결정(#724)으로 부하 시험 이메일 형식 제한을 없애 ACTIVE USER 누구나 대상이다.
  */
 @Slf4j
 @Service
