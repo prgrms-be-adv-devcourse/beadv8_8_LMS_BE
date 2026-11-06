@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +32,7 @@ public class AppearanceHostCancelUseCase {
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceHostCancelRecorder appearanceHostCancelRecorder;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -51,6 +53,7 @@ public class AppearanceHostCancelUseCase {
         Long taskId = appearanceHostCancelRecorder.cancelAndRecordPenalty(appearance, hostId,
                 confirmPendingCancelRequest, reason, LocalDateTime.now(clock));
         appearanceSupport.flushOrConflict();
+        eventPublisher.publishEvent(appearance.toChangedEvent());
         AfterCommit.run(() -> {
             log.info("호스트가 출연을 취소했다 appearanceId={}, hostId={}, penaltyTaskId={}", appearanceId, hostId, taskId);
         });

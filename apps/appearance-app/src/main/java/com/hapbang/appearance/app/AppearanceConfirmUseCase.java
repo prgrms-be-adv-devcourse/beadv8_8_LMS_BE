@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +34,7 @@ public class AppearanceConfirmUseCase {
     private final AppearanceSupport appearanceSupport;
     private final AppearanceConfirmRecorder appearanceConfirmRecorder;
     private final AppearancePolicy appearancePolicy;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -50,6 +52,7 @@ public class AppearanceConfirmUseCase {
         appearance.confirmByHost(hostId, appearancePolicy, now);
         Long taskId = appearanceConfirmRecorder.recordPayout(appearance, now);
         appearanceSupport.flushOrConflict();
+        eventPublisher.publishEvent(appearance.toChangedEvent());
         AfterCommit.run(() -> {
             log.info("출연을 확인했다 appearanceId={}, hostId={}, payoutTaskId={}", appearanceId, hostId, taskId);
         });
@@ -70,6 +73,7 @@ public class AppearanceConfirmUseCase {
         appearance.markAbsent(hostId, reason, appearancePolicy, now);
         Long taskId = appearanceConfirmRecorder.recordAbsentRelease(appearance, now);
         appearanceSupport.flushOrConflict();
+        eventPublisher.publishEvent(appearance.toChangedEvent());
         // 불참 사유는 호스트가 쓴 본문이라 남기지 않는다
         AfterCommit.run(() -> {
             log.info("출연 불참을 기록했다 appearanceId={}, hostId={}, releaseTaskId={}", appearanceId, hostId, taskId);

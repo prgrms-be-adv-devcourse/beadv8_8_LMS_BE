@@ -1,5 +1,7 @@
 package com.hapbang.appearance.domain;
 
+import com.hapbang.shared.appearance.domain.AppearanceResult;
+
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -11,6 +13,7 @@ import lombok.RequiredArgsConstructor;
  * </pre>
  * 성립·출연 취소 요청·합의 취소(#231), 호스트 일방 취소(#239), 출연 확인·불참(#282).
  * 불참({@code ABSENT})은 AGENTS.md의 "노쇼(부정 응답)"다. 코드·API 이름은 불참으로 쓴다 (ISSUE.md APR-35 E1).
+ * 다른 모듈에는 이 상태 대신 줄인 공개 결과({@link #result()}, #713)를 알린다.
  */
 @Getter
 @RequiredArgsConstructor
@@ -23,4 +26,17 @@ public enum AppearanceStatus {
     CANCELED_BY_AGREEMENT("합의 취소. 호스트가 게스트의 출연 취소 요청을 수락 (위약금 없음)");
 
     private final String description;
+
+    /**
+     * 다른 모듈에 알리는 공개 결과 (#713). 상태를 더하면 여기서 컴파일 오류가 나므로 공개 결과를 꼭 정한다.
+     * 취소 요청 중은 아직 성립한 출연이라 {@link AppearanceResult#SCHEDULED}다.
+     */
+    public AppearanceResult result() {
+        return switch (this) {
+            case ESTABLISHED, CANCEL_REQUESTED -> AppearanceResult.SCHEDULED;
+            case CONFIRMED -> AppearanceResult.COMPLETED;
+            case CANCELED_BY_HOST, CANCELED_BY_AGREEMENT -> AppearanceResult.CANCELED;
+            case ABSENT -> AppearanceResult.NO_SHOW;
+        };
+    }
 }

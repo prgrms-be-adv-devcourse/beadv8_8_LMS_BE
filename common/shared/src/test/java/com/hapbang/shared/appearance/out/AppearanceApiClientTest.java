@@ -19,17 +19,22 @@ import org.springframework.web.client.RestClient;
 
 import com.hapbang.shared.appearance.domain.AppearanceEarningStatus;
 import com.hapbang.shared.appearance.domain.AppearanceEarningType;
+import com.hapbang.shared.appearance.domain.AppearanceResult;
 import com.hapbang.shared.appearance.dto.AppearanceEarningAmountDto;
 import com.hapbang.shared.appearance.dto.AppearanceEarningPageDto;
 import com.hapbang.shared.appearance.dto.AppearanceEarningSummaryDto;
 import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
 import com.hapbang.shared.appearance.dto.AppearanceReceivedReviewPageDto;
+import com.hapbang.shared.appearance.dto.AppearanceReviewSyncDto;
+import com.hapbang.shared.appearance.dto.AppearanceReviewSyncPageDto;
+import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
+import com.hapbang.shared.appearance.dto.AppearanceSyncPageDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.dto.WithdrawalBlockReasonDto;
 import com.hapbang.shared.member.dto.WithdrawalBlocksDto;
 import com.sun.net.httpserver.HttpServer;
 
-// 출연 내부 API Client의 요청 모양·응답 해제·오류 변환을 가짜 HTTP 서버로 확인한다 (#301, #514, #624, 강의 LectureApiClientTest와 같은 범위).
+// 출연 내부 API Client의 요청 모양·응답 해제·오류 변환을 가짜 HTTP 서버로 확인한다 (#301, #514, #624, #713, 강의 LectureApiClientTest와 같은 범위).
 // 실제 출연 API는 apps 통합 테스트가 부른다.
 class AppearanceApiClientTest {
 
@@ -373,6 +378,84 @@ class AppearanceApiClientTest {
             closedPort = socket.getLocalPort();
         }
         assertUnavailable(() -> client("http://127.0.0.1:" + closedPort).getWithdrawalBlocks(7L), 0);
+    }
+
+    @Test
+    void 출연_동기화_목록은_afterId와_size를_쿼리로_보내고_항목과_다음_키를_읽는다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"출연 동기화 목록을 조회했습니다.","data":{"items":[
+                  {"id":31,"hostId":1,"guestId":2,"result":"SCHEDULED","scheduledAt":"2026-11-20T20:00:00","version":0},
+                  {"id":32,"hostId":1,"guestId":3,"result":"NO_SHOW","scheduledAt":"2026-11-21T20:00:00.123456","version":2}],
+                  "nextAfterId":32}}""");
+
+        AppearanceSyncPageDto page = client().getSyncAppearances(30L, 2);
+
+        assertThat(requests).containsExactly("/api/v1/internal/appearances/sync/appearances?afterId=30&size=2 key=" + API_KEY);
+        assertThat(page.items()).containsExactly(
+                new AppearanceSyncDto(31L, 1L, 2L, AppearanceResult.SCHEDULED, LocalDateTime.parse("2026-11-20T20:00:00"), 0L),
+                new AppearanceSyncDto(32L, 1L, 3L, AppearanceResult.NO_SHOW,
+                        LocalDateTime.parse("2026-11-21T20:00:00.123456"), 2L));
+        assertThat(page.nextAfterId()).isEqualTo(32L);
+    }
+
+    @Test
+    void 출연_동기화_목록은_afterId를_생략하면_처음부터이고_마지막_페이지의_다음_키는_null이다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[],"nextAfterId":null}}""");
+
+        AppearanceSyncPageDto page = client().getSyncAppearances(null, 100);
+
+        assertThat(requests).containsExactly("/api/v1/internal/appearances/sync/appearances?size=100 key=" + API_KEY);
+        assertThat(page.items()).isEmpty();
+        assertThat(page.nextAfterId()).isNull();
+    }
+
+    @Test
+    void 출연_동기화_목록의_필수_필드가_빠지거나_모르는_결과면_호출_불가_예외로_바뀐다() {
+        String page = """
+                {"statusCode":200,"message":"","data":{"items":[%s],"nextAfterId":null}}""";
+        // version 없음
+        respond(200, "application/json", page.formatted("""
+                {"id":31,"hostId":1,"guestId":2,"result":"SCHEDULED","scheduledAt":"2026-11-20T20:00:00"}"""));
+        assertUnavailable(() -> client().getSyncAppearances(null, 100), 200);
+
+        // 계약에 없는 결과
+        respond(200, "application/json", page.formatted("""
+                {"id":31,"hostId":1,"guestId":2,"result":"ESTABLISHED","scheduledAt":"2026-11-20T20:00:00","version":0}"""));
+        assertUnavailable(() -> client().getSyncAppearances(null, 100), 200);
+
+        respond(200, "application/json", "{\"statusCode\":200,\"message\":\"\",\"data\":{}}");
+        assertUnavailable(() -> client().getSyncAppearances(null, 100), 200);
+    }
+
+    @Test
+    void 리뷰_동기화_목록은_afterId와_size를_쿼리로_보내고_공개된_리뷰를_읽는다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"공개된 출연 리뷰 동기화 목록을 조회했습니다.","data":{"items":[
+                  {"reviewId":51,"appearanceId":31,"revieweeUserId":2,"rating":4}],"nextAfterId":null}}""");
+
+        AppearanceReviewSyncPageDto page = client().getSyncReviews(50L, 500);
+
+        assertThat(requests).containsExactly("/api/v1/internal/appearances/sync/reviews?afterId=50&size=500 key=" + API_KEY);
+        assertThat(page.items()).containsExactly(new AppearanceReviewSyncDto(51L, 31L, 2L, 4));
+        assertThat(page.nextAfterId()).isNull();
+    }
+
+    @Test
+    void 리뷰_동기화_목록의_필수_필드가_빠지면_호출_불가_예외이고_요청_값_오류는_거절_예외다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[{"reviewId":51,"appearanceId":31,"rating":4}],
+                 "nextAfterId":null}}""");
+        assertUnavailable(() -> client().getSyncReviews(null, 100), 200);
+
+        respond(400, "application/problem+json", """
+                {"status":400,"detail":"요청 값이 올바르지 않습니다.","code":"INVALID_REQUEST"}""");
+        assertThatThrownBy(() -> client().getSyncReviews(null, 501))
+                .isInstanceOfSatisfying(AppearanceApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(AppearanceApiCallException.Reason.REJECTED);
+                    assertThat(e.getStatus()).isEqualTo(400);
+                    assertThat(e.getCode()).isEqualTo("INVALID_REQUEST");
+                });
     }
 
     private static void assertUnavailable(Runnable call, int status) {
