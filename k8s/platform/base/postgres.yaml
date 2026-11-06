@@ -40,7 +40,7 @@ spec:
     config:
       postgresql:
         timezone: Asia/Seoul
-        # 앱 6개 × HikariCP 기본 10 + auxiliary-app 5(#714) + rolling surge 1개 10 = 75.
+        # HikariCP 풀: 앱 5개 × 10 + chat-app 20 + auxiliary-app 5(#714) + rolling surge 1개 10 = 85. 슈퍼유저 예약 3을 뺀 97 안이다(#726).
         max_connections: 100
         shared_buffers: 128MB
         # 기본값 4GB는 node 메모리보다 커서 limit에 맞춘다(512Mi의 절반, #726).

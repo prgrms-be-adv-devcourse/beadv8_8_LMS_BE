@@ -1,5 +1,5 @@
 # 로컬 개발용 Envoy (#508). 운영 Envoy Gateway의 JWT 검증·사용자 헤더 전달을 k3d 없이 재현한다.
-# 호스트에서 실행한 앱(각 앱 application-local.yaml의 포트 8081~8086)으로 보낸다. 사용법은 docs/dev/local.md.
+# 호스트에서 실행한 앱(각 앱 application-local.yaml의 포트 8081~8087)으로 보낸다. 사용법은 docs/dev/local.md.
 #
 # 원본은 아래 manifest다. 원본을 바꾸면 이 파일도 같이 고친다(docs/deploy/gateway.md "로컬 Envoy").
 # - k8s/gateway/base/gateway.yaml: ClientTrafficPolicy(위조 헤더 제거·XFF·timeout), api-not-found(404)
@@ -123,6 +123,13 @@ static_resources:
               - match: { path_separated_prefix: /api/v1/inquiries }
                 route: { cluster: customer-support-app, timeout: 30s }
                 typed_per_filter_config: *jwt
+              # auxiliary-app: 챗봇 모듈 경로와 앱 하나의 Swagger 경로(apps/auxiliary-app/k8s/base/gateway.yaml)
+              - match: { path_separated_prefix: /api/v1/chatbot }
+                route: { cluster: auxiliary-app, timeout: 30s }
+                typed_per_filter_config: *jwt
+              - match: { path_separated_prefix: /api/v1/auxiliary }
+                route: { cluster: auxiliary-app, timeout: 30s }
+                typed_per_filter_config: *jwt
               # 나머지는 404다. 운영의 api-not-found(/api·/actuator·/swagger-ui·/v3/api-docs)와 같고
               # 내부 API(/api/v1/internal/**)도 여기서 막힌다. 운영의 FE(/) 자리도 로컬에서는 404다.
               - match: { prefix: / }
@@ -226,3 +233,12 @@ static_resources:
       endpoints:
       - lb_endpoints:
         - endpoint: { address: { socket_address: { address: host.docker.internal, port_value: 8086 } } }
+  - name: auxiliary-app
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: auxiliary-app
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: host.docker.internal, port_value: 8087 } } }
