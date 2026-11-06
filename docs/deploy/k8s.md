@@ -239,9 +239,12 @@ es /_security/role/chatbot -X PUT -d "$desc"
 resp=$(es /_security/api_key -X POST -d "{\"name\":\"auxiliary-app-chatbot\",\"expiration\":\"90d\",\"role_descriptors\":{\"chatbot\":${desc}},\"metadata\":{\"app\":\"auxiliary-app\",\"issue\":726}}")
 printf '%s' "$resp" | jq '{id, name, expiration: (.expiration / 1000 | todate)}'
 key=$(printf '%s' "$resp" | jq -r '.encoded // empty')
-[ -n "$key" ] && { sed -i '' '/^ES_API_KEY=/d' ~/.hapbang/prod-secrets.env; printf 'ES_API_KEY=%s\n' "$key" >> ~/.hapbang/prod-secrets.env; echo saved; }
+f=~/.hapbang/prod-secrets.env
+[ -n "$key" ] && ( umask 077; { grep -v '^ES_API_KEY=' "$f"; printf 'ES_API_KEY=%s\n' "$key"; } > "$f.tmp" ) && mv "$f.tmp" "$f" && grep -c '^ES_API_KEY=' "$f"
 unset resp key
 ```
+
+마지막 줄은 `1`을 출력해야 한다. 기존 `ES_API_KEY` 줄을 지우고 새 줄 하나만 남기므로 `seal-app-secrets.sh`와 아래 확인 단계가 새 key를 읽는다. `sed -i`는 macOS와 Linux의 문법이 달라 쓰지 않는다.
 
 key로 권한을 확인한다. 기대 결과는 순서대로 `api_key`, 200, 200, 200, 403이다. 확인용 index는 바로 지운다.
 
