@@ -66,10 +66,14 @@ class CouponCreateTest {
     }
 
     @Test
-    void 발급_시작이_종료보다_1나노초라도_앞서면_발행한다() {
-        CouponTerms terms = lectureRate().issuePeriod(ISSUE_END.minusNanos(1), ISSUE_END).build();
+    void 발급_시작이_종료보다_1마이크로초라도_앞서면_발행하고_마이크로초_아래_차이는_같은_시각으로_본다() {
+        CouponTerms terms = lectureRate().issuePeriod(ISSUE_END.minusNanos(1_000), ISSUE_END).build();
 
         assertThatCode(() -> Coupon.createSeller(SELLER_ID, terms, NOW)).doesNotThrowAnyException();
+        // DB(timestamptz)는 마이크로초까지라 1나노초 차이는 저장하면 같은 시각이 된다
+        assertError(() -> Coupon.createSeller(SELLER_ID,
+                        lectureRate().issuePeriod(ISSUE_END.plusNanos(1), ISSUE_END.plusNanos(999)).build(), NOW),
+                CouponDomainError.INVALID_ISSUE_PERIOD);
     }
 
     @ParameterizedTest
@@ -127,10 +131,18 @@ class CouponCreateTest {
                 CouponDomainError.LECTURE_TARGET_REQUIRED);
     }
 
-    @Test
-    void 강의_가격_snapshot은_음수일_수_없다() {
-        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().basePrice(-1L).build(), NOW),
+    @ParameterizedTest
+    @ValueSource(longs = {0, -1})
+    void 강의_가격_snapshot은_1HP_이상이어야_한다(long price) {
+        // 무료 강의는 등록하지 않는다
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().basePrice(price).build(), NOW),
                 CouponDomainError.INVALID_BASE_PRICE);
+    }
+
+    @Test
+    void 강의_가격_snapshot_1HP는_발행한다() {
+        assertThatCode(() -> Coupon.createSeller(SELLER_ID, lectureRate().basePrice(1L).build(), NOW))
+                .doesNotThrowAnyException();
     }
 
     @Test
@@ -163,6 +175,23 @@ class CouponCreateTest {
                 CouponDomainError.INVALID_FIXED_EXPIRY);
         assertError(() -> Coupon.createSeller(SELLER_ID,
                         lectureRate().expiry(ExpiryType.FIXED, 30, ISSUE_END).build(), NOW),
+                CouponDomainError.INVALID_FIXED_EXPIRY);
+    }
+
+    @Test
+    void 고정_만료_시각이_발급_종료와_같거나_앞서면_거절한다() {
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().fixed(ISSUE_END).build(), NOW),
+                CouponDomainError.INVALID_FIXED_EXPIRY);
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().fixed(ISSUE_END.minusNanos(1)).build(), NOW),
+                CouponDomainError.INVALID_FIXED_EXPIRY);
+    }
+
+    @Test
+    void 고정_만료_시각이_발급_종료보다_1마이크로초라도_뒤면_발행하고_마이크로초_아래_차이는_같은_시각으로_본다() {
+        CouponTerms terms = lectureRate().fixed(ISSUE_END.plusNanos(1_000)).build();
+
+        assertThatCode(() -> Coupon.createSeller(SELLER_ID, terms, NOW)).doesNotThrowAnyException();
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().fixed(ISSUE_END.plusNanos(1)).build(), NOW),
                 CouponDomainError.INVALID_FIXED_EXPIRY);
     }
 

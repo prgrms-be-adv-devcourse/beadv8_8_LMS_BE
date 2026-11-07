@@ -66,16 +66,16 @@ public class CouponOpenUseCase {
     }
 
     /** 판매자 쿠폰 승인. 예산 단계가 없다 */
-    public CouponView approve(long couponId) {
+    public CouponView approve(long adminId, long couponId) {
         Coupon coupon = couponSupport.findCoupon(couponId);
         requireOpenable(coupon, CouponType.SELLER);
         CouponView view = coupon.getStatus() == CouponStatus.OPEN ? commitOpenAndAllowIssue(couponId) : openIssue(coupon);
-        log.info("판매자 쿠폰을 승인해 발급을 열었다 couponId={}", couponId);
+        log.info("판매자 쿠폰을 승인해 발급을 열었다 couponId={}, adminId={}", couponId, adminId);
         return view;
     }
 
     /** 플랫폼 쿠폰 발행. 예산 연동(billing)이 없으면 열지 않는다 */
-    public CouponView open(long couponId) {
+    public CouponView open(long adminId, long couponId) {
         PromotionBudgetPort budgetPort = budgetPortProvider.getIfAvailable();
         if (budgetPort == null) {
             throw new CouponException(CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE,
@@ -85,7 +85,7 @@ public class CouponOpenUseCase {
         Coupon coupon = preparation.coupon();
         if (coupon.getStatus() == CouponStatus.OPEN) {
             CouponView view = commitOpenAndAllowIssue(couponId);
-            log.info("열린 플랫폼 쿠폰의 Redis 발급 접수를 다시 열었다 couponId={}", couponId);
+            log.info("열린 플랫폼 쿠폰의 Redis 발급 접수를 다시 열었다 couponId={}, adminId={}", couponId, adminId);
             return view;
         }
         BudgetWork work = preparation.work();
@@ -100,7 +100,7 @@ public class CouponOpenUseCase {
             }
         }
         CouponView view = openIssue(coupon);
-        log.info("플랫폼 쿠폰 발급을 열었다 couponId={}", couponId);
+        log.info("플랫폼 쿠폰 발급을 열었다 couponId={}, adminId={}", couponId, adminId);
         return view;
     }
 

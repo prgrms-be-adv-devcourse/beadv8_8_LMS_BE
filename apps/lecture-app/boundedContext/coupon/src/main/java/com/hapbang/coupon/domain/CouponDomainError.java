@@ -21,9 +21,9 @@ public enum CouponDomainError {
     SELLER_TARGET_LECTURE_ONLY("판매자 쿠폰은 특정 강의 대상만 발행할 수 있습니다."),
     LECTURE_TARGET_REQUIRED("특정 강의 대상 쿠폰은 강의와 강의 가격이 필요합니다."),
     LECTURE_TARGET_NOT_ALLOWED("모든 강의 대상 쿠폰에는 강의와 강의 가격을 지정하지 않습니다."),
-    INVALID_BASE_PRICE("강의 가격은 0 HP 이상이어야 합니다."),
+    INVALID_BASE_PRICE("강의 가격은 1 HP 이상이어야 합니다."),
     INVALID_RELATIVE_EXPIRY("접수 기준 만료는 1일 이상이어야 하고 고정 만료 시각을 함께 지정하지 않습니다."),
-    INVALID_FIXED_EXPIRY("고정 만료는 만료 시각이 필요하고 만료 일수를 함께 지정하지 않습니다."),
+    INVALID_FIXED_EXPIRY("고정 만료는 발급 종료 시각보다 뒤의 만료 시각이 필요하고 만료 일수를 함께 지정하지 않습니다."),
 
     // 상태 전이
     INVALID_STATUS_TRANSITION("현재 상태에서는 할 수 없는 요청입니다."),

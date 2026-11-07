@@ -25,6 +25,8 @@ public enum CouponErrorCode {
     NOT_COUPON_OWNER(HttpStatus.FORBIDDEN, "본인의 쿠폰만 처리할 수 있습니다."),
     /** 지금 쿠폰 상태에서 허용하지 않는 상태 전이 */
     INVALID_COUPON_STATUS(HttpStatus.CONFLICT, "현재 쿠폰 상태에서는 처리할 수 없습니다."),
+    /** 같은 쿠폰을 다른 요청이 먼저 바꿔 낙관적 락(@Version)이 충돌했다. 다시 읽고 시도하면 된다 */
+    COUPON_CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청과 동시에 바뀌었습니다. 다시 시도해 주세요."),
     /** 발행 검증 실패(수량·기간·할인 값·대상 등). 어느 규칙인지는 detail로 알린다 */
     INVALID_COUPON_POLICY(HttpStatus.BAD_REQUEST, "쿠폰 발행 조건이 올바르지 않습니다."),
 

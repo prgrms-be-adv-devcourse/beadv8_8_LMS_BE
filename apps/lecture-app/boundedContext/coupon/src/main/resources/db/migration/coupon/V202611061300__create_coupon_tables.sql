@@ -53,8 +53,9 @@ create table coupon.coupon
     constraint ck_coupon_issue_period check (issue_start_at < issue_end_at),
     -- 판매자 쿠폰은 본인 특정 강의에만 적용한다
     constraint ck_coupon_seller_target check (type = 'PLATFORM' or target_type = 'LECTURE'),
+    -- 무료 강의는 등록하지 않으므로 특정 강의 가격 snapshot은 1 HP 이상이다
     constraint ck_coupon_lecture_target check (
-        (target_type = 'LECTURE' and lecture_id is not null and base_price is not null and base_price >= 0)
+        (target_type = 'LECTURE' and lecture_id is not null and base_price is not null and base_price > 0)
             or (target_type = 'ANY_LECTURE' and lecture_id is null and base_price is null)),
     constraint ck_coupon_discount_value check (
         (discount_type = 'RATE' and discount_value between 1 and 100)
@@ -62,9 +63,10 @@ create table coupon.coupon
     constraint ck_coupon_max_discount check (
         (target_type = 'ANY_LECTURE' and discount_type = 'RATE' and max_discount_amount is not null and max_discount_amount >= 1)
             or (not (target_type = 'ANY_LECTURE' and discount_type = 'RATE') and max_discount_amount is null)),
+    -- 고정 만료 시각은 발급 종료 시각보다 뒤다
     constraint ck_coupon_expiry check (
         (expiry_type = 'RELATIVE' and expiry_days is not null and expiry_days >= 1 and expires_at is null)
-            or (expiry_type = 'FIXED' and expires_at is not null and expiry_days is null))
+            or (expiry_type = 'FIXED' and expires_at is not null and expiry_days is null and expires_at > issue_end_at))
 );
 
 -- 발급 쿠폰(회원이 받은 한 장). 행은 발급 확정 소비자가 넣는다.
@@ -94,8 +96,8 @@ create table coupon.member_coupon
     constraint ck_member_coupon_generation check (generation >= 0)
 );
 
+-- coupon_id로 찾는 조회는 uk_member_coupon_issue_request(coupon_id, issue_request_id)의 앞 컬럼을 쓴다
 create index idx_member_coupon_member_status on coupon.member_coupon (member_id, status);
-create index idx_member_coupon_coupon on coupon.member_coupon (coupon_id);
 create index idx_member_coupon_status_expires_at on coupon.member_coupon (status, expires_at);
 
 -- 발급 요청의 최종 결과. 발급 확정 소비자가 쓰고, 요청 상태 조회가 읽는다. 발급 요청 ID는 쿠폰 안에서만 유일하다.

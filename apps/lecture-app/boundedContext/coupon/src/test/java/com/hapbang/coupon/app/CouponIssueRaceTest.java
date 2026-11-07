@@ -1,5 +1,6 @@
 package com.hapbang.coupon.app;
 
+import static com.hapbang.coupon.domain.CouponFixture.ADMIN_ID;
 import static com.hapbang.coupon.domain.CouponFixture.SELLER_ID;
 import static com.hapbang.coupon.domain.CouponFixture.lectureRate;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -98,7 +99,7 @@ class CouponIssueRaceTest {
             invocation.callRealMethod();
             throw new CouponIssueStoreUnavailableException("응답 유실", null);
         }).doCallRealMethod().when(store).prepare(any());
-        assertThatThrownBy(() -> openUseCase.approve(couponId))
+        assertThatThrownBy(() -> openUseCase.approve(ADMIN_ID, couponId))
                 .isInstanceOf(CouponIssueStoreUnavailableException.class);
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.REVIEW);
         assertThat(redisStatus()).isEqualTo("READY");
@@ -108,29 +109,29 @@ class CouponIssueRaceTest {
             invocation.callRealMethod();
             throw new CouponIssueStoreUnavailableException("응답 유실", null);
         }).doCallRealMethod().when(store).allowIssue(anyLong(), anyLong());
-        assertThatThrownBy(() -> openUseCase.approve(couponId))
+        assertThatThrownBy(() -> openUseCase.approve(ADMIN_ID, couponId))
                 .isInstanceOf(CouponIssueStoreUnavailableException.class);
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.OPEN);
         assertThat(redisStatus()).isEqualTo("OPEN");
 
         // 3) 같은 요청을 다시 보내면 version을 올려 다시 열고 성공한다
-        assertThat(openUseCase.approve(couponId).status()).isEqualTo(CouponStatus.OPEN);
+        assertThat(openUseCase.approve(ADMIN_ID, couponId).status()).isEqualTo(CouponStatus.OPEN);
         assertThat(redisStatus()).isEqualTo("OPEN");
         assertThat(redisFence()).isEqualTo(coupon.getVersion());
     }
 
     @Test
     void 재개의_접수_열기가_그_뒤의_중단보다_늦게_도착하면_무시되어_DB와_Redis가_모두_SUSPENDED다() {
-        openUseCase.approve(couponId);
-        operateUseCase.suspend(couponId);
+        openUseCase.approve(ADMIN_ID, couponId);
+        operateUseCase.suspend(ADMIN_ID, couponId);
         // 재개가 DB OPEN을 커밋한 뒤, Redis 접수 열기가 도착하기 전에 중단이 끝난다. 늦게 도착한 열기의 응답도 잃는다
         doAnswer(invocation -> {
-            operateUseCase.suspend(couponId);
+            operateUseCase.suspend(ADMIN_ID, couponId);
             invocation.callRealMethod();
             throw new CouponIssueStoreUnavailableException("응답 유실", null);
         }).doCallRealMethod().when(store).allowIssue(anyLong(), anyLong());
 
-        assertThatThrownBy(() -> operateUseCase.resume(couponId))
+        assertThatThrownBy(() -> operateUseCase.resume(ADMIN_ID, couponId))
                 .isInstanceOf(CouponIssueStoreUnavailableException.class);
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.SUSPENDED);
@@ -139,14 +140,14 @@ class CouponIssueRaceTest {
 
     @Test
     void 중단의_두_번째_막기가_그_뒤의_재개보다_늦게_도착하면_무시되어_DB와_Redis가_모두_OPEN이다() {
-        openUseCase.approve(couponId);
+        openUseCase.approve(ADMIN_ID, couponId);
         // 중단이 DB SUSPENDED를 커밋한 뒤, 두 번째 막기가 도착하기 전에 재개가 끝난다
         doCallRealMethod().doAnswer(invocation -> {
-            operateUseCase.resume(couponId);
+            operateUseCase.resume(ADMIN_ID, couponId);
             return invocation.callRealMethod();
         }).when(store).block(anyLong(), anyString(), anyLong());
 
-        operateUseCase.suspend(couponId);
+        operateUseCase.suspend(ADMIN_ID, couponId);
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.OPEN);
         assertThat(redisStatus()).isEqualTo("OPEN");
@@ -154,12 +155,12 @@ class CouponIssueRaceTest {
 
     @Test
     void 중단의_첫_막기만_반영되고_DB_전이가_실패해도_재개를_다시_부르면_version을_올려_접수를_연다() {
-        openUseCase.approve(couponId);
+        openUseCase.approve(ADMIN_ID, couponId);
         // 중단이 지금 version으로 Redis를 막은 뒤 DB 전이에 실패했다: DB OPEN, Redis SUSPENDED(같은 version)
         store.block(couponId, "SUSPENDED", coupon.getVersion());
         assertThat(redisStatus()).isEqualTo("SUSPENDED");
 
-        assertThat(operateUseCase.resume(couponId).status()).isEqualTo(CouponStatus.OPEN);
+        assertThat(operateUseCase.resume(ADMIN_ID, couponId).status()).isEqualTo(CouponStatus.OPEN);
 
         assertThat(redisStatus()).isEqualTo("OPEN");
     }

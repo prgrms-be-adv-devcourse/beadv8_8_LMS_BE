@@ -12,12 +12,14 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
+import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponDomainException;
 import com.hapbang.testsupport.WebSliceTestConfiguration;
@@ -81,6 +83,14 @@ class CouponExceptionHandlerTest {
     }
 
     @Test
+    void 낙관적_락_충돌은_409_동시_변경_코드로_응답한다() throws Exception {
+        mockMvc.perform(get("/api/v1/coupons/samples/optimistic-lock"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_CONCURRENT_UPDATE"))
+                .andExpect(jsonPath("$.detail").value(CouponErrorCode.COUPON_CONCURRENT_UPDATE.getMessage()));
+    }
+
+    @Test
     void 쿠폰_예외가_아니면_고르지_않는다() {
         // 운영에서는 같은 JVM의 강의 공통 핸들러가 받는다. 이 슬라이스에는 그 핸들러가 없어 예외가 그대로 나온다
         assertThatThrownBy(() -> mockMvc.perform(get("/api/v1/coupons/samples/unexpected")))
@@ -119,6 +129,11 @@ class CouponExceptionHandlerTest {
         @GetMapping("/api/v1/coupons/samples/store-unavailable")
         void storeUnavailable() {
             throw new CouponIssueStoreUnavailableException("발급 접수에 Redis를 쓰지 못했다", null);
+        }
+
+        @GetMapping("/api/v1/coupons/samples/optimistic-lock")
+        void optimisticLock() {
+            throw new ObjectOptimisticLockingFailureException(Coupon.class, 1L);
         }
 
         @GetMapping("/api/v1/coupons/samples/unexpected")

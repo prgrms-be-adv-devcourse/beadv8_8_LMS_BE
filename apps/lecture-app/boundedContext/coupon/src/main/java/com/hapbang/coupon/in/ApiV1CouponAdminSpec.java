@@ -21,24 +21,24 @@ public interface ApiV1CouponAdminSpec {
             description = "관리자. DRAFT → OPEN. 프로모션 예산을 예약하고 발급 저장소를 준비한 뒤 연다. "
                     + "예산 거절은 409 PROMOTION_BUDGET_REJECTED, 예산 결과를 모르면 503 PROMOTION_BUDGET_UNAVAILABLE, "
                     + "발급 저장소 준비 실패는 503 COUPON_ISSUE_STORE_UNAVAILABLE이며 쿠폰은 DRAFT로 남는다. 503이면 같은 요청을 다시 보낸다.")
-    RsData<CouponView> open(Long couponId);
+    RsData<CouponView> open(Long adminId, Long couponId);
 
     @Operation(summary = "판매자 쿠폰 승인", description = "관리자. REVIEW → OPEN. 발급 저장소를 준비한 뒤 연다.")
-    RsData<CouponView> approve(Long couponId);
+    RsData<CouponView> approve(Long adminId, Long couponId);
 
     @Operation(summary = "판매자 쿠폰 거절", description = "관리자. REVIEW → REJECTED. 사유 필수.")
-    RsData<CouponView> reject(Long couponId, CouponRejectRequest request);
+    RsData<CouponView> reject(Long adminId, Long couponId, CouponRejectRequest request);
 
     @Operation(summary = "발급 중단",
             description = "관리자. 새 발급 접수를 먼저 막고 SUSPENDED로 바꾼다. 이미 중단된 쿠폰에 다시 보내면 접수 차단만 다시 확인한다. "
                     + "발급 저장소 장애면 503이고 상태는 그대로다.")
-    RsData<CouponView> suspend(Long couponId);
+    RsData<CouponView> suspend(Long adminId, Long couponId);
 
     @Operation(summary = "발급 재개",
             description = "관리자. SUSPENDED → OPEN 뒤 발급 접수를 다시 연다. 접수 재개에 실패하면 503이며, 같은 요청을 다시 보내면 접수 재개만 다시 한다.")
-    RsData<CouponView> resume(Long couponId);
+    RsData<CouponView> resume(Long adminId, Long couponId);
 
     @Operation(summary = "발급 종료",
             description = "관리자. 새 발급 접수를 먼저 막고 CLOSED로 바꾼다. 종료한 쿠폰은 다시 열지 않는다.")
-    RsData<CouponView> close(Long couponId);
+    RsData<CouponView> close(Long adminId, Long couponId);
 }

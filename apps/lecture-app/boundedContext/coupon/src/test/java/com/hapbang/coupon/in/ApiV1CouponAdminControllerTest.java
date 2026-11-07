@@ -77,7 +77,7 @@ class ApiV1CouponAdminControllerTest {
 
     @Test
     void 열기는_200과_바뀐_쿠폰을_돌려준다() throws Exception {
-        given(couponAdminFacade.open(COUPON_ID)).willReturn(view(CouponStatus.OPEN));
+        given(couponAdminFacade.open(ADMIN_ID, COUPON_ID)).willReturn(view(CouponStatus.OPEN));
 
         mockMvc.perform(post("/api/v1/coupons/admin/{couponId}/open", COUPON_ID).with(admin()).with(csrf()))
                 .andExpect(status().isOk())
@@ -88,7 +88,7 @@ class ApiV1CouponAdminControllerTest {
 
     @Test
     void 열기_실패는_쿠폰_오류_코드로_응답한다() throws Exception {
-        given(couponAdminFacade.open(COUPON_ID))
+        given(couponAdminFacade.open(ADMIN_ID, COUPON_ID))
                 .willThrow(new CouponException(CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE));
 
         mockMvc.perform(post("/api/v1/coupons/admin/{couponId}/open", COUPON_ID).with(admin()).with(csrf()))
@@ -97,8 +97,8 @@ class ApiV1CouponAdminControllerTest {
     }
 
     @Test
-    void 거절은_사유를_넘긴다() throws Exception {
-        given(couponAdminFacade.reject(COUPON_ID, "할인율이 과도합니다")).willReturn(view(CouponStatus.REJECTED));
+    void 거절은_로그인_관리자_ID와_사유를_넘긴다() throws Exception {
+        given(couponAdminFacade.reject(ADMIN_ID, COUPON_ID, "할인율이 과도합니다")).willReturn(view(CouponStatus.REJECTED));
 
         mockMvc.perform(post("/api/v1/coupons/admin/{couponId}/reject", COUPON_ID)
                         .with(admin()).with(csrf())
@@ -106,6 +106,8 @@ class ApiV1CouponAdminControllerTest {
                         .content("{\"reason\":\"할인율이 과도합니다\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("REJECTED"));
+
+        verify(couponAdminFacade).reject(ADMIN_ID, COUPON_ID, "할인율이 과도합니다");
     }
 
     @ParameterizedTest
@@ -117,7 +119,7 @@ class ApiV1CouponAdminControllerTest {
                         .content(body))
                 .andExpect(status().isBadRequest());
 
-        verify(couponAdminFacade, never()).reject(anyLong(), anyString());
+        verify(couponAdminFacade, never()).reject(anyLong(), anyLong(), anyString());
     }
 
     private static RequestPostProcessor admin() {

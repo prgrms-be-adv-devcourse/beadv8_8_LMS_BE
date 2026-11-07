@@ -26,27 +26,27 @@ public class CouponAdminFacade {
         return couponCreateUseCase.createPlatform(adminId, command);
     }
 
-    public CouponView open(long couponId) {
-        return couponOpenUseCase.open(couponId);
+    public CouponView open(long adminId, long couponId) {
+        return couponOpenUseCase.open(adminId, couponId);
     }
 
-    public CouponView approve(long couponId) {
-        return couponOpenUseCase.approve(couponId);
+    public CouponView approve(long adminId, long couponId) {
+        return couponOpenUseCase.approve(adminId, couponId);
     }
 
-    public CouponView reject(long couponId, String reason) {
-        return couponReviewUseCase.reject(couponId, reason);
+    public CouponView reject(long adminId, long couponId, String reason) {
+        return couponReviewUseCase.reject(adminId, couponId, reason);
     }
 
-    public CouponView suspend(long couponId) {
-        return couponOperateUseCase.suspend(couponId);
+    public CouponView suspend(long adminId, long couponId) {
+        return couponOperateUseCase.suspend(adminId, couponId);
     }
 
-    public CouponView resume(long couponId) {
-        return couponOperateUseCase.resume(couponId);
+    public CouponView resume(long adminId, long couponId) {
+        return couponOperateUseCase.resume(adminId, couponId);
     }
 
-    public CouponView close(long couponId) {
-        return couponOperateUseCase.close(couponId);
+    public CouponView close(long adminId, long couponId) {
+        return couponOperateUseCase.close(adminId, couponId);
     }
 }

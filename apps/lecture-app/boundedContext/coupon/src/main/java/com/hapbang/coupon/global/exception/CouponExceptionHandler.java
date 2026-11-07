@@ -4,6 +4,7 @@ import java.util.Map;
 
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -22,7 +23,8 @@ import lombok.extern.slf4j.Slf4j;
  * <ul>
  *     <li>쿠폰 패키지의 컨트롤러에만 걸리고, 강의 공통 핸들러보다 먼저 고르도록 우선순위를 가장 높게 둔다. 그러지 않으면 강의 공통
  *     핸들러의 {@code Exception} 처리가 쿠폰 예외를 500으로 응답한다.</li>
- *     <li>쿠폰 예외({@link CouponException}, 도메인 규칙 위반 {@link CouponDomainException}, 발급 저장소·강의 조회 연결 실패)만 처리한다.
+ *     <li>쿠폰 예외({@link CouponException}, 도메인 규칙 위반 {@link CouponDomainException}, 발급 저장소·강의 조회 연결 실패)와
+ *     쿠폰 저장 중 낙관적 락 충돌만 처리한다.
  *     요청 값 검증·권한 거절·없는 경로·처리하지 못한 예외는 여기서 고르지 않으므로 같은 JVM의
  *     강의 공통 핸들러(패키지 제한 없음)가 공통 코드로 응답한다. 쿠폰은 강의의 global을 참조할 수 없어 자기 예외만 여기서 바꾼다.</li>
  *     <li>다른 예외를 오류 코드로 바꿀 때도 {@link #respond}로 응답한다(같은 형식·같은 로그).</li>
@@ -54,6 +56,16 @@ public class CouponExceptionHandler {
     @ExceptionHandler(LectureCatalogUnavailableException.class)
     public ResponseEntity<ProblemDetail> handleLectureCatalogUnavailable(LectureCatalogUnavailableException exception) {
         return respond(CouponErrorCode.LECTURE_CATALOG_UNAVAILABLE, null, Map.of(), exception);
+    }
+
+    /**
+     * 쿠폰 저장 중 낙관적 락(@Version)이 충돌했다. 다른 요청이 먼저 바꿨을 뿐이라 409로 다시 시도하게 한다.
+     * JPA가 바꾼 {@code ObjectOptimisticLockingFailureException}도 이 타입의 하위라 함께 받는다.
+     * 쿠폰 패키지의 컨트롤러에서 난 것만 여기 온다(다른 컨트롤러는 강의 공통 핸들러가 받는다)
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ProblemDetail> handleOptimisticLockingFailure(OptimisticLockingFailureException exception) {
+        return respond(CouponErrorCode.COUPON_CONCURRENT_UPDATE, null, Map.of(), exception);
     }
 
     /** 도메인 오류의 응답 코드. 도메인 오류가 늘면 컴파일 오류로 여기를 고치게 한다(default를 두지 않는다) */

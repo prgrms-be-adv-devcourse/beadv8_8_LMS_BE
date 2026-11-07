@@ -56,7 +56,7 @@ class CouponOperateUseCaseTest {
     void 중단은_지금_version으로_Redis를_막은_뒤_SUSPENDED로_커밋하고_커밋된_version으로_한_번_더_막는다() {
         given(openSellerCoupon());
 
-        var view = useCase.suspend(COUPON_ID);
+        var view = useCase.suspend(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.SUSPENDED);
         InOrder order = inOrder(issueStore);
@@ -71,7 +71,7 @@ class CouponOperateUseCaseTest {
         doThrow(new CouponIssueStoreUnavailableException("확인 실패", null)).when(issueStore)
                 .block(anyLong(), anyString(), anyLong());
 
-        assertThatThrownBy(() -> useCase.suspend(COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
+        assertThatThrownBy(() -> useCase.suspend(ADMIN_ID, COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.OPEN);
     }
@@ -81,7 +81,7 @@ class CouponOperateUseCaseTest {
         given(openSellerCoupon());
         coupon.suspend(NOW);
 
-        var view = useCase.suspend(COUPON_ID);
+        var view = useCase.suspend(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.SUSPENDED);
         verify(issueStore, times(2)).block(COUPON_ID, "SUSPENDED", 0);
@@ -104,10 +104,10 @@ class CouponOperateUseCaseTest {
         when(issueStore.allowIssue(anyLong(), anyLong()))
                 .thenThrow(new CouponIssueStoreUnavailableException("연결 실패", null))
                 .thenReturn(AllowResult.APPLIED);
-        assertThatThrownBy(() -> useCase.resume(COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
+        assertThatThrownBy(() -> useCase.resume(ADMIN_ID, COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.OPEN);
 
-        var view = useCase.resume(COUPON_ID);
+        var view = useCase.resume(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
         InOrder order = inOrder(issueStore);
@@ -122,7 +122,7 @@ class CouponOperateUseCaseTest {
         coupon.suspend(NOW);
         when(issueStore.allowIssue(anyLong(), anyLong())).thenThrow(new IllegalStateException("CLOSED"));
 
-        assertCouponError(() -> useCase.resume(COUPON_ID), CouponErrorCode.INVALID_COUPON_STATUS);
+        assertCouponError(() -> useCase.resume(ADMIN_ID, COUPON_ID), CouponErrorCode.INVALID_COUPON_STATUS);
     }
 
     @Test
@@ -130,7 +130,7 @@ class CouponOperateUseCaseTest {
         given(openSellerCoupon());
         coupon.suspend(NOW);
 
-        var view = useCase.close(COUPON_ID);
+        var view = useCase.close(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.CLOSED);
         InOrder order = inOrder(issueStore);
@@ -151,7 +151,7 @@ class CouponOperateUseCaseTest {
             return null;
         }).when(issueStore).block(anyLong(), anyString(), anyLong());
 
-        var view = useCase.suspend(COUPON_ID);
+        var view = useCase.suspend(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.SUSPENDED);
         InOrder order = inOrder(issueStore);
@@ -166,7 +166,7 @@ class CouponOperateUseCaseTest {
         doThrow(new CouponIssueStoreUnavailableException("확인 실패", null)).when(issueStore)
                 .block(anyLong(), anyString(), anyLong());
 
-        assertThatThrownBy(() -> useCase.close(COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
+        assertThatThrownBy(() -> useCase.close(ADMIN_ID, COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.OPEN);
     }

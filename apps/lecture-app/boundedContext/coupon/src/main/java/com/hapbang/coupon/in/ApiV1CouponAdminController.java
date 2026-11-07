@@ -36,38 +36,38 @@ public class ApiV1CouponAdminController implements ApiV1CouponAdminSpec {
 
     @Override
     @PostMapping("/{couponId}/open")
-    public RsData<CouponView> open(@PathVariable("couponId") Long couponId) {
-        return RsData.ok("쿠폰 발급을 열었습니다.", couponAdminFacade.open(couponId));
+    public RsData<CouponView> open(@LoginUserId Long adminId, @PathVariable("couponId") Long couponId) {
+        return RsData.ok("쿠폰 발급을 열었습니다.", couponAdminFacade.open(adminId, couponId));
     }
 
     @Override
     @PostMapping("/{couponId}/approve")
-    public RsData<CouponView> approve(@PathVariable("couponId") Long couponId) {
-        return RsData.ok("쿠폰을 승인했습니다.", couponAdminFacade.approve(couponId));
+    public RsData<CouponView> approve(@LoginUserId Long adminId, @PathVariable("couponId") Long couponId) {
+        return RsData.ok("쿠폰을 승인했습니다.", couponAdminFacade.approve(adminId, couponId));
     }
 
     @Override
     @PostMapping("/{couponId}/reject")
-    public RsData<CouponView> reject(@PathVariable("couponId") Long couponId,
+    public RsData<CouponView> reject(@LoginUserId Long adminId, @PathVariable("couponId") Long couponId,
                                      @Valid @RequestBody CouponRejectRequest request) {
-        return RsData.ok("쿠폰을 거절했습니다.", couponAdminFacade.reject(couponId, request.reason()));
+        return RsData.ok("쿠폰을 거절했습니다.", couponAdminFacade.reject(adminId, couponId, request.reason()));
     }
 
     @Override
     @PostMapping("/{couponId}/suspend")
-    public RsData<CouponView> suspend(@PathVariable("couponId") Long couponId) {
-        return RsData.ok("쿠폰 발급을 중단했습니다.", couponAdminFacade.suspend(couponId));
+    public RsData<CouponView> suspend(@LoginUserId Long adminId, @PathVariable("couponId") Long couponId) {
+        return RsData.ok("쿠폰 발급을 중단했습니다.", couponAdminFacade.suspend(adminId, couponId));
     }
 
     @Override
     @PostMapping("/{couponId}/resume")
-    public RsData<CouponView> resume(@PathVariable("couponId") Long couponId) {
-        return RsData.ok("쿠폰 발급을 재개했습니다.", couponAdminFacade.resume(couponId));
+    public RsData<CouponView> resume(@LoginUserId Long adminId, @PathVariable("couponId") Long couponId) {
+        return RsData.ok("쿠폰 발급을 재개했습니다.", couponAdminFacade.resume(adminId, couponId));
     }
 
     @Override
     @PostMapping("/{couponId}/close")
-    public RsData<CouponView> close(@PathVariable("couponId") Long couponId) {
-        return RsData.ok("쿠폰 발급을 종료했습니다.", couponAdminFacade.close(couponId));
+    public RsData<CouponView> close(@LoginUserId Long adminId, @PathVariable("couponId") Long couponId) {
+        return RsData.ok("쿠폰 발급을 종료했습니다.", couponAdminFacade.close(adminId, couponId));
     }
 }

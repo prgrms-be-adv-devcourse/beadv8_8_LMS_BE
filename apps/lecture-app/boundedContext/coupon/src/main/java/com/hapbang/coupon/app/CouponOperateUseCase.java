@@ -55,10 +55,10 @@ public class CouponOperateUseCase {
     }
 
     /** 관리자 중단 */
-    public CouponView suspend(long couponId) {
+    public CouponView suspend(long adminId, long couponId) {
         CouponView view = block(couponId, null, CouponSupport.REDIS_SUSPENDED, CouponSupport.REDIS_SUSPENDED,
                 CouponStatus.SUSPENDED, coupon -> coupon.suspend(clock.instant()), CouponStatus.OPEN);
-        log.info("쿠폰 발급을 중단했다 couponId={}", couponId);
+        log.info("쿠폰 발급을 중단했다 couponId={}, adminId={}", couponId, adminId);
         return view;
     }
 
@@ -70,14 +70,14 @@ public class CouponOperateUseCase {
         return view;
     }
 
-    public CouponView close(long couponId) {
+    public CouponView close(long adminId, long couponId) {
         CouponView view = block(couponId, null, CouponSupport.REDIS_SUSPENDED, CouponSupport.REDIS_CLOSED,
                 CouponStatus.CLOSED, coupon -> coupon.close(clock.instant()), CouponStatus.OPEN, CouponStatus.SUSPENDED);
-        log.info("쿠폰 발급을 종료했다 couponId={}", couponId);
+        log.info("쿠폰 발급을 종료했다 couponId={}, adminId={}", couponId, adminId);
         return view;
     }
 
-    public CouponView resume(long couponId) {
+    public CouponView resume(long adminId, long couponId) {
         Coupon resumed = transaction.execute(status -> {
             Coupon coupon = couponSupport.findCouponIncrementingVersion(couponId);
             if (coupon.getStatus() != CouponStatus.OPEN) {
@@ -86,7 +86,7 @@ public class CouponOperateUseCase {
             return coupon;
         });
         couponSupport.allowIssue(couponId, resumed.getVersion());
-        log.info("쿠폰 발급을 재개했다 couponId={}", couponId);
+        log.info("쿠폰 발급을 재개했다 couponId={}, adminId={}", couponId, adminId);
         return CouponView.from(resumed);
     }
 

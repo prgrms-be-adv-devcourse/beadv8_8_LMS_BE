@@ -1,6 +1,7 @@
 package com.hapbang.coupon.out;
 
 import static com.hapbang.coupon.domain.CouponFixture.*;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.Instant;
@@ -48,6 +49,16 @@ class CouponRepositoryTest {
         assertThat(found.getUpdatedAt()).isEqualTo(NOW.plusSeconds(1));
         assertThat(found.getVersion()).isZero();
         assertThat(found.budgetReserveWorkId()).isEqualTo("coupon-" + id + "-reserve-v1");
+    }
+
+    @Test
+    void 도메인이_받은_경계_시각은_DB_CHECK도_통과한다() {
+        // 발급 기간 1마이크로초, 고정 만료는 종료 1마이크로초 뒤(나노초는 도메인이 마이크로초로 잘라 DB와 같게 비교한다)
+        Instant end = ISSUE_END.plusNanos(1_500);
+        Coupon coupon = Coupon.createSeller(SELLER_ID,
+                lectureRate().issuePeriod(end.minusNanos(1_000), end).fixed(end.plusNanos(1_000)).build(), NOW);
+
+        assertThatCode(() -> couponRepository.saveAndFlush(coupon)).doesNotThrowAnyException();
     }
 
     @Test

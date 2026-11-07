@@ -98,7 +98,7 @@ class CouponOpenUseCaseTest {
             return AllowResult.APPLIED;
         });
 
-        var view = useCase.open(COUPON_ID);
+        var view = useCase.open(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
         assertThat(coupon.getBudgetReservationId()).isEqualTo("rsv-1");
@@ -119,7 +119,7 @@ class CouponOpenUseCaseTest {
         given(draftPlatformCoupon());
         budgetReturns(Outcome.REJECTED, null);
 
-        assertCouponError(() -> useCase.open(COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_REJECTED);
+        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_REJECTED);
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.DRAFT);
         assertThat(works.get(WORK_ID).getStatus()).isEqualTo(BudgetWorkStatus.FAILED);
@@ -142,7 +142,7 @@ class CouponOpenUseCaseTest {
         given(draftPlatformCoupon());
         stub.accept(budgetPort);
 
-        assertCouponError(() -> useCase.open(COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
+        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.DRAFT);
         assertThat(coupon.getBudgetReservationId()).isNull();
@@ -156,7 +156,7 @@ class CouponOpenUseCaseTest {
         budgetReturns(Outcome.SUCCEEDED, "rsv-1");
         doThrow(new CouponIssueStoreUnavailableException("연결 실패", null)).when(issueStore).prepare(any());
 
-        assertThatThrownBy(() -> useCase.open(COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
+        assertThatThrownBy(() -> useCase.open(ADMIN_ID, COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.DRAFT);
         assertThat(coupon.isRedisReady()).isFalse();
@@ -170,9 +170,9 @@ class CouponOpenUseCaseTest {
         given(draftPlatformCoupon());
         budgetReturns(Outcome.SUCCEEDED, "rsv-1");
         doThrow(new CouponIssueStoreUnavailableException("연결 실패", null)).doNothing().when(issueStore).prepare(any());
-        assertThatThrownBy(() -> useCase.open(COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
+        assertThatThrownBy(() -> useCase.open(ADMIN_ID, COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
 
-        var view = useCase.open(COUPON_ID);
+        var view = useCase.open(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
         verify(budgetPort, times(1)).reserve(any(), anyLong(), anyInt(), anyLong());
@@ -185,9 +185,9 @@ class CouponOpenUseCaseTest {
         when(budgetPort.reserve(WORK_ID, COUPON_ID, 1, BUDGET))
                 .thenReturn(new BudgetResult(Outcome.UNKNOWN, null, "timeout"))
                 .thenReturn(new BudgetResult(Outcome.SUCCEEDED, "rsv-1", null));
-        assertCouponError(() -> useCase.open(COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
+        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
 
-        var view = useCase.open(COUPON_ID);
+        var view = useCase.open(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
         verify(budgetPort, times(2)).reserve(WORK_ID, COUPON_ID, 1, BUDGET);
@@ -198,9 +198,9 @@ class CouponOpenUseCaseTest {
     void 거절된_예산_작업은_다시_열어도_billing을_부르지_않고_거절한다() {
         given(draftPlatformCoupon());
         budgetReturns(Outcome.REJECTED, null);
-        assertCouponError(() -> useCase.open(COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_REJECTED);
+        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_REJECTED);
 
-        assertCouponError(() -> useCase.open(COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_REJECTED);
+        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_REJECTED);
 
         verify(budgetPort, times(1)).reserve(any(), anyLong(), anyInt(), anyLong());
     }
@@ -210,7 +210,7 @@ class CouponOpenUseCaseTest {
         given(draftPlatformCoupon());
         when(budgetPortProvider.getIfAvailable()).thenReturn(null);
 
-        assertCouponError(() -> useCase.open(COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
+        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
 
         assertThat(works).isEmpty();
         verifyNoInteractions(issueStore);
@@ -220,7 +220,7 @@ class CouponOpenUseCaseTest {
     void 판매자_쿠폰_승인은_예산_없이_Redis를_열고_OPEN이_된다() {
         given(reviewSellerCoupon());
 
-        var view = useCase.approve(COUPON_ID);
+        var view = useCase.approve(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
         InOrder order = inOrder(issueStore);
@@ -237,7 +237,7 @@ class CouponOpenUseCaseTest {
             return null;
         }).when(issueStore).prepare(any());
 
-        assertCouponError(() -> useCase.approve(COUPON_ID), CouponErrorCode.INVALID_COUPON_STATUS);
+        assertCouponError(() -> useCase.approve(ADMIN_ID, COUPON_ID), CouponErrorCode.INVALID_COUPON_STATUS);
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.REJECTED);
         verify(issueStore, never()).allowIssue(anyLong(), anyLong());
@@ -250,10 +250,10 @@ class CouponOpenUseCaseTest {
         when(issueStore.allowIssue(anyLong(), anyLong()))
                 .thenThrow(new CouponIssueStoreUnavailableException("응답 유실", null))
                 .thenReturn(AllowResult.APPLIED);
-        assertThatThrownBy(() -> useCase.approve(COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
+        assertThatThrownBy(() -> useCase.approve(ADMIN_ID, COUPON_ID)).isInstanceOf(CouponIssueStoreUnavailableException.class);
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.OPEN);
 
-        var view = useCase.approve(COUPON_ID);
+        var view = useCase.approve(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
         InOrder order = inOrder(issueStore);
@@ -266,10 +266,10 @@ class CouponOpenUseCaseTest {
     void 열린_플랫폼_쿠폰을_다시_열면_예산_준비_없이_version을_올려_접수를_다시_연다() {
         given(draftPlatformCoupon());
         budgetReturns(Outcome.SUCCEEDED, "rsv-1");
-        useCase.open(COUPON_ID);
+        useCase.open(ADMIN_ID, COUPON_ID);
         long openedVersion = coupon.getVersion();
 
-        var view = useCase.open(COUPON_ID);
+        var view = useCase.open(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
         verify(issueStore).allowIssue(COUPON_ID, openedVersion + 1);
@@ -281,7 +281,7 @@ class CouponOpenUseCaseTest {
     void 유형이_다른_쿠폰은_OPEN이어도_다시_열지_않는다() {
         given(openSellerCoupon());
 
-        assertCouponError(() -> useCase.open(COUPON_ID), CouponErrorCode.INVALID_COUPON_STATUS);
+        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.INVALID_COUPON_STATUS);
 
         verifyNoInteractions(issueStore);
     }
@@ -295,7 +295,7 @@ class CouponOpenUseCaseTest {
             return AllowResult.SUPERSEDED;
         });
 
-        var view = useCase.approve(COUPON_ID);
+        var view = useCase.approve(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
     }

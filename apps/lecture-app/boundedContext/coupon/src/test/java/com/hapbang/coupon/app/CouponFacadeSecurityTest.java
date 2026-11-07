@@ -60,7 +60,7 @@ class CouponFacadeSecurityTest {
         sellerFacade.create(1L, COMMAND);
 
         verify(couponCreateUseCase).createSeller(1L, COMMAND);
-        assertThatThrownBy(() -> adminFacade.open(1L)).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> adminFacade.open(1L, 1L)).isInstanceOf(AccessDeniedException.class);
         verifyNoInteractions(couponOpenUseCase);
     }
 

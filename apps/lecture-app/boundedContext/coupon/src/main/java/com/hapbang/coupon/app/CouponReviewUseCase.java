@@ -41,13 +41,13 @@ public class CouponReviewUseCase {
         return view;
     }
 
-    public CouponView reject(long couponId, String reason) {
+    public CouponView reject(long adminId, long couponId, String reason) {
         CouponView view = transaction.execute(status -> {
             Coupon coupon = couponSupport.findCoupon(couponId);
             coupon.reject(reason, clock.instant());
             return CouponView.from(coupon);
         });
-        log.info("판매자 쿠폰 심사를 거절했다 couponId={}", couponId);
+        log.info("판매자 쿠폰 심사를 거절했다 couponId={}, adminId={}", couponId, adminId);
         return view;
     }
 }
