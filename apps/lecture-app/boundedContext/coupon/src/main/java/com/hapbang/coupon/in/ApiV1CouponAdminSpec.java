@@ -13,17 +13,20 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public interface ApiV1CouponAdminSpec {
 
     @Operation(summary = "플랫폼 쿠폰 발행",
-            description = "관리자. DRAFT로 만든다(201). 특정 강의 대상이면 강의 가격을 조회해 snapshot한다(강의가 없으면 404 LECTURE_NOT_FOUND). "
-                    + "발급은 열기(open)로 시작한다.")
+            description = "관리자. DRAFT로 만든다(201). 특정 강의 대상이면 강의 가격을 조회해 snapshot한다(강의가 없으면 404 LECTURE_NOT_FOUND, "
+                    + "판매 중이 아니면 409 COUPON_LECTURE_NOT_ON_SALE). 발급은 열기(open)로 시작한다.")
     RsData<CouponView> createPlatform(Long adminId, CouponCreateRequest request);
 
     @Operation(summary = "플랫폼 쿠폰 열기",
             description = "관리자. DRAFT → OPEN. 프로모션 예산을 예약하고 발급 저장소를 준비한 뒤 연다. "
-                    + "예산 거절은 409 PROMOTION_BUDGET_REJECTED, 예산 결과를 모르면 503 PROMOTION_BUDGET_UNAVAILABLE, "
+                    + "특정 강의 대상이면 강의가 판매 중이어야 한다(아니면 409 COUPON_LECTURE_NOT_ON_SALE). "
+                    + "예산 거절은 409 PROMOTION_BUDGET_REJECTED(다시 보내면 새 예약으로 다시 시도한다), "
+                    + "예산 결과를 모르면 503 PROMOTION_BUDGET_UNAVAILABLE, "
                     + "발급 저장소 준비 실패는 503 COUPON_ISSUE_STORE_UNAVAILABLE이며 쿠폰은 DRAFT로 남는다. 503이면 같은 요청을 다시 보낸다.")
     RsData<CouponView> open(Long adminId, Long couponId);
 
-    @Operation(summary = "판매자 쿠폰 승인", description = "관리자. REVIEW → OPEN. 발급 저장소를 준비한 뒤 연다.")
+    @Operation(summary = "판매자 쿠폰 승인", description = "관리자. REVIEW → OPEN. 발급 저장소를 준비한 뒤 연다. "
+            + "강의가 판매 중이 아니면 409 COUPON_LECTURE_NOT_ON_SALE.")
     RsData<CouponView> approve(Long adminId, Long couponId);
 
     @Operation(summary = "판매자 쿠폰 거절", description = "관리자. REVIEW → REJECTED. 사유 필수.")

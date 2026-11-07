@@ -22,6 +22,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.coupon.app.port.CouponIssueStore;
@@ -29,6 +30,7 @@ import com.hapbang.coupon.app.port.CouponIssueStore.AllowResult;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControl;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.LectureCatalog;
+import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.PromotionBudgetPort;
 import com.hapbang.coupon.app.port.PromotionBudgetPort.BudgetResult;
 import com.hapbang.coupon.app.port.PromotionBudgetPort.Outcome;
@@ -36,6 +38,7 @@ import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
+import com.hapbang.coupon.domain.CouponTargetType;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.out.BudgetWorkRepository;
@@ -54,6 +57,7 @@ class CouponOpenUseCaseTest {
     private final BudgetWorkRepository budgetWorkRepository = mock();
     private final CouponIssueStore issueStore = mock();
     private final PromotionBudgetPort budgetPort = mock();
+    private final LectureCatalog lectureCatalog = mock();
     @SuppressWarnings("unchecked")
     private final ObjectProvider<PromotionBudgetPort> budgetPortProvider = mock();
     private final Map<String, BudgetWork> works = new HashMap<>();
@@ -64,10 +68,11 @@ class CouponOpenUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        CouponSupport support = new CouponSupport(couponRepository, mock(LectureCatalog.class), issueStore);
+        CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, issueStore);
         useCase = new CouponOpenUseCase(support, budgetWorkRepository, issueStore, budgetPortProvider,
                 new CouponRedisProperties(KEYS_EXPIRE_MARGIN), db.transactionManager(), CLOCK);
         when(budgetPortProvider.getIfAvailable()).thenReturn(budgetPort);
+        lectureSaleStatus("ON_SALE");
         when(issueStore.allowIssue(anyLong(), anyLong())).thenReturn(AllowResult.APPLIED);
         when(budgetWorkRepository.findById(anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(works.get(invocation.<String>getArgument(0))));
@@ -81,6 +86,11 @@ class CouponOpenUseCaseTest {
     private void given(Coupon value) {
         coupon = value;
         db.given(coupon);
+    }
+
+    private void lectureSaleStatus(String saleStatus) {
+        when(lectureCatalog.findLecture(LECTURE_ID))
+                .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, 10_000L, saleStatus)));
     }
 
     private void budgetReturns(Outcome outcome, String reservationId) {
@@ -195,14 +205,70 @@ class CouponOpenUseCaseTest {
     }
 
     @Test
-    void 거절된_예산_작업은_다시_열어도_billing을_부르지_않고_거절한다() {
+    void 거절된_예산_작업은_남기고_다시_열면_시도_번호를_붙인_새_작업_ID로_다시_예약한다() {
+        String retryWorkId = WORK_ID + "-a2";
         given(draftPlatformCoupon());
         budgetReturns(Outcome.REJECTED, null);
+        when(budgetPort.reserve(retryWorkId, COUPON_ID, 1, BUDGET))
+                .thenReturn(new BudgetResult(Outcome.SUCCEEDED, "rsv-2", null));
         assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_REJECTED);
 
-        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_REJECTED);
+        var view = useCase.open(ADMIN_ID, COUPON_ID);
 
-        verify(budgetPort, times(1)).reserve(any(), anyLong(), anyInt(), anyLong());
+        assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
+        assertThat(coupon.getBudgetReservationId()).isEqualTo("rsv-2");
+        assertThat(works.get(WORK_ID).getStatus()).isEqualTo(BudgetWorkStatus.FAILED);
+        assertThat(works.get(retryWorkId).getStatus()).isEqualTo(BudgetWorkStatus.DONE);
+        assertThat(works.get(retryWorkId).getResult()).isEqualTo("rsv-2");
+        InOrder order = inOrder(budgetPort);
+        order.verify(budgetPort).reserve(WORK_ID, COUPON_ID, 1, BUDGET);
+        order.verify(budgetPort).reserve(retryWorkId, COUPON_ID, 1, BUDGET);
+        verify(budgetWorkRepository, times(2)).save(any());
+    }
+
+    @Test
+    void 같은_새_작업_ID를_다른_요청이_먼저_저장했으면_409이고_billing을_부르지_않는다() {
+        given(draftPlatformCoupon());
+        doThrow(new DataIntegrityViolationException("pk_budget_work")).when(budgetWorkRepository).save(any());
+
+        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.COUPON_CONCURRENT_UPDATE);
+
+        verifyNoInteractions(budgetPort, issueStore);
+    }
+
+    @Test
+    void 판매_중이_아닌_강의의_플랫폼_쿠폰은_409이고_예산과_Redis를_부르지_않는다() {
+        given(draftPlatformCoupon());
+        lectureSaleStatus("REJECTED");
+
+        CouponCreateUseCaseTest.assertNotOnSale(() -> useCase.open(ADMIN_ID, COUPON_ID));
+
+        assertThat(coupon.getStatus()).isEqualTo(CouponStatus.DRAFT);
+        verifyNoInteractions(budgetPort, budgetWorkRepository, issueStore);
+    }
+
+    @Test
+    void 판매_중이_아닌_강의의_판매자_쿠폰은_승인하지_않고_Redis를_부르지_않는다() {
+        given(reviewSellerCoupon());
+        lectureSaleStatus("PENDING_INSPECTION");
+
+        CouponCreateUseCaseTest.assertNotOnSale(() -> useCase.approve(ADMIN_ID, COUPON_ID));
+
+        assertThat(coupon.getStatus()).isEqualTo(CouponStatus.REVIEW);
+        verifyNoInteractions(issueStore);
+    }
+
+    @Test
+    void 모든_강의_대상_플랫폼_쿠폰은_강의를_조회하지_않고_연다() {
+        given(withId(Coupon.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW)));
+        when(budgetPort.reserve(eq(WORK_ID), eq(COUPON_ID), eq(1), anyLong()))
+                .thenReturn(new BudgetResult(Outcome.SUCCEEDED, "rsv-1", null));
+
+        var view = useCase.open(ADMIN_ID, COUPON_ID);
+
+        assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
+        assertThat(coupon.getTargetType()).isEqualTo(CouponTargetType.ANY_LECTURE);
+        verifyNoInteractions(lectureCatalog);
     }
 
     @Test

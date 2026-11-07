@@ -24,13 +24,17 @@ import lombok.NoArgsConstructor;
  * 작업 ID는 billing 멱등 키다. 결과를 모르면 PENDING으로 두고 같은 작업 ID로 다시 조회·호출한다.
  * <p>
  * 작업 ID를 쿠폰이 정하므로 저장은 항상 새 행 INSERT다({@link Persistable}). 같은 작업 ID를 다시 저장하면 기존 작업을 덮지 않고
- * PK 위반으로 실패한다. 재시도는 {@code findById}로 기존 작업을 찾아 이어 간다.
+ * PK 위반으로 실패한다. 재시도는 {@code findById}로 기존 작업을 찾아 이어 간다. 예약이 거절(FAILED)되면 그 행은 기록으로 남기고,
+ * 다시 예약할 때 시도 번호를 올린 새 작업 ID로 새 행을 만든다({@link #reserveWorkIdOf}).
  */
 @Entity
 @Table(name = "budget_work", schema = "coupon")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class BudgetWork implements Persistable<String> {
+
+    /** 예산 예약의 첫 시도 번호 */
+    public static final int FIRST_ATTEMPT = 1;
 
     @Id
     @Column(length = 100)
@@ -82,16 +86,22 @@ public class BudgetWork implements Persistable<String> {
     }
 
     /**
-     * 쿠폰 정책 버전의 예산 예약 작업 ID: {@code coupon-{couponId}-reserve-v{policyVersion}}.
-     * 쿠폰과 정책 버전에서 결정적으로 만들어, 발급 열기 재시도가 같은 작업을 찾고 billing에 같은 멱등 키를 보낸다.
+     * 쿠폰 정책 버전의 예산 예약 작업 ID. 첫 시도는 {@code coupon-{couponId}-reserve-v{policyVersion}}, 거절(FAILED) 뒤 다시 예약하는
+     * n번째 시도(n ≥ 2)는 {@code coupon-{couponId}-reserve-v{policyVersion}-a{n}}이다.
+     * 쿠폰·정책 버전·시도 번호에서 결정적으로 만들어, 발급 열기 재시도가 같은 작업을 찾고 billing에 같은 멱등 키를 보낸다.
+     * 시도 번호는 앞 시도가 거절됐을 때만 하나씩 올리므로 빈 번호가 없다.
      */
-    public static String reserveWorkIdOf(long couponId, int policyVersion) {
-        return "coupon-" + couponId + "-reserve-v" + policyVersion;
+    public static String reserveWorkIdOf(long couponId, int policyVersion, int attempt) {
+        if (attempt < FIRST_ATTEMPT) {
+            throw new IllegalArgumentException("예산 예약 시도 번호는 1 이상이어야 합니다.");
+        }
+        String firstAttemptId = "coupon-" + couponId + "-reserve-v" + policyVersion;
+        return attempt == FIRST_ATTEMPT ? firstAttemptId : firstAttemptId + "-a" + attempt;
     }
 
-    /** 플랫폼 쿠폰의 예산 예약 작업(PENDING). 작업 ID는 {@link Coupon#budgetReserveWorkId()}다 */
-    public static BudgetWork reserve(Coupon coupon, Instant now) {
-        return new BudgetWork(coupon.budgetReserveWorkId(), coupon.getId(), BudgetWorkKind.RESERVE,
+    /** 플랫폼 쿠폰의 예산 예약 작업(PENDING). 작업 ID는 {@link Coupon#budgetReserveWorkId(int)}다 */
+    public static BudgetWork reserve(Coupon coupon, int attempt, Instant now) {
+        return new BudgetWork(coupon.budgetReserveWorkId(attempt), coupon.getId(), BudgetWorkKind.RESERVE,
                 coupon.budgetAmount(), null, now);
     }
 

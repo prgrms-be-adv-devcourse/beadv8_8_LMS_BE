@@ -14,6 +14,7 @@ public interface ApiV1CouponSellerSpec {
     @Operation(summary = "판매자 쿠폰 신청",
             description = "VERIFIED_INFLUENCER. 자기 강의(targetType LECTURE)만. 강의 가격을 조회해 snapshot하고 DRAFT로 만든다(201). "
                     + "강의가 없으면 404 LECTURE_NOT_FOUND, 자기 강의가 아니면 403 NOT_LECTURE_SELLER, "
+                    + "판매 중인 강의가 아니면 409 COUPON_LECTURE_NOT_ON_SALE, "
                     + "발행 조건 오류는 400 INVALID_COUPON_POLICY, 강의 조회 실패는 503 LECTURE_CATALOG_UNAVAILABLE.")
     RsData<CouponView> create(Long sellerId, CouponCreateRequest request);
 

@@ -30,7 +30,7 @@ class BudgetWorkRepositoryTest {
     @Test
     void 재시도는_결정적_작업_ID로_기존_작업을_찾고_같은_ID를_새로_저장하지_않는다() {
         Coupon coupon = couponRepository.save(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
-        budgetWorkRepository.save(BudgetWork.reserve(coupon, NOW));
+        budgetWorkRepository.save(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW));
         entityManager.flush();
         entityManager.clear();
 
@@ -49,7 +49,7 @@ class BudgetWorkRepositoryTest {
         assertThat(budgetWorkRepository.findByCouponIdAndKindOrderByCreatedAtAsc(coupon.getId(), BudgetWorkKind.RELEASE))
                 .isEmpty();
         // 같은 작업 ID의 새 작업은 완료된 작업을 덮지 않고 PK 위반이다
-        assertThatThrownBy(() -> budgetWorkRepository.saveAndFlush(BudgetWork.reserve(coupon, NOW)))
+        assertThatThrownBy(() -> budgetWorkRepository.saveAndFlush(BudgetWork.reserve(coupon, BudgetWork.FIRST_ATTEMPT, NOW)))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 }

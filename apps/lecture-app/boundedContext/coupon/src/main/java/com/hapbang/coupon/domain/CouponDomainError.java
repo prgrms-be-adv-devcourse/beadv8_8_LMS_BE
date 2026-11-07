@@ -25,6 +25,9 @@ public enum CouponDomainError {
     INVALID_RELATIVE_EXPIRY("접수 기준 만료는 1일 이상이어야 하고 고정 만료 시각을 함께 지정하지 않습니다."),
     INVALID_FIXED_EXPIRY("고정 만료는 발급 종료 시각보다 뒤의 만료 시각이 필요하고 만료 일수를 함께 지정하지 않습니다."),
 
+    // 대상 강의
+    LECTURE_NOT_ON_SALE("판매 중인 강의에만 특정 강의 쿠폰을 발행하거나 발급을 열 수 있습니다."),
+
     // 상태 전이
     INVALID_STATUS_TRANSITION("현재 상태에서는 할 수 없는 요청입니다."),
     REJECT_REASON_REQUIRED("거절 사유가 필요합니다."),

@@ -1,6 +1,7 @@
 package com.hapbang.coupon.app;
 
 import static com.hapbang.coupon.domain.CouponFixture.ADMIN_ID;
+import static com.hapbang.coupon.domain.CouponFixture.LECTURE_ID;
 import static com.hapbang.coupon.domain.CouponFixture.SELLER_ID;
 import static com.hapbang.coupon.domain.CouponFixture.lectureRate;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,11 +13,13 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 
 import org.junit.jupiter.api.AfterEach;
@@ -35,6 +38,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.LectureCatalog;
+import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.PromotionBudgetPort;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
@@ -71,7 +75,10 @@ class CouponIssueRaceTest {
         store = spy(redisStore);
         CouponVersionFake db = new CouponVersionFake(couponRepository);
         Clock clock = Clock.systemUTC();
-        CouponSupport support = new CouponSupport(couponRepository, mock(LectureCatalog.class), store);
+        LectureCatalog lectureCatalog = mock();
+        when(lectureCatalog.findLecture(LECTURE_ID))
+                .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, 10_000L, "ON_SALE")));
+        CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, store);
         @SuppressWarnings("unchecked")
         ObjectProvider<PromotionBudgetPort> budgetPortProvider = mock();
         openUseCase = new CouponOpenUseCase(support, mock(BudgetWorkRepository.class), store, budgetPortProvider,

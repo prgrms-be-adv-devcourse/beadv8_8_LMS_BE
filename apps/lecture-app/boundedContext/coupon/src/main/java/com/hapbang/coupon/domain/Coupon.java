@@ -278,13 +278,18 @@ public class Coupon {
         return terms().budgetAmount();
     }
 
-    /** 이 쿠폰 정책 버전의 예산 예약 작업 ID. 재시도 때 같은 값이다 */
+    /** 이 쿠폰 정책 버전의 첫 예산 예약 작업 ID. 재시도 때 같은 값이다 */
     public String budgetReserveWorkId() {
+        return budgetReserveWorkId(BudgetWork.FIRST_ATTEMPT);
+    }
+
+    /** 이 쿠폰 정책 버전의 {@code attempt}번째 예산 예약 작업 ID. 같은 시도 번호면 같은 값이다 */
+    public String budgetReserveWorkId(int attempt) {
         if (type != CouponType.PLATFORM) {
             throw new CouponDomainException(CouponDomainError.BUDGET_NOT_APPLICABLE);
         }
         Objects.requireNonNull(id, "저장하지 않은 쿠폰에는 예산 작업 ID가 없습니다.");
-        return BudgetWork.reserveWorkIdOf(id, policyVersion);
+        return BudgetWork.reserveWorkIdOf(id, policyVersion, attempt);
     }
 
     /** 최초 접수 시각으로 정한 발급 쿠폰의 만료 시각 */

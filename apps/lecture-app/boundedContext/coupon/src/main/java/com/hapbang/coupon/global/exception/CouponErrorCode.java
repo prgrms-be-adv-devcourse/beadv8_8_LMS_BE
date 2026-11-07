@@ -36,6 +36,8 @@ public enum CouponErrorCode {
     LECTURE_NOT_FOUND(HttpStatus.NOT_FOUND, "강의를 찾을 수 없습니다."),
     /** 판매자 쿠폰의 대상 강의가 신청한 판매자의 강의가 아니다 */
     NOT_LECTURE_SELLER(HttpStatus.FORBIDDEN, "강의 판매자만 처리할 수 있습니다."),
+    /** 특정 강의 대상 쿠폰의 강의가 판매 중이 아니다. 쿠폰을 신청·발행하거나 승인·발행으로 발급을 열 수 없다 */
+    COUPON_LECTURE_NOT_ON_SALE(HttpStatus.CONFLICT, "판매 중인 강의에만 쿠폰을 발행하거나 발급을 열 수 있습니다."),
     /** 강의 앱에 닿지 못했거나 응답을 읽지 못했다 */
     LECTURE_CATALOG_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "강의 정보를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요."),
 
