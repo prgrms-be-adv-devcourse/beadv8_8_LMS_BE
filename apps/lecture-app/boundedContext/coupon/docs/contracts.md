@@ -51,7 +51,7 @@ JVM 분리 가정에 따라 아래는 Java 인터페이스가 아니라 **내부
 
 ## Redis
 
-키 생성은 한 클래스에 모은다. 쿠폰별 stock, users, requests, issue-control, sold_out과 공통 발급 Stream을 둔다. issue-control(HASH)은 ready·status(`READY`·`OPEN`·`SUSPENDED`·`CLOSED`)·epoch·발급 시작/종료·fence(쿠폰 DB version)를 가진 권위 있는 판정 데이터다. `READY`는 준비됐지만 접수 불가, `OPEN`만 접수 허용이다. 상태 쓰기는 fence 비교로 늦은 옛 쓰기를 무시한다(design.md "발행과 플랫폼 예산" 5). SWR 정책 캐시와 분리한다.
+키 생성은 한 클래스에 모은다. 쿠폰별 stock, users, requests, issue-control, sold_out과 공통 발급 Stream을 둔다. issue-control(HASH)은 ready·status(`READY`·`OPEN`·`SUSPENDED`·`CLOSED`)·epoch·발급 시작/종료·만료 계산 입력(방식·N일·고정 시각)·fence(쿠폰 DB version)를 가진 권위 있는 판정 데이터다. 접수 경로는 이 HASH와 Lua만 읽고 DB를 읽지 않는다. `READY`는 준비됐지만 접수 불가, `OPEN`만 접수 허용이다. 상태 쓰기는 fence 비교로 늦은 옛 쓰기를 무시한다(design.md "발행과 플랫폼 예산" 5). SWR 정책 캐시와 분리한다.
 
 requests는 요청 ID로 회원·내용·접수 결과를 조회할 수 있게 구성한다. 회원 중복 인덱스는 별도로 유지한다. 보상은 요청별 표식·epoch 검증·재고 복구를 원자적으로 처리한다. Stream ACK는 DB 완료가 아니다. 미처리 기록은 고정 TTL/MAXLEN으로 삭제하지 않는다.
 

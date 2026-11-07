@@ -3,6 +3,8 @@ package com.hapbang.coupon.out.redis;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -14,6 +16,7 @@ import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.core.RedisCallback;
 
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueAttempt;
+import com.hapbang.coupon.app.port.CouponIssueStore.IssueOutcome;
 
 /** issue.lua 반환값과 기록: 실제 Redis로 확인한다 */
 class IssueLuaTest extends CouponRedisTestSupport {
@@ -22,19 +25,20 @@ class IssueLuaTest extends CouponRedisTestSupport {
     private static final long MEMBER_ID = 7;
 
     @Test
-    @DisplayName("접수하면 1이고 stock −1, users·requests 기록, Stream 1건, 만료가 붙는다")
+    @DisplayName("접수하면 1과 접수 시각 + N일 만료 시각이고 stock −1, users·requests 기록, issue-control epoch로 Stream 1건, key 만료가 붙는다")
     void accepted() {
         long couponId = newCouponId();
         String stream = newStreamKey();
         open(control(couponId, EPOCH, 10));
-        IssueAttempt attempt = attempt(couponId, MEMBER_ID, "req-1", EPOCH);
+        Instant expiresAt = NOW.plus(Duration.ofDays(EXPIRY_DAYS));
 
-        assertThat(store.tryIssue(attempt, stream)).isEqualTo(1);
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), stream))
+                .isEqualTo(new IssueOutcome(1, expiresAt));
 
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("9");
         assertThat(redisTemplate.opsForSet().isMember(CouponRedisKeys.users(couponId), "7")).isTrue();
         assertThat(redisTemplate.opsForHash().get(CouponRedisKeys.requests(couponId), "req-1"))
-                .isEqualTo("7|" + NOW.toEpochMilli() + "|ACCEPTED");
+                .isEqualTo("7|" + NOW.toEpochMilli() + "|ACCEPTED|" + expiresAt.toEpochMilli());
         List<MapRecord<String, Object, Object>> records = redisTemplate.opsForStream().range(stream, Range.unbounded());
         assertThat(records).hasSize(1);
         assertThat(records.getFirst().getValue()).containsExactlyInAnyOrderEntriesOf(Map.of(
@@ -43,7 +47,7 @@ class IssueLuaTest extends CouponRedisTestSupport {
                 "memberId", "7",
                 "epoch", "3",
                 "issuedAt", String.valueOf(NOW.toEpochMilli()),
-                "expiresAt", String.valueOf(attempt.expiresAt().toEpochMilli())));
+                "expiresAt", String.valueOf(expiresAt.toEpochMilli())));
         long expectedTtl = KEYS_EXPIRE_AT.toEpochMilli() - System.currentTimeMillis();
         for (String key : List.of(CouponRedisKeys.stock(couponId), CouponRedisKeys.users(couponId),
                 CouponRedisKeys.requests(couponId), CouponRedisKeys.issueControl(couponId))) {
@@ -60,7 +64,7 @@ class IssueLuaTest extends CouponRedisTestSupport {
         long couponId = newCouponId();
         open(control(couponId, EPOCH, 10));
 
-        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-common", EPOCH))).isEqualTo(1);
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-common")).code()).isEqualTo(1);
 
         List<MapRecord<String, Object, Object>> mine = redisTemplate.opsForStream()
                 .range(CouponRedisKeys.ISSUE_STREAM, Range.unbounded()).stream()
@@ -75,19 +79,19 @@ class IssueLuaTest extends CouponRedisTestSupport {
     }
 
     @Test
-    @DisplayName("같은 회원의 같은 요청 ID는 2이고 기록을 바꾸지 않는다")
+    @DisplayName("같은 회원의 같은 요청 ID는 2와 최초 접수의 만료 시각이고 기록을 바꾸지 않는다")
     void sameRequestAgain() {
         long couponId = newCouponId();
         String stream = newStreamKey();
         open(control(couponId, EPOCH, 10));
-        store.tryIssue(attempt(couponId, MEMBER_ID, "req-1", EPOCH), stream);
+        IssueOutcome first = store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), stream);
+        Object record = redisTemplate.opsForHash().get(CouponRedisKeys.requests(couponId), "req-1");
 
-        long result = store.tryIssue(attemptAt(couponId, MEMBER_ID, "req-1", EPOCH, NOW.plusSeconds(5)), stream);
+        IssueOutcome again = store.tryIssue(attemptAt(couponId, MEMBER_ID, "req-1", NOW.plusSeconds(5)), stream);
 
-        assertThat(result).isEqualTo(2);
+        assertThat(again).isEqualTo(new IssueOutcome(2, first.expiresAt()));
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("9");
-        assertThat(redisTemplate.opsForHash().get(CouponRedisKeys.requests(couponId), "req-1"))
-                .isEqualTo("7|" + NOW.toEpochMilli() + "|ACCEPTED");
+        assertThat(redisTemplate.opsForHash().get(CouponRedisKeys.requests(couponId), "req-1")).isEqualTo(record);
         assertThat(redisTemplate.opsForStream().size(stream)).isEqualTo(1);
     }
 
@@ -97,9 +101,9 @@ class IssueLuaTest extends CouponRedisTestSupport {
         long couponId = newCouponId();
         String stream = newStreamKey();
         open(control(couponId, EPOCH, 10));
-        store.tryIssue(attempt(couponId, MEMBER_ID, "req-1", EPOCH), stream);
+        store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), stream);
 
-        assertThat(store.tryIssue(attempt(couponId, 8, "req-1", EPOCH), stream)).isEqualTo(-4);
+        assertThat(store.tryIssue(attempt(couponId, 8, "req-1"), stream).code()).isEqualTo(-4);
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("9");
     }
 
@@ -109,9 +113,9 @@ class IssueLuaTest extends CouponRedisTestSupport {
         long couponId = newCouponId();
         String stream = newStreamKey();
         open(control(couponId, EPOCH, 10));
-        store.tryIssue(attempt(couponId, MEMBER_ID, "req-1", EPOCH), stream);
+        store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), stream);
 
-        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-2", EPOCH), stream)).isEqualTo(-1);
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-2"), stream).code()).isEqualTo(-1);
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("9");
     }
 
@@ -122,11 +126,11 @@ class IssueLuaTest extends CouponRedisTestSupport {
         String stream = newStreamKey();
         open(control(couponId, EPOCH, 1));
 
-        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1", EPOCH), stream)).isEqualTo(1);
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), stream).code()).isEqualTo(1);
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.soldOut(couponId))).isEqualTo("1");
         assertThat(redisTemplate.getExpire(CouponRedisKeys.soldOut(couponId))).isPositive();
 
-        assertThat(store.tryIssue(attempt(couponId, 8, "req-2", EPOCH), stream)).isZero();
+        assertThat(store.tryIssue(attempt(couponId, 8, "req-2"), stream).code()).isZero();
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("0");
         assertThat(redisTemplate.opsForStream().size(stream)).isEqualTo(1);
     }
@@ -136,7 +140,7 @@ class IssueLuaTest extends CouponRedisTestSupport {
     void notReady() {
         long couponId = newCouponId();
 
-        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1", EPOCH), newStreamKey())).isEqualTo(-2);
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), newStreamKey()).code()).isEqualTo(-2);
     }
 
     @Test
@@ -146,16 +150,7 @@ class IssueLuaTest extends CouponRedisTestSupport {
         open(control(couponId, EPOCH, 10));
         store.block(couponId, "SUSPENDED", 1);
 
-        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1", EPOCH), newStreamKey())).isEqualTo(-2);
-    }
-
-    @Test
-    @DisplayName("epoch가 다르면 -2다")
-    void epochMismatch() {
-        long couponId = newCouponId();
-        open(control(couponId, EPOCH, 10));
-
-        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1", EPOCH - 1), newStreamKey())).isEqualTo(-2);
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), newStreamKey()).code()).isEqualTo(-2);
     }
 
     @Test
@@ -164,8 +159,8 @@ class IssueLuaTest extends CouponRedisTestSupport {
         long couponId = newCouponId();
         open(control(couponId, EPOCH, 10));
 
-        IssueAttempt early = attemptAt(couponId, MEMBER_ID, "req-1", EPOCH, START.minusMillis(1));
-        assertThat(store.tryIssue(early, newStreamKey())).isEqualTo(-3);
+        IssueAttempt early = attemptAt(couponId, MEMBER_ID, "req-1", START.minusMillis(1));
+        assertThat(store.tryIssue(early, newStreamKey()).code()).isEqualTo(-3);
     }
 
     @Test
@@ -174,8 +169,40 @@ class IssueLuaTest extends CouponRedisTestSupport {
         long couponId = newCouponId();
         open(control(couponId, EPOCH, 10));
 
-        IssueAttempt late = attemptAt(couponId, MEMBER_ID, "req-1", EPOCH, END);
-        assertThat(store.tryIssue(late, newStreamKey())).isEqualTo(-3);
+        IssueAttempt late = attemptAt(couponId, MEMBER_ID, "req-1", END);
+        assertThat(store.tryIssue(late, newStreamKey()).code()).isEqualTo(-3);
+    }
+
+    @Test
+    @DisplayName("고정 만료 쿠폰은 접수 시각과 관계없이 issue-control의 고정 만료 시각으로 접수한다")
+    void fixedExpiry() {
+        long couponId = newCouponId();
+        String stream = newStreamKey();
+        Instant fixedExpiresAt = END.plus(Duration.ofDays(10));
+        open(fixedControl(couponId, EPOCH, 10, fixedExpiresAt));
+
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), stream))
+                .isEqualTo(new IssueOutcome(1, fixedExpiresAt));
+
+        assertThat(redisTemplate.opsForStream().range(stream, Range.unbounded()).getFirst().getValue())
+                .containsEntry("expiresAt", String.valueOf(fixedExpiresAt.toEpochMilli()));
+    }
+
+    @Test
+    @DisplayName("issue-control에 만료 계산 입력이 없으면 쓰기 전에 -9다")
+    void missingExpiryInput() {
+        long couponId = newCouponId();
+        String stream = newStreamKey();
+        open(control(couponId, EPOCH, 10));
+        redisTemplate.opsForHash().delete(CouponRedisKeys.issueControl(couponId), "expiryDays");
+
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), stream))
+                .isEqualTo(new IssueOutcome(-9, null));
+
+        assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("10");
+        assertThat(redisTemplate.hasKey(CouponRedisKeys.users(couponId))).isFalse();
+        assertThat(redisTemplate.hasKey(CouponRedisKeys.requests(couponId))).isFalse();
+        assertThat(redisTemplate.hasKey(stream)).isFalse();
     }
 
     @Test
@@ -186,7 +213,7 @@ class IssueLuaTest extends CouponRedisTestSupport {
         open(control(couponId, EPOCH, 10));
         redisTemplate.opsForValue().set(CouponRedisKeys.users(couponId), "not-a-set");
 
-        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1", EPOCH), stream)).isEqualTo(-9);
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), stream).code()).isEqualTo(-9);
 
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("10");
         assertThat(redisTemplate.hasKey(CouponRedisKeys.requests(couponId))).isFalse();
@@ -199,11 +226,11 @@ class IssueLuaTest extends CouponRedisTestSupport {
         long couponId = newCouponId();
         String stream = newStreamKey();
         open(control(couponId, EPOCH, 10));
-        store.tryIssue(attempt(couponId, 8, "req-0", EPOCH), stream);
+        store.tryIssue(attempt(couponId, 8, "req-0"), stream);
         // 마지막 ID를 최댓값으로 채운 Stream은 타입 검사를 통과하지만 XADD *가 "ID를 다 썼다" 오류를 낸다
         exhaustStreamIds(stream);
 
-        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1", EPOCH), stream)).isEqualTo(-9);
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"), stream).code()).isEqualTo(-9);
 
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("9");
         assertThat(redisTemplate.opsForSet().members(CouponRedisKeys.users(couponId))).containsExactly("8");

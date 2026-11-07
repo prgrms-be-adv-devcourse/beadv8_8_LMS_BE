@@ -20,8 +20,9 @@ public interface ApiV1CouponSpec {
     @Operation(summary = "발급 접수",
             description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 접수는 발급 완료가 아니다(202). 결과는 발급 요청 상태 조회로 확인한다. "
                     + "data.result는 ACCEPTED(새로 접수) 또는 ALREADY_ACCEPTED(같은 요청 ID 재전송, 기록을 바꾸지 않음)다. "
+                    + "data.expiresAt은 발급될 쿠폰의 만료 시각(밀리초)이다. 재전송이면 최초 접수 때 정한 값이다. "
                     + "그 밖의 결과는 오류다: 매진 409 COUPON_SOLD_OUT, 이미 받음 409 COUPON_ALREADY_ISSUED, "
-                    + "열리지 않음 409 COUPON_ISSUE_NOT_OPEN, 기간 아님 409 COUPON_ISSUE_NOT_IN_PERIOD, "
+                    + "열리지 않음(없는 쿠폰·준비 전 포함) 409 COUPON_ISSUE_NOT_OPEN, 기간 아님 409 COUPON_ISSUE_NOT_IN_PERIOD, "
                     + "다른 회원이 쓴 요청 ID 409 ISSUE_REQUEST_ID_CONFLICT, 발급 저장소 장애 503. "
                     + "발급이 중단된 뒤에는 같은 요청 ID를 다시 보내도 409 COUPON_ISSUE_NOT_OPEN이므로 상태 조회로 확인한다.")
     RsData<IssueRequestResult> requestIssue(Long memberId, Long couponId, IssueRequestCreateRequest request);

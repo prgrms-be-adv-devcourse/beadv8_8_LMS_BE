@@ -3,6 +3,7 @@ package com.hapbang.coupon.domain;
 import static com.hapbang.coupon.domain.CouponFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
+import java.time.Duration;
 import java.time.Instant;
 
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class CouponCreateTest {
+
+    private static final int MAX_EXPIRY_DAYS = 30;
 
     @Test
     void 판매자_쿠폰은_신청자와_생성자가_판매자이고_DRAFT로_시작한다() {
@@ -66,13 +69,13 @@ class CouponCreateTest {
     }
 
     @Test
-    void 발급_시작이_종료보다_1마이크로초라도_앞서면_발행하고_마이크로초_아래_차이는_같은_시각으로_본다() {
-        CouponTerms terms = lectureRate().issuePeriod(ISSUE_END.minusNanos(1_000), ISSUE_END).build();
+    void 발급_시작이_종료보다_1밀리초라도_앞서면_발행하고_밀리초_아래_차이는_같은_시각으로_본다() {
+        CouponTerms terms = lectureRate().issuePeriod(ISSUE_END.minusMillis(1), ISSUE_END).build();
 
         assertThatCode(() -> Coupon.createSeller(SELLER_ID, terms, NOW)).doesNotThrowAnyException();
-        // DB(timestamptz)는 마이크로초까지라 1나노초 차이는 저장하면 같은 시각이 된다
+        // Redis·Stream은 밀리초까지라 1마이크로초 차이는 같은 시각이 된다
         assertError(() -> Coupon.createSeller(SELLER_ID,
-                        lectureRate().issuePeriod(ISSUE_END.plusNanos(1), ISSUE_END.plusNanos(999)).build(), NOW),
+                        lectureRate().issuePeriod(ISSUE_END.plusNanos(1_000), ISSUE_END.plusNanos(999_999)).build(), NOW),
                 CouponDomainError.INVALID_ISSUE_PERIOD);
     }
 
@@ -187,11 +190,11 @@ class CouponCreateTest {
     }
 
     @Test
-    void 고정_만료_시각이_발급_종료보다_1마이크로초라도_뒤면_발행하고_마이크로초_아래_차이는_같은_시각으로_본다() {
-        CouponTerms terms = lectureRate().fixed(ISSUE_END.plusNanos(1_000)).build();
+    void 고정_만료_시각이_발급_종료보다_1밀리초라도_뒤면_발행하고_밀리초_아래_차이는_같은_시각으로_본다() {
+        CouponTerms terms = lectureRate().fixed(ISSUE_END.plusMillis(1)).build();
 
         assertThatCode(() -> Coupon.createSeller(SELLER_ID, terms, NOW)).doesNotThrowAnyException();
-        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().fixed(ISSUE_END.plusNanos(1)).build(), NOW),
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().fixed(ISSUE_END.plusNanos(999_999)).build(), NOW),
                 CouponDomainError.INVALID_FIXED_EXPIRY);
     }
 
@@ -212,6 +215,54 @@ class CouponCreateTest {
         assertThat(coupon.getExpiryType()).isEqualTo(ExpiryType.FIXED);
         assertThat(coupon.getFixedExpiresAt()).isEqualTo(fixed);
         assertThat(coupon.getExpiryDays()).isNull();
+    }
+
+    @Test
+    void 발급_종료_시각이_지금과_같거나_지났으면_발행하지_않는다() {
+        CouponTerms endsNow = lectureRate().issuePeriod(NOW.minusSeconds(3_600), NOW).build();
+        CouponTerms ended = lectureRate().issuePeriod(NOW.minusSeconds(3_600), NOW.minusMillis(1)).build();
+
+        assertError(() -> Coupon.createSeller(SELLER_ID, endsNow, NOW), CouponDomainError.ISSUE_PERIOD_ENDED);
+        assertError(() -> Coupon.createSeller(SELLER_ID, ended, NOW), CouponDomainError.ISSUE_PERIOD_ENDED);
+        assertError(() -> Coupon.createPlatform(ADMIN_ID, endsNow, NOW), CouponDomainError.ISSUE_PERIOD_ENDED);
+    }
+
+    @Test
+    void 발급_종료가_지금보다_1밀리초라도_뒤면_발행하고_밀리초_아래로_뒤면_지금과_같게_본다() {
+        CouponTerms terms = lectureRate().issuePeriod(NOW.minusSeconds(3_600), NOW.plusMillis(1)).build();
+        CouponTerms underMilli = lectureRate().issuePeriod(NOW.minusSeconds(3_600), NOW.plusNanos(999_000)).build();
+
+        assertThatCode(() -> Coupon.createSeller(SELLER_ID, terms, NOW)).doesNotThrowAnyException();
+        assertThatCode(() -> Coupon.createPlatform(ADMIN_ID, terms, NOW)).doesNotThrowAnyException();
+        assertError(() -> Coupon.createSeller(SELLER_ID, underMilli, NOW), CouponDomainError.ISSUE_PERIOD_ENDED);
+    }
+
+    @Test
+    void 접수_기준_만료는_상한_일수까지_발행하고_넘으면_거절한다() {
+        assertThatCode(() -> Coupon.createSeller(SELLER_ID, lectureRate().relative(MAX_EXPIRY_DAYS).build(),
+                MAX_EXPIRY_DAYS, NOW)).doesNotThrowAnyException();
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().relative(MAX_EXPIRY_DAYS + 1).build(),
+                MAX_EXPIRY_DAYS, NOW), CouponDomainError.EXPIRY_TOO_LONG);
+        assertError(() -> Coupon.createPlatform(ADMIN_ID, anyLectureAmount().relative(MAX_EXPIRY_DAYS + 1).build(),
+                MAX_EXPIRY_DAYS, NOW), CouponDomainError.EXPIRY_TOO_LONG);
+    }
+
+    @Test
+    void 고정_만료는_발급_종료_뒤_상한_일수까지_발행하고_1밀리초라도_넘으면_거절한다() {
+        Instant limit = ISSUE_END.plus(Duration.ofDays(MAX_EXPIRY_DAYS));
+
+        assertThatCode(() -> Coupon.createSeller(SELLER_ID, lectureRate().fixed(limit).build(), MAX_EXPIRY_DAYS, NOW))
+                .doesNotThrowAnyException();
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().fixed(limit.plusMillis(1)).build(),
+                MAX_EXPIRY_DAYS, NOW), CouponDomainError.EXPIRY_TOO_LONG);
+    }
+
+    @Test
+    void 상한을_넘기지_않는_팩토리는_DB_한도_3650일을_상한으로_쓴다() {
+        assertThatCode(() -> Coupon.createSeller(SELLER_ID, lectureRate().relative(3_650).build(), NOW))
+                .doesNotThrowAnyException();
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().relative(3_651).build(), NOW),
+                CouponDomainError.EXPIRY_TOO_LONG);
     }
 
     static void assertError(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, CouponDomainError error) {

@@ -13,6 +13,8 @@ dependencies {
     implementation("org.springframework.security:spring-security-core")
     // 컨트롤러 Spec의 Swagger 애노테이션. springdoc 자체는 lecture-app이 싣는다
     implementation(libs.swagger.annotations)
+    // 강의 조회 내부 API 호출의 circuit breaker. starter 없이 코드로 조합한다(지갑·회원과 같음)
+    implementation(libs.resilience4j.circuitbreaker)
 
     testImplementation(project(":test-support"))
     // Facade 테스트의 역할 넣기(@WithMockUser)

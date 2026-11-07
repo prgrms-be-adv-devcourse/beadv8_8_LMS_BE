@@ -3,6 +3,8 @@ package com.hapbang.coupon.app.port;
 import java.time.Instant;
 import java.util.Optional;
 
+import com.hapbang.coupon.domain.ExpiryType;
+
 /**
  * 선착순 발급 접수 저장소(Redis). 접수 판정의 권위 데이터({@code issue-control}·stock·users·requests)와 발급 Stream을 다룬다.
  * 접수는 완료가 아니다. 확정은 Stream 뒤의 작업자·소비자가 DB에 한다.
@@ -15,7 +17,7 @@ import java.util.Optional;
 public interface CouponIssueStore {
 
     /**
-     * 발급을 준비한다: stock·epoch·발급 기간·fence를 쓰고 {@code issue-control}을 ready로 만든다. 접수는 열지 않는다
+     * 발급을 준비한다: stock·epoch·발급 기간·fence·만료 계산 입력을 쓰고 {@code issue-control}을 ready로 만든다. 접수는 열지 않는다
      * (새로 만들거나 epoch가 바뀌면 status는 접수 불가인 READY이고, 같은 epoch로 이미 있으면 status를 바꾸지 않는다). 같은 값으로 다시 불러도 안전하다:
      * 같은 epoch면 남은 stock을 덮지 않는다. fence는 {@code issue-control}이 없을 때만 {@link IssueControl#fence()}로 쓰고,
      * 있으면 그대로 둔다.
@@ -46,10 +48,11 @@ public interface CouponIssueStore {
     void block(long couponId, String status, long fence);
 
     /**
-     * 접수를 시도한다(issue.lua). 반환값은 Lua 그대로다: 1 접수, 2 같은 요청 재응답, 0 매진, -1 이미 발급, -2 준비 안 됨,
-     * -3 기간 아님, -9 오류. 해석은 도메인이 한다.
+     * 접수를 시도한다(issue.lua). DB를 읽지 않는다: epoch와 발급 쿠폰의 만료 시각은 {@link #prepare}가 써 둔 {@code issue-control}
+     * 값으로 Lua가 정한다. 코드는 Lua 그대로다: 1 접수, 2 같은 요청 재응답, 0 매진, -1 이미 발급, -2 준비 안 됨(준비 전·쿠폰 없음 포함),
+     * -3 기간 아님, -4 요청 ID가 다른 회원의 접수와 겹침, -9 오류. 해석은 도메인이 한다.
      */
-    long tryIssue(IssueAttempt attempt);
+    IssueOutcome tryIssue(IssueAttempt attempt);
 
     /** 요청 ID의 접수 기록. 없으면 빈 값 */
     Optional<IssueReceipt> findRequest(long couponId, String issueRequestId);
@@ -66,17 +69,27 @@ public interface CouponIssueStore {
      * @param stock         발급할 수량(아직 DB에 확정되지 않은 남은 수량)
      * @param keysExpireAt  쿠폰별 key의 만료 시각(발급 종료 + 여유). Stream에는 만료를 두지 않는다
      * @param fence         준비할 때 읽은 쿠폰 DB version. {@code issue-control}을 새로 만들 때만 쓴다
+     * @param expiryType     발급 쿠폰의 만료 방식(RELATIVE·FIXED). 접수 때 Lua가 만료 시각을 계산하는 입력이다
+     * @param expiryDays     접수 기준 만료 일수. RELATIVE만, 아니면 null
+     * @param fixedExpiresAt 고정 만료 시각. FIXED만, 아니면 null. 밀리초 아래는 버리고 저장한다
      */
     record IssueControl(long couponId, long epoch, long stock, Instant issueStartAt, Instant issueEndAt,
-            Instant keysExpireAt, long fence) {
+            Instant keysExpireAt, long fence, ExpiryType expiryType, Integer expiryDays, Instant fixedExpiresAt) {
     }
 
     /**
-     * @param issuedAt  최초 접수 시각(앱 시계). 재전송으로 바뀌지 않는다(같은 요청 ID면 Lua가 2를 돌려주고 기록을 바꾸지 않는다)
-     * @param expiresAt 발급 쿠폰의 만료 시각(도메인이 issuedAt으로 계산)
+     * @param issuedAt 접수 시각(앱 시계, 기간 판정의 현재 시각). 같은 요청 ID 재전송이면 기록에 쓰지 않는다(최초 접수 시각이 그대로다)
      */
-    record IssueAttempt(long couponId, long memberId, String issueRequestId, long epoch, Instant issuedAt,
-            Instant expiresAt) {
+    record IssueAttempt(long couponId, long memberId, String issueRequestId, Instant issuedAt) {
+    }
+
+    /**
+     * 접수 시도 결과.
+     *
+     * @param code      Lua 반환 코드({@link #tryIssue} 참고)
+     * @param expiresAt 발급 쿠폰의 만료 시각. 1(접수)이면 이번 접수의 값, 2(재응답)이면 최초 접수의 값이고, 그 밖에는 null
+     */
+    record IssueOutcome(long code, Instant expiresAt) {
     }
 
     /** 접수 기록: 접수한 회원과 최초 접수 시각 */

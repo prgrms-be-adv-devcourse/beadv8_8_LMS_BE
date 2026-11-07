@@ -11,8 +11,8 @@ import org.springframework.stereotype.Service;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueAttempt;
+import com.hapbang.coupon.app.port.CouponIssueStore.IssueOutcome;
 import com.hapbang.coupon.config.CouponClockConfig;
-import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.IssueResponseCode;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
@@ -20,42 +20,40 @@ import com.hapbang.coupon.global.exception.CouponException;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 선착순 발급 접수. 접수 판정(운영 상태·준비·epoch·기간·회원 중복·재고)은 Redis Lua가 하고, DB 쿠폰 상태로 미리 거절하지 않는다.
+ * 선착순 발급 접수. 접수 판정(운영 상태·준비·기간·회원 중복·재고)과 epoch·만료 시각은 Redis Lua가 정하고, DB를 읽지 않는다
+ * (발급 경로는 Redis만 쓴다. DB 커넥션 풀을 다른 기능과 함께 쓰므로 접수 폭주가 DB로 번지지 않게 한다).
+ * 쿠폰이 없거나 준비 전이면 Lua가 준비 안 됨(-2)이라 409 {@code COUPON_ISSUE_NOT_OPEN}이다.
  * 접수(ACCEPTED)는 완료가 아니다. 결과는 발급 요청 상태 조회로 확인한다.
  * <p>
- * 같은 요청 ID를 다시 보내면 이번 시각으로 만료 시각을 다시 계산해 넘기지만, Lua가 기존 접수 기록을 바꾸지 않고 2(ALREADY_ACCEPTED)를
- * 돌려주므로 처음 접수한 시각과 만료 시각이 그대로다. 발급이 중단된 뒤의 재전송은 Lua 검사 순서상 NOT_OPEN이다.
+ * 같은 요청 ID를 다시 보내면 Lua가 기존 접수 기록을 바꾸지 않고 2(ALREADY_ACCEPTED)와 최초 접수의 만료 시각을 돌려준다.
+ * 발급이 중단된 뒤의 재전송은 Lua 검사 순서상 NOT_OPEN이다.
  */
 @Slf4j
 @Service
 public class CouponIssueRequestUseCase {
 
-    private final CouponSupport couponSupport;
     private final CouponIssueStore couponIssueStore;
     private final Clock clock;
 
-    public CouponIssueRequestUseCase(CouponSupport couponSupport, CouponIssueStore couponIssueStore,
+    public CouponIssueRequestUseCase(CouponIssueStore couponIssueStore,
                                      @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
-        this.couponSupport = couponSupport;
         this.couponIssueStore = couponIssueStore;
         this.clock = clock;
     }
 
     public IssueRequestResult requestIssue(long couponId, long memberId, String issueRequestId) {
         IssueRequestIds.requireValid(issueRequestId);
-        Coupon coupon = couponSupport.findCoupon(couponId);
-        // Redis 접수 기록은 밀리초까지만 남으므로 만료 시각도 같은 시각으로 계산한다
+        // Redis 접수 기록은 밀리초까지만 남으므로 접수 시각도 밀리초로 자른다
         Instant issuedAt = clock.instant().truncatedTo(ChronoUnit.MILLIS);
-        IssueAttempt attempt = new IssueAttempt(couponId, memberId, issueRequestId, coupon.getEpoch(), issuedAt,
-                coupon.expiresAtFor(issuedAt));
-        IssueResponseCode code = IssueResponseCode.fromLua(couponIssueStore.tryIssue(attempt));
+        IssueOutcome outcome = couponIssueStore.tryIssue(new IssueAttempt(couponId, memberId, issueRequestId, issuedAt));
+        IssueResponseCode code = IssueResponseCode.fromLua(outcome.code());
         if (!code.isAccepted()) {
             throw new CouponException(errorCodeOf(code));
         }
         if (code == IssueResponseCode.ACCEPTED) {
             log.info("쿠폰 발급을 접수했다 couponId={}, memberId={}, issueRequestId={}", couponId, memberId, issueRequestId);
         }
-        return new IssueRequestResult(issueRequestId, couponId, code);
+        return new IssueRequestResult(issueRequestId, couponId, code, outcome.expiresAt());
     }
 
     private static CouponErrorCode errorCodeOf(IssueResponseCode code) {

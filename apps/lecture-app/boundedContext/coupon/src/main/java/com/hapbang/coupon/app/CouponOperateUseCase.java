@@ -27,7 +27,8 @@ import lombok.extern.slf4j.Slf4j;
  *     Redis를 막지 못하면 DB는 그대로이고 503이다. 이미 그 상태인 쿠폰을 다시 요청하면 Redis만 다시 막고 성공한다.</li>
  *     <li>종료의 첫 막기는 SUSPENDED로 쓴다. Redis의 CLOSED는 되돌릴 수 없어 DB 종료가 커밋된 뒤에만 쓴다(DB 종료가 실패해도 재개로
  *     되돌릴 수 있게).</li>
- *     <li>재개: DB를 OPEN으로 커밋(이미 OPEN이면 version만 올린다)한 뒤 커밋된 version으로 Redis 접수를 연다
+ *     <li>재개: 중단(SUSPENDED)된 쿠폰의 발급 종료 시각이 지났으면 Redis를 건드리기 전에 409로 끝낸다(이미 OPEN인 재호출은 보지 않는다).
+ *     그다음 DB를 OPEN으로 커밋(이미 OPEN이면 version만 올린다)한 뒤 커밋된 version으로 Redis 접수를 연다
  *     ({@link CouponSupport#allowIssue}). Redis를 열지 못하면 DB는 OPEN, Redis는 막힌 채(접수 안 됨)로 503이고, 다시 요청하면 version을
  *     올려 다시 연다. 그 사이 중단·종료가 더 새 version으로 막았으면 Redis는 막힌 채로 409다.</li>
  *     <li>종료해도 발급되지 않은 수량의 예산은 여기서 해제하지 않는다(진행 중 발급을 정리한 뒤 따로 해제한다).</li>
@@ -78,6 +79,10 @@ public class CouponOperateUseCase {
     }
 
     public CouponView resume(long adminId, long couponId) {
+        Coupon current = couponSupport.findCoupon(couponId);
+        if (current.getStatus() == CouponStatus.SUSPENDED) {
+            current.requireIssueNotEnded(clock.instant());
+        }
         Coupon resumed = transaction.execute(status -> {
             Coupon coupon = couponSupport.findCouponIncrementingVersion(couponId);
             if (coupon.getStatus() != CouponStatus.OPEN) {

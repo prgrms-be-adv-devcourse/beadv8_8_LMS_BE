@@ -130,11 +130,12 @@ class CouponIssueE2eTest {
 
         // 회원 A 접수: Stream 1건, stock −1, users에 A
         String requestId = "req-a-1";
-        requestIssue(couponId, MEMBER_A, requestId)
+        String accepted = requestIssue(couponId, MEMBER_A, requestId)
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.data.issueRequestId").value(requestId))
                 .andExpect(jsonPath("$.data.couponId").value(couponId))
-                .andExpect(jsonPath("$.data.result").value("ACCEPTED"));
+                .andExpect(jsonPath("$.data.result").value("ACCEPTED"))
+                .andReturn().getResponse().getContentAsString();
 
         List<MapRecord<String, Object, Object>> entries = streamEntries(couponId);
         assertThat(entries).hasSize(1);
@@ -146,18 +147,22 @@ class CouponIssueE2eTest {
                 .containsEntry("epoch", String.valueOf(Coupon.INITIAL_EPOCH));
         long issuedAt = Long.parseLong((String) payload.get("issuedAt"));
         long expiresAt = Long.parseLong((String) payload.get("expiresAt"));
+        // 만료 시각은 DB를 읽지 않고 Redis 준비 값(접수 기준 30일)으로 Lua가 정한다. 접수 응답도 같은 값이다
         assertThat(expiresAt - issuedAt).isEqualTo(Duration.ofDays(EXPIRY_DAYS).toMillis());
+        assertThat(responseExpiresAt(accepted)).isEqualTo(Instant.ofEpochMilli(expiresAt));
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId)))
                 .isEqualTo(String.valueOf(QUANTITY - 1));
         assertThat(redisTemplate.opsForSet().members(CouponRedisKeys.users(couponId)))
                 .containsExactly(String.valueOf(MEMBER_A));
         Object record = redisTemplate.opsForHash().get(CouponRedisKeys.requests(couponId), requestId);
-        assertThat(record).isEqualTo(MEMBER_A + "|" + issuedAt + "|ACCEPTED");
+        assertThat(record).isEqualTo(MEMBER_A + "|" + issuedAt + "|ACCEPTED|" + expiresAt);
 
-        // 같은 요청 ID 재전송(I4): 같은 접수로 응답하고 기록·stock·Stream을 바꾸지 않는다
-        requestIssue(couponId, MEMBER_A, requestId)
+        // 같은 요청 ID 재전송(I4): 같은 접수(최초 만료 시각)로 응답하고 기록·stock·Stream을 바꾸지 않는다
+        String again = requestIssue(couponId, MEMBER_A, requestId)
                 .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.data.result").value("ALREADY_ACCEPTED"));
+                .andExpect(jsonPath("$.data.result").value("ALREADY_ACCEPTED"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(responseExpiresAt(again)).isEqualTo(Instant.ofEpochMilli(expiresAt));
         assertThat(streamEntries(couponId)).hasSize(1);
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId)))
                 .isEqualTo(String.valueOf(QUANTITY - 1));
@@ -213,6 +218,10 @@ class CouponIssueE2eTest {
     private ResultActions issueStatus(long couponId, long memberId, String requestId) throws Exception {
         return mockMvc.perform(get("/api/v1/coupons/{couponId}/issue-requests/{requestId}", couponId, requestId)
                 .with(login(memberId, "USER")));
+    }
+
+    private static Instant responseExpiresAt(String response) {
+        return Instant.parse(JsonPath.read(response, "$.data.expiresAt"));
     }
 
     private long couponVersion(long couponId) {

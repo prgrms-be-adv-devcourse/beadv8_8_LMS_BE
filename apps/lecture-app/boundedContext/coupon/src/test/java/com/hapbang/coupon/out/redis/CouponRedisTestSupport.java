@@ -19,6 +19,7 @@ import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueAttempt;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControl;
+import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
 
 /**
@@ -32,6 +33,7 @@ abstract class CouponRedisTestSupport {
     static final Instant START = NOW.minus(Duration.ofHours(1));
     static final Instant END = NOW.plus(Duration.ofHours(1));
     static final Instant KEYS_EXPIRE_AT = END.plus(Duration.ofDays(7));
+    static final int EXPIRY_DAYS = 30;
 
     @Autowired
     RedisCouponIssueStore store;
@@ -60,9 +62,16 @@ abstract class CouponRedisTestSupport {
         return key;
     }
 
-    /** fence 0(새 쿠폰의 DB version)으로 준비하는 값 */
+    /** fence 0(새 쿠폰의 DB version), 접수 기준 30일 만료로 준비하는 값 */
     static IssueControl control(long couponId, long epoch, long stock) {
-        return new IssueControl(couponId, epoch, stock, START, END, KEYS_EXPIRE_AT, 0);
+        return new IssueControl(couponId, epoch, stock, START, END, KEYS_EXPIRE_AT, 0, ExpiryType.RELATIVE,
+                EXPIRY_DAYS, null);
+    }
+
+    /** 고정 시각 만료로 준비하는 값 */
+    static IssueControl fixedControl(long couponId, long epoch, long stock, Instant fixedExpiresAt) {
+        return new IssueControl(couponId, epoch, stock, START, END, KEYS_EXPIRE_AT, 0, ExpiryType.FIXED, null,
+                fixedExpiresAt);
     }
 
     /** 준비한 뒤 DB OPEN 커밋(version 1)을 흉내 내 접수를 연다 */
@@ -75,12 +84,12 @@ abstract class CouponRedisTestSupport {
         return (String) redisTemplate.opsForHash().get(CouponRedisKeys.issueControl(couponId), "status");
     }
 
-    static IssueAttempt attempt(long couponId, long memberId, String requestId, long epoch) {
-        return attemptAt(couponId, memberId, requestId, epoch, NOW);
+    static IssueAttempt attempt(long couponId, long memberId, String requestId) {
+        return attemptAt(couponId, memberId, requestId, NOW);
     }
 
-    static IssueAttempt attemptAt(long couponId, long memberId, String requestId, long epoch, Instant issuedAt) {
-        return new IssueAttempt(couponId, memberId, requestId, epoch, issuedAt, issuedAt.plus(Duration.ofDays(30)));
+    static IssueAttempt attemptAt(long couponId, long memberId, String requestId, Instant issuedAt) {
+        return new IssueAttempt(couponId, memberId, requestId, issuedAt);
     }
 
     @Configuration(proxyBeanMethods = false)

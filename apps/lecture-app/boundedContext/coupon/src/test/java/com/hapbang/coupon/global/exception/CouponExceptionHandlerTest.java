@@ -1,5 +1,6 @@
 package com.hapbang.coupon.global.exception;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ContextConfiguration;
@@ -72,6 +74,14 @@ class CouponExceptionHandlerTest {
         mockMvc.perform(get("/api/v1/coupons/samples/domain-transition"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_COUPON_STATUS"));
+    }
+
+    @Test
+    void 발급_종료가_지난_쿠폰은_409_발급_기간_종료_코드다() {
+        CouponErrorCode code = CouponExceptionHandler.errorCodeOf(CouponDomainError.ISSUE_PERIOD_ENDED);
+
+        assertThat(code).isEqualTo(CouponErrorCode.COUPON_ISSUE_PERIOD_ENDED);
+        assertThat(code.getStatus()).isEqualTo(HttpStatus.CONFLICT);
     }
 
     @Test

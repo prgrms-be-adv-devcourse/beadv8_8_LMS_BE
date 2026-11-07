@@ -21,7 +21,8 @@ import lombok.NoArgsConstructor;
  * 쿠폰 정책(발행 단위).
  * <ul>
  *     <li>판매자 쿠폰은 {@link #createSeller}, 플랫폼 쿠폰은 {@link #createPlatform}으로 만든다. 유형을 호출자가 값으로 고르지 않는다.
- *     플랫폼 쿠폰 발행자가 관리자인지는 app의 역할 검사가 본다.</li>
+ *     플랫폼 쿠폰 발행자가 관리자인지는 app의 역할 검사가 본다. 만료 상한 일수는 호출자가 설정값으로 넘긴다.</li>
+ *     <li>발급 종료 시각이 지난 쿠폰은 만들거나 발급을 열지(열기·승인·재개) 않는다({@link #requireIssueNotEnded}).</li>
  *     <li>상태 전이: 판매자 DRAFT → REVIEW → OPEN/REJECTED, 플랫폼 DRAFT → OPEN, OPEN → SUSPENDED → OPEN, OPEN·SUSPENDED → CLOSED.
  *     그 밖은 {@link CouponDomainError#INVALID_STATUS_TRANSITION}이다.</li>
  *     <li>발급을 열기 전에 Redis 발급 저장소를 준비하고({@link #markRedisReady}), 플랫폼 쿠폰은 그보다 먼저 예산을 확보한다
@@ -39,6 +40,12 @@ public class Coupon {
 
     /** 첫 발급 epoch. Redis 유실 복구 때 오른다 */
     public static final long INITIAL_EPOCH = 1L;
+
+    /**
+     * DB CHECK({@code ck_coupon_expiry})가 허용하는 만료 상한 일수. 만료 상한 설정의 기본값이고, 상한을 받지 않는 팩토리가 쓴다.
+     * 측정·합의 전 값이다
+     */
+    public static final int DB_MAX_EXPIRY_DAYS = 3650;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -128,8 +135,9 @@ public class Coupon {
     @Column(nullable = false)
     private long version;
 
-    private Coupon(CouponType type, Long applicantId, CouponTerms terms, Instant now) {
-        terms.validateFor(type);
+    private Coupon(CouponType type, Long applicantId, CouponTerms terms, int maxExpiryDays, Instant now) {
+        terms.validateFor(type, maxExpiryDays);
+        requireIssueNotEnded(terms.issueEndAt(), now);
         this.type = type;
         this.applicantId = Objects.requireNonNull(applicantId, "applicantId");
         this.targetType = terms.targetType();
@@ -155,24 +163,60 @@ public class Coupon {
         this.updatedAt = now;
     }
 
-    /** 판매자 쿠폰 신청서(DRAFT). 특정 강의 대상만. 강의 소유자 확인은 호출자가 강의 조회로 한다 */
+    /**
+     * 판매자 쿠폰 신청서(DRAFT). 특정 강의 대상만. 강의 소유자 확인은 호출자가 강의 조회로 한다.
+     *
+     * @param maxExpiryDays 만료 상한 일수(설정값). RELATIVE는 만료 일수, FIXED는 발급 종료부터 고정 만료 시각까지의 상한이다
+     */
+    public static Coupon createSeller(Long sellerId, CouponTerms terms, int maxExpiryDays, Instant now) {
+        return new Coupon(CouponType.SELLER, sellerId, terms, maxExpiryDays, now);
+    }
+
+    /**
+     * 만료 상한을 DB 한도({@link #DB_MAX_EXPIRY_DAYS})로 둔 {@link #createSeller(Long, CouponTerms, int, Instant)}.
+     * 테스트 편의용이다. 운영 코드는 설정값을 넘기는 쪽을 쓴다
+     */
     public static Coupon createSeller(Long sellerId, CouponTerms terms, Instant now) {
-        return new Coupon(CouponType.SELLER, sellerId, terms, now);
+        return createSeller(sellerId, terms, DB_MAX_EXPIRY_DAYS, now);
     }
 
     /**
      * 플랫폼 쿠폰(DRAFT). 관리자만 부른다(역할 검사는 app). 예산액이 long을 넘으면 발행 단계에서 거절한다.
+     *
+     * @param maxExpiryDays 만료 상한 일수(설정값). RELATIVE는 만료 일수, FIXED는 발급 종료부터 고정 만료 시각까지의 상한이다
      */
-    public static Coupon createPlatform(Long adminId, CouponTerms terms, Instant now) {
-        Coupon coupon = new Coupon(CouponType.PLATFORM, adminId, terms, now);
+    public static Coupon createPlatform(Long adminId, CouponTerms terms, int maxExpiryDays, Instant now) {
+        Coupon coupon = new Coupon(CouponType.PLATFORM, adminId, terms, maxExpiryDays, now);
         coupon.terms().budgetAmount();
         return coupon;
+    }
+
+    /**
+     * 만료 상한을 DB 한도({@link #DB_MAX_EXPIRY_DAYS})로 둔 {@link #createPlatform(Long, CouponTerms, int, Instant)}.
+     * 테스트 편의용이다. 운영 코드는 설정값을 넘기는 쪽을 쓴다
+     */
+    public static Coupon createPlatform(Long adminId, CouponTerms terms, Instant now) {
+        return createPlatform(adminId, terms, DB_MAX_EXPIRY_DAYS, now);
     }
 
     /** 이 쿠폰의 발행 조건 */
     public CouponTerms terms() {
         return new CouponTerms(targetType, lectureId, basePrice, discountType, discountValue, maxDiscountAmount,
                 quantity, issueStartAt, issueEndAt, expiryType, expiryDays, fixedExpiresAt, stackable);
+    }
+
+    /**
+     * 발급 종료 시각이 아직 지나지 않았는가. 종료 시각이 {@code now}와 같거나 앞서면 {@link CouponDomainError#ISSUE_PERIOD_ENDED}다.
+     * 발급을 여는 전이(열기·재개)가 스스로 보고, app은 Redis·예산을 건드리기 전에 미리 부른다.
+     */
+    public void requireIssueNotEnded(Instant now) {
+        requireIssueNotEnded(issueEndAt, now);
+    }
+
+    private static void requireIssueNotEnded(Instant issueEndAt, Instant now) {
+        if (!issueEndAt.isAfter(now)) {
+            throw new CouponDomainException(CouponDomainError.ISSUE_PERIOD_ENDED);
+        }
     }
 
     /** 신청자(플랫폼 쿠폰은 발행한 관리자)인가 */
@@ -237,10 +281,11 @@ public class Coupon {
 
     /**
      * 발급을 연다. 판매자 쿠폰은 승인(REVIEW → OPEN), 플랫폼 쿠폰은 발행(DRAFT → OPEN)이다.
-     * Redis 준비가 끝나야 하고, 플랫폼 쿠폰은 예산 예약도 있어야 한다.
+     * Redis 준비가 끝나야 하고, 플랫폼 쿠폰은 예산 예약도 있어야 한다. 발급 종료 시각이 지났으면 열지 않는다.
      */
     public void open(Instant now) {
         requireStatus(statusBeforeOpen());
+        requireIssueNotEnded(now);
         if (type == CouponType.PLATFORM && budgetReservationId == null) {
             throw new CouponDomainException(CouponDomainError.BUDGET_NOT_RESERVED);
         }
@@ -256,9 +301,10 @@ public class Coupon {
         changeStatus(CouponStatus.SUSPENDED, now);
     }
 
-    /** 발급 재개: SUSPENDED → OPEN */
+    /** 발급 재개: SUSPENDED → OPEN. 발급 종료 시각이 지났으면 재개하지 않는다 */
     public void resume(Instant now) {
         requireStatus(CouponStatus.SUSPENDED);
+        requireIssueNotEnded(now);
         changeStatus(CouponStatus.OPEN, now);
     }
 

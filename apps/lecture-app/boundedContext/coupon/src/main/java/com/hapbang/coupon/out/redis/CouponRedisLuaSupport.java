@@ -14,6 +14,21 @@ record CouponRedisLuaSupport() {
         return RedisScript.of(new ClassPathResource(path), Long.class);
     }
 
+    /** 정수 배열(Lua table)을 돌려주는 스크립트 */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static RedisScript<List<Long>> longListLuaScript(String path) {
+        return (RedisScript) RedisScript.of(new ClassPathResource(path), List.class);
+    }
+
+    static List<Long> runForLongs(StringRedisTemplate redisTemplate, RedisScript<List<Long>> script, List<String> keys,
+            Object... args) {
+        List<Long> result = redisTemplate.execute(script, keys, toStringArgs(args));
+        if (result == null) {
+            throw new IllegalStateException("Lua 결과 null");
+        }
+        return result;
+    }
+
     static long runForLong(StringRedisTemplate redisTemplate, RedisScript<Long> script, List<String> keys,
             Object... args) {
         Long result = redisTemplate.execute(script, keys, toStringArgs(args));

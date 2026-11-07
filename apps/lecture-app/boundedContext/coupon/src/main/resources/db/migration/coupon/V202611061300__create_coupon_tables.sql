@@ -63,10 +63,13 @@ create table coupon.coupon
     constraint ck_coupon_max_discount check (
         (target_type = 'ANY_LECTURE' and discount_type = 'RATE' and max_discount_amount is not null and max_discount_amount >= 1)
             or (not (target_type = 'ANY_LECTURE' and discount_type = 'RATE') and max_discount_amount is null)),
-    -- 고정 만료 시각은 발급 종료 시각보다 뒤다
+    -- 고정 만료 시각은 발급 종료 시각보다 뒤다. 만료 상한은 3650일(앱 설정 hapbang.coupon.max-expiry-days의 기본값과 같다):
+    -- 만료 일수는 3650일 이하, 고정 만료 시각은 발급 종료 뒤 3650일(87600시간) 이내다. 일 단위 interval은 세션 시간대의
+    -- 서머타임에 따라 길이가 달라지므로 앱(Duration.ofDays, 24시간 × 일수)과 같게 시간으로 더한다
     constraint ck_coupon_expiry check (
-        (expiry_type = 'RELATIVE' and expiry_days is not null and expiry_days >= 1 and expires_at is null)
-            or (expiry_type = 'FIXED' and expires_at is not null and expiry_days is null and expires_at > issue_end_at))
+        (expiry_type = 'RELATIVE' and expiry_days is not null and expiry_days between 1 and 3650 and expires_at is null)
+            or (expiry_type = 'FIXED' and expires_at is not null and expiry_days is null and expires_at > issue_end_at
+            and expires_at <= issue_end_at + interval '87600 hours'))
 );
 
 -- 발급 쿠폰(회원이 받은 한 장). 행은 발급 확정 소비자가 넣는다.

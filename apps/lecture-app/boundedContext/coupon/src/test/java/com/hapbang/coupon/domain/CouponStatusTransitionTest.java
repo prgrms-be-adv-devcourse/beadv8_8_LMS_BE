@@ -14,6 +14,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -157,6 +158,37 @@ class CouponStatusTransitionTest {
             coupon.recordBudgetReserved(recorded, LATER);
             assertThat(coupon.getBudgetReservationId()).isEqualTo(recorded);
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(CouponType.class)
+    void 발급_종료_시각이_지났으면_열지_않는다(CouponType type) {
+        Coupon coupon = preparedCouponIn(type, type == CouponType.SELLER ? CouponStatus.REVIEW : CouponStatus.DRAFT);
+
+        assertError(() -> coupon.open(ISSUE_END), CouponDomainError.ISSUE_PERIOD_ENDED);
+        assertError(() -> coupon.open(ISSUE_END.plusSeconds(1)), CouponDomainError.ISSUE_PERIOD_ENDED);
+        assertThat(coupon.getStatus()).isNotEqualTo(CouponStatus.OPEN);
+    }
+
+    @Test
+    void 발급_종료_시각이_지났으면_재개하지_않는다() {
+        Coupon coupon = preparedCouponIn(CouponType.SELLER, CouponStatus.SUSPENDED);
+
+        assertError(() -> coupon.resume(ISSUE_END), CouponDomainError.ISSUE_PERIOD_ENDED);
+        assertThat(coupon.getStatus()).isEqualTo(CouponStatus.SUSPENDED);
+    }
+
+    @Test
+    void 발급_종료_1마이크로초_전이면_열고_재개한다() {
+        Instant justBeforeEnd = ISSUE_END.minusNanos(1_000);
+        Coupon opened = preparedCouponIn(CouponType.SELLER, CouponStatus.REVIEW);
+        Coupon resumed = preparedCouponIn(CouponType.PLATFORM, CouponStatus.SUSPENDED);
+
+        opened.open(justBeforeEnd);
+        resumed.resume(justBeforeEnd);
+
+        assertThat(opened.getStatus()).isEqualTo(CouponStatus.OPEN);
+        assertThat(resumed.getStatus()).isEqualTo(CouponStatus.OPEN);
     }
 
     @Test

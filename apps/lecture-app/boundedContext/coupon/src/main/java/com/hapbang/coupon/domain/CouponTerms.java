@@ -5,14 +5,14 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
 /**
- * 쿠폰 발행 조건(대상·할인·수량·발급 기간·만료·중첩). 유형별 발행 검증은 {@link #validateFor(CouponType)}가 한다.
+ * 쿠폰 발행 조건(대상·할인·수량·발급 기간·만료·중첩). 유형별 발행 검증은 {@link #validateFor(CouponType, int)}가 한다.
  *
  * @param lectureId         대상 강의 ID. 특정 강의 대상만
  * @param basePrice         발행 시 강의 가격 snapshot(HP, 1 이상). 특정 강의 대상만. 호출자가 강의 조회로 읽은 값이다
  * @param discountValue     정률이면 퍼센트 정수(1~100), 정액이면 HP
  * @param maxDiscountAmount 장당 최대 할인액(HP). 모든 강의 대상 정률 쿠폰만
- * @param expiryDays        접수 기준 만료 일수. RELATIVE만
- * @param fixedExpiresAt    고정 만료 시각. FIXED만, 발급 종료 시각보다 뒤
+ * @param expiryDays        접수 기준 만료 일수. RELATIVE만, 만료 상한 일수 이하
+ * @param fixedExpiresAt    고정 만료 시각. FIXED만, 발급 종료 시각보다 뒤이고 발급 종료 + 만료 상한 일수 이하
  */
 public record CouponTerms(
         CouponTargetType targetType,
@@ -31,21 +31,29 @@ public record CouponTerms(
 ) {
 
     /**
-     * 시각을 DB(PostgreSQL {@code timestamptz})와 같은 마이크로초로 자른다. 자르지 않으면 1나노초 차이를 도메인은 받고 DB에서는 같은
-     * 값이 되어 기간·만료 CHECK에 걸린다
+     * 시각을 Redis·Stream(epoch 밀리초)과 같은 밀리초로 자른다. DB(PostgreSQL {@code timestamptz}, 마이크로초)보다 거칠어 DB에는
+     * 그대로 들어가므로 쿠폰 DB 값과 Redis 값이 정확히 같다. 자르지 않으면 1밀리초 아래 차이를 도메인은 받고 Redis에서는 같은 값이
+     * 되어 발급 기간·만료 비교가 어긋난다
      */
     public CouponTerms {
-        issueStartAt = toMicros(issueStartAt);
-        issueEndAt = toMicros(issueEndAt);
-        fixedExpiresAt = toMicros(fixedExpiresAt);
+        issueStartAt = toMillis(issueStartAt);
+        issueEndAt = toMillis(issueEndAt);
+        fixedExpiresAt = toMillis(fixedExpiresAt);
     }
 
-    private static Instant toMicros(Instant value) {
-        return value == null ? null : value.truncatedTo(ChronoUnit.MICROS);
+    private static Instant toMillis(Instant value) {
+        return value == null ? null : value.truncatedTo(ChronoUnit.MILLIS);
     }
 
-    /** 발행 검증. 어긋나면 {@link CouponDomainException}이다 */
-    void validateFor(CouponType type) {
+    /**
+     * 발행 검증. 어긋나면 {@link CouponDomainException}이다.
+     *
+     * @param maxExpiryDays 만료 상한 일수(1 이상). RELATIVE는 만료 일수, FIXED는 발급 종료부터 고정 만료 시각까지의 상한이다
+     */
+    void validateFor(CouponType type, int maxExpiryDays) {
+        if (maxExpiryDays < 1) {
+            throw new IllegalArgumentException("만료 상한 일수는 1 이상이어야 합니다: " + maxExpiryDays);
+        }
         if (type == null || targetType == null || discountType == null || expiryType == null
                 || issueStartAt == null || issueEndAt == null) {
             throw new CouponDomainException(CouponDomainError.MISSING_TERMS);
@@ -61,7 +69,7 @@ public record CouponTerms(
         }
         validateTarget();
         validateDiscount();
-        validateExpiry();
+        validateExpiry(maxExpiryDays);
     }
 
     private void validateTarget() {
@@ -93,13 +101,22 @@ public record CouponTerms(
         }
     }
 
-    private void validateExpiry() {
+    private void validateExpiry(int maxExpiryDays) {
         if (expiryType == ExpiryType.RELATIVE && (expiryDays == null || expiryDays < 1 || fixedExpiresAt != null)) {
             throw new CouponDomainException(CouponDomainError.INVALID_RELATIVE_EXPIRY);
         }
         if (expiryType == ExpiryType.FIXED
                 && (fixedExpiresAt == null || expiryDays != null || !fixedExpiresAt.isAfter(issueEndAt))) {
             throw new CouponDomainException(CouponDomainError.INVALID_FIXED_EXPIRY);
+        }
+        boolean tooLong = switch (expiryType) {
+            case RELATIVE -> expiryDays > maxExpiryDays;
+            case FIXED -> fixedExpiresAt.isAfter(issueEndAt.plus(Duration.ofDays(maxExpiryDays)));
+        };
+        if (tooLong) {
+            throw new CouponDomainException(CouponDomainError.EXPIRY_TOO_LONG,
+                    "접수 기준 만료는 %d일 이하, 고정 만료 시각은 발급 종료 뒤 %d일 이내여야 합니다."
+                            .formatted(maxExpiryDays, maxExpiryDays));
         }
     }
 

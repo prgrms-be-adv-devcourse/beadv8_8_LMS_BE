@@ -60,9 +60,10 @@ class ApiV1CouponControllerTest {
     private CouponIssueFacade couponIssueFacade;
 
     @Test
-    void 발급_접수는_202와_요청_ID_쿠폰_ID_결과를_돌려준다() throws Exception {
+    void 발급_접수는_202와_요청_ID_쿠폰_ID_결과_만료_시각을_돌려준다() throws Exception {
         given(couponIssueFacade.requestIssue(COUPON_ID, MEMBER_ID, REQUEST_ID))
-                .willReturn(new IssueRequestResult(REQUEST_ID, COUPON_ID, IssueResponseCode.ACCEPTED));
+                .willReturn(new IssueRequestResult(REQUEST_ID, COUPON_ID, IssueResponseCode.ACCEPTED,
+                        Instant.parse("2026-12-06T03:00:00.123Z")));
 
         mockMvc.perform(post("/api/v1/coupons/{couponId}/issue-requests", COUPON_ID)
                         .with(member()).with(csrf())
@@ -72,7 +73,8 @@ class ApiV1CouponControllerTest {
                 .andExpect(jsonPath("$.statusCode").value(202))
                 .andExpect(jsonPath("$.data.issueRequestId").value(REQUEST_ID))
                 .andExpect(jsonPath("$.data.couponId").value(COUPON_ID))
-                .andExpect(jsonPath("$.data.result").value("ACCEPTED"));
+                .andExpect(jsonPath("$.data.result").value("ACCEPTED"))
+                .andExpect(jsonPath("$.data.expiresAt").value("2026-12-06T03:00:00.123Z"));
     }
 
     @ParameterizedTest
@@ -98,7 +100,8 @@ class ApiV1CouponControllerTest {
     void 발급_요청_ID는_64자까지_받는다() throws Exception {
         String requestId = "A_b-9".repeat(12) + "abcd";
         given(couponIssueFacade.requestIssue(COUPON_ID, MEMBER_ID, requestId))
-                .willReturn(new IssueRequestResult(requestId, COUPON_ID, IssueResponseCode.ALREADY_ACCEPTED));
+                .willReturn(new IssueRequestResult(requestId, COUPON_ID, IssueResponseCode.ALREADY_ACCEPTED,
+                        Instant.parse("2026-12-06T03:00:00Z")));
 
         mockMvc.perform(post("/api/v1/coupons/{couponId}/issue-requests", COUPON_ID)
                         .with(member()).with(csrf())

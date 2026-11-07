@@ -6,7 +6,10 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,8 +40,11 @@ import com.hapbang.coupon.app.port.PromotionBudgetPort.Outcome;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.CouponDomainError;
+import com.hapbang.coupon.domain.CouponDomainException;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.CouponTargetType;
+import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.out.BudgetWorkRepository;
@@ -118,7 +124,7 @@ class CouponOpenUseCaseTest {
         InOrder order = inOrder(budgetPort, issueStore);
         order.verify(budgetPort).reserve(WORK_ID, COUPON_ID, 1, BUDGET);
         order.verify(issueStore).prepare(new IssueControl(COUPON_ID, 1, 100, ISSUE_START, ISSUE_END,
-                ISSUE_END.plus(KEYS_EXPIRE_MARGIN), 1));
+                ISSUE_END.plus(KEYS_EXPIRE_MARGIN), 1, ExpiryType.RELATIVE, 30, null));
         order.verify(issueStore).allowIssue(COUPON_ID, 2);
         assertThat(statusAtRedis).containsExactly(CouponStatus.DRAFT, CouponStatus.OPEN);
         assertThat(coupon.getVersion()).isEqualTo(2);
@@ -293,6 +299,52 @@ class CouponOpenUseCaseTest {
         order.verify(issueStore).prepare(argThat(control -> control.fence() == 0));
         order.verify(issueStore).allowIssue(COUPON_ID, 1);
         verifyNoInteractions(budgetPortProvider, budgetPort, budgetWorkRepository);
+    }
+
+    @Test
+    void 고정_만료_쿠폰은_고정_만료_시각을_Redis_준비_값에_넣는다() {
+        Instant fixedExpiresAt = ISSUE_END.plus(Duration.ofDays(10));
+        Coupon fixed = withId(Coupon.createSeller(SELLER_ID, lectureRate().fixed(fixedExpiresAt).build(), NOW));
+        fixed.submitReview(NOW);
+        given(fixed);
+
+        useCase.approve(ADMIN_ID, COUPON_ID);
+
+        verify(issueStore).prepare(argThat(control -> control.expiryType() == ExpiryType.FIXED
+                && control.expiryDays() == null && fixedExpiresAt.equals(control.fixedExpiresAt())));
+    }
+
+    @Test
+    void 발급_종료가_지난_판매자_쿠폰은_승인하지_않고_강의_조회와_Redis를_부르지_않는다() {
+        given(reviewSellerCoupon());
+
+        assertIssuePeriodEnded(() -> useCaseAt(ISSUE_END).approve(ADMIN_ID, COUPON_ID));
+
+        assertThat(coupon.getStatus()).isEqualTo(CouponStatus.REVIEW);
+        verifyNoInteractions(lectureCatalog, issueStore);
+    }
+
+    @Test
+    void 발급_종료가_지난_플랫폼_쿠폰은_열지_않고_예산과_Redis를_부르지_않는다() {
+        given(draftPlatformCoupon());
+
+        assertIssuePeriodEnded(() -> useCaseAt(ISSUE_END.plusSeconds(1)).open(ADMIN_ID, COUPON_ID));
+
+        assertThat(coupon.getStatus()).isEqualTo(CouponStatus.DRAFT);
+        assertThat(works).isEmpty();
+        verifyNoInteractions(lectureCatalog, budgetPort, budgetWorkRepository, issueStore);
+    }
+
+    /** 시계만 다른 같은 UseCase */
+    private CouponOpenUseCase useCaseAt(Instant now) {
+        return new CouponOpenUseCase(new CouponSupport(couponRepository, lectureCatalog, issueStore),
+                budgetWorkRepository, issueStore, budgetPortProvider, new CouponRedisProperties(KEYS_EXPIRE_MARGIN),
+                db.transactionManager(), Clock.fixed(now, ZoneOffset.UTC));
+    }
+
+    private static void assertIssuePeriodEnded(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        assertThatThrownBy(call).isInstanceOfSatisfying(CouponDomainException.class,
+                exception -> assertThat(exception.getError()).isEqualTo(CouponDomainError.ISSUE_PERIOD_ENDED));
     }
 
     @Test

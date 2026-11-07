@@ -23,7 +23,10 @@ import com.hapbang.coupon.app.port.LectureCatalogUnavailableException;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.sun.net.httpserver.HttpServer;
 
-// 강의 조회 내부 API를 부르는 쿠폰 HTTP Interface와 어댑터의 요청 모양·응답 해제·오류 변환을 가짜 HTTP 서버로 확인한다
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+
+// 강의 조회 내부 API를 부르는 쿠폰 HTTP Interface와 어댑터의 요청 모양·응답 해제·오류 변환·circuit breaker를 가짜 HTTP 서버로 확인한다
 class HttpLectureCatalogTest {
 
     private static final String API_KEY = "unit-internal-api-key";
@@ -122,6 +125,38 @@ class HttpLectureCatalogTest {
         assertUnavailable();
     }
 
+    @Test
+    void 실패가_쌓여_회로가_열리면_HTTP를_부르지_않고_조회_불가다() {
+        HttpLectureCatalog catalog = catalog(baseUrl(), smallWindow());
+        respond(500, "{\"status\":500,\"code\":\"INTERNAL_ERROR\"}");
+        for (int i = 0; i < 2; i++) {
+            assertThatThrownBy(() -> catalog.findLecture(1L)).isInstanceOf(LectureCatalogUnavailableException.class);
+        }
+        assertThat(catalog.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        int sent = requests.size();
+
+        assertThatThrownBy(() -> catalog.findLecture(1L))
+                .isInstanceOf(LectureCatalogUnavailableException.class)
+                .hasCauseInstanceOf(CallNotPermittedException.class);
+        assertThat(requests).hasSize(sent);
+    }
+
+    @Test
+    void 강의_없음과_4xx는_회로_실패로_세지_않는다() {
+        HttpLectureCatalog catalog = catalog(baseUrl(), smallWindow());
+        respond(404, """
+                {"status":404,"detail":"강의를 찾을 수 없습니다.","code":"LECTURE_NOT_FOUND"}""");
+        assertThat(catalog.findLecture(99L)).isEmpty();
+        assertThat(catalog.findLecture(99L)).isEmpty();
+        // 내부 API 키 오류: 호출한 쪽에는 조회 불가지만 강의 앱이 판단한 응답이다
+        respond(401, null);
+        assertThatThrownBy(() -> catalog.findLecture(1L)).isInstanceOf(LectureCatalogUnavailableException.class);
+
+        assertThat(catalog.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(catalog.circuitBreaker().getMetrics().getNumberOfFailedCalls()).isZero();
+        assertThat(requests).hasSize(3);
+    }
+
     private void assertUnavailable() {
         assertThatThrownBy(() -> catalog(baseUrl()).findLecture(1L))
                 .isInstanceOf(LectureCatalogUnavailableException.class);
@@ -137,11 +172,20 @@ class HttpLectureCatalogTest {
     }
 
     private static HttpLectureCatalog catalog(String baseUrl) {
+        return catalog(baseUrl, CouponLectureClientProperties.defaults());
+    }
+
+    // 최근 2번 중 2번 모두 실패하면 열리고, 테스트 동안 다시 HALF_OPEN이 되지 않는 회로
+    private static CouponLectureClientProperties smallWindow() {
+        return new CouponLectureClientProperties(null, null, 2, 2, null, null, null, Duration.ofMinutes(5), null);
+    }
+
+    private static HttpLectureCatalog catalog(String baseUrl, CouponLectureClientProperties properties) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(READ_TIMEOUT);
         requestFactory.setReadTimeout(READ_TIMEOUT);
         return new HttpLectureCatalog(CouponLectureApiConfig.create(
-                RestClient.builder().requestFactory(requestFactory), baseUrl, API_KEY));
+                RestClient.builder().requestFactory(requestFactory), baseUrl, API_KEY), properties);
     }
 
     private static void sleep(long millis) {

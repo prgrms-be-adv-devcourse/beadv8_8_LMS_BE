@@ -24,6 +24,11 @@ public enum CouponDomainError {
     INVALID_BASE_PRICE("강의 가격은 1 HP 이상이어야 합니다."),
     INVALID_RELATIVE_EXPIRY("접수 기준 만료는 1일 이상이어야 하고 고정 만료 시각을 함께 지정하지 않습니다."),
     INVALID_FIXED_EXPIRY("고정 만료는 발급 종료 시각보다 뒤의 만료 시각이 필요하고 만료 일수를 함께 지정하지 않습니다."),
+    /** 만료 상한 일수를 넘었다. 던질 때 상한 일수를 넣은 메시지로 바꾼다 */
+    EXPIRY_TOO_LONG("쿠폰 만료가 허용 상한보다 깁니다."),
+
+    // 발급 기간
+    ISSUE_PERIOD_ENDED("발급 종료 시각이 지난 쿠폰은 발행하거나 발급을 열 수 없습니다."),
 
     // 대상 강의
     LECTURE_NOT_ON_SALE("판매 중인 강의에만 특정 강의 쿠폰을 발행하거나 발급을 열 수 있습니다."),

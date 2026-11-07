@@ -15,7 +15,8 @@
 
 - `:lecture-app` → `:coupon`은 **`runtimeOnly`**다. 같은 jar·같은 JVM에 실리되 강의 코드가 쿠폰 클래스를 컴파일 시점에 볼 수 없다. 쿠폰은 강의를 전혀 의존하지 않는다.
 - 두 모듈이 주고받는 **HTTP DTO·Kafka 이벤트 schema는 `common/shared`**에 둔다. 팀 규칙(shared에는 DTO·이벤트·Enum·오류 코드·공통 HTTP Client만)과 같고, 다른 앱 사이와 같은 방식이다. 이벤트 소유권 문제(순환)는 생기지 않는다.
-- 쿠폰이 필요로 하는 앱 공통 코드(인증 principal 읽기, 오류 응답, 배치 켜기 애노테이션)는 `:shared`에 있는 것을 쓰고, 없으면 `com.hapbang.coupon.global`에 자기 것을 둔다. `com.hapbang.lecture.global`을 가져다 쓰지 않는다.
+- 쿠폰이 필요로 하는 앱 공통 코드(인증 principal 읽기, 오류 응답, 배치 켜기 애노테이션)는 `:shared`에 있는 것을 쓰고, 없으면 `com.hapbang.coupon.global`에 자기 것을 둔다. `com.hapbang.lecture.global`을 가져다 쓰지 않는다. 그래서 쿠폰은 루트 AGENTS.md 7장("모듈은 `@RestControllerAdvice`를 만들지 않는다")의 **예외**다: 앱으로 분리될 것을 전제하므로 `com.hapbang.coupon` 패키지에 한정한 자기 예외 처리기·RsData·로그인 해석을 둔다. 루트 AGENTS.md 7장에 이 예외를 적는다.
+- 다른 앱을 부르는 HTTP 클라이언트(강의 조회, billing)는 루트 AGENTS.md 2장대로 Resilience4j circuit breaker와 timeout을 붙인다(billing의 `OutboundCircuitBreakers` 패턴). 열리면 포트의 Unavailable 예외 → 503.
 - 하위 프로젝트 이름에 `-app`을 붙이지 않는다(`verifyModuleStructure`가 `-app`을 실행 앱으로 센다). `settings.gradle.kts`에 auxiliary와 같은 방식으로 등록하고, `verifyModuleStructure`가 `:lecture-app`의 하위 프로젝트 의존을 허용하도록 규칙을 확인한다.
 
 ### 프로젝트 구조
@@ -123,7 +124,7 @@ hapbang-backend/
 
 ## 발급
 
-1. 인증·권한·형식을 확인하고 안정적인 issueRequestId를 받는다.
+1. 인증·권한·형식을 확인하고 안정적인 issueRequestId를 받는다. **접수 경로는 DB를 읽지 않는다.** epoch·발급 기간·만료 계산 입력(방식·N일·고정 시각)은 발급 준비(`prepare`) 때 `issue-control`에 넣어 두고, Lua가 그 값으로 `expiresAt`을 계산해 Stream 필드에 쓴다. 쿠폰 존재·운영 상태 확인은 Lua의 `-2`로 충분하다(Hikari pool을 강의 API와 공유하므로 선착순 핫패스에 SELECT를 두지 않는다).
 2. 기존 요청이면 내용·소유자를 대조해 결과를 반환한다. 기간 종료·매진 뒤 재시도도 기존 결과를 조회할 수 있다.
 3. 신규 요청은 Lua에서 운영 상태·준비 상태·epoch·시작/종료 시각·회원 중복·재고를 확인한다. SWR 캐시를 최종 판정에 쓰지 않는다.
 4. 재고 차감·회원/요청 기록·Stream 기록을 한 Lua에서 처리한다. 모든 키 타입·인수를 쓰기 전에 검사한다. 쓰기 순서는 재고 `DECR` → 회원·요청 기록 → `XADD`이며, **`XADD`는 `redis.pcall`로 감싸 실패(OOM 등)하면 같은 스크립트 안에서 `INCR`·`SREM`·요청 기록 삭제로 되돌리고 오류를 반환한다.** 스크립트 하나가 atomic이라 되돌리기도 다른 요청과 섞이지 않는다. Lua는 오류 시 자동 롤백되지 않으므로 되돌리기 자체가 실패한 부분 기록 의심은 쿠폰 차단·대사로 처리한다. 마지막 1장이면 매진 플래그를 남기고, 앱은 짧은 메모리 캐시로 매진 뒤 요청을 Redis 호출 없이 거절한다(F12). 반환값: `1` 접수, `2` 같은 회원·같은 요청 ID 재응답, `0` 매진, `-1` 이미 발급, `-2` 접수 불가(issue-control 없음·READY·SUSPENDED·CLOSED·epoch 불일치), `-3` 기간 아님, `-4` 요청 ID 충돌(다른 회원이 같은 요청 ID → 409), `-9` 쓰기 실패(되돌린 뒤).

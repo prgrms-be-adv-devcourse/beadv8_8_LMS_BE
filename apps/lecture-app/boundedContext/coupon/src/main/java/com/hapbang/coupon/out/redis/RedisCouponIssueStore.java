@@ -23,7 +23,7 @@ public class RedisCouponIssueStore implements CouponIssueStore {
     static final String STATUS_SUSPENDED = "SUSPENDED";
     static final String STATUS_CLOSED = "CLOSED";
 
-    private static final RedisScript<Long> ISSUE = CouponRedisLuaSupport.longLuaScript("lua/issue.lua");
+    private static final RedisScript<List<Long>> ISSUE = CouponRedisLuaSupport.longListLuaScript("lua/issue.lua");
     private static final RedisScript<Long> PREPARE = CouponRedisLuaSupport.longLuaScript("lua/prepare.lua");
     private static final RedisScript<Long> ALLOW_ISSUE = CouponRedisLuaSupport.longLuaScript("lua/allow-issue.lua");
     private static final RedisScript<Long> BLOCK = CouponRedisLuaSupport.longLuaScript("lua/block.lua");
@@ -37,13 +37,14 @@ public class RedisCouponIssueStore implements CouponIssueStore {
     @Override
     public void prepare(IssueControl control) {
         if (control.stock() < 0 || control.fence() < 0 || !control.issueStartAt().isBefore(control.issueEndAt())
-                || control.keysExpireAt().isBefore(control.issueEndAt())) {
+                || control.keysExpireAt().isBefore(control.issueEndAt()) || !hasExpiryInput(control)) {
             throw new IllegalArgumentException("발급 준비 값이 잘못되었다 couponId=" + control.couponId());
         }
         long result = run("발급 준비", () -> CouponRedisLuaSupport.runForLong(redisTemplate, PREPARE,
                 List.of(CouponRedisKeys.issueControl(control.couponId()), CouponRedisKeys.stock(control.couponId())),
                 control.epoch(), control.stock(), control.issueStartAt().toEpochMilli(),
-                control.issueEndAt().toEpochMilli(), control.keysExpireAt().toEpochMilli(), control.fence()));
+                control.issueEndAt().toEpochMilli(), control.keysExpireAt().toEpochMilli(), control.fence(),
+                control.expiryType().name(), orEmpty(control.expiryDays()), expiresAtMillis(control.fixedExpiresAt())));
         if (result == -1) {
             throw new IllegalStateException("이미 종료된 발급은 다시 열지 않는다 couponId=" + control.couponId());
         }
@@ -116,13 +117,37 @@ public class RedisCouponIssueStore implements CouponIssueStore {
         }
     }
 
+    /** 만료 방식에 맞는 입력 하나만 있는가(RELATIVE는 1 이상의 일수, FIXED는 고정 시각) */
+    private static boolean hasExpiryInput(IssueControl control) {
+        if (control.expiryType() == null) {
+            return false;
+        }
+        return switch (control.expiryType()) {
+            case RELATIVE -> control.expiryDays() != null && control.expiryDays() >= 1
+                    && control.fixedExpiresAt() == null;
+            case FIXED -> control.fixedExpiresAt() != null && control.expiryDays() == null;
+        };
+    }
+
+    private static String orEmpty(Integer value) {
+        return value == null ? "" : value.toString();
+    }
+
+    /**
+     * 고정 만료 시각을 epoch 밀리초로 쓴다. 도메인 발행 조건이 이미 밀리초로 잘려 있어 쿠폰 DB 값과 같다. 발급 쿠폰의 만료 시각은
+     * Lua가 이 값으로 정하므로 Stream·접수 응답·발급 쿠폰 DB 값도 모두 같은 밀리초 값이다.
+     */
+    private static String expiresAtMillis(Instant fixedExpiresAt) {
+        return fixedExpiresAt == null ? "" : String.valueOf(fixedExpiresAt.toEpochMilli());
+    }
+
     @Override
-    public long tryIssue(IssueAttempt attempt) {
+    public IssueOutcome tryIssue(IssueAttempt attempt) {
         return tryIssue(attempt, CouponRedisKeys.ISSUE_STREAM);
     }
 
     /** Stream key만 바꿔 같은 스크립트를 실행한다. 테스트가 XADD 실패(되돌리기)를 만들 때 쓴다 */
-    long tryIssue(IssueAttempt attempt, String streamKey) {
+    IssueOutcome tryIssue(IssueAttempt attempt, String streamKey) {
         long couponId = attempt.couponId();
         List<String> keys = List.of(
                 CouponRedisKeys.issueControl(couponId),
@@ -131,9 +156,16 @@ public class RedisCouponIssueStore implements CouponIssueStore {
                 CouponRedisKeys.requests(couponId),
                 CouponRedisKeys.soldOut(couponId),
                 streamKey);
-        return run("발급 접수", () -> CouponRedisLuaSupport.runForLong(redisTemplate, ISSUE, keys,
-                couponId, attempt.memberId(), attempt.issueRequestId(), attempt.epoch(),
-                attempt.issuedAt().toEpochMilli(), attempt.expiresAt().toEpochMilli()));
+        List<Long> result = run("발급 접수", () -> CouponRedisLuaSupport.runForLongs(redisTemplate, ISSUE, keys,
+                couponId, attempt.memberId(), attempt.issueRequestId(), attempt.issuedAt().toEpochMilli()));
+        if (result.size() != 2 || result.get(0) == null || result.get(1) == null) {
+            throw new CouponIssueStoreUnavailableException(
+                    "발급 접수 결과 형식을 읽지 못했다 couponId=" + couponId + ", result=" + result, null);
+        }
+        long code = result.get(0);
+        // 만료 시각은 접수(1)·재응답(2)일 때만 있다. 그 밖의 결과는 0이다
+        Instant expiresAt = code == 1 || code == 2 ? Instant.ofEpochMilli(result.get(1)) : null;
+        return new IssueOutcome(code, expiresAt);
     }
 
     @Override
@@ -146,9 +178,12 @@ public class RedisCouponIssueStore implements CouponIssueStore {
         return Optional.of(parseReceipt(couponId, value.toString()));
     }
 
-    /** requests 값 {@code 회원 ID|접수 시각(epoch 밀리초)|결과} */
+    /** requests 값 {@code 회원 ID|접수 시각|ACCEPTED|만료 시각}(시각은 epoch 밀리초). 조회에는 회원과 접수 시각만 쓴다 */
     private static IssueReceipt parseReceipt(long couponId, String value) {
         String[] parts = value.split("\\|");
+        if (parts.length != 4) {
+            throw new CouponIssueStoreUnavailableException("접수 기록 형식을 읽지 못했다 couponId=" + couponId, null);
+        }
         try {
             return new IssueReceipt(Long.parseLong(parts[0]), Instant.ofEpochMilli(Long.parseLong(parts[1])));
         } catch (RuntimeException e) {

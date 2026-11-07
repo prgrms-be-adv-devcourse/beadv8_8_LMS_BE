@@ -16,6 +16,7 @@ import com.hapbang.coupon.app.dto.CouponCreateCommand;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
+import com.hapbang.coupon.config.CouponPolicyProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponDomainException;
@@ -36,7 +37,7 @@ class CouponCreateUseCaseTest {
     @BeforeEach
     void setUp() {
         CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, mock(CouponIssueStore.class));
-        useCase = new CouponCreateUseCase(couponRepository, support, CLOCK);
+        useCase = new CouponCreateUseCase(couponRepository, support, new CouponPolicyProperties(null), CLOCK);
         when(couponRepository.save(any())).thenAnswer(invocation -> withId(invocation.getArgument(0)));
     }
 
@@ -85,6 +86,21 @@ class CouponCreateUseCaseTest {
         assertNotOnSale(() -> useCase.createSeller(SELLER_ID, lectureCommand()));
         assertNotOnSale(() -> useCase.createPlatform(ADMIN_ID, lectureCommand()));
 
+        verify(couponRepository, never()).save(any(Coupon.class));
+    }
+
+    @Test
+    void 설정한_만료_상한을_도메인에_넘긴다() {
+        // 명령의 만료는 접수 후 30일이다
+        CouponCreateUseCase shortLimit = new CouponCreateUseCase(couponRepository,
+                new CouponSupport(couponRepository, lectureCatalog, mock(CouponIssueStore.class)),
+                new CouponPolicyProperties(29), CLOCK);
+        when(lectureCatalog.findLecture(LECTURE_ID))
+                .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, 12_000L, "ON_SALE")));
+
+        assertThatThrownBy(() -> shortLimit.createSeller(SELLER_ID, lectureCommand()))
+                .isInstanceOfSatisfying(CouponDomainException.class,
+                        e -> assertThat(e.getError()).isEqualTo(CouponDomainError.EXPIRY_TOO_LONG));
         verify(couponRepository, never()).save(any(Coupon.class));
     }
 

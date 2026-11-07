@@ -29,6 +29,8 @@ public enum CouponErrorCode {
     COUPON_CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청과 동시에 바뀌었습니다. 다시 시도해 주세요."),
     /** 발행 검증 실패(수량·기간·할인 값·대상 등). 어느 규칙인지는 detail로 알린다 */
     INVALID_COUPON_POLICY(HttpStatus.BAD_REQUEST, "쿠폰 발행 조건이 올바르지 않습니다."),
+    /** 발급 종료 시각이 지났다. 그런 쿠폰은 발행하거나 열기·승인·재개로 발급을 열 수 없다 */
+    COUPON_ISSUE_PERIOD_ENDED(HttpStatus.CONFLICT, "발급 종료 시각이 지난 쿠폰은 발행하거나 발급을 열 수 없습니다."),
 
     // 강의 조회 (강의 앱 내부 API). 강의 앱과 같은 뜻이라 같은 code·문구를 쓴다
 
