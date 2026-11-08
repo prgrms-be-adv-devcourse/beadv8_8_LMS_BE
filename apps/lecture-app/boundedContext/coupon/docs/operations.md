@@ -15,7 +15,7 @@ Redis 재시작·유실 시 다음 순서를 지킨다.
 복구 실행(run)의 단계는 `BLOCKED` → `BOUNDARY_FIXED` → `RESULTS_CHECKED` → `REBUILDING` → `REBUILT` → `RESUMING` → `RESUMED`다. 예외 경로:
 - 재구축(4) 전에는 운영자가 취소할 수 있다. run은 `ABORTED`, 차단(`hold=RECOVERY`)은 유지, 새 run을 만들 수 있다. 같은 취소 재요청은 200 멱등이다. 취소된 run이 유실 의심(`requestsLost`)이면 새 run이 그 표식을 이어받는다.
 - 재개(5) 중 Redis 결과 불명이면 run은 `RESUMING`에 남고 재개만 재시도한다(재구축은 그 사이 들어온 접수를 지울 수 있어 금지). 단, 살아 있는 선점이 없고 issue-control이 사라졌거나 Redis `run_id`가 바뀐 것이 확인되면 그때만 취소를 허용한다. 그때는 먼저 현재 복구 ID로 `ready=0`·`hold=RECOVERY`를 쓰고 확인한 뒤 `ABORTED`(사유 `RESUME_UNKNOWN_<state>`)로 남기고, 새 복구를 `requestsLost=true`로 처음부터 한다(Redis에 쓴 것이 이미 없으므로 지울 위험이 없다).
-- 재개 뒤 `recovery.unknown-window`(기본 24시간, 확정 전) 동안은 Redis·DB 어디에도 없는 요청 ID의 상태 조회가 UNKNOWN이다. 그 뒤는 NOT_FOUND. 재개 뒤 이전 epoch로 온 이벤트는 소비자가 STALE로 DLT 격리한다.
+- `requestsLost` 복구를 거친 쿠폰에서 Redis·DB 어디에도 없는 요청 ID의 상태 조회는 그 쿠폰의 Redis 기록 보관 기간까지 UNKNOWN이다. 보관 기간은 issue-control `keysExpireAt`이고, 없으면 DB 발급 종료 + `keys-expire-margin`이다. 그 뒤는 NOT_FOUND. 시간만으로 정한 별도 창(unknown-window)은 두지 않는다. 재개 뒤 이전 epoch로 온 이벤트는 소비자가 STALE로 DLT 격리한다.
 - Redis 프로세스 변경은 prepare 때 issue-control에 기록한 `runId`와 `INFO server`의 `run_id`를 배치(`recovery.process-check-interval`)로 비교해 감지한다. 다르면 OPEN·SUSPENDED 쿠폰을 `hold=RECOVERY`로 막고 쿠폰마다 수동 복구한다.
 - 차단·재구축은 hold를 `RECOVERY`로 덮어써 기존 `RECONCILE`·`BACKLOG`가 사라진다(재구축이 수량을 다시 맞춘다). 재개는 `RECOVERY`만 지운다.
 
@@ -29,13 +29,13 @@ AOF everysec에서 Redis에만 있던 접수가 사라질 수 있다. 이때 요
 
 | 작업 | 처리 |
 | --- | --- |
-| 재발행 | OPEN·SUSPENDED·정리 전 CLOSED 쿠폰의 requests를 HSCAN(묶음 `republish.scan-count`)해 접수 뒤 `republish-after`가 지났는데 DB에 없는 요청을 같은 ID로 Kafka에 다시 발행. PUBLISHED 표식이 있어도 DB에 없으면 재발행. COMPENSATED·DLT PENDING·REPLAYING·현재 epoch보다 작은 기록은 보내지 않음. 매 전송 직전에 issue-control의 ready·epoch를 다시 확인(복구 중이면 건너뜀) |
+| 재발행 | OPEN·SUSPENDED·정리 전 CLOSED 쿠폰의 requests를 HSCAN(묶음 `republish.scan-count`)해 접수 뒤 `republish-after`가 지났는데 DB에 없는 요청을 같은 ID로 Kafka에 다시 발행. PUBLISHED 표식이 있어도 DB에 없으면 재발행. COMPENSATED·DLT PENDING·REPLAYING·현재 epoch보다 작은 기록은 보내지 않음. 매 전송 직전에 issue-control의 ready·epoch를 다시 확인(복구 중이면 건너뜀). 한 쿠폰에서 연속 실패가 `republish.max-consecutive-failures`에 이르면 그 쿠폰의 남은 전송을 멈추고 다음 쿠폰으로(쿠폰별 RepublishSummary에 끝난 이유, WARN). DB 미확정 요청이 남은 쿠폰은 `extend-keys.lua`로 key 만료를 지금 + `keys-expire-margin`까지 늦춤(실패는 WARN만) |
 | 사용 가능 쿠폰 만료 | expiresAt ≤ now인 AVAILABLE을 EXPIRED로 변경하고 예산 해제 작업 등록 |
 | 사용/예약 중 기한 경과 | 상태를 무조건 AVAILABLE/EXPIRED로 덮지 않는다. 사용 이력·billing 보류와 결과를 확인하고 더 필요 없는 예약 예산만 해제 |
 | 예산 작업 재시도 | 쿠폰 상태와 독립적으로 미완료 예약/해제 결과를 재조회하고 완료 처리 |
 | 발급 종료 | 발급 차단 후 진행 중 요청을 정리하고 미발급 수량의 예산 해제 |
 | 오래된 예약 | 강의 주문/예약 작업·billing 결과를 제공 API로 확인한다. 단순 시간 경과로 해제하지 않음 |
-| 대사 | 발급 수량, 중복 인덱스, 사용 시도, 재원, 작업 적체를 비교. 원인을 모르는 재고를 임의 INCR하지 않음 |
+| 대사 | 발급 수량, 중복 인덱스, 사용 시도, 재원, 작업 적체를 비교. 원인을 모르는 재고를 임의 INCR하지 않음. DB 미확정 요청이 남은 쿠폰은 재발행과 같이 key 만료를 늦춤 |
 | 기록 정리 | 쿠폰이 접수될 수 있는 동안(OPEN·SUSPENDED이고 발급 종료 + 여유 전)은 DB ISSUED 기록만 HDEL. REJECTED 기록은 접수가 끝난 뒤 지운다(지우면 재고 누수). 이전 epoch 기록은 DB 최종 결과가 있으면 보상 표식과 무관하게 정리. 쿠폰의 Redis 기록이 전부 정리되면 용량 예약 해제 |
 | 고아 예약 정리 | 대사가 OPEN·SUSPENDED가 아니고 Redis key도 없는 쿠폰의 용량 예약을 해제. DRAFT·REVIEW는 `limits.orphan-reservation-grace`가 지나야 해제(진행 중인 열기 보호). REJECTED 전이는 즉시 해제, CLOSED는 기록 정리 때 해제 |
 | Redis 프로세스 점검 | `recovery.process-check-interval`마다 issue-control의 `runId`와 Redis `INFO server run_id`를 비교. 다르면 해당 쿠폰을 `hold=RECOVERY`로 막고 UNKNOWN 판정으로 전환 |
@@ -56,7 +56,8 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 
 | 키 | 기본값 | 의미 |
 | --- | --- | --- |
-| `redis.keys-expire-margin` | 7d | 쿠폰 key TTL = 발급 종료 + 이 값 |
+| `redis.keys-expire-margin` | 7d | 쿠폰 key TTL = 발급 종료 + 이 값. DB 미확정 요청이 남아 있으면 재발행·대사 배치가 지금 + 이 값까지 만료를 늦춘다 |
+| `republish.max-consecutive-failures` | 3 | 한 쿠폰에서 연속 전송 실패가 이 수에 이르면 그 쿠폰의 남은 재발행을 다음 회차로 미룬다 |
 | `max-expiry-days` | 3650 | 만료 N일·고정 만료 상한. DB CHECK와 같으며 늘릴 때는 마이그레이션과 함께 |
 | `lecture-client.*` | 연결 2s·응답 5s, circuit breaker 윈도 20·최소 호출 10·실패율 50%·느린 호출 4s·open 30s·half-open 3 | 강의 조회 내부 API 클라이언트 |
 | `publish-ack-timeout` | 1s | 접수 직후 Kafka 전송 ACK 대기. 쿠폰 producer `max.block.ms`로도 씀 |
@@ -76,7 +77,6 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `recovery.process-check-interval` | 1m | Redis run_id 점검 배치 주기 |
 | `recovery.boundary-grace` | 2s | 경계 대기 여유. 경계 대기 = `publish-ack-timeout` + max(`producer-delivery-timeout`, `republish.ack-timeout`) + 이 값(기본 8s) |
 | `recovery.claim-lease` | 2m | 재구축·재개 선점 lease |
-| `recovery.unknown-window` | 24h | 재개 뒤 기록 없는 요청 ID를 UNKNOWN으로 답하는 기간 |
 | `limits.max-quantity-per-coupon` | 10 000 | 쿠폰별 발급 수량 상한 |
 | `limits.max-total-quantity` | 50 000 | Redis 기록이 남은 전체 쿠폰 합산 수량 상한(건당 약 250B 추정) |
 | `limits.backlog-threshold` | 500 | 재발행 대기 건수 임계치(넘으면 `hold=BACKLOG`) |
@@ -138,6 +138,23 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 
 현재 문서는 검증 기준이다. 애플리케이션 구현·장애·부하 테스트를 수행했다는 뜻이 아니다.
 
+## ERROR 로그 alert 표식
+
+`docs/dev/logging.md`대로 사람이 바로 봐야 하는 ERROR는 메시지 앞에 `[대문자_코드]`를 붙이고, alert 쿼리는 이 코드로 찾는다. WARN·INFO에는 붙이지 않는다.
+
+| 표식 | 상황 |
+| --- | --- |
+| `[COUPON_ISSUE_DLT_ISOLATED]` | 발급 요청을 DLT로 격리 |
+| `[COUPON_ISSUE_REJECTED_AFTER_ACCEPT]` | 접수된 요청을 소비자가 거절 확정(Redis 접수 기록과 DB가 어긋난 신호) |
+| `[COUPON_ISSUE_COMPENSATION_FAILED]` | 영구 거절 뒤 Redis 수량 보상 실패 |
+| `[COUPON_ISSUE_RECONCILIATION_MISMATCH]` | 대사 수량 불일치(접수 차단) |
+| `[COUPON_ISSUE_RECORD_MALFORMED]` | requests 기록 형식 오류 |
+| `[COUPON_RECOVERY_REQUIRED]` | Redis 프로세스 변경 감지 등으로 복구가 필요해 접수를 막음 |
+| `[COUPON_RECOVERY_REPUBLISH_FAILED]` | 복구 2단계 경계 재발행 실패 |
+| `[COUPON_RECOVERY_RESULT_UNKNOWN]` | 재구축·재개 결과 불명 |
+| `[COUPON_RECOVERY_REJECTED]` | 복구 단계 전제 조건 미충족으로 거절 |
+| `[COUPON_RECOVERY_QUANTITY_MISMATCH]` | 재개 전 수량 대사 불일치 |
+
 ## 후속 후보
 
 구현에서 확인됐지만 이번 범위에 넣지 않은 것이다. 안전한 쪽으로 동작하며 데이터 정합성에는 영향이 없다.
@@ -149,4 +166,5 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 - 배치(재발행·대사·프로세스 점검)는 lecture-app replica 1을 전제한다. 실행 표시가 앱 메모리라 분산 락이 없고, 중복 전달은 소비자 멱등이 흡수한다. replica를 늘리면 billing의 Postgres advisory lock 방식을 붙인다.
 - 조회 API의 목록 상한 100건을 설정으로 옮기고, 회원 목록 쿼리(status + 기간 + 대상)가 느려지면 인덱스를 새 마이그레이션으로 넣는다.
 - 강의 조회 circuit breaker의 micrometer 지표는 붙이지 않았다.
-- 지표 이름: `coupon.issue.publish.failures`, `coupon.issue.republished`·`.republish.oldest.age`·`.republish.last`·`.republish.stale.epoch`, `coupon.issue.consume{result}`, `coupon.dlt.pending`(PENDING + REPLAYING)·`coupon.dlt.isolated`, `coupon.issue.compensations{result}`, `coupon.recovery.redis_check{result}`, `coupon.reconciliation.mismatches{kind}`, `coupon.issue.backlog_holds`, `coupon.capacity.reserved`. 소비 실패·lag는 Spring Kafka 기본 지표. ERROR 로그 표식 `[COUPON_ISSUE_RECONCILIATION_MISMATCH]` 등. Grafana 대시보드·알림 등록은 운영 결정이다.
+- 지표 이름: `coupon.issue.publish.failures`, `coupon.issue.republished`·`.republish.oldest.age`·`.republish.last`·`.republish.stale.epoch`, `coupon.issue.consume{result}`, `coupon.dlt.pending`(PENDING + REPLAYING)·`coupon.dlt.isolated`, `coupon.issue.compensations{result}`, `coupon.recovery.redis_check{result}`, `coupon.reconciliation.mismatches{kind}`, `coupon.issue.backlog_holds`, `coupon.capacity.reserved`. 소비 실패·lag는 Spring Kafka 기본 지표. ERROR 로그 표식은 위 "ERROR 로그 alert 표식" 표. Grafana 대시보드·알림 등록은 운영 결정이다.
+- `prepare.lua`·`recovery-rebuild.lua`는 만료를 발급 종료 + 여유로 다시 써서 연장분을 줄일 수 있다. prepare는 열기 전에만, rebuild는 보관 기간 안에서만 실행되므로 위험은 낮다. 필요하면 `PEXPIREAT GT` 적용을 검토한다.
