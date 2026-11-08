@@ -18,7 +18,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -26,9 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.domain.Range;
-import org.springframework.data.redis.connection.stream.MapRecord;
-import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -43,6 +39,7 @@ import com.hapbang.coupon.app.port.PromotionBudgetPort;
 import com.hapbang.coupon.app.port.PromotionBudgetPort.BudgetResult;
 import com.hapbang.coupon.app.port.PromotionBudgetPort.Outcome;
 import com.hapbang.coupon.domain.Coupon;
+import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.redis.CouponRedisKeys;
 import com.hapbang.testsupport.IntegrationTest;
@@ -90,15 +87,11 @@ class CouponIssueE2eTest {
 
     @AfterEach
     void cleanUpRedis() {
-        // 공유 Redis 컨테이너에서 이 테스트가 만든 쿠폰 key와 Stream 항목만 지운다
+        // 공유 Redis 컨테이너에서 이 테스트가 만든 쿠폰 key만 지운다
         for (long couponId : createdCouponIds) {
             redisTemplate.delete(List.of(CouponRedisKeys.stock(couponId), CouponRedisKeys.users(couponId),
                     CouponRedisKeys.requests(couponId), CouponRedisKeys.issueControl(couponId),
                     CouponRedisKeys.soldOut(couponId)));
-            RecordId[] ids = streamEntries(couponId).stream().map(MapRecord::getId).toArray(RecordId[]::new);
-            if (ids.length > 0) {
-                redisTemplate.opsForStream().delete(CouponRedisKeys.ISSUE_STREAM, ids);
-            }
         }
     }
 
@@ -128,42 +121,38 @@ class CouponIssueE2eTest {
         assertThat(couponVersion(couponId)).isEqualTo(openedVersion + 1);
         assertThat(issueFence(couponId)).isEqualTo(openedVersion + 1);
 
-        // 회원 A 접수: Stream 1건, stock −1, users에 A
+        // 회원 A 접수: requests 1건, stock −1, users에 A. Kafka 전달은 발급 전달 e2e가 본다(여기에는 broker가 없어 전송이 실패해도
+        // 접수는 ACCEPTED다)
         String requestId = "req-a-1";
-        String accepted = requestIssue(couponId, MEMBER_A, requestId)
+        String acceptedResponse = requestIssue(couponId, MEMBER_A, requestId)
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.data.issueRequestId").value(requestId))
                 .andExpect(jsonPath("$.data.couponId").value(couponId))
                 .andExpect(jsonPath("$.data.result").value("ACCEPTED"))
                 .andReturn().getResponse().getContentAsString();
 
-        List<MapRecord<String, Object, Object>> entries = streamEntries(couponId);
-        assertThat(entries).hasSize(1);
-        Map<Object, Object> payload = entries.getFirst().getValue();
-        assertThat(payload)
-                .containsEntry("issueRequestId", requestId)
-                .containsEntry("couponId", String.valueOf(couponId))
-                .containsEntry("memberId", String.valueOf(MEMBER_A))
-                .containsEntry("epoch", String.valueOf(Coupon.INITIAL_EPOCH));
-        long issuedAt = Long.parseLong((String) payload.get("issuedAt"));
-        long expiresAt = Long.parseLong((String) payload.get("expiresAt"));
+        Object record = redisTemplate.opsForHash().get(CouponRedisKeys.requests(couponId), requestId);
+        IssueRequestRecord accepted = IssueRequestRecord.parse((String) record);
+        assertThat(accepted.memberId()).isEqualTo(MEMBER_A);
+        long issuedAt = accepted.acceptedAt().toEpochMilli();
+        long expiresAt = accepted.expiresAt().toEpochMilli();
         // 만료 시각은 DB를 읽지 않고 Redis 준비 값(접수 기준 30일)으로 Lua가 정한다. 접수 응답도 같은 값이다
         assertThat(expiresAt - issuedAt).isEqualTo(Duration.ofDays(EXPIRY_DAYS).toMillis());
-        assertThat(responseExpiresAt(accepted)).isEqualTo(Instant.ofEpochMilli(expiresAt));
+        assertThat(responseExpiresAt(acceptedResponse)).isEqualTo(Instant.ofEpochMilli(expiresAt));
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId)))
                 .isEqualTo(String.valueOf(QUANTITY - 1));
         assertThat(redisTemplate.opsForSet().members(CouponRedisKeys.users(couponId)))
                 .containsExactly(String.valueOf(MEMBER_A));
-        Object record = redisTemplate.opsForHash().get(CouponRedisKeys.requests(couponId), requestId);
-        assertThat(record).isEqualTo(MEMBER_A + "|" + issuedAt + "|ACCEPTED|" + expiresAt);
+        // 접수 기록에는 접수 당시 issue-control의 epoch가 남는다
+        assertThat(accepted.epoch()).isNotNull();
+        assertThat(record).isEqualTo(MEMBER_A + "|" + issuedAt + "|ACCEPTED|" + expiresAt + "|e" + accepted.epoch());
 
-        // 같은 요청 ID 재전송(I4): 같은 접수(최초 만료 시각)로 응답하고 기록·stock·Stream을 바꾸지 않는다
+        // 같은 요청 ID 재전송(I4): 같은 접수(최초 만료 시각)로 응답하고 기록·stock을 바꾸지 않는다
         String again = requestIssue(couponId, MEMBER_A, requestId)
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.data.result").value("ALREADY_ACCEPTED"))
                 .andReturn().getResponse().getContentAsString();
         assertThat(responseExpiresAt(again)).isEqualTo(Instant.ofEpochMilli(expiresAt));
-        assertThat(streamEntries(couponId)).hasSize(1);
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId)))
                 .isEqualTo(String.valueOf(QUANTITY - 1));
         assertThat(redisTemplate.opsForHash().get(CouponRedisKeys.requests(couponId), requestId)).isEqualTo(record);
@@ -174,11 +163,11 @@ class CouponIssueE2eTest {
                 .andExpect(jsonPath("$.data.issueRequestId").value(requestId))
                 .andExpect(jsonPath("$.data.status").value("PENDING"));
 
-        // 같은 회원의 다른 요청 ID(I2): 이미 발급으로 거절하고 stock·Stream은 그대로
+        // 같은 회원의 다른 요청 ID(I2): 이미 발급으로 거절하고 stock·requests는 그대로
         requestIssue(couponId, MEMBER_A, "req-a-2")
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("COUPON_ALREADY_ISSUED"));
-        assertThat(streamEntries(couponId)).hasSize(1);
+        assertThat(redisTemplate.opsForHash().keys(CouponRedisKeys.requests(couponId))).containsExactly(requestId);
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId)))
                 .isEqualTo(String.valueOf(QUANTITY - 1));
 
@@ -230,15 +219,6 @@ class CouponIssueE2eTest {
 
     private long issueFence(long couponId) {
         return Long.parseLong((String) redisTemplate.opsForHash().get(CouponRedisKeys.issueControl(couponId), "fence"));
-    }
-
-    /** 공통 발급 Stream에서 이 쿠폰의 항목만 */
-    private List<MapRecord<String, Object, Object>> streamEntries(long couponId) {
-        List<MapRecord<String, Object, Object>> all =
-                redisTemplate.opsForStream().range(CouponRedisKeys.ISSUE_STREAM, Range.unbounded());
-        return all == null ? List.of() : all.stream()
-                .filter(entry -> String.valueOf(couponId).equals(entry.getValue().get("couponId")))
-                .toList();
     }
 
     /** 회원 ID가 이름(getName)인 로그인. 운영에서는 강의 앱의 Gateway 사용자 헤더 필터가 같은 모양으로 만든다 */

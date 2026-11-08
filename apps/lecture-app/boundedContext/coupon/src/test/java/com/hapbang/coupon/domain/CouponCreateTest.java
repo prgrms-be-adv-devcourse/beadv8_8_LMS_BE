@@ -73,7 +73,7 @@ class CouponCreateTest {
         CouponTerms terms = lectureRate().issuePeriod(ISSUE_END.minusMillis(1), ISSUE_END).build();
 
         assertThatCode(() -> Coupon.createSeller(SELLER_ID, terms, NOW)).doesNotThrowAnyException();
-        // Redis·Stream은 밀리초까지라 1마이크로초 차이는 같은 시각이 된다
+        // Redis·Kafka 이벤트는 밀리초까지라 1마이크로초 차이는 같은 시각이 된다
         assertError(() -> Coupon.createSeller(SELLER_ID,
                         lectureRate().issuePeriod(ISSUE_END.plusNanos(1_000), ISSUE_END.plusNanos(999_999)).build(), NOW),
                 CouponDomainError.INVALID_ISSUE_PERIOD);

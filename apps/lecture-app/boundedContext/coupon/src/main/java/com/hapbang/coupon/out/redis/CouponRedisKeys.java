@@ -3,23 +3,21 @@ package com.hapbang.coupon.out.redis;
 /**
  * 쿠폰 Redis key 이름. key는 이 클래스에서만 만든다.
  * <p>
- * 쿠폰별 key는 {@code coupon:<couponId>:<종류>}(예: {@code coupon:42:stock})이고, 발급 Stream은 모든 쿠폰이 함께 쓰는
- * {@link #ISSUE_STREAM} 하나다. 발급 Lua 하나가 쿠폰별 key와 공통 Stream을 같이 쓰므로 Redis Cluster가 아닌 지금의 단일 Redis
- * 구성에서만 맞다(Cluster로 바꾸면 key를 한 slot에 모으는 설계를 다시 해야 한다).
+ * key는 모두 쿠폰별 {@code coupon:<couponId>:<종류>}(예: {@code coupon:42:stock})다. Redis Cluster의 hash tag는 두지 않아
+ * 지금의 단일 Redis 구성에서만 맞다(Cluster로 바꾸면 한 쿠폰의 key를 한 slot에 모으는 설계를 다시 해야 한다).
  * <ul>
  *     <li>stock(String): 남은 수량</li>
  *     <li>users(Set): 접수한 회원 ID</li>
- *     <li>requests(Hash): 요청 ID → {@code 회원 ID|접수 시각(epoch 밀리초)|ACCEPTED}</li>
+ *     <li>requests(Hash): 요청 ID → {@code 회원 ID|접수 시각|ACCEPTED|만료 시각|e접수 epoch}(시각은 epoch 밀리초) 뒤에 표식
+ *     {@code |PUBLISHED}·{@code |COMPENSATED}. 접수 epoch 필드가 없는 옛 형식도 있다. 형식은 {@code domain.IssueRequestRecord}가
+ *     정한다</li>
  *     <li>issue-control(Hash): ready·status(READY·OPEN·SUSPENDED·CLOSED)·epoch·startAt·endAt·keysExpireAt(시각은 epoch 밀리초)·
- *     fence(마지막으로 반영한 쿠폰 DB version)</li>
+ *     fence(마지막으로 반영한 쿠폰 DB version)·만료 계산 입력·hold(신규 접수 보류 사유)</li>
  *     <li>sold_out(String): 매진 표시</li>
  * </ul>
- * 쿠폰별 key는 모두 {@code keysExpireAt}(발급 종료 + 여유)에 만료된다. Stream에는 만료·MAXLEN을 두지 않는다.
+ * 쿠폰별 key는 모두 {@code keysExpireAt}(발급 종료 + 여유)에 만료된다.
  */
 public final class CouponRedisKeys {
-
-    /** 모든 쿠폰이 함께 쓰는 발급 Stream */
-    public static final String ISSUE_STREAM = "coupon:issue:stream";
 
     private CouponRedisKeys() {
     }

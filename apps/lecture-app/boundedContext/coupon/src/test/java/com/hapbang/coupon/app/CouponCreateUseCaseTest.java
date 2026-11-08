@@ -16,6 +16,7 @@ import com.hapbang.coupon.app.dto.CouponCreateCommand;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
+import com.hapbang.coupon.config.CouponLimitsProperties;
 import com.hapbang.coupon.config.CouponPolicyProperties;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDomainError;
@@ -37,7 +38,8 @@ class CouponCreateUseCaseTest {
     @BeforeEach
     void setUp() {
         CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, mock(CouponIssueStore.class));
-        useCase = new CouponCreateUseCase(couponRepository, support, new CouponPolicyProperties(null), CLOCK);
+        useCase = new CouponCreateUseCase(couponRepository, support, new CouponPolicyProperties(null),
+                CouponLimitsProperties.defaults(), CLOCK);
         when(couponRepository.save(any())).thenAnswer(invocation -> withId(invocation.getArgument(0)));
     }
 
@@ -57,6 +59,22 @@ class CouponCreateUseCaseTest {
         assertThat(view.status()).isEqualTo(CouponStatus.DRAFT);
         assertThat(view.basePrice()).isEqualTo(12_000L);
         assertThat(view.applicantId()).isEqualTo(SELLER_ID);
+    }
+
+    @Test
+    void 수량이_쿠폰별_상한을_넘으면_강의를_조회하기_전에_400이고_저장하지_않는다() {
+        // 명령의 수량은 100장이다
+        CouponCreateUseCase smallLimit = new CouponCreateUseCase(couponRepository,
+                new CouponSupport(couponRepository, lectureCatalog, mock(CouponIssueStore.class)),
+                new CouponPolicyProperties(null), new CouponLimitsProperties(99, null, null, null, null), CLOCK);
+
+        assertCouponError(() -> smallLimit.createSeller(SELLER_ID, lectureCommand()),
+                CouponErrorCode.INVALID_COUPON_POLICY);
+        assertCouponError(() -> smallLimit.createPlatform(ADMIN_ID, lectureCommand()),
+                CouponErrorCode.INVALID_COUPON_POLICY);
+
+        verifyNoInteractions(lectureCatalog);
+        verify(couponRepository, never()).save(any(Coupon.class));
     }
 
     @Test
@@ -94,7 +112,7 @@ class CouponCreateUseCaseTest {
         // 명령의 만료는 접수 후 30일이다
         CouponCreateUseCase shortLimit = new CouponCreateUseCase(couponRepository,
                 new CouponSupport(couponRepository, lectureCatalog, mock(CouponIssueStore.class)),
-                new CouponPolicyProperties(29), CLOCK);
+                new CouponPolicyProperties(29), CouponLimitsProperties.defaults(), CLOCK);
         when(lectureCatalog.findLecture(LECTURE_ID))
                 .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, 12_000L, "ON_SALE")));
 

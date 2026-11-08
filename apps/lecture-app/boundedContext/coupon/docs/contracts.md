@@ -12,7 +12,7 @@
 | coupon | processed_operation | 이벤트/작업 ID UNIQUE, 요청 내용 식별값, 결과. last_event_id 하나로 전체 중복 처리를 대체하지 않음 |
 | coupon | coupon_issue_request | (쿠폰 ID, 요청 ID) 유일, 회원/epoch, ISSUED/REJECTED 결과, 거절 사유, 최초 접수 시각, 발급 건, 보상 상태 |
 | coupon | budget_work | 예산 예약·해제의 작업 ID, 대상, 금액, 사유, 진행/완료 결과. 상태 변경과 작업을 함께 저장 |
-| coupon | recovery_run | 복구 ID, 이전/새 epoch, 단계, Stream 경계, Kafka 파티션 경계, 미처리 결과, 재개 근거 |
+| coupon | recovery_run | 복구 ID, 이전/새 epoch, 단계, requests 재발행 완료 시각, Kafka 파티션 경계, 미처리 결과, 재개 근거 |
 | coupon | coupon_dlt_log | 원문, 요청 ID, 실패 원인, 격리·재발행·최종 처리 상태 |
 | lecture | 주문·할인·예약 작업 | 원가격, 구매자 금액, 판매자 지급액, 쿠폰별 d/f/s, 적용 순서, reservedGeneration, 예약·해제 작업 결과 |
 | billing | 재원·예약·보류·원장 | 쿠폰 및 사용 시도별 재원 이동, 작업 결과, 충전 출처, 반환 원금 추적 |
@@ -51,9 +51,9 @@ JVM 분리 가정에 따라 아래는 Java 인터페이스가 아니라 **내부
 
 ## Redis
 
-키 생성은 한 클래스에 모은다. 쿠폰별 stock, users, requests, issue-control, sold_out과 공통 발급 Stream을 둔다. issue-control(HASH)은 ready·status(`READY`·`OPEN`·`SUSPENDED`·`CLOSED`)·epoch·발급 시작/종료·만료 계산 입력(방식·N일·고정 시각)·fence(쿠폰 DB version)를 가진 권위 있는 판정 데이터다. 접수 경로는 이 HASH와 Lua만 읽고 DB를 읽지 않는다. `READY`는 준비됐지만 접수 불가, `OPEN`만 접수 허용이다. 상태 쓰기는 fence 비교로 늦은 옛 쓰기를 무시한다(design.md "발행과 플랫폼 예산" 5). SWR 정책 캐시와 분리한다.
+키 생성은 한 클래스에 모은다. 쿠폰별 stock, users, requests, issue-control, sold_out을 둔다. Redis Stream은 두지 않는다. issue-control(HASH)은 ready·status(`READY`·`OPEN`·`SUSPENDED`·`CLOSED`)·epoch·발급 시작/종료·만료 계산 입력(방식·N일·고정 시각)·fence(쿠폰 DB version)를 가진 권위 있는 판정 데이터다. 접수 경로는 이 HASH와 Lua만 읽고 DB를 읽지 않는다. `READY`는 준비됐지만 접수 불가, `OPEN`만 접수 허용이다. 상태 쓰기는 fence 비교로 늦은 옛 쓰기를 무시한다(design.md "발행과 플랫폼 예산" 5). SWR 정책 캐시와 분리한다.
 
-requests는 요청 ID → `memberId|acceptedAtMs|ACCEPTED|expiresAtMs`로 두어 요청 ID로 회원·접수 시각·결과·만료 시각을 조회할 수 있게 한다. 같은 요청의 재응답은 최초 expiresAt을 돌려준다. issue.lua는 `{code, expiresAtMs}`를 반환한다. 회원 중복 인덱스는 별도로 유지한다. 보상은 요청별 표식·epoch 검증·재고 복구를 원자적으로 처리한다. Stream ACK는 DB 완료가 아니다. 미처리 기록은 고정 TTL/MAXLEN으로 삭제하지 않는다.
+requests는 요청 ID → `memberId|acceptedAtMs|ACCEPTED|expiresAtMs|e{epoch}[|PUBLISHED][|COMPENSATED]`로 두어(epoch는 접수 당시 세대, PUBLISHED는 Kafka 전송 성공 표식, COMPENSATED는 영구 거절 보상 완료. 재발행 판단은 DB 기준. epoch 필드가 없는 옛 형식은 control epoch로 대체) 요청 ID로 회원·접수 시각·결과·만료 시각을 조회할 수 있게 한다. 같은 요청의 재응답은 최초 expiresAt을 돌려준다. issue.lua는 `{code, expiresAtMs, epoch}`를 반환한다(접수 직후 Kafka 이벤트가 DB 없이 epoch를 실을 수 있도록). 회원 중복 인덱스는 별도로 유지한다. 보상은 요청별 표식·epoch 검증·재고 복구를 원자적으로 처리한다. Kafka 전송 성공은 DB 완료가 아니다. requests 기록은 DB 확정 전에 지우지 않는다(TTL은 발급 종료 + 여유이며, 그 전에 대사가 확정한다).
 
 중단은 Redis 발급 차단을 확인한 뒤 완료 응답하며 중간 실패를 작업으로 재시도한다. 중단 전 원자적 접수가 끝난 요청은 기존 요청으로 처리한다. Redis 장애 때는 신규 접수를 열지 않는다.
 

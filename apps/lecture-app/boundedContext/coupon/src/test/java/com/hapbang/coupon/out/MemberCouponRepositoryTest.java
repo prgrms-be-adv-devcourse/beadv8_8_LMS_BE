@@ -111,6 +111,21 @@ class MemberCouponRepositoryTest {
         assertThat(memberCouponIds(found)).containsExactlyInAnyOrder(usable.getId(), usableAny.getId());
     }
 
+    @Test
+    void 회원_중복_위반_뒤_회원과_쿠폰으로_찾은_한_장의_요청_ID로_같은_요청인지_가른다() {
+        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        memberCouponRepository.saveAndFlush(issue(MEMBER_ID, couponId, "req-1", NOW));
+        entityManager.clear();
+
+        assertThat(memberCouponRepository.findByMemberIdAndCouponId(MEMBER_ID, couponId))
+                .get().extracting(MemberCoupon::getIssueRequestId).isEqualTo("req-1");
+        assertThat(memberCouponRepository.findByMemberIdAndCouponId(OTHER_MEMBER_ID, couponId)).isEmpty();
+        // 위반 뒤에는 트랜잭션이 중단되므로 마지막에 본다
+        assertThatThrownBy(() -> memberCouponRepository.saveAndFlush(issue(MEMBER_ID, couponId, "req-2", NOW)))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining(MemberCouponRepository.MEMBER_COUPON_UNIQUE);
+    }
+
     private Long saveCoupon(Coupon coupon) {
         return couponRepository.save(coupon).getId();
     }

@@ -1,17 +1,23 @@
 package com.hapbang.coupon.out.redis;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
+import com.hapbang.coupon.domain.IssueRequestRecord;
 
 /**
  * Redis 발급 접수 저장소. 판정·기록은 {@code resources/lua}의 스크립트가 원자적으로 하고, key는 {@link CouponRedisKeys}가 만든다.
@@ -23,7 +29,9 @@ public class RedisCouponIssueStore implements CouponIssueStore {
     static final String STATUS_SUSPENDED = "SUSPENDED";
     static final String STATUS_CLOSED = "CLOSED";
 
-    private static final RedisScript<List<Long>> ISSUE = CouponRedisLuaSupport.longListLuaScript("lua/issue.lua");
+    /** 테스트가 key를 바꿔 직접 실행할 수 있게 패키지 안에 연다(쓰기 실패 되돌리기 확인) */
+    static final RedisScript<List<Long>> ISSUE = CouponRedisLuaSupport.longListLuaScript("lua/issue.lua");
+    private static final RedisScript<Long> MARK_PUBLISHED = CouponRedisLuaSupport.longLuaScript("lua/mark-published.lua");
     private static final RedisScript<Long> PREPARE = CouponRedisLuaSupport.longLuaScript("lua/prepare.lua");
     private static final RedisScript<Long> ALLOW_ISSUE = CouponRedisLuaSupport.longLuaScript("lua/allow-issue.lua");
     private static final RedisScript<Long> BLOCK = CouponRedisLuaSupport.longLuaScript("lua/block.lua");
@@ -135,7 +143,7 @@ public class RedisCouponIssueStore implements CouponIssueStore {
 
     /**
      * 고정 만료 시각을 epoch 밀리초로 쓴다. 도메인 발행 조건이 이미 밀리초로 잘려 있어 쿠폰 DB 값과 같다. 발급 쿠폰의 만료 시각은
-     * Lua가 이 값으로 정하므로 Stream·접수 응답·발급 쿠폰 DB 값도 모두 같은 밀리초 값이다.
+     * Lua가 이 값으로 정하므로 requests 기록·접수 응답·발급 요청 이벤트·발급 쿠폰 DB 값도 모두 같은 밀리초 값이다.
      */
     private static String expiresAtMillis(Instant fixedExpiresAt) {
         return fixedExpiresAt == null ? "" : String.valueOf(fixedExpiresAt.toEpochMilli());
@@ -143,29 +151,28 @@ public class RedisCouponIssueStore implements CouponIssueStore {
 
     @Override
     public IssueOutcome tryIssue(IssueAttempt attempt) {
-        return tryIssue(attempt, CouponRedisKeys.ISSUE_STREAM);
-    }
-
-    /** Stream key만 바꿔 같은 스크립트를 실행한다. 테스트가 XADD 실패(되돌리기)를 만들 때 쓴다 */
-    IssueOutcome tryIssue(IssueAttempt attempt, String streamKey) {
         long couponId = attempt.couponId();
-        List<String> keys = List.of(
-                CouponRedisKeys.issueControl(couponId),
-                CouponRedisKeys.stock(couponId),
-                CouponRedisKeys.users(couponId),
-                CouponRedisKeys.requests(couponId),
-                CouponRedisKeys.soldOut(couponId),
-                streamKey);
-        List<Long> result = run("발급 접수", () -> CouponRedisLuaSupport.runForLongs(redisTemplate, ISSUE, keys,
-                couponId, attempt.memberId(), attempt.issueRequestId(), attempt.issuedAt().toEpochMilli()));
-        if (result.size() != 2 || result.get(0) == null || result.get(1) == null) {
+        List<Long> result = run("발급 접수", () -> CouponRedisLuaSupport.runForLongs(redisTemplate, ISSUE,
+                issueKeys(couponId), couponId, attempt.memberId(), attempt.issueRequestId(),
+                attempt.issuedAt().toEpochMilli()));
+        if (result.size() != 3 || result.contains(null)) {
             throw new CouponIssueStoreUnavailableException(
                     "발급 접수 결과 형식을 읽지 못했다 couponId=" + couponId + ", result=" + result, null);
         }
         long code = result.get(0);
-        // 만료 시각은 접수(1)·재응답(2)일 때만 있다. 그 밖의 결과는 0이다
+        // 만료 시각은 접수(1)·재응답(2)일 때만 있고, epoch는 접수(1)일 때만 있다. 그 밖의 결과는 0이다
         Instant expiresAt = code == 1 || code == 2 ? Instant.ofEpochMilli(result.get(1)) : null;
-        return new IssueOutcome(code, expiresAt);
+        return new IssueOutcome(code, expiresAt, code == 1 ? result.get(2) : 0);
+    }
+
+    /** issue.lua의 KEYS 순서 */
+    static List<String> issueKeys(long couponId) {
+        return List.of(
+                CouponRedisKeys.issueControl(couponId),
+                CouponRedisKeys.stock(couponId),
+                CouponRedisKeys.users(couponId),
+                CouponRedisKeys.requests(couponId),
+                CouponRedisKeys.soldOut(couponId));
     }
 
     @Override
@@ -175,18 +182,90 @@ public class RedisCouponIssueStore implements CouponIssueStore {
         if (value == null) {
             return Optional.empty();
         }
-        return Optional.of(parseReceipt(couponId, value.toString()));
+        IssueRequestRecord record = parseRecord(couponId, value.toString());
+        return Optional.of(new IssueReceipt(record.memberId(), record.acceptedAt()));
     }
 
-    /** requests 값 {@code 회원 ID|접수 시각|ACCEPTED|만료 시각}(시각은 epoch 밀리초). 조회에는 회원과 접수 시각만 쓴다 */
-    private static IssueReceipt parseReceipt(long couponId, String value) {
-        String[] parts = value.split("\\|");
-        if (parts.length != 4) {
-            throw new CouponIssueStoreUnavailableException("접수 기록 형식을 읽지 못했다 couponId=" + couponId, null);
+    @Override
+    public PublishMark markPublished(long couponId, String issueRequestId) {
+        long result = run("전송 표식 기록", () -> CouponRedisLuaSupport.runForLong(redisTemplate, MARK_PUBLISHED,
+                List.of(CouponRedisKeys.requests(couponId)), issueRequestId));
+        return switch ((int) result) {
+            case 1 -> PublishMark.MARKED;
+            case 2 -> PublishMark.ALREADY_MARKED;
+            case 0 -> PublishMark.SKIPPED;
+            default -> throw new CouponIssueStoreUnavailableException(
+                    "전송 표식을 쓰지 못했다 couponId=" + couponId + ", result=" + result, null);
+        };
+    }
+
+    @Override
+    public boolean isSoldOut(long couponId) {
+        return run("매진 표시 조회", () -> redisTemplate.opsForValue().get(CouponRedisKeys.soldOut(couponId))) != null;
+    }
+
+    @Override
+    public boolean hasRequests(long couponId) {
+        return Boolean.TRUE.equals(run("접수 기록 확인",
+                () -> redisTemplate.hasKey(CouponRedisKeys.requests(couponId))));
+    }
+
+    @Override
+    public void scanRequests(long couponId, int pageSize, Consumer<List<RequestEntry>> page) {
+        if (pageSize < 1) {
+            throw new IllegalArgumentException("pageSize는 1 이상이어야 한다 pageSize=" + pageSize);
+        }
+        ScanOptions options = ScanOptions.scanOptions().count(pageSize).build();
+        run("접수 기록 훑기", () -> {
+            try (Cursor<Map.Entry<String, String>> cursor = redisTemplate.<String, String>opsForHash()
+                    .scan(CouponRedisKeys.requests(couponId), options)) {
+                List<RequestEntry> entries = new ArrayList<>(pageSize);
+                while (cursor.hasNext()) {
+                    Map.Entry<String, String> entry = cursor.next();
+                    entries.add(new RequestEntry(entry.getKey(), entry.getValue()));
+                    if (entries.size() == pageSize) {
+                        page.accept(List.copyOf(entries));
+                        entries.clear();
+                    }
+                }
+                if (!entries.isEmpty()) {
+                    page.accept(List.copyOf(entries));
+                }
+            }
+            return null;
+        });
+    }
+
+    @Override
+    public Optional<IssueControlState> findIssueControl(long couponId) {
+        List<Object> values = run("발급 준비 기록 조회", () -> redisTemplate.opsForHash()
+                .multiGet(CouponRedisKeys.issueControl(couponId), List.<Object>of("ready", "status", "epoch", "hold")));
+        if (values == null || values.get(0) == null && values.get(1) == null && values.get(2) == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new IssueControlState("1".equals(values.get(0)), (String) values.get(1),
+                parseEpoch(values.get(2)), emptyToNull(values.get(3))));
+    }
+
+    private static Long parseEpoch(Object value) {
+        if (value == null) {
+            return null;
         }
         try {
-            return new IssueReceipt(Long.parseLong(parts[0]), Instant.ofEpochMilli(Long.parseLong(parts[1])));
-        } catch (RuntimeException e) {
+            return Long.parseLong(value.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static String emptyToNull(Object value) {
+        return value == null || value.toString().isEmpty() ? null : value.toString();
+    }
+
+    private static IssueRequestRecord parseRecord(long couponId, String value) {
+        try {
+            return IssueRequestRecord.parse(value);
+        } catch (IllegalArgumentException e) {
             throw new CouponIssueStoreUnavailableException("접수 기록 형식을 읽지 못했다 couponId=" + couponId, e);
         }
     }
