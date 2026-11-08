@@ -45,17 +45,37 @@ JVM 분리 가정에 따라 아래는 Java 인터페이스가 아니라 **내부
 
 - OrderItemPaid (기존 토픽 `lecture.events.v1`, key = 주문 항목 ID): eventId, 주문/항목, usages[{memberCouponId,generation}], paidAt.
 - OrderItemCancelCompleted (같은 토픽, key = 주문 항목 ID): eventId, 주문/항목, usages, billing 반환 작업 ID, 쿠폰별 예산 복구 결과, completedAt.
-- CouponIssueRequested (토픽 `coupon.events.v1`, key = couponId): issueRequestId, couponId, memberId, epoch, issuedAt, expiresAt. DLT는 팀 규칙대로 `coupon.events.v1.lecture-app.coupon-issue.DLT`.
+- CouponIssueRequested (토픽 `coupon.events.v1`, key = couponId): issueRequestId, couponId, memberId, epoch, issuedAt, expiresAt. 소비 그룹 `lecture-app.coupon-issue`, DLT는 팀 규칙대로 `coupon.events.v1.lecture-app.coupon-issue.DLT`. 팀 Kafka 규칙에 이벤트 ID가 없어 소비 멱등은 결정적 작업 ID `coupon-issue:{couponId}:{requestId}`(`processed_operation`)로 한다. 접수 직후 앱이 보내고(ACK 대기 설정), 재발행 배치가 같은 ID로 다시 보낼 수 있다.
 
 같은 주문 항목의 결제 완료·취소 완료는 같은 key라 순서가 지켜진다. 이벤트 ID(`processed_operation`)뿐 아니라 사용 시도의 최종 결과로 역전도 막는다. 인프로세스 `@ApplicationModuleListener`로 두 모듈을 잇지 않는다.
 
 ## Redis
 
-키 생성은 한 클래스에 모은다. 쿠폰별 stock, users, requests, issue-control, sold_out을 둔다. Redis Stream은 두지 않는다. issue-control(HASH)은 ready·status(`READY`·`OPEN`·`SUSPENDED`·`CLOSED`)·epoch·발급 시작/종료·만료 계산 입력(방식·N일·고정 시각)·fence(쿠폰 DB version)를 가진 권위 있는 판정 데이터다. 접수 경로는 이 HASH와 Lua만 읽고 DB를 읽지 않는다. `READY`는 준비됐지만 접수 불가, `OPEN`만 접수 허용이다. 상태 쓰기는 fence 비교로 늦은 옛 쓰기를 무시한다(design.md "발행과 플랫폼 예산" 5). SWR 정책 캐시와 분리한다.
+키 생성은 한 클래스에 모은다. 쿠폰별 stock, users, requests, issue-control, sold_out을 둔다. Redis Stream은 두지 않는다. issue-control(HASH)은 권위 있는 판정 데이터다. 필드: `ready`, `status`(`READY`·`OPEN`·`SUSPENDED`·`CLOSED`), `epoch`, `startAt`·`endAt`(발급 기간), `keysExpireAt`(쿠폰 key TTL), `expiryType`·`expiryDays`·`fixedExpiresAt`(만료 계산 입력), `fence`(쿠폰 DB version), `hold`(비어 있지 않으면 신규 접수 거절. 값은 `RECOVERY`·`RECONCILE`·`BACKLOG`), `runId`(prepare 때 기록한 Redis `run_id`, 프로세스 변경 감지용), `recoveryId`(복구 실행 ID, 단조 증가. rebuild·activate 펜스). 접수 경로는 이 HASH와 Lua만 읽고 DB를 읽지 않는다. `READY`는 준비됐지만 접수 불가, `OPEN`만 접수 허용이다. 상태 쓰기는 fence 비교로 늦은 옛 쓰기를 무시한다(design.md "발행과 플랫폼 예산" 5). SWR 정책 캐시와 분리한다.
 
-requests는 요청 ID → `memberId|acceptedAtMs|ACCEPTED|expiresAtMs|e{epoch}[|PUBLISHED][|COMPENSATED]`로 두어(epoch는 접수 당시 세대, PUBLISHED는 Kafka 전송 성공 표식, COMPENSATED는 영구 거절 보상 완료. 재발행 판단은 DB 기준. epoch 필드가 없는 옛 형식은 control epoch로 대체) 요청 ID로 회원·접수 시각·결과·만료 시각을 조회할 수 있게 한다. 같은 요청의 재응답은 최초 expiresAt을 돌려준다. issue.lua는 `{code, expiresAtMs, epoch}`를 반환한다(접수 직후 Kafka 이벤트가 DB 없이 epoch를 실을 수 있도록). 회원 중복 인덱스는 별도로 유지한다. 보상은 요청별 표식·epoch 검증·재고 복구를 원자적으로 처리한다. Kafka 전송 성공은 DB 완료가 아니다. requests 기록은 DB 확정 전에 지우지 않는다(TTL은 발급 종료 + 여유이며, 그 전에 대사가 확정한다).
+requests는 요청 ID → `memberId|acceptedAtMs|ACCEPTED|expiresAtMs|e{epoch}[|PUBLISHED][|COMPENSATED]`로 두어(epoch는 접수 당시 세대, PUBLISHED는 Kafka 전송 성공 표식, COMPENSATED는 보상 처리 완료 표식이지 재고 복구 보장이 아니다 — 이전 epoch 기록이나 issue-control이 없을 때는 표식만 남기고 재고는 그대로다. 재발행 판단은 DB 기준. epoch 필드가 없는 옛 형식은 control epoch로 대체) 요청 ID로 회원·접수 시각·결과·만료 시각을 조회할 수 있게 한다. 같은 요청의 재응답은 최초 expiresAt을 돌려준다. issue.lua는 `{code, expiresAtMs, epoch}`를 반환한다(접수 직후 Kafka 이벤트가 DB 없이 epoch를 실을 수 있도록). 회원 중복 인덱스는 별도로 유지한다. 보상은 요청별 표식·epoch 검증·재고 복구를 원자적으로 처리한다. Kafka 전송 성공은 DB 완료가 아니다. requests 기록은 DB 확정 전에 지우지 않는다(TTL은 발급 종료 + 여유이며, 그 전에 대사가 확정한다). 대사가 ISSUED 기록을 정리한 뒤 같은 요청 ID를 다시 보내면 issue.lua는 `2`가 아니라 `-1`(이미 발급)을 돌려주고, 상태 조회는 DB 기준 ISSUED다.
 
 중단은 Redis 발급 차단을 확인한 뒤 완료 응답하며 중간 실패를 작업으로 재시도한다. 중단 전 원자적 접수가 끝난 요청은 기존 요청으로 처리한다. Redis 장애 때는 신규 접수를 열지 않는다.
+
+## 관리자 운영 API (발급 복구)
+
+권한은 ADMIN. 경로는 `/api/v1/coupons/admin/...`이며 `/admin`은 강의 앱 SecurityConfig와 Facade `@PreAuthorize`가 함께 막는다. 상태 변경 로그에 adminId를 남긴다.
+
+| 메서드·경로 | 역할 |
+| --- | --- |
+| GET `/api/v1/coupons/admin/dlt?status=` | DLT 기록 목록(페이지). 상태 `PENDING` → `REPLAYING`(선점, lease) → `REPLAYED`, 또는 `REJECTED` |
+| POST `/api/v1/coupons/admin/dlt/{dltId}/replay` | 같은 요청 ID로 원 토픽에 재발행. `REPLAYING`으로 선점·커밋 → 전송 → `REPLAYED`. 실패면 `PENDING` 복귀(그 사이 새 격리가 생겼으면 `REPLAYED`). lease가 지난 `REPLAYING`은 다시 선점할 수 있다. 복구 중이면 409 |
+| POST `/api/v1/coupons/admin/dlt/{dltId}/reject` `{reason}` | 영구 거절. DB에 REJECTED·사유 확정 뒤 `compensate.lua` 한 번(표식·epoch 검증·INCR·SREM·매진 해제 원자). 표식이 있으면 무변경, 기록이 없으면 무변경 + ERROR 지표, 이전 epoch면 표식만. 재거절은 409가 아니라 200으로 보상만 재시도 |
+| GET `/api/v1/coupons/admin/{couponId}/recovery` | 복구 실행 목록 |
+| POST `/api/v1/coupons/admin/{couponId}/recovery` | 1 차단. 복구 실행 생성(`BLOCKED`), epoch 후보, `requestsLost` 판정, issue-control `ready=0`·`hold=RECOVERY`. 끝나지 않은 복구가 있으면 409 |
+| POST `…/recovery/{recoveryId}/boundary` | 2 경계 확정(`BOUNDARY_FIXED`). 차단 시각 + 전송 수명 대기 전이면 409("…ms 뒤에"). requests 재발행 뒤 Kafka 파티션 경계 기록 |
+| POST `…/recovery/{recoveryId}/results` | 3 결과 확정(`RESULTS_CHECKED`). 미처리(Kafka lag·DLT PENDING·REPLAYING)가 0이어야 다음 단계 가능 |
+| POST `…/recovery/{recoveryId}/rebuild` | 4 재구축(`REBUILDING` 선점 → `REBUILT`). 미처리가 남았으면 409. DB 확정 발급 기준으로 stock·users·requests(결과만)·issue-control 재구축, `ready=0` 유지 |
+| POST `…/recovery/{recoveryId}/resume` | 5 재개(`RESUMING` 선점 → `RESUMED`). 수량 대사가 맞으면 새 epoch 활성화, `ready=1`, hold 해제 |
+| POST `…/recovery/{recoveryId}/abort` | 취소(`ABORTED`, 멱등). 재구축 전까지, 또는 RESUMING에서 살아 있는 선점이 없고 issue-control이 없거나 runId가 바뀐 것이 확인될 때만. 차단은 유지된다 |
+| POST `/api/v1/coupons/admin/{couponId}/reconcile/release` | 대사 불일치 보류(`hold=RECONCILE`) 해제. 운영자가 원인을 확인한 뒤 부른다. 다른 사유의 hold면 409 |
+
+복구 단계: `BLOCKED` → `BOUNDARY_FIXED` → `RESULTS_CHECKED` → `REBUILDING` → `REBUILT` → `RESUMING` → `RESUMED`. 세부 규칙은 operations.md "복구와 대사".
 
 ## billing 담당 계약
 
