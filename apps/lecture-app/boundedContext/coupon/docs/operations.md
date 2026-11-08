@@ -39,7 +39,7 @@ AOF everysec에서 Redis에만 있던 접수가 사라질 수 있다. 이때 요
 
 쿠폰별·전체 수량 상한과 용량 예약은 1차 필수다. CLOSED 정책도 Redis 기록이 남으면 포함한다. 동시 승인, Stream·pending·요청 인덱스·보상 표식까지 계산한다. 임계치에서 신규 발급을 차단하고 기존 요청 전달·정리를 우선한다. 실제 한도는 대표 데이터 측정 후 정하며 측정 전 운영 발급을 열지 않는다.
 
-SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일치 시에만 락을 해제한다. 캐시 부재 때 대기는 유한하게 제한한다. Redis 장애 시 조회는 제한된 DB 경로로 대체한다. 갱신·정책 변경 경합으로 오래된 데이터가 덮이는 것을 버전으로 막는다. 구체 TTL·대기·조회 제한은 부하 검증으로 정한다.
+SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일치 시에만 락을 해제한다. 캐시 부재 때 대기는 유한하게 제한한다. Redis 장애 시 조회는 제한된 DB 경로로 대체한다. 갱신·정책 변경 경합으로 오래된 데이터가 덮이는 것을 버전으로 막는다. 구체 TTL·대기·조회 제한은 부하 검증으로 정한다. **확정 전 값:** `hapbang.coupon.redis.keys-expire-margin` 기본 7일(쿠폰 key TTL = 발급 종료 + 이 값), `hapbang.coupon.max-expiry-days` 3650(DB CHECK 상한과 같으며 늘릴 때는 마이그레이션과 함께), 강의 조회 클라이언트 `hapbang.coupon.lecture-client.*`(연결 2초·응답 5초, circuit breaker 윈도 20·최소 호출 10·실패율 50%·느린 호출 4초·open 30초·half-open 3회), `XAUTOCLAIM` 60초, Kafka 재시도 3회·1초, 매진 메모리 캐시 1초. 측정 뒤 바꾼다.
 
 ## invariant와 보장 주체
 
@@ -50,7 +50,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | I1 | DB 확정 발급 수 ≤ 총수량 | Lua 재고 + 소비자 조건부 UPDATE | k6 과발급 시나리오, 대사 |
 | I2 | 회원당 같은 쿠폰 1장 | Lua 회원 SET + `UNIQUE(member_id, coupon_id)` | k6 중복 시나리오 |
 | I3 | Lua 접수 ⇒ 결국 ISSUED 또는 REJECTED. 정상 경로에서 결과 불명으로 남지 않음(Redis 유실은 UNKNOWN) | Stream pending 재인계 + Kafka 재시도 + DLT + 대사 | 전달 장애·유실 복구 시나리오 |
-| I4 | 같은 요청 ID는 같은 결과 | requests 기록 + `UNIQUE(issue_request_id)` | 재시도 테스트 |
+| I4 | 같은 (쿠폰, 요청 ID)는 같은 결과. 요청 ID는 쿠폰 안에서만 유일 | Redis requests(쿠폰별) + `UNIQUE(coupon_id, issue_request_id)` | Lua·e2e·리포지토리 테스트 |
 | I5 | 발급 쿠폰 1장은 동시에 주문 항목 1개에만 | generation CAS + `UNIQUE(order_item_id, member_coupon_id)` | 동시 예약 테스트 |
 | I6 | 취소 완료 뒤 늦은 결제 완료가 상태를 바꾸지 않음 | 완료 우선 + 사용 시도 이력 | 이벤트 시나리오 |
 | I7 | 쿠폰별 d = f + s, 항목 D ≤ P, 구매자 결제액 ≥ 0 | 계산 API | 단위 테스트 |

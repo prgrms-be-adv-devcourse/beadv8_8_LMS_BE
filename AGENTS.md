@@ -84,6 +84,7 @@
 - 모든 API는 `/api/v1/...` 아래에 둔다 (3장의 진입 경로 참고).
 - API 명세는 Swagger로 관리한다. 프론트와 API 설계를 먼저 맞추고, 명세(Controller)를 먼저 만들어 동시에 작업할 수 있게 한다.
 - 성공 응답은 `global`의 `RsData`(`statusCode`, `message`, `data`)로 감싼다. 오류는 `global`의 `GlobalExceptionHandler` 하나가 `ProblemDetail`(+ `code`)로 응답한다. **모듈은 `@RestControllerAdvice`를 만들지 않고**, `{Module}ErrorCode implements BaseErrorCode`와 `{Module}Exception extends BusinessException`만 둔다.
+    - 예외: lecture-app 안의 coupon 모듈은 앱으로 분리될 것을 전제하므로 자기 global(오류 처리기·RsData·로그인 해석)을 둔다. 처리기는 `com.hapbang.coupon` 패키지에 한정한다.
 - 모듈 간 내부 HTTP API는 `/api/v1/internal/<모듈>/...`에 둔다. 회원 인증이 아니라 `X-Internal-Api-Key`로 인증하고, 서버 밖에서는 Envoy에 route를 만들지 않아 닿지 않는다 (D63, `docs/api/internal-earnings.md`).
 - 파일(S3) 업로드는 서버 경유다. 본문 업로드 API는 모든 모듈이 `PUT /api/v1/{모듈}/files/{id}/content`(요청 본문이 파일, multipart 아님, `Content-Length` 필수)를 따르고, 받은 스트림을 `global/storage`의 `S3FileStorage.upload`로 넘긴다. Envoy는 이 경로에만 큰 본문과 긴 timeout을 허용한다 (`docs/deploy/s3.md`, #106).
 - RsData 반환 방법, 오류 코드·예외 작성법, 공통 핸들러가 처리하는 상황은 [`docs/api/conventions.md`](docs/api/conventions.md)에 있다.
