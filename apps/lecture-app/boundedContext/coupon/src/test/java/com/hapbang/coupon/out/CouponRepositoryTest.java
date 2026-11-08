@@ -96,6 +96,39 @@ class CouponRepositoryTest {
                 .containsExactly(newer, anyLecture);
     }
 
+    @Test
+    void 판매자_목록은_본인의_판매자_쿠폰만_상태별로_최신순_Limit만큼_읽고_관리자_목록은_모든_쿠폰을_읽는다() {
+        Long old = save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW), CouponStatus.DRAFT);
+        // 같은 시각에 만든 두 쿠폰은 ID 역순이다
+        Long tieFirst = save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW.plusSeconds(1)),
+                CouponStatus.REVIEW);
+        Long tieSecond = save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW.plusSeconds(1)),
+                CouponStatus.DRAFT);
+        Long newest = save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW.plusSeconds(2)),
+                CouponStatus.DRAFT);
+        // 판매자 목록에 넣지 않는 쿠폰: 다른 판매자의 쿠폰, 같은 회원 ID가 신청자인 플랫폼 쿠폰
+        Long otherSeller = save(Coupon.createSeller(SELLER_ID + 1, lectureRate().build(), NOW.plusSeconds(3)),
+                CouponStatus.DRAFT);
+        Long platform = save(Coupon.createPlatform(SELLER_ID, anyLectureAmount().build(), NOW.plusSeconds(4)),
+                CouponStatus.DRAFT);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(couponRepository.findSellerCoupons(SELLER_ID, null, Limit.unlimited()))
+                .extracting(Coupon::getId).containsExactly(newest, tieSecond, tieFirst, old);
+        assertThat(couponRepository.findSellerCoupons(SELLER_ID, CouponStatus.DRAFT, Limit.unlimited()))
+                .extracting(Coupon::getId).containsExactly(newest, tieSecond, old);
+        assertThat(couponRepository.findSellerCoupons(SELLER_ID, null, Limit.of(2)))
+                .extracting(Coupon::getId).containsExactly(newest, tieSecond);
+
+        assertThat(couponRepository.findAllCoupons(null, Limit.unlimited()))
+                .extracting(Coupon::getId).containsExactly(platform, otherSeller, newest, tieSecond, tieFirst, old);
+        assertThat(couponRepository.findAllCoupons(CouponStatus.REVIEW, Limit.unlimited()))
+                .extracting(Coupon::getId).containsExactly(tieFirst);
+        assertThat(couponRepository.findAllCoupons(CouponStatus.DRAFT, Limit.of(3)))
+                .extracting(Coupon::getId).containsExactly(platform, otherSeller, newest);
+    }
+
     private Long save(Coupon coupon, CouponStatus status) {
         ReflectionTestUtils.setField(coupon, "status", status);
         return couponRepository.save(coupon).getId();
