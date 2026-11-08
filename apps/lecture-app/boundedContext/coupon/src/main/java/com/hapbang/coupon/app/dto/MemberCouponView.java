@@ -12,6 +12,7 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 public record MemberCouponView(
         Long memberCouponId,
         Long couponId,
+        String couponName,
         MemberCouponStatus status,
         Instant issuedAt,
         Instant expiresAt,
@@ -25,7 +26,7 @@ public record MemberCouponView(
 
     /** @param coupon 발급 쿠폰의 쿠폰 정책 */
     public static MemberCouponView of(MemberCoupon memberCoupon, Coupon coupon) {
-        return new MemberCouponView(memberCoupon.getId(), memberCoupon.getCouponId(), memberCoupon.getStatus(),
+        return new MemberCouponView(memberCoupon.getId(), memberCoupon.getCouponId(), coupon.getName(), memberCoupon.getStatus(),
                 memberCoupon.getIssuedAt(), memberCoupon.getExpiresAt(), coupon.getTargetType(), coupon.getLectureId(),
                 coupon.getDiscountType(), coupon.getDiscountValue(), coupon.getMaxDiscountAmount(), coupon.isStackable());
     }

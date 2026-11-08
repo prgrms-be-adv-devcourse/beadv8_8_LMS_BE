@@ -7,7 +7,7 @@
 Redis 재시작·유실 시 다음 순서를 지킨다.
 
 1. DB에 복구 실행·epoch를 기록하고 신규 발급과 이전 작업자를 차단한다. 일부 AOF와 준비 키가 살아 있어도 자동 정상 재개하지 않는다. Redis 프로세스 변경 감지와 준비 재검증을 연결한다.
-2. 진행 중 생산자를 정리하고 Stream 마지막 ID·pending·미전달 기록을 확정한다. 전달 정리 후 Kafka 파티션 경계와 retry/DLT 경계를 저장한다.
+2. 진행 중 생산자를 정리하고, 남아 있는 requests 중 DB에 없는 요청을 전부 재발행한 뒤 Kafka 파티션 경계와 retry/DLT 경계를 저장한다. Redis가 유실돼 requests가 없으면 재발행할 수 없으므로 그 요청들은 UNKNOWN으로 남긴다.
 3. 식별 가능한 요청을 DB 완료 또는 영구 거절로 정리한다. 복구 중 처리할 이전 epoch의 허용 범위를 고정한다. DB 세대 확인과 INSERT를 원자적으로 수행한다.
 4. 미처리 0과 예산을 확인하고 확정 DB 기준으로 재고·회원 중복·요청 결과를 재구축한다.
 5. 새 epoch를 활성화한다. 이전 epoch의 늦은 전달·보상은 기존 결과만 재생하거나 격리하고 새 재고를 변경하지 않는다.
@@ -22,14 +22,14 @@ AOF everysec에서 Redis에만 있던 접수가 사라질 수 있다. 이때 요
 
 | 작업 | 처리 |
 | --- | --- |
-| Stream 전달 | XREADGROUP, 오래된 pending XAUTOCLAIM, Kafka ACK 후 XACK. 시작·종료 시 스레드 관리 |
+| 재발행 | OPEN·SUSPENDED·정리 전 CLOSED 쿠폰의 requests를 HSCAN해 접수 뒤 N초(설정)가 지났는데 DB에 없는 요청을 같은 ID로 Kafka에 다시 발행. PUBLISHED 표식이 있어도 DB에 없으면 재발행 |
 | 사용 가능 쿠폰 만료 | expiresAt ≤ now인 AVAILABLE을 EXPIRED로 변경하고 예산 해제 작업 등록 |
 | 사용/예약 중 기한 경과 | 상태를 무조건 AVAILABLE/EXPIRED로 덮지 않는다. 사용 이력·billing 보류와 결과를 확인하고 더 필요 없는 예약 예산만 해제 |
 | 예산 작업 재시도 | 쿠폰 상태와 독립적으로 미완료 예약/해제 결과를 재조회하고 완료 처리 |
 | 발급 종료 | 발급 차단 후 진행 중 요청을 정리하고 미발급 수량의 예산 해제 |
 | 오래된 예약 | 강의 주문/예약 작업·billing 결과를 제공 API로 확인한다. 단순 시간 경과로 해제하지 않음 |
 | 대사 | 발급 수량, 중복 인덱스, 사용 시도, 재원, 작업 적체를 비교. 원인을 모르는 재고를 임의 INCR하지 않음 |
-| 기록 정리 | DB 최종 결과와 pending/재전달 필요성을 확인한 기록만 삭제. 정리 뒤 용량 예약 해제 |
+| 기록 정리 | DB 최종 결과를 확인한 requests 기록만 삭제. 정리 뒤 용량 예약 해제 |
 
 예산 해제는 상태 변경과 함께 작업을 저장하고 트랜잭션 밖에서 billing을 호출한다. EXPIRED 기록 후 호출 실패가 나도 작업이 남아야 한다. 취소·해제와 만료가 경쟁할 때 같은 예약 재원을 두 번 해제하지 않는다. USED 만료와 만료 뒤 취소 반환도 대사 대상이다.
 
@@ -37,9 +37,9 @@ AOF everysec에서 Redis에만 있던 접수가 사라질 수 있다. 이때 요
 
 현재 레포 Redis 설정은 컨테이너 64Mi, maxmemory 48mb, noeviction, AOF everysec다. 이 수치는 설정 확인이며 실제 여유 메모리를 측정한 결과는 아니다.
 
-쿠폰별·전체 수량 상한과 용량 예약은 1차 필수다. CLOSED 정책도 Redis 기록이 남으면 포함한다. 동시 승인, Stream·pending·요청 인덱스·보상 표식까지 계산한다. 임계치에서 신규 발급을 차단하고 기존 요청 전달·정리를 우선한다. 실제 한도는 대표 데이터 측정 후 정하며 측정 전 운영 발급을 열지 않는다.
+쿠폰별·전체 수량 상한과 용량 예약은 1차 필수다. CLOSED 정책도 Redis 기록이 남으면 포함한다. 동시 승인, requests·보상 표식까지 계산한다. 임계치에서 신규 발급을 차단하고 기존 요청 재발행·정리를 우선한다. 실제 한도는 대표 데이터 측정 후 정하며 측정 전 운영 발급을 열지 않는다.
 
-SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일치 시에만 락을 해제한다. 캐시 부재 때 대기는 유한하게 제한한다. Redis 장애 시 조회는 제한된 DB 경로로 대체한다. 갱신·정책 변경 경합으로 오래된 데이터가 덮이는 것을 버전으로 막는다. 구체 TTL·대기·조회 제한은 부하 검증으로 정한다. **확정 전 값:** `hapbang.coupon.redis.keys-expire-margin` 기본 7일(쿠폰 key TTL = 발급 종료 + 이 값), `hapbang.coupon.max-expiry-days` 3650(DB CHECK 상한과 같으며 늘릴 때는 마이그레이션과 함께), 강의 조회 클라이언트 `hapbang.coupon.lecture-client.*`(연결 2초·응답 5초, circuit breaker 윈도 20·최소 호출 10·실패율 50%·느린 호출 4초·open 30초·half-open 3회), `XAUTOCLAIM` 60초, Kafka 재시도 3회·1초, 매진 메모리 캐시 1초. 측정 뒤 바꾼다.
+SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일치 시에만 락을 해제한다. 캐시 부재 때 대기는 유한하게 제한한다. Redis 장애 시 조회는 제한된 DB 경로로 대체한다. 갱신·정책 변경 경합으로 오래된 데이터가 덮이는 것을 버전으로 막는다. 구체 TTL·대기·조회 제한은 부하 검증으로 정한다. **확정 전 값:** `hapbang.coupon.redis.keys-expire-margin` 기본 7일(쿠폰 key TTL = 발급 종료 + 이 값), `hapbang.coupon.max-expiry-days` 3650(DB CHECK 상한과 같으며 늘릴 때는 마이그레이션과 함께), 강의 조회 클라이언트 `hapbang.coupon.lecture-client.*`(연결 2초·응답 5초, circuit breaker 윈도 20·최소 호출 10·실패율 50%·느린 호출 4초·open 30초·half-open 3회), Kafka ACK 대기 1초, 재발행 대기 30초·배치 주기 1분, Kafka 재시도 3회·1초, 매진 메모리 캐시 1초. 측정 뒤 바꾼다.
 
 ## invariant와 보장 주체
 
@@ -49,7 +49,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | --- | --- | --- | --- |
 | I1 | DB 확정 발급 수 ≤ 총수량 | Lua 재고 + 소비자 조건부 UPDATE | k6 과발급 시나리오, 대사 |
 | I2 | 회원당 같은 쿠폰 1장 | Lua 회원 SET + `UNIQUE(member_id, coupon_id)` | k6 중복 시나리오 |
-| I3 | Lua 접수 ⇒ 결국 ISSUED 또는 REJECTED. 정상 경로에서 결과 불명으로 남지 않음(Redis 유실은 UNKNOWN) | Stream pending 재인계 + Kafka 재시도 + DLT + 대사 | 전달 장애·유실 복구 시나리오 |
+| I3 | Lua 접수 ⇒ 결국 ISSUED 또는 REJECTED. 정상 경로에서 결과 불명으로 남지 않음(Redis 유실은 UNKNOWN) | 접수 직후 Kafka 전송 + requests 기반 재발행 + Kafka 재시도 + DLT + 대사 | 전달 장애·유실 복구 시나리오 |
 | I4 | 같은 (쿠폰, 요청 ID)는 같은 결과. 요청 ID는 쿠폰 안에서만 유일 | Redis requests(쿠폰별) + `UNIQUE(coupon_id, issue_request_id)` | Lua·e2e·리포지토리 테스트 |
 | I5 | 발급 쿠폰 1장은 동시에 주문 항목 1개에만 | generation CAS + `UNIQUE(order_item_id, member_coupon_id)` | 동시 예약 테스트 |
 | I6 | 취소 완료 뒤 늦은 결제 완료가 상태를 바꾸지 않음 | 완료 우선 + 사용 시도 이력 | 이벤트 시나리오 |
@@ -63,9 +63,9 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | 층 | 대상 | 양 | 방식 |
 | --- | --- | --- | --- |
 | 도메인 | `domain/`의 금액 규칙(d = f + s, 상한), 상태 전이, generation 비교, 만료 판정, 추천 조합 선택, Lua 반환값 해석 | **가장 많이** | Spring 없이 순수 단위 테스트. 입력 조합을 넓게 |
-| 서비스(app) | UseCase·배치·Stream 작업자의 흐름과 분기(멱등 응답, 전부 성공/전부 실패, 결과 불명 처리) | 도메인보다 적게 | 저장소·Redis·HTTP·Kafka는 mock 또는 fake. 한 UseCase당 주요 분기 몇 개 |
+| 서비스(app) | UseCase·배치·재발행 배치의 흐름과 분기(멱등 응답, 전부 성공/전부 실패, 결과 불명 처리) | 도메인보다 적게 | 저장소·Redis·HTTP·Kafka는 mock 또는 fake. 한 UseCase당 주요 분기 몇 개 |
 | 리포지토리 | 쿠폰 Repository마다 **하나씩** | Repository 수만큼 | `@DataJpaTest` + Testcontainers. 조건부 UPDATE(CAS)·UNIQUE 제약·조회 조건이 실제 DB에서 맞는지만 |
-| e2e | 발급 접수 → Stream → Kafka → DB, 계산 → 예약 → 결제 완료 → 취소 완료 → 복원, Redis 장애 중 사용·취소 | **가장 적게** | `@SpringBootTest` + Testcontainers(PostgreSQL·Redis·Kafka). "필수 검증" 표의 범주당 1~2개 |
+| e2e | 발급 접수 → Kafka → DB(전송 실패 뒤 재발행 포함), 계산 → 예약 → 결제 완료 → 취소 완료 → 복원, Redis 장애 중 사용·취소 | **가장 적게** | `@SpringBootTest` + Testcontainers(PostgreSQL·Redis·Kafka). "필수 검증" 표의 범주당 1~2개 |
 
 - 동시성 검증(과발급·중복·동시 예약)은 도메인 테스트로 못 잡으므로 e2e 또는 k6에 둔다. 그 밖의 논리는 도메인 층으로 내린다.
 - Lua 스크립트는 Redis Testcontainers로 스크립트 단위 테스트를 둔다(반환값 7가지, pcall 되돌리기). 이것은 리포지토리 층으로 센다.
@@ -76,7 +76,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | 범주 | 시나리오·기대 결과 |
 | --- | --- |
 | 발급 경쟁 | 마지막 재고·같은 회원 동시 접수에도 총량·중복 제약 유지 |
-| 전달 장애 | Lua 후 종료, Kafka ACK 유실, XACK 전 종료에도 중복 효과 없음 |
+| 전달 장애 | Lua 후 종료, Kafka 전송 실패·ACK 유실, 재발행 중복에도 중복 효과 없음 |
 | 스크립트 실패 | 키 타입 오류·쓰기 실패·부분 보상 실패를 성공 응답하지 않고 차단·대사 |
 | 상태 변경 경쟁 | 발급 중단/기간 종료와 접수의 순서가 일관되고 기존 요청 재조회 가능 |
 | 유실 복구 | retry/DLT가 남은 채 재개하지 않음. 이전 epoch 전달·보상이 새 재고를 변경하지 않음 |

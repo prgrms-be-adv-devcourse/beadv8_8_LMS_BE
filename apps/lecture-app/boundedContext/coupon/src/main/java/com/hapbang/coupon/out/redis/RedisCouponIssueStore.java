@@ -1,11 +1,17 @@
 package com.hapbang.coupon.out.redis;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.RedisOperations;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
@@ -176,6 +182,53 @@ public class RedisCouponIssueStore implements CouponIssueStore {
             return Optional.empty();
         }
         return Optional.of(parseReceipt(couponId, value.toString()));
+    }
+
+    /**
+     * 쿠폰마다 GET stock, SISMEMBER users를 한 파이프라인으로 보낸다. 결과는 보낸 순서대로 두 개씩 온다.
+     * 표시용이라 stock이 숫자가 아니면 모르는 값({@code null})으로 둔다.
+     */
+    @Override
+    public Map<Long, IssueSnapshot> readSnapshots(Collection<Long> couponIds, long memberId) {
+        if (couponIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = new ArrayList<>(couponIds);
+        String member = String.valueOf(memberId);
+        List<Object> results = run("발급 표시 조회", () -> redisTemplate.executePipelined(new SessionCallback<Object>() {
+            @Override
+            @SuppressWarnings("unchecked")
+            public <K, V> Object execute(RedisOperations<K, V> operations) {
+                RedisOperations<String, String> ops = (RedisOperations<String, String>) operations;
+                for (Long couponId : ids) {
+                    ops.opsForValue().get(CouponRedisKeys.stock(couponId));
+                    ops.opsForSet().isMember(CouponRedisKeys.users(couponId), member);
+                }
+                return null;
+            }
+        }));
+        if (results.size() != ids.size() * 2) {
+            throw new CouponIssueStoreUnavailableException(
+                    "발급 표시 조회 결과 수가 맞지 않는다 expected=" + ids.size() * 2 + ", actual=" + results.size(), null);
+        }
+        Map<Long, IssueSnapshot> snapshots = new LinkedHashMap<>();
+        for (int i = 0; i < ids.size(); i++) {
+            Object stock = results.get(i * 2);
+            Object accepted = results.get(i * 2 + 1);
+            snapshots.put(ids.get(i), new IssueSnapshot(parseStock(stock), Boolean.TRUE.equals(accepted)));
+        }
+        return snapshots;
+    }
+
+    private static Long parseStock(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** requests 값 {@code 회원 ID|접수 시각|ACCEPTED|만료 시각}(시각은 epoch 밀리초). 조회에는 회원과 접수 시각만 쓴다 */

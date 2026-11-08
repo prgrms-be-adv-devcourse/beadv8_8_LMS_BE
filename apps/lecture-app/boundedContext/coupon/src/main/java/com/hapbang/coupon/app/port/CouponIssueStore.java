@@ -1,6 +1,8 @@
 package com.hapbang.coupon.app.port;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 
 import com.hapbang.coupon.domain.ExpiryType;
@@ -57,6 +59,16 @@ public interface CouponIssueStore {
     /** 요청 ID의 접수 기록. 없으면 빈 값 */
     Optional<IssueReceipt> findRequest(long couponId, String issueRequestId);
 
+    /**
+     * 여러 쿠폰의 남은 stock과 이 회원의 접수 여부(users)를 한 번의 왕복(파이프라인)으로 읽는다. 조회 화면의 매진·받음 표시용이며
+     * 접수 판정에는 쓰지 않는다. 쿠폰마다 key가 없으면 stock은 {@code null}, 접수 여부는 {@code false}다.
+     *
+     * @param couponIds 읽을 쿠폰 ID(목록 상한 이하). 비었으면 Redis를 부르지 않고 빈 값이다
+     * @return 쿠폰 ID → 읽은 값. {@code couponIds}의 모든 쿠폰이 들어 있다
+     * @throws CouponIssueStoreUnavailableException 저장소에 닿지 못했다
+     */
+    Map<Long, IssueSnapshot> readSnapshots(Collection<Long> couponIds, long memberId);
+
     /** {@link #allowIssue} 결과 */
     enum AllowResult {
         /** OPEN으로 바꿨다 */
@@ -90,6 +102,15 @@ public interface CouponIssueStore {
      * @param expiresAt 발급 쿠폰의 만료 시각. 1(접수)이면 이번 접수의 값, 2(재응답)이면 최초 접수의 값이고, 그 밖에는 null
      */
     record IssueOutcome(long code, Instant expiresAt) {
+    }
+
+    /**
+     * 조회 표시용 쿠폰 한 건의 Redis 값.
+     *
+     * @param stock          남은 stock. key가 없거나 숫자가 아니면 {@code null}
+     * @param memberAccepted 이 회원이 접수 회원 집합(users)에 있는가
+     */
+    record IssueSnapshot(Long stock, boolean memberAccepted) {
     }
 
     /** 접수 기록: 접수한 회원과 최초 접수 시각 */
