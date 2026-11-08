@@ -110,7 +110,8 @@ class AppearanceReviewExpirePublishTest {
     /** 기한 14일 정책 배치. 처리 건수는 운영 설정 또는 지정한 값 */
     private AppearanceReviewExpirePublishUseCase batch(int batchSize) {
         AppearanceBatchProperties properties = new AppearanceBatchProperties(batchSize,
-                batchProperties.pendingGrace(), batchProperties.retryBaseDelay(), batchProperties.retryMaxDelay(),
+                batchProperties.pendingGrace(), batchProperties.holdVoidAfter(), batchProperties.retryBaseDelay(),
+                batchProperties.retryMaxDelay(),
                 batchProperties.retryMaxAttempts(), batchProperties.retryJitterRatio());
         return new AppearanceReviewExpirePublishUseCase(appearanceSupport, appearanceReviewSupport, FOURTEEN_DAYS,
                 properties, transactionTemplate, this::collect, clock);

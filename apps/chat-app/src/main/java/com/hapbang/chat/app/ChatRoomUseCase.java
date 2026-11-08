@@ -20,6 +20,7 @@ import com.hapbang.chat.domain.ChatRoom;
 import com.hapbang.chat.domain.ChatRoomEventType;
 import com.hapbang.chat.domain.ChatRoomLog;
 import com.hapbang.chat.domain.ChatRoomMember;
+import com.hapbang.chat.domain.GroupMemberLeftData;
 import com.hapbang.chat.out.ChatMessageRepository;
 import com.hapbang.chat.out.ChatRoomLogRepository;
 import com.hapbang.chat.out.ChatRoomMemberRepository;
@@ -42,6 +43,7 @@ public class ChatRoomUseCase {
     private final ChatRoomSupporter chatRoomSupporter;
     private final ChatRecipientSetRecorder chatRecipientSetRecorder;
     private final ChatDeliveryRecorder chatDeliveryRecorder;
+    private final ChatReadCountSignals chatReadCountSignals;
 
     /**
      * 1:1 채팅을 시작한다.
@@ -113,6 +115,7 @@ public class ChatRoomUseCase {
      *     <li>퇴장을 반영한 불변 수신자 집합을 만들고, 퇴장 안내는 그 집합(남은 참여자)에게 알림 없이 전달하도록 기록한다.
      *     남은 참여자가 없으면 전달 작업을 남기지 않는다.</li>
      *     <li>이미 나갔거나 옛 참여 세대의 요청이면 아무것도 바꾸지 않는다(멱등).</li>
+     *     <li>단체방은 {@link #leaveGroup} 규칙을 따른다(호스트 제한, 방 종료 없음).</li>
      * </ul>
      *
      * @param participationVersion 요청한 참여 세대. null이면 현재 세대로 본다.
@@ -131,6 +134,9 @@ public class ChatRoomUseCase {
         }
 
         LocalDateTime now = LocalDateTime.now();
+        if (chatRoom.isGroup()) {
+            return leaveGroup(chatRoom, member, now);
+        }
         member.leave(now);
         chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.MEMBER_LEFT, now));
         ChatRecipientSet remaining = chatRecipientSetRecorder.snapshot(chatRoom, now);
@@ -139,6 +145,8 @@ public class ChatRoomUseCase {
         if (remaining.getMemberCount() > 0) {
             chatDeliveryRecorder.recordMessage(leftNotice, remaining.getId(), ChatNotifyRule.NONE, now);
         }
+        // 나간 회원이 빠져 남은 참여자의 메시지의 안 읽은 사람 수가 줄 수 있다. 커밋된 뒤 알린다
+        chatReadCountSignals.membershipChanged(chatRoomId, remaining.getSetVersion());
 
         // 남은 참여자 목록을 만들지 않고, 퇴장을 반영한 수신자 집합의 인원수로 방 종료를 정한다
         boolean roomEnded = remaining.getMemberCount() == 0;
@@ -149,6 +157,41 @@ public class ChatRoomUseCase {
         log.info("채팅방 퇴장 chatRoomId={}, userId={}, roomEnded={}", chatRoomId, userId, roomEnded);
         return new ChatRoomLeaveResult(true, ChatMessageResponse.from(leftNotice), roomEnded,
                 member.getParticipationVersion());
+    }
+
+    /**
+     * 단체방에서 나간다. 방을 잠근 이 트랜잭션 안에서 부른다.
+     * <ul>
+     *     <li>조회 만료된 방은 볼 수 없는 방이라 없는 방으로 본다.</li>
+     *     <li>호스트는 사용 중·일시 중지 방을 나갈 수 없고(나가기 대신 폐쇄) 직접 폐쇄한 읽기 전용 방만 나갈 수 있다(Q33).</li>
+     *     <li>모두 나가도 방을 종료하지 않는다.</li>
+     *     <li>나가기를 반영한 수신자 집합을 만들고, 사용 중·일시 중지 방이면 남은 참여자에게 나가기 안내를 알림 없이 전달한다.
+     *     읽기 전용 방에는 새 메시지를 남기지 않으므로(마지막 메시지는 폐쇄 안내) 기록만 남긴다.</li>
+     * </ul>
+     */
+    private ChatRoomLeaveResult leaveGroup(ChatRoom chatRoom, ChatRoomMember member, LocalDateTime now) {
+        Long userId = member.getUserId();
+        if (!chatRoom.isViewable(now)) {
+            throw new ChatException(ChatErrorCode.CHAT_ROOM_NOT_FOUND);
+        }
+        if (chatRoom.isOwnedBy(userId) && !chatRoom.isClosedByHost()) {
+            throw new ChatException(ChatErrorCode.HOST_CANNOT_LEAVE);
+        }
+        member.leave(now);
+        chatRoomLogRepository.save(ChatRoomLog.record(chatRoom, userId, ChatRoomEventType.MEMBER_LEFT, now));
+        ChatRecipientSet remaining = chatRecipientSetRecorder.snapshot(chatRoom, now);
+        ChatMessageResponse leftNotice = null;
+        if (chatRoom.isCurrentGroup()) {
+            ChatMessage notice = chatMessageRepository.save(
+                    ChatMessage.groupMemberLeft(chatRoom, userId, GroupMemberLeftData.of(userId), now));
+            if (remaining.getMemberCount() > 0) {
+                chatDeliveryRecorder.recordMessage(notice, remaining.getId(), ChatNotifyRule.NONE, now);
+            }
+            leftNotice = ChatMessageResponse.from(notice);
+        }
+        chatReadCountSignals.membershipChanged(chatRoom.getId(), remaining.getSetVersion());
+        log.info("단체방 퇴장 chatRoomId={}, userId={}, status={}", chatRoom.getId(), userId, chatRoom.getStatus());
+        return new ChatRoomLeaveResult(true, leftNotice, false, member.getParticipationVersion());
     }
 
     /**

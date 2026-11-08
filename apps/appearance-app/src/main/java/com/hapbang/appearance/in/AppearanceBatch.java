@@ -10,6 +10,7 @@ import com.hapbang.appearance.app.AppearanceEventRepublishUseCase;
 import com.hapbang.appearance.app.AppearanceRecruitDeadlineCloseUseCase;
 import com.hapbang.appearance.app.AppearanceRequestExpireUseCase;
 import com.hapbang.appearance.app.AppearanceReviewExpirePublishUseCase;
+import com.hapbang.appearance.app.HpReconciliationUseCase;
 import com.hapbang.appearance.app.HpTaskRetryUseCase;
 import com.hapbang.appearance.global.scheduling.ConditionalOnSchedulingEnabled;
 
@@ -25,6 +26,7 @@ import lombok.RequiredArgsConstructor;
  *     → 수락 기한 만료(20초)
  *     → 출연 취소 요청 자동 거절(30초) → HP 작업 재시도(40초) → 출연 자동 확인(50초).
  *     같은 배치는 이전 실행이 끝나야 다음 실행이 시작된다.</li>
+ *     <li>서비스 간 HP 대사(#581)는 매일 04:00:25에 한 번 돈다(매분 배치들이 쓰지 않는 25초). 관리자 수동 실행과 겹치면 건너뛴다.</li>
  * </ul>
  */
 @Component
@@ -40,6 +42,7 @@ class AppearanceBatch {
     private final AppearanceAutoConfirmUseCase appearanceAutoConfirmUseCase;
     private final AppearanceEventRepublishUseCase appearanceEventRepublishUseCase;
     private final AppearanceReviewExpirePublishUseCase appearanceReviewExpirePublishUseCase;
+    private final HpReconciliationUseCase hpReconciliationUseCase;
 
     @Scheduled(cron = "${appearance.batch.hold-recheck-cron:0 * * * * *}", zone = "Asia/Seoul")
     void recheckHolds() {
@@ -80,5 +83,10 @@ class AppearanceBatch {
     @Scheduled(cron = "${appearance.batch.auto-confirm-cron:50 * * * * *}", zone = "Asia/Seoul")
     void autoConfirmAppearances() {
         appearanceAutoConfirmUseCase.confirmDue();
+    }
+
+    @Scheduled(cron = "${appearance.batch.hp-reconciliation-cron:25 0 4 * * *}", zone = "Asia/Seoul")
+    void reconcileHp() {
+        hpReconciliationUseCase.runScheduled();
     }
 }

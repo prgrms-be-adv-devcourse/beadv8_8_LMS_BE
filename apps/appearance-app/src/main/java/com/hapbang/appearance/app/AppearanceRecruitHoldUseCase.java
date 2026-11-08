@@ -13,6 +13,8 @@ import com.hapbang.appearance.out.billing.BillingClient;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.out.BillingCallException;
 import com.hapbang.shared.billing.out.BillingCallResult;
 
@@ -43,7 +45,7 @@ public class AppearanceRecruitHoldUseCase {
     private final TransactionTemplate transactionTemplate;
 
     /**
-     * @throws AppearanceHoldRejectedException 지갑이 거절했을 때 (409 {@code INSUFFICIENT_BALANCE} 또는 500 {@code HP_HOLD_FAILED}).
+     * @throws AppearanceHoldRejectedException 지갑이 거절했을 때 (409 {@code INSUFFICIENT_BALANCE}·{@code WALLET_CLOSED} 또는 500 {@code HP_HOLD_FAILED}).
      *                                          모집글은 {@code HOLD_FAILED}
      * @throws AppearanceException              처리 결과를 받지 못했을 때 ({@code BILLING_UNAVAILABLE}). 모집글은 {@code HOLD_PENDING}으로 남는다
      */
@@ -82,7 +84,37 @@ public class AppearanceRecruitHoldUseCase {
         return AppearanceRecruitResDto.from(recruit, 0);
     }
 
-    /** 보류 거절 → {@code HOLD_FAILED} (기록으로만 남긴다) */
+    /**
+     * 보류 결과를 끝내 알 수 없는 모집글을 포기한다 (#536). 흐름은 요청서({@link AppearanceRequestHoldUseCase#voidHold})와 같다.
+     *
+     * @return 끝냈으면 true, 지갑이 무효화를 거절해 {@code HOLD_PENDING}으로 둔 경우 false (운영 확인 대상)
+     * @throws AppearanceException 무효화 결과를 받지 못했을 때 ({@code BILLING_UNAVAILABLE}). 다음 회차에 다시 무효화한다
+     */
+    public boolean voidHold(AppearanceRecruit recruit) {
+        HoldVoidCommand command = new HoldVoidCommand(recruit.getHostId(), BillingReferenceType.APPEARANCE_RECRUIT,
+                recruit.getId());
+        BillingCallResult<HoldVoidResultDto> result;
+        try {
+            result = billingClient.voidHold(command);
+        } catch (BillingCallException unknown) {
+            log.warn("HP 보류 무효화 결과 확인 불가, 모집글을 HOLD_PENDING으로 둔다 recruitId={}, kind={}, httpStatus={}",
+                    recruit.getId(), unknown.getKind(), unknown.getHttpStatus(), unknown);
+            throw new AppearanceException(AppearanceErrorCode.BILLING_UNAVAILABLE, UNAVAILABLE_DETAIL);
+        }
+        return switch (result) {
+            case BillingCallResult.Succeeded<HoldVoidResultDto> voided -> {
+                BillingHoldVoid.logVoided("모집글", recruit.getId(), voided.value());
+                markHoldFailed(recruit.getId());
+                yield true;
+            }
+            case BillingCallResult.Failed<HoldVoidResultDto> rejected -> {
+                BillingHoldVoid.logRejected("모집글", recruit.getId(), rejected);
+                yield false;
+            }
+        };
+    }
+
+    /** 보류 거절·무효화 → {@code HOLD_FAILED} (기록으로만 남긴다) */
     private void markHoldFailed(Long recruitId) {
         transactionTemplate.executeWithoutResult(status -> {
             AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);

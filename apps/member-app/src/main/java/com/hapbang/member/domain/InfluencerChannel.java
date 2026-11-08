@@ -150,6 +150,20 @@ public class InfluencerChannel extends BaseEntity {
         this.rejectionReason = stripped;
     }
 
+    /**
+     * 탈퇴 회원 마스킹 (#594). 채널 이름·주소·식별자를 이 채널 ID를 넣은 값으로 바꿔, 같은 채널을 다른 회원이 다시 등록할 수 있게 한다
+     * ((플랫폼, 식별자) 유일 제약은 그대로 지킨다). 삭제되지 않은 채널은 삭제 표시도 한다. 행·심사 기록은 남긴다
+     */
+    public void mask(LocalDateTime now) {
+        String masked = "withdrawn_" + id;
+        this.channelIdentifier = masked;
+        this.channelName = masked;
+        this.channelUrl = masked;
+        if (deletedAt == null) {
+            this.deletedAt = now;
+        }
+    }
+
     /** 등록만 됐거나 반려된 채널만 승인 요청할 수 있다 */
     public boolean canRequestApproval() {
         return verificationStatus == ChannelVerificationStatus.REGISTERED

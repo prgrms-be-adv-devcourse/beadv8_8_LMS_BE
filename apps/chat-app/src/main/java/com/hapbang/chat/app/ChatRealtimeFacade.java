@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ControlFanout;
 import com.hapbang.chat.app.dto.MessageFanout;
+import com.hapbang.chat.app.dto.ReadChangedFanout;
 import com.hapbang.chat.app.dto.RoomActivityFanout;
 
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class ChatRealtimeFacade {
     private final ChatConnectionRecheckService chatConnectionRecheckService;
     private final LocalChatConnections localChatConnections;
     private final ChatRoomActivityNotifier chatRoomActivityNotifier;
+    private final ChatReadCountNotifier chatReadCountNotifier;
 
     public void deliverMessage(MessageFanout fanout) {
         chatFanoutDeliveryService.deliver(fanout);
@@ -32,6 +34,11 @@ public class ChatRealtimeFacade {
     public void onRoomActivity(RoomActivityFanout activity) {
         chatFanoutDeliveryService.confirmToSender(activity);
         chatRoomActivityNotifier.record(activity);
+    }
+
+    /** 서버 채널로 받은 안 읽은 사람 수 변경 신호: 그 방을 연 로컬 구독이 있으면 방별 묶음에 넣는다 */
+    public void onReadChanged(ReadChangedFanout readChanged) {
+        chatReadCountNotifier.record(readChanged);
     }
 
     /**

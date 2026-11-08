@@ -4,6 +4,7 @@ import org.springframework.boot.gradle.plugin.SpringBootPlugin
 plugins {
     alias(libs.plugins.spring.boot) apply false
     alias(libs.plugins.spring.dependency.management) apply false
+    alias(libs.plugins.graalvm.native) apply false
 }
 
 description = "hapbang"
@@ -74,6 +75,13 @@ configure(subprojects.filter { it.name.endsWith("-app") }) {
         add("runtimeOnly", "org.flywaydb:flyway-database-postgresql")
         add("runtimeOnly", "org.postgresql:postgresql")
         add("runtimeOnly", "io.micrometer:micrometer-registry-prometheus")
+        // trace(#579, #631, #663): Micrometer Tracing OTel bridge와 OTLP exporter. Envoy가 넘긴 traceparent를 이어받아
+        // Alloy(OTLP gRPC)로 보낸다. 샘플링·전송·OTLP 지표 끄기와 부모 없는 observation 차단(ObservationConfig)은 앱마다 둔다
+        add("implementation", "org.springframework.boot:spring-boot-starter-opentelemetry")
+        // 만든 span을 메모리에 모아 확인한다(test-support RecordedSpans). 버전은 Boot가 관리하는 OpenTelemetry BOM을 따른다
+        add("testImplementation", "io.opentelemetry:opentelemetry-sdk-testing")
+        // 메모리에 모은 span을 내보내기 판정(SpanExportingPredicate)에 넣어 본다(OtelFinishedSpan). starter는 실행 시에만 넣는다
+        add("testImplementation", "io.micrometer:micrometer-tracing-bridge-otel")
         add("testImplementation", "org.springframework.boot:spring-boot-starter-security-test")
         add("testImplementation", "org.springframework.boot:spring-boot-starter-security-oauth2-client-test")
     }
@@ -91,7 +99,7 @@ tasks.register("verifyModuleStructure") {
     description = "앱별 실행 파일과 런타임 프로젝트 의존성 경계를 검사한다."
     doLast {
         val applications = subprojects.filter { it.name.endsWith("-app") }
-        check(applications.size == 6) { "여섯 개의 독립 실행 앱이 필요합니다." }
+        check(applications.size == 7) { "일곱 개의 독립 실행 앱이 필요합니다." }
         check(findProject(":global") == null && findProject(":apps") == null) {
             "global/통합 apps 실행 프로젝트는 제거해야 합니다."
         }
@@ -115,6 +123,25 @@ tasks.register("verifyModuleStructure") {
                     .filter { dependency -> dependency != module.path && applications.any { it.path == dependency } }
                 check(appDependencies.isEmpty()) {
                     "${module.path}의 ${classpath}가 다른 앱에 의존합니다: $appDependencies"
+                }
+            }
+        }
+        // auxiliary-app 안(#714): 업무 모듈(boundedContext/<모듈>)은 :auxiliary-global과 :shared에만, :auxiliary-global은
+        // :shared에만 의존한다. 업무 모듈끼리의 코드 참조는 Modulith 검사(AuxiliaryModularityTest)도 막는다
+        val auxiliaryApp = project(":auxiliary-app")
+        val auxiliaryModules = subprojects.filter { it.projectDir.parentFile == auxiliaryApp.file("boundedContext") }
+        check(auxiliaryModules.isNotEmpty()) { "auxiliary-app 업무 모듈(boundedContext/<모듈>)을 찾지 못했습니다." }
+        val allowedDependencies = auxiliaryModules.associateWith { setOf(":auxiliary-global", ":shared") } +
+                (project(":auxiliary-global") to setOf(":shared"))
+        allowedDependencies.forEach { (module, allowed) ->
+            listOf("compileClasspath", "runtimeClasspath").forEach { classpath ->
+                val notAllowed = module.configurations.getByName(classpath)
+                    .incoming.resolutionResult.allComponents
+                    .mapNotNull { it.id as? org.gradle.api.artifacts.component.ProjectComponentIdentifier }
+                    .map { it.projectPath }
+                    .filter { it != module.path && it !in allowed }
+                check(notAllowed.isEmpty()) {
+                    "${module.path}의 ${classpath}가 허용하지 않은 프로젝트에 의존합니다: $notAllowed (허용: $allowed)"
                 }
             }
         }

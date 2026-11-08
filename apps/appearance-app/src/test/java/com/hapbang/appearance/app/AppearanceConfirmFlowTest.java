@@ -18,7 +18,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -60,6 +63,7 @@ import com.hapbang.shared.member.domain.UserStatus;
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
+@ExtendWith(OutputCaptureExtension.class)
 class AppearanceConfirmFlowTest {
 
     private static final Long HOST = 1L;
@@ -198,7 +202,7 @@ class AppearanceConfirmFlowTest {
 
         @Test
         @DisplayName("요청서 출처: CONFIRMED(HOST), 지급 작업 PAYOUT·APPEARANCE_CONFIRMED·DONE, Billing에 게스트 지급 30,000(출연료 전부) 요청")
-        void fromRequest() {
+        void fromRequest(CapturedOutput output) {
             RequestAppearance established = establishFromRequest();
             broadcastEnded(established.appearanceId());
 
@@ -228,6 +232,10 @@ class AppearanceConfirmFlowTest {
                 assertThat(payout.sourceId()).isEqualTo(established.appearanceId());
                 assertThat(payout.amountHp()).isEqualTo(FEE);
             });
+            assertThat(output.getAll().lines().filter(line -> line.contains("출연을 확인했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "appearanceId=" + established.appearanceId(), "hostId=" + HOST,
+                                    "payoutTaskId=" + task.getId()));
         }
 
         @Test
@@ -386,7 +394,7 @@ class AppearanceConfirmFlowTest {
 
         @Test
         @DisplayName("요청서 출처: ABSENT·사유, 반환 작업 RELEASE·APPEARANCE_ABSENT·DONE, Billing에 호스트 반환 30,000 요청, 지급 요청 없음")
-        void fromRequest() {
+        void fromRequest(CapturedOutput output) {
             RequestAppearance established = establishFromRequest();
             broadcastEnded(established.appearanceId());
 
@@ -410,6 +418,11 @@ class AppearanceConfirmFlowTest {
                 assertThat(release.amountHp()).isEqualTo(FEE);
             });
             assertThat(BillingCalls.payouts(billingClient)).isEmpty();
+            assertThat(output.getAll().lines().filter(line -> line.contains("출연 불참을 기록했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "appearanceId=" + established.appearanceId(), "hostId=" + HOST,
+                                    "releaseTaskId=" + task.getId()));
+            assertThat(output.getAll()).doesNotContain("연락이 되지 않았습니다.");
         }
 
         @Test

@@ -3,6 +3,7 @@ package com.hapbang.member.in;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -10,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,17 +23,24 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.hapbang.member.GatewayLogin;
 import com.hapbang.member.MemberIntegrationTest;
+import com.hapbang.member.app.MemberAppearanceRatingFacade;
 import com.hapbang.member.domain.ChannelPlatform;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
+import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
+import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+
+import jakarta.servlet.http.Cookie;
 
 @MemberIntegrationTest
 @AutoConfigureMockMvc
 class ApiV1MemberControllerTest {
+
+    private static final String NICKNAME_AVAILABILITY = "/api/v1/members/nicknames/availability";
 
     @Autowired
     MockMvc mockMvc;
@@ -41,6 +50,11 @@ class ApiV1MemberControllerTest {
 
     @Autowired
     InfluencerChannelRepository influencerChannelRepository;
+
+    @Autowired
+    MemberAppearanceRatingFacade memberAppearanceRatingFacade;
+
+    private static final AtomicLong REVIEW_ID = new AtomicLong(1);
 
     @Test
     @DisplayName("로그인 상태로 내 정보를 조회하면 200과 회원 정보를 반환한다")
@@ -86,6 +100,88 @@ class ApiV1MemberControllerTest {
                 .andExpect(jsonPath("$.data.nickname").value("새 닉네임"));
 
         assertThat(userRepository.findById(user.getId()).orElseThrow().getNickname()).isEqualTo("새 닉네임");
+    }
+
+    @Test
+    @DisplayName("다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME (#646)")
+    void updateMe_duplicateNickname() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+        userRepository.save(User.join("tester2@example.com", "Tester2"));
+        User withdrawn = User.join("tester3@example.com", "tester3");
+        ReflectionTestUtils.setField(withdrawn, "status", UserStatus.WITHDRAWN);
+        userRepository.save(withdrawn);
+
+        for (String nickname : new String[] {"tester2", "TESTER3"}) {
+            mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"nickname\":\"%s\"}".formatted(nickname)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("DUPLICATE_NICKNAME"));
+        }
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getNickname()).isEqualTo("tester1");
+    }
+
+    @Test
+    @DisplayName("내 닉네임의 대소문자만 바꾸면 200 (#646)")
+    void updateMe_ownNicknameCase() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+
+        mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"TESTER1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nickname").value("TESTER1"));
+    }
+
+    @Test
+    @DisplayName("닉네임 중복 확인: 로그인 없이 부르고, 아무도 안 쓰면 true (#646)")
+    void nicknameAvailability_available() throws Exception {
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", " 새닉네임 "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.available").value(true));
+    }
+
+    @Test
+    @DisplayName("닉네임 중복 확인: 다른 회원(탈퇴 회원 포함)이 쓰면 대소문자만 달라도 false (#646)")
+    void nicknameAvailability_taken() throws Exception {
+        userRepository.save(User.join("tester2@example.com", "Tester2"));
+        User withdrawn = User.join("tester3@example.com", "tester3");
+        ReflectionTestUtils.setField(withdrawn, "status", UserStatus.WITHDRAWN);
+        userRepository.save(withdrawn);
+
+        for (String nickname : new String[] {"tester2", "TESTER3"}) {
+            mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", nickname))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.available").value(false));
+        }
+    }
+
+    @Test
+    @DisplayName("닉네임 중복 확인: 로그인한 회원이 자기 닉네임을 넣으면 true, 남의 닉네임이면 false (#646)")
+    void nicknameAvailability_loggedIn() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+        userRepository.save(User.join("tester2@example.com", "tester2"));
+
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", "TESTER1")
+                        .with(GatewayLogin.as(user.getId(), user.getRole())))
+                .andExpect(jsonPath("$.data.available").value(true));
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", "tester2")
+                        .with(GatewayLogin.as(user.getId(), user.getRole())))
+                .andExpect(jsonPath("$.data.available").value(false));
+    }
+
+    @Test
+    @DisplayName("닉네임 중복 확인: 규칙에 맞지 않거나 없으면 400 닉네임 오류 (#646)")
+    void nicknameAvailability_invalid() throws Exception {
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", "민"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_NICKNAME_LENGTH"));
+        mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", "민규!"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_NICKNAME_CHARACTER"));
+        mockMvc.perform(get(NICKNAME_AVAILABILITY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_NICKNAME_LENGTH"));
     }
 
     @Test
@@ -249,6 +345,86 @@ class ApiV1MemberControllerTest {
         mockMvc.perform(get("/api/v1/members/{memberId}", 9999L).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MEMBER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("회원 프로필에는 출연 평점을 전체와 받은 역할별로 넣는다 (#555)")
+    void profile_appearanceRating() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User target = saveMember("target1", Role.INFLUENCER, UserStatus.ACTIVE);
+        applyReview(target, AppearanceParticipantRole.HOST, 5);
+        applyReview(target, AppearanceParticipantRole.HOST, 4);
+        applyReview(target, AppearanceParticipantRole.GUEST, 3);
+
+        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.appearanceRating.total.average").value(4.0))
+                .andExpect(jsonPath("$.data.appearanceRating.total.count").value(3))
+                .andExpect(jsonPath("$.data.appearanceRating.asHost.average").value(4.5))
+                .andExpect(jsonPath("$.data.appearanceRating.asHost.count").value(2))
+                .andExpect(jsonPath("$.data.appearanceRating.asGuest.average").value(3.0))
+                .andExpect(jsonPath("$.data.appearanceRating.asGuest.count").value(1));
+    }
+
+    @Test
+    @DisplayName("받은 출연 리뷰가 없으면 출연 평점은 평균 null, 개수 0이다 (#555)")
+    void profile_noAppearanceRating() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User target = saveMember("target1", Role.INFLUENCER, UserStatus.ACTIVE);
+
+        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.appearanceRating.total.average").value(nullValue()))
+                .andExpect(jsonPath("$.data.appearanceRating.total.count").value(0))
+                .andExpect(jsonPath("$.data.appearanceRating.asHost.count").value(0))
+                .andExpect(jsonPath("$.data.appearanceRating.asGuest.count").value(0));
+    }
+
+    @Test
+    @DisplayName("인플루언서 목록에는 출연 평점을 전체만 넣는다 (#555)")
+    void influencers_appearanceRating() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User unrated = saveMember("unrated1", Role.INFLUENCER, UserStatus.ACTIVE);
+        User rated = saveMember("rated1", Role.INFLUENCER, UserStatus.ACTIVE);
+        applyReview(rated, AppearanceParticipantRole.HOST, 5);
+        applyReview(rated, AppearanceParticipantRole.GUEST, 4);
+        applyReview(rated, AppearanceParticipantRole.GUEST, 4);
+
+        mockMvc.perform(get("/api/v1/members/influencers").with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].id").value(rated.getId()))
+                .andExpect(jsonPath("$.data.content[0].appearanceRating.average").value(4.3))
+                .andExpect(jsonPath("$.data.content[0].appearanceRating.count").value(3))
+                .andExpect(jsonPath("$.data.content[0].appearanceRating.asHost").doesNotExist())
+                .andExpect(jsonPath("$.data.content[1].id").value(unrated.getId()))
+                .andExpect(jsonPath("$.data.content[1].appearanceRating.average").value(nullValue()))
+                .andExpect(jsonPath("$.data.content[1].appearanceRating.count").value(0));
+    }
+
+    private void applyReview(User reviewee, AppearanceParticipantRole role, int rating) {
+        long reviewId = REVIEW_ID.getAndIncrement();
+        memberAppearanceRatingFacade.applyReviewPublished(new AppearanceReviewPublishedEvent(reviewId, reviewId, 999L,
+                reviewee.getId(), role, rating, LocalDateTime.now()));
+    }
+
+    @Test
+    @DisplayName("탈퇴 기능 스위치가 꺼져 있으면 탈퇴 API는 404이고 회원은 그대로다 (#593)")
+    void withdraw_disabled() throws Exception {
+        User user = saveMember("tester1", Role.USER, UserStatus.ACTIVE);
+
+        mockMvc.perform(delete("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("탈퇴 기능 스위치가 꺼져 있으면 복구 티켓이 없으므로 복구 API는 401 INVALID_RESTORE_TICKET (#593)")
+    void restore_disabled() throws Exception {
+        mockMvc.perform(post("/api/v1/members/restore")
+                        .cookie(new Cookie(RestoreTicketCookies.NAME, "any")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_RESTORE_TICKET"));
     }
 
     /** 탈퇴 기능(F7)이 아직 없어 상태는 테스트에서만 직접 바꾼다 */

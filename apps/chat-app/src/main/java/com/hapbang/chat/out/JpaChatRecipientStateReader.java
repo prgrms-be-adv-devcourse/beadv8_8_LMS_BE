@@ -1,5 +1,6 @@
 package com.hapbang.chat.out;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -69,7 +70,8 @@ public class JpaChatRecipientStateReader implements ChatRecipientStateReader {
                         ChatRoom.class)
                 .setParameter("roomId", roomId)
                 .getResultList();
-        boolean roomOpen = !rooms.isEmpty() && !rooms.getFirst().isEnded();
+        // 구독 허가는 조회 권한과 같다: 1:1 방은 종료 전, 단체방은 조회 만료 전(읽기 전용·일시 중지 포함)
+        boolean roomOpen = !rooms.isEmpty() && rooms.getFirst().isViewable(LocalDateTime.now());
         List<Object[]> rows = entityManager.createQuery("""
                         select u, m from ChatUser u
                         left join ChatRoomMember m on m.userId = u.id and m.chatRoom.id = :roomId

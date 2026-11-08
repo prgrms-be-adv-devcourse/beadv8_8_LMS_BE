@@ -9,6 +9,8 @@ import java.net.ServerSocket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -23,11 +25,19 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 
 import com.hapbang.shared.billing.domain.BillingFailureCode;
+import com.hapbang.shared.billing.domain.BillingHoldStatus;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
+import com.hapbang.shared.billing.domain.BillingSettlementStatus;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
+import com.hapbang.shared.billing.domain.PayoutType;
 import com.hapbang.shared.billing.domain.SettlementSourceType;
+import com.hapbang.shared.billing.domain.WithdrawalCloseOutcome;
+import com.hapbang.shared.billing.domain.WithdrawalReopenOutcome;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldStateDto;
+import com.hapbang.shared.billing.dto.HoldStatePageDto;
 import com.hapbang.shared.billing.dto.HoldVoidCommand;
 import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
@@ -36,10 +46,16 @@ import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalCloseCommand;
+import com.hapbang.shared.billing.dto.WithdrawalCloseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalReopenCommand;
+import com.hapbang.shared.billing.dto.WithdrawalReopenResultDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
+import com.hapbang.shared.member.dto.WithdrawalBlockReasonDto;
 import com.sun.net.httpserver.HttpServer;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.micrometer.context.ContextRegistry;
 
 // 지갑 내부 API Client의 요청 모양·응답 해제·실패 분류(D64)를 가짜 HTTP 서버로 확인한다 (#272). 실제 지갑 API는 #273이 확인한다.
 // Circuit Breaker·짧은 Retry·TimeLimiter(#411)도 여기서 확인한다. 재시도 대기는 테스트 시간을 줄이려고 10ms로 둔다.
@@ -139,6 +155,83 @@ class BillingApiClientTest {
                 "application/json", "{\"userId\":7,\"referenceType\":\"LECTURE_ORDER_ITEM\",\"referenceId\":31}"));
         assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldVoidResultDto(
                 BillingReferenceType.LECTURE_ORDER_ITEM, 31L, HoldVoidOutcome.VOIDED, 0L, false)));
+    }
+
+    @Test
+    void 탈퇴용_지갑_닫기는_탈퇴_작업_경로에_userId_본문으로_보내고_막힌_이유를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"지갑 탈퇴 확인을 마쳤습니다.","data":{
+                  "withdrawalId":55,"outcome":"BLOCKED","replayed":false,"reasons":[
+                    {"code":"BILLING_CHARGE_BALANCE_REMAINING","message":"충전 HP 12,000이 남아 있어요."},
+                    {"code":"BILLING_EXCHANGE_IN_PROGRESS","message":"처리 중인 환전이 있어요.",
+                     "availableAt":"2026-12-10"}]}}""");
+
+        BillingCallResult<WithdrawalCloseResultDto> result = client().closeForWithdrawal(
+                new WithdrawalCloseCommand(55L, 7L));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/withdrawals/55/close",
+                API_KEY, "application/json", "{\"userId\":7}"));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new WithdrawalCloseResultDto(55L,
+                WithdrawalCloseOutcome.BLOCKED, List.of(
+                        WithdrawalBlockReasonDto.of("BILLING_CHARGE_BALANCE_REMAINING", "충전 HP 12,000이 남아 있어요."),
+                        new WithdrawalBlockReasonDto("BILLING_EXCHANGE_IN_PROGRESS", "처리 중인 환전이 있어요.",
+                                LocalDate.of(2026, 12, 10))), false)));
+    }
+
+    @Test
+    void 탈퇴용_지갑_다시_열기는_reopen_경로로_보내고_결과를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"지갑을 다시 열었습니다.","data":{
+                  "withdrawalId":55,"outcome":"REOPENED","replayed":true}}""");
+
+        BillingCallResult<WithdrawalReopenResultDto> result = client().reopenForWithdrawal(
+                new WithdrawalReopenCommand(55L, 7L));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/withdrawals/55/reopen",
+                API_KEY, "application/json", "{\"userId\":7}"));
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(
+                new WithdrawalReopenResultDto(55L, WithdrawalReopenOutcome.REOPENED, true)));
+    }
+
+    @Test
+    void 탈퇴용_지갑_닫기의_업무_거절은_Failed이고_새_코드를_바꾼다() {
+        respond(409, "application/problem+json", """
+                {"status":409,"detail":"이미 다시 열기를 처리한 탈퇴 작업이라 지갑을 닫을 수 없습니다.",
+                 "code":"WITHDRAWAL_ALREADY_REOPENED"}""");
+
+        assertThat(client().closeForWithdrawal(new WithdrawalCloseCommand(55L, 7L))).isEqualTo(
+                new BillingCallResult.Failed<>(BillingFailureCode.WITHDRAWAL_ALREADY_REOPENED,
+                        "이미 다시 열기를 처리한 탈퇴 작업이라 지갑을 닫을 수 없습니다.", 409, "WITHDRAWAL_ALREADY_REOPENED"));
+        assertThat(BillingFailureCode.from("WALLET_CLOSED")).isEqualTo(BillingFailureCode.WALLET_CLOSED);
+    }
+
+    @Test
+    void 탈퇴용_지갑_닫기는_연결_거부면_재시도_가능이고_응답이_늦으면_결과_불명이다() throws IOException {
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        assertThatThrownBy(() -> client("http://127.0.0.1:" + closedPort)
+                .closeForWithdrawal(new WithdrawalCloseCommand(55L, 7L)))
+                .isInstanceOfSatisfying(BillingCallException.class,
+                        e -> assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.RETRYABLE));
+
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"withdrawalId":55,"outcome":"CLOSED","reasons":[],
+                  "replayed":false}}""");
+        delayMillis = 1_000L;
+        assertThatThrownBy(() -> client().closeForWithdrawal(new WithdrawalCloseCommand(55L, 7L)))
+                .isInstanceOfSatisfying(BillingCallException.class,
+                        e -> assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.UNKNOWN_RESULT));
+        assertThatThrownBy(() -> client().reopenForWithdrawal(new WithdrawalReopenCommand(55L, 7L)))
+                .isInstanceOfSatisfying(BillingCallException.class,
+                        e -> assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.UNKNOWN_RESULT));
+    }
+
+    @Test
+    void 탈퇴_작업_ID와_회원_ID는_양수여야_한다() {
+        assertThatThrownBy(() -> new WithdrawalCloseCommand(0L, 7L)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new WithdrawalReopenCommand(55L, -1L)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -382,6 +475,33 @@ class BillingApiClientTest {
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(900));
     }
 
+    // 호출은 TimeLimiter 때문에 다른 스레드에서 나간다. 요청 스레드의 trace(Observation) 같은 context가 그 스레드로 넘어가야
+    // 지갑 호출이 같은 trace에 이어진다(#579). 여기서는 tracing 대신 테스트용 ThreadLocal로 전달 여부만 본다
+    @Test
+    void 호출_스레드의_컨텍스트가_HTTP_요청_스레드로_전달된다() {
+        respond(200, "application/json", HOLD_SUCCEEDED);
+        String key = "billing-api-client-test";
+        ThreadLocal<String> context = new ThreadLocal<>();
+        List<String> seen = new CopyOnWriteArrayList<>();
+        ContextRegistry.getInstance().registerThreadLocalAccessor(key, context);
+        try {
+            BillingApiClient client = new BillingApiClient(RestClient.builder().requestInterceptor((request, body,
+                    execution) -> {
+                seen.add(String.valueOf(context.get()));
+                return execution.execute(request, body);
+            }), new BillingClientProperties(baseUrl(), Duration.ofMillis(500), Duration.ofMillis(300),
+                    new BillingClientProperties.Resilience(null, FAST_RETRY, null)), API_KEY);
+            context.set("trace-1");
+
+            client.hold(holdCommand());
+
+            assertThat(seen).containsExactly("trace-1");
+        } finally {
+            context.remove();
+            ContextRegistry.getInstance().removeThreadLocalAccessor(key);
+        }
+    }
+
     private static void assertUnknown(Runnable call, int status, String rawCode) {
         assertThatThrownBy(call::run).isInstanceOfSatisfying(BillingCallException.class, e -> {
             assertThat(e.getKind()).isEqualTo(BillingCallFailureKind.UNKNOWN_RESULT);
@@ -403,6 +523,58 @@ class BillingApiClientTest {
     private String baseUrl() {
         return "http://127.0.0.1:" + server.getAddress().getPort();
     }
+    @Test
+    void 참조_대상별_조회는_holds_query_경로로_보내고_보류_금액과_지급_건을_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":[
+                  {"referenceType":"APPEARANCE_REQUEST","referenceId":5,
+                   "hold":{"status":"MIXED","payerUserId":7,
+                     "original":{"chargeHp":4000,"revenueHp":6000,"totalHp":10000},
+                     "remaining":{"chargeHp":0,"revenueHp":0,"totalHp":0},
+                     "released":{"chargeHp":4000,"revenueHp":3000,"totalHp":7000},
+                     "paid":{"chargeHp":0,"revenueHp":3000,"totalHp":3000},
+                     "captured":{"chargeHp":0,"revenueHp":0,"totalHp":0}},
+                   "voided":null,
+                   "settlements":[{"sourceType":"APPEARANCE_REQUEST","sourceId":51,"payoutType":"PENALTY",
+                     "receiverUserId":8,"grossAmountHp":3000,"paidAmountHp":3000,"status":"COMPLETED"}]},
+                  {"referenceType":"APPEARANCE_REQUEST","referenceId":6,"hold":null,
+                   "voided":{"outcome":"VOIDED","releasedHp":0},"settlements":[]}]}""");
+
+        BillingCallResult<List<HoldStateDto>> result = client().queryHolds(
+                new HoldQueryCommand(BillingReferenceType.APPEARANCE_REQUEST, List.of(5L, 6L)));
+
+        assertThat(requests).containsExactly(new Request("POST", "/api/v1/internal/billing/holds/query", API_KEY,
+                "application/json", "{\"referenceType\":\"APPEARANCE_REQUEST\",\"referenceIds\":[5,6]}"));
+        List<HoldStateDto> states = ((BillingCallResult.Succeeded<List<HoldStateDto>>) result).value();
+        assertThat(states).hasSize(2);
+        assertThat(states.get(0).hold().status()).isEqualTo(BillingHoldStatus.MIXED);
+        assertThat(states.get(0).hold().released()).isEqualTo(new HoldStateDto.Amount(4_000, 3_000, 7_000));
+        assertThat(states.get(0).settlements()).containsExactly(new HoldStateDto.Settlement(
+                SettlementSourceType.APPEARANCE_REQUEST, 51L, PayoutType.PENALTY, 8L, 3_000, 3_000,
+                BillingSettlementStatus.COMPLETED));
+        assertThat(states.get(1).hold()).isNull();
+        assertThat(states.get(1).voided()).isEqualTo(new HoldStateDto.Voided(HoldVoidOutcome.VOIDED, 0));
+    }
+
+    @Test
+    void 목록_조회는_holds_경로에_GET_쿼리로_보내고_다음_커서를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[],
+                  "nextUpdatedAfter":"2026-11-03T01:02:03.456789Z","nextAfterId":42,"hasMore":true}}""");
+
+        BillingCallResult<HoldStatePageDto> result = client().listHolds(BillingReferenceType.LECTURE_ORDER_ITEM,
+                Instant.parse("2026-11-01T00:00:00Z"), 0L, 100);
+
+        assertThat(requests).hasSize(1);
+        Request request = requests.getFirst();
+        assertThat(request.method()).isEqualTo("GET");
+        assertThat(request.path()).isEqualTo("/api/v1/internal/billing/holds?referenceType=LECTURE_ORDER_ITEM"
+                + "&updatedAfter=2026-11-01T00:00:00Z&afterId=0&size=100");
+        assertThat(request.apiKey()).isEqualTo(API_KEY);
+        assertThat(result).isEqualTo(new BillingCallResult.Succeeded<>(new HoldStatePageDto(List.of(),
+                Instant.parse("2026-11-03T01:02:03.456789Z"), 42L, true)));
+    }
+
 
     private BillingApiClient client() {
         return client(baseUrl());

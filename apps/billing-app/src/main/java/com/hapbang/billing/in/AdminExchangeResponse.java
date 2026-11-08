@@ -72,8 +72,10 @@ public record AdminExchangeResponse(
 
     public record Account(
             String bankCode,
-            @Schema(description = "마스킹한 계좌번호(끝 4자리만 표시)", example = "**********1234")
+            @Schema(description = "마스킹한 계좌번호(끝 4자리만 표시). 복호화할 수 없거나 회원 정보 파기로 지웠으면 ****",
+                    example = "**********1234")
             String accountNumberMasked,
+            @Schema(description = "예금주. 회원 정보 파기로 지웠으면 null", nullable = true)
             String accountHolderName,
             AccountVerificationStatus verificationStatus
     ) {

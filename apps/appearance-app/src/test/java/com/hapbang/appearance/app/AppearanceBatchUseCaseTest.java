@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.test.context.support.WithMockUser;
 
+import com.hapbang.appearance.app.dto.AppearanceRecruitSummaryResDto;
 import com.hapbang.appearance.app.dto.AppearanceRequestResDto;
 import com.hapbang.appearance.config.AppearanceBatchProperties;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
@@ -303,7 +304,7 @@ class AppearanceBatchUseCaseTest {
         }
 
         @Test
-        @DisplayName("보류 처리 중인 모집글을 재확인할 때 Billing이 거절하면(잔액 부족) HOLD_FAILED로 정리하고, 목록·상세에 보이지 않는다")
+        @DisplayName("보류 처리 중인 모집글을 재확인할 때 Billing이 거절하면(잔액 부족) HOLD_FAILED로 정리하고, 공개 목록에는 없고 호스트의 내 목록·상세에만 보인다 (#306)")
         void recheckRecruitToHoldFailed() {
             BillingStubs.unavailable(billingClient);
             assertThatThrownBy(() -> appearanceRecruitFacade.create(HOST, AppearanceRecruitFixture.content(now())))
@@ -319,17 +320,29 @@ class AppearanceBatchUseCaseTest {
                     .isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
             assertThat(BillingCalls.holds(billingClient)).hasSize(2)
                     .allSatisfy(hold -> assertThat(hold.referenceId()).isEqualTo(recruitId));
-            assertThat(appearanceRecruitFacade.getMine(HOST, null, PageRequest.of(0, 10)).getContent()).isEmpty();
-            assertThatThrownBy(() -> appearanceRecruitFacade.getDetail(HOST, recruitId))
+            assertThat(appearanceRecruitFacade.getOpen(PageRequest.of(0, 10)).getContent()).isEmpty();
+            assertThat(appearanceRecruitFacade.getMine(HOST, null, PageRequest.of(0, 10)).getContent())
+                    .extracting(AppearanceRecruitSummaryResDto::status).containsExactly(AppearanceRecruitStatus.HOLD_FAILED);
+            assertThat(appearanceRecruitFacade.getDetail(HOST, recruitId).status())
+                    .isEqualTo(AppearanceRecruitStatus.HOLD_FAILED);
+            assertThatThrownBy(() -> appearanceRecruitFacade.getDetail(GUEST, recruitId))
                     .isInstanceOf(AppearanceException.class)
                     .extracting("errorCode").isEqualTo(AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
             assertThat(appearanceHoldRecheckUseCase.recheckDue()).isZero(); // 정리된 모집글은 다시 가져가지 않는다
         }
 
         @Test
-        @DisplayName("수락 기한이 지난 보류 처리 중 요청서는 REQUESTED로 정리한 뒤 만료 배치가 EXPIRED + 반환한다 (S5)")
+        @DisplayName("보류 포기 기준(1시간) 전에 수락 기한이 지난 보류 처리 중 요청서는 REQUESTED로 정리한 뒤 만료 배치가 EXPIRED + 반환한다 (S5). "
+                + "포기 기준이 지난 요청서는 무효화한다(AppearanceHoldVoidTest, #536)")
         void recheckThenExpire() {
-            AppearanceRequest overdue = sentAndDeadlinePassed(false); // 이틀이 지나 배치 대기 시간도 지났다
+            // 수락 기한이 보낸 지 30분 뒤인 요청서. 31분이 지나 기한과 배치 대기 시간은 지났고 포기 기준(1시간)은 아직이다
+            BillingStubs.unavailable(billingClient);
+            assertThatThrownBy(() -> appearanceRequestFacade.create(HOST, GUEST,
+                    AppearanceRequestFixture.content(now().plusMinutes(30), now().plusDays(7), FEE)))
+                    .isInstanceOf(AppearanceException.class);
+            BillingStubs.available(billingClient);
+            AppearanceRequest overdue = onlyRequest();
+            clock.advance(Duration.ofMinutes(31));
 
             appearanceHoldRecheckUseCase.recheckDue();
             assertThat(statusOf(overdue.getId())).isEqualTo(AppearanceRequestStatus.REQUESTED);

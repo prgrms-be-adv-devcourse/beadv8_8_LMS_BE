@@ -17,8 +17,14 @@ configMapGenerator:
       - HAPBANG_INTERNAL_API_PORT=8081
       # actuator(헬스체크·Prometheus 지표)는 관리 포트로만 연다. 8080에는 Gateway만 들인다(#528, D72)
       - MANAGEMENT_SERVER_PORT=8082
-      # 75%는 chat-app이 384Mi에서 OOMKilled됐다(#373 로컬 k3d). heap을 줄여 non-heap(metaspace·thread) 몫을 남긴다.
-      - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60
+      # heap 상한을 limit 비율(MaxRAMPercentage=60, 640Mi면 약 371Mi)이 아니라 고정값으로 둔다. heap 사용은 운영 7일 최대 110Mi,
+      # Tenured 사용은 최대 66Mi다. 비율로 두면 heap 상한 + heap 밖(약 345Mi)이 limit을 넘는다(#726, #610).
+      # 176m은 heap 사용 최대의 약 1.6배이고 Tenured 상한(약 117Mi)이 Tenured 사용 최대의 약 1.8배다.
+      - JAVA_TOOL_OPTIONS=-Xmx176m
+      # glibc malloc arena 수를 줄여 heap 밖 native 메모리를 줄인다. 기본값은 CPU 수 × 8이다(#610).
+      - MALLOC_ARENA_MAX=2
+      # trace를 Alloy(OTLP gRPC)로 보낸다. Alloy가 Tempo로 넘긴다(#631). service name은 spring.application.name(appearance-app)이다
+      - MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://alloy.hapbang-platform.svc.cluster.local:4317
       - DB_URL=jdbc:postgresql://postgres.hapbang-platform.svc.cluster.local:5432/appearance
       - DB_USERNAME=appearance
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092

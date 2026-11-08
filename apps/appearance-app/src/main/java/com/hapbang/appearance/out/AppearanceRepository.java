@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -20,6 +21,9 @@ import com.hapbang.appearance.domain.HpTaskType;
 import jakarta.persistence.LockModeType;
 
 public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
+
+    /** 동기화 내부 API(#713): 이 ID보다 큰 출연을 ID 오름차순으로. 모든 상태가 나온다 */
+    List<Appearance> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
 
     /** 출연 요청서에서 성립한 출연 */
     Optional<Appearance> findByRequestId(Long requestId);
@@ -115,6 +119,14 @@ public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
                                             @Param("includeMissingTask") boolean includeMissingTask,
                                             Pageable pageable);
 
+    /** 회원이 호스트나 게스트로 참여한 출연 중 이 상태들인 수 (탈퇴 막힌 이유, #624) */
+    @Query("""
+            select count(a) from Appearance a
+            where (a.hostId = :userId or a.guestId = :userId) and a.status in :statuses
+            """)
+    long countByParticipantAndStatusIn(@Param("userId") Long userId,
+                                       @Param("statuses") Collection<AppearanceStatus> statuses);
+
     /**
      * 출연의 출처 (모집에서 성립했으면 모집글 ID가 있다). 출연 ID를 함께 담는다: 모집글 ID 하나만 고르면
      * 요청서 출처(모집글 ID null)의 결과 행이 null이 되어 "없음"으로 읽히기 때문이다.
@@ -125,4 +137,18 @@ public interface AppearanceRepository extends JpaRepository<Appearance, Long> {
 
         Long getRecruitId();
     }
+
+    /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 요청서 출처 출연의 요청서 ID */
+    @Query("select distinct a.requestId from Appearance a where a.requestId is not null and a.updatedAt >= :since")
+    List<Long> findRequestIdsUpdatedSince(@Param("since") LocalDateTime since);
+
+    /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 모집 출처 출연의 모집글 ID */
+    @Query("select distinct a.recruitId from Appearance a where a.recruitId is not null and a.updatedAt >= :since")
+    List<Long> findRecruitIdsUpdatedSince(@Param("since") LocalDateTime since);
+
+    /** 요청서들에서 성립한 출연 (#581) */
+    List<Appearance> findByRequestIdIn(Collection<Long> requestIds);
+
+    /** 모집글들에서 성립한 출연 (#581) */
+    List<Appearance> findByRecruitIdIn(Collection<Long> recruitIds);
 }

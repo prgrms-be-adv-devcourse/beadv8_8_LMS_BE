@@ -1,6 +1,7 @@
 package com.hapbang.appearance.out.event;
 
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.APPLICATION_SUBMITTED;
+import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.CHANGED;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_TYPE;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.EVENT_VERSION;
 import static com.hapbang.appearance.out.event.AppearanceEventExternalizationConfig.REQUEST_SENT;
@@ -59,10 +60,13 @@ import com.hapbang.appearance.fixture.AppearanceRequestFixture;
 import com.hapbang.appearance.fixture.AppearanceUserFixture;
 import com.hapbang.appearance.support.AppearanceIntegrationTest;
 import com.hapbang.appearance.support.AppearanceTestClock;
+import com.hapbang.shared.appearance.domain.AppearanceResult;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
 import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
 import com.hapbang.shared.appearance.dto.AppearanceRequestDto;
+import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
 import com.hapbang.shared.appearance.event.AppearanceApplicationSubmittedEvent;
+import com.hapbang.shared.appearance.event.AppearanceChangedEvent;
 import com.hapbang.shared.appearance.event.AppearanceEventTopic;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
@@ -249,6 +253,34 @@ class AppearanceEventKafkaTest {
     }
 
     @Test
+    @DisplayName("출연이 성립하고 취소 요청되면(각각 커밋) key appearance:<출연 ID>로 출연 변경 이벤트가 하나씩 나가고, version은 커밋된 값이다 (#713)")
+    void appearanceChanged() {
+        AppearanceRequestResDto sent = appearanceRequestFacade.create(HOST, GUEST,
+                AppearanceRequestFixture.content(clock.now()));
+        Long appearanceId = appearanceRequestFacade.accept(GUEST, sent.id(), sent.version()).appearanceId();
+        ConsumerRecord<String, String> established = awaitExactly(appearanceKey(appearanceId), 1).getFirst();
+        appearanceFacade.requestCancel(GUEST, appearanceId, "일정이 생겼습니다.");
+
+        List<ConsumerRecord<String, String>> records = awaitExactly(appearanceKey(appearanceId), 2);
+
+        assertThat(header(established, EVENT_TYPE)).isEqualTo(CHANGED);
+        assertThat(header(established, EVENT_VERSION)).isEqualTo("1");
+        assertThat(header(established, "__TypeId__")).isEqualTo(AppearanceChangedEvent.class.getName());
+        // 금액은 싣지 않는다
+        assertThat(established.value()).doesNotContain("fee");
+        assertThat(jsonMapper.readValue(established.value(), AppearanceChangedEvent.class).appearance())
+                .isEqualTo(new AppearanceSyncDto(appearanceId, HOST, GUEST, AppearanceResult.SCHEDULED,
+                        sent.scheduledAt(), 0L));
+        // 공개 결과는 같아도(SCHEDULED) version이 올라 한 번 더 나간다. 실린 version = 커밋된 version
+        Long committedVersion = jdbcTemplate.queryForObject(
+                "select version from appearances.appearances where id = ?", Long.class, appearanceId);
+        assertThat(committedVersion).isEqualTo(1L);
+        assertThat(jsonMapper.readValue(records.get(1).value(), AppearanceChangedEvent.class).appearance())
+                .isEqualTo(new AppearanceSyncDto(appearanceId, HOST, GUEST, AppearanceResult.SCHEDULED,
+                        sent.scheduledAt(), committedVersion));
+    }
+
+    @Test
     @DisplayName("이벤트를 발행한 트랜잭션이 롤백되면 Kafka로 나가지 않는다")
     void notOnRollback() {
         AppearanceRequestSentEvent rolledBack = requestSentEvent(UNSAVED_ID.incrementAndGet());
@@ -306,6 +338,10 @@ class AppearanceEventKafkaTest {
 
     private static String reviewKey(Long revieweeUserId) {
         return "appearance-review-reviewee:" + revieweeUserId;
+    }
+
+    private static String appearanceKey(Long appearanceId) {
+        return "appearance:" + appearanceId;
     }
 
     private static String requestKey(Long requestId) {

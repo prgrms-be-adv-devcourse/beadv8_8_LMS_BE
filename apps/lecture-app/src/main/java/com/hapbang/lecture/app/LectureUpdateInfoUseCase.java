@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 
 import org.springframework.stereotype.Service;
 
+import com.hapbang.lecture.domain.Lecture;
+
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -16,11 +18,13 @@ public class LectureUpdateInfoUseCase {
 
     private final LectureSupport lectureSupport;
     private final LectureFileSupport lectureFileSupport;
+    private final LectureSyncEvents lectureSyncEvents;
 
     public void updateInfo(Long sellerUserId, Long lectureId, String title, String description, long priceHp,
                            Long thumbnailFileId) {
-        lectureSupport.findLecture(lectureId).updateInfo(sellerUserId, title, description, priceHp, thumbnailFileId,
-                LocalDateTime.now());
+        Lecture lecture = lectureSupport.findLecture(lectureId);
+        lecture.updateInfo(sellerUserId, title, description, priceHp, thumbnailFileId, LocalDateTime.now());
         lectureFileSupport.validateThumbnail(sellerUserId, thumbnailFileId);
+        lectureSyncEvents.lectureChanged(lecture);
     }
 }

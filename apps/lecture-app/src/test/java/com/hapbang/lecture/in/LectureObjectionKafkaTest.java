@@ -3,6 +3,8 @@ package com.hapbang.lecture.in;
 import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -31,12 +33,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaAdmin;
+import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hapbang.lecture.app.LectureObjectionFacade;
 import com.hapbang.lecture.config.LectureConfig;
@@ -55,6 +60,12 @@ import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+import com.hapbang.testsupport.RecordedSpans;
+import com.hapbang.testsupport.TraceRequests;
+
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.sdk.trace.data.SpanData;
 
 /**
  * 고객센터가 {@code customersupport.events.v1}에 보낸 판단·철회 요청을 강의가 받아 항목에 반영하고, 결과를
@@ -66,9 +77,11 @@ import com.hapbang.testsupport.KafkaTestcontainersConfig;
  * </ul>
  */
 @IntegrationTest
-@Import({KafkaTestcontainersConfig.class, LectureObjectionKafkaTest.CustomerSupportTopicConfig.class})
+@Import({KafkaTestcontainersConfig.class, LectureObjectionKafkaTest.CustomerSupportTopicConfig.class,
+        RecordedSpans.Config.class})
+// trace 확인(#630)은 샘플링 비율을 1로 둬서 부모 없이 시작한 span도 놓치지 않게 한다
 @TestPropertySource(properties = {"spring.kafka.listener.auto-startup=true", "spring.kafka.admin.auto-create=true",
-        "spring.modulith.events.externalization.enabled=true"})
+        "spring.modulith.events.externalization.enabled=true", "management.tracing.sampling.probability=1.0"})
 @WithMockUser(roles = "INTERNAL")
 @DirtiesContext
 class LectureObjectionKafkaTest {
@@ -76,6 +89,9 @@ class LectureObjectionKafkaTest {
     private static final Long BUYER_ID = OTHER_USER_ID;
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
     private static final Duration HOLD = Duration.ofMillis(800);
+    private static final String TRACEPARENT = "traceparent";
+    private static final String OBJECTION_COMMAND_DLT = LectureKafkaConfig.deadLetterTopic(CustomerSupportEventTopic.NAME,
+            LectureKafkaConfig.OBJECTION_COMMAND_GROUP);
 
     /** 고객센터 앱이 선언하는 업무 토픽을 대신 만든다. 강의 앱은 이 토픽의 DLT만 선언한다. */
     @TestConfiguration(proxyBeanMethods = false)
@@ -90,8 +106,12 @@ class LectureObjectionKafkaTest {
     @Autowired
     private KafkaAdmin kafkaAdmin;
 
-    @Autowired
+    // 재시도 trace 확인에서 첫 처리만 실패시킨다. 정하지 않으면 실제 메서드를 부른다
+    @MockitoSpyBean
     private LectureObjectionFacade lectureObjectionFacade;
+
+    @Autowired
+    private RecordedSpans spans;
 
     @Autowired
     private LectureRepository lectureRepository;
@@ -107,24 +127,31 @@ class LectureObjectionKafkaTest {
 
     @BeforeEach
     void setUp() {
-        Map<String, Object> properties = new HashMap<>(kafkaAdmin.getConfigurationProperties());
-        properties.put(ConsumerConfig.GROUP_ID_CONFIG, "lecture-test-" + UUID.randomUUID());
-        properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
-        consumer = new KafkaConsumer<>(properties, new StringDeserializer(), new StringDeserializer());
-        consumer.subscribe(List.of(LectureEventTopic.NAME));
-        // 파티션을 받을 때까지 읽은 뒤 끝으로 옮긴다. 이후 이 테스트가 만든 메시지만 받는다
-        await().atMost(TIMEOUT).pollInSameThread().until(() -> {
-            consumer.poll(Duration.ofMillis(100));
-            return !consumer.assignment().isEmpty();
-        });
-        consumer.seekToEnd(consumer.assignment());
-        consumer.assignment().forEach(consumer::position);
+        consumer = consumerAtEnd(LectureEventTopic.NAME);
+        spans.reset();
     }
 
     @AfterEach
     void tearDown() {
         consumer.close();
         received.clear();
+    }
+
+    /** 이 토픽을 읽는 소비자. 파티션을 받을 때까지 읽은 뒤 끝으로 옮겨, 이후 이 테스트가 만든 메시지만 받는다 */
+    private KafkaConsumer<String, String> consumerAtEnd(String topic) {
+        Map<String, Object> properties = new HashMap<>(kafkaAdmin.getConfigurationProperties());
+        properties.put(ConsumerConfig.GROUP_ID_CONFIG, "lecture-test-" + UUID.randomUUID());
+        properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        KafkaConsumer<String, String> topicConsumer = new KafkaConsumer<>(properties, new StringDeserializer(),
+                new StringDeserializer());
+        topicConsumer.subscribe(List.of(topic));
+        await().atMost(TIMEOUT).pollInSameThread().until(() -> {
+            topicConsumer.poll(Duration.ofMillis(100));
+            return !topicConsumer.assignment().isEmpty();
+        });
+        topicConsumer.seekToEnd(topicConsumer.assignment());
+        topicConsumer.assignment().forEach(topicConsumer::position);
+        return topicConsumer;
     }
 
     @Test
@@ -162,6 +189,91 @@ class LectureObjectionKafkaTest {
         assertThat(lectureObjectionCommandRepository.findByCommandId(withdraw.commandId())).isPresent();
     }
 
+    // trace(#630): 소비는 메시지 헤더의 traceparent를 부모로 삼고, 커밋 뒤 다른 스레드(Modulith 외부화)에서 보내는 결과에도
+    // 같은 trace를 싣는다. 받는 앱은 그 헤더로 다시 이어 간다
+    @Test
+    void 판단_요청의_trace를_이어받아_처리하고_내보낸_결과에도_같은_trace를_싣는다() throws Exception {
+        long inquiryId = 703L;
+        Long itemId = filedItem(inquiryId);
+        String traceId = TraceRequests.randomTraceId();
+        String parentSpanId = TraceRequests.randomSpanId();
+
+        send(inquiryId, new LectureObjectionResolutionRequestedEvent("RESOLVE:" + inquiryId, inquiryId, itemId, false,
+                ADMIN_ID), TraceRequests.traceparent(traceId, parentSpanId, true));
+
+        ConsumerRecord<String, String> record = awaitExactly("order-item:" + itemId, 1).getFirst();
+        RecordedSpans.await(() -> !spans(traceId, SpanKind.PRODUCER).isEmpty());
+        assertThat(spans(traceId, SpanKind.CONSUMER)).singleElement()
+                .satisfies(consume -> assertThat(consume.getParentSpanId()).isEqualTo(parentSpanId));
+        SpanData produce = spans(traceId, SpanKind.PRODUCER).getFirst();
+        assertThat(header(record, TRACEPARENT)).startsWith("00-" + traceId + "-" + produce.getSpanId() + "-");
+    }
+
+    @Test
+    void 처리에_실패해_다시_받은_요청도_같은_trace에_소비_span을_남긴다() throws Exception {
+        long inquiryId = 704L;
+        Long itemId = filedItem(inquiryId);
+        String traceId = TraceRequests.randomTraceId();
+        String parentSpanId = TraceRequests.randomSpanId();
+        doThrow(new OptimisticLockingFailureException("재시도 trace 확인"))
+                .doCallRealMethod()
+                .when(lectureObjectionFacade).resolve(any());
+
+        send(inquiryId, new LectureObjectionResolutionRequestedEvent("RESOLVE:" + inquiryId, inquiryId, itemId, false,
+                ADMIN_ID), TraceRequests.traceparent(traceId, parentSpanId, true));
+
+        awaitExactly("order-item:" + itemId, 1);
+        RecordedSpans.await(() -> spans(traceId, SpanKind.CONSUMER).size() >= 2);
+        assertThat(spans(traceId, SpanKind.CONSUMER)).hasSize(2)
+                .allSatisfy(consume -> assertThat(consume.getParentSpanId()).isEqualTo(parentSpanId))
+                .anySatisfy(failed -> assertThat(failed.getStatus().getStatusCode()).isEqualTo(StatusCode.ERROR));
+    }
+
+    @Test
+    void 처리에_계속_실패한_요청은_재시도와_DLT_전송까지_같은_trace에_남는다() throws Exception {
+        long inquiryId = 705L;
+        Long itemId = filedItem(inquiryId);
+        String key = "inquiry:" + inquiryId;
+        String traceId = TraceRequests.randomTraceId();
+        String parentSpanId = TraceRequests.randomSpanId();
+        doThrow(new OptimisticLockingFailureException("DLT trace 확인")).when(lectureObjectionFacade).resolve(any());
+        try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(OBJECTION_COMMAND_DLT)) {
+
+            send(inquiryId, new LectureObjectionResolutionRequestedEvent("RESOLVE:" + inquiryId, inquiryId, itemId,
+                    false, ADMIN_ID), TraceRequests.traceparent(traceId, parentSpanId, true));
+
+            ConsumerRecord<String, String> record = awaitDeadLetter(deadLetters, key);
+            RecordedSpans.await(() -> !spans(traceId, SpanKind.PRODUCER).isEmpty());
+            // 처음 1번 + 재시도 3번(LectureKafkaConfig)
+            List<SpanData> consumes = spans(traceId, SpanKind.CONSUMER);
+            assertThat(consumes).hasSize(4)
+                    .allSatisfy(consume -> assertThat(consume.getParentSpanId()).isEqualTo(parentSpanId));
+            SpanData deadLetter = spans(traceId, SpanKind.PRODUCER).getFirst();
+            assertThat(consumes).extracting(SpanData::getSpanId).contains(deadLetter.getParentSpanId());
+            assertThat(header(record, TRACEPARENT)).startsWith("00-" + traceId + "-" + deadLetter.getSpanId() + "-");
+        }
+    }
+
+    // 역직렬화 실패는 Spring Kafka가 리스너 어댑터를 부르기 전에 끝나 consumer span을 끝내지 않는다(내보내지 않음).
+    // DLT 전송 span과 DLT 메시지의 traceparent는 같은 trace로 남는다
+    @Test
+    void 읽지_못한_요청도_DLT_전송은_같은_trace에_남는다() throws Exception {
+        String key = "inquiry:706";
+        String traceId = TraceRequests.randomTraceId();
+        try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(OBJECTION_COMMAND_DLT)) {
+
+            sendUnreadable(key, TraceRequests.traceparent(traceId, TraceRequests.randomSpanId(), true));
+
+            ConsumerRecord<String, String> record = awaitDeadLetter(deadLetters, key);
+            // 타입 정보가 없어서가 아니라 JSON을 읽다 실패한 것인지. 원인이 Jackson 읽기 예외다(타입이 없으면 IllegalStateException)
+            assertThat(header(record, KafkaHeaders.DLT_EXCEPTION_FQCN)).endsWith("DeserializationException");
+            assertThat(header(record, KafkaHeaders.DLT_EXCEPTION_STACKTRACE)).contains("Caused by: tools.jackson.");
+            RecordedSpans.await(() -> !spans(traceId, SpanKind.PRODUCER).isEmpty());
+            SpanData deadLetter = spans(traceId, SpanKind.PRODUCER).getFirst();
+            assertThat(header(record, TRACEPARENT)).startsWith("00-" + traceId + "-" + deadLetter.getSpanId() + "-");
+        }
+    }
+
     @Test
     void 강의_토픽과_판단_철회_요청_DLT는_partition_3개로_선언한다() {
         String deadLetter = LectureKafkaConfig.deadLetterTopic(CustomerSupportEventTopic.NAME,
@@ -185,13 +297,55 @@ class LectureObjectionKafkaTest {
 
     /** 고객센터 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. */
     private void send(long inquiryId, Object event) {
+        send(inquiryId, event, null);
+    }
+
+    /** {@code traceparent}(없으면 null)를 헤더에 실어, trace를 계측한 고객센터 앱이 보낸 것처럼 보낸다 (#630) */
+    private void send(long inquiryId, Object event, String traceparent) {
         try (Producer<String, Object> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
                 new StringSerializer(), new JacksonJsonSerializer<>())) {
-            producer.send(new ProducerRecord<>(CustomerSupportEventTopic.NAME, "inquiry:" + inquiryId, event))
-                    .get(10, TimeUnit.SECONDS);
+            ProducerRecord<String, Object> record = new ProducerRecord<>(CustomerSupportEventTopic.NAME,
+                    "inquiry:" + inquiryId, event);
+            if (traceparent != null) {
+                record.headers().add(TRACEPARENT, traceparent.getBytes(StandardCharsets.UTF_8));
+            }
+            producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /**
+     * 받는 타입({@code __TypeId__})은 맞지만 JSON으로 읽을 수 없는 본문을 보낸다. 역직렬화에 실패해 재시도 없이 DLT로 가야 한다.
+     * 타입 헤더가 없으면 JSON을 읽기 전에 타입 정보가 없어 실패하므로 함께 붙인다.
+     */
+    private void sendUnreadable(String key, String traceparent) {
+        try (Producer<String, String> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
+                new StringSerializer(), new StringSerializer())) {
+            ProducerRecord<String, String> record = new ProducerRecord<>(CustomerSupportEventTopic.NAME, key, "{not json");
+            record.headers().add("__TypeId__",
+                    LectureObjectionResolutionRequestedEvent.class.getName().getBytes(StandardCharsets.UTF_8));
+            record.headers().add(TRACEPARENT, traceparent.getBytes(StandardCharsets.UTF_8));
+            producer.send(record).get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** DLT에 이 key의 메시지가 올 때까지 읽는다 */
+    private ConsumerRecord<String, String> awaitDeadLetter(KafkaConsumer<String, String> deadLetters, String key) {
+        List<ConsumerRecord<String, String>> arrived = new CopyOnWriteArrayList<>();
+        await().atMost(Duration.ofSeconds(30)).pollInSameThread().untilAsserted(() -> {
+            deadLetters.poll(Duration.ofMillis(200)).forEach(arrived::add);
+            assertThat(arrived).anyMatch(record -> key.equals(record.key()));
+        });
+        return arrived.stream().filter(record -> key.equals(record.key())).findFirst().orElseThrow();
+    }
+
+    private List<SpanData> spans(String traceId, SpanKind kind) {
+        return spans.all().stream()
+                .filter(span -> span.getTraceId().equals(traceId) && span.getKind() == kind)
+                .toList();
     }
 
     /** 이 key의 메시지가 count건 온 뒤, 잠시 더 읽어도 그대로 count건인지 (중복 발행이 없는지) */

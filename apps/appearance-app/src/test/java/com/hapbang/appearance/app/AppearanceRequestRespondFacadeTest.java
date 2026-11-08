@@ -18,8 +18,11 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
@@ -58,6 +61,7 @@ import com.hapbang.shared.member.domain.UserStatus;
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
+@ExtendWith(OutputCaptureExtension.class)
 class AppearanceRequestRespondFacadeTest {
 
     private static final Long HOST = 1L;
@@ -129,7 +133,7 @@ class AppearanceRequestRespondFacadeTest {
 
     @Test
     @DisplayName("수락하면 요청서 ACCEPTED + 출연 성립(스냅샷), HP는 보류 그대로")
-    void accept() {
+    void accept(CapturedOutput output) {
         AppearanceRequestResDto sent = send();
 
         AppearanceRequestResDto accepted = appearanceRequestFacade.accept(GUEST, sent.id(), sent.version());
@@ -143,6 +147,10 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(appearance.getScheduledAt()).isEqualTo(sent.scheduledAt());
         assertThat(BillingCalls.releases(billingClient)).isEmpty(); // 수락은 HP를 옮기지 않는다 (보류 유지)
         assertThat(hpTaskRepository.count()).isZero();
+        assertThat(output.getAll().lines().filter(line -> line.contains("출연 요청을 수락했다")))
+                .singleElement().satisfies(line -> assertThat(line)
+                        .contains(" INFO ", "requestId=" + sent.id(), "appearanceId=" + accepted.appearanceId(),
+                                "guestId=" + GUEST));
     }
 
     @Test
@@ -218,7 +226,7 @@ class AppearanceRequestRespondFacadeTest {
 
     @Test
     @DisplayName("거절하면 REJECTED + 사유 기록, 반환 작업이 바로 실행되어 DONE, Billing에 호스트 반환 요청")
-    void reject() {
+    void reject(CapturedOutput output) {
         AppearanceRequestResDto sent = send();
 
         AppearanceRequestResDto rejected = appearanceRequestFacade.reject(GUEST, sent.id(), "다른 방송 일정이 있습니다.");
@@ -232,6 +240,17 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(task.getIdempotencyKey()).isEqualTo("APPEARANCE_REQUEST-" + sent.id() + "-RELEASE-1");
         assertThat(task.getAttemptCount()).isEqualTo(1);
         assertReleaseSent(sent.id());
+        assertThat(output.getAll().lines().filter(line -> line.contains("출연 요청을 거절했다")))
+                .singleElement().satisfies(line -> assertThat(line)
+                        .contains(" INFO ", "requestId=" + sent.id(), "guestId=" + GUEST,
+                                "releaseTaskId=" + task.getId()));
+        // 반환 작업의 등록(커밋 뒤)과 결과도 INFO 한 줄씩 남긴다
+        assertThat(output.getAll().lines().filter(line -> line.contains("HP 작업을 등록했다")))
+                .singleElement().satisfies(line -> assertThat(line)
+                        .contains(" INFO ", "taskId=" + task.getId(), "taskType=RELEASE", "reason=REQUEST_REJECTED"));
+        assertThat(output.getAll().lines().filter(line -> line.contains("HP 작업을 마쳤다")))
+                .singleElement().satisfies(line -> assertThat(line)
+                        .contains(" INFO ", "taskId=" + task.getId(), "taskType=RELEASE", "attemptCount=1"));
     }
 
     @Test
@@ -285,7 +304,7 @@ class AppearanceRequestRespondFacadeTest {
 
     @Test
     @DisplayName("응답 전 취소하면 CANCELED + 반환 완료")
-    void cancel() {
+    void cancel(CapturedOutput output) {
         AppearanceRequestResDto sent = send();
 
         AppearanceRequestResDto canceled = appearanceRequestFacade.cancel(HOST, sent.id());
@@ -295,6 +314,9 @@ class AppearanceRequestRespondFacadeTest {
         assertThat(canceled.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
         assertThat(onlyTask().getReason().name()).isEqualTo("REQUEST_CANCELED");
         assertReleaseSent(sent.id());
+        assertThat(output.getAll().lines().filter(line -> line.contains("출연 요청을 취소했다")))
+                .singleElement().satisfies(line -> assertThat(line)
+                        .contains(" INFO ", "requestId=" + sent.id(), "hostId=" + HOST));
     }
 
     @Test
@@ -410,10 +432,12 @@ class AppearanceRequestRespondFacadeTest {
     }
 
     @Test
-    @DisplayName("숨김 상태(HOLD_PENDING·HOLD_FAILED)로 필터하면 INVALID_REQUEST")
+    @DisplayName("받은 목록을 보류 처리 중·실패 상태로 필터하면 INVALID_REQUEST, 보낸 목록은 그 상태로 거를 수 있다 (#306)")
     void hiddenStatusFilter() {
-        assertErrorCode(() -> appearanceRequestFacade.getSent(HOST, List.of(AppearanceRequestStatus.HOLD_FAILED),
+        assertErrorCode(() -> appearanceRequestFacade.getReceived(GUEST, List.of(AppearanceRequestStatus.HOLD_FAILED),
                 PageRequest.of(0, 20)), AppearanceErrorCode.INVALID_REQUEST);
+        assertThat(appearanceRequestFacade.getSent(HOST, List.of(AppearanceRequestStatus.HOLD_FAILED),
+                PageRequest.of(0, 20)).getTotalElements()).isZero();
     }
 
     @Test

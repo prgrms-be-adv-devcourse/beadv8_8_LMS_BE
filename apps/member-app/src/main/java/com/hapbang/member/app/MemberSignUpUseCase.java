@@ -3,7 +3,6 @@ package com.hapbang.member.app;
 import java.time.LocalDateTime;
 
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -24,14 +23,14 @@ import lombok.RequiredArgsConstructor;
 /**
  * 이메일·비밀번호 가입 (#499). 구글 가입과 같이 유저·정상으로 가입하고 UserJoinedEvent를 발행한다.
  * 관리자가 만드는 관리자 계정(#517)과 역할별 초기 계정(#520)도 같은 규칙으로 만들고 역할만 다르다.
- * 이미 가입된 이메일(구글 회원 포함)이면 거절한다. 메일 인증이 없어 이메일 주인을 확인하지 않는다 (메일 발송은 나중에)
+ * 이미 가입된 이메일(구글 회원 포함)이면 거절한다. 이메일 주인 확인(이메일 인증, #557)은 여기서 하지 않는다:
+ * 회원이 직접 하는 가입은 반드시 {@code MemberFacade.signUp}으로 들어와 인증 토큰을 먼저 확인한다. 초기 계정·관리자 계정은
+ * 인증 없이 {@link #register}를 바로 부른다. 이 클래스의 {@link #signUp}을 다른 곳에서 바로 부르면 이메일 인증을 건너뛰게 된다
+ * 다른 회원이 쓰는 닉네임(대소문자 무시, 탈퇴 회원 포함)이면 거절한다 (#646). 초기 계정은 부르기 전에 확인해 건너뛴다
  */
 @Service
 @RequiredArgsConstructor
 public class MemberSignUpUseCase {
-
-    /** users.email 유일 제약 (V202610121119) */
-    static final String EMAIL_UNIQUE = "uc_users_email";
 
     private final UserRepository userRepository;
     private final PasswordCredentialRepository passwordCredentialRepository;
@@ -57,6 +56,9 @@ public class MemberSignUpUseCase {
         }
         // 닉네임 규칙은 User.join이 검사한다 (해시 계산 전에 실패하게 먼저 만든다)
         User user = User.join(normalizedEmail, nickname);
+        if (userRepository.existsByNicknameLower(user.getNickname())) {
+            throw new MemberException(MemberErrorCode.DUPLICATE_NICKNAME);
+        }
         if (role != Role.USER) {
             user.changeRole(role);
         }
@@ -64,19 +66,11 @@ public class MemberSignUpUseCase {
             // 바로 INSERT해서 동시 가입의 유일 제약 위반을 여기서 409로 바꾼다
             userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
-            if (isEmailViolation(e)) {
-                throw new MemberException(MemberErrorCode.DUPLICATE_EMAIL, e);
-            }
-            throw e;
+            throw UserUniqueViolation.translate(e);
         }
         passwordCredentialRepository.save(
                 PasswordCredential.register(user, passwordEncoder.encode(password), LocalDateTime.now()));
         eventPublisher.publishEvent(new UserJoinedEvent(user.toDto()));
         return user;
-    }
-
-    private static boolean isEmailViolation(DataIntegrityViolationException e) {
-        String message = NestedExceptionUtils.getMostSpecificCause(e).getMessage();
-        return message != null && message.contains(EMAIL_UNIQUE);
     }
 }

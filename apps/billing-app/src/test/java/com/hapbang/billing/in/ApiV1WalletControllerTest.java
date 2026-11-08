@@ -134,4 +134,15 @@ class ApiV1WalletControllerTest {
                 .andExpect(jsonPath("$.components.schemas.RsDataWalletResponse.properties.data['$ref']")
                         .value("#/components/schemas/WalletResponse"));
     }
+
+    @Test
+    @DisplayName("Swagger 명세에 탈퇴용 지갑 닫기·다시 열기 내부 API와 X-Internal-Api-Key 헤더가 있다 (#623)")
+    void swaggerShowsWithdrawalApis() throws Exception {
+        mockMvc.perform(get("/api/v1/wallets/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/internal/billing/withdrawals/{withdrawalId}/close'].post"
+                        + ".parameters[?(@.name == 'X-Internal-Api-Key')].in").value("header"))
+                .andExpect(jsonPath("$.paths['/api/v1/internal/billing/withdrawals/{withdrawalId}/reopen'].post"
+                        + ".parameters[?(@.name == 'X-Internal-Api-Key')].in").value("header"));
+    }
 }

@@ -17,42 +17,62 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 
 ## EC2 2노드 자원 예산
 
-아래 예산은 cgroup limit 기준의 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. EC2에는 prod 한 벌만 둔다. 모듈 앱은 8개이고 앱마다 replica 1개다. 앱은 large에 네 개, medium에 세 개를 두고 notification-app의 위치는 만들 때 정한다(#532). stateful workload는 large에 고정한다. Envoy·cert-manager·ECK operator 값은 차트 기본값을 낮춘 추정값이라 설치 뒤 다시 잰다.
+아래 예산은 아직 만들지 않은 aux-app까지 띄운 목표 구성의 cgroup limit 기준 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. EC2에는 prod 한 벌만 둔다. 모듈 앱은 search·ai·notification을 합친 aux-app까지 7개이고 앱마다 replica 1개다. 앱은 large에 네 개(aux-app 포함), medium에 세 개를 둔다(#532, #684). stateful workload는 large에 고정한다. Envoy·cert-manager·ECK operator 값은 차트 기본값을 낮춘 추정값이라 설치 뒤 다시 잰다.
 
 | t3.large `core-data` | 예산 |
 | --- | ---: |
 | OS | 350 MiB |
 | k3s server + containerd + system pod (Traefik 끔) | 1,650 MiB |
-| PostgreSQL | 768 MiB |
+| PostgreSQL (#726에서 768 → 512) | 512 MiB |
 | Kafka | 700 MiB |
 | Redis | 64 MiB |
 | Elasticsearch | 1,536 MiB |
-| 모듈 앱 4개: member 512 MiB(#480) + appearance 576 MiB(#504·#528) + billing·search 2개 × 448 MiB | 1,984 MiB |
+| 모듈 앱 4개: member 640 MiB(#480·#631·#726) + appearance 640 MiB(#504·#528·#631) + billing 576 MiB(#608·#631) + aux 704 MiB(#684 추정) | 2,560 MiB |
 | Envoy proxy 128 + shutdown-manager 32 (#372, #532 운영 최대 24·21 MiB) | 160 MiB |
 | cert-manager (controller 128·webhook 50·cainjector 128, #372). #532에서 medium에서 옮겼다 | 306 MiB |
 | Sealed Secrets controller (#373). #532에서 medium에서 옮겼다 | 64 MiB |
-| **합계** | **7,582 MiB** |
+| **합계** | **7,902 MiB** |
 
-사용 가능 메모리를 약 7.6 GiB로 보면 약 0.2 GiB(200 MiB)가 남는다(#528 전 264 MiB, #532 전 506 MiB). 아직 만들지 않은 search-app(448 MiB)을 빼면 약 0.63 GiB(648 MiB)가 남아 rolling surge pod 1개(최대 576 MiB)를 받는다. search-app을 만들 때는 surge 여유가 없으므로 이 표를 다시 맞춘다. 2026-11-02 운영 3일 최대 working set은 Elasticsearch 1,273·Kafka 488·appearance 452·member 443·PostgreSQL 144 MiB다. 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. search-app은 ES와 같은 node에 둔다.
+**#726 적용 (aux-app을 띄우기 전 large 후보)**: PostgreSQL을 512 MiB(`effective_cache_size` 256MB)로 낮추고, member·appearance·billing의 heap 상한을 `-Xmx160m`·`-Xmx176m`·`-Xmx160m`으로 고정하고 `MALLOC_ARENA_MAX=2`를 더했다. 2026-11-06 운영 실측(pod별 최대)은 member working set 515(576의 89%)·heap 사용 104·heap 외 JVM 영역 247·heap 밖 native 148, appearance 510(640의 80%)·110·213·132, billing 469(576의 81%)·108·214·131 MiB였다. heap이 상한까지 차면 member는 160 + 247 + 148 ≈ 555 MiB로 576 MiB의 96%라 limit을 640 MiB로 올렸다(87%). appearance는 521 MiB(81%), billing은 505 MiB(88%)라 limit을 둔다. heap committed가 지금도 상한 근처(152·173·142 MiB)라 working set은 크게 줄지 않는다(chat-app과 같다, #694). 그래서 limit 합계는 −192 MiB(256 − 64)이고, 요청 합계는 2026-11-06 5,530 MiB에서 약 5,338 MiB(할당 가능 7,818 MiB의 68%), aux-app을 더하면 약 6,042 MiB(77%), surge pod(704 MiB)까지 약 6,746 MiB(86%)다. 같은 날 node working set은 5,289 MiB(68%)라 aux-app 약 600 MiB(같은 구성인 chat-app의 실측 최대 592 MiB)를 더해도 약 75%로 아래 기준(80%) 안이다. 적용 뒤 실측은 #726에 적는다.
+
+사용 가능 메모리를 약 7.6 GiB로 보면 limit 기준으로 약 120 MiB가 넘친다(#726에서 PostgreSQL −256·member +64 MiB 전 312 MiB, #684에서 search-app 448 MiB를 aux-app 704 MiB로 바꾸기 전 56 MiB, #631 trace로 앱 3개를 64 MiB씩 올리기 전 136 MiB 남음, #608 billing-app 512 MiB 전 200 MiB, #528 전 264 MiB, #532 전 506 MiB). 아직 만들지 않은 aux-app(704 MiB)을 빼면 약 0.57 GiB(584 MiB)가 남는다. 처음 계획(#684)은 세 앱 limit을 약 −64 MiB씩 줄여 약 136 MiB를 남기는 것이었지만, #694 실측(heap committed 138~150 MiB)으로 `-Xmx` 뒤에도 working set이 줄지 않아 위 #726처럼 member limit을 올렸다. limit 합계가 넘치는 부분은 기록만 하고 자리는 요청 합계로 본다(#684 기준). limit 기준으로는 rolling surge pod 1개(최대 704 MiB, aux-app)를 받을 여유가 없지만, 스케줄러가 보는 요청 합계는 surge pod까지 86%(위 #726)라 surge pod는 뜬다. aux-app을 띄운 뒤 이 표를 실측으로 다시 맞춘다. 2026-11-02 운영 3일 최대 working set은 Elasticsearch 1,273·Kafka 488·appearance 452·member 443·PostgreSQL 144 MiB다. 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. aux-app은 검색이 쓰는 ES와 같은 node에 둔다.
 
 | t3.medium `app-observe` | 예산 |
 | --- | ---: |
 | OS | 350 MiB |
 | k3s agent + containerd | 400 MiB |
-| 모듈 앱 3개: lecture 640 MiB(#461·#480 실측), customer-support 448 MiB(#527 운영 실측), chat 512 MiB(#545 운영 실측) | 1,600 MiB |
-| notification-app | 미정 (아래) |
+| 모듈 앱 3개: lecture 704 MiB(#461·#480 실측, #579 trace, #727 `-Xmx224m`), customer-support 256 MiB(#609 Native Image, #672 운영 실측), chat 704 MiB(#545 운영 실측, #590 관리 포트, #631 trace, #684 `-Xmx256m`) | 1,664 MiB |
 | Envoy Gateway controller | 128 MiB |
 | ECK operator (#532 운영 최대 48 MiB) | 128 MiB |
 | React 정적 서버 | 64 MiB |
-| Prometheus 416(server 384·reload 32)·Loki 256·Tempo 160·Grafana 448·Alloy 192(alloy 160·reloader 32) (#372 override·#480·#532 포함) | 1,472 MiB |
+| Prometheus 480(server 448·reload 32)·Loki 256·Tempo 160·Grafana 512·Alloy 192(alloy 160·reloader 32) (#372 override·#480·#532·#608·#684 포함) | 1,600 MiB |
 | Kafka UI(Redpanda Console, 로컬 실측 35~42 MiB, #374) | 128 MiB |
-| **합계** | **4,270 MiB** |
+| **합계** | **4,462 MiB** |
 
-사용 가능 메모리를 약 3.7 GiB로 보면 limit 기준으로 **약 0.47 GiB가 넘친다**. #532에서 운영 3일 최대 working set으로 다시 맞췄다. ECK operator(최대 48 MiB)를 256→128 MiB로 줄이고, limit에 붙은 Grafana(최대 374 MiB, 97%)와 Tempo(최대 115 MiB, 90%)를 448·160 MiB로 올리고, cert-manager와 Sealed Secrets를 large로 옮겨 약 1.1 GiB에서 줄었다. 넘치는 만큼은 모든 pod가 동시에 limit까지 쓸 때만 문제가 된다. 2026-11-02 운영 실측으로는 OS·k3s agent가 약 610 MiB, pod 최대 working set 합계가 chat-app(기동 25분 뒤 실측 430 MiB)을 더해 약 2.67 GiB라 약 0.53 GiB가 남는다. chat-app을 띄운 뒤 node working set(`kubectl top node`)은 2,757 MiB(71%)였다. 스케줄러가 보는 요청 합계는 chat-app 512 MiB로 할당 가능 3,832 MiB의 약 90%(3,456 MiB)다. 이전 값: chat-app 512 MiB 반영 전 약 0.35 GiB, customer-support-app 448 MiB 반영 전 약 1 GiB, lecture-app 640 MiB 반영 전 약 0.6 GiB, #480 관측성 limit 상향 전 약 0.85 GiB. 2026-11-02 운영 customer-support-app은 384Mi limit에서 기동 5분 뒤 RSS 353Mi(92%)였다(#527).
+사용 가능 메모리를 약 3.7 GiB로 보면 limit 기준으로 **약 0.66 GiB가 넘친다**(#684 chat-app 704·Prometheus server 448 MiB 반영 전 0.53 GiB, #672 customer-support-app native 256 MiB 반영 전 0.72 GiB, #631 chat-app 640 MiB 반영 전 0.66 GiB, #579 lecture-app 704 MiB 반영 전 0.59 GiB, #608 Grafana 512 MiB 반영 전 0.53 GiB, #590 chat-app 576 MiB 반영 전 0.47 GiB). #532에서 운영 3일 최대 working set으로 다시 맞췄다. ECK operator(최대 48 MiB)를 256→128 MiB로 줄이고, limit에 붙은 Grafana(최대 374 MiB, 97%)와 Tempo(최대 115 MiB, 90%)를 448·160 MiB로 올리고, cert-manager와 Sealed Secrets를 large로 옮겨 약 1.1 GiB에서 줄었다. 넘치는 만큼은 모든 pod가 동시에 limit까지 쓸 때만 문제가 된다. 2026-11-02 운영 실측으로는 OS·k3s agent가 약 610 MiB, pod 최대 working set 합계가 chat-app(기동 25분 뒤 실측 430 MiB)을 더해 약 2.67 GiB라 약 0.53 GiB가 남는다. chat-app을 띄운 뒤 node working set(`kubectl top node`)은 2,757 MiB(71%)였다. 스케줄러가 보는 요청 합계는 chat-app 576 MiB(#590)로 할당 가능 3,832 MiB의 약 92%(3,520 MiB)였고, #608에서 Grafana를 512 MiB로 올려 약 94%(3,584 MiB), #579에서 lecture-app을 704 MiB로 올려 약 95%(3,648 MiB), #631에서 chat-app을 640 MiB로 올려 약 97%(3,712 MiB), #672에서 customer-support-app을 native 256 MiB로 낮춰 약 92%(3,520 MiB), #684에서 chat-app을 704 MiB로, Prometheus server를 448 MiB로 올려 약 95%(3,648 MiB)다(chat-app 512 MiB일 때 3,456 MiB, 90%). 2026-11-04 #684 적용 전 node working set은 2,661 MiB(69%)였다. chat-app은 640 MiB에서 7일 최대 working set 598 MiB(93%)였고, heap 사용 최대 176 MiB에 heap 상한(limit의 60%)이 371 MiB, heap 외 JVM 영역 238 MiB(Metaspace 158), native 약 130 MiB(스레드 118개)라 heap이 상한까지 차면 limit을 넘는 구성이었다. 그래서 limit만 올리지 않고 heap 상한을 `-Xmx256m`으로 고정하고 `MALLOC_ARENA_MAX=2`를 더했다(#610의 첫 적용). Prometheus server는 #443 뒤 앱이 늘며 head series가 1.3만 → 4.3만, 하루 최대 working set이 291 → 320 MiB로 올라 GOMEMLIMIT(limit의 90%, 346 MiB)에 붙어 있었다. 2026-11-06 운영 결과(#694, 2026-11-04 17:49 ~ 11-06 10:06 KST, 704 MiB pod 4개, 가장 오래 돈 pod 18시간): chat-app은 재시작 0회, 최대 working set 592 MiB(84%), heap committed 최대 210 MiB, heap 사용 최대 172 MiB(기동 직후, 평소 약 128 MiB), heap 외 JVM 영역 최대 242 MiB, heap 밖 native 최대 138 MiB였다. 적용 전 598 MiB는 7일 최대(그 pod는 2.7시간 돌았다)라 조건이 같지 않지만, heap committed가 적용 전(213 MiB)과 비슷해 working set도 크게 줄지 않았다. 대신 heap이 상한까지 차도 256 + 242 + 138 ≈ 636 MiB로 limit 안에 든다. 가장 오래 돈 pod는 기동 1시간 565 → 18시간 592 MiB로 올랐고 마지막 10시간은 4 MiB만 늘었다. chat 변경이 병합될 때마다 pod가 바뀌어 더 오래 돈 값은 아직 없다. Prometheus server는 448 MiB에서 25시간 최대 working set 310 MiB(69%, GOMEMLIMIT 403 MiB 아래), head series 최대 2.5만이었다. 같은 구간 node working set은 최대 2,871 MiB(75%)였다. lecture-app은 704 MiB에서 기동 20시간 working set 646 MiB(92%)였고, heap 사용 최대 164 MiB(운영 7일 pod 21개)에 heap 상한(limit의 60%)이 410 MiB, heap 외 JVM 영역 246 MiB(Metaspace 164), native 148 MiB라 chat-app과 같이 heap이 상한까지 차면 limit을 넘는 구성이었다. 그래서 limit은 두고 heap 상한을 `-Xmx224m`으로 고정하고 `MALLOC_ARENA_MAX=2`를 더했다(#727, #610의 두 번째 적용). chat-app처럼 heap 사용 최대의 약 1.5배(256m)로 두면 heap committed(약 244 MiB)가 줄지 않아 working set이 90%를 넘은 채 남는다. 224m은 1.37배이고 Tenured 상한 약 149 MiB가 Tenured 사용 최대 76 MiB의 2배다. heap이 상한까지 차도 224 + 246 + 148 ≈ 618 MiB(88%)다. 주된 효과는 이 상한이고, working set은 heap committed가 224 MiB 이하로 묶이는 만큼(약 20 MiB) 줄어 약 626 MiB(89%)로 예상한다. 634 MiB(90%)를 넘으면 limit 상향과 `-Xmx` 하향 중에서 다시 정한다. customer-support-app native는 2026-11-04 운영 5시간 최대 working set 174 MiB(page cache 포함), RSS 111 MiB, heap 84 MiB였다(`-Xmx128m`, [Native Image](native-image.md)). 2026-11-03 #631 적용 전 node working set은 2,897 MiB(75%), chat-app working set은 541 MiB(576 MiB의 94%)였다. 2026-11-03 #579 적용 전 lecture-app working set은 588 MiB(640 MiB의 92%), node working set은 2,793 MiB(72%)였다. Grafana는 448 MiB에서 운영 7일 최대 418 MiB(93%)로 GOMEMLIMIT(403 MiB)을 넘었다(2026-11-03). 2026-11-03 #590 전 chat-app working set은 433 MiB(512 MiB의 85%), node working set은 2,767 MiB(72%)였다. 이전 값: chat-app 512 MiB 반영 전 약 0.35 GiB, customer-support-app 448 MiB 반영 전 약 1 GiB, lecture-app 640 MiB 반영 전 약 0.6 GiB, #480 관측성 limit 상향 전 약 0.85 GiB. 2026-11-02 운영 customer-support-app은 384Mi limit에서 기동 5분 뒤 RSS 353Mi(92%)였다(#527).
 
-관측성은 처음 600 MiB로 잡았지만 로컬 k3d idle 실측(#373)에서 Grafana 13(258 MiB)과 차트 기본 scrape의 Prometheus(292 MiB)가 그 limit에서 OOMKilled되어 실측에 여유를 더한 값으로 올렸다. #372 로컬 검증에서 Grafana는 384Mi·GOMAXPROCS=2, trace 수신·조회 중 OOMKilled된 Tempo는 128Mi·GOMEMLIMIT=112MiB로 조정했다. 2026-10-30 로컬 cert-manager의 controller 반복 종료와 cainjector OOMKilled를 확인해 각각 50Mi에서 128Mi로 올렸다. Envoy 종료 sidecar 32Mi도 large 예산에 포함한다. 현재 앱 3개는 replicas 0이고 notification-app은 없어 로컬 기동 결과를 목표 8개 앱 전체 예산 충족으로 해석하지 않는다. EC2 전환과 나머지 앱 활성화 전에 Prometheus scrape 범위와 보존 한도 등을 줄여 다시 맞춘다(#343). surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. notification-app은 WebSocket을 다루므로 chat-app과 같은 node가 기본이지만, 위치는 아래처럼 만들 때 정한다. 관측성에는 별도 backend를 추가하지 않는다.
+관측성은 처음 600 MiB로 잡았지만 로컬 k3d idle 실측(#373)에서 Grafana 13(258 MiB)과 차트 기본 scrape의 Prometheus(292 MiB)가 그 limit에서 OOMKilled되어 실측에 여유를 더한 값으로 올렸다. #372 로컬 검증에서 Grafana는 384Mi·GOMAXPROCS=2, trace 수신·조회 중 OOMKilled된 Tempo는 128Mi·GOMEMLIMIT=112MiB로 조정했다. 2026-10-30 로컬 cert-manager의 controller 반복 종료와 cainjector OOMKilled를 확인해 각각 50Mi에서 128Mi로 올렸다. Envoy 종료 sidecar 32Mi도 large 예산에 포함한다. 현재 앱 3개는 replicas 0이고 notification-app은 없어 로컬 기동 결과를 목표 8개 앱 전체 예산 충족으로 해석하지 않는다. EC2 전환과 나머지 앱 활성화 전에 Prometheus scrape 범위와 보존 한도 등을 줄여 다시 맞춘다(#343). surge pod를 받을 여유가 없으므로 medium의 앱은 `maxSurge: 0`, `maxUnavailable: 1`로 배포하고 **배포하는 동안 그 앱이 잠깐 멈추는 것을 허용**한다. 알림은 search·ai와 함께 aux-app으로 합쳐 large에 둔다(아래). 관측성에는 별도 backend를 추가하지 않는다.
 
-**notification-app (미정, #532)**: 목표 8개 앱 중 하나(384 MiB 추정)이고 아직 없다. medium에 넣으면 요청 합계가 3,840 MiB(chat 512 MiB 기준)로 할당 가능 3,832 MiB를 넘어 스케줄되지 않고, large에 넣으면 rolling surge 여유가 없다. 만들 때 chat-app에 합칠지, JVM 메모리 튜닝(GC·metaspace·스레드 스택)으로 앱 limit을 줄여 자리를 만들지 정한다. 그 전까지 예산 표에 넣지 않는다.
+**aux-app (#684)**: search·ai(고객센터 hybrid RAG)·notification을 JVM 앱 하나로 합친다. JVM 앱은 heap과 상관없이 280~355 MiB를 고정으로 쓰므로([Native Image](native-image.md)) 세 앱을 따로 띄울 자리가 없다. large에 둔다. 검색이 같은 node의 Elasticsearch를 쓰고, 알림 실시간 전달은 Redis Pub/Sub이라 chat-app과 node가 달라도 된다. 예산 704 MiB는 `-Xmx256m` + heap 밖 약 370 MiB(chat-app 실측) + 여유로 잡은 추정값이라 띄운 뒤 실측으로 고친다. medium에 넣으면 요청 합계가 4,352 MiB로 할당 가능 3,832 MiB를 넘고, 아래 medium 후보를 모두 적용해도(약 −416 MiB. #727에서 lecture-app limit을 704로 두어 처음 잡은 −480에서 줄었다) 들어가지 않는다. 앱 개수와 [알림](notification.md)·[검색](search.md) 문서는 aux-app을 만드는 작업에서 고친다.
+
+**자리가 있는지 보는 기준 (#684)**: 요청 합계가 할당 가능 안이고 node working set(`kubectl top node`)이 80% 이하면 자리가 있다고 본다. 위 표의 limit + OS 합계가 사용 가능 메모리를 넘는 부분은 기록만 한다.
+
+**줄일 수 있는 후보 (2026-11-04 운영 7일 최대 working set, #684)**: large 후보는 aux-app을 띄우기 전에 적용했다(#726, 위). medium 후보는 자리가 더 필요할 때 고른다.
+
+| node | 대상 | 지금 (MiB) | 7일 최대 (MiB, 2026-11-04 기준) | 후보 |
+| --- | --- | ---: | ---: | --- |
+| large | PostgreSQL | 512 (#726, 전 768) | 251 | #726에서 512, `effective_cache_size` 384 → 256MB로 적용했다(pod가 다시 떠 앱 DB 연결이 잠깐 끊긴다) |
+| large | member·appearance·billing | 640·640·576 (#726, 전 576·640·576) | 489·510·458 | #726에서 `-Xmx160m`·`-Xmx176m`·`-Xmx160m`과 `MALLOC_ARENA_MAX=2`를 적용했다. 처음에는 앱마다 약 −64로 잡았지만, 기동 18시간 working set이 511·500·468이고 heap committed가 138·150·140이라 `-Xmx`로 줄어드는 양이 작다(chat-app도 `-Xmx` 뒤 working set이 크게 줄지 않았다, #694). member는 heap 상한까지 차면 576의 96%라 640으로 올렸다 |
+| medium | Kafka UI | request 64·limit 128 | 86 | large로 이동 |
+| medium | ECK operator | 128 | 55 | large로 이동, 또는 96 |
+| medium | Envoy Gateway controller | 128 | 71 | large로 이동, 또는 96 |
+| medium | React 정적 서버 | 64 | 28 | 32 |
+| medium | lecture-app | 704 | 596 | #727에서 `-Xmx224m`을 적용하고 limit은 704로 둔다. 기동 18시간 645(92%)라 640으로는 낮추지 못한다. 기동 18시간 pod는 heap committed 244·사용 144·상한 410이었다. 7일 최대 heap 사용은 2026-11-04 기준 161, 2026-11-06 기준 164다. 적용 뒤 실측으로 limit을 다시 본다 |
+| medium | customer-support-app | 256 | 174 | 192. 256 MiB·`-Xmx128m` 약 17시간 최대 working set 123·RSS 80·heap 52(2026-11-05) |
+
+2026-11-05에는 오래 돈 pod가 위 7일 최대를 넘었다(#699). 둘 다 로그를 JSON으로 바꾸기(#582) 전 pod다. lecture-app은 기동 약 16시간 뒤 610 MiB(704의 87%, 09:42), billing-app은 약 17시간 뒤 463 MiB(576의 80%, 10:14)로, 같은 pod의 기동 90분 값(580·435 MiB)보다 약 30 MiB 높았다. JSON으로 바꾼 pod는 같은 날 가장 오래 돈 것이 약 5시간이라 아직 비교하지 못했다. #610에서 `-Xmx`와 limit 후보를 정할 때는 기동 직후가 아니라 오래 돈 pod의 값으로 본다. 2026-11-06에는 JSON으로 바꾼 pod가 기동 약 18시간 뒤 lecture-app 645 MiB(704의 92%), member-app 511 MiB(576의 89%), billing-app 468 MiB(576의 81%), appearance-app 500 MiB(640의 78%)였다(#694). lecture-app은 heap 사용 최대 144 MiB에 상한 410 MiB라 #684 전 chat-app과 같은 구성이므로 #610의 다음 적용 앱으로 정했다(#727). large의 세 앱은 그다음, aux-app을 띄우기 전에 적용했다(#726).
+
+limit에 붙은 쪽도 있다. Tempo는 160 MiB 중 24시간 최대 150 MiB(94%)라 #680(업무 요청 trace 100%) 적용 뒤 다시 잰다.
 
 #480에서 member·lecture 지표와 pod log 수집을 붙이며 로컬 k3d에서 다음 limit을 정했다. 부하 없이 잰 값이다.
 
@@ -65,13 +85,13 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 
 Prometheus server 컨테이너는 두 앱을 수집한 뒤 291 → 332 MiB(limit 384 MiB, reload sidecar 제외)다. 앱 series는 member 179·lecture 380개다. k3d의 JVM은 CPU를 18개로 보지만 `-XX:ActiveProcessorCount=2`로 EC2와 맞춰도 lecture-app은 448 MiB에서 기동하지 못했다.
 
-앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다.
+앱 limit은 448 MiB로 시작한다. JVM heap은 limit의 60%(`MaxRAMPercentage=60`)로 둔다. 이후 #610에서 chat(#684)·lecture(#727)·member·appearance·billing(#726)은 heap 상한을 `-Xmx` 고정값으로 바꿨다(위 예산 설명). Native Image 앱(customer-support-app)은 `JAVA_TOOL_OPTIONS`를 읽지 않으므로 heap 상한을 실행 인자 `-Xmx`로 준다([Native Image](native-image.md)). 75%에서는 chat-app이 384 MiB limit에서 OOMKilled됐다(#373 로컬 k3d). 앱별 RSS와 GC를 k6 부하에서 재 보고, 버티는 앱은 384 MiB까지 낮춘다. 그래도 부족하면 notification-app과 search-app은 시연할 때만 띄운다.
 
 2026-10-30 EC2 실측(#461): lecture-app은 384 MiB(Flyway 시작 시점)와 448 MiB(JPA 초기화 시점)에서 기동 중 OOMKilled됐고, 640 MiB에서 떠 약 12분 뒤 536 MiB에서 멈췄다. member-app은 448 MiB에서 328 MiB로 안정됐다. lecture-app manifest와 위 예산 표를 640 MiB로 올렸다.
 
 2026-11-02 EC2 실측(#504): appearance-app은 448 MiB에서 떴지만(Prometheus registry 포함, 노출은 꺼짐) 기동 직후 326 MiB, 3분 뒤 RSS 425 MiB로 한도에 붙었다. member-app과 같은 512 MiB로 올리고 위 예산 표를 고쳤다. 512 MiB에서는 기동 4분 뒤 RSS 414 MiB(81%)였다. heap 상한도 limit의 60%라 268 → 307 MiB로 함께 늘어나므로 부하 뒤 RSS를 다시 잰다. 같은 시각 member-app(512 MiB, registry·노출 포함)은 RSS 364~366 MiB였다. 기동 최대치를 재서 낮출 수 있는지는 #343에서 본다. EC2 instance 상향은 AGENTS.md 8장 범위 밖이라 팀과 운영진에게 먼저 묻는다.
 
-2026-11-02 EC2 실측(#545): chat-app은 384 MiB에서 기동(약 30초)을 마치고 Kafka consumer 두 개가 partition을 받은 직후 OOMKilled됐다(5회 재시작). member·appearance와 같은 512 MiB로 올리고 위 예산 표를 고쳤다. 512 MiB에서는 기동 5분 뒤 working set 404 MiB(79%), 25분 뒤 430 MiB(84%)였다. 아직 부하 없이 잰 값이라 채팅 사용 뒤 다시 잰다.
+2026-11-02 EC2 실측(#545): chat-app은 384 MiB에서 기동(약 30초)을 마치고 Kafka consumer 두 개가 partition을 받은 직후 OOMKilled됐다(5회 재시작). member·appearance와 같은 512 MiB로 올리고 위 예산 표를 고쳤다. 512 MiB에서는 기동 5분 뒤 working set 404 MiB(79%), 25분 뒤 430 MiB(84%)였다. 아직 부하 없이 잰 값이라 채팅 사용 뒤 다시 잰다. #590에서 지표 노출과 관리 포트(Tomcat 하나 더, 약 +10MB)를 더하며 576 MiB로 올렸다(appearance #528과 같은 기준).
 
 2026-11-02 #528: member·appearance·customer-support의 지표를 관리 포트(8082)로 열며 appearance-app만 576 MiB로 올렸다. 변경 전 운영 working set은 appearance 461/512 MiB(90%), customer-support 374~383/448 MiB(85%), member 398~443/512 MiB(87%)였고, 관리 포트는 Tomcat을 하나 더 띄워 약 +10 MB다(lecture #521 로컬 1회 측정). k3d(`-XX:ActiveProcessorCount=2`)에서는 appearance가 512 MiB에서 기동 직후 OOMKilled됐고 768 MiB에서 10분 working set 570 MiB, customer-support는 448 MiB에서 420 MiB(10분 최대 436 MiB), member는 512 MiB에서 460 MiB였다. 576 MiB로 올린 appearance는 k3d에서 기동 4분 뒤 564 MiB로 떴다. k3d는 JVM 밖 native 메모리가 운영보다 크다(member RSS 중 heap·non-heap committed 밖 부분이 k3d 약 170 MiB, 운영 약 100 MiB). glibc malloc arena가 CPU 수(k3d 18개)를 따르기 때문으로 보지만 확인하지 않았다. 그래서 limit은 운영 실측으로 정했고, member·customer-support는 배포 뒤 working set을 다시 잰다.
 
@@ -179,7 +199,7 @@ Elasticsearch는 검색과 RAG만 담당한다. logs·metrics·traces를 Elastic
 
 ### 현재 권고
 
-**EC2 k3s에는 prod(main) 한 벌만 둔다. dev 서버는 없애고, 개발 확인은 로컬과 PR k3d에서 한다.** 앱 8개는 위 예산 표대로 두 node에 나눈다.
+**EC2 k3s에는 prod 한 벌만 두고 dev 브랜치를 배포한다(#559). dev 서버는 없애고, 개발 확인은 로컬과 PR k3d에서 한다.** 앱 8개는 위 예산 표대로 두 node에 나눈다.
 
 dev 서버는 2026-10-30에 지웠다(#440). 프론트가 dev 서버로 API를 확인하던 경로(#332)도 없어졌으므로 로컬 확인 방법을 프론트와 합의한다. 로컬에서는 BE 앱을 compose나 k3d로 띄우고, 역할별 테스트 계정 로그인은 local profile에서만 켠다. 서버에 올리기 전에 `free -m`, `kubectl top`과 선택한 관측성 UI의 node memory로 이 표를 실측값으로 바꾼다.
 

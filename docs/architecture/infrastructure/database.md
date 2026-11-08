@@ -32,8 +32,12 @@ instance를 나누는 시점은 모듈을 별도 service로 떼어 내 따로 �
 | `billing` | 지갑·정산 | 지갑, 원장, 보류, 지급, 환전 |
 | `chat` | 채팅 | 대화, 차단, 회원 복제본 |
 | `customersupport` | 고객센터 | 공지, FAQ, 문의, RAG 색인 작업·재처리 상태(검색 문서는 고객센터 소유 ES index) |
-| `notification` | 알림 | 알림, 회원 복제본, inbox |
-| `search` | 검색 | 이벤트 inbox, 색인 상태(문서는 ES) |
+| `auxiliary` | auxiliary-app(챗봇·알림·검색, #714) | 앱 공통 database 하나를 모듈마다 schema로 나눈다(AGENTS.md 경계 규칙의 예외). 공통 schema `auxiliary`에 Flyway 이력·Modulith 발행 기록을 둔다 |
+| `auxiliary` schema `chatbot` | 챗봇 | 대화, 추천용 동기화 데이터(벡터 문서는 ES `chatbot-*` index) |
+| `auxiliary` schema `notification` (예정) | 알림 | 알림, 회원 복제본, inbox |
+| `auxiliary` schema `search` (예정) | 검색 | 이벤트 inbox, 색인 상태(문서는 ES) |
+
+알림·검색은 처음에 database를 따로 두려 했지만, 메모리 때문에 auxiliary-app 하나로 합치며(#684) 앱 공통 database의 schema가 되었다(#714). 운영 instance에는 initdb가 다시 돌지 않아 `auxiliary`를 손으로 만들었다(2026-11-06, #726, [k8s.md](../../deploy/k8s.md#postgresql-database)).
 
 Spring Session을 쓰지 않으므로([3장 "인증 흐름"](api-gateway.md#인증-흐름)) 공용 `platform` database는 두지 않는다.
 
@@ -55,6 +59,8 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
    - 앱은 자기 database에만 pool을 연다. 총 connection은 `(앱 수 + rolling surge pod 수) × pool 크기`다.
    - 앱 8개와 surge pod 1개가 pool을 5개씩 열면 이론상 45개다. `max_connections`는 계산값에 여유를 더해 정한다. connection마다 backend process 메모리가 드므로 [3장](k3s.md#ec2-2노드-자원-예산) PostgreSQL 예산도 함께 다시 잰다.
    - 2026-11-02 코드 기준(#552): `max_connections` 100(`k8s/platform/base/postgres.yaml`). Hikari 최대 pool은 chat-app 20, billing-app 10(명시), 나머지 member·appearance·lecture·customer-support는 설정이 없어 기본값 10이다. rolling surge는 member·billing·appearance가 `maxSurge: 1`이고 나머지는 0이며, 배포 workflow는 앱을 하나씩 올린다. 그래서 최악은 10 × 5 + 20 = 70에 surge pod 하나(10)를 더한 80이다. superuser 예약(기본 3)을 빼면 남는 연결은 17개뿐이라, notification·search 앱(각 10)을 더하면 한도를 넘는다. 그 전에 앱별 pool을 줄이거나 `max_connections`를 다시 정한다.
+   - 2026-11-03(#598): billing-app은 배치·Backfill 실행 락용으로 Hikari pool 밖에 연결 1개를 더 연다(pod당 1개, 배포 중 2개). 최악은 82, 남는 연결은 15개다.
+   - 2026-11-06(#726): 검색·알림은 별도 앱이 아니라 auxiliary-app의 모듈이 되어 pool 하나(5, #714)를 함께 쓴다. 최악은 82 + 5 = 87이고 남는 연결은 10개다(운영 `hikaricp_connections_max`로 확인: 앱 5개 10, chat-app 20).
 6. **test 지원을 바꾼다.** 앱 test는 자기 database만 띄운다. `common/test-support`의 DB 정리와 Testcontainers 설정이 이에 맞는지 확인한다.
 
 ## 진행 순서

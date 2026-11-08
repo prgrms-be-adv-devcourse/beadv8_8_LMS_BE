@@ -45,6 +45,11 @@ public final class ProfileImage {
     }
 
     /** 새 S3 key. 올릴 때마다 새로 만들어 예전 사진을 덮어쓰지 않는다 (예전 파일은 S3에 그대로 남는다) */
+    /** 한 회원의 사진 폴더 (탈퇴 회원 파기 때 안의 파일을 모두 지운다, #594) */
+    public static String folderOf(Long userId) {
+        return KEY_PREFIX + userId + "/";
+    }
+
     public static String newKey(Long userId) {
         return KEY_PREFIX + userId + "/" + UUID.randomUUID();
     }

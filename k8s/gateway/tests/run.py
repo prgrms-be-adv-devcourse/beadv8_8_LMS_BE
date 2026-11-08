@@ -167,7 +167,7 @@ docs.append(
     )
 )
 # Clone real app routes/policies; use only fixture backends. Do not replace running app Deployments or Services.
-for app in ("member", "appearance", "lecture", "billing", "chat", "customer-support"):
+for app in ("member", "appearance", "lecture", "billing", "chat", "customer-support", "auxiliary"):
     rendered = yaml.safe_load_all(
         subprocess.check_output(
             [

@@ -21,10 +21,12 @@ import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 
 import jakarta.persistence.criteria.Predicate;
+import lombok.extern.slf4j.Slf4j;
 
 import lombok.RequiredArgsConstructor;
 
 /** 강의 HP 작업 등록·조회 (D57) */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class LectureHpTaskSupport {
@@ -40,12 +42,23 @@ public class LectureHpTaskSupport {
     public LectureHpTask register(LectureHpTask task) {
         Optional<LectureHpTask> existing = lectureHpTaskRepository.findByRequestId(task.getRequestId());
         if (existing.isEmpty()) {
-            return lectureHpTaskRepository.save(task);
+            LectureHpTask saved = lectureHpTaskRepository.save(task);
+            logAfterCommit(saved);
+            return saved;
         }
         if (!existing.get().hasSamePayload(task)) {
             throw new IllegalStateException("같은 요청 ID로 다른 HP 작업을 만들 수 없습니다. requestId=" + task.getRequestId());
         }
+        log.debug("같은 요청 ID의 HP 작업이 있어 기존 작업을 쓴다 taskId={}, requestId={}", existing.get().getId(),
+                task.getRequestId());
         return existing.get();
+    }
+
+    /** 롤백된 등록(같은 요청 ID 동시 등록의 늦은 쪽 등)은 남기지 않도록 커밋 뒤에 찍는다 */
+    private static void logAfterCommit(LectureHpTask task) {
+        AfterCommit.run(() -> log.info("HP 작업을 등록했다 taskId={}, taskType={}, purpose={}, requestId={}, "
+                        + "orderItemId={}, amountHp={}", task.getId(), task.getTaskType(), task.getPurpose(),
+                task.getRequestId(), task.getOrderItemId(), task.getAmountHp()));
     }
 
     public LectureHpTask getById(Long taskId) {

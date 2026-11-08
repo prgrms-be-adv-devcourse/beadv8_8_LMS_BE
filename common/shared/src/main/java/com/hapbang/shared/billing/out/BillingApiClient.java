@@ -3,6 +3,8 @@ package com.hapbang.shared.billing.out;
 import java.net.ConnectException;
 import java.net.NoRouteToHostException;
 import java.net.UnknownHostException;
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -24,8 +26,12 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import com.hapbang.shared.billing.domain.BillingFailureCode;
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldStateDto;
+import com.hapbang.shared.billing.dto.HoldStatePageDto;
 import com.hapbang.shared.billing.dto.HoldVoidCommand;
 import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
@@ -34,6 +40,10 @@ import com.hapbang.shared.billing.dto.PenaltyCommand;
 import com.hapbang.shared.billing.dto.PenaltyResultDto;
 import com.hapbang.shared.billing.dto.ReleaseCommand;
 import com.hapbang.shared.billing.dto.ReleaseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalCloseCommand;
+import com.hapbang.shared.billing.dto.WithdrawalCloseResultDto;
+import com.hapbang.shared.billing.dto.WithdrawalReopenCommand;
+import com.hapbang.shared.billing.dto.WithdrawalReopenResultDto;
 import com.hapbang.shared.internal.InternalApiHeaders;
 
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
@@ -46,6 +56,8 @@ import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
 import io.github.resilience4j.timelimiter.TimeLimiter;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import io.micrometer.context.ContextExecutorService;
+import io.micrometer.context.ContextSnapshotFactory;
 
 /**
  * 지갑 내부 HTTP API Client (D62, D64, #272). 강의·출연은 지갑 Java 타입 대신 이 Client로 HP를 보류·반환·지급한다.
@@ -64,6 +76,8 @@ public class BillingApiClient {
     static final String PAYOUTS_PATH = BASE_PATH + "/payouts";
     static final String PENALTY_SETTLEMENTS_PATH = BASE_PATH + "/penalty-settlements";
     static final String HOLD_VOIDS_PATH = BASE_PATH + "/hold-voids";
+    static final String HOLD_QUERY_PATH = HOLDS_PATH + "/query";
+    static final String WITHDRAWALS_PATH = BASE_PATH + "/withdrawals";
 
     /** 408 Request Timeout, 425 Too Early, 429 Too Many Requests */
     private static final Set<Integer> NOT_PROCESSED_STATUSES = Set.of(408, 425, 429);
@@ -90,6 +104,18 @@ public class BillingApiClient {
     private static final ParameterizedTypeReference<Body<HoldVoidResultDto>> HOLD_VOID =
             new ParameterizedTypeReference<>() {
             };
+    private static final ParameterizedTypeReference<Body<List<HoldStateDto>>> HOLD_STATES =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<HoldStatePageDto>> HOLD_STATE_PAGE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<WithdrawalCloseResultDto>> WITHDRAWAL_CLOSE =
+            new ParameterizedTypeReference<>() {
+            };
+    private static final ParameterizedTypeReference<Body<WithdrawalReopenResultDto>> WITHDRAWAL_REOPEN =
+            new ParameterizedTypeReference<>() {
+            };
     private static final ParameterizedTypeReference<Map<String, Object>> PROBLEM =
             new ParameterizedTypeReference<>() {
             };
@@ -100,9 +126,11 @@ public class BillingApiClient {
     private final CircuitBreaker circuitBreaker;
     private final Retry retry;
     private final TimeLimiter timeLimiter;
-    // 시간 상한을 걸려면 호출을 다른 스레드에서 돌려야 한다. 동시 호출 수는 배치 크기가 정하므로 풀을 두지 않는다
-    private final Executor executor = Executors.newThreadPerTaskExecutor(
-            Thread.ofVirtual().name("billing-client-", 0).factory());
+    // 시간 상한을 걸려면 호출을 다른 스레드에서 돌려야 한다. 동시 호출 수는 배치 크기가 정하므로 풀을 두지 않는다.
+    // 작업을 넘길 때 요청 스레드의 context(trace 등)를 캡처해 그 스레드에 복원한다. 없으면 지갑 호출이 trace에서 끊긴다(#579)
+    private final Executor executor = ContextExecutorService.wrap(
+            Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("billing-client-", 0).factory()),
+            ContextSnapshotFactory.builder().build());
 
     public BillingApiClient(RestClient.Builder restClientBuilder, BillingClientProperties properties,
                             @Value("${hapbang.internal-api.key}") String internalApiKey) {
@@ -189,8 +217,65 @@ public class BillingApiClient {
         return post(HOLD_VOIDS_PATH, command, HOLD_VOID);
     }
 
+    /**
+     * 탈퇴용 지갑 확인하고 닫기 (#623, docs/api/internal-withdrawals.md 4.1). 지갑이 한 트랜잭션에서 지갑을 잠그고 막힌 이유를 확인한 뒤,
+     * 이유가 없으면 닫는다({@code CLOSED}), 있으면 닫지 않고 이유를 돌려준다({@code BLOCKED}). 탈퇴 작업 ID가 멱등 키다.
+     * 다시 열기를 이미 받은 탈퇴 작업이면 {@code Failed(WITHDRAWAL_ALREADY_REOPENED)}다
+     */
+    public BillingCallResult<WithdrawalCloseResultDto> closeForWithdrawal(WithdrawalCloseCommand command) {
+        Objects.requireNonNull(command, "요청은 필수입니다.");
+        return post(WITHDRAWALS_PATH + "/" + command.withdrawalId() + "/close", new WithdrawalBody(command.userId()),
+                WITHDRAWAL_CLOSE);
+    }
+
+    /**
+     * 탈퇴용 지갑 다시 열기 (#623, docs/api/internal-withdrawals.md 4.2). 이 탈퇴 작업으로 닫힌 지갑이면 열고({@code REOPENED}),
+     * 아니면 바꾸지 않는다({@code NOT_CLOSED}). 어느 결과든 이 탈퇴 작업의 늦은 닫기는 거절된다. 탈퇴 작업 ID가 멱등 키다
+     */
+    public BillingCallResult<WithdrawalReopenResultDto> reopenForWithdrawal(WithdrawalReopenCommand command) {
+        Objects.requireNonNull(command, "요청은 필수입니다.");
+        return post(WITHDRAWALS_PATH + "/" + command.withdrawalId() + "/reopen", new WithdrawalBody(command.userId()),
+                WITHDRAWAL_REOPEN);
+    }
+
+    /**
+     * 참조 대상별 보류·지급 조회 (#577, 서비스 간 HP 대사). 요청한 참조 ID마다 하나씩 돌려준다(지갑에 기록이 없으면 빈 기록).
+     * 조회라 HP는 움직이지 않는다. 결과를 모르면 다음 대사에서 다시 보면 된다
+     */
+    public BillingCallResult<List<HoldStateDto>> queryHolds(HoldQueryCommand command) {
+        return post(HOLD_QUERY_PATH, command, HOLD_STATES);
+    }
+
+    /**
+     * 참조 유형별로 {@code updatedAfter} 이후에 바뀐 보류 목록 (#577, "지갑에만 있는 보류" 찾기). 마지막 변경 시각·보류 순이다.
+     * 처음에는 {@code afterId} 0으로 부르고, 응답의 {@code hasMore}가 true인 동안 {@code nextUpdatedAfter}·{@code nextAfterId}를
+     * 그대로 넘긴다. false면 멈추고 그 커서를 저장해 다음 대사를 거기서 시작한다(커서는 마지막 페이지에서도 온다).
+     *
+     * @param size 1~{@value HoldStatePageDto#MAX_SIZE}
+     */
+    public BillingCallResult<HoldStatePageDto> listHolds(BillingReferenceType referenceType, Instant updatedAfter,
+                                                        long afterId, int size) {
+        Objects.requireNonNull(referenceType, "참조 유형은 필수입니다.");
+        Objects.requireNonNull(updatedAfter, "기준 시각은 필수입니다.");
+        return execute(() -> restClient.get().uri(uri -> uri.path(HOLDS_PATH)
+                .queryParam("referenceType", referenceType)
+                .queryParam("updatedAfter", updatedAfter)
+                .queryParam("afterId", afterId)
+                .queryParam("size", size)
+                .build()), HOLD_STATE_PAGE);
+    }
+
     private <T> BillingCallResult<T> post(String path, Object command, ParameterizedTypeReference<Body<T>> type) {
-        Supplier<BillingCallResult<T>> call = () -> withinTimeLimit(() -> send(path, command, type));
+        return execute(() -> restClient.post()
+                .uri(path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(command), type);
+    }
+
+    // 요청 하나를 Retry( CircuitBreaker( TimeLimiter( HTTP ) ) )로 보내고 결과를 분류한다. POST·GET이 같은 규칙을 쓴다
+    private <T> BillingCallResult<T> execute(Supplier<RestClient.RequestHeadersSpec<?>> request,
+                                             ParameterizedTypeReference<Body<T>> type) {
+        Supplier<BillingCallResult<T>> call = () -> withinTimeLimit(() -> send(request, type));
         call = CircuitBreaker.decorateSupplier(circuitBreaker, call);
         call = Retry.decorateSupplier(retry, call);
         try {
@@ -240,9 +325,10 @@ public class BillingApiClient {
         return new IllegalStateException(exception);
     }
 
-    private <T> BillingCallResult<T> send(String path, Object command, ParameterizedTypeReference<Body<T>> type) {
+    private <T> BillingCallResult<T> send(Supplier<RestClient.RequestHeadersSpec<?>> request,
+                                          ParameterizedTypeReference<Body<T>> type) {
         try {
-            return exchange(path, command, type);
+            return exchange(request, type);
         } catch (BillingCallException e) {
             throw e;
         } catch (RestClientException e) {
@@ -264,12 +350,10 @@ public class BillingApiClient {
         return false;
     }
 
-    private <T> BillingCallResult<T> exchange(String path, Object command, ParameterizedTypeReference<Body<T>> type) {
-        return restClient.post()
-                .uri(path)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(command)
-                .exchange((request, response) -> {
+    private <T> BillingCallResult<T> exchange(Supplier<RestClient.RequestHeadersSpec<?>> request,
+                                              ParameterizedTypeReference<Body<T>> type) {
+        return request.get()
+                .exchange((sent, response) -> {
                     int status = response.getStatusCode().value();
                     // 요청을 처리하지 않았다는 응답(시간 초과, 너무 이름, 요청 한도 초과)은 다시 보내면 된다 (D64)
                     if (NOT_PROCESSED_STATUSES.contains(status)) {
@@ -327,6 +411,10 @@ public class BillingApiClient {
         } catch (RuntimeException unreadable) {
             return Map.of();
         }
+    }
+
+    /** 탈퇴용 지갑 닫기·다시 열기 요청 본문. 탈퇴 작업 ID는 경로로 보낸다 */
+    record WithdrawalBody(long userId) {
     }
 
     /** 지갑 성공 응답(RsData)의 모양. shared는 앱에 의존하지 않아 같은 필드로 읽는다 */

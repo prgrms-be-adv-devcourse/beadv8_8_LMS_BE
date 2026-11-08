@@ -1,5 +1,6 @@
 package com.hapbang.member.out;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -18,4 +19,7 @@ public interface OAuthAccountRepository extends JpaRepository<OAuthAccount, Long
      */
     @EntityGraph(attributePaths = "user")
     Optional<OAuthAccount> findByProviderAndProviderUserId(OAuthProvider provider, String providerUserId);
+
+    /** 회원의 OAuth 계정 전부 (탈퇴 회원 마스킹, #594) */
+    List<OAuthAccount> findByUserId(Long userId);
 }

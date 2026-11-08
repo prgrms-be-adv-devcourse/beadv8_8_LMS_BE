@@ -33,11 +33,11 @@ jobs:
       apps: ${{ steps.detect.outputs.apps }}
     steps:
       # 앱을 마지막으로 바꾼 커밋을 찾으려면 전체 이력이 필요하다.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -87,7 +87,7 @@ jobs:
         app: ${{ fromJSON(needs.images.outputs.apps) }}
     steps:
       # 앱의 Dockerfile과 태그를 정할 이력을 받는다. 소스는 빌드하지 않는다.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -101,24 +101,41 @@ jobs:
 
       # artifact에는 app.jar 하나만 있다(ci.yml test job). 아래 빌드 컨텍스트 자리에 받는다.
       - name: 테스트한 jar 받기
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-jar-${{ matrix.app }}
           path: apps/${{ matrix.app }}/build/libs
 
-      - uses: docker/setup-buildx-action@v4
+      # GraalVM Native Image 앱은 ci가 만든 실행 파일(app-native-<앱>)을 Dockerfile.native로 담는다(#609).
+      - name: native 앱 판정
+        id: native
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          if grep -q 'org.graalvm.buildtools.native' "apps/$APP/build.gradle.kts"; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - uses: docker/login-action@v4
+      - name: native 실행 파일 받기
+        if: steps.native.outputs.enabled == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: app-native-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/build/native/nativeCompile
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # :sha-<커밋>은 배포·롤백 때 고르는 태그다.
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: apps/${{ matrix.app }}/build/libs
-          file: apps/${{ matrix.app }}/Dockerfile
+          context: ${{ steps.native.outputs.enabled == 'true' && format('apps/{0}/build/native/nativeCompile', matrix.app) || format('apps/{0}/build/libs', matrix.app) }}
+          file: ${{ steps.native.outputs.enabled == 'true' && format('apps/{0}/Dockerfile.native', matrix.app) || format('apps/{0}/Dockerfile', matrix.app) }}
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.app }}:sha-${{ steps.tag.outputs.sha }}
 
@@ -138,3 +155,8 @@ jobs:
       id-token: write
     with:
       sha: ${{ github.sha }}
+    # 호출된 job에 environment: prod가 있어도 secret은 호출하는 쪽이 넘겨야 한다(넘기지 않으면 빈 값, #570).
+    # 두 값은 Environment prod에만 있다. 이름으로 넘기면 호출된 job의 environment에서 값을 읽는다.
+    secrets:
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      DEPLOY_INSTANCE_ID: ${{ secrets.DEPLOY_INSTANCE_ID }}

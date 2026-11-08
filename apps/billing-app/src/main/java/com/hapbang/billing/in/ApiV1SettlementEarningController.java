@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.billing.app.EarningFacade;
 import com.hapbang.billing.domain.EarningStatus;
 import com.hapbang.billing.global.auth.LoginUserId;
+import com.hapbang.billing.global.ratelimit.RateLimited;
+import com.hapbang.billing.global.ratelimit.RateLimitedApi;
 import com.hapbang.billing.global.response.RsData;
 
 import lombok.RequiredArgsConstructor;
@@ -24,12 +26,14 @@ public class ApiV1SettlementEarningController implements ApiV1SettlementEarningS
 
     private final EarningFacade earningFacade;
 
+    @RateLimited(RateLimitedApi.EARNING_SUMMARY)
     @Override
     @GetMapping("/summary")
     public RsData<EarningSummaryResponse> summary(@LoginUserId Long userId) {
         return RsData.ok("지급 예정 수익 요약을 조회했습니다.", EarningSummaryResponse.from(earningFacade.summary(userId)));
     }
 
+    @RateLimited(RateLimitedApi.EARNING_LIST)
     @Override
     @GetMapping
     public RsData<Page<EarningItemResponse>> earnings(@LoginUserId Long userId,

@@ -18,6 +18,39 @@ class WalletTest {
     private static final Instant NOW = Instant.parse("2026-10-12T00:00:00Z");
 
     @Test
+    @DisplayName("파기로 닫으면 탈퇴 작업 ID 없이 닫히고, 다시 열기 대상(isClosedBy)이 아니다 (#674)")
+    void closeForMasking() {
+        Wallet wallet = Wallet.create(1L);
+
+        assertThat(wallet.closeForMasking(NOW)).isTrue();
+
+        assertThat(wallet.isClosed()).isTrue();
+        assertThat(wallet.getClosedAt()).isEqualTo(NOW);
+        assertThat(wallet.getClosedByWithdrawalId()).isNull();
+        assertThat(wallet.isClosedBy(100L)).isFalse();
+    }
+
+    @Test
+    @DisplayName("이미 탈퇴로 닫힌 지갑은 파기로 닫아도 탈퇴 작업 ID와 닫은 시각을 바꾸지 않는다 (#674)")
+    void closeForMaskingKeepsWithdrawalClose() {
+        Wallet wallet = Wallet.create(1L);
+        Instant closedAt = NOW.minusSeconds(60);
+        wallet.closeFor(100L, closedAt);
+
+        assertThat(wallet.closeForMasking(NOW)).isFalse();
+
+        assertThat(wallet.isClosedBy(100L)).isTrue();
+        assertThat(wallet.getClosedAt()).isEqualTo(closedAt);
+    }
+
+    @Test
+    @DisplayName("플랫폼 지갑은 파기로 닫을 수 없다 (#674)")
+    void platformCannotCloseForMasking() {
+        assertThatThrownBy(() -> Wallet.createPlatform().closeForMasking(NOW))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     @DisplayName("새 지갑의 네 가지 잔액은 모두 0이다")
     void create() {
         Wallet wallet = Wallet.create(1L);

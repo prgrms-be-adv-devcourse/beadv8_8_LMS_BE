@@ -3,6 +3,7 @@ package com.hapbang.chat.global.auth;
 import java.io.IOException;
 import java.util.List;
 
+import org.slf4j.MDC;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextHolderStrategy;
@@ -32,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>웹소켓 핸드셰이크에는 쓰지 않는다. 웹소켓 연결은 이 헤더로 인증한 REST 요청으로 받은 일회용 연결 티켓으로만 인증한다
  *     ({@code ChatConnectionTicketHandshakeInterceptor}). 핸드셰이크 요청에 이 헤더가 있어도 웹소켓 회원으로 쓰지 않는다.</li>
  *     <li>회원·출연 앱의 필터와 같은 동작이다. 공용 필터가 생기면 이 필터를 그것으로 바꾼다.</li>
+ *     <li>인증한 회원 ID를 MDC {@code userId}에 넣어 이 요청에서 찍는 로그에 붙이고, 요청이 끝나면 지운다
+ *     (docs/dev/logging.md, #582).</li>
  * </ul>
  */
 @Slf4j
@@ -39,6 +42,8 @@ public class GatewayUserHeaderFilter extends OncePerRequestFilter {
 
     public static final String USER_ID = "X-User-Id";
     public static final String USER_ROLE = "X-User-Role";
+    /** 인증한 회원 ID를 로그에 붙이는 MDC 키 (docs/dev/logging.md) */
+    public static final String MDC_USER_ID = "userId";
     /**
      * Gateway가 access token의 {@code exp}(epoch 초)로 넣는 헤더. 인증에는 쓰지 않고 웹소켓 연결 티켓의 연결 만료를 정할 때만 읽는다
      * (상한이 있어 위조해도 늘지 않는다)
@@ -52,25 +57,35 @@ public class GatewayUserHeaderFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String userId = request.getHeader(USER_ID);
         String role = request.getHeader(USER_ROLE);
-        if (userId != null || role != null) {
-            authenticate(request, userId, role);
+        Long authenticated = userId != null || role != null ? authenticate(request, userId, role) : null;
+        if (authenticated == null) {
+            chain.doFilter(request, response);
+            return;
         }
-        chain.doFilter(request, response);
+        // 요청 스레드는 다시 쓰이므로 끝나면 지운다. 지우지 않으면 다음 요청의 로그에 남는다
+        MDC.put(MDC_USER_ID, String.valueOf(authenticated));
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            MDC.remove(MDC_USER_ID);
+        }
     }
 
-    private void authenticate(HttpServletRequest request, String userId, String role) {
+    /** 인증하면 회원 ID, 헤더 형식이 틀려 인증하지 않으면 {@code null} */
+    private Long authenticate(HttpServletRequest request, String userId, String role) {
         Long id = parseUserId(userId);
         Role parsedRole = parseRole(role);
         if (id == null || parsedRole == null) {
             log.warn("사용자 헤더 형식 오류로 인증하지 않음: {} {} ({}={}, {}={})", request.getMethod(), request.getRequestURI(),
                     USER_ID, userId, USER_ROLE, role);
-            return;
+            return null;
         }
         var authentication = new PreAuthenticatedAuthenticationToken(String.valueOf(id), null,
                 List.of(new SimpleGrantedAuthority("ROLE_" + parsedRole.name())));
         var context = contextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         contextHolder.setContext(context);
+        return id;
     }
 
     private static Long parseUserId(String value) {

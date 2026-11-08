@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
@@ -50,7 +51,11 @@ class GatewayUserHeaderFilterTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("7"))
                 .andExpect(jsonPath("$.authorities.length()").value(1))
-                .andExpect(jsonPath("$.authorities[0]").value("ROLE_INFLUENCER"));
+                .andExpect(jsonPath("$.authorities[0]").value("ROLE_INFLUENCER"))
+                .andExpect(jsonPath("$.mdcUserId").value("7"));
+
+        // 요청 스레드는 다시 쓰이므로 요청이 끝나면 MDC의 회원 ID를 지운다 (#582)
+        assertThat(MDC.get(GatewayUserHeaderFilter.MDC_USER_ID)).isNull();
     }
 
     @Test
@@ -69,7 +74,7 @@ class GatewayUserHeaderFilterTest {
             throws Exception {
         mockMvc.perform(withUser(get(PATH), userId, role)).andExpect(status().isUnauthorized());
 
-        assertThat(output.getAll()).contains("사용자 헤더 형식 오류로 인증하지 않음");
+        assertThat(output.getAll()).contains("사용자 헤더 형식이 틀려 인증하지 않는다");
     }
 
     @Test
@@ -93,7 +98,7 @@ class GatewayUserHeaderFilterTest {
         return request;
     }
 
-    record WhoAmI(String name, List<String> authorities) {
+    record WhoAmI(String name, List<String> authorities, String mdcUserId) {
     }
 
     @org.springframework.boot.test.context.TestComponent
@@ -113,7 +118,8 @@ class GatewayUserHeaderFilterTest {
         private static WhoAmI current() {
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             return new WhoAmI(authentication.getName(),
-                    authentication.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList());
+                    authentication.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList(),
+                    MDC.get(GatewayUserHeaderFilter.MDC_USER_ID));
         }
     }
 }

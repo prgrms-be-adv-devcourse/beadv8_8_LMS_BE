@@ -1,7 +1,16 @@
 package com.hapbang.appearance.out.billing;
 
+import java.time.Instant;
+import java.util.List;
+
+import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.dto.HoldCommand;
+import com.hapbang.shared.billing.dto.HoldQueryCommand;
 import com.hapbang.shared.billing.dto.HoldResultDto;
+import com.hapbang.shared.billing.dto.HoldStateDto;
+import com.hapbang.shared.billing.dto.HoldStatePageDto;
+import com.hapbang.shared.billing.dto.HoldVoidCommand;
+import com.hapbang.shared.billing.dto.HoldVoidResultDto;
 import com.hapbang.shared.billing.dto.PayoutCommand;
 import com.hapbang.shared.billing.dto.PayoutResultDto;
 import com.hapbang.shared.billing.dto.PenaltyCommand;
@@ -40,6 +49,26 @@ public interface BillingClient {
 
     /** 호스트 일방 취소: 출연이 계산한 반환액은 호스트에게, 위약금은 게스트에게 한 번에 처리한다 */
     BillingCallResult<PenaltyResultDto> settlePenalty(PenaltyCommand command);
+
+    /**
+     * 참조 대상(요청서·모집글)의 보류를 더는 쓰지 않는다고 알린다 (보류 무효화, 지갑 #479, 출연 #536).
+     * 남은 보류는 호스트에게 반환하고({@code RELEASED}), 보류가 없으면 무효 표시만 남긴다({@code VOIDED}).
+     * 이후 같은 참조 대상의 보류는 {@code Failed(HOLD_VOIDED)}다. 참조 대상당 한 번이고, 다시 보내면 처음 결과를 돌려받는다.
+     */
+    BillingCallResult<HoldVoidResultDto> voidHold(HoldVoidCommand command);
+
+    /**
+     * 참조 대상(요청서·모집글)들의 지갑 보류·무효화·지급 기록 (서비스 간 HP 대사 #581, 지갑 #577). HP를 움직이지 않는다.
+     * 요청한 ID마다 하나씩, 요청 순서대로 돌려준다(지갑에 기록이 없으면 빈 기록). 한 번에 1~500개
+     */
+    BillingCallResult<List<HoldStateDto>> queryHolds(HoldQueryCommand command);
+
+    /**
+     * 이 커서 뒤에 바뀐 지갑 보류 목록 (#581, 지갑 #577). 지갑에만 있는 보류를 찾는 데 쓴다.
+     * {@code hasMore}가 true인 동안 응답의 커서를 그대로 넘겨 이어 읽고, false면 그 커서를 저장해 다음 대사를 거기서 시작한다
+     */
+    BillingCallResult<HoldStatePageDto> listHolds(BillingReferenceType referenceType, Instant updatedAfter, long afterId,
+                                                  int size);
 
     /**
      * 지갑 회로가 열려 지금 부르면 요청을 보내지 않고 실패하는지 (#439). 시험 중(HALF_OPEN)은 {@code false}다.

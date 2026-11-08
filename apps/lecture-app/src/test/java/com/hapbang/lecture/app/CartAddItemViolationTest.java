@@ -7,12 +7,14 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 
+import java.time.Clock;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Cart;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
@@ -27,7 +29,8 @@ class CartAddItemViolationTest {
 
     private final CartRepository cartRepository = mock(CartRepository.class);
     private final LectureSupport lectureSupport = mock(LectureSupport.class);
-    private final CartAddItemUseCase useCase = new CartAddItemUseCase(cartRepository, lectureSupport);
+    private final CartAddItemUseCase useCase = new CartAddItemUseCase(cartRepository, lectureSupport,
+            mock(LectureSyncEvents.class), Clock.fixed(NOW.atZone(LectureConfig.ZONE).toInstant(), LectureConfig.ZONE));
 
     @BeforeEach
     void setUp() {

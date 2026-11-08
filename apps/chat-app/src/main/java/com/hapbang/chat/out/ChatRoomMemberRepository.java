@@ -1,9 +1,11 @@
 package com.hapbang.chat.out;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -20,15 +22,51 @@ public interface ChatRoomMemberRepository extends JpaRepository<ChatRoomMember, 
     Optional<ChatRoomMember> findByChatRoom_IdAndUserIdAndDeletedAtIsNull(Long chatRoomId, Long userId);
 
     /**
-     * 회원이 참여 중인, 종료되지 않은 방의 참여 정보.
+     * 회원이 참여 중인, 볼 수 있는 방의 참여 정보. 1:1 방은 종료되지 않은 방이고, 단체방은 사용 중·일시 중지 방과 조회 만료 전의
+     * 읽기 전용 방이다(만료 시각에 도달하면 나오지 않는다).
      */
     @Query("""
             select m from ChatRoomMember m join fetch m.chatRoom r
-            where m.userId = :userId and m.leftAt is null and m.deletedAt is null
-              and r.status = com.hapbang.chat.domain.ChatRoomStatus.ACTIVE and r.deletedAt is null
+            where m.userId = :userId and m.leftAt is null and m.deletedAt is null and r.deletedAt is null
+              and (r.status = com.hapbang.chat.domain.ChatRoomStatus.ACTIVE
+                   or (r.roomType = com.hapbang.chat.domain.ChatRoomType.GROUP
+                       and (r.status = com.hapbang.chat.domain.ChatRoomStatus.SUSPENDED
+                            or (r.status = com.hapbang.chat.domain.ChatRoomStatus.READ_ONLY
+                                and r.historyExpiresAt > :now))))
             order by r.id desc
             """)
-    List<ChatRoomMember> findActiveByUserId(@Param("userId") Long userId);
+    List<ChatRoomMember> findActiveByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    /**
+     * 모집글의 단체방 중 회원이 참여 중인 방의 참여 정보(최근 방부터). 조회 만료 여부는 부르는 쪽이 방으로 거른다.
+     */
+    @Query("""
+            select m from ChatRoomMember m join fetch m.chatRoom r
+            where r.recruitId = :recruitId and r.roomType = com.hapbang.chat.domain.ChatRoomType.GROUP
+              and r.deletedAt is null
+              and m.userId = :userId and m.leftAt is null and m.deletedAt is null
+            order by r.id desc
+            """)
+    List<ChatRoomMember> findActiveGroupMemberships(@Param("recruitId") Long recruitId, @Param("userId") Long userId);
+
+    /** 방에서 주어진 회원들의 참여 행(나간 행 포함). 초대할 회원만 읽는다 */
+    List<ChatRoomMember> findByChatRoom_IdAndUserIdInAndDeletedAtIsNull(Long chatRoomId, Collection<Long> userIds);
+
+    /** 방의 활성 참여자 한 페이지. 참여 행 ID 순서의 키셋이다 */
+    @Query("""
+            select m from ChatRoomMember m
+            where m.chatRoom.id = :chatRoomId and m.leftAt is null and m.deletedAt is null and m.id > :afterId
+            order by m.id asc
+            """)
+    List<ChatRoomMember> findActivePage(@Param("chatRoomId") Long chatRoomId, @Param("afterId") long afterId,
+            Limit limit);
+
+    /** 방의 활성 참여자 회원 ID */
+    @Query("""
+            select m.userId from ChatRoomMember m
+            where m.chatRoom.id = :chatRoomId and m.leftAt is null and m.deletedAt is null
+            """)
+    List<Long> findActiveUserIds(@Param("chatRoomId") Long chatRoomId);
 
     /**
      * 회원 본인의 누적 수신 확인 순번을 올린다. 아래를 모두 만족하는 한 행만 바꾸고, 바꾼 행 수(0 또는 1)를 돌려준다.

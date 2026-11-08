@@ -1,0 +1,64 @@
+# 모듈 경로(지금은 챗봇 /api/v1/chatbot)와 앱 하나의 Swagger 경로(/api/v1/auxiliary)를 연다.
+# 검색·알림 모듈을 더할 때 그 모듈 경로를 matches에 더한다(apps/auxiliary-app/README.md).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: auxiliary-app
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api/v1/chatbot
+    - path:
+        type: PathPrefix
+        value: /api/v1/auxiliary
+    backendRefs:
+    - name: auxiliary-app
+      port: 8080
+    timeouts:
+      request: 30s
+      backendRequest: 30s
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: auxiliary-app
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: auxiliary-app
+  jwt:
+    optional: true
+    providers:
+    - name: member
+      issuer: https://gateway.invalid
+      remoteJWKS:
+        uri: http://member-app.hapbang-prod.svc.cluster.local:8080/api/v1/members/.well-known/jwks.json
+      # 토큰은 Authorization: Bearer에서만 읽는다. 비워 두면 access_token query도 받아 토큰이 URL에 남는다
+      extractFrom:
+        headers:
+        - name: Authorization
+          valuePrefix: "Bearer "
+      claimToHeaders:
+      - claim: sub
+        header: X-User-Id
+      - claim: role
+        header: X-User-Role
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: auxiliary-app-body-limit
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: auxiliary-app
+  requestBuffer:
+    limit: 1Mi

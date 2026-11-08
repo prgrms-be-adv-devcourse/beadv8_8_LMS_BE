@@ -1,5 +1,8 @@
 package com.hapbang.appearance.in;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -195,5 +198,88 @@ class AppearanceSwaggerDocsTest {
                         .value("#/components/schemas/RsDataPageAppearanceReceivedReviewDto"))
                 .andExpect(jsonPath(SCHEMAS + "RsDataPageAppearanceReceivedReviewDto.properties.data['$ref']")
                         .value("#/components/schemas/PagedModelAppearanceReceivedReviewDto"));
+    }
+
+    @Test
+    @DisplayName("모집글 내부 API(#586): 세 경로의 응답 스키마, 모집글 상태 5가지, 다음 페이지 키")
+    void recruitInternalSchema() throws Exception {
+        String recruits = "$.paths['/api/v1/internal/appearances/recruits/{recruitId}";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(recruits + "'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRecruitInternalResDto"))
+                .andExpect(jsonPath(recruits + "/applicants'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRecruitApplicantIdsResDto"))
+                .andExpect(jsonPath(recruits + "/applicants/exists'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceRecruitAppliedUserIdsResDto"))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceRecruitInternalResDto.properties.status.enum",
+                        hasItems("HOLD_PENDING", "HOLD_FAILED", "RECRUITING", "CLOSED", "CANCELED")))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceRecruitApplicantIdsResDto.properties.nextAfterUserId").exists());
+    }
+
+    @Test
+    @DisplayName("관리자 HP 대사 실행·마지막 결과는 RsData로 감싼 실행 결과이고, 어긋난 건 목록과 규칙 값을 담는다 (#581)")
+    void hpReconciliationSchema() throws Exception {
+        String paths = "$.paths['/api/v1/appearances/admin/hp-reconciliations";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(paths + "'].post.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataHpReconciliationRunResDto"))
+                .andExpect(jsonPath(paths + "/latest'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataHpReconciliationRunResDto"))
+                .andExpect(jsonPath(SCHEMAS + "HpReconciliationRunResDto.properties.mismatches.items['$ref']")
+                        .value("#/components/schemas/HpReconciliationMismatchResDto"))
+                .andExpect(jsonPath(SCHEMAS + "HpReconciliationMismatchResDto.properties.rule.enum")
+                        .value(org.hamcrest.Matchers.hasItems("HP_TASK_MISMATCH", "WALLET_ONLY_HOLD", "HP_TASK_DEAD")));
+    }
+
+    @Test
+    @DisplayName("탈퇴 확인 내부 API는 RsData로 감싼 회원 공통 막힌 이유 목록이고 내부 키 헤더를 받는다 (#624)")
+    void withdrawalBlocksSchema() throws Exception {
+        String path = "$.paths['/api/v1/internal/appearances/users/{userId}/withdrawal-blocks'].get";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(path + ".responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataWithdrawalBlocksDto"))
+                .andExpect(jsonPath(path + ".parameters[?(@.name == 'X-Internal-Api-Key')].in").value(hasItems("header")))
+                .andExpect(jsonPath(SCHEMAS + "WithdrawalBlocksDto.properties.reasons.items['$ref']")
+                        .value("#/components/schemas/WithdrawalBlockReasonDto"))
+                .andExpect(jsonPath(SCHEMAS + "WithdrawalBlockReasonDto.properties.code").exists())
+                .andExpect(jsonPath(SCHEMAS + "WithdrawalBlockReasonDto.properties.message").exists());
+    }
+
+    @Test
+    @DisplayName("동기화 내부 API 두 경로(#713)는 RsData로 감싼 키셋 페이지이고, 내부 키 헤더를 받으며 공개 결과는 4가지다")
+    void syncInternalSchema() throws Exception {
+        String sync = "$.paths['/api/v1/internal/appearances/sync";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(sync + "/appearances'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceSyncPageDto"))
+                .andExpect(jsonPath(sync + "/reviews'].get.responses['200'].content['*/*'].schema['$ref']")
+                        .value("#/components/schemas/RsDataAppearanceReviewSyncPageDto"))
+                .andExpect(jsonPath(sync + "/appearances'].get.parameters[?(@.name == 'X-Internal-Api-Key')].in")
+                        .value(hasItems("header")))
+                .andExpect(jsonPath(sync + "/reviews'].get.parameters[?(@.name == 'X-Internal-Api-Key')].in")
+                        .value(hasItems("header")))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceSyncPageDto.properties.nextAfterId").exists())
+                .andExpect(jsonPath(SCHEMAS + "AppearanceSyncDto.properties.result.enum",
+                        hasItems("SCHEDULED", "COMPLETED", "CANCELED", "NO_SHOW")))
+                .andExpect(jsonPath(SCHEMAS + "AppearanceSyncDto.properties.fee").doesNotExist())
+                .andExpect(jsonPath(SCHEMAS + "AppearanceReviewSyncDto.properties.content").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("내 모집글·보낸 요청 목록의 상태 필터는 보류 처리 중·실패를 포함한 전체가 기본이고, 받은 요청 목록은 그대로 (#306)")
+    void holdStatusFilterDescription() throws Exception {
+        String status = ".get.parameters[?(@.name == 'status')].description";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/v1/appearances/recruits/mine']" + status)
+                        .value(hasItems(containsString("HOLD_FAILED"))))
+                .andExpect(jsonPath("$.paths['/api/v1/appearances/requests/sent']" + status)
+                        .value(hasItems(containsString("HOLD_FAILED"))))
+                .andExpect(jsonPath("$.paths['/api/v1/appearances/requests/received']" + status)
+                        .value(hasItems(not(containsString("HOLD_FAILED")))));
     }
 }

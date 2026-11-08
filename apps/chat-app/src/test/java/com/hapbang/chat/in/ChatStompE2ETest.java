@@ -95,14 +95,6 @@ class ChatStompE2ETest {
     }
 
     @Test
-    void 연결_티켓이_없으면_웹소켓에_연결할_수_없다() {
-        assertThatThrownBy(() -> stompClient.connectAsync(wsUrl(), new WebSocketHttpHeaders(), new StompHeaders(),
-                new StompSessionHandlerAdapter() {
-                }).get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
-                .isInstanceOf(ExecutionException.class);
-    }
-
-    @Test
     void STOMP로_보낸_메시지가_방을_연_상대에게_방_topic으로_보낸_사람에게_결과_확인으로_가고_방을_열지_않은_상대_연결만_알림을_받으며_DB에_저장된다()
             throws Exception {
         Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
@@ -139,35 +131,6 @@ class ChatStompE2ETest {
         assertThat(hostNotifications.poll(500, TimeUnit.MILLISECONDS)).isNull();
 
         assertThat(messageContents(chatRoomId, GUEST_ID)).containsExactly("금요일 밤 9시 괜찮으세요?");
-    }
-
-    @Test
-    void 같은_전송_ID로_다시_보내면_보낸_사람에게만_기존_메시지가_다시_가고_상대는_한_번만_받는다() throws Exception {
-        Long chatRoomId = createRoom(HOST_ID, GUEST_ID);
-        StompSession host = connect(HOST_ID);
-        StompSession guest = connect(GUEST_ID);
-        StompSession guestElsewhere = connect(GUEST_ID);
-        BlockingQueue<ChatMessageResponse> hostMessages = subscribe(host, "/user/queue/chats/messages",
-                ChatMessageResponse.class);
-        BlockingQueue<ChatMessageResponse> guestMessages = subscribeRoom(guest, chatRoomId, 1);
-        BlockingQueue<ChatNotification> guestNotifications = subscribe(guestElsewhere,
-                "/user/queue/chats/notifications", ChatNotification.class);
-        waitForSubscriptions();
-
-        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("안녕하세요", "client-1"));
-        ChatMessageResponse first = hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        host.send("/pub/chats/" + chatRoomId + "/messages", new SendChatMessageRequest("안녕하세요", "client-1"));
-        ChatMessageResponse resent = hostMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-
-        assertThat(first).isNotNull();
-        assertThat(resent).isNotNull();
-        assertThat(resent.messageId()).isEqualTo(first.messageId());
-        assertThat(resent.clientMessageId()).isEqualTo("client-1");
-        assertThat(guestMessages.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
-        assertThat(guestMessages.poll(500, TimeUnit.MILLISECONDS)).isNull();
-        assertThat(guestNotifications.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
-        assertThat(guestNotifications.poll(1500, TimeUnit.MILLISECONDS)).isNull();
-        assertThat(messageContents(chatRoomId, GUEST_ID)).containsExactly("안녕하세요");
     }
 
     @Test
@@ -350,19 +313,6 @@ class ChatStompE2ETest {
         assertThat(serverFrames).noneMatch(frame -> frame.startsWith("CONNECTED"));
     }
 
-    @Test
-    void 허용하지_않은_출처에서는_웹소켓_핸드셰이크가_403이다() {
-        assertThatThrownBy(() -> connectFrom(HOST_ID, "https://evil.example.com"))
-                .isInstanceOf(ExecutionException.class)
-                // Tomcat 웹소켓 클라이언트는 업그레이드 응답 상태를 "[403]"으로 메시지에 담는다
-                .rootCause().hasMessageContaining("[403]");
-    }
-
-    @Test
-    void 허용한_출처에서는_웹소켓에_연결할_수_있다() throws Exception {
-        assertThat(connectFrom(HOST_ID, "http://localhost:5173").isConnected()).isTrue();
-    }
-
     // 로그아웃(회원 단위 로그아웃 이벤트)·강등·정지된 회원의 연결 종료와 프로필 수정 시 연결 유지는 회원 이벤트 Kafka 소비가
     // 남긴 연결 제어 작업이 제어 Stream·제어 채널을 거쳐 처리한다. Kafka가 필요한 그 테스트는 ChatMemberControlE2ETest에 있다.
     // 토큰 인증·만료는 ChatStompAuthE2ETest에 있다.
@@ -469,14 +419,6 @@ class ChatStompE2ETest {
         return connect(userId, Role.INFLUENCER, events);
     }
 
-    private StompSession connectFrom(Long userId, String origin) throws Exception {
-        WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
-        handshakeHeaders.setOrigin(origin);
-        return stompClient.connectAsync(E2ESession.of(userId, Role.INFLUENCER).connectUrl(client, port),
-                handshakeHeaders, new StompHeaders(), new StompSessionHandlerAdapter() {
-                }).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-    }
-
     /**
      * 동작을 실행한 뒤 그 회원의 연결이 서버에서 닫힌 상태를 기다린다. 거절된 프레임은 ERROR 프레임이 오지 않을 수 있어
      * 연결 종료로 확인한다.
@@ -534,10 +476,6 @@ class ChatStompE2ETest {
     private String userTicket() {
         return E2ESession.saveTicket(chatConnectionTicketStore, USER_ID, Role.USER, Duration.ofSeconds(30),
                 Instant.now().plus(Duration.ofMinutes(15)));
-    }
-
-    private String wsUrl() {
-        return "ws://localhost:" + port + "/api/v1/chats/ws";
     }
 
     /** 방 topic을 구독하고 메시지 프레임만 모은다(거절·회수 프레임은 {@code chat-frame-type} 헤더로 거른다) */

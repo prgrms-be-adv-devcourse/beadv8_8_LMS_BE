@@ -25,6 +25,10 @@ public interface LectureHpTaskRepository extends JpaRepository<LectureHpTask, Lo
     /** 주문들의 작업. 주문의 결제 단계 판정과 처리 상태에 쓴다 (D58, D69 (2)) */
     List<LectureHpTask> findByOrderIdIn(Collection<Long> orderIds);
 
+    /** 이 시각 이후 바뀐 작업의 주문 항목 ID. 서비스 간 HP 대사의 강의 쪽 비교 범위다 (D74) */
+    @Query("select distinct t.orderItemId from LectureHpTask t where t.updatedAt >= :since")
+    List<Long> findOrderItemIdsUpdatedSince(@Param("since") LocalDateTime since);
+
     /**
      * 보류가 확정 거절된 주문에서 한 번도 실행하지 않은 보류 작업을 {@code SKIPPED}로 닫는다 (D58 (3), D69 (5)).
      * 조건부 UPDATE라 그 사이 선점된 작업은 그대로 두고(끝까지 확인한다), 실행 중인 작업과 버전 충돌을 일으키지 않는다.

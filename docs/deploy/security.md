@@ -28,7 +28,7 @@
 | 개인 PAT(그 밖) | 만들지 않고 둔다. 로컬에서 수동 pull할 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |
 | TLS 개인 키 | cert-manager가 만든 Secret `hapbang-tls`(`envoy-gateway-system`) | cluster | HTTPS | cert-manager가 자동 갱신 |
-| 내부 API 키 | 앱 Secret `HAPBANG_INTERNAL_API_KEY`. 원문은 `~/.hapbang/internal-api-key` | 앱 pod | 모듈 간 내부 HTTP API(`/api/v1/internal/**`) 인증 (#300) | 앱 6개를 함께 다시 봉인하고 배포([env-vars.md](env-vars.md#값-변경-비밀값-교체-포함)) |
+| 내부 API 키 | 앱 Secret `HAPBANG_INTERNAL_API_KEY`. 원문은 `~/.hapbang/internal-api-key` | 앱 pod | 모듈 간 내부 HTTP API(`/api/v1/internal/**`) 인증 (#300) | 앱 7개를 함께 다시 봉인하고 배포([env-vars.md](env-vars.md#값-변경-비밀값-교체-포함)) |
 
 ## 구조상 보호 장치
 
@@ -36,16 +36,18 @@
 | --- | --- |
 | 외부 포트는 Envoy(80·443)만 | app·platform(PostgreSQL·Kafka·Redis 등)에 직접 접근 불가 |
 | 내부 API 차단 | Envoy에 `/api/v1/internal/**` route가 없어 404. 앱 외부 포트(8080)도 내부 경로를 404로 막고, 내부 포트(8081)는 허용 label이 있는 pod만 접근한다. 앱도 내부 API 키가 없으면 401 (#300, [gateway.md](gateway.md#인증과-내부-포트)) |
+| 앱에 Boot 기본 사용자 없음 | 앱은 Gateway 사용자 헤더·내부 API 키(member는 OAuth2 로그인도)로 인증해 `UserDetailsService`가 없다. 각 앱 `application.yaml`의 `spring.autoconfigure.exclude`로 `UserDetailsServiceAutoConfiguration`을 빼서 Boot가 기본 사용자(`user`)와 생성 비밀번호를 만들지 않는다. 비밀번호가 기동 로그·Loki에 남지 않고, 누가 `httpBasic`을 켜도 로그인할 기본 사용자가 없다. 테스트 classpath에는 OAuth2 client가 있어 이 자동 설정이 원래 붙지 않으므로 `DefaultSecurityUserTest`가 그 패키지를 숨겨 확인한다 (#733, auxiliary-app #742) |
 | 미등록 도메인 차단 | 443은 prod 도메인 외 TLS 핸드셰이크를 거부하고, 80은 404 |
 | HTTPS 리다이렉트 | 80은 HTTPS로 301. HSTS 헤더는 아직 보내지 않는다 |
 | `.gitignore` | `.env`, `.env.*`, `*.pem`이 커밋되지 않음 |
 | BE 이미지 빌드 컨텍스트는 jar 폴더뿐 | 이미지에는 `app.jar`만 들어간다. 소스·`.env`가 들어갈 수 없음 |
 | CI(PR) 읽기 전용 권한 | PR 코드가 실행되는 job은 GHCR에 쓸 수 없음. Actions에서 push는 Publish and deploy의 `build` job만 |
-| 운영 배포 검사 | Deploy는 Environment `prod`(`dev`만)에서 실행되고, GHCR에 이미지가 있는 커밋만 배포한다. 자동 배포는 dev 최신 커밋만 배포한다. Actions가 올린 이미지는 CI 테스트를 통과한 jar지만, 발행은 이미지가 이미 있으면 그 앱을 다시 테스트하지 않는다. #559 전에 사람이 올린 이미지([릴리스 전 배포](k8s.md#릴리스-전-배포))는 로컬 테스트만 거쳤다 |
+| 운영 배포 검사 | Deploy는 Environment `prod`(`dev`만)에서 실행되고, GHCR에 이미지가 있는 커밋만 배포한다. 자동 배포는 dev 최신 커밋만 배포한다. Actions가 올린 이미지는 CI 테스트를 통과한 jar지만, 발행은 이미지가 이미 있으면 그 앱을 다시 테스트하지 않는다. #559 전에 사람이 올린 이미지([릴리스 전 배포](k8s.md#릴리스-전-배포))는 로컬 테스트만 거쳤고, 2026-11-02 첫 자동 배포로 운영에서 모두 교체됐다 |
 | SSH 비밀번호 로그인 꺼짐 | 22 포트가 열려 있어도 키 없이는 접속 불가 |
 | k3s 배포 role의 trust를 Environment `prod`로 제한 | 다른 브랜치·PR의 workflow는 role을 받지 못한다. `prod`는 `dev` 브랜치만 허용(#559 전에는 `main`) |
 | `hapbang-prod` Pod Security `baseline`(EC2 적용 2026-10-30) | 리뷰를 거쳐 배포되는 manifest가 privileged·hostNetwork·hostPath pod를 만들지 못한다. 그런 pod는 node root·IMDS(인스턴스 역할)에 닿는다. 배포 role 자체의 root 권한은 막지 못한다(아래 알려진 위험) |
 | k3s API(6443)는 사용자 IP `/32`만 | 배포는 SSM으로 하므로 6443을 열지 않는다. 자격 증명이 새도 네트워크에서 막힌다 |
+| 운영으로 이어지는 workflow의 action을 커밋 SHA로 고정 | `ci.yml`·`publish.yml`·`deploy.yml`은 action을 40자리 SHA로 고정한다(#656). 이 workflow들은 운영에 나갈 jar를 만들고(`ci.yml`은 `publish.yml`이 호출한다), GHCR에 이미지를 올리고(`packages: write`), 배포 role을 받는다(`id-token: write`). 액션의 태그가 악성 커밋으로 옮겨져도 고정한 커밋만 실행된다. 갱신은 Dependabot이 주 1회 PR 하나로 올리고, 나온 지 7일이 지난 릴리스만 반영한다(`.github/dependabot.yml`). Dependabot PR은 바뀐 SHA가 그 버전 태그의 커밋인지 확인하고 병합한다 |
 
 ## 알려진 위험
 
@@ -56,7 +58,7 @@
 | main으로 가는 PR 출발 브랜치 검사가 이름만 봄 | ruleset `protect-main-dev`가 PR·`verify`·`source-branch`(dev, `release/review-N`만 허용, #180)를 요구한다. 승인 수는 0이라 이름을 맞춘 브랜치는 통과한다 | main 전용 ruleset으로 승인 1개 이상 요구 |
 | k3s 배포 role이 large에서 임의 명령을 root로 실행할 수 있음 | trust를 Environment `prod`(`dev`만)로 제한. `dev`에 병합된 workflow만 쓴다 | 토큰 발급만 하는 전용 SSM 문서로 권한 축소 |
 | dev 병합이 승인 없이 운영에 나감 | dev는 승인 0개로 squash 병합된다(ruleset `merge-method-dev`). 병합하면 앱 코드·manifest와 배포 workflow·스크립트가 사람 승인 없이 운영에 반영되고, 배포 스크립트는 large에서 root로 돈다. 거치는 검사는 CI(`verify`)와 Claude Review 코멘트뿐이다. 팀 결정으로 승인 없이 둔다(2026-11-02, #559) | dev ruleset에 승인 1개 이상 요구, 또는 Environment `prod`에 승인자(required reviewers) 지정 |
-| GitHub Actions 메이저 버전 태그(`@v7` 등) 사용 | 액션 저장소가 오염되면 영향 | 커밋 SHA로 고정 |
+| `claude-review.yml`은 action을 메이저 태그(`@v1` 등)로 씀 | 운영으로 이어지는 workflow는 SHA로 고정했다(위 보호 장치). `claude-review.yml`은 읽기 권한과 PR 코멘트 권한만 가지고, `claude-code-action@v1`이 자주 바뀌어 고정하면 갱신 PR이 많아지므로 태그로 둔다(2026-11-04, #656). 액션 저장소가 오염되면 `CLAUDE_CODE_OAUTH_TOKEN`이 샐 수 있다 | 이 파일도 SHA로 고정 |
 | DB 백업 없음 | k3s PostgreSQL 백업 절차가 없다 | 정기 백업 결정 |
 
 ## DB 비밀번호 교체
@@ -65,7 +67,7 @@ PostgreSQL은 데이터 디렉터리가 비어 있을 때만 `postgres-credentia
 
 1. `postgres-credentials`의 그 앱 키를 새 값으로 다시 봉인해 `k8s/platform/overlays/prod`에 적용한다. 다음 단계 전에 Secret이 새 값으로 풀렸는지 확인한다. `kubectl --context hapbang-k3s -n hapbang-platform get sealedsecret postgres-credentials -o jsonpath='{.metadata.generation} {.status.observedGeneration} {.status.conditions[0].status}'`가 같은 숫자 두 개와 `True`를 출력하면 Secret이 새 값으로 풀린 것이다(값은 출력하지 않는다). 풀리기 전에 3을 하면 이전 비밀번호가 앱 Secret에 들어간다.
 2. 실행 중인 PostgreSQL에서 superuser로 `ALTER ROLE <앱 role> PASSWORD ...`를 실행한다.
-3. `k8s/tools/seal-app-secrets.sh <앱>`으로 앱 Secret을 다시 봉인한다(`DB_PASSWORD`를 cluster의 `postgres-credentials`에서 읽는다). PR을 병합하고 Deploy로 그 앱을 배포한 뒤 [env-vars.md](env-vars.md#값-변경-비밀값-교체-포함) 3번처럼 앱 Secret 반영을 확인한다.
+3. `k8s/tools/seal-app-secrets.sh <앱>`으로 앱 Secret을 다시 봉인한다(`DB_PASSWORD`를 cluster의 `postgres-credentials`에서 읽는다). PR을 dev에 병합하면 자동 배포가 그 앱을 배포한다. 그 뒤 [env-vars.md](env-vars.md#값-변경-비밀값-교체-포함) 3번처럼 앱 Secret 반영을 확인한다.
 
 2와 3 사이에는 그 앱의 새 DB 연결이 실패하므로 배포 시간을 짧게 잡는다. 비밀번호 값은 명령 기록·로그에 남지 않게 한다.
 
@@ -81,5 +83,5 @@ PostgreSQL은 데이터 디렉터리가 비어 있을 때만 `postgres-credentia
 
 - `.env`, `*.env`, `*.pem`, 개인 키를 커밋하거나 채팅·노션에 붙여넣기
 - `~/.hapbang` 파일이나 `kubectl get secret -o yaml` 출력을 화면 공유·캡처
-- 비밀값을 로그에 출력하는 코드(`log.info(secret)`), Actions에서 `echo $SECRET`
+- 비밀값을 로그에 출력하는 코드(`log.info(secret)`), Actions에서 `echo $SECRET`. 앱 로그에 남기지 않는 값의 목록은 [로그 표준](../dev/logging.md)의 "민감 정보"다
 - 문서·PR에 실제 IP, 계정 ID, 키 파일 이름, 서버 DB 이름·계정 기재

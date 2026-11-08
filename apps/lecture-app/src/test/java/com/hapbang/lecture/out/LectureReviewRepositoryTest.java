@@ -7,6 +7,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
@@ -75,7 +77,7 @@ class LectureReviewRepositoryTest {
         lectureReviewRepository.save(LectureReview.write(item, BUYER_ID, 2, "다시 보니 아쉬워요", NOW.plusMinutes(2)));
         flushAndClear();
 
-        assertThat(lectureReviewRepository.findAlive(lecture.getId(), BUYER_ID))
+        assertThat(lectureReviewRepository.findAliveForUpdate(lecture.getId(), BUYER_ID))
                 .get().extracting(LectureReview::getRating).isEqualTo(2);
         assertThat(lectureReviewRepository.findByIdAndDeletedAtIsNull(review.getId())).isEmpty();
     }
@@ -130,6 +132,36 @@ class LectureReviewRepositoryTest {
                 .containsExactlyInAnyOrder(
                         tuple(lecture.getId(), 13.0 / 3, 3L),
                         tuple(other.getId(), 3.0, 1L));
+    }
+
+    // 평점 반영 규칙(OrderItemStatus.countsReview)은 Java 한 곳에 두고, 목록·집계 쿼리(VISIBLE_REVIEWS)와 모든 상태에서 같은지 본다 (#712)
+    @ParameterizedTest
+    @EnumSource(OrderItemStatus.class)
+    void 평점에_반영되는지는_모든_항목_상태에서_countsReview와_VISIBLE_REVIEWS가_같다(OrderItemStatus status) {
+        Lecture lecture = lectureRepository.save(onSaleLecture());
+        review(lecture, BUYER_ID, status, 5, NOW);
+        flushAndClear();
+
+        boolean visible = !lectureReviewRepository.summarize(List.of(lecture.getId())).isEmpty();
+
+        assertThat(visible).isEqualTo(status.countsReview());
+    }
+
+    @Test
+    void 리뷰를_고치거나_지우면_version이_오른다() {
+        Lecture lecture = lectureRepository.save(onSaleLecture());
+        LectureReview review = lectureReviewRepository.save(
+                LectureReview.write(confirmedItem(BUYER_ID, lecture), BUYER_ID, 5, null, NOW));
+        lectureReviewRepository.flush();
+        assertThat(review.getVersion()).isZero();
+
+        review.edit(BUYER_ID, 3, "다시 보니 보통이에요", NOW.plusMinutes(1));
+        lectureReviewRepository.flush();
+        assertThat(review.getVersion()).isEqualTo(1);
+
+        review.delete(BUYER_ID, NOW.plusMinutes(2));
+        lectureReviewRepository.flush();
+        assertThat(review.getVersion()).isEqualTo(2);
     }
 
     private LectureReview review(Lecture lecture, Long buyerUserId, OrderItemStatus status, int rating,

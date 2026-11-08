@@ -19,7 +19,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -66,6 +69,7 @@ import com.hapbang.shared.billing.domain.BillingReferenceType;
  */
 @AppearanceIntegrationTest
 @WithMockUser(roles = "INFLUENCER")
+@ExtendWith(OutputCaptureExtension.class)
 class AppearanceHostCancelFlowTest {
 
     private static final Long HOST = 1L;
@@ -182,7 +186,7 @@ class AppearanceHostCancelFlowTest {
 
         @Test
         @DisplayName("요청서 출처: CANCELED_BY_HOST, Billing에 위약금 9,000 게스트 지급 + 21,000 호스트 반환(합계 = 출연료 30,000) 요청 (PENALTY·HOST_CANCELED·DONE)")
-        void fromRequest() {
+        void fromRequest(CapturedOutput output) {
             RequestAppearance established = establishFromRequest();
 
             AppearanceResDto canceled = appearanceFacade.hostCancel(HOST, established.appearanceId(), false,
@@ -207,6 +211,9 @@ class AppearanceHostCancelFlowTest {
                 assertThat(penalty.releaseAmountHp()).isEqualTo(FEE - PENALTY);
                 assertThat(penalty.payoutAmountHp()).isEqualTo(PENALTY);
             });
+            assertThat(output.getAll().lines().filter(line -> line.contains("호스트가 출연을 취소했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "appearanceId=" + established.appearanceId(), "hostId=" + HOST));
         }
 
         @Test
@@ -378,7 +385,7 @@ class AppearanceHostCancelFlowTest {
 
         @Test
         @DisplayName("모집 중, 3명 중 2명 성립·1명 대기: CANCELED, 출연 2건 위약금 9,000씩, 대기 지원 NOT_SELECTED, 빈자리 30,000 반환 (Billing 요청 합계 = 보류 90,000)")
-        void recruiting() {
+        void recruiting(CapturedOutput output) {
             Long recruitId = postRecruit(3);
             Long first = establishFromRecruit(recruitId, GUEST);
             Long second = establishFromRecruit(recruitId, GUEST2);
@@ -407,6 +414,9 @@ class AppearanceHostCancelFlowTest {
                     .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple(GUEST, PENALTY),
                             org.assertj.core.groups.Tuple.tuple(GUEST2, PENALTY));
             assertThat(BillingCalls.releases(billingClient)).extracting(ReleaseCommand::amountHp).containsExactly(FEE);
+            assertThat(output.getAll().lines().filter(line -> line.contains("모집을 취소했다")))
+                    .singleElement().satisfies(line -> assertThat(line)
+                            .contains(" INFO ", "recruitId=" + recruitId, "hostId=" + HOST, "appearanceCount=2"));
         }
 
         @Test

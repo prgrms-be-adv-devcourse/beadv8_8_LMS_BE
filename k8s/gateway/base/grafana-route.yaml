@@ -27,3 +27,20 @@ spec:
     backendRefs:
     - name: grafana
       port: 80
+---
+# Grafana 화면 요청은 trace로 남기지 않는다(#679). 대시보드 새로고침마다 요청이 생겨 업무 trace보다 많았다(2026-11-04 운영
+# 1시간 trace의 64%). route별 설정이 EnvoyProxy의 samplingRate보다 우선한다.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: grafana-no-tracing
+  namespace: hapbang-platform
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: grafana
+  telemetry:
+    tracing:
+      samplingFraction:
+        numerator: 0

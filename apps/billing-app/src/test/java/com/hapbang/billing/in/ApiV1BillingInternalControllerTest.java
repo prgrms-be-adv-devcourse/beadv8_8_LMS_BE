@@ -159,6 +159,76 @@ class ApiV1BillingInternalControllerTest {
     }
 
     @Test
+    @DisplayName("탈퇴용 지갑 닫기: CLOSED·BLOCKED와 이유를 RsData로 돌려주고, 재요청은 replayed=true, 다른 회원은 409다 (#623)")
+    void closeForWithdrawal() throws Exception {
+        Long host = wallet(HOST);
+        Long guest = wallet(GUEST);
+        revenue(guest, 3_000L);
+
+        call("/withdrawals/55/close", "{\"userId\": 1}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("지갑 탈퇴 확인을 마쳤습니다."))
+                .andExpect(jsonPath("$.data.withdrawalId").value(55))
+                .andExpect(jsonPath("$.data.outcome").value("CLOSED"))
+                .andExpect(jsonPath("$.data.reasons").isEmpty())
+                .andExpect(jsonPath("$.data.replayed").value(false));
+        call("/withdrawals/55/close", "{\"userId\": 1}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("CLOSED"))
+                .andExpect(jsonPath("$.data.replayed").value(true));
+        call("/withdrawals/56/close", "{\"userId\": 2}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("BLOCKED"))
+                .andExpect(jsonPath("$.data.reasons[0].code").value("BILLING_REVENUE_BALANCE_REMAINING"))
+                .andExpect(jsonPath("$.data.reasons[0].message")
+                        .value("수익 HP 3,000이 남아 있어요. 환전을 신청한 뒤 탈퇴할 수 있어요."))
+                .andExpect(jsonPath("$.data.reasons[0].availableAt").doesNotExist());
+        assertProblem(call("/withdrawals/55/close", "{\"userId\": 2}"), 409, "IDEMPOTENCY_KEY_CONFLICT");
+        // 닫힌 지갑에 온 보류는 409 WALLET_CLOSED다
+        assertProblem(call("/holds", hold(HOST, 7L, 1_000L)), 409, "WALLET_CLOSED")
+                .andExpect(jsonPath("$.detail").value("탈퇴한 회원의 지갑이에요."));
+
+        assertThat(walletRepository.findById(host).orElseThrow().isClosedBy(55L)).isTrue();
+        assertThat(walletRepository.findById(guest).orElseThrow().isClosed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("탈퇴용 지갑 다시 열기: REOPENED·NOT_CLOSED를 돌려주고, 다시 열린 작업의 닫기는 409 WITHDRAWAL_ALREADY_REOPENED다 (#623)")
+    void reopenForWithdrawal() throws Exception {
+        Long host = wallet(HOST);
+        call("/withdrawals/55/close", "{\"userId\": 1}").andExpect(status().isOk());
+
+        call("/withdrawals/55/reopen", "{\"userId\": 1}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("지갑을 다시 열었습니다."))
+                .andExpect(jsonPath("$.data.withdrawalId").value(55))
+                .andExpect(jsonPath("$.data.outcome").value("REOPENED"))
+                .andExpect(jsonPath("$.data.replayed").value(false));
+        call("/withdrawals/55/reopen", "{\"userId\": 1}")
+                .andExpect(jsonPath("$.data.replayed").value(true));
+        call("/withdrawals/57/reopen", "{\"userId\": 1}")
+                .andExpect(jsonPath("$.data.outcome").value("NOT_CLOSED"));
+        assertProblem(call("/withdrawals/57/close", "{\"userId\": 1}"), 409, "WITHDRAWAL_ALREADY_REOPENED");
+
+        assertThat(walletRepository.findById(host).orElseThrow().isClosed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("탈퇴용 지갑 닫기·다시 열기: userId가 없으면 400 INVALID_REQUEST, 내부 API 키가 없으면 401이다 (#623)")
+    void withdrawalRequestErrors() throws Exception {
+        wallet(HOST);
+
+        assertProblem(call("/withdrawals/55/close", "{}"), 400, "INVALID_REQUEST");
+        assertProblem(call("/withdrawals/55/reopen", "{\"userId\": null}"), 400, "INVALID_REQUEST");
+        mockMvc.perform(post(BASE + "/withdrawals/55/close").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\": 1}"))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM billing.wallet_withdrawal", Integer.class))
+                .isZero();
+    }
+
+    @Test
     @DisplayName("반환: amountHp를 빼면 남은 보류 전부를 반환하고, 같은 반환 요청 ID 재요청은 replayed=true다")
     void release() throws Exception {
         Long host = wallet(HOST);

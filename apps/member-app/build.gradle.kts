@@ -12,9 +12,17 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security-oauth2-client")
     // 치지직 Open API 호출 (채널 인증)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
+    // 가입 이메일 인증 코드 메일 발송 (#557, Gmail SMTP)
+    implementation("org.springframework.boot:spring-boot-starter-mail")
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
     implementation(libs.swagger.annotations)
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
+    // 출연·강의 내부 API 호출의 circuit breaker와 지표 (#654, 지갑 OutboundCircuitBreakers와 같은 방식)
+    implementation(libs.resilience4j.circuitbreaker)
+    implementation(libs.resilience4j.micrometer)
+    // 동시 요청의 유일 위반 판별(UserUniqueViolation)에 PSQLException의 SQLState·제약 이름을 쓴다(#646, 강의·지갑과 같음, D48).
+    // 드라이버는 실행 시 들어 있다
+    compileOnly("org.postgresql:postgresql")
     // 테스트에서 로그인 상태 만들기 (oauth2Login())
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }

@@ -33,6 +33,7 @@ public class AppearanceApplicationQueryUseCase {
 
     /**
      * 모집글의 지원자 목록. 모집글을 올린 호스트만 볼 수 있다 (다른 회원에게는 지원자 수만 보인다).
+     * 보류 처리 중·실패한 모집글도 상세처럼 호스트에게는 빈 목록으로 응답한다 (지원을 받은 적이 없다, #306).
      *
      * @param statuses 상태 필터. 비어 있으면 전체
      * @throws AppearanceException 호스트 자격, 없거나 보이지 않는 모집글, 호스트가 아님({@code NOT_RECRUIT_HOST})
@@ -42,7 +43,7 @@ public class AppearanceApplicationQueryUseCase {
                                                            Pageable pageable) {
         appearanceUserSupport.getParticipant(userId);
         AppearanceRecruit recruit = appearanceRecruitSupport.getById(recruitId);
-        recruit.validateVisible();
+        recruit.validateDetailViewableBy(userId);
         if (!recruit.isHost(userId)) {
             throw new AppearanceException(AppearanceErrorCode.NOT_RECRUIT_HOST,
                     "출연 모집글을 올린 호스트만 지원자 목록을 볼 수 있습니다.");

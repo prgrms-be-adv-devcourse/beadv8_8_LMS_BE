@@ -66,7 +66,7 @@ public class ChatMessage {
     /** 보낸 사람이 붙인 전송 ID. 같은 방·보낸 사람 안에서 유일하며, 재전송을 알아보는 데 쓴다. 없으면 null */
     private String clientMessageId;
 
-    /** 알림 메시지의 종류. 일반·시스템 메시지는 null */
+    /** 알림 메시지·단체방 안내의 종류. 일반 메시지와 1:1 방의 시스템 메시지는 null */
     @Enumerated(EnumType.STRING)
     private NotificationKind notificationKind;
 
@@ -79,7 +79,7 @@ public class ChatMessage {
     /**
      * 알림 메시지가 담는 값의 JSON({@link NotificationData}). 알림 종류별 record를 직렬화해 넣고, 읽을 때는 종류별 메서드
      * ({@link #readAppearanceRequestSent()} 등)로 그 종류의 record로 바꾼다. 문구는 프론트가 종류별 템플릿으로 만든다.
-     * 일반·시스템 메시지와 문구(content)로 남긴 기존 알림은 null
+     * 단체방 안내도 같은 방식으로 종류별 값을 담는다. 일반 메시지·1:1 방의 시스템 메시지와 문구(content)로 남긴 기존 알림은 null
      */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "notification_data", columnDefinition = "jsonb")
@@ -158,6 +158,61 @@ public class ChatMessage {
                 recruitId, NotificationData.write(data), now);
     }
 
+    /** 단체방 초대 안내. 보낸 사람은 초대한 호스트, 값은 이번 요청으로 참여한 회원들이다 */
+    public static ChatMessage groupMembersInvited(ChatRoom chatRoom, Long hostId, GroupMembersInvitedData data,
+            LocalDateTime now) {
+        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_MEMBERS_INVITED, data, now);
+    }
+
+    /** 단체방 강퇴 안내. 보낸 사람은 내보낸 호스트다 */
+    public static ChatMessage groupMemberKicked(ChatRoom chatRoom, Long hostId, GroupMemberKickedData data,
+            LocalDateTime now) {
+        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_MEMBER_KICKED, data, now);
+    }
+
+    /** 단체방 나가기 안내. 보낸 사람은 나간 회원이다 */
+    public static ChatMessage groupMemberLeft(ChatRoom chatRoom, Long leftUserId, GroupMemberLeftData data,
+            LocalDateTime now) {
+        return groupNotice(chatRoom, leftUserId, NotificationKind.GROUP_MEMBER_LEFT, data, now);
+    }
+
+    /** 단체방 폐쇄 안내. 보낸 사람은 폐쇄한 호스트다. 방을 읽기 전용으로 바꾸기 전에 만든다 */
+    public static ChatMessage groupRoomClosed(ChatRoom chatRoom, Long hostId, GroupRoomClosedData data,
+            LocalDateTime now) {
+        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_ROOM_CLOSED, data, now);
+    }
+
+    /** 단체방 호스트 자격 상실 안내. 보낸 사람은 자격을 잃은 호스트다. 방을 읽기 전용으로 바꾸기 전에 만든다 */
+    public static ChatMessage groupHostUnavailable(ChatRoom chatRoom, Long hostId, GroupHostUnavailableData data,
+            LocalDateTime now) {
+        return groupNotice(chatRoom, hostId, NotificationKind.GROUP_HOST_UNAVAILABLE, data, now);
+    }
+
+    /** 단체방 호스트 자격 상실 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
+    public GroupHostUnavailableData readGroupHostUnavailable() {
+        return readNotificationData(NotificationKind.GROUP_HOST_UNAVAILABLE, GroupHostUnavailableData.class);
+    }
+
+    /** 단체방 초대 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
+    public GroupMembersInvitedData readGroupMembersInvited() {
+        return readNotificationData(NotificationKind.GROUP_MEMBERS_INVITED, GroupMembersInvitedData.class);
+    }
+
+    /** 단체방 강퇴 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
+    public GroupMemberKickedData readGroupMemberKicked() {
+        return readNotificationData(NotificationKind.GROUP_MEMBER_KICKED, GroupMemberKickedData.class);
+    }
+
+    /** 단체방 나가기 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
+    public GroupMemberLeftData readGroupMemberLeft() {
+        return readNotificationData(NotificationKind.GROUP_MEMBER_LEFT, GroupMemberLeftData.class);
+    }
+
+    /** 단체방 폐쇄 안내의 값. 다른 종류의 메시지이거나 읽을 수 없으면 null이다 */
+    public GroupRoomClosedData readGroupRoomClosed() {
+        return readNotificationData(NotificationKind.GROUP_ROOM_CLOSED, GroupRoomClosedData.class);
+    }
+
     /** 출연 요청 도착 알림의 값. 다른 종류의 메시지이거나 값이 없거나 읽을 수 없으면 null이다 */
     public AppearanceRequestSentData readAppearanceRequestSent() {
         return readNotificationData(NotificationKind.APPEARANCE_REQUEST_SENT, AppearanceRequestSentData.class);
@@ -186,6 +241,21 @@ public class ChatMessage {
         message.referenceId = referenceId;
         message.parentReferenceId = parentReferenceId;
         message.notificationDataJson = notificationDataJson;
+        return message;
+    }
+
+    /**
+     * 단체방 안내(시스템 메시지). 서버만 만든다. 문구는 만들지 않고 종류와 값(행위자·대상 회원 ID)만 남기며, 본문은
+     * {@link #NOTIFICATION_CONTENT}(빈 문자열)다. 출연 건을 가리키지 않으므로 {@code referenceId}는 비워 둔다.
+     */
+    private static ChatMessage groupNotice(ChatRoom chatRoom, Long senderUserId, NotificationKind kind, Object data,
+            LocalDateTime now) {
+        Assert.state(chatRoom.isGroup(), "단체방 안내는 단체방에만 남깁니다.");
+        Assert.state(data != null, "안내 값이 비어 있습니다.");
+        ChatMessage message = new ChatMessage(chatRoom, senderUserId, ChatMessageType.SYSTEM, NOTIFICATION_CONTENT,
+                now);
+        message.notificationKind = kind;
+        message.notificationDataJson = NotificationData.write(data);
         return message;
     }
 

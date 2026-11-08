@@ -10,9 +10,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     // TossPayments 결제 승인·조회 호출 (RestClient.Builder, #224)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
-    // Facade 역할 검사(@PreAuthorize). 메서드 보안은 global SecurityConfig가 켠다
+    // Facade 역할 검사(@PreAuthorize). 메서드 보안은 앱 안의 global.config.SecurityConfig가 켠다
     implementation("org.springframework.security:spring-security-core")
-    // 가상 송금 Mock 은행 API 경로만의 보안 체인(SecurityFilterChain, #288). 실행 시 클래스는 global이 이미 넣는다
+    // 보안 체인(SecurityFilterChain): 사용자 API(SecurityConfig), 내부 API(InternalApiSecurityConfig), 가상 송금 Mock 은행 API(#288)
     implementation("org.springframework.security:spring-security-config")
     implementation("org.springframework.security:spring-security-web")
     // Swagger 명세용 어노테이션(@Tag, @Operation). 루트에서 관리하는 springdoc 3.1.1이 쓰는 버전과 맞춘다
@@ -21,11 +21,13 @@ dependencies {
     compileOnly("org.postgresql:postgresql")
     // 지갑 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #497). 버전은 Modulith BOM을 따른다
     implementation("org.springframework.modulith:spring-modulith-events-kafka")
-    // 다른 앱 내부 API·TossPayments 호출의 circuit breaker·재시도와 그 지표 (#562, 루트 AGENTS.md 2장). 버전은 레포 카탈로그를 따른다
+    // 다른 앱 내부 API·TossPayments 호출의 circuit breaker·재시도와 그 지표 (#562), 사용자 API의 회원별 rate limit (#627)
+    // (루트 AGENTS.md 2장). 버전은 레포 카탈로그를 따른다
     implementation(libs.resilience4j.circuitbreaker)
     implementation(libs.resilience4j.retry)
+    implementation(libs.resilience4j.ratelimiter)
     implementation(libs.resilience4j.micrometer)
-    // 테스트에서 로그인 상태 만들기 (oauth2Login())
+    // 테스트 보안 지원(@WithMockUser). API 로그인은 Gateway 사용자 헤더(fixture.GatewayLogin)로 만든다 (#537)
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
 }
 

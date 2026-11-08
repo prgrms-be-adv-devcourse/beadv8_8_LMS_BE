@@ -40,7 +40,8 @@ import tools.jackson.databind.exc.MismatchedInputException;
  * 모든 컨트롤러의 오류를 ProblemDetail(RFC 9457)로 응답하는 유일한 핸들러 (2026-10-12 회의). 모듈은 핸들러를 두지 않는다.
  * 모든 응답에 {@code code}가 있다.
  * <ul>
- *     <li>{@link BusinessException} → 오류 코드의 상태, detail, {@code code}({@link BaseErrorCode#getCode()}), 예외의 추가 속성</li>
+ *     <li>{@link BusinessException} → 오류 코드의 상태, detail, {@code code}({@link BaseErrorCode#getCode()}), 예외의 추가 속성.
+ *     {@link RetryLater}이면 {@code Retry-After}(초) 헤더를 붙인다(요청 한도 초과 429, 업로드 자리 없음 503)</li>
  *     <li>요청 값 검증·형식 오류 → 400 {@code INVALID_REQUEST}, {@code errors: [{field, message}]}</li>
  *     <li>컨트롤러 안의 권한 거절({@code @PreAuthorize}) → 로그인했으면 403 {@code FORBIDDEN}, 아니면 401 {@code UNAUTHORIZED}</li>
  *     <li>그 밖의 Spring MVC 예외(405, 415, 없는 경로 404 등) → {@link ResponseEntityExceptionHandler} 기본 응답 + 상태에 맞는 {@code code}</li>
@@ -56,16 +57,27 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private final AuthenticationTrustResolver authenticationTrustResolver = new AuthenticationTrustResolverImpl();
 
     @ExceptionHandler(BusinessException.class)
-    public ProblemDetail handleBusinessException(BusinessException exception) {
+    public ResponseEntity<ProblemDetail> handleBusinessException(BusinessException exception) {
         BaseErrorCode errorCode = exception.getErrorCode();
-        if (errorCode.getStatus().is5xxServerError()) {
-            log.error("업무 예외 code={}, message={}", errorCode.getCode(), exception.getMessage(), exception);
-        } else {
-            log.warn("업무 예외 code={}, message={}", errorCode.getCode(), exception.getMessage());
-        }
         ProblemDetail problemDetail = problem(errorCode, exception.getMessage());
         exception.getProperties().forEach(problemDetail::setProperty);
-        return problemDetail;
+        if (exception instanceof RetryLater retryLater) {
+            // 요청 한도 초과·업로드 자리 없음은 남용·혼잡 때 몰리므로 요청마다 남기지 않는다(로그 폭주 방지).
+            // 거절은 지표와 거절한 곳의 로그로 본다 (D80·D81, 지갑 BD-140과 같음)
+            log.debug("잠시 뒤 다시 시도하라고 응답했다 code={}, retryAfterSeconds={}", errorCode.getCode(),
+                    retryLater.retryAfterSeconds());
+            return ResponseEntity.status(errorCode.getStatus())
+                    .header(HttpHeaders.RETRY_AFTER, String.valueOf(retryLater.retryAfterSeconds()))
+                    .body(problemDetail);
+        }
+        if (errorCode.getStatus().is5xxServerError()) {
+            log.error("업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), exception.getMessage(), exception);
+        } else {
+            // 4xx는 사용자 입력·정책상 거절한 정상 응답이라 WARN이 아니다. 문의를 조사할 때 쓰도록 사유는 INFO로 남긴다
+            // (docs/dev/logging.md "레벨", #582)
+            log.info("업무 예외로 응답했다 code={}, message={}", errorCode.getCode(), exception.getMessage());
+        }
+        return ResponseEntity.status(errorCode.getStatus()).body(problemDetail);
     }
 
     /** 컨트롤러·서비스의 {@code @PreAuthorize} 거절. 비로그인 사용자면 403이 아니라 401로 응답한다 */
@@ -86,7 +98,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     /** 처리하지 못한 예외. 같은 클래스의 더 구체적인 핸들러(위·{@link ResponseEntityExceptionHandler})가 먼저 선택된다 */
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception exception) {
-        log.error("처리하지 못한 예외", exception);
+        log.error("처리하지 못한 예외로 500을 응답한다", exception);
         return problem(GlobalErrorCode.INTERNAL_ERROR, GlobalErrorCode.INTERNAL_ERROR.getMessage());
     }
 

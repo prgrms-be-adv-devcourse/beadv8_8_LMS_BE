@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.hapbang.chat.app.dto.ChatMessageResponse;
+import com.hapbang.chat.app.dto.ChatReadCounts;
 import com.hapbang.chat.app.dto.ChatResyncReason;
 import com.hapbang.chat.app.dto.ChatRoomActivity;
 import com.hapbang.chat.app.dto.ChatSubscriptionReason;
@@ -35,6 +36,12 @@ public interface LocalChatSender {
      */
     void sendSubscriptionSignal(Long roomId, RoomTarget target, SubscriptionSignal signal,
             ChatSubscriptionReason reason, Integer currentParticipationVersion);
+
+    /**
+     * 방 topic 구독마다 안 읽은 사람 수 갱신 프레임을 쓴다(헤더 {@code chat-frame-type: READ_COUNTS}, {@code participation-version}은
+     * 그 구독의 세대). payload는 한 번만 직렬화한다.
+     */
+    void sendReadCounts(Long roomId, ChatReadCounts readCounts, List<RoomTarget> targets);
 
     /** {@code /user/queue/chats/notifications}로 새 메시지 알림을 그 연결 하나에만 보낸다 */
     void sendRoomActivity(Long userId, String sessionId, ChatRoomActivity activity);

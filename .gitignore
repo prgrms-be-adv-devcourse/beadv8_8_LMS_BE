@@ -41,3 +41,6 @@ out/
 
 ### ETC ###
 .DS_Store
+
+### Architecture diagrams (local only) ###
+docs/architecture/billing/*.drawio

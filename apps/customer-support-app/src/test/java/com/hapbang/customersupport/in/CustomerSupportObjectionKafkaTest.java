@@ -5,6 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterEach;
@@ -44,11 +46,30 @@ import com.hapbang.customersupport.global.config.CustomerSupportEventExternaliza
 import com.hapbang.customersupport.global.config.CustomerSupportKafkaConfig;
 import com.hapbang.customersupport.out.InquiryRepository;
 import com.hapbang.shared.customersupport.event.CustomerSupportEventTopic;
+import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
+import com.hapbang.shared.lecture.dto.CartItemSyncDto;
+import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
+import com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto;
+import com.hapbang.shared.lecture.dto.LectureReviewSyncDto;
+import com.hapbang.shared.lecture.dto.LectureSyncDto;
+import com.hapbang.shared.lecture.event.CartItemChangedEvent;
+import com.hapbang.shared.lecture.event.LectureChangedEvent;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
+import com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent;
+import com.hapbang.shared.lecture.event.LectureReviewChangedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
+import com.hapbang.testsupport.RecordedSpans;
+import com.hapbang.testsupport.TraceRequests;
+
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.trace.data.SpanData;
 
 /**
  * 판단 요청이 {@code customersupport.events.v1}에 key {@code inquiry:<문의 ID>}로 나가고, 강의가 {@code lecture.events.v1}에
@@ -56,9 +77,11 @@ import com.hapbang.testsupport.KafkaTestcontainersConfig;
  * 테스트마다 다른 주문 항목·문의를 쓰고 자기 key의 메시지만 본다. 외부화와 리스너를 켠 설정이라 컨텍스트를 따로 띄우고 끝나면 닫는다.
  */
 @IntegrationTest
-@Import({KafkaTestcontainersConfig.class, CustomerSupportObjectionKafkaTest.LectureTopicConfig.class})
+@Import({KafkaTestcontainersConfig.class, CustomerSupportObjectionKafkaTest.LectureTopicConfig.class,
+        RecordedSpans.Config.class})
+// trace 확인(#630)은 부모 없이 시작한 span도 놓치지 않게 샘플링 비율을 1로 둔다
 @TestPropertySource(properties = {"spring.kafka.listener.auto-startup=true", "spring.kafka.admin.auto-create=true",
-        "spring.modulith.events.externalization.enabled=true"})
+        "spring.modulith.events.externalization.enabled=true", "management.tracing.sampling.probability=1.0"})
 @DirtiesContext
 class CustomerSupportObjectionKafkaTest {
 
@@ -81,6 +104,9 @@ class CustomerSupportObjectionKafkaTest {
     private KafkaAdmin kafkaAdmin;
 
     @Autowired
+    private MeterRegistry meterRegistry;
+
+    @Autowired
     private InquiryUseCase inquiryUseCase;
 
     @Autowired
@@ -88,6 +114,12 @@ class CustomerSupportObjectionKafkaTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private ObservationRegistry observationRegistry;
+
+    @Autowired
+    private RecordedSpans spans;
 
     private KafkaConsumer<String, String> consumer;
     private final List<ConsumerRecord<String, String>> received = new CopyOnWriteArrayList<>();
@@ -136,6 +168,37 @@ class CustomerSupportObjectionKafkaTest {
                 }));
     }
 
+    // trace(#630): 관리자 요청 안에서 보낸 판단 요청은 커밋 뒤 다른 스레드에서 나가도 요청과 같은 trace를 싣고,
+    // 강의가 그 trace로 보낸 결과도 같은 trace에서 처리한다
+    @Test
+    void 판단_요청과_강의_결과_처리가_관리자_요청과_같은_trace에_남는다() throws Exception {
+        long orderItemId = 803L;
+        Long inquiryId = LectureObjectionFixture.filed(transactionTemplate, inquiryRepository, USER_ID, orderItemId);
+
+        // 관리자 요청 하나(HTTP server span)를 대신한다
+        Observation.createNotStarted("objection-resolve-request", observationRegistry)
+                .observe(() -> inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다."));
+
+        ConsumerRecord<String, String> record = awaitExactly("inquiry:" + inquiryId, 1).getFirst();
+        RecordedSpans.await(() -> !spans.named("objection-resolve-request").isEmpty());
+        String traceId = spans.named("objection-resolve-request").getFirst().getTraceId();
+        RecordedSpans.await(() -> spans.all().stream()
+                .anyMatch(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.PRODUCER));
+        SpanData sent = spans.all().stream()
+                .filter(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.PRODUCER)
+                .findFirst().orElseThrow();
+        assertThat(header(record, "traceparent")).startsWith("00-" + traceId + "-" + sent.getSpanId() + "-");
+
+        // 강의 앱이 받은 traceparent를 이어 결과를 보낸 것처럼 보낸다
+        String lectureSpanId = TraceRequests.randomSpanId();
+        send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true),
+                TraceRequests.traceparent(traceId, lectureSpanId, true));
+        RecordedSpans.await(() -> spans.all().stream()
+                .anyMatch(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER));
+        assertThat(spans.all()).filteredOn(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER)
+                .extracting(SpanData::getParentSpanId).containsOnly(lectureSpanId);
+    }
+
     @Test
     void 고객센터_토픽과_강의_결과_DLT는_partition_3개로_선언한다() {
         String deadLetter = CustomerSupportKafkaConfig.deadLetterTopic(LectureEventTopic.NAME,
@@ -144,12 +207,131 @@ class CustomerSupportObjectionKafkaTest {
                 .allSatisfy((name, description) -> assertThat(description.partitions()).hasSize(3));
     }
 
-    /** 강의 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로 붙인다. */
+    /**
+     * 깨진 강의 이벤트는 재시도 없이 DLT로 가고, 그 전송이 지표에 잡힌다 (#339).
+     * {@code eventType} 헤더 없이 보내 {@code __TypeId__}로 찾는 경로도 함께 지난다(#722)
+     */
+    @Test
+    void 읽을_수_없는_강의_이벤트는_DLT로_보내고_전송_지표에_센다() {
+        sendRaw("order-item:802", "{not json", Map.of("__TypeId__", LectureObjectionResolvedEvent.class.getName()));
+
+        assertDeadLetterSendCounted();
+    }
+
+    /**
+     * 강의가 같은 토픽에 내보내는 AI 추천용 동기화 이벤트(#712)는 고객센터가 받지 않는 타입이다. 무시용 레코드로 읽어 커밋해,
+     * 재시도·DLT 없이 같은 partition의 다음 결과를 처리한다. 클래스를 찾지 않으므로 native 이미지에 등록하지 않아도 같다(#722)
+     */
+    @Test
+    void 강의_동기화_이벤트는_무시하고_DLT로_보내지_않고_다음_결과를_처리한다() {
+        long orderItemId = 804L;
+        Long inquiryId = LectureObjectionFixture.filed(transactionTemplate, inquiryRepository, USER_ID, orderItemId);
+        inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다.");
+        OffsetDateTime at = OffsetDateTime.parse("2026-11-06T09:00:00+09:00");
+        try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(objectionResultDeadLetter())) {
+            // 같은 key로 보내 같은 partition에서 결과보다 먼저 읽히게 한다
+            send(orderItemId, new LectureChangedEvent(new LectureSyncDto(11L, 3L, "강의", null, true, false,
+                    List.of(new LectureContentSyncDto(21L, "1강", 1)), 1L)));
+            send(orderItemId, new LecturePurchaseChangedEvent(new LecturePurchaseSyncDto(orderItemId, USER_ID, 11L,
+                    LecturePurchaseResult.PENDING, at, at, 2L)));
+            send(orderItemId, new CartItemChangedEvent(new CartItemSyncDto(31L, USER_ID, 11L, true, at, 1L)));
+            send(orderItemId, new LectureReviewChangedEvent(new LectureReviewSyncDto(41L, 11L, USER_ID, 5, false,
+                    false, 1L)));
+            send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true));
+
+            await().atMost(TIMEOUT).untilAsserted(() -> assertThat(inquiryRepository.findById(inquiryId))
+                    .hasValueSatisfying(inquiry ->
+                            assertThat(inquiry.getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED)));
+            assertNoDeadLetter(deadLetters, "order-item:" + orderItemId);
+        }
+    }
+
+    /**
+     * 고객센터 앱에 클래스가 없는 타입(native 이미지에 등록하지 않은 새 이벤트와 같은 상황)도 {@code eventType}만 보고 무시한다 (#722).
+     * {@code __TypeId__}로 클래스를 찾으면 역직렬화에 실패해 재시도 없이 DLT로 간다
+     */
+    @Test
+    void 클래스가_없는_모르는_타입은_DLT로_보내지_않고_다음_결과를_처리한다() {
+        long orderItemId = 805L;
+        Long inquiryId = LectureObjectionFixture.filed(transactionTemplate, inquiryRepository, USER_ID, orderItemId);
+        inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다.");
+        try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(objectionResultDeadLetter())) {
+            sendRaw("order-item:" + orderItemId, "{\"lectureId\":11}", Map.of(
+                    "__TypeId__", "com.hapbang.shared.lecture.event.NotYetKnownEvent",
+                    CustomerSupportEventExternalizationConfig.EVENT_TYPE, "NotYetKnownEvent"));
+            send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true));
+
+            await().atMost(TIMEOUT).untilAsserted(() -> assertThat(inquiryRepository.findById(inquiryId))
+                    .hasValueSatisfying(inquiry ->
+                            assertThat(inquiry.getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED)));
+            assertNoDeadLetter(deadLetters, "order-item:" + orderItemId);
+        }
+    }
+
+    private static String objectionResultDeadLetter() {
+        return CustomerSupportKafkaConfig.deadLetterTopic(LectureEventTopic.NAME,
+                CustomerSupportKafkaConfig.OBJECTION_RESULT_GROUP);
+    }
+
+    /** 잠시 기다려도 이 key의 메시지가 DLT에 오지 않는다 */
+    private static void assertNoDeadLetter(KafkaConsumer<String, String> deadLetters, String key) {
+        List<ConsumerRecord<String, String>> deadLettered = new CopyOnWriteArrayList<>();
+        await().during(HOLD).atMost(TIMEOUT).pollInSameThread().untilAsserted(() -> {
+            deadLetters.poll(Duration.ofMillis(200)).forEach(deadLettered::add);
+            assertThat(deadLettered).noneMatch(record -> key.equals(record.key()));
+        });
+    }
+
+    /** 본문과 헤더를 그대로 실어 보낸다. 강의 앱이 아직 만들지 않은 타입이나 깨진 본문을 흉내 낸다 */
+    private void sendRaw(String key, String body, Map<String, String> headers) {
+        ProducerRecord<String, byte[]> record = new ProducerRecord<>(LectureEventTopic.NAME, key,
+                body.getBytes(StandardCharsets.UTF_8));
+        headers.forEach((name, value) -> record.headers().add(name, value.getBytes(StandardCharsets.UTF_8)));
+        try (Producer<String, byte[]> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
+                new StringSerializer(), new ByteArraySerializer())) {
+            producer.send(record).get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** 이 토픽을 읽는 소비자. 파티션을 받을 때까지 읽은 뒤 끝으로 옮겨, 이후 이 테스트가 만든 메시지만 받는다 */
+    private KafkaConsumer<String, String> consumerAtEnd(String topic) {
+        Map<String, Object> properties = new HashMap<>(kafkaAdmin.getConfigurationProperties());
+        properties.put(ConsumerConfig.GROUP_ID_CONFIG, "customer-support-test-" + UUID.randomUUID());
+        properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        KafkaConsumer<String, String> topicConsumer = new KafkaConsumer<>(properties, new StringDeserializer(),
+                new StringDeserializer());
+        topicConsumer.subscribe(List.of(topic));
+        await().atMost(TIMEOUT).pollInSameThread().until(() -> {
+            topicConsumer.poll(Duration.ofMillis(100));
+            return !topicConsumer.assignment().isEmpty();
+        });
+        topicConsumer.seekToEnd(topicConsumer.assignment());
+        topicConsumer.assignment().forEach(topicConsumer::position);
+        return topicConsumer;
+    }
+
+    /**
+     * 강의 앱처럼 레코드를 JSON으로 싣고 클래스 이름을 타입 헤더({@code __TypeId__})로, 레코드 이름을 {@code eventType} 헤더로 붙인다.
+     * 강의 앱의 {@code eventType} 값은 지금 레코드 이름과 같다(LectureEventExternalizationConfig)
+     */
     private void send(long orderItemId, Object event) {
+        send(orderItemId, event, null);
+    }
+
+    /** {@code traceparent}(없으면 null)를 헤더에 실어, trace를 계측한 강의 앱이 보낸 것처럼 보낸다 (#630) */
+    private void send(long orderItemId, Object event, String traceparent) {
         try (Producer<String, Object> producer = new KafkaProducer<>(Map.copyOf(kafkaAdmin.getConfigurationProperties()),
                 new StringSerializer(), new JacksonJsonSerializer<>())) {
-            producer.send(new ProducerRecord<>(LectureEventTopic.NAME, "order-item:" + orderItemId, event))
-                    .get(10, TimeUnit.SECONDS);
+            ProducerRecord<String, Object> record = new ProducerRecord<>(LectureEventTopic.NAME,
+                    "order-item:" + orderItemId, event);
+            record.headers().add(CustomerSupportEventExternalizationConfig.EVENT_TYPE,
+                    event.getClass().getSimpleName().getBytes(StandardCharsets.UTF_8));
+            if (traceparent != null) {
+                record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
+            }
+            producer.send(record).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -171,5 +353,16 @@ class CustomerSupportObjectionKafkaTest {
     private static String header(ConsumerRecord<String, String> record, String name) {
         Header header = record.headers().lastHeader(name);
         return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
+    }
+
+    /** DLT 전송도 Kafka producer 지표로 센다 (#339). 토픽별 지표는 Micrometer가 60초마다 새로 등록하므로 바로 생기는 client 지표로 본다. */
+    private void assertDeadLetterSendCounted() {
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(meterRegistry
+                .find("kafka.producer.record.send.total").functionCounters())
+                .filteredOn(counter -> String.valueOf(counter.getId().getTag("spring.id"))
+                        .startsWith(CustomerSupportKafkaConfig.DEAD_LETTER_PRODUCER_FACTORY + "."))
+                .extracting(FunctionCounter::count)
+                .isNotEmpty()
+                .allSatisfy(count -> assertThat(count).isGreaterThanOrEqualTo(1)));
     }
 }

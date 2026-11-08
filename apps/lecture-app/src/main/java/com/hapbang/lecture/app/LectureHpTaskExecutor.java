@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -56,12 +57,18 @@ import lombok.extern.slf4j.Slf4j;
  * </ol>
  * 업무 요청 안의 즉시 실행과 재시도 배치가 같은 {@link #execute}를 쓴다. 강의 트랜잭션 안에서 부르면 실패한다.
  * 실행 중 예외(DB 오류 등)는 밖으로 던지지 않는다. 작업은 남아 선점이 만료된 뒤 같은 요청 ID로 다시 실행된다.
+ * <p>
+ * 지갑 회로가 열려 있으면 선점하지 않는다(D79). 선점하면 시도 횟수가 오르므로, 보내지도 않은 거절로 횟수를 써 {@code DEAD}가 되지 않게
+ * 하기 위해서다. 배치·주문 즉시 보류·구매 취소 즉시 반환이 모두 이 확인을 지난다. 작업은 그대로 남고(처리 상태 {@code PROCESSING})
+ * 다음 배치가 다시 본다. 시험 중(HALF_OPEN)에 실제로 보낸 호출의 실패는 D57대로 센다.
  */
 @Slf4j
 @Service
 public class LectureHpTaskExecutor {
 
     static final String DEAD_LOG = "[LECTURE_HP_TASK_DEAD]";
+    /** 보류 무효화의 반환 금액이 예상과 다를 때 붙이는 alert 표식. 작업 오류 코드 {@link #AMOUNT_MISMATCH}와 다르다 */
+    static final String VOID_AMOUNT_MISMATCH_LOG = "[LECTURE_HP_VOID_AMOUNT_MISMATCH]";
     static final String RESULT_HANDLER_MISSING = "RESULT_HANDLER_MISSING";
     static final String AMOUNT_MISMATCH = "AMOUNT_MISMATCH";
     static final String LEASE_EXPIRED = "LEASE_EXPIRED";
@@ -75,6 +82,8 @@ public class LectureHpTaskExecutor {
     private final LectureHpTaskMetrics metrics;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
+    /** 지갑 회로가 열려 실행을 멈춘 상태인지. 멈춤·재개 로그를 상태가 바뀔 때만 남기려고 둔다 (D79) */
+    private final AtomicBoolean stoppedByOpenCircuit = new AtomicBoolean();
 
     public LectureHpTaskExecutor(LectureHpTaskRepository lectureHpTaskRepository,
                                  LectureHpTaskAttemptRepository lectureHpTaskAttemptRepository,
@@ -93,16 +102,37 @@ public class LectureHpTaskExecutor {
         this.clock = clock;
     }
 
-    /** 작업 하나를 실행한다. 선점하지 못하면(다른 실행 중, 시각 전, 끝남) 아무것도 하지 않는다 */
+    /**
+     * 작업 하나를 실행한다. 선점하지 못하면(다른 실행 중, 시각 전, 끝남) 아무것도 하지 않는다.
+     * 지갑 회로가 열려 있으면 선점하지 않고 돌아온다. 시도 횟수·시도 행·작업은 바꾸지 않는다 (D79)
+     */
     public void execute(Long taskId) {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException("HP 작업은 강의 트랜잭션 밖에서 실행한다. taskId=" + taskId);
         }
+        if (!canCallBilling()) {
+            log.debug("지갑 회로가 열려 HP 작업을 선점하지 않는다 taskId={}", taskId);
+            return;
+        }
         try {
             run(taskId);
         } catch (RuntimeException unexpected) {
-            log.error("HP 작업 실행 중 예외, 선점이 만료된 뒤 다시 실행한다 taskId={}", taskId, unexpected);
+            log.error("HP 작업을 실행하다 예외가 나 선점이 만료된 뒤 다시 실행한다 taskId={}", taskId, unexpected);
         }
+    }
+
+    /**
+     * 지금 지갑에 보낼 수 있는지 (D79). 지갑 회로가 열려 있으면(OPEN·FORCED_OPEN) {@code false}이고, 시험 중(HALF_OPEN)은 {@code true}다.
+     * {@link #execute}가 선점 전에, 배치가 회차 시작과 작업마다 본다. 로그는 멈춤·재개가 바뀔 때만 남겨 장애 동안 매분 쌓이지 않게 한다
+     */
+    public boolean canCallBilling() {
+        boolean circuitOpen = billingApiClient.isCircuitOpen();
+        if (circuitOpen && stoppedByOpenCircuit.compareAndSet(false, true)) {
+            log.warn("지갑 회로가 열려 HP 작업 실행을 멈춘다. 회로가 시험 중으로 넘어가면 다시 실행한다");
+        } else if (!circuitOpen && stoppedByOpenCircuit.compareAndSet(true, false)) {
+            log.info("지갑 회로가 열려 있지 않아 HP 작업 실행을 다시 시작한다");
+        }
+        return !circuitOpen;
     }
 
     private void run(Long taskId) {
@@ -161,13 +191,15 @@ public class LectureHpTaskExecutor {
                         failed.rawCode(), failed.httpStatus() + " " + failed.detail());
             };
         } catch (BillingCallException e) {
-            log.warn("HP 작업 지갑 응답 없음 taskId={}, requestId={}, kind={}, status={}", task.getId(),
+            // 선점 전에 회로를 봤어도 그 사이 회로가 막히면(시험 호출 몫을 다른 요청이 다 씀, 다른 호출의 실패로 열림)
+            // CIRCUIT_OPEN(RETRYABLE)이 온다. 선점이 이미 횟수를 올렸으므로 그대로 한 번으로 센다(D79, 드문 예외)
+            log.warn("HP 작업의 지갑 호출이 실패했다 taskId={}, requestId={}, kind={}, httpStatus={}", task.getId(),
                     task.getRequestId(), e.getKind(), e.getHttpStatus());
             return new Attempt(LectureHpTaskClassifier.classify(e.getKind()), e.getKind().name(), e.getRawCode(),
                     describe(e));
         } catch (RuntimeException e) {
             // 그 밖의 예외는 지갑이 처리했는지 알 수 없다 (D57 (5))
-            log.warn("HP 작업 지갑 호출 중 예외 taskId={}, requestId={}", task.getId(), task.getRequestId(), e);
+            log.warn("HP 작업의 지갑 호출 중 예외가 났다 taskId={}, requestId={}", task.getId(), task.getRequestId(), e);
             return new Attempt(LectureHpAttemptResult.UNKNOWN_RESULT, LectureHpAttemptResult.UNKNOWN_RESULT.name(),
                     null, describe(e));
         }
@@ -199,14 +231,14 @@ public class LectureHpTaskExecutor {
     private static Attempt verifyVoid(LectureHpTask task, HoldVoidResultDto result) {
         long expectedHp = result.outcome() == HoldVoidOutcome.RELEASED ? task.getAmountHp() : 0L;
         if (result.releasedHp() != expectedHp) {
-            log.error("{} 보류 무효화의 반환 금액이 예상과 달라도 성공으로 기록한다 taskId={}, orderItemId={}, outcome={}, "
-                            + "releasedHp={}, expectedHp={}, replayed={}", AMOUNT_MISMATCH, task.getId(),
+            log.error(VOID_AMOUNT_MISMATCH_LOG + " 보류 무효화의 반환 금액이 예상과 달라도 성공으로 기록한다 taskId={}, "
+                            + "orderItemId={}, outcome={}, releasedHp={}, expectedHp={}, replayed={}", task.getId(),
                     task.getOrderItemId(), result.outcome(), result.releasedHp(), expectedHp, result.replayed());
         } else if (result.outcome() == HoldVoidOutcome.ALREADY_CLOSED) {
             log.warn("보류 무효화 대상 보류가 이미 끝나 있었다 taskId={}, orderItemId={}, replayed={}", task.getId(),
                     task.getOrderItemId(), result.replayed());
         } else {
-            log.info("보류 무효화 taskId={}, orderItemId={}, outcome={}, releasedHp={}, replayed={}", task.getId(),
+            log.info("보류 무효화를 마쳤다 taskId={}, orderItemId={}, outcome={}, releasedHp={}, replayed={}", task.getId(),
                     task.getOrderItemId(), result.outcome(), result.releasedHp(), result.replayed());
         }
         return new Attempt(LectureHpAttemptResult.SUCCEEDED, null, null, null);
@@ -219,7 +251,7 @@ public class LectureHpTaskExecutor {
             LectureHpTask recorded = transactionTemplate.execute(status -> {
                 LectureHpTask task = lectureHpTaskRepository.findById(taskId).orElseThrow();
                 if (!task.isClaimedBy(claim.token())) {
-                    log.warn("late result ignored: 선점이 바뀐 뒤 온 HP 작업 결과를 버린다 taskId={}, result={}", taskId,
+                    log.warn("선점이 바뀐 뒤 온 HP 작업 결과를 버린다 taskId={}, result={}", taskId,
                             attempt.result());
                     return null;
                 }
@@ -235,7 +267,7 @@ public class LectureHpTaskExecutor {
                 report(recorded);
             }
         } catch (ObjectOptimisticLockingFailureException conflict) {
-            log.warn("late result ignored: 결과를 기록하는 사이 다시 선점됐다 taskId={}, result={}", taskId,
+            log.warn("결과를 기록하는 사이 다시 선점돼 HP 작업 결과를 버린다 taskId={}, result={}", taskId,
                     attempt.result());
         }
     }
@@ -286,11 +318,15 @@ public class LectureHpTaskExecutor {
                 } else {
                     metrics.recordSucceeded();
                 }
+                log.info("HP 작업을 마쳤다 taskId={}, taskType={}, purpose={}, orderItemId={}, amountHp={}, outcome={}, "
+                                + "attemptCount={}", task.getId(), task.getTaskType(), task.getPurpose(),
+                        task.getOrderItemId(), task.getAmountHp(), task.getOutcome(), task.getAttemptCount());
             }
             case DEAD -> {
                 metrics.recordDead();
-                log.error("{} taskId={}, type={}, purpose={}, requestId={}, orderItemId={}, amountHp={}, attempts={}, "
-                                + "totalAttempts={}, error={}", DEAD_LOG, task.getId(), task.getTaskType(),
+                log.error(DEAD_LOG + " HP 작업을 DEAD로 격리했다 taskId={}, taskType={}, purpose={}, requestId={}, "
+                                + "orderItemId={}, amountHp={}, attemptCount={}, totalAttemptCount={}, "
+                                + "lastErrorCode={}", task.getId(), task.getTaskType(),
                         task.getPurpose(), task.getRequestId(), task.getOrderItemId(), task.getAmountHp(),
                         task.getAttemptCount(), task.getTotalAttemptCount(), task.getLastErrorCode());
             }

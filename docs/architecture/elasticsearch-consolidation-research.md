@@ -157,7 +157,7 @@ traces → Tempo → Grafana
 - Elasticsearch 장애 시 Kafka lag 또는 outbox가 쌓이고 복구 후 따라잡는다.
 - ES가 Kafka topic이나 outbox를 대체하지 않는다.
 
-Elastic의 Kafka integration은 broker logs와 metrics, consumer lag를 수집할 수 있지만 이는 Kafka의 **관측**이지 메시징 기능 통합이 아니다([Elastic Kafka integration](https://www.elastic.co/docs/reference/integrations/kafka)). 현재 관측성 backend가 Prometheus이므로 Kafka exporter/JMX metrics를 Prometheus에 모으는 기존 설계를 유지한다.
+Elastic의 Kafka integration은 broker logs와 metrics, consumer lag를 수집할 수 있지만 이는 Kafka의 **관측**이지 메시징 기능 통합이 아니다([Elastic Kafka integration](https://www.elastic.co/docs/reference/integrations/kafka)). 현재 관측성 backend는 Prometheus다. Kafka 지표는 broker exporter·JMX 없이 앱의 Kafka client·Spring Kafka 지표(consumer lag, 발행·소비, DLT 전송)를 Prometheus가 수집한다(#531, #597, #339). broker 쪽 지표는 메모리 예산 때문에 수집하지 않는다([관측성 "Dashboard" 절](infrastructure/observability.md)).
 
 ### Redis
 

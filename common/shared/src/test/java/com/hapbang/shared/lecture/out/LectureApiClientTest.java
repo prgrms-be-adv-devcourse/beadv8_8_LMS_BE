@@ -7,6 +7,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -22,11 +23,23 @@ import com.hapbang.shared.lecture.domain.LectureEarningStatus;
 import com.hapbang.shared.lecture.domain.LectureEarningType;
 import com.hapbang.shared.lecture.domain.LectureObjectionCommandType;
 import com.hapbang.shared.lecture.domain.LectureObjectionFailureCode;
+import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
+import com.hapbang.shared.lecture.dto.CartItemSyncDto;
+import com.hapbang.shared.lecture.dto.CartItemSyncPageDto;
+import com.hapbang.shared.lecture.dto.LectureContentSyncDto;
 import com.hapbang.shared.lecture.dto.LectureEarningAmountDto;
 import com.hapbang.shared.lecture.dto.LectureEarningPageDto;
 import com.hapbang.shared.lecture.dto.LectureEarningSummaryDto;
 import com.hapbang.shared.lecture.dto.LectureObjectionFileRequest;
 import com.hapbang.shared.lecture.dto.LectureObjectionFiledDto;
+import com.hapbang.shared.lecture.dto.LecturePurchaseSyncDto;
+import com.hapbang.shared.lecture.dto.LecturePurchaseSyncPageDto;
+import com.hapbang.shared.lecture.dto.LectureReviewSyncDto;
+import com.hapbang.shared.lecture.dto.LectureReviewSyncPageDto;
+import com.hapbang.shared.lecture.dto.LectureSyncDto;
+import com.hapbang.shared.lecture.dto.LectureSyncPageDto;
+import com.hapbang.shared.member.dto.WithdrawalBlockReasonDto;
+import com.hapbang.shared.member.dto.WithdrawalBlocksDto;
 import com.sun.net.httpserver.HttpServer;
 
 // 강의 내부 API Client의 요청 모양·응답 해제·오류 변환을 가짜 HTTP 서버로 확인한다 (#300). 실제 강의 API는 apps 통합 테스트가 부른다.
@@ -210,6 +223,80 @@ class LectureApiClientTest {
     }
 
     @Test
+    void 탈퇴_막힌_이유_조회는_경로와_내부_키를_붙여_보내고_data를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"탈퇴 확인을 마쳤습니다.","data":{"reasons":[
+                  {"code":"LECTURE_ORDER_HOLDING","message":"구매한 강의 2건의 이의 제기 기간이 끝나지 않았어요.",
+                   "availableAt":"2026-11-20"},
+                  {"code":"LECTURE_ON_SALE","message":"판매 중이거나 검수 대기 중인 강의 1개가 있어요."}]}}""");
+
+        WithdrawalBlocksDto blocks = client().getWithdrawalBlocks(7L);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/lectures/users/7/withdrawal-blocks key=" + API_KEY);
+        assertThat(methods).containsExactly("GET");
+        // 응답에서 빠진 availableAt은 null이다
+        assertThat(blocks.reasons()).containsExactly(
+                new WithdrawalBlockReasonDto("LECTURE_ORDER_HOLDING", "구매한 강의 2건의 이의 제기 기간이 끝나지 않았어요.",
+                        LocalDate.of(2026, 11, 20)),
+                WithdrawalBlockReasonDto.of("LECTURE_ON_SALE", "판매 중이거나 검수 대기 중인 강의 1개가 있어요."));
+        assertThat(blocks.isBlocked()).isTrue();
+    }
+
+    @Test
+    void 탈퇴_막힌_이유가_없으면_빈_목록이다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"탈퇴 확인을 마쳤습니다.","data":{"reasons":[]}}""");
+
+        WithdrawalBlocksDto blocks = client().getWithdrawalBlocks(7L);
+
+        assertThat(blocks.reasons()).isEmpty();
+        assertThat(blocks.isBlocked()).isFalse();
+    }
+
+    @Test
+    void 탈퇴_막힌_이유_조회의_4xx는_거절_예외다() {
+        respond(400, "application/problem+json", """
+                {"status":400,"detail":"요청 값이 올바르지 않습니다.","code":"INVALID_REQUEST",
+                 "errors":[{"field":"userId","message":"값이 올바르지 않습니다."}]}""");
+        assertThatThrownBy(() -> client().getWithdrawalBlocks(7L))
+                .isInstanceOfSatisfying(LectureApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.REJECTED);
+                    assertThat(e.getStatus()).isEqualTo(400);
+                    assertThat(e.getCode()).isEqualTo("INVALID_REQUEST");
+                });
+
+        // 내부 API 키 오류는 본문이 없다
+        respond(401, null, null);
+        assertThatThrownBy(() -> client().getWithdrawalBlocks(7L))
+                .isInstanceOfSatisfying(LectureApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.REJECTED);
+                    assertThat(e.getStatus()).isEqualTo(401);
+                    assertThat(e.getCode()).isNull();
+                });
+    }
+
+    @Test
+    void 탈퇴_막힌_이유_조회의_연결_실패와_5xx와_읽을_수_없는_응답은_호출_불가_예외다() throws IOException {
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        LectureApiClient refused = client("http://127.0.0.1:" + closedPort);
+        assertUnavailable(() -> refused.getWithdrawalBlocks(7L), 0);
+
+        respond(503, null, null);
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 503);
+
+        // reasons가 없거나 이유에 code가 없으면 계약에 맞지 않는 응답이다
+        respond(200, "application/json", "{\"statusCode\":200,\"message\":\"\",\"data\":{}}");
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 200);
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"reasons":[{"message":"처리 중인 주문 1건이 있어요."}]}}""");
+        assertUnavailable(() -> client().getWithdrawalBlocks(7L), 200);
+    }
+
+    @Test
     void 이의_제기_접수는_명령을_JSON으로_POST하고_접수_결과를_돌려준다() {
         respond(200, "application/json", """
                 {"statusCode":200,"message":"이의 제기를 접수했습니다.","data":{
@@ -249,6 +336,80 @@ class LectureApiClientTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new LectureObjectionFileRequest("FILE:12", 12L, null, 7L, "사유"))
                 .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void 강의_동기화_목록은_afterId와_size를_쿼리로_보내고_페이지를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"강의 동기화 목록을 조회했습니다.","data":{
+                  "items":[{"id":11,"sellerUserId":3,"title":"방송 장비 세팅","onSale":true,"deleted":false,
+                    "contents":[{"id":21,"title":"1강","sequence":1},{"id":22,"title":"2강","sequence":2}],
+                    "version":4}],
+                  "nextAfterId":11}}""");
+
+        LectureSyncPageDto page = client().getSyncLectures(10L, 1);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/lectures/sync/lectures?afterId=10&size=1 key=" + API_KEY);
+        assertThat(methods).containsExactly("GET");
+        // 응답에서 빠진 소개는 null이다
+        assertThat(page.items()).containsExactly(new LectureSyncDto(11L, 3L, "방송 장비 세팅", null, true, false,
+                List.of(new LectureContentSyncDto(21L, "1강", 1), new LectureContentSyncDto(22L, "2강", 2)), 4L));
+        assertThat(page.nextAfterId()).isEqualTo(11L);
+    }
+
+    @Test
+    void 구매_동기화_목록은_afterId가_없으면_처음부터_부르고_마지막_페이지는_nextAfterId가_null이다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"구매 동기화 목록을 조회했습니다.","data":{
+                  "items":[{"orderItemId":31,"buyerUserId":7,"lectureId":11,"result":"PENDING",
+                    "orderedAt":"2026-11-05T12:00:00+09:00","version":0}]}}""");
+
+        LecturePurchaseSyncPageDto page = client().getSyncPurchases(null, LecturePurchaseSyncPageDto.MAX_SIZE);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/lectures/sync/purchases?size=500 key=" + API_KEY);
+        // 결제 전이라 빠진 구매 시각은 null이다
+        assertThat(page.items()).containsExactly(new LecturePurchaseSyncDto(31L, 7L, 11L,
+                LecturePurchaseResult.PENDING, OffsetDateTime.parse("2026-11-05T12:00:00+09:00"), null, 0L));
+        assertThat(page.nextAfterId()).isNull();
+    }
+
+    @Test
+    void 장바구니_항목과_리뷰_동기화_목록도_같은_규칙으로_부른다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[{"id":41,"userId":7,"lectureId":11,"deleted":true,
+                  "addedAt":"2026-11-05T12:00:00+09:00","version":1}],"nextAfterId":41}}""");
+        CartItemSyncPageDto cartItems = client().getSyncCartItems(0L, 100);
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[{"id":51,"lectureId":11,"reviewerUserId":7,
+                  "rating":5,"counted":false,"deleted":false,"version":2}]}}""");
+        LectureReviewSyncPageDto reviews = client().getSyncReviews(40L, 100);
+
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/lectures/sync/cart-items?afterId=0&size=100 key=" + API_KEY,
+                "/api/v1/internal/lectures/sync/reviews?afterId=40&size=100 key=" + API_KEY);
+        assertThat(cartItems.items()).containsExactly(new CartItemSyncDto(41L, 7L, 11L, true,
+                OffsetDateTime.parse("2026-11-05T12:00:00+09:00"), 1L));
+        assertThat(cartItems.nextAfterId()).isEqualTo(41L);
+        assertThat(reviews.items()).containsExactly(new LectureReviewSyncDto(51L, 11L, 7L, 5, false, false, 2L));
+        assertThat(reviews.nextAfterId()).isNull();
+    }
+
+    @Test
+    void 동기화_목록의_빠진_필수_필드와_4xx는_예외로_바뀐다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[{"id":11,"title":"제목","onSale":true,
+                  "deleted":false,"contents":[],"version":0}]}}""");
+        assertUnavailable(() -> client().getSyncLectures(null, 100), 200);
+
+        respond(400, "application/problem+json", """
+                {"status":400,"code":"INVALID_REQUEST","detail":"size는 500 이하여야 합니다."}""");
+        assertThatThrownBy(() -> client().getSyncReviews(null, 501))
+                .isInstanceOfSatisfying(LectureApiCallException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(LectureApiCallException.Reason.REJECTED);
+                    assertThat(e.getCode()).isEqualTo("INVALID_REQUEST");
+                });
     }
 
     private static void assertUnavailable(Runnable call, int status) {

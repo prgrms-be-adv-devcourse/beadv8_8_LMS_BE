@@ -34,7 +34,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.modulith.events.EventPublication;
 import org.springframework.modulith.events.EventPublication.Status;
-import org.springframework.modulith.events.IncompleteEventPublications;
 import org.springframework.modulith.events.core.EventPublicationRepository;
 import org.springframework.modulith.events.core.TargetEventPublication;
 import org.springframework.test.context.DynamicPropertyRegistrar;
@@ -62,6 +61,8 @@ import tools.jackson.databind.json.JsonMapper;
  *     재시작해도 주소가 같도록 호스트 포트를 고정한다.</li>
  *     <li>테스트 클래스 자신의 컨텍스트(다른 통합 테스트와 같은 공통 Kafka 컨테이너)는 회원 앱 밖에서 DB를 확인하는 용도다.
  *     띄웠다 닫는 회원 앱만 이 테스트 전용 broker로 보낸다.</li>
+ *     <li>앱이 떠 있는 동안의 재발행(#421)은 {@link MemberEventRepublishUseCase}를 직접 부른다. 테스트에서는 스케줄이 꺼져 있어
+ *     배치가 저절로 돌지 않는다.</li>
  *     <li>broker 장애가 빨리 실패로 끝나도록 producer 대기 시간을 줄인다(운영 기본값 max.block 60초·delivery 120초).
  *     실패 뒤 동작은 기본값과 같다.</li>
  * </ul>
@@ -152,8 +153,8 @@ class MemberEventKafkaRecoveryIntegrationTest {
     }
 
     @Test
-    @DisplayName("broker만 복구하면 실행 중인 앱은 실패한 발행을 스스로 다시 보내지 않고, 기록만 남긴다")
-    void brokerOnlyRecoveryDoesNotRepublishWhileRunning() {
+    @DisplayName("broker가 길게 멈췄다 복구되면, 앱을 재기동하지 않아도 재발행이 실패한 회원 이벤트를 한 번 다시 보낸다 (#421)")
+    void republishWhileRunningAfterBrokerRecovery() {
         User user = save();
         TestContext app = start(MemberApp.class, KAFKA.getBootstrapServers());
         // 정상 동작 중인 앱(토픽 메타데이터를 이미 가진 producer)에서 장애를 시작한다
@@ -171,26 +172,23 @@ class MemberEventKafkaRecoveryIntegrationTest {
 
         startBroker();
 
-        // 실행 중 재시도·stale 회수 설정이 없어 broker가 돌아와도 보내지 않는다 (final-design 5.2)
+        // 재발행 배치가 부르는 UseCase. 테스트에서는 스케줄이 꺼져 있어 직접 부른다(유예 시간은 MemberApp에서 0초)
+        MemberEventRepublishUseCase republish = app.getApplicationContext().getBean(MemberEventRepublishUseCase.class);
+        republish.republishFailed();
+
+        // 같은 소비자가 장애 전 레코드에 이어 장애 중 변경을 받는다. 앱은 그대로 떠 있다
         Consumer<String, byte[]> consumer = subscribe();
         List<ConsumerRecord<String, byte[]>> received = new ArrayList<>();
-        await().during(Duration.ofSeconds(15)).atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
-            received.addAll(poll(consumer, user, Duration.ofMillis(250)));
-            assertThat(received).extracting(this::nicknameOf).doesNotContain("장애중수정");
-        });
-        // 같은 소비자가 장애 전 레코드는 읽었으니, 못 받은 것은 소비자 문제가 아니라 보내지 않아서다
-        assertThat(received).extracting(this::nicknameOf).containsExactly("장애전수정");
-        assertThat(externalizations(user)).singleElement()
-                .satisfies(publication -> assertThat(publication.getStatus()).isEqualTo(Status.FAILED));
-
-        // 기록은 그대로라 누군가 재제출하면 그때 나간다. 지금은 재기동 재발행 외에 이 호출을 하는 운영 코드가 없다
-        app.getApplicationContext().getBean(IncompleteEventPublications.class)
-                .resubmitIncompletePublications(this::ofThisTest);
         await().atMost(TIMEOUT).untilAsserted(() -> {
             received.addAll(poll(consumer, user, Duration.ofMillis(250)));
             assertThat(received).extracting(this::nicknameOf).containsExactly("장애전수정", "장애중수정");
         });
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(externalizations(user)).isEmpty());
+
+        // 완료된 기록은 다시 보내지 않는다: 한 번 더 불러도 잠시 읽는 동안 새 레코드가 오지 않는다
+        republish.republishFailed();
+        received.addAll(poll(consumer, user, Duration.ofSeconds(3)));
+        assertThat(received).extracting(this::nicknameOf).containsExactly("장애전수정", "장애중수정");
     }
 
     @Test
@@ -221,6 +219,8 @@ class MemberEventKafkaRecoveryIntegrationTest {
     @Import(TargetBroker.class)
     @TestPropertySource(properties = {
             "spring.modulith.events.republish-outstanding-events-on-restart=true",
+            // 실패한 기록을 기다리지 않고 바로 다시 보내게 한다(운영은 1분)
+            "hapbang.member.event.republish-min-age=0s",
             "spring.kafka.producer.properties.max.block.ms=3000",
             "spring.kafka.producer.properties.request.timeout.ms=1000",
             "spring.kafka.producer.properties.delivery.timeout.ms=3000"

@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,6 +13,7 @@ import com.hapbang.appearance.domain.Appearance;
 import com.hapbang.appearance.domain.AppearanceException;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 출연 1건 호스트 일방 취소 (#239). 출연은 {@code CANCELED_BY_HOST}, 게스트에게 위약금 30%를 지급하고 나머지는 호스트에게 반환한다.
@@ -21,6 +23,7 @@ import lombok.RequiredArgsConstructor;
  * </ul>
  * 정산은 Billing 호출이라 커밋 뒤에 실행해야 해서 여기서 트랜잭션을 연다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AppearanceHostCancelUseCase {
@@ -29,6 +32,7 @@ public class AppearanceHostCancelUseCase {
     private final AppearanceRecruitSupport appearanceRecruitSupport;
     private final AppearanceUserSupport appearanceUserSupport;
     private final AppearanceHostCancelRecorder appearanceHostCancelRecorder;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -49,6 +53,10 @@ public class AppearanceHostCancelUseCase {
         Long taskId = appearanceHostCancelRecorder.cancelAndRecordPenalty(appearance, hostId,
                 confirmPendingCancelRequest, reason, LocalDateTime.now(clock));
         appearanceSupport.flushOrConflict();
+        eventPublisher.publishEvent(appearance.toChangedEvent());
+        AfterCommit.run(() -> {
+            log.info("호스트가 출연을 취소했다 appearanceId={}, hostId={}, penaltyTaskId={}", appearanceId, hostId, taskId);
+        });
         return taskId;
     }
 }

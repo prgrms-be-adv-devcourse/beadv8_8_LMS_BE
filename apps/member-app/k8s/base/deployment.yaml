@@ -56,12 +56,15 @@ spec:
                 name: member-app-secrets
           # 448Mi에서는 RSS가 한도에 붙어 Prometheus registry를 더한 뒤 k3d에서 OOMKilled가 났다. heap 93·non-heap 173·
           # JVM 밖 native 약 175 = RSS 441Mi였다(#480).
+          # trace(#631)를 붙이며 576Mi로 올렸다. 2026-11-03 운영 working set 406Mi(79%)였고, lecture-app은 trace로 k3d에서 약 +18Mi(#579)였다.
+          # 576Mi에서 7일 최대 working set 515Mi(89%)였다. heap 상한을 -Xmx160m으로 고정하면(kustomization.yaml) heap 160 +
+          # heap 외 JVM 영역 247 + native 148 ≈ 555Mi라 576Mi의 96%다. 여유 10%를 두려고 640Mi로 올린다(#726, #610).
           resources:
             requests:
               cpu: 100m
-              memory: 512Mi
+              memory: 640Mi
             limits:
-              memory: 512Mi
+              memory: 640Mi
           # JVM 기동이 느린 node 재시작(앱 여러 개 동시 기동)을 고려해 최대 5분 기다린다.
           startupProbe:
             httpGet:

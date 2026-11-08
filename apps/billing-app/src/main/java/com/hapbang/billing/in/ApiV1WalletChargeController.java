@@ -14,6 +14,8 @@ import com.hapbang.billing.app.ChargeFacade;
 import com.hapbang.billing.app.ChargeResult;
 import com.hapbang.billing.domain.PointChargeStatus;
 import com.hapbang.billing.global.auth.LoginUserId;
+import com.hapbang.billing.global.ratelimit.RateLimited;
+import com.hapbang.billing.global.ratelimit.RateLimitedApi;
 import com.hapbang.billing.global.response.RsData;
 
 import jakarta.validation.Valid;
@@ -27,6 +29,7 @@ public class ApiV1WalletChargeController implements ApiV1WalletChargeSpec {
 
     private final ChargeFacade chargeFacade;
 
+    @RateLimited(RateLimitedApi.CHARGE_ORDER)
     @Override
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -37,6 +40,7 @@ public class ApiV1WalletChargeController implements ApiV1WalletChargeSpec {
     }
 
     // 충전되면 200, 승인 결과를 아직 확정하지 못했으면 202로 같은 상태를 본문과 응답에 함께 쓴다.
+    @RateLimited(RateLimitedApi.CHARGE_CONFIRM)
     @Override
     @PostMapping("/confirm")
     public ResponseEntity<RsData<ChargeResponse>> confirm(@LoginUserId Long userId,
@@ -49,6 +53,7 @@ public class ApiV1WalletChargeController implements ApiV1WalletChargeSpec {
         return ResponseEntity.ok(RsData.ok("HP를 충전했습니다.", ChargeResponse.from(result)));
     }
 
+    @RateLimited(RateLimitedApi.CHARGE_GET)
     @Override
     @GetMapping("/{orderId}")
     public RsData<ChargeResponse> getCharge(@LoginUserId Long userId, @PathVariable("orderId") String orderId) {

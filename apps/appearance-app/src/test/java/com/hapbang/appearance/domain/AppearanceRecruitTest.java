@@ -178,12 +178,29 @@ class AppearanceRecruitTest {
     }
 
     @Test
-    @DisplayName("보류 처리 중·실패 모집글은 상세에서 숨긴다 (APPEARANCE_RECRUIT_NOT_FOUND)")
+    @DisplayName("보류 처리 중·실패 모집글은 다룰 수 없다: 올린 호스트에게도 APPEARANCE_RECRUIT_NOT_FOUND")
     void visibility() {
         AppearanceRecruit pending = create(AppearanceRecruitFixture.content(NOW));
-        assertErrorCode(pending::validateVisible, AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
+        AppearanceRecruit failed = create(AppearanceRecruitFixture.content(NOW));
+        failed.markHoldFailed();
 
+        assertErrorCode(pending::validateVisible, AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
+        assertErrorCode(failed::validateVisible, AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
         recruiting().validateVisible();
+    }
+
+    @Test
+    @DisplayName("상세: 보류 처리 중·실패 모집글은 올린 호스트만 볼 수 있고 다른 회원은 APPEARANCE_RECRUIT_NOT_FOUND, 공개된 모집글은 누구나 (#306)")
+    void detailViewable() {
+        AppearanceRecruit pending = create(AppearanceRecruitFixture.content(NOW));
+        AppearanceRecruit failed = create(AppearanceRecruitFixture.content(NOW));
+        failed.markHoldFailed();
+
+        pending.validateDetailViewableBy(HOST);
+        failed.validateDetailViewableBy(HOST);
+        assertErrorCode(() -> pending.validateDetailViewableBy(OTHER), AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
+        assertErrorCode(() -> failed.validateDetailViewableBy(OTHER), AppearanceErrorCode.APPEARANCE_RECRUIT_NOT_FOUND);
+        recruiting().validateDetailViewableBy(OTHER);
     }
 
     @Nested

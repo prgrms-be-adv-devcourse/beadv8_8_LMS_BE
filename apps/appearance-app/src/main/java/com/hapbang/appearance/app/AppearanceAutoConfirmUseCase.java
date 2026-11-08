@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -37,6 +38,7 @@ public class AppearanceAutoConfirmUseCase {
     private final AppearancePolicy appearancePolicy;
     private final AppearanceBatchProperties batchProperties;
     private final TransactionTemplate transactionTemplate;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier(AppearanceConfig.CLOCK)
     private final Clock clock;
 
@@ -76,6 +78,7 @@ public class AppearanceAutoConfirmUseCase {
         appearance.confirmAutomatically(appearancePolicy, now);
         Long taskId = appearanceConfirmRecorder.recordPayout(appearance, now);
         appearanceSupport.flushOrConflict();
+        eventPublisher.publishEvent(appearance.toChangedEvent());
         return taskId;
     }
 }

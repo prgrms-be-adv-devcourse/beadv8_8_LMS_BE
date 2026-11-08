@@ -4,7 +4,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.billing.global.scheduling.BillingJob;
 import com.hapbang.billing.global.scheduling.ConditionalOnSchedulingEnabled;
+import com.hapbang.billing.global.scheduling.JobLock;
 
 import lombok.RequiredArgsConstructor;
 
@@ -19,9 +21,11 @@ import lombok.RequiredArgsConstructor;
 class ExchangePayoutRecoveryBatch {
 
     private final ExchangePayoutUseCase exchangePayoutUseCase;
+    private final JobLock jobLock;
 
     @Scheduled(cron = "${hapbang.billing.exchange.payout.recovery-cron:15 */5 * * * *}", zone = "Asia/Seoul")
     void run() {
-        exchangePayoutUseCase.recoverStale();
+        // 배포 중 두 pod가 겹쳐도 한 곳만 실행한다. 락을 잡지 못하면 이번 회차를 건너뛴다(#598)
+        jobLock.runOrSkip(BillingJob.EXCHANGE_PAYOUT_RECOVERY, () -> exchangePayoutUseCase.recoverStale());
     }
 }

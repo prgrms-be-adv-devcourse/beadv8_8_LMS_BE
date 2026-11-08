@@ -13,6 +13,12 @@ spring:
   kafka:
     producer:
       value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+    # trace(#630): 보내는 메시지 헤더에 traceparent를 싣고 producer span을 남긴다(Boot 기본 KafkaTemplate, Modulith 외부화가 쓴다)
+    template:
+      observation-enabled: true
+    # 받은 메시지 헤더의 traceparent를 부모로 consumer span을 만든다(Boot 기본 리스너 컨테이너 팩토리)
+    listener:
+      observation-enabled: true
 appearance:
   policy:
     # 최저 출연료 (1인당, HP)
@@ -41,12 +47,24 @@ appearance:
     cancel-auto-reject-cron: "30 * * * * *"
     hp-task-retry-cron: "40 * * * * *"
     auto-confirm-cron: "50 * * * * *"
+    # 서비스 간 HP 대사 (#581): 매일 04:00:25. 매분 도는 배치들과 겹치지 않는 25초
+    hp-reconciliation-cron: "25 0 4 * * *"
     # 한 번 실행할 때 처리할 최대 건수 (나머지는 다음 주기)
     batch-size: 100
     # 방금 시작된 처리(보내기·거절 직후 즉시 실행, 커밋 직후 Kafka 보내기)와 겹치지 않도록 이 시간이 지난 것만 배치가 가져간다
     pending-grace: 1m
+    # 보류 결과를 모르는 요청서·모집글을 포기하는 기준 (#536): 만든 지 이 시간이 지나면 보류 재확인 배치가 보류 대신 보류 무효화를 보내 HOLD_FAILED로 끝낸다
+    hold-void-after: 1h
     # HP 작업 재시도: 지수 백오프 + 지터 (1분 → 2분 → 4분 → … → 최대 1시간, 10회 실패 시 격리)
     retry-base-delay: 1m
     retry-max-delay: 1h
     retry-max-attempts: 10
     retry-jitter-ratio: 0.2
+  # 서비스 간 HP 대사 (#581): 요청서·모집글·출연 상태와 지갑 보류·지급을 비교해 어긋난 건을 남긴다(고치지 않음)
+  hp-reconciliation:
+    # 진행 중으로 보고 빼는 시간: 대상·출연·HP 작업이 이 시간 안에 바뀌었으면 비교하지 않는다 (HP 작업 재시도 최대 간격 1시간보다 길게)
+    settle-grace: 2h
+    # 출연 쪽 비교 범위: 이 기간 안에 바뀐 요청서·모집글. 지갑 쪽 변경은 지갑 보류 목록 커서로 모은다
+    lookback: 7d
+    # 지갑 조회 한 번의 건수 (최대 500)
+    page-size: 500

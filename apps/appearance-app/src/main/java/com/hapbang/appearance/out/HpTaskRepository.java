@@ -1,6 +1,7 @@
 package com.hapbang.appearance.out;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -11,6 +12,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.hapbang.appearance.domain.HpTask;
+import com.hapbang.appearance.domain.HpTaskRefType;
 import com.hapbang.appearance.domain.HpTaskStatus;
 
 public interface HpTaskRepository extends JpaRepository<HpTask, Long> {
@@ -37,6 +39,23 @@ public interface HpTaskRepository extends JpaRepository<HpTask, Long> {
     /** 상태별 작업 수 (지표용) */
     long countByStatus(HpTaskStatus status);
 
+    /**
+     * 회원이 보류한 회원(호스트)이거나 받는 회원(게스트)인 작업 중 이 상태인 수 (탈퇴 막힌 이유, #624).
+     * 반환은 받는 회원이 없어 호스트 쪽으로만 센다
+     */
+    @Query("""
+            select count(t) from HpTask t
+            where (t.memberId = :userId or t.receiverId = :userId) and t.status = :status
+            """)
+    long countByParticipantAndStatus(@Param("userId") Long userId, @Param("status") HpTaskStatus status);
+
     /** 상태별 작업 목록 (관리자 조회, #397). 정렬은 넘겨받은 페이지 요청을 따른다 */
     Page<HpTask> findByStatus(HpTaskStatus status, Pageable pageable);
+
+    /** 서비스 간 HP 대사 대상 (#581): 이 시각 이후 바뀐 작업의 대상 ID */
+    @Query("select distinct t.refId from HpTask t where t.refType = :refType and t.updatedAt >= :since")
+    List<Long> findRefIdsUpdatedSince(@Param("refType") HpTaskRefType refType, @Param("since") LocalDateTime since);
+
+    /** 대상(요청서·모집글)들의 모든 작업 (#581) */
+    List<HpTask> findByRefTypeAndRefIdIn(HpTaskRefType refType, Collection<Long> refIds);
 }

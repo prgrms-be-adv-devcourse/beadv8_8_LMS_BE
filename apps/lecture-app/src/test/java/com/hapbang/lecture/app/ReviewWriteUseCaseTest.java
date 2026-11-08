@@ -45,9 +45,9 @@ class ReviewWriteUseCaseTest {
         Lecture lecture = withId(onSaleLecture(), LECTURE_ID);
         given(lectureSupport.findLecture(LECTURE_ID)).willReturn(lecture);
         given(lectureOrderSupport.findItem(BUYER_ID, ORDER_ITEM_ID)).willReturn(confirmedItem(lecture));
-        given(lectureReviewRepository.findAlive(LECTURE_ID, BUYER_ID)).willReturn(Optional.empty());
+        given(lectureReviewRepository.findAliveForUpdate(LECTURE_ID, BUYER_ID)).willReturn(Optional.empty());
         useCase = new ReviewWriteUseCase(lectureReviewRepository, lectureSupport, lectureOrderSupport,
-                Clock.fixed(NOW.atZone(LectureConfig.ZONE).toInstant(), LectureConfig.ZONE));
+                mock(LectureSyncEvents.class), Clock.fixed(NOW.atZone(LectureConfig.ZONE).toInstant(), LectureConfig.ZONE));
     }
 
     @Test

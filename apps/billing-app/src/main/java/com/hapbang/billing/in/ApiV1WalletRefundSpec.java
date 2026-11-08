@@ -21,17 +21,17 @@ public interface ApiV1WalletRefundSpec {
                     + "202: PROCESSING(결과 확인 중 — 보류 유지, GET으로 확인)·MANUAL_REVIEW_REQUIRED(운영자 확인). "
                     + "Idempotency-Key 헤더 필수(영문·숫자·-·_ 1~64자, 400 REFUND_IDEMPOTENCY_KEY_INVALID): 같은 키 재요청은 처음 요청의 "
                     + "결과(다른 금액이면 409 IDEMPOTENCY_KEY_CONFLICT). 충전 HP 부족 409 INSUFFICIENT_BALANCE, 지갑 없음 404 "
-                    + "WALLET_NOT_FOUND, 결제 설정 없음 503 REFUND_UNAVAILABLE, 비로그인 401, 관리자 403.")
+                    + "WALLET_NOT_FOUND, 결제 설정 없음 503 REFUND_UNAVAILABLE, 비로그인 401, 관리자 403. 회원마다 기본 분당 10회(400·403으로 끝난 요청도 셈), 넘으면 429 TOO_MANY_REQUESTS(Retry-After 헤더, 초).")
     ResponseEntity<RsData<RefundResponse>> request(Long userId,
             @Parameter(description = "환불 요청 멱등키(클라이언트가 요청마다 새로 만든다)", required = true) String idempotencyKey,
             @Valid RefundRequest request);
 
     @Operation(summary = "환불 요청 조회",
-            description = "내 환불 요청의 상태와 결제 건별 취소 결과. 없거나 남의 요청은 404 REFUND_NOT_FOUND.")
+            description = "내 환불 요청의 상태와 결제 건별 취소 결과. 없거나 남의 요청은 404 REFUND_NOT_FOUND. 회원마다 기본 분당 60회(400·403으로 끝난 요청도 셈), 넘으면 429 TOO_MANY_REQUESTS(Retry-After 헤더, 초).")
     RsData<RefundResponse> getRefund(Long userId, Long refundRequestId);
 
     @Operation(summary = "환불 요청 취소",
             description = "PG 취소를 시작하기 전(REQUESTED)인 내 환불 요청을 취소하고 보류한 충전 HP를 모두 반환한다(200 CANCELED). "
-                    + "이미 PG 취소를 시작했거나 끝났으면 409 REFUND_NOT_CANCELABLE. 없거나 남의 요청은 404 REFUND_NOT_FOUND.")
+                    + "이미 PG 취소를 시작했거나 끝났으면 409 REFUND_NOT_CANCELABLE. 없거나 남의 요청은 404 REFUND_NOT_FOUND. 회원마다 기본 분당 10회(400·403으로 끝난 요청도 셈), 넘으면 429 TOO_MANY_REQUESTS(Retry-After 헤더, 초).")
     RsData<RefundResponse> cancel(Long userId, Long refundRequestId);
 }

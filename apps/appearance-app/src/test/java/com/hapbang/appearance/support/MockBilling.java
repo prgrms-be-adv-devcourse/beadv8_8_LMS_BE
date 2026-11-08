@@ -2,10 +2,13 @@ package com.hapbang.appearance.support;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -63,7 +66,8 @@ public final class MockBilling {
         HOLD("/api/v1/internal/billing/holds", "hold-success.json", null),
         RELEASE("/api/v1/internal/billing/releases", "release-success.json", "releaseRequestId"),
         PAYOUT("/api/v1/internal/billing/payouts", "payout-success.json", "payoutRequestId"),
-        PENALTY("/api/v1/internal/billing/penalty-settlements", "penalty-success.json", "cancellationId");
+        PENALTY("/api/v1/internal/billing/penalty-settlements", "penalty-success.json", "cancellationId"),
+        HOLD_VOID("/api/v1/internal/billing/hold-voids", "hold-void-success.json", null);
 
         private final String path;
         private final String successFile;
@@ -248,6 +252,51 @@ public final class MockBilling {
      * 아무것도 듣지 않는 주소 (연결 거부 시나리오용). 이 주소로 만든 Client는 지갑에 닿지 못한다.
      * 포트를 잠깐 열었다 닫아 얻으므로 다른 프로세스가 바로 그 포트를 쓰지 않는 한 연결이 거부된다.
      */
+    /** 서비스 간 HP 대사 보류 조회 경로 (#581, 지갑 #577) */
+    public static final String HOLD_QUERY_PATH = "/api/v1/internal/billing/holds/query";
+
+    /** 서비스 간 HP 대사 보류 목록 경로 (#581). 보류(POST)와 같은 경로의 GET이다 */
+    public static final String HOLD_LIST_PATH = "/api/v1/internal/billing/holds";
+
+    /** 대사 보류 조회(POST)가 이 {@code data}(JSON 배열)로 성공한다 */
+    public static void holdQueryReturns(String dataJson) {
+        server().stubFor(post(urlEqualTo(HOLD_QUERY_PATH)).willReturn(ok(dataJson)));
+    }
+
+    /** 대사 보류 조회(POST)가 본문 없이 이 상태로 실패한다 */
+    public static void holdQueryFails(int status) {
+        server().stubFor(post(urlEqualTo(HOLD_QUERY_PATH)).willReturn(aResponse().withStatus(status)));
+    }
+
+    /** 이 참조 유형의 대사 보류 목록(GET)이 이 {@code data}(JSON 객체)로 성공한다. 다른 유형은 stub이 없어 404다 */
+    public static void holdListReturns(BillingReferenceType referenceType, String dataJson) {
+        server().stubFor(get(urlPathEqualTo(HOLD_LIST_PATH))
+                .withQueryParam("referenceType", equalTo(referenceType.name()))
+                .willReturn(ok(dataJson)));
+    }
+
+    /** 받은 대사 보류 조회 요청 */
+    public static List<ReceivedRequest> holdQueryRequests() {
+        return server().findAll(postRequestedFor(urlEqualTo(HOLD_QUERY_PATH))).stream()
+                .map(MockBilling::toReceived)
+                .toList();
+    }
+
+    /** 받은 대사 보류 목록 요청 (쿼리 포함 URL, 내부 API 키) */
+    public static List<ReceivedRequest> holdListRequests() {
+        return server().findAll(getRequestedFor(urlPathEqualTo(HOLD_LIST_PATH))).stream()
+                .map(request -> new ReceivedRequest(request.getUrl(), request.getHeader(InternalApiHeaders.API_KEY),
+                        request.getHeader("Content-Type"), Map.of()))
+                .toList();
+    }
+
+    private static ResponseDefinitionBuilder ok(String dataJson) {
+        return aResponse()
+                .withStatus(200)
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"statusCode\":200,\"message\":\"조회했습니다.\",\"data\":" + dataJson + "}");
+    }
+
     public static String refusedBaseUrl() {
         try (ServerSocket socket = new ServerSocket(0)) {
             return "http://127.0.0.1:" + socket.getLocalPort();

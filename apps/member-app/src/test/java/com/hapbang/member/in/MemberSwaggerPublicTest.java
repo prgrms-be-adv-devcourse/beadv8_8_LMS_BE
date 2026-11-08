@@ -81,8 +81,10 @@ class MemberSwaggerPublicTest {
     @MemberIntegrationTest
     @AutoConfigureMockMvc
     @ActiveProfiles("prod")
+    // 운영은 메일 계정이 있어야 메일 발송기가 생긴다(#557, 로그 발송기는 운영에서 만들지 않음). 메일은 보내지 않으므로 가짜 계정을 둔다
     @TestPropertySource(properties = {
-            "spring.datasource.hikari.maximum-pool-size=3", "spring.datasource.hikari.minimum-idle=1"})
+            "spring.datasource.hikari.maximum-pool-size=3", "spring.datasource.hikari.minimum-idle=1",
+            "spring.mail.host=localhost", "spring.mail.username=test@example.com"})
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     class 운영_프로필 {
 

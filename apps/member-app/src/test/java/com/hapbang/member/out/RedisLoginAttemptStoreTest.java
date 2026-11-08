@@ -104,6 +104,22 @@ class RedisLoginAttemptStoreTest {
                 .isTrue();
     }
 
+    @Test
+    @DisplayName("잠금 풀기는 실패 횟수와 잠금을 모두 지운다 (비밀번호 재설정, #557)")
+    void unlock() {
+        String email = newEmail();
+        for (int i = 0; i < 5; i++) {
+            store.recordFailure(email);
+        }
+        store.recordFailure(email);
+        assertThat(store.isLocked(email)).isTrue();
+
+        store.unlock(email);
+
+        assertThat(store.isLocked(email)).isFalse();
+        assertThat(redisTemplate.hasKey(RedisLoginAttemptStore.FAIL_KEY_PREFIX + RedisLoginAttemptStore.hash(email))).isFalse();
+    }
+
     private String newEmail() {
         String email = UUID.randomUUID() + "@example.com";
         String hash = RedisLoginAttemptStore.hash(email);

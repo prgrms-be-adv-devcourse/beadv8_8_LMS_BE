@@ -31,7 +31,9 @@ public class MemberPasswordChangeUseCase {
 
     public User change(Long userId, String currentPassword, String newPassword) {
         User user = memberSupport.findActiveUser(userId);
+        // 마스킹으로 지운 비밀번호(#594)는 없는 것과 같다 (탈퇴 회원이라 위에서 먼저 막히지만 비교기 오류를 피하려 한 번 더 거른다)
         PasswordCredential credential = passwordCredentialRepository.findByUserId(userId)
+                .filter(found -> !found.isWiped())
                 .orElseThrow(() -> new MemberException(MemberErrorCode.PASSWORD_NOT_SET));
         String attemptKey = attemptKey(userId);
         if (loginAttemptStore.isLocked(attemptKey)) {

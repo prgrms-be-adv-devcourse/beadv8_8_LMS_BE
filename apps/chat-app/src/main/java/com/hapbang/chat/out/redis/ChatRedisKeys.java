@@ -63,6 +63,11 @@ public class ChatRedisKeys {
         return namespace + ":chat:activity:v1";
     }
 
+    /** 서버 채널: 안 읽은 사람 수 변경 신호. 모든 앱이 늘 구독한다(최선 노력) */
+    public String readChannel() {
+        return namespace + ":chat:read:v1";
+    }
+
     /** 서버 채널: 연결 제어 */
     public String controlChannel() {
         return namespace + ":chat:control:v1";

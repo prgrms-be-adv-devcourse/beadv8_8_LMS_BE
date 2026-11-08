@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -45,6 +46,21 @@ class MemberUpdateProfileUseCaseTest {
         ArgumentCaptor<UserModifiedEvent> event = ArgumentCaptor.forClass(UserModifiedEvent.class);
         verify(eventPublisher).publishEvent(event.capture());
         assertThat(event.getValue().user().nickname()).isEqualTo("새 닉네임");
+    }
+
+    @Test
+    @DisplayName("다른 회원이 쓰는 닉네임이면 DUPLICATE_NICKNAME이고 바꾸지 않으며 이벤트도 없다 (#646)")
+    void update_duplicateNickname() {
+        User user = User.join("tester1@example.com", "tester1");
+        given(memberSupport.findUser(1L)).willReturn(user);
+        willThrow(new MemberException(MemberErrorCode.DUPLICATE_NICKNAME))
+                .given(memberSupport).checkNicknameAvailable("tester2", 1L);
+
+        assertThatThrownBy(() -> useCase.update(1L, " tester2 "))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.DUPLICATE_NICKNAME);
+        assertThat(user.getNickname()).isEqualTo("tester1");
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
