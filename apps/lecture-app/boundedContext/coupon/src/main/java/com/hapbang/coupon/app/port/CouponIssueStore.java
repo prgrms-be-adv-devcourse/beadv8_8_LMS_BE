@@ -84,6 +84,19 @@ public interface CouponIssueStore {
     /** {@code issue-control}의 준비·상태·epoch·보류. 없으면 빈 값 */
     Optional<IssueControlState> findIssueControl(long couponId);
 
+    /**
+     * 쿠폰별 key(issue-control·stock·users·requests·sold_out)의 만료를 {@code expireAt}까지 늦춘다(extend-keys.lua, 원자적). DB 결과가
+     * 없는 접수 기록이 남은 쿠폰의 key가 발급 종료 + 여유에 만료돼 복구 근거가 사라지지 않게 재발행·대사 배치가 부른다.
+     * <ul>
+     *     <li>지금 만료보다 늦을 때만 바꾸고 줄이지 않는다. 없는 key는 만들지 않고, 만료가 없는 key는 그대로 둔다.</li>
+     *     <li>issue-control이 있으면 그 {@code keysExpireAt} 필드도 {@code expireAt}보다 이를 때만 {@code expireAt}으로 바꾼다.</li>
+     *     <li>기록을 지우지 않는다(정리는 대사가 한다).</li>
+     * </ul>
+     *
+     * @return 만료를 늦춘 key 수(0~5)
+     */
+    int extendKeysExpiry(long couponId, Instant expireAt);
+
     /** {@link #allowIssue} 결과 */
     enum AllowResult {
         /** OPEN으로 바꿨다 */

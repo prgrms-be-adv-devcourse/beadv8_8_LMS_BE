@@ -15,7 +15,8 @@ package com.hapbang.coupon.out.redis;
  *     fence(마지막으로 반영한 쿠폰 DB version)·만료 계산 입력·hold(신규 접수 보류 사유)</li>
  *     <li>sold_out(String): 매진 표시</li>
  * </ul>
- * 쿠폰별 key는 모두 {@code keysExpireAt}(발급 종료 + 여유)에 만료된다.
+ * 쿠폰별 key는 모두 {@code keysExpireAt}(발급 종료 + 여유)에 만료된다. DB 결과가 없는 접수 기록이 남은 쿠폰은 재발행·대사 배치가
+ * 만료(와 issue-control의 {@code keysExpireAt})를 지금 + 여유까지 늦춘다(extend-keys.lua).
  */
 public final class CouponRedisKeys {
 

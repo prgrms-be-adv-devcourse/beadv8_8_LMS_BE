@@ -371,7 +371,7 @@ class RecoveryLuaTest {
         assertThat(snapshot.processChanged()).isFalse();
         assertThat(snapshot.stock()).isEqualTo(8L);
         assertThat(snapshot.requests()).containsOnlyKeys("req-a", "req-b");
-        assertThat(recoveryStore.issueControlState(couponId)).isEqualTo(new IssueControlState(true, true, null));
+        assertThat(recoveryStore.issueControlState(couponId)).isEqualTo(new IssueControlState(true, true, null, KEYS_EXPIRE_AT));
 
         long lost = newCouponId();
         Snapshot empty = recoveryStore.snapshot(lost);
@@ -380,15 +380,16 @@ class RecoveryLuaTest {
     }
 
     @Test
-    void issue_control_상태는_ready와_hold를_돌려준다() {
+    void issue_control_상태는_ready와_hold와_key_만료_시각을_돌려준다() {
         long couponId = openCoupon(10);
         setControl(couponId, "hold", "BACKLOG");
-        assertThat(recoveryStore.issueControlState(couponId)).isEqualTo(new IssueControlState(true, true, "BACKLOG"));
+        assertThat(recoveryStore.issueControlState(couponId))
+                .isEqualTo(new IssueControlState(true, true, "BACKLOG", KEYS_EXPIRE_AT));
 
         recoveryStore.block(couponId, RECOVERY_ID);
 
         IssueControlState blocked = recoveryStore.issueControlState(couponId);
-        assertThat(blocked).isEqualTo(new IssueControlState(true, false, "RECOVERY"));
+        assertThat(blocked).isEqualTo(new IssueControlState(true, false, "RECOVERY", KEYS_EXPIRE_AT));
         assertThat(blocked.recoveryHold()).isTrue();
     }
 

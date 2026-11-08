@@ -54,6 +54,9 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class CouponDltRejectUseCase {
 
+    /** alert 표식: 영구 거절한 요청의 Redis 수량을 보상하지 못했다(기록 없음·Redis 실패 등) */
+    static final String COMPENSATION_FAILED_LOG_TAG = "[COUPON_ISSUE_COMPENSATION_FAILED]";
+
     private final CouponDltLogRepository couponDltLogRepository;
     private final CouponIssueRequestRepository couponIssueRequestRepository;
     private final ProcessedOperationRepository processedOperationRepository;
@@ -107,8 +110,9 @@ public class CouponDltRejectUseCase {
                             + "adminId={}, compensation={}", dltId, delivery.couponId(), delivery.memberId(),
                     delivery.issueRequestId(), adminId, compensation);
         } else {
-            log.error("DLT 발급 요청을 영구 거절했지만 Redis 수량을 보상하지 못했다. 대사로 확인이 필요하다 dltId={}, couponId={}, "
-                            + "memberId={}, issueRequestId={}, adminId={}, compensation={}", dltId, delivery.couponId(),
+            log.error("{} DLT 발급 요청을 영구 거절했지만 Redis 수량을 보상하지 못했다. 대사로 확인이 필요하다 dltId={}, couponId={}, "
+                            + "memberId={}, issueRequestId={}, adminId={}, compensation={}", COMPENSATION_FAILED_LOG_TAG,
+                    dltId, delivery.couponId(),
                     delivery.memberId(), delivery.issueRequestId(), adminId, compensation);
         }
         return view;

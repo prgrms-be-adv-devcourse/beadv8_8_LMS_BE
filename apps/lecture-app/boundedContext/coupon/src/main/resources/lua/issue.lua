@@ -9,12 +9,15 @@
 --           "|COMPENSATED"가 붙을 수 있다. 시각은 epoch 밀리초. "|e접수 epoch"가 없는 옛 형식 기록도 읽는다)
 -- KEYS[5] = coupon:<couponId>:sold_out (String: 매진 표시 "1")
 -- ARGV: couponId, memberId, issueRequestId, issuedAtMs (issuedAtMs가 기간 판정의 현재 시각이다)
--- 반환: { 코드, 만료 시각(epoch 밀리초), epoch }. 만료 시각·epoch는 1(이번 접수)일 때만 있고, 2(재응답)는 최초 접수의 만료 시각과 epoch 0,
---       그 밖에는 둘 다 0이다. epoch는 접수 직후 Kafka로 보낼 발급 요청 이벤트에 싣는 접수 당시 값이다.
+-- 반환: { 코드, 만료 시각(epoch 밀리초), epoch }. 1(이번 접수)은 이번 만료 시각과 issue-control epoch, 2(재응답)는 최초 접수 기록의
+--       만료 시각과 접수 epoch(epoch 필드가 없는 옛 형식 기록이면 0)이고, 그 밖에는 둘 다 0이다.
+--       epoch는 접수 직후 Kafka로 보낼 발급 요청 이벤트에 싣는 접수 당시 값이다.
 --   코드: 1 접수 | 2 같은 요청 재응답(기록을 바꾸지 않음) | 0 매진 | -1 이미 발급
 --        | -2 준비 안 됨(issue-control 없음·ready≠1·OPEN 아님) 또는 신규 접수 보류(hold)
 --        | -3 기간 아님 | -4 요청 ID가 다른 회원의 접수와 겹침
---        | -9 인수·key 타입·준비 데이터(만료 계산 입력 포함) 오류 또는 쓰기 실패(앞의 쓰기를 되돌림)
+--        | -9 인수·key 타입·준비 데이터(만료 계산 입력 포함)·접수 기록 형식 오류 또는 쓰기 실패(앞의 쓰기를 되돌림)
+-- 판정 순서: 인수 → key 타입 → 같은 요청 ID → (신규 요청만) 준비·OPEN → 기간 → hold → 회원 중복 → 재고.
+--   같은 요청 ID를 준비·기간·hold보다 먼저 본다. 중단·기간 종료·보류 뒤에도 응답을 잃은 재시도는 최초 결과를 그대로 받는다.
 -- 쿠폰별 key만 쓰지만 Redis Cluster의 hash tag는 두지 않았다. 지금의 단일 Redis 구성에서만 맞다.
 
 local controlKey, stockKey, usersKey, requestsKey, soldOutKey = KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5]
@@ -57,7 +60,27 @@ if not (typeIs(controlKey, 'hash', 'none') and typeIs(stockKey, 'string', 'none'
     return { -9, 0, 0 }
 end
 
--- 3. issue-control: 준비·OPEN, 준비 데이터(epoch·기간·key 만료·만료 계산 입력)
+-- 3. 같은 요청 ID. 같은 회원이면 최초 접수의 만료 시각과 접수 epoch를 돌려주고(기록을 바꾸지 않음), 다른 회원이면 -4다.
+--    issue-control·기간·hold를 보기 전에 판정한다. 표식(PUBLISHED·COMPENSATED)은 판정에 쓰지 않는다.
+--    접수 epoch는 만료 시각 바로 뒤의 "|e숫자"이고, 그 필드가 없는 옛 형식 기록은 epoch 0으로 돌려준다
+local existing = redis.call('HGET', requestsKey, requestId)
+if existing then
+    local owner, acceptedExpiresAt, rest = string.match(existing, '^(%d+)|%d+|ACCEPTED|(%d+)(.*)$')
+    if owner == nil or (rest ~= '' and string.sub(rest, 1, 1) ~= '|') or not isMillis(acceptedExpiresAt) then
+        return { -9, 0, 0 }
+    end
+    if owner ~= memberId then
+        return { -4, 0, 0 }
+    end
+    local acceptedEpoch = string.match(rest, '^|e(%d+)$') or string.match(rest, '^|e(%d+)|')
+    if string.sub(rest, 1, 2) == '|e' and not isMillis(acceptedEpoch) then
+        return { -9, 0, 0 }
+    end
+    return { 2, tonumber(acceptedExpiresAt), acceptedEpoch and tonumber(acceptedEpoch) or 0 }
+end
+
+-- 아래는 신규 요청만 본다.
+-- 4. issue-control: 준비·OPEN, 준비 데이터(epoch·기간·key 만료·만료 계산 입력)
 if redis.call('EXISTS', controlKey) == 0 then
     return { -2, 0, 0 }
 end
@@ -85,7 +108,7 @@ if expiresAtNumber > MAX_SAFE then
 end
 local expiresAt = string.format('%.0f', expiresAtNumber)
 
--- 4. 기간: startAt ≤ now < endAt
+-- 5. 기간: startAt ≤ now < endAt
 local now = tonumber(issuedAt)
 if now < tonumber(startAt) or now >= tonumber(endAt) then
     return { -3, 0, 0 }
@@ -95,31 +118,17 @@ if tonumber(keysExpireAt) <= now then
     return { -9, 0, 0 }
 end
 
--- 5. 같은 요청 ID. 같은 회원이면 최초 접수의 만료 시각을 돌려준다. 값 뒤의 접수 epoch·표식(PUBLISHED·COMPENSATED)은 판정에 쓰지 않는다.
---    접수 epoch 필드가 없는 옛 형식 기록도 같은 식으로 읽는다
-local existing = redis.call('HGET', requestsKey, requestId)
-if existing then
-    local owner, acceptedExpiresAt, marks = string.match(existing, '^(%d+)|%d+|ACCEPTED|(%d+)(.*)$')
-    if owner == nil or (marks ~= '' and string.sub(marks, 1, 1) ~= '|') then
-        return { -9, 0, 0 }
-    end
-    if owner == memberId then
-        return { 2, tonumber(acceptedExpiresAt), 0 }
-    end
-    return { -4, 0, 0 }
-end
-
--- 신규 접수 보류(적체·대사·복구). 이미 접수한 요청의 재응답(위)은 막지 않는다
+-- 6. 신규 접수 보류(적체·대사·복구). 이미 접수한 요청의 재응답(3)은 막지 않는다
 if hold and hold ~= '' then
     return { -2, 0, 0 }
 end
 
--- 6. 회원 중복
+-- 7. 회원 중복
 if redis.call('SISMEMBER', usersKey, memberId) == 1 then
     return { -1, 0, 0 }
 end
 
--- 7. 재고. 준비된 쿠폰에 stock이 없거나 정수가 아니면 준비 데이터가 깨진 것이다
+-- 8. 재고. 준비된 쿠폰에 stock이 없거나 정수가 아니면 준비 데이터가 깨진 것이다
 local stock = redis.call('GET', stockKey)
 if not stock or string.match(stock, '^%-?%d+$') == nil then
     return { -9, 0, 0 }
@@ -128,7 +137,7 @@ if tonumber(stock) <= 0 then
     return { 0, 0, 0 }
 end
 
--- 8. 쓰기: DECR stock → SADD users → HSET requests. Lua는 오류에 자동으로 되돌리지 않으므로 각 쓰기를 pcall로 감싸고,
+-- 9. 쓰기: DECR stock → SADD users → HSET requests. Lua는 오류에 자동으로 되돌리지 않으므로 각 쓰기를 pcall로 감싸고,
 --    실패(OOM 등)하면 같은 스크립트 안에서 앞의 쓰기를 되돌린 뒤 -9다. 스크립트 하나가 원자적이라 되돌리기도 다른 요청과 섞이지 않는다.
 --    되돌리기 자체가 실패하면 스크립트 오류로 끝나 부분 기록이 남을 수 있다. 그것은 쿠폰 차단·대사가 맡는다.
 local function failed(reply)

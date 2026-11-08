@@ -26,19 +26,23 @@ import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControlState;
 import com.hapbang.coupon.app.port.CouponIssueStore.RequestEntry;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
+import com.hapbang.coupon.app.CouponRepublishUseCase.CouponResult;
+import com.hapbang.coupon.app.CouponRepublishUseCase.Ending;
+import com.hapbang.coupon.app.CouponRepublishUseCase.RepublishSummary;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.out.CouponDltLogRepository;
 import com.hapbang.coupon.out.CouponRepublishQueryRepository;
 import com.hapbang.coupon.out.RepublishTargetCoupon;
+import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 // 재발행 흐름: 어떤 쿠폰·요청을 다시 보내는지(DB 부재만, DB 존재·DLT 미처리·보상 완료 제외, 복구 중 쿠폰 제외, 전송 직전 차단 확인)와
-// 실린 값을 본다.
+// 실린 값, 연속 실패 때 그 쿠폰의 남은 전송 멈춤, 미확정 요청이 남은 쿠폰의 key 만료 연장을 본다.
 // 요청 하나의 판정 규칙은 RepublishRuleTest, HSCAN·기록 형식은 Redis 테스트가 본다
 class CouponRepublishUseCaseTest {
 
@@ -47,6 +51,8 @@ class CouponRepublishUseCaseTest {
     private static final Instant NOW = Instant.parse("2026-11-08T03:00:00Z");
     private static final Instant OLD = NOW.minus(Duration.ofMinutes(5));
     private static final Instant EXPIRES_AT = OLD.plus(Duration.ofDays(30));
+    /** 지금 + key 만료 여유(기본 7일) */
+    private static final Instant RETAIN_UNTIL = NOW.plus(Duration.ofDays(7));
 
     private final CouponRepublishQueryRepository queryRepository = mock();
     private final CouponDltLogRepository dltLogRepository = mock();
@@ -58,7 +64,8 @@ class CouponRepublishUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new CouponRepublishUseCase(queryRepository, dltLogRepository, issueStore, publisher,
-                CouponIssueDeliveryProperties.defaults(), registry(meterRegistry), Clock.fixed(NOW, ZoneOffset.UTC));
+                CouponIssueDeliveryProperties.defaults(), new CouponRedisProperties(null), registry(meterRegistry),
+                Clock.fixed(NOW, ZoneOffset.UTC));
         when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
         when(issueStore.findIssueControl(anyLong())).thenReturn(Optional.of(new IssueControlState(true, "OPEN", EPOCH, null)));
         when(issueStore.hasRequests(anyLong())).thenReturn(true);
@@ -76,7 +83,7 @@ class CouponRepublishUseCaseTest {
 
         var summary = useCase.republishDue();
 
-        assertThat(summary).isEqualTo(new CouponRepublishUseCase.RepublishSummary(1, 1, 0));
+        assertCounts(summary, 1, 1, 0);
         verify(publisher).publish(new CouponIssueRequested("req-missing", COUPON_ID, 7, EPOCH, OLD, EXPIRES_AT),
                 Duration.ofSeconds(3));
         verifyNoMoreInteractions(publisher);
@@ -141,7 +148,7 @@ class CouponRepublishUseCaseTest {
         // 훑기 전 확인 1번 + 전송 직전 확인 2번(두 번째에서 멈춤). 다음 페이지는 보지 않는다
         verify(issueStore, times(3)).findIssueControl(COUPON_ID);
         verify(publisher, times(1)).publish(any(), any());
-        assertThat(summary).isEqualTo(new CouponRepublishUseCase.RepublishSummary(1, 1, 0));
+        assertCounts(summary, 1, 1, 0);
     }
 
     @Test
@@ -155,7 +162,7 @@ class CouponRepublishUseCaseTest {
         var summary = useCase.republishDue();
 
         verifyNoInteractions(publisher);
-        assertThat(summary).isEqualTo(new CouponRepublishUseCase.RepublishSummary(0, 0, 0));
+        assertCounts(summary, 0, 0, 0);
     }
 
     @Test
@@ -208,7 +215,7 @@ class CouponRepublishUseCaseTest {
 
         var summary = useCase.republishDue();
 
-        assertThat(summary).isEqualTo(new CouponRepublishUseCase.RepublishSummary(1, 0, 0));
+        assertCounts(summary, 1, 0, 0);
         assertThat(meterRegistry.get(CouponRepublishUseCase.REPUBLISHED_METRIC).tag("result", "timed_out").counter()
                 .count()).isEqualTo(1);
         assertThat(meterRegistry.get(CouponRepublishUseCase.LAST_REPUBLISHED_METRIC).gauge().value()).isZero();
@@ -225,7 +232,91 @@ class CouponRepublishUseCaseTest {
 
         var summary = useCase.republishDue();
 
-        assertThat(summary).isEqualTo(new CouponRepublishUseCase.RepublishSummary(1, 1, 1));
+        assertCounts(summary, 1, 1, 1);
+    }
+
+    @Test
+    void 한_쿠폰에서_연속_실패가_상한에_닿으면_그_쿠폰의_남은_전송을_멈추고_다음_쿠폰을_계속한다() {
+        when(queryRepository.findTargets(any())).thenReturn(List.of(
+                new RepublishTargetCoupon(COUPON_ID, CouponStatus.OPEN, EPOCH),
+                new RepublishTargetCoupon(2L, CouponStatus.OPEN, EPOCH)));
+        requestPages(COUPON_ID, List.of(
+                Map.of("req-1", accepted(7, OLD), "req-2", accepted(8, OLD)),
+                Map.of("req-3", accepted(9, OLD), "req-4", accepted(10, OLD))));
+        requestPages(2L, List.of(Map.of("req-9", accepted(11, OLD))));
+        when(publisher.publish(argThat(event -> event != null && event.couponId() == COUPON_ID), any()))
+                .thenReturn(PublishResult.TIMED_OUT, PublishResult.FAILED, PublishResult.TIMED_OUT);
+
+        RepublishSummary summary = useCase.republishDue();
+
+        // 페이지를 넘겨도 연속으로 센다: 기본 상한 3건에서 멈춰 넷째 요청은 보내지 않는다
+        verify(publisher, times(3)).publish(argThat(event -> event != null && event.couponId() == COUPON_ID), any());
+        verify(publisher).publish(argThat(event -> event != null && event.couponId() == 2L), any());
+        assertThat(summary.coupons()).containsExactly(
+                new CouponResult(COUPON_ID, 3, 0, 3, Ending.CONSECUTIVE_FAILURES),
+                new CouponResult(2L, 1, 1, 0, Ending.COMPLETED));
+        assertThat(summary.stoppedCoupons()).isEqualTo(1);
+        assertThat(summary.failed()).isEqualTo(3);
+        // 멈췄어도 미확정 요청을 봤으므로 key 만료는 늦춘다
+        verify(issueStore).extendKeysExpiry(COUPON_ID, RETAIN_UNTIL);
+    }
+
+    @Test
+    void 중간에_ACK가_끼면_연속_실패를_다시_센다() {
+        target(CouponStatus.OPEN);
+        requestPages(COUPON_ID, List.of(
+                Map.of("req-1", accepted(7, OLD)), Map.of("req-2", accepted(8, OLD)),
+                Map.of("req-3", accepted(9, OLD)), Map.of("req-4", accepted(10, OLD)),
+                Map.of("req-5", accepted(11, OLD))));
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.FAILED, PublishResult.FAILED,
+                PublishResult.ACKED, PublishResult.FAILED, PublishResult.FAILED);
+
+        RepublishSummary summary = useCase.republishDue();
+
+        verify(publisher, times(5)).publish(any(), any());
+        assertThat(summary.coupons()).containsExactly(new CouponResult(COUPON_ID, 5, 1, 4, Ending.COMPLETED));
+        assertThat(summary.stoppedCoupons()).isZero();
+    }
+
+    @Test
+    void DB에_결과가_없는_요청을_본_쿠폰은_key_만료를_지금_더하기_여유까지_늦춘다() {
+        target(CouponStatus.CLOSED);
+        requests(Map.of("req-dlt", accepted(7, OLD)));
+        when(dltLogRepository.findUnresolvedRequestIds(COUPON_ID)).thenReturn(List.of("req-dlt"));
+
+        useCase.republishDue();
+
+        // DLT에서 기다리는 요청도 DB 미확정이다(보내지는 않는다)
+        verifyNoInteractions(publisher);
+        verify(issueStore).extendKeysExpiry(COUPON_ID, RETAIN_UNTIL);
+    }
+
+    @Test
+    void DB_결과가_모두_있거나_대기_시간_전_요청만_있으면_key_만료를_건드리지_않는다() {
+        target(CouponStatus.CLOSED);
+        requests(Map.of(
+                "req-recorded", accepted(7, OLD),
+                "req-fresh", accepted(8, NOW.minusSeconds(10))));
+        when(queryRepository.findRecordedIds(eq(COUPON_ID), any())).thenReturn(List.of("req-recorded"));
+
+        useCase.republishDue();
+
+        verify(issueStore, never()).extendKeysExpiry(anyLong(), any());
+    }
+
+    @Test
+    void key_만료_연장이_실패해도_재발행_결과는_그대로다() {
+        target(CouponStatus.OPEN);
+        requests(Map.of("req-1", accepted(7, OLD)));
+        when(issueStore.extendKeysExpiry(anyLong(), any())).thenThrow(new CouponIssueStoreUnavailableException("redis", null));
+
+        assertCounts(useCase.republishDue(), 1, 1, 0);
+    }
+
+    private static void assertCounts(RepublishSummary summary, int republished, int acked, int failedCoupons) {
+        assertThat(summary.republished()).isEqualTo(republished);
+        assertThat(summary.acked()).isEqualTo(acked);
+        assertThat(summary.failedCoupons()).isEqualTo(failedCoupons);
     }
 
     private void target(CouponStatus status) {
@@ -242,9 +333,13 @@ class CouponRepublishUseCaseTest {
         }).when(issueStore).scanRequests(eq(COUPON_ID), anyInt(), any());
     }
 
-    /** 페이지를 차례로 넘긴다. 콜백이 던지면(전송 직전 차단) 남은 페이지를 넘기지 않는다 */
-    @SuppressWarnings("unchecked")
+    /** 페이지를 차례로 넘긴다. 콜백이 던지면(전송 직전 차단·연속 실패) 남은 페이지를 넘기지 않는다 */
     private void requestPages(List<Map<String, String>> pages) {
+        requestPages(COUPON_ID, pages);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void requestPages(long couponId, List<Map<String, String>> pages) {
         doAnswer(invocation -> {
             for (Map<String, String> values : pages) {
                 List<RequestEntry> page = new ArrayList<>();
@@ -252,7 +347,7 @@ class CouponRepublishUseCaseTest {
                 ((Consumer<List<RequestEntry>>) invocation.getArgument(2)).accept(page);
             }
             return null;
-        }).when(issueStore).scanRequests(eq(COUPON_ID), anyInt(), any());
+        }).when(issueStore).scanRequests(eq(couponId), anyInt(), any());
     }
 
     private static String accepted(long memberId, Instant acceptedAt) {

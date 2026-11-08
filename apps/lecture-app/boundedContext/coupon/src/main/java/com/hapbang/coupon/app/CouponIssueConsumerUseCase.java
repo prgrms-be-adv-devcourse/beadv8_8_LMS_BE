@@ -51,6 +51,9 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class CouponIssueConsumerUseCase {
 
+    /** alert 표식: Redis가 접수한 요청을 소비자가 거절로 확정했다(총량 초과·이미 발급 회원). Redis와 DB가 어긋났다는 신호다 */
+    static final String REJECTED_AFTER_ACCEPT_LOG_TAG = "[COUPON_ISSUE_REJECTED_AFTER_ACCEPT]";
+
     private final CouponRepository couponRepository;
     private final MemberCouponRepository memberCouponRepository;
     private final CouponIssueRequestRepository couponIssueRequestRepository;
@@ -181,9 +184,9 @@ public class CouponIssueConsumerUseCase {
         Instant now = clock.instant();
         couponIssueRequestRepository.save(delivery.toRejected(reason.getMessage(), now));
         processedOperationRepository.save(ProcessedOperation.of(delivery, CouponIssueResult.REJECTED, now));
-        log.error("발급 요청을 거절로 확정했다. Redis 접수 기록과 DB가 어긋났는지 확인이 필요하다 couponId={}, memberId={}, "
-                        + "issueRequestId={}, reason={}", delivery.couponId(), delivery.memberId(), delivery.issueRequestId(),
-                reason);
+        log.error("{} 발급 요청을 거절로 확정했다. Redis 접수 기록과 DB가 어긋났는지 확인이 필요하다 couponId={}, memberId={}, "
+                        + "issueRequestId={}, reason={}", REJECTED_AFTER_ACCEPT_LOG_TAG, delivery.couponId(), delivery.memberId(),
+                delivery.issueRequestId(), reason);
         return switch (reason) {
             case OVER_QUANTITY -> Result.REJECTED_OVER_QUANTITY;
             case MEMBER_ALREADY_ISSUED -> Result.REJECTED_MEMBER_ALREADY_ISSUED;

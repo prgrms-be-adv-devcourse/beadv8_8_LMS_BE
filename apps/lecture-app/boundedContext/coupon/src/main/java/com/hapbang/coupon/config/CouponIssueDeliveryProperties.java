@@ -34,7 +34,7 @@ public record CouponIssueDeliveryProperties(Duration publishAckTimeout, Duration
         if (soldOutCacheTtl.isNegative()) {
             throw new IllegalArgumentException("hapbang.coupon.sold-out-cache-ttl은 음수일 수 없다");
         }
-        republish = republish == null ? new Republish(null, null, null) : republish;
+        republish = republish == null ? new Republish(null, null, null, null) : republish;
     }
 
     /** 생산자 전송 수명은 기본값 */
@@ -66,8 +66,12 @@ public record CouponIssueDeliveryProperties(Duration publishAckTimeout, Duration
      * @param interval   배치 실행 간격(앞 회차가 끝난 뒤부터). 배치 클래스의 {@code @Scheduled}가 같은 key·같은 기본값(1분)을 읽는다
      * @param scanCount  requests를 HSCAN으로 한 번에 가져오는 개수이자 DB 확인 한 번의 묶음 크기. 기본 200
      * @param ackTimeout 재발행 한 건의 ACK 대기. 기본 3초
+     * @param maxConsecutiveFailures 한 쿠폰에서 한 회차에 재발행이 연속으로 이만큼 실패(FAILED·TIMED_OUT)하면 그 쿠폰의 남은 전송을 멈추고
+     *                   다음 쿠폰으로 간다(broker 장애 때 후보마다 ACK 대기로 회차가 끝나지 않는 것을 막는다). ACK가 한 번 끼면 다시 센다.
+     *                   기본 3
      */
-    public record Republish(Duration interval, Integer scanCount, Duration ackTimeout) {
+    public record Republish(Duration interval, Integer scanCount, Duration ackTimeout,
+                            Integer maxConsecutiveFailures) {
 
         public Republish {
             interval = positive(interval, Duration.ofMinutes(1), "republish.interval");
@@ -76,6 +80,10 @@ public record CouponIssueDeliveryProperties(Duration publishAckTimeout, Duration
                 throw new IllegalArgumentException("hapbang.coupon.republish.scan-count는 1 이상이어야 한다");
             }
             ackTimeout = positive(ackTimeout, Duration.ofSeconds(3), "republish.ack-timeout");
+            maxConsecutiveFailures = maxConsecutiveFailures == null ? 3 : maxConsecutiveFailures;
+            if (maxConsecutiveFailures < 1) {
+                throw new IllegalArgumentException("hapbang.coupon.republish.max-consecutive-failures는 1 이상이어야 한다");
+            }
         }
     }
 

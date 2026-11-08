@@ -35,7 +35,7 @@ public interface CouponRecoveryStore {
      */
     RecoveryRedisState redisState(long couponId);
 
-    /** issue-control의 접수 차단 상태. 상태 조회의 유실 판정에 쓴다 */
+    /** issue-control의 접수 차단 상태와 key 만료 시각. 상태 조회의 유실 판정에 쓴다 */
     IssueControlState issueControlState(long couponId);
 
     /**
@@ -73,14 +73,20 @@ public interface CouponRecoveryStore {
     }
 
     /**
-     * @param present issue-control이 있다
-     * @param ready   ready=1이다(접수 준비가 끝났고 복구 차단이 없다)
-     * @param hold    hold 사유. 없으면 null
+     * @param present      issue-control이 있다
+     * @param ready        ready=1이다(접수 준비가 끝났고 복구 차단이 없다)
+     * @param hold         hold 사유. 없으면 null
+     * @param keysExpireAt 쿠폰별 key의 만료 시각(Redis 기록 보관 기간 끝). 없거나 읽을 수 없으면 null
      */
-    record IssueControlState(boolean present, boolean ready, String hold) {
+    record IssueControlState(boolean present, boolean ready, String hold, Instant keysExpireAt) {
+
+        /** keysExpireAt을 보지 않는 곳에서 쓴다 */
+        public IssueControlState(boolean present, boolean ready, String hold) {
+            this(present, ready, hold, null);
+        }
 
         public static IssueControlState missing() {
-            return new IssueControlState(false, false, null);
+            return new IssueControlState(false, false, null, null);
         }
 
         /** 복구 차단(hold=RECOVERY)이 걸려 있다 */

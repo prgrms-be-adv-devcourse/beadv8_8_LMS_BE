@@ -14,6 +14,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.dto.ReconcileHoldReleaseView;
+import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponReconciliationStore;
 import com.hapbang.coupon.app.port.CouponReconciliationStore.RepairResult;
 import com.hapbang.coupon.app.port.CouponReconciliationStore.Snapshot;
@@ -36,6 +37,7 @@ import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.IssueCapacityReservationRepository;
 import com.hapbang.coupon.out.IssueResultReadRepository;
 import com.hapbang.coupon.out.IssueResultRow;
+import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -55,6 +57,10 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>고아 예약: 발급 중(OPEN·SUSPENDED)이 아니고 Redis key가 하나도 없는 쿠폰의 예약을 푼다. 열기 전 쿠폰은 예약(또는 열기 재시도의 재사용)
  *     뒤 {@code hapbang.coupon.limits.orphan-reservation-grace}가 지난 것만 푼다.</li>
  * </ol>
+ * 판정(일치·불일치 모두) 뒤 DB 결과가 없는 접수 기록(진행 중·이전 epoch 미확정)이나 읽을 수 없는 기록이 남았으면 그 쿠폰의 key 만료를
+ * 지금 + {@code hapbang.coupon.redis.keys-expire-margin}까지 늦춘다({@link CouponIssueStore#extendKeysExpiry}, 줄이지 않는다). 발급 종료 +
+ * 여유에 key가 만료돼 미확정 요청의 근거가 사라지지 않게 한다. 기록은 확정이 끝난 뒤에만 위 정리 규칙대로 지운다.
+ * <p>
  * 복구 중(hold=RECOVERY 또는 ready≠1)인 쿠폰은 건드리지 않는다. issue-control이 없는데 발급 중이던 쿠폰은 유실 의심으로 알리기만 한다(복구 절차의 몫).
  * 대사 불일치 보류(RECONCILE)가 남은 쿠폰은 원인을 확인하기 전이라 기록 정리·고치기도 하지 않는다.
  * <p>
@@ -71,6 +77,8 @@ public class CouponReconciliationUseCase {
     private final CouponRepository couponRepository;
     private final IssueResultReadRepository resultRepository;
     private final CouponReconciliationStore store;
+    private final CouponIssueStore issueStore;
+    private final CouponRedisProperties redisProperties;
     private final CouponCapacitySupport capacitySupport;
     private final CouponReconciliationMetrics metrics;
     private final CouponLimitsProperties limits;
@@ -81,7 +89,8 @@ public class CouponReconciliationUseCase {
 
     public CouponReconciliationUseCase(IssueCapacityReservationRepository reservationRepository,
                                        CouponRepository couponRepository, IssueResultReadRepository resultRepository,
-                                       CouponReconciliationStore store, CouponCapacitySupport capacitySupport,
+                                       CouponReconciliationStore store, CouponIssueStore issueStore,
+                                       CouponRedisProperties redisProperties, CouponCapacitySupport capacitySupport,
                                        CouponReconciliationMetrics metrics, CouponLimitsProperties limits,
                                        CouponIssueDeliveryProperties delivery,
                                        PlatformTransactionManager transactionManager,
@@ -90,6 +99,8 @@ public class CouponReconciliationUseCase {
         this.couponRepository = couponRepository;
         this.resultRepository = resultRepository;
         this.store = store;
+        this.issueStore = issueStore;
+        this.redisProperties = redisProperties;
         this.capacitySupport = capacitySupport;
         this.metrics = metrics;
         this.limits = limits;
@@ -186,10 +197,33 @@ public class CouponReconciliationUseCase {
             read = again;
             judgment = judge(again);
             if (!judgment.matched()) {
+                retainKeys(couponId, judgment);
                 return confirmMismatch(couponId, judgment);
             }
         }
+        retainKeys(couponId, judgment);
         return applyMatched(couponId, read, judgment);
+    }
+
+    /**
+     * DB 결과가 없는 기록이 남았으면 key 만료를 지금 + 여유까지 늦춘다(줄이지 않는다). 실패해도 대사의 나머지(보류·정리)를 막지 않게 WARN만
+     * 남기고 다음 회차가 다시 늦춘다.
+     */
+    private void retainKeys(long couponId, Judgment judgment) {
+        if (!judgment.retainKeys()) {
+            return;
+        }
+        Instant expireAt = redisProperties.extendedKeysExpireAt(clock.instant());
+        try {
+            int extended = issueStore.extendKeysExpiry(couponId, expireAt);
+            if (extended > 0) {
+                log.debug("DB 결과가 없는 접수 기록이 남아 쿠폰 key 만료를 늦췄다 couponId={}, expireAt={}, extendedKeys={}, {}",
+                        couponId, expireAt, extended, judgment.describe());
+            }
+        } catch (RuntimeException exception) {
+            log.warn("DB 결과가 없는 접수 기록이 남은 쿠폰의 key 만료를 늦추지 못했다. 다음 회차에 다시 늦춘다 couponId={}, expireAt={}",
+                    couponId, expireAt, exception);
+        }
     }
 
     /** DB를 먼저 읽고 Redis를 읽는다. 쿠폰이 없으면 null */

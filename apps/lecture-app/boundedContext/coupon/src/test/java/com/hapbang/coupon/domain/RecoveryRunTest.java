@@ -409,28 +409,41 @@ class RecoveryRunTest {
 
     @Test
     void 유실_의심이_없는_복구는_어느_단계든_UNKNOWN을_남기지_않는다() {
-        Duration window = Duration.ofHours(24);
+        Instant retainedUntil = NOW.plus(Duration.ofDays(7));
 
-        assertThat(started().leavesUnknownAt(NOW, window)).isFalse();
-        assertThat(atStep(RecoveryStep.RESUMED).leavesUnknownAt(NOW, window)).isFalse();
+        assertThat(started().leavesUnknownAt(NOW, retainedUntil)).isFalse();
+        assertThat(atStep(RecoveryStep.RESUMED).leavesUnknownAt(NOW, retainedUntil)).isFalse();
     }
 
     @Test
-    void 유실_의심_복구는_재개_전이나_취소됐으면_UNKNOWN을_남기고_재개_뒤에는_창_안에서만_남긴다() {
-        Duration window = Duration.ofHours(24);
+    void 유실_의심_복구는_재개_전이나_취소됐으면_UNKNOWN을_남기고_재개_뒤에는_Redis_기록_보관_기간_안에서만_남긴다() {
+        Instant retainedUntil = LATER.plus(Duration.ofDays(7));
         RecoveryRun active = RecoveryRun.start(COUPON_ID, 1L, ADMIN_ID, true, NOW);
-        assertThat(active.leavesUnknownAt(NOW.plus(Duration.ofDays(30)), window)).isTrue();
+        assertThat(active.leavesUnknownAt(retainedUntil.plus(Duration.ofDays(30)), retainedUntil)).isTrue();
 
         RecoveryRun aborted = RecoveryRun.start(COUPON_ID, 1L, ADMIN_ID, true, NOW);
         aborted.abort(ADMIN_ID, NOW);
-        assertThat(aborted.leavesUnknownAt(NOW.plus(Duration.ofDays(30)), window)).isTrue();
+        assertThat(aborted.leavesUnknownAt(retainedUntil.plus(Duration.ofDays(30)), retainedUntil)).isTrue();
 
         RecoveryRun resumed = RecoveryRun.start(COUPON_ID, 1L, ADMIN_ID, true, NOW);
         resumed.recordBoundary(BOUNDARY, NOW);
         resumed.recordResults(RecoveryUnresolved.none(), NOW);
         rebuild(resumed, NOW);
         resume(resumed, "확인함", "quantity=10", LATER);
-        assertThat(resumed.leavesUnknownAt(LATER.plus(window).minusSeconds(1), window)).isTrue();
-        assertThat(resumed.leavesUnknownAt(LATER.plus(window), window)).isFalse();
+        assertThat(resumed.leavesUnknownAt(retainedUntil.minusMillis(1), retainedUntil)).isTrue();
+        assertThat(resumed.leavesUnknownAt(retainedUntil, retainedUntil)).isFalse();
+        // 보관 기간을 모르면 단정하지 않는다
+        assertThat(resumed.leavesUnknownAt(retainedUntil.plus(Duration.ofDays(30)), null)).isTrue();
+    }
+
+    @Test
+    void Redis_기록_보관_기간은_issue_control의_key_만료_시각이고_없으면_발급_종료와_여유로_계산한다() {
+        Instant issueEndAt = NOW.plus(Duration.ofDays(1));
+        Instant extended = issueEndAt.plus(Duration.ofDays(20));
+        Duration margin = Duration.ofDays(7);
+
+        assertThat(RecoveryRun.recordsRetainedUntil(extended, issueEndAt, margin)).isEqualTo(extended);
+        assertThat(RecoveryRun.recordsRetainedUntil(null, issueEndAt, margin)).isEqualTo(issueEndAt.plus(margin));
+        assertThat(RecoveryRun.recordsRetainedUntil(null, null, margin)).isNull();
     }
 }

@@ -216,6 +216,14 @@ public final class IssueReconciliationRule {
             return mismatch == null;
         }
 
+        /**
+         * key 만료를 늦춰 기록을 남겨야 하는가: DB 결과가 없는 접수 기록(진행 중·이전 epoch 미확정)이나 읽을 수 없는 기록이 있다. 대사는
+         * 이런 쿠폰의 key 만료를 지금 + 여유까지 늦춰(줄이지 않는다) 발급 종료 + 여유에 복구 근거가 사라지지 않게 한다. 정리 규칙은 그대로다.
+         */
+        public boolean retainKeys() {
+            return inProgress > 0 || staleUnresolved > 0 || malformed > 0;
+        }
+
         /** 로그에 남기는 수량 식 */
         public String describe() {
             return "quantity=" + quantity + ", dbIssued=" + dbIssued + ", inProgress=" + inProgress

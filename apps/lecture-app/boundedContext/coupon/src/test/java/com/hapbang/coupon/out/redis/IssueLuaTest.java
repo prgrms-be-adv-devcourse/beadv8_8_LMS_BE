@@ -122,6 +122,63 @@ class IssueLuaTest extends CouponRedisTestSupport {
     }
 
     @Test
+    @DisplayName("재응답(2)은 Lua 반환에 기록의 접수 epoch를 싣고, epoch 필드가 없는 옛 형식 기록이면 0이다")
+    void sameRequestReturnsAcceptedEpoch() {
+        long couponId = newCouponId();
+        open(control(couponId, EPOCH, 10));
+        IssueOutcome first = store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"));
+        long expiresAt = first.expiresAt().toEpochMilli();
+        redisTemplate.opsForHash().put(CouponRedisKeys.requests(couponId), "req-old",
+                MEMBER_ID + "|" + NOW.toEpochMilli() + "|ACCEPTED|" + expiresAt + "|PUBLISHED");
+
+        assertThat(runIssue(couponId, MEMBER_ID, "req-1", NOW)).containsExactly(2L, expiresAt, EPOCH);
+        assertThat(runIssue(couponId, MEMBER_ID, "req-old", NOW)).containsExactly(2L, expiresAt, 0L);
+    }
+
+    @Test
+    @DisplayName("중단(SUSPENDED)·hold 뒤에도 같은 요청은 2와 최초 만료 시각, 다른 회원은 -4이고, 신규 요청만 -2다")
+    void sameRequestAfterSuspend() {
+        long couponId = newCouponId();
+        open(control(couponId, EPOCH, 10));
+        IssueOutcome first = store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"));
+        store.block(couponId, "SUSPENDED", 1);
+        redisTemplate.opsForHash().put(CouponRedisKeys.issueControl(couponId), "hold", "RECOVERY");
+
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1")))
+                .isEqualTo(new IssueOutcome(2, first.expiresAt(), 0));
+        assertThat(store.tryIssue(attempt(couponId, 8, "req-1")).code()).isEqualTo(-4);
+        assertThat(store.tryIssue(attempt(couponId, 8, "req-2")).code()).isEqualTo(-2);
+        assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("9");
+    }
+
+    @Test
+    @DisplayName("issue-control이 없어도 requests에 기록이 남은 같은 요청은 2이고, 신규 요청은 -2다")
+    void sameRequestWithoutControl() {
+        long couponId = newCouponId();
+        open(control(couponId, EPOCH, 10));
+        IssueOutcome first = store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"));
+        redisTemplate.delete(CouponRedisKeys.issueControl(couponId));
+
+        assertThat(store.tryIssue(attempt(couponId, MEMBER_ID, "req-1")))
+                .isEqualTo(new IssueOutcome(2, first.expiresAt(), 0));
+        assertThat(store.tryIssue(attempt(couponId, 8, "req-2")).code()).isEqualTo(-2);
+    }
+
+    @Test
+    @DisplayName("발급 기간이 끝난 뒤에도 같은 요청은 2와 최초 만료 시각, 다른 회원은 -4이고, 신규 요청만 -3이다")
+    void sameRequestAfterEnd() {
+        long couponId = newCouponId();
+        open(control(couponId, EPOCH, 10));
+        IssueOutcome first = store.tryIssue(attempt(couponId, MEMBER_ID, "req-1"));
+
+        assertThat(store.tryIssue(attemptAt(couponId, MEMBER_ID, "req-1", END)))
+                .isEqualTo(new IssueOutcome(2, first.expiresAt(), 0));
+        assertThat(store.tryIssue(attemptAt(couponId, 8, "req-1", END)).code()).isEqualTo(-4);
+        assertThat(store.tryIssue(attemptAt(couponId, 8, "req-2", END)).code()).isEqualTo(-3);
+        assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo("9");
+    }
+
+    @Test
     @DisplayName("다른 회원이 같은 요청 ID를 쓰면 -4다")
     void requestIdOfAnotherMember() {
         long couponId = newCouponId();
@@ -259,5 +316,11 @@ class IssueLuaTest extends CouponRedisTestSupport {
         assertThat(redisTemplate.opsForSet().members(CouponRedisKeys.users(couponId))).containsExactly("8");
         assertThat(redisTemplate.opsForHash().keys(CouponRedisKeys.requests(couponId))).containsExactly("req-0");
         assertThat(redisTemplate.hasKey(CouponRedisKeys.soldOut(couponId))).isFalse();
+    }
+
+    /** 스토어를 거치지 않고 issue.lua 반환을 그대로 본다(스토어는 재응답의 epoch를 쓰지 않는다) */
+    private List<Long> runIssue(long couponId, long memberId, String requestId, Instant issuedAt) {
+        return CouponRedisLuaSupport.runForLongs(redisTemplate, RedisCouponIssueStore.ISSUE,
+                RedisCouponIssueStore.issueKeys(couponId), couponId, memberId, requestId, issuedAt.toEpochMilli());
     }
 }

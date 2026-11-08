@@ -63,6 +63,17 @@ public final class RepublishRule {
         return record.epoch() != null && record.epoch() < controlEpoch;
     }
 
+    /**
+     * 한 쿠폰의 남은 재발행을 이번 회차에서 멈출까. 연속 실패(FAILED·TIMED_OUT) 수가 상한에 닿으면 멈춘다. broker 장애 때 후보마다 ACK 대기로
+     * 회차가 끝나지 않는 것을 막는다. 멈춘 요청은 기록을 그대로 두므로 다음 회차가 다시 본다.
+     *
+     * @param consecutiveFailures ACK 없이 이어진 실패 수(ACK가 끼면 0부터 다시 센다)
+     * @param maxConsecutiveFailures 상한(1 이상)
+     */
+    public static boolean stopAfterFailures(int consecutiveFailures, int maxConsecutiveFailures) {
+        return consecutiveFailures >= maxConsecutiveFailures;
+    }
+
     /** 접수 뒤 대기 시간이 지났는가(경과 ≥ 대기). 시계가 접수 시각보다 앞이면 지나지 않은 것이다 */
     private static boolean waited(IssueRequestRecord record, Instant now, Duration republishAfter) {
         return !now.isBefore(record.acceptedAt().plus(republishAfter));
@@ -81,6 +92,14 @@ public final class RepublishRule {
         /** 이전 epoch에 접수됐다(소비자가 epoch 불일치로 격리하므로 보내지 않는다) */
         STALE_EPOCH,
         /** DLT에서 관리자 판단을 기다린다 */
-        DLT_PENDING
+        DLT_PENDING;
+
+        /**
+         * DB 결과가 없는 미확정 요청인가(다시 보낼 요청과 DLT에서 기다리는 요청). 재발행 배치는 이런 요청을 본 쿠폰의 key 만료를 늦춘다.
+         * 대기 시간 전(WAITING)은 DB를 확인하지 않은 것이라 넣지 않는다.
+         */
+        public boolean unresolved() {
+            return this == REPUBLISH || this == DLT_PENDING;
+        }
     }
 }

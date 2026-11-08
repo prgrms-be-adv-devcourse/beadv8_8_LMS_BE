@@ -92,6 +92,17 @@ public class CouponRecoveryUseCase {
     /** DB 결과 존재를 한 번에 확인하는 요청 ID 수 */
     private static final int LOOKUP_CHUNK = 500;
 
+    /** alert 표식: 복구 경계 재발행이 실패했다 */
+    static final String REPUBLISH_FAILED_LOG_TAG = "[COUPON_RECOVERY_REPUBLISH_FAILED]";
+    /** alert 표식: 재구축·재개를 Redis에 썼는지 알 수 없다 */
+    static final String RESULT_UNKNOWN_LOG_TAG = "[COUPON_RECOVERY_RESULT_UNKNOWN]";
+    /** alert 표식: Redis가 재구축·재개를 거절했거나 더 새 복구가 있어 이 복구를 진행하지 않았다 */
+    static final String REJECTED_LOG_TAG = "[COUPON_RECOVERY_REJECTED]";
+    /** alert 표식: 재개 전 수량 대사가 맞지 않았다 */
+    static final String QUANTITY_MISMATCH_LOG_TAG = "[COUPON_RECOVERY_QUANTITY_MISMATCH]";
+    /** alert 표식: requests에 읽을 수 없는 접수 기록이 있다 */
+    static final String RECORD_MALFORMED_LOG_TAG = "[COUPON_ISSUE_RECORD_MALFORMED]";
+
     private final CouponSupport couponSupport;
     private final RecoveryRunRepository recoveryRunRepository;
     private final RecoveryLookupRepository recoveryLookupRepository;
@@ -267,8 +278,8 @@ public class CouponRecoveryUseCase {
         if (!failed.isEmpty()) {
             // 시간 초과로 돌아온 재발행은 아직 전송 중일 수 있다. 다음 경계 확정은 그것이 끝난 뒤에 한다
             inTransaction(recoveryId, current -> current.markBlocked(clock.instant()));
-            log.error("복구 경계 재발행이 실패해 경계를 기록하지 않았다 couponId={}, recoveryId={}, failed={}, republished={}",
-                    couponId, recoveryId, failed.size(), republished);
+            log.error("{} 복구 경계 재발행이 실패해 경계를 기록하지 않았다 couponId={}, recoveryId={}, failed={}, republished={}",
+                    REPUBLISH_FAILED_LOG_TAG, couponId, recoveryId, failed.size(), republished);
             throw new CouponException(CouponErrorCode.COUPON_EVENT_PUBLISH_FAILED,
                     "발급 요청 " + failed.size() + "건을 재발행하지 못했습니다. Kafka 상태를 확인한 뒤 다시 시도해 주세요.");
         }
@@ -329,15 +340,15 @@ public class CouponRecoveryUseCase {
         } catch (RuntimeException exception) {
             // Redis에 닿지 못했거나 응답을 못 받았다. 썼는지 알 수 없으므로 REBUILDING에 남겨 재구축만 다시 하게 한다
             finishClaim(recoveryId, current -> current.abandonClaim(claim, clock.instant()));
-            log.error("쿠폰 발급 Redis 재구축 결과를 알 수 없어 재구축 단계에 남겼다 couponId={}, recoveryId={}, adminId={}",
-                    couponId, recoveryId, adminId, exception);
+            log.error("{} 쿠폰 발급 Redis 재구축 결과를 알 수 없어 재구축 단계에 남겼다 couponId={}, recoveryId={}, adminId={}",
+                    RESULT_UNKNOWN_LOG_TAG, couponId, recoveryId, adminId, exception);
             throw exception;
         }
         if (result != RebuildResult.APPLIED) {
             // Redis가 아무것도 쓰지 않았다. 선점 전 단계로 되돌린다
             finishClaim(recoveryId, current -> current.releaseClaim(claim, clock.instant()));
-            log.error("쿠폰 발급 Redis 재구축이 거절돼 아무것도 쓰지 않았다 couponId={}, recoveryId={}, result={}, adminId={}",
-                    couponId, recoveryId, result, adminId);
+            log.error("{} 쿠폰 발급 Redis 재구축이 거절돼 아무것도 쓰지 않았다 couponId={}, recoveryId={}, result={}, adminId={}",
+                    REJECTED_LOG_TAG, couponId, recoveryId, result, adminId);
             if (result == RebuildResult.FENCED) {
                 throw new CouponException(CouponErrorCode.COUPON_RECOVERY_STEP_NOT_ALLOWED,
                         "Redis 발급 상태가 이 복구의 차단이 아닙니다(재개됐거나 다른 복구가 막았습니다). 복구 상태를 확인하세요.");
@@ -381,14 +392,14 @@ public class CouponRecoveryUseCase {
         } catch (RuntimeException exception) {
             // 접수를 열었는지 알 수 없다. RESUMING에 남겨 재개만 다시 하게 한다
             finishClaim(recoveryId, current -> current.abandonClaim(claim, clock.instant()));
-            log.error("쿠폰 발급 복구 재개 결과를 알 수 없어 재개 단계에 남겼다 couponId={}, recoveryId={}, adminId={}",
-                    couponId, recoveryId, adminId, exception);
+            log.error("{} 쿠폰 발급 복구 재개 결과를 알 수 없어 재개 단계에 남겼다 couponId={}, recoveryId={}, adminId={}",
+                    RESULT_UNKNOWN_LOG_TAG, couponId, recoveryId, adminId, exception);
             throw exception;
         }
         if (!result.opened()) {
             finishClaim(recoveryId, current -> current.releaseClaim(claim, clock.instant()));
-            log.error("쿠폰 발급 복구 재개가 거절돼 아무것도 쓰지 않았다 couponId={}, recoveryId={}, result={}, returnedTo={}, "
-                    + "adminId={}", couponId, recoveryId, result, claim.from(), adminId);
+            log.error("{} 쿠폰 발급 복구 재개가 거절돼 아무것도 쓰지 않았다 couponId={}, recoveryId={}, result={}, returnedTo={}, "
+                    + "adminId={}", REJECTED_LOG_TAG, couponId, recoveryId, result, claim.from(), adminId);
             throw activateRejected(couponId, result, claim);
         }
         String evidence = check.describe() + ",epoch=" + run.getNewEpoch() + ",fence=" + activated.getVersion()
@@ -412,8 +423,8 @@ public class CouponRecoveryUseCase {
         RecoveryQuantityCheck check = new RecoveryQuantityCheck(coupon.getQuantity(), coupon.getIssuedCount(),
                 snapshot.stock(), pending.records().size() + pending.malformed());
         if (!check.matches()) {
-            log.error("복구 재개 전 수량 대사가 맞지 않아 재개하지 않았다 couponId={}, recoveryId={}, {}", couponId, recoveryId,
-                    check.describe());
+            log.error("{} 복구 재개 전 수량 대사가 맞지 않아 재개하지 않았다 couponId={}, recoveryId={}, {}",
+                    QUANTITY_MISMATCH_LOG_TAG, couponId, recoveryId, check.describe());
             throw new CouponException(CouponErrorCode.COUPON_RECOVERY_STEP_NOT_ALLOWED,
                     "수량 대사가 맞지 않아 재개할 수 없습니다(" + check.describe() + ").");
         }
@@ -450,8 +461,8 @@ public class CouponRecoveryUseCase {
      */
     private static void requireNotStale(long couponId, long recoveryId, BlockResult block) {
         if (block.stale()) {
-            log.error("더 새 복구가 있어 이전 복구의 차단은 접수만 막고 복구 ID를 바꾸지 않았다 couponId={}, recoveryId={}, "
-                    + "acceptsWereOpen={}", couponId, recoveryId, block.acceptsWereOpen());
+            log.error("{} 더 새 복구가 있어 이전 복구의 차단은 접수만 막고 복구 ID를 바꾸지 않았다 couponId={}, recoveryId={}, "
+                    + "acceptsWereOpen={}", REJECTED_LOG_TAG, couponId, recoveryId, block.acceptsWereOpen());
             throw new CouponException(CouponErrorCode.COUPON_RECOVERY_STEP_NOT_ALLOWED,
                     "더 새 복구가 진행 중이거나 끝나 이 복구는 더 진행할 수 없습니다. 복구 목록을 확인하세요.");
         }
@@ -525,8 +536,8 @@ public class CouponRecoveryUseCase {
                 }
             } catch (IllegalArgumentException exception) {
                 malformed++;
-                log.error("복구 중 읽을 수 없는 접수 기록을 미처리로 센다 couponId={}, issueRequestId={}", couponId,
-                        entry.getKey());
+                log.error("{} 복구 중 읽을 수 없는 접수 기록을 미처리로 센다 couponId={}, issueRequestId={}",
+                        RECORD_MALFORMED_LOG_TAG, couponId, entry.getKey());
             }
         }
         List<String> ids = new ArrayList<>(records.keySet());

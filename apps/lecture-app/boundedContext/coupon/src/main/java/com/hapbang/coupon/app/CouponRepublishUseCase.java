@@ -29,6 +29,7 @@ import com.hapbang.coupon.domain.RepublishRule.Decision;
 import com.hapbang.coupon.out.CouponDltLogRepository;
 import com.hapbang.coupon.out.CouponRepublishQueryRepository;
 import com.hapbang.coupon.out.RepublishTargetCoupon;
+import com.hapbang.coupon.out.redis.CouponRedisProperties;
 import com.hapbang.shared.coupon.event.CouponIssueRequested;
 
 import io.micrometer.core.instrument.Gauge;
@@ -55,8 +56,15 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>접수된 요청을 지우지 않는다. 기록 정리는 DB 결과를 확인한 대사가 한다.</li>
  *     <li>인스턴스 여럿이 같은 요청을 함께 보내도 소비자 멱등(요청 ID 유일 제약)이 흡수하므로 선점(분산 락)은 두지 않는다
  *     (강의 이벤트 재발행과 같은 판단).</li>
+ *     <li>연속 실패: 한 쿠폰에서 이번 회차에 전송이 연속으로 {@code hapbang.coupon.republish.max-consecutive-failures}건(기본 3) 실패
+ *     (FAILED·TIMED_OUT)하면 그 쿠폰의 남은 전송을 멈추고 다음 쿠폰으로 간다. broker 장애 때 후보마다 ACK 대기로 회차가 끝나지 않는 것을
+ *     막는다. ACK가 한 번 끼면 다시 센다. 멈춘 요청은 기록이 그대로라 다음 회차가 다시 본다.</li>
+ *     <li>key 만료 연장: DB 결과가 없는 요청(다시 보낼 요청·DLT에서 기다리는 요청)을 본 쿠폰은 훑기를 마친 뒤(멈췄어도) key 만료를
+ *     지금 + {@code hapbang.coupon.redis.keys-expire-margin}까지 늦춘다({@link CouponIssueStore#extendKeysExpiry}, 줄이지 않는다). 발급 종료 +
+ *     여유에 key가 만료돼 미확정 요청의 근거가 사라지지 않게 한다. 이전 epoch 미확정 기록은 DB를 보지 않으므로 대사가 늦춘다.</li>
  * </ul>
- * 한 쿠폰의 실패(Redis·DB 오류)는 그 쿠폰만 건너뛰고 다음 쿠폰을 계속한다.
+ * 한 쿠폰의 실패(Redis·DB 오류)는 그 쿠폰만 건너뛰고 다음 쿠폰을 계속한다. 회차 결과는 쿠폰별 보냄·ACK·실패·멈춤을 담은
+ * {@link RepublishSummary}이고 WARN 로그로 남긴다.
  */
 @Slf4j
 @Service
@@ -82,6 +90,7 @@ public class CouponRepublishUseCase {
     private final CouponIssueStore couponIssueStore;
     private final CouponIssueEventPublisher couponIssueEventPublisher;
     private final CouponIssueDeliveryProperties properties;
+    private final CouponRedisProperties redisProperties;
     private final MeterRegistry meterRegistry;
     private final Clock clock;
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
@@ -92,6 +101,7 @@ public class CouponRepublishUseCase {
                                   CouponIssueStore couponIssueStore,
                                   CouponIssueEventPublisher couponIssueEventPublisher,
                                   CouponIssueDeliveryProperties properties,
+                                  CouponRedisProperties redisProperties,
                                   ObjectProvider<MeterRegistry> meterRegistry,
                                   @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.republishQueryRepository = republishQueryRepository;
@@ -99,6 +109,7 @@ public class CouponRepublishUseCase {
         this.couponIssueStore = couponIssueStore;
         this.couponIssueEventPublisher = couponIssueEventPublisher;
         this.properties = properties;
+        this.redisProperties = redisProperties;
         this.meterRegistry = meterRegistry.getIfAvailable(SimpleMeterRegistry::new);
         this.clock = clock;
         Gauge.builder(OLDEST_AGE_METRIC, oldestAgeSeconds, AtomicLong::get).baseUnit("seconds")
@@ -111,28 +122,34 @@ public class CouponRepublishUseCase {
     public RepublishSummary republishDue() {
         Instant now = clock.instant();
         Run run = new Run(now);
+        List<CouponResult> results = new ArrayList<>();
         for (RepublishTargetCoupon target : republishQueryRepository.findTargets(TARGET_STATUSES)) {
+            CouponRun coupon = new CouponRun(target.couponId());
             try {
-                republishCoupon(target, run);
+                republishCoupon(target, run, coupon);
             } catch (RuntimeException e) {
-                run.failedCoupons++;
+                coupon.ending = Ending.ERROR;
                 log.warn("발급 요청 재발행 중 오류가 나 이 쿠폰은 다음 실행에서 다시 본다 couponId={}", target.couponId(), e);
+            }
+            if (coupon.sent() > 0 || coupon.ending != Ending.COMPLETED) {
+                results.add(coupon.result());
             }
         }
         oldestAgeSeconds.set(run.oldestAcceptedAt == null ? 0
                 : Math.max(0, Duration.between(run.oldestAcceptedAt, now).toSeconds()));
-        if (run.acked > 0) {
+        RepublishSummary summary = new RepublishSummary(results);
+        if (summary.acked() > 0) {
             lastRepublishedEpochSecond.set(clock.instant().getEpochSecond());
         }
-        RepublishSummary summary = new RepublishSummary(run.republished(), run.acked, run.failedCoupons);
-        if (summary.republished() > 0) {
-            log.warn("DB에 결과가 없는 발급 요청을 다시 발행했다 republished={}, acked={}, failedCoupons={}",
-                    summary.republished(), summary.acked(), summary.failedCoupons());
+        if (summary.republished() > 0 || summary.failedCoupons() > 0) {
+            log.warn("DB에 결과가 없는 발급 요청 재발행 회차를 마쳤다 republished={}, acked={}, failed={}, stoppedCoupons={}, "
+                    + "failedCoupons={}, stopped={}", summary.republished(), summary.acked(), summary.failed(),
+                    summary.stoppedCoupons(), summary.failedCoupons(), summary.stopped());
         }
         return summary;
     }
 
-    private void republishCoupon(RepublishTargetCoupon target, Run run) {
+    private void republishCoupon(RepublishTargetCoupon target, Run run, CouponRun coupon) {
         long couponId = target.couponId();
         if (target.status() == CouponStatus.CLOSED && !couponIssueStore.hasRequests(couponId)) {
             return;
@@ -153,10 +170,38 @@ public class CouponRepublishUseCase {
         Set<String> dltUnresolved = new HashSet<>(couponDltLogRepository.findUnresolvedRequestIds(couponId));
         try {
             couponIssueStore.scanRequests(couponId, properties.republish().scanCount(),
-                    page -> republishPage(couponId, state.epoch(), page, dltUnresolved, run));
+                    page -> republishPage(couponId, state.epoch(), page, dltUnresolved, run, coupon));
         } catch (IssueControlChanged stopped) {
+            coupon.ending = Ending.ISSUE_CONTROL_CHANGED;
             log.info("재발행 중 접수가 차단됐거나 epoch가 바뀌어 이 쿠폰의 남은 재발행을 멈췄다 couponId={}, epoch={}, ready={}, "
                     + "redisEpoch={}", couponId, state.epoch(), stopped.ready, stopped.redisEpoch);
+        } catch (ConsecutiveFailures stopped) {
+            coupon.ending = Ending.CONSECUTIVE_FAILURES;
+            log.warn("재발행이 연속으로 실패해 이 쿠폰의 남은 재발행을 이번 회차에서 멈췄다. 다음 회차가 다시 본다 couponId={}, epoch={}, "
+                    + "consecutiveFailures={}, sent={}, failed={}", couponId, state.epoch(),
+                    coupon.consecutiveFailures, coupon.sent(), coupon.failed);
+        } finally {
+            if (coupon.unresolvedSeen) {
+                extendKeysExpiry(couponId, run.now);
+            }
+        }
+    }
+
+    /**
+     * DB 결과가 없는 요청을 본 쿠폰의 key 만료를 지금 + 여유까지 늦춘다(줄이지 않는다). 실패해도 재발행 결과에 영향이 없게 WARN만 남기고
+     * 다음 회차가 다시 늦춘다.
+     */
+    private void extendKeysExpiry(long couponId, Instant now) {
+        Instant expireAt = redisProperties.extendedKeysExpireAt(now);
+        try {
+            int extended = couponIssueStore.extendKeysExpiry(couponId, expireAt);
+            if (extended > 0) {
+                log.debug("DB 결과가 없는 요청이 남아 쿠폰 key 만료를 늦췄다 couponId={}, expireAt={}, extendedKeys={}", couponId,
+                        expireAt, extended);
+            }
+        } catch (RuntimeException e) {
+            log.warn("DB 결과가 없는 요청이 남은 쿠폰의 key 만료를 늦추지 못했다. 다음 회차에 다시 늦춘다 couponId={}, expireAt={}",
+                    couponId, expireAt, e);
         }
     }
 
@@ -176,7 +221,7 @@ public class CouponRepublishUseCase {
     }
 
     private void republishPage(long couponId, long epoch, List<RequestEntry> page, Set<String> dltUnresolved,
-                               Run run) {
+                               Run run, CouponRun coupon) {
         Duration republishAfter = properties.republishAfter();
         List<Candidate> candidates = new ArrayList<>();
         int malformed = 0;
@@ -214,13 +259,16 @@ public class CouponRepublishUseCase {
         for (Candidate candidate : candidates) {
             Decision decision = RepublishRule.decide(candidate.record(), run.now, republishAfter, epoch,
                     recorded.contains(candidate.issueRequestId()), dltUnresolved.contains(candidate.issueRequestId()));
+            if (decision.unresolved()) {
+                coupon.unresolvedSeen = true;
+            }
             if (decision == Decision.REPUBLISH) {
-                publish(couponId, epoch, candidate, run);
+                publish(couponId, epoch, candidate, run, coupon);
             }
         }
     }
 
-    private void publish(long couponId, long epoch, Candidate candidate, Run run) {
+    private void publish(long couponId, long epoch, Candidate candidate, Run run, CouponRun coupon) {
         requireStillReady(couponId, epoch);
         IssueRequestRecord record = candidate.record();
         run.noteAccepted(record.acceptedAt());
@@ -235,20 +283,86 @@ public class CouponRepublishUseCase {
         }
         meterRegistry.counter(REPUBLISHED_METRIC, "result", result.name().toLowerCase(Locale.ROOT)).increment();
         if (result.acked()) {
-            run.acked++;
-        } else {
-            run.notAcked++;
+            coupon.acked++;
+            coupon.consecutiveFailures = 0;
+            return;
+        }
+        coupon.failed++;
+        coupon.consecutiveFailures++;
+        if (RepublishRule.stopAfterFailures(coupon.consecutiveFailures,
+                properties.republish().maxConsecutiveFailures())) {
+            throw new ConsecutiveFailures();
         }
     }
 
     /**
-     * 한 회차 결과.
+     * 한 회차 결과. 다시 보냈거나 끝까지 훑지 못한 쿠폰만 담는다.
      *
-     * @param republished   다시 보낸 요청 수(ACK 여부와 관계없이)
-     * @param acked         그중 ACK받은 수
-     * @param failedCoupons 오류로 건너뛴 쿠폰 수
+     * @param coupons 쿠폰별 결과
      */
-    public record RepublishSummary(int republished, int acked, int failedCoupons) {
+    public record RepublishSummary(List<CouponResult> coupons) {
+
+        public RepublishSummary {
+            coupons = List.copyOf(coupons);
+        }
+
+        /** 다시 보낸 요청 수(ACK 여부와 관계없이) */
+        public int republished() {
+            return coupons.stream().mapToInt(CouponResult::sent).sum();
+        }
+
+        /** 그중 ACK받은 수 */
+        public int acked() {
+            return coupons.stream().mapToInt(CouponResult::acked).sum();
+        }
+
+        /** 그중 실패(FAILED·TIMED_OUT)한 수 */
+        public int failed() {
+            return coupons.stream().mapToInt(CouponResult::failed).sum();
+        }
+
+        /** 오류로 건너뛴 쿠폰 수 */
+        public int failedCoupons() {
+            return (int) coupons.stream().filter(coupon -> coupon.ending() == Ending.ERROR).count();
+        }
+
+        /** 연속 실패로 남은 전송을 멈춘 쿠폰 수 */
+        public int stoppedCoupons() {
+            return stopped().size();
+        }
+
+        /** 연속 실패로 남은 전송을 멈춘 쿠폰 */
+        public List<CouponResult> stopped() {
+            return coupons.stream().filter(coupon -> coupon.ending() == Ending.CONSECUTIVE_FAILURES).toList();
+        }
+    }
+
+    /**
+     * 한 쿠폰의 회차 결과.
+     *
+     * @param sent   다시 보낸 요청 수(= acked + failed)
+     * @param acked  ACK받은 수
+     * @param failed 실패(FAILED·TIMED_OUT)한 수
+     * @param ending 훑기를 어떻게 끝냈는가
+     */
+    public record CouponResult(long couponId, int sent, int acked, int failed, Ending ending) {
+
+        /** 끝까지 훑지 못했는가(멈춤·오류) */
+        public boolean stopped() {
+            return ending != Ending.COMPLETED;
+        }
+    }
+
+    /** 한 쿠폰의 훑기를 끝낸 방식 */
+    public enum Ending {
+        /** 끝까지 훑었다(건너뛴 쿠폰 포함) */
+        COMPLETED,
+        /** 연속 실패가 상한에 닿아 남은 전송을 멈췄다 */
+        CONSECUTIVE_FAILURES,
+        /** 전송 직전 확인에서 접수 차단·epoch 변경을 봐 멈췄다 */
+        ISSUE_CONTROL_CHANGED,
+        /** Redis·DB 오류로 건너뛰었다 */
+        ERROR
     }
 
     private record Candidate(String issueRequestId, IssueRequestRecord record) {
@@ -267,13 +381,41 @@ public class CouponRepublishUseCase {
         }
     }
 
+    /** 연속 실패가 상한에 닿았다. 그 쿠폰의 훑기를 멈추려고 던진다 */
+    private static final class ConsecutiveFailures extends RuntimeException {
+
+        private ConsecutiveFailures() {
+            super(null, null, false, false);
+        }
+    }
+
+    /** 한 쿠폰의 회차 안 집계 */
+    private static final class CouponRun {
+
+        private final long couponId;
+        private int acked;
+        private int failed;
+        private int consecutiveFailures;
+        private boolean unresolvedSeen;
+        private Ending ending = Ending.COMPLETED;
+
+        private CouponRun(long couponId) {
+            this.couponId = couponId;
+        }
+
+        private int sent() {
+            return acked + failed;
+        }
+
+        private CouponResult result() {
+            return new CouponResult(couponId, sent(), acked, failed, ending);
+        }
+    }
+
     /** 회차 안의 집계 */
     private static final class Run {
 
         private final Instant now;
-        private int acked;
-        private int notAcked;
-        private int failedCoupons;
         private Instant oldestAcceptedAt;
 
         private Run(Instant now) {
@@ -284,10 +426,6 @@ public class CouponRepublishUseCase {
             if (oldestAcceptedAt == null || acceptedAt.isBefore(oldestAcceptedAt)) {
                 oldestAcceptedAt = acceptedAt;
             }
-        }
-
-        private int republished() {
-            return acked + notAcked;
         }
     }
 }

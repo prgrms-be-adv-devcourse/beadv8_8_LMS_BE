@@ -11,7 +11,8 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 import com.hapbang.coupon.domain.RepublishRule.Decision;
 
-// 재발행 대상: 접수 뒤 N초 경과 ∧ DB에 없음 ∧ 보상 완료 아님 ∧ DLT PENDING 아님 ∧ 이전 epoch 접수 아님. PUBLISHED 표식은 보지 않는다
+// 재발행 대상: 접수 뒤 N초 경과 ∧ DB에 없음 ∧ 보상 완료 아님 ∧ DLT PENDING 아님 ∧ 이전 epoch 접수 아님. PUBLISHED 표식은 보지 않는다.
+// 연속 실패 상한에 닿으면 멈춤, DB 미확정 판정(key 만료 연장 대상)도 본다
 class RepublishRuleTest {
 
     private static final Duration AFTER = Duration.ofSeconds(30);
@@ -71,6 +72,22 @@ class RepublishRuleTest {
     void DB_결과가_있으면_DLT_PENDING보다_먼저_건너뛴다() {
         assertThat(RepublishRule.decide(record(false, false), DUE, AFTER, EPOCH, true, true))
                 .isEqualTo(Decision.RECORDED);
+    }
+
+    @ParameterizedTest(name = "연속 실패 {0}건, 상한 {1} → 멈춤 {2}")
+    @CsvSource({"0, 3, false", "2, 3, false", "3, 3, true", "4, 3, true", "1, 1, true"})
+    void 연속_실패가_상한에_닿으면_그_쿠폰의_남은_재발행을_멈춘다(int consecutiveFailures, int max, boolean stop) {
+        assertThat(RepublishRule.stopAfterFailures(consecutiveFailures, max)).isEqualTo(stop);
+    }
+
+    @Test
+    void 다시_보낼_요청과_DLT에서_기다리는_요청만_DB_미확정이다() {
+        assertThat(Decision.REPUBLISH.unresolved()).isTrue();
+        assertThat(Decision.DLT_PENDING.unresolved()).isTrue();
+        assertThat(Decision.RECORDED.unresolved()).isFalse();
+        assertThat(Decision.COMPENSATED.unresolved()).isFalse();
+        assertThat(Decision.WAITING.unresolved()).isFalse();
+        assertThat(Decision.STALE_EPOCH.unresolved()).isFalse();
     }
 
     @Test

@@ -35,6 +35,7 @@ public class RedisCouponIssueStore implements CouponIssueStore {
     private static final RedisScript<Long> PREPARE = CouponRedisLuaSupport.longLuaScript("lua/prepare.lua");
     private static final RedisScript<Long> ALLOW_ISSUE = CouponRedisLuaSupport.longLuaScript("lua/allow-issue.lua");
     private static final RedisScript<Long> BLOCK = CouponRedisLuaSupport.longLuaScript("lua/block.lua");
+    private static final RedisScript<Long> EXTEND_KEYS = CouponRedisLuaSupport.longLuaScript("lua/extend-keys.lua");
 
     private final StringRedisTemplate redisTemplate;
 
@@ -165,7 +166,7 @@ public class RedisCouponIssueStore implements CouponIssueStore {
         return new IssueOutcome(code, expiresAt, code == 1 ? result.get(2) : 0);
     }
 
-    /** issue.lua의 KEYS 순서 */
+    /** issue.lua·extend-keys.lua의 KEYS 순서 */
     static List<String> issueKeys(long couponId) {
         return List.of(
                 CouponRedisKeys.issueControl(couponId),
@@ -245,6 +246,17 @@ public class RedisCouponIssueStore implements CouponIssueStore {
         }
         return Optional.of(new IssueControlState("1".equals(values.get(0)), (String) values.get(1),
                 parseEpoch(values.get(2)), emptyToNull(values.get(3))));
+    }
+
+    @Override
+    public int extendKeysExpiry(long couponId, Instant expireAt) {
+        long result = run("key 만료 연장", () -> CouponRedisLuaSupport.runForLong(redisTemplate, EXTEND_KEYS,
+                issueKeys(couponId), expireAt.toEpochMilli()));
+        if (result < 0 || result > 5) {
+            throw new CouponIssueStoreUnavailableException(
+                    "쿠폰 key 만료를 늦추지 못했다 couponId=" + couponId + ", result=" + result, null);
+        }
+        return (int) result;
     }
 
     private static Long parseEpoch(Object value) {

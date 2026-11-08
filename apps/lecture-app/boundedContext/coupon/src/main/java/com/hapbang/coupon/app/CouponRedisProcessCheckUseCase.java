@@ -35,6 +35,8 @@ import lombok.extern.slf4j.Slf4j;
 public class CouponRedisProcessCheckUseCase {
 
     static final String METRIC = "coupon.recovery.redis_check";
+    /** alert 표식: Redis 프로세스 변경·issue-control 유실로 접수를 막았다. 관리자 복구가 필요하다 */
+    static final String RECOVERY_REQUIRED_LOG_TAG = "[COUPON_RECOVERY_REQUIRED]";
 
     private final RecoveryLookupRepository recoveryLookupRepository;
     private final CouponRecoveryStore recoveryStore;
@@ -76,11 +78,13 @@ public class CouponRedisProcessCheckUseCase {
         switch (result) {
             case BLOCKED -> {
                 meterRegistry.counter(METRIC, "result", "blocked").increment();
-                log.error("Redis 프로세스가 바뀌어 쿠폰 발급 접수를 막았다. 관리자 복구가 필요하다 couponId={}", couponId);
+                log.error("{} Redis 프로세스가 바뀌어 쿠폰 발급 접수를 막았다. 관리자 복구가 필요하다 couponId={}",
+                        RECOVERY_REQUIRED_LOG_TAG, couponId);
             }
             case MISSING -> {
                 meterRegistry.counter(METRIC, "result", "missing").increment();
-                log.error("발급 중인 쿠폰의 issue-control이 Redis에 없다(유실). 관리자 복구가 필요하다 couponId={}", couponId);
+                log.error("{} 발급 중인 쿠폰의 issue-control이 Redis에 없다(유실). 관리자 복구가 필요하다 couponId={}",
+                        RECOVERY_REQUIRED_LOG_TAG, couponId);
             }
             case ADOPTED -> {
                 meterRegistry.counter(METRIC, "result", "adopted").increment();

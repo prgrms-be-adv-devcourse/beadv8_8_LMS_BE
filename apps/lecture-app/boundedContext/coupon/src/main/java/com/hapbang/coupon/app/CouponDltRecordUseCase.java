@@ -30,6 +30,9 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class CouponDltRecordUseCase {
 
+    /** alert 표식: 발급 요청을 DLT로 격리했다(관리자가 재발행·영구 거절로 처리해야 한다) */
+    static final String ISOLATED_LOG_TAG = "[COUPON_ISSUE_DLT_ISOLATED]";
+
     private final CouponDltLogRepository couponDltLogRepository;
     private final CouponDltMetrics metrics;
     private final TransactionTemplate transaction;
@@ -71,8 +74,9 @@ public class CouponDltRecordUseCase {
         }
         if (recorded) {
             metrics.recordIsolated();
-            log.error("발급 요청을 DLT로 격리했다 couponId={}, issueRequestId={}, topic={}, partition={}, offset={}, cause={}",
-                    couponId, issueRequestId, source.topic(), source.partition(), source.offset(), failureCause);
+            log.error("{} 발급 요청을 DLT로 격리했다 couponId={}, issueRequestId={}, topic={}, partition={}, offset={}, cause={}",
+                    ISOLATED_LOG_TAG, couponId, issueRequestId, source.topic(), source.partition(), source.offset(),
+                    failureCause);
         } else {
             log.warn("이미 격리 기록이 있는 발급 요청이라 기록을 더하지 않는다 couponId={}, issueRequestId={}, topic={}, partition={}, "
                     + "offset={}", couponId, issueRequestId, source.topic(), source.partition(), source.offset());

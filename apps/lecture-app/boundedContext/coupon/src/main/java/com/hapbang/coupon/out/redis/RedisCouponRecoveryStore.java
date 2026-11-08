@@ -86,17 +86,30 @@ public class RedisCouponRecoveryStore implements CouponRecoveryStore {
     public IssueControlState issueControlState(long couponId) {
         String controlKey = CouponRedisKeys.issueControl(couponId);
         List<Object> values = run("issue-control 조회",
-                () -> redisTemplate.opsForHash().multiGet(controlKey, List.of("ready", "hold")));
+                () -> redisTemplate.opsForHash().multiGet(controlKey, List.of("ready", "hold", "keysExpireAt")));
         Object ready = values == null ? null : values.get(0);
         Object hold = values == null ? null : values.get(1);
-        // 준비된 issue-control에는 언제나 ready가 있다. 둘 다 없을 때만 key가 있는지 따로 본다
-        boolean present = ready != null || hold != null
+        Object keysExpireAt = values == null ? null : values.get(2);
+        // 준비된 issue-control에는 언제나 ready가 있다. 셋 다 없을 때만 key가 있는지 따로 본다
+        boolean present = ready != null || hold != null || keysExpireAt != null
                 || Boolean.TRUE.equals(run("issue-control 조회", () -> redisTemplate.hasKey(controlKey)));
         if (!present) {
             return IssueControlState.missing();
         }
         String holdValue = hold == null || hold.toString().isEmpty() ? null : hold.toString();
-        return new IssueControlState(true, "1".equals(String.valueOf(ready)), holdValue);
+        return new IssueControlState(true, "1".equals(String.valueOf(ready)), holdValue, parseMillis(keysExpireAt));
+    }
+
+    /** epoch 밀리초 값. 없거나 숫자가 아니면 null(보관 기간을 모르는 것으로 본다) */
+    private static Instant parseMillis(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Instant.ofEpochMilli(Long.parseLong(value.toString()));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     @Override

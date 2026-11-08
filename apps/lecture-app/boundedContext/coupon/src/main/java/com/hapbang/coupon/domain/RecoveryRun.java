@@ -385,18 +385,37 @@ public class RecoveryRun {
      * 이 복구 때문에 그 쿠폰의 "Redis·DB 어디에도 없는 요청"을 지금 UNKNOWN으로 답해야 하는가. 접수 기록 유실이 의심된 복구만 해당한다.
      * <ul>
      *     <li>재개 전(진행 중이거나 취소됨): UNKNOWN. 재구축한 Redis에는 결과가 증명된 요청만 있고, 취소된 복구는 아직 아무것도 증명하지 않았다.</li>
-     *     <li>재개 뒤: 재개 시각부터 {@code unknownWindow} 동안 UNKNOWN, 그 뒤에는 아니다(NOT_FOUND). 유실된 접수의 회원이 조회하러 올
-     *     시간이다.</li>
+     *     <li>재개 뒤: 그 쿠폰의 Redis 기록 보관 기간({@code recordsRetainedUntil}, 쿠폰별 key가 만료돼 기록이 정리되는 시각)까지 UNKNOWN,
+     *     그 뒤에는 아니다(NOT_FOUND). 유실되지 않은 접수 기록도 그때 정리되므로, 그 뒤에는 유실 여부와 관계없이 "기록 없음"이 같은 뜻이다.
+     *     보관 기간을 알 수 없으면({@code null}) UNKNOWN으로 남긴다.</li>
      * </ul>
+     *
+     * @param recordsRetainedUntil 그 쿠폰의 Redis 기록 보관 기간 끝. {@link #recordsRetainedUntil}로 정한다
      */
-    public boolean leavesUnknownAt(Instant now, Duration unknownWindow) {
+    public boolean leavesUnknownAt(Instant now, Instant recordsRetainedUntil) {
         if (!requestsLost) {
             return false;
         }
-        if (step != RecoveryStep.RESUMED) {
+        if (step != RecoveryStep.RESUMED || recordsRetainedUntil == null) {
             return true;
         }
-        return now.isBefore(resumedAt.plus(unknownWindow));
+        return now.isBefore(recordsRetainedUntil);
+    }
+
+    /**
+     * 쿠폰의 Redis 기록 보관 기간 끝: 쿠폰별 key의 만료 시각. issue-control에 남은 keysExpireAt(만료를 연장했으면 그 값)이 있으면 그것이고,
+     * issue-control이 없으면(유실·만료) 발급 종료 + key 만료 여유로 계산한다. 둘 다 모르면 {@code null}이다.
+     *
+     * @param controlKeysExpireAt issue-control의 keysExpireAt. 없으면 null
+     * @param issueEndAt          DB 쿠폰의 발급 종료 시각. 쿠폰이 없으면 null
+     * @param keysExpireMargin    쿠폰별 key를 발급 종료 뒤 남기는 기간({@code hapbang.coupon.redis.keys-expire-margin})
+     */
+    public static Instant recordsRetainedUntil(Instant controlKeysExpireAt, Instant issueEndAt,
+                                               Duration keysExpireMargin) {
+        if (controlKeysExpireAt != null) {
+            return controlKeysExpireAt;
+        }
+        return issueEndAt == null ? null : issueEndAt.plus(keysExpireMargin);
     }
 
     /**

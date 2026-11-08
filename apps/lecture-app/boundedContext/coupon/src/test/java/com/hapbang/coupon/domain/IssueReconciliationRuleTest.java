@@ -291,6 +291,39 @@ class IssueReconciliationRuleTest {
     }
 
     @Test
+    void DB_결과가_없는_진행_중이나_이전_epoch_기록이나_읽을_수_없는_기록이_있으면_key를_남긴다() {
+        stillAccepting = false;
+        accepted("progress", 1, NOW);
+        stock = 9L;
+        assertThat(judge().retainKeys()).isTrue();
+
+        requests.clear();
+        users.clear();
+        epoch = EPOCH + 1;
+        requests.put("lost", epochRecord(1, EPOCH, false));
+        stock = 10L;
+        assertThat(judge().retainKeys()).isTrue();
+
+        requests.clear();
+        requests.put("broken", "broken");
+        assertThat(judge().retainKeys()).isTrue();
+    }
+
+    @Test
+    void DB_결과가_모두_있거나_보상을_마친_기록만_남으면_key를_남기지_않는다() {
+        stillAccepting = false;
+        issued("issued", 1);
+        rejected("pending", 2, EPOCH, false);       // 보상 대기여도 DB 결과는 있다
+        requests.put("compensated-lost", record(3, NOW, true, true)); // DB를 읽은 뒤 거절 확정·보상
+        stock = 8L;
+
+        Judgment judgment = judge();
+
+        assertThat(judgment.matched()).isTrue();
+        assertThat(judgment.retainKeys()).isFalse();
+    }
+
+    @Test
     void 발급_중이거나_중단된_쿠폰은_발급_종료와_여유_전까지_접수가_열릴_수_있다() {
         Instant end = NOW.plusSeconds(10);
         Duration grace = Duration.ofSeconds(30);

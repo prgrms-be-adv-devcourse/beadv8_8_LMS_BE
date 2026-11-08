@@ -24,6 +24,8 @@ import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
+import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.CouponReconciliationStore;
 import com.hapbang.coupon.app.port.CouponReconciliationStore.Snapshot;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
@@ -39,10 +41,12 @@ import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.IssueCapacityReservationRepository;
 import com.hapbang.coupon.out.IssueResultReadRepository;
 import com.hapbang.coupon.out.IssueResultRow;
+import com.hapbang.coupon.out.redis.CouponRedisProperties;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
-// 대사 회차의 분기: 일치(정리·적체 보류·해제), 재확인 뒤 불일치(보류만), 전체 정리(용량 해제), 고아 예약, 복구 중 건너뛰기, 관리자 보류 해제.
+// 대사 회차의 분기: 일치(정리·적체 보류·해제), 재확인 뒤 불일치(보류만), 전체 정리(용량 해제), 고아 예약, 복구 중 건너뛰기, 관리자 보류 해제,
+// DB 미확정 기록이 남은 쿠폰의 key 만료 연장.
 // 수량 식 자체는 도메인 테스트가 본다
 class CouponReconciliationUseCaseTest {
 
@@ -53,6 +57,7 @@ class CouponReconciliationUseCaseTest {
     private final CouponRepository couponRepository = mock();
     private final IssueResultReadRepository resultRepository = mock();
     private final CouponReconciliationStore store = mock();
+    private final CouponIssueStore issueStore = mock();
     private final CouponCapacitySupport capacitySupport = mock();
     private final PlatformTransactionManager transactionManager = mock();
     private final CouponReconciliationMetrics metrics =
@@ -72,7 +77,7 @@ class CouponReconciliationUseCaseTest {
         when(capacitySupport.release(anyLong())).thenReturn(true);
         // 재발행 대기 임계치 1건
         useCase = new CouponReconciliationUseCase(reservationRepository, couponRepository, resultRepository, store,
-                capacitySupport, metrics, new CouponLimitsProperties(null, null, 1, null, null),
+                issueStore, new CouponRedisProperties(null), capacitySupport, metrics, new CouponLimitsProperties(null, null, 1, null, null),
                 CouponIssueDeliveryProperties.defaults(), transactionManager, CLOCK);
     }
 
@@ -372,6 +377,65 @@ class CouponReconciliationUseCaseTest {
         assertThat(summary.failed()).isEqualTo(1);
         assertThat(summary.coupons()).isEqualTo(2);
         verify(store).snapshot(COUPON_ID);
+    }
+
+    @Test
+    void DB_결과가_없는_접수_기록이_남으면_key_만료를_지금_더하기_여유까지_늦춘다() {
+        Coupon closed = openSellerCoupon();
+        closed.close(NOW);
+        givenCoupon(closed);
+        givenDb();
+        accepted("pending", 1, NOW.minusSeconds(60));
+        when(store.snapshot(COUPON_ID)).thenReturn(
+                new Snapshot(true, true, "CLOSED", EPOCH, null, 99L, false, users, requests));
+
+        useCase.runScheduled();
+
+        verify(issueStore).extendKeysExpiry(COUPON_ID, NOW.plus(Duration.ofDays(7)));
+        verify(store, never()).cleanUp(anyLong());
+    }
+
+    @Test
+    void 불일치로_보류한_쿠폰도_DB_결과가_없는_기록이_있으면_key_만료를_늦춘다() {
+        givenCoupon(openSellerCoupon());
+        givenDb();
+        accepted("pending", 1, NOW);
+        givenRedis(null, 100L); // 진행 중 1건인데 재고가 그대로다
+
+        var summary = useCase.runScheduled();
+
+        assertThat(summary.mismatched()).isEqualTo(1);
+        verify(issueStore).extendKeysExpiry(COUPON_ID, NOW.plus(Duration.ofDays(7)));
+    }
+
+    @Test
+    void DB_결과가_모두_확인된_쿠폰은_key_만료를_건드리지_않는다() {
+        Coupon closed = openSellerCoupon();
+        closed.close(NOW);
+        givenCoupon(closed);
+        givenDb(new IssueResultRow("issued", 1L, CouponIssueResult.ISSUED, EPOCH));
+        accepted("issued", 1, NOW);
+        givenRedis(null, 99L);
+
+        useCase.runScheduled();
+
+        verifyNoInteractions(issueStore);
+        verify(store).cleanUp(COUPON_ID);
+    }
+
+    @Test
+    void key_만료_연장이_실패해도_대사의_나머지는_계속한다() {
+        givenCoupon(openSellerCoupon());
+        givenDb(new IssueResultRow("issued", 1L, CouponIssueResult.ISSUED, EPOCH));
+        accepted("issued", 1, NOW);
+        accepted("pending", 2, NOW);
+        givenRedis(null, 98L);
+        when(issueStore.extendKeysExpiry(anyLong(), any())).thenThrow(new CouponIssueStoreUnavailableException("redis", null));
+
+        var summary = useCase.runScheduled();
+
+        verify(store).removeRequests(COUPON_ID, List.of("issued"));
+        assertThat(summary.failed()).isZero();
     }
 
     private void givenCoupon(Coupon coupon) {

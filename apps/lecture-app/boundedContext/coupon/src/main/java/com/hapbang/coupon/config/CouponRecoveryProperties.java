@@ -11,8 +11,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param kafkaTimeout         복구 경계(토픽 끝 offset·소비 그룹 커밋 offset) 조회 한 번의 제한 시간. 기본 5초
  * @param processCheckInterval Redis 프로세스 변경 점검 배치의 실행 간격(앞 회차가 끝난 뒤부터). 점검 배치의 {@code @Scheduled}가 같은 key·같은
  *                             기본값(1분)을 읽는다
- * @param unknownWindow        접수 기록 유실이 의심된 복구를 재개한 뒤, 그 쿠폰에서 Redis·DB 어디에도 없는 요청을 UNKNOWN으로 답하는 기간.
- *                             지나면 NOT_FOUND다. 기본 24시간
  * @param boundaryGrace        경계 확정 대기의 여유. 접수 차단 시각 + 생산자 전송 최대 시간
  *                             ({@link CouponIssueDeliveryProperties#maxSendLifetime}) + 이 값이 지나야 경계를 확정한다(시계 차·스레드 지연 몫).
  *                             기본 2초
@@ -21,14 +19,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @ConfigurationProperties("hapbang.coupon.recovery")
 public record CouponRecoveryProperties(Duration republishAckTimeout, Duration kafkaTimeout,
-                                       Duration processCheckInterval, Duration unknownWindow, Duration boundaryGrace,
-                                       Duration claimLease) {
+                                       Duration processCheckInterval, Duration boundaryGrace, Duration claimLease) {
 
     public CouponRecoveryProperties {
         republishAckTimeout = positive(republishAckTimeout, Duration.ofSeconds(3), "republish-ack-timeout");
         kafkaTimeout = positive(kafkaTimeout, Duration.ofSeconds(5), "kafka-timeout");
         processCheckInterval = positive(processCheckInterval, Duration.ofMinutes(1), "process-check-interval");
-        unknownWindow = positive(unknownWindow, Duration.ofHours(24), "unknown-window");
         boundaryGrace = boundaryGrace == null ? Duration.ofSeconds(2) : boundaryGrace;
         if (boundaryGrace.isNegative()) {
             throw new IllegalArgumentException("hapbang.coupon.recovery.boundary-grace는 음수일 수 없다");
@@ -38,7 +34,7 @@ public record CouponRecoveryProperties(Duration republishAckTimeout, Duration ka
 
     /** 모두 기본값 */
     public static CouponRecoveryProperties defaults() {
-        return new CouponRecoveryProperties(null, null, null, null, null, null);
+        return new CouponRecoveryProperties(null, null, null, null, null);
     }
 
     private static Duration positive(Duration value, Duration defaultValue, String name) {
