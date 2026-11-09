@@ -23,7 +23,8 @@ import jakarta.servlet.http.HttpServletResponse;
 public interface ApiV1MemberSpec {
 
     @Operation(summary = "내 정보 조회",
-            description = "로그인한 회원. 이메일을 포함한다. profileImageUrl은 1시간 동안 쓸 수 있는 조회 주소, 사진이 없으면 null.")
+            description = "로그인한 회원. 이메일을 포함한다. profileImageUrl은 1시간 동안 쓸 수 있는 조회 주소, 사진이 없으면 null. "
+                    + "contentCategories는 고른 순서의 콘텐츠 분야 [{code, name}], 없으면 빈 배열. bio는 자기소개, 없으면 null.")
     RsData<MemberMeResponse> me(Long userId);
 
     @Operation(summary = "내 정보 수정",
@@ -51,7 +52,8 @@ public interface ApiV1MemberSpec {
             description = "로그인한 회원. 인플루언서·인증된 인플루언서 중 정상 회원만, 최신 가입순. "
                     + "page·size로 페이징(최대 100). 정렬은 바꿀 수 없다. "
                     + "appearanceRating은 받은 출연 리뷰 전체 평점 {average, count} "
-                    + "(average는 소수 첫째 자리 반올림, 리뷰가 없으면 average null·count 0).")
+                    + "(average는 소수 첫째 자리 반올림, 리뷰가 없으면 average null·count 0). "
+                    + "contentCategories는 고른 순서의 콘텐츠 분야 [{code, name}], 없으면 빈 배열(자기소개는 프로필에서).")
     RsData<Page<MemberProfileResponse>> influencers(Pageable pageable);
 
     @Operation(summary = "회원 프로필",
@@ -59,7 +61,9 @@ public interface ApiV1MemberSpec {
                     + "(채널 이름·주소·팔로워 수, 승인 상태는 넣지 않음). 탈퇴·없는 회원은 404. "
                     + "appearanceRating은 출연 평점 {total, asHost, asGuest}: 전체, 호스트로 받은 리뷰(게스트가 씀), "
                     + "게스트로 받은 리뷰(호스트가 씀). 각각 {average, count}이고 average는 소수 첫째 자리 반올림, "
-                    + "리뷰가 없으면 average null·count 0.")
+                    + "리뷰가 없으면 average null·count 0. "
+                    + "contentCategories는 고른 순서의 콘텐츠 분야 [{code, name}], 없으면 빈 배열. bio는 자기소개, 없으면 null. "
+                    + "분야 목록에서 꺼진 분야도 이미 고른 회원에게는 이름과 함께 보인다.")
     RsData<MemberProfileDetailResponse> profile(Long memberId);
 
     @Operation(summary = "받은 출연 리뷰 목록",

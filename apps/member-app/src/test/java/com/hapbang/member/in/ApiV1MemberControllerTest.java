@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -49,6 +51,9 @@ class ApiV1MemberControllerTest {
     UserRepository userRepository;
 
     @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Autowired
     InfluencerChannelRepository influencerChannelRepository;
 
     @Autowired
@@ -69,7 +74,27 @@ class ApiV1MemberControllerTest {
                 .andExpect(jsonPath("$.data.email").value("tester1@example.com"))
                 .andExpect(jsonPath("$.data.nickname").value("tester1"))
                 .andExpect(jsonPath("$.data.role").value("USER"))
-                .andExpect(jsonPath("$.data.status").value("ACTIVE"));
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                // 콘텐츠 분야는 없어도 빈 배열, 자기소개는 null (#711)
+                .andExpect(jsonPath("$.data.contentCategories").isArray())
+                .andExpect(jsonPath("$.data.contentCategories.length()").value(0))
+                .andExpect(jsonPath("$.data.bio").hasJsonPath())
+                .andExpect(jsonPath("$.data.bio").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("내 정보에 고른 순서의 콘텐츠 분야(코드·이름)와 자기소개를 준다 (#711)")
+    void me_contentCategoriesAndBio() throws Exception {
+        User user = saveContentProfile("tester1", List.of("MAPLESTORY", "GAME"), "메이플 위주");
+
+        mockMvc.perform(get("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.contentCategories.length()").value(2))
+                .andExpect(jsonPath("$.data.contentCategories[0].code").value("MAPLESTORY"))
+                .andExpect(jsonPath("$.data.contentCategories[0].name").value("메이플스토리"))
+                .andExpect(jsonPath("$.data.contentCategories[1].code").value("GAME"))
+                .andExpect(jsonPath("$.data.contentCategories[1].name").value("게임"))
+                .andExpect(jsonPath("$.data.bio").value("메이플 위주"));
     }
 
     @Test
@@ -289,6 +314,19 @@ class ApiV1MemberControllerTest {
     }
 
     @Test
+    @DisplayName("인플루언서 목록에 콘텐츠 분야(코드·이름)를 주고, 자기소개는 넣지 않는다 (#711)")
+    void influencers_contentCategories() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        saveContentProfile("target1", List.of("MUKBANG"), "먹방 위주");
+
+        mockMvc.perform(get("/api/v1/members/influencers").with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].contentCategories[0].code").value("MUKBANG"))
+                .andExpect(jsonPath("$.data.content[0].contentCategories[0].name").value("먹방"))
+                .andExpect(jsonPath("$.data.content[0].bio").doesNotExist());
+    }
+
+    @Test
     @DisplayName("페이지 크기가 최대(100)를 넘으면 100으로 맞춘다")
     void influencers_maxSize() throws Exception {
         User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
@@ -334,6 +372,21 @@ class ApiV1MemberControllerTest {
                 // S3 공통 설정 전이라 사진 자리는 있고 값은 null
                 .andExpect(jsonPath("$.data.profileImageUrl").hasJsonPath())
                 .andExpect(jsonPath("$.data.profileImageUrl").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("회원 프로필에 콘텐츠 분야(코드·이름)와 자기소개를 주고, 목록에서 꺼진 분야도 이름과 함께 그대로 보인다 (#711, Q50)")
+    void profile_contentCategoriesAndBio() throws Exception {
+        User viewer = saveMember("viewer1", Role.USER, UserStatus.ACTIVE);
+        User target = saveContentProfile("target1", List.of("GAME", "MUKBANG"), "먹방 위주");
+        jdbcTemplate.update("update members.content_category set active = false where code = 'GAME'");
+
+        mockMvc.perform(get("/api/v1/members/{memberId}", target.getId()).with(GatewayLogin.as(viewer.getId(), viewer.getRole())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.contentCategories[0].code").value("GAME"))
+                .andExpect(jsonPath("$.data.contentCategories[0].name").value("게임"))
+                .andExpect(jsonPath("$.data.contentCategories[1].code").value("MUKBANG"))
+                .andExpect(jsonPath("$.data.bio").value("먹방 위주"));
     }
 
     @Test
@@ -459,6 +512,15 @@ class ApiV1MemberControllerTest {
     }
 
     /** 탈퇴 기능(F7)이 아직 없어 상태는 테스트에서만 직접 바꾼다 */
+    /** 분야·자기소개를 고른 정상 인플루언서 */
+    private User saveContentProfile(String nickname, List<String> contentCategories, String bio) {
+        User user = User.join(nickname + "@example.com", nickname);
+        user.changeRole(Role.INFLUENCER);
+        user.changeContentCategories(contentCategories);
+        user.changeBio(bio);
+        return userRepository.saveAndFlush(user);
+    }
+
     private User saveMember(String nickname, Role role, UserStatus status) {
         User user = User.join(nickname + "@example.com", nickname);
         user.changeRole(role);

@@ -44,6 +44,7 @@ public class MemberFacade {
     private final MemberSeedAccountUseCase memberSeedAccountUseCase;
     private final MemberNicknameDedupNotifyUseCase memberNicknameDedupNotifyUseCase;
     private final MemberUpdateProfileUseCase memberUpdateProfileUseCase;
+    private final MemberContentCategoryUseCase memberContentCategoryUseCase;
     private final MemberSupport memberSupport;
     private final MemberChzzkUseCase memberChzzkUseCase;
     private final MemberChannelRegisterUseCase memberChannelRegisterUseCase;
@@ -114,11 +115,22 @@ public class MemberFacade {
         return memberSupport.findUser(userId);
     }
 
-    /** 인플루언서 목록 (최신 가입순). 정렬은 요청과 상관없이 고정 */
+    /**
+     * 인플루언서 목록 (최신 가입순). 정렬은 요청과 상관없이 고정.
+     * 응답을 만들 때(트랜잭션 밖) 분야를 읽을 수 있게 여기서 읽어 둔다. 한 회원의 분야를 읽으면 페이지의 회원들 것을 묶어 읽는다(N+1 없음, #711)
+     */
     @Transactional(readOnly = true)
     public Page<User> findInfluencers(Pageable pageable) {
-        return memberSupport.findInfluencers(
+        Page<User> influencers = memberSupport.findInfluencers(
                 PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
+        influencers.forEach(User::getContentCategories);
+        return influencers;
+    }
+
+    /** 콘텐츠 분야 코드 → 이름 (응답에 분야 이름을 붙일 때, 꺼진 분야 포함, #711) */
+    @Transactional(readOnly = true)
+    public Map<String, String> findContentCategoryNames() {
+        return memberContentCategoryUseCase.names();
     }
 
     /** 회원 프로필 (정상 회원만) */
@@ -327,10 +339,15 @@ public class MemberFacade {
         return user;
     }
 
-    /** 이메일·비밀번호 로그인 (#499). 토큰은 issueTokens로 발급한다 */
+    /**
+     * 이메일·비밀번호 로그인 (#499). 토큰은 issueTokens로 발급한다.
+     * 이메일로 찾은 회원은 분야를 아직 읽지 않았으므로, 응답을 만들 때(트랜잭션 밖) 쓸 수 있게 여기서 읽어 둔다 (#711)
+     */
     @Transactional(readOnly = true)
     public User passwordLogin(String email, String password) {
-        return memberPasswordLoginUseCase.login(email, password);
+        User user = memberPasswordLoginUseCase.login(email, password);
+        user.getContentCategories();
+        return user;
     }
 
     /**

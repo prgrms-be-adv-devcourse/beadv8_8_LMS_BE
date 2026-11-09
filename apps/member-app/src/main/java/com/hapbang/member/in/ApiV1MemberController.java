@@ -73,9 +73,10 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         Page<User> influencers = memberFacade.findInfluencers(pageable);
         Map<Long, AppearanceRatingSummary> ratings = memberFacade.findAppearanceRatings(
                 influencers.map(User::getId).getContent());
+        Map<String, String> categoryNames = memberFacade.findContentCategoryNames();
         return RsData.ok("인플루언서 목록을 조회했습니다.", influencers.map(user -> MemberProfileResponse.from(user,
                 memberFacade.profileImageUrl(user.getProfileImageKey()),
-                ratings.getOrDefault(user.getId(), AppearanceRatingSummary.EMPTY))));
+                ratings.getOrDefault(user.getId(), AppearanceRatingSummary.EMPTY), categoryNames)));
     }
 
     /** 회원 프로필 (등록된 채널, 출연 평점 포함). 숫자만 받아 /signup 같은 다른 주소와 겹치지 않게 한다 */
@@ -85,7 +86,7 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         User user = memberFacade.findProfile(memberId);
         return RsData.ok("회원 프로필을 조회했습니다.", MemberProfileDetailResponse.from(user,
                 memberFacade.profileImageUrl(user.getProfileImageKey()), memberFacade.findChannels(memberId),
-                memberFacade.findAppearanceRating(memberId)));
+                memberFacade.findAppearanceRating(memberId), memberFacade.findContentCategoryNames()));
     }
 
     /** 회원이 받은 출연 리뷰 목록 (최신 공개순). 리뷰는 출연 앱에서 읽고 쓴 회원 정보를 붙인다 (#555) */
@@ -164,6 +165,7 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
     }
 
     private MemberMeResponse meResponse(User user) {
-        return MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()));
+        return MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()),
+                memberFacade.findContentCategoryNames());
     }
 }
