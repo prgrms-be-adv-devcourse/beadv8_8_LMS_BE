@@ -485,7 +485,7 @@ kubectl --context "$CTX" -n hapbang-platform port-forward svc/redpanda-console 8
 
 ## CI
 
-`ci.yml`의 `manifests` job이 PR마다 `k8s/`와 `apps/<앱>/k8s`의 overlay별로 `kubectl kustomize` → `kubeconform -strict`를 실행한다. 필수 체크 `verify`가 이 결과도 모으므로 실패하면 병합할 수 없다. dev 발행(`publish.yml`)도 이 job이 실패하면 build·deploy를 건너뛴다(#792). kubeconform·CRD schema를 GitHub에서 받을 때 5xx·끊김은 몇 번 다시 시도한다(2026-11-09 504로 발행이 멈춘 적이 있다). 실행 중 kubeconform이 받는 CRDs-catalog schema는 kubeconform 자체 재시도(2회)뿐이라, GitHub 장애로 실패하면 그 job만 다시 실행한다. 렌더링 step은 `shell: bash`(pipefail)라 `kubectl kustomize`가 실패하면 job이 실패한다. Kubernetes schema는 k3s와 같은 1.36.5, CRD(HelmChart·Elasticsearch) schema는 [CRDs-catalog](https://github.com/datreeio/CRDs-catalog)의 고정 커밋을 쓴다.
+`ci.yml`의 `manifests` job이 PR마다 `k8s/`와 `apps/<앱>/k8s`의 overlay별로 `kubectl kustomize` → `kubeconform -strict`를 실행한다. 필수 체크 `verify`가 이 결과도 모으므로 실패하면 병합할 수 없다. dev 발행(`publish.yml`)도 이 job이 실패하면 build·deploy를 건너뛴다(#792). GitHub에서 받는 파일(kubeconform, Gateway·인증서 CRD schema, kubeconform이 실행 중 받는 Kubernetes·CRDs-catalog schema)은 Actions cache에 두고, 버전(kubeconform·Kubernetes·CRDs-catalog 커밋·`prepare-schemas.py`)이 같으면 다시 받지 않는다. cache가 없을 때 받는 다운로드는 5xx·끊김을 몇 번 다시 시도한다(2026-11-09 GitHub 504로 발행이 멈춘 적이 있다, #792). cache는 job이 성공해야 저장되고, dev 실행이 만든 cache를 PR이 읽는다. 그래도 GitHub 장애로 실패하면 그 job만 다시 실행한다. 렌더링 step은 `shell: bash`(pipefail)라 `kubectl kustomize`가 실패하면 job이 실패한다. Kubernetes schema는 k3s와 같은 1.36.5, CRD(HelmChart·Elasticsearch) schema는 [CRDs-catalog](https://github.com/datreeio/CRDs-catalog)의 고정 커밋을 쓴다.
 
 kubeconform은 형식만 검사한다. `valuesContent` 안의 차트 values, Service selector와 Pod label의 일치, 이미지 존재, 앱 기동은 검사하지 못하므로 manifest를 바꾸면 로컬 k3d로 확인한다.
 
