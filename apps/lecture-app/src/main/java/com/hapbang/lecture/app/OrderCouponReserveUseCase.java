@@ -38,7 +38,8 @@ import lombok.extern.slf4j.Slf4j;
  * 쿠폰 주문 2~3단계: 저장한 계산 근거로 쿠폰을 예약하고, 결과를 강의 트랜잭션에 기록한다. 트랜잭션 밖에서 부른다.
  * <ol>
  *     <li>짧은 트랜잭션에서 예약 작업에 시도를 기록하고(다음 시도 시각을 미룸) 예약 요청을 만든다. 작업이 이미 끝났으면 보내지 않는다.
- *     시도 한도에 닿았으면 보내지 않고 {@code DEAD}로 멈춘다. 결과를 모르는 예약은 시간만으로 해제하지 않는다.</li>
+ *     다음 시도 시각 전이면(다른 실행이 시도 중) 아무것도 하지 않는다. 시도 한도에 닿았으면 보내지 않고 {@code DEAD}로 멈춘다.
+ *     결과를 모르는 예약은 시간만으로 해제하지 않는다.</li>
  *     <li>트랜잭션 밖에서 같은 workId({@code lecture-order:<주문 ID>:reserve})로 예약을 보낸다.</li>
  *     <li>주문 행을 잠근 트랜잭션에서 결과를 기록한다. 그 사이 다른 실행이 작업을 끝냈으면 아무것도 바꾸지 않는다.
  *     <ul>
@@ -123,6 +124,12 @@ public class OrderCouponReserveUseCase {
             return null;
         }
         LocalDateTime now = LocalDateTime.now(clock);
+        if (!work.isDue(now)) {
+            // 다른 실행(주문 요청이나 겹친 배치)이 이미 시도를 기록하고 결과를 기다리는 중이다. 그 시도가 끝나 다음 시도 시각이
+            // 지나기 전에는 다시 보내지도, 시도 한도로 멈추지도 않는다
+            log.debug("쿠폰 예약 작업이 아직 보낼 차례가 아니다 orderId={}, nextAttemptAt={}", orderId, work.getNextAttemptAt());
+            return null;
+        }
         if (!work.hasAttemptsLeft(properties.couponWorkMaxAttempts())) {
             // 결과를 모르는 예약은 시간만으로 해제하지 않는다. 주문은 결제 처리 중으로 남고 운영자가 쿠폰 예약 상태를 확인한다
             work.markDead(now);

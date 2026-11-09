@@ -103,6 +103,14 @@ public class OrderCouponWork {
         return status == OrderCouponWorkStatus.PENDING;
     }
 
+    /**
+     * 지금 보낼 차례인지(다음 시도 시각이 지났거나 같다). 아니면 다른 실행이 이미 시도를 기록하고 결과를 기다리는 중이다.
+     * 만든 직후에는 다음 시도 시각이 만든 시각이라 주문 요청의 첫 시도는 늘 차례다.
+     */
+    public boolean isDue(LocalDateTime now) {
+        return !nextAttemptAt.isAfter(now);
+    }
+
     /** 시도 상한 전이라 더 보낼 수 있는지 */
     public boolean hasAttemptsLeft(int maxAttempts) {
         return attemptCount < maxAttempts;

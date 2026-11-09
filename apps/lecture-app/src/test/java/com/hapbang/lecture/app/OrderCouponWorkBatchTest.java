@@ -52,6 +52,12 @@ class OrderCouponWorkBatchTest {
     private OrderCouponWorkUseCase orderCouponWorkUseCase;
 
     @Autowired
+    private OrderCouponReserveUseCase orderCouponReserveUseCase;
+
+    @Autowired
+    private OrderCouponReleaseUseCase orderCouponReleaseUseCase;
+
+    @Autowired
     private LectureRepository lectureRepository;
 
     @Autowired
@@ -160,6 +166,53 @@ class OrderCouponWorkBatchTest {
         assertThatThrownBy(() -> order(lecture)).isInstanceOf(LectureException.class);
 
         assertThat(work(onlyOrderId(), "RELEASE")).containsEntry("status", "DEAD");
+    }
+
+    @Test
+    void 다른_실행이_이미_시도를_기록한_예약_해제_작업은_다음_시도_시각_전에_다시_보내지_않는다() {
+        // 예약: 주문 요청의 첫 시도가 결과를 몰라 다음 시도 시각이 미래다
+        Lecture lecture = saveOnSale();
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(calculated((CouponCalculateRequest) request)));
+        Long reserveOrderId = order(lecture).orderId();
+        // 해제: 결제 실패 뒤 주문 요청 안의 첫 해제가 결과를 몰라 다음 시도 시각이 미래다
+        Lecture failing = saveOnSale();
+        respondCalculatedAndReserved(failing);
+        billing.respond(command -> new BillingCallResult.Failed<>(BillingFailureCode.INSUFFICIENT_BALANCE,
+                "HP 잔액이 부족합니다.", 409, "INSUFFICIENT_BALANCE"));
+        assertThatThrownBy(() -> order(failing)).isInstanceOf(LectureException.class);
+        Long releaseOrderId = jdbcTemplate.queryForObject("select order_id from lectures.order_coupon_work "
+                + "where kind = 'RELEASE'", Long.class);
+        int callsBefore = coupon.calls().size();
+
+        // findDue로 고른 뒤 다른 실행이 시도를 커밋한 경우와 같다(배치가 고른 목록이 낡았다)
+        orderCouponReserveUseCase.reserve(reserveOrderId);
+        orderCouponReleaseUseCase.release(releaseOrderId);
+
+        assertThat(coupon.calls()).hasSize(callsBefore);
+        assertThat(work(reserveOrderId, "RESERVE")).containsEntry("status", "PENDING").containsEntry("attempt_count", 1);
+        assertThat(work(releaseOrderId, "RELEASE")).containsEntry("status", "PENDING").containsEntry("attempt_count", 1);
+    }
+
+    @Test
+    void 마지막_시도가_진행_중일_때_배치가_돌아도_DEAD가_되지_않고_그_시도의_성공이_기록된다() {
+        Lecture lecture = saveOnSale();
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(calculated((CouponCalculateRequest) request)));
+        coupon.respond(request -> {
+            // 주문 요청의 예약 시도가 쿠폰 응답을 기다리는 사이: 이 시도가 마지막 허용 시도이고, 낡은 목록으로 고른 배치가 같은 작업을 집는다
+            CouponReserveRequest reserve = (CouponReserveRequest) request;
+            jdbcTemplate.update("update lectures.order_coupon_work set attempt_count = ? where order_id = ?",
+                    properties.couponWorkMaxAttempts(), reserve.orderId());
+            orderCouponReserveUseCase.reserve(reserve.orderId());
+            assertThat(work(reserve.orderId(), "RESERVE")).containsEntry("status", "PENDING");
+            return new CouponCallResult.Succeeded<>(reserved(reserve));
+        });
+
+        OrderResponse response = order(lecture);
+
+        // 진행 중이던 시도의 성공이 그대로 기록되어 보류·결제까지 이어졌다
+        assertThat(response.status()).isEqualTo(LectureOrderStatus.PAID);
+        assertThat(work(response.orderId(), "RESERVE")).containsEntry("status", "RESERVED");
+        assertThat(coupon.calls().stream().filter(call -> call.request() instanceof CouponReserveRequest)).hasSize(1);
     }
 
     @Test

@@ -93,6 +93,17 @@ class OrderCouponWorkTest {
     }
 
     @Test
+    void 만든_직후에는_보낼_차례이고_시도를_기록하면_다음_시도_시각까지_차례가_아니다() {
+        OrderCouponWork work = OrderCouponWork.reserve(7L, NOW);
+
+        assertThat(work.isDue(NOW)).isTrue();
+        work.startAttempt(NOW, RETRY_AFTER);
+
+        assertThat(work.isDue(NOW.plusSeconds(29))).isFalse();
+        assertThat(work.isDue(NOW.plusSeconds(30))).isTrue();
+    }
+
+    @Test
     void 시도_상한에_닿아_멈춘_작업은_다시_보내거나_결과를_받지_않는다() {
         OrderCouponWork work = OrderCouponWork.reserve(7L, NOW);
 

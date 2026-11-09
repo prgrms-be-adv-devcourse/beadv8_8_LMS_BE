@@ -32,7 +32,7 @@ import lombok.extern.slf4j.Slf4j;
  * 결제 실패한 주문의 쿠폰 해제를 한 번 보내고 결과를 기록한다. 트랜잭션 밖에서 부른다. 순서는 예약({@link OrderCouponReserveUseCase})과 같다.
  * <ol>
  *     <li>짧은 트랜잭션에서 해제 작업에 시도를 기록하고, 남긴 예약 generation으로 해제 요청을 만든다. 같은 작업은 늘 같은 내용이다.
- *     시도 한도에 닿았으면 보내지 않고 {@code DEAD}로 멈춘다.</li>
+ *     다음 시도 시각 전이면(다른 실행이 시도 중) 아무것도 하지 않는다. 시도 한도에 닿았으면 보내지 않고 {@code DEAD}로 멈춘다.</li>
  *     <li>트랜잭션 밖에서 같은 workId로 해제를 보낸다.</li>
  *     <li>주문 행을 잠근 트랜잭션에서 결과를 기록한다. 성공이면 {@code RELEASED}다. 거절은 다시 보내도 같으므로
  *     {@code DEAD}로 멈추고 운영자가 확인한다(401·403은 설정 문제라 {@code PENDING}으로 둔다). 보내지 않음·결과 불명이면
@@ -92,6 +92,11 @@ public class OrderCouponReleaseUseCase {
             return null;
         }
         LocalDateTime now = LocalDateTime.now(clock);
+        if (!work.isDue(now)) {
+            // 다른 실행이 이미 시도를 기록하고 결과를 기다리는 중이다. 다시 보내지도, 시도 한도로 멈추지도 않는다
+            log.debug("쿠폰 해제 작업이 아직 보낼 차례가 아니다 orderId={}, nextAttemptAt={}", orderId, work.getNextAttemptAt());
+            return null;
+        }
         if (!work.hasAttemptsLeft(properties.couponWorkMaxAttempts())) {
             work.markDead(now);
             log.error(OrderCouponReserveUseCase.WORK_DEAD_LOG + " 쿠폰 해제 작업이 시도 한도에 닿아 자동 처리를 멈췄다. "
