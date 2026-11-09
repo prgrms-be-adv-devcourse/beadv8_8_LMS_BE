@@ -8,21 +8,21 @@
 - 이 문서와 코드·decisions.md가 다르면 코드와 decisions.md가 맞다. 확인한 뒤 이 문서를 고친다.
 - 작업 하나를 끝내면 3장 상태 칸과 1장을 갱신한다.
 
-마지막 갱신: 2026-11-06. 상태는 `dev` `e054d6f6` 기준 git log·코드 검색으로 확인했다.
+마지막 갱신: 2026-11-09. 상태는 `feature/tkt-797`(#797) 코드 검색으로 확인했다.
 
 ## 1. 현재 상태
 
 | 항목 | 상태 | 근거 |
 | --- | --- | --- |
 | auxiliary-app 생성 | 완료 | 커밋 `363dbeef`(#714, PR #736). 운영 준비 #726(PR #740·#741·#745) |
-| 챗봇 모듈 | 있음 | `apps/auxiliary-app/boundedContext/chatbot`, `settings.gradle.kts` `auxiliaryModules = listOf("chatbot")` |
-| notification Gradle 모듈 | 미등록 | `settings.gradle.kts`의 `auxiliaryModules`에 `notification`이 없다 |
-| `boundedContext/notification` 디렉터리 | 문서만 | `AGENTS.md`, `PROGRESS.md`뿐. `build.gradle.kts`·`src/` 없음 |
+| 챗봇 모듈 | 있음 | `apps/auxiliary-app/boundedContext/chatbot` |
+| notification Gradle 모듈 | 등록(#797, dev 병합 전) | `settings.gradle.kts` `auxiliaryModules = listOf("chatbot", "notification")` |
+| `boundedContext/notification` 디렉터리 | 모듈 뼈대 | `build.gradle.kts`, `src/`(회원 복제본, Kafka 소비·DLT 설정). [module.md](../../../../docs/notification/module.md) 2장 |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
-| 기능 구현 | 미착수 | 알림 모듈 코드 없음 |
-| 테스트 | 미실행 | 테스트 코드 없음 |
-| Flyway | 미작성 | 알림 schema SQL 없음 |
+| 기능 구현 | N1 구현(#797, dev 병합 전) | 알림 생성 코드 없음(N2 이후) |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-005 |
+| Flyway | 작성(#797, dev 병합 전) | `V202611091500__create_notification_schema.sql`(schema, `notification_user`) |
 
 ## 2. 문서 구축 상태
 
@@ -48,7 +48,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | X1 | P0 | auxiliary-app 생성(모듈 구조, k8s, CI) | 검색·챗봇·알림 공동 | 없음 | 완료 | #714(PR #736): 모듈 구조·`apps/auxiliary-app/k8s/{base,overlays}`·`.github/scripts/apps.sh`에 `auxiliary-app`. #726으로 prod replicas 1 |
 | N0 | P0 | 이벤트 계약 합의, 문구 템플릿 확정 | 알림 | 없음 | 진행 중 | 계약 확정([`event-contracts.md`](../../../../docs/notification/event-contracts.md)). 발행 Issue 발송 전. 문구 템플릿은 N2(ND-039) |
-| N1 | P0 | 모듈 뼈대: database, 테이블, 회원 복제본, Kafka 소비·DLT 설정 | 알림 | X1 | 미착수 | 모듈 미등록. consumer group 이름 미결(U1) |
+| N1 | P0 | 모듈 뼈대: database, 테이블, 회원 복제본, Kafka 소비·DLT 설정 | 알림 | X1 | 진행 중 | #797. 구현·테스트 완료(NR-004), 로컬 기동·측정(NR-005), PR 병합 전, 인프라 확인(U13·kafka.md 토픽 표, 인프라 담당이 Issue 진행) 전. 범위 ND-046·ND-048, consumer group ND-047 |
 | N2 | P0 | 알림 저장, 20개 유지, REST API | 알림 | N1 | 미착수 | 코드 없음 |
 | N3 | P0 | STOMP, 연결 티켓, Redis Pub/Sub 전달 | 알림 | N1 | 미착수 | 코드 없음. U15 |
 | N4 | P0 | Envoy route(REST, WebSocket) | 알림 | X1 | 미착수 | `apps/auxiliary-app/k8s/base/gateway.yaml`에 알림 경로 없음. U14 |
@@ -75,22 +75,22 @@
 
 | ID | 결정 주체 | 막는 작업 |
 | --- | --- | --- |
-| U1 (T2) | 팀(Kafka 규칙) + 알림 담당 | N1 |
+| U1 (T2) | 팀(kafka.md 토픽 표 반영만 남음) | N1 PR |
 | U2 (T3) | 알림 담당 + 강의 담당 | 작업 계획 확정 |
 | U3 | 알림 담당(+ FE) | N2 |
 | U5 | 알림 담당 | 이벤트 소비(N5·N6·N7) |
 | U6 (T5) | 팀 | N10 |
-| U7 (T5) | 알림 담당 + 팀 | 첫 배포 |
+| U7 (T5) | 알림 담당 + 팀 | N5 배포 |
 | U8 | 팀(회원 정책) | N2 |
 | U9 | 알림 담당 | N8 |
 | U11 | 알림 + 채팅 담당 | 규칙 밖 종류 코드를 쓰는 생성(N5·N8·N10) |
 | U12 | 팀 + FE | N5·N9 |
-| U13 | 알림 + 챗봇 + 인프라 담당 | 알림 모듈 추가 PR |
+| U13 | 알림 + 챗봇 + 인프라 담당 | N1 PR |
 | U14 | 알림 + 인프라 담당 | N4 |
 | U15 | 알림 + 인프라 담당 | N3 |
 | U16 | 알림 담당 (B안은 팀) | 예약 알림(N10) |
-| U17 | 알림 담당 (+ 회원 내부 API를 쓰면 회원 담당) | 첫 배포 |
-| U19 | 알림 담당 (+ 회원 정책은 팀) | N0(문구 템플릿)·N1(테이블 설계)·N2(알림 저장) |
+| U17 | 알림 담당 (+ 회원 내부 API를 쓰면 회원 담당) | N5 배포 |
+| U19 | 알림 담당 (+ 회원 정책은 팀) | N0(문구 템플릿)·N2(알림 저장, `notification` 테이블 설계, ND-046) |
 | T8 | 채팅 담당 | — (chat-app 불변식, decisions.md 12장) |
 
 그 밖의 팀 승인 필요:

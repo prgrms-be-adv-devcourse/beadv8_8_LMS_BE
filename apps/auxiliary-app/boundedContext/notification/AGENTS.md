@@ -4,7 +4,7 @@
 
 auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 지킬 개발 규칙이다.
 
-- **현재 상태(2026-11-06)**: 이 디렉터리는 아직 Gradle 모듈이 아니고 문서만 있다. 알림 모듈 코드·`build.gradle.kts`·Flyway SQL·테스트는 없다(`settings.gradle.kts`의 `auxiliaryModules`에 `notification`이 없다). 진행 상태는 [`PROGRESS.md`](PROGRESS.md)에 있다.
+- **현재 상태(2026-11-09)**: Gradle 모듈 `:notification`이다(N1 #797). 회원 복제본과 Kafka 소비·DLT 공통 설정만 있고 알림 생성 코드는 없다. 구현 범위는 [`docs/notification/module.md`](../../../../docs/notification/module.md) 2장, 진행 상태는 [`PROGRESS.md`](PROGRESS.md)에 있다.
 - **규칙 상속 순서**: 루트 [`AGENTS.md`](../../../../AGENTS.md) → [`apps/auxiliary-app/README.md`](../../README.md) → 이 문서. 이 문서와 상위 문서가 충돌하면 상위 문서를 따르고, 충돌을 보고한다.
 - 이 문서는 규칙만 적는다. 결정의 이유·대안·이력은 [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md)의 `ND-*` 번호로 참조하고 여기에 옮기지 않는다.
 
@@ -93,7 +93,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 ## 4. 임의로 정하지 않는 것
 
 - 미결 U1~U19과 팀 결정 필요 T1~T8은 [decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)에 있다. 해당 작업에 닿으면 구현하지 말고 결정 주체에게 질문한다. 질문과 결과는 기록한다(루트 AGENTS 10장). 결정되면 decisions.md에 새 `ND-*`로 먼저 적는다.
-- **consumer group 이름**은 미결이다(U1). 이름을 임의로 정해 코드에 넣지 않는다.
+- **consumer group 이름**은 `auxiliary-app.notification-<목적>`이다(ND-047). 새 목적의 그룹을 더하면 kafka.md 토픽 표 반영을 팀에 요청한다.
 - **패키지 구조**는 제안 단계다([`module.md`](../../../../docs/notification/module.md)의 제안 To-Be). 루트 AGENTS 11장에 따라 코드 컨벤션은 팀 합의 전이므로 확정된 규칙으로 쓰지 않는다.
 - 발행 모듈 이벤트 계약은 알림 담당이 정해 이벤트 계약 요청 문서에 두고, 발행 담당이 Issue로 받아 구현한다(ND-037). 발행 모듈 코드나 `common/shared` 이벤트를 알림 작업에서 임의로 만들거나 고치지 않는다.
 - 테스트 방식은 루트 AGENTS 11장에 따라 미정이다. [`test-spec.md`](../../../../docs/notification/test-spec.md)의 기준 밖은 질문한다.
@@ -101,7 +101,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 ## 5. 모듈을 실제로 만들 때
 
 - auxiliary-app README "모듈 추가 방법" 1~7단계를 따른다(`settings.gradle.kts`의 `auxiliaryModules`, 모듈 `build.gradle.kts`, 앱 의존, `package-info.java`, 첫 Flyway SQL, Gateway route, `verifyModuleStructure :auxiliary-app:check`).
-- 이 문서의 결정 범위 밖(예: consumer group 이름, WebSocket 경로의 Gateway 시간 제한, 자원 예산 U13)은 단계를 진행하기 전에 질문한다.
+- 이 문서의 결정 범위 밖(예: WebSocket 경로의 Gateway 시간 제한, 자원 예산 U13)은 단계를 진행하기 전에 질문한다.
 - Flyway 버전은 작성 시각 `V{yyyyMMddHHmm}__...`이고, 같은 분에 다른 모듈 SQL과 겹치지 않는지 병합 전에 확인한다(README "Flyway").
 
 ## 6. 무단 변경 금지

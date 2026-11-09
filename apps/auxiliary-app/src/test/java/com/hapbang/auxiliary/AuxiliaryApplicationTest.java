@@ -40,6 +40,8 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "spring.profiles.active=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.scheduling.enabled=false",
+                // 이 테스트는 Kafka 없이 앱 뼈대(포트·Flyway·헬스)를 본다. 알림 회원 이벤트 소비자는 끄고, 소비는 알림 모듈 Kafka 테스트가 본다
+                "hapbang.notification.member-events.enabled=false",
                 // k8s에서 자동으로 켜지는 liveness·readiness 그룹을 켠다
                 "management.endpoint.health.probes.enabled=true",
                 // 테스트는 기본으로 지표 내보내기를 끈다. 운영처럼 Prometheus 형식을 연다

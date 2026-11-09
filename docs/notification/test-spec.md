@@ -5,7 +5,7 @@
 > 문서 지도: [모듈](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API 계약](../api/notification.md) · **[테스트 검증 기준](test-spec.md)** · [회귀 실행 기록](regression-log.md) · [진행](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
 >
 > - **역할**: 이 문서는 알림센터(auxiliary-app 알림 모듈)가 **무엇을 만족해야 하는가**(요구사항, 합격 기준, 근거 결정)를 `NT-*` ID로 정리한다. 통과·실패, 실행 날짜, 실행 건수는 적지 않는다. **실제로 실행한 결과는 [regression-log.md](regression-log.md)에만 적는다.**
-> - **현재 상태(2026-11-06, dev e054d6f6)**: 알림 모듈 코드와 테스트 코드가 없다. 그래서 아래 모든 항목의 연결 테스트는 **"테스트 없음"**이고, 어느 항목도 **실행하지 않았다.** "유효"는 합격 기준이 결정과 맞는다는 뜻이지 구현·통과했다는 뜻이 아니다.
+> - **현재 상태(2026-11-09, N1 #797)**: 모듈 뼈대(회원 복제본, Kafka 소비·DLT 설정) 테스트가 생겼다. 연결된 항목은 4장 "N1 연결 테스트"에 있고, 나머지 항목은 "테스트 없음"이다. "유효"는 합격 기준이 결정과 맞는다는 뜻이지 구현·통과했다는 뜻이 아니다. 실행 결과는 [regression-log.md](regression-log.md)에만 있다.
 > - 근거: 결정은 [decisions.md](decisions.md)의 `ND-*`·`U*`, 설계 원본은 [알림 설계](../architecture/infrastructure/notification.md)(이하 `N`, 장 번호로 적는다), Kafka 규칙은 [kafka.md](../architecture/infrastructure/kafka.md), 모듈 경계·자원은 [auxiliary-app README](../../apps/auxiliary-app/README.md)다. 이 문서는 결정을 새로 만들지 않는다.
 > - 테스트 방식(단위·통합 기준, 테스트용 DB)은 팀 합의 전이다(루트 AGENTS 11장). "테스트 종류" 칸은 **제안**이다.
 
@@ -28,7 +28,7 @@
 
 - 문구는 N2 구현 때 정하고(ND-039) 실제 문구가 미결(U3)이라 기준에 넣지 않는다. 생성 항목은 "문구가 비어 있지 않다"까지만 본다(문구 내용은 NT-GEN-10).
 - 종류 코드는 [알림 종류](notification-catalog.md)의 코드를 기대값으로 쓴다. ND-012 규칙 밖의 코드 이름(`PAYOUT_COMPLETED_DAILY`, 역할 비교 승급 승인, 예약 5종)은 U11이 정해지면 바뀔 수 있다(NT-GEN-12). `GROUP_*`는 ND-043으로 정해졌다. 이름이 바뀌어도 다른 항목의 합격 기준은 그대로다.
-- consumer group 이름은 U1 미결이라 그룹 이름을 단언하는 항목(NT-KAF-06, NT-ERR-03)만 미결로 두고, 나머지 소비 항목은 그룹 이름을 기준에 넣지 않는다.
+- consumer group 이름은 ND-047(`auxiliary-app.notification-<목적>`)이다. 그룹 이름을 단언하는 항목은 NT-KAF-06, NT-ERR-03이고, 나머지 소비 항목은 그룹 이름을 기준에 넣지 않는다.
 
 ### 1.2 테스트 종류 (제안)
 
@@ -86,7 +86,7 @@
 | NT-KAF-03 | 앱 중단 뒤 재시작과 lag 감소 | 보존 72시간 안 | 소비자를 멈춘 채 이벤트 N건 발행 → 재시작 | 재시작 후 마지막 커밋 offset부터 읽어 lag가 0까지 줄고, N건이 모두 알림이 된다(중복 없이) | 멈춘 동안 같은 이벤트가 두 번 쌓여도 1건 | ND-008, ND-019 | kafka.md "장애"(consumer 중단) | Integration(PG+Kafka), E2E | 유효 |
 | NT-KAF-04 | 보존 밖·첫 배포의 과거 이벤트 | 새 consumer group(`auto-offset-reset=earliest`) | 첫 기동 때 토픽에 남은 72시간 안의 과거 이벤트, 72시간 넘게 멈춘 뒤 재시작 | 과거 이벤트(가입 환영 등)를 알림으로 만들지 여부가 결정과 같다. 72시간이 지나 사라진 이벤트를 어떻게 다루는지가 결정과 같다 | 지금 설정대로면 과거 이벤트가 알림이 된다. 의도인지 정하지 않았다 | **U7** | kafka.md "소비"·보존 72시간 | Integration(PG+Kafka), E2E | 미결 (U7) |
 | NT-KAF-05 | 채팅 내부 Stream을 구독하지 않음 | — | 알림 모듈 소비 설정 | 알림 모듈 입력은 Kafka 토픽뿐이다. Redis Streams 소비자·그룹이 없고 채팅 Stream 그룹에 알림 worker가 없다 | — | ND-009 | — | Architecture(정적 검사) | 유효 |
-| NT-KAF-06 | consumer group 이름 | 이름 확정 | 소비자 기동 | 그룹 이름이 확정된 규칙과 같고, 목적마다 그룹이 따로 있다(회원 복제본·회원 알림·출연·강의·지갑·고객센터·채팅) | `notification.<목적>`과 kafka.md `<앱>.<목적>`이 다르다 | **U1** | kafka.md 토픽 표 | Integration(PG+Kafka) | 미결 (U1) |
+| NT-KAF-06 | consumer group 이름 | — | 소비자 기동 | 그룹 이름이 `auxiliary-app.notification-<목적>`이고(회원 복제본은 `auxiliary-app.notification-member-replica`), 목적마다 그룹이 따로 있다(회원 복제본·회원 알림·출연·강의·지갑·고객센터·채팅) | — | ND-047 | kafka.md 토픽 표 | Integration(PG+Kafka) | 유효 |
 
 ### 2.3 IDEM — 중복
 
@@ -182,7 +182,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | NT-ERR-01 | 처리 실패 재시도 | 처리 중 실패를 일으킬 수단 | 일시 실패 후 성공 / 계속 실패 | 블로킹 재시도(1초부터 최대 10초 지수, 3회). 그 사이 같은 partition 뒤 메시지는 기다린다. 성공하면 알림 1건, 계속 실패하면 그룹 DLT로 보내고 offset을 커밋해 뒤 메시지를 처리한다 | DLT 이름 단언은 NT-ERR-03 | ND-010 | kafka.md "재시도와 DLT" | Integration(PG+Kafka) | 유효 |
 | NT-ERR-02 | 읽을 수 없는 메시지 | — | 깨진 JSON, 검증 실패 이벤트 | 재시도 없이 바로 DLT. 신뢰 패키지는 실제 이벤트 패키지만(`*` 없음) | — | ND-010 | 위와 같음 | Integration(PG+Kafka) | 유효 |
-| NT-ERR-03 | DLT 이름과 선언 | group 이름 확정 | 처리 실패 | `<topic>.<group>.DLT`로 간다. DLT 토픽을 알림 모듈이 `NewTopic`으로 선언(partition 3, 원본과 같은 partition 번호, 보존 7일) | group 이름이 정해지지 않아 DLT 이름을 단언할 수 없다 | ND-010, **U1** | kafka.md "재시도와 DLT" | Integration(PG+Kafka) | 미결 (U1) |
+| NT-ERR-03 | DLT 이름과 선언 | — | 처리 실패 | `<topic>.<group>.DLT`로 간다(예: `member.events.v1.auxiliary-app.notification-member-replica.DLT`). DLT 토픽을 알림 모듈이 `NewTopic`으로 선언(partition 3, 원본과 같은 partition 번호, 보존 7일) | — | ND-010, ND-047 | kafka.md "재시도와 DLT" | Integration(PG+Kafka) | 유효 |
 | NT-ERR-04 | DLT 발행 실패 | DLT 발행을 실패시킬 수단 | 처리 실패 + DLT 발행 실패 | 처리 성공으로 보지 않고 offset을 커밋하지 않는다. 다시 시도한다 | — | ND-010 | 위와 같음 | Integration(PG+Kafka) | 유효 |
 
 ### 2.12 BND — 모듈 경계·schema 격리
@@ -191,7 +191,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | NT-BND-01 | Modulith 모듈 경계 | `:notification` 모듈, `package-info.java` `@ApplicationModule(allowedDependencies = "global")` | `AuxiliaryModularityTest` | 새 모듈 `notification`을 찾고, `chatbot`·`search` 등 다른 업무 모듈을 직접 참조하지 않아 통과한다 | 모듈 사이 연동은 Spring 이벤트로만 | ND-006 | auxiliary-app README "모듈 경계" | Architecture | 유효 |
 | NT-BND-02 | Gradle 의존 경계 | — | `./gradlew verifyModuleStructure` | `:notification`이 `:auxiliary-global`·`:shared`에만 의존한다 | `--parallel` 없이 실행 | ND-006 | 위와 같음 | Build | 유효 |
-| NT-BND-03 | schema 격리 | Flyway 적용된 database `auxiliary` | 기동, Flyway 실행 | 모듈 첫 SQL이 `CREATE SCHEMA IF NOT EXISTS notification;`. 테이블 4개(`notification`, `notification_payout_item`, `notification_schedule`, `notification_user`)가 schema `notification`에 있고 엔티티는 `@Table(schema = "notification")`. Flyway 이력·Modulith 발행 기록은 schema `auxiliary` | — | ND-007, ND-025 | auxiliary-app README "Flyway" | Integration(PG) | 유효 |
+| NT-BND-03 | schema 격리 | Flyway 적용된 database `auxiliary` | 기동, Flyway 실행 | 모듈 첫 SQL이 `CREATE SCHEMA IF NOT EXISTS notification;`. 테이블(ND-025의 넷)은 처음 쓰는 작업에서 생기며(ND-046: N1 `notification_user`, N2 `notification`, N8 `notification_payout_item`, N10 `notification_schedule`) 모두 schema `notification`에 있고 엔티티는 `@Table(schema = "notification")`. Flyway 이력·Modulith 발행 기록은 schema `auxiliary` | — | ND-007, ND-025, ND-046 | auxiliary-app README "Flyway" | Integration(PG) | 유효 |
 | NT-BND-04 | 다른 schema JOIN·FK 없음 | NT-BND-03 | 카탈로그 조회(`pg_constraint`), 쿼리·엔티티 정적 검사 | schema `notification` 테이블의 FK가 다른 schema를 가리키지 않는다. HQL·SQL이 다른 schema 테이블을 읽거나 쓰지 않는다. 회원은 ID(Long)로만 참조하고 JPA 연관관계가 없다 | 다른 schema와 같은 트랜잭션 쓰기도 없다 | ND-007, ND-018 | 루트 AGENTS 3장 경계 규칙 | Integration(PG), Architecture | 유효 |
 
 ### 2.13 CHAT — 채팅 알림 유지
@@ -231,7 +231,7 @@
 | 영역 | 항목 수 | 유효 | 미결 (Uxx) | 미결 (결정 없음) | 폐기·대체됨 |
 | --- | --- | --- | --- | --- | --- |
 | GEN 알림 생성·발생 조건 | 14 | 12 | 2 (U3, U11) | 0 | 0 |
-| KAF 이벤트 소비 | 6 | 4 | 2 (U7, U1) | 0 | 0 |
+| KAF 이벤트 소비 | 6 | 5 | 1 (U7) | 0 | 0 |
 | IDEM 중복 | 5 | 4 | 1 (U5) | 0 | 0 |
 | QRY 조회·접근 | 4 | 4 | 0 | 0 | 0 |
 | READ 읽음 | 5 | 5 | 0 | 0 | 0 |
@@ -240,13 +240,30 @@
 | SCH 예약 | 11 | 9 | 2 (U6, U16) | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 7 | 4 | 3 (U8, U17, U19) | 0 | 0 |
 | RT 실시간·재접속 | 7 | 5 | 2 (U15, U14) | 0 | 0 |
-| ERR 실패·재시도·DLT | 4 | 3 | 1 (U1) | 0 | 0 |
+| ERR 실패·재시도·DLT | 4 | 4 | 0 | 0 | 0 |
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
-| **합계** | **83** | **65** | **18** | **0** | **0** |
+| **합계** | **83** | **67** | **16** | **0** | **0** |
 
-- 연결된 테스트가 있는 항목: 0 (모든 항목 "테스트 없음").
+- 연결된 테스트가 있는 항목: 아래 "N1 연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
+
+**N1 연결 테스트** (클래스는 `apps/auxiliary-app/boundedContext/notification/src/test/java/com/hapbang/auxiliary/notification/` 아래. "일부"는 합격 기준의 한 부분만 본다)
+
+| NT | 테스트 | 범위 |
+| --- | --- | --- |
+| NT-USR-01 | `app.NotificationUserSyncServiceTest`, `in.event.NotificationMemberEventListenerTest`(가입·변경) | 전부 |
+| NT-USR-02 | `domain.NotificationUserTest`, `app.NotificationUserSyncServiceTest`, `in.event.NotificationMemberEventListenerTest` | 복제본 버전. 승인 알림(NT-GEN-06)은 N2 이후 |
+| NT-USR-04 | `app.NotificationUserSyncServiceTest`, `in.event.NotificationMemberEventDeadLetterTest`(재시도 뒤 DLT, 다음 레코드 처리) | 복제본 쪽 전부. 알림 생성은 N2 이후 |
+| NT-KAF-02 | `in.event.NotificationMemberEventListenerTest`(처리기 없는 종류·클래스패스에 없는 종류 건너뜀, DLT 0) | 회원 토픽만 |
+| NT-KAF-06 | `in.event.kafka.NotificationKafkaDeadLetterTest`, `in.event.NotificationMemberEventListenerTest`(컨테이너 그룹) | 회원 복제본 그룹만 |
+| NT-ERR-01 | `in.event.NotificationMemberEventDeadLetterTest`(처음 1번 + 재시도 뒤 DLT) | 일부: 재시도 중 성공 경우는 없음 |
+| NT-ERR-02 | `in.event.NotificationMemberEventDeadLetterTest`(깨진 본문·신뢰 밖 타입·검증 실패는 재시도 없이 DLT) | 전부 |
+| NT-ERR-03 | `in.event.kafka.NotificationKafkaDeadLetterTest`, `in.event.NotificationMemberEventDeadLetterTest`(같은 partition 번호, partition 수) | 전부 |
+| NT-ERR-04 | `in.event.kafka.NotificationKafkaDeadLetterTest`(DLT 발행 실패 시 예외) | 일부: 복구기 단위 |
+| NT-BND-01 | `apps/auxiliary-app` `AuxiliaryModularityTest#verify`(notification 모듈을 찾고 경계 검사) | 전부 |
+| NT-BND-02 | `./gradlew verifyModuleStructure` | 전부 |
+| NT-BND-03 | `NotificationModuleIntegrationTest` | N1 범위(schema, `notification_user`, Flyway 이력 위치) |
 - U2는 합격 기준이 아니라 완료 증거의 단계 문제라 NT 상태에 쓰지 않았다(3장 1번).
 - 아직 발행되지 않는 이벤트(🆕·🟡·⚠️)가 필요한 유효 항목은 선행 조건에 M 작업을 적었다. 그 항목은 해당 M 전에는 실행할 수 없다.
 
@@ -263,3 +280,5 @@
 - 2026-11-06 decisions.md U19 반영: NT-USR-07(파기된 회원의 닉네임이 들어간 저장 알림, 미결 U19)을 더했다. 집계 82 → 83.
 - 2026-11-09 decisions.md ND-037~ND-044 반영: NT-GEN-11(ND-040, 선행 M5)·NT-GEN-14(ND-042, 선행 M6)·NT-SCH-11(ND-041, 선행 M3)을 유효로 바꿨다. NT-GEN-06은 ND-042에 따라 역할 변경만으로는 채널 인증 승인 알림을 만들지 않도록 예상 결과를 고쳤다. NT-GEN-08은 종류 코드를 ND-043으로, NT-GEN-10은 ND-039로 고쳤다(U3 미결 유지). NT-GEN-12는 남은 규칙 밖 코드만 남겼다(U11 미결 유지). 집계 유효 62 → 65, 미결 21 → 18.
 - 2026-11-09 decisions.md ND-033~ND-036 반영: NT-USR-04(ND-035)를 유효로 바꾸고 DLT 재처리 경로(kafka.md runbook)를 예상 결과에 더했다. NT-SCH-06(ND-034)·NT-IDEM-05(ND-033)·NT-USR-07(ND-036)은 예상 결과를 결정에 맞추고, 남은 미결(U16 예약 알림별 계약 검증, U5 이벤트별 필드, U19 저장 구조·갱신 방법) 때문에 미결을 유지했다. NT-USR-06은 첫 배포 Backfill(U17)이 미결이라 바꾸지 않았다. 집계 유효 61 → 62, 미결 22 → 21.
+- 2026-11-09 decisions.md ND-047 반영: NT-KAF-06·NT-ERR-03을 미결(U1)에서 유효로 바꾸고 그룹·DLT 이름을 예상 결과에 넣었다. 4장 집계 83개, 유효 67, 미결 16.
+- 2026-11-09 N1(#797): NT-BND-03 기대 결과를 ND-046(테이블은 처음 쓰는 작업에서 생성)에 맞추고, 4장에 N1 연결 테스트 표를 더했다. 상태·집계는 바꾸지 않았다.
