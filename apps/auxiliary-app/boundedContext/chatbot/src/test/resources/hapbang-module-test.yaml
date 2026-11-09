@@ -1,0 +1,11 @@
+# 챗봇 모듈 테스트 전용 설정. 테스트가 spring.config.name=hapbang-module-test로 읽는다. 배포 jar에는 포함되지 않는다.
+spring:
+  datasource:
+    hikari:
+      # 테스트는 컨텍스트를 여러 개 캐시하고 각 컨텍스트가 연결 풀을 가진다. PostgreSQL 컨테이너의 max_connections(100)를 넘지 않게 줄인다
+      maximum-pool-size: 5
+hapbang:
+  chatbot:
+    appearance-events:
+      # 출연 이벤트 소비는 Kafka 테스트(AppearanceCopyEventListenerTest)에서만 켠다
+      enabled: false

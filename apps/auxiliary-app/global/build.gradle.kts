@@ -12,6 +12,8 @@ dependencies {
     implementation(rootProject.libs.springdoc.openapi.webmvc.ui)
     // ObservationConfig(trace 제외 규칙, 비동기 trace 전파)
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
+    // JobLock(#716)의 건너뜀 지표
+    implementation("io.micrometer:micrometer-core")
 
     testImplementation(project(":test-support"))
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")

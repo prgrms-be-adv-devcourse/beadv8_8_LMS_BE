@@ -8,5 +8,9 @@ spring:
 hapbang:
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
+  clients:
+    appearance:
+      # 로컬 출연 앱(챗봇 출연 싱크, #716)
+      base-url: "${APPEARANCE_API_BASE_URL:http://localhost:8083}"
 server:
   port: "${SERVER_PORT:8087}"

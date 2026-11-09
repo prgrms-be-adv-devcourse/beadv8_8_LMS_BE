@@ -1,0 +1,35 @@
+package com.hapbang.auxiliary.chatbot.app.dto;
+
+import java.time.LocalDateTime;
+
+import com.hapbang.auxiliary.chatbot.domain.SyncRun;
+import com.hapbang.auxiliary.chatbot.domain.SyncRunStatus;
+import com.hapbang.auxiliary.chatbot.domain.SyncTrigger;
+import com.hapbang.auxiliary.chatbot.domain.SyncType;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+
+/** 싱크 회차 (#716, 관리자 조회) */
+public record SyncRunResDto(
+        Long id,
+        SyncType type,
+        @Schema(description = "SCHEDULED(주간 배치), RETRY(재시도 배치), ADMIN(관리자 실행)") SyncTrigger trigger,
+        @Schema(description = "관리자 실행이면 관리자 회원 ID") Long requestedBy,
+        @Schema(description = "RUNNING, SUCCEEDED, FAILED, SKIPPED") SyncRunStatus status,
+        LocalDateTime startedAt,
+        LocalDateTime finishedAt,
+        @Schema(description = "원본에서 읽은 건수") long scanned,
+        @Schema(description = "원본에만 있어 넣은 건수") long inserted,
+        @Schema(description = "원본 새것·같은 version 다른 값으로 고친 건수(version만 오른 정상 건 제외)") long fixed,
+        @Schema(description = "우리 version이 커서 무시한 건수") long oursNewer,
+        @Schema(description = "원본 없음으로 새로 표시한 건수(성공 회차만)") long markedMissing,
+        @Schema(description = "(넣은 건수 + 고친 건수) / 읽은 건수가 기준 이상") boolean warning,
+        @Schema(description = "실패·건너뜀 이유") String error
+) {
+
+    public static SyncRunResDto from(SyncRun run) {
+        return new SyncRunResDto(run.getId(), run.getType(), run.getTrigger(), run.getRequestedBy(), run.getStatus(),
+                run.getStartedAt(), run.getFinishedAt(), run.getScanned(), run.getInserted(), run.getFixed(),
+                run.getOursNewer(), run.getMarkedMissing(), run.isWarning(), run.getError());
+    }
+}

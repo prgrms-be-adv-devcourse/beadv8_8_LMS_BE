@@ -40,6 +40,10 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "spring.profiles.active=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.scheduling.enabled=false",
+                // 챗봇 출연 이벤트 소비(#716)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
+                "hapbang.chatbot.appearance-events.enabled=false",
+                // 운영 설정은 출연 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다
+                "hapbang.clients.appearance.base-url=http://localhost:1",
                 // k8s에서 자동으로 켜지는 liveness·readiness 그룹을 켠다
                 "management.endpoint.health.probes.enabled=true",
                 // 테스트는 기본으로 지표 내보내기를 끈다. 운영처럼 Prometheus 형식을 연다
