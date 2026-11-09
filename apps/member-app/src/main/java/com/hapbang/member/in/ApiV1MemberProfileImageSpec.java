@@ -11,10 +11,15 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 /** 프로필 사진 주소 일괄 조회 Swagger 명세 (#770). 매핑은 {@link ApiV1MemberProfileImageController} */
 @Tag(name = "회원", description = "내 정보, 인플루언서 목록, 회원 프로필")
 public interface ApiV1MemberProfileImageSpec {
+
+    /** 한 번에 물을 수 있는 회원 ID 수 (중복 포함) */
+    int MAX_IDS = 100;
 
     /** 주소는 자리표시자다. 실제 발급한 주소는 서명이 들어 있어 레포에 쓰지 않는다 (docs/deploy/s3.md) */
     String EXAMPLE = """
@@ -37,5 +42,6 @@ public interface ApiV1MemberProfileImageSpec {
     @ApiResponse(responseCode = "200", description = "회원 ID별 사진 주소",
             content = @Content(mediaType = "application/json", examples = @ExampleObject(value = EXAMPLE)))
     RsData<Map<Long, String>> profileImages(
-            @Parameter(description = "회원 ID 목록, 쉼표로 구분 (1~100개)", example = "3,7,12") List<Long> ids);
+            @Parameter(description = "회원 ID 목록, 쉼표로 구분 (1~100개)", example = "3,7,12")
+            @Size(min = 1, max = MAX_IDS, message = "ids는 1~100개여야 합니다.") List<@NotNull Long> ids);
 }

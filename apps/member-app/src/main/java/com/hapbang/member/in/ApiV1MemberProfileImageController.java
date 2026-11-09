@@ -11,9 +11,6 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hapbang.member.app.MemberFacade;
 import com.hapbang.member.global.response.RsData;
 
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
-
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -25,16 +22,13 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ApiV1MemberProfileImageController implements ApiV1MemberProfileImageSpec {
 
-    /** 한 번에 물을 수 있는 회원 ID 수 (중복 포함) */
-    static final int MAX_IDS = 100;
-
     private final MemberFacade memberFacade;
+
+    // ids 개수 검증(@Size)은 Spec에 둔다. 구현 메서드가 매개변수 제약을 다시 정하면 Hibernate Validator가 막는다(HV000151)
 
     @Override
     @GetMapping("/profile-images")
-    public RsData<Map<Long, String>> profileImages(
-            @RequestParam(name = "ids")
-            @Size(min = 1, max = MAX_IDS, message = "ids는 1~100개여야 합니다.") List<@NotNull Long> ids) {
+    public RsData<Map<Long, String>> profileImages(@RequestParam(name = "ids") List<Long> ids) {
         return RsData.ok("프로필 사진 주소를 조회했습니다.", memberFacade.profileImageUrls(ids));
     }
 }
