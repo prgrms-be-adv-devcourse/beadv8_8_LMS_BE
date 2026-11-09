@@ -23,7 +23,8 @@ import jakarta.servlet.http.HttpServletResponse;
 public interface ApiV1MemberSpec {
 
     @Operation(summary = "내 정보 조회",
-            description = "로그인한 회원. 이메일을 포함한다. profileImageUrl은 1시간 동안 쓸 수 있는 조회 주소, 사진이 없으면 null. "
+            description = "로그인한 회원. 이메일을 포함한다. profileImageUrl은 받은 뒤 대개 10분 이상 쓸 수 있는 조회 주소이고, 사진이 없으면 null. "
+                    + "서버 자격 증명이 바뀌는 짧은 동안은 더 짧을 수 있어, 만료되거나 불러오지 못하면(사진을 바꾼 직후의 옛 주소 포함) 다시 조회한다. "
                     + "contentCategories는 고른 순서의 콘텐츠 분야 [{code, name}], 없으면 빈 배열. bio는 자기소개, 없으면 null.")
     RsData<MemberMeResponse> me(Long userId);
 

@@ -291,9 +291,9 @@ Kustomize로 관리하는 앱에는 release 단위 롤백이 없다. 그래서 C
 
 ## CI 검증
 
-- 지금(#488 이후): PR에서 바뀐 앱만 앱마다 러너 하나(matrix)에서 `check bootJar`와 이미지 빌드(push 안 함)를 실행하고, 구조 검사·common 테스트는 따로 돈다. 필수 체크 `verify`는 이 결과를 모은다. 앱이 8개가 된 뒤 판단하기로 했던 matrix 전환(#374)을, 문서만 바꾼 PR도 9분 넘게 걸려 6개에서 앞당겼다([조사](../pr-ci-changed-apps-research.md)).
+- 지금(#488 이후): PR에서 바뀐 앱만 앱마다 러너 하나(matrix)에서 `check bootJar`와 이미지 빌드(push 안 함)를 실행하고, 구조 검사·common 테스트와 manifest 검사(`manifests`)는 따로 돈다. 필수 체크 `verify`는 이 결과를 모은다(`manifests`는 #792부터). 앱이 8개가 된 뒤 판단하기로 했던 matrix 전환(#374)을, 문서만 바꾼 PR도 9분 넘게 걸려 6개에서 앞당겼다([조사](../pr-ci-changed-apps-research.md)).
 - 배포(#374, #559): dev push 때 이미지가 없는 앱을 발행하고(`publish.yml`), 이어서 `deploy.yml`이 바뀐 앱만 prod에 배포한다. main에는 서버가 없다. 절차는 [운영 앱 배포](../../deploy/k8s.md#운영-앱-배포).
-- manifest(#373): `manifests` job이 `kubectl kustomize`로 overlay별 rendering → kubeconform `-strict`로 Kubernetes·CRD schema 검사. 필수 체크는 아니다
+- manifest(#373): `manifests` job이 `kubectl kustomize`로 overlay별 rendering → kubeconform `-strict`로 Kubernetes·CRD schema 검사. 필수 체크 `verify`가 결과를 모으므로 실패하면 병합할 수 없다(#792)
 - PR(앱이 모두 단독 기동한 뒤): k3d cluster 생성 → 앱마다 `kubectl apply -k apps/<앱>/k8s/overlays/local` → migration → smoke/E2E → cluster 삭제
 - PR: 앱 사이 JWT 헤더 인증·WebSocket·Kafka·Redis 흐름 검증
 - prod k3s: dev push마다 바뀐 앱의 dev image를 앱마다 `kubectl apply -k` → `rollout status` → 실패 시 `rollout undo`

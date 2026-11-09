@@ -18,6 +18,10 @@ spring:
     formcontent:
       filter:
         enabled: false
+    async:
+      # SSE 스트림(챗봇 FAQ 대화 등)의 MVC 비동기 상한. 서버 스트림 상한(hapbang.chatbot.faq.stream-timeout 45s)보다 길고
+      # Gateway 스트림 route(60s)보다 짧게 둔다. 그래야 서버의 fallback·error 이벤트가 먼저 나간다(#715)
+      request-timeout: 50s
   modulith:
     # @ApplicationModule을 붙인 패키지만 모듈로 본다
     detection-strategy: explicitly-annotated
@@ -45,6 +49,41 @@ spring:
     default-schema: auxiliary
     schemas:
     - auxiliary
+  # Spring AI(챗봇, #715). 공급자는 프로필 파일에서 하나만 켠다(local=ollama, prod=openai). 여기서는 모두 끈다.
+  # 모델을 끈 실행(앱 전체 테스트 등)에서 챗봇은 LLM 없이 답하고(fallback) FAQ 색인·검색을 하지 않는다
+  ai:
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+    # Spring AI 자동 설정의 vector store 빈은 만들어질 때 ES를 불러 ES가 죽어 있으면 앱이 뜨지 않는다.
+    # 챗봇이 직접 만든다(FaqVectorIndex)
+    vectorstore:
+      type: none
+      observations:
+        log-query-response: false
+    # 사용자 메시지·답변 본문을 로그·trace에 남기지 않는다(docs/dev/logging.md)
+    chat:
+      observations:
+        log-prompt: false
+        log-completion: false
+        include-error-logging: false
+      client:
+        observations:
+          log-prompt: false
+          log-completion: false
+    tools:
+      observations:
+        include-content: false
+  # Elasticsearch(챗봇 FAQ 색인, #715). 주소·인증은 프로필 파일에서 정한다. ES가 죽어도 앱은 뜨고 챗봇만 검색 없이 답한다.
+  # ES 헬스 지표는 전체 상태(/actuator/health)에만 들어가고 liveness·readiness 그룹에는 들어가지 않는다
+  elasticsearch:
+    connection-timeout: 1s
+    socket-timeout: 10s
   http:
     clients:
       connect-timeout: 3s
@@ -85,5 +124,16 @@ management:
 hapbang:
   scheduling:
     enabled: true
+  chatbot:
+    faq:
+      # 공급자별 값은 프로필 파일에 있다. 아래는 모델을 끈 실행용 값이다(색인·검색을 하지 않는다)
+      index-name: chatbot-faq-none
+      dimensions: 768
+      similarity-threshold: 0.7
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
+  clients:
+    appearance:
+      # 출연 내부 API(챗봇 출연 싱크, #716). k8s ConfigMap이 출연 앱의 내부 포트(8081) 주소를 준다. 로컬은 application-local.yaml
+      # 기본값을 두지 않는다. 값이 빠지면 엉뚱한 주소를 부르지 않고 기동에 실패한다(docs/deploy/k8s.md 앱 사이 내부 호출 주소)
+      base-url: "${APPEARANCE_API_BASE_URL}"

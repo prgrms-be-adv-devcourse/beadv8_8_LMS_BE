@@ -1,5 +1,6 @@
 # 모듈 경로(지금은 챗봇 /api/v1/chatbot)와 앱 하나의 Swagger 경로(/api/v1/auxiliary)를 연다.
 # 검색·알림 모듈을 더할 때 그 모듈 경로를 matches에 더한다(apps/auxiliary-app/README.md).
+# 챗봇 SSE 스트림(/api/v1/chatbot/**/stream)은 아래 auxiliary-app-stream route로 따로 나눠 시간 상한을 60초로 둔다(#715).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -24,6 +25,30 @@ spec:
       request: 30s
       backendRequest: 30s
 ---
+# 챗봇 SSE 스트림(#715). timeouts.request는 응답이 끝날 때까지의 전체 시간이라 30초면 긴 답을 끊는다. 이 경로만 60초다.
+# 서버 스트림 상한(45s)과 MVC 비동기 상한(50s)이 이보다 짧아 서버의 fallback·error 이벤트가 먼저 나간다.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: auxiliary-app-stream
+spec:
+  parentRefs:
+  - name: hapbang
+    namespace: envoy-gateway-system
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: RegularExpression
+        value: ^/api/v1/chatbot/.+/stream$
+      method: POST
+    backendRefs:
+    - name: auxiliary-app
+      port: 8080
+    timeouts:
+      request: 60s
+      backendRequest: 60s
+---
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
@@ -33,6 +58,9 @@ spec:
   - group: gateway.networking.k8s.io
     kind: HTTPRoute
     name: auxiliary-app
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: auxiliary-app-stream
   jwt:
     optional: true
     providers:
@@ -60,5 +88,8 @@ spec:
   - group: gateway.networking.k8s.io
     kind: HTTPRoute
     name: auxiliary-app
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: auxiliary-app-stream
   requestBuffer:
     limit: 1Mi

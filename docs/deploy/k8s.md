@@ -55,6 +55,7 @@
 | chat-app | `MEMBER_API_BASE_URL`, `APPEARANCE_API_BASE_URL` → `hapbang.clients.{member,appearance}.base-url` | `http://member-app:8081`, `http://appearance-app:8081` | 회원 백필 (#280에서 ConfigMap에 추가), 모집용 단체방의 모집글·지원 이력 조회 (#584) |
 | customer-support-app | `LECTURE_API_BASE_URL` → `hapbang.clients.lecture.base-url` | `http://lecture-app:8081` | 이의 제기 접수 (#279) |
 | member-app | `APPEARANCE_API_BASE_URL`, `LECTURE_API_BASE_URL`, `BILLING_API_BASE_URL` → `hapbang.clients.{appearance,lecture,billing}.base-url` | `http://appearance-app:8081`, `http://lecture-app:8081`, `http://billing-app:8081` | 받은 출연 리뷰 목록 (#555), 회원 탈퇴 확인·지갑 닫기·다시 열기 (#654) |
+| auxiliary-app | `APPEARANCE_API_BASE_URL` → `hapbang.clients.appearance.base-url` | `http://appearance-app:8081` | 챗봇 주간 싱크의 출연·출연 리뷰 키셋 조회 (#716) |
 
 - chat-app 외의 앱은 `application.yaml`에 기본값이 없으므로 값을 꼭 넣는다. chat-app은 기본값이 `http://localhost:8081`이라 ConfigMap에 값이 없으면 회원 앱이 아니라 chat 자신의 내부 포트를 부른다.
 - 제공 앱을 새로 부르면 이 표, 호출하는 앱의 ConfigMap, 제공 앱 NetworkPolicy의 허용 라벨을 함께 확인한다.
@@ -71,7 +72,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 | `billing-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`(없으면 충전 API만 503) | `apps/billing-app/k8s/overlays/prod` |
 | `lecture-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `S3_BUCKET` | `apps/lecture-app/k8s/overlays/prod` |
 | `appearance-app-secrets`, `chat-app-secrets`, `customer-support-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY` | 각 앱의 `k8s/overlays/prod` |
-| `auxiliary-app-secrets` | hapbang-prod | `DB_PASSWORD`(role `auxiliary`), `HAPBANG_INTERNAL_API_KEY`, 선택: `OPENAI_API_KEY`, `ES_API_KEY`(챗봇 API key `auxiliary-app-chatbot`, 2026-11-06 생성, 2027-02-04 만료. **2027-01-21까지 교체한다**). 선택 키는 챗봇 FAQ(#715) 전까지 없어도 된다 | `apps/auxiliary-app/k8s/overlays/prod` |
+| `auxiliary-app-secrets` | hapbang-prod | `DB_PASSWORD`(role `auxiliary`), `HAPBANG_INTERNAL_API_KEY`, `OPENAI_API_KEY`, `ES_API_KEY`(챗봇 API key `auxiliary-app-chatbot`, 2026-11-06 생성, 2027-02-04 만료. **2027-01-21까지 교체한다**). 챗봇 FAQ(#715)부터 prod 프로필이 두 키를 기본값 없이 읽으므로 없으면 앱이 뜨지 않는다 | `apps/auxiliary-app/k8s/overlays/prod` |
 | `postgres-credentials` | hapbang-platform | `postgres`(superuser), `member`, `billing`, `appearance`, `lecture`, `chat`, `customersupport`, `auxiliary`(#726) | `k8s/platform/overlays/prod` |
 | `ghcr-pull` | hapbang-prod | `.dockerconfigjson`(type `kubernetes.io/dockerconfigjson`). BE 앱 7개와 FE가 함께 쓴다 | `k8s/registry` ([GHCR pull 인증](#ghcr-pull-인증)) |
 | `grafana-alerting` | hapbang-platform | `SLACK_WEBHOOK_URL`(Grafana alert를 보내는 Slack Incoming Webhook, #781). `k8s/tools/seal-grafana-alerting.sh`가 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL`로 봉인한다 | `k8s/platform/overlays/prod` ([Alert](../architecture/infrastructure/observability.md#alert-정책-629)) |
@@ -82,7 +83,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 앱 SealedSecret은 `k8s/tools/seal-app-secrets.sh`로 만든다. 값은 화면에 출력하지 않는다.
 
 - `DB_PASSWORD`는 EC2 cluster의 `postgres-credentials`에서 읽고, `HAPBANG_INTERNAL_API_KEY`는 `~/.hapbang/internal-api-key`를 쓴다. 파일이 없으면 멈추고, 처음 설치할 때만 앱 이름 없이 `HAPBANG_NEW_INTERNAL_API_KEY=1`로 실행해 새 키로 앱 7개를 함께 봉인한다. 빈 `DB_PASSWORD`, billing 결제 키 한쪽만 있는 경우도 멈춘다.
-- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 처음 값은 기존 Compose 서버의 `prod.env`에서 옮겼다. 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`, `MAIL_USERNAME`, `MAIL_PASSWORD`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`, `OPENAI_API_KEY`, `ES_API_KEY`.
+- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 처음 값은 기존 Compose 서버의 `prod.env`에서 옮겼다. 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `OPENAI_API_KEY`, `ES_API_KEY`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`.
 - 필수 값이 없으면 키 이름만 알리고 멈춘다. 만든 파일은 각 앱의 `overlays/prod/<앱>-app-secrets.yaml`이고 kustomization `resources`에 더한다.
 - `~/.hapbang`의 파일은 팀 비밀 보관소에도 둔다. 내부 API 키를 다시 만들면 앱 7개를 모두 다시 봉인한다.
 - `JWT_PRIVATE_KEY`는 RSA 2048 PKCS#8 PEM을 줄바꿈 없이 한 줄로 적는다(`openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 | tr -d '\n'`). env 파일은 여러 줄 값을 받지 못하고, member-app은 공백·줄바꿈을 지우고 읽는다. 이 키는 팀 비밀 보관소에 두지 않는다. 잃으면 새로 만들어 member만 다시 봉인한다. refresh token은 서명 키와 무관해 그대로 쓰이고, 이미 발급한 access token(최대 15분)만 무효가 된다(#500).
@@ -137,7 +138,7 @@ PostgreSQL은 앱들이 함께 쓰는 인프라라 `hapbang-platform`에 둔다.
 - database·role은 차트의 initdb script(`k8s/platform/base/postgres.yaml`)가 **데이터 디렉터리가 비어 있을 때만** 만든다.
 - 이미 초기화된 instance에 database를 더할 때는 script를 고치고, 실행 중인 instance에도 같은 SQL을 superuser로 실행한다(아래 절차). auxiliary-app의 `auxiliary`도 이렇게 더한다(#726).
 - 기존 Compose 운영 DB는 이전하지 않고 2026-10-30에 지웠다(#440). 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다.
-- `max_connections` 100에서 슈퍼유저 예약 3을 뺀 97개를 앱이 쓴다. HikariCP 풀은 앱 5개 × 10 + chat-app 20 + auxiliary-app 5 = 75이고, large rolling surge pod 1개(10)를 더하면 85다(2026-11-06 운영 `hikaricp_connections_max`, #726). billing-app의 pool 밖 실행 락 연결(pod당 1개, 배포 중 2개)까지 넣으면 87이다([database 분리](../architecture/infrastructure/database.md)). 앱을 더하거나 풀 크기를 바꾸면 다시 계산한다.
+- `max_connections` 100에서 슈퍼유저 예약 3을 뺀 97개를 앱이 쓴다. HikariCP 풀은 앱 5개 × 10 + chat-app 20 + auxiliary-app 5 = 75이고, large rolling surge pod 1개(10)를 더하면 85다(2026-11-06 운영 `hikaricp_connections_max`, #726). billing-app과 auxiliary-app의 pool 밖 실행 락 연결(앱마다 pod당 1개, 배포 중 2개, auxiliary는 #716)까지 넣으면 89다([database 분리](../architecture/infrastructure/database.md)). 앱을 더하거나 풀 크기를 바꾸면 다시 계산한다.
 
 ### 실행 중인 instance에 database 더하기
 
@@ -485,7 +486,7 @@ kubectl --context "$CTX" -n hapbang-platform port-forward svc/redpanda-console 8
 
 ## CI
 
-`ci.yml`의 `manifests` job이 PR마다 `k8s/`와 `apps/<앱>/k8s`의 overlay별로 `kubectl kustomize` → `kubeconform -strict`를 실행한다. Kubernetes schema는 k3s와 같은 1.36.5, CRD(HelmChart·Elasticsearch) schema는 [CRDs-catalog](https://github.com/datreeio/CRDs-catalog)의 고정 커밋을 쓴다.
+`ci.yml`의 `manifests` job이 PR마다 `k8s/`와 `apps/<앱>/k8s`의 overlay별로 `kubectl kustomize` → `kubeconform -strict`를 실행한다. 필수 체크 `verify`가 이 결과도 모으므로 실패하면 병합할 수 없다. dev 발행(`publish.yml`)도 이 job이 실패하면 build·deploy를 건너뛴다(#792). GitHub에서 받는 파일(kubeconform, Gateway·인증서 CRD schema, kubeconform이 실행 중 받는 Kubernetes·CRDs-catalog schema)은 Actions cache에 두고, 버전(kubeconform·Kubernetes·CRDs-catalog 커밋·`prepare-schemas.py`)이 같으면 다시 받지 않는다. cache가 없을 때 받는 다운로드는 5xx·끊김을 몇 번 다시 시도한다(2026-11-09 GitHub 504로 발행이 멈춘 적이 있다, #792). cache는 job이 성공해야 저장되고, dev 실행이 만든 cache를 PR이 읽는다. 그래도 GitHub 장애로 실패하면 그 job만 다시 실행한다. 렌더링 step은 `shell: bash`(pipefail)라 `kubectl kustomize`가 실패하면 job이 실패한다. Kubernetes schema는 k3s와 같은 1.36.5, CRD(HelmChart·Elasticsearch) schema는 [CRDs-catalog](https://github.com/datreeio/CRDs-catalog)의 고정 커밋을 쓴다.
 
 kubeconform은 형식만 검사한다. `valuesContent` 안의 차트 values, Service selector와 Pod label의 일치, 이미지 존재, 앱 기동은 검사하지 못하므로 manifest를 바꾸면 로컬 k3d로 확인한다.
 

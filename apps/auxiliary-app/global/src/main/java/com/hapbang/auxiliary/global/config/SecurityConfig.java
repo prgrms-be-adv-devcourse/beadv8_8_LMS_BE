@@ -43,7 +43,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)
                         .requestMatchers("/api/v1/*/admin/**").hasRole("ADMIN")
-                        // 업무 API는 비회원에게 열지 않는다. 역할 검사는 각 모듈 Facade의 @PreAuthorize로 한다(챗봇은 인플루언서 이상)
+                        // 업무 API는 비회원에게 열지 않는다. 역할 검사는 각 모듈 Facade의 @PreAuthorize로 한다(챗봇은 로그인 회원 전체)
                         .anyRequest().authenticated()
                 )
                 // 로그인·로그아웃은 회원 앱의 책임이다. 비로그인 요청은 401
