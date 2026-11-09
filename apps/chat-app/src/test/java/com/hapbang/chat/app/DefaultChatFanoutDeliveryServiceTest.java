@@ -30,6 +30,8 @@ import com.hapbang.chat.app.dto.RoomActivityFanout;
 import com.hapbang.chat.domain.ChatMessageType;
 import com.hapbang.chat.domain.ChatNotifyRule;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 /**
  * 방 topic 전달의 버전 확인 규칙(설계 4.2): 구독 세대·활성 참여·가시 범위·자격, 퇴장·세대 변경 뒤 회수, 메시지마다 DB를 읽지 않음.
  */
@@ -43,7 +45,8 @@ class DefaultChatFanoutDeliveryServiceTest {
     @SuppressWarnings("unchecked")
     private final ObjectProvider<RoomChannelSubscriptions> noChannels = mock(ObjectProvider.class);
     private final LocalRoomSubscriptions subscriptions = new LocalRoomSubscriptions(noChannels, 20);
-    private final ChatRoomMembershipCache cache = new ChatRoomMembershipCache(reader, 100, Duration.ofHours(1));
+    private final ChatRoomMembershipCache cache = new ChatRoomMembershipCache(reader, new SimpleMeterRegistry(), 100,
+            Duration.ofHours(1));
     private final DefaultChatFanoutDeliveryService service = new DefaultChatFanoutDeliveryService(connections,
             subscriptions, cache, sender);
 
