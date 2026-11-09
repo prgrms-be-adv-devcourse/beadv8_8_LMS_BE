@@ -67,7 +67,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `republish.scan-count` | 200 | requests HSCAN 묶음 |
 | `republish.ack-timeout` | 3s | 재발행 전송 ACK 대기 |
 | `sold-out-cache-ttl` | 1s | 매진 메모리 캐시 TTL |
-| `sold-out-cache-max-entries` | 10 000 | 매진 캐시 최대 항목 수 |
+| `sold-out-cache-max-entries` | 10 000 | 매진 캐시(Caffeine) `maximumSize`. 넘으면 덜 쓰는 항목을 내보낸다(정리는 비동기라 잠깐 넘을 수 있다) |
 | `issue-consumer.retry-attempts` | 3 | 소비 실패 재시도 횟수 |
 | `issue-consumer.retry-interval` | 1s | 첫 재시도 간격 |
 | `issue-consumer.retry-max-interval` | 10s | 재시도 간격 상한(배수 2는 코드 상수) |
@@ -166,5 +166,5 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 - 배치(재발행·대사·프로세스 점검)는 lecture-app replica 1을 전제한다. 실행 표시가 앱 메모리라 분산 락이 없고, 중복 전달은 소비자 멱등이 흡수한다. replica를 늘리면 billing의 Postgres advisory lock 방식을 붙인다.
 - 조회 API의 목록 상한 100건을 설정으로 옮기고, 회원 목록 쿼리(status + 기간 + 대상)가 느려지면 인덱스를 새 마이그레이션으로 넣는다.
 - 강의 조회 circuit breaker의 micrometer 지표는 붙이지 않았다.
-- 지표 이름: `coupon.issue.publish.failures`, `coupon.issue.republished`·`.republish.oldest.age`·`.republish.last`·`.republish.stale.epoch`, `coupon.issue.consume{result}`, `coupon.dlt.pending`(PENDING + REPLAYING)·`coupon.dlt.isolated`, `coupon.issue.compensations{result}`, `coupon.recovery.redis_check{result}`, `coupon.reconciliation.mismatches{kind}`, `coupon.issue.backlog_holds`, `coupon.capacity.reserved`. 소비 실패·lag는 Spring Kafka 기본 지표. ERROR 로그 표식은 위 "ERROR 로그 alert 표식" 표. Grafana 대시보드·알림 등록은 운영 결정이다.
+- 지표 이름: `coupon.issue.publish.failures`, `coupon.issue.republished`·`.republish.oldest.age`·`.republish.last`·`.republish.stale.epoch`, `coupon.issue.consume{result}`, `coupon.dlt.pending`(PENDING + REPLAYING)·`coupon.dlt.isolated`, `coupon.issue.compensations{result}`, `coupon.recovery.redis_check{result}`, `coupon.reconciliation.mismatches{kind}`, `coupon.issue.backlog_holds`, `coupon.capacity.reserved`. 매진 캐시(Caffeine)는 Micrometer 바인더의 `cache.gets{cache=coupon.issue.sold_out,result}`(hit = Redis 미호출, miss = Redis 읽음. 예외: 쿠폰 시계가 Caffeine 만료 시계(단조 시계)와 어긋나 `freshAt` 검사에 걸리면(시계 역행 등) hit로 세고도 Redis를 읽는다)·`cache.size`·`cache.evictions{cache=coupon.issue.sold_out}`. 캐시에는 매진 신호와 Redis에서 읽은 매진 아님 결과가 함께 들어간다. 접수 경로는 쿠폰이 있는지 확인하기 전에 캐시를 보므로 없는 쿠폰 ID도 매진 아님으로 담겨, 없는 ID를 흩뿌리면 상한까지 찰 수 있다. 상한은 메모리 보호이고, 상한을 넘으면 W-TinyLFU가 덜 쓰는 항목을 내보내며 내보낸 쿠폰의 다음 요청은 Redis `sold_out`을 읽는다. 판정은 Lua가 지키므로 정합성 영향은 없다. 소비 실패·lag는 Spring Kafka 기본 지표. ERROR 로그 표식은 위 "ERROR 로그 alert 표식" 표. Grafana 대시보드·알림 등록은 운영 결정이다.
 - `prepare.lua`·`recovery-rebuild.lua`는 만료를 발급 종료 + 여유로 다시 써서 연장분을 줄일 수 있다. prepare는 열기 전에만, rebuild는 보관 기간 안에서만 실행되므로 위험은 낮다. 필요하면 `PEXPIREAT GT` 적용을 검토한다.

@@ -11,6 +11,7 @@
 - 기존에 확정한 Lua/Kafka, CAS·generation, 반환 완료 후 복원, 0 HP, 모듈 경계는 유지했다.
 - 모든 강의 대상 정률 쿠폰만 장당 최대 할인액을 입력한다. 예산 = 수량 × 최대 할인액.
 - `:lecture-app`은 유지하고 안에 Gradle 하위 프로젝트 `:coupon`을 둔다. 배포는 lecture-app pod 하나. JVM이 나뉘어 있다고 가정해 강의 ↔ 쿠폰은 내부 HTTP API + Kafka로만 통신하고 `@ApplicationModuleListener`는 쓰지 않는다. 트랜잭션은 연결하지 않는다(design.md "모듈 경계").
+- Caffeine(`com.github.ben-manes.caffeine:caffeine`, Spring Boot BOM 관리 버전)을 팀 공통 캐시 라이브러리로 들인다(2026-11-09 사용자 결정, chat-app `ChatRoomMembershipCache`와 공통). 쿠폰에서는 매진 캐시 `CouponSoldOutCache` 하나에 쓴다. Spring Cache 추상화(`@Cacheable`)는 쓰지 않는다.
 
 ## 검토를 반영한 설계 보완
 
