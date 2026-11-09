@@ -74,6 +74,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 | `auxiliary-app-secrets` | hapbang-prod | `DB_PASSWORD`(role `auxiliary`), `HAPBANG_INTERNAL_API_KEY`, 선택: `OPENAI_API_KEY`, `ES_API_KEY`(챗봇 API key `auxiliary-app-chatbot`, 2026-11-06 생성, 2027-02-04 만료. **2027-01-21까지 교체한다**). 선택 키는 챗봇 FAQ(#715) 전까지 없어도 된다 | `apps/auxiliary-app/k8s/overlays/prod` |
 | `postgres-credentials` | hapbang-platform | `postgres`(superuser), `member`, `billing`, `appearance`, `lecture`, `chat`, `customersupport`, `auxiliary`(#726) | `k8s/platform/overlays/prod` |
 | `ghcr-pull` | hapbang-prod | `.dockerconfigjson`(type `kubernetes.io/dockerconfigjson`). BE 앱 7개와 FE가 함께 쓴다 | `k8s/registry` ([GHCR pull 인증](#ghcr-pull-인증)) |
+| `grafana-alerting` | hapbang-platform | `SLACK_WEBHOOK_URL`(Grafana alert를 보내는 Slack Incoming Webhook, #781). `k8s/tools/seal-grafana-alerting.sh`가 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL`로 봉인한다 | `k8s/platform/overlays/prod` ([Alert](../architecture/infrastructure/observability.md#alert-정책-629)) |
 
 - `postgres-credentials`의 앱별 값은 각 앱 Secret의 `DB_PASSWORD`와 같아야 한다. PostgreSQL이 첫 기동 때 이 값으로 앱 role을 만든다.
 - `HAPBANG_INTERNAL_API_KEY`는 모든 앱이 같은 값을 쓴다.

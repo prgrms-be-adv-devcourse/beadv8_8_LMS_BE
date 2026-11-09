@@ -27,7 +27,8 @@
 - **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 앱 운영 로그는 JSON 한 줄(Boot `logstash` 형식, [로그 표준](../../dev/logging.md))이고 수집할 때 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
 - **trace**: Envoy가 업무 요청을 모두(Grafana·Kafka UI 요청은 빼고, #679) OTLP gRPC로 Alloy(4317)에 보내고 Alloy가 Tempo로 넘긴다(#372). 업무 앱 6개(lecture #579, member·appearance·billing·chat #631, customer-support #663)는 Envoy가 넘긴 `traceparent`를 이어받아 server span과 내부 API client span을 같은 trace에 보낸다(아래 "앱 trace 계측").
 - **dashboard**: Grafana `합방` 폴더에 다섯 개가 있다(#531, Kafka #597, 앱 개요 #601, 아래 "Dashboard").
-- 앱 로그의 형식·MDC 키(`traceId`·`userId`·`eventType`·`eventKey`)는 [로그 표준](../../dev/logging.md)을 따른다(#582). alert는 아직 없다(#343).
+- 앱 로그의 형식·MDC 키(`traceId`·`userId`·`eventType`·`eventKey`)는 [로그 표준](../../dev/logging.md)을 따른다(#582).
+- **alert**: Grafana alerting이 돈·HP 정합성과 지표 수집 끊김을 Slack으로 보낸다(#781, 아래 "Alert 정책").
 
 다른 앱이 지표를 열 때는 다음 다섯 가지를 더한다. `micrometer-registry-prometheus`는 루트 `build.gradle.kts`가 모든 앱에 넣는다. lecture-app이 예시다.
 
@@ -145,7 +146,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 
 ## Alert 정책 (#629)
 
-대상 지표와 정책만 정했다. alert rule과 통보는 아직 구성하지 않았다. 구현은 #343의 후속 티켓에서 운영 실측을 본 뒤 한다.
+대상 지표와 정책은 #629에서 정했다. 실측 없이 임계값을 정할 수 있는 돈·HP 정합성과 수집 끊김 alert는 #781에서 구성했다(아래 "구성한 alert"). 나머지는 운영 실측을 본 뒤 후속 티켓에서 한다.
 
 운영자가 받는 장애 통보는 **alert**라고 쓴다. 회원이 받는 **알림**(notification, [용어집](../../GLOSSARY.md))과 섞어 쓰지 않는다.
 
@@ -199,6 +200,42 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 - 채팅 outbox DEAD·적재 대기: outbox 상태 지표가 없다. 전달 작업 격리(`chat.delivery.isolated`)로만 본다.
 - OOMKilled 사유, CrashLoopBackOff, Deployment 가용 replica: kube-state-metrics가 필요하다.
 - PostgreSQL·Kafka·Redis 내부 상태: exporter가 없다.
+
+### 구성한 alert (#781)
+
+rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contactpoints.yaml`, 통보 규칙은 `policies.yaml`이다. Grafana `합방 alert` 폴더에 보인다.
+
+모든 alert에 공통으로 적용하는 설정:
+
+- **통보 채널**: Slack 채널 하나(Incoming Webhook을 만들 때 고른 채널). 메시지는 Grafana 기본 Slack template이다. alert 이름, 값, label, `summary`·`description` annotation, Grafana 링크가 들어간다.
+- **중복 억제**: alert 이름으로 묶어 한 메시지로 보낸다(처음 30초 모음, 새 instance는 5분 뒤). 해결되지 않으면 4시간마다 다시 보낸다.
+- **복구 통보**: 보낸다.
+- **NoData·Error**: 지표가 없으면 OK로 본다. 쿼리가 실패하면(Prometheus 장애) `DatasourceError` alert가 따로 온다.
+
+| alert | 조건(PromQL 요약) | 지속 | 확인할 곳과 대응 |
+| --- | --- | --- | --- |
+| 서비스 간 HP 대사 불일치 | `(lecture\|appearance)_hp_reconciliation_mismatches` > 0 (앱·규칙별) | 즉시 | Loki `{namespace="hapbang-prod", app="<앱>"} \|= "rule=<규칙>"`. `HP_TASK_DEAD`는 어긋남이 아니라 DEAD 작업 때문에 비교하지 않은 건수라 관리자 HP 작업 화면에서 재시도한다. 값은 다음 대사(매일 새벽)까지 남는다 |
+| 지갑 잔액 대사 불일치·실패 | `hapbang_billing_reconciliation_wallets{result=~"mismatched\|failed"}` > 0 | 즉시 | Loki `{app="billing-app"} \|= "잔액 대사"`로 walletId·bucket별 차이를 본다([지갑 모듈](../../billing/module.md)). 자동으로 고치지 않는다 |
+| HP 작업 DEAD | 출연 `appearance_hp_task_dead`(현재 DEAD 수) > 0, 강의 `increase(lecture_hp_task_dead_total[10m])` > 0 | 즉시 | Loki `\|= "HP_TASK_DEAD]"`, 관리자 HP 작업 화면에서 재시도한다. 강의는 counter라 10분 뒤 복구 통보가 와도 DEAD는 남는다. 남은 강의 DEAD는 대사 불일치 alert의 `HP_TASK_DEAD`가 매일 알린다 |
+| 대사가 돌지 않음 | 26시간 넘게 산 pod에서 지갑 `last_success`가 26시간 넘게 지났거나, 강의·출연 `runs_total{status="COMPLETED"}`가 26시간 동안 늘지도 새로 생기지도 않음 | 즉시 | Loki `{app="<앱>"} \|= "대사"`로 배치 실행과 중단 사유를 본다. 대사가 돌지 않으면 불일치 alert가 오래된 값으로 남는다 |
+| 지표 수집 끊김 | `up{job="kubernetes-pods"}` < 1 (pod별) | 5분 | pod 상태(`kubectl get pod`)와 로그. 기동 실패·재시작 반복·NetworkPolicy를 본다 |
+
+- 대사 배치는 매일 새벽(Asia/Seoul 출연 04:00, 지갑 04:02, 강의 04:30)에 돈다. 지갑 `last_success`와 강의·출연 실행 counter는 pod가 다시 뜨면 0부터 시작해 "대사가 돌지 않음"은 26시간 넘게 산 pod만 본다. 강의·출연 counter는 첫 실행 때 series가 생기므로 26시간 안에 생긴 series도 실행으로 친다. dev 병합마다 pod가 다시 떠서 하루를 넘기는 pod가 드물다. 그동안은 이 alert가 비어 있다.
+- 재시작을 반복하는 pod는 scrape 대상에 남아 `up`이 0이 되므로 수집 끊김으로 잡힌다. pod가 아예 없어 지표가 사라진 경우(replica 0, 스케줄되지 않은 Pending pod)는 잡지 못한다. kube-state-metrics가 필요하다.
+
+**수정 방법.** 파일이 원본이다. provisioning된 rule·contact point·통보 규칙은 Grafana UI에서 고칠 수 없다. UI에서 rule을 만들어 시험했다면 rule 화면의 Export(YAML)로 내려받아 `rules.yaml`에 옮긴다. contact point 설정의 `$변수`는 환경 변수로 바뀌므로 Slack 메시지 template을 넣을 때는 `$`를 `$$`로 쓴다. rule annotation은 바뀌지 않으므로 `{{ $labels.x }}`를 그대로 쓴다. 차트의 `alerting` 값은 내용을 Helm `tpl`로 돌려 Grafana template과 겹치므로 쓰지 않고, kustomization이 만든 ConfigMap(`grafana-alerting-hapbang`)을 `/etc/grafana/provisioning/alerting`에 마운트한다.
+
+**적용.** dashboard와 달리 Grafana는 alert provisioning을 기동할 때 읽는다. 파일만 바꿨으면 ConfigMap을 적용한 뒤 Grafana를 다시 띄운다(Recreate라 1분쯤 접속이 끊긴다). Webhook URL을 바꿀 때는 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL`을 고치고 `k8s/tools/seal-grafana-alerting.sh`로 다시 봉인해 SealedSecret을 적용한 뒤 다시 띄운다.
+
+```bash
+kubectl kustomize k8s/platform/overlays/prod \
+  | yq 'select(.kind=="ConfigMap" and .metadata.name=="grafana-alerting-hapbang")' > alerting.yaml
+kubectl --context hapbang-k3s diff -f alerting.yaml
+kubectl --context hapbang-k3s apply -f alerting.yaml
+kubectl --context hapbang-k3s -n hapbang-platform rollout restart deployment/grafana
+```
+
+처음 설치할 때는 SealedSecret(`grafana-alerting`) → ConfigMap → grafana HelmChart 순서로 적용한다. Grafana는 Secret이 없으면 뜨지 않는다(`envFromSecrets`). local overlay는 같은 이름의 Secret에 닿지 않는 주소를 넣어 Slack으로 보내지 않는다.
 
 ## metrics 수집과 저장 — Prometheus vs Mimir
 
