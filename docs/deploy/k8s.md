@@ -55,6 +55,7 @@
 | chat-app | `MEMBER_API_BASE_URL`, `APPEARANCE_API_BASE_URL` → `hapbang.clients.{member,appearance}.base-url` | `http://member-app:8081`, `http://appearance-app:8081` | 회원 백필 (#280에서 ConfigMap에 추가), 모집용 단체방의 모집글·지원 이력 조회 (#584) |
 | customer-support-app | `LECTURE_API_BASE_URL` → `hapbang.clients.lecture.base-url` | `http://lecture-app:8081` | 이의 제기 접수 (#279) |
 | member-app | `APPEARANCE_API_BASE_URL`, `LECTURE_API_BASE_URL`, `BILLING_API_BASE_URL` → `hapbang.clients.{appearance,lecture,billing}.base-url` | `http://appearance-app:8081`, `http://lecture-app:8081`, `http://billing-app:8081` | 받은 출연 리뷰 목록 (#555), 회원 탈퇴 확인·지갑 닫기·다시 열기 (#654) |
+| auxiliary-app | `APPEARANCE_API_BASE_URL` → `hapbang.clients.appearance.base-url` | `http://appearance-app:8081` | 챗봇 주간 싱크의 출연·출연 리뷰 키셋 조회 (#716) |
 
 - chat-app 외의 앱은 `application.yaml`에 기본값이 없으므로 값을 꼭 넣는다. chat-app은 기본값이 `http://localhost:8081`이라 ConfigMap에 값이 없으면 회원 앱이 아니라 chat 자신의 내부 포트를 부른다.
 - 제공 앱을 새로 부르면 이 표, 호출하는 앱의 ConfigMap, 제공 앱 NetworkPolicy의 허용 라벨을 함께 확인한다.
@@ -137,7 +138,7 @@ PostgreSQL은 앱들이 함께 쓰는 인프라라 `hapbang-platform`에 둔다.
 - database·role은 차트의 initdb script(`k8s/platform/base/postgres.yaml`)가 **데이터 디렉터리가 비어 있을 때만** 만든다.
 - 이미 초기화된 instance에 database를 더할 때는 script를 고치고, 실행 중인 instance에도 같은 SQL을 superuser로 실행한다(아래 절차). auxiliary-app의 `auxiliary`도 이렇게 더한다(#726).
 - 기존 Compose 운영 DB는 이전하지 않고 2026-10-30에 지웠다(#440). 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다.
-- `max_connections` 100에서 슈퍼유저 예약 3을 뺀 97개를 앱이 쓴다. HikariCP 풀은 앱 5개 × 10 + chat-app 20 + auxiliary-app 5 = 75이고, large rolling surge pod 1개(10)를 더하면 85다(2026-11-06 운영 `hikaricp_connections_max`, #726). billing-app과 auxiliary-app의 pool 밖 실행 락 연결(앱마다 pod당 1개, 배포 중 2개, auxiliary는 #715)까지 넣으면 89다([database 분리](../architecture/infrastructure/database.md)). 앱을 더하거나 풀 크기를 바꾸면 다시 계산한다.
+- `max_connections` 100에서 슈퍼유저 예약 3을 뺀 97개를 앱이 쓴다. HikariCP 풀은 앱 5개 × 10 + chat-app 20 + auxiliary-app 5 = 75이고, large rolling surge pod 1개(10)를 더하면 85다(2026-11-06 운영 `hikaricp_connections_max`, #726). billing-app과 auxiliary-app의 pool 밖 실행 락 연결(앱마다 pod당 1개, 배포 중 2개, auxiliary는 #716)까지 넣으면 89다([database 분리](../architecture/infrastructure/database.md)). 앱을 더하거나 풀 크기를 바꾸면 다시 계산한다.
 
 ### 실행 중인 instance에 database 더하기
 

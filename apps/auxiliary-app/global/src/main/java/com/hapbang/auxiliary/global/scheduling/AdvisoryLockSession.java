@@ -3,7 +3,7 @@ package com.hapbang.auxiliary.global.scheduling;
 import java.sql.SQLException;
 
 /**
- * advisory lock을 잡고 푸는 DB session 하나 (지갑 #598 구조, #715). {@link JobLock}이 직렬화해서 부르므로 구현은 스레드 안전하지 않아도 된다.
+ * advisory lock을 잡고 푸는 DB session 하나 (지갑 #598에서 옮김, #716). {@link JobLock}이 직렬화해서 부르므로 구현은 스레드 안전하지 않아도 된다.
  * 운영 구현은 {@link PostgresAdvisoryLockSession}이고, 테스트는 메모리 구현으로 바꿔 끼운다.
  */
 public interface AdvisoryLockSession extends AutoCloseable {

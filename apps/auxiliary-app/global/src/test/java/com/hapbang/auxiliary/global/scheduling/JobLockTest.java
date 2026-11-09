@@ -4,14 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-// 배치·Backfill 실행 락의 규칙 (지갑 #598 테스트를 가져옴, #715). 두 pod는 가짜 DB를 함께 쓰는 JobLock 두 개로 흉내 낸다.
+/** 배치·관리자 실행 락의 규칙 (#716, 지갑 #598에서 옮김). 두 pod는 가짜 DB를 함께 쓰는 JobLock 두 개로 흉내 낸다 */
 class JobLockTest {
 
     private final FakeAdvisoryLocks db = new FakeAdvisoryLocks();
@@ -27,19 +27,18 @@ class JobLockTest {
     }
 
     @Test
-    @DisplayName("한 pod가 쥐고 있으면 다른 pod는 잡지 못하고, 풀면 잡는다")
+    @DisplayName("한 pod가 쥐고 있으면 다른 pod는 잡지 못하고, 풀면 잡는다. 다른 작업은 따로 잡힌다")
     void otherPodWaitsForRelease() {
         JobLock podA = db.pod();
         JobLock podB = db.pod();
 
-        Optional<JobLock.Lease> lease = podA.tryAcquire(TestJob.A);
+        Optional<JobLock.Lease> lease = podA.tryAcquire(TestJob.FIRST);
         assertThat(lease).isPresent();
-        assertThat(podB.tryAcquire(TestJob.A)).isEmpty();
-        // 다른 작업은 따로 잡힌다
-        assertThat(podB.tryAcquire(TestJob.B)).isPresent();
+        assertThat(podB.tryAcquire(TestJob.FIRST)).isEmpty();
+        assertThat(podB.tryAcquire(TestJob.SECOND)).isPresent();
 
         lease.get().close();
-        assertThat(podB.tryAcquire(TestJob.A)).isPresent();
+        assertThat(podB.tryAcquire(TestJob.FIRST)).isPresent();
     }
 
     @Test
@@ -47,11 +46,11 @@ class JobLockTest {
     void samePodCannotReenter() {
         JobLock pod = db.pod();
 
-        JobLock.Lease lease = pod.tryAcquire(TestJob.C).orElseThrow();
-        assertThat(pod.tryAcquire(TestJob.C)).isEmpty();
+        JobLock.Lease lease = pod.tryAcquire(TestJob.FIRST).orElseThrow();
+        assertThat(pod.tryAcquire(TestJob.FIRST)).isEmpty();
 
         lease.close();
-        assertThat(pod.tryAcquire(TestJob.C)).isPresent();
+        assertThat(pod.tryAcquire(TestJob.FIRST)).isPresent();
     }
 
     @Test
@@ -60,66 +59,38 @@ class JobLockTest {
         JobLock podA = db.pod();
         JobLock podB = db.pod();
 
-        JobLock.Lease lease = podA.tryAcquire(TestJob.D).orElseThrow();
+        JobLock.Lease lease = podA.tryAcquire(TestJob.FIRST).orElseThrow();
         lease.close();
-        JobLock.Lease other = podB.tryAcquire(TestJob.D).orElseThrow();
+        JobLock.Lease other = podB.tryAcquire(TestJob.FIRST).orElseThrow();
         lease.close();
 
-        assertThat(db.isLocked(TestJob.D)).isTrue();
+        assertThat(db.isLocked(TestJob.FIRST)).isTrue();
         other.close();
-        assertThat(db.isLocked(TestJob.D)).isFalse();
+        assertThat(db.isLocked(TestJob.FIRST)).isFalse();
     }
 
     @Test
-    @DisplayName("runOrSkip: 잡으면 실행하고 풀며(true), 다른 pod가 쥐고 있으면 실행하지 않는다(false)")
-    void runOrSkip() {
-        JobLock podA = db.pod();
-        JobLock podB = db.pod();
-        AtomicInteger runs = new AtomicInteger();
-
-        boolean ran = podA.runOrSkip(TestJob.E, () -> {
-            assertThat(db.isLocked(TestJob.E)).isTrue();
-            assertThat(podB.runOrSkip(TestJob.E, runs::incrementAndGet)).isFalse();
-            runs.addAndGet(10);
-        });
-
-        assertThat(ran).isTrue();
-        assertThat(runs).hasValue(10);
-        assertThat(db.isLocked(TestJob.E)).isFalse();
-    }
-
-    @Test
-    @DisplayName("작업 중 예외가 나도 락을 풀어 다음 실행이 돈다")
-    void releasesOnException() {
+    @DisplayName("요청 스레드에서 잡은 락을 다른 스레드에서 풀 수 있다(관리자 실행)")
+    void releaseFromOtherThread() {
         JobLock pod = db.pod();
-        AtomicInteger runs = new AtomicInteger();
 
-        assertThatThrownBy(() -> pod.runOrSkip(TestJob.A, () -> {
-            throw new IllegalStateException("boom");
-        })).isInstanceOf(IllegalStateException.class);
-        assertThat(db.isLocked(TestJob.A)).isFalse();
+        JobLock.Lease lease = pod.tryAcquire(TestJob.FIRST).orElseThrow();
+        CompletableFuture.runAsync(lease::close).join();
 
-        db.pod().runOrSkip(TestJob.A, runs::incrementAndGet);
-        pod.runOrSkip(TestJob.A, runs::incrementAndGet);
-        assertThat(runs).hasValue(2);
+        assertThat(db.isLocked(TestJob.FIRST)).isFalse();
+        assertThat(pod.tryAcquire(TestJob.FIRST)).isPresent();
     }
 
     @Test
-    @DisplayName("락을 시도하지 못하면 tryAcquire는 JobLockException이고, runOrSkip은 작업을 실행하지 않는다")
-    void lockErrorSkips() {
+    @DisplayName("락을 시도하지 못하면 JobLockException이고, DB가 돌아오면 다시 잡힌다")
+    void lockError() {
         JobLock pod = db.pod();
-        AtomicInteger runs = new AtomicInteger();
         db.failing(true);
 
-        assertThatThrownBy(() -> pod.tryAcquire(TestJob.C))
-                .isInstanceOf(JobLock.JobLockException.class);
-        pod.runOrSkip(TestJob.B, runs::incrementAndGet);
-        assertThat(runs).hasValue(0);
+        assertThatThrownBy(() -> pod.tryAcquire(TestJob.FIRST)).isInstanceOf(JobLock.JobLockException.class);
 
-        // DB가 돌아오면 다시 잡힌다
         db.failing(false);
-        pod.runOrSkip(TestJob.B, runs::incrementAndGet);
-        assertThat(runs).hasValue(1);
+        assertThat(pod.tryAcquire(TestJob.FIRST)).isPresent();
     }
 
     @Test
@@ -127,33 +98,33 @@ class JobLockTest {
     void unlockErrorIsSwallowed() {
         JobLock pod = db.pod();
 
-        JobLock.Lease lease = pod.tryAcquire(TestJob.F).orElseThrow();
+        JobLock.Lease lease = pod.tryAcquire(TestJob.FIRST).orElseThrow();
         db.failing(true);
         lease.close();
         db.failing(false);
 
-        assertThat(pod.tryAcquire(TestJob.F)).isPresent();
+        assertThat(pod.tryAcquire(TestJob.FIRST)).isPresent();
     }
 
     @Test
-    @DisplayName("건너뛴 횟수를 작업·이유별 지표로 낸다")
+    @DisplayName("건너뛴 횟수를 작업·이유별 지표로 낸다. 지표 registry가 없어도 동작한다")
     void skippedMetric() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        FakeAdvisoryLocks metered = new FakeAdvisoryLocks(registry);
-        JobLock podA = metered.pod();
-        JobLock podB = metered.pod();
+        JobLock podA = db.pod();
+        JobLock podB = db.pod(registry);
 
-        try (JobLock.Lease ignored = podA.tryAcquire(TestJob.A).orElseThrow()) {
-            podB.runOrSkip(TestJob.A, () -> { });
-            podB.runOrSkip(TestJob.A, () -> { });
+        try (JobLock.Lease ignored = podA.tryAcquire(TestJob.FIRST).orElseThrow()) {
+            assertThat(podB.tryAcquire(TestJob.FIRST)).isEmpty();
+            assertThat(podB.tryAcquire(TestJob.FIRST)).isEmpty();
+            // registry 없는 pod도 건너뛰기만 한다
+            assertThat(podA.tryAcquire(TestJob.FIRST)).isEmpty();
         }
-        metered.failing(true);
-        podB.runOrSkip(TestJob.A, () -> { });
+        db.failing(true);
+        assertThatThrownBy(() -> podB.tryAcquire(TestJob.FIRST)).isInstanceOf(JobLock.JobLockException.class);
 
-        assertThat(count(registry, "test-a", "held")).isEqualTo(2);
-        assertThat(count(registry, "test-a", "error")).isEqualTo(1);
-        // 건너뛴 적 없는 작업은 지표를 만들지 않는다
-        assertThat(registry.find(JobLock.SKIPPED_METRIC).tag("job", "test-b").counter()).isNull();
+        assertThat(count(registry, "test-first", "held")).isEqualTo(2);
+        assertThat(count(registry, "test-first", "error")).isEqualTo(1);
+        assertThat(registry.find(JobLock.SKIPPED_METRIC).tag("job", "test-second").counter()).isNull();
     }
 
     private static double count(SimpleMeterRegistry registry, String job, String reason) {

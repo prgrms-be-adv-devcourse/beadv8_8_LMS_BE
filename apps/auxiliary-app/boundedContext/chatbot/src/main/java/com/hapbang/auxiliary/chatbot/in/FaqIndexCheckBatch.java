@@ -3,10 +3,8 @@ package com.hapbang.auxiliary.chatbot.in;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.chatbot.app.ChatbotJob;
 import com.hapbang.auxiliary.chatbot.app.FaqIndexer;
 import com.hapbang.auxiliary.global.scheduling.ConditionalOnSchedulingEnabled;
-import com.hapbang.auxiliary.global.scheduling.JobLock;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,13 +20,13 @@ import lombok.extern.slf4j.Slf4j;
 class FaqIndexCheckBatch {
 
     private final FaqIndexer indexer;
-    private final JobLock jobLock;
+    private final FaqJobRunner jobRunner;
 
     @Scheduled(initialDelayString = "${hapbang.chatbot.faq.index-check-interval:10m}",
             fixedDelayString = "${hapbang.chatbot.faq.index-check-interval:10m}")
     void check() {
         try {
-            jobLock.runOrSkip(ChatbotJob.FAQ_SYNC, indexer::sync);
+            jobRunner.run("index-check", indexer::sync);
         } catch (RuntimeException e) {
             log.warn("FAQ 색인 점검이 실패했다. 다음 점검에서 다시 한다", e);
         }

@@ -18,7 +18,7 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 | 프로젝트 | 의존할 수 있는 것 | 하는 일 |
 | --- | --- | --- |
 | `:auxiliary-app` | 모든 모듈 | 실행 진입점, 앱 설정, 앱 전체 테스트(기동·Flyway·포트, 모듈 경계) |
-| `:auxiliary-global` | `:shared` | 응답 `RsData`, `GlobalExceptionHandler`, 로그인 회원 `@LoginUserId`, 내부 API 키·포트, 스케줄링 조건, 로그 MDC. 업무 규칙은 두지 않는다 |
+| `:auxiliary-global` | `:shared` | 응답 `RsData`, `GlobalExceptionHandler`, 로그인 회원 `@LoginUserId`, 내부 API 키·포트, 스케줄링 조건, 배치 실행 락(`JobLock`, #716), 로그 MDC. 업무 규칙은 두지 않는다 |
 | 업무 모듈(`:chatbot` 등) | `:auxiliary-global`, `:shared` | 업무 기능. 다른 업무 모듈을 의존하지 않는다 |
 
 - global은 chat-app `global`을 복사해 시작했다. 다른 앱의 global을 의존하지 않는다(앱끼리 의존 금지).
@@ -72,7 +72,7 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 
 모듈 `build.gradle.kts`에는 `-parameters` 컴파일 옵션을 켠다(`:chatbot` 참고). Spring Boot 플러그인을 쓰는 실행 앱은 자동으로 켜지지만 하위 프로젝트는 아니다. 없으면 `@RequestParam`·`@PathVariable`이 인자 이름을 읽지 못한다.
 
-advisory lock으로 한 pod만 돌릴 작업은 global `JobLock`을 쓴다. 모듈이 `LockedJob` enum을 만들고, 락 번호는 앱 전체(database 하나)에서 겹치지 않게 **그 작업을 더한 이슈 번호 × 1000 + 순번**으로 정한다(예: 챗봇 FAQ 맞추기 `715_001`). 회원별 호출 제한은 global `KeyedRateLimiter`를 모듈이 API마다 빈으로 만든다(초과 시 429·`Retry-After`). 두 클래스는 지갑(billing-app)의 `JobLock`·`UserRateLimiter` 구조를 빌려 왔지만 이 앱에 맞게 따로 고친다. 지갑 쪽과 맞춰 둘 필요는 없다.
+advisory lock으로 한 pod만 돌릴 작업은 global `JobLock`을 쓴다. 모듈이 `JobLockKey`를 구현한 enum을 만들고(챗봇 `ChatbotJob`), 락 번호는 앱 전체(database 하나)에서 겹치지 않게 **그 작업을 더한 이슈 번호 × 1000 + 순번**으로 정한다(예: 챗봇 FAQ 맞추기 `715_001`). 회원별 호출 제한은 global `KeyedRateLimiter`를 모듈이 API마다 빈으로 만든다(초과 시 429·`Retry-After`). `KeyedRateLimiter`는 지갑(billing-app)의 `UserRateLimiter` 구조를 빌려 왔지만 이 앱에 맞게 따로 고친다. 지갑 쪽과 맞춰 둘 필요는 없다.
 
 ## 실행과 설정
 
@@ -83,7 +83,9 @@ advisory lock으로 한 pod만 돌릴 작업은 global `JobLock`을 쓴다. 모�
 | Swagger | `/api/v1/auxiliary/swagger-ui.html` (`global/src/main/resources/swagger.yml`). 모듈 셋의 API가 한 명세에 있고 컨트롤러 `@Tag`로 나뉜다 |
 | DB 연결 풀 | Hikari 5. PostgreSQL `max_connections` 100을 다른 앱과 나눠 쓴다 |
 | 배치 스레드 | `spring.task.scheduling.pool.size` 2 |
-| Kafka·Redis | common 라이브러리 자동 설정 |
+| Kafka·Redis | common 라이브러리 자동 설정. 업무 모듈은 `:kafka` 프로젝트를 의존할 수 없어(`verifyModuleStructure`) Kafka starter를 직접 적고, 소비 컨테이너 팩토리·오류 처리기를 모듈 전용 빈으로 만든다(Boot 기본 빈을 바꾸지 않는다. 챗봇 `ChatbotKafkaConfig`) |
+| 배치 실행 락 | global `JobLock`(PostgreSQL advisory lock). database를 모듈이 함께 쓰므로 락 번호는 그 작업을 더한 이슈 번호 × 1000 + 순번(`JobLockKey`) |
+| 다른 앱 내부 API | shared Client는 스캔하지 않는다. 쓰는 모듈이 필요한 Client만 `@Import`한다(챗봇 출연 싱크: `AppearanceApiClient`, `APPEARANCE_API_BASE_URL`) |
 | 메모리 | large node, limit 704Mi, `-Xmx256m`, `MALLOC_ARENA_MAX=2`(#684 예산) |
 
 DB 연결 풀·배치 스레드·메모리는 앱 하나의 값이라 모든 모듈이 나눠 쓴다. 지금 값은 챗봇 하나 기준이다. 모듈을 더하는 PR에서 그 모듈이 동시에 쓰는 DB 연결·배치 수와 메모리를 보고 다시 정한다. 한 모듈이 다 쓰면 다른 모듈의 요청·배치가 기다린다.

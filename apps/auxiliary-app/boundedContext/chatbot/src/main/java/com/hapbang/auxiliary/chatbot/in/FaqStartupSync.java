@@ -5,9 +5,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.chatbot.app.ChatbotJob;
 import com.hapbang.auxiliary.chatbot.app.FaqSyncService;
-import com.hapbang.auxiliary.global.scheduling.JobLock;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 class FaqStartupSync {
 
     private final FaqSyncService syncService;
-    private final JobLock jobLock;
+    private final FaqJobRunner jobRunner;
 
     @EventListener(ApplicationReadyEvent.class)
     void onReady() {
@@ -36,7 +34,7 @@ class FaqStartupSync {
 
     void run() {
         try {
-            jobLock.runOrSkip(ChatbotJob.FAQ_SYNC, syncService::syncAll);
+            jobRunner.run("startup", syncService::syncAll);
         } catch (RuntimeException e) {
             log.warn("시작할 때 FAQ를 맞추지 못했다. 다음 점검·기동에서 다시 한다", e);
         }

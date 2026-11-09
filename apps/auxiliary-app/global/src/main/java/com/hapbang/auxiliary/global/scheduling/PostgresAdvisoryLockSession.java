@@ -12,7 +12,7 @@ import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 락 전용 DB 연결 하나로 PostgreSQL session advisory lock을 잡고 푼다 (지갑 #598 구조를 가져옴, #715).
+ * 락 전용 DB 연결 하나로 PostgreSQL session advisory lock을 잡고 푼다 (지갑 #598에서 옮김, #716).
  * <ul>
  *     <li>연결은 Hikari pool 밖에 두고 첫 락 시도 때 맺는다. 배치를 쓰지 않는 실행에서는 연결하지 않는다.</li>
  *     <li>session 단위 락이다. 배치가 건마다 트랜잭션을 여러 번 열기 때문에 트랜잭션 단위 락은 첫 트랜잭션에서 풀린다.</li>
@@ -23,7 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class PostgresAdvisoryLockSession implements AdvisoryLockSession {
 
-    // JobLock이 모든 호출을 한 모니터로 직렬화하므로, 여기서 기다리는 시간이 곧 다른 배치·Backfill의 대기 시간이다(#598 리뷰).
+    // JobLock이 모든 호출을 한 모니터로 직렬화하므로, 여기서 기다리는 시간이 곧 다른 배치·Backfill의 대기 시간이다(지갑 #598 리뷰).
     // pg_try_advisory_lock·pg_advisory_unlock은 기다리지 않고 바로 답하므로 상한을 짧게 둔다.
     // 호출당 최악: 락 시도 = 확인 1 + 연결 3 + 쿼리 3 = 약 7초, 해제 = 확인 1 + 쿼리 3 = 약 4초.
     /** 연결 확인(isValid)을 기다리는 최대 초 */

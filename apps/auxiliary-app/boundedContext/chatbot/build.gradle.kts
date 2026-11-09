@@ -2,6 +2,12 @@
 // :auxiliary-global과 :shared에만 의존한다. 같은 앱의 다른 업무 모듈을 의존하지 않는다(루트 verifyModuleStructure가 검사).
 dependencies {
     implementation(project(":auxiliary-global"))
+    // 출연 이벤트 소비(#716). 앱은 common :kafka(자동 설정)를 함께 쓰지만 업무 모듈은 :kafka 프로젝트를 의존할 수 없어 starter를 직접 적는다
+    implementation("org.springframework.boot:spring-boot-starter-kafka")
+    // shared AppearanceApiClient가 쓰는 RestClient.Builder (#716 싱크)
+    implementation("org.springframework.boot:spring-boot-starter-restclient")
+    // 싱크 지표 (#716)
+    implementation("io.micrometer:micrometer-core")
 
     // Spring AI(#715). 버전은 BOM 하나로 맞춘다. 공급자는 spring.ai.model.* 속성으로 하나만 켠다(local=ollama, prod=openai).
     // 이 모듈만 쓰므로 루트 버전 카탈로그(gradle/)에 두지 않는다. 카탈로그를 바꾸면 CI가 모든 앱을 다시 테스트·배포한다

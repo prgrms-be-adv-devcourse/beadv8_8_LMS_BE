@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -15,7 +16,6 @@ import com.hapbang.auxiliary.chatbot.domain.Faq;
 import com.hapbang.auxiliary.chatbot.domain.FaqRepository;
 import com.hapbang.auxiliary.chatbot.out.FaqVectorIndex;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -30,13 +30,20 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class FaqIndexer {
 
     private final FaqRepository faqRepository;
     private final FaqVectorIndex vectorIndex;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
+
+    FaqIndexer(FaqRepository faqRepository, FaqVectorIndex vectorIndex, TransactionTemplate transactionTemplate,
+            @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
+        this.faqRepository = faqRepository;
+        this.vectorIndex = vectorIndex;
+        this.transactionTemplate = transactionTemplate;
+        this.clock = clock;
+    }
 
     /**
      * @return 결과. 색인을 쓸 수 없는 실행이면 {@code skipped}

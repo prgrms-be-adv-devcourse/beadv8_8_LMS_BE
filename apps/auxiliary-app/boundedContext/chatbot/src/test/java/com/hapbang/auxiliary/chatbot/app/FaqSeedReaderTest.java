@@ -3,7 +3,6 @@ package com.hapbang.auxiliary.chatbot.app;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -32,13 +31,6 @@ class FaqSeedReaderTest {
             assertThat(seed.answer()).hasSizeLessThanOrEqualTo(2000);
             assertThat(seed.policyRef()).isNotBlank().hasSizeLessThanOrEqualTo(300);
         });
-    }
-
-    @Test
-    @DisplayName("챗봇 작업의 락 번호와 태그가 겹치지 않는다")
-    void jobKeysAreUnique() {
-        assertThat(Arrays.stream(ChatbotJob.values()).map(ChatbotJob::lockKey).distinct()).hasSize(ChatbotJob.values().length);
-        assertThat(Arrays.stream(ChatbotJob.values()).map(ChatbotJob::tag).distinct()).hasSize(ChatbotJob.values().length);
     }
 
     @Test

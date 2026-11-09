@@ -61,7 +61,7 @@ instance를 하나로 두어도 database가 나뉘는 순간 다음이 바뀐다
    - 2026-11-02 코드 기준(#552): `max_connections` 100(`k8s/platform/base/postgres.yaml`). Hikari 최대 pool은 chat-app 20, billing-app 10(명시), 나머지 member·appearance·lecture·customer-support는 설정이 없어 기본값 10이다. rolling surge는 member·billing·appearance가 `maxSurge: 1`이고 나머지는 0이며, 배포 workflow는 앱을 하나씩 올린다. 그래서 최악은 10 × 5 + 20 = 70에 surge pod 하나(10)를 더한 80이다. superuser 예약(기본 3)을 빼면 남는 연결은 17개뿐이라, notification·search 앱(각 10)을 더하면 한도를 넘는다. 그 전에 앱별 pool을 줄이거나 `max_connections`를 다시 정한다.
    - 2026-11-03(#598): billing-app은 배치·Backfill 실행 락용으로 Hikari pool 밖에 연결 1개를 더 연다(pod당 1개, 배포 중 2개). 최악은 82, 남는 연결은 15개다.
    - 2026-11-06(#726): 검색·알림은 별도 앱이 아니라 auxiliary-app의 모듈이 되어 pool 하나(5, #714)를 함께 쓴다. 최악은 82 + 5 = 87이고 남는 연결은 10개다(운영 `hikaricp_connections_max`로 확인: 앱 5개 10, chat-app 20).
-   - 2026-11-09(#715): auxiliary-app도 작업 락(`JobLock`)용으로 pool 밖에 연결 1개를 연다(pod당 1개, 배포 중 2개). 최악은 89, 남는 연결은 8개다.
+   - 2026-11-09(#716): auxiliary-app도 작업 락(`JobLock`)용으로 pool 밖에 연결 1개를 연다(pod당 1개, 배포 중 2개). 최악은 89, 남는 연결은 8개다.
 6. **test 지원을 바꾼다.** 앱 test는 자기 database만 띄운다. `common/test-support`의 DB 정리와 Testcontainers 설정이 이에 맞는지 확인한다.
 
 ## 진행 순서
