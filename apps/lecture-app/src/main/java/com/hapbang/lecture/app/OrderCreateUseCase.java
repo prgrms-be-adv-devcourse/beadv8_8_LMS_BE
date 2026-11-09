@@ -8,6 +8,9 @@ import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.out.OrderCouponWorkRepository;
+import com.hapbang.lecture.out.OrderItemCouponRepository;
+import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -27,7 +30,8 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 주문 (장바구니 주문·바로 구매, 설계 6.4, D58). 세 단계로 나눠 호출한 Facade가 차례로 부른다.
  * <ol>
- *     <li>{@link #place}: 주문·항목을 결제 처리 중으로 저장하고 항목마다 보류 작업을 등록한다(한 강의 트랜잭션).</li>
+ *     <li>{@link #place}: 주문·항목을 결제 처리 중으로 저장하고 항목마다 보류 작업을 등록한다(한 강의 트랜잭션).
+ *     쿠폰 주문은 {@link #placeWithCoupons}로 저장하고, 보류 작업은 쿠폰 예약 결과를 저장한 뒤에 등록한다.</li>
  *     <li>{@link #tryHolds}: 커밋 뒤 트랜잭션 밖에서 보류와 보상 반환을 한 번씩 시도한다. 시간 예산을 넘기면 멈춘다(D68).</li>
  *     <li>{@link #result}: 주문을 다시 읽어 결과를 낸다. 결제 실패면 {@code INSUFFICIENT_BALANCE}(409)이고, 탈퇴로 닫힌 지갑이 거절했으면
  *     {@code WALLET_CLOSED}(409)다(D69 (1), D76).</li>
@@ -53,6 +57,8 @@ public class OrderCreateUseCase {
     private final LectureOrderSupport lectureOrderSupport;
     private final LectureOrderProperties properties;
     private final LectureSyncEvents lectureSyncEvents;
+    private final OrderItemCouponRepository orderItemCouponRepository;
+    private final OrderCouponWorkRepository orderCouponWorkRepository;
     private final Clock clock;
 
     public OrderCreateUseCase(
@@ -65,6 +71,8 @@ public class OrderCreateUseCase {
             LectureOrderSupport lectureOrderSupport,
             LectureOrderProperties properties,
             LectureSyncEvents lectureSyncEvents,
+            OrderItemCouponRepository orderItemCouponRepository,
+            OrderCouponWorkRepository orderCouponWorkRepository,
             @Qualifier(LectureConfig.CLOCK) Clock clock
     ) {
         this.lectureRepository = lectureRepository;
@@ -76,6 +84,8 @@ public class OrderCreateUseCase {
         this.lectureOrderSupport = lectureOrderSupport;
         this.properties = properties;
         this.lectureSyncEvents = lectureSyncEvents;
+        this.orderItemCouponRepository = orderItemCouponRepository;
+        this.orderCouponWorkRepository = orderCouponWorkRepository;
         this.clock = clock;
     }
 
@@ -104,6 +114,42 @@ public class OrderCreateUseCase {
                     order.getItems().size(), order.getItems().stream().mapToLong(OrderItem::getPriceHp).sum());
         });
         return new Placement(order.getId(), holdTaskIds);
+    }
+
+    /**
+     * 쿠폰 주문 1단계: 주문·항목과 할인 스냅샷, 쿠폰별 계산 근거(계산 때 읽은 generation 포함), 쿠폰 예약 작업({@code PENDING})을
+     * 한 트랜잭션에 저장한다. 쿠폰 예약 결과가 저장되기 전에는 HP 보류 작업을 등록하지 않는다.
+     * 계산 뒤 강의 가격·판매자가 바뀌었으면 409 {@code ORDER_QUOTE_CHANGED}다.
+     */
+    @Transactional
+    public Placement placeWithCoupons(Long buyerUserId, List<Long> lectureIds, OrderCouponQuote quote) {
+        List<Long> sortedLectureIds = lectureIds.stream().sorted().toList();
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<Lecture> lectures = findLectures(sortedLectureIds);
+        LectureOrder order = LectureOrder.place(buyerUserId, lectures,
+                lectureOrderRepository.findHeldLectureIds(buyerUserId, sortedLectureIds), now);
+        quote.requireSameLectures(lectures);
+        quote.items().forEach((lectureId, item) -> order.applyItemDiscount(lectureId, item.discountHp(),
+                item.platformDiscountHp(), item.sellerDiscountHp()));
+
+        save(order);
+        lectureSyncEvents.purchasesChanged(order.getItems());
+        for (OrderItem orderItem : order.getItems()) {
+            for (CouponCalculateResponse.Coupon coupon : quote.items().get(orderItem.getLectureId()).coupons()) {
+                orderItemCouponRepository.save(OrderItemCoupon.create(orderItem.getId(), coupon.memberCouponId(),
+                        coupon.couponId(), coupon.couponType(), coupon.applyOrder(), coupon.baseAmount(),
+                        coupon.discount(), coupon.platformAmount(), coupon.sellerAmount(),
+                        coupon.expectedGeneration(), coupon.policyVersion()));
+            }
+        }
+        orderCouponWorkRepository.save(OrderCouponWork.reserve(order.getId(), now));
+        AfterCommit.run(() -> {
+            log.info("쿠폰 주문을 만들었다 orderId={}, buyerUserId={}, itemCount={}, totalHp={}, buyerAmountHp={}",
+                    order.getId(), buyerUserId, order.getItems().size(),
+                    order.getItems().stream().mapToLong(OrderItem::getPriceHp).sum(),
+                    order.getItems().stream().mapToLong(OrderItem::buyerAmountHp).sum());
+        });
+        return new Placement(order.getId(), List.of());
     }
 
     /**

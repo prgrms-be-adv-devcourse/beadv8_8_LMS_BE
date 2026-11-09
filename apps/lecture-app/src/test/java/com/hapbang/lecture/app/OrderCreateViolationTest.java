@@ -22,6 +22,8 @@ import com.hapbang.lecture.out.LectureHpTaskAttemptRepository;
 import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.out.OrderCouponWorkRepository;
+import com.hapbang.lecture.out.OrderItemCouponRepository;
 
 // 주문 저장 중 무결성 위반 중 보유 강의 중복만 409로 바꾸는지 DB 없이 검증한다(서버 메시지가 한국어여도 같아야 한다).
 // 실제 동시 주문은 OrderCreateUseCaseTest가 맡는다.
@@ -36,6 +38,7 @@ class OrderCreateViolationTest {
             mock(LectureHpTaskRepository.class), mock(LectureHpTaskAttemptRepository.class),
             mock(LectureHpTaskSupport.class), mock(LectureHpTaskExecutor.class),
             mock(LectureOrderSupport.class), new LectureOrderProperties(null), mock(LectureSyncEvents.class),
+            mock(OrderItemCouponRepository.class), mock(OrderCouponWorkRepository.class),
             Clock.fixed(NOW.atZone(LectureConfig.ZONE).toInstant(), LectureConfig.ZONE));
 
     @BeforeEach

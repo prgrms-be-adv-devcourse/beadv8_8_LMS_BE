@@ -32,7 +32,12 @@ public interface ApiV1LectureOrderSpec {
                     + "오류: 빈 목록·강의 101개 이상·같은 강의 중복 400 INVALID_REQUEST, 본인 강의 403 OWN_LECTURE_NOT_PURCHASABLE, "
                     + "없거나 판매 중이 아닌 강의 404 LECTURE_NOT_FOUND, 이미 보유 중인(결제 처리 중 포함) 강의 409 "
                     + "ALREADY_OWNED_LECTURE, 잔액 부족 409 INSUFFICIENT_BALANCE, 탈퇴로 닫힌 지갑 409 WALLET_CLOSED, "
-                    + "회원별 요청 한도(기본 분당 10) 초과 429 TOO_MANY_REQUESTS(Retry-After 헤더의 초가 지난 뒤 다시 보낸다, D80).")
+                    + "회원별 요청 한도(기본 분당 10) 초과 429 TOO_MANY_REQUESTS(Retry-After 헤더의 초가 지난 뒤 다시 보낸다, D80). "
+                    + "쿠폰을 쓰면 coupons와 미리보기의 결제 금액 expectedBuyerAmountHp를 함께 보낸다. 서버가 가격·판매자로 할인을 다시 계산해 "
+                    + "주문을 만들기 전에 확인한다. 쿠폰 주문 오류: expectedBuyerAmountHp 없음·주문하지 않는 강의에 쓴 쿠폰 400 INVALID_REQUEST, "
+                    + "쿠폰을 쓸 수 없음 409 COUPON_CALCULATION_REJECTED(couponCode에 쿠폰 오류 코드, 특정 쿠폰 때문이면 memberCouponId), "
+                    + "결제 금액이 바뀜 409 ORDER_QUOTE_CHANGED(다시 계산해 주문), 플랫폼 쿠폰 409 COUPON_PLATFORM_FUNDING_UNAVAILABLE(아직 쓸 수 없음), "
+                    + "쿠폰을 확인할 수 없음(쿠폰 모듈 장애·설정 문제) 503 COUPON_UNAVAILABLE. 이 오류들은 주문을 만들지 않는다.")
     ResponseEntity<RsData<OrderResponse>> createOrder(Long userId, OrderCreateRequest request);
 
     @Operation(summary = "내 주문 목록", description = "최근 주문부터.")

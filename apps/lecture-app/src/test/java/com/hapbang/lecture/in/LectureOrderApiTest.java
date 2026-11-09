@@ -26,6 +26,8 @@ import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
+import com.hapbang.lecture.fake.FakeCouponClient;
+import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.out.BillingCallExceptions;
 import com.hapbang.shared.billing.out.BillingCallFailureKind;
@@ -61,10 +63,14 @@ class LectureOrderApiTest {
     @Autowired
     private FakeBillingApiClient billing;
 
+    @Autowired
+    private FakeCouponClient coupon;
+
     @BeforeEach
     void setUp() {
         billing.reset();
         billing.setSettledHp(PRICE_HP);
+        coupon.reset();
     }
 
     @Test
@@ -101,6 +107,45 @@ class LectureOrderApiTest {
 
         assertThat(lectureOrderRepository.count()).isZero();
         assertThat(billing.calls()).isEmpty();
+    }
+
+    @Test
+    void 쿠폰을_고르고_결제_금액을_보내지_않거나_주문하지_않는_강의에_쓰면_400_INVALID_REQUEST이고_쿠폰을_부르지_않는다()
+            throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], "
+                        + "\"coupons\": [{\"memberCouponId\": 501, \"lectureId\": " + lecture.getId() + "}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("expectedAmountPresentWithCoupons"));
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], \"expectedBuyerAmountHp\": 0, "
+                        + "\"coupons\": [{\"memberCouponId\": 501, \"lectureId\": 99999}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("couponLectureOrdered"));
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], \"expectedBuyerAmountHp\": -1, "
+                        + "\"coupons\": [{\"memberCouponId\": null, \"lectureId\": " + lecture.getId() + "}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(2));
+
+        assertThat(lectureOrderRepository.count()).isZero();
+        assertThat(coupon.calls()).isEmpty();
+    }
+
+    @Test
+    void 쿠폰_계산이_거절되면_409에_쿠폰_오류_코드와_발급_쿠폰_ID를_싣는다() throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+        coupon.respond(request -> new CouponCallResult.Rejected<>(409, "COUPON_NOT_USABLE", 501L, null));
+
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], \"expectedBuyerAmountHp\": "
+                        + PRICE_HP + ", \"coupons\": [{\"memberCouponId\": 501, \"lectureId\": " + lecture.getId()
+                        + "}]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_CALCULATION_REJECTED"))
+                .andExpect(jsonPath("$.couponCode").value("COUPON_NOT_USABLE"))
+                .andExpect(jsonPath("$.memberCouponId").value(501));
+
+        assertThat(lectureOrderRepository.count()).isZero();
     }
 
     @Test
@@ -429,6 +474,13 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.content[1].lectureId").value(deleted.getId()))
                 .andExpect(jsonPath("$.data.content[1].orderId").value(deletedOrder.getId()))
                 .andExpect(jsonPath("$.data.content[1].lectureDeleted").value(true));
+    }
+
+    private static MockHttpServletRequestBuilder createOrderWith(String body) {
+        return post("/api/v1/lectures/orders")
+                .with(GatewayLogin.as(BUYER_ID, Role.USER))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
     }
 
     private static MockHttpServletRequestBuilder createOrder(Long lectureId) {
