@@ -23,4 +23,10 @@ public interface CouponUsageRepository extends JpaRepository<CouponUsage, Long> 
 
     /** 발급 쿠폰의 한 세대(사용 시도) */
     Optional<CouponUsage> findByMemberCouponIdAndGeneration(long memberCouponId, long generation);
+
+    /**
+     * 주문 항목의 사용 시도 전부(해제한 이전 세대 포함). 발급 쿠폰 ID → generation 순. 결제·취소 완료 소비자가 이벤트의 사용 시도를
+     * 찾는다({@code idx_coupon_usage_order_item_id})
+     */
+    List<CouponUsage> findByOrderItemIdOrderByMemberCouponIdAscGenerationAsc(long orderItemId);
 }

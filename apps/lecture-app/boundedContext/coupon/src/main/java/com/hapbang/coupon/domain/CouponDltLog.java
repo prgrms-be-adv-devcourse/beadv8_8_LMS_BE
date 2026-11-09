@@ -19,13 +19,15 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 제한 재시도 뒤에도 처리하지 못해 DLT로 보낸 발급 요청 메시지의 격리 기록. 관리자가 원문으로 재발행하거나 영구 거절한다.
+ * 제한 재시도 뒤에도 처리하지 못해 DLT로 보낸 메시지의 격리 기록. 발급 요청({@link CouponDltKind#ISSUE})과 주문 결제·취소 완료
+ * ({@link CouponDltKind#ORDER})를 함께 담고 {@code kind}로 가른다. 관리자가 원문으로 재처리하거나 영구 거절한다.
  * <p>
  * 상태 전이는 {@link CouponDltStatus}: 재발행은 전송 <b>전에</b> PENDING → REPLAYING으로 선점(선점 시각)하고, ACK를 받으면
  * {@link #completeReplay}로 REPLAYED, 전송이 실패하면 {@link #revertReplay}로 PENDING에 되돌린다. 선점한 프로세스가 죽어 REPLAYING이
  * 남으면 선점 lease가 지난 뒤({@link #canClaim}) 재발행·영구 거절이 다시 선점할 수 있다. 영구 거절을 다시 요청하면 상태를 바꾸지 않고
  * {@code false}를 돌려준다(보상만 다시 시도할 수 있게). 그 밖의 재전이는 {@link CouponDomainError#INVALID_STATUS_TRANSITION}이다.
- * 역직렬화에 실패한 메시지는 쿠폰 ID·요청 ID가 없다.
+ * 역직렬화에 실패한 메시지와 주문 이벤트 기록은 쿠폰 ID·요청 ID가 없다. 주문 이벤트의 재처리 선점·완료도 같은 상태 전이를 쓰고, 그때
+ * REPLAYED는 원문으로 소비 UseCase를 다시 실행해 끝냈다는 뜻이다.
  */
 @Entity
 @Table(name = "coupon_dlt_log", schema = "coupon")
@@ -39,6 +41,11 @@ public class CouponDltLog {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /** 기록을 남긴 소비자. 관리자 재처리·영구 거절이 이 값으로 갈린다 */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private CouponDltKind kind;
 
     private Long couponId;
 
@@ -95,8 +102,9 @@ public class CouponDltLog {
     @Column(nullable = false)
     private long version;
 
-    private CouponDltLog(Source source, Long couponId, String issueRequestId, String payload, String failureCause,
-                         Instant now) {
+    private CouponDltLog(CouponDltKind kind, Source source, Long couponId, String issueRequestId, String payload,
+                         String failureCause, Instant now) {
+        this.kind = Objects.requireNonNull(kind, "kind");
         this.couponId = couponId;
         this.issueRequestId = issueRequestId;
         this.sourceTopic = Objects.requireNonNull(source.topic(), "topic");
@@ -119,7 +127,17 @@ public class CouponDltLog {
      */
     public static CouponDltLog isolate(Source source, Long couponId, String issueRequestId, String payload,
                                        String failureCause, Instant now) {
-        return new CouponDltLog(source, couponId, issueRequestId, payload, failureCause, now);
+        return new CouponDltLog(CouponDltKind.ISSUE, source, couponId, issueRequestId, payload, failureCause, now);
+    }
+
+    /**
+     * 주문 결제·취소 완료 이벤트의 격리 기록(PENDING). 쿠폰 ID·요청 ID는 없다(주문 항목은 메시지 key에 있다).
+     *
+     * @param payload      원문(읽은 메시지는 이벤트 JSON, 역직렬화 실패면 받은 바이트)
+     * @param failureCause 실패 원인. 칸 길이를 넘으면 자른다
+     */
+    public static CouponDltLog isolateOrderEvent(Source source, String payload, String failureCause, Instant now) {
+        return new CouponDltLog(CouponDltKind.ORDER, source, null, null, payload, failureCause, now);
     }
 
     public boolean isPending() {
