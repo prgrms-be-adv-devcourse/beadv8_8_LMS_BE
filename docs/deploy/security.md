@@ -28,7 +28,7 @@
 | 개인 PAT(그 밖) | 만들지 않고 둔다. 로컬에서 수동 pull할 때만 `read:packages`·짧은 만료로 생성 후 삭제 | 사용자 본인 | 수동 pull | 사용 후 즉시 삭제 |
 | DuckDNS 토큰 | DuckDNS 계정 소유자 | 소유자 | 도메인 IP 변경 | DuckDNS에서 재발급 |
 | TLS 개인 키 | cert-manager가 만든 Secret `hapbang-tls`(`envoy-gateway-system`) | cluster | HTTPS | cert-manager가 자동 갱신 |
-| Slack Incoming Webhook URL | SealedSecret `grafana-alerting`(`k8s/platform/overlays/prod`, 키 `SLACK_WEBHOOK_URL`). 원문은 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL` | Grafana pod, cluster 관리자. URL을 아는 사람은 누구나 그 채널에 글을 쓸 수 있다 | Grafana alert 통보(#781) | Slack App에서 webhook 재발급 → `k8s/tools/seal-grafana-alerting.sh` → SealedSecret 적용 → Grafana 재기동 → 이전 webhook 삭제([alert 적용](../architecture/infrastructure/observability.md#구성한-alert-781)) |
+| Slack Incoming Webhook URL | SealedSecret `grafana-alerting`(`k8s/platform/overlays/prod`, 키 `SLACK_WEBHOOK_URL`). 원문은 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL` | Grafana pod, cluster 관리자. URL을 아는 사람은 누구나 그 채널에 글을 쓸 수 있다 | Grafana alert 통보(#781) | Slack App에서 새 webhook 발급 → `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL`을 새 URL로 바꿈 → `k8s/tools/seal-grafana-alerting.sh` → 새 SealedSecret을 PR로 반영하고 적용 → Grafana 재기동 → contact point 시험 메시지가 오는지 확인 → 이전 webhook 삭제([alert 적용](../architecture/infrastructure/observability.md#구성한-alert-781)) |
 | 내부 API 키 | 앱 Secret `HAPBANG_INTERNAL_API_KEY`. 원문은 `~/.hapbang/internal-api-key` | 앱 pod | 모듈 간 내부 HTTP API(`/api/v1/internal/**`) 인증 (#300) | 앱 7개를 함께 다시 봉인하고 배포([env-vars.md](env-vars.md#값-변경-비밀값-교체-포함)) |
 
 ## 구조상 보호 장치
