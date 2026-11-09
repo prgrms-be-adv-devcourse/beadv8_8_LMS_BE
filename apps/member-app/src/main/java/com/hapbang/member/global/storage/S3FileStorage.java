@@ -8,6 +8,9 @@ import java.util.Optional;
 
 import org.springframework.http.ContentDisposition;
 
+import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.awscore.retry.AwsRetryStrategy;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -41,11 +44,14 @@ public class S3FileStorage {
 
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
+    private final AwsCredentialsProvider credentialsProvider;
     private final S3StorageProperties properties;
 
-    S3FileStorage(S3Client s3Client, S3Presigner s3Presigner, S3StorageProperties properties) {
+    S3FileStorage(S3Client s3Client, S3Presigner s3Presigner, AwsCredentialsProvider credentialsProvider,
+                  S3StorageProperties properties) {
         this.s3Client = s3Client;
         this.s3Presigner = s3Presigner;
+        this.credentialsProvider = credentialsProvider;
         this.properties = properties;
     }
 
@@ -113,7 +119,8 @@ public class S3FileStorage {
      * 조회용 Presigned GET URL. 버킷은 공개하지 않으므로 파일을 보여 줄 때마다 발급한다.
      * <p>
      * 만료는 용도(썸네일·시청 등)에 맞게 호출하는 쪽이 정한다. 서버의 인스턴스 역할 자격 증명은 임시 키라서,
-     * 그 키가 먼저 만료되면 URL도 {@code expiry}보다 일찍 끝날 수 있다.
+     * 그 키가 먼저 만료되면 URL도 {@code expiry}보다 일찍 끝날 수 있다. 그 시각은
+     * {@link PresignedUrl#credentialsExpiresAt()}으로 돌려준다(URL을 저장해 다시 쓰는 쪽이 저장 기간을 정할 때 쓴다, #770).
      *
      * @param expiry 0보다 크고 7일(SigV4 최대) 이하
      */
@@ -140,18 +147,37 @@ public class S3FileStorage {
         return presign(GetObjectRequest.builder().responseContentDisposition(disposition), key, expiry);
     }
 
+    /**
+     * 브라우저가 캐시할 조회용 Presigned GET URL (#770). S3 응답의 {@code Cache-Control}을 {@code cacheControl}로 지정한다
+     * (서명에 포함되어 바꿀 수 없다). S3 객체에 Cache-Control을 저장하지 않아도, 같은 URL을 다시 쓰면 브라우저가 S3에 다시 묻지 않는다.
+     *
+     * @param expiry       0보다 크고 7일(SigV4 최대) 이하
+     * @param cacheControl 예: {@code private, max-age=3600}. 비어 있을 수 없다
+     */
+    public PresignedUrl presignDownloadWithCacheControl(String key, Duration expiry, String cacheControl) {
+        if (cacheControl == null || cacheControl.isBlank()) {
+            throw new IllegalArgumentException("Cache-Control 값이 필요합니다.");
+        }
+        return presign(GetObjectRequest.builder().responseCacheControl(cacheControl), key, expiry);
+    }
+
     private PresignedUrl presign(GetObjectRequest.Builder getObjectBuilder, String key, Duration expiry) {
         if (expiry == null || expiry.isZero() || expiry.isNegative() || expiry.compareTo(MAX_URL_EXPIRY) > 0) {
             throw new IllegalArgumentException("조회 URL 만료는 0보다 크고 7일 이하여야 합니다: " + expiry);
         }
+        // 자격 증명을 한 번 꺼내 그 값으로 서명한다. 서명 뒤에 따로 꺼내면 그 사이 자격 증명이 바뀌어 다른 만료 시각을 돌려줄 수 있다
+        AwsCredentials credentials = credentialsProvider.resolveCredentials();
         GetObjectRequest getObject = getObjectBuilder
                 .bucket(properties.bucket())
                 .key(objectKey(key))
+                .overrideConfiguration(request -> request
+                        .credentialsProvider(StaticCredentialsProvider.create(credentials)))
                 .build();
         PresignedGetObjectRequest presigned = s3Presigner.presignGetObject(request -> request
                 .signatureDuration(expiry)
                 .getObjectRequest(getObject));
-        return new PresignedUrl(presigned.url().toString(), presigned.expiration());
+        return new PresignedUrl(presigned.url().toString(), presigned.expiration(),
+                credentials.expirationTime().orElse(null));
     }
 
     /**

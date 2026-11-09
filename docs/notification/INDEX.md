@@ -36,6 +36,7 @@
 | 결정 기록 | [`decisions.md`](decisions.md) | ND 결정·이유·대체 관계·미결 |
 | 설계·구현 구조 | [`module.md`](module.md) | As-Is·확정 To-Be·제안 To-Be·미결 |
 | 알림 종류 | [`notification-catalog.md`](notification-catalog.md) | 알림 종류별 명세의 유일한 원본 |
+| 이벤트 계약 요청 | [`event-contracts.md`](event-contracts.md) | 알림이 발행 모듈에 요청하는 이벤트 계약과 그 진행 상태(ND-037) |
 | 테스트 요구사항 | [`test-spec.md`](test-spec.md) | `NT-*` 요구사항과 합격 기준 |
 | 실행 기록 | [`regression-log.md`](regression-log.md) | 실제로 실행한 테스트 결과 |
 | API 계약 | [`docs/api/notification.md`](../api/notification.md) | 알림센터 API (미구현) |
@@ -54,6 +55,7 @@
 | 코드 동작 | 소스 코드와 설정(지금은 없음), 설명은 `module.md` |
 | API 계약 | `docs/api/notification.md` |
 | Kafka 계약 | [`kafka.md`](../architecture/infrastructure/kafka.md)와 발행 앱의 실제 이벤트 |
+| 알림이 요청하는 이벤트 계약 | `event-contracts.md` (구현되면 위 Kafka 계약이 원본) |
 | 테스트 요구사항 / 실행 결과 | `test-spec.md` / `regression-log.md` |
 | 진행 상태 | 알림 `PROGRESS.md` |
 | 문서 탐색 | 이 문서 |
@@ -70,11 +72,12 @@
 6. [`decisions.md`](decisions.md)
 7. [`CONTEXT.md`](CONTEXT.md)
 8. [`notification-catalog.md`](notification-catalog.md)
-9. [`module.md`](module.md)
-10. [`docs/api/notification.md`](../api/notification.md)
-11. 필요하면 [`test-spec.md`](test-spec.md)
-12. 필요하면 [`regression-log.md`](regression-log.md)
-13. 알림 [`PROGRESS.md`](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
+9. 계약 작업이면 [`event-contracts.md`](event-contracts.md)
+10. [`module.md`](module.md)
+11. [`docs/api/notification.md`](../api/notification.md)
+12. 필요하면 [`test-spec.md`](test-spec.md)
+13. 필요하면 [`regression-log.md`](regression-log.md)
+14. 알림 [`PROGRESS.md`](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
 
 읽는 순서는 탐색 순서일 뿐이고, 먼저 읽은 문서가 정책상 우선하지 않는다(우선순위는 4장).
 
@@ -97,7 +100,7 @@
 | 알림 API | [`docs/api/notification.md`](../api/notification.md) | 제공 (미구현) |
 | 공통 API 규칙 | [`docs/api/conventions.md`](../api/conventions.md) | 따름 |
 | Kafka 토픽·key·소비·DLT 규칙 | [`kafka.md`](../architecture/infrastructure/kafka.md) | 소비 (consumer group 이름은 미결 U1) |
-| 발행 모듈 이벤트 계약 현황(M1~M7) | [`notification-catalog.md`](notification-catalog.md) 행별 판정, [`module.md`](module.md) 5장 | 소비 예정 |
+| 발행 모듈 이벤트 계약 요청(M1~M8) | [`event-contracts.md`](event-contracts.md). 지금 이벤트 판정은 [`notification-catalog.md`](notification-catalog.md) 행별, [`module.md`](module.md) 5장 | 계약을 정함(ND-037), 소비 예정 |
 | 회원 목록(복제본 Backfill 검토) | [`docs/api/internal-members.md`](../api/internal-members.md) | 호출 후보 (미결 U17) |
 | 앱 구조·모듈 경계·Flyway·배포 | [`apps/auxiliary-app/README.md`](../../apps/auxiliary-app/README.md), [`final-project-infrastructure.md`](../architecture/final-project-infrastructure.md) | 따름 |
 | Gateway·관측성 | [`docs/deploy/gateway.md`](../deploy/gateway.md), [`observability.md`](../architecture/infrastructure/observability.md) | 따름 |
@@ -113,11 +116,10 @@
 
 | 구분 | 무엇 | 자세히 |
 | --- | --- | --- |
-| U16 | 예약 취소 이벤트가 생성보다 먼저 도착 | decisions 10장, test-spec `NT-SCH-06` |
-| U17 | 받는 사람 복제본 없음, 첫 배포 Backfill | decisions 10장, test-spec `NT-USR-04`·`NT-USR-06`, module 5장 |
-| U18 | 채널 인증 승인 판정과 회원 코드의 불일치 | decisions 10장, test-spec `NT-GEN-14` |
-| U19 | 저장한 알림 문구·값의 닉네임과 파기 규칙 | decisions 10장, test-spec `NT-USR-07` |
-| M1~M7 | 발행 모듈 이벤트 계약(신규 이벤트·계약 보강) | catalog 판정, module 5장, PROGRESS 3장 |
+| U16 | 예약 알림별 생성·취소 이벤트 식별 키 계약 검증(처리 방향은 ND-034) | decisions 10장, test-spec `NT-SCH-06` |
+| U17 | 첫 배포 Backfill(복제본이 아직 없는 경쟁은 ND-035) | decisions 10장, test-spec `NT-USR-06`, module 5장 |
+| U19 | 닉네임이 든 문구·값의 저장 구조와 갱신 방법(방향은 ND-036) | decisions 10장, test-spec `NT-USR-07` |
+| M1~M8 | 발행 모듈 이벤트 계약(신규 이벤트·계약 보강) | `event-contracts.md`, catalog 판정, module 5장, PROGRESS 3장 |
 
 - 발행 이벤트 계약 판정 결과(부분 충족·미충족 수, `AppearanceChangedEvent`가 M3를 대체할 수 없다는 판단)는 [`notification-catalog.md`](notification-catalog.md)와 [`module.md`](module.md) 5장이 원본이다.
 - Billing 쪽 팀 결정(T1·T6·T7)은 [지갑 결정 기록](../billing/decisions.md) 10장에 있다.
@@ -130,6 +132,7 @@
 | 업무 규칙 | `docs/policy.md` (팀 승인, 알림센터 장 신설 전) |
 | 결정 | `decisions.md` (기존 행 상태를 바꾸고 새 `ND-*`를 더한다) |
 | 알림 종류·발생 조건·받는 사람 | `notification-catalog.md` |
+| 발행 모듈에 요청하는 이벤트 계약 | `event-contracts.md` |
 | 구조·구현 상태 | `module.md` |
 | API | `docs/api/notification.md` |
 | 테스트 요구사항 | `test-spec.md` (4장 집계 함께) |
@@ -142,6 +145,7 @@
 
 - 정책·결정 본문은 `decisions.md` 한 곳에만 둔다. 다른 문서는 `ND-nnn`으로 가리킨다.
 - 알림 종류별 명세는 `notification-catalog.md`에만 둔다.
+- 발행 모듈에 요청하는 이벤트 계약(이름·key·담을 값)은 `event-contracts.md`에만 둔다.
 - 테스트 수·알림 종류 수 같은 수치를 이 문서에 복사하지 않는다.
 - 채팅 내부 계약을 알림 문서에 복사하지 않는다.
 
@@ -162,7 +166,7 @@
 ## 12. 채팅과 다른 도메인과의 경계
 
 - 알림센터와 채팅 알림은 다른 기능이다([ND-004](decisions.md), decisions 12장, [`CONTEXT.md`](CONTEXT.md)). 채팅의 `NOTIFICATION` 메시지 계약, SYSTEM 안내, FE 문구 규칙은 채팅이 관리하며 알림 문서에 옮기지 않는다.
-- 같은 종류 코드 이름(`GROUP_*`)이어도 같은 뜻으로 보지 않는다(U11). 채팅과 알림센터에 같은 사건이 함께 뜨는 문제는 U12, 관련 팀 결정은 T4·T8.
+- 같은 종류 코드 이름(`GROUP_*`)이어도 같은 뜻으로 보지 않는다(ND-043). 채팅과 알림센터에 같은 사건이 함께 뜨는 문제는 U12, 관련 팀 결정은 T8.
 - 알림센터가 채팅 이벤트를 소비할 때는 알림센터 쪽 발생 조건과 받는 사람만 알림 문서에서 관리한다.
 - 채팅 문서는 실제 연동이나 옛 설계와의 충돌을 확인할 때만 읽는다: [`notification-data.md`](../../apps/chat-app/docs/contracts/notification-data.md), [`final-design.md`](../../apps/chat-app/docs/final-design.md). 채팅 소유 정책은 채팅 담당 승인 없이 바꾸지 않는다.
 - 챗봇 모듈과는 코드로 직접 참조하지 않고 같은 database의 다른 schema를 쓴다(ND-007, auxiliary README).

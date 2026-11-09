@@ -62,6 +62,7 @@ class CouponOpenUseCaseTest {
     private final CouponRepository couponRepository = mock();
     private final BudgetWorkRepository budgetWorkRepository = mock();
     private final CouponIssueStore issueStore = mock();
+    private final CouponCapacitySupport capacitySupport = mock();
     private final PromotionBudgetPort budgetPort = mock();
     private final LectureCatalog lectureCatalog = mock();
     @SuppressWarnings("unchecked")
@@ -75,7 +76,7 @@ class CouponOpenUseCaseTest {
     @BeforeEach
     void setUp() {
         CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, issueStore);
-        useCase = new CouponOpenUseCase(support, budgetWorkRepository, issueStore, budgetPortProvider,
+        useCase = new CouponOpenUseCase(support, budgetWorkRepository, issueStore, capacitySupport, budgetPortProvider,
                 new CouponRedisProperties(KEYS_EXPIRE_MARGIN), db.transactionManager(), CLOCK);
         when(budgetPortProvider.getIfAvailable()).thenReturn(budgetPort);
         lectureSaleStatus("ON_SALE");
@@ -302,6 +303,44 @@ class CouponOpenUseCaseTest {
     }
 
     @Test
+    void 승인은_Redis_준비_전에_용량을_예약하고_열린_뒤_다시_승인하면_다시_예약하지_않는다() {
+        given(reviewSellerCoupon());
+
+        useCase.approve(ADMIN_ID, COUPON_ID);
+        useCase.approve(ADMIN_ID, COUPON_ID);
+
+        InOrder order = inOrder(capacitySupport, issueStore);
+        order.verify(capacitySupport).reserve(coupon);
+        order.verify(issueStore).prepare(any());
+        verify(capacitySupport, times(1)).reserve(any());
+    }
+
+    @Test
+    void 용량이_부족하면_409이고_Redis를_준비하지_않으며_쿠폰은_열기_전_상태로_남는다() {
+        given(reviewSellerCoupon());
+        doThrow(new CouponException(CouponErrorCode.COUPON_CAPACITY_EXCEEDED)).when(capacitySupport).reserve(any());
+
+        assertCouponError(() -> useCase.approve(ADMIN_ID, COUPON_ID), CouponErrorCode.COUPON_CAPACITY_EXCEEDED);
+
+        assertThat(coupon.getStatus()).isEqualTo(CouponStatus.REVIEW);
+        verify(issueStore, never()).prepare(any());
+        verify(issueStore, never()).allowIssue(anyLong(), anyLong());
+    }
+
+    @Test
+    void 수량이_쿠폰별_상한을_넘으면_강의_조회_예산_용량_예약_Redis를_부르지_않는다() {
+        given(draftPlatformCoupon());
+        doThrow(new CouponException(CouponErrorCode.INVALID_COUPON_POLICY))
+                .when(capacitySupport).requireWithinPerCoupon(anyInt());
+
+        assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.INVALID_COUPON_POLICY);
+
+        assertThat(coupon.getStatus()).isEqualTo(CouponStatus.DRAFT);
+        verify(capacitySupport, never()).reserve(any());
+        verifyNoInteractions(lectureCatalog, budgetPort, issueStore);
+    }
+
+    @Test
     void 고정_만료_쿠폰은_고정_만료_시각을_Redis_준비_값에_넣는다() {
         Instant fixedExpiresAt = ISSUE_END.plus(Duration.ofDays(10));
         Coupon fixed = withId(Coupon.createSeller(SELLER_ID, lectureRate().fixed(fixedExpiresAt).build(), NOW));
@@ -338,7 +377,8 @@ class CouponOpenUseCaseTest {
     /** 시계만 다른 같은 UseCase */
     private CouponOpenUseCase useCaseAt(Instant now) {
         return new CouponOpenUseCase(new CouponSupport(couponRepository, lectureCatalog, issueStore),
-                budgetWorkRepository, issueStore, budgetPortProvider, new CouponRedisProperties(KEYS_EXPIRE_MARGIN),
+                budgetWorkRepository, issueStore, capacitySupport, budgetPortProvider,
+                new CouponRedisProperties(KEYS_EXPIRE_MARGIN),
                 db.transactionManager(), Clock.fixed(now, ZoneOffset.UTC));
     }
 

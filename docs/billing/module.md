@@ -473,7 +473,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 
 | # | 제약 | 영향 | 관련 |
 | --- | --- | --- | --- |
-| L6 | 잔액 대사는 최근 72시간 안에 바뀐 지갑만 매일 자동으로 한다(6.2). 관리자 API 없음, alert 없음(#343) | 창보다 오래 바뀌지 않은 지갑의 불일치는 수동으로만 찾는다. 불일치는 로그·지표로만 안다 | `BD-20`, `BD-139` |
+| L6 | 잔액 대사는 최근 72시간 안에 바뀐 지갑만 매일 자동으로 한다(6.2). 관리자 API 없음 | 창보다 오래 바뀌지 않은 지갑의 불일치는 수동으로만 찾는다. 창 안의 불일치·실패는 Grafana alert "지갑 잔액 대사 불일치·실패"로 Slack에 온다(#781, [구성한 alert](../architecture/infrastructure/observability.md#구성한-alert-781)) | `BD-20`, `BD-139` |
 | L8 | 환전 정산일 공휴일 미반영 | 잠정 예정일 | `BD-96` |
 | L9 | 실제 송금은 Mock(local·test)만 | prod에서 송금 기능 503, 정산일 배치 건너뜀 | policy.md 2장, `BD-100` |
 | L11 | 닫힌 지갑에 들어온 반환·지급 HP는 환불·환전할 수 없어 회원이 복구하기 전까지 묶인다 | warn 로그와 gauge `hapbang.billing.wallet.closed.with.balance`로만 안다. alert는 없다 | `BD-141`, `BD-145` |

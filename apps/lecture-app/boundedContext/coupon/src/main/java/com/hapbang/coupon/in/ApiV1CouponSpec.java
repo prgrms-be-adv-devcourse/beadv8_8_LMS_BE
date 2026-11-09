@@ -2,6 +2,7 @@ package com.hapbang.coupon.in;
 
 import java.util.List;
 
+import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
@@ -13,9 +14,21 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-/** 회원 쿠폰 API Swagger 명세(발급 접수·발급 요청 상태·보유 쿠폰). 매핑은 {@link ApiV1CouponController} */
-@Tag(name = "쿠폰", description = "회원의 쿠폰 발급 접수·발급 요청 상태 조회·보유 쿠폰 조회")
+/** 회원 쿠폰 API Swagger 명세(쿠폰 조회·발급 접수·발급 요청 상태·보유 쿠폰). 매핑은 {@link ApiV1CouponController} */
+@Tag(name = "쿠폰", description = "회원의 쿠폰 조회·발급 접수·발급 요청 상태 조회·보유 쿠폰 조회")
 public interface ApiV1CouponSpec {
+
+    @Operation(summary = "강의에 받을 수 있는 쿠폰",
+            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 이 강의 대상 쿠폰과 모든 강의 대상 쿠폰 중 발급 중(OPEN)이고 발급 기간 안인 것. "
+                    + "최신순, 최대 100건. 매진이면 soldOut=true, 이미 받았거나 접수했으면 issued=true로 함께 준다. "
+                    + "매진·받음은 표시용이며 실제 발급 여부는 발급 접수 결과가 정한다.")
+    RsData<List<CouponSummaryView>> issuableCoupons(Long memberId,
+                                                    @Parameter(description = "쿠폰을 볼 강의 ID", required = true)
+                                                    Long lectureId);
+
+    @Operation(summary = "쿠폰 상세",
+            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. OPEN·SUSPENDED·CLOSED 쿠폰만 보인다. 없거나 그 밖의 상태면 404 COUPON_NOT_FOUND.")
+    RsData<CouponSummaryView> coupon(Long memberId, Long couponId);
 
     @Operation(summary = "발급 접수",
             description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 접수는 발급 완료가 아니다(202). 결과는 발급 요청 상태 조회로 확인한다. "
@@ -28,7 +41,7 @@ public interface ApiV1CouponSpec {
     RsData<IssueRequestResult> requestIssue(Long memberId, Long couponId, IssueRequestCreateRequest request);
 
     @Operation(summary = "발급 요청 상태",
-            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. status: ISSUED(발급 확정), REJECTED(거절 확정), "
+            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. status: ISSUED(발급 확정), REJECTED(거절 확정, rejectReason에 사유. 없으면 null), "
                     + "PENDING(접수됨, 확정 전), UNKNOWN(발급 저장소 장애로 확인 못함, 잠시 후 다시 조회), "
                     + "NOT_FOUND(요청이 없거나 다른 회원·다른 쿠폰의 요청).")
     RsData<IssueStatusView> issueStatus(Long memberId, Long couponId, String issueRequestId);

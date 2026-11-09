@@ -6,6 +6,7 @@
 # changes: 바뀐 앱을 고른다(.github/scripts/apps.sh tested). 없으면 Gradle job을 건너뛴다.
 # structure: 모듈 구조를 검사하고 common 라이브러리를 테스트한다.
 # test: 바뀐 앱마다 러너 하나(matrix)에서 테스트·jar·이미지 빌드. 앱끼리 CPU를 나눠 쓰지 않는다.
+# manifests: k8s manifest를 렌더링하고 schema로 검사한다.
 # verify: 위 job의 결과를 모은다. 브랜치 보호(protect-main-dev)의 필수 체크 이름이므로 바꾸지 않는다.
 # 조사와 측정: docs/architecture/pr-ci-changed-apps-research.md
 name: CI
@@ -202,8 +203,10 @@ jobs:
 
   # 테스트한 앱이 PR마다 달라 matrix job 이름(test (<앱>))을 필수 체크로 걸 수 없으므로 결과를 여기서 모은다.
   # 건너뛴 job(바뀐 앱 없음)은 통과, 실패·취소는 실패다. always()라 앞 job이 실패·취소돼도 실행되어 실패를 남긴다.
+  # manifests도 모은다(#792). 빠져 있으면 manifest가 깨진 PR도 필수 체크를 통과해 병합되고, 그 뒤 dev 발행은
+  # ci 실패로 build·deploy를 건너뛰어 모든 앱 배포가 막힌다.
   verify:
-    needs: [changes, structure, test]
+    needs: [changes, structure, test, manifests]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -226,39 +229,65 @@ jobs:
       KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
       # HelmChart·Elasticsearch 같은 CRD schema. 결과가 바뀌지 않게 커밋을 고정한다.
       CRDS_CATALOG_REF: 3eb90d47aba8d61919d4419dd38301536e32a94b
+      # EC2 k3s(v1.36.5+k3s1)와 맞춘다.
+      KUBERNETES_VERSION: 1.36.5
+      # GitHub에서 받는 파일(kubeconform, Gateway·인증서 CRD schema, kubeconform이 실행 중 받는 schema)을 두는 곳(아래 cache).
+      DOWNLOADS: /home/runner/.cache/hapbang-manifests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # GitHub 릴리스·raw 다운로드가 504로 실패해 dev 발행이 멈춘 적이 있다(2026-11-09, #792). 받은 파일을 Actions cache에 두어
+      # 버전이 같으면 GitHub에서 다시 받지 않는다. cache는 job이 성공해야 저장된다. dev 실행(publish.yml)이 만든 cache를 PR이 읽고,
+      # PR이 만든 cache는 그 PR에서만 보인다.
+      - name: 다운로드 cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.DOWNLOADS }}
+          key: manifests-${{ env.KUBECONFORM_VERSION }}-${{ env.KUBERNETES_VERSION }}-${{ env.CRDS_CATALOG_REF }}-${{ hashFiles('k8s/gateway/tools/prepare-schemas.py') }}
+
+      # cache에 없을 때만 받는다. --retry-all-errors로 5xx·timeout과 전송 중 끊김도 다시 받는다(파일로 받으므로 처음부터 다시 쓴다).
+      # 시도마다 60초이고, 3분이 지나면 새 재시도를 시작하지 않는다(진행 중인 시도까지 최악 약 4분). cache에서 꺼낸 파일도 sha256을 검사한다.
       - name: kubeconform 설치
         run: |
-          curl -sSfLo kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
-          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
-          tar xzf kubeconform.tar.gz kubeconform
+          mkdir -p "$DOWNLOADS/kubeconform-schemas"
+          tarball="$DOWNLOADS/kubeconform-${KUBECONFORM_VERSION}-linux-amd64.tar.gz"
+          if [ ! -f "$tarball" ]; then
+            curl -sSfL --connect-timeout 10 --max-time 60 --retry 5 --retry-delay 5 --retry-all-errors --retry-max-time 180 -o "$tarball" "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          fi
+          echo "${KUBECONFORM_SHA256}  $tarball" | sha256sum -c -
+          tar xzf "$tarball" kubeconform
           sudo install kubeconform /usr/local/bin/
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
 
+      # PyYAML은 아래 check-prod-host.py도 쓰므로 cache와 관계없이 설치한다. schema는 cache에 없을 때만 만든다.
       - name: 고정 버전 Gateway·인증서 CRD schema 준비
         run: |
           python -m pip install PyYAML==6.0.3
-          python k8s/gateway/tools/prepare-schemas.py /tmp/gateway-schemas
+          if [ ! -d "$DOWNLOADS/gateway-schemas" ]; then
+            python k8s/gateway/tools/prepare-schemas.py "$DOWNLOADS/gateway-schemas.tmp"
+            mv "$DOWNLOADS/gateway-schemas.tmp" "$DOWNLOADS/gateway-schemas"
+          fi
 
       # prod overlay는 렌더러 없이 그대로 적용한다(#507). Gateway 호스트·Certificate·Grafana가 한 호스트이고 .invalid가 없는지,
       # 앱 JWT issuer가 https://<그 호스트>인지 본다. issuer가 어긋나면 그 앱의 토큰 요청이 모두 401이다(#500).
       - name: prod 호스트·JWT issuer 검사
         run: python k8s/gateway/tools/check-prod-host.py
 
-      # -strict는 schema에 없는 필드(오타)를 오류로 본다. Kubernetes 버전은 EC2 k3s(v1.36.5+k3s1)와 맞춘다.
+      # -strict는 schema에 없는 필드(오타)를 오류로 본다. -cache는 kubeconform이 GitHub(raw)에서 받은 schema를 cache 디렉터리에 둔다.
+      # 기본 shell(bash -e)에는 pipefail이 없어 kustomize가 실패해도 kubeconform이 빈 입력을 통과로 본다. shell: bash는 -eo pipefail이다.
       - name: 렌더링·schema 검사
+        shell: bash
         run: |
           # 공용 인프라(k8s/)와 앱마다의 manifest(apps/<앱>/k8s)를 모두 검사한다.
           for dir in k8s/cluster k8s/registry k8s/platform/overlays/* k8s/gateway/install/* k8s/gateway/overlays/* apps/*-app/k8s/overlays/*; do
             echo "::group::$dir"
             kubectl --context k3d-hapbang kustomize "$dir" | kubeconform -strict -summary \
-              -kubernetes-version 1.36.5 \
-              -schema-location "/tmp/gateway-schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+              -kubernetes-version "$KUBERNETES_VERSION" \
+              -cache "$DOWNLOADS/kubeconform-schemas" \
+              -schema-location "$DOWNLOADS/gateway-schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
               -schema-location default \
               -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/${CRDS_CATALOG_REF}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
             echo "::endgroup::"

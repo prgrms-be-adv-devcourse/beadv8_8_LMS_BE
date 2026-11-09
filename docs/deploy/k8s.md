@@ -74,6 +74,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 | `auxiliary-app-secrets` | hapbang-prod | `DB_PASSWORD`(role `auxiliary`), `HAPBANG_INTERNAL_API_KEY`, `OPENAI_API_KEY`, `ES_API_KEY`(챗봇 API key `auxiliary-app-chatbot`, 2026-11-06 생성, 2027-02-04 만료. **2027-01-21까지 교체한다**). 챗봇 FAQ(#715)부터 prod 프로필이 두 키를 기본값 없이 읽으므로 없으면 앱이 뜨지 않는다 | `apps/auxiliary-app/k8s/overlays/prod` |
 | `postgres-credentials` | hapbang-platform | `postgres`(superuser), `member`, `billing`, `appearance`, `lecture`, `chat`, `customersupport`, `auxiliary`(#726) | `k8s/platform/overlays/prod` |
 | `ghcr-pull` | hapbang-prod | `.dockerconfigjson`(type `kubernetes.io/dockerconfigjson`). BE 앱 7개와 FE가 함께 쓴다 | `k8s/registry` ([GHCR pull 인증](#ghcr-pull-인증)) |
+| `grafana-alerting` | hapbang-platform | `SLACK_WEBHOOK_URL`(Grafana alert를 보내는 Slack Incoming Webhook, #781). `k8s/tools/seal-grafana-alerting.sh`가 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL`로 봉인한다 | `k8s/platform/overlays/prod` ([Alert](../architecture/infrastructure/observability.md#alert-정책-629)) |
 
 - `postgres-credentials`의 앱별 값은 각 앱 Secret의 `DB_PASSWORD`와 같아야 한다. PostgreSQL이 첫 기동 때 이 값으로 앱 role을 만든다.
 - `HAPBANG_INTERNAL_API_KEY`는 모든 앱이 같은 값을 쓴다.
@@ -445,7 +446,7 @@ k3d image import -c hapbang \
 
 | 확인 | 명령 | 기대 결과 |
 | --- | --- | --- |
-| node 배치 | `kubectl get pods -A -o wide` | Kafka·Redis·Elasticsearch·PostgreSQL·member·billing은 server, 관측성·ECK operator·Sealed Secrets·chat은 agent |
+| node 배치 | `kubectl get pods -A -o wide` | Kafka·Redis·Elasticsearch·PostgreSQL·member·billing·Envoy Gateway controller·ECK operator·Kafka UI·cert-manager·Sealed Secrets는 server, 관측성·chat은 agent |
 | HelmChart 설치 | `kubectl get helmcharts -A`, `kubectl get jobs -A` | `helm-install-*` Job이 모두 Complete |
 | PVC | `kubectl get pvc -A` | 모두 Bound, StorageClass `local-path-retain` |
 | Redis AOF | `kubectl -n hapbang-platform exec redis-0 -- redis-cli CONFIG GET appendonly` | `yes`. pod를 지운 뒤에도 키가 남아 있다 |
@@ -484,7 +485,7 @@ kubectl --context "$CTX" -n hapbang-platform port-forward svc/redpanda-console 8
 
 ## CI
 
-`ci.yml`의 `manifests` job이 PR마다 `k8s/`와 `apps/<앱>/k8s`의 overlay별로 `kubectl kustomize` → `kubeconform -strict`를 실행한다. Kubernetes schema는 k3s와 같은 1.36.5, CRD(HelmChart·Elasticsearch) schema는 [CRDs-catalog](https://github.com/datreeio/CRDs-catalog)의 고정 커밋을 쓴다.
+`ci.yml`의 `manifests` job이 PR마다 `k8s/`와 `apps/<앱>/k8s`의 overlay별로 `kubectl kustomize` → `kubeconform -strict`를 실행한다. 필수 체크 `verify`가 이 결과도 모으므로 실패하면 병합할 수 없다. dev 발행(`publish.yml`)도 이 job이 실패하면 build·deploy를 건너뛴다(#792). GitHub에서 받는 파일(kubeconform, Gateway·인증서 CRD schema, kubeconform이 실행 중 받는 Kubernetes·CRDs-catalog schema)은 Actions cache에 두고, 버전(kubeconform·Kubernetes·CRDs-catalog 커밋·`prepare-schemas.py`)이 같으면 다시 받지 않는다. cache가 없을 때 받는 다운로드는 5xx·끊김을 몇 번 다시 시도한다(2026-11-09 GitHub 504로 발행이 멈춘 적이 있다, #792). cache는 job이 성공해야 저장되고, dev 실행이 만든 cache를 PR이 읽는다. 그래도 GitHub 장애로 실패하면 그 job만 다시 실행한다. 렌더링 step은 `shell: bash`(pipefail)라 `kubectl kustomize`가 실패하면 job이 실패한다. Kubernetes schema는 k3s와 같은 1.36.5, CRD(HelmChart·Elasticsearch) schema는 [CRDs-catalog](https://github.com/datreeio/CRDs-catalog)의 고정 커밋을 쓴다.
 
 kubeconform은 형식만 검사한다. `valuesContent` 안의 차트 values, Service selector와 Pod label의 일치, 이미지 존재, 앱 기동은 검사하지 못하므로 manifest를 바꾸면 로컬 k3d로 확인한다.
 
