@@ -26,6 +26,7 @@ EC2에는 prod만 있다. 부하 테스트는 prod를 대상으로 하고 다음
 - 개발 PC에서 돌리면 집 네트워크 지연이 결과에 섞인다. 실행 전에 단건 요청의 응답 시간(아래 "실행 직전 점검")을 기준값으로 적는다.
 - t3 standard credit 모드에서는 credit이 바닥나면 CPU가 기준선으로 제한된다. 각 실행 전후의 CloudWatch `CPUCreditBalance`를 결과와 함께 기록한다. credit 소진 구간의 p95는 코드 성능이 아니라 instance 제한으로 해석한다.
 - 서버 운영 시간은 [작업 흐름](../contributing/git-workflow.md) 6장을 따른다. 측정은 서버가 켜져 있는 시간에 한다.
+- 스크립트를 바꾸면 본 측정 전에 `PROFILE=smoke`(1 VU 30초)로 운영에서 먼저 돌려 본다. 예전 규칙인 "반복 실험은 로컬 k3d에서 먼저"는 두지 않는다. k3d는 노트북 자원이라 수치가 운영과 다르고, 로그인·S3 presigned URL 같은 운영 경로가 없어 스크립트 확인에도 맞지 않는다(#690에서 정함).
 - 공용 PostgreSQL·Kafka·관측 stack이 같이 흔들린다. 팀이 서버를 쓰는 중이면 미리 알리고, 같은 시각에 운영을 바꾸는 작업(dev 병합에 따른 자동 배포, HelmChart 적용)과 겹치지 않게 한다. 결과에는 그 시간 node별 자원 사용량도 함께 남긴다.
 - 초기 목표(100 RPS 10분 등)가 2노드에서 유지되지 않으면 목표를 낮추는 것이 아니라 node별 CPU credit, DB connection, GC 병목을 JFR과 dashboard로 설명하는 것을 결과물로 삼는다.
 - 쓰기 API(장바구니·주문·충전)는 실제 데이터와 HP를 움직이므로 시나리오에 넣으려면 먼저 팀과 정한다.
@@ -51,6 +52,8 @@ kk -n hapbang-platform get pod
 kk -n hapbang-platform get deploy prometheus-server -o jsonpath='{.spec.template.spec.containers[?(@.name=="prometheus-server")].resources.limits.memory}'
 # Envoy trace 샘플링(%)
 kk -n envoy-gateway-system get envoyproxy hapbang -o jsonpath='{.spec.telemetry.tracing.samplingRate}'
+# 공개 강의 수(데이터 건수). 결과 문서의 "조건"에 적는다
+curl -s 'https://hapbang.duckdns.org/api/v1/lectures?size=1' | jq '.data.page.totalElements'
 # 단건 응답 시간 기준값(5회)
 for i in 1 2 3 4 5; do curl -s -o /dev/null -w '%{time_total}\n' 'https://hapbang.duckdns.org/api/v1/lectures?size=20'; done
 ```
@@ -75,10 +78,15 @@ set -a; source ~/.hapbang/load-tests/lecture.env; set +a
 k6 run -e PROFILE=smoke loadtest/k6/lecture/baseline.js
 
 STAMP=$(date +%Y%m%d-%H%M)
-mkdir -p ~/.hapbang/load-tests/runs
+# 원본 요약 JSON에 access token이 들어가므로 나만 읽게 만든다
+umask 077
+mkdir -p -m 700 ~/.hapbang/load-tests/runs
+chmod 700 ~/.hapbang ~/.hapbang/load-tests
 k6 run -e PROFILE=baseline \
   --summary-export ~/.hapbang/load-tests/runs/lecture-baseline-${STAMP}.json \
-  loadtest/k6/lecture/baseline.js 2>&1 | tee ~/.hapbang/load-tests/runs/k6-lecture-${STAMP}.log
+  loadtest/k6/lecture/baseline.js > ~/.hapbang/load-tests/runs/k6-lecture-${STAMP}.log 2>&1
+echo "k6 exit=$?"   # 0 합격, 99 threshold 실패, 그 밖은 실행 오류
+tail -60 ~/.hapbang/load-tests/runs/k6-lecture-${STAMP}.log
 # 요약 JSON의 setup_data에는 setup()이 돌려준 access token이 들어 있다. 빼고 레포로 옮긴다
 jq 'del(.setup_data)' ~/.hapbang/load-tests/runs/lecture-baseline-${STAMP}.json \
   > docs/load-test/results/lecture-baseline-${STAMP}.json
@@ -90,7 +98,7 @@ grep -c 'eyJ' docs/load-test/results/lecture-baseline-${STAMP}.json   # 0이어�
 
 - `BASE_URL`을 주면 다른 주소를 친다(기본 `https://hapbang.duckdns.org`).
 - 요청에는 `User-Agent: hapbang-loadtest-k6`가 붙는다. Envoy access log에서 이 값으로 부하 요청을 거른다.
-- threshold를 넘으면 k6는 종료 코드 99로 끝난다. `server_errors`가 5%를 넘으면 30초 뒤부터 바로 멈춘다(`abortOnFail`).
+- threshold를 하나라도 통과하지 못하면 k6는 종료 코드 99로 끝난다. `server_errors`가 5%를 넘으면 30초 뒤부터 바로 멈춘다(`abortOnFail`).
 - 시작 시각과 끝 시각(KST)을 적어 둔다. Prometheus 구간 값과 Grafana 캡처의 범위로 쓴다.
 
 ## JFR
@@ -126,7 +134,7 @@ jfr view contention-by-site "$F"
 
 ### Prometheus 구간 값
 
-scrape 간격이 1분이라 `rate`·`increase`의 범위는 2분 이상으로 둔다(`[1m]`은 sample이 하나뿐이라 빈 결과가 나온다). 측정 구간(본 측정 10분)의 끝 시각을 `END`(Unix 초)로 두고 조회한다.
+scrape 간격이 1분이라 `rate`·`increase`의 범위는 2분 이상으로 둔다(`[1m]`은 sample이 하나뿐이라 빈 결과가 나온다). 본 측정 10분이 끝난 시각(k6 시작 + 워밍업 2분 + 10분)을 `END`(Unix 초)로 두고 `[10m]`으로 조회해, k6 본 측정과 같은 구간을 본다.
 
 ```bash
 kk() { kubectl --context hapbang-k3s "$@"; }
@@ -143,7 +151,8 @@ prom() {
 | heap 최대 | `max_over_time(sum(jvm_memory_used_bytes{app_kubernetes_io_name="lecture-app",area="heap"})[10m:1m])` |
 | GC 정지 시간 합·횟수 | `sum(increase(jvm_gc_pause_seconds_sum{app_kubernetes_io_name="lecture-app"}[10m]))`, `..._count` |
 | 최대 GC 정지 | `max_over_time(max(jvm_gc_pause_seconds_max{app_kubernetes_io_name="lecture-app"})[10m:1m])` |
-| DB 연결 active·pending 최대 | `max_over_time(sum(hikaricp_connections_active{app_kubernetes_io_name="lecture-app"})[10m:1m])`, `hikaricp_connections_pending` |
+| DB 연결 active·pending 최대 | `max_over_time(sum(hikaricp_connections_active{app_kubernetes_io_name="lecture-app"})[10m:1m])`, 같은 식의 `hikaricp_connections_pending` |
+| DB 연결 획득 시간 평균·최대 | `sum(increase(hikaricp_connections_acquire_seconds_sum{app_kubernetes_io_name="lecture-app"}[10m])) / sum(increase(..._count[10m]))`, `max_over_time(max(hikaricp_connections_acquire_seconds_max{app_kubernetes_io_name="lecture-app"})[10m:1m])` |
 | 스레드 최대 | `max_over_time(sum(jvm_threads_live_threads{app_kubernetes_io_name="lecture-app"})[10m:1m])` |
 | 앱이 본 요청 수 | `sum(increase(http_server_requests_seconds_count{app_kubernetes_io_name="lecture-app",uri!~"/actuator.*"}[10m]))` |
 | node CPU 평균·최대 | `avg_over_time((sum by (instance) (rate(container_cpu_usage_seconds_total{id="/"}[2m])) / sum by (instance) (machine_cpu_cores))[10m:1m])`, 같은 식의 `max_over_time` |

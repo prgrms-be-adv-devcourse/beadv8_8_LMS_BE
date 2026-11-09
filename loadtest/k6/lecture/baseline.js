@@ -64,6 +64,9 @@ export const options = {
         'http_req_duration{scenario:main,name:lecture_detail}': MAIN_P95,
         'http_req_duration{scenario:main,name:lecture_reviews}': MAIN_P95,
         'server_errors{scenario:main}': ['rate<0.01'],
+        // constant-arrival-rate는 VU가 모자라 못 보낸 요청을 http_req_duration에 넣지 않는다.
+        // 서버가 느려져 요청을 못 보내도 p95는 통과할 수 있어, 못 보낸 요청이 본 측정의 0.1%(60건) 미만인지 본다
+        'dropped_iterations{scenario:main}': ['count<60'],
         // 5xx가 5%를 넘으면 30초 뒤부터 바로 멈춘다(측정 오염 방지)
         server_errors: [{ threshold: 'rate<0.05', abortOnFail: true, delayAbortEval: '30s' }],
         // 토큰 만료(401) 등으로 성공 응답이 무너지면 결과가 무효라 같이 본다

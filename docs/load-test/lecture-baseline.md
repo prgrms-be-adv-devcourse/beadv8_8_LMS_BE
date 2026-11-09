@@ -4,10 +4,10 @@ lecture-app 조회 API에 100 RPS를 10분 동안 보내고, 응답 시간·자�
 
 ## 요약
 
-- **합격.** 본 측정 10분 동안 59,980건을 보냈다. 모두 200으로 끝났고, k6가 본 p95는 132.9 ms였다. 목표는 p95 500 ms 이하, 5xx 1% 미만이다.
-- 서버 쪽은 더 빠르다. 앱 p95는 22.7 ms, Envoy가 본 lecture-app upstream p95는 24.3 ms다. k6 p95와의 차이(약 100 ms)는 서버 밖(개발 PC와 집 네트워크) 구간에서 생긴 것으로 본다(아래 "한계").
-- 100 RPS에서 lecture-app은 CPU 약 0.4 core를 썼고, DB 연결은 최대 2개만 동시에 썼다. medium node CPU는 평균 33%였다.
-- 메모리는 대기 570 MiB에서 639 MiB(limit 704 MiB의 91%)까지 올랐다. 이 값에는 JFR 버퍼가 들어 있다.
+- **합격.** 본 측정 10분 동안 59,980건을 보냈다. 모두 200으로 끝났고, k6가 본 p95는 132.9 ms였다. 보내지 못한 요청은 21건(0.04%)이다. 목표는 p95 500 ms 이하, 5xx 1% 미만이고, 초당 100건을 유지했는지는 보내지 못한 요청 0.1% 미만으로 본다.
+- 서버 쪽은 더 빠르다. 앱 p95는 22.4 ms, Envoy가 본 lecture-app upstream p95는 24.5 ms다. k6 p95와의 차이(약 100 ms)는 서버 밖(개발 PC와 집 네트워크) 구간에서 생긴 것으로 본다(아래 "한계").
+- 100 RPS에서 lecture-app은 CPU 약 0.4 core를 썼고, DB 연결은 최대 2개만 동시에 썼다. medium node CPU는 평균 31%였다.
+- 메모리는 대기 570 MiB에서 638 MiB(limit 704 MiB의 91%)까지 올랐다. 이 값에는 JFR 버퍼가 들어 있다.
 - 요청 처리 CPU의 25%를 강의 썸네일 S3 presigned URL 서명이 쓴다. Hibernate가 22%, Micrometer·OpenTelemetry가 12%다.
 
 ## 조건
@@ -15,10 +15,10 @@ lecture-app 조회 API에 100 RPS를 10분 동안 보내고, 응답 시간·자�
 | 항목 | 값 |
 | --- | --- |
 | 측정 시각 (KST) | 2026-11-09 09:29:11 ~ 09:41:12. 워밍업 09:29~09:31, 본 측정 09:31~09:41 |
-| 대상 | `lecture-app-76f975d4f7-lkp7j`, 이미지 `sha-d3c6f2d`(dev `d3c6f2da`, 쿠폰 모듈 #749 포함). 11-08 13:43 기동, 재시작 0 |
+| 대상 | `lecture-app-76f975d4f7-lkp7j`, 이미지 `sha-d3c6f2d`(dev `d3c6f2da`, 쿠폰 모듈 #749 포함). 11-08 13:43 기동, 재시작 0. EC2를 11-05부터 끄지 않아 측정 때 약 20시간 돌고 있었다 |
 | 메모리·JVM | request·limit 704 MiB, CPU limit 없음(request 100m). `JAVA_TOOL_OPTIONS=-Xmx224m`, `MALLOC_ARENA_MAX=2`(#727). heap 상한 216.6 MiB. GC는 Serial(Copy·MarkSweepCompact) |
 | 배치 | medium node(t3.medium, `app-observe`). 같은 node에 Prometheus·Loki·Tempo·Grafana·Alloy, chat·customer-support·web |
-| 데이터 | 공개 강의 7건, 목록 한 페이지 20건 |
+| 데이터 | 공개 강의 7건, 목록 한 페이지 20건. #690은 "강의 20건 시드 뒤"였으나 2026-11-06에 7건으로 재기로 정했다 |
 | 공용 구성 | PostgreSQL limit 512 MiB, Prometheus limit 448 MiB |
 | trace | Envoy 샘플링 100%(#679). Tempo는 측정 전부터 limit 160 MiB에서 OOMKilled를 되풀이했다(재시작 475회 → 측정 뒤 478회) |
 | 부하 생성 | k6 v2.3.0, 개발 PC(macOS, 집 네트워크). TCP 연결 약 10 ms, 단건 요청 67~99 ms |
@@ -40,7 +40,8 @@ lecture-app 조회 API에 100 RPS를 10분 동안 보내고, 응답 시간·자�
 | 리뷰 목록 `GET /api/v1/lectures/{id}/reviews` | 10% | 일반 회원 JWT |
 
 - 부하: `constant-arrival-rate` 30 RPS 2분 → 100 RPS 10분. 강의 ID는 `setup()`에서 목록 API로 받는다.
-- threshold(본 측정만): p95 500 ms 이하(전체와 요청별), 5xx 1% 미만, check 성공률 99% 초과. 5xx가 5%를 넘으면 중단.
+- threshold(본 측정만): p95 500 ms 이하(전체와 요청별), 5xx 1% 미만, check 성공률 99% 초과, 보내지 못한 요청(`dropped_iterations`) 60건(0.1%) 미만. 5xx가 5%를 넘으면 중단.
+- `dropped_iterations` 기준은 측정 뒤 리뷰에서 더했다. 이번 실행은 21건이라 이 기준도 통과한다.
 
 ## 결과
 
@@ -61,24 +62,24 @@ lecture-app 조회 API에 100 RPS를 10분 동안 보내고, 응답 시간·자�
 - 요청 59,980건, 5xx 0, check 실패 0. 보내지 못한 요청(`dropped_iterations`) 21건. 최대 동시 VU 51.
 - 워밍업 포함 전체에서 응답 시간을 나누면 서버 응답 대기(`http_req_waiting`) p95 124.0 ms, 본문 수신 p95 12.9 ms, 연결·TLS p95 0 ms다.
 
-### 서버 쪽 (Prometheus, 09:32~09:42의 10분)
+### 서버 쪽 (Prometheus, 본 측정 09:31:11~09:41:11)
 
 | 항목 | 값 |
 | --- | --- |
-| 앱 처리량 | 초당 100건, 모두 200 |
-| 앱 응답 시간(`http_server_requests`) | p95 22.7 ms, p99 47.9 ms. URI별 p95: 목록 23.7, 상세 21.5, 리뷰 11.2 ms |
-| Envoy → lecture-app upstream | p50 7.5, p95 24.3, p99 71.4 ms |
-| Envoy downstream(모든 https route) | p95 27.1 ms |
-| lecture-app CPU | 0.37~0.47 core |
-| lecture-app 메모리(working set) | 570 → 639 MiB(limit의 91%). JFR 버퍼 포함 |
-| heap | 사용 104~189 MiB / committed 210 MiB / 상한 216.6 MiB. non-heap 244 MiB |
-| GC | minor 471회, major 0회, 정지 합 3.54초(시간의 0.59%), 최대 정지 85 ms. 할당 속도 약 50 MB/s |
-| DB 연결(Hikari, 최대 10) | active 최대 2, pending 0. 연결 획득 54,900회, 평균 0.5 ms, 최대 506 ms(09:37) |
+| 앱 처리량 | 60,000건(초당 100건), 모두 200 |
+| 앱 응답 시간(`http_server_requests`) | p95 22.4 ms, p99 47.2 ms. URI별 p95: 목록 23.5, 상세 21.2, 리뷰 10.0 ms |
+| Envoy → lecture-app upstream | p50 7.5, p95 24.5, p99 73.8 ms |
+| Envoy downstream(모든 https route) | p95 26.8 ms |
+| lecture-app CPU | 0.37~0.47 core(100 RPS가 된 09:33 이후) |
+| lecture-app 메모리(working set) | 570 → 638 MiB(limit의 91%). JFR 버퍼 포함 |
+| heap | 사용 112~189 MiB / committed 210 MiB / 상한 216.6 MiB. non-heap 244 MiB |
+| GC | minor 513회, major 0회, 정지 합 3.81초(시간의 0.64%), 최대 정지 85 ms. 할당 속도 약 50 MB/s |
+| DB 연결(Hikari, 최대 10) | active 최대 2, pending 0. 연결 획득 60,000회, 평균 0.5 ms, 최대 506 ms(09:37) |
 | 앱 최대 응답 | 636 ms(09:37). 같은 분에 연결 획득 최대 506 ms, GC 최대 정지 85 ms가 겹친다. 원인은 나누지 않았다 |
 | 앱 로그 | ERROR 25건, WARN 분당 약 7건. 모두 OpenTelemetry span 전송 실패(`Failed to export spans. Server is UNAVAILABLE`)와 전송 대기열이 차서 버린 span(`BatchSpanProcessor dropped … span(s)`)이다. Tempo가 OOM으로 내려가 있었기 때문이다 |
-| 스레드 | 76 → 123 |
-| node CPU 평균/최대 | medium 33% / 43%, large 24% / 25% |
-| node 메모리 최대 | medium 78%, large 71% |
+| 스레드 | 76 → 최대 123 |
+| node CPU 평균/최대 | medium 31% / 36%, large 24% / 25% |
+| node 메모리 최대 | medium 77%, large 71% |
 | PostgreSQL | CPU 최대 0.12 core, 메모리 200 MiB |
 | Tempo | 재시작 3회, CPU 최대 0.28 core(medium node) |
 | CloudWatch CPUUtilization(5분 최대) | medium 48%, large 33% |
@@ -148,7 +149,7 @@ lecture-app 조회 API에 100 RPS를 10분 동안 보내고, 응답 시간·자�
 - 14:41:13에 #731의 PostgreSQL HelmChart(limit 768 → 512 MiB)를 운영에 적용해 `postgres-0`가 다시 만들어졌다. 14:41:18 종료, 14:41:21 다시 연결을 받았다(약 3초).
 - lecture-app의 열린 DB 연결이 모두 `57P01 terminating connection due to administrator command`로 끊겼다. 직후 Hikari pool이 active 0·pending 106에서 멈췄고, 기다리던 요청은 최대 30초(Hikari `connectionTimeout` 기본값) 뒤 500으로 끝났다. 5xx 311건이 모두 이 구간에서 나왔다.
 - Tomcat 스레드가 77 → 267로 늘고, 메모리가 632 → 672 MiB(limit의 95%)까지 올랐다. 재시작·OOM은 없었다.
-- k6는 응답을 30초씩 기다려 VU 상한 300에 닿았고, 요청 3,995건을 보내지 못했다. p95 111.9 ms·5xx 0.55%로 threshold는 넘었지만 p99 12.2초, 최대 30.1초였다.
+- k6는 응답을 30초씩 기다려 VU 상한 300에 닿았고, 요청 3,995건을 보내지 못했다. p95 111.9 ms·5xx 0.55%로 threshold는 통과했지만 p99 12.2초, 최대 30.1초였다. 보내지 못한 요청 3,995건(6.7%)은 지금의 `dropped_iterations` 기준(0.1% 미만)이면 불합격이다.
 - 3초 DB 중단이 30초 오류로 커진 셈이다. Hikari `connectionTimeout`을 짧게 두어 빨리 실패시킬지는 다음 과제로 둔다.
 
 ## 다음 과제
