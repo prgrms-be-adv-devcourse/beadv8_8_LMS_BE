@@ -323,6 +323,7 @@
 | 400 | `INVALID_WORK_ID` | 예약·해제·예약 상태 | `workId` 형식이 2장과 다르다 |
 | 400 | `COUPON_TOO_MANY_ITEMS` | 계산·예약 | 항목 수가 상한(`hapbang.coupon.calculate.max-items`)을 넘는다 |
 | 400 | `COUPON_DUPLICATE_LECTURE` | 계산·예약 | 한 주문에 같은 강의가 두 번 있다 |
+| 400 | `COUPON_DUPLICATE_ORDER_ITEM` | 예약 | 예약 요청에 같은 주문 항목이 두 번 있다 |
 | 409 | `COUPON_NOT_APPLICABLE` | 계산·예약 | 쿠폰의 적용 대상이 아닌 강의다 |
 | 409 | `COUPON_NOT_USABLE` | 계산·예약 | 사용 불가: 본인 소유가 아니거나, AVAILABLE이 아니거나, 만료(`expiresAt ≤ 지금`)됐다 |
 | 409 | `COUPON_STACKING_VIOLATION` | 계산·예약 | 중첩 위반: 같은 주체 쿠폰 두 장, 단독 쿠폰과 다른 쿠폰, 한 쿠폰을 두 항목에 |

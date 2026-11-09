@@ -290,6 +290,17 @@ class ApiV1CouponInternalControllerTest {
                 .andExpect(jsonPath("$.code").value("COUPON_DUPLICATE_LECTURE"));
     }
 
+    @Test
+    void 예약에_같은_주문_항목이_두_번_있으면_400_COUPON_DUPLICATE_ORDER_ITEM이다() throws Exception {
+        mockMvc.perform(internal(post(BASE + "/reservations"))
+                        .content("""
+                                {"memberId":7,"orderId":9001,"workId":"w-1","items":[
+                                {"orderItemId":1,"lectureId":1,"sellerId":30,"price":100,"coupons":[]},
+                                {"orderItemId":1,"lectureId":2,"sellerId":30,"price":100,"coupons":[]}]}"""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COUPON_DUPLICATE_ORDER_ITEM"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "{}",

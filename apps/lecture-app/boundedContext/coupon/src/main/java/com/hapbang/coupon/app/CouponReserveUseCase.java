@@ -89,6 +89,8 @@ public class CouponReserveUseCase {
 
     public CouponReserveResponse reserve(CouponReserveRequest request) {
         usageSupport.requireItems(request.items().stream().map(CouponReserveRequest.Item::lectureId).toList());
+        usageSupport.requireDistinctOrderItems(
+                request.items().stream().map(CouponReserveRequest.Item::orderItemId).toList());
         String operationId = CouponUsageSupport.RESERVE_OPERATION_PREFIX + request.workId();
         String contentKey = contentKey(request);
 

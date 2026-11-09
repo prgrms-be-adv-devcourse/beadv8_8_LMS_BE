@@ -24,7 +24,7 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 쿠폰 사용 내부 API(강의 → 쿠폰) 진입점. 계산·예약·해제·예약 상태·가격 인상 제한.
- * 요청 모양(작업 ID 형식, 항목 수, 같은 강의 중복)을 여기서 검사하고, 쿠폰 규칙은 각 UseCase가 검사한다.
+ * 요청 모양(작업 ID 형식, 항목 수, 같은 강의 중복, 예약의 같은 주문 항목 중복)을 여기서 검사하고, 쿠폰 규칙은 각 UseCase가 검사한다.
  * 필수 값·빈 목록 같은 구조 검사는 요청 record가 한다.
  */
 @Service
@@ -51,6 +51,7 @@ public class CouponInternalFacade {
     public CouponReserveResponse reserve(CouponReserveRequest request) {
         checkWorkId(request.workId());
         checkItems(request.items().stream().map(CouponReserveRequest.Item::lectureId).toList());
+        checkOrderItems(request.items().stream().map(CouponReserveRequest.Item::orderItemId).toList());
         return couponReserveUseCase.reserve(request);
     }
 
@@ -71,6 +72,17 @@ public class CouponInternalFacade {
     private static void checkWorkId(String workId) {
         if (workId == null || !WORK_ID.matcher(workId).matches()) {
             throw new CouponException(CouponErrorCode.INVALID_WORK_ID);
+        }
+    }
+
+    /** 예약 요청 안 같은 주문 항목 중복을 검사한다. 한 주문 항목에 쿠폰을 두 줄로 나눠 보내 중첩 규칙을 피하지 못하게 한다 */
+    private static void checkOrderItems(List<Long> orderItemIds) {
+        Set<Long> seen = new HashSet<>();
+        for (Long orderItemId : orderItemIds) {
+            if (!seen.add(orderItemId)) {
+                throw new CouponException(CouponErrorCode.COUPON_DUPLICATE_ORDER_ITEM,
+                        "주문 항목 %d가 두 번 들어 있습니다.".formatted(orderItemId));
+            }
         }
     }
 

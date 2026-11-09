@@ -91,6 +91,17 @@ public class CouponUsageSupport {
         }
     }
 
+    /** 예약 요청 안 같은 주문 항목 중복을 본다. 겹치면 400(한 항목에 쿠폰을 두 줄로 나눠 중첩 규칙을 피하지 못하게) */
+    void requireDistinctOrderItems(Collection<Long> orderItemIds) {
+        Set<Long> seen = new HashSet<>();
+        for (Long orderItemId : orderItemIds) {
+            if (!seen.add(orderItemId)) {
+                throw new CouponUsageException(CouponErrorCode.COUPON_DUPLICATE_ORDER_ITEM,
+                        "같은 주문 항목이 두 번 들어 있습니다: orderItemId=" + orderItemId, null);
+            }
+        }
+    }
+
     /**
      * 이 발급 쿠폰들을 쿠폰 정책과 함께 읽는다(소유·상태와 관계없이. 판정은 계산기가 한다). 없는 ID는 결과에 없다.
      * 결과는 발급 쿠폰 ID 순서다.

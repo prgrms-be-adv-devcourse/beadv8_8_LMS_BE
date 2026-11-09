@@ -118,7 +118,9 @@ public enum CouponErrorCode {
     /** 한 요청의 항목 수가 상한을 넘었다 */
     COUPON_TOO_MANY_ITEMS(HttpStatus.BAD_REQUEST, "한 번에 계산할 수 있는 강의 수를 넘었습니다."),
     /** 한 주문에 같은 강의가 두 번 있다 */
-    COUPON_DUPLICATE_LECTURE(HttpStatus.BAD_REQUEST, "같은 강의가 두 번 들어 있습니다.");
+    COUPON_DUPLICATE_LECTURE(HttpStatus.BAD_REQUEST, "같은 강의가 두 번 들어 있습니다."),
+    /** 예약 요청에 같은 주문 항목이 두 번 있다 */
+    COUPON_DUPLICATE_ORDER_ITEM(HttpStatus.BAD_REQUEST, "같은 주문 항목이 두 번 들어 있습니다.");
 
     private final HttpStatus status;
     private final String message;

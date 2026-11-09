@@ -166,10 +166,13 @@ class CouponUsageE2eTest {
                 .extracting(usage -> usage.getGeneration() + ":" + usage.getStatus())
                 .containsExactlyInAnyOrder("1:RELEASED", "2:RESERVED");
 
-        // 동시 예약: 회원 B의 판매자 쿠폰 한 장을 두 주문이 각자의 플랫폼 쿠폰과 함께 동시에 예약한다
-        long sellerOfB = issue(MEMBER_B, sellerCoupon);
+        // 동시 예약: 회원 B의 판매자 쿠폰 한 장을 두 주문이 각자의 플랫폼 쿠폰과 함께 동시에 예약한다. 공유 쿠폰을 마지막에 발급해
+        // ID가 가장 크므로, 조건부 갱신은 각자의 플랫폼 쿠폰 → 공유 쿠폰 순서라 진 요청은 플랫폼 쿠폰을 갱신한 뒤 공유 쿠폰에서 진다.
+        // 다만 진 요청이 이긴 요청의 커밋 뒤에 읽기 시작하면 사전 검증(세대)에서 먼저 끝나므로 이 경로는 타이밍에 달렸다.
+        // 앞 장 갱신 뒤 실패의 전부 롤백은 CouponReserveRollbackTest가 결정적으로 본다
         long platformOfB1 = issue(MEMBER_B, platformCoupon);
         long platformOfB2 = issue(MEMBER_B, savePlatformCoupon());
+        long sellerOfB = issue(MEMBER_B, sellerCoupon);
         List<Integer> statuses = race(
                 () -> reserve(MEMBER_B, 9101L, 91011L, "order-9101:reserve:1",
                         pairBasis(sellerOfB, platformOfB1)).andReturn().getResponse().getStatus(),

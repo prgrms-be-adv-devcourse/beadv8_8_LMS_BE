@@ -125,6 +125,19 @@ class CouponReserveUseCaseTest {
     }
 
     @Test
+    void 같은_주문_항목이_두_번_있으면_아무것도_읽거나_쓰지_않고_400이다() {
+        CouponReserveRequest request = new CouponReserveRequest(MEMBER_ID, ORDER_ID, WORK_ID, List.of(
+                new CouponReserveRequest.Item(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE, List.of(sellerBasis(1_000))),
+                new CouponReserveRequest.Item(ORDER_ITEM_ID, LECTURE_ID + 1, SELLER_ID, PRICE,
+                        List.of(platformBasis()))));
+
+        assertUsageError(() -> useCase.reserve(request), CouponErrorCode.COUPON_DUPLICATE_ORDER_ITEM, null);
+        verifyNoInteractions(transactionManager, couponUsageRepository);
+        verify(memberCouponRepository, never()).reserve(anyLong(), anyLong(), anyLong(), anyLong(), any());
+        verify(processedOperationRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     void 같은_작업_ID와_같은_내용의_예약_기록이_있으면_사용_시도로_처음_응답을_다시_만든다() {
         CouponReserveRequest request = request(sellerBasis(1_000), platformBasis());
         useCase.reserve(request);
