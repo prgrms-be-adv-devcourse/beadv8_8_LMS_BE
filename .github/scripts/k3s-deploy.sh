@@ -80,7 +80,11 @@ apply_app() {
   trap 'rm -rf "$dir"' EXIT
 
   # 공개 레포에서 배포할 커밋을 받는다(수 MB). 서버에 레포를 두지 않는다.
-  curl -sSfL "https://codeload.github.com/$REPO/tar.gz/$sha" | tar xz -C "$dir" --strip-components=1
+  # GitHub가 504를 낸 적이 있어(2026-11-09, #792) --retry로 408·429·5xx와 timeout을 다시 시도한다.
+  # stdout으로 tar에 바로 넘기면 받다가 끊긴 뒤 다시 받을 때 tar 입력이 섞이므로, 파일로 받은 뒤 푼다.
+  curl -sSfL --retry 5 --retry-delay 5 -o "$dir/source.tar.gz" "https://codeload.github.com/$REPO/tar.gz/$sha"
+  tar xzf "$dir/source.tar.gz" -C "$dir" --strip-components=1
+  rm "$dir/source.tar.gz"
 
   # prod overlay를 감싸 이미지만 바꾼다. 레포의 overlay 파일은 고치지 않는다.
   mkdir "$dir/deploy"

@@ -485,7 +485,7 @@ kubectl --context "$CTX" -n hapbang-platform port-forward svc/redpanda-console 8
 
 ## CI
 
-`ci.yml`의 `manifests` job이 PR마다 `k8s/`와 `apps/<앱>/k8s`의 overlay별로 `kubectl kustomize` → `kubeconform -strict`를 실행한다. Kubernetes schema는 k3s와 같은 1.36.5, CRD(HelmChart·Elasticsearch) schema는 [CRDs-catalog](https://github.com/datreeio/CRDs-catalog)의 고정 커밋을 쓴다.
+`ci.yml`의 `manifests` job이 PR마다 `k8s/`와 `apps/<앱>/k8s`의 overlay별로 `kubectl kustomize` → `kubeconform -strict`를 실행한다. 필수 체크 `verify`가 이 결과도 모으므로 실패하면 병합할 수 없다. dev 발행(`publish.yml`)도 이 job이 실패하면 build·deploy를 건너뛴다(#792). kubeconform·CRD schema를 GitHub에서 받을 때 5xx는 몇 번 다시 시도한다(2026-11-09 504로 발행이 멈춘 적이 있다). Kubernetes schema는 k3s와 같은 1.36.5, CRD(HelmChart·Elasticsearch) schema는 [CRDs-catalog](https://github.com/datreeio/CRDs-catalog)의 고정 커밋을 쓴다.
 
 kubeconform은 형식만 검사한다. `valuesContent` 안의 차트 values, Service selector와 Pod label의 일치, 이미지 존재, 앱 기동은 검사하지 못하므로 manifest를 바꾸면 로컬 k3d로 확인한다.
 
