@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import org.hibernate.Hibernate;
 import org.hibernate.annotations.BatchSize;
 
 import com.hapbang.shared.member.domain.Role;
@@ -102,6 +103,14 @@ public class User extends SourceUser {
     /** 콘텐츠 분야 코드 (#711). 고른 순서이고, 바꿀 수 없는 복사본이다 */
     public List<String> getContentCategories() {
         return List.copyOf(contentCategories);
+    }
+
+    /**
+     * 콘텐츠 분야를 지금 DB에서 읽어 둔다 (#711). 분야는 LAZY라, 트랜잭션이 끝난 뒤(컨트롤러 응답, open-in-view 꺼짐) 읽으려면
+     * 트랜잭션 안에서 먼저 부른다. 여러 회원에게 부르면 @BatchSize로 묶어 읽는다
+     */
+    public void loadContentCategories() {
+        Hibernate.initialize(contentCategories);
     }
 
     /**

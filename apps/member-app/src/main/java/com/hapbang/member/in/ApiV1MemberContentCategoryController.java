@@ -23,8 +23,7 @@ public class ApiV1MemberContentCategoryController implements ApiV1MemberContentC
     @Override
     @GetMapping
     public RsData<List<ContentCategoryResponse>> contentCategories() {
-        return RsData.ok("콘텐츠 분야 목록을 조회했습니다.", memberFacade.findContentCategories().stream()
-                .map(category -> new ContentCategoryResponse(category.getCode(), category.getName()))
-                .toList());
+        return RsData.ok("콘텐츠 분야 목록을 조회했습니다.",
+                memberFacade.findContentCategories().stream().map(ContentCategoryResponse::from).toList());
     }
 }

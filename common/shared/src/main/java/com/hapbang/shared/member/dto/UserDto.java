@@ -1,6 +1,7 @@
 package com.hapbang.shared.member.dto;
 
 import java.util.List;
+import java.util.Objects;
 
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -26,9 +27,13 @@ public record UserDto(
         String bio
 ) {
 
-    /** 분야가 없으면(옛 JSON·옛 생성자) 빈 목록으로 두고, 받은 목록을 복사해 바깥에서 바꿔도 영향이 없게 한다. null 코드는 받지 않는다 */
+    /**
+     * 분야가 없으면(옛 JSON·옛 생성자) 빈 목록으로 두고, 받은 목록을 복사해 바깥에서 바꿔도 영향이 없게 한다.
+     * null 코드는 걸러 낸다: 공유 계약이라 잘못 섞인 값 하나 때문에 받는 쪽이 이벤트 전체(닉네임·역할 반영 포함)를 읽지 못하면 안 된다
+     */
     public UserDto {
-        contentCategories = contentCategories == null ? List.of() : List.copyOf(contentCategories);
+        contentCategories = contentCategories == null ? List.of()
+                : contentCategories.stream().filter(Objects::nonNull).toList();
     }
 
     /** 분야·자기소개 없는 회원 정보 (#711 전 호출부용. 분야는 빈 목록, 자기소개는 null) */

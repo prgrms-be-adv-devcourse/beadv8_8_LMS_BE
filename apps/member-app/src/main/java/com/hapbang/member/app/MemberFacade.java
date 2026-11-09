@@ -124,7 +124,7 @@ public class MemberFacade {
     public Page<User> findInfluencers(Pageable pageable) {
         Page<User> influencers = memberSupport.findInfluencers(
                 PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
-        influencers.forEach(User::getContentCategories);
+        influencers.forEach(User::loadContentCategories);
         return influencers;
     }
 
@@ -134,10 +134,12 @@ public class MemberFacade {
         return memberContentCategoryUseCase.list();
     }
 
-    /** 콘텐츠 분야 코드 → 이름 (응답에 분야 이름을 붙일 때, 꺼진 분야 포함, #711) */
-    @Transactional(readOnly = true)
-    public Map<String, String> findContentCategoryNames() {
-        return memberContentCategoryUseCase.names();
+    /**
+     * 주어진 콘텐츠 분야 코드 → 이름 (응답에 분야 이름을 붙일 때, 꺼진 분야 포함, #711).
+     * 분야가 없는 회원(대부분의 유저)은 DB를 읽지 않도록 트랜잭션을 두지 않는다. 읽을 때는 저장소의 읽기 트랜잭션을 쓴다
+     */
+    public Map<String, String> findContentCategoryNames(Collection<String> codes) {
+        return codes.isEmpty() ? Map.of() : memberContentCategoryUseCase.names(codes);
     }
 
     /** 회원 프로필 (정상 회원만) */
@@ -353,7 +355,7 @@ public class MemberFacade {
     @Transactional(readOnly = true)
     public User passwordLogin(String email, String password) {
         User user = memberPasswordLoginUseCase.login(email, password);
-        user.getContentCategories();
+        user.loadContentCategories();
         return user;
     }
 

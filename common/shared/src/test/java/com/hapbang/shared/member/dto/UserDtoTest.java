@@ -40,7 +40,7 @@ class UserDtoTest {
     }
 
     @Test
-    @DisplayName("받은 분야 목록을 복사해, 원본이 바뀌어도 그대로이고 고른 순서를 지킨다. null 코드는 받지 않는다")
+    @DisplayName("받은 분야 목록을 복사해, 원본이 바뀌어도 그대로이고 고른 순서를 지킨다")
     void copiesCategories() {
         List<String> source = new ArrayList<>(List.of("MAPLESTORY", "GAME"));
         UserDto dto = new UserDto(1L, "닉네임", Role.INFLUENCER, UserStatus.ACTIVE, 3L, source, "소개");
@@ -49,8 +49,26 @@ class UserDtoTest {
         assertThat(dto.contentCategories()).containsExactly("MAPLESTORY", "GAME");
         assertThatThrownBy(() -> dto.contentCategories().add("MUKBANG"))
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> new UserDto(1L, "닉네임", Role.INFLUENCER, UserStatus.ACTIVE, 3L,
-                Arrays.asList("GAME", null), null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    @DisplayName("null 코드는 걸러 내, 받는 쪽이 이벤트 전체를 읽지 못하는 일이 없다")
+    void filtersNullCategory() {
+        UserDto dto = new UserDto(1L, "닉네임", Role.INFLUENCER, UserStatus.ACTIVE, 3L,
+                Arrays.asList("GAME", null, "MUKBANG"), null);
+
+        assertThat(dto.contentCategories()).containsExactly("GAME", "MUKBANG");
+    }
+
+    @Test
+    @DisplayName("null 코드가 섞인 JSON도 읽고 null만 걸러 낸다")
+    void readsJsonWithNullCategory() {
+        String json = """
+                {"id":1,"nickname":"닉네임","role":"INFLUENCER","status":"ACTIVE","version":3,
+                 "contentCategories":["GAME",null],"bio":null}
+                """;
+
+        assertThat(jsonMapper.readValue(json, UserDto.class).contentCategories()).containsExactly("GAME");
     }
 
     @Test

@@ -114,6 +114,6 @@ public class ApiV1MemberPasswordController implements ApiV1MemberPasswordSpec {
 
     private MemberMeResponse meResponse(User user) {
         return MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()),
-                memberFacade.findContentCategoryNames());
+                memberFacade.findContentCategoryNames(user.getContentCategories()));
     }
 }

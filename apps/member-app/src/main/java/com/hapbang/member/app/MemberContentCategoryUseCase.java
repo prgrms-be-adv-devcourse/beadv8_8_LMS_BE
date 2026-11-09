@@ -2,9 +2,11 @@ package com.hapbang.member.app;
 
 import static java.util.stream.Collectors.toUnmodifiableMap;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 
@@ -39,11 +41,10 @@ public class MemberContentCategoryUseCase {
     }
 
     /**
-     * 분야 코드 → 이름. 응답에 분야 이름을 붙일 때 쓴다. 이미 고른 회원의 값은 계속 보이므로 목록에서 꺼진 분야도 넣는다 (Q50).
-     * 분야는 수십 개라 모두 읽는다
+     * 주어진 분야 코드 → 이름. 응답에 분야 이름을 붙일 때 쓴다. 이미 고른 회원의 값은 계속 보이므로 목록에서 꺼진 분야도 준다 (Q50)
      */
-    public Map<String, String> names() {
-        return contentCategoryRepository.findAll().stream()
+    public Map<String, String> names(Collection<String> codes) {
+        return contentCategoryRepository.findAllById(Set.copyOf(codes)).stream()
                 .collect(toUnmodifiableMap(ContentCategory::getCode, ContentCategory::getName));
     }
 }

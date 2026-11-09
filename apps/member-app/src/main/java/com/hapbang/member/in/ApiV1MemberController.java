@@ -2,6 +2,7 @@ package com.hapbang.member.in;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -73,7 +74,8 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         Page<User> influencers = memberFacade.findInfluencers(pageable);
         Map<Long, AppearanceRatingSummary> ratings = memberFacade.findAppearanceRatings(
                 influencers.map(User::getId).getContent());
-        Map<String, String> categoryNames = memberFacade.findContentCategoryNames();
+        Map<String, String> categoryNames = memberFacade.findContentCategoryNames(influencers.stream()
+                .flatMap(user -> user.getContentCategories().stream()).collect(Collectors.toSet()));
         return RsData.ok("인플루언서 목록을 조회했습니다.", influencers.map(user -> MemberProfileResponse.from(user,
                 memberFacade.profileImageUrl(user.getProfileImageKey()),
                 ratings.getOrDefault(user.getId(), AppearanceRatingSummary.EMPTY), categoryNames)));
@@ -86,7 +88,8 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         User user = memberFacade.findProfile(memberId);
         return RsData.ok("회원 프로필을 조회했습니다.", MemberProfileDetailResponse.from(user,
                 memberFacade.profileImageUrl(user.getProfileImageKey()), memberFacade.findChannels(memberId),
-                memberFacade.findAppearanceRating(memberId), memberFacade.findContentCategoryNames()));
+                memberFacade.findAppearanceRating(memberId),
+                memberFacade.findContentCategoryNames(user.getContentCategories())));
     }
 
     /** 회원이 받은 출연 리뷰 목록 (최신 공개순). 리뷰는 출연 앱에서 읽고 쓴 회원 정보를 붙인다 (#555) */
@@ -166,6 +169,6 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
 
     private MemberMeResponse meResponse(User user) {
         return MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()),
-                memberFacade.findContentCategoryNames());
+                memberFacade.findContentCategoryNames(user.getContentCategories()));
     }
 }
