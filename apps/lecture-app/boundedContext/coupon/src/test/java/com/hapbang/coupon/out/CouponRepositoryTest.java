@@ -16,6 +16,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.CouponType;
+import com.hapbang.coupon.domain.MemberCoupon;
+import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -172,6 +174,43 @@ class CouponRepositoryTest {
                 .extracting(Coupon::getId).containsExactly(tieFirst);
         assertThat(couponRepository.findAllCoupons(CouponStatus.DRAFT, Limit.of(3)))
                 .extracting(Coupon::getId).containsExactly(platform, otherSeller, newest);
+    }
+
+    @Test
+    void 가격_인상_제한은_그_강의_대상_플랫폼_쿠폰이_OPEN이거나_미사용_발급_쿠폰이_있을_때다() {
+        long openLecture = 101L;
+        long reservedLecture = 102L;
+        long availableLecture = 103L;
+        long expiredLecture = 104L;
+        long sellerLecture = 105L;
+        long suspendedLecture = 106L;
+        save(Coupon.createPlatform(ADMIN_ID, lectureRate().lectureId(openLecture).build(), NOW), CouponStatus.OPEN);
+        Long reserved = save(Coupon.createPlatform(ADMIN_ID, lectureRate().lectureId(reservedLecture).build(), NOW),
+                CouponStatus.CLOSED);
+        Long available = save(Coupon.createPlatform(ADMIN_ID, lectureRate().lectureId(availableLecture).build(), NOW),
+                CouponStatus.CLOSED);
+        Long expired = save(Coupon.createPlatform(ADMIN_ID, lectureRate().lectureId(expiredLecture).build(), NOW),
+                CouponStatus.CLOSED);
+        save(Coupon.createSeller(SELLER_ID, lectureRate().lectureId(sellerLecture).build(), NOW), CouponStatus.OPEN);
+        save(Coupon.createPlatform(ADMIN_ID, lectureRate().lectureId(suspendedLecture).build(), NOW),
+                CouponStatus.SUSPENDED);
+        Instant later = NOW.plusSeconds(3_600);
+        MemberCoupon reservedCoupon = MemberCoupon.issue(MEMBER_ID, reserved, "req-1", NOW, NOW, NOW);
+        ReflectionTestUtils.setField(reservedCoupon, "status", MemberCouponStatus.RESERVED);
+        entityManager.persist(reservedCoupon);
+        entityManager.persist(MemberCoupon.issue(MEMBER_ID, available, "req-2", NOW, later, NOW));
+        // 만료 시각이 지금과 같은 AVAILABLE은 미사용으로 치지 않는다
+        entityManager.persist(MemberCoupon.issue(MEMBER_ID, expired, "req-3", NOW, NOW, NOW));
+        entityManager.flush();
+
+        assertThat(couponRepository.existsPriceRaiseBlocker(openLecture, NOW)).isTrue();
+        // RESERVED는 만료와 관계없이 미사용이다
+        assertThat(couponRepository.existsPriceRaiseBlocker(reservedLecture, NOW)).isTrue();
+        assertThat(couponRepository.existsPriceRaiseBlocker(availableLecture, NOW)).isTrue();
+        assertThat(couponRepository.existsPriceRaiseBlocker(expiredLecture, NOW)).isFalse();
+        assertThat(couponRepository.existsPriceRaiseBlocker(sellerLecture, NOW)).isFalse();
+        assertThat(couponRepository.existsPriceRaiseBlocker(suspendedLecture, NOW)).isFalse();
+        assertThat(couponRepository.existsPriceRaiseBlocker(999L, NOW)).isFalse();
     }
 
     private Long save(Coupon coupon, CouponStatus status) {

@@ -32,7 +32,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 | 8 | [`docs/notification/regression-log.md`](../../../../docs/notification/regression-log.md) | 테스트 실행 기록 |
 | 9 | [`PROGRESS.md`](PROGRESS.md) | 진행 상태·작업 계획·차단 요소 |
 
-Kafka 공통 규칙은 [`docs/architecture/infrastructure/kafka.md`](../../../../docs/architecture/infrastructure/kafka.md), 원천 설계는 [`docs/architecture/infrastructure/notification.md`](../../../../docs/architecture/infrastructure/notification.md)다.
+알림이 발행 모듈에 요청하는 이벤트 계약은 [`docs/notification/event-contracts.md`](../../../../docs/notification/event-contracts.md)다(ND-037). Kafka 공통 규칙은 [`docs/architecture/infrastructure/kafka.md`](../../../../docs/architecture/infrastructure/kafka.md), 원천 설계는 [`docs/architecture/infrastructure/notification.md`](../../../../docs/architecture/infrastructure/notification.md)다.
 
 ## 3. 구현 규칙
 
@@ -55,10 +55,10 @@ Kafka 공통 규칙은 [`docs/architecture/infrastructure/kafka.md`](../../../..
 ### 3.3 생성·저장
 
 - 같은 이벤트를 다시 받아도 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)로 한 번만 만든다. 묶음 알림은 (종류, 받는 사람, 묶음 키)다. 삭제된 행도 유일 인덱스에 남긴다(ND-019).
-- 원본 대상 ID는 ND-033을 따른다. 이벤트별로 쓸 필드는 미결(U5)이므로 그 이벤트를 소비하는 작업에서 발행 계약을 확인한 뒤 정한다.
-- 문구는 알림 모듈이 만들어 저장하고, 값(`jsonb`, 형식 버전 `v`)도 함께 저장한다(ND-020). 종류별 템플릿은 미결(U3).
+- 원본 대상 ID는 ND-033·ND-045를 따른다. 새로 요청하거나 값을 더하는 이벤트의 사건 ID는 `docs/notification/event-contracts.md`에 있다. 이미 발행 중인 이벤트의 필드는 미결(U5)이므로 그 이벤트를 소비하는 작업에서 발행 계약을 확인한 뒤 정한다.
+- 문구는 알림 모듈이 만들어 저장하고, 값(`jsonb`, 형식 버전 `v`)도 함께 저장한다(ND-020). 종류별 문구는 N2 구현 때 정한다(ND-039, 실제 문구는 U3).
 - 다른 회원의 닉네임을 문구에 넣으면 값에 그 회원 ID를 함께 저장하고, 그 회원의 `UserMaskedEvent`를 받으면 문구·값의 닉네임을 바꾼다(ND-036). 저장 구조와 갱신 방법은 미결(U19).
-- 종류 코드는 shared 이벤트 이름에서 `Event`를 뺀 UPPER_SNAKE다(ND-012). 규칙 밖 코드는 미결(U11).
+- 종류 코드는 shared 이벤트 이름에서 `Event`를 뺀 UPPER_SNAKE다(ND-012). 규칙 밖 코드는 미결(U11). 단체방 3종 코드는 채팅 안내와 이름이 같지만 뜻이 다르다(ND-043).
 - 목록은 이벤트의 업무 시각(발생 시각)으로 정렬한다. 받은 순서로 정렬하지 않는다(ND-021).
 - 보존은 회원별 삭제되지 않은 최신 20개다. 새 알림을 저장하는 **같은 트랜잭션 안에서** 21번째부터 Soft Delete한다. Hard Delete하지 않는다(ND-022, policy.md 7장 "삭제 정책").
 - 대상이 삭제돼도 알림은 남긴다(ND-024).
@@ -80,7 +80,7 @@ Kafka 공통 규칙은 [`docs/architecture/infrastructure/kafka.md`](../../../..
 ### 3.6 예약 알림
 
 - 예약은 알림 모듈이 이벤트를 받아 만들고 취소 이벤트로 취소한다. 보내기 직전에 상태를 다시 확인한다(ND-029~ND-031). 운영 시간과의 관계는 미결(U6).
-- 예약이 없을 때 온 취소는 취소 상태 행을 먼저 남긴다(ND-034). 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는지 확인하지 않은 예약 알림에는 적용하지 않는다(U16).
+- 예약이 없을 때 온 취소는 취소 상태 행을 먼저 남긴다(ND-034). 짝 키(대상 ID, 받는 사람)는 `docs/notification/event-contracts.md` 0.3에 있다. 실제 생성·취소 이벤트가 그 값을 주는지 확인하지 않은 예약 알림에는 적용하지 않는다(U16).
 
 ### 3.7 트랜잭션 경계 (확정된 범위만)
 
@@ -95,7 +95,7 @@ Kafka 공통 규칙은 [`docs/architecture/infrastructure/kafka.md`](../../../..
 - 미결 U1~U19과 팀 결정 필요 T1~T8은 [decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)에 있다. 해당 작업에 닿으면 구현하지 말고 결정 주체에게 질문한다. 질문과 결과는 기록한다(루트 AGENTS 10장). 결정되면 decisions.md에 새 `ND-*`로 먼저 적는다.
 - **consumer group 이름**은 미결이다(U1). 이름을 임의로 정해 코드에 넣지 않는다.
 - **패키지 구조**는 제안 단계다([`module.md`](../../../../docs/notification/module.md)의 제안 To-Be). 루트 AGENTS 11장에 따라 코드 컨벤션은 팀 합의 전이므로 확정된 규칙으로 쓰지 않는다.
-- 발행 모듈 이벤트 계약(notification.md 7장)은 각 발행 모듈 담당과 합의하기 전이다(decisions.md 8장). 발행 모듈 코드나 `common/shared` 이벤트를 알림 작업에서 임의로 만들거나 고치지 않는다.
+- 발행 모듈 이벤트 계약은 알림 담당이 정해 이벤트 계약 요청 문서에 두고, 발행 담당이 Issue로 받아 구현한다(ND-037). 발행 모듈 코드나 `common/shared` 이벤트를 알림 작업에서 임의로 만들거나 고치지 않는다.
 - 테스트 방식은 루트 AGENTS 11장에 따라 미정이다. [`test-spec.md`](../../../../docs/notification/test-spec.md)의 기준 밖은 질문한다.
 
 ## 5. 모듈을 실제로 만들 때

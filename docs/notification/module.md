@@ -59,8 +59,8 @@
 | 실패 메시지 DLT, 받지 않는 타입은 무시하고 커밋 | ND-010 |
 | 받는 사람 확인(알림 회원 복제본, 탈퇴 제외) | ND-018 (정지는 U8) |
 | 복제본이 아직 없는 받는 사람(블로킹 재시도 뒤 DLT) | ND-035 (첫 배포 Backfill은 U17) |
-| 중복 판정(유일 인덱스, 삭제된 행 포함) | ND-019, ND-033 (이벤트별 원본 대상 ID 필드는 U5) |
-| 문구·값 저장 | ND-020 (템플릿 U3) |
+| 중복 판정(유일 인덱스, 삭제된 행 포함) | ND-019, ND-033, ND-045 (새로 요청하는 이벤트의 사건 ID는 [이벤트 계약 요청](event-contracts.md), 이미 발행 중인 이벤트의 필드는 U5) |
+| 문구·값 저장 | ND-020, ND-039 (실제 문구는 U3) |
 | 파기된 회원의 닉네임(값에 회원 ID 저장, `UserMaskedEvent`로 갱신) | ND-036 (저장 구조·갱신 방법은 U19) |
 | 발생 시각 정렬 | ND-021 |
 | 최신 20개 보존, Soft Delete | ND-022 (묶음과 겹침 U9) |
@@ -70,7 +70,7 @@
 | commit 뒤 Redis Pub/Sub → STOMP, REST로 재동기화 | ND-027 |
 | 채팅 코드 복사(연결 티켓, Pub/Sub, Kafka·DLT, 유일 인덱스) | ND-028 |
 | 예약 알림·예약 배치 | ND-029~031 (운영 시간 U6) |
-| 예약보다 먼저 온 취소(취소 상태 행을 먼저 남김) | ND-034 (예약 알림별 식별 키 계약 검증은 U16) |
+| 예약보다 먼저 온 취소(취소 상태 행을 먼저 남김) | ND-034 (짝 키는 [이벤트 계약 요청](event-contracts.md) 0.3, 발행 구현 뒤 확인은 U16) |
 | 하루 묶음 | ND-032 |
 
 ### 3.3 처리 흐름 (설계, 미구현)
@@ -106,7 +106,7 @@
 
 ### 3.5 다른 앱 연동
 
-- **입력**: 받는 토픽·이벤트 목록과 상태는 [kafka.md](../architecture/infrastructure/kafka.md) "토픽 목록"과 [알림 종류](notification-catalog.md)를 따른다. 새 이벤트 요청은 각 발행 모듈과 계약 합의 전이다(decisions.md 8장). 기존 이벤트의 한계와 발행 앱과 정할 계약은 [5장](#5-다른-앱-이벤트-계약-2026-11-06-조사)에 있다.
+- **입력**: 받는 토픽·이벤트 목록과 상태는 [kafka.md](../architecture/infrastructure/kafka.md) "토픽 목록"과 [알림 종류](notification-catalog.md)를 따른다. 새 이벤트 요청은 알림 담당이 정해 [이벤트 계약 요청](event-contracts.md)에 둔다(ND-037). 기존 이벤트의 한계와 발행 앱과 정할 계약은 [5장](#5-다른-앱-이벤트-계약-2026-11-06-조사)에 있다.
 - **출력**: 다른 앱으로 내보내는 이벤트나 내부 HTTP API는 없다. 발행 모듈은 알림을 모른다(ND-008).
 - **회원 정보**: 회원 이벤트로 만든 복제본만 쓴다(ND-018). 회원 앱을 동기 호출하지 않는다. 복제본이 아직 없는 받는 사람은 ND-035를 따르고(DLT로 간 메시지는 [3.7](#37-실패와-재시도)의 재처리 runbook으로 다시 넣는다), 첫 배포 Backfill은 미결이다(U17, [5.4](#54-회원-복제본-첫-배포-backfill-미결-u17)).
 - **같은 앱의 다른 모듈**: 연동이 필요하면 Spring 이벤트로만 한다(auxiliary README "모듈 사이 이벤트"). 지금 설계에는 연동이 없다.
@@ -172,24 +172,23 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | M3 출연 🆕 12종 | 같은 이름 레코드 없음. 대체 후보 `AppearanceChangedEvent`(#713)는 `AppearanceSyncDto`(id, hostId, guestId, result, scheduledAt, version)만 담고, 상태 6개를 결과 4개로 줄이며, 순서를 보장하지 않는다. 요청/지원 수락, 일방/합의 취소, 호스트/자동 확인, 성립/취소 요청을 구분하지 못하고 요청서·지원·모집글 단계 전이는 다루지 않는다. **M3 전체를 대체할 수 없다**. 부분 충족 5종(요청 수락·지원 수락·일방 취소·자동 확인·불참), 미충족 7종 | `common/shared/src/main/java/com/hapbang/shared/appearance/dto/AppearanceSyncDto.java`, `apps/appearance-app/src/main/java/com/hapbang/appearance/domain/AppearanceStatus.java` 34~40행, [internal-appearance-sync.md](../api/internal-appearance-sync.md) 4장 |
 | M4 강의 🆕 7종 | 레코드 없음. 대체 후보 #712 `LectureChangedEvent`(제목·`sellerUserId` 있음, 검수 상태·반려 사유·발생 시각 없음, `onSale`만), `LecturePurchaseChangedEvent`(`buyerUserId`·`purchasedAt`, 결과 `OWNED`·`FAILED`·`CANCELED`, 제목·금액 없음, 항목 단위). 구매 확정·지급 전이는 동기화 이벤트도 없다. 부분 충족 4종(검수 승인·구매 완료·결제 실패·구매 취소), 미충족 3종(검수 반려·자동 구매 확정·이의 제기 접수) | `apps/lecture-app/src/main/java/com/hapbang/lecture/app/LectureSyncEvents.java` 59행 근처, `apps/lecture-app/src/main/java/com/hapbang/lecture/app/OrderObjectionFileUseCase.java` |
 | M5 지갑 🆕 4종 | 충전 실패·환불 실패·환불 운영자 확인·환전 승인 모두 발행 없음(미충족). 기존 7종이 같은 방식의 본보기 | `apps/billing-app/src/main/java/com/hapbang/billing/app/BillingEventPublisher.java` 39~81행, `ChargeProcessing`·`RefundProcessing`·`ExchangeReviewUseCase` |
-| M6 회원 🆕 2종 | 채널 인증 반려·승급 반려 발행 없음(미충족). 승인 2종은 `UserModifiedEvent`(`UserDto`: id, nickname, role, status, version, 이전 역할 없음) + 복제본 비교. 승급 승인은 판별 가능, 채널 인증 승인은 U18 | `apps/member-app/src/main/java/com/hapbang/member/app/MemberChannelReviewUseCase.java`, `apps/member-app/src/main/java/com/hapbang/member/app/MemberUpgradeReviewUseCase.java` |
+| M6 회원 🆕 2종 | 채널 인증 반려·승급 반려 발행 없음(미충족). 승인 2종은 `UserModifiedEvent`(`UserDto`: id, nickname, role, status, version, 이전 역할 없음) + 복제본 비교. 승급 승인은 판별 가능, 채널 인증 승인은 새 이벤트로 요청(ND-042) | `apps/member-app/src/main/java/com/hapbang/member/app/MemberChannelReviewUseCase.java`, `apps/member-app/src/main/java/com/hapbang/member/app/MemberUpgradeReviewUseCase.java` |
 | M7 고객센터 🆕 3종 | 답변 등록·답변 수정·접수 불가 발행 없음(미충족). 재시도 배치 경로는 `delete=false`로 식별 가능 | `apps/customer-support-app/src/main/java/com/hapbang/customersupport/app/InquiryUseCase.java`, `apps/customer-support-app/src/main/java/com/hapbang/customersupport/app/LectureObjectionFiler.java` |
 
-### 5.3 발행 앱과 정할 계약 (합의 전)
+### 5.3 발행 앱과 정할 계약
 
-> **미결.** 아래는 조사로 드러난 필요 작업이다. 이벤트 이름·값은 N 7장·decisions.md 8장 요청 그대로이며 발행 모듈과 합의(N0) 전이다. 알림 쪽에서 이벤트·DTO를 만들지 않는다.
-
-공통(새 이벤트마다): (1) shared 레코드에 `@Externalized` (2) 발행 앱 외부화 설정에 eventType 헤더 (3) [kafka.md](../architecture/infrastructure/kafka.md) 토픽 표 갱신.
+> 이벤트 이름·key·담을 값과 계약 상태의 원본은 [이벤트 계약 요청](event-contracts.md)이다(ND-037, 발행 공통 규칙은 그 문서 0.2). 아래는 조사로 드러난 발행 앱별 구현 위치다. 알림 쪽에서 이벤트·DTO를 만들지 않는다.
 
 | 묶음 | 발행 앱 | 필요 작업 |
 | --- | --- | --- |
 | M1 | appearance-app | 취소 요청 3종 Kafka 외부화(필드는 있음) |
 | M2 | lecture-app | 이의 제기 4종에 `buyerUserId`·`sellerUserId`·강의 제목 추가 |
 | M3 | appearance-app | 출연 🆕 이벤트 신설. `AppearanceChangedEvent`로 대신할지는 사건 구분 불가로 어렵다. 출연 전 단계 8종은 발행 지점 자체가 없다(`AppearanceRequestRejectUseCase`, `AppearanceRequestCancelUseCase`, `AppearanceRequestExpireUseCase`, `AppearanceApplicationRespondUseCase.reject`, `AppearanceRecruitHoldUseCase.markRecruiting`, `AppearanceRecruitCloseUseCase`, `AppearanceRecruitDeadlineCloseUseCase`, `AppearanceRecruitCloseRecorder`, `AppearanceRecruitCancelUseCase`) |
-| M4 | lecture-app | 강의 🆕 이벤트 신설 또는 #712 동기화 이벤트에 사건 구분·필드 추가(어느 쪽인지 미정). 구매 확정은 예약 취소에도 필요 |
-| M5 | billing-app | 🆕 4종을 `BillingEventPublisher`와 같은 방식으로 발행 |
-| M6 | member-app | 반려 2종 신설. 채널 인증 승인 사건 이벤트 신설 여부는 U18 |
+| M4 | lecture-app | 강의 🆕 이벤트 신설(계약 요청 2장). 구매 확정은 예약 취소에도 필요 |
+| M5 | billing-app | 🆕 4종을 `BillingEventPublisher`와 같은 방식으로 발행, `PayoutCompletedEvent`에 `sourceTitle`(ND-040, 출연·강의의 지급 요청 포함) |
+| M6 | member-app | 반려 2종과 `InfluencerChannelApprovedEvent`(ND-042) 신설 |
 | M7 | customer-support-app | 답변 등록·수정, 재시도 배치 접수 불가 이벤트 신설 |
+| M8 | chat-app | 단체방 3종, 새 토픽 `chat.events.v1`(ND-044) |
 
 ### 5.4 회원 복제본 첫 배포 Backfill (미결, U17)
 
@@ -205,21 +204,20 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | ID | 걸리는 설계 | 막는 작업 |
 | --- | --- | --- |
 | U1 / T2 | consumer group 이름 | Kafka Listener·DLT 이름 |
-| U5 | 이벤트별 원본 대상 ID 필드(원칙은 ND-033) | 각 이벤트 소비 작업의 유일 인덱스 값 |
+| U5 | 이미 발행 중인 이벤트의 원본 대상 ID 필드(원칙은 ND-033·ND-045) | 각 이벤트 소비 작업의 유일 인덱스 값 |
 | U6 / T5 | EC2 운영 시간과 예약 배치 | 예약 배치 |
 | U7 / T5 | 첫 배포 때 과거 이벤트 처리 | 첫 배포 |
 | U9 | 하루 묶음과 20개 보존 겹침 | 하루 묶음 |
 | U13 | Hikari·스케줄 스레드·메모리 예산(챗봇과 공유) | 모듈 추가 PR |
 | U14 | WebSocket 경로 Gateway 시간 제한 | Envoy route |
 | U15 | `X-User-Token-Exp` 헤더 | 연결 티켓·STOMP |
-| U3, U4 | 문구 템플릿, 지급 알림 제목 | 문구 생성 |
+| U3 | 종류별 실제 문구(원칙은 ND-039) | 문구 생성(N2) |
 | U8 | 정지 회원 | 받는 사람 확인 |
 | U2 / T3 | P0 완료 기준 | 작업 계획 |
-| U10, U11 / T4, U12 | 출연·채팅 이벤트 계약, 종류 코드, 채팅과 동시 표시 | 해당 이벤트 소비 |
+| U11, U12 | 규칙 밖 종류 코드, 채팅과 동시 표시 | 해당 알림 생성·소비 |
 | T8 | chat-app 불변식과 ND-004의 방향 차이 | 채팅 소유, 이 모듈 구조에는 영향 없음 |
-| U16 | 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는지 예약 알림별 계약 검증(처리 방향은 ND-034, `NT-SCH-06`) | 예약 알림별 소비 작업 |
+| U16 | 발행 구현 뒤 생성·취소 이벤트가 짝 키(event-contracts 0.3)를 주는지 예약 알림별 확인(처리 방향은 ND-034, `NT-SCH-06`) | 예약 알림별 소비 작업 |
 | U17 | 첫 배포 Backfill(5.4, `NT-USR-06`). 복제본 없음 경쟁은 ND-035 | 첫 배포 |
-| U18 | ND-016과 회원 코드 불일치(관리자 인플루언서 지정, 이미 인플루언서인 회원의 채널 승인). 회원+알림 담당 협의 | 회원 이벤트 소비(채널 인증 승인) |
 | U19 | 값의 회원 ID 필드 구조·검색 인덱스, 갱신 단위·멱등, `UserModifiedEvent`와의 순서, 문구 재생성 또는 문자열 치환(방향은 ND-036, `NT-USR-07`) | `notification` 값·인덱스 설계, `UserMaskedEvent` 소비 |
 
 ## 7. 갱신 이력
@@ -230,4 +228,7 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | 2026-11-06 | 5장 신설: 발행 앱 코드(dev) 조사로 기존 이벤트 한계(M1~M7), 발행 앱과 정할 계약(합의 전), 회원 복제본 첫 배포 Backfill(U17, 미결)을 적었다. 미결 설계 표에 U16·U17·U18 추가. 결정은 바꾸지 않았다 |
 | 2026-11-06 | 미결 설계 표에 U19(닉네임 파기)를 더했다 |
 | 2026-11-09 | ND-033~ND-036 반영: 3.2 처리 규칙 표에 참조를 더하고, 3.5·5.4의 복제본 없음 서술을 ND-035 참조로 바꿨다(5.4의 U17 선택지 목록은 decisions.md와 중복이라 지웠다). 6장 U5·U16·U17·U19는 남은 미결만 남겼다. 결정은 바꾸지 않았다 |
+| 2026-11-09 | #794 리뷰 반영: 3.2 예약보다 먼저 온 취소 행과 6장 U16에 예약 짝 키 위치(event-contracts 0.3)를 더했다 |
+| 2026-11-09 | ND-045 반영: 3.2 중복 판정 행과 6장 U5에 회차 번호 규칙과 이벤트 계약 요청 위치를 더했다 |
+| 2026-11-09 | ND-037~ND-044 반영: 5.3을 이벤트 계약 요청 참조로 바꾸고 M4·M5·M6 작업을 고치고 M8을 더했다. 3.2·3.5·5.2·6장의 U3·U4·U10·U11·U18 서술을 결정 참조로 바꿨다 |
 | 2026-11-09 | PR 리뷰 반영(#785): 3.5의 복제본 없음 서술에 DLT 재처리 경로(3.7) 참조를 더했다 |

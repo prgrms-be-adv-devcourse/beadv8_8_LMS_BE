@@ -6,7 +6,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.hapbang.coupon.domain.ProcessedOperation;
 
-/** 처리한 작업의 멱등 기록 저장소. 작업 ID는 UNIQUE({@code uk_processed_operation_operation_id})다 */
+/**
+ * 처리한 작업의 멱등 기록 저장소. 작업 ID는 UNIQUE({@code uk_processed_operation_operation_id})다. 발급 요청 처리와 쿠폰 사용 작업
+ * (예약 {@code coupon-reserve:{workId}}·해제 {@code coupon-release:{workId}})이 함께 쓴다.
+ */
 public interface ProcessedOperationRepository extends JpaRepository<ProcessedOperation, Long> {
 
     /** 작업 ID UNIQUE 제약 이름. 같은 작업을 동시에 넣으면 이 제약이 막는다 */

@@ -6,12 +6,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
- * 회원이 다른 앱(출연·강의) 내부 API를 부르는 호출의 circuit breaker 설정 (#654). 회로 하나의 값을 상대마다 따로 쓴다.
+ * 회원이 다른 앱(출연·강의) 내부 API와 Redis(프로필 사진 주소 캐시, #770)를 부르는 호출의 circuit breaker 설정 (#654).
+ * 회로 하나의 값을 상대마다 따로 쓴다.
  * 기본값은 지갑 OutboundResilienceProperties(#562)와 같다. 배포 뒤 지표를 보고 다시 맞춘다.
  * <ul>
  *     <li>slidingWindowSize·minimumNumberOfCalls: 최근 20번 중 10번 이상 호출했을 때 실패율을 본다</li>
  *     <li>failureRateThreshold·slowCallRateThreshold: 실패·느린 호출 비율(%)이 넘으면 연다. slowCallDuration보다 오래 걸리면 느린 호출이다</li>
  *     <li>openDuration: 열린 뒤 HALF_OPEN으로 가기까지. halfOpenCalls: HALF_OPEN에서 시험 삼아 보낼 호출 수</li>
+ *     <li>profileImageUrlCacheSlowCallDuration: 프로필 사진 주소 캐시(Redis) 회로만의 느린 호출 기준. Redis는 평소 밀리초 안에 답하므로
+ *     다른 앱 호출(slowCallDuration)보다 짧게 둔다. 나머지 값은 같이 쓴다</li>
  * </ul>
  */
 @ConfigurationProperties("hapbang.member.outbound")
@@ -22,7 +25,8 @@ public record MemberOutboundResilienceProperties(
         Duration slowCallDuration,
         Float slowCallRateThreshold,
         Duration openDuration,
-        Integer halfOpenCalls
+        Integer halfOpenCalls,
+        Duration profileImageUrlCacheSlowCallDuration
 ) {
 
     @ConstructorBinding
@@ -34,10 +38,12 @@ public record MemberOutboundResilienceProperties(
         slowCallRateThreshold = slowCallRateThreshold == null ? 50f : slowCallRateThreshold;
         openDuration = openDuration == null ? Duration.ofSeconds(30) : openDuration;
         halfOpenCalls = halfOpenCalls == null ? 3 : halfOpenCalls;
+        profileImageUrlCacheSlowCallDuration = profileImageUrlCacheSlowCallDuration == null
+                ? Duration.ofMillis(500) : profileImageUrlCacheSlowCallDuration;
     }
 
     /** 설정 없이 쓰는 기본값 (테스트에서 직접 만들 때) */
     public static MemberOutboundResilienceProperties defaults() {
-        return new MemberOutboundResilienceProperties(null, null, null, null, null, null, null);
+        return new MemberOutboundResilienceProperties(null, null, null, null, null, null, null, null);
     }
 }
