@@ -3,13 +3,17 @@ package com.hapbang.coupon.app;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Ticker;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.config.CouponClockConfig;
@@ -17,6 +21,9 @@ import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponSoldOutCacheProperties;
 import com.hapbang.coupon.domain.SoldOutSignal;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -25,41 +32,65 @@ import lombok.extern.slf4j.Slf4j;
  * 막지 않고, Redis에 닿지 못하면 매진이 아닌 것으로 보고 Lua에 맡긴다. TTL이 0이면 캐시를 끄고 sold_out을 읽지 않는다.
  * <p>
  * 인스턴스(JVM)마다 따로 가진다. 매진이 아니라는 값도 담는다(발급 중인 쿠폰마다 요청당 GET이 하나 더 늘지 않게). 접수 경로는 쿠폰이 있는지
- * 확인하기 전에 이 캐시를 보므로 없는 쿠폰 ID도 항목이 될 수 있어 크기를 제한한다.
+ * 확인하기 전에 이 캐시를 보므로 없는 쿠폰 ID도 항목이 될 수 있어 크기를 제한한다. TTL 만료와 크기 제한은 Caffeine 캐시 하나가 맡는다.
  * <ul>
- *     <li>만료 제거: 항목을 넣을 때 앞 정리에서 TTL 이상 지났으면 만료 항목을 모두 지운다(TTL마다 한 스레드만 한다).</li>
- *     <li>상한: 항목 수가 {@code hapbang.coupon.sold-out-cache-max-entries}에 닿으면 새 쿠폰은 담지 않는다(이미 있는 쿠폰은 갱신한다).
- *     담지 못한 쿠폰은 다음 확인 때 Redis를 다시 읽을 뿐이고 판정은 같다. 동시에 넣으면 상한을 조금 넘을 수 있다.</li>
+ *     <li>만료: 쓴 뒤 TTL이 지나면 만료다(쿠폰 시계 기준). 다시 쓰면 그때부터 다시 센다. 시계가 읽은 시각보다 앞으로 돌아갔으면
+ *     {@link SoldOutSignal#freshAt}이 다시 읽게 한다.</li>
+ *     <li>상한: 항목 수가 {@code hapbang.coupon.sold-out-cache-max-entries}를 넘으면 Caffeine이 덜 쓰이는 항목을 내보낸다(방금 넣은
+ *     항목일 수도 있다). 내보낸 쿠폰은 다음 확인 때 Redis를 다시 읽을 뿐이고 판정은 같다. 정리는 비동기라 잠깐 상한을 넘을 수 있다.</li>
  * </ul>
+ * 지표는 Micrometer {@code cache.*}에 {@code cache=coupon.issue.sold_out} 태그로 남는다. TTL이 0이면 캐시가 없어 지표도 없다.
  */
 @Slf4j
 @Component
 public class CouponSoldOutCache {
 
+    /** Micrometer 캐시 지표의 {@code cache} 태그 값 */
+    static final String METRIC_CACHE_NAME = "coupon.issue.sold_out";
+
     private final CouponIssueStore couponIssueStore;
     private final Duration ttl;
-    private final int maxEntries;
     private final Clock clock;
-    private final Map<Long, SoldOutSignal> signals = new ConcurrentHashMap<>();
-    private final AtomicReference<Instant> lastSweepAt;
+    /** TTL이 0이면 null이다(캐시를 쓰지 않는다) */
+    private final Cache<Long, SoldOutSignal> signals;
 
+    @Autowired
     public CouponSoldOutCache(CouponIssueStore couponIssueStore, CouponIssueDeliveryProperties properties,
                               CouponSoldOutCacheProperties cacheProperties,
-                              @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
+                              @Qualifier(CouponClockConfig.CLOCK) Clock clock,
+                              ObjectProvider<MeterRegistry> meterRegistry) {
+        this(couponIssueStore, properties, cacheProperties, clock, meterRegistry.getIfAvailable(SimpleMeterRegistry::new),
+                ForkJoinPool.commonPool());
+    }
+
+    /** 테스트가 Caffeine 정리 작업을 호출한 스레드에서 바로 돌리도록 실행기를 받는다 */
+    CouponSoldOutCache(CouponIssueStore couponIssueStore, CouponIssueDeliveryProperties properties,
+                       CouponSoldOutCacheProperties cacheProperties, Clock clock, MeterRegistry meterRegistry,
+                       Executor maintenanceExecutor) {
         this.couponIssueStore = couponIssueStore;
         this.ttl = properties.soldOutCacheTtl();
-        this.maxEntries = cacheProperties.soldOutCacheMaxEntries();
         this.clock = clock;
-        this.lastSweepAt = new AtomicReference<>(clock.instant());
+        if (ttl.isZero()) {
+            this.signals = null;
+            return;
+        }
+        this.signals = Caffeine.newBuilder()
+                .expireAfterWrite(ttl)
+                .maximumSize(cacheProperties.soldOutCacheMaxEntries())
+                .ticker(tickerOf(clock))
+                .executor(maintenanceExecutor)
+                .recordStats()
+                .build();
+        CaffeineCacheMetrics.monitor(meterRegistry, signals, METRIC_CACHE_NAME);
     }
 
     /** 매진으로 알고 있는가. TTL 안의 값이면 Redis를 부르지 않는다 */
     public boolean isSoldOut(long couponId) {
-        if (ttl.isZero()) {
+        if (signals == null) {
             return false;
         }
-        SoldOutSignal cached = signals.get(couponId);
         var now = clock.instant();
+        SoldOutSignal cached = signals.getIfPresent(couponId);
         if (cached != null && cached.freshAt(now, ttl)) {
             return cached.soldOut();
         }
@@ -70,38 +101,31 @@ public class CouponSoldOutCache {
             log.debug("매진 표시를 읽지 못해 발급 Lua에 판정을 맡긴다 couponId={}", couponId, e);
             return false;
         }
-        remember(couponId, new SoldOutSignal(soldOut, now));
+        signals.put(couponId, new SoldOutSignal(soldOut, now));
         return soldOut;
     }
 
     /** 발급 Lua가 매진(0)을 돌려줬다. 다음 요청부터 TTL 동안 Redis를 부르지 않는다 */
     public void markSoldOut(long couponId) {
-        if (!ttl.isZero()) {
-            remember(couponId, new SoldOutSignal(true, clock.instant()));
+        if (signals != null) {
+            signals.put(couponId, new SoldOutSignal(true, clock.instant()));
         }
     }
 
-    /** 지금 담고 있는 항목 수(만료됐지만 아직 지우지 않은 항목 포함) */
-    int size() {
-        return signals.size();
+    /** 지금 담고 있는 항목 수. 만료·상한 정리를 먼저 끝낸 뒤 센다 */
+    long size() {
+        if (signals == null) {
+            return 0;
+        }
+        signals.cleanUp();
+        return signals.estimatedSize();
     }
 
-    private void remember(long couponId, SoldOutSignal signal) {
-        sweepExpired(signal.readAt());
-        if (signals.size() >= maxEntries && !signals.containsKey(couponId)) {
-            return;
-        }
-        signals.put(couponId, signal);
-    }
-
-    /** 앞 정리에서 TTL 이상 지났으면(시계가 뒤로 갔어도) 만료 항목을 지운다. 먼저 온 스레드 하나만 한다 */
-    private void sweepExpired(Instant now) {
-        Instant last = lastSweepAt.get();
-        if (now.isBefore(last.plus(ttl)) && !now.isBefore(last)) {
-            return;
-        }
-        if (lastSweepAt.compareAndSet(last, now)) {
-            signals.values().removeIf(signal -> !signal.freshAt(now, ttl));
-        }
+    /** 쿠폰 시계를 Caffeine 시간(나노초)으로 바꾼다. 만료 판정이 {@link SoldOutSignal}과 같은 시계를 보게 한다 */
+    private static Ticker tickerOf(Clock clock) {
+        return () -> {
+            Instant now = clock.instant();
+            return now.getEpochSecond() * 1_000_000_000L + now.getNano();
+        };
     }
 }

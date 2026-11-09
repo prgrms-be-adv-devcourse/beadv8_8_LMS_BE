@@ -62,7 +62,8 @@ class CouponIssueRequestUseCaseTest {
         Clock clock = Clock.fixed(NOW_WITH_MICROS, ZoneOffset.UTC);
         CouponIssueDeliveryProperties properties = CouponIssueDeliveryProperties.defaults();
         useCase = new CouponIssueRequestUseCase(issueStore, publisher,
-                new CouponSoldOutCache(issueStore, properties, CouponSoldOutCacheProperties.defaults(), clock), properties, registry(meterRegistry), clock);
+                new CouponSoldOutCache(issueStore, properties, CouponSoldOutCacheProperties.defaults(), clock, meterRegistry,
+                        Runnable::run), properties, registry(meterRegistry), clock);
         when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
     }
 

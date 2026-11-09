@@ -19,6 +19,8 @@ dependencies {
     compileOnly("org.postgresql:postgresql")
     // 발급 복구·대사 지표(Micrometer). 레지스트리는 같은 JVM의 lecture-app actuator가 준다. 버전은 Boot BOM을 따른다
     implementation("io.micrometer:micrometer-core")
+    // 매진 표시 메모리 캐시(TTL·항목 수 상한). 버전은 Boot BOM을 따른다
+    implementation(libs.caffeine)
 
     testImplementation(project(":test-support"))
     // Facade 테스트의 역할 넣기(@WithMockUser)
