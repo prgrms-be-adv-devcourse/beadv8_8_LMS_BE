@@ -1,11 +1,47 @@
-# 챗봇 모듈 테스트 전용 설정. 테스트가 spring.config.name=hapbang-module-test로 읽는다. 배포 jar에는 포함되지 않는다.
+# 챗봇 모듈 테스트 전용 설정. 테스트가 spring.config.name=hapbang-module-test로 읽는다(앱 application.yaml을 읽지 않는다). 배포 jar에는 포함되지 않는다.
 spring:
+  config:
+    import: classpath:swagger.yml
   datasource:
     hikari:
       # 테스트는 컨텍스트를 여러 개 캐시하고 각 컨텍스트가 연결 풀을 가진다. PostgreSQL 컨테이너의 max_connections(100)를 넘지 않게 줄인다
       maximum-pool-size: 5
+  # 실제 모델을 만들지 않는다. 필요한 테스트가 가짜 모델(support/FakeAiModelsConfig)을 가져온다.
+  # 값이 없으면 OpenAI·Ollama 자동 설정이 둘 다 켜지므로 반드시 none을 적는다
+  ai:
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+    vectorstore:
+      type: none
+  elasticsearch:
+    # ES를 쓰는 테스트는 ElasticsearchTestcontainersConfig가 주소를 바꾼다. 나머지는 닿지 않는 주소다
+    uris: http://127.0.0.1:9
+    connection-timeout: 1s
+    socket-timeout: 5s
+management:
+  otlp:
+    metrics:
+      export:
+        # 앱 application.yaml과 같이 OTLP 지표 전송을 끈다(테스트 로그에 연결 실패가 쌓이지 않게)
+        enabled: false
 hapbang:
   chatbot:
     appearance-events:
       # 출연 이벤트 소비는 Kafka 테스트(AppearanceCopyEventListenerTest)에서만 켠다
       enabled: false
+    faq:
+      # 가짜 임베딩(8차원)에 맞춘 값. 기준값 경계는 FaqIndexingIntegrationTest.similarityThresholdBoundary가 확인한다
+      index-name: chatbot-faq-test-8
+      dimensions: 8
+      similarity-threshold: 0.8
+      # FakeEmbeddingModel.QUERY_PREFIX와 같다. 질문 임베딩에 접두어가 붙는지도 함께 확인한다
+      query-prefix: "query: "
+      sync-on-startup: false
+      chat-timeout: 2s
+      stream-timeout: 2s

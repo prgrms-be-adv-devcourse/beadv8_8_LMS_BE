@@ -35,14 +35,15 @@ class ChatbotSyncLockTest extends ChatbotIntegrationTestBase {
     private SyncRunRepository syncRunRepository;
 
     @Test
-    @DisplayName("챗봇 작업의 락 번호는 겹치지 않고 이 이슈 번호 × 1000 + 순번이다(같은 database를 쓰는 다른 모듈과 겹치지 않게)")
+    @DisplayName("챗봇 작업의 락 번호는 겹치지 않고 그 작업을 더한 이슈 번호 × 1000 + 순번이다(같은 database를 쓰는 다른 모듈과 겹치지 않게)")
     void lockKeys() {
         assertThat(Arrays.stream(ChatbotJob.values()).map(ChatbotJob::lockKey).distinct().count())
                 .isEqualTo(ChatbotJob.values().length);
         assertThat(Arrays.stream(ChatbotJob.values()).map(ChatbotJob::tag).distinct().count())
                 .isEqualTo(ChatbotJob.values().length);
         assertThat(ChatbotJob.values()).allSatisfy(job -> {
-            assertThat(job.lockKey() / 1000).isEqualTo(716);
+            // 출연 싱크 #716, FAQ 맞추기 #715
+            assertThat(job.lockKey() / 1000).isIn(715L, 716L);
             assertThat(job.tag()).startsWith("chatbot-");
         });
     }

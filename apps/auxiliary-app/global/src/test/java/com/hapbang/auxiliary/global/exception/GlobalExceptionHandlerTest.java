@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.hapbang.auxiliary.global.config.SecurityConfig;
+import com.hapbang.auxiliary.global.ratelimit.RateLimitExceededException;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.testsupport.TestLogin;
 
@@ -62,6 +64,16 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.code").value("SAMPLE_NOT_FOUND"))
                 .andExpect(jsonPath("$.detail").value("샘플을 찾을 수 없습니다."));
+    }
+
+    @Test
+    void 요청_한도_초과는_429와_Retry_After_헤더로_응답한다() throws Exception {
+        mockMvc.perform(asUser(get("/api/v1/samples/rate-limited")))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "7"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(jsonPath("$.detail").value(GlobalErrorCode.TOO_MANY_REQUESTS.getMessage()));
     }
 
     @Test
@@ -235,6 +247,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/api/v1/samples/module-code")
         void moduleCode() {
             throw new BusinessException(SampleErrorCode.SAMPLE_NOT_FOUND);
+        }
+
+        @GetMapping("/api/v1/samples/rate-limited")
+        void rateLimited() {
+            throw new RateLimitExceededException(7);
         }
 
         @GetMapping("/api/v1/samples/module-code-detail")
