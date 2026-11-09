@@ -28,20 +28,27 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * 거절할 수 있는 기록은 PENDING과 재처리 선점 lease가 지난 REPLAYING이다. 이미 다시 처리한 기록(REPLAYED)과 lease 안의 REPLAYING은 409
  * {@code COUPON_DLT_ALREADY_RESOLVED}다. 이미 거절한 기록을 다시 거절하면 그대로 돌려준다.
+ * <p>
+ * 원문의 이벤트가 이미 같은 내용으로 반영됐으면(소비 멱등 기록이 있음) 거절하지 않고 409 {@code COUPON_DLT_ALREADY_RESOLVED}다. 재처리가
+ * 소비를 커밋한 뒤 REPLAYED를 남기기 전에 멈춰 REPLAYING으로 남은 기록이나, 강의의 재발행이 따로 반영된 기록이 그렇다. 재처리로 닫으면
+ * 소비 멱등이 아무것도 바꾸지 않고 REPLAYED로 끝난다.
  */
 @Slf4j
 @Service
 public class CouponOrderDltRejectUseCase {
 
     private final CouponDltLogRepository couponDltLogRepository;
+    private final CouponOrderConsumerUseCase couponOrderConsumerUseCase;
     private final CouponDltProperties dltProperties;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public CouponOrderDltRejectUseCase(CouponDltLogRepository couponDltLogRepository,
+                                       CouponOrderConsumerUseCase couponOrderConsumerUseCase,
                                        CouponDltProperties dltProperties, PlatformTransactionManager transactionManager,
                                        @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponDltLogRepository = couponDltLogRepository;
+        this.couponOrderConsumerUseCase = couponOrderConsumerUseCase;
         this.dltProperties = dltProperties;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -63,6 +70,13 @@ public class CouponOrderDltRejectUseCase {
                 if (dltLog.getStatus() == CouponDltStatus.REPLAYING && !dltLog.canClaim(now, replayLease)) {
                     throw new CouponException(CouponErrorCode.COUPON_DLT_ALREADY_RESOLVED,
                             "재처리가 진행 중인 DLT 기록입니다. 결과를 확인하거나 재처리 선점이 풀린 뒤 다시 시도해 주세요.");
+                }
+                // 이미 거절한 기록은 다시 거절해도 바뀌지 않으므로 반영 여부를 보지 않는다
+                if (dltLog.getStatus() != CouponDltStatus.REJECTED
+                        && CouponDltPayload.readOrderEvent(dltLog.getPayload())
+                                .filter(couponOrderConsumerUseCase::isProcessed).isPresent()) {
+                    throw new CouponException(CouponErrorCode.COUPON_DLT_ALREADY_RESOLVED,
+                            "이미 반영된 이벤트입니다. 재처리로 닫아 주세요.");
                 }
                 dltLog.reject(adminId, reason, now, replayLease);
                 return CouponDltLogView.from(couponDltLogRepository.saveAndFlush(dltLog));

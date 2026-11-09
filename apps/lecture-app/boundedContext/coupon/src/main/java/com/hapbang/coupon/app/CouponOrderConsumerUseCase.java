@@ -85,12 +85,7 @@ public class CouponOrderConsumerUseCase {
      * @throws CouponOrderConsumerIsolationException 재시도해도 같은 결과라 바로 격리할 이벤트
      */
     public Result consume(OrderItemPaidEvent event) {
-        List<UsageRef> usages = event.usages().stream()
-                .map(usage -> new UsageRef(usage.memberCouponId(), usage.generation()))
-                .toList();
-        List<String> extraParts = List.of();
-        return consume(new Settlement(EVENT_PAID, event.eventId(), event.orderId(), event.orderItemId(),
-                event.memberId(), usages, event.paidAt(), extraParts));
+        return consume(settlementOf(event));
     }
 
     /**
@@ -99,6 +94,35 @@ public class CouponOrderConsumerUseCase {
      * @throws CouponOrderConsumerIsolationException 재시도해도 같은 결과라 바로 격리할 이벤트
      */
     public Result consume(OrderItemCancelCompletedEvent event) {
+        return consume(settlementOf(event));
+    }
+
+    /**
+     * 이 이벤트가 이미 같은 내용으로 반영됐는가(소비 멱등 기록이 있다). 관리자 영구 거절이 이미 반영된 이벤트의 격리 기록을 거절로 닫지
+     * 않게 확인한다. 호출자의 트랜잭션 안에서 읽는다.
+     *
+     * @param event {@link OrderItemPaidEvent} 또는 {@link OrderItemCancelCompletedEvent}
+     */
+    public boolean isProcessed(Object event) {
+        Settlement settlement = switch (event) {
+            case OrderItemPaidEvent paid -> settlementOf(paid);
+            case OrderItemCancelCompletedEvent canceled -> settlementOf(canceled);
+            default -> throw new IllegalArgumentException("주문 결제·취소 완료 이벤트가 아닙니다: " + event.getClass().getName());
+        };
+        return processedOperationRepository.findByOperationId(settlement.eventId())
+                .filter(processed -> processed.sameContent(settlement.contentKey()))
+                .isPresent();
+    }
+
+    private static Settlement settlementOf(OrderItemPaidEvent event) {
+        List<UsageRef> usages = event.usages().stream()
+                .map(usage -> new UsageRef(usage.memberCouponId(), usage.generation()))
+                .toList();
+        return new Settlement(EVENT_PAID, event.eventId(), event.orderId(), event.orderItemId(), event.memberId(),
+                usages, event.paidAt(), List.of());
+    }
+
+    private static Settlement settlementOf(OrderItemCancelCompletedEvent event) {
         List<UsageRef> usages = event.usages().stream()
                 .map(usage -> new UsageRef(usage.memberCouponId(), usage.generation()))
                 .toList();
@@ -107,8 +131,8 @@ public class CouponOrderConsumerUseCase {
         extraParts.add("b" + Objects.toString(event.billingReleaseRequestId(), ""));
         event.budgetRestorations().forEach(restoration -> extraParts.add("p" + restoration.couponId() + "|"
                 + restoration.memberCouponId() + "|" + restoration.generation() + "|" + restoration.amount()));
-        return consume(new Settlement(EVENT_CANCEL_COMPLETED, event.eventId(), event.orderId(), event.orderItemId(),
-                event.memberId(), usages, event.completedAt(), extraParts));
+        return new Settlement(EVENT_CANCEL_COMPLETED, event.eventId(), event.orderId(), event.orderItemId(),
+                event.memberId(), usages, event.completedAt(), extraParts);
     }
 
     private Result consume(Settlement settlement) {

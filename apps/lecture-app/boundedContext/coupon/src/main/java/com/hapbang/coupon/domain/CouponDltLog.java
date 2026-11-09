@@ -38,6 +38,9 @@ public class CouponDltLog {
     /** 실패 원인 칸 길이 */
     static final int MAX_FAILURE_CAUSE = 1000;
 
+    /** 메시지 key 칸 길이 */
+    static final int MAX_MESSAGE_KEY = 200;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -61,7 +64,7 @@ public class CouponDltLog {
     @Column(nullable = false)
     private long sourceOffset;
 
-    @Column(length = 200)
+    @Column(length = MAX_MESSAGE_KEY)
     private String messageKey;
 
     /** 원문(JSON, 역직렬화 실패면 받은 바이트) */
@@ -110,9 +113,12 @@ public class CouponDltLog {
         this.sourceTopic = Objects.requireNonNull(source.topic(), "topic");
         this.sourcePartition = source.partition();
         this.sourceOffset = source.offset();
-        this.messageKey = source.key();
+        // key·실패 원인은 받은 메시지·예외에서 온 값이라 NUL(text 컬럼에 저장 불가)을 바꾸고 칸 길이로 자른다. 저장이 실패하면 DLT로 보내지
+        // 못해 그 partition 소비가 멈춘다. 원문은 호출자가 저장할 수 있는 값으로 넘긴다(CouponDltPayload.rawText)
+        this.messageKey = source.key() == null ? null : fit(source.key(), MAX_MESSAGE_KEY);
         this.payload = Objects.requireNonNull(payload, "payload");
-        this.failureCause = truncate(failureCause == null || failureCause.isBlank() ? "원인 없음" : failureCause);
+        this.failureCause = fit(failureCause == null || failureCause.isBlank() ? "원인 없음" : failureCause,
+                MAX_FAILURE_CAUSE);
         this.status = CouponDltStatus.PENDING;
         this.createdAt = Objects.requireNonNull(now, "now");
         this.updatedAt = now;
@@ -236,8 +242,10 @@ public class CouponDltLog {
         this.updatedAt = now;
     }
 
-    private static String truncate(String value) {
-        return value.length() <= MAX_FAILURE_CAUSE ? value : value.substring(0, MAX_FAILURE_CAUSE);
+    /** NUL을 대체 문자(U+FFFD)로 바꾸고 {@code max}자로 자른다 */
+    private static String fit(String value, int max) {
+        String safe = value.replace('\0', '\uFFFD');
+        return safe.length() <= max ? safe : safe.substring(0, max);
     }
 
     /** 실패한 메시지의 위치 */

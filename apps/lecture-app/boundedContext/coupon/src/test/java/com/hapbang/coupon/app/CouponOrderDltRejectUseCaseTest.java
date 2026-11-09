@@ -32,8 +32,9 @@ class CouponOrderDltRejectUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new CouponOrderDltRejectUseCase(dltLogRepository, CouponDltProperties.defaults(),
-                transactionManager(), CLOCK);
+        // 원문 "{}"는 주문 이벤트로 읽히지 않아 반영 여부를 묻지 않는다. 이미 반영된 이벤트의 거절은 CouponOrderDltResolveTest가 실제 DB로 본다
+        useCase = new CouponOrderDltRejectUseCase(dltLogRepository, mock(CouponOrderConsumerUseCase.class),
+                CouponDltProperties.defaults(), transactionManager(), CLOCK);
         dltLog = CouponDltLog.isolateOrderEvent(new CouponDltLog.Source("lecture.events.v1", 2, 11L,
                 "order-item:901"), "{}", "원인", NOW);
         when(dltLogRepository.findById(DLT_ID)).thenReturn(Optional.of(dltLog));
