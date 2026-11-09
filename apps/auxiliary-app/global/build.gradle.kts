@@ -12,7 +12,7 @@ dependencies {
     implementation(rootProject.libs.springdoc.openapi.webmvc.ui)
     // 회원별 요청 한도(ratelimit/KeyedRateLimiter, #715): 키별 limiter와 그 캐시
     implementation(libs.resilience4j.ratelimiter)
-    implementation("com.github.ben-manes.caffeine:caffeine")
+    implementation(libs.caffeine)
     // ObservationConfig(trace 제외 규칙, 비동기 trace 전파)
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
 
