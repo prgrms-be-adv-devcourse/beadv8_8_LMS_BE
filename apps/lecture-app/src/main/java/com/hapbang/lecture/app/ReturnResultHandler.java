@@ -1,10 +1,13 @@
 package com.hapbang.lecture.app;
 
+import java.time.LocalDateTime;
+
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
+import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.OrderItem;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.shared.lecture.event.LectureObjectionReturnActionRequiredEvent;
@@ -37,12 +40,18 @@ public class ReturnResultHandler implements LectureHpTaskResultHandler {
 
     @Override
     public void onSucceeded(LectureHpTask task) {
-        orderSettlementRecorder.record(task, (order, now) -> {
-            OrderItem item = order.completeReturnItem(task.getOrderItemId(), now);
-            // 반환 처리 중에서 반환으로 바뀌어도 리뷰는 평점에서 빠진 그대로라 리뷰는 다시 보내지 않는다
-            lectureSyncEvents.purchaseChanged(item);
-            publish(item, new LectureObjectionReturnCompletedEvent(item.getObjectionInquiryId(), item.getId()));
-        });
+        orderSettlementRecorder.record(task, (order, now) -> complete(order, task.getOrderItemId(), now));
+    }
+
+    /**
+     * 반환 완료를 기록하고 고객센터에 알린다. 반환 작업 성공과, 반환할 HP가 없는 항목(구매자 금액 0)의 즉시 완료가 같이 쓴다.
+     * 호출한 쪽이 주문 행을 잠근 트랜잭션에서 부른다
+     */
+    void complete(LectureOrder order, Long orderItemId, LocalDateTime now) {
+        OrderItem item = order.completeReturnItem(orderItemId, now);
+        // 반환 처리 중에서 반환으로 바뀌어도 리뷰는 평점에서 빠진 그대로라 리뷰는 다시 보내지 않는다
+        lectureSyncEvents.purchaseChanged(item);
+        publish(item, new LectureObjectionReturnCompletedEvent(item.getObjectionInquiryId(), item.getId()));
     }
 
     @Override

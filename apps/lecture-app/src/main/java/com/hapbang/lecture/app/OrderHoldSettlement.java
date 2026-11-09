@@ -104,6 +104,15 @@ public class OrderHoldSettlement {
         return voidTask;
     }
 
+    /**
+     * 보류 작업을 등록한 뒤(쿠폰 주문의 예약 성공 기록) 결제 단계를 다시 본다. 보류가 필요한 항목이 없으면(모든 항목 구매자 금액 0)
+     * 이 트랜잭션에서 바로 결제 완료다. 호출한 쪽이 주문 행을 잠근다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void settleRegistered(LectureOrder order) {
+        settle(order, LocalDateTime.now(clock));
+    }
+
     /** 결제 처리 중이면 결제 취소 처리 중으로 바꾸고, 한 번도 실행하지 않은 보류는 닫는다. 이미 시도한 보류는 끝까지 확인한다 (D69 (5)) */
     private void startCompensation(LectureOrder order, LocalDateTime now) {
         if (order.getStatus() == LectureOrderStatus.HOLD_PENDING) {
@@ -116,7 +125,8 @@ public class OrderHoldSettlement {
         OrderHoldTasks tasks = OrderHoldTasks.of(lectureHpTaskRepository.findByOrderIdIn(List.of(order.getId())));
         switch (order.getStatus()) {
             case HOLD_PENDING -> {
-                if (tasks.allHoldsSucceeded()) {
+                if (tasks.allHoldsSucceeded(order.getItems().stream()
+                        .filter(OrderItem::requiresBuyerHpTask).map(OrderItem::getId).toList())) {
                     order.markPaid(now);
                     lectureSyncEvents.purchasesChanged(order.getItems());
                     removeOrderedLecturesFromCart(order, now);

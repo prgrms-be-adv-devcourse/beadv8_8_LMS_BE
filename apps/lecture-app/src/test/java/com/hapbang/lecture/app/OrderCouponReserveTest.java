@@ -92,8 +92,11 @@ class OrderCouponReserveTest {
                 + "where order_item_id = ?", Long.class, orderItemId)).isEqualTo(EXPECTED_GENERATION + 1);
         assertThat(workStatus(response.orderId())).isEqualTo("RESERVED");
         assertThat(billing.calls()).extracting(FakeBillingApiClient.Call::command)
-                .singleElement().isInstanceOfSatisfying(HoldCommand.class,
-                        hold -> assertThat(hold.referenceId()).isEqualTo(orderItemId));
+                .singleElement().isInstanceOfSatisfying(HoldCommand.class, hold -> {
+                    assertThat(hold.referenceId()).isEqualTo(orderItemId);
+                    // 보류 금액은 구매자 금액(가격 − 할인)이다
+                    assertThat(hold.amountHp()).isEqualTo(PRICE_HP - SELLER_DISCOUNT);
+                });
     }
 
     @Test
@@ -111,6 +114,22 @@ class OrderCouponReserveTest {
         assertThat(jdbcTemplate.queryForList("select order_item_id from lectures.lecture_hp_task where order_id = ? "
                 + "and purpose = 'ORDER_HOLD'", Long.class, response.orderId())).containsExactly(paidItemId);
         assertThat(response.status()).isEqualTo(LectureOrderStatus.PAID);
+    }
+
+    @Test
+    void 모든_항목이_0_HP인_쿠폰_주문은_지갑을_부르지_않고_예약_성공을_기록하는_트랜잭션에서_바로_결제_완료다() {
+        Lecture lecture = saveOnSale();
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(calculated((CouponCalculateRequest) request,
+                Map.of(lecture.getId(), PRICE_HP))));
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(reserved((CouponReserveRequest) request)));
+
+        OrderResponse response = order(List.of(lecture), 0L);
+
+        assertThat(response.status()).isEqualTo(LectureOrderStatus.PAID);
+        assertThat(response.paidAt()).isNotNull();
+        assertThat(billing.calls()).isEmpty();
+        assertThat(count("lectures.lecture_hp_task")).isZero();
+        assertThat(workStatus(response.orderId())).isEqualTo("RESERVED");
     }
 
     @Test

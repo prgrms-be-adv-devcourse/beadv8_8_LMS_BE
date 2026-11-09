@@ -35,17 +35,20 @@ public class OrderObjectionResolveUseCase {
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final LectureSyncEvents lectureSyncEvents;
+    private final ReturnResultHandler returnResultHandler;
     private final Clock clock;
 
     public OrderObjectionResolveUseCase(LectureOrderSupport lectureOrderSupport,
                                         LectureOrderRepository lectureOrderRepository,
                                         LectureHpTaskSupport lectureHpTaskSupport,
                                         LectureSyncEvents lectureSyncEvents,
+                                        ReturnResultHandler returnResultHandler,
                                         @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderSupport = lectureOrderSupport;
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
         this.lectureSyncEvents = lectureSyncEvents;
+        this.returnResultHandler = returnResultHandler;
         this.clock = clock;
     }
 
@@ -71,8 +74,13 @@ public class OrderObjectionResolveUseCase {
         // 반환 처리 중이 되어 구매 결과가 바뀌고, 그 항목의 리뷰는 평점에서 빠진다
         lectureSyncEvents.purchaseChanged(item);
         lectureSyncEvents.reviewCountChanged(item);
+        // 반환 금액은 구매자 금액(가격 − 할인)이다. 반환할 HP가 없으면(구매자 금액 0) 작업 없이 이 트랜잭션에서 반환을 끝낸다
+        if (!item.requiresBuyerHpTask()) {
+            returnResultHandler.complete(order, item.getId(), now);
+            return;
+        }
         lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.RETURN,
                 RELEASE_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), item.getBuyerUserId(), null,
-                item.getPriceHp(), now));
+                item.buyerAmountHp(), now));
     }
 }

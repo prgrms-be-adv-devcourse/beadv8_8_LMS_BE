@@ -115,10 +115,13 @@ public class OrderCreateUseCase {
         return new Placement(order.getId(), holdTaskIds);
     }
 
-    /** 주문 항목 하나의 보류 작업. 쿠폰 주문의 예약 뒤 보류 등록({@link OrderCouponReserveUseCase})도 이것으로 만든다 */
+    /**
+     * 주문 항목 하나의 보류 작업. 금액은 구매자 금액(가격 − 할인)이다. 쿠폰 주문의 예약 뒤 보류 등록({@link OrderCouponReserveUseCase})도
+     * 이것으로 만든다. 구매자 금액이 0인 항목({@link OrderItem#requiresBuyerHpTask()}가 거짓)은 부르지 않는다
+     */
     static LectureHpTask holdTask(LectureOrder order, OrderItem item, LocalDateTime now) {
         return LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, HOLD_REQUEST_ID_PREFIX + item.getId(),
-                order.getId(), item.getId(), order.getBuyerUserId(), null, item.getPriceHp(), now);
+                order.getId(), item.getId(), order.getBuyerUserId(), null, item.buyerAmountHp(), now);
     }
 
     /**

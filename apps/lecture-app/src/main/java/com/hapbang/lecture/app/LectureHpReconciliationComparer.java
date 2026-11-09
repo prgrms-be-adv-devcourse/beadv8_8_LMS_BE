@@ -45,14 +45,21 @@ final class LectureHpReconciliationComparer {
         List<Finding> findings = new ArrayList<>();
         String lectureState = describe(target);
         String walletState = describe(wallet);
+        // 구매자 금액이 0인 항목은 지갑을 부르지 않았다: 보류가 없거나 닫혀 있고 지급 건도 없어야 한다
+        if (!target.expectsWalletHold()) {
+            compareClosedHold(wallet, lectureState, walletState, findings);
+            compareNoSettlement(wallet, lectureState, findings);
+            return findings;
+        }
+        long held = target.buyerAmountHp();
         switch (target.status()) {
             case HOLD_FAILED -> compareClosedHold(wallet, lectureState, walletState, findings);
             case PURCHASED, CONFIRMED, CANCEL_PENDING, RETURN_PENDING, PAYOUT_PENDING ->
-                    compareActiveHold(target, wallet, target.priceHp(), 0, 0, lectureState, walletState, findings);
+                    compareActiveHold(target, wallet, held, 0, 0, lectureState, walletState, findings);
             case CANCELED, RETURNED ->
-                    compareActiveHold(target, wallet, 0, target.priceHp(), 0, lectureState, walletState, findings);
+                    compareActiveHold(target, wallet, 0, held, 0, lectureState, walletState, findings);
             case PAID_OUT ->
-                    compareActiveHold(target, wallet, 0, 0, target.priceHp(), lectureState, walletState, findings);
+                    compareActiveHold(target, wallet, 0, 0, held, lectureState, walletState, findings);
             case HOLD_PENDING, HOLD_COMPENSATING -> throw new IllegalStateException("위에서 막았다");
         }
         compareSettlements(target, wallet, lectureState, walletState, findings);
@@ -81,7 +88,7 @@ final class LectureHpReconciliationComparer {
         }
     }
 
-    // 보류가 있어야 하는 항목: 무효화 기록이 없고, 최초 보류 = 가격·보류한 회원 = 구매자, 금액 네 개가 기대값과 같아야 한다
+    // 보류가 있어야 하는 항목: 무효화 기록이 없고, 최초 보류 = 구매자 금액·보류한 회원 = 구매자, 금액 네 개가 기대값과 같아야 한다
     private static void compareActiveHold(LectureHpReconciliationTarget target, HoldStateDto wallet,
                                           long expectedRemaining, long expectedReleased, long expectedPaid,
                                           String lectureState, String walletState, List<Finding> findings) {
@@ -93,7 +100,7 @@ final class LectureHpReconciliationComparer {
             findings.add(new Finding(LectureHpReconciliationRule.HOLD_MISSING, lectureState, walletState));
             return;
         }
-        if (hold.original().totalHp() != target.priceHp()
+        if (hold.original().totalHp() != target.buyerAmountHp()
                 || !Objects.equals(hold.payerUserId(), target.buyerUserId())) {
             findings.add(new Finding(LectureHpReconciliationRule.HOLD_MISMATCH, lectureState, walletState));
         }
@@ -103,15 +110,12 @@ final class LectureHpReconciliationComparer {
         }
     }
 
-    // 지급된 항목만 지급 건 하나(원천 = 이 항목, 일반 지급, 받는 회원 = 판매자, 금액 = 가격, 완료). 나머지 상태는 지급 건이 없어야 한다
+    // 지급된 항목만 지급 건 하나(원천 = 이 항목, 일반 지급, 받는 회원 = 판매자, 금액 = 판매자 지급액, 완료). 나머지 상태는 지급 건이 없어야 한다
     private static void compareSettlements(LectureHpReconciliationTarget target, HoldStateDto wallet,
                                            String lectureState, String walletState, List<Finding> findings) {
         List<HoldStateDto.Settlement> settlements = wallet.settlements();
         if (target.status() != OrderItemStatus.PAID_OUT) {
-            for (HoldStateDto.Settlement unexpected : settlements) {
-                findings.add(new Finding(LectureHpReconciliationRule.SETTLEMENT_UNEXPECTED, lectureState,
-                        describe(unexpected)));
-            }
+            compareNoSettlement(wallet, lectureState, findings);
             return;
         }
         if (settlements.isEmpty()) {
@@ -121,12 +125,19 @@ final class LectureHpReconciliationComparer {
         }
     }
 
+    private static void compareNoSettlement(HoldStateDto wallet, String lectureState, List<Finding> findings) {
+        for (HoldStateDto.Settlement unexpected : wallet.settlements()) {
+            findings.add(new Finding(LectureHpReconciliationRule.SETTLEMENT_UNEXPECTED, lectureState,
+                    describe(unexpected)));
+        }
+    }
+
     private static boolean matches(LectureHpReconciliationTarget target, HoldStateDto.Settlement settlement) {
         return settlement.sourceType() == SettlementSourceType.LECTURE_ORDER_ITEM
                 && Objects.equals(settlement.sourceId(), target.orderItemId())
                 && settlement.payoutType() == PayoutType.NORMAL
                 && Objects.equals(settlement.receiverUserId(), target.sellerUserId())
-                && settlement.paidAmountHp() == target.priceHp()
+                && settlement.paidAmountHp() == target.sellerPayoutHp()
                 && settlement.status() == BillingSettlementStatus.COMPLETED;
     }
 
@@ -134,8 +145,9 @@ final class LectureHpReconciliationComparer {
     // 관리자가 읽는 요약 문자열
 
     static String describe(LectureHpReconciliationTarget target) {
-        return "주문 항목 %d 주문 %d %s 가격 %d 구매자 %d 판매자 %d".formatted(target.orderItemId(), target.orderId(),
-                target.status(), target.priceHp(), target.buyerUserId(), target.sellerUserId());
+        return "주문 항목 %d 주문 %d %s 가격 %d 구매자 금액 %d 판매자 지급액 %d 구매자 %d 판매자 %d".formatted(
+                target.orderItemId(), target.orderId(), target.status(), target.priceHp(), target.buyerAmountHp(),
+                target.sellerPayoutHp(), target.buyerUserId(), target.sellerUserId());
     }
 
     static String describe(HoldStateDto wallet) {

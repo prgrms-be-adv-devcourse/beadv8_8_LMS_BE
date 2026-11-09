@@ -43,7 +43,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>주문 행을 잠근 트랜잭션에서 결과를 기록한다. 그 사이 다른 실행이 작업을 끝냈으면 아무것도 바꾸지 않는다.
  *     <ul>
  *         <li>성공: 응답을 할인 스냅샷과 대조해 예약 generation과 작업 {@code RESERVED}를 남기고, 구매자 금액이 0보다 큰 항목만
- *         보류 작업을 등록한다. 쿠폰 주문은 예약 결과가 저장되기 전에 보류 작업이 없다.
+ *         보류 작업을 등록한다. 모든 항목이 0 HP면 이 트랜잭션에서 바로 결제 완료다. 쿠폰 주문은 예약 결과가 저장되기 전에 보류 작업이 없다.
  *         대조가 어긋나면 작업은 {@code RESERVED}(쿠폰은 예약됨)로 두고 주문을 결제 실패로 끝내며 같은 트랜잭션에서 해제 작업을 만든다.</li>
  *         <li>거절(4xx): 작업 {@code REJECTED}(쿠폰 오류 코드)와 주문 결제 실패. HP 작업은 없다.
  *         다만 401·403은 내부 API 키·설정 문제라 결과 불명처럼 작업을 {@code PENDING}으로 둔다.</li>
@@ -67,6 +67,7 @@ public class OrderCouponReserveUseCase {
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final LectureSyncEvents lectureSyncEvents;
     private final OrderCouponReleaseRegistration orderCouponReleaseRegistration;
+    private final OrderHoldSettlement orderHoldSettlement;
     private final CouponClient couponClient;
     private final LectureOrderProperties properties;
     private final TransactionTemplate transaction;
@@ -78,6 +79,7 @@ public class OrderCouponReserveUseCase {
                                      LectureHpTaskSupport lectureHpTaskSupport,
                                      LectureSyncEvents lectureSyncEvents,
                                      OrderCouponReleaseRegistration orderCouponReleaseRegistration,
+                                     OrderHoldSettlement orderHoldSettlement,
                                      CouponClient couponClient,
                                      LectureOrderProperties properties,
                                      PlatformTransactionManager transactionManager,
@@ -88,6 +90,7 @@ public class OrderCouponReserveUseCase {
         this.lectureHpTaskSupport = lectureHpTaskSupport;
         this.lectureSyncEvents = lectureSyncEvents;
         this.orderCouponReleaseRegistration = orderCouponReleaseRegistration;
+        this.orderHoldSettlement = orderHoldSettlement;
         this.couponClient = couponClient;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -205,12 +208,14 @@ public class OrderCouponReserveUseCase {
                     + "workId={}, mismatch={}", order.getId(), work.getWorkId(), mismatch.get());
             return List.of();
         }
-        // 구매자 금액이 0인 항목은 보류할 HP가 없다
+        // 구매자 금액이 0인 항목은 보류할 HP가 없어 보류를 성공으로 센다
         List<Long> holdTaskIds = order.getItems().stream()
                 .sorted(Comparator.comparing(OrderItem::getId))
-                .filter(item -> item.buyerAmountHp() > 0)
+                .filter(OrderItem::requiresBuyerHpTask)
                 .map(item -> lectureHpTaskSupport.register(OrderCreateUseCase.holdTask(order, item, now)).getId())
                 .toList();
+        // 모든 항목이 0 HP면 이 트랜잭션에서 바로 결제 완료다
+        orderHoldSettlement.settleRegistered(order);
         log.info("쿠폰을 예약하고 보류 작업을 등록했다 orderId={}, workId={}, holdCount={}", order.getId(), work.getWorkId(),
                 holdTaskIds.size());
         return holdTaskIds;

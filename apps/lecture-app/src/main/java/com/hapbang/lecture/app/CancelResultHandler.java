@@ -1,9 +1,12 @@
 package com.hapbang.lecture.app;
 
+import java.time.LocalDateTime;
+
 import org.springframework.stereotype.Component;
 
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
+import com.hapbang.lecture.domain.LectureOrder;
 
 import lombok.RequiredArgsConstructor;
 
@@ -25,7 +28,14 @@ public class CancelResultHandler implements LectureHpTaskResultHandler {
 
     @Override
     public void onSucceeded(LectureHpTask task) {
-        orderSettlementRecorder.record(task, (order, now) ->
-                lectureSyncEvents.purchaseChanged(order.completeCancelItem(task.getOrderItemId(), now)));
+        orderSettlementRecorder.record(task, (order, now) -> complete(order, task.getOrderItemId(), now));
+    }
+
+    /**
+     * 구매 취소 완료를 기록한다. 반환 작업 성공과, 반환할 HP가 없는 항목(구매자 금액 0)의 즉시 완료가 같이 쓴다.
+     * 호출한 쪽이 주문 행을 잠근 트랜잭션에서 부른다
+     */
+    void complete(LectureOrder order, Long orderItemId, LocalDateTime now) {
+        lectureSyncEvents.purchaseChanged(order.completeCancelItem(orderItemId, now));
     }
 }
