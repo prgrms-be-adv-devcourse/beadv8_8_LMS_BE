@@ -3,6 +3,7 @@ package com.hapbang.coupon.out;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -13,6 +14,14 @@ import com.hapbang.coupon.domain.MemberCouponStatus;
 
 /** 발급 쿠폰 저장소. 쿠폰 정책과의 조인은 같은 쿠폰 스키마 안에서만 한다 */
 public interface MemberCouponRepository extends JpaRepository<MemberCoupon, Long> {
+
+    /** 회원당 같은 쿠폰 1장 */
+    String MEMBER_COUPON_UNIQUE = "uk_member_coupon_member_coupon";
+    /** 같은 쿠폰·같은 발급 요청은 1장 */
+    String ISSUE_REQUEST_UNIQUE = "uk_member_coupon_issue_request";
+
+    /** 회원이 이 쿠폰에서 받은 한 장. 발급 확정이 회원 중복(UNIQUE) 위반을 같은 요청의 재전달인지 가를 때 쓴다 */
+    Optional<MemberCoupon> findByMemberIdAndCouponId(long memberId, long couponId);
 
     /** 이 쿠폰들 중 회원이 발급 쿠폰을 가진 쿠폰 ID(상태와 관계없이). {@code couponIds}가 비면 부르지 않는다 */
     @Query("""

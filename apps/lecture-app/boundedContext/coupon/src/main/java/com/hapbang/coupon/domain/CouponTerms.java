@@ -36,7 +36,7 @@ public record CouponTerms(
     public static final int MAX_NAME_LENGTH = 50;
 
     /**
-     * 이름은 앞뒤 공백을 뺀다. 시각을 Redis·Stream(epoch 밀리초)과 같은 밀리초로 자른다. DB(PostgreSQL {@code timestamptz}, 마이크로초)보다 거칠어 DB에는
+     * 이름은 앞뒤 공백을 뺀다. 시각을 Redis·Kafka 발급 요청 이벤트(epoch 밀리초)와 같은 밀리초로 자른다. DB(PostgreSQL {@code timestamptz}, 마이크로초)보다 거칠어 DB에는
      * 그대로 들어가므로 쿠폰 DB 값과 Redis 값이 정확히 같다. 자르지 않으면 1밀리초 아래 차이를 도메인은 받고 Redis에서는 같은 값이
      * 되어 발급 기간·만료 비교가 어긋난다
      */

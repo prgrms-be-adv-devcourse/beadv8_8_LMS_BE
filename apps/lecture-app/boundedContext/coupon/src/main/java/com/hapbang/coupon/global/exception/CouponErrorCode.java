@@ -63,7 +63,35 @@ public enum CouponErrorCode {
     ISSUE_REQUEST_ID_CONFLICT(HttpStatus.CONFLICT, "이미 다른 요청에 쓰인 발급 요청 ID입니다."),
     /** 발급 처리 중 예상하지 못한 오류(Lua 오류 응답 등) */
     COUPON_ISSUE_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "쿠폰 발급 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."),
-    INVALID_ISSUE_REQUEST_ID(HttpStatus.BAD_REQUEST, "발급 요청 ID 형식이 올바르지 않습니다.");
+    INVALID_ISSUE_REQUEST_ID(HttpStatus.BAD_REQUEST, "발급 요청 ID 형식이 올바르지 않습니다."),
+    /** 발급 요청 이벤트를 Kafka에 보내지 못했다(ACK 실패·시간 초과). 다시 보내면 같은 요청 ID로 다시 보낸다 */
+    COUPON_EVENT_PUBLISH_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "쿠폰 발급 이벤트를 보내지 못했습니다. 잠시 후 다시 시도해 주세요."),
+
+    // 용량 상한
+
+    /** Redis 기록이 남은 쿠폰의 수량 합에 이번 수량을 더하면 합산 상한을 넘는다. 기존 쿠폰이 정리된 뒤 다시 시도한다 */
+    COUPON_CAPACITY_EXCEEDED(HttpStatus.CONFLICT, "발급 저장소 용량이 부족해 지금은 발급을 열 수 없습니다."),
+
+    // 대사 (발급 수량 대사)
+
+    /** 신규 접수 보류가 대사 불일치(RECONCILE)가 아닌 다른 사유(적체·복구)라 대사 보류 해제로 풀 수 없다 */
+    COUPON_RECONCILE_HOLD_NOT_RELEASABLE(HttpStatus.CONFLICT, "대사 불일치 보류가 아니라 풀 수 없습니다."),
+
+    // 복구 (Redis 유실 복구 절차)
+
+    /** 이 쿠폰의 복구가 이미 진행 중이다. 진행 중인 복구를 끝내거나 이어서 진행한다 */
+    COUPON_RECOVERY_IN_PROGRESS(HttpStatus.CONFLICT, "이미 진행 중인 복구가 있습니다."),
+    /** 복구 실행을 찾을 수 없다 */
+    COUPON_RECOVERY_NOT_FOUND(HttpStatus.NOT_FOUND, "복구 실행을 찾을 수 없습니다."),
+    /** 복구의 지금 단계에서 요청한 단계로 넘어갈 수 없다(미처리 요청이 남았거나 순서가 맞지 않다) */
+    COUPON_RECOVERY_STEP_NOT_ALLOWED(HttpStatus.CONFLICT, "지금 복구 단계에서는 처리할 수 없습니다."),
+
+    // DLT (발급 요청 처리 실패 격리)
+
+    /** DLT 기록을 찾을 수 없다 */
+    COUPON_DLT_NOT_FOUND(HttpStatus.NOT_FOUND, "DLT 기록을 찾을 수 없습니다."),
+    /** 이미 재발행했거나 영구 거절한 DLT 기록이다 */
+    COUPON_DLT_ALREADY_RESOLVED(HttpStatus.CONFLICT, "이미 처리한 DLT 기록입니다.");
 
     private final HttpStatus status;
     private final String message;
