@@ -32,6 +32,7 @@ public class ReturnResultHandler implements LectureHpTaskResultHandler {
     private final LectureSyncEvents lectureSyncEvents;
     private final LectureOrderRepository lectureOrderRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final OrderCouponEvents orderCouponEvents;
 
     @Override
     public LectureHpTaskPurpose purpose() {
@@ -40,18 +41,22 @@ public class ReturnResultHandler implements LectureHpTaskResultHandler {
 
     @Override
     public void onSucceeded(LectureHpTask task) {
-        orderSettlementRecorder.record(task, (order, now) -> complete(order, task.getOrderItemId(), now));
+        orderSettlementRecorder.record(task, (order, now) -> complete(order, task.getOrderItemId(), task.getRequestId(),
+                now));
     }
 
     /**
      * 반환 완료를 기록하고 고객센터에 알린다. 반환 작업 성공과, 반환할 HP가 없는 항목(구매자 금액 0)의 즉시 완료가 같이 쓴다.
-     * 호출한 쪽이 주문 행을 잠근 트랜잭션에서 부른다
+     * 호출한 쪽이 주문 행을 잠근 트랜잭션에서 부른다. 쿠폰을 쓴 항목이면 같은 트랜잭션에서 취소 완료 이벤트를 낸다(쿠폰 복원).
+     *
+     * @param releaseRequestId 반환한 지갑 작업의 요청 ID. 작업 없이 끝났으면 {@code null}
      */
-    void complete(LectureOrder order, Long orderItemId, LocalDateTime now) {
+    void complete(LectureOrder order, Long orderItemId, String releaseRequestId, LocalDateTime now) {
         OrderItem item = order.completeReturnItem(orderItemId, now);
         // 반환 처리 중에서 반환으로 바뀌어도 리뷰는 평점에서 빠진 그대로라 리뷰는 다시 보내지 않는다
         lectureSyncEvents.purchaseChanged(item);
         publish(item, new LectureObjectionReturnCompletedEvent(item.getObjectionInquiryId(), item.getId()));
+        orderCouponEvents.itemCancelCompleted(order, item, releaseRequestId, now);
     }
 
     @Override

@@ -76,7 +76,7 @@ public class OrderObjectionResolveUseCase {
         lectureSyncEvents.reviewCountChanged(item);
         // 반환 금액은 구매자 금액(가격 − 할인)이다. 반환할 HP가 없으면(구매자 금액 0) 작업 없이 이 트랜잭션에서 반환을 끝낸다
         if (!item.requiresBuyerHpTask()) {
-            returnResultHandler.complete(order, item.getId(), now);
+            returnResultHandler.complete(order, item.getId(), null, now);
             return;
         }
         lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.RETURN,

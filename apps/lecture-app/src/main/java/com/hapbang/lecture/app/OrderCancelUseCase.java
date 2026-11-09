@@ -73,7 +73,7 @@ public class OrderCancelUseCase {
                     RELEASE_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
                     item.buyerAmountHp(), now)).getId();
         } else {
-            cancelResultHandler.complete(order, item.getId(), now);
+            cancelResultHandler.complete(order, item.getId(), null, now);
         }
         AfterCommit.run(() -> {
             log.info("구매 취소를 요청했다 orderId={}, orderItemId={}, buyerUserId={}", order.getId(), item.getId(),

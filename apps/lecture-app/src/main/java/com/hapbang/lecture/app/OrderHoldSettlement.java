@@ -44,6 +44,7 @@ public class OrderHoldSettlement {
     private final CartRepository cartRepository;
     private final LectureSyncEvents lectureSyncEvents;
     private final OrderCouponReleaseRegistration orderCouponReleaseRegistration;
+    private final OrderCouponEvents orderCouponEvents;
     private final Clock clock;
 
     public OrderHoldSettlement(LectureOrderRepository lectureOrderRepository,
@@ -51,6 +52,7 @@ public class OrderHoldSettlement {
                                LectureHpTaskSupport lectureHpTaskSupport, CartRepository cartRepository,
                                LectureSyncEvents lectureSyncEvents,
                                OrderCouponReleaseRegistration orderCouponReleaseRegistration,
+                               OrderCouponEvents orderCouponEvents,
                                @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureHpTaskRepository = lectureHpTaskRepository;
@@ -58,6 +60,7 @@ public class OrderHoldSettlement {
         this.cartRepository = cartRepository;
         this.lectureSyncEvents = lectureSyncEvents;
         this.orderCouponReleaseRegistration = orderCouponReleaseRegistration;
+        this.orderCouponEvents = orderCouponEvents;
         this.clock = clock;
     }
 
@@ -129,6 +132,8 @@ public class OrderHoldSettlement {
                         .filter(OrderItem::requiresBuyerHpTask).map(OrderItem::getId).toList())) {
                     order.markPaid(now);
                     lectureSyncEvents.purchasesChanged(order.getItems());
+                    // 쿠폰을 쓴 항목은 쿠폰 모듈이 사용 완료로 바꾸도록 같은 트랜잭션에서 알린다
+                    orderCouponEvents.itemsPaid(order, now);
                     removeOrderedLecturesFromCart(order, now);
                 }
             }
