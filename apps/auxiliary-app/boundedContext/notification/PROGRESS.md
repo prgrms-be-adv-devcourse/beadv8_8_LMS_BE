@@ -21,7 +21,7 @@
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
 | 기능 구현 | N1 구현(#797, dev 병합 전) | 알림 생성 코드 없음(N2 이후) |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-005 |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-007 |
 | Flyway | 작성(#797, dev 병합 전) | `V202611091500__create_notification_schema.sql`(schema, `notification_user`) |
 
 ## 2. 문서 구축 상태
@@ -48,7 +48,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | X1 | P0 | auxiliary-app 생성(모듈 구조, k8s, CI) | 검색·챗봇·알림 공동 | 없음 | 완료 | #714(PR #736): 모듈 구조·`apps/auxiliary-app/k8s/{base,overlays}`·`.github/scripts/apps.sh`에 `auxiliary-app`. #726으로 prod replicas 1 |
 | N0 | P0 | 이벤트 계약 합의, 문구 템플릿 확정 | 알림 | 없음 | 진행 중 | 계약 확정([`event-contracts.md`](../../../../docs/notification/event-contracts.md)). 발행 Issue 발송 전. 문구 템플릿은 N2(ND-039) |
-| N1 | P0 | 모듈 뼈대: database, 테이블, 회원 복제본, Kafka 소비·DLT 설정 | 알림 | X1 | 진행 중 | #797. 구현·테스트 완료(NR-004), 로컬 기동·측정(NR-005), PR 병합 전, 인프라 확인(U13·kafka.md 토픽 표, 인프라 담당이 Issue 진행) 전. 범위 ND-046·ND-048, consumer group ND-047 |
+| N1 | P0 | 모듈 뼈대: database, 테이블, 회원 복제본, Kafka 소비·DLT 설정 | 알림 | X1 | 진행 중 | #797. 구현·테스트 완료(dev 병합 뒤 NR-007), 로컬 기동·측정(NR-005), PR 병합 전, 인프라 확인(U13·kafka.md 토픽 표, 인프라 담당이 Issue 진행) 전. 범위 ND-046·ND-048, consumer group ND-047 |
 | N2 | P0 | 알림 저장, 20개 유지, REST API | 알림 | N1 | 미착수 | 코드 없음 |
 | N3 | P0 | STOMP, 연결 티켓, Redis Pub/Sub 전달 | 알림 | N1 | 미착수 | 코드 없음. U15 |
 | N4 | P0 | Envoy route(REST, WebSocket) | 알림 | X1 | 미착수 | `apps/auxiliary-app/k8s/base/gateway.yaml`에 알림 경로 없음. U14 |

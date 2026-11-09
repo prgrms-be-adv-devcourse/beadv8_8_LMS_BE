@@ -5,7 +5,7 @@
 > 문서 지도: [모듈](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API 계약](../api/notification.md) · [테스트 검증 기준](test-spec.md) · **[회귀 실행 기록](regression-log.md)** · [진행](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
 >
 > - **역할**: 이 문서는 알림 모듈 테스트를 **실제로 실행한** 기록만 쌓는다: 언제, 어느 커밋에서, 무슨 명령을 돌렸고, 결과가 어땠고, 실패는 무엇 때문이었나. 무엇을 검증해야 하는지(합격 기준)는 [test-spec.md](test-spec.md)의 `NT-*`에 있다.
-> - **현재 상태**: 2026-11-09 N1(#797) 모듈 뼈대 테스트를 실행했고(NR-001~NR-004) 로컬 기동·자원을 측정했다(NR-005). 알림 생성 코드는 아직 없다.
+> - **현재 상태**: 2026-11-09 N1(#797) 모듈 뼈대 테스트를 실행했고(NR-001~NR-004, dev 병합 뒤 NR-006·NR-007) 로컬 기동·자원을 측정했다(NR-005). 알림 생성 코드는 아직 없다.
 > - **설계 문서의 완료 증거를 실행 기록으로 옮기지 않는다.** [알림 설계](../architecture/infrastructure/notification.md) 11장의 완료 증거와 test-spec 3장의 매핑은 "무엇을 보여야 하는가"이지 실행 결과가 아니다. 증거를 실제로 실행·시연했을 때만 이 문서에 기록을 남긴다.
 
 ## 1. 작성 규칙과 기록 양식
@@ -85,6 +85,50 @@
 ## 3. 실행 기록
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
+
+#### NR-007 · 2026-11-09 · 통과 (dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-007 |
+| 실행 날짜 | 2026-11-09 17:00~17:07 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `1da5eb40` (병합 `722a939a`: `311f679a` + origin/dev `657bcfa6`, 그 뒤 `-parameters` 커밋) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | N1이 dev(챗봇 #798·#800 등)와 합쳐진 상태, 알림 모듈 `-parameters` |
+| 관련 NT ID | NR-004와 같다 |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :auxiliary-app:check` |
+| 실행 환경 | NR-004와 같다(Testcontainers. 챗봇 테스트의 컨테이너 포함). 로컬 compose(postgres·kafka·redis) 실행 중, 측정용 앱은 종료됨 |
+| 결과 | 통과 |
+| 건수 | `:notification` 25, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 216, 실패·오류·건너뜀 0 (XML 기준, 모두 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 병합 충돌(`AuxiliaryApplicationTest` properties)을 알림·챗봇 설정을 모두 남겨 해결 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | NR-002와 같다 |
+| 관련 변경 | #797 |
+
+#### NR-006 · 2026-11-09 · 통과 (dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-006 |
+| 실행 날짜 | 2026-11-09 17:00 (KST, NR-007 전) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `1da5eb40` |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | Gradle 모듈 의존 경계 |
+| 관련 NT ID | NT-BND-02 |
+| 명령 | `./gradlew verifyModuleStructure` |
+| 실행 환경 | NR-007과 같다 |
+| 결과 | 통과 |
+| 건수 | 해당 없음(BUILD SUCCESSFUL) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음 |
+| 관련 변경 | #797 |
 
 #### NR-005 · 2026-11-09 · 통과 (로컬 기동·자원 측정, 수동)
 
@@ -237,3 +281,4 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 - 2026-11-06 처음 작성: 실행 기록 없음. 형식은 [지갑 회귀 실행 기록](../billing/regression-log.md)을 알림 모듈에 맞게 줄였다.
 - 2026-11-09 NR-001·NR-002(N1, #797)를 더했다.
 - 2026-11-09 NR-003·NR-004(N1 마무리 재실행), NR-005(로컬 기동·자원 측정)를 더했다.
+- 2026-11-09 NR-006·NR-007(dev 병합 뒤 재실행)을 더했다.
