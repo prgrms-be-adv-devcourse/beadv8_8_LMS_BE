@@ -17,7 +17,7 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 
 ## EC2 2노드 자원 예산
 
-아래 예산은 아직 만들지 않은 aux-app까지 띄운 목표 구성의 cgroup limit 기준 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. EC2에는 prod 한 벌만 둔다. 모듈 앱은 search·ai·notification을 합친 aux-app까지 7개이고 앱마다 replica 1개다. 앱은 large에 네 개(aux-app 포함), medium에 세 개를 둔다(#532, #684). stateful workload는 large에 고정한다. Envoy·cert-manager·ECK operator 값은 차트 기본값을 낮춘 추정값이라 설치 뒤 다시 잰다.
+아래 예산은 aux-app(2026-11-06 기동, #745)까지 띄운 구성의 cgroup limit 기준 시작값이며 실제 배포 뒤 `kubectl top`, container RSS, JVM GC와 CPU credit으로 갱신한다. EC2에는 prod 한 벌만 둔다. 모듈 앱은 search·ai·notification을 합친 aux-app까지 7개이고 앱마다 replica 1개다. 앱은 large에 네 개(aux-app 포함), medium에 세 개를 둔다(#532, #684). stateful workload는 large에 고정한다. Envoy·cert-manager·ECK operator 값은 차트 기본값을 낮춘 추정값이라 설치 뒤 다시 잰다.
 
 | t3.large `core-data` | 예산 |
 | --- | ---: |
@@ -40,7 +40,7 @@ EC2 cluster는 server 1대와 agent 1대라 **HA가 아니다**. embedded-etcd H
 
 **#774 적용 (medium 자리를 만들어 Tempo를 올림)**: medium 요청 합계가 95%라 OOMKilled가 반복되던 Tempo(아래)를 올릴 자리가 없었다. 그래서 medium의 Envoy Gateway controller·ECK operator·Kafka UI(요청 128·128·64, 운영 7일 최대 93·81·86 MiB)를 large로 옮겼다. 셋 다 저장소가 없고, controller는 proxy와, operator는 Elasticsearch와, Kafka UI는 Kafka와 같은 node가 된다. Envoy controller가 medium에 있으면 medium 장애 중 proxy pod가 다시 뜰 때 설정을 받지 못하는데, 같은 node에 두면 이 경우가 없어진다. large에서는 appearance를 `-Xmx144m`·576 MiB(운영 4일 최대 working set 500·heap 사용 116·full GC 뒤 live 58·heap committed 136~161 MiB, heap이 상한까지 차면 144 + 215 + 123 ≈ 482 MiB, 84%), cert-manager controller·cainjector를 96·96 MiB(7일 최대 39·42 MiB)로 낮췄다. 요청 합계는 large 6,042 → 6,234 MiB(80%, surge pod까지 6,938 MiB, 89%), medium 3,648 → 3,424 MiB(89%)다. large node working set은 2026-11-09 최대 5,648 MiB(72%)에서 옮긴 세 pod 약 +260 MiB로 약 75%를 예상한다. #715(챗봇 ES 색인) 뒤에는 약 79%, Elasticsearch·aux-app이 limit까지 차면 약 84%다. aux-app은 #715 전이라 704 MiB·`-Xmx256m`을 둔다.
 
-사용 가능 메모리를 약 7.6 GiB로 보면 limit 기준으로 약 376 MiB가 넘친다(#774에서 appearance·cert-manager −128, medium에서 옮긴 세 pod +384 MiB 전 120 MiB, #726에서 PostgreSQL −256·member +64 MiB 전 312 MiB, #684에서 search-app 448 MiB를 aux-app 704 MiB로 바꾸기 전 56 MiB, #631 trace로 앱 3개를 64 MiB씩 올리기 전 136 MiB 남음, #608 billing-app 512 MiB 전 200 MiB, #528 전 264 MiB, #532 전 506 MiB). 아직 만들지 않은 aux-app(704 MiB)을 빼면 약 0.57 GiB(584 MiB)가 남는다. 처음 계획(#684)은 세 앱 limit을 약 −64 MiB씩 줄여 약 136 MiB를 남기는 것이었지만, #694 실측(heap committed 138~150 MiB)으로 `-Xmx` 뒤에도 working set이 줄지 않아 위 #726처럼 member limit을 올렸다. limit 합계가 넘치는 부분은 기록만 하고 자리는 요청 합계로 본다(#684 기준). limit 기준으로는 rolling surge pod 1개(최대 704 MiB, aux-app)를 받을 여유가 없지만, 스케줄러가 보는 요청 합계는 surge pod까지 86%(위 #726)라 surge pod는 뜬다. aux-app을 띄운 뒤 이 표를 실측으로 다시 맞춘다. 2026-11-02 운영 3일 최대 working set은 Elasticsearch 1,273·Kafka 488·appearance 452·member 443·PostgreSQL 144 MiB다. 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. aux-app은 검색이 쓰는 ES와 같은 node에 둔다.
+사용 가능 메모리를 약 7.6 GiB로 보면 limit 기준으로 약 376 MiB가 넘친다(#774에서 appearance·cert-manager −128, medium에서 옮긴 세 pod +384 MiB 전 120 MiB, #726에서 PostgreSQL −256·member +64 MiB 전 312 MiB, #684에서 search-app 448 MiB를 aux-app 704 MiB로 바꾸기 전 56 MiB, #631 trace로 앱 3개를 64 MiB씩 올리기 전 136 MiB 남음, #608 billing-app 512 MiB 전 200 MiB, #528 전 264 MiB, #532 전 506 MiB). 처음 계획(#684)은 세 앱 limit을 약 −64 MiB씩 줄여 약 136 MiB를 남기는 것이었지만, #694 실측(heap committed 138~150 MiB)으로 `-Xmx` 뒤에도 working set이 줄지 않아 위 #726처럼 member limit을 올렸다. limit 합계가 넘치는 부분은 기록만 하고 자리는 요청 합계로 본다(#684 기준). limit 기준으로는 rolling surge pod 1개(최대 704 MiB, aux-app)를 받을 여유가 없지만, 스케줄러가 보는 요청 합계는 surge pod까지 86%(위 #726)라 surge pod는 뜬다. aux-app은 2026-11-06에 띄웠다(#745). 2026-11-09까지 pod 5개(가장 오래 돈 pod 37.5시간) 중 최대 working set은 320 MiB(704의 45%)이고, heap 사용 64·heap 외 JVM 영역 145·heap 밖 native 87 MiB였다. 챗봇이 ES·OpenAI를 쓰기 전(#715) 값이라 limit은 두고 #715 뒤에 다시 잰다. 2026-11-02 운영 3일 최대 working set은 Elasticsearch 1,273·Kafka 488·appearance 452·member 443·PostgreSQL 144 MiB다. 그래서 large의 앱은 한 번에 하나씩 배포한다(Deploy workflow는 앱마다 rollout을 기다린 뒤 다음 앱을 배포한다). large의 앱은 `maxSurge: 1`, `maxUnavailable: 0`으로 무중단 배포한다. Elasticsearch는 heap만이 아니라 mmap·direct memory를 사용하므로 1.5 GiB limit에서 색인과 hybrid RAG 부하를 다시 측정한다. aux-app은 검색이 쓰는 ES와 같은 node에 둔다.
 
 | t3.medium `app-observe` | 예산 |
 | --- | ---: |
@@ -225,7 +225,7 @@ large의 50 GB에는 container image, PostgreSQL, Kafka log와 Elasticsearch 검
 
 ## workload 구성
 
-- 모듈 앱 8개(`member-app`, `billing-app`, `appearance-app`, `lecture-app`, `chat-app`, `customer-support-app`, `notification-app`, `search-app`): 앱마다 Deployment 1개, replica 1개. node 배치는 위 자원 예산 표를 따른다.
+- 모듈 앱 7개(`member-app`, `billing-app`, `appearance-app`, `lecture-app`, `chat-app`, `customer-support-app`, `auxiliary-app`): 검색·챗봇·알림은 `auxiliary-app` 하나에 모듈로 둔다(#684, #714). 앱마다 Deployment 1개, replica 1개. node 배치는 위 자원 예산 표를 따른다.
 - React 정적 서버: FE 레포의 이미지를 그대로 pod로 띄운다. 이미지 안의 정적 서버도 nginx에서 static-web-server로 바꾼다(prgrms-be-adv-devcourse/beadv8_8_LMS_FE#126).
 - PostgreSQL, Kafka, Redis, Elasticsearch: StatefulSet과 large의 local-path volume. `core-data` required node affinity를 사용하며 medium으로 volume이 이동한다고 가정하지 않는다.
 - Envoy Gateway: proxy와 controller 모두 large. ECK operator·Kafka UI도 large(#774), cert-manager와 Sealed Secrets controller도 large(#532). 모두 medium 메모리 예산 때문에 옮겼다.
