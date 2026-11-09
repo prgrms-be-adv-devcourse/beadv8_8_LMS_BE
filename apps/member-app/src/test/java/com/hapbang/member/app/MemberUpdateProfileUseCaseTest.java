@@ -231,6 +231,60 @@ class MemberUpdateProfileUseCaseTest {
         verify(eventPublisher, never()).publishEvent(any());
     }
 
+    @Test
+    @DisplayName("자기소개 길이는 닉네임 중복 확인보다 먼저 검사해, 아무것도 확인·변경하기 전에 400이다")
+    void update_bioCheckedFirst() {
+        User user = influencer();
+        given(memberSupport.findUser(1L)).willReturn(user);
+
+        assertThatThrownBy(() -> useCase.update(1L, "tester2", null, "가".repeat(101)))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.INVALID_BIO_LENGTH);
+        verify(memberSupport, never()).checkNicknameAvailable(any(), any());
+        assertThat(user.getNickname()).isEqualTo("tester1");
+    }
+
+    @Test
+    @DisplayName("강등된 회원이 닉네임을 바꾸며 남은 분야·자기소개를 그대로 보내면 허용하고 닉네임만 바뀐다 (Q16)")
+    void update_demotedSendsSameValues() {
+        User user = demoted();
+        given(memberSupport.findUser(1L)).willReturn(user);
+
+        useCase.update(1L, "새 닉네임", List.of("GAME"), " 롤 방송해요 ");
+
+        assertThat(user.getNickname()).isEqualTo("새 닉네임");
+        assertThat(user.getContentCategories()).containsExactly("GAME");
+        assertThat(user.getBio()).isEqualTo("롤 방송해요");
+        verifyNoInteractions(contentCategoryRepository);
+        verify(eventPublisher).publishEvent(any(UserModifiedEvent.class));
+    }
+
+    @Test
+    @DisplayName("강등된 회원이 분야·자기소개를 바꾸거나 더하려 하면 403이다 (Q16)")
+    void update_demotedChangesValues() {
+        User user = demoted();
+        given(memberSupport.findUser(1L)).willReturn(user);
+
+        assertThatThrownBy(() -> useCase.update(1L, null, List.of("GAME", "MUKBANG"), null))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.INFLUENCER_PROFILE_NOT_ALLOWED);
+        assertThatThrownBy(() -> useCase.update(1L, null, null, "다른 소개"))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.INFLUENCER_PROFILE_NOT_ALLOWED);
+        assertThat(user.getContentCategories()).containsExactly("GAME");
+        assertThat(user.getBio()).isEqualTo("롤 방송해요");
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    /** 인플루언서일 때 분야 GAME·자기소개를 남기고 유저로 강등된 회원 */
+    private static User demoted() {
+        User user = influencer();
+        user.changeContentCategories(List.of("GAME"));
+        user.changeBio("롤 방송해요");
+        user.changeRole(Role.USER);
+        return user;
+    }
+
     private static User influencer() {
         User user = User.join("tester1@example.com", "tester1");
         user.changeRole(Role.INFLUENCER);

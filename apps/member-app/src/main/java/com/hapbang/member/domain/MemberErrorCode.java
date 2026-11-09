@@ -38,7 +38,7 @@ public enum MemberErrorCode implements BaseErrorCode {
     /** 빈 코드, 목록에 없는 코드, 새로 고르려는 꺼진(active 아님) 코드 (#711, Q50) */
     INVALID_CONTENT_CATEGORY(HttpStatus.BAD_REQUEST, "고를 수 없는 콘텐츠 분야예요."),
     INVALID_BIO_LENGTH(HttpStatus.BAD_REQUEST, "자기소개는 100자 이하로 입력해 주세요."),
-    /** 콘텐츠 분야·자기소개 설정은 인플루언서·인증된 인플루언서만 (#711). DB의 회원 역할로 판단하고, 지우기(빈 값)는 누구나 */
+    /** 콘텐츠 분야·자기소개를 새로 넣거나 바꾸는 것은 인플루언서·인증된 인플루언서만 (#711). DB의 회원 역할로 판단하고, 지우기와 지금 값 그대로 보내기는 누구나(Q16) */
     INFLUENCER_PROFILE_NOT_ALLOWED(HttpStatus.FORBIDDEN, "콘텐츠 분야와 자기소개는 인플루언서만 설정할 수 있어요."),
     INVALID_PASSWORD_LENGTH(HttpStatus.BAD_REQUEST, "비밀번호는 8~64자로 입력해 주세요."),
     INVALID_PASSWORD_CHARACTER(HttpStatus.BAD_REQUEST, "비밀번호는 영문·숫자·특수문자만 쓸 수 있습니다. 공백과 한글은 쓸 수 없습니다."),

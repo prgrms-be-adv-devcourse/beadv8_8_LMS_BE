@@ -35,8 +35,9 @@ public interface ApiV1MemberSpec {
                     + "6개 이상이면 400 INVALID_CONTENT_CATEGORY_COUNT, 중복이면 400 DUPLICATE_CONTENT_CATEGORY, "
                     + "새로 고르는 코드가 분야 목록에 없거나 꺼져 있으면 400 INVALID_CONTENT_CATEGORY(이미 고른 코드는 꺼졌어도 다시 보낼 수 있다). "
                     + "bio는 앞뒤 공백을 지운 뒤 100자 이하(넘으면 400 INVALID_BIO_LENGTH). "
-                    + "빈 목록·빈 문자열을 보내면 지운다. 비어 있지 않은 분야·자기소개는 인플루언서·인증된 인플루언서만 보낼 수 있고 "
-                    + "그 밖의 역할이면 요청 전체가 403 INFLUENCER_PROFILE_NOT_ALLOWED(아무것도 바뀌지 않음). 지우기는 누구나 된다. "
+                    + "빈 목록·빈 문자열을 보내면 지운다. 분야·자기소개를 새로 넣거나 바꾸는 것은 인플루언서·인증된 인플루언서만 되고 "
+                    + "그 밖의 역할이면 요청 전체가 403 INFLUENCER_PROFILE_NOT_ALLOWED(아무것도 바뀌지 않음). "
+                    + "지우기와 지금 값을 그대로 보내기는 누구나 된다(강등된 회원이 남은 값을 함께 보내며 닉네임만 바꿀 때). "
                     + "무엇이든 바뀌면 회원 변경 이벤트가 한 번 나가고, 바뀐 것이 없으면 나가지 않는다.")
     RsData<MemberMeResponse> updateMe(Long userId, MemberUpdateRequest request);
 
