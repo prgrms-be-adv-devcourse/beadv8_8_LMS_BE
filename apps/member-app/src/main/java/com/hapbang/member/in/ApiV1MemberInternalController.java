@@ -7,11 +7,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.member.global.response.RsData;
 import com.hapbang.member.app.MemberInternalFacade;
+import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
 
 import lombok.RequiredArgsConstructor;
 
-/** 회원 내부 API (#303). Swagger 명세는 {@link ApiV1MemberInternalSpec}, 계약은 docs/api/internal-members.md */
+/** 회원 내부 API (#303, #769). Swagger 명세는 {@link ApiV1MemberInternalSpec}, 계약은 docs/api/internal-members.md */
 @RestController
 @RequestMapping("/api/v1/internal/members")
 @RequiredArgsConstructor
@@ -25,5 +26,13 @@ public class ApiV1MemberInternalController implements ApiV1MemberInternalSpec {
             @RequestParam(name = "afterId", required = false) Long afterId,
             @RequestParam(name = "size", defaultValue = "100") int size) {
         return RsData.ok("회원 목록을 조회했습니다.", memberInternalFacade.findMembers(afterId, size));
+    }
+
+    @Override
+    @GetMapping("/influencer-stats")
+    public RsData<InfluencerStatsPageDto> findInfluencerStats(
+            @RequestParam(name = "afterId", required = false) Long afterId,
+            @RequestParam(name = "size", defaultValue = "100") int size) {
+        return RsData.ok("인플루언서 통계를 조회했습니다.", memberInternalFacade.findInfluencerStats(afterId, size));
     }
 }
