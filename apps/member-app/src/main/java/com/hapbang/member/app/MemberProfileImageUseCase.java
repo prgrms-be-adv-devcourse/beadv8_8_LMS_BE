@@ -107,7 +107,7 @@ public class MemberProfileImageUseCase {
         return result;
     }
 
-    /** 조회 URL (Presigned GET, 1시간 서명, 캐시에서 꺼내도 받은 뒤 최소 10분). 사진이 없으면 null. 캐시를 거친다({@link #urlsOf}) */
+    /** 조회 URL (Presigned GET, 1시간 서명, 받은 뒤 대개 10분 이상). 사진이 없으면 null. 캐시를 거친다({@link #urlsOf}) */
     public String urlOf(String key) {
         return key == null ? null : urlsOf(List.of(key)).get(key);
     }

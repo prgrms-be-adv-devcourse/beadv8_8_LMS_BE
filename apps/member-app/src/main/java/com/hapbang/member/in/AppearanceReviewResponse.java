@@ -28,7 +28,7 @@ public record AppearanceReviewResponse(Long reviewId, Long appearanceId, Appeara
     /**
      * 리뷰를 쓴 회원. 탈퇴했거나 회원 DB에 없으면 닉네임은 "탈퇴한 회원", 사진은 null이다 (정지 회원은 그대로 보인다)
      *
-     * @param profileImageUrl 받은 뒤 최소 10분 쓸 수 있는 조회 주소(만료되거나 불러오지 못하면, 사진을 바꾼 직후의 옛 주소 포함, 다시 조회한다). 사진이 없으면 null
+     * @param profileImageUrl 받은 뒤 대개 10분 이상 쓸 수 있는 조회 주소(서버 자격 증명이 바뀌는 짧은 동안은 더 짧을 수 있다. 만료되거나 불러오지 못하면, 사진을 바꾼 직후의 옛 주소 포함, 다시 조회한다). 사진이 없으면 null
      */
     public record ReviewerResponse(Long id, String nickname, String profileImageUrl) {
 
