@@ -19,11 +19,16 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.RepositoryTest;
 
+import jakarta.persistence.EntityManager;
+
 @RepositoryTest
 class UserRepositoryTest {
 
     @Autowired
     UserRepository userRepository;
+
+    @Autowired
+    EntityManager entityManager;
 
     @Test
     @DisplayName("회원을 저장하면 ID와 생성일·수정일이 채워진다")
@@ -53,6 +58,73 @@ class UserRepositoryTest {
         assertThat(userRepository.findByEmailIgnoreCase("TESTER1@EXAMPLE.COM"))
                 .hasValueSatisfying(found -> assertThat(found.getId()).isEqualTo(saved.getId()));
         assertThat(userRepository.existsByEmailIgnoreCase("other@example.com")).isFalse();
+    }
+
+    @Test
+    @DisplayName("콘텐츠 분야는 고른 순서로 저장되고, 순서만 바꿔도 유일 제약에 걸리지 않고 저장되며 version이 오른다 (#711)")
+    void contentCategories_orderAndVersion() {
+        User user = userRepository.saveAndFlush(User.join("tester1@example.com", "tester1"));
+        user.changeContentCategories(List.of("GAME", "MAPLESTORY", "MUKBANG"));
+        userRepository.saveAndFlush(user);
+        Long before = reload(user).getVersion();
+
+        User loaded = reload(user);
+        loaded.changeContentCategories(List.of("MUKBANG", "GAME", "MAPLESTORY"));
+        userRepository.saveAndFlush(loaded);
+
+        User reloaded = reload(user);
+        assertThat(reloaded.getContentCategories()).containsExactly("MUKBANG", "GAME", "MAPLESTORY");
+        assertThat(reloaded.getVersion()).isEqualTo(before + 1);
+    }
+
+    @Test
+    @DisplayName("지금과 같은 콘텐츠 분야·자기소개를 다시 넣으면 version이 오르지 않는다 (#711)")
+    void contentCategories_sameValueKeepsVersion() {
+        User user = userRepository.saveAndFlush(User.join("tester1@example.com", "tester1"));
+        user.changeContentCategories(List.of("GAME", "MAPLESTORY"));
+        user.changeBio("메이플 위주");
+        userRepository.saveAndFlush(user);
+        Long before = reload(user).getVersion();
+
+        User loaded = reload(user);
+        loaded.changeContentCategories(List.of("GAME", "MAPLESTORY"));
+        loaded.changeBio("메이플 위주");
+        userRepository.saveAndFlush(loaded);
+
+        assertThat(reload(user).getVersion()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("자기소개를 바꾸면 저장되고 version이 오른다 (#711)")
+    void bio_saved() {
+        User user = userRepository.saveAndFlush(User.join("tester1@example.com", "tester1"));
+        Long before = user.getVersion();
+
+        User loaded = reload(user);
+        loaded.changeBio("메이플 위주로 방송해요");
+        userRepository.saveAndFlush(loaded);
+
+        User reloaded = reload(user);
+        assertThat(reloaded.getBio()).isEqualTo("메이플 위주로 방송해요");
+        assertThat(reloaded.getVersion()).isEqualTo(before + 1);
+    }
+
+    @Test
+    @DisplayName("분야 목록에 없는 코드는 저장할 수 없다(FK, #711)")
+    void contentCategories_unknownCode() {
+        User user = userRepository.saveAndFlush(User.join("tester1@example.com", "tester1"));
+        user.changeContentCategories(List.of("NO_SUCH_CATEGORY"));
+
+        assertThatThrownBy(() -> userRepository.saveAndFlush(user))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    /** 영속성 컨텍스트를 비우고 DB에서 다시 읽는다 (분야는 LAZY라 읽어 둔다) */
+    private User reload(User user) {
+        entityManager.clear();
+        User found = userRepository.findById(user.getId()).orElseThrow();
+        found.getContentCategories();
+        return found;
     }
 
     private static final List<Role> INFLUENCER_ROLES = List.of(Role.INFLUENCER, Role.VERIFIED_INFLUENCER);

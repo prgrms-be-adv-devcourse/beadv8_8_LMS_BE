@@ -20,7 +20,7 @@ billing이 회원 복제본(`billing_user`)을 기존 회원으로 채울(백필
 
 | 필드 | 설명 |
 | --- | --- |
-| `items` | 회원 목록. 각 항목은 회원 이벤트와 같은 `UserDto` (`id`, `nickname`, `role`, `status`, `version`) |
+| `items` | 회원 목록. 각 항목은 회원 이벤트와 같은 `UserDto` (`id`, `nickname`, `role`, `status`, `version`, `contentCategories`, `bio`) |
 | `nextAfterId` | 다음 페이지의 `afterId`. **마지막 페이지면 응답에서 빠진다(null)** |
 
 ```json
@@ -29,8 +29,10 @@ billing이 회원 복제본(`billing_user`)을 기존 회원으로 채울(백필
   "message": "회원 목록을 조회했습니다.",
   "data": {
     "items": [
-      { "id": 1, "nickname": "member1", "role": "USER", "status": "ACTIVE", "version": 3 },
-      { "id": 2, "nickname": "member2", "role": "INFLUENCER", "status": "WITHDRAWN", "version": 1 }
+      { "id": 1, "nickname": "member1", "role": "USER", "status": "ACTIVE", "version": 3,
+        "contentCategories": [], "bio": null },
+      { "id": 2, "nickname": "member2", "role": "INFLUENCER", "status": "WITHDRAWN", "version": 1,
+        "contentCategories": ["MAPLESTORY", "GAME"], "bio": "메이플 위주로 방송해요" }
     ],
     "nextAfterId": 2
   }
@@ -38,6 +40,7 @@ billing이 회원 복제본(`billing_user`)을 기존 회원으로 채울(백필
 ```
 
 - `version`은 회원 원본의 낙관적 락 버전(`members.users.version`, #284)이다
+- `contentCategories`는 콘텐츠 분야 **코드** 목록(고른 순서)이고, 없으면 빈 배열이다(null 아님). 코드는 enum이 아니라 문자열이라 처음 보는 코드가 와도 읽기가 실패하지 않는다. 이름은 싣지 않는다(바뀔 수 있어서). `bio`는 자기소개이고 없으면 null이다 (#711)
 - 오류: `size`가 1~500 밖이거나 `afterId`가 음수면 400 `INVALID_REQUEST` + `errors[{field, message}]`. 키가 없거나 틀리면 401(본문 없음)
 
 ## 2. 사용법 (billing)

@@ -2,6 +2,7 @@ package com.hapbang.member.in;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -49,11 +50,12 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         return RsData.ok("내 정보를 조회했습니다.", meResponse(memberFacade.findById(userId)));
     }
 
-    /** 내 정보 수정 (닉네임) */
+    /** 내 정보 수정 (닉네임·콘텐츠 분야·자기소개) */
     @Override
     @PatchMapping("/me")
     public RsData<MemberMeResponse> updateMe(@LoginUserId Long userId, @RequestBody MemberUpdateRequest request) {
-        return RsData.ok("내 정보를 수정했습니다.", meResponse(memberFacade.updateProfile(userId, request.nickname())));
+        return RsData.ok("내 정보를 수정했습니다.", meResponse(
+                memberFacade.updateProfile(userId, request.nickname(), request.contentCategories(), request.bio())));
     }
 
     /** 닉네임 중복 확인 (#646). 로그인 없이 부른다. 로그인했으면 자기 닉네임은 쓸 수 있다고 답한다 */
@@ -72,9 +74,11 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         Page<User> influencers = memberFacade.findInfluencers(pageable);
         Map<Long, AppearanceRatingSummary> ratings = memberFacade.findAppearanceRatings(
                 influencers.map(User::getId).getContent());
+        Map<String, String> categoryNames = memberFacade.findContentCategoryNames(influencers.stream()
+                .flatMap(user -> user.getContentCategories().stream()).collect(Collectors.toSet()));
         return RsData.ok("인플루언서 목록을 조회했습니다.", influencers.map(user -> MemberProfileResponse.from(user,
                 memberFacade.profileImageUrl(user.getProfileImageKey()),
-                ratings.getOrDefault(user.getId(), AppearanceRatingSummary.EMPTY))));
+                ratings.getOrDefault(user.getId(), AppearanceRatingSummary.EMPTY), categoryNames)));
     }
 
     /** 회원 프로필 (등록된 채널, 출연 평점 포함). 숫자만 받아 /signup 같은 다른 주소와 겹치지 않게 한다 */
@@ -84,7 +88,8 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         User user = memberFacade.findProfile(memberId);
         return RsData.ok("회원 프로필을 조회했습니다.", MemberProfileDetailResponse.from(user,
                 memberFacade.profileImageUrl(user.getProfileImageKey()), memberFacade.findChannels(memberId),
-                memberFacade.findAppearanceRating(memberId)));
+                memberFacade.findAppearanceRating(memberId),
+                memberFacade.findContentCategoryNames(user.getContentCategories())));
     }
 
     /** 회원이 받은 출연 리뷰 목록 (최신 공개순). 리뷰는 출연 앱에서 읽고 쓴 회원 정보를 붙인다 (#555) */
@@ -163,6 +168,7 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
     }
 
     private MemberMeResponse meResponse(User user) {
-        return MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()));
+        return MemberMeResponse.from(user, memberFacade.profileImageUrl(user.getProfileImageKey()),
+                memberFacade.findContentCategoryNames(user.getContentCategories()));
     }
 }

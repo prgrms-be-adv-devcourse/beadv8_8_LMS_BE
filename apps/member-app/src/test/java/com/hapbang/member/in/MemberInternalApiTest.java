@@ -1,6 +1,7 @@
 package com.hapbang.member.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -64,6 +65,10 @@ class MemberInternalApiTest {
                 .andExpect(jsonPath("$.data.items[0].role").value("USER"))
                 .andExpect(jsonPath("$.data.items[0].status").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.items[0].version").value(0))
+                // 회원 이벤트와 같은 UserDto라 콘텐츠 분야(코드 목록)·자기소개도 실린다 (#711)
+                .andExpect(jsonPath("$.data.items[0].contentCategories").isArray())
+                .andExpect(jsonPath("$.data.items[0].contentCategories.length()").value(0))
+                .andExpect(jsonPath("$.data.items[0].bio").value(nullValue()))
                 .andExpect(jsonPath("$.data.items[1].id").value(users.get(1).getId()))
                 .andExpect(jsonPath("$.data.nextAfterId").value(users.get(1).getId()));
     }

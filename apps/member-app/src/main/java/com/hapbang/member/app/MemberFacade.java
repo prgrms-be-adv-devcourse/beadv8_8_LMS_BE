@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.ChannelPlatform;
+import com.hapbang.member.domain.ContentCategory;
 import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
@@ -44,6 +45,7 @@ public class MemberFacade {
     private final MemberSeedAccountUseCase memberSeedAccountUseCase;
     private final MemberNicknameDedupNotifyUseCase memberNicknameDedupNotifyUseCase;
     private final MemberUpdateProfileUseCase memberUpdateProfileUseCase;
+    private final MemberContentCategoryUseCase memberContentCategoryUseCase;
     private final MemberSupport memberSupport;
     private final MemberChzzkUseCase memberChzzkUseCase;
     private final MemberChannelRegisterUseCase memberChannelRegisterUseCase;
@@ -102,10 +104,10 @@ public class MemberFacade {
         return memberSupport.isNicknameAvailable(Nickname.validate(nickname), userId);
     }
 
-    /** 내 정보 수정 */
+    /** 내 정보 수정 (닉네임·콘텐츠 분야·자기소개). null은 바꾸지 않는다 */
     @Transactional
-    public User updateProfile(Long userId, String nickname) {
-        return memberUpdateProfileUseCase.update(userId, nickname);
+    public User updateProfile(Long userId, String nickname, List<String> contentCategories, String bio) {
+        return memberUpdateProfileUseCase.update(userId, nickname, contentCategories, bio);
     }
 
     /** 회원 조회 */
@@ -114,11 +116,30 @@ public class MemberFacade {
         return memberSupport.findUser(userId);
     }
 
-    /** 인플루언서 목록 (최신 가입순). 정렬은 요청과 상관없이 고정 */
+    /**
+     * 인플루언서 목록 (최신 가입순). 정렬은 요청과 상관없이 고정.
+     * 응답을 만들 때(트랜잭션 밖) 분야를 읽을 수 있게 여기서 읽어 둔다. 한 회원의 분야를 읽으면 페이지의 회원들 것을 묶어 읽는다(N+1 없음, #711)
+     */
     @Transactional(readOnly = true)
     public Page<User> findInfluencers(Pageable pageable) {
-        return memberSupport.findInfluencers(
+        Page<User> influencers = memberSupport.findInfluencers(
                 PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
+        influencers.forEach(User::loadContentCategories);
+        return influencers;
+    }
+
+    /** 콘텐츠 분야 목록 (#711). 새로 고를 수 있는 분야만, 정상 인플루언서가 고른 수 많은 순, 같으면 이름순 */
+    @Transactional(readOnly = true)
+    public List<ContentCategory> findContentCategories() {
+        return memberContentCategoryUseCase.list();
+    }
+
+    /**
+     * 주어진 콘텐츠 분야 코드 → 이름 (응답에 분야 이름을 붙일 때, 꺼진 분야 포함, #711).
+     * 분야가 없는 회원(대부분의 유저)은 DB를 읽지 않도록 트랜잭션을 두지 않는다. 읽을 때는 저장소의 읽기 트랜잭션을 쓴다
+     */
+    public Map<String, String> findContentCategoryNames(Collection<String> codes) {
+        return codes.isEmpty() ? Map.of() : memberContentCategoryUseCase.names(codes);
     }
 
     /** 회원 프로필 (정상 회원만) */
@@ -327,10 +348,15 @@ public class MemberFacade {
         return user;
     }
 
-    /** 이메일·비밀번호 로그인 (#499). 토큰은 issueTokens로 발급한다 */
+    /**
+     * 이메일·비밀번호 로그인 (#499). 토큰은 issueTokens로 발급한다.
+     * 이메일로 찾은 회원은 분야를 아직 읽지 않았으므로, 응답을 만들 때(트랜잭션 밖) 쓸 수 있게 여기서 읽어 둔다 (#711)
+     */
     @Transactional(readOnly = true)
     public User passwordLogin(String email, String password) {
-        return memberPasswordLoginUseCase.login(email, password);
+        User user = memberPasswordLoginUseCase.login(email, password);
+        user.loadContentCategories();
+        return user;
     }
 
     /**

@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,6 +19,14 @@ import com.hapbang.shared.member.domain.UserStatus;
 
 /** 회원 저장소 */
 public interface UserRepository extends JpaRepository<User, Long> {
+
+    /**
+     * 회원 한 명을 읽을 때 콘텐츠 분야도 조인으로 함께 읽는다 (#711). 분야는 LAZY라 트랜잭션이 끝난 뒤
+     * (컨트롤러 응답, open-in-view 꺼짐) 읽으면 실패하므로, 한 명을 읽는 기본 경로({@code MemberSupport.findUser})에서 미리 채운다
+     */
+    @Override
+    @EntityGraph(attributePaths = "contentCategories")
+    Optional<User> findById(Long id);
 
     Optional<User> findByEmail(String email);
 
@@ -63,4 +72,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** 내부 회원 목록(키셋): afterId보다 큰 ID를 오름차순으로 limit개. 모든 역할·상태 포함 (#303) */
     List<User> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
+
+    /**
+     * 콘텐츠 분야별로 정상 인플루언서(인플루언서·인증된 인플루언서 + ACTIVE)가 고른 수 (#711). 아무도 고르지 않은 분야는 없다.
+     * 분야 목록 API의 순서(고른 수 많은 순)에 쓴다. user_content_category의 code 인덱스로 센다
+     */
+    @Query("""
+            select new com.hapbang.member.out.ContentCategoryCount(code, count(u))
+            from User u join u.contentCategories code
+            where u.role in (com.hapbang.shared.member.domain.Role.INFLUENCER,
+                             com.hapbang.shared.member.domain.Role.VERIFIED_INFLUENCER)
+              and u.status = com.hapbang.shared.member.domain.UserStatus.ACTIVE
+            group by code""")
+    List<ContentCategoryCount> countInfluencersByContentCategory();
 }
