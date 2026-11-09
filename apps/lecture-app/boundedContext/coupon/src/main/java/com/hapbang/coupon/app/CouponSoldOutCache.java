@@ -2,7 +2,6 @@ package com.hapbang.coupon.app;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 
@@ -34,10 +33,12 @@ import lombok.extern.slf4j.Slf4j;
  * 인스턴스(JVM)마다 따로 가진다. 매진이 아니라는 값도 담는다(발급 중인 쿠폰마다 요청당 GET이 하나 더 늘지 않게). 접수 경로는 쿠폰이 있는지
  * 확인하기 전에 이 캐시를 보므로 없는 쿠폰 ID도 항목이 될 수 있어 크기를 제한한다. TTL 만료와 크기 제한은 Caffeine 캐시 하나가 맡는다.
  * <ul>
- *     <li>만료: 쓴 뒤 TTL이 지나면 만료다(쿠폰 시계 기준). 다시 쓰면 그때부터 다시 센다. 시계가 읽은 시각보다 앞으로 돌아갔으면
- *     {@link SoldOutSignal#freshAt}이 다시 읽게 한다.</li>
- *     <li>상한: 항목 수가 {@code hapbang.coupon.sold-out-cache-max-entries}를 넘으면 Caffeine이 덜 쓰이는 항목을 내보낸다(방금 넣은
- *     항목일 수도 있다). 내보낸 쿠폰은 다음 확인 때 Redis를 다시 읽을 뿐이고 판정은 같다. 정리는 비동기라 잠깐 상한을 넘을 수 있다.</li>
+ *     <li>만료는 단조 시계, 역행 판정은 freshAt: Caffeine은 쓴 뒤 TTL이 지난 항목을 단조 시계({@link Ticker#systemTicker()})로
+ *     지운다. 재사용할지는 쿠폰 시계로 {@link SoldOutSignal#freshAt}이 판정하므로, 시계가 읽은 시각보다 앞으로 돌아갔으면 다시 읽는다.
+ *     그때 TTL이 지난 항목이 Caffeine 만료까지 남아 있을 수 있지만 판정에는 쓰지 않는다.</li>
+ *     <li>상한: 항목 수가 {@code hapbang.coupon.sold-out-cache-max-entries}를 넘으면 Caffeine(W-TinyLFU)이 덜 쓰이는 항목을
+ *     내보낸다. 매진 아님 결과도 담으므로 없는 쿠폰 ID를 흩뿌리면 상한까지 찰 수 있다. 상한은 메모리 보호다. 내보낸 쿠폰은 다음 확인
+ *     때 Redis를 다시 읽을 뿐이고 판정은 같다. 정리는 비동기라 잠깐 상한을 넘을 수 있다.</li>
  * </ul>
  * 지표는 Micrometer {@code cache.*}에 {@code cache=coupon.issue.sold_out} 태그로 남는다. TTL이 0이면 캐시가 없어 지표도 없다.
  */
@@ -60,13 +61,13 @@ public class CouponSoldOutCache {
                               @Qualifier(CouponClockConfig.CLOCK) Clock clock,
                               ObjectProvider<MeterRegistry> meterRegistry) {
         this(couponIssueStore, properties, cacheProperties, clock, meterRegistry.getIfAvailable(SimpleMeterRegistry::new),
-                ForkJoinPool.commonPool());
+                Ticker.systemTicker(), ForkJoinPool.commonPool());
     }
 
-    /** 테스트가 Caffeine 정리 작업을 호출한 스레드에서 바로 돌리도록 실행기를 받는다 */
+    /** 테스트가 쿠폰 시계와 함께 움직이는 만료 시계를 주고, Caffeine 정리 작업을 호출한 스레드에서 바로 돌리도록 실행기를 받는다 */
     CouponSoldOutCache(CouponIssueStore couponIssueStore, CouponIssueDeliveryProperties properties,
                        CouponSoldOutCacheProperties cacheProperties, Clock clock, MeterRegistry meterRegistry,
-                       Executor maintenanceExecutor) {
+                       Ticker expiryTicker, Executor maintenanceExecutor) {
         this.couponIssueStore = couponIssueStore;
         this.ttl = properties.soldOutCacheTtl();
         this.clock = clock;
@@ -77,7 +78,7 @@ public class CouponSoldOutCache {
         this.signals = Caffeine.newBuilder()
                 .expireAfterWrite(ttl)
                 .maximumSize(cacheProperties.soldOutCacheMaxEntries())
-                .ticker(tickerOf(clock))
+                .ticker(expiryTicker)
                 .executor(maintenanceExecutor)
                 .recordStats()
                 .build();
@@ -119,13 +120,5 @@ public class CouponSoldOutCache {
         }
         signals.cleanUp();
         return signals.estimatedSize();
-    }
-
-    /** 쿠폰 시계를 Caffeine 시간(나노초)으로 바꾼다. 만료 판정이 {@link SoldOutSignal}과 같은 시계를 보게 한다 */
-    private static Ticker tickerOf(Clock clock) {
-        return () -> {
-            Instant now = clock.instant();
-            return now.getEpochSecond() * 1_000_000_000L + now.getNano();
-        };
     }
 }

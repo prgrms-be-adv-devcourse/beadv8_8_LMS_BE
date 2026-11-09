@@ -61,9 +61,10 @@ class CouponIssueRequestUseCaseTest {
     void setUp() {
         Clock clock = Clock.fixed(NOW_WITH_MICROS, ZoneOffset.UTC);
         CouponIssueDeliveryProperties properties = CouponIssueDeliveryProperties.defaults();
+        // 고정 시계에 맞춰 매진 캐시의 만료 시계도 멈춘다
         useCase = new CouponIssueRequestUseCase(issueStore, publisher,
                 new CouponSoldOutCache(issueStore, properties, CouponSoldOutCacheProperties.defaults(), clock, meterRegistry,
-                        Runnable::run), properties, registry(meterRegistry), clock);
+                        () -> 0L, Runnable::run), properties, registry(meterRegistry), clock);
         when(publisher.publish(any(), any())).thenReturn(PublishResult.ACKED);
     }
 

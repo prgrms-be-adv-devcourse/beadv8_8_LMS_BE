@@ -103,6 +103,20 @@ class CouponSoldOutCacheTest {
     }
 
     @Test
+    void 상한을_채운_뒤_매진_신호를_담은_쿠폰은_TTL_안에서_Redis를_부르지_않고_매진이다() {
+        CouponSoldOutCache cache = cacheWithMaxEntries(2);
+        when(issueStore.isSoldOut(anyLong())).thenReturn(false);
+        for (long couponId = 1; couponId <= 5; couponId++) {
+            cache.isSoldOut(couponId);
+        }
+
+        cache.markSoldOut(6);
+
+        assertThat(cache.isSoldOut(6)).isTrue();
+        verify(issueStore, never()).isSoldOut(6);
+    }
+
+    @Test
     void 지표는_TTL_안에서_재사용하면_hit_담긴_값이_없으면_miss로_센다() {
         CouponSoldOutCache cache = cache(CouponIssueDeliveryProperties.defaults(), CouponSoldOutCacheProperties.defaults());
         when(issueStore.isSoldOut(COUPON_ID)).thenReturn(false);
@@ -134,9 +148,10 @@ class CouponSoldOutCacheTest {
         return cache(CouponIssueDeliveryProperties.defaults(), new CouponSoldOutCacheProperties(maxEntries));
     }
 
-    /** Caffeine 정리 작업을 호출한 스레드에서 바로 돌려 시간·크기 판정을 결정적으로 만든다 */
+    /** 만료 시계를 테스트 시계와 함께 움직이고 Caffeine 정리 작업을 호출한 스레드에서 바로 돌려 시간·크기 판정을 결정적으로 만든다 */
     private CouponSoldOutCache cache(CouponIssueDeliveryProperties properties, CouponSoldOutCacheProperties cacheProperties) {
-        return new CouponSoldOutCache(issueStore, properties, cacheProperties, clock, meterRegistry, Runnable::run);
+        return new CouponSoldOutCache(issueStore, properties, cacheProperties, clock, meterRegistry, clock::nanos,
+                Runnable::run);
     }
 
     private double gets(String result) {
@@ -154,6 +169,11 @@ class CouponSoldOutCacheTest {
 
         void advance(Duration duration) {
             now = now.plus(duration);
+        }
+
+        /** Caffeine 만료 시계로 쓰는 나노초. 이 시계와 함께 움직인다 */
+        long nanos() {
+            return now.getEpochSecond() * 1_000_000_000L + now.getNano();
         }
 
         @Override
