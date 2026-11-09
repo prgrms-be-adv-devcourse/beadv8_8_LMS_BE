@@ -99,14 +99,20 @@ class AuxiliaryApplicationTest {
     }
 
     @Test
-    @DisplayName("Flyway 이력은 auxiliary schema에 남고, 챗봇 모듈 SQL이 chatbot schema를 만든다")
+    @DisplayName("Flyway 이력은 auxiliary schema에 남고, 챗봇·알림 모듈 SQL이 chatbot·notification schema를 만든다")
     void flywaySchemas() {
         assertThat(jdbcTemplate.queryForList(
-                "select schema_name from information_schema.schemata where schema_name in ('auxiliary', 'chatbot')",
-                String.class)).containsExactlyInAnyOrder("auxiliary", "chatbot");
+                "select schema_name from information_schema.schemata "
+                        + "where schema_name in ('auxiliary', 'chatbot', 'notification')",
+                String.class)).containsExactlyInAnyOrder("auxiliary", "chatbot", "notification");
         assertThat(jdbcTemplate.queryForList(
                 "select description from auxiliary.flyway_schema_history where success", String.class))
-                .contains("create chatbot schema");
+                .contains("create chatbot schema", "create notification schema");
+        // 알림 회원 복제본 테이블(ND-046)
+        assertThat(jdbcTemplate.queryForList(
+                "select table_name from information_schema.tables "
+                        + "where table_schema = 'notification' and table_name = 'notification_user'",
+                String.class)).containsExactly("notification_user");
     }
 
     @Test

@@ -124,6 +124,23 @@ class NotificationMemberEventListenerTest {
     }
 
     @Test
+    void 가입보다_먼저_온_변경으로_복제본을_만들고_늦게_온_가입은_건너뛴다() {
+        long id = nextId();
+
+        // 72시간보다 먼저 가입해 가입 이벤트가 토픽에 없는 회원, 또는 가입·변경 순서가 바뀐 경우(ND-049)
+        modified(id, "변경후", Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 2L);
+        joined(id, "가입때", Role.USER, UserStatus.ACTIVE, 0L);
+        awaitProcessed();
+
+        assertThat(repository.findById(id)).hasValueSatisfying(user -> {
+            assertThat(user.getNickname()).isEqualTo("변경후");
+            assertThat(user.getRole()).isEqualTo(Role.VERIFIED_INFLUENCER);
+            assertThat(user.getMemberVersion()).isEqualTo(2L);
+        });
+        assertThat(kafka.deadLetterKeysNow(DLT)).doesNotContain(String.valueOf(id));
+    }
+
+    @Test
     void 처리하지_않는_회원_이벤트와_모르는_종류는_건너뛰고_다음_레코드를_처리한다() {
         long id = nextId();
 

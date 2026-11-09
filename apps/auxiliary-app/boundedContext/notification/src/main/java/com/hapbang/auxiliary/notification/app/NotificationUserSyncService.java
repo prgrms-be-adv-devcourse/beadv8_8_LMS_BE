@@ -16,14 +16,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 회원 이벤트를 알림 회원 복제본에 반영한다(ND-018). 메서드마다 {@code notification} schema 안의 로컬 트랜잭션 하나다(ND-007).
+ * 회원 이벤트를 알림 회원 복제본에 반영한다(ND-018, ND-049). 메서드마다 {@code notification} schema 안의 로컬 트랜잭션 하나다(ND-007).
  * <ul>
- *     <li>가입: 만들기만 한다. 이미 있으면 건너뛴다(같은 가입 이벤트의 재처리).</li>
- *     <li>변경: 있는 복제본만 회원 버전이 더 클 때 갱신한다. 없으면(가입 이벤트가 아직 처리되지 않음) 만들지 않고 실패해, 리스너의
- *     블로킹 재시도 뒤 DLT로 간다(ND-035).</li>
+ *     <li>가입: 없으면 만든다. 이미 있으면 그대로 둔다(같은 가입 이벤트의 재처리, 변경으로 먼저 만든 뒤 늦게 온 가입).</li>
+ *     <li>변경: 없으면 그 이벤트의 회원 정보로 만든다(ND-049. 보존 기간보다 먼저 가입해 가입 이벤트가 토픽에 없는 회원, 가입보다 먼저
+ *     도착한 변경). 있으면 회원 버전이 더 클 때만 갱신한다.</li>
+ *     <li>복제할 수 없는 정보(ID·닉네임·역할·상태 없음)는 가입·변경 모두 {@code INVALID_MEMBER_EVENT}로 실패한다.</li>
  * </ul>
- * 같은 회원을 동시에 만들거나 고치면 PK 유일 제약·복제본 낙관적 락으로 늦은 쪽이 실패하고, 재처리 때 위 규칙으로 정리된다.
- * 첫 배포 때 이미 가입한 회원의 Backfill은 정하지 않았다(U17, ND-048).
+ * 같은 회원을 동시에 만들거나 고치면 PK 유일 제약·복제본 낙관적 락으로 늦은 쪽이 실패하고, 리스너의 블로킹 재시도 때 위 규칙으로
+ * 정리된다. 변경 이벤트로 만드는 것은 Backfill을 대체하지 않는다: 변경이 오지 않는 회원은 복제본이 없다(U17).
  */
 @Slf4j
 @Service
@@ -47,13 +48,21 @@ public class NotificationUserSyncService {
     }
 
     /**
-     * @throws NotificationException 복제할 수 없는 정보면 {@code INVALID_MEMBER_EVENT}, 복제본이 없으면
-     *                               {@code NOTIFICATION_USER_NOT_FOUND}(만들지 않는다)
+     * @throws NotificationException 복제할 수 없는 정보면 {@code INVALID_MEMBER_EVENT}
      */
     public NotificationUserSyncResult syncModified(UserDto user) {
         validate(user);
-        NotificationUser replica = repository.findById(user.id())
-                .orElseThrow(() -> new NotificationException(NotificationErrorCode.NOTIFICATION_USER_NOT_FOUND));
+        return repository.findById(user.id())
+                .map(replica -> apply(replica, user))
+                .orElseGet(() -> {
+                    log.info("알림 회원 복제본이 없어 변경 이벤트로 만든다 userId={}, memberVersion={}", user.id(),
+                            user.version());
+                    return result(repository.save(NotificationUser.create(user)), Outcome.CREATED_FROM_MODIFIED);
+                });
+    }
+
+    // 버전 규칙은 ReplicaUser.syncFrom이 판단한다. 반영 전 버전이 없으면 언제나 반영되고, 있으면 반영될 때만 버전이 바뀐다
+    private static NotificationUserSyncResult apply(NotificationUser replica, UserDto user) {
         Long before = replica.getMemberVersion();
         replica.syncFrom(user);
         boolean applied = before == null || !Objects.equals(before, replica.getMemberVersion());

@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.support.KafkaHeaders;
@@ -45,13 +46,14 @@ import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 
 /**
- * 처리하지 못한 회원 이벤트가 그룹별 DLT로 가는 방식(kafka.md "재시도와 DLT", ND-010·ND-035, test-spec NT-ERR-03·NT-USR-04).
+ * 처리하지 못한 회원 이벤트가 그룹별 DLT로 가는 방식(kafka.md "재시도와 DLT", ND-010, test-spec NT-ERR-01~03).
  * 실패를 셋으로 나눠 본다.
  * <ul>
  *     <li>역직렬화 실패(깨진 본문, 신뢰 패키지 밖 타입): 리스너를 부르지 않고 재시도 없이 바로 DLT</li>
  *     <li>검증 실패(복제할 수 없는 회원 정보): 한 번만 처리하고 재시도 없이 DLT</li>
- *     <li>업무 처리 실패(복제본이 없을 때 온 변경, ND-035): 처음 1번 + 재시도한 뒤 DLT</li>
+ *     <li>업무 처리 실패(DB 일시 장애가 계속됨): 처음 1번 + 재시도한 뒤 DLT</li>
  * </ul>
+ * 복제본이 없을 때 온 변경은 실패가 아니라 그 정보로 복제본을 만든다(ND-049).
  * 원본 토픽은 운영과 같은 partition 3개이고, DLT는 원본과 같은 partition 번호로 받는다.
  */
 @IntegrationTest
@@ -153,8 +155,11 @@ class NotificationMemberEventDeadLetterTest {
     }
 
     @Test
-    void 복제본이_없을_때_온_변경은_재시도한_뒤_같은_partition_번호의_DLT로_보내고_다음_레코드를_처리한다() {
+    void 처리가_계속_실패하면_재시도한_뒤_같은_partition_번호의_DLT로_보내고_다음_레코드를_처리한다() {
         long id = nextId();
+        // 업무 처리 실패(예: DB 일시 장애)가 재시도 동안 계속되는 경우
+        doThrow(new TransientDataAccessResourceException("DB 일시 장애(테스트)"))
+                .when(syncService).syncModified(argThat(user -> user != null && user.id() == id));
 
         kafka.send(UserModifiedEvent.class.getName(), id,
                 userJson(id, "게스트", Role.INFLUENCER, UserStatus.ACTIVE, 1L), 2);
@@ -162,7 +167,7 @@ class NotificationMemberEventDeadLetterTest {
         ConsumerRecord<String, byte[]> deadLetter = kafka.awaitDeadLetter(DLT, id);
         assertThat(deadLetter.partition()).isEqualTo(2);
         assertThat(header(deadLetter, KafkaHeaders.DLT_ORIGINAL_TOPIC)).isEqualTo(TOPIC);
-        assertThat(exceptionClasses(deadLetter)).contains("NotificationException");
+        assertThat(exceptionClasses(deadLetter)).contains("TransientDataAccessResourceException");
         // 처음 1번 + 재시도 2번
         verify(syncService, times(1 + RETRIES)).syncModified(argThat(user -> user != null && user.id() == id));
         assertThat(repository.findById(id)).isEmpty();
@@ -171,6 +176,22 @@ class NotificationMemberEventDeadLetterTest {
         kafka.send(UserJoinedEvent.class.getName(), id,
                 userJson(id, "게스트", Role.INFLUENCER, UserStatus.ACTIVE, 0L), 2);
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(repository.findById(id)).isPresent());
+    }
+
+    @Test
+    void 복제본이_없을_때_온_변경은_DLT로_보내지_않고_그_정보로_복제본을_만든다() {
+        long id = nextId();
+
+        kafka.send(UserModifiedEvent.class.getName(), id,
+                userJson(id, "오래된회원", Role.INFLUENCER, UserStatus.ACTIVE, 5L), 0);
+
+        await().atMost(TIMEOUT).untilAsserted(() -> assertThat(repository.findById(id)).hasValueSatisfying(user -> {
+            assertThat(user.getNickname()).isEqualTo("오래된회원");
+            assertThat(user.getMemberVersion()).isEqualTo(5L);
+        }));
+        // 처음 한 번에 처리했다(재시도 없음)
+        verify(syncService, times(1)).syncModified(argThat(user -> user != null && user.id() == id));
+        assertThat(kafka.deadLetterKeysNow(DLT)).doesNotContain(String.valueOf(id));
     }
 
     @Test

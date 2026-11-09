@@ -31,7 +31,7 @@
 | `:notification`은 `:auxiliary-global`과 `spring-boot-starter-kafka`만 의존한다. 업무 모듈은 `:kafka` 프로젝트를 의존할 수 없어 starter를 직접 쓰고, common/kafka의 처리 로그 인터셉터는 복사했다 | `boundedContext/notification/build.gradle.kts`, `.../in/event/kafka/EventLogContextRecordInterceptor.java` |
 | 모듈 `@ApplicationModule(displayName = "Notification", allowedDependencies = "global")` | `.../notification/package-info.java` |
 | Flyway `V202611091500__create_notification_schema.sql`: schema `notification`, 테이블 `notification.notification_user` 하나(ND-046). 나머지 테이블 셋은 없다 | `boundedContext/notification/src/main/resources/db/migration/` |
-| 회원 복제본: `NotificationUser`(shared `ReplicaUser` 상속), `NotificationUserSyncService`(가입은 생성·있으면 건너뜀, 변경은 더 큰 버전만, 복제본 없으면 `NOTIFICATION_USER_NOT_FOUND`로 실패) | `.../domain/NotificationUser.java`, `.../app/NotificationUserSyncService.java` |
+| 회원 복제본: `NotificationUser`(shared `ReplicaUser` 상속), `NotificationUserSyncService`(가입은 없으면 생성·있으면 건너뜀, 변경은 없으면 그 정보로 생성(ND-049)·있으면 더 큰 버전만, 복제할 수 없는 정보는 `INVALID_MEMBER_EVENT`로 재시도 없이 DLT) | `.../domain/NotificationUser.java`, `.../app/NotificationUserSyncService.java` |
 | 회원 이벤트 소비자 `NotificationMemberEventListener`: 토픽 `member.events.v1`, 그룹 `auxiliary-app.notification-member-replica`(ND-047), `UserJoinedEvent`·`UserModifiedEvent`만 처리하고 그 밖 종류·tombstone은 건너뛴다. 알림은 만들지 않는다(ND-048). `hapbang.notification.member-events.enabled`(기본 켜짐)로 켜고 끈다 | `.../in/event/NotificationMemberEventListener.java` |
 | Kafka 소비·DLT 공통 설정(채팅 복사, ND-028): 블로킹 재시도 3회(1·2·4초, 상한 10초) 뒤 `<토픽>.<그룹>.DLT`, 역직렬화·검증 실패는 재시도 없이 DLT, DLT는 원본과 같은 partition 번호·3개·7일 보존으로 모듈이 선언, AckMode.RECORD, 동시성 1(U13 제안), `auto-offset-reset=earliest` | `.../in/event/kafka/NotificationKafka{Constants,Config,ErrorHandlerConfig,TopicConfig}.java` |
 | 테스트 6개 클래스 25건(Unit·PG·PG+Kafka). 실행 결과는 [regression-log.md](regression-log.md) NR-001~NR-005 | `boundedContext/notification/src/test/` |
@@ -64,6 +64,7 @@
 | 입력은 Kafka integration event뿐, 채팅 Redis Streams 구독 안 함 | ND-008, ND-009 |
 | 실패 메시지 DLT, 받지 않는 타입은 무시하고 커밋 | ND-010 |
 | 받는 사람 확인(알림 회원 복제본, 탈퇴 제외) | ND-018 (정지는 U8) |
+| 복제본 만들기(가입, 또는 복제본이 없을 때 온 변경. 있으면 더 큰 버전만) | ND-018, ND-049 (Backfill은 U17) |
 | 복제본이 아직 없는 받는 사람(블로킹 재시도 뒤 DLT) | ND-035 (첫 배포 Backfill은 U17) |
 | 중복 판정(유일 인덱스, 삭제된 행 포함) | ND-019, ND-033, ND-045 (새로 요청하는 이벤트의 사건 ID는 [이벤트 계약 요청](event-contracts.md), 이미 발행 중인 이벤트의 필드는 U5) |
 | 문구·값 저장 | ND-020, ND-039 (실제 문구는 U3) |
@@ -233,6 +234,7 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | 2026-11-06 | 5장 신설: 발행 앱 코드(dev) 조사로 기존 이벤트 한계(M1~M7), 발행 앱과 정할 계약(합의 전), 회원 복제본 첫 배포 Backfill(U17, 미결)을 적었다. 미결 설계 표에 U16·U17·U18 추가. 결정은 바꾸지 않았다 |
 | 2026-11-06 | 미결 설계 표에 U19(닉네임 파기)를 더했다 |
 | 2026-11-09 | ND-033~ND-036 반영: 3.2 처리 규칙 표에 참조를 더하고, 3.5·5.4의 복제본 없음 서술을 ND-035 참조로 바꿨다(5.4의 U17 선택지 목록은 decisions.md와 중복이라 지웠다). 6장 U5·U16·U17·U19는 남은 미결만 남겼다. 결정은 바꾸지 않았다 |
+| 2026-11-09 | ND-049 반영(#797 리뷰): 2장 As-Is 동기화 서비스 설명과 3.2 복제본 만들기 행을 고쳤다 |
 | 2026-11-09 | N1(#797) 구현으로 2장 As-Is를 고쳤다: 모듈 등록, schema·`notification_user`, 회원 복제본 소비자, Kafka 소비·DLT 공통 설정 |
 | 2026-11-09 | ND-046~ND-048 반영: 3.1에 테이블 생성 시점·consumer group·첫 배포 순서를 더하고, 3.3 group 이름을 ND-047로 바꿨다. 6장에서 U1을 지우고 U7·U17의 막는 작업을 N5 배포로, U13에 알림 담당 제안을 적었다 |
 | 2026-11-09 | #794 리뷰 반영: 3.2 예약보다 먼저 온 취소 행과 6장 U16에 예약 짝 키 위치(event-contracts 0.3)를 더했다 |

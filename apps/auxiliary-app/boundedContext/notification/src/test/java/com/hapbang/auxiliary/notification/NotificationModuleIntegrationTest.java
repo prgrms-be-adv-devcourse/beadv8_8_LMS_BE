@@ -2,8 +2,11 @@ package com.hapbang.auxiliary.notification;
 
 import static org.assertj.core.api.Assertions.*;
 
+import java.util.Arrays;
 import java.util.List;
 
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationState;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +23,9 @@ class NotificationModuleIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private Flyway flyway;
 
     @Test
     @DisplayName("모듈 SQL이 notification schema를 만든다")
@@ -39,9 +45,20 @@ class NotificationModuleIntegrationTest {
         assertThat(tables).containsExactly("notification_user");
     }
 
+    /**
+     * 모듈 테스트는 앱 설정({@code application.yaml}의 Flyway 기본 schema {@code auxiliary})을 읽지 않으므로 이력 위치는 여기서 보지 않는다.
+     * 이력이 {@code auxiliary}에 남는지는 앱 기동 테스트({@code AuxiliaryApplicationTest#flywaySchemas})가 본다.
+     */
     @Test
-    @DisplayName("Flyway 이력은 앱 공통 schema(auxiliary)에 남는다(ND-007)")
-    void flywayHistoryInAppSchema() {
+    @DisplayName("모듈 Flyway SQL(create notification schema)이 성공으로 적용되고, notification schema에는 이력 테이블을 만들지 않는다")
+    void moduleMigrationApplied() {
+        assertThat(Arrays.stream(flyway.info().applied())
+                .filter(migration -> migration.getVersion() != null
+                        && "202611091500".equals(migration.getVersion().getVersion())))
+                .singleElement().satisfies(migration -> {
+                    assertThat(migration.getDescription()).isEqualTo("create notification schema");
+                    assertThat(migration.getState()).isEqualTo(MigrationState.SUCCESS);
+                });
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = 'notification' "
                         + "and table_name = 'flyway_schema_history'", Long.class))

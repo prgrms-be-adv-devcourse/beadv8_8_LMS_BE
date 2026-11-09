@@ -5,7 +5,7 @@
 > 문서 지도: [모듈](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API 계약](../api/notification.md) · [테스트 검증 기준](test-spec.md) · **[회귀 실행 기록](regression-log.md)** · [진행](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
 >
 > - **역할**: 이 문서는 알림 모듈 테스트를 **실제로 실행한** 기록만 쌓는다: 언제, 어느 커밋에서, 무슨 명령을 돌렸고, 결과가 어땠고, 실패는 무엇 때문이었나. 무엇을 검증해야 하는지(합격 기준)는 [test-spec.md](test-spec.md)의 `NT-*`에 있다.
-> - **현재 상태**: 2026-11-09 N1(#797) 모듈 뼈대 테스트를 실행했고(NR-001~NR-004, dev 병합 뒤 NR-006·NR-007) 로컬 기동·자원을 측정했다(NR-005). 알림 생성 코드는 아직 없다.
+> - **현재 상태**: 2026-11-09 N1(#797) 모듈 뼈대 테스트를 실행했고(NR-001~NR-004, dev 병합 뒤 NR-006·NR-007, 리뷰 반영 NR-008·NR-009) 로컬 기동·자원을 측정했다(NR-005). 알림 생성 코드는 아직 없다.
 > - **설계 문서의 완료 증거를 실행 기록으로 옮기지 않는다.** [알림 설계](../architecture/infrastructure/notification.md) 11장의 완료 증거와 test-spec 3장의 매핑은 "무엇을 보여야 하는가"이지 실행 결과가 아니다. 증거를 실제로 실행·시연했을 때만 이 문서에 기록을 남긴다.
 
 ## 1. 작성 규칙과 기록 양식
@@ -85,6 +85,50 @@
 ## 3. 실행 기록
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
+
+#### NR-009 · 2026-11-09 · 통과 (#797 PR 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-009 |
+| 실행 날짜 | 2026-11-09 17:18~17:21 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `3e6aff2a` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationUserSyncService`·`NotificationUserSyncResult`·`NotificationErrorCode`·`NotificationMemberEventListener`(ND-049 변경 이벤트 upsert), 테스트 `NotificationUserSyncServiceTest`·`NotificationMemberEventListenerTest`·`NotificationMemberEventDeadLetterTest`·`NotificationModuleIntegrationTest`·`AuxiliaryApplicationTest`, 알림 문서(decisions·module·test-spec·CONTEXT·AGENTS·이 문서) |
+| 대상 기능 | ND-049(복제본 없을 때 온 변경 이벤트로 생성), Flyway 단언 보강(모듈 SQL 성공 적용, 앱에서 notification schema·테이블·이력) |
+| 관련 NT ID | NT-USR-01, NT-USR-02, NT-ERR-01, NT-ERR-02, NT-ERR-03, NT-BND-01, NT-BND-03 |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :auxiliary-app:check` |
+| 실행 환경 | NR-007과 같다 |
+| 결과 | 통과 |
+| 건수 | `:notification` 30, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 221, 실패·오류·건너뜀 0 (XML 기준, 모두 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음(구현 전 `:notification:compileTestJava`가 `Outcome.CREATED_FROM_MODIFIED` 없음으로 실패하는 것을 먼저 확인했다) |
+| 재실행 결과 | 같은 코드로 17:16 `:notification:test` 30건 통과 |
+| 미검증 항목 | 동시 처리 테스트는 매 실행에서 충돌이 실제로 나는지 보장하지 않는다(충돌이 나면 재처리, 나지 않으면 바로 최종 상태를 확인). Flyway 단언 보강은 이미 있는 동작을 확인하는 것이라 실패 단계를 거치지 않았다 |
+| 관련 변경 | #797 |
+
+#### NR-008 · 2026-11-09 · 통과 (#797 PR 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-008 |
+| 실행 날짜 | 2026-11-09 17:18 (KST, NR-009 전) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `3e6aff2a` |
+| 작업 트리 변경 | NR-009와 같다 |
+| 대상 기능 | Gradle 모듈 의존 경계 |
+| 관련 NT ID | NT-BND-02 |
+| 명령 | `./gradlew verifyModuleStructure` |
+| 실행 환경 | NR-009와 같다 |
+| 결과 | 통과 |
+| 건수 | 해당 없음(BUILD SUCCESSFUL) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음 |
+| 관련 변경 | #797 |
 
 #### NR-007 · 2026-11-09 · 통과 (dev 병합 뒤)
 
@@ -282,3 +326,4 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 - 2026-11-09 NR-001·NR-002(N1, #797)를 더했다.
 - 2026-11-09 NR-003·NR-004(N1 마무리 재실행), NR-005(로컬 기동·자원 측정)를 더했다.
 - 2026-11-09 NR-006·NR-007(dev 병합 뒤 재실행)을 더했다.
+- 2026-11-09 NR-008·NR-009(#797 PR 리뷰 반영: ND-049, Flyway 단언 보강)를 더했다.

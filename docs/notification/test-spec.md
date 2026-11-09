@@ -156,12 +156,12 @@
 
 | 테스트 ID | 대상 기능 | 선행 조건 | 입력 | 예상 결과(합격 기준) | 예외·경계 조건 | 관련 ND | 관련 계약 | 테스트 종류(제안) | 명세 상태 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| NT-USR-01 | 복제본 생성·갱신 | — | `UserJoinedEvent`, `UserModifiedEvent` | `notification_user`에 회원 ID·닉네임·역할·상태·버전이 생기고 변경 이벤트로 갱신된다 | 같은 이벤트 두 번은 결과 같음 | ND-018 | Kafka `member.events.v1`, 테이블 `notification_user` | Integration(PG+Kafka) | 유효 |
+| NT-USR-01 | 복제본 생성·갱신 | — | `UserJoinedEvent`, `UserModifiedEvent` | `notification_user`에 회원 ID·닉네임·역할·상태·버전이 생기고 변경 이벤트로 갱신된다. 복제본이 없을 때 온 변경 이벤트는 그 정보로 복제본을 만들고(DLT 아님), 그 뒤 늦게 온 가입은 건너뛴다(ND-049) | 같은 이벤트 두 번은 결과 같음 | ND-018, ND-049 | Kafka `member.events.v1`, 테이블 `notification_user` | Integration(PG+Kafka) | 유효 |
 | NT-USR-02 | 복제본 버전 역전 | 복제본 버전 3 | 버전 2 `UserModifiedEvent`(늦게 도착), 버전 3 재수신 | 복제본은 버전 3 그대로, 승인 알림(NT-GEN-06)도 만들지 않는다. 커밋, DLT 아님 | 멱등 키는 (회원 ID, 원본 버전)(kafka.md "소비") | ND-018, ND-016 | `user.version` | Integration(PG+Kafka) | 유효 |
 | NT-USR-03 | 탈퇴 회원 제외 | 복제본 상태 탈퇴인 회원 W, 정상 회원 A | W가 받는 사람인 이벤트, W·A가 함께 받는 이벤트, W의 예약 생성 이벤트 | W에게는 알림·예약 0, A에게만 1건. 커밋, DLT 아님 | 예약을 만든 뒤 탈퇴한 경우 보낼 때 다시 확인할지는 정하지 않았다 | ND-018 | `notification_user` 상태 | Integration(PG+Kafka) | 유효 |
 | NT-USR-04 | 복제본이 아직 없는 받는 사람 | 받는 사람 복제본 없음(가입 이벤트가 늦게 옴) | 알림 대상 이벤트 | 알림을 만들지 않고 처리가 실패해 블로킹 재시도된다. 재시도 중 복제본이 생기면 알림이 만들어지고, 끝까지 없으면 그 그룹의 DLT로 간다. DLT로 간 메시지를 kafka.md "DLT 재처리 runbook"으로 다시 넣으면 알림이 한 번만 만들어진다(ND-019) | 복제본 없이 만들면 탈퇴 확인(ND-018)을 할 수 없다. 첫 배포 때 기존 회원은 NT-USR-06 | ND-018, ND-035 | `member.events.v1` | Integration(PG+Kafka) | 유효 |
 | NT-USR-05 | 정지 회원 | 복제본 상태 정지 | 정지 회원이 받는 사람인 이벤트 | 결정대로 알림을 만들거나 만들지 않는다 | N 6.4 "탈퇴(이후 정지)"가 모호하다 | ND-018, **U8** | `notification_user` 상태 | Integration(PG+Kafka) | 미결 (U8) |
-| NT-USR-06 | 첫 배포 때 이미 가입한 회원의 복제본 | U17 결정. Kafka 보존(72시간)보다 먼저 가입해 `UserJoinedEvent`가 토픽에 없는 회원 | 첫 배포 뒤 그 회원이 받는 사람인 알림 대상 이벤트 | U17에서 정한 방법(예: 첫 배포 Backfill)대로 복제본이 있고 알림이 만들어진다 | 가입 이벤트가 없어 지금 설정으로는 복제본이 생기지 않는다. 과거 이벤트 처리 U7과 관련 | ND-018, **U17** | `member.events.v1`, 테이블 `notification_user` | Integration(PG), E2E | 미결 (U17) |
+| NT-USR-06 | 첫 배포 때 이미 가입한 회원의 복제본 | U17 결정. Kafka 보존(72시간)보다 먼저 가입해 `UserJoinedEvent`가 토픽에 없는 회원 | 첫 배포 뒤 그 회원이 받는 사람인 알림 대상 이벤트 | U17에서 정한 방법(예: 첫 배포 Backfill)대로 복제본이 있고 알림이 만들어진다 | 가입 이벤트가 없다. 변경 이벤트가 오면 복제본이 생기지만(ND-049) 변경이 오지 않는 회원은 생기지 않는다. 과거 이벤트 처리 U7과 관련 | ND-018, **U17** | `member.events.v1`, 테이블 `notification_user` | Integration(PG), E2E | 미결 (U17) |
 | NT-USR-07 | 파기된 회원의 닉네임이 들어간 저장 알림 | U19 결정. 회원 A의 행동으로 회원 B에게 저장된 알림이 있고, 그 문구·값에 A의 닉네임이 들어 있다 | A가 파기되어 `UserModifiedEvent`(닉네임 `탈퇴회원#{회원ID}`)와 `UserMaskedEvent`를 받는다. 그 뒤 B가 목록을 조회한다 | `UserMaskedEvent`를 받아 A가 들어간 저장 문구·값의 닉네임이 바뀌어, B의 목록에 A의 원래 닉네임이 보이지 않는다(ND-036, `policy.md` 7장 "파기 방법") | 복제본 닉네임만으로는 저장한 문구·값이 바뀌지 않는다. 값의 회원 ID 구조, 갱신 방법, `UserModifiedEvent`와의 순서는 U19로 남아 있고 구현 가능성을 검증하지 않았다. 문구에 닉네임을 넣을지(U3)도 정하지 않았다 | ND-018, ND-020, ND-036, **U19** | `member.events.v1`(`UserModifiedEvent`·`UserMaskedEvent`), 테이블 `notification` | Integration(PG+Kafka) | 미결 (U19) |
 
 ### 2.10 RT — 실시간·재접속
@@ -253,11 +253,12 @@
 | NT | 테스트 | 범위 |
 | --- | --- | --- |
 | NT-USR-01 | `app.NotificationUserSyncServiceTest`, `in.event.NotificationMemberEventListenerTest`(가입·변경) | 전부 |
-| NT-USR-02 | `domain.NotificationUserTest`, `app.NotificationUserSyncServiceTest`, `in.event.NotificationMemberEventListenerTest` | 복제본 버전. 승인 알림(NT-GEN-06)은 N2 이후 |
-| NT-USR-04 | `app.NotificationUserSyncServiceTest`, `in.event.NotificationMemberEventDeadLetterTest`(재시도 뒤 DLT, 다음 레코드 처리) | 복제본 쪽 전부. 알림 생성은 N2 이후 |
+| NT-USR-02 | `domain.NotificationUserTest`, `app.NotificationUserSyncServiceTest`(같은 버전·낮은 버전), `in.event.NotificationMemberEventListenerTest` | 복제본 버전. 승인 알림(NT-GEN-06)은 N2 이후 |
+| NT-USR-01(ND-049) | `app.NotificationUserSyncServiceTest`(변경으로 생성, 늦게 온 가입 건너뜀, 동시 처리), `in.event.NotificationMemberEventListenerTest`(가입보다 먼저 온 변경), `in.event.NotificationMemberEventDeadLetterTest`(복제본 없는 변경은 DLT 아님) | 전부 |
+| NT-USR-04 | 없음 | 알림 생성(N2 이후). 복제본 쪽은 변경 이벤트로도 생겨(ND-049) 연결하지 않는다 |
 | NT-KAF-02 | `in.event.NotificationMemberEventListenerTest`(처리기 없는 종류·클래스패스에 없는 종류 건너뜀, DLT 0) | 회원 토픽만 |
 | NT-KAF-06 | `in.event.kafka.NotificationKafkaDeadLetterTest`, `in.event.NotificationMemberEventListenerTest`(컨테이너 그룹) | 회원 복제본 그룹만 |
-| NT-ERR-01 | `in.event.NotificationMemberEventDeadLetterTest`(처음 1번 + 재시도 뒤 DLT) | 일부: 재시도 중 성공 경우는 없음 |
+| NT-ERR-01 | `in.event.NotificationMemberEventDeadLetterTest`(DB 일시 장애가 계속되면 처음 1번 + 재시도 뒤 같은 partition 번호의 DLT, 다음 레코드 처리) | 일부: 재시도 중 성공 경우는 없음 |
 | NT-ERR-02 | `in.event.NotificationMemberEventDeadLetterTest`(깨진 본문·신뢰 밖 타입·검증 실패는 재시도 없이 DLT) | 전부 |
 | NT-ERR-03 | `in.event.kafka.NotificationKafkaDeadLetterTest`, `in.event.NotificationMemberEventDeadLetterTest`(같은 partition 번호, partition 수) | 전부 |
 | NT-ERR-04 | `in.event.kafka.NotificationKafkaDeadLetterTest`(DLT 발행 실패 시 예외) | 일부: 복구기 단위 |
@@ -282,3 +283,4 @@
 - 2026-11-09 decisions.md ND-033~ND-036 반영: NT-USR-04(ND-035)를 유효로 바꾸고 DLT 재처리 경로(kafka.md runbook)를 예상 결과에 더했다. NT-SCH-06(ND-034)·NT-IDEM-05(ND-033)·NT-USR-07(ND-036)은 예상 결과를 결정에 맞추고, 남은 미결(U16 예약 알림별 계약 검증, U5 이벤트별 필드, U19 저장 구조·갱신 방법) 때문에 미결을 유지했다. NT-USR-06은 첫 배포 Backfill(U17)이 미결이라 바꾸지 않았다. 집계 유효 61 → 62, 미결 22 → 21.
 - 2026-11-09 decisions.md ND-047 반영: NT-KAF-06·NT-ERR-03을 미결(U1)에서 유효로 바꾸고 그룹·DLT 이름을 예상 결과에 넣었다. 4장 집계 83개, 유효 67, 미결 16.
 - 2026-11-09 N1(#797): NT-BND-03 기대 결과를 ND-046(테이블은 처음 쓰는 작업에서 생성)에 맞추고, 4장에 N1 연결 테스트 표를 더했다. 상태·집계는 바꾸지 않았다.
+- 2026-11-09 decisions.md ND-049 반영(#797 리뷰): NT-USR-01 기대 결과에 변경 이벤트로 만드는 경우를 더하고, NT-USR-06 설명과 N1 연결 테스트 표(NT-USR-01·02·04, NT-ERR-01)를 맞췄다. 상태·집계는 바꾸지 않았다.

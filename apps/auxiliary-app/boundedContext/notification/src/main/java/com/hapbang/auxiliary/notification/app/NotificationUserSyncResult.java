@@ -12,8 +12,10 @@ public record NotificationUserSyncResult(Long userId, Outcome outcome, Long memb
     public enum Outcome {
         /** 가입으로 새로 만들었다 */
         CREATED,
-        /** 이미 있어 가입을 건너뛰었다(같은 가입 이벤트의 재처리) */
+        /** 이미 있어 가입을 건너뛰었다(같은 가입 이벤트의 재처리, 변경으로 먼저 만든 뒤 늦게 온 가입) */
         SKIPPED_EXISTING,
+        /** 복제본이 없어 변경 이벤트의 회원 정보로 만들었다(ND-049) */
+        CREATED_FROM_MODIFIED,
         /** 더 큰 버전의 변경을 반영했다 */
         UPDATED,
         /** 이미 반영한 버전보다 크지 않은 변경이라 건너뛰었다 */
