@@ -29,3 +29,5 @@ configMapGenerator:
       - DB_USERNAME=auxiliary
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
+      # 챗봇 FAQ 색인(#715). ECK HTTP Service이고 서버 인증서 SAN에 있다. 키(ES_API_KEY)는 Secret, CA는 deployment가 마운트한다
+      - SPRING_ELASTICSEARCH_URIS=https://hapbang-es-http.hapbang-platform.svc:9200

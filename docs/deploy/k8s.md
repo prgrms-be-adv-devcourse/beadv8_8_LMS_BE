@@ -71,7 +71,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 | `billing-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`(없으면 충전 API만 503) | `apps/billing-app/k8s/overlays/prod` |
 | `lecture-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY`, `S3_BUCKET` | `apps/lecture-app/k8s/overlays/prod` |
 | `appearance-app-secrets`, `chat-app-secrets`, `customer-support-app-secrets` | hapbang-prod | `DB_PASSWORD`, `HAPBANG_INTERNAL_API_KEY` | 각 앱의 `k8s/overlays/prod` |
-| `auxiliary-app-secrets` | hapbang-prod | `DB_PASSWORD`(role `auxiliary`), `HAPBANG_INTERNAL_API_KEY`, 선택: `OPENAI_API_KEY`, `ES_API_KEY`(챗봇 API key `auxiliary-app-chatbot`, 2026-11-06 생성, 2027-02-04 만료. **2027-01-21까지 교체한다**). 선택 키는 챗봇 FAQ(#715) 전까지 없어도 된다 | `apps/auxiliary-app/k8s/overlays/prod` |
+| `auxiliary-app-secrets` | hapbang-prod | `DB_PASSWORD`(role `auxiliary`), `HAPBANG_INTERNAL_API_KEY`, `OPENAI_API_KEY`, `ES_API_KEY`(챗봇 API key `auxiliary-app-chatbot`, 2026-11-06 생성, 2027-02-04 만료. **2027-01-21까지 교체한다**). 챗봇 FAQ(#715)부터 prod 프로필이 두 키를 기본값 없이 읽으므로 없으면 앱이 뜨지 않는다 | `apps/auxiliary-app/k8s/overlays/prod` |
 | `postgres-credentials` | hapbang-platform | `postgres`(superuser), `member`, `billing`, `appearance`, `lecture`, `chat`, `customersupport`, `auxiliary`(#726) | `k8s/platform/overlays/prod` |
 | `ghcr-pull` | hapbang-prod | `.dockerconfigjson`(type `kubernetes.io/dockerconfigjson`). BE 앱 7개와 FE가 함께 쓴다 | `k8s/registry` ([GHCR pull 인증](#ghcr-pull-인증)) |
 
@@ -81,7 +81,7 @@ Secret은 앱마다 하나다. 앱은 자기 Secret만 envFrom으로 받으므�
 앱 SealedSecret은 `k8s/tools/seal-app-secrets.sh`로 만든다. 값은 화면에 출력하지 않는다.
 
 - `DB_PASSWORD`는 EC2 cluster의 `postgres-credentials`에서 읽고, `HAPBANG_INTERNAL_API_KEY`는 `~/.hapbang/internal-api-key`를 쓴다. 파일이 없으면 멈추고, 처음 설치할 때만 앱 이름 없이 `HAPBANG_NEW_INTERNAL_API_KEY=1`로 실행해 새 키로 앱 7개를 함께 봉인한다. 빈 `DB_PASSWORD`, billing 결제 키 한쪽만 있는 경우도 멈춘다.
-- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 처음 값은 기존 Compose 서버의 `prod.env`에서 옮겼다. 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`, `MAIL_USERNAME`, `MAIL_PASSWORD`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`, `OPENAI_API_KEY`, `ES_API_KEY`.
+- 그 밖의 값은 레포 밖 `~/.hapbang/prod-secrets.env`에 `KEY=VALUE`로 적는다. 처음 값은 기존 Compose 서버의 `prod.env`에서 옮겼다. 값 전체를 감싼 따옴표 한 쌍은 뗀다. 필수: `S3_BUCKET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CHZZK_CLIENT_ID`, `CHZZK_CLIENT_SECRET`, `CHZZK_REDIRECT_URI`, `JWT_PRIVATE_KEY`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `OPENAI_API_KEY`, `ES_API_KEY`. 선택: `TOSS_PAYMENTS_SECRET_KEY`, `BILLING_PAYMENT_KEY_ENCRYPTION_KEY`, `BILLING_PAYMENT_KEY_HMAC_KEY`.
 - 필수 값이 없으면 키 이름만 알리고 멈춘다. 만든 파일은 각 앱의 `overlays/prod/<앱>-app-secrets.yaml`이고 kustomization `resources`에 더한다.
 - `~/.hapbang`의 파일은 팀 비밀 보관소에도 둔다. 내부 API 키를 다시 만들면 앱 7개를 모두 다시 봉인한다.
 - `JWT_PRIVATE_KEY`는 RSA 2048 PKCS#8 PEM을 줄바꿈 없이 한 줄로 적는다(`openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 | tr -d '\n'`). env 파일은 여러 줄 값을 받지 못하고, member-app은 공백·줄바꿈을 지우고 읽는다. 이 키는 팀 비밀 보관소에 두지 않는다. 잃으면 새로 만들어 member만 다시 봉인한다. refresh token은 서명 키와 무관해 그대로 쓰이고, 이미 발급한 access token(최대 15분)만 무효가 된다(#500).
@@ -136,7 +136,7 @@ PostgreSQL은 앱들이 함께 쓰는 인프라라 `hapbang-platform`에 둔다.
 - database·role은 차트의 initdb script(`k8s/platform/base/postgres.yaml`)가 **데이터 디렉터리가 비어 있을 때만** 만든다.
 - 이미 초기화된 instance에 database를 더할 때는 script를 고치고, 실행 중인 instance에도 같은 SQL을 superuser로 실행한다(아래 절차). auxiliary-app의 `auxiliary`도 이렇게 더한다(#726).
 - 기존 Compose 운영 DB는 이전하지 않고 2026-10-30에 지웠다(#440). 필요 없는 데이터만 있어 k3s PostgreSQL에서 새로 시작한다.
-- `max_connections` 100에서 슈퍼유저 예약 3을 뺀 97개를 앱이 쓴다. HikariCP 풀은 앱 5개 × 10 + chat-app 20 + auxiliary-app 5 = 75이고, large rolling surge pod 1개(10)를 더하면 85다(2026-11-06 운영 `hikaricp_connections_max`, #726). billing-app의 pool 밖 실행 락 연결(pod당 1개, 배포 중 2개)까지 넣으면 87이다([database 분리](../architecture/infrastructure/database.md)). 앱을 더하거나 풀 크기를 바꾸면 다시 계산한다.
+- `max_connections` 100에서 슈퍼유저 예약 3을 뺀 97개를 앱이 쓴다. HikariCP 풀은 앱 5개 × 10 + chat-app 20 + auxiliary-app 5 = 75이고, large rolling surge pod 1개(10)를 더하면 85다(2026-11-06 운영 `hikaricp_connections_max`, #726). billing-app과 auxiliary-app의 pool 밖 실행 락 연결(앱마다 pod당 1개, 배포 중 2개, auxiliary는 #715)까지 넣으면 89다([database 분리](../architecture/infrastructure/database.md)). 앱을 더하거나 풀 크기를 바꾸면 다시 계산한다.
 
 ### 실행 중인 instance에 database 더하기
 
