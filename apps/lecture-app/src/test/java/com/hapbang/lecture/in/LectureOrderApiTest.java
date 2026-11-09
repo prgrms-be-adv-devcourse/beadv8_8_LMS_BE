@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
@@ -84,6 +85,9 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.orderId").isNumber())
                 .andExpect(jsonPath("$.data.status").value("PAID"))
                 .andExpect(jsonPath("$.data.totalAmountHp").value(PRICE_HP))
+                // 쿠폰 없는 주문은 할인 0, 구매자 금액 = 가격
+                .andExpect(jsonPath("$.data.discountHp").value(0))
+                .andExpect(jsonPath("$.data.buyerAmountHp").value(PRICE_HP))
                 .andExpect(jsonPath("$.data.items.length()").value(1))
                 .andExpect(jsonPath("$.data.items[0].lectureId").value(lecture.getId()))
                 .andExpect(jsonPath("$.data.items[0].status").value("PURCHASED"))
@@ -362,6 +366,34 @@ class LectureOrderApiTest {
     }
 
     @Test
+    void 쿠폰_할인_주문은_주문_상세에_할인과_구매자_금액을_싣고_판매_내역에_판매자_플랫폼_부담과_지급액을_싣는다() throws Exception {
+        Lecture lecture = saveOnSaleLecture();
+        LocalDateTime now = LocalDateTime.now(LectureConfig.ZONE);
+        // 할인 4,000 = 플랫폼 1,000 + 판매자 3,000. 판매자에게도 플랫폼 부담이 보인다
+        LectureOrder placed = LectureOrder.place(BUYER_ID, List.of(lecture), Set.of(), now);
+        placed.applyItemDiscount(lecture.getId(), 4_000L, 1_000L, 3_000L);
+        placed.markPaid(now);
+        LectureOrder order = lectureOrderRepository.save(placed);
+
+        mockMvc.perform(get("/api/v1/lectures/orders/{orderId}", order.getId())
+                        .with(GatewayLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalAmountHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.discountHp").value(4_000))
+                .andExpect(jsonPath("$.data.buyerAmountHp").value(PRICE_HP - 4_000))
+                .andExpect(jsonPath("$.data.items[0].priceHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.items[0].discountHp").value(4_000))
+                .andExpect(jsonPath("$.data.items[0].buyerAmountHp").value(PRICE_HP - 4_000));
+        mockMvc.perform(get("/api/v1/lectures/sales").with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].priceHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.content[0].discountHp").value(4_000))
+                .andExpect(jsonPath("$.data.content[0].sellerDiscountHp").value(3_000))
+                .andExpect(jsonPath("$.data.content[0].platformDiscountHp").value(1_000))
+                .andExpect(jsonPath("$.data.content[0].sellerPayoutHp").value(PRICE_HP - 3_000));
+    }
+
+    @Test
     void 판매자는_판매_내역에서_항목_상태와_지급_예정_시각을_최근_구매순으로_본다() throws Exception {
         LocalDateTime now = LocalDateTime.now(LectureConfig.ZONE);
         LectureOrder paidOut = save(BUYER_ID, now.minusDays(32));
@@ -390,6 +422,9 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.content[1].lectureId").value(paidOut.getItems().getFirst().getLectureId()))
                 .andExpect(jsonPath("$.data.content[1].lectureTitle").value(TITLE))
                 .andExpect(jsonPath("$.data.content[1].priceHp").value(PRICE_HP))
+                // 쿠폰 없는 주문은 할인 0, 지급액 = 가격
+                .andExpect(jsonPath("$.data.content[1].discountHp").value(0))
+                .andExpect(jsonPath("$.data.content[1].sellerPayoutHp").value(PRICE_HP))
                 .andExpect(jsonPath("$.data.content[1].status").value("PAID_OUT"))
                 .andExpect(jsonPath("$.data.content[1].purchasedAt").isString())
                 .andExpect(jsonPath("$.data.content[1].payoutScheduledAt").isString())

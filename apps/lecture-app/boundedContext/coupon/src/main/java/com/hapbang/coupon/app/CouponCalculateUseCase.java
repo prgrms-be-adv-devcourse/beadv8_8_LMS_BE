@@ -23,7 +23,7 @@ import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 
 /**
- * 쿠폰 계산(강의 → 쿠폰 내부 API). 주문 전 계산과 재계산이 같은 경로다. 상태를 바꾸지 않는다.
+ * 쿠폰 계산(강의 → 쿠폰 내부 API)과 회원용 계산 미리보기({@link #quote}). 주문 전 계산과 재계산이 같은 경로다. 상태를 바꾸지 않는다.
  * <ul>
  *     <li>강의마다 강의 조회로 가격·판매자를 다시 확인한다(트랜잭션 밖). 다르면 409 {@code COUPON_LECTURE_PRICE_MISMATCH}, 강의가 없으면
  *     404, 강의 앱에 닿지 못하면 503이다.</li>
@@ -53,11 +53,31 @@ public class CouponCalculateUseCase {
             requireSameAsCatalog(item);
             items.add(new UsageItem(null, item.lectureId(), item.sellerId(), item.price()));
         }
-
-        long memberId = request.memberId();
         List<Selection> selections = request.selections() == null ? null : request.selections().stream()
                 .map(selection -> new Selection(selection.memberCouponId(), selection.lectureId()))
                 .toList();
+        return calculate(request.memberId(), items, selections);
+    }
+
+    /**
+     * 회원용 계산 미리보기. 강의마다 강의 조회로 지금 가격·판매자를 채운 뒤 {@link #calculate(CouponCalculateRequest)}와 같은 계산·응답을 돌려준다. 강의 주문의
+     * 쿠폰 계산(0단계)은 이 응답의 구매자 금액 합을 회원이 본 금액({@code expectedBuyerAmountHp})으로 받아 대조한다.
+     * <p>
+     * 항목 수 상한·같은 강의 중복은 강의 조회 전에 본다(400). 강의가 없으면 404, 강의 앱에 닿지 못하면 503이다.
+     *
+     * @param selections {@code null}이면 추천, 빈 목록이면 쿠폰을 쓰지 않음, 값이 있으면 그 매핑만 검증·계산한다
+     */
+    public CouponCalculateResponse quote(long memberId, List<Long> lectureIds, List<Selection> selections) {
+        usageSupport.requireItems(lectureIds);
+        List<UsageItem> items = new ArrayList<>();
+        for (Long lectureId : lectureIds) {
+            LectureSnapshot lecture = couponSupport.findLecture(lectureId);
+            items.add(new UsageItem(null, lectureId, lecture.sellerId(), lecture.price()));
+        }
+        return calculate(memberId, items, selections == null ? null : List.copyOf(selections));
+    }
+
+    private CouponCalculateResponse calculate(long memberId, List<UsageItem> items, List<Selection> selections) {
         List<UsableCoupon> owned = selections == null
                 ? usageSupport.availableCoupons(memberId)
                 : List.copyOf(usageSupport.loadCoupons(selections.stream().map(Selection::memberCouponId).toList())

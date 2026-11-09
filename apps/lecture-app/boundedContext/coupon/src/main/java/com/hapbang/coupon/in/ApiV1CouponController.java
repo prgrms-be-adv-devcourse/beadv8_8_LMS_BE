@@ -20,7 +20,9 @@ import com.hapbang.coupon.app.dto.MemberCouponView;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.global.auth.LoginUserId;
 import com.hapbang.coupon.global.response.RsData;
+import com.hapbang.coupon.in.dto.CouponQuoteRequest;
 import com.hapbang.coupon.in.dto.IssueRequestCreateRequest;
+import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -80,5 +82,13 @@ public class ApiV1CouponController implements ApiV1CouponSpec {
     public RsData<List<MemberCouponView>> usableFor(@LoginUserId Long memberId,
                                                     @RequestParam(name = "lectureId") Long lectureId) {
         return RsData.ok("강의에 쓸 수 있는 쿠폰을 조회했습니다.", couponIssueFacade.usableFor(memberId, lectureId));
+    }
+
+    @Override
+    @PostMapping("/me/quote")
+    public RsData<CouponCalculateResponse> quote(@LoginUserId Long memberId,
+                                                 @Valid @RequestBody CouponQuoteRequest request) {
+        return RsData.ok("쿠폰 할인을 계산했습니다.",
+                couponIssueFacade.quote(memberId, request.lectureIds(), request.toSelections()));
     }
 }

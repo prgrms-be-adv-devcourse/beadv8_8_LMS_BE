@@ -18,6 +18,7 @@ import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.LectureCatalogUnavailableException;
 import com.hapbang.coupon.domain.MemberCouponStatus;
+import com.hapbang.coupon.domain.usage.Selection;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
@@ -109,6 +110,39 @@ class CouponCalculateUseCaseTest {
         assertThatThrownBy(() -> useCase.calculate(request(null)))
                 .isInstanceOf(LectureCatalogUnavailableException.class);
         verifyNoInteractions(memberCouponRepository);
+    }
+
+    // 회원용 미리보기 -------------------------------------------------------------------------------------------
+
+    @Test
+    void 미리보기는_강의_조회로_가격과_판매자를_채워_추천하고_매핑을_주면_그_매핑만_계산한다() {
+        when(memberCouponRepository.findOwnedByStatus(MEMBER_ID, MemberCouponStatus.AVAILABLE))
+                .thenReturn(List.of(owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L))));
+        givenOwnedByIds(memberCouponRepository, owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L)));
+
+        CouponCalculateResponse recommended = useCase.quote(MEMBER_ID, List.of(LECTURE_ID), null);
+        CouponCalculateResponse selected = useCase.quote(MEMBER_ID, List.of(LECTURE_ID),
+                List.of(new Selection(SELLER_COUPON, LECTURE_ID)));
+
+        assertThat(recommended.recommended()).isTrue();
+        assertThat(recommended.items().getFirst().price()).isEqualTo(PRICE);
+        assertThat(recommended.totalBuyerAmount()).isEqualTo(9_000);
+        assertThat(selected.recommended()).isFalse();
+        assertThat(selected.totalBuyerAmount()).isEqualTo(9_000);
+        verify(lectureCatalog, times(2)).findLecture(LECTURE_ID);
+    }
+
+    @Test
+    void 미리보기에서_강의_앱에_닿지_못하면_조회_불가가_나가고_상한을_넘으면_강의를_조회하지_않고_400이다() {
+        when(lectureCatalog.findLecture(LECTURE_ID))
+                .thenThrow(new LectureCatalogUnavailableException("연결 실패", null));
+
+        assertThatThrownBy(() -> useCase.quote(MEMBER_ID, List.of(LECTURE_ID), null))
+                .isInstanceOf(LectureCatalogUnavailableException.class);
+        clearInvocations(lectureCatalog);
+        assertUsageError(() -> useCase.quote(MEMBER_ID, List.of(LECTURE_ID, LECTURE_ID), null),
+                CouponErrorCode.COUPON_DUPLICATE_LECTURE, null);
+        verifyNoInteractions(lectureCatalog, memberCouponRepository);
     }
 
     private static CouponCalculateRequest request(List<CouponCalculateRequest.Selection> selections) {
