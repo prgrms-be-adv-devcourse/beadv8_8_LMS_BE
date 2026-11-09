@@ -139,10 +139,13 @@ class MemberEventKafkaIntegrationTest {
                 "eventType", "UserJoinedEvent",
                 "eventVersion", "1"));
         assertThat(userJson(record))
-                .containsOnlyKeys("id", "nickname", "role", "status", "version")
+                .containsOnlyKeys("id", "nickname", "role", "status", "version", "contentCategories", "bio")
                 .containsEntry("nickname", "카프카가입")
                 .containsEntry("role", "USER")
-                .containsEntry("status", "ACTIVE");
+                .containsEntry("status", "ACTIVE")
+                // 분야는 없어도 빈 배열로 나가고(null 아님), 자기소개는 null로 나간다 (#711)
+                .containsEntry("contentCategories", List.of())
+                .containsEntry("bio", null);
         // shared 레코드 그대로라 같은 클래스로 되돌리면 원본 회원 정보와 같다
         assertThat(jsonMapper.readValue(record.value(), UserJoinedEvent.class))
                 .isEqualTo(new UserJoinedEvent(find(user).toDto()));
