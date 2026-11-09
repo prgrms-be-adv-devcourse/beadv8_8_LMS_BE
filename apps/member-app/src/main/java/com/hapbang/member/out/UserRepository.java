@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,6 +19,14 @@ import com.hapbang.shared.member.domain.UserStatus;
 
 /** 회원 저장소 */
 public interface UserRepository extends JpaRepository<User, Long> {
+
+    /**
+     * 회원 한 명을 읽을 때 콘텐츠 분야도 조인으로 함께 읽는다 (#711). 분야는 LAZY라 트랜잭션이 끝난 뒤
+     * (컨트롤러 응답, open-in-view 꺼짐) 읽으면 실패하므로, 한 명을 읽는 기본 경로({@code MemberSupport.findUser})에서 미리 채운다
+     */
+    @Override
+    @EntityGraph(attributePaths = "contentCategories")
+    Optional<User> findById(Long id);
 
     Optional<User> findByEmail(String email);
 

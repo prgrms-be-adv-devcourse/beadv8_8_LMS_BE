@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,6 +40,71 @@ class UserTest {
         assertThat(dto.nickname()).isEqualTo("tester1");
         assertThat(dto.role()).isEqualTo(Role.USER);
         assertThat(dto.status()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(dto.contentCategories()).isEmpty();
+        assertThat(dto.bio()).isNull();
+    }
+
+    @Test
+    @DisplayName("다른 모듈에 넘길 회원 정보에 콘텐츠 분야 코드(고른 순서)와 자기소개가 담긴다 (#711)")
+    void toDto_contentCategoriesAndBio() {
+        User user = User.join("tester1@example.com", "tester1");
+        user.changeContentCategories(List.of("MAPLESTORY", "GAME"));
+        user.changeBio("메이플 위주로 방송해요");
+
+        UserDto dto = user.toDto();
+
+        assertThat(dto.contentCategories()).containsExactly("MAPLESTORY", "GAME");
+        assertThat(dto.bio()).isEqualTo("메이플 위주로 방송해요");
+    }
+
+    @Test
+    @DisplayName("콘텐츠 분야를 바꾸면 true이고, 지금과 같은 목록이면 바꾸지 않고 false다 (#711)")
+    void changeContentCategories() {
+        User user = User.join("tester1@example.com", "tester1");
+
+        assertThat(user.changeContentCategories(List.of("GAME", "MUKBANG"))).isTrue();
+        assertThat(user.changeContentCategories(List.of("GAME", "MUKBANG"))).isFalse();
+        assertThat(user.changeContentCategories(List.of("MUKBANG", "GAME"))).isTrue();
+        assertThat(user.getContentCategories()).containsExactly("MUKBANG", "GAME");
+        assertThat(user.changeContentCategories(List.of())).isTrue();
+        assertThat(user.getContentCategories()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("콘텐츠 분야 규칙에 어긋나면 바꾸지 않는다 (#711)")
+    void changeContentCategories_invalid() {
+        User user = User.join("tester1@example.com", "tester1");
+        user.changeContentCategories(List.of("GAME"));
+
+        assertThatThrownBy(() -> user.changeContentCategories(List.of("GAME", "GAME")))
+                .isInstanceOf(MemberException.class)
+                .extracting("errorCode").isEqualTo(MemberErrorCode.DUPLICATE_CONTENT_CATEGORY);
+        assertThat(user.getContentCategories()).containsExactly("GAME");
+    }
+
+    @Test
+    @DisplayName("밖으로 준 콘텐츠 분야 목록은 바꿀 수 없고, 넘긴 목록을 나중에 바꿔도 회원 값은 그대로다 (#711)")
+    void contentCategoriesCopied() {
+        User user = User.join("tester1@example.com", "tester1");
+        List<String> source = new ArrayList<>(List.of("GAME"));
+        user.changeContentCategories(source);
+        source.add("MUKBANG");
+
+        assertThat(user.getContentCategories()).containsExactly("GAME");
+        assertThatThrownBy(() -> user.getContentCategories().add("MUKBANG"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("자기소개를 바꾸면 true이고, 같거나 앞뒤 공백만 다르면 false다. 빈 값으로 지운다 (#711)")
+    void changeBio() {
+        User user = User.join("tester1@example.com", "tester1");
+
+        assertThat(user.changeBio("메이플 위주")).isTrue();
+        assertThat(user.changeBio(" 메이플 위주 ")).isFalse();
+        assertThat(user.changeBio("  ")).isTrue();
+        assertThat(user.getBio()).isNull();
+        assertThat(user.changeBio(null)).isFalse();
     }
 
     @Test
@@ -214,12 +281,14 @@ class UserTest {
     }
 
     @Test
-    @DisplayName("복구 기한이 지난 탈퇴 회원을 마스킹하면 이메일은 지워지고 닉네임은 회원 ID를 넣은 값이 되며 사진 연결이 끊긴다 (#594)")
+    @DisplayName("복구 기한이 지난 탈퇴 회원을 마스킹하면 이메일은 지워지고 닉네임은 회원 ID를 넣은 값이 되며 사진 연결이 끊기고 콘텐츠 분야·자기소개가 지워진다 (#594, #711)")
     void mask() {
         LocalDateTime withdrawnAt = LocalDateTime.of(2026, 11, 3, 12, 0);
         User user = User.join("tester1@example.com", "tester1");
         ReflectionTestUtils.setField(user, "id", 5L);
         user.changeProfileImage("member/profile/5");
+        user.changeContentCategories(List.of("GAME"));
+        user.changeBio("메이플 위주");
         user.withdraw(withdrawnAt);
 
         user.mask(withdrawnAt.plusDays(30));
@@ -227,6 +296,8 @@ class UserTest {
         assertThat(user.getEmail()).isNull();
         assertThat(user.getNickname()).isEqualTo("탈퇴회원#5");
         assertThat(user.getProfileImageKey()).isNull();
+        assertThat(user.getContentCategories()).isEmpty();
+        assertThat(user.getBio()).isNull();
         assertThat(user.getMaskedAt()).isEqualTo(withdrawnAt.plusDays(30));
         assertThat(user.isMasked()).isTrue();
         assertThat(user.getStatus()).isEqualTo(UserStatus.WITHDRAWN);
