@@ -137,6 +137,99 @@ class RedisRoomChannelSubscriptionsTest {
     }
 
     @Test
+    void 앱_상한에서는_유예_중인_채널을_모두_정리하고_쓰는_채널은_남긴다() {
+        RedisRoomChannelSubscriptions channels = channels(Duration.ofHours(1), 4);
+        for (long roomId = 1; roomId <= 4; roomId++) {
+            channels.acquire(roomId);
+            verify(container, timeout(IO_TIMEOUT_MILLIS)).addMessageListener(listener, topic(roomId));
+        }
+        channels.release(2L);
+        channels.release(4L);
+
+        assertThat(channels.acquire(5L)).isTrue();
+        assertThat(channels.subscribedChannels()).as("1·3·5번").isEqualTo(3);
+        verify(container, timeout(IO_TIMEOUT_MILLIS)).removeMessageListener(listener, topic(2L));
+        verify(container, timeout(IO_TIMEOUT_MILLIS)).removeMessageListener(listener, topic(4L));
+        assertThat(channels.acquire(6L)).isTrue();
+        assertThat(channels.acquire(7L)).as("1·3·5·6번은 쓰는 중").isFalse();
+        verify(container, after(200).never()).removeMessageListener(listener, topic(1L));
+        verify(container, never()).removeMessageListener(listener, topic(3L));
+    }
+
+    @Test
+    void 앱_상한에서의_정리는_쓰는_채널을_들여다보지_않고_유예_중인_채널_수만큼만_돈다() {
+        int max = 1000;
+        RedisRoomChannelSubscriptions channels = channels(Duration.ofHours(1), max);
+        for (long roomId = 1; roomId <= max; roomId++) {
+            channels.acquire(roomId);
+        }
+        channels.release(1L);
+        channels.release(2L);
+        channels.release(3L);
+
+        long before = channels.reapVisits();
+        assertThat(channels.acquire(max + 1)).isTrue();
+        assertThat(channels.reapVisits() - before).as("유예 중인 3개만 본다").isEqualTo(3);
+
+        assertThat(channels.acquire(max + 2)).isTrue();
+        assertThat(channels.acquire(max + 3)).isTrue();
+        before = channels.reapVisits();
+        for (long roomId = max + 4; roomId < max + 104; roomId++) {
+            assertThat(channels.acquire(roomId)).isFalse();
+        }
+        assertThat(channels.reapVisits() - before).as("유예 중인 방이 없으면 상한의 거절마다 아무것도 보지 않는다").isZero();
+        assertThat(channels.subscribedChannels()).isEqualTo(max);
+    }
+
+    @Test
+    void 유예_중_다시_쓰다_놓은_채널은_유예를_새로_세어_주기_정리가_늦게_뺀다() throws Exception {
+        Duration grace = Duration.ofHours(1);
+        RedisRoomChannelSubscriptions channels = channels(grace, 100);
+        channels.acquire(1L);
+        channels.acquire(2L);
+        verify(container, timeout(IO_TIMEOUT_MILLIS)).addMessageListener(listener, topic(2L));
+        channels.release(1L);
+        channels.release(2L);
+        long room2IdleBy = System.nanoTime();
+        Thread.sleep(20);
+        // 1번은 유예 중 다시 쓰다 놓아 지금부터 유예를 센다
+        long room1IdleFrom = System.nanoTime();
+        channels.acquire(1L);
+        channels.release(1L);
+        assertThat(room1IdleFrom).isGreaterThan(room2IdleBy);
+
+        // 2번의 유예는 지났고 1번의 유예는 남은 시각
+        channels.reapIdleAt(room2IdleBy + grace.toNanos());
+
+        assertThat(channels.subscribedChannels()).as("유예가 지난 2번만 뺀다").isEqualTo(1);
+        verify(container, timeout(IO_TIMEOUT_MILLIS)).removeMessageListener(listener, topic(2L));
+        verify(container, never()).removeMessageListener(listener, topic(1L));
+
+        channels.reapIdleAt(System.nanoTime() + grace.toNanos());
+        assertThat(channels.subscribedChannels()).isZero();
+        verify(container, timeout(IO_TIMEOUT_MILLIS)).removeMessageListener(listener, topic(1L));
+    }
+
+    @Test
+    void 채널_수_게이지는_유예_중인_채널을_포함해_센다() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RedisRoomChannelSubscriptions channels = new RedisRoomChannelSubscriptions(container, listener, keys,
+                registry, Duration.ofHours(1), 2);
+        created.add(channels);
+        channels.acquire(1L);
+        channels.acquire(2L);
+        channels.release(2L);
+
+        assertThat(registry.get(RedisRoomChannelSubscriptions.SUBSCRIBED_METRIC).gauge().value()).isEqualTo(2);
+        channels.acquire(3L);
+        assertThat(registry.get(RedisRoomChannelSubscriptions.SUBSCRIBED_METRIC).gauge().value())
+                .as("상한에서 유예 중인 2번을 정리하고 3번을 더한다").isEqualTo(2);
+        channels.release(1L);
+        channels.release(3L);
+        assertThat(registry.get(RedisRoomChannelSubscriptions.SUBSCRIBED_METRIC).gauge().value()).isEqualTo(2);
+    }
+
+    @Test
     void Redis_구독_확인을_기다리는_동안에도_잠금을_잡지_않아_다른_방의_구독과_해제가_막히지_않는다() throws Exception {
         RedisRoomChannelSubscriptions channels = channels(Duration.ZERO, 100);
         CountDownLatch redisSlow = new CountDownLatch(1);
