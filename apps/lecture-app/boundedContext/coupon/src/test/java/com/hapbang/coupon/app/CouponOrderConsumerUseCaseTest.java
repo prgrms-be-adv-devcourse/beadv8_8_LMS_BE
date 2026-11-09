@@ -63,7 +63,7 @@ class CouponOrderConsumerUseCaseTest {
         usage = CouponUsage.reserve(MEMBER_ID, ORDER_ID, new UsageItem(ORDER_ITEM_ID, LECTURE_ID, SELLER_ID, PRICE),
                 new AppliedCoupon(MEMBER_COUPON, 1L, CouponType.SELLER, 1, PRICE, 1_000, 0, 1_000, 0, 1),
                 "lecture-order:900:reserve", NOW);
-        when(couponUsageRepository.findByOrderItemIdOrderByMemberCouponIdAscGenerationAsc(ORDER_ITEM_ID))
+        when(couponUsageRepository.findForUpdateByOrderItemId(ORDER_ITEM_ID))
                 .thenReturn(List.of(usage));
         when(processedOperationRepository.findByOperationId(anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(processed.get())
@@ -103,7 +103,8 @@ class CouponOrderConsumerUseCaseTest {
         CouponOrderConsumerUseCase.Result result = useCase.consume(PAID);
 
         assertThat(result).isEqualTo(CouponOrderConsumerUseCase.Result.DUPLICATE);
-        verifyNoInteractions(memberCouponRepository, couponUsageRepository);
+        // 사용 시도는 잠가 읽지만(멱등 확인 전) 발급 쿠폰은 읽지도 바꾸지도 않는다
+        verifyNoInteractions(memberCouponRepository);
     }
 
     @Test

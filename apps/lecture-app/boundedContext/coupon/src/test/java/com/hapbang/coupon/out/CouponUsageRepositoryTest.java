@@ -119,7 +119,7 @@ class CouponUsageRepositoryTest {
     }
 
     @Test
-    void 결제_완료와_취소_완료_사실을_저장하고_주문_항목으로_사용_시도를_찾는다() {
+    void 결제_완료와_취소_완료_사실을_저장하고_주문_항목의_사용_시도를_잠가_찾는다() {
         MemberCoupon paidCoupon = saveMemberCoupon("req-1");
         MemberCoupon reservedCoupon = saveMemberCoupon("req-2");
         CouponUsage paid = couponUsageRepository.save(usage(paidCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
@@ -131,7 +131,7 @@ class CouponUsageRepositoryTest {
         entityManager.flush();
         entityManager.clear();
 
-        assertThat(couponUsageRepository.findByOrderItemIdOrderByMemberCouponIdAscGenerationAsc(ORDER_ITEM_ID))
+        assertThat(couponUsageRepository.findForUpdateByOrderItemId(ORDER_ITEM_ID))
                 .extracting(CouponUsage::getMemberCouponId, CouponUsage::getStatus, CouponUsage::getPaidEventId,
                         CouponUsage::getCancelEventId, CouponUsage::getRestoredTo)
                 .containsExactly(

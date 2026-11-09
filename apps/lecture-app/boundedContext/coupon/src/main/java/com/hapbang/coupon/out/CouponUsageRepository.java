@@ -4,8 +4,13 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import com.hapbang.coupon.domain.CouponUsage;
+
+import jakarta.persistence.LockModeType;
 
 /** 쿠폰 사용 시도 저장소 */
 public interface CouponUsageRepository extends JpaRepository<CouponUsage, Long> {
@@ -25,8 +30,19 @@ public interface CouponUsageRepository extends JpaRepository<CouponUsage, Long> 
     Optional<CouponUsage> findByMemberCouponIdAndGeneration(long memberCouponId, long generation);
 
     /**
-     * 주문 항목의 사용 시도 전부(해제한 이전 세대 포함). 발급 쿠폰 ID → generation 순. 결제·취소 완료 소비자가 이벤트의 사용 시도를
-     * 찾는다({@code idx_coupon_usage_order_item_id})
+     * 주문 항목의 사용 시도 전부(해제한 이전 세대 포함)를 행 잠금으로 읽는다. 결제·취소 완료 소비자(Kafka 소비와 관리자 DLT 재처리)가
+     * 이벤트의 사용 시도를 찾는다({@code idx_coupon_usage_order_item_id}). 트랜잭션 안에서 부른다.
+     * <ul>
+     *     <li>같은 주문 항목의 두 소비를 차례로 처리하게 한다. 뒤에 온 쪽은 앞의 커밋을 읽고 판정한다. 잠그지 않으면 늦게 읽은 쪽의 옛
+     *     엔티티 UPDATE(전체 컬럼)가 앞에서 커밋한 상태·사실을 덮어쓴다.</li>
+     *     <li>발급 쿠폰 ID → generation 순으로 잠가 여러 행을 잠가도 교착이 없다.</li>
+     * </ul>
      */
-    List<CouponUsage> findByOrderItemIdOrderByMemberCouponIdAscGenerationAsc(long orderItemId);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select u from CouponUsage u
+            where u.orderItemId = :orderItemId
+            order by u.memberCouponId asc, u.generation asc
+            """)
+    List<CouponUsage> findForUpdateByOrderItemId(@Param("orderItemId") long orderItemId);
 }

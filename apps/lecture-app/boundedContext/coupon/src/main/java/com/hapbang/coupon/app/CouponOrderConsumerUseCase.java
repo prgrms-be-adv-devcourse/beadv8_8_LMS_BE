@@ -34,9 +34,11 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 주문 결제·취소 완료 소비: 강의가 보낸 주문 항목의 결제 완료·취소(반환) 완료를 그 항목의 쿠폰 사용 시도와 발급 쿠폰에 반영한다.
- * 한 트랜잭션에서 (1) 소비 멱등 확인(작업 ID = eventId) → (2) 이벤트의 사용 시도(발급 쿠폰, generation)를 주문 항목으로 찾아 회원·주문을
- * 확인 → (3) 발급 쿠폰 ID 오름차순으로 사용 시도 전이({@link CouponUsage#applyPaid}·{@link CouponUsage#applyCancelCompleted})와 발급
- * 쿠폰 generation 조건부 갱신 → (4) 소비 멱등 기록 순서로 한다. 전이 규칙은 도메인에 있고 여기서는 부르기만 한다.
+ * 한 트랜잭션에서 (1) 주문 항목의 사용 시도를 행 잠금으로 읽기 → (2) 소비 멱등 확인(작업 ID = eventId) → (3) 이벤트의 사용 시도(발급
+ * 쿠폰, generation)를 찾아 회원·주문을 확인 → (4) 발급 쿠폰 ID 오름차순으로 사용 시도 전이({@link CouponUsage#applyPaid}·
+ * {@link CouponUsage#applyCancelCompleted})와 발급 쿠폰 generation 조건부 갱신 → (5) 소비 멱등 기록 순서로 한다. 전이 규칙은 도메인에
+ * 있고 여기서는 부르기만 한다. 행 잠금 덕분에 같은 주문 항목의 Kafka 소비와 관리자 DLT 재처리가 겹쳐도 차례로 처리되고, 뒤에 온 쪽이
+ * 앞의 커밋을 덮어쓰지 않는다.
  * <ul>
  *     <li>결제 완료: 사용 시도 RESERVED → PAID, 발급 쿠폰 RESERVED → USED. 기한은 다시 보지 않는다.</li>
  *     <li>취소 완료: 사용 시도 RESERVED·PAID → CANCELED, 발급 쿠폰 RESERVED·USED → 만료 전이면 AVAILABLE, 아니면 EXPIRED.</li>
@@ -126,13 +128,15 @@ public class CouponOrderConsumerUseCase {
     }
 
     private Result apply(Settlement settlement) {
+        // 주문 항목의 사용 시도를 먼저 잠근다. 같은 항목의 다른 소비(Kafka·관리자 재처리)는 이 커밋을 기다렸다가 커밋된 상태와 멱등 기록을
+        // 읽는다(READ COMMITTED에서 잠금 뒤의 조회는 앞의 커밋을 본다)
+        List<CouponUsage> usages = couponUsageRepository.findForUpdateByOrderItemId(settlement.orderItemId());
         Optional<Result> replayed = replayIfProcessed(settlement);
         if (replayed.isPresent()) {
             return replayed.get();
         }
         Map<UsageRef, CouponUsage> found = new HashMap<>();
-        for (CouponUsage usage : couponUsageRepository
-                .findByOrderItemIdOrderByMemberCouponIdAscGenerationAsc(settlement.orderItemId())) {
+        for (CouponUsage usage : usages) {
             found.put(new UsageRef(usage.getMemberCouponId(), usage.getGeneration()), usage);
         }
         Instant now = clock.instant();
