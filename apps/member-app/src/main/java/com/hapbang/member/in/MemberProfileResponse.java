@@ -8,7 +8,8 @@ import com.hapbang.member.domain.User;
 import com.hapbang.shared.member.domain.Role;
 
 /**
- * 회원 공개 프로필 (다른 사람이 보는 정보라 이메일은 넣지 않는다). profileImageUrl은 1시간 조회 주소, 사진이 없으면 null.
+ * 회원 공개 프로필 (다른 사람이 보는 정보라 이메일은 넣지 않는다). profileImageUrl은 받은 뒤 대개 10분 이상 쓸 수 있는 조회 주소
+ * (서버 자격 증명이 바뀌는 짧은 동안은 더 짧을 수 있다. 만료되거나 불러오지 못하면, 사진을 바꾼 직후의 옛 주소 포함, 다시 조회한다), 사진이 없으면 null.
  * appearanceRating은 받은 출연 리뷰 전체 평점이다 (#555, 역할별 평점은 프로필 상세에만).
  * contentCategories는 고른 순서의 분야(코드·이름), 없으면 빈 배열 (#711)
  */

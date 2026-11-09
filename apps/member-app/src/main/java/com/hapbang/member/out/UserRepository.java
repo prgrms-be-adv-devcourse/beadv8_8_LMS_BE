@@ -74,6 +74,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
 
     /**
+     * 프로필 사진 key 일괄 조회 (#770). 정상 회원 중 사진이 있는 회원만 쿼리 한 번으로 읽는다.
+     * 정상이 아닌 회원은 프로필 조회(MemberSupport.findActiveUser)와 같이 빠진다
+     */
+    @Query("""
+            select new com.hapbang.member.out.ProfileImageKey(u.id, u.profileImageKey) from User u
+            where u.id in :ids
+              and u.status = com.hapbang.shared.member.domain.UserStatus.ACTIVE
+              and u.profileImageKey is not null""")
+    List<ProfileImageKey> findActiveProfileImageKeys(@Param("ids") Collection<Long> ids);
+
+    /**
      * 콘텐츠 분야별로 정상 인플루언서(인플루언서·인증된 인플루언서 + ACTIVE)가 고른 수 (#711). 아무도 고르지 않은 분야는 없다.
      * 분야 목록 API의 순서(고른 수 많은 순)에 쓴다. user_content_category의 code 인덱스로 센다
      */
