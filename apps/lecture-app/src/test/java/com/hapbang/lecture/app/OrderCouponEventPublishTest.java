@@ -41,7 +41,7 @@ import com.hapbang.testsupport.IntegrationTest;
 
 /**
  * 쿠폰을 쓴 주문 항목의 결제 완료·취소 완료 이벤트가 결제 완료·반환 완료를 기록하는 트랜잭션과 함께 커밋되는지 확인한다.
- * 커밋된 이벤트만 모으는 {@link CommittedCouponOrderEvents}로 본다. Kafka 토픽·key·헤더는 OrderItemCouponEventKafkaTest가 맡는다.
+ * 커밋된 이벤트만 모으는 {@link CommittedCouponOrderEvents}로 본다. Kafka 토픽·key·헤더는 LectureSyncEventKafkaTest가 맡는다.
  */
 @IntegrationTest
 @WithMockUser(roles = "USER")
