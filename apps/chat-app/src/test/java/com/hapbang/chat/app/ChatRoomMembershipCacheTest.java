@@ -22,7 +22,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
  * 방 참여 캐시의 버전 확인 규칙: 버전이 그대로면 다시 읽지 않고, 메시지 버전이 더 크면 다시 읽고, 더 낮은 버전으로 덮지 않는다.
- * 같은 방의 다시 읽기는 한 번에 하나이고, 조회가 실패하면 캐시를 바꾸지 않으며, 방 수 상한을 넘으면 방을 버린다.
+ * 충분한 캐시는 잠금 없이 돌려주고, 같은 방의 다시 읽기는 한 번에 하나이고, 조회가 실패하면 캐시를 바꾸지 않으며,
+ * 방 수 상한을 넘으면 방을 버린다.
  */
 class ChatRoomMembershipCacheTest {
 
@@ -201,9 +202,49 @@ class ChatRoomMembershipCacheTest {
                 .isLessThanOrEqualTo(2);
         assertThat(meterRegistry.get("cache.evictions").tag("cache", ChatRoomMembershipCache.CACHE_NAME)
                 .functionCounter().count()).isGreaterThanOrEqualTo(8);
-        // 항목 계산은 hit·miss를 세지 않고 호출마다(조회 실패 포함) put으로 센다
-        assertThat(meterRegistry.get("cache.puts").tag("cache", ChatRoomMembershipCache.CACHE_NAME)
-                .functionCounter().count()).isEqualTo(11);
+        // 모두 처음 보는 방이라 빠른 경로에서 miss, 항목 계산(조회 실패 포함)마다 put으로 센다
+        assertThat(gets("miss")).isEqualTo(11);
+        assertThat(puts()).isEqualTo(11);
+    }
+
+    @Test
+    void 빠른_경로는_충분한_캐시면_DB를_부르지_않고_낮은_버전이면_항목_계산으로_간다() {
+        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
+        when(reader.findRoomMembership(1L)).thenReturn(membership(3), membership(4));
+
+        cache.get(1L, 3);
+        assertThat(cache.get(1L, 3).setVersion()).isEqualTo(3);
+        assertThat(cache.get(1L, 4).setVersion()).isEqualTo(4);
+
+        verify(reader, times(2)).findRoomMembership(1L);
+        assertThat(gets("miss")).isEqualTo(1);
+        assertThat(gets("hit")).isEqualTo(2);
+        // 두 번째 요청은 항목 계산에 들어가지 않는다
+        assertThat(puts()).isEqualTo(2);
+    }
+
+    @Test
+    void 빠른_경로는_주기가_지난_캐시면_항목_계산으로_간다() throws Exception {
+        ChatRoomMembershipCache cache = cache(10, Duration.ofMillis(50));
+        when(reader.findRoomMembership(1L)).thenReturn(membership(3));
+
+        cache.get(1L, 3);
+        Thread.sleep(80);
+        cache.get(1L, 3);
+
+        verify(reader, times(2)).findRoomMembership(1L);
+        assertThat(gets("hit")).isEqualTo(1);
+        assertThat(puts()).isEqualTo(2);
+    }
+
+    private double gets(String result) {
+        return meterRegistry.get("cache.gets").tag("cache", ChatRoomMembershipCache.CACHE_NAME).tag("result", result)
+                .functionCounter().count();
+    }
+
+    private double puts() {
+        return meterRegistry.get("cache.puts").tag("cache", ChatRoomMembershipCache.CACHE_NAME)
+                .functionCounter().count();
     }
 
     /** 퇴출을 호출 스레드에서 바로 돌려 상한을 곧바로 확인할 수 있게 한다 */

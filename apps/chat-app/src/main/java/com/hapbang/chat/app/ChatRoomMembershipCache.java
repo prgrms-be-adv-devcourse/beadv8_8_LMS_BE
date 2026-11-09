@@ -25,15 +25,18 @@ import lombok.extern.slf4j.Slf4j;
  *     나중에). 퇴장·재입장은 방 잠금 아래 버전을 올리므로, 퇴장 커밋 뒤 저장된 메시지를 처음 내보낼 때 반드시 그 퇴장을 본다.</li>
  *     <li>회원 자격(정지·강등)은 버전을 바꾸지 않는다. 주기({@code membership-refresh})가 지난 캐시도 다시 읽는다. 자격 상실은
  *     회원 상태 재검사가 연결을 닫는다(설계 Q17).</li>
- *     <li>같은 방의 다시 읽기는 Caffeine 항목 계산({@code asMap().compute}) 하나로 직렬화하고, 더 낮은 버전으로 읽은 결과로
- *     덮지 않는다. 계산 중에는 같은 해시 칸에 든 다른 방도 기다린다.</li>
+ *     <li>캐시가 충분하면(버전·주기 조건) 잠금 없이 돌려준다. 아니면 같은 방의 다시 읽기를 Caffeine 항목 계산
+ *     ({@code asMap().compute})으로 직렬화하고, 계산 안에서 조건을 다시 확인한 뒤 읽으며, 더 낮은 버전으로 읽은 결과로 덮지
+ *     않는다.</li>
+ *     <li>계산은 해시 칸 잠금을 쥔 채 DB를 읽으므로, 다시 읽는 동안 같은 해시 칸에 든 다른 방도 기다린다. 실측으로 문제가 되면
+ *     {@code AsyncCache}로 옮긴다.</li>
  *     <li>방 수에 상한을 두고 자주 쓰지 않는 방부터(W-TinyLFU) 버린다.</li>
  * </ul>
  * 조회 실패는 예외로 알린다. 계산 안의 예외는 항목을 바꾸지 않는다. 호출하는 쪽은 실패를 자격 있음으로 보지 않는다.
  * <p>
- * 지표는 Micrometer Caffeine 바인더가 {@code cache.*} 이름에 {@code cache=}{@value #CACHE_NAME} 태그로 낸다. 크기
- * ({@code cache.size})와 퇴출 수({@code cache.evictions})를 본다. 항목 계산은 hit·miss를 세지 않고 호출마다 load로 세므로
- * {@code cache.gets}는 0이고 {@code cache.puts}는 DB 조회 수가 아니라 호출 수(조회 실패 포함)다.
+ * 지표는 Micrometer Caffeine 바인더가 {@code cache.*} 이름에 {@code cache=}{@value #CACHE_NAME} 태그로 낸다.
+ * {@code cache.gets}의 hit·miss는 빠른 경로의 조회로 센다(주기가 지났거나 버전이 낮은 항목도 hit다). {@code cache.puts}는
+ * 항목 계산(느린 경로) 수이고 조회 실패를 포함한다. {@code cache.load}는 {@code LoadingCache}가 아니어서 없다.
  */
 @Slf4j
 @Component
@@ -78,11 +81,12 @@ public class ChatRoomMembershipCache {
      * @throws RuntimeException 조회 실패
      */
     public RoomMembership get(Long roomId, int minSetVersion) {
+        Entry present = entries.getIfPresent(roomId);
+        if (isUsable(present, minSetVersion)) {
+            return present.membership();
+        }
         Entry entry = entries.asMap().compute(roomId, (ignored, cached) ->
-                cached != null && cached.membership().setVersion() >= minSetVersion
-                        && System.nanoTime() - cached.loadedAt() < refreshNanos
-                        ? cached
-                        : reload(roomId, cached));
+                isUsable(cached, minSetVersion) ? cached : reload(roomId, cached));
         if (entry.membership().setVersion() < minSetVersion) {
             // 메시지가 커밋된 뒤에 읽었으므로 일어나지 않는다. 일어나면 확인하지 못한 것으로 본다(읽은 결과는 캐시에 남긴다)
             throw new IllegalStateException("방 참여 상태가 메시지의 수신자 집합 버전보다 오래됐습니다. roomId=" + roomId
@@ -97,6 +101,12 @@ public class ChatRoomMembershipCache {
      */
     public RoomMembership refresh(Long roomId) {
         return entries.asMap().compute(roomId, (ignored, cached) -> reload(roomId, cached)).membership();
+    }
+
+    /** 다시 읽지 않고 쓸 수 있는지: 적어도 {@code minSetVersion}을 반영했고 자격 재조회 주기 안에 읽었다 */
+    private boolean isUsable(@Nullable Entry entry, int minSetVersion) {
+        return entry != null && entry.membership().setVersion() >= minSetVersion
+                && System.nanoTime() - entry.loadedAt() < refreshNanos;
     }
 
     /** DB에서 읽는다. 더 낮은 버전을 읽으면 기존 항목을 읽은 시각까지 그대로 둔다(주기가 지났으면 다음 요청이 다시 읽는다) */
