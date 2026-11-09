@@ -113,10 +113,10 @@
 
 | 구분 | 무엇 | 자세히 |
 | --- | --- | --- |
-| U16 | 예약 취소 이벤트가 생성보다 먼저 도착 | decisions 10장, test-spec `NT-SCH-06` |
-| U17 | 받는 사람 복제본 없음, 첫 배포 Backfill | decisions 10장, test-spec `NT-USR-04`·`NT-USR-06`, module 5장 |
+| U16 | 예약 알림별 생성·취소 이벤트 식별 키 계약 검증(처리 방향은 ND-034) | decisions 10장, test-spec `NT-SCH-06` |
+| U17 | 첫 배포 Backfill(복제본이 아직 없는 경쟁은 ND-035) | decisions 10장, test-spec `NT-USR-06`, module 5장 |
 | U18 | 채널 인증 승인 판정과 회원 코드의 불일치 | decisions 10장, test-spec `NT-GEN-14` |
-| U19 | 저장한 알림 문구·값의 닉네임과 파기 규칙 | decisions 10장, test-spec `NT-USR-07` |
+| U19 | 닉네임이 든 문구·값의 저장 구조와 갱신 방법(방향은 ND-036) | decisions 10장, test-spec `NT-USR-07` |
 | M1~M7 | 발행 모듈 이벤트 계약(신규 이벤트·계약 보강) | catalog 판정, module 5장, PROGRESS 3장 |
 
 - 발행 이벤트 계약 판정 결과(부분 충족·미충족 수, `AppearanceChangedEvent`가 M3를 대체할 수 없다는 판단)는 [`notification-catalog.md`](notification-catalog.md)와 [`module.md`](module.md) 5장이 원본이다.

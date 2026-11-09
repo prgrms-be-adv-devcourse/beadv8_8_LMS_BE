@@ -184,16 +184,27 @@ class ProfileImagesApiTest {
     }
 
     @Test
-    @DisplayName("인플루언서 목록은 한 페이지의 사진 주소를 캐시에서 한 번에 읽고 한 번에 넣는다")
+    @DisplayName("인플루언서 목록은 한 페이지의 사진 주소를 캐시에서 한 번에 읽고 한 번에 넣으며, 콘텐츠 분야(#711)도 함께 나온다")
     void influencerListReadsCacheOnce() throws Exception {
         List<User> influencers = IntStream.range(0, 3)
                 .mapToObj(i -> withImage(MemberFixture.member(Role.INFLUENCER))).toList();
-        userRepository.save(MemberFixture.member(Role.INFLUENCER));
+        User withCategories = MemberFixture.member(Role.INFLUENCER);
+        withCategories.changeContentCategories(List.of("GAME", "MUKBANG"));
+        withCategories = userRepository.save(withCategories);
         clearInvocations(profileImageUrlCache);
 
         mockMvc.perform(get("/api/v1/members/influencers").with(login(viewer)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content.length()").value(4));
+                .andExpect(jsonPath("$.data.content.length()").value(4))
+                // 최신 가입순: 분야를 고른 회원(사진 없음)이 맨 앞, 사진이 있는 회원들이 뒤
+                .andExpect(jsonPath("$.data.content[0].id").value(withCategories.getId()))
+                .andExpect(jsonPath("$.data.content[0].contentCategories[0].code").value("GAME"))
+                .andExpect(jsonPath("$.data.content[0].contentCategories[0].name").value("게임"))
+                .andExpect(jsonPath("$.data.content[0].contentCategories[1].code").value("MUKBANG"))
+                .andExpect(jsonPath("$.data.content[0].profileImageUrl").value(Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.content[1].profileImageUrl")
+                        .value(Matchers.containsString(influencers.getLast().getProfileImageKey())))
+                .andExpect(jsonPath("$.data.content[1].contentCategories").isEmpty());
 
         verify(profileImageUrlCache).findAll(Set.copyOf(influencers.stream().map(User::getProfileImageKey).toList()));
         verify(profileImageUrlCache).putAllIfAbsent(anyList());

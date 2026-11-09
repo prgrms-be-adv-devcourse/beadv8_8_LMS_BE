@@ -24,13 +24,22 @@ public interface ApiV1MemberSpec {
 
     @Operation(summary = "내 정보 조회",
             description = "로그인한 회원. 이메일을 포함한다. profileImageUrl은 받은 뒤 최소 10분 쓸 수 있는 조회 주소이고, 사진이 없으면 null. "
-                    + "만료되거나 불러오지 못하면(사진을 바꾼 직후의 옛 주소 포함) 다시 조회한다.")
+                    + "만료되거나 불러오지 못하면(사진을 바꾼 직후의 옛 주소 포함) 다시 조회한다. "
+                    + "contentCategories는 고른 순서의 콘텐츠 분야 [{code, name}], 없으면 빈 배열. bio는 자기소개, 없으면 null.")
     RsData<MemberMeResponse> me(Long userId);
 
     @Operation(summary = "내 정보 수정",
-            description = "로그인한 회원. 지금은 닉네임만. 안 보내거나 null이면 그대로 둔다. "
+            description = "로그인한 회원. 닉네임·콘텐츠 분야(contentCategories)·자기소개(bio). 안 보내거나 null이면 그대로 둔다. "
                     + "닉네임은 앞뒤 공백을 지운 뒤 2~12자, 한글·영문·숫자·공백·밑줄만, 연속 공백 불가 (어기면 400). "
-                    + "다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME. 내 닉네임의 대소문자만 바꾸는 것은 된다.")
+                    + "다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME. 내 닉네임의 대소문자만 바꾸는 것은 된다. "
+                    + "contentCategories는 분야 코드 목록(고른 순서 유지, 예: [\"MAPLESTORY\", \"GAME\"]), 0~5개·중복 불가. "
+                    + "6개 이상이면 400 INVALID_CONTENT_CATEGORY_COUNT, 중복이면 400 DUPLICATE_CONTENT_CATEGORY, "
+                    + "새로 고르는 코드가 분야 목록에 없거나 꺼져 있으면 400 INVALID_CONTENT_CATEGORY(이미 고른 코드는 꺼졌어도 다시 보낼 수 있다). "
+                    + "bio는 앞뒤 공백을 지운 뒤 100자 이하(넘으면 400 INVALID_BIO_LENGTH). "
+                    + "빈 목록·빈 문자열을 보내면 지운다. 분야·자기소개를 새로 넣거나 바꾸는 것은 인플루언서·인증된 인플루언서만 되고 "
+                    + "그 밖의 역할이면 요청 전체가 403 INFLUENCER_PROFILE_NOT_ALLOWED(아무것도 바뀌지 않음). "
+                    + "지우기와 지금 값을 그대로 보내기는 누구나 된다(강등된 회원이 남은 값을 함께 보내며 닉네임만 바꿀 때). "
+                    + "무엇이든 바뀌면 회원 변경 이벤트가 한 번 나가고, 바뀐 것이 없으면 나가지 않는다.")
     RsData<MemberMeResponse> updateMe(Long userId, MemberUpdateRequest request);
 
     @Operation(summary = "닉네임 중복 확인",
@@ -45,7 +54,8 @@ public interface ApiV1MemberSpec {
             description = "로그인한 회원. 인플루언서·인증된 인플루언서 중 정상 회원만, 최신 가입순. "
                     + "page·size로 페이징(최대 100). 정렬은 바꿀 수 없다. "
                     + "appearanceRating은 받은 출연 리뷰 전체 평점 {average, count} "
-                    + "(average는 소수 첫째 자리 반올림, 리뷰가 없으면 average null·count 0).")
+                    + "(average는 소수 첫째 자리 반올림, 리뷰가 없으면 average null·count 0). "
+                    + "contentCategories는 고른 순서의 콘텐츠 분야 [{code, name}], 없으면 빈 배열(자기소개는 프로필에서).")
     RsData<Page<MemberProfileResponse>> influencers(Pageable pageable);
 
     @Operation(summary = "회원 프로필",
@@ -53,7 +63,9 @@ public interface ApiV1MemberSpec {
                     + "(채널 이름·주소·팔로워 수, 승인 상태는 넣지 않음). 탈퇴·없는 회원은 404. "
                     + "appearanceRating은 출연 평점 {total, asHost, asGuest}: 전체, 호스트로 받은 리뷰(게스트가 씀), "
                     + "게스트로 받은 리뷰(호스트가 씀). 각각 {average, count}이고 average는 소수 첫째 자리 반올림, "
-                    + "리뷰가 없으면 average null·count 0.")
+                    + "리뷰가 없으면 average null·count 0. "
+                    + "contentCategories는 고른 순서의 콘텐츠 분야 [{code, name}], 없으면 빈 배열. bio는 자기소개, 없으면 null. "
+                    + "분야 목록에서 꺼진 분야도 이미 고른 회원에게는 이름과 함께 보인다.")
     RsData<MemberProfileDetailResponse> profile(Long memberId);
 
     @Operation(summary = "받은 출연 리뷰 목록",

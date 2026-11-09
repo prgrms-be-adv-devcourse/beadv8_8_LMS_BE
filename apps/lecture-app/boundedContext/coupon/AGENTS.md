@@ -11,9 +11,10 @@
 - 강의 모듈 코드는 [`docs/design.md`](docs/design.md) "프로젝트 구조"가 명시한 다섯 곳(강의 조회 내부 API, `out/coupon` 클라이언트, `OrderCreateUseCase` 단계 분리, 가격 수정 시 `priceRaiseBlocked` 호출, 결제·취소 완료 이벤트 externalize)만, 작업 지시서에 포함될 때만 수정한다. 그 밖의 다른 모듈·앱 코드는 수정하지 않는다.
 - billing-app과 billing 계약(`docs/api/internal-billing.md`)은 수정하지 않는다. 필요한 계약은 [`docs/contracts.md`](docs/contracts.md) "billing 담당 계약"에 적어 보고한다.
 - 팀에 없던 라이브러리·접근 방식을 들이지 않는다. DB는 JPA, HTTP는 `@HttpExchange`, Kafka·Redis는 `common/kafka`·`common/redis` 자동 설정을 쓴다.
-- Redis key는 `CouponRedisKeys` 한 곳에서만 만들고 모든 key에 TTL을 둔다. 미처리 Stream 기록을 TTL·`MAXLEN`으로 버리지 않는다.
+- Redis key는 `CouponRedisKeys` 한 곳에서만 만들고 모든 key에 TTL을 둔다. requests 접수 기록은 DB 확정 전에 지우지 않는다. Redis Stream은 쓰지 않는다.
 - 측정 전 운영 수치(TTL, 수량·메모리 상한, 배치 주기, 재시도 횟수)를 확정값으로 코드에 넣지 않는다. 설정 플레이스홀더와 코드 기본값으로 두고 [`docs/operations.md`](docs/operations.md)에 "확정 전"이라고 남긴다.
 - 코드 주석에 이슈 번호를 쓰지 않는다. 뜻을 문장으로 쓴다.
+- dev 병합은 곧 운영 배포다. 이미 dev에 들어간 Flyway 마이그레이션 파일은 고치지 않고 새 버전 파일로만 바꾼다(checksum 검증).
 - 테스트는 [`docs/operations.md`](docs/operations.md) "테스트 구성"의 피라미드를 따른다: 도메인 단위 테스트를 가장 많이, 서비스(UseCase)는 그보다 적게, Repository는 하나씩, e2e는 가장 적게. 같은 규칙을 여러 층에서 반복 검증하지 않는다. 검증 항목은 "필수 검증"을 기준으로 하고, 수정과 관련된 테스트만 돌린다.
 - 사용자가 작업 시작을 명령하기 전에 이슈를 만들지 않는다.
 - 리뷰는 Codex 리뷰를 쓰고 **최대 5회**까지만 받는다. 테스트 세션 검증을 통과하기 전에 Codex 리뷰를 받지 않는다. 리뷰 반영으로 코드가 바뀌면 테스트를 다시 받는다. 5회 안에 해결되지 않으면 멈추고 남은 지적을 보고한다.

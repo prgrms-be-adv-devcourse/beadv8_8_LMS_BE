@@ -1,0 +1,14 @@
+# Slack contact point(#781). Incoming Webhook URL은 Secret grafana-alerting의 SLACK_WEBHOOK_URL을 환경 변수로 읽는다.
+# prod는 SealedSecret(k8s/platform/overlays/prod/grafana-alerting.yaml), local은 보내지지 않는 가짜 주소다.
+# alerting provisioning은 contact point 설정의 $변수를 환경 변수로 바꾼다. 메시지 template을 넣을 때는 $를 $$로 쓴다.
+# 메시지는 Grafana 기본 Slack template(alert 이름, 값, label, summary·description annotation, Grafana 링크)을 쓴다.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: slack
+    receivers:
+      - uid: hapbang-slack
+        type: slack
+        settings:
+          url: $SLACK_WEBHOOK_URL
+        disableResolveMessage: false

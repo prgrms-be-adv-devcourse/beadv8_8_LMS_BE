@@ -1,6 +1,6 @@
 # 관측성 stack(Prometheus·Loki·Tempo·Grafana·Alloy). 모두 medium(app-observe)에 둔다.
 # 이 파일은 설치, 자원·보존 한도와 Alloy pipeline(Gateway trace·pod log)을 정한다. 앱 지표는 Prometheus 차트 기본
-# kubernetes-pods job이 pod annotation으로 수집한다(#480). dashboard는 dashboards/ JSON(#531)이고, alert는 #343에서 더한다.
+# kubernetes-pods job이 pod annotation으로 수집한다(#480). dashboard는 dashboards/ JSON(#531), alert는 alerting/ provisioning 파일(#781)이다.
 # 메모리 limit은 로컬 k3d 실측(#373·#443·#480)에 여유를 더한 값이다. 이 파일의 합계는 1,312 MiB이고, k8s/gateway의
 # Tempo 256·Grafana 512 override를 더하면 1,696 MiB다(#532·#608·#684·#774 운영 실측으로 조정). 처음 잡은 예산 600 MiB에서는 Grafana·Prometheus가 OOMKilled됐다.
 # 예산 조정은 #343에서 한다(docs/architecture/infrastructure/k3s.md).
@@ -33,7 +33,7 @@ spec:
     # k3s는 apiserver·kubelet이 한 프로세스라 두 endpoint가 같은 제어부 지표 묶음을 내보낸다.
     # EC2에서 둘이 head series 18.5만 중 9.6만을 차지해 메모리가 limit에 붙고 GC로 CPU 1.5코어를 썼다(#443).
     # apiserver는 수집하지 않고, kubelet은 pod·컨테이너 수와 k3s 프로세스 자원 지표만 남긴다.
-    # kubelet_volume_stats는 local-path volume이 내보내지 않아 지금은 비어 있다. 디스크 alert는 #343에서 다른 지표로 정한다.
+    # kubelet_volume_stats는 local-path volume이 내보내지 않아 지금은 비어 있다. 디스크 alert는 cAdvisor container_fs_usage_bytes(/dev/root)로 둔다(#781, base/alerting/rules.yaml).
     # 컨테이너 CPU·메모리는 kubernetes-nodes-cadvisor가 따로 수집한다.
     scrapeConfigs:
       kubernetes-api-servers:
@@ -246,6 +246,17 @@ spec:
               path: /var/lib/grafana/dashboards/hapbang
     dashboardsConfigMaps:
       hapbang: grafana-dashboards-hapbang
+    # alert rule·Slack contact point·통보 규칙은 레포의 k8s/platform/base/alerting이 원본이다(#781). kustomization이 만든
+    # ConfigMap을 provisioning 디렉터리로 마운트한다. 차트의 alerting 값은 내용을 tpl로 돌려 Grafana template({{ }})과 겹치므로 쓰지 않는다.
+    extraConfigmapMounts:
+      - name: alerting-hapbang
+        mountPath: /etc/grafana/provisioning/alerting
+        configMap: grafana-alerting-hapbang
+        readOnly: true
+    # contact point가 읽는 Slack Incoming Webhook URL(SLACK_WEBHOOK_URL). prod는 SealedSecret, local은 가짜 값이다.
+    # Secret이 없으면 pod가 뜨지 않으므로 HelmChart보다 먼저 적용한다.
+    envFromSecrets:
+      - name: grafana-alerting
     persistence:
       enabled: true
       size: 1Gi

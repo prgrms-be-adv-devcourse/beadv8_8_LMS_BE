@@ -6,6 +6,15 @@ spring:
     import:
     - classpath:member.yml
     - classpath:swagger.yml
+  jpa:
+    # 운영(application.yaml)과 같이 끈다. 켜 두면 컨트롤러가 트랜잭션 밖에서 LAZY인 콘텐츠 분야를 읽어도 테스트는 통과하고
+    # 운영에서만 실패한다(#711). 응답을 만들 때 필요한 값은 Facade 트랜잭션 안에서 읽어 둔다
+    open-in-view: false
+    properties:
+      # 콘텐츠 분야 목록(#711)은 운영에서 Flyway가 넣는다. 테스트 DB 정리(SchemaManager.truncate)가 그 행도 지우므로,
+      # 비운 뒤 같은 마이그레이션 파일을 다시 실행한다(Hibernate가 비운 다음 import 스크립트를 실행한다, 지갑 앱과 같은 방식).
+      # 목록을 두 곳에 적지 않으려고 마이그레이션을 그대로 가리킨다. 분야를 바꾸는 마이그레이션이 더 생기면 테스트에서도 다시 실행되게 이 설정을 고친다
+      jakarta.persistence.sql-load-script-source: db/migration/V202611091116__insert_member_content_categories.sql
   kafka:
     # 출연 이벤트 리스너(#555)는 대부분의 테스트에 필요 없다. 다른 테스트 컨텍스트에서 출연 토픽을 붙잡고 있지 않게 끈다.
     # 리스너 테스트(AppearanceReviewEventListenerTest)만 다시 켠다

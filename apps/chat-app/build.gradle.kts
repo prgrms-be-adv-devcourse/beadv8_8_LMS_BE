@@ -14,6 +14,8 @@ dependencies {
     implementation("org.springframework.security:spring-security-core")
     // 기존 회원 백필의 회원 내부 API 호출(shared MemberApiClient가 RestClient.Builder를 쓴다, 설계 문서 5.4)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
+    // 방 참여 캐시(ChatRoomMembershipCache)의 크기 상한·퇴출과 방별 단일 조회
+    implementation(libs.caffeine)
 }
 
 springBoot {

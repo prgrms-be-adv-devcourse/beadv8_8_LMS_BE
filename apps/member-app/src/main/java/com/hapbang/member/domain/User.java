@@ -2,15 +2,26 @@ package com.hapbang.member.domain;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+import org.hibernate.Hibernate;
+import org.hibernate.annotations.BatchSize;
 
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.SourceUser;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -51,6 +62,25 @@ public class User extends SourceUser {
     /** 개인정보를 마스킹한 시각 (#594). 있으면 복구할 수 없다 */
     private LocalDateTime maskedAt;
 
+    /** 자기소개 (#711). 없으면 null */
+    @Column(length = Bio.MAX_LENGTH)
+    private String bio;
+
+    /**
+     * 콘텐츠 분야 코드 (#711). 고른 순서를 sort_order로 지킨다. 바뀌면 Hibernate가 {@link #version}을 올린다.
+     * 필요할 때 읽고(LAZY), 여러 회원을 읽은 뒤 분야를 읽으면 100명씩 묶어 읽는다(N+1 방지).
+     * 바꿀 때는 새 목록으로 통째로 갈아 끼운다(행을 지우고 다시 넣어 (user_id, code) 유일 제약에 걸리지 않게)
+     */
+    @ElementCollection
+    @CollectionTable(name = "user_content_category", schema = "members", joinColumns = @JoinColumn(name = "user_id"),
+            uniqueConstraints = @UniqueConstraint(name = "uk_user_content_category_code",
+                    columnNames = {"user_id", "code"}))
+    @OrderColumn(name = "sort_order")
+    @Column(name = "code", nullable = false, length = 50)
+    @BatchSize(size = 100)
+    @Getter(AccessLevel.NONE)
+    private List<String> contentCategories = new ArrayList<>();
+
     /** 낙관적 락 버전. 동시에 수정하면 늦게 저장하는 쪽이 실패한다 (값은 JPA가 관리, MemberSupport.flush가 409로 바꾼다) */
     @Version
     private Long version;
@@ -68,6 +98,42 @@ public class User extends SourceUser {
     /** 닉네임 변경 (닉네임 규칙 검증) */
     public void changeNickname(String nickname) {
         changeProfile(Nickname.validate(nickname), getRole(), getStatus());
+    }
+
+    /** 콘텐츠 분야 코드 (#711). 고른 순서이고, 바꿀 수 없는 복사본이다 */
+    public List<String> getContentCategories() {
+        return List.copyOf(contentCategories);
+    }
+
+    /**
+     * 콘텐츠 분야를 지금 DB에서 읽어 둔다 (#711). 분야는 LAZY라, 트랜잭션이 끝난 뒤(컨트롤러 응답, open-in-view 꺼짐) 읽으려면
+     * 트랜잭션 안에서 먼저 부른다. 여러 회원에게 부르면 @BatchSize로 묶어 읽는다
+     */
+    public void loadContentCategories() {
+        Hibernate.initialize(contentCategories);
+    }
+
+    /**
+     * 콘텐츠 분야 변경 (#711, 개수·중복 검증). 지금과 같으면 바꾸지 않고 false를 돌려준다(목록을 다시 채우지 않아 version이 오르지 않는다).
+     * 코드가 분야 목록에 있는지·새로 고를 수 있는지는 부르는 쪽이 먼저 확인한다
+     */
+    public boolean changeContentCategories(List<String> codes) {
+        List<String> validated = ContentCategories.validate(codes);
+        if (validated.equals(contentCategories)) {
+            return false;
+        }
+        this.contentCategories = new ArrayList<>(validated);
+        return true;
+    }
+
+    /** 자기소개 변경 (#711, 길이 검증·앞뒤 공백 제거, 비면 null). 지금과 같으면 바꾸지 않고 false를 돌려준다 */
+    public boolean changeBio(String bio) {
+        String validated = Bio.validate(bio);
+        if (Objects.equals(validated, this.bio)) {
+            return false;
+        }
+        this.bio = validated;
+        return true;
     }
 
     /** 프로필 이미지 변경 (S3 키, null이면 삭제). API는 S3 공통 설정 이후 */
@@ -136,7 +202,7 @@ public class User extends SourceUser {
      * 개인정보 마스킹 (#594, docs/policy.md 삭제 정책). 복구 기한이 지난 탈퇴 회원만 한 번 한다.
      * 이메일은 지운다(null). 빈 값끼리는 유일 제약에 걸리지 않아 다른 회원과 겹치거나 미리 선점될 일이 없고, 로그인에서도 찾아지지 않으며,
      * 같은 이메일로 새로 가입할 수 있다. 닉네임은 다른 앱 복제본(채팅은 not null)에 나가므로 회원 ID를 넣은 값으로 바꾼다.
-     * 프로필 사진 연결을 끊는다.
+     * 프로필 사진 연결을 끊고, 콘텐츠 분야·자기소개를 지운다(#711).
      * 닉네임은 규칙 검사를 거치지 않는다({@link #MASKED_NICKNAME_PREFIX}의 {@code #}은 규칙 밖 글자다). 회원 행·ID·상태(탈퇴)는 남긴다
      */
     public void mask(LocalDateTime now) {
@@ -147,6 +213,8 @@ public class User extends SourceUser {
         changeProfile(MASKED_NICKNAME_PREFIX + getId(), getRole(), getStatus());
         this.email = null;
         this.profileImageKey = null;
+        changeContentCategories(List.of());
+        this.bio = null;
         this.maskedAt = now;
     }
 
@@ -155,8 +223,11 @@ public class User extends SourceUser {
         return maskedAt != null;
     }
 
-    /** 다른 모듈에 넘길 회원 정보. 버전은 flush 뒤에 불러야 올라간 값이 담긴다 (MemberSupport.flush) */
+    /**
+     * 다른 모듈에 넘길 회원 정보. 버전은 flush 뒤에 불러야 올라간 값이 담긴다 (MemberSupport.flush).
+     * 콘텐츠 분야·자기소개도 늘 지금 값을 싣는다(빠뜨리면 받는 쪽은 지운 것으로 본다, #711). 분야를 읽으므로 트랜잭션 안에서 부른다
+     */
     public UserDto toDto() {
-        return new UserDto(getId(), getNickname(), getRole(), getStatus(), version);
+        return new UserDto(getId(), getNickname(), getRole(), getStatus(), version, getContentCategories(), bio);
     }
 }
