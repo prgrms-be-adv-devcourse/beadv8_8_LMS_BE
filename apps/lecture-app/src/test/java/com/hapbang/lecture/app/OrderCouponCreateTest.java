@@ -152,6 +152,55 @@ class OrderCouponCreateTest {
     }
 
     @Test
+    void 쿠폰_계산_응답의_할인이_플랫폼과_판매자_몫의_합과_다르면_쿠폰_응답_불량이라_503이고_주문하지_않는다() {
+        Lecture lecture = saveOnSale();
+        // 항목 할인 3,000인데 몫의 합은 2,000
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(withCoupon((CouponCalculateRequest) request,
+                new CouponCalculateResponse.Coupon(501L, 11L, "SELLER", 1, PRICE_HP, SELLER_DISCOUNT, 0L, 2_000L, 4L,
+                        2), SELLER_DISCOUNT)));
+
+        assertThatThrownBy(() -> orderWithCoupon(lecture, PRICE_HP - SELLER_DISCOUNT))
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(LectureErrorCode.COUPON_UNAVAILABLE);
+        assertNoOrder();
+    }
+
+    @Test
+    void 항목_금액은_맞고_쿠폰_한_장의_몫이_넘쳐_합이_맞아_보여도_쿠폰_응답_불량이라_503이고_주문하지_않는다() {
+        Lecture lecture = saveOnSale();
+        // 항목은 판매자 3,000으로 맞고, 쿠폰 한 장만 플랫폼 MAX + 판매자 1 = MIN(넘침)으로 할인과 같아 보인다
+        CouponCalculateResponse.Coupon overflowed = new CouponCalculateResponse.Coupon(501L, 11L, "SELLER", 1,
+                PRICE_HP, Long.MIN_VALUE, Long.MAX_VALUE, 1L, 4L, 2);
+        coupon.respond(request -> {
+            CouponCalculateRequest.Item first = ((CouponCalculateRequest) request).items().getFirst();
+            long buyerAmount = first.price() - SELLER_DISCOUNT;
+            CouponCalculateResponse.Item item = new CouponCalculateResponse.Item(first.lectureId(), first.price(),
+                    SELLER_DISCOUNT, 0L, SELLER_DISCOUNT, buyerAmount, buyerAmount, List.of(overflowed));
+            return new CouponCallResult.Succeeded<>(new CouponCalculateResponse(false, false, List.of(item),
+                    SELLER_DISCOUNT, buyerAmount));
+        });
+
+        assertThatThrownBy(() -> orderWithCoupon(lecture, PRICE_HP - SELLER_DISCOUNT))
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(LectureErrorCode.COUPON_UNAVAILABLE);
+        assertNoOrder();
+    }
+
+    @Test
+    void 쿠폰_계산_응답의_할인이_가격보다_크면_쿠폰_응답_불량이라_503이고_주문하지_않는다() {
+        Lecture lecture = saveOnSale();
+        long overDiscount = PRICE_HP + 1;
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(withCoupon((CouponCalculateRequest) request,
+                new CouponCalculateResponse.Coupon(501L, 11L, "SELLER", 1, PRICE_HP, overDiscount, 0L, overDiscount,
+                        4L, 2))));
+
+        assertThatThrownBy(() -> orderWithCoupon(lecture, -1L))
+                .isInstanceOf(LectureException.class)
+                .extracting("errorCode").isEqualTo(LectureErrorCode.COUPON_UNAVAILABLE);
+        assertNoOrder();
+    }
+
+    @Test
     void 다시_계산한_결제_금액이_구매자가_본_금액과_다르면_409_ORDER_QUOTE_CHANGED이고_주문하지_않는다() {
         Lecture lecture = saveOnSale();
         coupon.respond(request -> new CouponCallResult.Succeeded<>(sellerCoupon((CouponCalculateRequest) request)));
@@ -213,11 +262,17 @@ class OrderCouponCreateTest {
 
     private static CouponCalculateResponse withCoupon(CouponCalculateRequest request,
                                                       CouponCalculateResponse.Coupon applied) {
+        return withCoupon(request, applied, applied.discount());
+    }
+
+    /** 항목 할인을 따로 정한다(금액이 맞지 않는 쿠폰 응답을 만들 때) */
+    private static CouponCalculateResponse withCoupon(CouponCalculateRequest request,
+                                                      CouponCalculateResponse.Coupon applied, long itemDiscount) {
         CouponCalculateRequest.Item first = request.items().getFirst();
-        long buyerAmount = first.price() - applied.discount();
+        long buyerAmount = first.price() - itemDiscount;
         return new CouponCalculateResponse(false, false, List.of(new CouponCalculateResponse.Item(first.lectureId(),
-                first.price(), applied.discount(), applied.platformAmount(), applied.sellerAmount(), buyerAmount,
-                first.price() - applied.sellerAmount(), List.of(applied))), applied.discount(), buyerAmount);
+                first.price(), itemDiscount, applied.platformAmount(), applied.sellerAmount(), buyerAmount,
+                first.price() - applied.sellerAmount(), List.of(applied))), itemDiscount, buyerAmount);
     }
 
     private Lecture saveOnSale() {

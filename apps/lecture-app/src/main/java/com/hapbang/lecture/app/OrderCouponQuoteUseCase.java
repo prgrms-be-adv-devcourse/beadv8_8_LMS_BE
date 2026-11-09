@@ -117,7 +117,11 @@ public class OrderCouponQuoteUseCase {
         return status == 401 || status == 403;
     }
 
-    /** 계산 응답을 강의별로 모은다. 요청한 강의가 응답에 빠졌거나 가격이 다르면 쓸 수 없는 응답이라 결과 불명과 같게 본다 */
+    /**
+     * 계산 응답을 강의별로 모은다. 요청한 강의가 응답에 빠졌거나 가격이 다르면 쓸 수 없는 응답이라 결과 불명과 같게 본다.
+     * 금액이 맞지 않는 응답(할인 ≠ 플랫폼 + 판매자, 음수 몫, 할인 > 가격, 쿠폰 한 장의 같은 규칙)도 주문 저장의 스냅샷 규칙·DB 제약에
+     * 걸려 트랜잭션 안에서 실패하므로, 저장 전에 같은 503으로 막고 쿠폰 응답 불량으로 ERROR를 남긴다
+     */
     private static OrderCouponQuote toQuote(List<Lecture> lectures, CouponCalculateResponse response) {
         Map<Long, CouponCalculateResponse.Item> responseItems = response.items().stream()
                 .collect(Collectors.toMap(CouponCalculateResponse.Item::lectureId, Function.identity(),
@@ -129,10 +133,31 @@ public class OrderCouponQuoteUseCase {
                 log.warn("쿠폰 할인 계산 응답이 주문할 강의와 맞지 않아 주문하지 않았다 lectureId={}", lecture.getId());
                 throw new LectureException(LectureErrorCode.COUPON_UNAVAILABLE);
             }
+            if (!hasConsistentAmounts(item)) {
+                log.error("쿠폰 할인 계산 응답의 금액이 맞지 않아 주문하지 않았다. 쿠폰 응답 불량이다 lectureId={}, price={}, "
+                                + "discount={}, platformDiscount={}, sellerDiscount={}, coupons={}", lecture.getId(),
+                        item.price(), item.discount(), item.platformDiscount(), item.sellerDiscount(), item.coupons());
+                throw new LectureException(LectureErrorCode.COUPON_UNAVAILABLE);
+            }
             items.put(lecture.getId(), new OrderCouponQuote.Item(lecture.getPriceHp(), lecture.getSellerUserId(),
                     item.discount(), item.platformDiscount(), item.sellerDiscount(), item.coupons()));
         }
         return new OrderCouponQuote(items);
+    }
+
+    /** 항목·쿠폰 금액이 할인 스냅샷 규칙(할인 = 플랫폼 + 판매자, 두 몫 ≥ 0, 할인 ≤ 기준 금액)을 지키는지 */
+    private static boolean hasConsistentAmounts(CouponCalculateResponse.Item item) {
+        if (!isSplit(item.discount(), item.platformDiscount(), item.sellerDiscount(), item.price())) {
+            return false;
+        }
+        return item.coupons().stream().allMatch(coupon -> isSplit(coupon.discount(), coupon.platformAmount(),
+                coupon.sellerAmount(), coupon.baseAmount()));
+    }
+
+    /** 덧셈 대신 범위를 먼저 보고 뺄셈으로 비교해, 큰 값의 합이 넘쳐 우연히 같아지는 응답도 거른다 */
+    private static boolean isSplit(long discount, long platform, long seller, long base) {
+        return discount >= 0 && discount <= base && platform >= 0 && seller >= 0 && platform <= discount
+                && discount - platform == seller;
     }
 
     /** 받은 순서대로 강의를 읽는다. 없는 강의는 판매 중이 아닌 강의와 같게 본다(주문 저장과 같다) */
