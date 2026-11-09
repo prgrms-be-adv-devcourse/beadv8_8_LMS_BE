@@ -12,11 +12,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.ChannelVerificationStatus;
+import com.hapbang.member.domain.ContentCategory;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.RatingSummary;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.out.ContentCategoryRepository;
 import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
+import com.hapbang.shared.member.dto.ContentCategoriesDto;
+import com.hapbang.shared.member.dto.ContentCategoryDto;
 import com.hapbang.shared.member.dto.InfluencerChannelDto;
 import com.hapbang.shared.member.dto.InfluencerStatsDto;
 import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
@@ -37,6 +41,7 @@ public class MemberInternalFacade {
     private final MemberSupport memberSupport;
     private final InfluencerChannelRepository influencerChannelRepository;
     private final MemberAppearanceRatingUseCase memberAppearanceRatingUseCase;
+    private final ContentCategoryRepository contentCategoryRepository;
 
     /** 회원 ID 오름차순 키셋 목록. afterId가 없으면 처음부터, size+1개를 읽어 다음 페이지가 있는지 판단한다 */
     @Transactional(readOnly = true)
@@ -95,6 +100,17 @@ public class MemberInternalFacade {
         return new InfluencerStatsPageDto(items, hasNext ? page.getLast().getId() : null);
     }
 
+    /**
+     * 콘텐츠 분야 전체 목록 (#769). 이미 고른 회원의 문서에 이름을 붙일 수 있게 active가 꺼진 분야도 준다.
+     * 순서는 코드 오름차순이다(공개 목록 API의 "고른 수 많은 순"은 화면용)
+     */
+    @Transactional(readOnly = true)
+    public ContentCategoriesDto findContentCategories() {
+        return new ContentCategoriesDto(contentCategoryRepository.findAllByOrderByCodeAsc().stream()
+                .map(MemberInternalFacade::toContentCategoryDto)
+                .toList());
+    }
+
     /** 회원별 인증된 채널(승인, 삭제 안 됨). 채널 ID 오름차순을 지킨다 */
     private Map<Long, List<InfluencerChannelDto>> approvedChannelsOf(List<Long> userIds) {
         return influencerChannelRepository.findByUserIdInAndVerificationStatusAndDeletedAtIsNullOrderByIdAsc(
@@ -105,6 +121,10 @@ public class MemberInternalFacade {
 
     private static InfluencerChannelDto toChannelDto(InfluencerChannel channel) {
         return new InfluencerChannelDto(channel.getChannelName(), channel.getFollowerCount());
+    }
+
+    private static ContentCategoryDto toContentCategoryDto(ContentCategory category) {
+        return new ContentCategoryDto(category.getCode(), category.getName(), category.isActive());
     }
 
     private static RatingDto toRatingDto(RatingSummary summary) {

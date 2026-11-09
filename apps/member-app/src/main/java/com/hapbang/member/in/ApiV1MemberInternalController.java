@@ -12,6 +12,7 @@ import com.hapbang.member.global.response.RsData;
 import com.hapbang.member.app.MemberInternalFacade;
 import com.hapbang.member.global.exception.BusinessException;
 import com.hapbang.member.global.exception.GlobalErrorCode;
+import com.hapbang.shared.member.dto.ContentCategoriesDto;
 import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
 import com.hapbang.shared.member.dto.MemberChangePageDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
@@ -53,5 +54,11 @@ public class ApiV1MemberInternalController implements ApiV1MemberInternalSpec {
             throw new BusinessException(GlobalErrorCode.INVALID_REQUEST, "afterUpdatedAt과 afterId는 함께 넘기거나 함께 생략합니다.");
         }
         return RsData.ok("회원 변경분을 조회했습니다.", memberInternalFacade.findChanges(afterUpdatedAt, afterId, size));
+    }
+
+    @Override
+    @GetMapping("/content-categories")
+    public RsData<ContentCategoriesDto> findContentCategories() {
+        return RsData.ok("콘텐츠 분야 목록을 조회했습니다.", memberInternalFacade.findContentCategories());
     }
 }

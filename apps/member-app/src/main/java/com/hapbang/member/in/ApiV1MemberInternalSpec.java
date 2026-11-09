@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 import com.hapbang.member.global.response.RsData;
 import com.hapbang.shared.internal.InternalApiHeaders;
+import com.hapbang.shared.member.dto.ContentCategoriesDto;
 import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
 import com.hapbang.shared.member.dto.MemberChangePageDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
@@ -57,4 +58,12 @@ public interface ApiV1MemberInternalSpec {
                     + "afterId와 함께 넘긴다") LocalDateTime afterUpdatedAt,
             @Parameter(description = "커서 회원 ID. afterUpdatedAt과 함께 넘긴다") @PositiveOrZero Long afterId,
             @Parameter(description = "페이지 크기 (1~500, 기본 100)") @Min(1) @Max(MemberChangePageDto.MAX_SIZE) int size);
+
+    @Operation(summary = "콘텐츠 분야 전체 목록",
+            description = "분야 code·name·active를 code 오름차순으로 모두 준다(페이지 없음). 이미 고른 회원의 분야에 이름을 붙일 수 있게 "
+                    + "active가 꺼진 분야도 포함한다. 로그인 회원용 공개 목록(GET /api/v1/members/content-categories)과 달리 "
+                    + "순서가 고른 수와 상관없다.")
+    @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
+            description = "내부 API 키 (hapbang.internal-api.key). 없거나 틀리면 401(본문 없음)")
+    RsData<ContentCategoriesDto> findContentCategories();
 }
