@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -45,14 +46,24 @@ class RedisProfileImageUrlCacheFailureTest {
     }
 
     @Test
-    @DisplayName("Redis가 실패하면 읽기는 비어 있고 저장은 예외 없이 넘어가며, 못 읽은 주소 수를 unavailable로 센다")
+    @DisplayName("Redis가 실패하면 읽기는 '쓸 수 없음'으로 비어 있고 저장은 예외 없이 비어 있으며, 못 읽은 주소 수를 unavailable로 센다")
     void redisFailure() {
-        assertThat(cache.findAll(List.of("member/profile/1/a", "member/profile/1/b"))).isEmpty();
-        assertThatCode(() -> cache.putAll(List.of(
+        assertThat(cache.findAll(List.of("member/profile/1/a", "member/profile/1/b")))
+                .isEqualTo(ProfileImageUrlCache.Lookup.unavailable());
+        assertThat(cache.putAllIfAbsent(List.of(
                 new ProfileImageUrlCache.Entry("member/profile/1/a", "https://s3.example/a", Duration.ofMinutes(50)))))
-                .doesNotThrowAnyException();
+                .isEmpty();
 
         assertThat(unavailable()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("Redis 오류가 아닌 실패(앱 종료 중 연결 팩토리 STOPPED 등)도 예외 없이 '쓸 수 없음'이다")
+    void otherRuntimeFailure() {
+        willThrow(new IllegalStateException("LettuceConnectionFactory is STOPPED")).given(valueOperations).multiGet(anyList());
+
+        assertThatCode(() -> assertThat(cache.findAll(List.of("member/profile/1/a")).available()).isFalse())
+                .doesNotThrowAnyException();
     }
 
     @Test
@@ -63,7 +74,7 @@ class RedisProfileImageUrlCacheFailureTest {
         }
         reset(valueOperations);
 
-        assertThat(cache.findAll(List.of("member/profile/1/a"))).isEmpty();
+        assertThat(cache.findAll(List.of("member/profile/1/a")).available()).isFalse();
 
         verify(valueOperations, never()).multiGet(anyList());
         assertThat(unavailable()).isEqualTo(11);

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.entry;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -50,10 +51,10 @@ class RedisProfileImageUrlCacheTest {
         String second = newKey();
         String missing = newKey();
 
-        cache.putAll(List.of(new ProfileImageUrlCache.Entry(first, "https://s3.example/first", Duration.ofMinutes(50)),
+        cache.putAllIfAbsent(List.of(new ProfileImageUrlCache.Entry(first, "https://s3.example/first", Duration.ofMinutes(50)),
                 new ProfileImageUrlCache.Entry(second, "https://s3.example/second", Duration.ofMinutes(50))));
 
-        assertThat(cache.findAll(List.of(first, second, missing)))
+        assertThat(cache.findAll(List.of(first, second, missing)).found())
                 .containsOnly(entry(first, "https://s3.example/first"),
                         entry(second, "https://s3.example/second"));
     }
@@ -63,7 +64,7 @@ class RedisProfileImageUrlCacheTest {
     void keyAndTtl() {
         String key = newKey();
 
-        cache.putAll(List.of(new ProfileImageUrlCache.Entry(key, "https://s3.example/a", Duration.ofMinutes(25))));
+        cache.putAllIfAbsent(List.of(new ProfileImageUrlCache.Entry(key, "https://s3.example/a", Duration.ofMinutes(25))));
 
         String redisKey = "member:profile-image-url:" + key;
         assertThat(redisTemplate.opsForValue().get(redisKey)).isEqualTo("https://s3.example/a");
@@ -75,7 +76,7 @@ class RedisProfileImageUrlCacheTest {
     @DisplayName("읽은 주소마다 hit·miss 지표를 센다")
     void metrics() {
         String cached = newKey();
-        cache.putAll(List.of(new ProfileImageUrlCache.Entry(cached, "https://s3.example/a", Duration.ofMinutes(50))));
+        cache.putAllIfAbsent(List.of(new ProfileImageUrlCache.Entry(cached, "https://s3.example/a", Duration.ofMinutes(50))));
         double hits = count("hit");
         double misses = count("miss");
 
@@ -86,10 +87,26 @@ class RedisProfileImageUrlCacheTest {
     }
 
     @Test
+    @DisplayName("이미 있는 주소는 덮어쓰지 않고(SET NX) 그 주소를 돌려준다. 남은 TTL도 그대로다")
+    void putAllIfAbsentKeepsFirst() {
+        String existing = newKey();
+        String fresh = newKey();
+        cache.putAllIfAbsent(List.of(new ProfileImageUrlCache.Entry(existing, "https://s3.example/first", Duration.ofMinutes(10))));
+
+        Map<String, String> stored = cache.putAllIfAbsent(List.of(
+                new ProfileImageUrlCache.Entry(existing, "https://s3.example/second", Duration.ofMinutes(50)),
+                new ProfileImageUrlCache.Entry(fresh, "https://s3.example/fresh", Duration.ofMinutes(50))));
+
+        assertThat(stored).containsOnly(entry(existing, "https://s3.example/first"), entry(fresh, "https://s3.example/fresh"));
+        assertThat(redisTemplate.getExpire(RedisProfileImageUrlCache.redisKey(existing), TimeUnit.SECONDS))
+                .isLessThanOrEqualTo(Duration.ofMinutes(10).toSeconds());
+    }
+
+    @Test
     @DisplayName("빈 목록이면 Redis를 부르지 않고 비어 있다")
     void empty() {
-        assertThat(cache.findAll(List.of())).isEmpty();
-        cache.putAll(List.of());
+        assertThat(cache.findAll(List.of())).isEqualTo(new ProfileImageUrlCache.Lookup(Map.of(), true));
+        assertThat(cache.putAllIfAbsent(List.of())).isEmpty();
     }
 
     private double count(String result) {

@@ -108,14 +108,16 @@ public class MemberProfileImageUseCase {
     /**
      * 여러 사진의 조회 URL (S3 key → URL, #770). 캐시에서 한 번에 읽고, 없는 것만 서명해 캐시에 넣는다.
      * 같은 사진은 캐시에 있는 동안 같은 URL이라 브라우저 캐시가 적중한다. 사진을 바꾸면 key가 새로 생겨 새 URL이 된다.
-     * 캐시를 쓸 수 없으면(Redis 장애) 모두 새로 서명한다. null key는 건너뛴다
+     * 동시에 같은 사진을 놓친 요청은 먼저 캐시에 넣은 주소를 받는다(없을 때만 저장). 캐시를 쓸 수 없으면(Redis 장애) 모두 새로 서명하고
+     * 저장도 건너뛴다(읽기에 이어 저장까지 Redis 시간 제한을 두 번 기다리지 않게). null key는 건너뛴다
      */
     public Map<String, String> urlsOf(Collection<String> keys) {
         Set<String> distinctKeys = keys.stream().filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
         if (distinctKeys.isEmpty()) {
             return Map.of();
         }
-        Map<String, String> urls = new HashMap<>(profileImageUrlCache.findAll(distinctKeys));
+        ProfileImageUrlCache.Lookup cached = profileImageUrlCache.findAll(distinctKeys);
+        Map<String, String> urls = new HashMap<>(cached.found());
         List<ProfileImageUrlCache.Entry> signed = new ArrayList<>();
         for (String key : distinctKeys) {
             if (urls.containsKey(key)) {
@@ -127,7 +129,10 @@ public class MemberProfileImageUseCase {
             ProfileImageUrlCacheTtl.of(presigned, Instant.now())
                     .ifPresent(ttl -> signed.add(new ProfileImageUrlCache.Entry(key, presigned.url(), ttl)));
         }
-        profileImageUrlCache.putAll(signed);
+        if (cached.available() && !signed.isEmpty()) {
+            // 다른 요청이 먼저 넣은 주소가 있으면 그 주소로 바꿔 준다
+            urls.putAll(profileImageUrlCache.putAllIfAbsent(signed));
+        }
         return urls;
     }
 }
