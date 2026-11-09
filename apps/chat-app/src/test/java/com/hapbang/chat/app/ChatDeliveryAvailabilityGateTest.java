@@ -26,14 +26,20 @@ import io.micrometer.core.instrument.MeterRegistry;
  * {@link ChatDeliveryAvailability} 게이트 네 진입점({@code redisAvailable}·{@code mayConsume}·{@code tryAcquireWrite}·
  * {@code tryAcquirePublish})의 상태별 결과. 정상 상태에서는 모니터를 잡지 않고, 장애 상태의 재확인 권한은 지금처럼 모니터 안에서
  * 하나만 준다. 게이트가 열려 있을 때 받은 허락으로 늦게 성공을 알려도 게이트를 연다.
+ * <p>
+ * 닫힘만 확인하는 검사는 재확인 간격이 긴 {@code closedLong}을 써서, 실행이 늦어도 재확인 시각이 와 게이트가 열리지 않게 한다.
+ * 재확인을 기다리는 검사만 간격이 짧은 {@code availability}를 쓴다.
  */
 class ChatDeliveryAvailabilityGateTest {
 
     private static final Duration PROBE_INITIAL = Duration.ofMillis(50);
+    private static final Duration PROBE_LONG = Duration.ofSeconds(10);
 
     private final ChatDeliveryQueue queue = mock(ChatDeliveryQueue.class);
-    private final ChatDeliveryAvailability availability = new ChatDeliveryAvailability(queue, properties(),
-            noMeterRegistry());
+    private final ChatDeliveryAvailability availability = new ChatDeliveryAvailability(queue,
+            properties(PROBE_INITIAL, Duration.ofSeconds(3)), noMeterRegistry());
+    private final ChatDeliveryAvailability closedLong = new ChatDeliveryAvailability(queue,
+            properties(PROBE_LONG, PROBE_LONG), noMeterRegistry());
     private final ExecutorService other = Executors.newSingleThreadExecutor();
 
     @AfterEach
@@ -110,15 +116,20 @@ class ChatDeliveryAvailabilityGateTest {
     }
 
     @Test
-    void Redis가_멈추면_네_진입점이_닫히고_재확인은_한_호출만_하며_돌아오면_모두_열린다() throws Exception {
-        availability.redisUnavailable(new ChatDeliveryUnavailableException("down", null));
+    void Redis가_멈추면_재확인_시각_전에는_네_진입점이_닫히고_Redis를_확인하지_않는다() {
+        closedLong.redisUnavailable(new ChatDeliveryUnavailableException("down", null));
 
-        assertThat(availability.redisAvailable()).isFalse();
-        assertThat(availability.mayConsume(ChatJobStream.DELIVERY)).isFalse();
-        assertThat(availability.tryAcquireWrite()).isEqualTo(new WritePermit(WriteGate.CLOSED, 0));
-        assertThat(availability.tryAcquirePublish(ChatJobStream.CONTROL))
+        assertThat(closedLong.redisAvailable()).isFalse();
+        assertThat(closedLong.mayConsume(ChatJobStream.DELIVERY)).isFalse();
+        assertThat(closedLong.tryAcquireWrite()).isEqualTo(new WritePermit(WriteGate.CLOSED, 0));
+        assertThat(closedLong.tryAcquirePublish(ChatJobStream.CONTROL))
                 .isEqualTo(new PublishPermit(ChatJobStream.CONTROL, false, 0));
         verify(queue, never()).ping();
+    }
+
+    @Test
+    void Redis가_멈추면_재확인은_한_호출만_하고_그동안_네_진입점은_닫히며_돌아오면_모두_열린다() throws Exception {
+        availability.redisUnavailable(new ChatDeliveryUnavailableException("down", null));
 
         // 재확인 시각이 되면 한 호출만 확인하고, 확인 중인 동안 다른 호출은 닫힌 채 돌아온다
         CountDownLatch pinging = new CountDownLatch(1);
@@ -147,19 +158,19 @@ class ChatDeliveryAvailabilityGateTest {
 
     @Test
     void 쓰기_거절과_자기_구독_단절은_자기_게이트만_닫는다() {
-        availability.memoryFull(new ChatDeliveryBackpressureException("OOM", null));
-        assertThat(availability.tryAcquireWrite().gate()).isEqualTo(WriteGate.CLOSED);
-        assertThat(availability.redisAvailable()).isTrue();
-        assertThat(availability.mayConsume(ChatJobStream.DELIVERY)).isTrue();
-        assertThat(availability.tryAcquirePublish(ChatJobStream.DELIVERY).granted()).isTrue();
+        closedLong.memoryFull(new ChatDeliveryBackpressureException("OOM", null));
+        assertThat(closedLong.tryAcquireWrite().gate()).isEqualTo(WriteGate.CLOSED);
+        assertThat(closedLong.redisAvailable()).isTrue();
+        assertThat(closedLong.mayConsume(ChatJobStream.DELIVERY)).isTrue();
+        assertThat(closedLong.tryAcquirePublish(ChatJobStream.DELIVERY).granted()).isTrue();
 
-        availability.noSubscriber(availability.tryAcquirePublish(ChatJobStream.DELIVERY));
-        assertThat(availability.mayConsume(ChatJobStream.DELIVERY)).isFalse();
-        assertThat(availability.tryAcquirePublish(ChatJobStream.DELIVERY).granted()).isFalse();
-        assertThat(availability.mayConsume(ChatJobStream.CONTROL)).isTrue();
-        assertThat(availability.tryAcquirePublish(ChatJobStream.CONTROL))
+        closedLong.noSubscriber(closedLong.tryAcquirePublish(ChatJobStream.DELIVERY));
+        assertThat(closedLong.mayConsume(ChatJobStream.DELIVERY)).isFalse();
+        assertThat(closedLong.tryAcquirePublish(ChatJobStream.DELIVERY).granted()).isFalse();
+        assertThat(closedLong.mayConsume(ChatJobStream.CONTROL)).isTrue();
+        assertThat(closedLong.tryAcquirePublish(ChatJobStream.CONTROL))
                 .isEqualTo(new PublishPermit(ChatJobStream.CONTROL, true, 0));
-        assertThat(availability.redisAvailable()).isTrue();
+        assertThat(closedLong.redisAvailable()).isTrue();
     }
 
     @Test
@@ -198,27 +209,27 @@ class ChatDeliveryAvailabilityGateTest {
 
     @Test
     void 열려_있을_때_받은_허락으로_늦게_성공을_알려도_멈춘_게이트를_연다() {
-        WritePermit lateWrite = availability.tryAcquireWrite();
-        PublishPermit latePublish = availability.tryAcquirePublish(ChatJobStream.DELIVERY);
+        WritePermit lateWrite = closedLong.tryAcquireWrite();
+        PublishPermit latePublish = closedLong.tryAcquirePublish(ChatJobStream.DELIVERY);
         assertThat(lateWrite.isProbe()).isFalse();
         assertThat(latePublish.isProbe()).isFalse();
-        availability.memoryFull(new ChatDeliveryBackpressureException("OOM", null));
-        availability.noSubscriber(availability.tryAcquirePublish(ChatJobStream.DELIVERY));
-        assertThat(availability.tryAcquireWrite().gate()).isEqualTo(WriteGate.CLOSED);
-        assertThat(availability.mayConsume(ChatJobStream.DELIVERY)).isFalse();
+        closedLong.memoryFull(new ChatDeliveryBackpressureException("OOM", null));
+        closedLong.noSubscriber(closedLong.tryAcquirePublish(ChatJobStream.DELIVERY));
+        assertThat(closedLong.tryAcquireWrite().gate()).isEqualTo(WriteGate.CLOSED);
+        assertThat(closedLong.mayConsume(ChatJobStream.DELIVERY)).isFalse();
 
-        availability.writeSucceeded(lateWrite);
-        availability.writeEnded(lateWrite);
-        availability.published(latePublish);
-        availability.publishEnded(latePublish);
+        closedLong.writeSucceeded(lateWrite);
+        closedLong.writeEnded(lateWrite);
+        closedLong.published(latePublish);
+        closedLong.publishEnded(latePublish);
 
-        assertThat(availability.tryAcquireWrite()).isEqualTo(new WritePermit(WriteGate.OPEN, 0));
-        assertThat(availability.mayConsume(ChatJobStream.DELIVERY)).isTrue();
-        assertThat(availability.tryAcquirePublish(ChatJobStream.DELIVERY))
+        assertThat(closedLong.tryAcquireWrite()).isEqualTo(new WritePermit(WriteGate.OPEN, 0));
+        assertThat(closedLong.mayConsume(ChatJobStream.DELIVERY)).isTrue();
+        assertThat(closedLong.tryAcquirePublish(ChatJobStream.DELIVERY))
                 .isEqualTo(new PublishPermit(ChatJobStream.DELIVERY, true, 0));
     }
 
-    private static ChatDeliveryProperties properties() {
+    private static ChatDeliveryProperties properties(Duration probeInitial, Duration probeMax) {
         ChatDeliveryProperties.Backoff backoff = new ChatDeliveryProperties.Backoff(Duration.ofMillis(1),
                 Duration.ofMillis(1), 0);
         return new ChatDeliveryProperties(
@@ -230,7 +241,7 @@ class ChatDeliveryAvailabilityGateTest {
                 new ChatDeliveryProperties.Reconstruct(Duration.ofSeconds(60), Duration.ofMinutes(5),
                         Duration.ofMinutes(5), 5, 100),
                 new ChatDeliveryProperties.Trim(Duration.ofMinutes(10), Duration.ofHours(24)),
-                new ChatDeliveryProperties.Pause(PROBE_INITIAL, Duration.ofSeconds(3)),
+                new ChatDeliveryProperties.Pause(probeInitial, probeMax),
                 Duration.ofSeconds(10));
     }
 
