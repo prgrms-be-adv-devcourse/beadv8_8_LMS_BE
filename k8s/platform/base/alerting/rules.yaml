@@ -50,8 +50,9 @@ groups:
             마지막으로 끝까지 비교한 대사 결과다. HP_TASK_DEAD는 어긋남이 아니라 DEAD 작업 때문에 비교하지 않은 건수다(관리자 HP 작업 화면에서 재시도).
             어긋난 건은 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "rule={{ $labels.rule }}"로 찾는다.
             값은 다음 대사(매일 새벽)까지 남는다. 고친 뒤 관리자 수동 대사(POST /api/v1/lectures/admin/hp-reconciliations,
-            POST /api/v1/appearances/admin/hp-reconciliations)를 실행하면 다시 비교해 값이 바뀐다.
-            pod가 다시 뜨면 값이 0이 되어 고치지 않았는데도 복구 통보가 올 수 있으니, 복구 통보를 받으면 GET .../admin/hp-reconciliations/latest로 마지막 실행 결과를 확인한다.
+            POST /api/v1/appearances/admin/hp-reconciliations)를 실행하면 다시 비교해 값이 바뀐다. 다만 대사는 최근 바뀐 건(강의는 HP 작업이 7일 안에 바뀐 항목)과
+            지갑 커서 뒤에 바뀐 보류만 보므로, 범위 밖으로 밀려난 건은 고치지 않아도 0이 된다. 그래서 0이 되거나 복구 통보가 와도 고쳤다는 뜻은 아니다.
+            처음 잡힌 건(Loki의 orderItemId·rule)이 정말 고쳐졌는지 따로 확인한다. pod가 다시 뜰 때도 값이 0이 될 수 있다(강의는 #805에서 DB로 복원).
 
       # 마지막 잔액 대사의 결과별 지갑 수(gauge). failed는 재시도 뒤에도 대사하지 못한 지갑이다.
       # 값이 pod 메모리에만 있어 billing-app pod가 다시 뜨면 다음 대사 전까지 0이 되고 복구 통보가 간다(실행 결과가 DB에 없다).
@@ -184,6 +185,8 @@ groups:
 
       # 강의·출연 대사가 끝까지 비교하지 못하고 INCOMPLETE로 끝난 실행(#804). 지갑 조회 실패(회로 열림·결과 불명·거절)나 예외가 원인이고,
       # 그 실행은 불일치 지표를 바꾸지 않는다. 실행 counter는 첫 실행 때 series가 생기므로 1시간 안에 늘었거나 새로 생긴 series를 친다.
+      # 대사 도중 pod가 내려가 RUNNING으로 남은 실행은 다음 실행이 조용히 정리해 counter가 오르지 않는다. 강의는 #805부터 기동할 때 정리하며
+      # counter를 올리고, 출연은 아직 잡지 못한다.
       - uid: hapbang-reconciliation-incomplete
         title: 대사 중단
         condition: C
