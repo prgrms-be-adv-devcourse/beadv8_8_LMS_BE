@@ -68,8 +68,8 @@ Envoy Gateway controller·ECK operator·Kafka UI(각 limit 128 MiB)는 #774에�
 | large | PostgreSQL | 512 (#726, 전 768) | 251 | #726에서 512, `effective_cache_size` 384 → 256MB로 적용했다(pod가 다시 떠 앱 DB 연결이 잠깐 끊긴다) |
 | large | member·appearance·billing | 640·576·576 (#726·#774, 전 576·640·576) | 489·510·458 | #774에서 appearance를 `-Xmx144m`·576으로 낮췄다(위). #726에서 `-Xmx160m`·`-Xmx176m`·`-Xmx160m`과 `MALLOC_ARENA_MAX=2`를 적용했다. 처음에는 앱마다 약 −64로 잡았지만, 기동 18시간 working set이 511·500·468이고 heap committed가 138·150·140이라 `-Xmx`로 줄어드는 양이 작다(chat-app도 `-Xmx` 뒤 working set이 크게 줄지 않았다, #694). member는 heap 상한까지 차면 576의 96%라 640으로 올렸다 |
 | medium → large | Kafka UI | request 64·limit 128 | 86 | #774에서 large로 옮겼다 |
-| medium → large | ECK operator | 128 | 55 | #774에서 large로 옮겼다. 128은 둔다 |
-| medium → large | Envoy Gateway controller | 128 | 71 | #774에서 large로 옮겼다. 128은 둔다 |
+| medium → large | ECK operator | 128 | 55 | #774에서 large로 옮겼다. 2026-11-09 기준 7일 최대가 81(128의 63%)이라 128은 둔다 |
+| medium → large | Envoy Gateway controller | 128 | 71 | #774에서 large로 옮겼다. 2026-11-09 기준 7일 최대가 93(128의 73%)이라 128은 둔다 |
 | large | cert-manager controller·cainjector | 96·96 (#774, 전 128·128) | 39·42 (2026-11-09 기준) | #774에서 낮췄다 |
 | medium | React 정적 서버 | 64 | 28 | 32 |
 | medium | lecture-app | 704 | 596 | #727에서 `-Xmx224m`을 적용하고 limit은 704로 둔다. 기동 18시간 645(92%)라 640으로는 낮추지 못한다. 기동 18시간 pod는 heap committed 244·사용 144·상한 410이었다. 7일 최대 heap 사용은 2026-11-04 기준 161, 2026-11-06 기준 164다. 적용 뒤 실측으로 limit을 다시 본다 |
