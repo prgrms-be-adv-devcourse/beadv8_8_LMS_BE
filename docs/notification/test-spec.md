@@ -26,8 +26,8 @@
 | 테스트 종류(제안) | 아래 1.2 |
 | 명세 상태 | 아래 1.3. 실행 결과가 아니다 |
 
-- 문구는 템플릿이 미결(U3)이라 기준에 넣지 않는다. 생성 항목은 "문구가 비어 있지 않다"까지만 본다(문구 내용은 NT-GEN-10).
-- 종류 코드는 [알림 종류](notification-catalog.md)의 코드를 기대값으로 쓴다. ND-012 규칙 밖의 코드 이름(`PAYOUT_COMPLETED_DAILY`, 역할 비교 승인 2종, 예약 5종, `GROUP_*`)은 U11이 정해지면 바뀔 수 있다(NT-GEN-12). 이름이 바뀌어도 다른 항목의 합격 기준은 그대로다.
+- 문구는 N2 구현 때 정하고(ND-039) 실제 문구가 미결(U3)이라 기준에 넣지 않는다. 생성 항목은 "문구가 비어 있지 않다"까지만 본다(문구 내용은 NT-GEN-10).
+- 종류 코드는 [알림 종류](notification-catalog.md)의 코드를 기대값으로 쓴다. ND-012 규칙 밖의 코드 이름(`PAYOUT_COMPLETED_DAILY`, 역할 비교 승급 승인, 예약 5종)은 U11이 정해지면 바뀔 수 있다(NT-GEN-12). `GROUP_*`는 ND-043으로 정해졌다. 이름이 바뀌어도 다른 항목의 합격 기준은 그대로다.
 - consumer group 이름은 U1 미결이라 그룹 이름을 단언하는 항목(NT-KAF-06, NT-ERR-03)만 미결로 두고, 나머지 소비 항목은 그룹 이름을 기준에 넣지 않는다.
 
 ### 1.2 테스트 종류 (제안)
@@ -67,15 +67,15 @@
 | NT-GEN-03 | 출연 원천 지급 알림 | 게스트 회원 | `PayoutCompletedEvent` `sourceType` `APPEARANCE_REQUEST`·`RECRUIT_APPEARANCE`, `payoutType` `NORMAL`·`PENALTY` | 지급마다 `PAYOUT_COMPLETED` 1건(묶지 않는다). 같은 이벤트로 사건 알림이 따로 있어도 지급 알림은 별개로 생긴다 | `LECTURE_ORDER_ITEM` 원천은 이 종류로 만들지 않는다(→ BUN) | ND-013 | Kafka `billing.events.v1`, 카탈로그 `PAYOUT_COMPLETED` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-04 | 조건부 발송 | M3·M4 | `AppearanceRecruitClosedEvent`(`closeType`), `AppearanceConfirmedEvent`(`confirmType`), `LectureOrderItemConfirmedEvent`(`confirmationType`) | `DEADLINE`·`AUTO`일 때만 알림 1건. 조기 마감·직접 확인·직접 구매 확정은 알림 0이고 offset은 커밋(DLT 아님) | — | ND-011 | 카탈로그 `APPEARANCE_RECRUIT_CLOSED`, `APPEARANCE_CONFIRMED`, `LECTURE_ORDER_ITEM_CONFIRMED` | Integration(PG+Kafka) | 유효 |
 | NT-GEN-05 | 받는 사람이 여럿인 알림 | 호스트·게스트, 구매자·판매자 복제본. M2·M3·M4 | `AppearanceRequestExpiredEvent`, `LectureObjectionFiledEvent`, `LectureObjectionResolvedEvent` | 받는 사람마다 1건씩(만료: 호스트·게스트, 이의 제기: 구매자·판매자). `accepted`에 따라 값이 달라진다 | 받는 사람 중 한 명이 탈퇴면 나머지만(NT-USR-03) | ND-011, ND-015 | 카탈로그 `APPEARANCE_REQUEST_EXPIRED`, `LECTURE_OBJECTION_FILED`, `LECTURE_OBJECTION_RESOLVED` | Integration(PG+Kafka) | 유효 |
-| NT-GEN-06 | 역할 비교로 만드는 승인 알림 | 복제본 역할 유저(또는 인플루언서), 버전 n | `member.events.v1` `UserModifiedEvent` 버전 n+1 | 유저 → 인플루언서: 채널 인증 승인 1건. 인플루언서 → 인증된 인플루언서: 승급 승인 1건. 역할이 그대로인 수정은 알림 0. 비교 기준은 반영 전 복제본의 역할 | 자동·관리자 승인을 구분하지 않고 같은 종류·같은 값. 늦은 버전 이벤트는 비교하지 않는다(NT-USR-02). 코드 이름은 U11. ND-016과 회원 코드가 맞지 않는 두 경우(관리자 인플루언서 지정, 이미 인플루언서인 회원의 채널 승인)는 NT-GEN-14(U18) | ND-016, ND-018 | Kafka `member.events.v1`, 카탈로그 채널 인증 승인·승급 승인 | Integration(PG+Kafka) | 유효 |
+| NT-GEN-06 | 역할 비교로 만드는 승인 알림 | 복제본 역할 유저(또는 인플루언서), 버전 n | `member.events.v1` `UserModifiedEvent` 버전 n+1 | 인플루언서 → 인증된 인플루언서: 승급 승인 1건. 유저 → 인플루언서 역할 변경만으로는 채널 인증 승인 알림을 만들지 않는다(ND-042, NT-GEN-14). 역할이 그대로인 수정은 알림 0. 비교 기준은 반영 전 복제본의 역할 | 자동·관리자 승인을 구분하지 않고 같은 종류·같은 값. 늦은 버전 이벤트는 비교하지 않는다(NT-USR-02). 승급 승인 코드 이름은 U11 | ND-016, ND-018, ND-042 | Kafka `member.events.v1`, 카탈로그 승급 승인 | Integration(PG+Kafka) | 유효 |
 | NT-GEN-07 | 보내지 않는 것 | 관리자 회원, 일반 회원 | 관리자 `UserJoinedEvent`, 같은 토픽의 알림 대상 아닌 이벤트(예: `AppearanceReviewPublishedEvent`, `AppearanceChangedEvent`), 정지·탈퇴·로그아웃 이벤트 | 알림 0, 예약 0. offset 커밋, DLT 0. 관리자는 어떤 알림도 받지 않는다 | 카탈로그의 "보내지 않는 것" 목록 전체를 대상으로 한다 | ND-002, ND-003, ND-011 | 카탈로그 "보내지 않는 것" | Integration(PG+Kafka) | 유효 |
-| NT-GEN-08 | 단체방 알림 3종의 받는 사람 | M8(`chat.events.v1`) | `GroupMembersInvitedEvent`, `GroupMemberKickedEvent`, `GroupRoomClosedEvent` | 초대: 이번 초대로 실제 참여한 회원마다 1건. 강퇴: 강퇴된 회원 1건. 폐쇄: 남은 참여자마다 1건, 폐쇄한 호스트 제외 | 종류 코드 이름은 U11(NT-GEN-12) | ND-011 | Kafka `chat.events.v1`, 카탈로그 단체방 3종 | Integration(PG+Kafka) | 유효 |
+| NT-GEN-08 | 단체방 알림 3종의 받는 사람 | M8(`chat.events.v1`) | `GroupMembersInvitedEvent`, `GroupMemberKickedEvent`, `GroupRoomClosedEvent` | 초대: 이번 초대로 실제 참여한 회원마다 1건. 강퇴: 강퇴된 회원 1건. 폐쇄: 남은 참여자마다 1건, 폐쇄한 호스트 제외 | 종류 코드는 채팅 안내와 이름이 같지만 뜻·받는 사람이 다르다(ND-043) | ND-011, ND-043 | Kafka `chat.events.v1`, 카탈로그 단체방 3종 | Integration(PG+Kafka) | 유효 |
 | NT-GEN-09 | 이의 제기 접수 한 번만 | M4, M7 | 바로 접수된 `LectureObjectionFiledEvent` / 재시도 배치 접수의 `LectureObjectionFiledEvent` / `LectureObjectionFileRejectedEvent` | 접수는 경로와 무관하게 이벤트 하나로 구매자·판매자 각 1건. 접수 불가는 재시도 배치가 끝낼 때만 구매자 1건 | 바로 거절된 접수는 알림 0(이벤트가 없다) | ND-015 | 카탈로그 `LECTURE_OBJECTION_FILED`, `LECTURE_OBJECTION_FILE_REJECTED` | Integration(PG+Kafka) | 유효 |
-| NT-GEN-10 | 종류별 문구 | 문구 템플릿 확정 | 종류마다 대표 이벤트 | 저장된 문구가 확정된 템플릿과 같다 | 템플릿이 없다 | ND-020, **U3** | 카탈로그 | Unit | 미결 (U3) |
-| NT-GEN-11 | 지급 알림의 출연·강의 제목 | 제목을 가져오는 방법 확정 | `PayoutCompletedEvent` | 지급 알림(`PAYOUT_COMPLETED`, 하루 묶음)에 출연·강의 제목이 들어 있다 | 이벤트에 제목이 없다 | ND-014, **U4** | Kafka `billing.events.v1` | Integration(PG+Kafka) | 미결 (U4) |
-| NT-GEN-12 | 규칙 밖 종류 코드 이름 | 이름 확정 | 해당 알림 생성 | 저장된 `kind`가 확정된 이름이다(`PAYOUT_COMPLETED_DAILY`, 승인 2종, 예약 5종, `GROUP_*`) | `GROUP_*`는 채팅 `NotificationKind`와 뜻·받는 사람이 다르다 | ND-012, **U11** | 카탈로그 | Unit | 미결 (U11) |
+| NT-GEN-10 | 종류별 문구 | N2에서 문구 확정(ND-039) | 종류마다 대표 이벤트 | 저장된 문구가 확정된 문구와 같다 | 실제 문구가 없다 | ND-020, ND-039, **U3** | N2 문구 코드 | Unit | 미결 (U3) |
+| NT-GEN-11 | 지급 알림의 출연·강의 제목 | M5(`PayoutCompletedEvent.sourceTitle`, ND-040) | `PayoutCompletedEvent` | 지급 알림(`PAYOUT_COMPLETED`, 하루 묶음)에 이벤트의 `sourceTitle`이 제목으로 들어 있다 | 지금 이벤트에 `sourceTitle`이 없다(M5 전에는 실행할 수 없다) | ND-014, ND-040 | Kafka `billing.events.v1` | Integration(PG+Kafka) | 유효 |
+| NT-GEN-12 | 규칙 밖 종류 코드 이름 | 이름 확정 | 해당 알림 생성 | 저장된 `kind`가 확정된 이름이다(`PAYOUT_COMPLETED_DAILY`, 승급 승인, 예약 5종) | `GROUP_*`는 ND-043으로, 채널 인증 승인은 ND-042의 새 이벤트 이름으로 규칙 안에 든다(NT-GEN-08) | ND-012, **U11** | 카탈로그 | Unit | 미결 (U11) |
 | NT-GEN-13 | 값 저장과 문구 재생성 | 아무 알림 | 알림 생성 | 값(`jsonb`)에 형식 버전 `v`가 있고, 저장된 값만으로 같은 문구를 다시 만들 수 있다 | — | ND-020, ND-025 | 테이블 `notification` | Unit, Integration(PG) | 유효 |
-| NT-GEN-14 | 채널 인증 승인 알림의 회원 코드 불일치 경우 | U18 결정. 복제본 역할 유저 또는 인플루언서 | (1) 관리자 인플루언서 지정(#724)으로 나는 `UserModifiedEvent`(유저 → 인플루언서) (2) 이미 인플루언서인 회원의 채널 인증 승인 | 두 경우 모두 U18에서 정한 대로 채널 인증 승인 알림을 만들거나 만들지 않는다 | (1) 역할 변경이 채널 인증 승인과 같아 지금 ND-016대로면 채널 인증 승인 알림이 생긴다 (2) 역할이 바뀌지 않아 `UserModifiedEvent`가 나가지 않으므로 지금은 알림 0이다. 승급 승인(인플루언서 → 인증된 인플루언서)은 해당 없음(NT-GEN-06, 유효) | ND-016, **U18** | Kafka `member.events.v1`, 카탈로그 채널 인증 승인 | Integration(PG+Kafka) | 미결 (U18) |
+| NT-GEN-14 | 채널 인증 승인 알림의 회원 코드 불일치 경우 | M6(`InfluencerChannelApprovedEvent`, ND-042). 복제본 역할 유저 또는 인플루언서 | (1) 관리자 인플루언서 지정(#724)으로 나는 `UserModifiedEvent`(유저 → 인플루언서) (2) 이미 인플루언서인 회원의 `InfluencerChannelApprovedEvent` | (1) 채널 인증 승인 알림을 만들지 않는다 (2) 채널 인증 승인 알림 1건 | (1) 역할 비교(ND-016)로는 채널 인증 승인과 구분되지 않았다 (2) 역할이 바뀌지 않아 `UserModifiedEvent`가 나가지 않았다. 승급 승인(인플루언서 → 인증된 인플루언서)은 해당 없음(NT-GEN-06) | ND-016, ND-042 | Kafka `member.events.v1`(`InfluencerChannelApprovedEvent`), 카탈로그 채널 인증 승인 | Integration(PG+Kafka) | 유효 |
 
 ### 2.2 KAF — 이벤트 소비
 
@@ -150,7 +150,7 @@
 | NT-SCH-08 | 1분 배치 처리 | 보낼 시각 전·후 예약 | 예약 배치 실행 | 보낼 시각이 지난 "예약" 상태만 알림을 만들고 상태를 "보냄"으로 바꾼다. 만든 알림에는 보존(20개)·실시간 규칙이 같이 적용된다. 보낼 시각 전 예약은 그대로 | — | ND-029, ND-022, ND-027 | — | Integration(PG) | 유효 |
 | NT-SCH-09 | 예약 중복 방지 | — | 같은 생성 이벤트 두 번 | 예약 1건 | — | ND-019, ND-025 | `notification_schedule` 유일 키 | Integration(PG+Kafka) | 유효 |
 | NT-SCH-10 | EC2 운영 시간과 예약 | 운영 시간 정책 확정 | 중지 시간대에 보낼 시각이 있는 예약, 09:00 예약 | 중지 시간 예약·기동 직후 예약을 결정대로 보낸다 | 중지 시간에는 `@Scheduled`가 돌지 않는다 | ND-029, ND-031, **U6** | — | E2E | 미결 (U6) |
-| NT-SCH-11 | 모집 전체 취소의 예약 취소 | 이벤트 계약 확정 | `AppearanceRecruitCanceledEvent` | 모집 마감 임박 예약이 결정대로 취소된다 | N 3.1·ND-017에는 없고 4·7장에만 있다 | ND-017, **U10** | `appearance.events.v1` | Integration(PG+Kafka) | 미결 (U10) |
+| NT-SCH-11 | 모집 전체 취소의 예약 취소 | M3(`AppearanceRecruitCanceledEvent`, ND-041) | `AppearanceRecruitCanceledEvent` | 모집 마감 임박 예약이 취소되고 알림은 만들지 않는다 | 모집 전체 취소 자체의 알림 종류는 없다(ND-017) | ND-017, ND-041 | `appearance.events.v1` | Integration(PG+Kafka) | 유효 |
 
 ### 2.9 USR — 회원 복제본·탈퇴
 
@@ -230,21 +230,21 @@
 
 | 영역 | 항목 수 | 유효 | 미결 (Uxx) | 미결 (결정 없음) | 폐기·대체됨 |
 | --- | --- | --- | --- | --- | --- |
-| GEN 알림 생성·발생 조건 | 14 | 10 | 4 (U3, U4, U11, U18) | 0 | 0 |
+| GEN 알림 생성·발생 조건 | 14 | 12 | 2 (U3, U11) | 0 | 0 |
 | KAF 이벤트 소비 | 6 | 4 | 2 (U7, U1) | 0 | 0 |
 | IDEM 중복 | 5 | 4 | 1 (U5) | 0 | 0 |
 | QRY 조회·접근 | 4 | 4 | 0 | 0 | 0 |
 | READ 읽음 | 5 | 5 | 0 | 0 | 0 |
 | RET 보존·Soft Delete | 4 | 4 | 0 | 0 | 0 |
 | BUN 하루 묶음 | 5 | 4 | 1 (U9) | 0 | 0 |
-| SCH 예약 | 11 | 8 | 3 (U6, U10, U16) | 0 | 0 |
+| SCH 예약 | 11 | 9 | 2 (U6, U16) | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 7 | 4 | 3 (U8, U17, U19) | 0 | 0 |
 | RT 실시간·재접속 | 7 | 5 | 2 (U15, U14) | 0 | 0 |
 | ERR 실패·재시도·DLT | 4 | 3 | 1 (U1) | 0 | 0 |
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
-| **합계** | **83** | **62** | **21** | **0** | **0** |
+| **합계** | **83** | **65** | **18** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 0 (모든 항목 "테스트 없음").
 - U2는 합격 기준이 아니라 완료 증거의 단계 문제라 NT 상태에 쓰지 않았다(3장 1번).
@@ -261,4 +261,5 @@
 - 2026-11-06 처음 작성: N 3~6·11장, decisions.md ND-001~032·U1~U15, kafka.md, auxiliary-app README에서 80개 항목을 만들었다. 코드·테스트가 없어 실행하지 않았다.
 - 2026-11-06 decisions.md U16·U17·U18 반영: NT-SCH-06 → 미결 (U16), NT-USR-04 → 미결 (U17), 새 항목 NT-GEN-14(채널 인증 승인 불일치, U18)·NT-USR-06(첫 배포 기존 회원 복제본, U17)을 더하고 NT-GEN-06에 NT-GEN-14 참조를 붙였다(NT-GEN-06 유효 유지). 82개 항목, "미결 (결정 없음)" 0.
 - 2026-11-06 decisions.md U19 반영: NT-USR-07(파기된 회원의 닉네임이 들어간 저장 알림, 미결 U19)을 더했다. 집계 82 → 83.
+- 2026-11-09 decisions.md ND-037~ND-044 반영: NT-GEN-11(ND-040, 선행 M5)·NT-GEN-14(ND-042, 선행 M6)·NT-SCH-11(ND-041, 선행 M3)을 유효로 바꿨다. NT-GEN-06은 ND-042에 따라 역할 변경만으로는 채널 인증 승인 알림을 만들지 않도록 예상 결과를 고쳤다. NT-GEN-08은 종류 코드를 ND-043으로, NT-GEN-10은 ND-039로 고쳤다(U3 미결 유지). NT-GEN-12는 남은 규칙 밖 코드만 남겼다(U11 미결 유지). 집계 유효 62 → 65, 미결 21 → 18.
 - 2026-11-09 decisions.md ND-033~ND-036 반영: NT-USR-04(ND-035)를 유효로 바꾸고 DLT 재처리 경로(kafka.md runbook)를 예상 결과에 더했다. NT-SCH-06(ND-034)·NT-IDEM-05(ND-033)·NT-USR-07(ND-036)은 예상 결과를 결정에 맞추고, 남은 미결(U16 예약 알림별 계약 검증, U5 이벤트별 필드, U19 저장 구조·갱신 방법) 때문에 미결을 유지했다. NT-USR-06은 첫 배포 Backfill(U17)이 미결이라 바꾸지 않았다. 집계 유효 61 → 62, 미결 22 → 21.
