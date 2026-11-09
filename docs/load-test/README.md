@@ -75,10 +75,18 @@ set -a; source ~/.hapbang/load-tests/lecture.env; set +a
 k6 run -e PROFILE=smoke loadtest/k6/lecture/baseline.js
 
 STAMP=$(date +%Y%m%d-%H%M)
+mkdir -p ~/.hapbang/load-tests/runs
 k6 run -e PROFILE=baseline \
-  --summary-export "docs/load-test/results/lecture-baseline-${STAMP}.json" \
-  loadtest/k6/lecture/baseline.js 2>&1 | tee "$TMPDIR/k6-lecture-${STAMP}.log"
+  --summary-export ~/.hapbang/load-tests/runs/lecture-baseline-${STAMP}.json \
+  loadtest/k6/lecture/baseline.js 2>&1 | tee ~/.hapbang/load-tests/runs/k6-lecture-${STAMP}.log
+# 요약 JSON의 setup_data에는 setup()이 돌려준 access token이 들어 있다. 빼고 레포로 옮긴다
+jq 'del(.setup_data)' ~/.hapbang/load-tests/runs/lecture-baseline-${STAMP}.json \
+  > docs/load-test/results/lecture-baseline-${STAMP}.json
+grep -c 'eyJ' docs/load-test/results/lecture-baseline-${STAMP}.json   # 0이어야 한다
 ```
+
+- **k6 `--summary-export`는 `setup()`의 반환값(`setup_data`)을 그대로 쓴다.** 이 시나리오는 access token을 반환하므로, 원본은 레포 밖에 두고 `setup_data`를 지운 파일만 커밋한다.
+- 실행 기록(로그·원본 JSON·JFR)은 `~/.hapbang/load-tests/`처럼 지워지지 않는 곳에 둔다. `/tmp`나 작업용 임시 폴더는 정리될 수 있다.
 
 - `BASE_URL`을 주면 다른 주소를 친다(기본 `https://hapbang.duckdns.org`).
 - 요청에는 `User-Agent: hapbang-loadtest-k6`가 붙는다. Envoy access log에서 이 값으로 부하 요청을 거른다.
