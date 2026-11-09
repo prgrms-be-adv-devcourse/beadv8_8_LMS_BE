@@ -7,3 +7,9 @@ dependencies {
 
     testImplementation(project(":test-support"))
 }
+
+// 메서드 인자 이름을 class 파일에 남긴다(auxiliary-app README "모듈 추가 방법"). Spring Boot 플러그인을 쓰는 실행 앱은 자동으로 켜지지만
+// 이 하위 프로젝트는 직접 켠다. 없으면 @RequestParam·@PathVariable 등이 인자 이름을 읽지 못한다
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.add("-parameters")
+}
