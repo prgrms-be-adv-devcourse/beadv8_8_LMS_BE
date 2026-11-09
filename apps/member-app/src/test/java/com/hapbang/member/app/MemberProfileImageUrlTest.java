@@ -55,7 +55,7 @@ class MemberProfileImageUrlTest {
     }
 
     @Test
-    @DisplayName("1시간 URL을 브라우저 캐시(private, max-age=3600)로 서명하고, 캐시 유지 시간은 자격 증명 남은 시간 − 5분을 넘지 않는다")
+    @DisplayName("1시간 URL을 브라우저 캐시(private, max-age=3600)로 서명하고, 캐시 유지 시간은 자격 증명 남은 시간 − 10분을 넘지 않는다")
     void ttlFollowsCredentials() {
         given(cache.findAll(anyCollection())).willReturn(available(Map.of()));
         given(s3FileStorage.presignDownloadWithCacheControl(anyString(), any(), any()))
@@ -65,15 +65,15 @@ class MemberProfileImageUrlTest {
 
         verify(s3FileStorage).presignDownloadWithCacheControl("member/profile/1/a", Duration.ofHours(1), "private, max-age=3600");
         assertThat(putEntries()).singleElement().satisfies(entry ->
-                assertThat(entry.ttl()).isBetween(Duration.ofMinutes(14), Duration.ofMinutes(15)));
+                assertThat(entry.ttl()).isBetween(Duration.ofMinutes(9), Duration.ofMinutes(10)));
     }
 
     @Test
-    @DisplayName("자격 증명이 곧 끝나면 서명한 URL을 주되 캐시에 넣지 않는다")
+    @DisplayName("자격 증명이 10분 이하로 남으면 서명한 URL을 주되 캐시에 넣지 않는다")
     void doesNotCacheWhenCredentialsExpireSoon() {
         given(cache.findAll(anyCollection())).willReturn(available(Map.of()));
         given(s3FileStorage.presignDownloadWithCacheControl(anyString(), any(), any()))
-                .willReturn(presigned("https://signed/a", Instant.now().plus(Duration.ofMinutes(3))));
+                .willReturn(presigned("https://signed/a", Instant.now().plus(Duration.ofMinutes(10))));
 
         assertThat(useCase.urlsOf(List.of("member/profile/1/a"))).containsOnly(entry("member/profile/1/a", "https://signed/a"));
         verify(cache, never()).putAllIfAbsent(anyList());

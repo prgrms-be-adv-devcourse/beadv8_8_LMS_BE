@@ -23,7 +23,8 @@ import jakarta.servlet.http.HttpServletResponse;
 public interface ApiV1MemberSpec {
 
     @Operation(summary = "내 정보 조회",
-            description = "로그인한 회원. 이메일을 포함한다. profileImageUrl은 1시간 동안 쓸 수 있는 조회 주소, 사진이 없으면 null.")
+            description = "로그인한 회원. 이메일을 포함한다. profileImageUrl은 받은 뒤 최소 10분 쓸 수 있는 조회 주소이고, 사진이 없으면 null. "
+                    + "만료되거나 불러오지 못하면(사진을 바꾼 직후의 옛 주소 포함) 다시 조회한다.")
     RsData<MemberMeResponse> me(Long userId);
 
     @Operation(summary = "내 정보 수정",

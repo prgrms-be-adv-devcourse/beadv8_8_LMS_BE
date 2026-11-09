@@ -12,7 +12,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import com.hapbang.member.global.storage.PresignedUrl;
 
-/** 프로필 사진 조회 주소 캐시 유지 시간 (#770): min(50분, 자격 증명 남은 시간 − 5분) */
+/** 프로필 사진 조회 주소 캐시 유지 시간 (#770): min(50분, 자격 증명 남은 시간 − 10분) */
 class ProfileImageUrlCacheTtlTest {
 
     private static final Instant NOW = Instant.parse("2026-11-09T03:00:00Z");
@@ -24,38 +24,41 @@ class ProfileImageUrlCacheTtlTest {
     }
 
     @Test
-    @DisplayName("자격 증명이 55분 넘게 남았으면 50분")
+    @DisplayName("자격 증명이 60분 넘게 남았으면 50분")
     void longCredentials() {
         assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofHours(6))), NOW)).contains(Duration.ofMinutes(50));
-        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(55))), NOW)).contains(Duration.ofMinutes(50));
+        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(60))), NOW)).contains(Duration.ofMinutes(50));
     }
 
     @Test
-    @DisplayName("자격 증명이 55분보다 적게 남았으면 남은 시간 − 5분")
+    @DisplayName("자격 증명이 60분보다 적게 남았으면 남은 시간 − 10분 (30분 남으면 20분)")
     void shortCredentials() {
-        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(30))), NOW)).contains(Duration.ofMinutes(25));
-        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(5).plusSeconds(1))), NOW))
+        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(30))), NOW)).contains(Duration.ofMinutes(20));
+        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(10).plusSeconds(1))), NOW))
                 .contains(Duration.ofSeconds(1));
     }
 
     @Test
-    @DisplayName("자격 증명이 5분 1초보다 적게 남았거나 이미 끝났으면 저장하지 않는다 (초 아래는 버린다)")
+    @DisplayName("자격 증명이 10분 이하로 남았거나 이미 끝났으면 저장하지 않는다 (초 아래는 버린다)")
     void credentialsAboutToExpire() {
-        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(5).plusMillis(999))), NOW)).isEmpty();
+        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(10).plusMillis(999))), NOW)).isEmpty();
+        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(10))), NOW)).isEmpty();
         assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(5))), NOW)).isEmpty();
-        assertThat(ProfileImageUrlCacheTtl.of(url(NOW.plus(Duration.ofMinutes(1))), NOW)).isEmpty();
         assertThat(ProfileImageUrlCacheTtl.of(url(NOW.minus(Duration.ofMinutes(1))), NOW)).isEmpty();
     }
 
     @ParameterizedTest(name = "자격 증명 남은 시간 {0}초")
-    @ValueSource(longs = {0, 1, 299, 300, 301, 1_000, 3_000, 3_299, 3_300, 3_301, 3_600, 21_600})
-    @DisplayName("캐시 유지 시간은 50분과 자격 증명 남은 시간 − 5분을 넘지 않는다")
-    void neverOutlivesCredentials(long remainingSeconds) {
+    @ValueSource(longs = {0, 1, 599, 600, 601, 1_000, 1_800, 3_000, 3_599, 3_600, 3_601, 21_600})
+    @DisplayName("캐시에서 꺼낸 주소는 어느 경우든 받은 뒤 10분 이상 쓸 수 있다 (50분 이하, 자격 증명 만료 − 10분 이하)")
+    void alwaysLeavesTenMinutes(long remainingSeconds) {
         Instant credentialsExpiresAt = NOW.plusSeconds(remainingSeconds);
+        PresignedUrl url = url(credentialsExpiresAt);
 
-        ProfileImageUrlCacheTtl.of(url(credentialsExpiresAt), NOW).ifPresent(ttl -> {
+        ProfileImageUrlCacheTtl.of(url, NOW).ifPresent(ttl -> {
+            Instant cacheEnd = NOW.plus(ttl);
             assertThat(ttl).isLessThanOrEqualTo(Duration.ofMinutes(50));
-            assertThat(NOW.plus(ttl)).isBeforeOrEqualTo(credentialsExpiresAt.minus(Duration.ofMinutes(5)));
+            assertThat(cacheEnd).isBeforeOrEqualTo(credentialsExpiresAt.minus(Duration.ofMinutes(10)));
+            assertThat(cacheEnd).isBeforeOrEqualTo(url.expiresAt().minus(Duration.ofMinutes(10)));
         });
     }
 

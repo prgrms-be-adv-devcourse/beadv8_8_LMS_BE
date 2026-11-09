@@ -37,8 +37,8 @@ public interface ApiV1MemberProfileImageSpec {
             description = "로그인한 회원. 인플루언서 검색 결과처럼 회원 ID만 아는 화면이 사진을 채울 때 부른다 (#770). "
                     + "data는 {회원 ID: 주소}이고 요청한 ID마다 키가 있다(중복은 한 번). "
                     + "사진이 없거나, 없는 회원이거나, 프로필을 볼 수 없는 회원(탈퇴·정지)이면 null. "
-                    + "주소는 1시간 동안 쓸 수 있는 조회 주소이고, 같은 사진은 한동안(최대 50분) 같은 주소를 주어 브라우저 캐시가 적중한다. "
-                    + "사진을 바꾸면 새 주소가 된다. ids가 0개이거나 100개를 넘으면(중복 포함) 400 INVALID_REQUEST.")
+                    + "주소는 받은 뒤 최소 10분 쓸 수 있다. 만료되거나 불러오지 못하면(사진을 바꾼 직후의 옛 주소 포함) 다시 조회한다. "
+                    + "같은 사진은 한동안(최대 50분) 같은 주소를 주어 브라우저 캐시가 적중하고, 사진을 바꾸면 새 주소가 된다. ids가 0개이거나 100개를 넘으면(중복 포함) 400 INVALID_REQUEST.")
     @ApiResponse(responseCode = "200", description = "회원 ID별 사진 주소",
             content = @Content(mediaType = "application/json", examples = @ExampleObject(value = EXAMPLE)))
     RsData<Map<Long, String>> profileImages(
