@@ -42,7 +42,7 @@ Kafka 공통 규칙은 [`docs/architecture/infrastructure/kafka.md`](../../../..
 
 - Gradle `:notification`, 패키지 `com.hapbang.auxiliary.notification`, 디렉터리 `boundedContext/notification`이다. `:auxiliary-global`·`:shared`에만 의존한다(ND-006).
 - 저장소는 database `auxiliary` 안의 schema `notification`이다. 엔티티는 `@Table(schema = "notification")`, SQL의 테이블 이름에도 schema를 붙인다. 다른 모듈 schema와 JOIN·FK·같은 트랜잭션 쓰기를 하지 않는다. 첫 SQL은 `CREATE SCHEMA IF NOT EXISTS notification;`이다(ND-007).
-- 테이블은 `notification`, `notification_payout_item`, `notification_schedule`, `notification_user` 넷이다(ND-025). 컬럼·인덱스 세부는 미결 항목(U5·U9)을 정한 뒤 확정한다.
+- 테이블은 `notification`, `notification_payout_item`, `notification_schedule`, `notification_user` 넷이다(ND-025). 컬럼·인덱스 세부는 미결 항목(U9·U19)을 정한 뒤 확정한다.
 
 ### 3.2 입력
 
@@ -50,11 +50,14 @@ Kafka 공통 규칙은 [`docs/architecture/infrastructure/kafka.md`](../../../..
 - 채팅 내부 Redis Streams를 구독하지 않는다. 독립 consumer group으로 소비한다(ND-009).
 - 처리하지 못한 메시지는 `<topic>.<group>.DLT`로 보낸다. 받지 않는 타입은 기본 `@KafkaHandler`로 무시하고 커밋한다(ND-010, kafka.md "소비"·"재시도와 DLT").
 - 받는 사람 상태·역할·닉네임은 회원 복제본 `notification_user`에서 읽는다. 탈퇴한 회원이면 알림과 예약을 만들지 않는다(ND-018). 정지 회원 처리는 미결(U8).
+- 받는 사람 복제본이 아직 없으면 알림을 만들지 않고 처리를 실패시켜 kafka.md "재시도와 DLT"대로 재시도 뒤 DLT로 보낸다(ND-035). 첫 배포 Backfill은 미결(U17).
 
 ### 3.3 생성·저장
 
 - 같은 이벤트를 다시 받아도 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)로 한 번만 만든다. 묶음 알림은 (종류, 받는 사람, 묶음 키)다. 삭제된 행도 유일 인덱스에 남긴다(ND-019).
+- 원본 대상 ID는 ND-033을 따른다. 이벤트별로 쓸 필드는 미결(U5)이므로 그 이벤트를 소비하는 작업에서 발행 계약을 확인한 뒤 정한다.
 - 문구는 알림 모듈이 만들어 저장하고, 값(`jsonb`, 형식 버전 `v`)도 함께 저장한다(ND-020). 종류별 템플릿은 미결(U3).
+- 다른 회원의 닉네임을 문구에 넣으면 값에 그 회원 ID를 함께 저장하고, 그 회원의 `UserMaskedEvent`를 받으면 문구·값의 닉네임을 바꾼다(ND-036). 저장 구조와 갱신 방법은 미결(U19).
 - 종류 코드는 shared 이벤트 이름에서 `Event`를 뺀 UPPER_SNAKE다(ND-012). 규칙 밖 코드는 미결(U11).
 - 목록은 이벤트의 업무 시각(발생 시각)으로 정렬한다. 받은 순서로 정렬하지 않는다(ND-021).
 - 보존은 회원별 삭제되지 않은 최신 20개다. 새 알림을 저장하는 **같은 트랜잭션 안에서** 21번째부터 Soft Delete한다. Hard Delete하지 않는다(ND-022, policy.md 7장 "삭제 정책").
@@ -77,6 +80,7 @@ Kafka 공통 규칙은 [`docs/architecture/infrastructure/kafka.md`](../../../..
 ### 3.6 예약 알림
 
 - 예약은 알림 모듈이 이벤트를 받아 만들고 취소 이벤트로 취소한다. 보내기 직전에 상태를 다시 확인한다(ND-029~ND-031). 운영 시간과의 관계는 미결(U6).
+- 예약이 없을 때 온 취소는 취소 상태 행을 먼저 남긴다(ND-034). 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는지 확인하지 않은 예약 알림에는 적용하지 않는다(U16).
 
 ### 3.7 트랜잭션 경계 (확정된 범위만)
 
