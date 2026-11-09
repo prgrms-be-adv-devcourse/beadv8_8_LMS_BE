@@ -100,7 +100,8 @@ public class MemberApiClient {
 
     /**
      * 회원 변경분 한 페이지 (#769, 모든 역할·상태, (updatedAt, id) 오름차순 키셋). 커서 둘은 함께 넘기거나 함께 null(처음부터)이다.
-     * 응답의 next 커서가 null이 될 때까지 넘겨 부른다. 이어 읽을 때는 커서를 1분 겹쳐 다시 읽는다 ({@link MemberChangePageDto})
+     * 페이지마다 응답의 next 커서를 저장하고 hasNext가 false가 될 때까지 넘겨 부른다. 다음 주기에는 저장한 커서를 1분 겹쳐 다시 읽는다
+     * ({@link MemberChangePageDto})
      *
      * @throws IllegalArgumentException 커서 둘 중 하나만 넘긴 경우 (보내지 않는다)
      */

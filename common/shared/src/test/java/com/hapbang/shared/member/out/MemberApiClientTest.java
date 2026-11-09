@@ -143,7 +143,7 @@ class MemberApiClientTest {
                 {"statusCode":200,"message":"회원 변경분을 조회했습니다.","data":{"items":[
                  {"id":7,"nickname":"회원7","role":"INFLUENCER","status":"SUSPENDED","version":4,
                   "contentCategories":["GAME"],"bio":"소개"}],
-                 "nextAfterUpdatedAt":"2026-11-09T10:15:30.123456","nextAfterId":7}}""");
+                 "nextAfterUpdatedAt":"2026-11-09T10:15:30.123456","nextAfterId":7,"hasNext":true}}""");
 
         MemberChangePageDto page = client().getChanges(LocalDateTime.of(2026, 11, 9, 10, 0), 3L, 100);
 
@@ -154,18 +154,20 @@ class MemberApiClientTest {
                 List.of("GAME"), "소개"));
         assertThat(page.nextAfterUpdatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 9, 10, 15, 30, 123_456_000));
         assertThat(page.nextAfterId()).isEqualTo(7L);
+        assertThat(page.hasNext()).isTrue();
     }
 
     @Test
     void 회원_변경분은_커서가_없으면_처음부터_조회하고_하나만_넘기면_보내지_않는다() {
         respond(200, "application/json", """
-                {"statusCode":200,"message":"","data":{"items":[]}}""");
+                {"statusCode":200,"message":"","data":{"items":[],"hasNext":false}}""");
 
         MemberChangePageDto page = client().getChanges(null, null, 500);
 
         assertThat(requests).containsExactly("/api/v1/internal/members/changes?size=500 key=" + API_KEY);
         assertThat(page.nextAfterUpdatedAt()).isNull();
         assertThat(page.nextAfterId()).isNull();
+        assertThat(page.hasNext()).isFalse();
 
         requests.clear();
         assertThatThrownBy(() -> client().getChanges(LocalDateTime.of(2026, 11, 9, 10, 0), null, 100))

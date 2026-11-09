@@ -57,6 +57,7 @@ public class MemberInternalFacade {
     /**
      * 회원 변경분 (#769). users.updated_at이 커서보다 뒤인 회원을 (updatedAt, id) 오름차순 키셋으로 준다. 모든 역할·상태를 포함해,
      * 인플루언서가 아니게 된 회원(강등·정지·탈퇴)도 받는 쪽이 숨길 수 있다. 커서가 없으면 처음부터 읽는다.
+     * 항목이 있으면 마지막 페이지에도 다음 커서를 주고, 더 있는지는 hasNext로 알린다.
      * 분야는 @BatchSize로 100명씩 묶어 읽는다
      *
      * @param afterUpdatedAt 커서 시각. afterId와 함께 넘기거나 함께 null이다(컨트롤러가 확인)
@@ -70,11 +71,12 @@ public class MemberInternalFacade {
         boolean hasNext = users.size() > size;
         List<User> page = hasNext ? users.subList(0, size) : users;
         List<UserDto> items = page.stream().map(User::toDto).toList();
-        if (!hasNext) {
-            return new MemberChangePageDto(items, null, null);
+        if (page.isEmpty()) {
+            return new MemberChangePageDto(items, null, null, false);
         }
+        // 마지막 페이지에도 커서를 준다. 받는 쪽은 UserDto에 updatedAt이 없어 커서를 스스로 만들 수 없다
         User last = page.getLast();
-        return new MemberChangePageDto(items, last.getUpdatedAt(), last.getId());
+        return new MemberChangePageDto(items, last.getUpdatedAt(), last.getId(), hasNext);
     }
 
     /**

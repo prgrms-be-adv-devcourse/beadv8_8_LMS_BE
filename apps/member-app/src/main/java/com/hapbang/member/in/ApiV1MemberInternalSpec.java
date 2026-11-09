@@ -47,8 +47,9 @@ public interface ApiV1MemberInternalSpec {
 
     @Operation(summary = "회원 변경분 (키셋)",
             description = "users.updated_at이 커서보다 뒤인 회원을 모든 역할·상태(강등·정지·탈퇴 포함)에서 (updatedAt, id) 오름차순으로 "
-                    + "size개씩 준다. items는 이벤트와 같은 UserDto(version 포함). 다음 페이지는 응답의 nextAfterUpdatedAt·"
-                    + "nextAfterId를 그대로 넘기고, 둘이 null이면 마지막 페이지다. 커서를 생략하면 처음부터. "
+                    + "size개씩 준다. items는 이벤트와 같은 UserDto(version 포함). 응답의 nextAfterUpdatedAt·nextAfterId는 이 페이지 "
+                    + "마지막 회원의 커서로, 마지막 페이지에도 준다(항목이 없으면 null). 받는 쪽은 페이지마다 커서를 저장하고 "
+                    + "hasNext가 false면 멈춘다. 커서를 생략하면 처음부터. "
                     + "늦게 커밋된 행이 지나간 커서 뒤에 나타날 수 있어, 이어 읽을 때는 커서를 1분 겹쳐 다시 읽고 version으로 거른다. "
                     + "오류: 커서 둘 중 하나만 넘기거나, 시각 형식이 틀리거나, size가 1~500 밖이거나 afterId가 음수면 400 INVALID_REQUEST.")
     @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,

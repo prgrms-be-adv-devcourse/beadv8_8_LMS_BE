@@ -10,11 +10,18 @@ import java.util.Objects;
  * 늦게 커밋된 행이 이미 지나간 커서 뒤에 나타날 수 있으므로, 받는 쪽은 이어 읽을 때 커서를 1분 겹쳐 다시 읽고 version으로 거른다
  * (docs/api/internal-members.md 4장)
  *
+ * <p>
+ * 다음 커서는 이 페이지 마지막 회원의 (updatedAt, id)이고, <b>마지막 페이지에도 준다</b>. UserDto에는 updatedAt이 없어
+ * 받는 쪽이 커서를 스스로 만들 수 없으므로, 마지막 페이지에서 커서를 주지 않으면 다음 주기에 그 페이지를 통째로 다시 읽게 된다.
+ * 더 읽을 것이 있는지는 hasNext로 알린다
+ *
  * @param items              이 페이지의 회원. 이벤트와 같은 UserDto라 version으로 옛 정보를 거를 수 있다
- * @param nextAfterUpdatedAt 다음 페이지를 부를 때 넘길 afterUpdatedAt. 마지막 페이지면 null
- * @param nextAfterId        다음 페이지를 부를 때 넘길 afterId. 마지막 페이지면 null
+ * @param nextAfterUpdatedAt 다음에 부를 때 넘길 afterUpdatedAt(이 페이지 마지막 회원의 updatedAt). 항목이 없으면 null
+ * @param nextAfterId        다음에 부를 때 넘길 afterId(이 페이지 마지막 회원의 id). 항목이 없으면 null
+ * @param hasNext            지금 커서 뒤에 회원이 더 있으면 true. false면 이번 주기는 여기서 멈춘다
  */
-public record MemberChangePageDto(List<UserDto> items, LocalDateTime nextAfterUpdatedAt, Long nextAfterId) {
+public record MemberChangePageDto(List<UserDto> items, LocalDateTime nextAfterUpdatedAt, Long nextAfterId,
+                                  boolean hasNext) {
 
     /** 한 번에 받을 수 있는 최대 회원 수 */
     public static final int MAX_SIZE = 500;

@@ -76,7 +76,8 @@ class MemberChangesInternalApiTest {
                 .andExpect(jsonPath("$.data.items[1].id").value(withdrawn.getId()))
                 .andExpect(jsonPath("$.data.items[1].status").value("WITHDRAWN"))
                 .andExpect(jsonPath("$.data.nextAfterUpdatedAt").value("2026-11-09T10:00:02"))
-                .andExpect(jsonPath("$.data.nextAfterId").value(withdrawn.getId()));
+                .andExpect(jsonPath("$.data.nextAfterId").value(withdrawn.getId()))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
 
         mockMvc.perform(internal(get(CHANGES).param("afterUpdatedAt", "2026-11-09T10:00:02")
                         .param("afterId", withdrawn.getId().toString())))
@@ -84,8 +85,38 @@ class MemberChangesInternalApiTest {
                 .andExpect(jsonPath("$.data.items.length()").value(1))
                 .andExpect(jsonPath("$.data.items[0].id").value(admin.getId()))
                 .andExpect(jsonPath("$.data.items[0].role").value("ADMIN"))
+                // 마지막 페이지에도 마지막 회원의 커서를 준다 (받는 쪽이 저장해 다음 주기에 이어 읽는다)
+                .andExpect(jsonPath("$.data.nextAfterUpdatedAt").value("2026-11-09T10:00:03"))
+                .andExpect(jsonPath("$.data.nextAfterId").value(admin.getId()))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+
+        // 그 커서 뒤로 바뀐 회원이 없으면 빈 목록이고 커서가 없다
+        mockMvc.perform(internal(get(CHANGES).param("afterUpdatedAt", "2026-11-09T10:00:03")
+                        .param("afterId", admin.getId().toString())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(0))
                 .andExpect(jsonPath("$.data.nextAfterUpdatedAt").doesNotExist())
-                .andExpect(jsonPath("$.data.nextAfterId").doesNotExist());
+                .andExpect(jsonPath("$.data.nextAfterId").doesNotExist())
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("마지막 페이지의 커서를 저장해 두면 다음 주기에는 그 뒤에 바뀐 회원만 받는다")
+    void nextCycleFromLastPageCursor() throws Exception {
+        userRepository.save(MemberFixture.member(Role.INFLUENCER));
+        userRepository.save(MemberFixture.member(Role.INFLUENCER));
+        DocumentContext first = read(get(CHANGES));
+        String cursorTime = first.read("$.data.nextAfterUpdatedAt");
+        Number cursorId = first.read("$.data.nextAfterId");
+        assertThat((Boolean) first.read("$.data.hasNext")).isFalse();
+
+        User joined = userRepository.save(MemberFixture.member(Role.USER));
+
+        mockMvc.perform(internal(get(CHANGES).param("afterUpdatedAt", cursorTime)
+                        .param("afterId", cursorId.toString())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(joined.getId()));
     }
 
     @Test
@@ -200,9 +231,10 @@ class MemberChangesInternalApiTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    /** 응답의 next 커서를 그대로 넘기며 끝까지 읽은 회원 ID */
+    /** 응답의 next 커서를 그대로 넘기며 hasNext가 false가 될 때까지 읽은 회원 ID */
     private List<Long> walkAll(String afterUpdatedAt, Long afterId, int size) throws Exception {
         List<Long> collected = new ArrayList<>();
+        boolean hasNext;
         do {
             MockHttpServletRequestBuilder request = get(CHANGES).param("size", String.valueOf(size));
             if (afterUpdatedAt != null) {
@@ -214,7 +246,8 @@ class MemberChangesInternalApiTest {
             afterUpdatedAt = body.read("$.data.nextAfterUpdatedAt");
             Number next = body.read("$.data.nextAfterId");
             afterId = next == null ? null : next.longValue();
-        } while (afterUpdatedAt != null);
+            hasNext = body.read("$.data.hasNext");
+        } while (hasNext);
         return collected;
     }
 
