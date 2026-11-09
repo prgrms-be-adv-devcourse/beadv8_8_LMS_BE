@@ -82,4 +82,22 @@ public interface CouponRepository extends JpaRepository<Coupon, Long> {
     List<Coupon> findAllByOrderByCreatedAtDescIdDesc(Limit limit);
 
     List<Coupon> findByStatusOrderByCreatedAtDescIdDesc(CouponStatus status, Limit limit);
+
+    /**
+     * 이 강의의 가격 인상을 막는 플랫폼 쿠폰이 있는가: 그 강의 대상 플랫폼 쿠폰이 발급 중(OPEN)이거나, 그 쿠폰의 발급 쿠폰 중 RESERVED이거나
+     * 만료 전(expiresAt > now) AVAILABLE인 것이 있다. 판매자 쿠폰은 보지 않는다. 중단(SUSPENDED) 쿠폰은 OPEN으로 치지 않는다.
+     */
+    @Query("""
+            select count(c) > 0 from Coupon c
+            where c.type = com.hapbang.coupon.domain.CouponType.PLATFORM
+              and c.targetType = com.hapbang.coupon.domain.CouponTargetType.LECTURE
+              and c.lectureId = :lectureId
+              and (c.status = com.hapbang.coupon.domain.CouponStatus.OPEN
+                   or exists (select 1 from MemberCoupon mc
+                              where mc.couponId = c.id
+                                and (mc.status = com.hapbang.coupon.domain.MemberCouponStatus.RESERVED
+                                     or (mc.status = com.hapbang.coupon.domain.MemberCouponStatus.AVAILABLE
+                                         and mc.expiresAt > :now))))
+            """)
+    boolean existsPriceRaiseBlocker(@Param("lectureId") long lectureId, @Param("now") Instant now);
 }

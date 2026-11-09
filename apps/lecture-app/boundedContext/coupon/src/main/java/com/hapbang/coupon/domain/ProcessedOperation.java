@@ -37,23 +37,44 @@ public class ProcessedOperation {
     @Column(nullable = false, length = 500)
     private String contentKey;
 
-    /** 처리 결과(ISSUED·REJECTED) */
+    /** 처리 결과. 발급 요청은 ISSUED·REJECTED, 쿠폰 예약은 RESERVED·REJECTED, 쿠폰 해제는 RELEASED */
     @Column(nullable = false, length = 30)
     private String result;
+
+    /** 결과의 세부 값. 쿠폰 예약 거절이면 거절 코드다. 발급 요청 기록은 비어 있다 */
+    @Column(length = 100)
+    private String detail;
 
     @Column(nullable = false)
     private Instant processedAt;
 
-    private ProcessedOperation(String operationId, String contentKey, String result, Instant processedAt) {
+    private ProcessedOperation(String operationId, String contentKey, String result, String detail,
+                               Instant processedAt) {
         this.operationId = Objects.requireNonNull(operationId, "operationId");
         this.contentKey = Objects.requireNonNull(contentKey, "contentKey");
         this.result = Objects.requireNonNull(result, "result");
+        this.detail = detail;
         this.processedAt = Objects.requireNonNull(processedAt, "processedAt");
     }
 
     /** 발급 요청 처리 기록. 작업 ID·내용 식별값은 {@link IssueDelivery}가 정한다 */
     public static ProcessedOperation of(IssueDelivery delivery, CouponIssueResult result, Instant processedAt) {
-        return new ProcessedOperation(delivery.operationId(), delivery.contentKey(), result.name(), processedAt);
+        return new ProcessedOperation(delivery.operationId(), delivery.contentKey(), result.name(), null, processedAt);
+    }
+
+    /**
+     * 쿠폰 사용 작업(예약·해제) 기록.
+     *
+     * @param detail 결과의 세부 값(예약 거절이면 거절 코드). 없으면 {@code null}
+     */
+    public static ProcessedOperation ofWork(String operationId, String contentKey, String result, String detail,
+                                            Instant processedAt) {
+        return new ProcessedOperation(operationId, contentKey, result, detail, processedAt);
+    }
+
+    /** 이 기록과 같은 내용 식별값인가 */
+    public boolean sameContent(String contentKey) {
+        return this.contentKey.equals(contentKey);
     }
 
     /** 이 기록과 같은 내용의 요청인가 */

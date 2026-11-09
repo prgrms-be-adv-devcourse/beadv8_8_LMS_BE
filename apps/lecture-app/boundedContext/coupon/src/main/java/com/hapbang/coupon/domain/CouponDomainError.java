@@ -51,7 +51,15 @@ public enum CouponDomainError {
 
     // 조회·권한
     COUPON_NOT_FOUND("쿠폰을 찾을 수 없습니다."),
-    NOT_COUPON_OWNER("본인이 신청한 쿠폰이 아닙니다.");
+    NOT_COUPON_OWNER("본인이 신청한 쿠폰이 아닙니다."),
+
+    // 사용(계산·예약)
+    /** 쿠폰의 적용 대상이 아닌 강의에 두었다(특정 강의 쿠폰을 다른 강의에, 주문에 없는 강의에) */
+    COUPON_NOT_APPLICABLE("이 강의에 적용할 수 없는 쿠폰입니다."),
+    /** 본인 소유가 아니거나, AVAILABLE이 아니거나, 만료되었다 */
+    COUPON_NOT_USABLE("사용할 수 없는 쿠폰입니다."),
+    /** 한 강의에 같은 주체의 쿠폰 두 장, 단독 사용 쿠폰과 다른 쿠폰, 한 발급 쿠폰을 두 강의에 두었다 */
+    COUPON_STACKING_VIOLATION("함께 사용할 수 없는 쿠폰 조합입니다.");
 
     private final String message;
 }

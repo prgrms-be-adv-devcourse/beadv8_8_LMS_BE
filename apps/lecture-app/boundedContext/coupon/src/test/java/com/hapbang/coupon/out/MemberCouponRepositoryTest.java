@@ -126,6 +126,55 @@ class MemberCouponRepositoryTest {
                 .hasMessageContaining(MemberCouponRepository.MEMBER_COUPON_UNIQUE);
     }
 
+    @Test
+    void 예약_조건부_갱신은_본인_AVAILABLE_기대_세대_만료_전일_때만_한_행을_바꾸고_세대를_올린다() {
+        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long id = memberCouponRepository.save(issue(MEMBER_ID, couponId, "req-1", NOW)).getId();
+        Long expiringId = memberCouponRepository.save(MemberCoupon.issue(OTHER_MEMBER_ID, couponId, "req-2", NOW,
+                NOW, NOW)).getId();
+        flushAndClear();
+
+        // 다른 회원, 다른 기대 세대, 만료(expiresAt == now)는 0행이다
+        assertThat(memberCouponRepository.reserve(id, OTHER_MEMBER_ID, 0, 500L, NOW)).isZero();
+        assertThat(memberCouponRepository.reserve(id, MEMBER_ID, 1, 500L, NOW)).isZero();
+        assertThat(memberCouponRepository.reserve(expiringId, OTHER_MEMBER_ID, 0, 500L, NOW)).isZero();
+
+        assertThat(memberCouponRepository.reserve(id, MEMBER_ID, 0, 500L, NOW)).isEqualTo(1);
+        assertThat(memberCouponRepository.findStateById(id)).get().satisfies(state -> {
+            assertThat(state.status()).isEqualTo(MemberCouponStatus.RESERVED);
+            assertThat(state.generation()).isEqualTo(1);
+            assertThat(state.currentOrderItemId()).isEqualTo(500L);
+        });
+        // 이미 RESERVED면 같은 기대 세대로 다시 예약하지 못한다
+        assertThat(memberCouponRepository.reserve(id, MEMBER_ID, 0, 501L, NOW)).isZero();
+    }
+
+    @Test
+    void 해제_조건부_갱신은_RESERVED이고_세대가_같을_때만_만료_전이면_AVAILABLE_뒤면_EXPIRED로_바꾼다() {
+        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long id = memberCouponRepository.save(issue(MEMBER_ID, couponId, "req-1", NOW)).getId();
+        Long otherId = memberCouponRepository.save(issue(OTHER_MEMBER_ID, couponId, "req-2", NOW)).getId();
+        memberCouponRepository.reserve(id, MEMBER_ID, 0, 500L, NOW);
+        memberCouponRepository.reserve(otherId, OTHER_MEMBER_ID, 0, 501L, NOW);
+
+        // 다른 세대는 0행이다
+        assertThat(memberCouponRepository.release(id, 0, NOW)).isZero();
+
+        assertThat(memberCouponRepository.release(id, 1, NOW)).isEqualTo(1);
+        assertThat(memberCouponRepository.findStateById(id)).get().satisfies(state -> {
+            assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
+            assertThat(state.generation()).isEqualTo(1);
+            assertThat(state.currentOrderItemId()).isNull();
+        });
+        // 이미 해제했으면(RESERVED가 아니면) 0행이다
+        assertThat(memberCouponRepository.release(id, 1, NOW)).isZero();
+
+        // 만료 시각(expiresAt == now)이 지나 해제하면 EXPIRED다
+        assertThat(memberCouponRepository.release(otherId, 1, EXPIRES_AT)).isEqualTo(1);
+        assertThat(memberCouponRepository.findStateById(otherId)).get()
+                .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.EXPIRED);
+    }
+
     private Long saveCoupon(Coupon coupon) {
         return couponRepository.save(coupon).getId();
     }

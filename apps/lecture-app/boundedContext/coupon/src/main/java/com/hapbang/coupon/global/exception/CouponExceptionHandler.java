@@ -14,6 +14,7 @@ import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.LectureCatalogUnavailableException;
 import com.hapbang.coupon.domain.CouponDomainError;
 import com.hapbang.coupon.domain.CouponDomainException;
+import com.hapbang.coupon.domain.usage.CouponUsageViolationException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -40,10 +41,16 @@ public class CouponExceptionHandler {
         return respond(exception.getErrorCode(), exception.getMessage(), exception.getProperties(), exception);
     }
 
-    /** 도메인 규칙 위반. detail은 어느 규칙인지 알리는 도메인 메시지다 */
+    /**
+     * 도메인 규칙 위반. detail은 어느 규칙인지 알리는 도메인 메시지다.
+     * 사용 규칙 위반({@link CouponUsageViolationException})은 실패한 발급 쿠폰 ID를 {@code memberCouponId} 속성으로 싣는다
+     */
     @ExceptionHandler(CouponDomainException.class)
     public ResponseEntity<ProblemDetail> handleCouponDomainException(CouponDomainException exception) {
-        return respond(errorCodeOf(exception.getError()), exception.getMessage(), Map.of(), exception);
+        Map<String, Object> properties = exception instanceof CouponUsageViolationException violation
+                ? Map.of(CouponUsageException.MEMBER_COUPON_ID, violation.getMemberCouponId())
+                : Map.of();
+        return respond(errorCodeOf(exception.getError()), exception.getMessage(), properties, exception);
     }
 
     /** 발급 저장소(Redis)에 닿지 못했다. 내부 메시지는 응답에 싣지 않는다 */
@@ -82,6 +89,9 @@ public class CouponExceptionHandler {
             case UNKNOWN_LUA_RESULT -> CouponErrorCode.COUPON_ISSUE_FAILED;
             case COUPON_NOT_FOUND -> CouponErrorCode.COUPON_NOT_FOUND;
             case NOT_COUPON_OWNER -> CouponErrorCode.NOT_COUPON_OWNER;
+            case COUPON_NOT_APPLICABLE -> CouponErrorCode.COUPON_NOT_APPLICABLE;
+            case COUPON_NOT_USABLE -> CouponErrorCode.COUPON_NOT_USABLE;
+            case COUPON_STACKING_VIOLATION -> CouponErrorCode.COUPON_STACKING_VIOLATION;
         };
     }
 

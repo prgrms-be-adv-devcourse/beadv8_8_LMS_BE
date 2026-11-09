@@ -41,4 +41,17 @@ class ProcessedOperationRepositoryTest {
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining(ProcessedOperationRepository.OPERATION_ID_UNIQUE);
     }
+
+    @Test
+    void 쿠폰_사용_작업_기록은_거절_코드를_detail에_남긴다() {
+        processedOperationRepository.saveAndFlush(ProcessedOperation.ofWork("coupon-reserve:work-1", "m1|o2|abc",
+                "REJECTED", "COUPON_GENERATION_MISMATCH", NOW));
+        entityManager.clear();
+
+        assertThat(processedOperationRepository.findByOperationId("coupon-reserve:work-1"))
+                .get().satisfies(found -> {
+                    assertThat(found.getDetail()).isEqualTo("COUPON_GENERATION_MISMATCH");
+                    assertThat(found.sameContent("m1|o2|abc")).isTrue();
+                });
+    }
 }
