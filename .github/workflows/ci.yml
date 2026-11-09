@@ -246,7 +246,7 @@ jobs:
           key: manifests-${{ env.KUBECONFORM_VERSION }}-${{ env.KUBERNETES_VERSION }}-${{ env.CRDS_CATALOG_REF }}-${{ hashFiles('k8s/gateway/tools/prepare-schemas.py') }}
 
       # cache에 없을 때만 받는다. --retry-all-errors로 5xx·timeout과 전송 중 끊김도 다시 받는다(파일로 받으므로 처음부터 다시 쓴다).
-      # 시도마다 60초, 재시도는 모두 합쳐 3분 안에서 한다. cache에서 꺼낸 파일도 sha256을 검사한다.
+      # 시도마다 60초이고, 3분이 지나면 새 재시도를 시작하지 않는다(진행 중인 시도까지 최악 약 4분). cache에서 꺼낸 파일도 sha256을 검사한다.
       - name: kubeconform 설치
         run: |
           mkdir -p "$DOWNLOADS/kubeconform-schemas"
