@@ -40,6 +40,11 @@ public class MemberContentCategoryUseCase {
                 .toList();
     }
 
+    /** 분야 전부, 꺼진 분야 포함, 코드 오름차순 (분야 목록 내부 API, #769). 이미 고른 회원의 분야에 이름을 붙일 수 있게 꺼진 분야도 준다 */
+    public List<ContentCategory> listAll() {
+        return contentCategoryRepository.findAllByOrderByCodeAsc();
+    }
+
     /**
      * 주어진 분야 코드 → 이름. 응답에 분야 이름을 붙일 때 쓴다. 이미 고른 회원의 값은 계속 보이므로 목록에서 꺼진 분야도 준다 (Q50)
      */

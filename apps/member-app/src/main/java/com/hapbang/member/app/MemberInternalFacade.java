@@ -16,7 +16,6 @@ import com.hapbang.member.domain.ContentCategory;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.RatingSummary;
 import com.hapbang.member.domain.User;
-import com.hapbang.member.out.ContentCategoryRepository;
 import com.hapbang.member.out.InfluencerChannelRepository;
 import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.dto.ContentCategoriesDto;
@@ -41,7 +40,7 @@ public class MemberInternalFacade {
     private final MemberSupport memberSupport;
     private final InfluencerChannelRepository influencerChannelRepository;
     private final MemberAppearanceRatingUseCase memberAppearanceRatingUseCase;
-    private final ContentCategoryRepository contentCategoryRepository;
+    private final MemberContentCategoryUseCase memberContentCategoryUseCase;
 
     /** 회원 ID 오름차순 키셋 목록. afterId가 없으면 처음부터, size+1개를 읽어 다음 페이지가 있는지 판단한다 */
     @Transactional(readOnly = true)
@@ -108,7 +107,7 @@ public class MemberInternalFacade {
      */
     @Transactional(readOnly = true)
     public ContentCategoriesDto findContentCategories() {
-        return new ContentCategoriesDto(contentCategoryRepository.findAllByOrderByCodeAsc().stream()
+        return new ContentCategoriesDto(memberContentCategoryUseCase.listAll().stream()
                 .map(MemberInternalFacade::toContentCategoryDto)
                 .toList());
     }
