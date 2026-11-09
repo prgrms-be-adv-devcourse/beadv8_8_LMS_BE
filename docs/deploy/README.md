@@ -30,7 +30,8 @@ PR → GitHub Actions(CI)
   structure  verifyModuleStructure → common 라이브러리 check
   test       바뀐 앱마다 러너 하나: check bootJar → 이미지 빌드 확인(push 안 함)
              native 앱(customer-support-app)은 이어서 nativeCompile → Dockerfile.native 이미지 빌드 확인
-  verify     위 결과 집계(필수 체크). 테스트할 앱이 없으면 Gradle job은 건너뛰고 통과
+  manifests  k8s/·apps/<앱>/k8s overlay 렌더링 → kubeconform -strict
+  verify     위 결과 집계(필수 체크, manifests는 #792부터). 테스트할 앱이 없으면 Gradle job은 건너뛰고 통과
 
 dev push → Publish and deploy(publish.yml)
   images   이미지가 없는 앱을 고른다(이번 push에서 바뀐 앱 + 앞 run에서 발행하지 못한 앱)
