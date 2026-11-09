@@ -209,11 +209,11 @@ rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contact
 모든 alert에 공통으로 적용하는 설정:
 
 - **통보 채널**: Slack 채널 하나(Incoming Webhook을 만들 때 고른 채널). 메시지는 Grafana 기본 Slack template이다. alert 이름, 값, label(`severity` 포함), `summary`·`description` annotation, Grafana 링크가 들어간다.
-- **등급**(#787): rule label `severity`로 나눈다. **critical**은 돈·데이터가 이미 어긋났거나 서비스가 멈춘 것으로, contact point `slack-critical`이 메시지 앞에 `@here`를 붙이고 해결될 때까지 1시간마다 다시 보낸다. **warning**은 스스로 회복되거나 대응까지 여유가 있는 것으로, contact point `slack`이 멘션 없이 4시간마다 다시 보낸다. 두 contact point는 같은 webhook(같은 채널)을 쓴다. 당번 체계가 없어 critical `@here`는 밤·주말에도 간다(2026-11-09 결정).
+- **등급**(#787): rule label `severity`로 나눈다. **critical**은 돈·데이터가 이미 어긋났거나 서비스가 멈춘 것으로, contact point `slack-critical`이 메시지 앞에 `@here`를 붙이고 해결될 때까지 1시간마다 다시 보낸다. **warning**은 스스로 회복되거나 대응까지 여유가 있는 것으로, contact point `slack`이 멘션 없이 4시간마다 다시 보낸다. 두 contact point는 같은 webhook(같은 채널)을 쓴다. node 디스크는 85%에서 아직 서비스가 멈춘 것은 아니지만, large의 PostgreSQL·Kafka·Elasticsearch가 한 디스크를 써서 가득 차면 함께 멈추고 되돌리기 어려우므로, kubelet 이미지 정리로도 내려가지 않는 15분 시점에 미리 critical로 둔다. 당번 체계가 없어 critical `@here`는 밤·주말에도 간다(2026-11-09 결정).
 - **중복 억제**: alert 이름으로 묶어 한 메시지로 보낸다(처음 30초 모음, 새 instance는 5분 뒤).
 - **`@here` 위치**: Grafana Slack 통합은 멘션을 첫 attachment의 `pretext`(`<!here|here>`)에 넣는다. 멘션은 firing·복구를 가리지 않아 critical 복구 통보에도 `@here`가 붙는다.
 - **복구 통보**: 보낸다.
-- **NoData·Error**: 지표가 없으면 OK로 본다. 쿼리가 실패하면(Prometheus 장애) `DatasourceError` alert가 따로 온다.
+- **NoData·Error**: 지표가 없으면 OK로 본다. 쿼리가 실패하면(Prometheus 장애) `DatasourceError` alert가 따로 온다. `DatasourceError`는 원래 rule의 `severity`를 이어받아 critical rule 것은 `@here`로, warning rule 것은 멘션 없이 각각 한 메시지로 온다(로컬에서 Prometheus 주소를 막아 확인, `for`가 있는 rule은 그 시간이 지난 뒤 합류한다). Prometheus가 죽으면 지표 수집 끊김 alert도 울지 못하므로 critical `DatasourceError`가 Prometheus 장애를 `@here`로 알리는 경로다.
 
 | alert | 등급 | 조건(PromQL 요약) | 지속 | 확인할 곳과 대응 |
 | --- | --- | --- | --- | --- |

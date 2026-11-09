@@ -2,7 +2,7 @@
 # 이 파일이 원본이다. provisioning된 rule은 Grafana UI에서 고칠 수 없다. 고친 뒤 Grafana를 다시 띄워야 읽는다(같은 문서 "적용").
 # - 각 rule은 A(Prometheus instant query)의 series마다 C(threshold)로 판정한다. 조건에 맞지 않는 series는 Normal이다.
 # - 지표가 없으면(NoData) OK로 둔다. pod가 내려가 지표가 사라진 것은 잡지 못한다(kube-state-metrics 없음, 같은 문서 "Dashboard").
-# - 쿼리가 실패하면(Prometheus 장애) Error로 두어 DatasourceError alert로 받는다.
+# - 쿼리가 실패하면(Prometheus 장애) Error로 두어 DatasourceError alert로 받는다. DatasourceError는 rule의 label(severity)을 이어받는다.
 # - annotation은 환경 변수로 바꾸지 않으므로 Grafana template의 $labels·$values를 그대로 쓴다.
 #   NoData일 때는 $values.A가 없어 template 오류가 나므로 값은 {{ with $values.A }}…{{ end }}로 감싼다.
 # - label severity(#787): critical은 돈·데이터가 이미 어긋났거나 서비스가 멈춘 것, warning은 스스로 회복되거나 대응까지 여유가 있는 것이다.
