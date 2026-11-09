@@ -72,4 +72,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** 내부 회원 목록(키셋): afterId보다 큰 ID를 오름차순으로 limit개. 모든 역할·상태 포함 (#303) */
     List<User> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
+
+    /**
+     * 콘텐츠 분야별로 정상 인플루언서(인플루언서·인증된 인플루언서 + ACTIVE)가 고른 수 (#711). 아무도 고르지 않은 분야는 없다.
+     * 분야 목록 API의 순서(고른 수 많은 순)에 쓴다. user_content_category의 code 인덱스로 센다
+     */
+    @Query("""
+            select new com.hapbang.member.out.ContentCategoryCount(code, count(u))
+            from User u join u.contentCategories code
+            where u.role in (com.hapbang.shared.member.domain.Role.INFLUENCER,
+                             com.hapbang.shared.member.domain.Role.VERIFIED_INFLUENCER)
+              and u.status = com.hapbang.shared.member.domain.UserStatus.ACTIVE
+            group by code""")
+    List<ContentCategoryCount> countInfluencersByContentCategory();
 }

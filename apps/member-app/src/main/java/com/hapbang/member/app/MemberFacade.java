@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.member.domain.AppearanceRatingSummary;
 import com.hapbang.member.domain.ChannelPlatform;
+import com.hapbang.member.domain.ContentCategory;
 import com.hapbang.member.domain.EmailVerificationPurpose;
 import com.hapbang.member.domain.InfluencerChannel;
 import com.hapbang.member.domain.InfluencerUpgradeRequest;
@@ -125,6 +126,12 @@ public class MemberFacade {
                 PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
         influencers.forEach(User::getContentCategories);
         return influencers;
+    }
+
+    /** 콘텐츠 분야 목록 (#711). 새로 고를 수 있는 분야만, 정상 인플루언서가 고른 수 많은 순, 같으면 이름순 */
+    @Transactional(readOnly = true)
+    public List<ContentCategory> findContentCategories() {
+        return memberContentCategoryUseCase.list();
     }
 
     /** 콘텐츠 분야 코드 → 이름 (응답에 분야 이름을 붙일 때, 꺼진 분야 포함, #711) */
