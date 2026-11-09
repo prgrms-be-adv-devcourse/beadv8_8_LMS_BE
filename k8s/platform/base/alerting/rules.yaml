@@ -5,6 +5,8 @@
 # - 쿼리가 실패하면(Prometheus 장애) Error로 두어 DatasourceError alert로 받는다.
 # - annotation은 환경 변수로 바꾸지 않으므로 Grafana template의 $labels·$values를 그대로 쓴다.
 #   NoData일 때는 $values.A가 없어 template 오류가 나므로 값은 {{ with $values.A }}…{{ end }}로 감싼다.
+# - label severity(#787): critical은 돈·데이터가 이미 어긋났거나 서비스가 멈춘 것, warning은 스스로 회복되거나 대응까지 여유가 있는 것이다.
+#   critical은 @here 멘션과 1시간 반복, warning은 멘션 없이 4시간 반복으로 보낸다(policies.yaml).
 apiVersion: 1
 groups:
   - orgId: 1
@@ -39,6 +41,8 @@ groups:
         for: 0s
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: critical
         annotations:
           summary: '{{ $labels.app_kubernetes_io_name }} HP 대사 규칙 {{ $labels.rule }}에서 {{ with $values.A }}{{ humanize .Value }}{{ end }}건이 어긋났다.'
           description: >-
@@ -73,6 +77,8 @@ groups:
         for: 0s
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: critical
         annotations:
           summary: '지갑 잔액 대사에서 {{ $labels.result }} 지갑이 {{ with $values.A }}{{ humanize .Value }}{{ end }}개다.'
           description: >-
@@ -113,6 +119,8 @@ groups:
         for: 0s
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: critical
         annotations:
           summary: '{{ $labels.app_kubernetes_io_name }} HP 작업이 DEAD가 됐다({{ with $values.A }}{{ humanize .Value }}{{ end }}).'
           description: >-
@@ -161,6 +169,8 @@ groups:
         for: 0s
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: warning
         annotations:
           summary: '{{ $labels.app_kubernetes_io_name }} 대사가 26시간 넘게 끝까지 돌지 않았다(pod {{ $labels.pod }}).'
           description: >-
@@ -198,6 +208,8 @@ groups:
         for: 5m
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: critical
         annotations:
           summary: '{{ $labels.pod }}의 지표를 5분 넘게 수집하지 못했다.'
           description: >-
@@ -236,6 +248,8 @@ groups:
         for: 0s
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: warning
         annotations:
           summary: '{{ $labels.namespace }}/{{ $labels.pod }}의 {{ $labels.container }} 컨테이너가 최근 15분에 {{ with $values.A }}{{ humanize .Value }}{{ end }}번 다시 시작했다.'
           description: >-
@@ -270,6 +284,8 @@ groups:
         for: 15m
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: critical
         annotations:
           summary: 'node {{ $labels.instance }}의 디스크가 {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} 찼다.'
           description: >-
@@ -302,6 +318,8 @@ groups:
         for: 0s
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: warning
         annotations:
           summary: '인증서 {{ $labels.namespace }}/{{ $labels.name }}가 {{ with $values.A }}{{ humanize .Value }}{{ end }}일 뒤 만료된다.'
           description: >-
@@ -336,6 +354,8 @@ groups:
         for: 2m
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: critical
         annotations:
           summary: '{{ $labels.app_kubernetes_io_name }}의 circuit breaker {{ $labels.name }}가 2분 넘게 닫히지 않았다.'
           description: >-
@@ -375,6 +395,8 @@ groups:
         for: 0s
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: critical
         annotations:
           summary: '{{ $labels.app_kubernetes_io_name }}가 {{ $labels.topic }}에 레코드를 보냈다(최근 10분 약 {{ with $values.A }}{{ humanize .Value }}{{ end }}건).'
           description: >-
@@ -407,6 +429,8 @@ groups:
         for: 0s
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: warning
         annotations:
           summary: '{{ $labels.app_kubernetes_io_name }}가 최근 5분 동안 DB 연결을 {{ with $values.A }}{{ humanize .Value }}{{ end }}번 얻지 못했다.'
           description: >-
@@ -438,6 +462,8 @@ groups:
         for: 5m
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: warning
         annotations:
           summary: '{{ $labels.pod }}의 채팅 전달이 5분 넘게 멈췄다(target {{ $labels.target }}).'
           description: >-
@@ -477,6 +503,8 @@ groups:
         for: 0s
         noDataState: OK
         execErrState: Error
+        labels:
+          severity: warning
         annotations:
           summary: '{{ $labels.app_kubernetes_io_name }}의 예약 작업 {{ $labels.code_function }}가 {{ $labels.exception }}로 실패했다.'
           description: >-
