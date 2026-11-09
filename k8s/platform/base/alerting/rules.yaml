@@ -51,7 +51,8 @@ groups:
             어긋난 건은 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "rule={{ $labels.rule }}"로 찾는다.
             값은 다음 대사(매일 새벽)까지 남는다. 고친 뒤 관리자 수동 대사(POST /api/v1/lectures/admin/hp-reconciliations,
             POST /api/v1/appearances/admin/hp-reconciliations)를 실행하면 다시 비교해 값이 바뀐다. 다만 대사는 최근 바뀐 건(강의는 HP 작업이 7일 안에 바뀐 항목)과
-            지갑 커서 뒤에 바뀐 보류만 보므로, 범위 밖으로 밀려난 건은 고치지 않아도 0이 된다. 그래서 0이 되거나 복구 통보가 와도 고쳤다는 뜻은 아니다.
+            지갑 커서 뒤에 바뀐 보류만 보고, 바뀐 지 2시간이 안 된 건(진행 중 유예)은 빼므로, 방금 고친 건이나 범위 밖으로 밀려난 건은 비교하지 않고 0이 된다.
+            그래서 0이 되거나 복구 통보가 와도 고쳤다는 뜻은 아니다.
             처음 잡힌 건(Loki의 orderItemId·rule)이 정말 고쳐졌는지 따로 확인한다. pod가 다시 뜰 때도 값이 0이 될 수 있다(강의는 #805에서 DB로 복원).
 
       # 마지막 잔액 대사의 결과별 지갑 수(gauge). failed는 재시도 뒤에도 대사하지 못한 지갑이다.
@@ -226,6 +227,7 @@ groups:
             중단된 실행은 일부만 비교해 불일치 지표를 바꾸지 않고, 다음 실행이 같은 범위를 다시 본다. 사유는 관리자 API GET .../admin/hp-reconciliations/latest의
             실행 결과나 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "대사"로 찾는다(지갑 조회 실패면 circuit breaker·billing-app 상태).
             원인을 고친 뒤 관리자 수동 대사(POST /api/v1/lectures/admin/hp-reconciliations, POST /api/v1/appearances/admin/hp-reconciliations)로 다시 돌릴 수 있다.
+            복구 통보는 마지막 중단 뒤 1시간이 지났거나 pod가 다시 떴다는 뜻일 뿐, 다시 돌아 끝까지 비교했다는 뜻이 아니다. GET .../latest로 실행 결과를 확인한다.
 
   - orgId: 1
     name: 앱·인프라
