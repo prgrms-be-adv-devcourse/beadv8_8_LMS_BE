@@ -14,6 +14,7 @@
 > - 2026-11-06 미결 목록에 U19(닉네임 파기)를 더했다.
 > - 2026-11-09 decisions.md ND-037~ND-044 반영: 1.1~6.1의 요청 이벤트 값 표를 [이벤트 계약 요청](event-contracts.md)으로 옮기고 참조만 남겼다. 지급 알림 제목(ND-040), 채널 인증 승인 원본 이벤트(ND-042), 단체방 이름(ND-043), 모집 전체 취소(ND-041), 문구(ND-039)를 반영하고 9장에서 결정된 U4·U10·U18을 뺐다.
 > - 2026-11-09 decisions.md ND-033~ND-036 반영: 0.2 원본 대상 ID 칸 설명에 ND-033, 0.3에 ND-035·ND-036, 7장에 ND-034를 참조로 넣고, 9장 미결 목록은 남은 부분만 남겼다. 종류별 행의 원본 대상 ID "미정(U5)"는 그대로 두었다.
+> - 2026-11-09 #794 리뷰 반영: 7장 예약보다 먼저 온 취소 항목에 예약 짝 키 위치(event-contracts 0.3)를 더했다.
 > - 2026-11-09 ND-045 반영: 0.2 원본 대상 ID 칸 설명과 9장 U5에 회차 번호 규칙과 이벤트 계약 요청 위치를 더했다.
 
 ## 0. 읽는 법
@@ -250,7 +251,7 @@
   - `APPEARANCE_RECRUIT_CLOSING`: 생성 미충족(모집 열림 발행 없음, `AppearanceRecruitHoldUseCase.markRecruiting` 79행 근처). 취소(모집 마감·모집 전체 취소)도 미충족.
   - `APPEARANCE_STARTING`·`APPEARANCE_CONFIRM_PERIOD_ENDING`: 생성·취소 모두 부분 충족. `AppearanceChangedEvent`에 받는 사람 ID·`scheduledAt`·결과가 있지만 요청 수락/지원 수락, 합의/일방 취소, 호스트/자동 확인을 구분하지 못한다(1장 박스). 예약 판단 보조로 쓸 수 있는지는 추측이며 검증하지 않았다.
   - `LECTURE_ORDER_ITEM_CONFIRMING`: 생성 부분 충족(`LecturePurchaseChangedEvent` `OWNED`, 항목 단위·`purchasedAt` 있음). 취소는 구매 취소만 부분 충족(`CANCELED`), 구매 확정은 미충족(확정 전이는 동기화 이벤트도 없음, `LectureSyncEvents.java` 59행 근처).
-- **예약보다 먼저 온 취소**: ND-034를 따른다(`NT-SCH-06`). 생성·취소 이벤트는 key·토픽이 다를 수 있고 Modulith 전송은 같은 key도 순서가 바뀔 수 있다. `AppearanceChangedEvent`를 쓰더라도 순서 보장이 없다. 생성·취소 이벤트가 같은 (대상 ID, 받는 사람)을 주는지는 위 예약 알림마다 확인하지 않았다(**U16**). 확인 전인 예약 알림에는 ND-034를 적용하지 않는다.
+- **예약보다 먼저 온 취소**: ND-034를 따른다(`NT-SCH-06`). 생성·취소 이벤트는 key·토픽이 다를 수 있고 Modulith 전송은 같은 key도 순서가 바뀔 수 있다. `AppearanceChangedEvent`를 쓰더라도 순서 보장이 없다. 예약 알림별 짝 키(대상 ID, 받는 사람)는 [이벤트 계약 요청](event-contracts.md) 0.3에 정했다. 발행 구현 뒤 실제 이벤트가 그 값을 주는지는 확인하지 않았다(**U16**). 확인 전인 예약 알림에는 ND-034를 적용하지 않는다.
 - 예약의 중복 방지 키는 `notification_schedule`의 (종류, 대상 ID, 받는 사람)이다(ND-025). 종류별 대상 ID는 미정(U5).
 
 ## 8. 하루 묶음 알림

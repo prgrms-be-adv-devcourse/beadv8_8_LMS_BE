@@ -5,11 +5,12 @@
 > - 알림 모듈이 소비할 발행 모듈 이벤트의 계약(이벤트 이름, 토픽·key, 담을 값)을 모은 **요청 원본**이다. 알림 담당이 정하고, 발행 담당은 이 문서를 Issue로 받아 `common/shared` 이벤트와 발행을 구현한다([ND-037](decisions.md)).
 > - 실제로 구현된 계약의 원본은 `common/shared` 코드와 [kafka.md](../architecture/infrastructure/kafka.md) 토픽 표다. 이 문서는 요청과 그 진행 상태만 맡는다.
 > - 알림 종류별 명세(받는 사람, 발생 조건, 보내지 않는 경우)는 [알림 종류](notification-catalog.md)가 원본이다. 이 문서는 종류 코드로만 가리킨다.
-> - 구현 상태: 2026-11-09 기준 아래 이벤트는 모두 발행되지 않는다(🟡는 JVM 안에서만 발행). 근거는 알림 종류 각 행의 "2026-11-06 판정"이다.
+> - 구현 상태(2026-11-09): 🆕는 발행되지 않고, 🟡는 JVM 안에서만 발행된다. ⚠️와 "기존 변경"은 이미 Kafka로 나가지만 요청한 값이 아직 없다. 근거는 알림 종류 각 행의 "2026-11-06 판정"이다.
 >
 > 변경 이력
 > - 2026-11-09 처음 작성: 원천 설계 [notification.md 7장](../architecture/infrastructure/notification.md)의 요청(알림 종류 문서 1.1~6.1에 있던 표)을 옮기고, ND-038 공통 값과 ND-040·ND-041·ND-042·ND-044를 반영했다.
 > - 2026-11-09 확정: 발행 앱 코드를 조사해(7장) 사건 ID·key·필드를 정하고 ND-045(회차 번호)를 반영했다. 모든 이벤트를 "확정"으로 바꿨다.
+> - 2026-11-09 PR 리뷰 반영(#794): 구현 상태 서술을 이미 발행 중인 ⚠️·기존 변경 이벤트에 맞게 고쳤다. 0.3 예약 짝 키를 새로 두었다(U16 계약 쪽). 3장에 ND-040의 지급 요청 변경 범위를 적고 7장에 근거 행을 더했다.
 
 ## 0. 읽는 법
 
@@ -33,6 +34,20 @@
 - 예약을 취소하는 이벤트는 그 예약을 만든 이벤트와 같은 (대상 ID, 받는 사람)을 담는다(ND-034).
 - 필드 이름·타입은 그 발행 모듈의 기존 shared 이벤트 관례를 따른다(ND-038). 아래 필드 이름은 계약에서 정한 뜻이며, 발행 모듈에 같은 뜻의 기존 이름이 있으면 그것을 쓴다. 시각 타입은 출연 `LocalDateTime`, 강의 `OffsetDateTime`, 지갑·회원 `Instant`, 고객센터·채팅 `Instant`(새로 정함)다.
 - Kafka key는 kafka.md 토픽 표의 `<대상>:<ID>` 형식을 따른다. 발행은 Modulith outbox + shared 레코드 `@Externalized` + eventType 헤더다(kafka.md "발행"). 새 이벤트·key·토픽의 kafka.md 토픽 표 반영은 발행 Issue에서 팀 승인으로 한다.
+
+### 0.3 예약 짝 키
+
+예약 알림은 (종류, 대상 ID, 받는 사람)으로 한 건이다(ND-025). 예약을 만드는 이벤트와 취소하는 이벤트는 아래 값을 모두 담아야 한다(ND-034). 이 값은 "사건 ID" 칸(알림 중복 방지 키)과 다를 수 있다. 예약을 만들고 취소하는 사건은 [알림 종류](notification-catalog.md) 7장이 원본이다.
+
+| 예약 알림 | 대상 ID | 받는 사람 | 예약을 만드는 이벤트 | 예약을 취소하는 이벤트 |
+| --- | --- | --- | --- | --- |
+| `APPEARANCE_REQUEST_EXPIRING` | 요청서 ID | 게스트 | `AppearanceRequestSentEvent`(기존, `requestId`·`guestId`) | `AppearanceRequestAccepted`·`Rejected`·`CanceledEvent` |
+| `APPEARANCE_RECRUIT_CLOSING` | 모집글 ID | 호스트 | `AppearanceRecruitOpenedEvent` | `AppearanceRecruitClosed`·`CanceledEvent` |
+| `APPEARANCE_STARTING` | 출연 ID | 호스트, 게스트 각각 | `AppearanceRequestAcceptedEvent`, `AppearanceApplicationSelectedEvent` | `AppearanceCancelRequestAcceptedEvent`, `AppearanceCanceledByHostEvent` |
+| `APPEARANCE_CONFIRM_PERIOD_ENDING` | 출연 ID | 호스트 | `AppearanceRequestAcceptedEvent`, `AppearanceApplicationSelectedEvent` | `AppearanceConfirmedEvent`, `AppearanceAbsentEvent`, `AppearanceCancelRequestAcceptedEvent`, `AppearanceCanceledByHostEvent` |
+| `LECTURE_ORDER_ITEM_CONFIRMING` | 주문 항목 ID | 구매자 | `LectureOrderPaidEvent`(주문 항목마다) | `LectureOrderItemCanceledEvent`, `LectureOrderItemConfirmedEvent` |
+
+1장·2장 표의 "담을 값"은 위 대상 ID와 받는 사람 ID를 모두 담는다. 발행 구현 뒤 실제 이벤트가 이 값을 주는지 확인하는 일은 소비 작업에 남는다(U16).
 
 ## 1. 출연 (`appearance.events.v1`, M1·M3)
 
@@ -91,8 +106,8 @@
 | `ExchangeApprovedEvent` | 🆕 (M5) | `exchange:<환전 ID>` | `exchangeId`, `userId`, 금액, `payoutScheduledAt`(정산 예정 시각), `approvedAt` | `exchangeId` | `approvedAt` | 신청한 회원 | `EXCHANGE_APPROVED` | 확정 |
 | `PayoutCompletedEvent` | 기존 변경 (ND-040) | `settlement:<지급 건 ID>`(지금 그대로) | 지금 값 + `sourceTitle`(출처 제목) | `settlementId`(지금 그대로) | `paidAt`(지금 그대로) | `receiverUserId` | `PAYOUT_COMPLETED`, `PAYOUT_COMPLETED_DAILY` | 확정 |
 
-- ND-040에 따라 지급을 요청하는 출연·강의가 지급 요청에 출처 제목을 넘기고, 지갑이 `sourceTitle`로 담는다. 지갑·출연·강의 세 곳의 Issue가 필요하다.
-- 구현 참고: 지갑은 이미 수익 조회 내부 API로 출처 제목을 받는다([internal-earnings.md](../api/internal-earnings.md) 3.2 `title`, 6.2 `title`). 지급 요청 경로에도 같은 값이 있는지는 확인하지 않았다.
+- ND-040 변경 범위: 지급 요청 `PayoutCommand`(정상 지급)와 `PenaltyCommand`(위약금 지급)에 출처 제목을 더하고, 출연·강의가 지급을 요청할 때 넘긴다. 지갑은 그 값을 `PayoutCompletedEvent.sourceTitle`로 담는다. 이벤트는 지급 건(`Settlement`)에서 만들므로 값을 어떻게 보관할지(저장 칸 추가 등)는 지갑 담당이 정한다. 지갑·출연·강의 세 곳의 Issue가 필요하다.
+- 참고: 지갑은 이미 수익 조회 내부 API로 출처 제목을 받는다([internal-earnings.md](../api/internal-earnings.md) 3.2 `title`, 6.2 `title`).
 
 ## 4. 회원 (`member.events.v1`, M6·ND-042)
 
@@ -143,6 +158,8 @@ key는 `inquiry:<문의 ID>`다(토픽 표). 지금 고객센터 이벤트에는
 | 강의 주문 2종 | `LectureOrder`(Long id). 결제(보류) 실패는 주문마다 한 번이다. 주문 key가 토픽 표에 없다 | 사건 ID 주문 ID, key `order:` |
 | 반환 지연 | 같은 문의에서 관리자 재시도 뒤 `ReturnResultHandler.onDead`가 다시 난다 | 반환 지연 회차(ND-045) |
 | 충전·환불 실패, 운영자 확인 | 충전 실패는 충전(`PointCharge`)마다 한 번, 환불 실패·운영자 확인은 환불 요청(`PointRefundRequest`)마다 한 번이다 | 기존 ID |
+| 지급 완료 제목(ND-040) | 정상 지급 요청 `PayoutCommand`와 위약금 지급 요청 `PenaltyCommand`(shared)에 제목 필드가 없다. 출연은 `HpTaskExecuteUseCase`에서 `PayoutCommand`를 만든다. 지갑은 `BillingEventPublisher`가 지급 건(`Settlement`)에서 이벤트를 만들고, `Settlement`에도 제목이 없다 | 두 요청에 출처 제목 추가, 보관 방식은 지갑 담당 |
+| 예약 짝 키(0.3) | `AppearanceRequestSentEvent`는 `AppearanceRequestDto`(`requestId`·`hostId`·`guestId`)를 담는다. 나머지 짝 이벤트는 1·2장 표에서 대상 ID와 받는 사람을 담도록 정했다 | 0.3 표 |
 | 환전 승인 | 정산일 필드는 없고 `Exchange.approve`가 `payoutScheduledAt`(`Instant`)을 정한다 | `payoutScheduledAt` |
 | 채널 인증 2종 | 같은 채널로 반려 → `InfluencerChannel.requestApproval` 재요청이 반복되고 심사 이력이 없다. 자동 승인은 `verifiedBy`가 없다 | 심사 회차(ND-045) |
 | 승급 반려 | `InfluencerUpgradeRequest`는 신청 1건이 1행이다 | 승급 신청 ID |
