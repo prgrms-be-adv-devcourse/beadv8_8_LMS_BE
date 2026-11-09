@@ -61,9 +61,11 @@ spec:
           # trace(#579) 적용 전 운영 working set이 588Mi(640Mi의 92%)였고, k3d에서 trace를 더하면 기동 10분 뒤 약 +18Mi
           # (non-heap +8Mi, 스레드 +9, 클래스 +1,148)였다. 여유를 두려고 704Mi로 올렸다(docs/architecture/infrastructure/k3s.md).
           # 704Mi에서 기동 20시간 working set 646Mi(92%)였다. heap 사용은 최대 164Mi인데 상한(limit의 60%)이 410Mi라 상한까지 차면 limit을 넘는다.
-          # heap 상한을 -Xmx224m으로 고정하고(kustomization.yaml) limit은 둔다. heap 224 + heap 외 JVM 영역 246 + native 148 ≈ 618Mi(88%)다(#727, #610).
-          # -Xmx224m 운영 최대 working set은 부하 없을 때 580Mi(82%, 가장 오래 돈 pod 43.6시간 564Mi), k6 100 RPS(JFR 포함) 639Mi(91%)다.
-          # DB 재시작이 겹친 부하에서는 672Mi(95%)로 heap 217 + heap 외 255 + native 200과 같다. limit 안이라 704Mi로 둔다(#730).
+          # heap 상한을 -Xmx224m으로 고정하고(kustomization.yaml) limit은 둔다. #727 때는 heap이 상한까지 차도 224 + heap 외 JVM 영역 246
+          # + native 148 ≈ 618Mi(88%)로 예상했다(#610).
+          # 적용 뒤 운영 최대 working set은 부하 없을 때 580Mi(82%, 가장 오래 돈 pod 43.6시간 564Mi), k6 100 RPS(JFR 포함) 639Mi(91%)였다(#730).
+          # k6에 DB 재시작이 겹친 부하에서는 heap 217 + heap 외 255 + native 200 ≈ 672Mi(95%)로 예상보다 컸지만 limit 안이라 704Mi로 둔다.
+          # 이 672Mi는 기동 100분 된 pod의 값이다. 오래 돈 pod에 같은 부하·DB 재시작이 겹친 경우는 재지 않았다.
           resources:
             requests:
               cpu: 100m
