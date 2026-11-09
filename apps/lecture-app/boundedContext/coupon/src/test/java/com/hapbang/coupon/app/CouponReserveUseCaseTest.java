@@ -151,6 +151,18 @@ class CouponReserveUseCaseTest {
     }
 
     @Test
+    void 해제한_예약을_같은_작업_ID로_다시_보내면_재응답하지_않고_409이다() {
+        CouponReserveRequest request = request(sellerBasis(1_000), platformBasis());
+        useCase.reserve(request);
+        savedUsages.getFirst().release("order-900:release:1", "주문 실패", null, MemberCouponStatus.AVAILABLE, NOW);
+        givenRecorded(request, "RESERVED", null);
+        clearInvocations(memberCouponRepository);
+
+        assertUsageError(() -> useCase.reserve(request), CouponErrorCode.COUPON_WORK_CONFLICT, null);
+        verify(memberCouponRepository, never()).reserve(anyLong(), anyLong(), anyLong(), anyLong(), any());
+    }
+
+    @Test
     void 같은_작업_ID와_같은_내용의_거절_기록이_있으면_같은_코드와_발급_쿠폰으로_거절한다() {
         CouponReserveRequest request = request(sellerBasis(1_000), platformBasis());
         givenRecorded(request, "REJECTED", "COUPON_GENERATION_MISMATCH:" + SELLER_COUPON);

@@ -185,6 +185,7 @@
 - 응답 `items`는 저장한 사용 이력으로 만든다. 쿠폰이 없는 주문 항목(위 예시의 90012)은 빠진다. 처음 응답과 같은 workId 재응답이 같다.
 - 한 트랜잭션에서 소유·기한·상태·정책 버전·적용 대상·중첩·순서를 다시 검증하고, 금액을 다시 계산해 요청 근거와 대조한다. 그 뒤 모든 쿠폰을 발급 쿠폰 ID 오름차순으로 generation 조건부 갱신(CAS)해 예약하고 사용 이력을 쓴다.
 - 하나라도 실패하면 전부 롤백한다. 다른 쿠폰도 AVAILABLE 그대로다. 거절은 작업 기록에 거절 코드(실패한 쿠폰이 있으면 `CODE:memberCouponId`)로 남아, 같은 workId로 다시 보내면 같은 코드·같은 `memberCouponId`로 거절된다.
+- 해제한 뒤 같은 예약 workId를 다시 보내면 409 `COUPON_WORK_CONFLICT`다. 재시도는 새 workId로 한다.
 - 해제한 쿠폰은 같은 주문 항목에 다시 예약할 수 있다. 새 generation으로 새 사용 시도가 생긴다. 같은 주문 항목·같은 발급 쿠폰의 예약(RESERVED)은 동시에 하나뿐이다.
 - 0 할인 쿠폰을 골라도 거절하지 않고 할인 0으로 예약한다.
 - 실패한 409 응답에는 실패한 쿠폰의 `memberCouponId`(number)가 함께 온다. 같은 workId 재응답에도 같다. 특정 쿠폰이 아닌 실패(작업 내용 충돌 등)에는 없다.
@@ -332,7 +333,7 @@
 | 409 | `COUPON_GENERATION_MISMATCH` | 예약 | 발급 쿠폰의 generation이 계산 때와 다르다(다른 주문이 먼저 예약 등) |
 | 409 | `COUPON_POLICY_VERSION_CHANGED` | 예약 | 쿠폰 정책 버전이 계산 때와 다르다 |
 | 409 | `COUPON_AMOUNT_MISMATCH` | 예약 | 다시 계산한 금액·적용 순서가 요청 근거와 다르다 |
-| 409 | `COUPON_WORK_CONFLICT` | 예약·해제 | 같은 workId로 다른 내용을 보냈다 |
+| 409 | `COUPON_WORK_CONFLICT` | 예약·해제 | 같은 workId로 다른 내용을 보냈다. 또는 해제한 예약의 workId로 다시 예약했다 |
 | 409 | `COUPON_RELEASE_NOT_ALLOWED` | 해제 | 사용됨(USED)·다른 주문·다른 generation이거나 사용 시도를 찾지 못해 해제할 수 없다 |
 | 503 | `LECTURE_CATALOG_UNAVAILABLE` | 계산 | 강의 조회 내부 API에 닿지 못했다. 다시 불러도 된다 |
 | 401 | (본문 없음) | 전부 | 내부 API 키가 없거나 틀리다 |

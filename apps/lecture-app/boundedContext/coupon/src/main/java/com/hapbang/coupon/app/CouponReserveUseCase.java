@@ -19,6 +19,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.CouponUsage;
+import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.ProcessedOperation;
 import com.hapbang.coupon.domain.usage.AppliedCoupon;
@@ -44,8 +45,8 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 쿠폰 예약(강의 → 쿠폰 내부 API). 주문의 모든 쿠폰을 한 트랜잭션에서 예약하거나 하나도 예약하지 않는다.
  * <ol>
- *     <li>같은 작업 ID의 기록이 있으면 처음 결과를 다시 준다(예약 성공은 사용 시도에서 다시 만들고, 거절은 같은 코드로 거절). 내용이 다르면
- *     409 {@code COUPON_WORK_CONFLICT}.</li>
+ *     <li>같은 작업 ID의 기록이 있으면 처음 결과를 다시 준다(예약 성공은 사용 시도에서 다시 만들고, 거절은 같은 코드로 거절). 내용이 다르거나
+ *     그 예약을 이미 해제했으면 409 {@code COUPON_WORK_CONFLICT}다.</li>
  *     <li>소유 → 세대(계산 뒤 다른 사용 시도가 있었는가) → 기한·상태·적용 대상·중첩·순서를 다시 검증하고 금액을 다시 계산해 요청
  *     근거(정책 버전·적용 순서·금액)와 대조한다. 가격은 요청의 주문 스냅샷 가격을 쓴다(강의 조회는 계산에서만 한다).</li>
  *     <li>발급 쿠폰 ID 오름차순으로 generation 조건부 갱신을 하고(교착 회피), 0행이면 다시 읽어 원인을 가른다. 그 뒤 사용 시도와 작업
@@ -252,8 +253,14 @@ public class CouponReserveUseCase {
         if (CouponUsageSupport.RESULT_REJECTED.equals(recorded.getResult())) {
             throw CouponUsageSupport.rejectionOf(recorded.getDetail());
         }
-        return toResponse(workId, couponUsageRepository.findByReservationWorkIdOrderByOrderItemIdAscApplyOrderAsc(
-                workId));
+        List<CouponUsage> usages = couponUsageRepository.findByReservationWorkIdOrderByOrderItemIdAscApplyOrderAsc(
+                workId);
+        // 해제한 예약을 RESERVED로 다시 알려 주면 강의가 쓸 수 없는 할인으로 결제를 이어 갈 수 있다. 재시도는 새 workId로 한다
+        if (usages.stream().anyMatch(usage -> usage.getStatus() != CouponUsageStatus.RESERVED)) {
+            throw new CouponUsageException(CouponErrorCode.COUPON_WORK_CONFLICT, CouponUsageStatus.RELEASED.name(),
+                    null);
+        }
+        return toResponse(workId, usages);
     }
 
     /**

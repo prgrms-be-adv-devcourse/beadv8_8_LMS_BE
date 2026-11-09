@@ -158,6 +158,18 @@ class CouponUsageE2eTest {
                         .param("memberId", String.valueOf(MEMBER_A)).param("orderId", "9001").with(internal()))
                 .andExpect(jsonPath("$.data.status").value("RELEASED"));
 
+        // 해제한 예약을 같은 workId·같은 내용으로 다시 보내면 RESERVED로 재응답하지 않고 409다. 아무것도 바뀌지 않는다
+        reserve(MEMBER_A, 9001L, 90011L, "order-9001:reserve:1", basisJson(basis))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_WORK_CONFLICT"));
+        assertThat(memberCouponRepository.findStateById(sellerOfA).orElseThrow())
+                .satisfies(state -> {
+                    assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
+                    assertThat(state.generation()).isEqualTo(1);
+                });
+        assertThat(couponUsageRepository.findAll()).extracting(usage -> usage.getStatus())
+                .containsOnly(CouponUsageStatus.RELEASED).hasSize(2);
+
         // 해제한 쿠폰은 같은 주문 항목에 다시 예약할 수 있고, 새 세대의 새 사용 시도가 된다(이력 두 행)
         reserve(MEMBER_A, 9001L, 90011L, "order-9001:reserve:2", pairBasis(sellerOfA, platformOfA, 1))
                 .andExpect(status().isOk())
