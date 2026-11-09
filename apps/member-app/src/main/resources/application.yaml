@@ -51,6 +51,12 @@ spring:
     default-schema: member
     schemas:
     - member
+  # Redis 명령·연결 시간 제한 (#770). 기본값(명령 60초, 연결 10초)이면 Redis가 멈췄을 때 요청이 그만큼 묶인다.
+  # 앱 전체에 걸린다: 로그인 상태·이메일 인증 등도 Redis가 멈추면 1초 안에 실패한다. 프로필 사진 주소 캐시는 실패하면 캐시 없이 서명한다
+  data:
+    redis:
+      timeout: 1s
+      connect-timeout: 1s
   http:
     clients:
       connect-timeout: 3s
