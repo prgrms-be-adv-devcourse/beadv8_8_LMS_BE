@@ -7,6 +7,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
@@ -19,7 +20,14 @@ import org.springframework.web.client.RestClient;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.dto.ContentCategoriesDto;
+import com.hapbang.shared.member.dto.ContentCategoryDto;
+import com.hapbang.shared.member.dto.InfluencerChannelDto;
+import com.hapbang.shared.member.dto.InfluencerStatsDto;
+import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
+import com.hapbang.shared.member.dto.MemberChangePageDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
+import com.hapbang.shared.member.dto.RatingDto;
 import com.hapbang.shared.member.dto.UserDto;
 import com.sun.net.httpserver.HttpServer;
 
@@ -89,6 +97,99 @@ class MemberApiClientTest {
         assertThat(requests).containsExactly("/api/v1/internal/members?size=500 key=" + API_KEY);
         assertThat(page.items()).isEmpty();
         assertThat(page.nextAfterId()).isNull();
+    }
+
+    @Test
+    void 인플루언서_통계는_afterId와_size를_붙여_보내고_채널_모두와_평점을_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"인플루언서 통계를 조회했습니다.","data":{"items":[
+                 {"userId":3,"version":2,"channels":[{"channelName":"본채널","followerCount":1200},
+                  {"channelName":"다시보기","followerCount":300}],"appearanceRating":{"average":4.3,"count":7}},
+                 {"userId":5,"version":0,"channels":[],"appearanceRating":{"count":0}}],
+                 "nextAfterId":5}}""");
+
+        InfluencerStatsPageDto page = client().getInfluencerStats(2L, 2);
+
+        assertThat(requests).containsExactly("/api/v1/internal/members/influencer-stats?size=2&afterId=2 key=" + API_KEY);
+        assertThat(page.items()).containsExactly(
+                new InfluencerStatsDto(3L, 2L, List.of(new InfluencerChannelDto("본채널", 1200),
+                        new InfluencerChannelDto("다시보기", 300)), new RatingDto(4.3, 7)),
+                // 리뷰가 없으면 평균이 응답에서 빠진다(null)
+                new InfluencerStatsDto(5L, 0L, List.of(), new RatingDto(null, 0)));
+        assertThat(page.nextAfterId()).isEqualTo(5L);
+
+        requests.clear();
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[]}}""");
+        assertThat(client().getInfluencerStats(null, 500).nextAfterId()).isNull();
+        assertThat(requests).containsExactly("/api/v1/internal/members/influencer-stats?size=500 key=" + API_KEY);
+    }
+
+    @Test
+    void 인플루언서_통계에서_channels나_평점이_빠진_응답은_호출_불가_예외로_바뀐다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[
+                 {"userId":3,"version":2,"appearanceRating":{"count":0}}]}}""");
+        assertUnavailable(() -> client().getInfluencerStats(null, 100), 200);
+
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[{"userId":3,"version":2,"channels":[]}]}}""");
+        assertUnavailable(() -> client().getInfluencerStats(null, 100), 200);
+    }
+
+    @Test
+    void 회원_변경분은_커서_둘을_함께_보내고_다음_커서를_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"회원 변경분을 조회했습니다.","data":{"items":[
+                 {"id":7,"nickname":"회원7","role":"INFLUENCER","status":"SUSPENDED","version":4,
+                  "contentCategories":["GAME"],"bio":"소개"}],
+                 "nextAfterUpdatedAt":"2026-11-09T10:15:30.123456","nextAfterId":7}}""");
+
+        MemberChangePageDto page = client().getChanges(LocalDateTime.of(2026, 11, 9, 10, 0), 3L, 100);
+
+        // 초가 0이어도 초까지 보낸다
+        assertThat(requests).containsExactly(
+                "/api/v1/internal/members/changes?size=100&afterUpdatedAt=2026-11-09T10:00:00&afterId=3 key=" + API_KEY);
+        assertThat(page.items()).containsExactly(new UserDto(7L, "회원7", Role.INFLUENCER, UserStatus.SUSPENDED, 4L,
+                List.of("GAME"), "소개"));
+        assertThat(page.nextAfterUpdatedAt()).isEqualTo(LocalDateTime.of(2026, 11, 9, 10, 15, 30, 123_456_000));
+        assertThat(page.nextAfterId()).isEqualTo(7L);
+    }
+
+    @Test
+    void 회원_변경분은_커서가_없으면_처음부터_조회하고_하나만_넘기면_보내지_않는다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"","data":{"items":[]}}""");
+
+        MemberChangePageDto page = client().getChanges(null, null, 500);
+
+        assertThat(requests).containsExactly("/api/v1/internal/members/changes?size=500 key=" + API_KEY);
+        assertThat(page.nextAfterUpdatedAt()).isNull();
+        assertThat(page.nextAfterId()).isNull();
+
+        requests.clear();
+        assertThatThrownBy(() -> client().getChanges(LocalDateTime.of(2026, 11, 9, 10, 0), null, 100))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> client().getChanges(null, 3L, 100))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(requests).isEmpty();
+    }
+
+    @Test
+    void 콘텐츠_분야_목록은_꺼진_분야까지_돌려준다() {
+        respond(200, "application/json", """
+                {"statusCode":200,"message":"콘텐츠 분야 목록을 조회했습니다.","data":{"items":[
+                 {"code":"GAME","name":"게임","active":true},
+                 {"code":"OLD_GAME","name":"옛 게임","active":false}]}}""");
+
+        ContentCategoriesDto categories = client().getContentCategories();
+
+        assertThat(requests).containsExactly("/api/v1/internal/members/content-categories key=" + API_KEY);
+        assertThat(categories.items()).containsExactly(new ContentCategoryDto("GAME", "게임", true),
+                new ContentCategoryDto("OLD_GAME", "옛 게임", false));
+
+        respond(200, "application/json", "{\"statusCode\":200,\"message\":\"\",\"data\":{}}");
+        assertUnavailable(() -> client().getContentCategories(), 200);
     }
 
     @Test
