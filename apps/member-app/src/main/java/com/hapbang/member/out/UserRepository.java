@@ -74,6 +74,28 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
 
     /**
+     * 회원 변경분 첫 페이지 (#769): updated_at, id 오름차순으로 limit개. 모든 역할·상태 포함.
+     * updated_at이 null인 행은 커서로 이어 읽을 수 없어 뺀다. 가입 때 감사 기능이 채우고, 그 전 행은 마이그레이션이 채웠다
+     * (V202611091522)
+     */
+    List<User> findByUpdatedAtIsNotNullOrderByUpdatedAtAscIdAsc(Limit limit);
+
+    /**
+     * 회원 변경분 다음 페이지 (#769): (updated_at, id)가 커서보다 뒤인 회원을 오름차순으로 limit개. 모든 역할·상태 포함.
+     * 행 값 비교라 같은 updated_at의 회원이 페이지 경계에 걸려도 id로 이어 읽고, 인덱스 idx_users_updated_at_id를 탄다
+     */
+    @Query("""
+            select u from User u
+            where (u.updatedAt, u.id) > (:afterUpdatedAt, :afterId)
+            order by u.updatedAt, u.id""")
+    List<User> findChangedAfter(@Param("afterUpdatedAt") LocalDateTime afterUpdatedAt, @Param("afterId") long afterId,
+                                Limit limit);
+
+    /** 역할·상태로 회원 목록(키셋): afterId보다 큰 ID를 오름차순으로 limit개 (인플루언서 통계, #769) */
+    List<User> findByRoleInAndStatusAndIdGreaterThanOrderByIdAsc(Collection<Role> roles, UserStatus status, Long afterId,
+                                                                 Limit limit);
+
+    /**
      * 프로필 사진 key 일괄 조회 (#770). 정상 회원 중 사진이 있는 회원만 쿼리 한 번으로 읽는다.
      * 정상이 아닌 회원은 프로필 조회(MemberSupport.findActiveUser)와 같이 빠진다
      */

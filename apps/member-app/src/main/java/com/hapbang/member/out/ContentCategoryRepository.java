@@ -15,4 +15,7 @@ public interface ContentCategoryRepository extends JpaRepository<ContentCategory
 
     /** 새로 고를 수 있는(active) 분야 전부 (분야 목록 API) */
     List<ContentCategory> findByActiveTrue();
+
+    /** 분야 전부, 꺼진 분야 포함, 코드 오름차순 (분야 목록 내부 API, #769) */
+    List<ContentCategory> findAllByOrderByCodeAsc();
 }
