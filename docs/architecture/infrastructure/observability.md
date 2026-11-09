@@ -238,7 +238,7 @@ rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contact
 
 **수정 방법.** 파일이 원본이다. provisioning된 rule·contact point·통보 규칙은 Grafana UI에서 고칠 수 없다. UI에서 rule을 만들어 시험했다면 rule 화면의 Export(YAML)로 내려받아 `rules.yaml`에 옮긴다. contact point 설정의 `$변수`는 환경 변수로 바뀌므로 Slack 메시지 template을 넣을 때는 `$`를 `$$`로 쓴다. rule annotation은 바뀌지 않으므로 `{{ $labels.x }}`를 그대로 쓴다. 차트의 `alerting` 값은 내용을 Helm `tpl`로 돌려 Grafana template과 겹치므로 쓰지 않고, kustomization이 만든 ConfigMap(`grafana-alerting-hapbang`)을 `/etc/grafana/provisioning/alerting`에 마운트한다.
 
-**적용.** dashboard와 달리 Grafana는 alert provisioning을 기동할 때 읽는다. 파일만 바꿨으면 ConfigMap을 적용한 뒤 Grafana를 다시 띄운다(Recreate라 1분쯤 접속이 끊긴다). Webhook URL을 바꿀 때는 Slack App에서 새 webhook을 만들고 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL`을 새 URL로 바꾼 뒤 `k8s/tools/seal-grafana-alerting.sh`로 다시 봉인한다. 바뀐 `k8s/platform/overlays/prod/grafana-alerting.yaml`을 PR로 반영하고, SealedSecret을 적용해 Grafana를 다시 띄운다. Grafana의 contact point `slack`에서 Test로 시험 메시지가 오는 것을 확인한 뒤에 이전 webhook을 지운다.
+**적용.** dashboard와 달리 Grafana는 alert provisioning을 기동할 때 읽는다. 파일만 바꿨으면 ConfigMap을 적용한 뒤 Grafana를 다시 띄운다(Recreate라 1분쯤 접속이 끊긴다). Webhook URL을 바꿀 때는 Slack App에서 새 webhook을 만들고 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL`을 새 URL로 바꾼 뒤 `k8s/tools/seal-grafana-alerting.sh`로 다시 봉인한다. 바뀐 `k8s/platform/overlays/prod/grafana-alerting.yaml`을 PR로 반영하고, SealedSecret을 적용해 Grafana를 다시 띄운다. Grafana의 contact point `slack`에서 Test로 시험 메시지가 오는 것을 확인한 뒤에 이전 webhook을 지운다. `slack-critical`도 같은 URL을 쓰므로 `slack` 시험으로 충분하다. `slack-critical`의 Test는 채널 전원에게 `@here`가 간다.
 
 ```bash
 kubectl kustomize k8s/platform/overlays/prod \
