@@ -37,7 +37,9 @@ public interface ApiV1LectureOrderSpec {
                     + "주문을 만들기 전에 확인한다. 쿠폰 주문 오류: expectedBuyerAmountHp 없음·주문하지 않는 강의에 쓴 쿠폰 400 INVALID_REQUEST, "
                     + "쿠폰을 쓸 수 없음 409 COUPON_CALCULATION_REJECTED(couponCode에 쿠폰 오류 코드, 특정 쿠폰 때문이면 memberCouponId), "
                     + "결제 금액이 바뀜 409 ORDER_QUOTE_CHANGED(다시 계산해 주문), 플랫폼 쿠폰 409 COUPON_PLATFORM_FUNDING_UNAVAILABLE(아직 쓸 수 없음), "
-                    + "쿠폰을 확인할 수 없음(쿠폰 모듈 장애·설정 문제) 503 COUPON_UNAVAILABLE. 이 오류들은 주문을 만들지 않는다.")
+                    + "쿠폰을 확인할 수 없음(쿠폰 모듈 장애·설정 문제) 503 COUPON_UNAVAILABLE. 이 오류들은 주문을 만들지 않는다. "
+                    + "주문을 저장한 뒤 쿠폰을 예약하고, 예약이 끝나야 HP를 보류한다. 예약이 거절되면 주문은 결제 실패(HOLD_FAILED)로 남고 "
+                    + "409 COUPON_RESERVATION_REJECTED(couponCode·memberCouponId)다. 예약 결과를 모르면 202 + HOLD_PENDING이다.")
     ResponseEntity<RsData<OrderResponse>> createOrder(Long userId, OrderCreateRequest request);
 
     @Operation(summary = "내 주문 목록", description = "최근 주문부터.")

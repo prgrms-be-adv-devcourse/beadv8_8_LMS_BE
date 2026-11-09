@@ -74,21 +74,19 @@ class OrderCouponCreateTest {
     }
 
     @Test
-    void 쿠폰_주문은_트랜잭션_밖에서_계산하고_할인_스냅샷과_계산_근거와_예약_작업을_저장하며_HP_작업은_아직_없다() {
+    void 쿠폰_주문은_트랜잭션_밖에서_계산하고_할인_스냅샷과_계산_근거와_예약_작업을_저장하며_예약_결과를_모르면_HP_작업이_없다() {
         Lecture lecture = saveOnSale();
         coupon.respond(request -> new CouponCallResult.Succeeded<>(sellerCoupon((CouponCalculateRequest) request)));
 
         OrderResponse response = lectureOrderFacade.createOrder(BUYER_ID, List.of(lecture.getId()),
                 List.of(new OrderCouponSelection(501L, lecture.getId())), PRICE_HP - SELLER_DISCOUNT);
 
-        // 쿠폰 예약(다음 단계) 전이라 결제 처리 중이다
+        // Fake의 예약은 정한 결과가 없으면 결과 불명이다. 예약 결과를 모르니 결제 처리 중이다
         assertThat(response.status()).isEqualTo(LectureOrderStatus.HOLD_PENDING);
-        assertThat(coupon.calls()).singleElement().satisfies(call -> {
-            assertThat(call.transactionActive()).isFalse();
-            assertThat((CouponCalculateRequest) call.request()).isEqualTo(new CouponCalculateRequest(BUYER_ID,
-                    List.of(new CouponCalculateRequest.Item(lecture.getId(), SELLER_ID, PRICE_HP)),
-                    List.of(new CouponCalculateRequest.Selection(501L, lecture.getId()))));
-        });
+        assertThat(coupon.calls()).hasSize(2).allSatisfy(call -> assertThat(call.transactionActive()).isFalse());
+        assertThat(coupon.calls().getFirst().request()).isEqualTo(new CouponCalculateRequest(BUYER_ID,
+                List.of(new CouponCalculateRequest.Item(lecture.getId(), SELLER_ID, PRICE_HP)),
+                List.of(new CouponCalculateRequest.Selection(501L, lecture.getId()))));
         Long orderItemId = response.items().getFirst().orderItemId();
         assertThat(jdbcTemplate.queryForMap("select discount_hp, platform_discount_hp, seller_discount_hp "
                 + "from lectures.order_item where id = ?", orderItemId))
@@ -105,7 +103,7 @@ class OrderCouponCreateTest {
                 + "from lectures.order_coupon_work where order_id = ?", response.orderId()))
                 .containsExactlyInAnyOrderEntriesOf(Map.of("kind", "RESERVE",
                         "work_id", "lecture-order:" + response.orderId() + ":reserve", "status", "PENDING",
-                        "attempt_count", 0));
+                        "attempt_count", 1));
         assertThat(jdbcTemplate.queryForObject("select count(*) from lectures.lecture_hp_task where order_id = ?",
                 Long.class, response.orderId())).isZero();
         assertThat(billing.calls()).isEmpty();

@@ -65,6 +65,21 @@ class OrderCouponWorkTest {
     }
 
     @Test
+    void 특정_쿠폰_때문인_거절은_코드와_발급_쿠폰_ID를_함께_남기고_나눠_읽는다() {
+        OrderCouponWork byCoupon = OrderCouponWork.reserve(7L, NOW);
+        OrderCouponWork byWork = OrderCouponWork.reserve(8L, NOW);
+
+        byCoupon.markRejected("COUPON_GENERATION_MISMATCH", 502L, NOW);
+        byWork.markRejected("COUPON_WORK_CONFLICT", null, NOW);
+
+        assertThat(byCoupon.getRejectCode()).isEqualTo("COUPON_GENERATION_MISMATCH:502");
+        assertThat(byCoupon.rejectedCouponCode()).isEqualTo("COUPON_GENERATION_MISMATCH");
+        assertThat(byCoupon.rejectedMemberCouponId()).isEqualTo(502L);
+        assertThat(byWork.rejectedCouponCode()).isEqualTo("COUPON_WORK_CONFLICT");
+        assertThat(byWork.rejectedMemberCouponId()).isNull();
+    }
+
+    @Test
     void 해제_작업은_해제_성공으로만_끝나고_예약_결과로는_끝나지_않는다() {
         OrderCouponWork work = OrderCouponWork.release(7L, NOW);
 

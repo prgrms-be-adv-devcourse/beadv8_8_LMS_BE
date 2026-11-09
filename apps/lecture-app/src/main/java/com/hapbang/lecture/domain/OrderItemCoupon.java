@@ -97,6 +97,18 @@ public class OrderItemCoupon {
         this.policyVersion = policyVersion;
     }
 
+    /**
+     * 쿠폰 예약 응답의 예약 generation을 남긴다. 해제는 이 값으로 한다. 같은 값이 다시 오면 그대로 두고, 다른 값이면 거부한다
+     * (같은 workId의 재응답은 같은 generation이다).
+     */
+    public void recordReserved(long reservedGeneration) {
+        if (this.reservedGeneration != null && this.reservedGeneration != reservedGeneration) {
+            throw new IllegalStateException("이미 다른 예약 generation이 있습니다. orderItemCouponId=" + id
+                    + ", reserved=" + this.reservedGeneration + ", received=" + reservedGeneration);
+        }
+        this.reservedGeneration = reservedGeneration;
+    }
+
     /** 쿠폰 계산 응답 한 장으로 만든다. 할인이 두 부담 몫의 합이 아니거나 남은 금액을 넘으면 거부한다 */
     public static OrderItemCoupon create(Long orderItemId, Long memberCouponId, Long couponId, String couponType,
                                          int applyOrder, long baseAmountHp, long discountHp, long platformAmountHp,

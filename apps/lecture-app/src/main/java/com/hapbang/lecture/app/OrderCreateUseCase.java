@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -105,15 +106,19 @@ public class OrderCreateUseCase {
         save(order);
         lectureSyncEvents.purchasesChanged(order.getItems());
         List<Long> holdTaskIds = order.getItems().stream()
-                .map(item -> lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD,
-                        HOLD_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
-                        item.getPriceHp(), now)).getId())
+                .map(item -> lectureHpTaskSupport.register(holdTask(order, item, now)).getId())
                 .toList();
         AfterCommit.run(() -> {
             log.info("주문을 만들었다 orderId={}, buyerUserId={}, itemCount={}, totalHp={}", order.getId(), buyerUserId,
                     order.getItems().size(), order.getItems().stream().mapToLong(OrderItem::getPriceHp).sum());
         });
         return new Placement(order.getId(), holdTaskIds);
+    }
+
+    /** 주문 항목 하나의 보류 작업. 쿠폰 주문의 예약 뒤 보류 등록({@link OrderCouponReserveUseCase})도 이것으로 만든다 */
+    static LectureHpTask holdTask(LectureOrder order, OrderItem item, LocalDateTime now) {
+        return LectureHpTask.create(LectureHpTaskPurpose.ORDER_HOLD, HOLD_REQUEST_ID_PREFIX + item.getId(),
+                order.getId(), item.getId(), order.getBuyerUserId(), null, item.getPriceHp(), now);
     }
 
     /**
@@ -178,9 +183,32 @@ public class OrderCreateUseCase {
     public OrderResponse result(Long buyerUserId, Long orderId) {
         LectureOrder order = lectureOrderSupport.findOrder(buyerUserId, orderId);
         if (order.getStatus() == LectureOrderStatus.HOLD_FAILED) {
+            throwCouponFailure(order.getId());
             throw new LectureException(holdFailureCode(order.getId()));
         }
         return lectureOrderSupport.toResponse(order);
+    }
+
+    /**
+     * 쿠폰 주문이 보류 전에 결제 실패로 끝났으면 그 사유로 응답한다. 쿠폰 예약이 거절됐으면 쿠폰 오류 코드와 함께
+     * {@code COUPON_RESERVATION_REJECTED}이고, 예약은 됐지만 보류를 하나도 등록하지 않았으면(예약 응답이 할인 스냅샷과 어긋남)
+     * 구매자가 다시 계산해야 하므로 {@code ORDER_QUOTE_CHANGED}다.
+     */
+    private void throwCouponFailure(Long orderId) {
+        Optional<OrderCouponWork> reserve = orderCouponWorkRepository.findByOrderIdAndKind(orderId,
+                OrderCouponWorkKind.RESERVE);
+        if (reserve.isEmpty()) {
+            return;
+        }
+        if (reserve.get().getStatus() == OrderCouponWorkStatus.REJECTED) {
+            throw new CouponRejectedException(LectureErrorCode.COUPON_RESERVATION_REJECTED,
+                    reserve.get().rejectedCouponCode(), reserve.get().rejectedMemberCouponId());
+        }
+        boolean noHold = lectureHpTaskRepository.findByOrderIdIn(List.of(orderId)).stream()
+                .noneMatch(task -> task.getPurpose() == LectureHpTaskPurpose.ORDER_HOLD);
+        if (noHold) {
+            throw new LectureException(LectureErrorCode.ORDER_QUOTE_CHANGED);
+        }
     }
 
     // 결제 실패 사유. 주문에 저장하지 않고 보류 작업의 확정 거절 기록에서 읽는다

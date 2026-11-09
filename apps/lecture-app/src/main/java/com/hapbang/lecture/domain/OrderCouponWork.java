@@ -37,6 +37,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class OrderCouponWork {
 
+    private static final String REJECT_CODE_SEPARATOR = ":";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -124,10 +126,36 @@ public class OrderCouponWork {
 
     /** 쿠폰이 예약을 거절했다. 이미 거절로 끝났으면 그대로 둔다 */
     public void markRejected(String rejectCode, LocalDateTime now) {
-        Objects.requireNonNull(rejectCode, "거절 코드는 필수입니다.");
+        markRejected(rejectCode, null, now);
+    }
+
+    /**
+     * 쿠폰이 예약을 거절했다. 특정 발급 쿠폰 때문이면 거절 코드를 {@code CODE:memberCouponId}로 남긴다(쿠폰 모듈의 작업 기록과 같은 형식).
+     * 쿠폰이 코드를 주지 않았으면(본문 없는 4xx) 응답 상태를 남긴다. 이미 거절로 끝났으면 그대로 둔다.
+     */
+    public void markRejected(String couponCode, Long memberCouponId, LocalDateTime now) {
+        Objects.requireNonNull(couponCode, "거절 코드는 필수입니다.");
         if (finish(OrderCouponWorkKind.RESERVE, OrderCouponWorkStatus.REJECTED, now)) {
-            this.rejectCode = rejectCode;
+            this.rejectCode = memberCouponId == null ? couponCode : couponCode + REJECT_CODE_SEPARATOR + memberCouponId;
         }
+    }
+
+    /** 거절 코드 중 쿠폰 오류 코드. 거절이 아니면 null */
+    public String rejectedCouponCode() {
+        if (rejectCode == null) {
+            return null;
+        }
+        int separator = rejectCode.lastIndexOf(REJECT_CODE_SEPARATOR);
+        return separator < 0 ? rejectCode : rejectCode.substring(0, separator);
+    }
+
+    /** 거절 코드 중 실패한 발급 쿠폰 ID. 특정 쿠폰 때문이 아니면 null */
+    public Long rejectedMemberCouponId() {
+        if (rejectCode == null) {
+            return null;
+        }
+        int separator = rejectCode.lastIndexOf(REJECT_CODE_SEPARATOR);
+        return separator < 0 ? null : Long.valueOf(rejectCode.substring(separator + 1));
     }
 
     /** 해제 성공. 이미 해제 성공이면 그대로 둔다 */

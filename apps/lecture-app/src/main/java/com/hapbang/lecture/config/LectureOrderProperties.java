@@ -7,12 +7,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * 강의 주문 설정 ({@code lecture.order.*}). 값을 주지 않으면 기본값이다.
  *
- * @param holdRequestBudget 주문 요청 안에서 보류·보상 반환을 시도하는 시간 예산. 넘으면 남은 작업은 배치에 넘긴다(D68). 기본 10초
+ * @param holdRequestBudget    주문 요청 안에서 보류·보상 반환을 시도하는 시간 예산. 넘으면 남은 작업은 배치에 넘긴다(D68). 기본 10초
+ * @param couponWorkRetryAfter 쿠폰 예약·해제 작업을 보낸 뒤 결과를 모를 때 같은 내용으로 다시 보내기까지 기다리는 시간.
+ *                             기본 30초(측정·합의 전 값)
  */
 @ConfigurationProperties("lecture.order")
-public record LectureOrderProperties(Duration holdRequestBudget) {
+public record LectureOrderProperties(Duration holdRequestBudget, Duration couponWorkRetryAfter) {
 
     public LectureOrderProperties {
         holdRequestBudget = holdRequestBudget == null ? Duration.ofSeconds(10) : holdRequestBudget;
+        couponWorkRetryAfter = couponWorkRetryAfter == null ? Duration.ofSeconds(30) : couponWorkRetryAfter;
     }
 }

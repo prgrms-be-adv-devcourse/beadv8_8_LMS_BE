@@ -31,6 +31,8 @@ public enum LectureErrorCode implements BaseErrorCode {
     ORDER_QUOTE_CHANGED(HttpStatus.CONFLICT, "결제 금액이 바뀌었습니다. 쿠폰 할인을 다시 확인해 주세요."),
     /** 쿠폰 주문: 쿠폰 할인 계산이 거절됐다. 응답에 쿠폰 오류 코드({@code couponCode})와 실패한 발급 쿠폰({@code memberCouponId})이 있다 */
     COUPON_CALCULATION_REJECTED(HttpStatus.CONFLICT, "선택한 쿠폰을 쓸 수 없습니다. 쿠폰을 다시 골라 주세요."),
+    /** 쿠폰 주문: 쿠폰 예약이 거절되어 결제 실패로 끝났다. 응답에 쿠폰 오류 코드({@code couponCode})와 실패한 발급 쿠폰({@code memberCouponId})이 있다 */
+    COUPON_RESERVATION_REJECTED(HttpStatus.CONFLICT, "쿠폰을 예약하지 못해 결제하지 못했습니다. 쿠폰을 다시 골라 주세요."),
     /** 쿠폰 주문: 플랫폼이 부담하는 할인이 있다. 플랫폼 부담 재원 처리가 생기기 전까지 막는다 */
     COUPON_PLATFORM_FUNDING_UNAVAILABLE(HttpStatus.CONFLICT, "플랫폼 쿠폰은 아직 주문에 쓸 수 없습니다."),
     /** 쿠폰 주문: 쿠폰 모듈에 닿지 못했거나 결과를 모른다. 주문을 만들지 않았다 */
