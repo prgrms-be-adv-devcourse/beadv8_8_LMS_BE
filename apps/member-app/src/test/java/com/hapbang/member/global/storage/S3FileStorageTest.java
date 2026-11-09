@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,8 +25,11 @@ import org.springframework.context.annotation.Import;
 
 import com.hapbang.testsupport.S3MockTestcontainersConfig;
 
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 // 로컬 개발과 같은 S3Mock 컨테이너로 SDK 호출까지 검증한다. S3Mock은 서명·만료를 검사하지 않으므로 서명 내용은 URL로 확인한다.
 @SpringBootTest(classes = S3StorageConfig.class,
@@ -42,6 +46,12 @@ class S3FileStorageTest {
 
     @Autowired
     S3Client s3Client;
+
+    @Autowired
+    S3Presigner s3Presigner;
+
+    @Autowired
+    S3StorageProperties properties;
 
     HttpClient http = HttpClient.newHttpClient();
 
@@ -161,6 +171,33 @@ class S3FileStorageTest {
         assertThat(response.body()).isEqualTo("hello");
         assertThat(download.expiresAt()).isCloseTo(Instant.now().plusSeconds(3600), within(5, ChronoUnit.SECONDS));
         assertThat(URI.create(download.url()).getQuery()).contains("X-Amz-Expires=3600");
+        // 로컬 S3Mock은 만료 없는 고정 키를 쓴다
+        assertThat(download.credentialsExpiresAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("임시 자격 증명으로 서명하면 그 키로 서명하고, 그 자격 증명이 끝나는 시각을 돌려준다 (#770)")
+    void presignDownload_credentialsExpiresAt() {
+        Instant credentialsExpiresAt = Instant.now().plus(Duration.ofMinutes(20)).truncatedTo(ChronoUnit.SECONDS);
+        AtomicInteger resolved = new AtomicInteger();
+        // 서버의 인스턴스 역할처럼 만료가 있는 세션 자격 증명. presigner 기본 키(emulator)와 달라 어느 키로 서명했는지 구분된다
+        AwsCredentialsProvider sessionCredentials = () -> {
+            resolved.incrementAndGet();
+            return AwsSessionCredentials.builder()
+                    .accessKeyId("SESSIONKEY")
+                    .secretAccessKey("session-secret")
+                    .sessionToken("session-token")
+                    .expirationTime(credentialsExpiresAt)
+                    .build();
+        };
+        S3FileStorage sessionStorage = new S3FileStorage(s3Client, s3Presigner, sessionCredentials, properties);
+
+        PresignedUrl download = sessionStorage.presignDownload(newKey(), Duration.ofHours(1));
+
+        assertThat(download.credentialsExpiresAt()).isEqualTo(credentialsExpiresAt);
+        assertThat(resolved).hasValue(1);
+        String query = URI.create(download.url()).getRawQuery();
+        assertThat(query).contains("X-Amz-Credential=SESSIONKEY%2F").contains("X-Amz-Security-Token=session-token");
     }
 
     @Test
