@@ -1,6 +1,10 @@
 package com.hapbang.member.in;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,11 +14,13 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
+import org.hamcrest.Matchers;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
@@ -26,6 +32,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -35,7 +43,12 @@ import com.hapbang.member.MemberIntegrationTest;
 import com.hapbang.member.domain.ProfileImage;
 import com.hapbang.member.domain.User;
 import com.hapbang.member.fixture.MemberFixture;
+import com.hapbang.member.out.ProfileImageUrlCache;
 import com.hapbang.member.out.UserRepository;
+import com.hapbang.shared.appearance.dto.AppearanceParticipantRole;
+import com.hapbang.shared.appearance.dto.AppearanceReceivedReviewDto;
+import com.hapbang.shared.appearance.dto.AppearanceReceivedReviewPageDto;
+import com.hapbang.shared.appearance.out.AppearanceApiClient;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
@@ -73,6 +86,13 @@ class ProfileImagesApiTest {
 
     @Autowired
     EntityManagerFactory entityManagerFactory;
+
+    /** 목록이 한 페이지의 사진을 캐시에서 한 번에 읽는지 센다 (실제 Redis를 그대로 쓴다) */
+    @MockitoSpyBean
+    ProfileImageUrlCache profileImageUrlCache;
+
+    @MockitoBean
+    AppearanceApiClient appearanceApiClient;
 
     private User viewer;
 
@@ -164,6 +184,43 @@ class ProfileImagesApiTest {
     }
 
     @Test
+    @DisplayName("인플루언서 목록은 한 페이지의 사진 주소를 캐시에서 한 번에 읽고 한 번에 넣는다")
+    void influencerListReadsCacheOnce() throws Exception {
+        List<User> influencers = IntStream.range(0, 3)
+                .mapToObj(i -> withImage(MemberFixture.member(Role.INFLUENCER))).toList();
+        userRepository.save(MemberFixture.member(Role.INFLUENCER));
+        clearInvocations(profileImageUrlCache);
+
+        mockMvc.perform(get("/api/v1/members/influencers").with(login(viewer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(4));
+
+        verify(profileImageUrlCache).findAll(Set.copyOf(influencers.stream().map(User::getProfileImageKey).toList()));
+        verify(profileImageUrlCache).putAllIfAbsent(anyList());
+    }
+
+    @Test
+    @DisplayName("받은 출연 리뷰 목록은 쓴 회원들의 사진 주소를 캐시에서 한 번에 읽는다")
+    void appearanceReviewListReadsCacheOnce() throws Exception {
+        User target = userRepository.save(MemberFixture.member(Role.INFLUENCER));
+        User first = withImage(MemberFixture.user());
+        User second = withImage(MemberFixture.user());
+        User withoutImage = userRepository.save(MemberFixture.user());
+        given(appearanceApiClient.getReceivedReviews(target.getId(), 0, 20)).willReturn(new AppearanceReceivedReviewPageDto(
+                List.of(review(3, first.getId()), review(2, second.getId()), review(1, withoutImage.getId())),
+                new AppearanceReceivedReviewPageDto.PageMetadata(20, 0, 3, 1)));
+        clearInvocations(profileImageUrlCache);
+
+        mockMvc.perform(get("/api/v1/members/{memberId}/appearance-reviews", target.getId()).with(login(viewer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].reviewer.profileImageUrl").value(Matchers.containsString(first.getProfileImageKey())))
+                .andExpect(jsonPath("$.data.content[1].reviewer.profileImageUrl").value(Matchers.containsString(second.getProfileImageKey())))
+                .andExpect(jsonPath("$.data.content[2].reviewer.profileImageUrl").value(Matchers.nullValue()));
+
+        verify(profileImageUrlCache).findAll(Set.of(first.getProfileImageKey(), second.getProfileImageKey()));
+    }
+
+    @Test
     @DisplayName("Redis가 멈춰도 200과 주소를 준다 (캐시 없이 서명)")
     void redisDown() throws Exception {
         User influencer = withImage(MemberFixture.member(Role.INFLUENCER));
@@ -231,6 +288,11 @@ class ProfileImagesApiTest {
                 .andExpect(jsonPath("$.message").value("프로필 사진 주소를 조회했습니다."))
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.data");
+    }
+
+    private static AppearanceReceivedReviewDto review(long reviewId, long reviewerId) {
+        return new AppearanceReceivedReviewDto(reviewId, 100 + reviewId, reviewerId, AppearanceParticipantRole.HOST, 5, null,
+                LocalDateTime.of(2026, 11, 2, 15, 30));
     }
 
     private MockHttpServletRequestBuilder request(long... ids) {
