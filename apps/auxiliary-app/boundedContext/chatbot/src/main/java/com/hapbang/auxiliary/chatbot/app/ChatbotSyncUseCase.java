@@ -98,7 +98,12 @@ public class ChatbotSyncUseCase {
         try {
             runBatch(type, trigger);
         } catch (RuntimeException e) {
-            log.error("싱크 회차를 시작·기록하지 못했다 type={}, trigger={}", type, trigger, e);
+            // 재시도 회차면 다음 주까지 다시 돌지 않는다. 정기 회차는 12:00 재시도가 있다
+            if (trigger == SyncTrigger.RETRY) {
+                log.error("[CHATBOT_SYNC_FAILED] 재시도 싱크 회차를 시작·기록하지 못해 다음 주까지 다시 돌지 않는다 type={}", type, e);
+            } else {
+                log.error("싱크 회차를 시작·기록하지 못했다 type={}, trigger={}", type, trigger, e);
+            }
         }
     }
 
