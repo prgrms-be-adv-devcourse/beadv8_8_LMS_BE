@@ -1,5 +1,6 @@
 package com.hapbang.member.app;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -19,8 +20,10 @@ import com.hapbang.member.out.UserRepository;
 import com.hapbang.shared.member.dto.InfluencerChannelDto;
 import com.hapbang.shared.member.dto.InfluencerStatsDto;
 import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
+import com.hapbang.shared.member.dto.MemberChangePageDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.dto.RatingDto;
+import com.hapbang.shared.member.dto.UserDto;
 
 import lombok.RequiredArgsConstructor;
 
@@ -44,6 +47,29 @@ public class MemberInternalFacade {
         List<User> page = hasNext ? users.subList(0, size) : users;
         return new MemberPageDto(page.stream().map(User::toDto).toList(),
                 hasNext ? page.getLast().getId() : null);
+    }
+
+    /**
+     * 회원 변경분 (#769). users.updated_at이 커서보다 뒤인 회원을 (updatedAt, id) 오름차순 키셋으로 준다. 모든 역할·상태를 포함해,
+     * 인플루언서가 아니게 된 회원(강등·정지·탈퇴)도 받는 쪽이 숨길 수 있다. 커서가 없으면 처음부터 읽는다.
+     * 분야는 @BatchSize로 100명씩 묶어 읽는다
+     *
+     * @param afterUpdatedAt 커서 시각. afterId와 함께 넘기거나 함께 null이다(컨트롤러가 확인)
+     */
+    @Transactional(readOnly = true)
+    public MemberChangePageDto findChanges(LocalDateTime afterUpdatedAt, Long afterId, int size) {
+        Limit limit = Limit.of(size + 1);
+        List<User> users = afterUpdatedAt == null
+                ? userRepository.findByUpdatedAtIsNotNullOrderByUpdatedAtAscIdAsc(limit)
+                : userRepository.findChangedAfter(afterUpdatedAt, afterId, limit);
+        boolean hasNext = users.size() > size;
+        List<User> page = hasNext ? users.subList(0, size) : users;
+        List<UserDto> items = page.stream().map(User::toDto).toList();
+        if (!hasNext) {
+            return new MemberChangePageDto(items, null, null);
+        }
+        User last = page.getLast();
+        return new MemberChangePageDto(items, last.getUpdatedAt(), last.getId());
     }
 
     /**

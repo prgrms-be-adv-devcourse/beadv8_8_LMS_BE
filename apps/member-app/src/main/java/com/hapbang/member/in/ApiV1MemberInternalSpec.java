@@ -1,8 +1,11 @@
 package com.hapbang.member.in;
 
+import java.time.LocalDateTime;
+
 import com.hapbang.member.global.response.RsData;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
+import com.hapbang.shared.member.dto.MemberChangePageDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,4 +43,18 @@ public interface ApiV1MemberInternalSpec {
             @Parameter(description = "이 회원 ID보다 큰 인플루언서부터 (생략하면 처음부터)") @PositiveOrZero Long afterId,
             @Parameter(description = "페이지 크기 (1~500, 기본 100)") @Min(1) @Max(InfluencerStatsPageDto.MAX_SIZE)
             int size);
+
+    @Operation(summary = "회원 변경분 (키셋)",
+            description = "users.updated_at이 커서보다 뒤인 회원을 모든 역할·상태(강등·정지·탈퇴 포함)에서 (updatedAt, id) 오름차순으로 "
+                    + "size개씩 준다. items는 이벤트와 같은 UserDto(version 포함). 다음 페이지는 응답의 nextAfterUpdatedAt·"
+                    + "nextAfterId를 그대로 넘기고, 둘이 null이면 마지막 페이지다. 커서를 생략하면 처음부터. "
+                    + "늦게 커밋된 행이 지나간 커서 뒤에 나타날 수 있어, 이어 읽을 때는 커서를 1분 겹쳐 다시 읽고 version으로 거른다. "
+                    + "오류: 커서 둘 중 하나만 넘기거나, 시각 형식이 틀리거나, size가 1~500 밖이거나 afterId가 음수면 400 INVALID_REQUEST.")
+    @Parameter(name = InternalApiHeaders.API_KEY, in = ParameterIn.HEADER, required = true,
+            description = "내부 API 키 (hapbang.internal-api.key). 없거나 틀리면 401(본문 없음)")
+    RsData<MemberChangePageDto> findChanges(
+            @Parameter(description = "커서 시각, 회원 앱 시간대의 ISO 시각 (예: 2026-11-09T10:15:30.123456). "
+                    + "afterId와 함께 넘긴다") LocalDateTime afterUpdatedAt,
+            @Parameter(description = "커서 회원 ID. afterUpdatedAt과 함께 넘긴다") @PositiveOrZero Long afterId,
+            @Parameter(description = "페이지 크기 (1~500, 기본 100)") @Min(1) @Max(MemberChangePageDto.MAX_SIZE) int size);
 }
