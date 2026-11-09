@@ -1,6 +1,7 @@
 package com.hapbang.coupon.out;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,14 @@ public interface MemberCouponRepository extends JpaRepository<MemberCoupon, Long
 
     /** 회원이 이 쿠폰에서 받은 한 장. 발급 확정이 회원 중복(UNIQUE) 위반을 같은 요청의 재전달인지 가를 때 쓴다 */
     Optional<MemberCoupon> findByMemberIdAndCouponId(long memberId, long couponId);
+
+    /** 이 쿠폰들 중 회원이 발급 쿠폰을 가진 쿠폰 ID(상태와 관계없이). {@code couponIds}가 비면 부르지 않는다 */
+    @Query("""
+            select mc.couponId from MemberCoupon mc
+            where mc.memberId = :memberId and mc.couponId in :couponIds
+            """)
+    List<Long> findCouponIdsOwnedBy(@Param("memberId") long memberId,
+                                    @Param("couponIds") Collection<Long> couponIds);
 
     /** 회원의 발급 쿠폰. 상태를 주면 그 상태만. 발급 최신순(같은 시각이면 ID 역순) */
     default List<OwnedCoupon> findMyCoupons(long memberId, MemberCouponStatus status) {

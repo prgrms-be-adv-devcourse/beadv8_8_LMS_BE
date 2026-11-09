@@ -44,7 +44,7 @@ class CouponCreateUseCaseTest {
     }
 
     private static CouponCreateCommand lectureCommand() {
-        return new CouponCreateCommand(CouponTargetType.LECTURE, LECTURE_ID, DiscountType.RATE, 10, null, 100,
+        return new CouponCreateCommand(COUPON_NAME, CouponTargetType.LECTURE, LECTURE_ID, DiscountType.RATE, 10, null, 100,
                 ISSUE_START, ISSUE_END, ExpiryType.RELATIVE, 30, null, false);
     }
 

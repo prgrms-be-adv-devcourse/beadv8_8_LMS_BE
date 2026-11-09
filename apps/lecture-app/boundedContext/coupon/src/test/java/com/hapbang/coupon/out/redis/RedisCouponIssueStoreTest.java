@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import com.hapbang.coupon.app.port.CouponIssueStore.AllowResult;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControlState;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueReceipt;
+import com.hapbang.coupon.app.port.CouponIssueStore.IssueSnapshot;
 import com.hapbang.coupon.app.port.CouponIssueStore.PublishMark;
 import com.hapbang.coupon.app.port.CouponIssueStore.RequestEntry;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
@@ -271,5 +272,21 @@ class RedisCouponIssueStoreTest extends CouponRedisTestSupport {
         redisTemplate.opsForHash().put(CouponRedisKeys.issueControl(couponId), "hold", "RECOVERY");
         redisTemplate.opsForHash().put(CouponRedisKeys.issueControl(couponId), "ready", "0");
         assertThat(store.findIssueControl(couponId)).contains(new IssueControlState(false, "OPEN", 4L, "RECOVERY"));
+    }
+
+    @Test
+    @DisplayName("readSnapshots는 여러 쿠폰의 남은 stock과 회원 접수 여부를 한 번에 읽고, key가 없으면 stock null·미접수다")
+    void readSnapshots() {
+        long opened = newCouponId();
+        long notPrepared = newCouponId();
+        open(control(opened, EPOCH, 10));
+        store.tryIssue(attempt(opened, 7, "req-1"));
+
+        var snapshots = store.readSnapshots(List.of(opened, notPrepared), 7);
+
+        assertThat(snapshots.get(opened)).isEqualTo(new IssueSnapshot(9L, true));
+        assertThat(snapshots.get(notPrepared)).isEqualTo(new IssueSnapshot(null, false));
+        assertThat(store.readSnapshots(List.of(opened), 8).get(opened)).isEqualTo(new IssueSnapshot(9L, false));
+        assertThat(store.readSnapshots(List.of(), 7)).isEmpty();
     }
 }

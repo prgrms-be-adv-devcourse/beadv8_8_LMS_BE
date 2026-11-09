@@ -67,6 +67,28 @@ class CouponIssueStatusQueryTest {
     }
 
     @Test
+    void 내_거절_결과면_REJECTED와_거절_사유를_싣는다() {
+        when(requestRepository.findByCouponIdAndIssueRequestId(COUPON_ID, REQUEST_ID)).thenReturn(Optional.of(
+                CouponIssueRequest.rejected(REQUEST_ID, MEMBER_ID, COUPON_ID, 1L, NOW, "SOLD_OUT", NOW)));
+
+        var view = query.issueStatus(COUPON_ID, MEMBER_ID, REQUEST_ID);
+
+        assertThat(view.status()).isEqualTo(IssueStatus.REJECTED);
+        assertThat(view.rejectReason()).isEqualTo("SOLD_OUT");
+    }
+
+    @Test
+    void 거절이_아니거나_다른_회원의_거절이면_거절_사유는_null이다() {
+        when(requestRepository.findByCouponIdAndIssueRequestId(COUPON_ID, REQUEST_ID)).thenReturn(Optional.of(
+                CouponIssueRequest.rejected(REQUEST_ID, OTHER_MEMBER_ID, COUPON_ID, 1L, NOW, "SOLD_OUT", NOW)));
+        when(requestRepository.findByCouponIdAndIssueRequestId(COUPON_ID, "req-2")).thenReturn(Optional.of(
+                CouponIssueRequest.issued("req-2", MEMBER_ID, COUPON_ID, 1L, NOW, 11L, NOW)));
+
+        assertThat(query.issueStatus(COUPON_ID, MEMBER_ID, REQUEST_ID).rejectReason()).isNull();
+        assertThat(query.issueStatus(COUPON_ID, MEMBER_ID, "req-2").rejectReason()).isNull();
+    }
+
+    @Test
     void DB에_다른_회원의_결과면_NOT_FOUND다() {
         when(requestRepository.findByCouponIdAndIssueRequestId(COUPON_ID, REQUEST_ID)).thenReturn(Optional.of(
                 CouponIssueRequest.rejected(REQUEST_ID, OTHER_MEMBER_ID, COUPON_ID, 1L, NOW, "SOLD_OUT", NOW)));

@@ -253,7 +253,7 @@ class CouponIssueDeliveryE2eTest {
                 .willReturn(new BudgetResult(Outcome.SUCCEEDED, "reservation-" + run, null));
         Instant now = Instant.now();
         String body = """
-                {"targetType":"ANY_LECTURE","discountType":"AMOUNT","discountValue":%d,"quantity":%d,
+                {"name":"선착순 할인","targetType":"ANY_LECTURE","discountType":"AMOUNT","discountValue":%d,"quantity":%d,
                  "issueStartAt":"%s","issueEndAt":"%s","expiryType":"RELATIVE","expiryDays":30,"stackable":false}
                 """.formatted(DISCOUNT_HP, QUANTITY, now.minus(Duration.ofHours(1)), now.plus(Duration.ofDays(7)));
         String response = mockMvc.perform(post("/api/v1/coupons/admin")

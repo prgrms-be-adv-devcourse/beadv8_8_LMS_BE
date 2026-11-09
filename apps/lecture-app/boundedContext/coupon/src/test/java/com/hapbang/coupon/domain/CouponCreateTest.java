@@ -42,6 +42,47 @@ class CouponCreateTest {
     }
 
     @Test
+    void 쿠폰_이름은_앞뒤_공백을_빼고_저장한다() {
+        Coupon coupon = Coupon.createSeller(SELLER_ID, lectureRate().name("  겨울 특강\u3000\t").build(), NOW);
+
+        assertThat(coupon.getName()).isEqualTo("겨울 특강");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "   ", "\u3000\t\n"})
+    void 비었거나_공백만인_쿠폰_이름은_발행하지_않는다(String name) {
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().name(name).build(), NOW),
+                CouponDomainError.INVALID_NAME);
+        assertError(() -> Coupon.createPlatform(ADMIN_ID, anyLectureAmount().name(name).build(), NOW),
+                CouponDomainError.INVALID_NAME);
+    }
+
+    @Test
+    void 쿠폰_이름이_없으면_발행하지_않는다() {
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().name(null).build(), NOW),
+                CouponDomainError.INVALID_NAME);
+    }
+
+    @Test
+    void 쿠폰_이름은_공백을_뺀_뒤_50자까지다() {
+        assertThatCode(() -> Coupon.createSeller(SELLER_ID, lectureRate().name(" " + "가".repeat(50) + " ").build(), NOW))
+                .doesNotThrowAnyException();
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().name("가".repeat(51)).build(), NOW),
+                CouponDomainError.INVALID_NAME);
+    }
+
+    @Test
+    void 쿠폰_이름_길이는_DB와_같게_코드_포인트로_센다() {
+        // 이모지는 UTF-16 두 칸이지만 한 글자다
+        String fiftyEmoji = "\uD83C\uDF81".repeat(50);
+
+        assertThatCode(() -> Coupon.createSeller(SELLER_ID, lectureRate().name(fiftyEmoji).build(), NOW))
+                .doesNotThrowAnyException();
+        assertError(() -> Coupon.createSeller(SELLER_ID, lectureRate().name(fiftyEmoji + "a").build(), NOW),
+                CouponDomainError.INVALID_NAME);
+    }
+
+    @Test
     void 판매자_쿠폰은_모든_강의_대상으로_발행할_수_없다() {
         assertError(() -> Coupon.createSeller(SELLER_ID, anyLectureAmount().build(), NOW),
                 CouponDomainError.SELLER_TARGET_LECTURE_ONLY);

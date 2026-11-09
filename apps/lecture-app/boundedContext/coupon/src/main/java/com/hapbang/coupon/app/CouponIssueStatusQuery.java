@@ -30,7 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 발급 요청 상태 조회. 발급 요청 ID는 쿠폰 안에서만 유일하므로 DB 최종 결과와 Redis 접수 기록을 모두 (쿠폰, 요청 ID)로 찾는다.
  * DB를 먼저 보고, 없을 때만 Redis를 본다. 판정은 {@link IssueStatusRule}이 한다(다른 회원의 요청은 NOT_FOUND, Redis에 닿지 못하면
- * UNKNOWN).
+ * UNKNOWN). 거절 사유는 REJECTED일 때만 DB 결과의 값을 싣는다.
  * <p>
  * Redis에 접수 기록이 없을 때 그것이 "접수하지 않았다"인지 "기록이 사라졌다"인지 가린다. 다음이면 유실로 보고 UNKNOWN이다(접수 경로가
  * 아니라 DB를 읽어도 된다).
@@ -73,14 +73,18 @@ public class CouponIssueStatusQuery {
 
     public IssueStatusView issueStatus(long couponId, long memberId, String issueRequestId) {
         CouponIssueRequestUseCase.IssueRequestIds.requireValid(issueRequestId);
-        Optional<DbRecord> dbRecord = couponIssueRequestRepository
-                .findByCouponIdAndIssueRequestId(couponId, issueRequestId)
-                .map(CouponIssueRequest::toDbRecord);
+        Optional<CouponIssueRequest> result = couponIssueRequestRepository
+                .findByCouponIdAndIssueRequestId(couponId, issueRequestId);
+        Optional<DbRecord> dbRecord = result.map(CouponIssueRequest::toDbRecord);
         RedisLookup redisLookup = dbRecord.isPresent()
                 ? new RedisLookup.Absent()
                 : lookupRedis(couponId, issueRequestId);
         IssueStatus status = IssueStatusRule.judge(dbRecord, redisLookup, memberId);
-        return new IssueStatusView(issueRequestId, couponId, status);
+        // REJECTED는 요청한 회원 본인의 DB 거절 결과일 때만 나오므로 그때만 사유를 싣는다
+        String rejectReason = status == IssueStatus.REJECTED
+                ? result.map(CouponIssueRequest::getRejectReason).orElse(null)
+                : null;
+        return new IssueStatusView(issueRequestId, couponId, status, rejectReason);
     }
 
     private RedisLookup lookupRedis(long couponId, String issueRequestId) {

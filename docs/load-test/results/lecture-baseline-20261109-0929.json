@@ -1,0 +1,273 @@
+{
+  "root_group": {
+    "checks": {
+      "lecture_detail 200": {
+        "name": "lecture_detail 200",
+        "path": "::lecture_detail 200",
+        "id": "267f77481434a828123b995294b88d46",
+        "passes": 19109,
+        "fails": 0
+      },
+      "lecture_detail RsData": {
+        "id": "12d262c5ba5c98b4d1071ee7391b11c4",
+        "passes": 19109,
+        "fails": 0,
+        "name": "lecture_detail RsData",
+        "path": "::lecture_detail RsData"
+      },
+      "lecture_reviews 200": {
+        "name": "lecture_reviews 200",
+        "path": "::lecture_reviews 200",
+        "id": "90c0e04895d1ffa63c58f1faceeed8e7",
+        "passes": 6370,
+        "fails": 0
+      },
+      "lecture_reviews RsData": {
+        "name": "lecture_reviews RsData",
+        "path": "::lecture_reviews RsData",
+        "id": "8f07150210e63d8f65bebdbb4c7c98bb",
+        "passes": 6370,
+        "fails": 0
+      },
+      "lecture_list 200": {
+        "passes": 25326,
+        "fails": 0,
+        "name": "lecture_list 200",
+        "path": "::lecture_list 200",
+        "id": "197edffa3da9d695dabf6529932e58aa"
+      },
+      "lecture_list RsData": {
+        "passes": 25326,
+        "fails": 0,
+        "name": "lecture_list RsData",
+        "path": "::lecture_list RsData",
+        "id": "94f172dfbf3424b212d971eadd03f87b"
+      },
+      "lecture_search 200": {
+        "name": "lecture_search 200",
+        "path": "::lecture_search 200",
+        "id": "b8b8453e28e04c9b914ec8f6086e0c65",
+        "passes": 12776,
+        "fails": 0
+      },
+      "lecture_search RsData": {
+        "name": "lecture_search RsData",
+        "path": "::lecture_search RsData",
+        "id": "a94479d239ad57cda801a3a9f431677d",
+        "passes": 12776,
+        "fails": 0
+      }
+    },
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": {}
+  },
+  "metrics": {
+    "data_sent": {
+      "count": 5263186,
+      "rate": 7307.326169324549
+    },
+    "server_errors{scenario:main}": {
+      "passes": 0,
+      "fails": 59980,
+      "thresholds": {
+        "rate<0.01": false
+      },
+      "value": 0
+    },
+    "checks": {
+      "passes": 127162,
+      "fails": 0,
+      "value": 1
+    },
+    "http_reqs": {
+      "count": 63584,
+      "rate": 88.27904374846949
+    },
+    "server_errors": {
+      "passes": 0,
+      "fails": 63581,
+      "thresholds": {
+        "rate<0.05": false
+      },
+      "value": 0
+    },
+    "vus_max": {
+      "value": 91,
+      "min": 70,
+      "max": 91
+    },
+    "http_req_duration{scenario:main,name:lecture_list}": {
+      "avg": 58.12066019783758,
+      "min": 16.37,
+      "med": 31.323500000000003,
+      "p(90)": 103.1769,
+      "p(95)": 172.14939999999993,
+      "p(99)": 429.2602399999997,
+      "max": 1073.454,
+      "thresholds": {
+        "p(95)<500": false
+      }
+    },
+    "http_req_receiving": {
+      "max": 714.317,
+      "avg": 2.645222744715695,
+      "min": 0.004,
+      "med": 0.047,
+      "p(90)": 5.813700000000002,
+      "p(95)": 12.860949999999981,
+      "p(99)": 50.73168
+    },
+    "dropped_iterations": {
+      "count": 21,
+      "rate": 0.029156075722160592
+    },
+    "http_req_duration{scenario:main,name:lecture_reviews}": {
+      "p(95)": 103.22579999999999,
+      "p(99)": 272.09831999999966,
+      "max": 758.121,
+      "avg": 32.156005965203015,
+      "min": 9.494,
+      "med": 16.348,
+      "p(90)": 55.80060000000001,
+      "thresholds": {
+        "p(95)<500": false
+      }
+    },
+    "checks{scenario:main}": {
+      "passes": 119960,
+      "fails": 0,
+      "thresholds": {
+        "rate>0.99": false
+      },
+      "value": 1
+    },
+    "http_req_duration{expected_response:true}": {
+      "min": 8.539,
+      "med": 25.655,
+      "p(90)": 80.9211,
+      "p(95)": 130.83319999999992,
+      "p(99)": 339.2337999999999,
+      "max": 1073.454,
+      "avg": 43.77729247923967
+    },
+    "http_req_failed": {
+      "passes": 0,
+      "fails": 63584,
+      "value": 0
+    },
+    "iterations": {
+      "count": 63581,
+      "rate": 88.27487859479488
+    },
+    "http_req_duration{scenario:main,name:lecture_detail}": {
+      "min": 11.871,
+      "med": 20.071,
+      "p(90)": 62.82780000000001,
+      "p(95)": 109.36359999999999,
+      "p(99)": 278.68613999999974,
+      "max": 834.627,
+      "avg": 36.57000943029917,
+      "thresholds": {
+        "p(95)<500": false
+      }
+    },
+    "http_req_waiting": {
+      "p(99)": 314.4209299999999,
+      "max": 1073.334,
+      "avg": 41.07252387393088,
+      "min": 8.433,
+      "med": 24.326500000000003,
+      "p(90)": 75.2131,
+      "p(95)": 124.02419999999996
+    },
+    "data_received": {
+      "count": 519906839,
+      "rate": 721830.6269691979
+    },
+    "http_req_duration{scenario:main,name:lecture_search}": {
+      "p(90)": 60.9502,
+      "p(95)": 107.98989999999992,
+      "p(99)": 267.8652199999999,
+      "max": 799.421,
+      "avg": 34.082571973465825,
+      "min": 8.539,
+      "med": 17.944,
+      "thresholds": {
+        "p(95)<500": false
+      }
+    },
+    "http_req_duration{scenario:main}": {
+      "avg": 44.19785903634499,
+      "min": 8.539,
+      "med": 25.646,
+      "p(90)": 81.938,
+      "p(95)": 132.92279999999997,
+      "p(99)": 349.66766,
+      "max": 1073.454,
+      "thresholds": {
+        "p(95)<500": false
+      }
+    },
+    "http_req_connecting": {
+      "avg": 0.19986092413185697,
+      "min": 0,
+      "med": 0,
+      "p(90)": 0,
+      "p(95)": 0,
+      "p(99)": 0,
+      "max": 415.485
+    },
+    "http_req_sending": {
+      "p(99)": 0.166,
+      "max": 4.773,
+      "avg": 0.05954586059385951,
+      "min": 0.006,
+      "med": 0.052,
+      "p(90)": 0.1,
+      "p(95)": 0.12
+    },
+    "iteration_duration": {
+      "avg": 44.265983563769346,
+      "min": 8.71025,
+      "med": 25.815084,
+      "p(90)": 81.257042,
+      "p(95)": 131.717792,
+      "p(99)": 353.76323319999995,
+      "max": 1073.540166
+    },
+    "http_req_duration": {
+      "med": 25.655,
+      "p(90)": 80.9211,
+      "p(95)": 130.83319999999992,
+      "p(99)": 339.2337999999999,
+      "max": 1073.454,
+      "avg": 43.77729247923967,
+      "min": 8.539
+    },
+    "http_req_tls_handshaking": {
+      "p(95)": 0,
+      "p(99)": 0,
+      "max": 375.05,
+      "avg": 0.12527017803220936,
+      "min": 0,
+      "med": 0,
+      "p(90)": 0
+    },
+    "http_req_blocked": {
+      "min": 0,
+      "med": 0,
+      "p(90)": 0.001,
+      "p(95)": 0.001,
+      "p(99)": 0.001,
+      "max": 654.599,
+      "avg": 0.3368964047559779
+    },
+    "vus": {
+      "value": 5,
+      "min": 0,
+      "max": 51
+    }
+  }
+}

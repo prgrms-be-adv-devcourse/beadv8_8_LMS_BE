@@ -2,6 +2,8 @@ package com.hapbang.coupon.out.redis;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -10,7 +12,9 @@ import java.util.function.Supplier;
 
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
@@ -245,7 +249,7 @@ public class RedisCouponIssueStore implements CouponIssueStore {
             return Optional.empty();
         }
         return Optional.of(new IssueControlState("1".equals(values.get(0)), (String) values.get(1),
-                parseEpoch(values.get(2)), emptyToNull(values.get(3))));
+                parseLongOrNull(values.get(2)), emptyToNull(values.get(3))));
     }
 
     @Override
@@ -259,7 +263,44 @@ public class RedisCouponIssueStore implements CouponIssueStore {
         return (int) result;
     }
 
-    private static Long parseEpoch(Object value) {
+    /**
+     * 쿠폰마다 GET stock, SISMEMBER users를 한 파이프라인으로 보낸다. 결과는 보낸 순서대로 두 개씩 온다.
+     * 표시용이라 stock이 숫자가 아니면 모르는 값({@code null})으로 둔다.
+     */
+    @Override
+    public Map<Long, IssueSnapshot> readSnapshots(Collection<Long> couponIds, long memberId) {
+        if (couponIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = new ArrayList<>(couponIds);
+        String member = String.valueOf(memberId);
+        List<Object> results = run("발급 표시 조회", () -> redisTemplate.executePipelined(new SessionCallback<Object>() {
+            @Override
+            @SuppressWarnings("unchecked")
+            public <K, V> Object execute(RedisOperations<K, V> operations) {
+                RedisOperations<String, String> ops = (RedisOperations<String, String>) operations;
+                for (Long couponId : ids) {
+                    ops.opsForValue().get(CouponRedisKeys.stock(couponId));
+                    ops.opsForSet().isMember(CouponRedisKeys.users(couponId), member);
+                }
+                return null;
+            }
+        }));
+        if (results.size() != ids.size() * 2) {
+            throw new CouponIssueStoreUnavailableException(
+                    "발급 표시 조회 결과 수가 맞지 않는다 expected=" + ids.size() * 2 + ", actual=" + results.size(), null);
+        }
+        Map<Long, IssueSnapshot> snapshots = new LinkedHashMap<>();
+        for (int i = 0; i < ids.size(); i++) {
+            Object stock = results.get(i * 2);
+            Object accepted = results.get(i * 2 + 1);
+            snapshots.put(ids.get(i), new IssueSnapshot(parseLongOrNull(stock), Boolean.TRUE.equals(accepted)));
+        }
+        return snapshots;
+    }
+
+    /** 숫자 문자열이면 그 값, 없거나 숫자가 아니면 {@code null} */
+    private static Long parseLongOrNull(Object value) {
         if (value == null) {
             return null;
         }

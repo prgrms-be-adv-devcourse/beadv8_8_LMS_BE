@@ -52,6 +52,7 @@ registry를 더하면 앱 메모리가 늘어나므로 limit을 다시 확인한
   - **근거 (2026-11-04 운영, 10%일 때)**: Tempo 수신은 5분 측정으로 분당 span 약 28개·약 20 KB(하루 약 29 MB), 보존 72시간의 live 블록은 4.9 MB(PVC 2 GiB)였다. 최근 1시간 trace 466개 중 Grafana UI가 296개(64%), Kafka UI 12개, 앱 155개였다. 24시간 Envoy upstream 요청도 Grafana route가 10,430건으로 가장 많았다. 그래서 운영 도구를 빼고 앱만 100%로 올리면 수신은 몇 배가 되어도 하루 수백 MB 안이다. 10%일 때는 오류가 난 요청도 열에 아홉은 남지 않았다.
   - **이전 값**: #372에서 `samplingRate: 10`으로 정했고 근거는 기록되지 않았다. 2026-11-03에는 Tempo working set 24시간 최대 131 MiB(limit 160 MiB)를 근거로 10%를 유지했다. 이 메모리는 수신량보다 Tempo 기본 사용(블록 압축·조회·Go heap)이 대부분으로 보여, 100% 적용 뒤 1시간 동안 working set을 다시 잰다(#679).
   - **tail sampling**(Alloy `otelcol.processor.tail_sampling`, 오류·느린 trace만 100%)은 앱 요청이 분당 수 건인 지금 규모에서는 필요 없다. 수신량이나 Tempo 메모리가 문제가 되면 다시 본다.
+  - **부하 시험 때 Tempo** (#774): 2026-11-06 lecture-app k6(100 RPS, 약 6만 요청)가 100%로 남긴 블록(18.6 MB·trace 2.2만 개, 8.7 MB·1만 개)을 compaction하다 Tempo(limit 160 MiB)가 2026-11-07 오전부터 OOMKilled를 반복했고, 그동안 trace가 거의 저장되지 않았다. 256 MiB로 올렸다. 부하 시험 뒤에는 Tempo 재시작 횟수를 확인한다. 그래도 반복되면 compaction 크기 상한이나 부하 시험 때의 샘플링을 정한다.
 - **특정 요청을 trace로 확인할 때**: 업무 route 요청은 모두 남으므로 Tempo에서 TraceQL로 찾는다(예: `{resource.service.name="member-app" && name=~"http patch.*"}`). 외부 요청의 `traceparent` flag는 Envoy가 무시한다(클라이언트 결정을 따르는 `clientSamplingFraction`을 켜지 않았다). 2026-11-04에 샘플링을 잠깐 100으로 올려 닉네임 변경 한 건으로 `member server → member producer → lecture·billing(2개 그룹)·appearance·chat consumer` trace를 확인했다(#630). 2026-11-03에는 같은 방식으로 강의 구매 trace를 확인했다: `Envoy ingress → router egress → lecture-app http post /api/v1/lectures/orders → secured request → lecture-app client http post billing-app:8081/api/v1/internal/billing/holds`(span 9개). billing-app이 막 다시 뜬 직후의 첫 구매는 보류 호출이 1,142 ms로 전체 1,224 ms의 대부분이었다.
 - **전송**: Alloy는 OTLP gRPC(4317)만 받는다. Boot 기본 transport는 HTTP라 `grpc`로 바꾼다. endpoint는 ConfigMap이 넣는다. endpoint가 없으면(로컬 실행, 테스트) exporter가 생기지 않아 아무것도 보내지 않는다.
 - **로그**: 6개 앱 모두 tracing이 켜져 있어(`spring-boot-starter-opentelemetry`, 위 계측 앱) Boot가 요청·`@Scheduled` 실행·Kafka 소비마다 MDC에 `traceId`·`spanId`를 넣는다. Tempo로 보내지 않는 요청·실행에도 넣는다([로그 표준](../../dev/logging.md#mdc-키)). 운영 JSON 로그에는 `"traceId":"<32자>"` 필드로, 로컬 평문 로그에는 스레드 이름 뒤 `[<traceId 32자>-<spanId 16자>] `로 찍힌다. trace 밖의 줄에는 없다(평문은 같은 폭의 공백). 같은 요청의 Envoy access log `trace_id`는 `traceparent` 전체(`00-<traceId>-<spanId>-<flag>`)라 가운데 32자가 앱 로그의 traceId와 같다.
@@ -234,7 +235,7 @@ metrics pipeline에는 역할이 셋 있다. Prometheus는 이 중 수집과 저
 
 Promtail은 사용하지 않는다. 2026-03-02에 EOL이 되었고 이후 기능 개발은 Alloy에서 진행된다는 공식 안내가 있다([Loki 공식 문서](https://grafana.com/docs/loki/latest/send-data/promtail/)).
 
-시연용 초기 목표는 다음과 같이 두고 실제 결과를 README에 남긴다.
+시연용 초기 목표는 다음과 같이 두고 실제 결과는 [부하 테스트](../../load-test/README.md)에 남긴다.
 
 | 시나리오 | 초기 목표 |
 | --- | --- |
@@ -247,9 +248,4 @@ Promtail은 사용하지 않는다. 2026-03-02에 EOL이 되었고 이후 기능
 
 이 수치는 제품 SLO가 아니라 포트폴리오 실험의 기준선이다.
 
-EC2에서 부하 test를 할 때는 다음을 지킨다.
-
-- k6는 EC2 밖(개발 PC나 GitHub Actions runner)에서 실행한다. 같은 host에서 k6를 돌리면 부하 생성기가 2 vCPU를 나눠 써서 측정값이 왜곡된다.
-- t3 standard credit 모드에서는 credit이 바닥나면 CPU가 기준선으로 제한된다. 각 실행 전후의 CloudWatch `CPUCreditBalance`를 결과와 함께 기록한다. credit 소진 구간의 p95는 코드 성능이 아니라 instance 제한으로 해석한다.
-- EC2에는 prod만 있으므로 부하 test는 prod를 대상으로, 팀이 서버를 쓰지 않는 시간대에 하고 미리 공지한다. 결과에는 그 시간 node별 자원 사용량도 함께 남긴다. 반복 실험은 로컬 k3d에서 먼저 한다.
-- 위 초기 목표(100 RPS 10분 등)가 2노드에서 유지되지 않으면 목표를 낮추는 것이 아니라 node별 CPU credit, DB connection, GC 병목을 JFR과 dashboard로 설명하는 것을 결과물로 삼는다.
+EC2에서 부하 test를 할 때 지킬 규칙(k6 실행 위치, CPU credit 기록, 측정 시간대, 목표 미달 때의 결과물)과 측정 절차는 [부하 테스트](../../load-test/README.md#측정-규칙)에 있다.

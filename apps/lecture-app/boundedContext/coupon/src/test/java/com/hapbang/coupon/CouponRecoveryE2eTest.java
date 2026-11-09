@@ -267,7 +267,7 @@ class CouponRecoveryE2eTest {
     private long createAndOpenPlatformCoupon() throws Exception {
         Instant now = Instant.now();
         String body = """
-                {"targetType":"ANY_LECTURE","discountType":"AMOUNT","discountValue":1000,"quantity":%d,
+                {"name":"선착순 할인","targetType":"ANY_LECTURE","discountType":"AMOUNT","discountValue":1000,"quantity":%d,
                  "issueStartAt":"%s","issueEndAt":"%s","expiryType":"RELATIVE","expiryDays":30,"stackable":false}
                 """.formatted(QUANTITY, now.minus(Duration.ofHours(1)), now.plus(Duration.ofDays(7)));
         String response = admin(post("/api/v1/coupons/admin").contentType(MediaType.APPLICATION_JSON).content(body))
