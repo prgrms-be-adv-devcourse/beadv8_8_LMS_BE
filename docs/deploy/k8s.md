@@ -445,7 +445,7 @@ k3d image import -c hapbang \
 
 | 확인 | 명령 | 기대 결과 |
 | --- | --- | --- |
-| node 배치 | `kubectl get pods -A -o wide` | Kafka·Redis·Elasticsearch·PostgreSQL·member·billing은 server, 관측성·ECK operator·Sealed Secrets·chat은 agent |
+| node 배치 | `kubectl get pods -A -o wide` | Kafka·Redis·Elasticsearch·PostgreSQL·member·billing·Envoy Gateway controller·ECK operator·Kafka UI·cert-manager·Sealed Secrets는 server, 관측성·chat은 agent |
 | HelmChart 설치 | `kubectl get helmcharts -A`, `kubectl get jobs -A` | `helm-install-*` Job이 모두 Complete |
 | PVC | `kubectl get pvc -A` | 모두 Bound, StorageClass `local-path-retain` |
 | Redis AOF | `kubectl -n hapbang-platform exec redis-0 -- redis-cli CONFIG GET appendonly` | `yes`. pod를 지운 뒤에도 키가 남아 있다 |

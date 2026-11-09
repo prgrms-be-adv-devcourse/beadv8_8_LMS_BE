@@ -42,8 +42,8 @@
 
 | 경로 | 책임 |
 | --- | --- |
-| `k8s/gateway/install/envoy-gateway` | 공식 HelmChart v1.9.3, controller medium 128Mi, Gateway API·Envoy CRD |
-| `k8s/gateway/install/cert-manager` | 공식 HelmChart v1.21.3, large의 controller·cainjector 각 128Mi, webhook 50Mi(#532에서 medium에서 옮김) |
+| `k8s/gateway/install/envoy-gateway` | 공식 HelmChart v1.9.3, controller large 128Mi(#774에서 medium에서 옮김. proxy와 같은 node), Gateway API·Envoy CRD |
+| `k8s/gateway/install/cert-manager` | 공식 HelmChart v1.21.3, large의 controller·cainjector 각 96Mi(#774, 전 128Mi), webhook 50Mi(#532에서 medium에서 옮김) |
 | `k8s/gateway/overlays/local` | `hapbang.local`, 로컬 self-signed TLS. trace sampling은 base와 같은 100%다(#679 전에는 로컬만 100%) |
 | `k8s/gateway/overlays/prod` | 운영 호스트(`hapbang.duckdns.org`)·Grafana 주소, Let's Encrypt staging·production issuer(연락 이메일 없음). sampling은 base의 100%(운영 도구 route는 0%, #679)를 그대로 쓴다. 운영과 같은 값이라 그대로 적용한다 |
 | `apps/<앱>/k8s/base/gateway.yaml` | 모듈 HTTPRoute·optional JWT·본문 제한·업로드·WebSocket |
@@ -99,7 +99,7 @@ Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractF
   - REST(`./api`, 상대 경로)를 쓰는 기능은 `/kafka/api/...`로 가서 동작한다. 토픽 목록 조회와 토픽 삭제(`DELETE ./api/topics/{이름}`)가 REST다. 삭제는 번들 코드로만 확인했고 직접 실행하지 않았다.
   - 확인 방법: 인증 없이 `curl -s -o /dev/null -D - -X POST https://<도메인>/redpanda.api.dataplane.v1.TopicService/CreateTopic`을 보내면 405와 `server: Caddy`, `allow: GET, HEAD`가 돌아온다. 같은 요청을 `/kafka/` 아래로 보내면 Basic Auth의 401이다(2026-11-03 prod).
   - 결정(2026-11-03, #484): 고치지 않는다. 토픽은 발행 앱이 `NewTopic`으로 선언하므로([Kafka](../architecture/infrastructure/kafka.md)) UI에서 토픽을 만들 일이 드물다. 검토한 대안은 둘이다. 하나는 `kafka-ui` route에 `^/redpanda\.api\.[^/]+/[^/]+$` 정규식 rule을 더해 Console로 보내는 것이다. Envoy의 Basic Auth realm은 요청 URL이라, `/kafka/` 밖 경로에서 브라우저가 로그인 창을 다시 띄울 수 있다. 다른 하나는 `kafka.<도메인>` 서브도메인에 Console을 루트 경로로 여는 것이다. HTTPS listener와 인증서가 하나씩 더 필요하다. upstream이 고치면 다시 본다.
-- Tempo는 trace 수신·조회 부하에서 기존 64Mi로 OOMKilled되어 128Mi·GOMEMLIMIT=112MiB·GOMAXPROCS=2를 적용했다. 운영 3일 최대 working set이 115Mi(90%)라 160Mi·GOMEMLIMIT=136MiB로 올렸다(#532). Envoy proxy는 운영 최대 24Mi라 256Mi에서 128Mi로 낮췄다(#532). 이 조정과 Grafana 증가분, Envoy 종료 sidecar 32Mi를 [예산 표](../architecture/infrastructure/k3s.md)에 반영한다.
+- Tempo는 trace 수신·조회 부하에서 기존 64Mi로 OOMKilled되어 128Mi·GOMEMLIMIT=112MiB·GOMAXPROCS=2를 적용했다. 운영 3일 최대 working set이 115Mi(90%)라 160Mi·GOMEMLIMIT=136MiB로 올렸다(#532). 160Mi에서 k6 부하 블록 compaction 중 OOMKilled가 반복되어 256Mi·GOMEMLIMIT=218MiB로 올렸다(#774). Envoy proxy는 운영 최대 24Mi라 256Mi에서 128Mi로 낮췄다(#532). 이 조정과 Grafana 증가분, Envoy 종료 sidecar 32Mi를 [예산 표](../architecture/infrastructure/k3s.md)에 반영한다.
 - Envoy JSON access log는 query·본문·Authorization·쿠키를 기록하지 않는다. W3C trace를 Alloy OTLP 4317 → Tempo 4317로 전송한다. dashboard·앱 전체 계측·alert는 #343이다.
 - platform(PostgreSQL·Kafka·Redis·Elasticsearch·관측성)에는 ingress NetworkPolicy를 두지 않는다. 외부에서는 닿지 않고, 막아 주는 경우는 cluster 안 pod가 먼저 뚫린 상황뿐이라 실서비스가 아닌 이 규모에서는 감수한다. 인증이 없는 Kafka·Redis도 같다. 앱 이름 허용 목록은 앱을 더할 때마다 고쳐야 하고 빠뜨려도 CI가 잡지 못한다(#374). `deny-metadata-egress`는 namespace의 모든 pod에 적용되므로 이 구성 요소들도 IMDS egress는 막힌다. k3s(kube-router)는 새 pod에 규칙을 거는 데 몇 초가 걸려 그동안은 IMDS가 막히지 않는다(EC2 실측, #374). metadata egress는 S3를 쓰는 member·appearance·lecture에만 허용한다. node 자체나 hostNetwork pod는 일반 NetworkPolicy의 신뢰 경계 밖이다.
 
