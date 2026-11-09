@@ -201,6 +201,32 @@ class S3FileStorageTest {
     }
 
     @Test
+    @DisplayName("브라우저 캐시용 URL로 받으면 지정한 Cache-Control이 응답 헤더로 온다 (#770)")
+    void presignDownloadWithCacheControl() throws Exception {
+        String key = newKey();
+        s3Client.putObject(request -> request.bucket(BUCKET).key(PREFIX + "/" + key).contentType("image/png"),
+                RequestBody.fromString("png"));
+
+        PresignedUrl download = storage.presignDownloadWithCacheControl(key, Duration.ofHours(1), "private, max-age=3600");
+        HttpResponse<String> response = http.send(HttpRequest.newBuilder(URI.create(download.url())).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("Cache-Control")).hasValue("private, max-age=3600");
+        assertThat(URI.create(download.url()).getQuery()).contains("response-cache-control=private, max-age=3600");
+        // 다른 조회 URL에는 붙지 않는다
+        assertThat(URI.create(storage.presignDownload(key, Duration.ofHours(1)).url()).getQuery())
+                .doesNotContain("response-cache-control");
+    }
+
+    @Test
+    @DisplayName("브라우저 캐시용 URL의 Cache-Control 값이 비어 있으면 거부한다")
+    void presignDownloadWithCacheControl_rejectsBlank() {
+        assertThatThrownBy(() -> storage.presignDownloadWithCacheControl(newKey(), Duration.ofHours(1), " "))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("내려받기 URL로 받으면 Content-Disposition이 attachment이고 한글 파일명이 UTF-8로 들어 있다")
     void presignDownload_attachment() throws Exception {
         String key = newKey();

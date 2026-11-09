@@ -40,6 +40,13 @@ public class MemberProfileImageUseCase {
     /** 조회 URL 만료 (2026-10-13 결정) */
     static final Duration URL_EXPIRY = Duration.ofHours(1);
 
+    /**
+     * 사진 응답의 Cache-Control (#770). 같은 URL을 다시 받으면 브라우저가 S3에 묻지 않고 저장해 둔 사진을 쓴다.
+     * 공용 캐시(프록시)에는 두지 않고({@code private}), 기간은 서명할 때 URL이 남은 유효 시간({@link #URL_EXPIRY})을 넘지 않는다.
+     * 사진을 바꾸면 URL이 바뀌므로 예전 사진이 남아 보이지 않는다
+     */
+    static final String BROWSER_CACHE_CONTROL = "private, max-age=" + URL_EXPIRY.toSeconds();
+
     private final MemberSupport memberSupport;
     private final S3FileStorage s3FileStorage;
     private final ProfileImageUrlCache profileImageUrlCache;
@@ -123,7 +130,7 @@ public class MemberProfileImageUseCase {
             if (urls.containsKey(key)) {
                 continue;
             }
-            PresignedUrl presigned = s3FileStorage.presignDownload(key, URL_EXPIRY);
+            PresignedUrl presigned = s3FileStorage.presignDownloadWithCacheControl(key, URL_EXPIRY, BROWSER_CACHE_CONTROL);
             urls.put(key, presigned.url());
             // 서명한 뒤의 시각으로 잰다(앞의 시각이면 자격 증명 남은 시간을 길게 잡는다)
             ProfileImageUrlCacheTtl.of(presigned, Instant.now())

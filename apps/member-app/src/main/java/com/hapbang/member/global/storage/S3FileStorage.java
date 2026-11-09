@@ -147,6 +147,20 @@ public class S3FileStorage {
         return presign(GetObjectRequest.builder().responseContentDisposition(disposition), key, expiry);
     }
 
+    /**
+     * 브라우저가 캐시할 조회용 Presigned GET URL (#770). S3 응답의 {@code Cache-Control}을 {@code cacheControl}로 지정한다
+     * (서명에 포함되어 바꿀 수 없다). S3 객체에 Cache-Control을 저장하지 않아도, 같은 URL을 다시 쓰면 브라우저가 S3에 다시 묻지 않는다.
+     *
+     * @param expiry       0보다 크고 7일(SigV4 최대) 이하
+     * @param cacheControl 예: {@code private, max-age=3600}. 비어 있을 수 없다
+     */
+    public PresignedUrl presignDownloadWithCacheControl(String key, Duration expiry, String cacheControl) {
+        if (cacheControl == null || cacheControl.isBlank()) {
+            throw new IllegalArgumentException("Cache-Control 값이 필요합니다.");
+        }
+        return presign(GetObjectRequest.builder().responseCacheControl(cacheControl), key, expiry);
+    }
+
     private PresignedUrl presign(GetObjectRequest.Builder getObjectBuilder, String key, Duration expiry) {
         if (expiry == null || expiry.isZero() || expiry.isNegative() || expiry.compareTo(MAX_URL_EXPIRY) > 0) {
             throw new IllegalArgumentException("조회 URL 만료는 0보다 크고 7일 이하여야 합니다: " + expiry);

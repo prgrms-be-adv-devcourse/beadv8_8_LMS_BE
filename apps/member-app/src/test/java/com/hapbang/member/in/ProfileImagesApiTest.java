@@ -105,7 +105,8 @@ class ProfileImagesApiTest {
 
         assertThat(data).containsOnlyKeys(String.valueOf(withImage.getId()), String.valueOf(withoutImage.getId()),
                 String.valueOf(withdrawn.getId()), String.valueOf(suspended.getId()), String.valueOf(missingId));
-        assertThat(data.get(String.valueOf(withImage.getId()))).contains(withImage.getProfileImageKey());
+        assertThat(data.get(String.valueOf(withImage.getId()))).contains(withImage.getProfileImageKey())
+                .contains("response-cache-control=private");
         assertThat(data.get(String.valueOf(withoutImage.getId()))).isNull();
         assertThat(data.get(String.valueOf(withdrawn.getId()))).isNull();
         assertThat(data.get(String.valueOf(suspended.getId()))).isNull();

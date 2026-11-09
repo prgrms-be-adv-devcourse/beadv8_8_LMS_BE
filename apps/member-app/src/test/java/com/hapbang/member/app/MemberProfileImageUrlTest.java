@@ -42,28 +42,28 @@ class MemberProfileImageUrlTest {
     @DisplayName("캐시에 있는 사진은 서명하지 않고, 없는 사진만 서명해 캐시에 넣는다")
     void signsOnlyMisses() {
         given(cache.findAll(anyCollection())).willReturn(available(Map.of("member/profile/1/a", "https://cached/a")));
-        given(s3FileStorage.presignDownload(eq("member/profile/2/b"), any()))
+        given(s3FileStorage.presignDownloadWithCacheControl(eq("member/profile/2/b"), any(), any()))
                 .willReturn(presigned("https://signed/b", null));
 
         Map<String, String> urls = useCase.urlsOf(List.of("member/profile/1/a", "member/profile/2/b"));
 
         assertThat(urls).containsOnly(entry("member/profile/1/a", "https://cached/a"),
                 entry("member/profile/2/b", "https://signed/b"));
-        verify(s3FileStorage, never()).presignDownload(eq("member/profile/1/a"), any());
+        verify(s3FileStorage, never()).presignDownloadWithCacheControl(eq("member/profile/1/a"), any(), any());
         assertThat(putEntries()).containsExactly(
                 new ProfileImageUrlCache.Entry("member/profile/2/b", "https://signed/b", Duration.ofMinutes(50)));
     }
 
     @Test
-    @DisplayName("1시간 URL로 서명하고, 캐시 유지 시간은 자격 증명 남은 시간 − 5분을 넘지 않는다")
+    @DisplayName("1시간 URL을 브라우저 캐시(private, max-age=3600)로 서명하고, 캐시 유지 시간은 자격 증명 남은 시간 − 5분을 넘지 않는다")
     void ttlFollowsCredentials() {
         given(cache.findAll(anyCollection())).willReturn(available(Map.of()));
-        given(s3FileStorage.presignDownload(anyString(), any()))
+        given(s3FileStorage.presignDownloadWithCacheControl(anyString(), any(), any()))
                 .willReturn(presigned("https://signed/a", Instant.now().plus(Duration.ofMinutes(20))));
 
         useCase.urlsOf(List.of("member/profile/1/a"));
 
-        verify(s3FileStorage).presignDownload("member/profile/1/a", Duration.ofHours(1));
+        verify(s3FileStorage).presignDownloadWithCacheControl("member/profile/1/a", Duration.ofHours(1), "private, max-age=3600");
         assertThat(putEntries()).singleElement().satisfies(entry ->
                 assertThat(entry.ttl()).isBetween(Duration.ofMinutes(14), Duration.ofMinutes(15)));
     }
@@ -72,7 +72,7 @@ class MemberProfileImageUrlTest {
     @DisplayName("자격 증명이 곧 끝나면 서명한 URL을 주되 캐시에 넣지 않는다")
     void doesNotCacheWhenCredentialsExpireSoon() {
         given(cache.findAll(anyCollection())).willReturn(available(Map.of()));
-        given(s3FileStorage.presignDownload(anyString(), any()))
+        given(s3FileStorage.presignDownloadWithCacheControl(anyString(), any(), any()))
                 .willReturn(presigned("https://signed/a", Instant.now().plus(Duration.ofMinutes(3))));
 
         assertThat(useCase.urlsOf(List.of("member/profile/1/a"))).containsOnly(entry("member/profile/1/a", "https://signed/a"));
@@ -99,7 +99,7 @@ class MemberProfileImageUrlTest {
         given(cache.findAll(anyCollection())).willReturn(available(Map.of("member/profile/1/a", "https://cached/a")));
 
         assertThat(useCase.urlOf("member/profile/1/a")).isEqualTo("https://cached/a");
-        verify(s3FileStorage, never()).presignDownload(anyString(), any());
+        verify(s3FileStorage, never()).presignDownloadWithCacheControl(anyString(), any(), any());
     }
 
     @Test
@@ -129,7 +129,7 @@ class MemberProfileImageUrlTest {
     @DisplayName("동시에 다른 요청이 먼저 캐시에 넣은 주소가 있으면 그 주소를 준다 (같은 사진은 같은 주소)")
     void usesAddressStoredFirst() {
         given(cache.findAll(anyCollection())).willReturn(available(Map.of()));
-        given(s3FileStorage.presignDownload(anyString(), any())).willReturn(presigned("https://signed/mine", null));
+        given(s3FileStorage.presignDownloadWithCacheControl(anyString(), any(), any())).willReturn(presigned("https://signed/mine", null));
         given(cache.putAllIfAbsent(anyList())).willReturn(Map.of("member/profile/1/a", "https://signed/first"));
 
         assertThat(useCase.urlOf("member/profile/1/a")).isEqualTo("https://signed/first");
@@ -139,7 +139,7 @@ class MemberProfileImageUrlTest {
     @DisplayName("캐시를 읽지 못했으면(Redis 장애) 서명한 주소를 주고 저장은 건너뛴다")
     void skipsPutWhenCacheUnavailable() {
         given(cache.findAll(anyCollection())).willReturn(ProfileImageUrlCache.Lookup.unavailable());
-        given(s3FileStorage.presignDownload(anyString(), any())).willReturn(presigned("https://signed/a", null));
+        given(s3FileStorage.presignDownloadWithCacheControl(anyString(), any(), any())).willReturn(presigned("https://signed/a", null));
 
         assertThat(useCase.urlOf("member/profile/1/a")).isEqualTo("https://signed/a");
         verify(cache, never()).putAllIfAbsent(anyList());
