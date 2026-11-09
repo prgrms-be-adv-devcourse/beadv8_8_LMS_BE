@@ -5,8 +5,9 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
 /**
- * 쿠폰 발행 조건(대상·할인·수량·발급 기간·만료·중첩). 유형별 발행 검증은 {@link #validateFor(CouponType, int)}가 한다.
+ * 쿠폰 발행 조건(이름·대상·할인·수량·발급 기간·만료·중첩). 유형별 발행 검증은 {@link #validateFor(CouponType, int)}가 한다.
  *
+ * @param name              쿠폰 이름. 앞뒤 공백을 빼고 저장하며, 뺀 뒤 1자 이상 {@link #MAX_NAME_LENGTH}자 이하다(글자 수는 유니코드 코드 포인트)
  * @param lectureId         대상 강의 ID. 특정 강의 대상만
  * @param basePrice         발행 시 강의 가격 snapshot(HP, 1 이상). 특정 강의 대상만. 호출자가 강의 조회로 읽은 값이다
  * @param discountValue     정률이면 퍼센트 정수(1~100), 정액이면 HP
@@ -15,6 +16,7 @@ import java.time.temporal.ChronoUnit;
  * @param fixedExpiresAt    고정 만료 시각. FIXED만, 발급 종료 시각보다 뒤이고 발급 종료 + 만료 상한 일수 이하
  */
 public record CouponTerms(
+        String name,
         CouponTargetType targetType,
         Long lectureId,
         Long basePrice,
@@ -30,12 +32,16 @@ public record CouponTerms(
         boolean stackable
 ) {
 
+    /** 쿠폰 이름 최대 글자 수. DB CHECK({@code ck_coupon_name})와 같다 */
+    public static final int MAX_NAME_LENGTH = 50;
+
     /**
-     * 시각을 Redis·Stream(epoch 밀리초)과 같은 밀리초로 자른다. DB(PostgreSQL {@code timestamptz}, 마이크로초)보다 거칠어 DB에는
+     * 이름은 앞뒤 공백을 뺀다. 시각을 Redis·Stream(epoch 밀리초)과 같은 밀리초로 자른다. DB(PostgreSQL {@code timestamptz}, 마이크로초)보다 거칠어 DB에는
      * 그대로 들어가므로 쿠폰 DB 값과 Redis 값이 정확히 같다. 자르지 않으면 1밀리초 아래 차이를 도메인은 받고 Redis에서는 같은 값이
      * 되어 발급 기간·만료 비교가 어긋난다
      */
     public CouponTerms {
+        name = name == null ? null : name.strip();
         issueStartAt = toMillis(issueStartAt);
         issueEndAt = toMillis(issueEndAt);
         fixedExpiresAt = toMillis(fixedExpiresAt);
@@ -58,6 +64,7 @@ public record CouponTerms(
                 || issueStartAt == null || issueEndAt == null) {
             throw new CouponDomainException(CouponDomainError.MISSING_TERMS);
         }
+        validateName();
         if (type == CouponType.SELLER && targetType != CouponTargetType.LECTURE) {
             throw new CouponDomainException(CouponDomainError.SELLER_TARGET_LECTURE_ONLY);
         }
@@ -70,6 +77,13 @@ public record CouponTerms(
         validateTarget();
         validateDiscount();
         validateExpiry(maxExpiryDays);
+    }
+
+    /** 앞뒤 공백을 뺀 이름이 1자 이상 {@link #MAX_NAME_LENGTH}자 이하인가. 공백만인 이름은 빈 이름이다 */
+    private void validateName() {
+        if (name == null || name.isEmpty() || name.codePointCount(0, name.length()) > MAX_NAME_LENGTH) {
+            throw new CouponDomainException(CouponDomainError.INVALID_NAME);
+        }
     }
 
     private void validateTarget() {

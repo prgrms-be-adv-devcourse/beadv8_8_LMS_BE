@@ -71,7 +71,7 @@ public class CouponExceptionHandler {
     /** 도메인 오류의 응답 코드. 도메인 오류가 늘면 컴파일 오류로 여기를 고치게 한다(default를 두지 않는다) */
     static CouponErrorCode errorCodeOf(CouponDomainError error) {
         return switch (error) {
-            case MISSING_TERMS, INVALID_QUANTITY, INVALID_ISSUE_PERIOD, INVALID_RATE, INVALID_AMOUNT,
+            case MISSING_TERMS, INVALID_NAME, INVALID_QUANTITY, INVALID_ISSUE_PERIOD, INVALID_RATE, INVALID_AMOUNT,
                  MAX_DISCOUNT_REQUIRED, MAX_DISCOUNT_NOT_ALLOWED, SELLER_TARGET_LECTURE_ONLY, LECTURE_TARGET_REQUIRED,
                  LECTURE_TARGET_NOT_ALLOWED, INVALID_BASE_PRICE, INVALID_RELATIVE_EXPIRY, INVALID_FIXED_EXPIRY,
                  EXPIRY_TOO_LONG, REJECT_REASON_REQUIRED, BUDGET_OVERFLOW -> CouponErrorCode.INVALID_COUPON_POLICY;
