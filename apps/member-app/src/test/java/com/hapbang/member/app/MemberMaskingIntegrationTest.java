@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -87,7 +88,7 @@ class MemberMaskingIntegrationTest {
     }
 
     @Test
-    @DisplayName("이메일·닉네임·구글 계정·비밀번호·채널·사진을 파기하고, 회원 변경·마스킹 이벤트를 한 번씩 남긴다")
+    @DisplayName("이메일·닉네임·구글 계정·비밀번호·채널·사진·자기소개·콘텐츠 분야를 파기하고, 회원 변경·마스킹 이벤트를 한 번씩 남긴다")
     void masksPersonalInformation() {
         User user = withdrawn(LocalDateTime.now().minusDays(31));
         Long id = user.getId();
@@ -99,6 +100,8 @@ class MemberMaskingIntegrationTest {
         s3FileStorage.upload(photoKey, "image/png", 3, new ByteArrayInputStream(new byte[] {1, 2, 3}));
         User withPhoto = reload(user);
         withPhoto.changeProfileImage(photoKey);
+        withPhoto.changeContentCategories(List.of("GAME"));
+        withPhoto.changeBio("메이플 위주");
         userRepository.save(withPhoto);
         events.clear();
 
@@ -108,6 +111,8 @@ class MemberMaskingIntegrationTest {
         assertThat(masked.getEmail()).isNull();
         assertThat(masked.getNickname()).isEqualTo("탈퇴회원#" + id);
         assertThat(masked.getProfileImageKey()).isNull();
+        assertThat(masked.getContentCategories()).isEmpty();
+        assertThat(masked.getBio()).isNull();
         assertThat(masked.getStatus()).isEqualTo(UserStatus.WITHDRAWN);
         assertThat(oAuthAccountRepository.findById(account.getId()).orElseThrow().getProviderUserId())
                 .isEqualTo("withdrawn_" + account.getId());
@@ -119,7 +124,12 @@ class MemberMaskingIntegrationTest {
         assertThat(maskedChannel.getDeletedAt()).isNotNull();
         assertThat(s3FileStorage.find(photoKey)).contains(new StoredFile(0, "application/octet-stream"));
         assertThat(events.stream(UserModifiedEvent.class)).singleElement()
-                .satisfies(event -> assertThat(event.user().nickname()).isEqualTo("탈퇴회원#" + id));
+                .satisfies(event -> {
+                    assertThat(event.user().nickname()).isEqualTo("탈퇴회원#" + id);
+                    // 지운 분야·자기소개가 이벤트에도 실려 받는 쪽도 지운다 (#711)
+                    assertThat(event.user().contentCategories()).isEmpty();
+                    assertThat(event.user().bio()).isNull();
+                });
         assertThat(events.stream(UserMaskedEvent.class)).singleElement()
                 .satisfies(event -> assertThat(event.userId()).isEqualTo(id));
     }
