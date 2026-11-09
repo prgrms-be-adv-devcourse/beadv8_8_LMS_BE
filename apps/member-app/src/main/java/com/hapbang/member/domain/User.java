@@ -18,6 +18,7 @@ import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
@@ -29,7 +30,9 @@ import lombok.NoArgsConstructor;
 
 /** 회원 원본 */
 @Entity
-@Table(name = "users", schema = "members")
+// 변경분 내부 API(#769)가 (updated_at, id) 키셋으로 읽는다
+@Table(name = "users", schema = "members",
+        indexes = @Index(name = "idx_users_updated_at_id", columnList = "updated_at, id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends SourceUser {

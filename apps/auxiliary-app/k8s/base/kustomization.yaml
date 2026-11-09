@@ -28,4 +28,8 @@ configMapGenerator:
       - DB_URL=jdbc:postgresql://postgres.hapbang-platform.svc.cluster.local:5432/auxiliary
       - DB_USERNAME=auxiliary
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
+      # 챗봇 출연 싱크(#716)가 부르는 출연 내부 API. pod label hapbang.io/internal-api-client로 출연 NetworkPolicy가 연다
+      - APPEARANCE_API_BASE_URL=http://appearance-app:8081
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local
+      # 챗봇 FAQ 색인(#715). ECK HTTP Service이고 서버 인증서 SAN에 있다. 키(ES_API_KEY)는 Secret, CA는 deployment가 마운트한다
+      - SPRING_ELASTICSEARCH_URIS=https://hapbang-es-http.hapbang-platform.svc:9200

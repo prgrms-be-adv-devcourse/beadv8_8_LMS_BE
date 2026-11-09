@@ -15,7 +15,7 @@
 - 공통 클래스 (`com.hapbang.global.exception`)
     - `BaseErrorCode`: 오류 코드 계약. `getStatus()`, `getMessage()`, `getCode()`(기본값 enum 이름)
     - `BusinessException`: 예상된 업무 실패. 모듈 예외의 부모다
-    - `GlobalErrorCode`: 공통 핸들러 전용 코드 (`INVALID_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `INTERNAL_ERROR`)
+    - `GlobalErrorCode`: 공통 핸들러 전용 코드 (`INVALID_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `INTERNAL_ERROR`). 회원별 호출 제한을 둔 앱(지갑, auxiliary-app 챗봇 #715)은 `TOO_MANY_REQUESTS`(429, `Retry-After` 헤더)를 더한다
 - 모듈에서 할 일
     - 오류 코드는 모듈의 `{Module}ErrorCode` enum에 정의하고 `BaseErrorCode`를 구현한다. 응답의 `code`는 enum 이름이다.
     - 예외는 `{Module}Exception extends BusinessException`으로 만들고 `new {Module}Exception({Module}ErrorCode.X)`로 던진다.

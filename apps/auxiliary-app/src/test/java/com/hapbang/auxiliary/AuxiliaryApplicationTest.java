@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -8,6 +9,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -32,6 +35,8 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
  * <ul>
  *     <li>Flyway가 앱 공통 schema(auxiliary)에 이력을 남기고 모듈 SQL로 chatbot schema를 만든다.</li>
  *     <li>k8s처럼 관리 포트·내부 API 포트를 따로 둔다. 헬스체크·지표는 관리 포트에서만, 내부 API는 내부 포트에서만 받는다.</li>
+ *     <li>Elasticsearch·LLM 없이 뜬다(#715). 이 테스트에는 ES가 없고 모델은 꺼져 있다. 그래도 liveness·readiness는 UP이고
+ *     FAQ 시드가 들어가며 FAQ 목록·대화(fallback)가 동작한다.</li>
  * </ul>
  * 로컬 프로필(docker compose, .env)을 읽지 않도록 다른 프로필로 띄운다. 업무 모듈 테스트는 각 모듈 프로젝트에 둔다.
  */
@@ -40,11 +45,19 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "spring.profiles.active=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.scheduling.enabled=false",
+                // 챗봇 출연 이벤트 소비(#716)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
+                "hapbang.chatbot.appearance-events.enabled=false",
+                // 운영 설정은 출연 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다
+                "hapbang.clients.appearance.base-url=http://localhost:1",
                 // k8s에서 자동으로 켜지는 liveness·readiness 그룹을 켠다
                 "management.endpoint.health.probes.enabled=true",
                 // 테스트는 기본으로 지표 내보내기를 끈다. 운영처럼 Prometheus 형식을 연다
                 "management.prometheus.metrics.export.enabled=true",
-                "management.server.port=0"
+                "management.server.port=0",
+                // 어느 구성 요소가 DOWN인지 본다(운영은 never)
+                "management.endpoint.health.show-components=always",
+                // ES가 없는 주소. 연결 거절을 바로 받는다
+                "spring.elasticsearch.uris=http://127.0.0.1:9"
         })
 // Redis 연결은 common redis 자동 설정이라 헬스체크에 들어간다. 운영처럼 Redis도 띄워 전체 상태가 UP인지 본다
 @Import({PostgresTestcontainersConfig.class, RedisTestcontainersConfig.class})
@@ -95,16 +108,38 @@ class AuxiliaryApplicationTest {
     }
 
     @Test
-    @DisplayName("헬스체크는 관리 포트에서 로그인 없이 UP이고, 지표도 관리 포트에서 준다")
+    @DisplayName("헬스체크는 관리 포트에서 로그인 없이 열린다. ES가 죽어도 liveness·readiness는 UP이고 전체 상태만 ES 때문에 DOWN이다")
     void healthOnManagementPort() throws Exception {
         HttpResponse<String> health = get(managementPort, "/actuator/health");
-        assertThat(health.statusCode()).isEqualTo(200);
-        assertThat(health.body()).contains("\"status\":\"UP\"");
+        assertThat(health.statusCode()).isEqualTo(503);
+        assertThat(health.body()).contains("\"elasticsearch\":{\"status\":\"DOWN\"}", "\"db\":{\"status\":\"UP\"}",
+                "\"redis\":{\"status\":\"UP\"}");
         assertThat(get(managementPort, "/actuator/health/liveness").statusCode()).isEqualTo(200);
         assertThat(get(managementPort, "/actuator/health/readiness").statusCode()).isEqualTo(200);
         HttpResponse<String> metrics = get(managementPort, "/actuator/prometheus");
         assertThat(metrics.statusCode()).isEqualTo(200);
         assertThat(metrics.body()).contains("jvm_memory_used_bytes");
+    }
+
+    @Test
+    @DisplayName("시작할 때 FAQ 시드 53건을 넣는다. ES·LLM이 없어도 FAQ 목록은 동작하고 대화는 fallback으로 답한다")
+    void chatbotWithoutElasticsearchAndModel() throws Exception {
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(
+                jdbcTemplate.queryForObject("select count(*) from chatbot.faq", Long.class)).isEqualTo(53));
+
+        HttpResponse<String> list = send(HttpRequest.newBuilder(uri(serverPort, "/api/v1/chatbot/faqs?category=WITHDRAW"))
+                .header("X-User-Id", "1").header("X-User-Role", "USER").GET());
+        assertThat(list.statusCode()).isEqualTo(200);
+        assertThat(list.body()).contains("FAQ-951", "FAQ-952");
+
+        HttpResponse<String> chat = send(HttpRequest.newBuilder(uri(serverPort, "/api/v1/chatbot/chat/faq"))
+                .header("X-User-Id", "1").header("X-User-Role", "USER").header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"message\":\"탈퇴는 어떻게 해요?\"}")));
+        assertThat(chat.statusCode()).isEqualTo(200);
+        assertThat(chat.body()).contains("\"fallback\":true", "고객센터 문의");
+
+        assertThat(send(HttpRequest.newBuilder(uri(serverPort, "/api/v1/chatbot/faqs")).GET()).statusCode())
+                .isEqualTo(401);
     }
 
     @Test
@@ -131,7 +166,14 @@ class AuxiliaryApplicationTest {
     }
 
     private static HttpResponse<String> get(int port, String path) throws Exception {
-        return client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)).GET().build(),
-                HttpResponse.BodyHandlers.ofString());
+        return send(HttpRequest.newBuilder(uri(port, path)).GET());
+    }
+
+    private static HttpResponse<String> send(HttpRequest.Builder request) throws Exception {
+        return client.send(request.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    private static URI uri(int port, String path) {
+        return URI.create("http://127.0.0.1:" + port + path);
     }
 }

@@ -3,6 +3,31 @@ spring:
     url: "${DB_URL}"
     username: "${DB_USERNAME}"
     password: "${DB_PASSWORD}"
+  # 챗봇 운영 모델은 OpenAI다(#715). 키는 Secret(auxiliary-app-secrets의 OPENAI_API_KEY)으로만 받는다
+  ai:
+    model:
+      chat: openai
+      embedding: openai
+    openai:
+      api-key: "${OPENAI_API_KEY}"
+      chat:
+        model: gpt-4o-mini
+        temperature: 0.2
+      embedding:
+        model: text-embedding-3-small
+  # ES는 hapbang-platform의 ECK(자체 서명 CA)다. 주소는 ConfigMap(SPRING_ELASTICSEARCH_URIS), 키는 Secret(ES_API_KEY),
+  # CA는 hapbang-prod의 ConfigMap elasticsearch-ca를 마운트한 파일이다(docs/deploy/k8s.md "Elasticsearch 앱 접근")
+  elasticsearch:
+    api-key: "${ES_API_KEY}"
+    restclient:
+      ssl:
+        bundle: elasticsearch
+  ssl:
+    bundle:
+      pem:
+        elasticsearch:
+          truststore:
+            certificate: file:/etc/hapbang/elasticsearch-ca/ca.crt
 server:
   forward-headers-strategy: native
 logging:
@@ -10,3 +35,10 @@ logging:
     format:
       # 운영 로그는 JSON 한 줄(Boot 내장 logstash 형식)로 쓴다. 필드·MDC 키·조회는 docs/dev/logging.md (#582)
       console: logstash
+hapbang:
+  chatbot:
+    faq:
+      index-name: chatbot-faq-openai-1536
+      dimensions: 1536
+      # 임시값. 배포 전에 평가셋을 OpenAI로 한 번 돌려 정한다(README "평가")
+      similarity-threshold: 0.4
