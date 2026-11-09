@@ -56,7 +56,8 @@ kc() { kubectl --context "$CONTEXT" -n "$NAMESPACE" "$@"; }
 
 pod_name() {
     local pods
-    pods=$(kc get pod -l "app.kubernetes.io/name=$APP" --field-selector=status.phase=Running -o name)
+    pods=$(kc get pod -l "app.kubernetes.io/name=$APP" --field-selector=status.phase=Running -o name) \
+        || { echo "pod 조회에 실패했다(context·권한 확인)." >&2; return 1; }
     if [[ $(wc -w <<<"$pods") -ne 1 ]]; then
         echo "Running pod가 하나가 아니다: ${pods:-없음}" >&2
         exit 1
@@ -66,8 +67,10 @@ pod_name() {
 
 # 돌고 있는 jfr-g<gid>- 임시 컨테이너 이름. 없으면 빈 문자열
 running_debug_container() {
-    kc get pod "$1" -o jsonpath='{range .status.ephemeralContainerStatuses[?(@.state.running)]}{.name}{"\n"}{end}' \
-        | grep "^${PREFIX}" | sort | tail -1 || true
+    local names
+    # kubectl이 실패하면(context·권한 오류) "임시 컨테이너가 없다"로 오해하지 않게 실패를 그대로 돌려준다
+    names=$(kc get pod "$1" -o jsonpath='{range .status.ephemeralContainerStatuses[?(@.state.running)]}{.name}{"\n"}{end}') || return 1
+    grep "^${PREFIX}" <<<"$names" | sort | tail -1 || true
 }
 
 jcmd_in() {
@@ -108,7 +111,12 @@ case "$ACTION" in
         mkdir -p "$OUT_DIR"
         jcmd_in "$POD" "$CONTAINER" JFR.dump name="$RECORDING" filename="$FILE"
         # 파일은 앱 컨테이너의 /tmp에 생긴다. 같은 uid인 임시 컨테이너가 /proc/<pid>/root로 읽고 지운다(앱 컨테이너에 exec하지 않음)
-        kc exec "$POD" -c "$CONTAINER" -- cat "/proc/${JAVA_PID}/root${FILE}" > "$LOCAL"
+        if ! kc exec "$POD" -c "$CONTAINER" -- cat "/proc/${JAVA_PID}/root${FILE}" > "$LOCAL"; then
+            # 중간에 끊긴 파일을 결과로 분석하지 않게 지운다. 앱 쪽 파일은 남겨 두고 dump를 다시 한다
+            rm -f "$LOCAL"
+            echo "JFR 파일 복사에 실패했다. 앱 컨테이너의 ${FILE}는 남아 있다. dump를 다시 한다." >&2
+            exit 1
+        fi
         kc exec "$POD" -c "$CONTAINER" -- rm -f "/proc/${JAVA_PID}/root${FILE}"
         echo "$LOCAL ($(du -h "$LOCAL" | cut -f1))"
         ;;

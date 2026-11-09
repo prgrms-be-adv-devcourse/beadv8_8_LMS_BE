@@ -27,7 +27,7 @@ EC2에는 prod만 있다. 부하 테스트는 prod를 대상으로 하고 다음
 - t3 standard credit 모드에서는 credit이 바닥나면 CPU가 기준선으로 제한된다. 각 실행 전후의 CloudWatch `CPUCreditBalance`를 결과와 함께 기록한다. credit 소진 구간의 p95는 코드 성능이 아니라 instance 제한으로 해석한다.
 - 서버 운영 시간은 [작업 흐름](../contributing/git-workflow.md) 6장을 따른다. 측정은 서버가 켜져 있는 시간에 한다.
 - 스크립트를 바꾸면 본 측정 전에 `PROFILE=smoke`(1 VU 30초)로 운영에서 먼저 돌려 본다. 예전 규칙인 "반복 실험은 로컬 k3d에서 먼저"는 두지 않는다. k3d는 노트북 자원이라 수치가 운영과 다르고, 로그인·S3 presigned URL 같은 운영 경로가 없어 스크립트 확인에도 맞지 않는다(#690에서 정함).
-- 공용 PostgreSQL·Kafka·관측 stack이 같이 흔들린다. 팀이 서버를 쓰는 중이면 미리 알리고, 같은 시각에 운영을 바꾸는 작업(dev 병합에 따른 자동 배포, HelmChart 적용)과 겹치지 않게 한다. 결과에는 그 시간 node별 자원 사용량도 함께 남긴다.
+- 공용 PostgreSQL·Kafka·관측 stack이 같이 흔들린다. 팀이 서버를 쓰지 않는 시간대에 하고 미리 공지한다. 같은 시각에 운영을 바꾸는 작업(dev 병합에 따른 자동 배포, HelmChart 적용)과도 겹치지 않게 한다. 2026-11-06에는 측정 중 PostgreSQL HelmChart 적용으로 DB가 재시작되어 측정이 무효가 됐다([결과 문서](lecture-baseline.md#측정-중-장애-기록-postgresql-재시작-2026-11-06)). 결과에는 그 시간 node별 자원 사용량도 함께 남긴다.
 - 초기 목표(100 RPS 10분 등)가 2노드에서 유지되지 않으면 목표를 낮추는 것이 아니라 node별 CPU credit, DB connection, GC 병목을 JFR과 dashboard로 설명하는 것을 결과물로 삼는다.
 - 쓰기 API(장바구니·주문·충전)는 실제 데이터와 HP를 움직이므로 시나리오에 넣으려면 먼저 팀과 정한다.
 - 로그인이 필요한 API는 부하 테스트 전용 일반 회원 계정으로 부른다. 계정 정보는 레포 밖(`~/.hapbang/load-tests/`, 권한 0600)에 두고 환경 변수로 넘긴다.
@@ -81,11 +81,13 @@ STAMP=$(date +%Y%m%d-%H%M)
 # 원본 요약 JSON에 access token이 들어가므로 나만 읽게 만든다
 umask 077
 mkdir -p -m 700 ~/.hapbang/load-tests/runs
-chmod 700 ~/.hapbang ~/.hapbang/load-tests
+chmod 700 ~/.hapbang ~/.hapbang/load-tests ~/.hapbang/load-tests/runs
 k6 run -e PROFILE=baseline \
   --summary-export ~/.hapbang/load-tests/runs/lecture-baseline-${STAMP}.json \
   loadtest/k6/lecture/baseline.js > ~/.hapbang/load-tests/runs/k6-lecture-${STAMP}.log 2>&1
-echo "k6 exit=$?"   # 0 합격, 99 threshold 실패, 그 밖은 실행 오류
+K6_EXIT=$?
+# 0 합격, 99 threshold 실패, 그 밖은 실행 오류. 0이 아니면 결과를 합격으로 적지 않는다
+echo "k6 exit=${K6_EXIT}"
 tail -60 ~/.hapbang/load-tests/runs/k6-lecture-${STAMP}.log
 # 요약 JSON의 setup_data에는 setup()이 돌려준 access token이 들어 있다. 빼고 레포로 옮긴다
 jq 'del(.setup_data)' ~/.hapbang/load-tests/runs/lecture-baseline-${STAMP}.json \
