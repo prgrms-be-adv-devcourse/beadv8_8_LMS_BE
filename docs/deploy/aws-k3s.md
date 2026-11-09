@@ -22,8 +22,8 @@
 
 | EC2 | k3s 역할 | node label | 주 역할 |
 | --- | --- | --- | --- |
-| `t3.large` | server/control plane | `hapbang.io/pool=core-data` | 외부 진입점(Envoy proxy), PostgreSQL, stateful middleware, 모듈 앱 일부 |
-| `t3.medium` | agent | `hapbang.io/pool=app-observe` | 모듈 앱, React, controller·operator, 관측성 workload |
+| `t3.large` | server/control plane | `hapbang.io/pool=core-data` | 외부 진입점(Envoy proxy), PostgreSQL, stateful middleware, 모듈 앱 일부, controller·operator(#532·#774) |
+| `t3.medium` | agent | `hapbang.io/pool=app-observe` | 모듈 앱, React, 관측성 workload |
 
 `core-data` 전체를 `NoSchedule`로 taint하지 않는다. 모듈 앱 일부를 large에도 배치해야 두 node의 자원 예산 안에 들어가기 때문이다.
 
