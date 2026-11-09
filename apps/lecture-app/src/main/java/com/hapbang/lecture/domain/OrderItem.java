@@ -59,6 +59,18 @@ public class OrderItem {
     @Column(nullable = false)
     private long priceHp;
 
+    /** 쿠폰 할인 합 D = 플랫폼 부담 + 판매자 부담. 쿠폰을 쓰지 않은 항목은 0이다 */
+    @Column(nullable = false)
+    private long discountHp;
+
+    /** 할인 중 플랫폼이 부담하는 몫 F */
+    @Column(nullable = false)
+    private long platformDiscountHp;
+
+    /** 할인 중 판매자가 부담하는 몫 S. 판매자 지급액에서 빠진다 */
+    @Column(nullable = false)
+    private long sellerDiscountHp;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OrderItemStatus status;
@@ -109,6 +121,38 @@ public class OrderItem {
         this.priceHp = lecture.getPriceHp();
         this.status = OrderItemStatus.HOLD_PENDING;
         this.objectionStatus = ObjectionStatus.NONE;
+    }
+
+    /** 구매자가 내는 HP = 가격 − 할인 합. 보류·구매 취소 반환·이의 제기 반환 금액이다. 0일 수 있다 */
+    public long buyerAmountHp() {
+        return priceHp - discountHp;
+    }
+
+    /** 판매자가 받는 HP = 가격 − 판매자 부담 할인. 지급 금액이다. 플랫폼 부담 할인은 판매자 몫을 줄이지 않는다 */
+    public long sellerPayoutHp() {
+        return priceHp - sellerDiscountHp;
+    }
+
+    /**
+     * 쿠폰 할인 스냅샷을 남긴다. 주문할 때 한 번 정하고 바꾸지 않는다.
+     * 할인 합은 두 부담 몫의 합이어야 하고, 몫은 0 이상, 할인 합은 가격 이하다.
+     */
+    void applyDiscount(long discountHp, long platformDiscountHp, long sellerDiscountHp) {
+        if (platformDiscountHp < 0 || sellerDiscountHp < 0) {
+            throw new IllegalArgumentException("할인 부담 몫은 0 이상이어야 합니다. platform=" + platformDiscountHp
+                    + ", seller=" + sellerDiscountHp);
+        }
+        if (discountHp != platformDiscountHp + sellerDiscountHp) {
+            throw new IllegalArgumentException("할인 합이 부담 몫의 합과 다릅니다. discount=" + discountHp
+                    + ", platform=" + platformDiscountHp + ", seller=" + sellerDiscountHp);
+        }
+        if (discountHp > priceHp) {
+            throw new IllegalArgumentException("할인 합이 가격보다 큽니다. discount=" + discountHp
+                    + ", price=" + priceHp);
+        }
+        this.discountHp = discountHp;
+        this.platformDiscountHp = platformDiscountHp;
+        this.sellerDiscountHp = sellerDiscountHp;
     }
 
     /** 아직 끝나지 않은 거래(구매, 구매 확정, 반환·지급 처리 중)인지 */
