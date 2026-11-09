@@ -102,10 +102,10 @@ public class MemberFacade {
         return memberSupport.isNicknameAvailable(Nickname.validate(nickname), userId);
     }
 
-    /** 내 정보 수정 */
+    /** 내 정보 수정 (닉네임·콘텐츠 분야·자기소개). null은 바꾸지 않는다 */
     @Transactional
-    public User updateProfile(Long userId, String nickname) {
-        return memberUpdateProfileUseCase.update(userId, nickname);
+    public User updateProfile(Long userId, String nickname, List<String> contentCategories, String bio) {
+        return memberUpdateProfileUseCase.update(userId, nickname, contentCategories, bio);
     }
 
     /** 회원 조회 */

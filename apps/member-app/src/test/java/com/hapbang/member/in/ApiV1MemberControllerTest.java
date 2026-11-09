@@ -134,6 +134,37 @@ class ApiV1MemberControllerTest {
     }
 
     @Test
+    @DisplayName("인플루언서가 콘텐츠 분야·자기소개를 보내면 200이고 저장된다 (#711)")
+    void updateMe_contentCategoriesAndBio() throws Exception {
+        User user = User.join("tester1@example.com", "tester1");
+        user.changeRole(Role.INFLUENCER);
+        userRepository.save(user);
+
+        mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"contentCategories\":[\"MAPLESTORY\",\"GAME\"],\"bio\":\" 메이플 위주 \"}"))
+                .andExpect(status().isOk());
+
+        User saved = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(saved.getContentCategories()).containsExactly("MAPLESTORY", "GAME");
+        assertThat(saved.getBio()).isEqualTo("메이플 위주");
+    }
+
+    @Test
+    @DisplayName("유저가 비어 있지 않은 콘텐츠 분야를 보내면 403 INFLUENCER_PROFILE_NOT_ALLOWED이고 닉네임도 바뀌지 않는다 (#711)")
+    void updateMe_contentCategoriesByUser() throws Exception {
+        User user = userRepository.save(User.join("tester1@example.com", "tester1"));
+
+        mockMvc.perform(patch("/api/v1/members/me").with(GatewayLogin.as(user.getId(), user.getRole())).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"새 닉네임\",\"contentCategories\":[\"GAME\"]}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("INFLUENCER_PROFILE_NOT_ALLOWED"));
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getNickname()).isEqualTo("tester1");
+    }
+
+    @Test
     @DisplayName("닉네임 중복 확인: 로그인 없이 부르고, 아무도 안 쓰면 true (#646)")
     void nicknameAvailability_available() throws Exception {
         mockMvc.perform(get(NICKNAME_AVAILABILITY).param("nickname", " 새닉네임 "))

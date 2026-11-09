@@ -27,9 +27,16 @@ public interface ApiV1MemberSpec {
     RsData<MemberMeResponse> me(Long userId);
 
     @Operation(summary = "내 정보 수정",
-            description = "로그인한 회원. 지금은 닉네임만. 안 보내거나 null이면 그대로 둔다. "
+            description = "로그인한 회원. 닉네임·콘텐츠 분야(contentCategories)·자기소개(bio). 안 보내거나 null이면 그대로 둔다. "
                     + "닉네임은 앞뒤 공백을 지운 뒤 2~12자, 한글·영문·숫자·공백·밑줄만, 연속 공백 불가 (어기면 400). "
-                    + "다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME. 내 닉네임의 대소문자만 바꾸는 것은 된다.")
+                    + "다른 회원(탈퇴 회원 포함)이 쓰는 닉네임이면 대소문자만 달라도 409 DUPLICATE_NICKNAME. 내 닉네임의 대소문자만 바꾸는 것은 된다. "
+                    + "contentCategories는 분야 코드 목록(고른 순서 유지, 예: [\"MAPLESTORY\", \"GAME\"]), 0~5개·중복 불가. "
+                    + "6개 이상이면 400 INVALID_CONTENT_CATEGORY_COUNT, 중복이면 400 DUPLICATE_CONTENT_CATEGORY, "
+                    + "새로 고르는 코드가 분야 목록에 없거나 꺼져 있으면 400 INVALID_CONTENT_CATEGORY(이미 고른 코드는 꺼졌어도 다시 보낼 수 있다). "
+                    + "bio는 앞뒤 공백을 지운 뒤 100자 이하(넘으면 400 INVALID_BIO_LENGTH). "
+                    + "빈 목록·빈 문자열을 보내면 지운다. 비어 있지 않은 분야·자기소개는 인플루언서·인증된 인플루언서만 보낼 수 있고 "
+                    + "그 밖의 역할이면 요청 전체가 403 INFLUENCER_PROFILE_NOT_ALLOWED(아무것도 바뀌지 않음). 지우기는 누구나 된다. "
+                    + "무엇이든 바뀌면 회원 변경 이벤트가 한 번 나가고, 바뀐 것이 없으면 나가지 않는다.")
     RsData<MemberMeResponse> updateMe(Long userId, MemberUpdateRequest request);
 
     @Operation(summary = "닉네임 중복 확인",

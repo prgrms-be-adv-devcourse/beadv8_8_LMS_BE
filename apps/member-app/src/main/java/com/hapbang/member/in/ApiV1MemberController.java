@@ -49,11 +49,12 @@ public class ApiV1MemberController implements ApiV1MemberSpec {
         return RsData.ok("내 정보를 조회했습니다.", meResponse(memberFacade.findById(userId)));
     }
 
-    /** 내 정보 수정 (닉네임) */
+    /** 내 정보 수정 (닉네임·콘텐츠 분야·자기소개) */
     @Override
     @PatchMapping("/me")
     public RsData<MemberMeResponse> updateMe(@LoginUserId Long userId, @RequestBody MemberUpdateRequest request) {
-        return RsData.ok("내 정보를 수정했습니다.", meResponse(memberFacade.updateProfile(userId, request.nickname())));
+        return RsData.ok("내 정보를 수정했습니다.", meResponse(
+                memberFacade.updateProfile(userId, request.nickname(), request.contentCategories(), request.bio())));
     }
 
     /** 닉네임 중복 확인 (#646). 로그인 없이 부른다. 로그인했으면 자기 닉네임은 쓸 수 있다고 답한다 */
