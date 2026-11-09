@@ -21,12 +21,12 @@ import com.hapbang.modulithfixture.ModulithFixtureApplication;
 class AuxiliaryModularityTest {
 
     @Test
-    @DisplayName("공통 모듈과 챗봇 모듈을 찾고, 경계 규칙을 지킨다")
+    @DisplayName("공통 모듈과 챗봇·알림 모듈을 찾고, 경계 규칙을 지킨다")
     void verify() {
         ApplicationModules modules = ApplicationModules.of(AuxiliaryApplication.class);
 
         assertThat(modules.stream().map(ApplicationModule::getIdentifier).map(Object::toString))
-                .contains("global", "chatbot");
+                .contains("global", "chatbot", "notification");
         modules.verify();
     }
 

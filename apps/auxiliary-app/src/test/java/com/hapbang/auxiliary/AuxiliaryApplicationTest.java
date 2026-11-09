@@ -45,6 +45,8 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "spring.profiles.active=test",
                 "hapbang.internal-api.key=" + IntegrationTest.INTERNAL_API_KEY,
                 "hapbang.scheduling.enabled=false",
+                // 이 테스트는 Kafka 없이 앱 뼈대(포트·Flyway·헬스)를 본다. 알림 회원 이벤트 소비자는 끄고, 소비는 알림 모듈 Kafka 테스트가 본다
+                "hapbang.notification.member-events.enabled=false",
                 // 챗봇 출연 이벤트 소비(#716)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
                 "hapbang.chatbot.appearance-events.enabled=false",
                 // 운영 설정은 출연 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다
@@ -97,14 +99,20 @@ class AuxiliaryApplicationTest {
     }
 
     @Test
-    @DisplayName("Flyway 이력은 auxiliary schema에 남고, 챗봇 모듈 SQL이 chatbot schema를 만든다")
+    @DisplayName("Flyway 이력은 auxiliary schema에 남고, 챗봇·알림 모듈 SQL이 chatbot·notification schema를 만든다")
     void flywaySchemas() {
         assertThat(jdbcTemplate.queryForList(
-                "select schema_name from information_schema.schemata where schema_name in ('auxiliary', 'chatbot')",
-                String.class)).containsExactlyInAnyOrder("auxiliary", "chatbot");
+                "select schema_name from information_schema.schemata "
+                        + "where schema_name in ('auxiliary', 'chatbot', 'notification')",
+                String.class)).containsExactlyInAnyOrder("auxiliary", "chatbot", "notification");
         assertThat(jdbcTemplate.queryForList(
                 "select description from auxiliary.flyway_schema_history where success", String.class))
-                .contains("create chatbot schema");
+                .contains("create chatbot schema", "create notification schema");
+        // 알림 회원 복제본 테이블(ND-046)
+        assertThat(jdbcTemplate.queryForList(
+                "select table_name from information_schema.tables "
+                        + "where table_schema = 'notification' and table_name = 'notification_user'",
+                String.class)).containsExactly("notification_user");
     }
 
     @Test
