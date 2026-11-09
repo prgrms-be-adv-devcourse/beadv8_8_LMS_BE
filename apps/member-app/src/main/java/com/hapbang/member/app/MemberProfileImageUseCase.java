@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +24,9 @@ import com.hapbang.member.global.storage.PresignedUrl;
 import com.hapbang.member.global.storage.S3FileStorage;
 import com.hapbang.member.domain.ProfileImage;
 import com.hapbang.member.domain.User;
+import com.hapbang.member.out.ProfileImageKey;
 import com.hapbang.member.out.ProfileImageUrlCache;
+import com.hapbang.member.out.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +43,7 @@ public class MemberProfileImageUseCase {
     private final MemberSupport memberSupport;
     private final S3FileStorage s3FileStorage;
     private final ProfileImageUrlCache profileImageUrlCache;
+    private final UserRepository userRepository;
 
     /** 검사 후 새 key로 S3에 올리고 key를 돌려준다. DB를 쓰지 않으므로 트랜잭션 밖에서 부른다 */
     public String store(Long userId, String contentType, long contentLength, InputStream body) throws IOException {
@@ -77,6 +81,23 @@ public class MemberProfileImageUseCase {
         } catch (RuntimeException e) {
             log.warn("바뀐 옛 프로필 사진을 지우지 못했습니다. key={}", previousKey, e);
         }
+    }
+
+    /**
+     * 회원별 프로필 사진 조회 URL (#770 일괄 조회). 요청한 회원 ID마다 값이 있고(중복은 한 번), 사진이 없거나 없는 회원이거나
+     * 프로필을 볼 수 없는 회원(정상이 아님, 프로필 조회와 같은 기준)이면 null이다. 회원은 쿼리 한 번, 캐시는 MGET 한 번으로 읽는다.
+     * 트랜잭션을 두지 않는다(쿼리는 하나이고, Redis·서명하는 동안 DB 연결을 잡지 않게)
+     */
+    public Map<Long, String> urlsOfMembers(Collection<Long> memberIds) {
+        if (memberIds.isEmpty()) {
+            return Map.of();
+        }
+        List<ProfileImageKey> keys = userRepository.findActiveProfileImageKeys(memberIds);
+        Map<String, String> urls = urlsOf(keys.stream().map(ProfileImageKey::key).toList());
+        Map<Long, String> result = new LinkedHashMap<>();
+        memberIds.forEach(memberId -> result.put(memberId, null));
+        keys.forEach(key -> result.put(key.userId(), urls.get(key.key())));
+        return result;
     }
 
     /** 조회 URL (Presigned GET, 1시간). 사진이 없으면 null. 캐시를 거친다({@link #urlsOf}) */

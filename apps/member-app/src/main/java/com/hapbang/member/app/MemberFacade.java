@@ -238,6 +238,11 @@ public class MemberFacade {
         return memberProfileImageUseCase.urlOf(key);
     }
 
+    /** 회원별 프로필 사진 조회 URL (#770 일괄 조회). 사진이 없거나 볼 수 없는 회원이면 null */
+    public Map<Long, String> profileImageUrls(Collection<Long> memberIds) {
+        return memberProfileImageUseCase.urlsOfMembers(memberIds);
+    }
+
     /**
      * 회원 탈퇴 (#593). 탈퇴 기능 스위치가 꺼져 있으면 없는 기능처럼 404.
      * 다른 앱(지갑·출연·강의) 내부 API를 부르므로 트랜잭션을 두지 않는다 (오케스트레이터가 단계마다 짧게 연다)

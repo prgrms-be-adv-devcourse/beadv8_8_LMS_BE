@@ -24,15 +24,18 @@ import org.mockito.ArgumentCaptor;
 
 import com.hapbang.member.global.storage.PresignedUrl;
 import com.hapbang.member.global.storage.S3FileStorage;
+import com.hapbang.member.out.ProfileImageKey;
 import com.hapbang.member.out.ProfileImageUrlCache;
+import com.hapbang.member.out.UserRepository;
 
 /** 프로필 사진 조회 URL이 캐시를 거치는지 (#770). 캐시에 있으면 그대로, 없는 것만 서명해 캐시에 넣는다 */
 class MemberProfileImageUrlTest {
 
     private final S3FileStorage s3FileStorage = mock(S3FileStorage.class);
     private final ProfileImageUrlCache cache = mock(ProfileImageUrlCache.class);
+    private final UserRepository userRepository = mock(UserRepository.class);
     private final MemberProfileImageUseCase useCase =
-            new MemberProfileImageUseCase(mock(MemberSupport.class), s3FileStorage, cache);
+            new MemberProfileImageUseCase(mock(MemberSupport.class), s3FileStorage, cache, userRepository);
 
     @Test
     @DisplayName("캐시에 있는 사진은 서명하지 않고, 없는 사진만 서명해 캐시에 넣는다")
@@ -96,6 +99,30 @@ class MemberProfileImageUrlTest {
 
         assertThat(useCase.urlOf("member/profile/1/a")).isEqualTo("https://cached/a");
         verify(s3FileStorage, never()).presignDownload(anyString(), any());
+    }
+
+    @Test
+    @DisplayName("회원별 조회: 요청한 ID마다 키가 있고(중복은 한 번, 요청 순서), 사진 key가 없는 회원은 null이다")
+    void urlsOfMembers() {
+        // 저장소는 정상 회원 중 사진이 있는 회원만 준다. 7번은 사진이 없거나 볼 수 없는 회원, 99번은 없는 회원
+        given(userRepository.findActiveProfileImageKeys(List.of(12L, 3L, 7L, 3L, 99L)))
+                .willReturn(List.of(new ProfileImageKey(3L, "member/profile/3/a"), new ProfileImageKey(12L, "member/profile/12/b")));
+        given(cache.findAll(anyCollection()))
+                .willReturn(Map.of("member/profile/3/a", "https://cached/a", "member/profile/12/b", "https://cached/b"));
+
+        Map<Long, String> urls = useCase.urlsOfMembers(List.of(12L, 3L, 7L, 3L, 99L));
+
+        assertThat(urls).containsExactly(entry(12L, "https://cached/b"), entry(3L, "https://cached/a"),
+                entry(7L, null), entry(99L, null));
+    }
+
+    @Test
+    @DisplayName("회원별 조회: 사진이 있는 회원이 없으면 캐시를 부르지 않고 모두 null")
+    void urlsOfMembersWithoutImages() {
+        given(userRepository.findActiveProfileImageKeys(List.of(7L))).willReturn(List.of());
+
+        assertThat(useCase.urlsOfMembers(List.of(7L))).containsExactly(entry(7L, null));
+        verify(cache, never()).findAll(anyCollection());
     }
 
     @SuppressWarnings("unchecked")

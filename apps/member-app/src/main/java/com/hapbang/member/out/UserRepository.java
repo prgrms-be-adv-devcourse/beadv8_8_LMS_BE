@@ -63,4 +63,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** 내부 회원 목록(키셋): afterId보다 큰 ID를 오름차순으로 limit개. 모든 역할·상태 포함 (#303) */
     List<User> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
+
+    /**
+     * 프로필 사진 key 일괄 조회 (#770). 정상 회원 중 사진이 있는 회원만 쿼리 한 번으로 읽는다.
+     * 정상이 아닌 회원은 프로필 조회(MemberSupport.findActiveUser)와 같이 빠진다
+     */
+    @Query("""
+            select new com.hapbang.member.out.ProfileImageKey(u.id, u.profileImageKey) from User u
+            where u.id in :ids
+              and u.status = com.hapbang.shared.member.domain.UserStatus.ACTIVE
+              and u.profileImageKey is not null""")
+    List<ProfileImageKey> findActiveProfileImageKeys(@Param("ids") Collection<Long> ids);
 }
