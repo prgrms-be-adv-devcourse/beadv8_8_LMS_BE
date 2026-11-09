@@ -198,7 +198,7 @@ class MemberChangesInternalApiTest {
     }
 
     @Test
-    @DisplayName("커서 둘 중 하나만 넘기거나, 시각 형식이 틀리거나, size·afterId가 범위 밖이면 400 INVALID_REQUEST")
+    @DisplayName("커서 둘 중 하나만 넘기거나, 시각 형식이 틀리거나 오프셋이 붙거나, size·afterId가 범위 밖이면 400 INVALID_REQUEST")
     void invalidRequest() throws Exception {
         mockMvc.perform(internal(get(CHANGES).param("afterUpdatedAt", "2026-11-09T10:00:00")))
                 .andExpect(status().isBadRequest())
@@ -206,10 +206,17 @@ class MemberChangesInternalApiTest {
         mockMvc.perform(internal(get(CHANGES).param("afterId", "1")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        mockMvc.perform(internal(get(CHANGES).param("afterUpdatedAt", "2026-11-09 10:00").param("afterId", "1")))
+        // 형식이 틀리거나, 오프셋이 붙은 시각(조용히 오프셋을 버리면 커서가 시차만큼 어긋난다)
+        for (String time : new String[] {"2026-11-09 10:00", "2026-11-09T01:15:30Z", "2026-11-09T10:15:30+09:00"}) {
+            mockMvc.perform(internal(get(CHANGES).param("afterUpdatedAt", time).param("afterId", "1")))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.errors[0].field").value("afterUpdatedAt"));
+        }
+        // 형식은 맞지만 있을 수 없는 날짜
+        mockMvc.perform(internal(get(CHANGES).param("afterUpdatedAt", "2026-13-09T10:00:00").param("afterId", "1")))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.errors[0].field").value("afterUpdatedAt"));
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         for (String[] param : new String[][] {{"size", "0"}, {"size", "501"}}) {
             mockMvc.perform(internal(get(CHANGES).param(param[0], param[1])))
                     .andExpect(status().isBadRequest())
