@@ -12,6 +12,12 @@ import lombok.RequiredArgsConstructor;
 public enum LectureErrorCode implements BaseErrorCode {
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
     INVALID_PRICE(HttpStatus.BAD_REQUEST, "강의 가격은 1,000 HP 이상, 1,000 HP 단위여야 합니다."),
+    /** 가격 인상 제한: 그 강의 대상 플랫폼 쿠폰이 발급 중이거나 쓸 수 있는 발급 쿠폰이 남아 있다 */
+    LECTURE_PRICE_RAISE_BLOCKED(HttpStatus.CONFLICT, "이 강의에 쓸 수 있는 플랫폼 쿠폰이 있어 가격을 올릴 수 없습니다."),
+    /** 가격 인상 제한: 쿠폰 모듈에 닿지 못했거나 결과를 모른다. 막는 쪽으로 처리한다 */
+    LECTURE_PRICE_RAISE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 가격을 올릴 수 있는지 확인할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    /** 강의 정보 수정: 가격 인상 제한을 확인한 뒤 수정하기 전에 다른 요청이 가격을 바꿨다 */
+    LECTURE_PRICE_CHANGED(HttpStatus.CONFLICT, "그 사이 강의 가격이 바뀌었습니다. 강의 정보를 다시 불러와 수정해 주세요."),
     CONTENT_REQUIRED(HttpStatus.BAD_REQUEST, "강의 콘텐츠는 1개 이상이어야 합니다."),
     NOT_LECTURE_SELLER(HttpStatus.FORBIDDEN, "강의 판매자만 처리할 수 있습니다."),
     LECTURE_NOT_FOUND(HttpStatus.NOT_FOUND, "강의를 찾을 수 없습니다."),
