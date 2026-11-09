@@ -91,7 +91,34 @@ public enum CouponErrorCode {
     /** DLT 기록을 찾을 수 없다 */
     COUPON_DLT_NOT_FOUND(HttpStatus.NOT_FOUND, "DLT 기록을 찾을 수 없습니다."),
     /** 이미 재발행했거나 영구 거절한 DLT 기록이다 */
-    COUPON_DLT_ALREADY_RESOLVED(HttpStatus.CONFLICT, "이미 처리한 DLT 기록입니다.");
+    COUPON_DLT_ALREADY_RESOLVED(HttpStatus.CONFLICT, "이미 처리한 DLT 기록입니다."),
+
+    // 사용 (강의 → 쿠폰 내부 API: 계산·예약·해제). 실패한 발급 쿠폰이 있으면 응답에 memberCouponId를 싣는다(CouponUsageException)
+
+    /** 쿠폰의 적용 대상이 아닌 강의에 두었다 */
+    COUPON_NOT_APPLICABLE(HttpStatus.CONFLICT, "이 강의에 적용할 수 없는 쿠폰입니다."),
+    /** 본인 소유가 아니거나, AVAILABLE이 아니거나, 만료되었다 */
+    COUPON_NOT_USABLE(HttpStatus.CONFLICT, "사용할 수 없는 쿠폰입니다."),
+    /** 한 강의에 같은 주체 두 장, 단독 사용 쿠폰과 다른 쿠폰, 한 발급 쿠폰을 두 강의에 두었다 */
+    COUPON_STACKING_VIOLATION(HttpStatus.CONFLICT, "함께 사용할 수 없는 쿠폰 조합입니다."),
+    /** 요청의 기대 세대가 지금 발급 쿠폰의 세대와 다르다(다른 사용 시도가 먼저 바꿨다). 다시 계산해야 한다 */
+    COUPON_GENERATION_MISMATCH(HttpStatus.CONFLICT, "쿠폰 상태가 바뀌었습니다. 다시 계산해 주세요."),
+    /** 계산 뒤 쿠폰 정책 버전이 바뀌었다. 다시 계산해야 한다 */
+    COUPON_POLICY_VERSION_CHANGED(HttpStatus.CONFLICT, "쿠폰 조건이 바뀌었습니다. 다시 계산해 주세요."),
+    /** 다시 계산한 할인 금액·적용 순서가 요청의 근거와 다르다 */
+    COUPON_AMOUNT_MISMATCH(HttpStatus.CONFLICT, "쿠폰 할인 금액이 계산 결과와 다릅니다. 다시 계산해 주세요."),
+    /** 요청의 강의 가격·판매자가 강의의 지금 값과 다르다 */
+    COUPON_LECTURE_PRICE_MISMATCH(HttpStatus.CONFLICT, "강의 가격이 바뀌었습니다. 다시 계산해 주세요."),
+    /** 같은 작업 ID로 다른 내용의 요청이 왔다 */
+    COUPON_WORK_CONFLICT(HttpStatus.CONFLICT, "이미 다른 내용에 쓰인 작업 ID입니다."),
+    /** 해제할 수 없는 사용 시도다(예약 상태가 아니거나, 다른 주문·다른 세대다) */
+    COUPON_RELEASE_NOT_ALLOWED(HttpStatus.CONFLICT, "해제할 수 없는 쿠폰 사용입니다."),
+    /** 작업 ID 형식이 올바르지 않다(1~100자, 영문·숫자·{@code :_-}) */
+    INVALID_WORK_ID(HttpStatus.BAD_REQUEST, "작업 ID 형식이 올바르지 않습니다."),
+    /** 한 요청의 항목 수가 상한을 넘었다 */
+    COUPON_TOO_MANY_ITEMS(HttpStatus.BAD_REQUEST, "한 번에 계산할 수 있는 강의 수를 넘었습니다."),
+    /** 한 주문에 같은 강의가 두 번 있다 */
+    COUPON_DUPLICATE_LECTURE(HttpStatus.BAD_REQUEST, "같은 강의가 두 번 들어 있습니다.");
 
     private final HttpStatus status;
     private final String message;
