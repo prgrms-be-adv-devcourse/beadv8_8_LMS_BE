@@ -83,6 +83,8 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `limits.backlog-release-ratio` | 0.8 | 적체 보류 해제 비율(히스테리시스) |
 | `limits.orphan-reservation-grace` | 10m | DRAFT·REVIEW 고아 용량 예약을 해제하기 전 유예 |
 | `reconciliation.interval` | 1m | 대사 배치 주기 |
+| `calculate.max-search-nodes` | 100000 | 추천 탐색에서 시도할 조합 수 상한. 넘으면 찾은 최선을 `optimal=false`로 돌려준다 |
+| `calculate.max-items` | 20 | 계산·예약 한 번의 항목 수 상한. 넘으면 400 `COUPON_TOO_MANY_ITEMS` |
 
 코드 상수: 복구·대사의 HSCAN과 DB 확인 묶음 500, 중단·종료의 막기 재시도 3회, 목록 조회 상한 100건.
 
@@ -96,7 +98,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | I2 | 회원당 같은 쿠폰 1장 | Lua 회원 SET + `UNIQUE(member_id, coupon_id)` | k6 중복 시나리오 |
 | I3 | Lua 접수 ⇒ 결국 ISSUED 또는 REJECTED. 정상 경로에서 결과 불명으로 남지 않음(Redis 유실은 UNKNOWN) | 접수 직후 Kafka 전송 + requests 기반 재발행 + Kafka 재시도 + DLT + 대사 | 전달 장애·유실 복구 시나리오 |
 | I4 | 같은 (쿠폰, 요청 ID)는 같은 결과. 요청 ID는 쿠폰 안에서만 유일 | Redis requests(쿠폰별) + `UNIQUE(coupon_id, issue_request_id)` | Lua·e2e·리포지토리 테스트 |
-| I5 | 발급 쿠폰 1장은 동시에 주문 항목 1개에만 | generation CAS + `UNIQUE(order_item_id, member_coupon_id)` | 동시 예약 테스트 |
+| I5 | 발급 쿠폰 1장은 동시에 주문 항목 1개에만 | generation CAS + 부분 유일 인덱스 `(order_item_id, member_coupon_id) WHERE status='RESERVED'` | 동시 예약 테스트 |
 | I6 | 취소 완료 뒤 늦은 결제 완료가 상태를 바꾸지 않음 | 완료 우선 + 사용 시도 이력 | 이벤트 시나리오 |
 | I7 | 쿠폰별 d = f + s, 항목 D ≤ P, 구매자 결제액 ≥ 0 | 계산 API | 단위 테스트 |
 | I8 | 쿠폰의 보류·예약 합 ≤ 예약 총액 | billing(사용자 담당) | 재원·만료 시나리오 |
