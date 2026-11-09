@@ -27,7 +27,8 @@
 - **로그**: Alloy가 `hapbang-prod`·`envoy-gateway-system`의 pod log를 Kubernetes API로 읽어 Loki로 보낸다(`k8s/platform/base/observability.yaml`). label은 `namespace`·`app`(`app.kubernetes.io/name`)·`pod`·`container`다. 앱 운영 로그는 JSON 한 줄(Boot `logstash` 형식, [로그 표준](../../dev/logging.md))이고 수집할 때 multiline·JSON 파싱은 하지 않는다. Envoy access log의 JSON 필드는 조회할 때 `| json`으로 꺼낸다.
 - **trace**: Envoy가 업무 요청을 모두(Grafana·Kafka UI 요청은 빼고, #679) OTLP gRPC로 Alloy(4317)에 보내고 Alloy가 Tempo로 넘긴다(#372). 업무 앱 6개(lecture #579, member·appearance·billing·chat #631, customer-support #663)는 Envoy가 넘긴 `traceparent`를 이어받아 server span과 내부 API client span을 같은 trace에 보낸다(아래 "앱 trace 계측").
 - **dashboard**: Grafana `합방` 폴더에 다섯 개가 있다(#531, Kafka #597, 앱 개요 #601, 아래 "Dashboard").
-- 앱 로그의 형식·MDC 키(`traceId`·`userId`·`eventType`·`eventKey`)는 [로그 표준](../../dev/logging.md)을 따른다(#582). alert는 아직 없다(#343).
+- 앱 로그의 형식·MDC 키(`traceId`·`userId`·`eventType`·`eventKey`)는 [로그 표준](../../dev/logging.md)을 따른다(#582).
+- **alert**: Grafana alerting이 돈·HP 정합성과 앱·인프라 상태(수집 끊김, 컨테이너 재시작, 디스크, 인증서, circuit breaker, DLT, DB 연결, 채팅 전달, 예약 작업) alert 13개를 Slack으로 보낸다(#781, 아래 "Alert 정책").
 
 다른 앱이 지표를 열 때는 다음 다섯 가지를 더한다. `micrometer-registry-prometheus`는 루트 `build.gradle.kts`가 모든 앱에 넣는다. lecture-app이 예시다.
 
@@ -145,7 +146,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 
 ## Alert 정책 (#629)
 
-대상 지표와 정책만 정했다. alert rule과 통보는 아직 구성하지 않았다. 구현은 #343의 후속 티켓에서 운영 실측을 본 뒤 한다.
+대상 지표와 정책은 #629에서 정했다. 평소 값이 0이거나 기준이 분명해 실측 없이 조건을 정할 수 있는 alert 13개는 #781에서 구성했다(아래 "구성한 alert"). 나머지는 운영 실측을 본 뒤 후속 티켓에서 한다.
 
 운영자가 받는 장애 통보는 **alert**라고 쓴다. 회원이 받는 **알림**(notification, [용어집](../../GLOSSARY.md))과 섞어 쓰지 않는다.
 
@@ -154,7 +155,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 - **평가**: Grafana alerting으로 한다. Prometheus·Loki 쿼리를 모두 rule로 쓸 수 있고 pod가 늘지 않는다. Prometheus 차트의 Alertmanager는 켜지 않는다(pod가 하나 늘어 medium node 예산을 다시 잡아야 한다).
 - **통보**: Slack으로 보낸다. Grafana의 Slack contact point(incoming webhook)를 쓰고, webhook URL은 Sealed Secret에 둔다.
 - **관리**: rule과 contact point는 dashboard처럼 레포 파일로 provisioning한다. UI에서 고친 내용은 저장하지 않는다.
-- **자원**: rule 평가가 Grafana에 더해지므로 적용 전후 메모리를 잰다(limit 512 MiB, 7일 최대 418 MiB, #608).
+- **자원**: rule 평가가 Grafana에 더해지므로 적용 전후 메모리를 잰다(limit 512 MiB). #781 적용 전 하루 최대는 459 MiB(2026-11-08~09), 313 MiB(11-07~08), 442 MiB(11-06~07)였다. 7일 최대 418 MiB(#608)는 limit을 512 MiB로 올리기 전 값이다.
 - **온콜 도구는 쓰지 않는다.** 당번 체계가 없고, Opsgenie는 신규 판매가 끝났으며 2027-04-05에 지원이 끝난다([Atlassian 안내](https://www.atlassian.com/licensing/opsgenie)).
 
 ### alert마다 정할 것
@@ -174,7 +175,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 
 ### 후보
 
-지금 수집하는 지표로 만들 수 있는 것이다. 지표 이름은 Micrometer 이름이고, Prometheus에서는 `.`이 `_`로 바뀐다.
+#629에서 고른 후보다. 지표 이름은 Micrometer 이름이고, Prometheus에서는 `.`이 `_`로 바뀐다. 조건은 그때의 초안이고, 구성한 alert의 실제 조건은 아래 "구성한 alert"가 기준이다.
 
 | 분류 | alert | 지표 | 조건 |
 | --- | --- | --- | --- |
@@ -193,12 +194,59 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 | 인프라 | node 디스크 | cAdvisor `container_fs_usage_bytes` / `container_fs_limit_bytes` (`/dev/root`) | 실측 뒤 |
 | 인프라 | ERROR 로그 급증 | Loki, JVM dashboard의 ERROR 쿼리 | 실측 뒤 |
 
+#781에서 위 표의 돈·HP 정합성 4개, 지표 수집 끊김, DB 연결 timeout, circuit breaker 열림, 채팅 전달 중지, node 디스크를 구성하고, 표에 없던 컨테이너 재시작·HTTPS 인증서 만료·Kafka DLT 적재·예약 작업 실패를 더했다. 남은 것은 컨테이너 메모리, 5xx 비율, HikariCP 연결 대기(pending), Kafka 소비 lag·소비 그룹 사라짐, 채팅 전달 작업 격리, ERROR 로그 급증이다.
+
 지표가 없어 지금은 만들 수 없는 것:
 
-- DLT 적재 건수: 앱 카운터가 필요하다(위 "Dashboard").
 - 채팅 outbox DEAD·적재 대기: outbox 상태 지표가 없다. 전달 작업 격리(`chat.delivery.isolated`)로만 본다.
 - OOMKilled 사유, CrashLoopBackOff, Deployment 가용 replica: kube-state-metrics가 필요하다.
 - PostgreSQL·Kafka·Redis 내부 상태: exporter가 없다.
+
+### 구성한 alert (#781)
+
+rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contactpoints.yaml`, 통보 규칙은 `policies.yaml`이다. Grafana `합방 alert` 폴더에 보인다.
+
+모든 alert에 공통으로 적용하는 설정:
+
+- **통보 채널**: Slack 채널 하나(Incoming Webhook을 만들 때 고른 채널). 메시지는 Grafana 기본 Slack template이다. alert 이름, 값, label, `summary`·`description` annotation, Grafana 링크가 들어간다.
+- **중복 억제**: alert 이름으로 묶어 한 메시지로 보낸다(처음 30초 모음, 새 instance는 5분 뒤). 해결되지 않으면 4시간마다 다시 보낸다.
+- **복구 통보**: 보낸다.
+- **NoData·Error**: 지표가 없으면 OK로 본다. 쿼리가 실패하면(Prometheus 장애) `DatasourceError` alert가 따로 온다.
+
+| alert | 조건(PromQL 요약) | 지속 | 확인할 곳과 대응 |
+| --- | --- | --- | --- |
+| 서비스 간 HP 대사 불일치 | `(lecture\|appearance)_hp_reconciliation_mismatches` > 0 (앱·규칙별) | 즉시 | Loki `{namespace="hapbang-prod", app="<앱>"} \|= "rule=<규칙>"`. `HP_TASK_DEAD`는 어긋남이 아니라 DEAD 작업 때문에 비교하지 않은 건수라 관리자 HP 작업 화면에서 재시도한다. 값은 다음 대사(매일 새벽)까지 남는다 |
+| 지갑 잔액 대사 불일치·실패 | `hapbang_billing_reconciliation_wallets{result=~"mismatched\|failed"}` > 0 | 즉시 | Loki `{app="billing-app"} \|= "잔액 대사"`로 walletId·bucket별 차이를 본다([지갑 모듈](../../billing/module.md)). 자동으로 고치지 않는다 |
+| HP 작업 DEAD | 출연 `appearance_hp_task_dead`(현재 DEAD 수) > 0, 강의 `lecture_hp_task_dead_total`이 10분 안에 늘었거나 10분 안에 생긴 series가 0보다 큼(pod가 뜬 뒤 첫 수집 전 DEAD) | 즉시 | Loki `\|= "HP_TASK_DEAD]"`, 관리자 HP 작업 화면에서 재시도한다. 강의는 counter라 10분 뒤 복구 통보가 와도 DEAD는 남는다. 남은 강의 DEAD는 대사 불일치 alert의 `HP_TASK_DEAD`가 매일 알린다 |
+| 대사가 돌지 않음 | 26시간 넘게 산 pod에서 지갑 `last_success`가 26시간 넘게 지났거나, 강의·출연 `runs_total{status="COMPLETED"}`가 26시간 동안 늘지도 새로 생기지도 않음 | 즉시 | Loki `{app="<앱>"} \|= "대사"`로 배치 실행과 중단 사유를 본다. 대사가 돌지 않으면 불일치 alert가 오래된 값으로 남는다. **지금은 거의 꺼져 있다**(아래 "한계") |
+| 지표 수집 끊김 | `up{job="kubernetes-pods"}` < 1 (pod별) | 5분 | pod 상태(`kubectl get pod`)와 로그. 기동 실패·재시작 반복·NetworkPolicy를 본다 |
+| 컨테이너 재시작 | 같은 pod 이름에서 cAdvisor 컨테이너 ID가 최근 15분에 2개 이상(Kubernetes dashboard "컨테이너 재생성"과 같은 계산) | 즉시 | `kubectl describe pod`의 Last State(OOMKilled면 limit 부족). platform 컨테이너도 본다. Deployment 배포는 pod 이름이 바뀌어 세지 않고, 이름이 같은 StatefulSet pod를 다시 만들면 한 번 센다 |
+| node 디스크 사용률 | `/dev/root` 사용 ÷ 크기 > 85% | 15분 | kubelet은 85%에서 안 쓰는 이미지를 지운다(기본값). 15분 넘게 내려가지 않으면 보존 기간(Prometheus·Loki·Tempo·Kafka)과 이미지를 줄인다. PVC(local-path)도 이 디스크에 있다 |
+| HTTPS 인증서 만료 임박 | `certmanager_certificate_expiration_timestamp_seconds`까지 21일 미만 | 즉시 | cert-manager는 만료 30일 전에 갱신한다. `kubectl describe certificate`로 Order·Challenge(HTTP-01)와 cert-manager 로그를 본다([Gateway](../../deploy/gateway.md)) |
+| circuit breaker 열림 | `resilience4j_circuitbreaker_state{state=~"open\|half_open\|forced_open"}` (앱·대상별) | 2분 | open과 half_open을 오가도 울리도록 둘을 함께 본다. 대상이 billing이면 HP 보류·지급, toss면 충전 결제가 멈춘다 |
+| Kafka DLT 적재 | `kafka_producer_topic_record_send_total{topic=~".+\.DLT"}`가 10분 안에 늘었거나 새로 생김 | 즉시 | Kafka UI에서 DLT 레코드의 예외 header를 보고 원인을 고친 뒤 재처리한다([Kafka](kafka.md) "DLT 재처리 runbook"). 10분 뒤 복구 통보가 와도 DLT 레코드는 남는다 |
+| DB 연결 timeout | `increase(hikaricp_connections_timeout_total[5m])` > 0 (앱별) | 즉시 | PostgreSQL pod 상태, JVM dashboard의 HikariCP·느린 쿼리·요청 급증. 부하 시험·계획한 DB 재시작 중이면 silence를 건다 |
+| 채팅 전달 멈춤 | `chat_delivery_paused_state` = 1 (`target`: redis, redis-write, subscription-DELIVERY·CONTROL) | 5분 | Redis pod 상태(메모리 상한·재시작)와 chat-app WARN·ERROR 로그. 앱이 재확인해 스스로 다시 연다 |
+| 예약 작업 실패 | `tasks_scheduled_execution_seconds_count{exception!="none"}`가 10분 안에 늘었거나 새로 생김 | 즉시 | Loki에서 그 예외 이름으로 stack trace를 본다. 메서드 안에서 잡아 로그만 남기는 실패는 잡히지 않는다 |
+
+- **한계: "대사가 돌지 않음"은 지금 거의 꺼져 있다.** 대사 배치는 매일 새벽(Asia/Seoul 출연 04:00, 지갑 04:02, 강의 04:30)에 돈다. 지갑 `last_success`와 강의·출연 실행 counter는 pod 메모리에만 있어 pod가 다시 뜨면 0부터 시작하므로, 이 alert는 26시간 넘게 산 pod만 본다. 강의·출연 counter는 첫 실행 때 series가 생기므로 26시간 안에 생긴 series도 실행으로 친다. dev 병합마다 pod가 다시 떠서 하루를 넘기는 pod가 드물고, 그동안 대사가 실제로 돌지 않아도 알 수 없다. 고치려면 앱이 마지막 성공 시각을 DB에서 읽어 gauge로 내야 한다(강의·출연은 실행 기록 `*HpReconciliationRun`이 이미 DB에 있고, 지갑은 실행 기록이 없다). 그러면 pod 나이와 관계없이 `time() - 마지막 성공 > 26h`로 볼 수 있다(강의·출연·지갑 코드 변경, 후속 티켓).
+- 재시작을 반복하는 pod는 scrape 대상에 남아 `up`이 0이 되므로 수집 끊김으로 잡힌다(앱 pod만, platform pod는 컨테이너 재시작 alert가 본다). pod가 아예 없어 지표가 사라진 경우(replica 0, 스케줄되지 않은 Pending pod)는 잡지 못한다. kube-state-metrics가 필요하다.
+- 첫 발생 때 series가 생기는 counter(DLT 전송, 예약 작업 예외, 강의·출연 대사 실행)와 pod가 뜬 뒤 첫 수집 전에 늘어난 counter(강의 HP 작업 DEAD)는 `increase()`가 첫 값을 놓친다. 그래서 `(increase(x[창]) > 0) or (x unless x offset 창)`처럼 창 안에 새로 생긴 series도 발생으로 친다. `or`는 metric 이름을 빼고 label을 맞추므로 왼쪽을 `> 0`으로 걸러야 새 series가 오른쪽에서 들어온다.
+- 7일 기록(2026-11-02~09)에 거꾸로 돌려 보면 울렸을 것: 컨테이너 재시작(Tempo OOMKilled 반복 #774, chat-app 재시작, #774의 ECK operator 이동, 11-06 PostgreSQL 재시작), 11-06 14:41 PostgreSQL 재시작(#731 limit 변경) 직후의 DB 연결 timeout(lecture 약 230건, chat 3건, appearance 2건)과 appearance 예약 작업 2개의 `DataAccessResourceFailureException`. 디스크(최대 64%)·인증서(80일 남음)·circuit breaker·DLT·채팅 전달 멈춤은 울리지 않았다.
+
+**수정 방법.** 파일이 원본이다. provisioning된 rule·contact point·통보 규칙은 Grafana UI에서 고칠 수 없다. UI에서 rule을 만들어 시험했다면 rule 화면의 Export(YAML)로 내려받아 `rules.yaml`에 옮긴다. contact point 설정의 `$변수`는 환경 변수로 바뀌므로 Slack 메시지 template을 넣을 때는 `$`를 `$$`로 쓴다. rule annotation은 바뀌지 않으므로 `{{ $labels.x }}`를 그대로 쓴다. 차트의 `alerting` 값은 내용을 Helm `tpl`로 돌려 Grafana template과 겹치므로 쓰지 않고, kustomization이 만든 ConfigMap(`grafana-alerting-hapbang`)을 `/etc/grafana/provisioning/alerting`에 마운트한다.
+
+**적용.** dashboard와 달리 Grafana는 alert provisioning을 기동할 때 읽는다. 파일만 바꿨으면 ConfigMap을 적용한 뒤 Grafana를 다시 띄운다(Recreate라 1분쯤 접속이 끊긴다). Webhook URL을 바꿀 때는 Slack App에서 새 webhook을 만들고 `~/.hapbang/prod-secrets.env`의 `GRAFANA_SLACK_WEBHOOK_URL`을 새 URL로 바꾼 뒤 `k8s/tools/seal-grafana-alerting.sh`로 다시 봉인한다. 바뀐 `k8s/platform/overlays/prod/grafana-alerting.yaml`을 PR로 반영하고, SealedSecret을 적용해 Grafana를 다시 띄운다. Grafana의 contact point `slack`에서 Test로 시험 메시지가 오는 것을 확인한 뒤에 이전 webhook을 지운다.
+
+```bash
+kubectl kustomize k8s/platform/overlays/prod \
+  | yq 'select(.kind=="ConfigMap" and .metadata.name=="grafana-alerting-hapbang")' > alerting.yaml
+kubectl --context hapbang-k3s diff -f alerting.yaml
+kubectl --context hapbang-k3s apply -f alerting.yaml
+kubectl --context hapbang-k3s -n hapbang-platform rollout restart deployment/grafana
+```
+
+처음 설치할 때는 SealedSecret(`grafana-alerting`) → ConfigMap → grafana HelmChart 순서로 적용한다. Grafana는 Secret이 없으면 뜨지 않는다(`envFromSecrets`). local overlay는 같은 이름의 Secret에 닿지 않는 주소를 넣어 Slack으로 보내지 않는다.
 
 ## metrics 수집과 저장 — Prometheus vs Mimir
 
