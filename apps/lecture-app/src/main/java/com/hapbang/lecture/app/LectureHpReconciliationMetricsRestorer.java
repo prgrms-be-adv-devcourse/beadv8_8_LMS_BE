@@ -49,14 +49,30 @@ public class LectureHpReconciliationMetricsRestorer {
         restore();
     }
 
-    /** 앞 pod가 남긴 실행 중 실행을 정리하고, 마지막 완료 실행의 규칙별 건수와 끝난 시각으로 지표를 바꾼다 */
+    /**
+     * 앞 pod가 남긴 실행 중 실행을 정리하고, 마지막 완료 실행의 규칙별 건수와 끝난 시각으로 지표를 바꾼다. 두 단계는 따로 실패한다:
+     * 정리가 실패해도(다음 실행의 {@code start()}가 다시 정리한다) 복원은 한다.
+     */
     public void restore() {
+        abandonLeftOverRuns();
+        restoreFromLatestCompletedRun();
+    }
+
+    private void abandonLeftOverRuns() {
         try {
             List<Long> abandonedIds = support.abandonRunningStartedBefore(bootedAt, LocalDateTime.now(clock));
             if (!abandonedIds.isEmpty()) {
+                // 새로 뜬 앱에서 처음 만드는 counter라 첫 수집 값이 이미 1이다. alert "대사 중단"은 새로 생긴 series도 중단으로 친다(#804)
                 abandonedIds.forEach(id -> metrics.recordRun(LectureHpReconciliationStatus.INCOMPLETE));
                 log.warn("앱이 멈춰 끝나지 못한 강의 HP 대사를 미완료로 정리했다 runIds={}", abandonedIds);
             }
+        } catch (RuntimeException exception) {
+            log.warn("앱이 멈춰 끝나지 못한 강의 HP 대사를 정리하지 못해 다음 실행에서 정리한다", exception);
+        }
+    }
+
+    private void restoreFromLatestCompletedRun() {
+        try {
             support.findLatestCompletedRun().ifPresent(run -> {
                 metrics.updateMismatches(run.counts());
                 metrics.updateLastCompleted(run.finishedAt());
