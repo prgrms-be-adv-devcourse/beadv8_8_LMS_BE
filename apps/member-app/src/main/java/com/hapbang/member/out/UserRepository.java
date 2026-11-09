@@ -75,7 +75,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /**
      * 회원 변경분 첫 페이지 (#769): updated_at, id 오름차순으로 limit개. 모든 역할·상태 포함.
-     * updated_at이 없는 행은 없지만(가입 때 감사 기능이 채운다), 있더라도 커서로 이어 읽을 수 없어 뺀다
+     * updated_at이 null인 행은 커서로 이어 읽을 수 없어 뺀다. 가입 때 감사 기능이 채우고, 그 전 행은 마이그레이션이 채웠다
+     * (V202611091522)
      */
     List<User> findByUpdatedAtIsNotNullOrderByUpdatedAtAscIdAsc(Limit limit);
 
