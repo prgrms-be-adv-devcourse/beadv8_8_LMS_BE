@@ -82,6 +82,7 @@ groups:
 
       # 출연: 재시도 배치 시점의 DEAD 작업 수(gauge, 처리될 때까지 남는다).
       # 강의: DEAD가 된 횟수(counter)라 최근 10분에 늘었을 때만 보낸다. 남은 DEAD는 위 대사 alert의 HP_TASK_DEAD가 매일 알린다.
+      # pod가 뜬 뒤 첫 수집 전에 DEAD가 나면 첫 값이 이미 1이라 increase()가 놓친다. 10분 안에 생긴 series가 0보다 크면 함께 친다.
       - uid: hapbang-hp-task-dead
         title: HP 작업 DEAD
         condition: C
@@ -95,7 +96,11 @@ groups:
               expr: |-
                 max by (app_kubernetes_io_name) (appearance_hp_task_dead)
                 or
-                sum by (app_kubernetes_io_name) (increase(lecture_hp_task_dead_total[10m]))
+                sum by (app_kubernetes_io_name) (
+                  (increase(lecture_hp_task_dead_total[10m]) > 0)
+                  or
+                  ((lecture_hp_task_dead_total > 0) unless lecture_hp_task_dead_total offset 10m)
+                )
           - refId: C
             relativeTimeRange: {from: 0, to: 0}
             datasourceUid: __expr__

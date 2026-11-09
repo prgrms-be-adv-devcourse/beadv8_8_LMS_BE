@@ -155,7 +155,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 - **평가**: Grafana alerting으로 한다. Prometheus·Loki 쿼리를 모두 rule로 쓸 수 있고 pod가 늘지 않는다. Prometheus 차트의 Alertmanager는 켜지 않는다(pod가 하나 늘어 medium node 예산을 다시 잡아야 한다).
 - **통보**: Slack으로 보낸다. Grafana의 Slack contact point(incoming webhook)를 쓰고, webhook URL은 Sealed Secret에 둔다.
 - **관리**: rule과 contact point는 dashboard처럼 레포 파일로 provisioning한다. UI에서 고친 내용은 저장하지 않는다.
-- **자원**: rule 평가가 Grafana에 더해지므로 적용 전후 메모리를 잰다(limit 512 MiB, 7일 최대 418 MiB, #608).
+- **자원**: rule 평가가 Grafana에 더해지므로 적용 전후 메모리를 잰다(limit 512 MiB). #781 적용 전 하루 최대는 459 MiB(2026-11-08~09), 313 MiB(11-07~08), 442 MiB(11-06~07)였다. 7일 최대 418 MiB(#608)는 limit을 512 MiB로 올리기 전 값이다.
 - **온콜 도구는 쓰지 않는다.** 당번 체계가 없고, Opsgenie는 신규 판매가 끝났으며 2027-04-05에 지원이 끝난다([Atlassian 안내](https://www.atlassian.com/licensing/opsgenie)).
 
 ### alert마다 정할 것
@@ -175,7 +175,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 
 ### 후보
 
-지금 수집하는 지표로 만들 수 있는 것이다. 지표 이름은 Micrometer 이름이고, Prometheus에서는 `.`이 `_`로 바뀐다.
+#629에서 고른 후보다. 지표 이름은 Micrometer 이름이고, Prometheus에서는 `.`이 `_`로 바뀐다. 조건은 그때의 초안이고, 구성한 alert의 실제 조건은 아래 "구성한 alert"가 기준이다.
 
 | 분류 | alert | 지표 | 조건 |
 | --- | --- | --- | --- |
@@ -217,8 +217,8 @@ rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contact
 | --- | --- | --- | --- |
 | 서비스 간 HP 대사 불일치 | `(lecture\|appearance)_hp_reconciliation_mismatches` > 0 (앱·규칙별) | 즉시 | Loki `{namespace="hapbang-prod", app="<앱>"} \|= "rule=<규칙>"`. `HP_TASK_DEAD`는 어긋남이 아니라 DEAD 작업 때문에 비교하지 않은 건수라 관리자 HP 작업 화면에서 재시도한다. 값은 다음 대사(매일 새벽)까지 남는다 |
 | 지갑 잔액 대사 불일치·실패 | `hapbang_billing_reconciliation_wallets{result=~"mismatched\|failed"}` > 0 | 즉시 | Loki `{app="billing-app"} \|= "잔액 대사"`로 walletId·bucket별 차이를 본다([지갑 모듈](../../billing/module.md)). 자동으로 고치지 않는다 |
-| HP 작업 DEAD | 출연 `appearance_hp_task_dead`(현재 DEAD 수) > 0, 강의 `increase(lecture_hp_task_dead_total[10m])` > 0 | 즉시 | Loki `\|= "HP_TASK_DEAD]"`, 관리자 HP 작업 화면에서 재시도한다. 강의는 counter라 10분 뒤 복구 통보가 와도 DEAD는 남는다. 남은 강의 DEAD는 대사 불일치 alert의 `HP_TASK_DEAD`가 매일 알린다 |
-| 대사가 돌지 않음 | 26시간 넘게 산 pod에서 지갑 `last_success`가 26시간 넘게 지났거나, 강의·출연 `runs_total{status="COMPLETED"}`가 26시간 동안 늘지도 새로 생기지도 않음 | 즉시 | Loki `{app="<앱>"} \|= "대사"`로 배치 실행과 중단 사유를 본다. 대사가 돌지 않으면 불일치 alert가 오래된 값으로 남는다 |
+| HP 작업 DEAD | 출연 `appearance_hp_task_dead`(현재 DEAD 수) > 0, 강의 `lecture_hp_task_dead_total`이 10분 안에 늘었거나 10분 안에 생긴 series가 0보다 큼(pod가 뜬 뒤 첫 수집 전 DEAD) | 즉시 | Loki `\|= "HP_TASK_DEAD]"`, 관리자 HP 작업 화면에서 재시도한다. 강의는 counter라 10분 뒤 복구 통보가 와도 DEAD는 남는다. 남은 강의 DEAD는 대사 불일치 alert의 `HP_TASK_DEAD`가 매일 알린다 |
+| 대사가 돌지 않음 | 26시간 넘게 산 pod에서 지갑 `last_success`가 26시간 넘게 지났거나, 강의·출연 `runs_total{status="COMPLETED"}`가 26시간 동안 늘지도 새로 생기지도 않음 | 즉시 | Loki `{app="<앱>"} \|= "대사"`로 배치 실행과 중단 사유를 본다. 대사가 돌지 않으면 불일치 alert가 오래된 값으로 남는다. **지금은 거의 꺼져 있다**(아래 "한계") |
 | 지표 수집 끊김 | `up{job="kubernetes-pods"}` < 1 (pod별) | 5분 | pod 상태(`kubectl get pod`)와 로그. 기동 실패·재시작 반복·NetworkPolicy를 본다 |
 | 컨테이너 재시작 | 같은 pod 이름에서 cAdvisor 컨테이너 ID가 최근 15분에 2개 이상(Kubernetes dashboard "컨테이너 재생성"과 같은 계산) | 즉시 | `kubectl describe pod`의 Last State(OOMKilled면 limit 부족). platform 컨테이너도 본다. Deployment 배포는 pod 이름이 바뀌어 세지 않고, 이름이 같은 StatefulSet pod를 다시 만들면 한 번 센다 |
 | node 디스크 사용률 | `/dev/root` 사용 ÷ 크기 > 85% | 15분 | kubelet은 85%에서 안 쓰는 이미지를 지운다(기본값). 15분 넘게 내려가지 않으면 보존 기간(Prometheus·Loki·Tempo·Kafka)과 이미지를 줄인다. PVC(local-path)도 이 디스크에 있다 |
@@ -229,9 +229,9 @@ rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contact
 | 채팅 전달 멈춤 | `chat_delivery_paused_state` = 1 (`target`: redis, redis-write, subscription-DELIVERY·CONTROL) | 5분 | Redis pod 상태(메모리 상한·재시작)와 chat-app WARN·ERROR 로그. 앱이 재확인해 스스로 다시 연다 |
 | 예약 작업 실패 | `tasks_scheduled_execution_seconds_count{exception!="none"}`가 10분 안에 늘었거나 새로 생김 | 즉시 | Loki에서 그 예외 이름으로 stack trace를 본다. 메서드 안에서 잡아 로그만 남기는 실패는 잡히지 않는다 |
 
-- 대사 배치는 매일 새벽(Asia/Seoul 출연 04:00, 지갑 04:02, 강의 04:30)에 돈다. 지갑 `last_success`와 강의·출연 실행 counter는 pod가 다시 뜨면 0부터 시작해 "대사가 돌지 않음"은 26시간 넘게 산 pod만 본다. 강의·출연 counter는 첫 실행 때 series가 생기므로 26시간 안에 생긴 series도 실행으로 친다. dev 병합마다 pod가 다시 떠서 하루를 넘기는 pod가 드물다. 그동안은 이 alert가 비어 있다.
+- **한계: "대사가 돌지 않음"은 지금 거의 꺼져 있다.** 대사 배치는 매일 새벽(Asia/Seoul 출연 04:00, 지갑 04:02, 강의 04:30)에 돈다. 지갑 `last_success`와 강의·출연 실행 counter는 pod 메모리에만 있어 pod가 다시 뜨면 0부터 시작하므로, 이 alert는 26시간 넘게 산 pod만 본다. 강의·출연 counter는 첫 실행 때 series가 생기므로 26시간 안에 생긴 series도 실행으로 친다. dev 병합마다 pod가 다시 떠서 하루를 넘기는 pod가 드물고, 그동안 대사가 실제로 돌지 않아도 알 수 없다. 고치려면 앱이 마지막 성공 시각을 DB에서 읽어 gauge로 내야 한다(강의·출연은 실행 기록 `*HpReconciliationRun`이 이미 DB에 있고, 지갑은 실행 기록이 없다). 그러면 pod 나이와 관계없이 `time() - 마지막 성공 > 26h`로 볼 수 있다(강의·출연·지갑 코드 변경, 후속 티켓).
 - 재시작을 반복하는 pod는 scrape 대상에 남아 `up`이 0이 되므로 수집 끊김으로 잡힌다(앱 pod만, platform pod는 컨테이너 재시작 alert가 본다). pod가 아예 없어 지표가 사라진 경우(replica 0, 스케줄되지 않은 Pending pod)는 잡지 못한다. kube-state-metrics가 필요하다.
-- 첫 발생 때 series가 생기는 counter(DLT 전송, 예약 작업 예외, 강의·출연 대사 실행)는 `increase()`가 첫 값을 놓친다. 그래서 `(increase(x[창]) > 0) or (x unless x offset 창)`처럼 창 안에 새로 생긴 series도 발생으로 친다. `or`는 metric 이름을 빼고 label을 맞추므로 왼쪽을 `> 0`으로 걸러야 새 series가 오른쪽에서 들어온다.
+- 첫 발생 때 series가 생기는 counter(DLT 전송, 예약 작업 예외, 강의·출연 대사 실행)와 pod가 뜬 뒤 첫 수집 전에 늘어난 counter(강의 HP 작업 DEAD)는 `increase()`가 첫 값을 놓친다. 그래서 `(increase(x[창]) > 0) or (x unless x offset 창)`처럼 창 안에 새로 생긴 series도 발생으로 친다. `or`는 metric 이름을 빼고 label을 맞추므로 왼쪽을 `> 0`으로 걸러야 새 series가 오른쪽에서 들어온다.
 - 7일 기록(2026-11-02~09)에 거꾸로 돌려 보면 울렸을 것: 컨테이너 재시작(Tempo OOMKilled 반복 #774, chat-app 재시작, #774의 ECK operator 이동, 11-06 PostgreSQL 재시작), 11-06 14:41 PostgreSQL 재시작(#731 limit 변경) 직후의 DB 연결 timeout(lecture 약 230건, chat 3건, appearance 2건)과 appearance 예약 작업 2개의 `DataAccessResourceFailureException`. 디스크(최대 64%)·인증서(80일 남음)·circuit breaker·DLT·채팅 전달 멈춤은 울리지 않았다.
 
 **수정 방법.** 파일이 원본이다. provisioning된 rule·contact point·통보 규칙은 Grafana UI에서 고칠 수 없다. UI에서 rule을 만들어 시험했다면 rule 화면의 Export(YAML)로 내려받아 `rules.yaml`에 옮긴다. contact point 설정의 `$변수`는 환경 변수로 바뀌므로 Slack 메시지 template을 넣을 때는 `$`를 `$$`로 쓴다. rule annotation은 바뀌지 않으므로 `{{ $labels.x }}`를 그대로 쓴다. 차트의 `alerting` 값은 내용을 Helm `tpl`로 돌려 Grafana template과 겹치므로 쓰지 않고, kustomization이 만든 ConfigMap(`grafana-alerting-hapbang`)을 `/etc/grafana/provisioning/alerting`에 마운트한다.
