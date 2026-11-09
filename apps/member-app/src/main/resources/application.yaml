@@ -118,6 +118,10 @@ hapbang:
   member:
     withdrawal:
       enabled: true
+    # 다른 앱·Redis 호출 circuit breaker (#654, #770). 나머지 값은 MemberOutboundResilienceProperties 기본값.
+    # 프로필 사진 주소 캐시(Redis) 회로만 느린 호출 기준을 짧게 둔다(Redis는 평소 밀리초 안에 답한다)
+    outbound:
+      profile-image-url-cache-slow-call-duration: 500ms
     # Kafka로 보내지 못한 회원 이벤트 재발행 (#421). 매분(member.batch.event-republish-cron) 실패한 기록만, 발행한 지
     # min-age가 지난 것을 batch-size건까지 다시 보낸다. 장애가 길어 밀리면 batch-size를 올린다
     event:

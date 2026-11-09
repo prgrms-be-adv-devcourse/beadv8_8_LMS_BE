@@ -42,7 +42,9 @@ class RedisProfileImageUrlCacheFailureTest {
         given(valueOperations.multiGet(anyList())).willThrow(new RedisConnectionFailureException("redis down"));
         given(redisTemplate.executePipelined(any(SessionCallback.class)))
                 .willThrow(new RedisConnectionFailureException("redis down"));
-        cache = new RedisProfileImageUrlCache(redisTemplate, meterRegistry);
+        MemberOutboundCircuitBreakers circuitBreakers = MemberOutboundCircuitBreakers.defaults();
+        circuitBreakers.bindTo(meterRegistry);
+        cache = new RedisProfileImageUrlCache(redisTemplate, circuitBreakers, meterRegistry);
     }
 
     @Test
@@ -79,7 +81,7 @@ class RedisProfileImageUrlCacheFailureTest {
         verify(valueOperations, never()).multiGet(anyList());
         assertThat(unavailable()).isEqualTo(11);
         assertThat(meterRegistry.get("resilience4j.circuitbreaker.state")
-                .tag("name", RedisProfileImageUrlCache.CIRCUIT_NAME).tag("state", "open").gauge().value())
+                .tag("name", "profile-image-url-cache").tag("state", "open").gauge().value())
                 .isEqualTo(1);
     }
 
