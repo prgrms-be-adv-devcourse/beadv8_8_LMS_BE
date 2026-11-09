@@ -37,13 +37,14 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 쿠폰 주문 2~3단계: 저장한 계산 근거로 쿠폰을 예약하고, 결과를 강의 트랜잭션에 기록한다. 트랜잭션 밖에서 부른다.
  * <ol>
- *     <li>짧은 트랜잭션에서 예약 작업에 시도를 기록하고(다음 시도 시각을 미룸) 예약 요청을 만든다. 작업이 이미 끝났으면 보내지 않는다.</li>
+ *     <li>짧은 트랜잭션에서 예약 작업에 시도를 기록하고(다음 시도 시각을 미룸) 예약 요청을 만든다. 작업이 이미 끝났으면 보내지 않는다.
+ *     시도 한도에 닿았으면 보내지 않고 {@code DEAD}로 멈춘다. 결과를 모르는 예약은 시간만으로 해제하지 않는다.</li>
  *     <li>트랜잭션 밖에서 같은 workId({@code lecture-order:<주문 ID>:reserve})로 예약을 보낸다.</li>
  *     <li>주문 행을 잠근 트랜잭션에서 결과를 기록한다. 그 사이 다른 실행이 작업을 끝냈으면 아무것도 바꾸지 않는다.
  *     <ul>
  *         <li>성공: 응답을 할인 스냅샷과 대조해 예약 generation과 작업 {@code RESERVED}를 남기고, 구매자 금액이 0보다 큰 항목만
  *         보류 작업을 등록한다. 쿠폰 주문은 예약 결과가 저장되기 전에 보류 작업이 없다.
- *         대조가 어긋나면 작업은 {@code RESERVED}(쿠폰은 예약됨)로 두고 주문을 결제 실패로 끝낸다.</li>
+ *         대조가 어긋나면 작업은 {@code RESERVED}(쿠폰은 예약됨)로 두고 주문을 결제 실패로 끝내며 같은 트랜잭션에서 해제 작업을 만든다.</li>
  *         <li>거절(4xx): 작업 {@code REJECTED}(쿠폰 오류 코드)와 주문 결제 실패. HP 작업은 없다.
  *         다만 401·403은 내부 API 키·설정 문제라 결과 불명처럼 작업을 {@code PENDING}으로 둔다.</li>
  *         <li>보내지 않음·결과 불명: 작업을 {@code PENDING}으로 두고 주문은 결제 처리 중이다. 다음 시도 시각이 지나면 다시 보낸다.</li>
@@ -57,12 +58,15 @@ public class OrderCouponReserveUseCase {
 
     /** 예약 응답이 할인 스냅샷과 어긋났을 때 붙이는 alert 표식. 쿠폰이 예약 때 대조하므로 정상이면 생기지 않는다 */
     static final String RESERVATION_MISMATCH_LOG = "[LECTURE_COUPON_RESERVATION_MISMATCH]";
+    /** 쿠폰 예약·해제 작업의 자동 처리가 멈췄을 때 붙이는 alert 표식 */
+    static final String WORK_DEAD_LOG = "[LECTURE_COUPON_WORK_DEAD]";
 
     private final LectureOrderRepository lectureOrderRepository;
     private final OrderItemCouponRepository orderItemCouponRepository;
     private final OrderCouponWorkRepository orderCouponWorkRepository;
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final LectureSyncEvents lectureSyncEvents;
+    private final OrderCouponReleaseRegistration orderCouponReleaseRegistration;
     private final CouponClient couponClient;
     private final LectureOrderProperties properties;
     private final TransactionTemplate transaction;
@@ -73,6 +77,7 @@ public class OrderCouponReserveUseCase {
                                      OrderCouponWorkRepository orderCouponWorkRepository,
                                      LectureHpTaskSupport lectureHpTaskSupport,
                                      LectureSyncEvents lectureSyncEvents,
+                                     OrderCouponReleaseRegistration orderCouponReleaseRegistration,
                                      CouponClient couponClient,
                                      LectureOrderProperties properties,
                                      PlatformTransactionManager transactionManager,
@@ -82,6 +87,7 @@ public class OrderCouponReserveUseCase {
         this.orderCouponWorkRepository = orderCouponWorkRepository;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
         this.lectureSyncEvents = lectureSyncEvents;
+        this.orderCouponReleaseRegistration = orderCouponReleaseRegistration;
         this.couponClient = couponClient;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -113,9 +119,18 @@ public class OrderCouponReserveUseCase {
         if (!work.isPending()) {
             return null;
         }
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (!work.hasAttemptsLeft(properties.couponWorkMaxAttempts())) {
+            // 결과를 모르는 예약은 시간만으로 해제하지 않는다. 주문은 결제 처리 중으로 남고 운영자가 쿠폰 예약 상태를 확인한다
+            work.markDead(now);
+            log.error(WORK_DEAD_LOG + " 쿠폰 예약 작업이 결과를 모른 채 시도 한도에 닿아 자동 처리를 멈췄다. 주문은 결제 처리 중으로 "
+                    + "남는다. 운영자가 쿠폰 예약 상태를 확인한다 orderId={}, workId={}, attemptCount={}", orderId,
+                    work.getWorkId(), work.getAttemptCount());
+            return null;
+        }
         LectureOrder order = lectureOrderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalStateException("쿠폰 예약 작업의 주문이 없습니다. orderId=" + orderId));
-        work.startAttempt(LocalDateTime.now(clock), properties.couponWorkRetryAfter());
+        work.startAttempt(now, properties.couponWorkRetryAfter());
         orderCouponWorkRepository.saveAndFlush(work);
         Map<Long, List<OrderItemCoupon>> coupons = couponsByItem(order);
         List<CouponReserveRequest.Item> items = order.getItems().stream()
@@ -182,9 +197,10 @@ public class OrderCouponReserveUseCase {
         work.markReserved(now);
         Optional<String> mismatch = OrderCouponReservation.mismatch(order.getItems(), coupons, response);
         if (mismatch.isPresent()) {
-            // 쿠폰은 예약된 채다. 해제는 결제 실패 주문의 쿠폰 해제 작업이 맡는다
+            // 쿠폰은 예약된 채라 같은 트랜잭션에서 해제 작업을 만든다
             order.markHoldFailed();
             lectureSyncEvents.purchasesChanged(order.getItems());
+            orderCouponReleaseRegistration.registerIfReserved(order, now);
             log.error(RESERVATION_MISMATCH_LOG + " 쿠폰 예약 응답이 주문의 할인 스냅샷과 달라 주문을 결제 실패로 끝냈다 orderId={}, "
                     + "workId={}, mismatch={}", order.getId(), work.getWorkId(), mismatch.get());
             return List.of();

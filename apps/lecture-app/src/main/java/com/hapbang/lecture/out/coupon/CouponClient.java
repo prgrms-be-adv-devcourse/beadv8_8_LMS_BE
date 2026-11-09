@@ -135,6 +135,12 @@ public class CouponClient {
         return false;
     }
 
+    /** 회로가 열려 있지 않아 보낼 수 있는지. 재전송 배치가 회로가 열린 동안 작업의 시도 횟수를 쓰지 않게 먼저 본다 */
+    public boolean canCall() {
+        CircuitBreaker.State state = circuitBreaker.getState();
+        return state != CircuitBreaker.State.OPEN && state != CircuitBreaker.State.FORCED_OPEN;
+    }
+
     /** 테스트에서 회로 상태를 확인할 때 쓴다 */
     CircuitBreaker circuitBreaker() {
         return circuitBreaker;

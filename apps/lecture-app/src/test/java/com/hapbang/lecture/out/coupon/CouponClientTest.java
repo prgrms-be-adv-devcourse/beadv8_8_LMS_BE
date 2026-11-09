@@ -121,12 +121,14 @@ class CouponClientTest {
     @Test
     void 실패가_쌓여_회로가_열리면_HTTP를_부르지_않고_보내지_않음이다() {
         CouponClient client = client(smallWindow());
+        assertThat(client.canCall()).isTrue();
         server.expect(times(2), requestTo(CALCULATE_URL))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
 
         assertThat(client.calculate(CALCULATE)).isInstanceOf(CouponCallResult.Unknown.class);
         assertThat(client.calculate(CALCULATE)).isInstanceOf(CouponCallResult.Unknown.class);
         assertThat(client.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        assertThat(client.canCall()).isFalse();
 
         assertThat(client.calculate(CALCULATE)).isInstanceOf(CouponCallResult.NotSent.class);
         server.verify();

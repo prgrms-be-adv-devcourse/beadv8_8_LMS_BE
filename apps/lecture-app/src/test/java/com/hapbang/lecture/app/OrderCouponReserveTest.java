@@ -133,6 +133,9 @@ class OrderCouponReserveTest {
         assertThat(jdbcTemplate.queryForMap("select status, reject_code from lectures.order_coupon_work "
                 + "where order_id = ?", orderId)).containsExactlyInAnyOrderEntriesOf(Map.of("status", "REJECTED",
                 "reject_code", "COUPON_GENERATION_MISMATCH:501"));
+        // 거절이면 쿠폰이 예약하지 않았으므로 해제 작업이 없다
+        assertThat(jdbcTemplate.queryForObject("select count(*) from lectures.order_coupon_work where kind = 'RELEASE'",
+                Long.class)).isZero();
         assertThat(count("lectures.lecture_hp_task")).isZero();
         assertThat(billing.calls()).isEmpty();
     }
@@ -173,8 +176,11 @@ class OrderCouponReserveTest {
         Long orderId = onlyOrderId();
         assertThat(jdbcTemplate.queryForObject("select status from lectures.lecture_order where id = ?", String.class,
                 orderId)).isEqualTo("HOLD_FAILED");
-        // 쿠폰은 예약된 채라 해제할 수 있게 예약 generation을 남긴다
+        // 쿠폰은 예약된 채라 해제할 수 있게 예약 generation을 남기고 같은 트랜잭션에서 해제 작업을 만든다.
+        // Fake 해제는 정한 결과가 없으면 결과 불명이라 PENDING으로 남는다
         assertThat(workStatus(orderId)).isEqualTo("RESERVED");
+        assertThat(jdbcTemplate.queryForObject("select status from lectures.order_coupon_work where order_id = ? "
+                + "and kind = 'RELEASE'", String.class, orderId)).isEqualTo("PENDING");
         assertThat(jdbcTemplate.queryForObject("select reserved_generation from lectures.order_item_coupon",
                 Long.class)).isEqualTo(EXPECTED_GENERATION + 1);
         assertThat(count("lectures.lecture_hp_task")).isZero();

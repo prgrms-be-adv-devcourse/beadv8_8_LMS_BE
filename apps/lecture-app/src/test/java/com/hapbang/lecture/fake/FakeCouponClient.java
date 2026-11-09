@@ -26,6 +26,7 @@ import com.hapbang.shared.coupon.api.CouponReserveResponse;
  * <ul>
  *     <li>{@link #respond}로 다음 호출의 결과를 차례로 정한다. 정한 결과가 없으면 계산은 할인 없는 성공이고, 그 밖의 호출은 결과 불명이다.</li>
  *     <li>호출마다 요청과 그때 강의 트랜잭션이 열려 있었는지를 남긴다.</li>
+ *     <li>{@link #setCircuitOpen}으로 쿠폰 회로가 열린 상태를 흉내 낸다({@link #canCall()}만 바뀐다).</li>
  * </ul>
  * 컨텍스트가 테스트 사이에 재사용되므로 테스트마다 {@link #reset()}한다. 빈은 {@link FakeCouponClientConfig}가 실제 Client보다 우선해 등록한다.
  */
@@ -33,6 +34,7 @@ public class FakeCouponClient extends CouponClient {
 
     private final Deque<Function<Object, CouponCallResult<?>>> responses = new ArrayDeque<>();
     private final List<Call> calls = new CopyOnWriteArrayList<>();
+    private volatile boolean circuitOpen;
 
     public FakeCouponClient() {
         super(null, LectureCouponClientProperties.defaults());
@@ -41,6 +43,17 @@ public class FakeCouponClient extends CouponClient {
     public synchronized void reset() {
         responses.clear();
         calls.clear();
+        circuitOpen = false;
+    }
+
+    /** 쿠폰 회로가 열린 상태를 흉내 낸다. 기본은 닫혀 있다 */
+    public void setCircuitOpen(boolean circuitOpen) {
+        this.circuitOpen = circuitOpen;
+    }
+
+    @Override
+    public boolean canCall() {
+        return !circuitOpen;
     }
 
     /** 다음 호출의 결과. 요청을 받아 결과를 만든다 */
