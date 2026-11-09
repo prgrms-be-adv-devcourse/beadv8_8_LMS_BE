@@ -12,7 +12,7 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
  * @param publishAckTimeout 접수 직후 Kafka 전송의 ACK를 기다리는 시간(전송 준비 포함). 요청 스레드가 이만큼 더 기다릴 수 있다. 기본 1초
  * @param republishAfter    접수 뒤 이 시간이 지나도 DB에 결과가 없으면 재발행한다. 접수 직후 전송·소비 중인 요청과 겹치지 않게 하는 대기다.
  *                          기본 30초
- * @param soldOutCacheTtl   매진 표시를 메모리에 재사용하는 시간. 0이면 캐시하지 않는다(매번 Redis에서 읽는다). 기본 1초
+ * @param soldOutCacheTtl   매진 표시를 메모리에 재사용하는 시간. 0이면 매진 캐시를 쓰지 않는다(sold_out 표시도 읽지 않고 매진 판정은 발급 Lua에 맡긴다). 기본 1초
  * @param republish         재발행 배치
  * @param producerDeliveryTimeout 쿠폰 producer의 {@code delivery.timeout.ms}: {@code send}가 돌아온 레코드가 ACK·실패로 끝나기까지의 최대
  *                          시간(재시도 포함). ACK 대기가 시간 초과로 돌아와도 전송은 이 시간까지 계속될 수 있다. Kafka 제약
