@@ -42,9 +42,13 @@ class CouponFacadeSecurityTest {
     private CouponIssueStatusQuery couponIssueStatusQuery;
     @MockitoBean
     private MemberCouponQuery memberCouponQuery;
+    @MockitoBean
+    private CouponSummaryQuery couponSummaryQuery;
+    @MockitoBean
+    private CouponPolicyQuery couponPolicyQuery;
 
-    private static final CouponCreateCommand COMMAND = new CouponCreateCommand(null, null, null, 0, null, 0, null,
-            null, null, null, null, false);
+    private static final CouponCreateCommand COMMAND = new CouponCreateCommand(null, null, null, null, 0, null, 0,
+            null, null, null, null, null, false);
 
     @Test
     @WithMockUser(roles = "USER")
@@ -70,6 +74,36 @@ class CouponFacadeSecurityTest {
         assertThatThrownBy(() -> issueFacade.requestIssue(1L, 1L, "req-1")).isInstanceOf(AccessDeniedException.class);
 
         verifyNoInteractions(couponIssueRequestUseCase);
+    }
+
+    @Test
+    @WithMockUser(roles = "INFLUENCER")
+    void 인증_전_인플루언서는_판매자_쿠폰_조회를_할_수_없고_회원_쿠폰_조회는_한다() {
+        assertThatThrownBy(() -> sellerFacade.myCoupons(1L, null)).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> sellerFacade.myCoupon(1L, 1L)).isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(couponPolicyQuery);
+
+        issueFacade.issuableCoupons(1L, 7L);
+        verify(couponSummaryQuery).issuableFor(1L, 7L);
+    }
+
+    @Test
+    @WithMockUser(roles = "VERIFIED_INFLUENCER")
+    void 인증된_인플루언서는_관리자_쿠폰_조회를_할_수_없다() {
+        assertThatThrownBy(() -> adminFacade.coupons(null)).isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> adminFacade.coupon(1L)).isInstanceOf(AccessDeniedException.class);
+
+        verifyNoInteractions(couponPolicyQuery);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void 관리자는_쿠폰을_조회하지만_회원_쿠폰_상세는_회원_역할만_본다() {
+        adminFacade.coupons(null);
+        verify(couponPolicyQuery).allCoupons(null);
+
+        assertThatThrownBy(() -> issueFacade.coupon(1L, 1L)).isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(couponSummaryQuery);
     }
 
     @Configuration(proxyBeanMethods = false)

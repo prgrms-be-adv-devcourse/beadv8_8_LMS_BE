@@ -1,5 +1,6 @@
 package com.hapbang.coupon.app;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.coupon.app.port.CouponIssueStore;
@@ -35,6 +36,10 @@ public class CouponSupport {
     /** Redis 발급 상태(issue-control status) */
     static final String REDIS_SUSPENDED = "SUSPENDED";
     static final String REDIS_CLOSED = "CLOSED";
+
+    /** 쿠폰 목록 조회 상한. 1차 규모라 페이지 없이 앞(최신순) 100건만 돌려준다 */
+    static final int MAX_LIST_SIZE = 100;
+    static final Limit LIST_LIMIT = Limit.of(MAX_LIST_SIZE);
 
     private final CouponRepository couponRepository;
     private final LectureCatalog lectureCatalog;

@@ -1,5 +1,6 @@
 package com.hapbang.coupon.in;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -28,11 +29,15 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.coupon.app.CouponIssueFacade;
+import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
+import com.hapbang.coupon.domain.CouponStatus;
 import com.hapbang.coupon.domain.CouponTargetType;
+import com.hapbang.coupon.domain.CouponType;
 import com.hapbang.coupon.domain.DiscountType;
+import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.domain.IssueResponseCode;
 import com.hapbang.coupon.domain.IssueStatus;
 import com.hapbang.coupon.domain.MemberCouponStatus;
@@ -127,7 +132,7 @@ class ApiV1CouponControllerTest {
     @Test
     void 발급_요청_상태를_로그인_회원으로_조회한다() throws Exception {
         given(couponIssueFacade.issueStatus(COUPON_ID, MEMBER_ID, REQUEST_ID))
-                .willReturn(new IssueStatusView(REQUEST_ID, COUPON_ID, IssueStatus.PENDING));
+                .willReturn(new IssueStatusView(REQUEST_ID, COUPON_ID, IssueStatus.PENDING, null));
 
         mockMvc.perform(get("/api/v1/coupons/{couponId}/issue-requests/{requestId}", COUPON_ID, REQUEST_ID)
                         .with(member()))
@@ -135,13 +140,77 @@ class ApiV1CouponControllerTest {
                 .andExpect(jsonPath("$.statusCode").value(200))
                 .andExpect(jsonPath("$.data.issueRequestId").value(REQUEST_ID))
                 .andExpect(jsonPath("$.data.couponId").value(COUPON_ID))
-                .andExpect(jsonPath("$.data.status").value("PENDING"));
+                .andExpect(jsonPath("$.data.status").value("PENDING"))
+                .andExpect(jsonPath("$.data.rejectReason").value(nullValue()));
+    }
+
+    @Test
+    void 거절된_발급_요청은_거절_사유를_싣는다() throws Exception {
+        given(couponIssueFacade.issueStatus(COUPON_ID, MEMBER_ID, REQUEST_ID))
+                .willReturn(new IssueStatusView(REQUEST_ID, COUPON_ID, IssueStatus.REJECTED, "SOLD_OUT"));
+
+        mockMvc.perform(get("/api/v1/coupons/{couponId}/issue-requests/{requestId}", COUPON_ID, REQUEST_ID)
+                        .with(member()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.rejectReason").value("SOLD_OUT"));
+    }
+
+    @Test
+    void 강의에_받을_수_있는_쿠폰은_매진_받음_표시와_함께_배열로_돌려준다() throws Exception {
+        given(couponIssueFacade.issuableCoupons(MEMBER_ID, 7L)).willReturn(List.of(summary(true, false)));
+
+        mockMvc.perform(get("/api/v1/coupons").param("lectureId", "7").with(member()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusCode").value(200))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].couponId").value(COUPON_ID))
+                .andExpect(jsonPath("$.data[0].name").value("신규 회원 할인"))
+                .andExpect(jsonPath("$.data[0].soldOut").value(true))
+                .andExpect(jsonPath("$.data[0].issued").value(false))
+                .andExpect(jsonPath("$.data[0].status").value("OPEN"));
+    }
+
+    @Test
+    void 강의에_받을_수_있는_쿠폰은_강의_ID가_없으면_400이다() throws Exception {
+        mockMvc.perform(get("/api/v1/coupons").with(member()))
+                .andExpect(status().isBadRequest());
+
+        verify(couponIssueFacade, never()).issuableCoupons(anyLong(), anyLong());
+    }
+
+    @Test
+    void 쿠폰_상세는_로그인_회원으로_조회하고_못_보는_쿠폰은_404다() throws Exception {
+        given(couponIssueFacade.coupon(MEMBER_ID, COUPON_ID)).willReturn(summary(false, true));
+        given(couponIssueFacade.coupon(MEMBER_ID, 43L)).willThrow(new CouponException(CouponErrorCode.COUPON_NOT_FOUND));
+
+        mockMvc.perform(get("/api/v1/coupons/{couponId}", COUPON_ID).with(member()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.couponId").value(COUPON_ID))
+                .andExpect(jsonPath("$.data.issued").value(true));
+        mockMvc.perform(get("/api/v1/coupons/{couponId}", 43L).with(member()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("COUPON_NOT_FOUND"));
+    }
+
+    @Test
+    void 내_쿠폰_경로는_쿠폰_상세로_가지_않는다() throws Exception {
+        given(couponIssueFacade.myCoupons(MEMBER_ID, null)).willReturn(List.of());
+        given(couponIssueFacade.usableFor(MEMBER_ID, 7L)).willReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/coupons/me").with(member())).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/coupons/me/usable").param("lectureId", "7").with(member()))
+                .andExpect(status().isOk());
+
+        verify(couponIssueFacade).myCoupons(MEMBER_ID, null);
+        verify(couponIssueFacade).usableFor(MEMBER_ID, 7L);
+        verify(couponIssueFacade, never()).coupon(anyLong(), anyLong());
     }
 
     @Test
     void 내_쿠폰은_상태로_거르고_상태가_없으면_전체다() throws Exception {
         Instant issuedAt = Instant.parse("2026-11-06T03:00:00Z");
-        MemberCouponView view = new MemberCouponView(5L, COUPON_ID, MemberCouponStatus.AVAILABLE, issuedAt,
+        MemberCouponView view = new MemberCouponView(5L, COUPON_ID, "신규 회원 할인", MemberCouponStatus.AVAILABLE, issuedAt,
                 issuedAt.plusSeconds(86_400), CouponTargetType.ANY_LECTURE, null, DiscountType.RATE, 10, 3_000L, false);
         given(couponIssueFacade.myCoupons(MEMBER_ID, MemberCouponStatus.AVAILABLE)).willReturn(List.of(view));
         given(couponIssueFacade.myCoupons(MEMBER_ID, null)).willReturn(List.of());
@@ -163,6 +232,13 @@ class ApiV1CouponControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(couponIssueFacade, never()).usableFor(anyLong(), anyLong());
+    }
+
+    private static CouponSummaryView summary(boolean soldOut, boolean issued) {
+        Instant start = Instant.parse("2026-11-07T00:00:00Z");
+        return new CouponSummaryView(COUPON_ID, "신규 회원 할인", CouponType.PLATFORM, CouponTargetType.ANY_LECTURE, null,
+                DiscountType.RATE, 10, 3_000L, false, start, start.plusSeconds(86_400 * 7), ExpiryType.RELATIVE, 30,
+                null, 100, 40, soldOut, issued, CouponStatus.OPEN);
     }
 
     private static RequestPostProcessor member() {

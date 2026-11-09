@@ -8,9 +8,10 @@
 - 플랫폼 쿠폰의 재원은 플랫폼이 프로모션 지갑에 충전하고 예약한다.
 - 특정 강의 정률 예산의 기본 계산은 강의 가격 × 할인율 × 수량이다. 정률 최대 할인액 필수 규칙은 삭제했고, 가격 변경으로 예산이 깨지는 문제는 가격 인상 제한으로 막는다.
 - 주문 전체 쿠폰의 금액 배분·재계산·할인 회수·추가 결제 초안과 반복 Q/D 이력은 현재 설계에서 제거했다. 후속 기능 도입 때 별도로 설계한다.
-- 기존에 확정한 Lua/Stream/Kafka, CAS·generation, 반환 완료 후 복원, 0 HP, 모듈 경계는 유지했다.
+- 기존에 확정한 Lua/Kafka, CAS·generation, 반환 완료 후 복원, 0 HP, 모듈 경계는 유지했다.
 - 모든 강의 대상 정률 쿠폰만 장당 최대 할인액을 입력한다. 예산 = 수량 × 최대 할인액.
 - `:lecture-app`은 유지하고 안에 Gradle 하위 프로젝트 `:coupon`을 둔다. 배포는 lecture-app pod 하나. JVM이 나뉘어 있다고 가정해 강의 ↔ 쿠폰은 내부 HTTP API + Kafka로만 통신하고 `@ApplicationModuleListener`는 쓰지 않는다. 트랜잭션은 연결하지 않는다(design.md "모듈 경계").
+- Caffeine(`com.github.ben-manes.caffeine:caffeine`, Spring Boot BOM 관리 버전)을 팀 공통 캐시 라이브러리로 들인다(2026-11-09 사용자 결정, chat-app `ChatRoomMembershipCache`와 공통). 쿠폰에서는 매진 캐시 `CouponSoldOutCache` 하나에 쓴다. Spring Cache 추상화(`@Cacheable`)는 쓰지 않는다.
 
 ## 검토를 반영한 설계 보완
 
@@ -51,7 +52,7 @@
 1. 정책·API 계약: 위 업무 결정을 확정하고 billing 계약을 연결한다. 공통 AGENTS·용어·정책·DB 문서에 스키마 예외와 공개 API 호출 경계를 반영한다.
 2. 구조 준비: `:coupon` 하위 프로젝트 뼈대(settings.gradle.kts 등록, `runtimeOnly` 의존, scan 범위, Flyway `coupon` 스키마, Modulith `verify()` 테스트, `hapbang.coupon.base-url`). `common/shared`에 쿠폰 DTO·이벤트 schema 자리. `verifyModuleStructure check bootJar` 통과가 완료 조건이다. 강의 코드는 옮기지 않는다.
 3. 쿠폰 기반: 스키마·마이그레이션·발행/승인·권한·발급과 요청 조회.
-4. 발급 복구: Stream/Kafka/DLT·epoch 복구·중복 보상 방지·용량 차단·대사.
+4. 발급 복구: 접수 직후 Kafka 전송·requests 재발행·소비자·DLT·epoch 복구·중복 보상 방지·용량 차단·대사.
 5. 사용: 계산·추천·매핑·원자적 일괄 예약·해제·사용 이력.
 6. 통합: 강의 예약 작업과 HP 작업, 할인 스냅샷, 0 HP, 결제·취소 이벤트, 가격 인상 제한, 수익 조회. billing 구현은 사용자가 담당한다.
 7. 운영 검증: 만료·예산 작업 재시도·부하·장애 시나리오. 통과 후 운영 발급을 연다.
@@ -67,8 +68,8 @@
 | 발급 판정은 Redis Lua | 쿠폰 행 pessimistic lock(`FOR UPDATE`) | 비관적 락은 처리량 ≈ 1 / 락 보유 시간이라 쿠폰당 초당 수백 건이 상한이고, Hikari pool(기본 10)을 강의 pod 전체와 공유해 다른 요청까지 막는다. 학습 저장소 실험에서 200 RPS에서는 두 방식 모두 정확히 1,000장을 발급했으므로 합방 규모면 락도 되지만, Redis Lua·Kafka·DLQ가 비기능 요구이자 학습 목표라 Lua를 택했다 |
 | 분산락은 SWR 조회 갱신에만 | 발급·사용에도 Redis 분산락 | 락으로 발급을 직렬화하면 Lua의 이점이 사라지고, 사용 판정은 DB가 기준이라 Redis 락이 보장을 주지 못한다 |
 | 사용 정합성은 generation CAS | 읽고 확인한 뒤 저장, 또는 `@Version` | 두 요청이 확인을 동시에 통과하면 한 쿠폰이 두 번 쓰인다. generation은 새 사용 시도에서만 오르고 명령·이벤트에 실려 나중에 비교되므로, 복원 뒤 재사용된 쿠폰을 늦게 온 옛 이벤트가 풀지 못한다 |
-| 발급 기록은 Lua와 같은 Redis Stream, 발급용 DB OUTBOX 없음 | Kafka 전송 확인 후 응답·실패 시 Redis 즉시 되돌리기 | Stream이 Lua와 같은 atomic 단위에 남으므로 Kafka 실패에 재고를 되돌릴 필요가 없고, 즉시 되돌리기는 이중 보상 위험을 만든다. DB OUTBOX는 Lua가 DB 트랜잭션 밖이라 "Lua 성공 → 앱 중단" 구간을 메우지 못한다 |
-| Stream → Kafka → DB 두 단계 | Stream 작업자가 DB에 직접 저장 | consumer group만으로도 at-least-once가 되지만 Kafka·DLQ는 비기능 요구이자 학습 목표다. Stream은 atomic 기록, Kafka는 소비·재시도·DLT 운영으로 역할을 나눈다. 비용은 at-least-once 경계 하나가 늘어 중복이 더 생기는 것이며 요청 ID 유일성과 `UNIQUE(member_id, coupon_id)`가 흡수한다 |
+| 접수 기록은 Lua가 쓰는 requests HASH. 발급용 DB OUTBOX·Redis Stream 없음 | (1) Kafka 전송 확인 후 응답·실패 시 Redis 즉시 되돌리기, (2) Redis Stream + 상시 작업자 | requests가 Lua와 같은 atomic 단위에 남으므로 Kafka 실패에 재고를 되돌릴 필요가 없고, 즉시 되돌리기는 이중 보상 위험을 만든다. Stream은 즉시 재전송을 주지만 상시 작업자·consumer group·pending 관리·복구 단계·공유 Redis 메모리를 요구해 합방 규모에는 과하다(2026-11-08 사용자 결정으로 Stream 제거). 대신 앱이 접수 직후 Kafka로 보내고, 재발행 배치가 requests에 있는데 DB에 없는 요청을 다시 보낸다. 복구가 즉시가 아니라 배치 주기 뒤라는 것이 비용이다 |
+| Kafka·DLT 유지 | 앱이 DB에 직접 저장 | Kafka·DLQ는 비기능 요구이자 학습 목표다. 핫패스에 DB 쓰기를 두지 않는다 |
 | 취소 이벤트는 취소 완료 하나 | 취소 진행 + 취소 완료 | `RESERVED`·`USED`면 어차피 재사용 불가이고, 취소 완료 뒤 늦은 결제 완료는 완료 우선 규칙이 막는다. 강의가 보내야 하는 이벤트가 하나 줄어든다 |
 | 부담은 enum이 아니라 쿠폰·항목별 f·s 금액 | `부담자 = PLATFORM` 같은 enum | 공동 부담이 와도 지급·취소·예산 코드는 기록된 금액만 읽으면 되므로 나누는 계산 한 곳만 바뀐다 |
 | 예산은 발행 시 한 번 예약 | 회원 발급마다 billing 호출 | 발급 경로에 billing이 끼면 Lua 빠른 경로가 무의미해지고 실패 경우의 수가 는다 |

@@ -81,7 +81,8 @@ class CouponIssueRaceTest {
         CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, store);
         @SuppressWarnings("unchecked")
         ObjectProvider<PromotionBudgetPort> budgetPortProvider = mock();
-        openUseCase = new CouponOpenUseCase(support, mock(BudgetWorkRepository.class), store, budgetPortProvider,
+        openUseCase = new CouponOpenUseCase(support, mock(BudgetWorkRepository.class), store,
+                mock(CouponCapacitySupport.class), budgetPortProvider,
                 new CouponRedisProperties(null), db.transactionManager(), clock);
         operateUseCase = new CouponOperateUseCase(support, store, db.transactionManager(), clock);
 

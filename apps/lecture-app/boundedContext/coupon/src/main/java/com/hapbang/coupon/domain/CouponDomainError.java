@@ -12,6 +12,7 @@ public enum CouponDomainError {
 
     // 발행 검증
     MISSING_TERMS("쿠폰 발행에 필요한 값이 빠졌습니다."),
+    INVALID_NAME("쿠폰 이름은 앞뒤 공백을 빼고 1자 이상 50자 이하여야 합니다."),
     INVALID_QUANTITY("수량은 1장 이상이어야 합니다."),
     INVALID_ISSUE_PERIOD("발급 시작 시각은 발급 종료 시각보다 앞서야 합니다."),
     INVALID_RATE("정률 할인은 1% 이상 100% 이하여야 합니다."),

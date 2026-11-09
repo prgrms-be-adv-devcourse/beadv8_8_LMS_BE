@@ -61,7 +61,7 @@ public class CouponIssueRequest {
     /** 발급된 쿠폰. ISSUED만 */
     private Long memberCouponId;
 
-    /** 거절 뒤 Redis 수량 보상 진행 상태. 값 목록은 보상을 구현할 때 정한다 */
+    /** 영구 거절 뒤 Redis 수량 보상 결과({@link IssueCompensation} 이름). 보상 전이거나 소비자가 확정한 거절은 없다 */
     @Column(length = 30)
     private String compensationStatus;
 
@@ -91,6 +91,17 @@ public class CouponIssueRequest {
                                               Instant acceptedAt, String rejectReason, Instant processedAt) {
         return new CouponIssueRequest(issueRequestId, memberId, couponId, epoch, CouponIssueResult.REJECTED,
                 rejectReason, acceptedAt, processedAt, null);
+    }
+
+    /**
+     * 영구 거절 뒤 Redis 수량 보상 결과를 남긴다({@link IssueCompensation} 이름). 거절 결과에만 있다. 보상 전이거나 보상하지 않는
+     * 거절(소비자가 확정한 거절)은 비어 있다.
+     */
+    public void recordCompensation(IssueCompensation compensation) {
+        if (result != CouponIssueResult.REJECTED) {
+            throw new CouponDomainException(CouponDomainError.INVALID_STATUS_TRANSITION, "거절한 발급 요청에만 보상 결과를 남깁니다.");
+        }
+        this.compensationStatus = Objects.requireNonNull(compensation, "compensation").name();
     }
 
     /** 상태 판정 규칙의 입력({@link IssueStatusRule}) */
