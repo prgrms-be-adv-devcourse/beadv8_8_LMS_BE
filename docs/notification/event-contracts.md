@@ -1,0 +1,164 @@
+# 알림 이벤트 계약 요청
+
+> 문서 탐색: [알림 문서 INDEX](INDEX.md)
+
+> - 알림 모듈이 소비할 발행 모듈 이벤트의 계약(이벤트 이름, 토픽·key, 담을 값)을 모은 **요청 원본**이다. 알림 담당이 정하고, 발행 담당은 이 문서를 Issue로 받아 `common/shared` 이벤트와 발행을 구현한다([ND-037](decisions.md)).
+> - 실제로 구현된 계약의 원본은 `common/shared` 코드와 [kafka.md](../architecture/infrastructure/kafka.md) 토픽 표다. 이 문서는 요청과 그 진행 상태만 맡는다.
+> - 알림 종류별 명세(받는 사람, 발생 조건, 보내지 않는 경우)는 [알림 종류](notification-catalog.md)가 원본이다. 이 문서는 종류 코드로만 가리킨다.
+> - 구현 상태: 2026-11-09 기준 아래 이벤트는 모두 발행되지 않는다(🟡는 JVM 안에서만 발행). 근거는 알림 종류 각 행의 "2026-11-06 판정"이다.
+>
+> 변경 이력
+> - 2026-11-09 처음 작성: 원천 설계 [notification.md 7장](../architecture/infrastructure/notification.md)의 요청(알림 종류 문서 1.1~6.1에 있던 표)을 옮기고, ND-038 공통 값과 ND-040·ND-041·ND-042·ND-044를 반영했다.
+> - 2026-11-09 확정: 발행 앱 코드를 조사해(7장) 사건 ID·key·필드를 정하고 ND-045(회차 번호)를 반영했다. 모든 이벤트를 "확정"으로 바꿨다.
+
+## 0. 읽는 법
+
+### 0.1 계약 상태
+
+| 상태 | 뜻 |
+| --- | --- |
+| 초안 | 알림 담당이 검토하기 전이다. 발행 Issue를 보내지 않는다 |
+| 확정 | 알림 담당이 확정했다. 발행 Issue를 보낼 수 있다 |
+| 계약 확정 전 | 발행 담당이 그대로 구현할 수 없다고 Issue에 남겼다. 알림 담당이 다시 정할 때까지 구현하지 않는다(ND-037) |
+| 구현됨 | `common/shared` 이벤트와 발행, kafka.md 토픽 표가 반영됐다 |
+
+구분 칸의 표시는 원천 설계와 같다: 🟡 shared에 있으나 Kafka로 나가지 않는다, ⚠️ 이벤트는 있으나 값이 모자란다, 🆕 새 이벤트가 필요하다. "기존 변경"은 이미 Kafka로 나가는 이벤트에 값을 더하는 요청이다.
+
+### 0.2 모든 이벤트에 공통인 규칙
+
+- 사건 시각을 payload 필드로 담는다(목록 정렬 기준, ND-021). 공통 봉투(`eventId`·`occurredAt`)는 두지 않는다(ND-038).
+- 그 사건을 한 번만 나타내는 ID를 담는다(ND-033). 아래 "사건 ID" 칸이 알림이 원본 대상 ID로 쓰는 값이다.
+- 같은 대상에서 여러 번 나지만 회차 ID가 없는 사건은 발행 모듈이 대상별 회차 번호(1부터)를 저장해 담고, 사건 ID는 `<대상 ID>:<회차>`다(ND-045). 여러 값을 잇는 사건 ID는 `:`로 잇는다.
+- 받는 사람 회원 ID를 담는다(ND-038).
+- 예약을 취소하는 이벤트는 그 예약을 만든 이벤트와 같은 (대상 ID, 받는 사람)을 담는다(ND-034).
+- 필드 이름·타입은 그 발행 모듈의 기존 shared 이벤트 관례를 따른다(ND-038). 아래 필드 이름은 계약에서 정한 뜻이며, 발행 모듈에 같은 뜻의 기존 이름이 있으면 그것을 쓴다. 시각 타입은 출연 `LocalDateTime`, 강의 `OffsetDateTime`, 지갑·회원 `Instant`, 고객센터·채팅 `Instant`(새로 정함)다.
+- Kafka key는 kafka.md 토픽 표의 `<대상>:<ID>` 형식을 따른다. 발행은 Modulith outbox + shared 레코드 `@Externalized` + eventType 헤더다(kafka.md "발행"). 새 이벤트·key·토픽의 kafka.md 토픽 표 반영은 발행 Issue에서 팀 승인으로 한다.
+
+## 1. 출연 (`appearance.events.v1`, M1·M3)
+
+출연 이벤트는 DTO 관례(`hostId`·`guestId`, `long fee`, `LocalDateTime`)를 쓴다(`AppearanceRequestDto`, `AppearanceCancelRequestDto`).
+
+| 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `AppearanceCancelRequestedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 지금 값(`AppearanceCancelRequestDto`: 취소 요청 ID, 출연 ID, 제목, 호스트·게스트 ID, 차수, 방송 예정 일시) + 사건 시각 | 취소 요청 ID | 요청 시각(추가) | 호스트 | `APPEARANCE_CANCEL_REQUESTED` | 확정 |
+| `AppearanceCancelRequestAcceptedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 위와 같음 + 사건 시각 | 취소 요청 ID | 수락 시각(추가) | 게스트 | `APPEARANCE_CANCEL_REQUEST_ACCEPTED`, 예약 취소 입력(합의 취소) | 확정 |
+| `AppearanceCancelRequestRejectedEvent` | 🟡 (M1) | `appearance:<출연 ID>` | 위와 같음 + `autoRejected` + 사건 시각 | 취소 요청 ID | 거절 시각(추가) | 게스트 | `APPEARANCE_CANCEL_REQUEST_REJECTED` | 확정 |
+| `AppearanceRequestAcceptedEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 출연 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 수락 시각 | 요청서 ID | 수락 시각 | 호스트 | `APPEARANCE_REQUEST_ACCEPTED`, 예약 생성 입력(출연 시작·확인 기간), 예약 취소 입력(요청 만료 임박) | 확정 |
+| `AppearanceRequestRejectedEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 거절 시각 | 요청서 ID | 거절 시각 | 호스트 | `APPEARANCE_REQUEST_REJECTED`, 예약 취소 입력 | 확정 |
+| `AppearanceRequestCanceledEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 취소 시각 | 요청서 ID | 취소 시각 | 게스트 | `APPEARANCE_REQUEST_CANCELED`, 예약 취소 입력 | 확정 |
+| `AppearanceRequestExpiredEvent` | 🆕 (M3) | `appearance-request:<요청 ID>` | 요청서 ID, 호스트·게스트 ID, 제목, 출연료, 방송 예정 일시, 만료 시각 | 요청서 ID | 만료 시각 | 호스트, 게스트 | `APPEARANCE_REQUEST_EXPIRED` | 확정 |
+| `AppearanceApplicationSelectedEvent` | 🆕 (M3) | `appearance-application:<지원 ID>` | 지원 ID, 모집글 ID, 출연 ID, 호스트·게스트 ID, 모집글 제목, 방송 예정 일시, 선정 시각 | 지원 ID | 선정 시각 | 게스트 | `APPEARANCE_APPLICATION_SELECTED`, 예약 생성 입력(출연 시작·확인 기간) | 확정 |
+| `AppearanceApplicationNotSelectedEvent` | 🆕 (M3) | `appearance-application:<지원 ID>` | 지원 ID, 모집글 ID, 호스트·게스트 ID, 모집글 제목, 방송 예정 일시, 미선정 시각 | 지원 ID | 미선정 시각 | 게스트 | `APPEARANCE_APPLICATION_NOT_SELECTED` | 확정 |
+| `AppearanceRecruitOpenedEvent` | 🆕 (M3) | `appearance-recruit:<모집글 ID>` | 모집글 ID, 호스트 ID, 제목, 모집 마감 일시, 모집 시작 시각 | 모집글 ID | 모집 시작 시각 | 호스트 | 예약 생성 입력(`APPEARANCE_RECRUIT_CLOSING`) | 확정 |
+| `AppearanceRecruitClosedEvent` | 🆕 (M3) | `appearance-recruit:<모집글 ID>` | 모집글 ID, 호스트 ID, 제목, 모집 마감 일시, `closeType`, 마감 시각 | 모집글 ID | 마감 시각 | 호스트 | `APPEARANCE_RECRUIT_CLOSED`, 예약 취소 입력 | 확정 |
+| `AppearanceRecruitCanceledEvent` | 🆕 (M3) | `appearance-recruit:<모집글 ID>` | 모집글 ID, 호스트 ID, 제목, 취소 시각 | 모집글 ID | 취소 시각 | 호스트(예약 취소 키) | 예약 취소 입력만(ND-041). 알림 종류 없음 | 확정 |
+| `AppearanceCanceledByHostEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, 위약금, 취소 시각 | 출연 ID | 취소 시각 | 게스트 | `APPEARANCE_CANCELED_BY_HOST`, 예약 취소 입력 | 확정 |
+| `AppearanceConfirmedEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, `confirmType`, 확인 시각 | 출연 ID | 확인 시각 | 호스트 | `APPEARANCE_CONFIRMED`, 예약 취소 입력 | 확정 |
+| `AppearanceAbsentEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, 불참 처리 시각 | 출연 ID | 불참 처리 시각 | 게스트 | `APPEARANCE_ABSENT`, 예약 취소 입력 | 확정 |
+
+예약을 만들고 취소하는 짝은 [알림 종류](notification-catalog.md) 7장이 원본이다. 짝을 이루는 이벤트는 같은 (대상 ID, 받는 사람)을 준다(ND-034).
+
+## 2. 강의 (`lecture.events.v1`, M2·M4)
+
+강의 shared 이벤트는 `xxxUserId`, `OffsetDateTime` 관례를 쓴다(`LecturePurchaseSyncDto`, `LectureSyncDto`).
+
+| 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `LectureObjectionResolvedEvent` | ⚠️ (M2) | `order-item:<주문 항목 ID>` | 지금 값 + `buyerUserId`, `sellerUserId`, 강의 제목, 처리 시각 | 문의 ID | 처리 시각(추가) | 구매자, 판매자 | `LECTURE_OBJECTION_RESOLVED` | 확정 |
+| `LectureObjectionReturnCompletedEvent` | ⚠️ (M2) | `order-item:<주문 항목 ID>` | 지금 값 + `buyerUserId`, `sellerUserId`, 강의 제목, 완료 시각 | 문의 ID | 완료 시각(추가) | 구매자 | `LECTURE_OBJECTION_RETURN_COMPLETED` | 확정 |
+| `LectureObjectionWithdrawnEvent` | ⚠️ (M2) | `order-item:<주문 항목 ID>` | 지금 값 + `buyerUserId`, `sellerUserId`, 강의 제목, 철회 시각 | 문의 ID | 철회 시각(추가) | 판매자 | `LECTURE_OBJECTION_WITHDRAWN` | 확정 |
+| `LectureObjectionReturnActionRequiredEvent` | ⚠️ (M2) | `order-item:<주문 항목 ID>` | 지금 값 + `buyerUserId`, `sellerUserId`, 강의 제목, 반환 지연 회차, 발생 시각 | `<문의 ID>:<반환 지연 회차>`(ND-045) | 발생 시각(추가) | 구매자 | `LECTURE_OBJECTION_RETURN_ACTION_REQUIRED` | 확정 |
+| `LectureApprovedEvent` | 🆕 (M4) | `lecture:<강의 ID>` | 강의 ID, 판매자 ID, 제목, 검수 회차, 승인 시각 | `<강의 ID>:<검수 회차>`(ND-045) | 승인 시각 | 판매자 | `LECTURE_APPROVED` | 확정 |
+| `LectureRejectedEvent` | 🆕 (M4) | `lecture:<강의 ID>` | 강의 ID, 판매자 ID, 제목, 반려 사유, 검수 회차, 반려 시각 | `<강의 ID>:<검수 회차>`(ND-045) | 반려 시각 | 판매자 | `LECTURE_REJECTED` | 확정 |
+| `LectureOrderPaidEvent` | 🆕 (M4) | `order:<주문 ID>` | 주문 ID, 구매자 ID, 주문 항목(항목 ID, 강의 ID, 제목, 금액), 구매 시각 | 주문 ID | 구매 시각 | 구매자 | `LECTURE_ORDER_PAID`, 예약 생성 입력(주문 항목마다) | 확정 |
+| `LectureOrderHoldFailedEvent` | 🆕 (M4) | `order:<주문 ID>` | 주문 ID, 구매자 ID, 주문 항목(항목 ID, 강의 ID, 제목, 금액), 실패 시각 | 주문 ID | 실패 시각 | 구매자 | `LECTURE_ORDER_HOLD_FAILED` | 확정 |
+| `LectureOrderItemCanceledEvent` | 🆕 (M4) | `order-item:<주문 항목 ID>` | 주문 항목 ID, 구매자 ID, 제목, 반환 금액, 취소 시각 | 주문 항목 ID | 취소 시각 | 구매자 | `LECTURE_ORDER_ITEM_CANCELED`, 예약 취소 입력 | 확정 |
+| `LectureOrderItemConfirmedEvent` | 🆕 (M4) | `order-item:<주문 항목 ID>` | 주문 항목 ID, 구매자 ID, 제목, `confirmationType`, 확정 시각 | 주문 항목 ID | 확정 시각 | 구매자 | `LECTURE_ORDER_ITEM_CONFIRMED`, 예약 취소 입력 | 확정 |
+| `LectureObjectionFiledEvent` | 🆕 (M4) | `order-item:<주문 항목 ID>` | 문의 ID, 주문 항목 ID, 구매자·판매자 ID, 제목, 접수 시각 | 문의 ID | 접수 시각 | 구매자, 판매자 | `LECTURE_OBJECTION_FILED`(ND-015) | 확정 |
+
+- 검수 회차는 강의가 검수 신청(`requestInspection`)될 때마다 1씩 늘어나는 값이다. 반환 지연 회차는 같은 문의에서 반환 지연 이벤트가 날 때마다 1씩 늘어나는 값이다.
+- `LectureObjectionReturnActionRequiredEvent`는 강의 토픽 이벤트지만 알림은 알림 종류 5장(고객센터)에 있다.
+
+## 3. 지갑 (`billing.events.v1`, M5·ND-040)
+
+지갑 이벤트는 `Long ...Id`·`userId`, `long ...Hp`, `Instant ...At` 관례를 쓴다(예: `ChargeCompletedEvent`, `ExchangePayoutFailedEvent`).
+
+| 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ChargeFailedEvent` | 🆕 (M5) | `point-charge:<충전 ID>` | `chargeId`, `userId`, 금액, `failedAt` | `chargeId` | `failedAt` | 충전한 회원 | `CHARGE_FAILED` | 확정 |
+| `RefundFailedEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, `failedAt` | `refundRequestId` | `failedAt` | 신청한 회원 | `REFUND_FAILED` | 확정 |
+| `RefundManualReviewRequiredEvent` | 🆕 (M5) | `point-refund-request:<환불 요청 ID>` | `refundRequestId`, `userId`, 금액, 발생 시각 | `refundRequestId` | 발생 시각 | 신청한 회원 | `REFUND_MANUAL_REVIEW_REQUIRED` | 확정 |
+| `ExchangeApprovedEvent` | 🆕 (M5) | `exchange:<환전 ID>` | `exchangeId`, `userId`, 금액, `payoutScheduledAt`(정산 예정 시각), `approvedAt` | `exchangeId` | `approvedAt` | 신청한 회원 | `EXCHANGE_APPROVED` | 확정 |
+| `PayoutCompletedEvent` | 기존 변경 (ND-040) | `settlement:<지급 건 ID>`(지금 그대로) | 지금 값 + `sourceTitle`(출처 제목) | `settlementId`(지금 그대로) | `paidAt`(지금 그대로) | `receiverUserId` | `PAYOUT_COMPLETED`, `PAYOUT_COMPLETED_DAILY` | 확정 |
+
+- ND-040에 따라 지급을 요청하는 출연·강의가 지급 요청에 출처 제목을 넘기고, 지갑이 `sourceTitle`로 담는다. 지갑·출연·강의 세 곳의 Issue가 필요하다.
+- 구현 참고: 지갑은 이미 수익 조회 내부 API로 출처 제목을 받는다([internal-earnings.md](../api/internal-earnings.md) 3.2 `title`, 6.2 `title`). 지급 요청 경로에도 같은 값이 있는지는 확인하지 않았다.
+
+## 4. 회원 (`member.events.v1`, M6·ND-042)
+
+key는 회원 ID다(토픽 표). 회원 이벤트는 `xxxId`, `Instant xxxAt` 관례를 쓴다(`UserMaskedEvent`).
+
+| 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `InfluencerChannelRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 반려 사유, 반려 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 반려 시각 | 회원 | `INFLUENCER_CHANNEL_REJECTED` | 확정 |
+| `InfluencerUpgradeRequestRejectedEvent` | 🆕 (M6) | 회원 ID | 회원 ID, 승급 신청 ID, 반려 사유, 반려 시각 | 승급 신청 ID | 반려 시각 | 회원 | `INFLUENCER_UPGRADE_REQUEST_REJECTED` | 확정 |
+| `InfluencerChannelApprovedEvent` | 🆕 (ND-042) | 회원 ID | 회원 ID, 채널 ID, 심사 회차, 승인 방식(자동·관리자), 승인 시각 | `<채널 ID>:<심사 회차>`(ND-045) | 승인 시각 | 회원 | `INFLUENCER_CHANNEL_APPROVED` | 확정 |
+
+심사 회차는 채널이 승인 요청(`requestApproval`)될 때마다 1씩 늘어나는 값이다. 승인 방식은 `verifiedBy`가 없으면 자동, 있으면 관리자다.
+
+## 5. 고객센터 (`customersupport.events.v1`, M7)
+
+key는 `inquiry:<문의 ID>`다(토픽 표). 지금 고객센터 이벤트에는 시각 필드가 없어, 새 시각 필드는 `Instant`로 정했다.
+
+| 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `InquiryAnsweredEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 답변 ID, 작성자 ID, 제목, 유형, 답변 시각 | 답변 ID | 답변 시각 | 문의한 회원 | `INQUIRY_ANSWERED` | 확정 |
+| `InquiryReplyEditedEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 답변 ID, 작성자 ID, 제목, 유형, 수정 회차, 수정 시각 | `<답변 ID>:<수정 회차>`(ND-045) | 수정 시각 | 문의한 회원 | `INQUIRY_REPLY_EDITED` | 확정 |
+| `LectureObjectionFileRejectedEvent` | 🆕 (M7) | `inquiry:<문의 ID>` | 문의 ID, 구매자 ID, 주문 항목 ID, 접수 불가 시각 | 문의 ID | 접수 불가 시각 | 구매자 | `LECTURE_OBJECTION_FILE_REJECTED`(ND-015) | 확정 |
+
+문의 하나에 답변이 여러 개 달릴 수 있어 답변 이벤트의 사건 ID는 답변 ID다. 수정 회차는 답변이 수정될 때마다 1씩 늘어나는 값이다.
+
+## 6. 채팅 (`chat.events.v1` 새 토픽, M8·ND-044)
+
+채팅은 지금 Kafka로 발행하는 이벤트가 없다(Modulith 설정만 있다). ND-044에 따라 새 토픽을 요청한다. 종류 코드는 채팅 안내와 이름이 같지만 뜻·받는 사람이 다르다(ND-043). 시각 타입은 `Instant`로 정했다.
+
+| 이벤트 | 구분 | key | 담을 값 | 사건 ID | 사건 시각 | 받는 사람 | 쓰는 알림 | 계약 상태 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `GroupMembersInvitedEvent` | 🆕 (M8) | `chat-room:<방 ID>` | 방 ID, 초대 요청 ID, 모집글 ID·제목, 호스트 ID, 이번 초대로 실제 참여한 회원 ID 목록(`JOINED`만), 초대 시각 | `<방 ID>:<초대 요청 ID>` | 초대 시각 | 참여한 회원 | `GROUP_MEMBERS_INVITED` | 확정 |
+| `GroupMemberKickedEvent` | 🆕 (M8) | `chat-room:<방 ID>` | 방 ID, 모집글 ID·제목, 호스트 ID, 강퇴된 회원 ID, `participationVersion`, 강퇴 시각 | `<방 ID>:<강퇴된 회원 ID>:<participationVersion>` | 강퇴 시각 | 강퇴된 회원 | `GROUP_MEMBER_KICKED` | 확정 |
+| `GroupRoomClosedEvent` | 🆕 (M8) | `chat-room:<방 ID>` | 방 ID, 모집글 ID·제목, 호스트 ID, 폐쇄 시점 참여자 ID 목록(호스트 포함), 폐쇄 시각 | 방 ID | 폐쇄 시각 | 남은 참여자(알림이 호스트를 뺀다) | `GROUP_ROOM_CLOSED` | 확정 |
+
+- 초대 요청 ID는 같은 방에서 다시 쓰지 않는다(지금은 보존 기간이 지나면 같은 키를 다시 쓸 수 있다). 이 조건을 발행 Issue에 적는다.
+- 실제로 참여한 회원이 없는 초대는 이벤트를 내지 않는다.
+- 폐쇄 이벤트는 폐쇄 시점 참여자 전원을 담고, 폐쇄한 호스트를 빼는 일은 알림이 한다(알림 종류 6장).
+
+## 7. 확정 근거 (2026-11-09 발행 앱 코드 조사)
+
+클래스는 각 앱 `src/main/java` 아래에 있다. 코드를 읽어 확인했고 실행하지는 않았다. 줄 번호는 바뀌기 쉬워 적지 않는다.
+
+| 이벤트 | 확인한 사실 | 계약 |
+| --- | --- | --- |
+| 모집글 3종 | `AppearanceRecruit`(Long id). 마감·취소는 모집글마다 한 번이다. 모집글 key가 토픽 표에 없다 | 사건 ID 모집글 ID, key `appearance-recruit:` |
+| 강의 검수 2종 | 반려 → `Lecture.requestInspection` 재신청 → 승인·반려가 반복되고 검수 이력 엔티티가 없다 | 검수 회차(ND-045) |
+| 강의 주문 2종 | `LectureOrder`(Long id). 결제(보류) 실패는 주문마다 한 번이다. 주문 key가 토픽 표에 없다 | 사건 ID 주문 ID, key `order:` |
+| 반환 지연 | 같은 문의에서 관리자 재시도 뒤 `ReturnResultHandler.onDead`가 다시 난다 | 반환 지연 회차(ND-045) |
+| 충전·환불 실패, 운영자 확인 | 충전 실패는 충전(`PointCharge`)마다 한 번, 환불 실패·운영자 확인은 환불 요청(`PointRefundRequest`)마다 한 번이다 | 기존 ID |
+| 환전 승인 | 정산일 필드는 없고 `Exchange.approve`가 `payoutScheduledAt`(`Instant`)을 정한다 | `payoutScheduledAt` |
+| 채널 인증 2종 | 같은 채널로 반려 → `InfluencerChannel.requestApproval` 재요청이 반복되고 심사 이력이 없다. 자동 승인은 `verifiedBy`가 없다 | 심사 회차(ND-045) |
+| 승급 반려 | `InfluencerUpgradeRequest`는 신청 1건이 1행이다 | 승급 신청 ID |
+| 답변 2종 | 문의(`Inquiry`) 하나에 답변이 여러 개 달린다. `InquiryReply.edit`는 횟수 제한·이력이 없다 | 답변 ID, 수정 회차(ND-045) |
+| 접수 불가 | 문의마다 한 번이다 | 문의 ID |
+| 채팅 3종 | 단체방은 `ChatRoom`(Long id). 초대 요청 기록은 방별 `requestId`가 유일하나 보존 기간 뒤 재사용 가능. 강퇴 기록 ID는 없고 재초대 뒤 다시 강퇴될 수 있다(`participationVersion`). 폐쇄는 한 번이고 안내 대상에 호스트가 포함된다. Kafka 발행 코드가 없다 | 위 6장 |
+
+## 8. 발행 Issue 현황
+
+| 묶음 | 발행 담당 | 이벤트 | Issue | 상태 |
+| --- | --- | --- | --- | --- |
+| M1 | 출연 | 취소 요청 3종 Kafka 발행 | — | 계약 확정, Issue 발송 전 |
+| M2 | 강의 | 이의 제기 4종 값 추가(반환 지연 회차 포함) | — | 계약 확정, Issue 발송 전 |
+| M3 | 출연 | 출연 🆕 12종, 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
+| M4 | 강의 | 강의 🆕 7종(검수 회차 포함), 지급 요청에 출처 제목(ND-040) | — | 계약 확정, Issue 발송 전 |
+| M5 | 지갑 | 지갑 🆕 4종, `PayoutCompletedEvent.sourceTitle` | — | 계약 확정, Issue 발송 전 |
+| M6 | 회원 | 회원 🆕 3종(심사 회차 포함) | — | 계약 확정, Issue 발송 전 |
+| M7 | 고객센터 | 고객센터 🆕 3종(수정 회차 포함) | — | 계약 확정, Issue 발송 전 |
+| M8 | 채팅 | 채팅 🆕 3종, 새 토픽 `chat.events.v1` | — | 계약 확정, Issue 발송 전 |
