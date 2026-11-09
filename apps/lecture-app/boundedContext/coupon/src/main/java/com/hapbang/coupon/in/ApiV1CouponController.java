@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.coupon.app.CouponIssueFacade;
+import com.hapbang.coupon.app.dto.CouponSummaryView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
@@ -32,6 +33,20 @@ import lombok.RequiredArgsConstructor;
 public class ApiV1CouponController implements ApiV1CouponSpec {
 
     private final CouponIssueFacade couponIssueFacade;
+
+    @Override
+    @GetMapping
+    public RsData<List<CouponSummaryView>> issuableCoupons(@LoginUserId Long memberId,
+                                                           @RequestParam(name = "lectureId") Long lectureId) {
+        return RsData.ok("받을 수 있는 쿠폰을 조회했습니다.", couponIssueFacade.issuableCoupons(memberId, lectureId));
+    }
+
+    // 쿠폰 ID는 숫자만 받는다. /me 같은 이름 경로와 섞이지 않게 한다
+    @Override
+    @GetMapping("/{couponId:\\d+}")
+    public RsData<CouponSummaryView> coupon(@LoginUserId Long memberId, @PathVariable("couponId") Long couponId) {
+        return RsData.ok("쿠폰을 조회했습니다.", couponIssueFacade.coupon(memberId, couponId));
+    }
 
     @Override
     @PostMapping("/{couponId}/issue-requests")

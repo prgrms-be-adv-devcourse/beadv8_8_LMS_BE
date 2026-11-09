@@ -51,6 +51,10 @@ public class Coupon {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 쿠폰 이름. 앞뒤 공백을 뺀 1~50자({@link CouponTerms#MAX_NAME_LENGTH}) */
+    @Column(nullable = false, length = CouponTerms.MAX_NAME_LENGTH)
+    private String name;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private CouponType type;
@@ -138,6 +142,7 @@ public class Coupon {
     private Coupon(CouponType type, Long applicantId, CouponTerms terms, int maxExpiryDays, Instant now) {
         terms.validateFor(type, maxExpiryDays);
         requireIssueNotEnded(terms.issueEndAt(), now);
+        this.name = terms.name();
         this.type = type;
         this.applicantId = Objects.requireNonNull(applicantId, "applicantId");
         this.targetType = terms.targetType();
@@ -201,7 +206,7 @@ public class Coupon {
 
     /** 이 쿠폰의 발행 조건 */
     public CouponTerms terms() {
-        return new CouponTerms(targetType, lectureId, basePrice, discountType, discountValue, maxDiscountAmount,
+        return new CouponTerms(name, targetType, lectureId, basePrice, discountType, discountValue, maxDiscountAmount,
                 quantity, issueStartAt, issueEndAt, expiryType, expiryDays, fixedExpiresAt, stackable);
     }
 

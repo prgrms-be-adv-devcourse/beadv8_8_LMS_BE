@@ -117,6 +117,10 @@ static_resources:
               - match: { path_separated_prefix: /api/v1/lectures }
                 route: { cluster: lecture-app, timeout: 30s }
                 typed_per_filter_config: *jwt
+              # lecture-app 안의 쿠폰 모듈(apps/lecture-app/k8s/base/gateway.yaml의 같은 HTTPRoute rule)
+              - match: { path_separated_prefix: /api/v1/coupons }
+                route: { cluster: lecture-app, timeout: 30s }
+                typed_per_filter_config: *jwt
               - match: { path_separated_prefix: /api/v1/chats }
                 route: { cluster: chat-app, timeout: 30s }
                 typed_per_filter_config: *jwt
