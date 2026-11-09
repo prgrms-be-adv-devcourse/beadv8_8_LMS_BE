@@ -5,6 +5,7 @@ import static org.mockito.Mockito.*;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -170,6 +171,47 @@ class ChatRoomMembershipCacheTest {
             assertThat(second.get(5, TimeUnit.SECONDS).setVersion()).isEqualTo(3);
         }
         verify(reader, times(1)).findRoomMembership(1L);
+    }
+
+    @Test
+    void 한_방의_DB_조회가_멈춰도_다른_방은_hit도_miss도_기다리지_않는다() throws Exception {
+        // 1·33·65는 Caffeine 안 해시 표가 작을 때 같은 해시 칸에 드는 방 ID다(칸 잠금 안에서 DB를 읽으면 33·65가 기다린다)
+        ChatRoomMembershipCache cache = cache(10, Duration.ofHours(1));
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(reader.findRoomMembership(33L)).thenReturn(membership(1));
+        when(reader.findRoomMembership(65L)).thenReturn(membership(1));
+        when(reader.findRoomMembership(1L)).thenAnswer(invocation -> {
+            reading.countDown();
+            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            return membership(3);
+        });
+        cache.get(33L, 1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<RoomMembership> first = executor.submit(() -> cache.get(1L, 3));
+            assertThat(reading.await(5, TimeUnit.SECONDS)).isTrue();
+            AtomicReference<Thread> secondThread = new AtomicReference<>();
+            Future<RoomMembership> second = executor.submit(() -> {
+                secondThread.set(Thread.currentThread());
+                return cache.get(1L, 3);
+            });
+            awaitBlocked(secondThread);
+
+            // 방 1을 읽는 동안: 다른 방의 hit는 바로, miss는 바로 DB를 읽어 돌려준다
+            assertThat(CompletableFuture.supplyAsync(() -> cache.get(33L, 1)).get(2, TimeUnit.SECONDS).setVersion())
+                    .isEqualTo(1);
+            assertThat(CompletableFuture.supplyAsync(() -> cache.get(65L, 1)).get(2, TimeUnit.SECONDS).setVersion())
+                    .isEqualTo(1);
+            assertThat(first.isDone()).isFalse();
+
+            release.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS).setVersion()).isEqualTo(3);
+            assertThat(second.get(5, TimeUnit.SECONDS).setVersion()).isEqualTo(3);
+        }
+        verify(reader, times(1)).findRoomMembership(1L);
+        verify(reader, times(1)).findRoomMembership(33L);
+        verify(reader, times(1)).findRoomMembership(65L);
     }
 
     @Test
