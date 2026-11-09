@@ -12,6 +12,7 @@ import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.coupon.app.port.CouponIssueStore;
+import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.config.CouponIssueDeliveryProperties;
 import com.hapbang.coupon.config.CouponSoldOutCacheProperties;
 
@@ -35,6 +36,42 @@ class CouponSoldOutCacheTest {
         clock.advance(Duration.ofMillis(1));
         assertThat(cache.isSoldOut(COUPON_ID)).isTrue();
 
+        verify(issueStore, times(2)).isSoldOut(COUPON_ID);
+    }
+
+    @Test
+    void Lua가_매진을_알린_뒤_TTL_안에서는_Redis를_부르지_않고_매진이다() {
+        CouponSoldOutCache cache = new CouponSoldOutCache(issueStore, CouponIssueDeliveryProperties.defaults(),
+                CouponSoldOutCacheProperties.defaults(), clock);
+        cache.markSoldOut(COUPON_ID);
+
+        clock.advance(Duration.ofMillis(999));
+        assertThat(cache.isSoldOut(COUPON_ID)).isTrue();
+        verifyNoInteractions(issueStore);
+    }
+
+    @Test
+    void 매진_표시를_읽지_못하면_매진이_아닌_것으로_보고_담지_않아_다음에_다시_읽는다() {
+        CouponSoldOutCache cache = new CouponSoldOutCache(issueStore, CouponIssueDeliveryProperties.defaults(),
+                CouponSoldOutCacheProperties.defaults(), clock);
+        when(issueStore.isSoldOut(COUPON_ID))
+                .thenThrow(new CouponIssueStoreUnavailableException("redis", null))
+                .thenReturn(true);
+
+        assertThat(cache.isSoldOut(COUPON_ID)).isFalse();
+        assertThat(cache.isSoldOut(COUPON_ID)).isTrue();
+        verify(issueStore, times(2)).isSoldOut(COUPON_ID);
+    }
+
+    @Test
+    void 시계가_읽은_시각보다_앞으로_돌아가면_다시_읽는다() {
+        CouponSoldOutCache cache = new CouponSoldOutCache(issueStore, CouponIssueDeliveryProperties.defaults(),
+                CouponSoldOutCacheProperties.defaults(), clock);
+        when(issueStore.isSoldOut(COUPON_ID)).thenReturn(false, true);
+
+        assertThat(cache.isSoldOut(COUPON_ID)).isFalse();
+        clock.advance(Duration.ofMillis(-1));
+        assertThat(cache.isSoldOut(COUPON_ID)).isTrue();
         verify(issueStore, times(2)).isSoldOut(COUPON_ID);
     }
 
