@@ -6,12 +6,18 @@ import static org.awaitility.Awaitility.*;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +30,7 @@ import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.socket.CloseStatus;
 
 import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.auxiliary.notification.app.NotificationMaskingService;
@@ -37,6 +44,9 @@ import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.dto.UserDto;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * 실시간 전달(ND-027·ND-059)과 연결 인증(ND-028·ND-060)을 실제 서버로 본다. test-spec NT-RT-01~05·08, NT-READ-05.
@@ -56,6 +66,13 @@ class NotificationRealtimeIntegrationTest {
     private static final Instant T0 = Instant.parse("2026-11-10T00:00:00Z");
     private static final Duration WAIT = Duration.ofSeconds(5);
     private static final Duration QUIET = Duration.ofMillis(1500);
+    /** Redis를 멈춘 동안 발행 실패가 기록되기를 기다리는 상한(Redis 시간 제한 1초 + 전달 지연 여유) */
+    private static final Duration PUBLISH_FAIL_WAIT = Duration.ofSeconds(10);
+    /** 구독 거절 뒤 ERROR가 없을 때 연결 닫힘을 더 기다리는 시간 */
+    private static final Duration REJECT_CLOSE_WAIT = Duration.ofSeconds(1);
+    /** 앞선 저장이 없는 거절된 연결에 프레임이 오지 않는지 보는 시간 */
+    private static final Duration NO_FRAME_WAIT = Duration.ofMillis(500);
+    private static final Pattern TARGET_ID = Pattern.compile("\"targetId\":\"([^\"]+)\"");
     private static final String QUEUE = "/user/queue/notifications";
     private static final String WS_PATH = "/api/v1/notifications/ws";
     private static final String TICKET_PATH = "/api/v1/notifications/ws-tickets";
@@ -83,6 +100,9 @@ class NotificationRealtimeIntegrationTest {
 
     @Autowired
     private NotificationMaskingService maskingService;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     private RestTestClient client;
     private final List<RawStomp> connections = new CopyOnWriteArrayList<>();
@@ -180,13 +200,26 @@ class NotificationRealtimeIntegrationTest {
         assertThat(stomp.nextFrame(QUIET)).isNull();
     }
 
+    /**
+     * 실시간 전달은 저장 뒤 별도 스레드가 차례로 보낸다. 앞서 저장한 20건의 프레임을 모두 받은 뒤에 "조용함"을 본다. 비우지 않으면 느린
+     * 환경(CI)에서 늦게 도착한 앞선 프레임을 중복·밀려난 알림의 프레임으로 잘못 본다(#849).
+     */
     @Test
     void 중복과_밀려난_알림은_프레임을_보내지_않고_중복_방지와_20개_보존은_그대로다() throws Exception {
         long a = member();
-        for (int i = 0; i < 20; i++) {
-            writer.save(draft(a, "new-" + i, 7L, "호스트", T0.plusSeconds(100 + i)));
-        }
         RawStomp stomp = connect(a, Role.USER);
+        List<String> saved = IntStream.range(0, 20).mapToObj(i -> "new-" + i).toList();
+        for (int i = 0; i < saved.size(); i++) {
+            writer.save(draft(a, saved.get(i), 7L, "호스트", T0.plusSeconds(100 + i)));
+        }
+        Set<String> drained = new HashSet<>();
+        for (int i = 0; i < saved.size(); i++) {
+            String frame = stomp.nextFrame(WAIT);
+            assertThat(frame).as("앞서 저장한 %d번째 프레임", i + 1).isNotNull();
+            drained.add(targetIdOf(frame));
+        }
+        // 같은 프레임이 두 번 온 것이 아니라 앞서 저장한 20건이 하나씩 모두 왔는지 본다
+        assertThat(drained).containsExactlyInAnyOrderElementsOf(saved);
 
         NotificationWriteResult duplicate = writer.save(draft(a, "new-0", 7L, "호스트", T0.plusSeconds(100)));
         NotificationWriteResult old = writer.save(draft(a, "old", 7L, "호스트", T0));
@@ -204,10 +237,13 @@ class NotificationRealtimeIntegrationTest {
         AtomicReference<NotificationWriteResult> result = new AtomicReference<>();
         AtomicLong elapsedMs = new AtomicLong();
 
+        double failedBefore = publishFailedCount();
         RedisTestcontainersConfig.withRedisPaused(() -> {
             long started = System.nanoTime();
             result.set(writer.save(draft(a, "while-down", 7L, "호스트", T0)));
             elapsedMs.set(Duration.ofNanos(System.nanoTime() - started).toMillis());
+            // 발행은 저장 스레드 밖에서 늦게 일어날 수 있다. 멈춘 동안 발행이 실제로 실패한 뒤에 되살린다(되살린 뒤 시도하면 성공해 버린다, #849)
+            await().atMost(PUBLISH_FAIL_WAIT).until(() -> publishFailedCount() > failedBefore);
         });
 
         assertThat(result.get().outcome()).isEqualTo(NotificationWriteResult.Outcome.CREATED);
@@ -331,20 +367,52 @@ class NotificationRealtimeIntegrationTest {
     void 자기_알림_목적지_말고는_구독할_수_없다() throws Exception {
         long a = member();
         long b = member();
+        List<RawStomp> rejected = new ArrayList<>();
         for (String destination : List.of("/user/" + b + "/queue/notifications", "/queue/notifications",
                 "/topic/notifications")) {
             RawStomp stomp = RawStomp.open(wsUrl(ticket(a, Role.USER)));
             connections.add(stomp);
+            rejected.add(stomp);
             stomp.send("CONNECT\naccept-version:1.2\nhost:localhost\n\n\0");
-            assertThat(stomp.nextFrame(WAIT)).startsWith("CONNECTED");
+            assertThat(stomp.nextFrame(WAIT)).as(destination + " CONNECTED").startsWith("CONNECTED");
 
             stomp.send("SUBSCRIBE\nid:x\ndestination:" + destination + "\n\n\0");
 
-            assertThat(stomp.nextFrame(WAIT)).as(destination).startsWith("ERROR");
+            assertSubscriptionRejected(stomp, destination);
         }
         RawStomp victim = connect(b, Role.USER);
         writer.save(draft(b, "s-1", 7L, "호스트", T0));
         assertThat(victim.nextFrame(WAIT)).contains("\"targetId\":\"s-1\"");
+        // 거절된 연결로는 다른 회원의 프레임이 오지 않는다(앞선 저장이 없는 연결이라 "안 옴" 판단에 늦은 프레임이 섞이지 않는다)
+        for (RawStomp stomp : rejected) {
+            assertThat(stomp.nextFrame(NO_FRAME_WAIT)).isNull();
+        }
+    }
+
+    /**
+     * 거절은 ERROR 프레임을 받는 것으로 본다. {@link RawStomp}는 닫히기 전에 받은 프레임을 큐에 남기므로, 서버가 ERROR를 보낸 뒤 닫았다면
+     * 닫힘과 관계없이 ERROR를 읽는다. ERROR가 클라이언트에 도착하지 않은 채 서버가 PROTOCOL_ERROR(1002)로 닫은 경우만 닫힘으로 거절을
+     * 본다(#849). 둘 다 아니면 어느 목적지에서 무엇을 받았는지 남긴다.
+     */
+    private static void assertSubscriptionRejected(RawStomp stomp, String destination) throws InterruptedException {
+        String reply = stomp.nextFrame(WAIT);
+        if (reply != null) {
+            assertThat(reply).as("%s 구독에 받은 프레임", destination).startsWith("ERROR");
+            return;
+        }
+        CloseStatus closed = stomp.awaitClose(REJECT_CLOSE_WAIT);
+        assertThat(closed).as("%s 구독에 %d초 안에 ERROR도 연결 닫힘도 없음", destination,
+                WAIT.plus(REJECT_CLOSE_WAIT).toSeconds()).isNotNull();
+        // StompSubProtocolHandler.sendErrorMessage(WebSocketSession, Throwable)가 PROTOCOL_ERROR(1002)로 닫는다(spring-websocket 7.0.9, NR-028)
+        assertThat(closed.getCode()).as("%s 구독 거절의 닫힘 코드", destination)
+                .isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+    }
+
+    /** STOMP MESSAGE 프레임 본문의 targetId */
+    private static String targetIdOf(String frame) {
+        Matcher matcher = TARGET_ID.matcher(frame);
+        assertThat(matcher.find()).as("targetId가 없는 프레임: %s", frame).isTrue();
+        return matcher.group(1);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -387,6 +455,13 @@ class NotificationRealtimeIntegrationTest {
     private static void login(org.springframework.http.HttpHeaders headers, long userId, Role role) {
         headers.set(GatewayUserHeaderFilter.USER_ID, String.valueOf(userId));
         headers.set(GatewayUserHeaderFilter.USER_ROLE, role.name());
+    }
+
+    /** Relay가 같은 MeterRegistry 빈에 올린 발행 실패 수. 이 컨텍스트의 MeterRegistry 빈이 Relay와 같아야 의미가 있다 */
+    private double publishFailedCount() {
+        Counter counter = meterRegistry.find(NotificationRealtimeRelay.DROPPED_METRIC).tag("reason", "publish_failed")
+                .counter();
+        return counter == null ? 0.0 : counter.count();
     }
 
     private long aliveCount(long userId) {
