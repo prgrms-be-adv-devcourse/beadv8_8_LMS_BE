@@ -161,7 +161,30 @@ public class MemberCoupon {
 
     /** 만료 시각이 {@code expiresAt}인 발급 쿠폰이 {@code now}에 돌아갈 상태: {@code expiresAt > now}면 AVAILABLE, 아니면 EXPIRED */
     public static MemberCouponStatus returnStatusOf(Instant expiresAt, Instant now) {
-        return expiresAt.isAfter(now) ? MemberCouponStatus.AVAILABLE : MemberCouponStatus.EXPIRED;
+        return isExpiredAt(expiresAt, now) ? MemberCouponStatus.EXPIRED : MemberCouponStatus.AVAILABLE;
+    }
+
+    /**
+     * 만료 시각이 {@code expiresAt}인 발급 쿠폰이 {@code now}에 기한이 지났는가: {@code expiresAt <= now}. 사용 가능 판정
+     * ({@code expiresAt > now})·해제·복원({@link #returnStatusOf})과 같은 경계다.
+     */
+    public static boolean isExpiredAt(Instant expiresAt, Instant now) {
+        return !expiresAt.isAfter(now);
+    }
+
+    /**
+     * 기한이 지난 미사용 쿠폰을 만료한다: AVAILABLE이고 {@code expiresAt <= now}일 때 EXPIRED. 세대는 그대로다. 저장은 만료 배치가 같은
+     * 조건의 조건부 갱신으로 하고, 여기 규칙은 그 조건의 기준이다. 예약·사용 중(RESERVED·USED)인 쿠폰은 만료하지 않는다(할인은 예약 성공
+     * 시점 기준으로 인정하고, 돌려받을 때 기한을 본다).
+     *
+     * @throws CouponDomainException AVAILABLE이 아니거나 아직 기한 전이다({@code INVALID_STATUS_TRANSITION})
+     */
+    public void expire(Instant now) {
+        if (status != MemberCouponStatus.AVAILABLE || !isExpiredAt(expiresAt, now)) {
+            throw new CouponDomainException(CouponDomainError.INVALID_STATUS_TRANSITION);
+        }
+        this.status = MemberCouponStatus.EXPIRED;
+        this.updatedAt = now;
     }
 
     private MemberCouponStatus returnToOwner(Instant now) {

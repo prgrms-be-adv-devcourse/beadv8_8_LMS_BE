@@ -62,6 +62,7 @@ public class CouponOrderConsumerUseCase {
     private final MemberCouponRepository memberCouponRepository;
     private final ProcessedOperationRepository processedOperationRepository;
     private final CouponOrderConsumerMetrics metrics;
+    private final PlatformTransactionManager transactionManager;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
@@ -75,6 +76,7 @@ public class CouponOrderConsumerUseCase {
         this.memberCouponRepository = memberCouponRepository;
         this.processedOperationRepository = processedOperationRepository;
         this.metrics = metrics;
+        this.transactionManager = transactionManager;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -85,7 +87,7 @@ public class CouponOrderConsumerUseCase {
      * @throws CouponOrderConsumerIsolationException 재시도해도 같은 결과라 바로 격리할 이벤트
      */
     public Result consume(OrderItemPaidEvent event) {
-        return consume(settlementOf(event));
+        return consume(settlementOf(event), transaction);
     }
 
     /**
@@ -94,7 +96,27 @@ public class CouponOrderConsumerUseCase {
      * @throws CouponOrderConsumerIsolationException 재시도해도 같은 결과라 바로 격리할 이벤트
      */
     public Result consume(OrderItemCancelCompletedEvent event) {
-        return consume(settlementOf(event));
+        return consume(settlementOf(event), transaction);
+    }
+
+    /**
+     * 관리자 DLT 재처리용: Kafka 소비와 같은 처리를 하되 트랜잭션마다 제한 시간을 둔다. 같은 주문 항목의 행 잠금을 오래 기다리면 그 시간에
+     * 끊고 트랜잭션을 되돌린다(예외가 나간다). Kafka 소비 경로({@link #consume(OrderItemPaidEvent)} 등)에는 제한 시간이 없다. 트랜잭션 밖에서
+     * 부른다.
+     *
+     * @param event          {@link OrderItemPaidEvent} 또는 {@link OrderItemCancelCompletedEvent}
+     * @param timeoutSeconds 트랜잭션 하나의 제한 시간(초)
+     * @throws CouponOrderConsumerIsolationException 다시 해도 같은 결과인 이벤트
+     */
+    public Result consumeWithin(Object event, int timeoutSeconds) {
+        Settlement settlement = switch (event) {
+            case OrderItemPaidEvent paid -> settlementOf(paid);
+            case OrderItemCancelCompletedEvent canceled -> settlementOf(canceled);
+            default -> throw new IllegalArgumentException("주문 결제·취소 완료 이벤트가 아닙니다: " + event.getClass().getName());
+        };
+        TransactionTemplate limited = new TransactionTemplate(transactionManager);
+        limited.setTimeout(timeoutSeconds);
+        return consume(settlement, limited);
     }
 
     /**
@@ -135,7 +157,7 @@ public class CouponOrderConsumerUseCase {
                 event.memberId(), usages, event.completedAt(), extraParts);
     }
 
-    private Result consume(Settlement settlement) {
+    private Result consume(Settlement settlement, TransactionTemplate transaction) {
         requireDistinctUsages(settlement);
         Result result;
         try {

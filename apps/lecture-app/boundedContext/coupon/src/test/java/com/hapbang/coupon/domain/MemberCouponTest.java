@@ -193,4 +193,35 @@ class MemberCouponTest {
 
         assertRejected(() -> coupon.restore(NOW), CouponDomainError.INVALID_STATUS_TRANSITION);
     }
+
+    // 만료 -----------------------------------------------------------------------------------------------------
+
+    @Test
+    void 기한이_지났다는_판정은_만료_시각과_같은_때부터다() {
+        assertThat(MemberCoupon.isExpiredAt(EXPIRES_AT, EXPIRES_AT.minusNanos(1))).isFalse();
+        assertThat(MemberCoupon.isExpiredAt(EXPIRES_AT, EXPIRES_AT)).isTrue();
+        assertThat(MemberCoupon.isExpiredAt(EXPIRES_AT, EXPIRES_AT.plusSeconds(1))).isTrue();
+        // 해제·복원 때 돌아갈 상태와 같은 경계다
+        assertThat(MemberCoupon.returnStatusOf(EXPIRES_AT, EXPIRES_AT)).isEqualTo(MemberCouponStatus.EXPIRED);
+    }
+
+    @Test
+    void 기한이_지난_미사용_쿠폰은_만료_시각부터_EXPIRED로_바꾸고_세대는_그대로다() {
+        MemberCoupon coupon = issued();
+
+        assertRejected(() -> coupon.expire(EXPIRES_AT.minusNanos(1)), CouponDomainError.INVALID_STATUS_TRANSITION);
+        coupon.expire(EXPIRES_AT);
+
+        assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.EXPIRED);
+        assertThat(coupon.getGeneration()).isZero();
+        assertThat(coupon.getUpdatedAt()).isEqualTo(EXPIRES_AT);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MemberCouponStatus.class, names = {"RESERVED", "USED", "EXPIRED"})
+    void 미사용이_아니면_기한이_지나도_만료하지_않는다(MemberCouponStatus status) {
+        MemberCoupon coupon = inStatus(status);
+
+        assertRejected(() -> coupon.expire(EXPIRES_AT.plusSeconds(1)), CouponDomainError.INVALID_STATUS_TRANSITION);
+    }
 }

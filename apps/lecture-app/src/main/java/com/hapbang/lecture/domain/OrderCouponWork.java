@@ -178,6 +178,58 @@ public class OrderCouponWork {
         this.updatedAt = now;
     }
 
+    /**
+     * 관리자 조치 전에 이 종류의 {@code DEAD} 작업인지 확인한다. 종류가 다르면 {@code COUPON_WORK_ACTION_NOT_ALLOWED},
+     * {@code DEAD}가 아니면 {@code COUPON_WORK_NOT_DEAD}다
+     */
+    public void requireDeadOf(OrderCouponWorkKind expectedKind) {
+        if (kind != expectedKind) {
+            throw new LectureException(LectureErrorCode.COUPON_WORK_ACTION_NOT_ALLOWED);
+        }
+        requireDead();
+    }
+
+    /**
+     * 관리자 다시 시도: {@code DEAD} → {@code PENDING}. 시도 횟수를 0으로, 다음 시도 시각을 지금으로 해서 재전송 배치가 같은 작업 ID로
+     * 다시 보낸다. 예약·해제 모두 쓸 수 있다
+     */
+    public void retryByAdmin(LocalDateTime now) {
+        requireDead();
+        this.status = OrderCouponWorkStatus.PENDING;
+        this.attemptCount = 0;
+        this.nextAttemptAt = now;
+        this.updatedAt = now;
+    }
+
+    /** 관리자 결제 실패 확정에서 쿠폰 쪽 예약이 확인됐다: 예약 작업 {@code DEAD} → {@code RESERVED}. 해제 작업이 이어서 돌려준다 */
+    public void confirmReservedByAdmin(LocalDateTime now) {
+        requireDeadOf(OrderCouponWorkKind.RESERVE);
+        this.status = OrderCouponWorkStatus.RESERVED;
+        this.updatedAt = now;
+    }
+
+    /** 관리자 결제 실패 확정에서 쿠폰 쪽 거절이 확인됐다: 예약 작업 {@code DEAD} → {@code REJECTED} */
+    public void confirmRejectedByAdmin(String couponCode, LocalDateTime now) {
+        Objects.requireNonNull(couponCode, "거절 코드는 필수입니다.");
+        requireDeadOf(OrderCouponWorkKind.RESERVE);
+        this.status = OrderCouponWorkStatus.REJECTED;
+        this.rejectCode = couponCode;
+        this.updatedAt = now;
+    }
+
+    /** 관리자 해제 확인 완료: 쿠폰 쪽에 예약이 남지 않았음이 확인됐다. 해제 작업 {@code DEAD} → {@code RELEASED} */
+    public void confirmReleasedByAdmin(LocalDateTime now) {
+        requireDeadOf(OrderCouponWorkKind.RELEASE);
+        this.status = OrderCouponWorkStatus.RELEASED;
+        this.updatedAt = now;
+    }
+
+    private void requireDead() {
+        if (status != OrderCouponWorkStatus.DEAD) {
+            throw new LectureException(LectureErrorCode.COUPON_WORK_NOT_DEAD);
+        }
+    }
+
     /** @return 이번에 바꿨으면 true, 이미 같은 결과로 끝나 있었으면 false */
     private boolean finish(OrderCouponWorkKind expectedKind, OrderCouponWorkStatus result, LocalDateTime now) {
         if (kind != expectedKind) {

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.*;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 // 주문의 쿠폰 예약·해제 작업 상태 전이
@@ -114,5 +115,65 @@ class OrderCouponWorkTest {
         assertThatThrownBy(() -> work.startAttempt(NOW, RETRY_AFTER)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> work.markReserved(NOW)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> work.markDead(NOW)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 관리자_다시_시도는_DEAD를_PENDING으로_되돌리고_시도_횟수와_다음_시도_시각을_새로_한다() {
+        OrderCouponWork work = dead(OrderCouponWork.reserve(7L, NOW));
+
+        work.retryByAdmin(NOW.plusHours(1));
+
+        assertThat(work.getStatus()).isEqualTo(OrderCouponWorkStatus.PENDING);
+        assertThat(work.getAttemptCount()).isZero();
+        assertThat(work.getNextAttemptAt()).isEqualTo(NOW.plusHours(1));
+        assertThat(work.isDue(NOW.plusHours(1))).isTrue();
+        OrderCouponWork release = dead(OrderCouponWork.release(7L, NOW));
+        release.retryByAdmin(NOW);
+        assertThat(release.getStatus()).isEqualTo(OrderCouponWorkStatus.PENDING);
+    }
+
+    @Test
+    void 관리자_확정은_예약_작업만_RESERVED_REJECTED로_해제_작업만_RELEASED로_끝낸다() {
+        OrderCouponWork reserved = dead(OrderCouponWork.reserve(7L, NOW));
+        OrderCouponWork rejected = dead(OrderCouponWork.reserve(8L, NOW));
+        OrderCouponWork released = dead(OrderCouponWork.release(7L, NOW));
+
+        reserved.confirmReservedByAdmin(NOW);
+        rejected.confirmRejectedByAdmin("COUPON_NOT_USABLE", NOW);
+        released.confirmReleasedByAdmin(NOW);
+
+        assertThat(reserved.getStatus()).isEqualTo(OrderCouponWorkStatus.RESERVED);
+        assertThat(rejected.getStatus()).isEqualTo(OrderCouponWorkStatus.REJECTED);
+        assertThat(rejected.rejectedCouponCode()).isEqualTo("COUPON_NOT_USABLE");
+        assertThat(released.getStatus()).isEqualTo(OrderCouponWorkStatus.RELEASED);
+    }
+
+    @Test
+    void 관리자_조치는_DEAD가_아니거나_종류가_맞지_않으면_거절한다() {
+        OrderCouponWork pending = OrderCouponWork.reserve(7L, NOW);
+        OrderCouponWork reserved = OrderCouponWork.reserve(8L, NOW);
+        reserved.markReserved(NOW);
+
+        assertRejected(() -> pending.retryByAdmin(NOW), LectureErrorCode.COUPON_WORK_NOT_DEAD);
+        assertRejected(() -> reserved.retryByAdmin(NOW), LectureErrorCode.COUPON_WORK_NOT_DEAD);
+        assertRejected(() -> pending.confirmReservedByAdmin(NOW), LectureErrorCode.COUPON_WORK_NOT_DEAD);
+        assertRejected(() -> dead(OrderCouponWork.release(7L, NOW)).confirmReservedByAdmin(NOW),
+                LectureErrorCode.COUPON_WORK_ACTION_NOT_ALLOWED);
+        assertRejected(() -> dead(OrderCouponWork.release(7L, NOW)).confirmRejectedByAdmin("X", NOW),
+                LectureErrorCode.COUPON_WORK_ACTION_NOT_ALLOWED);
+        assertRejected(() -> dead(OrderCouponWork.reserve(7L, NOW)).confirmReleasedByAdmin(NOW),
+                LectureErrorCode.COUPON_WORK_ACTION_NOT_ALLOWED);
+        assertThat(pending.getStatus()).isEqualTo(OrderCouponWorkStatus.PENDING);
+        assertThat(reserved.getStatus()).isEqualTo(OrderCouponWorkStatus.RESERVED);
+    }
+
+    private static OrderCouponWork dead(OrderCouponWork work) {
+        work.markDead(NOW);
+        return work;
+    }
+
+    private static void assertRejected(ThrowingCallable action,
+                                       LectureErrorCode errorCode) {
+        assertThatThrownBy(action).isInstanceOf(LectureException.class).extracting("errorCode").isEqualTo(errorCode);
     }
 }
