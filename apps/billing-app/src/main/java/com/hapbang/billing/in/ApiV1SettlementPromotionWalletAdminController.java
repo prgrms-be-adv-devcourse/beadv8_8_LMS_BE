@@ -15,7 +15,7 @@ import com.hapbang.billing.global.response.RsData;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
-// 관리자 프로모션 지갑 조회·충전 API. /admin 경로(global SecurityConfig)와 PromotionWalletAdminFacade의 @PreAuthorize로 함께 막는다.
+// 관리자 프로모션 지갑 조회·충전·회수 API. /admin 경로(global SecurityConfig)와 PromotionWalletAdminFacade의 @PreAuthorize로 함께 막는다.
 // Swagger 명세는 ApiV1SettlementPromotionWalletAdminSpec에 둔다.
 @RestController
 @RequestMapping("/api/v1/settlements/admin/promotion-wallet")
@@ -38,5 +38,15 @@ public class ApiV1SettlementPromotionWalletAdminController implements ApiV1Settl
             @Valid @RequestBody PromotionFundingRequest request) {
         return RsData.created("프로모션 지갑을 충전했습니다.",
                 PromotionFundingResponse.from(promotionWalletAdminFacade.fund(adminUserId, request.toCommand())));
+    }
+
+    // 충전과 같이 재요청(replayed=true)도 201이다
+    @Override
+    @PostMapping("/withdrawals")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RsData<PromotionWithdrawalResponse> withdraw(@LoginUserId Long adminUserId,
+            @Valid @RequestBody PromotionWithdrawalRequest request) {
+        return RsData.created("프로모션 지갑에서 회수했습니다.",
+                PromotionWithdrawalResponse.from(promotionWalletAdminFacade.withdraw(adminUserId, request.toCommand())));
     }
 }
