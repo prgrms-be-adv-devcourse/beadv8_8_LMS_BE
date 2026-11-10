@@ -230,6 +230,7 @@ loadtest/k6/coupon/local-stack.sh down
 
 ## 다음 과제
 
+- 운영 발급 개방 조건은 쿠폰 [docs/operations.md](../../apps/lecture-app/boundedContext/coupon/docs/operations.md) "운영 발급 개방 체크리스트"를 따른다.
 - Redis 명령 제한 시간: `spring.data.redis.timeout`이 없어 Redis 중단 때 요청 스레드가 60초 묶인다. 짧은 제한 시간(예: 1~2초)이나 끊긴 동안 명령을 바로 거절하는 설정을 검토한다. 채팅 앱도 같은 Redis 설정 방식을 쓰는지 함께 본다.
 - Lua 호출마다 `getSha1` lock과 스크립트 파일 수정 시각 확인을 한다. 스크립트를 기동 때 문자열로 읽어 두는 방식(예: `StaticScriptSource`)을 검토한다.
 - 매진 409마다 남기는 INFO 로그의 양과 logback lock 경합을 운영 로그 형식(JSON)에서 다시 본다.

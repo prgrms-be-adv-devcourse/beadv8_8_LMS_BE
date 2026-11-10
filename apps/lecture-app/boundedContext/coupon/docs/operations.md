@@ -30,7 +30,7 @@ AOF everysec에서 Redis에만 있던 접수가 사라질 수 있다. 이때 요
 | 작업 | 처리 |
 | --- | --- |
 | 재발행 | OPEN·SUSPENDED·정리 전 CLOSED 쿠폰의 requests를 HSCAN(묶음 `republish.scan-count`)해 접수 뒤 `republish-after`가 지났는데 DB에 없는 요청을 같은 ID로 Kafka에 다시 발행. PUBLISHED 표식이 있어도 DB에 없으면 재발행. COMPENSATED·DLT PENDING·REPLAYING·현재 epoch보다 작은 기록은 보내지 않음. 매 전송 직전에 issue-control의 ready·epoch를 다시 확인(복구 중이면 건너뜀). 한 쿠폰에서 연속 실패가 `republish.max-consecutive-failures`에 이르면 그 쿠폰의 남은 전송을 멈추고 다음 쿠폰으로(쿠폰별 RepublishSummary에 끝난 이유, WARN). DB 미확정 요청이 남은 쿠폰은 `extend-keys.lua`로 key 만료를 지금 + `keys-expire-margin`까지 늦춤(실패는 WARN만) |
-| 사용 가능 쿠폰 만료 | expiresAt ≤ now인 AVAILABLE을 EXPIRED로 변경하고 예산 해제 작업 등록 |
+| 사용 가능 쿠폰 만료 | `MemberCouponExpiryBatch`가 `expiry.interval`(10m, `fixedDelay`)마다 expiresAt ≤ now인 SELLER 쿠폰의 AVAILABLE을 `expires_at, id` 순으로 `expiry.batch-size`(500)씩 골라 조건부 UPDATE(`status = AVAILABLE and expires_at <= :now`)로 EXPIRED로 바꾼다(7단계, 묶음마다 짧은 트랜잭션, replica 1). generation은 그대로이고 두 번 돌아도 같다. 지표 `coupon.expiry.expired`, 회차마다 INFO 요약(0건이어도). 플랫폼 쿠폰의 만료와 예산 해제 작업 등록은 billing 프로모션 지갑 계약 뒤 같은 트랜잭션으로 붙인다(Q35). 그때까지 플랫폼 발급 쿠폰은 기한이 지나도 AVAILABLE로 남아 쿠폰함(`/me`)에 보일 수 있다. 사용 경로는 `expiresAt > now`로 막으므로 쓸 수는 없다(플랫폼 쿠폰은 지금 열 수도 없다) |
 | 사용/예약 중 기한 경과 | 상태를 무조건 AVAILABLE/EXPIRED로 덮지 않는다. 사용 이력·billing 보류와 결과를 확인하고 더 필요 없는 예약 예산만 해제 |
 | 예산 작업 재시도 | 쿠폰 상태와 독립적으로 미완료 예약/해제 결과를 재조회하고 완료 처리 |
 | 발급 종료 | 발급 차단 후 진행 중 요청을 정리하고 미발급 수량의 예산 해제 |
@@ -39,6 +39,16 @@ AOF everysec에서 Redis에만 있던 접수가 사라질 수 있다. 이때 요
 | 기록 정리 | 쿠폰이 접수될 수 있는 동안(OPEN·SUSPENDED이고 발급 종료 + 여유 전)은 DB ISSUED 기록만 HDEL. REJECTED 기록은 접수가 끝난 뒤 지운다(지우면 재고 누수). 이전 epoch 기록은 DB 최종 결과가 있으면 보상 표식과 무관하게 정리. 쿠폰의 Redis 기록이 전부 정리되면 용량 예약 해제 |
 | 고아 예약 정리 | 대사가 OPEN·SUSPENDED가 아니고 Redis key도 없는 쿠폰의 용량 예약을 해제. DRAFT·REVIEW는 `limits.orphan-reservation-grace`가 지나야 해제(진행 중인 열기 보호). REJECTED 전이는 즉시 해제, CLOSED는 기록 정리 때 해제 |
 | Redis 프로세스 점검 | `recovery.process-check-interval`마다 issue-control의 `runId`와 Redis `INFO server run_id`를 비교. 다르면 해당 쿠폰을 `hold=RECOVERY`로 막고 UNKNOWN 판정으로 전환 |
+
+**DEAD 작업:** RESERVE 작업이 DEAD면 주문은 HOLD_PENDING으로 남는다. 시간만으로 해제하지 않으므로 같은 강의 재주문이 막힌다. 운영자는 강의 관리자 API `/api/v1/lectures/admin/coupon-works`(ADMIN, contracts.md "강의 쿠폰 작업 관리자 API")로 처리한다(7단계).
+
+1. `[LECTURE_COUPON_WORK_DEAD]`(또는 `[LECTURE_COUPON_WORK_RETRY_FAILED]` 반복)를 받으면 `GET …/coupon-works?status=DEAD`로 대상을 고른다. 오래 PENDING인 작업(회로 열림 등)은 `?status=PENDING`으로 본다.
+2. `GET …/{workId}`로 쿠폰 예약 상태(`items[].coupons[].status`)와 주문 상태를 본다. `couponStatus=UNAVAILABLE`이면 쿠폰 모듈과 내부 API 키(`[LECTURE_COUPON_AUTH_FAILED]`)를 먼저 고친다.
+3. 예약 작업(RESERVE): 쿠폰이 정상으로 돌아왔고 주문을 이어 가도 되면 `retry`다. 같은 workId로 보통 흐름(대조 → 보류 등록 → 결제)을 잇는다. 주문을 끝내야 하면 `fail`이다. 결과는 셋이고 모두 주문을 HOLD_FAILED로 만든다. `RESERVED_RELEASING`은 예약 generation을 기록하고 해제 작업을 만들어 한 번 보낸다. `REJECTED`는 거절 코드만 기록하고 해제하지 않는다. `NOT_RESERVED`(기록 없음·모두 해제)는 작업을 DEAD로 두고 결제 실패만 기록한다. PAID·CANCELED나 강의 근거에 없는 사용 시도가 보이면 409 `COUPON_RESERVATION_SETTLED` + `[LECTURE_COUPON_WORK_RESERVATION_SETTLED]`이다. 자동 조치는 없고 쿠폰 사용 시도와 주문을 직접 조사한다.
+4. 해제 작업(RELEASE): 쿠폰에 이 주문의 RESERVED가 없으면 `resolve`로 RELEASED로 닫는다. 남아 있으면 409 `COUPON_RESERVATION_STILL_HELD`이고, 쿠폰을 고친 뒤 `retry`한다.
+5. 쿠폰을 조회할 수 없으면 503 `COUPON_UNAVAILABLE`이고 아무것도 바꾸지 않는다. 조회 뒤 다른 요청이 작업을 바꿨으면 409 `COUPON_WORK_CHANGED`이므로 다시 조회한다. 조치 뒤 `GET …/{workId}`와 주문 상태(HOLD_FAILED·PAID)를 다시 확인한다. 상태 변경 로그에 action·adminUserId·workId·전후 상태가 남는다.
+
+DEAD가 될 때 강의가 기다리는 예약 요청은 없다. 작업은 보낼 차례(`nextAttemptAt <= now`)일 때만 DEAD가 되고, 마지막 시도를 시작할 때 `nextAttemptAt`을 `coupon-work-retry-after`(30s)만큼 미룬다. 그래서 DEAD는 마지막 요청 뒤 30초 이상이고, 쿠폰 클라이언트는 연결 2s·응답 5s 안에 끝난다. 남는 한계: 쿠폰 reserve 트랜잭션에는 서버 쪽 제한 시간이 없다. 강의가 끊은 뒤 30초를 넘겨 늦게 커밋되면 `fail`이 NOT_RESERVED를 본 뒤 예약이 생길 수 있다. reserve 제한 시간 또는 쿠폰 쪽 오래된 예약 정리로 정할 미결이다.
 
 예산 해제는 상태 변경과 함께 작업을 저장하고 트랜잭션 밖에서 billing을 호출한다. EXPIRED 기록 후 호출 실패가 나도 작업이 남아야 한다. 취소·해제와 만료가 경쟁할 때 같은 예약 재원을 두 번 해제하지 않는다. USED 만료와 만료 뒤 취소 반환도 대사 대상이다.
 
@@ -72,6 +82,7 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `issue-consumer.retry-interval` | 1s | 첫 재시도 간격 |
 | `issue-consumer.retry-max-interval` | 10s | 재시도 간격 상한(배수 2는 코드 상수) |
 | `dlt-replay-lease` | 1m | DLT 재발행 선점(REPLAYING) lease |
+| `dlt-replay-timeout` | 25s | 관리자 주문 DLT 재처리의 소비 트랜잭션 제한 시간(7단계). 재처리 경로만 쓰고 Kafka 소비는 그대로다. 넘으면 PENDING으로 되돌리고 409 `COUPON_CONCURRENT_UPDATE`. 멱등 키 충돌 때 트랜잭션을 한 번 더 실행하므로 `2 × dlt-replay-timeout < dlt-replay-lease`여야 기동한다(PR #816 리뷰) |
 | `recovery.republish-ack-timeout` | 3s | 복구 2단계 재발행 ACK 대기 |
 | `recovery.kafka-timeout` | 5s | Kafka AdminClient 조회 시간 |
 | `recovery.process-check-interval` | 1m | Redis run_id 점검 배치 주기 |
@@ -86,6 +97,8 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `calculate.max-search-nodes` | 100000 | 추천 탐색에서 시도할 조합 수 상한. 넘으면 찾은 최선을 `optimal=false`로 돌려준다 |
 | `calculate.max-items` | 20 | 계산·예약 한 번의 항목 수 상한. 넘으면 400 `COUPON_TOO_MANY_ITEMS` |
 | `platform-funding-enabled` | false | 플랫폼 쿠폰 재원 처리 활성 여부. false면 추천·usable에서 PLATFORM 제외, 직접 선택 409. billing 프로모션 지갑 계약이 붙으면 true(#811, 2026-11-10) |
+| `expiry.interval` | 10m | 발급 쿠폰 만료 배치 주기(`fixedDelay`, 첫 실행도 같은 지연, 7단계) |
+| `expiry.batch-size` | 500 | 만료 배치 한 묶음(짧은 트랜잭션)에서 고를 수 |
 
 코드 상수: 복구·대사의 HSCAN과 DB 확인 묶음 500, 중단·종료의 막기 재시도 3회, 목록 조회 상한 100건.
 
@@ -157,6 +170,39 @@ SWR은 조회에만 쓴다. fresh 기간과 키 TTL을 분리하고 토큰 일�
 | `[COUPON_RECOVERY_RESULT_UNKNOWN]` | 재구축·재개 결과 불명 |
 | `[COUPON_RECOVERY_REJECTED]` | 복구 단계 전제 조건 미충족으로 거절 |
 | `[COUPON_RECOVERY_QUANTITY_MISMATCH]` | 재개 전 수량 대사 불일치 |
+| `[COUPON_ORDER_DLT_ISOLATED]` | 주문 결제·취소 완료 이벤트를 DLT로 격리(`coupon_dlt_log` kind ORDER) |
+| `[LECTURE_COUPON_AUTH_FAILED]` | 강의 → 쿠폰 내부 API가 401·403(내부 API 키 설정 문제). 주문은 503 또는 202 |
+| `[LECTURE_COUPON_RESERVATION_MISMATCH]` | 예약 응답이 주문 스냅샷과 다름. 주문 HOLD_FAILED + RELEASE |
+| `[LECTURE_COUPON_WORK_DEAD]` | 쿠폰 작업이 시도 상한에 닿거나 해제가 거절돼 DEAD |
+| `[LECTURE_COUPON_EVENT_MISSING_GENERATION]` | 예약 generation이 없는 쿠폰 항목이라 결제·취소 완료 이벤트를 내지 않음(결제·반환은 롤백하지 않음) |
+| `[LECTURE_COUPON_QUOTE_INVALID]` | 쿠폰 계산 응답이 할인 스냅샷 규칙에 맞지 않음(모듈 간 계약 위반). 주문은 503 |
+| `[LECTURE_COUPON_WORK_RESERVATION_SETTLED]` | 관리자 fail·resolve 중 PAID·CANCELED 또는 강의 근거에 없는 사용 시도를 봄. 409, 자동 조치 없음 |
+| `[LECTURE_COUPON_WORK_RETRY_FAILED]` | 재전송 배치나 fail 뒤 해제 전송이 작업 하나를 처리하다 예외 |
+| `[LECTURE_PRICE_RAISE_CHECK_FAILED]` | 가격 인상 확인을 쿠폰이 4xx로 거절해 가격 인상이 503 |
+
+`LECTURE_` 표식 여덟은 강의 모듈이 남긴다. 6단계에서 생긴 다섯 표식과 7단계에서 더한 넷이 알림 후보다. 등급 후보(7단계, 돈·데이터가 이미 어긋남·서비스 멈춤은 critical, 사람 조치가 필요하지만 돈은 안전하면 warning):
+- critical: `[COUPON_ISSUE_RECONCILIATION_MISMATCH]`, `[COUPON_RECOVERY_QUANTITY_MISMATCH]`, `[COUPON_ISSUE_REJECTED_AFTER_ACCEPT]`, `[COUPON_ISSUE_COMPENSATION_FAILED]`, `[COUPON_RECOVERY_REQUIRED]`(발급 멈춤), `[LECTURE_COUPON_AUTH_FAILED]`, `[LECTURE_COUPON_RESERVATION_MISMATCH]`, `[LECTURE_COUPON_QUOTE_INVALID]`, `[LECTURE_COUPON_EVENT_MISSING_GENERATION]`, `[LECTURE_COUPON_WORK_RESERVATION_SETTLED]`.
+- warning: `[COUPON_RECOVERY_REPUBLISH_FAILED]`, `[COUPON_RECOVERY_RESULT_UNKNOWN]`, `[COUPON_RECOVERY_REJECTED]`, `[COUPON_ISSUE_RECORD_MALFORMED]`, `[COUPON_ISSUE_DLT_ISOLATED]`·`[COUPON_ORDER_DLT_ISOLATED]`(기존 Kafka DLT 적재 rule과 겹침), `[LECTURE_COUPON_WORK_DEAD]`, `[LECTURE_COUPON_WORK_RETRY_FAILED]`, `[LECTURE_PRICE_RAISE_CHECK_FAILED]`.
+
+Loki 쿼리는 `sum(count_over_time({namespace="hapbang-prod", app="lecture-app"} |= "[표식]" [5m])) > 0` 모양이다. 지표 후보는 `coupon_dlt_pending` > 0 30분(warning), `coupon_issue_republish_oldest_age_seconds` > 300(warning), `coupon_reconciliation_mismatches` > 0(critical), `coupon_issue_backlog_holds` > 0(warning), 만료 배치 회차 INFO가 30분 없음(warning, `absent_over_time`)이다. 알림 등록은 인프라 담당이 `rules.yaml`에 한다.
+
+## 운영 발급 개방 체크리스트 (7단계, 2026-11-10)
+
+운영 발급은 아래가 모두 확인된 뒤 연다. 1·2가 끝나지 않으면 열지 않는다.
+
+| # | 항목 | 지금 | 누가·무엇으로 확인 |
+| --- | --- | --- | --- |
+| 1 | **운영 선착순 측정(Q41) 미실시 → 운영 발급 개방 불가** | 미실시 | 사용자 승인 뒤 백엔드가 `issue-race.js`를 운영에서 smoke → 본 측정(Q40 전용 데이터·팀 공지·끝나면 쿠폰 CLOSED), `coupon-issue.md` "운영 측정" 표를 채움 |
+| 2 | Q41 기준 통과(1,000명·재고 100, p95 ≤ 500 ms, 5xx < 1%, 과발급·중복 0, 2분 안 확정) | 로컬만 3회 중 2회 | 1의 결과로 판정 |
+| 3 | Redis 명령 제한 시간 설정(후속 #826) | 미반영(기본 60초) | 후속 이슈 병합 + 로컬 Redis stop 재확인 |
+| 4 | 용량 상한(`limits.*`)이 운영 Redis 48 MB 안 | 계산상 안(6.9 MB/5만 건) | 운영 측정의 `MEMORY USAGE`로 다시 |
+| 5 | alert 등록("ERROR 로그 alert 표식"의 critical 표식·지표) | 미등록 | 인프라 담당이 `rules.yaml`에 등록, 오케스트레이터 확인 |
+| 6 | 복구 1~5 리허설 | 로컬 1회(8.6초) | 운영 전 담당자가 runbook으로 한 번 더(운영 Redis는 멈추지 않음, 로컬·k3d) |
+| 7 | DEAD 쿠폰 작업 0, 주문 DLT PENDING 0, 발급 DLT PENDING 0, hold 0, 대사 불일치 0 | 운영 미확인 | 개방 직전 관리자 API(`/coupon-works?status=DEAD`, 쿠폰 DLT 목록)와 지표 |
+| 8 | lecture-app replica 1 | 1 | `kubectl --context hapbang-k3s -n hapbang-prod get deploy lecture-app` |
+| 9 | 플랫폼 쿠폰은 billing 계약 전 열지 않음 | `platform-funding-enabled=false`, 강의 F > 0 409 | 설정·코드 확인 |
+| 10 | 첫 운영 쿠폰 규모 | 미정 | 1의 결과로 수량 상한 안에서 작게(예: 재고 100 이하) 시작, 사용자 결정 |
+| 11 | 만료 배치 동작 | 코드 반영 | 배포 뒤 회차 INFO 로그 확인 |
 
 ## 후속 후보
 
