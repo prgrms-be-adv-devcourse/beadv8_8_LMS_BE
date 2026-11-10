@@ -83,12 +83,22 @@ public class InfluencerStatsSync {
             throw e;
         }
         if (result.consistencyChecked()) {
-            consistencyChecks.save(new ConsistencyCheck(ConsistencyCheck.INFLUENCER, result.sourceInfluencers(),
-                    result.indexVisible(), LocalDateTime.now(clock)));
+            saveConsistency(result);
         } else {
             clearConsistency();
         }
         return result;
+    }
+
+    /** 점검 결과를 남긴다. 남기지 못해도 통계는 이미 맞췄으므로 실패로 치지 않고, 낡은 결과만 지운다(PR #833 재리뷰) */
+    private void saveConsistency(StatsSyncResult result) {
+        try {
+            consistencyChecks.save(new ConsistencyCheck(ConsistencyCheck.INFLUENCER, result.sourceInfluencers(),
+                    result.indexVisible(), LocalDateTime.now(clock)));
+        } catch (RuntimeException e) {
+            log.warn("정합성 점검 결과를 남기지 못해 지난 결과를 지운다", e);
+            clearConsistency();
+        }
     }
 
     /** 이번 회차에 점검하지 못했으니 낡은 결과를 지운다. 지우지 못해도 지표가 25분 뒤 값을 비운다({@link SearchSyncMetrics}) */

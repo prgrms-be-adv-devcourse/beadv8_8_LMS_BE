@@ -221,6 +221,22 @@ class InfluencerStatsSyncTest {
         assertThat(checks.find(ConsistencyCheck.INFLUENCER)).isEmpty();
     }
 
+    @Test
+    @DisplayName("정합성 점검: 결과를 DB에 남기지 못해도 통계 동기화는 성공으로 끝내고 지난 결과를 지운다")
+    void consistencySaveFailureDoesNotFailSync() throws Exception {
+        store.show(1L, 1L, profile());
+        source.influencer(1L, 4.5, 2);
+        refresh();
+        sync.sync();
+        assertThat(checks.find(ConsistencyCheck.INFLUENCER)).isPresent();
+        checks.failSave();
+
+        StatsSyncResult result = sync.sync();
+
+        assertThat(result.consistencyChecked()).isTrue();
+        assertThat(checks.find(ConsistencyCheck.INFLUENCER)).isEmpty();
+    }
+
     private long savedDifference() {
         return checks.find(ConsistencyCheck.INFLUENCER).orElseThrow().difference();
     }

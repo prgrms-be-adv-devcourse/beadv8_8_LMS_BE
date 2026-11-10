@@ -11,6 +11,7 @@ import com.hapbang.auxiliary.search.out.ConsistencyCheckStore;
 public class InMemoryConsistencyCheckStore extends ConsistencyCheckStore {
 
     private final Map<String, ConsistencyCheck> checks = new HashMap<>();
+    private boolean failSave;
 
     public InMemoryConsistencyCheckStore() {
         super(null);
@@ -21,8 +22,17 @@ public class InMemoryConsistencyCheckStore extends ConsistencyCheckStore {
         return Optional.ofNullable(checks.get(target));
     }
 
+    /** 이후 저장을 실패시킨다(DB 장애 흉내) */
+    public InMemoryConsistencyCheckStore failSave() {
+        this.failSave = true;
+        return this;
+    }
+
     @Override
     public void save(ConsistencyCheck check) {
+        if (failSave) {
+            throw new IllegalStateException("DB 장애");
+        }
         checks.put(check.target(), check);
     }
 
