@@ -44,7 +44,7 @@ AOF everysec에서 Redis에만 있던 접수가 사라질 수 있다. 이때 요
 
 1. `[LECTURE_COUPON_WORK_DEAD]`(또는 `[LECTURE_COUPON_WORK_RETRY_FAILED]` 반복)를 받으면 `GET …/coupon-works?status=DEAD`로 대상을 고른다. 오래 PENDING인 작업(회로 열림 등)은 `?status=PENDING`으로 본다.
 2. `GET …/{workId}`로 쿠폰 예약 상태(`items[].coupons[].status`)와 주문 상태를 본다. `couponStatus=UNAVAILABLE`이면 쿠폰 모듈과 내부 API 키(`[LECTURE_COUPON_AUTH_FAILED]`)를 먼저 고친다.
-3. 예약 작업(RESERVE): 쿠폰이 정상으로 돌아왔고 주문을 이어 가도 되면 `retry`다. 같은 workId로 보통 흐름(대조 → 보류 등록 → 결제)을 잇는다. 주문을 끝내야 하면 `fail`이다. 결과는 셋이고 모두 주문을 HOLD_FAILED로 만든다. `RESERVED_RELEASING`은 예약 generation을 기록하고 해제 작업을 만들어 한 번 보낸다. `REJECTED`는 거절 코드만 기록하고 해제하지 않는다. `NOT_RESERVED`(기록 없음·모두 해제)는 작업을 DEAD로 두고 결제 실패만 기록한다. PAID·CANCELED나 강의 근거에 없는 사용 시도가 보이면 409 `COUPON_RESERVATION_SETTLED` + `[LECTURE_COUPON_WORK_RESERVATION_SETTLED]`이다. 자동 조치는 없고 쿠폰 사용 시도와 주문을 직접 조사한다.
+3. 예약 작업(RESERVE): 쿠폰이 정상으로 돌아왔고 주문을 이어 가도 되면 `retry`다. 같은 workId로 보통 흐름(대조 → 보류 등록 → 결제)을 잇는다. 주문을 끝내야 하면 `fail`이다. 결과는 셋이고 모두 주문을 HOLD_FAILED로 만든다. `RESERVED_RELEASING`은 예약 generation을 기록하고 해제 작업을 만들어 한 번 보낸다. `REJECTED`는 거절 코드만 기록하고 해제하지 않는다. `NOT_RESERVED`(기록 없음·모두 해제)는 예약 작업을 REJECTED(reject_code `ADMIN_FAILED_NOT_RESERVED`)로 닫고 결제 실패만 기록한다(PR #816 리뷰). PAID·CANCELED나 강의 근거에 없는 사용 시도가 보이면 409 `COUPON_RESERVATION_SETTLED` + `[LECTURE_COUPON_WORK_RESERVATION_SETTLED]`이다. 자동 조치는 없고 쿠폰 사용 시도와 주문을 직접 조사한다.
 4. 해제 작업(RELEASE): 쿠폰에 이 주문의 RESERVED가 없으면 `resolve`로 RELEASED로 닫는다. 남아 있으면 409 `COUPON_RESERVATION_STILL_HELD`이고, 쿠폰을 고친 뒤 `retry`한다.
 5. 쿠폰을 조회할 수 없으면 503 `COUPON_UNAVAILABLE`이고 아무것도 바꾸지 않는다. 조회 뒤 다른 요청이 작업을 바꿨으면 409 `COUPON_WORK_CHANGED`이므로 다시 조회한다. 조치 뒤 `GET …/{workId}`와 주문 상태(HOLD_FAILED·PAID)를 다시 확인한다. 상태 변경 로그에 action·adminUserId·workId·전후 상태가 남는다.
 
