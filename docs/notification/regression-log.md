@@ -5,7 +5,7 @@
 > 문서 지도: [모듈](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API 계약](../api/notification.md) · [테스트 검증 기준](test-spec.md) · **[회귀 실행 기록](regression-log.md)** · [진행](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
 >
 > - **역할**: 이 문서는 알림 모듈 테스트를 **실제로 실행한** 기록만 쌓는다: 언제, 어느 커밋에서, 무슨 명령을 돌렸고, 결과가 어땠고, 실패는 무엇 때문이었나. 무엇을 검증해야 하는지(합격 기준)는 [test-spec.md](test-spec.md)의 `NT-*`에 있다.
-> - **현재 상태: 실행 기록 없음** (알림 기능 코드·테스트 코드 없음, 2026-11-06 기준, dev e054d6f6).
+> - **현재 상태**: 2026-11-09 N1(#797) 모듈 뼈대 테스트를 실행했고(NR-001~NR-004, dev 병합 뒤 NR-006·NR-007, 리뷰 반영 NR-008·NR-009) 로컬 기동·자원을 측정했다(NR-005). 알림 생성 코드는 아직 없다.
 > - **설계 문서의 완료 증거를 실행 기록으로 옮기지 않는다.** [알림 설계](../architecture/infrastructure/notification.md) 11장의 완료 증거와 test-spec 3장의 매핑은 "무엇을 보여야 하는가"이지 실행 결과가 아니다. 증거를 실제로 실행·시연했을 때만 이 문서에 기록을 남긴다.
 
 ## 1. 작성 규칙과 기록 양식
@@ -86,7 +86,231 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
-아직 없음.
+#### NR-009 · 2026-11-09 · 통과 (#797 PR 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-009 |
+| 실행 날짜 | 2026-11-09 17:18~17:21 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `3e6aff2a` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationUserSyncService`·`NotificationUserSyncResult`·`NotificationErrorCode`·`NotificationMemberEventListener`(ND-049 변경 이벤트 upsert), 테스트 `NotificationUserSyncServiceTest`·`NotificationMemberEventListenerTest`·`NotificationMemberEventDeadLetterTest`·`NotificationModuleIntegrationTest`·`AuxiliaryApplicationTest`, 알림 문서(decisions·module·test-spec·CONTEXT·AGENTS·이 문서) |
+| 대상 기능 | ND-049(복제본 없을 때 온 변경 이벤트로 생성), Flyway 단언 보강(모듈 SQL 성공 적용, 앱에서 notification schema·테이블·이력) |
+| 관련 NT ID | NT-USR-01, NT-USR-02, NT-ERR-01, NT-ERR-02, NT-ERR-03, NT-BND-01, NT-BND-03 |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :auxiliary-app:check` |
+| 실행 환경 | NR-007과 같다 |
+| 결과 | 통과 |
+| 건수 | `:notification` 30, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 221, 실패·오류·건너뜀 0 (XML 기준, 모두 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음(구현 전 `:notification:compileTestJava`가 `Outcome.CREATED_FROM_MODIFIED` 없음으로 실패하는 것을 먼저 확인했다) |
+| 재실행 결과 | 같은 코드로 17:16 `:notification:test` 30건 통과 |
+| 미검증 항목 | 동시 처리 테스트는 매 실행에서 충돌이 실제로 나는지 보장하지 않는다(충돌이 나면 재처리, 나지 않으면 바로 최종 상태를 확인). Flyway 단언 보강은 이미 있는 동작을 확인하는 것이라 실패 단계를 거치지 않았다 |
+| 관련 변경 | #797 |
+
+#### NR-008 · 2026-11-09 · 통과 (#797 PR 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-008 |
+| 실행 날짜 | 2026-11-09 17:18 (KST, NR-009 전) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `3e6aff2a` |
+| 작업 트리 변경 | NR-009와 같다 |
+| 대상 기능 | Gradle 모듈 의존 경계 |
+| 관련 NT ID | NT-BND-02 |
+| 명령 | `./gradlew verifyModuleStructure` |
+| 실행 환경 | NR-009와 같다 |
+| 결과 | 통과 |
+| 건수 | 해당 없음(BUILD SUCCESSFUL) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음 |
+| 관련 변경 | #797 |
+
+#### NR-007 · 2026-11-09 · 통과 (dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-007 |
+| 실행 날짜 | 2026-11-09 17:00~17:07 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `1da5eb40` (병합 `722a939a`: `311f679a` + origin/dev `657bcfa6`, 그 뒤 `-parameters` 커밋) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | N1이 dev(챗봇 #798·#800 등)와 합쳐진 상태, 알림 모듈 `-parameters` |
+| 관련 NT ID | NR-004와 같다 |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :auxiliary-app:check` |
+| 실행 환경 | NR-004와 같다(Testcontainers. 챗봇 테스트의 컨테이너 포함). 로컬 compose(postgres·kafka·redis) 실행 중, 측정용 앱은 종료됨 |
+| 결과 | 통과 |
+| 건수 | `:notification` 25, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 216, 실패·오류·건너뜀 0 (XML 기준, 모두 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 병합 충돌(`AuxiliaryApplicationTest` properties)을 알림·챗봇 설정을 모두 남겨 해결 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | NR-002와 같다 |
+| 관련 변경 | #797 |
+
+#### NR-006 · 2026-11-09 · 통과 (dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-006 |
+| 실행 날짜 | 2026-11-09 17:00 (KST, NR-007 전) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `1da5eb40` |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | Gradle 모듈 의존 경계 |
+| 관련 NT ID | NT-BND-02 |
+| 명령 | `./gradlew verifyModuleStructure` |
+| 실행 환경 | NR-007과 같다 |
+| 결과 | 통과 |
+| 건수 | 해당 없음(BUILD SUCCESSFUL) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음 |
+| 관련 변경 | #797 |
+
+#### NR-005 · 2026-11-09 · 통과 (로컬 기동·자원 측정, 수동)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-005 |
+| 실행 날짜 | 2026-11-09 16:36~16:39 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `7b6beb9a` |
+| 작업 트리 변경 | NR-004와 같다 |
+| 대상 기능 | N1 앱 기동, 회원 복제본 소비자 연결, 자원 측정(인프라 Issue·U13 근거) |
+| 관련 NT ID | NT-KAF-06, NT-ERR-03, NT-RES-01·03(U13, 판정 안 함) |
+| 명령 | 1) `docker compose -f docker/compose.yaml up -d postgres kafka redis`(기존 볼륨 유지) 2) 로컬 Kafka에 `member.events.v1`을 member-app 선언과 같게 생성(partition 3, 복제 1, `cleanup.policy=delete`) 3) `./gradlew :auxiliary-app:bootRun`(local 프로필) 4) `kafka-consumer-groups.sh --describe --group auxiliary-app.notification-member-replica` 5) `GET /actuator/health`, `GET /actuator/prometheus` 10초 간격 3회 |
+| 실행 환경 | Windows 10 Pro, JDK 25.0.4.1, Gradle 9.7.1, Docker 29.8.0. compose: postgres:18, apache/kafka:4.4.0, redis:8. JVM 옵션 지정 없음(운영 `-Xmx256m`·limit 704Mi 아님), devtools 재시작 클래스로더 사용. 이벤트 유입 없음(유휴) |
+| 결과 | 통과 |
+| 건수 | 해당 없음(수동 확인) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 이벤트 처리 중 부하 값, 운영 JVM 옵션에서의 값, 운영 cluster |
+| 관련 변경 | #797 |
+
+**확인한 것**
+- 기동 10.54초, Flyway가 `202611061400`(chatbot)·`202611091500`(notification) 두 버전을 schema `auxiliary` 이력에 적용, `/actuator/health` UP.
+- 소비 그룹 `auxiliary-app.notification-member-replica`가 `member.events.v1` partition 0·1·2를 모두 받았다(lag 0, 이벤트 없음).
+- 모듈이 DLT `member.events.v1.auxiliary-app.notification-member-replica.DLT`를 partition 3, `retention.ms=604800000`으로 선언했다.
+
+**측정값** (`/actuator/prometheus`, 3회 같은 값 또는 범위)
+
+| 지표 | 값 |
+| --- | --- |
+| `hikaricp_connections` (total) | 5 |
+| `hikaricp_connections_active` | 0 |
+| `hikaricp_connections_idle` | 5 |
+| `hikaricp_connections_max` / `_min` / `_pending` | 5 / 5 / 0 |
+| JVM heap used (heap pool 합) | 71.6 → 75.6 → 77.6 MiB |
+| JVM heap committed | 104.0 MiB |
+| JVM heap max | 4058.0 MiB(로컬 기본값, 물리 메모리 1/4. 운영은 `-Xmx256m`) |
+| JVM non-heap used | 146.0~147.9 MiB |
+| live threads | 39 |
+| 프로세스 작업 집합(tasklist) | 약 347 MB |
+
+**메모**: 측정 뒤 bootRun 백그라운드 작업을 멈췄지만 앱 JVM(PID 22636)이 남았고, 일반 종료 요청(`taskkill`, /F 없음)은 Windows가 거부했다. 사용자 확인(2026-11-09) 뒤 `taskkill /F /PID 22636`으로 그 프로세스만 강제 종료했다(포트 8087 해제 확인, 이벤트 처리 중이 아니었다). compose 컨테이너(postgres·kafka·redis)는 그대로 둔다.
+
+#### NR-004 · 2026-11-09 · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-004 |
+| 실행 날짜 | 2026-11-09 16:39~16:41 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `7b6beb9a` |
+| 작업 트리 변경 | NR-002 + `apps/auxiliary-app/src/test/java/com/hapbang/auxiliary/{AuxiliaryModularityTest,AuxiliaryApplicationTest}.java` |
+| 대상 기능 | N1 마무리: 모듈 경계 단언에 notification 추가, 앱 기동 테스트에서 알림 회원 소비자 끄기 |
+| 관련 NT ID | NR-002와 같다 + NT-BND-01(전부) |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :auxiliary-app:check` |
+| 실행 환경 | NR-002와 같다. 로컬 compose(postgres·kafka·redis)와 측정용 앱(8087)이 떠 있었다(테스트는 Testcontainers·임의 포트라 영향 없음) |
+| 결과 | 통과 |
+| 건수 | `:notification` 25, `:auxiliary-app` 10, `:auxiliary-global` 89, `:chatbot` 1. 합계 125, 실패·오류·건너뜀 0 (XML 기준, 모두 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | NR-002와 같다 |
+| 관련 변경 | #797 |
+
+**메모**: `AuxiliaryApplicationTest` 55.5초(NR-002) → 20.7초, `localhost:9092` 연결 경고 51회 → 0회.
+
+#### NR-003 · 2026-11-09 · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-003 |
+| 실행 날짜 | 2026-11-09 16:39 (KST, NR-004 전) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `7b6beb9a` |
+| 작업 트리 변경 | NR-004와 같다 |
+| 대상 기능 | Gradle 모듈 의존 경계 |
+| 관련 NT ID | NT-BND-02 |
+| 명령 | `./gradlew verifyModuleStructure` |
+| 실행 환경 | NR-004와 같다 |
+| 결과 | 통과 |
+| 건수 | 해당 없음(BUILD SUCCESSFUL) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음 |
+| 관련 변경 | #797 |
+
+#### NR-002 · 2026-11-09 · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-002 |
+| 실행 날짜 | 2026-11-09 16:27~16:29 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `7b6beb9a` |
+| 작업 트리 변경 | 있음(커밋 전). 알림 모듈 등록(`settings.gradle.kts`, `apps/auxiliary-app/build.gradle.kts`), `apps/auxiliary-app/boundedContext/notification/{build.gradle.kts,src/**}`, 알림 문서(decisions·module·test-spec·INDEX·AGENTS·PROGRESS·이 문서) |
+| 대상 기능 | N1 모듈 뼈대: 모듈 등록, schema·`notification_user`, 회원 복제본 소비자, Kafka 소비·DLT 공통 설정 (#797) |
+| 관련 NT ID | NT-USR-01, NT-USR-02, NT-USR-04, NT-KAF-06, NT-ERR-02, NT-ERR-03, NT-BND-01, NT-BND-03 |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :auxiliary-app:check` |
+| 실행 환경 | Windows 10 Pro, JDK 25.0.4.1, Gradle 9.7.1, Docker 29.8.0 실행 중. Testcontainers postgres·kafka(apache/kafka:4.2.1)·redis(앱 기동 테스트) |
+| 결과 | 통과 |
+| 건수 | `:notification` 성공 25(실패 0, 오류 0, 건너뜀 0), `:auxiliary-app` 10, `:auxiliary-global` 89, `:chatbot` 1. 합계 125 (XML 기준, 네 태스크 모두 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함. 같은 날 16:23 `./gradlew :notification:test` 첫 실행도 25건 통과였다(같은 코드) |
+| 미검증 항목 | 알림 생성·REST·STOMP(N2 이후), NT-USR-03·05·06·07(복제본 사용·U8·U17·U19), 로컬 `bootRun` 자원 측정(인프라 Issue용, 미실행) |
+| 관련 변경 | #797 |
+
+**메모**
+- `AuxiliaryApplicationTest`(운영 설정으로 앱 전체 기동)는 Kafka broker 없이 띄워 알림 회원 소비자가 `localhost:9092` 연결 경고를 반복한다(통과, 55초). 테스트 결과에는 영향이 없다.
+- 모듈 테스트 로그의 `OtlpMeterRegistry ... ConnectException`은 로컬 OTLP 수신기가 없어 나는 경고다(모듈 테스트는 앱 `application.yaml`의 지표 내보내기 끄기 설정을 읽지 않는다).
+
+#### NR-001 · 2026-11-09 · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-001 |
+| 실행 날짜 | 2026-11-09 16:24경 (KST, NR-002 전) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-797` |
+| 커밋 | `7b6beb9a` |
+| 작업 트리 변경 | NR-002와 같다 |
+| 대상 기능 | Gradle 모듈 의존 경계(`:notification`은 `:auxiliary-global`·`:shared`만) |
+| 관련 NT ID | NT-BND-02 |
+| 명령 | `./gradlew verifyModuleStructure` (`--parallel` 없이 따로) |
+| 실행 환경 | NR-002와 같다 |
+| 결과 | 통과 |
+| 건수 | 해당 없음(Gradle 검사 태스크, BUILD SUCCESSFUL) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음 |
+| 관련 변경 | #797 |
 
 ## 4. 미해결 항목
 
@@ -99,3 +323,7 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 
 변경 이력
 - 2026-11-06 처음 작성: 실행 기록 없음. 형식은 [지갑 회귀 실행 기록](../billing/regression-log.md)을 알림 모듈에 맞게 줄였다.
+- 2026-11-09 NR-001·NR-002(N1, #797)를 더했다.
+- 2026-11-09 NR-003·NR-004(N1 마무리 재실행), NR-005(로컬 기동·자원 측정)를 더했다.
+- 2026-11-09 NR-006·NR-007(dev 병합 뒤 재실행)을 더했다.
+- 2026-11-09 NR-008·NR-009(#797 PR 리뷰 반영: ND-049, Flyway 단언 보강)를 더했다.

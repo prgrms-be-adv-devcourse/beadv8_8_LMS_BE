@@ -1,6 +1,7 @@
 package com.hapbang.coupon.in;
 
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -41,10 +42,12 @@ import com.hapbang.coupon.domain.ExpiryType;
 import com.hapbang.coupon.domain.IssueResponseCode;
 import com.hapbang.coupon.domain.IssueStatus;
 import com.hapbang.coupon.domain.MemberCouponStatus;
+import com.hapbang.coupon.domain.usage.Selection;
 import com.hapbang.coupon.global.config.CouponWebMvcConfig;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.global.exception.CouponExceptionHandler;
+import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 import com.hapbang.testsupport.WebSliceTestConfiguration;
 
 // 회원 쿠폰 API의 경로·요청 값 검증·응답 모양만 본다. 발급 규칙과 역할 검사는 Facade가 맡으므로 Facade를 mock으로 둔다.
@@ -239,6 +242,45 @@ class ApiV1CouponControllerTest {
         return new CouponSummaryView(COUPON_ID, "신규 회원 할인", CouponType.PLATFORM, CouponTargetType.ANY_LECTURE, null,
                 DiscountType.RATE, 10, 3_000L, false, start, start.plusSeconds(86_400 * 7), ExpiryType.RELATIVE, 30,
                 null, 100, 40, soldOut, issued, CouponStatus.OPEN);
+    }
+
+    // 할인 계산 미리보기 -----------------------------------------------------------------------------------------
+
+    @Test
+    void 미리보기는_강의와_매핑을_Facade에_넘기고_계산_결과를_돌려준다() throws Exception {
+        CouponCalculateResponse response = new CouponCalculateResponse(false, false, List.of(
+                new CouponCalculateResponse.Item(3L, 10_000, 1_000, 0, 1_000, 9_000, 9_000, List.of())), 1_000, 9_000);
+        given(couponIssueFacade.quote(MEMBER_ID, List.of(3L, 5L), List.of(new Selection(11L, 3L))))
+                .willReturn(response);
+
+        mockMvc.perform(post("/api/v1/coupons/me/quote").with(member()).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lectureIds\":[3,5],\"selections\":[{\"memberCouponId\":11,\"lectureId\":3}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalBuyerAmount").value(9_000))
+                .andExpect(jsonPath("$.data.items[0].buyerAmount").value(9_000));
+    }
+
+    @Test
+    void 미리보기에서_매핑을_생략하면_추천으로_null을_넘긴다() throws Exception {
+        mockMvc.perform(post("/api/v1/coupons/me/quote").with(member()).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lectureIds\":[3]}"))
+                .andExpect(status().isOk());
+
+        verify(couponIssueFacade).quote(MEMBER_ID, List.of(3L), null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"lectureIds\":[]}", "{\"lectureIds\":[null]}",
+            "{\"lectureIds\":[3],\"selections\":[{\"lectureId\":3}]}"})
+    void 미리보기_요청_형식이_틀리면_400이고_Facade를_부르지_않는다(String body) throws Exception {
+        mockMvc.perform(post("/api/v1/coupons/me/quote").with(member()).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+
+        verify(couponIssueFacade, never()).quote(anyLong(), any(), any());
     }
 
     private static RequestPostProcessor member() {

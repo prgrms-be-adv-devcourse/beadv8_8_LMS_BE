@@ -118,6 +118,28 @@ class CouponUsageRepositoryTest {
                 .hasMessageContaining("ck_coupon_usage_discount_range");
     }
 
+    @Test
+    void 결제_완료와_취소_완료_사실을_저장하고_주문_항목의_사용_시도를_잠가_찾는다() {
+        MemberCoupon paidCoupon = saveMemberCoupon("req-1");
+        MemberCoupon reservedCoupon = saveMemberCoupon("req-2");
+        CouponUsage paid = couponUsageRepository.save(usage(paidCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
+        CouponUsage canceled = couponUsageRepository.save(usage(reservedCoupon, ORDER_ITEM_ID, 0, 1_000, 0));
+        couponUsageRepository.save(usage(paidCoupon, ORDER_ITEM_ID + 1, 1, 1_000, 0));
+        paid.applyPaid("order-item-paid:901", NOW, MemberCouponStatus.RESERVED, 1, NOW);
+        canceled.applyCancelCompleted("order-item-cancel-completed:901", NOW, MemberCouponStatus.RESERVED, 1, NOW,
+                NOW);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(couponUsageRepository.findForUpdateByOrderItemId(ORDER_ITEM_ID))
+                .extracting(CouponUsage::getMemberCouponId, CouponUsage::getStatus, CouponUsage::getPaidEventId,
+                        CouponUsage::getCancelEventId, CouponUsage::getRestoredTo)
+                .containsExactly(
+                        tuple(paidCoupon.getId(), CouponUsageStatus.PAID, "order-item-paid:901", null, null),
+                        tuple(reservedCoupon.getId(), CouponUsageStatus.CANCELED, null,
+                                "order-item-cancel-completed:901", MemberCouponStatus.EXPIRED));
+    }
+
     private MemberCoupon saveMemberCoupon(String requestId) {
         Long couponId = couponRepository.save(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW)).getId();
         return memberCouponRepository.save(MemberCoupon.issue(MEMBER_ID, couponId, requestId, NOW, EXPIRES_AT, NOW));

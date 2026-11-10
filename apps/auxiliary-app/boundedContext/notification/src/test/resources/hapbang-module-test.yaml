@@ -1,0 +1,13 @@
+# 알림 모듈 테스트 전용 설정. @IntegrationTest가 spring.config.name=hapbang-module-test로 읽는다.
+# src/test 아래라 배포 jar에는 포함되지 않는다.
+spring:
+  datasource:
+    hikari:
+      # 테스트는 컨텍스트를 여러 개 캐시하고 각 컨텍스트가 연결 풀을 가진다. PostgreSQL 컨테이너의 max_connections(100)를 넘지 않게 줄인다
+      maximum-pool-size: 5
+hapbang:
+  notification:
+    # 운영 기본값은 켜짐(코드 기본값)이다. 대부분의 테스트에는 Kafka가 없으므로 소비자 빈(리스너·DLT 토픽 선언)을 만들지 않게 끄고,
+    # Kafka 시험 클래스만 true로 켠다
+    member-events:
+      enabled: false

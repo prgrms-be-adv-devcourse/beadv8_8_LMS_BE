@@ -146,6 +146,16 @@ class MemberCouponTest {
         assertThat(coupon.getGeneration()).isEqualTo(1);
     }
 
+    /** 할인은 예약 성공 시점 기준으로 인정한다. 결제 중 기한이 지나도 사용 완료로 끝낸다 */
+    @Test
+    void 예약_뒤_기한이_지나도_결제_완료로_사용_완료한다() {
+        MemberCoupon coupon = inStatus(MemberCouponStatus.RESERVED);
+
+        coupon.markUsed(EXPIRES_AT.plusSeconds(1));
+
+        assertThat(coupon.getStatus()).isEqualTo(MemberCouponStatus.USED);
+    }
+
     @ParameterizedTest
     @EnumSource(value = MemberCouponStatus.class, names = {"AVAILABLE", "USED", "EXPIRED"})
     void RESERVED가_아니면_사용_완료할_수_없다(MemberCouponStatus status) {
@@ -166,9 +176,19 @@ class MemberCouponTest {
         assertThat(afterExpiry.restore(EXPIRES_AT)).isEqualTo(MemberCouponStatus.EXPIRED);
     }
 
+    /** 결제 완료보다 먼저 온 취소 완료는 예약 중인 쿠폰을 복원한다 */
+    @Test
+    void 예약한_쿠폰도_취소_완료로_복원한다() {
+        MemberCoupon coupon = inStatus(MemberCouponStatus.RESERVED);
+
+        assertThat(coupon.restore(NOW)).isEqualTo(MemberCouponStatus.AVAILABLE);
+        assertThat(coupon.getReservedAt()).isNull();
+        assertThat(coupon.getCurrentOrderItemId()).isNull();
+    }
+
     @ParameterizedTest
-    @EnumSource(value = MemberCouponStatus.class, names = {"AVAILABLE", "RESERVED", "EXPIRED"})
-    void USED가_아니면_복원할_수_없다(MemberCouponStatus status) {
+    @EnumSource(value = MemberCouponStatus.class, names = {"AVAILABLE", "EXPIRED"})
+    void RESERVED나_USED가_아니면_복원할_수_없다(MemberCouponStatus status) {
         MemberCoupon coupon = inStatus(status);
 
         assertRejected(() -> coupon.restore(NOW), CouponDomainError.INVALID_STATUS_TRANSITION);

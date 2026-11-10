@@ -63,6 +63,7 @@ import com.hapbang.testsupport.KafkaTestcontainersConfig;
 import com.hapbang.testsupport.RecordedSpans;
 import com.hapbang.testsupport.TraceRequests;
 
+import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.sdk.trace.data.SpanData;
@@ -85,6 +86,9 @@ import io.opentelemetry.sdk.trace.data.SpanData;
 @WithMockUser(roles = "INTERNAL")
 @DirtiesContext
 class LectureObjectionKafkaTest {
+
+    /** Spring Kafka 관측이 consumer span에 싣는 소비 그룹 속성 */
+    private static final AttributeKey<String> CONSUMER_GROUP = AttributeKey.stringKey("messaging.kafka.consumer.group");
 
     private static final Long BUYER_ID = OTHER_USER_ID;
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
@@ -203,7 +207,7 @@ class LectureObjectionKafkaTest {
 
         ConsumerRecord<String, String> record = awaitExactly("order-item:" + itemId, 1).getFirst();
         RecordedSpans.await(() -> !spans(traceId, SpanKind.PRODUCER).isEmpty());
-        assertThat(spans(traceId, SpanKind.CONSUMER)).singleElement()
+        assertThat(objectionConsumes(traceId)).singleElement()
                 .satisfies(consume -> assertThat(consume.getParentSpanId()).isEqualTo(parentSpanId));
         SpanData produce = spans(traceId, SpanKind.PRODUCER).getFirst();
         assertThat(header(record, TRACEPARENT)).startsWith("00-" + traceId + "-" + produce.getSpanId() + "-");
@@ -223,8 +227,8 @@ class LectureObjectionKafkaTest {
                 ADMIN_ID), TraceRequests.traceparent(traceId, parentSpanId, true));
 
         awaitExactly("order-item:" + itemId, 1);
-        RecordedSpans.await(() -> spans(traceId, SpanKind.CONSUMER).size() >= 2);
-        assertThat(spans(traceId, SpanKind.CONSUMER)).hasSize(2)
+        RecordedSpans.await(() -> objectionConsumes(traceId).size() >= 2);
+        assertThat(objectionConsumes(traceId)).hasSize(2)
                 .allSatisfy(consume -> assertThat(consume.getParentSpanId()).isEqualTo(parentSpanId))
                 .anySatisfy(failed -> assertThat(failed.getStatus().getStatusCode()).isEqualTo(StatusCode.ERROR));
     }
@@ -245,7 +249,7 @@ class LectureObjectionKafkaTest {
             ConsumerRecord<String, String> record = awaitDeadLetter(deadLetters, key);
             RecordedSpans.await(() -> !spans(traceId, SpanKind.PRODUCER).isEmpty());
             // 처음 1번 + 재시도 3번(LectureKafkaConfig)
-            List<SpanData> consumes = spans(traceId, SpanKind.CONSUMER);
+            List<SpanData> consumes = objectionConsumes(traceId);
             assertThat(consumes).hasSize(4)
                     .allSatisfy(consume -> assertThat(consume.getParentSpanId()).isEqualTo(parentSpanId));
             SpanData deadLetter = spans(traceId, SpanKind.PRODUCER).getFirst();
@@ -340,6 +344,17 @@ class LectureObjectionKafkaTest {
             assertThat(arrived).anyMatch(record -> key.equals(record.key()));
         });
         return arrived.stream().filter(record -> key.equals(record.key())).findFirst().orElseThrow();
+    }
+
+    /**
+     * 판단·철회 요청 소비 그룹의 consumer span. 강의 토픽을 함께 읽는 다른 소비 그룹(쿠폰의 주문 이벤트 소비 등)도 같은 trace에
+     * consumer span을 남기므로 그룹으로 거른다. Spring Kafka 관측은 그룹을 {@code messaging.kafka.consumer.group}에 싣는다
+     */
+    private List<SpanData> objectionConsumes(String traceId) {
+        return spans(traceId, SpanKind.CONSUMER).stream()
+                .filter(span -> LectureKafkaConfig.OBJECTION_COMMAND_GROUP.equals(
+                        span.getAttributes().get(CONSUMER_GROUP)))
+                .toList();
     }
 
     private List<SpanData> spans(String traceId, SpanKind kind) {

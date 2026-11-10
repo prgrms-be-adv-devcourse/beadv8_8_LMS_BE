@@ -15,6 +15,7 @@ groups:
     interval: 1m
     rules:
       # 마지막으로 끝까지 비교한 실행의 규칙별 건수(gauge). 다음 실행이 끝날 때까지 값이 남는다.
+      # 다만 값이 pod 메모리에만 있어 pod가 다시 뜨면 다음 대사 전까지 0이 되고 복구 통보가 간다. 강의는 #805에서 DB로 복원한다.
       - uid: hapbang-hp-reconciliation-mismatch
         title: 서비스 간 HP 대사 불일치
         condition: C
@@ -48,9 +49,14 @@ groups:
           description: >-
             마지막으로 끝까지 비교한 대사 결과다. HP_TASK_DEAD는 어긋남이 아니라 DEAD 작업 때문에 비교하지 않은 건수다(관리자 HP 작업 화면에서 재시도).
             어긋난 건은 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "rule={{ $labels.rule }}"로 찾는다.
-            고치지 않으면 다음 대사(매일 새벽)까지 다시 보낸다.
+            값은 다음 대사(매일 새벽)까지 남는다. 고친 뒤 관리자 수동 대사(POST /api/v1/lectures/admin/hp-reconciliations,
+            POST /api/v1/appearances/admin/hp-reconciliations)를 실행하면 다시 비교해 값이 바뀐다. 다만 대사는 최근 바뀐 건(강의는 HP 작업이 7일 안에 바뀐 항목)과
+            지갑 커서 뒤에 바뀐 보류만 보고, 바뀐 지 2시간이 안 된 건(진행 중 유예)은 빼므로, 방금 고친 건이나 범위 밖으로 밀려난 건은 비교하지 않고 0이 된다.
+            그래서 0이 되거나 복구 통보가 와도 고쳤다는 뜻은 아니다.
+            처음 잡힌 건(Loki의 orderItemId·rule)이 정말 고쳐졌는지 따로 확인한다. pod가 다시 뜰 때도 값이 0이 될 수 있다(강의는 #805에서 DB로 복원).
 
       # 마지막 잔액 대사의 결과별 지갑 수(gauge). failed는 재시도 뒤에도 대사하지 못한 지갑이다.
+      # 값이 pod 메모리에만 있어 billing-app pod가 다시 뜨면 다음 대사 전까지 0이 되고 복구 통보가 간다(실행 결과가 DB에 없다).
       - uid: hapbang-wallet-reconciliation-mismatch
         title: 지갑 잔액 대사 불일치·실패
         condition: C
@@ -84,7 +90,7 @@ groups:
           description: >-
             mismatched는 잔액과 원장이 어긋난 지갑, failed는 재시도 뒤에도 대사하지 못한 지갑이다.
             Loki {namespace="hapbang-prod", app="billing-app"} |= "잔액 대사"로 walletId와 bucket별 차이를 찾는다(docs/billing/module.md).
-            불일치는 자동으로 고치지 않는다.
+            불일치는 자동으로 고치지 않는다. billing-app pod가 다시 뜨면 값이 0이 되어 고치지 않았는데도 복구 통보가 올 수 있다.
 
       # 출연: 재시도 배치 시점의 DEAD 작업 수(gauge, 처리될 때까지 남는다).
       # 강의: DEAD가 된 횟수(counter)라 최근 10분에 늘었을 때만 보낸다. 남은 DEAD는 위 대사 alert의 HP_TASK_DEAD가 매일 알린다.
@@ -177,6 +183,51 @@ groups:
             지갑은 재시도 뒤 failed 0으로 끝난 실행, 강의·출연은 중단 없이 끝까지 비교한 실행을 성공으로 본다.
             배치가 실행됐는지와 중단 사유를 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "대사"로 찾는다.
             대사가 돌지 않으면 불일치 alert도 오래된 값으로 남는다.
+
+      # 강의·출연 대사가 끝까지 비교하지 못하고 INCOMPLETE로 끝난 실행(#804). 지갑 조회 실패(회로 열림·결과 불명·거절)나 예외가 원인이고,
+      # 그 실행은 불일치 지표를 바꾸지 않는다. 실행 counter는 첫 실행 때 series가 생기므로 1시간 안에 늘었거나 새로 생긴 series를 친다.
+      # 대사 도중 pod가 내려가 RUNNING으로 남은 실행은 다음 실행이 조용히 정리해 counter가 오르지 않는다. 강의는 #805부터 기동할 때 정리하며
+      # counter를 올리고, 출연은 아직 잡지 못한다.
+      - uid: hapbang-reconciliation-incomplete
+        title: 대사 중단
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: |-
+                max by (app_kubernetes_io_name) (
+                  (increase({__name__=~"(lecture|appearance)_hp_reconciliation_runs_total", status="INCOMPLETE"}[1h]) > 0)
+                  or
+                  (
+                    {__name__=~"(lecture|appearance)_hp_reconciliation_runs_total", status="INCOMPLETE"}
+                      unless {__name__=~"(lecture|appearance)_hp_reconciliation_runs_total", status="INCOMPLETE"} offset 1h
+                  )
+                )
+          - refId: C
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.app_kubernetes_io_name }} HP 대사가 끝까지 비교하지 못하고 중단됐다(최근 1시간).'
+          description: >-
+            중단된 실행은 일부만 비교해 불일치 지표를 바꾸지 않고, 다음 실행이 같은 범위를 다시 본다. 사유는 관리자 API GET .../admin/hp-reconciliations/latest의
+            실행 결과나 Loki {namespace="hapbang-prod", app="{{ $labels.app_kubernetes_io_name }}"} |= "대사"로 찾는다(지갑 조회 실패면 circuit breaker·billing-app 상태).
+            원인을 고친 뒤 관리자 수동 대사(POST /api/v1/lectures/admin/hp-reconciliations, POST /api/v1/appearances/admin/hp-reconciliations)로 다시 돌릴 수 있다.
+            복구 통보는 마지막 중단 뒤 1시간이 지났거나 pod가 다시 떴다는 뜻일 뿐, 다시 돌아 끝까지 비교했다는 뜻이 아니다. GET .../latest로 실행 결과를 확인한다.
 
   - orgId: 1
     name: 앱·인프라
