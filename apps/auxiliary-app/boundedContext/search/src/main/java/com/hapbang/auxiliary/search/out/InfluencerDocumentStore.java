@@ -2,6 +2,7 @@ package com.hapbang.auxiliary.search.out;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +17,8 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.Conflicts;
 import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import co.elastic.clients.elasticsearch._types.Result;
+import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.json.JsonData;
 
 /**
@@ -62,6 +65,29 @@ public class InfluencerDocumentStore {
               ctx._source.hiddenAt = params.now;
               for (def field : params.personal) { ctx._source.remove(field); }
             }
+            """;
+
+    /**
+     * 통계 반영 script. 숨긴 문서(tombstone)에는 채널 이름(개인정보)을 다시 넣지 않는다. 값이 모두 같으면 noop이다(painless의 {@code ==}는
+     * 숫자 타입이 달라도 값으로, 목록은 원소로 비교한다). 회원 version은 건드리지 않는다.
+     */
+    static final String STATS_SCRIPT = """
+            if (ctx._source.hidden == true) { ctx.op = 'noop'; return; }
+            boolean changed = false;
+            for (def field : params.stats.entrySet()) {
+              if (ctx._source[field.getKey()] != field.getValue()) { ctx._source[field.getKey()] = field.getValue(); changed = true; }
+            }
+            if (!changed) { ctx.op = 'noop'; }
+            """;
+
+    /** 분야 이름 반영 script. 문서의 분야마다 지금 이름을 붙이고(모르는 코드는 이름 없음), 바뀐 것이 없으면 noop이다 */
+    static final String CATEGORY_NAMES_SCRIPT = """
+            boolean changed = false;
+            for (def category : ctx._source.contentCategories) {
+              def name = params.names.get(category.code);
+              if (category.name != name) { category.name = name; changed = true; }
+            }
+            if (!changed) { ctx.op = 'noop'; }
             """;
 
     private final ElasticsearchClient client;
@@ -120,6 +146,75 @@ public class InfluencerDocumentStore {
         } catch (IOException | ElasticsearchException e) {
             throw new IllegalStateException("숨긴 검색 문서를 정리하지 못했습니다", e);
         }
+    }
+
+    /**
+     * 통계를 한 번에(bulk) 부분 갱신한다. 문서가 없는 회원은 건너뛴다(넣는 것은 검색 2의 보정). 숨긴 문서와 값이 같은 문서는 noop이다.
+     *
+     * @return 회원 ID별 결과
+     * @throws IllegalStateException ES에 보내지 못했거나, 문서 없음 밖의 이유로 실패한 항목이 있는 경우
+     */
+    public Map<Long, WriteOutcome> applyStats(List<InfluencerStats> stats) {
+        if (stats.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            BulkResponse response = client.bulk(b -> {
+                b.index(InfluencerIndexDefinition.ALIAS).requireAlias(true);
+                stats.forEach(s -> b.operations(op -> op.update(u -> u.id(String.valueOf(s.userId())).retryOnConflict(3)
+                        .action(a -> a.script(script -> script.source(src -> src.scriptString(STATS_SCRIPT))
+                                .params("stats", JsonData.of(statsFields(s))))))));
+                return b;
+            });
+            Map<Long, WriteOutcome> outcomes = new HashMap<>();
+            List<String> failures = new ArrayList<>();
+            for (BulkResponseItem item : response.items()) {
+                long userId = Long.parseLong(item.id());
+                if (item.error() == null) {
+                    outcomes.put(userId, "noop".equals(item.result()) ? WriteOutcome.NOOP : WriteOutcome.UPDATED);
+                } else if (item.status() == 404) {
+                    outcomes.put(userId, WriteOutcome.MISSING);
+                } else {
+                    failures.add(item.id() + ":" + item.error().type());
+                }
+            }
+            if (!failures.isEmpty()) {
+                throw new IllegalStateException("검색 통계 일부를 쓰지 못했습니다 failures=" + failures);
+            }
+            return outcomes;
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("검색 통계를 쓰지 못했습니다", e);
+        }
+    }
+
+    /**
+     * 분야가 있는 모든 문서의 분야 이름을 지금 목록으로 맞춘다(update_by_query). 이름이 바뀐 분야와, 이름을 모른 채 색인한 분야를 함께 고친다.
+     *
+     * @return 바꾼 문서 수
+     */
+    public long syncCategoryNames(Map<String, String> names) {
+        try {
+            Long updated = client.updateByQuery(u -> u.index(InfluencerIndexDefinition.ALIAS)
+                    // 그사이 회원 이벤트가 바꾼 문서는 그 이벤트가 지금 이름으로 썼다
+                    .conflicts(Conflicts.Proceed)
+                    .query(q -> q.exists(e -> e.field("contentCategories.code")))
+                    .script(s -> s.source(src -> src.scriptString(CATEGORY_NAMES_SCRIPT))
+                            .params("names", JsonData.of(names))))
+                    .updated();
+            return updated == null ? 0 : updated;
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("검색 문서의 분야 이름을 맞추지 못했습니다", e);
+        }
+    }
+
+    private static Map<String, Object> statsFields(InfluencerStats stats) {
+        Map<String, Object> fields = new HashMap<>();
+        fields.put("channelNames", stats.channelNames());
+        fields.put("representativeChannelName", stats.representativeChannelName());
+        fields.put("followerCount", stats.followerCount());
+        fields.put("ratingAverage", stats.ratingAverage());
+        fields.put("ratingCount", stats.ratingCount());
+        return fields;
     }
 
     private WriteOutcome writeMember(long userId, Long version, boolean visible, Map<String, Object> profile,

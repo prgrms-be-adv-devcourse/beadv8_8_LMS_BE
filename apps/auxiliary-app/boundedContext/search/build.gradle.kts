@@ -6,6 +6,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-elasticsearch")
     // 회원 이벤트 소비. 앱은 common :kafka(자동 설정)를 함께 쓰지만 업무 모듈은 :kafka 프로젝트를 의존할 수 없어 starter를 직접 적는다
     implementation("org.springframework.boot:spring-boot-starter-kafka")
+    // shared MemberApiClient가 쓰는 RestClient.Builder(10분 통계 동기화)
+    implementation("org.springframework.boot:spring-boot-starter-restclient")
 
     testImplementation(project(":test-support"))
 }

@@ -18,3 +18,7 @@ hapbang:
       # ES를 쓰는 테스트는 SearchElasticsearchTestcontainersConfig를 @Import 해 이 주소를 컨테이너 주소로 바꾼다.
       # ES가 없는 테스트는 닿지 않는 주소로 둔다(연결 거절을 바로 받는다)
       uris: http://127.0.0.1:9
+  clients:
+    member:
+      # 통계 동기화가 부르는 회원 내부 API. 모듈 테스트는 부르지 않거나 가짜 소스로 바꾼다(닿지 않는 주소)
+      base-url: http://127.0.0.1:9

@@ -27,6 +27,9 @@ hapbang:
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:local-placeholder}"
   clients:
+    member:
+      # 로컬 회원 앱(검색 통계 동기화, #771)
+      base-url: "${MEMBER_API_BASE_URL:http://localhost:8081}"
     appearance:
       # 로컬 출연 앱(챗봇 출연 싱크, #716)
       base-url: "${APPEARANCE_API_BASE_URL:http://localhost:8083}"

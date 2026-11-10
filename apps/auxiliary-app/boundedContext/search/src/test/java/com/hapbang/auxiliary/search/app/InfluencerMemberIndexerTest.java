@@ -1,5 +1,6 @@
 package com.hapbang.auxiliary.search.app;
 
+import static com.hapbang.auxiliary.search.support.FakeMemberStatsSource.category;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -18,6 +19,7 @@ import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.out.WriteOutcome;
+import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -32,7 +34,8 @@ class InfluencerMemberIndexerTest {
 
     private final ElasticsearchClient client = SearchElasticsearch.client();
 
-    private final ContentCategoryNames categoryNames = new ContentCategoryNames();
+    private final ContentCategoryNames categoryNames = new ContentCategoryNames(new FakeMemberStatsSource()
+            .categories(category("GAME", "게임"), category("MAPLESTORY", "메이플스토리")));
 
     private final InfluencerMemberIndexer indexer = new InfluencerMemberIndexer(new InfluencerIndexSetup(client),
             new InfluencerDocumentStore(client), categoryNames, Clock.fixed(NOW, ZoneId.of("Asia/Seoul")));
@@ -40,7 +43,6 @@ class InfluencerMemberIndexerTest {
     @BeforeEach
     void reset() throws Exception {
         SearchElasticsearch.reset(client);
-        categoryNames.replaceAll(Map.of("GAME", "게임", "MAPLESTORY", "메이플스토리"));
     }
 
     @Test
