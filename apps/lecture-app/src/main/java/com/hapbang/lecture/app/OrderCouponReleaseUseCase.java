@@ -22,7 +22,7 @@ import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.OrderCouponWorkRepository;
 import com.hapbang.lecture.out.OrderItemCouponRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
-import com.hapbang.lecture.out.coupon.CouponClient;
+import com.hapbang.lecture.out.coupon.CouponApiClient;
 import com.hapbang.shared.coupon.api.CouponReleaseRequest;
 import com.hapbang.shared.coupon.api.CouponReleaseResponse;
 
@@ -50,7 +50,7 @@ public class OrderCouponReleaseUseCase {
     private final LectureOrderRepository lectureOrderRepository;
     private final OrderItemCouponRepository orderItemCouponRepository;
     private final OrderCouponWorkRepository orderCouponWorkRepository;
-    private final CouponClient couponClient;
+    private final CouponApiClient couponApiClient;
     private final LectureOrderProperties properties;
     private final TransactionTemplate transaction;
     private final Clock clock;
@@ -58,14 +58,14 @@ public class OrderCouponReleaseUseCase {
     public OrderCouponReleaseUseCase(LectureOrderRepository lectureOrderRepository,
                                      OrderItemCouponRepository orderItemCouponRepository,
                                      OrderCouponWorkRepository orderCouponWorkRepository,
-                                     CouponClient couponClient,
+                                     CouponApiClient couponApiClient,
                                      LectureOrderProperties properties,
                                      PlatformTransactionManager transactionManager,
                                      @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderRepository = lectureOrderRepository;
         this.orderItemCouponRepository = orderItemCouponRepository;
         this.orderCouponWorkRepository = orderCouponWorkRepository;
-        this.couponClient = couponClient;
+        this.couponApiClient = couponApiClient;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -78,7 +78,7 @@ public class OrderCouponReleaseUseCase {
             if (request == null) {
                 return;
             }
-            CouponCallResult<CouponReleaseResponse> result = couponClient.release(request);
+            CouponCallResult<CouponReleaseResponse> result = couponApiClient.release(request);
             transaction.executeWithoutResult(status -> apply(orderId, result));
         } catch (ObjectOptimisticLockingFailureException concurrent) {
             log.info("쿠폰 해제 작업을 다른 실행이 처리 중이라 이번 시도를 멈춘다 orderId={}", orderId);

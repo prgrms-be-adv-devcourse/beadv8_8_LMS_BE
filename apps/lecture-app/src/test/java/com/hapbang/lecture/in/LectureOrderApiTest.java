@@ -27,7 +27,7 @@ import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
-import com.hapbang.lecture.fake.FakeCouponClient;
+import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
 import com.hapbang.shared.billing.out.BillingCallExceptions;
@@ -65,7 +65,7 @@ class LectureOrderApiTest {
     private FakeBillingApiClient billing;
 
     @Autowired
-    private FakeCouponClient coupon;
+    private FakeCouponApiClient coupon;
 
     @BeforeEach
     void setUp() {

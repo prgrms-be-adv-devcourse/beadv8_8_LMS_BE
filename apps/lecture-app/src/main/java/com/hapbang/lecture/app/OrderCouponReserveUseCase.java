@@ -28,7 +28,7 @@ import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.OrderCouponWorkRepository;
 import com.hapbang.lecture.out.OrderItemCouponRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
-import com.hapbang.lecture.out.coupon.CouponClient;
+import com.hapbang.lecture.out.coupon.CouponApiClient;
 import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.shared.coupon.api.CouponReserveResponse;
 
@@ -69,7 +69,7 @@ public class OrderCouponReserveUseCase {
     private final LectureSyncEvents lectureSyncEvents;
     private final OrderCouponReleaseRegistration orderCouponReleaseRegistration;
     private final OrderHoldSettlement orderHoldSettlement;
-    private final CouponClient couponClient;
+    private final CouponApiClient couponApiClient;
     private final LectureOrderProperties properties;
     private final TransactionTemplate transaction;
     private final Clock clock;
@@ -81,7 +81,7 @@ public class OrderCouponReserveUseCase {
                                      LectureSyncEvents lectureSyncEvents,
                                      OrderCouponReleaseRegistration orderCouponReleaseRegistration,
                                      OrderHoldSettlement orderHoldSettlement,
-                                     CouponClient couponClient,
+                                     CouponApiClient couponApiClient,
                                      LectureOrderProperties properties,
                                      PlatformTransactionManager transactionManager,
                                      @Qualifier(LectureConfig.CLOCK) Clock clock) {
@@ -92,7 +92,7 @@ public class OrderCouponReserveUseCase {
         this.lectureSyncEvents = lectureSyncEvents;
         this.orderCouponReleaseRegistration = orderCouponReleaseRegistration;
         this.orderHoldSettlement = orderHoldSettlement;
-        this.couponClient = couponClient;
+        this.couponApiClient = couponApiClient;
         this.properties = properties;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -109,7 +109,7 @@ public class OrderCouponReserveUseCase {
             if (request == null) {
                 return List.of();
             }
-            CouponCallResult<CouponReserveResponse> result = couponClient.reserve(request);
+            CouponCallResult<CouponReserveResponse> result = couponApiClient.reserve(request);
             return transaction.execute(status -> apply(orderId, result));
         } catch (ObjectOptimisticLockingFailureException concurrent) {
             // 같은 작업을 다른 실행(재시도 배치)이 동시에 바꿨다. 그쪽 결과를 따른다

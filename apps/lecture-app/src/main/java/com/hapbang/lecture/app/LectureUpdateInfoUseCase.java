@@ -9,7 +9,7 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
-import com.hapbang.lecture.out.coupon.CouponClient;
+import com.hapbang.lecture.out.coupon.CouponApiClient;
 import com.hapbang.shared.coupon.api.CouponPriceRaiseBlockedResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -38,7 +38,7 @@ public class LectureUpdateInfoUseCase {
     private final LectureSupport lectureSupport;
     private final LectureFileSupport lectureFileSupport;
     private final LectureSyncEvents lectureSyncEvents;
-    private final CouponClient couponClient;
+    private final CouponApiClient couponApiClient;
 
     /** 수정할 수 있는지 검사하고 지금 가격을 돌려준다 */
     @Transactional(readOnly = true)
@@ -50,7 +50,7 @@ public class LectureUpdateInfoUseCase {
 
     /** 가격을 올려도 되는지 쿠폰 모듈에 묻는다. 트랜잭션 밖에서 부른다. 올려도 되지 않거나 확인할 수 없으면 예외다 */
     public void requireRaisable(Long lectureId) {
-        switch (couponClient.priceRaiseBlocked(lectureId)) {
+        switch (couponApiClient.priceRaiseBlocked(lectureId)) {
             case CouponCallResult.Succeeded<CouponPriceRaiseBlockedResponse> succeeded -> {
                 if (succeeded.data().blocked()) {
                     log.info("플랫폼 쿠폰이 걸린 강의라 가격 인상을 막았다 lectureId={}", lectureId);

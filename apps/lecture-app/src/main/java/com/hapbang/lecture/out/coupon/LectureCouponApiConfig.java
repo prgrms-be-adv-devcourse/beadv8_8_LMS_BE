@@ -25,7 +25,7 @@ import tools.jackson.databind.json.JsonMapper;
  *     <li>주소는 {@code hapbang.coupon.base-url}이다. 없으면 같은 서버의 내부 API 포트다: 강의 앱은
  *     {@code hapbang.internal-api.port}가 있으면(운영) 내부 API를 그 포트에서만 받고, 없으면 {@code server.port}에서 받는다.</li>
  *     <li>제한 시간은 {@code lecture.coupon-client.connect-timeout}·{@code read-timeout}({@link LectureCouponClientProperties})이다.
- *     circuit breaker는 어댑터({@link CouponClient})가 건다.</li>
+ *     circuit breaker는 어댑터({@link CouponApiClient})가 건다.</li>
  *     <li>모든 요청에 내부 API 키 헤더({@link InternalApiHeaders#API_KEY}, 값 {@code hapbang.internal-api.key})를 붙인다.</li>
  *     <li>오류 상태는 여기서 예외로 바꾸고, 어댑터가 결과({@link CouponCallResult})로 바꾼다.
  *     4xx는 쿠폰이 판단한 거절({@link CouponRejectedResponse})이고 쿠폰 {@code code}·{@code memberCouponId}·{@code detail}을 보존한다.

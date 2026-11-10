@@ -23,7 +23,7 @@ import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
-import com.hapbang.lecture.fake.FakeCouponClient;
+import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
@@ -68,7 +68,7 @@ class OrderCouponWorkBatchTest {
     private FakeBillingApiClient billing;
 
     @Autowired
-    private FakeCouponClient coupon;
+    private FakeCouponApiClient coupon;
 
     @Autowired
     private LectureOrderProperties properties;
@@ -132,7 +132,7 @@ class OrderCouponWorkBatchTest {
 
         assertThat(orderCouponWorkUseCase.runDue()).isEqualTo(1);
 
-        List<FakeCouponClient.Call> reserves = coupon.calls().stream()
+        List<FakeCouponApiClient.Call> reserves = coupon.calls().stream()
                 .filter(call -> call.request() instanceof CouponReserveRequest).toList();
         assertThat(reserves).hasSize(2).extracting(call -> call.request()).containsOnly(reserves.getFirst().request());
         assertThat(work(orderId, "RESERVE")).containsEntry("status", "RESERVED").containsEntry("attempt_count", 2);
