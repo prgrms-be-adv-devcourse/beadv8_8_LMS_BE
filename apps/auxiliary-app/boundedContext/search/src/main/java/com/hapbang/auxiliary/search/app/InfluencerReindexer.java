@@ -20,6 +20,7 @@ import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.out.MemberDocument;
 import com.hapbang.auxiliary.search.out.MemberListSource;
+import com.hapbang.auxiliary.search.out.SynonymsRejectedException;
 import com.hapbang.auxiliary.search.out.WriteOutcome;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.dto.UserDto;
@@ -67,6 +68,13 @@ public class InfluencerReindexer {
 
     /** 사람이 봐야 하는 실패의 로그 표식({@code docs/dev/logging.md} alert 표식) */
     static final String FAILED_MARKER = "[SEARCH_REINDEX_FAILED]";
+    static final String SYNONYMS_REJECTED_MARKER = "[SEARCH_SYNONYMS_REJECTED]";
+
+    /**
+     * 더 새 배포의 index로 볼 때 두는 여유. index를 만든 시각(ES 서버 시계)과 pod가 뜬 시각(pod 시계)은 서로 다른 시계라 몇 초 어긋날 수 있다
+     * (PR #845 재리뷰). 이만큼 넘게 늦게 만든 index만 더 새 배포로 본다
+     */
+    static final Duration CLOCK_SKEW_MARGIN = Duration.ofMinutes(1);
     static final String CATCH_UP_FAILED_MARKER = "[SEARCH_REINDEX_CATCH_UP_FAILED]";
 
     private final InfluencerIndexSetup indexSetup;
@@ -126,7 +134,15 @@ public class InfluencerReindexer {
      */
     ReindexResult reindexIfNeeded() {
         // pod가 떠 있는 동안 ES를 새로 만들었을 수 있어 기억과 상관없이 다시 맞춘다
-        indexSetup.resyncSynonyms();
+        try {
+            indexSetup.resyncSynonyms();
+        } catch (SynonymsRejectedException e) {
+            // 파일이 틀렸다. 10분마다 같은 이유로 실패하므로 사람이 봐야 한다. 처음 적재 전이면 검색이 계속 503이다(PR #845 재리뷰)
+            metrics.synonymsRejected();
+            log.error("{} ES가 검색 동의어 묶음을 거절해 처음 적재·재색인을 하지 않는다. synonyms.txt를 고쳐 배포한다",
+                    SYNONYMS_REJECTED_MARKER, e);
+            return ReindexResult.failed(null, null);
+        }
         IndexState state = indexSetup.state();
         if (state.upToDate()) {
             // 지난 재색인이 옛 index를 지우지 못했으면 여기서 지운다
@@ -134,11 +150,11 @@ public class InfluencerReindexer {
             return ReindexResult.upToDate();
         }
         Optional<Instant> aliasCreatedAt = state.aliasTargetCreatedAt();
-        if (aliasCreatedAt.isPresent() && aliasCreatedAt.get().isAfter(startedAt)) {
+        if (aliasCreatedAt.isPresent() && aliasCreatedAt.get().isAfter(startedAt.plus(CLOCK_SKEW_MARGIN))) {
             // 롤링 배포 중 옛 pod다. 더 새 배포가 옮긴 index를 옛 설정으로 되돌리지 않는다(이 pod는 곧 내려간다)
-            log.warn("검색 alias가 이 pod가 뜬 뒤에 만든 index를 가리켜 더 새 배포로 보고 재색인하지 않는다 alias={}, createdAt={}, "
-                    + "podStartedAt={}, expected={}", state.aliasTargets(), aliasCreatedAt.get(), startedAt,
-                    state.expectedIndex());
+            log.warn("검색 alias가 이 pod가 뜬 뒤에 만든 index를 가리켜 더 새 배포로 보고 재색인하지 않는다. 10분마다 반복되면 배포를 되돌린 "
+                            + "상태인지 확인하고 rollout restart로 pod를 다시 띄운다 alias={}, createdAt={}, podStartedAt={}, expected={}",
+                    state.aliasTargets(), aliasCreatedAt.get(), startedAt, state.expectedIndex());
             return ReindexResult.upToDate();
         }
         if (state.aliasTargets().contains(state.expectedIndex())) {

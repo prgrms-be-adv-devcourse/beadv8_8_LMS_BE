@@ -33,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>{@code hapbang.search.reindex.duration{reason, outcome}}: 처음 적재·재색인 1회 소요 시간(#773). reason = first_load·settings_changed,
  *     outcome = success·failure(alias 그대로)·catch_up_failed(alias는 옮겼지만 따라잡기를 못 함)</li>
  *     <li>{@code hapbang.search.reindex.documents{reason}}: 처음 적재·재색인으로 새 index에 넣은 정상 인플루언서 수(#773)</li>
+ *     <li>{@code hapbang.search.synonyms.rejected}: ES가 동의어 묶음을 내용 때문에 거절한 횟수(#773, 10분 확인마다). 0이 아니면 synonyms.txt를
+ *     고쳐야 한다</li>
  * </ul>
  */
 @Slf4j
@@ -96,6 +98,11 @@ public class SearchSyncMetrics {
         if (documents > 0) {
             registry.counter("hapbang.search.reindex.documents", "reason", reason.tag()).increment(documents);
         }
+    }
+
+    /** ES가 동의어 묶음을 거절했다(#773) */
+    void synonymsRejected() {
+        registry.counter("hapbang.search.synonyms.rejected").increment();
     }
 
     private Timer duration(String outcome) {

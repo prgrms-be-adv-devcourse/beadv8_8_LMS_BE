@@ -83,6 +83,23 @@ class InfluencerIndexSetupTest {
     }
 
     @Test
+    @DisplayName("ES가 동의어 규칙을 거절하면 SynonymsRejectedException이다. 문서 쓰기 준비는 지난 묶음으로 계속한다(PR #845 재리뷰)")
+    void synonymsRejected() throws Exception {
+        SearchElasticsearch.createIndex(client);
+        String template;
+        try (var in = new org.springframework.core.io.ClassPathResource("search/influencers/index.json").getInputStream()) {
+            template = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        // ES 9.5.5가 400(action_request_validation_exception)으로 거절하는 규칙. "=> 롤" 같은 규칙은 받고 무시한다(직접 확인)
+        InfluencerIndexDefinition broken = InfluencerIndexDefinition.of(template, List.of(), List.of("롤 => 리그 => LoL"));
+        InfluencerIndexSetup brokenSetup = new InfluencerIndexSetup(client, broken);
+
+        assertThatThrownBy(brokenSetup::resyncSynonyms).isInstanceOf(SynonymsRejectedException.class);
+        brokenSetup.ensureReady();
+        assertThat(synonyms()).hasSize(10);
+    }
+
+    @Test
     @DisplayName("alias가 다른 설정의 index를 가리키면 새 index를 만들지 않고 그대로 쓴다(재색인이 옮긴다)")
     void keepsOutdatedIndex() throws Exception {
         createOld();

@@ -389,8 +389,8 @@ class InfluencerReindexerTest {
     @Test
     @DisplayName("롤링 배포 중 옛 pod는 자기가 뜬 뒤에 만들어진(더 새 배포의) index를 옛 설정으로 되돌리지 않는다. 롤백(나중에 뜬 pod)은 되돌린다")
     void oldPodSkipsNewerIndex() throws Exception {
-        Instant oldPodStartedAt = Instant.now();
-        sleep(20);
+        // 시계 차이 여유(1분)보다 앞서 뜬 옛 pod
+        Instant oldPodStartedAt = Instant.now().minus(InfluencerReindexer.CLOCK_SKEW_MARGIN).minusSeconds(60);
         // 새 배포가 다른 설정(OLD를 새 설정 index로 본다)으로 alias를 옮겼다
         createOldIndex();
         members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
@@ -404,6 +404,37 @@ class InfluencerReindexerTest {
         // 롤백: 새 index보다 나중에 뜬 pod는 자기 설정으로 옮긴다
         assertThat(pod.reindexer.reindexIfNeeded().done()).isTrue();
         assertThat(aliasTargets()).containsExactly(expected);
+    }
+
+    @Test
+    @DisplayName("index가 pod보다 늦게 만들어졌어도 시계 차이 여유(1분) 안이면 더 새 배포로 보지 않고 재색인한다(PR #845 재리뷰)")
+    void clockSkewWithinMarginStillReindexes() throws Exception {
+        Instant podStartedAt = Instant.now().minusSeconds(10);
+        createOldIndex();
+        members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
+        Pod justStarted = new Pod(new InfluencerDocumentStore(client), new InfluencerIndexSetup(client), runner(),
+                runner(), podStartedAt);
+
+        assertThat(justStarted.reindexer.reindexIfNeeded().done()).isTrue();
+        assertThat(aliasTargets()).containsExactly(expected);
+    }
+
+    @Test
+    @DisplayName("ES가 동의어 묶음을 거절하면 재색인하지 않고 ERROR와 거절 지표를 남긴다(PR #845 재리뷰)")
+    void synonymsRejectedStopsReindex() throws Exception {
+        InfluencerIndexSetup rejecting = new InfluencerIndexSetup(client) {
+            @Override
+            public void resyncSynonyms() {
+                throw new com.hapbang.auxiliary.search.out.SynonymsRejectedException("규칙이 틀렸다", null);
+            }
+        };
+        Pod rejectingPod = new Pod(new InfluencerDocumentStore(client), rejecting, runner(), runner());
+        members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
+
+        assertThat(rejectingPod.reindexer.reindexIfNeeded().failed()).isTrue();
+        assertThat(aliasTargets()).isEmpty();
+        assertThat(members.calls()).isZero();
+        assertThat(registry.get("hapbang.search.synonyms.rejected").counter().count()).isEqualTo(1);
     }
 
     /** 검색 모듈 빈 묶음 하나(pod 하나) */

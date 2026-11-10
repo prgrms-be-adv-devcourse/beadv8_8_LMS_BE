@@ -75,7 +75,12 @@ public class InfluencerIndexSetup {
             if (ready) {
                 return;
             }
-            syncSynonyms();
+            try {
+                syncSynonyms();
+            } catch (SynonymsRejectedException e) {
+                // 쓰기는 동의어와 상관없다. ES의 지난 묶음으로 검색은 그대로 되고, 재색인 확인이 10분마다 ERROR로 알린다(PR #845 재리뷰)
+                log.warn("검색 동의어 묶음을 ES가 거절해 지난 묶음으로 문서 쓰기를 계속한다", e);
+            }
             // 처음 적재 전에는 이벤트마다 여기에 오므로 alias만 가볍게 본다(index 전체 조회 없음)
             Set<String> targets;
             try {
@@ -114,7 +119,8 @@ public class InfluencerIndexSetup {
     /**
      * 기억과 상관없이 ES의 동의어 묶음을 다시 확인해 맞춘다. 처음 적재·재색인이 index를 만들기 전에 부른다(pod가 떠 있는 동안 ES를 새로 만들었을 수 있다).
      *
-     * @throws IllegalStateException ES에 닿지 못하거나 거절당한 경우
+     * @throws SynonymsRejectedException ES가 묶음을 내용 때문에 거절한 경우(4xx, 429 제외). 파일을 고쳐야 한다
+     * @throws IllegalStateException     ES에 닿지 못하거나 5xx·429인 경우(기다리면 풀린다)
      */
     public synchronized void resyncSynonyms() {
         try {
@@ -126,7 +132,15 @@ public class InfluencerIndexSetup {
                 log.info("검색 동의어 묶음을 바꿨다 synonymsSet={}, rules={}", InfluencerIndexDefinition.SYNONYMS_SET,
                         rules.size());
             }
-        } catch (IOException | ElasticsearchException e) {
+        } catch (ElasticsearchException e) {
+            if (e.status() >= 400 && e.status() < 500 && e.status() != 429) {
+                throw new SynonymsRejectedException("ES가 검색 동의어 묶음을 거절했습니다. synonyms.txt를 고쳐야 합니다 synonymsSet="
+                        + InfluencerIndexDefinition.SYNONYMS_SET + ", error="
+                        + (e.error() == null ? null : e.error().type()), e);
+            }
+            throw new IllegalStateException("검색 동의어 묶음을 맞추지 못했습니다 synonymsSet="
+                    + InfluencerIndexDefinition.SYNONYMS_SET, e);
+        } catch (IOException e) {
             throw new IllegalStateException("검색 동의어 묶음을 맞추지 못했습니다 synonymsSet="
                     + InfluencerIndexDefinition.SYNONYMS_SET, e);
         }

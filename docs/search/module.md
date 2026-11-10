@@ -150,7 +150,9 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
   - alias가 없다(처음 배포, ES를 새로 만듦): **처음 적재**(`reason=first_load`)
   - alias가 다른 설정 해시의 index를 가리킨다(mapping·분석기·사용자 사전이 바뀜): **재색인**(`reason=settings_changed`)
 - 동의어는 해시에 없어 바꿔도 재색인하지 않는다(4장).
-- **alias가 가리키는 index가 이 pod가 뜬 뒤에 만들어졌으면 건너뛴다**(WARN, PR #845 리뷰 Q4). 나중에 뜬 다른 배포가 만든 더 새 설정이기 때문이다. 사용자 사전을 바꿔 배포할 때 아직 내려가지 않은 옛 pod가 새 index를 옛 설정으로 되돌리지 않는다. 일부러 옛 코드로 되돌린 롤백은 새 index보다 나중에 뜨므로 되돌린다. 만든 시각은 ES의 `index.creation_date`, pod 시각은 재색인 빈이 만들어진 시각이다. 옛 pod가 배포 도중 재시작되면 새로 뜬 것으로 보여 되돌릴 수 있지만, 새 pod가 다음 확인에서 다시 옮긴다.
+- **alias가 가리키는 index가 이 pod가 뜬 뒤에(시계 차이 여유 1분을 넘겨) 만들어졌으면 건너뛴다**(WARN, PR #845 리뷰 Q4). 나중에 뜬 다른 배포가 만든 더 새 설정이기 때문이다. 사용자 사전을 바꿔 배포할 때 아직 내려가지 않은 옛 pod가 새 index를 옛 설정으로 되돌리지 않는다. 일부러 옛 코드로 되돌린 롤백은 새 index보다 나중에 뜨므로 되돌린다. 만든 시각은 ES의 `index.creation_date`, pod 시각은 재색인 빈이 만들어진 시각이다. 두 시각은 서로 다른 서버의 시계라 1분 여유를 두고 비교한다(PR #845 재리뷰).
+  - 한계: pod는 "배포 중이라 곧 내려갈 옛 pod"인지 "배포를 되돌려 남은 pod"인지 구분할 수 없다. 지금 설정(pod 1개, 새 pod가 Ready가 되면 옛 pod를 내림)에서는 alias를 옮기는 시점(재색인 수십 초 뒤)에 옛 pod가 이미 없어, 되돌리면 옛 버전 pod가 새로 떠서 되돌린다. pod를 여러 개로 늘리거나, 새 pod가 Ready가 되지 못한 채 재색인을 마친 상태에서 되돌리면 alias가 새 설정에 남을 수 있다. 건너뛴다는 WARN이 10분마다 반복되면 배포를 되돌린 상태인지 확인하고 `kubectl --context hapbang-k3s -n hapbang-prod rollout restart deploy/auxiliary-app`으로 pod를 다시 띄운다(새로 뜬 pod가 자기 설정으로 옮긴다).
+  - 옛 pod가 배포 도중 재시작되면 새로 뜬 것으로 보여 되돌릴 수 있지만, 새 pod가 다음 확인에서 다시 옮긴다.
 - 실패하면 다음 확인(10분 뒤)에 처음부터 다시 한다(#773 Q2). ES·회원 앱이 잠깐 멈춘 경우 사람 없이 복구된다. 같은 이유로 계속 실패하면 10분마다 전체 적재를 다시 돌리므로, ERROR 로그와 지표로 보고 부하가 문제가 되면 "연달아 N번 실패하면 멈춤"을 붙인다.
 - 데이터가 어긋났는데 설정은 그대로일 때 전체를 다시 채우고 싶으면, `index.json`을 바꿔(예: mappings `_meta`에 값을 더함) 설정 해시를 바꾼 뒤 배포한다(마지막 수단).
 
@@ -167,6 +169,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 - 1~5에서 실패하면 alias는 옛 그대로 두고 만들던 새 index를 지운다. `[SEARCH_REINDEX_FAILED]` ERROR 한 줄(예외 포함)과 지표(`outcome=failure`)를 남긴다. 사용자 사전·mapping 오류로 ES가 새 index를 거절하는 경우(2)도 같다(10분마다 같은 이유로 실패하므로 사람이 봐야 한다, PR #845 리뷰). 상태를 읽지 못하는 ES 일시 장애는 WARN이다. 처음 적재면 alias가 없는 채로 남아 검색은 503, 이벤트는 계속 건너뛴다.
 - alias 교체 응답만 실패하고(시간 초과) ES에는 적용됐을 수 있으므로, 지우기 전에 alias를 다시 읽는다. 새 index를 가리키면 교체한 것으로 보고 6으로 이어 가고, 읽지 못하면 새 index를 지우지 않고 다음 확인에 맡긴다(지우면 alias도 사라진다. 교체되지 않았다면 다음 확인이 1에서 지운다).
 - 6이 끝내 `BUSY`이거나 `FAILED`면 `[SEARCH_REINDEX_CATCH_UP_FAILED]` ERROR와 `outcome=catch_up_failed`를 남긴다. `FAILED`는 커서가 이미 T − 1분 뒤에 있어 다음 정기 보정이 이어 간다. `BUSY`는 커서를 옮기지 못했으므로 재색인 중 바뀐 회원이 빠졌을 수 있다(5분 넘게 끝나지 않는 보정은 그 자체로 장애다).
+- ES가 동의어 묶음을 내용 때문에 거절하면(400 `action_request_validation_exception`, 예: `롤 => 리그 => LoL`처럼 `=>`가 둘) 재색인하지 않고 `[SEARCH_SYNONYMS_REJECTED]` ERROR와 `hapbang.search.synonyms.rejected`를 남긴다. `synonyms.txt`를 고쳐 배포해야 풀린다. 문서 쓰기는 동의어와 상관없어 지난 묶음으로 계속한다. 거절되는 규칙은 대개 CI의 `InfluencerIndexSetupTest`(실제 ES에 레포 파일을 올림)가 병합 전에 잡는다. `=> 롤`처럼 ES가 받고 무시하는 규칙도 있어 동의어를 고친 PR은 `_analyze`로 결과를 확인한다(PR #845 재리뷰).
 - alias가 지금 설정 index와 다른 index를 함께 가리키면(사람이 손으로 바꾼 경우뿐) 지울 수 없어 `[SEARCH_REINDEX_FAILED]`로 멈춘다. alias를 한 index만 가리키게 고친다.
 - 사람이 봐야 하는 실패라 ERROR에 alert 표식을 붙였지만 alert 규칙은 아직 두지 않았다(#772 Q2와 같이 지표·로그로 본다).
 
@@ -211,6 +214,7 @@ alias가 없는 동안은 쓸 곳이 없다. 이벤트 소비·증분 보정·�
 | `hapbang.search.reconcile.lag` | 지금 − 마지막으로 끝까지 읽은 시각(초). 보정이 멈추면 커진다. DB 커서를 읽어 어느 pod에서 봐도 같다. 끝까지 읽은 적이 없으면 값이 없다 |
 | `hapbang.search.reindex.duration{reason, outcome}` | 처음 적재·재색인 1회 소요 시간(7장). reason = first_load·settings_changed, outcome = success·failure(alias 그대로)·catch_up_failed(옮겼지만 따라잡기를 못 함) |
 | `hapbang.search.reindex.documents{reason}` | 처음 적재·재색인으로 새 index에 넣은 정상 인플루언서 수 |
+| `hapbang.search.synonyms.rejected` | ES가 동의어 묶음을 내용 때문에 거절한 횟수(10분 확인마다). 0이 아니면 `synonyms.txt`를 고친다 |
 | `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). DB의 점검 결과에서 읽어 어느 pod에서 봐도 같다. 점검한 적이 없거나, 마지막 회차에 점검하지 못했거나, 점검한 지 25분(점검 주기 두 번)이 지났으면 값이 없다. alias로 세므로 #773 재색인은 alias를 한 요청으로 바꿔 두 index를 함께 가리키는 순간이 없어야 한다 |
 | `kafka_consumer_fetch_manager_records_lag` | 회원 이벤트 소비 lag(Kafka client 지표). Kafka dashboard "그룹별 lag"에 `auxiliary-app.search-member`로 보인다 |
 
@@ -237,8 +241,8 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | 테스트 | 보는 것 |
 | --- | --- |
 | `InfluencerDocumentStoreTest` | 순서 역전·중복·null version, 통계 갱신 뒤 회원 이벤트, tombstone(문서 없을 때 포함), 정리, require_alias, 이름을 정한 새 index에 bulk 넣기·통계·세기 |
-| `InfluencerIndexSetupTest` | 동의어 묶음(ES를 새로 만든 뒤 다시 맞추기 포함), alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애 |
-| `InfluencerReindexerTest` | 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하거나 새 index를 만들지 못하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦, 롤링 배포 중 옛 pod는 더 새 index를 되돌리지 않음(롤백은 되돌림) |
+| `InfluencerIndexSetupTest` | 동의어 묶음(ES를 새로 만든 뒤 다시 맞추기, ES가 거절하면 `SynonymsRejectedException`이고 쓰기 준비는 계속 포함), alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애 |
+| `InfluencerReindexerTest` | 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하거나 새 index를 만들지 못하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦, 롤링 배포 중 옛 pod는 더 새 index를 되돌리지 않음(롤백은 되돌림, 시계 차이 1분 안은 되돌림), 동의어 거절이면 재색인 안 함·지표 |
 | `SearchReindexWiringTest` | 기동·10분 확인이 재색인 실행기를 주입받아 `search-reindex-` 스레드로 넘김(스케줄링·기동 재색인을 켠 컨텍스트, 재색인은 가짜) |
 | `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT, 처음 적재 전 건너뜀 |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름, 정합성 점검(차이 0·양수·음수, 세기 실패) |
