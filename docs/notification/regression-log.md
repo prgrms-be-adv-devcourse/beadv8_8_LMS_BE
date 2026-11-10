@@ -86,6 +86,28 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-032 · 2026-11-10 · 통과 (#847 origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-032 |
+| 실행 날짜 | 2026-11-10 19:59~20:07 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `aa18750b`(origin/dev `2ed68b3a` 병합, #850 포함) |
+| 작업 트리 변경 | 없음 |
+| 대상 기능 | 병합 뒤 회귀. NR-031 뒤 `NotificationHeartbeatTest`의 닫힘 뒤 `isOpen()` 단정을 상태가 바뀔 때까지 기다리게 고친 것(#849와 같은 이유) 포함 |
+| 관련 NT ID | NR-029와 같다 |
+| 명령 | `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 121, 실패 0. `:auxiliary-app:check`에서 새로 실행: `:auxiliary-app` 12, `:auxiliary-global` 108, `:chatbot` 113, `:search` 160, 실패 0. `:notification:test`는 바로 앞 명령 결과로 `UP-TO-DATE` |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 병합 충돌은 이 문서뿐이었다(#849의 NR-026~NR-028과 이 브랜치의 기록). 두 쪽을 모두 남기고 이 브랜치 기록을 NR-029~NR-031로 바꿨다 |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check`(PR CI), kubeconform(CI manifests job), 병합 뒤 Gateway E2E(manifest 변경 없음, NR-030) |
+| 관련 변경 | #847 |
+
 #### NR-031 · 2026-11-10 · 통과 (#847 자체 리뷰 반영)
 
 | 항목 | 값 |
