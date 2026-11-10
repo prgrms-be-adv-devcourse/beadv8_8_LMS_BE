@@ -86,7 +86,8 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 지갑 회원 동기화 (Kafka) | 리스너(검사 없음): `BillingMemberEventListener`(`billing-app.member-replica`), `UserJoinedEventListener`(`billing-app.wallet-creation`) | `BillingUserSyncUseCase`(`REQUIRES_NEW` + 재시도), 지갑 생성은 `WalletFacade.getOrCreateWallet` | `BillingUserRepository` |
 | 탈퇴 닫기·다시 열기 (내부 API) | `WalletWithdrawalFacade`(INTERNAL) ← `ApiV1BillingInternalController` | `WalletWithdrawalUseCase`, 막힌 이유 `WalletWithdrawalBlocks` | `WalletUserLock`, `WalletRepository`, `WalletWithdrawalRepository` |
 | 파기 | `BillingMemberEventListener`(`UserMaskedEvent`, 검사 없음) | `WalletMaskingUseCase` | `WalletUserLock`, `WalletRepository`, `ExchangeRepository`, `ExchangeAccountRepository`, `MockPayoutTransferRepository` |
-| 대사 배치 | `WalletReconciliationBatch` | `ChangedWalletReconciliationUseCase` → 지갑마다 `WalletReconciliationUseCase`(프로모션 지갑은 `PromotionWalletReconciliation`도) | `WalletRepository`, `PointLedgerRepository`, `BudgetReservationRepository`, `BudgetReleaseRepository` |
+| 대사 배치 | `WalletReconciliationBatch` | `ChangedWalletReconciliationUseCase` → 지갑마다 `WalletReconciliationUseCase`(프로모션 지갑은 `PromotionWalletReconciliation`도), 실행 기록 `WalletReconciliationRunRecorder` | `WalletRepository`, `PointLedgerRepository`, `BudgetReservationRepository`, `BudgetReleaseRepository`, `WalletReconciliationRunRepository`, `WalletReconciliationRunWalletRepository` |
+| 대사 지표 복원 (기동) | `WalletReconciliationMetricsRestorer`(`ApplicationReadyEvent`) | `WalletReconciliationRunRecorder` → `ChangedWalletReconciliationUseCase` 지표 | `WalletReconciliationRunRepository` |
 | 이벤트 재발행 | `BillingEventRepublishBatch` | `BillingEventRepublishUseCase` | Modulith `IncompleteEventPublications` (7.1 이벤트 발행 세부) |
 
 ## 3. 도메인 모델과 상태 전이
@@ -254,7 +255,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 락 연결이 끊김 | 그 연결의 락은 PostgreSQL이 푼다. 돌던 작업은 끝까지 두고, 다음 시도 때 다시 연결하며 warn을 남긴다 |
 | 막지 않는 것 | 한쪽이 끝내고 푼 뒤 다른 pod가 늦게 시작한 같은 회차, 기동 때 Modulith 미완료 이벤트 재발행. 각 UseCase의 락·멱등성으로 허용한다 |
 
-### 6.2 잔액 대사 배치 (#607, BD-139)
+### 6.2 잔액 대사 배치 (#607, BD-139, #822 BD-146)
 
 매일 04:02:45 KST에 최근 72시간 안에 바뀐 지갑(`wallet.updated_at` 또는 `point_ledger.created_at`)을 지갑마다 `WalletReconciliationUseCase.reconcile`로 대사한다. 불일치를 고치지 않는다(BD-20).
 
@@ -264,9 +265,13 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 인덱스 | `idx_wallet_1 (updated_at)`, `idx_point_ledger_5 (created_at)` (`V202611031800`) |
 | 비교 | HP 종류에 있는 칸만(지갑마다 8칸). 프로모션 지갑은 불변식 INV-10도 같은 스냅숏에서 본다(`PromotionWalletReconciliation`, `BD-155`). 예약 행만 바뀌고 지갑·원장이 바뀌지 않은 불일치는 다음에 프로모션 지갑이 바뀔 때 잡힌다 |
 | 불일치 | error 로그 `잔액 대사 불일치 walletId=…, buckets=[CHARGE/AVAILABLE wallet=… ledger=… diff=…], invariants=[P3_RESERVED 4500 = 4400, …]`(맞지 않는 칸·불변식만) |
-| 지갑 하나의 오류 | warn 로그 후 계속. 전체를 돈 뒤 한 번 더 시도하고, 그래도 실패하면 `failed`로 세고 다음 회차 대상에 창과 관계없이 더한다(pod 메모리, 재시작 때 사라짐) |
+| 지갑 하나의 오류 | warn 로그 후 계속. 전체를 돈 뒤 한 번 더 시도하고, 그래도 실패하면 `failed`로 세고 다음 회차 대상에 창과 관계없이 더한다 |
+| 이월 | 회차 시작 때 가장 최근 실행 기록의 `FAILED` 지갑(`WalletReconciliationRunRecorder.lastFailedWalletIds`)을 대상에 더한다. pod 메모리에 두지 않아 재시작에도 남는다. 읽지 못하면 warn 로그 `잔액 대사 이월 지갑을 읽지 못해 이월 없이 대사한다` 후 창 안의 지갑만 대사한다 |
+| 실행 기록 | 끝나면 `wallet_reconciliation_run` 1행(시작 시각 = 배치가 넘긴 지금, 끝 시각, `since_at`, 결과별 수)과 불일치·실패 지갑마다 `wallet_reconciliation_run_wallet` 1행(`MISMATCHED`·`FAILED`)을 한 트랜잭션에 남긴다. 일치 지갑·버킷 차이는 남기지 않고, 지우지 않는다. 저장이 실패하면 error 로그 `[BILLING_RECONCILIATION_RECORD_FAILED] 잔액 대사 실행 기록을 저장하지 못했다 since=…, mismatchedWalletIds=…, failedWalletIds=…`를 남기고 지표는 그대로 바꾼다 |
 | 끝 | info 로그 `잔액 대사 완료 since=…, total, matched, mismatched, retried, failed` |
-| 지표 | `hapbang.billing.reconciliation.wallets{result=matched\|mismatched\|failed}`(마지막 실행, gauge), `hapbang.billing.reconciliation.last.success`(epoch 초, Prometheus `…_last_success_seconds`). last.success는 재시도 뒤 `failed`가 0일 때만 갱신한다(불일치는 성공, 대상 0개도 성공). pod가 다시 뜨면 첫 실행 전까지 0 |
+| 지표 | `hapbang.billing.reconciliation.wallets{result=matched\|mismatched\|failed}`(마지막 실행, gauge), `hapbang.billing.reconciliation.last.success`(epoch 초, Prometheus `…_last_success_seconds`). last.success는 재시도 뒤 `failed`가 0일 때만 갱신한다(불일치는 성공, 대상 0개도 성공) |
+| 기동 시 복원 | `WalletReconciliationMetricsRestorer`가 `ApplicationReadyEvent`에서 가장 최근 실행으로 `wallets{result}`를, `failed_count = 0`인 가장 최근 실행의 `started_at`으로 `last.success`를 채운다. 실행 기록이 없으면 0 그대로다. 두 지표는 따로 실패하고, DB를 읽지 못하면 warn 로그(`…DB에서 채우지 못해…`)만 남기고 기동은 계속한다. 이 인스턴스에서 대사가 이미 끝났으면 결과별 수를 덮지 않고, 마지막 성공 시각은 더 큰 값만 받는다 |
+| 기록 한계 | (1) 기록 저장이 실패한 회차(error 로그 `[BILLING_RECONCILIATION_RECORD_FAILED]`) 뒤에 pod가 다시 뜨면 그 앞 회차 값을 복원하고, 그 회차의 FAILED 지갑은 이월되지 않는다(창 안이면 다시 대사된다). (2) 04:02 무렵 배포로 두 pod가 겹치면, 실행 락을 쥔 옛 pod가 기록하기 전에 복원한 새 pod는 다음 대사까지 한 회차 앞의 값을 낸다. (3) 대사하지 않는 pod는 기동 때 복원한 값을 다음 기동까지 낸다. 지금은 `replicas: 1`이라 (2)의 겹침 동안만 해당한다 |
 | 실행 락 | `BillingJob.WALLET_RECONCILIATION`(607001). 다른 pod가 쥐면 그 회차를 건너뛴다 |
 
 ### 6.3 배포 중 동작
@@ -343,7 +348,7 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 
 ### 8.2 DB 테이블과 Flyway
 
-- 테이블은 Flyway 테이블 20개 + Modulith 발행 기록 2개다. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 20개)가 원본이다.
+- 테이블은 Flyway 테이블 22개 + Modulith 발행 기록 2개다. DDL·제약은 Flyway(`apps/billing-app/src/main/resources/db/migration`, 21개)가 원본이다.
 - 모든 테이블은 `billing` 스키마에 있다(`spring.flyway.default-schema`, `spring.modulith.events.jdbc.schema`). 이 스키마가 어느 database에 있는지는 환경마다 다르다(8.3).
 
 | 테이블 | 추가한 마이그레이션 |
@@ -358,11 +363,12 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | (`idx_wallet_1`, `idx_point_ledger_5`, 잔액 대사 대상) | `V202611031800` (#607) |
 | `wallet_withdrawal` (탈퇴 기록), (`wallet.closed_by_withdrawal_id`·`closed_at`, `ck_wallet_closed`, `idx_wallet_2`) | `V202611032000` (#623) |
 | (`ck_wallet_closed`를 "탈퇴 작업 ID가 있으면 닫은 시각도 있다"로, `idx_wallet_2`를 `closed_at` 기준으로) | `V202611041200` (#674, `BD-145`) |
+| `wallet_reconciliation_run` (잔액 대사 실행 기록, `idx_wallet_reconciliation_run_1 (started_at)`), `wallet_reconciliation_run_wallet` (문제 지갑, FK `run_id`, UNIQUE `(run_id, wallet_id)`, `ck_wallet_reconciliation_run_wallet_result`) | `V202611101530` (#822, `BD-146`) |
 | `promotion_funding`, `promotion_withdrawal`, `budget_reservation`, `budget_release`, (`wallet.promotion_balance_hp`·`reserved_promotion_hp`·`held_promotion_hp`, 프로모션 지갑 행, `uk_wallet_promotion`, 지갑 유형·원장 HP 종류·칸·거래 유형·참조 유형 CHECK 확장, `ck_point_ledger_reserved_bucket`·`ck_point_ledger_promotion_transaction`) | `V202611101200` (#841, `BD-146`·`BD-147`) |
 | `event_publication`, `event_publication_archive` (Modulith 발행 기록) | #471(`V202610301400`)에서 지웠다가 #497에서 다시 쓴다. Flyway가 아니라 Modulith 스키마 초기화가 만든다(엔티티 아님). `V202610301400`의 첫 줄 주석("지갑은 Spring Event를 발행하지도 받지도 않는다")은 #471 당시 기준이다. 적용된 Flyway는 주석도 체크섬에 들어가므로 고치지 않는다(#564, `BD-130`) |
 
 - 나머지 마이그레이션(`V202610131930`~`V202610162100`)은 기존 테이블의 제약·컬럼 변경이다.
-- `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록은 최초 마이그레이션 기준이다. 이후 결정(`BD-99`·`BD-103`·`BD-114`·`BD-125`·`BD-141`·`BD-145`)으로 테이블·컬럼이 늘었다.
+- `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록은 최초 마이그레이션 기준이다. 이후 결정(`BD-99`·`BD-103`·`BD-114`·`BD-125`·`BD-141`·`BD-145`·`BD-146`)으로 테이블·컬럼이 늘었다.
 - Flyway 설정: `baseline-on-migrate`, `baseline-version: 0`, `out-of-order: true`.
 
 ### 8.3 Database 분리
@@ -525,4 +531,5 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-11-04 | b0731110 | #655 JVM 분리 재검토 마무리: 모듈 간 락 순서 폐기(5.2, BD-142), 원격 호출 트랜잭션 계약(7.2, 8.3, BD-143), 해소된 제약 L2·L3·L7·L10 표시, 7.2·8.3을 현재 상태로 고침 |
 | 2026-11-06 | 40fa9b25 | Billing 문서 정리: #623 탈퇴 지갑 닫기·다시 열기(`wallet_withdrawal`, `WALLET_CLOSED`, 내부 API close·reopen, BD-141)와 #674 파기(`WalletMaskingUseCase`, `closed_at`, `V202611041200`, BD-144·BD-145) 반영(1.1, 1.2, 3, INV-9, 5, 6, 7.1, 8.1, 8.2, L11·L12). 테이블 16개 + Modulith 2개·Flyway 19개(8.2), Enum(`PointType` FEE, `EXCHANGE_FEE`, `WalletType`) 보정, 아키텍처 테스트 둘(2), Backfill 동시 실행 방지를 실행 락으로 고침(6), 대사 조회·탈퇴 내부 API를 8.1에 추가, 환경별 database·스키마 구분(8.2·8.3), 7.2를 남은 목표만으로 줄임, 해소된 제약 행 삭제(10), 용어 정리("가상 송금" → "환전 송금", "회원 복제본" → "지갑 회원") |
 | 2026-11-06 | 40fa9b25 | 옛 PROGRESS·CONTEXT에서 옮김: 기능별 진입점 표(2.1, 18행), 오류 코드 표 73개(8.4, 옛 PROGRESS 5장 + 코드), 이벤트 발행 세부(토픽·헤더·재발행 설정, 7.1, 옛 CONTEXT 9.1). rate limit 14개·8.1 권한을 코드와 대조(차이 없음) |
+| 2026-11-10 | (#822 브랜치) | #822 잔액 대사 실행 기록·기동 시 지표 복원·이월 DB화(2.1, 6.2, 8.2, BD-146). 테이블 18개 + Modulith 2개·Flyway 20개 |
 | 2026-11-10 | cda35d7c | #841 프로모션 지갑: 관리자 충전·회수·조회, 쿠폰 예산 예약·해제·조회 내부 API, 대사 불변식 INV-10(1.1, 2.1, 3.1, 3.2, 4, 5.2, 5.3, 6.2, 8.1, 8.2, 8.4). 결정은 `BD-146`~`BD-155` |

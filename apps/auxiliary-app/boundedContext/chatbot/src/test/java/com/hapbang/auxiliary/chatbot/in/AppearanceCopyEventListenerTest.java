@@ -5,17 +5,18 @@ import static org.awaitility.Awaitility.await;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -98,18 +99,35 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("출연 취소 요청 이벤트 3종(#817)은 건너뛰고 DLT로 보내지 않는다. 같은 key의 다음 출연 변경은 그대로 반영한다")
+    void skipsCancelRequestEvents() {
+        String cancelRequest = """
+                {"cancelRequest":{"cancelRequestId":9,"appearanceId":3,"title":"합방","hostId":10,"guestId":20,
+                "sequence":1,"scheduledAt":"2026-11-20T20:00:00"}""";
+        send("appearance:3", "AppearanceCancelRequestedEvent", cancelRequest + ",\"requestedAt\":\"2026-11-10T10:00:00\"}");
+        send("appearance:3", "AppearanceCancelRequestRejectedEvent",
+                cancelRequest + ",\"autoRejected\":false,\"rejectedAt\":\"2026-11-10T11:00:00\"}");
+        send("appearance:3", "AppearanceCancelRequestAcceptedEvent", cancelRequest + ",\"acceptedAt\":\"2026-11-10T12:00:00\"}");
+        send("appearance:3", "AppearanceChangedEvent", """
+                {"appearance":{"id":3,"hostId":10,"guestId":20,"result":"CANCELED",
+                "scheduledAt":"2026-11-20T20:00:00","version":3}}""");
+
+        // 이 테스트는 프로듀서 하나가 한 건씩 flush해 보내고 토픽 partition이 1개라 보낸 순서대로 처리된다
+        // (Modulith 전송은 같은 key라도 순서가 바뀔 수 있다, kafka.md). 출연 변경이 반영됐으면 앞의 세 건은 이미 지나갔고,
+        // 처리기는 DLT 전송을 마친 뒤 다음 레코드로 넘어간다. 그래서 일정 시간 지켜보지 않고(testing.md의 during)
+        // 이 시점의 DLT를 끝까지 한 번 읽어 확인한다
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
+                assertThat(rows.appearance(3)).containsEntry("result", "CANCELED").containsEntry("version", 3L));
+        assertThat(deadLetterKeys()).doesNotContain("appearance:3");
+    }
+
+    @Test
     @DisplayName("필수 값이 빠진 이벤트는 다시 시도하지 않고 <topic>.<group>.DLT로 보낸다")
     void invalidToDeadLetter() {
         send("appearance:2", "AppearanceChangedEvent", "{\"appearance\":{\"id\":2}}");
 
-        try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer()) {
-            consumer.subscribe(List.of(settings().deadLetterTopic()));
-            await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
-                List<ConsumerRecord<String, byte[]>> records = new java.util.ArrayList<>();
-                consumer.poll(Duration.ofMillis(500)).forEach(records::add);
-                assertThat(records).extracting(ConsumerRecord::key).contains("appearance:2");
-            });
-        }
+        // DLT를 읽는 방법(deadLetterKeys)이 실제로 DLT 메시지를 찾는지도 여기서 확인된다
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(deadLetterKeys()).contains("appearance:2"));
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM chatbot.appearance_copy WHERE id = 2", Integer.class))
                 .isZero();
     }
@@ -127,11 +145,34 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
         producer.flush();
     }
 
+    /**
+     * DLT의 모든 partition을 직접 배정해 처음부터 지금 끝 offset까지 읽은 key. 그룹 합류를 기다리지 않으므로
+     * 한 건도 읽지 못한 채 비어 있다고 판단하는 일이 없다. DLT 토픽은 앱이 뜰 때 선언된다({@code ChatbotKafkaConfig})
+     */
+    private List<String> deadLetterKeys() {
+        String topic = settings().deadLetterTopic();
+        try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer()) {
+            List<TopicPartition> partitions = consumer.partitionsFor(topic, Duration.ofSeconds(10)).stream()
+                    .map(info -> new TopicPartition(topic, info.partition()))
+                    .toList();
+            assertThat(partitions).as("DLT 토픽 %s", topic).isNotEmpty();
+            consumer.assign(partitions);
+            consumer.seekToBeginning(partitions);
+            Map<TopicPartition, Long> end = consumer.endOffsets(partitions);
+            List<String> keys = new ArrayList<>();
+            await().atMost(Duration.ofSeconds(10)).until(() -> {
+                consumer.poll(Duration.ofMillis(200)).forEach(record -> keys.add(record.key()));
+                return partitions.stream().allMatch(partition -> consumer.position(partition) >= end.get(partition));
+            });
+            return keys;
+        }
+    }
+
+    /** partition을 직접 배정해 읽으므로 그룹이 없다(offset을 커밋하지 않음). 토픽을 자동으로 만들지 않는다 */
     private KafkaConsumer<String, byte[]> deadLetterConsumer() {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "dlt-reader-" + SUFFIX);
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG, false);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
         return new KafkaConsumer<>(props);

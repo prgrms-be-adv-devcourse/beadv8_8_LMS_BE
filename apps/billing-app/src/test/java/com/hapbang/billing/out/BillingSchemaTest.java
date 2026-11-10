@@ -22,7 +22,7 @@ class BillingSchemaTest {
     private EntityManager entityManager;
 
     @Test
-    void Flyway로_20개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
+    void Flyway로_22개_테이블을_생성하고_Hibernate_validate로_로딩한다() {
         assertThat(entityManager.createNativeQuery("""
                 SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'billing' AND table_type = 'BASE TABLE'
@@ -38,11 +38,13 @@ class BillingSchemaTest {
                         "billing_user",
                         // 보류 무효화 기록 (#479)
                         "hold_void", "wallet_withdrawal",
+                        // 잔액 대사 실행 기록 (#822)
+                        "wallet_reconciliation_run", "wallet_reconciliation_run_wallet",
                         // 프로모션 지갑 충전·회수 기록, 쿠폰 예산 예약·해제 기록
                         "promotion_funding", "promotion_withdrawal", "budget_reservation", "budget_release");
         // 지갑 이벤트 발행 기록(event_publication·archive, #497)은 Flyway가 아니라 앱 기동 때 Modulith가 만들고 엔티티가 아니라 목록에서 뺀다.
         // 이 슬라이스(@RepositoryTest)에서는 Modulith 스키마 초기화가 돌지 않는다. 발행 기록은 BillingEventKafkaTest가 실제로 쓴다
-        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(20);
+        assertThat(entityManager.getEntityManagerFactory().getMetamodel().getEntities()).hasSize(22);
         assertThat(entityManager.getEntityManagerFactory().getProperties().get("hibernate.hbm2ddl.auto"))
                 .isEqualTo("validate");
     }
@@ -84,9 +86,9 @@ class BillingSchemaTest {
                 JOIN pg_namespace target_ns ON target_ns.oid = target_table.relnamespace
                 WHERE constraint_row.contype = 'f' AND source_ns.nspname = 'billing'
                 """).getResultList();
-        // 18개 + 보류 상세의 지정 충전 건(target_charge_id → point_charge, #241)
+        // 18개 + 보류 상세의 지정 충전 건(target_charge_id → point_charge, #241) + 대사 문제 지갑의 실행(run_id, #822)
         // + 프로모션 충전·회수 기록과 예산 예약의 지갑, 예산 해제 기록의 예약
-        assertThat(foreignKeys).hasSize(23);
+        assertThat(foreignKeys).hasSize(24);
         for (Object row : foreignKeys) {
             assertThat((Object[]) row).containsExactly("billing", "a"); // NO ACTION
         }
