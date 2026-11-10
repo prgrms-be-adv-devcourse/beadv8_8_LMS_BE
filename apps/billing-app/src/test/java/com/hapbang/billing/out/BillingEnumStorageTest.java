@@ -32,6 +32,7 @@ import com.hapbang.billing.domain.PointRefundRequestStatus;
 import com.hapbang.billing.domain.PointRefundStatus;
 import com.hapbang.billing.domain.RefundManualReviewReason;
 import com.hapbang.billing.domain.PointType;
+import com.hapbang.billing.domain.PromotionFundingSourceType;
 import com.hapbang.billing.domain.SettlementStatus;
 import com.hapbang.billing.domain.WalletType;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
@@ -88,6 +89,7 @@ class BillingEnumStorageTest {
         columns.put("ck_hold_void_outcome", HoldVoidOutcome.class);
         columns.put("ck_wallet_withdrawal_close_outcome", WithdrawalCloseOutcome.class);
         columns.put("ck_wallet_withdrawal_reopen_outcome", WithdrawalReopenOutcome.class);
+        columns.put("ck_promotion_funding_source_type", PromotionFundingSourceType.class);
 
         List<String> enumChecks = entityManager.createNativeQuery("""
                 SELECT constraint_row.conname FROM pg_constraint constraint_row
@@ -123,7 +125,10 @@ class BillingEnumStorageTest {
             // ck_hold_void_1은 반환한 금액이 RELEASED일 때만 0보다 크다는 규칙(#479)
             "ck_hold_void_1",
             // ck_wallet_withdrawal_2·3은 닫은 시각은 CLOSED일 때만, 막힌 이유는 BLOCKED일 때만 있다는 규칙(#623)
-            "ck_wallet_withdrawal_2", "ck_wallet_withdrawal_3");
+            "ck_wallet_withdrawal_2", "ck_wallet_withdrawal_3",
+            // ck_point_ledger_reserved_bucket은 예약 칸은 프로모션 HP만 있다는 규칙, ck_point_ledger_promotion_transaction은
+            // 프로모션 충전·회수·예산 예약·해제가 바꾸는 HP 종류·칸 규칙이다
+            "ck_point_ledger_reserved_bucket", "ck_point_ledger_promotion_transaction");
 
     private List<String> allowedValues(String constraint) {
         String definition = (String) entityManager.createNativeQuery("""

@@ -195,6 +195,115 @@ class WalletTest {
         assertThat(member.isPlatform()).isFalse();
     }
 
+    @Test
+    @DisplayName("프로모션 지갑은 회원이 없고 프로모션 HP의 가용·예약·보류 칸만 각각 바뀐다")
+    void promotion_buckets() {
+        Wallet promotion = savedPromotion();
+
+        promotion.applyLedger(ledger(promotion, PointType.PROMOTION, BalanceBucket.AVAILABLE, 1_000L));
+        promotion.applyLedger(ledger(promotion, PointType.PROMOTION, BalanceBucket.AVAILABLE, -300L));
+        promotion.applyLedger(ledger(promotion, PointType.PROMOTION, BalanceBucket.RESERVED, 300L));
+        promotion.applyLedger(ledger(promotion, PointType.PROMOTION, BalanceBucket.HELD, 50L));
+
+        assertThat(promotion.isPromotion()).isTrue();
+        assertThat(promotion.isPlatform()).isFalse();
+        assertThat(promotion.getUserId()).isNull();
+        assertThat(promotion.getPromotionBalanceHp()).isEqualTo(700L);
+        assertThat(promotion.getReservedPromotionHp()).isEqualTo(300L);
+        assertThat(promotion.getHeldPromotionHp()).isEqualTo(50L);
+        assertThat(promotion.balanceOf(PointType.PROMOTION, BalanceBucket.AVAILABLE)).isEqualTo(700L);
+        assertThat(promotion.balanceOf(PointType.PROMOTION, BalanceBucket.RESERVED)).isEqualTo(300L);
+        assertThat(promotion.balanceOf(PointType.PROMOTION, BalanceBucket.HELD)).isEqualTo(50L);
+        assertThat(promotion.getChargeBalanceHp() + promotion.getRevenueBalanceHp() + promotion.getFeeBalanceHp()).isZero();
+    }
+
+    @Test
+    @DisplayName("프로모션 HP 칸도 음수가 되는 감소는 INSUFFICIENT_BALANCE로 거절하고, 다른 칸에 잔액이 있어도 메워 주지 않는다")
+    void promotion_insufficientBalance() {
+        Wallet promotion = savedPromotion();
+        promotion.applyLedger(ledger(promotion, PointType.PROMOTION, BalanceBucket.AVAILABLE, 100L));
+        promotion.applyLedger(ledger(promotion, PointType.PROMOTION, BalanceBucket.RESERVED, 500L));
+
+        assertThatThrownBy(() -> promotion.applyLedger(
+                ledger(promotion, PointType.PROMOTION, BalanceBucket.AVAILABLE, -101L)))
+                .isInstanceOfSatisfying(BillingException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(BillingErrorCode.INSUFFICIENT_BALANCE));
+        assertThatThrownBy(() -> promotion.applyLedger(
+                ledger(promotion, PointType.PROMOTION, BalanceBucket.HELD, -1L)))
+                .isInstanceOfSatisfying(BillingException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(BillingErrorCode.INSUFFICIENT_BALANCE));
+        assertThat(promotion.getPromotionBalanceHp()).isEqualTo(100L);
+        assertThat(promotion.getReservedPromotionHp()).isEqualTo(500L);
+        assertThat(promotion.getHeldPromotionHp()).isZero();
+    }
+
+    @Test
+    @DisplayName("회원·플랫폼 지갑에 프로모션 HP 원장, 프로모션 지갑에 충전·수익·수수료 원장, 프로모션 HP가 아닌 예약 칸 원장은 반영하지 않는다")
+    void promotion_walletTypeGuards() {
+        Wallet promotion = savedPromotion();
+        Wallet platform = savedPlatform();
+        Wallet member = saved(1L);
+
+        for (BalanceBucket balanceBucket : BalanceBucket.values()) {
+            assertThatThrownBy(() -> member.applyLedger(ledger(member, PointType.PROMOTION, balanceBucket, 100L)))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> platform.applyLedger(ledger(platform, PointType.PROMOTION, balanceBucket, 100L)))
+                    .isInstanceOf(IllegalStateException.class);
+            for (PointType pointType : new PointType[] {PointType.CHARGE, PointType.REVENUE, PointType.FEE}) {
+                assertThatThrownBy(() -> promotion.applyLedger(ledger(promotion, pointType, balanceBucket, 100L)))
+                        .isInstanceOf(IllegalStateException.class);
+            }
+        }
+        for (PointType pointType : new PointType[] {PointType.CHARGE, PointType.REVENUE}) {
+            assertThatThrownBy(() -> member.applyLedger(ledger(member, pointType, BalanceBucket.RESERVED, 100L)))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+        assertThatThrownBy(() -> platform.applyLedger(ledger(platform, PointType.FEE, BalanceBucket.RESERVED, 100L)))
+                .isInstanceOf(IllegalStateException.class);
+        for (BalanceBucket balanceBucket : BalanceBucket.values()) {
+            assertThat(promotion.balanceOf(PointType.PROMOTION, balanceBucket)).isZero();
+            assertThat(member.balanceOf(PointType.PROMOTION, balanceBucket)).isZero();
+            assertThat(member.balanceOf(PointType.CHARGE, balanceBucket)).isZero();
+            assertThat(platform.balanceOf(PointType.FEE, balanceBucket)).isZero();
+        }
+    }
+
+    @Test
+    @DisplayName("프로모션 지갑은 탈퇴·파기로 닫을 수 없다")
+    void promotionCannotClose() {
+        assertThatThrownBy(() -> Wallet.createPromotion().closeForMasking(NOW))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> Wallet.createPromotion().closeFor(1L, NOW))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("지갑 유형마다 담는 HP 종류와, HP 종류마다 있는 잔액 칸이 정해져 있다")
+    void walletTypeAndPointTypeCells() {
+        assertThat(WalletType.MEMBER.holds(PointType.CHARGE)).isTrue();
+        assertThat(WalletType.MEMBER.holds(PointType.REVENUE)).isTrue();
+        assertThat(WalletType.MEMBER.holds(PointType.FEE)).isFalse();
+        assertThat(WalletType.MEMBER.holds(PointType.PROMOTION)).isFalse();
+        assertThat(WalletType.PLATFORM.holds(PointType.FEE)).isTrue();
+        assertThat(WalletType.PLATFORM.holds(PointType.PROMOTION)).isFalse();
+        assertThat(WalletType.PROMOTION.holds(PointType.PROMOTION)).isTrue();
+        assertThat(WalletType.PROMOTION.holds(PointType.FEE)).isFalse();
+
+        assertThat(PointType.CHARGE.has(BalanceBucket.RESERVED)).isFalse();
+        assertThat(PointType.REVENUE.has(BalanceBucket.RESERVED)).isFalse();
+        assertThat(PointType.FEE.has(BalanceBucket.HELD)).isFalse();
+        assertThat(PointType.FEE.has(BalanceBucket.RESERVED)).isFalse();
+        for (BalanceBucket balanceBucket : BalanceBucket.values()) {
+            assertThat(PointType.PROMOTION.has(balanceBucket)).isTrue();
+        }
+    }
+
+    private static Wallet savedPromotion() {
+        Wallet wallet = Wallet.createPromotion();
+        ReflectionTestUtils.setField(wallet, "id", 2L);
+        return wallet;
+    }
+
     private static Wallet savedPlatform() {
         Wallet wallet = Wallet.createPlatform();
         ReflectionTestUtils.setField(wallet, "id", 1L);
