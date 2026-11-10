@@ -1,9 +1,14 @@
-# auxiliary-app 챗봇 로컬 실행용 Elasticsearch·Ollama(#715). 공용 docker/compose.yaml(PostgreSQL 등)과 따로 띄운다.
+# auxiliary-app 로컬 실행용 Elasticsearch(챗봇·검색)·Ollama(챗봇)(#715, #771). 공용 docker/compose.yaml(PostgreSQL 등)과 따로 띄운다.
 # 실행: docker compose -f apps/auxiliary-app/compose.yaml up -d   (순서는 apps/auxiliary-app/README.md "챗봇 로컬 실행")
 services:
   elasticsearch:
-    # 운영(ECK)과 같은 버전. 로컬은 보안을 끄고 http로 연결한다
-    image: elasticsearch:9.5.5
+    # 운영(ECK)과 같은 버전. 로컬은 보안을 끄고 http로 연결한다.
+    # 검색(#771) index가 nori 분석기를 쓴다. 운영 ECK init container처럼 같은 plugin을 설치한 이미지를 쓴다(처음 up 때 빌드, 외부망 필요)
+    image: hapbang/es-nori-local:9.5.5
+    build:
+      dockerfile_inline: |
+        FROM elasticsearch:9.5.5
+        RUN bin/elasticsearch-plugin install --batch analysis-nori
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
