@@ -21,7 +21,9 @@ import lombok.RequiredArgsConstructor;
  *     <li>적기: 트랜잭션은 부르는 쪽이 연다.</li>
  *     <li>가져가기({@link #claim}): <b>문서 단위</b>다. 한 문서의 대기 요청을 모두 함께 가져가고, 다음 시도 시각을 임대 끝으로 미룬다.
  *     임대 중이거나 다시 시도를 기다리는 요청이 하나라도 있는 문서는 가져가지 않는다. 그래서 한 문서를 두 실행이 함께 처리하지 않는다
- *     (먼저 읽은 옛 상태가 나중에 덮어쓰는 일이 없다). 가져가기는 부르는 쪽이 연 트랜잭션에서 {@link #lockClaims}로 한 줄로 세운다.</li>
+ *     (먼저 읽은 옛 상태가 나중에 덮어쓰는 일이 없다). 가져가기는 부르는 쪽이 연 트랜잭션에서 {@link #lockClaims}로 한 줄로 세운다.
+ *     락이 없으면 READ COMMITTED에서 두 가져가기가 같은 문서를 고르고, 뒤 UPDATE가 앞의 행 락을 기다린 뒤 다시 가져갈 수 있다.
+ *     UPDATE에도 {@code next_attempt_at <= :now}를 두어 앞 실행이 임대한 행은 다시 확인할 때 빠진다(이중 방어).</li>
  *     <li>ES 호출은 트랜잭션 밖에서 하므로 DB 연결을 붙잡지 않는다. 실행 중 pod가 죽으면 임대가 끝난 뒤 다른 pod가 다시 가져간다.</li>
  *     <li>끝내기·다시 시도·돌려주기는 <b>내 임대일 때만</b> 바꾼다({@code next_attempt_at}이 내가 정한 임대 끝과 같다). 임대가 끝나 다른
  *     실행이 가져간 요청을 늦게 끝난 실행이 덮어쓰지 않는다.</li>
@@ -88,6 +90,7 @@ public class IndexTaskStore {
                 UPDATE chatbot.index_task t SET attempts = t.attempts + 1, next_attempt_at = :leaseUntil
                 FROM docs
                 WHERE t.index_type = docs.index_type AND t.doc_id = docs.doc_id AND t.done_at IS NULL
+                    AND t.next_attempt_at <= :now
                 RETURNING t.id, t.index_type, t.doc_id, t.action, t.attempts
                 """, new MapSqlParameterSource()
                         .addValue("types", types.stream().map(Enum::name).toList())

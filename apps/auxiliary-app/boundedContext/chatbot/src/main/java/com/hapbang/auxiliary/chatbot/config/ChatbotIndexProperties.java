@@ -46,7 +46,7 @@ public record ChatbotIndexProperties(
      * 색인 작업({@code chatbot.index_task}) 실행기 설정.
      *
      * @param pollInterval       할 일을 찾는 주기(배치를 켠 실행만)
-     * @param batchSize          한 번에 가져가는 요청 수
+     * @param batchSize          한 번에 가져가는 <b>문서</b> 수. 고른 문서에 쌓인 요청은 모두 함께 가져가므로 요청 수는 이보다 많을 수 있다
      * @param lease              가져간 요청을 다른 pod가 다시 가져가지 못하는 시간. 한 번의 실행(임베딩 + ES)보다 넉넉해야 한다
      * @param retryInitial       첫 실패 뒤 다시 시도할 때까지의 시간. 실패할 때마다 두 배
      * @param retryMax           다시 시도 간격의 상한

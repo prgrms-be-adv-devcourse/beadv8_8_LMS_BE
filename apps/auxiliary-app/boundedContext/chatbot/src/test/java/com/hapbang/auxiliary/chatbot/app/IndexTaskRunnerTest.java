@@ -2,6 +2,7 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -12,6 +13,11 @@ import java.util.Map;
 import java.util.SequencedMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.auxiliary.chatbot.config.ChatbotIndexProperties;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
@@ -153,6 +160,28 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("두 실행(pod)이 동시에 가져가면 뒤 실행은 앞 가져가기 트랜잭션이 끝날 때까지 advisory lock에서 기다리고, 그 문서를 가져가지 않는다")
+    void concurrentClaimsAreSerialized() throws Exception {
+        store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
+
+        List<List<IndexTask>> results = claimConcurrently(true, "advisory");
+
+        assertThat(results.get(0)).hasSize(1);
+        assertThat(results.get(1)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이중 방어: 락 없이 겹쳐도 뒤 UPDATE는 앞 실행이 임대한 행을 다시 확인할 때 빼고 가져가지 않는다")
+    void updateRecheckSkipsLeasedRows() throws Exception {
+        store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
+
+        List<List<IndexTask>> results = claimConcurrently(false, "transactionid");
+
+        assertThat(results.get(0)).hasSize(1);
+        assertThat(results.get(1)).isEmpty();
+    }
+
+    @Test
     @DisplayName("임대가 끝나면(실행 중 pod가 죽음) 다시 가져가고, 늦게 끝난 옛 실행의 끝내기는 무시한다")
     void expiredLeaseIsReclaimedAndOldOwnerIgnored() {
         store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
@@ -220,6 +249,51 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
                 "chatbot-influencers-test-8", 8, "", "", settings);
         return new IndexTaskRunner(store, List.of(handlers), properties, transactionManager,
                 beans.getBeanProvider(MeterRegistry.class), clockBean);
+    }
+
+    // 앞 실행이 가져간 뒤 트랜잭션을 열어 둔 채로, 뒤 실행이 waitLockType 락을 기다리는 것을 확인하고 앞 트랜잭션을 끝낸다
+    private List<List<IndexTask>> claimConcurrently(boolean lock, String waitLockType) throws Exception {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        CountDownLatch firstClaimed = new CountDownLatch(1);
+        CountDownLatch commitFirst = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<IndexTask>> first = pool.submit(() -> transaction.execute(status -> {
+                if (lock) {
+                    store.lockClaims(ChatbotJob.INDEX_TASK_CLAIM.lockKey());
+                }
+                List<IndexTask> claimed = claim(now().plus(LEASE));
+                firstClaimed.countDown();
+                awaitLatch(commitFirst);
+                return claimed;
+            }));
+            assertThat(firstClaimed.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<List<IndexTask>> second = pool.submit(() -> transaction.execute(status -> {
+                if (lock) {
+                    store.lockClaims(ChatbotJob.INDEX_TASK_CLAIM.lockKey());
+                }
+                return claim(now().plus(LEASE));
+            }));
+            await().atMost(Duration.ofSeconds(10)).until(() -> jdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = ? AND NOT granted", Integer.class, waitLockType) > 0);
+            assertThat(second.isDone()).isFalse();
+            commitFirst.countDown();
+            return List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+        } finally {
+            commitFirst.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(30, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("테스트가 앞 트랜잭션을 끝내지 않았다");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 
     private List<IndexTask> claim(LocalDateTime leaseUntil) {

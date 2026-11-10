@@ -136,18 +136,21 @@ public class IndexTaskRunner {
             }
         }
         List<Long> doneIds = new ArrayList<>();
+        int succeeded = 0;
         for (Map.Entry<String, List<IndexTask>> doc : byDoc.entrySet()) {
             RuntimeException failure = failures.get(doc.getKey());
             if (failure == null) {
                 doc.getValue().forEach(task -> doneIds.add(task.id()));
-                count(type, Result.DONE);
-                tally.done++;
+                succeeded++;
             } else {
                 retryLater(type, doc.getKey(), doc.getValue(), failure, leaseUntil);
                 tally.failed++;
             }
         }
         store.done(doneIds, now(), leaseUntil);
+        // 끝내기 기록이 성공한 뒤에 센다. DB 오류로 다시 처리되면 한 번만 센다
+        count(type, Result.DONE, succeeded);
+        tally.done += succeeded;
     }
 
     private void retryLater(IndexType type, String docId, List<IndexTask> tasks, RuntimeException failure,
@@ -156,7 +159,7 @@ public class IndexTaskRunner {
         LocalDateTime next = now().plus(backoff(attempts));
         store.retryLater(tasks.stream().map(IndexTask::id).toList(), next,
                 failure.getClass().getSimpleName() + ": " + failure.getMessage(), leaseUntil);
-        count(type, Result.FAILED);
+        count(type, Result.FAILED, 1);
         if (attempts >= settings.alertAfterAttempts()) {
             log.error("[CHATBOT_INDEX_TASK_STUCK] 색인 요청이 계속 실패한다 type={}, docId={}, attempts={}, next={}", type, docId,
                     attempts, next, failure);
@@ -173,11 +176,11 @@ public class IndexTaskRunner {
         return delay.compareTo(settings.retryMax()) > 0 ? settings.retryMax() : delay;
     }
 
-    private void count(IndexType type, Result result) {
+    private void count(IndexType type, Result result, int amount) {
         MeterRegistry meters = registry.getIfAvailable();
-        if (meters != null) {
+        if (meters != null && amount > 0) {
             Counter.builder(METRIC).description("챗봇 색인 요청을 처리한 문서 수")
-                    .tag("type", type.name()).tag("result", result.tag()).register(meters).increment();
+                    .tag("type", type.name()).tag("result", result.tag()).register(meters).increment(amount);
         }
     }
 
