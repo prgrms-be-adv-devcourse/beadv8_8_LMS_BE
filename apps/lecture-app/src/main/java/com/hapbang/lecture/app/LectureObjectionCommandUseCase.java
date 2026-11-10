@@ -114,6 +114,10 @@ public class LectureObjectionCommandUseCase {
         return result;
     }
 
+    /**
+     * 명령 하나를 처리한다. 이미 처리한 명령이면 처음 결과를 재현하고(같은 내용) 또는 충돌로 거절한다(다른 내용).
+     * 처음 온 명령이면 항목 규칙({@code apply})을 실행하고, 업무 거절({@code OBJECTION_*})은 결과로 바꿔 명령 이력과 함께 저장한다
+     */
     private Processed process(String commandId, LectureObjectionCommandType commandType, Long inquiryId,
                               Long orderItemId, String payloadHash, Supplier<OrderItem> apply) {
         Optional<LectureObjectionCommand> processed = lectureObjectionCommandRepository.findByCommandId(commandId);

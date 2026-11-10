@@ -15,6 +15,7 @@ final class LectureEventTimes {
     private LectureEventTimes() {
     }
 
+    /** 같은 시각을 KST offset으로 나타낸다. {@code null}은 그대로 둔다(배포 전 발행 기록의 새 필드) */
     static OffsetDateTime kst(OffsetDateTime time) {
         return time == null ? null : time.withOffsetSameInstant(KST);
     }

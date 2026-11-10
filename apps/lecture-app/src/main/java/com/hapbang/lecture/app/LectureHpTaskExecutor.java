@@ -267,8 +267,10 @@ public class LectureHpTaskExecutor {
                 report(recorded);
             }
         } catch (ObjectOptimisticLockingFailureException conflict) {
-            log.warn("결과를 기록하는 사이 다시 선점돼 HP 작업 결과를 버린다 taskId={}, result={}", taskId,
-                    attempt.result());
+            // 작업이 다시 선점됐거나, 결과 처리기가 바꾼 행(반환 지연 회차를 올린 주문 항목 등, #818)이 먼저 바뀌었다.
+            // 결과 기록 전체가 롤백되고 작업은 선점이 만료된 뒤 다시 실행된다. 어느 행인지 entity로 가린다
+            log.warn("결과를 기록하는 사이 같은 행이 먼저 바뀌어 HP 작업 결과를 버린다 taskId={}, result={}, entity={}",
+                    taskId, attempt.result(), conflict.getPersistentClassName());
         }
     }
 

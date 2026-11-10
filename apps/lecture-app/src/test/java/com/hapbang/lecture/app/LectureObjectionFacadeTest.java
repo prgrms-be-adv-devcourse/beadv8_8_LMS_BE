@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.modulith.events.core.EventSerializer;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -27,6 +29,7 @@ import org.springframework.test.context.event.RecordApplicationEvents;
 import com.hapbang.lecture.app.dto.OrderItemResponse;
 import com.hapbang.lecture.app.dto.OrderResponse;
 import com.hapbang.lecture.config.LectureConfig;
+import com.hapbang.lecture.config.LectureHpTaskProperties;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
@@ -105,6 +108,12 @@ class LectureObjectionFacadeTest {
 
     @Autowired
     private EventSerializer eventSerializer;
+
+    @Autowired
+    private LectureHpTaskProperties lectureHpTaskProperties;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     @Qualifier(LectureConfig.CLOCK)
@@ -468,6 +477,37 @@ class LectureObjectionFacadeTest {
         assertThat(eventSerializer.deserialize("{\"inquiryId\":500,\"orderItemId\":10}",
                 LectureObjectionReturnActionRequiredEvent.class))
                 .isEqualTo(new LectureObjectionReturnActionRequiredEvent(500L, 10L, null, null, null, null, null));
+    }
+
+    /**
+     * DEAD가 되는 다른 경로: 지갑을 부른 뒤 결과를 기록하지 못한 채 선점이 만료됐고 자동 재시도 한도에 닿았다 (D57 (3)).
+     * 선점할 때 조건부 UPDATE로 DEAD로 닫고 같은 트랜잭션에서 결과 처리기를 부른다. 영속성 컨텍스트가 비워진 뒤라 항목을 새로 읽는다
+     */
+    @Test
+    void 한도에_닿은_채_선점이_만료돼_멈춘_반환도_회차를_올리고_반환_지연을_한_번만_낸다() {
+        OrderResponse order = order(saveOnSale("OBS 방송 세팅"));
+        Long itemId = order.items().getFirst().orderItemId();
+        objections.file(itemId, BUYER_ID, INQUIRY_ID, REASON);
+        objections.resolve(itemId, INQUIRY_ID, true, ADMIN_ID);
+        Long taskId = returnTaskId(itemId);
+        LocalDateTime expired = LocalDateTime.now(clock).minusMinutes(10);
+        jdbcTemplate.update("""
+                update lectures.lecture_hp_task
+                set status = 'PROCESSING', claim_token = ?, lease_until = ?, attempt_count = ?
+                where id = ?""", UUID.randomUUID(), expired, lectureHpTaskProperties.retryMaxAttempts(), taskId);
+
+        lectureHpTaskExecutor.execute(taskId);
+        // 이미 DEAD라 선점도 조건부 UPDATE도 되지 않는다
+        lectureHpTaskExecutor.execute(taskId);
+
+        LectureHpTask task = returnTask(itemId);
+        assertThat(task.getStatus()).isEqualTo(LectureHpTaskStatus.DEAD);
+        assertThat(task.getLastErrorCode()).isEqualTo(LectureHpTaskExecutor.LEASE_EXPIRED);
+        assertThat(releases()).isEmpty();
+        assertThat(item(itemId).getReturnDelayCount()).isEqualTo(1);
+        assertThat(events.stream(LectureObjectionReturnActionRequiredEvent.class)).containsExactly(
+                new LectureObjectionReturnActionRequiredEvent(INQUIRY_ID, itemId, BUYER_ID, SELLER_ID, "OBS 방송 세팅", 1,
+                        kst(task.getLastFailedAt())));
     }
 
     @Test
