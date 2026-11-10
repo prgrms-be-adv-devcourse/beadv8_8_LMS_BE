@@ -10,6 +10,7 @@ import com.hapbang.appearance.domain.AppearanceCancelRequest;
 import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.AppearanceReview;
+import com.hapbang.appearance.domain.AppearanceRole;
 import com.hapbang.appearance.domain.AppearanceStatus;
 import com.hapbang.shared.appearance.domain.AppearanceResult;
 import com.hapbang.shared.appearance.dto.AppearanceApplicationDto;
@@ -38,13 +39,13 @@ public final class AppearanceContractMapper {
      *
      * @throws IllegalStateException 아직 DB에 반영되지 않은 출연. {@code @Version}은 flush 때 오르므로 반드시 flush 뒤에 만든다
      */
-    public static AppearanceSyncDto toSyncDto(Appearance appearance) {
+    public static AppearanceSyncDto toAppearanceSyncDto(Appearance appearance) {
         if (appearance.getId() == null || appearance.getVersion() == null) {
             throw new IllegalStateException("DB에 반영된 출연만 동기화 사본으로 만들 수 있습니다: " + appearance.getId());
         }
+        LocalDateTime scheduledAt = appearance.getScheduledAt();
         return new AppearanceSyncDto(appearance.getId(), appearance.getHostId(), appearance.getGuestId(),
-                toResult(appearance.getStatus()), appearance.getScheduledAt().truncatedTo(ChronoUnit.MICROS),
-                appearance.getVersion());
+                toResult(appearance.getStatus()), scheduledAt.truncatedTo(ChronoUnit.MICROS), appearance.getVersion());
     }
 
     /**
@@ -52,7 +53,7 @@ public final class AppearanceContractMapper {
      * 받는 쪽이 오래된 이벤트로 버린다.
      */
     public static AppearanceChangedEvent toChangedEvent(Appearance appearance) {
-        return new AppearanceChangedEvent(toSyncDto(appearance));
+        return new AppearanceChangedEvent(toAppearanceSyncDto(appearance));
     }
 
     /**
@@ -75,9 +76,10 @@ public final class AppearanceContractMapper {
      */
     public static AppearanceReviewPublishedEvent toPublishedEvent(AppearanceReview review) {
         requirePublished(review, "공개된 리뷰만 공개 이벤트로 알릴 수 있습니다: ");
+        AppearanceRole revieweeRole = review.getRevieweeRole();
         return new AppearanceReviewPublishedEvent(review.getId(), review.getAppearanceId(), review.getReviewerId(),
-                review.getRevieweeId(), AppearanceParticipantRole.valueOf(review.getRevieweeRole().name()),
-                review.getRating(), review.getPublishedAt());
+                review.getRevieweeId(), AppearanceParticipantRole.valueOf(revieweeRole.name()), review.getRating(),
+                review.getPublishedAt());
     }
 
     /**
@@ -86,7 +88,7 @@ public final class AppearanceContractMapper {
      *
      * @throws IllegalStateException 아직 공개되지 않은 리뷰
      */
-    public static AppearanceReviewSyncDto toSyncDto(AppearanceReview review) {
+    public static AppearanceReviewSyncDto toReviewSyncDto(AppearanceReview review) {
         requirePublished(review, "공개된 리뷰만 동기화 사본으로 만들 수 있습니다: ");
         return new AppearanceReviewSyncDto(review.getId(), review.getAppearanceId(), review.getRevieweeId(),
                 review.getRating());

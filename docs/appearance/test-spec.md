@@ -1655,7 +1655,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 ## 40. 다른 앱에 보내는 계약 변환 분리 (#825)
 
-도메인 테스트에 있던 변환 검증을 `AppearanceContractMapperTest`로 옮겼다(값·예외 그대로). `AppearanceStatusTest`는 지웠다. 위 장(9·33·39장 등)에 있던 행은 클래스 이름을 바꿔 적었고, 취소 요청 DTO 행은 여기에만 있다.
+도메인 테스트에 있던 변환 검증을 `AppearanceContractMapperTest`로 옮겼다(값·예외 그대로). `AppearanceStatusTest`는 지웠다. 위 장(12·32·39장)에 있던 행은 클래스 이름을 바꿔 적었고, 취소 요청 DTO 행은 여기에만 있다.
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|

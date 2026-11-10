@@ -94,7 +94,7 @@ class AppearanceContractMapperTest {
 
             AppearanceSyncDto expected = new AppearanceSyncDto(30L, HOST, GUEST, AppearanceResult.SCHEDULED,
                     appearance.getScheduledAt(), 3L);
-            assertThat(AppearanceContractMapper.toSyncDto(appearance)).isEqualTo(expected);
+            assertThat(AppearanceContractMapper.toAppearanceSyncDto(appearance)).isEqualTo(expected);
             assertThat(AppearanceContractMapper.toChangedEvent(appearance))
                     .isEqualTo(new AppearanceChangedEvent(expected));
         }
@@ -108,7 +108,7 @@ class AppearanceContractMapperTest {
             LocalDateTime scheduledAt = appearance.getScheduledAt();
             ReflectionTestUtils.setField(appearance, "scheduledAt", scheduledAt.plusNanos(1_234_567));
 
-            assertThat(AppearanceContractMapper.toSyncDto(appearance).scheduledAt())
+            assertThat(AppearanceContractMapper.toAppearanceSyncDto(appearance).scheduledAt())
                     .isEqualTo(scheduledAt.plusNanos(1_234_000));
         }
 
@@ -117,7 +117,7 @@ class AppearanceContractMapperTest {
         void needsFlush() {
             Appearance appearance = established();
 
-            assertThatThrownBy(() -> AppearanceContractMapper.toSyncDto(appearance))
+            assertThatThrownBy(() -> AppearanceContractMapper.toAppearanceSyncDto(appearance))
                     .isInstanceOf(IllegalStateException.class);
             ReflectionTestUtils.setField(appearance, "id", 30L);
             assertThatThrownBy(() -> AppearanceContractMapper.toChangedEvent(appearance))
@@ -174,7 +174,7 @@ class AppearanceContractMapperTest {
             ReflectionTestUtils.setField(review, "id", 77L);
             review.publish(CONFIRMED_AT.plusDays(1));
 
-            AppearanceReviewSyncDto sync = AppearanceContractMapper.toSyncDto(review);
+            AppearanceReviewSyncDto sync = AppearanceContractMapper.toReviewSyncDto(review);
             AppearanceReviewPublishedEvent published = AppearanceContractMapper.toPublishedEvent(review);
 
             assertThat(sync).isEqualTo(new AppearanceReviewSyncDto(77L, 30L, HOST, 3));
@@ -189,7 +189,7 @@ class AppearanceContractMapperTest {
 
             assertThatThrownBy(() -> AppearanceContractMapper.toPublishedEvent(review))
                     .isInstanceOf(IllegalStateException.class);
-            assertThatThrownBy(() -> AppearanceContractMapper.toSyncDto(review))
+            assertThatThrownBy(() -> AppearanceContractMapper.toReviewSyncDto(review))
                     .isInstanceOf(IllegalStateException.class);
         }
     }

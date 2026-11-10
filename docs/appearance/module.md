@@ -1679,8 +1679,8 @@ AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공�
 | `AppearanceSyncDto` | `id`, `hostId`, `guestId`, `result`, `scheduledAt`(KST, 마이크로초까지), `version` | 출연 `@Version`. 받는 쪽은 큰 것만 반영 |
 | `AppearanceReviewSyncDto` | `reviewId`, `appearanceId`, `revieweeUserId`, `rating` | 없음. 리뷰는 공개 뒤 바뀌지 않아 `reviewId`로 한 번만 넣는다 |
 
-- 만드는 곳은 `AppearanceContractMapper.toSyncDto(출연)`·`toSyncDto(리뷰)` 한 곳이다(#825 전에는 엔티티 메서드). 이벤트와 내부 API가 같은 메서드를 써서, 같은 출연·같은 version이면 값이 같다(AI가 DTO 해시로 어긋남을 비교).
-- `toSyncDto`는 ID·version이 없으면(DB에 반영 전) `IllegalStateException`. 리뷰는 공개 전이면 같은 예외.
+- 만드는 곳은 `AppearanceContractMapper.toAppearanceSyncDto`·`toReviewSyncDto` 한 곳이다(#825 전에는 엔티티 메서드). 이벤트와 내부 API가 같은 메서드를 써서, 같은 출연·같은 version이면 값이 같다(AI가 DTO 해시로 어긋남을 비교).
+- `toAppearanceSyncDto`는 ID·version이 없으면(DB에 반영 전) `IllegalStateException`. 리뷰는 공개 전이면 같은 예외.
 - 리뷰 사본의 필드 4개는 기존 공개 이벤트(`AppearanceReviewPublishedEvent`, 21.6)의 같은 이름 필드와 값이 같다.
 
 ### 28.3 이벤트 `AppearanceChangedEvent(AppearanceSyncDto appearance)`
@@ -1711,7 +1711,7 @@ AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공�
 | 계층 | 클래스 | 변경 |
 |---|---|---|
 | shared | `domain.AppearanceResult`, `dto.AppearanceSyncDto`·`AppearanceReviewSyncDto`·`AppearanceSyncPageDto`·`AppearanceReviewSyncPageDto`, `event.AppearanceChangedEvent`, `out.AppearanceApiClient` | 새 계약, Client 메서드 2개 |
-| app | `AppearanceContractMapper.toResult`·`toSyncDto`·`toChangedEvent` (#825 전에는 domain 엔티티 메서드) | 매핑·사본 생성 |
+| app | `AppearanceContractMapper.toResult`·`toAppearanceSyncDto`·`toReviewSyncDto`·`toChangedEvent` (#825 전에는 domain 엔티티 메서드) | 매핑·사본 생성 |
 | app | 전이 UseCase 9개(`AppearanceRequestAcceptUseCase`, `AppearanceApplicationRespondUseCase`, `AppearanceCancelRequestUseCase`, `AppearanceCancelRespondUseCase`, `AppearanceCancelAutoRejectUseCase`, `AppearanceConfirmUseCase`, `AppearanceAutoConfirmUseCase`, `AppearanceHostCancelUseCase`, `AppearanceRecruitCancelUseCase`) | flush 뒤 발행 11곳 |
 | app | `AppearanceSyncQueryUseCase`, `AppearanceSyncInternalFacade`(`ROLE_INTERNAL`) | 키셋 조회 |
 | in | `ApiV1AppearanceSyncInternalSpec`·`Controller` | 내부 API 2개, Swagger에 내부 키 헤더 |
@@ -1732,9 +1732,9 @@ AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공�
 
 | 옮기기 전 (domain) | `AppearanceContractMapper` |
 |---|---|
-| `Appearance.toSyncDto()`·`toChangedEvent()` | `toSyncDto(appearance)`·`toChangedEvent(appearance)` (ID·version 없으면 `IllegalStateException`) |
+| `Appearance.toSyncDto()`·`toChangedEvent()` | `toAppearanceSyncDto(appearance)`·`toChangedEvent(appearance)` (ID·version 없으면 `IllegalStateException`) |
 | `AppearanceStatus.result()` | `toResult(status)` (전수 `switch`) |
-| `AppearanceReview.toSyncDto()`·`toPublishedEvent()` | `toSyncDto(review)`·`toPublishedEvent(review)` (공개 전이면 `IllegalStateException`) |
+| `AppearanceReview.toSyncDto()`·`toPublishedEvent()` | `toReviewSyncDto(review)`·`toPublishedEvent(review)` (공개 전이면 `IllegalStateException`) |
 | `AppearanceRequest.toDto()` | `toRequestDto(request)` |
 | `AppearanceApplication.toDto(recruit)` | `toApplicationDto(application, recruit)` |
 | `AppearanceCancelRequest.toDto(title, scheduledAt)` | `toCancelRequestDto(cancelRequest, title, scheduledAt)` |

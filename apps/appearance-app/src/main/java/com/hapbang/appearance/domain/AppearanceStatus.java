@@ -11,7 +11,7 @@ import lombok.RequiredArgsConstructor;
  * </pre>
  * 성립·출연 취소 요청·합의 취소(#231), 호스트 일방 취소(#239), 출연 확인·불참(#282).
  * 불참({@code ABSENT})은 AGENTS.md의 "노쇼(부정 응답)"다. 코드·API 이름은 불참으로 쓴다 (ISSUE.md APR-35 E1).
- * 다른 모듈에는 이 상태 대신 줄인 공개 결과({@link #result()}, #713)를 알린다.
+ * 다른 모듈에는 이 상태 대신 줄인 공개 결과(app {@code AppearanceContractMapper.toResult}, #713·#825)를 알린다.
  */
 @Getter
 @RequiredArgsConstructor

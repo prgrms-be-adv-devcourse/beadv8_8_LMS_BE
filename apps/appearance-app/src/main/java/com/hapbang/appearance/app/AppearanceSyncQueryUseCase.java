@@ -39,7 +39,7 @@ public class AppearanceSyncQueryUseCase {
         List<Appearance> page = hasNext ? found.subList(0, size) : found;
         List<AppearanceSyncDto> items = new ArrayList<>();
         for (Appearance appearance : page) {
-            items.add(AppearanceContractMapper.toSyncDto(appearance));
+            items.add(AppearanceContractMapper.toAppearanceSyncDto(appearance));
         }
         return new AppearanceSyncPageDto(items, hasNext ? page.getLast().getId() : null);
     }
@@ -52,7 +52,7 @@ public class AppearanceSyncQueryUseCase {
         List<AppearanceReview> page = hasNext ? found.subList(0, size) : found;
         List<AppearanceReviewSyncDto> items = new ArrayList<>();
         for (AppearanceReview review : page) {
-            items.add(AppearanceContractMapper.toSyncDto(review));
+            items.add(AppearanceContractMapper.toReviewSyncDto(review));
         }
         return new AppearanceReviewSyncPageDto(items, hasNext ? page.getLast().getId() : null);
     }
