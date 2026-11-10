@@ -14,8 +14,9 @@ import org.springframework.data.redis.core.script.RedisScript;
  * 쿠폰 Lua 스크립트 읽기·실행. 값은 KEYS·ARGV로 넘기고 스크립트 문자열을 치환하지 않는다.
  * <p>
  * 스크립트는 클래스를 올릴 때 클래스패스의 {@code .lua} 파일을 문자열로 한 번 읽어 만든다. 파일 자원({@code ClassPathResource})으로
- * 만들면 Spring Data Redis가 호출마다 lock을 잡고 파일 수정 시각을 확인한다(실행 jar 안의 파일이라 그때마다 jar 항목을 연다). 선착순
- * 발급처럼 같은 스크립트를 동시에 부르면 요청 스레드가 그 lock에서 줄을 선다. 스크립트 내용·KEYS·ARGV는 그대로다.
+ * 만들면 Spring Data Redis가 호출마다 잡는 lock 안에서 파일 수정 시각을 확인한다(실행 jar 안의 파일이라 그때마다 jar 항목을 연다). 선착순
+ * 발급처럼 같은 스크립트를 동시에 부르면 요청 스레드가 그 lock에서 줄을 선다. 문자열 스크립트도 lock은 잡지만 그 안의 파일 확인이 없어
+ * 아주 짧다. 스크립트 내용·KEYS·ARGV는 그대로다.
  */
 record CouponRedisLuaSupport() {
 

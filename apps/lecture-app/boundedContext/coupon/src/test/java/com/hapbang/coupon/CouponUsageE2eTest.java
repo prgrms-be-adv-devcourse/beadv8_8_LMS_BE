@@ -27,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.test.annotation.DirtiesContext;
@@ -96,6 +97,9 @@ class CouponUsageE2eTest {
 
     @MockitoBean
     private LectureCatalog lectureCatalog;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     @Test
     void 추천_계산으로_예약하고_상태를_확인한_뒤_해제하면_다시_쓸_수_있고_같은_쿠폰의_동시_예약은_하나만_성공한다() throws Exception {
@@ -196,6 +200,8 @@ class CouponUsageE2eTest {
         long sellerCoupon = issue(MEMBER_A, saveSellerCoupon());
         long platformCoupon = issue(MEMBER_A, savePlatformCoupon());
         long issueCoupon = saveSellerCoupon();
+        // 운영처럼 이미 맺은 연결에서 명령이 멈추는 경우를 보려고, 멈추기 전에 명령을 하나 보내 연결을 맺어 둔다
+        stringRedisTemplate.hasKey("coupon-usage-e2e:warm-up");
         RedisTestcontainersConfig.withRedisPaused(() -> unchecked(() -> {
             String calculated = calculate(MEMBER_A, "null")
                     .andExpect(status().isOk())
@@ -206,7 +212,8 @@ class CouponUsageE2eTest {
             release(9201L, "order-9201:release:1", List.of(sellerCoupon, platformCoupon))
                     .andExpect(status().isOk());
 
-            // 발급 접수는 Redis가 필요하다. 응답 없는 Redis를 명령 제한 시간(2초) 뒤 503으로 끊어야 요청 스레드가 묶이지 않는다
+            // 발급 접수는 Redis가 필요하다. 응답 없는 Redis를 명령 제한 시간(2초)에 끊어 503으로 끝내야 요청 스레드가 오래 묶이지 않는다.
+            // 매진 표시 조회(실패하면 Lua에 맡긴다)와 접수 Lua가 차례로 끊겨 최대 제한 시간의 두 배(약 4초)다. 예전 기본값이면 120초다
             long started = System.nanoTime();
             mockMvc.perform(post("/api/v1/coupons/{couponId}/issue-requests", issueCoupon)
                             .with(user(String.valueOf(MEMBER_A)).roles("USER")).with(csrf())
@@ -214,7 +221,7 @@ class CouponUsageE2eTest {
                             .content("{\"issueRequestId\":\"redis-down-1\"}"))
                     .andExpect(status().isServiceUnavailable())
                     .andExpect(jsonPath("$.code").value("COUPON_ISSUE_STORE_UNAVAILABLE"));
-            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10));
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(6));
         }));
     }
 
