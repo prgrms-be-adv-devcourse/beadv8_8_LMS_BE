@@ -5,7 +5,7 @@
 > 문서 지도: [모듈](module.md) · [결정 기록](decisions.md) · [알림 종류](notification-catalog.md) · [API 계약](../api/notification.md) · [테스트 검증 기준](test-spec.md) · **[회귀 실행 기록](regression-log.md)** · [진행](../../apps/auxiliary-app/boundedContext/notification/PROGRESS.md)
 >
 > - **역할**: 이 문서는 알림 모듈 테스트를 **실제로 실행한** 기록만 쌓는다: 언제, 어느 커밋에서, 무슨 명령을 돌렸고, 결과가 어땠고, 실패는 무엇 때문이었나. 무엇을 검증해야 하는지(합격 기준)는 [test-spec.md](test-spec.md)의 `NT-*`에 있다.
-> - **현재 상태**: 2026-11-09 N1(#797) 모듈 뼈대 테스트를 실행했고(NR-001~NR-004, dev 병합 뒤 NR-006·NR-007, 리뷰 반영 NR-008·NR-009) 로컬 기동·자원을 측정했다(NR-005). 알림 생성 코드는 아직 없다.
+> - **현재 상태**: 2026-11-09 N1(#797) 모듈 뼈대 테스트를 실행했고(NR-001~NR-004, dev 병합 뒤 NR-006·NR-007, 리뷰 반영 NR-008·NR-009, N2 NR-010~NR-015) 로컬 기동·자원을 측정했다(NR-005). 알림 생성 코드는 아직 없다.
 > - **설계 문서의 완료 증거를 실행 기록으로 옮기지 않는다.** [알림 설계](../architecture/infrastructure/notification.md) 11장의 완료 증거와 test-spec 3장의 매핑은 "무엇을 보여야 하는가"이지 실행 결과가 아니다. 증거를 실제로 실행·시연했을 때만 이 문서에 기록을 남긴다.
 
 ## 1. 작성 규칙과 기록 양식
@@ -85,6 +85,147 @@
 ## 3. 실행 기록
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
+
+#### NR-015 · 2026-11-10 · 통과 (#801 PR 리뷰: 같은 알림 행의 동시 쓰기)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-015 |
+| 실행 날짜 | 2026-11-10 10:17~10:21 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-801` |
+| 커밋 | `5be88868` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationRepository`(조건부 벌크 UPDATE, ID 오름차순 `FOR UPDATE`), `NotificationWriter`(보존 정리), `NotificationQueryFacade`(읽음·전체 읽음), `NotificationMaskingService`(행 잠금 조회), `Notification`(`@DynamicUpdate`, 엔티티 읽음·삭제 메서드 제거), 테스트 `NotificationConcurrencyTest`(새)·`NotificationTest`(읽음 단위 테스트 1건 제거), module·test-spec·이 문서·PROGRESS |
+| 대상 기능 | 보존 정리·읽음·전체 읽음·파기가 같은 알림 행을 쓸 때 서로 덮어쓰지 않기 |
+| 관련 NT ID | NT-RET-05, NT-USR-07(+ NR-013과 같다) |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :auxiliary-app:check` |
+| 실행 환경 | NR-013과 같다 |
+| 결과 | 통과 |
+| 건수 | `:notification` 68, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 259, 실패·오류·건너뜀 0 (XML 기준, 모두 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | 고친 뒤 10:12 `:notification:test` 68건 통과 |
+| 미검증 항목 | NR-013과 같다 |
+| 관련 변경 | #801 |
+
+**메모 — 경합 테스트(먼저 쓰고 실패 확인, latch로 순서 강제)**
+- 구현 전 `NotificationConcurrencyTest` 4건이 모두 실패했다(F-CODE): 보존 정리가 파기된 닉네임을 되돌림(`원래닉네임님이 …`), 전체 읽음이 센 수와 실제 읽은 수가 다름(`expected: 20 but was: 19`), 읽음 처리가 밀려난 알림의 삭제 시각을 비움(`not to be null`), 두 파기 중 하나의 닉네임이 되돌아옴.
+- 고친 뒤 4건 통과. 각 테스트가 약 3초(3.0~3.6초)인 것은 먼저 시작한 쪽이 커밋 전 기다리는 상한(3초)까지 기다렸다는 뜻으로, 나중 쪽이 행 잠금에 실제로 막혔음을 보여 준다.
+- 변형 확인: `@DynamicUpdate`는 둔 채 파기 조회의 `FOR UPDATE`만 잠깐 빼고 이 클래스만 돌리니 "두 파기" 테스트가 실패했다. 되돌린 뒤 위 명령으로 통과를 확인했다(`@DynamicUpdate`만으로는 해결되지 않는다).
+
+#### NR-014 · 2026-11-10 · 통과 (#801 PR 리뷰)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-014 |
+| 실행 날짜 | 2026-11-10 10:17 (KST, NR-015 전) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-801` |
+| 커밋 | `5be88868` |
+| 작업 트리 변경 | NR-015와 같다 |
+| 대상 기능 | Gradle 모듈 의존 경계 |
+| 관련 NT ID | NT-BND-02 |
+| 명령 | `./gradlew verifyModuleStructure` |
+| 실행 환경 | NR-015와 같다 |
+| 결과 | 통과 |
+| 건수 | 해당 없음(BUILD SUCCESSFUL) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음 |
+| 관련 변경 | #801 |
+
+#### NR-013 · 2026-11-10 · 통과 (N2 + ND-054 파기 표시, #801)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-013 |
+| 실행 날짜 | 2026-11-10 09:48~09:51 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-801` |
+| 커밋 | `ab8f957d` |
+| 작업 트리 변경 | NR-011 + ND-054: Flyway `V202611101100__add_notification_user_masked_at.sql`, `NotificationUser`(파기 표시), `MemberMaskLocks`(회원 단위 advisory lock), `NotificationWriter`·`NotificationMaskingService`·`NotificationUserSyncService` 수정, 테스트(`NotificationUserTest`·`NotificationUserSyncServiceTest`·`NotificationMaskingServiceTest`·`NotificationMemberEventListenerTest`, fixtures) |
+| 대상 기능 | ND-054: 파기 표시, 복제본 없는 회원의 파기 상태 복제본, 파기 뒤 저장되는 알림의 닉네임, 파기·저장 순서 잠금 |
+| 관련 NT ID | NT-USR-07 외 NR-011과 같다 |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :auxiliary-app:check` |
+| 실행 환경 | NR-011과 같다 |
+| 결과 | 통과 |
+| 건수 | `:notification` 65, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 256, 실패·오류·건너뜀 0 (XML 기준, 모두 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 구현 전 `:notification:compileTestJava` 실패(새 메서드 없음)를 먼저 확인했다. 첫 `:notification:test`에서 "복제본 없는 회원의 파기는 아무것도 남기지 않는다"는 기존 리스너 단언이 실패해(ND-054로 파기 상태 복제본이 생김) 단언을 고쳤다 |
+| 재실행 결과 | 고친 뒤 `:notification:test` 65건 통과(09:45) |
+| 미검증 항목 | NR-011의 미검증 항목 중 "파기 뒤 새로 저장되는 알림의 옛 닉네임"은 ND-054로 정해 이번에 검증했다. 나머지는 NR-011과 같다 |
+| 관련 변경 | #801 |
+
+**메모 — 동시 처리 테스트가 빈틈을 잡는지 확인(변형 확인)**: `NotificationWriter`의 공유 잠금(`maskLocks.lockShared`) 한 줄을 잠깐 막고 `NotificationMaskingServiceTest`만 돌리니 "복제본이 없는 회원의 파기와 저장이 동시에" 테스트가 15번 중 15번 옛 닉네임이 남아 실패했다(`expected: 0L but was: 15L`). 줄을 되돌린 뒤 위 명령으로 통과를 확인했다.
+
+#### NR-012 · 2026-11-10 · 통과 (N2 + ND-054, #801)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-012 |
+| 실행 날짜 | 2026-11-10 09:48 (KST, NR-013 전) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-801` |
+| 커밋 | `ab8f957d` |
+| 작업 트리 변경 | NR-013과 같다 |
+| 대상 기능 | Gradle 모듈 의존 경계 |
+| 관련 NT ID | NT-BND-02 |
+| 명령 | `./gradlew verifyModuleStructure` |
+| 실행 환경 | NR-013과 같다 |
+| 결과 | 통과 |
+| 건수 | 해당 없음(BUILD SUCCESSFUL) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음 |
+| 관련 변경 | #801 |
+
+#### NR-011 · 2026-11-10 · 통과 (N2 알림 저장·REST, #801)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-011 |
+| 실행 날짜 | 2026-11-10 09:24~09:28 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-801` |
+| 커밋 | `ab8f957d` |
+| 작업 트리 변경 | 있음(커밋 전). 알림 모듈 `src/main`(Flyway `V202611101000__create_notification_table.sql`, `Notification`·`NotificationDraft`·`NotificationPayload`, `NotificationWriter`·`ReceiverPolicy`·`NotificationTemplate(s)`·`NotificationQueryFacade`·`NotificationMaskingService`·dto, `ApiV1NotificationController`, 리스너 파기 처리, 오류 코드, 저장소), `src/test`(새 테스트 5개 클래스·support, 기존 2개 수정), `docs/architecture/infrastructure/kafka.md`, 알림 문서 |
+| 대상 기능 | N2: 알림 저장(중복·탈퇴 제외·20개 보존·받는 사람별 락), REST 4개, `UserMaskedEvent` 파기 닉네임 |
+| 관련 NT ID | NT-QRY-01~04, NT-READ-01~06, NT-RET-01~05, NT-IDEM-01·02(저장 서비스 수준), NT-GEN-13, NT-USR-03·04(저장 서비스 수준)·07, NT-BND-03 |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :auxiliary-app:check` |
+| 실행 환경 | Windows 10 Pro, JDK 25.0.4.1, Gradle 9.7.1, Docker 29.8.0. Testcontainers postgres·kafka(챗봇 테스트 컨테이너 포함) |
+| 결과 | 통과 |
+| 건수 | `:notification` 58, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 249, 실패·오류·건너뜀 0 (XML 기준, 모두 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 구현 전 `:notification:compileTestJava`가 새 타입이 없어 44건 오류로 실패하는 것을 먼저 확인했다. 첫 `:notification:test`에서 N1의 "테이블은 `notification_user` 하나" 단언이 실패해(N2에서 `notification`이 생김, ND-046 의도) 단언을 N2 기준으로 고쳤다 |
+| 재실행 결과 | 고친 뒤 `:notification:test` 58건 통과(09:22) |
+| 미검증 항목 | 이벤트 소비로 알림 만들기(N5 이후)의 Kafka 경로 NT-IDEM·NT-RET-02, 정지 회원(U8, NT-USR-05), 파기 뒤 새로 저장되는 알림에 옛 닉네임이 들어오는 경우(정책 미결, 보고서 참고), Gateway route(N4) |
+| 관련 변경 | #801 |
+
+**메모**: 동시 저장 테스트(같은 회원 6건 + 다른 회원 1건)는 Hikari 5로 일부가 연결을 기다리지만 받는 사람 행 잠금으로 줄을 서 정확히 20개를 남겼다.
+
+#### NR-010 · 2026-11-10 · 통과 (N2, #801)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-010 |
+| 실행 날짜 | 2026-11-10 09:24 (KST, NR-011 전) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-801` |
+| 커밋 | `ab8f957d` |
+| 작업 트리 변경 | NR-011과 같다 |
+| 대상 기능 | Gradle 모듈 의존 경계 |
+| 관련 NT ID | NT-BND-02 |
+| 명령 | `./gradlew verifyModuleStructure` |
+| 실행 환경 | NR-011과 같다 |
+| 결과 | 통과 |
+| 건수 | 해당 없음(BUILD SUCCESSFUL) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | 재실행 안 함 |
+| 미검증 항목 | 없음 |
+| 관련 변경 | #801 |
 
 #### NR-009 · 2026-11-09 · 통과 (#797 PR 리뷰 반영)
 
@@ -327,3 +468,6 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 - 2026-11-09 NR-003·NR-004(N1 마무리 재실행), NR-005(로컬 기동·자원 측정)를 더했다.
 - 2026-11-09 NR-006·NR-007(dev 병합 뒤 재실행)을 더했다.
 - 2026-11-09 NR-008·NR-009(#797 PR 리뷰 반영: ND-049, Flyway 단언 보강)를 더했다.
+- 2026-11-10 NR-010·NR-011(N2 알림 저장·REST, #801)을 더했다.
+- 2026-11-10 NR-012·NR-013(ND-054 파기 표시, #801)을 더했다.
+- 2026-11-10 NR-014·NR-015(#801 PR 리뷰: 같은 알림 행의 동시 쓰기)를 더했다.

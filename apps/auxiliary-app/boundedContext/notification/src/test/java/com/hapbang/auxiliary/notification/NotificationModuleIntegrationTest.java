@@ -36,13 +36,13 @@ class NotificationModuleIntegrationTest {
     }
 
     @Test
-    @DisplayName("N1은 회원 복제본 테이블 하나만 만든다(ND-046)")
-    void onlyReplicaTable() {
+    @DisplayName("테이블은 처음 쓰는 작업에서 만든다: N2까지 알림과 회원 복제본 둘이다(ND-046)")
+    void tablesSoFar() {
         List<String> tables = jdbcTemplate.queryForList(
                 "select table_name from information_schema.tables where table_schema = 'notification' order by table_name",
                 String.class);
 
-        assertThat(tables).containsExactly("notification_user");
+        assertThat(tables).containsExactly("notification", "notification_user");
     }
 
     /**

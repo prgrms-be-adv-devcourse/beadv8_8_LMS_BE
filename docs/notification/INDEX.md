@@ -118,7 +118,7 @@
 | --- | --- | --- |
 | U16 | 예약 알림별 생성·취소 이벤트 식별 키 계약 검증(처리 방향은 ND-034) | decisions 10장, test-spec `NT-SCH-06` |
 | U17 | 첫 배포 Backfill(복제본이 아직 없는 경쟁은 ND-035) | decisions 10장, test-spec `NT-USR-06`, module 5장 |
-| U19 | 닉네임이 든 문구·값의 저장 구조와 갱신 방법(방향은 ND-036) | decisions 10장, test-spec `NT-USR-07` |
+| U19 | 구조는 ND-051로 정했다. 구현 가능성 검증은 N2(#801) | decisions 10장, test-spec `NT-USR-07` |
 | M1~M8 | 발행 모듈 이벤트 계약(신규 이벤트·계약 보강) | `event-contracts.md`, catalog 판정, module 5장, PROGRESS 3장 |
 
 - 발행 이벤트 계약 판정 결과(부분 충족·미충족 수, `AppearanceChangedEvent`가 M3를 대체할 수 없다는 판단)는 [`notification-catalog.md`](notification-catalog.md)와 [`module.md`](module.md) 5장이 원본이다.
