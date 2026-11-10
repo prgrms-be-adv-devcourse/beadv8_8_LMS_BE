@@ -168,10 +168,10 @@ public class InfluencerReindexer {
 
     private ReindexResult reindex(IndexState state) {
         ReindexReason reason = state.aliasMissing() ? ReindexReason.FIRST_LOAD : ReindexReason.SETTINGS_CHANGED;
-        LocalDateTime startedAt = LocalDateTime.now(clock);
+        LocalDateTime reindexStartedAt = LocalDateTime.now(clock);
         long started = System.nanoTime();
         log.info("검색 index를 {} 시작한다 reason={}, from={}, to={}, startedAt={}", reason.description(), reason.tag(),
-                state.aliasTargets(), state.expectedIndex(), startedAt);
+                state.aliasTargets(), state.expectedIndex(), reindexStartedAt);
         String fresh;
         try {
             indexSetup.deleteIndices(state.leftovers());
@@ -210,7 +210,7 @@ public class InfluencerReindexer {
             log.warn("검색 alias 교체 응답은 실패했지만 alias가 새 index를 가리켜 이어 간다 index={}", fresh, e);
         }
 
-        CatchUp catchUp = catchUp(startedAt.minus(CATCH_UP_OVERLAP));
+        CatchUp catchUp = catchUp(reindexStartedAt.minus(CATCH_UP_OVERLAP));
         deleteQuietly(state.aliasTargets(), "옛");
         Duration took = Duration.ofNanos(System.nanoTime() - started);
         String outcome = catchUp == CatchUp.CAUGHT_UP
