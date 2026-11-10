@@ -45,6 +45,7 @@ import com.hapbang.customersupport.fixture.LectureObjectionFixture;
 import com.hapbang.customersupport.global.config.CustomerSupportEventExternalizationConfig;
 import com.hapbang.customersupport.global.config.CustomerSupportKafkaConfig;
 import com.hapbang.customersupport.out.InquiryRepository;
+import com.hapbang.customersupport.fixture.LectureObjectionResults;
 import com.hapbang.shared.customersupport.event.CustomerSupportEventTopic;
 import com.hapbang.shared.lecture.domain.LecturePurchaseResult;
 import com.hapbang.shared.lecture.dto.CartItemSyncDto;
@@ -56,7 +57,6 @@ import com.hapbang.shared.lecture.event.CartItemChangedEvent;
 import com.hapbang.shared.lecture.event.LectureChangedEvent;
 import com.hapbang.shared.lecture.event.LectureEventTopic;
 import com.hapbang.shared.lecture.event.LectureObjectionResolvedEvent;
-import com.hapbang.shared.lecture.event.LectureObjectionReturnCompletedEvent;
 import com.hapbang.shared.lecture.event.LecturePurchaseChangedEvent;
 import com.hapbang.shared.lecture.event.LectureReviewChangedEvent;
 import com.hapbang.testsupport.IntegrationTest;
@@ -158,8 +158,8 @@ class CustomerSupportObjectionKafkaTest {
         assertThat(header(record, CustomerSupportEventExternalizationConfig.EVENT_VERSION)).isEqualTo("1");
         assertThat(record.value()).contains("\"commandId\":\"RESOLVE:" + inquiryId + "\"", "\"accepted\":true");
 
-        send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true));
-        send(orderItemId, new LectureObjectionReturnCompletedEvent(inquiryId, orderItemId));
+        send(orderItemId, LectureObjectionResults.resolved(inquiryId, orderItemId, true));
+        send(orderItemId, LectureObjectionResults.returnCompleted(inquiryId, orderItemId));
 
         await().atMost(TIMEOUT).untilAsserted(() -> assertThat(inquiryRepository.findById(inquiryId))
                 .hasValueSatisfying(inquiry -> {
@@ -191,7 +191,7 @@ class CustomerSupportObjectionKafkaTest {
 
         // 강의 앱이 받은 traceparent를 이어 결과를 보낸 것처럼 보낸다
         String lectureSpanId = TraceRequests.randomSpanId();
-        send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true),
+        send(orderItemId, LectureObjectionResults.resolved(inquiryId, orderItemId, true),
                 TraceRequests.traceparent(traceId, lectureSpanId, true));
         RecordedSpans.await(() -> spans.all().stream()
                 .anyMatch(span -> span.getTraceId().equals(traceId) && span.getKind() == SpanKind.CONSUMER));
@@ -237,7 +237,7 @@ class CustomerSupportObjectionKafkaTest {
             send(orderItemId, new CartItemChangedEvent(new CartItemSyncDto(31L, USER_ID, 11L, true, at, 1L)));
             send(orderItemId, new LectureReviewChangedEvent(new LectureReviewSyncDto(41L, 11L, USER_ID, 5, false,
                     false, 1L)));
-            send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true));
+            send(orderItemId, LectureObjectionResults.resolved(inquiryId, orderItemId, true));
 
             await().atMost(TIMEOUT).untilAsserted(() -> assertThat(inquiryRepository.findById(inquiryId))
                     .hasValueSatisfying(inquiry ->
@@ -259,12 +259,46 @@ class CustomerSupportObjectionKafkaTest {
             sendRaw("order-item:" + orderItemId, "{\"lectureId\":11}", Map.of(
                     "__TypeId__", "com.hapbang.shared.lecture.event.NotYetKnownEvent",
                     CustomerSupportEventExternalizationConfig.EVENT_TYPE, "NotYetKnownEvent"));
-            send(orderItemId, new LectureObjectionResolvedEvent("RESOLVE:" + inquiryId, inquiryId, orderItemId, true));
+            send(orderItemId, LectureObjectionResults.resolved(inquiryId, orderItemId, true));
 
             await().atMost(TIMEOUT).untilAsserted(() -> assertThat(inquiryRepository.findById(inquiryId))
                     .hasValueSatisfying(inquiry ->
                             assertThat(inquiry.getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED)));
             assertNoDeadLetter(deadLetters, "order-item:" + orderItemId);
+        }
+    }
+
+    /**
+     * 강의가 알림용 값(받는 사람 ID·강의 제목·사건 시각·반환 지연 회차, #818)을 더하기 전 형식의 결과도 그대로 처리한다.
+     * 강의 앱이 먼저 배포되기 전에 보낸 메시지와, 배포 전에 저장된 발행 기록을 다시 보낸 메시지가 이 형식이다. 새 필드는 null로 읽힌다
+     */
+    @Test
+    void 새_필드가_없는_옛_형식_강의_결과도_문의에_기록한다() {
+        long orderItemId = 806L;
+        Long inquiryId = LectureObjectionFixture.filed(transactionTemplate, inquiryRepository, USER_ID, orderItemId);
+        inquiryUseCase.resolveObjection(inquiryId, ADMIN_ID, true, "확인 결과 반환합니다.");
+        String key = "order-item:" + orderItemId;
+        try (KafkaConsumer<String, String> deadLetters = consumerAtEnd(objectionResultDeadLetter())) {
+            sendRaw(key, """
+                    {"commandId":"RESOLVE:%d","inquiryId":%d,"orderItemId":%d,"accepted":true}
+                    """.formatted(inquiryId, inquiryId, orderItemId),
+                    Map.of(CustomerSupportEventExternalizationConfig.EVENT_TYPE, "LectureObjectionResolvedEvent"));
+            sendRaw(key, """
+                    {"inquiryId":%d,"orderItemId":%d}
+                    """.formatted(inquiryId, orderItemId),
+                    Map.of(CustomerSupportEventExternalizationConfig.EVENT_TYPE,
+                            "LectureObjectionReturnActionRequiredEvent"));
+            sendRaw(key, """
+                    {"inquiryId":%d,"orderItemId":%d}
+                    """.formatted(inquiryId, orderItemId),
+                    Map.of(CustomerSupportEventExternalizationConfig.EVENT_TYPE, "LectureObjectionReturnCompletedEvent"));
+
+            await().atMost(TIMEOUT).untilAsserted(() -> assertThat(inquiryRepository.findById(inquiryId))
+                    .hasValueSatisfying(inquiry -> {
+                        assertThat(inquiry.getObjectionLinkStatus()).isEqualTo(ObjectionLinkStatus.RESOLVED);
+                        assertThat(inquiry.getHpReturnStatus()).isEqualTo(HpReturnStatus.COMPLETED);
+                    }));
+            assertNoDeadLetter(deadLetters, key);
         }
     }
 

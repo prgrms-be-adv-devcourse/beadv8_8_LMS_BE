@@ -116,7 +116,9 @@ class OrderDiscountSettlementTest {
         assertThat(taskCount(itemId(free))).isZero();
         assertThat(itemStatus(itemId(free))).isEqualTo("RETURNED");
         assertThat(events.stream(LectureObjectionReturnCompletedEvent.class))
-                .containsExactly(new LectureObjectionReturnCompletedEvent(INQUIRY_ID, itemId(free)));
+                .extracting(LectureObjectionReturnCompletedEvent::inquiryId,
+                        LectureObjectionReturnCompletedEvent::orderItemId)
+                .containsExactly(tuple(INQUIRY_ID, itemId(free)));
     }
 
     @Test
