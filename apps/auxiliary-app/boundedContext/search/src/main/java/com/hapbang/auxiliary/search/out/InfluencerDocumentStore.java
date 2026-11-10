@@ -94,6 +94,9 @@ public class InfluencerDocumentStore {
             if (!changed) { ctx.op = 'noop'; }
             """;
 
+    /** 부분 갱신할 문서가 없을 때의 오류 종류 */
+    static final String DOCUMENT_MISSING = "document_missing_exception";
+
     private final ElasticsearchClient client;
 
     public InfluencerDocumentStore(@Qualifier(SearchElasticsearchConfig.CLIENT) ElasticsearchClient client) {
@@ -155,7 +158,7 @@ public class InfluencerDocumentStore {
     /**
      * 통계를 한 번에(bulk) 부분 갱신한다. 문서가 없는 회원은 건너뛴다(넣는 것은 검색 2의 보정). 숨긴 문서와 값이 같은 문서는 noop이다.
      *
-     * 문서 없음(404) 밖의 이유로 실패한 항목(겹친 쓰기가 재시도를 넘김 등)은 {@link WriteOutcome#FAILED}로 돌려주고 나머지는 그대로 반영한다.
+     * 문서 없음({@value #DOCUMENT_MISSING}) 밖의 이유로 실패한 항목(alias가 사라진 404 포함)(겹친 쓰기가 재시도를 넘김 등)은 {@link WriteOutcome#FAILED}로 돌려주고 나머지는 그대로 반영한다.
      * 한 회원 때문에 같은 페이지·뒤 페이지 회원이 갱신되지 못하면 안 된다. 실패한 회원은 다음 회차에 다시 쓴다.
      *
      * @return 회원 ID별 결과
@@ -179,7 +182,8 @@ public class InfluencerDocumentStore {
                 long userId = Long.parseLong(item.id());
                 if (item.error() == null) {
                     outcomes.put(userId, "noop".equals(item.result()) ? WriteOutcome.NOOP : WriteOutcome.UPDATED);
-                } else if (item.status() == 404) {
+                } else if (DOCUMENT_MISSING.equals(item.error().type())) {
+                    // 문서 없음만 건너뛴다. alias·index가 없어서 난 404(index_not_found_exception)는 실패로 센다
                     outcomes.put(userId, WriteOutcome.MISSING);
                 } else {
                     outcomes.put(userId, WriteOutcome.FAILED);

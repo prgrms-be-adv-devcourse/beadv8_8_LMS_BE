@@ -22,7 +22,7 @@ import co.elastic.clients.util.ObjectBuilder;
 class InfluencerDocumentStoreBulkFailureTest {
 
     @Test
-    @DisplayName("문서 없음은 MISSING, 그 밖의 실패는 FAILED로 돌려주고 나머지 결과는 그대로다")
+    @DisplayName("문서 없음만 MISSING이고, alias·index가 없는 404를 포함한 그 밖의 실패는 FAILED다. 나머지 결과는 그대로다")
     void partialFailure() throws Exception {
         ElasticsearchClient client = mock(ElasticsearchClient.class);
         // mock은 final 메서드(빌더를 받는 bulk)까지 가로채므로 store가 부르는 그 메서드를 꾸민다
@@ -34,13 +34,15 @@ class InfluencerDocumentStoreBulkFailureTest {
                 .items(i -> i.operationType(OperationType.Update).index("search-influencers-x").id("3").status(409)
                         .error(e -> e.type("version_conflict_engine_exception").reason("겹침")))
                 .items(i -> i.operationType(OperationType.Update).index("search-influencers-x").id("4").status(200)
-                        .result("noop"))));
+                        .result("noop"))
+                .items(i -> i.operationType(OperationType.Update).index("search-influencers").id("5").status(404)
+                        .error(e -> e.type("index_not_found_exception").reason("alias 없음")))));
 
         Map<Long, WriteOutcome> outcomes = new InfluencerDocumentStore(client).applyStats(List.of(
-                stats(1), stats(2), stats(3), stats(4)));
+                stats(1), stats(2), stats(3), stats(4), stats(5)));
 
         assertThat(outcomes).containsExactlyInAnyOrderEntriesOf(Map.of(1L, WriteOutcome.UPDATED,
-                2L, WriteOutcome.MISSING, 3L, WriteOutcome.FAILED, 4L, WriteOutcome.NOOP));
+                2L, WriteOutcome.MISSING, 3L, WriteOutcome.FAILED, 4L, WriteOutcome.NOOP, 5L, WriteOutcome.FAILED));
     }
 
     private static InfluencerStats stats(long userId) {

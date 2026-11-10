@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hapbang.auxiliary.global.auth.LoginUserId;
 import com.hapbang.auxiliary.global.response.RsData;
 import com.hapbang.auxiliary.search.app.InfluencerSearchFacade;
 import com.hapbang.auxiliary.search.app.dto.InfluencerSearchItem;
@@ -32,6 +33,7 @@ public class ApiV1SearchController implements ApiV1SearchSpec {
     @Override
     @GetMapping("/influencers")
     public RsData<Page<InfluencerSearchItem>> searchInfluencers(
+            @LoginUserId Long userId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) List<String> contentCategories,
             @RequestParam(required = false) Boolean verified,
@@ -39,6 +41,6 @@ public class ApiV1SearchController implements ApiV1SearchSpec {
             @RequestParam(required = false) Double minRating,
             Pageable pageable) {
         return RsData.ok("인플루언서를 검색했습니다.",
-                facade.search(keyword, contentCategories, verified, minFollowers, minRating, pageable));
+                facade.search(userId, keyword, contentCategories, verified, minFollowers, minRating, pageable));
     }
 }

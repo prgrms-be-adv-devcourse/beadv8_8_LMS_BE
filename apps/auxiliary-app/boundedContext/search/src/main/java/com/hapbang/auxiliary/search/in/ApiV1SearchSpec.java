@@ -28,6 +28,7 @@ public interface ApiV1SearchSpec {
             검색할 수 없으면 503 SEARCH_UNAVAILABLE(회원 앱의 인플루언서 목록은 그대로 쓸 수 있다). \
             팔로워·채널·평점은 대개 10분 안에 회원 앱 값을 따라간다. 프로필 사진은 없다(회원 사진 일괄 API로 채운다).""")
     RsData<Page<InfluencerSearchItem>> searchInfluencers(
+            Long userId,
             @Parameter(description = "검색어(최대 100자). 없으면 조건만으로 찾는다", example = "메이플") @Size(max = 100) String keyword,
             @Parameter(description = "콘텐츠 분야 코드(최대 10개). 하나라도 가진 사람(OR), 많이 맞을수록 위",
                     example = "GAME,MAPLESTORY") @Size(max = 10) List<String> contentCategories,

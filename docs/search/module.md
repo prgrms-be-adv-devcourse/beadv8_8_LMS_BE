@@ -20,7 +20,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 `hapbang.search.enabled`(기본 `false`)가 켜져야 검색 모듈의 빈(ES client, 이벤트 소비자, 배치, API)이 하나라도 뜬다. 운영 ES의 검색용 API key(`ES_SEARCH_API_KEY`, #806)가 생기기 전에 병합하려고 둔 장치다. 꺼져 있어도 auxiliary-app(챗봇·알림)은 그대로 뜨고 `search` schema만 생긴다.
 
-**#806이 끝나면 스위치를 켜는 것이 아니라 지운다**: `ConditionalOnSearchEnabled`와 그 사용처, `application.yaml`의 `hapbang.search.enabled`, 모듈 테스트 설정의 `enabled: true`, `AuxiliaryApplicationTest#searchSwitchOff`.
+**#806(검색 key)과 #772(증분 보정)가 모두 끝나면 스위치를 켜는 것이 아니라 지운다**(PR #828 리뷰, #771 Q19). 증분 보정을 기다리는 이유는 5장 "ES가 멈췄을 때"다. 지울 것: `ConditionalOnSearchEnabled`와 그 사용처, `application.yaml`의 `hapbang.search.enabled`, 모듈 테스트 설정의 `enabled: true`, `AuxiliaryApplicationTest#searchSwitchOff`.
 
 ## 3. 구조
 
@@ -83,6 +83,12 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 - 재시도·DLT는 [kafka.md](../architecture/infrastructure/kafka.md) 규칙이다: 1·2·4초 3회 뒤 `member.events.v1.auxiliary-app.search-member.DLT`(partition 3, 보존 7일). 회원 ID·역할·상태가 없는 이벤트는 재시도 없이 DLT로 간다.
 - 새 그룹은 `earliest`부터 읽는다(보존 기간 안의 과거 회원 이벤트로 그동안 승급한 인플루언서가 들어간다).
 
+### ES가 멈췄을 때
+
+- 재시도는 팀 규칙대로 3번(약 7초)이다. ES가 그보다 오래 멈추면(재시작, ECK 롤링) 그동안 온 회원 이벤트가 DLT로 간다. 승급·강등 이벤트가 그중에 있으면 검색 노출이 원본과 어긋난다.
+- #772가 들어오면 10분 증분 보정이 원본과 비교해 저절로 바로잡는다. **그래서 스위치는 #772 뒤에 지운다**(2장). 그 전에 검색을 켜서 DLT가 생겼다면 아래처럼 되돌린다.
+- 되돌리기: [kafka.md "DLT 재처리 runbook"](../architecture/infrastructure/kafka.md#dlt-재처리-runbook)대로 `member.events.v1.auxiliary-app.search-member.DLT`를 조회해, ES가 살아난 뒤 메시지를 `member.events.v1`에 다시 넣는다. 같은 토픽의 다른 그룹(회원 복제본들)도 다시 받지만 version 비교로 무시한다. 검색 문서도 version 조건부 쓰기라 여러 번 넣거나 순서가 섞여도 결과가 같다. 회원 정보가 빠져 DLT로 간 메시지(`IllegalArgumentException`)는 넣지 않는다.
+
 ## 6. 10분 동기화와 정리
 
 - 통계 동기화(한 pod만): 분야 목록을 다시 읽어 **보이는** 문서 중 분야가 있는 문서의 이름을 맞춘다(update_by_query, 바뀐 것만. 숨긴 문서는 일반 유저 가입마다 늘어나 훑지 않는다) → 인플루언서 통계(#769)를 500명씩 끝까지 읽어 bulk 부분 갱신한다. 값이 같거나 숨긴 문서는 noop, 문서가 없는 회원은 건너뛴다(넣는 것은 #772). 결과는 INFO 한 줄(`pages·updated·noop·missing·failed·categoryDocuments`).
@@ -114,10 +120,14 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | --- | --- |
 | `hapbang.search.requests{target, outcome}` | 검색 요청 수. outcome = ok·empty(0건)·error |
 | `hapbang.search.es.latency{target}` | ES 검색 시간(histogram, p95) |
-| `hapbang.search.zero.results{target}` | 검색어가 있는데 0건인 요청 수 |
+| `hapbang.search.zero.results{target}` | 필터 없이 검색어만으로 0건인 요청 수 |
 | `hapbang.auxiliary.job.lock.skipped{job}` | 락 때문에 건너뛴 회차(global) |
 
-- 0건 검색어는 **누가 검색했는지 빼고** 모은다(#771 Q9): 요청에서는 메모리에 세기만 하고, 10분마다 배치 스레드가 `결과가 없던 검색어를 모았다 keywords={…}` 한 줄(상위 100개)로 남긴다. 사전·동의어를 늘릴 근거로 쓴다. pod마다 따로 세고, 앱이 내려가면 남기지 않은 주기분은 사라진다.
+- 0건 검색어는 사전·동의어를 늘릴 근거로 모은다(#771 Q9, PR #828 리뷰 뒤 Q18). 검색어는 남의 이름·닉네임·연락처일 수 있어 조건을 둔다.
+  - **필터 없이 검색어만으로 0건**인 요청만 센다. 필터가 좁아 0건인 것은 사전 문제가 아니다(지표 `zero.results`도 같은 기준).
+  - **서로 다른 회원 2명 이상이 찾은 말만** 로그에 나온다. 한 사람만 입력한 말은 남지 않는다. 회원 ID는 이 판단에만 메모리에서 쓰고(검색어마다 2명까지) 남기지 않는다.
+  - 이메일·URL·전화번호 모양(숫자 8개 이상)과 30자를 넘는 말은 세지 않는다.
+  - 요청에서는 세기만 하고 10분마다 배치 스레드가 `여러 회원이 찾았지만 결과가 없던 검색어를 모았다 keywords={…}` 한 줄(상위 100개)로 남긴다. 그래서 요청의 `userId`·`traceId`가 붙지 않는다. pod마다 따로 세고, 앱이 내려가면 남기지 않은 주기분은 사라진다.
 - rate limit은 두지 않았다. 위 요청 수·p95와 k6 측정을 보고 정한다(#767).
 
 ## 9. 로컬 실행

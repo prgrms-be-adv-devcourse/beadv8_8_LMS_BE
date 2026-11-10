@@ -29,7 +29,7 @@ import lombok.RequiredArgsConstructor;
  *     전체 수도 그만큼까지만 센다.</li>
  *     <li>ES에 닿지 못하면 503 {@code SEARCH_UNAVAILABLE}이다. 회원 앱의 인플루언서 목록({@code GET /api/v1/members/influencers})은
  *     그대로 쓸 수 있다.</li>
- *     <li>검색어가 있는데 0건이면 검색어를 누가 검색했는지 빼고 모은다({@link ZeroResultKeywords}).</li>
+ *     <li>필터 없이 검색어만으로 0건이면 검색어를 모은다({@link ZeroResultKeywords}). 필터가 좁아 0건인 것은 사전·동의어 문제가 아니라 세지 않는다.</li>
  * </ul>
  */
 @Service
@@ -45,8 +45,11 @@ public class InfluencerSearchFacade {
     private final SearchMetrics metrics;
     private final ZeroResultKeywords zeroResultKeywords;
 
+    /**
+     * @param userId 검색한 회원 ID. 0건 검색어를 "서로 다른 회원 몇 명이 찾았는지" 세는 데만 쓰고 남기지 않는다
+     */
     @PreAuthorize(SearchRoles.MEMBER)
-    public Page<InfluencerSearchItem> search(String keyword, List<String> contentCategories, Boolean verified,
+    public Page<InfluencerSearchItem> search(Long userId, String keyword, List<String> contentCategories, Boolean verified,
             Long minFollowers, Double minRating, Pageable pageable) {
         InfluencerSort sort = sort(pageable.getSort());
         if (pageable.getOffset() + pageable.getPageSize() > MAX_RESULT_WINDOW) {
@@ -67,11 +70,17 @@ public class InfluencerSearchFacade {
             throw new SearchException(SearchErrorCode.SEARCH_UNAVAILABLE, e);
         }
         metrics.influencerSearched(result.total() == 0 ? "empty" : "ok", Duration.ofNanos(System.nanoTime() - started));
-        if (result.total() == 0 && condition.keyword() != null) {
+        if (result.total() == 0 && condition.keyword() != null && !hasFilter(condition)) {
             metrics.influencerZeroResult();
-            zeroResultKeywords.record(condition.keyword());
+            zeroResultKeywords.record(condition.keyword(), userId);
         }
         return new PageImpl<>(result.items(), PageRequest.of(condition.page(), condition.size()), result.total());
+    }
+
+    /** 검색어 밖의 조건(분야·인증·팔로워·평점)이 있는지 */
+    static boolean hasFilter(InfluencerSearchCondition condition) {
+        return !condition.contentCategories().isEmpty() || condition.verified() != null
+                || condition.minFollowers() != null || condition.minRating() != null;
     }
 
     /** 고를 수 있는 정렬: 없음(기본), followers,desc, rating,desc */

@@ -186,12 +186,17 @@ class ApiV1SearchControllerTest {
     }
 
     @Test
-    @DisplayName("검색어가 있는데 0건이면 검색어를 모은다")
+    @DisplayName("필터 없이 검색어만으로 0건이면, 로그인 회원 ID로 서로 다른 회원 수를 세어 모은다")
     void collectsZeroResultKeyword() throws Exception {
         mockMvc.perform(as(get(URL).param("keyword", "  롤토체스  "))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content").isEmpty());
+        org.assertj.core.api.Assertions.assertThat(zeroResultKeywords.flush()).isEmpty();
 
-        org.assertj.core.api.Assertions.assertThat(zeroResultKeywords.flush()).containsEntry("롤토체스", 1L);
+        mockMvc.perform(as(get(URL).param("keyword", "롤토체스")));
+        mockMvc.perform(get(URL).param("keyword", "롤토체스").header(GatewayUserHeaderFilter.USER_ID, "101")
+                .header(GatewayUserHeaderFilter.USER_ROLE, "INFLUENCER"));
+
+        org.assertj.core.api.Assertions.assertThat(zeroResultKeywords.flush()).containsEntry("롤토체스", 2L);
     }
 
     private void influencer(long id, String nickname, String role, List<String> codes, String bio, InfluencerStats stats) {
