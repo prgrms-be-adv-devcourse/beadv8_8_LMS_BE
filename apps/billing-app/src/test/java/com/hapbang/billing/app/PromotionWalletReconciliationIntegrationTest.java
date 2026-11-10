@@ -188,7 +188,7 @@ class PromotionWalletReconciliationIntegrationTest {
     }
 
     @Test
-    @DisplayName("대사 배치는 프로모션 불변식 불일치를 불일치 지갑으로 세고 기존 error 표식에 불변식을 함께 남긴다")
+    @DisplayName("대사 배치는 프로모션 불변식 불일치를 불일치 지갑으로 세어 실행 기록에도 MISMATCHED로 남기고, 기존 error 표식에 불변식을 함께 남긴다")
     void batchReportsInvariantMismatch(CapturedOutput output) {
         Long walletId = promotionWithActivity();
         jdbcTemplate.update("""
@@ -199,6 +199,13 @@ class PromotionWalletReconciliationIntegrationTest {
                 Instant.now());
 
         assertThat(result.mismatchedWalletIds()).containsExactly(walletId);
+        // 칸은 모두 맞고 불변식만 틀려도 실행 기록의 문제 지갑에 MISMATCHED로 남는다(차이 내용은 로그에만)
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT wallet_id, result FROM billing.wallet_reconciliation_run_wallet ORDER BY id"))
+                .containsExactly(Map.of("wallet_id", walletId, "result", "MISMATCHED"));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT mismatched_count FROM billing.wallet_reconciliation_run ORDER BY id DESC LIMIT 1", Integer.class))
+                .isOne();
         assertThat(output.getOut()).contains("잔액 대사 불일치 walletId=" + walletId + ", buckets=[], invariants=["
                 + PromotionWalletReconciliation.P3_RESERVED + " 4500 = 4400, " + PromotionWalletReconciliation.P3_HELD
                 + " 0 = 100]");

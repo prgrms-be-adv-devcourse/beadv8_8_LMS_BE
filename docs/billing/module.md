@@ -148,7 +148,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | INV-7 | `refunded_amount_hp + remaining_principal_hp ≤ amount_hp` | `ck_point_charge_4` |
 | INV-8 | 한 보류는 반환·지급·확정 차감 중 허용된 조합으로만 끝나고, 보류 종류별 구성(CHARGE_ONLY는 수익 0, REVENUE_ONLY는 충전 0)을 지킨다 | `ck_point_hold_5`, `HOLD_TYPE_NOT_SUPPORTED` |
 | INV-9 | 닫힌 지갑에는 새로 HP가 드나드는 신청(충전 주문·승인, 보류 생성 = 강의·출연 결제·환불·환전 신청)이 생기지 않는다. 이미 생긴 의무(보류 반환·지급 받기·복구 배치)는 받는다 | 지갑 락 아래 `Wallet.requireOpen`(`ChargeOrderUseCase`, `ChargeProcessing`, `HoldCreateUseCase`) → 409 `WALLET_CLOSED`. 닫힌 지갑에 가용 HP가 들어오면 warn 로그(`LedgerRecordUseCase`) |
-| INV-10 | 프로모션 지갑(#841, 계약 초안 P1·P2·P3): 가용 칸 = Σ PROMOTION_FUND − Σ PROMOTION_WITHDRAW − Σ BUDGET_RESERVE + Σ BUDGET_RELEASE ≥ 0, Σ(예약 총액 − 해제됨) ≤ 순 충전, 예약 칸 = Σ 남은 예산, 보류 칸 = Σ 보류 중, 예약마다 총액 = 남은 + 보류 중 + 지급됨 + 해제됨(각 ≥ 0)이고 예약 원장 = 총액·해제 원장 합 = 해제 기록 합 = 해제됨 | `ck_budget_reservation_1~7`, `ck_wallet_owner`, `ck_point_ledger_reserved_bucket`·`ck_point_ledger_promotion_transaction`, 가용 부족 `PROMOTION_BALANCE_INSUFFICIENT`, `PromotionWalletReconciliation`(대사, `BD-155`) |
+| INV-10 | 프로모션 지갑(#841, 계약 초안 P1·P2·P3): 가용 칸 = Σ PROMOTION_FUND − Σ PROMOTION_WITHDRAW − Σ BUDGET_RESERVE + Σ BUDGET_RELEASE ≥ 0, Σ(예약 총액 − 해제됨) ≤ 순 충전, 예약 칸 = Σ 남은 예산, 보류 칸 = Σ 보류 중, 예약마다 총액 = 남은 + 보류 중 + 지급됨 + 해제됨(각 ≥ 0)이고 예약 원장 = 총액·해제 원장 합 = 해제 기록 합 = 해제됨 | `ck_budget_reservation_1~7`, `ck_wallet_owner`, `ck_point_ledger_reserved_bucket`·`ck_point_ledger_promotion_transaction`, 가용 부족 `PROMOTION_BALANCE_INSUFFICIENT`, `PromotionWalletReconciliation`(대사, `BD-156`) |
 
 환불·환전의 추가 불변식(요청액 = 개별 환불 합 등)은 `apps/billing-app/AGENTS.md` 10.2·11장에 있다.
 
@@ -178,9 +178,9 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 환전·송금 | 지갑 → 환전(`findByIdForUpdate` + refresh) → 보류 → 환전 송금 |
 | 충전 claim | 충전 건만(`FOR NO KEY UPDATE`), 지갑 없음 |
 | 지갑 생성·탈퇴 닫기·다시 열기·파기 | 회원 락(`WalletUserLock`, `pg_advisory_xact_lock(int, int)`, 배치 실행 락과 키 공간 분리) → 지갑. 지갑이 아직 없는 회원의 닫기와 지갑 생성을 직렬화한다 |
-| 프로모션 지갑 충전·회수·예산 예약 | 프로모션 지갑만 (#841, `BD-154`) |
+| 프로모션 지갑 충전·회수·예산 예약 | 프로모션 지갑만 (#841, `BD-155`) |
 | 쿠폰 예산 해제 | 프로모션 지갑 → 예약 행(`findByIdForUpdate`) |
-| 예산 예약 행이 걸린 흐름 공통 | 관련 지갑 전부(구매자·프로모션·판매자 지갑)를 지갑 ID 오름차순(`lockWallets`)으로 먼저 잠근 뒤 예약 행을 쿠폰 ID 오름차순으로 잠근다. 주문 항목 보류·지급·반환 확장(다음 이슈)도 이 규칙을 따른다. 지갑 유형별 고정 순서(구매자 → 프로모션)는 쓰지 않는다: 판매자 지급(프로모션 → 판매자)과 그 판매자의 구매 보류(판매자 → 프로모션)가 겹치면 교착이 생긴다 (`BD-154`) |
+| 예산 예약 행이 걸린 흐름 공통 | 관련 지갑 전부(구매자·프로모션·판매자 지갑)를 지갑 ID 오름차순(`lockWallets`)으로 먼저 잠근 뒤 예약 행을 쿠폰 ID 오름차순으로 잠근다. 주문 항목 보류·지급·반환 확장(다음 이슈)도 이 규칙을 따른다. 지갑 유형별 고정 순서(구매자 → 프로모션)는 쓰지 않는다: 판매자 지급(프로모션 → 판매자)과 그 판매자의 구매 보류(판매자 → 프로모션)가 겹치면 교착이 생긴다 (`BD-155`) |
 | 모듈 간 | 없다. database가 나뉘어 한 트랜잭션 안에 다른 모듈 락이 없다(`BD-72` 폐기 → `BD-142`) |
 
 `lock_timeout`은 3초다(연결마다 `SET lock_timeout = '3s'`, `billing.yml`, `BD-108`).
@@ -202,8 +202,8 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | 환전 반환·확정 차감 요청 ID | `EXCHANGE-CANCEL-{id}`, `EXCHANGE-REJECT-{id}`, `EXCHANGE-PAYOUT-{id}`, `EXCHANGE-PAYOUT-FAIL-{id}`(최종 실패 반환) | 보류 상세 UNIQUE |
 | 환전 수수료 수입 | 원장 작업 키 `EXCHANGE_FEE:{exchangeId}` (환전당 1건, #336) | `uk_point_ledger_idempotency_key` |
 | 환전 송금 시도 | 시도마다 새 UUID(`payout_request_id`), 결과 불명확 시 같은 ID로만 조회·재전송 | `uk_exchange_payout_active`(FAILED 아닌 시도 1건) |
-| 프로모션 충전·회수 | 관리자가 준 `fundingWorkId`·`withdrawalWorkId`(`[A-Za-z0-9_-]{1,200}`). 원장 작업 키 `PROMOTION_FUND:{충전 기록 ID}`·`PROMOTION_WITHDRAW:{회수 기록 ID}` (#841, `BD-147`·`BD-150`) | `uk_promotion_funding_funding_work_id`, `uk_promotion_withdrawal_withdrawal_work_id` |
-| 쿠폰 예산 예약·해제 | 쿠폰이 준 `workId`(예약·해제가 한 이름 공간). 원장 작업 키 `BUDGET_RESERVE:{예약 ID}`·`BUDGET_RELEASE:{해제 기록 ID}`. 예약은 쿠폰당 1건 (#841, `BD-153`) | `uk_budget_reservation_work_id`·`uk_budget_reservation_coupon_id`, `uk_budget_release_work_id` |
+| 프로모션 충전·회수 | 관리자가 준 `fundingWorkId`·`withdrawalWorkId`(`[A-Za-z0-9_-]{1,200}`). 원장 작업 키 `PROMOTION_FUND:{충전 기록 ID}`·`PROMOTION_WITHDRAW:{회수 기록 ID}` (#841, `BD-148`·`BD-151`) | `uk_promotion_funding_funding_work_id`, `uk_promotion_withdrawal_withdrawal_work_id` |
+| 쿠폰 예산 예약·해제 | 쿠폰이 준 `workId`(예약·해제가 한 이름 공간). 원장 작업 키 `BUDGET_RESERVE:{예약 ID}`·`BUDGET_RELEASE:{해제 기록 ID}`. 예약은 쿠폰당 1건 (#841, `BD-154`) | `uk_budget_reservation_work_id`·`uk_budget_reservation_coupon_id`, `uk_budget_release_work_id` |
 | 탈퇴 닫기·다시 열기 | 회원 앱의 탈퇴 작업 ID. 같은 회원 재요청은 처음 결과(`replayed`), 다른 회원은 `IDEMPOTENCY_KEY_CONFLICT`, 다시 열기를 받은 탈퇴 작업의 늦은 닫기는 409 `WITHDRAWAL_ALREADY_REOPENED` | `pk_wallet_withdrawal` |
 
 같은 키에 다른 내용 = `IDEMPOTENCY_KEY_CONFLICT`. 같은 키·같은 내용 = 처음 결과(`replayed=true`).
@@ -263,7 +263,7 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | --- | --- |
 | 대상 | 지금 − 창(`hapbang.billing.reconciliation.window`, 72h) 이후 수정된 지갑 ∪ 원장이 기록된 지갑. 플랫폼·프로모션 지갑 포함. 실행 시점을 저장하지 않으므로 두 회차를 연달아 건너뛰어도 놓치지 않는다. 창보다 오래 바뀌지 않은 지갑은 보지 않는다 |
 | 인덱스 | `idx_wallet_1 (updated_at)`, `idx_point_ledger_5 (created_at)` (`V202611031800`) |
-| 비교 | HP 종류에 있는 칸만(지갑마다 8칸). 프로모션 지갑은 불변식 INV-10도 같은 스냅숏에서 본다(`PromotionWalletReconciliation`, `BD-155`). 예약 행만 바뀌고 지갑·원장이 바뀌지 않은 불일치는 다음에 프로모션 지갑이 바뀔 때 잡힌다 |
+| 비교 | HP 종류에 있는 칸만(지갑마다 8칸). 프로모션 지갑은 불변식 INV-10도 같은 스냅숏에서 본다(`PromotionWalletReconciliation`, `BD-156`). 불변식만 틀려도 그 지갑은 불일치라 실행 기록에 `MISMATCHED`로 남는다(내용은 로그에만). 예약 행만 바뀌고 지갑·원장이 바뀌지 않은 불일치는 다음에 프로모션 지갑이 바뀔 때 잡힌다 |
 | 불일치 | error 로그 `잔액 대사 불일치 walletId=…, buckets=[CHARGE/AVAILABLE wallet=… ledger=… diff=…], invariants=[P3_RESERVED 4500 = 4400, …]`(맞지 않는 칸·불변식만) |
 | 지갑 하나의 오류 | warn 로그 후 계속. 전체를 돈 뒤 한 번 더 시도하고, 그래도 실패하면 `failed`로 세고 다음 회차 대상에 창과 관계없이 더한다 |
 | 이월 | 회차 시작 때 가장 최근 실행 기록의 `FAILED` 지갑(`WalletReconciliationRunRecorder.lastFailedWalletIds`)을 대상에 더한다. pod 메모리에 두지 않아 재시작에도 남는다. 읽지 못하면 warn 로그 `잔액 대사 이월 지갑을 읽지 못해 이월 없이 대사한다` 후 창 안의 지갑만 대사한다 |
@@ -337,11 +337,11 @@ apps/billing-app/src/main/java/com/hapbang/billing/
 | `/api/v1/settlements/admin/exchanges/**` (목록·상세·승인·거절·송금 목록·재확인·재시도·최종 실패) | ADMIN | |
 | `POST /api/v1/settlements/admin/billing-users/backfill` | ADMIN | |
 | `GET /api/v1/settlements/admin/platform-wallet`, `GET …/platform-wallet/fee-incomes` | ADMIN | 수수료 수입 잔액·내역 (#336) |
-| `GET /api/v1/settlements/admin/promotion-wallet`, `POST …/promotion-wallet/fundings`·`…/withdrawals` | ADMIN | 프로모션 지갑 칸별 잔액, 관리자 충전·회수(201, 재요청도 201) (#841, `BD-148`~`BD-150`) |
+| `GET /api/v1/settlements/admin/promotion-wallet`, `POST …/promotion-wallet/fundings`·`…/withdrawals` | ADMIN | 프로모션 지갑 칸별 잔액, 관리자 충전·회수(201, 재요청도 201) (#841, `BD-149`~`BD-151`) |
 | `POST·GET /api/v1/wallets/mock-payouts/**` | `X-Mock-Payout-Key` | Swagger 숨김, local·test 전용 |
 | `POST /api/v1/internal/billing/holds`·`releases`·`payouts`·`penalty-settlements`·`hold-voids` | `X-Internal-Api-Key` (ROLE_INTERNAL) | [`internal-billing.md`](../api/internal-billing.md). `hold-voids`는 #479 |
 | `POST /api/v1/internal/billing/holds/query`, `GET /api/v1/internal/billing/holds` | `X-Internal-Api-Key` | 서비스 간 HP 대사용 보류·지급 조회(#577, `BD-137`). `GET`은 참조 유형별 기간 키셋 페이지(`idx_point_hold_2`) |
-| `POST /api/v1/internal/billing/promotion-budgets/reservations`·`…/releases`, `GET …/promotion-budgets/works/{workId}`·`…/reservations/{reservationId}` | `X-Internal-Api-Key` (ROLE_INTERNAL) | 쿠폰 예산 예약·해제·작업 조회·예약 조회(#841, `BD-151`~`BD-153`). [`internal-billing.md`](../api/internal-billing.md) 5장 |
+| `POST /api/v1/internal/billing/promotion-budgets/reservations`·`…/releases`, `GET …/promotion-budgets/works/{workId}`·`…/reservations/{reservationId}` | `X-Internal-Api-Key` (ROLE_INTERNAL) | 쿠폰 예산 예약·해제·작업 조회·예약 조회(#841, `BD-152`~`BD-154`). [`internal-billing.md`](../api/internal-billing.md) 5장 |
 | `POST /api/v1/internal/billing/withdrawals/{withdrawalId}/close`, `…/reopen` | `X-Internal-Api-Key` (ROLE_INTERNAL) | 회원 탈퇴용 지갑 닫기·다시 열기(#623, `BD-141`). [`internal-withdrawals.md`](../api/internal-withdrawals.md) 4장 |
 
 U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 + Facade `@PreAuthorize` 두 겹이다. 내부 API(`/api/v1/internal/billing/**`)는 내부 API 키로 인증하고 Envoy route가 없다.
@@ -364,11 +364,11 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | `wallet_withdrawal` (탈퇴 기록), (`wallet.closed_by_withdrawal_id`·`closed_at`, `ck_wallet_closed`, `idx_wallet_2`) | `V202611032000` (#623) |
 | (`ck_wallet_closed`를 "탈퇴 작업 ID가 있으면 닫은 시각도 있다"로, `idx_wallet_2`를 `closed_at` 기준으로) | `V202611041200` (#674, `BD-145`) |
 | `wallet_reconciliation_run` (잔액 대사 실행 기록, `idx_wallet_reconciliation_run_1 (started_at)`), `wallet_reconciliation_run_wallet` (문제 지갑, FK `run_id`, UNIQUE `(run_id, wallet_id)`, `ck_wallet_reconciliation_run_wallet_result`) | `V202611101530` (#822, `BD-146`) |
-| `promotion_funding`, `promotion_withdrawal`, `budget_reservation`, `budget_release`, (`wallet.promotion_balance_hp`·`reserved_promotion_hp`·`held_promotion_hp`, 프로모션 지갑 행, `uk_wallet_promotion`, 지갑 유형·원장 HP 종류·칸·거래 유형·참조 유형 CHECK 확장, `ck_point_ledger_reserved_bucket`·`ck_point_ledger_promotion_transaction`) | `V202611101200` (#841, `BD-146`·`BD-147`) |
+| `promotion_funding`, `promotion_withdrawal`, `budget_reservation`, `budget_release`, (`wallet.promotion_balance_hp`·`reserved_promotion_hp`·`held_promotion_hp`, 프로모션 지갑 행, `uk_wallet_promotion`, 지갑 유형·원장 HP 종류·칸·거래 유형·참조 유형 CHECK 확장, `ck_point_ledger_reserved_bucket`·`ck_point_ledger_promotion_transaction`) | `V202611101700` (#841, `BD-147`·`BD-148`) |
 | `event_publication`, `event_publication_archive` (Modulith 발행 기록) | #471(`V202610301400`)에서 지웠다가 #497에서 다시 쓴다. Flyway가 아니라 Modulith 스키마 초기화가 만든다(엔티티 아님). `V202610301400`의 첫 줄 주석("지갑은 Spring Event를 발행하지도 받지도 않는다")은 #471 당시 기준이다. 적용된 Flyway는 주석도 체크섬에 들어가므로 고치지 않는다(#564, `BD-130`) |
 
 - 나머지 마이그레이션(`V202610131930`~`V202610162100`)은 기존 테이블의 제약·컬럼 변경이다.
-- `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록은 최초 마이그레이션 기준이다. 이후 결정(`BD-99`·`BD-103`·`BD-114`·`BD-125`·`BD-141`·`BD-145`·`BD-146`)으로 테이블·컬럼이 늘었다.
+- `apps/billing-app/AGENTS.md` 3장의 "12개 테이블" 목록은 최초 마이그레이션 기준이다. 이후 결정(`BD-99`·`BD-103`·`BD-114`·`BD-125`·`BD-141`·`BD-145`·`BD-146`·`BD-147`)으로 테이블·컬럼이 늘었다.
 - Flyway 설정: `baseline-on-migrate`, `baseline-version: 0`, `out-of-order: true`.
 
 ### 8.3 Database 분리
@@ -532,4 +532,4 @@ U = USER, I = INFLUENCER, VI = VERIFIED_INFLUENCER. 관리자 API는 URL 규칙 
 | 2026-11-06 | 40fa9b25 | Billing 문서 정리: #623 탈퇴 지갑 닫기·다시 열기(`wallet_withdrawal`, `WALLET_CLOSED`, 내부 API close·reopen, BD-141)와 #674 파기(`WalletMaskingUseCase`, `closed_at`, `V202611041200`, BD-144·BD-145) 반영(1.1, 1.2, 3, INV-9, 5, 6, 7.1, 8.1, 8.2, L11·L12). 테이블 16개 + Modulith 2개·Flyway 19개(8.2), Enum(`PointType` FEE, `EXCHANGE_FEE`, `WalletType`) 보정, 아키텍처 테스트 둘(2), Backfill 동시 실행 방지를 실행 락으로 고침(6), 대사 조회·탈퇴 내부 API를 8.1에 추가, 환경별 database·스키마 구분(8.2·8.3), 7.2를 남은 목표만으로 줄임, 해소된 제약 행 삭제(10), 용어 정리("가상 송금" → "환전 송금", "회원 복제본" → "지갑 회원") |
 | 2026-11-06 | 40fa9b25 | 옛 PROGRESS·CONTEXT에서 옮김: 기능별 진입점 표(2.1, 18행), 오류 코드 표 73개(8.4, 옛 PROGRESS 5장 + 코드), 이벤트 발행 세부(토픽·헤더·재발행 설정, 7.1, 옛 CONTEXT 9.1). rate limit 14개·8.1 권한을 코드와 대조(차이 없음) |
 | 2026-11-10 | (#822 브랜치) | #822 잔액 대사 실행 기록·기동 시 지표 복원·이월 DB화(2.1, 6.2, 8.2, BD-146). 테이블 18개 + Modulith 2개·Flyway 20개 |
-| 2026-11-10 | cda35d7c | #841 프로모션 지갑: 관리자 충전·회수·조회, 쿠폰 예산 예약·해제·조회 내부 API, 대사 불변식 INV-10(1.1, 2.1, 3.1, 3.2, 4, 5.2, 5.3, 6.2, 8.1, 8.2, 8.4). 결정은 `BD-146`~`BD-155` |
+| 2026-11-10 | cda35d7c | #841 프로모션 지갑: 관리자 충전·회수·조회, 쿠폰 예산 예약·해제·조회 내부 API, 대사 불변식 INV-10(1.1, 2.1, 3.1, 3.2, 4, 5.2, 5.3, 6.2, 8.1, 8.2, 8.4). 결정은 `BD-147`~`BD-156` |
