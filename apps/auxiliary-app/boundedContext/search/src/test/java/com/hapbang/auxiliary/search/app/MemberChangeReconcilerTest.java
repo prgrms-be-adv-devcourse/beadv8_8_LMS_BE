@@ -17,6 +17,7 @@ import com.hapbang.auxiliary.search.app.MemberChangeReconciler.ReconcileResult;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
+import com.hapbang.auxiliary.search.out.MemberChangeSource;
 import com.hapbang.auxiliary.search.out.SyncCursor;
 import com.hapbang.auxiliary.search.support.FakeMemberChangeSource;
 import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
@@ -25,6 +26,7 @@ import com.hapbang.auxiliary.search.support.InMemorySyncCursorStore;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.dto.MemberChangePageDto;
 import com.hapbang.shared.member.dto.UserDto;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -225,6 +227,64 @@ class MemberChangeReconcilerTest {
         assertThat(result.count(ReconcileKind.SKIPPED)).isEqualTo(1);
         assertThat(result.count(ReconcileKind.INSERTED)).isEqualTo(1);
         assertThat(cursors.find(CURSOR).orElseThrow().memberId()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("ES가 한 회원의 문서를 내용 때문에 거절하면(400) 그 회원만 건너뛰고 커서를 넘긴다")
+    void skipsRejectedDocument() throws Exception {
+        cursors.moveTo(CURSOR, SAVED, 9L);
+        // keyword 한 칸에 32,766바이트를 넘는 값은 Lucene이 받지 않아 ES가 400으로 거절한다
+        source.change(SAVED.plusMinutes(1), influencer(1L, 1L, List.of("A".repeat(40_000))))
+                .change(SAVED.plusMinutes(2), influencer(2L, 1L, List.of("GAME")));
+
+        ReconcileResult result = reconciler.reconcile(null);
+
+        assertThat(result.count(ReconcileKind.SKIPPED)).isEqualTo(1);
+        assertThat(result.count(ReconcileKind.INSERTED)).isEqualTo(1);
+        assertThat(exists(1L)).isFalse();
+        assertThat(cursors.find(CURSOR)).contains(new SyncCursor(CURSOR, SAVED.plusMinutes(2), 2L, NOW));
+    }
+
+    @Test
+    @DisplayName("회원 앱이 다음 커서 없이 hasNext=true를 주면 같은 요청을 반복하지 않고 회차를 멈춘다(커서 그대로)")
+    void rejectsPageWithoutNextCursor() {
+        cursors.moveTo(CURSOR, SAVED, 9L);
+        int[] calls = {0};
+        MemberChangeSource broken = (afterUpdatedAt, afterId, size) -> {
+            calls[0]++;
+            return new MemberChangePageDto(List.of(), null, null, true);
+        };
+        MemberChangeReconciler withBrokenSource = new MemberChangeReconciler(indexSetup, store, indexer, broken,
+                cursors, null, new SearchSyncMetrics(registry, cursors, clock), clock);
+
+        assertThatThrownBy(() -> withBrokenSource.reconcile(null)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("다음 커서");
+        assertThat(calls[0]).isEqualTo(1);
+        assertThat(cursors.find(CURSOR)).contains(new SyncCursor(CURSOR, SAVED, 9L, null));
+    }
+
+    @Test
+    @DisplayName("runFrom은 끝까지 따라잡았을 때만 true다. 중간에 실패하면 false다(#773이 성공으로 착각하지 않게)")
+    void runFromReportsCaughtUp() {
+        SearchJobRunner swallowing = new SearchJobRunner(null) {
+            @Override
+            public boolean run(SearchJob job, Runnable task) {
+                try {
+                    task.run();
+                } catch (RuntimeException e) {
+                    // 실제 SearchJobRunner처럼 실패를 삼키고 실행했다고 답한다
+                }
+                return true;
+            }
+        };
+        MemberChangeReconciler locked = new MemberChangeReconciler(indexSetup, store, indexer, source, cursors,
+                swallowing, new SearchSyncMetrics(registry, cursors, clock), clock);
+        source.change(SAVED.plusMinutes(1), influencer(1L, 1L, List.of("GAME")));
+
+        assertThat(locked.runFrom(SAVED)).isTrue();
+
+        source.failOnCall(source.requests().size() + 1);
+        assertThat(locked.runFrom(SAVED)).isFalse();
     }
 
     private static UserDto influencer(long id, long version, List<String> categories) {

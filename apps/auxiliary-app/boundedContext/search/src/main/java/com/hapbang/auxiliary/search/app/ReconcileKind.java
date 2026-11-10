@@ -17,7 +17,7 @@ public enum ReconcileKind {
     VERSION_ONLY("version_only"),
     /** 이미 같거나 더 새 version이라 바꾸지 않았다(이벤트로 반영됨, 겹쳐 읽은 회원) */
     ALREADY_APPLIED("already_applied"),
-    /** 회원 ID·역할·상태가 빠진 정보라 건너뛰었다(다시 읽어도 같다) */
+    /** 회원 ID·역할·상태가 빠진 정보이거나 ES가 문서 내용 때문에 거절해 건너뛰었다(다시 해도 같다) */
     SKIPPED("skipped");
 
     private final String tag;

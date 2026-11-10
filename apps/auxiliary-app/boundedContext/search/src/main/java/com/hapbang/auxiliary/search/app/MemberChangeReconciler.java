@@ -7,12 +7,14 @@ import java.time.ZoneId;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.search.app.InfluencerMemberIndexer.MemberIndexResult;
 import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
+import com.hapbang.auxiliary.search.out.DocumentRejectedException;
 import com.hapbang.auxiliary.search.out.IndexedMember;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
@@ -39,7 +41,8 @@ import lombok.extern.slf4j.Slf4j;
  *     보정한 회원은 INFO 한 줄을 남긴다.</li>
  *     <li><b>바깥에서 시작 시각 정하기</b>: {@link #runFrom}(#773 재색인 뒤 따라잡기).</li>
  * </ul>
- * 한계: 회원 이벤트가 도착하기 직전(보통 1초 안)에 보정이 먼저 같은 변경을 읽으면 놓친 이벤트가 아닌데도 보정으로 센다.
+ * 한계: 보정 건수는 페이지 앞에서 한 번 읽은 문서와 비교한다. 그 페이지를 반영하는 몇 초 사이에 같은 회원의 이벤트가 먼저 반영되면(이벤트 도착 직전에
+ * 보정이 읽었거나, 같은 회원이 몇 초 안에 두 번 바뀜) 놓친 이벤트가 아닌데도 보정으로 셀 수 있다.
  */
 @Slf4j
 @Service
@@ -96,21 +99,28 @@ public class MemberChangeReconciler {
      * 여유는 부르는 쪽이 넣는다(T − 1분). 정기 회차와 같은 락을 쓴다.
      *
      * @param from 이 시각 뒤에 바뀐 회원부터 읽는다(회원 앱 시간대)
-     * @return 실행했으면 true, 다른 회차가 돌고 있어 건너뛰었으면 false(커서도 그대로)
+     * @return 끝까지 따라잡았으면 true. 다른 회차가 돌고 있어 건너뛰었거나(커서 그대로) 중간에 실패했으면(WARN, 커서는 마지막으로 끝낸 페이지) false
      */
     public boolean runFrom(LocalDateTime from) {
         Objects.requireNonNull(from, "from은 필수입니다.");
-        return jobRunner.run(SearchJob.MEMBER_RECONCILE, () -> reconcile(from));
+        AtomicBoolean caughtUp = new AtomicBoolean();
+        jobRunner.run(SearchJob.MEMBER_RECONCILE, () -> {
+            reconcile(from);
+            caughtUp.set(true);
+        });
+        return caughtUp.get();
     }
 
     /**
-     * 보정한다. 테스트는 락 없이 바로 부른다.
+     * 보정한다. 락 없이 돌므로 바깥에서는 {@link #run}·{@link #runFrom}만 부른다(커서를 함께 쓰는 회차가 겹치지 않게). 테스트는 같은 패키지에서
+     * 바로 부른다.
      *
      * @param from 바깥에서 정한 시작 시각. null이면 저장한 커서 − 1분(없으면 지금 시각)부터
-     * @throws IllegalStateException                                 ES에 읽거나 쓰지 못한 경우(커서는 마지막으로 끝낸 페이지에 있다)
+     * @throws IllegalStateException                                 ES에 읽거나 쓰지 못한 경우, 회원 앱 응답의 다음 커서가 빠진 경우
+     *                                                               (커서는 마지막으로 끝낸 페이지에 있다)
      * @throws com.hapbang.shared.member.out.MemberApiCallException 회원 앱을 부르지 못한 경우
      */
-    public ReconcileResult reconcile(LocalDateTime from) {
+    ReconcileResult reconcile(LocalDateTime from) {
         long started = System.nanoTime();
         try {
             ReconcileResult result = reconcileOnce(from);
@@ -133,6 +143,7 @@ public class MemberChangeReconciler {
         MemberChangePageDto page;
         do {
             page = source.changes(afterUpdatedAt, afterId, PAGE_SIZE);
+            requireNextCursor(page);
             applyPage(page, counts);
             pages++;
             read += page.items().size();
@@ -170,6 +181,20 @@ public class MemberChangeReconciler {
         return cursor.readFrom(OVERLAP);
     }
 
+    /**
+     * 다음 커서가 빠진 응답을 거절한다(#769 계약: 항목이 있으면 커서를 주고, 빈 페이지는 hasNext=false). 받아들이면 같은 커서로 끝없이 다시 부르거나
+     * 커서를 저장하지 못한다.
+     */
+    private static void requireNextCursor(MemberChangePageDto page) {
+        boolean noCursor = page.nextAfterUpdatedAt() == null || page.nextAfterId() == null;
+        boolean partialCursor = (page.nextAfterUpdatedAt() == null) != (page.nextAfterId() == null);
+        if (partialCursor || (noCursor && (page.hasNext() || !page.items().isEmpty()))) {
+            throw new IllegalStateException("회원 변경분 응답에 다음 커서가 없습니다 items=" + page.items().size()
+                    + ", hasNext=" + page.hasNext() + ", nextAfterUpdatedAt=" + page.nextAfterUpdatedAt()
+                    + ", nextAfterId=" + page.nextAfterId());
+        }
+    }
+
     private void applyPage(MemberChangePageDto page, Map<ReconcileKind, Long> counts) {
         Map<Long, IndexedMember> before = documentStore.findMembers(page.items().stream()
                 .map(UserDto::id).filter(Objects::nonNull).distinct().toList());
@@ -186,6 +211,10 @@ public class MemberChangeReconciler {
         } catch (IllegalArgumentException e) {
             // 회원 정보가 빠졌다. 다시 읽어도 같으므로 건너뛰고 다음 회원을 계속한다(멈추면 커서가 영영 넘어가지 못한다)
             log.warn("회원 정보가 빠져 검색 보정에서 건너뛴다 userId={}", user.id(), e);
+            return ReconcileKind.SKIPPED;
+        } catch (DocumentRejectedException e) {
+            // ES가 이 회원의 문서를 내용 때문에 거절했다. 다시 써도 같으므로 건너뛴다. ES 장애는 여기에 들지 않아 회차를 멈춘다
+            log.warn("ES가 거절해 검색 보정에서 건너뛴다 userId={}", user.id(), e);
             return ReconcileKind.SKIPPED;
         }
         ReconcileKind kind = result.outcome() == WriteOutcome.NOOP

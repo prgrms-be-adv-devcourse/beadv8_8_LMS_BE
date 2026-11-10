@@ -198,10 +198,14 @@ class InfluencerStatsSyncTest {
     }
 
     @Test
-    @DisplayName("정합성 점검: 보이는 문서 수를 세지 못해도 통계 동기화는 끝내고 점검만 건너뛴다(-1)")
+    @DisplayName("정합성 점검: 보이는 문서 수를 세지 못해도 통계 동기화는 끝내고 점검만 건너뛴다(-1). 지난 차이는 지표에서 지운다")
     void consistencySkippedWhenCountFails() throws Exception {
         store.show(1L, 1L, profile());
         source.influencer(1L, 4.5, 2);
+        refresh();
+        sync.sync();
+        assertThat(differenceGauge()).isZero();
+        source.reset().influencer(1L, 4.0, 3);
         InfluencerDocumentStore countFails = new InfluencerDocumentStore(client) {
             @Override
             public long countVisible() {

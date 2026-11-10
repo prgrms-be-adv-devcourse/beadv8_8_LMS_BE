@@ -102,6 +102,9 @@ public class InfluencerDocumentStore {
     static final List<String> MEMBER_FIELDS = List.of("memberVersion", "hidden", "nickname", "bio", "role",
             "contentCategories.code");
 
+    /** ES가 요청 내용 때문에 거절한 상태 코드({@link DocumentRejectedException}) */
+    static final int REJECTED_STATUS = 400;
+
     /** 부분 갱신할 문서가 없을 때의 오류 종류 */
     static final String DOCUMENT_MISSING = "document_missing_exception";
 
@@ -115,6 +118,8 @@ public class InfluencerDocumentStore {
      * 정상 인플루언서의 프로필을 넣거나 덮는다(숨김을 푼다).
      *
      * @param version 회원 version. 모르면 null
+     * @throws DocumentRejectedException ES가 요청 내용 때문에 거절한 경우(다시 써도 같다)
+     * @throws IllegalStateException     그 밖에 쓰지 못한 경우
      */
     public WriteOutcome show(long userId, Long version, MemberProfile profile) {
         Map<String, Object> fields = new HashMap<>();
@@ -318,7 +323,13 @@ public class InfluencerDocumentStore {
                     .script(s -> s.source(src -> src.scriptString(MEMBER_SCRIPT)).params(params)), Map.class)
                     .result();
             return outcome(result);
-        } catch (IOException | ElasticsearchException e) {
+        } catch (ElasticsearchException e) {
+            if (e.status() == REJECTED_STATUS) {
+                throw new DocumentRejectedException("ES가 검색 문서를 거절했습니다 userId=" + userId + ", error="
+                        + e.error().type(), e);
+            }
+            throw new IllegalStateException("검색 문서를 쓰지 못했습니다 userId=" + userId, e);
+        } catch (IOException e) {
             throw new IllegalStateException("검색 문서를 쓰지 못했습니다 userId=" + userId, e);
         }
     }

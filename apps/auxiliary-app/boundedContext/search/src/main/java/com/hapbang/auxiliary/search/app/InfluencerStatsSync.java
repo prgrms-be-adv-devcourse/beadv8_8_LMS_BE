@@ -52,6 +52,21 @@ public class InfluencerStatsSync {
 
     /** 맞춘다. 테스트는 락 없이 바로 부른다 */
     public StatsSyncResult sync() {
+        try {
+            StatsSyncResult result = syncOnce();
+            if (result.consistencyChecked()) {
+                metrics.consistencyChecked(result.difference());
+            } else {
+                metrics.consistencyUnknown();
+            }
+            return result;
+        } catch (RuntimeException e) {
+            metrics.consistencyUnknown();
+            throw e;
+        }
+    }
+
+    private StatsSyncResult syncOnce() {
         indexSetup.ensureReady();
         long categoryDocuments = syncCategoryNames();
 
@@ -76,9 +91,6 @@ public class InfluencerStatsSync {
                         + "sourceInfluencers={}, indexVisible={}", result.pages(), result.updated(), result.noop(),
                 result.missing(), result.failed(), result.categoryDocuments(), result.sourceInfluencers(),
                 result.indexVisible());
-        if (result.consistencyChecked()) {
-            metrics.consistencyChecked(result.difference());
-        }
         return result;
     }
 

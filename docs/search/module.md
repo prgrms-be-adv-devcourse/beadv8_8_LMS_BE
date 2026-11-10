@@ -122,13 +122,14 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | `overwritten` | 보이는 회원의 닉네임·자기소개·역할·분야를 고쳤다 | 프로필 변경 |
 | `version_only` | 보이는 내용은 같고 version만 올렸다(사진 변경, 일반 유저의 숨김 문서) | - |
 | `already_applied` | 이미 같거나 더 새 version이라 noop(이벤트가 반영, 겹쳐 읽음) | - |
-| `skipped` | 회원 ID·역할·상태가 빠진 정보. WARN을 남기고 다음 회원을 계속한다 | - |
+| `skipped` | 회원 ID·역할·상태가 빠진 정보, 또는 ES가 문서 내용 때문에 거절(400). WARN을 남기고 다음 회원을 계속한다(멈추면 커서가 그 페이지를 넘지 못한다) | - |
 
 - `inserted`·`hidden`·`overwritten`은 회원마다 INFO 한 줄(`userId`, `kind`, `memberVersion`)을 남겨 누구의 이벤트가 빠졌는지 찾게 한다. 회차마다 INFO 한 줄로 종류별 건수와 마지막 커서를 남긴다.
-- 실패: ES·회원 앱을 부르지 못하면 회차를 멈춘다(WARN, 다음 회차에 저장한 커서부터). 같은 페이지를 다시 반영해도 version으로 걸러진다.
-- **바깥에서 시작 시각 정하기**: `MemberChangeReconciler.runFrom(시각)`은 커서를 그 시각(회원 ID 0)으로 옮기고 한 번 돈다. #773이 새 index로 alias를 바꾼 뒤 "시각 T 이후 따라잡기"에 쓴다. 겹쳐 읽기를 빼지 않으므로 여유는 부르는 쪽이 넣는다(T − 1분). 정기 회차와 같은 락이라 돌고 있으면 건너뛰고 `false`를 돌려준다.
+- 실패: ES·회원 앱을 부르지 못하면(연결 실패, 5xx, 429) 회차를 멈춘다(WARN, 다음 회차에 저장한 커서부터). 같은 페이지를 다시 반영해도 version으로 걸러진다. 회원 앱 응답에 다음 커서가 빠졌으면(#769 계약 위반) 같은 요청을 반복하지 않고 회차를 멈춘다.
+- **바깥에서 시작 시각 정하기**: `MemberChangeReconciler.runFrom(시각)`은 커서를 그 시각(회원 ID 0)으로 옮기고 한 번 돈다. #773이 새 index로 alias를 바꾼 뒤 "시각 T 이후 따라잡기"에 쓴다. 겹쳐 읽기를 빼지 않으므로 여유는 부르는 쪽이 넣는다(T − 1분). 정기 회차와 같은 락이다. **끝까지 따라잡았을 때만 `true`**이고, 다른 회차가 돌고 있어 건너뛰었거나 중간에 실패했으면 `false`다. 락 없이 도는 `reconcile`은 바깥에서 부르지 않는다(package-private).
 - 한계
-  - 회원 이벤트가 도착하기 직전(보통 1초 안)에 보정이 먼저 같은 변경을 읽으면, 놓친 이벤트가 아닌데도 보정으로 센다.
+  - 보정 건수는 페이지 앞에서 한 번 읽은 문서와 비교한다. 그 페이지(최대 500명)를 반영하는 몇 초 사이에 같은 회원의 이벤트가 먼저 반영되면(이벤트 도착 직전에 보정이 읽었거나, 같은 회원이 몇 초 안에 두 번 바뀜) 놓친 이벤트가 아닌데도 보정으로 셀 수 있다.
+  - 회원마다 ES 요청 1번이다(이벤트와 같은 반영 코드). 평소 10분 변경은 적고 장애 뒤 수천 명이어도 수 초다. 길어지면 `reconcile.duration`으로 보고 bulk를 검토한다.
   - 저장부터 커밋까지 1분 넘게 걸린 회원 변경은 겹쳐 읽기 밖이라 놓칠 수 있다. 그때는 회원 이벤트가 반영한다(#769).
   - 회원 앱이 여러 대가 되면 서버끼리 시계 차이도 1분 안이어야 한다(#769).
 
@@ -161,7 +162,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | `hapbang.search.reconcile.members{kind}` | 증분 보정이 반영한 회원 수(6장 표). inserted·hidden·overwritten이 놓친 이벤트이고, 모든 kind의 합이 읽은 회원 수다 |
 | `hapbang.search.reconcile.duration{outcome}` | 보정 1회 소요 시간. outcome = success·failure. 길어지면 규모를 다시 판단한다 |
 | `hapbang.search.reconcile.lag` | 지금 − 마지막으로 끝까지 읽은 시각(초). 보정이 멈추면 커진다. DB 커서를 읽어 어느 pod에서 봐도 같다. 끝까지 읽은 적이 없으면 값이 없다 |
-| `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). 점검한 pod의 메모리 값이라 pod가 다시 뜨면 다음 점검(최대 10분)까지 비어 있다 |
+| `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). 마지막 회차에 점검하지 못했으면 비운다(낡은 차이를 보여 주지 않는다). 점검한 pod의 메모리 값이라 pod가 다시 뜨면 다음 점검(최대 10분)까지 비어 있다. alias로 세므로 #773 재색인은 alias를 한 요청으로 바꿔 두 index를 함께 가리키는 순간이 없어야 한다 |
 | `kafka_consumer_fetch_manager_records_lag` | 회원 이벤트 소비 lag(Kafka client 지표). Kafka dashboard "그룹별 lag"에 `auxiliary-app.search-member`로 보인다 |
 
 - 회원 ID는 지표 태그에 넣지 않는다. 문서 수 차이 alert는 두지 않았다(#773 처음 적재 전에는 차이가 늘 0이 아니다, #772 Q2).
@@ -189,7 +190,7 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `InfluencerDocumentStoreTest` | 순서 역전·중복·null version, 통계 갱신 뒤 회원 이벤트, tombstone(문서 없을 때 포함), 정리, require_alias |
 | `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름, 정합성 점검(차이 0·양수·음수, 세기 실패) |
-| `MemberChangeReconcilerTest` | 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원 건너뜀 |
+| `MemberChangeReconcilerTest` | 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원·ES가 거절한 회원 건너뜀, 다음 커서 없는 응답, `runFrom` 성공·실패 |
 | `SyncCursorStoreTest` | 커서 저장(PostgreSQL 컨테이너): 만들기·옮기기, 마이크로초, 끝까지 읽은 시각 |
 | `SearchSyncMetricsTest` | 보정 지연(끝까지 읽은 시각 기준), 문서 수 차이, kind별 건수 |
 | `ApiV1SearchControllerTest` | 응답, 필터, 정렬, 동점 페이지 넘김, 400·401, 0건 검색어 |

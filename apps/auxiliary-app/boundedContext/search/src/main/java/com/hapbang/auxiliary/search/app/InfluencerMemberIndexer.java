@@ -51,7 +51,8 @@ public class InfluencerMemberIndexer {
 
     /**
      * @throws IllegalArgumentException 회원 ID·역할·상태가 없는 정보(다시 처리해도 같다)
-     * @throws IllegalStateException    ES에 쓰지 못한 경우(다시 처리하면 될 수 있다)
+     * @throws IllegalStateException    ES에 쓰지 못한 경우(다시 처리하면 될 수 있다). ES가 요청 내용 때문에 거절했으면
+     *                                  하위 타입 {@link com.hapbang.auxiliary.search.out.DocumentRejectedException}이다(다시 해도 같다)
      */
     public MemberIndexResult apply(UserDto user) {
         if (user == null || user.id() == null || user.role() == null || user.status() == null) {
