@@ -149,6 +149,23 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 - 나눠 쓰는 자원: 실행기는 앱 배치 스레드(2개) 하나를 쓴다. 한 번에 최대 문서 50개(`hapbang.chatbot.index.task.batch-size`, 같은 문서에 쌓인 요청은 함께 가져가 요청 수는 더 많을 수 있다)라 평소에는 짧지만, 첫 전체 색인처럼 요청이 많으면 한 회차가 수십 초 걸린다(임베딩 호출 + ES 쓰기). 그동안 다른 배치는 남은 스레드 하나로 돈다. DB는 회차마다 짧은 쓰기(가져가기 트랜잭션 1번 + 종류마다 끝내기 1번 + 실패 문서마다 1번)만 쓴다.
 - **LLM 호출 장치**(`LlmCallGuard`): 회로 하나와 동시 호출 상한 하나(`hapbang.chatbot.llm.max-concurrent-calls`, 기본 4)를 모든 챗봇 기능이 나눠 쓴다. 기능마다 따로 두지 않는다.
 
+## 챗봇 인플루언서 추천 (#719)
+
+출연 상대로 어울리는 인플루언서 5명을 추천한다. 후보와 순서는 코드가 정하고(같은 상태면 같은 결과), LLM은 버튼 경로에서 이유만 쓴다.
+
+| 경로 | 취향 | LLM |
+|---|---|---|
+| `GET /api/v1/chatbot/recommendations/influencers` (위젯) | 내 프로필 + 함께 출연을 마친 상대들 | 없음 |
+| `POST /api/v1/chatbot/recommendations/influencers/explained` (챗봇 버튼) | 같음 | 후보마다 이유(`.entity()`, 후보 밖은 버림, 실패하면 이유 코드 문장). 회원별 호출 제한 |
+| Tool `recommendInfluencers(interest?)` (자유 질문 #720) | 관심사 문장이 있으면 그 문장, 없으면 위와 같음 | 대화 LLM이 설명 |
+
+- **색인**(`chatbot-influencers-<공급자>-<차원>`): 회원 사본이 바뀐 트랜잭션에 `INFLUENCER` 요청을 적고 처리기(`InfluencerIndexTaskHandler`)가 지금 사본 상태로 맞춘다. 대상은 `INFLUENCER`·`VERIFIED_INFLUENCER`. 정지·강등·탈퇴는 `hidden=true`로만 바꾸고(다시 임베딩하지 않음) 복구되면 `false`. 마스킹·분야와 자기소개가 모두 없으면 문서를 지운다(벡터 없는 문서는 두지 않는다. 인기순 후보는 DB에서 고른다). 임베딩 글은 분야 한글 이름(회원 API, 10분 보관) + 이메일·전화번호를 지운 자기소개이고, ES에는 글 해시만 둔다. 해시가 같으면 다시 임베딩하지 않는다.
+- **정합 점검**(`InfluencerIndexCheckBatch`, 매시 :45, `hapbang.chatbot.recommend.influencer.check-cron`): 모든 회원 사본을 문서와 비교해 어긋난 회원의 요청을 적는다. 첫 배포 뒤 첫 점검이 처음 전체 색인이다. 요청만 적으므로 배치 스레드를 짧게 쓰고, 임베딩·재시도는 실행기 한 곳이 한다.
+- **인기 점수**: 요청할 때 사본에서 센다(색인에 넣지 않으므로 출연·리뷰가 바뀌어도 재색인이 없다). 완료 출연 수(호스트·게스트) + 리뷰 수로 보정한 평균 별점(베이지안), 원본 없음 출연·리뷰는 뺀다. 후보 안에서 0~1로 맞춘 뒤 `(1 − β)·유사도 + β·인기`.
+- **후보**: kNN(`hidden=false`) 뒤 DB로 추천 가능(역할·`ACTIVE`·마스킹 아님)을 다시 확인한다. 본인은 빼고, 함께 출연한 상대는 빼지 않는다(`PAST_PARTNER`). 모자라면 인기순으로 채운다. 개인 신호가 없으면 인기순 + `needsInterest=true`. 임베딩·ES가 실패하면 인기순.
+- 회원 ID는 Tool 인자로 받지 않고 `ToolContext`의 `userId`에서만 꺼낸다. LLM 프롬프트에는 분야 이름·완료 수·평균 별점·이유 코드만 넣는다(닉네임·자기소개 원문 없음).
+- 설정 `hapbang.chatbot.recommend.influencer.*`(`ChatbotInfluencerRecommendProperties`): 결과 수, kNN `k`·`num-candidates`, 상대 가중, β, 인기 가중치·베이지안 C, 호출 제한, 설명 시간 상한.
+
 ## 검색 (#771, #772)
 
 인플루언서 검색 모듈이다. 구조·index·이벤트 처리·API·지표는 [`docs/search/module.md`](../../docs/search/module.md)에 있다.
