@@ -390,8 +390,9 @@ class NotificationRealtimeIntegrationTest {
     }
 
     /**
-     * 거절은 ERROR 프레임이 오거나, ERROR를 읽기 전에 서버가 연결을 닫는 것으로 나타난다(느린 환경에서는 닫힘이 먼저 보일 수 있다, #849).
-     * 둘 다 없으면 어느 목적지에서 무엇을 받았는지 남긴다.
+     * 거절은 ERROR 프레임을 받는 것으로 본다. {@link RawStomp}는 닫히기 전에 받은 프레임을 큐에 남기므로, 서버가 ERROR를 보낸 뒤 닫았다면
+     * 닫힘과 관계없이 ERROR를 읽는다. ERROR가 클라이언트에 도착하지 않은 채 서버가 PROTOCOL_ERROR(1002)로 닫은 경우만 닫힘으로 거절을
+     * 본다(#849). 둘 다 아니면 어느 목적지에서 무엇을 받았는지 남긴다.
      */
     private static void assertSubscriptionRejected(RawStomp stomp, String destination) throws InterruptedException {
         String reply = stomp.nextFrame(WAIT);
@@ -400,8 +401,9 @@ class NotificationRealtimeIntegrationTest {
             return;
         }
         CloseStatus closed = stomp.awaitClose(REJECT_CLOSE_WAIT);
-        assertThat(closed).as("%s 구독에 %d초 안에 ERROR도 연결 닫힘도 없음", destination, WAIT.toSeconds()).isNotNull();
-        // Spring StompSubProtocolHandler는 클라이언트 프레임 처리 실패 때 ERROR를 보내고 PROTOCOL_ERROR(1002)로 닫는다(spring-websocket 7.0)
+        assertThat(closed).as("%s 구독에 %d초 안에 ERROR도 연결 닫힘도 없음", destination,
+                WAIT.plus(REJECT_CLOSE_WAIT).toSeconds()).isNotNull();
+        // StompSubProtocolHandler.sendErrorMessage(WebSocketSession, Throwable)가 PROTOCOL_ERROR(1002)로 닫는다(spring-websocket 7.0.9, NR-028)
         assertThat(closed.getCode()).as("%s 구독 거절의 닫힘 코드", destination)
                 .isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
     }

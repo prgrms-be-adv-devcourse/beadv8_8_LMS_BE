@@ -86,6 +86,34 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-028 · 2026-11-10 · 통과 (#849 PR 리뷰 3차 반영, NR-027 근거 보충)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-028 |
+| 실행 날짜 | 2026-11-10 17:35~17:37 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-849` |
+| 커밋 | `6dafcd48` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationRealtimeIntegrationTest`의 구독 거절 확인: 실패 메시지에 실제 대기 시간(6초 = WAIT 5초 + 닫힘 대기 1초) 표시, 설명을 `RawStomp` 큐 동작(닫히기 전에 받은 프레임은 남는다)에 맞게 고침. 이 문서 |
+| 대상 기능 | #849 PR 리뷰 3차 |
+| 관련 NT ID | NR-026과 같다 |
+| 명령 | 두 클래스 `--rerun` 1회 + `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-026과 같다 |
+| 결과 | 통과 |
+| 건수 | 두 클래스 통과(17:35~17:36). 검증 명령(17:36~17:37): `:notification` 116 새 실행·통과, 나머지 `UP-TO-DATE`(새 실행 아님, 마지막 실행 NR-026 통과), 종료 코드 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 메시지·주석만(시험 판정 동작 변경 없음) |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-026과 같다 |
+| 관련 변경 | #849 |
+
+**메모 — 1002 근거(NR-027 보충)**
+- 확인한 대상: spring-websocket 7.0.9 jar의 `org.springframework.web.socket.messaging.StompSubProtocolHandler`, `javap -c -p`로 바이트코드를 봤다.
+- `private void sendErrorMessage(WebSocketSession, Throwable)`가 `CloseStatus.PROTOCOL_ERROR`를 읽어 `WebSocketSession.close(CloseStatus)`를 부르는 곳이 3곳 있다. 클라이언트 프레임 처리 실패는 `handleError(WebSocketSession, Throwable, Message)` → `sendErrorMessage`로 이 경로를 탄다.
+- `private void sendToClient(WebSocketSession, StompHeaderAccessor, byte[])`도 ERROR 프레임을 보낸 뒤 같은 코드로 닫는 곳이 3곳 있다.
+- 알림 모듈에는 별도 STOMP 오류 처리기(`StompSubProtocolErrorHandler` 재정의)가 없다.
+
 #### NR-027 · 2026-11-10 · 통과 (#849 PR 리뷰 반영, NR-026 정정)
 
 | 항목 | 값 |
