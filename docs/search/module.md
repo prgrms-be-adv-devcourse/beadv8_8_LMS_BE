@@ -63,6 +63,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 | 필드 | 종류 | 출처 |
 | --- | --- | --- |
+| `userId` | long | 문서 ID와 같은 회원 ID. 검색 정렬의 마지막 키 |
 | `memberVersion` | long | 회원 이벤트(`UserDto.version`) |
 | `hidden`, `hiddenAt` | boolean, date | 숨김(tombstone)과 숨긴 시각 |
 | `nickname`, `bio` | text(nori) | 회원 이벤트 |
@@ -84,8 +85,9 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 ## 6. 10분 동기화와 정리
 
-- 통계 동기화(한 pod만): 분야 목록을 다시 읽어 분야가 있는 모든 문서의 이름을 맞춘다(update_by_query, 바뀐 것만) → 인플루언서 통계(#769)를 500명씩 끝까지 읽어 bulk 부분 갱신한다. 값이 같거나 숨긴 문서는 noop, 문서가 없는 회원은 건너뛴다(넣는 것은 #772). 결과는 INFO 한 줄(`pages·updated·noop·missing·categoryDocuments`).
-- 분야 이름 목록과 평점 전체 평균 C는 pod마다 직접 구한다(#771 Q8). 동기화는 한 pod에서만 돌아 다른 pod에 값을 줄 수 없다. 분야 목록을 읽지 못하면 가진 목록으로 색인하고 1분 동안 다시 묻지 않는다.
+- 통계 동기화(한 pod만): 분야 목록을 다시 읽어 **보이는** 문서 중 분야가 있는 문서의 이름을 맞춘다(update_by_query, 바뀐 것만. 숨긴 문서는 일반 유저 가입마다 늘어나 훑지 않는다) → 인플루언서 통계(#769)를 500명씩 끝까지 읽어 bulk 부분 갱신한다. 값이 같거나 숨긴 문서는 noop, 문서가 없는 회원은 건너뛴다(넣는 것은 #772). 결과는 INFO 한 줄(`pages·updated·noop·missing·failed·categoryDocuments`).
+- 실패를 가둔다: 분야 목록을 읽지 못하면 분야 이름만 건너뛰고(`categoryDocuments=-1`) 통계는 맞춘다. bulk 항목 일부가 실패하면(겹친 쓰기 등) 그 회원만 `failed`로 세고 WARN을 남긴 뒤 다음 페이지를 계속한다. 다음 회차에 다시 쓴다.
+- 분야 이름 목록과 평점 전체 평균 C는 pod마다 직접 구한다(#771 Q8). 동기화는 한 pod에서만 돌아 다른 pod에 값을 줄 수 없다. 둘 다 구하지 못하면 가진 값을 쓰고 1분 동안 다시 묻지 않는다(ES·회원 앱이 멈췄을 때 요청마다 시간 제한까지 기다려 요청 스레드를 붙잡지 않게). 평균 C를 한 번도 구하지 못했으면 평점순 검색은 503이다.
 - tombstone 정리(한 pod만, 매일 04:30 KST): `hiddenAt`이 7일(회원 이벤트 DLT 보존 기간)보다 오래된 숨김 문서를 지운다.
 
 ## 7. 검색 API
@@ -100,7 +102,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | `minFollowers`, `minRating` | 0 이상, 0~5. 평점 조건은 원래 평균이라 리뷰 없는 사람은 빠진다 |
 | `page`, `size`, `sort` | size 기본 20·최대 100. sort는 `followers,desc`·`rating,desc`만(그 밖 400 `UNSUPPORTED_SORT`) |
 
-- 순서: 기본은 검색어나 분야가 있으면 점수 → 팔로워, 둘 다 없으면 팔로워. 검색어가 있으면 점수 = 텍스트 관련도 × (1 + a·log10(1+팔로워)) × (인증이면 v). 평점순은 베이지안 평균 (n×R + m×C)/(n+m) → 팔로워.
+- 순서: 기본은 검색어나 분야가 있으면 점수 → 팔로워, 둘 다 없으면 팔로워. 검색어가 있으면 점수 = 텍스트 관련도 × (1 + a·log10(1+팔로워)) × (인증이면 v). 평점순은 베이지안 평균 (n×R + m×C)/(n+m) → 팔로워. **모든 순서의 마지막은 회원 ID 오름차순**이다(동점이 많아, 없으면 통계 동기화가 문서를 다시 쓸 때 페이지 사이에서 같은 사람이 또 나오거나 빠진다).
 - 계수: a=0.05, v=1.05, m=5(`hapbang.search.ranking.*`). golden query(`GoldenQueryTest`) 23개가 모두 통과하는 값이다. a의 통과 구간은 0.02~0.1이다(0은 팔로워가 순서를 못 가르고, 0.5 이상은 팔로워가 텍스트 일치를 뒤집는다).
 - 앞에서 1,000건까지(`page × size + size ≤ 1000`, 넘으면 400 `PAGE_TOO_DEEP`). `totalElements`도 1,000까지만 센다.
 - ES에 닿지 못하면 503 `SEARCH_UNAVAILABLE`. 회원 앱 인플루언서 목록(`GET /api/v1/members/influencers`)은 그대로 쓸 수 있다.
@@ -134,7 +136,8 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `InfluencerDocumentStoreTest` | 순서 역전·중복·null version, 통계 갱신 뒤 회원 이벤트, tombstone(문서 없을 때 포함), 정리, require_alias |
 | `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름 |
-| `ApiV1SearchControllerTest` | 응답, 필터, 정렬, 400·401, 0건 검색어 |
+| `ApiV1SearchControllerTest` | 응답, 필터, 정렬, 동점 페이지 넘김, 400·401, 0건 검색어 |
+| `RatingBaselineTest`, `InfluencerDocumentStoreBulkFailureTest` | 평균 C 실패 뒤 1분 대기, bulk 일부 실패 |
 | `GoldenQueryTest` | 대표 검색어 23개 순위, 알려진 한계(G01b), 계수 격자(`build/golden-query.md`) |
 
 ## 11. 알려진 한계

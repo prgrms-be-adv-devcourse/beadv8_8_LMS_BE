@@ -134,6 +134,31 @@ class InfluencerStatsSyncTest {
         assertThat(sync.sync().categoryDocuments()).isZero();
     }
 
+    @Test
+    @DisplayName("분야 목록을 읽지 못해도 통계는 맞춘다(분야 이름 맞추기만 건너뜀)")
+    void statsContinueWhenCategoriesFail() throws Exception {
+        store.show(1L, 1L, profile());
+        source.failCategories().influencer(1L, 4.5, 2, channel("본 채널", 100));
+
+        StatsSyncResult result = sync.sync();
+
+        assertThat(result.categoryDocuments()).isEqualTo(-1);
+        assertThat(result.updated()).isEqualTo(1);
+        assertThat(source(1L)).containsEntry("followerCount", 100);
+    }
+
+    @Test
+    @DisplayName("숨긴 문서의 분야 이름은 훑지 않는다(다시 보이게 될 때 회원 이벤트가 쓴다)")
+    void categoryNamesSkipHidden() throws Exception {
+        store.show(1L, 1L, profile());
+        store.hide(1L, 2L, Instant.parse("2026-11-10T00:00:00Z"));
+        client.indices().refresh(r -> r.index(InfluencerIndexDefinition.ALIAS));
+        source.categories(category("GAME", "게임 방송"));
+
+        assertThat(sync.sync().categoryDocuments()).isZero();
+        assertThat(source(1L).get("contentCategories")).isEqualTo(List.of(Map.of("code", "GAME", "name", "게임")));
+    }
+
     private static MemberProfile profile() {
         return new MemberProfile("닉네임", null, "INFLUENCER", false, List.of(new MemberProfile.Category("GAME", "게임")));
     }

@@ -49,7 +49,7 @@ public class InfluencerStatsSync {
     /** 맞춘다. 테스트는 락 없이 바로 부른다 */
     public StatsSyncResult sync() {
         indexSetup.ensureReady();
-        long categoryDocuments = store.syncCategoryNames(categoryNames.refresh());
+        long categoryDocuments = syncCategoryNames();
 
         Map<WriteOutcome, Long> counts = new EnumMap<>(WriteOutcome.class);
         Long afterId = null;
@@ -64,10 +64,25 @@ public class InfluencerStatsSync {
 
         StatsSyncResult result = new StatsSyncResult(pages, counts.getOrDefault(WriteOutcome.UPDATED, 0L),
                 counts.getOrDefault(WriteOutcome.NOOP, 0L), counts.getOrDefault(WriteOutcome.MISSING, 0L),
-                categoryDocuments);
-        log.info("검색 통계를 맞췄다 pages={}, updated={}, noop={}, missing={}, categoryDocuments={}", result.pages(),
-                result.updated(), result.noop(), result.missing(), result.categoryDocuments());
+                counts.getOrDefault(WriteOutcome.FAILED, 0L), categoryDocuments);
+        log.info("검색 통계를 맞췄다 pages={}, updated={}, noop={}, missing={}, failed={}, categoryDocuments={}",
+                result.pages(), result.updated(), result.noop(), result.missing(), result.failed(),
+                result.categoryDocuments());
         return result;
+    }
+
+    /**
+     * 분야 이름을 맞춘다. 분야 목록을 읽지 못하거나 쓰지 못해도 통계 동기화는 계속한다(팔로워·평점이 분야 목록 장애에 묶이지 않게).
+     *
+     * @return 고친 문서 수. 건너뛰었으면 -1
+     */
+    private long syncCategoryNames() {
+        try {
+            return store.syncCategoryNames(categoryNames.refresh());
+        } catch (RuntimeException e) {
+            log.warn("분야 이름을 맞추지 못해 건너뛰고 통계는 계속 맞춘다", e);
+            return -1;
+        }
     }
 
     /**
@@ -75,8 +90,10 @@ public class InfluencerStatsSync {
      * @param updated           통계가 바뀐 문서 수
      * @param noop              통계가 같았거나 숨긴 문서 수
      * @param missing           문서가 없어 건너뛴 회원 수(검색 2 보정 대상)
-     * @param categoryDocuments 분야 이름을 고친 문서 수
+     * @param failed            쓰지 못한 회원 수(다음 회차에 다시)
+     * @param categoryDocuments 분야 이름을 고친 문서 수. 분야 이름 맞추기를 건너뛰었으면 -1
      */
-    public record StatsSyncResult(int pages, long updated, long noop, long missing, long categoryDocuments) {
+    public record StatsSyncResult(int pages, long updated, long noop, long missing, long failed,
+                                  long categoryDocuments) {
     }
 }

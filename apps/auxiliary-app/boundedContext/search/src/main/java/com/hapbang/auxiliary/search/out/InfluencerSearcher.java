@@ -38,7 +38,8 @@ import co.elastic.clients.json.JsonData;
  *     <li>검색어가 있으면 {@code script_score}로 점수 × (1 + a·log10(1+팔로워)) × (인증이면 v)</li>
  * </ul>
  * 순서: 기본은 검색어나 분야가 있으면 점수 → 팔로워, 둘 다 없으면 팔로워. {@code followers}는 팔로워 → 점수. {@code rating}은 베이지안
- * 평균 (v×R + m×C)/(v+m) → 팔로워.
+ * 평균 (v×R + m×C)/(v+m) → 팔로워. 모든 순서의 마지막은 회원 ID 오름차순이다. 동점(새 문서는 팔로워 0)이 많아 이것이 없으면 통계 동기화가
+ * 문서를 다시 쓸 때 순서가 바뀌어 다음 페이지에 같은 사람이 또 나오거나 빠진다.
  */
 @Component
 @ConditionalOnSearchEnabled
@@ -150,6 +151,7 @@ public class InfluencerSearcher {
             sort.add(score());
             sort.add(followers());
         }
+        sort.add(SortOptions.of(o -> o.field(f -> f.field("userId").order(SortOrder.Asc))));
         return sort;
     }
 

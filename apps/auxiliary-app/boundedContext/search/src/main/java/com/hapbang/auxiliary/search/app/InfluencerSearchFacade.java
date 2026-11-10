@@ -59,6 +59,8 @@ public class InfluencerSearchFacade {
         SearchResult result;
         try {
             double baseline = sort == InfluencerSort.RATING ? ratingBaseline.get() : 0;
+            // 지표는 검색 쿼리 시간만 잰다(평균 C 집계는 뺀다)
+            started = System.nanoTime();
             result = searcher.search(condition, baseline, MAX_RESULT_WINDOW);
         } catch (IllegalStateException e) {
             metrics.influencerSearched("error", Duration.ofNanos(System.nanoTime() - started));

@@ -130,6 +130,23 @@ class ApiV1SearchControllerTest {
     }
 
     @Test
+    @DisplayName("점수·팔로워가 같으면 회원 ID 순이라, 페이지를 넘겨도 같은 사람이 또 나오거나 빠지지 않는다")
+    void stablePaging() throws Exception {
+        for (long id = 14; id >= 10; id--) {
+            influencer(id, "그림쟁이" + id, "INFLUENCER", List.of("DRAWING"), null,
+                    new InfluencerStats(id, List.of(), null, 0, null, 0));
+        }
+        client.indices().refresh(r -> r.index(InfluencerIndexDefinition.ALIAS));
+
+        mockMvc.perform(as(get(URL).param("contentCategories", "DRAWING").param("size", "2")))
+                .andExpect(jsonPath("$.data.content[*].id", contains(10, 11)));
+        mockMvc.perform(as(get(URL).param("contentCategories", "DRAWING").param("size", "2").param("page", "1")))
+                .andExpect(jsonPath("$.data.content[*].id", contains(12, 13)));
+        mockMvc.perform(as(get(URL).param("contentCategories", "DRAWING").param("size", "2").param("page", "2")))
+                .andExpect(jsonPath("$.data.content[*].id", contains(14)));
+    }
+
+    @Test
     @DisplayName("허용 밖 정렬은 400 UNSUPPORTED_SORT(오름차순, 다른 필드, 둘 이상)")
     void unsupportedSort() throws Exception {
         for (List<String> sort : List.of(List.of("followers,asc"), List.of("followers"), List.of("nickname,desc"),

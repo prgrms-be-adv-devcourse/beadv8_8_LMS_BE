@@ -1,10 +1,8 @@
 package com.hapbang.auxiliary.search.app;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
@@ -31,35 +29,36 @@ public class ZeroResultKeywords {
     static final int MAX_KEYWORDS = 1_000;
     static final int MAX_LOGGED = 100;
 
-    private volatile Map<String, LongAdder> counts = new ConcurrentHashMap<>();
-    private final AtomicLong dropped = new AtomicLong();
+    /** 한 주기의 검색어별 횟수. 0건 요청만 지나가므로 락 하나로 충분하다(주기 교체와 겹친 1건을 잃지 않게) */
+    private final Map<String, Long> counts = new HashMap<>();
+    private long dropped;
 
     /** 결과가 0건이던 검색어 하나를 센다 */
     public void record(String keyword) {
         String normalized = keyword.strip().replaceAll("\\s+", " ").toLowerCase();
-        Map<String, LongAdder> current = counts;
-        LongAdder count = current.get(normalized);
-        if (count == null) {
-            if (current.size() >= MAX_KEYWORDS) {
-                dropped.incrementAndGet();
+        synchronized (this) {
+            if (!counts.containsKey(normalized) && counts.size() >= MAX_KEYWORDS) {
+                dropped++;
                 return;
             }
-            count = current.computeIfAbsent(normalized, key -> new LongAdder());
+            counts.merge(normalized, 1L, Long::sum);
         }
-        count.increment();
     }
 
     /** 모은 검색어를 로그 한 줄로 남기고 비운다. 없으면 남기지 않는다 */
     public Map<String, Long> flush() {
-        Map<String, LongAdder> collected = counts;
-        counts = new ConcurrentHashMap<>();
-        long droppedCount = dropped.getAndSet(0);
+        Map<String, Long> collected;
+        long droppedCount;
+        synchronized (this) {
+            collected = Map.copyOf(counts);
+            droppedCount = dropped;
+            counts.clear();
+            dropped = 0;
+        }
         Map<String, Long> top = collected.entrySet().stream()
-                .map(entry -> Map.entry(entry.getKey(), entry.getValue().sum()))
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
                 .limit(MAX_LOGGED)
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a,
-                        LinkedHashMap::new));
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a, LinkedHashMap::new));
         if (!top.isEmpty() || droppedCount > 0) {
             log.info("결과가 없던 검색어를 모았다 keywords={}, distinct={}, dropped={}", top, collected.size(), droppedCount);
         }

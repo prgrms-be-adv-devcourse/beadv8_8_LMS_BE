@@ -11,6 +11,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -122,9 +123,14 @@ class AuxiliaryApplicationTest {
     }
 
     @Test
-    @DisplayName("검색 기능 스위치가 꺼져 있으면(운영 기본값) 검색 모듈 빈이 하나도 없고 앱은 뜬다")
+    @DisplayName("검색 기능 스위치가 꺼져 있으면(운영 기본값) 검색 모듈 패키지의 빈이 하나도 없고 앱은 뜬다(새 빈에 스위치를 빠뜨리면 실패)")
     void searchSwitchOff() {
-        assertThat(applicationContext.getBeanNamesForType(SearchElasticsearchConfig.class)).isEmpty();
+        String searchPackage = SearchElasticsearchConfig.class.getPackageName().replace(".config", ".");
+        assertThat(Arrays.stream(applicationContext.getBeanDefinitionNames())
+                .map(applicationContext::getType)
+                .filter(type -> type != null && type.getName().startsWith(searchPackage))
+                .map(Class::getName))
+                .isEmpty();
         assertThat(applicationContext.containsBean(SearchElasticsearchConfig.CLIENT)).isFalse();
     }
 

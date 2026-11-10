@@ -20,6 +20,7 @@ import co.elastic.clients.elasticsearch._types.Result;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.json.JsonData;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 인플루언서 검색 문서 쓰기(#771). 문서 ID는 회원 ID이고, 모든 쓰기는 alias({@link InfluencerIndexDefinition#ALIAS})로만 한다
@@ -29,6 +30,7 @@ import co.elastic.clients.json.JsonData;
  * 만들기 때문이다(#771 시험 결과). 회원 version은 문서 필드 {@code memberVersion}에 두고, 회원 이벤트 쓰기는 painless scripted upsert로
  * "들어온 version이 더 클 때만" 반영한다. 순서가 뒤바뀐 이벤트, 같은 이벤트 두 번, 숨긴 뒤 늦게 온 옛 이벤트는 모두 noop이다.
  */
+@Slf4j
 @Component
 @ConditionalOnSearchEnabled
 public class InfluencerDocumentStore {
@@ -43,6 +45,7 @@ public class InfluencerDocumentStore {
      *     <li>version이 없으면({@code UserDto} 규칙): 문서에 memberVersion이 없을 때만 반영하고, 있으면 버전 도입 전 옛 이벤트로 보고 noop.</li>
      *     <li>보이기: 숨김을 풀고 프로필 필드를 덮는다. 새 문서의 팔로워·리뷰 수는 0으로 시작한다(통계 동기화가 채운다).</li>
      *     <li>숨기기(tombstone): 문서가 없어도 만든다(#771 Q6). 숨김과 시각을 남기고 개인정보 필드를 지운다.</li>
+     *     <li>{@code userId}(문서 ID와 같은 값)를 늘 쓴다. 검색 정렬의 마지막 키다(동점이어도 페이지를 넘길 때 순서가 같게).</li>
      * </ul>
      */
     static final String MEMBER_SCRIPT = """
@@ -54,6 +57,7 @@ public class InfluencerDocumentStore {
             } else if (current != null) {
               ctx.op = 'noop'; return;
             }
+            ctx._source.userId = params.userId;
             if (params.visible) {
               ctx._source.hidden = false;
               ctx._source.remove('hiddenAt');
@@ -151,8 +155,11 @@ public class InfluencerDocumentStore {
     /**
      * 통계를 한 번에(bulk) 부분 갱신한다. 문서가 없는 회원은 건너뛴다(넣는 것은 검색 2의 보정). 숨긴 문서와 값이 같은 문서는 noop이다.
      *
+     * 문서 없음(404) 밖의 이유로 실패한 항목(겹친 쓰기가 재시도를 넘김 등)은 {@link WriteOutcome#FAILED}로 돌려주고 나머지는 그대로 반영한다.
+     * 한 회원 때문에 같은 페이지·뒤 페이지 회원이 갱신되지 못하면 안 된다. 실패한 회원은 다음 회차에 다시 쓴다.
+     *
      * @return 회원 ID별 결과
-     * @throws IllegalStateException ES에 보내지 못했거나, 문서 없음 밖의 이유로 실패한 항목이 있는 경우
+     * @throws IllegalStateException 요청 자체를 보내지 못한 경우
      */
     public Map<Long, WriteOutcome> applyStats(List<InfluencerStats> stats) {
         if (stats.isEmpty()) {
@@ -175,11 +182,12 @@ public class InfluencerDocumentStore {
                 } else if (item.status() == 404) {
                     outcomes.put(userId, WriteOutcome.MISSING);
                 } else {
+                    outcomes.put(userId, WriteOutcome.FAILED);
                     failures.add(item.id() + ":" + item.error().type());
                 }
             }
             if (!failures.isEmpty()) {
-                throw new IllegalStateException("검색 통계 일부를 쓰지 못했습니다 failures=" + failures);
+                log.warn("검색 통계 일부를 쓰지 못해 다음 회차에 다시 쓴다 failures={}", failures);
             }
             return outcomes;
         } catch (IOException | ElasticsearchException e) {
@@ -188,7 +196,8 @@ public class InfluencerDocumentStore {
     }
 
     /**
-     * 분야가 있는 모든 문서의 분야 이름을 지금 목록으로 맞춘다(update_by_query). 이름이 바뀐 분야와, 이름을 모른 채 색인한 분야를 함께 고친다.
+     * 보이는 문서 중 분야가 있는 문서의 분야 이름을 지금 목록으로 맞춘다(update_by_query). 이름이 바뀐 분야와, 이름을 모른 채 색인한 분야를 함께
+     * 고친다. 숨긴 문서는 일반 유저 가입마다 늘어나므로 훑지 않는다(다시 보이게 될 때 회원 이벤트가 지금 이름으로 쓴다).
      *
      * @return 바꾼 문서 수
      */
@@ -197,7 +206,9 @@ public class InfluencerDocumentStore {
             Long updated = client.updateByQuery(u -> u.index(InfluencerIndexDefinition.ALIAS)
                     // 그사이 회원 이벤트가 바꾼 문서는 그 이벤트가 지금 이름으로 썼다
                     .conflicts(Conflicts.Proceed)
-                    .query(q -> q.exists(e -> e.field("contentCategories.code")))
+                    .query(q -> q.bool(b -> b
+                            .filter(f -> f.term(t -> t.field("hidden").value(false)))
+                            .filter(f -> f.exists(e -> e.field("contentCategories.code")))))
                     .script(s -> s.source(src -> src.scriptString(CATEGORY_NAMES_SCRIPT))
                             .params("names", JsonData.of(names))))
                     .updated();
@@ -220,6 +231,7 @@ public class InfluencerDocumentStore {
     private WriteOutcome writeMember(long userId, Long version, boolean visible, Map<String, Object> profile,
             Instant hiddenAt) {
         Map<String, JsonData> params = new HashMap<>();
+        params.put("userId", JsonData.of(userId));
         params.put("hasVersion", JsonData.of(version != null));
         params.put("version", JsonData.of(version == null ? 0L : version));
         params.put("visible", JsonData.of(visible));
