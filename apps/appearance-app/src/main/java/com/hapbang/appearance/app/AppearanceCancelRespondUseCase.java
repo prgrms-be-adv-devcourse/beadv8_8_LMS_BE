@@ -86,7 +86,7 @@ public class AppearanceCancelRespondUseCase {
                     appearanceId, cancelRequest.getId(), hostId, releaseTaskId);
         });
         eventPublisher.publishEvent(new AppearanceCancelRequestAcceptedEvent(
-                cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt())));
+                cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt()), now));
         return releaseTaskId;
     }
 
@@ -113,7 +113,7 @@ public class AppearanceCancelRespondUseCase {
         });
 
         eventPublisher.publishEvent(new AppearanceCancelRequestRejectedEvent(
-                cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt()), false));
+                cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt()), false, now));
     }
 
     /** 합의 취소로 돌려줄 HP 작업. 모집글이 마감 전이면 성립 인원만 줄이고 반환하지 않는다(null) */
