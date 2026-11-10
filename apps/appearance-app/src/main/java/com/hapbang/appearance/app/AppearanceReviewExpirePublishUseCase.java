@@ -86,7 +86,7 @@ public class AppearanceReviewExpirePublishUseCase {
             review.publish(now);
             appearanceReviewSupport.flush();
             // 회원 모듈이 평점을 계산하도록 알린다 (커밋 뒤 Kafka, #513)
-            eventPublisher.publishEvent(review.toPublishedEvent());
+            eventPublisher.publishEvent(AppearanceContractMapper.toPublishedEvent(review));
             count++;
         }
         return count;

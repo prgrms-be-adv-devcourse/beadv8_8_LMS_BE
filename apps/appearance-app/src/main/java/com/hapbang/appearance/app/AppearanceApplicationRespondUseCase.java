@@ -63,7 +63,7 @@ public class AppearanceApplicationRespondUseCase {
 
         appearanceApplicationSupport.flushOrConflict();
         Appearance appearance = appearanceSupport.saveNow(Appearance.establishFrom(recruit, application, now));
-        eventPublisher.publishEvent(appearance.toChangedEvent());
+        eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         AfterCommit.run(() -> {
             log.info("모집 지원을 수락했다 applicationId={}, recruitId={}, appearanceId={}, hostId={}, guestId={}",
                     applicationId, recruit.getId(), appearance.getId(), hostId, application.getGuestId());

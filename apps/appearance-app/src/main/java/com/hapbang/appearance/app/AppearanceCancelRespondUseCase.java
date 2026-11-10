@@ -78,7 +78,7 @@ public class AppearanceCancelRespondUseCase {
         appearance.agreeCancel(now);
         HpTask releaseTask = releaseOnAgreement(appearance, recruit, now);
         appearanceSupport.flushOrConflict();
-        eventPublisher.publishEvent(appearance.toChangedEvent());
+        eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
 
         Long releaseTaskId = releaseTask == null ? null : hpTaskSupport.save(releaseTask).getId();
         AfterCommit.run(() -> {
@@ -86,7 +86,8 @@ public class AppearanceCancelRespondUseCase {
                     appearanceId, cancelRequest.getId(), hostId, releaseTaskId);
         });
         eventPublisher.publishEvent(new AppearanceCancelRequestAcceptedEvent(
-                cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt()), now));
+                AppearanceContractMapper.toCancelRequestDto(cancelRequest, appearanceTitleSupport.titleOf(appearance),
+                        appearance.getScheduledAt()), now));
         return releaseTaskId;
     }
 
@@ -106,14 +107,15 @@ public class AppearanceCancelRespondUseCase {
         cancelRequest.reject(rejectReason, now);
         appearance.keepAfterCancelRejected();
         appearanceSupport.flushOrConflict();
-        eventPublisher.publishEvent(appearance.toChangedEvent());
+        eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         AfterCommit.run(() -> {
             log.info("출연 취소 요청을 거절했다 appearanceId={}, cancelRequestId={}, hostId={}", appearanceId,
                     cancelRequest.getId(), hostId);
         });
 
         eventPublisher.publishEvent(new AppearanceCancelRequestRejectedEvent(
-                cancelRequest.toDto(appearanceTitleSupport.titleOf(appearance), appearance.getScheduledAt()), false, now));
+                AppearanceContractMapper.toCancelRequestDto(cancelRequest, appearanceTitleSupport.titleOf(appearance),
+                        appearance.getScheduledAt()), false, now));
     }
 
     /** 합의 취소로 돌려줄 HP 작업. 모집글이 마감 전이면 성립 인원만 줄이고 반환하지 않는다(null) */

@@ -163,6 +163,89 @@ _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기�
 - RED: `NotificationHeartbeatTest` 5건 중 3건이 기대한 이유로 실패했다(CONNECTED `heart-beat:0,0`, 서버 heart-beat 0개, 클라이언트 heart-beat가 끊겨도 닫히지 않음). 받기 0이면 서버 heart-beat 없음·heart-beat 중 4401은 기존 동작이라 처음부터 통과했다(회귀 보호).
 - `NotificationWebSocketConfigTest`는 생성자 인자가 늘어 구현 전에는 컴파일되지 않는 상태로 고쳤고, 실패 출력은 따로 보지 않았다. 구현 뒤 스레드 5개(수신 2·송신 2·heart-beat 1)가 모두 끝나는 것을 확인했다.
 
+#### NR-028 · 2026-11-10 · 통과 (#849 PR 리뷰 3차 반영, NR-027 근거 보충)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-028 |
+| 실행 날짜 | 2026-11-10 17:35~17:37 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-849` |
+| 커밋 | `6dafcd48` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationRealtimeIntegrationTest`의 구독 거절 확인: 실패 메시지에 실제 대기 시간(6초 = WAIT 5초 + 닫힘 대기 1초) 표시, 설명을 `RawStomp` 큐 동작(닫히기 전에 받은 프레임은 남는다)에 맞게 고침. 이 문서 |
+| 대상 기능 | #849 PR 리뷰 3차 |
+| 관련 NT ID | NR-026과 같다 |
+| 명령 | 두 클래스 `--rerun` 1회 + `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-026과 같다 |
+| 결과 | 통과 |
+| 건수 | 두 클래스 통과(17:35~17:36). 검증 명령(17:36~17:37): `:notification` 116 새 실행·통과, 나머지 `UP-TO-DATE`(새 실행 아님, 마지막 실행 NR-026 통과), 종료 코드 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 메시지·주석만(시험 판정 동작 변경 없음) |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-026과 같다 |
+| 관련 변경 | #849 |
+
+**메모 — 1002 근거(NR-027 보충)**
+- 확인한 대상: spring-websocket 7.0.9 jar의 `org.springframework.web.socket.messaging.StompSubProtocolHandler`, `javap -c -p`로 바이트코드를 봤다.
+- `private void sendErrorMessage(WebSocketSession, Throwable)`가 `CloseStatus.PROTOCOL_ERROR`를 읽어 `WebSocketSession.close(CloseStatus)`를 부르는 곳이 3곳 있다. 클라이언트 프레임 처리 실패는 `handleError(WebSocketSession, Throwable, Message)` → `sendErrorMessage`로 이 경로를 탄다.
+- `private void sendToClient(WebSocketSession, StompHeaderAccessor, byte[])`도 ERROR 프레임을 보낸 뒤 같은 코드로 닫는 곳이 3곳 있다.
+- 알림 모듈에는 별도 STOMP 오류 처리기(`StompSubProtocolErrorHandler` 재정의)가 없다.
+
+#### NR-027 · 2026-11-10 · 통과 (#849 PR 리뷰 반영, NR-026 정정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-027 |
+| 실행 날짜 | 2026-11-10 17:15~17:20 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-849` |
+| 커밋 | `7e4aa64d` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationRealtimeIntegrationTest`: 중복·밀려난 알림 시험이 앞서 받은 20건의 `targetId`가 `new-0`~`new-19`와 정확히 같은지 확인, 구독 거절 시험의 닫힘 판정을 `PROTOCOL_ERROR`(1002)로 좁힘. 이 문서 |
+| 대상 기능 | #849 PR 리뷰 지적 2건 |
+| 관련 NT ID | NR-026과 같다 |
+| 명령 | 두 클래스 `--rerun` 3회 + `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-026과 같다 |
+| 결과 | 통과 |
+| 건수 | 두 클래스 3회 모두 통과(`NotificationRealtimeIntegrationTest` 13건). 검증 명령: `:notification` 116 새 실행·통과, 나머지 `UP-TO-DATE`(새 실행 아님, 마지막 실행 NR-026 통과). 종료 코드 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | 자체 리뷰(import 순서, 저장 목록을 한 번만 만들기) 반영 뒤 17:24~17:25 검증 명령 다시 실행: `:notification` 116 새 실행·통과(`NotificationRealtimeIntegrationTest` 13건), 나머지 `UP-TO-DATE`, 종료 코드 0 |
+| 미검증 항목 | NR-026과 같다(CI 재실행 없이 연속 3회, B·C 로컬 재현 못 함) |
+| 관련 변경 | #849 |
+
+**메모**
+- 1002 근거: spring-websocket 7.0.9 `StompSubProtocolHandler`는 클라이언트 프레임 처리 실패 때(`handleError` → `sendErrorMessage`) ERROR를 보내고 `CloseStatus.PROTOCOL_ERROR`로 닫는다(바이트코드 확인). 알림 모듈에는 별도 STOMP 오류 처리기가 없다.
+- **NR-026 정정**: NR-026 메모의 줄 번호(196·117·343행)는 수정 전 파일 기준이라 수정 뒤 파일과 맞지 않는다. 메서드 이름으로 읽는다: A `중복과_밀려난_알림은_프레임을_보내지_않고_중복_방지와_20개_보존은_그대로다`, B `연결_만료가_되면_서버가_연결을_4401로_닫는다`, C `자기_알림_목적지_말고는_구독할_수_없다`, 추가 `Redis가_멈춰도_저장은_끝나고_되돌려지지_않으며_재접속_뒤_목록으로_맞춘다`.
+
+#### NR-026 · 2026-11-10 · 통과 (#849 CI 간헐 실패 시험 수정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-026 |
+| 실행 날짜 | 2026-11-10 16:20~17:02 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-849`(worktree, origin/dev `6d8b1688` 기준) |
+| 커밋 | `6d8b1688` |
+| 작업 트리 변경 | 있음(커밋 전). 시험만: `NotificationRealtimeIntegrationTest`(중복·밀려난 알림은 먼저 연결하고 앞선 20건을 받아 비움, Redis 멈춤은 멈춘 동안 발행 실패가 기록된 뒤 되살림, 구독 거절은 ERROR 또는 연결 닫힘을 거절로 보고 거절된 연결로 다른 회원 프레임이 오지 않는지 확인), `NotificationConnectionExpiryTest`(만료 뒤 `isOpen()`이 바뀔 때까지 기다림). 운영 코드 변경 없음 |
+| 대상 기능 | CI에서 간헐 실패한 실시간 시험(#849) |
+| 관련 NT ID | NT-RT-01~06·08(시험 안정성), NT-RET-02·NT-IDEM-01 실시간 부분 |
+| 명령 | ① 재현: `Relay.deliver` 앞에 150ms 지연을 임시로 넣고 `:notification:test --tests '*NotificationRealtimeIntegrationTest.중복*'` ② 지연을 둔 채 `--tests '*NotificationRealtimeIntegrationTest' --tests '*NotificationConnectionExpiryTest' --rerun` 3회 ③ 지연을 지우고 같은 명령 5회 ④ `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10, JDK 25, Docker Testcontainers(PostgreSQL, Redis 8, Kafka) |
+| 결과 | 통과 |
+| 건수 | ④ 새 실행(worktree 첫 빌드): `:notification` 116, `:auxiliary-app` 12, `:auxiliary-global` 108, `:chatbot` 113, `:search` 132. 합계 481, 실패 0. ②는 3회 모두, ③은 5회 모두 두 클래스 통과 |
+| 실패 원인 분류 | F-TEST(시험이 비동기 전달·세션 상태 전환 시점에 기댐). 운영 코드 결함 아님 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | 위 ②③④. 자체 리뷰(S6) 반영 뒤 17:05~17:08: 두 클래스 `--rerun` 1회 통과, ④ 다시 실행(`:notification` 116 새 실행·통과, 나머지 `UP-TO-DATE`), 종료 코드 0 |
+| 미검증 항목 | CI에서 재실행 없이 연속 3회 통과(이슈 완료 조건, PR 뒤 확인), B·C는 로컬에서 재현하지 못함 |
+| 관련 변경 | #849 |
+
+**메모 — 원인**
+- A(`중복과_밀려난_알림은…` 196행): 지연 주입으로 재현했다. 받은 프레임은 `"targetId":"new-4"`였다. 연결 전에 저장한 20건의 프레임이 연결 뒤 늦게 도착한 것으로 확정했다. 먼저 연결하고 20건을 받은 뒤 확인하도록 바꿨다.
+- 추가(`Redis가_멈춰도…`, 이슈 "공통" 점검 중 발견): 지연 주입 때 함께 실패했다. 발행 시도가 Redis를 되살린 뒤에 일어나면 성공해 `while-down` 프레임이 재접속한 연결로 왔다. 멈춘 동안 `hapbang.notification.realtime.dropped{reason=publish_failed}`가 오를 때까지 기다린 뒤 되살리도록 바꿨다(이 지표 이름·태그에 기댄다).
+- B(`연결_만료가_되면…` 117행): 닫힘 콜백 안에서 깨어나 `isOpen()`을 바로 보는 경합으로 추정. 상태가 바뀔 때까지 기다리게 바꿨다(재현 못 함).
+- C(`자기_알림_목적지_말고는…` 343행, 이슈 추가 보고): 로그가 없어 원인을 확정하지 못했다. ERROR 프레임 또는 정상 종료(1000)가 아닌 코드의 연결 닫힘을 거절로 보고, 둘 다 없으면 목적지를 실패 메시지에 남기게 바꿨다. 거절된 연결로 다른 회원의 프레임이 오지 않는지 확인을 더했다. `RawStomp`는 닫히기 전에 받은 프레임을 큐에 남긴다(확인).
+- 같은 파일의 다른 "프레임 없음" 시험(롤백·commit 전·다른 회원·읽음·파기·SEND)은 앞선 저장이 없거나 먼저 비우므로 같은 위험이 없다.
+
 #### NR-025 · 2026-11-10 · 통과 (#829 Bot 리뷰 2차 뒤 자체 리뷰)
 
 | 항목 | 값 |

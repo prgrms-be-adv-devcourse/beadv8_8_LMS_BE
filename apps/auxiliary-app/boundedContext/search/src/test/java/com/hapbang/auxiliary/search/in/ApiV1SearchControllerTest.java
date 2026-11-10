@@ -24,7 +24,6 @@ import com.hapbang.auxiliary.search.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
-import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.out.InfluencerStats;
 import com.hapbang.auxiliary.search.out.MemberProfile;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
@@ -61,7 +60,7 @@ class ApiV1SearchControllerTest {
     void seed() throws Exception {
         SearchElasticsearch.reset(client);
         // 다른 테스트가 지운 뒤라 이 컨텍스트의 준비 상태를 믿지 않고 새로 맞춘다
-        new InfluencerIndexSetup(client).ensureReady();
+        SearchElasticsearch.createIndex(client);
         zeroResultKeywords.flush();
         influencer(1L, "메이플용사", "VERIFIED_INFLUENCER", List.of("GAME", "MAPLESTORY"), "메이플스토리 보스 공략",
                 new InfluencerStats(1L, List.of("메이플 아저씨", "다시보기"), "메이플 아저씨", 90_000, 4.7, 15));
