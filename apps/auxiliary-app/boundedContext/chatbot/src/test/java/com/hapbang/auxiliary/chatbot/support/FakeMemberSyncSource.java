@@ -21,6 +21,7 @@ public final class FakeMemberSyncSource implements MemberSyncSource {
     private final Map<Long, UserDto> members = new TreeMap<>();
     private final Map<String, String> categoryNames = new TreeMap<>();
     private RuntimeException categoryFailure;
+    private int categoryCalls;
 
     public static FakeMemberSyncSource source() {
         return INSTANCE;
@@ -31,6 +32,7 @@ public final class FakeMemberSyncSource implements MemberSyncSource {
         categoryNames.clear();
         categoryNames.putAll(Map.of("GAME", "게임", "MUSIC", "음악", "COOKING", "요리"));
         categoryFailure = null;
+        categoryCalls = 0;
     }
 
     public synchronized void put(UserDto... items) {
@@ -49,8 +51,19 @@ public final class FakeMemberSyncSource implements MemberSyncSource {
         categoryFailure = failure;
     }
 
+    /** 분야 이름을 부른 횟수 */
+    public synchronized int categoryCalls() {
+        return categoryCalls;
+    }
+
+    /** 분야 이름 하나를 바꾼다 */
+    public synchronized void putCategoryName(String code, String name) {
+        categoryNames.put(code, name);
+    }
+
     @Override
     public synchronized Map<String, String> categoryNames() {
+        categoryCalls++;
         if (categoryFailure != null) {
             throw categoryFailure;
         }

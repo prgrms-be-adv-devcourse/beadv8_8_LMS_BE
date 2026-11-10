@@ -20,7 +20,7 @@ public record InfluencerItemResDto(
         long memberId,
         @Schema(description = "콘텐츠 분야 한글 이름(회원이 고른 순서)", example = "[\"게임\", \"음악\"]")
         List<String> categoryNames,
-        @Schema(description = "함께 마친 출연 수(호스트·게스트 모두)", example = "3")
+        @Schema(description = "이 인플루언서가 완료한 출연 수(누구와든, 호스트·게스트 모두). 요청 회원과 함께한 수가 아니다", example = "3")
         long completedAppearances,
         @Schema(description = "받은 출연 리뷰 평균 별점(소수 첫째 자리). 리뷰가 없으면 null", example = "4.5", nullable = true)
         @Nullable Double averageRating,

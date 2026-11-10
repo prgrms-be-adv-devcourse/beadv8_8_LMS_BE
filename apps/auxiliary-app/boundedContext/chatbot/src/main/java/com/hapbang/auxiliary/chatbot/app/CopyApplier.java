@@ -120,7 +120,7 @@ public class CopyApplier {
                 LocalDateTime now = now();
                 CopyWrite write = memberCopyStore.save(copy, now);
                 if (write.outcome().valueChanged()) {
-                    indexTaskStore.add(IndexType.INFLUENCER, String.valueOf(copy.id()), IndexAction.UPSERT, now);
+                    indexTaskStore.add(IndexType.INFLUENCER, InfluencerIndexPlan.docIdOf(copy.id()), IndexAction.UPSERT, now);
                 }
                 return write;
             }

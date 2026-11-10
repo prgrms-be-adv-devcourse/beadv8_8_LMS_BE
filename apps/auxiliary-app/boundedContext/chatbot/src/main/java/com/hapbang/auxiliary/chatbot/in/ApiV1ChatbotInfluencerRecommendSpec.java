@@ -19,7 +19,8 @@ public interface ApiV1ChatbotInfluencerRecommendSpec {
 
     @Operation(summary = "인플루언서 추천 + 이유(LLM)", description = """
             챗봇 "인플루언서 추천받기" 버튼용. 후보는 위 API와 같고, 항목마다 explanation(추천 이유 문장)이 붙는다. \
-            LLM이 실패하거나 시간 상한을 넘기면 fallback=true이고 이유 코드의 정해진 문장으로 답한다(후보는 그대로). \
+            LLM이 실패하거나 시간 상한을 넘기거나 쓸 만한 답이 하나도 없으면 fallback=true이고 이유 코드의 정해진 문장으로 답한다\
+            (후보는 그대로). 후보 밖 회원·빈 문장·회원 ID를 말한 문장은 버리고 그 후보는 정해진 문장으로 채운다. \
             회원마다 주기당 호출 수를 제한한다(넘으면 429).""")
     RsData<InfluencerRecommendResDto> recommendExplained(@Parameter(hidden = true) Long userId);
 }

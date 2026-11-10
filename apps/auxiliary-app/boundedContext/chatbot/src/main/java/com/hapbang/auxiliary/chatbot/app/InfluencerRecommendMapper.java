@@ -8,7 +8,9 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendUseCase.Candidate;
+import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendUseCase.InfluencerRecommendation;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerItemResDto;
+import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
 
 import lombok.RequiredArgsConstructor;
 
@@ -18,6 +20,18 @@ import lombok.RequiredArgsConstructor;
 class InfluencerRecommendMapper {
 
     private final ContentCategoryNames categoryNames;
+
+    /**
+     * 추천 응답.
+     *
+     * @param explanations 후보 회원 ID → 이유 문장. 설명이 없는 경로(위젯·Tool)면 null
+     * @param fallback     LLM 답을 쓰지 못하고 이유 코드 문장으로 답했는지
+     */
+    InfluencerRecommendResDto response(InfluencerRecommendation recommendation, @Nullable Map<Long, String> explanations,
+            boolean fallback) {
+        return new InfluencerRecommendResDto(items(recommendation.items(), explanations), recommendation.needsInterest(),
+                fallback);
+    }
 
     /** @param explanations 후보 회원 ID → 이유 문장. 설명이 없는 경로면 null */
     List<InfluencerItemResDto> items(List<Candidate> candidates, @Nullable Map<Long, String> explanations) {

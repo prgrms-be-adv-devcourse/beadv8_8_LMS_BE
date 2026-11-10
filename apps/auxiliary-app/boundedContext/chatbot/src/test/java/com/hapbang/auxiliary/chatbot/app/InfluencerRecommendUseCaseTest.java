@@ -137,6 +137,17 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("프로필은 있는데 아직 색인 전인 인플루언서는 인기순이지만 needsInterest는 false(입력이 없는 것이 아니다)")
+    void profileNotIndexedYet() {
+        influencer(9L, "GAME", "롤");
+
+        InfluencerRecommendation result = useCase.recommend(9L, null);
+
+        assertThat(result.needsInterest()).isFalse();
+        assertThat(result.items()).allSatisfy(item -> assertThat(item.reasons()).contains(InfluencerReason.POPULAR));
+    }
+
+    @Test
     @DisplayName("요청 회원이 탈퇴(숨김)이면 빈 결과")
     void withdrawnRequester() {
         member(1L, Role.INFLUENCER, UserStatus.WITHDRAWN, List.of("GAME"), "롤");

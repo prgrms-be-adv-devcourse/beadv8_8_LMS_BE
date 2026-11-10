@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 콘텐츠 분야 코드 → 한글 이름 (#719). 회원 API에서 받아 {@code category-names-ttl}(기본 10분) 동안 들고 있는다(분야 표는 거의 바뀌지 않는다).
  * <ul>
+ *     <li>받는 것은 한 번에 한 호출만 하고 잠금 없이 부른다. 그동안 다른 호출은 들고 있던 표를 쓴다(회원 API가 느려도 줄을 서지 않는다).</li>
  *     <li>다시 받지 못하면 들고 있던 표를 쓰고, TTL 동안 다시 부르지 않는다(회원 API 장애 때 요청마다 부르지 않는다).
  *     로그는 받기에 실패하기 시작할 때와 다시 받았을 때만 남긴다.</li>
  *     <li>한 번도 받지 못했으면 {@link #current()}는 예외다(색인 처리기는 실행기가 다시 시도한다). {@link #namesOf}는 코드를 그대로 보여 준다.</li>
@@ -30,9 +32,10 @@ public class ContentCategoryNames {
     private final MemberSyncSource memberSource;
     private final ChatbotInfluencerRecommendProperties properties;
     private final Clock clock;
-    private @Nullable Map<String, String> names;
-    private @Nullable Instant nextFetchAt;
-    private @Nullable RuntimeException lastFailure;
+    private final AtomicBoolean fetching = new AtomicBoolean(false);
+    private volatile @Nullable Map<String, String> names;
+    private volatile @Nullable Instant nextFetchAt;
+    private volatile @Nullable RuntimeException lastFailure;
 
     ContentCategoryNames(MemberSyncSource memberSource, ChatbotInfluencerRecommendProperties properties,
             @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
@@ -42,15 +45,21 @@ public class ContentCategoryNames {
     }
 
     /** 지금 분야 표. 받지 못했고 들고 있던 표도 없으면 예외 */
-    public synchronized Map<String, String> current() {
+    public Map<String, String> current() {
         Instant now = clock.instant();
-        if (nextFetchAt == null || !now.isBefore(nextFetchAt)) {
-            fetch(now);
+        Instant due = nextFetchAt;
+        if ((due == null || !now.isBefore(due)) && fetching.compareAndSet(false, true)) {
+            try {
+                fetch(now);
+            } finally {
+                fetching.set(false);
+            }
         }
-        if (names == null) {
+        Map<String, String> table = names;
+        if (table == null) {
             throw new IllegalStateException("콘텐츠 분야 이름을 받지 못했습니다", lastFailure);
         }
-        return names;
+        return table;
     }
 
     /** 코드들의 한글 이름. 표에 없거나 표를 받을 수 없으면 코드 그대로 */

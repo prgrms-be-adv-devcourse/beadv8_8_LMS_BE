@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity.Stats;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerProfile;
+import com.hapbang.auxiliary.chatbot.domain.InfluencerProfileText;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
@@ -57,6 +59,8 @@ public class InfluencerRecommendUseCase {
     private final ChatbotEmbedder embedder;
     private final ChatbotInfluencerRecommendProperties properties;
     private final InfluencerPopularity popularity;
+    // 검색(임베딩·ES) 장애 중인지. 로그는 상태가 바뀔 때만 남긴다
+    private final AtomicBoolean searchFailing = new AtomicBoolean(false);
 
     InfluencerRecommendUseCase(InfluencerRecommendStore store, MemberVisibility memberVisibility, RecommendVectorIndex index,
             ChatbotEmbedder embedder, ChatbotInfluencerRecommendProperties properties) {
@@ -77,19 +81,26 @@ public class InfluencerRecommendUseCase {
             return new InfluencerRecommendation(List.of(), false);
         }
         Set<Long> partners = store.completedPartners(userId);
+        InfluencerProfile me = store.profiles(List.of(userId)).get(userId);
         Map<Long, Candidate> chosen = new LinkedHashMap<>();
         boolean needsInterest = false;
         if (index.available() && embedder.available()) {
             try {
-                Taste taste = taste(userId, partners, interest);
+                Taste taste = taste(userId, me, partners, interest);
                 if (taste == null) {
-                    needsInterest = true;
+                    // 프로필은 있는데 아직 색인 전이면 입력이 없는 것이 아니다
+                    needsInterest = !hasOwnProfile(me);
                 } else {
                     similar(userId, taste, chosen);
                 }
+                if (searchFailing.compareAndSet(true, false)) {
+                    log.info("인플루언서 추천 검색이 다시 된다");
+                }
             } catch (RuntimeException e) {
                 // 임베딩·ES 장애. 인기순으로 답한다
-                log.warn("인플루언서 추천 검색이 실패해 인기순으로 답한다", e);
+                if (searchFailing.compareAndSet(false, true)) {
+                    log.warn("인플루언서 추천 검색이 실패해 인기순으로 답한다. 다시 될 때까지 같은 실패는 남기지 않는다", e);
+                }
                 chosen.clear();
             }
         }
@@ -105,11 +116,11 @@ public class InfluencerRecommendUseCase {
     }
 
     // 요청 회원의 취향 벡터. 만들 입력이 없으면 null
-    private @Nullable Taste taste(long userId, Set<Long> partners, @Nullable String interest) {
+    private @Nullable Taste taste(long userId, @Nullable InfluencerProfile me, Set<Long> partners,
+            @Nullable String interest) {
         if (interest != null) {
             return Taste.single(embedder.embedQuery(interest), InfluencerReason.MATCHES_INTEREST);
         }
-        InfluencerProfile me = store.profiles(List.of(userId)).get(userId);
         if (me == null || !me.isInfluencer()) {
             return null;
         }
@@ -129,6 +140,11 @@ public class InfluencerRecommendUseCase {
             return Taste.single(partnerMean, InfluencerReason.SIMILAR_TO_PARTNERS);
         }
         return null;
+    }
+
+    // 인플루언서이고 분야나 자기소개가 있다(문서가 아직 없어도 개인 신호는 있다)
+    private static boolean hasOwnProfile(@Nullable InfluencerProfile me) {
+        return me != null && me.isInfluencer() && !InfluencerProfileText.of(me.categories(), me.bio()).isEmpty();
     }
 
     // 추천 가능한 상대들의 벡터 평균. 없으면 null
@@ -253,7 +269,7 @@ public class InfluencerRecommendUseCase {
     /**
      * 추천 후보 한 명. 회원 정보는 사본에서 센 값만 담는다(닉네임·자기소개 없음).
      *
-     * @param stats      함께 마친 출연 수·받은 리뷰(원본 없음 제외)
+     * @param stats      이 후보가 완료한 출연 수(누구와든)·받은 리뷰(원본 없음 제외)
      * @param categories 분야 코드(회원이 고른 순서)
      * @param score      정렬 점수(클수록 앞)
      */

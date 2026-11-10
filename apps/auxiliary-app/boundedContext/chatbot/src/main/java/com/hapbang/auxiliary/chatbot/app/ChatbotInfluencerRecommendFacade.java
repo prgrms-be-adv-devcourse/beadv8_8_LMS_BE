@@ -42,9 +42,7 @@ public class ChatbotInfluencerRecommendFacade {
     /** 후보만(LLM 없음, FE 추천 위젯) */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public InfluencerRecommendResDto recommend(long userId) {
-        InfluencerRecommendation recommendation = candidates(userId);
-        return new InfluencerRecommendResDto(mapper.items(recommendation.items(), null), recommendation.needsInterest(),
-                false);
+        return mapper.response(candidates(userId), null, false);
     }
 
     /** 후보 + LLM 이유(챗봇 "인플루언서 추천받기" 버튼). LLM이 실패하면 이유 코드 문장 */
@@ -61,8 +59,7 @@ public class ChatbotInfluencerRecommendFacade {
         if (explained.fallback() != null) {
             metrics.fallback(Feature.INFLUENCER_RECOMMEND, explained.fallback());
         }
-        return new InfluencerRecommendResDto(mapper.items(recommendation.items(), explained.explanations()),
-                recommendation.needsInterest(), explained.fallback() != null);
+        return mapper.response(recommendation, explained.explanations(), explained.fallback() != null);
     }
 
     // 버튼·위젯 경로는 관심사 문장을 받지 않는다(관심사는 자유 질문 Tool만)

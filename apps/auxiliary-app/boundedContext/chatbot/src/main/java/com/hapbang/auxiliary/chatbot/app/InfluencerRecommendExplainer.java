@@ -24,7 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 인플루언서 추천 이유를 LLM으로 쓴다 (#719, 버튼 경로 {@code /explained}). 후보와 순서는 바꾸지 않는다.
  * <ul>
- *     <li>프롬프트에는 후보의 공개 수치만 넣는다: 분야 이름, 함께 마친 출연 수, 평균 별점, 이유 코드.
+ *     <li>프롬프트에는 후보의 공개 수치만 넣는다: 분야 이름, 후보가 완료한 출연 수(요청 회원과 함께한 수가 아님), 평균 별점, 이유 코드.
  *     <b>닉네임·자기소개 원문과 요청 회원 정보는 넣지 않는다.</b> 회원 ID는 답을 후보에 맞추는 열쇠로만 넣는다.</li>
  *     <li>답은 {@code .entity()}로 받는다. 후보 밖 ID, 빈 문장, <b>후보 회원 ID 숫자가 들어간 문장</b>은 버리고 이유 코드 문장으로 채운다.</li>
  *     <li>LLM을 쓸 수 없거나 실패하거나 쓸 만한 답이 하나도 없으면 모든 후보를 이유 코드 문장으로 답하고 fallback으로 센다
@@ -37,7 +37,7 @@ public class InfluencerRecommendExplainer {
 
     static final String SYSTEM_PROMPT = """
             너는 합방 서비스의 출연 상대 추천 이유를 쓰는 도우미다.
-            1. 주어진 후보마다 추천 이유를 한국어 한두 문장으로 쓴다. 후보 목록에 있는 사실(분야, 함께 마친 출연 수, 평균 별점, 이유)만 쓴다.
+            1. 주어진 후보마다 추천 이유를 한국어 한두 문장으로 쓴다. 후보 목록에 있는 사실(분야, 완료한 출연 수, 평균 별점, 이유)만 쓴다. 완료한 출연 수는 그 후보가 지금까지 마친 출연 전체이고 사용자와 함께한 수가 아니다.
             2. 회원 ID·숫자 ID를 문장에 쓰지 않는다. 이름을 지어내지 않는다.
             3. 후보 목록에 없는 회원은 답에 넣지 않는다.
             4. 답은 후보마다 memberId와 reason을 가진 JSON 배열이다.
@@ -81,8 +81,9 @@ public class InfluencerRecommendExplainer {
         }
         int used = 0;
         List<Explanation> answered = result.value() == null ? List.of() : result.value();
+        Pattern idMention = idMention(explanations.keySet());
         for (Explanation explanation : answered) {
-            if (usable(explanation, explanations.keySet())) {
+            if (usable(explanation, explanations.keySet(), idMention)) {
                 explanations.put(explanation.memberId(), explanation.reason().strip());
                 used++;
             }
@@ -100,17 +101,24 @@ public class InfluencerRecommendExplainer {
     }
 
     // 후보 안의 회원이고, 문장이 있고, 후보 회원 ID 숫자를 말하지 않는 답만 쓴다
-    private static boolean usable(@Nullable Explanation explanation, Set<Long> candidateIds) {
+    private static boolean usable(@Nullable Explanation explanation, Set<Long> candidateIds, Pattern idMention) {
         if (explanation == null || !candidateIds.contains(explanation.memberId()) || explanation.reason() == null
                 || explanation.reason().isBlank()) {
             return false;
         }
+        return !idMention.matcher(explanation.reason()).find();
+    }
+
+    /**
+     * 후보 회원 ID가 문장에 단독 숫자로 나오는지 찾는 패턴. 프롬프트가 넣은 수치는 ID로 보지 않는다:
+     * 단위가 붙은 수("3회", "4점"), 소수("4.5")의 각 자리. "2번"·"ID 2"처럼 단위 없이 나오면 ID로 본다.
+     */
+    static Pattern idMention(Set<Long> candidateIds) {
+        StringJoiner ids = new StringJoiner("|");
         for (Long id : candidateIds) {
-            if (Pattern.compile("(?<![0-9])" + id + "(?![0-9])").matcher(explanation.reason()).find()) {
-                return false;
-            }
+            ids.add(String.valueOf(id));
         }
-        return true;
+        return Pattern.compile("(?<![0-9.])(?:" + ids + ")(?![0-9.])(?!\\s*(?:회|점))");
     }
 
     // 후보의 공개 수치만. 닉네임·자기소개·요청 회원 정보는 넣지 않는다
@@ -119,7 +127,7 @@ public class InfluencerRecommendExplainer {
         for (Candidate candidate : candidates) {
             List<String> names = categoryNames.namesOf(candidate.categories());
             Double rating = candidate.averageRating();
-            prompt.append("- memberId=%d | 분야: %s | 함께 마친 출연: %d회 | 평균 별점: %s | 이유: %s%n".formatted(
+            prompt.append("- memberId=%d | 분야: %s | 완료한 출연: %d회 | 평균 별점: %s | 이유: %s%n".formatted(
                     candidate.memberId(), names.isEmpty() ? "없음" : String.join(", ", names),
                     candidate.completedAppearances(), rating == null ? "리뷰 없음" : rating, descriptions(candidate, ", ")));
         }

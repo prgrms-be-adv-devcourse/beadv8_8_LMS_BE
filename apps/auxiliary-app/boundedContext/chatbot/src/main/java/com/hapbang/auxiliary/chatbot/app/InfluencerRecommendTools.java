@@ -6,7 +6,6 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.chatbot.app.InfluencerRecommendUseCase.InfluencerRecommendation;
 import com.hapbang.auxiliary.chatbot.app.dto.InfluencerRecommendResDto;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 
@@ -36,7 +35,8 @@ public class InfluencerRecommendTools {
 
     @Tool(name = "recommendInfluencers", description = """
             합방(함께 방송) 출연 상대로 어울리는 인플루언서를 추천한다. 사용자가 출연 상대·합방할 사람·비슷한 인플루언서를 찾을 때 쓴다. \
-            회원 ID, 분야 이름, 함께 마친 출연 수, 평균 별점, 추천 이유 코드를 돌려준다. 회원 ID는 답에 쓰지 않는다.             needsInterest가 true면 사용자 정보가 부족해 인기순이므로 원하는 분야를 물어봐도 좋다.""")
+            회원 ID, 분야 이름, 그 인플루언서가 완료한 출연 수(사용자와 함께한 수가 아님), 평균 별점, 추천 이유 코드를 돌려준다. \
+            회원 ID는 답에 쓰지 않는다. needsInterest가 true면 사용자 정보가 부족해 인기순이므로 원하는 분야를 물어봐도 좋다.""")
     public InfluencerRecommendResDto recommendInfluencers(
             @ToolParam(required = false, description = """
                     사용자가 원하는 상대의 분야·분위기를 한 문장으로. 예: '롤 방송하는 사람', '요리 콘텐츠'. \
@@ -44,9 +44,7 @@ public class InfluencerRecommendTools {
             @Nullable String interest,
             ToolContext toolContext) {
         long userId = userId(toolContext);
-        InfluencerRecommendation recommendation = useCase.recommend(userId, normalize(interest));
-        return new InfluencerRecommendResDto(mapper.items(recommendation.items(), null), recommendation.needsInterest(),
-                false);
+        return mapper.response(useCase.recommend(userId, normalize(interest)), null, false);
     }
 
     private static long userId(ToolContext toolContext) {

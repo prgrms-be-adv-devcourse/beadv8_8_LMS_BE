@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
 import com.hapbang.auxiliary.chatbot.support.FakeChatModel;
+import com.hapbang.auxiliary.chatbot.support.FakeEmbeddingModel;
 import com.hapbang.auxiliary.global.auth.GatewayUserHeaderFilter;
 import com.hapbang.shared.member.domain.Role;
 
@@ -116,6 +117,32 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("설명 API: 문장에 든 수치(출연 3회, 별점 4.5점)는 회원 ID로 보지 않는다")
+    void explainedKeepsNumbers() throws Exception {
+        chatModel.reply("""
+                [{"memberId": 2, "reason": "완료한 출연이 3회이고 평균 별점이 4.5점이에요."},
+                 {"memberId": 3, "reason": "음악 방송을 하며 출연을 2 회 마쳤어요."}]""");
+
+        mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.items[0].explanation").value("완료한 출연이 3회이고 평균 별점이 4.5점이에요."))
+                .andExpect(jsonPath("$.data.items[1].explanation").value("음악 방송을 하며 출연을 2 회 마쳤어요."));
+    }
+
+    @Test
+    @DisplayName("Tool: 관심사 문장은 설정 길이(100자)까지만 임베딩한다")
+    void toolTruncatesInterest() {
+        ToolCallback callback = ToolCallbacks.from(tools)[0];
+        String longInterest = "요".repeat(150);
+
+        callback.call("{\"interest\": \"" + longInterest + "\"}",
+                new ToolContext(Map.of(InfluencerRecommendTools.USER_ID, 1L)));
+
+        assertThat(embeddingModel.texts().getLast()).isEqualTo(FakeEmbeddingModel.query("요".repeat(100)));
+    }
+
+    @Test
     @DisplayName("설명 API: LLM이 실패하면 fallback=true이고 후보는 그대로, 이유는 정해진 문장")
     void explainedFallback() throws Exception {
         chatModel.mode(FakeChatModel.Mode.FAIL);
@@ -152,6 +179,9 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
         // 다른 값만 있고 회원 ID가 없는 ToolContext(빈 ToolContext는 Spring AI가 먼저 거절한다)
         assertThatThrownBy(() -> callback.call("{}", new ToolContext(Map.of("faqSources", List.of()))))
                 .hasRootCauseInstanceOf(IllegalStateException.class);
+
+        // 설명 글에 줄 합치기로 생긴 연속 공백이 없다(모델 프롬프트로 그대로 나간다)
+        assertThat(callback.getToolDefinition().description()).doesNotContain("  ");
 
         String result = callback.call("{}", new ToolContext(Map.of(InfluencerRecommendTools.USER_ID, 1L)));
         assertThat(result).contains("\"memberId\":2", "SIMILAR_CATEGORY", "\"needsInterest\":false")

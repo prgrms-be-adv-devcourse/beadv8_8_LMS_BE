@@ -22,7 +22,7 @@ public record InfluencerPopularity(double completedWeight, double ratingWeight, 
     /**
      * 회원 한 명의 인기 재료.
      *
-     * @param completed   함께 마친 출연 수(호스트·게스트 모두, 원본 없음 제외)
+     * @param completed   완료한 출연 수(누구와든, 호스트·게스트 모두, 원본 없음 제외)
      * @param reviewCount 받은 출연 리뷰 수(원본 없음 제외)
      * @param ratingSum   받은 출연 리뷰 별점 합
      */
