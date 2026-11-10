@@ -43,7 +43,7 @@ import lombok.extern.slf4j.Slf4j;
  *     반영한다. 정기 보정이 돌고 있으면 끝날 때까지 기다렸다 다시 부른다.</li>
  *     <li>옛 index를 지운다.</li>
  * </ol>
- * 3~5에서 실패하면 alias는 옛 그대로 두고 새 index를 지운다. ERROR 로그와 지표를 남기고, 다음 확인(10분 뒤)에 처음부터 다시 한다. alias 교체
+ * 1~5에서 실패하면 alias는 옛 그대로 두고 새 index를 지운다(만들지 못했으면 지울 것이 없다). ERROR 로그와 지표를 남기고, 다음 확인(10분 뒤)에 처음부터 다시 한다. alias 교체
  * 응답만 실패하고 ES에는 적용됐으면(시간 초과) alias를 다시 읽어 교체한 것으로 보고 이어 간다.
  */
 @Slf4j
@@ -137,13 +137,22 @@ public class InfluencerReindexer {
 
     private ReindexResult reindex(IndexState state) {
         ReindexReason reason = state.aliasMissing() ? ReindexReason.FIRST_LOAD : ReindexReason.SETTINGS_CHANGED;
-        indexSetup.deleteIndices(state.leftovers());
-
         LocalDateTime startedAt = LocalDateTime.now(clock);
         long started = System.nanoTime();
         log.info("검색 index를 {} 시작한다 reason={}, from={}, to={}, startedAt={}", reason.description(), reason.tag(),
                 state.aliasTargets(), state.expectedIndex(), startedAt);
-        String fresh = indexSetup.createIndex();
+        String fresh;
+        try {
+            indexSetup.deleteIndices(state.leftovers());
+            fresh = indexSetup.createIndex();
+        } catch (RuntimeException e) {
+            // 사용자 사전·mapping 오류로 ES가 새 index를 거절하는 경우가 여기다. 10분마다 같은 이유로 실패하므로 사람이 봐야 한다(PR #845 리뷰)
+            metrics.reindexed(reason, SearchSyncMetrics.REINDEX_FAILURE, Duration.ofNanos(System.nanoTime() - started), 0);
+            log.error("{} 검색 index를 {} 위해 새 index를 준비하지 못해 alias를 그대로 두고 다음 확인 때 다시 한다 reason={}, alias={}, "
+                    + "index={}", FAILED_MARKER, reason.description(), reason.tag(), state.aliasTargets(),
+                    state.expectedIndex(), e);
+            return ReindexResult.failed(reason, null);
+        }
         LoadResult loaded = null;
         try {
             loaded = load(fresh);

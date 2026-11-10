@@ -257,6 +257,29 @@ class InfluencerReindexerTest {
     }
 
     @Test
+    @DisplayName("새 index를 만들지 못하면(사용자 사전·mapping 오류) alias를 그대로 두고 실패 결과와 실패 지표를 남긴다(PR #845 리뷰)")
+    void createIndexFailureKeepsAlias() throws Exception {
+        createOldIndex();
+        InfluencerIndexSetup rejecting = new InfluencerIndexSetup(client) {
+            @Override
+            public String createIndex() {
+                throw new IllegalStateException("ES가 index 설정을 거절했다");
+            }
+        };
+        Pod rejectingPod = new Pod(new InfluencerDocumentStore(client), rejecting, runner(), runner());
+        members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
+
+        ReindexResult result = rejectingPod.reindexer.reindexIfNeeded();
+
+        assertThat(result.failed()).isTrue();
+        assertThat(result.reason()).isEqualTo(ReindexReason.SETTINGS_CHANGED);
+        assertThat(aliasTargets()).containsExactly(OLD);
+        assertThat(members.calls()).isZero();
+        assertThat(registry.get("hapbang.search.reindex.duration").tag("reason", "settings_changed")
+                .tag("outcome", "failure").timer().count()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("두 pod가 동시에 시작해도 한 번만 돈다. 늦은 pod는 락을 잡지 못해 건너뛴다")
     void twoPodsRunOnce() throws Exception {
         Pod other = new Pod(new InfluencerDocumentStore(client), new InfluencerIndexSetup(client), runner(), runner());
