@@ -143,7 +143,7 @@ class RecommendVectorIndexTest {
     }
 
     @Test
-    @DisplayName("지우기는 없는 문서여도 된다. 차원이 설정과 다른 벡터는 넣지 않는다")
+    @DisplayName("지우기는 없는 문서여도 된다. 차원이 매핑과 다른 벡터는 ES가 거절한다")
     void deleteAndDimensionCheck() {
         index.ensureIndex(TYPE, FIELDS);
         index.upsert(TYPE, "9", FakeEmbeddingModel.axis(2), Map.of("on_sale", true, "seller_id", 10L, "title", "강의9"));
@@ -153,8 +153,8 @@ class RecommendVectorIndexTest {
         index.refresh(TYPE);
 
         assertThat(index.vectors(TYPE, List.of("9"))).isEmpty();
-        assertThatThrownBy(() -> index.upsert(TYPE, "10", new float[3], Map.of()))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("차원");
+        assertThatThrownBy(() -> index.upsert(TYPE, "10", new float[] {1, 0, 0}, Map.of()))
+                .isInstanceOf(RuntimeException.class);
     }
 
     @Test

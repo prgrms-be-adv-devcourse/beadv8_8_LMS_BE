@@ -3,7 +3,7 @@
 -- 마지막 실패 원인(예외 종류와 메시지 앞부분). 성공하면 비운다
 ALTER TABLE chatbot.index_task ADD COLUMN last_error VARCHAR(500);
 
--- 같은 문서의 대기 중 요청을 찾는다(한 문서에 쌓인 요청을 한 번에 끝낸다)
+-- 문서 단위로 가져간다: 대기 요청을 문서별로 모으고, 고른 문서의 대기 요청을 모두 함께 임대한다
 CREATE INDEX idx_index_task_pending_doc ON chatbot.index_task (index_type, doc_id) WHERE done_at IS NULL;
 
 -- 끝난 요청을 보관 기간 뒤 지운다

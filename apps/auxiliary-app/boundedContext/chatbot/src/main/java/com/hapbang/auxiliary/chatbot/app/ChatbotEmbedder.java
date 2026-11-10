@@ -71,7 +71,7 @@ public class ChatbotEmbedder {
 
     private EmbeddingModel model() {
         if (model == null) {
-            throw new IllegalStateException("임베딩 모델이 없는 실행이다");
+            throw new IllegalStateException("임베딩 모델이 없는 실행입니다");
         }
         return model;
     }

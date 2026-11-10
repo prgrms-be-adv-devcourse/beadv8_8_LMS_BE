@@ -75,7 +75,8 @@ public class LlmCallGuard {
         try {
             future = executor.submit(task);
         } catch (RuntimeException e) {
-            permit.failed(e);
+            // 스레드를 만들지 못한 것(앱 종료 중 등)은 LLM 장애가 아니라 회로에 기록하지 않고 자리만 돌려준다
+            permit.cancelled();
             return new Result<>(null, FallbackReason.ERROR, e);
         }
         try {

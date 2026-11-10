@@ -26,6 +26,7 @@ import co.elastic.clients.elasticsearch._types.mapping.DynamicMapping;
 import co.elastic.clients.elasticsearch._types.mapping.Property;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.search.Hit;
+import co.elastic.clients.elasticsearch.core.search.SourceFilter;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -110,14 +111,10 @@ public class RecommendVectorIndex {
     /**
      * 문서를 벡터와 함께 넣는다(같은 ID면 통째로 바꾼다).
      *
-     * @param vector 임베딩. 차원이 설정과 달라야 하면 예외
+     * @param vector 임베딩({@code ChatbotEmbedder}가 차원을 확인한 값). 차원이 매핑과 다르면 ES가 거절한다
      * @param fields 벡터 밖의 필드 값
      */
     public void upsert(IndexType type, String id, float[] vector, Map<String, Object> fields) {
-        if (vector.length != properties.dimensions()) {
-            throw new IllegalArgumentException("임베딩 차원이 설정과 다릅니다 expected=" + properties.dimensions()
-                    + ", actual=" + vector.length);
-        }
         Map<String, Object> document = new HashMap<>(fields);
         document.put(EMBEDDING_FIELD, vector);
         try {
@@ -133,30 +130,12 @@ public class RecommendVectorIndex {
      * @return 문서가 없어 바꾸지 못했으면 false(새로 임베딩해 넣어야 한다)
      */
     public boolean update(IndexType type, String id, Map<String, Object> fields) {
-        try {
-            es().update(u -> u.index(indexName(type)).id(id).doc(fields), Map.class);
-            return true;
-        } catch (ElasticsearchException e) {
-            if (e.status() == 404) {
-                return false;
-            }
-            throw new IllegalStateException("추천 색인 문서를 갱신하지 못했습니다 type=" + type + ", id=" + id, e);
-        } catch (IOException e) {
-            throw new IllegalStateException("추천 색인 문서를 갱신하지 못했습니다 type=" + type + ", id=" + id, e);
-        }
+        return unlessNotFound("갱신", type, id, () -> es().update(u -> u.index(indexName(type)).id(id).doc(fields), Map.class));
     }
 
     /** 문서를 지운다. 없어도 된다 */
     public void delete(IndexType type, String id) {
-        try {
-            es().delete(d -> d.index(indexName(type)).id(id));
-        } catch (ElasticsearchException e) {
-            if (e.status() != 404) {
-                throw new IllegalStateException("추천 색인 문서를 지우지 못했습니다 type=" + type + ", id=" + id, e);
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException("추천 색인 문서를 지우지 못했습니다 type=" + type + ", id=" + id, e);
-        }
+        unlessNotFound("삭제", type, id, () -> es().delete(d -> d.index(indexName(type)).id(id)));
     }
 
     /**
@@ -168,22 +147,13 @@ public class RecommendVectorIndex {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        try {
-            List<Hit<T>> hits = es().search(s -> s.index(indexName(type))
-                            .query(q -> q.ids(i -> i.values(List.copyOf(ids))))
-                            .size(ids.size())
-                            .source(src -> src.filter(f -> f.excludes(EMBEDDING_FIELD))),
-                    documentClass).hits().hits();
-            Map<String, T> documents = new LinkedHashMap<>();
-            for (Hit<T> hit : hits) {
-                if (hit.id() != null && hit.source() != null) {
-                    documents.put(hit.id(), hit.source());
-                }
+        Map<String, T> documents = new LinkedHashMap<>();
+        for (Hit<T> hit : searchByIds(type, ids, SourceFilter.of(f -> f.excludes(EMBEDDING_FIELD)), documentClass)) {
+            if (hit.id() != null && hit.source() != null) {
+                documents.put(hit.id(), hit.source());
             }
-            return documents;
-        } catch (IOException e) {
-            throw new IllegalStateException("추천 색인 문서를 읽지 못했습니다 type=" + type, e);
         }
+        return documents;
     }
 
     /**
@@ -195,22 +165,14 @@ public class RecommendVectorIndex {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        try {
-            List<Hit<VectorSource>> hits = es().search(s -> s.index(indexName(type))
-                            .query(q -> q.ids(i -> i.values(List.copyOf(ids))))
-                            .size(ids.size())
-                            .source(src -> src.filter(f -> f.includes(EMBEDDING_FIELD).excludeVectors(false))),
-                    VectorSource.class).hits().hits();
-            Map<String, float[]> vectors = new LinkedHashMap<>();
-            for (Hit<VectorSource> hit : hits) {
-                if (hit.id() != null && hit.source() != null && hit.source().embedding() != null) {
-                    vectors.put(hit.id(), toArray(hit.source().embedding()));
-                }
+        Map<String, float[]> vectors = new LinkedHashMap<>();
+        SourceFilter withVectors = SourceFilter.of(f -> f.includes(EMBEDDING_FIELD).excludeVectors(false));
+        for (Hit<VectorSource> hit : searchByIds(type, ids, withVectors, VectorSource.class)) {
+            if (hit.id() != null && hit.source() != null && hit.source().embedding() != null) {
+                vectors.put(hit.id(), toArray(hit.source().embedding()));
             }
-            return vectors;
-        } catch (IOException e) {
-            throw new IllegalStateException("추천 색인 벡터를 읽지 못했습니다 type=" + type, e);
         }
+        return vectors;
     }
 
     /**
@@ -255,11 +217,43 @@ public class RecommendVectorIndex {
         }
     }
 
+    // ID로 문서를 읽는다. 스펙의 mget 대신 ids 검색을 쓴다: mget에는 _source.exclude_vectors가 없어 ES 9에서 벡터를 받을 수 없다
+    private <T> List<Hit<T>> searchByIds(IndexType type, Collection<String> ids, SourceFilter source, Class<T> documentClass) {
+        try {
+            return es().search(s -> s.index(indexName(type))
+                    .query(q -> q.ids(i -> i.values(List.copyOf(ids))))
+                    .size(ids.size())
+                    .source(src -> src.filter(source)), documentClass).hits().hits();
+        } catch (IOException e) {
+            throw new IllegalStateException("추천 색인 문서를 읽지 못했습니다 type=" + type, e);
+        }
+    }
+
+    // 문서 하나를 바꾼다. 문서가 없으면(404) false
+    private boolean unlessNotFound(String what, IndexType type, String id, EsCall call) {
+        try {
+            call.run();
+            return true;
+        } catch (ElasticsearchException e) {
+            if (e.status() == 404) {
+                return false;
+            }
+            throw new IllegalStateException("추천 색인 문서 " + what + "에 실패했습니다 type=" + type + ", id=" + id, e);
+        } catch (IOException e) {
+            throw new IllegalStateException("추천 색인 문서 " + what + "에 실패했습니다 type=" + type + ", id=" + id, e);
+        }
+    }
+
     private ElasticsearchClient es() {
         if (client == null) {
-            throw new IllegalStateException("추천 색인을 쓸 수 없는 실행이다(ES 연결 없음)");
+            throw new IllegalStateException("추천 색인을 쓸 수 없는 실행입니다(ES 연결 없음)");
         }
         return client;
+    }
+
+    @FunctionalInterface
+    private interface EsCall {
+        void run() throws IOException;
     }
 
     private static float[] toArray(List<Float> values) {

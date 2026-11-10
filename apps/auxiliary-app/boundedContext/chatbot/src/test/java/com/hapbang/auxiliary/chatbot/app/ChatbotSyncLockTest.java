@@ -42,8 +42,8 @@ class ChatbotSyncLockTest extends ChatbotIntegrationTestBase {
         assertThat(Arrays.stream(ChatbotJob.values()).map(ChatbotJob::tag).distinct().count())
                 .isEqualTo(ChatbotJob.values().length);
         assertThat(ChatbotJob.values()).allSatisfy(job -> {
-            // 출연 싱크 #716, FAQ 맞추기 #715, 회원·강의 싱크 #717
-            assertThat(job.lockKey() / 1000).isIn(715L, 716L, 717L);
+            // 출연 싱크 #716, FAQ 맞추기 #715, 회원·강의 싱크 #717, 색인 요청 가져가기 #718
+            assertThat(job.lockKey() / 1000).isIn(715L, 716L, 717L, 718L);
             assertThat(job.tag()).startsWith("chatbot-");
         });
     }
