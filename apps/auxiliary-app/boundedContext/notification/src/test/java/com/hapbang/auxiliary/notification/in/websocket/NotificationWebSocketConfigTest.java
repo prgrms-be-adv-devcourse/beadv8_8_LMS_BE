@@ -20,18 +20,19 @@ import org.springframework.util.unit.DataSize;
 class NotificationWebSocketConfigTest {
 
     @Test
-    void 닫히면_수신_송신_채널_실행기_스레드가_모두_끝난다() throws Exception {
+    void 닫히면_수신_송신_채널_실행기와_heart_beat_스케줄러_스레드가_모두_끝난다() throws Exception {
         // 같은 JVM의 다른 시험 컨텍스트가 만든 스레드와 섞이지 않게, 이 설정이 만든 스레드만 본다
         Set<Thread> before = threads("notification-ws-");
         NotificationWebSocketConfig config = new NotificationWebSocketConfig(
                 mock(NotificationTicketHandshakeInterceptor.class), mock(NotificationWebSocketSessions.class),
                 mock(NotificationStompInterceptor.class), new String[] {"http://localhost:5173"}, Duration.ofSeconds(10),
-                DataSize.ofKilobytes(512), 2, 2);
+                DataSize.ofKilobytes(512), 2, 2, Duration.ofSeconds(25));
         config.configureClientInboundChannel(new ChannelRegistration());
         config.configureClientOutboundChannel(new ChannelRegistration());
         Set<Thread> created = threads("notification-ws-");
         created.removeAll(before);
-        assertThat(created).hasSize(4);
+        // 수신 2 + 송신 2 + heart-beat 스케줄러 1(ND-063)
+        assertThat(created).hasSize(5);
 
         config.destroy();
 

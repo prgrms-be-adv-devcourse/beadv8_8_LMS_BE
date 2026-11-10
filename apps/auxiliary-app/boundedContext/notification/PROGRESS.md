@@ -20,8 +20,8 @@
 | `boundedContext/notification` 디렉터리 | N1·N2 구현 | `build.gradle.kts`, `src/`(회원 복제본, Kafka 소비·DLT 설정, 알림 저장·REST·파기 닉네임). [module.md](../../../../docs/notification/module.md) 2장 |
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
-| 기능 구현 | N1·N2 완료, N3 구현(#829, dev 병합 전) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5 이후 |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-025 |
+| 기능 구현 | N1·N2·N3 완료, N4 진행 중(#847) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5 이후 |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-031 |
 | Flyway | 작성 | `V202611091500__create_notification_schema.sql`(schema, `notification_user`), `V202611101000__create_notification_table.sql`(`notification`), `V202611101100__add_notification_user_masked_at.sql`(파기 표시) |
 
 ## 2. 문서 구축 상태
@@ -50,11 +50,11 @@
 | N0 | P0 | 이벤트 계약 합의, 문구 템플릿 확정 | 알림 | 없음 | 진행 중 | 계약 확정([`event-contracts.md`](../../../../docs/notification/event-contracts.md)). 발행 Issue 발송 전. 종류별 문구는 각 소비 작업(ND-050) |
 | N1 | P0 | 모듈 뼈대: database, 테이블, 회원 복제본, Kafka 소비·DLT 설정 | 알림 | X1 | 완료 | #797(PR #803, dev `ab8f957d`). 테스트 NR-009, 로컬 기동·측정 NR-005. U13 N1 자원값은 인프라 확인, kafka.md 토픽 표 반영(#801). 범위 ND-046·ND-048, consumer group ND-047 |
 | N2 | P0 | 알림 저장, 20개 유지, REST API | 알림 | N1 | 완료 | #801(PR #819, dev `0debc874`). 정책 ND-050~ND-054, 테스트 NR-015 |
-| N3 | P0 | STOMP, 연결 티켓, Redis Pub/Sub 전달 | 알림 | N1 | 진행 중 | #829. 정책 ND-055~ND-060, 구현·테스트 완료(dev 병합 전), 자원 측정 U13 |
-| N4 | P0 | Envoy route(REST, WebSocket) | 알림 | X1 | 미착수 | `apps/auxiliary-app/k8s/base/gateway.yaml`에 알림 경로 없음. U14 |
+| N3 | P0 | STOMP, 연결 티켓, Redis Pub/Sub 전달 | 알림 | N1 | 완료 | #829(PR #834, dev `40c94d7b`). 정책 ND-055~ND-061, 자원 U13 미결 |
+| N4 | P0 | Envoy route(REST, WebSocket) | 알림 | X1 | 진행 중 | #847. 정책 ND-062~ND-067, 구현·테스트 완료(dev 병합 전, NR-029~NR-031), 인프라 확인은 PR 리뷰(ND-065) |
 | N5 | P0 | 이벤트 소비: 출연 요청 도착·모집 지원 도착, 지갑 7종(묶음 제외), 회원 가입·승인 추정 2종 | 알림 | N0, N2 | 미착수 | 코드 없음 |
 | M1 | P0 | 출연: 출연 취소 요청 이벤트 3종 Kafka 발행 | 출연 | 없음 | 미착수 | 2026-11-06 조사: 출연 취소 요청 3종(`AppearanceCancelRequestedEvent`·`AppearanceCancelRequestAcceptedEvent`·`AppearanceCancelRequestRejectedEvent`)은 shared에 있고 출연 앱 JVM 안에서는 발행된다. `@Externalized`가 없어 Kafka로는 나가지 않는다(출연 앱은 `@Externalized`가 붙은 것만 내보낸다, `apps/appearance-app/src/main/java/com/hapbang/appearance/app/AppearanceExternalEvents.java:12`) |
-| M2 | P0 | 강의: 이의 제기 이벤트 4종에 구매자·판매자 ID 추가 | 강의 | N0 | 미착수 | 2026-11-06 조사: 이의 제기 4종(`LectureObjectionResolved`·`ReturnCompleted`·`Withdrawn`·`ReturnActionRequiredEvent`)에 `buyerUserId`·`sellerUserId`·제목이 없다 |
+| M2 | P0 | 강의: 이의 제기 이벤트 4종에 구매자·판매자 ID 추가 | 강의 | N0 | 완료 | #818(PR #827, dev `1f2f353b`). 계약은 [`event-contracts.md`](../../../../docs/notification/event-contracts.md) 2장 |
 | N6 | P0 | M1·M2 이벤트 소비 | 알림 | M1 또는 M2, N2 | 미착수 | 코드 없음 |
 | M3 | P1 | 출연 새 이벤트 12종 | 출연 | N0 | 미착수 | 2026-11-06 조사: 12종 레코드가 shared·출연 앱에 없다. `AppearanceChangedEvent`(#713)는 AI 추천용 상태 사본(id, hostId, guestId, result, scheduledAt, version)이라 M3 전체를 대체할 수 없다(요청 수락/지원 수락, 일방/합의 취소, HOST/AUTO 확인을 구분할 수 없고 요청서·지원·모집글 단계 전이를 담지 않는다). 부분 충족 5, 미충족 7 |
 | M4 | P1 | 강의 새 이벤트 7종 | 강의 | N0 | 미착수 | 2026-11-06 조사: 7종 레코드가 없다(`LectureObjectionFiledEvent` 없음, `LectureObjectionFiledDto`만 있음). #712 `LectureChangedEvent`·`LecturePurchaseChangedEvent`는 부분 재사용 후보다(제목·금액·검수 상태·사유가 부족). 구매 확정 전이는 동기화 이벤트도 없다(`apps/lecture-app/src/main/java/com/hapbang/lecture/app/LectureSyncEvents.java:59`). 부분 4, 미충족 3 |
@@ -84,9 +84,9 @@
 | U9 | 알림 담당 | N8 |
 | U11 | 알림 + 채팅 담당 | 규칙 밖 종류 코드를 쓰는 생성(N5·N8·N10) |
 | U12 | 팀 + FE | N5·N9 |
-| U13 | 알림 + 챗봇 + 인프라 담당 (N1 값은 인프라 확인됨, N3는 알림 담당 제안) | N3·N10 자원 산정 |
-| U14 | 알림 + 인프라 담당 | N4 |
-| U15 | 알림 + 인프라 담당 | N4 |
+| U13 | 알림 + 챗봇 + 인프라 담당 (N1 값은 인프라 확인됨, N3는 알림 담당 제안, N4는 관측 ND-066) | N10 자원 산정 |
+| U14 | 인프라 담당 확인 대기 (알림 쪽 ND-062·ND-063) | N4 PR 리뷰 |
+| U15 | 인프라 담당 확인 대기 (알림 쪽 ND-064) | N4 PR 리뷰 |
 | U16 | 알림 담당 (B안은 팀) | 예약 알림(N10) |
 | U17 | 알림 담당 (+ 회원 내부 API를 쓰면 회원 담당) | N5 배포 |
 | U19 | 알림 담당 (+ 회원 정책은 팀) | N2 구현 가능성 검증(구조는 ND-051) |

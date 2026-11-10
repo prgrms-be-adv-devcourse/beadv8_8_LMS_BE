@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.util.unit.DataSize;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
@@ -28,6 +29,8 @@ import com.hapbang.auxiliary.notification.app.ConditionalOnNotificationRealtime;
  *     <li>전송: 한 번 보내기 상한 10초, 연결별 보내기 버퍼 512KB(ND-058).</li>
  *     <li>수신·송신 채널 실행기는 스레드 수를 작게 고정한다(기본 각 2, U13 측정 대상). 여러 연결의 프레임을 줄로 처리하므로 trace
  *     decorator를 붙이지 않는다(docs/dev/logging.md).</li>
+ *     <li>heart-beat: 서버가 보내기·받기 모두 25초(ND-063). 알림이 없어도 프레임이 오가 Gateway stream idle(5분)에 끊기지 않고,
+ *     응답 없는 클라이언트는 일찍 닫는다. STOMP 협상이라 클라이언트가 받기를 0으로 두면 서버도 보내지 않는다. 스케줄러는 스레드 1개다.</li>
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
@@ -48,6 +51,9 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
     /** 수신·송신 채널 실행기. 빈이 아니므로 이 설정이 소유하고 닫힐 때 종료한다(chat-app ChatChannelBudget과 같다) */
     private final ThreadPoolTaskExecutor inboundExecutor;
     private final ThreadPoolTaskExecutor outboundExecutor;
+    private final Duration heartbeat;
+    /** heart-beat 스케줄러. 빈이 아니므로 이 설정이 소유하고 닫힐 때 종료한다 */
+    private final ThreadPoolTaskScheduler heartbeatScheduler;
 
     public NotificationWebSocketConfig(NotificationTicketHandshakeInterceptor ticketInterceptor,
             NotificationWebSocketSessions sessions, NotificationStompInterceptor stompInterceptor,
@@ -55,7 +61,8 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
             @Value("${hapbang.notification.realtime.websocket.send-time-limit:10s}") Duration sendTimeLimit,
             @Value("${hapbang.notification.realtime.websocket.send-buffer-size-limit:512KB}") DataSize sendBufferSizeLimit,
             @Value("${hapbang.notification.realtime.websocket.inbound-threads:2}") int inboundThreads,
-            @Value("${hapbang.notification.realtime.websocket.outbound-threads:2}") int outboundThreads) {
+            @Value("${hapbang.notification.realtime.websocket.outbound-threads:2}") int outboundThreads,
+            @Value("${hapbang.notification.realtime.websocket.heartbeat:25s}") Duration heartbeat) {
         this.ticketInterceptor = ticketInterceptor;
         this.sessions = sessions;
         this.stompInterceptor = stompInterceptor;
@@ -64,12 +71,15 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
         this.sendBufferSizeLimit = sendBufferSizeLimit;
         this.inboundExecutor = channelExecutor("notification-ws-in-", inboundThreads);
         this.outboundExecutor = channelExecutor("notification-ws-out-", outboundThreads);
+        this.heartbeat = heartbeat;
+        this.heartbeatScheduler = heartbeatScheduler();
     }
 
     @Override
     public void destroy() {
         inboundExecutor.shutdown();
         outboundExecutor.shutdown();
+        heartbeatScheduler.shutdown();
     }
 
     @Override
@@ -84,7 +94,10 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker(QUEUE_PREFIX);
+        registry.enableSimpleBroker(QUEUE_PREFIX)
+                // 보내기·받기 간격(밀리초). 협상은 STOMP 규칙(양쪽 중 큰 값, 한쪽이 0이면 없음)을 따른다
+                .setHeartbeatValue(new long[] {heartbeat.toMillis(), heartbeat.toMillis()})
+                .setTaskScheduler(heartbeatScheduler);
         registry.setUserDestinationPrefix(USER_PREFIX);
     }
 
@@ -105,6 +118,16 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
     @Override
     public void configureClientOutboundChannel(ChannelRegistration registration) {
         registration.executor(outboundExecutor);
+    }
+
+    private static ThreadPoolTaskScheduler heartbeatScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("notification-ws-heartbeat-");
+        scheduler.initialize();
+        // 채널 실행기와 같이 기동 때 스레드를 미리 띄워 연결 수와 관계없이 스레드 수를 일정하게 둔다(U13)
+        scheduler.getScheduledThreadPoolExecutor().prestartAllCoreThreads();
+        return scheduler;
     }
 
     private static ThreadPoolTaskExecutor channelExecutor(String prefix, int threads) {

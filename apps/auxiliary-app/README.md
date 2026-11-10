@@ -92,7 +92,7 @@ advisory lock으로 한 pod만 돌릴 작업은 global `JobLock`을 쓴다. 모�
 
 DB 연결 풀·배치 스레드·메모리는 앱 하나의 값이라 모든 모듈이 나눠 쓴다. 지금 값은 챗봇 하나 기준이다. 모듈을 더하는 PR에서 그 모듈이 동시에 쓰는 DB 연결·배치 수와 메모리를 보고 다시 정한다. 한 모듈이 다 쓰면 다른 모듈의 요청·배치가 기다린다.
 
-STOMP 연결 티켓(알림 모듈)에 쓰는 토큰 만료 헤더 `X-User-Token-Exp`는 global 필터와 Gateway `claimToHeaders`에 없다. chat-app global에서 복사할 때 뺐으므로, 쓰는 모듈이 Gateway 설정과 함께 더한다.
+STOMP 연결 티켓(알림 모듈)에 쓰는 토큰 만료 헤더 `X-User-Token-Exp`는 Gateway `claimToHeaders`가 넘기고(#847), global 필터는 읽지 않는다. 알림 연결 티켓 API만 직접 읽는다(`docs/notification/decisions.md` ND-056·ND-064).
 
 로컬은 다른 앱과 같이 `./gradlew :auxiliary-app:bootRun`으로 띄운다. 로컬 PostgreSQL(docker compose)은 모든 앱이 database 하나를 schema로 나눠 쓰므로 따로 만들 것이 없다.
 

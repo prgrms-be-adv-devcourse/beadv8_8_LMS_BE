@@ -21,7 +21,7 @@
 
 맡는 것과 맡지 않는 것은 [CONTEXT.md](CONTEXT.md) 1장에 있다(ND-001~004). 채팅 알림은 채팅 소유이며 이 모듈의 구조에 넣지 않는다(ND-004, decisions.md 12장).
 
-## 2. As-Is (기준: N1·N2는 dev `0debc874`(N2 #801은 PR #819로 병합), N3는 브랜치 `feature/tkt-829` 커밋 전)
+## 2. As-Is (기준: dev `c67aa7b6`. N2 #801은 PR #819, N3 #829는 PR #834로 병합. N4 #847은 브랜치 `feature/tkt-847` 커밋 전)
 
 | 사실 | 근거 |
 | --- | --- |
@@ -37,15 +37,15 @@
 | Flyway `V202611101000__create_notification_table.sql`(N2): `notification.notification`(ND-025 칸 + 언급 회원 ID `bigint[]`, 발생·읽은·삭제 시각 TIMESTAMPTZ). 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)는 삭제된 행 포함, 목록·보존용 (받는 사람, 발생 시각 desc, id desc) 삭제되지 않은 행, GIN(언급 회원 ID). 묶음 키 인덱스는 없다(N8) | `boundedContext/notification/src/main/resources/db/migration/` |
 | 알림 저장 `NotificationWriter`(N2): 받는 사람 복제본 행 `SELECT … FOR UPDATE`(ND-053) → 복제본 없으면 `RECEIVER_NOT_REPLICATED`(ND-035) → `ReceiverPolicy`(탈퇴 제외, 정지는 U8) → 같은 사건이 있으면(삭제된 행 포함) `DUPLICATE` → 종류 템플릿으로 문구를 만들어 저장 → 같은 트랜잭션에서 21번째부터 Soft Delete. 종류별 템플릿(`NotificationTemplate`)은 운영 코드에 아직 없다(ND-050) | `.../app/NotificationWriter.java`, `.../app/ReceiverPolicy.java`, `.../app/NotificationTemplates.java` |
 | 값 규칙: `v`(필수), `nicknames`(회원 ID → 닉네임). `nicknames`의 키가 언급 회원 ID가 된다. 파기되면 `탈퇴회원#{ID}`로 바꾸고 문구를 템플릿으로 다시 만든다(멱등). 파기(ND-054): `notification_user.masked_at`(Flyway `V202611101100`, 역할 null 허용)에 파기 표시를 남기고 복제본이 없으면 파기 상태로 만든다. 파기된 복제본은 가입·변경으로 바뀌지 않는다. 저장은 언급 회원마다 회원 단위 advisory lock 공유(ID 순), 파기는 배타 잠금 `(801, 회원 ID 해시)`를 잡고, 저장 때 파기된 언급 회원 닉네임을 바꾼다 | `.../domain/Notification.java`, `.../domain/NotificationPayload.java`, `.../domain/NotificationUser.java`, `.../app/NotificationMaskingService.java`, `.../out/MemberMaskLocks.java` |
-| REST `ApiV1NotificationController`(`/api/v1/notifications`, N2): 목록·안 읽은 수·읽음·전체 읽음. `@PreAuthorize`는 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`(관리자 403), 남의·없는·밀려난 알림 읽음은 404 `NOTIFICATION_NOT_FOUND`(ND-052). Gateway route가 없어 외부에서는 아직 닿지 않는다(N4) | `.../in/ApiV1NotificationController.java`, `.../app/NotificationQueryFacade.java` |
-| 실시간 전달(N3, #829 커밋 전): `NotificationWriter`가 저장 뒤 `NotificationRealtimeRelay`에 맡기고, Relay는 트랜잭션 `afterCommit`에서만 전용 실행기(`notificationRealtimeExecutor`, 스레드 1·줄 1000, 차면 버림)에 넘긴다. 실행기가 알림을 다시 읽어(밀려난 알림이면 건너뜀) 프레임 `{notification, unreadCount}`을 만들고 Redis 채널 `<prefix>:realtime`에 발행한다. 다른 회원의 닉네임이 든 알림은 파기 순서 공유 잠금(ND-054) 안에서 발행하고, 없는 알림은 트랜잭션을 끝낸 뒤 발행한다. 발행이 실패하면 5초(설정) 동안 DB 조회 전에 생략한다. 버린 프레임은 지표 `hapbang.notification.realtime.dropped{reason}`로 세고 저장을 되돌리지 않는다(ND-027·ND-059, 3.8). 구독자(`NotificationRealtimeRedisListener`, 전용 `RedisMessageListenerContainer`)가 `convertAndSendToUser(회원ID, /queue/notifications)`로 보낸다 | `.../app/NotificationRealtimeRelay.java`, `.../app/NotificationRealtimeExecutorConfig.java`, `.../out/redis/RedisNotificationRealtimePublisher.java`, `.../in/redis/NotificationRealtime{RedisListener,RedisConfig}.java` |
+| REST `ApiV1NotificationController`(`/api/v1/notifications`, N2): 목록·안 읽은 수·읽음·전체 읽음. `@PreAuthorize`는 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`(관리자 403), 남의·없는·밀려난 알림 읽음은 404 `NOTIFICATION_NOT_FOUND`(ND-052). 외부 경로는 Gateway route(N4, #847) | `.../in/ApiV1NotificationController.java`, `.../app/NotificationQueryFacade.java` |
+| 실시간 전달(N3, #829): `NotificationWriter`가 저장 뒤 `NotificationRealtimeRelay`에 맡기고, Relay는 트랜잭션 `afterCommit`에서만 전용 실행기(`notificationRealtimeExecutor`, 스레드 1·줄 1000, 차면 버림)에 넘긴다. 실행기가 알림을 다시 읽어(밀려난 알림이면 건너뜀) 프레임 `{notification, unreadCount}`을 만들고 Redis 채널 `<prefix>:realtime`에 발행한다. 다른 회원의 닉네임이 든 알림은 파기 순서 공유 잠금(ND-054) 안에서 발행하고, 없는 알림은 트랜잭션을 끝낸 뒤 발행한다. 발행이 실패하면 5초(설정) 동안 DB 조회 전에 생략한다. 버린 프레임은 지표 `hapbang.notification.realtime.dropped{reason}`로 세고 저장을 되돌리지 않는다(ND-027·ND-059, 3.8). 구독자(`NotificationRealtimeRedisListener`, 전용 `RedisMessageListenerContainer`)가 `convertAndSendToUser(회원ID, /queue/notifications)`로 보낸다 | `.../app/NotificationRealtimeRelay.java`, `.../app/NotificationRealtimeExecutorConfig.java`, `.../out/redis/RedisNotificationRealtimePublisher.java`, `.../in/redis/NotificationRealtime{RedisListener,RedisConfig}.java` |
 | 연결 티켓(N3): `POST /api/v1/notifications/ws-tickets`(`@PreAuthorize` 받는 역할). 30초·1회용(Redis `GETDEL`, 키는 SHA-256), 회원마다 60초 10번(Lua INCR+PEXPIRE, 넘으면 공통 `RateLimitExceededException` → 429 `TOO_MANY_REQUESTS`·`Retry-After: 60`), 저장소 없음·실패 503 `CONNECTION_TICKET_UNAVAILABLE`. 연결 만료 `min(X-User-Token-Exp, 발급 + 15분)`, 헤더는 컨트롤러만 읽는다(ND-056·ND-058) | `.../app/NotificationConnection{TicketService,Facade}.java`, `.../in/ApiV1NotificationConnectionController.java`, `.../out/redis/RedisNotificationConnectionTicketStore.java`, `src/main/resources/notification/redis/ws-ticket-rate.lua` |
-| 자체 STOMP(N3): `@EnableWebSocketMessageBroker`, 엔드포인트 `/api/v1/notifications/ws`(출처 검사 → 티켓, 없거나 쓴 티켓 401), 메모리 브로커 `/queue`, 사용자 목적지 `/user`. 수신 검사는 CONNECT를 결합된 회원만, SUBSCRIBE를 `/user/queue/notifications`만 받고 SEND는 모두 거절한다. 연결별 만료 예약 + 30초 주기 대조로 4401 `TOKEN_EXPIRED` 종료(ND-057). 수신·송신 채널 실행기 각 2스레드(설정이 소유, 기동 때 미리 띄우고 컨텍스트가 닫힐 때 종료), 전송 10초·512KB | `.../in/websocket/Notification{WebSocketConfig,TicketHandshakeInterceptor,HandshakeHandler,StompInterceptor,WebSocketSessions}.java` |
+| 자체 STOMP(N3): `@EnableWebSocketMessageBroker`, 엔드포인트 `/api/v1/notifications/ws`(출처 검사 → 티켓, 없거나 쓴 티켓 401), 메모리 브로커 `/queue`, 사용자 목적지 `/user`. 수신 검사는 CONNECT를 결합된 회원만, SUBSCRIBE를 `/user/queue/notifications`만 받고 SEND는 모두 거절한다. 연결별 만료 예약 + 30초 주기 대조로 4401 `TOKEN_EXPIRED` 종료(ND-057). 수신·송신 채널 실행기 각 2스레드(설정이 소유, 기동 때 미리 띄우고 컨텍스트가 닫힐 때 종료), 전송 10초·512KB. 서버 STOMP heart-beat 보내기·받기 `hapbang.notification.realtime.websocket.heartbeat`(기본 25초, ND-063) — 스케줄러 1스레드(같은 방식으로 소유·종료). STOMP 협상이라 클라이언트가 받기 0이면 서버도 보내지 않고, 클라이언트 보내기가 끊기면 서버가 연결을 닫는다(#847) | `.../in/websocket/Notification{WebSocketConfig,TicketHandshakeInterceptor,HandshakeHandler,StompInterceptor,WebSocketSessions}.java` |
 | `hapbang.notification.realtime.enabled`(기본 켜짐)로 위 빈을 켜고 끈다. 모듈 테스트 설정은 끄고 `@NotificationRealtimeTest`만 켠다. 모듈 빌드에 `spring-boot-starter-websocket`·`spring-boot-starter-data-redis` | `.../app/ConditionalOnNotificationRealtime.java`, `boundedContext/notification/build.gradle.kts`, `src/test/resources/hapbang-module-test.yaml` |
 | auxiliary global `SecurityConfig`가 `GET /api/v1/notifications/ws`만 `permitAll`이다(ND-060). 허용 출처는 `hapbang.notification.websocket.allowed-origins`(local·prod 프로필). Redis 명령 시간 제한 `spring.data.redis.timeout: 10s`(앱 공통) | `apps/auxiliary-app/global/.../config/SecurityConfig.java`, `apps/auxiliary-app/src/main/resources/application{,-local,-prod}.yaml` |
 | 테스트(Unit·PG·PG+Kafka·MockMvc, 순서를 강제한 경합 테스트 포함). 건수와 실행 결과는 [regression-log.md](regression-log.md)에만 둔다 | `boundedContext/notification/src/test/` |
-| Gateway HTTPRoute `auxiliary-app`의 `matches`는 `/api/v1/chatbot`, `/api/v1/auxiliary` 둘뿐이다. `/api/v1/notifications` route가 없다. 시간 제한 `request: 30s`, 본문 1Mi | `apps/auxiliary-app/k8s/base/gateway.yaml` |
-| Gateway `claimToHeaders`는 `X-User-Id`(`sub`), `X-User-Role`(`role`)만 넘긴다. `X-User-Token-Exp`가 없다 | `apps/auxiliary-app/k8s/base/gateway.yaml` |
+| Gateway HTTPRoute `auxiliary-app`의 `matches`에 `/api/v1/notifications`가 있다(챗봇·검색·Swagger와 함께, 30초·본문 1Mi, JWT SecurityPolicy 대상). 알림 웹소켓은 HTTPRoute `auxiliary-app-notification-websocket`(경로 Exact `/api/v1/notifications/ws` + `GET`, `timeouts` 0s)과 BackendTrafficPolicy(`requestTimeout: 0s`, `streamIdleTimeout: 300s`)이고 JWT SecurityPolicy·본문 제한 대상이 아니다(ND-062·ND-063·ND-067, #847) | `apps/auxiliary-app/k8s/base/gateway.yaml` |
+| Gateway `claimToHeaders`는 `X-User-Id`(`sub`), `X-User-Role`(`role`), `X-User-Token-Exp`(`exp`, #847 ND-064)를 넘긴다. 외부에서 보낸 같은 헤더는 공용 Gateway `ClientTrafficPolicy`가 모든 route에서 지운다 | `apps/auxiliary-app/k8s/base/gateway.yaml`, `k8s/gateway/base/gateway.yaml` |
 | auxiliary global 필터는 `X-User-Id`·`X-User-Role`만 읽는다. `X-User-Token-Exp`가 없다. 바꾸지 않고 알림 연결 티켓 API가 직접 읽는다(ND-056) | `apps/auxiliary-app/global/src/main/java/com/hapbang/auxiliary/global/auth/GatewayUserHeaderFilter.java`, README "실행과 설정" 끝 |
 | 공통 `SecurityConfig`가 Swagger·`/error`·헬스체크·prometheus와 알림 웹소켓 핸드셰이크(`GET /api/v1/notifications/ws`, ND-060) 밖의 모든 요청에 인증을 요구한다 | `apps/auxiliary-app/global/src/main/java/com/hapbang/auxiliary/global/config/SecurityConfig.java` |
 | Modulith 발행 기록·Flyway 이력은 schema `auxiliary`, Flyway `out-of-order: true`, Hikari 5, 스케줄 풀 2 | `apps/auxiliary-app/src/main/resources/application.yaml` |
@@ -150,7 +150,7 @@
 - 사용자 인증은 Gateway가 JWT를 검증해 넘기는 사용자 헤더(`X-User-Id`, `X-User-Role`)로 한다(루트 AGENTS 2장, `GatewayUserHeaderFilter`).
 - auxiliary global `SecurityConfig`가 업무 API 전부에 로그인을 요구한다. 예외는 알림 웹소켓 핸드셰이크 `GET /api/v1/notifications/ws` 하나이고, 인증은 연결 티켓으로 한다(ND-060). auxiliary README "권한"의 "모듈이 공개 경로를 따로 열지 않는다"에 이 예외를 적는 일은 팀 승인 후속이다(PROGRESS 4장).
 - 역할 검사는 모듈 Facade의 `@PreAuthorize`로 한다(auxiliary README "권한"). 받는 사람은 유저·인플루언서·인증된 인플루언서다(ND-003). 모든 API는 본인 알림만 다룬다(ND-026).
-- WebSocket 연결은 연결 티켓으로 인증한다(ND-028). 연결 만료는 ND-056, 서버가 끊는 경우는 ND-057, 티켓·전송 수치는 ND-058, 프레임을 보내는 때는 ND-059다. Gateway `exp` claim은 N4(ND-055, U15 남은 일).
+- WebSocket 연결은 연결 티켓으로 인증한다(ND-028). 연결 만료는 ND-056, 서버가 끊는 경우는 ND-057, 티켓·전송 수치는 ND-058, 프레임을 보내는 때는 ND-059다. Gateway route는 ND-062, WebSocket 시간 제한과 서버 STOMP heart-beat는 ND-063, `exp` claim은 ND-064, WebSocket route를 JWT SecurityPolicy에서 빼는 것은 ND-067이다(N4, #847).
 
 ### 3.7 실패와 재시도
 
@@ -199,7 +199,7 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | 3. `:auxiliary-app` 의존 추가 | |
 | 4. `package-info.java` `@ApplicationModule` | |
 | 5. 첫 SQL | ND-007 |
-| 6. `gateway.yaml` 경로 추가 | REST와 WebSocket 경로, 시간 제한(U14), `exp` claim(U15 남은 일). N4에서 한다(ND-055) |
+| 6. `gateway.yaml` 경로 추가 | REST와 WebSocket 경로(ND-062), 시간 제한(ND-063), `exp` claim(ND-064), WebSocket route는 JWT SecurityPolicy 대상 아님(ND-067). N4(#847)에서 한다(ND-055) |
 | 7. `verifyModuleStructure :auxiliary-app:check` | `AuxiliaryModularityTest`가 새 모듈을 찾는지 |
 
 ## 5. 다른 앱 이벤트 계약 (2026-11-06 조사)
@@ -258,9 +258,9 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | U6 / T5 | EC2 운영 시간과 예약 배치 | 예약 배치 |
 | U7 / T5 | 첫 배포 때 과거 이벤트 처리 | 알림을 만드는 첫 소비자(N5) 배포(ND-048) |
 | U9 | 하루 묶음과 20개 보존 겹침 | 하루 묶음 |
-| U13 | Hikari·스케줄 스레드·메모리 예산(챗봇과 공유). N1은 지금 값 유지·소비자 동시성 1(2026-11-09 인프라 담당 확인). N3는 예산 유지·연결 수 상한 없음·연결 수 단계별 측정(알림 담당 제안, 확정 전) | N3·N10 자원 산정 |
-| U14 | WebSocket 경로 Gateway 시간 제한 | Envoy route |
-| U15 | Gateway `claimToHeaders`에 `exp` 추가(알림 쪽은 ND-055·ND-056) | Envoy route(N4) |
+| U13 | Hikari·스케줄 스레드·메모리 예산(챗봇과 공유). N1은 지금 값 유지·소비자 동시성 1(2026-11-09 인프라 담당 확인). N3는 예산 유지·연결 수 상한 없음·연결 수 단계별 측정(알림 담당 제안, 확정 전). N4는 상한 없이 운영에 열고 관측(ND-066) | N3·N10 자원 산정 |
+| U14 | WebSocket 경로 Gateway 시간 제한. 알림 쪽은 ND-062·ND-063, 남은 것은 인프라 담당 확인(ND-065) | Envoy route(N4) 병합 |
+| U15 | Gateway `claimToHeaders`에 `exp` 추가. 알림 쪽은 ND-055·ND-056·ND-064, 남은 것은 인프라 담당 확인(ND-065) | Envoy route(N4) 병합 |
 | U3 | 종류별 실제 문구(원칙은 ND-039·ND-050) | 각 종류를 소비하는 작업(N5 이후) |
 | U8 | 정지 회원 | 받는 사람 확인(알림을 만드는 첫 소비자 N5 전, ND-050) |
 | U2 / T3 | P0 완료 기준 | 작업 계획 |
@@ -275,6 +275,7 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | 날짜 | 내용 |
 | --- | --- |
 | 2026-11-06 | 처음 작성(e054d6f6 기준). As-Is는 코드·설정 파일로 확인 |
+| 2026-11-10 | ND-062~ND-067 반영(N4 사전 결정, #847): 2장 기준을 N3 병합(PR #834) 뒤 dev로, 3장 Gateway 서술·4.2 6단계·6장 U13~U15를 결정 참조로 고쳤다. #847 구현 뒤 2장 REST·STOMP·Gateway·`claimToHeaders` 행을 코드 기준으로 고쳤다 |
 | 2026-11-10 | ND-055~ND-059 반영(N3 사전 결정): 2장 기준을 N2 병합(#819)으로, global 필터 행과 3.6·4.2·6장 U13·U15를 결정 참조로 고쳤다 |
 | 2026-11-06 | 5장 신설: 발행 앱 코드(dev) 조사로 기존 이벤트 한계(M1~M7), 발행 앱과 정할 계약(합의 전), 회원 복제본 첫 배포 Backfill(U17, 미결)을 적었다. 미결 설계 표에 U16·U17·U18 추가. 결정은 바꾸지 않았다 |
 | 2026-11-06 | 미결 설계 표에 U19(닉네임 파기)를 더했다 |

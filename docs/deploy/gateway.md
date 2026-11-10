@@ -110,7 +110,7 @@ Gateway는 토큰을 `Authorization: Bearer` 헤더에서만 읽는다(`extractF
 운영과 같게 둔 것:
 
 - 경로별 route. 호스트에서 실행한 앱의 기본 포트 8081~8087(auxiliary-app 8087)로 보낸다
-- optional JWT(토큰이 없으면 통과, 잘못된 토큰은 401), `sub`·`role` → `X-User-Id`·`X-User-Role`, `exp` → `X-User-Token-Exp`(chat SecurityPolicy와 같다. 로컬은 provider가 하나라 모든 앱 route에 붙지만 chat-app만 읽는다), 토큰은 `Authorization: Bearer`에서만 읽기, 검증한 토큰을 앱에 그대로 넘기기(`forward`)
+- optional JWT(토큰이 없으면 통과, 잘못된 토큰은 401), `sub`·`role` → `X-User-Id`·`X-User-Role`, `exp` → `X-User-Token-Exp`(chat·auxiliary SecurityPolicy와 같다. 로컬은 provider가 하나라 모든 앱 route에 붙는다. 읽는 곳은 chat-app과 알림 연결 티켓 API다. 로컬 Envoy에는 알림 route가 아직 없다(#847 후속)), 토큰은 `Authorization: Bearer`에서만 읽기, 검증한 토큰을 앱에 그대로 넘기기(`forward`)
 - `earlyRequestHeaders` 제거(`x-user-token-exp` 포함), XFF 신뢰 hop 0, 경로 정규화
 - 일반 route 30초·본문 1MiB, 업로드 `PUT` 30분, WebSocket 전체 timeout 해제·stream idle 5분, idle·stream idle 60초, 나머지 경로 404(내부 API 포함)
 

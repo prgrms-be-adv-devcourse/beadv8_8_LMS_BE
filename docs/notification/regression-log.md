@@ -86,6 +86,83 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-031 · 2026-11-10 · 통과 (#847 자체 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-031 |
+| 실행 날짜 | 2026-11-10 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `c67aa7b6` + 작업 트리 |
+| 작업 트리 변경 | NR-029 목록 + `NotificationWebSocketConfig`(heart-beat 값을 `Duration`으로 두고 브로커 설정 때 배열을 만듦), `RawStomp`(`connectAndSubscribe`가 `connect`를 씀), api·INDEX 문서 |
+| 대상 기능 | 자체 리뷰(S6) 지적 반영 |
+| 관련 NT ID | NR-029와 같다 |
+| 명령 | `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 121, 실패 0(새로 실행). `:auxiliary-app:check`에서 `:auxiliary-app:test` 새로 실행 12, 실패 0. `:auxiliary-global`·`:chatbot`·`:search`·`:notification` test는 `UP-TO-DATE`(마지막 실행 NR-029·바로 앞 명령) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-029와 같다. Gateway E2E(NR-030)는 manifest를 바꾸지 않아 다시 돌리지 않았다 |
+| 관련 변경 | #847 |
+
+#### NR-030 · 2026-11-10 · 통과 (#847 Gateway E2E, 로컬 k3d)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-030 |
+| 실행 날짜 | 2026-11-10 (KST), 3회 실행 중 마지막 |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `c67aa7b6` + 작업 트리 |
+| 작업 트리 변경 | NR-029와 같다 |
+| 대상 기능 | Gateway route·인증 경계·`exp` claim·WebSocket stream idle(ND-062~ND-064·ND-067) |
+| 관련 NT ID | NT-RT-07(Gateway 쪽), NT-RT-09 |
+| 명령 | 레포 밖 스크립트(시험용 backend + `run_e2e.py`, 커밋하지 않음). `k3d cluster create --config k8s/local/k3d.yaml` → `k8s/cluster/namespaces.yaml` → `bash k8s/gateway/tools/install-local.sh` → auxiliary-app local overlay의 HTTPRoute·SecurityPolicy·BackendTrafficPolicy를 경로 그대로 복제해 backend와 JWKS만 시험용으로 바꿔 적용 |
+| 실행 환경 | k3d `hapbang`(k3s v1.36.5, 2 node), Envoy Gateway v1.9.3(`install/envoy-gateway`), Docker Desktop 8GiB. platform 없이 Gateway만 설치. tracing backend `hapbang-platform/alloy`가 없어 Gateway가 `Accepted=False`라 이 cluster에만 빈 대역 Service·pod(`alloy-standin`, busybox)를 두었다 |
+| 결과 | 통과 21/21(종료 코드 0) |
+| 건수 | 상태 7(route 3·SecurityPolicy 1·BackendTrafficPolicy 2 Accepted, WebSocket route가 SecurityPolicy 대상 아님), E1·E1b, E2 2건, E3·E3b, E4 3건, E6 3건, E5 2건 |
+| 실패 원인 분류 | 최종 실패 없음. 이전 두 실행의 실패는 시험 장치(아래 메모) |
+| 수정 내용 | 시험 스크립트만 고쳤다(제품 코드·manifest 변경 없음) |
+| 재실행 결과 | 3회째 21/21 |
+| 미검증 항목 | 실제 auxiliary-app·member를 거친 E2E(backend는 앱 동작을 흉내 낸 시험 서버), 실제 15분 만료까지 Envoy를 거친 4401(앱 쪽은 NR-029, Gateway 유지는 E5로 나눠 확인), WebSocket route에서 위조 헤더가 실제로 지워지는지(업그레이드만 확인, 지우는 정책은 Gateway 전체 `ClientTrafficPolicy`라 E4 REST 결과와 같다), 운영 EC2 |
+| 관련 변경 | #847 |
+
+**메모**
+- 확인 결과: JWT 없는 `GET /api/v1/notifications/ws`와 잘못된 `Authorization`이 실린 요청 모두 Gateway를 지나 101(E1·E1b). 티켓 없음·틀림은 backend 401이 그대로 전달(E2). 티켓 발급 `POST`에 `X-User-Token-Exp` = 토큰 `exp`, 외부 위조 값은 지워지고 JWT 없는 요청에는 헤더가 없음(E3·E4). 잘못된 토큰의 발급 요청은 Envoy 401(E3b). `POST /ws`·`GET /ws/x`는 일반 route(E6).
+- E5: 25초마다 양쪽이 heart-beat를 보낸 연결은 330초 뒤에도 열려 있었고(서버 heart-beat 13개), heart-beat 없는 대조 연결은 300.99초에 끊겼다(stream idle 5분).
+- 1회째: `GET /ws/x` 웹소켓 업그레이드가 401이 아니라 403이었다. 일반 route는 웹소켓 업그레이드를 받지 않아 Envoy가 403으로 거절한다(본문 제한 정책이 걸린 route로 보임, 원인 확정 안 함). WebSocket route가 받지 않는다는 목적은 맞아 기대값을 "업그레이드 없음 → JWT 401, 업그레이드 → 101 아님"으로 고쳤다.
+- 2회째: E3·E4(JWT 요청)가 401이었다. 스크립트가 실행마다 서명 키를 새로 만들고 ConfigMap을 바꾸지만, 이미 떠 있던 backend pod의 마운트가 늦게 갱신되어 이전 JWKS를 내주었다(실행 뒤 마운트와 ConfigMap이 같아진 것을 확인). 시험 자원을 지우고 다시 실행해 통과했다.
+- Gateway 전체(상위)에 걸린 SecurityPolicy는 없다(`k8s/gateway/base`는 `kafka-ui` route의 basicAuth뿐). 그래서 WebSocket route를 targetRefs에서 빼면 JWT 필터가 붙지 않는다(ND-067).
+
+#### NR-029 · 2026-11-10 · 통과 (#847 heart-beat 구현)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-029 |
+| 실행 날짜 | 2026-11-10 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-847` |
+| 커밋 | `c67aa7b6` + 작업 트리 |
+| 작업 트리 변경 | `NotificationWebSocketConfig`(STOMP heart-beat 25초, 스케줄러 1스레드 소유·종료), 테스트 `NotificationHeartbeatTest`(새)·`NotificationWebSocketConfigTest`·`RawStomp`(heart-beat 보조), `apps/auxiliary-app/k8s/base/gateway.yaml`, 알림 문서(decisions·module·test-spec·api·PROGRESS·INDEX·AGENTS·이 문서) |
+| 대상 기능 | 서버 STOMP heart-beat(ND-063) |
+| 관련 NT ID | NT-RT-07(앱 쪽), NT-RT-05·06 회귀 |
+| 명령 | RED·GREEN: `./gradlew :notification:test --tests "*NotificationHeartbeatTest"`(+ `*NotificationWebSocketConfigTest`). 회귀: `./gradlew :notification:test`, `./gradlew verifyModuleStructure`, `./gradlew :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(세 명령 모두 종료 코드 0) |
+| 건수 | `:notification` 121, 실패 0. `:auxiliary-app:check`에서 새로 실행: `:auxiliary-app` 12, `:auxiliary-global` 108, `:chatbot` 113, `:search` 132, 실패 0. `:notification:test`는 바로 앞 명령 결과로 `UP-TO-DATE` |
+| 실패 원인 분류 | 최종 실패 없음 |
+| 수정 내용 | — |
+| 재실행 결과 | — |
+| 미검증 항목 | 전체 `./gradlew check`, kubeconform(로컬에 없음, CI manifests job), Gateway 경유(NR-030) |
+| 관련 변경 | #847 |
+
+**메모**
+- RED: `NotificationHeartbeatTest` 5건 중 3건이 기대한 이유로 실패했다(CONNECTED `heart-beat:0,0`, 서버 heart-beat 0개, 클라이언트 heart-beat가 끊겨도 닫히지 않음). 받기 0이면 서버 heart-beat 없음·heart-beat 중 4401은 기존 동작이라 처음부터 통과했다(회귀 보호).
+- `NotificationWebSocketConfigTest`는 생성자 인자가 늘어 구현 전에는 컴파일되지 않는 상태로 고쳤고, 실패 출력은 따로 보지 않았다. 구현 뒤 스레드 5개(수신 2·송신 2·heart-beat 1)가 모두 끝나는 것을 확인했다.
+
 #### NR-025 · 2026-11-10 · 통과 (#829 Bot 리뷰 2차 뒤 자체 리뷰)
 
 | 항목 | 값 |

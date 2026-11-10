@@ -175,9 +175,10 @@
 | NT-RT-03 | 다른 회원 연결로 가지 않음 | A·B 연결 | A에게 가는 이벤트 | B는 프레임을 받지 않는다 | — | ND-026, ND-027 | 위와 같음 | Integration(PG+Redis) | 유효 |
 | NT-RT-04 | 유실 후 REST 재동기화 | A 연결 | Redis 발행 실패·연결 끊김 중 알림 여러 건 생성 → 재접속 후 목록 조회 | 저장·offset 커밋은 실시간 실패와 무관하게 끝난다. 재접속 후 목록이 유실 없이 받은 경우의 목록(DB 최신 20)과 같다 | 실시간 실패가 저장을 되돌리지 않는다는 것은 "DB가 원천"(N 2장)에서 읽은 기준이다 | ND-027 | `GET /api/v1/notifications` | Integration(PG+Redis), E2E | 유효 |
 | NT-RT-05 | 연결 티켓 | 로그인 회원 | `POST /api/v1/notifications/ws-tickets` 후 연결, 티켓 없음·만료·재사용 | 유효한 티켓만 연결된다(채팅 `/api/v1/chats/ws-tickets`와 같은 규칙). 티켓은 30초·1회용, 60초에 11번째 발급은 429, 티켓 저장소를 못 쓰면 503 | — | ND-028, ND-058 | `POST /api/v1/notifications/ws-tickets` | Integration(PG+Redis) | 유효 |
-| NT-RT-06 | 연결 만료 | 로그인 회원 | 티켓 발급 요청에 `X-User-Token-Exp`가 있음(발급 + 15분보다 이르거나 늦음)·없음·형식 오류, 만료 시각 경과 | 연결 만료는 `min(헤더 exp, 발급 + 15분)`이고 헤더가 없거나 틀리면 발급 + 15분이다. 만료 시각에 서버가 연결을 끊는다. 헤더 위조로 15분을 넘지 못한다. 만료 말고는 서버가 끊지 않는다 | Gateway `exp` claim을 통한 E2E는 N4(U15 남은 일) | ND-056, ND-057 | `POST /api/v1/notifications/ws-tickets`, WebSocket | Integration(PG+Redis) | 유효 |
-| NT-RT-07 | WebSocket 경로 Gateway 시간 제한 | route 확정 | WebSocket을 기본 응답 시간(30초)보다 오래 연결 | 정한 시간 제한까지 연결이 유지된다 | HTTPRoute 기본 30초·1MiB | ND-026, **U14** | `k8s/base/gateway.yaml` HTTPRoute | E2E | 미결 (U14) |
+| NT-RT-06 | 연결 만료 | 로그인 회원 | 티켓 발급 요청에 `X-User-Token-Exp`가 있음(발급 + 15분보다 이르거나 늦음)·없음·형식 오류, 만료 시각 경과 | 연결 만료는 `min(헤더 exp, 발급 + 15분)`이고 헤더가 없거나 틀리면 발급 + 15분이다. 만료 시각에 서버가 연결을 끊는다. 헤더 위조로 15분을 넘지 못한다. 만료 말고는 서버가 끊지 않는다 | Gateway `exp` claim을 통한 E2E는 NT-RT-09(ND-064) | ND-056, ND-057 | `POST /api/v1/notifications/ws-tickets`, WebSocket | Integration(PG+Redis) | 유효 |
+| NT-RT-07 | WebSocket 경로 Gateway 시간 제한과 heart-beat | Gateway를 거친 연결, 알림 없음 | WebSocket을 stream idle(5분)과 기본 응답 시간(30초)보다 오래, 프레임 없이 연결 | 알림이 없어도 서버 STOMP heart-beat로 연결이 연결 만료(ND-056)까지 유지되고, 만료 시각에 서버가 4401로 끊는다. Envoy가 먼저 끊지(1006) 않는다 | 앱 쪽은 연결 만료를 짧게 설정해 heart-beat 협상·유지를 확인한다. 실제 15분은 Gateway를 거친 E2E로 확인한다 | ND-062, ND-063, ND-056 | `k8s/base/gateway.yaml` HTTPRoute·BackendTrafficPolicy, WebSocket | Integration(PG+Redis), E2E | 유효 |
 | NT-RT-08 | 읽음 때 프레임 없음 | A 연결 | A가 읽음·전체 읽음 | 프레임이 오지 않는다. 새 알림·묶음 갱신 저장 때만 온다 | — | ND-059 | WebSocket, `PATCH /api/v1/notifications/{notificationId}/read`, `PATCH /api/v1/notifications/read-all` | Integration(PG+Redis) | 유효 |
+| NT-RT-09 | Gateway 경로·인증과 `exp` claim | Gateway(로컬 k3d) 경유 | (1) JWT 없이 `GET /api/v1/notifications/ws`(티켓 있음·없음·틀림) (2) access token으로 티켓 발급 REST (3) 같은 발급 요청에 외부에서 `X-User-Token-Exp`를 붙임 (4) 다른 메서드·하위 경로 | (1) JWT가 없어도 Gateway JWT 인증에 막히지 않고 앱까지 간다. 유효한 1회용 티켓이 있으면 연결되고, 없거나 틀리면 앱이 핸드셰이크를 401로 거절한다 (2) 발급 요청에 Gateway가 access token `exp`를 `X-User-Token-Exp`로 넣는다 (3) 외부에서 붙인 헤더는 지워지고 Gateway가 넣은 값만 닿는다 (4) WebSocket route로 가지 않는다 | WebSocket route는 JWT SecurityPolicy 대상이 아니다(ND-067). 위조 헤더 제거와 `exp` 주입은 JWT 인증이 있는 REST 요청에서 확인한다 | ND-062, ND-064, ND-067, ND-056, ND-060 | `k8s/base/gateway.yaml` HTTPRoute·SecurityPolicy | E2E | 유효 |
 
 ### 2.11 ERR — 실패·재시도·DLT
 
@@ -222,7 +223,7 @@
 | --- | --- | --- | --- |
 | 1 | 일반 유저 계정이 충전 완료·구매 완료 알림을 받는다. | NT-GEN-01(충전 완료), NT-GEN-02(구매 완료) | 충전 완료는 ✅ `ChargeCompletedEvent`로 지금 가능하다. **구매 완료는 P1 이벤트 `LectureOrderPaidEvent`(M4)가 필요하다.** N 8장 "P0만으로 11장 완료 증거를 시연할 수 있다"와 맞지 않아 미결(U2) |
 | 2 | 같은 integration event를 두 번 소비해도 알림은 한 번만 생긴다. | NT-IDEM-01, NT-IDEM-02 | 받는 사람이 여럿이면 NT-IDEM-03 |
-| 3 | 실시간 알림이 WebSocket으로 도착한다. 실시간 전달을 일부러 유실시켜도 재접속 후 목록이 같다. | NT-RT-01, NT-RT-04 | 연결 티켓 NT-RT-05. 운영 Gateway에서 연결이 유지되는지는 NT-RT-07(U14) |
+| 3 | 실시간 알림이 WebSocket으로 도착한다. 실시간 전달을 일부러 유실시켜도 재접속 후 목록이 같다. | NT-RT-01, NT-RT-04 | 연결 티켓 NT-RT-05. 운영 Gateway에서 연결이 유지되는지는 NT-RT-07, Gateway 경로·`exp` claim은 NT-RT-09 |
 | 4 | 알림이 21개가 되면 가장 오래된 알림이 목록에서 빠지고, 그 알림의 이벤트를 다시 소비해도 되살아나지 않는다. | NT-RET-01, NT-RET-02 | 묶음 알림이 밀려난 경우는 NT-BUN-05(U9) |
 | 5 | auxiliary-app을 끈 동안 쌓인 이벤트가 재시작 후 consumer lag가 줄면서 모두 알림이 된다. | NT-KAF-03 | Kafka 보존 72시간 안에서만 성립한다. 보존 밖·첫 배포의 과거 이벤트는 NT-KAF-04(U7) |
 | 6 | 채팅의 출연 알림 메시지도 그대로 남는다. | NT-CHAT-01 | 소비 그룹 독립 NT-CHAT-02 |
@@ -242,12 +243,12 @@
 | BUN 하루 묶음 | 5 | 4 | 1 (U9) | 0 | 0 |
 | SCH 예약 | 11 | 9 | 2 (U6, U16) | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 7 | 5 | 2 (U8, U17) | 0 | 0 |
-| RT 실시간·재접속 | 8 | 7 | 1 (U14) | 0 | 0 |
+| RT 실시간·재접속 | 9 | 9 | 0 | 0 | 0 |
 | ERR 실패·재시도·DLT | 4 | 4 | 0 | 0 | 0 |
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
-| **합계** | **86** | **72** | **14** | **0** | **0** |
+| **합계** | **87** | **74** | **13** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "N1 연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
@@ -278,7 +279,9 @@
 | NT-RT-01·02·03 | `in.NotificationRealtimeIntegrationTest`(commit 뒤 받는 사람에게 알림+안 읽은 수, commit 전 프레임 없음, 롤백 시 없음, 다른 회원 연결로 안 감) | 전부. 저장 서비스 수준(Kafka 소비로 만드는 알림은 N5 이후) |
 | NT-RT-04 | `in.NotificationRealtimeIntegrationTest`(Redis를 멈춘 채 저장: CREATED·행 유지·저장이 Redis를 기다리지 않음, 재접속 뒤 REST 목록) | 전부 |
 | NT-RT-05 | `app.NotificationConnectionTicketServiceTest`, `in.NotificationRealtimeIntegrationTest`(티켓 없음·틀림·재사용 401, 비로그인 401·관리자 403), `in.NotificationConnectionExpiryTest`(지난 티켓 401, 11번째 429) | 전부 |
-| NT-RT-06 | `app.NotificationConnectionTicketServiceTest`(만료 계산, 위조 헤더 상한), `in.NotificationConnectionExpiryTest`(티켓 유효 시간과 연결 만료 구분, 만료 시 실제 4401 종료, 이른 exp로 종료, 위조 헤더 15분 상한) | 앱 쪽 전부. Gateway를 거치는 E2E는 N4 |
+| NT-RT-06 | `app.NotificationConnectionTicketServiceTest`(만료 계산, 위조 헤더 상한), `in.NotificationConnectionExpiryTest`(티켓 유효 시간과 연결 만료 구분, 만료 시 실제 4401 종료, 이른 exp로 종료, 위조 헤더 15분 상한) | 앱 쪽 전부. Gateway를 거치는 E2E는 NT-RT-09(N4) |
+| NT-RT-07 | `in.NotificationHeartbeatTest`(CONNECTED heart-beat 값, 알림 없이 서버 heart-beat·연결 유지, 클라이언트 받기 0이면 서버 heart-beat 없음, 클라이언트 heart-beat가 끊기면 서버가 닫음, heart-beat 중에도 만료 4401), `in.websocket.NotificationWebSocketConfigTest`(heart-beat 스케줄러 종료) | 앱 쪽 전부. Gateway stream idle을 넘는 유지는 로컬 k3d E2E(regression-log, 레포 밖 스크립트) |
+| NT-RT-09 | 테스트 코드 없음. 로컬 k3d E2E(regression-log, 레포 밖 스크립트·시험 backend) | Gateway 동작만. 실제 앱의 티켓 거절은 NT-RT-05 |
 | NT-RT-08 | `in.NotificationRealtimeIntegrationTest`(읽음·전체 읽음 때 프레임 없음) | 전부 |
 | NT-USR-07 (실시간) | `in.NotificationRealtimeIntegrationTest`(파기 진행 중이면 파기가 끝난 뒤의 닉네임으로 나감, ND-054) | 실시간 부분 |
 | (유실 관측·장애 생략) | `app.NotificationRealtimeRelayTest`(줄 포화 `queue_full`, DB 다시 읽기 실패와 잠금 경로의 잠금 실패 `read_failed`(생략 없음), 발행 실패 `publish_failed`(잠금 경로·언급 회원 없는 경로 모두, 롤백이 실패해도 원래 원인으로 분류)와 생략 시간 동안 DB·잠금 전 `skipped`, 생략 뒤 재시도·복귀와 WARN·INFO 한 번씩, 언급 회원 있으면 잠금 안 commit 전 발행·없으면 잠금 없이 commit 뒤 발행, 언급 회원 칸이 비어도 값에 닉네임이 있으면 잠금 경로) | test-spec 항목 없음(ND-027·ND-054 보강, #829 Bot 리뷰) |
@@ -298,6 +301,7 @@
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-10 decisions.md ND-062~ND-066 반영(N4 사전 결정, #847): NT-RT-07을 Gateway 시간 제한과 서버 heart-beat(ND-062·ND-063)로 고쳐 유효로 바꾸고, NT-RT-09(Gateway 경로·`exp` claim·Authorization 없는 WebSocket 연결, ND-062·ND-064·ND-067)를 더했다. 집계 86 → 87, 유효 72 → 74, 미결 14 → 13.
 - 2026-11-10 decisions.md ND-055~ND-059 반영(N3 사전 결정): NT-RT-05에 티켓 수치(ND-058), NT-RT-06을 앱 쪽 연결 만료(ND-056·ND-057)로 고쳐 유효로 바꾸고(Gateway E2E는 N4), NT-RT-08(읽음 때 프레임 없음, ND-059)을 더했다. 집계 85 → 86, 유효 70 → 72, 미결 15 → 14.
 - 2026-11-06 처음 작성: N 3~6·11장, decisions.md ND-001~032·U1~U15, kafka.md, auxiliary-app README에서 80개 항목을 만들었다. 코드·테스트가 없어 실행하지 않았다.
 - 2026-11-06 decisions.md U16·U17·U18 반영: NT-SCH-06 → 미결 (U16), NT-USR-04 → 미결 (U17), 새 항목 NT-GEN-14(채널 인증 승인 불일치, U18)·NT-USR-06(첫 배포 기존 회원 복제본, U17)을 더하고 NT-GEN-06에 NT-GEN-14 참조를 붙였다(NT-GEN-06 유효 유지). 82개 항목, "미결 (결정 없음)" 0.
