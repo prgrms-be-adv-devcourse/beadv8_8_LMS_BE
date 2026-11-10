@@ -98,11 +98,38 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("출연 취소 요청 이벤트 3종(#817)은 건너뛰고 DLT로 보내지 않는다. 같은 key의 다음 출연 변경은 그대로 반영한다")
+    void skipsCancelRequestEvents() {
+        String cancelRequest = """
+                {"cancelRequest":{"cancelRequestId":9,"appearanceId":3,"title":"합방","hostId":10,"guestId":20,
+                "sequence":1,"scheduledAt":"2026-11-20T20:00:00"}""";
+        send("appearance:3", "AppearanceCancelRequestedEvent", cancelRequest + ",\"requestedAt\":\"2026-11-10T10:00:00\"}");
+        send("appearance:3", "AppearanceCancelRequestRejectedEvent",
+                cancelRequest + ",\"autoRejected\":false,\"rejectedAt\":\"2026-11-10T11:00:00\"}");
+        send("appearance:3", "AppearanceCancelRequestAcceptedEvent", cancelRequest + ",\"acceptedAt\":\"2026-11-10T12:00:00\"}");
+        send("appearance:3", "AppearanceChangedEvent", """
+                {"appearance":{"id":3,"hostId":10,"guestId":20,"result":"CANCELED",
+                "scheduledAt":"2026-11-20T20:00:00","version":3}}""");
+
+        // 같은 key라 같은 partition에서 차례로 처리된다. 출연 변경이 반영됐으면 앞의 세 건은 이미 지나갔다
+        await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
+                assertThat(rows.appearance(3)).containsEntry("result", "CANCELED").containsEntry("version", 3L));
+        try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer("dlt-skip-reader-")) {
+            consumer.subscribe(List.of(settings().deadLetterTopic()));
+            List<String> keys = new java.util.ArrayList<>();
+            await().during(Duration.ofSeconds(2)).atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+                consumer.poll(Duration.ofMillis(200)).forEach(record -> keys.add(record.key()));
+                assertThat(keys).doesNotContain("appearance:3");
+            });
+        }
+    }
+
+    @Test
     @DisplayName("필수 값이 빠진 이벤트는 다시 시도하지 않고 <topic>.<group>.DLT로 보낸다")
     void invalidToDeadLetter() {
         send("appearance:2", "AppearanceChangedEvent", "{\"appearance\":{\"id\":2}}");
 
-        try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer()) {
+        try (KafkaConsumer<String, byte[]> consumer = deadLetterConsumer("dlt-reader-")) {
             consumer.subscribe(List.of(settings().deadLetterTopic()));
             await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
                 List<ConsumerRecord<String, byte[]>> records = new java.util.ArrayList<>();
@@ -127,10 +154,10 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
         producer.flush();
     }
 
-    private KafkaConsumer<String, byte[]> deadLetterConsumer() {
+    private KafkaConsumer<String, byte[]> deadLetterConsumer(String groupPrefix) {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "dlt-reader-" + SUFFIX);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupPrefix + SUFFIX);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);

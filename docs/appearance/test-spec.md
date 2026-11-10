@@ -1284,6 +1284,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 케이스 | 기대 결과 |
 |---|---|
 | 내보내는 이벤트 5건(10·8·7·6·5분 전) + 내보내지 않는 이벤트(회원 가입 이벤트) 1건(9분 전) + 방금(30초 전) 1건 | 10·8·7분 전 3건만 고름(오래된 순), 반환 3, 로그 `count=3, waiting=2, batchSize=3` |
+| 출연 취소 요청 이벤트 3종(5·4·3분 전, #817) | 3건 모두 고름(오래된 순), 반환 3 |
 | 내보내지 않는 이벤트와 방금 발행한 기록뿐 | 고르지 않음, 반환 0, 재발행 로그 없음 |
 
 - 내보내지 않는 예시는 원래 출연 취소 요청 이벤트였다. #817에서 내보내게 되어 다른 컨텍스트 이벤트(`UserJoinedEvent`, `@Externalized`가 있지만 패키지로 거름)로 바꿨다.
@@ -1651,8 +1652,10 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 |---|---|---|
 | `AppearanceExternalEventsTest` | 취소 요청·수락·거절 이벤트 | 내보낸다 |
 | `AppearanceEventKafkaTest` | 성립 → 취소 요청 → 거절 → 다시 요청 → 수락 (각각 커밋) | key `appearance:<출연 ID>`로 정확히 9건(출연 변경 5 + 취소 요청 이벤트 4). 요청 2건(`eventType=AppearanceCancelRequestedEvent`·`eventVersion=1`·`__TypeId__`, 취소 요청 ID 두 개, `requestedAt`이 시계 범위 안), 거절 1건(DTO 7개 값 전부·`autoRejected=false`·`rejectedAt`), 수락 1건(두 번째 요청 ID·순번 2·`acceptedAt`이 거절 시각 뒤) |
-| `AppearanceCancelRequestFlowTest` | 요청 / 수락 / 거절 / 자동 거절 | 사건 시각이 그 처리 전후의 테스트 시계 사이 (13.3) |
+| `AppearanceCancelRequestFlowTest` | 요청 / 수락 / 거절 / 자동 거절 | 사건 시각이 그 처리 전후의 테스트 시계 사이. 수락·거절·자동 거절은 이력의 응답 시각과 같은 값(DB가 마이크로초까지 저장하므로 1마이크로초 차이까지 허용). 요청 시각은 이력의 요청 시각(`createdAt`, 저장 시각)과 다를 수 있어 범위로만 봄 (13.3) |
+| `AppearanceEventRepublishUseCaseTest` | 취소 요청 이벤트 3종의 미완료 기록 | 재발행 대상으로 고름 (25.3) |
+| `AppearanceCopyEventListenerTest` (chatbot) | 같은 key로 취소 요청·거절·수락 뒤 출연 변경 | 세 건은 건너뛰고 출연 변경은 반영, DLT에 그 key 없음 |
 | `AppearanceCancelRequestFlowTest` | 거절한 요청에 수락·거절, 거절·수락한 출연의 방송 예정 일시가 지난 뒤 자동 거절 배치 | 수락·거절 `CANCEL_REQUEST_NOT_PENDING`, 배치 0건. 거절 이벤트는 거절한 출연 1건, 수락 이벤트는 수락한 출연 1건뿐 |
 
-- 기존 소비 그룹이 새 eventType을 건너뛰는 것은 각 앱의 기존 테스트가 맡는다: chat-app `AppearanceNotificationEventListenerTest.처리하지_않는_출연_이벤트_종류는_건너뛰고_DLT로_보내지_않는다`(취소 요청 이벤트 타입으로 보냄), member-app `AppearanceReviewEventListenerTest.ignoreOtherTypes`(〃, 생성자 인자만 맞춤), chatbot `AppearanceCopyEventListenerTest.applies`(기본 처리기가 다른 타입을 건너뜀).
+- 기존 소비 그룹이 새 eventType을 건너뛰는 것은 각 앱의 기존 테스트가 맡는다: chat-app `AppearanceNotificationEventListenerTest.처리하지_않는_출연_이벤트_종류는_건너뛰고_DLT로_보내지_않는다`(취소 요청 이벤트 타입으로 보냄), member-app `AppearanceReviewEventListenerTest.ignoreOtherTypes`(〃, 생성자 인자만 맞춤), chatbot `AppearanceCopyEventListenerTest.skipsCancelRequestEvents`(3종 모두 보냄). chat-app·member-app은 취소 요청 타입만 보내고, 수락·거절도 같은 기본 처리기 경로다.
 - 수락과 거절이 동시에 오는 경우는 13장 `Concurrent.acceptAndReject`가 한쪽만 반영됨을 확인한다. 이벤트는 상태를 바꾼 트랜잭션 안에서만 발행되므로 한쪽만 나간다.

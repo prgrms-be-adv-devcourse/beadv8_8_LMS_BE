@@ -23,6 +23,9 @@ import org.springframework.modulith.events.EventPublication;
 import org.springframework.modulith.events.IncompleteEventPublications;
 
 import com.hapbang.appearance.config.AppearanceBatchProperties;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestAcceptedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestRejectedEvent;
+import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
 import com.hapbang.shared.member.event.UserJoinedEvent;
 
@@ -60,6 +63,18 @@ class AppearanceEventRepublishUseCaseTest {
         assertThat(selected).containsExactly(first, second, third);
         assertThat(republished).isEqualTo(BATCH_SIZE);
         assertThat(output).contains("count=3, waiting=2, batchSize=3");
+    }
+
+    @Test
+    @DisplayName("출연 취소 요청 이벤트 3종(#817)도 대기 시간이 지나면 다시 보낸다")
+    void cancelRequestEventsRepublished() {
+        EventPublication requested = publication(new AppearanceCancelRequestedEvent(null, null), 5);
+        EventPublication accepted = publication(new AppearanceCancelRequestAcceptedEvent(null, null), 4);
+        EventPublication rejected = publication(new AppearanceCancelRequestRejectedEvent(null, true, null), 3);
+        List<EventPublication> selected = resubmitted(List.of(requested, accepted, rejected));
+
+        assertThat(useCase.republishDue()).isEqualTo(3);
+        assertThat(selected).containsExactly(requested, accepted, rejected);
     }
 
     @Test

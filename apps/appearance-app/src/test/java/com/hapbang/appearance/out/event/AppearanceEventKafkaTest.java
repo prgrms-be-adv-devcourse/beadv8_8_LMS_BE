@@ -323,19 +323,17 @@ class AppearanceEventKafkaTest {
                 .extracting(AppearanceCancelRequestDto::cancelRequestId)
                 .containsExactlyInAnyOrder(cancelRequests.get(0).id(), cancelRequests.get(1).id());
 
-        ConsumerRecord<String, String> rejectedRecord = ofType(records, CANCEL_REQUEST_REJECTED).getFirst();
         assertThat(ofType(records, CANCEL_REQUEST_REJECTED)).hasSize(1);
-        AppearanceCancelRequestRejectedEvent rejected = jsonMapper.readValue(rejectedRecord.value(),
-                AppearanceCancelRequestRejectedEvent.class);
+        AppearanceCancelRequestRejectedEvent rejected = jsonMapper.readValue(
+                ofType(records, CANCEL_REQUEST_REJECTED).getFirst().value(), AppearanceCancelRequestRejectedEvent.class);
         assertThat(rejected.cancelRequest()).isEqualTo(new AppearanceCancelRequestDto(cancelRequests.get(0).id(),
                 appearanceId, sent.title(), HOST, GUEST, 1, sent.scheduledAt()));
         assertThat(rejected.autoRejected()).isFalse();
         assertThat(rejected.rejectedAt()).isBetween(before, after);
 
-        ConsumerRecord<String, String> acceptedRecord = ofType(records, CANCEL_REQUEST_ACCEPTED).getFirst();
         assertThat(ofType(records, CANCEL_REQUEST_ACCEPTED)).hasSize(1);
-        AppearanceCancelRequestAcceptedEvent accepted = jsonMapper.readValue(acceptedRecord.value(),
-                AppearanceCancelRequestAcceptedEvent.class);
+        AppearanceCancelRequestAcceptedEvent accepted = jsonMapper.readValue(
+                ofType(records, CANCEL_REQUEST_ACCEPTED).getFirst().value(), AppearanceCancelRequestAcceptedEvent.class);
         assertThat(accepted.cancelRequest().cancelRequestId()).isEqualTo(cancelRequests.get(1).id());
         assertThat(accepted.cancelRequest().sequence()).isEqualTo(2);
         assertThat(accepted.acceptedAt()).isBetween(rejected.rejectedAt(), after);
