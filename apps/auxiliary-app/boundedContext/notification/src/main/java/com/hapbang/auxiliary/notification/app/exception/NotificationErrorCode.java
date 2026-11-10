@@ -17,7 +17,9 @@ public enum NotificationErrorCode implements BaseErrorCode {
     /** 남의·없는·밀려난(Soft Delete된) 알림. 응답으로 다른 회원 알림의 존재를 구분할 수 없게 하나로 쓴다(ND-052) */
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "알림을 찾을 수 없습니다."),
     /** 받는 사람의 회원 복제본이 아직 없다. 이벤트 처리를 실패시켜 재시도 뒤 DLT로 보낸다(ND-035) */
-    RECEIVER_NOT_REPLICATED(HttpStatus.CONFLICT, "받는 사람의 회원 복제본이 없습니다.");
+    RECEIVER_NOT_REPLICATED(HttpStatus.CONFLICT, "받는 사람의 회원 복제본이 없습니다."),
+    /** 연결 티켓 저장소(Redis)를 쓸 수 없어 발급하지 못했다(ND-058) */
+    CONNECTION_TICKET_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 실시간 연결을 준비할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

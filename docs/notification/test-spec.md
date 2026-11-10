@@ -174,9 +174,10 @@
 | NT-RT-02 | 롤백되면 보내지 않음 | A 연결 | 저장 트랜잭션을 실패시킴 | 프레임이 오지 않는다 | — | ND-027 | 위와 같음 | Integration(PG+Redis) | 유효 |
 | NT-RT-03 | 다른 회원 연결로 가지 않음 | A·B 연결 | A에게 가는 이벤트 | B는 프레임을 받지 않는다 | — | ND-026, ND-027 | 위와 같음 | Integration(PG+Redis) | 유효 |
 | NT-RT-04 | 유실 후 REST 재동기화 | A 연결 | Redis 발행 실패·연결 끊김 중 알림 여러 건 생성 → 재접속 후 목록 조회 | 저장·offset 커밋은 실시간 실패와 무관하게 끝난다. 재접속 후 목록이 유실 없이 받은 경우의 목록(DB 최신 20)과 같다 | 실시간 실패가 저장을 되돌리지 않는다는 것은 "DB가 원천"(N 2장)에서 읽은 기준이다 | ND-027 | `GET /api/v1/notifications` | Integration(PG+Redis), E2E | 유효 |
-| NT-RT-05 | 연결 티켓 | 로그인 회원 | `POST /api/v1/notifications/ws-tickets` 후 연결, 티켓 없음·만료·재사용 | 유효한 티켓만 연결된다(채팅 `/api/v1/chats/ws-tickets`와 같은 규칙) | — | ND-028 | `POST /api/v1/notifications/ws-tickets` | Integration(PG+Redis) | 유효 |
-| NT-RT-06 | STOMP 토큰 만료 헤더 | Gateway·global 필터 설정 확정 | `X-User-Token-Exp`가 붙은 연결, 토큰 만료 | 결정된 방식으로 만료된 연결을 다룬다 | 지금 auxiliary global 필터와 Gateway `claimToHeaders`에 없다 | ND-028, **U15** | Gateway `claimToHeaders` | E2E | 미결 (U15) |
+| NT-RT-05 | 연결 티켓 | 로그인 회원 | `POST /api/v1/notifications/ws-tickets` 후 연결, 티켓 없음·만료·재사용 | 유효한 티켓만 연결된다(채팅 `/api/v1/chats/ws-tickets`와 같은 규칙). 티켓은 30초·1회용, 60초에 11번째 발급은 429, 티켓 저장소를 못 쓰면 503 | — | ND-028, ND-058 | `POST /api/v1/notifications/ws-tickets` | Integration(PG+Redis) | 유효 |
+| NT-RT-06 | 연결 만료 | 로그인 회원 | 티켓 발급 요청에 `X-User-Token-Exp`가 있음(발급 + 15분보다 이르거나 늦음)·없음·형식 오류, 만료 시각 경과 | 연결 만료는 `min(헤더 exp, 발급 + 15분)`이고 헤더가 없거나 틀리면 발급 + 15분이다. 만료 시각에 서버가 연결을 끊는다. 헤더 위조로 15분을 넘지 못한다. 만료 말고는 서버가 끊지 않는다 | Gateway `exp` claim을 통한 E2E는 N4(U15 남은 일) | ND-056, ND-057 | `POST /api/v1/notifications/ws-tickets`, WebSocket | Integration(PG+Redis) | 유효 |
 | NT-RT-07 | WebSocket 경로 Gateway 시간 제한 | route 확정 | WebSocket을 기본 응답 시간(30초)보다 오래 연결 | 정한 시간 제한까지 연결이 유지된다 | HTTPRoute 기본 30초·1MiB | ND-026, **U14** | `k8s/base/gateway.yaml` HTTPRoute | E2E | 미결 (U14) |
+| NT-RT-08 | 읽음 때 프레임 없음 | A 연결 | A가 읽음·전체 읽음 | 프레임이 오지 않는다. 새 알림·묶음 갱신 저장 때만 온다 | — | ND-059 | WebSocket, `PATCH /api/v1/notifications/{notificationId}/read`, `PATCH /api/v1/notifications/read-all` | Integration(PG+Redis) | 유효 |
 
 ### 2.11 ERR — 실패·재시도·DLT
 
@@ -241,16 +242,16 @@
 | BUN 하루 묶음 | 5 | 4 | 1 (U9) | 0 | 0 |
 | SCH 예약 | 11 | 9 | 2 (U6, U16) | 0 | 0 |
 | USR 회원 복제본·탈퇴 | 7 | 5 | 2 (U8, U17) | 0 | 0 |
-| RT 실시간·재접속 | 7 | 5 | 2 (U15, U14) | 0 | 0 |
+| RT 실시간·재접속 | 8 | 7 | 1 (U14) | 0 | 0 |
 | ERR 실패·재시도·DLT | 4 | 4 | 0 | 0 | 0 |
 | BND 모듈 경계·schema 격리 | 4 | 4 | 0 | 0 | 0 |
 | CHAT 채팅 알림 유지 | 4 | 3 | 1 (U12) | 0 | 0 |
 | RES 자원 | 3 | 0 | 3 (U13) | 0 | 0 |
-| **합계** | **85** | **70** | **15** | **0** | **0** |
+| **합계** | **86** | **72** | **14** | **0** | **0** |
 
 - 연결된 테스트가 있는 항목: 아래 "N1 연결 테스트" 표. 1~3장 표에 "테스트" 칸을 더하는 일(5장 2번)은 아직 하지 않았다.
 
-**연결 테스트(N1·N2)** (클래스는 `apps/auxiliary-app/boundedContext/notification/src/test/java/com/hapbang/auxiliary/notification/` 아래. "일부"는 합격 기준의 한 부분만 본다)
+**연결 테스트(N1·N2·N3)** (클래스는 `apps/auxiliary-app/boundedContext/notification/src/test/java/com/hapbang/auxiliary/notification/` 아래. "일부"는 합격 기준의 한 부분만 본다)
 
 | NT | 테스트 | 범위 |
 | --- | --- | --- |
@@ -268,12 +269,24 @@
 | NT-BND-02 | `./gradlew verifyModuleStructure` | 전부 |
 | NT-BND-03 | `NotificationModuleIntegrationTest`, `apps/auxiliary-app` `AuxiliaryApplicationTest#flywaySchemas` | N2까지(schema, `notification`·`notification_user`, 모듈 SQL 적용, 이력 위치) |
 | NT-QRY-01~04 | `in.ApiV1NotificationControllerTest`(최신 20개·발생 시각 정렬, 다른 회원 차단·비로그인 401·관리자 403, 대상 삭제 무관) | 전부 |
-| NT-READ-01~06 | `in.ApiV1NotificationControllerTest`(누를 때 읽음, 목록으로 안 읽음, 남의·없는·밀려난 알림 404 통일, 전체 읽음, 최대 20, 다시 읽음 200), `domain.NotificationTest` | 전부. 실시간 프레임의 안 읽은 수(READ-05)는 N3 |
+| NT-READ-01~06 | `in.ApiV1NotificationControllerTest`(누를 때 읽음, 목록으로 안 읽음, 남의·없는·밀려난 알림 404 통일, 전체 읽음, 최대 20, 다시 읽음 200), `domain.NotificationTest` | 전부. 실시간 프레임의 안 읽은 수(READ-05)는 아래 N3 행 |
 | NT-RET-01~05 | `app.NotificationWriterTest`(21번째 Soft Delete, 밀려난 알림 재저장 안 됨, 늦게 온 오래된 알림, Hard Delete 없음, 같은 회원 동시 저장 20개 유지), `app.NotificationConcurrencyTest`(읽음·전체 읽음과 보존 정리의 겹침) | 저장 서비스 수준. RET-02의 Kafka 재수신은 N5 이후 |
 | NT-IDEM-01·02 | `app.NotificationWriterTest`(같은 사건 두 번, 동시 세 번) | 저장 서비스 수준. Kafka 재소비는 N5 이후 |
 | NT-GEN-13 | `domain.NotificationTest`, `app.NotificationWriterTest`(값 `v`, 저장된 값으로 같은 문구) | 전부 |
 | NT-USR-03 | `app.NotificationWriterTest`(탈퇴 받는 사람 제외) | 저장 서비스 수준. 함께 받는 사람·예약은 N5·N10 |
 | NT-USR-07 | `app.NotificationConcurrencyTest`(보존 정리와 파기의 겹침, B·C 두 파기의 겹침), `app.NotificationMaskingServiceTest`(저장된 알림·밀려난 알림, 파기 상태 복제본, 파기 뒤 옛 닉네임 초안 저장, 복제본 없는 회원의 파기와 저장 동시 처리), `in.event.NotificationMemberEventListenerTest`(파기 이벤트, 변경 이벤트와 순서, 재수신), `domain.NotificationUserTest`·`app.NotificationUserSyncServiceTest`(파기된 복제본은 가입·변경으로 바뀌지 않음) | 전부(ND-051·ND-054) |
+| NT-RT-01·02·03 | `in.NotificationRealtimeIntegrationTest`(commit 뒤 받는 사람에게 알림+안 읽은 수, commit 전 프레임 없음, 롤백 시 없음, 다른 회원 연결로 안 감) | 전부. 저장 서비스 수준(Kafka 소비로 만드는 알림은 N5 이후) |
+| NT-RT-04 | `in.NotificationRealtimeIntegrationTest`(Redis를 멈춘 채 저장: CREATED·행 유지·저장이 Redis를 기다리지 않음, 재접속 뒤 REST 목록) | 전부 |
+| NT-RT-05 | `app.NotificationConnectionTicketServiceTest`, `in.NotificationRealtimeIntegrationTest`(티켓 없음·틀림·재사용 401, 비로그인 401·관리자 403), `in.NotificationConnectionExpiryTest`(지난 티켓 401, 11번째 429) | 전부 |
+| NT-RT-06 | `app.NotificationConnectionTicketServiceTest`(만료 계산, 위조 헤더 상한), `in.NotificationConnectionExpiryTest`(티켓 유효 시간과 연결 만료 구분, 만료 시 실제 4401 종료, 이른 exp로 종료, 위조 헤더 15분 상한) | 앱 쪽 전부. Gateway를 거치는 E2E는 N4 |
+| NT-RT-08 | `in.NotificationRealtimeIntegrationTest`(읽음·전체 읽음 때 프레임 없음) | 전부 |
+| NT-USR-07 (실시간) | `in.NotificationRealtimeIntegrationTest`(파기 진행 중이면 파기가 끝난 뒤의 닉네임으로 나감, ND-054) | 실시간 부분 |
+| (유실 관측·장애 생략) | `app.NotificationRealtimeRelayTest`(줄 포화 `queue_full`, DB 다시 읽기 실패와 잠금 경로의 잠금 실패 `read_failed`(생략 없음), 발행 실패 `publish_failed`(잠금 경로·언급 회원 없는 경로 모두, 롤백이 실패해도 원래 원인으로 분류)와 생략 시간 동안 DB·잠금 전 `skipped`, 생략 뒤 재시도·복귀와 WARN·INFO 한 번씩, 언급 회원 있으면 잠금 안 commit 전 발행·없으면 잠금 없이 commit 뒤 발행, 언급 회원 칸이 비어도 값에 닉네임이 있으면 잠금 경로) | test-spec 항목 없음(ND-027·ND-054 보강, #829 Bot 리뷰) |
+| (자원 정리) | `in.websocket.NotificationWebSocketConfigTest`(컨텍스트가 닫히면 수신·송신 채널 실행기 스레드가 끝남) | test-spec 항목 없음(U13 보강, #829 Bot 리뷰 2차) |
+| (출처 검사) | `in.NotificationRealtimeIntegrationTest`(허용하지 않은 출처 403, 그 티켓을 허용 출처에서 다시 쓸 수 있음) | test-spec 항목 없음(ND-028 보강, #829 Bot 리뷰) |
+| NT-READ-05 | `in.NotificationRealtimeIntegrationTest`(프레임의 안 읽은 수 1→2) | 실시간 부분 |
+| NT-RET-02·NT-IDEM-01 (실시간) | `in.NotificationRealtimeIntegrationTest`(중복·밀려난 알림은 프레임 없음, 20개 유지) | 실시간 부분 |
+| (보안) | `in.NotificationRealtimeIntegrationTest`(클라이언트 SEND로 다른 회원 목적지 주입 불가, 자기 목적지 말고는 구독 불가), `in.websocket.NotificationStompInterceptorTest`(결합 안 된 CONNECT·다른 사용자 CONNECT 거절, 끝에 / 붙인 목적지 거절, 결합한 연결의 UNSUBSCRIBE·ACK 통과) | test-spec 항목 없음(ND-026·ND-027 보강) |
 - U2는 합격 기준이 아니라 완료 증거의 단계 문제라 NT 상태에 쓰지 않았다(3장 1번).
 - 아직 발행되지 않는 이벤트(🆕·🟡·⚠️)가 필요한 유효 항목은 선행 조건에 M 작업을 적었다. 그 항목은 해당 M 전에는 실행할 수 없다.
 
@@ -285,6 +298,7 @@
 4. 4장 집계를 함께 고친다.
 
 변경 이력
+- 2026-11-10 decisions.md ND-055~ND-059 반영(N3 사전 결정): NT-RT-05에 티켓 수치(ND-058), NT-RT-06을 앱 쪽 연결 만료(ND-056·ND-057)로 고쳐 유효로 바꾸고(Gateway E2E는 N4), NT-RT-08(읽음 때 프레임 없음, ND-059)을 더했다. 집계 85 → 86, 유효 70 → 72, 미결 15 → 14.
 - 2026-11-06 처음 작성: N 3~6·11장, decisions.md ND-001~032·U1~U15, kafka.md, auxiliary-app README에서 80개 항목을 만들었다. 코드·테스트가 없어 실행하지 않았다.
 - 2026-11-06 decisions.md U16·U17·U18 반영: NT-SCH-06 → 미결 (U16), NT-USR-04 → 미결 (U17), 새 항목 NT-GEN-14(채널 인증 승인 불일치, U18)·NT-USR-06(첫 배포 기존 회원 복제본, U17)을 더하고 NT-GEN-06에 NT-GEN-14 참조를 붙였다(NT-GEN-06 유효 유지). 82개 항목, "미결 (결정 없음)" 0.
 - 2026-11-06 decisions.md U19 반영: NT-USR-07(파기된 회원의 닉네임이 들어간 저장 알림, 미결 U19)을 더했다. 집계 82 → 83.
