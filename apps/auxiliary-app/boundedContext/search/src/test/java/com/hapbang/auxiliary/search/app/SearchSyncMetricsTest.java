@@ -11,7 +11,10 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.hapbang.auxiliary.search.out.ConsistencyCheck;
+import com.hapbang.auxiliary.search.out.ConsistencyCheckStore;
 import com.hapbang.auxiliary.search.out.SyncCursor;
+import com.hapbang.auxiliary.search.support.InMemoryConsistencyCheckStore;
 import com.hapbang.auxiliary.search.support.InMemorySyncCursorStore;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -23,7 +26,8 @@ class SearchSyncMetricsTest {
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final InMemorySyncCursorStore cursors = new InMemorySyncCursorStore();
-    private final SearchSyncMetrics metrics = new SearchSyncMetrics(registry, cursors,
+    private final InMemoryConsistencyCheckStore checks = new InMemoryConsistencyCheckStore();
+    private final SearchSyncMetrics metrics = new SearchSyncMetrics(registry, cursors, checks,
             Clock.fixed(NOW.atZone(MemberChangeReconciler.ZONE).toInstant(), MemberChangeReconciler.ZONE));
 
     @Test
@@ -49,18 +53,38 @@ class SearchSyncMetricsTest {
             public Optional<SyncCursor> find(String name) {
                 throw new IllegalStateException("DB 장애");
             }
-        });
+        }, checks);
         assertThat(brokenRegistry.get("hapbang.search.reconcile.lag").gauge().value()).isNaN();
     }
 
     @Test
-    @DisplayName("문서 수 차이는 점검하기 전에는 비어 있고(NaN), 점검하면 그 값이다")
+    @DisplayName("문서 수 차이는 DB의 점검 결과(원본 − index)다. 점검 결과가 없으면 비어 있다(NaN)")
     void consistencyDifference() {
         assertThat(difference()).isNaN();
 
-        metrics.consistencyChecked(-2);
+        checks.save(new ConsistencyCheck(ConsistencyCheck.INFLUENCER, 120, 122, NOW.minusMinutes(10)));
 
         assertThat(difference()).isEqualTo(-2.0);
+    }
+
+    @Test
+    @DisplayName("점검한 지 25분이 지난 결과는 낡은 값으로 보고 비운다. DB를 읽지 못해도 비운다")
+    void consistencyStaleOrUnreadable() {
+        checks.save(new ConsistencyCheck(ConsistencyCheck.INFLUENCER, 120, 118, NOW.minusMinutes(25)));
+        assertThat(difference()).isNaN();
+
+        checks.save(new ConsistencyCheck(ConsistencyCheck.INFLUENCER, 120, 118, NOW.minusMinutes(24)));
+        assertThat(difference()).isEqualTo(2.0);
+
+        SimpleMeterRegistry brokenRegistry = new SimpleMeterRegistry();
+        new SearchSyncMetrics(brokenRegistry, cursors, new ConsistencyCheckStore(null) {
+            @Override
+            public Optional<ConsistencyCheck> find(String target) {
+                throw new IllegalStateException("DB 장애");
+            }
+        });
+        assertThat(brokenRegistry.get("hapbang.search.consistency.difference").tag("target", "influencer").gauge()
+                .value()).isNaN();
     }
 
     @Test

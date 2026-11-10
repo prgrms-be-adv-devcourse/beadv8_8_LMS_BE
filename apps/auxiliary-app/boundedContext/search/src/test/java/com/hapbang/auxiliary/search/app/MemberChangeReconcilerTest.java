@@ -18,10 +18,13 @@ import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.out.MemberChangeSource;
+import com.hapbang.auxiliary.search.out.MemberProfile;
+import com.hapbang.auxiliary.search.out.WriteOutcome;
 import com.hapbang.auxiliary.search.out.SyncCursor;
 import com.hapbang.auxiliary.search.support.FakeMemberChangeSource;
 import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
 import com.hapbang.auxiliary.search.support.FakeMemberChangeSource.Request;
+import com.hapbang.auxiliary.search.support.InMemoryConsistencyCheckStore;
 import com.hapbang.auxiliary.search.support.InMemorySyncCursorStore;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 import com.hapbang.shared.member.domain.Role;
@@ -53,7 +56,7 @@ class MemberChangeReconcilerTest {
     private final InMemorySyncCursorStore cursors = new InMemorySyncCursorStore();
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final MemberChangeReconciler reconciler = new MemberChangeReconciler(indexSetup, store, indexer, source,
-            cursors, null, new SearchSyncMetrics(registry, cursors, clock), clock);
+            cursors, null, new SearchSyncMetrics(registry, cursors, new InMemoryConsistencyCheckStore(), clock), clock);
 
     @BeforeEach
     void reset() throws Exception {
@@ -230,7 +233,7 @@ class MemberChangeReconcilerTest {
     }
 
     @Test
-    @DisplayName("ES가 한 회원의 문서를 내용 때문에 거절하면(400) 그 회원만 건너뛰고 커서를 넘긴다")
+    @DisplayName("ES가 한 회원의 값 때문에 거절하면(document_parsing_exception) 그 회원만 건너뛰고 커서를 넘긴다")
     void skipsRejectedDocument() throws Exception {
         cursors.moveTo(CURSOR, SAVED, 9L);
         // keyword 한 칸에 32,766바이트를 넘는 값은 Lucene이 받지 않아 ES가 400으로 거절한다
@@ -246,6 +249,27 @@ class MemberChangeReconcilerTest {
     }
 
     @Test
+    @DisplayName("배포 실수(script 오류 등)처럼 회원 값 때문이 아닌 쓰기 실패는 건너뛰지 않고 회차를 멈춘다(커서 그대로)")
+    void stopsOnNonContentFailure() {
+        cursors.moveTo(CURSOR, SAVED, 9L);
+        source.change(SAVED.plusMinutes(1), influencer(1L, 1L, List.of("GAME")))
+                .change(SAVED.plusMinutes(2), influencer(2L, 1L, List.of("GAME")));
+        InfluencerDocumentStore scriptBroken = new InfluencerDocumentStore(client) {
+            @Override
+            public WriteOutcome show(long userId, Long version, MemberProfile profile) {
+                throw new IllegalStateException("검색 문서를 쓰지 못했습니다(script_exception) userId=" + userId);
+            }
+        };
+        InfluencerMemberIndexer brokenIndexer = new InfluencerMemberIndexer(indexSetup, scriptBroken,
+                new ContentCategoryNames(new FakeMemberStatsSource()), clock);
+        MemberChangeReconciler withBrokenScript = new MemberChangeReconciler(indexSetup, store, brokenIndexer, source,
+                cursors, null, new SearchSyncMetrics(registry, cursors, new InMemoryConsistencyCheckStore(), clock), clock);
+
+        assertThatThrownBy(() -> withBrokenScript.reconcile(null)).isInstanceOf(IllegalStateException.class);
+        assertThat(cursors.find(CURSOR)).contains(new SyncCursor(CURSOR, SAVED, 9L, null));
+    }
+
+    @Test
     @DisplayName("회원 앱이 다음 커서 없이 hasNext=true를 주면 같은 요청을 반복하지 않고 회차를 멈춘다(커서 그대로)")
     void rejectsPageWithoutNextCursor() {
         cursors.moveTo(CURSOR, SAVED, 9L);
@@ -255,7 +279,7 @@ class MemberChangeReconcilerTest {
             return new MemberChangePageDto(List.of(), null, null, true);
         };
         MemberChangeReconciler withBrokenSource = new MemberChangeReconciler(indexSetup, store, indexer, broken,
-                cursors, null, new SearchSyncMetrics(registry, cursors, clock), clock);
+                cursors, null, new SearchSyncMetrics(registry, cursors, new InMemoryConsistencyCheckStore(), clock), clock);
 
         assertThatThrownBy(() -> withBrokenSource.reconcile(null)).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("다음 커서");
@@ -278,7 +302,7 @@ class MemberChangeReconcilerTest {
             }
         };
         MemberChangeReconciler locked = new MemberChangeReconciler(indexSetup, store, indexer, source, cursors,
-                swallowing, new SearchSyncMetrics(registry, cursors, clock), clock);
+                swallowing, new SearchSyncMetrics(registry, cursors, new InMemoryConsistencyCheckStore(), clock), clock);
         source.change(SAVED.plusMinutes(1), influencer(1L, 1L, List.of("GAME")));
 
         assertThat(locked.runFrom(SAVED)).isTrue();

@@ -44,7 +44,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | out | `InfluencerDocumentStore` | 문서 쓰기(회원·통계·분야 이름·정리) |
 | out | `InfluencerSearcher` | 검색 쿼리, 평균 C 집계 |
 | out | `MemberApiStatsSource`, `MemberApiChangeSource` | 회원 내부 API(통계·분야 목록·변경분, #769) |
-| out | `SyncCursorStore` | 증분 보정 커서(`search.sync_cursor`, JDBC) |
+| out | `SyncCursorStore`, `ConsistencyCheckStore` | 증분 보정 커서(`search.sync_cursor`)와 문서 수 정합성 점검 결과(`search.consistency_check`). JDBC(Repository 빈에는 스위치를 붙일 수 없다) |
 
 ## 4. index
 
@@ -100,7 +100,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 - 통계 동기화(한 pod만): 분야 목록을 다시 읽어 **보이는** 문서 중 분야가 있는 문서의 이름을 맞춘다(update_by_query, 바뀐 것만. 숨긴 문서는 일반 유저 가입마다 늘어나 훑지 않는다) → 인플루언서 통계(#769)를 500명씩 끝까지 읽어 bulk 부분 갱신한다. 값이 같거나 숨긴 문서는 noop, 문서가 없는 회원은 건너뛴다(넣는 것은 #772). 결과는 INFO 한 줄(`pages·updated·noop·missing·failed·categoryDocuments`).
 - 실패를 가둔다: 분야 목록을 읽지 못하면 분야 이름만 건너뛰고(`categoryDocuments=-1`) 통계는 맞춘다. bulk 항목 일부가 실패하면(겹친 쓰기 등) 그 회원만 `failed`로 세고 WARN을 남긴 뒤 다음 페이지를 계속한다. 다음 회차에 다시 쓴다.
 - 분야 이름 목록과 평점 전체 평균 C는 pod마다 직접 구한다(#771 Q8). 동기화는 한 pod에서만 돌아 다른 pod에 값을 줄 수 없다. 둘 다 구하지 못하면 가진 값을 쓰고 1분 동안 다시 묻지 않는다(ES·회원 앱이 멈췄을 때 요청마다 시간 제한까지 기다려 요청 스레드를 붙잡지 않게). 평균 C를 한 번도 구하지 못했으면 평점순 검색은 503이다.
-- 정합성 점검(#772): 통계를 끝까지 읽은 정상 인플루언서 수(원본)와 ES의 보이는 문서 수(`hidden=false`)를 비교해 차이(원본 − index)를 지표로 낸다. 양수면 index에 빠진 인플루언서(승급을 놓침), 음수면 보이면 안 되는 문서(강등을 놓침)가 있다. 원본은 수 분에 걸쳐 페이지로 읽고 ES는 마지막에 한 번 세므로 그사이 바뀐 회원만큼 잠깐 다를 수 있다. 세지 못하면 WARN을 남기고 점검만 건너뛴다(`indexVisible=-1`). #773 처음 적재 전에는 이미 있던 인플루언서가 index에 없어 차이가 늘 크다. 그래서 alert는 두지 않고 지표로만 본다(#772 Q2, 필요해지면 붙인다).
+- 정합성 점검(#772): 통계를 끝까지 읽은 정상 인플루언서 수(원본)와 ES의 보이는 문서 수(`hidden=false`)를 비교해 결과를 `search.consistency_check`에 남기고, 차이(원본 − index)를 지표로 낸다. 점검은 한 pod에서만 돌므로 결과를 DB에 두어 모든 pod가 같은 값을 낸다(PR #833 리뷰 Q2). 양수면 index에 빠진 인플루언서(승급을 놓침), 음수면 보이면 안 되는 문서(강등을 놓침)가 있다. 원본은 수 분에 걸쳐 페이지로 읽고 ES는 마지막에 한 번 세므로 그사이 바뀐 회원만큼 잠깐 다를 수 있다. 세지 못하거나 동기화가 중간에 실패하면 WARN을 남기고 점검 결과를 지운다(`indexVisible=-1`, 낡은 차이를 보여 주지 않게). #773 처음 적재 전에는 이미 있던 인플루언서가 index에 없어 차이가 늘 크다. 그래서 alert는 두지 않고 지표로만 본다(#772 Q2, 필요해지면 붙인다).
 - tombstone 정리(한 pod만, 매일 04:30 KST): `hiddenAt`이 7일(회원 이벤트 DLT 보존 기간)보다 오래된 숨김 문서를 지운다.
 
 ### 증분 보정 (#772)
@@ -122,13 +122,14 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | `overwritten` | 보이는 회원의 닉네임·자기소개·역할·분야를 고쳤다 | 프로필 변경 |
 | `version_only` | 보이는 내용은 같고 version만 올렸다(사진 변경, 일반 유저의 숨김 문서) | - |
 | `already_applied` | 이미 같거나 더 새 version이라 noop(이벤트가 반영, 겹쳐 읽음) | - |
-| `skipped` | 회원 ID·역할·상태가 빠진 정보, 또는 ES가 문서 내용 때문에 거절(400). WARN을 남기고 다음 회원을 계속한다(멈추면 커서가 그 페이지를 넘지 못한다) | - |
+| `skipped` | 회원 ID·역할·상태가 빠진 정보, 또는 ES가 그 회원 값 때문에 거절(`document_parsing_exception`·`mapper_parsing_exception`). WARN을 남기고 다음 회원을 계속한다(멈추면 커서가 그 페이지를 넘지 못한다) | - |
 
 - `inserted`·`hidden`·`overwritten`은 회원마다 INFO 한 줄(`userId`, `kind`, `memberVersion`)을 남겨 누구의 이벤트가 빠졌는지 찾게 한다. 회차마다 INFO 한 줄로 종류별 건수와 마지막 커서를 남긴다.
-- 실패: ES·회원 앱을 부르지 못하면(연결 실패, 5xx, 429) 회차를 멈춘다(WARN, 다음 회차에 저장한 커서부터). 같은 페이지를 다시 반영해도 version으로 걸러진다. 회원 앱 응답에 다음 커서가 빠졌으면(#769 계약 위반) 같은 요청을 반복하지 않고 회차를 멈춘다.
+- 실패: ES·회원 앱을 부르지 못하면(연결 실패, 5xx, 429) 회차를 멈춘다(WARN, 다음 회차에 저장한 커서부터). ES가 400으로 거절해도 회원 값 문제가 아니면(script 오류 `script_exception`, mapping에 없는 칸 `strict_dynamic_mapping_exception` 등 배포 실수) 멈춘다. 모든 회원이 같은 이유로 거절되는데 건너뛰면 커서가 넘어가 그 회원들을 다시 보정하지 못하기 때문이다(PR #833 리뷰 Q1, 오류 이름은 ES 9.5.5로 시험해 확인). 같은 페이지를 다시 반영해도 version으로 걸러진다. 회원 앱 응답에 다음 커서가 빠졌으면(#769 계약 위반) 같은 요청을 반복하지 않고 회차를 멈춘다.
 - **바깥에서 시작 시각 정하기**: `MemberChangeReconciler.runFrom(시각)`은 커서를 그 시각(회원 ID 0)으로 옮기고 한 번 돈다. #773이 새 index로 alias를 바꾼 뒤 "시각 T 이후 따라잡기"에 쓴다. 겹쳐 읽기를 빼지 않으므로 여유는 부르는 쪽이 넣는다(T − 1분). 정기 회차와 같은 락이다. **끝까지 따라잡았을 때만 `true`**이고, 다른 회차가 돌고 있어 건너뛰었거나 중간에 실패했으면 `false`다. 락 없이 도는 `reconcile`은 바깥에서 부르지 않는다(package-private).
 - 한계
   - 보정 건수는 페이지 앞에서 한 번 읽은 문서와 비교한다. 그 페이지(최대 500명)를 반영하는 몇 초 사이에 같은 회원의 이벤트가 먼저 반영되면(이벤트 도착 직전에 보정이 읽었거나, 같은 회원이 몇 초 안에 두 번 바뀜) 놓친 이벤트가 아닌데도 보정으로 셀 수 있다.
+  - 회차가 중간에 실패하면 이미 반영한 페이지의 보정 건수는 지표에 남지 않고, 다음 회차에는 그 회원들이 `already_applied`로 보인다. 장애가 있던 시간의 보정 건수는 적게 잡힐 수 있으므로 회원별 INFO 로그(`회원 이벤트를 놓친 검색 문서를 보정했다`)로 확인한다.
   - 회원마다 ES 요청 1번이다(이벤트와 같은 반영 코드). 평소 10분 변경은 적고 장애 뒤 수천 명이어도 수 초다. 길어지면 `reconcile.duration`으로 보고 bulk를 검토한다.
   - 저장부터 커밋까지 1분 넘게 걸린 회원 변경은 겹쳐 읽기 밖이라 놓칠 수 있다. 그때는 회원 이벤트가 반영한다(#769).
   - 회원 앱이 여러 대가 되면 서버끼리 시계 차이도 1분 안이어야 한다(#769).
@@ -162,7 +163,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 | `hapbang.search.reconcile.members{kind}` | 증분 보정이 반영한 회원 수(6장 표). inserted·hidden·overwritten이 놓친 이벤트이고, 모든 kind의 합이 읽은 회원 수다 |
 | `hapbang.search.reconcile.duration{outcome}` | 보정 1회 소요 시간. outcome = success·failure. 길어지면 규모를 다시 판단한다 |
 | `hapbang.search.reconcile.lag` | 지금 − 마지막으로 끝까지 읽은 시각(초). 보정이 멈추면 커진다. DB 커서를 읽어 어느 pod에서 봐도 같다. 끝까지 읽은 적이 없으면 값이 없다 |
-| `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). 마지막 회차에 점검하지 못했으면 비운다(낡은 차이를 보여 주지 않는다). 점검한 pod의 메모리 값이라 pod가 다시 뜨면 다음 점검(최대 10분)까지 비어 있다. alias로 세므로 #773 재색인은 alias를 한 요청으로 바꿔 두 index를 함께 가리키는 순간이 없어야 한다 |
+| `hapbang.search.consistency.difference{target}` | 원본 정상 인플루언서 수 − 보이는 문서 수(6장 정합성 점검). DB의 점검 결과에서 읽어 어느 pod에서 봐도 같다. 점검한 적이 없거나, 마지막 회차에 점검하지 못했거나, 점검한 지 25분(점검 주기 두 번)이 지났으면 값이 없다. alias로 세므로 #773 재색인은 alias를 한 요청으로 바꿔 두 index를 함께 가리키는 순간이 없어야 한다 |
 | `kafka_consumer_fetch_manager_records_lag` | 회원 이벤트 소비 lag(Kafka client 지표). Kafka dashboard "그룹별 lag"에 `auxiliary-app.search-member`로 보인다 |
 
 - 회원 ID는 지표 태그에 넣지 않는다. 문서 수 차이 alert는 두지 않았다(#773 처음 적재 전에는 차이가 늘 0이 아니다, #772 Q2).
@@ -191,8 +192,8 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름, 정합성 점검(차이 0·양수·음수, 세기 실패) |
 | `MemberChangeReconcilerTest` | 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원·ES가 거절한 회원 건너뜀, 다음 커서 없는 응답, `runFrom` 성공·실패 |
-| `SyncCursorStoreTest` | 커서 저장(PostgreSQL 컨테이너): 만들기·옮기기, 마이크로초, 끝까지 읽은 시각 |
-| `SearchSyncMetricsTest` | 보정 지연(끝까지 읽은 시각 기준), 문서 수 차이, kind별 건수 |
+| `SyncCursorStoreTest`, `ConsistencyCheckStoreTest` | 커서·점검 결과 저장(PostgreSQL 컨테이너) |
+| `SearchSyncMetricsTest` | 보정 지연(끝까지 읽은 시각 기준), 문서 수 차이(DB, 25분 지나면 비움), kind별 건수 |
 | `ApiV1SearchControllerTest` | 응답, 필터, 정렬, 동점 페이지 넘김, 400·401, 0건 검색어 |
 | `RatingBaselineTest`, `InfluencerDocumentStoreBulkFailureTest` | 평균 C 실패 뒤 1분 대기, bulk 일부 실패 |
 | `GoldenQueryTest` | 대표 검색어 23개 순위, 알려진 한계(G01b), 계수 격자(`build/golden-query.md`) |

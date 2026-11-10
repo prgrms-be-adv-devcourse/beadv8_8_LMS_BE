@@ -3,12 +3,13 @@ package com.hapbang.auxiliary.search.app;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
+import com.hapbang.auxiliary.search.out.ConsistencyCheck;
+import com.hapbang.auxiliary.search.out.ConsistencyCheckStore;
 import com.hapbang.auxiliary.search.out.SyncCursor;
 import com.hapbang.auxiliary.search.out.SyncCursorStore;
 
@@ -26,8 +27,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>{@code hapbang.search.reconcile.lag}(초): 지금 − 마지막으로 끝까지 읽은 시각(#772 Q3). 보정이 멈추면 커진다. DB의 커서에서 읽으므로
  *     어느 pod가 보정을 돌렸든 같은 값이다. 끝까지 읽은 적이 없거나 읽지 못하면 값이 없다(NaN).</li>
  *     <li>{@code hapbang.search.consistency.difference{target}}: 원본 정상 인플루언서 수 − ES 보이는 문서 수(통계 동기화 때). 양수면 빠진 문서,
- *     음수면 보이면 안 되는 문서가 있다. 점검한 적이 없거나 마지막 회차에 점검하지 못했으면 값이 없다(NaN). 낡은 차이를 보여 주지 않는다. 점검한 pod의 메모리 값이라 pod가 다시 뜨면 다음 점검(최대 10분)까지
- *     비어 있다. alert는 두지 않는다(#772 Q2, 필요해지면 붙인다).</li>
+ *     음수면 보이면 안 되는 문서가 있다. DB의 점검 결과({@code search.consistency_check})에서 읽으므로 어느 pod에서 봐도 같다(PR #833 리뷰 Q2).
+ *     점검한 적이 없거나, 마지막 회차에 점검하지 못했거나, 점검한 지 {@link #CONSISTENCY_STALE_AFTER}가 지났으면 값이 없다(NaN). alert는 두지 않는다
+ *     (#772 Q2, 필요해지면 붙인다).</li>
  * </ul>
  */
 @Slf4j
@@ -35,19 +37,25 @@ import lombok.extern.slf4j.Slf4j;
 @ConditionalOnSearchEnabled
 public class SearchSyncMetrics {
 
+    /** 정합성 점검 결과를 지표로 내는 기간. 점검 주기(10분) 두 번이 지나도 새 결과가 없으면 낡은 값으로 보고 비운다 */
+    static final Duration CONSISTENCY_STALE_AFTER = Duration.ofMinutes(25);
+
     private final MeterRegistry registry;
     private final SyncCursorStore cursorStore;
+    private final ConsistencyCheckStore consistencyChecks;
     private final Clock clock;
-    private final AtomicReference<Long> consistencyDifference = new AtomicReference<>();
 
     @Autowired
-    public SearchSyncMetrics(MeterRegistry registry, SyncCursorStore cursorStore) {
-        this(registry, cursorStore, Clock.system(MemberChangeReconciler.ZONE));
+    public SearchSyncMetrics(MeterRegistry registry, SyncCursorStore cursorStore,
+            ConsistencyCheckStore consistencyChecks) {
+        this(registry, cursorStore, consistencyChecks, Clock.system(MemberChangeReconciler.ZONE));
     }
 
-    SearchSyncMetrics(MeterRegistry registry, SyncCursorStore cursorStore, Clock clock) {
+    SearchSyncMetrics(MeterRegistry registry, SyncCursorStore cursorStore, ConsistencyCheckStore consistencyChecks,
+            Clock clock) {
         this.registry = registry;
         this.cursorStore = cursorStore;
+        this.consistencyChecks = consistencyChecks;
         this.clock = clock;
         Gauge.builder("hapbang.search.reconcile.lag", this, SearchSyncMetrics::reconcileLagSeconds)
                 .description("지금 - 증분 보정이 마지막으로 끝까지 읽은 시각").baseUnit("seconds").strongReference(true)
@@ -69,16 +77,6 @@ public class SearchSyncMetrics {
         duration("failure").record(took);
     }
 
-    /** 통계 동기화 때 원본과 index를 비교했다 */
-    void consistencyChecked(long difference) {
-        consistencyDifference.set(difference);
-    }
-
-    /** 이번 통계 동기화에서 비교하지 못했다(세기 실패, 동기화 중간 실패). 낡은 차이를 지운다 */
-    void consistencyUnknown() {
-        consistencyDifference.set(null);
-    }
-
     private Timer duration(String outcome) {
         return Timer.builder("hapbang.search.reconcile.duration").tag("outcome", outcome)
                 .description("증분 보정 1회 소요 시간").register(registry);
@@ -97,7 +95,15 @@ public class SearchSyncMetrics {
     }
 
     private double consistencyDifference() {
-        Long difference = consistencyDifference.get();
-        return difference == null ? Double.NaN : difference;
+        try {
+            LocalDateTime staleBefore = LocalDateTime.now(clock).minus(CONSISTENCY_STALE_AFTER);
+            return consistencyChecks.find(ConsistencyCheck.INFLUENCER)
+                    .filter(check -> check.checkedAt().isAfter(staleBefore))
+                    .map(check -> (double) check.difference())
+                    .orElse(Double.NaN);
+        } catch (RuntimeException e) {
+            log.debug("정합성 점검 결과를 읽지 못해 문서 수 차이 지표를 비운다", e);
+            return Double.NaN;
+        }
     }
 }

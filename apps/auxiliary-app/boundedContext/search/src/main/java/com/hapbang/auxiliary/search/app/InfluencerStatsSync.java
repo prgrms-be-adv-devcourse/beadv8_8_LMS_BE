@@ -1,11 +1,16 @@
 package com.hapbang.auxiliary.search.app;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.EnumMap;
 import java.util.Map;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
+import com.hapbang.auxiliary.search.out.ConsistencyCheck;
+import com.hapbang.auxiliary.search.out.ConsistencyCheckStore;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.out.InfluencerStats;
@@ -13,7 +18,6 @@ import com.hapbang.auxiliary.search.out.MemberStatsSource;
 import com.hapbang.auxiliary.search.out.WriteOutcome;
 import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -23,8 +27,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>통계: 인플루언서 통계(#769)를 처음부터 끝까지 읽어 채널 이름·대표 채널·팔로워·평점을 부분 갱신한다. 값이 같으면 noop이다.
  *     통계에 있는데 문서가 없는 회원은 건너뛴다(넣는 것은 검색 2 #772의 보정). 숨긴 문서도 건너뛴다.</li>
  * </ol>
- * <b>정합성 점검</b>(#772): 끝까지 읽은 정상 인플루언서 수(원본)와 ES의 보이는 문서 수를 비교해 차이를 남긴다. 증분 보정으로도 맞지 않는 어긋남을
- * 알려 준다. 세는 동안 회원이 바뀌면 잠깐 다를 수 있다. 세지 못해도 통계 동기화는 실패로 치지 않는다.
+ * <b>정합성 점검</b>(#772): 끝까지 읽은 정상 인플루언서 수(원본)와 ES의 보이는 문서 수를 비교해 결과를 DB({@link ConsistencyCheckStore})에 남긴다.
+ * 증분 보정으로도 맞지 않는 어긋남을 알려 준다. 세는 동안 회원이 바뀌면 잠깐 다를 수 있다. 세지 못해도 통계 동기화는 실패로 치지 않고, 낡은 결과만 지운다.
  * <p>
  * 프로필 이벤트를 놓친 회원을 바로잡는 일은 증분 보정({@link MemberChangeReconciler}, #772)이 회원 변경분으로 한다. 평점 전체 평균(베이지안 C)은 검색 API가
  * pod마다 계산한다(이 작업은 한 pod에서만 돌아 다른 pod가 값을 받을 수 없다).
@@ -32,7 +36,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @ConditionalOnSearchEnabled
-@RequiredArgsConstructor
 public class InfluencerStatsSync {
 
     /** 통계 한 페이지 크기(회원 API 상한) */
@@ -43,7 +46,27 @@ public class InfluencerStatsSync {
     private final MemberStatsSource source;
     private final ContentCategoryNames categoryNames;
     private final SearchJobRunner jobRunner;
-    private final SearchSyncMetrics metrics;
+    private final ConsistencyCheckStore consistencyChecks;
+    private final Clock clock;
+
+    @Autowired
+    public InfluencerStatsSync(InfluencerIndexSetup indexSetup, InfluencerDocumentStore store, MemberStatsSource source,
+            ContentCategoryNames categoryNames, SearchJobRunner jobRunner, ConsistencyCheckStore consistencyChecks) {
+        this(indexSetup, store, source, categoryNames, jobRunner, consistencyChecks,
+                Clock.system(MemberChangeReconciler.ZONE));
+    }
+
+    InfluencerStatsSync(InfluencerIndexSetup indexSetup, InfluencerDocumentStore store, MemberStatsSource source,
+            ContentCategoryNames categoryNames, SearchJobRunner jobRunner, ConsistencyCheckStore consistencyChecks,
+            Clock clock) {
+        this.indexSetup = indexSetup;
+        this.store = store;
+        this.source = source;
+        this.categoryNames = categoryNames;
+        this.jobRunner = jobRunner;
+        this.consistencyChecks = consistencyChecks;
+        this.clock = clock;
+    }
 
     /** 한 pod에서만 실행한다. 실패는 다음 회차에 다시 한다 */
     public void run() {
@@ -52,17 +75,28 @@ public class InfluencerStatsSync {
 
     /** 맞춘다. 테스트는 락 없이 바로 부른다 */
     public StatsSyncResult sync() {
+        StatsSyncResult result;
         try {
-            StatsSyncResult result = syncOnce();
-            if (result.consistencyChecked()) {
-                metrics.consistencyChecked(result.difference());
-            } else {
-                metrics.consistencyUnknown();
-            }
-            return result;
+            result = syncOnce();
         } catch (RuntimeException e) {
-            metrics.consistencyUnknown();
+            clearConsistency();
             throw e;
+        }
+        if (result.consistencyChecked()) {
+            consistencyChecks.save(new ConsistencyCheck(ConsistencyCheck.INFLUENCER, result.sourceInfluencers(),
+                    result.indexVisible(), LocalDateTime.now(clock)));
+        } else {
+            clearConsistency();
+        }
+        return result;
+    }
+
+    /** 이번 회차에 점검하지 못했으니 낡은 결과를 지운다. 지우지 못해도 지표가 25분 뒤 값을 비운다({@link SearchSyncMetrics}) */
+    private void clearConsistency() {
+        try {
+            consistencyChecks.clear(ConsistencyCheck.INFLUENCER);
+        } catch (RuntimeException e) {
+            log.warn("지난 정합성 점검 결과를 지우지 못했다", e);
         }
     }
 

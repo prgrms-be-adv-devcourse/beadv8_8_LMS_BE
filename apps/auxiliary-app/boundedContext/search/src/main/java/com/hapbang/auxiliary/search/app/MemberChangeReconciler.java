@@ -213,7 +213,7 @@ public class MemberChangeReconciler {
             log.warn("회원 정보가 빠져 검색 보정에서 건너뛴다 userId={}", user.id(), e);
             return ReconcileKind.SKIPPED;
         } catch (DocumentRejectedException e) {
-            // ES가 이 회원의 문서를 내용 때문에 거절했다. 다시 써도 같으므로 건너뛴다. ES 장애는 여기에 들지 않아 회차를 멈춘다
+            // ES가 이 회원의 값 때문에 거절했다. 다시 써도 같으므로 건너뛴다. 배포 실수(script 오류 등)·ES 장애는 여기에 들지 않아 회차를 멈춘다
             log.warn("ES가 거절해 검색 보정에서 건너뛴다 userId={}", user.id(), e);
             return ReconcileKind.SKIPPED;
         }

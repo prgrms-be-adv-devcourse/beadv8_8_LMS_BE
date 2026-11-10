@@ -13,16 +13,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.auxiliary.search.app.InfluencerStatsSync.StatsSyncResult;
+import com.hapbang.auxiliary.search.out.ConsistencyCheck;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
 import com.hapbang.auxiliary.search.out.MemberProfile;
 import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
-import com.hapbang.auxiliary.search.support.InMemorySyncCursorStore;
+import com.hapbang.auxiliary.search.support.InMemoryConsistencyCheckStore;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /** 10분 통계·분야 이름 동기화(#771). 회원 앱은 가짜, ES는 nori 컨테이너다 */
 class InfluencerStatsSyncTest {
@@ -33,12 +33,10 @@ class InfluencerStatsSyncTest {
 
     private final FakeMemberStatsSource source = new FakeMemberStatsSource();
 
-    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
-
-    private final SearchSyncMetrics metrics = new SearchSyncMetrics(registry, new InMemorySyncCursorStore());
+    private final InMemoryConsistencyCheckStore checks = new InMemoryConsistencyCheckStore();
 
     private final InfluencerStatsSync sync = new InfluencerStatsSync(new InfluencerIndexSetup(client), store, source,
-            new ContentCategoryNames(source), null, metrics);
+            new ContentCategoryNames(source), null, checks);
 
     @BeforeEach
     void reset() throws Exception {
@@ -188,13 +186,13 @@ class InfluencerStatsSyncTest {
         source.influencer(1L, null, 0).influencer(2L, null, 0);
         refresh();
         assertThat(sync.sync().difference()).isEqualTo(1);
-        assertThat(differenceGauge()).isEqualTo(1.0);
+        assertThat(savedDifference()).isEqualTo(1);
 
         store.show(3L, 1L, profile());
         store.show(4L, 1L, profile());
         refresh();
         assertThat(sync.sync().difference()).isEqualTo(-1);
-        assertThat(differenceGauge()).isEqualTo(-1.0);
+        assertThat(savedDifference()).isEqualTo(-1);
     }
 
     @Test
@@ -204,7 +202,7 @@ class InfluencerStatsSyncTest {
         source.influencer(1L, 4.5, 2);
         refresh();
         sync.sync();
-        assertThat(differenceGauge()).isZero();
+        assertThat(savedDifference()).isZero();
         source.reset().influencer(1L, 4.0, 3);
         InfluencerDocumentStore countFails = new InfluencerDocumentStore(client) {
             @Override
@@ -213,18 +211,18 @@ class InfluencerStatsSyncTest {
             }
         };
         InfluencerStatsSync failing = new InfluencerStatsSync(new InfluencerIndexSetup(client), countFails, source,
-                new ContentCategoryNames(source), null, metrics);
+                new ContentCategoryNames(source), null, checks);
 
         StatsSyncResult result = failing.sync();
 
         assertThat(result.updated()).isEqualTo(1);
         assertThat(result.consistencyChecked()).isFalse();
         assertThat(result.indexVisible()).isEqualTo(-1);
-        assertThat(differenceGauge()).isNaN();
+        assertThat(checks.find(ConsistencyCheck.INFLUENCER)).isEmpty();
     }
 
-    private double differenceGauge() {
-        return registry.get("hapbang.search.consistency.difference").tag("target", "influencer").gauge().value();
+    private long savedDifference() {
+        return checks.find(ConsistencyCheck.INFLUENCER).orElseThrow().difference();
     }
 
     private void refresh() throws Exception {

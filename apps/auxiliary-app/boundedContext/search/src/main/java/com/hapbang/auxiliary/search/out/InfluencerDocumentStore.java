@@ -7,6 +7,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
@@ -102,8 +103,12 @@ public class InfluencerDocumentStore {
     static final List<String> MEMBER_FIELDS = List.of("memberVersion", "hidden", "nickname", "bio", "role",
             "contentCategories.code");
 
-    /** ES가 요청 내용 때문에 거절한 상태 코드({@link DocumentRejectedException}) */
-    static final int REJECTED_STATUS = 400;
+    /**
+     * 그 회원의 값 때문에 ES가 거절할 때의 오류 종류({@link DocumentRejectedException}, PR #833 리뷰 Q1). 같은 400이라도 script 오류
+     * ({@code illegal_argument_exception} ← {@code script_exception})나 mapping에 없는 칸({@code strict_dynamic_mapping_exception})은 우리 배포
+     * 실수라 모든 회원에게 나므로 여기에 넣지 않는다(ES 9.5.5로 시험해 확인). {@code mapper_parsing_exception}은 예전 이름이다.
+     */
+    static final Set<String> REJECTED_TYPES = Set.of("document_parsing_exception", "mapper_parsing_exception");
 
     /** 부분 갱신할 문서가 없을 때의 오류 종류 */
     static final String DOCUMENT_MISSING = "document_missing_exception";
@@ -118,7 +123,7 @@ public class InfluencerDocumentStore {
      * 정상 인플루언서의 프로필을 넣거나 덮는다(숨김을 푼다).
      *
      * @param version 회원 version. 모르면 null
-     * @throws DocumentRejectedException ES가 요청 내용 때문에 거절한 경우(다시 써도 같다)
+     * @throws DocumentRejectedException ES가 그 회원의 값 때문에 거절한 경우(다시 써도 같다)
      * @throws IllegalStateException     그 밖에 쓰지 못한 경우
      */
     public WriteOutcome show(long userId, Long version, MemberProfile profile) {
@@ -324,7 +329,7 @@ public class InfluencerDocumentStore {
                     .result();
             return outcome(result);
         } catch (ElasticsearchException e) {
-            if (e.status() == REJECTED_STATUS) {
+            if (isRejectedByContent(e)) {
                 throw new DocumentRejectedException("ES가 검색 문서를 거절했습니다 userId=" + userId + ", error="
                         + e.error().type(), e);
             }
@@ -332,6 +337,11 @@ public class InfluencerDocumentStore {
         } catch (IOException e) {
             throw new IllegalStateException("검색 문서를 쓰지 못했습니다 userId=" + userId, e);
         }
+    }
+
+    /** 그 회원의 값 때문에 거절됐는지(다시 써도 같다). 배포 실수·장애는 false다 */
+    static boolean isRejectedByContent(ElasticsearchException e) {
+        return e.status() == 400 && e.error() != null && REJECTED_TYPES.contains(e.error().type());
     }
 
     static WriteOutcome outcome(Result result) {
