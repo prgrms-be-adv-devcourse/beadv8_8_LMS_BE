@@ -181,7 +181,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 | --- | --- | --- | --- |
 | 돈·HP 정합성 | 서비스 간 HP 대사 불일치 | `lecture.hp_reconciliation.mismatches`, `appearance.hp_reconciliation.mismatches` | 0 초과 즉시 |
 | 돈·HP 정합성 | 지갑 잔액 대사 불일치·실패 | `hapbang.billing.reconciliation.wallets{result="mismatched"\|"failed"}` | 0 초과 즉시 |
-| 돈·HP 정합성 | 대사가 돌지 않음 | `hapbang.billing.reconciliation.last.success`, `*.hp_reconciliation.runs` | 마지막 성공이 하루 넘게 없음 |
+| 돈·HP 정합성 | 대사가 돌지 않음 | `hapbang.billing.reconciliation.last.success`, `lecture.hp_reconciliation.last.completed`(#805), `appearance.hp_reconciliation.runs` | 마지막 성공이 하루 넘게 없음 |
 | 돈·HP 정합성 | HP 작업 DEAD | `lecture.hp_task.dead`, `appearance.hp_task.dead` | 0 초과 즉시 |
 | 앱 상태 | 지표 수집 끊김 | `up` (`kubernetes-pods` job) | 0이 지속 |
 | 앱 상태 | 컨테이너 메모리 | cAdvisor working set ÷ limit | 실측 뒤 |
@@ -233,7 +233,7 @@ rule은 `k8s/platform/base/alerting/rules.yaml`, Slack contact point는 `contact
 | 예약 작업 실패 | warning | `tasks_scheduled_execution_seconds_count{exception!="none"}`가 10분 안에 늘었거나 새로 생김 | 즉시 | Loki에서 그 예외 이름으로 stack trace를 본다. 메서드 안에서 잡아 로그만 남기는 실패는 잡히지 않는다 |
 
 - **한계: 대사 지표가 pod 메모리에만 있다(출연·지갑).** 출연 `appearance_hp_reconciliation_mismatches`와 지갑 `hapbang_billing_reconciliation_wallets`는 pod가 다시 뜨면 다음 대사 전까지 0이다. 새벽 대사에서 불일치가 나와도 그날 배포가 한 번 있으면 복구 통보가 가고 다음 대사까지 조용하다(2026-11-09 하루에 appearance-app pod 7개, billing-app 6개). 강의는 #805(2026-11-10 배포)부터 기동할 때 DB의 마지막 COMPLETED 실행으로 불일치 건수와 마지막 완료 시각을 채운다. 출연은 실행 기록이 DB에 있어 같은 방법을 쓸 수 있고, 지갑은 실행 결과를 DB에 남기는 것부터 필요하다.
-- **한계: "대사가 돌지 않음"의 지갑·출연 부분은 지금 거의 꺼져 있다.** 대사 배치는 매일 새벽(Asia/Seoul 출연 04:00, 지갑 04:02, 강의 04:30)에 돈다. 강의는 #814부터 DB에서 채운 마지막 완료 시각으로 보므로 pod 나이와 관계없이 동작한다. 완료한 실행이 한 번도 없으면 0이라 울리고, 기동 직후 채우기 전에 0이 한 번 수집될 수 있어 rule에 10분 지속을 둔다. 지갑 `last_success`와 출연 실행 counter는 pod 메모리에만 있어 pod가 다시 뜨면 0부터 시작하므로 26시간 넘게 산 pod만 본다. 출연 counter는 첫 실행 때 series가 생기므로 26시간 안에 생긴 series도 실행으로 친다. dev 병합마다 pod가 다시 떠서 하루를 넘기는 pod가 드물고, 그동안 대사가 실제로 돌지 않아도 알 수 없다. 출연은 실행 기록(`HpReconciliationRun`)이 DB에 있어 강의처럼 고칠 수 있고, 지갑은 실행 기록이 없다(각 담당자 티켓).
+- **한계: "대사가 돌지 않음"의 지갑·출연 부분은 지금 거의 꺼져 있다.** 대사 배치는 매일 새벽(Asia/Seoul 출연 04:00, 지갑 04:02, 강의 04:30)에 돈다. 강의는 #814부터 DB에서 채운 마지막 완료 시각으로 보므로 pod 나이와 관계없이 동작한다. 완료한 실행이 한 번도 없거나, 기동할 때 DB를 읽지 못해 채우지 못하면(로그 "DB에서 채우지 못해") 0이라 울린다. 후자는 다음 대사가 끝날 때까지 남으므로 lecture-app을 다시 띄우거나 수동 대사를 돌린다. 기동 직후 채우기 전에 0이 한 번 수집될 수 있어 rule에 10분 지속을 둔다. 지갑 `last_success`와 출연 실행 counter는 pod 메모리에만 있어 pod가 다시 뜨면 0부터 시작하므로 26시간 넘게 산 pod만 본다. 출연 counter는 첫 실행 때 series가 생기므로 26시간 안에 생긴 series도 실행으로 친다. dev 병합마다 pod가 다시 떠서 하루를 넘기는 pod가 드물고, 그동안 대사가 실제로 돌지 않아도 알 수 없다. 출연은 실행 기록(`HpReconciliationRun`)이 DB에 있어 강의처럼 고칠 수 있고, 지갑은 실행 기록이 없다(각 담당자 티켓).
 - 재시작을 반복하는 pod는 scrape 대상에 남아 `up`이 0이 되므로 수집 끊김으로 잡힌다(앱 pod만, platform pod는 컨테이너 재시작 alert가 본다). pod가 아예 없어 지표가 사라진 경우(replica 0, 스케줄되지 않은 Pending pod)는 잡지 못한다. kube-state-metrics가 필요하다.
 - 첫 발생 때 series가 생기는 counter(DLT 전송, 예약 작업 예외, 강의·출연 대사 실행)와 pod가 뜬 뒤 첫 수집 전에 늘어난 counter(강의 HP 작업 DEAD)는 `increase()`가 첫 값을 놓친다. 그래서 `(increase(x[창]) > 0) or (x unless x offset 창)`처럼 창 안에 새로 생긴 series도 발생으로 친다. `or`는 metric 이름을 빼고 label을 맞추므로 왼쪽을 `> 0`으로 걸러야 새 series가 오른쪽에서 들어온다.
 - 7일 기록(2026-11-02~09)에 거꾸로 돌려 보면 울렸을 것: 컨테이너 재시작(Tempo OOMKilled 반복 #774, chat-app 재시작, #774의 ECK operator 이동, 11-06 PostgreSQL 재시작), 11-06 14:41 PostgreSQL 재시작(#731 limit 변경) 직후의 DB 연결 timeout(lecture 약 230건, chat 3건, appearance 2건)과 appearance 예약 작업 2개의 `DataAccessResourceFailureException`. 디스크(최대 64%)·인증서(80일 남음)·circuit breaker·DLT·채팅 전달 멈춤은 울리지 않았다.
