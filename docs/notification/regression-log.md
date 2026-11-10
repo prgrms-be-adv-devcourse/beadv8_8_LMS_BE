@@ -86,6 +86,50 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-021 · 2026-11-10 · 통과 (origin/dev 병합 뒤, NR-020 재실행)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-021 |
+| 실행 날짜 | 2026-11-10 13:59~14:08 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `0ee1b1aa`(`0a3c46d3`에 origin/dev `d055d191` 병합, 충돌 없음) |
+| 작업 트리 변경 | 이 문서(NR-020·NR-021)만 |
+| 대상 기능 | dev 병합 뒤 N3 회귀(검색 모듈 #828, 챗봇 싱크 #831 등 포함) |
+| 관련 NT ID | NR-019와 같다 |
+| 명령 | NR-020과 같다 |
+| 실행 환경 | NR-016과 같다. 사용자가 Docker Desktop을 다시 시작한 뒤 실행 |
+| 결과 | 통과 |
+| 건수 | `:notification` 106, `:auxiliary-app` 12, `:auxiliary-global` 108, `:chatbot` 112, `:search` 93. 합계 431, 실패·오류·건너뜀 0 (XML 기준, 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | NR-020(F-ENV)의 재실행 |
+| 미검증 항목 | 전체 `./gradlew check`(PR CI에 맡김), Gateway를 거친 E2E(N4) |
+| 관련 변경 | #829 |
+
+#### NR-020 · 2026-11-10 · 실패 (F-ENV, origin/dev 병합 뒤)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-020 |
+| 실행 날짜 | 2026-11-10 13:57~13:58 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `0ee1b1aa`(`0a3c46d3`에 origin/dev `d055d191` 병합) |
+| 작업 트리 변경 | 없음(이 기록 제외) |
+| 대상 기능 | dev 병합 뒤 N3 회귀 |
+| 관련 NT ID | NR-019와 같다 |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :search:cleanTest :auxiliary-app:cleanTest :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Docker Desktop이 응답하지 않음(`docker version`: "Docker Desktop is unable to start") |
+| 결과 | 실패 |
+| 건수 | `:notification` 106 중 71 실패(Testcontainers가 필요한 통합 테스트 전부), 35 통과. `:notification:test`가 실패해 `:auxiliary-app:check`의 나머지 프로젝트는 돌지 않았다 |
+| 실패 원인 분류 | F-ENV. 컨텍스트 기동 실패 `PostgresTestcontainersConfig` → `IllegalStateException: Could not find a valid Docker environment` |
+| 수정 내용 | 없음(코드 원인 아님) |
+| 재실행 결과 | Docker 복구 뒤 재실행 필요 |
+| 미검증 항목 | 병합 뒤 전체 범위(통합 테스트, chatbot·search·global·app) |
+| 관련 변경 | #829 |
+
 #### NR-019 · 2026-11-10 · 통과 (#829 Redis 명령 시간 제한)
 
 | 항목 | 값 |
