@@ -11,6 +11,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
+import com.hapbang.coupon.domain.CouponDltKind;
 import com.hapbang.coupon.domain.CouponDltLog;
 import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.testsupport.RepositoryTest;
@@ -32,6 +33,21 @@ class CouponDltLogRepositoryTest {
     private static CouponDltLog isolate(long offset, Long couponId, String requestId) {
         return CouponDltLog.isolate(new CouponDltLog.Source(TOPIC, 0, offset, String.valueOf(couponId)), couponId,
                 requestId, "{}", "원인", NOW);
+    }
+
+    @Test
+    void 주문_이벤트_격리_기록은_종류_ORDER로_저장되고_메시지_위치로만_가린다() {
+        CouponDltLog order = couponDltLogRepository.saveAndFlush(CouponDltLog.isolateOrderEvent(
+                new CouponDltLog.Source("lecture.events.v1", 0, 1, "order-item:901"), "{}", "원인", NOW));
+        couponDltLogRepository.saveAndFlush(CouponDltLog.isolateOrderEvent(
+                new CouponDltLog.Source("lecture.events.v1", 0, 2, "order-item:901"), "{}", "원인", NOW));
+        entityManager.clear();
+
+        assertThat(couponDltLogRepository.findById(order.getId())).get()
+                .extracting(CouponDltLog::getKind).isEqualTo(CouponDltKind.ORDER);
+        assertThat(couponDltLogRepository.findById(couponDltLogRepository.saveAndFlush(isolate(5, 42L, "req-1"))
+                .getId())).get().extracting(CouponDltLog::getKind).isEqualTo(CouponDltKind.ISSUE);
+        assertThat(couponDltLogRepository.countUnresolved()).isEqualTo(3);
     }
 
     @Test

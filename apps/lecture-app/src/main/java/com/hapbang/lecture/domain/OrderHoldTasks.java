@@ -31,9 +31,15 @@ public final class OrderHoldTasks {
                 tasks.stream().filter(task -> task.getPurpose() == LectureHpTaskPurpose.HOLD_VOID).toList());
     }
 
-    /** 모든 항목의 보류가 성공했는지. 그래야 결제가 끝난다 */
-    public boolean allHoldsSucceeded() {
-        return !holds.isEmpty() && holds.stream().allMatch(OrderHoldTasks::succeeded);
+    /**
+     * 보류가 필요한 모든 항목의 보류가 성공했는지. 그래야 결제가 끝난다. 보류가 필요 없는 항목(구매자 금액 0)은 성공으로 본다.
+     * 보류가 필요한 항목이 하나도 없으면 바로 끝난다.
+     *
+     * @param itemIdsNeedingHold 보류가 필요한 항목 ID ({@link OrderItem#requiresBuyerHpTask()})
+     */
+    public boolean allHoldsSucceeded(Collection<Long> itemIdsNeedingHold) {
+        Set<Long> succeededItemIds = succeededItemIds(holds);
+        return succeededItemIds.containsAll(itemIdsNeedingHold);
     }
 
     /** 성공했지만 아직 반환 작업이 없는 보류. 결제 취소 처리 중이면 반환한다 */

@@ -8,14 +8,16 @@ import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.global.response.RsData;
+import com.hapbang.coupon.in.dto.CouponQuoteRequest;
 import com.hapbang.coupon.in.dto.IssueRequestCreateRequest;
+import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-/** 회원 쿠폰 API Swagger 명세(쿠폰 조회·발급 접수·발급 요청 상태·보유 쿠폰). 매핑은 {@link ApiV1CouponController} */
-@Tag(name = "쿠폰", description = "회원의 쿠폰 조회·발급 접수·발급 요청 상태 조회·보유 쿠폰 조회")
+/** 회원 쿠폰 API Swagger 명세(쿠폰 조회·발급 접수·발급 요청 상태·보유 쿠폰·계산 미리보기). 매핑은 {@link ApiV1CouponController} */
+@Tag(name = "쿠폰", description = "회원의 쿠폰 조회·발급 접수·발급 요청 상태 조회·보유 쿠폰 조회·주문 전 할인 계산 미리보기")
 public interface ApiV1CouponSpec {
 
     @Operation(summary = "강의에 받을 수 있는 쿠폰",
@@ -56,4 +58,17 @@ public interface ApiV1CouponSpec {
     RsData<List<MemberCouponView>> usableFor(Long memberId,
                                              @Parameter(description = "쿠폰을 적용할 강의 ID", required = true)
                                              Long lectureId);
+
+    @Operation(summary = "할인 계산 미리보기",
+            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 주문하기 전에 고른 강의의 쿠폰 할인을 계산한다. 상태를 바꾸지 않는다(쿠폰을 "
+                    + "잡아 두지 않는다). 강의 가격·판매자는 서버가 강의에서 다시 읽고, 계산은 주문 때와 같다. selections를 생략(null)하면 내 사용 "
+                    + "가능 쿠폰으로 최대 할인을 추천하고(recommended=true, 끝까지 찾았으면 optimal=true), 빈 목록이면 쿠폰 없이, 값이 있으면 "
+                    + "그 매핑만 검증해 계산한다. 응답은 강의별 원가격·할인(플랫폼·판매자 부담)·구매자 금액과 적용한 쿠폰(generation 포함), "
+                    + "합계 할인(totalDiscount)·합계 구매자 금액(totalBuyerAmount)이다. "
+                    + "강의 주문(POST /api/v1/lectures/orders)에 쿠폰을 쓸 때는 이 응답의 쿠폰 매핑을 coupons로, totalBuyerAmount를 "
+                    + "expectedBuyerAmountHp로 보낸다. 주문 때 다시 계산한 금액이 다르면 주문이 409 ORDER_QUOTE_CHANGED라 다시 미리보기를 "
+                    + "한다. 강의 수가 상한을 넘으면 400 COUPON_TOO_MANY_ITEMS, 같은 강의가 두 번이면 400 COUPON_DUPLICATE_LECTURE, 강의가 "
+                    + "없으면 404 LECTURE_NOT_FOUND, 강의 조회가 안 되면 503. 고른 쿠폰을 쓸 수 없으면 409(COUPON_NOT_APPLICABLE·"
+                    + "COUPON_NOT_USABLE·COUPON_STACKING_VIOLATION, memberCouponId 포함).")
+    RsData<CouponCalculateResponse> quote(Long memberId, CouponQuoteRequest request);
 }

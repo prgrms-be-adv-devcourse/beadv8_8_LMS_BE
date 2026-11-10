@@ -3,6 +3,8 @@ package com.hapbang.coupon.app;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
@@ -46,6 +48,8 @@ class CouponFacadeSecurityTest {
     private CouponSummaryQuery couponSummaryQuery;
     @MockitoBean
     private CouponPolicyQuery couponPolicyQuery;
+    @MockitoBean
+    private CouponCalculateUseCase couponCalculateUseCase;
 
     private static final CouponCreateCommand COMMAND = new CouponCreateCommand(null, null, null, null, 0, null, 0,
             null, null, null, null, null, false);
@@ -104,6 +108,13 @@ class CouponFacadeSecurityTest {
 
         assertThatThrownBy(() -> issueFacade.coupon(1L, 1L)).isInstanceOf(AccessDeniedException.class);
         verifyNoInteractions(couponSummaryQuery);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void 할인_계산_미리보기는_회원_역할만_쓴다() {
+        assertThatThrownBy(() -> issueFacade.quote(1L, List.of(7L), null)).isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(couponCalculateUseCase);
     }
 
     @Configuration(proxyBeanMethods = false)

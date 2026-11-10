@@ -1,9 +1,12 @@
 package com.hapbang.lecture.app;
 
+import java.time.LocalDateTime;
+
 import org.springframework.stereotype.Component;
 
 import com.hapbang.lecture.domain.LectureHpTask;
 import com.hapbang.lecture.domain.LectureHpTaskPurpose;
+import com.hapbang.lecture.domain.LectureOrder;
 
 import lombok.RequiredArgsConstructor;
 
@@ -24,6 +27,11 @@ public class PayoutResultHandler implements LectureHpTaskResultHandler {
 
     @Override
     public void onSucceeded(LectureHpTask task) {
-        orderSettlementRecorder.record(task, (order, now) -> order.completePayoutItem(task.getOrderItemId(), now));
+        orderSettlementRecorder.record(task, (order, now) -> complete(order, task.getOrderItemId(), now));
+    }
+
+    /** 지급 완료를 기록한다. 지급 작업 성공과, 지급할 HP가 없는 항목(판매자 지급액 0)의 즉시 완료가 같이 쓴다 */
+    void complete(LectureOrder order, Long orderItemId, LocalDateTime now) {
+        order.completePayoutItem(orderItemId, now);
     }
 }

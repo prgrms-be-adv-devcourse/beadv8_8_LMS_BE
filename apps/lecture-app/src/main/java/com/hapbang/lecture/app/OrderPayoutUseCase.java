@@ -37,17 +37,20 @@ public class OrderPayoutUseCase {
     private final LectureOrderRepository lectureOrderRepository;
     private final LectureOrderSupport lectureOrderSupport;
     private final LectureHpTaskSupport lectureHpTaskSupport;
+    private final PayoutResultHandler payoutResultHandler;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public OrderPayoutUseCase(LectureOrderRepository lectureOrderRepository,
                               LectureOrderSupport lectureOrderSupport,
                               LectureHpTaskSupport lectureHpTaskSupport,
+                              PayoutResultHandler payoutResultHandler,
                               PlatformTransactionManager transactionManager,
                               @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureOrderSupport = lectureOrderSupport;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
+        this.payoutResultHandler = payoutResultHandler;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -75,9 +78,14 @@ public class OrderPayoutUseCase {
         order.startPayoutItem(itemId, now).ifPresent(item -> {
             // 같은 항목을 동시에 바꾼 요청(낙관적 락 충돌)을 작업 등록 전에 확인한다 (설계 6.2)
             lectureOrderRepository.flush();
+            // 지급 금액은 판매자 지급액(가격 − 판매자 부담 할인)이다. 지급할 HP가 없으면 작업 없이 이 트랜잭션에서 지급을 끝낸다
+            if (!item.requiresPayoutHpTask()) {
+                payoutResultHandler.complete(order, item.getId(), now);
+                return;
+            }
             lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.PAYOUT,
                     PAYOUT_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), item.getBuyerUserId(),
-                    item.getSellerUserId(), item.getPriceHp(), now));
+                    item.getSellerUserId(), item.sellerPayoutHp(), now));
         });
     }
 }

@@ -18,10 +18,18 @@ class OrderHoldTasksTest {
         LectureHpTask first = succeeded(hold(31L));
         LectureHpTask second = hold(32L);
 
-        assertThat(OrderHoldTasks.of(List.of(first, second)).allHoldsSucceeded()).isFalse();
+        assertThat(OrderHoldTasks.of(List.of(first, second)).allHoldsSucceeded(List.of(31L, 32L))).isFalse();
 
         succeeded(second);
-        assertThat(OrderHoldTasks.of(List.of(first, second)).allHoldsSucceeded()).isTrue();
+        assertThat(OrderHoldTasks.of(List.of(first, second)).allHoldsSucceeded(List.of(31L, 32L))).isTrue();
+    }
+
+    @Test
+    void 보류가_필요_없는_항목은_성공으로_보고_필요한_항목이_없으면_바로_끝난다() {
+        // 항목 32는 구매자 금액이 0이라 보류가 없다
+        assertThat(OrderHoldTasks.of(List.of(succeeded(hold(31L)))).allHoldsSucceeded(List.of(31L))).isTrue();
+        assertThat(OrderHoldTasks.of(List.of()).allHoldsSucceeded(List.of())).isTrue();
+        assertThat(OrderHoldTasks.of(List.of()).allHoldsSucceeded(List.of(31L))).isFalse();
     }
 
     @Test
@@ -121,7 +129,7 @@ class OrderHoldTasksTest {
 
         OrderHoldTasks tasks = OrderHoldTasks.of(List.of(succeeded(hold(31L)), cancel));
 
-        assertThat(tasks.allHoldsSucceeded()).isTrue();
+        assertThat(tasks.allHoldsSucceeded(List.of(31L))).isTrue();
         assertThat(tasks.processingStatus()).isNull();
     }
 

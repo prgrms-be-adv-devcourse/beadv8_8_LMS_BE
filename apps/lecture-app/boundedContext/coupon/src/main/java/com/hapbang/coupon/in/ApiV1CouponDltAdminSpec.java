@@ -12,8 +12,9 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-/** 관리자 쿠폰 발급 DLT API Swagger 명세. 매핑은 {@link ApiV1CouponDltAdminController} */
-@Tag(name = "쿠폰 발급 DLT", description = "제한 재시도 뒤에도 처리하지 못해 격리된 발급 요청의 관리자 재발행·영구 거절")
+/** 관리자 쿠폰 DLT API Swagger 명세. 매핑은 {@link ApiV1CouponDltAdminController} */
+@Tag(name = "쿠폰 발급 DLT", description = "제한 재시도 뒤에도 처리하지 못해 격리된 발급 요청(kind=ISSUE)과 주문 결제·취소 완료 이벤트"
+        + "(kind=ORDER)의 관리자 재처리·영구 거절")
 public interface ApiV1CouponDltAdminSpec {
 
     @Operation(summary = "DLT 격리 기록 목록",
@@ -29,13 +30,17 @@ public interface ApiV1CouponDltAdminSpec {
                     + "REPLAYING이 아니거나 동시에 처리되면 409 "
                     + "COUPON_DLT_ALREADY_RESOLVED, 원문을 읽을 수 없으면 409 INVALID_COUPON_STATUS, 그 쿠폰의 복구가 진행 중이면 409 "
                     + "COUPON_RECOVERY_IN_PROGRESS. Kafka 전송 실패는 503 COUPON_EVENT_PUBLISH_FAILED이고 기록을 PENDING으로 되돌린다(다시 보내면 된다). "
-                    + "그 사이 같은 요청이 다시 격리됐으면 이 기록은 REPLAYED로 끝나고 새 PENDING 기록을 처리한다.")
+                    + "그 사이 같은 요청이 다시 격리됐으면 이 기록은 REPLAYED로 끝나고 새 PENDING 기록을 처리한다. "
+                    + "kind=ORDER(주문 결제·취소 완료)는 강의 토픽에 다시 보내지 않고 저장한 원문으로 쿠폰 소비를 다시 실행한다. 성공하면 "
+                    + "REPLAYED(처리 완료), 다시 해도 같은 이유로 실패하거나 원문을 읽을 수 없으면 409 INVALID_COUPON_STATUS이고 PENDING으로 "
+                    + "되돌린다.")
     RsData<CouponDltLogView> replay(Long adminId, Long dltId);
 
     @Operation(summary = "DLT 영구 거절",
             description = "관리자. 발급 요청 결과를 거절(사유)로 먼저 확정한 뒤 Redis 수량을 요청당 한 번 되돌린다(재고 +1, 회원 접수 기록 삭제). "
                     + "이전 epoch의 요청이면 재고를 바꾸지 않는다. 결과는 compensationResult. Redis 장애면 503이고 거절은 확정된 채다. "
                     + "같은 요청을 다시 보내면 보상만 다시 하며 재고는 다시 바뀌지 않는다. 이미 발급이 확정된 요청, 재발행한 기록, 선점 lease 안의 "
-                    + "REPLAYING 기록은 409 COUPON_DLT_ALREADY_RESOLVED.")
+                    + "REPLAYING 기록은 409 COUPON_DLT_ALREADY_RESOLVED. kind=ORDER는 기록만 REJECTED로 닫고 쿠폰 사용 상태·Redis는 바꾸지 "
+                    + "않는다.")
     RsData<CouponDltLogView> reject(Long adminId, Long dltId, CouponDltRejectRequest request);
 }

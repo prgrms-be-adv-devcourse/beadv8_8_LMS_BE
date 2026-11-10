@@ -175,6 +175,36 @@ class MemberCouponRepositoryTest {
                 .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.EXPIRED);
     }
 
+    @Test
+    void 결제_완료는_RESERVED_같은_세대만_USED로_바꾸고_취소_완료는_RESERVED_USED_같은_세대만_돌린다() {
+        Long couponId = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long id = memberCouponRepository.save(issue(MEMBER_ID, couponId, "req-1", NOW)).getId();
+        Long reservedId = memberCouponRepository.save(issue(OTHER_MEMBER_ID, couponId, "req-2", NOW)).getId();
+        memberCouponRepository.reserve(id, MEMBER_ID, 0, 500L, NOW);
+        memberCouponRepository.reserve(reservedId, OTHER_MEMBER_ID, 0, 501L, NOW);
+
+        // 결제 완료: 다른 세대는 0행, 기한이 지나도 바꾼다
+        assertThat(memberCouponRepository.markUsed(id, 0, NOW)).isZero();
+        assertThat(memberCouponRepository.markUsed(id, 1, EXPIRES_AT)).isEqualTo(1);
+        assertThat(memberCouponRepository.markUsed(id, 1, EXPIRES_AT)).isZero();
+        assertThat(memberCouponRepository.findStateById(id)).get()
+                .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.USED);
+
+        // 취소 완료: USED는 만료 전이면 AVAILABLE, 다른 세대는 0행, 이미 돌렸으면 0행
+        assertThat(memberCouponRepository.restore(id, 0, NOW)).isZero();
+        assertThat(memberCouponRepository.restore(id, 1, NOW)).isEqualTo(1);
+        assertThat(memberCouponRepository.findStateById(id)).get().satisfies(state -> {
+            assertThat(state.status()).isEqualTo(MemberCouponStatus.AVAILABLE);
+            assertThat(state.currentOrderItemId()).isNull();
+        });
+        assertThat(memberCouponRepository.restore(id, 1, NOW)).isZero();
+
+        // 결제 완료 전 취소 완료: RESERVED도 돌리고, 만료 시각(expiresAt == now)이면 EXPIRED다
+        assertThat(memberCouponRepository.restore(reservedId, 1, EXPIRES_AT)).isEqualTo(1);
+        assertThat(memberCouponRepository.findStateById(reservedId)).get()
+                .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.EXPIRED);
+    }
+
     private Long saveCoupon(Coupon coupon) {
         return couponRepository.save(coupon).getId();
     }
