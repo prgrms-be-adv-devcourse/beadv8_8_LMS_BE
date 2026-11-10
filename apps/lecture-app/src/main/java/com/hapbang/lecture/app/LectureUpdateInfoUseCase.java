@@ -8,8 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
-import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.lecture.out.coupon.CouponApiClient;
+import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.shared.coupon.api.CouponPriceRaiseBlockedResponse;
 
 import lombok.RequiredArgsConstructor;

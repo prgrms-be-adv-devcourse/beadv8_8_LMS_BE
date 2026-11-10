@@ -16,8 +16,8 @@ import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
-import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.lecture.out.coupon.CouponApiClient;
+import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 
