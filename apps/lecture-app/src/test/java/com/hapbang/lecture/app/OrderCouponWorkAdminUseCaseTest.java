@@ -134,7 +134,7 @@ class OrderCouponWorkAdminUseCaseTest {
     }
 
     @Test
-    void 결제_실패_확정에서_쿠폰_예약이_없으면_작업은_DEAD_그대로이고_주문만_실패이며_해제가_없다() {
+    void 결제_실패_확정에서_쿠폰_예약이_없으면_작업은_거절로_닫히고_주문은_실패이며_해제가_없다() {
         Long orderId = deadReserveOrder();
         coupon.respond(request -> new CouponCallResult.Succeeded<>(
                 new CouponReservationStatusResponse((String) request, "NOT_FOUND", null, List.of())));
@@ -143,8 +143,12 @@ class OrderCouponWorkAdminUseCaseTest {
                 .isEqualTo(OrderCouponWorkAdminUseCase.FailOutcome.NOT_RESERVED);
 
         assertThat(orderStatus(orderId)).isEqualTo("HOLD_FAILED");
-        assertThat(work(orderId, "RESERVE")).containsEntry("status", "DEAD");
+        assertThat(work(orderId, "RESERVE")).containsEntry("status", "REJECTED")
+                .containsEntry("reject_code", OrderCouponWorkAdminUseCase.ADMIN_FAILED_NOT_RESERVED);
         assertThat(releaseCount()).isZero();
+        // 닫혔으므로 DEAD 목록에 다시 나오지 않는다
+        assertThat(jdbcTemplate.queryForObject("select count(*) from lectures.order_coupon_work where order_id = ? "
+                + "and status = 'DEAD'", Long.class, orderId)).isZero();
     }
 
     @Test
@@ -341,7 +345,7 @@ class OrderCouponWorkAdminUseCaseTest {
     }
 
     private Map<String, Object> work(Long orderId, String kind) {
-        return jdbcTemplate.queryForMap("select status, attempt_count from lectures.order_coupon_work "
+        return jdbcTemplate.queryForMap("select status, attempt_count, reject_code from lectures.order_coupon_work "
                 + "where order_id = ? and kind = ?", orderId, kind);
     }
 

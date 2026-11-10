@@ -159,7 +159,8 @@ class LectureCouponWorkAdminApiTest {
                 new CouponReservationStatusResponse((String) request, "NOT_FOUND", null, List.of())));
         mockMvc.perform(post(BASE + "/{workId}/fail", reserveWorkId(notFoundOrder)).with(admin()))
                 .andExpect(jsonPath("$.data.outcome").value("NOT_RESERVED"))
-                .andExpect(jsonPath("$.data.work.status").value("DEAD"))
+                .andExpect(jsonPath("$.data.work.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.work.rejectCode").value("ADMIN_FAILED_NOT_RESERVED"))
                 .andExpect(jsonPath("$.data.work.orderStatus").value("HOLD_FAILED"));
         // 결제 실패가 확정되어 같은 강의를 다시 살 수 있는 상태가 됐고, 해제 작업은 쿠폰 쪽 예약이 남은 주문에만 있다
         assertThat(jdbcTemplate.queryForList("select order_id from lectures.order_coupon_work where kind = 'RELEASE'",

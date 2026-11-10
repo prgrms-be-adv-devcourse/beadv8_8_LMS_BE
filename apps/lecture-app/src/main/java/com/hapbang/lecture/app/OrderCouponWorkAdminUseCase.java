@@ -92,12 +92,15 @@ public class OrderCouponWorkAdminUseCase {
     }
 
     /** 결제 실패 확정의 결과 */
+    /** 결제 실패 확정에서 쿠폰 쪽 예약이 없어 관리자가 닫은 예약 작업의 거절 코드 */
+    public static final String ADMIN_FAILED_NOT_RESERVED = "ADMIN_FAILED_NOT_RESERVED";
+
     public enum FailOutcome {
         /** 쿠폰 쪽 예약이 있어 해제 작업을 만들고 해제를 한 번 보냈다 */
         RESERVED_RELEASING,
         /** 쿠폰이 예약을 거절했었다 */
         REJECTED,
-        /** 쿠폰 쪽 예약이 없다(기록 없음·모두 해제) */
+        /** 쿠폰 쪽 예약이 없다(기록 없음·모두 해제). 예약 작업은 {@link #ADMIN_FAILED_NOT_RESERVED}로 닫는다 */
         NOT_RESERVED
     }
 
@@ -179,7 +182,11 @@ public class OrderCouponWorkAdminUseCase {
                             : reservation.rejectCode(), now);
                     yield FailOutcome.REJECTED;
                 }
-                case NOT_RESERVED -> FailOutcome.NOT_RESERVED;
+                case NOT_RESERVED -> {
+                    // 쿠폰 쪽 예약이 없다. DEAD로 두면 닫을 길이 없어 DEAD 목록·alert에 남으므로 거절로 닫는다
+                    locked.work().confirmRejectedByAdmin(ADMIN_FAILED_NOT_RESERVED, now);
+                    yield FailOutcome.NOT_RESERVED;
+                }
                 case CONFLICT -> throw new IllegalStateException("위에서 막았다");
             };
             locked.order().markHoldFailed();

@@ -49,7 +49,7 @@ public interface ApiV1LectureCouponWorkAdminSpec {
             description = "관리자. DEAD 예약 작업의 주문(결제 처리 중)을 결제 실패로 끝낸다. 쿠폰 예약 상태를 먼저 조회해 결과가 "
                     + "갈린다(outcome): RESERVED_RELEASING(쿠폰 쪽 예약이 남아 있음 → 예약 generation을 남기고 예약 작업 RESERVED, "
                     + "해제 작업을 만들고 한 번 보낸다. 결과를 모르면 재전송 배치가 잇는다), REJECTED(쿠폰이 거절했었음 → 예약 작업 "
-                    + "REJECTED), NOT_RESERVED(기록 없음·모두 해제 → 예약 작업은 DEAD 그대로). 셋 다 주문은 HOLD_FAILED가 되어 같은 "
+                    + "REJECTED), NOT_RESERVED(기록 없음·모두 해제 → 예약 작업 REJECTED, rejectCode ADMIN_FAILED_NOT_RESERVED). 셋 다 주문은 HOLD_FAILED가 되어 같은 "
                     + "강의를 다시 살 수 있다. 쿠폰 사용 시도가 이미 결제 완료·취소로 보이면 409 COUPON_RESERVATION_SETTLED(아무것도 "
                     + "바꾸지 않음, 쿠폰·주문을 직접 확인), 쿠폰 예약 상태를 조회할 수 없으면 503 COUPON_UNAVAILABLE(아무것도 바꾸지 "
                     + "않음, 잠시 후 다시). 예약 작업이 아니면 409 COUPON_WORK_ACTION_NOT_ALLOWED, DEAD가 아니면 409 "

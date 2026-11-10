@@ -56,8 +56,8 @@ class CouponOrderDltReplayUseCaseTest {
 
         CouponDltLogView view = useCase.replay(ADMIN_ID, DLT_ID);
 
-        // 재처리 경로는 제한 시간(기본 30초)을 둔 소비로 간다
-        verify(consumerUseCase).consumeWithin(EVENT, 30);
+        // 재처리 경로는 제한 시간(기본 25초)을 둔 소비로 간다
+        verify(consumerUseCase).consumeWithin(EVENT, 25);
         assertThat(view.kind()).isEqualTo(CouponDltKind.ORDER);
         assertThat(view.status()).isEqualTo(CouponDltStatus.REPLAYED);
         assertThat(view.handledBy()).isEqualTo(ADMIN_ID);
