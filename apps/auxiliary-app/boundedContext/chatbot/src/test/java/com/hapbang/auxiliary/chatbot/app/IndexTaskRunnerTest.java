@@ -171,6 +171,40 @@ class IndexTaskRunnerTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("실행기(runOnce)는 가져가기 전에 advisory lock을 잡는다: 다른 실행이 락을 쥐고 있으면 기다렸다가 풀린 뒤 처리한다")
+    void runOnceTakesClaimLock() throws Exception {
+        store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
+        IndexTaskRunner runner = runner(LEASE, lectures);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            // 다른 pod의 가져가기 트랜잭션이 락을 쥐고 있다
+            Future<?> holder = pool.submit(() -> transaction.executeWithoutResult(status -> {
+                store.lockClaims(ChatbotJob.INDEX_TASK_CLAIM.lockKey());
+                locked.countDown();
+                awaitLatch(release);
+            }));
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Integer> run = pool.submit(runner::runOnce);
+
+            await().atMost(Duration.ofSeconds(10)).until(() -> jdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted", Integer.class) > 0);
+            assertThat(run.isDone()).isFalse();
+            assertThat(lectures.calls).isEmpty();
+
+            release.countDown();
+            holder.get(10, TimeUnit.SECONDS);
+            assertThat(run.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+            assertThat(lectures.calls).containsExactly(Map.of("5", IndexAction.UPSERT));
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
     @DisplayName("이중 방어: 락 없이 겹쳐도 뒤 UPDATE는 앞 실행이 임대한 행을 다시 확인할 때 빼고 가져가지 않는다")
     void updateRecheckSkipsLeasedRows() throws Exception {
         store.add(IndexType.LECTURE, "5", IndexAction.UPSERT, now());
