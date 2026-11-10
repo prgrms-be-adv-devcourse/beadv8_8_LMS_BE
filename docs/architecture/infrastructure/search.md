@@ -15,26 +15,28 @@
 
 검색을 **독립 bounded context `search`**로 두고, 검색 엔진은 **Elasticsearch**로 한다. OpenSearch 등 다른 엔진은 비교하지 않는다(팀 결정).
 
+인플루언서 검색(#767)부터 구현했다. 모듈 구조·index·이벤트 처리·API는 [검색 모듈 문서](../../search/module.md)에 있다.
+
 | 항목 | 내용 |
 | --- | --- |
-| 앱 | `search-app`, database `search`. `search`는 통합 검색 index만 소유한다. 고객센터(`customer-support-app`)는 RAG index를 직접 소유하며, 두 앱은 물리 cluster만 공유한다 |
+| 앱 | `auxiliary-app`의 `search` 모듈(#684, #714), database `auxiliary`의 schema `search`. `search`는 검색 index(`search-*`)만 소유한다. 같은 앱의 챗봇은 `chatbot-*` index를 따로 소유하며, 둘은 물리 cluster만 공유하고 API key도 따로다 |
 | 입력 | [1장](kafka.md) Kafka의 integration event. 강의 등록·수정·삭제·판매 상태 변경, 모집글 등록·수정·마감, 인플루언서 프로필 변경 등. 발행하는 모듈은 검색의 존재를 모른다 |
 | 진실의 원천 | 각 모듈의 PostgreSQL. ES index는 언제든 원본에서 다시 만들 수 있는 projection이다 |
-| API | `GET /api/v1/search?type=LECTURE\|RECRUIT\|INFLUENCER&keyword=...`(통합 검색, 페이지). 자동완성·추천은 범위 밖 |
-| 멱등 | document ID = 원본 ID, 이벤트의 aggregate version으로 오래된 이벤트가 새 문서를 덮지 않게 한다(external versioning). 같은 이벤트를 두 번 받아도 결과가 같다 |
-| 공개 범위 | 판매 중인 강의, 공개된 모집글 등 비회원도 볼 수 있는 것만 색인한다. 개인 정보와 HP 금액은 넣지 않는다 |
+| API | 대상별 경로(#767 Q14): `GET /api/v1/search/influencers`(#771), 강의·모집은 `/search/lectures`·`/search/recruits`로 더한다. 통합 검색은 강의 색인과 FE 화면이 정해지면. 자동완성·추천은 범위 밖 |
+| 멱등 | document ID = 원본 ID, 원본 version을 문서 필드에 두고 painless 조건부 쓰기로 더 큰 version만 반영한다. ES external versioning은 쓰지 않는다: 주기 통계 부분 갱신이 문서 버전을 올려 다음 원본 이벤트를 거절하게 만든다(#771 시험). 숨김은 삭제 대신 tombstone이다. 같은 이벤트를 두 번 받아도 결과가 같다 |
+| 공개 범위 | 판매 중인 강의, 공개된 모집글, 정상 인플루언서의 공개 프로필처럼 서비스에서 보이는 것만 색인한다. 검색 API는 policy.md를 따른다(인플루언서 검색은 로그인 회원만). 연락처 같은 개인 정보와 HP 금액은 넣지 않는다 |
 
 ## 한국어 분석
 
 nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https://www.elastic.co/docs/reference/elasticsearch/plugins/analysis-nori)). plugin은 공식 이미지에 ECK init container로 설치한다(#374). custom image를 GHCR에 발행·관리하는 비용이 이 규모에 비해 커서 택했다. pod가 새로 뜰 때마다 Elastic 저장소에서 plugin을 내려받으므로 기동이 그만큼 느려지고, 그때 외부 접속이 필요하다.
 
-2026-10-22 측정에서 기본 사전은 "인플루언서 강의를 구매했습니다"의 "인플루언서"를 `인`·`플`·`언서`로 쪼갰다. 서비스 용어(인플루언서, 합방, 치지직, 출연 모집 등)는 **사용자 사전**에 넣고, 사전을 바꾸면 재색인한다. 사용자 사전과 동의어 목록은 레포에서 관리한다.
+2026-10-22 측정에서 기본 사전은 "인플루언서 강의를 구매했습니다"의 "인플루언서"를 `인`·`플`·`언서`로 쪼갰다. 서비스 용어(인플루언서, 합방, 치지직 등)와 게임 이름·줄임말은 **사용자 사전**(한 단어 규칙, `decompound_mode: discard`)에 넣고, 사전을 바꾸면 재색인한다. 동의어는 **검색할 때만** `synonym_graph`로 쓰고 ES Synonyms API 묶음으로 관리한다(바꾸면 ES가 검색 분석기를 다시 읽어 재색인이 없다). 사용자 사전과 동의어 목록은 레포 파일이 원본이다(#771).
 
 ## 색인과 재색인
 
 1. **초기 적재**: 각 모듈의 공개 조회 API(또는 내부 API, D62)를 page 단위로 읽어 새 index에 bulk로 넣는다. 다른 모듈의 DB를 직접 읽지 않는다. 실행 방식은 아직 정하지 않았다.
-2. **실시간 반영**: Kafka consumer가 이벤트마다 문서를 upsert·delete한다. inbox로 멱등 처리하고, 실패는 retry와 DLT로 보낸다.
-3. **재색인**: 사전이나 mapping을 바꾸면 versioned index(`lectures-v2`)를 새로 만들어 초기 적재를 다시 돌린다. 그동안 들어온 이벤트는 두 index에 모두 쓰고, 검증한 뒤 alias를 원자적으로 바꾼다. 이전 index는 확인한 뒤 지운다.
+2. **실시간 반영**: Kafka consumer가 이벤트마다 문서를 upsert하거나 숨긴다(tombstone). 원본 version 조건부 쓰기로 멱등 처리하고, 실패는 retry와 DLT로 보낸다. 자주 바뀌는 숫자(팔로워·평점)는 이벤트 대신 원본 내부 API를 10분마다 읽어 맞춘다(#771).
+3. **재색인**: 사전이나 mapping을 바꾸면 설정 해시가 붙은 새 index(`search-influencers-<해시>`)에 초기 적재를 다시 돌린다. 시작 시각 T 뒤에 바뀐 것은 증분 보정으로 따라잡고(dual write를 하지 않는다), 문서 수를 확인한 뒤 alias를 원자적으로 바꾼다. 이전 index는 확인한 뒤 지운다(#773).
 4. **정합성 점검**: 원본 수와 index 문서 수를 비교하는 주기 작업을 두고, 차이가 나면 선택한 관측성 UI에 alert한다.
 
 ## 운영
@@ -53,7 +55,7 @@ nori 형태소 분석기(`analysis-nori` plugin)를 쓴다([nori 문서](https:/
   - 사용자 사전을 바꾼 뒤 nori 분석 결과(`_analyze`)를 확인하는 데 특히 쓴다.
   - Elasticvue는 index·mapping·analyzer를 직접 점검하는 개발 도구다. Grafana는 운영 지표·로그·trace를 보는 도구라 역할이 겹치지 않는다.
 - **license**: 공식 binary는 Elastic License 2.0이다. 2024-08부터 source에 AGPLv3 선택지가 생겼다([Elastic 발표](https://www.businesswire.com/news/home/20240829537786/en)). 직접 운영하며 검색 기능을 쓰는 이 프로젝트는 ELv2의 제한(ES를 관리형 서비스로 제공하는 것 등)에 걸리지 않는다.
-- **client 호환**: Spring Data Elasticsearch와 Elasticsearch Java client가 ES 9 서버와 맞는 version인지 spike로 먼저 확인한다.
+- **client 호환**: Boot 4.1.1 BOM의 Elasticsearch Java client 9.4.5가 ES 9.5.5 서버에서 `_analyze`·Synonyms API·bulk·script·집계까지 동작함을 확인했다(#771 시험). BOM 버전 그대로 client를 직접 쓴다(Spring Data Elasticsearch는 쓰지 않는다). 검색은 챗봇과 다른 API key로 붙는 별도 client를 둔다.
 
 ## 고객센터 RAG와의 관계
 
@@ -61,14 +63,13 @@ ES는 통합 검색과 고객센터 RAG의 공통 **물리 검색 플랫폼**으
 
 ## 결정 필요
 
-- 검색 대상과 색인 필드, 기존 모듈 `keyword` 검색을 검색 모듈로 옮길지 남길지(프론트 공지 필요)
-- Spring Boot 4.1.1의 Spring Data Elasticsearch·Spring AI와 선택한 Elasticsearch server version 호환성
+- 강의·모집 검색의 색인 필드, 기존 모듈 `keyword` 검색을 검색 모듈로 옮길지 남길지(프론트 공지 필요). 인플루언서는 #771에서 정했다
 - 서비스 검색과 RAG 동시 부하에서 Elasticsearch memory·disk 한도
 
 ## 완료 증거
 
 - "인플루언서" 등 서비스 용어가 사용자 사전대로 분석되고, 형태소 단위 검색과 relevance 정렬이 PostgreSQL `LIKE`보다 나은 결과를 golden query set으로 보인다.
 - 강의 수정 이벤트 뒤 정해 둔 시간 안에 검색 결과에 반영되고, 같은 이벤트를 두 번 받아도 문서가 하나다.
-- search-app을 멈춘 동안 쌓인 이벤트가 재시작 후 반영되고, consumer lag가 0으로 돌아온다.
+- 검색 모듈(auxiliary-app)을 멈춘 동안 쌓인 이벤트가 재시작 후 반영되고, consumer lag가 0으로 돌아온다.
 - mapping 변경 재색인을 alias 교체로 하는 동안 검색 API가 끊기지 않는다.
 - ES를 지우고 다시 만들어도 초기 적재만으로 같은 문서 수가 된다.

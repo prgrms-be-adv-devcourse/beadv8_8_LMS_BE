@@ -52,7 +52,8 @@ public class OrderObjectionResolveUseCase {
         this.clock = clock;
     }
 
-    public void resolveObjection(Long orderItemId, Long inquiryId, boolean accepted, Long adminUserId) {
+    /** @return 판단한 주문 항목. 판단 시각이 기록되어 있다 */
+    public OrderItem resolveObjection(Long orderItemId, Long inquiryId, boolean accepted, Long adminUserId) {
         LocalDateTime now = LocalDateTime.now(clock);
         // 인정은 반환 완료 때 주문을 닫으므로 구매 취소처럼 주문을 잠근다 (D46). 기각은 주문을 닫지 않아 항목의 낙관적 락만 쓴다 (D49)
         Optional<LectureOrder> found = accepted
@@ -69,7 +70,7 @@ public class OrderObjectionResolveUseCase {
         });
         // 기각은 항목 상태와 구매 결과가 그대로라 보내지 않는다 (#712, D82)
         if (!accepted) {
-            return;
+            return item;
         }
         // 반환 처리 중이 되어 구매 결과가 바뀌고, 그 항목의 리뷰는 평점에서 빠진다
         lectureSyncEvents.purchaseChanged(item);
@@ -77,10 +78,11 @@ public class OrderObjectionResolveUseCase {
         // 반환 금액은 구매자 금액(가격 − 할인)이다. 반환할 HP가 없으면(구매자 금액 0) 작업 없이 이 트랜잭션에서 반환을 끝낸다
         if (!item.requiresBuyerHpTask()) {
             returnResultHandler.complete(order, item.getId(), null, now);
-            return;
+            return item;
         }
         lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.RETURN,
                 RELEASE_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), item.getBuyerUserId(), null,
                 item.buyerAmountHp(), now));
+        return item;
     }
 }

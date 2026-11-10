@@ -24,14 +24,18 @@ import com.hapbang.auxiliary.chatbot.domain.SyncRunStatus;
 import com.hapbang.auxiliary.chatbot.domain.SyncTrigger;
 import com.hapbang.auxiliary.chatbot.domain.SyncType;
 import com.hapbang.auxiliary.chatbot.out.AppearanceApiSyncSource;
+import com.hapbang.auxiliary.chatbot.out.LectureApiSyncSource;
+import com.hapbang.auxiliary.chatbot.out.MemberApiSyncSource;
 import com.hapbang.auxiliary.chatbot.support.CopyRows;
 import com.hapbang.shared.appearance.out.AppearanceApiClient;
+import com.hapbang.shared.lecture.out.LectureApiClient;
+import com.hapbang.shared.member.out.MemberApiClient;
 import com.hapbang.shared.internal.InternalApiHeaders;
 import com.hapbang.testsupport.IntegrationTest;
 import com.sun.net.httpserver.HttpServer;
 
 /**
- * 실제 출연 내부 API Client로 싱크한다 (#716). 원본 자리에 가짜 출연 HTTP 서버를 두고, 앱이 쓰는 어댑터
+ * 실제 출연·회원·강의 내부 API Client로 싱크한다 (#716, #717). 원본 자리에 가짜 출연 HTTP 서버를 두고, 앱이 쓰는 어댑터
  * ({@link AppearanceApiSyncSource})·shared Client·설정({@code hapbang.clients.appearance.base-url})을 그대로 거친다.
  * 다른 싱크 테스트는 어댑터를 가짜로 바꿔 시나리오를 본다.
  */
@@ -51,6 +55,9 @@ class ChatbotSyncAppearanceApiTest {
     @DynamicPropertySource
     static void appearanceApi(DynamicPropertyRegistry registry) {
         registry.add("hapbang.clients.appearance.base-url", () -> "http://127.0.0.1:" + SERVER.getAddress().getPort());
+        // 회원·강의 Client도 같은 가짜 서버를 부른다(#717)
+        registry.add("hapbang.clients.member.base-url", () -> "http://127.0.0.1:" + SERVER.getAddress().getPort());
+        registry.add("hapbang.clients.lecture.base-url", () -> "http://127.0.0.1:" + SERVER.getAddress().getPort());
     }
 
     @AfterAll
@@ -82,6 +89,24 @@ class ChatbotSyncAppearanceApiTest {
     }
 
     @Test
+    @DisplayName("회원·강의 싱크도 실제 Client로 회원 목록·강의 동기화 API를 내부 API 키를 붙여 읽는다 (#717)")
+    void memberAndLectureThroughApi() {
+        SyncRun members = chatbotSyncUseCase.runBatch(SyncType.MEMBER, SyncTrigger.SCHEDULED);
+        SyncRun purchases = chatbotSyncUseCase.runBatch(SyncType.LECTURE_PURCHASE, SyncTrigger.SCHEDULED);
+
+        assertThat(members.getStatus()).isEqualTo(SyncRunStatus.SUCCEEDED);
+        assertThat(members.getInserted()).isEqualTo(1);
+        assertThat(purchases.getStatus()).isEqualTo(SyncRunStatus.SUCCEEDED);
+        assertThat(purchases.getInserted()).isEqualTo(1);
+        CopyRows rows = new CopyRows(jdbcTemplate);
+        assertThat(rows.row("member_copy", "id", 3)).containsEntry("role", "VERIFIED_INFLUENCER");
+        assertThat(rows.row("lecture_purchase_copy", "order_item_id", 7)).containsEntry("result", "OWNED");
+        assertThat(REQUESTS).containsExactly(
+                "/api/v1/internal/members?size=500 key=" + IntegrationTest.INTERNAL_API_KEY,
+                "/api/v1/internal/lectures/sync/purchases?size=500 key=" + IntegrationTest.INTERNAL_API_KEY);
+    }
+
+    @Test
     @DisplayName("출연 API가 5xx면 회차를 실패로 남기고 호출 실패 이유를 적는다")
     void apiUnavailable() {
         status = 503;
@@ -101,6 +126,12 @@ class ChatbotSyncAppearanceApiTest {
         assertThatThrownBy(() -> source.appearances(null, 500))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("hapbang.clients.appearance.base-url");
+        assertThatThrownBy(() -> new MemberApiSyncSource(
+                new StaticListableBeanFactory().getBeanProvider(MemberApiClient.class)).members(null, 500))
+                .hasMessageContaining("hapbang.clients.member.base-url");
+        assertThatThrownBy(() -> new LectureApiSyncSource(
+                new StaticListableBeanFactory().getBeanProvider(LectureApiClient.class)).lectures(null, 500))
+                .hasMessageContaining("hapbang.clients.lecture.base-url");
     }
 
     private static HttpServer start() {
@@ -126,8 +157,20 @@ class ChatbotSyncAppearanceApiTest {
         }
     }
 
-    // 첫 페이지 2건, 그다음은 빈 마지막 페이지
+    // 첫 페이지 2건, 그다음은 빈 마지막 페이지. 회원·구매는 한 페이지 1건
     private static String page(String uri) {
+        if (uri.startsWith("/api/v1/internal/members")) {
+            return """
+                    {"statusCode":200,"message":"","data":{"items":[
+                    {"id":3,"nickname":"회원","role":"VERIFIED_INFLUENCER","status":"ACTIVE","version":2,
+                    "contentCategories":["GAME"],"bio":"소개"}],"nextAfterId":null}}""";
+        }
+        if (uri.startsWith("/api/v1/internal/lectures/sync/purchases")) {
+            return """
+                    {"statusCode":200,"message":"","data":{"items":[
+                    {"orderItemId":7,"buyerUserId":3,"lectureId":5,"result":"OWNED","orderedAt":"2026-11-08T10:00:00+09:00",
+                    "purchasedAt":"2026-11-08T10:01:00+09:00","version":1}],"nextAfterId":null}}""";
+        }
         if (uri.contains("/sync/appearances") && !uri.contains("afterId")) {
             return """
                     {"statusCode":200,"message":"","data":{"items":[

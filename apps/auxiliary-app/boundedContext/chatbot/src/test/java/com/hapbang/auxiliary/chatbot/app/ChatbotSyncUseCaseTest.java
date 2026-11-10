@@ -28,7 +28,7 @@ import com.hapbang.shared.appearance.domain.AppearanceResult;
 import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
 import com.hapbang.shared.appearance.dto.AppearanceSyncPageDto;
 
-/** 주간 싱크를 가짜 출연 원본과 실제 DB로 검증한다 (#716) */
+/** 싱크를 가짜 출연 원본과 실제 DB로 검증한다 (#716, #717) */
 class ChatbotSyncUseCaseTest extends ChatbotIntegrationTestBase {
 
     @Autowired
@@ -212,43 +212,49 @@ class ChatbotSyncUseCaseTest extends ChatbotIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("주간 배치는 종류마다 따로 기록하고, 한 종류의 실패가 다른 종류를 막지 않는다")
-    void weeklyRunsEachType() {
+    @DisplayName("정기 배치는 그 종류만 실행해 기록하고, 실패해도 예외를 던지지 않는다. 다른 종류는 제 시각에 그대로 돈다")
+    void scheduledRunsOneType() {
         source.put(appearance(1, AppearanceResult.SCHEDULED, 0));
         source.putReviews(review(10, 1, 5));
         source.failAt(1, new IllegalStateException("출연 실패"));
 
-        chatbotSyncUseCase.runWeekly();
+        chatbotSyncUseCase.runScheduled(SyncType.APPEARANCE);
+        chatbotSyncUseCase.runScheduled(SyncType.APPEARANCE_REVIEW);
 
         assertThat(syncRunRepository.findAll()).extracting(SyncRun::getType, SyncRun::getTrigger, SyncRun::getStatus)
                 .containsExactlyInAnyOrder(
                         tuple(SyncType.APPEARANCE, SyncTrigger.SCHEDULED, SyncRunStatus.FAILED),
                         tuple(SyncType.APPEARANCE_REVIEW, SyncTrigger.SCHEDULED, SyncRunStatus.SUCCEEDED));
+        // 실패한 종류는 다음 정시가 다시 한다
+        clock.advance(Duration.ofHours(1));
+        chatbotSyncUseCase.runScheduled(SyncType.APPEARANCE);
+        assertThat(syncRunRepository.findAll()).filteredOn(run -> run.getType() == SyncType.APPEARANCE)
+                .extracting(SyncRun::getStatus).containsExactlyInAnyOrder(SyncRunStatus.FAILED, SyncRunStatus.SUCCEEDED);
     }
 
     @Test
-    @DisplayName("재시도는 그 종류의 오늘 성공 회차가 없을 때만 한다(실패·건너뜀·미실행). 어제 성공은 세지 않는다")
-    void retryOnlyWithoutTodaySuccess() {
+    @DisplayName("보관 기간(30일)이 지난 회차는 그 종류의 회차가 끝날 때 어긋남 행과 함께 지운다. 다른 종류와 실행 중 회차는 남긴다")
+    void deletesExpiredRuns() {
         source.put(appearance(1, AppearanceResult.SCHEDULED, 0));
-        source.putReviews(review(10, 1, 5));
-        // 어제 두 종류 모두 성공
-        clock.setTo(clock.now().minusDays(1));
-        chatbotSyncUseCase.runWeekly();
-        clock.reset();
-        // 오늘 출연은 실패, 리뷰는 성공
-        source.failAt(source.calls() + 1, new IllegalStateException("출연 실패"));
-        chatbotSyncUseCase.runWeekly();
-        clock.advance(Duration.ofHours(2));
+        SyncRun first = run(SyncType.APPEARANCE);
+        source.put(appearance(2, AppearanceResult.SCHEDULED, 0));
+        clock.advance(Duration.ofHours(1));
+        SyncRun old = run(SyncType.APPEARANCE);
+        SyncRun otherType = syncRunRepository.save(
+                SyncRun.skipped(SyncType.APPEARANCE_REVIEW, SyncTrigger.SCHEDULED, "테스트", CopyTimes.now(clock)));
+        assertThat(mismatches(old)).isNotEmpty();
 
-        chatbotSyncUseCase.runRetry();
+        clock.advance(Duration.ofDays(30).plusMinutes(1));
+        SyncRun recent = run(SyncType.APPEARANCE);
 
-        assertThat(syncRunRepository.findAll()).filteredOn(run -> run.getTrigger() == SyncTrigger.RETRY)
-                .extracting(SyncRun::getType, SyncRun::getStatus)
-                .containsExactly(tuple(SyncType.APPEARANCE, SyncRunStatus.SUCCEEDED));
+        assertThat(syncRunRepository.findAll()).extracting(SyncRun::getId)
+                .containsExactlyInAnyOrder(otherType.getId(), recent.getId());
+        assertThat(mismatches(old)).isEmpty();
+        assertThat(syncRunRepository.findById(first.getId())).isEmpty();
     }
 
     @Test
-    @DisplayName("어긋남 행은 회차당 최대 개수까지만, 종류마다 최근 회차 몇 개만 남는다(회차 기록은 남는다)")
+    @DisplayName("어긋남 행은 회차당 최대 개수까지만, 종류마다 최근 회차 몇 개만 남는다(회차 기록은 남는다, 테스트 설정 10회)")
     void mismatchLimits() {
         source.put(appearance(1, AppearanceResult.SCHEDULED, 0));
         run(SyncType.APPEARANCE);
@@ -271,7 +277,7 @@ class ChatbotSyncUseCaseTest extends ChatbotIntegrationTestBase {
         // 건너뛴 회차는 최근 회차 수에 세지 않는다. 건너뜀이 이어져도 실제로 돈 회차의 기록이 남는다
         for (int i = 0; i < 5; i++) {
             clock.advance(Duration.ofHours(1));
-            syncRunRepository.save(SyncRun.skipped(SyncType.APPEARANCE, SyncTrigger.RETRY, "테스트", CopyTimes.now(clock)));
+            syncRunRepository.save(SyncRun.skipped(SyncType.APPEARANCE, SyncTrigger.SCHEDULED, "테스트", CopyTimes.now(clock)));
         }
         source.put(IntStream.range(0, 101)
                 .mapToObj(n -> appearance(50_000L + n, AppearanceResult.SCHEDULED, 0)).toArray(AppearanceSyncDto[]::new));

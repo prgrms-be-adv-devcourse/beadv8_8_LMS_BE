@@ -137,7 +137,9 @@ class OrderCouponReserveTest {
         Lecture lecture = saveOnSale();
         coupon.respond(request -> new CouponCallResult.Succeeded<>(calculated((CouponCalculateRequest) request,
                 Map.of(lecture.getId(), SELLER_DISCOUNT))));
-        coupon.respond(request -> new CouponCallResult.Rejected<>(409, "COUPON_GENERATION_MISMATCH", 501L, null));
+        // 예약 거절의 사유는 작업에 코드만 남기고 응답은 그 기록으로 만들므로 detail은 싣지 않는다
+        coupon.respond(request -> new CouponCallResult.Rejected<>(409, "COUPON_GENERATION_MISMATCH", 501L,
+                "PLATFORM_FUNDING_DISABLED"));
 
         assertThatThrownBy(() -> order(List.of(lecture), PRICE_HP - SELLER_DISCOUNT))
                 .isInstanceOfSatisfying(LectureException.class, e -> {

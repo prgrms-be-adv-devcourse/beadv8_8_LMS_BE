@@ -7,8 +7,10 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
@@ -20,8 +22,6 @@ import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
 import com.hapbang.coupon.global.exception.CouponException;
 import com.hapbang.coupon.out.CouponDltLogRepository;
-import com.hapbang.shared.lecture.event.OrderItemCancelCompletedEvent;
-import com.hapbang.shared.lecture.event.OrderItemPaidEvent;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -31,9 +31,12 @@ import lombok.extern.slf4j.Slf4j;
  * <ol>
  *     <li>트랜잭션에서 PENDING(또는 lease가 지난 REPLAYING) → REPLAYING으로 선점해 커밋한다({@code version} 낙관적 락). 동시에 같은 기록을
  *     재처리·영구 거절하면 늦은 쪽이 409 {@code COUPON_DLT_ALREADY_RESOLVED}다.</li>
- *     <li>트랜잭션 밖에서 소비 UseCase를 실행한다(안에서 트랜잭션을 나눈다). 이미 반영된 이벤트면 소비 멱등이 아무것도 바꾸지 않는다.</li>
+ *     <li>트랜잭션 밖에서 소비 UseCase를 실행한다(안에서 트랜잭션을 나눈다). 이미 반영된 이벤트면 소비 멱등이 아무것도 바꾸지 않는다. 소비
+ *     트랜잭션마다 제한 시간({@code hapbang.coupon.dlt-replay-timeout}, lease보다 짧다)을 둔다. 같은 주문 항목의 행 잠금을 오래 기다려
+ *     lease를 넘긴 재처리가 늦게 반영되는 일을 줄인다. 제한 시간을 넘기면 소비 트랜잭션은 되돌아가고 아래 실패 경로로 간다.</li>
  *     <li>성공하면 REPLAYING → REPLAYED로 끝낸다. 실패하면 PENDING으로 되돌리고, 다시 해도 같은 결과인 실패(격리 사유)는 409
- *     {@code INVALID_COUPON_STATUS}(영구 거절로 닫는다), 그 밖의 실패는 그대로 던진다(다시 요청하면 된다).</li>
+ *     {@code INVALID_COUPON_STATUS}(영구 거절로 닫는다), 제한 시간을 넘기면 409 {@code COUPON_CONCURRENT_UPDATE}(잠시 뒤 다시 요청한다),
+ *     그 밖의 실패는 그대로 던진다(다시 요청하면 된다).</li>
  * </ol>
  * 실행과 결과 기록 사이에 프로세스가 죽으면 기록은 REPLAYING으로 남고, 선점 lease({@code hapbang.coupon.dlt-replay-lease})가 지나면 다시
  * 재처리할 수 있다(소비 멱등이 겹친 실행을 흡수한다). 원문을 주문 이벤트로 읽을 수 없으면(역직렬화 실패로 격리된 메시지) 409
@@ -64,13 +67,21 @@ public class CouponOrderDltReplayUseCase {
         Claim claim = claim(adminId, dltId);
         CouponOrderConsumerUseCase.Result result;
         try {
-            result = consume(claim.event());
+            // 행 잠금을 오래 기다리지 않게 재처리에만 트랜잭션 제한 시간을 둔다(lease보다 짧다). 넘기면 아래에서 PENDING으로 되돌린다
+            result = couponOrderConsumerUseCase.consumeWithin(claim.event(), dltProperties.dltReplayTimeoutSeconds());
         } catch (CouponOrderConsumerIsolationException exception) {
             revert(dltId, claim.version());
             log.warn("DLT 주문 이벤트를 다시 처리해도 같은 이유로 실패했다 dltId={}, adminId={}, cause={}", dltId, adminId,
                     exception.getMessage());
             throw new CouponException(CouponErrorCode.INVALID_COUPON_STATUS,
                     "다시 처리해도 같은 이유로 실패합니다. 원인을 확인하고 영구 거절로 닫아 주세요: " + exception.getMessage());
+        } catch (QueryTimeoutException | TransactionTimedOutException exception) {
+            // 같은 주문 항목의 다른 처리가 행 잠금을 오래 쥐고 있었다. 되돌렸으니 잠시 뒤 다시 요청하면 된다
+            revert(dltId, claim.version());
+            log.warn("DLT 주문 이벤트 재처리가 제한 시간을 넘겨 PENDING으로 되돌렸다 dltId={}, adminId={}, timeoutSeconds={}", dltId,
+                    adminId, dltProperties.dltReplayTimeoutSeconds(), exception);
+            throw new CouponException(CouponErrorCode.COUPON_CONCURRENT_UPDATE,
+                    "같은 주문 항목의 다른 처리가 끝나지 않아 재처리를 되돌렸습니다. 잠시 후 다시 시도해 주세요.");
         } catch (RuntimeException exception) {
             revert(dltId, claim.version());
             log.warn("DLT 주문 이벤트를 다시 처리하지 못해 PENDING으로 되돌렸다 dltId={}, adminId={}", dltId, adminId,
@@ -81,14 +92,6 @@ public class CouponOrderDltReplayUseCase {
         log.info("DLT 주문 이벤트를 원문으로 다시 처리했다 dltId={}, adminId={}, result={}, status={}", dltId, adminId, result,
                 view.status());
         return view;
-    }
-
-    private CouponOrderConsumerUseCase.Result consume(Object event) {
-        return switch (event) {
-            case OrderItemPaidEvent paid -> couponOrderConsumerUseCase.consume(paid);
-            case OrderItemCancelCompletedEvent canceled -> couponOrderConsumerUseCase.consume(canceled);
-            default -> throw new IllegalStateException("주문 이벤트가 아닌 원문입니다: " + event.getClass().getName());
-        };
     }
 
     /** 실행 전 선점: PENDING(또는 lease가 지난 REPLAYING) → REPLAYING을 커밋한다 */

@@ -43,6 +43,9 @@ public class OrderCouponQuoteUseCase {
     /** 쿠폰 내부 API가 인증·권한을 거절했을 때(내부 API 키·설정 문제) 붙이는 alert 표식 */
     static final String AUTH_FAILED_LOG = "[LECTURE_COUPON_AUTH_FAILED]";
 
+    /** 쿠폰 계산 응답의 금액이 할인 스냅샷 규칙에 맞지 않을 때(모듈 간 계약 위반) 붙이는 alert 표식 */
+    static final String QUOTE_INVALID_LOG = "[LECTURE_COUPON_QUOTE_INVALID]";
+
     private final LectureRepository lectureRepository;
     private final LectureOrderRepository lectureOrderRepository;
     private final CouponClient couponClient;
@@ -94,7 +97,7 @@ public class OrderCouponQuoteUseCase {
                         + "memberCouponId={}", buyerUserId, rejected.status(), rejected.code(),
                         rejected.memberCouponId());
                 throw new CouponRejectedException(LectureErrorCode.COUPON_CALCULATION_REJECTED, rejected.code(),
-                        rejected.memberCouponId());
+                        rejected.memberCouponId(), rejected.detail());
             }
             case CouponCallResult.NotSent<CouponCalculateResponse> notSent -> {
                 log.warn("쿠폰 할인 계산을 보내지 못해 주문하지 않았다 buyerUserId={}, reason={}", buyerUserId,
@@ -134,7 +137,7 @@ public class OrderCouponQuoteUseCase {
                 throw new LectureException(LectureErrorCode.COUPON_UNAVAILABLE);
             }
             if (!hasConsistentAmounts(item)) {
-                log.error("쿠폰 할인 계산 응답의 금액이 맞지 않아 주문하지 않았다. 쿠폰 응답 불량이다 lectureId={}, price={}, "
+                log.error(QUOTE_INVALID_LOG + " 쿠폰 할인 계산 응답의 금액이 맞지 않아 주문하지 않았다. 쿠폰 응답 불량이다 lectureId={}, price={}, "
                                 + "discount={}, platformDiscount={}, sellerDiscount={}, coupons={}", lecture.getId(),
                         item.price(), item.discount(), item.platformDiscount(), item.sellerDiscount(), item.coupons());
                 throw new LectureException(LectureErrorCode.COUPON_UNAVAILABLE);

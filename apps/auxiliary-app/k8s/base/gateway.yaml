@@ -1,5 +1,5 @@
-# 모듈 경로(지금은 챗봇 /api/v1/chatbot)와 앱 하나의 Swagger 경로(/api/v1/auxiliary)를 연다.
-# 검색·알림 모듈을 더할 때 그 모듈 경로를 matches에 더한다(apps/auxiliary-app/README.md).
+# 모듈 경로(챗봇 /api/v1/chatbot, 검색 /api/v1/search #771)와 앱 하나의 Swagger 경로(/api/v1/auxiliary)를 연다.
+# 알림 모듈을 더할 때 그 모듈 경로를 matches에 더한다(apps/auxiliary-app/README.md).
 # 챗봇 SSE 스트림(/api/v1/chatbot/**/stream)은 아래 auxiliary-app-stream route로 따로 나눠 시간 상한을 60초로 둔다(#715).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -15,6 +15,9 @@ spec:
     - path:
         type: PathPrefix
         value: /api/v1/chatbot
+    - path:
+        type: PathPrefix
+        value: /api/v1/search
     - path:
         type: PathPrefix
         value: /api/v1/auxiliary

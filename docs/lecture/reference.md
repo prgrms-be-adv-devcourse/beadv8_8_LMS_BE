@@ -74,6 +74,7 @@ ERD를 기준으로 하고, 이 설계에 필요한 변경을 표시했다. 모�
 | objection_inquiry_id | bigint | **추가** (#156). 접수한 고객센터 문의 ID. 판단할 때 대조한다. 다른 모듈 ID라 FK 없음 |
 | objection_resolved_at | timestamp | **추가** |
 | objection_resolved_by_user_id | bigint | **추가** (#156). 판단한 관리자 ID |
+| return_delay_count | integer | **추가** (#818, D83). 기본 0. 이의 제기 인정 반환 작업이 DEAD가 될 때마다 1 오른다. 반환 지연 이벤트의 회차 |
 | version | bigint | **추가**. 낙관적 락 (10장) |
 
 인덱스

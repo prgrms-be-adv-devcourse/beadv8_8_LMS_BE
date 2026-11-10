@@ -147,7 +147,18 @@ class LectureOrderApiTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("COUPON_CALCULATION_REJECTED"))
                 .andExpect(jsonPath("$.couponCode").value("COUPON_NOT_USABLE"))
-                .andExpect(jsonPath("$.memberCouponId").value(501));
+                .andExpect(jsonPath("$.memberCouponId").value(501))
+                .andExpect(jsonPath("$.couponDetail").doesNotExist());
+
+        // 플랫폼 재원 비활성 거절은 FE가 만료 등 다른 거절과 구분하도록 사유를 couponDetail로 싣는다
+        coupon.respond(request -> new CouponCallResult.Rejected<>(409, "COUPON_NOT_USABLE", 502L,
+                "PLATFORM_FUNDING_DISABLED"));
+        mockMvc.perform(createOrderWith("{\"lectureIds\": [" + lecture.getId() + "], \"expectedBuyerAmountHp\": "
+                        + PRICE_HP + ", \"coupons\": [{\"memberCouponId\": 502, \"lectureId\": " + lecture.getId()
+                        + "}]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_CALCULATION_REJECTED"))
+                .andExpect(jsonPath("$.couponDetail").value("PLATFORM_FUNDING_DISABLED"));
 
         assertThat(lectureOrderRepository.count()).isZero();
     }

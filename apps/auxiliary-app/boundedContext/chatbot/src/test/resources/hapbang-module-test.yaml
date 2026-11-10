@@ -32,8 +32,11 @@ management:
         enabled: false
 hapbang:
   chatbot:
-    appearance-events:
-      # 출연 이벤트 소비는 Kafka 테스트(AppearanceCopyEventListenerTest)에서만 켠다
+    sync:
+      # 어긋남 행을 남기는 회차 수(기본 168). ChatbotSyncUseCaseTest.mismatchLimits가 11회차로 확인하려고 줄인다
+      mismatch-keep-runs: 10
+    copy-events:
+      # 사본 이벤트 소비(출연·회원·강의)는 Kafka 테스트(*CopyEventListenerTest)에서만 켠다
       enabled: false
     faq:
       # 가짜 임베딩(8차원)에 맞춘 값. 기준값 경계는 FaqIndexingIntegrationTest.similarityThresholdBoundary가 확인한다
@@ -43,5 +46,7 @@ hapbang:
       # FakeEmbeddingModel.QUERY_PREFIX와 같다. 질문 임베딩에 접두어가 붙는지도 함께 확인한다
       query-prefix: "query: "
       sync-on-startup: false
-      chat-timeout: 2s
-      stream-timeout: 2s
+      # 통합 테스트의 대화는 가짜 모델이 실제 ES 검색(Tool)을 거친 뒤 답한다. 테스트를 한꺼번에 돌려 PC가 바빠도
+      # 상한이 먼저 터지지 않게 넉넉히 둔다. 시간 상한 동작 자체는 FaqChatServiceTest가 짧은 값으로 확인한다
+      chat-timeout: 8s
+      stream-timeout: 8s

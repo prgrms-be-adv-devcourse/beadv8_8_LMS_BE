@@ -16,6 +16,12 @@ import java.util.Objects;
  *     <tr><td>version 작음</td><td>무시</td><td>{@link #OURS_NEWER}</td></tr>
  * </table>
  * version 없는 데이터(출연 리뷰)는 없으면 넣고, 해시가 같으면 없음, 다르면 {@link #SAME_VERSION_DIFFERENT}로 고친다.
+ * <p>
+ * version이 비어 있을 수 있는 데이터(회원, {@code UserDto} 규칙, #717): 받은 version이 없는데 우리 행에 있으면 버전 도입 전의 옛 정보로 보고
+ * 무시하고({@link #OURS_NEWER}), 우리 행에 version이 없는데 받은 것에 있으면 원본 새것으로 본다.
+ * <p>
+ * 마스킹한 회원의 데이터(#717)는 반영하지 않고 {@link #DISCARDED}로 센다. 어긋남·경고 집계에 넣지 않는다. 마스킹 회원의 회원 행은
+ * 역할·상태만 반영하지만 분야·자기소개를 버리므로 역시 {@link #DISCARDED}로 센다.
  */
 public enum CopyOutcome {
 
@@ -24,7 +30,9 @@ public enum CopyOutcome {
     VERSION_ONLY(null, false),
     UNCHANGED(null, false),
     SAME_VERSION_DIFFERENT(SyncMismatchKind.SAME_VERSION_DIFFERENT, true),
-    OURS_NEWER(SyncMismatchKind.OURS_NEWER, false);
+    OURS_NEWER(SyncMismatchKind.OURS_NEWER, false),
+    /** 마스킹한 회원의 데이터라 버렸다(회원 행은 역할·상태만 반영) (#717) */
+    DISCARDED(null, false);
 
     /** 싱크 회차에 남길 어긋남. 정상이면 null */
     private final SyncMismatchKind mismatch;
@@ -50,8 +58,14 @@ public enum CopyOutcome {
             return INSERTED;
         }
         boolean sameHash = ourHash.equals(incomingHash);
-        if (incomingVersion == null || ourVersion == null) {
+        if (incomingVersion == null && ourVersion == null) {
             return sameHash ? UNCHANGED : SAME_VERSION_DIFFERENT;
+        }
+        if (incomingVersion == null) {
+            return OURS_NEWER;
+        }
+        if (ourVersion == null) {
+            return sameHash ? VERSION_ONLY : SOURCE_NEWER;
         }
         int compared = Long.compare(incomingVersion, ourVersion);
         if (compared > 0) {

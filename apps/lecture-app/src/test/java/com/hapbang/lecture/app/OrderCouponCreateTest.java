@@ -8,7 +8,10 @@ import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 
@@ -32,6 +35,7 @@ import com.hapbang.testsupport.IntegrationTest;
  */
 @IntegrationTest
 @WithMockUser(roles = "USER")
+@ExtendWith(OutputCaptureExtension.class)
 class OrderCouponCreateTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
@@ -117,9 +121,23 @@ class OrderCouponCreateTest {
         assertThatThrownBy(() -> orderWithCoupon(lecture, PRICE_HP - SELLER_DISCOUNT))
                 .isInstanceOfSatisfying(LectureException.class, e -> {
                     assertThat(e.getErrorCode()).isEqualTo(LectureErrorCode.COUPON_CALCULATION_REJECTED);
+                    // 쿠폰의 detail 문장은 회원에게 보여도 되는 사유 코드가 아니라 싣지 않는다
                     assertThat(e.getProperties()).containsExactlyInAnyOrderEntriesOf(
                             Map.of("couponCode", "COUPON_NOT_USABLE", "memberCouponId", 501L));
                 });
+        assertNoOrder();
+    }
+
+    @Test
+    void 쿠폰_계산이_플랫폼_재원_비활성으로_거절되면_그_사유를_couponDetail로_싣는다() {
+        Lecture lecture = saveOnSale();
+        coupon.respond(request -> new CouponCallResult.Rejected<>(409, "COUPON_NOT_USABLE", 502L,
+                "PLATFORM_FUNDING_DISABLED"));
+
+        assertThatThrownBy(() -> orderWithCoupon(lecture, PRICE_HP - SELLER_DISCOUNT))
+                .isInstanceOfSatisfying(LectureException.class, e -> assertThat(e.getProperties())
+                        .containsExactlyInAnyOrderEntriesOf(Map.of("couponCode", "COUPON_NOT_USABLE",
+                                "memberCouponId", 502L, "couponDetail", "PLATFORM_FUNDING_DISABLED")));
         assertNoOrder();
     }
 
@@ -152,7 +170,7 @@ class OrderCouponCreateTest {
     }
 
     @Test
-    void 쿠폰_계산_응답의_할인이_플랫폼과_판매자_몫의_합과_다르면_쿠폰_응답_불량이라_503이고_주문하지_않는다() {
+    void 쿠폰_계산_응답의_할인이_플랫폼과_판매자_몫의_합과_다르면_쿠폰_응답_불량이라_503이고_주문하지_않는다(CapturedOutput output) {
         Lecture lecture = saveOnSale();
         // 항목 할인 3,000인데 몫의 합은 2,000
         coupon.respond(request -> new CouponCallResult.Succeeded<>(withCoupon((CouponCalculateRequest) request,
@@ -163,6 +181,7 @@ class OrderCouponCreateTest {
                 .isInstanceOf(LectureException.class)
                 .extracting("errorCode").isEqualTo(LectureErrorCode.COUPON_UNAVAILABLE);
         assertNoOrder();
+        assertThat(output.getOut()).contains(OrderCouponQuoteUseCase.QUOTE_INVALID_LOG + " 쿠폰 할인 계산 응답의 금액이 맞지 않아");
     }
 
     @Test

@@ -33,7 +33,8 @@ public interface ApiV1CouponDltAdminSpec {
                     + "그 사이 같은 요청이 다시 격리됐으면 이 기록은 REPLAYED로 끝나고 새 PENDING 기록을 처리한다. "
                     + "kind=ORDER(주문 결제·취소 완료)는 강의 토픽에 다시 보내지 않고 저장한 원문으로 쿠폰 소비를 다시 실행한다. 성공하면 "
                     + "REPLAYED(처리 완료), 다시 해도 같은 이유로 실패하거나 원문을 읽을 수 없으면 409 INVALID_COUPON_STATUS이고 PENDING으로 "
-                    + "되돌린다.")
+                    + "되돌린다. 같은 주문 항목의 다른 처리를 기다리다 제한 시간(hapbang.coupon.dlt-replay-timeout)을 넘기면 409 "
+                    + "COUPON_CONCURRENT_UPDATE이고 PENDING으로 되돌린다(잠시 뒤 다시 요청한다).")
     RsData<CouponDltLogView> replay(Long adminId, Long dltId);
 
     @Operation(summary = "DLT 영구 거절",

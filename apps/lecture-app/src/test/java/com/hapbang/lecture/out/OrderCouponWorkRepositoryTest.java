@@ -1,9 +1,11 @@
 package com.hapbang.lecture.out;
 
+import static com.hapbang.lecture.fixture.LectureFixture.*;
 import static org.assertj.core.api.Assertions.*;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
@@ -11,8 +13,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 
+import com.hapbang.lecture.domain.LectureOrder;
+import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderCouponWork;
 import com.hapbang.lecture.domain.OrderCouponWorkKind;
+import com.hapbang.lecture.domain.OrderCouponWorkStatus;
+import com.hapbang.lecture.fixture.LectureOrderFixture;
 import com.hapbang.testsupport.RepositoryTest;
 
 import jakarta.persistence.EntityManager;
@@ -26,6 +32,9 @@ class OrderCouponWorkRepositoryTest {
 
     @Autowired
     private OrderCouponWorkRepository orderCouponWorkRepository;
+
+    @Autowired
+    private LectureOrderRepository lectureOrderRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -61,6 +70,34 @@ class OrderCouponWorkRepositoryTest {
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .cause().isInstanceOf(ConstraintViolationException.class)
                 .extracting("constraintName").isIn("uk_order_coupon_work_work_id", "uk_order_coupon_work_order_kind");
+    }
+
+    @Test
+    void 관리자_목록은_주문_상태를_함께_최신순으로_주고_상태와_종류로_거른다() {
+        LectureOrder first = lectureOrderRepository.save(LectureOrderFixture.pending(OTHER_USER_ID,
+                List.of(withId(onSaleLecture(), 10L)), NOW));
+        LectureOrder second = lectureOrderRepository.save(LectureOrderFixture.pending(OTHER_USER_ID,
+                List.of(withId(onSaleLecture(), 20L)), NOW));
+        second.markHoldFailed();
+        OrderCouponWork deadReserve = OrderCouponWork.reserve(first.getId(), NOW);
+        deadReserve.markDead(NOW);
+        orderCouponWorkRepository.save(deadReserve);
+        OrderCouponWork reserved = OrderCouponWork.reserve(second.getId(), NOW.plusMinutes(1));
+        reserved.markReserved(NOW.plusMinutes(1));
+        orderCouponWorkRepository.save(reserved);
+        orderCouponWorkRepository.save(OrderCouponWork.release(second.getId(), NOW.plusMinutes(2)));
+        flushAndClear();
+
+        assertThat(orderCouponWorkRepository.search(null, null, PageRequest.of(0, 10)).getContent())
+                .extracting(row -> row.work().getWorkId(), OrderCouponWorkRow::orderStatus)
+                .containsExactly(
+                        tuple("lecture-order:" + second.getId() + ":release", LectureOrderStatus.HOLD_FAILED),
+                        tuple("lecture-order:" + second.getId() + ":reserve", LectureOrderStatus.HOLD_FAILED),
+                        tuple("lecture-order:" + first.getId() + ":reserve", LectureOrderStatus.HOLD_PENDING));
+        assertThat(orderCouponWorkRepository.search(OrderCouponWorkStatus.DEAD, OrderCouponWorkKind.RESERVE,
+                PageRequest.of(0, 10))).extracting(row -> row.work().getOrderId()).containsExactly(first.getId());
+        assertThat(orderCouponWorkRepository.search(null, OrderCouponWorkKind.RELEASE, PageRequest.of(0, 10))
+                .getTotalElements()).isEqualTo(1);
     }
 
     /** 시도를 한 번 기록해 다음 시도 시각이 {@code nextAttemptAt}인 작업 */

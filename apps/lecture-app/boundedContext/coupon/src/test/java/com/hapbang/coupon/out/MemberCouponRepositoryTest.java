@@ -9,6 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Limit;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.hapbang.coupon.domain.Coupon;
@@ -203,6 +204,49 @@ class MemberCouponRepositoryTest {
         assertThat(memberCouponRepository.restore(reservedId, 1, EXPIRES_AT)).isEqualTo(1);
         assertThat(memberCouponRepository.findStateById(reservedId)).get()
                 .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.EXPIRED);
+    }
+
+    @Test
+    void 만료_대상은_기한이_지난_AVAILABLE_판매자_쿠폰만_만료_시각_순이고_조건부_갱신은_그것만_EXPIRED로_바꾼다() {
+        Long seller = saveCoupon(Coupon.createSeller(SELLER_ID, lectureRate().build(), NOW));
+        Long platform = saveCoupon(Coupon.createPlatform(ADMIN_ID, lectureRate().build(), NOW));
+        Long atNow = memberCouponRepository.save(MemberCoupon.issue(1L, seller, "req-1", NOW, NOW, NOW)).getId();
+        Long earlier = memberCouponRepository.save(MemberCoupon.issue(2L, seller, "req-2", NOW,
+                NOW.minusSeconds(10), NOW)).getId();
+        Long future = memberCouponRepository.save(MemberCoupon.issue(3L, seller, "req-3", NOW,
+                NOW.plusSeconds(1), NOW)).getId();
+        Long reserved = memberCouponRepository.save(MemberCoupon.issue(4L, seller, "req-4", NOW,
+                NOW.minusSeconds(10), NOW)).getId();
+        Long platformExpired = memberCouponRepository.save(MemberCoupon.issue(5L, platform, "req-5", NOW,
+                NOW.minusSeconds(20), NOW)).getId();
+        memberCouponRepository.reserve(reserved, 4L, 0, 500L, NOW.minusSeconds(100));
+        flushAndClear();
+
+        // 만료 시각(expiresAt == now) 포함, 만료 시각 → ID 순. 미래 만료·RESERVED·플랫폼 쿠폰은 고르지 않는다
+        assertThat(memberCouponRepository.findExpiredSellerCouponIds(NOW, Limit.of(10)))
+                .containsExactly(earlier, atNow);
+        assertThat(memberCouponRepository.findExpiredSellerCouponIds(NOW, Limit.of(1))).containsExactly(earlier);
+
+        // 조건부 갱신은 넘긴 ID 중 AVAILABLE이고 기한이 지난 것만 바꾼다
+        assertThat(memberCouponRepository.expire(List.of(earlier, atNow, future, reserved), NOW)).isEqualTo(2);
+        assertThat(memberCouponRepository.findStateById(atNow)).get().satisfies(state -> {
+            assertThat(state.status()).isEqualTo(MemberCouponStatus.EXPIRED);
+            assertThat(state.generation()).isZero();
+        });
+        assertThat(memberCouponRepository.findStateById(earlier)).get()
+                .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.EXPIRED);
+        assertThat(memberCouponRepository.findStateById(future)).get()
+                .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.AVAILABLE);
+        assertThat(memberCouponRepository.findStateById(reserved)).get().satisfies(state -> {
+            assertThat(state.status()).isEqualTo(MemberCouponStatus.RESERVED);
+            assertThat(state.generation()).isEqualTo(1);
+        });
+        assertThat(memberCouponRepository.findStateById(platformExpired)).get()
+                .extracting(MemberCouponState::status).isEqualTo(MemberCouponStatus.AVAILABLE);
+
+        // 두 번 돌아도 결과가 같다
+        assertThat(memberCouponRepository.expire(List.of(earlier, atNow), NOW)).isZero();
+        assertThat(memberCouponRepository.findExpiredSellerCouponIds(NOW, Limit.of(10))).isEmpty();
     }
 
     private Long saveCoupon(Coupon coupon) {

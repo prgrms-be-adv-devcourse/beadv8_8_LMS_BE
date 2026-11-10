@@ -11,6 +11,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -20,12 +21,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.PostgresTestcontainersConfig;
 import com.hapbang.testsupport.RedisTestcontainersConfig;
@@ -37,6 +40,7 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
  *     <li>k8s처럼 관리 포트·내부 API 포트를 따로 둔다. 헬스체크·지표는 관리 포트에서만, 내부 API는 내부 포트에서만 받는다.</li>
  *     <li>Elasticsearch·LLM 없이 뜬다(#715). 이 테스트에는 ES가 없고 모델은 꺼져 있다. 그래도 liveness·readiness는 UP이고
  *     FAQ 시드가 들어가며 FAQ 목록·대화(fallback)가 동작한다.</li>
+ *     <li>검색 기능 스위치(#771)가 꺼진 운영 기본값으로 뜬다. 검색 모듈 빈은 없고 schema만 생긴다.</li>
  * </ul>
  * 로컬 프로필(docker compose, .env)을 읽지 않도록 다른 프로필로 띄운다. 업무 모듈 테스트는 각 모듈 프로젝트에 둔다.
  */
@@ -47,10 +51,12 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "hapbang.scheduling.enabled=false",
                 // 이 테스트는 Kafka 없이 앱 뼈대(포트·Flyway·헬스)를 본다. 알림 회원 이벤트 소비자는 끄고, 소비는 알림 모듈 Kafka 테스트가 본다
                 "hapbang.notification.member-events.enabled=false",
-                // 챗봇 출연 이벤트 소비(#716)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
-                "hapbang.chatbot.appearance-events.enabled=false",
-                // 운영 설정은 출연 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다
+                // 챗봇 사본 이벤트 소비(출연·회원·강의, #716·#717)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
+                "hapbang.chatbot.copy-events.enabled=false",
+                // 운영 설정은 다른 앱 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다
                 "hapbang.clients.appearance.base-url=http://localhost:1",
+                "hapbang.clients.member.base-url=http://localhost:1",
+                "hapbang.clients.lecture.base-url=http://localhost:1",
                 // k8s에서 자동으로 켜지는 liveness·readiness 그룹을 켠다
                 "management.endpoint.health.probes.enabled=true",
                 // 테스트는 기본으로 지표 내보내기를 끈다. 운영처럼 Prometheus 형식을 연다
@@ -80,6 +86,9 @@ class AuxiliaryApplicationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private ApplicationContext applicationContext;
+
     @BeforeAll
     static void openClient() {
         client = HttpClient.newHttpClient();
@@ -99,20 +108,32 @@ class AuxiliaryApplicationTest {
     }
 
     @Test
-    @DisplayName("Flyway 이력은 auxiliary schema에 남고, 챗봇·알림 모듈 SQL이 chatbot·notification schema를 만든다")
+    @DisplayName("Flyway 이력은 auxiliary schema에 남고, 챗봇·알림·검색 모듈 SQL이 chatbot·notification·search schema를 만든다")
     void flywaySchemas() {
         assertThat(jdbcTemplate.queryForList(
                 "select schema_name from information_schema.schemata "
-                        + "where schema_name in ('auxiliary', 'chatbot', 'notification')",
-                String.class)).containsExactlyInAnyOrder("auxiliary", "chatbot", "notification");
+                        + "where schema_name in ('auxiliary', 'chatbot', 'notification', 'search')",
+                String.class)).containsExactlyInAnyOrder("auxiliary", "chatbot", "notification", "search");
         assertThat(jdbcTemplate.queryForList(
                 "select description from auxiliary.flyway_schema_history where success", String.class))
-                .contains("create chatbot schema", "create notification schema");
+                .contains("create chatbot schema", "create notification schema", "create search schema");
         // 알림 회원 복제본 테이블(ND-046)
         assertThat(jdbcTemplate.queryForList(
                 "select table_name from information_schema.tables "
                         + "where table_schema = 'notification' and table_name = 'notification_user'",
                 String.class)).containsExactly("notification_user");
+    }
+
+    @Test
+    @DisplayName("검색 기능 스위치가 꺼져 있으면(운영 기본값) 검색 모듈 패키지의 빈이 하나도 없고 앱은 뜬다(새 빈에 스위치를 빠뜨리면 실패)")
+    void searchSwitchOff() {
+        String searchPackage = SearchElasticsearchConfig.class.getPackageName().replace(".config", ".");
+        assertThat(Arrays.stream(applicationContext.getBeanDefinitionNames())
+                .map(applicationContext::getType)
+                .filter(type -> type != null && type.getName().startsWith(searchPackage))
+                .map(Class::getName))
+                .isEmpty();
+        assertThat(applicationContext.containsBean(SearchElasticsearchConfig.CLIENT)).isFalse();
     }
 
     @Test

@@ -204,6 +204,16 @@ public class LectureOrder {
         return item;
     }
 
+    /**
+     * 반환 지연: 이의 제기 인정 반환 작업이 멈췄다(DEAD, #818, D83). 항목의 반환 지연 회차를 1 올린다. 항목은 반환 처리 중에 남고
+     * 주문도 그대로라 주문을 잠그지 않는다(항목의 낙관적 락만 쓴다)
+     */
+    public OrderItem recordReturnDelay(Long orderItemId) {
+        OrderItem item = findItem(orderItemId);
+        item.recordReturnDelay();
+        return item;
+    }
+
     /** 내용 다름 이의 제기 접수. 접수된 항목은 지급·구매 취소되지 않는다 (설계 6.2) */
     public OrderItem fileObjection(Long orderItemId, Long buyerUserId, Long inquiryId, String reason,
                                    LocalDateTime now) {
