@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.StringReader;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -385,6 +386,26 @@ class InfluencerReindexerTest {
         assertThat(source(1)).containsEntry("hidden", false);
     }
 
+    @Test
+    @DisplayName("롤링 배포 중 옛 pod는 자기가 뜬 뒤에 만들어진(더 새 배포의) index를 옛 설정으로 되돌리지 않는다. 롤백(나중에 뜬 pod)은 되돌린다")
+    void oldPodSkipsNewerIndex() throws Exception {
+        Instant oldPodStartedAt = Instant.now();
+        sleep(20);
+        // 새 배포가 다른 설정(OLD를 새 설정 index로 본다)으로 alias를 옮겼다
+        createOldIndex();
+        members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
+        Pod oldPod = new Pod(new InfluencerDocumentStore(client), new InfluencerIndexSetup(client), runner(), runner(),
+                oldPodStartedAt);
+
+        assertThat(oldPod.reindexer.reindexIfNeeded().done()).isFalse();
+        assertThat(aliasTargets()).containsExactly(OLD);
+        assertThat(members.calls()).isZero();
+
+        // 롤백: 새 index보다 나중에 뜬 pod는 자기 설정으로 옮긴다
+        assertThat(pod.reindexer.reindexIfNeeded().done()).isTrue();
+        assertThat(aliasTargets()).containsExactly(expected);
+    }
+
     /** 검색 모듈 빈 묶음 하나(pod 하나) */
     private final class Pod {
 
@@ -394,6 +415,12 @@ class InfluencerReindexerTest {
 
         Pod(InfluencerDocumentStore store, InfluencerIndexSetup indexSetup, SearchJobRunner reindexRunner,
                 SearchJobRunner reconcileRunner) {
+            // 이 테스트의 pod는 지금 있는 어떤 index보다 나중에 뜬 새 배포다(옛 pod는 oldPodSkipsNewerIndex에서 따로)
+            this(store, indexSetup, reindexRunner, reconcileRunner, Instant.now().plus(Duration.ofHours(1)));
+        }
+
+        Pod(InfluencerDocumentStore store, InfluencerIndexSetup indexSetup, SearchJobRunner reindexRunner,
+                SearchJobRunner reconcileRunner, Instant startedAt) {
             ContentCategoryNames categoryNames = new ContentCategoryNames(stats);
             InMemoryConsistencyCheckStore consistencyChecks = new InMemoryConsistencyCheckStore();
             SearchSyncMetrics metrics = new SearchSyncMetrics(registry, cursors, consistencyChecks, clock);
@@ -404,7 +431,7 @@ class InfluencerReindexerTest {
             InfluencerStatsSync statsSync = new InfluencerStatsSync(indexSetup, store, stats, categoryNames,
                     reindexRunner, consistencyChecks, clock);
             this.reindexer = new InfluencerReindexer(indexSetup, store, indexer, categoryNames, members, statsSync,
-                    reconciler, reindexRunner, metrics, clock, Duration.ofMillis(10), Duration.ofMillis(200));
+                    reconciler, reindexRunner, metrics, clock, Duration.ofMillis(10), Duration.ofMillis(200), startedAt);
         }
     }
 

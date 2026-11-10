@@ -2,11 +2,13 @@ package com.hapbang.auxiliary.search.app;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>alias가 없다(처음 배포, ES를 새로 만듦): 처음 적재</li>
  *     <li>alias가 다른 설정 해시의 index를 가리킨다(mapping·분석기·사용자 사전이 바뀜): 재색인. 동의어는 해시에 없어 바꿔도 재색인하지 않는다</li>
  * </ul>
+ * 단, alias가 가리키는 index가 <b>이 pod가 뜬 뒤에 만들어졌으면</b> 건너뛴다(PR #845 리뷰 Q4). 나중에 뜬 다른 배포가 만든 더 새 설정이기 때문이다.
+ * 롤링 배포 중 아직 내려가지 않은 옛 pod가 새 index를 옛 설정으로 되돌리지 않고, 일부러 옛 코드로 되돌린 롤백은 새 index보다 나중에 뜨므로 되돌린다.
  * 순서
  * <ol>
  *     <li>남은 index(실패한 지난 시도, 지우지 못한 옛 index)를 지운다.</li>
@@ -77,6 +81,8 @@ public class InfluencerReindexer {
     private final Clock clock;
     private final Duration retryInterval;
     private final Duration maxWait;
+    /** 이 pod(빈)가 뜬 시각. alias index가 이보다 나중에 만들어졌으면 더 새 배포가 만든 것이다 */
+    private final Instant startedAt;
 
     @Autowired
     public InfluencerReindexer(InfluencerIndexSetup indexSetup, InfluencerDocumentStore store,
@@ -84,13 +90,13 @@ public class InfluencerReindexer {
             InfluencerStatsSync statsSync, MemberChangeReconciler reconciler, SearchJobRunner jobRunner,
             SearchSyncMetrics metrics) {
         this(indexSetup, store, indexer, categoryNames, members, statsSync, reconciler, jobRunner, metrics,
-                Clock.system(MemberChangeReconciler.ZONE), CATCH_UP_RETRY_INTERVAL, CATCH_UP_MAX_WAIT);
+                Clock.system(MemberChangeReconciler.ZONE), CATCH_UP_RETRY_INTERVAL, CATCH_UP_MAX_WAIT, Instant.now());
     }
 
     InfluencerReindexer(InfluencerIndexSetup indexSetup, InfluencerDocumentStore store,
             InfluencerMemberIndexer indexer, ContentCategoryNames categoryNames, MemberListSource members,
             InfluencerStatsSync statsSync, MemberChangeReconciler reconciler, SearchJobRunner jobRunner,
-            SearchSyncMetrics metrics, Clock clock, Duration retryInterval, Duration maxWait) {
+            SearchSyncMetrics metrics, Clock clock, Duration retryInterval, Duration maxWait, Instant startedAt) {
         this.indexSetup = indexSetup;
         this.store = store;
         this.indexer = indexer;
@@ -103,6 +109,7 @@ public class InfluencerReindexer {
         this.clock = clock;
         this.retryInterval = retryInterval;
         this.maxWait = maxWait;
+        this.startedAt = startedAt;
     }
 
     /** 한 pod에서만 실행한다. 다른 pod가 하고 있으면 건너뛰고, 실패하면 다음 확인에 다시 한다 */
@@ -124,6 +131,14 @@ public class InfluencerReindexer {
         if (state.upToDate()) {
             // 지난 재색인이 옛 index를 지우지 못했으면 여기서 지운다
             deleteQuietly(state.leftovers(), "남은");
+            return ReindexResult.upToDate();
+        }
+        Optional<Instant> aliasCreatedAt = state.aliasTargetCreatedAt();
+        if (aliasCreatedAt.isPresent() && aliasCreatedAt.get().isAfter(startedAt)) {
+            // 롤링 배포 중 옛 pod다. 더 새 배포가 옮긴 index를 옛 설정으로 되돌리지 않는다(이 pod는 곧 내려간다)
+            log.warn("검색 alias가 이 pod가 뜬 뒤에 만든 index를 가리켜 더 새 배포로 보고 재색인하지 않는다 alias={}, createdAt={}, "
+                    + "podStartedAt={}, expected={}", state.aliasTargets(), aliasCreatedAt.get(), startedAt,
+                    state.expectedIndex());
             return ReindexResult.upToDate();
         }
         if (state.aliasTargets().contains(state.expectedIndex())) {
@@ -356,6 +371,7 @@ public class InfluencerReindexer {
      */
     record ReindexResult(ReindexReason reason, String index, LoadResult loaded, CatchUp catchUp, boolean failed) {
 
+        /** 할 일이 없었다(설정이 같음, 또는 더 새 배포가 만든 index) */
         static ReindexResult upToDate() {
             return new ReindexResult(null, null, null, null, false);
         }

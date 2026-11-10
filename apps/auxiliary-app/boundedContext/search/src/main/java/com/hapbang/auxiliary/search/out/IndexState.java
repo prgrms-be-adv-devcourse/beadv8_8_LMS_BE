@@ -1,6 +1,10 @@
 package com.hapbang.auxiliary.search.out;
 
+import java.time.Instant;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -9,12 +13,24 @@ import java.util.Set;
  * @param aliasTargets  alias({@link InfluencerIndexDefinition#ALIAS})가 가리키는 index. alias가 없으면 빈 집합
  * @param indices       {@code search-influencers-*} index 전부
  * @param expectedIndex 지금 코드 설정(mapping·분석기·사용자 사전)의 index 이름
+ * @param createdAt     index마다 ES가 만든 시각({@code index.creation_date}). 읽지 못한 index는 빠진다
  */
-public record IndexState(Set<String> aliasTargets, Set<String> indices, String expectedIndex) {
+public record IndexState(Set<String> aliasTargets, Set<String> indices, String expectedIndex,
+                         Map<String, Instant> createdAt) {
 
     public IndexState {
         aliasTargets = Set.copyOf(aliasTargets);
         indices = Set.copyOf(indices);
+        createdAt = Map.copyOf(createdAt);
+    }
+
+    /**
+     * alias가 가리키는 index 중 가장 늦게 만든 시각. 롤링 배포 중 옛 pod가 더 새 배포의 index를 되돌리지 않게 쓴다(PR #845 리뷰 Q4).
+     *
+     * @return alias가 없거나 만든 시각을 모르면 빈 값
+     */
+    public Optional<Instant> aliasTargetCreatedAt() {
+        return aliasTargets.stream().map(createdAt::get).filter(Objects::nonNull).max(Instant::compareTo);
     }
 
     /** alias가 없다(처음 배포, ES를 새로 만듦) */

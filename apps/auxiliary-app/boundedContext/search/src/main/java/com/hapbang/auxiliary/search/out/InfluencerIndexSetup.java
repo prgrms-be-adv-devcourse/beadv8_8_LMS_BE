@@ -2,11 +2,14 @@ package com.hapbang.auxiliary.search.out;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +21,7 @@ import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.ElasticsearchException;
+import co.elastic.clients.elasticsearch.indices.IndexSettings;
 import co.elastic.clients.elasticsearch.indices.update_aliases.Action;
 import co.elastic.clients.elasticsearch.synonyms.SynonymRule;
 import co.elastic.clients.elasticsearch.synonyms.SynonymRuleRead;
@@ -137,9 +141,11 @@ public class InfluencerIndexSetup {
     public IndexState state() {
         try {
             Set<String> targets = aliasTargets();
-            Set<String> indices = client.indices().get(g -> g.index(InfluencerIndexDefinition.INDEX_PREFIX + "*")
-                    .allowNoIndices(true)).indices().keySet();
-            return new IndexState(targets, indices, definition.indexName());
+            Map<String, co.elastic.clients.elasticsearch.indices.IndexState> indices = client.indices()
+                    .get(g -> g.index(InfluencerIndexDefinition.INDEX_PREFIX + "*").allowNoIndices(true)).indices();
+            Map<String, Instant> createdAt = new HashMap<>();
+            indices.forEach((name, index) -> creationDate(index).ifPresent(at -> createdAt.put(name, at)));
+            return new IndexState(targets, indices.keySet(), definition.indexName(), createdAt);
         } catch (IOException | ElasticsearchException e) {
             throw new IllegalStateException("검색 index 상태를 읽지 못했습니다 alias=" + InfluencerIndexDefinition.ALIAS, e);
         }
@@ -212,6 +218,17 @@ public class InfluencerIndexSetup {
             throw new IllegalStateException("검색 alias를 옮기지 못했습니다 alias=" + InfluencerIndexDefinition.ALIAS
                     + ", from=" + from + ", to=" + to, e);
         }
+    }
+
+    /** ES가 index를 만든 시각({@code index.creation_date}). 설정이 {@code index} 아래에 들어 있어도 읽는다 */
+    private static Optional<Instant> creationDate(co.elastic.clients.elasticsearch.indices.IndexState index) {
+        IndexSettings settings = index.settings();
+        if (settings == null) {
+            return Optional.empty();
+        }
+        Long millis = settings.creationDate() != null ? settings.creationDate()
+                : settings.index() != null ? settings.index().creationDate() : null;
+        return Optional.ofNullable(millis).map(Instant::ofEpochMilli);
     }
 
     /** alias가 가리키는 index. alias가 없으면 빈 집합 */
