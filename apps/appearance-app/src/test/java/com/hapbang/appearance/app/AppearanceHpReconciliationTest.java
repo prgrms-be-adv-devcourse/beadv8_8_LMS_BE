@@ -15,6 +15,7 @@ import static org.mockito.Mockito.verify;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -94,6 +95,9 @@ class AppearanceHpReconciliationTest {
 
     @Autowired
     HpReconciliationMetrics hpReconciliationMetrics;
+
+    @Autowired
+    HpReconciliationMetricsRestorer hpReconciliationMetricsRestorer;
 
     @Autowired
     AppearanceRequestFacade appearanceRequestFacade;
@@ -316,6 +320,8 @@ class AppearanceHpReconciliationTest {
             for (HpReconciliationRule rule : HpReconciliationRule.values()) {
                 assertThat(hpReconciliationMetrics.mismatches(rule)).as(rule.name()).isZero();
             }
+            assertThat(hpReconciliationMetrics.lastCompletedEpochSeconds())
+                    .isEqualTo(run.getFinishedAt().atZone(AppearanceTime.ZONE).toEpochSecond());
         }
 
         @Test
@@ -802,13 +808,10 @@ class AppearanceHpReconciliationTest {
         }
 
         @Test
-        @DisplayName("앱이 멈춰 RUNNING으로 남은 실행은 다음 실행이 시작될 때 INCOMPLETE(앱이 멈춰 끝나지 못한 실행)로 정리한다")
+        @DisplayName("abandon-after(1시간)보다 오래 RUNNING으로 남은 실행은 다음 실행이 시작될 때 INCOMPLETE(앱이 멈춰 끝나지 못한 실행)로 정리하고 중단 횟수를 올린다 (#821)")
         void abandonedRunIsClosed() {
-            jdbcTemplate.update("""
-                    insert into appearances.hp_reconciliation_runs
-                    (trigger_type, status, started_at, checked_count, mismatch_count, dead_count, version, created_at, updated_at)
-                    values ('SCHEDULED', 'RUNNING', ?, 0, 0, 0, 0, ?, ?)
-                    """, clock.now(), clock.now(), clock.now());
+            runningSince(clock.now().minusHours(1).minusMinutes(1));
+            double incompleteBefore = hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE);
 
             HpReconciliationRun run = runAfterGrace();
 
@@ -818,6 +821,90 @@ class AppearanceHpReconciliationTest {
                                     HpReconciliationSupport.ABANDONED_REASON),
                             org.assertj.core.groups.Tuple.tuple(HpReconciliationStatus.COMPLETED, null));
             assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
+            assertThat(hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE)).isEqualTo(incompleteBefore + 1);
+        }
+
+        @Test
+        @DisplayName("abandon-after 안에 시작한 RUNNING 실행은 배포 중 옛 pod가 하고 있는 것일 수 있어 정리하지 않는다 (#821)")
+        void recentRunningRunIsKept() {
+            Long otherPodRun = runningSince(clock.now().minusMinutes(59));
+            double incompleteBefore = hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE);
+
+            HpReconciliationRun run = runAfterGrace();
+
+            assertThat(run.getStatus()).isEqualTo(HpReconciliationStatus.COMPLETED);
+            assertThat(runRepository.findById(otherPodRun).orElseThrow().getStatus())
+                    .isEqualTo(HpReconciliationStatus.RUNNING);
+            assertThat(hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE)).isEqualTo(incompleteBefore);
+        }
+
+        /** 다른 pod가 시작해 RUNNING으로 남은 실행을 DB에 바로 넣는다 */
+        private Long runningSince(LocalDateTime startedAt) {
+            return runRepository.save(HpReconciliationRun.start(HpReconciliationTrigger.SCHEDULED, null, startedAt))
+                    .getId();
+        }
+    }
+
+    @Nested
+    @DisplayName("기동할 때 지표 복원 (#821)")
+    class Restore {
+
+        @Test
+        @DisplayName("마지막 COMPLETED 실행의 규칙별 건수(HP_TASK_DEAD 포함)와 끝난 시각으로 채운다. 그 뒤의 INCOMPLETE 실행은 보지 않는다")
+        void fromLatestCompletedRun() {
+            LocalDateTime finishedAt = clock.now().withNano(0).minusHours(5);
+            savedRun(HpReconciliationStatus.COMPLETED, finishedAt.minusDays(1), HpReconciliationRule.HOLD_MISSING);
+            savedRun(HpReconciliationStatus.COMPLETED, finishedAt, HpReconciliationRule.HOLD_BALANCE_MISMATCH,
+                    HpReconciliationRule.HOLD_BALANCE_MISMATCH, HpReconciliationRule.HP_TASK_DEAD);
+            savedRun(HpReconciliationStatus.INCOMPLETE, finishedAt.plusHours(1), HpReconciliationRule.SETTLEMENT_MISSING);
+            hpReconciliationMetrics.updateMismatches(Map.of());
+            hpReconciliationMetrics.updateLastCompleted(finishedAt.minusDays(30));
+
+            hpReconciliationMetricsRestorer.restore();
+
+            assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HOLD_BALANCE_MISMATCH)).isEqualTo(2);
+            assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HP_TASK_DEAD)).isEqualTo(1);
+            assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HOLD_MISSING)).isZero();
+            assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.SETTLEMENT_MISSING)).isZero();
+            assertThat(hpReconciliationMetrics.lastCompletedEpochSeconds())
+                    .isEqualTo(finishedAt.atZone(AppearanceTime.ZONE).toEpochSecond());
+        }
+
+        @Test
+        @DisplayName("COMPLETED 실행이 없으면 지표를 바꾸지 않고, RUNNING 실행도 정리하지 않는다(DB를 읽기만 한다)")
+        void noCompletedRun() {
+            LocalDateTime finishedAt = clock.now().withNano(0).minusHours(5);
+            savedRun(HpReconciliationStatus.INCOMPLETE, finishedAt, HpReconciliationRule.HOLD_MISSING);
+            Long running = runRepository.save(HpReconciliationRun.start(HpReconciliationTrigger.SCHEDULED, null,
+                    finishedAt.minusDays(1))).getId();
+            hpReconciliationMetrics.updateMismatches(Map.of());
+            hpReconciliationMetrics.updateLastCompleted(finishedAt.minusDays(30));
+
+            hpReconciliationMetricsRestorer.restore();
+
+            assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HOLD_MISSING)).isZero();
+            assertThat(hpReconciliationMetrics.lastCompletedEpochSeconds())
+                    .isEqualTo(finishedAt.minusDays(30).atZone(AppearanceTime.ZONE).toEpochSecond());
+            assertThat(runRepository.findById(running).orElseThrow().getStatus())
+                    .isEqualTo(HpReconciliationStatus.RUNNING);
+        }
+
+        /** 끝난 실행과 그 실행의 어긋난 건(규칙마다 한 건)을 DB에 바로 남긴다 */
+        private void savedRun(HpReconciliationStatus status, LocalDateTime finishedAt, HpReconciliationRule... rules) {
+            HpReconciliationRun run = HpReconciliationRun.start(HpReconciliationTrigger.SCHEDULED, null,
+                    finishedAt.minusMinutes(1));
+            int dead = (int) Arrays.stream(rules).filter(rule -> rule == HpReconciliationRule.HP_TASK_DEAD).count();
+            if (status == HpReconciliationStatus.COMPLETED) {
+                run.complete(rules.length, rules.length - dead, dead, finishedAt);
+            } else {
+                run.incomplete(rules.length, rules.length - dead, dead, "시험용 중단", finishedAt);
+            }
+            Long runId = runRepository.save(run).getId();
+            long refId = 1;
+            for (HpReconciliationRule rule : rules) {
+                mismatchRepository.save(new HpReconciliationMismatch(runId, HpTaskRefType.APPEARANCE_REQUEST, refId++,
+                        null, rule, "시험 출연 상태", "시험 지갑 상태"));
+            }
         }
     }
 }

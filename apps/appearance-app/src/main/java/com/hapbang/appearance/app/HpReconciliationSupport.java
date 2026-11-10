@@ -2,10 +2,13 @@ package com.hapbang.appearance.app;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
@@ -19,6 +22,7 @@ import com.hapbang.appearance.domain.AppearanceRecruit;
 import com.hapbang.appearance.domain.AppearanceRequest;
 import com.hapbang.appearance.domain.HpReconciliationCursor;
 import com.hapbang.appearance.domain.HpReconciliationMismatch;
+import com.hapbang.appearance.domain.HpReconciliationRule;
 import com.hapbang.appearance.domain.HpReconciliationRun;
 import com.hapbang.appearance.domain.HpReconciliationStatus;
 import com.hapbang.appearance.domain.HpReconciliationTrigger;
@@ -60,17 +64,32 @@ public class HpReconciliationSupport {
     }
 
     /**
-     * 실행을 시작한다. 앱이 멈춰 실행 중으로 남은 실행은 먼저 {@code INCOMPLETE}로 끝낸다(출연 앱 1대 전제, 실행 중 표시는 앱 메모리).
-     * 롤링 배포로 두 pod가 겹치면 다른 pod의 정상 실행도 이렇게 정리될 수 있다({@link HpReconciliationUseCase} 참고).
+     * 앱이 대사 도중 멈춰 실행 중으로 남은 실행을 {@code INCOMPLETE}로 끝낸다. 실행을 시작하기 전에 부른다.
+     * 배포 중에는 옛 pod와 새 pod가 잠깐 함께 떠 있어(maxSurge 1) 실행 중인 실행이 옛 pod가 아직 하고 있는 것일 수 있다.
+     * 그래서 {@code startedBefore} 전에 시작한 것만 끝낸다(#821).
+     *
+     * @return 끝낸 실행 ID
+     */
+    @Transactional
+    public List<Long> abandonRunningStartedBefore(LocalDateTime startedBefore, LocalDateTime now) {
+        List<Long> abandonedIds = new ArrayList<>();
+        for (HpReconciliationRun run : runRepository.findByStatus(HpReconciliationStatus.RUNNING)) {
+            if (run.getStartedAt().isBefore(startedBefore)) {
+                run.incomplete(run.getCheckedCount(), run.getMismatchCount(), run.getDeadCount(), ABANDONED_REASON,
+                        now);
+                abandonedIds.add(run.getId());
+            }
+        }
+        return abandonedIds;
+    }
+
+    /**
+     * 실행을 시작한다.
      *
      * @return 새 실행 ID
      */
     @Transactional
     public Long start(HpReconciliationTrigger trigger, Long adminId, LocalDateTime now) {
-        for (HpReconciliationRun abandoned : runRepository.findByStatus(HpReconciliationStatus.RUNNING)) {
-            abandoned.incomplete(abandoned.getCheckedCount(), abandoned.getMismatchCount(), abandoned.getDeadCount(),
-                    ABANDONED_REASON, now);
-        }
         return runRepository.save(HpReconciliationRun.start(trigger, adminId, now)).getId();
     }
 
@@ -164,6 +183,23 @@ public class HpReconciliationSupport {
     @Transactional(readOnly = true)
     public List<HpReconciliationMismatch> findMismatches(Long runId) {
         return mismatchRepository.findByRunIdOrderByIdAsc(runId);
+    }
+
+    /** 마지막으로 끝까지 비교한({@code COMPLETED}) 실행. 기동할 때 지표를 채우는 데 쓴다 (#821) */
+    @Transactional(readOnly = true)
+    public Optional<CompletedRun> findLatestCompletedRun() {
+        return runRepository.findFirstByStatusOrderByFinishedAtDescIdDesc(HpReconciliationStatus.COMPLETED)
+                .map(run -> {
+                    Map<HpReconciliationRule, Long> counts = new EnumMap<>(HpReconciliationRule.class);
+                    for (HpReconciliationMismatch mismatch : mismatchRepository.findByRunIdOrderByIdAsc(run.getId())) {
+                        counts.merge(mismatch.getRule(), 1L, Long::sum);
+                    }
+                    return new CompletedRun(run.getId(), run.getFinishedAt(), counts);
+                });
+    }
+
+    /** 끝까지 비교한 실행 하나의 지표 값: 끝난 시각과 규칙별 건수({@code HP_TASK_DEAD} 표시 포함) */
+    record CompletedRun(Long runId, LocalDateTime finishedAt, Map<HpReconciliationRule, Long> counts) {
     }
 
     /** 남길 어긋남 하나: 대상 + 비교 결과 */

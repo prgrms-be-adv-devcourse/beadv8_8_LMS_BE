@@ -52,8 +52,9 @@ import lombok.extern.slf4j.Slf4j;
  *     그때까지 찾은 어긋남은 남긴다. 다음 실행이 같은 범위를 다시 본다</li>
  * </ol>
  * 같은 앱에서 동시에 두 번 실행하지 않는다(출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고, 관리자 실행은 409다.
- * 실행 중 표시는 앱 메모리라, 롤링 배포로 두 pod가 겹치는 동안 새 pod가 실행을 시작하면 옛 pod의 정상 실행이 멈춘 실행으로
- * 정리될 수 있다(옛 pod는 끝낼 때 상태 오류로 기록하지 못한다). 매일 04:00 한 번이라 배포와 겹칠 일이 드물고, replica를 늘리면 단일 실행 장치를 먼저 둔다.
+ * 실행 중 표시는 앱 메모리라 배포 중 옛 pod와 새 pod가 겹치면 두 실행이 함께 돌 수 있다. 대사는 고치지 않으므로 같은 범위를 두 번 볼 뿐이다.
+ * 앱이 멈춰 실행 중으로 남은 실행은 실행을 시작할 때 정리하되, 옛 pod가 하고 있는 실행을 건드리지 않도록
+ * {@code abandon-after}보다 오래된 것만 정리하고 중단 횟수를 올린다(#821). replica를 늘리면 단일 실행 장치를 먼저 둔다.
  * 배치는 시스템이 실행하므로 Facade를 거치지 않고 이 UseCase를 직접 부른다.
  */
 @Slf4j
@@ -108,6 +109,7 @@ public class HpReconciliationUseCase {
 
     private HpReconciliationRun run(HpReconciliationTrigger trigger, Long adminId) {
         LocalDateTime startedAt = LocalDateTime.now(clock);
+        abandonLeftOverRuns(startedAt);
         Long runId = hpReconciliationSupport.start(trigger, adminId, startedAt);
         Progress progress = new Progress();
         String failureReason = null;
@@ -128,6 +130,19 @@ public class HpReconciliationUseCase {
                 progress.dead, failureReason, progress.cursors, LocalDateTime.now(clock));
         report(run, progress);
         return run;
+    }
+
+    /**
+     * 앱이 멈춰 실행 중으로 남은 실행을 미완료로 끝내고 중단 횟수를 올린다. 횟수를 올리지 않으면 alert "대사 중단"이 알지 못한다(#821).
+     * 새로 뜬 앱에서 처음 만드는 counter면 첫 수집 값이 이미 1이다. alert "대사 중단"은 새로 생긴 series도 중단으로 친다(#804)
+     */
+    private void abandonLeftOverRuns(LocalDateTime now) {
+        List<Long> abandonedIds = hpReconciliationSupport.abandonRunningStartedBefore(
+                now.minus(properties.abandonAfter()), now);
+        if (!abandonedIds.isEmpty()) {
+            abandonedIds.forEach(id -> hpReconciliationMetrics.recordRun(HpReconciliationStatus.INCOMPLETE));
+            log.warn("앱이 멈춰 끝나지 못한 HP 대사를 미완료로 정리했다 runIds={}", abandonedIds);
+        }
     }
 
     private void reconcile(HpTaskRefType refType, LocalDateTime startedAt, Progress progress) {
@@ -273,6 +288,7 @@ public class HpReconciliationUseCase {
                 counts.merge(mismatch.finding().rule(), 1L, Long::sum);
             }
             hpReconciliationMetrics.updateMismatches(counts);
+            hpReconciliationMetrics.updateLastCompleted(run.getFinishedAt());
             log.info("HP 대사 완료 runId={} checked={} mismatches={} dead={}", run.getId(), run.getCheckedCount(),
                     run.getMismatchCount(), run.getDeadCount());
         } else {
