@@ -5,10 +5,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -16,22 +12,15 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.task.SimpleAsyncTaskExecutorBuilder;
-import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.FallbackReason;
 import com.hapbang.auxiliary.chatbot.app.ChatbotMetrics.Feature;
 import com.hapbang.auxiliary.chatbot.config.ChatbotFaqProperties;
 
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
-import reactor.core.scheduler.Schedulers;
 
 /**
  * FAQ 대화(#715). 교안의 {@code ChatClient} + {@code @Tool} 구조를 MVC로 옮겼다.
@@ -39,10 +28,9 @@ import reactor.core.scheduler.Schedulers;
  *     <li>모델은 {@code searchFaq} Tool 결과만 근거로 답한다(시스템 프롬프트). 근거 FAQ는 응답 {@code sources}로 따로 준다.</li>
  *     <li>장애 대비: 회로(circuit breaker)가 열렸거나, 동시 대화 상한에 걸렸거나, 시간을 넘겼거나, 모델이 실패하면 LLM 없이 답한다.
  *     검색 상위 1건(기준값 이상)의 답변을 그대로 주고, 그것도 없으면 안내 문구다. 이때 {@code fallback: true}.</li>
- *     <li>한 번에 받기는 별도 스레드에서 부르고 {@code chatTimeout}까지 기다린다. 스트림은 Reactor {@code timeout}으로 전체 시간을
- *     {@code streamTimeout}으로 자른다(Resilience4j TimeLimiter는 Flux에 걸리지 않는다). 회로는 두 경우 모두 직접 기록한다.</li>
- *     <li>별도 스레드는 Boot builder로 만든 가상 스레드 executor다. 앱의 trace decorator가 붙어 한 번에 받기의 LLM 호출·Tool·검색
- *     로그와 fallback 검색 로그에 요청의 {@code traceId}가 찍힌다(docs/dev/logging.md "스레드 경계"). 스트림의 Tool 호출은
+ *     <li>회로·동시 상한·별도 스레드는 챗봇 공통 {@link LlmCallGuard}다(#718에서 꺼냄). 한 번에 받기는 {@code chatTimeout}까지
+ *     기다린다. 스트림은 Reactor {@code timeout}으로 전체 시간을 {@code streamTimeout}으로 자르고 결과를 허가에 직접 알린다.</li>
+ *     <li>한 번에 받기의 LLM 호출·Tool·검색 로그와 fallback 검색 로그에는 요청의 {@code traceId}가 찍힌다. 스트림의 Tool 호출은
  *     Spring AI가 고른 Reactor 스레드에서 돌아 {@code traceId}가 빠질 수 있다. 그 경로의 실패는 지표로 본다.</li>
  *     <li>모델이 정상으로 답했어도 Tool이 FAQ를 하나도 찾지 못했으면(sources 없음) FAQ 매칭 실패로 센다.</li>
  *     <li>모델을 끈 실행({@code spring.ai.model.chat=none})에서는 항상 fallback으로 답한다.</li>
@@ -74,15 +62,11 @@ public class FaqChatService {
     private final FaqSearchService searchService;
     private final ChatbotFaqProperties properties;
     private final ChatbotMetrics metrics;
-    private final CircuitBreaker circuitBreaker;
-    private final Semaphore permits;
-    private final SimpleAsyncTaskExecutor executor;
-    private final Scheduler scheduler;
+    private final LlmCallGuard llm;
 
     FaqChatService(ObjectProvider<ChatModel> chatModel, ObjectProvider<ChatClient.Builder> chatClientBuilder,
             FaqTools faqTools, FaqSearchService searchService, ChatbotFaqProperties properties, ChatbotMetrics metrics,
-            @Qualifier("chatbotLlmCircuitBreaker") CircuitBreaker circuitBreaker,
-            SimpleAsyncTaskExecutorBuilder executorBuilder) {
+            LlmCallGuard llm) {
         // ChatClient.Builder 빈 정의는 모델이 없어도 있고, 그때 꺼내면 예외다. 모델이 있을 때만 꺼낸다
         this.chatClient = chatModel.getIfAvailable() == null ? null
                 : chatClientBuilder.getObject().defaultSystem(SYSTEM_PROMPT).build();
@@ -93,47 +77,24 @@ public class FaqChatService {
         this.searchService = searchService;
         this.properties = properties;
         this.metrics = metrics;
-        this.circuitBreaker = circuitBreaker;
-        this.permits = new Semaphore(properties.maxConcurrentCalls());
-        // builder 기본값(spring.task.execution.simple.*) 중 동작에 영향을 주는 값은 모두 정한다. 동시 수는 permits가 제한한다
-        this.executor = executorBuilder
-                .threadNamePrefix("chatbot-faq-")
-                .virtualThreads(true)
-                .concurrencyLimit(SimpleAsyncTaskExecutor.UNBOUNDED_CONCURRENCY)
-                .rejectTasksWhenLimitReached(false)
-                .taskTerminationTimeout(Duration.ZERO)
-                .cancelRemainingTasksOnClose(true)
-                .build();
-        this.scheduler = Schedulers.fromExecutor(executor);
+        this.llm = llm;
     }
 
     /** 한 번에 받는 FAQ 대화 */
     public FaqAnswer chat(String message) {
-        LlmCallPermit call = new LlmCallPermit();
-        if (call.blocked != null) {
-            return fallback(Feature.FAQ_CHAT, call.blocked, message);
-        }
         Collection<FaqHit> sources = new ConcurrentLinkedQueue<>();
-        Future<String> future = executor.submit(() -> prompt(message, sources).call().content());
-        try {
-            String content = future.get(properties.chatTimeout().toMillis(), TimeUnit.MILLISECONDS);
-            call.succeeded();
+        LlmCallGuard.Result<String> result = llm.call(chatClient != null, properties.chatTimeout(),
+                () -> prompt(message, sources).call().content());
+        if (result.succeeded()) {
+            String content = result.value();
             return answered(Feature.FAQ_CHAT, content == null || content.isBlank() ? NO_ANSWER_MESSAGE : content, sources);
-        } catch (TimeoutException e) {
-            future.cancel(true);
-            call.failed(e);
-            log.warn("FAQ 대화가 시간 상한을 넘겨 fallback으로 답한다 chatTimeout={}", properties.chatTimeout());
-            return fallback(Feature.FAQ_CHAT, FallbackReason.TIMEOUT, message);
-        } catch (ExecutionException e) {
-            call.failed(e.getCause());
-            log.warn("FAQ 대화 모델 호출이 실패해 fallback으로 답한다", e.getCause());
-            return fallback(Feature.FAQ_CHAT, FallbackReason.ERROR, message);
-        } catch (InterruptedException e) {
-            future.cancel(true);
-            call.cancelled();
-            Thread.currentThread().interrupt();
-            return fallback(Feature.FAQ_CHAT, FallbackReason.ERROR, message);
         }
+        if (result.reason() == FallbackReason.TIMEOUT) {
+            log.warn("FAQ 대화가 시간 상한을 넘겨 fallback으로 답한다 chatTimeout={}", properties.chatTimeout());
+        } else if (result.reason() == FallbackReason.ERROR && !(result.error() instanceof InterruptedException)) {
+            log.warn("FAQ 대화 모델 호출이 실패해 fallback으로 답한다", result.error());
+        }
+        return fallback(Feature.FAQ_CHAT, result.reason(), message);
     }
 
     /**
@@ -142,9 +103,9 @@ public class FaqChatService {
      */
     public Flux<FaqStreamEvent> stream(String message) {
         return Flux.defer(() -> {
-            LlmCallPermit call = new LlmCallPermit();
-            if (call.blocked != null) {
-                return fallbackStream(call.blocked, message);
+            LlmCallGuard.Permit call = llm.acquire(chatClient != null);
+            if (call.blocked() != null) {
+                return fallbackStream(call.blocked(), message);
             }
             Collection<FaqHit> sources = new ConcurrentLinkedQueue<>();
             AtomicBoolean emitted = new AtomicBoolean(false);
@@ -186,12 +147,6 @@ public class FaqChatService {
         });
     }
 
-    @PreDestroy
-    void close() {
-        scheduler.dispose();
-        executor.close();
-    }
-
     private ChatClient.ChatClientRequestSpec prompt(String message, Collection<FaqHit> sources) {
         return chatClient.prompt()
                 .user(message)
@@ -221,61 +176,8 @@ public class FaqChatService {
     private Flux<FaqStreamEvent> fallbackStream(FallbackReason reason, String message) {
         // 검색은 블로킹(ES·임베딩·DB)이라 구독한 스레드에서 바로 부르지 않고 LLM 호출과 같은 executor에서 부른다(trace가 이어진다)
         return Mono.fromCallable(() -> fallback(Feature.FAQ_STREAM, reason, message))
-                .subscribeOn(scheduler)
+                .subscribeOn(llm.scheduler())
                 .flatMapMany(answer -> Flux.just(new FaqStreamEvent.Token(answer.answer()),
                         new FaqStreamEvent.Done(answer.sources(), true)));
-    }
-
-    /**
-     * LLM 호출 한 번의 회로 허가와 동시 호출 자리. 만들 때 둘을 잡고, 성공·실패·취소 중 처음 한 번만 회로에 기록하고 자리를 돌려준다.
-     * 잡지 못했으면 {@link #blocked}에 이유가 있고 돌려줄 것이 없다.
-     */
-    private final class LlmCallPermit {
-
-        private final @Nullable FallbackReason blocked;
-        private final long start = System.nanoTime();
-        private final AtomicBoolean settled = new AtomicBoolean(false);
-
-        LlmCallPermit() {
-            this.blocked = acquire();
-            if (blocked != null) {
-                settled.set(true);
-            }
-        }
-
-        void succeeded() {
-            if (settled.compareAndSet(false, true)) {
-                circuitBreaker.onSuccess(System.nanoTime() - start, TimeUnit.NANOSECONDS);
-                permits.release();
-            }
-        }
-
-        void failed(Throwable error) {
-            if (settled.compareAndSet(false, true)) {
-                circuitBreaker.onError(System.nanoTime() - start, TimeUnit.NANOSECONDS, error);
-                permits.release();
-            }
-        }
-
-        void cancelled() {
-            if (settled.compareAndSet(false, true)) {
-                circuitBreaker.releasePermission();
-                permits.release();
-            }
-        }
-
-        private @Nullable FallbackReason acquire() {
-            if (chatClient == null) {
-                return FallbackReason.MODEL_OFF;
-            }
-            if (!circuitBreaker.tryAcquirePermission()) {
-                return FallbackReason.CIRCUIT_OPEN;
-            }
-            if (!permits.tryAcquire()) {
-                circuitBreaker.releasePermission();
-                return FallbackReason.BUSY;
-            }
-            return null;
-        }
     }
 }

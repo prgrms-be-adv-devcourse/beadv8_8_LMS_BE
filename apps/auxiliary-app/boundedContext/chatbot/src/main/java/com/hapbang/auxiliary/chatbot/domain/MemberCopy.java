@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot.domain;
 
 import java.util.List;
+import java.util.Objects;
 
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
@@ -29,6 +30,9 @@ public record MemberCopy(
 ) {
 
     public MemberCopy {
+        // 이벤트와 싱크가 같은 확인을 거친다. 사본 테이블의 role·status는 NOT NULL이다
+        Objects.requireNonNull(role, "user.role은 필수입니다.");
+        Objects.requireNonNull(status, "user.status는 필수입니다.");
         categories = List.copyOf(categories);
     }
 

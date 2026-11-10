@@ -2,6 +2,7 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -13,14 +14,18 @@ import com.hapbang.auxiliary.chatbot.domain.AppearanceCopy;
 import com.hapbang.auxiliary.chatbot.domain.AppearanceReviewCopy;
 import com.hapbang.auxiliary.chatbot.domain.CopyOutcome;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
+import com.hapbang.auxiliary.chatbot.domain.IndexAction;
+import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.LectureCopies;
 import com.hapbang.auxiliary.chatbot.domain.MemberCopy;
 import com.hapbang.auxiliary.chatbot.out.AppearanceCopyStore;
 import com.hapbang.auxiliary.chatbot.out.AppearanceReviewCopyStore;
 import com.hapbang.auxiliary.chatbot.out.CopyWrite;
+import com.hapbang.auxiliary.chatbot.out.IndexTaskStore;
 import com.hapbang.auxiliary.chatbot.out.LectureCopyStore;
 import com.hapbang.auxiliary.chatbot.out.MaskedMemberStore;
 import com.hapbang.auxiliary.chatbot.out.MemberCopyStore;
+import com.hapbang.auxiliary.chatbot.out.MissingCopy;
 import com.hapbang.shared.appearance.dto.AppearanceReviewSyncDto;
 import com.hapbang.shared.appearance.dto.AppearanceSyncDto;
 import com.hapbang.shared.appearance.event.AppearanceReviewPublishedEvent;
@@ -41,7 +46,9 @@ import com.hapbang.shared.member.dto.UserDto;
  *     회원 행은 역할·상태만 반영하고 결과는 {@link CopyOutcome#DISCARDED}로 센다.
  *     회원마다 트랜잭션 advisory lock을 잡고 마스킹 여부를 본 뒤 쓴다. 마스킹({@link MemberMasking})도 같은 락을 잡으므로,
  *     마스킹 직후 커밋 전의 행이 다시 들어오지 않는다.</li>
- *     <li>회원과 무관한 사본(출연·강의)은 upsert 한 문장이라 트랜잭션을 따로 열지 않는다.</li>
+ *     <li>출연 사본은 upsert 한 문장이라 트랜잭션을 따로 열지 않는다.</li>
+ *     <li><b>강의 사본</b>은 값이 바뀌었거나 원본 없음 표시가 바뀌면 같은 트랜잭션에서 강의 색인 요청({@code index_task})을 적는다(#718).
+ *     커밋 뒤 실행기({@link IndexTaskRunner})가 처리한다. 값이 같은 싱크 반영은 요청을 적지 않는다(매시 전체 재색인 방지).</li>
  * </ul>
  */
 @Service
@@ -52,17 +59,20 @@ public class CopyApplier {
     private final MemberCopyStore memberCopyStore;
     private final LectureCopyStore lectureCopyStore;
     private final MaskedMemberStore maskedMemberStore;
+    private final IndexTaskStore indexTaskStore;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public CopyApplier(AppearanceCopyStore appearanceCopyStore, AppearanceReviewCopyStore appearanceReviewCopyStore,
             MemberCopyStore memberCopyStore, LectureCopyStore lectureCopyStore, MaskedMemberStore maskedMemberStore,
-            PlatformTransactionManager transactionManager, @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
+            IndexTaskStore indexTaskStore, PlatformTransactionManager transactionManager,
+            @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
         this.appearanceCopyStore = appearanceCopyStore;
         this.appearanceReviewCopyStore = appearanceReviewCopyStore;
         this.memberCopyStore = memberCopyStore;
         this.lectureCopyStore = lectureCopyStore;
         this.maskedMemberStore = maskedMemberStore;
+        this.indexTaskStore = indexTaskStore;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -110,9 +120,35 @@ public class CopyApplier {
         });
     }
 
-    /** @param runId 싱크 회차 ID. 이벤트면 null */
+    /**
+     * 강의를 반영한다. 값이 바뀌었거나 원본 없음 표시를 풀었으면 같은 트랜잭션에서 강의 색인 요청을 적는다.
+     *
+     * @param runId 싱크 회차 ID. 이벤트면 null
+     */
     public CopyWrite apply(LectureSyncDto lecture, Long runId) {
-        return lectureCopyStore.save(LectureCopies.Lecture.from(lecture), runId, now());
+        LectureCopies.Lecture copy = LectureCopies.Lecture.from(lecture);
+        return transaction.execute(status -> {
+            LocalDateTime now = now();
+            CopyWrite write = lectureCopyStore.save(copy, runId, now);
+            if (write.outcome().valueChanged() || write.restored()) {
+                indexTaskStore.add(IndexType.LECTURE, String.valueOf(copy.id()), IndexAction.UPSERT, now);
+            }
+            return write;
+        });
+    }
+
+    /**
+     * 끝까지 성공한 강의 싱크 회차의 끝에 원본에 없던 강의를 표시하고, 같은 트랜잭션에서 그 강의들의 색인 요청을 적는다(추천에서 뺀다).
+     *
+     * @return 새로 표시한 행
+     */
+    public List<MissingCopy> markMissingLectures(long runId, LocalDateTime startedAt) {
+        return transaction.execute(status -> {
+            List<MissingCopy> missing = lectureCopyStore.markMissingLectures(runId, startedAt);
+            indexTaskStore.addAll(IndexType.LECTURE, missing.stream().map(row -> String.valueOf(row.sourceId())).toList(),
+                    IndexAction.UPSERT, now());
+            return missing;
+        });
     }
 
     /** 구매를 반영한다. 구매자를 마스킹했으면 버린다. @param runId 싱크 회차 ID. 이벤트면 null */

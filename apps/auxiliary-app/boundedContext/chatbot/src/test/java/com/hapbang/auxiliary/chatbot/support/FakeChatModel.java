@@ -1,8 +1,9 @@
 package com.hapbang.auxiliary.chatbot.support;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -18,6 +19,7 @@ import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -40,8 +42,8 @@ public class FakeChatModel implements ChatModel {
         TOOL_ANSWER,
         /** 예외를 던진다(스트림은 첫 조각 전 오류) */
         FAIL,
-        /** {@link #delay} 동안 응답하지 않는다 */
-        SLOW,
+        /** {@link #release()} 전까지 응답하지 않는다(시간에 기대지 않고 "느린 모델"을 만든다) */
+        HANG,
         /** 스트림: 첫 조각을 보낸 뒤 오류 */
         FAIL_AFTER_FIRST_TOKEN,
         /** 빈 답 */
@@ -52,21 +54,27 @@ public class FakeChatModel implements ChatModel {
     private final AtomicReference<Mode> mode = new AtomicReference<>(Mode.TOOL_ANSWER);
     private final AtomicReference<Prompt> lastPrompt = new AtomicReference<>();
     private final AtomicInteger calls = new AtomicInteger();
-    private volatile Duration delay = Duration.ofSeconds(10);
+    private volatile CompletableFuture<Void> gate = CompletableFuture.completedFuture(null);
 
     public void mode(Mode mode) {
         this.mode.set(mode);
     }
 
-    public void delay(Duration delay) {
-        this.delay = delay;
+    /** {@link Mode#HANG} 호출을 막아 둔다. 같은 테스트에서 {@link #release()}로 푼다 */
+    public void hold() {
+        gate = new CompletableFuture<>();
+    }
+
+    /** 막아 둔 호출을 모두 풀어 준다 */
+    public void release() {
+        gate.complete(null);
     }
 
     public void reset() {
         mode.set(Mode.TOOL_ANSWER);
         lastPrompt.set(null);
         calls.set(0);
-        delay = Duration.ofSeconds(10);
+        release();
     }
 
     public Prompt lastPrompt() {
@@ -87,8 +95,8 @@ public class FakeChatModel implements ChatModel {
         record(prompt);
         return switch (mode.get()) {
             case FAIL, FAIL_AFTER_FIRST_TOKEN -> throw new IllegalStateException("가짜 모델 실패");
-            case SLOW -> {
-                sleep(delay);
+            case HANG -> {
+                await(gate);
                 yield response(answer(prompt));
             }
             case EMPTY -> response("");
@@ -102,7 +110,7 @@ public class FakeChatModel implements ChatModel {
             record(prompt);
             return switch (mode.get()) {
                 case FAIL -> Flux.error(new IllegalStateException("가짜 모델 실패"));
-                case SLOW -> Flux.just(response("늦은 답")).delaySubscription(delay);
+                case HANG -> Flux.just(response("늦은 답")).delaySubscription(Mono.fromFuture(gate, true));
                 case EMPTY -> Flux.just(response(""));
                 case FAIL_AFTER_FIRST_TOKEN -> Flux.concat(Flux.just(response(ANSWER_PREFIX)),
                         Flux.error(new IllegalStateException("가짜 모델 도중 실패")));
@@ -145,12 +153,14 @@ public class FakeChatModel implements ChatModel {
         return new ChatResponse(List.of(new Generation(new AssistantMessage(text))));
     }
 
-    private static void sleep(Duration duration) {
+    private static void await(CompletableFuture<Void> gate) {
         try {
-            Thread.sleep(duration);
+            gate.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("가짜 모델 대기 중단", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException(e.getCause());
         }
     }
 }

@@ -42,6 +42,10 @@ hapbang:
       dimensions: 1536
       # 임시값. 배포 전에 평가셋을 OpenAI로 한 번 돌려 정한다(README "평가")
       similarity-threshold: 0.4
+    index:
+      lecture-name: chatbot-lectures-openai-1536
+      influencer-name: chatbot-influencers-openai-1536
+      dimensions: 1536
   search:
     elasticsearch:
       # 검색 role(search-*)의 key. Secret(auxiliary-app-secrets의 ES_SEARCH_API_KEY, #806). 스위치가 꺼져 있으면 읽지 않는다

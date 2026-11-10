@@ -137,6 +137,16 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
 - 기준값은 공급자마다 다르다(코사인 유사도). 운영(OpenAI) 값은 평가 전이라 "임시값"으로 표시한다.
 - 로컬 Ollama는 호출이 되는지 보는 개발용이고 품질은 운영 공급자로 본다. 2026-11-09 Ollama 평가는 hit@1 0.169, hit@3 0.399였고, 기준값 0.30~0.70 어디서도 범위 밖 질문 7개를 하나도 거르지 못했다(0.76에서 2개). `nomic-embed-text`가 영어 위주로 학습되어 한국어 문장의 뜻을 잘 가르지 못하는 것이 원인으로 보인다. 로컬에서 품질까지 보려면 다국어 임베딩 모델로 바꾸고 차원·index 이름을 함께 바꾼다.
 
+## 챗봇 추천 색인·LLM 공통 (#718)
+
+강의 추천(#718)·인플루언서 추천(#719)·자유 질문(#720)이 함께 쓰는 기반이다.
+
+- **추천 벡터 index**(`RecommendVectorIndex`): Spring AI `VectorStore` 대신 `ElasticsearchClient`로 직접 다룬다(취향 벡터 kNN, 저장된 벡터 읽기, 필드 일부 갱신). 이름은 설정값 `hapbang.chatbot.index.lecture-name`·`influencer-name`이고 규칙은 `chatbot-<종류>-<공급자>-<차원>`이다(ES role `chatbot-*`에 들어간다). ES 9는 벡터를 `_source`에서 빼고 저장한다. 저장된 벡터는 `_source.exclude_vectors: false`로 읽는다.
+- **색인 요청**(`chatbot.index_task`): 사본이 바뀐 트랜잭션에 요청을 적고, 실행기(`IndexTaskRunner`, 5초마다)가 커밋 뒤 가져가 종류별 처리기(`IndexTaskHandler`)에 넘긴다. 처리기는 요청 값이 아니라 지금 사본 상태로 맞춘다. 같은 문서의 요청은 한 번에 끝내고, 실패하면 30초부터 두 배씩 1시간까지 늘려 다시 한다. 10번 이상 실패하면 `[CHATBOT_INDEX_TASK_STUCK]` ERROR. 끝난 요청은 7일 뒤 지운다. 여러 pod가 함께 돌아도 임대(`next_attempt_at`)로 나눠 가져가 실행 락이 없다. 지표 `hapbang.chatbot.index.tasks{type,result}`.
+- 강의 사본은 값이 바뀌었거나 원본 없음 표시가 바뀔 때만 요청을 적는다. 값이 같은 매시 싱크는 요청을 적지 않는다.
+- 나눠 쓰는 자원: 실행기는 앱 배치 스레드(2개) 하나를 쓴다. 한 번에 최대 50건(`hapbang.chatbot.index.task.batch-size`)이라 평소에는 짧지만, 첫 전체 색인처럼 요청이 많으면 한 회차가 수십 초 걸린다(임베딩 호출 + ES 쓰기). 그동안 다른 배치는 남은 스레드 하나로 돈다. DB는 회차마다 짧은 트랜잭션(가져가기 1번 + 끝내기 문서마다 1번)만 쓴다.
+- **LLM 호출 장치**(`LlmCallGuard`): 회로 하나와 동시 호출 상한 하나(`hapbang.chatbot.llm.max-concurrent-calls`, 기본 4)를 모든 챗봇 기능이 나눠 쓴다. 기능마다 따로 두지 않는다.
+
 ## 검색 (#771, #772)
 
 인플루언서 검색 모듈이다. 구조·index·이벤트 처리·API·지표는 [`docs/search/module.md`](../../docs/search/module.md)에 있다.

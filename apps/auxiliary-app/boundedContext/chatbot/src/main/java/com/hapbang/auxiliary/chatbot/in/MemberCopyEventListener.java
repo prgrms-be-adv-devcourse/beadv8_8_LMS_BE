@@ -71,8 +71,6 @@ public class MemberCopyEventListener {
     private void apply(String type, UserDto user) {
         Objects.requireNonNull(user, "user는 필수입니다.");
         Objects.requireNonNull(user.id(), "user.id는 필수입니다.");
-        Objects.requireNonNull(user.role(), "user.role은 필수입니다.");
-        Objects.requireNonNull(user.status(), "user.status는 필수입니다.");
         CopyWrite write = copyApplier.apply(user);
         log.info("회원 이벤트를 회원 사본에 반영했다 type={}, userId={}, version={}, ourVersion={}, outcome={}", type,
                 user.id(), user.version(), write.ourVersion(), write.outcome());
