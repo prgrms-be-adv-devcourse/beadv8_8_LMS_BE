@@ -19,6 +19,7 @@ import com.hapbang.auxiliary.search.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
+import com.hapbang.auxiliary.search.out.MemberDocument;
 import com.hapbang.auxiliary.search.out.MemberProfile;
 import com.hapbang.auxiliary.search.out.WriteOutcome;
 import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
@@ -111,16 +112,17 @@ class InfluencerMemberIndexerTest {
     }
 
     @Test
-    @DisplayName("처음 적재용 문서: 정상 인플루언서만 만들고(분야 이름 포함) 쓰지 않는다. 그 밖의 회원은 빈 값")
+    @DisplayName("처음 적재용 문서: 정상 인플루언서는 보이는 문서(분야 이름 포함), 그 밖의 회원은 지금 숨긴 숨김 문서. 쓰지는 않는다")
     void documentOf() {
-        assertThat(indexer.documentOf(user(1L, Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 3L))).hasValueSatisfying(doc -> {
-            assertThat(doc.userId()).isEqualTo(1L);
-            assertThat(doc.version()).isEqualTo(3L);
-            assertThat(doc.profile().verified()).isTrue();
-            assertThat(doc.profile().contentCategories()).contains(new MemberProfile.Category("GAME", "게임"));
-        });
-        assertThat(indexer.documentOf(user(2L, Role.USER, UserStatus.ACTIVE, 1L))).isEmpty();
-        assertThat(indexer.documentOf(user(3L, Role.INFLUENCER, UserStatus.SUSPENDED, 1L))).isEmpty();
+        MemberDocument visible = indexer.documentOf(user(1L, Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 3L));
+        assertThat(visible.isVisible()).isTrue();
+        assertThat(visible.userId()).isEqualTo(1L);
+        assertThat(visible.version()).isEqualTo(3L);
+        assertThat(visible.profile().verified()).isTrue();
+        assertThat(visible.profile().contentCategories()).contains(new MemberProfile.Category("GAME", "게임"));
+        assertThat(indexer.documentOf(user(2L, Role.USER, UserStatus.ACTIVE, 1L)))
+                .isEqualTo(MemberDocument.hidden(2L, 1L, NOW));
+        assertThat(indexer.documentOf(user(3L, Role.INFLUENCER, UserStatus.SUSPENDED, 1L)).isVisible()).isFalse();
         assertThatThrownBy(() -> indexer.documentOf(new UserDto(4L, "닉", null, UserStatus.ACTIVE, 1L)))
                 .isInstanceOf(IllegalArgumentException.class);
     }

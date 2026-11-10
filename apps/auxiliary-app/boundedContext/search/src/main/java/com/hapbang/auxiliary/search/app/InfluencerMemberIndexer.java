@@ -1,7 +1,6 @@
 package com.hapbang.auxiliary.search.app;
 
 import java.time.Clock;
-import java.util.Optional;
 import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,14 +68,16 @@ public class InfluencerMemberIndexer {
     }
 
     /**
-     * 처음 적재·재색인(#773)이 새 index에 넣을 문서. 쓰지 않고 만들기만 한다. 정상 인플루언서가 아니면 빈 값이다(새 index에는 숨김 문서를 넣지
-     * 않는다).
+     * 처음 적재·재색인(#773)이 새 index에 넣을 문서. 쓰지 않고 만들기만 한다. 정상 인플루언서면 보이는 문서, 아니면 숨김 문서(지금 시각에 숨김)다.
+     * 숨김 문서도 넣어 교체 뒤 늦게 온 옛 이벤트를 막는다(#773 리뷰 Q3).
      *
      * @throws IllegalArgumentException 회원 ID·역할·상태가 없는 정보
      */
-    Optional<MemberDocument> documentOf(UserDto user) {
+    MemberDocument documentOf(UserDto user) {
         requireComplete(user);
-        return isIndexed(user) ? Optional.of(new MemberDocument(user.id(), user.version(), profile(user))) : Optional.empty();
+        return isIndexed(user)
+                ? MemberDocument.visible(user.id(), user.version(), profile(user))
+                : MemberDocument.hidden(user.id(), user.version(), clock.instant());
     }
 
     private static void requireComplete(UserDto user) {

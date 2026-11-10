@@ -16,12 +16,9 @@ import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.out.IndexState;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
-import com.hapbang.auxiliary.search.out.InfluencerStats;
 import com.hapbang.auxiliary.search.out.MemberDocument;
 import com.hapbang.auxiliary.search.out.MemberListSource;
-import com.hapbang.auxiliary.search.out.MemberStatsSource;
 import com.hapbang.auxiliary.search.out.WriteOutcome;
-import com.hapbang.shared.member.dto.InfluencerStatsPageDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.dto.UserDto;
 
@@ -38,17 +35,16 @@ import lombok.extern.slf4j.Slf4j;
  * <ol>
  *     <li>남은 index(실패한 지난 시도, 지우지 못한 옛 index)를 지운다.</li>
  *     <li>시각 T를 기록하고, 지금 설정의 새 index를 alias 없이 만든다.</li>
- *     <li>회원 목록(모든 회원)을 끝까지 읽어 정상 인플루언서를 bulk로 넣는다(회원 version 조건부 쓰기). 이어서 통계를 끝까지 읽어 채운다.</li>
+ *     <li>회원 목록(모든 회원)을 끝까지 읽어 bulk로 넣는다(회원 version 조건부 쓰기). 정상 인플루언서는 보이는 문서, 그 밖의 회원은 숨김 문서다
+ *     (#773 리뷰 Q3). ES가 그 회원 값 때문에 거절한 회원은 건너뛴다(증분 보정과 같다). 이어서 통계를 끝까지 읽어 채운다.</li>
  *     <li>새 index를 refresh하고, 넣은 정상 인플루언서 수와 보이는 문서 수를 비교한다. 다르면 멈춘다.</li>
  *     <li>alias를 한 요청으로 옮긴다(remove + add). 이 순간까지 검색·이벤트는 옛 index를 쓴다(처음 적재면 검색은 503, 이벤트는 건너뜀).</li>
  *     <li>증분 보정을 T − 1분부터 한 번 돈다({@link MemberChangeReconciler#runFrom}). 그사이 이벤트는 옛 index로 갔으므로 바뀐 회원을 새 index에
  *     반영한다. 정기 보정이 돌고 있으면 끝날 때까지 기다렸다 다시 부른다.</li>
  *     <li>옛 index를 지운다.</li>
  * </ol>
- * 3~5에서 실패하면 alias는 옛 그대로 두고 새 index를 지운다. ERROR 로그와 지표를 남기고, 다음 확인(10분 뒤)에 처음부터 다시 한다.
- * <p>
- * 새 index에는 숨김 문서(tombstone)를 넣지 않는다. 재색인 전에 쌓인 DLT 메시지를 되돌리면 숨겨야 할 회원이 다시 보일 수 있지만, 재색인이 원본 전체를
- * 다시 읽었으므로 그 DLT는 되돌릴 필요가 없다(모듈 문서).
+ * 3~5에서 실패하면 alias는 옛 그대로 두고 새 index를 지운다. ERROR 로그와 지표를 남기고, 다음 확인(10분 뒤)에 처음부터 다시 한다. alias 교체
+ * 응답만 실패하고 ES에는 적용됐으면(시간 초과) alias를 다시 읽어 교체한 것으로 보고 이어 간다.
  */
 @Slf4j
 @Service
@@ -74,7 +70,7 @@ public class InfluencerReindexer {
     private final InfluencerMemberIndexer indexer;
     private final ContentCategoryNames categoryNames;
     private final MemberListSource members;
-    private final MemberStatsSource stats;
+    private final InfluencerStatsSync statsSync;
     private final MemberChangeReconciler reconciler;
     private final SearchJobRunner jobRunner;
     private final SearchSyncMetrics metrics;
@@ -85,22 +81,22 @@ public class InfluencerReindexer {
     @Autowired
     public InfluencerReindexer(InfluencerIndexSetup indexSetup, InfluencerDocumentStore store,
             InfluencerMemberIndexer indexer, ContentCategoryNames categoryNames, MemberListSource members,
-            MemberStatsSource stats, MemberChangeReconciler reconciler, SearchJobRunner jobRunner,
+            InfluencerStatsSync statsSync, MemberChangeReconciler reconciler, SearchJobRunner jobRunner,
             SearchSyncMetrics metrics) {
-        this(indexSetup, store, indexer, categoryNames, members, stats, reconciler, jobRunner, metrics,
+        this(indexSetup, store, indexer, categoryNames, members, statsSync, reconciler, jobRunner, metrics,
                 Clock.system(MemberChangeReconciler.ZONE), CATCH_UP_RETRY_INTERVAL, CATCH_UP_MAX_WAIT);
     }
 
     InfluencerReindexer(InfluencerIndexSetup indexSetup, InfluencerDocumentStore store,
             InfluencerMemberIndexer indexer, ContentCategoryNames categoryNames, MemberListSource members,
-            MemberStatsSource stats, MemberChangeReconciler reconciler, SearchJobRunner jobRunner,
+            InfluencerStatsSync statsSync, MemberChangeReconciler reconciler, SearchJobRunner jobRunner,
             SearchSyncMetrics metrics, Clock clock, Duration retryInterval, Duration maxWait) {
         this.indexSetup = indexSetup;
         this.store = store;
         this.indexer = indexer;
         this.categoryNames = categoryNames;
         this.members = members;
-        this.stats = stats;
+        this.statsSync = statsSync;
         this.reconciler = reconciler;
         this.jobRunner = jobRunner;
         this.metrics = metrics;
@@ -116,12 +112,14 @@ public class InfluencerReindexer {
 
     /**
      * 필요하면 처음 적재·재색인을 한다. 락 없이 돌므로 바깥에서는 {@link #run}만 부른다. 테스트는 같은 패키지에서 바로 부른다.
+     * 적재·비교·교체가 실패하면 그 자리에서 ERROR를 남기고 실패 결과를 돌려준다(다시 던지면 실행기가 같은 예외를 또 남긴다).
      *
      * @return 한 일
-     * @throws IllegalStateException 3~5에서 실패한 경우(alias는 옛 그대로, 새 index는 지웠다). ES·회원 앱에 닿지 못한 경우
+     * @throws IllegalStateException 상태를 읽거나 남은 index·새 index를 만들고 지우지 못한 경우(ES에 닿지 못함). 실행기가 WARN을 남긴다
      */
     ReindexResult reindexIfNeeded() {
-        indexSetup.syncSynonyms();
+        // pod가 떠 있는 동안 ES를 새로 만들었을 수 있어 기억과 상관없이 다시 맞춘다
+        indexSetup.resyncSynonyms();
         IndexState state = indexSetup.state();
         if (state.upToDate()) {
             // 지난 재색인이 옛 index를 지우지 못했으면 여기서 지운다
@@ -130,10 +128,9 @@ public class InfluencerReindexer {
         }
         if (state.aliasTargets().contains(state.expectedIndex())) {
             // 사람이 alias를 손으로 바꾼 경우뿐이다. 지금 설정 index를 지우고 다시 만들 수 없어 멈춘다
-            log.error("{} 검색 alias가 지금 설정의 index와 다른 index를 함께 가리켜 재색인하지 않는다 targets={}", FAILED_MARKER,
-                    state.aliasTargets());
-            throw new IllegalStateException("검색 alias가 지금 설정의 index와 다른 index를 함께 가리킵니다. 사람이 확인해야 합니다 targets="
-                    + state.aliasTargets());
+            log.error("{} 검색 alias가 지금 설정의 index와 다른 index를 함께 가리켜 재색인하지 않는다. alias가 한 index만 가리키게 고친다 "
+                    + "targets={}", FAILED_MARKER, state.aliasTargets());
+            return ReindexResult.failed(null, null);
         }
         return reindex(state);
     }
@@ -147,7 +144,7 @@ public class InfluencerReindexer {
         log.info("검색 index를 {} 시작한다 reason={}, from={}, to={}, startedAt={}", reason.description(), reason.tag(),
                 state.aliasTargets(), state.expectedIndex(), startedAt);
         String fresh = indexSetup.createIndex();
-        LoadResult loaded;
+        LoadResult loaded = null;
         try {
             loaded = load(fresh);
             indexSetup.refresh(fresh);
@@ -158,11 +155,19 @@ public class InfluencerReindexer {
             }
             indexSetup.switchAlias(state.aliasTargets(), fresh);
         } catch (RuntimeException e) {
-            deleteQuietly(List.of(fresh), "만들던");
-            metrics.reindexed(reason, SearchSyncMetrics.REINDEX_FAILURE, Duration.ofNanos(System.nanoTime() - started), 0);
-            log.error("{} 검색 index를 {} 못해 alias를 그대로 두고 다음 확인 때 다시 한다 reason={}, alias={}, index={}",
-                    FAILED_MARKER, reason.description(), reason.tag(), state.aliasTargets(), fresh, e);
-            throw e;
+            AliasCheck check = loaded == null ? AliasCheck.NOT_SWITCHED : checkAlias(fresh);
+            if (check != AliasCheck.SWITCHED) {
+                if (check == AliasCheck.NOT_SWITCHED) {
+                    deleteQuietly(List.of(fresh), "만들던");
+                }
+                metrics.reindexed(reason, SearchSyncMetrics.REINDEX_FAILURE, Duration.ofNanos(System.nanoTime() - started),
+                        0);
+                log.error("{} 검색 index를 {} 못해 alias를 그대로 두고 다음 확인 때 다시 한다 reason={}, alias={}, index={}",
+                        FAILED_MARKER, reason.description(), reason.tag(), state.aliasTargets(), fresh, e);
+                return ReindexResult.failed(reason, fresh);
+            }
+            // 교체 응답만 실패하고(시간 초과) ES에는 적용됐다. 새 index를 지우면 alias가 사라지므로 교체한 것으로 보고 이어 간다
+            log.warn("검색 alias 교체 응답은 실패했지만 alias가 새 index를 가리켜 이어 간다 index={}", fresh, e);
         }
 
         CatchUp catchUp = catchUp(startedAt.minus(CATCH_UP_OVERLAP));
@@ -172,17 +177,42 @@ public class InfluencerReindexer {
                 ? SearchSyncMetrics.REINDEX_SUCCESS
                 : SearchSyncMetrics.REINDEX_CATCH_UP_FAILED;
         metrics.reindexed(reason, outcome, took, loaded.influencers());
-        log.info("검색 index를 {} 끝냈다 reason={}, index={}, read={}, influencers={}, skipped={}, statsFailed={}, "
-                        + "catchUp={}, tookMs={}", reason.description(), reason.tag(), fresh, loaded.read(),
-                loaded.influencers(), loaded.skipped(), loaded.statsFailed(), catchUp, took.toMillis());
-        return new ReindexResult(reason, fresh, loaded, catchUp);
+        log.info("검색 index를 {} 끝냈다 reason={}, index={}, read={}, influencers={}, hidden={}, skipped={}, "
+                        + "statsFailed={}, catchUp={}, tookMs={}", reason.description(), reason.tag(), fresh,
+                loaded.read(), loaded.influencers(), loaded.hidden(), loaded.skipped(), loaded.statsFailed(), catchUp,
+                took.toMillis());
+        return new ReindexResult(reason, fresh, loaded, catchUp, false);
     }
 
-    /** 회원 목록으로 정상 인플루언서를 넣고, 통계를 채운다 */
+    /**
+     * 실패한 뒤 alias가 새 index로 옮겨졌는지 다시 읽는다. 읽지 못하면 새 index를 지우지 않는다(alias가 붙어 있으면 지울 때 alias도 사라진다).
+     * 옮겨지지 않았다면 다음 확인 때 남은 index로 지운다.
+     */
+    private AliasCheck checkAlias(String index) {
+        try {
+            return indexSetup.state().aliasTargets().contains(index) ? AliasCheck.SWITCHED : AliasCheck.NOT_SWITCHED;
+        } catch (RuntimeException e) {
+            log.warn("검색 alias를 다시 읽지 못해 새 index를 지우지 않고 다음 확인에 맡긴다 index={}", index, e);
+            return AliasCheck.UNKNOWN;
+        }
+    }
+
+    /** 실패한 뒤 다시 읽은 alias 상태 */
+    private enum AliasCheck {
+        /** 새 index를 가리킨다(교체 응답만 실패) */
+        SWITCHED,
+        /** 옛 그대로다 */
+        NOT_SWITCHED,
+        /** 읽지 못했다 */
+        UNKNOWN
+    }
+
+    /** 회원 목록으로 문서를 넣고(정상 인플루언서는 보이게, 그 밖은 숨김), 통계를 채운다 */
     private LoadResult load(String index) {
         refreshCategoryNames();
         long read = 0;
         long influencers = 0;
+        long hidden = 0;
         long skipped = 0;
         Long afterId = null;
         do {
@@ -190,28 +220,31 @@ public class InfluencerReindexer {
             List<MemberDocument> documents = new ArrayList<>();
             for (UserDto user : page.items()) {
                 try {
-                    indexer.documentOf(user).ifPresent(documents::add);
+                    documents.add(indexer.documentOf(user));
                 } catch (IllegalArgumentException e) {
                     // 회원 정보가 빠졌다. 다시 읽어도 같으므로 건너뛴다(증분 보정과 같다)
                     log.warn("회원 정보가 빠져 검색 처음 적재에서 건너뛴다 userId={}", user == null ? null : user.id(), e);
                     skipped++;
                 }
             }
-            requireAllWritten(store.loadMembers(index, documents), index);
+            Map<Long, WriteOutcome> outcomes = store.loadMembers(index, documents);
+            requireNoFailure(outcomes, index);
+            for (MemberDocument document : documents) {
+                if (outcomes.get(document.userId()) == WriteOutcome.REJECTED) {
+                    // ES가 이 회원의 값 때문에 거절했다. 다시 넣어도 같으므로 건너뛴다(멈추면 처음 적재가 영영 끝나지 않는다)
+                    skipped++;
+                } else if (document.isVisible()) {
+                    influencers++;
+                } else {
+                    hidden++;
+                }
+            }
             read += page.items().size();
-            influencers += documents.size();
             afterId = page.nextAfterId();
         } while (afterId != null);
 
-        long statsFailed = 0;
-        Long statsAfterId = null;
-        do {
-            InfluencerStatsPageDto page = stats.influencerStats(statsAfterId, PAGE_SIZE);
-            statsFailed += store.applyStats(index, page.items().stream().map(InfluencerStats::from).toList())
-                    .values().stream().filter(outcome -> outcome == WriteOutcome.FAILED).count();
-            statsAfterId = page.nextAfterId();
-        } while (statsAfterId != null);
-        return new LoadResult(read, influencers, skipped, statsFailed);
+        long statsFailed = statsSync.applyAllStats(index).count(WriteOutcome.FAILED);
+        return new LoadResult(read, influencers, hidden, skipped, statsFailed);
     }
 
     /** 분야 이름을 새로 읽는다. 못 읽으면 가진 이름으로 넣고 10분 동기화가 채운다(통계 동기화와 같다) */
@@ -223,8 +256,8 @@ public class InfluencerReindexer {
         }
     }
 
-    /** 넣지 못한 회원이 있으면 멈춘다. 그 회원이 빠진 채 alias를 옮기면 다음 재색인까지 검색에 보이지 않는다 */
-    private static void requireAllWritten(Map<Long, WriteOutcome> outcomes, String index) {
+    /** 넣지 못한 회원이 있으면(장애) 멈춘다. 그 회원이 빠진 채 alias를 옮기면 다음 재색인까지 검색에 보이지 않는다 */
+    private static void requireNoFailure(Map<Long, WriteOutcome> outcomes, String index) {
         List<Long> failed = outcomes.entrySet().stream().filter(e -> e.getValue() == WriteOutcome.FAILED)
                 .map(Map.Entry::getKey).sorted().toList();
         if (!failed.isEmpty()) {
@@ -298,26 +331,33 @@ public class InfluencerReindexer {
     /**
      * @param read        읽은 회원 수(모든 역할·상태)
      * @param influencers 넣은 정상 인플루언서 수(문서 수 비교의 원본 수)
-     * @param skipped     회원 정보가 빠져 건너뛴 회원 수
+     * @param hidden      넣은 숨김 문서 수(정상 인플루언서가 아닌 회원)
+     * @param skipped     회원 정보가 빠졌거나 ES가 그 회원 값 때문에 거절해 건너뛴 회원 수
      * @param statsFailed 통계를 쓰지 못한 회원 수(10분 동기화가 다시 쓴다)
      */
-    record LoadResult(long read, long influencers, long skipped, long statsFailed) {
+    record LoadResult(long read, long influencers, long hidden, long skipped, long statsFailed) {
     }
 
     /**
-     * @param reason  한 이유. 할 일이 없었으면 null
+     * @param reason  한 이유. 할 일이 없었거나 시작 전에 멈췄으면 null
      * @param index   새 index. 할 일이 없었으면 null
-     * @param loaded  넣은 결과. 할 일이 없었으면 null
-     * @param catchUp 따라잡기 결과. 할 일이 없었으면 null
+     * @param loaded  넣은 결과. 할 일이 없었거나 실패했으면 null
+     * @param catchUp 따라잡기 결과. 할 일이 없었거나 실패했으면 null
+     * @param failed  적재·비교·교체가 실패해 alias를 그대로 뒀는지
      */
-    record ReindexResult(ReindexReason reason, String index, LoadResult loaded, CatchUp catchUp) {
+    record ReindexResult(ReindexReason reason, String index, LoadResult loaded, CatchUp catchUp, boolean failed) {
 
         static ReindexResult upToDate() {
-            return new ReindexResult(null, null, null, null);
+            return new ReindexResult(null, null, null, null, false);
         }
 
+        static ReindexResult failed(ReindexReason reason, String index) {
+            return new ReindexResult(reason, index, null, null, true);
+        }
+
+        /** alias를 새 index로 옮겼는지 */
         boolean done() {
-            return reason != null;
+            return loaded != null;
         }
     }
 }

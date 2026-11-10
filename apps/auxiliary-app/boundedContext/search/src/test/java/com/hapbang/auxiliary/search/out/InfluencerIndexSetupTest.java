@@ -70,6 +70,19 @@ class InfluencerIndexSetupTest {
     }
 
     @Test
+    @DisplayName("한 번 맞춘 뒤 ES의 묶음이 사라져도(ES를 새로 만듦) syncSynonyms는 기억대로 넘어가고, resyncSynonyms는 다시 올린다")
+    void resyncsAfterElasticsearchRecreated() throws Exception {
+        setup.syncSynonyms();
+        SearchElasticsearch.reset(client);
+
+        setup.syncSynonyms();
+        assertThatThrownBy(this::synonyms).isInstanceOf(co.elastic.clients.elasticsearch._types.ElasticsearchException.class);
+
+        setup.resyncSynonyms();
+        assertThat(synonyms()).hasSize(10);
+    }
+
+    @Test
     @DisplayName("alias가 다른 설정의 index를 가리키면 새 index를 만들지 않고 그대로 쓴다(재색인이 옮긴다)")
     void keepsOutdatedIndex() throws Exception {
         createOld();

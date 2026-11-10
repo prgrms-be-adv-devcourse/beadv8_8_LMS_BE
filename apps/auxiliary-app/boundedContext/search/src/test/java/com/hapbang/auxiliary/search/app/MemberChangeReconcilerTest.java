@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.auxiliary.search.app.MemberChangeReconciler.ReconcileResult;
+import com.hapbang.auxiliary.search.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
@@ -318,6 +319,28 @@ class MemberChangeReconcilerTest {
         lockHeld[0] = true;
         assertThat(locked.runFrom(SAVED)).isEqualTo(MemberChangeReconciler.CatchUp.BUSY);
         assertThat(cursors.find(CURSOR).orElseThrow().memberUpdatedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("처음 적재 전(alias 없음)이면 커서를 만들지 않고 실패 지표에도 넣지 않는다. ES 장애는 실패 지표에 넣는다(#773 리뷰)")
+    void notReadyIsNotFailure() throws Exception {
+        SearchElasticsearch.reset(client);
+        InfluencerIndexSetup fresh = new InfluencerIndexSetup(client);
+        MemberChangeReconciler notLoaded = new MemberChangeReconciler(fresh, store, indexer, source, cursors, null,
+                new SearchSyncMetrics(registry, cursors, new InMemoryConsistencyCheckStore(), clock), clock);
+
+        assertThatThrownBy(() -> notLoaded.reconcile(null)).isInstanceOf(IndexNotReadyException.class);
+        assertThat(cursors.find(CURSOR)).isEmpty();
+        assertThat(registry.find("hapbang.search.reconcile.duration").tag("outcome", "failure").timer()).isNull();
+
+        ElasticsearchClient down = SearchElasticsearch.client("http://127.0.0.1:9");
+        MemberChangeReconciler esDown = new MemberChangeReconciler(new InfluencerIndexSetup(down),
+                new InfluencerDocumentStore(down), indexer, source, cursors, null,
+                new SearchSyncMetrics(registry, cursors, new InMemoryConsistencyCheckStore(), clock), clock);
+        assertThatThrownBy(() -> esDown.reconcile(null)).isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(IndexNotReadyException.class);
+        assertThat(registry.get("hapbang.search.reconcile.duration").tag("outcome", "failure").timer().count())
+                .isEqualTo(1);
     }
 
     private static UserDto influencer(long id, long version, List<String> categories) {

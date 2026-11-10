@@ -34,7 +34,8 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>alias가 다른 설정의 index를 가리키면(mapping·사용자 사전이 바뀜) 재색인이 옮길 때까지 그 index에 쓴다.</li>
  *     <li>처음 적재·재색인용: 상태 보기, 새 index 만들기·지우기, refresh, alias 원자 교체.</li>
  * </ul>
- * 쓰기 준비는 한 번 되면 다시 ES에 묻지 않는다. 실패하면 예외를 던지고, 다음 호출(이벤트 소비·배치)에서 다시 한다.
+ * 쓰기 준비는 한 번 되면 다시 ES에 묻지 않는다. 실패하면 예외를 던지고, 다음 호출(이벤트 소비·배치)에서 다시 한다. 준비된 뒤 ES를 새로 만들어
+ * alias가 사라지면 문서 쓰기가 alias 없음(404)을 {@link IndexNotReadyException}으로 바꿔 알린다({@link InfluencerDocumentStore}).
  */
 @Slf4j
 @Component
@@ -71,13 +72,19 @@ public class InfluencerIndexSetup {
                 return;
             }
             syncSynonyms();
-            IndexState state = state();
-            if (state.aliasMissing()) {
+            // 처음 적재 전에는 이벤트마다 여기에 오므로 alias만 가볍게 본다(index 전체 조회 없음)
+            Set<String> targets;
+            try {
+                targets = aliasTargets();
+            } catch (IOException | ElasticsearchException e) {
+                throw new IllegalStateException("검색 alias를 읽지 못했습니다 alias=" + InfluencerIndexDefinition.ALIAS, e);
+            }
+            if (targets.isEmpty()) {
                 throw new IndexNotReadyException("검색 index를 처음 적재하기 전입니다 alias=" + InfluencerIndexDefinition.ALIAS);
             }
-            if (!state.upToDate()) {
+            if (!targets.equals(Set.of(definition.indexName()))) {
                 log.warn("검색 index 설정이 바뀌었다. 재색인이 옮길 때까지 지금 index를 쓴다 alias={}, current={}, expected={}",
-                        InfluencerIndexDefinition.ALIAS, state.aliasTargets(), state.expectedIndex());
+                        InfluencerIndexDefinition.ALIAS, targets, definition.indexName());
             }
             ready = true;
         }
@@ -89,7 +96,7 @@ public class InfluencerIndexSetup {
     }
 
     /**
-     * ES의 동의어 묶음을 레포 파일과 맞춘다. 한 번 맞추면 다시 묻지 않는다.
+     * ES의 동의어 묶음을 레포 파일과 맞춘다. 한 번 맞추면 다시 묻지 않는다(쓰기 준비용).
      *
      * @throws IllegalStateException ES에 닿지 못하거나 거절당한 경우
      */
@@ -97,25 +104,29 @@ public class InfluencerIndexSetup {
         if (synonymsSynced) {
             return;
         }
-        synchronized (this) {
-            if (synonymsSynced) {
-                return;
+        resyncSynonyms();
+    }
+
+    /**
+     * 기억과 상관없이 ES의 동의어 묶음을 다시 확인해 맞춘다. 처음 적재·재색인이 index를 만들기 전에 부른다(pod가 떠 있는 동안 ES를 새로 만들었을 수 있다).
+     *
+     * @throws IllegalStateException ES에 닿지 못하거나 거절당한 경우
+     */
+    public synchronized void resyncSynonyms() {
+        try {
+            Map<String, String> expected = expectedSynonyms();
+            if (!expected.equals(currentSynonyms())) {
+                List<SynonymRule> rules = new ArrayList<>();
+                expected.forEach((id, synonyms) -> rules.add(SynonymRule.of(r -> r.id(id).synonyms(synonyms))));
+                client.synonyms().putSynonym(p -> p.id(InfluencerIndexDefinition.SYNONYMS_SET).synonymsSet(rules));
+                log.info("검색 동의어 묶음을 바꿨다 synonymsSet={}, rules={}", InfluencerIndexDefinition.SYNONYMS_SET,
+                        rules.size());
             }
-            try {
-                Map<String, String> expected = expectedSynonyms();
-                if (!expected.equals(currentSynonyms())) {
-                    List<SynonymRule> rules = new ArrayList<>();
-                    expected.forEach((id, synonyms) -> rules.add(SynonymRule.of(r -> r.id(id).synonyms(synonyms))));
-                    client.synonyms().putSynonym(p -> p.id(InfluencerIndexDefinition.SYNONYMS_SET).synonymsSet(rules));
-                    log.info("검색 동의어 묶음을 바꿨다 synonymsSet={}, rules={}", InfluencerIndexDefinition.SYNONYMS_SET,
-                            rules.size());
-                }
-            } catch (IOException | ElasticsearchException e) {
-                throw new IllegalStateException("검색 동의어 묶음을 맞추지 못했습니다 synonymsSet="
-                        + InfluencerIndexDefinition.SYNONYMS_SET, e);
-            }
-            synonymsSynced = true;
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("검색 동의어 묶음을 맞추지 못했습니다 synonymsSet="
+                    + InfluencerIndexDefinition.SYNONYMS_SET, e);
         }
+        synonymsSynced = true;
     }
 
     /**
@@ -125,9 +136,7 @@ public class InfluencerIndexSetup {
      */
     public IndexState state() {
         try {
-            Set<String> targets = client.indices().existsAlias(a -> a.name(InfluencerIndexDefinition.ALIAS)).value()
-                    ? client.indices().getAlias(a -> a.name(InfluencerIndexDefinition.ALIAS)).aliases().keySet()
-                    : Set.of();
+            Set<String> targets = aliasTargets();
             Set<String> indices = client.indices().get(g -> g.index(InfluencerIndexDefinition.INDEX_PREFIX + "*")
                     .allowNoIndices(true)).indices().keySet();
             return new IndexState(targets, indices, definition.indexName());
@@ -203,6 +212,13 @@ public class InfluencerIndexSetup {
             throw new IllegalStateException("검색 alias를 옮기지 못했습니다 alias=" + InfluencerIndexDefinition.ALIAS
                     + ", from=" + from + ", to=" + to, e);
         }
+    }
+
+    /** alias가 가리키는 index. alias가 없으면 빈 집합 */
+    private Set<String> aliasTargets() throws IOException {
+        return client.indices().existsAlias(a -> a.name(InfluencerIndexDefinition.ALIAS)).value()
+                ? client.indices().getAlias(a -> a.name(InfluencerIndexDefinition.ALIAS)).aliases().keySet()
+                : Set.of();
     }
 
     /** 파일 순서대로 r001, r002 … id를 붙인 규칙 */

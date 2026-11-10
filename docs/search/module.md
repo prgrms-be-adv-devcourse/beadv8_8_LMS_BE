@@ -91,12 +91,13 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 - 재시도·DLT는 [kafka.md](../architecture/infrastructure/kafka.md) 규칙이다: 1·2·4초 3회 뒤 `member.events.v1.auxiliary-app.search-member.DLT`(partition 3, 보존 7일). 회원 ID·역할·상태가 없는 이벤트는 재시도 없이 DLT로 간다.
 - 새 그룹은 `earliest`부터 읽는다(보존 기간 안의 과거 회원 이벤트로 그동안 승급한 인플루언서가 들어간다).
 - **alias가 없으면(처음 적재 전) 이벤트를 건너뛴다**(DEBUG, 재시도·DLT 없음, #773 Q1). 처음 적재가 시각 T 뒤에 회원 목록을 읽고, alias를 붙인 뒤 T − 1분부터 따라잡으므로 잃는 변경이 없다. 증분 보정·통계 동기화·tombstone 정리도 그 회차를 건너뛴다(INFO).
+- pod가 떠 있는 동안 ES를 새로 만들어 alias가 사라져도 같다. 문서 쓰기·읽기가 alias 없음(404 `index_not_found_exception`)을 `IndexNotReadyException`으로 바꿔 건너뛰고(DLT로 보내지 않는다), 다음 확인(7장)이 동의어부터 다시 맞춰 처음 적재한다(#773 리뷰).
 
 ### ES가 멈췄을 때
 
 - 재시도는 팀 규칙대로 3번(약 7초)이다. ES가 그보다 오래 멈추면(재시작, ECK 롤링) 그동안 온 회원 이벤트가 DLT로 간다. 승급·강등 이벤트가 그중에 있으면 검색 노출이 원본과 어긋난다.
 - 10분 증분 보정(6장)이 회원 변경분을 다시 읽어 저절로 바로잡는다. ES가 살아난 뒤 다음 회차에 맞춰지므로 **DLT를 되돌리지 않아도 된다.** 보정이 멈춘 동안 바뀐 회원도 커서가 그 앞에 남아 있어 따라잡는다.
-- 보정으로도 맞지 않으면(커서 밖의 변경, 6장 "한계") 아래처럼 DLT를 되돌릴 수 있다. **재색인(7장) 전에 쌓인 DLT는 되돌리지 않는다.** 재색인이 원본 전체를 다시 읽었고, 새 index에는 숨김 문서가 없어 옛 이벤트가 숨긴 회원을 다시 보이게 할 수 있다.
+- 보정으로도 맞지 않으면(커서 밖의 변경, 6장 "한계") 아래처럼 DLT를 되돌릴 수 있다.
 - 되돌리기: [kafka.md "DLT 재처리 runbook"](../architecture/infrastructure/kafka.md#dlt-재처리-runbook)대로 `member.events.v1.auxiliary-app.search-member.DLT`를 조회해, ES가 살아난 뒤 메시지를 `member.events.v1`에 다시 넣는다. 같은 토픽의 다른 그룹(회원 복제본들)도 다시 받지만 version 비교로 무시한다. 검색 문서도 version 조건부 쓰기라 여러 번 넣거나 순서가 섞여도 결과가 같다. 회원 정보가 빠져 DLT로 간 메시지(`IllegalArgumentException`)는 넣지 않는다.
 
 ## 6. 10분 동기화와 정리
@@ -144,7 +145,7 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 ### 언제 하나
 
-- 기동 뒤 다른 스레드에서 한 번(`SearchIndexStartup`, 기동을 막지 않는다), 그 뒤 끝난 뒤 10분마다 확인한다(`SearchBatch`, `hapbang.search.reindex-check-interval`). 한 pod만(`JobLock` 773_001). 배포 중 두 pod가 겹쳐도 한 번만 돌고, 락을 놓친 pod는 건너뛴다.
+- 기동 뒤 다른 스레드에서 한 번(`SearchIndexStartup`, 기동을 막지 않는다), 그 뒤 10분마다 확인한다(`SearchBatch`, `hapbang.search.reindex-check-interval`). 확인도 가상 스레드로 넘긴다(적재가 몇 분 걸려도 앱 공용 스케줄러 스레드 2개를 붙잡지 않게). 한 pod만(`JobLock` 773_001). 배포 중 두 pod가 겹쳐도 한 번만 돌고, 락을 놓친 pod는 건너뛴다.
 - 아래 둘 중 하나면 한다. 그 밖에는 alias를 한 번 읽고 끝난다.
   - alias가 없다(처음 배포, ES를 새로 만듦): **처음 적재**(`reason=first_load`)
   - alias가 다른 설정 해시의 index를 가리킨다(mapping·분석기·사용자 사전이 바뀜): **재색인**(`reason=settings_changed`)
@@ -156,13 +157,14 @@ auxiliary-app 안의 검색 모듈(`:search`, 패키지 `com.hapbang.auxiliary.s
 
 1. 남은 index(alias가 가리키지 않는 `search-influencers-*`: 실패한 지난 시도, 지우지 못한 옛 index)를 지운다.
 2. 시각 T를 기록하고, 지금 설정의 새 index를 **alias 없이** 만든다.
-3. 회원 목록 내부 API(모든 회원, `docs/api/internal-members.md` 1장)를 500명씩 끝까지 읽어 정상 인플루언서만 bulk로 넣는다. 이벤트와 같은 회원 version 조건부 script다. 숨김 문서는 넣지 않는다. 이어서 통계 API(#769)를 끝까지 읽어 채운다(통계 일부 실패는 10분 동기화가 채운다).
+3. 회원 목록 내부 API(모든 회원, `docs/api/internal-members.md` 1장)를 500명씩 끝까지 읽어 bulk로 넣는다. 이벤트와 같은 회원 version 조건부 script다. 정상 인플루언서는 보이는 문서, **그 밖의 회원(일반 유저·강등·정지·탈퇴)은 숨김 문서**(version과 숨긴 시각만, 개인정보 없음, 7일 뒤 정리)다. 숨김 문서가 있어야 교체 뒤 늦게 처리된 옛 "보이기" 이벤트가 숨긴 회원을 다시 보이게 하지 못한다(5장과 같은 보호, #773 리뷰 Q3). 회원 정보가 빠졌거나 ES가 그 회원 값 때문에 거절한 회원은 WARN을 남기고 건너뛴다(증분 보정과 같다. 멈추면 처음 적재가 영영 끝나지 않는다). 그 밖의 쓰기 실패(장애)는 멈춘다. 이어서 통계 API(#769)를 끝까지 읽어 채운다(10분 통계 동기화와 같은 코드, 통계 일부 실패는 다음 동기화가 채운다).
 4. 새 index를 refresh하고, **넣은 정상 인플루언서 수와 보이는 문서 수를 비교한다.** 다르면 멈춘다. 원본 수는 적재하며 읽은 수다(통계 API 수와 비교하면 그사이 승급·강등된 회원 때문에 멀쩡해도 다를 수 있다).
 5. alias를 **한 요청으로** 옮긴다(`remove` 옛 index + `add` 새 index). ES가 한 번에 적용하므로 검색이 alias를 잃거나 두 index를 함께 보는 순간이 없다. 이 순간까지 검색·이벤트·보정은 옛 index를 쓴다.
 6. 증분 보정을 **T − 1분부터** 한 번 돈다(`runFrom`). 재색인 중 이벤트는 옛 index로 갔으므로 그사이 바뀐 회원(분야 수정, 강등)을 새 index에 반영한다. T 전 변경은 3이 읽었고, 1분은 늦게 커밋된 변경 여유다(6장 겹쳐 읽기와 같다). 정기 보정이 락을 쥐고 있으면(`BUSY`) 5초마다 최대 5분 다시 부른다.
 7. 옛 index를 지운다(지우지 못하면 다음 확인 때 1에서 지운다).
 
-- 3~5에서 실패하면 alias는 옛 그대로 두고 만들던 새 index를 지운다. `[SEARCH_REINDEX_FAILED]` ERROR와 지표(`outcome=failure`)를 남긴다. 처음 적재면 alias가 없는 채로 남아 검색은 503, 이벤트는 계속 건너뛴다.
+- 3~5에서 실패하면 alias는 옛 그대로 두고 만들던 새 index를 지운다. `[SEARCH_REINDEX_FAILED]` ERROR 한 줄(예외 포함)과 지표(`outcome=failure`)를 남긴다. 처음 적재면 alias가 없는 채로 남아 검색은 503, 이벤트는 계속 건너뛴다.
+- alias 교체 응답만 실패하고(시간 초과) ES에는 적용됐을 수 있으므로, 지우기 전에 alias를 다시 읽는다. 새 index를 가리키면 교체한 것으로 보고 6으로 이어 가고, 읽지 못하면 새 index를 지우지 않고 다음 확인에 맡긴다(지우면 alias도 사라진다. 교체되지 않았다면 다음 확인이 1에서 지운다).
 - 6이 끝내 `BUSY`이거나 `FAILED`면 `[SEARCH_REINDEX_CATCH_UP_FAILED]` ERROR와 `outcome=catch_up_failed`를 남긴다. `FAILED`는 커서가 이미 T − 1분 뒤에 있어 다음 정기 보정이 이어 간다. `BUSY`는 커서를 옮기지 못했으므로 재색인 중 바뀐 회원이 빠졌을 수 있다(5분 넘게 끝나지 않는 보정은 그 자체로 장애다).
 - alias가 지금 설정 index와 다른 index를 함께 가리키면(사람이 손으로 바꾼 경우뿐) 지울 수 없어 `[SEARCH_REINDEX_FAILED]`로 멈춘다. alias를 한 index만 가리키게 고친다.
 - 사람이 봐야 하는 실패라 ERROR에 alert 표식을 붙였지만 alert 규칙은 아직 두지 않았다(#772 Q2와 같이 지표·로그로 본다).
@@ -234,11 +236,11 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 | 테스트 | 보는 것 |
 | --- | --- |
 | `InfluencerDocumentStoreTest` | 순서 역전·중복·null version, 통계 갱신 뒤 회원 이벤트, tombstone(문서 없을 때 포함), 정리, require_alias, 이름을 정한 새 index에 bulk 넣기·통계·세기 |
-| `InfluencerIndexSetupTest` | 동의어 묶음, alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애 |
-| `InfluencerReindexerTest` | 처음 적재(인플루언서만·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림 |
+| `InfluencerIndexSetupTest` | 동의어 묶음(ES를 새로 만든 뒤 다시 맞추기 포함), alias가 없으면 만들지 않고 `IndexNotReadyException`, 설정이 바뀐 index 그대로 쓰기, 상태·남은 index, alias 원자 교체(거절되면 그대로), ES 장애 |
+| `InfluencerReindexerTest` | 처음 적재(인플루언서 보이게·그 밖 숨김 문서·통계·alias·커서 T − 1분), 해시가 같으면 안 함, 설정이 바뀌면 옮기고 옛·남은 index 삭제, 재색인 중 바뀐 회원 따라잡기, **재색인 내내 검색 실패 없음**, 수가 다르거나 bulk가 실패하면 alias 그대로·새 index 삭제, 두 pod가 동시에 시작해도 한 번, 따라잡기가 BUSY면 기다림, 거절된 회원 건너뜀, alias 교체 응답만 실패, pod가 뜬 채 ES를 새로 만듦 |
 | `SearchMemberEventListenerTest` | 실제 Kafka로 가입·변경 반영, 다른 타입 건너뜀, DLT, 처음 적재 전 건너뜀 |
 | `InfluencerStatsSyncTest` | 통계 반영·noop·평균 지움·문서 없음·숨김·여러 페이지·분야 이름, 정합성 점검(차이 0·양수·음수, 세기 실패) |
-| `MemberChangeReconcilerTest` | 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원·ES가 거절한 회원 건너뜀, 다음 커서 없는 응답, `runFrom` 성공·실패 |
+| `MemberChangeReconcilerTest` | 처음 적재 전은 실패 지표에 넣지 않음(ES 장애는 넣음), 증분 보정: 처음은 지금부터, 분야 변경·강등·승급을 놓친 경우, 1분 겹쳐 읽기, 이벤트와 둘 다 반영, version만 오름, 일반 유저, 멈춘 뒤 이어 가기, 바깥 시작 시각, 깨진 회원·ES가 거절한 회원 건너뜀, 다음 커서 없는 응답, `runFrom` 성공·실패 |
 | `SyncCursorStoreTest`, `ConsistencyCheckStoreTest` | 커서·점검 결과 저장(PostgreSQL 컨테이너) |
 | `SearchSyncMetricsTest` | 보정 지연(끝까지 읽은 시각 기준), 문서 수 차이(DB, 25분 지나면 비움), kind별 건수 |
 | `ApiV1SearchControllerTest` | 응답, 필터, 정렬, 동점 페이지 넘김, 400·401, 0건 검색어 |
@@ -250,5 +252,5 @@ ES는 검색 전용 Testcontainers(`SearchElasticsearchTestcontainersConfig`, 9.
 - 사전에 없는 지어낸 닉네임은 잘게 쪼개져 다른 검색어에 걸릴 수 있다(예: "롤러스케이터"가 "롤" 검색에 걸림, G01b). 0건 검색어처럼 근거가 쌓이면 사전을 보강하거나 하위 필드를 더한다.
 - 동의어 일치와 원문 일치의 가중치가 같다(G05). 원문 일치를 위로 올리려면 동의어 없는 하위 필드를 작은 가중치로 더한다.
 - 승급한 회원의 채널·팔로워·평점은 다음 통계 동기화(최대 10분)까지 비어 있다. 재색인 중 승급해 따라잡기로 들어온 회원도 같다.
-- 처음 적재·재색인은 한 pod가 회원 목록을 500명씩 읽어 페이지마다 bulk로 넣는다. 회원 수만 명까지는 수십 초로 본다. 훨씬 커지면 `reindex.duration`을 보고 bulk 크기·refresh 끄기를 검토한다.
-- 재색인한 새 index에는 숨김 문서가 없다. 재색인 전 DLT를 되돌리면 숨긴 회원이 보일 수 있어 되돌리지 않는다(5장).
+- 처음 적재·재색인은 한 pod가 회원 목록(모든 회원)을 500명씩 읽어 페이지마다 bulk로 넣는다. 일반 유저도 숨김 문서로 들어가 문서 수는 회원 수만큼이고 7일 뒤 정리된다. 회원 수만 명까지는 수십 초로 본다. 훨씬 커지면 `reindex.duration`을 보고 bulk 크기·refresh 끄기를 검토한다.
+- #771·#772 코드로 이미 alias가 붙은 로컬 ES는 해시가 같아 처음 적재가 돌지 않는다(운영은 스위치가 꺼져 index가 없다). 로컬의 `search-influencers-*`를 지우고 띄운다.

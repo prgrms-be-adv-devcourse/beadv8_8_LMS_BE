@@ -137,11 +137,16 @@ class InfluencerDocumentStoreTest {
     }
 
     @Test
-    @DisplayName("alias가 없으면 쓰지 않고 실패한다. ES가 alias 이름으로 index를 멋대로 만들지 않는다")
+    @DisplayName("alias가 없으면(ES를 새로 만듦) 쓰지 않고 IndexNotReadyException이다. ES가 alias 이름으로 index를 멋대로 만들지 않는다")
     void requiresAlias() throws Exception {
         SearchElasticsearch.reset(client);
 
-        assertThatThrownBy(() -> store.show(USER_ID, 1L, profile("페이커팬"))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> store.show(USER_ID, 1L, profile("페이커팬"))).isInstanceOf(IndexNotReadyException.class);
+        assertThatThrownBy(() -> store.hide(USER_ID, 1L, NOW)).isInstanceOf(IndexNotReadyException.class);
+        assertThatThrownBy(() -> store.findMembers(List.of(USER_ID))).isInstanceOf(IndexNotReadyException.class);
+        assertThatThrownBy(store::countVisible).isInstanceOf(IndexNotReadyException.class);
+        assertThatThrownBy(() -> store.deleteHiddenBefore(NOW)).isInstanceOf(IndexNotReadyException.class);
+        assertThatThrownBy(() -> store.syncCategoryNames(Map.of())).isInstanceOf(IndexNotReadyException.class);
         assertThat(client.indices().exists(e -> e.index(InfluencerIndexDefinition.ALIAS)).value()).isFalse();
     }
 
@@ -153,14 +158,16 @@ class InfluencerDocumentStoreTest {
 
         @Test
         @SuppressWarnings("unchecked")
-        @DisplayName("alias가 없는 새 index에 회원을 bulk로 넣고(version 조건부), 통계를 채우고, 보이는 문서를 센다. alias 쪽 index는 그대로다")
+        @DisplayName("alias가 없는 새 index에 회원을 bulk로 넣고(version 조건부, 숨김 문서 포함), 통계를 채우고, 보이는 문서를 센다. alias 쪽 index는 그대로다")
         void loadsIntoNamedIndex() throws Exception {
             String fresh = freshIndex();
 
             Map<Long, WriteOutcome> loaded = store.loadMembers(fresh, List.of(
-                    new MemberDocument(1L, 5L, profile("페이커팬")), new MemberDocument(2L, 1L, profile("메이플장인"))));
-            assertThat(loaded).containsEntry(1L, WriteOutcome.CREATED).containsEntry(2L, WriteOutcome.CREATED);
-            assertThat(store.loadMembers(fresh, List.of(new MemberDocument(1L, 4L, profile("옛 닉네임")))))
+                    MemberDocument.visible(1L, 5L, profile("페이커팬")), MemberDocument.visible(2L, 1L, profile("메이플장인")),
+                    MemberDocument.hidden(3L, 2L, NOW)));
+            assertThat(loaded).containsEntry(1L, WriteOutcome.CREATED).containsEntry(2L, WriteOutcome.CREATED)
+                    .containsEntry(3L, WriteOutcome.CREATED);
+            assertThat(store.loadMembers(fresh, List.of(MemberDocument.visible(1L, 4L, profile("옛 닉네임")))))
                     .containsEntry(1L, WriteOutcome.NOOP);
 
             Map<Long, WriteOutcome> stats = store.applyStats(fresh, List.of(
@@ -174,6 +181,9 @@ class InfluencerDocumentStoreTest {
             Map<String, Object> source = client.get(g -> g.index(fresh).id("1"), Map.class).source();
             assertThat(source).containsEntry("nickname", "페이커팬").containsEntry("memberVersion", 5)
                     .containsEntry("followerCount", 1000).containsEntry("hidden", false);
+            Map<String, Object> tombstone = client.get(g -> g.index(fresh).id("3"), Map.class).source();
+            assertThat(tombstone).containsEntry("hidden", true).containsEntry("memberVersion", 2)
+                    .containsEntry("hiddenAt", NOW.toEpochMilli()).doesNotContainKey("nickname");
         }
 
         @Test

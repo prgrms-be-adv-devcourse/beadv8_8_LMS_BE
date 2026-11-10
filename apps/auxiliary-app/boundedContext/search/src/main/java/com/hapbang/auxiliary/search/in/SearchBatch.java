@@ -49,10 +49,13 @@ class SearchBatch {
     /**
      * 처음 적재·재색인이 필요한지 확인하고 필요하면 한다(#773 Q2). 시작 때 실패했거나 lock을 놓친 경우를 사람 없이 다시 한다. 필요 없으면 alias를
      * 한 번 읽고 끝난다. 시작 때 한 번은 {@code SearchIndexStartup}이 하므로 10분 뒤부터 한다.
+     * <p>
+     * 적재는 몇 분 걸릴 수 있어 가상 스레드로 넘긴다. 앱 공용 스케줄러 스레드(2개)를 붙잡으면 챗봇·알림 배치가 밀린다. 같은 pod에서 앞 실행이 아직
+     * 돌고 있으면 lock이 건너뛴다.
      */
     @Scheduled(fixedDelayString = "${hapbang.search.reindex-check-interval:10m}", initialDelayString = "10m")
     void checkIndex() {
-        reindexer.run();
+        Thread.ofVirtual().name("search-reindex-check").start(reindexer::run);
     }
 
     /** 7일 지난 tombstone 정리. 하루 1번, 사용이 적은 새벽 */

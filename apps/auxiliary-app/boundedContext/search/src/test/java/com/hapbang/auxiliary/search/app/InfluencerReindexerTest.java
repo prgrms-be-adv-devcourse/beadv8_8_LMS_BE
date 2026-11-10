@@ -76,7 +76,7 @@ class InfluencerReindexerTest {
     @BeforeEach
     void reset() throws Exception {
         SearchElasticsearch.reset(client);
-        pod = new Pod(new InfluencerDocumentStore(client), runner(), runner());
+        pod = new Pod(new InfluencerDocumentStore(client), new InfluencerIndexSetup(client), runner(), runner());
     }
 
     @Test
@@ -94,13 +94,15 @@ class InfluencerReindexerTest {
         assertThat(result.reason()).isEqualTo(ReindexReason.FIRST_LOAD);
         assertThat(result.loaded().read()).isEqualTo(4);
         assertThat(result.loaded().influencers()).isEqualTo(2);
+        assertThat(result.loaded().hidden()).isEqualTo(2);
         assertThat(result.catchUp()).isEqualTo(CatchUp.CAUGHT_UP);
         assertThat(aliasTargets()).containsExactly(expected);
         assertThat(source(1)).containsEntry("nickname", "닉네임1").containsEntry("memberVersion", 3)
                 .containsEntry("followerCount", 1000).containsEntry("representativeChannelName", "롤방송");
         assertThat(source(3)).containsEntry("verified", true);
-        assertThat(exists(2)).isFalse();
-        assertThat(exists(4)).isFalse();
+        // 정상 인플루언서가 아닌 회원은 숨김 문서(version만, 개인정보 없음)로 넣어 늦게 온 옛 이벤트를 막는다(#773 리뷰 Q3)
+        assertThat(source(2)).containsEntry("hidden", true).containsEntry("memberVersion", 1).doesNotContainKey("nickname");
+        assertThat(source(4)).containsEntry("hidden", true).containsEntry("memberVersion", 2);
         assertThat(cursors.find(SyncCursor.MEMBER_CHANGES).orElseThrow().memberUpdatedAt())
                 .isEqualTo(NOW.minusMinutes(1));
         assertThat(registry.get("hapbang.search.reindex.documents").tag("reason", "first_load").counter().count())
@@ -221,8 +223,7 @@ class InfluencerReindexerTest {
         members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"))
                 .user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
 
-        assertThatThrownBy(pod.reindexer::reindexIfNeeded).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("문서 수");
+        assertThat(pod.reindexer.reindexIfNeeded().failed()).isTrue();
 
         assertThat(aliasTargets()).isEmpty();
         assertThat(indices()).isEmpty();
@@ -242,11 +243,10 @@ class InfluencerReindexerTest {
                 return fail.get() ? Map.of(1L, WriteOutcome.FAILED) : super.loadMembers(index, documents);
             }
         };
-        Pod failingPod = new Pod(failing, runner(), runner());
+        Pod failingPod = new Pod(failing, new InfluencerIndexSetup(client), runner(), runner());
         members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
 
-        assertThatThrownBy(failingPod.reindexer::reindexIfNeeded).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("넣지 못했습니다");
+        assertThat(failingPod.reindexer.reindexIfNeeded().failed()).isTrue();
         assertThat(aliasTargets()).containsExactly(OLD);
         assertThat(indices()).containsExactly(OLD);
 
@@ -259,7 +259,7 @@ class InfluencerReindexerTest {
     @Test
     @DisplayName("두 pod가 동시에 시작해도 한 번만 돈다. 늦은 pod는 락을 잡지 못해 건너뛴다")
     void twoPodsRunOnce() throws Exception {
-        Pod other = new Pod(new InfluencerDocumentStore(client), runner(), runner());
+        Pod other = new Pod(new InfluencerDocumentStore(client), new InfluencerIndexSetup(client), runner(), runner());
         CountDownLatch loading = new CountDownLatch(1);
         CountDownLatch otherTried = new CountDownLatch(1);
         members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME")).onPage(() -> {
@@ -284,7 +284,8 @@ class InfluencerReindexerTest {
     void catchUpWaitsForBusyReconcile() throws Exception {
         members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
         AtomicInteger busy = new AtomicInteger(2);
-        Pod waiting = new Pod(new InfluencerDocumentStore(client), runner(), busyRunner(busy));
+        Pod waiting = new Pod(new InfluencerDocumentStore(client), new InfluencerIndexSetup(client), runner(),
+                busyRunner(busy));
 
         assertThat(waiting.reindexer.reindexIfNeeded().catchUp()).isEqualTo(CatchUp.CAUGHT_UP);
         assertThat(busy.get()).isEqualTo(-1);
@@ -297,6 +298,70 @@ class InfluencerReindexerTest {
                 .isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("ES가 그 회원 값 때문에 거절한 회원은 건너뛰고(수 비교에서 빠짐) 나머지로 처음 적재를 끝낸다")
+    void skipsRejectedMember() throws Exception {
+        InfluencerDocumentStore rejecting = new InfluencerDocumentStore(client) {
+            @Override
+            public Map<Long, WriteOutcome> loadMembers(String index, List<MemberDocument> documents) {
+                Map<Long, WriteOutcome> outcomes = new java.util.HashMap<>(super.loadMembers(index,
+                        documents.stream().filter(d -> d.userId() != 2L).toList()));
+                outcomes.put(2L, WriteOutcome.REJECTED);
+                return outcomes;
+            }
+        };
+        Pod rejectingPod = new Pod(rejecting, new InfluencerIndexSetup(client), runner(), runner());
+        members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"))
+                .user(user(2, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
+
+        ReindexResult result = rejectingPod.reindexer.reindexIfNeeded();
+
+        assertThat(result.done()).isTrue();
+        assertThat(result.loaded().influencers()).isEqualTo(1);
+        assertThat(result.loaded().skipped()).isEqualTo(1);
+        assertThat(aliasTargets()).containsExactly(expected);
+    }
+
+    @Test
+    @DisplayName("alias 교체 응답만 실패하고 ES에는 적용됐으면(시간 초과) 새 index를 지우지 않고 교체한 것으로 보고 이어 간다")
+    void switchTimeoutAfterApplied() throws Exception {
+        createOldIndex();
+        InfluencerIndexSetup timingOut = new InfluencerIndexSetup(client) {
+            @Override
+            public void switchAlias(java.util.Collection<String> from, String to) {
+                super.switchAlias(from, to);
+                throw new IllegalStateException("응답 시간 초과");
+            }
+        };
+        Pod timingOutPod = new Pod(new InfluencerDocumentStore(client), timingOut, runner(), runner());
+        members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
+
+        ReindexResult result = timingOutPod.reindexer.reindexIfNeeded();
+
+        assertThat(result.done()).isTrue();
+        assertThat(result.catchUp()).isEqualTo(CatchUp.CAUGHT_UP);
+        assertThat(aliasTargets()).containsExactly(expected);
+        assertThat(indices()).containsExactly(expected);
+    }
+
+    @Test
+    @DisplayName("pod가 떠 있는 동안 ES를 새로 만들면 이벤트는 건너뛰고(DLT 아님), 다음 확인이 동의어부터 다시 맞춰 처음 적재한다")
+    void elasticsearchRecreatedWhilePodRuns() throws Exception {
+        members.user(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 1, "GAME"));
+        pod.reindexer.reindexIfNeeded();
+        pod.indexer.apply(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 2, "GAME"));
+
+        SearchElasticsearch.reset(client);
+
+        assertThatThrownBy(() -> pod.indexer.apply(user(1, Role.INFLUENCER, UserStatus.ACTIVE, 3, "GAME")))
+                .isInstanceOf(com.hapbang.auxiliary.search.out.IndexNotReadyException.class);
+        ReindexResult result = pod.reindexer.reindexIfNeeded();
+        assertThat(result.reason()).isEqualTo(ReindexReason.FIRST_LOAD);
+        assertThat(client.synonyms().getSynonym(g -> g.id(InfluencerIndexDefinition.SYNONYMS_SET)).synonymsSet())
+                .hasSize(10);
+        assertThat(source(1)).containsEntry("hidden", false);
+    }
+
     /** 검색 모듈 빈 묶음 하나(pod 하나) */
     private final class Pod {
 
@@ -304,15 +369,18 @@ class InfluencerReindexerTest {
         private final InfluencerMemberIndexer indexer;
         private final InfluencerReindexer reindexer;
 
-        Pod(InfluencerDocumentStore store, SearchJobRunner reindexRunner, SearchJobRunner reconcileRunner) {
-            InfluencerIndexSetup indexSetup = new InfluencerIndexSetup(client);
+        Pod(InfluencerDocumentStore store, InfluencerIndexSetup indexSetup, SearchJobRunner reindexRunner,
+                SearchJobRunner reconcileRunner) {
             ContentCategoryNames categoryNames = new ContentCategoryNames(stats);
-            SearchSyncMetrics metrics = new SearchSyncMetrics(registry, cursors, new InMemoryConsistencyCheckStore(), clock);
+            InMemoryConsistencyCheckStore consistencyChecks = new InMemoryConsistencyCheckStore();
+            SearchSyncMetrics metrics = new SearchSyncMetrics(registry, cursors, consistencyChecks, clock);
             this.store = store;
             this.indexer = new InfluencerMemberIndexer(indexSetup, store, categoryNames, clock);
             MemberChangeReconciler reconciler = new MemberChangeReconciler(indexSetup, store, indexer, changes, cursors,
                     reconcileRunner, metrics, clock);
-            this.reindexer = new InfluencerReindexer(indexSetup, store, indexer, categoryNames, members, stats,
+            InfluencerStatsSync statsSync = new InfluencerStatsSync(indexSetup, store, stats, categoryNames,
+                    reindexRunner, consistencyChecks, clock);
+            this.reindexer = new InfluencerReindexer(indexSetup, store, indexer, categoryNames, members, statsSync,
                     reconciler, reindexRunner, metrics, clock, Duration.ofMillis(10), Duration.ofMillis(200));
         }
     }

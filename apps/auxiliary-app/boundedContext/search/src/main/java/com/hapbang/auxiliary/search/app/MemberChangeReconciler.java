@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import com.hapbang.auxiliary.search.app.InfluencerMemberIndexer.MemberIndexResult;
 import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 import com.hapbang.auxiliary.search.out.DocumentRejectedException;
+import com.hapbang.auxiliary.search.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.out.IndexedMember;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
@@ -126,13 +127,14 @@ public class MemberChangeReconciler {
      * @throws com.hapbang.shared.member.out.MemberApiCallException 회원 앱을 부르지 못한 경우
      */
     ReconcileResult reconcile(LocalDateTime from) {
-        // 처음 적재 전(IndexNotReadyException)은 실패 지표에 넣지 않는다(#773 Q1). 커서도 만들지 않는다
-        indexSetup.ensureReady();
         long started = System.nanoTime();
         try {
             ReconcileResult result = reconcileOnce(from);
             metrics.reconciled(result, Duration.ofNanos(System.nanoTime() - started));
             return result;
+        } catch (IndexNotReadyException e) {
+            // 처음 적재 전은 실패가 아니라 할 일이 없는 것이다. 실패 지표에 넣지 않는다(#773 Q1). 준비 확인이 먼저라 커서도 만들지 않았다
+            throw e;
         } catch (RuntimeException e) {
             metrics.reconcileFailed(Duration.ofNanos(System.nanoTime() - started));
             throw e;
@@ -140,6 +142,7 @@ public class MemberChangeReconciler {
     }
 
     private ReconcileResult reconcileOnce(LocalDateTime from) {
+        indexSetup.ensureReady();
         LocalDateTime afterUpdatedAt = startFrom(from);
         long afterId = SyncCursor.READ_FROM_ID;
 
