@@ -30,15 +30,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
 
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
@@ -54,6 +50,7 @@ import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.CouponUsageRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
 import com.hapbang.testsupport.IntegrationTest;
+import com.hapbang.testsupport.RedisTestcontainersConfig;
 
 import com.jayway.jsonpath.JsonPath;
 
@@ -64,25 +61,19 @@ import com.jayway.jsonpath.JsonPath;
  * <p>
  * 이 모듈 테스트에는 강의 앱의 내부 API 키 보안 체인이 없다. 그래서 테스트 로그인에 INTERNAL 역할을 넣고 메서드 보안을 켜서 Facade의 역할
  * 검사가 운영처럼 돌게 한다(키 → INTERNAL 역할은 lecture-app의 {@code CouponInternalApiAccessTest}가 본다). 강의 조회는 다른 앱이라
- * mock이다. Redis는 이 테스트만 쓰는 컨테이너라 멈춰도 다른 테스트에 영향이 없고, 멈춘 컨텍스트는 재사용하지 않는다.
+ * mock이다. Redis는 공통 컨테이너({@link RedisTestcontainersConfig})를 쓰고, Redis 장애는 그 컨테이너를 잠시 멈춰({@code withRedisPaused})
+ * 만든다. 앱의 Redis 연결이 그 컨테이너를 가리키므로, 이 클래스만의 컨테이너를 멈추는 방식은 앱의 Redis를 멈추지 못했다.
  */
 @IntegrationTest
 @AutoConfigureMockMvc
 // 판매자·플랫폼 쿠폰을 함께 추천·예약·해제하는 흐름을 보므로 플랫폼 재원을 켠다(기본값 false면 추천에서 플랫폼 쿠폰이 빠진다).
-// 이 클래스는 원래 자기 Redis 컨테이너·mock으로 컨텍스트를 따로 띄우므로 속성을 더해도 컨텍스트가 늘지 않는다
-@TestPropertySource(properties = {"spring.jpa.open-in-view=false", "hapbang.coupon.platform-funding-enabled=true"})
-@Import(CouponUsageE2eTest.MethodSecurityConfig.class)
+// 이 클래스는 mock·메서드 보안 설정으로 컨텍스트를 따로 띄우므로 속성을 더해도 컨텍스트가 늘지 않는다
+// Redis 명령 제한 시간은 운영 application.yaml과 같은 값이다(모듈 테스트는 그 파일을 읽지 않는다)
+@TestPropertySource(properties = {"spring.jpa.open-in-view=false", "hapbang.coupon.platform-funding-enabled=true",
+        "spring.data.redis.timeout=2s", "spring.data.redis.connect-timeout=1s"})
+@Import({CouponUsageE2eTest.MethodSecurityConfig.class, RedisTestcontainersConfig.class})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CouponUsageE2eTest {
-
-    private static final int REDIS_PORT = 6379;
-    private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:8")
-            .withExposedPorts(REDIS_PORT)
-            .waitingFor(Wait.forLogMessage(".*Ready to accept connections.*\\n", 1));
-
-    static {
-        REDIS.start();
-    }
 
     private static final long ADMIN_ID = 1L;
     private static final long SELLER_ID = 10L;
@@ -105,12 +96,6 @@ class CouponUsageE2eTest {
 
     @MockitoBean
     private LectureCatalog lectureCatalog;
-
-    @DynamicPropertySource
-    static void redisProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(REDIS_PORT));
-    }
 
     @Test
     void 추천_계산으로_예약하고_상태를_확인한_뒤_해제하면_다시_쓸_수_있고_같은_쿠폰의_동시_예약은_하나만_성공한다() throws Exception {
@@ -206,20 +191,45 @@ class CouponUsageE2eTest {
     }
 
     @Test
-    void Redis가_멈춰도_계산_예약_해제가_된다() throws Exception {
+    void Redis가_멈춰도_계산_예약_해제가_되고_발급_접수는_수_초_안에_503이다() throws Exception {
         givenLecture();
         long sellerCoupon = issue(MEMBER_A, saveSellerCoupon());
         long platformCoupon = issue(MEMBER_A, savePlatformCoupon());
-        REDIS.stop();
+        long issueCoupon = saveSellerCoupon();
+        RedisTestcontainersConfig.withRedisPaused(() -> unchecked(() -> {
+            String calculated = calculate(MEMBER_A, "null")
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            List<Map<String, Object>> basis = JsonPath.read(calculated, "$.data.items[0].coupons");
+            reserve(MEMBER_A, 9201L, 92011L, "order-9201:reserve:1", basisJson(basis))
+                    .andExpect(status().isOk());
+            release(9201L, "order-9201:release:1", List.of(sellerCoupon, platformCoupon))
+                    .andExpect(status().isOk());
 
-        String calculated = calculate(MEMBER_A, "null")
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        List<Map<String, Object>> basis = JsonPath.read(calculated, "$.data.items[0].coupons");
-        reserve(MEMBER_A, 9201L, 92011L, "order-9201:reserve:1", basisJson(basis))
-                .andExpect(status().isOk());
-        release(9201L, "order-9201:release:1", List.of(sellerCoupon, platformCoupon))
-                .andExpect(status().isOk());
+            // 발급 접수는 Redis가 필요하다. 응답 없는 Redis를 명령 제한 시간(2초) 뒤 503으로 끊어야 요청 스레드가 묶이지 않는다
+            long started = System.nanoTime();
+            mockMvc.perform(post("/api/v1/coupons/{couponId}/issue-requests", issueCoupon)
+                            .with(user(String.valueOf(MEMBER_A)).roles("USER")).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"issueRequestId\":\"redis-down-1\"}"))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("COUPON_ISSUE_STORE_UNAVAILABLE"));
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10));
+        }));
+    }
+
+    /** {@code withRedisPaused}는 Runnable을 받아 검사 예외를 감싼다 */
+    private static void unchecked(ThrowingRunnable action) {
+        try {
+            action.run();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 
     private void givenLecture() {
