@@ -114,7 +114,8 @@ class NotificationConnectionExpiryTest {
 
         assertThat(status).isNotNull();
         assertThat(status.getCode()).isEqualTo(4401);
-        assertThat(stomp.isOpen()).isFalse();
+        // 닫힘 콜백 안에서 깨어나므로 클라이언트 세션 상태가 아직 바뀌기 전일 수 있다. 상태가 바뀔 때까지 기다린다(#849)
+        await().atMost(WAIT).until(() -> !stomp.isOpen());
         await().atMost(WAIT).until(() -> simpUserRegistry.getUser(String.valueOf(a)) == null);
     }
 

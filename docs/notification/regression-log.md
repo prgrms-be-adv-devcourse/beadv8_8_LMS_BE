@@ -86,6 +86,35 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-026 · 2026-11-10 · 통과 (#849 CI 간헐 실패 시험 수정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-026 |
+| 실행 날짜 | 2026-11-10 16:20~17:02 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-849`(worktree, origin/dev `6d8b1688` 기준) |
+| 커밋 | `6d8b1688` |
+| 작업 트리 변경 | 있음(커밋 전). 시험만: `NotificationRealtimeIntegrationTest`(중복·밀려난 알림은 먼저 연결하고 앞선 20건을 받아 비움, Redis 멈춤은 멈춘 동안 발행 실패가 기록된 뒤 되살림, 구독 거절은 ERROR 또는 연결 닫힘을 거절로 보고 거절된 연결로 다른 회원 프레임이 오지 않는지 확인), `NotificationConnectionExpiryTest`(만료 뒤 `isOpen()`이 바뀔 때까지 기다림). 운영 코드 변경 없음 |
+| 대상 기능 | CI에서 간헐 실패한 실시간 시험(#849) |
+| 관련 NT ID | NT-RT-01~06·08(시험 안정성), NT-RET-02·NT-IDEM-01 실시간 부분 |
+| 명령 | ① 재현: `Relay.deliver` 앞에 150ms 지연을 임시로 넣고 `:notification:test --tests '*NotificationRealtimeIntegrationTest.중복*'` ② 지연을 둔 채 `--tests '*NotificationRealtimeIntegrationTest' --tests '*NotificationConnectionExpiryTest' --rerun` 3회 ③ 지연을 지우고 같은 명령 5회 ④ `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10, JDK 25, Docker Testcontainers(PostgreSQL, Redis 8, Kafka) |
+| 결과 | 통과 |
+| 건수 | ④ 새 실행(worktree 첫 빌드): `:notification` 116, `:auxiliary-app` 12, `:auxiliary-global` 108, `:chatbot` 113, `:search` 132. 합계 481, 실패 0. ②는 3회 모두, ③은 5회 모두 두 클래스 통과 |
+| 실패 원인 분류 | F-TEST(시험이 비동기 전달·세션 상태 전환 시점에 기댐). 운영 코드 결함 아님 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | 위 ②③④. 자체 리뷰(S6) 반영 뒤 17:05~17:08: 두 클래스 `--rerun` 1회 통과, ④ 다시 실행(`:notification` 116 새 실행·통과, 나머지 `UP-TO-DATE`), 종료 코드 0 |
+| 미검증 항목 | CI에서 재실행 없이 연속 3회 통과(이슈 완료 조건, PR 뒤 확인), B·C는 로컬에서 재현하지 못함 |
+| 관련 변경 | #849 |
+
+**메모 — 원인**
+- A(`중복과_밀려난_알림은…` 196행): 지연 주입으로 재현했다. 받은 프레임은 `"targetId":"new-4"`였다. 연결 전에 저장한 20건의 프레임이 연결 뒤 늦게 도착한 것으로 확정했다. 먼저 연결하고 20건을 받은 뒤 확인하도록 바꿨다.
+- 추가(`Redis가_멈춰도…`, 이슈 "공통" 점검 중 발견): 지연 주입 때 함께 실패했다. 발행 시도가 Redis를 되살린 뒤에 일어나면 성공해 `while-down` 프레임이 재접속한 연결로 왔다. 멈춘 동안 `hapbang.notification.realtime.dropped{reason=publish_failed}`가 오를 때까지 기다린 뒤 되살리도록 바꿨다(이 지표 이름·태그에 기댄다).
+- B(`연결_만료가_되면…` 117행): 닫힘 콜백 안에서 깨어나 `isOpen()`을 바로 보는 경합으로 추정. 상태가 바뀔 때까지 기다리게 바꿨다(재현 못 함).
+- C(`자기_알림_목적지_말고는…` 343행, 이슈 추가 보고): 로그가 없어 원인을 확정하지 못했다. ERROR 프레임 또는 정상 종료(1000)가 아닌 코드의 연결 닫힘을 거절로 보고, 둘 다 없으면 목적지를 실패 메시지에 남기게 바꿨다. 거절된 연결로 다른 회원의 프레임이 오지 않는지 확인을 더했다. `RawStomp`는 닫히기 전에 받은 프레임을 큐에 남긴다(확인).
+- 같은 파일의 다른 "프레임 없음" 시험(롤백·commit 전·다른 회원·읽음·파기·SEND)은 앞선 저장이 없거나 먼저 비우므로 같은 위험이 없다.
+
 #### NR-025 · 2026-11-10 · 통과 (#829 Bot 리뷰 2차 뒤 자체 리뷰)
 
 | 항목 | 값 |
