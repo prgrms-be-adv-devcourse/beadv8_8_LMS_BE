@@ -53,13 +53,16 @@ public interface ApiV1CouponSpec {
                     + "NOT_FOUND(요청이 없거나 다른 회원·다른 쿠폰의 요청).")
     RsData<IssueStatusView> issueStatus(Long memberId, Long couponId, String issueRequestId);
 
-    @Operation(summary = "내 쿠폰 목록", description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 발급받은 쿠폰과 할인 조건.")
+    @Operation(summary = "내 쿠폰 목록",
+            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 발급받은 쿠폰과 할인 조건. 각 항목의 couponType(SELLER·PLATFORM)은 "
+                    + "결제 화면에서 판매자 칸·플랫폼 칸을 나누는 데 쓴다.")
     RsData<List<MemberCouponView>> myCoupons(Long memberId,
                                              @Parameter(description = "발급 쿠폰 상태(AVAILABLE·RESERVED·USED·EXPIRED). 없으면 전체")
                                              MemberCouponStatus status);
 
     @Operation(summary = "강의에 쓸 수 있는 내 쿠폰",
-            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 이 강의에 지금 적용할 수 있는 발급 쿠폰(사용 가능 상태, 만료 전, 대상 일치).")
+            description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 이 강의에 지금 적용할 수 있는 발급 쿠폰(사용 가능 상태, 만료 전, 대상 일치). "
+                    + "각 항목의 couponType(SELLER·PLATFORM)은 결제 화면에서 판매자 칸·플랫폼 칸을 나누는 데 쓴다.")
     RsData<List<MemberCouponView>> usableFor(Long memberId,
                                              @Parameter(description = "쿠폰을 적용할 강의 ID", required = true)
                                              Long lectureId);

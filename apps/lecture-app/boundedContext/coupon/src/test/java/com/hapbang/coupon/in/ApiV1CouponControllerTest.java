@@ -224,8 +224,9 @@ class ApiV1CouponControllerTest {
     @Test
     void 내_쿠폰은_상태로_거르고_상태가_없으면_전체다() throws Exception {
         Instant issuedAt = Instant.parse("2026-11-06T03:00:00Z");
-        MemberCouponView view = new MemberCouponView(5L, COUPON_ID, "신규 회원 할인", MemberCouponStatus.AVAILABLE, issuedAt,
-                issuedAt.plusSeconds(86_400), CouponTargetType.ANY_LECTURE, null, DiscountType.RATE, 10, 3_000L, false);
+        MemberCouponView view = new MemberCouponView(5L, COUPON_ID, "신규 회원 할인", CouponType.PLATFORM,
+                MemberCouponStatus.AVAILABLE, issuedAt, issuedAt.plusSeconds(86_400), CouponTargetType.ANY_LECTURE, null,
+                DiscountType.RATE, 10, 3_000L, false);
         given(couponIssueFacade.myCoupons(MEMBER_ID, MemberCouponStatus.AVAILABLE)).willReturn(List.of(view));
         given(couponIssueFacade.myCoupons(MEMBER_ID, null)).willReturn(List.of());
 
@@ -233,6 +234,7 @@ class ApiV1CouponControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].memberCouponId").value(5))
+                .andExpect(jsonPath("$.data[0].couponType").value("PLATFORM"))
                 .andExpect(jsonPath("$.data[0].status").value("AVAILABLE"))
                 .andExpect(jsonPath("$.data[0].issuedAt").value("2026-11-06T03:00:00Z"));
         mockMvc.perform(get("/api/v1/coupons/me").with(member()))
