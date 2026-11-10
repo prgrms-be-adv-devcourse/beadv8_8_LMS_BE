@@ -43,5 +43,7 @@ hapbang:
       # FakeEmbeddingModel.QUERY_PREFIX와 같다. 질문 임베딩에 접두어가 붙는지도 함께 확인한다
       query-prefix: "query: "
       sync-on-startup: false
-      chat-timeout: 2s
-      stream-timeout: 2s
+      # 통합 테스트의 대화는 가짜 모델이 실제 ES 검색(Tool)을 거친 뒤 답한다. 테스트를 한꺼번에 돌려 PC가 바빠도
+      # 상한이 먼저 터지지 않게 넉넉히 둔다. 시간 상한 동작 자체는 FaqChatServiceTest가 짧은 값으로 확인한다
+      chat-timeout: 8s
+      stream-timeout: 8s
