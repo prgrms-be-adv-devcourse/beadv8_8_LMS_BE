@@ -158,7 +158,8 @@ public class InfluencerDocumentStore {
     /**
      * 통계를 한 번에(bulk) 부분 갱신한다. 문서가 없는 회원은 건너뛴다(넣는 것은 검색 2의 보정). 숨긴 문서와 값이 같은 문서는 noop이다.
      *
-     * 문서 없음({@value #DOCUMENT_MISSING}) 밖의 이유로 실패한 항목(alias가 사라진 404 포함)(겹친 쓰기가 재시도를 넘김 등)은 {@link WriteOutcome#FAILED}로 돌려주고 나머지는 그대로 반영한다.
+     * 문서 없음({@value #DOCUMENT_MISSING}) 밖의 이유로 실패한 항목은 {@link WriteOutcome#FAILED}로 돌려주고 나머지는 그대로 반영한다.
+     * FAILED에는 alias가 사라진 404와 겹친 쓰기가 재시도를 넘긴 경우 등이 들어간다.
      * 한 회원 때문에 같은 페이지·뒤 페이지 회원이 갱신되지 못하면 안 된다. 실패한 회원은 다음 회차에 다시 쓴다.
      *
      * @return 회원 ID별 결과
