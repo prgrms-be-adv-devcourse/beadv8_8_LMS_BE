@@ -99,16 +99,20 @@ public class MemberChangeReconciler {
      * 여유는 부르는 쪽이 넣는다(T − 1분). 정기 회차와 같은 락을 쓴다.
      *
      * @param from 이 시각 뒤에 바뀐 회원부터 읽는다(회원 앱 시간대)
-     * @return 끝까지 따라잡았으면 true. 다른 회차가 돌고 있어 건너뛰었거나(커서 그대로) 중간에 실패했으면(WARN, 커서는 마지막으로 끝낸 페이지) false
+     * @return 끝까지 따라잡았으면 {@link CatchUp#CAUGHT_UP}. 다른 회차가 락을 쥐고 있어 돌지 못했으면 {@link CatchUp#BUSY}(커서 그대로라 부르는
+     * 쪽이 다시 부른다). 중간에 실패했으면 {@link CatchUp#FAILED}(WARN, 커서는 그 시각 또는 마지막으로 끝낸 페이지에 있어 다음 정기 회차가 이어 간다)
      */
-    public boolean runFrom(LocalDateTime from) {
+    public CatchUp runFrom(LocalDateTime from) {
         Objects.requireNonNull(from, "from은 필수입니다.");
         AtomicBoolean caughtUp = new AtomicBoolean();
-        jobRunner.run(SearchJob.MEMBER_RECONCILE, () -> {
+        boolean ran = jobRunner.run(SearchJob.MEMBER_RECONCILE, () -> {
             reconcile(from);
             caughtUp.set(true);
         });
-        return caughtUp.get();
+        if (!ran) {
+            return CatchUp.BUSY;
+        }
+        return caughtUp.get() ? CatchUp.CAUGHT_UP : CatchUp.FAILED;
     }
 
     /**
@@ -252,6 +256,16 @@ public class MemberChangeReconciler {
                 && Objects.equals(user.bio(), before.bio())
                 && Objects.equals(user.role().name(), before.role())
                 && user.contentCategories().equals(before.categoryCodes());
+    }
+
+    /** {@link #runFrom} 결과 */
+    public enum CatchUp {
+        /** 끝까지 따라잡았다 */
+        CAUGHT_UP,
+        /** 다른 회차가 락을 쥐고 있어 돌지 못했다. 커서를 옮기지 않았다 */
+        BUSY,
+        /** 돌다가 실패했다. 커서는 옮긴 시각 이후에 있어 다음 정기 회차가 이어 간다 */
+        FAILED
     }
 
     /**

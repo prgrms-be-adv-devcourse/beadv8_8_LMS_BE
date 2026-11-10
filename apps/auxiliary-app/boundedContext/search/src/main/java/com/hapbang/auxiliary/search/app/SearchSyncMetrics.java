@@ -30,6 +30,9 @@ import lombok.extern.slf4j.Slf4j;
  *     음수면 보이면 안 되는 문서가 있다. DB의 점검 결과({@code search.consistency_check})에서 읽으므로 어느 pod에서 봐도 같다(PR #833 리뷰 Q2).
  *     점검한 적이 없거나, 마지막 회차에 점검하지 못했거나, 점검한 지 {@link #CONSISTENCY_STALE_AFTER}가 지났으면 값이 없다(NaN). alert는 두지 않는다
  *     (#772 Q2, 필요해지면 붙인다).</li>
+ *     <li>{@code hapbang.search.reindex.duration{reason, outcome}}: 처음 적재·재색인 1회 소요 시간(#773). reason = first_load·settings_changed,
+ *     outcome = success·failure(alias 그대로)·catch_up_failed(alias는 옮겼지만 따라잡기를 못 함)</li>
+ *     <li>{@code hapbang.search.reindex.documents{reason}}: 처음 적재·재색인으로 새 index에 넣은 정상 인플루언서 수(#773)</li>
  * </ul>
  */
 @Slf4j
@@ -39,6 +42,11 @@ public class SearchSyncMetrics {
 
     /** 정합성 점검 결과를 지표로 내는 기간. 점검 주기(10분) 두 번이 지나도 새 결과가 없으면 낡은 값으로 보고 비운다 */
     static final Duration CONSISTENCY_STALE_AFTER = Duration.ofMinutes(25);
+
+    /** 처음 적재·재색인 결과(#773) */
+    static final String REINDEX_SUCCESS = "success";
+    static final String REINDEX_FAILURE = "failure";
+    static final String REINDEX_CATCH_UP_FAILED = "catch_up_failed";
 
     private final MeterRegistry registry;
     private final SyncCursorStore cursorStore;
@@ -75,6 +83,19 @@ public class SearchSyncMetrics {
     /** 보정 한 회차가 중간에 실패했다(그때까지 반영한 회원 수는 세지 않는다) */
     void reconcileFailed(Duration took) {
         duration("failure").record(took);
+    }
+
+    /**
+     * 처음 적재·재색인 한 번이 끝났다(#773).
+     *
+     * @param documents 새 index에 넣은 정상 인플루언서 수. 실패했으면 0
+     */
+    void reindexed(InfluencerReindexer.ReindexReason reason, String outcome, Duration took, long documents) {
+        Timer.builder("hapbang.search.reindex.duration").tag("reason", reason.tag()).tag("outcome", outcome)
+                .description("검색 처음 적재·재색인 1회 소요 시간").register(registry).record(took);
+        if (documents > 0) {
+            registry.counter("hapbang.search.reindex.documents", "reason", reason.tag()).increment(documents);
+        }
     }
 
     private Timer duration(String outcome) {

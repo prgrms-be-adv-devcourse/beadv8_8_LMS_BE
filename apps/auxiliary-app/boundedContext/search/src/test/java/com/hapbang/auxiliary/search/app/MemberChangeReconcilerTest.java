@@ -288,11 +288,15 @@ class MemberChangeReconcilerTest {
     }
 
     @Test
-    @DisplayName("runFrom은 끝까지 따라잡았을 때만 true다. 중간에 실패하면 false다(#773이 성공으로 착각하지 않게)")
+    @DisplayName("runFrom: 끝까지 따라잡으면 CAUGHT_UP, 중간에 실패하면 FAILED, 락을 못 잡으면 BUSY(커서 그대로)다(#773이 구분해 다시 부르게)")
     void runFromReportsCaughtUp() {
-        SearchJobRunner swallowing = new SearchJobRunner(null) {
+        boolean[] lockHeld = {false};
+        SearchJobRunner fakeRunner = new SearchJobRunner(null) {
             @Override
             public boolean run(SearchJob job, Runnable task) {
+                if (lockHeld[0]) {
+                    return false;
+                }
                 try {
                     task.run();
                 } catch (RuntimeException e) {
@@ -302,13 +306,18 @@ class MemberChangeReconcilerTest {
             }
         };
         MemberChangeReconciler locked = new MemberChangeReconciler(indexSetup, store, indexer, source, cursors,
-                swallowing, new SearchSyncMetrics(registry, cursors, new InMemoryConsistencyCheckStore(), clock), clock);
+                fakeRunner, new SearchSyncMetrics(registry, cursors, new InMemoryConsistencyCheckStore(), clock), clock);
         source.change(SAVED.plusMinutes(1), influencer(1L, 1L, List.of("GAME")));
 
-        assertThat(locked.runFrom(SAVED)).isTrue();
+        assertThat(locked.runFrom(SAVED)).isEqualTo(MemberChangeReconciler.CatchUp.CAUGHT_UP);
 
         source.failOnCall(source.requests().size() + 1);
-        assertThat(locked.runFrom(SAVED)).isFalse();
+        assertThat(locked.runFrom(SAVED)).isEqualTo(MemberChangeReconciler.CatchUp.FAILED);
+
+        cursors.moveTo(CURSOR, NOW, 9L);
+        lockHeld[0] = true;
+        assertThat(locked.runFrom(SAVED)).isEqualTo(MemberChangeReconciler.CatchUp.BUSY);
+        assertThat(cursors.find(CURSOR).orElseThrow().memberUpdatedAt()).isEqualTo(NOW);
     }
 
     private static UserDto influencer(long id, long version, List<String> categories) {
