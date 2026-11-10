@@ -34,7 +34,7 @@ public class AppearanceSyncQueryUseCase {
                 Limit.of(size + 1));
         boolean hasNext = found.size() > size;
         List<Appearance> page = hasNext ? found.subList(0, size) : found;
-        return new AppearanceSyncPageDto(page.stream().map(Appearance::toSyncDto).toList(),
+        return new AppearanceSyncPageDto(page.stream().map(AppearanceContractMapper::toSyncDto).toList(),
                 hasNext ? page.getLast().getId() : null);
     }
 
@@ -44,7 +44,7 @@ public class AppearanceSyncQueryUseCase {
                 .findByIdGreaterThanAndPublishedAtIsNotNullOrderByIdAsc(start(afterId), Limit.of(size + 1));
         boolean hasNext = found.size() > size;
         List<AppearanceReview> page = hasNext ? found.subList(0, size) : found;
-        return new AppearanceReviewSyncPageDto(page.stream().map(AppearanceReview::toSyncDto).toList(),
+        return new AppearanceReviewSyncPageDto(page.stream().map(AppearanceContractMapper::toSyncDto).toList(),
                 hasNext ? page.getLast().getId() : null);
     }
 

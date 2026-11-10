@@ -684,8 +684,8 @@ DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFL
 | 종류 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|---|
 | 단위 | `AppearanceBatchRulesTest` | 보류 성공 반영: 처음 / 이미 `REQUESTED` | true(바뀜) / false(그대로) |
-| 단위 | `AppearanceRequestTest` | 요청서 `toDto()` | 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한 |
-| 단위 | `AppearanceApplicationTest` | 지원 `toDto(모집글)` / 다른 모집글 | 모집글 제목·호스트 포함 / `IllegalArgumentException` |
+| 단위 | `AppearanceContractMapperTest` (#825 전 `AppearanceRequestTest`) | 요청서 `toDto(요청서)` | 요청서 ID·호스트·게스트·제목·출연료·방송 예정 일시·수락 기한 |
+| 단위 | `AppearanceContractMapperTest` (#825 전 `AppearanceApplicationTest`) | 지원 `toDto(지원, 모집글)` / 다른 모집글 | 모집글 제목·호스트 포함 / `IllegalArgumentException` |
 | 통합 | `AppearanceEventPublishTest` | 요청서 보내기 성공 | `AppearanceRequestSentEvent` 1건, 내용 일치 |
 | 통합 | 〃 | Billing 보류 거절 | 0건 |
 | 통합 | 〃 | 보류 결과 모름 → 보류 재확인 배치 | 0건 → 1건 (같은 요청서 ID) |
@@ -1471,8 +1471,9 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
-| `AppearanceReviewTest` | 공개된 리뷰 → 공개 이벤트 | 리뷰·출연·쓴 사람·받은 사람·역할(`HOST`)·별점·공개 시각, 본문 없음 |
-| `AppearanceReviewTest` | 공개 전 리뷰 → 공개 이벤트 / 공개 시각 나노초 | `IllegalStateException` / 마이크로초까지만 저장 |
+| `AppearanceContractMapperTest` (#825) | 공개된 리뷰 → 공개 이벤트 | 리뷰·출연·쓴 사람·받은 사람·역할(`HOST`)·별점·공개 시각, 본문 없음 |
+| `AppearanceContractMapperTest` (#825) | 공개 전 리뷰 → 공개 이벤트 | `IllegalStateException` |
+| `AppearanceReviewTest` | 공개 시각 나노초 | 마이크로초까지만 저장 |
 | `AppearanceReviewFlowTest` | 한쪽만 작성 | 발행 없음 |
 | `AppearanceReviewFlowTest` | 상대가 써서 공개 | 리뷰마다 1개씩 2개, 공개 시각은 DB 값과 같음 |
 | `AppearanceReviewFlowTest` | 이미 씀·상대 정지로 작성 실패 | 발행 없음 |
@@ -1631,9 +1632,9 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 
 | 테스트 | 케이스 | 기대 결과 |
 |---|---|---|
-| `AppearanceStatusTest` | 출연 상태 6개 전부 | 성립·취소 요청 중 `SCHEDULED`, 확인 `COMPLETED`, 일방·합의 취소 `CANCELED`, 불참 `NO_SHOW`. 공개 결과 4개가 모두 쓰인다 |
-| `AppearanceTest` | 동기화 사본 / 방송 예정 일시 나노초 / ID·version 없음 | ID·호스트·게스트·결과·일시·version, 변경 이벤트가 같은 값을 감쌈 / 마이크로초까지만 / `IllegalStateException`(flush 전 생성 차단) |
-| `AppearanceReviewTest` | 공개된 리뷰 사본 / 공개 전 | 리뷰·출연·받은 사람·별점, 공개 이벤트의 같은 이름 필드와 같음 / `IllegalStateException` |
+| `AppearanceContractMapperTest` (#825 전 `AppearanceStatusTest`) | 출연 상태 6개 전부 | 성립·취소 요청 중 `SCHEDULED`, 확인 `COMPLETED`, 일방·합의 취소 `CANCELED`, 불참 `NO_SHOW`. 공개 결과 4개가 모두 쓰인다 |
+| `AppearanceContractMapperTest` (#825 전 `AppearanceTest`) | 동기화 사본 / 방송 예정 일시 나노초 / ID·version 없음 | ID·호스트·게스트·결과·일시·version, 변경 이벤트가 같은 값을 감쌈 / 마이크로초까지만 / `IllegalStateException`(flush 전 생성 차단) |
+| `AppearanceContractMapperTest` (#825 전 `AppearanceReviewTest`) | 공개된 리뷰 사본 / 공개 전 | 리뷰·출연·받은 사람·별점, 공개 이벤트의 같은 이름 필드와 같음 / `IllegalStateException` |
 | `AppearanceChangedEventTest` | 요청 수락 / 모집 지원 수락 2명 | 출연마다 1건, `SCHEDULED`, version 0, 커밋된 값과 같음 |
 | `AppearanceChangedEventTest` | 취소 요청 / 호스트 거절 / 자동 거절 배치 / 합의 취소 | 전이마다 1건 더: `SCHEDULED`(version 1) / `SCHEDULED`(version 2) / `SCHEDULED` / `CANCELED` |
 | `AppearanceChangedEventTest` | 호스트 확인 / 불참 / D+7 자동 확인 배치 | `COMPLETED` / `NO_SHOW` / `COMPLETED` |
@@ -1652,3 +1653,15 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 - 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
 - 소비 앱(chat-app·member-app)이 새 타입에서 실패하지 않는 것은 코드로 확인했다(chat `MissingTypeEvent`·기본 처리기, member `@KafkaHandler(isDefault = true)`). 다른 앱 코드는 바꾸지 않았다.
 
+## 40. 다른 앱에 보내는 계약 변환 분리 (#825)
+
+도메인 테스트에 있던 변환 검증을 `AppearanceContractMapperTest`로 옮겼다(값·예외 그대로). `AppearanceStatusTest`는 지웠다. 각 행은 위 장(9·33·39장 등)에 클래스 이름을 바꿔 적었다.
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceContractMapperTest` | 출연 동기화 사본·변경 이벤트 / 나노초 / ID·version 없음 | 값 그대로 / 마이크로초까지 / `IllegalStateException` |
+| `AppearanceContractMapperTest` | 출연 상태 6개 → 공개 결과 | 4개로 매핑, 모두 쓰임 |
+| `AppearanceContractMapperTest` | 리뷰 공개 이벤트·동기화 사본 / 공개 전 | 값 그대로, 같은 이름 필드 같음 / `IllegalStateException` |
+| `AppearanceContractMapperTest` | 요청서·지원(다른 모집글)·취소 요청 DTO | 값 그대로 / `IllegalArgumentException` |
+
+- 이벤트·내부 API 값이 바뀌지 않은 것은 기존 통합 테스트(`AppearanceChangedEventTest`, `AppearanceEventKafkaTest`, `AppearanceSyncInternalApiE2ETest`, 알림 이벤트 테스트)가 그대로 통과해 확인했다.

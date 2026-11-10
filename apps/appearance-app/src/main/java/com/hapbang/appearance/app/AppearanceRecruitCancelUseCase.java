@@ -83,9 +83,9 @@ public class AppearanceRecruitCancelUseCase {
             taskIds.add(recordVacancyRelease(recruit, vacancyFee, now));
         }
         appearanceRecruitSupport.flushOrConflict();
-        // 출연 변경 이벤트는 flush 뒤에 만든다(Appearance.toChangedEvent). 출연도 위 모집글 flush로 함께 반영됐다
+        // 출연 변경 이벤트는 flush 뒤에 만든다(AppearanceContractMapper.toChangedEvent). 출연도 위 모집글 flush로 함께 반영됐다
         for (Appearance appearance : appearances) {
-            eventPublisher.publishEvent(appearance.toChangedEvent());
+            eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         }
         AfterCommit.run(() -> {
             log.info("모집을 취소했다 recruitId={}, hostId={}, appearanceCount={}, vacancyFee={}, taskIds={}", recruitId,

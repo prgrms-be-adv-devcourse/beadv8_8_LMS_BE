@@ -816,7 +816,7 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 | `AppearanceCancelRequestRejectedEvent(AppearanceCancelRequestDto cancelRequest, boolean autoRejected)` | 〃 + `autoRejected` | 호스트가 거절했을 때(`false`), 방송 예정 일시까지 응답이 없어 자동 거절됐을 때(`true`) | 게스트 (`guestId`) |
 
 - 발행: UseCase가 `ApplicationEventPublisher.publishEvent` (요청서 `AppearanceRequestHoldUseCase.markRequested`, 지원 `AppearanceApplicationApplyUseCase`). 트랜잭션 안에서 발행한다.
-- DTO는 엔티티의 `toDto()`로 만든다. 지원 메시지는 담지 않는다. 닉네임은 받는 쪽의 회원 복제본으로 찾는다.
+- DTO는 app 계층 `AppearanceContractMapper.toDto(...)`로 만든다(#825, 도메인 엔티티는 shared 계약을 모른다). 지원 메시지는 담지 않는다. 닉네임은 받는 쪽의 회원 복제본으로 찾는다.
 - 보류가 실패한 요청서(`HOLD_FAILED`)·결과를 모르는 요청서(`HOLD_PENDING`)·막힌 지원은 발행하지 않는다.
 
 ### 11.2 받는 쪽 예시 (참고)
@@ -1661,7 +1661,7 @@ AI 추천(auxiliary-app chatbot)이 출연 데이터의 **읽기용 사본**을 
 
 ### 28.1 공개 결과
 
-AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공개 결과(shared `AppearanceResult`)로 보낸다. 매핑은 `AppearanceStatus.result()` 한 곳의 `switch`라 상태를 더하면 컴파일이 잡는다.
+AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공개 결과(shared `AppearanceResult`)로 보낸다. 매핑은 `AppearanceContractMapper.toResult(status)` 한 곳의 `switch`라 상태를 더하면 컴파일이 잡는다(#825 전에는 `AppearanceStatus.result()`).
 
 | 내부 상태 | 공개 결과 |
 |---|---|
@@ -1679,8 +1679,8 @@ AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공�
 | `AppearanceSyncDto` | `id`, `hostId`, `guestId`, `result`, `scheduledAt`(KST, 마이크로초까지), `version` | 출연 `@Version`. 받는 쪽은 큰 것만 반영 |
 | `AppearanceReviewSyncDto` | `reviewId`, `appearanceId`, `revieweeUserId`, `rating` | 없음. 리뷰는 공개 뒤 바뀌지 않아 `reviewId`로 한 번만 넣는다 |
 
-- 만드는 곳은 `Appearance.toSyncDto()`·`AppearanceReview.toSyncDto()` 한 곳이다. 이벤트와 내부 API가 같은 메서드를 써서, 같은 출연·같은 version이면 값이 같다(AI가 DTO 해시로 어긋남을 비교).
-- `toSyncDto()`는 ID·version이 없으면(DB에 반영 전) `IllegalStateException`. 리뷰는 공개 전이면 같은 예외.
+- 만드는 곳은 `AppearanceContractMapper.toSyncDto(출연)`·`toSyncDto(리뷰)` 한 곳이다(#825 전에는 엔티티 메서드). 이벤트와 내부 API가 같은 메서드를 써서, 같은 출연·같은 version이면 값이 같다(AI가 DTO 해시로 어긋남을 비교).
+- `toSyncDto`는 ID·version이 없으면(DB에 반영 전) `IllegalStateException`. 리뷰는 공개 전이면 같은 예외.
 - 리뷰 사본의 필드 4개는 기존 공개 이벤트(`AppearanceReviewPublishedEvent`, 21.6)의 같은 이름 필드와 값이 같다.
 
 ### 28.3 이벤트 `AppearanceChangedEvent(AppearanceSyncDto appearance)`
@@ -1711,7 +1711,7 @@ AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공�
 | 계층 | 클래스 | 변경 |
 |---|---|---|
 | shared | `domain.AppearanceResult`, `dto.AppearanceSyncDto`·`AppearanceReviewSyncDto`·`AppearanceSyncPageDto`·`AppearanceReviewSyncPageDto`, `event.AppearanceChangedEvent`, `out.AppearanceApiClient` | 새 계약, Client 메서드 2개 |
-| domain | `AppearanceStatus.result()`, `Appearance.toSyncDto()`·`toChangedEvent()`, `AppearanceReview.toSyncDto()` | 매핑·사본 생성 |
+| app | `AppearanceContractMapper.toResult`·`toSyncDto`·`toChangedEvent` (#825 전에는 domain 엔티티 메서드) | 매핑·사본 생성 |
 | app | 전이 UseCase 9개(`AppearanceRequestAcceptUseCase`, `AppearanceApplicationRespondUseCase`, `AppearanceCancelRequestUseCase`, `AppearanceCancelRespondUseCase`, `AppearanceCancelAutoRejectUseCase`, `AppearanceConfirmUseCase`, `AppearanceAutoConfirmUseCase`, `AppearanceHostCancelUseCase`, `AppearanceRecruitCancelUseCase`) | flush 뒤 발행 11곳 |
 | app | `AppearanceSyncQueryUseCase`, `AppearanceSyncInternalFacade`(`ROLE_INTERNAL`) | 키셋 조회 |
 | in | `ApiV1AppearanceSyncInternalSpec`·`Controller` | 내부 API 2개, Swagger에 내부 키 헤더 |
@@ -1723,3 +1723,21 @@ AI는 출연 내부 상태 6개를 해석하지 않는다. 출연이 줄인 공�
 - 새 이벤트 클래스가 없는 옛 빌드의 소비자: chat-app은 `MissingTypeEvent`로 건너뛴다. member-app은 역직렬화에 실패해 `appearance.events.v1.member-app.appearance-review.DLT`로 보낸다. 회원이 쓰지 않는 이벤트라 되살릴 것은 없고, 모든 앱이 새 빌드로 바뀌는 짧은 틈에만 생긴다. 새 빌드에서는 두 앱 모두 기본 처리기로 무시한다(코드 확인, 다른 앱 코드 변경 없음).
 - **첫 배포 직후 member-app DLT에 쌓인 `AppearanceChangedEvent`는 버려도 된다**(회원은 이 이벤트를 쓰지 않는다). 다시 보낼 필요가 없다.
 - 소비자는 auxiliary-app chatbot 모듈이다(#716, 그룹 `auxiliary-app.chatbot-appearance-copy`, DLT `appearance.events.v1.auxiliary-app.chatbot-appearance-copy.DLT`). 소비자가 출연보다 먼저 배포될 필요는 없고(받는 쪽이 없으면 토픽에 쌓이기만 한다), 주간 동기화 첫 실행이 그 전 출연을 채운다.
+
+## 29. 다른 앱에 보내는 계약 변환 분리 (#825)
+
+멘토 리뷰 4회차(#756, ISSUE.md APR-54 MR2·MR3). 동작·DB·API·이벤트 계약 변경 없음.
+
+- 도메인 엔티티는 `shared` 계약(`shared.appearance.dto`·`event`, `AppearanceResult`)을 모른다. 다른 앱에 보내는 DTO·이벤트는 app 계층 `AppearanceContractMapper`(static 메서드)가 만든다. 의존 방향은 app → domain, app → shared다. 응답 DTO의 `ResDto.from(엔티티)`와 같은 자리다.
+
+| 옮기기 전 (domain) | `AppearanceContractMapper` |
+|---|---|
+| `Appearance.toSyncDto()`·`toChangedEvent()` | `toSyncDto(appearance)`·`toChangedEvent(appearance)` (ID·version 없으면 `IllegalStateException`) |
+| `AppearanceStatus.result()` | `toResult(status)` (전수 `switch`) |
+| `AppearanceReview.toSyncDto()`·`toPublishedEvent()` | `toSyncDto(review)`·`toPublishedEvent(review)` (공개 전이면 `IllegalStateException`) |
+| `AppearanceRequest.toDto()` | `toDto(request)` |
+| `AppearanceApplication.toDto(recruit)` | `toDto(application, recruit)` |
+| `AppearanceCancelRequest.toDto(title, scheduledAt)` | `toDto(cancelRequest, title, scheduledAt)` |
+
+- 남긴 것: `AppearanceUser.from(UserDto)`(팀 공통 부모 `ReplicaUser` 생성자가 `UserDto`를 받음), `AppearanceEarningRule`의 shared 수익 enum(지갑과 같이 쓰는 값 타입).
+- HP 대사 enum 3개(`HpReconciliationRule`·`Status`·`Trigger`)에 다른 출연 enum과 같은 모양의 `description`을 더했다. `AppearanceWithdrawalBlock`은 `messageFormat`이 있어 제외.

@@ -2,7 +2,6 @@ package com.hapbang.appearance.domain;
 
 import java.time.LocalDateTime;
 
-import com.hapbang.shared.appearance.dto.AppearanceCancelRequestDto;
 import com.hapbang.shared.jpa.BaseEntity;
 
 import jakarta.persistence.Entity;
@@ -128,16 +127,6 @@ public class AppearanceCancelRequest extends BaseEntity {
 
     public boolean isPending() {
         return status == AppearanceCancelRequestStatus.REQUESTED;
-    }
-
-    /**
-     * 다른 모듈에 넘기는 취소 요청 정보 (알림 이벤트). 취소·거절 사유는 담지 않는다.
-     *
-     * @param title       출처 요청서·모집글 제목
-     * @param scheduledAt 방송 예정 일시
-     */
-    public AppearanceCancelRequestDto toDto(String title, LocalDateTime scheduledAt) {
-        return new AppearanceCancelRequestDto(id, appearanceId, title, hostId, guestId, sequence, scheduledAt);
     }
 
     private static String requireReason(String reason) {

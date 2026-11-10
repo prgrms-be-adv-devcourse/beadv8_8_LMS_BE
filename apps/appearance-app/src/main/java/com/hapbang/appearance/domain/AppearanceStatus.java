@@ -1,6 +1,5 @@
 package com.hapbang.appearance.domain;
 
-import com.hapbang.shared.appearance.domain.AppearanceResult;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -26,17 +25,4 @@ public enum AppearanceStatus {
     CANCELED_BY_AGREEMENT("합의 취소. 호스트가 게스트의 출연 취소 요청을 수락 (위약금 없음)");
 
     private final String description;
-
-    /**
-     * 다른 모듈에 알리는 공개 결과 (#713). 상태를 더하면 여기서 컴파일 오류가 나므로 공개 결과를 꼭 정한다.
-     * 취소 요청 중은 아직 성립한 출연이라 {@link AppearanceResult#SCHEDULED}다.
-     */
-    public AppearanceResult result() {
-        return switch (this) {
-            case ESTABLISHED, CANCEL_REQUESTED -> AppearanceResult.SCHEDULED;
-            case CONFIRMED -> AppearanceResult.COMPLETED;
-            case CANCELED_BY_HOST, CANCELED_BY_AGREEMENT -> AppearanceResult.CANCELED;
-            case ABSENT -> AppearanceResult.NO_SHOW;
-        };
-    }
 }
