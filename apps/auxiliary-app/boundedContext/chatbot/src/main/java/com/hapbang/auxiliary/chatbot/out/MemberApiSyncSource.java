@@ -1,9 +1,13 @@
 package com.hapbang.auxiliary.chatbot.out;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Import;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.shared.member.dto.ContentCategoryDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.out.MemberApiClient;
 
@@ -26,5 +30,14 @@ public class MemberApiSyncSource implements MemberSyncSource {
     @Override
     public MemberPageDto members(Long afterId, int size) {
         return ApiClients.require(client, "member").getMembers(afterId, size);
+    }
+
+    @Override
+    public Map<String, String> categoryNames() {
+        Map<String, String> names = new LinkedHashMap<>();
+        for (ContentCategoryDto category : ApiClients.require(client, "member").getContentCategories().items()) {
+            names.put(category.code(), category.name());
+        }
+        return names;
     }
 }
