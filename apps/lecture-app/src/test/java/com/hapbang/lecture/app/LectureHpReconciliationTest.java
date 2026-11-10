@@ -7,7 +7,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -81,6 +83,9 @@ class LectureHpReconciliationTest {
 
     @Autowired
     private LectureHpReconciliationMetrics metrics;
+
+    @Autowired
+    private LectureHpReconciliationMetricsRestorer restorer;
 
     @Autowired
     private LectureHpReconciliationRunRepository runRepository;
@@ -431,6 +436,97 @@ class LectureHpReconciliationTest {
         assertThat(abandoned.getStatus()).isEqualTo(LectureHpReconciliationStatus.INCOMPLETE);
         assertThat(abandoned.getFailureReason()).isEqualTo(LectureHpReconciliationSupport.ABANDONED_REASON);
         assertThat(support.findLatestRun().getId()).isEqualTo(run.getId());
+    }
+
+    @Test
+    void 끝까지_비교한_실행은_끝난_시각을_지표로_낸다() {
+        Item purchased = item(OrderItemStatus.PURCHASED, old);
+        billing.putHoldState(held(purchased.id()));
+
+        LectureHpReconciliationRun run = useCase.runScheduled();
+
+        assertThat(run.getStatus()).isEqualTo(LectureHpReconciliationStatus.COMPLETED);
+        assertThat(metrics.lastCompletedEpochSeconds())
+                .isEqualTo(run.getFinishedAt().atZone(LectureConfig.ZONE).toEpochSecond());
+    }
+
+    @Test
+    void 기동할_때_마지막_완료_실행의_규칙별_건수와_끝난_시각으로_지표를_채운다() {
+        LocalDateTime finishedAt = LocalDateTime.now(clock).withNano(0).minusHours(5);
+        savedRun(LectureHpReconciliationStatus.COMPLETED, finishedAt.minusDays(1),
+                LectureHpReconciliationRule.HOLD_MISMATCH);
+        savedRun(LectureHpReconciliationStatus.COMPLETED, finishedAt,
+                LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH, LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH,
+                LectureHpReconciliationRule.HP_TASK_DEAD);
+        // 더 나중에 끝났지만 중단된 실행은 지표를 바꾸지 않는다
+        savedRun(LectureHpReconciliationStatus.INCOMPLETE, finishedAt.plusHours(1),
+                LectureHpReconciliationRule.SETTLEMENT_MISSING);
+        // 앱이 다시 떠서 지표가 비어 있는 상태
+        metrics.updateMismatches(Map.of());
+        metrics.updateLastCompleted(finishedAt.minusDays(30));
+
+        restorer.restore();
+
+        assertThat(metrics.mismatches(LectureHpReconciliationRule.HOLD_BALANCE_MISMATCH)).isEqualTo(2);
+        assertThat(metrics.mismatches(LectureHpReconciliationRule.HP_TASK_DEAD)).isEqualTo(1);
+        assertThat(metrics.mismatches(LectureHpReconciliationRule.HOLD_MISMATCH)).isZero();
+        assertThat(metrics.mismatches(LectureHpReconciliationRule.SETTLEMENT_MISSING)).isZero();
+        assertThat(metrics.lastCompletedEpochSeconds())
+                .isEqualTo(finishedAt.atZone(LectureConfig.ZONE).toEpochSecond());
+    }
+
+    @Test
+    void 완료한_실행이_없으면_기동할_때_지표를_바꾸지_않는다() {
+        LocalDateTime finishedAt = LocalDateTime.now(clock).withNano(0).minusHours(5);
+        savedRun(LectureHpReconciliationStatus.INCOMPLETE, finishedAt, LectureHpReconciliationRule.HOLD_MISMATCH);
+        metrics.updateMismatches(Map.of());
+        metrics.updateLastCompleted(finishedAt.minusDays(30));
+
+        restorer.restore();
+
+        assertThat(metrics.mismatches(LectureHpReconciliationRule.HOLD_MISMATCH)).isZero();
+        assertThat(metrics.lastCompletedEpochSeconds())
+                .isEqualTo(finishedAt.minusDays(30).atZone(LectureConfig.ZONE).toEpochSecond());
+    }
+
+    @Test
+    void 기동하기_전에_시작해_실행_중으로_남은_실행은_미완료로_끝내고_중단_횟수를_올린다() {
+        Long leftOver = support.start(LectureHpReconciliationTrigger.SCHEDULED, null, old);
+        double incompleteBefore = metrics.runs(LectureHpReconciliationStatus.INCOMPLETE);
+        // 기동한 뒤 시작한 실행은 이 앱이 하고 있는 대사라 건드리지 않는다
+        Long startedAfterBoot = transactionTemplate.execute(tx -> runRepository.save(LectureHpReconciliationRun.start(
+                LectureHpReconciliationTrigger.SCHEDULED, null, LocalDateTime.now(clock))).getId());
+
+        restorer.restore();
+
+        LectureHpReconciliationRun abandoned = runRepository.findById(leftOver).orElseThrow();
+        assertThat(abandoned.getStatus()).isEqualTo(LectureHpReconciliationStatus.INCOMPLETE);
+        assertThat(abandoned.getFailureReason()).isEqualTo(LectureHpReconciliationSupport.ABANDONED_REASON);
+        assertThat(runRepository.findById(startedAfterBoot).orElseThrow().getStatus())
+                .isEqualTo(LectureHpReconciliationStatus.RUNNING);
+        assertThat(metrics.runs(LectureHpReconciliationStatus.INCOMPLETE)).isEqualTo(incompleteBefore + 1);
+    }
+
+    /** 끝난 실행과 그 실행의 어긋난 건(규칙마다 한 건)을 DB에 바로 남긴다 */
+    private void savedRun(LectureHpReconciliationStatus status, LocalDateTime finishedAt,
+                          LectureHpReconciliationRule... rules) {
+        transactionTemplate.executeWithoutResult(tx -> {
+            LectureHpReconciliationRun run = LectureHpReconciliationRun.start(LectureHpReconciliationTrigger.SCHEDULED,
+                    null, finishedAt.minusMinutes(1));
+            int dead = (int) Arrays.stream(rules)
+                    .filter(rule -> rule == LectureHpReconciliationRule.HP_TASK_DEAD).count();
+            if (status == LectureHpReconciliationStatus.COMPLETED) {
+                run.complete(rules.length, rules.length - dead, dead, finishedAt);
+            } else {
+                run.incomplete(rules.length, rules.length - dead, dead, "시험용 중단", finishedAt);
+            }
+            Long runId = runRepository.save(run).getId();
+            long orderItemId = 1;
+            for (LectureHpReconciliationRule rule : rules) {
+                mismatchRepository.save(new LectureHpReconciliationMismatch(runId, orderItemId++, null, rule, null,
+                        "시험 강의 상태", "시험 지갑 상태", finishedAt));
+            }
+        });
     }
 
     // ---------------------------------------------------------------------------------------------
