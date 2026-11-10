@@ -18,6 +18,9 @@ public interface OrderCouponWorkRepository extends JpaRepository<OrderCouponWork
     /** 주문의 이 종류 작업. 주문마다 종류별로 하나다 */
     Optional<OrderCouponWork> findByOrderIdAndKind(Long orderId, OrderCouponWorkKind kind);
 
+    /** 작업 ID(쿠폰 모듈 멱등 키)로 찾는다. 작업 ID는 유일하다 */
+    Optional<OrderCouponWork> findByWorkId(String workId);
+
     /** 재시도 배치 대상: 다음 시도 시각이 지난 {@code PENDING} 작업. 오래 기다린 것부터 */
     @Query("""
             select w from OrderCouponWork w

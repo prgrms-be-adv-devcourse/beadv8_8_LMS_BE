@@ -43,6 +43,20 @@ public enum LectureErrorCode implements BaseErrorCode {
     COUPON_PLATFORM_FUNDING_UNAVAILABLE(HttpStatus.CONFLICT, "플랫폼 쿠폰은 아직 주문에 쓸 수 없습니다."),
     /** 쿠폰 주문: 쿠폰 모듈에 닿지 못했거나 결과를 모른다. 주문을 만들지 않았다 */
     COUPON_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "지금은 쿠폰을 확인할 수 없습니다. 잠시 후 다시 주문해 주세요."),
+    /** 쿠폰 작업 관리: 작업 ID의 쿠폰 작업이 없다 */
+    COUPON_WORK_NOT_FOUND(HttpStatus.NOT_FOUND, "쿠폰 작업을 찾을 수 없습니다."),
+    /** 쿠폰 작업 관리: 자동 처리가 멈춘(DEAD) 작업이 아니다 */
+    COUPON_WORK_NOT_DEAD(HttpStatus.CONFLICT, "자동 처리가 멈춘(DEAD) 쿠폰 작업만 처리할 수 있습니다."),
+    /** 쿠폰 작업 관리: 이 작업 종류(예약·해제)에는 쓸 수 없는 조치다 */
+    COUPON_WORK_ACTION_NOT_ALLOWED(HttpStatus.CONFLICT, "이 쿠폰 작업 종류에는 쓸 수 없는 조치입니다."),
+    /** 쿠폰 작업 관리: 주문이 조치에 맞는 결제 단계가 아니다(예약은 결제 처리 중, 해제는 결제 실패) */
+    COUPON_WORK_ORDER_STATE_MISMATCH(HttpStatus.CONFLICT, "주문이 이 조치를 할 수 있는 상태가 아닙니다."),
+    /** 쿠폰 작업 관리: 쿠폰 사용 시도가 이미 결제 완료·취소로 끝나 있다. 자동으로 고치지 않고 확인이 필요하다 */
+    COUPON_RESERVATION_SETTLED(HttpStatus.CONFLICT, "쿠폰 사용 시도가 이미 결제 완료나 취소로 끝나 있어 처리할 수 없습니다. 확인이 필요합니다."),
+    /** 쿠폰 작업 관리: 해제 확인 완료를 하려는데 쿠폰 쪽에 예약된 사용 시도가 남아 있다. 다시 시도로 해제를 보낸다 */
+    COUPON_RESERVATION_STILL_HELD(HttpStatus.CONFLICT, "쿠폰 예약이 아직 남아 있습니다. 다시 시도로 해제를 보내 주세요."),
+    /** 쿠폰 작업 관리: 처리하는 사이 다른 요청이 같은 작업을 바꿨다 */
+    COUPON_WORK_CHANGED(HttpStatus.CONFLICT, "다른 요청이 쿠폰 작업을 먼저 바꿨습니다. 다시 조회해 주세요."),
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다."),
     ORDER_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "주문 항목을 찾을 수 없습니다."),
     ORDER_ITEM_NOT_PURCHASED(HttpStatus.CONFLICT, "이미 구매 확정·취소된 항목입니다."),
