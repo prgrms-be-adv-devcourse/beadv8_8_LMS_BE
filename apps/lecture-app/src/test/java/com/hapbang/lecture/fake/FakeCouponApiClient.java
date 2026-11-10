@@ -10,7 +10,7 @@ import java.util.function.Supplier;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.hapbang.lecture.out.coupon.CouponCallResult;
-import com.hapbang.lecture.out.coupon.CouponClient;
+import com.hapbang.lecture.out.coupon.CouponApiClient;
 import com.hapbang.lecture.out.coupon.LectureCouponClientProperties;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
@@ -22,22 +22,22 @@ import com.hapbang.shared.coupon.api.CouponReserveRequest;
 import com.hapbang.shared.coupon.api.CouponReserveResponse;
 
 /**
- * 강의 모듈 테스트용 쿠폰 내부 API Client. HTTP를 부르지 않는다. 상태 변환은 {@code CouponClientTest}가 맡는다.
+ * 강의 모듈 테스트용 쿠폰 내부 API Client. HTTP를 부르지 않는다. 상태 변환은 {@code CouponApiClientTest}가 맡는다.
  * <ul>
  *     <li>{@link #respond}로 다음 호출의 결과를 차례로 정한다. 정한 결과가 없으면 계산은 할인 없는 성공, 가격 인상 제한은 막히지 않음이고,
  *     그 밖의 호출은 결과 불명이다.</li>
  *     <li>호출마다 요청과 그때 강의 트랜잭션이 열려 있었는지를 남긴다.</li>
  *     <li>{@link #setCircuitOpen}으로 쿠폰 회로가 열린 상태를 흉내 낸다({@link #canCall()}만 바뀐다).</li>
  * </ul>
- * 컨텍스트가 테스트 사이에 재사용되므로 테스트마다 {@link #reset()}한다. 빈은 {@link FakeCouponClientConfig}가 실제 Client보다 우선해 등록한다.
+ * 컨텍스트가 테스트 사이에 재사용되므로 테스트마다 {@link #reset()}한다. 빈은 {@link FakeCouponApiClientConfig}가 실제 Client보다 우선해 등록한다.
  */
-public class FakeCouponClient extends CouponClient {
+public class FakeCouponApiClient extends CouponApiClient {
 
     private final Deque<Function<Object, CouponCallResult<?>>> responses = new ArrayDeque<>();
     private final List<Call> calls = new CopyOnWriteArrayList<>();
     private volatile boolean circuitOpen;
 
-    public FakeCouponClient() {
+    public FakeCouponApiClient() {
         super(null, LectureCouponClientProperties.defaults());
     }
 

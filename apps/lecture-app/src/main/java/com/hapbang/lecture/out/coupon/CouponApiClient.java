@@ -40,14 +40,14 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
  * 보내지 않음이다. 열린 회로는 시간이 지나면 스스로 HALF_OPEN이 된다.
  */
 @Component
-public class CouponClient {
+public class CouponApiClient {
 
     static final String CIRCUIT_NAME = "coupon";
 
     private final LectureCouponInternalApi couponInternalApi;
     private final CircuitBreaker circuitBreaker;
 
-    public CouponClient(LectureCouponInternalApi couponInternalApi, LectureCouponClientProperties properties) {
+    public CouponApiClient(LectureCouponInternalApi couponInternalApi, LectureCouponClientProperties properties) {
         this.couponInternalApi = couponInternalApi;
         this.circuitBreaker = CircuitBreaker.of(CIRCUIT_NAME, CircuitBreakerConfig.custom()
                 .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)

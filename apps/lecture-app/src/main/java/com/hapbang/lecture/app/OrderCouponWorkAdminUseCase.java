@@ -28,8 +28,8 @@ import com.hapbang.lecture.domain.OrderItemCoupon;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.OrderCouponWorkRepository;
 import com.hapbang.lecture.out.OrderItemCouponRepository;
+import com.hapbang.lecture.out.coupon.CouponApiClient;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
-import com.hapbang.lecture.out.coupon.CouponClient;
 import com.hapbang.shared.coupon.api.CouponReservationStatusResponse;
 
 import lombok.extern.slf4j.Slf4j;
@@ -67,7 +67,7 @@ public class OrderCouponWorkAdminUseCase {
     private final OrderCouponReleaseRegistration orderCouponReleaseRegistration;
     private final OrderCouponReleaseUseCase orderCouponReleaseUseCase;
     private final LectureSyncEvents lectureSyncEvents;
-    private final CouponClient couponClient;
+    private final CouponApiClient couponApiClient;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
@@ -77,7 +77,7 @@ public class OrderCouponWorkAdminUseCase {
                                        OrderCouponReleaseRegistration orderCouponReleaseRegistration,
                                        OrderCouponReleaseUseCase orderCouponReleaseUseCase,
                                        LectureSyncEvents lectureSyncEvents,
-                                       CouponClient couponClient,
+                                       CouponApiClient couponApiClient,
                                        PlatformTransactionManager transactionManager,
                                        @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.orderCouponWorkRepository = orderCouponWorkRepository;
@@ -86,7 +86,7 @@ public class OrderCouponWorkAdminUseCase {
         this.orderCouponReleaseRegistration = orderCouponReleaseRegistration;
         this.orderCouponReleaseUseCase = orderCouponReleaseUseCase;
         this.lectureSyncEvents = lectureSyncEvents;
-        this.couponClient = couponClient;
+        this.couponApiClient = couponApiClient;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -288,7 +288,7 @@ public class OrderCouponWorkAdminUseCase {
     }
 
     private CouponCallResult<CouponReservationStatusResponse> queryReservation(Target target) {
-        return couponClient.reservationStatus(target.reserveWorkId(), target.buyerUserId(), target.orderId());
+        return couponApiClient.reservationStatus(target.reserveWorkId(), target.buyerUserId(), target.orderId());
     }
 
     /** 조치 전 확인용으로 작업과 주문을 읽는다(짧은 읽기 트랜잭션) */

@@ -17,7 +17,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
-import com.hapbang.lecture.fake.FakeCouponClient;
+import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.shared.coupon.api.CouponPriceRaiseBlockedResponse;
@@ -25,7 +25,7 @@ import com.hapbang.testsupport.IntegrationTest;
 
 /**
  * 강의 가격 인상 제한: 가격을 올릴 때만 트랜잭션 밖에서 쿠폰의 가격 인상 제한을 묻고, 막혔거나 확인할 수 없으면 바꾸지 않는다(막는 쪽).
- * 쿠폰 Client의 상태 변환은 CouponClientTest가, 가격 비교 규칙은 LectureTest가 맡는다.
+ * 쿠폰 Client의 상태 변환은 CouponApiClientTest가, 가격 비교 규칙은 LectureTest가 맡는다.
  */
 @IntegrationTest
 @WithMockUser(roles = "VERIFIED_INFLUENCER")
@@ -41,7 +41,7 @@ class LecturePriceRaiseTest {
     private LectureRepository lectureRepository;
 
     @Autowired
-    private FakeCouponClient coupon;
+    private FakeCouponApiClient coupon;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

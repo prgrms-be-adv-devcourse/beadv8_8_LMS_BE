@@ -29,7 +29,7 @@ import com.hapbang.shared.internal.InternalApiHeaders;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 // 쿠폰 사용 내부 API를 부르는 강의 HTTP Interface와 어댑터의 요청 모양·결과 4분류·circuit breaker를 MockRestServiceServer로 확인한다
-class CouponClientTest {
+class CouponApiClientTest {
 
     private static final String BASE_URL = "http://coupon.test";
     private static final String API_KEY = "unit-internal-api-key";
@@ -43,7 +43,7 @@ class CouponClientTest {
 
     @Test
     void 내부_키_헤더를_붙여_보내고_성공_응답의_data를_돌려준다() {
-        CouponClient client = client(LectureCouponClientProperties.defaults());
+        CouponApiClient client = client(LectureCouponClientProperties.defaults());
         server.expect(requestTo(CALCULATE_URL))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header(InternalApiHeaders.API_KEY, API_KEY))
@@ -70,7 +70,7 @@ class CouponClientTest {
 
     @Test
     void 쿠폰의_4xx_거절은_code와_발급_쿠폰_ID를_그대로_싣고_회로_실패로_세지_않는다() {
-        CouponClient client = client(smallWindow());
+        CouponApiClient client = client(smallWindow());
         server.expect(requestTo(CALCULATE_URL)).andRespond(withStatus(HttpStatus.CONFLICT)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body("""
@@ -89,7 +89,7 @@ class CouponClientTest {
 
     @Test
     void 서버_오류와_응답_시간_초과와_data_없는_성공은_결과_불명이다() {
-        CouponClient client = client(LectureCouponClientProperties.defaults());
+        CouponApiClient client = client(LectureCouponClientProperties.defaults());
         server.expect(requestTo(CALCULATE_URL)).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON).body("{\"status\":500,\"code\":\"INTERNAL_ERROR\"}"));
         server.expect(requestTo(CALCULATE_URL)).andRespond(withException(new SocketTimeoutException("Read timed out")));
@@ -108,7 +108,7 @@ class CouponClientTest {
 
     @Test
     void 연결_실패와_처리하지_않았다는_응답은_보내지_않음이다() {
-        CouponClient client = client(LectureCouponClientProperties.defaults());
+        CouponApiClient client = client(LectureCouponClientProperties.defaults());
         server.expect(requestTo(CALCULATE_URL)).andRespond(withException(new ConnectException("Connection refused")));
         server.expect(requestTo(CALCULATE_URL)).andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
 
@@ -120,7 +120,7 @@ class CouponClientTest {
 
     @Test
     void 실패가_쌓여_회로가_열리면_HTTP를_부르지_않고_보내지_않음이다() {
-        CouponClient client = client(smallWindow());
+        CouponApiClient client = client(smallWindow());
         assertThat(client.canCall()).isTrue();
         server.expect(times(2), requestTo(CALCULATE_URL))
                 .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
@@ -134,8 +134,8 @@ class CouponClientTest {
         server.verify();
     }
 
-    private CouponClient client(LectureCouponClientProperties properties) {
-        return new CouponClient(LectureCouponApiConfig.create(builder, BASE_URL, API_KEY), properties);
+    private CouponApiClient client(LectureCouponClientProperties properties) {
+        return new CouponApiClient(LectureCouponApiConfig.create(builder, BASE_URL, API_KEY), properties);
     }
 
     // 최근 2번 중 2번 모두 실패하면 열리고, 테스트 동안 다시 HALF_OPEN이 되지 않는 회로

@@ -6,18 +6,18 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
 /**
- * 모듈 테스트 컨텍스트에 {@link FakeCouponClient}를 실제 쿠폰 Client보다 우선해 등록한다.
+ * 모듈 테스트 컨텍스트에 {@link FakeCouponApiClient}를 실제 쿠폰 Client보다 우선해 등록한다.
  * 실제 쿠폰 내부 API를 타는 e2e는 {@value #ENABLED}{@code =false}로 끈다.
  */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(name = FakeCouponClientConfig.ENABLED, havingValue = "true", matchIfMissing = true)
-public class FakeCouponClientConfig {
+@ConditionalOnProperty(name = FakeCouponApiClientConfig.ENABLED, havingValue = "true", matchIfMissing = true)
+public class FakeCouponApiClientConfig {
 
     public static final String ENABLED = "lecture.test.fake-coupon-client";
 
     @Bean
     @Primary
-    FakeCouponClient fakeCouponClient() {
-        return new FakeCouponClient();
+    FakeCouponApiClient fakeCouponApiClient() {
+        return new FakeCouponApiClient();
     }
 }

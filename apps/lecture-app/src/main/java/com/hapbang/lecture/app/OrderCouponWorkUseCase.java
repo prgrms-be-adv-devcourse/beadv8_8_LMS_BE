@@ -12,7 +12,7 @@ import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.config.LectureOrderProperties;
 import com.hapbang.lecture.domain.OrderCouponWork;
 import com.hapbang.lecture.out.OrderCouponWorkRepository;
-import com.hapbang.lecture.out.coupon.CouponClient;
+import com.hapbang.lecture.out.coupon.CouponApiClient;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -38,27 +38,27 @@ public class OrderCouponWorkUseCase {
     private final OrderCouponWorkRepository orderCouponWorkRepository;
     private final OrderCouponReserveUseCase orderCouponReserveUseCase;
     private final OrderCouponReleaseUseCase orderCouponReleaseUseCase;
-    private final CouponClient couponClient;
+    private final CouponApiClient couponApiClient;
     private final LectureOrderProperties properties;
     private final Clock clock;
 
     public OrderCouponWorkUseCase(OrderCouponWorkRepository orderCouponWorkRepository,
                                   OrderCouponReserveUseCase orderCouponReserveUseCase,
                                   OrderCouponReleaseUseCase orderCouponReleaseUseCase,
-                                  CouponClient couponClient,
+                                  CouponApiClient couponApiClient,
                                   LectureOrderProperties properties,
                                   @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.orderCouponWorkRepository = orderCouponWorkRepository;
         this.orderCouponReserveUseCase = orderCouponReserveUseCase;
         this.orderCouponReleaseUseCase = orderCouponReleaseUseCase;
-        this.couponClient = couponClient;
+        this.couponApiClient = couponApiClient;
         this.properties = properties;
         this.clock = clock;
     }
 
     /** @return 보내기를 시도한 작업 수. 쿠폰 회로가 열려 넘긴 작업은 세지 않는다 */
     public int runDue() {
-        if (!couponClient.canCall()) {
+        if (!couponApiClient.canCall()) {
             log.debug("쿠폰 회로가 열려 쿠폰 작업을 다시 보내지 않는다");
             return 0;
         }
@@ -66,7 +66,7 @@ public class OrderCouponWorkUseCase {
                 PageRequest.of(0, properties.couponWorkBatchSize()));
         int sent = 0;
         for (OrderCouponWork work : works) {
-            if (!couponClient.canCall()) {
+            if (!couponApiClient.canCall()) {
                 log.warn("쿠폰 회로가 열려 남은 쿠폰 작업은 다음 회차에 보낸다 remaining={}", works.size() - sent);
                 break;
             }
