@@ -2,6 +2,7 @@ package com.hapbang.coupon.app;
 
 import static com.hapbang.coupon.domain.CouponFixture.*;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -129,6 +131,47 @@ class CouponOrderConsumerLockTest {
         assertThat(usage.getPaidEventId()).isEqualTo(paid.eventId());
         assertThat(memberCouponRepository.findStateById(memberCouponId).orElseThrow().status())
                 .isEqualTo(MemberCouponStatus.AVAILABLE);
+    }
+
+    /**
+     * 관리자 재처리 경로만 트랜잭션 제한 시간을 둔다. 다른 트랜잭션이 사용 시도 행 잠금을 쥔 동안 Kafka 소비 경로와 재처리 경로가 함께
+     * 기다리면, 재처리 경로는 제한 시간(1초)에 끊겨 되돌아가고 Kafka 소비 경로는 계속 기다렸다가 잠금이 풀린 뒤 반영한다.
+     */
+    @Test
+    void 행_잠금을_오래_기다리면_재처리_경로만_제한_시간에_끊기고_Kafka_소비_경로는_계속_기다린다() throws Exception {
+        Instant now = Instant.now();
+        long memberCouponId = reservedUsage(now);
+        OrderItemPaidEvent paid = OrderItemPaidEvent.of(ORDER_ID, ORDER_ITEM_ID, MEMBER_ID,
+                List.of(new OrderItemPaidEvent.Usage(memberCouponId, 1)), now);
+
+        // 다른 트랜잭션이 주문 항목의 사용 시도 행 잠금을 쥔 채 멈춘다
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Future<?> holder = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            couponUsageRepository.findForUpdateByOrderItemId(ORDER_ITEM_ID);
+            locked.countDown();
+            try {
+                assertThat(release.await(WAIT.toSeconds(), TimeUnit.SECONDS)).isTrue();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+        }));
+        assertThat(locked.await(WAIT.toSeconds(), TimeUnit.SECONDS)).isTrue();
+        Future<CouponOrderConsumerUseCase.Result> kafkaPath = executor.submit(() -> couponOrderConsumerUseCase.consume(paid));
+        await().atMost(WAIT).until(() -> lockWaiters() == 1);
+
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> couponOrderConsumerUseCase.consumeWithin(paid, 1))
+                .isInstanceOf(QueryTimeoutException.class);
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isGreaterThanOrEqualTo(Duration.ofSeconds(1));
+        // 재처리 경로가 끊긴 뒤에도 Kafka 소비 경로는 여전히 기다린다
+        assertThat(kafkaPath.isDone()).isFalse();
+
+        release.countDown();
+        holder.get(WAIT.toSeconds(), TimeUnit.SECONDS);
+        assertThat(kafkaPath.get(WAIT.toSeconds(), TimeUnit.SECONDS)).isEqualTo(CouponOrderConsumerUseCase.Result.APPLIED);
+        assertThat(couponUsageRepository.findByMemberCouponIdAndGeneration(memberCouponId, 1).orElseThrow().getStatus())
+                .isEqualTo(CouponUsageStatus.PAID);
     }
 
     /** 판매자 쿠폰 한 장을 주문 항목에 예약한 상태(발급 쿠폰 RESERVED·generation 1, 사용 시도 RESERVED). 발급 쿠폰 ID */

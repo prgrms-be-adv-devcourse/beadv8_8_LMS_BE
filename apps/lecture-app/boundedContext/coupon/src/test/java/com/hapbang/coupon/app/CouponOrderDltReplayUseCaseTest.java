@@ -12,6 +12,7 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.QueryTimeoutException;
 
 import com.hapbang.coupon.app.dto.CouponDltLogView;
 import com.hapbang.coupon.config.CouponDltProperties;
@@ -48,14 +49,15 @@ class CouponOrderDltReplayUseCaseTest {
 
     @Test
     void 선점한_뒤_저장한_원문으로_소비_UseCase를_다시_실행하고_REPLAYED로_끝낸다() {
-        when(consumerUseCase.consume(any(OrderItemCancelCompletedEvent.class))).thenAnswer(invocation -> {
+        when(consumerUseCase.consumeWithin(any(OrderItemCancelCompletedEvent.class), anyInt())).thenAnswer(invocation -> {
             assertThat(dltLog.getStatus()).isEqualTo(CouponDltStatus.REPLAYING);
             return CouponOrderConsumerUseCase.Result.APPLIED;
         });
 
         CouponDltLogView view = useCase.replay(ADMIN_ID, DLT_ID);
 
-        verify(consumerUseCase).consume(EVENT);
+        // 재처리 경로는 제한 시간(기본 30초)을 둔 소비로 간다
+        verify(consumerUseCase).consumeWithin(EVENT, 30);
         assertThat(view.kind()).isEqualTo(CouponDltKind.ORDER);
         assertThat(view.status()).isEqualTo(CouponDltStatus.REPLAYED);
         assertThat(view.handledBy()).isEqualTo(ADMIN_ID);
@@ -63,12 +65,24 @@ class CouponOrderDltReplayUseCaseTest {
 
     @Test
     void 다시_해도_같은_이유로_실패하면_PENDING으로_되돌리고_409다() {
-        when(consumerUseCase.consume(any(OrderItemCancelCompletedEvent.class)))
+        when(consumerUseCase.consumeWithin(any(OrderItemCancelCompletedEvent.class), anyInt()))
                 .thenThrow(new CouponOrderConsumerIsolationException("주문 항목에 이벤트의 사용 시도가 없다"));
 
         assertThatThrownBy(() -> useCase.replay(ADMIN_ID, DLT_ID))
                 .isInstanceOfSatisfying(CouponException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(CouponErrorCode.INVALID_COUPON_STATUS));
+        assertThat(dltLog.getStatus()).isEqualTo(CouponDltStatus.PENDING);
+        assertThat(dltLog.getHandledBy()).isNull();
+    }
+
+    @Test
+    void 소비가_제한_시간을_넘기면_PENDING으로_되돌리고_409로_다시_요청하게_한다() {
+        when(consumerUseCase.consumeWithin(any(OrderItemCancelCompletedEvent.class), anyInt()))
+                .thenThrow(new QueryTimeoutException("행 잠금 대기 제한 시간 초과"));
+
+        assertThatThrownBy(() -> useCase.replay(ADMIN_ID, DLT_ID))
+                .isInstanceOfSatisfying(CouponException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(CouponErrorCode.COUPON_CONCURRENT_UPDATE));
         assertThat(dltLog.getStatus()).isEqualTo(CouponDltStatus.PENDING);
         assertThat(dltLog.getHandledBy()).isNull();
     }
