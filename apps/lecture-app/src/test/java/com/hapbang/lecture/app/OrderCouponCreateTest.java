@@ -121,9 +121,23 @@ class OrderCouponCreateTest {
         assertThatThrownBy(() -> orderWithCoupon(lecture, PRICE_HP - SELLER_DISCOUNT))
                 .isInstanceOfSatisfying(LectureException.class, e -> {
                     assertThat(e.getErrorCode()).isEqualTo(LectureErrorCode.COUPON_CALCULATION_REJECTED);
+                    // 쿠폰의 detail 문장은 회원에게 보여도 되는 사유 코드가 아니라 싣지 않는다
                     assertThat(e.getProperties()).containsExactlyInAnyOrderEntriesOf(
                             Map.of("couponCode", "COUPON_NOT_USABLE", "memberCouponId", 501L));
                 });
+        assertNoOrder();
+    }
+
+    @Test
+    void 쿠폰_계산이_플랫폼_재원_비활성으로_거절되면_그_사유를_couponDetail로_싣는다() {
+        Lecture lecture = saveOnSale();
+        coupon.respond(request -> new CouponCallResult.Rejected<>(409, "COUPON_NOT_USABLE", 502L,
+                "PLATFORM_FUNDING_DISABLED"));
+
+        assertThatThrownBy(() -> orderWithCoupon(lecture, PRICE_HP - SELLER_DISCOUNT))
+                .isInstanceOfSatisfying(LectureException.class, e -> assertThat(e.getProperties())
+                        .containsExactlyInAnyOrderEntriesOf(Map.of("couponCode", "COUPON_NOT_USABLE",
+                                "memberCouponId", 502L, "couponDetail", "PLATFORM_FUNDING_DISABLED")));
         assertNoOrder();
     }
 

@@ -97,7 +97,7 @@ public class OrderCouponQuoteUseCase {
                         + "memberCouponId={}", buyerUserId, rejected.status(), rejected.code(),
                         rejected.memberCouponId());
                 throw new CouponRejectedException(LectureErrorCode.COUPON_CALCULATION_REJECTED, rejected.code(),
-                        rejected.memberCouponId());
+                        rejected.memberCouponId(), rejected.detail());
             }
             case CouponCallResult.NotSent<CouponCalculateResponse> notSent -> {
                 log.warn("쿠폰 할인 계산을 보내지 못해 주문하지 않았다 buyerUserId={}, reason={}", buyerUserId,
