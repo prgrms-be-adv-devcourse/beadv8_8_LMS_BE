@@ -1520,20 +1520,20 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 - **비교하는 사이의 변경**: 출연 쪽을 읽은 뒤 지갑을 조회하기 전에 다른 배치(HP 작업 재시도 40초·자동 확인 50초)가 작업을 실행하면 거짓 어긋남이 생길 수 있다. 어긋남이 나온 건은 다시 읽어 마지막 변경 시각이 달라졌으면 이번에는 남기지 않는다(비교 수에도 넣지 않고 다음 실행이 다시 본다).
 - **지갑 조회 실패**(회로 열림·결과 불명·거절·응답에서 ID 누락): 그 실행을 `INCOMPLETE`로 끝내고 커서를 옮기지 않는다. 그때까지 찾은 어긋남은 남긴다. 다음 실행이 같은 범위를 다시 본다.
 - **주기**: 매일 04:00:25(KST, `appearance.batch.hp-reconciliation-cron`). 매분 배치들이 쓰지 않는 25초다.
-- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리, 출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리한다. 롤링 배포로 두 pod가 겹치는 동안 새 pod가 실행을 시작하면 옛 pod의 정상 실행도 이렇게 정리될 수 있다(매일 한 번이라 드묾). replica를 늘리면 단일 실행 장치를 먼저 둔다.
-- **설정** (`appearance.hp-reconciliation.*`): `settle-grace` 2h, `lookback` 7d(유예보다 길어야 기동), `page-size` 500(1~500).
+- **동시 실행**: 같은 앱에서 한 번만 돈다(실행 중 표시는 앱 메모리, 출연 앱 1대 전제). 배치는 실행 중이면 건너뛰고 관리자 실행은 409 `HP_RECONCILIATION_RUNNING`. 앱이 멈춰 `RUNNING`으로 남은 실행은 다음 실행이 시작될 때 `INCOMPLETE`("앱이 멈춰 끝나지 못한 실행")로 정리하고 `runs{status=INCOMPLETE}`를 올린다. 배포 중에는 옛 pod와 새 pod가 잠깐 함께 떠 있으므로(maxSurge 1) `abandon-after`(1시간)보다 오래된 실행만 정리한다. 그 안에 시작한 `RUNNING` 실행이 남아 있으면 다른 pod가 하고 있는 것으로 보고 이번 실행을 시작하지 않는다(배치는 건너뛰고 관리자 실행은 409). 그날 배치가 통째로 빠지므로 막은 실행의 `runIds`·`startedAts`를 WARN으로 남긴다. 두 실행이 함께 끝나면 커서 `@Version` 충돌로 뒤의 실행을 기록하지 못하기 때문이다. 확인과 시작 사이는 잠그지 않아 두 pod의 배치가 같은 순간에 시작하면 함께 돌 수 있다(#821). 결과 기록(`finish`)이 실패하면(커서 버전 충돌, DB 순간 장애) 그 실행을 바로 `INCOMPLETE`("결과 기록 실패: 예외 이름")로 끝내고 중단 횟수를 올린다. 찾은 어긋남은 경고 로그에만 남는다. 그새 다른 pod가 먼저 정리한 실행이면 그 pod가 중단 횟수를 올렸으므로 상태를 그대로 두고 지표를 남기지 않는다(같은 실행을 두 번 세지 않음). 미완료 처리마저 실패하면 `RUNNING`으로 남고 `abandon-after` 뒤 다음 실행이 정리한다. `abandon-after` 1시간은 실측 근거가 없다. 첫 실행처럼 1시간을 넘기는 실행이 배포와 겹치면 새 pod가 그 실행을 정리하고, 옛 pod는 결과 기록에 실패해 미완료로 남긴다. 기동할 때는 정리하지 않으므로 멈춘 실행의 `runs{INCOMPLETE}`는 다음 실행(보통 다음 날 04:00)에 오른다. 그사이 대사가 돌지 않은 것은 `last.completed`로 본다. replica를 늘리면 단일 실행 장치를 먼저 둔다.
+- **설정** (`appearance.hp-reconciliation.*`): `settle-grace` 2h, `lookback` 7d(유예보다 길어야 기동), `page-size` 500(1~500), `abandon-after` 1h(0보다 커야 기동, #821).
 
 ### 25.4 결과
 
 - `hp_reconciliation_runs`(실행 1회: 계기·실행한 관리자·상태·비교 수·어긋난 수·DEAD 수·중단 이유), `hp_reconciliation_mismatches`(대상·출연 ID·규칙·출연 상태 요약·지갑 상태 요약). 오래된 기록은 지우지 않는다. 마이그레이션 `V202611031100`
 - 경고 로그: 어긋난 건마다 `[HP_RECONCILIATION_MISMATCH] rule=… runId=… referenceType=… referenceId=… appearanceId=… appearance=[…] wallet=[…]`. 끝까지 하지 못하면 경고 한 줄(이유 포함)
-- 지표: `appearance.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `appearance.hp_reconciliation.runs{status}`(끝난 실행 횟수). 이 지표에 Grafana alert "서비스 간 HP 대사 불일치"·"대사가 돌지 않음"·"대사 중단"(#804)이 걸려 있다(#781, [구성한 alert](../architecture/infrastructure/observability.md#구성한-alert-781))
+- 지표: `appearance.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `appearance.hp_reconciliation.last.completed`(끝까지 비교한 마지막 실행이 끝난 시각, epoch 초, 없으면 0, #821), `appearance.hp_reconciliation.runs{status}`(끝난 실행 횟수). 앞의 두 값은 앱 메모리라 기동할 때(`ApplicationReadyEvent`) `HpReconciliationMetricsRestorer`가 DB의 마지막 `COMPLETED` 실행으로 채운다. DB를 읽기만 하고(남은 `RUNNING`은 정리하지 않음), 읽지 못하면 WARN만 남기고 기동한다(#821, 강의 #805와 같은 방법). 이 지표에 Grafana alert "서비스 간 HP 대사 불일치"·"대사가 돌지 않음"·"대사 중단"(#804)이 걸려 있다(#781, [구성한 alert](../architecture/infrastructure/observability.md#구성한-alert-781))
 
 ### 25.5 API (관리자, `/api/v1/appearances/admin/hp-reconciliations`)
 
 | 메서드·경로 | 동작 | 응답 |
 |---|---|---|
-| `POST` | 지금 실행하고 끝날 때까지 기다린다. 처음 실행은 지갑 목록을 처음부터 읽어 오래 걸릴 수 있고, 응답 전에 연결이 끊겨도 서버에서는 끝까지 실행되므로 `GET /latest`로 확인한다 | 200 실행 결과(`HpReconciliationRunResDto`, 어긋난 건 포함). 지갑 조회가 실패해도 200 `INCOMPLETE` + `failureReason`. 실행 중이면 409 `HP_RECONCILIATION_RUNNING` |
+| `POST` | 지금 실행하고 끝날 때까지 기다린다. 처음 실행은 지갑 목록을 처음부터 읽어 오래 걸릴 수 있고, 응답 전에 연결이 끊겨도 서버에서는 끝까지 실행되므로 `GET /latest`로 확인한다 | 200 실행 결과(`HpReconciliationRunResDto`, 어긋난 건 포함). 지갑 조회가 실패해도 200 `INCOMPLETE` + `failureReason`. 실행 중이면 409 `HP_RECONCILIATION_RUNNING`(다른 pod 실행 중, 1시간 안에 시작한 `RUNNING`이 남았을 때 포함, #821) |
 | `GET /latest` | 마지막으로 시작한 실행과 어긋난 건 | 200. 실행 기록이 없으면 404 `HP_RECONCILIATION_NOT_FOUND`. 실행 중이면 `RUNNING`(어긋난 건은 끝난 뒤 남는다) |
 
 관리자 확인은 19장과 같다(보안 설정 → `@PreAuthorize` → 복제 회원 정보로 지금도 관리자인지).
