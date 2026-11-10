@@ -1657,7 +1657,7 @@ HP 보류가 끝나지 않았거나(`HOLD_PENDING`) 실패한(`HOLD_FAILED`) 요
 
 ## 28. AI 추천용 출연 동기화 (#713)
 
-AI 추천(auxiliary-app chatbot)이 출연 데이터의 **읽기용 사본**을 둘 수 있게, 성립 이후의 출연과 공개된 리뷰 별점을 이벤트와 키셋 내부 API로 준다. 평상시는 이벤트로 반영하고, 주 1회 내부 API로 처음부터 끝까지 읽어 이벤트 누락을 바로잡는다(첫 실행이 곧 초기 적재). 이벤트와 내부 API는 같은 DTO를 쓴다. 계약은 [`docs/api/internal-appearance-sync.md`](../api/internal-appearance-sync.md).
+AI 추천(auxiliary-app chatbot)이 출연 데이터의 **읽기용 사본**을 둘 수 있게, 성립 이후의 출연과 공개된 리뷰 별점을 이벤트와 키셋 내부 API로 준다. 평상시는 이벤트로 반영하고, 매시(#717, 처음엔 주 1회) 내부 API로 처음부터 끝까지 읽어 이벤트 누락을 바로잡는다(첫 실행이 곧 초기 적재). 이벤트와 내부 API는 같은 DTO를 쓴다. 계약은 [`docs/api/internal-appearance-sync.md`](../api/internal-appearance-sync.md).
 
 ### 28.1 공개 결과
 
