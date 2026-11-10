@@ -109,6 +109,13 @@ public class OrderItem {
     /** 이의 제기를 판단한 관리자 */
     private Long objectionResolvedByUserId;
 
+    /**
+     * 이의 제기 인정 반환이 멈춘 횟수 = 마지막 반환 지연 회차 (#818, D83). 반환 작업이 DEAD가 될 때마다 1 오르고 반환 지연 이벤트에 실린다.
+     * 반환 작업은 항목마다 하나이고 인정된 이의 제기도 항목마다 하나라 문의별 회차와 같다
+     */
+    @Column(nullable = false)
+    private int returnDelayCount;
+
     @Version
     private Long version;
 
@@ -295,6 +302,15 @@ public class OrderItem {
         requireStatus(OrderItemStatus.RETURN_PENDING);
         this.status = OrderItemStatus.RETURNED;
         this.returnedAt = now;
+    }
+
+    /**
+     * 반환 지연(이의 제기 인정 반환 작업이 DEAD가 됨, #818, D83). 반환 지연 회차를 1 올린다. 상태는 반환 처리 중 그대로다.
+     * 작업 결과를 기록하는 트랜잭션에서 DEAD 전이 한 번에 한 번 부른다. 상태를 검사해 던지면 결과 기록이 롤백되어 같은 작업이 계속 다시
+     * 실행되므로 검사하지 않는다. 이번 회차는 {@link #getReturnDelayCount()}다(1부터)
+     */
+    void recordReturnDelay() {
+        this.returnDelayCount++;
     }
 
     /**
