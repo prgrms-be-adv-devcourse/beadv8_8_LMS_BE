@@ -1,0 +1,15 @@
+# 검색 모듈 테스트 전용 설정. @IntegrationTest가 spring.config.name=hapbang-module-test로 읽는다.
+# src/test 아래라 배포 jar에는 포함되지 않는다.
+spring:
+  datasource:
+    hikari:
+      # 테스트는 컨텍스트를 여러 개 캐시하고 각 컨텍스트가 연결 풀을 가진다. PostgreSQL 컨테이너의 max_connections(100)를 넘지 않게 줄인다
+      maximum-pool-size: 5
+hapbang:
+  search:
+    # 운영 기본값은 꺼짐(application.yaml)이다. 모듈 테스트는 검색 빈을 시험하므로 켠다. 꺼졌을 때는 앱 기동 테스트가 본다
+    enabled: true
+    elasticsearch:
+      # ES를 쓰는 테스트는 SearchElasticsearchTestcontainersConfig를 @Import 해 이 주소를 컨테이너 주소로 바꾼다.
+      # ES가 없는 테스트는 닿지 않는 주소로 둔다(연결 거절을 바로 받는다)
+      uris: http://127.0.0.1:9

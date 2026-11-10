@@ -130,6 +130,15 @@ hapbang:
       index-name: chatbot-faq-none
       dimensions: 768
       similarity-threshold: 0.7
+  # 인플루언서 검색(#771). 운영 ES의 검색용 API key(#806)가 생기기 전이라 스위치를 꺼 둔다. 꺼지면 검색 모듈 빈이 하나도 뜨지 않는다.
+  # #806이 끝나면 스위치(enabled와 ConditionalOnSearchEnabled)를 지운다
+  search:
+    enabled: false
+    elasticsearch:
+      # 챗봇과 같은 cluster다. key만 다르다(application-prod.yaml)
+      uris: "${spring.elasticsearch.uris:http://localhost:9200}"
+      connection-timeout: 1s
+      socket-timeout: 10s
   internal-api:
     key: "${HAPBANG_INTERNAL_API_KEY:}"
   clients:

@@ -42,3 +42,8 @@ hapbang:
       dimensions: 1536
       # 임시값. 배포 전에 평가셋을 OpenAI로 한 번 돌려 정한다(README "평가")
       similarity-threshold: 0.4
+  search:
+    elasticsearch:
+      # 검색 role(search-*)의 key. Secret(auxiliary-app-secrets의 ES_SEARCH_API_KEY, #806). 스위치가 꺼져 있으면 읽지 않는다
+      api-key: "${ES_SEARCH_API_KEY}"
+      ssl-bundle: elasticsearch
