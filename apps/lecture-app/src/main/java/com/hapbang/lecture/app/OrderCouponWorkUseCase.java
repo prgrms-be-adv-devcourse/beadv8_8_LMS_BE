@@ -32,6 +32,9 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class OrderCouponWorkUseCase {
 
+    /** 쿠폰 작업을 다시 보내다 예기치 않은 예외가 났을 때 붙이는 alert 표식. 그 작업은 다음 회차에 다시 고른다 */
+    static final String RETRY_FAILED_LOG = "[LECTURE_COUPON_WORK_RETRY_FAILED]";
+
     private final OrderCouponWorkRepository orderCouponWorkRepository;
     private final OrderCouponReserveUseCase orderCouponReserveUseCase;
     private final OrderCouponReleaseUseCase orderCouponReleaseUseCase;
@@ -73,8 +76,8 @@ public class OrderCouponWorkUseCase {
                     case RELEASE -> orderCouponReleaseUseCase.release(work.getOrderId());
                 }
             } catch (RuntimeException unexpected) {
-                log.error("쿠폰 작업을 다시 보내다 예외가 나 다음 회차에 다시 고른다 orderId={}, workId={}", work.getOrderId(),
-                        work.getWorkId(), unexpected);
+                log.error(RETRY_FAILED_LOG + " 쿠폰 작업을 다시 보내다 예외가 나 다음 회차에 다시 고른다 orderId={}, workId={}",
+                        work.getOrderId(), work.getWorkId(), unexpected);
             }
             sent++;
         }

@@ -32,6 +32,9 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class LectureUpdateInfoUseCase {
 
+    /** 쿠폰 내부 API가 가격 인상 제한 조회를 4xx(401·403 제외)로 거절해 가격 인상을 막았을 때 붙이는 alert 표식. 계약·설정 문제다 */
+    static final String PRICE_RAISE_CHECK_FAILED_LOG = "[LECTURE_PRICE_RAISE_CHECK_FAILED]";
+
     private final LectureSupport lectureSupport;
     private final LectureFileSupport lectureFileSupport;
     private final LectureSyncEvents lectureSyncEvents;
@@ -63,8 +66,8 @@ public class LectureUpdateInfoUseCase {
             }
             case CouponCallResult.Rejected<CouponPriceRaiseBlockedResponse> rejected -> {
                 // 강의 ID만 보내는 읽기라 판매자가 고칠 수 있는 거절이 없다. 계약·설정 문제로 보고 막는 쪽으로 처리한다
-                log.error("쿠폰 내부 API가 가격 인상 제한 조회를 거절해 가격 인상을 막았다 lectureId={}, httpStatus={}, couponCode={}",
-                        lectureId, rejected.status(), rejected.code());
+                log.error(PRICE_RAISE_CHECK_FAILED_LOG + " 쿠폰 내부 API가 가격 인상 제한 조회를 거절해 가격 인상을 막았다 "
+                        + "lectureId={}, httpStatus={}, couponCode={}", lectureId, rejected.status(), rejected.code());
                 throw new LectureException(LectureErrorCode.LECTURE_PRICE_RAISE_UNAVAILABLE);
             }
             case CouponCallResult.NotSent<CouponPriceRaiseBlockedResponse> notSent -> {

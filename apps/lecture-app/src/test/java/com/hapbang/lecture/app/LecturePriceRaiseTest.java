@@ -7,7 +7,10 @@ import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 
@@ -26,6 +29,7 @@ import com.hapbang.testsupport.IntegrationTest;
  */
 @IntegrationTest
 @WithMockUser(roles = "VERIFIED_INFLUENCER")
+@ExtendWith(OutputCaptureExtension.class)
 class LecturePriceRaiseTest {
 
     private static final long RAISED = PRICE_HP + 5_000L;
@@ -72,7 +76,7 @@ class LecturePriceRaiseTest {
     }
 
     @Test
-    void 가격_인상_제한을_확인할_수_없으면_막는_쪽으로_503이고_가격이_그대로다() {
+    void 가격_인상_제한을_확인할_수_없으면_막는_쪽으로_503이고_가격이_그대로다(CapturedOutput output) {
         Long lectureId = saveOnSale();
         List<CouponCallResult<?>> failures = List.of(new CouponCallResult.NotSent<>("회로 열림"),
                 new CouponCallResult.Unknown<>(0, "응답 시간 초과"), new CouponCallResult.Rejected<>(401, null, null, null),
@@ -85,6 +89,10 @@ class LecturePriceRaiseTest {
                     .extracting("errorCode").isEqualTo(LectureErrorCode.LECTURE_PRICE_RAISE_UNAVAILABLE);
         }
         assertThat(price(lectureId)).isEqualTo(PRICE_HP);
+        // 쿠폰의 4xx(401·403 제외) 거절은 계약·설정 문제라 alert 표식을 단 ERROR로 남긴다
+        assertThat(output.getAll().lines().filter(line -> line.contains("[LECTURE_PRICE_RAISE_CHECK_FAILED]")))
+                .singleElement().satisfies(line -> assertThat(line).contains(" ERROR ", "lectureId=" + lectureId,
+                        "httpStatus=400", "couponCode=INVALID_REQUEST"));
     }
 
     @Test

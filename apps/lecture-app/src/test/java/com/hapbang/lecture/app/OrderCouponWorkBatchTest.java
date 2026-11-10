@@ -8,6 +8,9 @@ import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -39,6 +42,7 @@ import com.hapbang.testsupport.IntegrationTest;
  */
 @IntegrationTest
 @WithMockUser(roles = "USER")
+@ExtendWith(OutputCaptureExtension.class)
 class OrderCouponWorkBatchTest {
 
     private static final Long BUYER_ID = OTHER_USER_ID;
@@ -213,6 +217,23 @@ class OrderCouponWorkBatchTest {
         assertThat(response.status()).isEqualTo(LectureOrderStatus.PAID);
         assertThat(work(response.orderId(), "RESERVE")).containsEntry("status", "RESERVED");
         assertThat(coupon.calls().stream().filter(call -> call.request() instanceof CouponReserveRequest)).hasSize(1);
+    }
+
+    @Test
+    void 다시_보내다_예외가_나면_alert_표식을_단_ERROR를_남기고_다음_작업으로_넘어간다(CapturedOutput output) {
+        Lecture lecture = saveOnSale();
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(calculated((CouponCalculateRequest) request)));
+        Long orderId = order(lecture).orderId();
+        makeDue(orderId);
+        coupon.respond(request -> {
+            throw new IllegalStateException("재전송 예외 확인");
+        });
+
+        assertThat(orderCouponWorkUseCase.runDue()).isEqualTo(1);
+
+        assertThat(output.getAll().lines().filter(line -> line.contains("[LECTURE_COUPON_WORK_RETRY_FAILED]")))
+                .singleElement().satisfies(line -> assertThat(line).contains(" ERROR ", "orderId=" + orderId,
+                        "workId=lecture-order:" + orderId + ":reserve"));
     }
 
     @Test
