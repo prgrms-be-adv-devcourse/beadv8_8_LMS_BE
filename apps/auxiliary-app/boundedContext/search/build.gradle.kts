@@ -4,6 +4,8 @@ dependencies {
     implementation(project(":auxiliary-global"))
     // 검색 전용 ElasticsearchClient(ES_SEARCH_API_KEY)를 직접 만든다. 버전은 Boot BOM(elasticsearch-java 9.4.5) 그대로다(#771 시험 결과)
     implementation("org.springframework.boot:spring-boot-starter-elasticsearch")
+    // 회원 이벤트 소비. 앱은 common :kafka(자동 설정)를 함께 쓰지만 업무 모듈은 :kafka 프로젝트를 의존할 수 없어 starter를 직접 적는다
+    implementation("org.springframework.boot:spring-boot-starter-kafka")
 
     testImplementation(project(":test-support"))
 }
