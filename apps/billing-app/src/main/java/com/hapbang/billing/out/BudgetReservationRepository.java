@@ -1,5 +1,6 @@
 package com.hapbang.billing.out;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.Lock;
@@ -26,6 +27,9 @@ public interface BudgetReservationRepository extends Repository<BudgetReservatio
 
     // 예약 작업 ID의 예약을 조회한다(같은 작업의 재요청 확인).
     Optional<BudgetReservation> findByWorkId(String workId);
+
+    // 지갑의 예약 전부(프로모션 지갑 대사)
+    List<BudgetReservation> findAllByWalletId(Long walletId);
 
     // 쿠폰의 예약을 조회한다. 쿠폰당 예약은 하나다.
     Optional<BudgetReservation> findByCouponId(Long couponId);

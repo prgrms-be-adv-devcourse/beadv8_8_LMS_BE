@@ -160,7 +160,10 @@ class PromotionLedgerIntegrationTest {
 
         assertThat(walletRow(walletId)).isEqualTo(walletBefore);
         assertThat(ledgerRows(walletId)).isEqualTo(ledgerBefore);
-        assertThat(walletReconciliationUseCase.reconcile(walletId).matched()).isTrue();
+        WalletReconciliation result = walletReconciliationUseCase.reconcile(walletId);
+        assertThat(result.buckets()).allMatch(WalletReconciliation.BucketReconciliation::matched);
+        // 이 테스트가 원장 기록 전에 직접 저장한 예약 행은 원장 없이 남으므로 프로모션 불변식(P3·P2)이 불일치로 잡는다
+        assertThat(result.invariant(PromotionWalletReconciliation.P3_RESERVED).matched()).isFalse();
     }
 
     private Wallet promotionWallet() {

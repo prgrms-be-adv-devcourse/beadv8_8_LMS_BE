@@ -27,8 +27,9 @@ public class WalletReconciliationUseCase {
 
     private final WalletRepository walletRepository;
     private final PointLedgerRepository pointLedgerRepository;
+    private final PromotionWalletReconciliation promotionWalletReconciliation;
 
-    // 지갑과 원장 합계를 한 스냅숏(REPEATABLE READ)에서 읽어, 동시 거래로 생기는 일시적 불일치를 잘못 탐지하지 않게 비교한다.
+    // 지갑과 원장 합계(프로모션 지갑은 예산 예약·해제 기록까지)를 한 스냅숏(REPEATABLE READ)에서 읽어, 동시 거래로 생기는 일시적 불일치를 잘못 탐지하지 않게 비교한다.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public WalletReconciliation reconcile(Long walletId) {
         Wallet wallet = walletRepository.findById(walletId)
@@ -48,7 +49,10 @@ public class WalletReconciliationUseCase {
                         pointType, balanceBucket, wallet.balanceOf(pointType, balanceBucket), ledgerHp));
             }
         }
-        return WalletReconciliation.of(walletId, buckets);
+        // 프로모션 지갑은 칸 캐시 대조에 더해 예산 예약과의 불변식을 같은 스냅숏에서 본다
+        List<WalletReconciliation.InvariantCheck> invariants = wallet.isPromotion()
+                ? promotionWalletReconciliation.check(wallet) : List.of();
+        return WalletReconciliation.of(walletId, buckets, invariants);
     }
 
     // 원장 합계를 HP 종류·잔액 버킷별로 정리하며, 원장이 없는 버킷은 0으로 본다.
