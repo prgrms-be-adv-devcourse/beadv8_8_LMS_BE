@@ -86,6 +86,32 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-027 · 2026-11-10 · 통과 (#849 PR 리뷰 반영, NR-026 정정)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-027 |
+| 실행 날짜 | 2026-11-10 17:15~17:20 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-849` |
+| 커밋 | `7e4aa64d` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationRealtimeIntegrationTest`: 중복·밀려난 알림 시험이 앞서 받은 20건의 `targetId`가 `new-0`~`new-19`와 정확히 같은지 확인, 구독 거절 시험의 닫힘 판정을 `PROTOCOL_ERROR`(1002)로 좁힘. 이 문서 |
+| 대상 기능 | #849 PR 리뷰 지적 2건 |
+| 관련 NT ID | NR-026과 같다 |
+| 명령 | 두 클래스 `--rerun` 3회 + `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-026과 같다 |
+| 결과 | 통과 |
+| 건수 | 두 클래스 3회 모두 통과(`NotificationRealtimeIntegrationTest` 13건). 검증 명령: `:notification` 116 새 실행·통과, 나머지 `UP-TO-DATE`(새 실행 아님, 마지막 실행 NR-026 통과). 종료 코드 0 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | 자체 리뷰(import 순서, 저장 목록을 한 번만 만들기) 반영 뒤 17:24~17:25 검증 명령 다시 실행: `:notification` 116 새 실행·통과(`NotificationRealtimeIntegrationTest` 13건), 나머지 `UP-TO-DATE`, 종료 코드 0 |
+| 미검증 항목 | NR-026과 같다(CI 재실행 없이 연속 3회, B·C 로컬 재현 못 함) |
+| 관련 변경 | #849 |
+
+**메모**
+- 1002 근거: spring-websocket 7.0.9 `StompSubProtocolHandler`는 클라이언트 프레임 처리 실패 때(`handleError` → `sendErrorMessage`) ERROR를 보내고 `CloseStatus.PROTOCOL_ERROR`로 닫는다(바이트코드 확인). 알림 모듈에는 별도 STOMP 오류 처리기가 없다.
+- **NR-026 정정**: NR-026 메모의 줄 번호(196·117·343행)는 수정 전 파일 기준이라 수정 뒤 파일과 맞지 않는다. 메서드 이름으로 읽는다: A `중복과_밀려난_알림은_프레임을_보내지_않고_중복_방지와_20개_보존은_그대로다`, B `연결_만료가_되면_서버가_연결을_4401로_닫는다`, C `자기_알림_목적지_말고는_구독할_수_없다`, 추가 `Redis가_멈춰도_저장은_끝나고_되돌려지지_않으며_재접속_뒤_목록으로_맞춘다`.
+
 #### NR-026 · 2026-11-10 · 통과 (#849 CI 간헐 실패 시험 수정)
 
 | 항목 | 값 |

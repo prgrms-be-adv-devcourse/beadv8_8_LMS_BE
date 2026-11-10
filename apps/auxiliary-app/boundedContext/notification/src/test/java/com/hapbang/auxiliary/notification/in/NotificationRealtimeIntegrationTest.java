@@ -7,12 +7,17 @@ import static org.awaitility.Awaitility.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,6 +72,7 @@ class NotificationRealtimeIntegrationTest {
     private static final Duration REJECT_CLOSE_WAIT = Duration.ofSeconds(1);
     /** 앞선 저장이 없는 거절된 연결에 프레임이 오지 않는지 보는 시간 */
     private static final Duration NO_FRAME_WAIT = Duration.ofMillis(500);
+    private static final Pattern TARGET_ID = Pattern.compile("\"targetId\":\"([^\"]+)\"");
     private static final String QUEUE = "/user/queue/notifications";
     private static final String WS_PATH = "/api/v1/notifications/ws";
     private static final String TICKET_PATH = "/api/v1/notifications/ws-tickets";
@@ -202,12 +208,18 @@ class NotificationRealtimeIntegrationTest {
     void 중복과_밀려난_알림은_프레임을_보내지_않고_중복_방지와_20개_보존은_그대로다() throws Exception {
         long a = member();
         RawStomp stomp = connect(a, Role.USER);
-        for (int i = 0; i < 20; i++) {
-            writer.save(draft(a, "new-" + i, 7L, "호스트", T0.plusSeconds(100 + i)));
+        List<String> saved = IntStream.range(0, 20).mapToObj(i -> "new-" + i).toList();
+        for (int i = 0; i < saved.size(); i++) {
+            writer.save(draft(a, saved.get(i), 7L, "호스트", T0.plusSeconds(100 + i)));
         }
-        for (int i = 0; i < 20; i++) {
-            assertThat(stomp.nextFrame(WAIT)).as("앞서 저장한 %d번째 프레임", i + 1).contains("\"targetId\":\"new-");
+        Set<String> drained = new HashSet<>();
+        for (int i = 0; i < saved.size(); i++) {
+            String frame = stomp.nextFrame(WAIT);
+            assertThat(frame).as("앞서 저장한 %d번째 프레임", i + 1).isNotNull();
+            drained.add(targetIdOf(frame));
         }
+        // 같은 프레임이 두 번 온 것이 아니라 앞서 저장한 20건이 하나씩 모두 왔는지 본다
+        assertThat(drained).containsExactlyInAnyOrderElementsOf(saved);
 
         NotificationWriteResult duplicate = writer.save(draft(a, "new-0", 7L, "호스트", T0.plusSeconds(100)));
         NotificationWriteResult old = writer.save(draft(a, "old", 7L, "호스트", T0));
@@ -389,7 +401,16 @@ class NotificationRealtimeIntegrationTest {
         }
         CloseStatus closed = stomp.awaitClose(REJECT_CLOSE_WAIT);
         assertThat(closed).as("%s 구독에 %d초 안에 ERROR도 연결 닫힘도 없음", destination, WAIT.toSeconds()).isNotNull();
-        assertThat(closed.getCode()).as("%s 구독 거절의 닫힘 코드", destination).isNotEqualTo(CloseStatus.NORMAL.getCode());
+        // Spring StompSubProtocolHandler는 클라이언트 프레임 처리 실패 때 ERROR를 보내고 PROTOCOL_ERROR(1002)로 닫는다(spring-websocket 7.0)
+        assertThat(closed.getCode()).as("%s 구독 거절의 닫힘 코드", destination)
+                .isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode());
+    }
+
+    /** STOMP MESSAGE 프레임 본문의 targetId */
+    private static String targetIdOf(String frame) {
+        Matcher matcher = TARGET_ID.matcher(frame);
+        assertThat(matcher.find()).as("targetId가 없는 프레임: %s", frame).isTrue();
+        return matcher.group(1);
     }
 
     // ---------------------------------------------------------------------------------------------
