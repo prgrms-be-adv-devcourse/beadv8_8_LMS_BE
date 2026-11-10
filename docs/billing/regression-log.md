@@ -87,6 +87,10 @@
 
 | ID | 날짜 | 커밋 | 명령 | 단계 | 결과 | 실패 원인 분류 | 기록 목적 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| R-007 | 2026-11-10 | bfe1b01c + 작업 트리(PR 리뷰 반영, 테스트·문서만) | R-004와 같은 12개 클래스 `--rerun-tasks` | U·I(R 포함) | 통과, 75건 | 실패 없음 | 회귀 확인(#822 PR 리뷰 반영) |
+| R-006 | 2026-11-10 | 40c94d7b + 작업 트리(#822, R-005와 같음) | `./gradlew :billing-app:test --rerun-tasks` | U·S·I(R 포함) | 통과, 1,331건 | 실패 없음 | 회귀 확인(#822 커밋 전 전체) |
+| R-005 | 2026-11-10 | 40c94d7b + 작업 트리(#822 리뷰 반영) | R-004와 같은 12개 클래스 `--rerun-tasks` | U·I(R 포함) | 통과, 74건 | 실패 없음 | 회귀 확인(#822 리뷰 반영) |
+| R-004 | 2026-11-10 | 40c94d7b + 작업 트리(#822) | `./gradlew :billing-app:test --rerun-tasks --tests …`(12개 클래스) | U·I(R 포함) | 통과, 73건 | 실패 없음 | 회귀 확인(#822) |
 | R-003 | 2026-10-29 | 7dc89e0 | `./gradlew :billing-app:test --rerun-tasks` | U·S·I(R 포함) | 통과, 1,041건 | 실패 없음 | 기준선 |
 | R-002 | 2026-10-29 | 7dc89e0 | test-spec 1.3 Unit 명령(당시 24개 패턴) | U | 통과, 318건 | 실패 없음 | 기준선(Unit) |
 | R-001 | 2026-10-29 | 5a4dc1a | `./gradlew check --continue --offline` | U·S·I | 중단, 366 통과·675 실패 | F-ENV 675건 | 환경 확인 |
@@ -97,6 +101,126 @@
 ### 3.2 직접 실행한 기록 (R)
 
 _새 기록은 3.4 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙이고, 3.1 요약 표에도 한 줄 더한다._
+
+#### R-007 · 2026-11-10 · U·I(R 포함) · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-007 |
+| 실행 일시 | 2026-11-10 16:02 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-822` |
+| 커밋 | bfe1b01c |
+| 작업 트리 변경 | `WalletReconciliationRunIntegrationTest`(`carriesOnlyLatestRunFailedWallets` 추가, `insertProblemWallet` 도우미), 문서 test-spec·regression-log·observability. 운영 코드 변경 없음 |
+| 단계 | U / I (R 포함) |
+| 범위 | R-004와 같은 12개 클래스 |
+| 명령 | R-004의 명령과 같다 |
+| 환경 | R-004와 같다 |
+| 소요 시간 | 60초 |
+| 결과 | 통과 |
+| 기록 목적 | 회귀 확인(#822 PR 리뷰 반영) |
+
+**건수** (TEST-*.xml 12개 기준)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| 합계 | 75 | 0 | 0 | 0 |
+
+**실패 목록**: 없음.
+
+**메모**: 새 테스트는 이미 있는 동작을 검증해 처음부터 통과했다. 변형 확인 2건: 이월 조회를 가장 오래된 실행(시작 시각 오름차순)으로 바꾸면, 또 ID 역순으로 바꾸면(최근 실행을 먼저 넣어 ID가 더 작다) 이 테스트 1건만 실패했다. 모두 되돌린 뒤 이 실행을 했다. billing-app 전체(R-006 뒤 운영 코드 변경 없음)와 `./gradlew check`는 다시 실행하지 않았다. 이 실행 뒤(16:05) 재리뷰에 따라 새 테스트의 같은 시각 식을 지역 변수로 뺀 뒤 `WalletReconciliationRunIntegrationTest`만 `--rerun-tasks`로 다시 실행해 4건 통과했다.
+
+#### R-006 · 2026-11-10 · U·S·I(R 포함) · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-006 |
+| 실행 일시 | 2026-11-10 15:35~15:42 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-822` |
+| 커밋 | 40c94d7b |
+| 작업 트리 변경 | R-005와 같다(#822 코드·테스트·문서, 커밋 전) |
+| 단계 | U / S / I (R 포함) |
+| 범위 | billing-app 전체 |
+| 명령 | `./gradlew :billing-app:test --rerun-tasks` |
+| 환경 | R-004와 같다 |
+| 소요 시간 | 6분 32초 |
+| 결과 | 통과 |
+| 기록 목적 | 회귀 확인(#822 커밋 전 전체) |
+
+**건수** (TEST-*.xml 107개 기준, `@Nested`는 파일이 따로 생긴다)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| 합계 | 1,331 | 0 | 0 | 0 |
+
+**실패 목록**: 없음.
+
+**메모**: test-spec 7.2(102개 클래스·소스 메서드 948개)의 지금 테스트 전체를 덮는 첫 R 기록이다. 단계별 건수는 나누지 않았다. 전체 `./gradlew check`는 미실행이다(PR CI).
+
+#### R-005 · 2026-11-10 · U·I(R 포함) · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-005 |
+| 실행 일시 | 2026-11-10 15:27 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-822` |
+| 커밋 | 40c94d7b |
+| 작업 트리 변경 | R-004 목록 + 코드 리뷰 반영: 엔티티 팩토리 `create`·`updatable = false`·UNIQUE 선언, 복원이 이 인스턴스의 대사 결과를 덮지 않음·마지막 성공 시각은 더 큰 값만, 저장 실패 ERROR 표식 `[BILLING_RECONCILIATION_RECORD_FAILED]`, Flyway 부분 인덱스 제거, `ChangedWalletReconciliationUseCaseTest#restoreDoesNotOverwriteRunInThisInstance` 추가 |
+| 단계 | U / I (R 포함) |
+| 범위 | R-004와 같은 12개 클래스 |
+| 명령 | R-004의 명령과 같다 |
+| 환경 | R-004와 같다 |
+| 소요 시간 | 55초 |
+| 결과 | 통과 |
+| 기록 목적 | 회귀 확인(#822 리뷰 반영) |
+
+**건수** (TEST-*.xml 기준)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| U (5개 클래스) | 28 | 0 | 0 | 0 |
+| I (4개 클래스) | 19 | 0 | 0 | 0 |
+| R (3개 클래스) | 27 | 0 | 0 | 0 |
+| 합계 | 74 | 0 | 0 | 0 |
+
+**실패 목록**: 없음.
+
+**메모**: 새 테스트 `restoreDoesNotOverwriteRunInThisInstance`가 보호 로직 없이 실패하는 것을 먼저 확인했다(단위 14개 중 1개 실패). billing-app 전체 테스트와 `./gradlew check`는 미실행이다.
+
+#### R-004 · 2026-11-10 · U·I(R 포함) · 통과
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | R-004 |
+| 실행 일시 | 2026-11-10 15:20 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-822` |
+| 커밋 | 40c94d7b |
+| 작업 트리 변경 | 코드: `ChangedWalletReconciliationUseCase`, 새 `WalletReconciliationRunRecorder`·`WalletReconciliationMetricsRestorer`·`WalletReconciliationRun`·`WalletReconciliationRunWallet`·`WalletReconciliationResult`·`WalletReconciliationRunRepository`·`WalletReconciliationRunWalletRepository`, Flyway `V202611101530`. 테스트: `ChangedWalletReconciliationUseCaseTest`, `BillingSchemaTest`, `BillingEnumStorageTest`, 새 `WalletReconciliationRunIntegrationTest`·`WalletReconciliationMetricsRestorerTest`. 문서: decisions, test-spec, module, regression-log, billing AGENTS·PROGRESS, observability |
+| 단계 | U / I (R 포함) |
+| 범위 | #822 영향 범위 12개 클래스: BT-LED-10·11, BT-DB-01·03과 대사·스키마·저장소·아키텍처·지표 노출 관련 클래스 |
+| 명령 | `./gradlew :billing-app:test --rerun-tasks --tests 'com.hapbang.billing.out.BillingSchemaTest' --tests 'com.hapbang.billing.out.BillingEnumStorageTest' --tests 'com.hapbang.billing.out.BillingRepositoryTest' --tests 'com.hapbang.billing.app.WalletReconciliationRunIntegrationTest' --tests 'com.hapbang.billing.app.ChangedWalletReconciliationIntegrationTest' --tests 'com.hapbang.billing.app.ChangedWalletReconciliationUseCaseTest' --tests 'com.hapbang.billing.app.WalletReconciliationMetricsRestorerTest' --tests 'com.hapbang.billing.app.WalletReconciliationIntegrationTest' --tests 'com.hapbang.billing.app.BillingBatchJobLockTest' --tests 'com.hapbang.billing.app.BillingSharedDtoAccessTest' --tests 'com.hapbang.billing.domain.WalletApplyLedgerAccessTest' --tests 'com.hapbang.billing.global.config.ManagementPortTest'` |
+| 환경 | Windows 10 Pro, JDK 25.0.4.1, Gradle wrapper, Docker 29.8.0 실행 중(PostgreSQL Testcontainers) |
+| 소요 시간 | 54초 |
+| 결과 | 통과 |
+| 기록 목적 | 회귀 확인(#822) |
+
+**건수** (TEST-*.xml 기준)
+
+| 실행 | 성공 | 실패 | 오류 | 건너뜀 |
+| --- | --- | --- | --- | --- |
+| U (5개 클래스) | 27 | 0 | 0 | 0 |
+| I (4개 클래스) | 19 | 0 | 0 | 0 |
+| R (3개 클래스) | 27 | 0 | 0 | 0 |
+| 합계 | 73 | 0 | 0 | 0 |
+
+**Unit 실행 목록 대조**: 부분 실행이라 하지 않았다(전체 Unit 명령 미실행).
+
+**실패 목록**: 없음.
+
+**메모**: 처음 쓴 테스트가 기대한 이유로 실패하는 것을 먼저 확인했다(새 타입이 없어 컴파일 실패 → 껍데기에서 단위 13개 중 4개 실패 → 엔티티만 있고 Flyway가 없어 스키마 테스트 실패). 변형 확인 2건: 저장·이월 읽기 예외 처리를 빼면 `ChangedWalletReconciliationUseCaseTest` 2건만 실패하고, Recorder 조회를 틀리게 하면(성공 조건 제거, FAILED → MISMATCHED) `WalletReconciliationRunIntegrationTest` 2건이 실패했다. 모두 되돌린 뒤 이 실행을 했다. billing-app 전체 테스트와 `./gradlew check`는 미실행이다.
 
 #### R-003 · 2026-10-29 · U / S / I · 통과
 
@@ -282,7 +406,8 @@ R-003(7dc89e0)은 그때 있던 73개 클래스의 실행이다. R-003 뒤에 �
 
 | 마지막 기록 | BT | 당시 상태 칸 값 |
 | --- | --- | --- |
-| R-003 | BT-WAL-01, BT-LED-01~09, BT-HLD-01~06, BT-REL-01~05, BT-PAY-01·02·03·05·06, BT-PEN-01~04, BT-CAP-01~04, BT-CHG-01~07, BT-RFD-01~07, BT-EXC-02~05, BT-EXP-01~06, BT-MCK-01·02, BT-ERN-01, BT-SEC-03, BT-ERR-01·02, BT-DB-01~04, BT-CFG-01 | `R-003 통과` |
+| R-007 | BT-LED-10, BT-LED-11, BT-DB-01, BT-DB-03 | (R-007 새 실행, 상태 칸 값 없음) |
+| R-003 | BT-WAL-01, BT-LED-01~09, BT-HLD-01~06, BT-REL-01~05, BT-PAY-01·02·03·05·06, BT-PEN-01~04, BT-CAP-01~04, BT-CHG-01~07, BT-RFD-01~07, BT-EXC-02~05, BT-EXP-01~06, BT-MCK-01·02, BT-ERN-01, BT-SEC-03, BT-ERR-01·02, BT-DB-02·04, BT-CFG-01 | `R-003 통과` |
 | R-003 | BT-WAL-03·04, BT-CHG-08·09, BT-RFD-08, BT-EXC-01·06·07, BT-EXP-07, BT-ERN-02·03, BT-USR-01·03, BT-SEC-04 | `R-003 통과 (경계)` |
 | R-003 | BT-SEC-02 | `R-003 통과 (JVM 영향 미확인)` |
 | R-003 | BT-PAY-07 | `R-003 통과 (일부만 검증, 6.1)` |
@@ -291,7 +416,6 @@ R-003(7dc89e0)은 그때 있던 73개 클래스의 실행이다. R-003 뒤에 �
 | H-002 | BT-CFG-05 | `#562 통과` |
 | H-003 | BT-PORT-07 | `#577 통과` |
 | H-004 | BT-CFG-06 | `#598 통과` |
-| H-005 | BT-LED-10 | `#607 통과` |
 | H-006 | BT-CFG-07 | `#627 통과` |
 | 기록 없음 | BT-PORT-01~03 | `기록 없음 (R-003 이후 HTTP로 이동)` |
 | 기록 없음 | BT-PORT-06, BT-REL-06, BT-EVT-02, BT-EXP-08~10 | `기록 없음 (R-003 이후 추가)` |

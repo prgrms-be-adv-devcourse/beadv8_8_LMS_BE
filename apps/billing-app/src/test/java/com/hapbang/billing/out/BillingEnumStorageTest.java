@@ -33,6 +33,7 @@ import com.hapbang.billing.domain.PointRefundStatus;
 import com.hapbang.billing.domain.RefundManualReviewReason;
 import com.hapbang.billing.domain.PointType;
 import com.hapbang.billing.domain.SettlementStatus;
+import com.hapbang.billing.domain.WalletReconciliationResult;
 import com.hapbang.billing.domain.WalletType;
 import com.hapbang.shared.billing.domain.BillingReferenceType;
 import com.hapbang.shared.billing.domain.HoldVoidOutcome;
@@ -88,6 +89,7 @@ class BillingEnumStorageTest {
         columns.put("ck_hold_void_outcome", HoldVoidOutcome.class);
         columns.put("ck_wallet_withdrawal_close_outcome", WithdrawalCloseOutcome.class);
         columns.put("ck_wallet_withdrawal_reopen_outcome", WithdrawalReopenOutcome.class);
+        columns.put("ck_wallet_reconciliation_run_wallet_result", WalletReconciliationResult.class);
 
         List<String> enumChecks = entityManager.createNativeQuery("""
                 SELECT constraint_row.conname FROM pg_constraint constraint_row
