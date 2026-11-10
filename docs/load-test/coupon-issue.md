@@ -118,6 +118,7 @@
 
 - Redis 서버가 잰 명령 시간은 짧다(`INFO commandstats`: `evalsha` 평균 70 µs). 요청 스레드의 Redis 대기는 Redis 실행이 아니라, 연결 하나를 같이 쓰는 Lettuce의 응답 대기 줄과 Docker Desktop 포트 전달 구간에서 생긴 것으로 본다. 운영(k3s, 같은 cluster 안 Service)과 다르다.
 - `getSha1` lock: Spring Data Redis 4.1.1의 `DefaultRedisScript.getSha1()`은 스크립트마다 lock을 잡고 `ResourceScriptSource.isModified()`로 스크립트 파일의 수정 시각을 본다. 쿠폰 Lua는 `ClassPathResource`라 운영(`java -jar app.jar`)에서도 매 호출마다 중첩 jar의 URL을 연다. CPU hot method의 `java.net.URL.<init>`, `NestedJarFile.hasEntry`가 이것이다. 같은 Lua를 부르는 요청은 이 lock에서 한 줄로 선다.
+  - → #826에서 반영(쿠폰 Lua를 기동 때 문자열로 읽어 만든다. 이 기록은 반영 전 측정이다).
 - logback lock: `CouponExceptionHandler`는 매진(409)마다 INFO 한 줄을 남긴다. 회원 900명이 1초 안에 매진을 받으면 900줄을 동기로 쓴다. 로컬은 파일, 운영은 JSON 표준 출력이라 쓰는 비용이 다르다.
 - CPU: 경쟁 구간의 요청 스레드 CPU 표본은 30초에 106개뿐이다. CPU가 아니라 기다림이 접수 시간을 정했다. 그 106개는 Tomcat 23%, Spring 14%, Spring Web 13%, Micrometer 12%, Spring Security 11%였다.
 - GC: 15분 동안 371회, 합 3.07초, 중앙값 3.3 ms. major GC는 없었다.
@@ -145,6 +146,7 @@
 
 - 장애 실험 전후 모든 쿠폰에서 `coupon_dlt_pending` 0, `coupon_reconciliation_mismatches` 0이었다.
 - Redis 중단 동안 접수가 60초씩 걸린 것은 Lettuce가 끊긴 동안 명령을 쌓아 두고 기본 명령 제한 시간(60초)까지 기다리기 때문으로 본다. 레포는 `spring.data.redis.timeout`을 정하지 않는다. 운영에서 같은 일이 생기면 Tomcat 요청 스레드(최대 200)가 60초씩 묶여 강의 API까지 느려질 수 있다.
+  - → #826에서 반영(lecture-app `spring.data.redis.timeout` 2s·`connect-timeout` 1s. 이 기록은 반영 전 측정이다).
 - Redis 프로세스가 바뀌면 OPEN·SUSPENDED 쿠폰이 모두 막히고 복구는 쿠폰마다 수동이다. 로컬에는 실험용 쿠폰이 67개 있어 66개는 막힌 채로 두었다.
 
 ## 한계
@@ -232,7 +234,10 @@ loadtest/k6/coupon/local-stack.sh down
 
 - 운영 발급 개방 조건은 쿠폰 [docs/operations.md](../../apps/lecture-app/boundedContext/coupon/docs/operations.md) "운영 발급 개방 체크리스트"를 따른다.
 - Redis 명령 제한 시간: `spring.data.redis.timeout`이 없어 Redis 중단 때 요청 스레드가 60초 묶인다. 짧은 제한 시간(예: 1~2초)이나 끊긴 동안 명령을 바로 거절하는 설정을 검토한다. 채팅 앱도 같은 Redis 설정 방식을 쓰는지 함께 본다.
+  - → #826에서 반영(lecture-app `spring.data.redis.timeout` 2s·`connect-timeout` 1s, Redis 무응답 때 발급 접수 약 4초 503).
 - Lua 호출마다 `getSha1` lock과 스크립트 파일 수정 시각 확인을 한다. 스크립트를 기동 때 문자열로 읽어 두는 방식(예: `StaticScriptSource`)을 검토한다.
+  - → #826에서 반영(쿠폰 Lua를 기동 때 문자열로 읽어 만든다. lock은 남지만 그 안의 파일 확인이 없다).
 - 매진 409마다 남기는 INFO 로그의 양과 logback lock 경합을 운영 로그 형식(JSON)에서 다시 본다.
+  - → #826에서 반영(매진 409는 DEBUG, 건수는 Counter `coupon.issue.sold_out`).
 - 운영 측정 뒤 접수 p95가 기준에 가까우면, 접수 직후 Kafka ACK 대기(`publish-ack-timeout`)가 요청 스레드에 들어가는 몫을 나눠 본다.
 - 플랫폼 쿠폰 계약 뒤 실제 데이터로 `calculate.max-search-nodes`에 걸린 결과와 최적해의 차이를 잰다.
