@@ -14,6 +14,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /**
  * 회원의 쿠폰 사용 이력 한 건(발급 쿠폰 한 장을 주문 항목 하나에 쓴 시도). 부담 주체 금액(플랫폼·판매자 몫)·적용 직전 금액·적용 순서·
  * generation·작업 ID·해제 사유는 회원에게 내보내지 않는다. 강의 제목은 싣지 않는다(강의 API로 읽는다).
+ * 표시 상태는 {@code status}로만 정한다. 늦게 온 결제·취소 완료는 상태를 바꾸지 않고 시각만 남기므로, 예를 들어 RELEASED 행에도
+ * {@code paidAt}·{@code canceledAt}이 있을 수 있다.
  *
  * @param couponType     쿠폰 종류(SELLER·PLATFORM). 예약 때 남긴 값
  * @param discountType   쿠폰 정책의 할인 방식

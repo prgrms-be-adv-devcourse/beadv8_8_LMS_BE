@@ -21,6 +21,7 @@ import com.hapbang.coupon.config.CouponPlatformFundingProperties;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.domain.usage.Selection;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
+import com.hapbang.coupon.global.exception.CouponUsageException;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
 import com.hapbang.coupon.out.ProcessedOperationRepository;
@@ -145,6 +146,18 @@ class CouponCalculateUseCaseTest {
         assertThatThrownBy(() -> useCase.quote(MEMBER_ID, List.of(LECTURE_ID),
                 List.of(new Selection(PLATFORM_COUPON, LECTURE_ID))))
                 .hasMessage(CouponCalculateUseCase.PLATFORM_FUNDING_DISABLED);
+    }
+
+    @Test
+    void 플랫폼_재원이_꺼져_있어도_다른_회원의_플랫폼_쿠폰을_고르면_소유_검사의_거절이라_쿠폰_종류가_드러나지_않는다() {
+        givenOwnedByIds(memberCouponRepository, owned(PLATFORM_COUPON, MEMBER_ID + 1, platformAnyAmountCoupon(2L)));
+
+        assertThatThrownBy(() -> useCase.calculate(request(List.of(
+                new CouponCalculateRequest.Selection(PLATFORM_COUPON, LECTURE_ID)))))
+                .isInstanceOfSatisfying(CouponUsageException.class, exception -> {
+                    assertThat(exception.getErrorCode()).isEqualTo(CouponErrorCode.COUPON_NOT_USABLE);
+                    assertThat(exception.getMessage()).isNotEqualTo(CouponCalculateUseCase.PLATFORM_FUNDING_DISABLED);
+                });
     }
 
     @Test

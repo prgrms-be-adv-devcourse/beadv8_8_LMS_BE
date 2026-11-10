@@ -75,7 +75,8 @@ public interface ApiV1CouponSpec {
                     + "상태 표시: RESERVED \"결제 진행 중\"(쿠폰이 이 주문에 잡혀 있음), PAID \"사용함\", RELEASED \"결제되지 않아 "
                     + "돌려받음\", CANCELED \"구매 취소로 돌려받음\". RELEASED·CANCELED이고 returnedTo=EXPIRED면 \"기한이 지나 만료됨\". "
                     + "returnedTo·returnedAt은 RELEASED면 해제 결과·시각, CANCELED면 복원 결과·시각, 그 밖에는 null이다. 같은 주문 항목에 "
-                    + "해제 뒤 다시 예약하면 이력이 두 건이다. status가 정해진 값이 아니면 400.")
+                    + "해제 뒤 다시 예약하면 이력이 두 건이다. 표시는 status로만 정한다(늦게 온 결제·취소 완료는 시각만 남아 RELEASED "
+                    + "행에도 paidAt·canceledAt이 있을 수 있다). status가 정해진 값이 아니면 400.")
     RsData<Page<CouponUsageView>> myUsages(Long memberId,
                                            @Parameter(description = "사용 상태(RESERVED·PAID·RELEASED·CANCELED). 없으면 전체")
                                            CouponUsageStatus status,
