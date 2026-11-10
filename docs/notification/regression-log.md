@@ -86,6 +86,136 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-019 · 2026-11-10 · 통과 (#829 Redis 명령 시간 제한)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-019 |
+| 실행 날짜 | 2026-11-10 12:46~12:50 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `0debc874` |
+| 작업 트리 변경 | NR-018 목록 + `apps/auxiliary-app/src/main/resources/application.yaml`(`spring.data.redis.timeout: 10s`), decisions(ND-061, ND-057 일부 보완됨), module·api |
+| 대상 기능 | 앱 공통 Redis 명령 시간 제한(알림 담당 결정 Q1 b), ND-061 문서 반영 |
+| 관련 NT ID | NR-018과 같다 |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과 |
+| 건수 | `:notification` 106, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 297, 실패·오류·건너뜀 0 (XML 기준, 새 실행) |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-018과 같다. 10초 시간 제한을 Redis 장애 상황에서 따로 재지 않았다(앱 설정은 모듈 테스트가 읽지 않는다) |
+| 관련 변경 | #829 |
+
+#### NR-018 · 2026-11-10 · 통과 (#829 자체 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-018 |
+| 실행 날짜 | 2026-11-10 12:37~12:41 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `0debc874` |
+| 작업 트리 변경 | NR-016 목록 + `NotificationRealtimeRelay`(파기 공유 잠금 안에서 읽기·발행, 버린 프레임 지표·상태 변화 로그), `NotificationConnectionTicketService`(공통 `RateLimitExceededException`), `NotificationErrorCode`(`TOO_MANY_TICKET_REQUESTS` 삭제), `NotificationWebSocketSessions`(닫은 연결은 STOMP 처리기에 넘기지 않음, 미사용 메서드 삭제), build.gradle.kts(micrometer-core), 테스트 `NotificationRealtimeRelayTest`·`NotificationStompInterceptorTest`(새)와 기존 3개 수정, 문서(module 3.8, api, test-spec, PROGRESS, 이 문서) |
+| 대상 기능 | 자체 리뷰 지적 반영: 429 공통 처리, 유실 관측, 파기와 실시간 전달의 순서, 수신 검사 빈 곳 |
+| 관련 NT ID | NT-RT-01~06·08, NT-READ-05, NT-USR-07(실시간 부분) |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과 |
+| 건수 | `:notification` 106, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 297, 실패·오류·건너뜀 0 (XML 기준, 새 실행) |
+| 실패 원인 분류 | 최종 실패 없음 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-016과 같다. 발행 실패(`publish_failed`) 지표는 단위 테스트가 없다. `origin/dev`의 새 커밋(#828·#830)을 병합한 뒤의 실행은 아직 없다 |
+| 관련 변경 | #829 |
+
+**메모 — 테스트 먼저(red 확인)**
+- 고치기 전에 4건이 실패했다: 티켓 429가 공통 예외가 아님(단위), `Retry-After` 헤더·`TOO_MANY_REQUESTS` 없음(통합), 버린 프레임 지표 없음(단위), 파기 진행 중 옛 닉네임 프레임이 나감(통합, `whileMasking` not null).
+- `NotificationStompInterceptorTest` 7건은 이미 있는 동작의 빈 곳(결합 안 된 CONNECT, 끝에 / 붙인 목적지, UNSUBSCRIBE·ACK)을 메운 시험이라 처음부터 통과했다.
+- 변형 확인: Relay에서 파기 공유 잠금을 잠깐 빼자 파기 시험이 다시 실패했다(260줄). 되돌린 뒤 위 명령으로 통과를 확인했다.
+
+#### NR-017 · 2026-11-10 · 측정 (U13, 판정 안 함)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-017 |
+| 실행 날짜 | 2026-11-10 11:59~12:07 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `0debc874` |
+| 작업 트리 변경 | NR-016과 같다 |
+| 대상 기능 | STOMP 연결 수에 따른 메모리·스레드·연결 유지·프레임 지연(U13 근거) |
+| 관련 NT ID | NT-RES-03(U13, 판정 안 함) |
+| 명령 | `JAVA_TOOL_OPTIONS=-Xmx256m ./gradlew :auxiliary-app:bootRun`(local, compose의 postgres·kafka·redis) + 측정 스크립트(Node 24 내장 WebSocket, 저장소에 넣지 않음) 2회: ① 단계마다 60초 유지 ② 단계마다 10초 유지 후 `jcmd GC.run` 뒤 측정 |
+| 실행 환경 | Windows 10, JDK 25, 앱 JVM heap 상한 256MiB(Old Gen max 268435456 확인), Hikari 최대 5(지표 확인). bootRun이라 `-XX:TieredStopAtLevel=1`·devtools 재시작 클래스로더가 붙어 운영 컨테이너와 다르다. 704Mi limit은 로컬에서 걸 수 없어 RSS(WorkingSet)로 비교만 했다 |
+| 결과 | 800 연결까지 중단 조건(연결 실패 5% 초과, heap 90% 초과, 도착률 95% 미만, 연결 유지 95% 미만) 없음. OOM 없음 |
+| 건수 | 연결 단계 50→100→200→400→800, 단계마다 표본 20명 전달 |
+| 실패 원인 분류 | 실패 없음 |
+| 수정 내용 | 없음 |
+| 재실행 결과 | — |
+| 미검증 항목 | 운영 컨테이너(704Mi limit) 안의 RSS, Gateway(N4)를 거친 연결, 실제 알림 생성(N5) 부하와 동시 실행, 15분 연결 만료가 돌 만큼 긴 유지, 800 초과 |
+| 관련 변경 | #829 |
+
+**측정 ①(유지 60초, GC 강제 없음)**
+
+| 연결 | 연결 유지율 | 전달(표본) | 지연 p50/최대(ms) | heap used/committed(MiB) | RSS(MiB) | 스레드 | GC 횟수·누적 정지 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0(기동 직후) | — | — | — | 119.3 / 182 | 463.9 | 63 | 2 · 0.015s |
+| 50 | 100% | 20/20 | 157 / 170 | 152.3 / 184 | 483.9 | 67 | 3 · 0.024s |
+| 100 | 100% | 20/20 | 118 / 118 | 138.7 / 184 | 493.3 | 67 | 4 · 0.028s |
+| 200 | 100% | 20/20 | 114 / 114 | 151.7 / 194 | 521.5 | 68 | 5 · 0.038s |
+| 400 | 100% | 20/20 | 127 / 127 | 185.9 / 229 | 574.1 | 70 | 7 · 0.047s |
+| 800 | 100% | 20/20 | 118 / 118 | 197.5 / 256 | 650.1 | 67 | 12 · 0.080s |
+| 모두 닫은 직후 | — | — | — | 205.5 / 256 | 571.9 | 201 | 12 · 0.080s |
+
+**측정 ②(유지 10초, 측정 전 `GC.run` = live heap)**
+
+| 연결 | live heap(MiB) | RSS(MiB) | 스레드 | 지연 p50(ms) |
+| --- | --- | --- | --- | --- |
+| 0 | 82.0 | 568.5 | 81 | — |
+| 50 | 87.8 | 573.2 | 82 | 121 |
+| 100 | 93.3 | 577.9 | 82 | 127 |
+| 200 | 104.4 | 587.1 | 82 | 116 |
+| 400 | 126.3 | 606.6 | 82 | 112 |
+| 800 | 170.8 | 647.7 | 82 | 132 |
+| 모두 닫은 뒤 | 82.4 | 573.9 | 203 | — |
+
+**메모**
+- 지연은 측정 스크립트가 `docker exec … redis-cli PUBLISH` 직전에 넣은 시각과 브라우저 쪽 수신 시각의 차이라 `docker exec` 오버헤드(약 100ms)가 들어간 상한이다. 연결 수와 상관없이 110~170ms로 일정했다.
+- live heap은 연결당 약 0.11MiB(800 연결에 +88.8MiB) 늘고, 모두 닫으면 기동 직후 값(82MiB)으로 돌아왔다(연결 정리 누수 없음).
+- 스레드는 연결 수와 관계없이 일정했다(STOMP 수신·송신 각 2, 만료 예약 1, 발행 1). 800 연결을 한꺼번에 닫으면 Tomcat 작업 스레드가 일시적으로 늘었다(201). 모두 `TIMED_WAITING`(풀 대기)이었고 약 1분 뒤 82로 줄었다.
+- **800 연결에서 RSS가 648~650MiB로 운영 메모리 limit 704Mi의 약 92%였다.** heap committed도 상한(256MiB)에 닿았다. 이 측정은 로컬 bootRun 조건(devtools·`TieredStopAtLevel=1`, 컨테이너 limit 없음)이라 운영 RSS와 같다고 볼 수 없고, **운영 환경에서 800 연결을 보장한다는 뜻이 아니다.** 실제 알림 생성 부하(N5)·챗봇·검색 요청이 함께 돌면 여유는 더 적다.
+- 연결 수 상한과 메모리 예산 변경은 이 기록에서 정하지 않았다. 이 숫자로 다시 검토하고, U13은 인프라·챗봇 담당 확인 전까지 미결이다.
+- 측정용 앱 JVM은 끝난 뒤 종료했고(bootRun 작업 중지, 8087 해제 확인), compose 컨테이너는 그대로 두었다.
+
+#### NR-016 · 2026-11-10 · 통과 (#829 실시간 전달)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-016 |
+| 실행 날짜 | 2026-11-10 11:12~12:12 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `0debc874` |
+| 작업 트리 변경 | 있음(커밋 전). 알림 모듈: build.gradle.kts, `NotificationWriter`, `NotificationErrorCode`, 새 파일(app: `ConditionalOnNotificationRealtime`, `NotificationConnection{TicketService,TicketStore,Facade}`, `NotificationRealtime{Relay,Publisher,ExecutorConfig}`, dto `ConnectionTicket`·`ConnectionTicketResponse`·`NotificationFrame`·`RealtimeMessage` / in: `ApiV1NotificationConnectionController`, `in/websocket/*` 5개, `in/redis/*` 2개 / out: `out/redis/*` 3개, Lua 1개), 테스트 5개(새)·`hapbang-module-test.yaml`. auxiliary global `SecurityConfig`, `application-{local,prod}.yaml`. 문서: decisions·module·api·CONTEXT·INDEX·test-spec·이 문서·AGENTS·PROGRESS |
+| 대상 기능 | 연결 티켓, 자체 STOMP, commit 뒤 Redis Pub/Sub 전달, 연결 만료 |
+| 관련 NT ID | NT-RT-01~06·08, NT-READ-05, NT-RET-02·NT-IDEM-01(실시간 부분) |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :auxiliary-app:cleanTest verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | Windows 10, JDK 25, Docker Testcontainers(PostgreSQL, Redis 8, Kafka) |
+| 결과 | 통과 |
+| 건수 | `:notification` 96, `:auxiliary-app` 11, `:auxiliary-global` 108, `:chatbot` 72. 합계 287, 실패·오류·건너뜀 0 (XML 기준, 새 실행) |
+| 실패 원인 분류 | 최종 실패 없음. 중간 실패 1건은 F-TEST(아래 메모) |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | 위 명령 12:08~12:12 통과 |
+| 미검증 항목 | Gateway(N4)를 거친 연결·`exp` claim, 이벤트 소비로 만든 알림의 실시간 전달(N5), 여러 replica |
+| 관련 변경 | #829 |
+
+**메모 — 테스트 먼저(red 확인)**
+- 테스트 5개를 먼저 써서 컴파일 오류 25건을 확인했다. 시그니처만 둔 껍데기로 바꾼 뒤 28건이 모두 실패했다: 단위 10건은 `UnsupportedOperationException`, 통합 18건은 실시간 빈(티켓 저장소, `SimpUserRegistry`)이 없어 실패했다.
+- 구현 뒤 27/28이 통과했다. 남은 1건(`Redis가_멈춰도…`)은 재접속 단계의 시험 도우미가, 닫은 연결의 구독이 서버 목록에서 빠지기 전에 개수를 센 경합이었다(F-TEST). 빠질 때까지 기다리게 고친 뒤 통과했다. 운영 코드 결함이 아니다.
+- 변형 확인: ① Relay가 commit을 기다리지 않게 하면 `commit되기_전에는…`을 포함한 6건이 실패했다. ② STOMP SEND를 허용하면 `클라이언트_SEND로…`가 실패했다(다른 회원 연결이 주입된 프레임을 받음). 되돌린 뒤 위 명령으로 통과를 확인했다.
+
 #### NR-015 · 2026-11-10 · 통과 (#801 PR 리뷰: 같은 알림 행의 동시 쓰기)
 
 | 항목 | 값 |
