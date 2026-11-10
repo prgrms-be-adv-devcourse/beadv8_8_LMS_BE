@@ -74,7 +74,7 @@
 | `AppearanceConfirmedEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, `confirmType`, 확인 시각 | 출연 ID | 확인 시각 | 호스트 | `APPEARANCE_CONFIRMED`, 예약 취소 입력 | 확정 |
 | `AppearanceAbsentEvent` | 🆕 (M3) | `appearance:<출연 ID>` | 출연 ID, 호스트·게스트 ID, 제목, 방송 예정 일시, 불참 처리 시각 | 출연 ID | 불참 처리 시각 | 게스트 | `APPEARANCE_ABSENT`, 예약 취소 입력 | 확정 |
 
-- M1 구현(#817, 출연): 3종 모두 `@Externalized`로 key `appearance:<출연 ID>`에 나간다. `eventType` 헤더는 레코드 이름과 같다. 기존 필드(`cancelRequest`: `AppearanceCancelRequestDto` 7개 값, 거절의 `autoRejected`) 뒤에 사건 시각(`LocalDateTime`, KST)을 붙였다. 요청 `requestedAt`, 수락 `acceptedAt`, 거절 `rejectedAt`(자동 거절이면 자동 거절을 처리한 시각)이다. 값은 상태를 바꾼 처리의 시각이다(수락·거절은 이력의 응답 시각과 같고, 요청은 이력의 요청 시각과 몇 ms 다를 수 있다. 둘 다 KST다). 한 취소 요청에 결과 이벤트(수락 또는 거절)는 많아야 하나다.
+- M1 구현(#817, 출연): 3종 모두 `@Externalized`로 key `appearance:<출연 ID>`에 나간다. `eventType` 헤더는 레코드 이름과 같다. 기존 필드(`cancelRequest`: `AppearanceCancelRequestDto` 7개 값, 거절의 `autoRejected`) 뒤에 사건 시각(`LocalDateTime`, KST)을 붙였다. 요청 `requestedAt`, 수락 `acceptedAt`, 거절 `rejectedAt`(자동 거절이면 자동 거절을 처리한 시각)이다. 값은 상태를 바꾼 처리의 시각이다(수락·거절은 이력의 응답 시각과 같고, 요청은 이력의 요청 시각과 몇 ms 다를 수 있다. 운영 서버 시간대가 `Asia/Seoul`이라 둘 다 KST다). 한 취소 요청에 결과 이벤트(수락 또는 거절)는 많아야 하나다.
 
 예약을 만들고 취소하는 짝은 [알림 종류](notification-catalog.md) 7장이 원본이다. 짝을 이루는 이벤트는 같은 (대상 ID, 받는 사람)을 준다(ND-034).
 

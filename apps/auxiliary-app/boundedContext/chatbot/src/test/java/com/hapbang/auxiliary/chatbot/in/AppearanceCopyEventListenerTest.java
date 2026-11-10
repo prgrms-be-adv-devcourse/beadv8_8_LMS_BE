@@ -113,7 +113,9 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
                 "scheduledAt":"2026-11-20T20:00:00","version":3}}""");
 
         // 이 테스트는 프로듀서 하나가 한 건씩 flush해 보내고 토픽 partition이 1개라 보낸 순서대로 처리된다
-        // (Modulith 전송은 같은 key라도 순서가 바뀔 수 있다, kafka.md). 출연 변경이 반영됐으면 앞의 세 건은 이미 지나갔다
+        // (Modulith 전송은 같은 key라도 순서가 바뀔 수 있다, kafka.md). 출연 변경이 반영됐으면 앞의 세 건은 이미 지나갔고,
+        // 처리기는 DLT 전송을 마친 뒤 다음 레코드로 넘어간다. 그래서 일정 시간 지켜보지 않고(testing.md의 during)
+        // 이 시점의 DLT를 끝까지 한 번 읽어 확인한다
         await().atMost(Duration.ofSeconds(30)).ignoreExceptions().untilAsserted(() ->
                 assertThat(rows.appearance(3)).containsEntry("result", "CANCELED").containsEntry("version", 3L));
         assertThat(deadLetterKeys()).doesNotContain("appearance:3");
@@ -145,7 +147,7 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
 
     /**
      * DLT의 모든 partition을 직접 배정해 처음부터 지금 끝 offset까지 읽은 key. 그룹 합류를 기다리지 않으므로
-     * 한 건도 읽지 못한 채 비어 있다고 판단하는 일이 없다. DLT 토픽이 아직 없으면(한 번도 보낸 적 없음) 빈 목록이다
+     * 한 건도 읽지 못한 채 비어 있다고 판단하는 일이 없다. DLT 토픽은 앱이 뜰 때 선언된다({@code ChatbotKafkaConfig})
      */
     private List<String> deadLetterKeys() {
         String topic = settings().deadLetterTopic();
@@ -153,9 +155,7 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
             List<TopicPartition> partitions = consumer.partitionsFor(topic, Duration.ofSeconds(10)).stream()
                     .map(info -> new TopicPartition(topic, info.partition()))
                     .toList();
-            if (partitions.isEmpty()) {
-                return List.of();
-            }
+            assertThat(partitions).as("DLT 토픽 %s", topic).isNotEmpty();
             consumer.assign(partitions);
             consumer.seekToBeginning(partitions);
             Map<TopicPartition, Long> end = consumer.endOffsets(partitions);
@@ -168,11 +168,11 @@ class AppearanceCopyEventListenerTest extends ChatbotIntegrationTestBase {
         }
     }
 
+    /** partition을 직접 배정해 읽으므로 그룹이 없다(offset을 커밋하지 않음). 토픽을 자동으로 만들지 않는다 */
     private KafkaConsumer<String, byte[]> deadLetterConsumer() {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "dlt-reader-" + SUFFIX);
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG, false);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
         return new KafkaConsumer<>(props);

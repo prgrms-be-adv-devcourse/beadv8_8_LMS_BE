@@ -817,7 +817,7 @@ APPLIED ─호스트 수락─▶ SELECTED (출연 성립, 모집글 성립 인�
 | `AppearanceCancelRequestAcceptedEvent(AppearanceCancelRequestDto cancelRequest, LocalDateTime acceptedAt)` | 〃 + 수락 시각 `acceptedAt` | 호스트가 수락해 합의 취소됐을 때 | 게스트 (`guestId`) |
 | `AppearanceCancelRequestRejectedEvent(AppearanceCancelRequestDto cancelRequest, boolean autoRejected, LocalDateTime rejectedAt)` | 〃 + `autoRejected` + 거절 시각 `rejectedAt`(자동 거절이면 처리한 시각) | 호스트가 거절했을 때(`false`), 방송 예정 일시까지 응답이 없어 자동 거절됐을 때(`true`) | 게스트 (`guestId`) |
 
-- 발행: UseCase가 `ApplicationEventPublisher.publishEvent` (요청서 `AppearanceRequestHoldUseCase.markRequested`, 지원 `AppearanceApplicationApplyUseCase`). 트랜잭션 안에서 발행한다.
+- 발행: UseCase가 `ApplicationEventPublisher.publishEvent` (요청서 `AppearanceRequestHoldUseCase.markRequested`, 지원 `AppearanceApplicationApplyUseCase`). 출연 취소 요청 3종은 `AppearanceCancelRequestUseCase`(요청)·`AppearanceCancelRespondUseCase`(수락·거절)·`AppearanceCancelAutoRejectUseCase`(자동 거절). 트랜잭션 안에서 발행한다.
 - DTO는 엔티티의 `toDto()`로 만든다. 지원 메시지는 담지 않는다. 닉네임은 받는 쪽의 회원 복제본으로 찾는다.
 - 보류가 실패한 요청서(`HOLD_FAILED`)·결과를 모르는 요청서(`HOLD_PENDING`)·막힌 지원은 발행하지 않는다.
 - 취소 요청 이벤트의 사건 시각(`requestedAt`·`acceptedAt`·`rejectedAt`, KST)은 상태를 바꾼 UseCase의 `now`다. 수락·거절 시각은 이력의 응답 시각(`respondedAt`)과 같은 값이고, 요청 시각은 이력의 요청 시각(저장할 때 JPA Auditing이 JVM 기본 시간대로 채우는 `createdAt`)과 몇 ms 다를 수 있다(운영은 `TZ=Asia/Seoul`이라 같은 KST). 알림 목록 정렬에 쓴다(#817).
@@ -858,13 +858,13 @@ public void on(AppearanceApplicationSubmittedEvent event) {
 | 본문 | shared 이벤트 레코드를 그대로 JSON으로 싣는다(봉투 없음). 예: `{"request":{"requestId":1,"hostId":1,"guestId":2,"title":"…","fee":30000,"scheduledAt":"2026-11-05T17:54:44","acceptDeadline":"2026-10-31T17:54:44"}}`. 시각은 KST `LocalDateTime` |
 | 헤더 | `eventType`(`AppearanceRequestSentEvent`·`AppearanceApplicationSubmittedEvent`·`AppearanceReviewPublishedEvent`·`AppearanceChangedEvent`·`AppearanceCancelRequestedEvent`·`AppearanceCancelRequestAcceptedEvent`·`AppearanceCancelRequestRejectedEvent` 고정 값. 레코드 이름을 바꿔도 그대로), `eventVersion`(`1`). 값 직렬화기 `JacksonJsonSerializer`가 `__TypeId__`(레코드 전체 클래스 이름)를 붙인다. `eventId`·`occurredAt`은 두지 않는다 |
 | 직렬화 | `appearance.yml`의 `spring.kafka.producer.value-serializer=JacksonJsonSerializer`. Modulith Kafka 모듈의 JSON 기본 세트(값 byte[] + 바이트 JSON 변환기)는 끈다(`spring.modulith.events.kafka.enable-json=false`, #394). 회원 앱 발행 설계와 같은 방식이고, 켜 두면 회원 이벤트 수신(4.1)이 실패한다 |
-| 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다 |
+| 실패 | 보내기에 실패하면 발행 기록이 미완료로 남는다. 재발행 배치(매분 05초 `AppearanceEventRepublishUseCase`)가 발행한 지 1분(`pending-grace`)이 지난 미완료 기록을 오래된 것부터 한 번에 최대 100건(`batch-size`) 다시 보내고, 서버가 재시작될 때도 다시 보낸다(`republish-outstanding-events-on-restart`). 응답만 잃었거나 서버 여러 대가 같이 다시 보내면 같은 메시지가 두 번 갈 수 있다(최소 한 번 전달). 받는 쪽은 `(eventType, 대상 ID)`로 중복을 거른다. 출연 취소 요청 3종은 key가 출연 ID지만 대상 ID는 `cancelRequestId`다(한 출연에 요청이 2번까지 있으므로 출연 ID로 거르면 안 된다, #817) |
 | 연결 | 브로커 주소는 `SPRING_KAFKA_BOOTSTRAP_SERVERS`(k8s 앱 설정에 이미 있음). 로컬(`local` 프로필)은 compose의 Kafka(`localhost:9092`)로 보낸다. 외부화를 끄면 토픽도 선언하지 않아 Kafka에 연결하지 않는다. 출연 테스트는 외부화를 끄고(`hapbang-module-test.yaml`), `AppearanceEventKafkaTest`만 Testcontainers Kafka로 켠다 |
 | 받는 쪽 | 채팅 소비 그룹 `chat-app.appearance-notification`(요청·지원 알림), 회원 소비 그룹 `member-app.appearance-review`(리뷰 공개, #555), AI 추천(출연 변경·리뷰 공개, #713, 그룹은 AI 이슈), 알림센터(출연 취소 요청 3종, #817, 그룹은 알림 담당이 더함) (kafka.md 토픽 목록). 각 소비자는 모르는 타입을 기본 처리기에서 무시한다 |
 
 - 같은 버전 안에서는 선택 필드 추가만 한다. 깨지는 변경은 같은 토픽에 새 레코드 타입으로 더한다(kafka.md 이벤트 버전).
 - 내보낼 이벤트를 더하려면 shared 레코드에 `@Externalized`를 붙이고 `out/event/AppearanceEventExternalizationConfig`에 `eventType` 헤더를 더한다. 받는 앱을 먼저 배포한다(ADR 0001).
-  - 출연 취소 요청 3종(#817)은 예외로 출연 앱을 먼저 배포해도 된다. 알림센터는 아직 이 이벤트를 읽지 않고, 이미 이 토픽을 읽는 소비 그룹 3곳(채팅·회원·AI 추천)은 모르는 타입을 기본 처리기에서 건너뛰기 때문이다(각 앱 테스트로 확인). 알림 소비자는 그 뒤에 배포해도 토픽에 쌓인 메시지를 읽는다.
+  - 출연 취소 요청 3종(#817)은 예외로 출연 앱을 먼저 배포해도 된다. 알림센터는 아직 이 이벤트를 읽지 않고, 이미 이 토픽을 읽는 소비 그룹 3곳(채팅·회원·AI 추천)은 모르는 타입을 기본 처리기에서 건너뛰기 때문이다(각 앱 테스트로 확인). 알림 소비자는 그 뒤에 배포해도 새 그룹이 처음부터 읽으므로(`auto-offset-reset=earliest`) 토픽 보존 기간 안의 메시지를 받는다.
 - 같은 JVM 안의 리스너(11.2)는 그대로 받는다. Kafka는 다른 앱으로 보내는 통로다.
 
 ---
