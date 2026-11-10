@@ -174,6 +174,20 @@ public class InfluencerDocumentStore {
     }
 
     /**
+     * 검색에 보이는(숨기지 않은) 문서 수(#772 정합성 점검). 원본의 정상 인플루언서 수와 비교한다.
+     *
+     * @throws IllegalStateException 세지 못한 경우
+     */
+    public long countVisible() {
+        try {
+            return client.count(c -> c.index(InfluencerIndexDefinition.ALIAS)
+                    .query(q -> q.term(t -> t.field("hidden").value(false)))).count();
+        } catch (IOException | ElasticsearchException e) {
+            throw new IllegalStateException("보이는 검색 문서 수를 세지 못했습니다", e);
+        }
+    }
+
+    /**
      * 숨긴 지 오래된 tombstone을 지운다.
      *
      * @param hiddenBefore 이 시각보다 먼저 숨긴 문서

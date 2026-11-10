@@ -23,6 +23,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>통계: 인플루언서 통계(#769)를 처음부터 끝까지 읽어 채널 이름·대표 채널·팔로워·평점을 부분 갱신한다. 값이 같으면 noop이다.
  *     통계에 있는데 문서가 없는 회원은 건너뛴다(넣는 것은 검색 2 #772의 보정). 숨긴 문서도 건너뛴다.</li>
  * </ol>
+ * <b>정합성 점검</b>(#772): 끝까지 읽은 정상 인플루언서 수(원본)와 ES의 보이는 문서 수를 비교해 차이를 남긴다. 증분 보정으로도 맞지 않는 어긋남을
+ * 알려 준다. 세는 동안 회원이 바뀌면 잠깐 다를 수 있다. 세지 못해도 통계 동기화는 실패로 치지 않는다.
+ * <p>
  * 회원 version이 문서보다 큰 회원(프로필 이벤트를 놓침)을 다시 받는 일은 검색 2(#772)가 한다. 평점 전체 평균(베이지안 C)은 검색 API가
  * pod마다 계산한다(이 작업은 한 pod에서만 돌아 다른 pod가 값을 받을 수 없다).
  */
@@ -54,21 +57,39 @@ public class InfluencerStatsSync {
         Map<WriteOutcome, Long> counts = new EnumMap<>(WriteOutcome.class);
         Long afterId = null;
         int pages = 0;
+        long sourceInfluencers = 0;
         do {
             InfluencerStatsPageDto page = source.influencerStats(afterId, PAGE_SIZE);
             store.applyStats(page.items().stream().map(InfluencerStats::from).toList())
                     .values().forEach(outcome -> counts.merge(outcome, 1L, Long::sum));
+            sourceInfluencers += page.items().size();
             afterId = page.nextAfterId();
             pages++;
         } while (afterId != null);
+        long indexVisible = countVisible();
 
         StatsSyncResult result = new StatsSyncResult(pages, counts.getOrDefault(WriteOutcome.UPDATED, 0L),
                 counts.getOrDefault(WriteOutcome.NOOP, 0L), counts.getOrDefault(WriteOutcome.MISSING, 0L),
-                counts.getOrDefault(WriteOutcome.FAILED, 0L), categoryDocuments);
-        log.info("검색 통계를 맞췄다 pages={}, updated={}, noop={}, missing={}, failed={}, categoryDocuments={}",
-                result.pages(), result.updated(), result.noop(), result.missing(), result.failed(),
-                result.categoryDocuments());
+                counts.getOrDefault(WriteOutcome.FAILED, 0L), categoryDocuments, sourceInfluencers, indexVisible);
+        log.info("검색 통계를 맞췄다 pages={}, updated={}, noop={}, missing={}, failed={}, categoryDocuments={}, "
+                        + "sourceInfluencers={}, indexVisible={}", result.pages(), result.updated(), result.noop(),
+                result.missing(), result.failed(), result.categoryDocuments(), result.sourceInfluencers(),
+                result.indexVisible());
         return result;
+    }
+
+    /**
+     * 보이는 문서 수를 센다. 세지 못해도 통계는 이미 맞췄으므로 실패로 치지 않는다.
+     *
+     * @return 보이는 문서 수. 세지 못했으면 -1
+     */
+    private long countVisible() {
+        try {
+            return store.countVisible();
+        } catch (RuntimeException e) {
+            log.warn("보이는 검색 문서 수를 세지 못해 정합성 점검을 건너뛴다", e);
+            return -1;
+        }
     }
 
     /**
@@ -92,8 +113,27 @@ public class InfluencerStatsSync {
      * @param missing           문서가 없어 건너뛴 회원 수(검색 2 보정 대상)
      * @param failed            쓰지 못한 회원 수(다음 회차에 다시)
      * @param categoryDocuments 분야 이름을 고친 문서 수. 분야 이름 맞추기를 건너뛰었으면 -1
+     * @param sourceInfluencers 원본(통계 API)의 정상 인플루언서 수
+     * @param indexVisible      ES의 보이는 문서 수. 세지 못했으면 -1
      */
     public record StatsSyncResult(int pages, long updated, long noop, long missing, long failed,
-                                  long categoryDocuments) {
+                                  long categoryDocuments, long sourceInfluencers, long indexVisible) {
+
+        /** 정합성 점검을 했는지(보이는 문서 수를 셌는지) */
+        public boolean consistencyChecked() {
+            return indexVisible >= 0;
+        }
+
+        /**
+         * 원본 − index. 양수면 index에 빠진 인플루언서가 있고(승급을 놓침), 음수면 보이면 안 되는 문서가 있다(강등을 놓침).
+         *
+         * @throws IllegalStateException 점검하지 못했을 때
+         */
+        public long difference() {
+            if (!consistencyChecked()) {
+                throw new IllegalStateException("정합성 점검을 하지 못했습니다.");
+            }
+            return sourceInfluencers - indexVisible;
+        }
     }
 }

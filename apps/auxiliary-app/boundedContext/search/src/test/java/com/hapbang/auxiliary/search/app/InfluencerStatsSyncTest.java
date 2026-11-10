@@ -159,6 +159,61 @@ class InfluencerStatsSyncTest {
         assertThat(source(1L).get("contentCategories")).isEqualTo(List.of(Map.of("code", "GAME", "name", "게임")));
     }
 
+    @Test
+    @DisplayName("정합성 점검: 원본 정상 인플루언서 수와 보이는 문서 수가 같으면 차이 0이다. 숨긴 문서는 세지 않는다")
+    void consistencyMatches() throws Exception {
+        store.show(1L, 1L, profile());
+        store.show(2L, 1L, profile());
+        store.hide(3L, 1L, Instant.parse("2026-11-10T00:00:00Z"));
+        source.influencer(1L, null, 0).influencer(2L, null, 0);
+        refresh();
+
+        StatsSyncResult result = sync.sync();
+
+        assertThat(result.sourceInfluencers()).isEqualTo(2);
+        assertThat(result.indexVisible()).isEqualTo(2);
+        assertThat(result.difference()).isZero();
+    }
+
+    @Test
+    @DisplayName("정합성 점검: index에 빠진 인플루언서가 있으면 차이가 양수, 보이면 안 되는 문서가 있으면 음수다")
+    void consistencyDifference() throws Exception {
+        store.show(1L, 1L, profile());
+        source.influencer(1L, null, 0).influencer(2L, null, 0);
+        refresh();
+        assertThat(sync.sync().difference()).isEqualTo(1);
+
+        store.show(3L, 1L, profile());
+        store.show(4L, 1L, profile());
+        refresh();
+        assertThat(sync.sync().difference()).isEqualTo(-1);
+    }
+
+    @Test
+    @DisplayName("정합성 점검: 보이는 문서 수를 세지 못해도 통계 동기화는 끝내고 점검만 건너뛴다(-1)")
+    void consistencySkippedWhenCountFails() throws Exception {
+        store.show(1L, 1L, profile());
+        source.influencer(1L, 4.5, 2);
+        InfluencerDocumentStore countFails = new InfluencerDocumentStore(client) {
+            @Override
+            public long countVisible() {
+                throw new IllegalStateException("ES 장애");
+            }
+        };
+        InfluencerStatsSync failing = new InfluencerStatsSync(new InfluencerIndexSetup(client), countFails, source,
+                new ContentCategoryNames(source), null);
+
+        StatsSyncResult result = failing.sync();
+
+        assertThat(result.updated()).isEqualTo(1);
+        assertThat(result.consistencyChecked()).isFalse();
+        assertThat(result.indexVisible()).isEqualTo(-1);
+    }
+
+    private void refresh() throws Exception {
+        client.indices().refresh(r -> r.index(InfluencerIndexDefinition.ALIAS));
+    }
+
     private static MemberProfile profile() {
         return new MemberProfile("닉네임", null, "INFLUENCER", false, List.of(new MemberProfile.Category("GAME", "게임")));
     }
