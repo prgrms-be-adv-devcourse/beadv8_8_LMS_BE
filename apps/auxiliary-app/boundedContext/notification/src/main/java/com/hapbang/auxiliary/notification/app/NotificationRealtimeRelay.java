@@ -17,6 +17,7 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionSystemException;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -56,7 +57,7 @@ public class NotificationRealtimeRelay {
     /** 발행 실행기 빈 이름 */
     public static final String EXECUTOR_BEAN_NAME = "notificationRealtimeExecutor";
     /**
-     * 버린 프레임 수 지표. 태그 {@code reason}: {@code queue_full}(줄 포화), {@code read_failed}(DB 다시 읽기 실패),
+     * 버린 프레임 수 지표. 태그 {@code reason}: {@code queue_full}(줄 포화), {@code read_failed}(DB 다시 읽기·파기 순서 잠금 실패),
      * {@code publish_failed}(Redis 발행 실패, 생략 시간 시작), {@code skipped}(생략 시간 중)
      */
     public static final String DROPPED_METRIC = "hapbang.notification.realtime.dropped";
@@ -161,13 +162,20 @@ public class NotificationRealtimeRelay {
         try {
             if (delivery.frame() != null) {
                 // 다른 회원의 닉네임이 없다: 트랜잭션을 끝낸 뒤 발행한다
-                target.publish(receiverUserId, delivery.frame());
+                publish(target, receiverUserId, delivery.frame());
             } else {
                 publishUnderMaskLock(target, notificationId, receiverUserId, delivery.mentioned());
             }
         } catch (RuntimeException exception) {
-            skipUntil.set(clock.instant().plus(failureBackoff));
-            dropped("publish_failed", notificationId, exception);
+            PublishFailedException publishFailure = publishFailureOf(exception);
+            if (publishFailure != null) {
+                // Redis 발행 실패만 생략 시간을 건다
+                skipUntil.set(clock.instant().plus(failureBackoff));
+                dropped("publish_failed", notificationId, publishFailure.publishCause());
+            } else {
+                // 잠금 경로의 잠금·다시 읽기(DB) 실패. Redis 장애가 아니므로 생략하지 않는다
+                dropped("read_failed", notificationId, exception);
+            }
             return;
         }
         skipUntil.set(null);
@@ -182,8 +190,44 @@ public class NotificationRealtimeRelay {
         readOnly.executeWithoutResult(status -> {
             maskLocks.lockShared(mentioned);
             notifications.findByIdAndReceiverUserIdAndDeletedAtIsNull(notificationId, receiverUserId)
-                    .ifPresent(notification -> target.publish(receiverUserId, frameOf(notification, receiverUserId)));
+                    .ifPresent(notification -> publish(target, receiverUserId, frameOf(notification, receiverUserId)));
         });
+    }
+
+    /** Redis 발행. 실패를 {@link PublishFailedException}으로 감싸 DB·잠금 실패와 구분한다 */
+    private static void publish(NotificationRealtimePublisher target, Long receiverUserId, NotificationFrame frame) {
+        try {
+            target.publish(receiverUserId, frame);
+        } catch (RuntimeException exception) {
+            throw new PublishFailedException(exception);
+        }
+    }
+
+    /**
+     * 예외가 Redis 발행 실패인지 본다. 잠금 경로에서 발행이 실패한 뒤 롤백까지 실패하면 {@link TransactionTemplate}이
+     * {@link TransactionSystemException}을 던지고 원래 예외는 그 안의 응용 예외로 남는다.
+     */
+    private static PublishFailedException publishFailureOf(RuntimeException exception) {
+        if (exception instanceof PublishFailedException publishFailure) {
+            return publishFailure;
+        }
+        if (exception instanceof TransactionSystemException system
+                && system.getApplicationException() instanceof PublishFailedException publishFailure) {
+            return publishFailure;
+        }
+        return null;
+    }
+
+    /** Redis 발행 실패 표시. 잠금 경로의 트랜잭션 밖으로 그대로 나온다 */
+    private static final class PublishFailedException extends RuntimeException {
+
+        PublishFailedException(RuntimeException cause) {
+            super(cause);
+        }
+
+        RuntimeException publishCause() {
+            return (RuntimeException) getCause();
+        }
     }
 
     private boolean skipping() {

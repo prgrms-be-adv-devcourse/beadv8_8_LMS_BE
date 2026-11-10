@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
@@ -32,7 +33,7 @@ import com.hapbang.auxiliary.notification.app.ConditionalOnNotificationRealtime;
 @Configuration(proxyBeanMethods = false)
 @EnableWebSocketMessageBroker
 @ConditionalOnNotificationRealtime
-public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfigurer {
+public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfigurer, DisposableBean {
 
     public static final String ENDPOINT = "/api/v1/notifications/ws";
     public static final String QUEUE_PREFIX = "/queue";
@@ -44,8 +45,9 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
     private final List<String> allowedOrigins;
     private final Duration sendTimeLimit;
     private final DataSize sendBufferSizeLimit;
-    private final int inboundThreads;
-    private final int outboundThreads;
+    /** 수신·송신 채널 실행기. 빈이 아니므로 이 설정이 소유하고 닫힐 때 종료한다(chat-app ChatChannelBudget과 같다) */
+    private final ThreadPoolTaskExecutor inboundExecutor;
+    private final ThreadPoolTaskExecutor outboundExecutor;
 
     public NotificationWebSocketConfig(NotificationTicketHandshakeInterceptor ticketInterceptor,
             NotificationWebSocketSessions sessions, NotificationStompInterceptor stompInterceptor,
@@ -60,8 +62,14 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
         this.allowedOrigins = Arrays.stream(allowedOrigins).map(String::trim).filter(s -> !s.isEmpty()).toList();
         this.sendTimeLimit = sendTimeLimit;
         this.sendBufferSizeLimit = sendBufferSizeLimit;
-        this.inboundThreads = inboundThreads;
-        this.outboundThreads = outboundThreads;
+        this.inboundExecutor = channelExecutor("notification-ws-in-", inboundThreads);
+        this.outboundExecutor = channelExecutor("notification-ws-out-", outboundThreads);
+    }
+
+    @Override
+    public void destroy() {
+        inboundExecutor.shutdown();
+        outboundExecutor.shutdown();
     }
 
     @Override
@@ -91,12 +99,12 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(stompInterceptor);
         // taskExecutor() 설정은 Boot의 configurer가 넣는 executor(...)에 가려지므로 executor(...)로 직접 넣는다
-        registration.executor(channelExecutor("notification-ws-in-", inboundThreads));
+        registration.executor(inboundExecutor);
     }
 
     @Override
     public void configureClientOutboundChannel(ChannelRegistration registration) {
-        registration.executor(channelExecutor("notification-ws-out-", outboundThreads));
+        registration.executor(outboundExecutor);
     }
 
     private static ThreadPoolTaskExecutor channelExecutor(String prefix, int threads) {
@@ -105,6 +113,8 @@ public class NotificationWebSocketConfig implements WebSocketMessageBrokerConfig
         executor.setMaxPoolSize(threads);
         executor.setThreadNamePrefix(prefix);
         executor.setAllowCoreThreadTimeOut(false);
+        // 고정 크기 풀이라 기동 때 스레드를 미리 띄운다(연결 수와 관계없이 스레드 수가 일정하다, U13 측정)
+        executor.setPrestartAllCoreThreads(true);
         executor.initialize();
         return executor;
     }

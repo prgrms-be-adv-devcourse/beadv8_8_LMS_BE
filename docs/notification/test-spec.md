@@ -281,7 +281,8 @@
 | NT-RT-06 | `app.NotificationConnectionTicketServiceTest`(만료 계산, 위조 헤더 상한), `in.NotificationConnectionExpiryTest`(티켓 유효 시간과 연결 만료 구분, 만료 시 실제 4401 종료, 이른 exp로 종료, 위조 헤더 15분 상한) | 앱 쪽 전부. Gateway를 거치는 E2E는 N4 |
 | NT-RT-08 | `in.NotificationRealtimeIntegrationTest`(읽음·전체 읽음 때 프레임 없음) | 전부 |
 | NT-USR-07 (실시간) | `in.NotificationRealtimeIntegrationTest`(파기 진행 중이면 파기가 끝난 뒤의 닉네임으로 나감, ND-054) | 실시간 부분 |
-| (유실 관측·장애 생략) | `app.NotificationRealtimeRelayTest`(줄 포화 `queue_full`, DB 다시 읽기 실패 `read_failed`(생략 없음), 발행 실패 `publish_failed`와 생략 시간 동안 DB·잠금 전 `skipped`, 생략 뒤 재시도·복귀와 WARN·INFO 한 번씩, 언급 회원 있으면 잠금 안 commit 전 발행·없으면 잠금 없이 commit 뒤 발행, 언급 회원 칸이 비어도 값에 닉네임이 있으면 잠금 경로) | test-spec 항목 없음(ND-027·ND-054 보강, #829 Bot 리뷰) |
+| (유실 관측·장애 생략) | `app.NotificationRealtimeRelayTest`(줄 포화 `queue_full`, DB 다시 읽기 실패와 잠금 경로의 잠금 실패 `read_failed`(생략 없음), 발행 실패 `publish_failed`(잠금 경로·언급 회원 없는 경로 모두, 롤백이 실패해도 원래 원인으로 분류)와 생략 시간 동안 DB·잠금 전 `skipped`, 생략 뒤 재시도·복귀와 WARN·INFO 한 번씩, 언급 회원 있으면 잠금 안 commit 전 발행·없으면 잠금 없이 commit 뒤 발행, 언급 회원 칸이 비어도 값에 닉네임이 있으면 잠금 경로) | test-spec 항목 없음(ND-027·ND-054 보강, #829 Bot 리뷰) |
+| (자원 정리) | `in.websocket.NotificationWebSocketConfigTest`(컨텍스트가 닫히면 수신·송신 채널 실행기 스레드가 끝남) | test-spec 항목 없음(U13 보강, #829 Bot 리뷰 2차) |
 | (출처 검사) | `in.NotificationRealtimeIntegrationTest`(허용하지 않은 출처 403, 그 티켓을 허용 출처에서 다시 쓸 수 있음) | test-spec 항목 없음(ND-028 보강, #829 Bot 리뷰) |
 | NT-READ-05 | `in.NotificationRealtimeIntegrationTest`(프레임의 안 읽은 수 1→2) | 실시간 부분 |
 | NT-RET-02·NT-IDEM-01 (실시간) | `in.NotificationRealtimeIntegrationTest`(중복·밀려난 알림은 프레임 없음, 20개 유지) | 실시간 부분 |

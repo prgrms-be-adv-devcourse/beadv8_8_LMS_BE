@@ -86,6 +86,59 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-025 · 2026-11-10 · 통과 (#829 Bot 리뷰 2차 뒤 자체 리뷰)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-025 |
+| 실행 날짜 | 2026-11-10 14:51~14:53 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `006010c2` |
+| 작업 트리 변경 | NR-024 목록 + `NotificationRealtimeRelay`(롤백 실패 `TransactionSystemException` 안의 발행 실패도 `publish_failed`로 분류, `publishCause()` 이름), `NotificationRealtimeRelayTest`(언급 회원 없는 경로 발행 실패, 롤백 실패 2건 추가), test-spec |
+| 대상 기능 | 자체 리뷰(S6) 지적 반영 |
+| 관련 NT ID | NR-022와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` 2회 |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과(두 번째 실행 종료 코드 0, BUILD SUCCESSFUL) |
+| 건수 | 첫 실행에서 새로 실행: `:notification` 116, `:auxiliary-app` 12, 실패 0. 두 번째는 모든 테스트 태스크가 `UP-TO-DATE`. `:auxiliary-global`·`:chatbot`·`:search`는 두 번 모두 `UP-TO-DATE`(마지막 실행 NR-022 통과) |
+| 실패 원인 분류 | 최종 실패 없음 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-022와 같다 |
+| 관련 변경 | #829 |
+
+**메모**
+- 롤백 실패 시험은 고치기 전 실패했다(191행, `publish_failed` 0). 언급 회원 없는 경로의 발행 실패 시험은 이미 맞는 동작이라 처음부터 통과했다(빈 곳 보강).
+- 첫 실행은 출력 줄 수 제한(`Select-Object -First`)이 Gradle 출력을 끊어 종료 코드가 255로 보였다. 제한 없이 다시 실행해 종료 코드 0을 확인했다.
+
+#### NR-024 · 2026-11-10 · 통과 (#829 Bot 리뷰 2차 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-024 |
+| 실행 날짜 | 2026-11-10 14:44~14:47 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `006010c2` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationRealtimeRelay`(잠금 경로에서 Redis 발행 실패만 `publish_failed`·생략, 잠금·DB 실패는 `read_failed`), `NotificationWebSocketConfig`(채널 실행기를 소유하고 `destroy()`에서 종료, 미리 띄움), 테스트 `NotificationRealtimeRelayTest`(1건 추가)·`NotificationWebSocketConfigTest`(새), module·test-spec·이 문서·PROGRESS |
+| 대상 기능 | Bot 리뷰 2차 2건 |
+| 관련 NT ID | NR-022와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과 |
+| 건수 | 새로 실행: `:notification` 114, `:auxiliary-app` 12, 실패 0. `:auxiliary-global`(108)·`:chatbot`(112)·`:search`(93)는 `UP-TO-DATE`(새 실행 아님, 마지막 실행 NR-022 통과) |
+| 실패 원인 분류 | 최종 실패 없음 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-022와 같다 |
+| 관련 변경 | #829 |
+
+**메모 — 테스트 먼저(red 확인)**
+- `NotificationWebSocketConfigTest`는 처음에 `destroy()`가 없어 컴파일에 실패했다. 빈 `destroy()` 껍데기로 바꾼 뒤 실행하자 미리 띄운 스레드가 없어 실패했다(27행).
+- 잠금 경로 `read_failed` 시험은 고치기 전 실패했다(175행, 잠금 실패를 `publish_failed`로 세고 생략함).
+- 채널 실행기 시험은 같은 JVM의 다른 시험 컨텍스트 스레드와 섞이지 않게, 이 설정이 만든 스레드만 추적하도록 썼다.
+
 #### NR-023 · 2026-11-10 · 통과 (#829 Bot 리뷰 반영 뒤 자체 리뷰)
 
 | 항목 | 값 |

@@ -26,6 +26,7 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionSystemException;
 
 import com.hapbang.auxiliary.notification.domain.Notification;
 import com.hapbang.auxiliary.notification.domain.NotificationDraft;
@@ -148,6 +149,55 @@ class NotificationRealtimeRelayTest {
         when(notifications.findByIdAndReceiverUserIdAndDeletedAtIsNull(1L, 10L))
                 .thenThrow(new IllegalStateException("db down"));
         givenNotification(2L, 10L, noMention());
+        NotificationRealtimePublisher publisher = mock(NotificationRealtimePublisher.class);
+        NotificationRealtimeRelay relay = relay(Runnable::run, publisher);
+
+        relay.publishAfterCommit(1L, 10L);
+        relay.publishAfterCommit(2L, 10L);
+
+        assertThat(dropped("read_failed")).isEqualTo(1.0);
+        assertThat(dropped("publish_failed")).isZero();
+        assertThat(dropped("skipped")).isZero();
+        verify(publisher).publish(eq(10L), any());
+    }
+
+    @Test
+    void 언급_회원이_없는_알림의_발행이_실패해도_publish_failed로_세고_생략_시간을_건다() {
+        givenNotification(1L, 10L, noMention());
+        givenNotification(2L, 10L, noMention());
+        NotificationRealtimeRelay relay = relay(Runnable::run, (receiver, frame) -> {
+            throw new IllegalStateException("redis down");
+        });
+
+        relay.publishAfterCommit(1L, 10L);
+        relay.publishAfterCommit(2L, 10L);
+
+        assertThat(dropped("publish_failed")).isEqualTo(1.0);
+        assertThat(dropped("skipped")).isEqualTo(1.0);
+        assertThat(dropped("read_failed")).isZero();
+    }
+
+    /** 잠금 경로에서 발행이 실패한 뒤 롤백까지 실패해도, 원래 원인(Redis 발행 실패)으로 센다 */
+    @Test
+    void 발행_실패_뒤_롤백이_실패해도_publish_failed로_센다() {
+        givenNotification(1L, 10L, mentioning());
+        doThrow(new TransactionSystemException("rollback failed")).when(transactions).rollback(any());
+        NotificationRealtimeRelay relay = relay(Runnable::run, (receiver, frame) -> {
+            throw new IllegalStateException("redis down");
+        });
+
+        relay.publishAfterCommit(1L, 10L);
+
+        assertThat(dropped("publish_failed")).isEqualTo(1.0);
+        assertThat(dropped("read_failed")).isZero();
+    }
+
+    /** 잠금 경로의 DB·잠금 실패는 Redis 장애가 아니다. 생략 시간을 걸면 Redis가 정상인데도 5초 동안 모두 버린다(#829 Bot 리뷰 2차) */
+    @Test
+    void 잠금_경로에서_잠금이나_DB가_실패하면_read_failed로_세고_생략하지_않는다() {
+        givenNotification(1L, 10L, mentioning());
+        givenNotification(2L, 10L, noMention());
+        doThrow(new IllegalStateException("lock failed")).when(maskLocks).lockShared(any());
         NotificationRealtimePublisher publisher = mock(NotificationRealtimePublisher.class);
         NotificationRealtimeRelay relay = relay(Runnable::run, publisher);
 
