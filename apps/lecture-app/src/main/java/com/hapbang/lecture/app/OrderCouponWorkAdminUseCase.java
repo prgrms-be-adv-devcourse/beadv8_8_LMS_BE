@@ -58,6 +58,8 @@ public class OrderCouponWorkAdminUseCase {
     public static final String COUPON_STATUS_UNAVAILABLE = "UNAVAILABLE";
     /** 결제 완료·취소된 사용 시도가 보여 조치를 멈췄을 때 붙이는 alert 표식. 자동으로 고치지 않는다 */
     static final String RESERVATION_SETTLED_LOG = "[LECTURE_COUPON_WORK_RESERVATION_SETTLED]";
+    /** 쿠폰이 아직 예약해 둔 사용 시도 상태 */
+    private static final String RESERVED_USAGE = "RESERVED";
 
     private final OrderCouponWorkRepository orderCouponWorkRepository;
     private final OrderItemCouponRepository orderItemCouponRepository;
@@ -139,9 +141,10 @@ public class OrderCouponWorkAdminUseCase {
 
     /** 다시 시도: {@code DEAD} → {@code PENDING}. 예약은 주문 결제 처리 중, 해제는 주문 결제 실패일 때만 */
     public void retry(Long adminUserId, String workId) {
+        Target target = read(workId);
         inTransaction(() -> {
             LocalDateTime now = LocalDateTime.now(clock);
-            Locked locked = lock(workId);
+            Locked locked = lock(target, workId);
             requireOrderStatus(locked.order(), locked.work().getKind() == OrderCouponWorkKind.RESERVE
                     ? LectureOrderStatus.HOLD_PENDING : LectureOrderStatus.HOLD_FAILED);
             OrderCouponWorkStatus before = locked.work().getStatus();
@@ -161,7 +164,7 @@ public class OrderCouponWorkAdminUseCase {
 
         FailOutcome result = inTransaction(() -> {
             LocalDateTime now = LocalDateTime.now(clock);
-            Locked locked = lock(workId);
+            Locked locked = lock(target, workId);
             locked.work().requireDeadOf(OrderCouponWorkKind.RESERVE);
             requireOrderStatus(locked.order(), LectureOrderStatus.HOLD_PENDING);
             OrderCouponWorkStatus before = locked.work().getStatus();
@@ -188,8 +191,14 @@ public class OrderCouponWorkAdminUseCase {
             return recorded;
         });
         if (result == FailOutcome.RESERVED_RELEASING) {
-            // 예약한 쿠폰을 바로 한 번 돌려준다. 결과를 모르면 재전송 배치가 잇는다
-            orderCouponReleaseUseCase.release(target.orderId());
+            // 예약한 쿠폰을 바로 한 번 돌려준다. 결과를 모르면 재전송 배치가 잇는다. 결제 실패는 이미 확정됐으므로 여기서 예외가
+            // 나도 관리자 응답은 확정 결과 그대로이고, 해제 작업은 재전송 배치가 잇는다
+            try {
+                orderCouponReleaseUseCase.release(target.orderId());
+            } catch (RuntimeException unexpected) {
+                log.warn("결제 실패 확정 뒤 쿠폰 해제를 바로 보내지 못했다. 재전송 배치가 잇는다 workId={}, orderId={}", workId,
+                        target.orderId(), unexpected);
+            }
         }
         return result;
     }
@@ -206,7 +215,7 @@ public class OrderCouponWorkAdminUseCase {
             throw new LectureException(LectureErrorCode.COUPON_RESERVATION_STILL_HELD);
         }
         inTransaction(() -> {
-            Locked locked = lock(workId);
+            Locked locked = lock(target, workId);
             OrderCouponWorkStatus before = locked.work().getStatus();
             locked.work().confirmReleasedByAdmin(LocalDateTime.now(clock));
             logChange("해제 확인 완료", adminUserId, locked.work(), before);
@@ -242,8 +251,8 @@ public class OrderCouponWorkAdminUseCase {
     }
 
     /**
-     * 쿠폰이 예약해 둔 사용 시도마다 예약 generation을 남긴다(해제는 이 값으로 한다). 계산 근거에 없는 사용 시도가 있으면 정확히
-     * 해제할 수 없으므로 바꾸지 않고 409다
+     * 쿠폰이 아직 예약해 둔({@code RESERVED}) 사용 시도마다 예약 generation을 남긴다(해제는 이 값으로 한다). 이미 해제된 사용 시도는
+     * 해제 요청에 넣으면 거절되므로 남기지 않는다. 계산 근거에 없는 예약 사용 시도가 있으면 정확히 해제할 수 없으므로 바꾸지 않고 409다
      */
     private void recordReservedGenerations(LectureOrder order, CouponReservationStatusResponse reservation,
                                            Long adminUserId, String workId) {
@@ -255,12 +264,16 @@ public class OrderCouponWorkAdminUseCase {
                         Function.identity()));
         for (CouponReservationStatusResponse.Item item : reservation.items()) {
             for (CouponReservationStatusResponse.Coupon coupon : item.coupons()) {
+                if (!RESERVED_USAGE.equals(coupon.status())) {
+                    continue;
+                }
                 OrderItemCoupon saved = coupons.get(item.orderItemId() + ":" + coupon.memberCouponId());
                 if (saved == null) {
                     log.error(RESERVATION_SETTLED_LOG + " 쿠폰 예약에 주문의 계산 근거에 없는 사용 시도가 있어 결제 실패 확정을 멈췄다 "
                                     + "adminUserId={}, workId={}, orderItemId={}, memberCouponId={}", adminUserId, workId,
                             item.orderItemId(), coupon.memberCouponId());
-                    throw new LectureException(LectureErrorCode.COUPON_RESERVATION_SETTLED);
+                    throw new LectureException(LectureErrorCode.COUPON_RESERVATION_SETTLED,
+                            "쿠폰 예약에 주문의 계산 근거에 없는 사용 시도가 있어 멈췄습니다. 쿠폰 사용 시도와 주문을 직접 확인해 주세요.");
                 }
                 saved.recordReserved(coupon.reservedGeneration());
             }
@@ -283,12 +296,19 @@ public class OrderCouponWorkAdminUseCase {
         });
     }
 
-    /** 주문 행을 먼저 잠그고(다른 쿠폰 작업 기록과 같은 순서) 작업을 다시 읽는다 */
-    private Locked lock(String workId) {
-        OrderCouponWork work = findWork(workId);
-        LectureOrder order = lectureOrderRepository.findForUpdateById(work.getOrderId())
+    /**
+     * 확인 때 읽은 주문 ID로 주문 행을 먼저 잠그고(다른 쿠폰 작업 기록과 같은 순서), 그 뒤 이 트랜잭션에서 작업을 처음 읽는다.
+     * 잠근 뒤의 첫 조회라 잠금을 기다리는 사이 커밋된 다른 조치(다시 시도 등)까지 본 최신 상태다. 작업의 주문은 바뀌지 않는다
+     */
+    private Locked lock(Target target, String workId) {
+        LectureOrder order = lectureOrderRepository.findForUpdateById(target.orderId())
                 .orElseThrow(() -> new IllegalStateException("쿠폰 작업의 주문이 없습니다. workId=" + workId));
-        return new Locked(findWork(workId), order);
+        OrderCouponWork work = findWork(workId);
+        if (!work.getOrderId().equals(target.orderId())) {
+            throw new IllegalStateException("쿠폰 작업의 주문이 바뀌었습니다. workId=" + workId + ", orderId="
+                    + work.getOrderId() + ", expected=" + target.orderId());
+        }
+        return new Locked(work, order);
     }
 
     private OrderCouponWork findWork(String workId) {

@@ -180,6 +180,74 @@ class OrderCouponWorkAdminUseCaseTest {
     }
 
     @Test
+    void 결제_실패_확정이_쿠폰을_조회하는_사이_다른_관리자가_다시_시도하면_기록하지_않고_409다() {
+        Long orderId = deadReserveOrder();
+        coupon.respond(request -> {
+            // fail이 트랜잭션 밖에서 쿠폰 예약 상태를 기다리는 사이 다른 관리자의 다시 시도가 커밋된다
+            orderCouponWorkAdminUseCase.retry(ADMIN_ID + 1, reserveWorkId(orderId));
+            return new CouponCallResult.Succeeded<>(
+                    new CouponReservationStatusResponse((String) request, "NOT_FOUND", null, List.of()));
+        });
+
+        assertRejected(() -> orderCouponWorkAdminUseCase.fail(ADMIN_ID, reserveWorkId(orderId)),
+                LectureErrorCode.COUPON_WORK_NOT_DEAD);
+
+        // 다시 시도가 이겼다: 주문은 결제 처리 중 그대로이고 작업은 재전송 대기다
+        assertThat(orderStatus(orderId)).isEqualTo("HOLD_PENDING");
+        assertThat(work(orderId, "RESERVE")).containsEntry("status", "PENDING").containsEntry("attempt_count", 0);
+    }
+
+    @Test
+    void 결제_실패_확정은_아직_예약된_사용_시도의_generation만_남겨_해제한다() {
+        Long orderId = deadReserveOrder();
+        Long orderItemId = orderItemId(orderId);
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(new CouponReservationStatusResponse("ignored",
+                "RESERVED", null, List.of(new CouponReservationStatusResponse.Item(orderItemId, SELLER_DISCOUNT, 0L,
+                SELLER_DISCOUNT, List.of(usage(RESERVED_GENERATION - 2, "RELEASED"),
+                usage(RESERVED_GENERATION, "RESERVED")))))));
+
+        assertThat(orderCouponWorkAdminUseCase.fail(ADMIN_ID, reserveWorkId(orderId)))
+                .isEqualTo(OrderCouponWorkAdminUseCase.FailOutcome.RESERVED_RELEASING);
+
+        assertThat(jdbcTemplate.queryForObject("select reserved_generation from lectures.order_item_coupon",
+                Long.class)).isEqualTo(RESERVED_GENERATION);
+        assertThat(coupon.calls().getLast().request()).isInstanceOfSatisfying(CouponReleaseRequest.class,
+                release -> assertThat(release.usages()).containsExactly(
+                        new CouponReleaseRequest.Usage(MEMBER_COUPON_ID, RESERVED_GENERATION)));
+    }
+
+    @Test
+    void 결제_실패_확정_뒤_해제를_바로_보내다_예외가_나도_확정_결과를_돌려주고_해제_작업은_남는다() {
+        Long orderId = deadReserveOrder();
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(status("RESERVED", orderItemId(orderId), "RESERVED")));
+        coupon.respond(request -> {
+            throw new IllegalStateException("해제 호출 예외 확인");
+        });
+
+        assertThat(orderCouponWorkAdminUseCase.fail(ADMIN_ID, reserveWorkId(orderId)))
+                .isEqualTo(OrderCouponWorkAdminUseCase.FailOutcome.RESERVED_RELEASING);
+
+        assertThat(orderStatus(orderId)).isEqualTo("HOLD_FAILED");
+        assertThat(work(orderId, "RELEASE")).containsEntry("status", "PENDING");
+    }
+
+    @Test
+    void 결제_실패_확정은_계산_근거에_없는_예약_사용_시도가_있으면_따로_구분되는_사유로_409다() {
+        Long orderId = deadReserveOrder();
+        coupon.respond(request -> new CouponCallResult.Succeeded<>(new CouponReservationStatusResponse("ignored",
+                "RESERVED", null, List.of(new CouponReservationStatusResponse.Item(orderItemId(orderId) + 1000,
+                SELLER_DISCOUNT, 0L, SELLER_DISCOUNT, List.of(usage(RESERVED_GENERATION, "RESERVED")))))));
+
+        assertThatThrownBy(() -> orderCouponWorkAdminUseCase.fail(ADMIN_ID, reserveWorkId(orderId)))
+                .isInstanceOfSatisfying(LectureException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(LectureErrorCode.COUPON_RESERVATION_SETTLED);
+                    assertThat(e.getMessage()).contains("계산 근거에 없는 사용 시도");
+                });
+        assertThat(orderStatus(orderId)).isEqualTo("HOLD_PENDING");
+        assertThat(work(orderId, "RESERVE")).containsEntry("status", "DEAD");
+    }
+
+    @Test
     void 해제_확인_완료는_쿠폰_예약이_남지_않았을_때만_해제_작업을_닫는다() {
         Long orderId = deadReserveOrder();
         coupon.respond(request -> new CouponCallResult.Succeeded<>(status("RESERVED", orderItemId(orderId), "RESERVED")));
@@ -229,6 +297,11 @@ class OrderCouponWorkAdminUseCaseTest {
                 new CouponReservationStatusResponse.Item(orderItemId, SELLER_DISCOUNT, 0L, SELLER_DISCOUNT, List.of(
                         new CouponReservationStatusResponse.Coupon(MEMBER_COUPON_ID, 11L, RESERVED_GENERATION, 1,
                                 PRICE_HP, SELLER_DISCOUNT, 0L, SELLER_DISCOUNT, 2, usageStatus)))));
+    }
+
+    private static CouponReservationStatusResponse.Coupon usage(long generation, String usageStatus) {
+        return new CouponReservationStatusResponse.Coupon(MEMBER_COUPON_ID, 11L, generation, 1, PRICE_HP,
+                SELLER_DISCOUNT, 0L, SELLER_DISCOUNT, 2, usageStatus);
     }
 
     private static CouponCalculateResponse calculated(CouponCalculateRequest request) {
