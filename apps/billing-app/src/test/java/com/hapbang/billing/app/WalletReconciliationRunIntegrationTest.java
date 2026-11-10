@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.hapbang.billing.domain.Wallet;
+import com.hapbang.billing.domain.WalletReconciliationResult;
 import com.hapbang.billing.out.PointLedgerRepository;
 import com.hapbang.billing.out.WalletRepository;
 import com.hapbang.testsupport.IntegrationTest;
@@ -75,8 +76,7 @@ class WalletReconciliationRunIntegrationTest {
         Instant now = Instant.now();
         Long outsideWindow = mismatchedWallet(1L, now.minus(WINDOW).minus(Duration.ofDays(1)));
         Long runId = insertRun(now.minus(Duration.ofDays(1)), 0, 0, 1);
-        jdbcTemplate.update("INSERT INTO billing.wallet_reconciliation_run_wallet (run_id, wallet_id, result, created_at) "
-                + "VALUES (?, ?, 'FAILED', now())", runId, outsideWindow);
+        insertProblemWallet(runId, outsideWindow, WalletReconciliationResult.FAILED);
         // 앞 pod의 메모리는 없다: 같은 빈을 새로 만든 인스턴스로 대사한다
         ChangedWalletReconciliationUseCase restarted = new ChangedWalletReconciliationUseCase(walletRepository,
                 pointLedgerRepository, walletReconciliationUseCase, recorder, WINDOW);
@@ -84,6 +84,24 @@ class WalletReconciliationRunIntegrationTest {
         ChangedWalletReconciliationUseCase.Result result = restarted.reconcileChanged(now);
 
         assertThat(result.mismatchedWalletIds()).contains(outsideWindow);
+    }
+
+    @Test
+    @DisplayName("이월은 가장 최근 실행 기록의 FAILED 지갑만이고, 그보다 오래된 실행의 FAILED 지갑은 창 밖이면 대사하지 않는다")
+    void carriesOnlyLatestRunFailedWallets() {
+        Instant now = Instant.now();
+        Instant outsideWindow = now.minus(WINDOW).minus(Duration.ofDays(2));
+        Long olderFailed = mismatchedWallet(1L, outsideWindow);
+        Long latestFailed = mismatchedWallet(2L, outsideWindow);
+        // 최근 실행을 먼저 넣어 ID가 더 작다: ID가 아니라 실행 시작 시각으로 가장 최근 실행을 고르는지까지 본다
+        Long latestRunId = insertRun(now.minus(Duration.ofDays(1)), 0, 0, 1);
+        Long olderRunId = insertRun(now.minus(Duration.ofDays(2)), 0, 0, 1);
+        insertProblemWallet(olderRunId, olderFailed, WalletReconciliationResult.FAILED);
+        insertProblemWallet(latestRunId, latestFailed, WalletReconciliationResult.FAILED);
+
+        ChangedWalletReconciliationUseCase.Result result = changedWalletReconciliationUseCase.reconcileChanged(now);
+
+        assertThat(result.mismatchedWalletIds()).contains(latestFailed).doesNotContain(olderFailed);
     }
 
     @Test
@@ -114,6 +132,11 @@ class WalletReconciliationRunIntegrationTest {
                 VALUES (?, ?, ?, ?, ?, ?, now()) RETURNING id""", Long.class,
                 Timestamp.from(startedAt), Timestamp.from(startedAt.plusSeconds(3)),
                 Timestamp.from(startedAt.minus(WINDOW)), matched, mismatched, failed);
+    }
+
+    private void insertProblemWallet(Long runId, Long walletId, WalletReconciliationResult result) {
+        jdbcTemplate.update("INSERT INTO billing.wallet_reconciliation_run_wallet (run_id, wallet_id, result, created_at) "
+                + "VALUES (?, ?, ?, now())", runId, walletId, result.name());
     }
 
     // 캐시를 원장보다 1 크게 틀고, 수정·생성 시각을 지정한 시각으로 되돌린 지갑을 만든다.

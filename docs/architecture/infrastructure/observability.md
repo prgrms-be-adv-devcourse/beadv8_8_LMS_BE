@@ -181,6 +181,7 @@ client-side apply는 `last-applied-configuration` annotation(256 KiB 한도)에 
 | --- | --- | --- | --- |
 | 돈·HP 정합성 | 서비스 간 HP 대사 불일치 | `lecture.hp_reconciliation.mismatches`, `appearance.hp_reconciliation.mismatches` | 0 초과 즉시 |
 | 돈·HP 정합성 | 지갑 잔액 대사 불일치·실패 | `hapbang.billing.reconciliation.wallets{result="mismatched"\|"failed"}` | 0 초과 즉시 |
+| 돈·HP 정합성 | 지갑 잔액 대사 실행 기록 저장 실패 (#822 추가, 미구성) | Loki `{namespace="hapbang-prod", app="billing-app"} \|= "[BILLING_RECONCILIATION_RECORD_FAILED]"` | 0 초과 즉시 |
 | 돈·HP 정합성 | 대사가 돌지 않음 | `hapbang.billing.reconciliation.last.success`, `lecture.hp_reconciliation.last.completed`(#805), `appearance.hp_reconciliation.runs` | 마지막 성공이 하루 넘게 없음 |
 | 돈·HP 정합성 | HP 작업 DEAD | `lecture.hp_task.dead`, `appearance.hp_task.dead` | 0 초과 즉시 |
 | 앱 상태 | 지표 수집 끊김 | `up` (`kubernetes-pods` job) | 0이 지속 |
