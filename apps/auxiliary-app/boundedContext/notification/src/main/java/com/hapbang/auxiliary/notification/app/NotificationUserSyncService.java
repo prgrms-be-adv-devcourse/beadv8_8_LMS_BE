@@ -63,6 +63,10 @@ public class NotificationUserSyncService {
 
     // 버전 규칙은 ReplicaUser.syncFrom이 판단한다. 반영 전 버전이 없으면 언제나 반영되고, 있으면 반영될 때만 버전이 바뀐다
     private static NotificationUserSyncResult apply(NotificationUser replica, UserDto user) {
+        if (replica.isMasked()) {
+            log.debug("파기된 회원이라 변경 이벤트를 건너뜀 userId={}", user.id());
+            return result(replica, Outcome.SKIPPED_MASKED);
+        }
         Long before = replica.getMemberVersion();
         replica.syncFrom(user);
         boolean applied = before == null || !Objects.equals(before, replica.getMemberVersion());

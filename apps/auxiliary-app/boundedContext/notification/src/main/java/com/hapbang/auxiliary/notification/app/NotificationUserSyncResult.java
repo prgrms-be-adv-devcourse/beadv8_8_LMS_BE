@@ -19,6 +19,8 @@ public record NotificationUserSyncResult(Long userId, Outcome outcome, Long memb
         /** 더 큰 버전의 변경을 반영했다 */
         UPDATED,
         /** 이미 반영한 버전보다 크지 않은 변경이라 건너뛰었다 */
-        SKIPPED_STALE
+        SKIPPED_STALE,
+        /** 파기된 회원이라 변경을 반영하지 않았다(ND-054) */
+        SKIPPED_MASKED
     }
 }

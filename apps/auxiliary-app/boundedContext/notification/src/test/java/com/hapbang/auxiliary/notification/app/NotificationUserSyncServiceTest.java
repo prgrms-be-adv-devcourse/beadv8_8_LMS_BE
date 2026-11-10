@@ -135,6 +135,21 @@ class NotificationUserSyncServiceTest {
     }
 
     @Test
+    void 파기된_복제본은_뒤에_오는_가입_변경으로_바뀌지_않는다() {
+        long id = NEXT_ID.incrementAndGet();
+        repository.save(com.hapbang.auxiliary.notification.domain.NotificationUser.createMasked(id,
+                java.time.Instant.parse("2026-11-10T00:00:00Z")));
+
+        assertThat(syncService.syncJoined(user(id, "원래닉네임", 0L)).outcome()).isEqualTo(Outcome.SKIPPED_EXISTING);
+        assertThat(syncService.syncModified(user(id, "원래닉네임", 9L)).outcome()).isEqualTo(Outcome.SKIPPED_MASKED);
+
+        assertThat(repository.findById(id)).hasValueSatisfying(user -> {
+            assertThat(user.getNickname()).isEqualTo("탈퇴회원#" + id);
+            assertThat(user.isWithdrawn()).isTrue();
+        });
+    }
+
+    @Test
     void 복제할_수_없는_정보는_가입이든_변경이든_잘못된_요청으로_실패하고_만들지_않는다() {
         long joinedId = NEXT_ID.incrementAndGet();
         long modifiedId = NEXT_ID.incrementAndGet();
