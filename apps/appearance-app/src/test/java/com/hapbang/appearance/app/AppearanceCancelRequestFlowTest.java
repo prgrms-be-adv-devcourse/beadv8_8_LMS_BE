@@ -177,9 +177,10 @@ class AppearanceCancelRequestFlowTest {
     class FromRequest {
 
         @Test
-        @DisplayName("취소 요청: 출연 CANCEL_REQUESTED, 이력 1건(REQUESTED·순번 1·사유), 호스트에게 알릴 이벤트 1건")
+        @DisplayName("취소 요청: 출연 CANCEL_REQUESTED, 이력 1건(REQUESTED·순번 1·사유), 호스트에게 알릴 이벤트 1건(요청 시각 포함)")
         void request(CapturedOutput output) {
             RequestAppearance established = establishFromRequest(GUEST);
+            LocalDateTime before = now();
 
             AppearanceResDto requested = requestCancel(established.appearanceId());
 
@@ -195,6 +196,7 @@ class AppearanceCancelRequestFlowTest {
             assertThat(events.getFirst().cancelRequest().hostId()).isEqualTo(HOST);
             assertThat(events.getFirst().cancelRequest().appearanceId()).isEqualTo(established.appearanceId());
             assertThat(events.getFirst().cancelRequest().title()).isEqualTo(requested.title());
+            assertThat(events.getFirst().requestedAt()).isBetween(before, now());
             assertThat(output.getAll().lines().filter(line -> line.contains("출연 취소를 요청했다")))
                     .singleElement().satisfies(line -> assertThat(line)
                             .contains(" INFO ", "appearanceId=" + established.appearanceId(), "guestId=" + GUEST));
@@ -205,6 +207,7 @@ class AppearanceCancelRequestFlowTest {
         void accept(CapturedOutput output) {
             RequestAppearance established = establishFromRequest(GUEST);
             requestCancel(established.appearanceId());
+            LocalDateTime before = now();
 
             AppearanceResDto accepted = appearanceFacade.acceptCancel(HOST, established.appearanceId());
 
@@ -222,7 +225,8 @@ class AppearanceCancelRequestFlowTest {
                 assertThat(release.releaseRequestId()).isEqualTo(task.getIdempotencyKey());
                 assertThat(release.amountHp()).isEqualTo(FEE);
             });
-            assertThat(applicationEvents.stream(AppearanceCancelRequestAcceptedEvent.class)).hasSize(1);
+            assertThat(applicationEvents.stream(AppearanceCancelRequestAcceptedEvent.class)).singleElement()
+                    .satisfies(event -> assertThat(event.acceptedAt()).isBetween(before, now()));
             // 반환 진행 상태는 출연 상세에만 보이고, 요청서 상세(거절·취소·만료 반환용)에는 섞이지 않는다
             assertThat(accepted.hpReleaseStatus()).isEqualTo(HpTaskStatus.DONE);
             assertThat(appearanceRequestFacade.getDetail(HOST, established.requestId()).hpReleaseStatus()).isNull();
@@ -236,6 +240,7 @@ class AppearanceCancelRequestFlowTest {
         void rejectAndLimit(CapturedOutput output) {
             Long appearanceId = establishFromRequest(GUEST).appearanceId();
             requestCancel(appearanceId);
+            LocalDateTime before = now();
 
             AppearanceResDto rejected = appearanceFacade.rejectCancel(HOST, appearanceId, "이미 홍보 중입니다.");
 
@@ -246,6 +251,7 @@ class AppearanceCancelRequestFlowTest {
                     applicationEvents.stream(AppearanceCancelRequestRejectedEvent.class).toList();
             assertThat(events).hasSize(1);
             assertThat(events.getFirst().autoRejected()).isFalse();
+            assertThat(events.getFirst().rejectedAt()).isBetween(before, now());
 
             assertThat(requestCancel(appearanceId).cancelRequests()).extracting(AppearanceCancelRequestResDto::sequence)
                     .containsExactly(1, 2);
@@ -422,6 +428,7 @@ class AppearanceCancelRequestFlowTest {
             Long appearanceId = establishFromRequest(GUEST).appearanceId();
             requestCancel(appearanceId);
             passSchedule(appearanceId);
+            LocalDateTime before = now();
 
             assertThat(appearanceCancelAutoRejectUseCase.rejectDue()).isEqualTo(1);
             assertThat(appearanceCancelAutoRejectUseCase.rejectDue()).isZero();
@@ -436,6 +443,32 @@ class AppearanceCancelRequestFlowTest {
                     applicationEvents.stream(AppearanceCancelRequestRejectedEvent.class).toList();
             assertThat(events).hasSize(1);
             assertThat(events.getFirst().autoRejected()).isTrue();
+            assertThat(events.getFirst().rejectedAt()).isBetween(before, now());
+        }
+
+        @Test
+        @DisplayName("응답한 요청에는 결과 이벤트가 더 나가지 않는다: 거절 뒤 수락·거절은 CANCEL_REQUEST_NOT_PENDING, "
+                + "거절·수락 뒤 자동 거절은 0건 (알림이 취소 요청 ID로 중복을 거르므로 요청마다 결과 이벤트는 하나다)")
+        void resultPublishedOnce() {
+            Long rejectedId = establishFromRequest(GUEST).appearanceId();
+            requestCancel(rejectedId);
+            appearanceFacade.rejectCancel(HOST, rejectedId, null);
+            assertErrorCode(() -> appearanceFacade.acceptCancel(HOST, rejectedId),
+                    AppearanceErrorCode.CANCEL_REQUEST_NOT_PENDING);
+            assertErrorCode(() -> appearanceFacade.rejectCancel(HOST, rejectedId, null),
+                    AppearanceErrorCode.CANCEL_REQUEST_NOT_PENDING);
+            Long acceptedId = establishFromRequest(GUEST2).appearanceId();
+            appearanceFacade.requestCancel(GUEST2, acceptedId, "사유");
+            appearanceFacade.acceptCancel(HOST, acceptedId);
+
+            passSchedule(rejectedId);
+            passSchedule(acceptedId);
+            assertThat(appearanceCancelAutoRejectUseCase.rejectDue()).isZero();
+
+            assertThat(applicationEvents.stream(AppearanceCancelRequestRejectedEvent.class))
+                    .extracting(event -> event.cancelRequest().appearanceId()).containsExactly(rejectedId);
+            assertThat(applicationEvents.stream(AppearanceCancelRequestAcceptedEvent.class))
+                    .extracting(event -> event.cancelRequest().appearanceId()).containsExactly(acceptedId);
         }
 
         @Test

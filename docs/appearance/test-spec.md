@@ -730,9 +730,9 @@ DB와 Billing 대역을 쓴다. 로그인 역할은 `@WithMockUser(roles = "INFL
 
 | 묶음 | 케이스 | 기대 결과 |
 |---|---|---|
-| 요청서 출처 | 요청 | `CANCEL_REQUESTED`, 이력 1건, `AppearanceCancelRequestedEvent` 1건(호스트·출연·제목) |
-| 요청서 출처 | 수락 | `CANCELED_BY_AGREEMENT`, Billing에 반환 30,000 요청 `CANCEL_AGREED`·출연별 반환 요청 ID·`DONE`, 수락 이벤트 1건, 출연 상세 `hpReleaseStatus` `DONE`·요청서 상세는 null |
-| 요청서 출처 | 거절 → 재요청 → 거절 → 3번째 | `ESTABLISHED`·거절 사유·거절 이벤트(`autoRejected=false`) → 순번 1·2 → `CANCEL_REQUEST_LIMIT_EXCEEDED`, HP 작업 없음 |
+| 요청서 출처 | 요청 | `CANCEL_REQUESTED`, 이력 1건, `AppearanceCancelRequestedEvent` 1건(호스트·출연·제목, `requestedAt`이 요청 전후 시계 사이, #817) |
+| 요청서 출처 | 수락 | `CANCELED_BY_AGREEMENT`, Billing에 반환 30,000 요청 `CANCEL_AGREED`·출연별 반환 요청 ID·`DONE`, 수락 이벤트 1건(`acceptedAt`이 수락 전후 시계 사이), 출연 상세 `hpReleaseStatus` `DONE`·요청서 상세는 null |
+| 요청서 출처 | 거절 → 재요청 → 거절 → 3번째 | `ESTABLISHED`·거절 사유·거절 이벤트(`autoRejected=false`, `rejectedAt`이 거절 전후 시계 사이) → 순번 1·2 → `CANCEL_REQUEST_LIMIT_EXCEEDED`, HP 작업 없음 |
 | 요청서 출처 | 거부 | 요청 없이 수락 `CANCEL_REQUEST_NOT_PENDING`, 공백 사유 `INVALID_REQUEST`, 호스트 요청 `NOT_APPEARANCE_GUEST`, 다른 회원 `APPEARANCE_NOT_FOUND`, 처리 중 재요청 `CANCEL_REQUEST_ALREADY_PENDING`, 게스트 수락 `NOT_APPEARANCE_HOST`, 없는 출연 `APPEARANCE_NOT_FOUND` |
 | 요청서 출처 | 방송 예정 일시 지남 | 요청·수락·거절 `APPEARANCE_SCHEDULE_PASSED` |
 | 요청서 출처 | Billing 무응답에서 수락 | 합의 취소 성공, 반환 작업 `PENDING` |
@@ -1274,7 +1274,7 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 | 케이스 | 기대 결과 |
 |---|---|
 | 요청 도착·지원 도착 | 내보냄 (`@Externalized`) |
-| 출연 취소 요청 이벤트 3종 | 내보내지 않음 |
+| 출연 취소 요청 이벤트 3종 | 내보냄 (#817. 전에는 받는 곳이 없어 내보내지 않음) |
 | 회원 이벤트(`UserJoinedEvent`·`UserModifiedEvent`) | 내보내지 않음 (다른 컨텍스트 이벤트) |
 
 ### 25.3 `AppearanceEventRepublishUseCaseTest` (단위, `IncompleteEventPublications` 대역)
@@ -1283,8 +1283,10 @@ class SomeTest extends MockBillingIntegrationTest { // base-url = Mock, 테스�
 
 | 케이스 | 기대 결과 |
 |---|---|
-| 내보내는 이벤트 5건(10·8·7·6·5분 전) + 취소 요청 이벤트 1건(9분 전) + 방금(30초 전) 1건 | 10·8·7분 전 3건만 고름(오래된 순), 반환 3, 로그 `count=3, waiting=2, batchSize=3` |
-| 취소 요청 이벤트와 방금 발행한 기록뿐 | 고르지 않음, 반환 0, 재발행 로그 없음 |
+| 내보내는 이벤트 5건(10·8·7·6·5분 전) + 내보내지 않는 이벤트(회원 가입 이벤트) 1건(9분 전) + 방금(30초 전) 1건 | 10·8·7분 전 3건만 고름(오래된 순), 반환 3, 로그 `count=3, waiting=2, batchSize=3` |
+| 내보내지 않는 이벤트와 방금 발행한 기록뿐 | 고르지 않음, 반환 0, 재발행 로그 없음 |
+
+- 내보내지 않는 예시는 원래 출연 취소 요청 이벤트였다. #817에서 내보내게 되어 다른 컨텍스트 이벤트(`UserJoinedEvent`, `@Externalized`가 있지만 패키지로 거름)로 바꿨다.
 
 ## 26. 지갑 회로가 열려 있으면 배치 건너뛰기 (#439)
 
@@ -1628,7 +1630,7 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceChangedEventTest` | 호스트 확인 / 불참 / D+7 자동 확인 배치 | `COMPLETED` / `NO_SHOW` / `COMPLETED` |
 | `AppearanceChangedEventTest` | 호스트 일방 취소 / 모집 전체 취소(출연 2건) | `CANCELED` / 출연마다 `CANCELED` 1건, 각각 커밋된 version |
 | `AppearanceChangedEventTest` | 호스트가 아닌 회원의 확인(막힘) | 성립 때 1건 뒤로 더 나가지 않음 |
-| `AppearanceEventKafkaTest` | 성립 뒤 취소 요청 (각각 커밋) | key `appearance:<출연 ID>`로 2건, `eventType=AppearanceChangedEvent`·`eventVersion=1`·`__TypeId__`, 본문에 금액 없음, 두 번째 version = 커밋된 version 1 |
+| `AppearanceEventKafkaTest` | 성립 뒤 취소 요청 (각각 커밋) | key `appearance:<출연 ID>`로 출연 변경 2건 + 취소 요청 1건(#817), 출연 변경은 `eventType=AppearanceChangedEvent`·`eventVersion=1`·`__TypeId__`, 본문에 금액 없음, 두 번째 version = 커밋된 version 1 |
 | `AppearanceExternalEventsTest` | `AppearanceChangedEvent` | 내보낸다 |
 | `AppearanceSyncInternalApiE2ETest` | 출연 3건(성립·일방 취소·취소 요청 중), size 2 → 다음 페이지 / 생략 / 딱 맞게 끝남 / 끝 뒤 | 키셋·`nextAfterId`=마지막 ID, 결과·version, 금액 없음 / 처음부터 3건 / `nextAfterId` null / 빈 목록 |
 | `AppearanceSyncInternalApiE2ETest` | 공개 리뷰 2건 사이에 공개 전 리뷰 1건, size 1 | 첫 페이지 공개 리뷰, 다음 페이지는 공개 전 리뷰를 건너뛰고 이어짐, 본문·쓴 사람 없음 |
@@ -1641,3 +1643,16 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 - 외부 포트(8080)로 오면 404인 것은 경로 접두사(`/api/v1/internal`)로 막으므로 `InternalApiPortConfigTest`가 맡는다.
 - 소비 앱(chat-app·member-app)이 새 타입에서 실패하지 않는 것은 코드로 확인했다(chat `MissingTypeEvent`·기본 처리기, member `@KafkaHandler(isDefault = true)`). 다른 앱 코드는 바꾸지 않았다.
 
+## 40. 출연 취소 요청 이벤트 3종 Kafka 발행 (#817)
+
+알림센터가 출연 취소 요청 알림을 만들도록 세 이벤트를 `appearance.events.v1`로 내보내고, 사건 시각을 더했다(구성은 `module.md` 11.1·11.3, 계약은 `docs/notification/event-contracts.md` 1장).
+
+| 테스트 | 케이스 | 기대 결과 |
+|---|---|---|
+| `AppearanceExternalEventsTest` | 취소 요청·수락·거절 이벤트 | 내보낸다 |
+| `AppearanceEventKafkaTest` | 성립 → 취소 요청 → 거절 → 다시 요청 → 수락 (각각 커밋) | key `appearance:<출연 ID>`로 정확히 9건(출연 변경 5 + 취소 요청 이벤트 4). 요청 2건(`eventType=AppearanceCancelRequestedEvent`·`eventVersion=1`·`__TypeId__`, 취소 요청 ID 두 개, `requestedAt`이 시계 범위 안), 거절 1건(DTO 7개 값 전부·`autoRejected=false`·`rejectedAt`), 수락 1건(두 번째 요청 ID·순번 2·`acceptedAt`이 거절 시각 뒤) |
+| `AppearanceCancelRequestFlowTest` | 요청 / 수락 / 거절 / 자동 거절 | 사건 시각이 그 처리 전후의 테스트 시계 사이 (13.3) |
+| `AppearanceCancelRequestFlowTest` | 거절한 요청에 수락·거절, 거절·수락한 출연의 방송 예정 일시가 지난 뒤 자동 거절 배치 | 수락·거절 `CANCEL_REQUEST_NOT_PENDING`, 배치 0건. 거절 이벤트는 거절한 출연 1건, 수락 이벤트는 수락한 출연 1건뿐 |
+
+- 기존 소비 그룹이 새 eventType을 건너뛰는 것은 각 앱의 기존 테스트가 맡는다: chat-app `AppearanceNotificationEventListenerTest.처리하지_않는_출연_이벤트_종류는_건너뛰고_DLT로_보내지_않는다`(취소 요청 이벤트 타입으로 보냄), member-app `AppearanceReviewEventListenerTest.ignoreOtherTypes`(〃, 생성자 인자만 맞춤), chatbot `AppearanceCopyEventListenerTest.applies`(기본 처리기가 다른 타입을 건너뜀).
+- 수락과 거절이 동시에 오는 경우는 13장 `Concurrent.acceptAndReject`가 한쪽만 반영됨을 확인한다. 이벤트는 상태를 바꾼 트랜잭션 안에서만 발행되므로 한쪽만 나간다.

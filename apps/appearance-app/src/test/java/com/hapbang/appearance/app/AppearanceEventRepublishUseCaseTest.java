@@ -23,8 +23,8 @@ import org.springframework.modulith.events.EventPublication;
 import org.springframework.modulith.events.IncompleteEventPublications;
 
 import com.hapbang.appearance.config.AppearanceBatchProperties;
-import com.hapbang.shared.appearance.event.AppearanceCancelRequestedEvent;
 import com.hapbang.shared.appearance.event.AppearanceRequestSentEvent;
+import com.hapbang.shared.member.event.UserJoinedEvent;
 
 /**
  * 이벤트 Kafka 재발행 배치의 고르는 조건 (#393). 미완료 기록 목록은 Modulith처럼 발행 시각 순으로 조건에 넘긴다.
@@ -46,7 +46,7 @@ class AppearanceEventRepublishUseCaseTest {
     @DisplayName("대기 시간(1분)이 지난 내보내는 이벤트만 오래된 것부터 한 번에 batchSize건 고르고, 남은 건수를 batchSize와 함께 로그로 남긴다")
     void selectsOldestUpToBatchSize(CapturedOutput output) {
         EventPublication first = publication(new AppearanceRequestSentEvent(null), 10);
-        EventPublication notExternalized = publication(new AppearanceCancelRequestedEvent(null), 9);
+        EventPublication notExternalized = publication(new UserJoinedEvent(null), 9);
         EventPublication second = publication(new AppearanceRequestSentEvent(null), 8);
         EventPublication third = publication(new AppearanceRequestSentEvent(null), 7);
         EventPublication overLimit1 = publication(new AppearanceRequestSentEvent(null), 6);
@@ -66,7 +66,7 @@ class AppearanceEventRepublishUseCaseTest {
     @DisplayName("고를 기록이 없으면 0을 돌려주고 로그를 남기지 않는다")
     void nothingDue(CapturedOutput output) {
         List<EventPublication> selected = resubmitted(List.of(
-                publication(new AppearanceCancelRequestedEvent(null), 10),
+                publication(new UserJoinedEvent(null), 10),
                 publication(new AppearanceRequestSentEvent(null), 0)));
 
         assertThat(useCase.republishDue()).isZero();
