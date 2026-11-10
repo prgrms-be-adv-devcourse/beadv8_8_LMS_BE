@@ -19,7 +19,7 @@ import com.hapbang.shared.coupon.api.CouponReserveResponse;
 
 /**
  * 쿠폰 사용 내부 HTTP API(docs/api/internal-coupon.md)의 강의 전용 HTTP Interface. 프록시는 {@link LectureCouponApiConfig}가 만든다
- * (주소·내부 API 키 헤더·오류 상태 변환). 응답은 쿠폰의 성공 봉투(RsData)다. 직접 쓰지 않고 {@link CouponClient}로 부른다.
+ * (주소·내부 API 키 헤더·오류 상태 변환). 응답은 쿠폰의 성공 봉투(RsData)다. 직접 쓰지 않고 {@link CouponApiClient}로 부른다.
  */
 @HttpExchange(LectureCouponInternalApi.COUPONS_PATH)
 public interface LectureCouponInternalApi {

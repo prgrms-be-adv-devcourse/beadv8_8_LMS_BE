@@ -12,8 +12,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.coupon.app.dto.CouponView;
 import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.CouponIssueStore.IssueControl;
-import com.hapbang.coupon.app.port.PromotionBudgetPort;
-import com.hapbang.coupon.app.port.PromotionBudgetPort.BudgetResult;
+import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
 import com.hapbang.coupon.config.CouponClockConfig;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
@@ -59,21 +59,21 @@ public class CouponOpenUseCase {
     private final BudgetWorkRepository budgetWorkRepository;
     private final CouponIssueStore couponIssueStore;
     private final CouponCapacitySupport capacitySupport;
-    private final ObjectProvider<PromotionBudgetPort> budgetPortProvider;
+    private final ObjectProvider<PromotionBudget> promotionBudgetProvider;
     private final CouponRedisProperties redisProperties;
     private final TransactionTemplate transaction;
     private final Clock clock;
 
     public CouponOpenUseCase(CouponSupport couponSupport, BudgetWorkRepository budgetWorkRepository,
                              CouponIssueStore couponIssueStore, CouponCapacitySupport capacitySupport,
-                             ObjectProvider<PromotionBudgetPort> budgetPortProvider,
+                             ObjectProvider<PromotionBudget> promotionBudgetProvider,
                              CouponRedisProperties redisProperties, PlatformTransactionManager transactionManager,
                              @Qualifier(CouponClockConfig.CLOCK) Clock clock) {
         this.couponSupport = couponSupport;
         this.budgetWorkRepository = budgetWorkRepository;
         this.couponIssueStore = couponIssueStore;
         this.capacitySupport = capacitySupport;
-        this.budgetPortProvider = budgetPortProvider;
+        this.promotionBudgetProvider = promotionBudgetProvider;
         this.redisProperties = redisProperties;
         this.transaction = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -95,8 +95,8 @@ public class CouponOpenUseCase {
 
     /** 플랫폼 쿠폰 발행. 예산 연동(billing)이 없으면 열지 않는다 */
     public CouponView open(long adminId, long couponId) {
-        PromotionBudgetPort budgetPort = budgetPortProvider.getIfAvailable();
-        if (budgetPort == null) {
+        PromotionBudget promotionBudget = promotionBudgetProvider.getIfAvailable();
+        if (promotionBudget == null) {
             throw new CouponException(CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE,
                     "프로모션 예산 연동이 없어 플랫폼 쿠폰을 열 수 없습니다.");
         }
@@ -118,7 +118,7 @@ public class CouponOpenUseCase {
         switch (work.getStatus()) {
             // 준비 단계가 거절된 작업 대신 새 시도 작업을 돌려주므로 오지 않는다
             case FAILED -> throw new CouponException(CouponErrorCode.PROMOTION_BUDGET_REJECTED);
-            case PENDING -> reserveBudget(budgetPort, coupon, work);
+            case PENDING -> reserveBudget(promotionBudget, coupon, work);
             case DONE -> {
                 // 작업 결과와 쿠폰 기록은 한 트랜잭션에 쓰므로 보통 함께 있다. 없으면 같은 값으로 다시 기록한다(반복 무시)
                 if (coupon.getBudgetReservationId() == null) {
@@ -174,18 +174,18 @@ public class CouponOpenUseCase {
     /**
      * billing 예산 예약(트랜잭션 밖). 결과를 모르거나(UNKNOWN·호출 예외·예약 ID 없음) 하면 작업을 PENDING으로 두고 503이다.
      */
-    private void reserveBudget(PromotionBudgetPort budgetPort, Coupon coupon, BudgetWork work) {
+    private void reserveBudget(PromotionBudget promotionBudget, Coupon coupon, BudgetWork work) {
         long couponId = coupon.getId();
         BudgetResult result;
         try {
-            result = budgetPort.reserve(work.getWorkId(), couponId, coupon.getPolicyVersion(), work.getAmount());
+            result = promotionBudget.reserve(work.getWorkId(), couponId, coupon.getPolicyVersion(), work.getAmount());
         } catch (RuntimeException exception) {
             throw new CouponException(CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE, exception);
         }
-        PromotionBudgetPort.Outcome outcome = result == null ? PromotionBudgetPort.Outcome.UNKNOWN : result.outcome();
-        if (outcome == PromotionBudgetPort.Outcome.SUCCEEDED
+        PromotionBudget.Outcome outcome = result == null ? PromotionBudget.Outcome.UNKNOWN : result.outcome();
+        if (outcome == PromotionBudget.Outcome.SUCCEEDED
                 && (result.reservationId() == null || result.reservationId().isBlank())) {
-            outcome = PromotionBudgetPort.Outcome.UNKNOWN;
+            outcome = PromotionBudget.Outcome.UNKNOWN;
         }
         switch (outcome) {
             case SUCCEEDED -> {

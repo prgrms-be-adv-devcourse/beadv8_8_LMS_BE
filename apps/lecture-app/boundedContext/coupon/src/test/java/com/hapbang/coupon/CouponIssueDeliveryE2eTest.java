@@ -62,9 +62,9 @@ import com.hapbang.coupon.app.CouponRepublishUseCase;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher;
 import com.hapbang.coupon.app.port.CouponIssueEventPublisher.PublishResult;
 import com.hapbang.coupon.app.port.LectureCatalog;
-import com.hapbang.coupon.app.port.PromotionBudgetPort;
-import com.hapbang.coupon.app.port.PromotionBudgetPort.BudgetResult;
-import com.hapbang.coupon.app.port.PromotionBudgetPort.Outcome;
+import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
+import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
 import com.hapbang.coupon.config.CouponIssueConsumerKafkaConfig;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.CouponDltLog;
@@ -149,7 +149,7 @@ class CouponIssueDeliveryE2eTest {
     private CouponIssueConsumerUseCase couponIssueConsumerUseCase;
 
     @MockitoBean
-    private PromotionBudgetPort promotionBudgetPort;
+    private PromotionBudget promotionBudget;
 
     @MockitoBean
     private LectureCatalog lectureCatalog;
@@ -288,7 +288,7 @@ class CouponIssueDeliveryE2eTest {
     }
 
     private long openPlatformCoupon() throws Exception {
-        given(promotionBudgetPort.reserve(anyString(), anyLong(), anyInt(), anyLong()))
+        given(promotionBudget.reserve(anyString(), anyLong(), anyInt(), anyLong()))
                 .willReturn(new BudgetResult(Outcome.SUCCEEDED, "reservation-" + run, null));
         Instant now = Instant.now();
         String body = """

@@ -68,3 +68,6 @@ appearance:
     lookback: 7d
     # 지갑 조회 한 번의 건수 (최대 500)
     page-size: 500
+    # 이보다 오래 RUNNING으로 남은 실행만 다음 실행이 시작될 때 INCOMPLETE로 정리한다 (#821). 배포 중 옛 pod가 하고 있는 실행을
+    # 정리하지 않도록 대사 한 번의 최대 소요 시간보다 길게 둔다
+    abandon-after: 1h

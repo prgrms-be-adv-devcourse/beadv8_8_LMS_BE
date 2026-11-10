@@ -49,6 +49,11 @@ spring:
     default-schema: auxiliary
     schemas:
     - auxiliary
+  data:
+    redis:
+      # Redis 명령 응답을 기다리는 상한. 기본 60초면 Redis 장애 때 알림 실시간 발행 스레드와 연결 티켓 요청이 그만큼 막힌다.
+      # chat-app과 같은 값이다(#829, 2026-11-10 알림 담당 결정). 지금 auxiliary-app에서 Redis를 쓰는 모듈은 알림뿐이다
+      timeout: 10s
   # Spring AI(챗봇, #715). 공급자는 프로필 파일에서 하나만 켠다(local=ollama, prod=openai). 여기서는 모두 끈다.
   # 모델을 끈 실행(앱 전체 테스트 등)에서 챗봇은 LLM 없이 답하고(fallback) FAQ 색인·검색을 하지 않는다
   ai:

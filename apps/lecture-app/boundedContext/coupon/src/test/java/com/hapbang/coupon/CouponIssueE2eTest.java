@@ -35,9 +35,9 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.coupon.app.port.LectureCatalog;
-import com.hapbang.coupon.app.port.PromotionBudgetPort;
-import com.hapbang.coupon.app.port.PromotionBudgetPort.BudgetResult;
-import com.hapbang.coupon.app.port.PromotionBudgetPort.Outcome;
+import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
+import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.domain.IssueRequestRecord;
 import com.hapbang.coupon.out.CouponRepository;
@@ -78,7 +78,7 @@ class CouponIssueE2eTest {
     private CouponRepository couponRepository;
 
     @MockitoBean
-    private PromotionBudgetPort promotionBudgetPort;
+    private PromotionBudget promotionBudget;
 
     @MockitoBean
     private LectureCatalog lectureCatalog;
@@ -97,7 +97,7 @@ class CouponIssueE2eTest {
 
     @Test
     void 연_플랫폼_쿠폰을_접수하면_Redis에_한_번만_기록되고_재전송은_같은_결과_다른_요청은_이미_발급이다() throws Exception {
-        given(promotionBudgetPort.reserve(anyString(), anyLong(), anyInt(), anyLong()))
+        given(promotionBudget.reserve(anyString(), anyLong(), anyInt(), anyLong()))
                 .willReturn(new BudgetResult(Outcome.SUCCEEDED, "reservation-1", null));
 
         // 관리자: 모든 강의 대상 1,000 HP 10장 발행(DRAFT) → 열기(예산 예약 → Redis 준비 → OPEN)
@@ -108,7 +108,7 @@ class CouponIssueE2eTest {
         mockMvc.perform(post("/api/v1/coupons/admin/{couponId}/open", couponId).with(login(ADMIN_ID, "ADMIN")).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("OPEN"));
-        verify(promotionBudgetPort).reserve("coupon-" + couponId + "-reserve-v" + Coupon.INITIAL_POLICY_VERSION,
+        verify(promotionBudget).reserve("coupon-" + couponId + "-reserve-v" + Coupon.INITIAL_POLICY_VERSION,
                 couponId, Coupon.INITIAL_POLICY_VERSION, DISCOUNT_HP * QUANTITY);
         verifyNoInteractions(lectureCatalog);
         assertThat(redisTemplate.opsForValue().get(CouponRedisKeys.stock(couponId))).isEqualTo(String.valueOf(QUANTITY));

@@ -48,7 +48,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.fake.CommittedCouponOrderEvents;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
-import com.hapbang.lecture.fake.FakeCouponClientConfig;
+import com.hapbang.lecture.fake.FakeCouponApiClientConfig;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.support.GatewayLogin;
 import com.hapbang.shared.billing.domain.BillingFailureCode;
@@ -96,7 +96,7 @@ import com.jayway.jsonpath.JsonPath;
                 "hapbang.jwt.access-token-ttl=15m",
                 "hapbang.jwt.allow-ephemeral-key=true",
                 // 이 테스트만: 실제 쿠폰 Client, 강의 이벤트 외부화, Kafka 리스너·토픽 선언
-                FakeCouponClientConfig.ENABLED + "=false",
+                FakeCouponApiClientConfig.ENABLED + "=false",
                 "spring.modulith.events.externalization.enabled=true",
                 "spring.kafka.listener.auto-startup=true",
                 "spring.kafka.admin.auto-create=true",

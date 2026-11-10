@@ -95,6 +95,11 @@ public class HpReconciliationRun extends BaseEntity {
         this.finishedAt = now;
     }
 
+    /** 끝내지 못하고 멈춘 실행을 미완료로 끝낸다. 비교 수는 지금까지 기록한 값 그대로 둔다 (#821) */
+    public void abandon(String reason, LocalDateTime now) {
+        incomplete(checkedCount, mismatchCount, deadCount, reason, now);
+    }
+
     public boolean isRunning() {
         return status == HpReconciliationStatus.RUNNING;
     }
