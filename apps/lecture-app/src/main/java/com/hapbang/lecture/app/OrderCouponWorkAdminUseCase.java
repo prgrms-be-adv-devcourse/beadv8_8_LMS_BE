@@ -196,7 +196,7 @@ public class OrderCouponWorkAdminUseCase {
             try {
                 orderCouponReleaseUseCase.release(target.orderId());
             } catch (RuntimeException unexpected) {
-                log.warn("결제 실패 확정 뒤 쿠폰 해제를 바로 보내지 못했다. 재전송 배치가 잇는다 workId={}, orderId={}", workId,
+                log.error(OrderCouponWorkUseCase.RETRY_FAILED_LOG + " 결제 실패 확정 뒤 쿠폰 해제를 바로 보내지 못했다. 재전송 배치가 잇는다 workId={}, orderId={}", workId,
                         target.orderId(), unexpected);
             }
         }
@@ -307,6 +307,10 @@ public class OrderCouponWorkAdminUseCase {
         if (!work.getOrderId().equals(target.orderId())) {
             throw new IllegalStateException("쿠폰 작업의 주문이 바뀌었습니다. workId=" + workId + ", orderId="
                     + work.getOrderId() + ", expected=" + target.orderId());
+        }
+        // 조회한 뒤 무엇이든 바뀌었으면(다른 관리자의 조치, 다시 시도 뒤 재전송을 거쳐 다시 DEAD 등) 그때 본 쿠폰 상태로 기록하지 않는다
+        if (work.getVersion() != target.work().getVersion()) {
+            throw new LectureException(LectureErrorCode.COUPON_WORK_CHANGED);
         }
         return new Locked(work, order);
     }

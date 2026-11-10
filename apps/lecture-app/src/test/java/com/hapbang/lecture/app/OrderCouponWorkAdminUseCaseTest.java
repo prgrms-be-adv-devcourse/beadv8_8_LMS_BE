@@ -180,7 +180,7 @@ class OrderCouponWorkAdminUseCaseTest {
     }
 
     @Test
-    void 결제_실패_확정이_쿠폰을_조회하는_사이_다른_관리자가_다시_시도하면_기록하지_않고_409다() {
+    void 결제_실패_확정이_쿠폰을_조회하는_사이_다른_관리자가_다시_시도하면_작업이_바뀌어_기록하지_않고_409다() {
         Long orderId = deadReserveOrder();
         coupon.respond(request -> {
             // fail이 트랜잭션 밖에서 쿠폰 예약 상태를 기다리는 사이 다른 관리자의 다시 시도가 커밋된다
@@ -190,11 +190,30 @@ class OrderCouponWorkAdminUseCaseTest {
         });
 
         assertRejected(() -> orderCouponWorkAdminUseCase.fail(ADMIN_ID, reserveWorkId(orderId)),
-                LectureErrorCode.COUPON_WORK_NOT_DEAD);
+                LectureErrorCode.COUPON_WORK_CHANGED);
 
         // 다시 시도가 이겼다: 주문은 결제 처리 중 그대로이고 작업은 재전송 대기다
         assertThat(orderStatus(orderId)).isEqualTo("HOLD_PENDING");
         assertThat(work(orderId, "RESERVE")).containsEntry("status", "PENDING").containsEntry("attempt_count", 0);
+    }
+
+    @Test
+    void 결제_실패_확정이_쿠폰을_조회한_뒤_작업이_다시_DEAD가_돼도_그사이_바뀌었으면_기록하지_않고_409다() {
+        Long orderId = deadReserveOrder();
+        coupon.respond(request -> {
+            // 조회하는 사이 다시 시도 → 재전송 → 다시 DEAD가 된 것처럼 상태는 DEAD 그대로이고 버전만 오른다
+            jdbcTemplate.update("update lectures.order_coupon_work set version = version + 2 where order_id = ? "
+                    + "and kind = 'RESERVE'", orderId);
+            return new CouponCallResult.Succeeded<>(
+                    new CouponReservationStatusResponse((String) request, "NOT_FOUND", null, List.of()));
+        });
+
+        assertRejected(() -> orderCouponWorkAdminUseCase.fail(ADMIN_ID, reserveWorkId(orderId)),
+                LectureErrorCode.COUPON_WORK_CHANGED);
+
+        // 조회 때 본 "예약 없음"으로 결제 실패를 확정하지 않는다
+        assertThat(orderStatus(orderId)).isEqualTo("HOLD_PENDING");
+        assertThat(work(orderId, "RESERVE")).containsEntry("status", "DEAD");
     }
 
     @Test
