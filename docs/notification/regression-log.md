@@ -86,6 +86,58 @@
 
 _새 기록은 1.2 양식을 복사해 이 줄 바로 아래(가장 최근 기록 위)에 붙인다._
 
+#### NR-023 · 2026-11-10 · 통과 (#829 Bot 리뷰 반영 뒤 자체 리뷰)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-023 |
+| 실행 날짜 | 2026-11-10 14:30~14:32 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `d03ef12c` |
+| 작업 트리 변경 | NR-022 목록 + `NotificationRealtimeRelay`(DB 다시 읽기 실패를 `read_failed`로 따로 세고 생략 시간을 걸지 않음, 생략 로그 분리, 언급 회원 한 번만 계산), `NotificationRealtimeRelayTest`(read_failed, 언급 회원 칸이 빈 경우 잠금 경로), module 3.8, test-spec |
+| 대상 기능 | 자체 리뷰(S6) 지적 반영 |
+| 관련 NT ID | NR-022와 같다 |
+| 명령 | `./gradlew :notification:test verifyModuleStructure :auxiliary-app:check`(사용자 지시로 cleanTest 없음) |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과 |
+| 건수 | 새로 실행: `:notification` 112, `:auxiliary-app` 12, 실패 0. `:auxiliary-global`(108)·`:chatbot`(112)·`:search`(93)는 `UP-TO-DATE`로 건너뜀(입력 변경 없음, 새 실행 아님. 마지막 실행은 NR-022 통과) |
+| 실패 원인 분류 | 최종 실패 없음 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | — |
+| 미검증 항목 | NR-022와 같다 |
+| 관련 변경 | #829 |
+
+**메모**
+- `read_failed` 시험은 고치기 전 실패했다(`publish_failed`로 셈). 언급 회원 칸이 빈 경우의 잠금 경로 시험은 이미 있던 방어 동작이라 처음부터 통과했다.
+
+#### NR-022 · 2026-11-10 · 통과 (#829 Bot 리뷰 반영)
+
+| 항목 | 값 |
+| --- | --- |
+| 실행 ID | NR-022 |
+| 실행 날짜 | 2026-11-10 14:21~14:26 (KST) |
+| 실행자 | Claude Code |
+| 브랜치 | `feature/tkt-829` |
+| 커밋 | `d03ef12c` |
+| 작업 트리 변경 | 있음(커밋 전). `NotificationRealtimeRelay`(언급 회원 없는 알림은 잠금 없이 commit 뒤 발행, 발행 실패 뒤 생략 시간·`skipped` 지표, 복구 로그), 테스트 `NotificationRealtimeRelayTest`(다시 씀)·`NotificationRealtimeIntegrationTest`(출처 403·티켓 미소모, 생략 시간 반영)·`RawStomp`(출처 지정), 문서(module 3.8·As-Is, test-spec, 이 문서, PROGRESS) |
+| 대상 기능 | Bot 리뷰 3건: Redis 무응답 때 DB 연결·잠금 점유, `publish_failed`·상태 전환 테스트, 비허용 출처 403·티켓 미소모 |
+| 관련 NT ID | NT-RT-01~06·08, NT-READ-05, NT-USR-07(실시간 부분) |
+| 명령 | `./gradlew :notification:cleanTest :auxiliary-global:cleanTest :chatbot:cleanTest :search:cleanTest :auxiliary-app:cleanTest :notification:test verifyModuleStructure :auxiliary-app:check` |
+| 실행 환경 | NR-016과 같다 |
+| 결과 | 통과 |
+| 건수 | `:notification` 110, `:auxiliary-app` 12, `:auxiliary-global` 108, `:chatbot` 112, `:search` 93. 합계 435, 실패·오류·건너뜀 0 (XML 기준, 새 실행) |
+| 실패 원인 분류 | 최종 실패 없음 |
+| 수정 내용 | 아래 메모 |
+| 재실행 결과 | — |
+| 미검증 항목 | 운영 Redis 장애 상황에서 생략·재시도 동작(단위·통합 테스트로만 확인), NR-016과 같은 항목 |
+| 관련 변경 | #829 |
+
+**메모 — 테스트 먼저(red 확인)**
+- 고치기 전에 Relay 단위 테스트 2건이 실패했다: 발행 실패 뒤 생략 없음(`skipped` 0), 언급 회원 없는 알림의 잠금 없는 경로 없음. 출처 시험(403·티켓 미소모)은 이미 있는 동작이라 처음부터 통과했다(빈 곳 보강).
+- 중간에 껍데기 생성자가 둘이라 Spring이 생성자를 고르지 못해 통합 테스트가 컨텍스트 기동에 실패했다(F-TEST, `@Autowired`로 해결).
+- 변형 확인: ① 모든 알림을 잠금 없는 경로로 보내자 파기 경합 통합 시험(ND-054)과 잠금 순서 단위 시험이 실패했다 ② 생략 판단을 빼자 생략 단위 시험이 실패했다. 되돌린 뒤 위 명령으로 통과를 확인했다.
+
 #### NR-021 · 2026-11-10 · 통과 (origin/dev 병합 뒤, NR-020 재실행)
 
 | 항목 | 값 |

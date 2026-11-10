@@ -47,8 +47,9 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
  * </ul>
  */
 @NotificationRealtimeTest
-// Redis를 멈춘 시험이 명령 응답을 오래 기다리지 않게 한다(기본 60초)
-@TestPropertySource(properties = "spring.data.redis.timeout=1s")
+// Redis를 멈춘 시험이 명령 응답을 오래 기다리지 않게 한다(기본 60초). 발행 실패 뒤 생략 시간도 줄인다(운영 기본 5초)
+@TestPropertySource(properties = {"spring.data.redis.timeout=1s",
+        "hapbang.notification.realtime.publish.failure-backoff=1s"})
 class NotificationRealtimeIntegrationTest {
 
     private static final AtomicLong NEXT_ID = new AtomicLong(40_000);
@@ -220,8 +221,11 @@ class NotificationRealtimeIntegrationTest {
         client.get().uri("/api/v1/notifications").headers(h -> login(h, a, Role.USER)).exchange()
                 .expectStatus().isOk()
                 .expectBody().jsonPath("$.data[0].targetId").isEqualTo("while-down");
+        // 발행 실패 뒤 생략 시간(이 시험 1초)이 지나면 다시 보낸다. 생략한 프레임은 다시 보내지 않는다(REST로 맞춘다)
+        Thread.sleep(1200);
         writer.save(draft(a, "after", 7L, "호스트", T0.plusSeconds(1)));
-        assertThat(again.nextFrame(WAIT)).contains("\"targetId\":\"after\"");
+        String next = again.nextFrame(WAIT);
+        assertThat(next).contains("\"targetId\":\"after\"").doesNotContain("while-down");
     }
 
     /**
@@ -274,6 +278,19 @@ class NotificationRealtimeIntegrationTest {
         connections.add(RawStomp.open(used));
 
         assertThatThrownBy(() -> RawStomp.open(used)).hasStackTraceContaining("401");
+    }
+
+    /** 출처 검사가 티켓 사용보다 먼저 돈다. 거절된 출처는 403이고, 그 티켓은 소모되지 않아 허용 출처에서 그대로 쓸 수 있다 */
+    @Test
+    void 허용하지_않은_출처는_403이고_티켓을_소모하지_않는다() throws Exception {
+        long a = member();
+        String url = wsUrl(ticket(a, Role.USER));
+
+        assertThatThrownBy(() -> RawStomp.open(url, "http://evil.example")).hasStackTraceContaining("403");
+
+        RawStomp stomp = RawStomp.open(url);
+        connections.add(stomp);
+        assertThat(stomp.isOpen()).isTrue();
     }
 
     @Test

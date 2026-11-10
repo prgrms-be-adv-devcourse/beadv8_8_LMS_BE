@@ -31,12 +31,17 @@ public final class RawStomp {
         this.closed = closed;
     }
 
-    /** 연결한다. 핸드셰이크가 거절되면 예외(메시지에 상태 코드가 들어 있다) */
+    /** 허용 출처({@value #ORIGIN})로 연결한다. 핸드셰이크가 거절되면 예외(메시지에 상태 코드가 들어 있다) */
     public static RawStomp open(String url) throws Exception {
+        return open(url, ORIGIN);
+    }
+
+    /** 정한 출처로 연결한다 */
+    public static RawStomp open(String url, String origin) throws Exception {
         BlockingQueue<String> frames = new LinkedBlockingQueue<>();
         CompletableFuture<CloseStatus> closed = new CompletableFuture<>();
         WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
-        headers.setOrigin(ORIGIN);
+        headers.setOrigin(origin);
         WebSocketSession session = new StandardWebSocketClient().execute(new TextWebSocketHandler() {
             @Override
             protected void handleTextMessage(WebSocketSession s, TextMessage message) {

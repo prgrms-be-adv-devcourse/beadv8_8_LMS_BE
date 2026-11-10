@@ -281,7 +281,8 @@
 | NT-RT-06 | `app.NotificationConnectionTicketServiceTest`(만료 계산, 위조 헤더 상한), `in.NotificationConnectionExpiryTest`(티켓 유효 시간과 연결 만료 구분, 만료 시 실제 4401 종료, 이른 exp로 종료, 위조 헤더 15분 상한) | 앱 쪽 전부. Gateway를 거치는 E2E는 N4 |
 | NT-RT-08 | `in.NotificationRealtimeIntegrationTest`(읽음·전체 읽음 때 프레임 없음) | 전부 |
 | NT-USR-07 (실시간) | `in.NotificationRealtimeIntegrationTest`(파기 진행 중이면 파기가 끝난 뒤의 닉네임으로 나감, ND-054) | 실시간 부분 |
-| (유실 관측) | `app.NotificationRealtimeRelayTest`(줄 포화로 버린 프레임을 지표로 셈) | test-spec 항목 없음(ND-027 보강). 발행 실패(`publish_failed`) 경로는 지표 단위 테스트 없음 |
+| (유실 관측·장애 생략) | `app.NotificationRealtimeRelayTest`(줄 포화 `queue_full`, DB 다시 읽기 실패 `read_failed`(생략 없음), 발행 실패 `publish_failed`와 생략 시간 동안 DB·잠금 전 `skipped`, 생략 뒤 재시도·복귀와 WARN·INFO 한 번씩, 언급 회원 있으면 잠금 안 commit 전 발행·없으면 잠금 없이 commit 뒤 발행, 언급 회원 칸이 비어도 값에 닉네임이 있으면 잠금 경로) | test-spec 항목 없음(ND-027·ND-054 보강, #829 Bot 리뷰) |
+| (출처 검사) | `in.NotificationRealtimeIntegrationTest`(허용하지 않은 출처 403, 그 티켓을 허용 출처에서 다시 쓸 수 있음) | test-spec 항목 없음(ND-028 보강, #829 Bot 리뷰) |
 | NT-READ-05 | `in.NotificationRealtimeIntegrationTest`(프레임의 안 읽은 수 1→2) | 실시간 부분 |
 | NT-RET-02·NT-IDEM-01 (실시간) | `in.NotificationRealtimeIntegrationTest`(중복·밀려난 알림은 프레임 없음, 20개 유지) | 실시간 부분 |
 | (보안) | `in.NotificationRealtimeIntegrationTest`(클라이언트 SEND로 다른 회원 목적지 주입 불가, 자기 목적지 말고는 구독 불가), `in.websocket.NotificationStompInterceptorTest`(결합 안 된 CONNECT·다른 사용자 CONNECT 거절, 끝에 / 붙인 목적지 거절, 결합한 연결의 UNSUBSCRIBE·ACK 통과) | test-spec 항목 없음(ND-026·ND-027 보강) |

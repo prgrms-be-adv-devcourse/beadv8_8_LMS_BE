@@ -21,7 +21,7 @@
 | 결정 기록 `decisions.md` | 작성 완료 | 커밋 `e054d6f6`(#746, PR #747) |
 | 나머지 알림 문서 | 작성 완료 (#750) | 2장 |
 | 기능 구현 | N1·N2 완료, N3 구현(#829, dev 병합 전) | 알림 저장·REST·파기 닉네임은 N2, 알림 생성(이벤트 소비)은 N5 이후 |
-| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-021 |
+| 테스트 | 실행 | [regression-log.md](../../../../docs/notification/regression-log.md) NR-001~NR-023 |
 | Flyway | 작성 | `V202611091500__create_notification_schema.sql`(schema, `notification_user`), `V202611101000__create_notification_table.sql`(`notification`), `V202611101100__add_notification_user_masked_at.sql`(파기 표시) |
 
 ## 2. 문서 구축 상태
