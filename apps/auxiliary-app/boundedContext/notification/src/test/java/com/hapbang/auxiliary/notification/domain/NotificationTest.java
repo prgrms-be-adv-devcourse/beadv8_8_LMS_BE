@@ -36,18 +36,6 @@ class NotificationTest {
     }
 
     @Test
-    void 이미_읽은_알림을_다시_읽어도_처음_읽은_시각이_남는다() {
-        Notification notification = Notification.create(NotificationFixtures.draft(1L, "s-1", 7L, "호스트", T),
-                template::render);
-        Instant first = T.plusSeconds(10);
-
-        notification.markRead(first);
-        notification.markRead(first.plusSeconds(60));
-
-        assertThat(notification.getReadAt()).isEqualTo(first);
-    }
-
-    @Test
     void 파기된_회원의_닉네임을_바꾸고_문구를_값으로_다시_만들며_두_번_해도_결과가_같다() {
         Notification notification = Notification.create(NotificationFixtures.draft(1L, "s-1", 7L, "호스트", T),
                 template::render);

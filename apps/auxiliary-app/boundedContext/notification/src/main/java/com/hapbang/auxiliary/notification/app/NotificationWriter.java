@@ -37,6 +37,8 @@ import lombok.extern.slf4j.Slf4j;
  *     바꿔 저장한다(ND-054).</li>
  *     <li>같은 트랜잭션에서 발생 시각 기준 21번째부터 Soft Delete한다(ND-022). 늦게 온 오래된 알림은 자신이 숨겨진다.</li>
  * </ol>
+ * 잠금 순서는 회원 advisory lock → 받는 사람 복제본 행 → 알림 행(ID 오름차순)이다. 파기·읽음도 같은 순서를 따르므로 교착 상태가 없다
+ * (module.md 3.2 "동시성").
  */
 @Slf4j
 @Service
@@ -87,11 +89,17 @@ public class NotificationWriter {
         return NotificationWriteResult.created(saved.getId());
     }
 
+    /**
+     * 21번째부터 숨긴다. 엔티티를 불러와 고치지 않는다: 밀어낼 행을 ID 오름차순으로 잠근 뒤 삭제 시각만 채우는 벌크 UPDATE다.
+     * 그래서 같은 행의 읽은 시각·값·문구를 바꾸는 다른 처리(읽음, 파기)의 변경을 덮어쓰지 않는다(#801 PR 리뷰).
+     */
     private void keepLatest(Long receiverUserId, Instant now) {
-        List<Notification> alive = notifications
-                .findByReceiverUserIdAndDeletedAtIsNullOrderByOccurredAtDescIdDesc(receiverUserId);
-        for (int i = KEEP; i < alive.size(); i++) {
-            alive.get(i).softDelete(now);
+        List<Long> alive = notifications.findAliveIdsNewestFirst(receiverUserId);
+        if (alive.size() <= KEEP) {
+            return;
         }
+        List<Long> pushedOut = alive.subList(KEEP, alive.size());
+        notifications.lockInIdOrder(pushedOut);
+        notifications.softDeleteAll(pushedOut, now);
     }
 }

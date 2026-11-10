@@ -38,7 +38,7 @@
 | 알림 저장 `NotificationWriter`(N2): 받는 사람 복제본 행 `SELECT … FOR UPDATE`(ND-053) → 복제본 없으면 `RECEIVER_NOT_REPLICATED`(ND-035) → `ReceiverPolicy`(탈퇴 제외, 정지는 U8) → 같은 사건이 있으면(삭제된 행 포함) `DUPLICATE` → 종류 템플릿으로 문구를 만들어 저장 → 같은 트랜잭션에서 21번째부터 Soft Delete. 종류별 템플릿(`NotificationTemplate`)은 운영 코드에 아직 없다(ND-050) | `.../app/NotificationWriter.java`, `.../app/ReceiverPolicy.java`, `.../app/NotificationTemplates.java` |
 | 값 규칙: `v`(필수), `nicknames`(회원 ID → 닉네임). `nicknames`의 키가 언급 회원 ID가 된다. 파기되면 `탈퇴회원#{ID}`로 바꾸고 문구를 템플릿으로 다시 만든다(멱등). 파기(ND-054): `notification_user.masked_at`(Flyway `V202611101100`, 역할 null 허용)에 파기 표시를 남기고 복제본이 없으면 파기 상태로 만든다. 파기된 복제본은 가입·변경으로 바뀌지 않는다. 저장은 언급 회원마다 회원 단위 advisory lock 공유(ID 순), 파기는 배타 잠금 `(801, 회원 ID 해시)`를 잡고, 저장 때 파기된 언급 회원 닉네임을 바꾼다 | `.../domain/Notification.java`, `.../domain/NotificationPayload.java`, `.../domain/NotificationUser.java`, `.../app/NotificationMaskingService.java`, `.../out/MemberMaskLocks.java` |
 | REST `ApiV1NotificationController`(`/api/v1/notifications`, N2): 목록·안 읽은 수·읽음·전체 읽음. `@PreAuthorize`는 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`(관리자 403), 남의·없는·밀려난 알림 읽음은 404 `NOTIFICATION_NOT_FOUND`(ND-052). Gateway route가 없어 외부에서는 아직 닿지 않는다(N4) | `.../in/ApiV1NotificationController.java`, `.../app/NotificationQueryFacade.java` |
-| 테스트 11개 클래스 58건(Unit·PG·PG+Kafka·MockMvc). 실행 결과는 [regression-log.md](regression-log.md) NR-001~NR-011 | `boundedContext/notification/src/test/` |
+| 테스트(Unit·PG·PG+Kafka·MockMvc, 순서를 강제한 경합 테스트 포함). 건수와 실행 결과는 [regression-log.md](regression-log.md)에만 둔다 | `boundedContext/notification/src/test/` |
 | Gateway HTTPRoute `auxiliary-app`의 `matches`는 `/api/v1/chatbot`, `/api/v1/auxiliary` 둘뿐이다. `/api/v1/notifications` route가 없다. 시간 제한 `request: 30s`, 본문 1Mi | `apps/auxiliary-app/k8s/base/gateway.yaml` |
 | Gateway `claimToHeaders`는 `X-User-Id`(`sub`), `X-User-Role`(`role`)만 넘긴다. `X-User-Token-Exp`가 없다 | `apps/auxiliary-app/k8s/base/gateway.yaml` |
 | auxiliary global 필터는 `X-User-Id`·`X-User-Role`만 읽는다. `X-User-Token-Exp`가 없다(U15) | `apps/auxiliary-app/global/src/main/java/com/hapbang/auxiliary/global/auth/GatewayUserHeaderFilter.java`, README "실행과 설정" 끝 |
@@ -77,6 +77,21 @@
 | 발생 시각 정렬 | ND-021 |
 | 최신 20개 보존, Soft Delete | ND-022 (묶음과 겹침 U9) |
 | 보존 동시성(받는 사람 `notification_user` 행 비관적 락으로 받는 사람별 저장 직렬화) | ND-053 |
+| 같은 알림 행의 동시 쓰기(아래 "동시성 설계") | ND-022, ND-051, ND-053, ND-054, #801 PR 리뷰 |
+
+**동시성 설계 (#801 PR 리뷰 반영, 구현됨)**
+
+같은 `notification` 행을 저장(보존 정리), 읽음, 전체 읽음, 파기가 함께 쓴다. 엔티티로 읽어 두고 커밋 때 행 전체를 쓰면 그사이 커밋된 다른 처리의 칸(삭제 시각·읽은 시각·값·문구)을 옛 값으로 되돌린다(밀려난 알림이 되살아나 20개 불변식이 깨지거나, 파기된 닉네임이 돌아온다).
+
+| 처리 | 바꾸는 칸 | 방식 |
+| --- | --- | --- |
+| 보존 정리(저장 안) | `deleted_at` | 밀어낼 행 ID만 조회 → 그 행을 ID 오름차순 `FOR UPDATE` → `deleted_at`만 채우는 벌크 UPDATE(`deleted_at is null` 조건) |
+| 읽음 | `read_at` | `id·받는 사람·deleted_at is null·read_at is null` 조건 UPDATE, 바뀐 건수 반환. 0건이면 새로 조회해 이미 읽음(200)과 남의·없는·밀려난 알림(404)을 가른다 |
+| 전체 읽음 | `read_at` | 보이고 안 읽은 행을 ID 오름차순 `FOR UPDATE` → 같은 조건 UPDATE, 바뀐 건수 반환 |
+| 파기 | `payload`·`message` | 그 회원이 언급된 행을 ID 오름차순 `FOR UPDATE`로 가져와 잠금 뒤의 최신 값에서 바꾼다. 이 트랜잭션은 알림 엔티티를 미리 불러오지 않아 영속성 컨텍스트에 오래된 엔티티가 없다. `@DynamicUpdate`로 바뀐 칸만 쓴다 |
+
+- 잠금 획득 순서(모든 경로 공통): 회원 advisory lock(ND-054, 저장은 언급 회원 공유·ID 순, 파기는 배타) → 회원 복제본 행(저장은 받는 사람, 파기는 그 회원) → 알림 행(ID 오름차순). 알림 행을 잡은 뒤에는 회원 잠금·복제본 행을 잡지 않는다. 그래서 교착 상태가 생기지 않는다.
+- `@DynamicUpdate`만으로는 같은 칸을 쓰는 파기끼리(한 알림에 B·C가 함께 언급)의 덮어쓰기를 막지 못한다. 행 잠금을 빼면 그 경합 테스트가 실패하는 것을 확인했다(regression-log NR-015).
 | REST 권한·오류(세 역할만, 관리자 403. 남의·없는·밀려난 알림 읽음 404 `NOTIFICATION_NOT_FOUND`, 다시 읽음 200) | ND-052 |
 | 읽음은 누를 때, 전체 읽음 | ND-023 |
 | 대상 삭제 시 알림 유지 | ND-024 |
@@ -251,3 +266,4 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | 2026-11-09 | ND-050~ND-053 반영(#801 사전 결정): 3.2에 문구·파기 닉네임·보존 동시성·REST 권한 행을 고치거나 더하고, 6장 U3·U8·U19를 맞췄다 |
 | 2026-11-10 | N2(#801) 구현으로 2장 As-Is에 notification 테이블, 저장 서비스, 값 규칙·파기 처리, REST를 더했다 |
 | 2026-11-10 | ND-054 반영(#801): 2장 값 규칙 행에 파기 표시·파기 상태 복제본·회원 단위 잠금, 3.2에 파기 뒤 저장 행을 더했다 |
+| 2026-11-10 | #801 PR 리뷰 반영: 3.2에 같은 알림 행의 동시 쓰기와 "동시성 설계"(칸별 조건부 UPDATE, ID 오름차순 행 잠금, 잠금 순서)를 더하고, 2장 As-Is의 테스트 수치를 지워 regression-log를 가리키게 했다 |

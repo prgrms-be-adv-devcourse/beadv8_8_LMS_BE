@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
 
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.springframework.util.Assert;
@@ -23,8 +24,12 @@ import lombok.NoArgsConstructor;
 
 /**
  * 알림 한 건(ND-025). 문구와 값을 함께 저장해 값으로 문구를 다시 만들 수 있다(ND-020). 지우지 않고 삭제 시각만 채운다(ND-022).
+ * <p>
+ * 동시성(#801 PR 리뷰): 읽은 시각·삭제 시각은 엔티티로 고치지 않고 저장소의 조건부 벌크 UPDATE로만 바꾼다. 엔티티로 바꾸는 것은
+ * 파기 때 값·문구뿐이고, 그때는 행을 먼저 잠근다. {@code @DynamicUpdate}로 바뀐 칸만 써서 다른 칸을 덮어쓰지 않게 한 번 더 막는다.
  */
 @Entity
+@DynamicUpdate
 @Table(name = "notification", schema = "notification")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -90,24 +95,6 @@ public class Notification extends BaseEntity {
                 .map(Long::valueOf).sorted().toArray(Long[]::new);
         notification.message = render(renderer, notification.payload);
         return notification;
-    }
-
-    /** 누른 알림을 읽음으로 바꾼다. 이미 읽었으면 처음 읽은 시각을 그대로 둔다(ND-023·ND-052) */
-    public void markRead(Instant now) {
-        if (readAt == null) {
-            readAt = now;
-        }
-    }
-
-    /** 최신 20개에서 밀려나 숨긴다(ND-022). 이미 숨겼으면 처음 시각을 둔다 */
-    public void softDelete(Instant now) {
-        if (deletedAt == null) {
-            deletedAt = now;
-        }
-    }
-
-    public boolean isDeleted() {
-        return deletedAt != null;
     }
 
     /**
