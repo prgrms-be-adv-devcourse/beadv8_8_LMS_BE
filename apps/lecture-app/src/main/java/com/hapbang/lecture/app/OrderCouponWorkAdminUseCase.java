@@ -2,6 +2,7 @@ package com.hapbang.lecture.app;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -105,6 +106,25 @@ public class OrderCouponWorkAdminUseCase {
      * @param reservation  쿠폰 응답. 조회하지 못했으면 null
      */
     public record CouponReservationView(String couponStatus, CouponReservationStatusResponse reservation) {
+    }
+
+    /**
+     * 상세 조회용 작업·주문 상태·주문 항목별 쿠폰 계산 근거(짧은 읽기 트랜잭션).
+     *
+     * @param coupons 주문 항목 ID, 항목 안 적용 순서대로
+     */
+    public record WorkDetail(OrderCouponWork work, LectureOrderStatus orderStatus, List<OrderItemCoupon> coupons) {
+    }
+
+    /** 작업과 주문 상태, 주문 항목별 쿠폰 계산 근거를 읽는다. 쿠폰은 부르지 않는다 */
+    public WorkDetail detail(String workId) {
+        return transaction.execute(status -> {
+            OrderCouponWork work = findWork(workId);
+            LectureOrder order = findOrder(work.getOrderId());
+            return new WorkDetail(work, order.getStatus(),
+                    orderItemCouponRepository.findByOrderItemIdInOrderByOrderItemIdAscApplyOrderAsc(
+                            order.getItems().stream().map(OrderItem::getId).toList()));
+        });
     }
 
     /** 이 작업 주문의 쿠폰 예약 상태. 쿠폰을 부르지 못해도 실패시키지 않고 {@value #COUPON_STATUS_UNAVAILABLE}로 준다 */
