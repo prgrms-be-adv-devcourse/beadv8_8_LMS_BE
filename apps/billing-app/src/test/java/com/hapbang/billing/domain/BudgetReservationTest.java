@@ -68,12 +68,14 @@ class BudgetReservationTest {
     }
 
     @Test
-    @DisplayName("남은 예산보다 많이 해제하면 거절하고 예약을 바꾸지 않는다")
+    @DisplayName("남은 예산보다 많이 해제하면 BUDGET_RELEASE_EXCEEDS_REMAINING으로 거절하고 예약을 바꾸지 않는다")
     void releaseExceedsRemaining() {
         BudgetReservation reservation = BudgetReservation.reserve("w", 2L, 42L, 1, 100_000L);
         reservation.release(60_000L);
 
-        assertThatThrownBy(() -> reservation.release(40_001L)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> reservation.release(40_001L))
+                .isInstanceOfSatisfying(BillingException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(BillingErrorCode.BUDGET_RELEASE_EXCEEDS_REMAINING));
         assertThat(reservation.getRemainingHp()).isEqualTo(40_000L);
         assertThat(reservation.getReleasedHp()).isEqualTo(60_000L);
         assertThat(reservation.isBalanced()).isTrue();

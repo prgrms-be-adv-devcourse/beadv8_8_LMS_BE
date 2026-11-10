@@ -86,14 +86,14 @@ public class BudgetReservation extends BillingUpdatedEntity {
         return new BudgetReservation(workId, walletId, couponId, policyVersion, amountHp);
     }
 
-    // 남은 예산에서 해제한다(남은 예산 −, 해제됨 +). 보류 중인 예산은 해제하지 않는다. 금액 0 이하는 INVALID_POINT_AMOUNT다.
-    // 남은 예산보다 많으면 불변식 위반이라 거절한다. 업무 거절(초과 해제)은 호출하는 쪽이 예약을 잠근 뒤 먼저 확인한다.
+    // 남은 예산에서 해제한다(남은 예산 −, 해제됨 +). 보류 중인 예산은 해제하지 않는다. 금액 0 이하는 INVALID_POINT_AMOUNT,
+    // 남은 예산보다 많으면 BUDGET_RELEASE_EXCEEDS_REMAINING이고 예약을 바꾸지 않는다. 호출하는 쪽은 예약을 잠근 뒤 부른다.
     public void release(long amountHp) {
         if (amountHp <= 0) {
             throw new BillingException(BillingErrorCode.INVALID_POINT_AMOUNT);
         }
         if (amountHp > remainingHp) {
-            throw new IllegalStateException("남은 예산보다 많이 해제할 수 없습니다.");
+            throw new BillingException(BillingErrorCode.BUDGET_RELEASE_EXCEEDS_REMAINING);
         }
         remainingHp -= amountHp;
         releasedHp += amountHp;
