@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.*;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -25,10 +26,14 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 
+import com.hapbang.auxiliary.notification.app.NotificationWriter;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConfig;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConstants;
 import com.hapbang.auxiliary.notification.in.event.kafka.NotificationKafkaConsumerSettings;
+import com.hapbang.auxiliary.notification.out.NotificationRepository;
 import com.hapbang.auxiliary.notification.out.NotificationUserRepository;
+import com.hapbang.auxiliary.notification.support.NotificationFixtures;
+import com.hapbang.auxiliary.notification.support.TestNotificationTemplate;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserJoinedEvent;
@@ -46,7 +51,8 @@ import com.hapbang.testsupport.KafkaTestcontainersConfig;
  */
 @IntegrationTest
 @DirtiesContext
-@Import({KafkaTestcontainersConfig.class, NotificationMemberEventListenerTest.Topics.class})
+@Import({KafkaTestcontainersConfig.class, NotificationMemberEventListenerTest.Topics.class,
+        TestNotificationTemplate.Config.class})
 class NotificationMemberEventListenerTest {
 
     private static final String SUFFIX = UUID.randomUUID().toString();
@@ -78,6 +84,12 @@ class NotificationMemberEventListenerTest {
 
     @Autowired
     private KafkaListenerEndpointRegistry listenerRegistry;
+
+    @Autowired
+    private NotificationWriter writer;
+
+    @Autowired
+    private NotificationRepository notifications;
 
     private MemberEventKafka kafka;
 
@@ -141,11 +153,35 @@ class NotificationMemberEventListenerTest {
     }
 
     @Test
+    void 파기_이벤트를_받으면_그_회원이_언급된_알림의_닉네임을_바꾸고_뒤이은_변경_이벤트와_재수신에도_되살아나지_않는다() {
+        long receiver = nextId();
+        long actor = nextId();
+        joined(receiver, "받는사람", Role.USER, UserStatus.ACTIVE, 0L);
+        awaitProcessed();
+        long id = writer.save(NotificationFixtures.draft(receiver, "s-1", actor, "원래닉네임",
+                Instant.parse("2026-11-10T00:00:00Z"))).notificationId();
+
+        // 회원 앱은 파기 때 닉네임을 바꾼 UserModifiedEvent와 UserMaskedEvent를 보낸다. 순서가 바뀌고 같은 파기가 다시 와도 된다
+        masked(actor);
+        modified(actor, "탈퇴회원#" + actor, Role.USER, UserStatus.WITHDRAWN, 5L);
+        masked(actor);
+        awaitProcessed();
+
+        assertThat(notifications.findById(id)).hasValueSatisfying(n -> {
+            assertThat(n.getMessage()).isEqualTo("탈퇴회원#" + actor + "님이 강의 s-1에 반응했습니다.");
+            assertThat(n.getPayload().toString()).doesNotContain("원래닉네임");
+        });
+        assertThat(kafka.deadLetterKeysNow(DLT)).doesNotContain(String.valueOf(actor));
+    }
+
+    @Test
     void 처리하지_않는_회원_이벤트와_모르는_종류는_건너뛰고_다음_레코드를_처리한다() {
         long id = nextId();
+        long maskedId = nextId();
 
-        // N1은 파기(UserMaskedEvent)·로그아웃을 쓰지 않는다. 파기 때 저장 문구 갱신은 N2(ND-036, ND-046)
-        kafka.send(UserMaskedEvent.class.getName(), id, "{\"userId\":" + id + ",\"maskedAt\":\"2026-11-09T00:00:00Z\"}");
+        // 복제본이 없는 회원의 파기는 파기 상태 복제본을 남기고 커밋된다(ND-054, DLT 아님)
+        masked(maskedId);
+        // 로그아웃은 알림이 쓰지 않는다
         kafka.send(UserLoggedOutEvent.class.getName(), id,
                 "{\"userId\":" + id + ",\"loggedOutAt\":\"2026-11-09T00:00:00Z\"}");
         // 회원 쪽이 먼저 배포한, 이 앱 클래스패스에 아직 없는 새 종류
@@ -153,8 +189,9 @@ class NotificationMemberEventListenerTest {
         awaitProcessed();
 
         assertThat(repository.findById(id)).isEmpty();
+        assertThat(repository.findById(maskedId)).hasValueSatisfying(user -> assertThat(user.isMasked()).isTrue());
         // 오류가 아니라 건너뛴 것이다: DLT로 가지 않는다
-        assertThat(kafka.deadLetterKeysNow(DLT)).doesNotContain(String.valueOf(id));
+        assertThat(kafka.deadLetterKeysNow(DLT)).doesNotContain(String.valueOf(id), String.valueOf(maskedId));
     }
 
     @Test
@@ -173,6 +210,10 @@ class NotificationMemberEventListenerTest {
 
     private void modified(long id, String nickname, Role role, UserStatus status, Long version) {
         kafka.send(UserModifiedEvent.class.getName(), id, userJson(id, nickname, role, status, version));
+    }
+
+    private void masked(long id) {
+        kafka.send(UserMaskedEvent.class.getName(), id, "{\"userId\":" + id + ",\"maskedAt\":\"2026-11-10T00:00:00Z\"}");
     }
 
     /** partition이 하나라, 마지막에 보낸 표식 회원의 가입이 반영되면 앞서 보낸 레코드의 처리도 끝났다 */

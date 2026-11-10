@@ -11,6 +11,7 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.auxiliary.notification.app.NotificationMaskingService;
 import com.hapbang.auxiliary.notification.app.NotificationUserSyncResult;
 import com.hapbang.auxiliary.notification.app.NotificationUserSyncService;
 import com.hapbang.auxiliary.notification.app.exception.NotificationErrorCode;
@@ -22,6 +23,7 @@ import com.hapbang.auxiliary.notification.in.event.kafka.RejectedEventException;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippablePayloads;
 import com.hapbang.auxiliary.notification.in.event.kafka.SkippedEventLog;
 import com.hapbang.shared.member.event.UserJoinedEvent;
+import com.hapbang.shared.member.event.UserMaskedEvent;
 import com.hapbang.shared.member.event.UserModifiedEvent;
 
 import lombok.extern.slf4j.Slf4j;
@@ -35,8 +37,9 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>예외는 삼키지 않는다. 동시 반영 충돌·DB 장애는 블로킹 재시도 뒤 DLT로 간다. 복제할 수 없는
  *     정보는 다시 처리해도 같으므로 {@link RejectedEventException}으로 바꿔 재시도 없이 DLT로 보낸다. 읽지 못한 값·신뢰 패키지 밖
  *     타입은 역직렬화 단계에서 재시도 없이 DLT로 간다.</li>
- *     <li>처리기가 없는 회원 이벤트(파기·로그아웃 등), 클래스패스에 아직 없는 종류, tombstone은 오류로 보지 않고 로그만 남긴 뒤
- *     offset을 넘긴다(ND-010). 파기({@code UserMaskedEvent})로 저장 문구를 고치는 일은 알림 저장(N2)과 함께 한다(ND-036, ND-046).</li>
+ *     <li>파기({@code UserMaskedEvent})는 그 회원이 언급된 저장 알림의 닉네임을 바꾼다(ND-036·ND-051).</li>
+ *     <li>처리기가 없는 회원 이벤트(로그아웃 등), 클래스패스에 아직 없는 종류, tombstone은 오류로 보지 않고 로그만 남긴 뒤
+ *     offset을 넘긴다(ND-010).</li>
  *     <li>알림은 만들지 않는다. 그래서 첫 배포 때 보존 기간 안의 과거 회원 이벤트를 읽어도 복제본만 채운다(ND-048).</li>
  * </ul>
  */
@@ -51,12 +54,15 @@ public class NotificationMemberEventListener {
     public static final String LISTENER_ID = "notification-member-events";
 
     private final NotificationUserSyncService syncService;
+    private final NotificationMaskingService maskingService;
     private final NotificationKafkaConsumerSettings settings;
     private final SkippedEventLog skippedLog = new SkippedEventLog(log);
 
     public NotificationMemberEventListener(NotificationUserSyncService syncService,
+            NotificationMaskingService maskingService,
             @Qualifier(NotificationKafkaConfig.MEMBER_EVENT_SETTINGS) NotificationKafkaConsumerSettings settings) {
         this.syncService = syncService;
+        this.maskingService = maskingService;
         this.settings = settings;
     }
 
@@ -72,6 +78,19 @@ public class NotificationMemberEventListener {
         NotificationUserSyncResult result = rejectInvalid(() -> syncService.syncModified(event.user()));
         log.info("알림 회원 변경 반영 userId={}, outcome={}, memberVersion={}", result.userId(), result.outcome(),
                 result.memberVersion());
+    }
+
+    /**
+     * 회원 파기: 그 회원이 언급된 저장 알림의 닉네임을 바꾸고 문구를 다시 만든다(ND-036·ND-051). 같은 파기를 다시 받아도 결과가 같다.
+     * 회원 ID가 없거나 1보다 작으면 다시 처리해도 같으므로 재시도 없이 DLT로 보낸다.
+     */
+    @KafkaHandler
+    public void on(UserMaskedEvent event) {
+        if (event.userId() == null || event.userId() < 1) {
+            throw new RejectedEventException("파기된 회원 ID가 올바르지 않습니다.", null);
+        }
+        int changed = maskingService.mask(event.userId());
+        log.info("파기된 회원의 알림 닉네임 반영 userId={}, changed={}", event.userId(), changed);
     }
 
     /**

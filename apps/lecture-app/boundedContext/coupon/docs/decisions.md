@@ -47,6 +47,12 @@
 
 예산 기준은 모두 정해졌다(특정 강의: 가격 × 할인율 × 수량 + 가격 인상 제한, 모든 강의 정률: 장당 최대 할인액 × 수량). 미확정 정책을 임의 구현하거나 기능을 완료했다고 보고하지 않는다.
 
+## 플랫폼 재원 비활성 예외 (2026-11-10, #811)
+
+- billing 프로모션 지갑 계약이 붙기 전까지 설정 `hapbang.coupon.platform-funding-enabled`(코드 기본값 false)로 플랫폼 쿠폰을 사용 경로에서 뺀다. false면 쿠폰 모듈이 추천·`/me/usable`에서 PLATFORM을 빼고 직접 선택은 409 `COUPON_NOT_USABLE`(detail `PLATFORM_FUNDING_DISABLED`)로 거절한다. 강의 모듈의 F > 0 차단(409 `COUPON_PLATFORM_FUNDING_UNAVAILABLE`)은 설정과 무관한 방어로 남는다. 기본 설정에서 강의 주문의 플랫폼 쿠폰 거절은 쿠폰 쪽이 먼저 막아 `COUPON_CALCULATION_REJECTED`(couponCode `COUPON_NOT_USABLE`)로 보인다.
+- 켜는 절차는 두 단계다: 쿠폰 설정 true + 강의 F > 0 차단 제거(billing 후속 이슈에서 함께). 설정만 켜면 추천은 되는데 주문은 409가 되므로 따로 켜지 않는다. 두 모듈은 JVM 분리 가정이라 한 설정을 공유하지 않는다.
+- F7("양수인 플랫폼 재원 처리는 생략하지 않는다")은 그대로다. 재원 처리가 없는 동안 플랫폼 쿠폰을 쓰지 못하게 하는 것이지 생략하는 것이 아니다.
+
 ## 구현 순서와 담당 경계
 
 1. 정책·API 계약: 위 업무 결정을 확정하고 billing 계약을 연결한다. 공통 AGENTS·용어·정책·DB 문서에 스키마 예외와 공개 API 호출 경계를 반영한다.

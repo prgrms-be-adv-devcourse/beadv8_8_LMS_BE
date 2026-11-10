@@ -151,6 +151,29 @@ public class Lecture {
                 version);
     }
 
+    /** 정보를 고칠 수 있는지(판매자 본인, 삭제 전) 검사한다. 가격 인상 제한을 확인하기 전에 쓴다 */
+    public void checkEditableBy(Long sellerUserId) {
+        validateEditableBy(sellerUserId);
+    }
+
+    /** 새 가격이 지금 가격보다 큰지. 올릴 때만 가격 인상 제한을 확인한다 */
+    public boolean isPriceRaise(long newPriceHp) {
+        return newPriceHp > priceHp;
+    }
+
+    /**
+     * 가격 인상 제한을 확인할 때 읽은 가격({@code expectedPriceHp})이 그대로일 때만 제목·소개·가격·썸네일을 바꾼다.
+     * 그 사이 가격이 바뀌었으면 확인이 맞지 않으므로 거부한다.
+     */
+    public void updateInfo(Long sellerUserId, long expectedPriceHp, String title, String description, long priceHp,
+                           Long thumbnailFileId, LocalDateTime now) {
+        validateEditableBy(sellerUserId);
+        if (this.priceHp != expectedPriceHp) {
+            throw new LectureException(LectureErrorCode.LECTURE_PRICE_CHANGED);
+        }
+        updateInfo(sellerUserId, title, description, priceHp, thumbnailFileId, now);
+    }
+
     /**
      * 제목·소개·가격·썸네일을 바꾼다. 재검수 대상이 아니므로 상태는 그대로다.
      */

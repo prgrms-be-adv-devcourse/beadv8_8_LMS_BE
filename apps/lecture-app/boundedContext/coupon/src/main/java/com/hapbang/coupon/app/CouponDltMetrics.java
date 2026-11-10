@@ -16,9 +16,10 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * DLT·영구 거절 보상 지표 (Micrometer).
  * <ul>
- *     <li>{@code coupon.dlt.pending}: 아직 처리되지 않은 DLT 격리 기록 수(PENDING + 재발행 선점 중인 REPLAYING). 수집할 때마다 DB에서
- *     센다(세지 못하면 NaN). 0보다 크면 확인한다(복구는 그 쿠폰의 미처리가 0이어야 재구축으로 넘어간다)</li>
+ *     <li>{@code coupon.dlt.pending}: 아직 처리되지 않은 DLT 격리 기록 수(PENDING + 재처리 선점 중인 REPLAYING, 발급 요청·주문 이벤트
+ *     모두). 수집할 때마다 DB에서 센다(세지 못하면 NaN). 0보다 크면 확인한다(복구는 그 쿠폰의 미처리가 0이어야 재구축으로 넘어간다)</li>
  *     <li>{@code coupon.dlt.isolated}: DLT로 격리한 발급 요청 수</li>
+ *     <li>{@code coupon.order.dlt.isolated}: DLT로 격리한 주문 결제·취소 완료 이벤트 수</li>
  *     <li>{@code coupon.issue.compensations{result=restored|already_compensated|marked_only|no_record|member_mismatch}}:
  *     영구 거절 보상 결과별 횟수. no_record·member_mismatch는 사람이 확인한다</li>
  * </ul>
@@ -30,6 +31,7 @@ public class CouponDltMetrics {
 
     static final String PENDING = "coupon.dlt.pending";
     static final String ISOLATED = "coupon.dlt.isolated";
+    static final String ORDER_ISOLATED = "coupon.order.dlt.isolated";
     static final String COMPENSATIONS = "coupon.issue.compensations";
 
     private final MeterRegistry meterRegistry;
@@ -40,12 +42,17 @@ public class CouponDltMetrics {
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
         this.couponDltLogRepository = couponDltLogRepository;
         Gauge.builder(PENDING, this, CouponDltMetrics::countPending)
-                .description("처리되지 않은 쿠폰 발급 DLT 격리 기록 수(PENDING·REPLAYING, 수집 때마다 셈, 세지 못하면 NaN)")
+                .description("처리되지 않은 쿠폰 DLT 격리 기록 수(발급 요청·주문 이벤트, PENDING·REPLAYING, 수집 때마다 셈, "
+                        + "세지 못하면 NaN)")
                 .register(meterRegistry);
     }
 
     void recordIsolated() {
         meterRegistry.counter(ISOLATED).increment();
+    }
+
+    void recordOrderIsolated() {
+        meterRegistry.counter(ORDER_ISOLATED).increment();
     }
 
     void recordCompensation(IssueCompensation result) {

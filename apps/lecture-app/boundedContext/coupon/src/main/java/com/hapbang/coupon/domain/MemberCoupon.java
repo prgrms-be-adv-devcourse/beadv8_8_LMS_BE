@@ -127,7 +127,8 @@ public class MemberCoupon {
     }
 
     /**
-     * 결제 완료로 사용 완료한다: RESERVED → USED.
+     * 결제 완료로 사용 완료한다: RESERVED → USED. 기한은 다시 보지 않는다(할인은 예약 성공 시점 기준으로 인정하므로 결제 중 만료돼도
+     * USED로 끝낸다).
      *
      * @throws CouponDomainException RESERVED가 아니다({@code INVALID_STATUS_TRANSITION})
      */
@@ -139,19 +140,27 @@ public class MemberCoupon {
     }
 
     /**
-     * 취소·반환 완료로 복원한다: USED → 만료 전이면 AVAILABLE, 만료 뒤면 EXPIRED. 세대는 그대로다.
+     * 취소·반환 완료로 복원한다: RESERVED·USED → 만료 전이면 AVAILABLE, 만료 뒤면 EXPIRED. 결제 완료보다 먼저 온 취소 완료는 RESERVED에서
+     * 복원한다. 세대는 그대로다.
      *
      * @return 복원 뒤 상태
-     * @throws CouponDomainException USED가 아니다({@code INVALID_STATUS_TRANSITION})
+     * @throws CouponDomainException RESERVED·USED가 아니다({@code INVALID_STATUS_TRANSITION})
      */
     public MemberCouponStatus restore(Instant now) {
-        requireStatus(MemberCouponStatus.USED);
+        if (status != MemberCouponStatus.RESERVED && status != MemberCouponStatus.USED) {
+            throw new CouponDomainException(CouponDomainError.INVALID_STATUS_TRANSITION);
+        }
         this.usedAt = null;
         return returnToOwner(now);
     }
 
     /** 해제·복원 때 돌아갈 상태: 만료 전(expiresAt > now)이면 AVAILABLE, 아니면 EXPIRED */
     public MemberCouponStatus returnStatusAt(Instant now) {
+        return returnStatusOf(expiresAt, now);
+    }
+
+    /** 만료 시각이 {@code expiresAt}인 발급 쿠폰이 {@code now}에 돌아갈 상태: {@code expiresAt > now}면 AVAILABLE, 아니면 EXPIRED */
+    public static MemberCouponStatus returnStatusOf(Instant expiresAt, Instant now) {
         return expiresAt.isAfter(now) ? MemberCouponStatus.AVAILABLE : MemberCouponStatus.EXPIRED;
     }
 

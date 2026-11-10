@@ -23,7 +23,7 @@ public class RecordingCancelResultHandler extends CancelResultHandler {
     private volatile RuntimeException failure;
 
     public RecordingCancelResultHandler() {
-        super(null, null);
+        super(null, null, null);
     }
 
     static CancelResultHandler create() {

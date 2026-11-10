@@ -2,6 +2,9 @@ package com.hapbang.coupon.in;
 
 import java.util.List;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,13 +17,17 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.coupon.app.CouponIssueFacade;
 import com.hapbang.coupon.app.dto.CouponSummaryView;
+import com.hapbang.coupon.app.dto.CouponUsageView;
 import com.hapbang.coupon.app.dto.IssueRequestResult;
 import com.hapbang.coupon.app.dto.IssueStatusView;
 import com.hapbang.coupon.app.dto.MemberCouponView;
+import com.hapbang.coupon.domain.CouponUsageStatus;
 import com.hapbang.coupon.domain.MemberCouponStatus;
 import com.hapbang.coupon.global.auth.LoginUserId;
 import com.hapbang.coupon.global.response.RsData;
+import com.hapbang.coupon.in.dto.CouponQuoteRequest;
 import com.hapbang.coupon.in.dto.IssueRequestCreateRequest;
+import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -80,5 +87,23 @@ public class ApiV1CouponController implements ApiV1CouponSpec {
     public RsData<List<MemberCouponView>> usableFor(@LoginUserId Long memberId,
                                                     @RequestParam(name = "lectureId") Long lectureId) {
         return RsData.ok("강의에 쓸 수 있는 쿠폰을 조회했습니다.", couponIssueFacade.usableFor(memberId, lectureId));
+    }
+
+    // 정렬은 받지 않고 예약 최신순으로 고정한다(Query가 정렬 없는 페이지로 바꾼다)
+    @Override
+    @GetMapping("/me/usages")
+    public RsData<Page<CouponUsageView>> myUsages(@LoginUserId Long memberId,
+                                                  @RequestParam(name = "status", required = false)
+                                                  CouponUsageStatus status,
+                                                  @PageableDefault(size = 20) Pageable pageable) {
+        return RsData.ok("쿠폰 사용 이력을 조회했습니다.", couponIssueFacade.myUsages(memberId, status, pageable));
+    }
+
+    @Override
+    @PostMapping("/me/quote")
+    public RsData<CouponCalculateResponse> quote(@LoginUserId Long memberId,
+                                                 @Valid @RequestBody CouponQuoteRequest request) {
+        return RsData.ok("쿠폰 할인을 계산했습니다.",
+                couponIssueFacade.quote(memberId, request.lectureIds(), request.toSelections()));
     }
 }

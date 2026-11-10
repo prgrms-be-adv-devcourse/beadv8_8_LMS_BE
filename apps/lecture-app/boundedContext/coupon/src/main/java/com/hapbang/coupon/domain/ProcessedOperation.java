@@ -37,7 +37,10 @@ public class ProcessedOperation {
     @Column(nullable = false, length = 500)
     private String contentKey;
 
-    /** 처리 결과. 발급 요청은 ISSUED·REJECTED, 쿠폰 예약은 RESERVED·REJECTED, 쿠폰 해제는 RELEASED */
+    /**
+     * 처리 결과. 발급 요청은 ISSUED·REJECTED, 쿠폰 예약은 RESERVED·REJECTED, 쿠폰 해제는 RELEASED, 주문 결제·취소 완료 이벤트는
+     * APPLIED(한 사용 시도라도 상태를 바꿈)·FACT_ONLY(사실만 남김)
+     */
     @Column(nullable = false, length = 30)
     private String result;
 
@@ -63,7 +66,7 @@ public class ProcessedOperation {
     }
 
     /**
-     * 쿠폰 사용 작업(예약·해제) 기록.
+     * 쿠폰 사용 작업(예약·해제)과 주문 결제·취소 완료 이벤트 처리 기록. 이벤트는 작업 ID가 eventId다.
      *
      * @param detail 결과의 세부 값(예약 거절이면 거절 코드). 없으면 {@code null}
      */
