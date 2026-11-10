@@ -38,14 +38,14 @@ public class ApiV1ChatbotSyncAdminController implements ApiV1ChatbotSyncAdminSpe
 
     @Override
     @GetMapping("/runs")
-    public RsData<Page<SyncRunResDto>> getRuns(@RequestParam(name = "type", required = false) SyncType type,
-            Pageable pageable) {
-        return RsData.ok("동기화 실행 기록을 조회했습니다.", chatbotSyncAdminFacade.getRuns(type, pageable));
+    public RsData<Page<SyncRunResDto>> getRuns(@LoginUserId Long adminId,
+            @RequestParam(name = "type", required = false) SyncType type, Pageable pageable) {
+        return RsData.ok("동기화 실행 기록을 조회했습니다.", chatbotSyncAdminFacade.getRuns(adminId, type, pageable));
     }
 
     @Override
     @GetMapping("/runs/{runId}")
-    public RsData<SyncRunDetailResDto> getRun(@PathVariable("runId") Long runId) {
-        return RsData.ok("동기화 실행 기록을 조회했습니다.", chatbotSyncAdminFacade.getRun(runId));
+    public RsData<SyncRunDetailResDto> getRun(@LoginUserId Long adminId, @PathVariable("runId") Long runId) {
+        return RsData.ok("동기화 실행 기록을 조회했습니다.", chatbotSyncAdminFacade.getRun(adminId, runId));
     }
 }

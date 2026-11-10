@@ -6,6 +6,10 @@ import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.hapbang.auxiliary.chatbot.domain.SyncRun;
 import com.hapbang.auxiliary.chatbot.domain.SyncRunStatus;
@@ -16,11 +20,20 @@ public interface SyncRunRepository extends JpaRepository<SyncRun, Long> {
     /** 그 종류에 이 상태의 회차가 있는지(첫 실행 판단: 성공 회차가 없으면 첫 실행) */
     boolean existsByTypeAndStatus(SyncType type, SyncRunStatus status);
 
-    /** 그 종류에 이 시각 이후 시작한 이 상태의 회차가 있는지(재시도: 오늘 성공 회차) */
+    /** 그 종류에 이 시각 이후 시작한 이 상태의 회차가 있는지(실패 알림: 최근 성공 회차) */
     boolean existsByTypeAndStatusAndStartedAtGreaterThanEqual(SyncType type, SyncRunStatus status, LocalDateTime from);
 
     /** 그 종류의 이 상태 회차들(끝을 기록하지 못한 RUNNING 회차 정리) */
     List<SyncRun> findByTypeAndStatus(SyncType type, SyncRunStatus status);
+
+    /** 그 종류에서 이 시각 전에 시작해 끝난 회차를 지운다(보관 기간). 어긋남 행은 FK {@code ON DELETE CASCADE}로 함께 지워진다 */
+    @Transactional
+    @Modifying
+    @Query(value = """
+            DELETE FROM chatbot.sync_run
+            WHERE type = :#{#type.name()} AND started_at < :before AND status <> 'RUNNING'
+            """, nativeQuery = true)
+    int deleteFinishedBefore(@Param("type") SyncType type, @Param("before") LocalDateTime before);
 
     Page<SyncRun> findByOrderByStartedAtDescIdDesc(Pageable pageable);
 

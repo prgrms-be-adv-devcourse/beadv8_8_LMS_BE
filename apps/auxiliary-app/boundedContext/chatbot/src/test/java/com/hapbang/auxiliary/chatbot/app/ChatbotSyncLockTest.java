@@ -42,8 +42,8 @@ class ChatbotSyncLockTest extends ChatbotIntegrationTestBase {
         assertThat(Arrays.stream(ChatbotJob.values()).map(ChatbotJob::tag).distinct().count())
                 .isEqualTo(ChatbotJob.values().length);
         assertThat(ChatbotJob.values()).allSatisfy(job -> {
-            // 출연 싱크 #716, FAQ 맞추기 #715
-            assertThat(job.lockKey() / 1000).isIn(715L, 716L);
+            // 출연 싱크 #716, FAQ 맞추기 #715, 회원·강의 싱크 #717
+            assertThat(job.lockKey() / 1000).isIn(715L, 716L, 717L);
             assertThat(job.tag()).startsWith("chatbot-");
         });
     }
@@ -57,7 +57,7 @@ class ChatbotSyncLockTest extends ChatbotIntegrationTestBase {
                 () -> chatbotSyncUseCase.runBatch(SyncType.APPEARANCE, SyncTrigger.SCHEDULED));
         await().atMost(Duration.ofSeconds(10)).until(() -> source.calls() == 1);
 
-        SyncRun skipped = chatbotSyncUseCase.runBatch(SyncType.APPEARANCE, SyncTrigger.RETRY);
+        SyncRun skipped = chatbotSyncUseCase.runBatch(SyncType.APPEARANCE, SyncTrigger.SCHEDULED);
         assertThatThrownBy(() -> chatbotSyncUseCase.startManual(SyncType.APPEARANCE, 7L))
                 .isInstanceOfSatisfying(ChatbotException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ChatbotErrorCode.SYNC_ALREADY_RUNNING));
@@ -85,7 +85,7 @@ class ChatbotSyncLockTest extends ChatbotIntegrationTestBase {
         assertThat(started.getTrigger()).isEqualTo(SyncTrigger.ADMIN);
         assertThat(started.getRequestedBy()).isEqualTo(7L);
         // 비동기 작업이 락을 쥐고 있다
-        assertThat(chatbotSyncUseCase.runBatch(SyncType.APPEARANCE, SyncTrigger.RETRY).getStatus())
+        assertThat(chatbotSyncUseCase.runBatch(SyncType.APPEARANCE, SyncTrigger.SCHEDULED).getStatus())
                 .isEqualTo(SyncRunStatus.SKIPPED);
         gate.countDown();
 

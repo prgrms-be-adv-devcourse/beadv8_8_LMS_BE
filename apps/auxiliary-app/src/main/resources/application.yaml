@@ -137,3 +137,9 @@ hapbang:
       # 출연 내부 API(챗봇 출연 싱크, #716). k8s ConfigMap이 출연 앱의 내부 포트(8081) 주소를 준다. 로컬은 application-local.yaml
       # 기본값을 두지 않는다. 값이 빠지면 엉뚱한 주소를 부르지 않고 기동에 실패한다(docs/deploy/k8s.md 앱 사이 내부 호출 주소)
       base-url: "${APPEARANCE_API_BASE_URL}"
+    member:
+      # 회원 내부 목록 API(챗봇 회원 싱크, #717). 기본값을 두지 않는 이유는 출연과 같다
+      base-url: "${MEMBER_API_BASE_URL}"
+    lecture:
+      # 강의 동기화 내부 API(챗봇 강의 싱크, #717)
+      base-url: "${LECTURE_API_BASE_URL}"

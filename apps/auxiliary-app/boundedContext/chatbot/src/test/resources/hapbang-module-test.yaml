@@ -32,8 +32,11 @@ management:
         enabled: false
 hapbang:
   chatbot:
-    appearance-events:
-      # 출연 이벤트 소비는 Kafka 테스트(AppearanceCopyEventListenerTest)에서만 켠다
+    sync:
+      # 어긋남 행을 남기는 회차 수(기본 168). ChatbotSyncUseCaseTest.mismatchLimits가 11회차로 확인하려고 줄인다
+      mismatch-keep-runs: 10
+    copy-events:
+      # 사본 이벤트 소비(출연·회원·강의)는 Kafka 테스트(*CopyEventListenerTest)에서만 켠다
       enabled: false
     faq:
       # 가짜 임베딩(8차원)에 맞춘 값. 기준값 경계는 FaqIndexingIntegrationTest.similarityThresholdBoundary가 확인한다
