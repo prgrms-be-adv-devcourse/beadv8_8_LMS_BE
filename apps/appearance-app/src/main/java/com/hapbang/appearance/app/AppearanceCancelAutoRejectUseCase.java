@@ -79,7 +79,7 @@ public class AppearanceCancelAutoRejectUseCase {
         eventPublisher.publishEvent(AppearanceContractMapper.toChangedEvent(appearance));
         eventPublisher.publishEvent(new AppearanceCancelRequestRejectedEvent(
                 AppearanceContractMapper.toCancelRequestDto(cancelRequest, appearanceTitleSupport.titleOf(appearance),
-                        appearance.getScheduledAt()), true));
+                        appearance.getScheduledAt()), true, now));
         return true;
     }
 }
