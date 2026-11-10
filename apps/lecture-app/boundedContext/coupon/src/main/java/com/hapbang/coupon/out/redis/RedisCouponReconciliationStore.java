@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -30,9 +29,8 @@ public class RedisCouponReconciliationStore implements CouponReconciliationStore
     /** HDEL 한 번에 지우는 요청 수 */
     static final int REMOVE_BATCH = 500;
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
     private static final RedisScript<List<Object>> SNAPSHOT =
-            (RedisScript) RedisScript.of(new ClassPathResource("lua/reconcile-snapshot.lua"), List.class);
+            CouponRedisLuaSupport.listLuaScript("lua/reconcile-snapshot.lua");
     private static final RedisScript<Long> HOLD = CouponRedisLuaSupport.longLuaScript("lua/reconcile-hold.lua");
     private static final RedisScript<List<Long>> REPAIR =
             CouponRedisLuaSupport.longListLuaScript("lua/reconcile-repair.lua");
