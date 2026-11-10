@@ -62,7 +62,8 @@ public interface ApiV1CouponSpec {
 
     @Operation(summary = "강의에 쓸 수 있는 내 쿠폰",
             description = "USER·INFLUENCER·VERIFIED_INFLUENCER. 이 강의에 지금 적용할 수 있는 발급 쿠폰(사용 가능 상태, 만료 전, 대상 일치). "
-                    + "각 항목의 couponType(SELLER·PLATFORM)은 결제 화면에서 판매자 칸·플랫폼 칸을 나누는 데 쓴다.")
+                    + "각 항목의 couponType(SELLER·PLATFORM)은 결제 화면에서 판매자 칸·플랫폼 칸을 나누는 데 쓴다. 플랫폼 재원이 꺼져 있는 "
+                    + "동안(기본값)은 플랫폼 쿠폰을 넣지 않는다(내 쿠폰 목록에는 보인다).")
     RsData<List<MemberCouponView>> usableFor(Long memberId,
                                              @Parameter(description = "쿠폰을 적용할 강의 ID", required = true)
                                              Long lectureId);
@@ -91,6 +92,7 @@ public interface ApiV1CouponSpec {
                     + "expectedBuyerAmountHp로 보낸다. 주문 때 다시 계산한 금액이 다르면 주문이 409 ORDER_QUOTE_CHANGED라 다시 미리보기를 "
                     + "한다. 강의 수가 상한을 넘으면 400 COUPON_TOO_MANY_ITEMS, 같은 강의가 두 번이면 400 COUPON_DUPLICATE_LECTURE, 강의가 "
                     + "없으면 404 LECTURE_NOT_FOUND, 강의 조회가 안 되면 503. 고른 쿠폰을 쓸 수 없으면 409(COUPON_NOT_APPLICABLE·"
-                    + "COUPON_NOT_USABLE·COUPON_STACKING_VIOLATION, memberCouponId 포함).")
+                    + "COUPON_NOT_USABLE·COUPON_STACKING_VIOLATION, memberCouponId 포함). 플랫폼 재원이 꺼져 있는 동안(기본값)은 추천에서 "
+                    + "플랫폼 쿠폰을 빼고, 플랫폼 쿠폰을 고르면 409 COUPON_NOT_USABLE(detail PLATFORM_FUNDING_DISABLED)이다.")
     RsData<CouponCalculateResponse> quote(Long memberId, CouponQuoteRequest request);
 }

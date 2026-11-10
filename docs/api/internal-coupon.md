@@ -40,7 +40,7 @@
 | `items[].lectureId` | number | O | 강의 ID |
 | `items[].sellerId` | number | O | 판매자 회원 ID |
 | `items[].price` | number | O | 강의 가격(HP, 0 이상) |
-| `selections` | array 또는 null | | 고른 쿠폰 매핑. 없거나 `null`이면 추천, `[]`이면 쿠폰 미사용(할인 0), 값이 있으면 그 매핑만 검증·계산한다. 매핑에 없는 강의는 추천으로 채우지 않는다 |
+| `selections` | array 또는 null | | 고른 쿠폰 매핑. 없거나 `null`이면 추천, `[]`이면 쿠폰 미사용(할인 0), 값이 있으면 그 매핑만 검증·계산한다. 매핑에 없는 강의는 추천으로 채우지 않는다. 플랫폼 재원이 꺼져 있으면(`hapbang.coupon.platform-funding-enabled=false`, 기본값) 추천에서 플랫폼 쿠폰을 빼고, 매핑에 본인의 플랫폼 쿠폰이 있으면 409 `COUPON_NOT_USABLE`(detail `PLATFORM_FUNDING_DISABLED`)이다 |
 | `selections[].memberCouponId` | number | O | 발급 쿠폰 ID |
 | `selections[].lectureId` | number | O | 쿠폰을 쓸 강의 ID(`items`에 있는 강의) |
 
@@ -326,7 +326,7 @@
 | 400 | `COUPON_DUPLICATE_LECTURE` | 계산·예약 | 한 주문에 같은 강의가 두 번 있다 |
 | 400 | `COUPON_DUPLICATE_ORDER_ITEM` | 예약 | 예약 요청에 같은 주문 항목이 두 번 있다 |
 | 409 | `COUPON_NOT_APPLICABLE` | 계산·예약 | 쿠폰의 적용 대상이 아닌 강의다 |
-| 409 | `COUPON_NOT_USABLE` | 계산·예약 | 사용 불가: 본인 소유가 아니거나, AVAILABLE이 아니거나, 만료(`expiresAt ≤ 지금`)됐다 |
+| 409 | `COUPON_NOT_USABLE` | 계산·예약 | 사용 불가: 본인 소유가 아니거나, AVAILABLE이 아니거나, 만료(`expiresAt ≤ 지금`)됐다. 계산에서 플랫폼 재원이 꺼져 있을 때 플랫폼 쿠폰을 고르면 detail이 `PLATFORM_FUNDING_DISABLED`다 |
 | 409 | `COUPON_STACKING_VIOLATION` | 계산·예약 | 중첩 위반: 같은 주체 쿠폰 두 장, 단독 쿠폰과 다른 쿠폰, 한 쿠폰을 두 항목에 |
 | 404 | `LECTURE_NOT_FOUND` | 계산 | 강의가 없거나 삭제되었다 |
 | 409 | `COUPON_LECTURE_PRICE_MISMATCH` | 계산 | 요청의 가격·판매자가 강의 조회 결과와 다르다. detail에 강의 ID가 있다 |
