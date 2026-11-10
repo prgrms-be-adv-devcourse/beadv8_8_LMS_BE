@@ -61,7 +61,7 @@ class MemberChangeReconcilerTest {
     @BeforeEach
     void reset() throws Exception {
         SearchElasticsearch.reset(client);
-        indexSetup.ensureReady();
+        SearchElasticsearch.createIndex(client);
     }
 
     @Test

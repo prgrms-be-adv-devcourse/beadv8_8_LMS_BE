@@ -38,12 +38,21 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
 
+import com.hapbang.auxiliary.search.app.ContentCategoryNames;
+import com.hapbang.auxiliary.search.app.InfluencerMemberIndexer;
 import com.hapbang.auxiliary.search.config.SearchElasticsearchConfig;
 import com.hapbang.auxiliary.search.in.kafka.SearchKafkaConfig;
 import com.hapbang.auxiliary.search.in.kafka.SearchKafkaSettings;
+import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
+import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
+import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
 import com.hapbang.auxiliary.search.support.SearchElasticsearchTestcontainersConfig;
+import com.hapbang.shared.member.domain.Role;
+import com.hapbang.shared.member.domain.UserStatus;
+import com.hapbang.shared.member.dto.UserDto;
+import com.hapbang.shared.member.event.UserModifiedEvent;
 import com.hapbang.testsupport.IntegrationTest;
 import com.hapbang.testsupport.KafkaTestcontainersConfig;
 
@@ -88,6 +97,7 @@ class SearchMemberEventListenerTest {
     @BeforeEach
     void reset() throws Exception {
         SearchElasticsearch.reset(client);
+        SearchElasticsearch.createIndex(client);
     }
 
     @AfterAll
@@ -126,6 +136,21 @@ class SearchMemberEventListenerTest {
                 assertThat(records).extracting(ConsumerRecord::key).contains("12");
             });
         }
+    }
+
+    @Test
+    @DisplayName("alias가 없으면(처음 적재 전) 예외 없이 건너뛴다. 재시도·DLT로 가지 않는다(#773 Q1)")
+    void skipsBeforeFirstLoad() throws Exception {
+        SearchElasticsearch.reset(client);
+        // 컨텍스트의 index 준비 빈은 앞 테스트에서 준비된 것으로 기억할 수 있어, 처음 기동한 pod처럼 새로 만든다
+        InfluencerMemberIndexer indexer = new InfluencerMemberIndexer(new InfluencerIndexSetup(client),
+                new InfluencerDocumentStore(client), new ContentCategoryNames(new FakeMemberStatsSource()));
+        SearchMemberEventListener listener = new SearchMemberEventListener(indexer, settings());
+
+        listener.on(new UserModifiedEvent(new UserDto(13L, "닉네임13", Role.INFLUENCER, UserStatus.ACTIVE, 1L)));
+
+        assertThat(client.indices().get(g -> g.index(InfluencerIndexDefinition.INDEX_PREFIX + "*").allowNoIndices(true))
+                .indices()).isEmpty();
     }
 
     private static String user(long id, String role, long version) {

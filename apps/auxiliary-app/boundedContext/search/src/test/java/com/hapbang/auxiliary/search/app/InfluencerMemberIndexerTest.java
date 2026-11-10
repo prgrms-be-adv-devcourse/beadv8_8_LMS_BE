@@ -15,9 +15,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.hapbang.auxiliary.search.app.InfluencerMemberIndexer.MemberIndexResult;
+import com.hapbang.auxiliary.search.out.IndexNotReadyException;
 import com.hapbang.auxiliary.search.out.InfluencerDocumentStore;
 import com.hapbang.auxiliary.search.out.InfluencerIndexDefinition;
 import com.hapbang.auxiliary.search.out.InfluencerIndexSetup;
+import com.hapbang.auxiliary.search.out.MemberProfile;
 import com.hapbang.auxiliary.search.out.WriteOutcome;
 import com.hapbang.auxiliary.search.support.FakeMemberStatsSource;
 import com.hapbang.auxiliary.search.support.SearchElasticsearch;
@@ -43,11 +45,12 @@ class InfluencerMemberIndexerTest {
     @BeforeEach
     void reset() throws Exception {
         SearchElasticsearch.reset(client);
+        SearchElasticsearch.createIndex(client);
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    @DisplayName("정상 인플루언서는 보이게 넣고, 분야 코드에 이름을 붙인다(모르는 코드는 이름 없이). index가 없으면 먼저 만든다")
+    @DisplayName("정상 인플루언서는 보이게 넣고, 분야 코드에 이름을 붙인다(모르는 코드는 이름 없이)")
     void showsInfluencer() throws Exception {
         MemberIndexResult result = indexer.apply(user(1L, Role.INFLUENCER, UserStatus.ACTIVE, 3L));
 
@@ -92,6 +95,34 @@ class InfluencerMemberIndexerTest {
         assertThatThrownBy(() -> indexer.apply(new UserDto(1L, "닉", Role.INFLUENCER, null, 1L)))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> indexer.apply(null)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("alias가 없으면(처음 적재 전) 쓰지 않고 IndexNotReadyException이고, index를 멋대로 만들지 않는다(#773 Q1)")
+    void notReadyBeforeFirstLoad() throws Exception {
+        SearchElasticsearch.reset(client);
+        InfluencerMemberIndexer fresh = new InfluencerMemberIndexer(new InfluencerIndexSetup(client),
+                new InfluencerDocumentStore(client), categoryNames, Clock.fixed(NOW, ZoneId.of("Asia/Seoul")));
+
+        assertThatThrownBy(() -> fresh.apply(user(1L, Role.INFLUENCER, UserStatus.ACTIVE, 3L)))
+                .isInstanceOf(IndexNotReadyException.class);
+        assertThat(client.indices().get(g -> g.index(InfluencerIndexDefinition.INDEX_PREFIX + "*").allowNoIndices(true))
+                .indices()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("처음 적재용 문서: 정상 인플루언서만 만들고(분야 이름 포함) 쓰지 않는다. 그 밖의 회원은 빈 값")
+    void documentOf() {
+        assertThat(indexer.documentOf(user(1L, Role.VERIFIED_INFLUENCER, UserStatus.ACTIVE, 3L))).hasValueSatisfying(doc -> {
+            assertThat(doc.userId()).isEqualTo(1L);
+            assertThat(doc.version()).isEqualTo(3L);
+            assertThat(doc.profile().verified()).isTrue();
+            assertThat(doc.profile().contentCategories()).contains(new MemberProfile.Category("GAME", "게임"));
+        });
+        assertThat(indexer.documentOf(user(2L, Role.USER, UserStatus.ACTIVE, 1L))).isEmpty();
+        assertThat(indexer.documentOf(user(3L, Role.INFLUENCER, UserStatus.SUSPENDED, 1L))).isEmpty();
+        assertThatThrownBy(() -> indexer.documentOf(new UserDto(4L, "닉", null, UserStatus.ACTIVE, 1L)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private static UserDto user(long id, Role role, UserStatus status, Long version) {

@@ -33,7 +33,7 @@ class InfluencerDocumentStoreTest {
     @BeforeEach
     void prepareIndex() throws Exception {
         SearchElasticsearch.reset(client);
-        new InfluencerIndexSetup(client, InfluencerIndexDefinition.load()).ensureReady();
+        SearchElasticsearch.createIndex(client);
     }
 
     @Nested
@@ -143,6 +143,52 @@ class InfluencerDocumentStoreTest {
 
         assertThatThrownBy(() -> store.show(USER_ID, 1L, profile("페이커팬"))).isInstanceOf(IllegalStateException.class);
         assertThat(client.indices().exists(e -> e.index(InfluencerIndexDefinition.ALIAS)).value()).isFalse();
+    }
+
+    @Nested
+    @DisplayName("이름을 정한 index에 쓰기(#773 처음 적재·재색인)")
+    class TargetIndex {
+
+        private final InfluencerIndexSetup setup = new InfluencerIndexSetup(client);
+
+        @Test
+        @SuppressWarnings("unchecked")
+        @DisplayName("alias가 없는 새 index에 회원을 bulk로 넣고(version 조건부), 통계를 채우고, 보이는 문서를 센다. alias 쪽 index는 그대로다")
+        void loadsIntoNamedIndex() throws Exception {
+            String fresh = freshIndex();
+
+            Map<Long, WriteOutcome> loaded = store.loadMembers(fresh, List.of(
+                    new MemberDocument(1L, 5L, profile("페이커팬")), new MemberDocument(2L, 1L, profile("메이플장인"))));
+            assertThat(loaded).containsEntry(1L, WriteOutcome.CREATED).containsEntry(2L, WriteOutcome.CREATED);
+            assertThat(store.loadMembers(fresh, List.of(new MemberDocument(1L, 4L, profile("옛 닉네임")))))
+                    .containsEntry(1L, WriteOutcome.NOOP);
+
+            Map<Long, WriteOutcome> stats = store.applyStats(fresh, List.of(
+                    new InfluencerStats(1L, List.of("페이커팬TV"), "페이커팬TV", 1000L, 4.5, 2L),
+                    new InfluencerStats(9L, List.of("없는회원"), "없는회원", 1L, null, 0L)));
+            assertThat(stats).containsEntry(1L, WriteOutcome.UPDATED).containsEntry(9L, WriteOutcome.MISSING);
+
+            setup.refresh(fresh);
+            assertThat(store.countVisible(fresh)).isEqualTo(2);
+            assertThat(store.countVisible()).isZero();
+            Map<String, Object> source = client.get(g -> g.index(fresh).id("1"), Map.class).source();
+            assertThat(source).containsEntry("nickname", "페이커팬").containsEntry("memberVersion", 5)
+                    .containsEntry("followerCount", 1000).containsEntry("hidden", false);
+        }
+
+        @Test
+        @DisplayName("빈 목록은 ES를 부르지 않는다")
+        void empty() {
+            assertThat(store.loadMembers(InfluencerIndexDefinition.INDEX_PREFIX + "none", List.of())).isEmpty();
+        }
+
+        /** alias가 지금 index를 가리키는 채로, alias 없는 다른 index를 하나 더 만든다 */
+        private String freshIndex() throws Exception {
+            String fresh = InfluencerIndexDefinition.INDEX_PREFIX + "fresh0000000";
+            String body = InfluencerIndexDefinition.load().indexBody();
+            client.indices().create(c -> c.index(fresh).withJson(new java.io.StringReader(body)));
+            return fresh;
+        }
     }
 
     private static MemberProfile profile(String nickname) {

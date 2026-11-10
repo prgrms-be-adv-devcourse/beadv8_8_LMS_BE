@@ -116,11 +116,14 @@ public class MemberChangeReconciler {
      * 바로 부른다.
      *
      * @param from 바깥에서 정한 시작 시각. null이면 저장한 커서 − 1분(없으면 지금 시각)부터
+     * @throws com.hapbang.auxiliary.search.out.IndexNotReadyException alias가 없는 경우(처음 적재 전, #773). 커서를 만들지 않는다
      * @throws IllegalStateException                                 ES에 읽거나 쓰지 못한 경우, 회원 앱 응답의 다음 커서가 빠진 경우
      *                                                               (커서는 마지막으로 끝낸 페이지에 있다)
      * @throws com.hapbang.shared.member.out.MemberApiCallException 회원 앱을 부르지 못한 경우
      */
     ReconcileResult reconcile(LocalDateTime from) {
+        // 처음 적재 전(IndexNotReadyException)은 실패 지표에 넣지 않는다(#773 Q1). 커서도 만들지 않는다
+        indexSetup.ensureReady();
         long started = System.nanoTime();
         try {
             ReconcileResult result = reconcileOnce(from);
@@ -133,7 +136,6 @@ public class MemberChangeReconciler {
     }
 
     private ReconcileResult reconcileOnce(LocalDateTime from) {
-        indexSetup.ensureReady();
         LocalDateTime afterUpdatedAt = startFrom(from);
         long afterId = SyncCursor.READ_FROM_ID;
 
