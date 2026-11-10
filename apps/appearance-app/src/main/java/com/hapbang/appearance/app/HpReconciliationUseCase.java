@@ -94,11 +94,7 @@ public class HpReconciliationUseCase {
             return null;
         }
         try {
-            HpReconciliationRun run = run(HpReconciliationTrigger.SCHEDULED, null);
-            if (run == null) {
-                log.info("다른 pod가 HP 대사를 실행 중이라 이번 배치를 건너뛴다");
-            }
-            return run;
+            return run(HpReconciliationTrigger.SCHEDULED, null);
         } finally {
             running.set(false);
         }
@@ -128,7 +124,9 @@ public class HpReconciliationUseCase {
     private HpReconciliationRun run(HpReconciliationTrigger trigger, Long adminId) {
         LocalDateTime startedAt = LocalDateTime.now(clock);
         abandonLeftOverRuns(startedAt);
-        if (hpReconciliationSupport.isAnyRunning()) {
+        List<HpReconciliationRun> otherRuns = hpReconciliationSupport.findRunning();
+        if (!otherRuns.isEmpty()) {
+            warnBlocked(trigger, otherRuns);
             return null;
         }
         Long runId = hpReconciliationSupport.start(trigger, adminId, startedAt);
@@ -147,25 +145,40 @@ public class HpReconciliationUseCase {
             log.error("HP 대사 중 예외로 실행을 멈춘다 runId={}", runId, exception);
             failureReason = "예외: " + exception.getClass().getSimpleName() + ": " + exception.getMessage();
         }
-        HpReconciliationRun run = finishOrAbandon(runId, progress, failureReason);
-        report(run, progress);
-        return run;
-    }
-
-    /**
-     * 결과를 기록한다. 기록이 실패하면(커서 버전 충돌, DB 순간 장애) 실행을 미완료로 끝낸다. 그대로 두면 {@code RUNNING}으로 남아
-     * {@code abandon-after} 동안 같은 pod에서도 다시 실행할 수 없고, 중단 횟수도 다음 실행에서야 오른다 (#821).
-     * 찾은 어긋남은 {@link #report}의 경고 로그로만 남는다. 미완료 처리도 실패하면 예외를 그대로 던진다
-     */
-    private HpReconciliationRun finishOrAbandon(Long runId, Progress progress, String failureReason) {
+        // 결과를 기록하지 못하면(커서 버전 충돌, DB 순간 장애) 바로 미완료로 끝낸다. RUNNING으로 두면 abandon-after 동안
+        // 같은 pod에서도 다시 실행할 수 없다. 그새 다른 pod가 먼저 정리했으면 그 pod가 중단 횟수를 올렸으므로 지표를 남기지 않는다 (#821)
+        HpReconciliationRun run;
+        boolean ownResult = true;
         try {
-            return hpReconciliationSupport.finish(runId, progress.mismatches, progress.checked, progress.dead,
+            run = hpReconciliationSupport.finish(runId, progress.mismatches, progress.checked, progress.dead,
                     failureReason, progress.cursors, LocalDateTime.now(clock));
         } catch (RuntimeException exception) {
             log.error("HP 대사 결과를 기록하지 못해 실행을 미완료로 끝낸다 runId={}", runId, exception);
-            return hpReconciliationSupport.abandon(runId,
+            ownResult = hpReconciliationSupport.abandonIfRunning(runId,
                     FINISH_FAILED_REASON + exception.getClass().getSimpleName(), LocalDateTime.now(clock));
+            run = hpReconciliationSupport.findRun(runId);
         }
+        // 기록하지 못한 어긋남도 경고 로그로는 남긴다
+        logMismatches(run, progress);
+        if (ownResult) {
+            recordResult(run, progress);
+        } else {
+            log.warn("다른 pod가 먼저 정리한 HP 대사라 지표를 남기지 않는다 runId={} status={} reason={}", runId,
+                    run.getStatus(), run.getFailureReason());
+        }
+        return run;
+    }
+
+    /** 실행 중인 다른 실행 때문에 시작하지 않는다. 그날 배치가 통째로 빠지므로 막은 실행을 남긴다 */
+    private static void warnBlocked(HpReconciliationTrigger trigger, List<HpReconciliationRun> otherRuns) {
+        List<Long> runIds = new ArrayList<>();
+        List<LocalDateTime> startedAts = new ArrayList<>();
+        for (HpReconciliationRun other : otherRuns) {
+            runIds.add(other.getId());
+            startedAts.add(other.getStartedAt());
+        }
+        log.warn("다른 pod가 HP 대사를 실행 중이라 이번 실행을 시작하지 않는다 trigger={} runIds={} startedAts={}", trigger,
+                runIds, startedAts);
     }
 
     /**
@@ -310,13 +323,16 @@ public class HpReconciliationUseCase {
         };
     }
 
-    private void report(HpReconciliationRun run, Progress progress) {
+    private void logMismatches(HpReconciliationRun run, Progress progress) {
         for (HpReconciliationSupport.Mismatch mismatch : progress.mismatches) {
             HpReconciliationComparer.Finding finding = mismatch.finding();
             log.warn("{} rule={} runId={} referenceType={} referenceId={} appearanceId={} appearance=[{}] wallet=[{}]",
                     MISMATCH_LOG_TAG, finding.rule(), run.getId(), mismatch.refType(), mismatch.refId(),
                     finding.appearanceId(), finding.appearanceState(), finding.walletState());
         }
+    }
+
+    private void recordResult(HpReconciliationRun run, Progress progress) {
         hpReconciliationMetrics.recordRun(run.getStatus());
         if (run.getStatus() == HpReconciliationStatus.COMPLETED) {
             List<HpReconciliationRule> mismatchRules = new ArrayList<>();

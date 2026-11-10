@@ -81,10 +81,10 @@ public class HpReconciliationSupport {
         return abandonedIds;
     }
 
-    /** 실행 중인 실행이 있는지. 정리한 뒤에도 남아 있으면 다른 pod가 하고 있는 실행이다 */
+    /** 실행 중인 실행. 정리한 뒤에도 남아 있으면 다른 pod가 하고 있는 실행이다 */
     @Transactional(readOnly = true)
-    public boolean isAnyRunning() {
-        return runRepository.existsByStatus(HpReconciliationStatus.RUNNING);
+    public List<HpReconciliationRun> findRunning() {
+        return runRepository.findByStatus(HpReconciliationStatus.RUNNING);
     }
 
     /**
@@ -181,16 +181,28 @@ public class HpReconciliationSupport {
 
     /**
      * 결과를 기록하지 못한 실행({@link #finish} 실패)을 미완료로 끝낸다 (#821). 그대로 두면 {@code RUNNING}으로 남아
-     * {@code abandon-after} 동안 다음 실행이 막힌다. 그새 다른 경로로 끝났으면 그대로 둔다.
+     * {@code abandon-after} 동안 다음 실행이 막힌다.
+     *
+     * @return 이번 호출이 끝냈으면 true. 그새 다른 pod가 먼저 정리했으면(이미 끝난 실행) 그대로 두고 false
      */
     @Transactional
-    public HpReconciliationRun abandon(Long runId, String reason, LocalDateTime now) {
-        HpReconciliationRun run = runRepository.findById(runId)
-                .orElseThrow(() -> new IllegalStateException("대사 실행이 없습니다: " + runId));
-        if (run.isRunning()) {
-            run.abandon(reason, now);
+    public boolean abandonIfRunning(Long runId, String reason, LocalDateTime now) {
+        HpReconciliationRun run = findRunOrThrow(runId);
+        if (!run.isRunning()) {
+            return false;
         }
-        return run;
+        run.abandon(reason, now);
+        return true;
+    }
+
+    @Transactional(readOnly = true)
+    public HpReconciliationRun findRun(Long runId) {
+        return findRunOrThrow(runId);
+    }
+
+    private HpReconciliationRun findRunOrThrow(Long runId) {
+        return runRepository.findById(runId)
+                .orElseThrow(() -> new IllegalStateException("대사 실행이 없습니다: " + runId));
     }
 
     @Transactional(readOnly = true)

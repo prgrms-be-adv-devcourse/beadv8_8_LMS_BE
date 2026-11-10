@@ -13,11 +13,8 @@ public interface HpReconciliationRunRepository extends JpaRepository<HpReconcili
     /** 마지막으로 시작한 실행 (관리자 결과 조회) */
     Optional<HpReconciliationRun> findFirstByOrderByStartedAtDescIdDesc();
 
-    /** 앱이 멈춰 실행 중으로 남은 실행을 찾는다 */
+    /** 실행 중인 실행을 찾는다 (앱이 멈춰 남은 실행 정리, 다른 pod 실행 확인 #821) */
     List<HpReconciliationRun> findByStatus(HpReconciliationStatus status);
-
-    /** 이 상태의 실행이 있는지 (다른 pod가 실행 중인지 확인, #821) */
-    boolean existsByStatus(HpReconciliationStatus status);
 
     /** 이 상태로 마지막에 끝난 실행 (기동할 때 지표 복원, #821) */
     Optional<HpReconciliationRun> findFirstByStatusOrderByFinishedAtDescIdDesc(HpReconciliationStatus status);

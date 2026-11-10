@@ -1572,9 +1572,11 @@ Mockito 대역의 `isCircuitOpen()` 기본값은 `false`라 다른 테스트는 
 | `AppearanceHpReconciliationTest` | 출연을 읽은 뒤 지갑 조회 전에 작업이 바뀜 / 바뀌었지만 어긋남 없음 | 어긋남 안 남김·비교 수 0, 다음 실행에서 `HOLD_BALANCE_MISMATCH` / 다시 읽지 않고 비교 수 1 |
 | `AppearanceHpReconciliationTest` | 관리자 실행 중 다시 실행 / 배치 | 409 `HP_RECONCILIATION_RUNNING` / 건너뜀(null), 끝나면 다시 실행 가능 |
 | `AppearanceHpReconciliationTest` | 앱이 멈춰 1시간 넘게 `RUNNING`으로 남은 실행 (#821) | 다음 실행 시작 때 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행), `runs{INCOMPLETE}` +1 |
-| `AppearanceHpReconciliationTest` | 59분 전에 시작해 `RUNNING`인 실행(배포 중 옛 pod) (#821) | 정리하지 않고 `RUNNING` 그대로, 배치는 건너뜀(null)·관리자 실행은 409 `HP_RECONCILIATION_RUNNING`, 새 실행·지갑 호출 없음, 중단 횟수 그대로 |
+| `AppearanceHpReconciliationTest` | 59분 전에 시작해 `RUNNING`인 실행(배포 중 옛 pod) (#821) | 정리하지 않고 `RUNNING` 그대로, 배치는 건너뜀(null)·관리자 실행은 409 `HP_RECONCILIATION_RUNNING`, 새 실행·지갑 호출 없음, 중단 횟수 그대로, 막은 실행 ID를 WARN 로그로 남김 |
 | `AppearanceHpReconciliationTest` | 정리 기준 경계 (#821) | 기준 시각보다 먼저 시작한 실행만 `INCOMPLETE`, 기준 시각에 시작한 실행은 `RUNNING` |
 | `AppearanceHpReconciliationFinishFailureTest` | 결과 기록(`finish`) 실패 (#821) | `INCOMPLETE`("결과 기록 실패: QueryTimeoutException"), `runs{INCOMPLETE}` +1, 바로 다음 실행은 막히지 않고 `COMPLETED` |
+| `AppearanceHpReconciliationFinishFailureTest` | 기록 직전에 다른 pod가 이 실행을 정리함 (#821) | 다른 pod가 남긴 `INCOMPLETE`(앱이 멈춰 끝나지 못한 실행) 그대로, 이 pod의 `runs{INCOMPLETE}`는 그대로(두 번 세지 않음) |
+| `AppearanceHpReconciliationFinishFailureTest` | 결과 기록과 미완료 처리가 모두 실패 (#821) | 예외를 던지고 `RUNNING`이 남음, 실행 중 표시는 풀림(1시간 안에는 건너뜀) → 1시간 뒤 다음 실행이 정리(+1)하고 `COMPLETED` |
 | `AppearanceHpReconciliationTest` | 완료 실행 | `last.completed` = 끝난 시각(epoch 초) (#821) |
 | `AppearanceHpReconciliationTest` | 기동 복원: 완료 2건 + 그 뒤 미완료 1건 (#821) | 마지막 완료 실행의 규칙별 건수(`HP_TASK_DEAD` 포함)와 끝난 시각, 미완료 실행은 보지 않음 |
 | `AppearanceHpReconciliationTest` | 기동 복원: 실행 기록 없음 (#821) | 지표 그대로 |

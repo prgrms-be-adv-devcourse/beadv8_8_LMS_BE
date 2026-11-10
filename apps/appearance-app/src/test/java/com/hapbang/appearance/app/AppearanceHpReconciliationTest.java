@@ -834,7 +834,7 @@ class AppearanceHpReconciliationTest {
 
         @Test
         @DisplayName("abandon-after 안에 시작한 RUNNING 실행은 배포 중 옛 pod가 하고 있는 것일 수 있어 정리하지 않고, 배치는 건너뛰고(null) 관리자 실행은 409다 (#821)")
-        void recentRunningRunBlocksNewRun() {
+        void recentRunningRunBlocksNewRun(CapturedOutput output) {
             Long otherPodRun = runningSince(clock.now().minusMinutes(59));
             double incompleteBefore = hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE);
 
@@ -847,6 +847,9 @@ class AppearanceHpReconciliationTest {
                     .containsExactly(org.assertj.core.groups.Tuple.tuple(otherPodRun, HpReconciliationStatus.RUNNING));
             assertThat(hpReconciliationMetrics.runs(HpReconciliationStatus.INCOMPLETE)).isEqualTo(incompleteBefore);
             verify(billingClient, never()).listHolds(any(), any(), anyLong(), anyInt());
+            // 그날 배치가 통째로 빠지므로 막은 실행을 WARN으로 남긴다
+            assertThat(output).contains("WARN")
+                    .contains("다른 pod가 HP 대사를 실행 중이라 이번 실행을 시작하지 않는다 trigger=SCHEDULED runIds=[" + otherPodRun + "]");
         }
 
         @Test
