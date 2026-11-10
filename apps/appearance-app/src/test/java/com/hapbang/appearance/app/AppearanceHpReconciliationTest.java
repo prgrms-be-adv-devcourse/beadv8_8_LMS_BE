@@ -100,6 +100,9 @@ class AppearanceHpReconciliationTest {
     HpReconciliationMetricsRestorer hpReconciliationMetricsRestorer;
 
     @Autowired
+    HpReconciliationSupport hpReconciliationSupport;
+
+    @Autowired
     AppearanceRequestFacade appearanceRequestFacade;
 
     @Autowired
@@ -259,6 +262,11 @@ class AppearanceHpReconciliationTest {
     // 결과
 
     /** 모든 변경이 진행 중 유예(2시간)보다 오래된(3시간 전) 상태에서 배치로 실행한다 */
+    /** 지표 {@code last.completed} 값: 출연 시간대 시각의 epoch 초 */
+    private static long epochSeconds(LocalDateTime at) {
+        return at.atZone(AppearanceTime.ZONE).toEpochSecond();
+    }
+
     private HpReconciliationRun runAfterGrace() {
         changedAt(clock.now().minusHours(3));
         return hpReconciliationUseCase.runScheduled();
@@ -321,7 +329,7 @@ class AppearanceHpReconciliationTest {
                 assertThat(hpReconciliationMetrics.mismatches(rule)).as(rule.name()).isZero();
             }
             assertThat(hpReconciliationMetrics.lastCompletedEpochSeconds())
-                    .isEqualTo(run.getFinishedAt().atZone(AppearanceTime.ZONE).toEpochSecond());
+                    .isEqualTo(epochSeconds(run.getFinishedAt()));
         }
 
         @Test
@@ -841,6 +849,22 @@ class AppearanceHpReconciliationTest {
             verify(billingClient, never()).listHolds(any(), any(), anyLong(), anyInt());
         }
 
+        @Test
+        @DisplayName("정리 기준 경계: 기준 시각보다 먼저 시작한 실행만 정리하고, 기준 시각에 시작한 실행은 둔다 (#821)")
+        void abandonBoundary() {
+            LocalDateTime startedBefore = clock.now().withNano(0).minusHours(1);
+            Long older = runningSince(startedBefore.minusNanos(1_000));
+            Long atBoundary = runningSince(startedBefore);
+
+            List<Long> abandoned = hpReconciliationSupport.abandonRunningStartedBefore(startedBefore, clock.now());
+
+            assertThat(abandoned).containsExactly(older);
+            assertThat(runRepository.findById(older).orElseThrow().getStatus())
+                    .isEqualTo(HpReconciliationStatus.INCOMPLETE);
+            assertThat(runRepository.findById(atBoundary).orElseThrow().getStatus())
+                    .isEqualTo(HpReconciliationStatus.RUNNING);
+        }
+
         /** 다른 pod가 시작해 RUNNING으로 남은 실행을 DB에 바로 넣는다 */
         private Long runningSince(LocalDateTime startedAt) {
             return runRepository.save(HpReconciliationRun.start(HpReconciliationTrigger.SCHEDULED, null, startedAt))
@@ -870,7 +894,7 @@ class AppearanceHpReconciliationTest {
             assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HOLD_MISSING)).isZero();
             assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.SETTLEMENT_MISSING)).isZero();
             assertThat(hpReconciliationMetrics.lastCompletedEpochSeconds())
-                    .isEqualTo(finishedAt.atZone(AppearanceTime.ZONE).toEpochSecond());
+                    .isEqualTo(epochSeconds(finishedAt));
         }
 
         @Test
@@ -884,7 +908,7 @@ class AppearanceHpReconciliationTest {
 
             assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HOLD_MISSING)).isEqualTo(1);
             assertThat(hpReconciliationMetrics.lastCompletedEpochSeconds())
-                    .isEqualTo(earlier.atZone(AppearanceTime.ZONE).toEpochSecond());
+                    .isEqualTo(epochSeconds(earlier));
         }
 
         @Test
@@ -901,7 +925,7 @@ class AppearanceHpReconciliationTest {
 
             assertThat(hpReconciliationMetrics.mismatches(HpReconciliationRule.HOLD_MISSING)).isZero();
             assertThat(hpReconciliationMetrics.lastCompletedEpochSeconds())
-                    .isEqualTo(finishedAt.minusDays(30).atZone(AppearanceTime.ZONE).toEpochSecond());
+                    .isEqualTo(epochSeconds(finishedAt.minusDays(30)));
             assertThat(runRepository.findById(running).orElseThrow().getStatus())
                     .isEqualTo(HpReconciliationStatus.RUNNING);
         }

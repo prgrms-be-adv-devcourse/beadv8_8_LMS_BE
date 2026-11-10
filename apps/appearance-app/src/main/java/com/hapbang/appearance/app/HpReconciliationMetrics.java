@@ -57,10 +57,12 @@ public class HpReconciliationMetrics {
                 .register(meterRegistry);
     }
 
-    /** 끝까지 비교한 실행의 어긋난 건(규칙 하나에 한 건)을 규칙별로 세어 바꾼다 (이번에 없는 규칙은 0) */
-    public void updateMismatches(Collection<HpReconciliationRule> rules) {
+    /** 끝까지 비교한 실행의 어긋난 건마다의 규칙을 규칙별로 세어 바꾼다 (이번에 없는 규칙은 0) */
+    public void updateMismatches(Collection<HpReconciliationRule> mismatchRules) {
         Map<HpReconciliationRule, Long> counts = new EnumMap<>(HpReconciliationRule.class);
-        rules.forEach(rule -> counts.merge(rule, 1L, Long::sum));
+        for (HpReconciliationRule rule : mismatchRules) {
+            counts.merge(rule, 1L, Long::sum);
+        }
         mismatchCounts.forEach((rule, count) -> count.set(counts.getOrDefault(rule, 0L)));
     }
 

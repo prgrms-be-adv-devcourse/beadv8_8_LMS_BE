@@ -21,6 +21,7 @@ import com.hapbang.appearance.config.AppearanceConfig;
 import com.hapbang.appearance.config.AppearanceHpReconciliationProperties;
 import com.hapbang.appearance.domain.AppearanceErrorCode;
 import com.hapbang.appearance.domain.AppearanceException;
+import com.hapbang.appearance.domain.HpReconciliationRule;
 import com.hapbang.appearance.domain.HpReconciliationRun;
 import com.hapbang.appearance.domain.HpReconciliationStatus;
 import com.hapbang.appearance.domain.HpReconciliationTrigger;
@@ -69,6 +70,9 @@ public class HpReconciliationUseCase {
 
     /** 어긋난 건 경고 로그 태그. Loki에서 이 문자열로 찾는다 */
     static final String MISMATCH_LOG_TAG = "[HP_RECONCILIATION_MISMATCH]";
+
+    /** 결과를 기록하지 못해 미완료로 끝낸 실행의 사유 앞부분 (#821) */
+    static final String FINISH_FAILED_REASON = "결과 기록 실패: ";
 
     private final HpReconciliationSupport hpReconciliationSupport;
     private final HpReconciliationMetrics hpReconciliationMetrics;
@@ -143,10 +147,25 @@ public class HpReconciliationUseCase {
             log.error("HP 대사 중 예외로 실행을 멈춘다 runId={}", runId, exception);
             failureReason = "예외: " + exception.getClass().getSimpleName() + ": " + exception.getMessage();
         }
-        HpReconciliationRun run = hpReconciliationSupport.finish(runId, progress.mismatches, progress.checked,
-                progress.dead, failureReason, progress.cursors, LocalDateTime.now(clock));
+        HpReconciliationRun run = finishOrAbandon(runId, progress, failureReason);
         report(run, progress);
         return run;
+    }
+
+    /**
+     * 결과를 기록한다. 기록이 실패하면(커서 버전 충돌, DB 순간 장애) 실행을 미완료로 끝낸다. 그대로 두면 {@code RUNNING}으로 남아
+     * {@code abandon-after} 동안 같은 pod에서도 다시 실행할 수 없고, 중단 횟수도 다음 실행에서야 오른다 (#821).
+     * 찾은 어긋남은 {@link #report}의 경고 로그로만 남는다. 미완료 처리도 실패하면 예외를 그대로 던진다
+     */
+    private HpReconciliationRun finishOrAbandon(Long runId, Progress progress, String failureReason) {
+        try {
+            return hpReconciliationSupport.finish(runId, progress.mismatches, progress.checked, progress.dead,
+                    failureReason, progress.cursors, LocalDateTime.now(clock));
+        } catch (RuntimeException exception) {
+            log.error("HP 대사 결과를 기록하지 못해 실행을 미완료로 끝낸다 runId={}", runId, exception);
+            return hpReconciliationSupport.abandon(runId,
+                    FINISH_FAILED_REASON + exception.getClass().getSimpleName(), LocalDateTime.now(clock));
+        }
     }
 
     /**
@@ -300,8 +319,11 @@ public class HpReconciliationUseCase {
         }
         hpReconciliationMetrics.recordRun(run.getStatus());
         if (run.getStatus() == HpReconciliationStatus.COMPLETED) {
-            hpReconciliationMetrics.updateMismatches(
-                    progress.mismatches.stream().map(mismatch -> mismatch.finding().rule()).toList());
+            List<HpReconciliationRule> mismatchRules = new ArrayList<>();
+            for (HpReconciliationSupport.Mismatch mismatch : progress.mismatches) {
+                mismatchRules.add(mismatch.finding().rule());
+            }
+            hpReconciliationMetrics.updateMismatches(mismatchRules);
             hpReconciliationMetrics.updateLastCompleted(run.getFinishedAt());
             log.info("HP 대사 완료 runId={} checked={} mismatches={} dead={}", run.getId(), run.getCheckedCount(),
                     run.getMismatchCount(), run.getDeadCount());

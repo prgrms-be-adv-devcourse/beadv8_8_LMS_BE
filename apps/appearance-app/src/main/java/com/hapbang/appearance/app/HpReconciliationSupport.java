@@ -74,8 +74,7 @@ public class HpReconciliationSupport {
         List<Long> abandonedIds = new ArrayList<>();
         for (HpReconciliationRun run : runRepository.findByStatus(HpReconciliationStatus.RUNNING)) {
             if (run.getStartedAt().isBefore(startedBefore)) {
-                run.incomplete(run.getCheckedCount(), run.getMismatchCount(), run.getDeadCount(), ABANDONED_REASON,
-                        now);
+                run.abandon(ABANDONED_REASON, now);
                 abandonedIds.add(run.getId());
             }
         }
@@ -180,6 +179,20 @@ public class HpReconciliationSupport {
         return run;
     }
 
+    /**
+     * 결과를 기록하지 못한 실행({@link #finish} 실패)을 미완료로 끝낸다 (#821). 그대로 두면 {@code RUNNING}으로 남아
+     * {@code abandon-after} 동안 다음 실행이 막힌다. 그새 다른 경로로 끝났으면 그대로 둔다.
+     */
+    @Transactional
+    public HpReconciliationRun abandon(Long runId, String reason, LocalDateTime now) {
+        HpReconciliationRun run = runRepository.findById(runId)
+                .orElseThrow(() -> new IllegalStateException("대사 실행이 없습니다: " + runId));
+        if (run.isRunning()) {
+            run.abandon(reason, now);
+        }
+        return run;
+    }
+
     @Transactional(readOnly = true)
     public HpReconciliationRun findLatestRun() {
         return runRepository.findFirstByOrderByStartedAtDescIdDesc().orElse(null);
@@ -193,14 +206,25 @@ public class HpReconciliationSupport {
     /** 마지막으로 끝까지 비교한({@code COMPLETED}) 실행. 기동할 때 지표를 채우는 데 쓴다 (#821) */
     @Transactional(readOnly = true)
     public Optional<CompletedRun> findLatestCompletedRun() {
-        return runRepository.findFirstByStatusOrderByFinishedAtDescIdDesc(HpReconciliationStatus.COMPLETED)
-                .map(run -> new CompletedRun(run.getId(), run.getFinishedAt(),
-                        mismatchRepository.findByRunIdOrderByIdAsc(run.getId()).stream()
-                                .map(HpReconciliationMismatch::getRule).toList()));
+        Optional<HpReconciliationRun> latest =
+                runRepository.findFirstByStatusOrderByFinishedAtDescIdDesc(HpReconciliationStatus.COMPLETED);
+        if (latest.isEmpty()) {
+            return Optional.empty();
+        }
+        HpReconciliationRun run = latest.get();
+        List<HpReconciliationRule> mismatchRules = new ArrayList<>();
+        for (HpReconciliationMismatch mismatch : mismatchRepository.findByRunIdOrderByIdAsc(run.getId())) {
+            mismatchRules.add(mismatch.getRule());
+        }
+        return Optional.of(new CompletedRun(run.getId(), run.getFinishedAt(), mismatchRules));
     }
 
-    /** 끝까지 비교한 실행 하나의 지표 값: 끝난 시각과 어긋난 건의 규칙({@code HP_TASK_DEAD} 표시 포함, 한 건에 하나) */
-    record CompletedRun(Long runId, LocalDateTime finishedAt, List<HpReconciliationRule> rules) {
+    /**
+     * 끝까지 비교한 실행 하나의 지표 값.
+     *
+     * @param mismatchRules 어긋난 건마다의 규칙({@code HP_TASK_DEAD} 표시 포함). 같은 규칙이 여러 번 나온다
+     */
+    record CompletedRun(Long runId, LocalDateTime finishedAt, List<HpReconciliationRule> mismatchRules) {
     }
 
     /** 남길 어긋남 하나: 대상 + 비교 결과 */

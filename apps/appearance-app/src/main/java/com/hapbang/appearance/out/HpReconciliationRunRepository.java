@@ -16,6 +16,7 @@ public interface HpReconciliationRunRepository extends JpaRepository<HpReconcili
     /** 앱이 멈춰 실행 중으로 남은 실행을 찾는다 */
     List<HpReconciliationRun> findByStatus(HpReconciliationStatus status);
 
+    /** 이 상태의 실행이 있는지 (다른 pod가 실행 중인지 확인, #821) */
     boolean existsByStatus(HpReconciliationStatus status);
 
     /** 이 상태로 마지막에 끝난 실행 (기동할 때 지표 복원, #821) */

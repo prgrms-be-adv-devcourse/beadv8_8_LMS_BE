@@ -35,10 +35,10 @@ public class HpReconciliationMetricsRestorer {
     public void restore() {
         try {
             hpReconciliationSupport.findLatestCompletedRun().ifPresent(run -> {
-                hpReconciliationMetrics.updateMismatches(run.rules());
+                hpReconciliationMetrics.updateMismatches(run.mismatchRules());
                 hpReconciliationMetrics.updateLastCompleted(run.finishedAt());
                 log.info("HP 대사 지표를 마지막 완료 실행으로 채웠다 runId={}, finishedAt={}, mismatches={}", run.runId(),
-                        run.finishedAt(), run.rules().size());
+                        run.finishedAt(), run.mismatchRules().size());
             });
         } catch (RuntimeException exception) {
             log.warn("HP 대사 지표를 DB에서 채우지 못해 다음 대사까지 0으로 낸다", exception);
