@@ -271,7 +271,11 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.content[0].orderId").value(order.getId()))
                 .andExpect(jsonPath("$.data.content[0].representativeTitle").value(TITLE))
                 .andExpect(jsonPath("$.data.content[0].itemCount").value(1))
-                .andExpect(jsonPath("$.data.content[0].progress").value("IN_PROGRESS"));
+                .andExpect(jsonPath("$.data.content[0].progress").value("IN_PROGRESS"))
+                // 쿠폰을 쓰지 않은 주문은 할인 0, 결제액 = 가격 합
+                .andExpect(jsonPath("$.data.content[0].totalAmountHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.content[0].discountHp").value(0))
+                .andExpect(jsonPath("$.data.content[0].buyerAmountHp").value(PRICE_HP));
     }
 
     @Test
@@ -377,7 +381,7 @@ class LectureOrderApiTest {
     }
 
     @Test
-    void 쿠폰_할인_주문은_주문_상세에_할인과_구매자_금액을_싣고_판매_내역에_판매자_플랫폼_부담과_지급액을_싣는다() throws Exception {
+    void 쿠폰_할인_주문은_주문_상세와_목록에_할인과_구매자_금액을_싣고_판매_내역에_판매자_플랫폼_부담과_지급액을_싣는다() throws Exception {
         Lecture lecture = saveOnSaleLecture();
         LocalDateTime now = LocalDateTime.now(LectureConfig.ZONE);
         // 할인 4,000 = 플랫폼 1,000 + 판매자 3,000. 판매자에게도 플랫폼 부담이 보인다
@@ -395,6 +399,12 @@ class LectureOrderApiTest {
                 .andExpect(jsonPath("$.data.items[0].priceHp").value(PRICE_HP))
                 .andExpect(jsonPath("$.data.items[0].discountHp").value(4_000))
                 .andExpect(jsonPath("$.data.items[0].buyerAmountHp").value(PRICE_HP - 4_000));
+        // 주문 목록 카드도 상세를 받기 전에 할인 뒤 결제액을 보인다
+        mockMvc.perform(get("/api/v1/lectures/orders").with(GatewayLogin.as(BUYER_ID, Role.USER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].totalAmountHp").value(PRICE_HP))
+                .andExpect(jsonPath("$.data.content[0].discountHp").value(4_000))
+                .andExpect(jsonPath("$.data.content[0].buyerAmountHp").value(PRICE_HP - 4_000));
         mockMvc.perform(get("/api/v1/lectures/sales").with(GatewayLogin.as(SELLER_ID, Role.VERIFIED_INFLUENCER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].priceHp").value(PRICE_HP))
