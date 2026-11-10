@@ -43,13 +43,17 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import com.hapbang.lecture.app.LectureHpTaskAdminFacade;
+import com.hapbang.lecture.app.LectureHpTaskExecutor;
 import com.hapbang.lecture.app.LectureObjectionFacade;
 import com.hapbang.lecture.config.LectureConfig;
 import com.hapbang.lecture.config.LectureEventExternalizationConfig;
 import com.hapbang.lecture.config.LectureKafkaConfig;
 import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.ObjectionStatus;
+import com.hapbang.lecture.fake.FakeBillingApiClient;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
+import com.hapbang.lecture.out.LectureHpTaskRepository;
 import com.hapbang.lecture.out.LectureObjectionCommandRepository;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
@@ -126,6 +130,18 @@ class LectureObjectionKafkaTest {
     @Autowired
     private LectureObjectionCommandRepository lectureObjectionCommandRepository;
 
+    @Autowired
+    private LectureHpTaskRepository lectureHpTaskRepository;
+
+    @Autowired
+    private LectureHpTaskExecutor lectureHpTaskExecutor;
+
+    @Autowired
+    private LectureHpTaskAdminFacade lectureHpTaskAdminFacade;
+
+    @Autowired
+    private FakeBillingApiClient billing;
+
     private KafkaConsumer<String, String> consumer;
     private final List<ConsumerRecord<String, String>> received = new CopyOnWriteArrayList<>();
 
@@ -173,6 +189,35 @@ class LectureObjectionKafkaTest {
                 .isEqualTo(LectureEventExternalizationConfig.OBJECTION_RESOLVED);
         assertThat(header(record, LectureEventExternalizationConfig.EVENT_VERSION)).isEqualTo("1");
         assertThat(record.value()).contains("\"commandId\":\"RESOLVE:" + inquiryId + "\"", "\"accepted\":false");
+        // 알림용 값(#818): 받는 사람 ID, 구매 때 강의 제목, 판단 시각(KST offset)
+        assertThat(record.value()).contains("\"buyerUserId\":" + BUYER_ID, "\"sellerUserId\":" + SELLER_ID,
+                "\"lectureTitle\":\"" + TITLE + "\"").containsPattern("\"resolvedAt\":\"[^\"]+\\+09:00\"");
+    }
+
+    @Test
+    @WithMockUser(roles = {"INTERNAL", "ADMIN"})
+    void 반환이_다시_멈추면_회차가_늘어난_반환_지연이_알림용_값과_함께_강의_토픽에_나간다() {
+        long inquiryId = 707L;
+        Long itemId = filedItem(inquiryId);
+        lectureObjectionFacade.resolve(new LectureObjectionResolutionRequestedEvent("RESOLVE:" + inquiryId, inquiryId,
+                itemId, true, ADMIN_ID));
+        Long taskId = lectureHpTaskRepository.findByRequestId("LECTURE-RETURN-" + itemId).orElseThrow().getId();
+        // 결과 금액이 작업 금액과 달라 DEAD가 된다 (D43)
+        billing.setSettledHp(PRICE_HP - 1_000L);
+        try {
+            lectureHpTaskExecutor.execute(taskId);
+            lectureHpTaskAdminFacade.retry(ADMIN_ID, taskId);
+            lectureHpTaskExecutor.execute(taskId);
+        } finally {
+            billing.reset();
+        }
+
+        List<ConsumerRecord<String, String>> delays = awaitExactly("order-item:" + itemId,
+                LectureEventExternalizationConfig.OBJECTION_RETURN_ACTION_REQUIRED, 2);
+        assertThat(delays.getFirst().value()).contains("\"inquiryId\":" + inquiryId, "\"returnDelaySequence\":1",
+                "\"buyerUserId\":" + BUYER_ID, "\"sellerUserId\":" + SELLER_ID, "\"lectureTitle\":\"" + TITLE + "\"")
+                .containsPattern("\"occurredAt\":\"[^\"]+\\+09:00\"");
+        assertThat(delays.getLast().value()).contains("\"returnDelaySequence\":2");
     }
 
     @Test
@@ -370,6 +415,21 @@ class LectureObjectionKafkaTest {
         await().during(HOLD).atMost(TIMEOUT).pollInSameThread()
                 .untilAsserted(() -> assertThat(records(key)).hasSize(count));
         return records(key);
+    }
+
+    /** 이 key·이벤트 종류의 메시지가 count건 온 뒤, 잠시 더 읽어도 그대로 count건인지 */
+    private List<ConsumerRecord<String, String>> awaitExactly(String key, String eventType, int count) {
+        await().atMost(TIMEOUT).pollInSameThread()
+                .untilAsserted(() -> assertThat(records(key, eventType)).hasSizeGreaterThanOrEqualTo(count));
+        await().during(HOLD).atMost(TIMEOUT).pollInSameThread()
+                .untilAsserted(() -> assertThat(records(key, eventType)).hasSize(count));
+        return records(key, eventType);
+    }
+
+    private List<ConsumerRecord<String, String>> records(String key, String eventType) {
+        return records(key).stream()
+                .filter(record -> eventType.equals(header(record, LectureEventExternalizationConfig.EVENT_TYPE)))
+                .toList();
     }
 
     /** 지금까지 받은 메시지 중 이 key의 것. 부를 때마다 새로 온 메시지를 더 읽는다 */

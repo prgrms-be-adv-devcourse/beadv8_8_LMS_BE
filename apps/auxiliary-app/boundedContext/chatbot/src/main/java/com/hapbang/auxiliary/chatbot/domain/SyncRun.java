@@ -59,6 +59,9 @@ public class SyncRun {
 
     private long markedMissing;
 
+    /** 마스킹한 회원의 데이터라 버린 건수 (#717) */
+    private long discarded;
+
     private boolean warning;
 
     private String error;
@@ -106,6 +109,7 @@ public class SyncRun {
         this.inserted = tally.inserted();
         this.fixed = tally.fixed();
         this.oursNewer = tally.oursNewer();
+        this.discarded = tally.discarded();
     }
 
     private static String truncate(String value) {

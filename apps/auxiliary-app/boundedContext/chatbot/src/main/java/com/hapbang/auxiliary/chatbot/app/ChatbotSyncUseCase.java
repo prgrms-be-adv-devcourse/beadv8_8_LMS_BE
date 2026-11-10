@@ -2,7 +2,6 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -25,6 +24,7 @@ import com.hapbang.auxiliary.chatbot.domain.SyncType;
 import com.hapbang.auxiliary.chatbot.exception.ChatbotErrorCode;
 import com.hapbang.auxiliary.chatbot.exception.ChatbotException;
 import com.hapbang.auxiliary.chatbot.out.CopyWrite;
+import com.hapbang.auxiliary.chatbot.out.MaskedMemberStore;
 import com.hapbang.auxiliary.chatbot.out.MissingCopy;
 import com.hapbang.auxiliary.chatbot.out.SyncMismatchRepository;
 import com.hapbang.auxiliary.chatbot.out.SyncRunRepository;
@@ -34,14 +34,18 @@ import com.hapbang.shared.appearance.out.AppearanceApiCallException;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 주간 싱크 (#716). 원본 키셋 내부 API를 처음부터 끝까지 읽어 사본의 어긋남을 바로잡는다. 첫 실행이 곧 초기 적재다.
+ * 싱크 (#716, #717). 원본 키셋 내부 API를 처음부터 끝까지 읽어 사본의 어긋남을 바로잡는다. 첫 실행이 곧 초기 적재다.
  * <ul>
+ *     <li>정기 실행은 종류마다 매시다({@code ChatbotSyncBatch}). 실패·건너뜀은 다음 정시가 다시 하고, 그 종류가
+ *     {@code failure-alert-after}(기본 3시간) 동안 성공하지 못했으면 {@code [CHATBOT_SYNC_FAILED]} ERROR로 알린다.</li>
+ *     <li>회차 기록은 {@code run-retention}(기본 30일)이 지나면 그 종류의 회차가 끝날 때 지운다(어긋남 행도 함께).</li>
  *     <li>종류마다 따로 실행·기록한다. 한 종류의 실패가 다른 종류를 막지 않는다.</li>
  *     <li>pod 사이 겹침은 종류별 advisory lock({@link ChatbotJob})으로 막는다. 배치는 못 잡으면 {@code SKIPPED} 회차를 남기고,
  *     관리자 실행은 409다. 관리자 실행은 요청 스레드에서 락을 잡고 그 락을 비동기 작업에 넘긴다.</li>
  *     <li>항목마다 적용기({@link CopyApplier})로 반영한다(이벤트와 같은 판정). 트랜잭션은 항목 반영 한 문장과 회차 기록마다 따로다.</li>
  *     <li>원본 없음 표시는 끝까지 성공한 회차의 끝에만 한다. 실패한 회차는 표시하지 않는다.</li>
  *     <li>첫 실행(그 종류의 성공 회차가 없음)은 원본 전체를 넣으므로 경고하지 않고, 어긋남 행도 남기지 않는다(건수만).</li>
+ *     <li>마스킹 회원의 데이터는 적용기가 버리고({@code discarded}, 어긋남·경고에서 뺀다), 회차 끝마다 남은 행을 한 번 더 지운다(#717).</li>
  * </ul>
  */
 @Slf4j
@@ -52,13 +56,15 @@ public class ChatbotSyncUseCase {
     private final JobLock jobLock;
     private final SyncRunRepository syncRunRepository;
     private final SyncMismatchRepository syncMismatchRepository;
+    private final MaskedMemberStore maskedMemberStore;
     private final ChatbotSyncProperties properties;
     private final SyncMetrics metrics;
     private final TaskExecutor taskExecutor;
     private final Clock clock;
 
     ChatbotSyncUseCase(List<SyncTarget<?>> targets, JobLock jobLock, SyncRunRepository syncRunRepository,
-            SyncMismatchRepository syncMismatchRepository, ChatbotSyncProperties properties, SyncMetrics metrics,
+            SyncMismatchRepository syncMismatchRepository, MaskedMemberStore maskedMemberStore,
+            ChatbotSyncProperties properties, SyncMetrics metrics,
             @Qualifier(ChatbotConfig.SYNC_EXECUTOR) TaskExecutor taskExecutor, @Qualifier(ChatbotConfig.CLOCK) Clock clock) {
         targets.forEach(target -> this.targets.put(target.type(), target));
         if (this.targets.size() != SyncType.values().length) {
@@ -67,43 +73,22 @@ public class ChatbotSyncUseCase {
         this.jobLock = jobLock;
         this.syncRunRepository = syncRunRepository;
         this.syncMismatchRepository = syncMismatchRepository;
+        this.maskedMemberStore = maskedMemberStore;
         this.properties = properties;
         this.metrics = metrics;
         this.taskExecutor = taskExecutor;
         this.clock = clock;
     }
 
-    /** 주간 배치(월요일 10:00): 모든 종류를 차례로 실행한다 */
-    public void runWeekly() {
-        for (SyncType type : SyncType.values()) {
-            runSafely(type, SyncTrigger.SCHEDULED);
-        }
-    }
-
-    /** 재시도 배치(월요일 12:00): 오늘 성공 회차가 없는 종류만 다시 실행한다(실패·건너뜀·미실행). 그래도 실패면 다음 주다 */
-    public void runRetry() {
-        LocalDateTime todayStart = LocalDate.now(clock).atStartOfDay();
-        for (SyncType type : SyncType.values()) {
-            if (syncRunRepository.existsByTypeAndStatusAndStartedAtGreaterThanEqual(type, SyncRunStatus.SUCCEEDED,
-                    todayStart)) {
-                log.info("오늘 성공한 싱크가 있어 재시도하지 않는다 type={}", type);
-                continue;
-            }
-            runSafely(type, SyncTrigger.RETRY);
-        }
-    }
-
-    // 회차 기록조차 못 하는 장애(DB 연결 불가 등)도 다음 종류는 시도한다
-    private void runSafely(SyncType type, SyncTrigger trigger) {
+    /**
+     * 정기 배치(종류마다 매시): 그 종류를 실행한다. 예외를 던지지 않는다. 회차 기록조차 못 하는 장애(DB 연결 불가 등)는
+     * 로그만 남기고 다음 정시가 다시 한다.
+     */
+    public void runScheduled(SyncType type) {
         try {
-            runBatch(type, trigger);
+            runBatch(type, SyncTrigger.SCHEDULED);
         } catch (RuntimeException e) {
-            // 재시도 회차면 다음 주까지 다시 돌지 않는다. 정기 회차는 12:00 재시도가 있다
-            if (trigger == SyncTrigger.RETRY) {
-                log.error("[CHATBOT_SYNC_FAILED] 재시도 싱크 회차를 시작·기록하지 못해 다음 주까지 다시 돌지 않는다 type={}", type, e);
-            } else {
-                log.error("싱크 회차를 시작·기록하지 못했다 type={}, trigger={}", type, trigger, e);
-            }
+            log.error("[CHATBOT_SYNC_FAILED] 싱크 회차를 시작·기록하지 못했다 type={}", type, e);
         }
     }
 
@@ -117,8 +102,9 @@ public class ChatbotSyncUseCase {
         try {
             lease = jobLock.tryAcquire(target.job());
         } catch (JobLock.JobLockException e) {
-            if (trigger == SyncTrigger.RETRY) {
-                log.error("[CHATBOT_SYNC_FAILED] 재시도 싱크가 실행 락을 시도하지 못해 다음 주까지 다시 돌지 않는다 type={}", type, e);
+            if (longWithoutSuccess(type)) {
+                log.error("[CHATBOT_SYNC_FAILED] 실행 락을 시도하지 못해 싱크를 건너뛴다. 오래 성공하지 못했다 type={}, trigger={}, "
+                        + "alertAfter={}", type, trigger, properties.failureAlertAfter(), e);
             } else {
                 log.warn("실행 락을 시도하지 못해 싱크를 건너뛴다 type={}, trigger={}", type, trigger, e);
             }
@@ -220,10 +206,11 @@ public class ChatbotSyncUseCase {
             run.succeed(tally, missing.size(), warning, now());
         } catch (RuntimeException e) {
             run.fail(tally, describe(e), now());
-            // 재시도 회차가 실패하면 다음 주까지 다시 돌지 않는다. 사람이 봐야 한다
-            if (run.getTrigger() == SyncTrigger.RETRY) {
-                log.error("[CHATBOT_SYNC_FAILED] 재시도 싱크도 실패해 다음 주까지 다시 돌지 않는다 type={}, runId={}, scanned={}",
-                        type, run.getId(), tally.scanned(), e);
+            // 한두 번의 실패는 다음 정시가 다시 한다. 오래 성공하지 못했으면 사람이 봐야 한다
+            if (longWithoutSuccess(type)) {
+                log.error("[CHATBOT_SYNC_FAILED] 싱크가 중간에 멈췄다. 오래 성공하지 못했다 type={}, runId={}, trigger={}, "
+                        + "scanned={}, alertAfter={}", type, run.getId(), run.getTrigger(), tally.scanned(),
+                        properties.failureAlertAfter(), e);
             } else {
                 log.warn("싱크가 중간에 멈췄다 type={}, runId={}, trigger={}, scanned={}", type, run.getId(), run.getTrigger(),
                         tally.scanned(), e);
@@ -233,20 +220,48 @@ public class ChatbotSyncUseCase {
             syncRunRepository.save(run);
             syncMismatchRepository.saveAll(mismatches.rows);
             syncMismatchRepository.deleteOutsideRecentRuns(type, properties.mismatchKeepRuns());
+            int expired = syncRunRepository.deleteFinishedBefore(type, now().minus(properties.runRetention()));
+            if (expired > 0) {
+                log.info("보관 기간이 지난 싱크 회차를 지웠다 type={}, deleted={}", type, expired);
+            }
         } catch (RuntimeException e) {
             log.error("[CHATBOT_SYNC_RECORD_FAILED] 싱크 회차 결과를 기록하지 못했다 type={}, runId={}, status={}", type,
                     run.getId(), run.getStatus(), e);
         }
+        purgeMasked(type, run);
         metrics.record(run, Duration.ofNanos(System.nanoTime() - startNanos));
         if (run.isWarning()) {
             // 이벤트 반영이 크게 어긋났다(소비 중단 등). 싱크가 고쳤지만 원인은 사람이 봐야 한다
             log.error("[CHATBOT_SYNC_MISMATCH] 싱크가 넣거나 고친 비율이 크다 type={}, runId={}, scanned={}, inserted={}, fixed={}",
                     type, run.getId(), run.getScanned(), run.getInserted(), run.getFixed());
         }
-        log.info("싱크를 마쳤다 type={}, runId={}, status={}, scanned={}, inserted={}, fixed={}, oursNewer={}, markedMissing={}",
-                type, run.getId(), run.getStatus(), run.getScanned(), run.getInserted(), run.getFixed(), run.getOursNewer(),
-                run.getMarkedMissing());
+        log.info("싱크를 마쳤다 type={}, runId={}, status={}, scanned={}, inserted={}, fixed={}, oursNewer={}, markedMissing={}, "
+                        + "discarded={}", type, run.getId(), run.getStatus(), run.getScanned(), run.getInserted(), run.getFixed(),
+                run.getOursNewer(), run.getMarkedMissing(), run.getDiscarded());
         return run;
+    }
+
+    // 그 종류가 알림 기준 시간 동안 성공하지 못했는지(첫 배포 뒤 아직 성공이 없는 것도 포함)
+    // 확인조차 못 하면(DB 장애) 알린다
+    private boolean longWithoutSuccess(SyncType type) {
+        try {
+            return !syncRunRepository.existsByTypeAndStatusAndStartedAtGreaterThanEqual(type, SyncRunStatus.SUCCEEDED,
+                    now().minus(properties.failureAlertAfter()));
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    // 마스킹 회원의 행이 어떤 경로로든 남았으면 지운다(#717 멱등 정리). 실패해도 회차 결과는 그대로 두고 다음 회차가 다시 한다
+    private void purgeMasked(SyncType type, SyncRun run) {
+        try {
+            long purged = maskedMemberStore.purgeAll();
+            if (purged > 0) {
+                log.info("마스킹 회원의 남은 사본 행을 지웠다 type={}, runId={}, purged={}", type, run.getId(), purged);
+            }
+        } catch (RuntimeException e) {
+            log.warn("마스킹 회원 정리를 하지 못했다 type={}, runId={}", type, run.getId(), e);
+        }
     }
 
     // 키셋 계약: 요청 크기 이하, ID는 afterId보다 크고 엄격히 오름차순, nextAfterId가 있으면 비어 있지 않은 페이지의 마지막 ID.

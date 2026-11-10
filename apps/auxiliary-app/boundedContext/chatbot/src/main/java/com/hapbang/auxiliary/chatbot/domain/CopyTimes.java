@@ -1,6 +1,7 @@
 package com.hapbang.auxiliary.chatbot.domain;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -28,6 +29,11 @@ public final class CopyTimes {
     /** offset이 붙은 값은 KST로 옮긴 뒤 offset을 뗀다 */
     public static LocalDateTime kst(OffsetDateTime value) {
         return value == null ? null : value.atZoneSameInstant(KST).toLocalDateTime().truncatedTo(ChronoUnit.MICROS);
+    }
+
+    /** 시점(Instant)은 KST로 옮긴다 (회원 마스킹 시각 등, #717) */
+    public static LocalDateTime kst(Instant value) {
+        return value == null ? null : LocalDateTime.ofInstant(value, KST).truncatedTo(ChronoUnit.MICROS);
     }
 
     /** 사본·회차에 적는 현재 시각. 컬럼과 같은 마이크로초까지 둔다 */

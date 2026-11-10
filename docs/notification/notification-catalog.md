@@ -17,6 +17,7 @@
 > - 2026-11-09 decisions.md ND-033~ND-036 반영: 0.2 원본 대상 ID 칸 설명에 ND-033, 0.3에 ND-035·ND-036, 7장에 ND-034를 참조로 넣고, 9장 미결 목록은 남은 부분만 남겼다. 종류별 행의 원본 대상 ID "미정(U5)"는 그대로 두었다.
 > - 2026-11-09 #794 리뷰 반영: 7장 예약보다 먼저 온 취소 항목에 예약 짝 키 위치(event-contracts 0.3)를 더했다.
 > - 2026-11-09 ND-045 반영: 0.2 원본 대상 ID 칸 설명과 9장 U5에 회차 번호 규칙과 이벤트 계약 요청 위치를 더했다.
+> - 2026-11-10 #818(강의 담당): 이의 제기 4종 행의 이벤트 계약 상태 칸에 값 추가 사실을 덧붙였다. 2026-11-06 판정은 그대로 두었다.
 
 ## 0. 읽는 법
 
@@ -140,9 +141,9 @@
 | `LECTURE_ORDER_ITEM_CONFIRMED` | 자동 구매 확정 | 구매자 | `LectureOrderItemConfirmedEvent` | 자동 구매 확정 | `confirmationType`이 `AUTO`가 아닐 때. `AUTO`일 때만 보낸다 | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 구매 확정·지급 전이는 동기화 이벤트도 보내지 않는다(`LectureSyncEvents.java` 59행 근처). 예약 `LECTURE_ORDER_ITEM_CONFIRMING` 취소에도 필요 | — | 요청 값 2.1 |
 | `PAYOUT_COMPLETED_DAILY` | 강의 지급 (하루 묶음) | 판매자 | `PayoutCompletedEvent` | `sourceType` `LECTURE_ORDER_ITEM` 지급 완료. 판매자·날짜마다 하나로 묶는다(8장) | `sourceType`이 `LECTURE_ORDER_ITEM`이 아닐 때(출연 원천은 `PAYOUT_COMPLETED`) | 미정 | 해당 없음: 묶음 키(종류, 받는 사람, 날짜)로 중복을 막는다(ND-019, ND-032) | 원본 ✅ / 재확인: 레코드 있음, `@Externalized`(`billing.events.v1`, key `settlement:<지급 건 ID>`), `receiverUserId`·`sourceType`·`paidAt` 있음, 제목 없음 / **2026-11-06 판정: 충족** — 레코드·`@Externalized`·`receiverUserId`·`sourceType`·`paidAt` 있음. 제목은 ND-040(`sourceTitle`, 계약 요청 3장) | ND-013, ND-014, ND-032, ND-040 | 규칙 밖 코드(U11). 묶음과 20개 보존 U9 |
 | `LECTURE_OBJECTION_FILED` | 이의 제기 접수 (구매자: 접수됨, 판매자: 지급 중단) | 구매자, 판매자 | `LectureObjectionFiledEvent` | 강의 모듈이 이의 제기를 접수할 때(바로 접수와 고객센터 재시도 배치 접수 모두) | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`OrderObjectionFileUseCase.java` 31행 근처) | ND-015 | 구매자에게 같은 사실을 두 번 보내지 않는다. 요청 값 2.1 |
-| `LECTURE_OBJECTION_RESOLVED` | 이의 제기 기각·인정 | 구매자, 판매자 | `LectureObjectionResolvedEvent` | 이의 제기 기각 또는 인정. `accepted`로 문구를 나눈다 | — | 미정 | 미정(U5) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`(key `order-item:<주문 항목 ID>`), 필드 `commandId`·`inquiryId`·`orderItemId`·`accepted`, 구매자·판매자 ID 없음(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — `buyerUserId`·`sellerUserId`·제목 없음 | — | 값 추가 요청(M2). 요청 값 2.1 |
-| `LECTURE_OBJECTION_RETURN_COMPLETED` | 이의 제기 반환 완료 | 구매자 | `LectureObjectionReturnCompletedEvent` | 이의 제기 인정 뒤 반환 완료 | — | 미정 | 미정(U5) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`, 필드 `inquiryId`·`orderItemId`뿐(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — 구매자 ID·제목 없음 | — | 값 추가 요청(M2). 요청 값 2.1 |
-| `LECTURE_OBJECTION_WITHDRAWN` | 이의 제기 철회 | 판매자 | `LectureObjectionWithdrawnEvent` | 이의 제기 철회 | — | 미정 | 미정(U5) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`, 필드 `commandId`·`inquiryId`·`orderItemId`뿐(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — 판매자 ID·제목 없음 | — | 값 추가 요청(M2). 요청 값 2.1 |
+| `LECTURE_OBJECTION_RESOLVED` | 이의 제기 기각·인정 | 구매자, 판매자 | `LectureObjectionResolvedEvent` | 이의 제기 기각 또는 인정. `accepted`로 문구를 나눈다 | — | 미정 | 미정(U5) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`(key `order-item:<주문 항목 ID>`), 필드 `commandId`·`inquiryId`·`orderItemId`·`accepted`, 구매자·판매자 ID 없음(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — `buyerUserId`·`sellerUserId`·제목 없음 / **2026-11-10 #818: 값 추가**: `buyerUserId`·`sellerUserId`·`lectureTitle`·`resolvedAt` (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | — | 값 추가 요청(M2). 요청 값 2.1 |
+| `LECTURE_OBJECTION_RETURN_COMPLETED` | 이의 제기 반환 완료 | 구매자 | `LectureObjectionReturnCompletedEvent` | 이의 제기 인정 뒤 반환 완료 | — | 미정 | 미정(U5) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`, 필드 `inquiryId`·`orderItemId`뿐(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — 구매자 ID·제목 없음 / **2026-11-10 #818: 값 추가**: `buyerUserId`·`sellerUserId`·`lectureTitle`·`returnedAt` (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | — | 값 추가 요청(M2). 요청 값 2.1 |
+| `LECTURE_OBJECTION_WITHDRAWN` | 이의 제기 철회 | 판매자 | `LectureObjectionWithdrawnEvent` | 이의 제기 철회 | — | 미정 | 미정(U5) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`, 필드 `commandId`·`inquiryId`·`orderItemId`뿐(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — 판매자 ID·제목 없음 / **2026-11-10 #818: 값 추가**: `buyerUserId`·`sellerUserId`·`lectureTitle`·`withdrawnAt` (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | — | 값 추가 요청(M2). 요청 값 2.1 |
 
 **보내지 않는 것**: 검수 요청 도착(관리자), 강의 판매·구매 취소 발생(판매자), 반환 자동 처리 멈춤(관리자 경보).
 
@@ -205,7 +206,7 @@
 | `INQUIRY_ANSWERED` | 문의 답변 도착 | 문의한 회원 | `InquiryAnsweredEvent` | 문의 답변 도착 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`InquiryUseCase` 148~162행 근처) | — | 요청 값 5.1 |
 | `INQUIRY_REPLY_EDITED` | 답변 수정 | 문의한 회원 | `InquiryReplyEditedEvent` | 답변 수정 | — | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`InquiryUseCase` 148~162행 근처) | — | 요청 값 5.1 |
 | `LECTURE_OBJECTION_FILE_REJECTED` | 이의 제기 접수 불가 (재시도 뒤) | 구매자 | `LectureObjectionFileRejectedEvent` (고객센터 발행) | 고객센터 재시도 배치가 이의 제기를 접수 불가로 끝낼 때 | 바로 거절된 접수(화면에서 바로 보인다). 재시도 배치가 접수 불가로 끝낼 때만 보낸다 | 미정 | 미정(U5) | 원본 🆕 / 재확인: 레코드 없음 / **2026-11-06 판정: 미충족** — 발행 없음(`LectureObjectionFiler` 108~124행 근처). 재시도 배치 경로는 `delete=false`로 식별 가능 | ND-015 | 접수 성공은 2장 `LECTURE_OBJECTION_FILED`. 요청 값 5.1 |
-| `LECTURE_OBJECTION_RETURN_ACTION_REQUIRED` | 반환 지연 | 구매자 | `LectureObjectionReturnActionRequiredEvent` | 이의 제기 반환 지연 | — | 미정 | 미정(U5) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`(`lecture.events.v1`, key `order-item:<주문 항목 ID>`), 필드 `inquiryId`·`orderItemId`뿐(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — `buyerUserId`·제목 없음 | — | 값 추가 요청(M2, 2.1) |
+| `LECTURE_OBJECTION_RETURN_ACTION_REQUIRED` | 반환 지연 | 구매자 | `LectureObjectionReturnActionRequiredEvent` | 이의 제기 반환 지연 | — | 미정 | 미정(U5) | 원본 ⚠️ / 재확인: 레코드 있음, `@Externalized`(`lecture.events.v1`, key `order-item:<주문 항목 ID>`), 필드 `inquiryId`·`orderItemId`뿐(그대로 ⚠️) / **2026-11-06 판정: 미충족(⚠️ 유지)** — `buyerUserId`·제목 없음 / **2026-11-10 #818: 값 추가**: `buyerUserId`·`sellerUserId`·`lectureTitle`·`returnDelaySequence`·`occurredAt` (필드 이름·타입은 [이벤트 계약 요청](event-contracts.md) 2장) | — | 값 추가 요청(M2, 2.1) |
 
 **보내지 않는 것**: 새 문의 도착(관리자), 답변 삭제, FAQ 등록·수정.
 

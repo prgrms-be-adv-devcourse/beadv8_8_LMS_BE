@@ -51,10 +51,12 @@ import com.hapbang.testsupport.RedisTestcontainersConfig;
                 "hapbang.scheduling.enabled=false",
                 // 이 테스트는 Kafka 없이 앱 뼈대(포트·Flyway·헬스)를 본다. 알림 회원 이벤트 소비자는 끄고, 소비는 알림 모듈 Kafka 테스트가 본다
                 "hapbang.notification.member-events.enabled=false",
-                // 챗봇 출연 이벤트 소비(#716)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
-                "hapbang.chatbot.appearance-events.enabled=false",
-                // 운영 설정은 출연 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다
+                // 챗봇 사본 이벤트 소비(출연·회원·강의, #716·#717)는 Kafka가 없는 이 테스트에서 끈다. 소비는 챗봇 모듈 Kafka 테스트가 본다
+                "hapbang.chatbot.copy-events.enabled=false",
+                // 운영 설정은 다른 앱 내부 API 주소를 환경 변수로만 받는다(기본값 없음). 이 테스트는 부르지 않는다
                 "hapbang.clients.appearance.base-url=http://localhost:1",
+                "hapbang.clients.member.base-url=http://localhost:1",
+                "hapbang.clients.lecture.base-url=http://localhost:1",
                 // k8s에서 자동으로 켜지는 liveness·readiness 그룹을 켠다
                 "management.endpoint.health.probes.enabled=true",
                 // 테스트는 기본으로 지표 내보내기를 끈다. 운영처럼 Prometheus 형식을 연다

@@ -9,6 +9,7 @@ import java.util.Map;
  *     <li>{@code inserted}: 원본에만 있어 넣은 건수</li>
  *     <li>{@code fixed}: 원본 새것 + 같은 version 다른 값으로 고친 건수. version만 오른 정상 건은 넣지 않는다</li>
  *     <li>{@code oursNewer}: 우리 version이 커서 무시한 건수</li>
+ *     <li>{@code discarded}: 마스킹한 회원의 데이터라 버린 건수(#717). 경고 비율의 분모에서도 뺀다</li>
  * </ul>
  */
 public final class SyncTally {
@@ -27,7 +28,8 @@ public final class SyncTally {
      */
     public boolean warns(double ratio, long minChanged) {
         long changed = inserted() + fixed();
-        return scanned > 0 && changed >= minChanged && (double) changed / scanned >= ratio;
+        long compared = scanned - discarded();
+        return compared > 0 && changed >= minChanged && (double) changed / compared >= ratio;
     }
 
     public long scanned() {
@@ -44,5 +46,9 @@ public final class SyncTally {
 
     public long oursNewer() {
         return counts.getOrDefault(CopyOutcome.OURS_NEWER, 0L);
+    }
+
+    public long discarded() {
+        return counts.getOrDefault(CopyOutcome.DISCARDED, 0L);
     }
 }
