@@ -38,9 +38,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.hapbang.coupon.app.port.LectureCatalog;
-import com.hapbang.coupon.app.port.PromotionBudgetPort;
-import com.hapbang.coupon.app.port.PromotionBudgetPort.BudgetResult;
-import com.hapbang.coupon.app.port.PromotionBudgetPort.Outcome;
+import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
+import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
 import com.hapbang.coupon.config.CouponIssueConsumerKafkaConfig;
 import com.hapbang.coupon.domain.Coupon;
 import com.hapbang.coupon.out.CouponRepository;
@@ -108,7 +108,7 @@ class CouponRecoveryE2eTest {
     private KafkaListenerEndpointRegistry listenerRegistry;
 
     @MockitoBean
-    private PromotionBudgetPort promotionBudgetPort;
+    private PromotionBudget promotionBudget;
 
     @MockitoBean
     private LectureCatalog lectureCatalog;
@@ -125,7 +125,7 @@ class CouponRecoveryE2eTest {
 
     @Test
     void Redis_유실_뒤_관리자_복구_절차로_DB_확정_결과를_재구축하고_새_epoch로_재개하면_신규_접수가_발급된다() throws Exception {
-        given(promotionBudgetPort.reserve(anyString(), anyLong(), anyInt(), anyLong()))
+        given(promotionBudget.reserve(anyString(), anyLong(), anyInt(), anyLong()))
                 .willReturn(new BudgetResult(Outcome.SUCCEEDED, "reservation-1", null));
         long couponId = createAndOpenPlatformCoupon();
         await().atMost(WAIT).until(() -> consumer().isRunning() && !consumer().getAssignedPartitions().isEmpty());

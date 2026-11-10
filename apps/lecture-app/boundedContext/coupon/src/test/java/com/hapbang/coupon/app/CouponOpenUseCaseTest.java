@@ -34,9 +34,9 @@ import com.hapbang.coupon.app.port.CouponIssueStore.IssueControl;
 import com.hapbang.coupon.app.port.CouponIssueStoreUnavailableException;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
-import com.hapbang.coupon.app.port.PromotionBudgetPort;
-import com.hapbang.coupon.app.port.PromotionBudgetPort.BudgetResult;
-import com.hapbang.coupon.app.port.PromotionBudgetPort.Outcome;
+import com.hapbang.coupon.app.port.PromotionBudget;
+import com.hapbang.coupon.app.port.PromotionBudget.BudgetResult;
+import com.hapbang.coupon.app.port.PromotionBudget.Outcome;
 import com.hapbang.coupon.domain.BudgetWork;
 import com.hapbang.coupon.domain.BudgetWorkStatus;
 import com.hapbang.coupon.domain.Coupon;
@@ -63,10 +63,10 @@ class CouponOpenUseCaseTest {
     private final BudgetWorkRepository budgetWorkRepository = mock();
     private final CouponIssueStore issueStore = mock();
     private final CouponCapacitySupport capacitySupport = mock();
-    private final PromotionBudgetPort budgetPort = mock();
+    private final PromotionBudget promotionBudget = mock();
     private final LectureCatalog lectureCatalog = mock();
     @SuppressWarnings("unchecked")
-    private final ObjectProvider<PromotionBudgetPort> budgetPortProvider = mock();
+    private final ObjectProvider<PromotionBudget> promotionBudgetProvider = mock();
     private final Map<String, BudgetWork> works = new HashMap<>();
     private final CouponVersionFake db = new CouponVersionFake(couponRepository);
 
@@ -76,9 +76,9 @@ class CouponOpenUseCaseTest {
     @BeforeEach
     void setUp() {
         CouponSupport support = new CouponSupport(couponRepository, lectureCatalog, issueStore);
-        useCase = new CouponOpenUseCase(support, budgetWorkRepository, issueStore, capacitySupport, budgetPortProvider,
+        useCase = new CouponOpenUseCase(support, budgetWorkRepository, issueStore, capacitySupport, promotionBudgetProvider,
                 new CouponRedisProperties(KEYS_EXPIRE_MARGIN), db.transactionManager(), CLOCK);
-        when(budgetPortProvider.getIfAvailable()).thenReturn(budgetPort);
+        when(promotionBudgetProvider.getIfAvailable()).thenReturn(promotionBudget);
         lectureSaleStatus("ON_SALE");
         when(issueStore.allowIssue(anyLong(), anyLong())).thenReturn(AllowResult.APPLIED);
         when(budgetWorkRepository.findById(anyString()))
@@ -101,7 +101,7 @@ class CouponOpenUseCaseTest {
     }
 
     private void budgetReturns(Outcome outcome, String reservationId) {
-        when(budgetPort.reserve(WORK_ID, COUPON_ID, 1, BUDGET)).thenReturn(new BudgetResult(outcome, reservationId, null));
+        when(promotionBudget.reserve(WORK_ID, COUPON_ID, 1, BUDGET)).thenReturn(new BudgetResult(outcome, reservationId, null));
     }
 
     @Test
@@ -122,8 +122,8 @@ class CouponOpenUseCaseTest {
         assertThat(coupon.isRedisReady()).isTrue();
         assertThat(works.get(WORK_ID).getStatus()).isEqualTo(BudgetWorkStatus.DONE);
         // 예산 기록 커밋으로 version 1, 준비는 그 version을 fence로, OPEN 커밋(version 2) 뒤에 접수를 연다
-        InOrder order = inOrder(budgetPort, issueStore);
-        order.verify(budgetPort).reserve(WORK_ID, COUPON_ID, 1, BUDGET);
+        InOrder order = inOrder(promotionBudget, issueStore);
+        order.verify(promotionBudget).reserve(WORK_ID, COUPON_ID, 1, BUDGET);
         order.verify(issueStore).prepare(new IssueControl(COUPON_ID, 1, 100, ISSUE_START, ISSUE_END,
                 ISSUE_END.plus(KEYS_EXPIRE_MARGIN), 1, ExpiryType.RELATIVE, 30, null));
         order.verify(issueStore).allowIssue(COUPON_ID, 2);
@@ -145,19 +145,19 @@ class CouponOpenUseCaseTest {
 
     static Stream<Arguments> unknownBudgetResults() {
         return Stream.of(
-                Arguments.of("UNKNOWN", (Consumer<PromotionBudgetPort>) port -> when(port.reserve(any(), anyLong(),
+                Arguments.of("UNKNOWN", (Consumer<PromotionBudget>) port -> when(port.reserve(any(), anyLong(),
                         anyInt(), anyLong())).thenReturn(new BudgetResult(Outcome.UNKNOWN, null, "timeout"))),
-                Arguments.of("호출 예외", (Consumer<PromotionBudgetPort>) port -> when(port.reserve(any(), anyLong(),
+                Arguments.of("호출 예외", (Consumer<PromotionBudget>) port -> when(port.reserve(any(), anyLong(),
                         anyInt(), anyLong())).thenThrow(new IllegalStateException("연결 실패"))),
-                Arguments.of("예약 ID 없는 성공", (Consumer<PromotionBudgetPort>) port -> when(port.reserve(any(),
+                Arguments.of("예약 ID 없는 성공", (Consumer<PromotionBudget>) port -> when(port.reserve(any(),
                         anyLong(), anyInt(), anyLong())).thenReturn(new BudgetResult(Outcome.SUCCEEDED, " ", null))));
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("unknownBudgetResults")
-    void 예산_결과를_모르면_작업은_PENDING이고_열지_않는다(String name, Consumer<PromotionBudgetPort> stub) {
+    void 예산_결과를_모르면_작업은_PENDING이고_열지_않는다(String name, Consumer<PromotionBudget> stub) {
         given(draftPlatformCoupon());
-        stub.accept(budgetPort);
+        stub.accept(promotionBudget);
 
         assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
 
@@ -192,14 +192,14 @@ class CouponOpenUseCaseTest {
         var view = useCase.open(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
-        verify(budgetPort, times(1)).reserve(any(), anyLong(), anyInt(), anyLong());
+        verify(promotionBudget, times(1)).reserve(any(), anyLong(), anyInt(), anyLong());
         verify(issueStore, times(2)).prepare(any());
     }
 
     @Test
     void 예산_작업이_PENDING이면_같은_작업_ID로_다시_예약한다() {
         given(draftPlatformCoupon());
-        when(budgetPort.reserve(WORK_ID, COUPON_ID, 1, BUDGET))
+        when(promotionBudget.reserve(WORK_ID, COUPON_ID, 1, BUDGET))
                 .thenReturn(new BudgetResult(Outcome.UNKNOWN, null, "timeout"))
                 .thenReturn(new BudgetResult(Outcome.SUCCEEDED, "rsv-1", null));
         assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
@@ -207,7 +207,7 @@ class CouponOpenUseCaseTest {
         var view = useCase.open(ADMIN_ID, COUPON_ID);
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
-        verify(budgetPort, times(2)).reserve(WORK_ID, COUPON_ID, 1, BUDGET);
+        verify(promotionBudget, times(2)).reserve(WORK_ID, COUPON_ID, 1, BUDGET);
         verify(budgetWorkRepository, times(1)).save(any());
     }
 
@@ -216,7 +216,7 @@ class CouponOpenUseCaseTest {
         String retryWorkId = WORK_ID + "-a2";
         given(draftPlatformCoupon());
         budgetReturns(Outcome.REJECTED, null);
-        when(budgetPort.reserve(retryWorkId, COUPON_ID, 1, BUDGET))
+        when(promotionBudget.reserve(retryWorkId, COUPON_ID, 1, BUDGET))
                 .thenReturn(new BudgetResult(Outcome.SUCCEEDED, "rsv-2", null));
         assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_REJECTED);
 
@@ -227,9 +227,9 @@ class CouponOpenUseCaseTest {
         assertThat(works.get(WORK_ID).getStatus()).isEqualTo(BudgetWorkStatus.FAILED);
         assertThat(works.get(retryWorkId).getStatus()).isEqualTo(BudgetWorkStatus.DONE);
         assertThat(works.get(retryWorkId).getResult()).isEqualTo("rsv-2");
-        InOrder order = inOrder(budgetPort);
-        order.verify(budgetPort).reserve(WORK_ID, COUPON_ID, 1, BUDGET);
-        order.verify(budgetPort).reserve(retryWorkId, COUPON_ID, 1, BUDGET);
+        InOrder order = inOrder(promotionBudget);
+        order.verify(promotionBudget).reserve(WORK_ID, COUPON_ID, 1, BUDGET);
+        order.verify(promotionBudget).reserve(retryWorkId, COUPON_ID, 1, BUDGET);
         verify(budgetWorkRepository, times(2)).save(any());
     }
 
@@ -240,7 +240,7 @@ class CouponOpenUseCaseTest {
 
         assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.COUPON_CONCURRENT_UPDATE);
 
-        verifyNoInteractions(budgetPort, issueStore);
+        verifyNoInteractions(promotionBudget, issueStore);
     }
 
     @Test
@@ -251,7 +251,7 @@ class CouponOpenUseCaseTest {
         CouponCreateUseCaseTest.assertNotOnSale(() -> useCase.open(ADMIN_ID, COUPON_ID));
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.DRAFT);
-        verifyNoInteractions(budgetPort, budgetWorkRepository, issueStore);
+        verifyNoInteractions(promotionBudget, budgetWorkRepository, issueStore);
     }
 
     @Test
@@ -268,7 +268,7 @@ class CouponOpenUseCaseTest {
     @Test
     void 모든_강의_대상_플랫폼_쿠폰은_강의를_조회하지_않고_연다() {
         given(withId(Coupon.createPlatform(ADMIN_ID, anyLectureAmount().build(), NOW)));
-        when(budgetPort.reserve(eq(WORK_ID), eq(COUPON_ID), eq(1), anyLong()))
+        when(promotionBudget.reserve(eq(WORK_ID), eq(COUPON_ID), eq(1), anyLong()))
                 .thenReturn(new BudgetResult(Outcome.SUCCEEDED, "rsv-1", null));
 
         var view = useCase.open(ADMIN_ID, COUPON_ID);
@@ -281,7 +281,7 @@ class CouponOpenUseCaseTest {
     @Test
     void 예산_연동이_없으면_503이고_아무것도_하지_않는다() {
         given(draftPlatformCoupon());
-        when(budgetPortProvider.getIfAvailable()).thenReturn(null);
+        when(promotionBudgetProvider.getIfAvailable()).thenReturn(null);
 
         assertCouponError(() -> useCase.open(ADMIN_ID, COUPON_ID), CouponErrorCode.PROMOTION_BUDGET_UNAVAILABLE);
 
@@ -299,7 +299,7 @@ class CouponOpenUseCaseTest {
         InOrder order = inOrder(issueStore);
         order.verify(issueStore).prepare(argThat(control -> control.fence() == 0));
         order.verify(issueStore).allowIssue(COUPON_ID, 1);
-        verifyNoInteractions(budgetPortProvider, budgetPort, budgetWorkRepository);
+        verifyNoInteractions(promotionBudgetProvider, promotionBudget, budgetWorkRepository);
     }
 
     @Test
@@ -337,7 +337,7 @@ class CouponOpenUseCaseTest {
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.DRAFT);
         verify(capacitySupport, never()).reserve(any());
-        verifyNoInteractions(lectureCatalog, budgetPort, issueStore);
+        verifyNoInteractions(lectureCatalog, promotionBudget, issueStore);
     }
 
     @Test
@@ -371,13 +371,13 @@ class CouponOpenUseCaseTest {
 
         assertThat(coupon.getStatus()).isEqualTo(CouponStatus.DRAFT);
         assertThat(works).isEmpty();
-        verifyNoInteractions(lectureCatalog, budgetPort, budgetWorkRepository, issueStore);
+        verifyNoInteractions(lectureCatalog, promotionBudget, budgetWorkRepository, issueStore);
     }
 
     /** 시계만 다른 같은 UseCase */
     private CouponOpenUseCase useCaseAt(Instant now) {
         return new CouponOpenUseCase(new CouponSupport(couponRepository, lectureCatalog, issueStore),
-                budgetWorkRepository, issueStore, capacitySupport, budgetPortProvider,
+                budgetWorkRepository, issueStore, capacitySupport, promotionBudgetProvider,
                 new CouponRedisProperties(KEYS_EXPIRE_MARGIN),
                 db.transactionManager(), Clock.fixed(now, ZoneOffset.UTC));
     }
@@ -431,7 +431,7 @@ class CouponOpenUseCaseTest {
 
         assertThat(view.status()).isEqualTo(CouponStatus.OPEN);
         verify(issueStore).allowIssue(COUPON_ID, openedVersion + 1);
-        verify(budgetPort, times(1)).reserve(any(), anyLong(), anyInt(), anyLong());
+        verify(promotionBudget, times(1)).reserve(any(), anyLong(), anyInt(), anyLong());
         verify(issueStore, times(1)).prepare(any());
     }
 

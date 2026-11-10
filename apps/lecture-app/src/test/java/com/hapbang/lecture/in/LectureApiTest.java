@@ -37,7 +37,7 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.domain.LectureUser;
 import com.hapbang.lecture.fixture.LectureOrderFixture;
-import com.hapbang.lecture.fake.FakeCouponClient;
+import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.FileResourceRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.shared.coupon.api.CouponPriceRaiseBlockedResponse;
@@ -110,7 +110,7 @@ class LectureApiTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private FakeCouponClient coupon;
+    private FakeCouponApiClient coupon;
 
     @BeforeEach
     void setUp() {

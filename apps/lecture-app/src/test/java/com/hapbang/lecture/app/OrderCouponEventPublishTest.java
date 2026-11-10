@@ -26,7 +26,7 @@ import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.domain.OrderItemCoupon;
 import com.hapbang.lecture.fake.CommittedCouponOrderEvents;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
-import com.hapbang.lecture.fake.FakeCouponClient;
+import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.OrderItemCouponRepository;
@@ -78,7 +78,7 @@ class OrderCouponEventPublishTest {
     private FakeBillingApiClient billing;
 
     @Autowired
-    private FakeCouponClient coupon;
+    private FakeCouponApiClient coupon;
 
     @Autowired
     private CommittedCouponOrderEvents events;

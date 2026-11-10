@@ -43,6 +43,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
                         // 관리자 API는 모든 모듈이 /api/v1/{module}/admin/** 아래에 둔다 (2026-10-12 회의)
                         .requestMatchers("/api/v1/*/admin/**").hasRole("ADMIN")
+                        // 알림 웹소켓 연결(핸드셰이크)만 연다. 브라우저는 업그레이드 요청에 Authorization을 싣지 못해 사용자 헤더가 없다.
+                        // 인증은 알림 모듈이 일회용 연결 티켓으로 한다(docs/notification/decisions.md ND-060). 다른 알림 경로는 로그인이 필요하다
+                        .requestMatchers(HttpMethod.GET, "/api/v1/notifications/ws").permitAll()
                         // 업무 API는 비회원에게 열지 않는다. 역할 검사는 각 모듈 Facade의 @PreAuthorize로 한다(챗봇은 로그인 회원 전체)
                         .anyRequest().authenticated()
                 )

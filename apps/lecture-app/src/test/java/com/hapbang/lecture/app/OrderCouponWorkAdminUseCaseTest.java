@@ -18,7 +18,7 @@ import com.hapbang.lecture.domain.Lecture;
 import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
-import com.hapbang.lecture.fake.FakeCouponClient;
+import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
@@ -56,7 +56,7 @@ class OrderCouponWorkAdminUseCaseTest {
     private FakeBillingApiClient billing;
 
     @Autowired
-    private FakeCouponClient coupon;
+    private FakeCouponApiClient coupon;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

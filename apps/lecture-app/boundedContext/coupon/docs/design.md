@@ -36,7 +36,7 @@ hapbang-backend/
    ├─ src/main/java/com/hapbang/lecture/     # 기존 강의 코드 그대로
    │  ├─ LectureApplication.java             # scan 범위에 com.hapbang.coupon 추가
    │  ├─ app/ config/ domain/ global/ in/
-   │  └─ out/coupon/CouponClient.java       # 쿠폰 내부 API를 부르는 @HttpExchange 클라이언트
+   │  └─ out/coupon/                         # LectureCouponInternalApi(@HttpExchange), CouponApiClient(circuit breaker coupon, 결과 4가지)
    ├─ src/main/resources/
    │  ├─ application.yaml                    # flyway.schemas += coupon, locations += db/migration/coupon, hapbang.coupon.base-url
    │  └─ db/migration/                       # 강의 마이그레이션 그대로
@@ -105,6 +105,20 @@ hapbang-backend/
 - JPA 엔티티는 `@Table(schema = "coupon")`로 스키마를 명시한다. Flyway는 한 인스턴스이고 `schemas: [lecture, coupon]`, `default-schema: lecture`다. 쿠폰 마이그레이션은 `:coupon`의 `db/migration/coupon`에 두며(기본 위치가 재귀로 읽는다) SQL은 `coupon.` 접두사를 명시한다.
 - 다른 스키마를 직접 읽지 않는다(JOIN·FK·Repository 접근 금지). 강의 상태 확인은 제공 계약을 통해 수행한다.
 - 통합 테스트는 한 모듈 롤백이 다른 모듈 커밋을 되돌리지 않음을 확인한다(운영 문서 "경계" 시나리오). HTTP·Kafka만 쓰므로 구조상 묶일 수 없지만, 실수로 Java 직접 호출이 들어오면 Modulith `verify()`가 잡는다.
+
+### 용어: 포트·어댑터·클라이언트 (2026-11-10)
+
+이 레포에서 "포트"는 두 뜻으로 쓰인다. 문서에서는 아래처럼 구분해 쓴다.
+
+| 용어 | 뜻 | 쿠폰·강의 예 |
+| --- | --- | --- |
+| 포트(port), 포트 인터페이스 | app 코드가 바깥에 기대하는 동작을 적은 **Java 인터페이스**. app이 상대가 누구인지·어떻게 통신하는지 모르게 한다. 물리적 연결이 아니다. `app/port` 패키지에 둔다 | `LectureCatalog`, `PromotionBudget`, `CouponIssueStore` |
+| 어댑터(adapter) | 포트를 구현하는 **클래스**. `out` 패키지에 두고, 안에서 클라이언트·Redis·Kafka를 써서 실제로 통신한다 | `HttpLectureCatalog`(→ `LectureCatalog`), `RedisCouponIssueStore`, `KafkaCouponIssueEventPublisher` |
+| 클라이언트(client) | 상대 앱 HTTP API의 모양을 그대로 옮긴 것. `@HttpExchange` 인터페이스(`<호출자><상대>InternalApi`)나, 그것·RestClient를 감싸 오류·결과를 정리하는 클래스(`<상대>ApiClient`). 어댑터가 쓴다. 포트가 없는 모듈(강의)에서는 app이 `…ApiClient`를 바로 부른다 | `CouponLectureInternalApi`, `LectureCouponInternalApi`, 강의 `CouponApiClient`, 공용 `BillingApiClient` |
+| 내부 포트, 내부 API 포트 | **네트워크 포트 번호**. 앱 간 내부 HTTP API만 받는 포트(8081). 외부 API 포트는 8080이다. 항상 "내부 포트(8081)"처럼 번호와 함께 쓴다 | `http://billing-app:8081` |
+
+- 쿠폰과 billing은 다른 JVM(다른 앱)이다. `PromotionBudget`의 어댑터는 billing-app 내부 포트(8081)의 HTTP API를 클라이언트로 부른다. 쿠폰과 강의도 같은 pod지만 JVM이 나뉜 것처럼 HTTP로만 부른다.
+- 이름 규칙: 포트는 할 일을 나타내는 이름에 접미사를 붙이지 않는다(`LectureCatalog`, `PromotionBudget`). 어댑터는 `<기술>` + 포트 이름(`Http`·`Redis`·`Kafka`). `@HttpExchange` 클라이언트는 `<호출자><상대>InternalApi`, 그것을 감싸는 클래스는 `<상대>ApiClient`. 2026-11-10 리팩토링으로 기존 이름도 이 규칙에 맞췄다(`PromotionBudgetPort` → `PromotionBudget`, 강의 `CouponClient` → `CouponApiClient`). 설정 키 `lecture.coupon-client.*`·circuit breaker 이름 `coupon`은 운영 설정이라 그대로 둔다.
 
 ## 발행과 플랫폼 예산
 

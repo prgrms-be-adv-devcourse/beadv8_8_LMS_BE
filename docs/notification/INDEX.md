@@ -15,7 +15,7 @@
 
 ## 2. 현재 구현 상태
 
-**모듈 뼈대(N1, #797)만 있다.** Gradle 모듈 `:notification`과 schema `notification`, 회원 복제본(`notification_user`)과 그 소비자, Kafka 소비·DLT 공통 설정이 있다. 알림을 만들고 저장·조회·전달하는 코드는 아직 없다(N2 이후). 구현된 범위는 [`module.md`](module.md) 2장 As-Is가 원본이다.
+**모듈 뼈대(N1, #797)와 알림 저장·REST(N2, #801)가 있다.** Gradle 모듈 `:notification`과 schema `notification`, 회원 복제본과 그 소비자, Kafka 소비·DLT 공통 설정, 알림 저장·보존·조회·읽음·파기 닉네임 처리가 있다. 실시간 전달(N3, #829)은 브랜치에서 구현 중이다. 이벤트를 소비해 알림을 만드는 코드(N5 이후)는 아직 없다. 구현된 범위는 [`module.md`](module.md) 2장 As-Is가 원본이다.
 
 | 무엇 | 어디서 확인하나 |
 | --- | --- |

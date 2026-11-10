@@ -4,6 +4,12 @@
 dependencies {
     implementation(project(":auxiliary-global"))
     implementation("org.springframework.boot:spring-boot-starter-kafka")
+    // 실시간 전달(N3, ND-027·ND-028): 자체 STOMP와 Redis Pub/Sub·연결 티켓. Redis는 실행 앱이 common :redis를 의존하지만 업무 모듈은
+    // :redis 프로젝트를 의존할 수 없어 같은 starter를 직접 쓴다(Kafka와 같은 이유)
+    implementation("org.springframework.boot:spring-boot-starter-websocket")
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+    // 실시간 전달에서 버린 프레임 지표(NotificationRealtimeRelay). 버전은 Boot BOM
+    implementation("io.micrometer:micrometer-core")
 
     testImplementation(project(":test-support"))
 }

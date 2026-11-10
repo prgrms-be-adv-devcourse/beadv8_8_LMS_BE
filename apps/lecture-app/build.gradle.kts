@@ -20,7 +20,7 @@ dependencies {
     implementation(libs.resilience4j.ratelimiter)
     implementation(libs.resilience4j.bulkhead)
     implementation(libs.resilience4j.micrometer)
-    // 쿠폰 사용 내부 API 호출(CouponClient)의 circuit breaker. 쿠폰 모듈의 강의 조회 호출과 같은 라이브러리다
+    // 쿠폰 사용 내부 API 호출(CouponApiClient)의 circuit breaker. 쿠폰 모듈의 강의 조회 호출과 같은 라이브러리다
     implementation(libs.resilience4j.circuitbreaker)
     // 이의 제기 결과·반환 이벤트를 Modulith 발행 기록(event_publication)을 거쳐 Kafka로 내보낸다(이벤트 외부화, #278). 버전은 Modulith BOM을 따른다
     implementation("org.springframework.modulith:spring-modulith-events-kafka")

@@ -36,6 +36,10 @@ logging:
       # 운영 로그는 JSON 한 줄(Boot 내장 logstash 형식)로 쓴다. 필드·MDC 키·조회는 docs/dev/logging.md (#582)
       console: logstash
 hapbang:
+  notification:
+    websocket:
+      # 알림 웹소켓 핸드셰이크를 허용할 프론트 출처(chat-app과 같은 값). Gateway route는 N4에서 연다
+      allowed-origins: https://hapbang.duckdns.org
   chatbot:
     faq:
       index-name: chatbot-faq-openai-1536

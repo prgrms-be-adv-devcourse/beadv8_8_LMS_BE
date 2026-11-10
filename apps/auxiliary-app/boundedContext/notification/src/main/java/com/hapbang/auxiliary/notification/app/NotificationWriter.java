@@ -36,6 +36,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>그 종류의 템플릿으로 문구를 만든다(ND-020·ND-050). 언급 회원 중 이미 파기된 회원의 닉네임은 {@code 탈퇴회원#{회원ID}}로
  *     바꿔 저장한다(ND-054).</li>
  *     <li>같은 트랜잭션에서 발생 시각 기준 21번째부터 Soft Delete한다(ND-022). 늦게 온 오래된 알림은 자신이 숨겨진다.</li>
+ *     <li>commit 뒤에 실시간 전달을 맡긴다({@link NotificationRealtimeRelay}, ND-027). 중복·탈퇴로 만들지 않은 알림은 넘기지 않는다.</li>
  * </ol>
  * 잠금 순서는 회원 advisory lock → 받는 사람 복제본 행 → 알림 행(ID 오름차순)이다. 파기·읽음도 같은 순서를 따르므로 교착 상태가 없다
  * (module.md 3.2 "동시성").
@@ -53,6 +54,7 @@ public class NotificationWriter {
     private final NotificationTemplates templates;
     private final ReceiverPolicy receiverPolicy;
     private final MemberMaskLocks maskLocks;
+    private final NotificationRealtimeRelay realtime;
 
     /**
      * @throws NotificationException 받는 사람 복제본이 없으면 {@code RECEIVER_NOT_REPLICATED}
@@ -86,6 +88,8 @@ public class NotificationWriter {
         }
         Notification saved = notifications.save(notification);
         keepLatest(draft.receiverUserId(), Instant.now());
+        // commit 뒤에만, 저장 스레드 밖에서 실시간으로 넘긴다. 밀려난 알림이면 넘기지 않는다(ND-027·ND-059)
+        realtime.publishAfterCommit(saved.getId(), draft.receiverUserId());
         return NotificationWriteResult.created(saved.getId());
     }
 

@@ -16,8 +16,8 @@ import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrder;
 import com.hapbang.lecture.out.LectureOrderRepository;
 import com.hapbang.lecture.out.LectureRepository;
+import com.hapbang.lecture.out.coupon.CouponApiClient;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
-import com.hapbang.lecture.out.coupon.CouponClient;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
 import com.hapbang.shared.coupon.api.CouponCalculateResponse;
 
@@ -48,7 +48,7 @@ public class OrderCouponQuoteUseCase {
 
     private final LectureRepository lectureRepository;
     private final LectureOrderRepository lectureOrderRepository;
-    private final CouponClient couponClient;
+    private final CouponApiClient couponApiClient;
 
     OrderCouponQuote quote(Long buyerUserId, List<Long> lectureIds, List<OrderCouponSelection> selections,
                            Long expectedBuyerAmountHp) {
@@ -85,7 +85,7 @@ public class OrderCouponQuoteUseCase {
                         lecture.getSellerUserId(), lecture.getPriceHp())).toList(),
                 selections.stream().map(selection -> new CouponCalculateRequest.Selection(
                         selection.memberCouponId(), selection.lectureId())).toList());
-        return switch (couponClient.calculate(request)) {
+        return switch (couponApiClient.calculate(request)) {
             case CouponCallResult.Succeeded<CouponCalculateResponse> succeeded -> succeeded.data();
             case CouponCallResult.Rejected<CouponCalculateResponse> rejected when isAuthFailure(rejected.status()) -> {
                 log.error(AUTH_FAILED_LOG + " 쿠폰 내부 API가 인증·권한을 거절해 주문하지 않았다. 내부 API 키·설정을 확인한다 "

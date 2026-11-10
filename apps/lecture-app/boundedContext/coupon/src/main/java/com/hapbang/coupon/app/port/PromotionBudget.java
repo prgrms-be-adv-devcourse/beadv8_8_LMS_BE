@@ -6,7 +6,7 @@ package com.hapbang.coupon.app.port;
  * <p>
  * 같은 작업 ID의 재호출은 같은 결과를 돌려줘야 한다(멱등). 결과를 알 수 없으면 {@link Outcome#UNKNOWN}이다.
  */
-public interface PromotionBudgetPort {
+public interface PromotionBudget {
 
     BudgetResult reserve(String workId, long couponId, int policyVersion, long amount);
 

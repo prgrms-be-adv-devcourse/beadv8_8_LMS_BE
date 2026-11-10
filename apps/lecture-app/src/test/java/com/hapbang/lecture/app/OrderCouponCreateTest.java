@@ -22,7 +22,7 @@ import com.hapbang.lecture.domain.LectureErrorCode;
 import com.hapbang.lecture.domain.LectureException;
 import com.hapbang.lecture.domain.LectureOrderStatus;
 import com.hapbang.lecture.fake.FakeBillingApiClient;
-import com.hapbang.lecture.fake.FakeCouponClient;
+import com.hapbang.lecture.fake.FakeCouponApiClient;
 import com.hapbang.lecture.out.LectureRepository;
 import com.hapbang.lecture.out.coupon.CouponCallResult;
 import com.hapbang.shared.coupon.api.CouponCalculateRequest;
@@ -31,7 +31,7 @@ import com.hapbang.testsupport.IntegrationTest;
 
 /**
  * 쿠폰 주문 0~1단계(트랜잭션 밖 쿠폰 할인 계산 → 주문·할인 스냅샷·쿠폰 계산 근거·쿠폰 예약 작업 저장)를 Fake 쿠폰 Client와 DB로 확인한다.
- * 쿠폰 Client의 상태 변환은 CouponClientTest가, 할인 합 규칙은 OrderItemDiscountTest가 맡는다.
+ * 쿠폰 Client의 상태 변환은 CouponApiClientTest가, 할인 합 규칙은 OrderItemDiscountTest가 맡는다.
  */
 @IntegrationTest
 @WithMockUser(roles = "USER")
@@ -51,7 +51,7 @@ class OrderCouponCreateTest {
     private FakeBillingApiClient billing;
 
     @Autowired
-    private FakeCouponClient coupon;
+    private FakeCouponApiClient coupon;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
