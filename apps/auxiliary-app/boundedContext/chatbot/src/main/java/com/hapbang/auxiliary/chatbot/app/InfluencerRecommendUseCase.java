@@ -3,7 +3,6 @@ package com.hapbang.auxiliary.chatbot.app;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,12 +15,12 @@ import org.springframework.stereotype.Service;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity;
+import com.hapbang.auxiliary.chatbot.domain.InfluencerPopularity.Stats;
+import com.hapbang.auxiliary.chatbot.domain.InfluencerProfile;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerReason;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
-import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore.Profile;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex.ScoredId;
-import com.hapbang.shared.member.domain.Role;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -33,7 +32,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <tr><th>요청</th><th>취향 벡터</th><th>이유</th></tr>
  *     <tr><td>관심사 문장이 있음(자유 질문 Tool)</td><td>관심사 문장</td><td>{@code MATCHES_INTEREST}</td></tr>
  *     <tr><td>인플루언서이고 내 프로필 문서가 있음</td><td>내 벡터와 함께 마친 상대들 평균을 섞음(상대 쪽 {@code partner-weight})</td>
- *     <td>{@code SIMILAR_CATEGORY}(+ {@code SIMILAR_TO_PARTNERS})</td></tr>
+ *     <td>후보마다 더 가까운 쪽: {@code SIMILAR_CATEGORY} 또는 {@code SIMILAR_TO_PARTNERS}</td></tr>
  *     <tr><td>인플루언서인데 프로필이 비어 있음</td><td>함께 마친 상대들 평균</td><td>{@code SIMILAR_TO_PARTNERS}</td></tr>
  *     <tr><td>위가 모두 없음(일반 회원 포함)</td><td>없음: 인기순만, {@code needsInterest=true}</td><td>{@code POPULAR}</td></tr>
  * </table>
@@ -42,7 +41,7 @@ import lombok.extern.slf4j.Slf4j;
  *     <li>검색: kNN({@code hidden=false}) → 본인·추천 불가(DB로 다시 확인, 색인이 늦어도 안전) 제외 →
  *     {@code (1 − β)·유사도 + β·정규화 인기}(후보 안 min-max). 동점은 회원 ID 내림차순.</li>
  *     <li>이미 함께 출연한 상대는 빼지 않는다(관계가 일회성이 아님). {@code PAST_PARTNER}를 붙인다.</li>
- *     <li>모자라면 인기순으로 채워 늘 {@code size}명을 맞춘다. 요청 회원이 숨김(탈퇴·마스킹)이면 빈 결과다.</li>
+ *     <li>모자라면 인기순으로 채워 {@code size}명을 맞춘다(추천 가능한 회원이 그보다 적으면 그만큼). 요청 회원이 숨김(탈퇴·마스킹)이면 빈 결과다.</li>
  *     <li>임베딩·ES를 쓸 수 없거나 실패하면 인기순으로 답한다(그때 {@code needsInterest}는 false: 입력이 없어서가 아니다).</li>
  * </ul>
  */
@@ -80,7 +79,7 @@ public class InfluencerRecommendUseCase {
         Set<Long> partners = store.completedPartners(userId);
         Map<Long, Candidate> chosen = new LinkedHashMap<>();
         boolean needsInterest = false;
-        if (searchAvailable()) {
+        if (index.available() && embedder.available()) {
             try {
                 Taste taste = taste(userId, partners, interest);
                 if (taste == null) {
@@ -95,54 +94,48 @@ public class InfluencerRecommendUseCase {
             }
         }
         fillPopular(userId, chosen);
-        Map<Long, Profile> profiles = store.profiles(chosen.keySet());
+        Map<Long, InfluencerProfile> profiles = store.profiles(chosen.keySet());
         List<Candidate> items = new ArrayList<>();
         for (Candidate candidate : chosen.values()) {
-            Profile profile = profiles.get(candidate.memberId());
+            InfluencerProfile profile = profiles.get(candidate.memberId());
             items.add(candidate.complete(profile == null ? List.of() : profile.categories(),
                     partners.contains(candidate.memberId())));
         }
         return new InfluencerRecommendation(items, needsInterest);
     }
 
-    private boolean searchAvailable() {
-        return index.available() && embedder.available();
-    }
-
     // 요청 회원의 취향 벡터. 만들 입력이 없으면 null
     private @Nullable Taste taste(long userId, Set<Long> partners, @Nullable String interest) {
         if (interest != null) {
-            return new Taste(embedder.embedQuery(interest), EnumSet.of(InfluencerReason.MATCHES_INTEREST));
+            return Taste.single(embedder.embedQuery(interest), InfluencerReason.MATCHES_INTEREST);
         }
-        Profile me = store.profiles(List.of(userId)).get(userId);
-        if (me == null || (me.role() != Role.INFLUENCER && me.role() != Role.VERIFIED_INFLUENCER)) {
+        InfluencerProfile me = store.profiles(List.of(userId)).get(userId);
+        if (me == null || !me.isInfluencer()) {
             return null;
         }
-        float[] mine = index.vectors(IndexType.INFLUENCER, List.of(String.valueOf(userId))).get(String.valueOf(userId));
+        String myDocId = InfluencerIndexPlan.docIdOf(userId);
+        float[] mine = index.vectors(IndexType.INFLUENCER, List.of(myDocId)).get(myDocId);
         float[] partnerMean = partnerMean(partners);
         if (mine != null && partnerMean != null) {
-            float[] mixed = Vectors.weightedSum(Vectors.normalize(mine), 1 - properties.partnerWeight(),
-                    Vectors.normalize(partnerMean), properties.partnerWeight());
-            return new Taste(mixed, EnumSet.of(InfluencerReason.SIMILAR_CATEGORY, InfluencerReason.SIMILAR_TO_PARTNERS));
+            float[] own = Vectors.normalize(mine);
+            float[] others = Vectors.normalize(partnerMean);
+            float[] mixed = Vectors.weightedSum(own, 1 - properties.partnerWeight(), others, properties.partnerWeight());
+            return new Taste(mixed, null, own, others);
         }
         if (mine != null) {
-            return new Taste(mine, EnumSet.of(InfluencerReason.SIMILAR_CATEGORY));
+            return Taste.single(mine, InfluencerReason.SIMILAR_CATEGORY);
         }
         if (partnerMean != null) {
-            return new Taste(partnerMean, EnumSet.of(InfluencerReason.SIMILAR_TO_PARTNERS));
+            return Taste.single(partnerMean, InfluencerReason.SIMILAR_TO_PARTNERS);
         }
         return null;
     }
 
     // 추천 가능한 상대들의 벡터 평균. 없으면 null
     private float @Nullable [] partnerMean(Set<Long> partners) {
-        Set<Long> recommendable = store.recommendableOf(partners);
-        List<String> ids = new ArrayList<>();
-        for (Long id : recommendable) {
-            ids.add(String.valueOf(id));
-        }
         List<float[]> vectors = new ArrayList<>();
-        for (float[] vector : index.vectors(IndexType.INFLUENCER, ids).values()) {
+        for (float[] vector : index.vectors(IndexType.INFLUENCER,
+                InfluencerIndexPlan.docIdsOf(store.recommendableOf(partners))).values()) {
             vectors.add(Vectors.normalize(vector));
         }
         return vectors.isEmpty() ? null : Vectors.mean(vectors);
@@ -154,30 +147,28 @@ public class InfluencerRecommendUseCase {
                 NOT_HIDDEN);
         Map<Long, Double> similarity = new LinkedHashMap<>();
         for (ScoredId hit : hits) {
-            long id = Long.parseLong(hit.id());
+            long id = InfluencerIndexPlan.memberIdOf(hit.id());
             if (id != userId) {
                 similarity.put(id, hit.score());
             }
         }
-        Set<Long> recommendable = store.recommendableOf(similarity.keySet());
-        similarity.keySet().retainAll(recommendable);
+        similarity.keySet().retainAll(store.recommendableOf(similarity.keySet()));
         if (similarity.isEmpty()) {
             return;
         }
-        List<InfluencerPopularity.Stats> stats = store.popularityStats(similarity.keySet());
-        Map<Long, Double> normalized = InfluencerPopularity.normalize(
-                popularity.rawScores(stats, store.overallMeanRating()));
         double beta = properties.popularityWeight();
-        Map<Long, InfluencerPopularity.Stats> statsById = byId(stats);
-        List<Candidate> ranked = new ArrayList<>();
-        for (Map.Entry<Long, Double> entry : similarity.entrySet()) {
-            long id = entry.getKey();
-            double score = (1 - beta) * entry.getValue() + beta * normalized.getOrDefault(id, 0.0);
-            ranked.add(Candidate.of(statsById.get(id), score, taste.reasons()));
+        List<Candidate> top = rank(store.popularityStats(similarity.keySet()), properties.size(),
+                (stats, normalizedPopularity) -> (1 - beta) * similarity.get(stats.memberId()) + beta * normalizedPopularity,
+                EnumSet.noneOf(InfluencerReason.class));
+        List<Long> topIds = new ArrayList<>();
+        for (Candidate candidate : top) {
+            topIds.add(candidate.memberId());
         }
-        ranked.sort(Candidate.ORDER);
-        for (Candidate candidate : ranked.subList(0, Math.min(properties.size(), ranked.size()))) {
-            chosen.put(candidate.memberId(), candidate);
+        Map<String, float[]> vectors = taste.mixed()
+                ? index.vectors(IndexType.INFLUENCER, InfluencerIndexPlan.docIdsOf(topIds)) : Map.of();
+        for (Candidate candidate : top) {
+            float[] vector = vectors.get(InfluencerIndexPlan.docIdOf(candidate.memberId()));
+            chosen.put(candidate.memberId(), candidate.withReason(taste.reasonFor(vector)));
         }
     }
 
@@ -187,37 +178,68 @@ public class InfluencerRecommendUseCase {
         if (missing <= 0) {
             return;
         }
-        List<Long> pool = new ArrayList<>();
-        for (Long id : store.allRecommendable()) {
-            if (id != userId && !chosen.containsKey(id)) {
-                pool.add(id);
+        List<Stats> pool = new ArrayList<>();
+        for (Stats stats : store.popularityStatsOfRecommendable()) {
+            if (stats.memberId() != userId && !chosen.containsKey(stats.memberId())) {
+                pool.add(stats);
             }
         }
-        if (pool.isEmpty()) {
-            return;
-        }
-        List<InfluencerPopularity.Stats> stats = store.popularityStats(pool);
-        Map<Long, Double> normalized = InfluencerPopularity.normalize(
-                popularity.rawScores(stats, store.overallMeanRating()));
-        List<Candidate> ranked = new ArrayList<>();
-        for (InfluencerPopularity.Stats one : stats) {
-            ranked.add(Candidate.of(one, normalized.getOrDefault(one.memberId(), 0.0), EnumSet.of(InfluencerReason.POPULAR)));
-        }
-        ranked.sort(Candidate.ORDER);
-        for (Candidate candidate : ranked.subList(0, Math.min(missing, ranked.size()))) {
+        for (Candidate candidate : rank(pool, missing, (stats, normalizedPopularity) -> normalizedPopularity,
+                EnumSet.of(InfluencerReason.POPULAR))) {
             chosen.put(candidate.memberId(), candidate);
         }
     }
 
-    private static Map<Long, InfluencerPopularity.Stats> byId(List<InfluencerPopularity.Stats> stats) {
-        Map<Long, InfluencerPopularity.Stats> byId = new HashMap<>();
-        for (InfluencerPopularity.Stats one : stats) {
-            byId.put(one.memberId(), one);
+    // 후보 안에서 인기를 정규화하고 점수를 매겨 위에서 limit명. 동점은 회원 ID 내림차순
+    private List<Candidate> rank(List<Stats> pool, int limit, Scorer scorer, Set<InfluencerReason> reasons) {
+        if (pool.isEmpty()) {
+            return List.of();
         }
-        return byId;
+        Map<Long, Double> normalized = InfluencerPopularity.normalize(popularity.rawScores(pool, store.overallMeanRating()));
+        List<Candidate> ranked = new ArrayList<>();
+        for (Stats stats : pool) {
+            double score = scorer.score(stats, normalized.getOrDefault(stats.memberId(), 0.0));
+            ranked.add(new Candidate(stats, List.of(), score, reasons));
+        }
+        ranked.sort(Candidate.ORDER);
+        return ranked.subList(0, Math.min(limit, ranked.size()));
     }
 
-    private record Taste(float[] vector, Set<InfluencerReason> reasons) {
+    @FunctionalInterface
+    private interface Scorer {
+        double score(Stats stats, double normalizedPopularity);
+    }
+
+    /**
+     * 취향 벡터.
+     *
+     * @param reason 모든 후보에 붙일 이유. 섞은 취향이면 null(후보마다 더 가까운 쪽)
+     * @param own    섞은 취향의 내 프로필 쪽(정규화). 아니면 null
+     * @param others 섞은 취향의 상대 평균 쪽(정규화). 아니면 null
+     */
+    private record Taste(float[] vector, @Nullable InfluencerReason reason, float @Nullable [] own,
+            float @Nullable [] others) {
+
+        static Taste single(float[] vector, InfluencerReason reason) {
+            return new Taste(vector, reason, null, null);
+        }
+
+        boolean mixed() {
+            return reason == null;
+        }
+
+        // 섞은 취향이면 후보 벡터가 내 프로필과 상대 평균 중 더 가까운 쪽(같거나 벡터를 못 읽으면 내 분야)
+        InfluencerReason reasonFor(float @Nullable [] candidate) {
+            if (reason != null) {
+                return reason;
+            }
+            if (candidate == null || own == null || others == null) {
+                return InfluencerReason.SIMILAR_CATEGORY;
+            }
+            float[] normalized = Vectors.normalize(candidate);
+            return Vectors.dot(normalized, others) > Vectors.dot(normalized, own) ? InfluencerReason.SIMILAR_TO_PARTNERS
+                    : InfluencerReason.SIMILAR_CATEGORY;
+        }
     }
 
     /**
@@ -231,18 +253,13 @@ public class InfluencerRecommendUseCase {
     /**
      * 추천 후보 한 명. 회원 정보는 사본에서 센 값만 담는다(닉네임·자기소개 없음).
      *
-     * @param categories           분야 코드(회원이 고른 순서)
-     * @param completedAppearances 함께 마친 출연 수(원본 없음 제외)
-     * @param reviewCount          받은 출연 리뷰 수
-     * @param ratingSum            받은 출연 리뷰 별점 합
-     * @param score                정렬 점수(0~1 근처, 클수록 앞)
+     * @param stats      함께 마친 출연 수·받은 리뷰(원본 없음 제외)
+     * @param categories 분야 코드(회원이 고른 순서)
+     * @param score      정렬 점수(클수록 앞)
      */
     public record Candidate(
-            long memberId,
+            Stats stats,
             List<String> categories,
-            long completedAppearances,
-            long reviewCount,
-            long ratingSum,
             double score,
             Set<InfluencerReason> reasons
     ) {
@@ -256,17 +273,20 @@ public class InfluencerRecommendUseCase {
             reasons = Set.copyOf(reasons);
         }
 
-        static Candidate of(InfluencerPopularity.Stats stats, double score, Set<InfluencerReason> reasons) {
-            return new Candidate(stats.memberId(), List.of(), stats.completed(), stats.reviewCount(), stats.ratingSum(), score,
-                    reasons);
+        public long memberId() {
+            return stats.memberId();
+        }
+
+        public long completedAppearances() {
+            return stats.completed();
         }
 
         /** 받은 리뷰의 실제 평균 별점(소수 첫째 자리). 리뷰가 없으면 null */
         public @Nullable Double averageRating() {
-            if (reviewCount == 0) {
+            if (stats.reviewCount() == 0) {
                 return null;
             }
-            return Math.round(ratingSum * 10.0 / reviewCount) / 10.0;
+            return Math.round(stats.ratingSum() * 10.0 / stats.reviewCount()) / 10.0;
         }
 
         /** 이유 코드를 정해진 순서(enum 순서)로 */
@@ -280,13 +300,16 @@ public class InfluencerRecommendUseCase {
             return ordered;
         }
 
+        Candidate withReason(InfluencerReason reason) {
+            Set<InfluencerReason> more = new HashSet<>(reasons);
+            more.add(reason);
+            return new Candidate(stats, categories, score, more);
+        }
+
         // 분야를 채우고, 이미 함께 출연한 상대면 이유에 더한다(빼지 않는다)
         Candidate complete(List<String> memberCategories, boolean pastPartner) {
-            Set<InfluencerReason> more = new HashSet<>(reasons);
-            if (pastPartner) {
-                more.add(InfluencerReason.PAST_PARTNER);
-            }
-            return new Candidate(memberId, memberCategories, completedAppearances, reviewCount, ratingSum, score, more);
+            Candidate completed = new Candidate(stats, memberCategories, score, reasons);
+            return pastPartner ? completed.withReason(InfluencerReason.PAST_PARTNER) : completed;
         }
     }
 }

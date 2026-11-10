@@ -2,15 +2,23 @@ package com.hapbang.auxiliary.chatbot.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.SequencedMap;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
+import com.hapbang.auxiliary.chatbot.support.ElasticsearchTestcontainersConfig;
 import com.hapbang.shared.member.domain.Role;
 import com.hapbang.shared.member.domain.UserStatus;
 import com.hapbang.shared.member.event.UserMaskedEvent;
@@ -63,6 +71,37 @@ class InfluencerIndexTaskHandlerTest extends InfluencerIntegrationTestBase {
 
         assertThat(embeddingModel.embeddedTexts()).isEqualTo(embedded);
         assertThat(index.vectors(IndexType.INFLUENCER, List.of("11"))).containsKey("11");
+    }
+
+    @Test
+    @DisplayName("정지 처리 바로 뒤에 복구가 와도 숨김을 푼다(처리기가 쓴 묶음 끝에 refresh해 다음 묶음이 숨김 상태를 본다)")
+    void restoreRightAfterSuspend() throws Exception {
+        influencer(INFLUENCER, "GAME", "롤");
+        index(INFLUENCER);
+        // 자동 refresh(1초)를 끈다: 시간과 관계없이 처리기 자신의 refresh가 있어야만 숨김 상태가 보인다
+        disableAutoRefresh();
+
+        member(INFLUENCER, Role.INFLUENCER, UserStatus.SUSPENDED, List.of("GAME"), "롤");
+        handler.handle(docs(INFLUENCER));
+        member(INFLUENCER, Role.INFLUENCER, UserStatus.ACTIVE, List.of("GAME"), "롤");
+        handler.handle(docs(INFLUENCER));
+
+        // 확인 읽기도 검색이라 저장된 상태를 보도록 refresh한다(처리기가 숨김 해제를 놓쳤으면 여기서 true가 보인다)
+        index.refresh(IndexType.INFLUENCER);
+        assertThat(document(INFLUENCER).hidden()).isFalse();
+    }
+
+    @Test
+    @DisplayName("탈퇴·강등하며 분야·소개가 비어도 문서는 지우지 않고 숨긴다(문서 삭제는 마스킹 때만)")
+    void hiddenEvenIfProfileEmptied() {
+        influencer(INFLUENCER, "GAME", "롤");
+        index(INFLUENCER);
+
+        member(INFLUENCER, Role.INFLUENCER, UserStatus.WITHDRAWN, List.of(), null);
+        index(INFLUENCER);
+
+        assertThat(document(INFLUENCER)).isNotNull();
+        assertThat(document(INFLUENCER).hidden()).isTrue();
     }
 
     @Test
@@ -124,5 +163,21 @@ class InfluencerIndexTaskHandlerTest extends InfluencerIntegrationTestBase {
         assertThat(failures).containsOnlyKeys("12");
         assertThat(document(INFLUENCER).hidden()).isTrue();
         assertThat(document(12L)).isNull();
+    }
+
+    // refresh 없이 처리기만 부른다(처리기 자신의 refresh를 확인한다)
+    private static SequencedMap<String, IndexAction> docs(long id) {
+        SequencedMap<String, IndexAction> docs = new LinkedHashMap<>();
+        docs.put(String.valueOf(id), IndexAction.UPSERT);
+        return docs;
+    }
+
+    private static void disableAutoRefresh() throws Exception {
+        HttpResponse<String> response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(
+                        URI.create(ElasticsearchTestcontainersConfig.uri() + "/chatbot-influencers-test-8/_settings"))
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString("{\"index\":{\"refresh_interval\":\"-1\"}}"))
+                .build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
     }
 }

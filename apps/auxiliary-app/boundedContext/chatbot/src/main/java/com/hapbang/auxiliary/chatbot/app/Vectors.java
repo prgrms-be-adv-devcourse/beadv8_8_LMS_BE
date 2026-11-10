@@ -39,6 +39,15 @@ final class Vectors {
         return sum;
     }
 
+    /** 내적(둘 다 길이 1이면 코사인 유사도) */
+    static double dot(float[] a, float[] b) {
+        double sum = 0;
+        for (int i = 0; i < a.length; i++) {
+            sum += a[i] * b[i];
+        }
+        return sum;
+    }
+
     /** {@code a·wa + b·wb} */
     static float[] weightedSum(float[] a, double wa, float[] b, double wb) {
         float[] result = new float[a.length];

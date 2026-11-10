@@ -8,13 +8,13 @@ import java.util.SequencedMap;
 
 import org.springframework.stereotype.Component;
 
-import com.hapbang.auxiliary.chatbot.app.InfluencerIndexPlan.Action;
+import com.hapbang.auxiliary.chatbot.app.InfluencerIndexPlan.Decision;
 import com.hapbang.auxiliary.chatbot.app.InfluencerIndexPlan.IndexedProfile;
 import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
+import com.hapbang.auxiliary.chatbot.domain.InfluencerProfile;
 import com.hapbang.auxiliary.chatbot.domain.InfluencerProfileText;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
-import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore.Profile;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
 
 /**
@@ -24,9 +24,9 @@ import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
  *     사본이 마스킹으로 보이므로 지운다.</li>
  *     <li>임베딩할 문서는 모아 공급자에 한 번에 보낸다. 임베딩 호출이 실패하면 그 문서들만 실패로 돌려준다.</li>
  *     <li>자기소개는 이메일·전화번호를 지운 글로 임베딩 API에만 보낸다. ES에는 글의 해시만 둔다.</li>
- *     <li>지금 문서는 ES 검색으로 읽어 refresh(기본 1초) 전 쓰기는 보이지 않는다. 같은 문서는 실행기 주기 뒤에야 다시 오므로
- *     보통 문제없고, 어긋나도 매시 정합 점검({@link InfluencerIndexChecker})이 맞춘다.</li>
- *     <li>분야 한글 이름은 회원 API에서 묶음마다 한 번 받는다. 받지 못하면 예외를 던져 묶음 전체를 실행기가 다시 시도한다.</li>
+ *     <li>지금 문서는 ES 검색으로 읽는다(검색은 refresh 뒤의 쓰기만 본다). 그래서 쓴 묶음은 끝에 refresh해 다음 묶음이
+ *     방금 쓴 상태를 보게 한다(정지 직후 복구가 오면 숨김 해제를 놓치지 않는다).</li>
+ *     <li>분야 한글 이름을 받지 못하면 예외를 던져 묶음 전체를 실행기가 다시 시도한다.</li>
  * </ul>
  */
 @Component
@@ -67,34 +67,38 @@ public class InfluencerIndexTaskHandler implements IndexTaskHandler {
         Map<String, Long> memberIds = new LinkedHashMap<>();
         for (String docId : docs.keySet()) {
             try {
-                memberIds.put(docId, Long.parseLong(docId));
+                memberIds.put(docId, InfluencerIndexPlan.memberIdOf(docId));
             } catch (NumberFormatException e) {
                 failures.put(docId, new IllegalArgumentException("인플루언서 문서 ID는 회원 ID여야 합니다 docId=" + docId, e));
             }
         }
-        Map<Long, Profile> profiles = store.profiles(memberIds.values());
+        Map<Long, InfluencerProfile> profiles = store.profiles(memberIds.values());
         Map<String, IndexedProfile> indexed = index.documents(IndexType.INFLUENCER, memberIds.keySet(), IndexedProfile.class);
         Map<String, String> names = categoryNames.current();
         List<Pending> toEmbed = new ArrayList<>();
+        boolean wrote = false;
         for (Map.Entry<String, Long> entry : memberIds.entrySet()) {
             String docId = entry.getKey();
-            Profile profile = profiles.get(entry.getValue());
-            InfluencerProfileText text = profile == null ? null : InfluencerIndexPlan.textOf(profile, names);
+            InfluencerProfile profile = profiles.get(entry.getValue());
             try {
-                Action action = InfluencerIndexPlan.decide(profile, text, indexed.get(docId));
-                switch (action) {
+                Decision decision = InfluencerIndexPlan.decide(profile, names, indexed.get(docId));
+                switch (decision.action()) {
                     case NONE -> {
                     }
                     case DELETE -> index.delete(IndexType.INFLUENCER, docId);
                     case HIDE -> setHidden(docId, true);
                     case SHOW -> setHidden(docId, false);
-                    case EMBED -> toEmbed.add(new Pending(docId, profile, text));
+                    case EMBED -> toEmbed.add(new Pending(docId, profile, decision.text()));
                 }
+                wrote |= decision.action() != InfluencerIndexPlan.Action.NONE;
             } catch (RuntimeException e) {
                 failures.put(docId, e);
             }
         }
         embedAndUpsert(toEmbed, failures);
+        if (wrote) {
+            index.refresh(IndexType.INFLUENCER);
+        }
         return failures;
     }
 
@@ -133,6 +137,6 @@ public class InfluencerIndexTaskHandler implements IndexTaskHandler {
         }
     }
 
-    private record Pending(String docId, Profile profile, InfluencerProfileText text) {
+    private record Pending(String docId, InfluencerProfile profile, InfluencerProfileText text) {
     }
 }

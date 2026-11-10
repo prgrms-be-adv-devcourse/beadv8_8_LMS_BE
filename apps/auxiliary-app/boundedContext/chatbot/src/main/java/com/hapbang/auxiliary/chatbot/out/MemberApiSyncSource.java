@@ -7,6 +7,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Import;
 import org.springframework.stereotype.Component;
 
+import com.hapbang.shared.member.dto.ContentCategoriesDto;
 import com.hapbang.shared.member.dto.ContentCategoryDto;
 import com.hapbang.shared.member.dto.MemberPageDto;
 import com.hapbang.shared.member.out.MemberApiClient;
@@ -35,7 +36,8 @@ public class MemberApiSyncSource implements MemberSyncSource {
     @Override
     public Map<String, String> categoryNames() {
         Map<String, String> names = new LinkedHashMap<>();
-        for (ContentCategoryDto category : ApiClients.require(client, "member").getContentCategories().items()) {
+        ContentCategoriesDto categories = ApiClients.require(client, "member").getContentCategories();
+        for (ContentCategoryDto category : categories.items()) {
             names.put(category.code(), category.name());
         }
         return names;

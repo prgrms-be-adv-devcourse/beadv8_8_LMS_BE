@@ -8,7 +8,6 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import com.hapbang.auxiliary.chatbot.app.InfluencerIndexPlan.Action;
 import com.hapbang.auxiliary.chatbot.app.InfluencerIndexPlan.IndexedProfile;
 import com.hapbang.auxiliary.chatbot.config.ChatbotInfluencerRecommendProperties;
 import com.hapbang.auxiliary.chatbot.domain.CopyTimes;
@@ -16,7 +15,7 @@ import com.hapbang.auxiliary.chatbot.domain.IndexAction;
 import com.hapbang.auxiliary.chatbot.domain.IndexType;
 import com.hapbang.auxiliary.chatbot.out.IndexTaskStore;
 import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore;
-import com.hapbang.auxiliary.chatbot.out.InfluencerRecommendStore.Profile;
+import com.hapbang.auxiliary.chatbot.domain.InfluencerProfile;
 import com.hapbang.auxiliary.chatbot.out.RecommendVectorIndex;
 
 import lombok.extern.slf4j.Slf4j;
@@ -73,19 +72,14 @@ public class InfluencerIndexChecker {
             if (ids.isEmpty()) {
                 break;
             }
-            Map<Long, Profile> profiles = store.profiles(ids);
-            List<String> docIds = new ArrayList<>();
-            for (Long id : ids) {
-                docIds.add(String.valueOf(id));
-            }
-            Map<String, IndexedProfile> indexed = index.documents(IndexType.INFLUENCER, docIds, IndexedProfile.class);
+            Map<Long, InfluencerProfile> profiles = store.profiles(ids);
+            Map<String, IndexedProfile> indexed = index.documents(IndexType.INFLUENCER, InfluencerIndexPlan.docIdsOf(ids),
+                    IndexedProfile.class);
             List<String> stale = new ArrayList<>();
             for (Long id : ids) {
-                Profile profile = profiles.get(id);
-                String docId = String.valueOf(id);
-                Action action = InfluencerIndexPlan.decide(profile,
-                        profile == null ? null : InfluencerIndexPlan.textOf(profile, names), indexed.get(docId));
-                if (action != Action.NONE) {
+                String docId = InfluencerIndexPlan.docIdOf(id);
+                if (InfluencerIndexPlan.decide(profiles.get(id), names, indexed.get(docId)).action()
+                        != InfluencerIndexPlan.Action.NONE) {
                     stale.add(docId);
                 }
             }

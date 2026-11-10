@@ -27,10 +27,6 @@ public record InfluencerPopularity(double completedWeight, double ratingWeight, 
      * @param ratingSum   받은 출연 리뷰 별점 합
      */
     public record Stats(long memberId, long completed, long reviewCount, long ratingSum) {
-
-        public static Stats empty(long memberId) {
-            return new Stats(memberId, 0, 0, 0);
-        }
     }
 
     /**

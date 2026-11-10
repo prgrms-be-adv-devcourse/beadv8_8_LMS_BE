@@ -100,6 +100,22 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("설명 API: 후보 회원 ID 숫자를 말한 문장은 버린다. 쓸 만한 답이 하나도 없으면 fallback=true")
+    void explainedDropsIdLeaks() throws Exception {
+        chatModel.reply("""
+                [{"memberId": 2, "reason": "회원 2번은 게임 방송을 해요."},
+                 {"memberId": 3, "reason": "3 님과 잘 맞아요."}]""");
+
+        mockMvc.perform(post(BASE + "/explained").with(login(1L, Role.INFLUENCER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fallback").value(true))
+                .andExpect(jsonPath("$.data.items[0].explanation")
+                        .value(InfluencerReason.SIMILAR_CATEGORY.getDescription()))
+                .andExpect(jsonPath("$.data.items[1].explanation")
+                        .value(InfluencerReason.SIMILAR_CATEGORY.getDescription()));
+    }
+
+    @Test
     @DisplayName("설명 API: LLM이 실패하면 fallback=true이고 후보는 그대로, 이유는 정해진 문장")
     void explainedFallback() throws Exception {
         chatModel.mode(FakeChatModel.Mode.FAIL);
@@ -138,7 +154,8 @@ class InfluencerRecommendApiTest extends InfluencerIntegrationTestBase {
                 .hasRootCauseInstanceOf(IllegalStateException.class);
 
         String result = callback.call("{}", new ToolContext(Map.of(InfluencerRecommendTools.USER_ID, 1L)));
-        assertThat(result).contains("\"memberId\":2", "SIMILAR_CATEGORY").doesNotContain(SECRET_BIO);
+        assertThat(result).contains("\"memberId\":2", "SIMILAR_CATEGORY", "\"needsInterest\":false")
+                .doesNotContain(SECRET_BIO);
     }
 
     private String promptText() {

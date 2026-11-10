@@ -42,8 +42,7 @@ public class ChatbotInfluencerRecommendFacade {
     /** 후보만(LLM 없음, FE 추천 위젯) */
     @PreAuthorize(ChatbotRoles.MEMBER)
     public InfluencerRecommendResDto recommend(long userId) {
-        metrics.request(Feature.INFLUENCER_RECOMMEND);
-        InfluencerRecommendation recommendation = useCase.recommend(userId, null);
+        InfluencerRecommendation recommendation = candidates(userId);
         return new InfluencerRecommendResDto(mapper.items(recommendation.items(), null), recommendation.needsInterest(),
                 false);
     }
@@ -57,13 +56,18 @@ public class ChatbotInfluencerRecommendFacade {
             metrics.rateLimited(Feature.INFLUENCER_RECOMMEND);
             throw e;
         }
-        metrics.request(Feature.INFLUENCER_RECOMMEND);
-        InfluencerRecommendation recommendation = useCase.recommend(userId, null);
+        InfluencerRecommendation recommendation = candidates(userId);
         Explained explained = explainer.explain(recommendation.items());
         if (explained.fallback() != null) {
             metrics.fallback(Feature.INFLUENCER_RECOMMEND, explained.fallback());
         }
         return new InfluencerRecommendResDto(mapper.items(recommendation.items(), explained.explanations()),
                 recommendation.needsInterest(), explained.fallback() != null);
+    }
+
+    // 버튼·위젯 경로는 관심사 문장을 받지 않는다(관심사는 자유 질문 Tool만)
+    private InfluencerRecommendation candidates(long userId) {
+        metrics.request(Feature.INFLUENCER_RECOMMEND);
+        return useCase.recommend(userId, null);
     }
 }

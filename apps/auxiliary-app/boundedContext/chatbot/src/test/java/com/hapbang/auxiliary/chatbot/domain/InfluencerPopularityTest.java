@@ -27,7 +27,7 @@ class InfluencerPopularityTest {
         assertThat(popularity.bayesianRating(manyGood, mean)).isCloseTo((5 * 4.0 + 92) / 25, within(1e-9));
         assertThat(popularity.bayesianRating(oneFive, mean)).isLessThan(popularity.bayesianRating(manyGood, mean));
         // 리뷰가 없으면 전체 평균
-        assertThat(popularity.bayesianRating(Stats.empty(3), mean)).isEqualTo(mean);
+        assertThat(popularity.bayesianRating(new Stats(3, 0, 0, 0), mean)).isEqualTo(mean);
     }
 
     @Test

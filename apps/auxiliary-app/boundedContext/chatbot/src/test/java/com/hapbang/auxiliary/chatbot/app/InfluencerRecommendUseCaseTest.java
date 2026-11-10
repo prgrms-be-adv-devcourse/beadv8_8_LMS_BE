@@ -80,15 +80,17 @@ class InfluencerRecommendUseCaseTest extends InfluencerIntegrationTestBase {
     }
 
     @Test
-    @DisplayName("내 프로필과 상대가 모두 있으면 섞는다(이유 둘)")
+    @DisplayName("내 프로필과 상대가 모두 있으면 섞는다. 이유는 후보마다 더 가까운 쪽(내 분야 또는 함께한 상대들)")
     void ownProfileAndPartners() {
         completed(100L, 1L, 3L);
 
         InfluencerRecommendation result = useCase.recommend(1L, null);
 
         Candidate music = result.items().stream().filter(item -> item.memberId() == 3L).findFirst().orElseThrow();
-        assertThat(music.reasons()).contains(InfluencerReason.SIMILAR_CATEGORY, InfluencerReason.SIMILAR_TO_PARTNERS,
+        Candidate game = result.items().stream().filter(item -> item.memberId() == 2L).findFirst().orElseThrow();
+        assertThat(music.reasons()).containsExactlyInAnyOrder(InfluencerReason.SIMILAR_TO_PARTNERS,
                 InfluencerReason.PAST_PARTNER);
+        assertThat(game.reasons()).containsExactly(InfluencerReason.SIMILAR_CATEGORY);
         // 취향 = (게임 + 음악)/2. 유사도 음악 0.71·게임 비슷 0.64·요리 0, 함께 마친 출연이 있는 음악(3)은 인기도 1이라 맨 앞
         assertThat(result.items()).extracting(Candidate::memberId).startsWith(3L, 2L, 4L);
     }

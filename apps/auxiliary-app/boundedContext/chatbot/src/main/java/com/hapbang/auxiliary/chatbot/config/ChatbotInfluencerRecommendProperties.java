@@ -9,7 +9,6 @@ import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
@@ -24,8 +23,10 @@ import jakarta.validation.constraints.Positive;
  * @param popularity        인기 점수
  * @param rateLimit         LLM 설명 버튼 경로({@code /explained})의 회원별 호출 제한
  * @param explainTimeout    LLM 설명 한 번의 시간 상한. 넘으면 이유 코드 문장으로 답한다
- * @param checkCron         색인 정합 점검 주기(회원 싱크 :15 뒤). 첫 배포 뒤 첫 점검이 처음 전체 색인 요청을 적는다
- * @param checkPageSize     정합 점검이 한 번에 읽는 회원 수
+ * @param interestMaxLength 자유 질문 Tool이 받은 관심사 문장의 최대 길이. 넘으면 자른다(임베딩 비용 상한)
+ * @param categoryNamesTtl  회원 API에서 받은 분야 이름 표를 들고 있는 시간. 실패하면 이만큼 기다렸다 다시 받는다
+ * @param checkPageSize     정합 점검이 한 번에 읽는 회원 수. 점검 주기는 배치의 {@code check-cron}(기본 매시 :45)
+ * @param checkAlertAfterFailures 정합 점검이 이 횟수 연속 실패하면 ERROR로 알린다
  */
 @Validated
 @ConfigurationProperties("hapbang.chatbot.recommend.influencer")
@@ -38,8 +39,10 @@ public record ChatbotInfluencerRecommendProperties(
         @DefaultValue @Valid Popularity popularity,
         @DefaultValue @Valid RateLimit rateLimit,
         @DefaultValue("15s") @NotNull Duration explainTimeout,
-        @DefaultValue("0 45 * * * *") @NotBlank String checkCron,
-        @DefaultValue("500") @Positive int checkPageSize) {
+        @DefaultValue("100") @Positive int interestMaxLength,
+        @DefaultValue("10m") @NotNull Duration categoryNamesTtl,
+        @DefaultValue("500") @Positive int checkPageSize,
+        @DefaultValue("3") @Positive int checkAlertAfterFailures) {
 
     public ChatbotInfluencerRecommendProperties {
         if (numCandidates < k) {
