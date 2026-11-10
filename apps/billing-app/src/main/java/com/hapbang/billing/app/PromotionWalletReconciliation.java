@@ -25,7 +25,9 @@ import lombok.RequiredArgsConstructor;
 
 // 프로모션 지갑 불변식 검사. WalletReconciliationUseCase가 프로모션 지갑을 대사할 때 같은 트랜잭션(한 스냅숏) 안에서 부른다.
 // 검사만 하고 지갑·원장·예약을 고치지 않는다.
-// - P1_AVAILABLE: 가용 칸 = Σ PROMOTION_FUND − Σ PROMOTION_WITHDRAW − Σ BUDGET_RESERVE + Σ BUDGET_RELEASE(가용 칸 원장, 부호 그대로 합)
+// - P1_AVAILABLE: 가용 칸 = Σ PROMOTION_FUND − Σ PROMOTION_WITHDRAW − Σ BUDGET_RESERVE + Σ BUDGET_RELEASE(가용 칸 원장, 부호 그대로 합).
+//   이 네 유형만 더하는 것은 의도다. 다른 유형(역분개 REVERSAL 등)이 프로모션 가용 칸에 원장을 쓰면 칸 대조는 맞고 P1_AVAILABLE만
+//   불일치로 잡힌다. 프로모션 가용 칸에 다른 유형의 원장을 쓰는 기능을 더하면 이 식도 함께 고친다
 // - P1_AVAILABLE_NON_NEGATIVE: 가용 칸 ≥ 0
 // - P1_EARMARK: Σ 예약 earmark(총액 − 해제됨) ≤ 순 충전(충전 − 회수)
 // - P3_RESERVED: 예약 칸 = Σ 남은 예산, P3_HELD: 보류 칸 = Σ 보류 중

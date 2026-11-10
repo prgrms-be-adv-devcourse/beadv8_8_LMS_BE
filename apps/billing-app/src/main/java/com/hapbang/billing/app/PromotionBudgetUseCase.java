@@ -25,7 +25,8 @@ import com.hapbang.billing.out.WalletRepository;
 import lombok.RequiredArgsConstructor;
 
 // 쿠폰 예산 예약·해제. 요청 하나를 한 트랜잭션으로 처리하고, 거절하면 아무것도 저장하지 않는다(같은 작업 ID로 다시 보낼 수 있다).
-// 락 순서: 프로모션 지갑 → 예약 행. 주문 항목 보류(구매자 지갑 → 프로모션 지갑 → 예약 쿠폰 ID 오름차순)와 같은 방향이다.
+// 락 순서: 지갑 → 예약 행. 지갑이 여럿이면 관련 지갑 전부를 지갑 ID 오름차순(LedgerRecordUseCase.lockWallets)으로 먼저 잠근 뒤
+// 예약 행을 쿠폰 ID 오름차순으로 잠근다(주문 항목 보류·지급도 같은 규칙). 여기서는 지갑이 프로모션 지갑 하나라 그 규칙과 같다.
 // 같은 작업 ID·같은 쿠폰의 요청은 프로모션 지갑 락으로 직렬화되어, 뒤 요청은 먼저 커밋된 기록을 본다. UNIQUE는 마지막 보장이다.
 // 예약과 해제의 작업 ID는 한 이름 공간이다(작업 조회가 작업 ID 하나로 찾는다). 다른 종류에 쓴 작업 ID는 IDEMPOTENCY_KEY_CONFLICT다.
 @Service

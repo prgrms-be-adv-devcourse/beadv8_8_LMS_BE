@@ -39,12 +39,17 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.hapbang.billing.app.BudgetReleaseCommand;
+import com.hapbang.billing.app.BudgetReleaseResult;
 import com.hapbang.billing.app.BudgetReserveCommand;
 import com.hapbang.billing.app.BudgetReserveResult;
 import com.hapbang.billing.app.PromotionBudgetFacade;
 import com.hapbang.billing.app.PromotionBudgetUseCase;
 import com.hapbang.billing.app.PromotionFundingCommand;
 import com.hapbang.billing.app.PromotionFundingUseCase;
+import com.hapbang.billing.app.PromotionWithdrawalCommand;
+import com.hapbang.billing.app.PromotionWithdrawalResult;
+import com.hapbang.billing.app.PromotionWithdrawalUseCase;
 import com.hapbang.billing.app.WalletReconciliationUseCase;
 import com.hapbang.billing.domain.BillingErrorCode;
 import com.hapbang.billing.domain.BillingException;
@@ -80,6 +85,9 @@ class ApiV1BillingPromotionBudgetInternalControllerTest {
 
     @Autowired
     PromotionBudgetFacade promotionBudgetFacade;
+
+    @Autowired
+    PromotionWithdrawalUseCase promotionWithdrawalUseCase;
 
     @Autowired
     WalletReconciliationUseCase walletReconciliationUseCase;
@@ -250,6 +258,85 @@ class ApiV1BillingPromotionBudgetInternalControllerTest {
         assertThat(promotion.getPromotionBalanceHp()).isEqualTo(100L);
         assertThat(jdbcTemplate.queryForObject("SELECT sum(remaining_hp) FROM billing.budget_reservation", Long.class))
                 .isEqualTo(promotion.getReservedPromotionHp());
+        assertThat(walletReconciliationUseCase.reconcile(promotion.getId()).matched()).isTrue();
+    }
+
+    @Test
+    @DisplayName("같은 workId 예약이 동시에 여러 건 와도 예약은 1건·원장은 2줄이고 나머지는 처음 결과(replayed)를 받는다")
+    void concurrentSameWorkIdReservation() throws Exception {
+        fund(10_000L);
+        BudgetReserveCommand command = new BudgetReserveCommand("coupon-42-reserve-v1", 42L, 1, 3_000L);
+        List<Callable<Object>> calls = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            calls.add(() -> promotionBudgetUseCase.reserve(command));
+        }
+
+        List<Object> outcomes = runConcurrently(calls);
+
+        assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome).isInstanceOf(BudgetReserveResult.class));
+        assertThat(outcomes).filteredOn(outcome -> !((BudgetReserveResult) outcome).replayed()).hasSize(1);
+        assertThat(outcomes).extracting(outcome -> ((BudgetReserveResult) outcome).reservationId()).containsOnly(
+                reservationRowId(42L));
+        assertThat(count("budget_reservation")).isOne();
+        assertThat(ledgerLines("BUDGET_RESERVE")).isEqualTo(2L);
+        assertThat(promotionWallet().getReservedPromotionHp()).isEqualTo(3_000L);
+        assertThat(walletReconciliationUseCase.reconcile(promotionWallet().getId()).matched()).isTrue();
+    }
+
+    @Test
+    @DisplayName("예약과 관리자 회수가 같은 가용 HP를 두고 동시에 와도 예약 + 회수 합은 가용 HP를 넘지 않고 대사가 일치한다")
+    void concurrentReservationAndWithdrawal() throws Exception {
+        fund(1_000L);
+        List<Callable<Object>> calls = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            BudgetReserveCommand reserve = new BudgetReserveCommand("coupon-" + (100 + i) + "-reserve-v1", 100L + i,
+                    1, 400L);
+            PromotionWithdrawalCommand withdraw = new PromotionWithdrawalCommand("PW-" + i, 400L, "결재-" + i, null);
+            calls.add(() -> promotionBudgetUseCase.reserve(reserve));
+            calls.add(() -> promotionWithdrawalUseCase.withdraw(ADMIN, withdraw));
+        }
+
+        List<Object> outcomes = runConcurrently(calls);
+
+        long reserved = outcomes.stream().filter(BudgetReserveResult.class::isInstance).count();
+        long withdrawn = outcomes.stream().filter(PromotionWithdrawalResult.class::isInstance).count();
+        assertThat(reserved + withdrawn).isEqualTo(2L);
+        assertThat(outcomes).filteredOn(BillingException.class::isInstance).hasSize(4)
+                .allSatisfy(outcome -> assertThat(((BillingException) outcome).getErrorCode())
+                        .isEqualTo(BillingErrorCode.PROMOTION_BALANCE_INSUFFICIENT));
+        Wallet promotion = promotionWallet();
+        assertThat(promotion.getPromotionBalanceHp()).isEqualTo(200L);
+        assertThat(promotion.getReservedPromotionHp()).isEqualTo(400L * reserved);
+        assertThat(count("budget_reservation")).isEqualTo(reserved);
+        assertThat(count("promotion_withdrawal")).isEqualTo(withdrawn);
+        assertThat(walletReconciliationUseCase.reconcile(promotion.getId()).matched()).isTrue();
+    }
+
+    @Test
+    @DisplayName("같은 예약에 남은 예산을 넘는 해제가 동시에 와도 해제 합은 남은 예산을 넘지 않고 나머지는 BUDGET_RELEASE_EXCEEDS_REMAINING이다")
+    void concurrentReleasesCannotExceedRemaining() throws Exception {
+        fund(10_000L);
+        reserve(42L, 1_000L);
+        long rowId = reservationRowId(42L);
+        List<Callable<Object>> calls = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            BudgetReleaseCommand release = new BudgetReleaseCommand("coupon-42-release-" + i, rowId, 400L, "ADMIN",
+                    null);
+            calls.add(() -> promotionBudgetUseCase.release(release));
+        }
+
+        List<Object> outcomes = runConcurrently(calls);
+
+        assertThat(outcomes).filteredOn(BudgetReleaseResult.class::isInstance).hasSize(2);
+        assertThat(outcomes).filteredOn(BillingException.class::isInstance).hasSize(2)
+                .allSatisfy(outcome -> assertThat(((BillingException) outcome).getErrorCode())
+                        .isEqualTo(BillingErrorCode.BUDGET_RELEASE_EXCEEDS_REMAINING));
+        assertThat(reservationRow(rowId)).containsEntry("remaining_hp", 200L).containsEntry("released_hp", 800L);
+        assertThat(count("budget_release")).isEqualTo(2L);
+        assertThat(ledgerLines("BUDGET_RELEASE")).isEqualTo(4L);
+        Wallet promotion = promotionWallet();
+        assertThat(promotion.getReservedPromotionHp()).isEqualTo(200L);
+        assertThat(promotion.getPromotionBalanceHp()).isEqualTo(9_800L);
         assertThat(walletReconciliationUseCase.reconcile(promotion.getId()).matched()).isTrue();
     }
 
@@ -495,6 +582,33 @@ class ApiV1BillingPromotionBudgetInternalControllerTest {
     }
 
     // ---------------------------------------------------------------------------------------------
+
+    // 작업들을 같은 순간에 시작해 각 결과(결과 객체 또는 던진 예외)를 시작 순서대로 모은다
+    private static List<Object> runConcurrently(List<Callable<Object>> calls) throws Exception {
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(calls.size());
+        try {
+            List<Future<Object>> futures = new ArrayList<>();
+            for (Callable<Object> call : calls) {
+                futures.add(executor.submit(() -> {
+                    start.await();
+                    return call.call();
+                }));
+            }
+            start.countDown();
+            List<Object> outcomes = new ArrayList<>();
+            for (Future<Object> future : futures) {
+                try {
+                    outcomes.add(future.get(30, TimeUnit.SECONDS));
+                } catch (ExecutionException exception) {
+                    outcomes.add(exception.getCause());
+                }
+            }
+            return outcomes;
+        } finally {
+            executor.shutdownNow();
+        }
+    }
 
     private void fund(long amountHp) {
         promotionFundingUseCase.fund(ADMIN, new PromotionFundingCommand("PF-" + amountHp, amountHp,
