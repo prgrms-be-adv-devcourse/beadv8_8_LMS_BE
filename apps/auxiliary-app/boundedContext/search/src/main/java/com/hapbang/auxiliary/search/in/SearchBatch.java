@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import com.hapbang.auxiliary.global.scheduling.ConditionalOnSchedulingEnabled;
 import com.hapbang.auxiliary.search.app.InfluencerStatsSync;
 import com.hapbang.auxiliary.search.app.TombstoneCleanup;
+import com.hapbang.auxiliary.search.app.ZeroResultKeywords;
 import com.hapbang.auxiliary.search.config.ConditionalOnSearchEnabled;
 
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,13 @@ class SearchBatch {
 
     private final TombstoneCleanup tombstoneCleanup;
     private final InfluencerStatsSync statsSync;
+    private final ZeroResultKeywords zeroResultKeywords;
+
+    /** 결과 0건 검색어를 모아 로그 한 줄로 남긴다. pod마다 따로 센 것을 각자 남긴다(락 없음) */
+    @Scheduled(fixedDelayString = "${hapbang.search.zero-result-log-interval:10m}", initialDelayString = "10m")
+    void logZeroResultKeywords() {
+        zeroResultKeywords.flush();
+    }
 
     /** 통계·분야 이름 동기화. 끝난 뒤 10분 쉬고 다시 한다(겹치지 않게). 기동 직후는 index 준비를 기다려 1분 뒤에 시작한다 */
     @Scheduled(fixedDelayString = "${hapbang.search.stats-sync-interval:10m}", initialDelayString = "1m")

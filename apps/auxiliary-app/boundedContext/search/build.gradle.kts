@@ -8,6 +8,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-kafka")
     // shared MemberApiClient가 쓰는 RestClient.Builder(10분 통계 동기화)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
+    // 검색 요청 수·ES 응답 시간·결과 0건 지표
+    implementation("io.micrometer:micrometer-core")
 
     testImplementation(project(":test-support"))
 }
