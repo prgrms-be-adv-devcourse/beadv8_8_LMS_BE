@@ -174,7 +174,8 @@ public class ChangedWalletReconciliationUseCase implements MeterBinder {
                 return;
             }
             mismatched.add(walletId);
-            log.error("잔액 대사 불일치 walletId={}, buckets=[{}]", walletId, mismatchedBuckets(result));
+            log.error("잔액 대사 불일치 walletId={}, buckets=[{}], invariants=[{}]", walletId, mismatchedBuckets(result),
+                    mismatchedInvariants(result));
         }
     }
 
@@ -202,6 +203,14 @@ public class ChangedWalletReconciliationUseCase implements MeterBinder {
                 .filter(bucket -> !bucket.matched())
                 .map(bucket -> "%s/%s wallet=%d ledger=%d diff=%d".formatted(bucket.pointType(),
                         bucket.balanceBucket(), bucket.walletHp(), bucket.ledgerHp(), bucket.differenceHp()))
+                .collect(Collectors.joining(", "));
+    }
+
+    // 맞지 않는 불변식만 "이름 왼쪽값 관계 오른쪽값"으로 나열한다(프로모션 지갑). 없으면 빈 문자열이다.
+    private static String mismatchedInvariants(WalletReconciliation result) {
+        return result.invariants().stream()
+                .filter(check -> !check.matched())
+                .map(check -> "%s %d %s %d".formatted(check.name(), check.leftHp(), check.relation(), check.rightHp()))
                 .collect(Collectors.joining(", "));
     }
 
