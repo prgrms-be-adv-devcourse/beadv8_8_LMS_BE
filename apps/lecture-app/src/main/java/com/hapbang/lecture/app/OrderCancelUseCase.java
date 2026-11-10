@@ -38,20 +38,26 @@ public class OrderCancelUseCase {
     private final LectureHpTaskSupport lectureHpTaskSupport;
     private final LectureHpTaskExecutor lectureHpTaskExecutor;
     private final LectureSyncEvents lectureSyncEvents;
+    private final CancelResultHandler cancelResultHandler;
     private final Clock clock;
 
     public OrderCancelUseCase(LectureOrderSupport lectureOrderSupport, LectureOrderRepository lectureOrderRepository,
                               LectureHpTaskSupport lectureHpTaskSupport, LectureHpTaskExecutor lectureHpTaskExecutor,
-                              LectureSyncEvents lectureSyncEvents, @Qualifier(LectureConfig.CLOCK) Clock clock) {
+                              LectureSyncEvents lectureSyncEvents, CancelResultHandler cancelResultHandler,
+                              @Qualifier(LectureConfig.CLOCK) Clock clock) {
         this.lectureOrderSupport = lectureOrderSupport;
         this.lectureOrderRepository = lectureOrderRepository;
         this.lectureHpTaskSupport = lectureHpTaskSupport;
         this.lectureHpTaskExecutor = lectureHpTaskExecutor;
         this.lectureSyncEvents = lectureSyncEvents;
+        this.cancelResultHandler = cancelResultHandler;
         this.clock = clock;
     }
 
-    /** 구매 취소를 요청한다. 지갑은 부르지 않는다. 등록한 RELEASE 작업 ID를 돌려준다 */
+    /**
+     * 구매 취소를 요청한다. 지갑은 부르지 않는다. 등록한 RELEASE 작업 ID를 돌려준다. 반환 금액은 구매자 금액(가격 − 할인)이다.
+     * 반환할 HP가 없는 항목(구매자 금액 0)은 작업 없이 이 트랜잭션에서 구매 취소를 끝내고 {@code null}을 돌려준다
+     */
     @Transactional
     public Long request(Long buyerUserId, Long orderId, Long orderItemId) {
         LocalDateTime now = LocalDateTime.now(clock);
@@ -61,9 +67,14 @@ public class OrderCancelUseCase {
         // 같은 항목을 동시에 바꾼 요청(낙관적 락 충돌)을 작업 등록 전에 확인한다 (설계 6.2)
         lectureOrderRepository.flush();
         lectureSyncEvents.purchaseChanged(item);
-        Long taskId = lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.CANCEL,
-                RELEASE_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
-                item.getPriceHp(), now)).getId();
+        Long taskId = null;
+        if (item.requiresBuyerHpTask()) {
+            taskId = lectureHpTaskSupport.register(LectureHpTask.create(LectureHpTaskPurpose.CANCEL,
+                    RELEASE_REQUEST_ID_PREFIX + item.getId(), order.getId(), item.getId(), buyerUserId, null,
+                    item.buyerAmountHp(), now)).getId();
+        } else {
+            cancelResultHandler.complete(order, item.getId(), null, now);
+        }
         AfterCommit.run(() -> {
             log.info("구매 취소를 요청했다 orderId={}, orderItemId={}, buyerUserId={}", order.getId(), item.getId(),
                     buyerUserId);
@@ -71,9 +82,11 @@ public class OrderCancelUseCase {
         return taskId;
     }
 
-    /** 반환을 한 번 시도한다. 트랜잭션 밖에서 부른다 */
+    /** 반환을 한 번 시도한다. 트랜잭션 밖에서 부른다. 작업 없이 끝난 구매 취소({@code null})는 할 것이 없다 */
     public void tryRelease(Long taskId) {
-        lectureHpTaskExecutor.execute(taskId);
+        if (taskId != null) {
+            lectureHpTaskExecutor.execute(taskId);
+        }
     }
 
     @Transactional(readOnly = true)

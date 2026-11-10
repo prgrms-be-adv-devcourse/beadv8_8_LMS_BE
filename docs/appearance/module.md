@@ -1527,7 +1527,7 @@ AppearanceReceivedReviewPageDto getReceivedReviews(long userId, int page, int si
 
 - `hp_reconciliation_runs`(실행 1회: 계기·실행한 관리자·상태·비교 수·어긋난 수·DEAD 수·중단 이유), `hp_reconciliation_mismatches`(대상·출연 ID·규칙·출연 상태 요약·지갑 상태 요약). 오래된 기록은 지우지 않는다. 마이그레이션 `V202611031100`
 - 경고 로그: 어긋난 건마다 `[HP_RECONCILIATION_MISMATCH] rule=… runId=… referenceType=… referenceId=… appearanceId=… appearance=[…] wallet=[…]`. 끝까지 하지 못하면 경고 한 줄(이유 포함)
-- 지표: `appearance.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `appearance.hp_reconciliation.runs{status}`(끝난 실행 횟수). 이 지표에 Grafana alert "서비스 간 HP 대사 불일치"·"대사가 돌지 않음"이 걸려 있다(#781, [구성한 alert](../architecture/infrastructure/observability.md#구성한-alert-781))
+- 지표: `appearance.hp_reconciliation.mismatches{rule}`(마지막으로 끝까지 비교한 실행의 규칙별 건수, 중단된 실행은 값을 바꾸지 않음), `appearance.hp_reconciliation.runs{status}`(끝난 실행 횟수). 이 지표에 Grafana alert "서비스 간 HP 대사 불일치"·"대사가 돌지 않음"·"대사 중단"(#804)이 걸려 있다(#781, [구성한 alert](../architecture/infrastructure/observability.md#구성한-alert-781))
 
 ### 25.5 API (관리자, `/api/v1/appearances/admin/hp-reconciliations`)
 

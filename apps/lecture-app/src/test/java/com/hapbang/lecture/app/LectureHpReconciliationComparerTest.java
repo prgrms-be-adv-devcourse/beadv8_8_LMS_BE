@@ -145,6 +145,29 @@ class LectureHpReconciliationComparerTest {
     }
 
     @Test
+    void 판매자_쿠폰_항목은_보류가_구매자_금액이고_지급_건이_판매자_지급액이면_정상이다() {
+        long discounted = PRICE - 3_000L;
+        HoldStateDto wallet = state(hold(BillingHoldStatus.PAID, BUYER_ID, discounted, 0, 0, discounted), null,
+                List.of(settlement(SELLER_ID, discounted, BillingSettlementStatus.COMPLETED)));
+
+        assertThat(LectureHpReconciliationComparer.compare(target(OrderItemStatus.PAID_OUT, discounted, discounted),
+                wallet)).isEmpty();
+        // 할인 전 가격으로 보류됐으면 어긋난다
+        assertThat(rules(LectureHpReconciliationComparer.compare(target(OrderItemStatus.PURCHASED, discounted,
+                discounted), held()))).contains(LectureHpReconciliationRule.HOLD_MISMATCH);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderItemStatus.class, names = {"PURCHASED", "CANCELED", "RETURNED", "PAID_OUT"})
+    void 구매자_금액이_0인_항목은_지갑에_보류와_지급_건이_없어야_정상이다(OrderItemStatus status) {
+        LectureHpReconciliationTarget free = target(status, 0, 0);
+
+        assertThat(LectureHpReconciliationComparer.compare(free, empty())).isEmpty();
+        assertThat(rules(LectureHpReconciliationComparer.compare(free, held())))
+                .containsExactly(LectureHpReconciliationRule.HOLD_NOT_CLOSED);
+    }
+
+    @Test
     void 결제_단계가_끝나지_않은_항목은_비교하지_않는다() {
         assertThatIllegalArgumentException().isThrownBy(() ->
                 LectureHpReconciliationComparer.compare(target(OrderItemStatus.HOLD_PENDING), held()));
@@ -160,8 +183,12 @@ class LectureHpReconciliationComparerTest {
     }
 
     private static LectureHpReconciliationTarget target(OrderItemStatus status) {
-        return new LectureHpReconciliationTarget(ITEM_ID, ORDER_ID, status, PRICE, BUYER_ID, SELLER_ID, 1L,
-                LocalDateTime.of(2026, 11, 1, 12, 0), false, List.of());
+        return target(status, PRICE, PRICE);
+    }
+
+    private static LectureHpReconciliationTarget target(OrderItemStatus status, long buyerAmount, long sellerPayout) {
+        return new LectureHpReconciliationTarget(ITEM_ID, ORDER_ID, status, PRICE, buyerAmount, sellerPayout, BUYER_ID,
+                SELLER_ID, 1L, LocalDateTime.of(2026, 11, 1, 12, 0), false, List.of());
     }
 
     private static HoldStateDto held() {

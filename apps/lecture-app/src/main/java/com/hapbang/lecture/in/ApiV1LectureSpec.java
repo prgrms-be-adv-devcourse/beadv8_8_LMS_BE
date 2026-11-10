@@ -56,7 +56,11 @@ public interface ApiV1LectureSpec {
     @Operation(summary = "강의 정보 수정",
             description = "판매자 본인. 제목·소개·가격·썸네일 전체를 덮어쓴다. thumbnailFileId가 null이면 썸네일을 지우므로, "
                     + "유지하려면 상세의 thumbnailFileId를 그대로 보낸다. "
-                    + "재검수 대상이 아니며 삭제 전이면 어느 상태에서든 수정할 수 있다(204).")
+                    + "재검수 대상이 아니며 삭제 전이면 어느 상태에서든 수정할 수 있다(204). "
+                    + "가격을 올리면 플랫폼 쿠폰이 걸린 강의인지 먼저 확인한다: 발급 중이거나 쓸 수 있는 플랫폼 쿠폰이 있으면 "
+                    + "409 LECTURE_PRICE_RAISE_BLOCKED, 확인할 수 없으면 503 LECTURE_PRICE_RAISE_UNAVAILABLE(잠시 후 다시 시도), "
+                    + "확인하는 사이 다른 요청이 가격을 바꿨으면 409 LECTURE_PRICE_CHANGED(다시 불러와 수정)다. "
+                    + "가격을 내리거나 그대로 두면 확인하지 않는다.")
     ResponseEntity<Void> updateInfo(Long userId, Long lectureId, LectureInfoUpdateRequest request);
 
     @Operation(summary = "강의 삭제",

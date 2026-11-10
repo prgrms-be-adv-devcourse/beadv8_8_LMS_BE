@@ -30,7 +30,8 @@ configMapGenerator:
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka.hapbang-platform.svc.cluster.local:9092
       # 챗봇 출연 싱크(#716)가 부르는 출연 내부 API. pod label hapbang.io/internal-api-client로 출연 NetworkPolicy가 연다
       - APPEARANCE_API_BASE_URL=http://appearance-app:8081
-      # 챗봇 회원·강의 싱크(#717)가 부르는 회원·강의 내부 API. 같은 pod label로 각 앱 NetworkPolicy가 연다
+      # 회원 내부 API: 검색 10분 통계 동기화(#771)와 챗봇 회원 싱크(#717). 강의 내부 API: 챗봇 강의 싱크(#717)
+      # 같은 pod label로 각 앱 NetworkPolicy가 연다
       - MEMBER_API_BASE_URL=http://member-app:8081
       - LECTURE_API_BASE_URL=http://lecture-app:8081
       - SPRING_DATA_REDIS_HOST=redis.hapbang-platform.svc.cluster.local

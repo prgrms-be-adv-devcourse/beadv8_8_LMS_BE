@@ -17,8 +17,11 @@ import com.hapbang.coupon.app.port.CouponIssueStore;
 import com.hapbang.coupon.app.port.LectureCatalog;
 import com.hapbang.coupon.app.port.LectureCatalog.LectureSnapshot;
 import com.hapbang.coupon.app.port.LectureCatalogUnavailableException;
+import com.hapbang.coupon.config.CouponPlatformFundingProperties;
 import com.hapbang.coupon.domain.MemberCouponStatus;
+import com.hapbang.coupon.domain.usage.Selection;
 import com.hapbang.coupon.global.exception.CouponErrorCode;
+import com.hapbang.coupon.global.exception.CouponUsageException;
 import com.hapbang.coupon.out.CouponRepository;
 import com.hapbang.coupon.out.MemberCouponRepository;
 import com.hapbang.coupon.out.ProcessedOperationRepository;
@@ -31,16 +34,20 @@ class CouponCalculateUseCaseTest {
     private static final long SELLER_COUPON = 11L;
 
     private final MemberCouponRepository memberCouponRepository = mock();
+    private static final long PLATFORM_COUPON = 12L;
+
     private final LectureCatalog lectureCatalog = mock();
     private CouponCalculateUseCase useCase;
+    private CouponUsageSupport usageSupport;
+    private CouponSupport couponSupport;
 
     @BeforeEach
     void setUp() {
-        CouponUsageSupport usageSupport = support(memberCouponRepository, mock(ProcessedOperationRepository.class),
-                transactionManager());
-        CouponSupport couponSupport = new CouponSupport(mock(CouponRepository.class), lectureCatalog,
-                mock(CouponIssueStore.class));
-        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, CLOCK);
+        usageSupport = support(memberCouponRepository, mock(ProcessedOperationRepository.class), transactionManager());
+        couponSupport = new CouponSupport(mock(CouponRepository.class), lectureCatalog, mock(CouponIssueStore.class));
+        // 기본값: 플랫폼 재원 비활성
+        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, CouponPlatformFundingProperties.defaults(),
+                CLOCK);
         when(lectureCatalog.findLecture(LECTURE_ID))
                 .thenReturn(Optional.of(new LectureSnapshot(LECTURE_ID, SELLER_ID, PRICE, "ON_SALE")));
     }
@@ -109,6 +116,103 @@ class CouponCalculateUseCaseTest {
         assertThatThrownBy(() -> useCase.calculate(request(null)))
                 .isInstanceOf(LectureCatalogUnavailableException.class);
         verifyNoInteractions(memberCouponRepository);
+    }
+
+    // 플랫폼 재원 비활성 ---------------------------------------------------------------------------------------
+
+    @Test
+    void 플랫폼_재원이_꺼져_있으면_추천과_미리보기_추천에서_플랫폼_쿠폰을_뺀다() {
+        givenSellerAndPlatformAvailable();
+
+        CouponCalculateResponse calculated = useCase.calculate(request(null));
+        CouponCalculateResponse quoted = useCase.quote(MEMBER_ID, List.of(LECTURE_ID), null);
+
+        for (CouponCalculateResponse response : List.of(calculated, quoted)) {
+            assertThat(response.items().getFirst().coupons()).extracting(CouponCalculateResponse.Coupon::memberCouponId)
+                    .containsExactly(SELLER_COUPON);
+            assertThat(response.items().getFirst().platformDiscount()).isZero();
+        }
+    }
+
+    @Test
+    void 플랫폼_재원이_꺼져_있는데_플랫폼_쿠폰을_직접_고르면_409_COUPON_NOT_USABLE이다() {
+        givenOwnedByIds(memberCouponRepository, owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L)),
+                owned(PLATFORM_COUPON, MEMBER_ID, platformAnyAmountCoupon(2L)));
+
+        assertUsageError(() -> useCase.calculate(request(List.of(
+                        new CouponCalculateRequest.Selection(SELLER_COUPON, LECTURE_ID),
+                        new CouponCalculateRequest.Selection(PLATFORM_COUPON, LECTURE_ID)))),
+                CouponErrorCode.COUPON_NOT_USABLE, PLATFORM_COUPON);
+        assertThatThrownBy(() -> useCase.quote(MEMBER_ID, List.of(LECTURE_ID),
+                List.of(new Selection(PLATFORM_COUPON, LECTURE_ID))))
+                .hasMessage(CouponCalculateUseCase.PLATFORM_FUNDING_DISABLED);
+    }
+
+    @Test
+    void 플랫폼_재원이_꺼져_있어도_다른_회원의_플랫폼_쿠폰을_고르면_소유_검사의_거절이라_쿠폰_종류가_드러나지_않는다() {
+        givenOwnedByIds(memberCouponRepository, owned(PLATFORM_COUPON, MEMBER_ID + 1, platformAnyAmountCoupon(2L)));
+
+        assertThatThrownBy(() -> useCase.calculate(request(List.of(
+                new CouponCalculateRequest.Selection(PLATFORM_COUPON, LECTURE_ID)))))
+                .isInstanceOfSatisfying(CouponUsageException.class, exception -> {
+                    assertThat(exception.getErrorCode()).isEqualTo(CouponErrorCode.COUPON_NOT_USABLE);
+                    assertThat(exception.getMessage()).isNotEqualTo(CouponCalculateUseCase.PLATFORM_FUNDING_DISABLED);
+                });
+    }
+
+    @Test
+    void 플랫폼_재원이_켜져_있으면_플랫폼_쿠폰도_추천하고_직접_고를_수_있다() {
+        useCase = new CouponCalculateUseCase(usageSupport, couponSupport, new CouponPlatformFundingProperties(true),
+                CLOCK);
+        givenSellerAndPlatformAvailable();
+        givenOwnedByIds(memberCouponRepository, owned(PLATFORM_COUPON, MEMBER_ID, platformAnyAmountCoupon(2L)));
+
+        CouponCalculateResponse recommended = useCase.calculate(request(null));
+        CouponCalculateResponse selected = useCase.calculate(
+                request(List.of(new CouponCalculateRequest.Selection(PLATFORM_COUPON, LECTURE_ID))));
+
+        assertThat(recommended.items().getFirst().coupons()).extracting(CouponCalculateResponse.Coupon::memberCouponId)
+                .containsExactly(SELLER_COUPON, PLATFORM_COUPON);
+        assertThat(selected.items().getFirst().platformDiscount()).isEqualTo(1_500);
+    }
+
+    private void givenSellerAndPlatformAvailable() {
+        when(memberCouponRepository.findOwnedByStatus(MEMBER_ID, MemberCouponStatus.AVAILABLE))
+                .thenReturn(List.of(owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L)),
+                        owned(PLATFORM_COUPON, MEMBER_ID, platformAnyAmountCoupon(2L))));
+    }
+
+    // 회원용 미리보기 -------------------------------------------------------------------------------------------
+
+    @Test
+    void 미리보기는_강의_조회로_가격과_판매자를_채워_추천하고_매핑을_주면_그_매핑만_계산한다() {
+        when(memberCouponRepository.findOwnedByStatus(MEMBER_ID, MemberCouponStatus.AVAILABLE))
+                .thenReturn(List.of(owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L))));
+        givenOwnedByIds(memberCouponRepository, owned(SELLER_COUPON, MEMBER_ID, sellerRateCoupon(1L)));
+
+        CouponCalculateResponse recommended = useCase.quote(MEMBER_ID, List.of(LECTURE_ID), null);
+        CouponCalculateResponse selected = useCase.quote(MEMBER_ID, List.of(LECTURE_ID),
+                List.of(new Selection(SELLER_COUPON, LECTURE_ID)));
+
+        assertThat(recommended.recommended()).isTrue();
+        assertThat(recommended.items().getFirst().price()).isEqualTo(PRICE);
+        assertThat(recommended.totalBuyerAmount()).isEqualTo(9_000);
+        assertThat(selected.recommended()).isFalse();
+        assertThat(selected.totalBuyerAmount()).isEqualTo(9_000);
+        verify(lectureCatalog, times(2)).findLecture(LECTURE_ID);
+    }
+
+    @Test
+    void 미리보기에서_강의_앱에_닿지_못하면_조회_불가가_나가고_상한을_넘으면_강의를_조회하지_않고_400이다() {
+        when(lectureCatalog.findLecture(LECTURE_ID))
+                .thenThrow(new LectureCatalogUnavailableException("연결 실패", null));
+
+        assertThatThrownBy(() -> useCase.quote(MEMBER_ID, List.of(LECTURE_ID), null))
+                .isInstanceOf(LectureCatalogUnavailableException.class);
+        clearInvocations(lectureCatalog);
+        assertUsageError(() -> useCase.quote(MEMBER_ID, List.of(LECTURE_ID, LECTURE_ID), null),
+                CouponErrorCode.COUPON_DUPLICATE_LECTURE, null);
+        verifyNoInteractions(lectureCatalog, memberCouponRepository);
     }
 
     private static CouponCalculateRequest request(List<CouponCalculateRequest.Selection> selections) {

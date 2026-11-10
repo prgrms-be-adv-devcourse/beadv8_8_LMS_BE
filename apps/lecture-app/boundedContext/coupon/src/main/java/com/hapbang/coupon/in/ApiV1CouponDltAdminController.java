@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hapbang.coupon.app.CouponDltAdminFacade;
 import com.hapbang.coupon.app.dto.CouponDltLogView;
+import com.hapbang.coupon.domain.CouponDltKind;
 import com.hapbang.coupon.domain.CouponDltStatus;
 import com.hapbang.coupon.global.auth.LoginUserId;
 import com.hapbang.coupon.global.response.RsData;
@@ -42,13 +43,17 @@ public class ApiV1CouponDltAdminController implements ApiV1CouponDltAdminSpec {
     @Override
     @PostMapping("/{dltId}/replay")
     public RsData<CouponDltLogView> replay(@LoginUserId Long adminId, @PathVariable("dltId") Long dltId) {
-        return RsData.ok("발급 요청을 다시 보냈습니다.", couponDltAdminFacade.replay(adminId, dltId));
+        CouponDltLogView view = couponDltAdminFacade.replay(adminId, dltId);
+        return RsData.ok(view.kind() == CouponDltKind.ORDER ? "주문 이벤트를 다시 처리했습니다." : "발급 요청을 다시 보냈습니다.",
+                view);
     }
 
     @Override
     @PostMapping("/{dltId}/reject")
     public RsData<CouponDltLogView> reject(@LoginUserId Long adminId, @PathVariable("dltId") Long dltId,
                                            @Valid @RequestBody CouponDltRejectRequest request) {
-        return RsData.ok("발급 요청을 영구 거절했습니다.", couponDltAdminFacade.reject(adminId, dltId, request.reason()));
+        CouponDltLogView view = couponDltAdminFacade.reject(adminId, dltId, request.reason());
+        return RsData.ok(view.kind() == CouponDltKind.ORDER ? "주문 이벤트를 영구 거절했습니다." : "발급 요청을 영구 거절했습니다.",
+                view);
     }
 }

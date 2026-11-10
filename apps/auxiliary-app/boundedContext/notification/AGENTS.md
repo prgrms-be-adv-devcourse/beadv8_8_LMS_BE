@@ -4,7 +4,7 @@
 
 auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 지킬 개발 규칙이다.
 
-- **현재 상태(2026-11-06)**: 이 디렉터리는 아직 Gradle 모듈이 아니고 문서만 있다. 알림 모듈 코드·`build.gradle.kts`·Flyway SQL·테스트는 없다(`settings.gradle.kts`의 `auxiliaryModules`에 `notification`이 없다). 진행 상태는 [`PROGRESS.md`](PROGRESS.md)에 있다.
+- **현재 상태(2026-11-09)**: Gradle 모듈 `:notification`이다(N1 #797). 회원 복제본과 Kafka 소비·DLT 공통 설정만 있고 알림 생성 코드는 없다. 구현 범위는 [`docs/notification/module.md`](../../../../docs/notification/module.md) 2장, 진행 상태는 [`PROGRESS.md`](PROGRESS.md)에 있다.
 - **규칙 상속 순서**: 루트 [`AGENTS.md`](../../../../AGENTS.md) → [`apps/auxiliary-app/README.md`](../../README.md) → 이 문서. 이 문서와 상위 문서가 충돌하면 상위 문서를 따르고, 충돌을 보고한다.
 - 이 문서는 규칙만 적는다. 결정의 이유·대안·이력은 [`docs/notification/decisions.md`](../../../../docs/notification/decisions.md)의 `ND-*` 번호로 참조하고 여기에 옮기지 않는다.
 
@@ -42,7 +42,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 
 - Gradle `:notification`, 패키지 `com.hapbang.auxiliary.notification`, 디렉터리 `boundedContext/notification`이다. `:auxiliary-global`·`:shared`에만 의존한다(ND-006).
 - 저장소는 database `auxiliary` 안의 schema `notification`이다. 엔티티는 `@Table(schema = "notification")`, SQL의 테이블 이름에도 schema를 붙인다. 다른 모듈 schema와 JOIN·FK·같은 트랜잭션 쓰기를 하지 않는다. 첫 SQL은 `CREATE SCHEMA IF NOT EXISTS notification;`이다(ND-007).
-- 테이블은 `notification`, `notification_payout_item`, `notification_schedule`, `notification_user` 넷이다(ND-025). 컬럼·인덱스 세부는 미결 항목(U9·U19)을 정한 뒤 확정한다.
+- 테이블은 `notification`, `notification_payout_item`, `notification_schedule`, `notification_user` 넷이다(ND-025). 처음 쓰는 작업에서 만들고(ND-046), `notification`에는 언급 회원 ID 칸(`bigint[]`, GIN)을 둔다(ND-051). `notification_payout_item` 세부는 U9를 정한 뒤 확정한다.
 
 ### 3.2 입력
 
@@ -50,14 +50,17 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 - 채팅 내부 Redis Streams를 구독하지 않는다. 독립 consumer group으로 소비한다(ND-009).
 - 처리하지 못한 메시지는 `<topic>.<group>.DLT`로 보낸다. 받지 않는 타입은 기본 `@KafkaHandler`로 무시하고 커밋한다(ND-010, kafka.md "소비"·"재시도와 DLT").
 - 받는 사람 상태·역할·닉네임은 회원 복제본 `notification_user`에서 읽는다. 탈퇴한 회원이면 알림과 예약을 만들지 않는다(ND-018). 정지 회원 처리는 미결(U8).
+- 회원 복제본은 가입 이벤트로 만들고, 복제본이 없을 때 온 변경 이벤트로도 만든다(있으면 더 큰 버전만 반영, ND-049). 이것은 첫 배포 Backfill(U17)을 대체하지 않는다.
 - 받는 사람 복제본이 아직 없으면 알림을 만들지 않고 처리를 실패시켜 kafka.md "재시도와 DLT"대로 재시도 뒤 DLT로 보낸다(ND-035). 첫 배포 Backfill은 미결(U17).
 
 ### 3.3 생성·저장
 
 - 같은 이벤트를 다시 받아도 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)로 한 번만 만든다. 묶음 알림은 (종류, 받는 사람, 묶음 키)다. 삭제된 행도 유일 인덱스에 남긴다(ND-019).
 - 원본 대상 ID는 ND-033·ND-045를 따른다. 새로 요청하거나 값을 더하는 이벤트의 사건 ID는 `docs/notification/event-contracts.md`에 있다. 이미 발행 중인 이벤트의 필드는 미결(U5)이므로 그 이벤트를 소비하는 작업에서 발행 계약을 확인한 뒤 정한다.
-- 문구는 알림 모듈이 만들어 저장하고, 값(`jsonb`, 형식 버전 `v`)도 함께 저장한다(ND-020). 종류별 문구는 N2 구현 때 정한다(ND-039, 실제 문구는 U3).
-- 다른 회원의 닉네임을 문구에 넣으면 값에 그 회원 ID를 함께 저장하고, 그 회원의 `UserMaskedEvent`를 받으면 문구·값의 닉네임을 바꾼다(ND-036). 저장 구조와 갱신 방법은 미결(U19).
+- 문구는 알림 모듈이 만들어 저장하고, 값(`jsonb`, 형식 버전 `v`)도 함께 저장한다(ND-020). 종류별 문구는 그 종류를 소비하는 작업에서 코드로 정한다(ND-039·ND-050, 실제 문구는 U3).
+- 다른 회원의 닉네임을 문구에 넣으면 값에 그 회원 ID를 함께 저장하고, 그 회원의 `UserMaskedEvent`를 받으면 문구·값의 닉네임을 바꾼다(ND-036). 언급 회원 ID 칸으로 찾아 값 속 닉네임을 바꾸고 문구는 값으로 다시 만든다(ND-051, 멱등). 파기된 회원은 복제본에 파기 표시를 남기고, 그 뒤 저장되는 알림의 닉네임도 바꾼다. 저장은 언급 회원마다 회원 단위 advisory lock 공유, 파기는 배타 잠금으로 순서를 지킨다(ND-054).
+- 알림 REST는 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`만 쓴다(관리자 403). 남의·없는·밀려난 알림은 모두 404 `NOTIFICATION_NOT_FOUND`로 같게 답한다(ND-052).
+- 알림을 저장할 때 받는 사람의 `notification_user` 행을 비관적 락으로 잡아 받는 사람별 저장을 줄 세운다(20개 보존, ND-053).
 - 종류 코드는 shared 이벤트 이름에서 `Event`를 뺀 UPPER_SNAKE다(ND-012). 규칙 밖 코드는 미결(U11). 단체방 3종 코드는 채팅 안내와 이름이 같지만 뜻이 다르다(ND-043).
 - 목록은 이벤트의 업무 시각(발생 시각)으로 정렬한다. 받은 순서로 정렬하지 않는다(ND-021).
 - 보존은 회원별 삭제되지 않은 최신 20개다. 새 알림을 저장하는 **같은 트랜잭션 안에서** 21번째부터 Soft Delete한다. Hard Delete하지 않는다(ND-022, policy.md 7장 "삭제 정책").
@@ -93,7 +96,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 ## 4. 임의로 정하지 않는 것
 
 - 미결 U1~U19과 팀 결정 필요 T1~T8은 [decisions.md 10장](../../../../docs/notification/decisions.md#10-미결-항목)에 있다. 해당 작업에 닿으면 구현하지 말고 결정 주체에게 질문한다. 질문과 결과는 기록한다(루트 AGENTS 10장). 결정되면 decisions.md에 새 `ND-*`로 먼저 적는다.
-- **consumer group 이름**은 미결이다(U1). 이름을 임의로 정해 코드에 넣지 않는다.
+- **consumer group 이름**은 `auxiliary-app.notification-<목적>`이다(ND-047). 새 목적의 그룹을 더하면 kafka.md 토픽 표 반영을 팀에 요청한다.
 - **패키지 구조**는 제안 단계다([`module.md`](../../../../docs/notification/module.md)의 제안 To-Be). 루트 AGENTS 11장에 따라 코드 컨벤션은 팀 합의 전이므로 확정된 규칙으로 쓰지 않는다.
 - 발행 모듈 이벤트 계약은 알림 담당이 정해 이벤트 계약 요청 문서에 두고, 발행 담당이 Issue로 받아 구현한다(ND-037). 발행 모듈 코드나 `common/shared` 이벤트를 알림 작업에서 임의로 만들거나 고치지 않는다.
 - 테스트 방식은 루트 AGENTS 11장에 따라 미정이다. [`test-spec.md`](../../../../docs/notification/test-spec.md)의 기준 밖은 질문한다.
@@ -101,7 +104,7 @@ auxiliary-app 안 알림 모듈(알림센터)에서 에이전트와 팀원이 �
 ## 5. 모듈을 실제로 만들 때
 
 - auxiliary-app README "모듈 추가 방법" 1~7단계를 따른다(`settings.gradle.kts`의 `auxiliaryModules`, 모듈 `build.gradle.kts`, 앱 의존, `package-info.java`, 첫 Flyway SQL, Gateway route, `verifyModuleStructure :auxiliary-app:check`).
-- 이 문서의 결정 범위 밖(예: consumer group 이름, WebSocket 경로의 Gateway 시간 제한, 자원 예산 U13)은 단계를 진행하기 전에 질문한다.
+- 이 문서의 결정 범위 밖(예: WebSocket 경로의 Gateway 시간 제한, 자원 예산 U13)은 단계를 진행하기 전에 질문한다.
 - Flyway 버전은 작성 시각 `V{yyyyMMddHHmm}__...`이고, 같은 분에 다른 모듈 SQL과 겹치지 않는지 병합 전에 확인한다(README "Flyway").
 
 ## 6. 무단 변경 금지

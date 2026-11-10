@@ -15,7 +15,7 @@
 
 ## 2. 현재 구현 상태
 
-**구현이 없는 도메인이다.** `boundedContext/notification/`에는 `AGENTS.md`·`PROGRESS.md`만 있고, Gradle 모듈로 등록되지 않았으며(`settings.gradle.kts`의 `auxiliaryModules`), Java 코드·Flyway·테스트 코드가 없다. 문서 디렉터리가 있다고 기능이 구현된 것이 아니다.
+**모듈 뼈대(N1, #797)만 있다.** Gradle 모듈 `:notification`과 schema `notification`, 회원 복제본(`notification_user`)과 그 소비자, Kafka 소비·DLT 공통 설정이 있다. 알림을 만들고 저장·조회·전달하는 코드는 아직 없다(N2 이후). 구현된 범위는 [`module.md`](module.md) 2장 As-Is가 원본이다.
 
 | 무엇 | 어디서 확인하나 |
 | --- | --- |
@@ -99,7 +99,7 @@
 | --- | --- | --- |
 | 알림 API | [`docs/api/notification.md`](../api/notification.md) | 제공 (미구현) |
 | 공통 API 규칙 | [`docs/api/conventions.md`](../api/conventions.md) | 따름 |
-| Kafka 토픽·key·소비·DLT 규칙 | [`kafka.md`](../architecture/infrastructure/kafka.md) | 소비 (consumer group 이름은 미결 U1) |
+| Kafka 토픽·key·소비·DLT 규칙 | [`kafka.md`](../architecture/infrastructure/kafka.md) | 소비 (consumer group 이름은 ND-047) |
 | 발행 모듈 이벤트 계약 요청(M1~M8) | [`event-contracts.md`](event-contracts.md). 지금 이벤트 판정은 [`notification-catalog.md`](notification-catalog.md) 행별, [`module.md`](module.md) 5장 | 계약을 정함(ND-037), 소비 예정 |
 | 회원 목록(복제본 Backfill 검토) | [`docs/api/internal-members.md`](../api/internal-members.md) | 호출 후보 (미결 U17) |
 | 앱 구조·모듈 경계·Flyway·배포 | [`apps/auxiliary-app/README.md`](../../apps/auxiliary-app/README.md), [`final-project-infrastructure.md`](../architecture/final-project-infrastructure.md) | 따름 |
@@ -118,7 +118,7 @@
 | --- | --- | --- |
 | U16 | 예약 알림별 생성·취소 이벤트 식별 키 계약 검증(처리 방향은 ND-034) | decisions 10장, test-spec `NT-SCH-06` |
 | U17 | 첫 배포 Backfill(복제본이 아직 없는 경쟁은 ND-035) | decisions 10장, test-spec `NT-USR-06`, module 5장 |
-| U19 | 닉네임이 든 문구·값의 저장 구조와 갱신 방법(방향은 ND-036) | decisions 10장, test-spec `NT-USR-07` |
+| U19 | 구조는 ND-051로 정했다. 구현 가능성 검증은 N2(#801) | decisions 10장, test-spec `NT-USR-07` |
 | M1~M8 | 발행 모듈 이벤트 계약(신규 이벤트·계약 보강) | `event-contracts.md`, catalog 판정, module 5장, PROGRESS 3장 |
 
 - 발행 이벤트 계약 판정 결과(부분 충족·미충족 수, `AppearanceChangedEvent`가 M3를 대체할 수 없다는 판단)는 [`notification-catalog.md`](notification-catalog.md)와 [`module.md`](module.md) 5장이 원본이다.

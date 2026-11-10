@@ -21,16 +21,24 @@
 
 맡는 것과 맡지 않는 것은 [CONTEXT.md](CONTEXT.md) 1장에 있다(ND-001~004). 채팅 알림은 채팅 소유이며 이 모듈의 구조에 넣지 않는다(ND-004, decisions.md 12장).
 
-## 2. As-Is (기준 커밋 e054d6f6)
+## 2. As-Is (기준: N1은 dev `ab8f957d`, N2는 브랜치 `feature/tkt-801` 커밋 전)
 
 | 사실 | 근거 |
 | --- | --- |
 | `auxiliary-app`이 있다. 실행 진입점 `:auxiliary-app`, 공통 `:auxiliary-global`, 업무 모듈 디렉터리 `boundedContext/` | `apps/auxiliary-app/`, `apps/auxiliary-app/README.md` "구조" |
-| 업무 모듈은 `chatbot` 하나다(`package-info.java`만 있다) | `apps/auxiliary-app/boundedContext/chatbot/src/main/java/com/hapbang/auxiliary/chatbot/` |
-| Gradle에 notification 모듈이 등록되지 않았다: `val auxiliaryModules = listOf("chatbot")` | `settings.gradle.kts` 22행 |
-| `:auxiliary-app`은 `:chatbot`만 의존한다 | `apps/auxiliary-app/build.gradle.kts` |
-| `apps/auxiliary-app/boundedContext/notification/`에는 AGENTS.md·PROGRESS.md만 둔다(이번 문서 단계에서 만든다. 기준 커밋에는 디렉터리가 없다). `build.gradle.kts`가 없어 Gradle 프로젝트가 아니다 | 디렉터리 목록 |
-| notification Java 코드·Flyway SQL·테스트가 없다 | `apps/auxiliary-app` 아래 `*.java`·`*.sql`에서 notification 검색 결과 없음 |
+| 업무 모듈은 `chatbot`(`package-info.java`만)과 `notification` 둘이다 | `apps/auxiliary-app/boundedContext/*/src/main/java/com/hapbang/auxiliary/*/package-info.java` |
+| Gradle 등록: `val auxiliaryModules = listOf("chatbot", "notification")`. `:auxiliary-app`이 `:chatbot`·`:notification`을 의존한다 | `settings.gradle.kts` 22행, `apps/auxiliary-app/build.gradle.kts` |
+| `:notification`은 `:auxiliary-global`과 `spring-boot-starter-kafka`만 의존한다. 업무 모듈은 `:kafka` 프로젝트를 의존할 수 없어 starter를 직접 쓰고, common/kafka의 처리 로그 인터셉터는 복사했다 | `boundedContext/notification/build.gradle.kts`, `.../in/event/kafka/EventLogContextRecordInterceptor.java` |
+| 모듈 `@ApplicationModule(displayName = "Notification", allowedDependencies = "global")` | `.../notification/package-info.java` |
+| Flyway `V202611091500__create_notification_schema.sql`: schema `notification`, 테이블 `notification.notification_user` 하나(ND-046). 나머지 테이블 셋은 없다 | `boundedContext/notification/src/main/resources/db/migration/` |
+| 회원 복제본: `NotificationUser`(shared `ReplicaUser` 상속), `NotificationUserSyncService`(가입은 없으면 생성·있으면 건너뜀, 변경은 없으면 그 정보로 생성(ND-049)·있으면 더 큰 버전만, 복제할 수 없는 정보는 `INVALID_MEMBER_EVENT`로 재시도 없이 DLT) | `.../domain/NotificationUser.java`, `.../app/NotificationUserSyncService.java` |
+| 회원 이벤트 소비자 `NotificationMemberEventListener`: 토픽 `member.events.v1`, 그룹 `auxiliary-app.notification-member-replica`(ND-047), `UserJoinedEvent`·`UserModifiedEvent`(복제본)와 `UserMaskedEvent`(파기 닉네임, ND-051)를 처리하고 그 밖 종류·tombstone은 건너뛴다. 알림은 만들지 않는다(ND-048). `hapbang.notification.member-events.enabled`(기본 켜짐)로 켜고 끈다 | `.../in/event/NotificationMemberEventListener.java` |
+| Kafka 소비·DLT 공통 설정(채팅 복사, ND-028): 블로킹 재시도 3회(1·2·4초, 상한 10초) 뒤 `<토픽>.<그룹>.DLT`, 역직렬화·검증 실패는 재시도 없이 DLT, DLT는 원본과 같은 partition 번호·3개·7일 보존으로 모듈이 선언, AckMode.RECORD, 동시성 1(U13 제안), `auto-offset-reset=earliest` | `.../in/event/kafka/NotificationKafka{Constants,Config,ErrorHandlerConfig,TopicConfig}.java` |
+| Flyway `V202611101000__create_notification_table.sql`(N2): `notification.notification`(ND-025 칸 + 언급 회원 ID `bigint[]`, 발생·읽은·삭제 시각 TIMESTAMPTZ). 유일 인덱스 (원본 이벤트 종류, 원본 대상 ID, 받는 사람)는 삭제된 행 포함, 목록·보존용 (받는 사람, 발생 시각 desc, id desc) 삭제되지 않은 행, GIN(언급 회원 ID). 묶음 키 인덱스는 없다(N8) | `boundedContext/notification/src/main/resources/db/migration/` |
+| 알림 저장 `NotificationWriter`(N2): 받는 사람 복제본 행 `SELECT … FOR UPDATE`(ND-053) → 복제본 없으면 `RECEIVER_NOT_REPLICATED`(ND-035) → `ReceiverPolicy`(탈퇴 제외, 정지는 U8) → 같은 사건이 있으면(삭제된 행 포함) `DUPLICATE` → 종류 템플릿으로 문구를 만들어 저장 → 같은 트랜잭션에서 21번째부터 Soft Delete. 종류별 템플릿(`NotificationTemplate`)은 운영 코드에 아직 없다(ND-050) | `.../app/NotificationWriter.java`, `.../app/ReceiverPolicy.java`, `.../app/NotificationTemplates.java` |
+| 값 규칙: `v`(필수), `nicknames`(회원 ID → 닉네임). `nicknames`의 키가 언급 회원 ID가 된다. 파기되면 `탈퇴회원#{ID}`로 바꾸고 문구를 템플릿으로 다시 만든다(멱등). 파기(ND-054): `notification_user.masked_at`(Flyway `V202611101100`, 역할 null 허용)에 파기 표시를 남기고 복제본이 없으면 파기 상태로 만든다. 파기된 복제본은 가입·변경으로 바뀌지 않는다. 저장은 언급 회원마다 회원 단위 advisory lock 공유(ID 순), 파기는 배타 잠금 `(801, 회원 ID 해시)`를 잡고, 저장 때 파기된 언급 회원 닉네임을 바꾼다 | `.../domain/Notification.java`, `.../domain/NotificationPayload.java`, `.../domain/NotificationUser.java`, `.../app/NotificationMaskingService.java`, `.../out/MemberMaskLocks.java` |
+| REST `ApiV1NotificationController`(`/api/v1/notifications`, N2): 목록·안 읽은 수·읽음·전체 읽음. `@PreAuthorize`는 `USER`·`INFLUENCER`·`VERIFIED_INFLUENCER`(관리자 403), 남의·없는·밀려난 알림 읽음은 404 `NOTIFICATION_NOT_FOUND`(ND-052). Gateway route가 없어 외부에서는 아직 닿지 않는다(N4) | `.../in/ApiV1NotificationController.java`, `.../app/NotificationQueryFacade.java` |
+| 테스트(Unit·PG·PG+Kafka·MockMvc, 순서를 강제한 경합 테스트 포함). 건수와 실행 결과는 [regression-log.md](regression-log.md)에만 둔다 | `boundedContext/notification/src/test/` |
 | Gateway HTTPRoute `auxiliary-app`의 `matches`는 `/api/v1/chatbot`, `/api/v1/auxiliary` 둘뿐이다. `/api/v1/notifications` route가 없다. 시간 제한 `request: 30s`, 본문 1Mi | `apps/auxiliary-app/k8s/base/gateway.yaml` |
 | Gateway `claimToHeaders`는 `X-User-Id`(`sub`), `X-User-Role`(`role`)만 넘긴다. `X-User-Token-Exp`가 없다 | `apps/auxiliary-app/k8s/base/gateway.yaml` |
 | auxiliary global 필터는 `X-User-Id`·`X-User-Role`만 읽는다. `X-User-Token-Exp`가 없다(U15) | `apps/auxiliary-app/global/src/main/java/com/hapbang/auxiliary/global/auth/GatewayUserHeaderFilter.java`, README "실행과 설정" 끝 |
@@ -39,7 +47,7 @@
 | Kafka·Redis 클라이언트는 루트 빌드가 모든 앱에 넣는다(`:kafka`, `:redis`). auxiliary-app 빌드 파일에 WebSocket starter는 없다 | `build.gradle.kts` 62~68행, `apps/auxiliary-app/build.gradle.kts`, `apps/auxiliary-app/global/build.gradle.kts` |
 | `final-project-infrastructure.md`는 아직 `notification-app`(폐기 ND-903)으로 적혀 있다 | `docs/architecture/final-project-infrastructure.md` 38·39행, Phase 4. decisions.md 11장 |
 
-## 3. 확정 To-Be (ND로 확정, 미구현)
+## 3. 확정 To-Be (ND로 확정. 구현된 부분은 2장 As-Is)
 
 ### 3.1 배포 단위와 저장소
 
@@ -49,7 +57,9 @@
 | 저장소 | database `auxiliary`, schema `notification`. 엔티티 `@Table(schema = "notification")`. 첫 SQL은 schema 생성 | ND-007 |
 | 기록 위치 | Flyway 이력·Modulith 발행 기록은 schema `auxiliary` | ND-007 |
 | 경계 | 다른 모듈 schema와 JOIN·FK·같은 트랜잭션 쓰기 금지 | ND-007 |
-| 테이블 | `notification`, `notification_payout_item`, `notification_schedule`, `notification_user` 4개 | ND-025 |
+| 테이블 | `notification`, `notification_payout_item`, `notification_schedule`, `notification_user` 4개. 처음 쓰는 작업에서 만든다(N1 `notification_user`, N2 `notification`, N8 `notification_payout_item`, N10 `notification_schedule`) | ND-025, ND-046 |
+| consumer group | `auxiliary-app.notification-<목적>`(회원 복제본 `auxiliary-app.notification-member-replica`), DLT `<토픽>.<그룹>.DLT` | ND-047, ND-010 |
+| 첫 배포 순서 | N1은 알림을 만들지 않는 회원 복제본 소비자만 배포한다. U7·U17은 N5 배포 전에 정한다 | ND-048 |
 
 ### 3.2 처리 규칙
 
@@ -58,12 +68,31 @@
 | 입력은 Kafka integration event뿐, 채팅 Redis Streams 구독 안 함 | ND-008, ND-009 |
 | 실패 메시지 DLT, 받지 않는 타입은 무시하고 커밋 | ND-010 |
 | 받는 사람 확인(알림 회원 복제본, 탈퇴 제외) | ND-018 (정지는 U8) |
+| 복제본 만들기(가입, 또는 복제본이 없을 때 온 변경. 있으면 더 큰 버전만) | ND-018, ND-049 (Backfill은 U17) |
 | 복제본이 아직 없는 받는 사람(블로킹 재시도 뒤 DLT) | ND-035 (첫 배포 Backfill은 U17) |
 | 중복 판정(유일 인덱스, 삭제된 행 포함) | ND-019, ND-033, ND-045 (새로 요청하는 이벤트의 사건 ID는 [이벤트 계약 요청](event-contracts.md), 이미 발행 중인 이벤트의 필드는 U5) |
-| 문구·값 저장 | ND-020, ND-039 (실제 문구는 U3) |
-| 파기된 회원의 닉네임(값에 회원 ID 저장, `UserMaskedEvent`로 갱신) | ND-036 (저장 구조·갱신 방법은 U19) |
+| 문구·값 저장 | ND-020, ND-039, ND-050 (종류별 문구는 그 종류를 소비하는 작업에서, 실제 문구는 U3) |
+| 파기된 회원의 닉네임(언급 회원 ID 칸 `bigint[]`·GIN, 값 속 닉네임 교체 뒤 문구 재생성, 멱등) | ND-036, ND-051 |
+| 파기 뒤 새로 저장되는 알림(복제본 파기 표시, 저장 때 파기된 언급 회원 닉네임 교체, 회원 단위 advisory lock으로 순서) | ND-054 |
 | 발생 시각 정렬 | ND-021 |
 | 최신 20개 보존, Soft Delete | ND-022 (묶음과 겹침 U9) |
+| 보존 동시성(받는 사람 `notification_user` 행 비관적 락으로 받는 사람별 저장 직렬화) | ND-053 |
+| 같은 알림 행의 동시 쓰기(아래 "동시성 설계") | ND-022, ND-051, ND-053, ND-054, #801 PR 리뷰 |
+
+**동시성 설계 (#801 PR 리뷰 반영, 구현됨)**
+
+같은 `notification` 행을 저장(보존 정리), 읽음, 전체 읽음, 파기가 함께 쓴다. 엔티티로 읽어 두고 커밋 때 행 전체를 쓰면 그사이 커밋된 다른 처리의 칸(삭제 시각·읽은 시각·값·문구)을 옛 값으로 되돌린다(밀려난 알림이 되살아나 20개 불변식이 깨지거나, 파기된 닉네임이 돌아온다).
+
+| 처리 | 바꾸는 칸 | 방식 |
+| --- | --- | --- |
+| 보존 정리(저장 안) | `deleted_at` | 밀어낼 행 ID만 조회 → 그 행을 ID 오름차순 `FOR UPDATE` → `deleted_at`만 채우는 벌크 UPDATE(`deleted_at is null` 조건) |
+| 읽음 | `read_at` | `id·받는 사람·deleted_at is null·read_at is null` 조건 UPDATE, 바뀐 건수 반환. 0건이면 새로 조회해 이미 읽음(200)과 남의·없는·밀려난 알림(404)을 가른다 |
+| 전체 읽음 | `read_at` | 보이고 안 읽은 행을 ID 오름차순 `FOR UPDATE` → 같은 조건 UPDATE, 바뀐 건수 반환 |
+| 파기 | `payload`·`message` | 그 회원이 언급된 행을 ID 오름차순 `FOR UPDATE`로 가져와 잠금 뒤의 최신 값에서 바꾼다. 이 트랜잭션은 알림 엔티티를 미리 불러오지 않아 영속성 컨텍스트에 오래된 엔티티가 없다. `@DynamicUpdate`로 바뀐 칸만 쓴다 |
+
+- 잠금 획득 순서(모든 경로 공통): 회원 advisory lock(ND-054, 저장은 언급 회원 공유·ID 순, 파기는 배타) → 회원 복제본 행(저장은 받는 사람, 파기는 그 회원) → 알림 행(ID 오름차순). 알림 행을 잡은 뒤에는 회원 잠금·복제본 행을 잡지 않는다. 그래서 교착 상태가 생기지 않는다.
+- `@DynamicUpdate`만으로는 같은 칸을 쓰는 파기끼리(한 알림에 B·C가 함께 언급)의 덮어쓰기를 막지 못한다. 행 잠금을 빼면 그 경합 테스트가 실패하는 것을 확인했다(regression-log NR-015).
+| REST 권한·오류(세 역할만, 관리자 403. 남의·없는·밀려난 알림 읽음 404 `NOTIFICATION_NOT_FOUND`, 다시 읽음 200) | ND-052 |
 | 읽음은 누를 때, 전체 읽음 | ND-023 |
 | 대상 삭제 시 알림 유지 | ND-024 |
 | API 6개 | ND-026, 상세는 [API 문서](../api/notification.md) |
@@ -76,7 +105,7 @@
 ### 3.3 처리 흐름 (설계, 미구현)
 
 ```text
-발행 앱 ──Kafka integration event──▶ notification Kafka Listener        (ND-008, group 이름 U1)
+발행 앱 ──Kafka integration event──▶ notification Kafka Listener        (ND-008, group 이름 ND-047)
                                         │ 처리 실패 → <topic>.<group>.DLT  (ND-010)
                                         ▼
                       ┌─ 알림 회원 복제본으로 받는 사람 확인 ─┐              (ND-018)
@@ -143,7 +172,7 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 
 | 단계 | 이 모듈에서 확인할 것 |
 | --- | --- |
-| 1. `auxiliaryModules`에 등록 | `"notification"` 추가 (As-Is: 미등록) |
+| 1. `auxiliaryModules`에 등록 | `"notification"` 추가 (N1 #797에서 등록) |
 | 2. 모듈 `build.gradle.kts` | WebSocket 등 필요한 라이브러리만. 라이브러리 추가는 `docs/dev/local.md` 확인 |
 | 3. `:auxiliary-app` 의존 추가 | |
 | 4. `package-info.java` `@ApplicationModule` | |
@@ -203,22 +232,21 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 
 | ID | 걸리는 설계 | 막는 작업 |
 | --- | --- | --- |
-| U1 / T2 | consumer group 이름 | Kafka Listener·DLT 이름 |
 | U5 | 이미 발행 중인 이벤트의 원본 대상 ID 필드(원칙은 ND-033·ND-045) | 각 이벤트 소비 작업의 유일 인덱스 값 |
 | U6 / T5 | EC2 운영 시간과 예약 배치 | 예약 배치 |
-| U7 / T5 | 첫 배포 때 과거 이벤트 처리 | 첫 배포 |
+| U7 / T5 | 첫 배포 때 과거 이벤트 처리 | 알림을 만드는 첫 소비자(N5) 배포(ND-048) |
 | U9 | 하루 묶음과 20개 보존 겹침 | 하루 묶음 |
-| U13 | Hikari·스케줄 스레드·메모리 예산(챗봇과 공유) | 모듈 추가 PR |
+| U13 | Hikari·스케줄 스레드·메모리 예산(챗봇과 공유). N1은 지금 값 유지·소비자 동시성 1(2026-11-09 인프라 담당 확인) | N2·N3·N10 자원 산정 |
 | U14 | WebSocket 경로 Gateway 시간 제한 | Envoy route |
 | U15 | `X-User-Token-Exp` 헤더 | 연결 티켓·STOMP |
-| U3 | 종류별 실제 문구(원칙은 ND-039) | 문구 생성(N2) |
-| U8 | 정지 회원 | 받는 사람 확인 |
+| U3 | 종류별 실제 문구(원칙은 ND-039·ND-050) | 각 종류를 소비하는 작업(N5 이후) |
+| U8 | 정지 회원 | 받는 사람 확인(알림을 만드는 첫 소비자 N5 전, ND-050) |
 | U2 / T3 | P0 완료 기준 | 작업 계획 |
 | U11, U12 | 규칙 밖 종류 코드, 채팅과 동시 표시 | 해당 알림 생성·소비 |
 | T8 | chat-app 불변식과 ND-004의 방향 차이 | 채팅 소유, 이 모듈 구조에는 영향 없음 |
 | U16 | 발행 구현 뒤 생성·취소 이벤트가 짝 키(event-contracts 0.3)를 주는지 예약 알림별 확인(처리 방향은 ND-034, `NT-SCH-06`) | 예약 알림별 소비 작업 |
-| U17 | 첫 배포 Backfill(5.4, `NT-USR-06`). 복제본 없음 경쟁은 ND-035 | 첫 배포 |
-| U19 | 값의 회원 ID 필드 구조·검색 인덱스, 갱신 단위·멱등, `UserModifiedEvent`와의 순서, 문구 재생성 또는 문자열 치환(방향은 ND-036, `NT-USR-07`) | `notification` 값·인덱스 설계, `UserMaskedEvent` 소비 |
+| U17 | 첫 배포 Backfill(5.4, `NT-USR-06`). 복제본 없음 경쟁은 ND-035 | 알림을 만드는 첫 소비자(N5) 배포(ND-048) |
+| U19 | 구조는 ND-051로 정했다. 남은 것은 구현 가능성 검증(`NT-USR-07`) | 알림 저장(N2, #801) 구현 |
 
 ## 7. 갱신 이력
 
@@ -228,7 +256,14 @@ README의 1~7단계를 그대로 따른다. 이 모듈에 해당하는 점만 �
 | 2026-11-06 | 5장 신설: 발행 앱 코드(dev) 조사로 기존 이벤트 한계(M1~M7), 발행 앱과 정할 계약(합의 전), 회원 복제본 첫 배포 Backfill(U17, 미결)을 적었다. 미결 설계 표에 U16·U17·U18 추가. 결정은 바꾸지 않았다 |
 | 2026-11-06 | 미결 설계 표에 U19(닉네임 파기)를 더했다 |
 | 2026-11-09 | ND-033~ND-036 반영: 3.2 처리 규칙 표에 참조를 더하고, 3.5·5.4의 복제본 없음 서술을 ND-035 참조로 바꿨다(5.4의 U17 선택지 목록은 decisions.md와 중복이라 지웠다). 6장 U5·U16·U17·U19는 남은 미결만 남겼다. 결정은 바꾸지 않았다 |
+| 2026-11-09 | ND-049 반영(#797 리뷰): 2장 As-Is 동기화 서비스 설명과 3.2 복제본 만들기 행을 고쳤다 |
+| 2026-11-09 | N1(#797) 구현으로 2장 As-Is를 고쳤다: 모듈 등록, schema·`notification_user`, 회원 복제본 소비자, Kafka 소비·DLT 공통 설정 |
+| 2026-11-09 | ND-046~ND-048 반영: 3.1에 테이블 생성 시점·consumer group·첫 배포 순서를 더하고, 3.3 group 이름을 ND-047로 바꿨다. 6장에서 U1을 지우고 U7·U17의 막는 작업을 N5 배포로, U13에 알림 담당 제안을 적었다 |
 | 2026-11-09 | #794 리뷰 반영: 3.2 예약보다 먼저 온 취소 행과 6장 U16에 예약 짝 키 위치(event-contracts 0.3)를 더했다 |
 | 2026-11-09 | ND-045 반영: 3.2 중복 판정 행과 6장 U5에 회차 번호 규칙과 이벤트 계약 요청 위치를 더했다 |
 | 2026-11-09 | ND-037~ND-044 반영: 5.3을 이벤트 계약 요청 참조로 바꾸고 M4·M5·M6 작업을 고치고 M8을 더했다. 3.2·3.5·5.2·6장의 U3·U4·U10·U11·U18 서술을 결정 참조로 바꿨다 |
 | 2026-11-09 | PR 리뷰 반영(#785): 3.5의 복제본 없음 서술에 DLT 재처리 경로(3.7) 참조를 더했다 |
+| 2026-11-09 | ND-050~ND-053 반영(#801 사전 결정): 3.2에 문구·파기 닉네임·보존 동시성·REST 권한 행을 고치거나 더하고, 6장 U3·U8·U19를 맞췄다 |
+| 2026-11-10 | N2(#801) 구현으로 2장 As-Is에 notification 테이블, 저장 서비스, 값 규칙·파기 처리, REST를 더했다 |
+| 2026-11-10 | ND-054 반영(#801): 2장 값 규칙 행에 파기 표시·파기 상태 복제본·회원 단위 잠금, 3.2에 파기 뒤 저장 행을 더했다 |
+| 2026-11-10 | #801 PR 리뷰 반영: 3.2에 같은 알림 행의 동시 쓰기와 "동시성 설계"(칸별 조건부 UPDATE, ID 오름차순 행 잠금, 잠금 순서)를 더하고, 2장 As-Is의 테스트 수치를 지워 regression-log를 가리키게 했다 |
