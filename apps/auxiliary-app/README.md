@@ -12,7 +12,9 @@ apps/auxiliary-app/                 :auxiliary-app      실행 진입점 com.hap
 ├── src/main/resources/             application*.yaml (앱 설정)
 ├── global/                         :auxiliary-global   com.hapbang.auxiliary.global (공통 코드)
 └── boundedContext/                 Gradle 프로젝트가 아니라 모듈을 묶는 디렉터리
-    └── chatbot/                    :chatbot            com.hapbang.auxiliary.chatbot
+    ├── chatbot/                    :chatbot            com.hapbang.auxiliary.chatbot
+    ├── notification/               :notification       com.hapbang.auxiliary.notification
+    └── search/                     :search             com.hapbang.auxiliary.search
 ```
 
 | 프로젝트 | 의존할 수 있는 것 | 하는 일 |
@@ -85,7 +87,7 @@ advisory lock으로 한 pod만 돌릴 작업은 global `JobLock`을 쓴다. 모�
 | 배치 스레드 | `spring.task.scheduling.pool.size` 2 |
 | Kafka·Redis | common 라이브러리 자동 설정. 업무 모듈은 `:kafka` 프로젝트를 의존할 수 없어(`verifyModuleStructure`) Kafka starter를 직접 적고, 소비 컨테이너 팩토리·오류 처리기를 모듈 전용 빈으로 만든다(Boot 기본 빈을 바꾸지 않는다. 챗봇 `ChatbotKafkaConfig`) |
 | 배치 실행 락 | global `JobLock`(PostgreSQL advisory lock). database를 모듈이 함께 쓰므로 락 번호는 그 작업을 더한 이슈 번호 × 1000 + 순번(`JobLockKey`) |
-| 다른 앱 내부 API | shared Client는 스캔하지 않는다. 쓰는 모듈이 필요한 Client만 `@Import`한다(챗봇 출연 싱크: `AppearanceApiClient`, `APPEARANCE_API_BASE_URL`) |
+| 다른 앱 내부 API | shared Client는 스캔하지 않는다. 쓰는 모듈이 필요한 Client만 `@Import`한다(챗봇 출연 싱크: `AppearanceApiClient`, `APPEARANCE_API_BASE_URL` / 검색 통계 동기화: `MemberApiClient`, `MEMBER_API_BASE_URL`) |
 | 메모리 | large node, limit 704Mi, `-Xmx256m`, `MALLOC_ARENA_MAX=2`(#684 예산) |
 
 DB 연결 풀·배치 스레드·메모리는 앱 하나의 값이라 모든 모듈이 나눠 쓴다. 지금 값은 챗봇 하나 기준이다. 모듈을 더하는 PR에서 그 모듈이 동시에 쓰는 DB 연결·배치 수와 메모리를 보고 다시 정한다. 한 모듈이 다 쓰면 다른 모듈의 요청·배치가 기다린다.
@@ -134,6 +136,16 @@ curl -N -X POST localhost:8087/api/v1/chatbot/chat/faq/stream -H 'X-User-Id: 1' 
   - `FaqRetrievalEvaluationOpenAiTest`: 같은 평가를 운영 임베딩(OpenAI)으로. hit@3 0.85 아래면 실패한다. `OPENAI_API_KEY`가 있을 때만 돈다. 배포 전에 한 번 돌려 `application-prod.yaml`의 `similarity-threshold`를 정한다
 - 기준값은 공급자마다 다르다(코사인 유사도). 운영(OpenAI) 값은 평가 전이라 "임시값"으로 표시한다.
 - 로컬 Ollama는 호출이 되는지 보는 개발용이고 품질은 운영 공급자로 본다. 2026-11-09 Ollama 평가는 hit@1 0.169, hit@3 0.399였고, 기준값 0.30~0.70 어디서도 범위 밖 질문 7개를 하나도 거르지 못했다(0.76에서 2개). `nomic-embed-text`가 영어 위주로 학습되어 한국어 문장의 뜻을 잘 가르지 못하는 것이 원인으로 보인다. 로컬에서 품질까지 보려면 다국어 임베딩 모델로 바꾸고 차원·index 이름을 함께 바꾼다.
+
+## 검색 (#771)
+
+인플루언서 검색 모듈이다. 구조·index·이벤트 처리·API·지표는 [`docs/search/module.md`](../../docs/search/module.md)에 있다.
+
+- **검색 기능 스위치** `hapbang.search.enabled`(기본 꺼짐): 켜야 검색 빈이 뜬다. 운영 ES의 검색용 key(`ES_SEARCH_API_KEY`, #806)가 생기면 스위치를 **지운다**(켜는 것이 아니다). 꺼져 있으면 `search` schema만 생기고 챗봇·알림은 그대로다.
+- ES는 챗봇과 같은 cluster지만 검색 전용 client가 `ES_SEARCH_API_KEY`(role `search`, `search-*`)로 따로 붙는다(`hapbang.search.elasticsearch.*`). 검색 index는 nori를 쓰므로 로컬 `compose.yaml`의 ES는 nori를 설치한 이미지다.
+- Kafka: `member.events.v1`, 그룹 `auxiliary-app.search-member`. 배치: 통계 동기화(끝난 뒤 10분, `JobLock` 771_002), tombstone 정리(매일 04:30, 771_001), 0건 검색어 로그(10분, 락 없음).
+- 나눠 쓰는 자원: DB 연결은 쓰지 않는다(`JobLock` 전용 연결만). 배치 스레드 2개를 챗봇과 나눠 쓰지만 검색 작업은 짧은 ES·HTTP 호출이라 그대로 둔다. 메모리는 client와 10분 캐시(분야 이름, 평점 평균, 0건 검색어 최대 1,000개)뿐이라 limit을 바꾸지 않는다.
+- 로컬 실행: [`docs/search/module.md`](../../docs/search/module.md) 9장.
 
 ## 운영 배포
 
